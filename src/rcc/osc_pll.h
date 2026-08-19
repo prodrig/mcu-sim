@@ -4,7 +4,8 @@
 // Todos generan onda cuadrada digital (ClockGen) [premisa del proyecto].
 // Cada fuente modela su tiempo de estabilización antes de activar su flag RDY
 // [IR, §4.2]. HSE y LSE observan sus pads (PH0/PH1, PC14/PC15) por la ruta
-// analógica del pin_mux; la comprobación eléctrica del cristal es de fase F3.
+// analógica del pin_mux: solo arrancan si hay un componente externo conectado
+// a OSC_IN, y su desaparición hace caer el oscilador (fase F3).
 //
 // Fase F1: el control es por MÉTODO (enable/configure) en lugar de por puerto
 // de entrada. Motivo: el RCC escribe estos controles desde el b_transport de un
@@ -18,6 +19,7 @@
 #define STM32_RCC_OSC_PLL_H
 
 #include <systemc>
+#include <cmath>
 #include "../common/clock_gen.h"
 #include "../common/analog_net.h"
 
@@ -34,13 +36,44 @@ SC_MODULE(Oscillator) {
     double nominal_hz  = 16e6;                  // HSI 16M, LSI 32k, ...
     double t_startup_s = 4e-6;                  // [IR, §4.2 tabla]
     bool   bypass      = false;                 // HSEBYP / LSEBYP
-    analog_net_if* xtal_in = nullptr;           // solo HSE/LSE (via pin_mux)
+
+    // --- Fuente externa (solo HSE y LSE) [IR, §4.2; premisa de pines] -------
+    // xtal_in es el nodo analógico de OSC_IN (PH0 para HSE, PC14 para LSE).
+    // El oscilador solo arranca si hay algo conectado eléctricamente a ese
+    // nodo: un cristal, o un reloj externo en modo bypass. Si el nodo queda en
+    // alta impedancia el oscilador no alcanza RDY y, si ya estaba en marcha,
+    // se considera fallo de la fuente (lo que dispara el CSS del HSE).
+    analog_net_if* xtal_in = nullptr;
+    // Nivel digitalizado de OSC_IN. En modo bypass permite medir la frecuencia
+    // real del reloj externo inyectado (hasta 50 MHz [IR, §4.2]).
+    sc_core::sc_signal<bool>* ext_in = nullptr;
+    bool needs_source = false;                  // true en HSE y LSE
 
     SC_CTOR(Oscillator) : gen_("gen") {
         gen_.clk(clk);
         gen_.freq_hz(freq_hz);
         SC_THREAD(ctrl_proc);
+        SC_THREAD(source_proc);
+        SC_THREAD(measure_proc);
+        // El flag RDY lo pueden cambiar el arranque y la vigilancia de la
+        // fuente: un único proceso escribe el puerto (convención del modelo).
+        SC_METHOD(pub_proc); sensitive << pub_ev_;
     }
+
+    // ¿Hay fuente externa conectada al pin OSC_IN?
+    bool source_present() const {
+        if (!needs_source) return true;
+        return xtal_in && !xtal_in->floating();
+    }
+    // Frecuencia efectiva: en bypass, la medida en el pin si se ha podido medir.
+    double effective_hz() const {
+        return (bypass && meas_hz_ > 0.0) ? meas_hz_ : nominal_hz;
+    }
+    bool failed() const { return failed_; }
+    void clear_failed() { failed_ = false; }
+    // Generación de la onda cuadrada (véase clock_gen.h): se puede apagar
+    // conservando la frecuencia publicada.
+    void set_waveform(bool on) { gen_.set_waveform(on); }
 
     // --- Control desde el banco de registros del RCC ------------------------
     void enable(bool en) {
@@ -50,32 +83,79 @@ SC_MODULE(Oscillator) {
     }
     bool   enabled()  const { return on_; }
     bool   is_ready() const { return ready_; }
-    double out_hz()   const { return ready_ ? nominal_hz : 0.0; }
+    double out_hz()   const { return ready_ ? effective_hz() : 0.0; }
     // Evento de cambio de estado (RDY): el RCC recalcula el árbol al recibirlo.
     const sc_core::sc_event& state_event() const { return state_ev_; }
 
 private:
     ClockGen gen_;
-    bool on_ = false, ready_ = false;
-    sc_core::sc_event ctrl_ev_, state_ev_;
+    bool on_ = false, ready_ = false, failed_ = false;
+    double meas_hz_ = 0.0;
+    sc_core::sc_event ctrl_ev_, state_ev_, pub_ev_;
+
+    void pub_proc() { ready.write(ready_); }
+    void publish()  { pub_ev_.notify(sc_core::SC_ZERO_TIME); }
 
     void ctrl_proc() {
-        ready.write(false);
         for (;;) {
             wait(ctrl_ev_);
             if (on_) {
-                // TODO(F3): HSE/LSE -> comprobar presencia de cristal/reloj
-                //           externo en xtal_in (nivel y régimen de conmutación).
+                // Arranque: el oscilador solo alcanza RDY si tiene fuente. Un
+                // HSEON sin cristal deja HSERDY a 0 indefinidamente, que es lo
+                // que ve el firmware real cuando falta el componente externo.
                 wait(sc_core::sc_time(t_startup_s, sc_core::SC_SEC));
                 if (!on_) continue;              // se apagó durante el arranque
-                gen_.set_freq(nominal_hz);
+                if (!source_present()) { failed_ = true; continue; }
+                failed_ = false;
+                gen_.set_freq(effective_hz());
                 ready_ = true;
             } else {
                 gen_.set_freq(0.0);
                 ready_ = false;
             }
-            ready.write(ready_);
+            publish();
             state_ev_.notify(sc_core::SC_ZERO_TIME);
+        }
+    }
+
+    // Vigilancia de la fuente externa: si desaparece (nodo OSC_IN en alta
+    // impedancia) el oscilador cae. Para el HSE esto es lo que detecta el CSS.
+    void source_proc() {
+        for (;;) {
+            if (!needs_source || !xtal_in) { wait(state_ev_); continue; }
+            wait(xtal_in->value_changed_event() | state_ev_);
+            if (on_ && ready_ && !source_present()) {
+                // La fuente ha desaparecido: el oscilador cae.
+                ready_ = false; failed_ = true;
+                gen_.set_freq(0.0);
+                publish();
+                state_ev_.notify(sc_core::SC_ZERO_TIME);
+            } else if (on_ && !ready_ && source_present()) {
+                // El componente externo aparece (o vuelve) con xxxON ya a 1:
+                // el oscilador reintenta el arranque, como haría el silicio.
+                ctrl_ev_.notify(sc_core::SC_ZERO_TIME);
+            }
+        }
+    }
+
+    // Medida del periodo del reloj externo en modo bypass: dos flancos de
+    // subida consecutivos en OSC_IN dan la frecuencia inyectada.
+    void measure_proc() {
+        for (;;) {
+            if (!ext_in) { wait(state_ev_); continue; }
+            wait(ext_in->posedge_event());
+            const sc_core::sc_time t0 = sc_core::sc_time_stamp();
+            wait(ext_in->posedge_event());
+            const double dt = (sc_core::sc_time_stamp() - t0).to_seconds();
+            if (dt <= 0.0) continue;
+            const double hz = 1.0 / dt;
+            if (std::fabs(hz - meas_hz_) > 0.001 * hz) {
+                meas_hz_ = hz;
+                if (bypass && on_ && ready_) {    // reprograma en caliente
+                    gen_.set_freq(effective_hz());
+                    state_ev_.notify(sc_core::SC_ZERO_TIME);
+                }
+            }
         }
     }
 };
@@ -133,6 +213,7 @@ SC_MODULE(Pll) {
         return vi >= 1e6 && vi <= 2e6 && vo >= 100e6 && vo <= 432e6;
     }
     const sc_core::sc_event& state_event() const { return state_ev_; }
+    void set_waveform(bool on) { gp_.set_waveform(on); gq_.set_waveform(on); }
 
 private:
     ClockGen gp_, gq_;

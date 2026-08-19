@@ -29,6 +29,11 @@ struct AnalogDrive {
 
 constexpr float R_HIZ = 1.0e12f;              // alta impedancia efectiva
 
+// Por debajo de esta conductancia total se considera que el nodo está
+// flotante: ningún driver lo sujeta y su tensión no es observable. Equivale a
+// que todos los drivers presenten más de 1 Gohm [IR, §2.4; premisa de pines].
+constexpr double G_FLOAT = 1.0e-9;            // 1/(1 Gohm)
+
 class analog_net_if : virtual public sc_core::sc_interface {
 public:
     virtual int   register_driver(const char* name)            = 0;
@@ -36,6 +41,9 @@ public:
     virtual void  set_hiz(int id)                              = 0;
     virtual float voltage() const                              = 0; // V del nodo
     virtual float current(int id) const                        = 0; // I del driver
+    // Conductancia total del nodo [S] y condición de nodo flotante (alta Z).
+    virtual double conductance() const                         = 0;
+    virtual bool  floating() const                             = 0;
     virtual const sc_core::sc_event& value_changed_event() const = 0;
 };
 
@@ -58,6 +66,11 @@ public:
         const AnalogDrive& d = drv_[static_cast<size_t>(id)];
         return (d.v_drv - v_pin_) / d.r_out;
     }
+    double conductance() const override { return g_tot_; }
+    bool   floating()    const override { return g_tot_ < G_FLOAT; }
+    // Corriente total que entra al nodo desde los drivers cuyo id no se pasa;
+    // sirve al encapsulado para acumular el consumo por VDD/VSS [IR, §2.4].
+    float abs_current(int id) const { return std::fabs(current(id)); }
     const sc_core::sc_event& value_changed_event() const override { return ev_; }
 
 protected:
@@ -65,13 +78,22 @@ protected:
         // Resolución del nodo: superposición de equivalentes Thevenin.
         double num = 0.0, den = 0.0;
         for (const AnalogDrive& d : drv_) { num += d.v_drv / d.r_out; den += 1.0 / d.r_out; }
-        const float v = (den > 0.0) ? static_cast<float>(num / den) : 0.0f;
-        if (std::fabs(v - v_pin_) > 1e-4f) { v_pin_ = v; ev_.notify(sc_core::SC_ZERO_TIME); }
+        g_tot_ = den;
+        // Un nodo sin ningún driver que lo sujete queda flotante: su tensión no
+        // está definida; se conserva la última resuelta para no inventar un 0 V.
+        const float v = (den >= G_FLOAT) ? static_cast<float>(num / den) : v_pin_;
+        const bool  fl = (den < G_FLOAT);
+        if (std::fabs(v - v_pin_) > 1e-4f || fl != float_prev_) {
+            v_pin_ = v; float_prev_ = fl;
+            ev_.notify(sc_core::SC_ZERO_TIME);
+        }
     }
 
 private:
     std::vector<AnalogDrive> drv_;
     float             v_pin_ = 0.0f;
+    double            g_tot_ = 0.0;
+    bool              float_prev_ = true;
     sc_core::sc_event ev_;
 };
 

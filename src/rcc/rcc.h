@@ -16,8 +16,14 @@
 //     SysTick externo (HCLK/8), MCO1/MCO2 con sus prescalers;
 //   * gating y reset por periférico -> vectores periph_clk_en[] / periph_rst_n[];
 //   * controlador de reset con pulso mínimo de 20 us y flags de RCC_CSR.
-// Queda para F3: detección eléctrica de cristal en HSE/LSE, CSS -> NMI,
-// modulación de espectro ensanchado (SSCGR) y encaminamiento de MCO1/2 a pads.
+// Fase F3 — añadido:
+//   * arranque condicionado a la presencia eléctrica del cristal o del reloj
+//     externo en OSC_IN (HSE y LSE) y medida de la frecuencia en modo bypass;
+//   * Clock Security System: fallo del HSE -> conmutación a HSI, CSSF y NMI;
+//   * modulación de espectro ensanchado del PLL principal (RCC_SSCGR): se
+//     calculan f_Mod y la profundidad, y se aplica el desplazamiento medio;
+//   * MCO1 (PA8) y MCO2 (PC9) encaminados a sus pads como AF0 desde el top;
+//   * frecuencia de dominio publicada a cada BusSlave (BusSlave::clk_hz).
 // =============================================================================
 #ifndef STM32_RCC_RCC_H
 #define STM32_RCC_RCC_H
@@ -116,6 +122,7 @@ public:
 
     // ---- Entradas de las fuentes de reset [IR, §4.1] -----------------------
     sc_core::sc_in<bool> por_ok{"por_ok"};
+    sc_core::sc_in<bool> bor_rst{"bor_rst"};    // la caída la detectó el BOR
     sc_core::sc_in<bool> nrst_in_n{"nrst_in_n"};
     sc_core::sc_in<bool> wwdg_rst_req{"wwdg_rst_req"};
     sc_core::sc_in<bool> iwdg_rst_req{"iwdg_rst_req"};
@@ -125,6 +132,9 @@ public:
 
     // ---- MCO1 (PA8) / MCO2 (PC9): endpoints digitales hacia pin_mux --------
     sc_core::sc_signal<bool> mco1_sig{"mco1_sig"}, mco2_sig{"mco2_sig"};
+
+    // Estado combinacional del gating por periférico (véase BusSlave::clk_en_live)
+    const bool* clk_en_ptr(unsigned id) const { return &o_pcen_[id]; }
 
     // ---- Osciladores y PLLs ------------------------------------------------
     Oscillator hsi{"hsi"}, hse{"hse"}, lsi{"lsi"}, lse{"lse"};
@@ -150,6 +160,10 @@ public:
         hse.nominal_hz = 8e6;     hse.t_startup_s = 2e-3;   // según cristal externo
         lsi.nominal_hz = 32e3;    lsi.t_startup_s = 40e-6;
         lse.nominal_hz = 32768.0; lse.t_startup_s = 2.0;
+        // HSE y LSE necesitan componente externo en OSC_IN [IR, §4.2]. El top
+        // les entrega el nodo analógico del pad (PH0 y PC14).
+        hse.needs_source = true;
+        lse.needs_source = true;
         bind_internal_();
 
         SC_THREAD(reset_ctrl_proc);
@@ -160,9 +174,10 @@ public:
         // admite dos escritores sobre un mismo sc_signal.
         SC_METHOD(publish_proc);     sensitive << pub_ev_;    dont_initialize();
         SC_METHOD(lsi_mirror_proc);  sensitive << s_lsi_clk;  dont_initialize();
+        SC_THREAD(css_nmi_proc);
         SC_METHOD(rst_src_proc);
-        sensitive << por_ok << nrst_in_n << wwdg_rst_req << iwdg_rst_req
-                  << sysresetreq;
+        sensitive << por_ok << bor_rst << nrst_in_n << wwdg_rst_req
+                  << iwdg_rst_req << sysresetreq;
         dont_initialize();
         // Valores de reset iniciales. No se llama a apply_osc_controls() aquí:
         // notificar eventos durante la elaboración no está permitido; el primer
@@ -177,6 +192,17 @@ public:
     // la frecuencia (xxx_hz) y programan sus propios eventos. Debe estar
     // encendida cuando algo mida flancos (MCO, GPIO, captura de temporizadores).
     void set_internal_waveforms(bool on) {
+        // Los generadores de MCO1/MCO2 entran también: su fuente por defecto
+        // (MCO2SEL = 00) es SYSCLK, de modo que a 168 MHz dominan el coste de
+        // simulación aunque PA8/PC9 no estén configurados como AF0.
+        g_mco1_.set_waveform(on);
+        g_mco2_.set_waveform(on);
+        g_rtcclk_.set_waveform(on);
+        // También las fuentes: la salida P del PLL a 168 MHz es tan cara como
+        // el propio HCLK aunque nadie mida sus flancos.
+        hsi.set_waveform(on); hse.set_waveform(on);
+        lsi.set_waveform(on); lse.set_waveform(on);
+        pll.set_waveform(on); plli2s.set_waveform(on);
         g_hclk_.set_waveform(on);
         g_pclk1_.set_waveform(on);
         g_pclk2_.set_waveform(on);
@@ -279,6 +305,7 @@ private:
         const unsigned q = (pllcfgr_ >> 24) & 0xFu;
         const bool src_hse = (pllcfgr_ >> 22) & 1u;
         const double ref = src_hse ? hse.out_hz() : hsi.out_hz();
+        pll_ref_hz_ = ref;                    // referencia para el SSCGR
         pll.configure(m, n, p, q);
         pll.set_ref_hz(ref);
         pll.enable((cr_ >> 24) & 1u);
@@ -294,7 +321,9 @@ private:
     void update_clocks() {
         const double f_hsi = hsi.out_hz();
         const double f_hse = hse.out_hz();
-        const double f_pll = pll.out_p_hz();
+        // El espectro ensanchado del PLL principal desplaza la frecuencia
+        // media de salida [IR, §4.11.1]; véase ss_factor().
+        const double f_pll = pll.out_p_hz() * ss_factor();
 
         // Mux SW: si la fuente pedida no está lista, se mantiene la anterior
         // (el hardware no conmuta hasta que SWS refleja la nueva) [IR, §4.5.3].
@@ -423,7 +452,10 @@ private:
     // Vigilancia de las fuentes de reset [IR, §4.1.1]
     void rst_src_proc() {
         uint32_t flag = 0;
-        if (!por_ok.read())        flag |= (1u << 27);   // PORRSTF
+        // Un fallo de alimentación se atribuye al BOR o al POR/PDR según quién
+        // lo haya detectado [IR, §4.10].
+        if (!por_ok.read())
+            flag |= bor_rst.read() ? (1u << 25) : (1u << 27);  // BORRSTF/PORRSTF
         // El nivel bajo del pin solo cuenta como reset externo si no somos
         // nosotros quienes lo estamos forzando (NRST es open-drain, el reset
         // interno también lo lleva a 0) [IR, §4.1.1].
@@ -457,6 +489,8 @@ private:
 
             // ---------------- salida de reset --------------------------------
             pending_flags_ = 0;
+            css_tripped_ = false;              // el CSS se rearma con el reset
+            hse.clear_failed();
             o_sys_rst_n_ = true;
             o_bkp_rst_n_ = true;
             refresh_periph(false);
@@ -472,12 +506,86 @@ private:
             wait(hsi.state_event() | hse.state_event() | lsi.state_event() |
                  lse.state_event() | pll.state_event() | plli2s.state_event() |
                  clk_ev_);
+            check_css();                       // fallo del HSE [IR, §4.2]
             apply_osc_controls();              // la referencia del PLL cambia
             update_clocks();
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Clock Security System [IR, §4.2]
+    //
+    // Con CSSON=1, si el HSE falla el hardware: apaga HSEON/HSERDY, conmuta
+    // SYSCLK a HSI (también cuando el PLL alimentado por HSE era la fuente),
+    // activa CSSF en RCC_CIR y genera una NMI. El flag y la NMI se limpian
+    // escribiendo CSSC. El HSE no se puede volver a arrancar hasta un reset del
+    // sistema, que es lo que hace el silicio.
+    // -----------------------------------------------------------------------
+    void check_css() {
+        const bool csson = (cr_ >> 19) & 1u;
+        if (!csson || !hse.failed() || css_tripped_) return;
+        css_tripped_ = true;
+        hse.enable(false);
+        cr_ &= ~((1u << 16) | (1u << 19));          // HSEON, CSSON
+        // La fuente de SYSCLK vuelve a HSI y el PLL se apaga si dependía del HSE
+        if (sws_ == 1 || (sws_ == 2 && ((pllcfgr_ >> 22) & 1u))) {
+            cfgr_ &= ~0x3u;                          // SW = HSI
+            if ((pllcfgr_ >> 22) & 1u) { pll.enable(false); cr_ &= ~(1u << 24); }
+            hsi.enable(true); cr_ |= 1u;
+        }
+        cir_ |= (1u << 7);                           // CSSF
+        o_nmi_css_ = true;                           // NMI (no enmascarable)
+        publish();
+        css_nmi_ev_.notify(sc_core::SC_ZERO_TIME);
+        SC_REPORT_WARNING("rcc", "fallo del HSE detectado por el CSS: SYSCLK -> HSI [IR, 4.2]");
+    }
+    // La NMI del CSS es un pulso: el flag CSSF permanece hasta que se escribe
+    // CSSC, pero la línea debe volver a 0 para poder señalar futuros eventos.
+    void css_nmi_proc() {
+        for (;;) {
+            wait(css_nmi_ev_);
+            wait(sc_core::sc_time(1, sc_core::SC_NS));
+            o_nmi_css_ = false;
+            publish();
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Modulación de espectro ensanchado del PLL principal [IR, §4.11.1]
+    //
+    // A partir de MODPER e INCSTEP se recuperan las magnitudes físicas con las
+    // fórmulas de programación del manual de referencia:
+    //   MODPER  = round(f_PLL_IN / (4 * f_Mod))
+    //   INCSTEP = round(((2^15-1) * md * PLLN) / (100 * 5 * MODPER))
+    // El modelo calcula f_Mod y la profundidad md, y aplica el desplazamiento
+    // MEDIO de frecuencia que produce la modulación (0 en center spread,
+    // -md/2 en down spread). No se modela el jitter instantáneo: este modelo no
+    // representa fase ciclo a ciclo y hacerlo multiplicaría el número de
+    // eventos sin que ningún consumidor del modelo pueda observarlo.
+    // -----------------------------------------------------------------------
+    double ss_mod_hz() const {
+        const unsigned modper = sscgr_ & 0x1FFFu;
+        const double f_in = pll_ref_hz_;
+        return (modper && f_in > 0.0) ? f_in / (4.0 * modper) : 0.0;
+    }
+    double ss_depth_pct() const {
+        const unsigned modper  = sscgr_ & 0x1FFFu;
+        const unsigned incstep = (sscgr_ >> 13) & 0x7FFFu;
+        const unsigned plln    = (pllcfgr_ >> 6) & 0x1FFu;
+        if (!modper || !plln) return 0.0;
+        return double(incstep) * 100.0 * 5.0 * double(modper) / (32767.0 * double(plln));
+    }
+    bool ss_enabled()    const { return (sscgr_ >> 31) & 1u; }
+    bool ss_down_spread() const { return (sscgr_ >> 30) & 1u; }
+    double ss_factor() const {
+        if (!ss_enabled()) return 1.0;
+        return ss_down_spread() ? (1.0 - 0.005 * ss_depth_pct()) : 1.0;
+    }
+
     uint32_t pending_flags_ = 0;
+    double   pll_ref_hz_    = 0.0;     // referencia de entrada al PLL (SSCGR)
+    bool     css_tripped_   = false;   // el CSS ya ha actuado (hasta el reset)
+    sc_core::sc_event css_nmi_ev_;
     bool     driving_nrst_  = false;
     bool     bdrst_         = false;
     // Estado deseado de los puertos de salida (lo escribe publish_proc)
@@ -642,7 +750,13 @@ inline void Rcc::reg_write(uint32_t off, uint32_t v, uint32_t be) {
             clocks = true;
             break;
         case R_SSCGR:
-            sscgr_ = v & 0xCFFFFFFFu;                   // TODO(F3): modulación
+            // La modulación solo debe programarse con el PLL apagado; escribirla
+            // con el PLL en marcha no tiene efecto definido en el silicio.
+            if (pll.enabled())
+                SC_REPORT_WARNING("rcc",
+                    "RCC_SSCGR escrito con el PLL activo [IR, 4.11.1]");
+            sscgr_ = v & 0xCFFFFFFFu;
+            clocks = true;
             break;
         case R_PLLI2SCFGR:
             if (!plli2s.enabled()) {

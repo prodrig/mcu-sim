@@ -35,6 +35,9 @@ public:
     sc_core::sc_in<double> hclk_hz{"hclk_hz"};
     sc_core::sc_in<bool>   rst_n{"rst_n"};
     sc_core::sc_out<bool>  irq{"irq"};              // FLASH global (IRQ 4)
+    // Nivel del Brown-Out Reset programado en los option bytes (OPTCR[3:2]).
+    // Lo consume PowerPads para decidir el umbral de reset [IR, §5.7.1].
+    sc_core::sc_out<uint8_t> bor_lev{"bor_lev"};
 
     // ---- Offsets de registro [IR, §5.8] ------------------------------------
     enum : uint32_t {
@@ -61,6 +64,10 @@ public:
         : sc_core::sc_module(nm),
           mem_(addr::FLASH_SIZE, 0xFF), sysmem_(addr::SYSMEM_SIZE, 0xFF),
           otp_(addr::OTP_SIZE, 0xFF), optb_(addr::OPT_SIZE, 0xFF) {
+        // Valor de fábrica de los option bytes (OPTCR = 0x0FFF AAED): RDP nivel
+        // 0, sin protección de escritura, BOR desactivado [IR, §5.7.1].
+        const uint32_t opt_factory = 0x0FFFAAEDu;
+        std::memcpy(optb_.data(), &opt_factory, 4);
         icode.register_b_transport(this, &FlashIf::bt_icode);
         icode.register_transport_dbg(this, &FlashIf::dbg_mem);
         dcode.register_b_transport(this, &FlashIf::bt_dcode);
@@ -75,8 +82,7 @@ public:
         // La IRQ la actualizan tanto reset_proc como el acceso a registros
         // (que corre en el proceso del maestro): un solo escritor del puerto.
         SC_METHOD(irq_proc);
-        sensitive << irq_ev_;
-        dont_initialize();
+        sensitive << irq_ev_;   // sin dont_initialize: publica BOR_LEV en t = 0
     }
 
     // =======================================================================
@@ -213,17 +219,25 @@ private:
     }
 
     void reset_regs() {
-        acr_ = 0x00000000; sr_ = 0; cr_ = 0x80000000; optcr_ = 0x0FFFAAED;
+        acr_ = 0x00000000; sr_ = 0; cr_ = 0x80000000;
         key_state_ = optkey_state_ = 0; key_error_ = false;
         art_flush();
+        // Los option bytes son NO VOLÁTILES: tras un reset, OPTCR se recarga
+        // desde el bloque programado, no desde una constante. Es lo que hace
+        // que un BOR_LEV programado siga vigente en el siguiente arranque
+        // [IR, §5.7]. OPTLOCK vuelve a 1 y OPTSTRT a 0.
+        std::memcpy(&optcr_, optb_.data(), 4);
+        optcr_ = (optcr_ & ~0x2u) | 1u;
         // Los option bytes reflejan OPTCR en su primera palabra; el resto del
         // bloque de 16 B no está detallado en las fuentes.
         // ⚠ NO DISPONIBLE EN LAS FUENTES: distribución byte a byte del bloque
         // de option bytes 0x1FFF C000-0x1FFF C00F.
-        std::memcpy(optb_.data(), &optcr_, 4);
     }
     void reset_proc() { if (!rst_n.read()) { reset_regs(); o_irq_ = false; irq_ev_.notify(sc_core::SC_ZERO_TIME); } }
-    void irq_proc()   { irq.write(o_irq_); }
+    void irq_proc()   {
+        irq.write(o_irq_);
+        bor_lev.write(uint8_t((optcr_ >> 2) & 3u));
+    }
     bool o_irq_ = false;
     sc_core::sc_event irq_ev_;
 
@@ -526,6 +540,7 @@ private:
                 const uint32_t wmask = 0x0FFFFFEEu;
                 optcr_ = (optcr_ & ~wmask) | (v & wmask);
                 if (v & 1u) optcr_ |= 1u;             // OPTLOCK es 'rs'
+                irq_ev_.notify(sc_core::SC_ZERO_TIME);    // republica BOR_LEV
                 if (optcr_ & (1u << 1)) {             // OPTSTRT
                     std::memcpy(optb_.data(), &optcr_, 4);
                     optcr_ &= ~(1u << 1);

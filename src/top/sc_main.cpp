@@ -1,9 +1,8 @@
 // =============================================================================
-// sc_main.cpp — Banco de pruebas de la fase F1
+// sc_main.cpp — Banco de pruebas del modelo (fases F1, F2 y F3)
 //
-// Criterio de salida de F1 (plan §7): "lectura/escritura de memoria desde un
-// maestro de prueba". Este testbench va más allá y verifica toda la
-// infraestructura implementada en la fase:
+// Cada fase añade sus grupos y conserva los anteriores, de modo que la suite
+// es acumulativa y detecta regresiones. Fase F1 (infraestructura):
 //
 //   T01 Power-up, secuencia de reset y estado inicial del RCC   [IR, §4.1, §4.5]
 //   T02 Gating de reloj: acceso a periférico sin ENR -> error   [IR, §4.8]
@@ -19,6 +18,21 @@
 //   T12 Contención en un puerto de esclavo de la matriz         [IR, §6.7]
 //   T13 Reset por pin NRST y flags de RCC_CSR                   [IR, §4.1, §4.10]
 //   T14 Cargador de imagen y alias de arranque de 0x0000 0000   [IR, §2.3, §5.1]
+//
+// Fase F2 (núcleo Cortex-M4F):
+//   T15 Decodificador: las 254 codificaciones de [II]
+//   T16 Firmware bare-metal autocomprobable (103 comprobaciones)
+//   T17 CoreMark 1.0 de EEMBC                    [criterio de salida de F2]
+//
+// Fase F3 (pines, GPIO y RCC eléctrico):
+//   T18 Pad: alta impedancia, pulls, Schmitt, rango y corriente [IR, §2.4, §3.5]
+//   T19 Puerto GPIO: registros, BSRR atómico y LCKR             [IR, §3.4]
+//   T20 Multiplexor de funciones alternativas                   [IR, §3.3.3]
+//   T21 HSE: presencia del cristal y modo bypass                [IR, §4.2]
+//   T22 Clock Security System: fallo del HSE -> HSI + NMI       [IR, §4.2]
+//   T23 Salidas de reloj MCO1/MCO2 medidas en el pin            [IR, §4.5.3]
+//   T24 Supervisión POR/PDR/BOR con los option bytes            [IR, §5.7.1]
+//   T25 Blinky compilado con CMSIS                [criterio de salida de F3]
 // =============================================================================
 #include <systemc>
 #include <cstdio>
@@ -28,6 +42,7 @@
 #include "stm32f407vg.h"
 #include "../verif/bus_test_master.h"
 #include "../verif/image_loader.h"
+#include "../verif/ext_parts.h"
 #include "../verif/decoder_vectors.h"
 
 using namespace sc_core;
@@ -75,18 +90,38 @@ SC_MODULE(F1Tb) {
     Stm32F407VG*  dut;
     BusTestMaster tm{"tm"};
 
+    // --- Circuitería externa de la placa (verif/ext_parts.h) ---------------
+    // Cristal de 8 MHz en PH0/PH1 y de 32.768 kHz en PC14/PC15: sin ellos el
+    // HSE y el LSE no arrancan, igual que en el sistema real [IR, §4.2].
+    Crystal* xtal_hse = nullptr;
+    Crystal* xtal_lse = nullptr;
+    Led*     led_pd12 = nullptr;   // LED verde de la Discovery (PD12, a VSS)
+    Button*  btn_pa0  = nullptr;   // pulsador de usuario en PA0-WKUP
+    // Oscilador externo para el modo bypass del HSE. Los sc_module deben
+    // construirse durante la elaboración, así que se crea aquí parado.
+    ExtClock* osc_ext = nullptr;
+
     // Drivers externos de los nodos analógicos de alimentación / reset / boot
     int d_vdd = -1, d_vdda = -1, d_nrst = -1, d_bt0 = -1, d_pb2 = -1;
 
     SC_CTOR(F1Tb) {
         dut = new Stm32F407VG("dut");
         tm.isk.bind(dut->matrix.from_tb);          // puerto de verificación
+        xtal_hse = new Crystal(dut->pinmux.analog(7, 0));    // PH0-OSC_IN
+        xtal_lse = new Crystal(dut->pinmux.analog(2, 14));   // PC14-OSC32_IN
+        led_pd12 = new Led("led_pd12", dut->pinmux.analog(3, 12), true);
+        btn_pa0  = new Button(dut->pinmux.analog(0, 0));
+        osc_ext  = new ExtClock("osc_ext", dut->pinmux.analog(7, 0), 0.0);
         // La pila por defecto de un SC_THREAD (64 KB) se queda corta con las
         // cadenas de llamadas TLM anidadas al compilar con sanitizers.
         SC_THREAD(stim_proc);        set_stack_size(1024 * 1024);
         SC_THREAD(contention_proc);  set_stack_size(256 * 1024);
     }
-    ~F1Tb() { delete dut; }
+    ~F1Tb() {
+        delete osc_ext; delete btn_pa0; delete led_pd12;
+        delete xtal_lse; delete xtal_hse;
+        delete dut;
+    }
 
     // -----------------------------------------------------------------------
     void power_up() {
@@ -159,11 +194,24 @@ SC_MODULE(F1Tb) {
         t15_decodificador();
         t16_firmware();
         t17_coremark();
+        const unsigned f2_pass = g_pass, f2_fail = g_fail;
+
+        // ============ Fase F3: pines, GPIO y RCC eléctrico ==================
+        t18_pad_electrico();
+        t19_gpio_registros();
+        t20_mux_af();
+        t21_hse_bypass();
+        t22_css();
+        t23_mco();
+        t24_bor();
+        t25_blinky_cmsis();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
         std::printf("Resumen F2: %u comprobaciones OK, %u fallos\n",
-                    g_pass - f1_pass, g_fail - f1_fail);
+                    f2_pass - f1_pass, f2_fail - f1_fail);
+        std::printf("Resumen F3: %u comprobaciones OK, %u fallos\n",
+                    g_pass - f2_pass, g_fail - f2_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -742,8 +790,13 @@ SC_MODULE(F1Tb) {
                     t_apb1.to_string().c_str());
         check(t_apb1 > t_apb2 && t_apb2 > t_ahb,
               "el coste crece AHB1 < APB2 < APB1 (2 ciclos del PCLK correspondiente)");
+        // Desde F3 cada esclavo anota su propio acceso en ciclos de SU dominio
+        // (BusSlave::clk_hz), de modo que la diferencia observada entre un
+        // periférico de APB1 y uno de AHB1 son los 2 ciclos del puente más la
+        // diferencia entre un ciclo de PCLK1 y uno de HCLK [IR, §6.4, §4.4].
         const double dt = (t_apb1 - t_ahb).to_seconds();
-        check_near(dt, 2.0 / 42e6, 1e-3, "la penalizacion del puente APB1 son 2 ciclos PCLK1");
+        check_near(dt, 2.0 / 42e6 + (1.0 / 42e6 - 1.0 / 168e6), 1e-3,
+                   "la penalizacion del puente APB1 son 2 ciclos PCLK1");
     }
 
     // -----------------------------------------------------------------------
@@ -963,6 +1016,496 @@ SC_MODULE(F1Tb) {
         dut->rcc.set_internal_waveforms(true);
     }
 
+
+    // =======================================================================
+    // FASE F3 — Pines, GPIO y RCC eléctrico
+    // =======================================================================
+
+    // Reset limpio del MCU dejando el núcleo aparcado en un bucle wfi.
+    void reset_dut() {
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(30, SC_US);
+        park_cpu();
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+        wait(300, SC_US);
+    }
+
+    // Acceso a un registro de un puerto GPIO desde el maestro de prueba.
+    uint32_t gpio_rd(unsigned port, uint32_t off) {
+        uint32_t v = 0;
+        tm.read32(addr::GPIOA_B + 0x400u * port + off, v);
+        return v;
+    }
+    void gpio_wr(unsigned port, uint32_t off, uint32_t v) {
+        tm.write32(addr::GPIOA_B + 0x400u * port + off, v);
+    }
+    // Configura un pin: mode 0=in 1=out 2=af 3=analog; pupd 0/1/2; od; speed.
+    void pin_cfg(unsigned port, unsigned pin, unsigned mode, unsigned pupd = 0,
+                 bool od = false, unsigned speed = 0, unsigned af = 0) {
+        const unsigned sh2 = 2 * pin;
+        gpio_wr(port, 0x00, (gpio_rd(port, 0x00) & ~(3u << sh2)) | (mode << sh2));
+        gpio_wr(port, 0x0C, (gpio_rd(port, 0x0C) & ~(3u << sh2)) | (pupd << sh2));
+        gpio_wr(port, 0x08, (gpio_rd(port, 0x08) & ~(3u << sh2)) | (speed << sh2));
+        gpio_wr(port, 0x04, (gpio_rd(port, 0x04) & ~(1u << pin)) | (od ? (1u << pin) : 0u));
+        if (pin < 8) gpio_wr(port, 0x20,
+                             (gpio_rd(port, 0x20) & ~(0xFu << (4 * pin))) | (af << (4 * pin)));
+        else         gpio_wr(port, 0x24,
+                             (gpio_rd(port, 0x24) & ~(0xFu << (4 * (pin - 8)))) | (af << (4 * (pin - 8))));
+        wait(1, SC_US);
+    }
+
+    // -----------------------------------------------------------------------
+    // T18 — El pad como frontera eléctrica: alta impedancia, pull internos,
+    //       divisores con circuitería externa, push-pull / open-drain,
+    //       trigger Schmitt con histéresis, rango absoluto y corriente.
+    // -----------------------------------------------------------------------
+    void t18_pad_electrico() {
+        group("T18 Pad: modelo electrico del pin [IR, 2.4, 3.3, 3.5]");
+        reset_dut();
+        rcc_enable(Rcc::R_AHB1ENR, 4);              // GPIOEEN
+        const unsigned PE = 4, PIN = 2;             // PE2: sin funcion especial
+        Pad& pad = *dut->pinmux.pad[PE][PIN];
+        const unsigned k = PE * N_PORT_PINS + PIN;
+
+        // --- Entrada sin pull: el pin queda flotante ------------------------
+        pin_cfg(PE, PIN, 0, 0);
+        check(pad.is_floating(), "entrada sin pull: el nodo queda en alta impedancia");
+        check(!dut->pinmux.pad_din_ok[k].read(),
+              "un pin flotante no entrega un nivel logico valido");
+
+        // --- Pull-up y pull-down internos de 40 kohm ------------------------
+        pin_cfg(PE, PIN, 0, 1);
+        check_near(pad.voltage(), 3.3, 0.02, "pull-up interno lleva el pin a VDD");
+        check(dut->pinmux.pad_din[k].read(), "con pull-up el Schmitt entrega 1");
+        pin_cfg(PE, PIN, 0, 2);
+        check(pad.voltage() < 0.1, "pull-down interno lleva el pin a VSS");
+        check(!dut->pinmux.pad_din[k].read(), "con pull-down el Schmitt entrega 0");
+
+        // --- Divisor con una resistencia externa: zona no garantizada -------
+        // 40 kohm externos a VDD contra el pull-down interno de 40 kohm dan
+        // VDD/2, que cae entre VIL y VIH: el nivel no esta garantizado.
+        {
+            Resistor r_ext(dut->pinmux.analog(PE, PIN), 3.3, 40e3);
+            wait(1, SC_US);
+            check_near(pad.voltage(), 1.65, 0.05,
+                       "divisor 40k/40k resuelto por el nodo analogico");
+            check(!dut->pinmux.pad_din_ok[k].read(),
+                  "tension entre VIL y VIH: nivel no garantizado");
+            // Histéresis: el Schmitt conserva el ultimo nivel dentro de la banda
+            check(!dut->pinmux.pad_din[k].read(),
+                  "el trigger Schmitt mantiene el nivel anterior (histeresis)");
+        }
+        wait(1, SC_US);
+
+        // --- Salida push-pull contra una carga ------------------------------
+        {
+            Resistor carga(dut->pinmux.analog(PE, PIN), 0.0, 1000.0);  // 1k a VSS
+            pin_cfg(PE, PIN, 1, 0, false, 0);
+            gpio_wr(PE, 0x18, 1u << PIN);                              // BSRR set
+            wait(1, SC_US);
+            check_near(pad.voltage(), 3.3 * 1000.0 / (1000.0 + 55.0), 0.02,
+                       "push-pull a 1: divisor Ron/carga");
+            check_near(std::fabs(double(pad.current())), 3.3 / 1055.0, 0.05,
+                       "corriente entregada por el pad [A]");
+            gpio_wr(PE, 0x18, 1u << (PIN + 16));                       // BSRR reset
+            wait(1, SC_US);
+            check(pad.voltage() < 0.1, "push-pull a 0 absorbe la carga");
+
+            // --- Open-drain: el '1' es alta impedancia ---------------------
+            pin_cfg(PE, PIN, 1, 0, true, 0);
+            gpio_wr(PE, 0x18, 1u << PIN);
+            wait(1, SC_US);
+            check(pad.voltage() < 0.1,
+                  "open-drain a 1 con carga a VSS: el pin lo fija la carga");
+        }
+        // Open-drain a 1 con pull-up externo: sube a VDD
+        {
+            Resistor pu(dut->pinmux.analog(PE, PIN), 3.3, 4700.0);
+            wait(1, SC_US);
+            check_near(pad.voltage(), 3.3, 0.02,
+                       "open-drain a 1 con pull-up externo: el pin sube a VDD");
+            gpio_wr(PE, 0x18, 1u << (PIN + 16));
+            wait(1, SC_US);
+            check(pad.voltage() < 0.1, "open-drain a 0 conduce contra el pull-up");
+        }
+        wait(1, SC_US);
+
+        // --- Vigilancia de corriente máxima por pin [IR, 3.2] ---------------
+        {
+            pin_cfg(PE, PIN, 1, 0, false, 3);
+            gpio_wr(PE, 0x18, 1u << PIN);
+            Resistor corto(dut->pinmux.analog(PE, PIN), 0.0, 0.5);
+            wait(1, SC_US);
+            check(pad.overcurrent(), "un cortocircuito a VSS supera los 25 mA");
+        }
+        wait(1, SC_US);
+
+        // --- Rango absoluto: tolerancia a 5 V en pines FT -------------------
+        {
+            pin_cfg(PE, PIN, 0, 0);
+            Driver ext(dut->pinmux.analog(PE, PIN));
+            ext.set_volts(5.0, 50.0);
+            wait(1, SC_US);
+            check(!dut->pinmux.pad_oor[k].read(),
+                  "5 V en un pin FT esta dentro del rango absoluto");
+            ext.set_volts(6.0, 50.0);
+            wait(1, SC_US);
+            check(dut->pinmux.pad_oor[k].read(),
+                  "6 V supera el rango absoluto incluso en un pin FT");
+            ext.set_volts(1.65, 50.0);
+
+            // --- Modo analógico: Schmitt y pulls desconectados --------------
+            pin_cfg(PE, PIN, 3, 1);            // analogico con PUPDR = pull-up
+            wait(1, SC_US);
+            check_near(pad.voltage(), 1.65, 0.02,
+                       "en modo analogico el pull-up interno queda desconectado");
+            check(!dut->pinmux.pad_din[k].read(),
+                  "en modo analogico la entrada digital lee 0 [IR, 3.3.4]");
+        }
+        wait(1, SC_US);
+        pin_cfg(PE, PIN, 0, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // T19 — Banco de registros del puerto GPIO.
+    // -----------------------------------------------------------------------
+    void t19_gpio_registros() {
+        group("T19 Puerto GPIO: registros, BSRR y LCKR [IR, 3.4]");
+        reset_dut();
+        rcc_enable(Rcc::R_AHB1ENR, 0);              // GPIOAEN
+        rcc_enable(Rcc::R_AHB1ENR, 1);              // GPIOBEN
+        rcc_enable(Rcc::R_AHB1ENR, 4);              // GPIOEEN
+
+        // --- Valores de reset especiales de los pines de depuración ---------
+        check_eq(gpio_rd(0, 0x00), 0xA8000000u, "GPIOA_MODER de reset (PA15:13 en AF)");
+        check_eq(gpio_rd(0, 0x08), 0x0C000000u, "GPIOA_OSPEEDR de reset (PA13 very high)");
+        check_eq(gpio_rd(0, 0x0C), 0x64000000u, "GPIOA_PUPDR de reset (PA15 PU, PA14 PD)");
+        check_eq(gpio_rd(1, 0x00), 0x00000280u, "GPIOB_MODER de reset (PB4:3 en AF)");
+        check_eq(gpio_rd(1, 0x0C), 0x00000100u, "GPIOB_PUPDR de reset (PB4 PU)");
+        check_eq(gpio_rd(4, 0x00), 0x00000000u, "GPIOE_MODER de reset");
+
+        // --- ODR y BSRR: escritura atómica, BS gana a BR --------------------
+        gpio_wr(4, 0x14, 0x00005A5Au);
+        check_eq(gpio_rd(4, 0x14), 0x00005A5Au, "ODR conserva los 16 bits bajos");
+        check_eq(gpio_rd(4, 0x14) >> 16, 0u, "ODR[31:16] esta reservado a 0");
+        gpio_wr(4, 0x18, 0x00000005u);                        // BS0, BS2
+        check_eq(gpio_rd(4, 0x14), 0x00005A5Fu, "BSRR pone bits sin leer-modificar-escribir");
+        gpio_wr(4, 0x18, 0x00050000u);                        // BR0, BR2
+        check_eq(gpio_rd(4, 0x14), 0x00005A5Au, "BSRR borra bits");
+        gpio_wr(4, 0x18, 0x00010001u);                        // BS0 y BR0 a la vez
+        check_eq(gpio_rd(4, 0x14) & 1u, 1u, "con BS y BR simultaneos gana BS [IR, 3.4.7]");
+        check_eq(gpio_rd(4, 0x18), 0u, "BSRR es de solo escritura (lee 0)");
+
+        // --- Secuencia de bloqueo del LCKR ---------------------------------
+        gpio_wr(4, 0x00, 0x00000001u);                        // PE0 salida
+        const uint32_t lck = 0x00000001u;                     // bloquear PE0
+        gpio_wr(4, 0x1C, lck | (1u << 16));
+        gpio_wr(4, 0x1C, lck);
+        gpio_wr(4, 0x1C, lck | (1u << 16));
+        check_eq(gpio_rd(4, 0x1C), lck | (1u << 16), "LCKK activo tras la secuencia 1-0-1");
+        gpio_wr(4, 0x00, 0x00000002u);                        // intenta PE0 entrada
+        check_eq(gpio_rd(4, 0x00) & 3u, 1u, "MODER del pin bloqueado no cambia");
+        gpio_wr(4, 0x00, (gpio_rd(4, 0x00) & ~0xCu) | 0x4u);  // PE1 sí puede
+        check_eq((gpio_rd(4, 0x00) >> 2) & 3u, 1u, "un pin no bloqueado sigue siendo configurable");
+        // Una secuencia incorrecta no bloquea (se comprueba en otro puerto)
+        gpio_wr(1, 0x1C, 0x00000100u | (1u << 16));
+        gpio_wr(1, 0x1C, 0x00000200u);                        // LCK distinto
+        gpio_wr(1, 0x1C, 0x00000100u | (1u << 16));
+        check_eq((gpio_rd(1, 0x1C) >> 16) & 1u, 0u,
+                 "una secuencia LCKR incorrecta no activa el bloqueo");
+
+        // --- IDR: muestreo del pin -----------------------------------------
+        {
+            const unsigned PE = 4, PIN = 5;
+            pin_cfg(PE, PIN, 0, 0);
+            Driver ext(dut->pinmux.analog(PE, PIN));
+            ext.set(true);
+            wait(2, SC_US);
+            check_eq((gpio_rd(PE, 0x10) >> PIN) & 1u, 1u, "IDR refleja el nivel alto del pin");
+            ext.set(false);
+            wait(2, SC_US);
+            check_eq((gpio_rd(PE, 0x10) >> PIN) & 1u, 0u, "IDR refleja el nivel bajo del pin");
+            ext.set(true);
+            wait(2, SC_US);
+            pin_cfg(PE, PIN, 3, 0);                            // modo analogico
+            wait(2, SC_US);
+            check_eq((gpio_rd(PE, 0x10) >> PIN) & 1u, 0u,
+                     "en modo analogico el IDR lee 0 [IR, 3.3.4]");
+        }
+        check_eq(gpio_rd(4, 0x10) >> 16, 0u, "IDR[31:16] esta reservado a 0");
+    }
+
+    // -----------------------------------------------------------------------
+    // T20 — Multiplexor de funciones alternativas.
+    // -----------------------------------------------------------------------
+    void t20_mux_af() {
+        group("T20 Multiplexor de funciones alternativas [IR, 3.3.3, 2.1]");
+        reset_dut();
+        rcc_enable(Rcc::R_AHB1ENR, 0);              // GPIOAEN
+        rcc_enable(Rcc::R_AHB1ENR, 4);              // GPIOEEN
+
+        // PA13 arranca en AF0 (SWDIO) con pull-up: el pad es entrada y el
+        // pull-up interno lo lleva a VDD.
+        Pad& pa13 = *dut->pinmux.pad[0][13];
+        check_near(pa13.voltage(), 3.3, 0.02, "PA13 (SWDIO) arranca en AF0 con pull-up");
+        check_eq(dut->pinmux.af_of(0, 13), 0u, "el mux ve PA13 en AF0 tras el reset");
+
+        // Al reconfigurar PA13 como GPIO de salida, el puerto de depuración
+        // deja de gobernar el pin, igual que en el silicio.
+        pin_cfg(0, 13, 1, 0);
+        gpio_wr(0, 0x18, 1u << (13 + 16));          // ODR13 = 0
+        wait(2, SC_US);
+        check(pa13.voltage() < 0.1, "PA13 como salida GPIO deja de ser SWDIO");
+        check_eq(dut->pinmux.af_of(0, 13), 0xFFu, "el mux marca PA13 fuera de modo AF");
+
+        // Una AF no modelada deja el pin en alta impedancia: el periférico no
+        // existe todavía, pero el GPIO ya no gobierna el pad.
+        pin_cfg(4, 3, 2, 0, false, 0, 9);           // PE3 en AF9 (no registrada)
+        wait(2, SC_US);
+        check(dut->pinmux.pad[4][3]->is_floating(),
+              "una AF sin periferico modelado deja el pin en alta impedancia");
+
+        // EVENTOUT (AF15) sí está registrada en todos los pines: el pad pasa a
+        // estar gobernado por la salida de evento del núcleo.
+        pin_cfg(4, 3, 2, 0, false, 0, 15);
+        wait(2, SC_US);
+        check(!dut->pinmux.pad[4][3]->is_floating(),
+              "EVENTOUT (AF15) gobierna el pin en cualquier puerto");
+        pin_cfg(4, 3, 0, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // T21 — HSE en modo bypass: reloj externo inyectado por OSC_IN.
+    // -----------------------------------------------------------------------
+    void t21_hse_bypass() {
+        group("T21 HSE: presencia del cristal y modo bypass [IR, 4.2]");
+        reset_dut();
+
+        // Sin cristal, HSEON no llega nunca a HSERDY
+        xtal_hse->detach();
+        wait(1, SC_US);
+        tm.write32(addr::RCC_B + Rcc::R_CR, 0x00010001u);      // HSEON | HSION
+        wait(4, SC_MS);
+        uint32_t cr = 0; tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        check_eq((cr >> 17) & 1u, 0u, "sin cristal en OSC_IN, HSERDY no se activa");
+
+        // Reloj externo de 12 MHz en modo bypass (HSEBYP)
+        osc_ext->set_freq(12e6);
+        tm.write32(addr::RCC_B + Rcc::R_CR, 0x00050001u);      // HSEBYP | HSEON
+        wait(4, SC_MS);
+        tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        check_eq((cr >> 17) & 1u, 1u, "con reloj externo en bypass, HSERDY se activa");
+        check_near(dut->rcc.hse.out_hz(), 12e6, 0.02,
+                   "el HSE mide la frecuencia del reloj externo inyectado");
+        osc_ext->stop();
+        wait(10, SC_US);
+        // Al retirar el reloj el nodo vuelve a alta impedancia y el HSE cae
+        wait(20, SC_US);
+        tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        check_eq((cr >> 17) & 1u, 0u, "al retirar el reloj externo, HSERDY se apaga");
+        xtal_hse->attach();
+    }
+
+    // -----------------------------------------------------------------------
+    // T22 — Clock Security System: fallo del HSE -> HSI + NMI.
+    // -----------------------------------------------------------------------
+    void t22_css() {
+        group("T22 Clock Security System [IR, 4.2]");
+        reset_dut();
+        xtal_hse->attach();
+        wait(1, SC_US);
+
+        // HSE + CSSON y SYSCLK conmutado al HSE
+        tm.write32(addr::RCC_B + Rcc::R_CR, 0x00090001u);      // CSSON|HSEON|HSION
+        wait(3, SC_MS);
+        uint32_t cr = 0; tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        check_eq((cr >> 17) & 1u, 1u, "HSERDY con el cristal presente");
+        tm.write32(addr::RCC_B + Rcc::R_CFGR, 0x00000001u);    // SW = HSE
+        wait(10, SC_US);
+        uint32_t cfgr = 0; tm.read32(addr::RCC_B + Rcc::R_CFGR, cfgr);
+        check_eq((cfgr >> 2) & 3u, 1u, "SWS indica que SYSCLK viene del HSE");
+
+        // Se rompe el cristal
+        const uint64_t exc0 = dut->core.cpu.exc_count;
+        xtal_hse->detach();
+        wait(50, SC_US);
+        tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        tm.read32(addr::RCC_B + Rcc::R_CFGR, cfgr);
+        uint32_t cir = 0; tm.read32(addr::RCC_B + Rcc::R_CIR, cir);
+        check_eq((cir >> 7) & 1u, 1u, "CSSF se activa al fallar el HSE");
+        check_eq((cr >> 16) & 1u, 0u, "el CSS apaga HSEON");
+        check_eq((cfgr >> 2) & 3u, 0u, "SYSCLK conmuta automaticamente al HSI");
+        check_near(dut->s_hclk_hz.read(), 16e6, 0.01, "HCLK vuelve a 16 MHz (HSI)");
+        check(dut->core.cpu.exc_count > exc0, "el CSS genera una NMI en el nucleo");
+
+        // CSSC limpia el flag
+        tm.write32(addr::RCC_B + Rcc::R_CIR, 1u << 23);
+        wait(2, SC_US);
+        tm.read32(addr::RCC_B + Rcc::R_CIR, cir);
+        check_eq((cir >> 7) & 1u, 0u, "CSSC borra CSSF");
+        xtal_hse->attach();
+    }
+
+    // -----------------------------------------------------------------------
+    // T23 — Salidas de reloj MCO1 (PA8) y MCO2 (PC9).
+    // -----------------------------------------------------------------------
+    void t23_mco() {
+        group("T23 Salidas de reloj MCO1/MCO2 en sus pines [IR, 4.5.3, 2.1]");
+        reset_dut();
+        rcc_enable(Rcc::R_AHB1ENR, 0);              // GPIOAEN
+        // MCO1 = HSI con prescaler /4 -> 4 MHz en PA8 (AF0)
+        tm.write32(addr::RCC_B + Rcc::R_CFGR, (0u << 21) | (6u << 24));
+        pin_cfg(0, 8, 2, 0, false, 3, 0);           // PA8 en AF0, very high speed
+        wait(5, SC_US);
+
+        // Cuenta de flancos de subida en el pad durante una ventana conocida
+        const unsigned k = 0 * N_PORT_PINS + 8;
+        unsigned edges = 0;
+        const sc_time t0 = sc_time_stamp();
+        const sc_time win(20, SC_US);
+        while (sc_time_stamp() - t0 < win) {
+            wait(win, dut->pinmux.pad_din[k].posedge_event());
+            if (dut->pinmux.pad_din[k].read()) ++edges;
+        }
+        const double f = double(edges) / (sc_time_stamp() - t0).to_seconds();
+        check_near(f, 4e6, 0.10, "MCO1 = HSI/4 medido en el pin PA8 [Hz]");
+        check(!dut->pinmux.pad[0][8]->is_floating(),
+              "PA8 en AF0 lo gobierna el generador de MCO1");
+        pin_cfg(0, 8, 0, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // T24 — Supervisión de alimentación: POR/PDR y BOR programable.
+    // -----------------------------------------------------------------------
+    void t24_bor() {
+        group("T24 Supervision de alimentacion POR/PDR/BOR [IR, 2.2, 5.7.1, 4.10]");
+        reset_dut();
+        // Tras el reset, RCC_CSR conserva los flags de arranque
+        tm.write32(addr::RCC_B + Rcc::R_CSR, 1u << 24);        // RMVF
+        wait(2, SC_US);
+
+        // Programar BOR_LEV = 10 (nivel 1, ~2.1 V) en los option bytes
+        tm.write32(addr::FLASHIF_B + FlashIf::OPTKEYR, FlashIf::OPTKEY1);
+        tm.write32(addr::FLASHIF_B + FlashIf::OPTKEYR, FlashIf::OPTKEY2);
+        uint32_t optcr = 0; tm.read32(addr::FLASHIF_B + FlashIf::OPTCR, optcr);
+        // OPTSTRT lanza la programación: los option bytes son no volátiles y
+        // el nivel programado sobrevive al reset que él mismo va a provocar.
+        tm.write32(addr::FLASHIF_B + FlashIf::OPTCR, (optcr & ~0xCu) | 0x8u | 0x2u);
+        wait(5, SC_US);
+        check_near(dut->pwr_pads.trip_level(), 2.10, 0.01,
+                   "el umbral de caida sigue a OPTCR.BOR_LEV [V]");
+
+        // Bajar VDD por debajo del nivel de BOR provoca reset con BORRSTF
+        dut->pwr_pads.vdd.set_drive(d_vdd, 2.0f, 0.1f);
+        wait(50, SC_US);
+        check(!dut->s_por_ok.read(), "VDD por debajo del nivel de BOR: reset de alimentacion");
+        check(dut->s_bor_trip.read(), "la caida la atribuye el modelo al BOR, no al POR");
+        dut->pwr_pads.vdd.set_drive(d_vdd, 3.3f, 0.1f);
+        wait(500, SC_US);
+        check(dut->s_por_ok.read(), "al restablecer VDD el supervisor libera el reset");
+        uint32_t csr = 0; tm.read32(addr::RCC_B + Rcc::R_CSR, csr);
+        check_eq((csr >> 25) & 1u, 1u, "RCC_CSR.BORRSTF marca la causa del reset");
+        check_eq((csr >> 27) & 1u, 0u, "PORRSTF no se activa cuando actua el BOR");
+
+        // Con el BOR desactivado (BOR_LEV = 11) manda el umbral POR/PDR
+        tm.write32(addr::FLASHIF_B + FlashIf::OPTKEYR, FlashIf::OPTKEY1);
+        tm.write32(addr::FLASHIF_B + FlashIf::OPTKEYR, FlashIf::OPTKEY2);
+        tm.read32(addr::FLASHIF_B + FlashIf::OPTCR, optcr);
+        tm.write32(addr::FLASHIF_B + FlashIf::OPTCR, optcr | 0xCu | 0x2u);
+        wait(5, SC_US);
+        check_near(dut->pwr_pads.trip_level(), 1.68, 0.01,
+                   "con BOR desactivado el umbral es el del PDR [V]");
+        dut->pwr_pads.vdd.set_drive(d_vdd, 2.0f, 0.1f);
+        wait(50, SC_US);
+        check(dut->s_por_ok.read(), "con el BOR apagado, 2.0 V no provoca reset");
+        dut->pwr_pads.vdd.set_drive(d_vdd, 3.3f, 0.1f);
+        wait(50, SC_US);
+    }
+
+    // -----------------------------------------------------------------------
+    // T25 — Blinky compilado con CMSIS: criterio de salida de la fase F3.
+    // -----------------------------------------------------------------------
+    void t25_blinky_cmsis() {
+        group("T25 Blinky con CMSIS sobre el modelo [criterio de salida de F3]");
+        // A 168 MHz la generación de la onda cuadrada de HCLK domina el coste
+        // de simulación y aquí no la observa nadie: el LED se mueve por el
+        // camino GPIO -> pad -> nodo analógico, y el IDR se muestrea con la
+        // frecuencia del dominio (véase clock_gen.h y gpio_port.h).
+        dut->rcc.set_internal_waveforms(false);
+        xtal_hse->attach();
+        dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(30, SC_US);
+
+        ImageLoader ld(*dut);
+        const long n = ld.load_file(blinky_path_.c_str(), addr::FLASH_BASE);
+        if (!check(n > 0, "imagen del blinky cargada en la Flash")) {
+            std::printf("        (compilar con make -C verif/fw/blinky)\n");
+            dut->pwr_pads.nrst.set_hiz(d_nrst);
+            return;
+        }
+        std::printf("    %ld bytes cargados desde %s\n", n, blinky_path_.c_str());
+        // El buzón está en una sección NOLOAD: se limpia para no leer restos de
+        // la carga anterior (CoreMark deja su propia estructura ahí).
+        for (unsigned i = 0; i < 32; i += 4) ld.poke32(addr::SRAM1_BASE + i, 0);
+        const uint64_t i0 = dut->core.cpu.inst_count;
+        if (std::getenv("F3_BLINKY_FAULTS")) dut->core.cpu.fault_trace = 8;
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+
+        // Observación del LED conectado a PD12 mientras corre el firmware
+        unsigned led_on_count = 0;
+        bool prev_on = false, done = false;
+        const sc_time t0 = sc_time_stamp();
+        while ((sc_time_stamp() - t0) < sc_time(2000, SC_MS)) {
+            wait(200, SC_US);
+            if (std::getenv("F3_BLINKY_PC"))
+                std::printf("    t=%s PC=0x%08X inst=%llu led=%d\n",
+                            sc_time_stamp().to_string().c_str(), dut->core.cpu.pc(),
+                            (unsigned long long)(dut->core.cpu.inst_count - i0),
+                            led_pd12->on() ? 1 : 0);
+            if (led_pd12->on() != prev_on) { prev_on = !prev_on; if (prev_on) ++led_on_count; }
+            if (dut->sram1.peek32(0) == 1u) { done = true; break; }
+        }
+        const uint64_t ninst = dut->core.cpu.inst_count - i0;
+        if (!done)
+            std::printf("        sin terminar: PC = 0x%08X, SP = 0x%08X, inst = %llu\n",
+                        dut->core.cpu.pc(), dut->core.cpu.reg.r[13],
+                        (unsigned long long)ninst);
+        check(done, "el blinky llega a su fin y publica el buzon");
+
+        const uint32_t sysclk  = dut->sram1.peek32(4);
+        const uint32_t toggles = dut->sram1.peek32(8);
+        const uint32_t button  = dut->sram1.peek32(12);
+        const uint32_t ticks   = dut->sram1.peek32(16);
+        std::printf("    SystemCoreClock = %u Hz | conmutaciones = %u | ticks = %u\n",
+                    sysclk, toggles, ticks);
+        std::printf("    %llu instrucciones | encendidos del LED observados = %u\n",
+                    (unsigned long long)ninst, led_on_count);
+        check_eq(sysclk, 168000000u,
+                 "el firmware calcula SystemCoreClock = 168 MHz con CMSIS");
+        check_near(dut->s_hclk_hz.read(), 168e6, 0.001, "HCLK del modelo = 168 MHz");
+        check_near(dut->s_pclk1_hz.read(), 42e6, 0.001, "PCLK1 = 42 MHz");
+        check_near(dut->s_pclk2_hz.read(), 84e6, 0.001, "PCLK2 = 84 MHz");
+        check_eq(toggles, 6u, "el firmware ejecuta las 6 conmutaciones previstas");
+        check(ticks >= 500u, "el SysTick de CMSIS entrega al menos 500 interrupciones");
+        check(led_on_count >= 3u, "el LED de PD12 se enciende y se apaga en el pin");
+        check(!led_pd12->on(), "el LED queda apagado al terminar el firmware");
+        check_eq(button, 0u, "PA0 con pull-down interno se lee a 0 con el pulsador libre");
+
+        // Con el pulsador cerrado a VSS el nivel sigue siendo 0; se comprueba el
+        // camino de entrada forzando el pin desde fuera.
+        {
+            Driver ext(dut->pinmux.analog(0, 0));
+            ext.set(true);
+            wait(50, SC_US);
+            uint32_t idr = 0;
+            tm.read32(addr::GPIOA_B + 0x10, idr);
+            check_eq(idr & 1u, 1u, "un nivel alto externo en PA0 llega al IDR");
+        }
+        dut->rcc.set_internal_waveforms(true);
+    }
+
+    std::string blinky_path_ = "verif/fw/blinky/blinky.bin";
     std::string fw_path_ = "verif/fw/test_isa.bin";
     std::string cm_path_ = "verif/fw/coremark/coremark.bin";
     double      cm_budget_ms_ = 20000.0;

@@ -133,7 +133,9 @@ SC_MODULE(Stm32F407VG) {
     // PowerPads / PWR
     sc_core::sc_signal<bool>   s_por_ok{"s_por_ok"}, s_nrst_n{"s_nrst_n"};
     sc_core::sc_signal<bool>   s_boot0{"s_boot0"}, s_nrst_drv{"s_nrst_drv"};
-    sc_core::sc_signal<double> s_vdd{"s_vdd"}, s_vdda{"s_vdda"};
+    sc_core::sc_signal<double> s_vdd{"s_vdd"}, s_vdda{"s_vdda"}, s_vbat{"s_vbat"};
+    sc_core::sc_signal<bool>    s_bor_trip{"s_bor_trip"};
+    sc_core::sc_signal<uint8_t> s_bor_lev{"s_bor_lev"};   // option bytes -> BOR
     sc_core::sc_signal<bool>   s_dbp{"s_dbp"}, s_pvd_line{"s_pvd_line"};
     sc_core::sc_signal<bool>   s_wwdg_rr{"s_wwdg_rr"}, s_iwdg_rr{"s_iwdg_rr"};
     // EXTI
@@ -148,6 +150,11 @@ SC_MODULE(Stm32F407VG) {
     sc_core::sc_vector<sc_core::sc_signal<bool>> s_freeze{"s_freeze", FZ_COUNT};
     sc_core::sc_signal<bool> s_swdio_o{"s_swdio_o"}, s_swdio_oe{"s_swdio_oe"},
                              s_jtdo{"s_jtdo"};
+    // Entradas de depuración: las entrega el mux de AF0 (PA13/14/15, PB4), no
+    // el pad directamente, para que reconfigurar el pin como GPIO desconecte el
+    // puerto de depuración igual que en el silicio [IR, §13.1; §3.3.3].
+    sc_core::sc_signal<bool> s_dbg_swclk{"s_dbg_swclk"}, s_dbg_swdio_i{"s_dbg_swdio_i"},
+                             s_dbg_jtdi{"s_dbg_jtdi"}, s_dbg_njtrst{"s_dbg_njtrst"};
     // DMA req/ack
     sc_core::sc_vector<sc_core::sc_signal<bool>> s_dma1_ack{"s_dma1_ack", 64};
     sc_core::sc_vector<sc_core::sc_signal<bool>> s_dma2_ack{"s_dma2_ack", 64};
@@ -198,17 +205,30 @@ SC_MODULE(Stm32F407VG) {
     // Muestreo de los pines de arranque: BOOT0 (pin dedicado) y BOOT1 (PB2) se
     // capturan en el 4º flanco ascendente de SYSCLK tras la salida de reset y
     // conservan su valor hasta el siguiente reset [IR, §2.3].
+    //
+    // Mientras el reset está activo el valor sigue a los pines, de modo que
+    // SYSCFG_MEMRMP ya es correcto en el instante en que el núcleo sale de
+    // reset y lee la tabla de vectores; el latch del 4º flanco lo congela.
+    uint8_t sample_boot() const {
+        const uint8_t b0 = s_boot0.read() ? 1u : 0u;
+        const uint8_t b1 = pinmux.pad_din[1 * N_PORT_PINS + 2].read() ? 2u : 0u;
+        return uint8_t(b1 | b0);
+    }
     void init_proc() {
         s_true.write(true); s_false.write(false);
         s_boot.write(0);
         for (;;) {
-            // Espera a que el reset de sistema esté activo y luego se libere
-            while (s_sysrst_n.read()) wait(s_sysrst_n.value_changed_event());
-            while (!s_sysrst_n.read()) wait(s_sysrst_n.value_changed_event());
+            // Reset activo: seguimiento continuo de los pines
+            while (!s_sysrst_n.read()) {
+                s_boot.write(sample_boot());
+                wait(s_sysrst_n.value_changed_event() |
+                     s_boot0.value_changed_event() |
+                     pinmux.pad_din[1 * N_PORT_PINS + 2].value_changed_event());
+            }
+            // Reset liberado: el 4º flanco de SYSCLK congela el valor
             for (unsigned i = 0; i < 4; ++i) wait(s_hclk.posedge_event());
-            const uint8_t b0 = s_boot0.read() ? 1u : 0u;
-            const uint8_t b1 = pinmux.pad_din[1 * N_PORT_PINS + 2].read() ? 2u : 0u;
-            s_boot.write(uint8_t(b1 | b0));
+            s_boot.write(sample_boot());
+            wait(s_sysrst_n.negedge_event());
         }
     }
 
@@ -225,8 +245,17 @@ private:
     void bind_analog();
 
     // Ayudas de binding uniforme
+    // La frecuencia del dominio se deduce del reloj enlazado, de modo que cada
+    // esclavo anota sus accesos en ciclos de SU bus [IR, §4.4, §6.4].
     void bind_bus_slave(BusSlave& p, sc_core::sc_signal<bool>& clk, PeriphId id) {
-        p.clk(clk); p.rst_n(s_prst[id]); p.clk_en(s_pcen[id]);
+        p.clk(clk); p.clk_hz(domain_hz_of(clk));
+        p.rst_n(s_prst[id]); p.clk_en(s_pcen[id]);
+        p.clk_en_live = rcc.clk_en_ptr(id);
+    }
+    sc_core::sc_signal<double>& domain_hz_of(sc_core::sc_signal<bool>& clk) {
+        if (&clk == &s_pclk1) return s_pclk1_hz;
+        if (&clk == &s_pclk2) return s_pclk2_hz;
+        return s_hclk_hz;
     }
 };
 
@@ -257,9 +286,13 @@ inline void Stm32F407VG::bind_clocks_resets() {
     rcc.nmi_css(s_nmi);
     rcc.irq(s_irq[5]);
     // RCC como esclavo de su propio dominio AHB1 (gating siempre activo)
-    rcc.clk(s_hclk); rcc.rst_n(s_sysrst_n); rcc.clk_en(s_true);
+    rcc.clk(s_hclk); rcc.clk_hz(s_hclk_hz); rcc.rst_n(s_sysrst_n); rcc.clk_en(s_true);
 
     pwr_pads.por_ok(s_por_ok);
+    pwr_pads.bor_trip(s_bor_trip);
+    pwr_pads.bor_lev(s_bor_lev);
+    pwr_pads.vbat_lvl(s_vbat);
+    rcc.bor_rst(s_bor_trip);
     pwr_pads.nrst_in_n(s_nrst_n);
     pwr_pads.boot0_lvl(s_boot0);
     pwr_pads.vdd_lvl(s_vdd);
@@ -374,16 +407,16 @@ inline void Stm32F407VG::bind_core() {
     core.event_in(s_evt_in);   core.event_out(s_evt_out);
     core.boot_mode(s_memmode);
     core.ccm.bind(ccm.tsk);
-    // Debug: pines AF0 (PA13/14/15, PB3/PB4) [IR, §13.1]
-    core.debug.swclk_tck(pinmux.pad_din[0 * 16 + 14]);   // PA14
-    core.debug.swdio_in(pinmux.pad_din[0 * 16 + 13]);    // PA13
+    // Debug: pines AF0 (PA13/14/15, PB3/PB4) [IR, §13.1]. Las señales llegan
+    // por el mux de funciones alternativas (véase bind_gpio_pins).
+    core.debug.swclk_tck(s_dbg_swclk);                   // PA14
+    core.debug.swdio_in(s_dbg_swdio_i);                  // PA13
     core.debug.swdio_out(s_swdio_o);
     core.debug.swdio_oe(s_swdio_oe);
-    core.debug.jtdi(pinmux.pad_din[0 * 16 + 15]);        // PA15
-    core.debug.jtdo_swo(s_jtdo);
-    core.debug.njtrst(pinmux.pad_din[1 * 16 + 4]);       // PB4
+    core.debug.jtdi(s_dbg_jtdi);                         // PA15
+    core.debug.jtdo_swo(s_jtdo);                         // PB3
+    core.debug.njtrst(s_dbg_njtrst);                     // PB4
     for (unsigned i = 0; i < FZ_COUNT; ++i) core.debug.freeze[i](s_freeze[i]);
-    // TODO(F3): registrar en pin_mux los endpoints AF0 de swdio_o/oe y jtdo.
     // (debug.ahb_ap queda enlazado al router dentro de CortexM4F)
 
     ccm.hclk(s_hclk); ccm.rst_n(s_sysrst_n);
@@ -393,6 +426,7 @@ inline void Stm32F407VG::bind_core() {
     ext_ram_stub.hclk(s_hclk); ext_ram_stub.rst_n(s_sysrst_n);
     flash.hclk(s_hclk); flash.hclk_hz(s_hclk_hz); flash.rst_n(s_sysrst_n);
     flash.irq(s_irq[4]);
+    flash.bor_lev(s_bor_lev);          // OPTCR.BOR_LEV -> supervisor de VDD
 }
 
 // ===========================================================================
@@ -401,6 +435,7 @@ inline void Stm32F407VG::bind_core() {
 inline void Stm32F407VG::bind_gpio_pins() {
     for (unsigned p = 0; p < N_GPIO_PORTS; ++p) {
         bind_bus_slave(gpio[p], s_hclk, PeriphId(P_GPIOA + p));
+        gpio[p].mux = &pinmux;                    // publicación de MODER/AFRx
         for (unsigned i = 0; i < N_PORT_PINS; ++i) {
             const unsigned k = p * N_PORT_PINS + i;
             gpio[p].pad_drive[i](pinmux.gpio_drive[k]);
@@ -409,6 +444,29 @@ inline void Stm32F407VG::bind_gpio_pins() {
             exti.gpio_line[k](s_exti_gpio[k]);
         }
     }
+
+    // ---------------------------------------------------------------------
+    // Funciones alternativas del sistema (AF0) y EVENTOUT (AF15) [IR, §2.1].
+    // El resto de la tabla AF (TIM, USART, SPI, I2C, CAN, SDIO, FSMC, ETH...)
+    // se registra al implementar cada periférico, en F4 y F5.
+    // ---------------------------------------------------------------------
+    auto af = [](sc_core::sc_signal<bool>* o, sc_core::sc_signal<bool>* e,
+                 sc_core::sc_signal<bool>* i, bool idle = true) {
+        AfEndpoint ep; ep.out = o; ep.oe = e; ep.in = i; ep.idle_in = idle; return ep;
+    };
+    // Depuración SWD/JTAG: PA13 SWDIO (bidireccional), PA14 SWCLK, PA15 JTDI,
+    // PB3 JTDO/SWO, PB4 NJTRST [IR, §13.1].
+    pinmux.connect_af(0, 13, 0, af(&s_swdio_o, &s_swdio_oe, &s_dbg_swdio_i, false));
+    pinmux.connect_af(0, 14, 0, af(nullptr, nullptr, &s_dbg_swclk, false));
+    pinmux.connect_af(0, 15, 0, af(nullptr, nullptr, &s_dbg_jtdi, false));
+    pinmux.connect_af(1,  3, 0, af(&s_jtdo, &s_true, nullptr));
+    pinmux.connect_af(1,  4, 0, af(nullptr, nullptr, &s_dbg_njtrst, true));
+    // Salidas de reloj: MCO1 en PA8 y MCO2 en PC9 [IR, §2.1, §4.5.3].
+    pinmux.connect_af(0,  8, 0, af(&rcc.mco1_sig, &s_true, nullptr));
+    pinmux.connect_af(2,  9, 0, af(&rcc.mco2_sig, &s_true, nullptr));
+    // EVENTOUT (AF15) está disponible en todos los pines: es la salida de
+    // evento del núcleo (instrucción SEV) [IR, §2.1].
+    pinmux.connect_af_all(15, af(&s_evt_out, &s_true, nullptr));
     for (unsigned i = 0; i < 16; ++i) {
         syscfg.exticr_sel[i](s_exticr[i]);
         exti.exticr_sel[i](s_exticr[i]);

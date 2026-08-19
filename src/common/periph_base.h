@@ -30,11 +30,28 @@ public:
     sc_core::sc_in<bool> clk{"clk"};                // reloj del dominio (HCLK/PCLKx)
     sc_core::sc_in<bool> rst_n{"rst_n"};            // reset del dominio
     sc_core::sc_in<bool> clk_en{"clk_en"};          // gating RCC_xxxENR
+    // Frecuencia del dominio [Hz]. La anotación temporal de cada acceso se hace
+    // con ella, de modo que un periférico en APB1 a 42 MHz y otro en AHB a
+    // 168 MHz facturan ciclos distintos aunque compartan el código base
+    // [IR, §4.4, §6.4]. La escribe el RCC; el top la enlaza (F3).
+    sc_core::sc_in<double> clk_hz{"clk_hz"};
+    // Valor "vivo" del gating. El bit de RCC_xxxENR habilita la puerta de reloj
+    // de forma combinacional: la instrucción siguiente a la que escribe el ENR
+    // ya accede al periférico. Con un sc_signal el efecto llegaría un delta más
+    // tarde, y como el b_transport del RCC corre en el proceso del maestro (que
+    // no cede el control entre instrucciones), el acceso siguiente vería el
+    // periférico todavía sin reloj. El top enlaza aquí el estado interno del
+    // RCC; si es nulo se usa el puerto clk_en [IR, §4.8].
+    const bool* clk_en_live = nullptr;
+    bool clock_enabled() const { return clk_en_live ? *clk_en_live : clk_en.read(); }
 
     BusSlave(sc_core::sc_module_name nm, uint32_t base, uint32_t size)
         : sc_core::sc_module(nm), tsk("tsk"), base_(base), size_(size) {
         tsk.register_b_transport(this, &BusSlave::b_transport);
         tsk.register_transport_dbg(this, &BusSlave::transport_dbg);
+        SC_HAS_PROCESS(BusSlave);
+        SC_METHOD(dom_hz_proc);
+        sensitive << clk_hz;
     }
 
     uint32_t base() const { return base_; }
@@ -130,7 +147,7 @@ protected:
             gp.set_response_status(tlm::TLM_BURST_ERROR_RESPONSE);
             return false;
         }
-        if (!clk_en.read() && !responds_without_clock()) {
+        if (!clock_enabled() && !responds_without_clock()) {
             // Periférico sin reloj: el acceso no obtiene respuesta -> BusFault
             gp.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE);
             return false;
@@ -158,6 +175,12 @@ protected:
     }
     // Los módulos que reciben la frecuencia del dominio la publican aquí.
     void set_domain_hz(double hz) { dom_hz_ = hz; }
+    double domain_hz() const { return dom_hz_; }
+
+private:
+    void dom_hz_proc() { dom_hz_ = clk_hz.read(); }
+
+protected:
 
     uint32_t base_, size_;
     double   dom_hz_ = 0.0;

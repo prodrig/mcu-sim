@@ -80,18 +80,18 @@ inline void Stm32F407VG::bind_periph_common() {
     wwdg.freeze(s_freeze[FZ_WWDG]);
     wwdg.rst_req(s_wwdg_rr);
     // IWDG y RTC: sin bit ENR (siempre accesibles); RTC en dominio backup
-    iwdg.clk(s_pclk1); iwdg.rst_n(s_sysrst_n); iwdg.clk_en(s_true);
+    iwdg.clk(s_pclk1); iwdg.clk_hz(s_pclk1_hz); iwdg.rst_n(s_sysrst_n); iwdg.clk_en(s_true);
     iwdg.lsi_clk(s_lsiclk); iwdg.freeze(s_freeze[FZ_IWDG]);
     iwdg.hw_start(s_false);            // TODO(F2): option bit WDG_SW
     iwdg.rst_req(s_iwdg_rr);
-    rtc.clk(s_pclk1); rtc.rst_n(s_sysrst_n); rtc.clk_en(s_true);
+    rtc.clk(s_pclk1); rtc.clk_hz(s_pclk1_hz); rtc.rst_n(s_sysrst_n); rtc.clk_en(s_true);
     rtc.rtcclk(s_rtcclk); rtc.rtcclk_hz(s_rtcclk_hz);
     rtc.bkp_rst_n(s_bkprst_n); rtc.dbp(s_dbp);
     rtc.exti17_alarm(s_rtc_l17); rtc.exti21_tamp_ts(s_rtc_l21);
     rtc.exti22_wakeup(s_rtc_l22);
 
     // EXTI y SYSCFG (EXTI sin gating propio)
-    exti.clk(s_pclk2); exti.rst_n(s_sysrst_n); exti.clk_en(s_true);
+    exti.clk(s_pclk2); exti.clk_hz(s_pclk2_hz); exti.rst_n(s_sysrst_n); exti.clk_en(s_true);
     exti.l16_pvd(s_pvd_line);
     exti.l17_rtc_alarm(s_rtc_l17);   exti.l18_otgfs_wkup(s_fswk_l18);
     exti.l19_eth_wkup(s_ethwk_l19);  exti.l20_otghs_wkup(s_hswk_l20);
@@ -313,8 +313,18 @@ inline void Stm32F407VG::bind_analog() {
     dac.bind_out(1, pinmux.analog(0, 5));        // PA5
     // USB FS PHY integrado (PA11=DM, PA12=DP)
     otg_fs.bind_phy(pinmux.analog(0, 11), pinmux.analog(0, 12));
-    // Funciones alternativas — EJEMPLOS de registro; la tabla completa AF0-AF15
-    // por pin [IR, §2.1/§15.4] se completa en F3:
+    // Osciladores externos: HSE en PH0/PH1 (OSC_IN/OSC_OUT) y LSE en PC14/PC15
+    // (OSC32_IN/OSC32_OUT) [IR, §2.1]. El oscilador solo arranca si hay algo
+    // conectado eléctricamente al nodo de OSC_IN; en modo bypass mide además la
+    // frecuencia del reloj inyectado a partir del pad [IR, §4.2].
+    rcc.hse.xtal_in = &pinmux.analog(7, 0);      // PH0-OSC_IN
+    rcc.hse.ext_in  = &pinmux.pad_din[7 * N_PORT_PINS + 0];
+    rcc.lse.xtal_in = &pinmux.analog(2, 14);     // PC14-OSC32_IN
+    rcc.lse.ext_in  = &pinmux.pad_din[2 * N_PORT_PINS + 14];
+
+    // Funciones alternativas — EJEMPLOS de registro de periféricos de F4/F5; la
+    // tabla del sistema (AF0: SWD/JTAG y MCO1/2; AF15: EVENTOUT) se registra en
+    // bind_gpio_pins. El resto se completa al implementar cada periférico.
     pinmux.connect_af(0, 2, 7, AfEndpoint{&usart2.tx_out, &usart2.tx_oe, nullptr}); // PA2 USART2_TX
     pinmux.connect_af(0, 3, 7, AfEndpoint{nullptr, nullptr, &usart2.rx_in});        // PA3 USART2_RX
     pinmux.connect_af(0, 9, 7, AfEndpoint{&usart1.tx_out, &usart1.tx_oe, nullptr}); // PA9 USART1_TX
@@ -324,8 +334,8 @@ inline void Stm32F407VG::bind_analog() {
     pinmux.connect_af(0, 5, 5, AfEndpoint{&spi1.sck_out, &spi1.sck_oe, &spi1.sck_in}); // PA5 SPI1_SCK
     pinmux.connect_af(0, 6, 5, AfEndpoint{&spi1.miso_out, &spi1.miso_oe, &spi1.miso_in});
     pinmux.connect_af(0, 7, 5, AfEndpoint{&spi1.mosi_out, &spi1.mosi_oe, &spi1.mosi_in});
-    // TODO(F3): resto de la tabla AF (TIM CHx, CAN, SDIO, FSMC, ETH, ULPI,
-    //           DCMI, MCO1/2 desde rcc.mco*_sig, RTC_AF1, SWD/JTAG AF0...)
+    // TODO(F4/F5): resto de la tabla AF (TIM CHx, CAN, SDIO, FSMC, ETH, ULPI,
+    //           DCMI, RTC_AF1...) conforme se implemente cada periférico.
 }
 
 } // namespace stm32

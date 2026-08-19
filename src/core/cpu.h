@@ -386,6 +386,16 @@ inline void Cpu::exec_proc() {
         while (!rst_n.read()) { running_ = false; wait(rst_n.value_changed_event()); }
         do_reset();
         while (rst_n.read() && running_) {
+            // Sin reloj no hay ejecución. Además de ser lo que hace el
+            // silicio, evita que el intérprete gire sin que avance el tiempo
+            // simulado: la anotación de ciclos se calcula con fclk_hz y sería
+            // nula (situación real cuando el CSS o un fallo de alimentación
+            // dejan el árbol de reloj sin fuente) [IR, §4.4].
+            if (fclk_hz.read() <= 0.0) {
+                sync();
+                wait(fclk_hz.value_changed_event() | rst_n.value_changed_event());
+                continue;
+            }
             if (dbg_halt_req.read()) {           // parada del depurador
                 if (!o_halted_) { o_halted_ = true; publish(); }
                 sync();
