@@ -13,7 +13,7 @@
 SYSTEMC_HOME ?= /usr
 CXXSTD       ?= c++17
 CXX          ?= g++
-CXXFLAGS += -std=$(CXXSTD) -Wall -Wextra -Wno-unused-parameter -g -O1 \
+CXXFLAGS += -std=$(CXXSTD) -Wall -Wextra -Wno-unused-parameter -g -O2 \
             -I$(SYSTEMC_HOME)/include -I.
 LDFLAGS  += -L$(SYSTEMC_HOME)/lib -L$(SYSTEMC_HOME)/lib-linux64 \
             -L$(SYSTEMC_HOME)/lib/x86_64-linux-gnu \

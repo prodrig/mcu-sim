@@ -56,7 +56,7 @@ SC_MODULE(CortexM4F) {
     SC_CTOR(CortexM4F) : irq_in("irq_in", N_IRQ) {
         // CPU <-> infra
         cpu.fclk(fclk); cpu.fclk_hz(fclk_hz); cpu.rst_n(rst_n);
-        cpu.nvic(scs.nvic.cpu_if);
+        cpu.sys(scs.cpu_if);                 // SCB + NVIC + SysTick + MPU
         cpu.sleeping(sleeping);
         cpu.sleepdeep_out(sleepdeep);
         cpu.sleepdeep_cfg(sig_sleepdeep_);
@@ -64,25 +64,27 @@ SC_MODULE(CortexM4F) {
         cpu.event_out(event_out);
         cpu.dbg_halt_req(sig_halt_req_);
         cpu.dbg_halted(sig_halted_);
-        scs.scb.sleepdeep(sig_sleepdeep_);
-        scs.scb.sysresetreq(sysresetreq);
+        cpu.fpu_mod = &fpu;                  // línea de IRQ 81 de la FPU
+        scs.sleepdeep(sig_sleepdeep_);
+        scs.sysresetreq(sysresetreq);
+        scs.rst_n(rst_n);
         debug.halt_req(sig_halt_req_);
         debug.halted(sig_halted_);
+        debug.cpu_reg = &cpu.reg;            // acceso del DCRSR al banco (F6)
 
-        // FPU
+        // FPU: la unidad funcional vive dentro de la CPU (Cpu::fpu); este
+        // módulo solo publica la línea de interrupción de excepciones FP.
         fpu.fclk(fclk); fpu.rst_n(rst_n); fpu.irq_fpu(sig_irq_fpu_);
-        // TODO(F2): sig_irq_fpu_ debe salir al top y entrar como irq[81]; en el
-        //           esqueleto el top conecta la IRQ 81 desde aquí (get_fpu_irq).
 
-        // NVIC entradas
-        for (unsigned i = 0; i < N_IRQ; ++i) scs.nvic.irq_in[i](irq_in[i]);
-        scs.nvic.nmi_in(nmi_in);
+        // NVIC: entradas de interrupción y NMI
+        for (unsigned i = 0; i < N_IRQ; ++i) scs.irq_in[i](irq_in[i]);
+        scs.nmi_in(nmi_in);
 
-        // SysTick
+        // SysTick (su salida tick_irq se conecta dentro del propio SCS)
         scs.systick.proc_clk(fclk);
         scs.systick.ext_clk(systick_ext);
+        scs.systick.clk_hz(fclk_hz);
         scs.systick.rst_n(rst_n);
-        scs.systick.tick_irq(sig_tick_);
 
         // Router: CPU I/D/S y AHB-AP -> destinos
         cpu.ibus.bind(rt_ibus_);  cpu.dbus.bind(rt_dbus_);  cpu.sbus.bind(rt_sbus_);
@@ -109,7 +111,6 @@ private:
     sc_core::sc_signal<bool> sig_sleepdeep_{"sig_sleepdeep"};
     sc_core::sc_signal<bool> sig_halt_req_{"sig_halt_req"};
     sc_core::sc_signal<bool> sig_halted_{"sig_halted"};
-    sc_core::sc_signal<bool> sig_tick_{"sig_tick"};
     sc_core::sc_signal<bool> sig_irq_fpu_{"sig_irq_fpu"};
 
     void inv_dmi(sc_dt::uint64, sc_dt::uint64) {}

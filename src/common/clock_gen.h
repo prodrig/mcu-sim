@@ -38,6 +38,23 @@ SC_MODULE(ClockGen) {
     double freq()    const { return hz_; }
     bool   stopped() const { return hz_ <= 0.0; }
 
+    // Generación de la onda cuadrada. Con `false` el generador sigue
+    // publicando freq_hz pero deja la línea quieta.
+    //
+    // Motivo: emitir la onda de HCLK a 168 MHz cuesta dos activaciones de
+    // proceso por periodo (unos 3.4e8 por segundo simulado), lo que domina el
+    // tiempo de simulación en cargas largas de CPU. Los bloques que solo
+    // necesitan la frecuencia (SysTick, prescalers, anotación de latencias)
+    // trabajan con freq_hz y programan sus propios eventos; la onda solo hace
+    // falta donde es observable (pines MCO, salidas de GPIO, captura de
+    // temporizadores). El banco de pruebas la enciende cuando la mide.
+    void set_waveform(bool on) {
+        if (on == wave_) return;
+        wave_ = on;
+        reconf_.notify(sc_core::SC_ZERO_TIME);
+    }
+    bool waveform() const { return wave_; }
+
     // Periodo completo del reloj; SC_ZERO_TIME si está parado.
     sc_core::sc_time period() const {
         return hz_ > 0.0 ? sc_core::sc_time(1.0e12 / hz_, sc_core::SC_PS)
@@ -50,11 +67,10 @@ private:
         clk.write(false);
         freq_hz.write(hz_);
         for (;;) {
-            if (hz_ <= 0.0) {                 // parado (gating): línea a 0
+            if (hz_ <= 0.0 || !wave_) {       // parado (gating) o sin onda
                 if (level_) { level_ = false; clk.write(false); }
-                freq_hz.write(0.0);
+                freq_hz.write(hz_ > 0.0 ? hz_ : 0.0);
                 wait(reconf_);
-                freq_hz.write(hz_);
                 continue;
             }
             freq_hz.write(hz_);
@@ -67,6 +83,7 @@ private:
 
     double            hz_    = 0.0;
     bool              level_ = false;
+    bool              wave_  = true;
     sc_core::sc_event reconf_;
 };
 

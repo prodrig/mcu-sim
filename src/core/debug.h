@@ -15,6 +15,7 @@
 #include <tlm_utils/simple_target_socket.h>
 #include <tlm_utils/simple_initiator_socket.h>
 #include "../common/ahb_types.h"
+#include "cpu_state.h"
 
 namespace stm32 {
 
@@ -46,12 +47,26 @@ SC_MODULE(DebugSys) {
     sc_core::sc_in<bool>  halted{"halted"};
     sc_core::sc_vector<sc_core::sc_out<bool>> freeze; // [FreezeId] -> timers/WDG
 
+    // Banco de registros del núcleo, para el acceso DCRSR/DCRDR de la fase F6.
+    // Lo fija CortexM4F durante la elaboración.
+    RegFile* cpu_reg = nullptr;
+
     SC_CTOR(DebugSys) : freeze("freeze", FZ_COUNT) {
         ppb.register_b_transport(this, &DebugSys::bt);
         SC_METHOD(swj_proc);
         sensitive << swclk_tck.pos() << swclk_tck.neg();
         dont_initialize();
+        SC_METHOD(halt_proc);
+        sensitive << halt_ev_;
+        dont_initialize();
     }
+
+    // Petición de parada del núcleo (DHCSR.C_HALT). En F6 la gobernará la FSM
+    // SWD; aquí se expone como API para el banco de pruebas y el cargador.
+    void set_halt(bool h) {
+        if (h != o_halt_) { o_halt_ = h; halt_ev_.notify(sc_core::SC_ZERO_TIME); }
+    }
+    bool is_halted() const { return halted.read(); }
 
     // -----------------------------------------------------------------------
     // Transactor del AHB-AP (fase F1)
@@ -91,6 +106,10 @@ SC_MODULE(DebugSys) {
     }
 
 private:
+    bool o_halt_ = false;
+    sc_core::sc_event halt_ev_;
+    void halt_proc() { halt_req.write(o_halt_); }
+
     void swj_proc() {
         // TODO(F6): FSM SWJ-DP (secuencia de conmutación JTAG<->SWD), protocolo
         //           SWD (paquetes req/ack/data), TAP JTAG; DP regs (IDCODE,

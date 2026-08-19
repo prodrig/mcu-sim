@@ -22,10 +22,13 @@
 // =============================================================================
 #include <systemc>
 #include <cstdio>
+#include <cstdlib>
+#include <ctime>
 #include <string>
 #include "stm32f407vg.h"
 #include "../verif/bus_test_master.h"
 #include "../verif/image_loader.h"
+#include "../verif/decoder_vectors.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -106,6 +109,14 @@ SC_MODULE(F1Tb) {
         wait(200, SC_US);                                      // arranque de HSI
     }
 
+    // Firmware de aparcamiento: MSP válido y un manejador de reset que se
+    // duerme. Evita que el núcleo ejecute basura durante las pruebas de bus.
+    void park_cpu() {
+        ImageLoader ld(*dut);
+        ld.write_reset_vector(addr::SRAM1_BASE + addr::SRAM1_SIZE, 0x08000100u);
+        ld.poke32(addr::FLASH_BASE + 0x100, 0xE7FEBF30u);   // wfi ; b .
+    }
+
     // Selección del maestro que impersona el banco de pruebas. La tabla de
     // conectividad [IR, §6.2] obliga a usar el bus adecuado en cada caso:
     //   registros y periféricos (AHB1/AHB2/APB) -> S-bus
@@ -125,6 +136,7 @@ SC_MODULE(F1Tb) {
     // =======================================================================
     void stim_proc() {
         tm.master = BusMaster::CORE_SBUS;
+        park_cpu();
         power_up();
 
         t01_reset_y_relojes();
@@ -141,11 +153,141 @@ SC_MODULE(F1Tb) {
         t12_contencion();
         t13_reset_nrst();
         t14_cargador_y_boot();
+        const unsigned f1_pass = g_pass, f1_fail = g_fail;
+
+        // ================= Fase F2: núcleo Cortex-M4F =======================
+        t15_decodificador();
+        t16_firmware();
+        t17_coremark();
 
         std::printf("\n=====================================================\n");
-        std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
+        std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
+        std::printf("Resumen F2: %u comprobaciones OK, %u fallos\n",
+                    g_pass - f1_pass, g_fail - f1_fail);
+        std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
+    }
+
+    // -----------------------------------------------------------------------
+    // T15 — Cobertura del decodificador con los vectores de
+    //       doc/valida_instrucciones.py (codificaciones validadas contra
+    //       arm-none-eabi-as, 254/254 correctas).
+    // -----------------------------------------------------------------------
+    void t15_decodificador() {
+        group("T15 Decodificador: 254 codificaciones reales [II, todas las secciones]");
+        // Detener el núcleo y prepararlo para la sonda
+        dut->core.debug.set_halt(true);
+        wait(20, SC_US);
+        check(dut->core.debug.is_halted(), "el nucleo se detiene a peticion del depurador");
+
+        // Habilitar la FPU (CP10/CP11) para que las V* no den NOCP
+        dut->core.debug.ap_write32(0xE000ED88u, 0xFu << 20);
+
+        const uint32_t code = addr::SRAM1_BASE + 0x4000;   // zona de código
+        const uint32_t scratch = addr::SRAM1_BASE + 0x5000;
+        unsigned no_reconocidas = 0, tam_incorrecto = 0;
+        std::string primeras;
+
+        for (unsigned i = 0; i < N_DECODER_VECTORS; ++i) {
+            const DecoderVector& v = DECODER_VECTORS[i];
+            // Colocar la codificación (más una NOP de relleno) en la SRAM
+            dut->sram1.poke32(code - addr::SRAM1_BASE,
+                              uint32_t(v.hw[0]) | (uint32_t(v.hw[1]) << 16));
+            dut->sram1.poke32(code - addr::SRAM1_BASE + 4, 0xBF00BF00u);
+            dut->core.cpu.probe_setup(scratch);
+            const Cpu::Probe p = dut->core.cpu.probe(code);
+            const unsigned esperado = 2u * v.n_hw;
+            // UDF y UDF.W son indefinidas por definición: deben generar
+            // UsageFault UNDEFINSTR [II, §1.8, §3.3].
+            const bool debe_ser_undef = (std::string(v.asm_text).compare(0, 3, "udf") == 0);
+            if (debe_ser_undef) {
+                if (p.ok) {
+                    ++no_reconocidas;
+                    primeras += std::string("        UDF no genera UNDEFINSTR: ") +
+                                v.asm_text + "\n";
+                }
+            } else if (!p.ok) {
+                ++no_reconocidas;
+                if (primeras.size() < 200)
+                    primeras += std::string("        no reconocida: §") + v.section +
+                                "  " + v.asm_text + "\n";
+            } else if (p.size != esperado) {
+                ++tam_incorrecto;
+                if (primeras.size() < 200)
+                    primeras += std::string("        tamano ") + std::to_string(p.size) +
+                                " != " + std::to_string(esperado) + ": " + v.asm_text + "\n";
+            }
+        }
+        if (!primeras.empty()) std::printf("%s", primeras.c_str());
+        std::printf("    %u codificaciones probadas\n", N_DECODER_VECTORS);
+        check_eq(no_reconocidas, 0, "todas las codificaciones se reconocen (sin UNDEFINSTR)");
+        check_eq(tam_incorrecto, 0, "todas consumen el numero de bytes correcto (16/32 bits)");
+
+        dut->core.debug.set_halt(false);
+        wait(20, SC_US);
+    }
+
+    // -----------------------------------------------------------------------
+    // T16 — Ejecución del firmware autocomprobable compilado con
+    //       arm-none-eabi-gcc para Cortex-M4F.
+    // -----------------------------------------------------------------------
+    void t16_firmware() {
+        group("T16 Firmware real sobre el modelo [II; IR, §7, §9, §10]");
+        // Reset limpio y BOOT0 = 0 (arranque desde la Flash principal)
+        dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(30, SC_US);
+
+        ImageLoader ld(*dut);
+        const long n = ld.load_file(fw_path_.c_str(), addr::FLASH_BASE);
+        if (!check(n > 0, "imagen de firmware cargada en la Flash")) {
+            std::printf("        (no se encontro %s; compilar con "
+                        "make -C verif/fw)\n", fw_path_.c_str());
+            dut->pwr_pads.nrst.set_hiz(d_nrst);
+            return;
+        }
+        std::printf("    %ld bytes cargados desde %s\n", n, fw_path_.c_str());
+
+        if (const char* t = std::getenv("F2_TRACE")) {
+            dut->core.cpu.trace_limit = 200;
+            dut->core.cpu.trace_from  = uint64_t(std::atoll(t));
+        }
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+        wait(400, SC_US);
+
+        // El firmware deja su resultado en un buzón al inicio de la SRAM1
+        const unsigned MAGIC = 0x46325445u;
+        const sc_time t0 = sc_time_stamp();
+        bool done = false;
+        while ((sc_time_stamp() - t0) < sc_time(400, SC_MS)) {
+            wait(200, SC_US);
+            if (dut->sram1.peek32(0) == MAGIC && dut->sram1.peek32(16) == 1u) {
+                done = true;
+                break;
+            }
+        }
+        const uint32_t passed = dut->sram1.peek32(4);
+        const uint32_t failed = dut->sram1.peek32(8);
+        const uint32_t first  = dut->sram1.peek32(12);
+        std::printf("    instrucciones ejecutadas: %llu | excepciones: %llu\n",
+                    (unsigned long long)dut->core.cpu.inst_count,
+                    (unsigned long long)dut->core.cpu.exc_count);
+        check(done, "el firmware llega a su fin y publica el buzon de resultados");
+        std::printf("    autocomprobaciones del firmware: %u OK, %u fallos%s\n",
+                    passed, failed, failed ? "" : "");
+        if (failed) {
+            std::printf("        ultimo test alcanzado: #%u\n", dut->sram1.peek32(88));
+            std::printf("        tests fallidos:");
+            for (unsigned i = 0; i < failed && i < 16; ++i)
+                std::printf(" #%u", dut->sram1.peek32(24 + 4 * i));
+            std::printf("\n");
+        }
+        (void)first;
+        check(passed > 100u, "el firmware ejecuta mas de 100 autocomprobaciones");
+        check_eq(failed, 0, "el firmware no reporta ninguna discrepancia");
+        check(dut->core.cpu.exc_count > 0, "el nucleo ha tomado excepciones (SVC/PendSV/IRQ)");
+        check(!dut->core.cpu.halted_on_lockup, "el nucleo no ha entrado en lockup");
     }
 
     // -----------------------------------------------------------------------
@@ -715,6 +857,116 @@ SC_MODULE(F1Tb) {
         check_eq(v & 0xFFu, 0x5Au, "0x0000 0000 refleja la System memory (bootloader)");
     }
 
+    // -----------------------------------------------------------------------
+    // T17 — CoreMark (EEMBC) compilado para Cortex-M4F y ejecutado sobre el
+    //       modelo. Es el criterio de salida de F2 del plan (§7).
+    // -----------------------------------------------------------------------
+    void t17_coremark() {
+        group("T17 CoreMark sobre el modelo [criterio de salida de F2]");
+        if (std::getenv("F2_SKIP_COREMARK")) {
+            std::printf("    omitido (F2_SKIP_COREMARK)\n");
+            return;
+        }
+        // Presupuesto de tiempo simulado y ruta de la imagen ajustables para
+        // poder lanzar la ejecucion oficial de 10 s (ITERATIONS grande).
+        if (const char* b = std::getenv("F2_CM_BUDGET_MS")) cm_budget_ms_ = std::atof(b);
+        if (const char* p = std::getenv("F2_CM_BIN"))       cm_path_ = p;
+        // Las ondas cuadradas de HCLK/PCLK no son observables en esta carga
+        // (no hay pines ni temporizadores en juego) y su generación domina el
+        // tiempo de simulación: se apagan y se deja solo la frecuencia.
+        dut->rcc.set_internal_waveforms(false);
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(30, SC_US);
+        ImageLoader ld(*dut);
+        const long n = ld.load_file(cm_path_.c_str(), addr::FLASH_BASE);
+        if (!check(n > 0, "imagen de CoreMark cargada en la Flash")) {
+            std::printf("        (compilar con make -C verif/fw/coremark)\n");
+            dut->pwr_pads.nrst.set_hiz(d_nrst);
+            return;
+        }
+        std::printf("    %ld bytes cargados desde %s\n", n, cm_path_.c_str());
+        const uint64_t i0 = dut->core.cpu.inst_count;
+        if (std::getenv("F2_CM_FAULTS")) dut->core.cpu.fault_trace = 8;
+        if (const char* t = std::getenv("F2_CM_TRACE")) {
+            dut->core.cpu.trace_from  = i0 + uint64_t(std::atoll(t));
+            dut->core.cpu.trace_limit = 120;
+        }
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+
+        const sc_time t0 = sc_time_stamp();
+        const std::clock_t w0 = std::clock();
+        bool done = false;
+        uint32_t last_len = 0;
+        while ((sc_time_stamp() - t0) < sc_time(cm_budget_ms_, SC_MS)) {
+            wait(2, SC_MS);
+            if (std::getenv("F2_CM_PC"))
+                std::printf("    t=%s PC=0x%08X inst=%llu\n",
+                            sc_time_stamp().to_string().c_str(), dut->core.cpu.pc(),
+                            (unsigned long long)(dut->core.cpu.inst_count - i0));
+            const uint32_t len = dut->sram1.peek32(8);
+            if (len != last_len) {                 // progreso de la consola
+                last_len = len;
+                std::printf("    ... %u caracteres de salida, %llu instrucciones\n",
+                            len, (unsigned long long)(dut->core.cpu.inst_count - i0));
+                std::fflush(stdout);
+            }
+            if (dut->sram1.peek32(0) == 1u) { done = true; break; }
+        }
+        const double wall = double(std::clock() - w0) / CLOCKS_PER_SEC;
+        const uint64_t ninst = dut->core.cpu.inst_count - i0;
+        const double sim_s = (sc_time_stamp() - t0).to_seconds();
+
+        if (!done)
+            std::printf("        sin terminar: PC = 0x%08X, LR = 0x%08X, SP = 0x%08X\n",
+                        dut->core.cpu.pc(), dut->core.cpu.reg.r[14],
+                        dut->core.cpu.reg.r[13]);
+        check(done, "CoreMark termina y publica su informe");
+        // Volcado de la consola virtual del firmware
+        const uint32_t magic = dut->sram1.peek32(4);
+        const uint32_t len   = dut->sram1.peek32(8);
+        if (magic == 0x434F4E53u && len > 0 && len < 4096) {
+            std::printf("    --- salida de CoreMark ---\n");
+            std::string s;
+            for (uint32_t i = 0; i < len; ++i) s += char(dut->sram1.peek8(12 + i));
+            std::printf("%s", s.c_str());
+            if (s.empty() || s.back() != '\n') std::printf("\n");
+            std::printf("    --------------------------\n");
+            // CoreMark valida su propia ejecución comparando cuatro CRC con
+            // los valores canónicos de la ejecución «2K performance run»
+            // (seedcrc 0xe9f5).  Si cualquiera de ellos no coincide, la carga
+            // de trabajo se ha ejecutado mal en algún punto.
+            // crclist/crcmatrix/crcstate son los CRC de cada carga de trabajo y
+            // no dependen del numero de iteraciones; crcfinal si (acumula), por
+            // lo que solo se compara en la ejecucion de una iteracion.
+            const bool crc_ok =
+                s.find("seedcrc          : 0xe9f5") != std::string::npos &&
+                s.find("[0]crclist       : 0xe714") != std::string::npos &&
+                s.find("[0]crcmatrix     : 0x1fd7") != std::string::npos &&
+                s.find("[0]crcstate      : 0x8e3a") != std::string::npos &&
+                (s.find("Iterations       : 1\n") == std::string::npos ||
+                 s.find("[0]crcfinal      : 0xe714") != std::string::npos);
+            check(crc_ok, "CoreMark valida su propio resultado (los CRC de las "
+                          "cargas coinciden con los canonicos del 2K performance run)");
+            // La regla de «al menos 10 s» de EEMBC es un requisito para poder
+            // publicar la puntuacion, no un criterio de correccion: con
+            // ITERATIONS=1 el mensaje de error es el esperado.
+            if (s.find("Correct operation validated") != std::string::npos)
+                std::printf("    (ejecucion oficial: CoreMark valida y publica puntuacion)\n");
+        } else {
+            check(false, "la consola del firmware contiene la salida de CoreMark");
+        }
+        std::printf("    %llu instrucciones en %.3f s simulados (%.2f MIPS simuladas)\n",
+                    (unsigned long long)ninst, sim_s,
+                    sim_s > 0 ? double(ninst) / sim_s / 1e6 : 0.0);
+        std::printf("    %.1f s de CPU del anfitrion -> %.0f instrucciones/s de modelo\n",
+                    wall, wall > 0 ? double(ninst) / wall : 0.0);
+        dut->rcc.set_internal_waveforms(true);
+    }
+
+    std::string fw_path_ = "verif/fw/test_isa.bin";
+    std::string cm_path_ = "verif/fw/coremark/coremark.bin";
+    double      cm_budget_ms_ = 20000.0;
+
 private:
     unsigned char buf4_[4] = {0, 0, 0, 0};
 };
@@ -729,10 +981,8 @@ int sc_main(int argc, char** argv) {
     sc_report_handler::set_actions("pll", SC_WARNING, SC_DO_NOTHING);
 
     F1Tb tb("tb");
-    // Argumento opcional: imagen de firmware a cargar (.bin o .hex)
-    if (argc > 1) {
-        std::printf("Imagen solicitada: %s (se cargara al iniciar la simulacion)\n", argv[1]);
-    }
+    // Argumento opcional: imagen de firmware alternativa (.bin o .hex)
+    if (argc > 1) tb.fw_path_ = argv[1];
     sc_start();
     std::printf("\nTiempo simulado: %s\n", sc_time_stamp().to_string().c_str());
     return (g_fail == 0) ? 0 : 1;

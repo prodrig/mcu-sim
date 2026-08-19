@@ -172,6 +172,19 @@ public:
         csr_  = 0x0E000000u;      // PORRSTF | PINRSTF | BORRSTF [IR, §4.10]
     }
 
+    // Onda cuadrada de los relojes internos de alta frecuencia. Apagarla
+    // acelera mucho las cargas largas de CPU: los consumidores internos usan
+    // la frecuencia (xxx_hz) y programan sus propios eventos. Debe estar
+    // encendida cuando algo mida flancos (MCO, GPIO, captura de temporizadores).
+    void set_internal_waveforms(bool on) {
+        g_hclk_.set_waveform(on);
+        g_pclk1_.set_waveform(on);
+        g_pclk2_.set_waveform(on);
+        g_timclk1_.set_waveform(on);
+        g_timclk2_.set_waveform(on);
+        g_stk_.set_waveform(on);
+    }
+
     // --- Consulta del árbol (verificación y otros módulos) ------------------
     double sysclk_hz() const { return f_sysclk_; }
     double hclk_freq() const { return f_hclk_; }

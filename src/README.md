@@ -10,16 +10,22 @@ P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
 | :--- | :--- | :--- |
 | **F0** | Esqueleto completo: 62 módulos instanciados y conectados | completada |
 | **F1** | Infraestructura: relojes, resets, matriz LT, Flash/SRAM, cargador | **completada** |
-| F2 | CPU: ISA completa + excepciones + NVIC/SysTick | pendiente |
+| **F2** | CPU: ISA completa + excepciones + NVIC/SysTick | **completada** |
 | F3 | Pads/pin_mux/GPIO y RCC eléctrico completos | pendiente |
 | F4 | DMA1/2, USART, TIM avanzados, EXTI/SYSCFG | pendiente |
 | F5 | Resto de periféricos | pendiente |
 | F6 | Debug (DAP/FPB/DWT/ITM), DBGMCU, trazas | pendiente |
 | F7 | Bajo consumo, OTG/ETH/FSMC/DCMI, afinado AT | pendiente |
 
-`make test` compila y ejecuta la suite de verificación de F1 (124
-comprobaciones autocomprobables; código de salida 0 si todas pasan).
-Verificado con SystemC 2.3.4 / g++ 13 / C++17.
+`make test` compila y ejecuta la suite de verificación acumulada (136
+comprobaciones autocomprobables: 124 de F1 + 12 de F2; código de salida 0 si
+todas pasan). Verificado con SystemC 2.3.4 / g++ 13 / C++17 y
+arm-none-eabi-gcc 13.2.
+
+Las pruebas T15-T17 necesitan los dos firmwares del repositorio; se compilan con
+`make -C verif/fw` y `make -C verif/fw/coremark` (requieren
+`arm-none-eabi-gcc`). Sin ellos, T16 y T17 informan de que falta la imagen.
+`F2_SKIP_COREMARK=1` omite la ejecución de CoreMark.
 
 ```
 make -f Makefile.stm32 test           # o: cp Makefile.stm32 Makefile && make test
@@ -35,10 +41,10 @@ make -f Makefile.stm32 run IMG=fw.bin # carga una imagen y simula
 | `bus/` | `ahb_matrix.h` (8x7 con máscara de conectividad y arbitraje), `ahb_decoder.h` (decodificadores de segmento + puente AHB-APB), `bitband.h` (alias de bit-banding) |
 | `mem/` | `flash_if.h` (Flash 1 MB + ART + registros FLASH + option bytes + cargador), `sram.h` (SRAM1/2, BKPSRAM, CCM) |
 | `rcc/` | `rcc.h` (banco de registros, árbol de reloj, gating, controlador de reset), `osc_pll.h` (HSI/HSE/LSI/LSE, PLL, PLLI2S) |
-| `core/` | `cortex_m4f.h` (router I/D/S/CCM/PPB con alias de 0x0 y bit-banding), `cpu.h` (RegFile + ISA [II]), `fpu.h`, `scs.h`, `debug.h` (DAP/CoreSight/DBGMCU + transactor AHB-AP) |
+| `core/` | `cortex_m4f.h` (router I/D/S/CCM/PPB con alias de 0x0 y bit-banding), `cpu.h` (bucle fetch/decode/execute, excepciones, prebúsqueda), `cpu_state.h` (RegFile y utilidades arquitectónicas), `cpu_exec16.h` / `cpu_exec32.h` (ISA completa [II]), `fpu.h` (FPv4-SP), `scs.h` (SCB + NVIC + SysTick + MPU), `debug.h` (DAP/CoreSight/DBGMCU + transactor AHB-AP) |
 | `periph/` | un fichero por familia de periférico, todos derivados de `BusSlave` |
-| `verif/` | `bus_test_master.h` (maestro de bus de verificación), `image_loader.h` (carga de .bin/.hex y tabla de vectores) |
-| `top/` | `stm32f407vg.h` + `stm32f407vg_bind2.h` (netlist/contrato de integración), `sc_main.cpp` (suite de verificación F1) |
+| `verif/` | `bus_test_master.h` (maestro de bus de verificación), `image_loader.h` (carga de .bin/.hex y tabla de vectores), `decoder_vectors.h` (254 vectores generados desde `doc/valida_instrucciones.py` por `gen_decoder_vectors.py`), `fw/` (firmware de autocomprobación y *port* bare-metal de CoreMark) |
+| `top/` | `stm32f407vg.h` + `stm32f407vg_bind2.h` (netlist/contrato de integración), `sc_main.cpp` (suite de verificación F1+F2) |
 
 ## Convenciones
 
@@ -57,3 +63,11 @@ make -f Makefile.stm32 run IMG=fw.bin # carga una imagen y simula
   puertos de salida. SystemC no admite dos escritores sobre un `sc_signal`.
 * **IRQ/DMA:** vectores de señales con la numeración exacta de los informes
   (IRQ0-81; celdas DMA `stream*8+canal` según RM0090 tablas 42/43).
+* **Núcleo:** el estado arquitectónico vive en una `struct` C++ (`RegFile`) y
+  el SCS se ofrece a la CPU por una interfaz C++ (`core_sys_if`), no por TLM:
+  el núcleo lo consulta varias veces por instrucción. El acceso del *software*
+  a esos mismos registros sí pasa por el bus PPB.
+* **Velocidad de simulación:** `ClockGen::set_waveform(false)` (y
+  `Rcc::set_internal_waveforms(false)`) mantiene la frecuencia publicada pero
+  deja de conmutar la señal; es lo que permite ejecutar firmware largo. Los
+  consumidores dirigidos por eventos (SysTick) usan `freq_hz`, no los flancos.
