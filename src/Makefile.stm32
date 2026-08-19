@@ -1,0 +1,47 @@
+# =============================================================================
+# Makefile — Modelo SystemC del STM32F407VG (fase F1)
+#
+# Requiere SystemC >= 2.3.3 (Accellera). Nota: el estándar C++ debe coincidir
+# con el usado al compilar la biblioteca (el paquete de Ubuntu 24.04 usa
+# C++17; si compilas SystemC tú mismo, ajusta CXXSTD).
+#
+#   make                          # usa SystemC del sistema (/usr)
+#   make SYSTEMC_HOME=/opt/systemc CXXSTD=c++14
+#   make test                     # ejecuta la suite de verificación de F1
+#   make run IMG=firmware.bin     # carga una imagen en la Flash y simula
+# =============================================================================
+SYSTEMC_HOME ?= /usr
+CXXSTD       ?= c++17
+CXX          ?= g++
+CXXFLAGS += -std=$(CXXSTD) -Wall -Wextra -Wno-unused-parameter -g -O1 \
+            -I$(SYSTEMC_HOME)/include -I.
+LDFLAGS  += -L$(SYSTEMC_HOME)/lib -L$(SYSTEMC_HOME)/lib-linux64 \
+            -L$(SYSTEMC_HOME)/lib/x86_64-linux-gnu \
+            -Wl,-rpath,$(SYSTEMC_HOME)/lib -Wl,-rpath,$(SYSTEMC_HOME)/lib-linux64
+LDLIBS   += -lsystemc -lpthread
+
+HDRS := $(wildcard common/*.h pins/*.h bus/*.h mem/*.h rcc/*.h core/*.h \
+                   periph/*.h verif/*.h top/*.h)
+
+TARGET := build/stm32f407vg
+
+all: $(TARGET)
+
+$(TARGET): top/sc_main.cpp $(HDRS)
+	@mkdir -p build
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main.cpp $(LDFLAGS) $(LDLIBS)
+
+# Suite de verificación de la fase F1 (autocomprobable: código de salida 0/1)
+test: $(TARGET)
+	./$(TARGET)
+
+# Alias histórico de la fase F0
+smoke: test
+
+run: $(TARGET)
+	./$(TARGET) $(IMG)
+
+clean:
+	rm -rf build
+
+.PHONY: all test smoke run clean

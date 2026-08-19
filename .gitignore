@@ -1,0 +1,68 @@
+# ---------------------------------------------------------------------------
+# Modelo SystemC del STM32F407VG — ficheros que no se versionan
+# ---------------------------------------------------------------------------
+
+# Artefactos de compilación
+build/
+*.o
+*.a
+*.so
+*.so.*
+*.d
+*.gch
+*.pch
+
+# Ejecutables del modelo y del banco de pruebas
+src/build/
+stm32f407vg
+stm32f407vg_f0
+
+# Makefile generado a partir de Makefile.stm32 (el versionado es Makefile.stm32)
+src/Makefile
+
+# Salidas de simulación y traza
+*.vcd
+*.wlf
+*.log
+waves/
+trace/
+
+# Imágenes de firmware cargadas en la simulación
+*.bin
+*.hex
+*.elf
+*.ihex
+*.map
+
+# Herramientas de análisis
+*.gcda
+*.gcno
+*.gcov
+callgrind.out.*
+massif.out.*
+vgcore.*
+perf.data*
+
+# Python auxiliar (doc/valida_instrucciones.py)
+__pycache__/
+*.pyc
+.venv/
+
+# Editores e IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.cache/
+compile_commands.json
+
+# Sistema operativo y Dropbox
+.DS_Store
+Thumbs.db
+desktop.ini
+*conflicted copy*
+*conflicto*
+
+# Residuos que dejo yo: el sandbox remoto no puede borrar ficheros.
+_to_delete/

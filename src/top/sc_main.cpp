@@ -1,0 +1,739 @@
+// =============================================================================
+// sc_main.cpp — Banco de pruebas de la fase F1
+//
+// Criterio de salida de F1 (plan §7): "lectura/escritura de memoria desde un
+// maestro de prueba". Este testbench va más allá y verifica toda la
+// infraestructura implementada en la fase:
+//
+//   T01 Power-up, secuencia de reset y estado inicial del RCC   [IR, §4.1, §4.5]
+//   T02 Gating de reloj: acceso a periférico sin ENR -> error   [IR, §4.8]
+//   T03 Lectura/escritura en SRAM1, SRAM2 y BKPSRAM (8/16/32/bloque)
+//   T04 CCM: inalcanzable desde la matriz, alcanzable por el D-bus [IR, §5.3]
+//   T05 Máscara de conectividad maestro-esclavo completa        [IR, §6.2]
+//   T06 Rangos reservados y bloques ausentes en el F407         [IR, §6.5]
+//   T07 Interfaz Flash: llaves, borrado, programación y errores [IR, §5.5-5.9]
+//   T08 Estados de espera y acelerador ART                      [IR, §5.2.2-5.2.3]
+//   T09 Bit-banding en SRAM y periféricos                       [IR, §5.4]
+//   T10 Árbol de reloj: HSE + PLL -> 168/42/84 MHz              [IR, §4.3, §4.4]
+//   T11 Penalización del puente AHB->APB                        [IR, §6.4]
+//   T12 Contención en un puerto de esclavo de la matriz         [IR, §6.7]
+//   T13 Reset por pin NRST y flags de RCC_CSR                   [IR, §4.1, §4.10]
+//   T14 Cargador de imagen y alias de arranque de 0x0000 0000   [IR, §2.3, §5.1]
+// =============================================================================
+#include <systemc>
+#include <cstdio>
+#include <string>
+#include "stm32f407vg.h"
+#include "../verif/bus_test_master.h"
+#include "../verif/image_loader.h"
+
+using namespace sc_core;
+using namespace stm32;
+using tlm::TLM_OK_RESPONSE;
+using tlm::TLM_ADDRESS_ERROR_RESPONSE;
+using tlm::TLM_GENERIC_ERROR_RESPONSE;
+
+// ---------------------------------------------------------------------------
+// Utilidades de comprobación
+// ---------------------------------------------------------------------------
+static unsigned g_pass = 0, g_fail = 0;
+static std::string g_group;
+
+static void group(const char* g) {
+    g_group = g;
+    std::printf("\n--- %s ---\n", g);
+}
+static bool check(bool cond, const char* what) {
+    (cond ? g_pass : g_fail)++;
+    std::printf("  [%s] %s\n", cond ? "OK  " : "FALLO", what);
+    return cond;
+}
+static bool check_eq(uint64_t got, uint64_t exp, const char* what) {
+    const bool ok = (got == exp);
+    (ok ? g_pass : g_fail)++;
+    if (ok) std::printf("  [OK  ] %s\n", what);
+    else    std::printf("  [FALLO] %s (obtenido 0x%llX, esperado 0x%llX)\n",
+                        what, (unsigned long long)got, (unsigned long long)exp);
+    return ok;
+}
+static bool check_near(double got, double exp, double tol, const char* what) {
+    const bool ok = (exp == 0.0) ? (got == 0.0)
+                                 : (got > exp * (1 - tol) && got < exp * (1 + tol));
+    (ok ? g_pass : g_fail)++;
+    if (ok) std::printf("  [OK  ] %s (%.6g)\n", what, got);
+    else    std::printf("  [FALLO] %s (obtenido %.6g, esperado %.6g)\n", what, got, exp);
+    return ok;
+}
+
+// ---------------------------------------------------------------------------
+// Banco de pruebas
+// ---------------------------------------------------------------------------
+SC_MODULE(F1Tb) {
+    Stm32F407VG*  dut;
+    BusTestMaster tm{"tm"};
+
+    // Drivers externos de los nodos analógicos de alimentación / reset / boot
+    int d_vdd = -1, d_vdda = -1, d_nrst = -1, d_bt0 = -1, d_pb2 = -1;
+
+    SC_CTOR(F1Tb) {
+        dut = new Stm32F407VG("dut");
+        tm.isk.bind(dut->matrix.from_tb);          // puerto de verificación
+        // La pila por defecto de un SC_THREAD (64 KB) se queda corta con las
+        // cadenas de llamadas TLM anidadas al compilar con sanitizers.
+        SC_THREAD(stim_proc);        set_stack_size(1024 * 1024);
+        SC_THREAD(contention_proc);  set_stack_size(256 * 1024);
+    }
+    ~F1Tb() { delete dut; }
+
+    // -----------------------------------------------------------------------
+    void power_up() {
+        d_vdd  = dut->pwr_pads.vdd.register_driver("tb_vdd");
+        d_vdda = dut->pwr_pads.vdda.register_driver("tb_vdda");
+        d_nrst = dut->pwr_pads.nrst.register_driver("tb_nrst");
+        d_bt0  = dut->pwr_pads.boot0.register_driver("tb_boot0");
+        d_pb2  = dut->pinmux.analog(1, 2).register_driver("tb_pb2");   // BOOT1
+
+        dut->pwr_pads.vdd.set_drive(d_vdd, 0.0f, 1.0f);
+        dut->pwr_pads.vdda.set_drive(d_vdda, 0.0f, 1.0f);
+        dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);     // BOOT0 = 0
+        dut->pinmux.analog(1, 2).set_drive(d_pb2, 0.0f, 10e3f); // BOOT1 = 0
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(10, SC_US);
+        dut->pwr_pads.vdd.set_drive(d_vdd, 3.3f, 0.1f);        // VDD = 3.3 V
+        dut->pwr_pads.vdda.set_drive(d_vdda, 3.3f, 0.1f);
+        wait(100, SC_US);
+        dut->pwr_pads.nrst.set_hiz(d_nrst);                    // soltar NRST
+        wait(200, SC_US);                                      // arranque de HSI
+    }
+
+    // Selección del maestro que impersona el banco de pruebas. La tabla de
+    // conectividad [IR, §6.2] obliga a usar el bus adecuado en cada caso:
+    //   registros y periféricos (AHB1/AHB2/APB) -> S-bus
+    //   array de Flash como dato                -> D-bus
+    //   array de Flash como instrucción         -> I-bus
+    void as_sbus()  { tm.master = BusMaster::CORE_SBUS; tm.instr = false; }
+    void as_dbus()  { tm.master = BusMaster::CORE_DBUS; tm.instr = false; }
+    void as_ibus()  { tm.master = BusMaster::CORE_IBUS; tm.instr = true;  }
+
+    // Habilita el reloj de un periférico escribiendo su bit en RCC_xxxENR.
+    void rcc_enable(uint32_t enr_off, unsigned bit) {
+        uint32_t v = 0;
+        tm.read32(addr::RCC_B + enr_off, v);
+        tm.write32(addr::RCC_B + enr_off, v | (1u << bit));
+    }
+
+    // =======================================================================
+    void stim_proc() {
+        tm.master = BusMaster::CORE_SBUS;
+        power_up();
+
+        t01_reset_y_relojes();
+        t02_gating();
+        t03_memorias();
+        t04_ccm();
+        t05_conectividad();
+        t06_rangos_reservados();
+        t07_flash();
+        t08_wait_states_art();
+        t09_bitband();
+        t10_arbol_reloj();
+        t11_puente_apb();
+        t12_contencion();
+        t13_reset_nrst();
+        t14_cargador_y_boot();
+
+        std::printf("\n=====================================================\n");
+        std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
+        std::printf("=====================================================\n");
+        sc_stop();
+    }
+
+    // -----------------------------------------------------------------------
+    void t01_reset_y_relojes() {
+        group("T01 Power-up, reset y estado inicial del RCC [IR, 4.1/4.5]");
+        check(dut->s_sysrst_n.read(), "reset de sistema liberado tras el power-up");
+        check(dut->s_por_ok.read(), "POR/PDR indica alimentacion valida");
+        check_near(dut->rcc.sysclk_hz(), 16e6, 1e-6, "SYSCLK = HSI 16 MHz tras reset");
+        check_near(dut->rcc.hclk_freq(), 16e6, 1e-6, "HCLK = 16 MHz (HPRE = /1)");
+        check_near(dut->rcc.pclk1_freq(), 16e6, 1e-6, "PCLK1 = 16 MHz (PPRE1 = /1)");
+        check_near(dut->rcc.pclk2_freq(), 16e6, 1e-6, "PCLK2 = 16 MHz (PPRE2 = /1)");
+
+        uint32_t cr = 0, cfgr = 0, csr = 0, ahb1enr = 0;
+        tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        tm.read32(addr::RCC_B + Rcc::R_CFGR, cfgr);
+        tm.read32(addr::RCC_B + Rcc::R_CSR, csr);
+        tm.read32(addr::RCC_B + Rcc::R_AHB1ENR, ahb1enr);
+        check((cr & 1u) != 0, "RCC_CR.HSION = 1 tras reset");
+        check((cr & 2u) != 0, "RCC_CR.HSIRDY = 1 (HSI estabilizado)");
+        check_eq(cfgr & 0xFu, 0x0, "RCC_CFGR.SW = SWS = HSI");
+        check_eq(ahb1enr, 0x00100000u, "RCC_AHB1ENR reset = 0x00100000 (CCMDATARAMEN)");
+        check((csr & (1u << 27)) != 0, "RCC_CSR.PORRSTF activo tras power-up");
+        check_eq(dut->rcc.peek_reg(Rcc::R_PLLCFGR), 0x24003010u,
+                 "RCC_PLLCFGR reset = 0x24003010");
+        check_eq(dut->rcc.peek_reg(Rcc::R_APB1LPENR), 0x36FEC9FFu,
+                 "RCC_APB1LPENR reset = 0x36FEC9FF");
+    }
+
+    // -----------------------------------------------------------------------
+    void t02_gating() {
+        group("T02 Gating de reloj por RCC_xxxENR [IR, 4.8]");
+        uint32_t v = 0;
+        check(tm.read32(addr::GPIOA_B, v) == TLM_GENERIC_ERROR_RESPONSE,
+              "GPIOA sin GPIOAEN -> error de bus");
+        rcc_enable(Rcc::R_AHB1ENR, 0);                     // GPIOAEN
+        check(dut->s_pcen[P_GPIOA].read(), "senal de gating de GPIOA activa");
+        check(tm.read32(addr::GPIOA_B, v) == TLM_OK_RESPONSE,
+              "GPIOA con GPIOAEN -> acceso correcto");
+
+        check(tm.read32(addr::PWR_B, v) == TLM_GENERIC_ERROR_RESPONSE,
+              "PWR (APB1) sin PWREN -> error de bus");
+        rcc_enable(Rcc::R_APB1ENR, 28);                    // PWREN
+        check(tm.read32(addr::PWR_B, v) == TLM_OK_RESPONSE,
+              "PWR con PWREN -> acceso correcto");
+
+        // Reset de periférico: RCC_AHB1RSTR.GPIOARST
+        tm.write32(addr::RCC_B + Rcc::R_AHB1RSTR, 1u << 0);
+        check(!dut->s_prst[P_GPIOA].read(), "GPIOARST mantiene el reset de GPIOA");
+        tm.write32(addr::RCC_B + Rcc::R_AHB1RSTR, 0);
+        check(dut->s_prst[P_GPIOA].read(), "GPIOARST liberado");
+
+        rcc_enable(Rcc::R_APB2ENR, 14);                    // SYSCFGEN (T14)
+        rcc_enable(Rcc::R_AHB1ENR, 18);                    // BKPSRAMEN (T03)
+    }
+
+    // -----------------------------------------------------------------------
+    void t03_memorias() {
+        group("T03 Lectura/escritura de memoria desde el maestro de prueba");
+        uint32_t v = 0;
+        // --- SRAM1 ---
+        check(tm.write32(addr::SRAM1_BASE + 0x100, 0xA5A5F00Du) == TLM_OK_RESPONSE,
+              "escritura de 32 bits en SRAM1");
+        check(tm.read32(addr::SRAM1_BASE + 0x100, v) == TLM_OK_RESPONSE,
+              "lectura de 32 bits en SRAM1");
+        check_eq(v, 0xA5A5F00Du, "dato leido de SRAM1 coincide");
+        check_eq(dut->sram1.peek32(0x100), 0xA5A5F00Du, "contenido fisico de SRAM1");
+
+        // --- accesos de 8 y 16 bits ---
+        uint8_t b8 = 0; uint16_t b16 = 0;
+        tm.write8(addr::SRAM1_BASE + 0x100, 0x11);
+        tm.read8(addr::SRAM1_BASE + 0x100, b8);
+        check_eq(b8, 0x11, "escritura/lectura de byte en SRAM1");
+        tm.read32(addr::SRAM1_BASE + 0x100, v);
+        check_eq(v, 0xA5A5F011u, "el byte solo modifica su posicion en la palabra");
+        tm.write16(addr::SRAM1_BASE + 0x102, 0xBEEF);
+        tm.read16(addr::SRAM1_BASE + 0x102, b16);
+        check_eq(b16, 0xBEEF, "escritura/lectura de media palabra en SRAM1");
+
+        // --- bloque (rafaga INCR) ---
+        unsigned char wr[64], rd[64];
+        for (unsigned i = 0; i < 64; ++i) { wr[i] = uint8_t(i * 3 + 1); rd[i] = 0; }
+        check(tm.write_block(addr::SRAM1_BASE + 0x200, wr, 64) == TLM_OK_RESPONSE,
+              "escritura de bloque de 64 bytes en SRAM1");
+        tm.read_block(addr::SRAM1_BASE + 0x200, rd, 64);
+        check(std::memcmp(wr, rd, 64) == 0, "el bloque leido coincide con el escrito");
+
+        // --- SRAM2 ---
+        tm.write32(addr::SRAM2_BASE + 0x40, 0x12345678u);
+        tm.read32(addr::SRAM2_BASE + 0x40, v);
+        check_eq(v, 0x12345678u, "escritura/lectura en SRAM2 (16 KB)");
+
+        // --- BKPSRAM (AHB1, 4 KB) ---
+        tm.write32(addr::BKPSRAM_BASE + 0x10, 0xCAFEBABEu);
+        tm.read32(addr::BKPSRAM_BASE + 0x10, v);
+        check_eq(v, 0xCAFEBABEu, "escritura/lectura en BKPSRAM");
+
+        // --- límites: último byte válido y primer byte fuera ---
+        check(tm.write32(addr::SRAM1_BASE + addr::SRAM1_SIZE - 4, 0x1u) == TLM_OK_RESPONSE,
+              "ultimo word de SRAM1 accesible");
+        check(tm.read32(addr::SRAM2_BASE + addr::SRAM2_SIZE, v) != TLM_OK_RESPONSE,
+              "primer word por encima de SRAM2 -> error");
+    }
+
+    // -----------------------------------------------------------------------
+    void t04_ccm() {
+        group("T04 CCM RAM: solo accesible por el D-bus del nucleo [IR, 5.3]");
+        uint32_t v = 0;
+        tm.master = BusMaster::DMA1_MEM;
+        check(tm.write32(addr::CCM_BASE + 0x20, 0xDEADC0DEu) == TLM_ADDRESS_ERROR_RESPONSE,
+              "DMA1 hacia la CCM -> error de bus");
+        tm.master = BusMaster::CORE_SBUS;
+        check(tm.read32(addr::CCM_BASE + 0x20, v) == TLM_ADDRESS_ERROR_RESPONSE,
+              "S-bus hacia la CCM a traves de la matriz -> error de bus");
+        check(dut->matrix.n_err_ccm >= 2, "la matriz contabiliza los intentos a la CCM");
+
+        // Camino correcto: router del nucleo (AHB-AP de depuracion)
+        check(dut->core.debug.ap_write32(addr::CCM_BASE + 0x20, 0xDEADC0DEu)
+                  == TLM_OK_RESPONSE, "AHB-AP (D-bus del nucleo) escribe en la CCM");
+        uint32_t r = 0;
+        dut->core.debug.ap_read32(addr::CCM_BASE + 0x20, r);
+        check_eq(r, 0xDEADC0DEu, "dato leido de la CCM por el D-bus");
+        check_eq(dut->ccm.peek32(0x20), 0xDEADC0DEu, "contenido fisico de la CCM");
+    }
+
+    // -----------------------------------------------------------------------
+    void t05_conectividad() {
+        group("T05 Mascara de conectividad maestro-esclavo [IR, 6.2]");
+        struct Probe { BusSlaveId s; uint64_t addr; };
+        // Una dirección representativa por esclavo de la matriz
+        const Probe pr[] = {
+            {BusSlaveId::FLASH_ICODE, addr::FLASH_BASE + 0x10},
+            {BusSlaveId::FLASH_DCODE, addr::FLASH_BASE + 0x10},
+            {BusSlaveId::SRAM1,       addr::SRAM1_BASE + 0x300},
+            {BusSlaveId::SRAM2,       addr::SRAM2_BASE + 0x300},
+            {BusSlaveId::AHB1_SEG,    addr::GPIOA_B},
+            {BusSlaveId::AHB2_SEG,    addr::RNG_B},
+            {BusSlaveId::FSMC_EXT,    addr::FSMC_MEM + 0x10}
+        };
+        unsigned errores = 0, casos = 0;
+        for (unsigned m = 0; m < unsigned(BusMaster::N_MASTERS); ++m) {
+            for (const Probe& p : pr) {
+                // Flash-I solo se alcanza declarando búsqueda de instrucción
+                if (p.s == BusSlaveId::FLASH_ICODE && BusMaster(m) != BusMaster::CORE_IBUS)
+                    continue;
+                if (p.s == BusSlaveId::FLASH_DCODE && BusMaster(m) == BusMaster::CORE_IBUS)
+                    continue;
+                tm.master = BusMaster(m);
+                tm.instr  = (p.s == BusSlaveId::FLASH_ICODE);
+                uint32_t v = 0;
+                const auto r = tm.read32(p.addr, v);
+                const bool esperado_ok = dut->matrix.connected(BusMaster(m), p.s);
+                const bool obtenido_ok = (r != TLM_ADDRESS_ERROR_RESPONSE);
+                ++casos;
+                if (esperado_ok != obtenido_ok) {
+                    ++errores;
+                    std::printf("    discrepancia: %s -> %s (esperado %s)\n",
+                                master_name(BusMaster(m)), slave_name(p.s),
+                                esperado_ok ? "permitido" : "prohibido");
+                }
+            }
+        }
+        tm.master = BusMaster::CORE_SBUS; tm.instr = false;
+        std::printf("    %u pares maestro-esclavo comprobados\n", casos);
+        check(errores == 0, "la matriz respeta la tabla de conectividad completa");
+        check(dut->matrix.n_err_conn > 0, "se han rechazado caminos inexistentes");
+    }
+
+    // -----------------------------------------------------------------------
+    void t06_rangos_reservados() {
+        group("T06 Rangos reservados y bloques ausentes en el F407 [IR, 6.5]");
+        uint32_t v = 0;
+        struct R { uint64_t a; const char* d; };
+        const R res[] = {
+            {0x20020000ull, "0x2002 0000 (por encima de SRAM2)"},
+            {0x30000000ull, "0x3000 0000 (region SRAM no implementada)"},
+            {0xC0000000ull, "0xC000 0000 (dispositivo externo no implementado)"},
+            {0x40016800ull, "0x4001 6800 (LTDC: no existe en el F407)"},
+            {0x40015800ull, "0x4001 5800 (SAI1: no existe en el F407)"},
+            {0x4002B000ull, "0x4002 B000 (DMA2D: no existe en el F407)"},
+            {0x50060000ull, "0x5006 0000 (CRYP: no existe en el F407)"}
+        };
+        for (const R& r : res)
+            check(tm.read32(r.a, v) == TLM_ADDRESS_ERROR_RESPONSE, r.d);
+    }
+
+    // -----------------------------------------------------------------------
+    void t07_flash() {
+        group("T07 Interfaz Flash: llaves, borrado y programacion [IR, 5.5-5.9]");
+        uint32_t v = 0;
+        // Valores de reset de los registros
+        tm.read32(addr::FLASHIF_B + FlashIf::CR, v);
+        check_eq(v, 0x80000000u, "FLASH_CR reset = 0x80000000 (LOCK = 1)");
+        tm.read32(addr::FLASHIF_B + FlashIf::OPTCR, v);
+        check_eq(v, 0x0FFFAAEDu, "FLASH_OPTCR reset = 0x0FFFAAED");
+
+        // El array de Flash solo es alcanzable por los buses I y D del núcleo
+        // [IR, §6.2]; los registros FLASH_* están en AHB1 (S-bus).
+        as_dbus();
+        check_eq(tm.rd32(addr::FLASH_BASE + 0x1000), 0xFFFFFFFFu,
+                 "Flash sin programar lee 0xFFFFFFFF");
+
+        // Programación con LOCK = 1 -> error
+        check(tm.write32(addr::FLASH_BASE + 0x1000, 0x11223344u) != TLM_OK_RESPONSE,
+              "escritura en Flash con FLASH_CR.LOCK = 1 -> error");
+        as_sbus();
+
+        // Secuencia de llave incorrecta: bloquea hasta el siguiente reset
+        tm.write32(addr::FLASHIF_B + FlashIf::KEYR, FlashIf::KEY1);
+        tm.write32(addr::FLASHIF_B + FlashIf::KEYR, 0x00000000u);
+        check(dut->flash.cr_locked(), "secuencia de llave incorrecta deja FLASH_CR bloqueado");
+        tm.write32(addr::FLASHIF_B + FlashIf::KEYR, FlashIf::KEY1);
+        tm.write32(addr::FLASHIF_B + FlashIf::KEYR, FlashIf::KEY2);
+        check(dut->flash.cr_locked(), "tras la secuencia rota, la llave correcta no desbloquea");
+
+        // Reset del sistema para levantar el bloqueo de llave
+        pulse_nrst();
+        check(dut->flash.cr_locked(), "FLASH_CR vuelve a estar bloqueado tras reset");
+        tm.write32(addr::FLASHIF_B + FlashIf::KEYR, FlashIf::KEY1);
+        tm.write32(addr::FLASHIF_B + FlashIf::KEYR, FlashIf::KEY2);
+        check(!dut->flash.cr_locked(), "secuencia KEY1/KEY2 correcta desbloquea FLASH_CR");
+
+        // PSIZE = x32, PG = 1 y programación de una palabra virgen
+        tm.write32(addr::FLASHIF_B + FlashIf::CR, (2u << 8) | 1u);
+        as_dbus();
+        check(tm.write32(addr::FLASH_BASE + 0x1000, 0x11223344u) == TLM_OK_RESPONSE,
+              "programacion de una palabra virgen");
+        check_eq(tm.rd32(addr::FLASH_BASE + 0x1000), 0x11223344u,
+                 "la palabra programada se lee correctamente");
+        as_sbus();
+        tm.read32(addr::FLASHIF_B + FlashIf::SR, v);
+        check((v & 1u) != 0, "FLASH_SR.EOP tras la programacion");
+        tm.write32(addr::FLASHIF_B + FlashIf::SR, 0xF3u);    // limpiar rc_w1
+        tm.read32(addr::FLASHIF_B + FlashIf::SR, v);
+        check_eq(v, 0u, "los flags rc_w1 de FLASH_SR se limpian escribiendo 1");
+
+        // Reprogramar sin borrar -> PGSERR
+        as_dbus();
+        tm.write32(addr::FLASH_BASE + 0x1000, 0x55667788u);
+        as_sbus();
+        tm.read32(addr::FLASHIF_B + FlashIf::SR, v);
+        check((v & (1u << 7)) != 0, "reprogramar sin borrar activa PGSERR");
+        as_dbus();
+        check_eq(tm.rd32(addr::FLASH_BASE + 0x1000), 0x11223344u,
+                 "la palabra no cambia tras el error de secuencia");
+        as_sbus();
+        tm.write32(addr::FLASHIF_B + FlashIf::SR, 0xF3u);
+
+        // Error de paralelismo: PSIZE x32 pero acceso de 16 bits -> PGPERR
+        as_dbus();
+        tm.write16(addr::FLASH_BASE + 0x1010, 0xAAAA);
+        as_sbus();
+        tm.read32(addr::FLASHIF_B + FlashIf::SR, v);
+        check((v & (1u << 6)) != 0, "acceso de 16 bits con PSIZE=x32 activa PGPERR");
+        tm.write32(addr::FLASHIF_B + FlashIf::SR, 0xF3u);
+
+        // Borrado del sector 0 (16 KB desde 0x0800 0000)
+        tm.write32(addr::FLASHIF_B + FlashIf::CR, (2u << 8) | (0u << 3) | (1u << 1));
+        tm.write32(addr::FLASHIF_B + FlashIf::CR,
+                   (2u << 8) | (0u << 3) | (1u << 1) | (1u << 16));   // STRT
+        as_dbus();
+        check_eq(tm.rd32(addr::FLASH_BASE + 0x1000), 0xFFFFFFFFu,
+                 "el sector 0 queda borrado a 0xFFFFFFFF");
+        as_sbus();
+        tm.read32(addr::FLASHIF_B + FlashIf::CR, v);
+        check((v & (1u << 16)) == 0, "FLASH_CR.STRT se limpia al terminar el borrado");
+        tm.write32(addr::FLASHIF_B + FlashIf::SR, 0xF3u);
+
+        // Protección de escritura: nWRP del sector 1 a 0 -> WRPERR
+        tm.write32(addr::FLASHIF_B + FlashIf::OPTKEYR, FlashIf::OPTKEY1);
+        tm.write32(addr::FLASHIF_B + FlashIf::OPTKEYR, FlashIf::OPTKEY2);
+        check(!dut->flash.opt_locked(), "secuencia OPTKEY desbloquea FLASH_OPTCR");
+        tm.read32(addr::FLASHIF_B + FlashIf::OPTCR, v);
+        tm.write32(addr::FLASHIF_B + FlashIf::OPTCR, v & ~(1u << (16 + 1)));
+        tm.write32(addr::FLASHIF_B + FlashIf::CR, (2u << 8) | 1u);
+        as_dbus();
+        tm.write32(FLASH_SECTORS[1].base, 0x0u);
+        as_sbus();
+        tm.read32(addr::FLASHIF_B + FlashIf::SR, v);
+        check((v & (1u << 4)) != 0, "escritura en sector protegido activa WRPERR");
+        tm.write32(addr::FLASHIF_B + FlashIf::SR, 0xF3u);
+
+        // Bloqueo software de FLASH_CR
+        tm.write32(addr::FLASHIF_B + FlashIf::CR, 0x80000000u);
+        check(dut->flash.cr_locked(), "escribir LOCK = 1 vuelve a bloquear FLASH_CR");
+    }
+
+    // -----------------------------------------------------------------------
+    void t08_wait_states_art() {
+        group("T08 Estados de espera y acelerador ART [IR, 5.2.2-5.2.3]");
+        // LATENCY = 5 WS, cachés e instrucción-prefetch deshabilitados
+        tm.write32(addr::FLASHIF_B + FlashIf::ACR, 5u);
+        uint32_t v = 0;
+        tm.read32(addr::FLASHIF_B + FlashIf::ACR, v);
+        check_eq(v & 0xFu, 5u, "FLASH_ACR.LATENCY programada a 5 WS");
+        check_eq(flash_min_latency(168e6), 5u, "tabla de WS: 168 MHz requiere 5 WS");
+        check_eq(flash_min_latency(16e6), 0u, "tabla de WS: 16 MHz requiere 0 WS");
+
+        tm.instr = true; tm.master = BusMaster::CORE_IBUS;
+        sc_time t_sin_cache;
+        tm.access(false, addr::FLASH_BASE + 0x8000, buf4_, 4, &t_sin_cache);
+        // Con caché de instrucciones y prefetch activos, la relectura es acierto
+        tm.master = BusMaster::CORE_SBUS; tm.instr = false;
+        tm.write32(addr::FLASHIF_B + FlashIf::ACR, 5u | (1u << 8) | (1u << 9));
+        tm.master = BusMaster::CORE_IBUS; tm.instr = true;
+        sc_time t_fallo, t_acierto;
+        tm.access(false, addr::FLASH_BASE + 0x9000, buf4_, 4, &t_fallo);
+        tm.access(false, addr::FLASH_BASE + 0x9000, buf4_, 4, &t_acierto);
+        tm.master = BusMaster::CORE_SBUS; tm.instr = false;
+
+        check(t_fallo > t_acierto, "el acierto en la cache I del ART es mas rapido que el fallo");
+        check(dut->flash.art_hits() > 0, "el ART contabiliza aciertos");
+        // Lectura secuencial: la línea siguiente ya fue traida por el prefetch
+        tm.master = BusMaster::CORE_IBUS; tm.instr = true;
+        const uint64_t h0 = dut->flash.art_hits();
+        tm.access(false, addr::FLASH_BASE + 0x9010, buf4_, 4, nullptr);
+        tm.master = BusMaster::CORE_SBUS; tm.instr = false;
+        check(dut->flash.art_hits() > h0, "el prefetch convierte el acceso secuencial en acierto");
+
+        // Aviso de latencia insuficiente
+        tm.write32(addr::FLASHIF_B + FlashIf::ACR, 0u);
+        check_eq(dut->flash.latency(), 0u, "LATENCY vuelve a 0 WS");
+    }
+
+    // -----------------------------------------------------------------------
+    void t09_bitband() {
+        group("T09 Bit-banding en SRAM y perifericos [IR, 5.4]");
+        // Palabra base en SRAM1 y su alias
+        const uint32_t base = addr::SRAM1_BASE + 0x400;
+        dut->core.debug.ap_write32(base, 0x00000000u);
+        // bit 5 del byte 0 -> alias = 0x2200 0000 + (0x400 * 32) + (5 * 4)
+        const uint32_t alias = addr::BB_SRAM_ALIAS + (0x400u * 32u) + (5u * 4u);
+        check(dut->core.debug.ap_write32(alias, 1u) == TLM_OK_RESPONSE,
+              "escritura de un bit por el alias de bit-banding");
+        uint32_t v = 0;
+        dut->core.debug.ap_read32(base, v);
+        check_eq(v, 0x00000020u, "la palabra base refleja el bit puesto a 1");
+        dut->core.debug.ap_read32(alias, v);
+        check_eq(v, 1u, "la lectura del alias devuelve el valor del bit");
+        dut->core.debug.ap_write32(alias, 0u);
+        dut->core.debug.ap_read32(base, v);
+        check_eq(v, 0u, "la escritura de 0 por el alias limpia el bit");
+
+        // La escritura por el alias no altera los bits vecinos
+        dut->core.debug.ap_write32(base, 0xFFFFFFFFu);
+        dut->core.debug.ap_write32(alias, 0u);
+        dut->core.debug.ap_read32(base, v);
+        check_eq(v, 0xFFFFFFDFu, "el resto de bits de la palabra no se altera");
+
+        // Región de periféricos: la BKPSRAM (0x4002 4000) cae dentro del primer
+        // MB del espacio de periféricos, así que sirve para verificar el alias
+        // 0x4200 0000 sobre un bloque con estado observable.
+        rcc_enable(Rcc::R_AHB1ENR, 18);                     // BKPSRAMEN
+        const uint32_t pw = addr::BKPSRAM_BASE + 0x30;
+        dut->core.debug.ap_write32(pw, 0x00000000u);
+        const uint32_t alias_p = addr::BB_PERIPH_ALIAS +
+                                 ((pw - addr::BB_PERIPH_BASE) * 32u) + (3u * 4u);
+        check(dut->core.debug.ap_write32(alias_p, 1u) == TLM_OK_RESPONSE,
+              "escritura por el alias de bit-banding de perifericos");
+        dut->core.debug.ap_read32(pw, v);
+        check_eq(v & 0xFFu, 0x8u, "bit-banding sobre la region de perifericos (BKPSRAM)");
+
+        // Los maestros DMA no ven los alias: caen en rango reservado
+        tm.master = BusMaster::DMA1_MEM;
+        check(tm.read32(alias, v) == TLM_ADDRESS_ERROR_RESPONSE,
+              "un maestro DMA hacia el alias de bit-banding -> error");
+        tm.master = BusMaster::CORE_SBUS;
+    }
+
+    // -----------------------------------------------------------------------
+    void t10_arbol_reloj() {
+        group("T10 Arbol de reloj: HSE 8 MHz + PLL -> 168 MHz [IR, 4.3/4.4]");
+        // El cristal externo se declara al modelo del oscilador (F3 anadira la
+        // comprobacion electrica del pad).
+        dut->rcc.hse.nominal_hz = 8e6;
+
+        // 1) HSEON y espera de HSERDY
+        uint32_t cr = 0;
+        tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        tm.write32(addr::RCC_B + Rcc::R_CR, cr | (1u << 16));
+        wait(3, SC_MS);
+        tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        check((cr & (1u << 17)) != 0, "RCC_CR.HSERDY tras el arranque del HSE");
+
+        // 2) Prescalers antes de subir la frecuencia: HPRE=/1, PPRE1=/4, PPRE2=/2
+        tm.write32(addr::RCC_B + Rcc::R_CFGR, (5u << 10) | (4u << 13));
+
+        // 3) PLL: M=8, N=336, P=2 (00), Q=7, PLLSRC=HSE
+        const uint32_t pllcfgr = 8u | (336u << 6) | (0u << 16) | (1u << 22) | (7u << 24);
+        tm.write32(addr::RCC_B + Rcc::R_PLLCFGR, pllcfgr);
+        tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        tm.write32(addr::RCC_B + Rcc::R_CR, cr | (1u << 24));       // PLLON
+        wait(1, SC_MS);
+        tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        check((cr & (1u << 25)) != 0, "RCC_CR.PLLRDY tras el enganche del PLL");
+        check_near(dut->rcc.pll.vco_in_hz(), 1e6, 1e-6, "VCO de entrada = 1 MHz (rango 1-2)");
+        check_near(dut->rcc.pll.vco_out_hz(), 336e6, 1e-6, "VCO de salida = 336 MHz");
+
+        // 4) Estados de espera antes de conmutar (5 WS a 168 MHz)
+        tm.write32(addr::FLASHIF_B + FlashIf::ACR, 5u | (1u << 8) | (1u << 9) | (1u << 10));
+
+        // 5) SW = PLL
+        uint32_t cfgr = 0;
+        tm.read32(addr::RCC_B + Rcc::R_CFGR, cfgr);
+        tm.write32(addr::RCC_B + Rcc::R_CFGR, (cfgr & ~3u) | 2u);
+        wait(1, SC_US);
+        tm.read32(addr::RCC_B + Rcc::R_CFGR, cfgr);
+        check_eq((cfgr >> 2) & 3u, 2u, "RCC_CFGR.SWS indica que SYSCLK viene del PLL");
+        check_near(dut->rcc.sysclk_hz(), 168e6, 1e-9, "SYSCLK = 168 MHz");
+        check_near(dut->rcc.hclk_freq(),  168e6, 1e-9, "HCLK = 168 MHz");
+        check_near(dut->rcc.pclk1_freq(),  42e6, 1e-9, "PCLK1 = 42 MHz (limite del APB1)");
+        check_near(dut->rcc.pclk2_freq(),  84e6, 1e-9, "PCLK2 = 84 MHz (limite del APB2)");
+        check_near(dut->rcc.pll48_freq(),  48e6, 1e-9, "PLL48CK = 48 MHz (PLLQ = 7)");
+        check_near(dut->s_hclk_hz.read(),  168e6, 1e-9, "la senal hclk_hz publica 168 MHz");
+        check_near(dut->s_timclk1_hz.read(), 84e6, 1e-9,
+                   "TIMCLK1 = 2xPCLK1 con prescaler APB1 distinto de 1");
+
+        // 6) Comprobacion del periodo real de la onda de HCLK
+        wait(dut->s_hclk.posedge_event());
+        const sc_time t0 = sc_time_stamp();
+        for (unsigned i = 0; i < 168; ++i) wait(dut->s_hclk.posedge_event());
+        const double medido = 168.0 / (sc_time_stamp() - t0).to_seconds();
+        check_near(medido, 168e6, 1e-3, "frecuencia medida sobre los flancos de HCLK");
+
+        // 7) No se puede apagar la fuente que alimenta SYSCLK [IR, 4.5.1]
+        tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        tm.write32(addr::RCC_B + Rcc::R_CR, cr & ~(1u << 24));
+        tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        check((cr & (1u << 24)) != 0, "PLLON no se puede borrar mientras alimenta SYSCLK");
+
+        // 8) RTCCLK desde el LSI
+        tm.write32(addr::RCC_B + Rcc::R_CSR, 1u);            // LSION
+        wait(200, SC_US);
+        tm.write32(addr::RCC_B + Rcc::R_BDCR, (2u << 8) | (1u << 15));  // RTCSEL=LSI, RTCEN
+        wait(1, SC_US);
+        check_near(dut->rcc.rtc_freq(), 32e3, 1e-6, "RTCCLK = LSI 32 kHz");
+    }
+
+    // -----------------------------------------------------------------------
+    void t11_puente_apb() {
+        group("T11 Penalizacion del puente AHB->APB [IR, 6.4]");
+        sc_time t_ahb, t_apb1, t_apb2;
+        uint32_t v = 0;
+        rcc_enable(Rcc::R_AHB1ENR, 0);                              // GPIOAEN
+        rcc_enable(Rcc::R_APB1ENR, 28);                             // PWREN
+        tm.access(false, addr::GPIOA_B, buf4_, 4, &t_ahb);          // AHB1 directo
+        rcc_enable(Rcc::R_APB2ENR, 14);                             // SYSCFGEN
+        tm.access(false, addr::SYSCFG_B, buf4_, 4, &t_apb2);        // APB2 (84 MHz)
+        tm.access(false, addr::PWR_B, buf4_, 4, &t_apb1);           // APB1 (42 MHz)
+        (void)v;
+        std::printf("    AHB1 %s | APB2 %s | APB1 %s\n",
+                    t_ahb.to_string().c_str(), t_apb2.to_string().c_str(),
+                    t_apb1.to_string().c_str());
+        check(t_apb1 > t_apb2 && t_apb2 > t_ahb,
+              "el coste crece AHB1 < APB2 < APB1 (2 ciclos del PCLK correspondiente)");
+        const double dt = (t_apb1 - t_ahb).to_seconds();
+        check_near(dt, 2.0 / 42e6, 1e-3, "la penalizacion del puente APB1 son 2 ciclos PCLK1");
+    }
+
+    // -----------------------------------------------------------------------
+    // Proceso paralelo que satura el puerto de SRAM1 para provocar contencion
+    sc_event start_contention_, done_contention_;
+    void contention_proc() {
+        for (;;) {
+            wait(start_contention_);
+            for (unsigned i = 0; i < 200; ++i) {
+                unsigned char d[4] = {1, 2, 3, 4};
+                tm.access_as(BusMaster::DMA2_MEM, false, true,
+                             addr::SRAM1_BASE + 0x800 + (i % 16) * 4, d, 4);
+            }
+            done_contention_.notify(SC_ZERO_TIME);
+        }
+    }
+
+    void t12_contencion() {
+        group("T12 Arbitraje y contencion en un puerto de esclavo [IR, 6.7]");
+        const uint64_t antes = dut->matrix.n_contention;
+        start_contention_.notify(SC_ZERO_TIME);
+        for (unsigned i = 0; i < 200; ++i) tm.write32(addr::SRAM1_BASE + 0x900, i);
+        wait(done_contention_);
+        const uint64_t despues = dut->matrix.n_contention;
+        std::printf("    transacciones con espera: %llu\n",
+                    (unsigned long long)(despues - antes));
+        check(despues > antes,
+              "dos maestros sobre SRAM1 se serializan y el perdedor espera");
+        check(dut->matrix.n_xfer[unsigned(BusMaster::DMA2_MEM)][unsigned(BusSlaveId::SRAM1)] > 0,
+              "la matriz contabiliza las transferencias de DMA2 hacia SRAM1");
+    }
+
+    // -----------------------------------------------------------------------
+    void pulse_nrst() {
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(50, SC_US);
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+        wait(300, SC_US);
+    }
+
+    void t13_reset_nrst() {
+        group("T13 Reset por el pin NRST y flags de RCC_CSR [IR, 4.1/4.10]");
+        // Estado antes del reset: SYSCLK del PLL y GPIOAEN activo
+        rcc_enable(Rcc::R_AHB1ENR, 0);                      // GPIOAEN
+        check(dut->s_pcen[P_GPIOA].read(), "GPIOAEN activo antes del reset");
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(5, SC_US);
+        check(!dut->s_sysrst_n.read(), "NRST a nivel bajo activa el reset de sistema");
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+        wait(300, SC_US);
+        check(dut->s_sysrst_n.read(), "el reset se libera al soltar NRST");
+        check(!dut->s_pcen[P_GPIOA].read(), "RCC_AHB1ENR vuelve a su valor de reset");
+        check_near(dut->rcc.sysclk_hz(), 16e6, 1e-6, "SYSCLK vuelve al HSI de 16 MHz");
+        uint32_t csr = 0;
+        tm.read32(addr::RCC_B + Rcc::R_CSR, csr);
+        check((csr & (1u << 26)) != 0, "RCC_CSR.PINRSTF marca el reset por pin");
+        tm.write32(addr::RCC_B + Rcc::R_CSR, (1u << 24));      // RMVF
+        tm.read32(addr::RCC_B + Rcc::R_CSR, csr);
+        check_eq(csr & 0xFE000000u, 0u, "RMVF limpia los flags de fuente de reset");
+    }
+
+    // -----------------------------------------------------------------------
+    void t14_cargador_y_boot() {
+        group("T14 Cargador de imagen y alias de arranque de 0x0 [IR, 2.3/5.1]");
+        ImageLoader ld(*dut);
+        check(ld.write_reset_vector(0x20020000u, 0x08000101u),
+              "tabla de vectores minima escrita en la Flash");
+        const uint8_t codigo[8] = {0xEF, 0xBE, 0xAD, 0xDE, 0x0D, 0xF0, 0xFE, 0xCA};
+        check(ld.load_bytes(addr::FLASH_BASE + 0x100, codigo, 8),
+              "imagen de firmware cargada en la Flash");
+        check(ld.load_bytes(addr::SRAM1_BASE + 0x2000, codigo, 8),
+              "imagen cargada tambien en SRAM1");
+
+        tm.master = BusMaster::CORE_IBUS; tm.instr = true;
+        check_eq(tm.rd32(addr::FLASH_BASE + 0x0), 0x20020000u,
+                 "MSP inicial leido en 0x0800 0000");
+        check_eq(tm.rd32(addr::FLASH_BASE + 0x4), 0x08000101u,
+                 "vector de reset leido en 0x0800 0004");
+        check_eq(tm.rd32(addr::FLASH_BASE + 0x100), 0xDEADBEEFu,
+                 "primera palabra de la imagen");
+
+        // Alias de 0x0000 0000 con BOOT0 = 0 (Flash principal)
+        check_eq(dut->s_boot.read(), 0u, "BOOT[1:0] muestreado = 00 (Flash principal)");
+        check_eq(dut->s_memmode.read(), uint8_t(MEM_MODE_FLASH),
+                 "SYSCFG_MEMRMP.MEM_MODE = Flash principal");
+        uint32_t v = 0;
+        dut->core.debug.ap_read32(0x00000000u, v);
+        check_eq(v, 0x20020000u, "0x0000 0000 refleja la Flash a traves del router");
+        dut->core.debug.ap_read32(0x00000004u, v);
+        check_eq(v, 0x08000101u, "0x0000 0004 refleja el vector de reset");
+
+        // Remapeo a SRAM1 por software (SYSCFG_MEMRMP = 11)
+        tm.master = BusMaster::CORE_SBUS; tm.instr = false;
+        rcc_enable(Rcc::R_APB2ENR, 14);                     // SYSCFGEN
+        tm.write32(addr::SYSCFG_B + Syscfg::MEMRMP, MEM_MODE_SRAM1);
+        wait(SC_ZERO_TIME);
+        check_eq(dut->s_memmode.read(), uint8_t(MEM_MODE_SRAM1),
+                 "SYSCFG_MEMRMP conmuta el espejo a SRAM1");
+        dut->core.debug.ap_read32(0x00002000u, v);
+        check_eq(v, 0xDEADBEEFu, "0x0000 2000 refleja ahora la SRAM1");
+
+        // Arranque desde la memoria de sistema con BOOT0 = 1
+        tm.write32(addr::SYSCFG_B + Syscfg::MEMRMP, MEM_MODE_FLASH);
+        dut->flash.poke_byte(addr::SYSMEM_BASE + 0, 0x5A);
+        dut->pwr_pads.boot0.set_drive(d_bt0, 3.3f, 100.0f);   // BOOT0 = 1
+        pulse_nrst();
+        check_eq(dut->s_boot.read(), 1u, "BOOT[1:0] muestreado = 01 tras el reset");
+        check_eq(dut->s_memmode.read(), uint8_t(MEM_MODE_SYSTEM),
+                 "MEM_MODE arranca en System memory con BOOT0 = 1");
+        dut->core.debug.ap_read32(0x00000000u, v);
+        check_eq(v & 0xFFu, 0x5Au, "0x0000 0000 refleja la System memory (bootloader)");
+    }
+
+private:
+    unsigned char buf4_[4] = {0, 0, 0, 0};
+};
+
+// ---------------------------------------------------------------------------
+int sc_main(int argc, char** argv) {
+    // Los avisos del modelo (limites de frecuencia, latencia de Flash, rangos
+    // del VCO) se silencian porque la propia suite provoca esas situaciones a
+    // proposito durante la reconfiguracion del arbol de reloj.
+    sc_report_handler::set_actions("rcc", SC_WARNING, SC_DO_NOTHING);
+    sc_report_handler::set_actions("flash", SC_WARNING, SC_DO_NOTHING);
+    sc_report_handler::set_actions("pll", SC_WARNING, SC_DO_NOTHING);
+
+    F1Tb tb("tb");
+    // Argumento opcional: imagen de firmware a cargar (.bin o .hex)
+    if (argc > 1) {
+        std::printf("Imagen solicitada: %s (se cargara al iniciar la simulacion)\n", argv[1]);
+    }
+    sc_start();
+    std::printf("\nTiempo simulado: %s\n", sc_time_stamp().to_string().c_str());
+    return (g_fail == 0) ? 0 : 1;
+}
