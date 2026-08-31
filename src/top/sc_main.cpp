@@ -33,6 +33,16 @@
 //   T23 Salidas de reloj MCO1/MCO2 medidas en el pin            [IR, §4.5.3]
 //   T24 Supervisión POR/PDR/BOR con los option bytes            [IR, §5.7.1]
 //   T25 Blinky compilado con CMSIS                [criterio de salida de F3]
+//
+// Fase F4 (DMA, puertos serie y temporizadores):
+//   T26-T31 DMA1 y DMA2                                        [IR, §11]
+//   T32-T37 USART y UART                                       [IR, §12.4]
+//   T38 TIM: seleccion del tipo de temporizador   [IR, §12.1-12.3, §12.8]
+//   T39 TIM: base de tiempos, prescaler y modos de conteo      [IR, §12.1.4]
+//   T40 TIM: PWM, complementarias, tiempo muerto y freno       [IR, §12.1.1]
+//   T41 TIM: captura, cadena ITRx y codificador incremental
+//   T42 TIM: interrupciones, TRGO y DMA               [IR, §12.1.3, §9.1.2]
+//   T43 TIM gobernados por firmware con CMSIS
 // =============================================================================
 #include <systemc>
 #include <cstdio>
@@ -114,6 +124,21 @@ SC_MODULE(F1Tb) {
     sc_signal<double> s_rt_hz{"s_rt_hz"};
     sc_signal<bool>   s_rt_irq{"s_rt_irq"}, s_rt_drx{"s_rt_drx"}, s_rt_dtx{"s_rt_dtx"};
 
+    // --- Circuitería de las pruebas de temporizadores -----------------------
+    // Pista de placa PD12 (TIM4_CH1, la salida PWM que ilumina el LED) -> PB4
+    // (TIM3_CH1, la entrada de captura). Se suelda solo para esas pruebas.
+    SignalLink* lnk_pwm = nullptr;
+    Driver* drv_pb4 = nullptr;   // eje A del codificador (TIM3_CH1)
+    Driver* drv_pb5 = nullptr;   // eje B del codificador (TIM3_CH2)
+    Driver* drv_pa6 = nullptr;   // entrada de freno TIM1_BKIN
+    // Temporizador con rasgos elegidos en TIEMPO DE EJECUCIÓN (véase T38)
+    TimerBase* t_rt = nullptr;
+    BusTestMaster tm3{"tm3"};
+    sc_signal<bool>   s_tt_true{"s_tt_true"}, s_tt_rst{"s_tt_rst"};
+    sc_signal<bool>   s_tt_clk{"s_tt_clk"}, s_tt_fz{"s_tt_fz"};
+    sc_signal<double> s_tt_hz{"s_tt_hz"};
+    sc_vector<sc_signal<bool>> s_tt_nc{"s_tt_nc", 16};
+
     // Drivers externos de los nodos analógicos de alimentación / reset / boot
     int d_vdd = -1, d_vdda = -1, d_nrst = -1, d_bt0 = -1, d_pb2 = -1;
 
@@ -144,12 +169,38 @@ SC_MODULE(F1Tb) {
         u_rt->clk(dut->s_pclk1); u_rt->clk_hz(dut->s_pclk1_hz);
         u_rt->rst_n(s_rt_rst);   u_rt->clk_en(s_rt_true);
         u_rt->irq(s_rt_irq); u_rt->dma_req_rx(s_rt_drx); u_rt->dma_req_tx(s_rt_dtx);
+
+        // --- Circuitería de las pruebas de temporizadores -------------------
+        lnk_pwm = new SignalLink("lnk_pwm", dut->pinmux.analog(3, 12),   // PD12
+                                            dut->pinmux.analog(1, 4));   // PB4
+        lnk_pwm->set_enabled(false);
+        drv_pb4 = new Driver(dut->pinmux.analog(1, 4));
+        drv_pb5 = new Driver(dut->pinmux.analog(1, 5));
+        drv_pa6 = new Driver(dut->pinmux.analog(0, 6));
+        // Variante de temporizador que NO existe en el F407: contador de 32
+        // bits con solo dos canales. Demuestra que los ejes (anchura, canales,
+        // recursos) son independientes y se fijan por el constructor.
+        t_rt = new TimerBase("t_rt", 0x40001800u, /*bits=*/32, /*canales=*/2);
+        tm3.isk.bind(t_rt->tsk);
+        t_rt->clk(dut->s_pclk1);   t_rt->clk_hz(dut->s_pclk1_hz);
+        t_rt->rst_n(s_tt_rst);     t_rt->clk_en(s_tt_true);
+        t_rt->timclk(dut->s_timclk1); t_rt->timclk_hz(dut->s_timclk1_hz);
+        t_rt->freeze(s_tt_fz);
+        for (unsigned i = 0; i < 4; ++i) t_rt->itr[i](s_tt_fz);
+        t_rt->irq_global(s_tt_nc[0]); t_rt->irq_up(s_tt_nc[1]);
+        t_rt->irq_cc(s_tt_nc[2]);     t_rt->irq_trg_com(s_tt_nc[3]);
+        t_rt->irq_brk(s_tt_nc[4]);    t_rt->trgo(s_tt_nc[5]);
+        t_rt->dma_up(s_tt_nc[6]);     t_rt->dma_trig(s_tt_nc[7]);
+        t_rt->dma_com(s_tt_nc[8]);
+        for (unsigned i = 0; i < 4; ++i) t_rt->dma_cc[i](s_tt_nc[9 + i]);
         // La pila por defecto de un SC_THREAD (64 KB) se queda corta con las
         // cadenas de llamadas TLM anidadas al compilar con sanitizers.
         SC_THREAD(stim_proc);        set_stack_size(1024 * 1024);
         SC_THREAD(contention_proc);  set_stack_size(256 * 1024);
     }
     ~F1Tb() {
+        delete t_rt;
+        delete drv_pa6; delete drv_pb5; delete drv_pb4; delete lnk_pwm;
         delete u_rt;
         delete lnk_u5_u4; delete lnk_u4_u5; delete lnk_u3_u2; delete lnk_u2_u3;
         delete osc_ext; delete btn_pa0; delete led_pd12;
@@ -257,6 +308,15 @@ SC_MODULE(F1Tb) {
         t35_usart_lazo();
         t36_usart_dma();
         t37_usart_firmware();
+        const unsigned f4u_pass = g_pass, f4u_fail = g_fail;
+
+        // ================ Fase F4: temporizadores TIM =======================
+        t38_tim_variantes();
+        t39_tim_base_tiempos();
+        t40_tim_pwm();
+        t41_tim_captura_esclavo();
+        t42_tim_irq_dma();
+        t43_tim_firmware();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -267,7 +327,9 @@ SC_MODULE(F1Tb) {
         std::printf("Resumen F4 (DMA): %u comprobaciones OK, %u fallos\n",
                     f4d_pass - f3_pass, f4d_fail - f3_fail);
         std::printf("Resumen F4 (USART): %u comprobaciones OK, %u fallos\n",
-                    g_pass - f4d_pass, g_fail - f4d_fail);
+                    f4u_pass - f4d_pass, f4u_fail - f4d_fail);
+        std::printf("Resumen F4 (TIM)  : %u comprobaciones OK, %u fallos\n",
+                    g_pass - f4u_pass, g_fail - f4u_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -2463,6 +2525,700 @@ SC_MODULE(F1Tb) {
         dut->rcc.set_internal_waveforms(true);
     }
 
+    // =======================================================================
+    // FASE F4 — Temporizadores TIM1..TIM14
+    // =======================================================================
+    static constexpr uint32_t T1 = addr::TIM1_B, T2 = addr::TIM2_B,
+                              T3 = addr::TIM3_B, T4 = addr::TIM4_B,
+                              T5 = addr::TIM5_B, T6 = addr::TIM6_B,
+                              T9 = addr::TIM9_B, T10 = addr::TIM10_B;
+    static constexpr uint32_t T_RT = 0x40001800u;     // variante de ejecución
+
+    uint32_t t_rd(uint32_t b, uint32_t off) { uint32_t v = 0; tm.read32(b + off, v); return v; }
+    void     t_wr(uint32_t b, uint32_t off, uint32_t v) { tm.write32(b + off, v); }
+
+    // Relojes de los catorce temporizadores y de los GPIO que usan sus canales
+    void tim_clocks_on() {
+        for (unsigned p = 0; p < 5; ++p) rcc_enable(Rcc::R_AHB1ENR, p);   // GPIOA..E
+        for (unsigned b = 0; b <= 8; ++b) rcc_enable(Rcc::R_APB1ENR, b);  // TIM2..7,12..14
+        rcc_enable(Rcc::R_APB2ENR, 0);   // TIM1
+        rcc_enable(Rcc::R_APB2ENR, 1);   // TIM8
+        for (unsigned b = 16; b <= 18; ++b) rcc_enable(Rcc::R_APB2ENR, b); // TIM9..11
+    }
+    // Pines de los canales usados en las pruebas
+    void tim_pins_af() {
+        pin_cfg(3, 12, 2, 0, false, 3, 2);   // PD12 TIM4_CH1  (LED verde, AF2)
+        pin_cfg(0,  8, 2, 0, false, 3, 1);   // PA8  TIM1_CH1  (AF1)
+        pin_cfg(0,  7, 2, 0, false, 3, 1);   // PA7  TIM1_CH1N (AF1)
+        pin_cfg(0,  6, 2, 1, false, 3, 1);   // PA6  TIM1_BKIN (AF1, pull-up)
+    }
+    // Programa una base de tiempos y la arranca. El orden es el del manual:
+    // primero la configuración, luego UG para cargar PSC/ARR, y CEN al final.
+    void tim_start(uint32_t b, uint32_t psc, uint32_t arr, uint32_t cr1 = 0) {
+        t_wr(b, TimerBase::R_CR1, 0);
+        t_wr(b, TimerBase::R_PSC, psc);
+        t_wr(b, TimerBase::R_ARR, arr);
+        t_wr(b, TimerBase::R_CR1, cr1);              // sentido y alineación
+        t_wr(b, TimerBase::R_EGR, 1u);               // UG: carga PSC y ARR
+        t_wr(b, TimerBase::R_SR, 0);                 // borra UIF de la reinicialización
+        t_wr(b, TimerBase::R_CR1, cr1 | 1u);         // CEN
+    }
+    // Espera a que un pin alcance un nivel, con plazo máximo
+    bool wait_pin(unsigned k, bool level, sc_time limit) {
+        const sc_time t0 = sc_time_stamp();
+        while (dut->pinmux.pad_din[k].read() != level) {
+            const sc_time left = limit - (sc_time_stamp() - t0);
+            if (left <= SC_ZERO_TIME) return false;
+            wait(left, dut->pinmux.pad_din[k].value_changed_event());
+        }
+        return true;
+    }
+    // Mide un periodo completo de la señal de un pin: periodo y tiempo en alto
+    struct PwmMeas { double period = 0.0, high = 0.0; bool ok = false; };
+    PwmMeas measure_pwm(unsigned k, sc_time limit) {
+        PwmMeas m;
+        if (!wait_pin(k, false, limit)) return m;
+        if (!wait_pin(k, true,  limit)) return m;
+        const sc_time t_rise = sc_time_stamp();
+        if (!wait_pin(k, false, limit)) return m;
+        const sc_time t_fall = sc_time_stamp();
+        if (!wait_pin(k, true,  limit)) return m;
+        m.period = (sc_time_stamp() - t_rise).to_seconds();
+        m.high   = (t_fall - t_rise).to_seconds();
+        m.ok     = true;
+        return m;
+    }
+    // Espera a que se levante una bandera de SR
+    bool tim_wait_flag(uint32_t b, uint32_t bit, sc_time limit) {
+        const sc_time t0 = sc_time_stamp();
+        while (sc_time_stamp() - t0 < limit) {
+            if (t_rd(b, TimerBase::R_SR) & bit) return true;
+            wait(20, SC_US);
+        }
+        return false;
+    }
+    // Espera un flanco de subida de una señal interna (TRGO, IRQ...)
+    bool wait_signal(const sc_signal<bool>& s, sc_time limit) {
+        const sc_time t0 = sc_time_stamp();
+        while (sc_time_stamp() - t0 < limit) {
+            if (s.read()) return true;
+            wait(limit - (sc_time_stamp() - t0), s.posedge_event());
+        }
+        return s.read();
+    }
+
+    // -----------------------------------------------------------------------
+    // T38 — Selección del tipo de temporizador [IR, §12.1-12.3, §12.8]
+    // -----------------------------------------------------------------------
+    void t38_tim_variantes() {
+        group("T38 TIM: seleccion del tipo de temporizador [IR, 12.1-12.3, 12.8]");
+        reset_dut();
+        tim_clocks_on();
+        s_tt_true.write(true); s_tt_rst.write(true);
+        wait(2, SC_US);
+
+        // --- Selección en tiempo de compilación (parámetro de plantilla) ----
+        static_assert(TimAdvanced::has_bdtr(),   "los avanzados tienen BDTR");
+        static_assert(TimGp32::is_32bit(),       "TIM2/TIM5 son de 32 bits");
+        static_assert(TimBasic::channels() == 0, "TIM6/TIM7 no tienen canales");
+        check(TimAdvanced::channels() == 4 && TimGp2Ch::channels() == 2 &&
+              TimGp1Ch::channels() == 1 && TimBasic::channels() == 0,
+              "el parametro de plantilla fija el numero de canales de cada familia");
+        check(TimGp32::is_32bit() && !TimGp16::is_32bit(),
+              "el parametro de plantilla fija la anchura del contador");
+        check(TimAdvanced::has_bdtr() && !TimGp32::has_bdtr(),
+              "solo los avanzados llevan freno y tiempo muerto");
+        check(dut->tim2.caps().width_bits == 32 && dut->tim3.caps().width_bits == 16,
+              "las instancias del top declaran sus rasgos");
+        check(!std::string(dut->tim1.caps().kind).compare("avanzado") &&
+              !std::string(dut->tim6.caps().kind).compare("basico"),
+              "cada instancia se identifica con su familia");
+
+        // --- Efecto observable 1: la anchura del contador -------------------
+        check_eq(t_rd(T2, TimerBase::R_ARR), 0xFFFFFFFFu,
+                 "ARR de reset de TIM2 = 0xFFFFFFFF (contador de 32 bits)");
+        check_eq(t_rd(T3, TimerBase::R_ARR), 0x0000FFFFu,
+                 "ARR de reset de TIM3 = 0xFFFF (contador de 16 bits)");
+        t_wr(T2, TimerBase::R_CNT, 0x12345678u);
+        t_wr(T3, TimerBase::R_CNT, 0x12345678u);
+        check_eq(t_rd(T2, TimerBase::R_CNT), 0x12345678u, "TIM2_CNT guarda 32 bits");
+        check_eq(t_rd(T3, TimerBase::R_CNT), 0x00005678u,
+                 "TIM3_CNT trunca a 16 bits, como el silicio");
+        t_wr(T5, TimerBase::R_CCR1, 0xDEADBEEFu);
+        check_eq(t_rd(T5, TimerBase::R_CCR1), 0xDEADBEEFu, "TIM5_CCR1 tambien es de 32 bits");
+
+        // --- Efecto observable 2: los campos que la variante no tiene -------
+        struct { uint32_t base; const char* nm; } all[] = {
+            {T1, "TIM1 "}, {T2, "TIM2 "}, {T3, "TIM3 "}, {T9, "TIM9 "},
+            {T10, "TIM10"}, {T6, "TIM6 "}
+        };
+        std::printf("           CR1    CR2    SMCR   DIER   CCER   BDTR RCR  DCR\n");
+        uint32_t cr1_of[6] = {0, 0, 0, 0, 0, 0};
+        unsigned ti = 0;
+        for (auto& t : all) {
+            t_wr(t.base, TimerBase::R_CR1,  0xFFFFu);
+            t_wr(t.base, TimerBase::R_CR2,  0xFFFFu);
+            t_wr(t.base, TimerBase::R_SMCR, 0xFFFFu);
+            t_wr(t.base, TimerBase::R_DIER, 0xFFFFu);
+            t_wr(t.base, TimerBase::R_CCER, 0xFFFFu);
+            t_wr(t.base, TimerBase::R_BDTR, 0xFFFFu);
+            t_wr(t.base, TimerBase::R_RCR,  0xFFFFu);
+            t_wr(t.base, TimerBase::R_DCR,  0xFFFFu);
+            std::printf("    %s 0x%04X 0x%04X 0x%04X 0x%04X 0x%04X 0x%04X 0x%02X 0x%04X\n",
+                        t.nm,
+                        t_rd(t.base, TimerBase::R_CR1),  t_rd(t.base, TimerBase::R_CR2),
+                        t_rd(t.base, TimerBase::R_SMCR), t_rd(t.base, TimerBase::R_DIER),
+                        t_rd(t.base, TimerBase::R_CCER), t_rd(t.base, TimerBase::R_BDTR),
+                        t_rd(t.base, TimerBase::R_RCR),  t_rd(t.base, TimerBase::R_DCR));
+            cr1_of[ti++] = t_rd(t.base, TimerBase::R_CR1);
+            t_wr(t.base, TimerBase::R_CR1, 0);           // no dejarlo contando
+        }
+        check_eq(cr1_of[0], 0x03FFu,
+                 "TIM1_CR1: CKD, ARPE, CMS, DIR, OPM, URS, UDIS y CEN escribibles");
+        check_eq(cr1_of[4], 0x0387u,
+                 "TIM10_CR1: sin CMS, sin DIR y sin OPM (solo cuenta ascendente)");
+        check_eq(cr1_of[5], 0x008Fu,
+                 "TIM6_CR1: version reducida, solo ARPE/OPM/URS/UDIS/CEN [IR, 12.3.2]");
+        check_eq(t_rd(T1, TimerBase::R_BDTR), 0xFFFFu, "TIM1 tiene BDTR completo");
+        check_eq(t_rd(T3, TimerBase::R_BDTR), 0u, "TIM3 no tiene BDTR: lee cero");
+        check_eq(t_rd(T1, TimerBase::R_RCR), 0xFFu, "TIM1 tiene contador de repeticiones");
+        check_eq(t_rd(T3, TimerBase::R_RCR), 0u, "TIM3 no tiene RCR: lee cero");
+        check_eq(t_rd(T3, TimerBase::R_SMCR), 0xFFF7u,
+                 "TIM3: controlador de esclavo completo, con ETR");
+        check_eq(t_rd(T9, TimerBase::R_SMCR), 0x00F7u,
+                 "TIM9: esclavo si, pero sin entrada ETR [IR, 12.8]");
+        check_eq(t_rd(T10, TimerBase::R_SMCR), 0u, "TIM10: sin controlador de esclavo");
+        check_eq(t_rd(T3, TimerBase::R_CCER), 0xBBBBu,
+                 "TIM3: cuatro canales sin salida complementaria");
+        check_eq(t_rd(T1, TimerBase::R_CCER), 0xBFFFu,
+                 "TIM1: los tres primeros canales tienen CCxNE");
+        check_eq(t_rd(T9, TimerBase::R_CCER), 0x00BBu, "TIM9: solo dos canales");
+        check_eq(t_rd(T10, TimerBase::R_CCER), 0x000Bu, "TIM10: un solo canal");
+        check_eq(t_rd(T6, TimerBase::R_CCER), 0u, "TIM6: ningun canal");
+        check_eq(t_rd(T3, TimerBase::R_DIER) & 0x7F00u, 0x5F00u & 0x7F00u,
+                 "TIM3: habilitaciones de DMA presentes (UDE, CCxDE, TDE)");
+        check_eq(t_rd(T9, TimerBase::R_DIER) & 0x7F00u, 0u,
+                 "TIM9: sin peticiones de DMA en el F407 [IR, 11.4]");
+        check_eq(t_rd(T1, TimerBase::R_DCR), 0x1F1Fu, "TIM1 tiene modo rafaga DCR/DMAR");
+        check_eq(t_rd(T9, TimerBase::R_DCR), 0u, "TIM9 no tiene modo rafaga");
+        check_eq(t_rd(T6, TimerBase::R_CR2) & 0x70u, 0x70u,
+                 "TIM6 conserva MMS: su TRGO es el disparo del DAC [IR, 12.3.1]");
+
+        // --- Selección en tiempo de ejecución (parámetro del constructor) ---
+        // Un temporizador que NO existe en el F407: 32 bits con dos canales.
+        tm3.write32(T_RT + TimerBase::R_ARR,  0xFFFFFFFFu);
+        tm3.write32(T_RT + TimerBase::R_CCER, 0xFFFFu);
+        tm3.write32(T_RT + TimerBase::R_CR1,  0xFFFEu);
+        tm3.write32(T_RT + TimerBase::R_BDTR, 0xFFFFu);
+        tm3.write32(T_RT + TimerBase::R_DCR,  0xFFFFu);
+        uint32_t rarr = 0, rccer = 0, rcr1 = 0, rbdtr = 0, rdcr = 0;
+        tm3.read32(T_RT + TimerBase::R_ARR,  rarr);
+        tm3.read32(T_RT + TimerBase::R_CCER, rccer);
+        tm3.read32(T_RT + TimerBase::R_CR1,  rcr1);
+        tm3.read32(T_RT + TimerBase::R_BDTR, rbdtr);
+        tm3.read32(T_RT + TimerBase::R_DCR,  rdcr);
+        std::printf("    variante en ejecucion (%s, %u bits, %u canales): "
+                    "ARR = 0x%08X, CCER = 0x%04X, CR1 = 0x%04X\n",
+                    t_rt->caps().kind, t_rt->caps().width_bits, t_rt->caps().channels,
+                    rarr, rccer, rcr1);
+        check_eq(rarr, 0xFFFFFFFFu,
+                 "variante de ejecucion: contador de 32 bits pedido al constructor");
+        check_eq(rccer, 0x00BBu, "variante de ejecucion: exactamente dos canales");
+        check_eq(rbdtr, 0u, "variante de ejecucion: sin BDTR");
+        check_eq(rdcr, 0u, "variante de ejecucion: sin modo rafaga");
+        check(t_rt->caps().width_bits == 32 && t_rt->caps().channels == 2,
+              "los ejes anchura y numero de canales son independientes");
+        tm3.write32(T_RT + TimerBase::R_CR1, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // T39 — Base de tiempos, prescaler y modos de conteo [IR, §12.1.4]
+    // -----------------------------------------------------------------------
+    void t39_tim_base_tiempos() {
+        group("T39 TIM: base de tiempos, prescaler y modos de conteo [IR, 12.1.4]");
+        reset_dut();
+        tim_clocks_on();
+        check_near(dut->s_timclk1_hz.read(), 16e6, 0.001,
+                   "TIMCLK1 = PCLK1 = 16 MHz tras el reset (prescaler APB1 = 1)");
+
+        // --- Prescaler ------------------------------------------------------
+        tim_start(T3, 15, 0xFFFF);                       // 1 MHz de cuenta
+        check_near(dut->tim3.tick_hz(), 1.0e6, 0.001,
+                   "PSC = 15 divide TIMCLK por 16: un paso por microsegundo");
+        wait(100, SC_US);
+        check_near(double(t_rd(T3, TimerBase::R_CNT)), 100.0, 0.05,
+                   "CNT ha avanzado 100 pasos en 100 us");
+        wait(100, SC_US);
+        check_near(double(t_rd(T3, TimerBase::R_CNT)), 200.0, 0.05,
+                   "y 200 al cabo de 200 us: la lectura interpola el contador");
+
+        // --- Desbordamiento y bandera UIF -----------------------------------
+        tim_start(T3, 15, 99);                           // periodo de 100 us
+        const uint64_t u0 = dut->tim3.update_events();
+        wait(1, SC_MS);
+        const double nuev = double(dut->tim3.update_events() - u0);
+        std::printf("    %g eventos de update en 1 ms con ARR = 99\n", nuev);
+        check(nuev >= 9.0 && nuev <= 11.0, "diez desbordamientos en un milisegundo");
+        check(t_rd(T3, TimerBase::R_SR) & TimerBase::S_UIF, "UIF activo tras el desbordamiento");
+        t_wr(T3, TimerBase::R_SR, 0);
+        check(!(t_rd(T3, TimerBase::R_SR) & TimerBase::S_UIF),
+              "UIF es rc_w0: escribir cero lo borra");
+
+        // --- UDIS y URS -----------------------------------------------------
+        tim_start(T3, 15, 99, 1u << 1);                  // UDIS
+        const uint64_t u1 = dut->tim3.update_events();
+        wait(300, SC_US);
+        check_eq(dut->tim3.update_events() - u1, 0u,
+                 "con UDIS = 1 el desbordamiento no genera evento de update");
+        tim_start(T3, 15, 99, 1u << 2);                  // URS
+        t_wr(T3, TimerBase::R_SR, 0);
+        t_wr(T3, TimerBase::R_EGR, 1u);                  // UG por software
+        check(!(t_rd(T3, TimerBase::R_SR) & TimerBase::S_UIF),
+              "con URS = 1 el UG por software no levanta UIF");
+        check(tim_wait_flag(T3, TimerBase::S_UIF, sc_time(300, SC_US)),
+              "pero el desbordamiento del contador si lo levanta");
+
+        // --- Precarga de ARR (ARPE) -----------------------------------------
+        tim_start(T3, 15, 999, 1u << 7);                 // ARPE, periodo 1 ms
+        wait(300, SC_US);
+        t_wr(T3, TimerBase::R_ARR, 99);                  // nuevo periodo, en sombra
+        wait(10, SC_US);
+        const uint32_t c_arpe = t_rd(T3, TimerBase::R_CNT);
+        check(c_arpe > 99, "con ARPE el ARR nuevo aun no esta activo: CNT pasa de 99");
+        check_eq(t_rd(T3, TimerBase::R_ARR), 99u, "aunque el registro ya se lee con el valor nuevo");
+        wait(1, SC_MS);                                  // tras el siguiente update
+        check(t_rd(T3, TimerBase::R_CNT) <= 99u,
+              "despues del evento de update el contador ya usa el ARR nuevo");
+        // Sin ARPE el cambio es inmediato
+        tim_start(T3, 15, 999);
+        wait(300, SC_US);
+        t_wr(T3, TimerBase::R_ARR, 99);
+        wait(150, SC_US);
+        check(t_rd(T3, TimerBase::R_CNT) <= 99u, "sin ARPE, ARR toma efecto de inmediato");
+
+        // --- Conteo descendente ---------------------------------------------
+        tim_start(T3, 15, 999, 1u << 4);                 // DIR = 1
+        wait(100, SC_US);
+        const uint32_t cd = t_rd(T3, TimerBase::R_CNT);
+        std::printf("    CNT = %u a los 100 us contando hacia abajo desde 999\n", cd);
+        check(cd > 880 && cd < 920, "en modo descendente CNT baja desde ARR");
+        check(dut->tim3.counting_down(), "el modelo declara el sentido descendente");
+
+        // --- Alineado al centro ---------------------------------------------
+        tim_start(T3, 15, 999, 1u << 5);                 // CMS = 01
+        wait(500, SC_US);
+        check(!dut->tim3.counting_down(), "en modo centro primero sube");
+        wait(700, SC_US);                                // t = 1.2 ms
+        check(dut->tim3.counting_down(), "y al llegar a ARR cambia de sentido");
+        const uint32_t cc = t_rd(T3, TimerBase::R_CNT);
+        std::printf("    CNT = %u a los 1.2 ms en modo alineado al centro\n", cc);
+        check(cc > 750 && cc < 850, "el contador baja desde ARR en la segunda mitad");
+
+        // --- Un solo pulso (TIM6, el basico) --------------------------------
+        tim_start(T6, 15, 99, 1u << 3);                  // OPM
+        wait(300, SC_US);
+        check_eq(t_rd(T6, TimerBase::R_CR1) & 1u, 0u,
+                 "OPM: el hardware borra CEN al primer evento de update");
+        check(t_rd(T6, TimerBase::R_SR) & TimerBase::S_UIF,
+              "y deja la bandera de update levantada");
+
+        // --- Contador de repeticiones (solo avanzados) ----------------------
+        t_wr(T1, TimerBase::R_CR1, 0);
+        t_wr(T1, TimerBase::R_PSC, 15);
+        t_wr(T1, TimerBase::R_ARR, 99);
+        t_wr(T1, TimerBase::R_RCR, 3);                   // un update cada 4 desbordes
+        t_wr(T1, TimerBase::R_EGR, 1u);
+        t_wr(T1, TimerBase::R_SR, 0);
+        const uint64_t r0 = dut->tim1.update_events();
+        t_wr(T1, TimerBase::R_CR1, 1u);
+        wait(1, SC_MS);
+        const double nrep = double(dut->tim1.update_events() - r0);
+        std::printf("    %g eventos de update en 1 ms con RCR = 3 (10 desbordamientos)\n", nrep);
+        check(nrep >= 2.0 && nrep <= 3.0,
+              "RCR = 3: un evento de update cada cuatro desbordamientos");
+        t_wr(T1, TimerBase::R_CR1, 0);
+        t_wr(T3, TimerBase::R_CR1, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // T40 — PWM y salidas complementarias medidas en el pin
+    // -----------------------------------------------------------------------
+    void t40_tim_pwm() {
+        group("T40 TIM: PWM, complementarias y freno medidos en el pin");
+        reset_dut();
+        tim_clocks_on();
+        tim_pins_af();
+        const unsigned k_pd12 = 3 * N_PORT_PINS + 12;
+        const unsigned k_pa8  = 0 * N_PORT_PINS + 8;
+        const unsigned k_pa7  = 0 * N_PORT_PINS + 7;
+
+        // --- TIM4_CH1 en PD12: PWM de 1 kHz al 25 % -------------------------
+        t_wr(T4, TimerBase::R_CCMR1, (6u << 4) | (1u << 3));   // OC1M = PWM1, OC1PE
+        t_wr(T4, TimerBase::R_CCR1, 250);
+        t_wr(T4, TimerBase::R_CCER, 1u);                       // CC1E
+        tim_start(T4, 15, 999, 1u << 7);                       // ARPE, periodo 1 ms
+        check(!dut->pinmux.pad[3][12]->is_floating(),
+              "en modo AF el temporizador gobierna el pin PD12");
+        PwmMeas m = measure_pwm(k_pd12, sc_time(5, SC_MS));
+        std::printf("    PD12: periodo = %.1f us, alto = %.1f us (%.1f %%)\n",
+                    m.period * 1e6, m.high * 1e6, 100.0 * m.high / m.period);
+        check(m.ok, "la salida de comparacion conmuta el pin");
+        check_near(m.period, 1.0e-3, 0.02, "periodo del PWM medido en el pin [s]");
+        check_near(m.high / m.period, 0.25, 0.05, "ciclo de trabajo del 25 %");
+        check(led_pd12->on() == dut->pinmux.pad_din[k_pd12].read(),
+              "el LED de la placa sigue al PWM sin que la CPU toque el puerto");
+
+        // Cambiar CCR1 cambia el ciclo de trabajo
+        t_wr(T4, TimerBase::R_CCR1, 750);
+        wait(2, SC_MS);
+        m = measure_pwm(k_pd12, sc_time(5, SC_MS));
+        check_near(m.high / m.period, 0.75, 0.05, "CCR1 = 750 da un ciclo del 75 %");
+
+        // La polaridad CC1P invierte la salida
+        t_wr(T4, TimerBase::R_CCER, 1u | (1u << 1));           // CC1E | CC1P
+        wait(2, SC_MS);
+        m = measure_pwm(k_pd12, sc_time(5, SC_MS));
+        check_near(m.high / m.period, 0.25, 0.05, "CC1P invierte la polaridad de la salida");
+        t_wr(T4, TimerBase::R_CR1, 0);
+
+        // --- TIM1: salidas complementarias, MOE y tiempo muerto -------------
+        t_wr(T1, TimerBase::R_CCMR1, (6u << 4));               // OC1M = PWM1
+        t_wr(T1, TimerBase::R_CCR1, 500);
+        t_wr(T1, TimerBase::R_CCER, (1u << 0) | (1u << 2));    // CC1E | CC1NE
+        t_wr(T1, TimerBase::R_BDTR, 0);                        // MOE = 0
+        tim_start(T1, 15, 999);
+        wait(50, SC_US);
+        check(dut->pinmux.pad[0][8]->is_floating(),
+              "con MOE = 0 y OSSI = 0 las salidas quedan en alta impedancia [IR, 12.1.4-C]");
+        t_wr(T1, TimerBase::R_BDTR, 1u << 15);                 // MOE = 1
+        wait(50, SC_US);
+        check(!dut->pinmux.pad[0][8]->is_floating(), "MOE = 1 habilita las salidas OC y OCN");
+        m = measure_pwm(k_pa8, sc_time(5, SC_MS));
+        check_near(m.high / m.period, 0.50, 0.05, "TIM1_CH1 en PA8 al 50 %");
+        // Sin tiempo muerto las dos salidas son exactamente complementarias
+        check(wait_pin(k_pa8, true, sc_time(2, SC_MS)), "PA8 alto");
+        check(!dut->pinmux.pad_din[k_pa7].read(),
+              "con OCx activa, la complementaria OCxN esta inactiva");
+        check(wait_pin(k_pa8, false, sc_time(2, SC_MS)), "PA8 bajo");
+        wait(20, SC_US);
+        check(dut->pinmux.pad_din[k_pa7].read(),
+              "y al revés: son complementarias mientras no haya tiempo muerto");
+
+        // Tiempo muerto: DTG = 64 pasos de t_DTS = 64/16 MHz = 4 us
+        t_wr(T1, TimerBase::R_BDTR, (1u << 15) | 64u);
+        check(wait_pin(k_pa8, true, sc_time(2, SC_MS)), "esperando el flanco de PA8");
+        check(wait_pin(k_pa8, false, sc_time(2, SC_MS)), "flanco de bajada de TIM1_CH1");
+        check(!dut->pinmux.pad_din[k_pa7].read(),
+              "tiempo muerto: al apagarse OC1, OC1N todavia no se ha encendido");
+        wait(6, SC_US);
+        check(dut->pinmux.pad_din[k_pa7].read(),
+              "pasado el tiempo muerto de 4 us, OC1N se activa [IR, 12.1.1]");
+
+        // --- Entrada de freno ------------------------------------------------
+        t_wr(T1, TimerBase::R_DIER, 1u << 7);                  // BIE
+        t_wr(T1, TimerBase::R_BDTR, (1u << 15) | (1u << 12));  // MOE | BKE, BKP = 0
+        wait(20, SC_US);
+        check(!(t_rd(T1, TimerBase::R_SR) & TimerBase::S_BIF), "sin freno antes de tocar BKIN");
+        drv_pa6->set(false);                                   // BKIN a nivel bajo = freno
+        wait(20, SC_US);
+        check(t_rd(T1, TimerBase::R_SR) & TimerBase::S_BIF, "el freno levanta la bandera BIF");
+        check_eq((t_rd(T1, TimerBase::R_BDTR) >> 15) & 1u, 0u,
+                 "y el hardware pone MOE a cero [IR, 12.1.4-C]");
+        check(dut->s_irq[24].read(),
+              "TIM1_BRK activa la IRQ 24 (compartida con TIM9)");
+        check(dut->pinmux.pad[0][8]->is_floating(), "las salidas se sueltan tras el freno");
+        drv_pa6->release();
+        t_wr(T1, TimerBase::R_SR, 0);
+        t_wr(T1, TimerBase::R_DIER, 0);
+        t_wr(T1, TimerBase::R_CR1, 0);
+        t_wr(T1, TimerBase::R_BDTR, 0);
+        t_wr(T1, TimerBase::R_CCER, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // T41 — Captura, cadena ITRx entre temporizadores y codificador
+    // -----------------------------------------------------------------------
+    void t41_tim_captura_esclavo() {
+        group("T41 TIM: captura, cadena ITRx y codificador incremental");
+        reset_dut();
+        tim_clocks_on();
+        tim_pins_af();
+
+        // --- Captura de entrada: TIM4 genera el PWM en PD12, una pista de la
+        //     placa lo lleva a PB4 (TIM3_CH1) y TIM3 mide su periodo ---------
+        lnk_pwm->set_enabled(true);
+        pin_cfg(1, 4, 2, 0, false, 3, 2);                      // PB4 = TIM3_CH1 (AF2)
+        t_wr(T4, TimerBase::R_CCMR1, (6u << 4));               // PWM1
+        t_wr(T4, TimerBase::R_CCR1, 500);
+        t_wr(T4, TimerBase::R_CCER, 1u);
+        tim_start(T4, 15, 999);                                // 1 kHz al 50 %
+        t_wr(T3, TimerBase::R_CCMR1, 1u);                      // CC1S = 01 (entrada TI1)
+        t_wr(T3, TimerBase::R_CCER, 1u);                       // CC1E, flanco de subida
+        tim_start(T3, 15, 0xFFFF);                             // resolucion de 1 us
+        check(tim_wait_flag(T3, TimerBase::S_CC1IF, sc_time(3, SC_MS)),
+              "la primera captura levanta CC1IF");
+        const uint32_t cap1 = t_rd(T3, TimerBase::R_CCR1);
+        check(!(t_rd(T3, TimerBase::R_SR) & TimerBase::S_CC1IF),
+              "leer CCR1 borra CC1IF, como en el silicio");
+        check(tim_wait_flag(T3, TimerBase::S_CC1IF, sc_time(3, SC_MS)), "segunda captura");
+        const uint32_t cap2 = t_rd(T3, TimerBase::R_CCR1);
+        const uint32_t per = (cap2 - cap1) & 0xFFFFu;
+        std::printf("    capturas en TIM3_CH1: %u y %u -> periodo = %u us\n", cap1, cap2, per);
+        check_near(double(per), 1000.0, 0.02,
+                   "la captura mide el periodo del PWM de TIM4 en microsegundos");
+        // Sobrecaptura: dos flancos sin leer CCR1
+        (void)t_rd(T3, TimerBase::R_CCR1);
+        t_wr(T3, TimerBase::R_SR, 0);
+        wait(2500, SC_US);
+        check(t_rd(T3, TimerBase::R_SR) & TimerBase::S_CC1OF,
+              "CC1OF: llega una captura nueva sin haber leido la anterior");
+        t_wr(T3, TimerBase::R_CR1, 0);
+        t_wr(T4, TimerBase::R_CR1, 0);
+        lnk_pwm->set_enabled(false);
+
+        // --- Cadena ITRx: TIM2 maestro, TIM3 esclavo ------------------------
+        reset_dut();
+        tim_clocks_on();
+        t_wr(T2, TimerBase::R_CR2, 2u << 4);                   // MMS = update -> TRGO
+        tim_start(T2, 15, 99);                                 // un TRGO cada 100 us
+        t_wr(T3, TimerBase::R_SMCR, (1u << 4) | 7u);           // TS = ITR1 (TIM2), SMS = reloj ext. 1
+        t_wr(T3, TimerBase::R_ARR, 0xFFFF);
+        t_wr(T3, TimerBase::R_CR1, 1u);
+        wait(1, SC_MS);
+        const uint32_t n_itr = t_rd(T3, TimerBase::R_CNT);
+        std::printf("    TIM3 ha contado %u disparos de TIM2 por ITR1 en 1 ms\n", n_itr);
+        check(n_itr >= 9 && n_itr <= 11,
+              "TIM3 cuenta los TRGO de TIM2 a traves de la cadena ITR1");
+
+        // --- Modo gated: TIM3 solo cuenta mientras el trigger esta alto ------
+        reset_dut();
+        tim_clocks_on();
+        t_wr(T2, TimerBase::R_CCMR1, (6u << 4));               // OC1REF = PWM1
+        t_wr(T2, TimerBase::R_CCR1, 50);                       // 50 % de 100 us
+        t_wr(T2, TimerBase::R_CR2, 4u << 4);                   // MMS = OC1REF -> TRGO
+        tim_start(T2, 15, 99);
+        t_wr(T3, TimerBase::R_SMCR, (1u << 4) | 5u);           // TS = ITR1, SMS = gated
+        t_wr(T3, TimerBase::R_PSC, 15);
+        t_wr(T3, TimerBase::R_ARR, 0xFFFF);
+        t_wr(T3, TimerBase::R_EGR, 1u);
+        t_wr(T3, TimerBase::R_CR1, 1u);
+        wait(1, SC_MS);
+        const uint32_t n_gate = t_rd(T3, TimerBase::R_CNT);
+        std::printf("    modo gated: CNT = %u us de cada 1000 us\n", n_gate);
+        check(n_gate > 400 && n_gate < 600,
+              "en modo gated el contador solo avanza la mitad del tiempo");
+        check(t_rd(T3, TimerBase::R_SR) & TimerBase::S_TIF,
+              "el flanco del trigger levanta TIF");
+
+        // --- Modo trigger: el flanco arranca el contador parado -------------
+        reset_dut();
+        tim_clocks_on();
+        t_wr(T3, TimerBase::R_SMCR, (1u << 4) | 6u);           // TS = ITR1, SMS = trigger
+        t_wr(T3, TimerBase::R_PSC, 15);
+        t_wr(T3, TimerBase::R_ARR, 0xFFFF);
+        t_wr(T3, TimerBase::R_EGR, 1u);
+        t_wr(T3, TimerBase::R_SR, 0);
+        wait(100, SC_US);
+        check_eq(t_rd(T3, TimerBase::R_CR1) & 1u, 0u, "TIM3 esta parado (CEN = 0)");
+        t_wr(T2, TimerBase::R_CR2, 2u << 4);                   // MMS = update
+        tim_start(T2, 15, 99);                                 // primer TRGO a los 100 us
+        wait(300, SC_US);
+        check_eq(t_rd(T3, TimerBase::R_CR1) & 1u, 1u,
+                 "el disparo por ITR1 pone CEN a uno [IR, 12.1.4-D: SMS]");
+        check(t_rd(T3, TimerBase::R_CNT) > 0u, "y el contador arranca solo");
+
+        // --- Codificador incremental ----------------------------------------
+        reset_dut();
+        tim_clocks_on();
+        pin_cfg(1, 4, 2, 0, false, 3, 2);                      // PB4 = TIM3_CH1
+        pin_cfg(1, 5, 2, 0, false, 3, 2);                      // PB5 = TIM3_CH2
+        drv_pb4->set(false); drv_pb5->set(false);
+        wait(5, SC_US);
+        t_wr(T3, TimerBase::R_CCMR1, 0x0101u);                 // CC1S = CC2S = 01
+        t_wr(T3, TimerBase::R_CCER, 0x11u);                    // CC1E, CC2E
+        t_wr(T3, TimerBase::R_SMCR, 3u);                       // SMS = 011: codificador modo 3
+        t_wr(T3, TimerBase::R_ARR, 0xFFFF);
+        t_wr(T3, TimerBase::R_CNT, 1000);
+        t_wr(T3, TimerBase::R_CR1, 1u);
+        wait(5, SC_US);
+        static const int seq[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+        for (unsigned s = 1; s <= 8; ++s) {                     // ocho flancos hacia delante
+            drv_pb4->set(seq[s % 4][0] != 0);
+            drv_pb5->set(seq[s % 4][1] != 0);
+            wait(2, SC_US);
+        }
+        const uint32_t enc_up = t_rd(T3, TimerBase::R_CNT);
+        std::printf("    codificador: CNT = %u tras ocho flancos hacia delante\n", enc_up);
+        check_eq(enc_up, 1008u,
+                 "el codificador cuenta un paso por flanco de cualquiera de los dos ejes");
+        for (int s = 7; s >= 0; --s) {                          // y ocho hacia atras
+            drv_pb4->set(seq[unsigned(s) % 4][0] != 0);
+            drv_pb5->set(seq[unsigned(s) % 4][1] != 0);
+            wait(2, SC_US);
+        }
+        const uint32_t enc_dn = t_rd(T3, TimerBase::R_CNT);
+        std::printf("    codificador: CNT = %u tras deshacer el camino\n", enc_dn);
+        check_eq(enc_dn, 1000u, "el sentido de giro invierte la cuenta");
+        drv_pb4->release(); drv_pb5->release();
+        t_wr(T3, TimerBase::R_CR1, 0);
+        t_wr(T2, TimerBase::R_CR1, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // T42 — Interrupciones, vectores compartidos, TRGO y DMA
+    // -----------------------------------------------------------------------
+    void t42_tim_irq_dma() {
+        group("T42 TIM: interrupciones, TRGO y DMA [IR, 12.1.3, 9.1.2]");
+        reset_dut();
+        tim_clocks_on();
+        dma_clocks_on();
+
+        // --- Vector unico de los de proposito general ------------------------
+        t_wr(T3, TimerBase::R_DIER, 1u);                        // UIE
+        tim_start(T3, 15, 99);
+        check(wait_signal(dut->s_irq[29], sc_time(500, SC_US)),
+              "el desbordamiento de TIM3 activa la IRQ 29");
+        t_wr(T3, TimerBase::R_SR, 0);
+        wait(2, SC_US);
+        check(!dut->s_irq[29].read(), "borrar UIF retira la interrupcion");
+        t_wr(T3, TimerBase::R_CR1, 0);
+        t_wr(T3, TimerBase::R_DIER, 0);
+
+        // --- Los cuatro vectores separados de los avanzados ------------------
+        t_wr(T1, TimerBase::R_DIER, 1u);                        // UIE -> irq_up
+        tim_start(T1, 15, 99);
+        check(wait_signal(dut->s_irq[25], sc_time(500, SC_US)),
+              "TIM1_UP usa el vector 25 (compartido con TIM10)");
+        check(!dut->s_irq[27].read(), "y no el de captura/comparacion, el 27");
+        t_wr(T1, TimerBase::R_CCMR1, (6u << 4));
+        t_wr(T1, TimerBase::R_CCR1, 50);
+        t_wr(T1, TimerBase::R_DIER, 1u | 2u);                   // UIE | CC1IE
+        check(wait_signal(dut->s_irq[27], sc_time(500, SC_US)),
+              "la coincidencia de CC1 activa el vector 27 de TIM1_CC");
+        t_wr(T1, TimerBase::R_CR1, 0);
+        t_wr(T1, TimerBase::R_DIER, 0);
+        t_wr(T1, TimerBase::R_SR, 0);
+        wait(5, SC_US);
+        check(!dut->s_irq[25].read() && !dut->s_irq[27].read(), "TIM1 en reposo");
+        // TIM10 comparte el vector 25 con TIM1_UP a traves de una puerta OR
+        t_wr(T10, TimerBase::R_DIER, 1u);
+        tim_start(T10, 15, 99);
+        check(wait_signal(dut->s_irq[25], sc_time(500, SC_US)),
+              "TIM10 llega al mismo vector 25 por la puerta OR [IR, 9.1.2]");
+        t_wr(T10, TimerBase::R_CR1, 0);
+        t_wr(T10, TimerBase::R_DIER, 0);
+        t_wr(T10, TimerBase::R_SR, 0);
+
+        // --- TRGO hacia el DAC ----------------------------------------------
+        t_wr(T6, TimerBase::R_CR2, 2u << 4);                    // MMS = update
+        tim_start(T6, 15, 99);
+        check(wait_signal(dut->s_trgo[5], sc_time(500, SC_US)),
+              "TIM6 emite el pulso de TRGO que dispara el DAC [IR, 12.14]");
+        t_wr(T6, TimerBase::R_CR1, 0);
+
+        // --- Peticion de DMA por evento de update ---------------------------
+        // TIM2_UP -> DMA1 stream 1 canal 3; memoria -> TIM4_CCR1, cuatro valores.
+        reset_dut();
+        tim_clocks_on();
+        dma_clocks_on();
+        ImageLoader ld(*dut);
+        const uint32_t vals[4] = {100, 200, 300, 400};
+        for (unsigned i = 0; i < 4; ++i) ld.poke32(SRC_BUF + 4 * i, vals[i]);
+        dma_setup(addr::DMA1_B, 1, T4 + TimerBase::R_CCR1, SRC_BUF, 4,
+                  (3u << 25) | (1u << 6) | (1u << 10) | (2u << 11) | (2u << 13), 0x00u);
+        t_wr(T2, TimerBase::R_DIER, 1u << 8);                   // UDE
+        tim_start(T2, 15, 99);                                  // un update cada 100 us
+        check(dma_wait_tc(addr::DMA1_B, 1),
+              "el DMA atiende las cuatro peticiones de update de TIM2");
+        check_eq(t_rd(T4, TimerBase::R_CCR1), 400u,
+                 "TIM4_CCR1 acaba con el ultimo valor de la tabla");
+        check_eq(dma_rd(dma_s(addr::DMA1_B, 1, DmaCtrl::SxNDTR)), 0u,
+                 "NDTR a cero: exactamente una transferencia por evento del temporizador");
+        t_wr(T2, TimerBase::R_CR1, 0);
+        t_wr(T2, TimerBase::R_DIER, 0);
+
+        // --- Modo rafaga DCR/DMAR -------------------------------------------
+        // DBA apunta a CCR1 (offset 0x34 -> palabra 13) y DBL = 3: cuatro accesos
+        // consecutivos a DMAR escriben CCR1..CCR4 [IR, 12.1.4-D].
+        t_wr(T4, TimerBase::R_DCR, 13u | (3u << 8));
+        t_wr(T4, TimerBase::R_DMAR, 11);
+        t_wr(T4, TimerBase::R_DMAR, 22);
+        t_wr(T4, TimerBase::R_DMAR, 33);
+        t_wr(T4, TimerBase::R_DMAR, 44);
+        check_eq(t_rd(T4, TimerBase::R_CCR1), 11u, "rafaga: la 1a escritura va a CCR1");
+        check_eq(t_rd(T4, TimerBase::R_CCR2), 22u, "rafaga: la 2a a CCR2");
+        check_eq(t_rd(T4, TimerBase::R_CCR3), 33u, "rafaga: la 3a a CCR3");
+        check_eq(t_rd(T4, TimerBase::R_CCR4), 44u, "rafaga: la 4a a CCR4");
+        t_wr(T4, TimerBase::R_DMAR, 55);
+        check_eq(t_rd(T4, TimerBase::R_CCR1), 55u,
+                 "pasadas DBL+1 transferencias el indice vuelve al principio");
+        check_eq(t_rd(T4, TimerBase::R_DMAR), 22u,
+                 "y la lectura por DMAR devuelve el registro siguiente de la rafaga");
+    }
+
+    // -----------------------------------------------------------------------
+    // T43 — Firmware real con CMSIS sobre los temporizadores
+    // -----------------------------------------------------------------------
+    void t43_tim_firmware() {
+        group("T43 Temporizadores gobernados por firmware con CMSIS");
+        // La pista de la placa PD12 -> PB4 lleva el PWM de TIM4 a la entrada
+        // de captura de TIM3, igual que en T41.
+        lnk_pwm->set_enabled(true);
+        dut->rcc.set_internal_waveforms(false);
+        xtal_hse->attach();
+        dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(30, SC_US);
+
+        ImageLoader ld(*dut);
+        const long n = ld.load_file(tim_fw_path_.c_str(), addr::FLASH_BASE);
+        if (!check(n > 0, "imagen del firmware de temporizadores cargada en la Flash")) {
+            std::printf("        (compilar con make -C verif/fw/tim_demo)\n");
+            dut->pwr_pads.nrst.set_hiz(d_nrst);
+            dut->rcc.set_internal_waveforms(true);
+            return;
+        }
+        std::printf("    %ld bytes cargados desde %s\n", n, tim_fw_path_.c_str());
+        for (unsigned i = 0; i < 32; i += 4) ld.poke32(addr::SRAM1_BASE + i, 0);
+        const uint64_t i0 = dut->core.cpu.inst_count;
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+
+        bool done = false;
+        const sc_time t0 = sc_time_stamp();
+        while ((sc_time_stamp() - t0) < sc_time(300, SC_MS)) {
+            wait(200, SC_US);
+            if (dut->sram1.peek32(0) == 1u) { done = true; break; }
+        }
+        const uint64_t ninst = dut->core.cpu.inst_count - i0;
+        if (!done)
+            std::printf("        sin terminar: PC = 0x%08X, inst = %llu\n",
+                        dut->core.cpu.pc(), (unsigned long long)ninst);
+        check(done, "el firmware de temporizadores llega a su fin y publica el buzon");
+
+        const uint32_t pwm_ok  = dut->sram1.peek32(4);
+        const uint32_t up_irq  = dut->sram1.peek32(8);
+        const uint32_t cap_us  = dut->sram1.peek32(12);
+        const uint32_t cnt32   = dut->sram1.peek32(16);
+        const uint32_t timclk  = dut->sram1.peek32(20);
+        std::printf("    TIMCLK1 = %u Hz | interrupciones de update = %u | "
+                    "periodo capturado = %u us | CNT de 32 bits = 0x%08X | "
+                    "%llu instrucciones\n",
+                    timclk, up_irq, cap_us, cnt32, (unsigned long long)ninst);
+        check_eq(timclk, 84000000u,
+                 "el firmware calcula TIMCLK1 = 2 x PCLK1 = 84 MHz [IR, 4.4]");
+        check_eq(pwm_ok, 1u, "el firmware programa el PWM de TIM4 sobre el LED de PD12");
+        check_near(dut->tim4.tick_hz(), 1.0e6, 0.02,
+                   "el prescaler del firmware deja TIM4 contando a 1 MHz");
+        check_eq(up_irq, 10u, "diez interrupciones de update de TIM7 en 10 ms");
+        check_near(double(cap_us), 1000.0, 0.03,
+                   "TIM3 captura el periodo del PWM que genera TIM4");
+        check(cnt32 > 0xFFFFu,
+              "el contador de 32 bits de TIM2 pasa de 0xFFFF sin desbordar");
+        lnk_pwm->set_enabled(false);
+        dut->rcc.set_internal_waveforms(true);
+    }
+
+    std::string tim_fw_path_ = "verif/fw/tim_demo/tim_demo.bin";
     std::string uart_fw_path_ = "verif/fw/uart_demo/uart_demo.bin";
     std::string dma_fw_path_ = "verif/fw/dma_demo/dma_demo.bin";
     std::string blinky_path_ = "verif/fw/blinky/blinky.bin";

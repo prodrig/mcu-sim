@@ -176,20 +176,27 @@ SC_MODULE(SignalLink), public ExtPart {
         SC_THREAD(run);
     }
     bool level() const { return lvl_; }
+    // Soldar o quitar la pista. Sin ella el pin de destino queda como estaba:
+    // así una misma placa sirve para pruebas que necesitan el enlace y para
+    // otras que usan ese pin para otra cosa.
+    void set_enabled(bool on) { on_ = on; ev_.notify(sc_core::SC_ZERO_TIME); }
 private:
     void run() {
         for (;;) {
+            if (!on_) { hiz(); wait(ev_); continue; }
             const double v = from_->voltage();
             const bool  fl = from_->floating();
             // Umbral con histéresis, como el trigger de entrada de un pad
             if (!fl) lvl_ = lvl_ ? (v > 0.45 * vdd_) : (v >= 0.55 * vdd_);
             drive(lvl_ ? float(vdd_) : 0.0f, float(r_));
-            wait(from_->value_changed_event());
+            wait(from_->value_changed_event() | ev_);
         }
     }
     analog_net_if* from_;
     double vdd_, r_;
     bool   lvl_ = true;
+    bool   on_  = true;
+    sc_core::sc_event ev_;
 };
 
 // ---------------------------------------------------------------------------

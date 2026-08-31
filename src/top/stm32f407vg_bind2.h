@@ -7,34 +7,62 @@
 
 namespace stm32 {
 
+// ---------------------------------------------------------------------------
+// Matriz de triggers internos entre temporizadores (qué TRGO llega a cada ITRx).
+// No consta en [IR]: es la tabla del F407 y se cablea aquí, en el netlist, de
+// modo que el modelo del temporizador sigue siendo genérico —para él, ITR0..3
+// son cuatro entradas cualesquiera—. Índices de s_trgo:
+//   0=TIM1 1=TIM2 2=TIM3 3=TIM4 4=TIM5 5=TIM6 6=TIM7 7=TIM8 ; -1 = sin conectar
+// ---------------------------------------------------------------------------
+static const int ITR_NONE[4] = {-1, -1, -1, -1};
+static const int ITR_T1[4]   = { 4,  1,  2,  3};   // TIM5, TIM2, TIM3, TIM4
+static const int ITR_T2[4]   = { 0,  7,  2,  3};   // TIM1, TIM8, TIM3, TIM4
+static const int ITR_T3[4]   = { 0,  1,  4,  3};   // TIM1, TIM2, TIM5, TIM4
+static const int ITR_T4[4]   = { 0,  1,  2,  7};   // TIM1, TIM2, TIM3, TIM8
+static const int ITR_T5[4]   = { 1,  2,  3,  7};   // TIM2, TIM3, TIM4, TIM8
+static const int ITR_T8[4]   = { 0,  1,  3,  4};   // TIM1, TIM2, TIM4, TIM5
+static const int ITR_T9[4]   = { 1,  2, -1, -1};   // TIM2, TIM3, (TIM10/11 OC)
+static const int ITR_T12[4]  = { 3,  4, -1, -1};   // TIM4, TIM5, (TIM13/14 OC)
+
 // ===========================================================================
 // Relojes/reset/gating y conexiones específicas de cada periférico
 // ===========================================================================
 inline void Stm32F407VG::bind_periph_common() {
+    // -----------------------------------------------------------------------
+    // Temporizadores. Cada uno recibe su PCLK (para el bus), su TIMCLK y la
+    // frecuencia de éste —el contador cuenta en TIMCLK, que es PCLKx o 2*PCLKx
+    // según el prescaler del APB [IR, §4.4, §12.1.2]—, su bit de congelación
+    // del depurador, su salida TRGO y las cuatro entradas de trigger interno.
+    //
+    // s_trgo: 0=TIM1 1=TIM2 2=TIM3 3=TIM4 4=TIM5 5=TIM6 6=TIM7 7=TIM8; la
+    // matriz ITRx está declarada arriba, al principio de este fichero.
     auto bind_tim = [&](TimerBase& t, sc_core::sc_signal<bool>& pclk,
-                        sc_core::sc_signal<bool>& tclk, PeriphId id, int fz,
-                        sc_core::sc_signal<bool>& trgo_sig) {
+                        sc_core::sc_signal<bool>& tclk,
+                        sc_core::sc_signal<double>& tclk_hz, PeriphId id, int fz,
+                        sc_core::sc_signal<bool>& trgo_sig,
+                        const int itrs[4] = ITR_NONE) {
         bind_bus_slave(t, pclk, id);
         t.timclk(tclk);
+        t.timclk_hz(tclk_hz);
         t.freeze(fz >= 0 ? s_freeze[unsigned(fz)] : s_false);
-        for (unsigned i = 0; i < 4; ++i) t.itr[i](s_false);   // TODO(F4): cadena ITRx
+        for (unsigned i = 0; i < 4; ++i)
+            t.itr[i](itrs[i] >= 0 ? s_trgo[unsigned(itrs[i])] : s_false);
         t.trgo(trgo_sig);
     };
-    // s_trgo: 0=TIM1 1=TIM2 2=TIM3 3=TIM4 4=TIM5 5=TIM6 6=TIM7 7=TIM8
-    bind_tim(tim1, s_pclk2, s_timclk2, P_TIM1, FZ_TIM1, s_trgo[0]);
-    bind_tim(tim2, s_pclk1, s_timclk1, P_TIM2, FZ_TIM2, s_trgo[1]);
-    bind_tim(tim3, s_pclk1, s_timclk1, P_TIM3, FZ_TIM3, s_trgo[2]);
-    bind_tim(tim4, s_pclk1, s_timclk1, P_TIM4, FZ_TIM4, s_trgo[3]);
-    bind_tim(tim5, s_pclk1, s_timclk1, P_TIM5, FZ_TIM5, s_trgo[4]);
-    bind_tim(tim6, s_pclk1, s_timclk1, P_TIM6, FZ_TIM6, s_trgo[5]);
-    bind_tim(tim7, s_pclk1, s_timclk1, P_TIM7, FZ_TIM7, s_trgo[6]);
-    bind_tim(tim8, s_pclk2, s_timclk2, P_TIM8, FZ_TIM8, s_trgo[7]);
-    bind_tim(tim9,  s_pclk2, s_timclk2, P_TIM9,  FZ_TIM9,  s_nc[nc()]);
-    bind_tim(tim10, s_pclk2, s_timclk2, P_TIM10, FZ_TIM10, s_nc[nc()]);
-    bind_tim(tim11, s_pclk2, s_timclk2, P_TIM11, FZ_TIM11, s_nc[nc()]);
-    bind_tim(tim12, s_pclk1, s_timclk1, P_TIM12, FZ_TIM12, s_nc[nc()]);
-    bind_tim(tim13, s_pclk1, s_timclk1, P_TIM13, FZ_TIM13, s_nc[nc()]);
-    bind_tim(tim14, s_pclk1, s_timclk1, P_TIM14, FZ_TIM14, s_nc[nc()]);
+    bind_tim(tim1, s_pclk2, s_timclk2, s_timclk2_hz, P_TIM1, FZ_TIM1, s_trgo[0], ITR_T1);
+    bind_tim(tim2, s_pclk1, s_timclk1, s_timclk1_hz, P_TIM2, FZ_TIM2, s_trgo[1], ITR_T2);
+    bind_tim(tim3, s_pclk1, s_timclk1, s_timclk1_hz, P_TIM3, FZ_TIM3, s_trgo[2], ITR_T3);
+    bind_tim(tim4, s_pclk1, s_timclk1, s_timclk1_hz, P_TIM4, FZ_TIM4, s_trgo[3], ITR_T4);
+    bind_tim(tim5, s_pclk1, s_timclk1, s_timclk1_hz, P_TIM5, FZ_TIM5, s_trgo[4], ITR_T5);
+    bind_tim(tim6, s_pclk1, s_timclk1, s_timclk1_hz, P_TIM6, FZ_TIM6, s_trgo[5]);
+    bind_tim(tim7, s_pclk1, s_timclk1, s_timclk1_hz, P_TIM7, FZ_TIM7, s_trgo[6]);
+    bind_tim(tim8, s_pclk2, s_timclk2, s_timclk2_hz, P_TIM8, FZ_TIM8, s_trgo[7], ITR_T8);
+    bind_tim(tim9,  s_pclk2, s_timclk2, s_timclk2_hz, P_TIM9,  FZ_TIM9,  s_nc[nc()], ITR_T9);
+    bind_tim(tim10, s_pclk2, s_timclk2, s_timclk2_hz, P_TIM10, FZ_TIM10, s_nc[nc()]);
+    bind_tim(tim11, s_pclk2, s_timclk2, s_timclk2_hz, P_TIM11, FZ_TIM11, s_nc[nc()]);
+    bind_tim(tim12, s_pclk1, s_timclk1, s_timclk1_hz, P_TIM12, FZ_TIM12, s_nc[nc()], ITR_T12);
+    bind_tim(tim13, s_pclk1, s_timclk1, s_timclk1_hz, P_TIM13, FZ_TIM13, s_nc[nc()]);
+    bind_tim(tim14, s_pclk1, s_timclk1, s_timclk1_hz, P_TIM14, FZ_TIM14, s_nc[nc()]);
 
     bind_bus_slave(usart1, s_pclk2, P_USART1);
     bind_bus_slave(usart2, s_pclk1, P_USART2);
@@ -136,6 +164,18 @@ inline void Stm32F407VG::bind_periph_common() {
 // Interrupciones -> NVIC (numeración exacta [IR, §9.1.2])
 // ===========================================================================
 inline void Stm32F407VG::bind_irqs() {
+    // Todos los temporizadores salen del mismo modelo y por tanto tienen las
+    // cinco salidas de interrupción; los rasgos deciden CUÁLES se activan (los
+    // avanzados usan los cuatro vectores separados y el resto el global), así
+    // que aquí se deja sin conectar la que cada familia no usa.
+    auto tim_split_unused = [&](TimerBase& t) {
+        t.irq_up(s_nc[nc()]); t.irq_cc(s_nc[nc()]);
+        t.irq_trg_com(s_nc[nc()]); t.irq_brk(s_nc[nc()]);
+    };
+    TimerBase* t_simple[12] = {&tim2, &tim3, &tim4, &tim5, &tim6, &tim7,
+                               &tim9, &tim10, &tim11, &tim12, &tim13, &tim14};
+    for (TimerBase* t : t_simple) tim_split_unused(*t);
+
     wwdg.irq_ewi(s_irq[0]);
     // 1,2,3: PVD / TAMP_STAMP / RTC_WKUP a través de EXTI
     exti.irq_pvd(s_irq[1]);
@@ -226,24 +266,34 @@ inline void Stm32F407VG::bind_dma_requests() {
     adc.dma_req_adc1(q_adc1); adc.dma_req_adc2(q_adc2); adc.dma_req_adc3(q_adc3);
     dac.dma_req_ch1(q_dac1);  dac.dma_req_ch2(q_dac2);
     sdio.dma_req(q_sdio);     dcmi.dma_req(q_dcmi);
-    tim6.dma_up(q_tim6_up);   tim7.dma_up(q_tim7_up);
     // q_tim_up / q_tim_cc: 0=TIM1 1=TIM2 2=TIM3 3=TIM4 4=TIM5 5=TIM8
+    tim6.dma_up(q_tim6_up);   tim7.dma_up(q_tim7_up);
     tim1.dma_up(q_tim_up[0]); tim1.dma_trig(q_tim1_trig);
     for (unsigned i = 0; i < 4; ++i) tim1.dma_cc[i](q_tim_cc[0 * 4 + i]);
     tim8.dma_up(q_tim_up[5]); tim8.dma_trig(q_tim8_trig);
     for (unsigned i = 0; i < 4; ++i) tim8.dma_cc[i](q_tim_cc[5 * 4 + i]);
-    TimGeneral* tg[4] = {&tim2, &tim3, &tim4, &tim5};
+    TimerBase* tg[4] = {&tim2, &tim3, &tim4, &tim5};
     for (unsigned t = 0; t < 4; ++t) {
         tg[t]->dma_up(q_tim_up[1 + t]);
         for (unsigned i = 0; i < 4; ++i) tg[t]->dma_cc[i](q_tim_cc[(1 + t) * 4 + i]);
     }
-    // TIM9-14: sin DMA en el F407
-    tim9.dma_up(s_nc[nc()]);  for (unsigned i = 0; i < 2; ++i) tim9.dma_cc[i](s_nc[nc()]);
-    tim10.dma_up(s_nc[nc()]); tim10.dma_cc[0](s_nc[nc()]);
-    tim11.dma_up(s_nc[nc()]); tim11.dma_cc[0](s_nc[nc()]);
-    tim12.dma_up(s_nc[nc()]); for (unsigned i = 0; i < 2; ++i) tim12.dma_cc[i](s_nc[nc()]);
-    tim13.dma_up(s_nc[nc()]); tim13.dma_cc[0](s_nc[nc()]);
-    tim14.dma_up(s_nc[nc()]); tim14.dma_cc[0](s_nc[nc()]);
+    // TIM6/TIM7 no tienen canales, y TIM9-14 no tienen peticiones de DMA en el
+    // F407 [IR, §11.4]: sus líneas de captura/comparación quedan al aire.
+    for (unsigned i = 0; i < 4; ++i) { tim6.dma_cc[i](s_nc[nc()]);
+                                       tim7.dma_cc[i](s_nc[nc()]); }
+    TimerBase* tn[6] = {&tim9, &tim10, &tim11, &tim12, &tim13, &tim14};
+    for (TimerBase* t : tn) {
+        t->dma_up(s_nc[nc()]);
+        for (unsigned i = 0; i < 4; ++i) t->dma_cc[i](s_nc[nc()]);
+    }
+    // TRIG de los de propósito general y COM de todos: el modelo publica la
+    // línea, pero la tabla de [IR, §11.4] no le asigna celda propia en el F407.
+    TimerBase* tall[14] = {&tim1, &tim2, &tim3, &tim4, &tim5, &tim6, &tim7,
+                           &tim8, &tim9, &tim10, &tim11, &tim12, &tim13, &tim14};
+    for (TimerBase* t : tall) {
+        if (t != &tim1 && t != &tim8) t->dma_trig(s_nc[nc()]);
+        t->dma_com(s_nc[nc()]);
+    }
 
     // ---- Multiplexado (stream, canal) -> señal [IR, §11.4] -----------------
     auto C = [](unsigned s, unsigned c) { return s * 8 + c; };
@@ -366,6 +416,99 @@ inline void Stm32F407VG::bind_analog() {
     pinmux.connect_af(2, 12, 8, af_tx(uart5));    pinmux.connect_af(3,  2, 8, af_rx(uart5));
     // USART6 (AF8): PC6/PC7; CTS PG13/PG15 y RTS PG8/PG12 no existen en LQFP100
     pinmux.connect_af(2,  6, 8, af_tx(usart6));   pinmux.connect_af(2,  7, 8, af_rx(usart6));
+    // ---- Temporizadores [IR, §12.1-12.3, §12.8; tabla AF de §2.1] ---------
+    // Un canal de temporizador es BIDIRECCIONAL: el mismo pin es salida de
+    // comparación (OCx) o entrada de captura (ICx) según CCxS, así que se
+    // registra con las tres señales. En reposo (pin no asignado a esta AF) la
+    // entrada se fuerza a nivel bajo.
+    auto af_ch = [](TimerBase& t, unsigned c) {
+        return AfEndpoint{&t.ch_out[c], &t.ch_oe[c], &t.ch_in[c], false};
+    };
+    auto af_chn = [](TimerBase& t, unsigned c) {           // salida complementaria
+        return AfEndpoint{&t.chn_out[c], &t.chn_oe[c], nullptr, false};
+    };
+    auto af_etr = [](TimerBase& t) {
+        return AfEndpoint{nullptr, nullptr, &t.etr_in, false};
+    };
+    // BKIN reposa a nivel ALTO: con la polaridad por defecto (BKP = 0, freno
+    // activo en bajo) un pin no asignado a esta AF no debe frenar el puente.
+    auto af_bkin = [](TimerBase& t) {
+        return AfEndpoint{nullptr, nullptr, &t.bkin_in, true};
+    };
+    // TIM1 (AF1) y TIM2 (AF1)
+    pinmux.connect_af(0,  8, 1, af_ch(tim1, 0));   // PA8  TIM1_CH1
+    pinmux.connect_af(0,  9, 1, af_ch(tim1, 1));   // PA9  TIM1_CH2
+    pinmux.connect_af(0, 10, 1, af_ch(tim1, 2));   // PA10 TIM1_CH3
+    pinmux.connect_af(0, 11, 1, af_ch(tim1, 3));   // PA11 TIM1_CH4
+    pinmux.connect_af(0,  7, 1, af_chn(tim1, 0));  // PA7  TIM1_CH1N
+    pinmux.connect_af(1, 13, 1, af_chn(tim1, 0));  // PB13 TIM1_CH1N
+    pinmux.connect_af(1,  0, 1, af_chn(tim1, 1));  // PB0  TIM1_CH2N
+    pinmux.connect_af(1, 14, 1, af_chn(tim1, 1));  // PB14 TIM1_CH2N
+    pinmux.connect_af(1,  1, 1, af_chn(tim1, 2));  // PB1  TIM1_CH3N
+    pinmux.connect_af(1, 15, 1, af_chn(tim1, 2));  // PB15 TIM1_CH3N
+    pinmux.connect_af(0,  6, 1, af_bkin(tim1));    // PA6  TIM1_BKIN
+    pinmux.connect_af(1, 12, 1, af_bkin(tim1));    // PB12 TIM1_BKIN
+    pinmux.connect_af(0, 12, 1, af_etr(tim1));     // PA12 TIM1_ETR
+    pinmux.connect_af(4,  9, 1, af_ch(tim1, 0));   // PE9  TIM1_CH1
+    pinmux.connect_af(4, 11, 1, af_ch(tim1, 1));   // PE11 TIM1_CH2
+    pinmux.connect_af(4, 13, 1, af_ch(tim1, 2));   // PE13 TIM1_CH3
+    pinmux.connect_af(4, 14, 1, af_ch(tim1, 3));   // PE14 TIM1_CH4
+    pinmux.connect_af(0,  0, 1, af_ch(tim2, 0));   // PA0  TIM2_CH1/ETR
+    pinmux.connect_af(0,  5, 1, af_ch(tim2, 0));   // PA5  TIM2_CH1
+    pinmux.connect_af(0, 15, 1, af_ch(tim2, 0));   // PA15 TIM2_CH1
+    pinmux.connect_af(0,  1, 1, af_ch(tim2, 1));   // PA1  TIM2_CH2
+    pinmux.connect_af(1,  3, 1, af_ch(tim2, 1));   // PB3  TIM2_CH2
+    pinmux.connect_af(0,  2, 1, af_ch(tim2, 2));   // PA2  TIM2_CH3
+    pinmux.connect_af(1, 10, 1, af_ch(tim2, 2));   // PB10 TIM2_CH3
+    pinmux.connect_af(0,  3, 1, af_ch(tim2, 3));   // PA3  TIM2_CH4
+    pinmux.connect_af(1, 11, 1, af_ch(tim2, 3));   // PB11 TIM2_CH4
+    // TIM3, TIM4 y TIM5 (AF2)
+    pinmux.connect_af(0,  6, 2, af_ch(tim3, 0));   // PA6  TIM3_CH1
+    pinmux.connect_af(1,  4, 2, af_ch(tim3, 0));   // PB4  TIM3_CH1
+    pinmux.connect_af(2,  6, 2, af_ch(tim3, 0));   // PC6  TIM3_CH1
+    pinmux.connect_af(0,  7, 2, af_ch(tim3, 1));   // PA7  TIM3_CH2
+    pinmux.connect_af(1,  5, 2, af_ch(tim3, 1));   // PB5  TIM3_CH2
+    pinmux.connect_af(2,  7, 2, af_ch(tim3, 1));   // PC7  TIM3_CH2
+    pinmux.connect_af(1,  0, 2, af_ch(tim3, 2));   // PB0  TIM3_CH3
+    pinmux.connect_af(2,  8, 2, af_ch(tim3, 2));   // PC8  TIM3_CH3
+    pinmux.connect_af(1,  1, 2, af_ch(tim3, 3));   // PB1  TIM3_CH4
+    pinmux.connect_af(2,  9, 2, af_ch(tim3, 3));   // PC9  TIM3_CH4
+    pinmux.connect_af(3,  2, 2, af_etr(tim3));     // PD2  TIM3_ETR
+    pinmux.connect_af(1,  6, 2, af_ch(tim4, 0));   // PB6  TIM4_CH1
+    pinmux.connect_af(3, 12, 2, af_ch(tim4, 0));   // PD12 TIM4_CH1 (LED de la placa)
+    pinmux.connect_af(1,  7, 2, af_ch(tim4, 1));   // PB7  TIM4_CH2
+    pinmux.connect_af(3, 13, 2, af_ch(tim4, 1));   // PD13 TIM4_CH2
+    pinmux.connect_af(1,  8, 2, af_ch(tim4, 2));   // PB8  TIM4_CH3
+    pinmux.connect_af(3, 14, 2, af_ch(tim4, 2));   // PD14 TIM4_CH3
+    pinmux.connect_af(1,  9, 2, af_ch(tim4, 3));   // PB9  TIM4_CH4
+    pinmux.connect_af(3, 15, 2, af_ch(tim4, 3));   // PD15 TIM4_CH4
+    pinmux.connect_af(4,  0, 2, af_etr(tim4));     // PE0  TIM4_ETR
+    pinmux.connect_af(0,  0, 2, af_ch(tim5, 0));   // PA0  TIM5_CH1
+    pinmux.connect_af(0,  1, 2, af_ch(tim5, 1));   // PA1  TIM5_CH2
+    pinmux.connect_af(0,  2, 2, af_ch(tim5, 2));   // PA2  TIM5_CH3
+    pinmux.connect_af(0,  3, 2, af_ch(tim5, 3));   // PA3  TIM5_CH4
+    // TIM8 (AF3) y TIM9/10/11 (AF3)
+    pinmux.connect_af(2,  6, 3, af_ch(tim8, 0));   // PC6  TIM8_CH1
+    pinmux.connect_af(2,  7, 3, af_ch(tim8, 1));   // PC7  TIM8_CH2
+    pinmux.connect_af(2,  8, 3, af_ch(tim8, 2));   // PC8  TIM8_CH3
+    pinmux.connect_af(2,  9, 3, af_ch(tim8, 3));   // PC9  TIM8_CH4
+    pinmux.connect_af(0,  5, 3, af_chn(tim8, 0));  // PA5  TIM8_CH1N
+    pinmux.connect_af(1,  0, 3, af_chn(tim8, 1));  // PB0  TIM8_CH2N
+    pinmux.connect_af(1,  1, 3, af_chn(tim8, 2));  // PB1  TIM8_CH3N
+    pinmux.connect_af(0,  6, 3, af_bkin(tim8));    // PA6  TIM8_BKIN
+    pinmux.connect_af(0,  0, 3, af_etr(tim8));     // PA0  TIM8_ETR
+    pinmux.connect_af(0,  2, 3, af_ch(tim9, 0));   // PA2  TIM9_CH1
+    pinmux.connect_af(0,  3, 3, af_ch(tim9, 1));   // PA3  TIM9_CH2
+    pinmux.connect_af(4,  5, 3, af_ch(tim9, 0));   // PE5  TIM9_CH1
+    pinmux.connect_af(4,  6, 3, af_ch(tim9, 1));   // PE6  TIM9_CH2
+    pinmux.connect_af(1,  8, 3, af_ch(tim10, 0));  // PB8  TIM10_CH1
+    pinmux.connect_af(1,  9, 3, af_ch(tim11, 0));  // PB9  TIM11_CH1
+    // TIM12, TIM13 y TIM14 (AF9)
+    pinmux.connect_af(1, 14, 9, af_ch(tim12, 0));  // PB14 TIM12_CH1
+    pinmux.connect_af(1, 15, 9, af_ch(tim12, 1));  // PB15 TIM12_CH2
+    pinmux.connect_af(0,  6, 9, af_ch(tim13, 0));  // PA6  TIM13_CH1
+    pinmux.connect_af(0,  7, 9, af_ch(tim14, 0));  // PA7  TIM14_CH1
+
     pinmux.connect_af(1, 6, 4, AfEndpoint{&i2c1.scl_out, &i2c1.scl_oe, &i2c1.scl_in}); // PB6 I2C1_SCL
     pinmux.connect_af(1, 7, 4, AfEndpoint{&i2c1.sda_out, &i2c1.sda_oe, &i2c1.sda_in}); // PB7 I2C1_SDA
     pinmux.connect_af(0, 5, 5, AfEndpoint{&spi1.sck_out, &spi1.sck_oe, &spi1.sck_in}); // PA5 SPI1_SCK

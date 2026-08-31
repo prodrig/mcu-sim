@@ -82,13 +82,15 @@ SC_MODULE(Stm32F407VG) {
     CrcUnit crc{"crc"};
     Fsmc    fsmc{"fsmc"};
 
-    TimAdvanced tim1{"tim1", addr::TIM1_B}, tim8{"tim8", addr::TIM8_B};
-    TimGeneral  tim2{"tim2", addr::TIM2_B, 4, true},  tim3{"tim3", addr::TIM3_B, 4, false};
-    TimGeneral  tim4{"tim4", addr::TIM4_B, 4, false}, tim5{"tim5", addr::TIM5_B, 4, true};
-    TimGeneral  tim9{"tim9", addr::TIM9_B, 2, false}, tim10{"tim10", addr::TIM10_B, 1, false};
-    TimGeneral  tim11{"tim11", addr::TIM11_B, 1, false}, tim12{"tim12", addr::TIM12_B, 2, false};
-    TimGeneral  tim13{"tim13", addr::TIM13_B, 1, false}, tim14{"tim14", addr::TIM14_B, 1, false};
-    TimBasic    tim6{"tim6", addr::TIM6_B}, tim7{"tim7", addr::TIM7_B};
+    // Los catorce temporizadores salen del MISMO modelo; el tipo de cada uno lo
+    // fija el parámetro de plantilla con los rasgos de su familia (periph/timers.h).
+    TimAdvanced tim1{"tim1", addr::TIM1_B},   tim8{"tim8", addr::TIM8_B};
+    TimGp32     tim2{"tim2", addr::TIM2_B},   tim5{"tim5", addr::TIM5_B};
+    TimGp16     tim3{"tim3", addr::TIM3_B},   tim4{"tim4", addr::TIM4_B};
+    TimGp2Ch    tim9{"tim9", addr::TIM9_B},   tim12{"tim12", addr::TIM12_B};
+    TimGp1Ch    tim10{"tim10", addr::TIM10_B}, tim11{"tim11", addr::TIM11_B};
+    TimGp1Ch    tim13{"tim13", addr::TIM13_B}, tim14{"tim14", addr::TIM14_B};
+    TimBasic    tim6{"tim6", addr::TIM6_B},   tim7{"tim7", addr::TIM7_B};
 
     Usart usart1{"usart1", addr::USART1_B}, usart2{"usart2", addr::USART2_B};
     Usart usart3{"usart3", addr::USART3_B};
@@ -181,7 +183,7 @@ SC_MODULE(Stm32F407VG) {
     sc_core::sc_signal<bool> s_mii{"s_mii"};
     // Constantes y sumidero de no-conectados
     sc_core::sc_signal<bool> s_false{"s_false"}, s_true{"s_true"};
-    sc_core::sc_vector<sc_core::sc_signal<bool>> s_nc{"s_nc", 64};
+    sc_core::sc_vector<sc_core::sc_signal<bool>> s_nc{"s_nc", 256};
     unsigned nc_i_ = 0;
     // OR de IRQs compartidas
     Or2 or_irq24{"or_irq24"}, or_irq25{"or_irq25"}, or_irq26{"or_irq26"};
