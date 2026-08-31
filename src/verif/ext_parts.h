@@ -16,6 +16,7 @@
 //   Button     pulsador a VSS con pull-up externo opcional
 //   Driver     driver digital externo genérico (para forzar niveles y probar
 //              conflictos con la salida del MCU)
+//   SignalLink pista de placa unidireccional entre dos pines (TX -> RX)
 //
 // Ninguna de estas piezas forma parte del MCU: viven en verif/.
 // =============================================================================
@@ -153,6 +154,42 @@ public:
     bool pressed() const { return down_; }
 private:
     double r_; bool down_ = false;
+};
+
+// ---------------------------------------------------------------------------
+// Pista de placa que une dos pines: lo que hay entre el TX de un puerto serie
+// y el RX del otro. Observa la tensión del pin de origen, la digitaliza con el
+// mismo umbral que un pad y la reproduce en el pin de destino con una
+// impedancia de salida pequeña.
+//
+// Es UNIDIRECCIONAL por construcción (origen -> destino), que es lo que hace
+// falta para un enlace serie full-duplex, donde cada hilo tiene un único
+// emisor. Un hilo compartido de verdad (medio dúplex, bus open-drain) se
+// modela conectando los dos pines al MISMO AnalogNet, no con esta pieza.
+// ---------------------------------------------------------------------------
+SC_MODULE(SignalLink), public ExtPart {
+    SignalLink(sc_core::sc_module_name nm, analog_net_if& from, analog_net_if& to,
+               double vdd = 3.3, double r_out = 50.0)
+        : sc_core::sc_module(nm), ExtPart(to, "link"),
+          from_(&from), vdd_(vdd), r_(r_out) {
+        SC_HAS_PROCESS(SignalLink);
+        SC_THREAD(run);
+    }
+    bool level() const { return lvl_; }
+private:
+    void run() {
+        for (;;) {
+            const double v = from_->voltage();
+            const bool  fl = from_->floating();
+            // Umbral con histéresis, como el trigger de entrada de un pad
+            if (!fl) lvl_ = lvl_ ? (v > 0.45 * vdd_) : (v >= 0.55 * vdd_);
+            drive(lvl_ ? float(vdd_) : 0.0f, float(r_));
+            wait(from_->value_changed_event());
+        }
+    }
+    analog_net_if* from_;
+    double vdd_, r_;
+    bool   lvl_ = true;
 };
 
 // ---------------------------------------------------------------------------

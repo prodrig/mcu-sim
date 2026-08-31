@@ -100,6 +100,19 @@ SC_MODULE(F1Tb) {
     // Oscilador externo para el modo bypass del HSE. Los sc_module deben
     // construirse durante la elaboración, así que se crea aquí parado.
     ExtClock* osc_ext = nullptr;
+    // Pistas de placa entre puertos serie: USART2 <-> USART3 y UART4 <-> UART5
+    SignalLink *lnk_u2_u3 = nullptr, *lnk_u3_u2 = nullptr;
+    SignalLink *lnk_u4_u5 = nullptr, *lnk_u5_u4 = nullptr;
+
+    // --- Selección de variante en TIEMPO DE EJECUCIÓN -----------------------
+    // Un puerto serie que no existe en el F407: asíncrono (sin CK) pero con
+    // control de flujo por hardware. Demuestra que los rasgos son ejes
+    // independientes y que se pueden fijar por el constructor.
+    UsartBase* u_rt = nullptr;
+    BusTestMaster tm2{"tm2"};
+    sc_signal<bool>   s_rt_true{"s_rt_true"}, s_rt_rst{"s_rt_rst"};
+    sc_signal<double> s_rt_hz{"s_rt_hz"};
+    sc_signal<bool>   s_rt_irq{"s_rt_irq"}, s_rt_drx{"s_rt_drx"}, s_rt_dtx{"s_rt_dtx"};
 
     // Drivers externos de los nodos analógicos de alimentación / reset / boot
     int d_vdd = -1, d_vdda = -1, d_nrst = -1, d_bt0 = -1, d_pb2 = -1;
@@ -112,12 +125,33 @@ SC_MODULE(F1Tb) {
         led_pd12 = new Led("led_pd12", dut->pinmux.analog(3, 12), true);
         btn_pa0  = new Button(dut->pinmux.analog(0, 0));
         osc_ext  = new ExtClock("osc_ext", dut->pinmux.analog(7, 0), 0.0);
+        // PA2 (USART2_TX) -> PB11 (USART3_RX) y PB10 (USART3_TX) -> PA3 (USART2_RX)
+        lnk_u2_u3 = new SignalLink("lnk_u2_u3", dut->pinmux.analog(0, 2),
+                                                dut->pinmux.analog(1, 11));
+        lnk_u3_u2 = new SignalLink("lnk_u3_u2", dut->pinmux.analog(1, 10),
+                                                dut->pinmux.analog(0, 3));
+        // PA0 (UART4_TX) -> PD2 (UART5_RX) y PC12 (UART5_TX) -> PA1 (UART4_RX)
+        lnk_u4_u5 = new SignalLink("lnk_u4_u5", dut->pinmux.analog(0, 0),
+                                                dut->pinmux.analog(3, 2));
+        lnk_u5_u4 = new SignalLink("lnk_u5_u4", dut->pinmux.analog(2, 12),
+                                                dut->pinmux.analog(0, 1));
+        // Variante mixta elegida en tiempo de ejecución (véase T32)
+        u_rt = new UsartBase("u_rt", 0x40004400u,
+                             UsartCaps{/*synchronous*/false, /*flow_control*/true,
+                                       /*smartcard*/false, /*irda*/true,
+                                       /*lin*/true, /*half_duplex*/true, "UART+CTS"});
+        tm2.isk.bind(u_rt->tsk);
+        u_rt->clk(dut->s_pclk1); u_rt->clk_hz(dut->s_pclk1_hz);
+        u_rt->rst_n(s_rt_rst);   u_rt->clk_en(s_rt_true);
+        u_rt->irq(s_rt_irq); u_rt->dma_req_rx(s_rt_drx); u_rt->dma_req_tx(s_rt_dtx);
         // La pila por defecto de un SC_THREAD (64 KB) se queda corta con las
         // cadenas de llamadas TLM anidadas al compilar con sanitizers.
         SC_THREAD(stim_proc);        set_stack_size(1024 * 1024);
         SC_THREAD(contention_proc);  set_stack_size(256 * 1024);
     }
     ~F1Tb() {
+        delete u_rt;
+        delete lnk_u5_u4; delete lnk_u4_u5; delete lnk_u3_u2; delete lnk_u2_u3;
         delete osc_ext; delete btn_pa0; delete led_pd12;
         delete xtal_lse; delete xtal_hse;
         delete dut;
@@ -214,6 +248,15 @@ SC_MODULE(F1Tb) {
         t29_dma_periferico();
         t30_dma_errores();
         t31_dma_firmware();
+        const unsigned f4d_pass = g_pass, f4d_fail = g_fail;
+
+        // ================ Fase F4: UART y USART =============================
+        t32_usart_variantes();
+        t33_usart_registros();
+        t34_usart_marco();
+        t35_usart_lazo();
+        t36_usart_dma();
+        t37_usart_firmware();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -222,7 +265,9 @@ SC_MODULE(F1Tb) {
         std::printf("Resumen F3: %u comprobaciones OK, %u fallos\n",
                     f3_pass - f2_pass, f3_fail - f2_fail);
         std::printf("Resumen F4 (DMA): %u comprobaciones OK, %u fallos\n",
-                    g_pass - f3_pass, g_fail - f3_fail);
+                    f4d_pass - f3_pass, f4d_fail - f3_fail);
+        std::printf("Resumen F4 (USART): %u comprobaciones OK, %u fallos\n",
+                    g_pass - f4d_pass, g_fail - f4d_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -1971,6 +2016,454 @@ SC_MODULE(F1Tb) {
         dut->rcc.set_internal_waveforms(true);
     }
 
+
+    // =======================================================================
+    // FASE F4 — UART y USART
+    // =======================================================================
+    static constexpr uint32_t U2 = addr::USART2_B, U3 = addr::USART3_B;
+    static constexpr uint32_t U4 = addr::UART4_B,  U5 = addr::UART5_B;
+
+    // "Analizador lógico" del banco de pruebas: decodifica un marco 8N1 sobre
+    // un pin, muestreando en el centro de cada bit.
+    struct FrameCap { bool seen = false; bool stop = false; unsigned data = 0;
+                      double bit_s = 0.0; };
+    FrameCap cap_;
+    void frame_sniffer(unsigned k, sc_time tb) {
+        wait(dut->pinmux.pad_din[k].negedge_event());
+        const sc_time t0 = sc_time_stamp();
+        cap_.seen = !dut->pinmux.pad_din[k].read();
+        wait(tb + tb / 2);                       // centro del primer bit de dato
+        for (unsigned i = 0; i < 8; ++i) {
+            if (dut->pinmux.pad_din[k].read()) cap_.data |= 1u << i;
+            if (i < 7) wait(tb);
+        }
+        wait(tb);                                // centro del bit de parada
+        cap_.stop  = dut->pinmux.pad_din[k].read();
+        cap_.bit_s = (sc_time_stamp() - t0).to_seconds() / 9.5;
+    }
+
+    uint32_t u_rd(uint32_t base, uint32_t off) {
+        uint32_t v = 0; tm.read32(base + off, v); return v;
+    }
+    void u_wr(uint32_t base, uint32_t off, uint32_t v) { tm.write32(base + off, v); }
+
+    // Relojes de los puertos serie y de sus GPIO
+    void usart_clocks_on() {
+        rcc_enable(Rcc::R_AHB1ENR, 0);      // GPIOA
+        rcc_enable(Rcc::R_AHB1ENR, 1);      // GPIOB
+        rcc_enable(Rcc::R_AHB1ENR, 2);      // GPIOC
+        rcc_enable(Rcc::R_AHB1ENR, 3);      // GPIOD
+        rcc_enable(Rcc::R_APB1ENR, 17);     // USART2
+        rcc_enable(Rcc::R_APB1ENR, 18);     // USART3
+        rcc_enable(Rcc::R_APB1ENR, 19);     // UART4
+        rcc_enable(Rcc::R_APB1ENR, 20);     // UART5
+    }
+    // Pines en función alternativa: USART2/3 en AF7, UART4/5 en AF8
+    void usart_pins_af() {
+        pin_cfg(0, 2, 2, 0, false, 3, 7);   // PA2  USART2_TX
+        pin_cfg(0, 3, 2, 1, false, 3, 7);   // PA3  USART2_RX (pull-up)
+        pin_cfg(1, 10, 2, 0, false, 3, 7);  // PB10 USART3_TX
+        pin_cfg(1, 11, 2, 1, false, 3, 7);  // PB11 USART3_RX
+        pin_cfg(0, 0, 2, 0, false, 3, 8);   // PA0  UART4_TX
+        pin_cfg(0, 1, 2, 1, false, 3, 8);   // PA1  UART4_RX
+        pin_cfg(2, 12, 2, 0, false, 3, 8);  // PC12 UART5_TX
+        pin_cfg(3, 2, 2, 1, false, 3, 8);   // PD2  UART5_RX
+    }
+    // Configura un puerto: BRR y CR1/CR2/CR3, y lo habilita.
+    void usart_setup(uint32_t base, uint32_t brr, uint32_t cr1,
+                     uint32_t cr2 = 0, uint32_t cr3 = 0) {
+        u_wr(base, UsartBase::CR1, 0);          // UE = 0 para poder tocar BRR
+        u_wr(base, UsartBase::BRR, brr);
+        u_wr(base, UsartBase::CR2, cr2);
+        u_wr(base, UsartBase::CR3, cr3);
+        u_wr(base, UsartBase::CR1, cr1 | (1u << 13));   // UE = 1
+    }
+    // Envía un byte esperando a TXE y espera al fin del marco
+    void usart_send(uint32_t base, uint16_t v, sc_time limit = sc_time(1, SC_MS)) {
+        const sc_time t0 = sc_time_stamp();
+        while (!(u_rd(base, UsartBase::SR) & UsartBase::S_TXE) &&
+               sc_time_stamp() - t0 < limit) wait(1, SC_US);
+        u_wr(base, UsartBase::DR, v);
+    }
+    // Espera a RXNE y devuelve el dato; -1 si vence el plazo
+    int usart_recv(uint32_t base, sc_time limit = sc_time(1, SC_MS)) {
+        const sc_time t0 = sc_time_stamp();
+        while (sc_time_stamp() - t0 < limit) {
+            if (u_rd(base, UsartBase::SR) & UsartBase::S_RXNE)
+                return int(u_rd(base, UsartBase::DR) & 0x1FFu);
+            wait(1, SC_US);
+        }
+        return -1;
+    }
+
+    // -----------------------------------------------------------------------
+    // T32 — Selección de la variante UART/USART [IR, §12.4.1]
+    // -----------------------------------------------------------------------
+    void t32_usart_variantes() {
+        group("T32 UART/USART: seleccion de la variante [IR, 12.4.1]");
+        reset_dut();
+        usart_clocks_on();
+        s_rt_true.write(true); s_rt_rst.write(true);
+        wait(2, SC_US);
+
+        // --- Selección en tiempo de compilación (parámetro de plantilla) ----
+        static_assert(Usart::is_synchronous(), "USART sincrona");
+        static_assert(!Uart::is_synchronous(), "UART asincrona");
+        check(Usart::is_synchronous() && !Uart::is_synchronous(),
+              "el parametro de plantilla distingue los tipos Usart y Uart");
+        check(dut->usart2.caps().flow_control && !dut->uart4.caps().flow_control,
+              "USART2 tiene control de flujo y UART4 no");
+        check(dut->usart2.caps().smartcard && !dut->uart4.caps().smartcard,
+              "USART2 tiene modo Smartcard y UART4 no");
+        check(!std::string(dut->uart4.caps().kind).compare("UART"),
+              "la instancia se identifica como UART");
+
+        // --- Efecto observable: bits reservados en la variante reducida -----
+        u_wr(U2, UsartBase::CR2, 0xFFFFu);
+        u_wr(U4, UsartBase::CR2, 0xFFFFu);
+        const uint32_t c2_usart = u_rd(U2, UsartBase::CR2);
+        const uint32_t c2_uart  = u_rd(U4, UsartBase::CR2);
+        std::printf("    USART2_CR2 = 0x%04X | UART4_CR2 = 0x%04X\n", c2_usart, c2_uart);
+        check_eq((c2_usart >> 11) & 1u, 1u, "USART2: CLKEN es escribible (modo sincrono)");
+        check_eq((c2_uart  >> 11) & 1u, 0u, "UART4: CLKEN es un bit reservado y lee 0");
+        check_eq((c2_usart >> 8) & 7u, 7u, "USART2: CPOL/CPHA/LBCL escribibles");
+        check_eq((c2_uart  >> 8) & 7u, 0u, "UART4: CPOL/CPHA/LBCL reservados");
+        check_eq((c2_uart  >> 12) & 3u, 3u, "UART4 conserva STOP[1:0], que si tiene");
+        check_eq((c2_uart  >> 14) & 1u, 1u, "UART4 conserva LINEN: el modo LIN si existe");
+
+        u_wr(U2, UsartBase::CR3, 0xFFFFu);
+        u_wr(U4, UsartBase::CR3, 0xFFFFu);
+        const uint32_t c3_usart = u_rd(U2, UsartBase::CR3);
+        const uint32_t c3_uart  = u_rd(U4, UsartBase::CR3);
+        std::printf("    USART2_CR3 = 0x%04X | UART4_CR3 = 0x%04X\n", c3_usart, c3_uart);
+        check_eq((c3_usart >> 8) & 7u, 7u, "USART2: RTSE/CTSE/CTSIE escribibles");
+        check_eq((c3_uart  >> 8) & 7u, 0u, "UART4: sin control de flujo por hardware");
+        check_eq((c3_usart >> 4) & 3u, 3u, "USART2: NACK/SCEN escribibles (Smartcard)");
+        check_eq((c3_uart  >> 4) & 3u, 0u, "UART4: sin modo Smartcard");
+        check_eq((c3_uart  >> 1) & 3u, 3u, "UART4 conserva IREN/IRLP: IrDA si existe");
+        check_eq((c3_uart  >> 3) & 1u, 1u, "UART4 conserva HDSEL: medio duplex si existe");
+
+        u_wr(U2, UsartBase::GTPR, 0x1234u);
+        u_wr(U4, UsartBase::GTPR, 0x1234u);
+        check_eq(u_rd(U2, UsartBase::GTPR), 0x1234u, "USART2_GTPR existe");
+        check_eq(u_rd(U4, UsartBase::GTPR), 0u, "UART4_GTPR es reservado y lee 0");
+
+        // --- Selección en tiempo de ejecución (parámetro del constructor) ---
+        // Instancia con una combinación que no existe en el F407: asincrona
+        // pero con control de flujo. Se accede por su propio maestro.
+        tm2.write32(0x40004400u + UsartBase::CR2, 0xFFFFu);
+        tm2.write32(0x40004400u + UsartBase::CR3, 0xFFFFu);
+        uint32_t rc2 = 0, rc3 = 0;
+        tm2.read32(0x40004400u + UsartBase::CR2, rc2);
+        tm2.read32(0x40004400u + UsartBase::CR3, rc3);
+        std::printf("    variante en ejecucion (%s): CR2 = 0x%04X, CR3 = 0x%04X\n",
+                    u_rt->caps().kind, rc2, rc3);
+        check_eq((rc2 >> 11) & 1u, 0u,
+                 "variante de ejecucion: sin modo sincrono, CLKEN reservado");
+        check_eq((rc3 >> 8) & 7u, 7u,
+                 "variante de ejecucion: con control de flujo, CTSE/RTSE escribibles");
+        check_eq((rc3 >> 5) & 1u, 0u,
+                 "variante de ejecucion: sin Smartcard, SCEN reservado");
+        check(!u_rt->caps().synchronous && u_rt->caps().flow_control,
+              "los rasgos son ejes independientes, no un interruptor UART/USART");
+    }
+
+    // -----------------------------------------------------------------------
+    // T33 — Registros y generador de baudios [IR, §12.4.3]
+    // -----------------------------------------------------------------------
+    void t33_usart_registros() {
+        group("T33 USART: registros y generador de baudios [IR, 12.4.3]");
+        reset_dut();
+        usart_clocks_on();
+
+        check_eq(u_rd(U2, UsartBase::SR), 0x00C0u,
+                 "USART_SR de reset = 0x00C0 (TXE y TC activos)");
+        check_eq(u_rd(U2, UsartBase::BRR), 0u, "USART_BRR de reset");
+        check_eq(u_rd(U2, UsartBase::CR1), 0u, "USART_CR1 de reset");
+
+        // PCLK1 = 16 MHz tras el reset (HSI). BRR = 0x10 -> USARTDIV = 1
+        check_near(dut->s_pclk1_hz.read(), 16e6, 0.001, "PCLK1 = 16 MHz tras el reset");
+        u_wr(U2, UsartBase::BRR, 0x0010u);
+        u_wr(U2, UsartBase::CR1, 1u << 13);                 // UE
+        check_near(dut->usart2.baud_hz(), 1.0e6, 0.001,
+                   "BRR = 0x0010 con sobremuestreo x16 dan 1 Mbit/s");
+
+        // Con UE = 1 el BRR no se puede cambiar
+        u_wr(U2, UsartBase::BRR, 0x0020u);
+        check_eq(u_rd(U2, UsartBase::BRR), 0x0010u, "BRR ignora las escrituras con UE=1");
+
+        // Sobremuestreo x8: USARTDIV = 2 para el mismo baudrate
+        u_wr(U2, UsartBase::CR1, 0);
+        u_wr(U2, UsartBase::BRR, 0x0020u);
+        u_wr(U2, UsartBase::CR1, (1u << 13) | (1u << 15));  // UE | OVER8
+        check_near(dut->usart2.baud_hz(), 1.0e6, 0.001,
+                   "BRR = 0x0020 con sobremuestreo x8 dan el mismo 1 Mbit/s");
+
+        // Divisor fraccionario: 115200 baudios desde 16 MHz -> BRR = 0x008B
+        u_wr(U2, UsartBase::CR1, 0);
+        u_wr(U2, UsartBase::BRR, 0x008Bu);
+        u_wr(U2, UsartBase::CR1, 1u << 13);
+        check_near(dut->usart2.baud_hz(), 115200.0, 0.005,
+                   "BRR = 0x008B da 115200 baudios (divisor fraccionario)");
+
+        // El baudrate sigue al reloj del bus sin que el firmware toque nada
+        const double b0 = dut->usart2.baud_hz();
+        tm.write32(addr::RCC_B + Rcc::R_CFGR,
+                   u_rd(addr::RCC_B, Rcc::R_CFGR) | (4u << 10));    // PPRE1 = 100 -> /2
+        wait(5, SC_US);
+        check_near(dut->usart2.baud_hz(), b0 / 2.0, 0.01,
+                   "dividir PCLK1 por dos divide el baudrate por dos");
+        tm.write32(addr::RCC_B + Rcc::R_CFGR,
+                   u_rd(addr::RCC_B, Rcc::R_CFGR) & ~(0x7u << 10));
+        wait(5, SC_US);
+    }
+
+    // -----------------------------------------------------------------------
+    // T34 — El marco, bit a bit, sobre el pin [IR, §12.4.3]
+    // -----------------------------------------------------------------------
+    void t34_usart_marco() {
+        group("T34 USART: el marco serie observado en el pin");
+        reset_dut();
+        usart_clocks_on();
+        usart_pins_af();
+        // USART2 a 1 Mbit/s, 8 bits, sin paridad, 1 bit de parada, solo TX
+        usart_setup(U2, 0x0010u, (1u << 3));                // TE
+        wait(5, SC_US);
+        const unsigned k_tx = 0 * N_PORT_PINS + 2;          // PA2
+        check(dut->pinmux.pad_din[k_tx].read(),
+              "la linea de transmision reposa a nivel alto");
+        check(!dut->pinmux.pad[0][2]->is_floating(),
+              "el pin PA2 lo gobierna el USART en modo AF");
+
+        // Se arma un "analizador logico" ANTES de escribir DR: la escritura al
+        // bus consume tiempo y el bit de arranque puede salir antes de que el
+        // proceso de estimulo llegue a esperar el flanco.
+        cap_ = FrameCap();
+        sc_spawn(sc_bind(&F1Tb::frame_sniffer, this, k_tx, sc_time(1, SC_US)));
+        wait(SC_ZERO_TIME);
+        u_wr(U2, UsartBase::DR, 0x55u);
+        wait(40, SC_US);
+        check(cap_.seen, "aparece el bit de arranque (nivel bajo) en el pin");
+        check_eq(cap_.data, 0x55u, "los 8 bits de datos salen en orden LSB primero");
+        check(cap_.stop, "el bit de parada vuelve a nivel alto");
+        check_near(1.0 / cap_.bit_s, 1.0e6, 0.02,
+                   "duracion de bit medida en el pin [baudios]");
+
+        // TXE y TC
+        check(u_rd(U2, UsartBase::SR) & UsartBase::S_TXE,
+              "TXE se activa en cuanto el dato pasa al registro de desplazamiento");
+        wait(20, SC_US);
+        check(u_rd(U2, UsartBase::SR) & UsartBase::S_TC,
+              "TC se activa al terminar el ultimo marco");
+        check_eq(dut->usart2.tx_frames(), 1u, "se ha transmitido exactamente un marco");
+    }
+
+    // -----------------------------------------------------------------------
+    // T35 — Enlace real entre dos puertos por una pista de placa
+    // -----------------------------------------------------------------------
+    void t35_usart_lazo() {
+        group("T35 USART/UART: enlace serie entre dos puertos por el pin");
+        reset_dut();
+        usart_clocks_on();
+        usart_pins_af();
+
+        // --- 8N1 entre USART2 y USART3 -------------------------------------
+        usart_setup(U2, 0x0010u, (1u << 3) | (1u << 2));    // TE | RE
+        usart_setup(U3, 0x0010u, (1u << 3) | (1u << 2));
+        wait(5, SC_US);
+        const char* txt = "Hola";
+        std::string got;
+        for (const char* p = txt; *p; ++p) {
+            usart_send(U2, uint8_t(*p));
+            const int c = usart_recv(U3);
+            if (c >= 0) got += char(c);
+        }
+        std::printf("    USART2 -> USART3 : \"%s\"\n", got.c_str());
+        check(got == "Hola", "8N1: los cuatro caracteres llegan intactos al otro puerto");
+        check_eq(dut->usart3.rx_frames(), 4u, "el receptor cuenta cuatro marcos");
+
+        // Camino inverso: el enlace es full-duplex
+        usart_send(U3, 0x5Au);
+        check_eq(usart_recv(U2), 0x5A, "el enlace funciona tambien en sentido inverso");
+
+        // --- 9 bits con paridad par ----------------------------------------
+        usart_setup(U2, 0x0010u, (1u << 3) | (1u << 12) | (1u << 10));  // TE|M|PCE
+        usart_setup(U3, 0x0010u, (1u << 2) | (1u << 12) | (1u << 10));  // RE|M|PCE
+        wait(5, SC_US);
+        usart_send(U2, 0xA5u);
+        const int v9 = usart_recv(U3);
+        check_eq(v9 & 0xFFu, 0xA5u, "9 bits con paridad: los 8 de datos son correctos");
+        check(!(u_rd(U3, UsartBase::SR) & UsartBase::S_PE),
+              "9 bits con paridad par: sin error de paridad");
+
+        // --- Paridad incompatible: el receptor lo detecta -------------------
+        usart_setup(U2, 0x0010u, (1u << 3) | (1u << 12) | (1u << 10) | (1u << 9)); // impar
+        usart_setup(U3, 0x0010u, (1u << 2) | (1u << 12) | (1u << 10));             // par
+        wait(5, SC_US);
+        usart_send(U2, 0xA5u);
+        wait(30, SC_US);
+        check(u_rd(U3, UsartBase::SR) & UsartBase::S_PE,
+              "PE: paridad impar en el emisor y par en el receptor");
+        (void)u_rd(U3, UsartBase::DR);                       // secuencia SR + DR
+
+        // --- Dos bits de parada --------------------------------------------
+        usart_setup(U2, 0x0010u, (1u << 3), (2u << 12));     // STOP = 2
+        usart_setup(U3, 0x0010u, (1u << 2), (2u << 12));
+        wait(5, SC_US);
+        usart_send(U2, 0x3Cu);
+        check_eq(usart_recv(U3), 0x3C, "2 bits de parada: la transferencia sigue siendo valida");
+
+        // --- Break: error de trama y deteccion LIN -------------------------
+        usart_setup(U2, 0x0010u, (1u << 3), (1u << 14));     // TE, LINEN
+        usart_setup(U3, 0x0010u, (1u << 2), (1u << 14));     // RE, LINEN
+        wait(5, SC_US);
+        u_wr(U2, UsartBase::CR1, u_rd(U2, UsartBase::CR1) | 1u);   // SBK
+        wait(60, SC_US);
+        const uint32_t sr3 = u_rd(U3, UsartBase::SR);
+        check(sr3 & UsartBase::S_FE, "un break provoca error de trama en el receptor");
+        check(sr3 & UsartBase::S_LBD, "con LINEN el break se senala tambien en LBD");
+        (void)u_rd(U3, UsartBase::DR);
+        u_wr(U3, UsartBase::SR, ~uint32_t(UsartBase::S_LBD));
+
+        // --- Desbordamiento: dos marcos sin leer DR ------------------------
+        usart_setup(U2, 0x0010u, (1u << 3));
+        usart_setup(U3, 0x0010u, (1u << 2));
+        wait(5, SC_US);
+        usart_send(U2, 0x11u);
+        wait(15, SC_US);
+        usart_send(U2, 0x22u);
+        wait(30, SC_US);
+        check(u_rd(U3, UsartBase::SR) & UsartBase::S_ORE,
+              "ORE: llega un segundo marco sin haber leido el primero");
+        check_eq(u_rd(U3, UsartBase::DR), 0x11u,
+                 "tras el desbordamiento, DR conserva el primer dato");
+
+        // --- Linea en reposo -----------------------------------------------
+        wait(40, SC_US);
+        check(u_rd(U3, UsartBase::SR) & UsartBase::S_IDLE,
+              "IDLE: la linea permanece en reposo un marco completo");
+
+        // --- El mismo enlace entre las dos UART (variante reducida) ---------
+        usart_setup(U4, 0x0010u, (1u << 3) | (1u << 2));
+        usart_setup(U5, 0x0010u, (1u << 3) | (1u << 2));
+        wait(5, SC_US);
+        usart_send(U4, 0xC3u);
+        check_eq(usart_recv(U5), 0xC3, "UART4 -> UART5 por PA0/PD2");
+        usart_send(U5, 0x7Eu);
+        check_eq(usart_recv(U4), 0x7E, "UART5 -> UART4 por PC12/PA1");
+    }
+
+    // -----------------------------------------------------------------------
+    // T36 — USART servido por el DMA e interrupciones
+    // -----------------------------------------------------------------------
+    void t36_usart_dma() {
+        group("T36 USART: transferencia por DMA e interrupciones");
+        reset_dut();
+        usart_clocks_on();
+        usart_pins_af();
+        rcc_enable(Rcc::R_AHB1ENR, 21);                      // DMA1
+
+        // --- Interrupción de recepción -------------------------------------
+        usart_setup(U2, 0x0010u, (1u << 3));                          // TE
+        usart_setup(U3, 0x0010u, (1u << 2) | (1u << 5));              // RE | RXNEIE
+        wait(5, SC_US);
+        check(!dut->s_irq[39].read(), "IRQ 39 (USART3) en reposo");
+        usart_send(U2, 0x99u);
+        wait(30, SC_US);
+        check(dut->s_irq[39].read(), "RXNE con RXNEIE activa la IRQ 39 del USART3");
+        check_eq(usart_recv(U3), 0x99, "el dato recibido es el enviado");
+        wait(2, SC_US);
+        check(!dut->s_irq[39].read(), "leer DR retira la interrupcion");
+
+        // --- Transmisión y recepción por DMA -------------------------------
+        // USART2_TX -> DMA1 stream 6 canal 4 ; USART3_RX -> DMA1 stream 1 canal 4
+        const uint64_t tx0 = dut->usart2.tx_frames();
+        const uint8_t msg[8] = {'D','M','A','-','U','A','R','T'};
+        ImageLoader ld(*dut);
+        for (unsigned i = 0; i < 8; ++i) ld.poke8(SRC_BUF + i, msg[i]);
+        for (unsigned i = 0; i < 8; i += 4) ld.poke32(DST_BUF + i, 0);
+
+        // Recepción: periférico -> memoria, 8 bits, destino incremental
+        dma_setup(addr::DMA1_B, 1, U3 + UsartBase::DR, DST_BUF, 8,
+                  (4u << 25) | (0u << 6) | (1u << 10) | (2u << 16), 0x00u);
+        // Transmisión: memoria -> periférico
+        dma_setup(addr::DMA1_B, 6, U2 + UsartBase::DR, SRC_BUF, 8,
+                  (4u << 25) | (1u << 6) | (1u << 10), 0x00u);
+        // El USART pide el servicio al DMA (CR3.DMAT / CR3.DMAR)
+        u_wr(U3, UsartBase::CR3, 1u << 6);                   // DMAR
+        u_wr(U2, UsartBase::CR3, 1u << 7);                   // DMAT
+
+        check(dma_wait_tc(addr::DMA1_B, 6), "el DMA entrega los 8 bytes al USART2");
+        check(dma_wait_tc(addr::DMA1_B, 1), "el DMA recoge los 8 bytes del USART3");
+        std::string rx;
+        for (unsigned i = 0; i < 8; ++i) rx += char(dut->sram1.peek8(0x2000 + i));
+        std::printf("    recibido por DMA: \"%s\" en %llu marcos\n",
+                    rx.c_str(), (unsigned long long)dut->usart3.rx_frames());
+        check(rx == "DMA-UART",
+              "la cadena viaja de memoria a memoria por dos USART y un cable");
+        check_eq(dut->usart2.tx_frames() - tx0, 8u,
+                 "USART2 ha transmitido los ocho marcos que le dio el DMA");
+        u_wr(U2, UsartBase::CR3, 0);
+        u_wr(U3, UsartBase::CR3, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // T37 — Firmware real con CMSIS sobre USART y UART
+    // -----------------------------------------------------------------------
+    void t37_usart_firmware() {
+        group("T37 USART/UART gobernados por firmware con CMSIS");
+        dut->rcc.set_internal_waveforms(false);
+        xtal_hse->attach();
+        dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(30, SC_US);
+
+        ImageLoader ld(*dut);
+        const long n = ld.load_file(uart_fw_path_.c_str(), addr::FLASH_BASE);
+        if (!check(n > 0, "imagen del firmware de USART cargada en la Flash")) {
+            std::printf("        (compilar con make -C verif/fw/uart_demo)\n");
+            dut->pwr_pads.nrst.set_hiz(d_nrst);
+            dut->rcc.set_internal_waveforms(true);
+            return;
+        }
+        std::printf("    %ld bytes cargados desde %s\n", n, uart_fw_path_.c_str());
+        for (unsigned i = 0; i < 32; i += 4) ld.poke32(addr::SRAM1_BASE + i, 0);
+        const uint64_t i0 = dut->core.cpu.inst_count;
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+
+        bool done = false;
+        const sc_time t0 = sc_time_stamp();
+        while ((sc_time_stamp() - t0) < sc_time(200, SC_MS)) {
+            wait(200, SC_US);
+            if (dut->sram1.peek32(0) == 1u) { done = true; break; }
+        }
+        const uint64_t ninst = dut->core.cpu.inst_count - i0;
+        if (!done)
+            std::printf("        sin terminar: PC = 0x%08X, inst = %llu\n",
+                        dut->core.cpu.pc(), (unsigned long long)ninst);
+        check(done, "el firmware de USART llega a su fin y publica el buzon");
+
+        const uint32_t usart_ok = dut->sram1.peek32(4);
+        const uint32_t uart_ok  = dut->sram1.peek32(8);
+        const uint32_t rx_irq   = dut->sram1.peek32(12);
+        const uint32_t brr      = dut->sram1.peek32(16);
+        const uint32_t pclk1    = dut->sram1.peek32(20);
+        std::printf("    PCLK1 = %u Hz | BRR = 0x%04X | IRQ de recepcion = %u | "
+                    "%llu instrucciones\n",
+                    pclk1, brr, rx_irq, (unsigned long long)ninst);
+        check_eq(pclk1, 42000000u, "el firmware trabaja con PCLK1 = 42 MHz");
+        check_eq(brr, 0x016Cu, "BRR calculado por el firmware para 115200 baudios");
+        check_near(dut->usart2.baud_hz(), 115200.0, 0.01,
+                   "el modelo genera 115200 baudios con ese BRR");
+        check_eq(usart_ok, 1u,
+                 "USART2 -> USART3: el mensaje llega intacto con recepcion por IRQ");
+        check_eq(rx_irq, 14u, "una interrupcion de recepcion por cada caracter");
+        check_eq(uart_ok, 1u,
+                 "UART4 -> UART5: el MISMO driver funciona sobre la variante reducida");
+        dut->rcc.set_internal_waveforms(true);
+    }
+
+    std::string uart_fw_path_ = "verif/fw/uart_demo/uart_demo.bin";
     std::string dma_fw_path_ = "verif/fw/dma_demo/dma_demo.bin";
     std::string blinky_path_ = "verif/fw/blinky/blinky.bin";
     std::string fw_path_ = "verif/fw/test_isa.bin";

@@ -325,10 +325,47 @@ inline void Stm32F407VG::bind_analog() {
     // Funciones alternativas — EJEMPLOS de registro de periféricos de F4/F5; la
     // tabla del sistema (AF0: SWD/JTAG y MCO1/2; AF15: EVENTOUT) se registra en
     // bind_gpio_pins. El resto se completa al implementar cada periférico.
-    pinmux.connect_af(0, 2, 7, AfEndpoint{&usart2.tx_out, &usart2.tx_oe, nullptr}); // PA2 USART2_TX
-    pinmux.connect_af(0, 3, 7, AfEndpoint{nullptr, nullptr, &usart2.rx_in});        // PA3 USART2_RX
-    pinmux.connect_af(0, 9, 7, AfEndpoint{&usart1.tx_out, &usart1.tx_oe, nullptr}); // PA9 USART1_TX
-    pinmux.connect_af(0, 10, 7, AfEndpoint{nullptr, nullptr, &usart1.rx_in});       // PA10 USART1_RX
+    // ---- USART y UART [IR, §12.4.3-G] ------------------------------------
+    // Los pines de TX se registran con su habilitación de salida (en medio
+    // dúplex el periférico suelta la línea); los de RX solo con su entrada.
+    auto af_tx = [](UsartBase& u) {
+        return AfEndpoint{&u.tx_out, &u.tx_oe, nullptr, true};
+    };
+    auto af_rx = [](UsartBase& u) {
+        return AfEndpoint{nullptr, nullptr, &u.rx_in, true};   // reposo a 1
+    };
+    auto af_ck = [](UsartBase& u) {
+        return AfEndpoint{&u.ck_out, &u.ck_oe, nullptr, true};
+    };
+    auto af_rts = [](UsartBase& u) {
+        return AfEndpoint{&u.rts_out, &u.rts_oe, nullptr, true};
+    };
+    auto af_cts = [](UsartBase& u) {
+        return AfEndpoint{nullptr, nullptr, &u.cts_in, true};  // reposo inactivo
+    };
+    // USART1 (AF7): PA9/PA10 o PB6/PB7; CK PA8, CTS PA11, RTS PA12
+    pinmux.connect_af(0,  9, 7, af_tx(usart1));   pinmux.connect_af(0, 10, 7, af_rx(usart1));
+    pinmux.connect_af(1,  6, 7, af_tx(usart1));   pinmux.connect_af(1,  7, 7, af_rx(usart1));
+    pinmux.connect_af(0,  8, 7, af_ck(usart1));
+    pinmux.connect_af(0, 11, 7, af_cts(usart1));  pinmux.connect_af(0, 12, 7, af_rts(usart1));
+    // USART2 (AF7): PA2/PA3 o PD5/PD6; CK PA4, CTS PA0, RTS PA1
+    pinmux.connect_af(0,  2, 7, af_tx(usart2));   pinmux.connect_af(0,  3, 7, af_rx(usart2));
+    pinmux.connect_af(3,  5, 7, af_tx(usart2));   pinmux.connect_af(3,  6, 7, af_rx(usart2));
+    pinmux.connect_af(0,  4, 7, af_ck(usart2));
+    pinmux.connect_af(0,  0, 7, af_cts(usart2));  pinmux.connect_af(0,  1, 7, af_rts(usart2));
+    // USART3 (AF7): PB10/PB11, PC10/PC11 o PD8/PD9; CK PB12, CTS PB13, RTS PB14
+    pinmux.connect_af(1, 10, 7, af_tx(usart3));   pinmux.connect_af(1, 11, 7, af_rx(usart3));
+    pinmux.connect_af(2, 10, 7, af_tx(usart3));   pinmux.connect_af(2, 11, 7, af_rx(usart3));
+    pinmux.connect_af(3,  8, 7, af_tx(usart3));   pinmux.connect_af(3,  9, 7, af_rx(usart3));
+    pinmux.connect_af(1, 12, 7, af_ck(usart3));
+    pinmux.connect_af(1, 13, 7, af_cts(usart3));  pinmux.connect_af(1, 14, 7, af_rts(usart3));
+    // UART4 (AF8): PA0/PA1 o PC10/PC11 — sin CK ni control de flujo
+    pinmux.connect_af(0,  0, 8, af_tx(uart4));    pinmux.connect_af(0,  1, 8, af_rx(uart4));
+    pinmux.connect_af(2, 10, 8, af_tx(uart4));    pinmux.connect_af(2, 11, 8, af_rx(uart4));
+    // UART5 (AF8): PC12 (TX) y PD2 (RX)
+    pinmux.connect_af(2, 12, 8, af_tx(uart5));    pinmux.connect_af(3,  2, 8, af_rx(uart5));
+    // USART6 (AF8): PC6/PC7; CTS PG13/PG15 y RTS PG8/PG12 no existen en LQFP100
+    pinmux.connect_af(2,  6, 8, af_tx(usart6));   pinmux.connect_af(2,  7, 8, af_rx(usart6));
     pinmux.connect_af(1, 6, 4, AfEndpoint{&i2c1.scl_out, &i2c1.scl_oe, &i2c1.scl_in}); // PB6 I2C1_SCL
     pinmux.connect_af(1, 7, 4, AfEndpoint{&i2c1.sda_out, &i2c1.sda_oe, &i2c1.sda_in}); // PB7 I2C1_SDA
     pinmux.connect_af(0, 5, 5, AfEndpoint{&spi1.sck_out, &spi1.sck_oe, &spi1.sck_in}); // PA5 SPI1_SCK

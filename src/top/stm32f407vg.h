@@ -92,7 +92,8 @@ SC_MODULE(Stm32F407VG) {
 
     Usart usart1{"usart1", addr::USART1_B}, usart2{"usart2", addr::USART2_B};
     Usart usart3{"usart3", addr::USART3_B};
-    Usart uart4{"uart4", addr::UART4_B, false}, uart5{"uart5", addr::UART5_B, false};
+    // UART4/5 son la variante reducida: el tipo lo dice (véase periph/usart.h)
+    Uart  uart4{"uart4", addr::UART4_B}, uart5{"uart5", addr::UART5_B};
     Usart usart6{"usart6", addr::USART6_B};
     Spi   spi1{"spi1", addr::SPI1_B, false}, spi2{"spi2", addr::SPI2_B, true};
     Spi   spi3{"spi3", addr::SPI3_B, true};
