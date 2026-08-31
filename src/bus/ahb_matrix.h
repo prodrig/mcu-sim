@@ -86,8 +86,16 @@ private:
         allow(M::CORE_DBUS,   {S::FLASH_DCODE, S::SRAM1, S::SRAM2, S::FSMC_EXT});
         allow(M::CORE_SBUS,   {S::SRAM1, S::SRAM2, S::AHB1_SEG, S::AHB2_SEG, S::FSMC_EXT});
         allow(M::DMA1_MEM,    {S::SRAM1, S::SRAM2, S::AHB1_SEG, S::AHB2_SEG, S::FSMC_EXT});
-        allow(M::DMA2_MEM,    {S::SRAM1, S::SRAM2, S::AHB1_SEG, S::AHB2_SEG, S::FSMC_EXT});
-        allow(M::DMA2_PERIPH, {S::SRAM1, S::SRAM2, S::AHB1_SEG, S::AHB2_SEG, S::FSMC_EXT});
+        // DMA2 alcanza además la Flash por el bus DCode. La tabla de §6.2 pone
+        // "No" en esa celda, pero §11.1.1 del mismo informe dice explícitamente
+        // que DMA2 "soporta transferencias memoria-a-memoria y acceso a la
+        // memoria Flash", que es lo que hace el silicio y de lo que depende el
+        // caso de uso clásico Flash -> SRAM. Se resuelve la contradicción a
+        // favor de §11.1.1 (véase doc/stm32f407vg_fase4_dma.md, §9).
+        allow(M::DMA2_MEM,    {S::FLASH_DCODE, S::SRAM1, S::SRAM2, S::AHB1_SEG,
+                               S::AHB2_SEG, S::FSMC_EXT});
+        allow(M::DMA2_PERIPH, {S::FLASH_DCODE, S::SRAM1, S::SRAM2, S::AHB1_SEG,
+                               S::AHB2_SEG, S::FSMC_EXT});
         allow(M::ETH_DMA,     {S::SRAM1, S::SRAM2, S::AHB1_SEG});
         allow(M::OTG_HS_DMA,  {S::SRAM1, S::SRAM2, S::AHB1_SEG});
         // La columna "CCM RAM" de la tabla solo tiene 'Sí' en el D-Bus y la CCM

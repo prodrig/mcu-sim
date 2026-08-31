@@ -205,13 +205,24 @@ SC_MODULE(F1Tb) {
         t23_mco();
         t24_bor();
         t25_blinky_cmsis();
+        const unsigned f3_pass = g_pass, f3_fail = g_fail;
+
+        // ==================== Fase F4: DMA1 y DMA2 ==========================
+        t26_dma_registros();
+        t27_dma_mem2mem();
+        t28_dma_empaquetado();
+        t29_dma_periferico();
+        t30_dma_errores();
+        t31_dma_firmware();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
         std::printf("Resumen F2: %u comprobaciones OK, %u fallos\n",
                     f2_pass - f1_pass, f2_fail - f1_fail);
         std::printf("Resumen F3: %u comprobaciones OK, %u fallos\n",
-                    g_pass - f2_pass, g_fail - f2_fail);
+                    f3_pass - f2_pass, f3_fail - f2_fail);
+        std::printf("Resumen F4 (DMA): %u comprobaciones OK, %u fallos\n",
+                    g_pass - f3_pass, g_fail - f3_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -1505,6 +1516,462 @@ SC_MODULE(F1Tb) {
         dut->rcc.set_internal_waveforms(true);
     }
 
+
+    // =======================================================================
+    // FASE F4 — DMA1 y DMA2
+    // =======================================================================
+    static constexpr uint32_t SRC_BUF = addr::SRAM1_BASE + 0x1000;
+    static constexpr uint32_t DST_BUF = addr::SRAM1_BASE + 0x2000;
+
+    // Dirección de un registro de stream: base + 0x10 + 0x18*s + off
+    static uint32_t dma_s(uint32_t base, unsigned s, uint32_t off) {
+        return base + DmaCtrl::S0_BASE + DmaCtrl::S_STRIDE * s + off;
+    }
+    uint32_t dma_rd(uint32_t a) { uint32_t v = 0; tm.read32(a, v); return v; }
+
+    // Habilita los relojes de DMA1 y DMA2 (RCC_AHB1ENR bits 21 y 22)
+    void dma_clocks_on() {
+        rcc_enable(Rcc::R_AHB1ENR, 21);
+        rcc_enable(Rcc::R_AHB1ENR, 22);
+    }
+
+    // Programa un stream completo y lo arranca. cr lleva ya todos los campos
+    // salvo EN, que se pone al final como manda el procedimiento [IR, §11.7].
+    void dma_setup(uint32_t base, unsigned s, uint32_t par, uint32_t m0ar,
+                   uint32_t ndt, uint32_t cr, uint32_t fcr, uint32_t m1ar = 0) {
+        tm.write32(dma_s(base, s, DmaCtrl::SxCR), 0);              // 1. EN = 0
+        // 3. limpiar banderas previas del stream
+        const uint32_t clr = 0x3Du << ((s & 3) < 2 ? (s & 3) * 6 : 16 + ((s & 3) - 2) * 6);
+        tm.write32(base + ((s < 4) ? DmaCtrl::LIFCR : DmaCtrl::HIFCR), clr);
+        tm.write32(dma_s(base, s, DmaCtrl::SxPAR),  par);          // 4
+        tm.write32(dma_s(base, s, DmaCtrl::SxM0AR), m0ar);         // 5
+        tm.write32(dma_s(base, s, DmaCtrl::SxM1AR), m1ar);
+        tm.write32(dma_s(base, s, DmaCtrl::SxNDTR), ndt);          // 6
+        tm.write32(dma_s(base, s, DmaCtrl::SxFCR),  fcr);          // 9
+        tm.write32(dma_s(base, s, DmaCtrl::SxCR),   cr);           // 7, 8
+        tm.write32(dma_s(base, s, DmaCtrl::SxCR),   cr | 1u);      // 10. EN = 1
+    }
+
+    // Banderas del stream leídas de LISR/HISR
+    bool dma_flag(uint32_t base, unsigned s, unsigned bit) {
+        static const unsigned off[4] = {0, 6, 16, 22};
+        const uint32_t r = dma_rd(base + ((s < 4) ? DmaCtrl::LISR : DmaCtrl::HISR));
+        return (r >> (off[s & 3] + bit)) & 1u;
+    }
+    // Espera a que el stream termine (TCIF) o venza el plazo
+    bool dma_wait_tc(uint32_t base, unsigned s, sc_time limit = sc_time(2, SC_MS)) {
+        const sc_time t0 = sc_time_stamp();
+        while (sc_time_stamp() - t0 < limit) {
+            if (dma_flag(base, s, DmaCtrl::F_TC)) return true;
+            if (dma_flag(base, s, DmaCtrl::F_TE)) return false;
+            wait(2, SC_US);
+        }
+        return false;
+    }
+    // Rellena el buffer de origen con un patrón conocido
+    void fill_src(unsigned n_bytes, uint32_t seed = 0x11223344u) {
+        ImageLoader ld(*dut);
+        for (unsigned i = 0; i < n_bytes; i += 4)
+            ld.poke32(SRC_BUF + i, seed + i * 0x01010101u);
+        for (unsigned i = 0; i < n_bytes; i += 4) ld.poke32(DST_BUF + i, 0);
+    }
+    bool cmp_buffers(unsigned n_bytes) {
+        for (unsigned i = 0; i < n_bytes; ++i)
+            if (dut->sram1.peek8(0x1000 + i) != dut->sram1.peek8(0x2000 + i)) return false;
+        return true;
+    }
+
+    // -----------------------------------------------------------------------
+    // T26 — Banco de registros del controlador [IR, §11.5, §11.6]
+    // -----------------------------------------------------------------------
+    void t26_dma_registros() {
+        group("T26 DMA: banco de registros [IR, 11.5, 11.6]");
+        reset_dut();
+        dma_clocks_on();
+
+        // Valores de reset
+        check_eq(dma_rd(addr::DMA2_B + DmaCtrl::LISR), 0u, "DMA2_LISR de reset");
+        check_eq(dma_rd(addr::DMA2_B + DmaCtrl::HISR), 0u, "DMA2_HISR de reset");
+        unsigned mal = 0;
+        for (unsigned s = 0; s < 8; ++s) {
+            if (dma_rd(dma_s(addr::DMA2_B, s, DmaCtrl::SxCR))   != 0u)     ++mal;
+            if (dma_rd(dma_s(addr::DMA2_B, s, DmaCtrl::SxNDTR)) != 0u)     ++mal;
+            if (dma_rd(dma_s(addr::DMA2_B, s, DmaCtrl::SxFCR))  != 0x21u)  ++mal;
+        }
+        check_eq(mal, 0u, "los 8 streams arrancan con SxCR=0, SxNDTR=0 y SxFCR=0x21");
+
+        // Cada stream tiene su propio banco en base + 0x10 + 0x18*x
+        tm.write32(dma_s(addr::DMA2_B, 3, DmaCtrl::SxPAR),  0x40020C14u);
+        tm.write32(dma_s(addr::DMA2_B, 5, DmaCtrl::SxM0AR), 0x20004000u);
+        check_eq(dma_rd(dma_s(addr::DMA2_B, 3, DmaCtrl::SxPAR)), 0x40020C14u,
+                 "SxPAR del stream 3 en su propio offset");
+        check_eq(dma_rd(dma_s(addr::DMA2_B, 5, DmaCtrl::SxM0AR)), 0x20004000u,
+                 "SxM0AR del stream 5 en su propio offset");
+        check_eq(dma_rd(dma_s(addr::DMA2_B, 3, DmaCtrl::SxM0AR)), 0u,
+                 "los bancos de stream son independientes");
+
+        // LISR/HISR son de solo lectura; LIFCR/HIFCR de solo escritura
+        tm.write32(addr::DMA2_B + DmaCtrl::LISR, 0xFFFFFFFFu);
+        check_eq(dma_rd(addr::DMA2_B + DmaCtrl::LISR), 0u, "LISR ignora las escrituras");
+        check_eq(dma_rd(addr::DMA2_B + DmaCtrl::LIFCR), 0u, "LIFCR lee 0 (solo escritura)");
+
+        // NDTR solo se puede escribir con EN=0 [IR, §11.6.2]
+        tm.write32(dma_s(addr::DMA2_B, 0, DmaCtrl::SxNDTR), 0x1234u);
+        check_eq(dma_rd(dma_s(addr::DMA2_B, 0, DmaCtrl::SxNDTR)), 0x1234u,
+                 "SxNDTR se escribe con EN=0");
+        check_eq(dma_rd(dma_s(addr::DMA2_B, 0, DmaCtrl::SxNDTR)) >> 16, 0u,
+                 "SxNDTR[31:16] esta reservado a 0");
+        // Arrancar un stream de memoria a memoria y comprobar que NDTR se congela
+        fill_src(64);
+        dma_setup(addr::DMA2_B, 0, SRC_BUF, DST_BUF, 16,
+                  (2u << 6) | (1u << 9) | (1u << 10) | (2u << 11) | (2u << 13), 0x07u);
+        tm.write32(dma_s(addr::DMA2_B, 0, DmaCtrl::SxNDTR), 0x0AAAu);
+        check(dma_rd(dma_s(addr::DMA2_B, 0, DmaCtrl::SxNDTR)) != 0x0AAAu,
+              "SxNDTR ignora las escrituras con EN=1");
+        check(dma_wait_tc(addr::DMA2_B, 0), "el stream de prueba termina");
+
+        // FS refleja el estado de la FIFO: vacia tras terminar
+        check_eq((dma_rd(dma_s(addr::DMA2_B, 0, DmaCtrl::SxFCR)) >> 3) & 7u, 4u,
+                 "SxFCR.FS indica FIFO vacia al terminar");
+        // El hardware borra EN al completar una transferencia no circular
+        check_eq(dma_rd(dma_s(addr::DMA2_B, 0, DmaCtrl::SxCR)) & 1u, 0u,
+                 "EN se borra solo al completar la transferencia");
+        check_eq(dma_rd(dma_s(addr::DMA2_B, 0, DmaCtrl::SxNDTR)), 0u,
+                 "SxNDTR llega a 0 al completar");
+        // Las banderas se limpian escribiendo en LIFCR
+        check(dma_flag(addr::DMA2_B, 0, DmaCtrl::F_TC), "TCIF0 activo tras la copia");
+        tm.write32(addr::DMA2_B + DmaCtrl::LIFCR, 0x3Fu);
+        check(!dma_flag(addr::DMA2_B, 0, DmaCtrl::F_TC), "LIFCR borra TCIF0");
+    }
+
+    // -----------------------------------------------------------------------
+    // T27 — Memoria a memoria [IR, §11.1.1, §11.6.1]
+    // -----------------------------------------------------------------------
+    void t27_dma_mem2mem() {
+        group("T27 DMA: transferencias memoria a memoria [IR, 11.1.1]");
+        reset_dut();
+        dma_clocks_on();
+        const unsigned N = 256;                       // bytes
+        fill_src(N);
+
+        // SRAM -> SRAM, 64 palabras, modo FIFO con umbral completo
+        const uint32_t cr = (2u << 6) | (1u << 9) | (1u << 10) |
+                            (2u << 11) | (2u << 13) | (3u << 16);   // DIR=M2M, PL=muy alta
+        const uint64_t rd0 = dut->dma2.beats_read(), wr0 = dut->dma2.beats_write();
+        dma_setup(addr::DMA2_B, 0, SRC_BUF, DST_BUF, N / 4, cr, 0x07u);
+        check(dma_wait_tc(addr::DMA2_B, 0), "SRAM->SRAM: la transferencia completa");
+        check(cmp_buffers(N), "SRAM->SRAM: el destino contiene los mismos 256 bytes");
+        check(dma_flag(addr::DMA2_B, 0, DmaCtrl::F_HT), "HTIF se activa a mitad de camino");
+        check_eq(dut->dma2.beats_read() - rd0, N / 4, "un beat de lectura por palabra");
+        check_eq(dut->dma2.beats_write() - wr0, N / 4, "un beat de escritura por palabra");
+
+        // Flash -> SRAM: el caso de uso clasico de DMA2 [IR, §11.1.1]
+        {
+            ImageLoader ld(*dut);
+            const uint32_t fsrc = addr::FLASH_BASE + 0x800;
+            for (unsigned i = 0; i < 64; i += 4) ld.poke32(fsrc + i, 0xF0000000u + i);
+            for (unsigned i = 0; i < 64; i += 4) ld.poke32(DST_BUF + i, 0);
+            dma_setup(addr::DMA2_B, 1, fsrc, DST_BUF, 16, cr, 0x07u);
+            check(dma_wait_tc(addr::DMA2_B, 1), "Flash->SRAM: la transferencia completa");
+            bool ok = true;
+            for (unsigned i = 0; i < 64; i += 4)
+                if (dut->sram1.peek32(0x2000 + i) != 0xF0000000u + i) ok = false;
+            check(ok, "Flash->SRAM: el destino contiene la imagen de la Flash");
+        }
+
+        // DMA1 no tiene ruta memoria-a-memoria [IR, §11.1.1]
+        dma_setup(addr::DMA1_B, 0, SRC_BUF, DST_BUF, 16, cr, 0x07u);
+        wait(20, SC_US);
+        check_eq(dma_rd(dma_s(addr::DMA1_B, 0, DmaCtrl::SxCR)) & 1u, 0u,
+                 "DMA1 rechaza memoria-a-memoria: EN vuelve a 0");
+        check(dma_flag(addr::DMA1_B, 0, DmaCtrl::F_TE),
+              "DMA1 senala el error en TEIF");
+    }
+
+    // -----------------------------------------------------------------------
+    // T28 — Empaquetado, desempaquetado y ráfagas [IR, §11.3.3, §11.6.1]
+    // -----------------------------------------------------------------------
+    void t28_dma_empaquetado() {
+        group("T28 DMA: empaquetado y rafagas [IR, 11.3.3]");
+        reset_dut();
+        dma_clocks_on();
+        const unsigned N = 64;
+        fill_src(N);
+
+        // Origen de 8 bits, destino de 32: 64 lecturas y 16 escrituras
+        {
+            const uint32_t cr = (2u << 6) | (1u << 9) | (1u << 10) |
+                                (0u << 11) | (2u << 13);      // PSIZE=8, MSIZE=32
+            const uint64_t rd0 = dut->dma2.beats_read(), wr0 = dut->dma2.beats_write();
+            dma_setup(addr::DMA2_B, 2, SRC_BUF, DST_BUF, N, cr, 0x07u);
+            check(dma_wait_tc(addr::DMA2_B, 2), "empaquetado 8->32: completa");
+            check(cmp_buffers(N), "empaquetado 8->32: el destino es identico byte a byte");
+            check_eq(dut->dma2.beats_read() - rd0, N, "64 lecturas de byte en el origen");
+            check_eq(dut->dma2.beats_write() - wr0, N / 4, "16 escrituras de palabra");
+        }
+        // Origen de 32 bits, destino de 8: desempaquetado
+        {
+            ImageLoader ld(*dut);
+            for (unsigned i = 0; i < N; i += 4) ld.poke32(DST_BUF + i, 0);
+            const uint32_t cr = (2u << 6) | (1u << 9) | (1u << 10) |
+                                (2u << 11) | (0u << 13);      // PSIZE=32, MSIZE=8
+            const uint64_t rd0 = dut->dma2.beats_read(), wr0 = dut->dma2.beats_write();
+            dma_setup(addr::DMA2_B, 3, SRC_BUF, DST_BUF, N / 4, cr, 0x07u);
+            check(dma_wait_tc(addr::DMA2_B, 3), "desempaquetado 32->8: completa");
+            check(cmp_buffers(N), "desempaquetado 32->8: el destino es identico byte a byte");
+            check_eq(dut->dma2.beats_read() - rd0, N / 4, "16 lecturas de palabra");
+            check_eq(dut->dma2.beats_write() - wr0, N, "64 escrituras de byte");
+        }
+        // Ráfaga INCR4 en el puerto de memoria, con umbral completo
+        {
+            ImageLoader ld(*dut);
+            for (unsigned i = 0; i < N; i += 4) ld.poke32(DST_BUF + i, 0);
+            const uint32_t cr = (2u << 6) | (1u << 9) | (1u << 10) |
+                                (2u << 11) | (2u << 13) | (1u << 23);  // MBURST=INCR4
+            dma_setup(addr::DMA2_B, 4, SRC_BUF, DST_BUF, N / 4, cr, 0x07u);
+            check(dma_wait_tc(addr::DMA2_B, 4), "rafaga INCR4 de memoria: completa");
+            check(cmp_buffers(N), "rafaga INCR4: el destino es correcto");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // T29 — Periférico <-> memoria, árbitro, circular y doble buffer
+    // -----------------------------------------------------------------------
+    void t29_dma_periferico() {
+        group("T29 DMA: periferico<->memoria, arbitraje y modos [IR, 11.3.2, 11.6.1]");
+        reset_dut();
+        dma_clocks_on();
+        rcc_enable(Rcc::R_AHB1ENR, 3);                 // GPIODEN
+        rcc_enable(Rcc::R_AHB1ENR, 4);                 // GPIOEEN
+
+        // --- Periférico -> memoria: se muestrea GPIOE_IDR ------------------
+        {
+            // PE0..PE3 forzados a 0b0101 desde fuera
+            Driver d0(dut->pinmux.analog(4, 0)), d1(dut->pinmux.analog(4, 1));
+            Driver d2(dut->pinmux.analog(4, 2)), d3(dut->pinmux.analog(4, 3));
+            for (unsigned i = 0; i < 4; ++i) pin_cfg(4, i, 0, 0);
+            d0.set(true); d1.set(false); d2.set(true); d3.set(false);
+            wait(5, SC_US);
+            const uint32_t idr = dma_rd((addr::GPIOA_B + 0x400u * 4) + 0x10) & 0xFu;
+            check_eq(idr, 0x5u, "GPIOE_IDR presenta el patron externo 0b0101");
+
+            ImageLoader ld(*dut);
+            for (unsigned i = 0; i < 32; i += 4) ld.poke32(DST_BUF + i, 0xFFFFFFFFu);
+            // PINC=0 (registro fijo), MINC=1, 32 bits, canal 0, prioridad alta
+            const uint32_t cr = (0u << 6) | (0u << 9) | (1u << 10) |
+                                (2u << 11) | (2u << 13) | (2u << 16);
+            dma_setup(addr::DMA2_B, 5, (addr::GPIOA_B + 0x400u * 4) + 0x10, DST_BUF, 8, cr, 0x07u);
+            dut->dma2.tb_set_request(5, true);         // el periférico pide datos
+            check(dma_wait_tc(addr::DMA2_B, 5), "P->M: la transferencia completa");
+            dut->dma2.tb_set_request(5, false);
+            bool ok = true;
+            for (unsigned i = 0; i < 32; i += 4)
+                if ((dut->sram1.peek32(0x2000 + i) & 0xFu) != 0x5u) ok = false;
+            check(ok, "P->M: las 8 muestras del IDR llegan a memoria");
+            check_eq(dma_rd(dma_s(addr::DMA2_B, 5, DmaCtrl::SxNDTR)), 0u,
+                     "P->M: NDTR llega a 0");
+        }
+
+        // --- Memoria -> periférico: se escribe GPIOD_BSRR y parpadea el LED -
+        {
+            ImageLoader ld(*dut);
+            pin_cfg(3, 12, 1, 0);                      // PD12 salida push-pull
+            const uint32_t patron[4] = {1u << 12, 1u << (12 + 16), 1u << 12, 1u << (12 + 16)};
+            for (unsigned i = 0; i < 4; ++i) ld.poke32(SRC_BUF + 4 * i, patron[i]);
+            const uint32_t cr = (1u << 6) | (0u << 9) | (1u << 10) |
+                                (2u << 11) | (2u << 13);   // DIR=M->P, PINC=0
+            dma_setup(addr::DMA2_B, 6, (addr::GPIOA_B + 0x400u * 3) + 0x18, SRC_BUF, 4, cr, 0x07u);
+            dut->dma2.tb_set_request(6, true);
+            check(dma_wait_tc(addr::DMA2_B, 6), "M->P: la transferencia completa");
+            dut->dma2.tb_set_request(6, false);
+            wait(5, SC_US);
+            check_eq(dma_rd((addr::GPIOA_B + 0x400u * 3) + 0x14) & (1u << 12), 0u,
+                     "M->P: el ultimo BSRR escrito por el DMA apaga PD12");
+            check(!led_pd12->on(), "M->P: el LED de PD12 refleja lo que escribio el DMA");
+        }
+
+        // --- Árbitro: la prioridad de software manda [IR, §11.3.2] ---------
+        {
+            fill_src(1024);
+            const uint32_t base_cr = (2u << 6) | (1u << 9) | (1u << 10) |
+                                     (2u << 11) | (2u << 13);
+            // Stream 7 con prioridad muy alta, stream 0 con prioridad baja
+            dma_setup(addr::DMA2_B, 0, SRC_BUF, DST_BUF, 256, base_cr | (0u << 16), 0x07u);
+            dma_setup(addr::DMA2_B, 7, SRC_BUF, DST_BUF + 0x400, 256,
+                      base_cr | (3u << 16), 0x07u);
+            wait(30, SC_US);                            // instantánea a mitad de camino
+            const uint32_t n0 = dma_rd(dma_s(addr::DMA2_B, 0, DmaCtrl::SxNDTR));
+            const uint32_t n7 = dma_rd(dma_s(addr::DMA2_B, 7, DmaCtrl::SxNDTR));
+            std::printf("    NDTR stream0 (PL baja) = %u | stream7 (PL muy alta) = %u\n",
+                        n0, n7);
+            check(n7 < n0, "el stream de prioridad muy alta avanza antes que el de baja");
+            check(dma_wait_tc(addr::DMA2_B, 7), "el stream prioritario termina");
+            check(dma_wait_tc(addr::DMA2_B, 0), "el stream de baja prioridad tambien acaba");
+        }
+
+        // --- Modo circular: NDTR se recarga y TCIF se repite ---------------
+        {
+            ImageLoader ld(*dut);
+            for (unsigned i = 0; i < 16; i += 4) ld.poke32(DST_BUF + i, 0);
+            const uint32_t cr = (2u << 6) | (1u << 9) | (1u << 10) | (2u << 11) |
+                                (2u << 13) | (1u << 8);         // CIRC
+            dma_setup(addr::DMA2_B, 1, SRC_BUF, DST_BUF, 4, cr, 0x07u);
+            check(dma_wait_tc(addr::DMA2_B, 1), "circular: primera vuelta completa");
+            tm.write32(addr::DMA2_B + DmaCtrl::LIFCR, 0x3Du << 6);
+            check_eq(dma_rd(dma_s(addr::DMA2_B, 1, DmaCtrl::SxCR)) & 1u, 1u,
+                     "circular: EN sigue a 1 tras completar");
+            check(dma_wait_tc(addr::DMA2_B, 1), "circular: segunda vuelta completa");
+            tm.write32(dma_s(addr::DMA2_B, 1, DmaCtrl::SxCR), 0);   // parar
+        }
+
+        // --- Doble buffer: CT conmuta y se llenan los dos destinos ---------
+        {
+            ImageLoader ld(*dut);
+            for (unsigned i = 0; i < 16; i += 4) {
+                ld.poke32(DST_BUF + i, 0);
+                ld.poke32(DST_BUF + 0x100 + i, 0);
+            }
+            const uint32_t cr = (2u << 6) | (1u << 9) | (1u << 10) | (2u << 11) |
+                                (2u << 13) | (1u << 18);        // DBM
+            dma_setup(addr::DMA2_B, 2, SRC_BUF, DST_BUF, 4, cr, 0x07u, DST_BUF + 0x100);
+            check(dma_wait_tc(addr::DMA2_B, 2), "doble buffer: primer buffer completo");
+            check_eq((dma_rd(dma_s(addr::DMA2_B, 2, DmaCtrl::SxCR)) >> 19) & 1u, 1u,
+                     "doble buffer: CT conmuta al buffer 1");
+            tm.write32(addr::DMA2_B + DmaCtrl::LIFCR, 0x3Du << 16);
+            check(dma_wait_tc(addr::DMA2_B, 2), "doble buffer: segundo buffer completo");
+            bool ok = true;
+            for (unsigned i = 0; i < 16; ++i)
+                if (dut->sram1.peek8(0x2000 + i) != dut->sram1.peek8(0x1000 + i) ||
+                    dut->sram1.peek8(0x2100 + i) != dut->sram1.peek8(0x1000 + i)) ok = false;
+            check(ok, "doble buffer: los dos destinos reciben los datos");
+            tm.write32(dma_s(addr::DMA2_B, 2, DmaCtrl::SxCR), 0);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // T30 — Errores e interrupciones [IR, §11.8]
+    // -----------------------------------------------------------------------
+    void t30_dma_errores() {
+        group("T30 DMA: errores e interrupciones [IR, 11.8]");
+        reset_dut();
+        dma_clocks_on();
+        fill_src(64);
+
+        // Error de transferencia: el puerto de periféricos de DMA1 solo llega a
+        // APB1, así que un SxPAR en AHB1 no se decodifica [IR, §11.1.1].
+        {
+            const uint32_t cr = (0u << 6) | (0u << 9) | (1u << 10) |
+                                (2u << 11) | (2u << 13) | (1u << 2);   // TEIE
+            dma_setup(addr::DMA1_B, 2, (addr::GPIOA_B + 0x400u * 4) + 0x10, DST_BUF, 4, cr, 0x07u);
+            dut->dma1.tb_set_request(2, true);
+            wait(50, SC_US);
+            dut->dma1.tb_set_request(2, false);
+            check(dma_flag(addr::DMA1_B, 2, DmaCtrl::F_TE),
+                  "TEIF: el puerto de perifericos de DMA1 no alcanza AHB1");
+            check_eq(dma_rd(dma_s(addr::DMA1_B, 2, DmaCtrl::SxCR)) & 1u, 0u,
+                     "el stream se deshabilita solo tras un error de bus");
+        }
+
+        // Error de modo directo: en modo directo no se admiten ráfagas
+        {
+            const uint32_t cr = (2u << 6) | (1u << 9) | (1u << 10) | (2u << 11) |
+                                (2u << 13) | (1u << 23);        // MBURST con DMDIS=0
+            dma_setup(addr::DMA2_B, 3, SRC_BUF, DST_BUF, 4, cr, 0x01u);
+            wait(10, SC_US);
+            check(dma_flag(addr::DMA2_B, 3, DmaCtrl::F_DME),
+                  "DMEIF: rafaga configurada en modo directo");
+            check_eq(dma_rd(dma_s(addr::DMA2_B, 3, DmaCtrl::SxCR)) & 1u, 0u,
+                     "el stream no arranca con configuracion de modo directo invalida");
+        }
+
+        // Error de FIFO: el umbral no es multiplo de lo que consume la ráfaga
+        {
+            // MSIZE=32 con MBURST=INCR4 consume 16 bytes; umbral 1/4 = 4 bytes
+            const uint32_t cr = (2u << 6) | (1u << 9) | (1u << 10) | (2u << 11) |
+                                (2u << 13) | (1u << 23);
+            dma_setup(addr::DMA2_B, 4, SRC_BUF, DST_BUF, 4, cr, 0x04u);  // DMDIS=1, FTH=1/4
+            wait(10, SC_US);
+            check(dma_flag(addr::DMA2_B, 4, DmaCtrl::F_FE),
+                  "FEIF: umbral de FIFO incompatible con la rafaga [IR, 11.8]");
+            check_eq(dma_rd(dma_s(addr::DMA2_B, 4, DmaCtrl::SxCR)) & 1u, 0u,
+                     "el stream no arranca con umbral y rafaga incompatibles");
+        }
+
+        // Interrupción hacia el NVIC: DMA2 stream 0 es la IRQ 56 [IR, §9.1.2]
+        {
+            ImageLoader ld(*dut);
+            for (unsigned i = 0; i < 16; i += 4) ld.poke32(DST_BUF + i, 0);
+            check(!dut->s_irq[56].read(), "IRQ 56 en reposo antes de la transferencia");
+            const uint32_t cr = (2u << 6) | (1u << 9) | (1u << 10) | (2u << 11) |
+                                (2u << 13) | (1u << 4);         // TCIE
+            dma_setup(addr::DMA2_B, 0, SRC_BUF, DST_BUF, 4, cr, 0x07u);
+            check(dma_wait_tc(addr::DMA2_B, 0), "la transferencia con TCIE completa");
+            wait(2, SC_US);
+            check(dut->s_irq[56].read(), "TCIF con TCIE activa la IRQ 56 (DMA2 stream 0)");
+            tm.write32(addr::DMA2_B + DmaCtrl::LIFCR, 0x3Fu);
+            wait(2, SC_US);
+            check(!dut->s_irq[56].read(), "borrar la bandera retira la interrupcion");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // T31 — Firmware real con CMSIS que programa el DMA
+    // -----------------------------------------------------------------------
+    void t31_dma_firmware() {
+        group("T31 DMA gobernado por firmware con CMSIS");
+        dut->rcc.set_internal_waveforms(false);
+        xtal_hse->attach();
+        dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(30, SC_US);
+
+        ImageLoader ld(*dut);
+        const long n = ld.load_file(dma_fw_path_.c_str(), addr::FLASH_BASE);
+        if (!check(n > 0, "imagen del firmware de DMA cargada en la Flash")) {
+            std::printf("        (compilar con make -C verif/fw/dma_demo)\n");
+            dut->pwr_pads.nrst.set_hiz(d_nrst);
+            dut->rcc.set_internal_waveforms(true);
+            return;
+        }
+        std::printf("    %ld bytes cargados desde %s\n", n, dma_fw_path_.c_str());
+        for (unsigned i = 0; i < 32; i += 4) ld.poke32(addr::SRAM1_BASE + i, 0);
+        const uint64_t i0 = dut->core.cpu.inst_count;
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+
+        unsigned led_edges = 0;
+        bool prev = led_pd12->on(), done = false;
+        const sc_time t0 = sc_time_stamp();
+        while ((sc_time_stamp() - t0) < sc_time(50, SC_MS)) {
+            wait(20, SC_US);
+            if (led_pd12->on() != prev) { prev = !prev; ++led_edges; }
+            if (dut->sram1.peek32(0) == 1u) { done = true; break; }
+        }
+        const uint64_t ninst = dut->core.cpu.inst_count - i0;
+        if (!done)
+            std::printf("        sin terminar: PC = 0x%08X, inst = %llu\n",
+                        dut->core.cpu.pc(), (unsigned long long)ninst);
+        check(done, "el firmware de DMA llega a su fin y publica el buzon");
+
+        const uint32_t copy_ok  = dut->sram1.peek32(4);
+        const uint32_t ndtr_end = dut->sram1.peek32(8);
+        const uint32_t irq_cnt  = dut->sram1.peek32(12);
+        const uint32_t bsrr_ok  = dut->sram1.peek32(16);
+        const uint32_t lisr     = dut->sram1.peek32(20);
+        std::printf("    copia=%u NDTR_final=%u IRQ=%u BSRR=%u LISR=0x%08X | "
+                    "%llu instrucciones, %u flancos del LED\n",
+                    copy_ok, ndtr_end, irq_cnt, bsrr_ok, lisr,
+                    (unsigned long long)ninst, led_edges);
+        check_eq(copy_ok, 1u,
+                 "el firmware verifica la copia mem-a-mem de 256 bytes hecha por el DMA");
+        check_eq(ndtr_end, 0u, "DMA2_Stream0->NDTR es 0 al terminar");
+        check_eq(irq_cnt, 1u, "el manejador DMA2_Stream0_IRQHandler se ejecuta una vez");
+        check_eq(lisr & 0x20u, 0x20u, "DMA2_LISR.TCIF0 visible para el firmware");
+        check_eq(bsrr_ok, 1u, "la secuencia de GPIOD_BSRR volcada por el DMA termina");
+        check(led_edges >= 4u, "el LED de PD12 conmuta sin que la CPU toque el puerto");
+        dut->rcc.set_internal_waveforms(true);
+    }
+
+    std::string dma_fw_path_ = "verif/fw/dma_demo/dma_demo.bin";
     std::string blinky_path_ = "verif/fw/blinky/blinky.bin";
     std::string fw_path_ = "verif/fw/test_isa.bin";
     std::string cm_path_ = "verif/fw/coremark/coremark.bin";
