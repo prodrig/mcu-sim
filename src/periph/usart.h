@@ -109,6 +109,7 @@ public:
     // ---- Observación desde el banco de pruebas ----------------------------
     double   baud_hz()   const { return baud_; }
     uint64_t tx_frames() const { return n_tx_; }
+    uint64_t ck_pulses() const { return n_ck_; }   // pulsos de CK emitidos
     uint64_t rx_frames() const { return n_rx_; }
     uint32_t sr_raw()    const { return sr_; }
 
@@ -168,7 +169,7 @@ private:
     bool     tdr_full_ = false;                  // hay dato pendiente de enviar
     bool     sr_read_  = false;                  // se ha leído SR (borrado de flags)
     double   baud_ = 0.0;
-    uint64_t n_tx_ = 0, n_rx_ = 0;
+    uint64_t n_tx_ = 0, n_rx_ = 0, n_ck_ = 0;
     // ---- Salidas publicadas por un único proceso --------------------------
     bool o_irq_ = false, o_drq_rx_ = false, o_drq_tx_ = false;
     bool o_tx_ = true, o_tx_oe_ = false, o_rts_ = true, o_rts_oe_ = false;
@@ -188,6 +189,10 @@ private:
     bool linen()   const { return caps_.lin && ((cr2_ >> 14) & 1u); }
     bool lbdl11()  const { return (cr2_ >> 5) & 1u; }
     bool clken()   const { return caps_.synchronous && ((cr2_ >> 11) & 1u); }
+    // Modo síncrono: polaridad, fase y pulso del último bit [IR, §12.4.3-E]
+    bool cpol_ck() const { return (cr2_ >> 10) & 1u; }
+    bool cpha_ck() const { return (cr2_ >> 9)  & 1u; }
+    bool lbcl()    const { return (cr2_ >> 8)  & 1u; }
     bool ctse()    const { return caps_.flow_control && ((cr3_ >> 9) & 1u); }
     bool rtse()    const { return caps_.flow_control && ((cr3_ >> 8) & 1u); }
     bool dmat()    const { return (cr3_ >> 7) & 1u; }
@@ -319,7 +324,7 @@ private:
         sr_ = S_TXE | S_TC;
         brr_ = cr1_ = cr2_ = cr3_ = gtpr_ = 0;
         tdr_ = rdr_ = 0; tdr_full_ = false; sr_read_ = false;
-        baud_ = 0.0;
+        baud_ = 0.0; n_ck_ = 0;
         o_tx_ = true; o_tx_oe_ = false; o_rts_ = true; o_rts_oe_ = false;
         o_ck_ = false; o_ck_oe_ = false;
         update_irq();
@@ -330,7 +335,32 @@ private:
         recompute_baud();
         o_rts_oe_ = rtse();
         o_ck_oe_  = clken();
+        o_ck_     = clken() ? cpol_ck() : false;    // reposo del reloj de datos
         publish();
+    }
+
+    // ---- Modo síncrono: un pulso de CK por cada bit de DATOS --------------
+    // El reloj lo genera SIEMPRE el USART (es el maestro) y NO acompaña ni al
+    // bit de arranque ni a los de parada. Con CPHA = 0 el flanco de captura es
+    // el primero del bit y con CPHA = 1 el segundo; CPOL fija el nivel de
+    // reposo, y LBCL decide si se emite el pulso del último bit de datos
+    // [IR, §12.4.3-E]. Es la misma temporización que la del SPI, con el que
+    // comparte silicio conceptual (véase periph/spi.h).
+    void send_bit(bool level, const sc_core::sc_time& tb, bool with_clock) {
+        drive_tx(level);
+        if (!with_clock) { wait(tb); return; }
+        ++n_ck_;
+        if (!cpha_ck()) {
+            wait(tb / 2.0);
+            o_ck_ = !cpol_ck(); publish();          // flanco de captura
+            wait(tb / 2.0);
+            o_ck_ = cpol_ck();  publish();
+        } else {
+            o_ck_ = !cpol_ck(); publish();          // flanco de preparación
+            wait(tb / 2.0);
+            o_ck_ = cpol_ck();  publish();          // flanco de captura
+            wait(tb / 2.0);
+        }
     }
     void shut_down() {
         o_tx_oe_ = false; o_rts_oe_ = false; o_ck_oe_ = false;
@@ -401,14 +431,22 @@ private:
             sr_ &= ~S_TC;
             update_irq();
 
-            drive_tx(false);                               // bit de arranque
-            wait(tb);
+            // En modo síncrono el reloj de datos acompaña a los bits de datos
+            // (paridad incluida), nunca al arranque ni a la parada. El pulso
+            // del último bit solo se emite si LBCL = 1.
+            const bool sync = clken();
             const unsigned n_data = par ? nb - 1u : nb;    // la paridad ocupa el MSB
-            for (unsigned i = 0; i < n_data; ++i) {
-                drive_tx((data >> i) & 1u);
-                wait(tb);
+            const unsigned n_ck   = nb;                    // datos + paridad
+            unsigned k = 0;
+            send_bit(false, tb, false);                    // bit de arranque
+            for (unsigned i = 0; i < n_data; ++i, ++k)
+                send_bit((data >> i) & 1u, tb,
+                         sync && (lbcl() || k + 1u < n_ck));
+            if (par) {
+                send_bit(parity_of(data, n_data), tb,
+                         sync && (lbcl() || k + 1u < n_ck));
+                ++k;
             }
-            if (par) { drive_tx(parity_of(data, n_data)); wait(tb); }
             drive_tx(true);                                // bits de parada
             wait(tb * nstop);
             ++n_tx_;

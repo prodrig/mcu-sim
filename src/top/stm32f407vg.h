@@ -97,8 +97,12 @@ SC_MODULE(Stm32F407VG) {
     // UART4/5 son la variante reducida: el tipo lo dice (véase periph/usart.h)
     Uart  uart4{"uart4", addr::UART4_B}, uart5{"uart5", addr::UART5_B};
     Usart usart6{"usart6", addr::USART6_B};
-    Spi   spi1{"spi1", addr::SPI1_B, false}, spi2{"spi2", addr::SPI2_B, true};
-    Spi   spi3{"spi3", addr::SPI3_B, true};
+    // Las cinco instancias del bloque SPI/I2S salen del MISMO modelo; el tipo de
+    // cada una lo fija el parámetro de plantilla con sus rasgos (periph/spi.h).
+    Spi    spi1{"spi1", addr::SPI1_B};                    // SPI puro, APB2
+    SpiI2s spi2{"spi2", addr::SPI2_B}, spi3{"spi3", addr::SPI3_B};   // SPI + I2S
+    I2sExt i2s2ext{"i2s2ext", addr::I2S2EXT_B};           // solo audio, esclavo
+    I2sExt i2s3ext{"i2s3ext", addr::I2S3EXT_B};
     I2c   i2c1{"i2c1", addr::I2C1_B}, i2c2{"i2c2", addr::I2C2_B}, i2c3{"i2c3", addr::I2C3_B};
     BxCan can1{"can1", addr::CAN1_B, true}, can2{"can2", addr::CAN2_B, false};
 
@@ -183,13 +187,16 @@ SC_MODULE(Stm32F407VG) {
     sc_core::sc_signal<bool> s_mii{"s_mii"};
     // Constantes y sumidero de no-conectados
     sc_core::sc_signal<bool> s_false{"s_false"}, s_true{"s_true"};
+    sc_core::sc_signal<double> s_zero_hz{"s_zero_hz"};   // dominio sin reloj
     sc_core::sc_vector<sc_core::sc_signal<bool>> s_nc{"s_nc", 256};
     unsigned nc_i_ = 0;
     // OR de IRQs compartidas
     Or2 or_irq24{"or_irq24"}, or_irq25{"or_irq25"}, or_irq26{"or_irq26"};
     Or2 or_irq43{"or_irq43"}, or_irq44{"or_irq44"}, or_irq45{"or_irq45"};
     Or2 or_irq54{"or_irq54"};
-    sc_core::sc_signal<bool> s_or_in[14];
+    // Los bloques de extension del I2S comparten el vector de su SPI padre
+    Or2 or_spi2{"or_spi2"}, or_spi3{"or_spi3"};
+    sc_core::sc_signal<bool> s_or_in[20];
 
     // ============================ Construcción ==============================
     SC_CTOR(Stm32F407VG) : gpio("gpio", N_GPIO_PORTS, [](const char* nm, size_t i) {
@@ -368,6 +375,8 @@ inline void Stm32F407VG::bind_bus() {
     apb1_dec.add_slave("to_iwdg", addr::IWDG_B, 0x400)->bind(iwdg.tsk);
     apb1_dec.add_slave("to_spi2", addr::SPI2_B, 0x400)->bind(spi2.tsk);
     apb1_dec.add_slave("to_spi3", addr::SPI3_B, 0x400)->bind(spi3.tsk);
+    apb1_dec.add_slave("to_i2s2ext", addr::I2S2EXT_B, 0x400)->bind(i2s2ext.tsk);
+    apb1_dec.add_slave("to_i2s3ext", addr::I2S3EXT_B, 0x400)->bind(i2s3ext.tsk);
     apb1_dec.add_slave("to_usart2", addr::USART2_B, 0x400)->bind(usart2.tsk);
     apb1_dec.add_slave("to_usart3", addr::USART3_B, 0x400)->bind(usart3.tsk);
     apb1_dec.add_slave("to_uart4", addr::UART4_B, 0x400)->bind(uart4.tsk);

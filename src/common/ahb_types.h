@@ -148,6 +148,8 @@ constexpr uint32_t TIM5_B = 0x40000C00, TIM6_B = 0x40001000, TIM7_B = 0x40001400
 constexpr uint32_t TIM12_B = 0x40001800, TIM13_B = 0x40001C00, TIM14_B = 0x40002000;
 constexpr uint32_t RTC_B = 0x40002800, WWDG_B = 0x40002C00, IWDG_B = 0x40003000;
 constexpr uint32_t SPI2_B = 0x40003800, SPI3_B = 0x40003C00;
+// Bloques de extension del I2S full-duplex [IR, mapa de perifericos APB1]
+constexpr uint32_t I2S2EXT_B = 0x40003400, I2S3EXT_B = 0x40004000;
 constexpr uint32_t USART2_B = 0x40004400, USART3_B = 0x40004800;
 constexpr uint32_t UART4_B = 0x40004C00, UART5_B = 0x40005000;
 constexpr uint32_t I2C1_B = 0x40005400, I2C2_B = 0x40005800, I2C3_B = 0x40005C00;

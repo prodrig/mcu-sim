@@ -48,6 +48,15 @@
 //   T46 EXTI: del pin al NVIC, flancos y vectores  [IR, §9.4.1, §9.1.2]
 //   T47 EXTI: eventos, lineas internas y despertar     [IR, §9.4.1, §14]
 //   T48 EXTI/SYSCFG gobernados por firmware con CMSIS
+//
+// Fase F5 (SPI, I2S y cierre del modo sincrono del USART):
+//   T49 SPI/I2S: seleccion de la variante            [IR, §12.5.2, §12.7]
+//   T50 SPI: banco de registros y prescalador               [IR, §12.5.3]
+//   T51 SPI: enlace maestro-esclavo por los pines           [IR, §12.5.1]
+//   T52 SPI: CRC, errores y modos de conectividad           [IR, §12.5.1]
+//   T53 I2S: enlace de audio y bloques de extension           [IR, §12.7]
+//   T54 USART: modo sincrono, el reloj de datos en el pin [IR, §12.4.3-E]
+//   T55 SPI: transferencia por DMA y firmware con CMSIS
 // =============================================================================
 #include <systemc>
 #include <cstdio>
@@ -136,6 +145,22 @@ SC_MODULE(F1Tb) {
     Driver* drv_pb4 = nullptr;   // eje A del codificador (TIM3_CH1)
     Driver* drv_pb5 = nullptr;   // eje B del codificador (TIM3_CH2)
     Driver* drv_pa6 = nullptr;   // entrada de freno TIM1_BKIN
+    // --- Circuitería de las pruebas de SPI e I2S ---------------------------
+    // Pistas de placa entre SPI1 (maestro, APB2) y SPI2 (esclavo, APB1), y
+    // entre I2S2 (maestro de audio) e I2S3 / I2S2ext (esclavos). Los dos juegos
+    // usan pines comunes, así que se sueldan por separado.
+    SignalLink *lnk_sck = nullptr, *lnk_mosi = nullptr, *lnk_miso = nullptr,
+               *lnk_nss = nullptr;
+    SignalLink *lnk_ick = nullptr, *lnk_iws = nullptr, *lnk_isd = nullptr,
+               *lnk_iext = nullptr;
+    // SPI con rasgos elegidos en TIEMPO DE EJECUCIÓN (véase T49)
+    SpiBase* s_rt = nullptr;
+    BusTestMaster tm4{"tm4"};
+    sc_signal<bool>   s_sp_true{"s_sp_true"}, s_sp_rst{"s_sp_rst"};
+    sc_signal<bool>   s_sp_i2sclk{"s_sp_i2sclk"};
+    sc_signal<double> s_sp_i2shz{"s_sp_i2shz"};
+    sc_vector<sc_signal<bool>> s_sp_nc{"s_sp_nc", 8};
+
     // Temporizador con rasgos elegidos en TIEMPO DE EJECUCIÓN (véase T38)
     TimerBase* t_rt = nullptr;
     BusTestMaster tm3{"tm3"};
@@ -182,6 +207,38 @@ SC_MODULE(F1Tb) {
         drv_pb4 = new Driver(dut->pinmux.analog(1, 4));
         drv_pb5 = new Driver(dut->pinmux.analog(1, 5));
         drv_pa6 = new Driver(dut->pinmux.analog(0, 6));
+        // --- Pistas de placa de SPI e I2S --------------------------------
+        // SPI1 (PA4..PA7) <-> SPI2 (PB12..PB15)
+        lnk_sck  = new SignalLink("lnk_sck",  dut->pinmux.analog(0, 5),
+                                              dut->pinmux.analog(1, 13));
+        lnk_mosi = new SignalLink("lnk_mosi", dut->pinmux.analog(0, 7),
+                                              dut->pinmux.analog(1, 15));
+        lnk_miso = new SignalLink("lnk_miso", dut->pinmux.analog(1, 14),
+                                              dut->pinmux.analog(0, 6));
+        lnk_nss  = new SignalLink("lnk_nss",  dut->pinmux.analog(0, 4),
+                                              dut->pinmux.analog(1, 12));
+        // I2S2 maestro (PB13 CK, PB12 WS, PB15 SD) -> I2S3 esclavo (PC10, PA15,
+        // PC12) y -> I2S2ext (PB14 SD): la otra mitad del full-duplex.
+        lnk_ick  = new SignalLink("lnk_ick",  dut->pinmux.analog(1, 13),
+                                              dut->pinmux.analog(2, 10));
+        lnk_iws  = new SignalLink("lnk_iws",  dut->pinmux.analog(1, 12),
+                                              dut->pinmux.analog(0, 15));
+        lnk_isd  = new SignalLink("lnk_isd",  dut->pinmux.analog(1, 15),
+                                              dut->pinmux.analog(2, 12));
+        lnk_iext = new SignalLink("lnk_iext", dut->pinmux.analog(1, 15),
+                                              dut->pinmux.analog(1, 14));
+        for (SignalLink* l : {lnk_sck, lnk_mosi, lnk_miso, lnk_nss,
+                              lnk_ick, lnk_iws, lnk_isd, lnk_iext})
+            l->set_enabled(false);
+        // Variante de SPI que NO existe en el F407: SPI con modo I2S en APB2.
+        s_rt = new SpiBase("s_rt", 0x40003000u, /*i2s=*/true, /*f_max=*/42e6);
+        tm4.isk.bind(s_rt->tsk);
+        s_rt->clk(dut->s_pclk2);  s_rt->clk_hz(dut->s_pclk2_hz);
+        s_rt->rst_n(s_sp_rst);    s_rt->clk_en(s_sp_true);
+        s_rt->i2s_ext_clk(s_sp_i2sclk); s_rt->i2s_clk_hz(s_sp_i2shz);
+        s_rt->ext_ck(s_sp_nc[3]); s_rt->ext_ws(s_sp_nc[4]);
+        s_rt->irq(s_sp_nc[0]);
+        s_rt->dma_req_rx(s_sp_nc[1]); s_rt->dma_req_tx(s_sp_nc[2]);
         // Variante de temporizador que NO existe en el F407: contador de 32
         // bits con solo dos canales. Demuestra que los ejes (anchura, canales,
         // recursos) son independientes y se fijan por el constructor.
@@ -204,6 +261,9 @@ SC_MODULE(F1Tb) {
         SC_THREAD(contention_proc);  set_stack_size(256 * 1024);
     }
     ~F1Tb() {
+        delete s_rt;
+        delete lnk_iext; delete lnk_isd; delete lnk_iws; delete lnk_ick;
+        delete lnk_nss; delete lnk_miso; delete lnk_mosi; delete lnk_sck;
         delete t_rt;
         delete drv_pa6; delete drv_pb5; delete drv_pb4; delete lnk_pwm;
         delete u_rt;
@@ -330,6 +390,16 @@ SC_MODULE(F1Tb) {
         t46_exti_pines();
         t47_exti_eventos();
         t48_exti_firmware();
+        const unsigned f4_pass = g_pass, f4_fail = g_fail;
+
+        // ==================== Fase F5: SPI e I2S ============================
+        t49_spi_variantes();
+        t50_spi_registros();
+        t51_spi_enlace();
+        t52_spi_crc_errores();
+        t53_i2s();
+        t54_usart_sincrono();
+        t55_spi_dma_firmware();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -344,7 +414,9 @@ SC_MODULE(F1Tb) {
         std::printf("Resumen F4 (TIM)  : %u comprobaciones OK, %u fallos\n",
                     f4t_pass - f4u_pass, f4t_fail - f4u_fail);
         std::printf("Resumen F4 (EXTI) : %u comprobaciones OK, %u fallos\n",
-                    g_pass - f4t_pass, g_fail - f4t_fail);
+                    f4_pass - f4t_pass, f4_fail - f4t_fail);
+        std::printf("Resumen F5 (SPI)  : %u comprobaciones OK, %u fallos\n",
+                    g_pass - f4_pass, g_fail - f4_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -3631,6 +3703,677 @@ SC_MODULE(F1Tb) {
         dut->rcc.set_internal_waveforms(true);
     }
 
+    // =======================================================================
+    // FASE F5 — SPI e I2S
+    // =======================================================================
+    static constexpr uint32_t S1 = addr::SPI1_B, S2 = addr::SPI2_B,
+                              S3 = addr::SPI3_B, X2 = addr::I2S2EXT_B,
+                              X3 = addr::I2S3EXT_B;
+    static constexpr uint32_t S_RT = 0x40003000u;   // variante de ejecución
+
+    uint32_t s_rd(uint32_t b, uint32_t off) { uint32_t v = 0; tm.read32(b + off, v); return v; }
+    void     s_wr(uint32_t b, uint32_t off, uint32_t v) { tm.write32(b + off, v); }
+
+    void spi_clocks_on() {
+        for (unsigned p = 0; p < 4; ++p) rcc_enable(Rcc::R_AHB1ENR, p);  // GPIOA..D
+        rcc_enable(Rcc::R_APB2ENR, 12);      // SPI1
+        rcc_enable(Rcc::R_APB1ENR, 14);      // SPI2 (y I2S2ext)
+        rcc_enable(Rcc::R_APB1ENR, 15);      // SPI3 (y I2S3ext)
+    }
+    // Pines del enlace SPI1 <-> SPI2 (AF5 en los dos)
+    void spi_pins_af() {
+        pin_cfg(0,  4, 2, 0, false, 3, 5);   // PA4  SPI1_NSS
+        pin_cfg(0,  5, 2, 0, false, 3, 5);   // PA5  SPI1_SCK
+        pin_cfg(0,  6, 2, 0, false, 3, 5);   // PA6  SPI1_MISO
+        pin_cfg(0,  7, 2, 0, false, 3, 5);   // PA7  SPI1_MOSI
+        pin_cfg(1, 12, 2, 0, false, 3, 5);   // PB12 SPI2_NSS
+        pin_cfg(1, 13, 2, 0, false, 3, 5);   // PB13 SPI2_SCK
+        pin_cfg(1, 14, 2, 0, false, 3, 5);   // PB14 SPI2_MISO
+        pin_cfg(1, 15, 2, 0, false, 3, 5);   // PB15 SPI2_MOSI
+    }
+    // Pines del enlace de audio I2S2 -> I2S3 / I2S2ext
+    void i2s_pins_af() {
+        pin_cfg(1, 12, 2, 0, false, 3, 5);   // PB12 I2S2_WS
+        pin_cfg(1, 13, 2, 0, false, 3, 5);   // PB13 I2S2_CK
+        pin_cfg(1, 15, 2, 0, false, 3, 5);   // PB15 I2S2_SD
+        pin_cfg(2,  6, 2, 0, false, 3, 5);   // PC6  I2S2_MCK
+        pin_cfg(0, 15, 2, 0, false, 3, 6);   // PA15 I2S3_WS
+        pin_cfg(2, 10, 2, 0, false, 3, 6);   // PC10 I2S3_CK
+        pin_cfg(2, 12, 2, 0, false, 3, 6);   // PC12 I2S3_SD
+        pin_cfg(1, 14, 2, 0, false, 3, 6);   // PB14 I2S2ext_SD
+    }
+    void spi_links(bool on) {
+        lnk_sck->set_enabled(on); lnk_mosi->set_enabled(on);
+        lnk_miso->set_enabled(on); lnk_nss->set_enabled(on);
+    }
+    void i2s_links(bool on) {
+        lnk_ick->set_enabled(on); lnk_iws->set_enabled(on);
+        lnk_isd->set_enabled(on); lnk_iext->set_enabled(on);
+    }
+    // Deja los dos puertos parados y en un estado conocido
+    void spi_off() {
+        s_wr(S1, SpiBase::R_CR1, 0); s_wr(S2, SpiBase::R_CR1, 0);
+        s_wr(S3, SpiBase::R_CR1, 0);
+        s_wr(S2, SpiBase::R_I2SCFGR, 0); s_wr(S3, SpiBase::R_I2SCFGR, 0);
+        s_wr(X2, SpiBase::R_I2SCFGR, 0);
+        wait(20, SC_US);
+    }
+    // Un intercambio full-duplex: el esclavo carga primero su dato, porque en
+    // SPI el reloj lo pone el maestro y los dos desplazan a la vez.
+    struct Xfer { int m = -1, s = -1; };
+    Xfer spi_xfer(uint32_t master, uint32_t slave, uint16_t tx_m, uint16_t tx_s,
+                  sc_time limit = sc_time(2, SC_MS)) {
+        Xfer r;
+        s_wr(slave, SpiBase::R_DR, tx_s);
+        s_wr(master, SpiBase::R_DR, tx_m);
+        const sc_time t0 = sc_time_stamp();
+        while (sc_time_stamp() - t0 < limit) {
+            const bool mr = (s_rd(master, SpiBase::R_SR) & SpiBase::S_RXNE) != 0;
+            const bool sr = (s_rd(slave,  SpiBase::R_SR) & SpiBase::S_RXNE) != 0;
+            if (mr && sr) break;
+            wait(2, SC_US);
+        }
+        if (s_rd(master, SpiBase::R_SR) & SpiBase::S_RXNE) r.m = int(s_rd(master, SpiBase::R_DR));
+        if (s_rd(slave,  SpiBase::R_SR) & SpiBase::S_RXNE) r.s = int(s_rd(slave,  SpiBase::R_DR));
+        return r;
+    }
+    // Arranca un par maestro/esclavo con la misma configuración de trama
+    void spi_setup_pair(uint32_t master, uint32_t slave, uint32_t cr1_common,
+                        unsigned br = 4) {
+        s_wr(master, SpiBase::R_CR1, 0);
+        s_wr(slave,  SpiBase::R_CR1, 0);
+        // Maestro: MSTR | SPE | BR, con NSS por software en alto (SSM|SSI)
+        s_wr(master, SpiBase::R_CR1,
+             cr1_common | (1u << 2) | (br << 3) | (1u << 9) | (1u << 8));
+        // Esclavo: NSS por software en bajo (seleccionado)
+        s_wr(slave,  SpiBase::R_CR1, cr1_common | (1u << 9));
+        s_wr(master, SpiBase::R_CR1, s_rd(master, SpiBase::R_CR1) | (1u << 6));
+        s_wr(slave,  SpiBase::R_CR1, s_rd(slave,  SpiBase::R_CR1) | (1u << 6));
+        wait(20, SC_US);
+    }
+
+    // -----------------------------------------------------------------------
+    // T49 — Selección de la variante SPI/I2S [IR, §12.5.2, §12.7]
+    // -----------------------------------------------------------------------
+    void t49_spi_variantes() {
+        group("T49 SPI/I2S: seleccion de la variante [IR, 12.5.2, 12.7]");
+        reset_dut();
+        spi_clocks_on();
+        s_sp_true.write(true); s_sp_rst.write(true);
+        s_sp_i2shz.write(96e6);
+        wait(5, SC_US);
+
+        // --- Selección en tiempo de compilación (parámetro de plantilla) ----
+        static_assert(!Spi::has_i2s(),    "el SPI1 del F407 no tiene modo I2S");
+        static_assert(SpiI2s::has_i2s(),  "SPI2 y SPI3 si lo tienen");
+        static_assert(!I2sExt::has_spi(), "los bloques de extension solo hacen audio");
+        check(!Spi::has_i2s() && SpiI2s::has_i2s() && I2sExt::has_i2s(),
+              "el parametro de plantilla decide que instancias hacen audio");
+        check(I2sExt::has_i2s() && !I2sExt::has_spi(),
+              "I2S2ext e I2S3ext son solo audio: no son SPI");
+        check(Spi::max_sck() == 42e6 && SpiI2s::max_sck() == 21e6,
+              "SPI1 esta en APB2 y admite el doble de SCK que SPI2/3 [IR, 12.5.1]");
+        check(!std::string(dut->spi1.caps().kind).compare("SPI (APB2)") &&
+              !std::string(dut->i2s2ext.caps().kind).compare("I2Sxext"),
+              "cada instancia se identifica con su variante");
+        check(dut->i2s2ext.caps().sd_on_miso && !dut->spi2.caps().sd_on_miso,
+              "el dato del bloque de extension va por el pin MISO [IR, 2.1]");
+        check(!dut->i2s2ext.caps().i2s_master,
+              "el bloque de extension solo puede ser esclavo de audio");
+
+        // --- Efecto observable: los registros que la variante no tiene ------
+        struct { uint32_t base; const char* nm; } all[] = {
+            {S1, "SPI1   "}, {S2, "SPI2   "}, {X2, "I2S2ext"}
+        };
+        std::printf("             CR1    CR2   CRCPR I2SCFGR I2SPR\n");
+        uint32_t cr1v[3] = {0, 0, 0}, cr2v[3] = {0, 0, 0}, crcv[3] = {0, 0, 0};
+        uint32_t cfgv[3] = {0, 0, 0}, prv[3] = {0, 0, 0};
+        unsigned k = 0;
+        for (auto& t : all) {
+            s_wr(t.base, SpiBase::R_CR1, 0xFFFFu & ~(1u << 6));   // sin SPE
+            s_wr(t.base, SpiBase::R_CR2, 0xFFFFu);
+            s_wr(t.base, SpiBase::R_CRCPR, 0x1021u);
+            s_wr(t.base, SpiBase::R_I2SCFGR, 0xFFFFu & ~(1u << 10));  // sin I2SE
+            s_wr(t.base, SpiBase::R_I2SPR, 0xFFFFu);
+            cr1v[k] = s_rd(t.base, SpiBase::R_CR1);
+            cr2v[k] = s_rd(t.base, SpiBase::R_CR2);
+            crcv[k] = s_rd(t.base, SpiBase::R_CRCPR);
+            cfgv[k] = s_rd(t.base, SpiBase::R_I2SCFGR);
+            prv[k]  = s_rd(t.base, SpiBase::R_I2SPR);
+            std::printf("    %s 0x%04X 0x%04X 0x%04X 0x%04X  0x%04X\n",
+                        t.nm, cr1v[k], cr2v[k], crcv[k], cfgv[k], prv[k]);
+            s_wr(t.base, SpiBase::R_CR1, 0);
+            s_wr(t.base, SpiBase::R_CR2, 0);
+            s_wr(t.base, SpiBase::R_I2SCFGR, 0);
+            ++k;
+        }
+        check_eq(cfgv[0], 0u, "SPI1: I2SCFGR es reservado y lee cero");
+        check_eq(prv[0],  0u, "SPI1: I2SPR es reservado y lee cero");
+        check(cfgv[1] != 0u && prv[1] != 0u, "SPI2: los dos registros de I2S existen");
+        check_eq(cr1v[2], 0u, "I2S2ext: CR1 es reservado y lee cero");
+        check_eq(crcv[2], 0u, "I2S2ext: no tiene generador de CRC");
+        check_eq(cr2v[2] & ((1u << 4) | (1u << 2)), 0u,
+                 "I2S2ext: sin formato TI ni salida NSS");
+        check_eq(cr2v[1] & ((1u << 4) | (1u << 2)), (1u << 4) | (1u << 2),
+                 "SPI2 si tiene FRF y SSOE");
+        check_eq(prv[2], 0u,
+                 "I2S2ext: el divisor de audio no existe, es esclavo del bloque padre");
+        check_eq(cfgv[2] & (1u << 9), 0u,
+                 "I2S2ext: I2SCFG[1] fijo a cero, solo modos esclavo");
+        check(crcv[0] == 0x1021u && crcv[1] == 0x1021u,
+              "SPI1 y SPI2 aceptan el polinomio de CRC");
+
+        // --- La frecuencia maxima depende del bus del que cuelga ------------
+        s_wr(S1, SpiBase::R_CR1, (1u << 2) | (0u << 3) | (1u << 6) | (3u << 8));
+        s_wr(S2, SpiBase::R_CR1, (1u << 2) | (0u << 3) | (1u << 6) | (3u << 8));
+        wait(5, SC_US);
+        std::printf("    con BR = 0: SCK de SPI1 = %.0f Hz, de SPI2 = %.0f Hz\n",
+                    dut->spi1.sck_hz(), dut->spi2.sck_hz());
+        check_near(dut->spi1.sck_hz(), dut->s_pclk2_hz.read() / 2.0, 0.001,
+                   "f_SCK = f_PCLK2 / 2 en el SPI1 [IR, 12.5.3-A]");
+        check_near(dut->spi2.sck_hz(), dut->s_pclk1_hz.read() / 2.0, 0.001,
+                   "f_SCK = f_PCLK1 / 2 en el SPI2");
+        spi_off();
+
+        // --- Selección en tiempo de ejecución (parámetro del constructor) ---
+        // Un SPI con modo I2S y el límite de frecuencia del APB2: no existe en
+        // el F407, pero los dos ejes son independientes.
+        tm4.write32(S_RT + SpiBase::R_I2SCFGR, 0x0BFFu);
+        tm4.write32(S_RT + SpiBase::R_I2SPR, 0xFFFFu);
+        uint32_t rcfg = 0, rpr = 0;
+        tm4.read32(S_RT + SpiBase::R_I2SCFGR, rcfg);
+        tm4.read32(S_RT + SpiBase::R_I2SPR, rpr);
+        std::printf("    variante en ejecucion (%s, f_max = %.0f Hz): "
+                    "I2SCFGR = 0x%04X, I2SPR = 0x%04X\n",
+                    s_rt->caps().kind, s_rt->caps().max_sck_hz, rcfg, rpr);
+        check(rcfg != 0u && rpr != 0u,
+              "variante de ejecucion: tiene modo I2S porque se pidio al constructor");
+        check(s_rt->caps().max_sck_hz == 42e6 && s_rt->caps().i2s_mode,
+              "los ejes modo de audio y frecuencia maxima son independientes");
+        tm4.write32(S_RT + SpiBase::R_I2SCFGR, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // T50 — Banco de registros del SPI [IR, §12.5.3]
+    // -----------------------------------------------------------------------
+    void t50_spi_registros() {
+        group("T50 SPI: banco de registros y prescalador [IR, 12.5.3]");
+        reset_dut();
+        uint32_t v = 0;
+        check(tm.read32(S1, v) == TLM_GENERIC_ERROR_RESPONSE,
+              "SPI1 sin SPI1EN -> error de bus");
+        spi_clocks_on();
+        check(tm.read32(S1, v) == TLM_OK_RESPONSE, "SPI1 con SPI1EN responde");
+
+        check_eq(s_rd(S1, SpiBase::R_CR1), 0u, "SPI_CR1 de reset");
+        check_eq(s_rd(S1, SpiBase::R_CR2), 0u, "SPI_CR2 de reset");
+        check_eq(s_rd(S1, SpiBase::R_SR), 0x0002u,
+                 "SPI_SR de reset = 0x0002 (TXE activo) [IR, 12.5.3-B]");
+        check_eq(s_rd(S1, SpiBase::R_CRCPR), 0x0007u, "SPI_CRCPR de reset = 0x0007");
+        check_eq(s_rd(S2, SpiBase::R_I2SPR), 0x0002u, "SPI_I2SPR de reset = 0x0002");
+        check_eq(s_rd(S2, SpiBase::R_I2SCFGR), 0u, "SPI_I2SCFGR de reset");
+
+        // --- Prescalador: f_SCK = f_PCLK / 2^(BR+1) -------------------------
+        const double pclk2 = dut->s_pclk2_hz.read();
+        for (unsigned br = 0; br < 8; br += 3) {
+            s_wr(S1, SpiBase::R_CR1, (1u << 2) | (br << 3) | (1u << 6) | (3u << 8));
+            wait(2, SC_US);
+            char msg[96];
+            std::snprintf(msg, sizeof msg,
+                          "BR = %u divide PCLK2 entre %u", br, 1u << (br + 1));
+            check_near(dut->spi1.sck_hz(), pclk2 / double(1u << (br + 1)), 0.001, msg);
+        }
+        s_wr(S1, SpiBase::R_CR1, 0);
+
+        // --- CRCPR solo se toca con el SPI parado ---------------------------
+        s_wr(S1, SpiBase::R_CRCPR, 0x1021u);
+        check_eq(s_rd(S1, SpiBase::R_CRCPR), 0x1021u, "CRCPR admite el polinomio");
+        s_wr(S1, SpiBase::R_CR1, (1u << 2) | (1u << 6) | (3u << 8));   // SPE
+        s_wr(S1, SpiBase::R_CRCPR, 0x8005u);
+        check_eq(s_rd(S1, SpiBase::R_CRCPR), 0x1021u,
+                 "con SPE = 1 el polinomio queda congelado");
+        s_wr(S1, SpiBase::R_CR1, 0);
+        s_wr(S1, SpiBase::R_CRCPR, 0x0007u);
+
+        // --- El acceso a DR mueve las banderas -------------------------------
+        s_wr(S1, SpiBase::R_CR1, (1u << 2) | (7u << 3) | (1u << 6) | (3u << 8));
+        wait(5, SC_US);
+        check(s_rd(S1, SpiBase::R_SR) & SpiBase::S_TXE, "TXE activo con el buffer vacio");
+        spi_off();
+    }
+
+    // -----------------------------------------------------------------------
+    // T51 — Enlace SPI maestro-esclavo por los pines
+    // -----------------------------------------------------------------------
+    void t51_spi_enlace() {
+        group("T51 SPI: enlace maestro-esclavo por los pines [IR, 12.5.1]");
+        reset_dut();
+        spi_clocks_on();
+        spi_pins_af();
+        spi_links(true);
+        wait(10, SC_US);
+
+        // --- 8 bits, modo 0, MSB primero ------------------------------------
+        spi_setup_pair(S1, S2, 0);
+        check(!dut->pinmux.pad[0][5]->is_floating(),
+              "el maestro gobierna el pin de reloj SCK");
+        Xfer x = spi_xfer(S1, S2, 0xA5, 0x3C);
+        std::printf("    SPI1 -> SPI2: 0x%02X | SPI2 -> SPI1: 0x%02X\n",
+                    unsigned(x.s), unsigned(x.m));
+        check_eq(unsigned(x.s), 0xA5u, "el esclavo recibe el byte del maestro por MOSI");
+        check_eq(unsigned(x.m), 0x3Cu, "y el maestro recibe el del esclavo por MISO");
+        check_eq(dut->spi1.frames(), 1u, "un solo marco desplazado");
+        // Varios bytes seguidos
+        const uint8_t msg[4] = {'S', 'P', 'I', '!'};
+        std::string got;
+        for (unsigned i = 0; i < 4; ++i) {
+            Xfer y = spi_xfer(S1, S2, msg[i], 0);
+            if (y.s >= 0) got += char(y.s);
+        }
+        check(got == "SPI!", "cuatro bytes seguidos llegan intactos");
+
+        // --- 16 bits (DFF) ---------------------------------------------------
+        spi_setup_pair(S1, S2, 1u << 11);
+        x = spi_xfer(S1, S2, 0xBEEF, 0x1234);
+        check_eq(unsigned(x.s), 0xBEEFu, "DFF = 1: trama de 16 bits, maestro -> esclavo");
+        check_eq(unsigned(x.m), 0x1234u, "DFF = 1: trama de 16 bits, esclavo -> maestro");
+
+        // --- LSB primero -----------------------------------------------------
+        spi_setup_pair(S1, S2, 1u << 7);
+        x = spi_xfer(S1, S2, 0x81, 0x42);
+        check_eq(unsigned(x.s), 0x81u, "LSBFIRST: el dato sigue llegando bien...");
+        check_eq(unsigned(x.m), 0x42u, "...porque los dos extremos usan el mismo orden");
+
+        // --- Los cuatro modos de reloj (CPOL, CPHA) --------------------------
+        for (unsigned mode = 0; mode < 4; ++mode) {
+            spi_setup_pair(S1, S2, mode);       // bit0 = CPHA, bit1 = CPOL
+            x = spi_xfer(S1, S2, uint16_t(0x50 + mode), uint16_t(0x0A + mode));
+            char msg2[96];
+            std::snprintf(msg2, sizeof msg2,
+                          "modo SPI %u (CPOL = %u, CPHA = %u): intercambio correcto",
+                          mode, (mode >> 1) & 1u, mode & 1u);
+            check(unsigned(x.s) == 0x50u + mode && unsigned(x.m) == 0x0Au + mode, msg2);
+        }
+
+        // --- El reloj medido en el pin --------------------------------------
+        spi_setup_pair(S1, S2, 0, /*br=*/4);
+        const double f_esperada = dut->s_pclk2_hz.read() / 32.0;
+        check_near(dut->spi1.sck_hz(), f_esperada, 0.001,
+                   "BR = 4 divide PCLK2 entre 32");
+        s_wr(S2, SpiBase::R_DR, 0x00);
+        s_wr(S1, SpiBase::R_DR, 0xFF);
+        PwmMeas m = measure_pwm(0 * N_PORT_PINS + 5, sc_time(2, SC_MS));
+        std::printf("    SCK medido en PA5: %.0f Hz (esperado %.0f Hz)\n",
+                    m.ok ? 1.0 / m.period : 0.0, f_esperada);
+        check(m.ok, "el reloj del SPI se observa en el pin");
+        check_near(1.0 / m.period, f_esperada, 0.05,
+                   "la frecuencia medida en el pin coincide con la programada");
+        // El manual exige esperar a que BSY caiga antes de tocar el SPI; si no,
+        // el marco se aborta a medias. El marco de medida deja ademas datos sin
+        // leer en los dos extremos.
+        while (s_rd(S1, SpiBase::R_SR) & SpiBase::S_BSY) wait(2, SC_US);
+        (void)s_rd(S1, SpiBase::R_SR); (void)s_rd(S1, SpiBase::R_DR);
+        (void)s_rd(S2, SpiBase::R_SR); (void)s_rd(S2, SpiBase::R_DR);
+
+        // --- NSS por hardware ------------------------------------------------
+        s_wr(S1, SpiBase::R_CR1, 0); s_wr(S2, SpiBase::R_CR1, 0);
+        s_wr(S1, SpiBase::R_CR2, 1u << 2);            // SSOE: el maestro saca NSS
+        s_wr(S1, SpiBase::R_CR1, (1u << 2) | (4u << 3) | (1u << 6));   // sin SSM
+        s_wr(S2, SpiBase::R_CR1, (1u << 6));          // esclavo con NSS de pin
+        wait(20, SC_US);
+        check(!dut->pinmux.pad_din[0 * N_PORT_PINS + 4].read(),
+              "con SSOE el maestro pone NSS a nivel bajo");
+        check(!dut->pinmux.pad_din[1 * N_PORT_PINS + 12].read(),
+              "y el esclavo lo ve seleccionado en su pin NSS");
+        x = spi_xfer(S1, S2, 0x77, 0x88);
+        check_eq(unsigned(x.s), 0x77u, "con NSS por hardware el intercambio funciona");
+        s_wr(S1, SpiBase::R_CR2, 0);
+        spi_off();
+        spi_links(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T52 — CRC, errores y modos de conectividad
+    // -----------------------------------------------------------------------
+    void t52_spi_crc_errores() {
+        group("T52 SPI: CRC, errores y modos de conectividad [IR, 12.5.1]");
+        reset_dut();
+        spi_clocks_on();
+        spi_pins_af();
+        spi_links(true);
+
+        // --- CRC de hardware --------------------------------------------------
+        s_wr(S1, SpiBase::R_CRCPR, 0x0007u);
+        s_wr(S2, SpiBase::R_CRCPR, 0x0007u);
+        spi_setup_pair(S1, S2, 1u << 13);              // CRCEN
+        for (unsigned i = 0; i < 3; ++i) (void)spi_xfer(S1, S2, uint16_t(0x10 + i),
+                                                        uint16_t(0x10 + i));
+        const uint32_t tx1 = s_rd(S1, SpiBase::R_TXCRCR);
+        const uint32_t rx2 = s_rd(S2, SpiBase::R_RXCRCR);
+        std::printf("    CRC tras tres bytes: TXCRCR(SPI1) = 0x%02X, RXCRCR(SPI2) = 0x%02X\n",
+                    tx1, rx2);
+        check(tx1 != 0u, "el generador de CRC acumula sobre lo transmitido");
+        check_eq(tx1, rx2,
+                 "el CRC calculado por el emisor coincide con el del receptor");
+        // Con el CRC deshabilitado los registros no se mueven
+        spi_setup_pair(S1, S2, 0);
+        s_wr(S1, SpiBase::R_CR1, s_rd(S1, SpiBase::R_CR1));
+        const uint32_t tx0 = s_rd(S1, SpiBase::R_TXCRCR);
+        (void)spi_xfer(S1, S2, 0x55, 0x55);
+        check_eq(s_rd(S1, SpiBase::R_TXCRCR), tx0,
+                 "sin CRCEN el registro de CRC no se actualiza");
+
+        // --- Desbordamiento de recepcion (OVR) --------------------------------
+        spi_setup_pair(S1, S2, 0);
+        s_wr(S2, SpiBase::R_DR, 0x11);
+        s_wr(S1, SpiBase::R_DR, 0x11);
+        wait(400, SC_US);
+        s_wr(S2, SpiBase::R_DR, 0x22);
+        s_wr(S1, SpiBase::R_DR, 0x22);
+        wait(400, SC_US);
+        check(s_rd(S2, SpiBase::R_SR) & SpiBase::S_OVR,
+              "OVR: llega un segundo marco sin haber leido el primero");
+        check_eq(s_rd(S2, SpiBase::R_DR), 0x11u,
+                 "tras el desbordamiento, DR conserva el primer dato [IR, 12.5.3-B]");
+        (void)s_rd(S2, SpiBase::R_SR);
+        (void)s_rd(S2, SpiBase::R_DR);
+        wait(5, SC_US);
+        check(!(s_rd(S2, SpiBase::R_SR) & SpiBase::S_OVR),
+              "la secuencia leer SR y luego DR borra OVR");
+
+        // --- Fallo de modo (MODF) ---------------------------------------------
+        spi_off();
+        pin_cfg(0, 4, 2, 1, false, 3, 5);           // PA4 = NSS con pull-up: en reposo
+        wait(10, SC_US);
+        s_wr(S1, SpiBase::R_CR1, (1u << 2) | (4u << 3) | (1u << 6));   // maestro, NSS de pin
+        wait(10, SC_US);
+        check(!(s_rd(S1, SpiBase::R_SR) & SpiBase::S_MODF), "sin fallo de modo al arrancar");
+        pin_cfg(0, 4, 2, 2, false, 3, 5);           // otro maestro tira de NSS a masa
+        wait(20, SC_US);
+        check(s_rd(S1, SpiBase::R_SR) & SpiBase::S_MODF,
+              "otro maestro tira de NSS: fallo de modo [IR, 12.5.3-B]");
+        check_eq(s_rd(S1, SpiBase::R_CR1) & ((1u << 6) | (1u << 2)), 0u,
+                 "el hardware borra SPE y MSTR al detectarlo");
+        pin_cfg(0, 4, 2, 0, false, 3, 5);
+        spi_off();
+
+        // --- Solo recepcion y bidireccional -----------------------------------
+        spi_setup_pair(S1, S2, 0);
+        s_wr(S1, SpiBase::R_CR1, s_rd(S1, SpiBase::R_CR1) | (1u << 15) | (1u << 14));
+        wait(5, SC_US);
+        check(dut->pinmux.pad[0][6]->is_floating() ||
+              !dut->pinmux.pad_din[0 * N_PORT_PINS + 6].read(),
+              "BIDIMODE con BIDIOE = 1: el maestro solo transmite");
+        (void)spi_xfer(S1, S2, 0x5A, 0x00, sc_time(300, SC_US));
+        check(dut->spi2.frames() > 0u,
+              "en bidireccional de un hilo el esclavo sigue recibiendo");
+        spi_off();
+        spi_links(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T53 — I2S: enlace de audio entre tres bloques
+    // -----------------------------------------------------------------------
+    void t53_i2s() {
+        group("T53 I2S: enlace de audio y bloques de extension [IR, 12.7]");
+        reset_dut();
+        spi_clocks_on();
+        i2s_pins_af();
+        i2s_links(true);
+
+        // PLLI2S: 8 MHz de HSE, M = 8, N = 192, R = 2 -> I2SCLK = 96 MHz
+        tm.write32(addr::RCC_B + Rcc::R_PLLI2SCFGR, (192u << 6) | (2u << 28));
+        uint32_t cr = 0; tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        tm.write32(addr::RCC_B + Rcc::R_CR, cr | (1u << 26));      // PLLI2SON
+        const sc_time t0 = sc_time_stamp();
+        while (sc_time_stamp() - t0 < sc_time(2, SC_MS)) {
+            tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+            if (cr & (1u << 27)) break;
+            wait(20, SC_US);
+        }
+        check(cr & (1u << 27), "PLLI2S listo: hay reloj de audio");
+        std::printf("    I2SCLK = %.0f Hz\n", dut->rcc.s_i2s_hz.read());
+
+        // I2S2 maestro transmisor, Philips, 16 bits. I2SDIV = 31, ODD = 1 ->
+        // f_CK = 96 MHz / 63 = 1,524 MHz y F_S = f_CK / 32 = 47,6 kHz, que es
+        // el redondeo real al pedir 48 kHz con este PLLI2S.
+        const uint32_t pr = 31u | (1u << 8);
+        s_wr(S2, SpiBase::R_I2SPR, pr);
+        s_wr(S2, SpiBase::R_I2SCFGR, (1u << 11) | (2u << 8));      // I2SMOD, maestro TX
+        // I2S3 esclavo receptor y I2S2ext esclavo receptor (la otra mitad)
+        s_wr(S3, SpiBase::R_I2SCFGR, (1u << 11) | (1u << 8) | (1u << 10));
+        s_wr(X2, SpiBase::R_I2SCFGR, (1u << 11) | (1u << 8) | (1u << 10));
+        s_wr(S2, SpiBase::R_DR, 0x1000u);
+        s_wr(S2, SpiBase::R_I2SCFGR, s_rd(S2, SpiBase::R_I2SCFGR) | (1u << 10)); // I2SE
+        wait(50, SC_US);
+        std::printf("    f_CK = %.0f Hz, F_S = %.0f Hz\n",
+                    dut->spi2.i2s_fs_hz() * 32.0, dut->spi2.i2s_fs_hz());
+        check_near(dut->spi2.i2s_fs_hz() * 32.0, dut->rcc.s_i2s_hz.read() / 63.0, 0.01,
+                   "f_CK = I2SCLK / (2*I2SDIV + ODD) [IR, 12.7]");
+        check_near(dut->spi2.i2s_fs_hz(), 47619.0, 0.02,
+                   "F_S = f_CK / (2 * CHLEN): 47,6 kHz al pedir 48 kHz");
+        check(!dut->pinmux.pad[1][13]->is_floating(),
+              "el maestro de audio gobierna el pin de reloj CK");
+        check(!dut->pinmux.pad[1][12]->is_floating(),
+              "y la palabra de sincronismo WS");
+
+        // Se alimenta el flujo sin parar y se recoge lo que llega a los dos
+        // esclavos: el audio es continuo, no hay huecos entre muestras.
+        unsigned sent = 1, got3 = 0, gotx = 0, ok3 = 0, okx = 0;
+        bool chside_seen[2] = {false, false};
+        const sc_time t2 = sc_time_stamp();
+        while (sent < 24 && sc_time_stamp() - t2 < sc_time(3, SC_MS)) {
+            if (s_rd(S2, SpiBase::R_SR) & SpiBase::S_TXE)
+                s_wr(S2, SpiBase::R_DR, uint16_t(0x1000 + (sent++ & 0xFFu)));
+            const uint32_t sr3 = s_rd(S3, SpiBase::R_SR);
+            if (sr3 & SpiBase::S_RXNE) {
+                const uint32_t v = s_rd(S3, SpiBase::R_DR);
+                ++got3;
+                if ((v & 0xFF00u) == 0x1000u) ++ok3;
+                chside_seen[(sr3 & SpiBase::S_CHSIDE) ? 1 : 0] = true;
+            }
+            if (s_rd(X2, SpiBase::R_SR) & SpiBase::S_RXNE) {
+                const uint32_t v = s_rd(X2, SpiBase::R_DR);
+                ++gotx;
+                if ((v & 0xFF00u) == 0x1000u) ++okx;
+            }
+            wait(2, SC_US);
+        }
+        std::printf("    enviadas %u muestras; I2S3 recibio %u (%u correctas), "
+                    "I2S2ext %u (%u correctas)\n", sent - 1, got3, ok3, gotx, okx);
+        check(got3 >= 8u, "el esclavo I2S3 recibe el flujo de audio por CK/WS/SD");
+        check(ok3 >= got3 - 2u && ok3 >= 8u,
+              "y las muestras que recibe son las que envio I2S2");
+        check(gotx >= 8u && okx >= 8u,
+              "el bloque de extension I2S2ext recibe el mismo flujo por su pin MISO");
+        check(chside_seen[0] && chside_seen[1],
+              "CHSIDE alterna entre el canal izquierdo y el derecho [IR, 12.5.3-B]");
+        check(dut->spi2.frames() > 8u, "el maestro ha desplazado los dos canales");
+
+        // MCK: salida de reloj maestro para el codec
+        s_wr(S2, SpiBase::R_I2SCFGR, s_rd(S2, SpiBase::R_I2SCFGR) & ~(1u << 10));
+        s_wr(S2, SpiBase::R_I2SPR, pr | (1u << 9));                // MCKOE
+        s_wr(S2, SpiBase::R_I2SCFGR, s_rd(S2, SpiBase::R_I2SCFGR) | (1u << 10));
+        wait(20, SC_US);
+        check(!dut->pinmux.pad[2][6]->is_floating(),
+              "con MCKOE el pin PC6 sale como reloj maestro del codec");
+        check_near(dut->spi2.i2s_fs_hz(), dut->rcc.s_i2s_hz.read() / (256.0 * 63.0), 0.01,
+                   "con MCKOE la frecuencia de muestreo es I2SCLK/(256*div) [IR, 12.7]");
+
+        // CHSIDE distingue el canal
+        wait(200, SC_US);
+        check(dut->spi3.frames() > 0u, "el receptor sigue el ritmo del maestro");
+        s_wr(S2, SpiBase::R_I2SCFGR, 0);
+        s_wr(S3, SpiBase::R_I2SCFGR, 0);
+        s_wr(X2, SpiBase::R_I2SCFGR, 0);
+        wait(20, SC_US);
+        i2s_links(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T54 — USART en modo síncrono: el reloj de datos en el pin CK
+    // -----------------------------------------------------------------------
+    void t54_usart_sincrono() {
+        group("T54 USART: modo sincrono, el reloj de datos en el pin [IR, 12.4.3-E]");
+        reset_dut();
+        usart_clocks_on();
+        usart_pins_af();
+        pin_cfg(0, 4, 2, 0, false, 3, 7);            // PA4 = USART2_CK (AF7)
+        const unsigned k_ck = 0 * N_PORT_PINS + 4;
+
+        // 8N1 a 1 Mbit/s con reloj de datos: CLKEN, CPOL = 0, CPHA = 0, LBCL = 0
+        usart_setup(U2, 0x0010u, (1u << 3), (1u << 11));
+        wait(10, SC_US);
+        check(!dut->pinmux.pad[0][4]->is_floating(),
+              "con CLKEN el USART gobierna el pin CK");
+        check(!dut->pinmux.pad_din[k_ck].read(),
+              "con CPOL = 0 el reloj reposa a nivel bajo");
+        const uint64_t c0 = dut->usart2.ck_pulses();
+        usart_send(U2, 0x55u);
+        wait(30, SC_US);
+        const uint64_t n1 = dut->usart2.ck_pulses() - c0;
+        std::printf("    pulsos de CK en un marco 8N1 con LBCL = 0: %llu\n",
+                    (unsigned long long)n1);
+        check_eq(n1, 7u,
+                 "8 bits de datos con LBCL = 0: se emiten 7 pulsos de reloj");
+
+        // Con LBCL = 1 se emite tambien el pulso del ultimo bit
+        usart_setup(U2, 0x0010u, (1u << 3), (1u << 11) | (1u << 8));
+        const uint64_t c1 = dut->usart2.ck_pulses();
+        usart_send(U2, 0x55u);
+        wait(30, SC_US);
+        check_eq(dut->usart2.ck_pulses() - c1, 8u,
+                 "LBCL = 1 anade el pulso del ultimo bit de datos");
+
+        // Nueve bits con paridad: el reloj acompana tambien al bit de paridad
+        usart_setup(U2, 0x0010u, (1u << 3) | (1u << 12) | (1u << 10),
+                    (1u << 11) | (1u << 8));
+        const uint64_t c2 = dut->usart2.ck_pulses();
+        usart_send(U2, 0xA5u);
+        wait(40, SC_US);
+        check_eq(dut->usart2.ck_pulses() - c2, 9u,
+                 "M = 1: nueve pulsos, uno por cada bit de datos y paridad");
+
+        // CPOL = 1 invierte el nivel de reposo
+        usart_setup(U2, 0x0010u, (1u << 3), (1u << 11) | (1u << 10));
+        wait(10, SC_US);
+        check(dut->pinmux.pad_din[k_ck].read(),
+              "con CPOL = 1 el reloj reposa a nivel alto");
+
+        // El reloj se mide en el pin: un periodo por bit de datos
+        usart_setup(U2, 0x0010u, (1u << 3), (1u << 11) | (1u << 8));
+        wait(10, SC_US);
+        s_wr(U2, UsartBase::DR, 0x00u);              // todo ceros: CK limpio
+        PwmMeas m = measure_pwm(k_ck, sc_time(1, SC_MS));
+        std::printf("    periodo de CK medido en PA4: %.3f us (bit = %.3f us)\n",
+                    m.period * 1e6, 1e6 / dut->usart2.baud_hz());
+        check(m.ok, "el reloj de datos se observa en el pin");
+        check_near(m.period, 1.0 / dut->usart2.baud_hz(), 0.05,
+                   "un periodo de CK por cada bit transmitido");
+
+        // Y el dato sigue saliendo bien por TX mientras tanto
+        usart_setup(U2, 0x0010u, (1u << 3) | (1u << 2), (1u << 11) | (1u << 8));
+        usart_setup(U3, 0x0010u, (1u << 3) | (1u << 2));
+        wait(10, SC_US);
+        usart_send(U2, 0x3Cu);
+        check_eq(usart_recv(U3), 0x3C,
+                 "en modo sincrono el marco de datos sigue siendo el mismo");
+        u_wr(U2, UsartBase::CR1, 0);
+        u_wr(U3, UsartBase::CR1, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // T55 — SPI servido por DMA y firmware real con CMSIS
+    // -----------------------------------------------------------------------
+    void t55_spi_dma_firmware() {
+        group("T55 SPI: transferencia por DMA y firmware con CMSIS");
+        reset_dut();
+        spi_clocks_on();
+        spi_pins_af();
+        spi_links(true);
+        dma_clocks_on();
+
+        // --- Interrupcion de recepcion --------------------------------------
+        spi_setup_pair(S1, S2, 0);
+        s_wr(S2, SpiBase::R_CR2, 1u << 6);            // RXNEIE en el esclavo
+        wait(5, SC_US);
+        check(!dut->s_irq[36].read(), "IRQ 36 (SPI2) en reposo");
+        s_wr(S2, SpiBase::R_DR, 0x00);
+        s_wr(S1, SpiBase::R_DR, 0x99);
+        wait(300, SC_US);
+        check(dut->s_irq[36].read(), "RXNE con RXNEIE activa la IRQ 36 del SPI2");
+        check_eq(s_rd(S2, SpiBase::R_DR), 0x99u, "el dato recibido es el enviado");
+        wait(5, SC_US);
+        check(!dut->s_irq[36].read(), "leer DR retira la interrupcion");
+        s_wr(S2, SpiBase::R_CR2, 0);
+
+        // --- Transmision por DMA: SPI1_TX -> DMA2 stream 3 canal 3 -----------
+        ImageLoader ld(*dut);
+        const uint8_t msg[8] = {'D','M','A','-','S','P','I','!'};
+        for (unsigned i = 0; i < 8; ++i) ld.poke8(SRC_BUF + i, msg[i]);
+        for (unsigned i = 0; i < 8; i += 4) ld.poke32(DST_BUF + i, 0);
+        // Recepcion del esclavo: SPI2_RX -> DMA1 stream 3 canal 0
+        dma_setup(addr::DMA1_B, 3, S2 + SpiBase::R_DR, DST_BUF, 8,
+                  (0u << 25) | (0u << 6) | (1u << 10), 0x00u);
+        dma_setup(addr::DMA2_B, 3, S1 + SpiBase::R_DR, SRC_BUF, 8,
+                  (3u << 25) | (1u << 6) | (1u << 10), 0x00u);
+        s_wr(S2, SpiBase::R_CR2, 1u << 0);            // RXDMAEN en el esclavo
+        s_wr(S1, SpiBase::R_CR2, 1u << 1);            // TXDMAEN en el maestro
+        check(dma_wait_tc(addr::DMA2_B, 3), "el DMA entrega los 8 bytes al SPI1");
+        check(dma_wait_tc(addr::DMA1_B, 3), "el DMA recoge los 8 bytes del SPI2");
+        std::string rx;
+        for (unsigned i = 0; i < 8; ++i) rx += char(dut->sram1.peek8(0x2000 + i));
+        std::printf("    recibido por DMA: \"%s\"\n", rx.c_str());
+        check(rx == "DMA-SPI!",
+              "la cadena viaja de memoria a memoria por dos SPI y cuatro cables");
+        s_wr(S1, SpiBase::R_CR2, 0); s_wr(S2, SpiBase::R_CR2, 0);
+        spi_off();
+        spi_links(false);
+
+        // --- Firmware real con CMSIS -----------------------------------------
+        spi_links(true);
+        dut->rcc.set_internal_waveforms(false);
+        xtal_hse->attach();
+        dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(30, SC_US);
+        ImageLoader ld2(*dut);
+        const long n = ld2.load_file(spi_fw_path_.c_str(), addr::FLASH_BASE);
+        if (!check(n > 0, "imagen del firmware de SPI cargada en la Flash")) {
+            std::printf("        (compilar con make -C verif/fw/spi_demo)\n");
+            dut->pwr_pads.nrst.set_hiz(d_nrst);
+            dut->rcc.set_internal_waveforms(true);
+            spi_links(false);
+            return;
+        }
+        std::printf("    %ld bytes cargados desde %s\n", n, spi_fw_path_.c_str());
+        for (unsigned i = 0; i < 32; i += 4) ld2.poke32(addr::SRAM1_BASE + i, 0);
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+        bool done = false;
+        const sc_time t0 = sc_time_stamp();
+        while ((sc_time_stamp() - t0) < sc_time(300, SC_MS)) {
+            wait(200, SC_US);
+            if (dut->sram1.peek32(0) == 1u) { done = true; break; }
+        }
+        const uint32_t spi_ok = dut->sram1.peek32(4);
+        const uint32_t nbytes = dut->sram1.peek32(8);
+        const uint32_t brr    = dut->sram1.peek32(12);
+        const uint32_t i2s_ok = dut->sram1.peek32(16);
+        const uint32_t pclk2  = dut->sram1.peek32(20);
+        std::printf("    PCLK2 = %u Hz | bytes intercambiados = %u | CR1 = 0x%04X | "
+                    "audio configurado = %u\n", pclk2, nbytes, brr, i2s_ok);
+        check(done, "el firmware de SPI llega a su fin y publica el buzon");
+        check_eq(pclk2, 84000000u, "el firmware trabaja con PCLK2 = 84 MHz");
+        check_eq(spi_ok, 1u,
+                 "SPI1 (maestro) -> SPI2 (esclavo): el mensaje llega intacto por los pines");
+        check_eq(nbytes, 8u, "ocho bytes intercambiados en full-duplex");
+        check_eq(i2s_ok, 1u,
+                 "el MISMO driver configura el modo I2S del SPI2, que el SPI1 no tiene");
+        dut->rcc.set_internal_waveforms(true);
+        spi_links(false);
+    }
+
+    std::string spi_fw_path_ = "verif/fw/spi_demo/spi_demo.bin";
     std::string exti_fw_path_ = "verif/fw/exti_demo/exti_demo.bin";
     std::string tim_fw_path_ = "verif/fw/tim_demo/tim_demo.bin";
     std::string uart_fw_path_ = "verif/fw/uart_demo/uart_demo.bin";

@@ -71,12 +71,31 @@ inline void Stm32F407VG::bind_periph_common() {
     bind_bus_slave(uart5,  s_pclk1, P_UART5);
     bind_bus_slave(usart6, s_pclk2, P_USART6);
 
+    // ---- SPI e I2S ---------------------------------------------------------
+    // El reloj de audio de los bloques con I2S es la salida R del PLLI2S; se
+    // entrega la onda y su frecuencia, como en el resto del modelo [IR, §12.7].
+    // Los bloques de extensión I2SxEXT comparten reloj y gating con su SPI padre.
     bind_bus_slave(spi1, s_pclk2, P_SPI1);
     bind_bus_slave(spi2, s_pclk1, P_SPI2);
     bind_bus_slave(spi3, s_pclk1, P_SPI3);
-    spi1.i2s_ext_clk(s_false);
-    spi2.i2s_ext_clk(rcc.s_i2s_clk);   // PLLI2S R [IR, §12.7]
-    spi3.i2s_ext_clk(rcc.s_i2s_clk);
+    bind_bus_slave(i2s2ext, s_pclk1, P_SPI2);
+    bind_bus_slave(i2s3ext, s_pclk1, P_SPI3);
+    spi1.i2s_ext_clk(s_false);         // SPI1 no tiene modo I2S en el F407
+    spi1.i2s_clk_hz(s_zero_hz);
+    spi2.i2s_ext_clk(rcc.s_i2s_clk);   spi2.i2s_clk_hz(rcc.s_i2s_hz);
+    spi3.i2s_ext_clk(rcc.s_i2s_clk);   spi3.i2s_clk_hz(rcc.s_i2s_hz);
+    i2s2ext.i2s_ext_clk(rcc.s_i2s_clk); i2s2ext.i2s_clk_hz(rcc.s_i2s_hz);
+    i2s3ext.i2s_ext_clk(rcc.s_i2s_clk); i2s3ext.i2s_clk_hz(rcc.s_i2s_hz);
+    // Un I2SxEXT no tiene pines de reloj ni de sincronismo: cuelga de los mismos
+    // hilos que su bloque padre. Se le entrega la entrada del pad de esos pines,
+    // que es exactamente lo que ve el silicio [IR, §2.1].
+    i2s2ext.ext_ck(pinmux.pad_din[1 * N_PORT_PINS + 13]);   // PB13 I2S2_CK
+    i2s2ext.ext_ws(pinmux.pad_din[1 * N_PORT_PINS + 12]);   // PB12 I2S2_WS
+    i2s3ext.ext_ck(pinmux.pad_din[2 * N_PORT_PINS + 10]);   // PC10 I2S3_CK
+    i2s3ext.ext_ws(pinmux.pad_din[0 * N_PORT_PINS + 15]);   // PA15 I2S3_WS
+    spi1.ext_ck(s_false); spi1.ext_ws(s_false);
+    spi2.ext_ck(s_false); spi2.ext_ws(s_false);
+    spi3.ext_ck(s_false); spi3.ext_ws(s_false);
 
     bind_bus_slave(i2c1, s_pclk1, P_I2C1);
     bind_bus_slave(i2c2, s_pclk1, P_I2C2);
@@ -203,7 +222,10 @@ inline void Stm32F407VG::bind_irqs() {
     tim4.irq_global(s_irq[30]);
     i2c1.irq_ev(s_irq[31]); i2c1.irq_er(s_irq[32]);
     i2c2.irq_ev(s_irq[33]); i2c2.irq_er(s_irq[34]);
-    spi1.irq(s_irq[35]);    spi2.irq(s_irq[36]);
+    spi1.irq(s_irq[35]);
+    // I2S2ext e I2S3ext comparten el vector de su SPI padre [IR, §12.5.3-D]
+    spi2.irq(s_or_in[14]);    i2s2ext.irq(s_or_in[15]);
+    or_spi2.a(s_or_in[14]); or_spi2.b(s_or_in[15]); or_spi2.y(s_irq[36]);
     usart1.irq(s_irq[37]);  usart2.irq(s_irq[38]);  usart3.irq(s_irq[39]);
     exti.irq_exti15_10(s_irq[40]);
     exti.irq_rtc_alarm(s_irq[41]);
@@ -219,7 +241,8 @@ inline void Stm32F407VG::bind_irqs() {
     fsmc.irq(s_irq[48]);
     sdio.irq(s_irq[49]);
     tim5.irq_global(s_irq[50]);
-    spi3.irq(s_irq[51]);
+    spi3.irq(s_or_in[16]);    i2s3ext.irq(s_or_in[17]);
+    or_spi3.a(s_or_in[16]); or_spi3.b(s_or_in[17]); or_spi3.y(s_irq[51]);
     uart4.irq(s_irq[52]);  uart5.irq(s_irq[53]);
     tim6.irq_global(s_or_in[12]); dac.irq(s_or_in[13]);
     or_irq54.a(s_or_in[12]); or_irq54.b(s_or_in[13]); or_irq54.y(s_irq[54]);
@@ -260,6 +283,10 @@ inline void Stm32F407VG::bind_dma_requests() {
     spi1.dma_req_rx(q_spi1_rx); spi1.dma_req_tx(q_spi1_tx);
     spi2.dma_req_rx(q_spi2_rx); spi2.dma_req_tx(q_spi2_tx);
     spi3.dma_req_rx(q_spi3_rx); spi3.dma_req_tx(q_spi3_tx);
+    // [IR] no recoge las celdas de DMA de los bloques de extension del I2S:
+    // sus lineas quedan al aire hasta disponer de la tabla (véase el informe).
+    i2s2ext.dma_req_rx(s_nc[nc()]); i2s2ext.dma_req_tx(s_nc[nc()]);
+    i2s3ext.dma_req_rx(s_nc[nc()]); i2s3ext.dma_req_tx(s_nc[nc()]);
     i2c1.dma_req_rx(q_i2c1_rx); i2c1.dma_req_tx(q_i2c1_tx);
     i2c2.dma_req_rx(q_i2c2_rx); i2c2.dma_req_tx(q_i2c2_tx);
     i2c3.dma_req_rx(q_i2c3_rx); i2c3.dma_req_tx(q_i2c3_tx);
@@ -511,9 +538,54 @@ inline void Stm32F407VG::bind_analog() {
 
     pinmux.connect_af(1, 6, 4, AfEndpoint{&i2c1.scl_out, &i2c1.scl_oe, &i2c1.scl_in}); // PB6 I2C1_SCL
     pinmux.connect_af(1, 7, 4, AfEndpoint{&i2c1.sda_out, &i2c1.sda_oe, &i2c1.sda_in}); // PB7 I2C1_SDA
-    pinmux.connect_af(0, 5, 5, AfEndpoint{&spi1.sck_out, &spi1.sck_oe, &spi1.sck_in}); // PA5 SPI1_SCK
-    pinmux.connect_af(0, 6, 5, AfEndpoint{&spi1.miso_out, &spi1.miso_oe, &spi1.miso_in});
-    pinmux.connect_af(0, 7, 5, AfEndpoint{&spi1.mosi_out, &spi1.mosi_oe, &spi1.mosi_in});
+    // ---- SPI e I2S [IR, §12.5.3-D: pines tipicos; tabla AF de §2.1] ------
+    // Cada pin de un SPI es bidireccional: el mismo hilo es salida en un
+    // extremo y entrada en el otro segun quien sea maestro, asi que se registra
+    // con las tres senales. En modo I2S los mismos pines son CK (SCK), WS (NSS)
+    // y SD (MOSI; MISO en los bloques de extension), y MCK tiene pin propio.
+    auto af_spi = [](sc_core::sc_signal<bool>& o, sc_core::sc_signal<bool>& e,
+                     sc_core::sc_signal<bool>& i) {
+        return AfEndpoint{&o, &e, &i, false};
+    };
+    // SPI1 (AF5): PA4/PA5/PA6/PA7 y la alternativa PA15/PB3/PB4/PB5
+    pinmux.connect_af(0,  4, 5, af_spi(spi1.nss_out,  spi1.nss_oe,  spi1.nss_in));
+    pinmux.connect_af(0,  5, 5, af_spi(spi1.sck_out,  spi1.sck_oe,  spi1.sck_in));
+    pinmux.connect_af(0,  6, 5, af_spi(spi1.miso_out, spi1.miso_oe, spi1.miso_in));
+    pinmux.connect_af(0,  7, 5, af_spi(spi1.mosi_out, spi1.mosi_oe, spi1.mosi_in));
+    pinmux.connect_af(0, 15, 5, af_spi(spi1.nss_out,  spi1.nss_oe,  spi1.nss_in));
+    pinmux.connect_af(1,  3, 5, af_spi(spi1.sck_out,  spi1.sck_oe,  spi1.sck_in));
+    pinmux.connect_af(1,  4, 5, af_spi(spi1.miso_out, spi1.miso_oe, spi1.miso_in));
+    pinmux.connect_af(1,  5, 5, af_spi(spi1.mosi_out, spi1.mosi_oe, spi1.mosi_in));
+    // SPI2 / I2S2 (AF5): PB12 NSS/WS, PB13 SCK/CK, PB14 MISO, PB15 MOSI/SD
+    pinmux.connect_af(1, 12, 5, af_spi(spi2.nss_out,  spi2.nss_oe,  spi2.nss_in));
+    pinmux.connect_af(1, 13, 5, af_spi(spi2.sck_out,  spi2.sck_oe,  spi2.sck_in));
+    pinmux.connect_af(1, 14, 5, af_spi(spi2.miso_out, spi2.miso_oe, spi2.miso_in));
+    pinmux.connect_af(1, 15, 5, af_spi(spi2.mosi_out, spi2.mosi_oe, spi2.mosi_in));
+    pinmux.connect_af(1, 10, 5, af_spi(spi2.sck_out,  spi2.sck_oe,  spi2.sck_in));
+    pinmux.connect_af(2,  2, 5, af_spi(spi2.miso_out, spi2.miso_oe, spi2.miso_in));
+    pinmux.connect_af(2,  3, 5, af_spi(spi2.mosi_out, spi2.mosi_oe, spi2.mosi_in));
+    pinmux.connect_af(2,  6, 5, AfEndpoint{&spi2.mck_out, &spi2.mck_oe, nullptr, false});
+    // SPI3 / I2S3 (AF6): PA4/PA15 NSS/WS, PB3/PC10 SCK/CK, PB4/PC11 MISO,
+    //                    PB5/PC12 MOSI/SD, PC7 MCK
+    pinmux.connect_af(0,  4, 6, af_spi(spi3.nss_out,  spi3.nss_oe,  spi3.nss_in));
+    pinmux.connect_af(0, 15, 6, af_spi(spi3.nss_out,  spi3.nss_oe,  spi3.nss_in));
+    pinmux.connect_af(1,  3, 6, af_spi(spi3.sck_out,  spi3.sck_oe,  spi3.sck_in));
+    pinmux.connect_af(2, 10, 6, af_spi(spi3.sck_out,  spi3.sck_oe,  spi3.sck_in));
+    pinmux.connect_af(1,  4, 6, af_spi(spi3.miso_out, spi3.miso_oe, spi3.miso_in));
+    pinmux.connect_af(2, 11, 6, af_spi(spi3.miso_out, spi3.miso_oe, spi3.miso_in));
+    pinmux.connect_af(1,  5, 6, af_spi(spi3.mosi_out, spi3.mosi_oe, spi3.mosi_in));
+    pinmux.connect_af(2, 12, 6, af_spi(spi3.mosi_out, spi3.mosi_oe, spi3.mosi_in));
+    pinmux.connect_af(2,  7, 6, AfEndpoint{&spi3.mck_out, &spi3.mck_oe, nullptr, false});
+    // Bloques de extension: su dato va por el pin MISO del SPI padre, y el CK y
+    // el WS los toman de los mismos pines que el bloque principal.
+    // I2S2ext (AF6): SD en PB14 o PC2 [IR, §2.1]
+    pinmux.connect_af(1, 14, 6, af_spi(i2s2ext.miso_out, i2s2ext.miso_oe, i2s2ext.miso_in));
+    pinmux.connect_af(2,  2, 6, af_spi(i2s2ext.miso_out, i2s2ext.miso_oe, i2s2ext.miso_in));
+
+    // I2S3ext (AF7): SD en PB4 o PC11 [IR, tabla AF: AF7 incluye I2S3ext]
+    pinmux.connect_af(1,  4, 7, af_spi(i2s3ext.miso_out, i2s3ext.miso_oe, i2s3ext.miso_in));
+    pinmux.connect_af(2, 11, 7, af_spi(i2s3ext.miso_out, i2s3ext.miso_oe, i2s3ext.miso_in));
+
     // TODO(F4/F5): resto de la tabla AF (TIM CHx, CAN, SDIO, FSMC, ETH, ULPI,
     //           DCMI, RTC_AF1...) conforme se implemente cada periférico.
 }
