@@ -43,6 +43,11 @@
 //   T41 TIM: captura, cadena ITRx y codificador incremental
 //   T42 TIM: interrupciones, TRGO y DMA               [IR, §12.1.3, §9.1.2]
 //   T43 TIM gobernados por firmware con CMSIS
+//   T44 SYSCFG: registros y multiplexor EXTICR    [IR, §12.21.2, §9.4.3]
+//   T45 EXTI: banco de registros                            [IR, §9.4.2]
+//   T46 EXTI: del pin al NVIC, flancos y vectores  [IR, §9.4.1, §9.1.2]
+//   T47 EXTI: eventos, lineas internas y despertar     [IR, §9.4.1, §14]
+//   T48 EXTI/SYSCFG gobernados por firmware con CMSIS
 // =============================================================================
 #include <systemc>
 #include <cstdio>
@@ -317,6 +322,14 @@ SC_MODULE(F1Tb) {
         t41_tim_captura_esclavo();
         t42_tim_irq_dma();
         t43_tim_firmware();
+        const unsigned f4t_pass = g_pass, f4t_fail = g_fail;
+
+        // ================ Fase F4: EXTI y SYSCFG ============================
+        t44_syscfg();
+        t45_exti_registros();
+        t46_exti_pines();
+        t47_exti_eventos();
+        t48_exti_firmware();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -329,7 +342,9 @@ SC_MODULE(F1Tb) {
         std::printf("Resumen F4 (USART): %u comprobaciones OK, %u fallos\n",
                     f4u_pass - f4d_pass, f4u_fail - f4d_fail);
         std::printf("Resumen F4 (TIM)  : %u comprobaciones OK, %u fallos\n",
-                    g_pass - f4u_pass, g_fail - f4u_fail);
+                    f4t_pass - f4u_pass, f4t_fail - f4u_fail);
+        std::printf("Resumen F4 (EXTI) : %u comprobaciones OK, %u fallos\n",
+                    g_pass - f4t_pass, g_fail - f4t_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -3218,6 +3233,405 @@ SC_MODULE(F1Tb) {
         dut->rcc.set_internal_waveforms(true);
     }
 
+    // =======================================================================
+    // FASE F4 — EXTI y SYSCFG
+    // =======================================================================
+    static constexpr uint32_t SC_B = addr::SYSCFG_B, EX_B = addr::EXTI_B;
+
+    uint32_t e_rd(uint32_t off) { uint32_t v = 0; tm.read32(EX_B + off, v); return v; }
+    void     e_wr(uint32_t off, uint32_t v) { tm.write32(EX_B + off, v); }
+
+    // Encamina una línea EXTI (0-15) a un puerto GPIO por SYSCFG_EXTICRx
+    void exti_route(unsigned line, unsigned port) {
+        const uint32_t reg = Syscfg::EXTICR1 + 4u * (line / 4u);
+        const unsigned sh  = 4u * (line % 4u);
+        uint32_t v = t_rd(SC_B, reg);
+        v = (v & ~(0xFu << sh)) | ((port & 0xFu) << sh);
+        t_wr(SC_B, reg, v);
+        wait(1, SC_US);
+    }
+    // Configura una línea: flancos, y máscara de interrupción o de evento
+    void exti_cfg(unsigned line, bool rising, bool falling, bool irq, bool evt) {
+        const uint32_t b = 1u << line;
+        e_wr(Exti::R_RTSR, (e_rd(Exti::R_RTSR) & ~b) | (rising  ? b : 0u));
+        e_wr(Exti::R_FTSR, (e_rd(Exti::R_FTSR) & ~b) | (falling ? b : 0u));
+        e_wr(Exti::R_IMR,  (e_rd(Exti::R_IMR)  & ~b) | (irq     ? b : 0u));
+        e_wr(Exti::R_EMR,  (e_rd(Exti::R_EMR)  & ~b) | (evt     ? b : 0u));
+        e_wr(Exti::R_PR, b);                       // parte de una línea limpia
+        wait(1, SC_US);
+    }
+    void exti_clear_all() {
+        e_wr(Exti::R_IMR, 0); e_wr(Exti::R_EMR, 0);
+        e_wr(Exti::R_RTSR, 0); e_wr(Exti::R_FTSR, 0);
+        e_wr(Exti::R_PR, Exti::LINE_MASK);
+        wait(1, SC_US);
+    }
+    // Un pin de salida GPIO como estímulo de una línea EXTI
+    void gpio_out_level(unsigned port, unsigned pin, bool level) {
+        gpio_wr(port, 0x18, level ? (1u << pin) : (1u << (16 + pin)));   // BSRR
+        wait(2, SC_US);
+    }
+
+    // -----------------------------------------------------------------------
+    // T44 — SYSCFG: registros y multiplexor de líneas EXTI
+    // -----------------------------------------------------------------------
+    void t44_syscfg() {
+        group("T44 SYSCFG: registros y multiplexor EXTICR [IR, 12.21.2, 9.4.3]");
+        reset_dut();
+        uint32_t v = 0;
+        check(tm.read32(SC_B, v) == TLM_GENERIC_ERROR_RESPONSE,
+              "SYSCFG sin SYSCFGEN (APB2ENR bit 14) -> error de bus");
+        rcc_enable(Rcc::R_APB2ENR, 14);
+        check(tm.read32(SC_B, v) == TLM_OK_RESPONSE, "SYSCFG con SYSCFGEN responde");
+
+        // --- MEMRMP: el espejo de 0x0000 0000 -------------------------------
+        check_eq(t_rd(SC_B, Syscfg::MEMRMP), uint32_t(MEM_MODE_FLASH),
+                 "MEMRMP de reset con BOOT0 = 0: Flash principal [IR, 2.3]");
+        t_wr(SC_B, Syscfg::MEMRMP, MEM_MODE_SRAM1);
+        wait(SC_ZERO_TIME);
+        check_eq(dut->s_memmode.read(), uint8_t(MEM_MODE_SRAM1),
+                 "MEM_MODE = 11 se publica al router del nucleo (el alias, en T14)");
+        t_wr(SC_B, Syscfg::MEMRMP, 0xFFFFFFFFu);
+        check_eq(t_rd(SC_B, Syscfg::MEMRMP), 3u, "MEMRMP solo implementa MEM_MODE[1:0]");
+        t_wr(SC_B, Syscfg::MEMRMP, MEM_MODE_FLASH);
+
+        // --- PMC: selección MII/RMII del Ethernet ---------------------------
+        check(!dut->s_mii.read(), "PMC de reset: interfaz MII");
+        t_wr(SC_B, Syscfg::PMC, 0xFFFFFFFFu);
+        check_eq(t_rd(SC_B, Syscfg::PMC), 1u << 23,
+                 "de PMC solo es escribible MII_RMII_SEL (bit 23)");
+        wait(SC_ZERO_TIME);
+        check(dut->s_mii.read(), "MII_RMII_SEL = 1 selecciona RMII para el ETH_MAC");
+        t_wr(SC_B, Syscfg::PMC, 0);
+
+        // --- CMPCR: celda de compensación de E/S ----------------------------
+        check_eq(t_rd(SC_B, Syscfg::CMPCR), 0u, "CMPCR de reset: celda apagada");
+        t_wr(SC_B, Syscfg::CMPCR, 1u);
+        check_eq(t_rd(SC_B, Syscfg::CMPCR), 0x101u,
+                 "CMP_PD enciende la celda y el hardware levanta READY");
+        t_wr(SC_B, Syscfg::CMPCR, 0);
+        check_eq(t_rd(SC_B, Syscfg::CMPCR), 0u, "apagarla retira READY");
+
+        // --- EXTICR1-4: cuatro campos de cuatro bits por registro -----------
+        t_wr(SC_B, Syscfg::EXTICR1, 0x3210u);      // L0=A L1=B L2=C L3=D
+        t_wr(SC_B, Syscfg::EXTICR2, 0x8765u);      // L4=F L5=G L6=H L7=I
+        t_wr(SC_B, Syscfg::EXTICR3, 0x0004u);      // L8=E
+        t_wr(SC_B, Syscfg::EXTICR4, 0x000Fu);      // L12 = valor reservado
+        wait(2, SC_US);
+        check_eq(t_rd(SC_B, Syscfg::EXTICR2), 0x8765u, "EXTICR2 se lee tal cual");
+        check_eq(dut->exti.source_port(0), 0u,  "EXTI0 <- puerto A");
+        check_eq(dut->exti.source_port(3), 3u,  "EXTI3 <- puerto D");
+        check_eq(dut->exti.source_port(7), 8u,  "EXTI7 <- puerto I");
+        check_eq(dut->exti.source_port(8), 4u,  "EXTI8 <- puerto E");
+        check_eq(dut->exti.source_port(12), 15u,
+                 "EXTI12 con un selector reservado: el EXTI no conecta nada");
+        for (unsigned k = 0; k < 4; ++k) t_wr(SC_B, Syscfg::EXTICR1 + 4 * k, 0);
+
+        // --- El reset del bloque devuelve los EXTICR a cero -----------------
+        t_wr(SC_B, Syscfg::EXTICR1, 0x1111u);
+        tm.write32(addr::RCC_B + Rcc::R_APB2RSTR, 1u << 14);   // SYSCFGRST
+        tm.write32(addr::RCC_B + Rcc::R_APB2RSTR, 0);
+        wait(2, SC_US);
+        check_eq(t_rd(SC_B, Syscfg::EXTICR1), 0u, "SYSCFGRST borra los EXTICR");
+        check_eq(t_rd(SC_B, Syscfg::MEMRMP), uint32_t(MEM_MODE_FLASH),
+                 "y devuelve MEMRMP al valor que imponen los pines BOOT");
+    }
+
+    // -----------------------------------------------------------------------
+    // T45 — EXTI: banco de registros [IR, §9.4.2]
+    // -----------------------------------------------------------------------
+    void t45_exti_registros() {
+        group("T45 EXTI: banco de registros [IR, 9.4.2]");
+        reset_dut();
+        rcc_enable(Rcc::R_APB2ENR, 14);
+
+        // El EXTI no tiene bit de habilitación propio en el RCC
+        uint32_t v = 0;
+        check(tm.read32(EX_B, v) == TLM_OK_RESPONSE,
+              "el EXTI responde sin ningun bit de RCC_APB2ENR propio");
+        check_eq(e_rd(Exti::R_IMR), 0u,   "EXTI_IMR de reset");
+        check_eq(e_rd(Exti::R_EMR), 0u,   "EXTI_EMR de reset");
+        check_eq(e_rd(Exti::R_RTSR), 0u,  "EXTI_RTSR de reset");
+        check_eq(e_rd(Exti::R_FTSR), 0u,  "EXTI_FTSR de reset");
+        check_eq(e_rd(Exti::R_SWIER), 0u, "EXTI_SWIER de reset");
+        check_eq(e_rd(Exti::R_PR), 0u,    "EXTI_PR de reset");
+
+        // 23 líneas: los bits 31:23 son reservados
+        e_wr(Exti::R_IMR,  0xFFFFFFFFu);
+        e_wr(Exti::R_EMR,  0xFFFFFFFFu);
+        e_wr(Exti::R_RTSR, 0xFFFFFFFFu);
+        e_wr(Exti::R_FTSR, 0xFFFFFFFFu);
+        check_eq(e_rd(Exti::R_IMR),  0x007FFFFFu, "IMR implementa 23 lineas [IR, 9.4.1]");
+        check_eq(e_rd(Exti::R_EMR),  0x007FFFFFu, "EMR implementa 23 lineas");
+        check_eq(e_rd(Exti::R_RTSR), 0x007FFFFFu, "RTSR implementa 23 lineas");
+        check_eq(e_rd(Exti::R_FTSR), 0x007FFFFFu, "FTSR implementa 23 lineas");
+        e_wr(Exti::R_IMR, 0); e_wr(Exti::R_EMR, 0);
+        e_wr(Exti::R_RTSR, 0); e_wr(Exti::R_FTSR, 0);
+        e_wr(Exti::R_PR, Exti::LINE_MASK);
+
+        // --- SWIER: interrupción por software -------------------------------
+        e_wr(Exti::R_SWIER, 1u << 5);
+        check_eq(e_rd(Exti::R_PR) & (1u << 5), 0u,
+                 "SWIER sobre una linea enmascarada no levanta PR");
+        e_wr(Exti::R_PR, 1u << 5);
+        e_wr(Exti::R_IMR, 1u << 5);
+        e_wr(Exti::R_SWIER, 1u << 5);
+        check(e_rd(Exti::R_PR) & (1u << 5), "con la linea desenmascarada, SWIER levanta PR");
+        check(dut->s_irq[23].read(), "y la peticion llega al vector agrupado 9_5 (IRQ 23)");
+        check_eq(e_rd(Exti::R_SWIER) & (1u << 5), 1u << 5, "el bit de SWIER queda a uno");
+
+        // --- PR es rc_w1 ----------------------------------------------------
+        e_wr(Exti::R_PR, 0);
+        check(e_rd(Exti::R_PR) & (1u << 5), "escribir cero en PR no borra nada");
+        e_wr(Exti::R_PR, 1u << 5);
+        check_eq(e_rd(Exti::R_PR) & (1u << 5), 0u, "escribir uno en PR borra la peticion");
+        check_eq(e_rd(Exti::R_SWIER) & (1u << 5), 0u,
+                 "borrar PR borra tambien el bit de SWIER que la produjo");
+        wait(2, SC_US);
+        check(!dut->s_irq[23].read(), "y la interrupcion se retira");
+        exti_clear_all();
+    }
+
+    // -----------------------------------------------------------------------
+    // T46 — Del pin al NVIC: multiplexor, flancos y agrupación de vectores
+    // -----------------------------------------------------------------------
+    void t46_exti_pines() {
+        group("T46 EXTI: del pin al NVIC [IR, 9.4.1, 9.1.2]");
+        reset_dut();
+        rcc_enable(Rcc::R_APB2ENR, 14);
+        for (unsigned p = 0; p < 4; ++p) rcc_enable(Rcc::R_AHB1ENR, p);  // GPIOA..D
+        exti_clear_all();
+
+        // --- Un pulsador real en PA0, con pull-up interno -------------------
+        pin_cfg(0, 0, 0, 1);                        // entrada con pull-up
+        btn_pa0->release();
+        wait(5, SC_US);
+        check(dut->pinmux.pad_din[0].read(), "PA0 en reposo esta alto (pull-up interno)");
+        exti_route(0, 0);                           // EXTI0 <- puerto A
+        exti_cfg(0, /*rising=*/false, /*falling=*/true, /*irq=*/true, /*evt=*/false);
+        check(!dut->s_irq[6].read(), "IRQ 6 (EXTI0) en reposo");
+        btn_pa0->press();                           // flanco de bajada
+        wait(5, SC_US);
+        check(e_rd(Exti::R_PR) & 1u, "pulsar el boton levanta PR de la linea 0");
+        check(dut->s_irq[6].read(), "y activa la IRQ 6, el vector propio de EXTI0");
+        e_wr(Exti::R_PR, 1u);
+        wait(2, SC_US);
+        check(!dut->s_irq[6].read(), "borrar PR retira la interrupcion");
+        btn_pa0->release();                         // flanco de subida: no seleccionado
+        wait(5, SC_US);
+        check_eq(e_rd(Exti::R_PR) & 1u, 0u,
+                 "con FTSR solo, el flanco de subida no genera peticion");
+
+        // --- Flanco de subida y ambos flancos -------------------------------
+        exti_cfg(0, true, false, true, false);
+        btn_pa0->press();  wait(5, SC_US);
+        check_eq(e_rd(Exti::R_PR) & 1u, 0u, "con RTSR solo, la bajada no genera peticion");
+        btn_pa0->release(); wait(5, SC_US);
+        check(e_rd(Exti::R_PR) & 1u, "y la subida si");
+        e_wr(Exti::R_PR, 1u);
+        exti_cfg(0, true, true, true, false);
+        btn_pa0->press();  wait(5, SC_US);
+        check(e_rd(Exti::R_PR) & 1u, "con RTSR y FTSR se detectan los dos flancos (bajada)");
+        e_wr(Exti::R_PR, 1u);
+        btn_pa0->release(); wait(5, SC_US);
+        check(e_rd(Exti::R_PR) & 1u, "con RTSR y FTSR se detectan los dos flancos (subida)");
+        e_wr(Exti::R_PR, 1u);
+
+        // --- El multiplexor de SYSCFG elige el puerto -----------------------
+        // La misma línea 0 pasa a mirar PB0, que gobernamos como salida GPIO.
+        pin_cfg(1, 0, 1);                           // PB0 salida push-pull
+        gpio_out_level(1, 0, false);
+        exti_route(0, 1);                           // EXTI0 <- puerto B
+        e_wr(Exti::R_PR, 1u);
+        btn_pa0->press();  wait(5, SC_US);          // PA0 ya no llega a la linea
+        check_eq(e_rd(Exti::R_PR) & 1u, 0u,
+                 "con EXTICR = B, el pin PA0 ya no alcanza la linea 0");
+        btn_pa0->release();
+        gpio_out_level(1, 0, true);                 // flanco de subida en PB0
+        check(e_rd(Exti::R_PR) & 1u, "y PB0 si: el multiplexor de SYSCFG manda");
+        e_wr(Exti::R_PR, 1u);
+        // Reconfigurar el multiplexor no debe dejar peticiones espurias
+        exti_route(0, 0);                           // vuelta al puerto A (nivel alto)
+        wait(3, SC_US);
+        check_eq(e_rd(Exti::R_PR) & 1u, 0u,
+                 "cambiar de puerto resincroniza la linea sin generar flanco");
+
+        // --- Agrupación de vectores 9_5 y 15_10 -----------------------------
+        pin_cfg(1, 7, 1);                           // PB7 salida
+        gpio_out_level(1, 7, false);
+        exti_route(7, 1);                           // EXTI7 <- puerto B
+        exti_cfg(7, true, false, true, false);
+        check(!dut->s_irq[23].read(), "IRQ 23 (EXTI9_5) en reposo");
+        gpio_out_level(1, 7, true);
+        check(e_rd(Exti::R_PR) & (1u << 7), "PB7 levanta la peticion de la linea 7");
+        check(dut->s_irq[23].read(), "las lineas 5 a 9 comparten el vector 23 [IR, 9.1.2]");
+        check(!dut->s_irq[40].read(), "sin tocar el vector 15_10");
+
+        pin_cfg(3, 12, 1);                          // PD12 salida (el LED)
+        gpio_out_level(3, 12, false);
+        exti_route(12, 3);                          // EXTI12 <- puerto D
+        exti_cfg(12, true, false, true, false);
+        gpio_out_level(3, 12, true);
+        check(e_rd(Exti::R_PR) & (1u << 12), "PD12 levanta la peticion de la linea 12");
+        check(dut->s_irq[40].read(), "las lineas 10 a 15 comparten el vector 40");
+        check(led_pd12->on(), "y el LED de la placa se enciende con el mismo pin");
+        // La IRQ agrupada solo se retira cuando se borran TODAS sus lineas
+        e_wr(Exti::R_PR, 1u << 7);
+        wait(2, SC_US);
+        check(!dut->s_irq[23].read(), "borrada la linea 7, el vector 23 queda libre");
+        e_wr(Exti::R_PR, 1u << 12);
+        wait(2, SC_US);
+        check(!dut->s_irq[40].read(), "borrada la linea 12, el vector 40 queda libre");
+
+        // --- Una línea enmascarada sigue registrando la peticion ------------
+        e_wr(Exti::R_IMR, 0);
+        gpio_out_level(1, 7, false);
+        gpio_out_level(1, 7, true);
+        check(e_rd(Exti::R_PR) & (1u << 7),
+              "con IMR = 0 el detector de flanco sigue levantando PR [IR, 9.4.2]");
+        check(!dut->s_irq[23].read(), "pero la peticion no llega al NVIC");
+        exti_clear_all();
+        pin_cfg(1, 0, 0); pin_cfg(1, 7, 0); pin_cfg(3, 12, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // T47 — Eventos, líneas internas y despertar
+    // -----------------------------------------------------------------------
+    void t47_exti_eventos() {
+        group("T47 EXTI: eventos, lineas internas y despertar [IR, 9.4.1, 14]");
+        reset_dut();
+        rcc_enable(Rcc::R_APB2ENR, 14);
+        for (unsigned p = 0; p < 4; ++p) rcc_enable(Rcc::R_AHB1ENR, p);
+        exti_clear_all();
+
+        // --- Camino de evento: EMR sin IMR ---------------------------------
+        pin_cfg(1, 0, 1);                           // PB0 salida
+        gpio_out_level(1, 0, false);
+        exti_route(0, 1);                           // EXTI0 <- puerto B
+        exti_cfg(0, /*rising=*/true, false, /*irq=*/false, /*evt=*/true);
+        const uint64_t ev0 = dut->exti.event_pulses();
+        check(!dut->s_evt_in.read(), "la salida de evento esta en reposo");
+        gpio_out_level(1, 0, true);
+        check_eq(dut->exti.event_pulses() - ev0, 1u,
+                 "una linea con EMR genera un pulso de evento por flanco");
+        check(!dut->s_irq[6].read(),
+              "el camino de evento NO pasa por el NVIC: la IRQ 6 sigue en reposo");
+        check(dut->s_exti_wakeup.read() || dut->exti.pending(),
+              "el evento sirve para despertar del modo Stop [IR, 14]");
+        e_wr(Exti::R_PR, 1u);
+
+        // --- SWIER también dispara el camino de evento ----------------------
+        const uint64_t ev1 = dut->exti.event_pulses();
+        e_wr(Exti::R_SWIER, 1u);
+        check_eq(dut->exti.event_pulses() - ev1, 1u, "SWIER genera el pulso de evento");
+        check_eq(e_rd(Exti::R_PR) & 1u, 0u,
+                 "sobre una linea solo de evento, SWIER no levanta PR");
+        e_wr(Exti::R_SWIER, 0);
+
+        // --- Las siete líneas internas y sus vectores dedicados -------------
+        // Las fuentes (PVD, RTC, OTG, ETH) llegan en fases posteriores; aquí se
+        // comprueba el encaminamiento completo de cada línea usando SWIER, que
+        // es justamente para lo que existe.
+        struct { unsigned line; unsigned irq; const char* nm; } intl[7] = {
+            {16, 1,  "16 PVD           -> IRQ 1"},
+            {17, 41, "17 RTC Alarm     -> IRQ 41"},
+            {18, 42, "18 OTG FS Wakeup -> IRQ 42"},
+            {19, 62, "19 ETH Wakeup    -> IRQ 62"},
+            {20, 76, "20 OTG HS Wakeup -> IRQ 76"},
+            {21, 2,  "21 RTC Tamper    -> IRQ 2"},
+            {22, 3,  "22 RTC Wakeup    -> IRQ 3"}
+        };
+        e_wr(Exti::R_EMR, 0);
+        for (auto& l : intl) {
+            const uint32_t b = 1u << l.line;
+            e_wr(Exti::R_IMR, b);
+            e_wr(Exti::R_SWIER, b);
+            wait(2, SC_US);
+            char msg[96];
+            std::snprintf(msg, sizeof msg, "linea interna %s", l.nm);
+            check(dut->s_irq[l.irq].read() && (e_rd(Exti::R_PR) & b), msg);
+            e_wr(Exti::R_PR, b);
+            e_wr(Exti::R_SWIER, 0);
+        }
+        exti_clear_all();
+
+        // --- El evento arma el registro de evento del nucleo ----------------
+        // El pulso dura un ciclo del bus; sin engancharlo, un WFE posterior
+        // dormiria para siempre. Se comprueba con el firmware de T48.
+        check_eq(e_rd(Exti::R_IMR), 0u, "el bloque queda limpio para el firmware");
+        pin_cfg(1, 0, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // T48 — Firmware real con CMSIS sobre EXTI y SYSCFG
+    // -----------------------------------------------------------------------
+    void t48_exti_firmware() {
+        group("T48 EXTI/SYSCFG gobernados por firmware con CMSIS");
+        dut->rcc.set_internal_waveforms(false);
+        xtal_hse->attach();
+        btn_pa0->release();
+        dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(30, SC_US);
+
+        ImageLoader ld(*dut);
+        const long n = ld.load_file(exti_fw_path_.c_str(), addr::FLASH_BASE);
+        if (!check(n > 0, "imagen del firmware de EXTI cargada en la Flash")) {
+            std::printf("        (compilar con make -C verif/fw/exti_demo)\n");
+            dut->pwr_pads.nrst.set_hiz(d_nrst);
+            dut->rcc.set_internal_waveforms(true);
+            return;
+        }
+        std::printf("    %ld bytes cargados desde %s\n", n, exti_fw_path_.c_str());
+        for (unsigned i = 0; i < 32; i += 4) ld.poke32(addr::SRAM1_BASE + i, 0);
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+
+        // El firmware avisa por el buzon cuando ya tiene el EXTI configurado
+        bool armed = false;
+        const sc_time t0 = sc_time_stamp();
+        while ((sc_time_stamp() - t0) < sc_time(100, SC_MS)) {
+            wait(100, SC_US);
+            if (dut->sram1.peek32(24) == 1u) { armed = true; break; }
+        }
+        check(armed, "el firmware configura SYSCFG_EXTICR, el EXTI y el NVIC");
+
+        // Cuatro pulsaciones del boton de usuario: cada una es un flanco de
+        // bajada en PA0 que debe entrar por la IRQ 6.
+        unsigned led_on = 0;
+        for (unsigned i = 0; i < 4; ++i) {
+            btn_pa0->press();
+            wait(300, SC_US);
+            if (led_pd12->on()) ++led_on;
+            btn_pa0->release();
+            wait(300, SC_US);
+        }
+        std::printf("    el LED se ha encendido en %u de las 4 pulsaciones\n", led_on);
+
+        bool done = false;
+        const sc_time t1 = sc_time_stamp();
+        while ((sc_time_stamp() - t1) < sc_time(100, SC_MS)) {
+            wait(200, SC_US);
+            if (dut->sram1.peek32(0) == 1u) { done = true; break; }
+        }
+        const uint32_t n_press = dut->sram1.peek32(4);
+        const uint32_t n_evt   = dut->sram1.peek32(8);
+        const uint32_t pr_seen = dut->sram1.peek32(12);
+        const uint32_t exticr  = dut->sram1.peek32(16);
+        const uint32_t woke    = dut->sram1.peek32(20);
+        std::printf("    pulsaciones = %u | EXTICR1 = 0x%04X | PR en el manejador = 0x%X | "
+                    "salidas de WFE = %u | eventos = %u\n",
+                    n_press, exticr, pr_seen, woke, n_evt);
+        check(done, "el firmware de EXTI llega a su fin y publica el buzon");
+        check_eq(n_press, 4u, "cuatro pulsaciones, cuatro interrupciones EXTI0");
+        check_eq(pr_seen, 1u, "el manejador ve levantado el bit 0 de EXTI_PR");
+        check_eq(exticr, 0u, "SYSCFG_EXTICR1 encamina la linea 0 al puerto A");
+        check(led_on >= 2u, "el manejador conmuta el LED de PD12 en cada pulsacion");
+        check_eq(woke, 1u,
+                 "un WFE sale por el pulso de evento de una linea sin IMR [IR, 14]");
+        dut->rcc.set_internal_waveforms(true);
+    }
+
+    std::string exti_fw_path_ = "verif/fw/exti_demo/exti_demo.bin";
     std::string tim_fw_path_ = "verif/fw/tim_demo/tim_demo.bin";
     std::string uart_fw_path_ = "verif/fw/uart_demo/uart_demo.bin";
     std::string dma_fw_path_ = "verif/fw/dma_demo/dma_demo.bin";

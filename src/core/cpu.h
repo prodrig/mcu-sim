@@ -77,7 +77,14 @@ SC_MODULE(Cpu) {
     SC_CTOR(Cpu) {
         SC_THREAD(exec_proc);
         SC_METHOD(pub_proc); sensitive << pub_ev_; dont_initialize();
+        // El registro de evento se ARMA con el flanco de la entrada de evento
+        // (el pulso del EXTI, o un SEV externo). Sin este enganche un pulso de
+        // un ciclo se perdería: el bucle de sueño solo mira el NIVEL cada
+        // microsegundo, y un WFE posterior debe volver de inmediato aunque el
+        // evento ocurriera antes de ejecutarlo [ARMv7-M B1.5.18].
+        SC_METHOD(event_latch_proc); sensitive << event_in.pos(); dont_initialize();
     }
+    void event_latch_proc() { event_reg_ = true; }
 
     // -----------------------------------------------------------------------
     // Modo de sonda del decodificador (verificación)

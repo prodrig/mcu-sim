@@ -12,22 +12,22 @@ P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
 | **F1** | Infraestructura: relojes, resets, matriz LT, Flash/SRAM, cargador | **completada** |
 | **F2** | CPU: ISA completa + excepciones + NVIC/SysTick | **completada** |
 | **F3** | Pads/pin_mux/GPIO y RCC eléctrico completos | **completada** |
-| F4 | DMA1/2, USART, TIM avanzados, EXTI/SYSCFG | **DMA, UART/USART y TIM completados**; EXTI/SYSCFG pendiente |
+| **F4** | DMA1/2, USART, TIM, EXTI/SYSCFG | **completada** |
 | F5 | Resto de periféricos | pendiente |
 | F6 | Debug (DAP/FPB/DWT/ITM), DBGMCU, trazas | pendiente |
 | F7 | Bajo consumo, OTG/ETH/FSMC/DCMI, afinado AT | pendiente |
 
-`make test` compila y ejecuta la suite de verificación acumulada (475
+`make test` compila y ejecuta la suite de verificación acumulada (559
 comprobaciones autocomprobables: 124 de F1 + 12 de F2 + 80 de F3 + 71 del DMA,
-70 de UART/USART y 118 de los temporizadores de F4; código de salida 0 si todas
-pasan, en menos de 3 s). Verificado con SystemC 2.3.4 / g++ 13 / C++17 y
-arm-none-eabi-gcc 13.2.
+70 de UART/USART, 118 de los temporizadores y 84 de EXTI/SYSCFG de F4; código de
+salida 0 si todas pasan, en menos de 3 s). Verificado con SystemC 2.3.4 /
+g++ 13 / C++17 y arm-none-eabi-gcc 13.2.
 
-Las pruebas T15-T17, T25, T31, T37 y T43 necesitan los firmwares del repositorio; se
+Las pruebas T15-T17, T25, T31, T37, T43 y T48 necesitan los firmwares del repositorio; se
 compilan con `make -C verif/fw`, `make -C verif/fw/coremark`,
 `make -C verif/fw/blinky`, `make -C verif/fw/dma_demo`,
-`make -C verif/fw/uart_demo` y `make -C verif/fw/tim_demo`
-(requieren `arm-none-eabi-gcc`). Sin ellos, esas pruebas informan de que falta
+`make -C verif/fw/uart_demo`, `make -C verif/fw/tim_demo` y
+`make -C verif/fw/exti_demo` (requieren `arm-none-eabi-gcc`). Sin ellos, esas pruebas informan de que falta
 la imagen. `F2_SKIP_COREMARK=1` omite la ejecución de CoreMark.
 
 ```
@@ -46,8 +46,8 @@ make -f Makefile.stm32 run IMG=fw.bin # carga una imagen y simula
 | `rcc/` | `rcc.h` (banco de registros, árbol de reloj, gating, controlador de reset), `osc_pll.h` (HSI/HSE/LSI/LSE, PLL, PLLI2S) |
 | `core/` | `cortex_m4f.h` (router I/D/S/CCM/PPB con alias de 0x0 y bit-banding), `cpu.h` (bucle fetch/decode/execute, excepciones, prebúsqueda), `cpu_state.h` (RegFile y utilidades arquitectónicas), `cpu_exec16.h` / `cpu_exec32.h` (ISA completa [II]), `fpu.h` (FPv4-SP), `scs.h` (SCB + NVIC + SysTick + MPU), `debug.h` (DAP/CoreSight/DBGMCU + transactor AHB-AP) |
 | `periph/` | un fichero por familia de periférico, todos derivados de `BusSlave`. `usart.h` es un único modelo parametrizado del que salen los tipos `Usart` y `Uart` (véase `doc/stm32f407vg_fase4_uart.md`), y `timers.h` uno del que salen los seis tipos de temporizador del F407 (véase `doc/stm32f407vg_fase4_tim.md`) |
-| `verif/` | `bus_test_master.h` (maestro de bus de verificación), `image_loader.h` (carga de .bin/.hex y tabla de vectores), `decoder_vectors.h` (254 vectores generados desde `doc/valida_instrucciones.py` por `gen_decoder_vectors.py`), `ext_parts.h` (circuitería externa de placa: cristal, reloj, LED, pulsador, resistencia, driver, pista entre pines), `fw/` (firmware de autocomprobación, *port* bare-metal de CoreMark, CMSIS oficial, blinky de referencia y demostraciones del DMA, de los puertos serie y de los temporizadores) |
-| `top/` | `stm32f407vg.h` + `stm32f407vg_bind2.h` (netlist/contrato de integración), `sc_main.cpp` (suite de verificación F1+F2) |
+| `verif/` | `bus_test_master.h` (maestro de bus de verificación), `image_loader.h` (carga de .bin/.hex y tabla de vectores), `decoder_vectors.h` (254 vectores generados desde `doc/valida_instrucciones.py` por `gen_decoder_vectors.py`), `ext_parts.h` (circuitería externa de placa: cristal, reloj, LED, pulsador, resistencia, driver, pista entre pines), `fw/` (firmware de autocomprobación, *port* bare-metal de CoreMark, CMSIS oficial, blinky de referencia y demostraciones del DMA, de los puertos serie, de los temporizadores y del EXTI) |
+| `top/` | `stm32f407vg.h` + `stm32f407vg_bind2.h` (netlist/contrato de integración), `sc_main.cpp` (suite de verificación acumulada F1-F4) |
 
 ## Convenciones
 
@@ -90,6 +90,10 @@ make -f Makefile.stm32 run IMG=fw.bin # carga una imagen y simula
   calculando el tiempo a partir de la frecuencia, e interpolan `CNT` en las
   lecturas intermedias. El coste de simulación depende del número de sucesos y
   no de la frecuencia del reloj.
+* **Detección asíncrona:** el EXTI no muestrea sus entradas con un reloj: su
+  detector de flanco es un `SC_METHOD` sensible a las señales de pin, de modo
+  que —como en el silicio— reconoce pulsos más cortos que un ciclo y sigue
+  funcionando con los relojes parados.
 * **Frontera del MCU:** el modelo termina en los `AnalogNet` de los pines.
   Cualquier componente de placa (cristal, LED, pulsador) es del banco de
   pruebas y vive en `verif/ext_parts.h`.
