@@ -143,9 +143,10 @@ inline void Stm32F407VG::bind_periph_common() {
     wwdg.rst_req(s_wwdg_rr);
     // IWDG y RTC: sin bit ENR (siempre accesibles); RTC en dominio backup
     iwdg.clk(s_pclk1); iwdg.clk_hz(s_pclk1_hz); iwdg.rst_n(s_sysrst_n); iwdg.clk_en(s_true);
-    iwdg.lsi_clk(s_lsiclk); iwdg.freeze(s_freeze[FZ_IWDG]);
+    iwdg.lsi_clk(s_lsiclk); iwdg.lsi_hz(s_lsi_hz); iwdg.freeze(s_freeze[FZ_IWDG]);
     iwdg.hw_start(s_false);            // TODO(F2): option bit WDG_SW
     iwdg.rst_req(s_iwdg_rr);
+    iwdg.lsi_on_req(s_iwdg_lsi);
     rtc.clk(s_pclk1); rtc.clk_hz(s_pclk1_hz); rtc.rst_n(s_sysrst_n); rtc.clk_en(s_true);
     rtc.rtcclk(s_rtcclk); rtc.rtcclk_hz(s_rtcclk_hz);
     rtc.bkp_rst_n(s_bkprst_n); rtc.dbp(s_dbp);

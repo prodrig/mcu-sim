@@ -108,7 +108,11 @@ public:
     sc_core::sc_out<bool>   timclk2{"timclk2"};  sc_core::sc_out<double> timclk2_hz{"timclk2_hz"};
     sc_core::sc_out<bool>   pll48ck{"pll48ck"};  sc_core::sc_out<double> pll48ck_hz{"pll48ck_hz"};
     sc_core::sc_out<bool>   rtcclk{"rtcclk"};    sc_core::sc_out<double> rtcclk_hz{"rtcclk_hz"};
-    sc_core::sc_out<bool>   lsi_clk{"lsi_clk"};  // IWDG
+    // El LSI alimenta al IWDG, que debe seguir contando aunque el reloj de
+    // sistema se pare: se saca tambien su frecuencia para que el perro pueda
+    // programar sus propios eventos sin depender de la onda cuadrada.
+    sc_core::sc_out<bool>   lsi_clk{"lsi_clk"};
+    sc_core::sc_out<double> lsi_hz{"lsi_hz"};
     sc_core::sc_out<bool>   systick_ext{"systick_ext"};   // HCLK/8
 
     // ---- Gating y reset por periférico (ENR/RSTR) --------------------------
@@ -126,6 +130,10 @@ public:
     sc_core::sc_in<bool> nrst_in_n{"nrst_in_n"};
     sc_core::sc_in<bool> wwdg_rst_req{"wwdg_rst_req"};
     sc_core::sc_in<bool> iwdg_rst_req{"iwdg_rst_req"};
+    // Arrancar el perro independiente ENCIENDE el LSI por hardware, sin que
+    // el firmware tenga que tocar RCC_CSR.LSION: si no fuera asi, bastaria
+    // con apagar el oscilador para desarmar el vigilante [IR, §12.11].
+    sc_core::sc_in<bool> iwdg_lsi_req{"iwdg_lsi_req"};
     sc_core::sc_in<bool> sysresetreq{"sysresetreq"};
     sc_core::sc_out<bool> nmi_css{"nmi_css"};
     sc_core::sc_out<bool> irq{"irq"};                // RCC global (IRQ 5)
@@ -173,7 +181,9 @@ public:
         // de registros (que corre en el proceso del maestro), y SystemC no
         // admite dos escritores sobre un mismo sc_signal.
         SC_METHOD(publish_proc);     sensitive << pub_ev_;    dont_initialize();
-        SC_METHOD(lsi_mirror_proc);  sensitive << s_lsi_clk;  dont_initialize();
+        SC_METHOD(lsi_mirror_proc);  sensitive << s_lsi_clk << s_lsi_hz;
+        dont_initialize();
+        SC_METHOD(iwdg_lsi_proc);    sensitive << iwdg_lsi_req; dont_initialize();
         SC_THREAD(css_nmi_proc);
         SC_METHOD(rst_src_proc);
         sensitive << por_ok << bor_rst << nrst_in_n << wwdg_rst_req
@@ -295,7 +305,7 @@ private:
         hsi.enable((cr_ >> 0) & 1u);
         hse.bypass = ((cr_ >> 18) & 1u) != 0;
         hse.enable((cr_ >> 16) & 1u);
-        lsi.enable(csr_ & 1u);
+        lsi.enable((csr_ & 1u) || iwdg_lsi_req.read());
         lse.bypass = ((bdcr_ >> 2) & 1u) != 0;
         lse.enable(bdcr_ & 1u);
 
@@ -434,7 +444,7 @@ private:
     void publish() { pub_ev_.notify(sc_core::SC_ZERO_TIME); }
     void publish_proc() {
         sys_rst_n.write(o_sys_rst_n_);
-        bkp_rst_n.write(o_bkp_rst_n_ && o_sys_rst_n_);
+        bkp_rst_n.write(o_bkp_rst_n_);
         drive_nrst_low.write(o_drive_nrst_);
         nmi_css.write(o_nmi_css_);
         irq.write(o_irq_);
@@ -447,7 +457,8 @@ private:
     // -----------------------------------------------------------------------
     // Procesos
     // -----------------------------------------------------------------------
-    void lsi_mirror_proc() { lsi_clk.write(s_lsi_clk.read()); }
+    void lsi_mirror_proc() { lsi_clk.write(s_lsi_clk.read()); lsi_hz.write(s_lsi_hz.read()); }
+    void iwdg_lsi_proc() { apply_osc_controls(); update_clocks(); }
 
     // Vigilancia de las fuentes de reset [IR, §4.1.1]
     void rst_src_proc() {
@@ -472,7 +483,12 @@ private:
             csr_ |= pending_flags_;  pending_flags_ = 0;
             reset_registers(false);            // CSR y BDCR sobreviven
             o_sys_rst_n_ = false;
-            o_bkp_rst_n_ = false;
+            // El DOMINIO DE BACKUP no se va con un reset de sistema. Solo lo
+            // borran BDRST o la pérdida de la alimentación: esa es la razón de
+            // que existan el RTC, la BKPSRAM y los veinte registros de backup
+            // [IR, §4.1.3, §12.9.1]. Un NRST, un perro guardián o un
+            // SYSRESETREQ los dejan intactos.
+            if (!por_ok.read()) o_bkp_rst_n_ = false;
             bdrst_       = false;
             driving_nrst_ = true;
             o_drive_nrst_ = true;

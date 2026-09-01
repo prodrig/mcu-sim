@@ -122,6 +122,7 @@ SC_MODULE(Stm32F407VG) {
     sc_core::sc_signal<bool>   s_timclk1{"s_timclk1"}, s_timclk2{"s_timclk2"};
     sc_core::sc_signal<bool>   s_pll48{"s_pll48"}, s_rtcclk{"s_rtcclk"};
     sc_core::sc_signal<bool>   s_lsiclk{"s_lsiclk"}, s_stk_ext{"s_stk_ext"};
+    sc_core::sc_signal<double> s_lsi_hz{"s_lsi_hz"};
     sc_core::sc_signal<double> s_hclk_hz{"s_hclk_hz"}, s_pclk1_hz{"s_pclk1_hz"};
     sc_core::sc_signal<double> s_pclk2_hz{"s_pclk2_hz"}, s_timclk1_hz{"s_timclk1_hz"};
     sc_core::sc_signal<double> s_timclk2_hz{"s_timclk2_hz"}, s_pll48_hz{"s_pll48_hz"};
@@ -145,6 +146,7 @@ SC_MODULE(Stm32F407VG) {
     sc_core::sc_signal<uint8_t> s_bor_lev{"s_bor_lev"};   // option bytes -> BOR
     sc_core::sc_signal<bool>   s_dbp{"s_dbp"}, s_pvd_line{"s_pvd_line"};
     sc_core::sc_signal<bool>   s_wwdg_rr{"s_wwdg_rr"}, s_iwdg_rr{"s_iwdg_rr"};
+    sc_core::sc_signal<bool>   s_iwdg_lsi{"s_iwdg_lsi"};
     // EXTI
     sc_core::sc_vector<sc_core::sc_signal<bool>> s_exti_gpio{"s_exti_gpio",
                                                              N_GPIO_PORTS * N_PORT_PINS};
@@ -280,7 +282,8 @@ inline void Stm32F407VG::bind_clocks_resets() {
     rcc.timclk2(s_timclk2); rcc.timclk2_hz(s_timclk2_hz);
     rcc.pll48ck(s_pll48);   rcc.pll48ck_hz(s_pll48_hz);
     rcc.rtcclk(s_rtcclk);   rcc.rtcclk_hz(s_rtcclk_hz);
-    rcc.lsi_clk(s_lsiclk);  rcc.systick_ext(s_stk_ext);
+    rcc.lsi_clk(s_lsiclk);  rcc.lsi_hz(s_lsi_hz);
+    rcc.systick_ext(s_stk_ext);
     for (unsigned i = 0; i < P_COUNT; ++i) {
         rcc.periph_clk_en[i](s_pcen[i]);
         rcc.periph_rst_n[i](s_prst[i]);
@@ -292,6 +295,7 @@ inline void Stm32F407VG::bind_clocks_resets() {
     rcc.nrst_in_n(s_nrst_n);
     rcc.wwdg_rst_req(s_wwdg_rr);
     rcc.iwdg_rst_req(s_iwdg_rr);
+    rcc.iwdg_lsi_req(s_iwdg_lsi);
     rcc.sysresetreq(s_sysresetreq);
     rcc.nmi_css(s_nmi);
     rcc.irq(s_irq[5]);

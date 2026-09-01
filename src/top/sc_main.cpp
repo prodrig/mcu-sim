@@ -525,6 +525,13 @@ SC_MODULE(F1Tb) {
         t68_dac_registros();
         t69_dac_buffer_ondas();
         t70_dac_dma_firmware();
+        const unsigned f5d_pass = g_pass, f5d_fail = g_fail;
+
+        // =================== Fase F5: RTC y watchdogs =======================
+        t71_rtc_dominio();
+        t72_rtc_calendario();
+        t73_rtc_alarmas();
+        t74_watchdogs();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -547,7 +554,9 @@ SC_MODULE(F1Tb) {
         std::printf("Resumen F5 (ADC)  : %u comprobaciones OK, %u fallos\n",
                     f5a_pass - f5i_pass, f5a_fail - f5i_fail);
         std::printf("Resumen F5 (DAC)  : %u comprobaciones OK, %u fallos\n",
-                    g_pass - f5a_pass, g_fail - f5a_fail);
+                    f5d_pass - f5a_pass, f5d_fail - f5a_fail);
+        std::printf("Resumen F5 (RTC/WDG): %u comprobaciones OK, %u fallos\n",
+                    g_pass - f5d_pass, g_fail - f5d_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -6318,6 +6327,660 @@ SC_MODULE(F1Tb) {
         check(v_min < 0.3 && v_max > 3.0,
               "medido en el pin, la rampa recorre de verdad casi toda la escala");
         dut->rcc.set_internal_waveforms(true);
+    }
+
+
+    // =======================================================================
+    // FASE F5 — RTC y perros guardianes
+    // =======================================================================
+    static constexpr uint32_t RT_B = addr::RTC_B;
+    static constexpr uint32_t WD_B = addr::WWDG_B;
+    static constexpr uint32_t IW_B = addr::IWDG_B;
+    static constexpr uint32_t PW_B = addr::PWR_B;
+
+    // Banderas de causa de reset en RCC_CSR: WWDGRSTF (30) e IWDGRSTF (29).
+    // Son lo que mira un firmware real al arrancar para saber quien lo reinicio,
+    // y son mucho mas fiables de observar que el pulso de peticion.
+    // Ojo: RCC_CSR lleva en el mismo registro las banderas de reset Y el bit
+    // LSION. Borrar las banderas sin conservar LSION apagaria el LSI, asi que
+    // se hace con lectura-modificacion-escritura, como cualquier driver.
+    void rcc_clear_rst_flags() {
+        uint32_t v = 0; tm.read32(addr::RCC_B + Rcc::R_CSR, v);
+        tm.write32(addr::RCC_B + Rcc::R_CSR, (v & 1u) | (1u << 24));
+    }
+    uint32_t rcc_rst_flags() {
+        uint32_t v = 0; tm.read32(addr::RCC_B + Rcc::R_CSR, v); return v;
+    }
+    // Estos cuatro grupos avanzan MUCHO tiempo simulado (plazos de perro
+    // guardian de cientos de milisegundos, calendarios enteros). Como el RTC y
+    // los dos perros estan modelados por eventos y usan la FRECUENCIA de su
+    // reloj, no sus flancos, se puede apagar la onda cuadrada de los relojes
+    // internos mientras tanto: el resultado es identico y la simulacion pasa de
+    // decenas de segundos a unos pocos.
+    void wdg_fast(bool on) { dut->rcc.set_internal_waveforms(!on); }
+    uint32_t r_rd(uint32_t off) { uint32_t v = 0; tm.read32(RT_B + off, v); return v; }
+    void     r_wr(uint32_t off, uint32_t v) { tm.write32(RT_B + off, v); }
+    uint32_t w_rd(uint32_t off) { uint32_t v = 0; tm.read32(WD_B + off, v); return v; }
+    void     w_wr(uint32_t off, uint32_t v) { tm.write32(WD_B + off, v); }
+    uint32_t i_rd(uint32_t off) { uint32_t v = 0; tm.read32(IW_B + off, v); return v; }
+    void     i_wr(uint32_t off, uint32_t v) { tm.write32(IW_B + off, v); }
+
+    // El dominio de backup está cerrado con dos cerrojos en serie: DBP en el
+    // PWR abre el dominio entero, y la llave de WPR abre los registros del RTC.
+    void rtc_dbp(bool on) {
+        rcc_enable(Rcc::R_APB1ENR, 28);                  // PWREN
+        uint32_t cr = 0; tm.read32(PW_B + Pwr::R_CR, cr);
+        tm.write32(PW_B + Pwr::R_CR, on ? (cr | Pwr::CR_DBP) : (cr & ~Pwr::CR_DBP));
+        wait(2, SC_US);
+    }
+    void rtc_unlock() { r_wr(Rtc::R_WPR, 0xCA); r_wr(Rtc::R_WPR, 0x53); }
+    void rtc_lock()   { r_wr(Rtc::R_WPR, 0xFF); }
+    // Arranca el RTC sobre el LSE y con los prescaladores que se pidan.
+    // Bajarlos es una configuración legítima del manual y es lo que permite
+    // verificar un año entero de calendario en una simulación corta.
+    void rtc_start(unsigned pred_a, unsigned pred_s) {
+        rtc_dbp(true);
+        // Un cristal de 32 kHz de verdad tarda unos dos segundos en arrancar, y
+        // el modelo lo respeta. Para la prueba se sustituye por uno rapido: es
+        // una decision de la PLACA de pruebas, no del modelo, igual que soldar
+        // un cristal distinto.
+        dut->rcc.lse.t_startup_s = 200e-6;
+        uint32_t bdcr = 0; tm.read32(addr::RCC_B + Rcc::R_BDCR, bdcr);
+        tm.write32(addr::RCC_B + Rcc::R_BDCR, bdcr | 1u);            // LSEON
+        const sc_time tl = sc_time_stamp();
+        while (sc_time_stamp() - tl < sc_time(5, SC_MS)) {           // esperar LSERDY
+            tm.read32(addr::RCC_B + Rcc::R_BDCR, bdcr);
+            if (bdcr & 2u) break;
+            wait(20, SC_US);
+        }
+        tm.read32(addr::RCC_B + Rcc::R_BDCR, bdcr);
+        tm.write32(addr::RCC_B + Rcc::R_BDCR,
+                   (bdcr & ~(3u << 8)) | (1u << 8) | (1u << 15));    // RTCSEL=LSE, RTCEN
+        wait(20, SC_US);
+        rtc_unlock();
+        r_wr(Rtc::R_ISR, Rtc::I_INIT);                               // modo init
+        wait(5, SC_US);
+        r_wr(Rtc::R_PRER, (pred_a << 16) | pred_s);
+    }
+    void rtc_set_time(unsigned h, unsigned mi, unsigned s,
+                      unsigned d, unsigned mo, unsigned y, unsigned wd) {
+        auto bcd = [](unsigned v) { return ((v / 10u) << 4) | (v % 10u); };
+        r_wr(Rtc::R_TR, (bcd(h) << 16) | (bcd(mi) << 8) | bcd(s));
+        r_wr(Rtc::R_DR, (bcd(y) << 16) | (wd << 13) | (bcd(mo) << 8) | bcd(d));
+    }
+    void rtc_run() { r_wr(Rtc::R_ISR, 0u); wait(5, SC_US); }   // sale de init
+    static unsigned bcd2(uint32_t v) { return ((v >> 4) & 0xFu) * 10u + (v & 0xFu); }
+    std::string rtc_stamp() {
+        const uint32_t tr = r_rd(Rtc::R_TR), dr = r_rd(Rtc::R_DR);
+        char b[64];
+        std::snprintf(b, sizeof b, "%02u/%02u/20%02u %02u:%02u:%02u (dia %u)",
+                      bcd2(dr & 0x3Fu), bcd2((dr >> 8) & 0x1Fu),
+                      bcd2((dr >> 16) & 0xFFu), bcd2((tr >> 16) & 0x3Fu),
+                      bcd2((tr >> 8) & 0x7Fu), bcd2(tr & 0x7Fu), (dr >> 13) & 7u);
+        return std::string(b);
+    }
+    // Espera a que pasen n segundos DE CALENDARIO (los del RTC, no los de la
+    // simulación: con los prescaladores bajos son mucho más cortos).
+    void rtc_wait_secs(unsigned n) {
+        const uint64_t s0 = dut->rtc.seconds();
+        const sc_time t0 = sc_time_stamp();
+        while (dut->rtc.seconds() < s0 + n && sc_time_stamp() - t0 < sc_time(200, SC_MS))
+            wait(20, SC_US);
+    }
+
+    // -----------------------------------------------------------------------
+    // T71 — RTC: dominio de backup, llave y modo de inicializacion
+    // -----------------------------------------------------------------------
+    void t71_rtc_dominio() {
+        group("T71 RTC: dominio de backup, llave y modo de inicializacion [IR, 12.9]");
+        wdg_fast(true);
+        reset_dut();
+        // Reset del dominio de backup para partir de un estado conocido
+        tm.write32(addr::RCC_B + Rcc::R_BDCR, 1u << 16);          // BDRST
+        wait(20, SC_US);
+        tm.write32(addr::RCC_B + Rcc::R_BDCR, 0u);
+        wait(20, SC_US);
+
+        // --- Valores de reset ----------------------------------------------
+        check_eq(r_rd(Rtc::R_TR), 0u, "RTC_TR de reset");
+        check_eq(r_rd(Rtc::R_DR), 0x2101u,
+                 "RTC_DR de reset = 0x2101: 1 de enero de 2000, lunes");
+        check_eq(r_rd(Rtc::R_ISR), 0x0007u,
+                 "RTC_ISR de reset = 0x0007: los tres registros dejan escribirse");
+        check_eq(r_rd(Rtc::R_PRER), 0x007F00FFu,
+                 "RTC_PRER de reset: 128 x 256 sobre 32768 Hz da 1 Hz exacto");
+        check_eq(r_rd(Rtc::R_WPR), 0u, "RTC_WPR se lee como cero: es de solo escritura");
+
+        // --- Dos cerrojos en serie: DBP y la llave --------------------------
+        rtc_dbp(false);
+        r_wr(Rtc::R_WPR, 0xCA); r_wr(Rtc::R_WPR, 0x53);
+        r_wr(Rtc::R_CR, 1u << 6);                                 // FMT
+        check_eq(r_rd(Rtc::R_CR), 0u,
+                 "sin DBP en PWR_CR el dominio de backup no se deja escribir");
+        rtc_dbp(true);
+        r_wr(Rtc::R_CR, 1u << 6);
+        check_eq(r_rd(Rtc::R_CR), 0u,
+                 "y con DBP pero sin la llave, los registros del RTC siguen cerrados");
+        check(dut->rtc.locked(), "el bloque se declara bloqueado");
+        rtc_unlock();
+        check(!dut->rtc.locked(), "la secuencia 0xCA y luego 0x53 lo abre [IR, 12.9.2]");
+        r_wr(Rtc::R_CR, 1u << 6);
+        check_eq(r_rd(Rtc::R_CR), 1u << 6, "y ahora la escritura entra");
+        // Cualquier otro valor vuelve a cerrar
+        rtc_lock();
+        check(dut->rtc.locked(), "cualquier otro valor en WPR vuelve a cerrar");
+        r_wr(Rtc::R_CR, 0u);
+        check_eq(r_rd(Rtc::R_CR), 1u << 6, "y la escritura siguiente se pierde");
+        // Media secuencia tampoco vale
+        r_wr(Rtc::R_WPR, 0xCA);
+        r_wr(Rtc::R_WPR, 0x52);                                   // el valor malo
+        check(dut->rtc.locked(), "media secuencia no abre: 0xCA seguido de otra cosa cierra");
+        rtc_unlock();
+        r_wr(Rtc::R_CR, 0u);
+
+        // --- Modo de inicializacion -----------------------------------------
+        // El calendario no se puede escribir en marcha.
+        rtc_start(0, 0);                                          // deja en INIT
+        check(r_rd(Rtc::R_ISR) & Rtc::I_INITF,
+              "pedir ISR.INIT levanta INITF: el otro lado del dominio ha respondido");
+        rtc_set_time(12, 34, 56, 25, 12, 23, 1);
+        check_eq(r_rd(Rtc::R_TR) & 0x7Fu, 0x56u, "en modo init el calendario se deja cargar");
+        rtc_run();
+        check(!(r_rd(Rtc::R_ISR) & Rtc::I_INITF), "al salir, INITF se retira");
+        check(r_rd(Rtc::R_ISR) & Rtc::I_INITS,
+              "y INITS dice que el calendario ya esta puesto");
+        const uint32_t tr_antes = r_rd(Rtc::R_TR);
+        r_wr(Rtc::R_TR, 0);                                       // en marcha
+        check_eq(r_rd(Rtc::R_TR) & 0xFFFF00u, tr_antes & 0xFFFF00u,
+                 "en marcha, escribir TR no hace nada: hay que pasar por INIT");
+
+        // --- Los registros de backup y el reset de SISTEMA -------------------
+        for (unsigned i = 0; i < 20; ++i) r_wr(Rtc::R_BKP0R + 4 * i, 0xB0000000u + i);
+        bool todos = true;
+        for (unsigned i = 0; i < 20; ++i)
+            if (r_rd(Rtc::R_BKP0R + 4 * i) != 0xB0000000u + i) todos = false;
+        check(todos, "los veinte registros de backup guardan lo que se les escribe");
+        const std::string antes = rtc_stamp();
+        reset_dut();                                              // RESET DE SISTEMA
+        rtc_dbp(true);
+        std::printf("    antes del reset de sistema: %s\n", antes.c_str());
+        std::printf("    despues del reset de sistema: %s\n", rtc_stamp().c_str());
+        check_eq(r_rd(Rtc::R_BKP0R), 0xB0000000u,
+                 "un reset de SISTEMA no toca el dominio de backup: BKP0R sobrevive");
+        check_eq(r_rd(Rtc::R_BKP0R + 76), 0xB0000013u, "ni el ultimo, BKP19R");
+        check(r_rd(Rtc::R_ISR) & Rtc::I_INITS,
+              "y el calendario sigue puesto: el RTC no se ha enterado del reset");
+
+        // --- ...pero el reset del DOMINIO si lo borra ------------------------
+        tm.write32(addr::RCC_B + Rcc::R_BDCR, 1u << 16);           // BDRST
+        wait(20, SC_US);
+        tm.write32(addr::RCC_B + Rcc::R_BDCR, 0u);
+        wait(20, SC_US);
+        check_eq(r_rd(Rtc::R_BKP0R), 0u,
+                 "el reset del DOMINIO DE BACKUP (BDRST) si borra los registros");
+        check_eq(r_rd(Rtc::R_DR), 0x2101u, "y devuelve el calendario a su fecha de reset");
+        wdg_fast(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T72 — RTC: calendario BCD, prescaladores y subsegundos
+    // -----------------------------------------------------------------------
+    void t72_rtc_calendario() {
+        group("T72 RTC: calendario BCD, prescaladores y subsegundos");
+        wdg_fast(true);
+        reset_dut();
+        tm.write32(addr::RCC_B + Rcc::R_BDCR, 1u << 16);
+        wait(20, SC_US);
+        tm.write32(addr::RCC_B + Rcc::R_BDCR, 0u);
+        wait(20, SC_US);
+
+        // --- ck_spre con los prescaladores por defecto ----------------------
+        rtc_start(127, 255);
+        rtc_run();
+        std::printf("    RTCCLK = %.0f Hz | PREDIV_A = 128, PREDIV_S = 256 -> "
+                    "ck_spre = %.4f Hz\n",
+                    dut->s_rtcclk_hz.read(), dut->rtc.spre_hz());
+        check_near(dut->rtc.spre_hz(), 1.0, 1e-9,
+                   "ck_spre = RTCCLK / ((PREDIV_A+1)*(PREDIV_S+1)) = 1 Hz exacto");
+
+        // --- Ahora se aceleran los prescaladores para poder verificar --------
+        // PREDIV_A = 1, PREDIV_S = 1 -> el "segundo" del calendario dura
+        // 4/32768 s. Es una configuracion legitima del manual, y es lo que
+        // permite ver un año entero de vueltas de fecha en milisegundos.
+        rtc_unlock();
+        r_wr(Rtc::R_ISR, Rtc::I_INIT);
+        wait(5, SC_US);
+        r_wr(Rtc::R_PRER, (1u << 16) | 1u);
+        rtc_set_time(23, 59, 55, 31, 12, 23, 7);                  // 31/12/2023, domingo
+        rtc_run();
+        const double f = dut->rtc.spre_hz();
+        std::printf("    con PREDIV_A = 2 y PREDIV_S = 2 el segundo dura %.1f us\n",
+                    1e6 / f);
+        std::printf("    arranca en: %s\n", rtc_stamp().c_str());
+
+        // --- La vuelta de año, con el dia de la semana ----------------------
+        rtc_wait_secs(6);
+        std::printf("    seis segundos despues: %s\n", rtc_stamp().c_str());
+        check_eq(r_rd(Rtc::R_DR) & 0x1FFFu, 0x0101u,
+                 "23:59:55 del 31 de diciembre pasa al 1 de enero");
+        check_eq((r_rd(Rtc::R_DR) >> 16) & 0xFFu, 0x24u, "y el año avanza a 2024");
+        check_eq((r_rd(Rtc::R_DR) >> 13) & 7u, 1u,
+                 "el dia de la semana pasa de domingo (7) a lunes (1)");
+        check_eq(r_rd(Rtc::R_TR) & 0x3F0000u, 0u, "la hora vuelve a 00");
+
+        // --- Año bisiesto ---------------------------------------------------
+        // 2024 es bisiesto: el 28 de febrero lleva al 29, no al 1 de marzo.
+        rtc_unlock();
+        r_wr(Rtc::R_ISR, Rtc::I_INIT); wait(5, SC_US);
+        rtc_set_time(23, 59, 58, 28, 2, 24, 3);
+        rtc_run();
+        rtc_wait_secs(3);
+        std::printf("    28/02/2024 + 3 s: %s\n", rtc_stamp().c_str());
+        check_eq(r_rd(Rtc::R_DR) & 0x1FFFu, 0x0229u,
+                 "2024 es bisiesto: del 28 de febrero se pasa al 29");
+        // 2023 no lo es
+        rtc_unlock();
+        r_wr(Rtc::R_ISR, Rtc::I_INIT); wait(5, SC_US);
+        rtc_set_time(23, 59, 58, 28, 2, 23, 2);
+        rtc_run();
+        rtc_wait_secs(3);
+        std::printf("    28/02/2023 + 3 s: %s\n", rtc_stamp().c_str());
+        check_eq(r_rd(Rtc::R_DR) & 0x1FFFu, 0x0301u,
+                 "y 2023 no: del 28 de febrero se pasa al 1 de marzo");
+        // Un mes de 30 dias
+        rtc_unlock();
+        r_wr(Rtc::R_ISR, Rtc::I_INIT); wait(5, SC_US);
+        rtc_set_time(23, 59, 58, 30, 4, 24, 2);
+        rtc_run();
+        rtc_wait_secs(3);
+        check_eq(r_rd(Rtc::R_DR) & 0x1FFFu, 0x0501u,
+                 "abril tiene 30 dias: del 30 se pasa al 1 de mayo");
+
+        // --- Formato de 12 horas --------------------------------------------
+        rtc_unlock();
+        r_wr(Rtc::R_ISR, Rtc::I_INIT); wait(5, SC_US);
+        r_wr(Rtc::R_CR, 1u << 6);                                 // FMT = 12 h
+        rtc_set_time(0x01, 30, 0, 1, 6, 24, 6);                   // 01:30 PM en BCD
+        r_wr(Rtc::R_TR, (1u << 22) | (0x01u << 16) | (0x30u << 8));  // PM
+        rtc_run();
+        const uint32_t tr12 = r_rd(Rtc::R_TR);
+        std::printf("    formato de 12 horas: TR = 0x%06X (PM = %u, hora = %02u)\n",
+                    tr12, (tr12 >> 22) & 1u, bcd2((tr12 >> 16) & 0x3Fu));
+        check(((tr12 >> 22) & 1u) == 1u && bcd2((tr12 >> 16) & 0x3Fu) == 1u,
+              "en formato de 12 horas la 13:30 se lee como 01:30 con PM = 1");
+        check_eq(dut->rtc.calendar().h, 13u,
+                 "pero por dentro el calendario sigue contando en 24 horas");
+        r_wr(Rtc::R_ISR, Rtc::I_INIT); wait(5, SC_US);
+        r_wr(Rtc::R_CR, 0);
+        rtc_run();
+
+        // --- Subsegundos ------------------------------------------------------
+        // SSR es una cuenta DESCENDENTE desde PREDIV_S dentro de cada segundo.
+        rtc_unlock();
+        r_wr(Rtc::R_ISR, Rtc::I_INIT); wait(5, SC_US);
+        r_wr(Rtc::R_PRER, (0u << 16) | 255u);                     // ck_apre = 32768
+        rtc_set_time(0, 0, 0, 1, 1, 24, 1);
+        rtc_run();
+        unsigned ss_max = 0, ss_min = 0xFFFFu;
+        bool baja = false; unsigned prev = 0x1000u;
+        for (unsigned i = 0; i < 40; ++i) {
+            const unsigned ss = r_rd(Rtc::R_SSR) & 0xFFFFu;
+            if (ss > ss_max) ss_max = ss;
+            if (ss < ss_min) ss_min = ss;
+            if (i > 0 && ss < prev) baja = true;
+            prev = ss;
+            wait(30, SC_US);
+        }
+        std::printf("    SSR recorrio de %u a %u (PREDIV_S = 256)\n", ss_min, ss_max);
+        check(ss_max <= 255u, "SSR nunca pasa de PREDIV_S");
+        check(baja, "y cuenta hacia abajo dentro de cada segundo [IR, 12.9-mapa]");
+        wdg_fast(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T73 — RTC: alarmas, despertar, marca de tiempo y manipulacion
+    // -----------------------------------------------------------------------
+    void t73_rtc_alarmas() {
+        group("T73 RTC: alarmas, despertar, timestamp y tamper");
+        wdg_fast(true);
+        reset_dut();
+        tm.write32(addr::RCC_B + Rcc::R_BDCR, 1u << 16);
+        wait(20, SC_US);
+        tm.write32(addr::RCC_B + Rcc::R_BDCR, 0u);
+        wait(20, SC_US);
+        rtc_start(1, 1);                                          // segundo rapido
+        rtc_set_time(10, 0, 0, 15, 6, 24, 6);
+        rtc_run();
+
+        // --- Alarma A con las cuatro mascaras puestas ------------------------
+        // Con MSK4..MSK1 a uno no se compara nada: la alarma salta cada segundo.
+        rtc_unlock();
+        r_wr(Rtc::R_ALRMAR, 0x80808080u);
+        r_wr(Rtc::R_CR, (1u << 8) | (1u << 12));                  // ALRAE, ALRAIE
+        rtc_wait_secs(2);
+        check(r_rd(Rtc::R_ISR) & Rtc::I_ALRAF,
+              "con las cuatro mascaras puestas la alarma A salta cada segundo");
+        check(dut->s_rtc_l17.read(), "y levanta la linea 17 del EXTI [IR, 12.9]");
+        // Borrado rc_w0
+        r_wr(Rtc::R_ISR, ~uint32_t(Rtc::I_ALRAF));
+        check(!(r_rd(Rtc::R_ISR) & Rtc::I_ALRAF), "ALRAF es rc_w0: escribir cero lo borra");
+        check(!dut->s_rtc_l17.read(), "y la linea del EXTI se retira");
+
+        // --- Alarma A afinada a un segundo concreto --------------------------
+        r_wr(Rtc::R_CR, 0);                                       // parar para escribir
+        wait(5, SC_US);
+        r_wr(Rtc::R_ALRMAR, 0x80808000u | 0x30u);                 // solo segundos = 30
+        r_wr(Rtc::R_CR, (1u << 8) | (1u << 12));
+        r_wr(Rtc::R_ISR, ~uint32_t(Rtc::I_ALRAF));
+        rtc_wait_secs(5);
+        check(!(r_rd(Rtc::R_ISR) & Rtc::I_ALRAF),
+              "quitando MSK1 la alarma ya no salta en cualquier segundo");
+        // Se coloca el calendario justo antes del segundo 30
+        rtc_unlock();
+        r_wr(Rtc::R_ISR, Rtc::I_INIT); wait(5, SC_US);
+        rtc_set_time(10, 5, 28, 15, 6, 24, 6);
+        rtc_run();
+        rtc_wait_secs(3);
+        std::printf("    la alarma A esperaba el segundo 30 y el reloj marca %s\n",
+                    rtc_stamp().c_str());
+        check(r_rd(Rtc::R_ISR) & Rtc::I_ALRAF,
+              "y salta exactamente en el segundo programado");
+        r_wr(Rtc::R_ISR, ~uint32_t(Rtc::I_ALRAF));
+
+        // --- Alarma B, independiente de la A ---------------------------------
+        r_wr(Rtc::R_CR, 0); wait(5, SC_US);
+        r_wr(Rtc::R_ALRMBR, 0x80808000u | 0x45u);                 // segundos = 45
+        r_wr(Rtc::R_CR, (1u << 9) | (1u << 13));                  // ALRBE, ALRBIE
+        rtc_unlock();
+        r_wr(Rtc::R_ISR, Rtc::I_INIT); wait(5, SC_US);
+        rtc_set_time(10, 6, 43, 15, 6, 24, 6);
+        rtc_run();
+        rtc_wait_secs(3);
+        check(r_rd(Rtc::R_ISR) & Rtc::I_ALRBF, "la alarma B tiene su propia comparacion");
+        check(dut->s_rtc_l17.read(), "y comparte con la A la linea 17 del EXTI");
+        r_wr(Rtc::R_CR, 0);
+        r_wr(Rtc::R_ISR, ~uint32_t(Rtc::I_ALRBF));
+
+        // --- Temporizador de despertar ---------------------------------------
+        // WUCKSEL = 000 -> RTCCLK/16 = 2048 Hz; con WUTR = 99 salta cada 48,8 ms.
+        wait(5, SC_US);
+        check(r_rd(Rtc::R_ISR) & Rtc::I_WUTWF,
+              "con WUTE = 0, WUTWF dice que se puede escribir WUTR");
+        r_wr(Rtc::R_WUTR, 99u);
+        r_wr(Rtc::R_CR, (1u << 10) | (1u << 14) | 0u);            // WUTE, WUTIE, WUCKSEL=0
+        wait(2, SC_US);
+        check(!(r_rd(Rtc::R_ISR) & Rtc::I_WUTWF),
+              "y con WUTE = 1 se cierra: el temporizador esta en marcha");
+        const sc_time tw0 = sc_time_stamp();
+        bool wut = false;
+        while (sc_time_stamp() - tw0 < sc_time(200, SC_MS)) {
+            if (r_rd(Rtc::R_ISR) & Rtc::I_WUTF) { wut = true; break; }
+            wait(200, SC_US);
+        }
+        const double dtw = (sc_time_stamp() - tw0).to_seconds();
+        std::printf("    el temporizador de despertar salto a los %.2f ms "
+                    "(teorico %.2f ms)\n", dtw * 1e3, 100.0 / 2048.0 * 1e3);
+        check(wut, "el temporizador de despertar levanta WUTF");
+        check(dut->s_rtc_l22.read(), "y la linea 22 del EXTI [IR, 12.9]");
+        check_near(dtw, 100.0 / 2048.0, 0.25,
+                   "con WUCKSEL = 000 el periodo es (WUTR+1) x 16 / RTCCLK");
+        r_wr(Rtc::R_ISR, ~uint32_t(Rtc::I_WUTF));
+        r_wr(Rtc::R_CR, 0);
+        wait(5, SC_US);
+
+        // --- Marca de tiempo por el pin RTC_TS -------------------------------
+        rtc_unlock();
+        r_wr(Rtc::R_ISR, Rtc::I_INIT); wait(5, SC_US);
+        rtc_set_time(7, 8, 9, 10, 11, 24, 4);
+        rtc_run();
+        r_wr(Rtc::R_CR, (1u << 11) | (1u << 15));                 // TSE, TSIE
+        wait(5, SC_US);
+        dut->rtc.af1_in.write(false);                             // reposo
+        wait(2, SC_US);
+        dut->rtc.af1_in.write(true);                              // flanco de subida
+        wait(5, SC_US);
+        const uint32_t tstr = r_rd(Rtc::R_TSTR), tsdr = r_rd(Rtc::R_TSDR);
+        std::printf("    marca de tiempo capturada: TSTR = 0x%06X, TSDR = 0x%06X\n",
+                    tstr, tsdr);
+        check(r_rd(Rtc::R_ISR) & Rtc::I_TSF, "el flanco en RTC_TS levanta TSF");
+        check(dut->s_rtc_l21.read(), "y la linea 21 del EXTI");
+        check(bcd2((tstr >> 16) & 0x3Fu) == 7u && bcd2((tstr >> 8) & 0x7Fu) == 8u,
+              "TSTR guarda la hora exacta del suceso");
+        check(bcd2(tsdr & 0x3Fu) == 10u && bcd2((tsdr >> 8) & 0x1Fu) == 11u,
+              "y TSDR la fecha");
+        // Un segundo flanco sin haber leido el primero marca desbordamiento
+        dut->rtc.af1_in.write(false); wait(2, SC_US);
+        dut->rtc.af1_in.write(true);  wait(5, SC_US);
+        check(r_rd(Rtc::R_ISR) & Rtc::I_TSOVF,
+              "un segundo suceso sin atender el primero marca TSOVF");
+        r_wr(Rtc::R_ISR, ~uint32_t(Rtc::I_TSF | Rtc::I_TSOVF));
+        r_wr(Rtc::R_CR, 0);
+
+        // --- Deteccion de manipulacion (tamper) ------------------------------
+        // TAFCR no esta protegido por la llave: es de los pocos registros que
+        // se pueden tocar con el RTC cerrado [IR, 12.9-mapa].
+        rtc_lock();
+        r_wr(Rtc::R_TAFCR, 1u | (1u << 2));                       // TAMP1E, TAMPIE
+        check(r_rd(Rtc::R_TAFCR) & 1u,
+              "TAFCR se escribe aunque el RTC este cerrado con llave");
+        dut->rtc.af1_in.write(false); wait(2, SC_US);
+        dut->rtc.af1_in.write(true);  wait(5, SC_US);
+        check(r_rd(Rtc::R_ISR) & Rtc::I_TAMP1F,
+              "un flanco en RTC_TAMP1 levanta la bandera de manipulacion");
+        check(dut->s_rtc_l21.read(), "que comparte con el timestamp la linea 21");
+        r_wr(Rtc::R_ISR, ~uint32_t(Rtc::I_TAMP1F));
+        r_wr(Rtc::R_TAFCR, 0);
+        dut->rtc.af1_in.write(false);
+        wdg_fast(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T74 — Los dos perros guardianes [IR, §12.10, §12.11]
+    // -----------------------------------------------------------------------
+    void t74_watchdogs() {
+        group("T74 Perros guardianes: WWDG e IWDG [IR, 12.10, 12.11]");
+        wdg_fast(true);
+        reset_dut();
+        rcc_enable(Rcc::R_APB1ENR, 11);                           // WWDGEN
+
+        // --- WWDG: valores de reset y periodo --------------------------------
+        check_eq(w_rd(Wwdg::R_CR), 0x7Fu, "WWDG_CR de reset = 0x7F (sin WDGA)");
+        check_eq(w_rd(Wwdg::R_CFR), 0x7Fu, "WWDG_CFR de reset = 0x7F");
+        check_eq(w_rd(Wwdg::R_SR), 0u, "WWDG_SR de reset");
+        const double pclk1 = dut->s_pclk1_hz.read();
+        for (unsigned tb = 0; tb < 4; ++tb) {
+            w_wr(Wwdg::R_CFR, (tb << 7) | 0x7Fu);
+            wait(1, SC_US);
+            check_near(dut->wwdg.period_s(), 4096.0 * double(1u << tb) / pclk1, 1e-9,
+                       "t_WWDG = t_PCLK1 x 4096 x 2^WDGTB por cuenta [IR, 12.10.2]");
+        }
+
+        // --- El contador baja de verdad ---------------------------------------
+        w_wr(Wwdg::R_CFR, 0x7Fu);                                 // WDGTB = 0, W = 0x7F
+        w_wr(Wwdg::R_CR, Wwdg::CR_WDGA | 0x7Fu);                  // arranca
+        const double per = dut->wwdg.period_s();
+        std::printf("    PCLK1 = %.0f Hz | una cuenta del WWDG dura %.1f us\n",
+                    pclk1, per * 1e6);
+        const unsigned t0 = w_rd(Wwdg::R_CR) & 0x7Fu;
+        wait(sc_time(10.0 * per, SC_SEC));
+        const unsigned t1 = w_rd(Wwdg::R_CR) & 0x7Fu;
+        std::printf("    tras 10 cuentas, T pasa de %u a %u\n", t0, t1);
+        check(t1 < t0 && t0 - t1 >= 9u && t0 - t1 <= 11u,
+              "el contador T baja una unidad por cuenta");
+        check(dut->wwdg.active(), "y WDGA queda activo");
+
+        // --- Aviso temprano y reset -------------------------------------------
+        // Se deja llegar hasta el final sin refrescar: primero avisa (EWI) y a
+        // la cuenta siguiente resetea.
+        rcc_clear_rst_flags();
+        w_wr(Wwdg::R_CFR, (1u << 9) | 0x7Fu);                     // EWI
+        check(!dut->s_irq[0].read(), "IRQ 0 en reposo");
+        bool ewi = false, irq0 = false;
+        const sc_time te = sc_time_stamp();
+        while (sc_time_stamp() - te < sc_time(200.0 * per, SC_SEC)) {
+            if (w_rd(Wwdg::R_SR) & Wwdg::SR_EWIF) ewi = true;
+            if (dut->s_irq[0].read()) irq0 = true;
+            if (rcc_rst_flags() & (1u << 30)) break;
+            wait(sc_time(per / 4.0, SC_SEC));
+        }
+        const uint32_t csr = rcc_rst_flags();
+        std::printf("    sin refrescar: aviso temprano = %d, IRQ 0 = %d, "
+                    "RCC_CSR = 0x%08X\n", int(ewi), int(irq0), csr);
+        check(ewi, "al llegar a 0x40 salta el aviso temprano (EWIF)");
+        check(irq0, "que se ve en la IRQ 0 [IR, 12.10.2]");
+        check(csr & (1u << 30),
+              "y al pasar de 0x40 a 0x3F el WWDG resetea: RCC_CSR.WWDGRSTF lo cuenta");
+        wait(500, SC_US);
+
+        // --- LA VENTANA: refrescar demasiado PRONTO tambien resetea -----------
+        // Es lo que distingue a este perro del otro: no basta con refrescar, hay
+        // que hacerlo dentro de la ventana.
+        reset_dut();
+        rcc_enable(Rcc::R_APB1ENR, 11);
+        rcc_clear_rst_flags();
+        w_wr(Wwdg::R_CFR, 0x50u);                                 // ventana W = 0x50
+        w_wr(Wwdg::R_CR, Wwdg::CR_WDGA | 0x7Fu);                  // T = 0x7F > W
+        wait(2, SC_US);
+        check(!(rcc_rst_flags() & (1u << 30)), "recien arrancado, todavia no hay reset");
+        w_wr(Wwdg::R_CR, Wwdg::CR_WDGA | 0x7Fu);                  // refresco PRONTO
+        wait(200, SC_US);
+        check(rcc_rst_flags() & (1u << 30),
+              "refrescar con T por encima de la ventana W provoca reset [IR, 12.10.1]");
+        wait(500, SC_US);
+
+        // --- ...y dentro de la ventana, no ------------------------------------
+        reset_dut();
+        rcc_enable(Rcc::R_APB1ENR, 11);
+        w_wr(Wwdg::R_CFR, 0x50u);
+        w_wr(Wwdg::R_CR, Wwdg::CR_WDGA | 0x7Fu);
+        // Se espera a que T baje por debajo de W y solo entonces se refresca
+        const sc_time tv = sc_time_stamp();
+        while ((w_rd(Wwdg::R_CR) & 0x7Fu) > 0x50u &&
+               sc_time_stamp() - tv < sc_time(100.0 * per, SC_SEC))
+            wait(sc_time(per / 2.0, SC_SEC));
+        rcc_clear_rst_flags();
+        w_wr(Wwdg::R_CR, Wwdg::CR_WDGA | 0x7Fu);                  // refresco a tiempo
+        wait(200, SC_US);
+        check(!(rcc_rst_flags() & (1u << 30)),
+              "pero refrescar por debajo de la ventana es lo correcto y no resetea");
+        check((w_rd(Wwdg::R_CR) & 0x7Fu) > 0x70u, "el contador vuelve a lo alto");
+
+        // --- El depurador congela la cuenta ------------------------------------
+        wait(sc_time(10.0 * per, SC_SEC));               // dejarlo bajar un poco
+        const unsigned tf0 = w_rd(Wwdg::R_CR) & 0x7Fu;
+        dut->s_freeze[FZ_WWDG].write(true);
+        wait(sc_time(20.0 * per, SC_SEC));
+        const unsigned tf1 = w_rd(Wwdg::R_CR) & 0x7Fu;
+        dut->s_freeze[FZ_WWDG].write(false);
+        std::printf("    con el depurador parado, T se queda en %u (era %u)\n", tf1, tf0);
+        check_eq(tf1, tf0,
+                 "el bit de congelacion del depurador para la cuenta: parar en un "
+                 "punto de interrupcion no reinicia el dispositivo");
+        reset_dut();
+
+        // =====================================================================
+        // IWDG — el perro independiente
+        // =====================================================================
+        // El LSI arranca apagado tras el reset; un driver lo enciende por
+        // RCC_CSR.LSION antes de programar el perro.
+        {
+            uint32_t v = 0; tm.read32(addr::RCC_B + Rcc::R_CSR, v);
+            tm.write32(addr::RCC_B + Rcc::R_CSR, v | 1u);
+        }
+        wait(200, SC_US);
+        check_eq(i_rd(Iwdg::R_PR), 0u, "IWDG_PR de reset");
+        check_eq(i_rd(Iwdg::R_RLR), 0x0FFFu, "IWDG_RLR de reset = 0x0FFF");
+        check_eq(i_rd(Iwdg::R_SR), 0u, "IWDG_SR de reset");
+        check_eq(i_rd(Iwdg::R_KR), 0u, "IWDG_KR se lee como cero: es de solo escritura");
+        check(!dut->iwdg.running(), "y el perro independiente arranca parado");
+
+        // --- Las llaves --------------------------------------------------------
+        // PR y RLR no se dejan tocar sin escribir antes 0x5555 en KR.
+        i_wr(Iwdg::R_PR, 5u);
+        check_eq(i_rd(Iwdg::R_PR), 0u,
+                 "sin la llave 0x5555, PR no se deja escribir [IR, 12.11]");
+        i_wr(Iwdg::R_KR, Iwdg::KEY_ACCESS);
+        i_wr(Iwdg::R_PR, 3u);                                     // /32
+        i_wr(Iwdg::R_RLR, 200u);
+        check_eq(i_rd(Iwdg::R_PR), 3u, "con la llave si entra");
+        check_eq(i_rd(Iwdg::R_RLR), 200u, "y RLR tambien");
+        check(i_rd(Iwdg::R_SR) & (Iwdg::SR_PVU | Iwdg::SR_RVU),
+              "PVU y RVU avisan de que el cambio esta cruzando al dominio del LSI");
+        // Cualquier otra llave cierra el acceso
+        i_wr(Iwdg::R_KR, 0x1234u);
+        i_wr(Iwdg::R_PR, 0u);
+        check_eq(i_rd(Iwdg::R_PR), 3u, "cualquier otro valor en KR vuelve a cerrar");
+        // Las banderas de sincronizacion se bajan solas
+        wait(5, SC_MS);
+        check(!(i_rd(Iwdg::R_SR) & (Iwdg::SR_PVU | Iwdg::SR_RVU)),
+              "y unas cuentas del LSI despues se bajan solas");
+
+        const double f_lsi = dut->s_lsi_hz.read();
+        std::printf("    LSI = %.0f Hz | PR = 3 (/32), RLR = 200 -> t_IWDG = %.1f ms\n",
+                    f_lsi, dut->iwdg.timeout_s() * 1e3);
+        check_near(dut->iwdg.timeout_s(), 4.0 * 8.0 * 201.0 / f_lsi, 1e-9,
+                   "t_IWDG = t_LSI x 4 x 2^PR x (RL + 1) [IR, 12.11]");
+
+        // --- Arranca y hay que darle de comer -----------------------------------
+        i_wr(Iwdg::R_KR, Iwdg::KEY_START);
+        check(dut->iwdg.running(), "la llave 0xCCCC arranca el perro");
+        // Y una vez en marcha, ENCIENDE EL LSI POR HARDWARE: apagar LSION ya no
+        // lo desarma. Si no fuera asi, bastaria con parar el oscilador para
+        // dejar al dispositivo sin vigilancia [IR, 12.11].
+        {
+            uint32_t v = 0; tm.read32(addr::RCC_B + Rcc::R_CSR, v);
+            tm.write32(addr::RCC_B + Rcc::R_CSR, v & ~1u);       // LSION = 0
+        }
+        wait(200, SC_US);
+        check_near(dut->s_lsi_hz.read(), 32e3, 0.01,
+                   "y con el perro en marcha el LSI no se puede apagar: "
+                   "arrancarlo lo enciende por hardware");
+        // Refrescando a tiempo no pasa nada
+        rcc_clear_rst_flags();
+        const sc_time tr0 = sc_time_stamp();
+        while (sc_time_stamp() - tr0 < sc_time(3.0 * dut->iwdg.timeout_s(), SC_SEC)) {
+            i_wr(Iwdg::R_KR, Iwdg::KEY_RELOAD);
+            wait(sc_time(dut->iwdg.timeout_s() / 4.0, SC_SEC));
+        }
+        check(!(rcc_rst_flags() & (1u << 29)),
+              "refrescando con 0xAAAA dentro del plazo, el perro calla");
+
+        // --- ...y si se deja de refrescar, resetea --------------------------------
+        // Y AQUI ESTA SU RAZON DE SER: se para el reloj de sistema (se apaga la
+        // onda cuadrada interna, como haria un fallo del arbol de reloj) y el
+        // perro SIGUE contando, porque su LSI es independiente.
+        rcc_clear_rst_flags();
+        i_wr(Iwdg::R_KR, Iwdg::KEY_RELOAD);          // el plazo empieza aqui
+        const sc_time ti0 = sc_time_stamp();
+        bool iwdg_rst = false;
+        while (sc_time_stamp() - ti0 < sc_time(3.0 * dut->iwdg.timeout_s(), SC_SEC)) {
+            if (rcc_rst_flags() & (1u << 29)) { iwdg_rst = true; break; }
+            wait(100, SC_US);
+        }
+        const double dti = (sc_time_stamp() - ti0).to_seconds();
+        std::printf("    sin refrescar y CON LA ONDA DE RELOJ APAGADA, el IWDG "
+                    "reseto a los %.1f ms (plazo %.1f ms)\n",
+                    dti * 1e3, dut->iwdg.timeout_s() * 1e3);
+        check(iwdg_rst,
+              "el perro INDEPENDIENTE sigue contando aunque se pare el reloj de "
+              "sistema: es justo para lo que existe [IR, 12.11]");
+        check_near(dti, dut->iwdg.timeout_s(), 0.05,
+                   "y lo hace exactamente en el plazo programado");
+
+        // El reset de sistema NO para al perro independiente: en el silicio solo
+        // lo detiene un reset de alimentacion. Para que no siga reseteando el
+        // dispositivo durante el resto de la suite se le pone el plazo maximo.
+        wait(500, SC_US);
+        check(dut->iwdg.running(),
+              "tras el reset que el mismo provoco, el perro sigue en marcha");
+        i_wr(Iwdg::R_KR, Iwdg::KEY_ACCESS);
+        i_wr(Iwdg::R_PR, 6u);                                     // /256
+        i_wr(Iwdg::R_RLR, 0x0FFFu);
+        i_wr(Iwdg::R_KR, Iwdg::KEY_RELOAD);
+        std::printf("    se le deja el plazo maximo: %.2f s\n", dut->iwdg.timeout_s());
+        check_near(dut->iwdg.timeout_s(), 32.768, 0.01,
+                   "con PR = 110 y RLR = 0xFFF el plazo llega a los 32,76 s del manual");
+        wdg_fast(false);
     }
 
     std::string dac_fw_path_ = "verif/fw/dac_demo/dac_demo.bin";

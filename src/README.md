@@ -13,14 +13,15 @@ P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
 | **F2** | CPU: ISA completa + excepciones + NVIC/SysTick | **completada** |
 | **F3** | Pads/pin_mux/GPIO y RCC eléctrico completos | **completada** |
 | **F4** | DMA1/2, USART, TIM, EXTI/SYSCFG | **completada** |
-| F5 | Resto de periféricos | **SPI/I2S, I2C, ADC y DAC completados** (analógica cerrada); RTC, CAN, SDIO, CRC/RNG y watchdogs pendientes |
+| F5 | Resto de periféricos | **SPI/I2S, I2C, ADC, DAC, RTC y watchdogs completados**; CAN, SDIO y CRC/RNG pendientes |
 | F6 | Debug (DAP/FPB/DWT/ITM), DBGMCU, trazas | pendiente |
 | F7 | Bajo consumo, OTG/ETH/FSMC/DCMI, afinado AT | pendiente |
 
-`make test` compila y ejecuta la suite de verificación acumulada (893
+`make test` compila y ejecuta la suite de verificación acumulada (987
 comprobaciones autocomprobables: 124 de F1 + 12 de F2 + 80 de F3 + 343 de F4
-(DMA, UART/USART, TIM y EXTI/SYSCFG) + 99 de SPI/I2S, 75 de I2C, 95 de ADC y
-65 de DAC de F5; código de salida 0 si todas pasan, en menos de 3 s). Verificado con SystemC 2.3.4 / g++ 13 / C++17
+(DMA, UART/USART, TIM y EXTI/SYSCFG) + 99 de SPI/I2S, 75 de I2C, 95 de ADC,
+65 de DAC y 94 de RTC y perros guardianes de F5; código de salida 0 si todas
+pasan, en unos 5 s). Verificado con SystemC 2.3.4 / g++ 13 / C++17
 y arm-none-eabi-gcc 13.2.
 
 Las pruebas T15-T17, T25, T31, T37, T43, T48, T55, T61, T66 y T70 necesitan los firmwares del repositorio; se
@@ -48,7 +49,7 @@ make -f Makefile.stm32 run IMG=fw.bin # carga una imagen y simula
 | `mem/` | `flash_if.h` (Flash 1 MB + ART + registros FLASH + option bytes + cargador), `sram.h` (SRAM1/2, BKPSRAM, CCM) |
 | `rcc/` | `rcc.h` (banco de registros, árbol de reloj, gating, controlador de reset), `osc_pll.h` (HSI/HSE/LSI/LSE, PLL, PLLI2S) |
 | `core/` | `cortex_m4f.h` (router I/D/S/CCM/PPB con alias de 0x0 y bit-banding), `cpu.h` (bucle fetch/decode/execute, excepciones, prebúsqueda), `cpu_state.h` (RegFile y utilidades arquitectónicas), `cpu_exec16.h` / `cpu_exec32.h` (ISA completa [II]), `fpu.h` (FPv4-SP), `scs.h` (SCB + NVIC + SysTick + MPU), `debug.h` (DAP/CoreSight/DBGMCU + transactor AHB-AP) |
-| `periph/` | un fichero por familia de periférico, todos derivados de `BusSlave`. `usart.h` es un único modelo parametrizado del que salen los tipos `Usart` y `Uart` (véase `doc/stm32f407vg_fase4_uart.md`), `timers.h` uno del que salen los seis tipos de temporizador del F407 (véase `doc/stm32f407vg_fase4_tim.md`), `spi.h` uno del que salen las cinco instancias de SPI/I2S, incluidos los bloques de extensión I2SxEXT (véase `doc/stm32f407vg_fase5_spi.md`), `i2c.h` uno del que salen los tres I2C/SMBus, que en el F407 resultan ser idénticos (véase `doc/stm32f407vg_fase5_i2c.md`), `adc.h` uno del que salen los tres convertidores, que en cambio SÍ se diferencian —entradas internas, papel de maestro y canales disponibles— (véase `doc/stm32f407vg_fase5_adc.md`), y `dac.h` uno del que salen las variantes de uno y dos canales (véase `doc/stm32f407vg_fase5_dac.md`) |
+| `periph/` | un fichero por familia de periférico, todos derivados de `BusSlave`. `usart.h` es un único modelo parametrizado del que salen los tipos `Usart` y `Uart` (véase `doc/stm32f407vg_fase4_uart.md`), `timers.h` uno del que salen los seis tipos de temporizador del F407 (véase `doc/stm32f407vg_fase4_tim.md`), `spi.h` uno del que salen las cinco instancias de SPI/I2S, incluidos los bloques de extensión I2SxEXT (véase `doc/stm32f407vg_fase5_spi.md`), `i2c.h` uno del que salen los tres I2C/SMBus, que en el F407 resultan ser idénticos (véase `doc/stm32f407vg_fase5_i2c.md`), `adc.h` uno del que salen los tres convertidores, que en cambio SÍ se diferencian —entradas internas, papel de maestro y canales disponibles— (véase `doc/stm32f407vg_fase5_adc.md`), `dac.h` uno del que salen las variantes de uno y dos canales (véase `doc/stm32f407vg_fase5_dac.md`), y `rtc.h` y `watchdog.h` los periféricos de sistema que sobreviven al reset o al fallo del reloj (véase `doc/stm32f407vg_fase5_rtc_wdog.md`) |
 | `verif/` | `bus_test_master.h` (maestro de bus de verificación), `image_loader.h` (carga de .bin/.hex y tabla de vectores), `decoder_vectors.h` (254 vectores generados desde `doc/valida_instrucciones.py` por `gen_decoder_vectors.py`), `ext_parts.h` (circuitería externa de placa: cristal, reloj, LED, pulsador, resistencia, driver, pista entre pines, hilo de bus I2C con pull-up, EEPROM 24Cxx y maestro I2C externo), `fw/` (firmware de autocomprobación, *port* bare-metal de CoreMark, CMSIS oficial, blinky de referencia y demostraciones del DMA, de los puertos serie, de los temporizadores, del EXTI, del SPI, del I2C, del ADC y del DAC) |
 | `top/` | `stm32f407vg.h` + `stm32f407vg_bind2.h` (netlist/contrato de integración), `sc_main.cpp` (suite de verificación acumulada F1-F4) |
 
