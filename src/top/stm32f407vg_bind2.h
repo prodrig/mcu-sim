@@ -177,7 +177,9 @@ inline void Stm32F407VG::bind_periph_common() {
 
     bind_bus_slave(crc, s_hclk, P_CRC);
     bind_bus_slave(rng, s_hclk, P_RNG);
-    rng.pll48ck(s_pll48); rng.hclk_hz(s_hclk_hz);
+    // El RNG cuelga del PLL48CK, no de HCLK: su vigilancia de reloj compara las
+    // DOS frecuencias, y por eso necesita las dos [IR, §12.19].
+    rng.pll48ck(s_pll48); rng.pll48ck_hz(s_pll48_hz); rng.hclk_hz(s_hclk_hz);
     bind_bus_slave(sdio, s_pclk2, P_SDIO);
     sdio.sdioclk(s_pll48);
     sdio.sdioclk_hz(s_pll48_hz);

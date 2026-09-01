@@ -569,6 +569,12 @@ SC_MODULE(F1Tb) {
         t77_sdio_tarjeta();
         t78_sdio_errores_dma();
         t79_sdio_firmware();
+        const unsigned f5sd_pass = g_pass, f5sd_fail = g_fail;
+
+        // ====================== Fase F5: CRC y RNG ==========================
+        t80_crc();
+        t81_rng();
+        t82_crc_rng_firmware();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -595,7 +601,9 @@ SC_MODULE(F1Tb) {
         std::printf("Resumen F5 (RTC/WDG): %u comprobaciones OK, %u fallos\n",
                     f5r_pass - f5d_pass, f5r_fail - f5d_fail);
         std::printf("Resumen F5 (SDIO) : %u comprobaciones OK, %u fallos\n",
-                    g_pass - f5r_pass, g_fail - f5r_fail);
+                    f5sd_pass - f5r_pass, f5sd_fail - f5r_fail);
+        std::printf("Resumen F5 (CRC/RNG): %u comprobaciones OK, %u fallos\n",
+                    g_pass - f5sd_pass, g_fail - f5sd_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -6387,6 +6395,12 @@ SC_MODULE(F1Tb) {
         tm.read32(addr::RCC_B + Rcc::R_CR, cr);
         tm.write32(addr::RCC_B + Rcc::R_CR, cr | (1u << 16));       // HSEON
         wait(3, SC_MS);
+        // RCC_PLLCFGR solo se deja escribir con el PLL PARADO, igual que en el
+        // silicio: si ya estaba en marcha con otra configuracion, hay que
+        // apagarlo antes o la escritura no surte efecto [IR, 4.4].
+        tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        tm.write32(addr::RCC_B + Rcc::R_CR, cr & ~(1u << 24));      // PLLOFF
+        wait(50, SC_US);
         // M = 8, N = 336, P = 2, Q = 7 -> VCO = 336 MHz y PLL48CK = 48 MHz
         tm.write32(addr::RCC_B + Rcc::R_PLLCFGR,
                    8u | (336u << 6) | (0u << 16) | (1u << 22) | (7u << 24));
@@ -7590,6 +7604,433 @@ SC_MODULE(F1Tb) {
         sdio_links(true);
     }
 
+    // =======================================================================
+    // FASE F5 — Unidad CRC y generador de numeros aleatorios
+    // =======================================================================
+    static constexpr uint32_t CRC_B = addr::CRC_B;
+    static constexpr uint32_t RNG_B = addr::RNG_B;
+
+    uint32_t crc_rd(uint32_t off) { return tm.rd32(CRC_B + off); }
+    void     crc_wr(uint32_t off, uint32_t v) { tm.write32(CRC_B + off, v); }
+    uint32_t rng_rd(uint32_t off) { return tm.rd32(RNG_B + off); }
+    void     rng_wr(uint32_t off, uint32_t v) { tm.write32(RNG_B + off, v); }
+
+    // La referencia INDEPENDIENTE del banco: la misma division polinomica
+    // escrita aparte, sobre el flujo de BYTES en orden big-endian que implican
+    // las palabras. Si el modelo y esta funcion coinciden y ademas cuadran con
+    // el valor canonico del CRC-32/MPEG-2, no hay margen para un error comun.
+    static uint32_t crc_ref_bytes(const uint8_t* d, unsigned n,
+                                  uint32_t crc = 0xFFFFFFFFu) {
+        for (unsigned i = 0; i < n; ++i) {
+            crc ^= uint32_t(d[i]) << 24;
+            for (unsigned k = 0; k < 8; ++k)
+                crc = (crc & 0x80000000u) ? uint32_t((crc << 1) ^ 0x04C11DB7u)
+                                          : uint32_t(crc << 1);
+        }
+        return crc;
+    }
+
+    // -----------------------------------------------------------------------
+    // T80 — La unidad CRC
+    // -----------------------------------------------------------------------
+    void t80_crc() {
+        group("T80 CRC: division polinomica de Ethernet [IR, 12.20]");
+        reset_dut();
+
+        uint32_t v = 0;
+        check(tm.read32(CRC_B + CrcUnit::R_DR, v) == TLM_GENERIC_ERROR_RESPONSE,
+              "CRC sin CRCEN -> error de bus");
+        rcc_enable(Rcc::R_AHB1ENR, 12);                       // CRCEN
+        check(tm.read32(CRC_B + CrcUnit::R_DR, v) == TLM_OK_RESPONSE,
+              "con CRCEN el bloque responde");
+
+        // --- Valores de reset -------------------------------------------------
+        check_eq(crc_rd(CrcUnit::R_DR), 0xFFFFFFFFu,
+                 "CRC_DR de reset vale 0xFFFFFFFF, no cero [IR, 12.20.2]");
+        check_eq(crc_rd(CrcUnit::R_IDR), 0u, "CRC_IDR de reset");
+        check_eq(crc_rd(CrcUnit::R_CR), 0u,
+                 "CRC_CR se lee como cero: RESET es de solo escritura y se autoborra");
+
+        // --- El valor canonico del CRC-32/MPEG-2 ------------------------------
+        // La cadena "123456789" da 0x376E6E7 en CUALQUIER implementacion
+        // correcta del MPEG-2. Aqui no cabe: el bloque come palabras de 32 bits
+        // y nueve bytes no son tres palabras. Se usan los ocho primeros, y la
+        // referencia del banco los recorre BYTE a byte, que es la comprobacion
+        // que de verdad ata las dos formas de mirar lo mismo.
+        crc_wr(CrcUnit::R_CR, 1u);
+        crc_wr(CrcUnit::R_DR, 0x31323334u);                   // "1234"
+        crc_wr(CrcUnit::R_DR, 0x35363738u);                   // "5678"
+        const uint32_t c8 = crc_rd(CrcUnit::R_DR);
+        const uint8_t  s8[8] = {'1','2','3','4','5','6','7','8'};
+        std::printf("    CRC de \"12345678\": por palabras 0x%08X, byte a byte 0x%08X\n",
+                    c8, crc_ref_bytes(s8, 8));
+        check_eq(c8, 0x49E3C2FBu,
+                 "el resultado es el CRC-32/MPEG-2, no el CRC-32 de zip");
+        check_eq(c8, crc_ref_bytes(s8, 8),
+                 "y escribir palabras equivale a alimentar sus bytes en big endian");
+
+        // --- Vectores sueltos, contra valores calculados aparte ---------------
+        struct { uint32_t w[2]; unsigned n; uint32_t exp; const char* q; } vec[] = {
+            {{0x00000000u, 0}, 1, 0xC704DD7Bu, "una palabra de ceros no da cero"},
+            {{0xFFFFFFFFu, 0}, 1, 0x00000000u, "y la palabra 0xFFFFFFFF si da cero: es el valor inicial"},
+            {{0x12345678u, 0}, 1, 0xDF8A8A2Bu, "vector 0x12345678"},
+            {{0xDEADBEEFu, 0}, 1, 0x81DA1A18u, "vector 0xDEADBEEF"},
+            {{0xDEADBEEFu, 0xCAFEBABEu}, 2, 0x3D7F6DCFu, "y dos palabras encadenadas"},
+        };
+        for (auto& t : vec) {
+            crc_wr(CrcUnit::R_CR, 1u);
+            for (unsigned i = 0; i < t.n; ++i) crc_wr(CrcUnit::R_DR, t.w[i]);
+            check_eq(crc_rd(CrcUnit::R_DR), t.exp, t.q);
+        }
+
+        // --- Leer no interrumpe el calculo ------------------------------------
+        // CRC_DR entrega el resultado PARCIAL, y la palabra siguiente sigue
+        // desde ahi. Es lo que permite trocear un bloque grande.
+        crc_wr(CrcUnit::R_CR, 1u);
+        crc_wr(CrcUnit::R_DR, 0xDEADBEEFu);
+        const uint32_t parcial = crc_rd(CrcUnit::R_DR);
+        (void)crc_rd(CrcUnit::R_DR);                          // leer otra vez...
+        crc_wr(CrcUnit::R_DR, 0xCAFEBABEu);
+        check_eq(parcial, 0x81DA1A18u, "CRC_DR entrega el resultado parcial");
+        check_eq(crc_rd(CrcUnit::R_DR), 0x3D7F6DCFu,
+                 "y leerlo NO reinicia nada: el calculo sigue donde estaba");
+
+        // --- CRC_IDR: ocho bits, y ajeno al RESET del bloque -------------------
+        crc_wr(CrcUnit::R_IDR, 0xDEADBEEFu);
+        check_eq(crc_rd(CrcUnit::R_IDR), 0xEFu,
+                 "CRC_IDR guarda OCHO bits: el resto del acceso se pierde");
+        crc_wr(CrcUnit::R_CR, 1u);
+        check_eq(crc_rd(CrcUnit::R_DR), 0xFFFFFFFFu,
+                 "RESET devuelve CRC_DR a su valor inicial");
+        check_eq(crc_rd(CrcUnit::R_IDR), 0xEFu,
+                 "pero NO toca CRC_IDR: para eso esta, para guardar algo entre calculos");
+
+        // --- Un bloque largo, y lo que cuesta ---------------------------------
+        // El bloque existe para esto: un ciclo de HCLK por palabra. Se mide el
+        // tiempo de 1024 palabras y se compara con la ley, descontando el coste
+        // del propio maestro de pruebas.
+        crc_wr(CrcUnit::R_CR, 1u);
+        std::vector<uint8_t> flujo;
+        const sc_time t0 = sc_time_stamp();
+        for (unsigned i = 0; i < 1024; ++i) {
+            const uint32_t w = uint32_t(i) * 0x01010101u;
+            crc_wr(CrcUnit::R_DR, w);
+            for (int b = 3; b >= 0; --b) flujo.push_back(uint8_t(w >> (8 * b)));
+        }
+        const sc_time t1 = sc_time_stamp();
+        const uint32_t largo = crc_rd(CrcUnit::R_DR);
+        std::printf("    1024 palabras: CRC = 0x%08X, referencia 0x%08X, %.2f us\n",
+                    largo, crc_ref_bytes(flujo.data(), unsigned(flujo.size())),
+                    (t1 - t0).to_seconds() * 1e6);
+        check_eq(largo, 0x2E7030D0u, "un bloque de 1024 palabras sale bien");
+        check_eq(largo, crc_ref_bytes(flujo.data(), unsigned(flujo.size())),
+                 "y coincide con la referencia independiente del banco, byte a byte");
+        check(dut->crc.words() == 1024u,
+              "el bloque ha consumido exactamente una palabra por escritura");
+
+        // --- El reset del sistema si se lleva CRC_IDR --------------------------
+        // CRC_CR.RESET y el reset del dispositivo NO son lo mismo.
+        crc_wr(CrcUnit::R_DR, 0x11111111u);
+        reset_dut();
+        rcc_enable(Rcc::R_AHB1ENR, 12);
+        check_eq(crc_rd(CrcUnit::R_DR), 0xFFFFFFFFu,
+                 "tras un reset del sistema, CRC_DR vuelve a 0xFFFFFFFF");
+        check_eq(crc_rd(CrcUnit::R_IDR), 0u,
+                 "y esta vez CRC_IDR TAMBIEN se borra: el reset del sistema no es el del bloque");
+    }
+
+    // -----------------------------------------------------------------------
+    // T81 — El generador de numeros aleatorios
+    // -----------------------------------------------------------------------
+    void t81_rng() {
+        group("T81 RNG: fuente de ruido, cadencia y errores [IR, 12.19]");
+        reset_dut();
+
+        uint32_t v = 0;
+        check(tm.read32(RNG_B + Rng::R_CR, v) == TLM_GENERIC_ERROR_RESPONSE,
+              "RNG sin RNGEN de reloj -> error de bus");
+        rcc_enable(Rcc::R_AHB2ENR, 6);                        // RNGEN (RCC)
+        check(tm.read32(RNG_B + Rng::R_CR, v) == TLM_OK_RESPONSE,
+              "con el bit 6 de AHB2ENR el bloque responde");
+        check_eq(rng_rd(Rng::R_CR), 0u, "RNG_CR de reset");
+        check_eq(rng_rd(Rng::R_SR), 0u, "RNG_SR de reset");
+
+        // Sin PLL48CK no hay fuente: el bloque no genera aunque se le encienda.
+        // Y hay mas: la AUSENCIA de reloj es, por definicion, un reloj por
+        // debajo de HCLK/16, asi que el propio detector la denuncia. Es el mismo
+        // camino que el error de reloj de mas abajo, y aparece aqui solo porque
+        // el bloque se encendio antes que su PLL.
+        rng_wr(Rng::R_CR, Rng::CR_RNGEN);
+        wait(50, SC_US);
+        const uint32_t s_sin = rng_rd(Rng::R_SR);
+        check(!(s_sin & Rng::SR_DRDY),
+              "sin PLL48CK no aparece ningun dato: el RNG NO cuelga de HCLK");
+        check(s_sin & Rng::SR_CECS,
+              "y encender el RNG antes que su PLL ya es un error de reloj: CECS");
+        rng_wr(Rng::R_CR, 0);
+
+        pll48_on();
+        check(!(rng_rd(Rng::R_SR) & Rng::SR_CECS),
+              "con el PLL en marcha, CECS se retira solo");
+        check(rng_rd(Rng::R_SR) & Rng::SR_CEIS,
+              "pero CEIS se queda pegado desde antes: es la bandera con memoria");
+        rng_wr(Rng::R_SR, 0u);                       // rc_w0: se borra con cero
+        dut->rng.set_seed(0xC0FFEE01u);
+        rng_wr(Rng::R_CR, Rng::CR_RNGEN);
+
+        // --- La cadencia: una palabra cada 40 ciclos de RNGCLK ----------------
+        // El generador corre LIBRE: no espera a que nadie lea. Medir el hueco
+        // entre dos datos sueltos da la fase que quede, no el periodo, asi que
+        // se promedia sobre cien palabras. Es tambien lo que haria un ingeniero
+        // con un contador en la placa.
+        rng_espera_dato();
+        (void)rng_rd(Rng::R_DR);
+        rng_espera_dato();
+        const sc_time ta = sc_time_stamp();
+        unsigned cosechadas = 0;
+        while (cosechadas < 100) {
+            (void)rng_rd(Rng::R_DR);
+            if (!rng_espera_dato()) break;
+            ++cosechadas;
+        }
+        const sc_time tb = sc_time_stamp();
+        const double dt = (tb - ta).to_seconds() / double(cosechadas ? cosechadas : 1);
+        const double esperado = 40.0 / 48.0e6;
+        std::printf("    PLL48CK = 48 MHz -> %u palabras a %.0f ns cada una (esperado %.0f ns)\n",
+                    cosechadas, dt * 1e9, esperado * 1e9);
+        check_eq(cosechadas, 100u, "cien palabras seguidas sin perder el paso");
+        check_near(dt, esperado, 0.05,
+                   "el RNG entrega una palabra cada 40 ciclos de RNGCLK [IR, 12.19.1]");
+
+        // --- DRDY y la lectura destructiva ------------------------------------
+        check(rng_rd(Rng::R_SR) & Rng::SR_DRDY, "DRDY avisa de que hay dato");
+        const uint32_t d1 = rng_rd(Rng::R_DR);
+        check(!(rng_rd(Rng::R_SR) & Rng::SR_DRDY),
+              "leer RNG_DR borra DRDY: solo se garantiza una palabra por cosecha");
+        check_eq(rng_rd(Rng::R_DR), 0u,
+                 "y volver a leer sin DRDY no repite el dato anterior");
+
+        // --- El flujo: reproducible, pero con pinta de ruido ------------------
+        // De una fuente de ruido no se puede pedir un valor concreto; lo que se
+        // pide son sus PROPIEDADES. Se cosechan mil palabras y se mira el
+        // equilibrio de unos y ceros y la ausencia de repeticiones.
+        unsigned unos = 0, repes = 0, n = 0;
+        uint32_t ant = d1;
+        const sc_time tc = sc_time_stamp();
+        while (n < 1000 && sc_time_stamp() - tc < sc_time(10, SC_MS)) {
+            if (!rng_espera_dato(sc_time(50, SC_US))) break;
+            const uint32_t d = rng_rd(Rng::R_DR);
+            if (d == ant) ++repes;
+            ant = d;
+            for (unsigned b = 0; b < 32; ++b) unos += (d >> b) & 1u;
+            ++n;
+        }
+        const double frac = double(unos) / double(32u * (n ? n : 1));
+        std::printf("    %u palabras cosechadas: %.1f%% de unos, %u repeticiones seguidas\n",
+                    n, frac * 100.0, repes);
+        check_eq(n, 1000u, "la cosecha no se detiene: mil palabras seguidas");
+        check(frac > 0.45 && frac < 0.55,
+              "el flujo esta equilibrado: cerca del 50% de unos, como una fuente de ruido");
+        check_eq(repes, 0u, "y no repite dos palabras seguidas");
+
+        // --- Reproducibilidad -------------------------------------------------
+        // Una simulacion tiene que dar lo mismo dos veces, o no sirve como
+        // regresion. Con la misma semilla, el mismo flujo, palabra por palabra.
+        uint32_t r1[8] = {}, r2[8] = {};
+        rng_rafaga(0xC0FFEE01u, r1, 8);
+        rng_rafaga(0xC0FFEE01u, r2, 8);
+        bool igual = true;
+        for (unsigned i = 0; i < 8; ++i) if (r1[i] != r2[i]) igual = false;
+        std::printf("    con la semilla 0xC0FFEE01: %08X %08X ... / %08X %08X ...\n",
+                    r1[0], r1[1], r2[0], r2[1]);
+        check(igual,
+              "con la misma semilla sale el mismo flujo: la simulacion es reproducible");
+        uint32_t r3[8] = {};
+        rng_rafaga(0x0BADC0DEu, r3, 8);
+        check(r3[0] != r1[0] || r3[1] != r1[1],
+              "y con otra semilla, otro flujo: la fuente depende de verdad de ella");
+
+        // --- La interrupcion 80 ------------------------------------------------
+        rng_wr(Rng::R_CR, 0);
+        wait(5, SC_US);
+        check(!dut->s_irq[80].read(), "IRQ 80 en reposo");
+        dut->rng.set_seed(0x5EED0001u);
+        rng_wr(Rng::R_CR, Rng::CR_RNGEN | Rng::CR_IE);
+        rng_espera_dato();
+        check(dut->s_irq[80].read(),
+              "con IE, el dato listo levanta la IRQ 80, compartida con el HASH");
+        (void)rng_rd(Rng::R_DR);
+        wait(100, SC_NS);          // menos de una cosecha: no llega otra palabra
+        check(!dut->s_irq[80].read(), "y leer el dato la retira");
+
+        // --- Error de semilla: la fuente se atasca ----------------------------
+        // No se pone la bandera a mano: se ATASCA LA FUENTE y se deja que el
+        // detector de salud del bloque la descubra, igual que se rompe el CRC
+        // de la tarjeta SD para provocar un DCRCFAIL.
+        rng_wr(Rng::R_CR, 0);
+        dut->rng.force_noise(1);                    // ruido pegado a uno
+        rng_wr(Rng::R_CR, Rng::CR_RNGEN | Rng::CR_IE);
+        const sc_time td = sc_time_stamp();
+        while (!(rng_rd(Rng::R_SR) & Rng::SR_SEIS) &&
+               sc_time_stamp() - td < sc_time(1, SC_MS)) wait(1, SC_US);
+        const uint32_t s_seed = rng_rd(Rng::R_SR);
+        std::printf("    con la fuente atascada: RNG_SR = 0x%08X\n", s_seed);
+        check(s_seed & Rng::SR_SEIS,
+              "64 bits iguales seguidos delatan la fuente: SEIS [IR, 12.19]");
+        check(s_seed & Rng::SR_SECS, "SECS dice que la condicion sigue viva");
+        check(!(s_seed & Rng::SR_DRDY), "y con la fuente muerta no hay dato que dar");
+        check(dut->s_irq[80].read(), "el error de semilla tambien levanta la IRQ 80");
+
+        // SEIS es rc_w0: se borra escribiendo CERO, al reves que casi todo.
+        rng_wr(Rng::R_SR, 0xFFFFFFFFu);
+        check(rng_rd(Rng::R_SR) & Rng::SR_SEIS,
+              "SEIS NO se borra escribiendo unos...");
+        rng_wr(Rng::R_SR, 0u);
+        check(!(rng_rd(Rng::R_SR) & Rng::SR_SEIS),
+              "...sino CEROS: es rc_w0, al reves que el SR del DAC o el ICR del SDIO");
+
+        // Con la fuente todavia atascada, el bloque sigue parado hasta que se
+        // apaga y se vuelve a encender RNGEN.
+        dut->rng.force_noise(-1);                   // se arregla la fuente
+        wait(50, SC_US);
+        check(!(rng_rd(Rng::R_SR) & Rng::SR_DRDY),
+              "tras un error de semilla el bloque queda PARADO, no se recupera solo");
+        rng_wr(Rng::R_CR, 0);
+        rng_wr(Rng::R_CR, Rng::CR_RNGEN);
+        check(rng_espera_dato(sc_time(200, SC_US)),
+              "hay que apagar y encender RNGEN para rearmarlo, y entonces vuelve a generar");
+        (void)rng_rd(Rng::R_DR);
+
+        // --- Error de reloj: RNGCLK por debajo de HCLK/16 ---------------------
+        // Tampoco se pone a mano: se BAJA la frecuencia del PLL48CK por debajo
+        // del limite y el bloque lo nota comparandola con la de HCLK.
+        check(!(rng_rd(Rng::R_SR) & Rng::SR_CECS), "sin error de reloj de partida");
+        pll48_lento();
+        wait(20, SC_US);
+        const uint32_t s_clk = rng_rd(Rng::R_SR);
+        std::printf("    con PLL48CK por debajo de HCLK/16: RNG_SR = 0x%08X\n", s_clk);
+        check(s_clk & Rng::SR_CECS,
+              "un RNGCLK por debajo de HCLK/16 levanta CECS [IR, 12.19]");
+        check(s_clk & Rng::SR_CEIS, "y su bandera con memoria, CEIS");
+        // A diferencia del error de semilla, este NO para la generacion: el
+        // bloque sigue dando datos, solo que no garantiza que sean aleatorios.
+        check(rng_espera_dato(sc_time(2, SC_MS)),
+              "pero el bloque SIGUE generando: el error de reloj avisa, no para");
+        (void)rng_rd(Rng::R_DR);
+        pll48_on();
+        wait(20, SC_US);
+        const uint32_t s_fin = rng_rd(Rng::R_SR);
+        check(!(s_fin & Rng::SR_CECS),
+              "al recuperar el reloj, CECS se va solo: es un ESTADO, no una bandera");
+        check(s_fin & Rng::SR_CEIS,
+              "pero CEIS se queda: es la bandera con memoria, y hay que borrarla");
+        rng_wr(Rng::R_SR, 0u);
+        check(!(rng_rd(Rng::R_SR) & Rng::SR_CEIS), "escribiendo cero, como manda rc_w0");
+        rng_wr(Rng::R_CR, 0);
+    }
+
+    // Siembra la fuente, enciende el bloque y cosecha n palabras seguidas.
+    void rng_rafaga(uint32_t semilla, uint32_t* dst, unsigned n) {
+        rng_wr(Rng::R_CR, 0);
+        wait(2, SC_US);
+        dut->rng.set_seed(semilla);
+        rng_wr(Rng::R_CR, Rng::CR_RNGEN);
+        for (unsigned i = 0; i < n; ++i) {
+            if (!rng_espera_dato()) { dst[i] = 0; continue; }
+            dst[i] = rng_rd(Rng::R_DR);
+        }
+        rng_wr(Rng::R_CR, 0);
+    }
+
+    // Espera a que aparezca un dato. Devuelve false si se agota el plazo.
+    bool rng_espera_dato(sc_time limite = sc_time(500, SC_US)) {
+        const sc_time t0 = sc_time_stamp();
+        while (sc_time_stamp() - t0 < limite) {
+            if (rng_rd(Rng::R_SR) & Rng::SR_DRDY) return true;
+            wait(200, SC_NS);
+        }
+        return false;
+    }
+
+    // Reprograma el PLL para que su salida Q quede MUY por debajo de HCLK/16.
+    // Con HCLK = 16 MHz (HSI) el limite es 1 MHz; con Q = 15 y el VCO en su
+    // minimo la salida Q baja de sobra.
+    void pll48_lento() {
+        uint32_t cr = 0;
+        tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        tm.write32(addr::RCC_B + Rcc::R_CR, cr & ~(1u << 24));      // PLLOFF
+        wait(50, SC_US);
+        // M = 63, N = 100, Q = 15 -> VCO = 8/63*100 = 12,7 MHz y Q = 0,85 MHz
+        tm.write32(addr::RCC_B + Rcc::R_PLLCFGR,
+                   63u | (100u << 6) | (0u << 16) | (1u << 22) | (15u << 24));
+        tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        tm.write32(addr::RCC_B + Rcc::R_CR, cr | (1u << 24));       // PLLON
+        wait(500, SC_US);
+    }
+
+    // -----------------------------------------------------------------------
+    // T82 — Firmware real con CMSIS
+    // -----------------------------------------------------------------------
+    void t82_crc_rng_firmware() {
+        group("T82 CRC y RNG: firmware real con CMSIS");
+        reset_dut();
+        dut->rcc.set_internal_waveforms(false);
+        xtal_hse->attach();
+        dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(30, SC_US);
+
+        ImageLoader ld(*dut);
+        const long n = ld.load_file(crc_fw_path_.c_str(), addr::FLASH_BASE);
+        if (!check(n > 0, "imagen del firmware de CRC/RNG cargada en la Flash")) {
+            std::printf("        (compilar con make -C verif/fw/crc_rng_demo)\n");
+            dut->pwr_pads.nrst.set_hiz(d_nrst);
+            dut->rcc.set_internal_waveforms(true);
+            return;
+        }
+        std::printf("    %ld bytes cargados desde %s\n", n, crc_fw_path_.c_str());
+        for (unsigned i = 0; i < 40; i += 4) ld.poke32(addr::SRAM1_BASE + i, 0);
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+
+        bool done = false;
+        const sc_time t0 = sc_time_stamp();
+        while ((sc_time_stamp() - t0) < sc_time(400, SC_MS)) {
+            wait(100, SC_US);
+            if (dut->sram1.peek32(0) == 1u) { done = true; break; }
+        }
+        const uint32_t hw    = dut->sram1.peek32(4);
+        const uint32_t sw    = dut->sram1.peek32(8);
+        const uint32_t mpeg  = dut->sram1.peek32(12);
+        const uint32_t idr   = dut->sram1.peek32(16);
+        const uint32_t ciclos_hw = dut->sram1.peek32(20);
+        const uint32_t ciclos_sw = dut->sram1.peek32(24);
+        const uint32_t n_rnd = dut->sram1.peek32(28);
+        const uint32_t unos  = dut->sram1.peek32(32);
+        const uint32_t distintos = dut->sram1.peek32(36);
+        std::printf("    CRC por hardware 0x%08X, por software 0x%08X (\"123456789\" = 0x%08X)\n",
+                    hw, sw, mpeg);
+        std::printf("    coste: %u ciclos el bloque, %u ciclos la rutina en C -> x%.1f\n",
+                    ciclos_hw, ciclos_sw,
+                    ciclos_hw ? double(ciclos_sw) / double(ciclos_hw) : 0.0);
+        std::printf("    RNG: %u palabras, %u bits a uno de %u, %u distintas\n",
+                    n_rnd, unos, n_rnd * 32u, distintos);
+
+        check(done, "el firmware de CRC/RNG llega a su fin y publica el buzon");
+        check_eq(hw, sw,
+                 "el firmware calcula el CRC de un bloque por hardware y por software: coinciden");
+        check_eq(mpeg, 0x0376E6E7u,
+                 "y su rutina en C da el valor canonico del CRC-32/MPEG-2 de \"123456789\"");
+        check_eq(idr, 0xA5u, "CRC_IDR le guarda el dato mientras reinicia el calculo");
+        check(ciclos_hw > 0 && ciclos_sw > ciclos_hw * 4,
+              "medido con el SysTick, el bloque es varias veces mas rapido que la rutina en C");
+        check_eq(n_rnd, 64u, "cosecha 64 palabras del RNG sondeando DRDY");
+        check(unos > n_rnd * 32u * 4u / 10u && unos < n_rnd * 32u * 6u / 10u,
+              "y el firmware mismo comprueba que el flujo esta equilibrado");
+        check_eq(distintos, 64u, "sin dos palabras iguales entre las 64");
+        dut->rcc.set_internal_waveforms(true);
+    }
+
+    std::string crc_fw_path_ = "verif/fw/crc_rng_demo/crc_rng_demo.bin";
     std::string sdio_fw_path_ = "verif/fw/sdio_demo/sdio_demo.bin";
     std::string dac_fw_path_ = "verif/fw/dac_demo/dac_demo.bin";
     std::string adc_fw_path_ = "verif/fw/adc_demo/adc_demo.bin";
