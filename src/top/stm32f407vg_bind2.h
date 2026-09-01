@@ -107,14 +107,29 @@ inline void Stm32F407VG::bind_periph_common() {
     can2.freeze(s_freeze[FZ_CAN2]);
     can2.bind_filter_master(&can1);    // filtros compartidos [IR, §12.12]
 
+    // ---- ADC1/2/3 y bloque comun [IR, 12.13] ------------------------------
+    // Los vectores de disparo estan indexados POR EL VALOR DE EXTSEL/JEXTSEL,
+    // asi que cada fuente se conecta en su hueco de la tabla del manual. Del
+    // F407 se modelan las salidas TRGO de los temporizadores; los disparos por
+    // evento de captura/comparacion (TIMx_CHy) y por EXTI11/EXTI15 quedan a
+    // cero porque el modelo del temporizador no exporta el evento CC en crudo
+    // -solo su peticion de DMA, que esta condicionada por DIER-. Vease
+    // doc/stm32f407vg_fase5_adc.md, seccion 6.
     bind_bus_slave(adc, s_pclk2, P_ADC);
     adc.vdda(s_vdda);
-    adc.vref(s_vdda);                  // TODO(F5): nodo VREF+ independiente
-    adc.trig_regular[0](s_trgo[0]); adc.trig_regular[1](s_trgo[1]);
-    adc.trig_regular[2](s_trgo[2]); adc.trig_regular[3](s_trgo[3]);
-    adc.trig_regular[4](s_trgo[4]); adc.trig_regular[5](s_trgo[7]);
-    adc.trig_regular[6](s_false);   adc.trig_regular[7](s_false); // EXTI11/SW TODO
-    for (unsigned i = 0; i < 8; ++i) adc.trig_injected[i](s_false); // TODO(F5)
+    adc.vref(s_vdda);                  // VREF+ unido a VDDA en la placa tipica
+    adc.vbat_in(s_vbat);
+    // EXTSEL:  0110 = TIM2_TRGO, 1000 = TIM3_TRGO, 1110 = TIM8_TRGO
+    // JEXTSEL: 0001 = TIM1_TRGO, 0011 = TIM2_TRGO, 1001 = TIM4_TRGO,
+    //          1011 = TIM5_TRGO
+    static const int EXTSEL_SRC[16]  = {-1,-1,-1,-1,-1,-1, 1,-1,
+                                         2,-1,-1,-1,-1,-1, 7,-1};
+    static const int JEXTSEL_SRC[16] = {-1, 0,-1, 1,-1,-1,-1,-1,
+                                        -1, 3,-1, 4,-1,-1,-1,-1};
+    for (unsigned i = 0; i < 16; ++i) {
+        adc.trig_regular[i](EXTSEL_SRC[i]  >= 0 ? s_trgo[unsigned(EXTSEL_SRC[i])]  : s_false);
+        adc.trig_injected[i](JEXTSEL_SRC[i] >= 0 ? s_trgo[unsigned(JEXTSEL_SRC[i])] : s_false);
+    }
 
     bind_bus_slave(dac, s_pclk1, P_DAC);
     dac.vref(s_vdda);
@@ -380,11 +395,22 @@ inline void Stm32F407VG::bind_dma_requests() {
 // Rutas analógicas y funciones alternativas de ejemplo
 // ===========================================================================
 inline void Stm32F407VG::bind_analog() {
-    // Canales ADC externos [IR, §12.13-E]
-    for (unsigned i = 0; i < 8; ++i) adc.bind_channel(i, pinmux.analog(0, i)); // PA0-7
-    adc.bind_channel(8, pinmux.analog(1, 0));    // PB0
-    adc.bind_channel(9, pinmux.analog(1, 1));    // PB1
-    for (unsigned i = 0; i < 6; ++i) adc.bind_channel(10 + i, pinmux.analog(2, i)); // PC0-5
+    // Canales ADC externos [IR, §12.13-E]. La distincion ADC123 / ADC12 es
+    // REAL y es la principal diferencia entre las tres instancias: IN0-3 e
+    // IN10-13 llegan a los tres convertidores, mientras que IN4-9 e IN14/15
+    // solo llegan al ADC1 y al ADC2. En el ADC3 esas mismas entradas van a
+    // pines del puerto F, que el encapsulado LQFP100 no tiene: se quedan sin
+    // conectar, y el modelo las trata como lo que son [IR, §2.1, §12.13-E].
+    for (unsigned i = 0; i < 4; ++i)
+        adc.bind_channel(i, pinmux.analog(0, i));           // PA0-PA3  ADC123_IN0-3
+    for (unsigned i = 4; i < 8; ++i)
+        adc.bind_channel_12(i, pinmux.analog(0, i));        // PA4-PA7  ADC12_IN4-7
+    adc.bind_channel_12(8, pinmux.analog(1, 0));            // PB0      ADC12_IN8
+    adc.bind_channel_12(9, pinmux.analog(1, 1));            // PB1      ADC12_IN9
+    for (unsigned i = 0; i < 4; ++i)
+        adc.bind_channel(10 + i, pinmux.analog(2, i));      // PC0-PC3  ADC123_IN10-13
+    adc.bind_channel_12(14, pinmux.analog(2, 4));           // PC4      ADC12_IN14
+    adc.bind_channel_12(15, pinmux.analog(2, 5));           // PC5      ADC12_IN15
     // DAC [IR, §12.14]
     dac.bind_out(0, pinmux.analog(0, 4));        // PA4
     dac.bind_out(1, pinmux.analog(0, 5));        // PA5

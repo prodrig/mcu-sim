@@ -88,10 +88,20 @@ protected:
         unsigned char* d   = gp.get_data_ptr();
 
         if (gp.is_read()) {
-            for (unsigned i = 0; i < len; ++i) {
-                const uint32_t a  = off + i;
-                const uint32_t w  = reg_read(a & ~3u);
-                d[i] = uint8_t(w >> (8u * (a & 3u)));
+            // Agrupar los bytes por palabra, igual que en la escritura: hay
+            // registros cuya LECTURA tiene efecto lateral (el ADC_CDR de los
+            // modos multiples entrega un dato distinto en cada lectura, y leer
+            // ADC_DR o I2C_SR2 borra banderas). Con una llamada por byte, un
+            // acceso de 32 bits disparaba el efecto CUATRO veces y el dato
+            // salia troceado de cuatro lecturas consecutivas.
+            unsigned i = 0;
+            while (i < len) {
+                const uint32_t wbase = (off + i) & ~3u;
+                const uint32_t w = reg_read(wbase);
+                while (i < len && ((off + i) & ~3u) == wbase) {
+                    d[i] = uint8_t(w >> (8u * ((off + i) & 3u)));
+                    ++i;
+                }
             }
         } else {
             // Agrupar los bytes por palabra para respetar los efectos laterales

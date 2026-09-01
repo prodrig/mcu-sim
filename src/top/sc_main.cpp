@@ -167,6 +167,22 @@ SC_MODULE(F1Tb) {
     sc_signal<double> s_sp_i2shz{"s_sp_i2shz"};
     sc_vector<sc_signal<bool>> s_sp_nc{"s_sp_nc", 8};
 
+    // --- Circuitería de las pruebas del ADC --------------------------------
+    // Fuentes de tensión externas soldadas a las entradas analógicas. Son
+    // drivers Thevenin de baja impedancia: el pad, en modo analógico, queda en
+    // alta impedancia, así que el nodo se pone a la tensión de la fuente y eso
+    // es literalmente lo que muestrea el ADC.
+    Driver *src_pa0 = nullptr, *src_pa1 = nullptr, *src_pa2 = nullptr,
+           *src_pa4 = nullptr, *src_pc0 = nullptr, *src_pc1 = nullptr;
+    // ADC con rasgos elegidos en TIEMPO DE EJECUCIÓN (véase T62)
+    AdcBlockBase* a_rt = nullptr;
+    BusTestMaster tm6{"tm6"};
+    sc_signal<bool>   s_ad_true{"s_ad_true"}, s_ad_rst{"s_ad_rst"};
+    sc_signal<bool>   s_ad_irq{"s_ad_irq"};
+    sc_vector<sc_signal<bool>> s_ad_nc{"s_ad_nc", 3};
+    sc_vector<sc_signal<bool>> s_ad_trg{"s_ad_trg", 32};
+    sc_signal<double> s_ad_v{"s_ad_v"}, s_ad_hz{"s_ad_hz"};
+
     // --- Circuitería de las pruebas de I2C ---------------------------------
     // El bus I2C de la placa: dos hilos de colector abierto con sus pull-up.
     // Unen PB6/PB7 (I2C1) con PA8/PC9 (I2C3), de modo que los dos periféricos
@@ -228,6 +244,27 @@ SC_MODULE(F1Tb) {
         drv_pb4 = new Driver(dut->pinmux.analog(1, 4));
         drv_pb5 = new Driver(dut->pinmux.analog(1, 5));
         drv_pa6 = new Driver(dut->pinmux.analog(0, 6));
+        // --- Fuentes analógicas de las pruebas del ADC ---------------------
+        src_pa0 = new Driver(dut->pinmux.analog(0, 0));   // ADC123_IN0
+        src_pa1 = new Driver(dut->pinmux.analog(0, 1));   // ADC123_IN1
+        src_pa2 = new Driver(dut->pinmux.analog(0, 2));   // ADC123_IN2
+        src_pa4 = new Driver(dut->pinmux.analog(0, 4));   // ADC12_IN4 (NO ADC3)
+        src_pc0 = new Driver(dut->pinmux.analog(2, 0));   // ADC123_IN10
+        src_pc1 = new Driver(dut->pinmux.analog(2, 1));   // ADC123_IN11
+        // Un ADC con los rasgos puestos en tiempo de EJECUCIÓN: 10 bits fijos,
+        // ocho canales, sin grupo inyectado, sin perro guardián y sin DMA.
+        a_rt = new AdcBlockBase("a_rt", CAPS_ADC_BASIC, CAPS_ADC_BASIC, CAPS_ADC_BASIC);
+        tm6.isk.bind(a_rt->tsk);
+        a_rt->clk(dut->s_pclk2); a_rt->clk_hz(dut->s_pclk2_hz);
+        a_rt->rst_n(s_ad_rst);   a_rt->clk_en(s_ad_true);
+        a_rt->irq(s_ad_irq);
+        a_rt->dma_req_adc1(s_ad_nc[0]); a_rt->dma_req_adc2(s_ad_nc[1]);
+        a_rt->dma_req_adc3(s_ad_nc[2]);
+        a_rt->vdda(s_ad_v); a_rt->vref(s_ad_v); a_rt->vbat_in(s_ad_v);
+        for (unsigned i = 0; i < 16; ++i) {
+            a_rt->trig_regular[i](s_ad_trg[i]);
+            a_rt->trig_injected[i](s_ad_trg[16 + i]);
+        }
         // --- Pistas de placa de SPI e I2S --------------------------------
         // SPI1 (PA4..PA7) <-> SPI2 (PB12..PB15)
         lnk_sck  = new SignalLink("lnk_sck",  dut->pinmux.analog(0, 5),
@@ -305,6 +342,9 @@ SC_MODULE(F1Tb) {
         delete lnk_iext; delete lnk_isd; delete lnk_iws; delete lnk_ick;
         delete lnk_nss; delete lnk_miso; delete lnk_mosi; delete lnk_sck;
         delete t_rt;
+        delete a_rt;
+        delete src_pc1; delete src_pc0; delete src_pa4;
+        delete src_pa2; delete src_pa1; delete src_pa0;
         delete drv_pa6; delete drv_pb5; delete drv_pb4; delete lnk_pwm;
         delete u_rt;
         delete lnk_u5_u4; delete lnk_u4_u5; delete lnk_u3_u2; delete lnk_u2_u3;
@@ -449,6 +489,14 @@ SC_MODULE(F1Tb) {
         t59_i2c_esclavo();
         t60_i2c_errores();
         t61_i2c_dma_firmware();
+        const unsigned f5i_pass = g_pass, f5i_fail = g_fail;
+
+        // ======================== Fase F5: ADC ==============================
+        t62_adc_variantes();
+        t63_adc_registros();
+        t64_adc_pines();
+        t65_adc_secuencias();
+        t66_adc_dma_firmware();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -467,7 +515,9 @@ SC_MODULE(F1Tb) {
         std::printf("Resumen F5 (SPI)  : %u comprobaciones OK, %u fallos\n",
                     f5s_pass - f4_pass, f5s_fail - f4_fail);
         std::printf("Resumen F5 (I2C)  : %u comprobaciones OK, %u fallos\n",
-                    g_pass - f5s_pass, g_fail - f5s_fail);
+                    f5i_pass - f5s_pass, f5i_fail - f5s_fail);
+        std::printf("Resumen F5 (ADC)  : %u comprobaciones OK, %u fallos\n",
+                    g_pass - f5i_pass, g_fail - f5i_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -5040,6 +5090,717 @@ SC_MODULE(F1Tb) {
         i2c_bus(false);
     }
 
+
+    // =======================================================================
+    // FASE F5 — ADC
+    // =======================================================================
+    static constexpr uint32_t A_B  = addr::ADC_B;                 // ADC1
+    static constexpr uint32_t A2_B = addr::ADC_B + 0x100u;        // ADC2
+    static constexpr uint32_t A3_B = addr::ADC_B + 0x200u;        // ADC3
+    static constexpr uint32_t AC_B = addr::ADC_B + 0x300u;        // comunes
+
+    uint32_t a_rd(uint32_t b, uint32_t off) { uint32_t v = 0; tm.read32(b + off, v); return v; }
+    void     a_wr(uint32_t b, uint32_t off, uint32_t v) { tm.write32(b + off, v); }
+    // La variante elegida en tiempo de ejecución vive fuera del mapa del MCU y
+    // se accede por su propio maestro de bus, igual que el USART y el SPI a
+    // medida de T32 y T49.
+    uint32_t rt_rd(uint32_t off) { uint32_t v = 0; tm6.read32(addr::ADC_B + off, v); return v; }
+    void     rt_wr(uint32_t off, uint32_t v) { tm6.write32(addr::ADC_B + off, v); }
+    uint32_t rt_sig(uint32_t off) {
+        rt_wr(off, 0xFFFFFFFFu);
+        const uint32_t v = rt_rd(off);
+        rt_wr(off, 0);
+        return v;
+    }
+
+    void adc_clocks_on() {
+        for (unsigned p = 0; p < 3; ++p) rcc_enable(Rcc::R_AHB1ENR, p);  // GPIOA..C
+        rcc_enable(Rcc::R_APB2ENR, 8);       // ADC1/2/3 comparten el bit ADCEN
+    }
+    // Las entradas del ADC van en MODO ANALÓGICO: sin buffer de entrada, sin
+    // Schmitt y sin pull. Si el firmware las deja como GPIO, el pad carga el
+    // nodo y la medida se va, exactamente igual que en la placa.
+    void adc_pins_analog() {
+        pin_cfg(0, 0, 3); pin_cfg(0, 1, 3); pin_cfg(0, 2, 3); pin_cfg(0, 4, 3);
+        pin_cfg(2, 0, 3); pin_cfg(2, 1, 3);
+    }
+    // Las pistas de placa de las pruebas de UART llegan a PA1 y a PA3 con una
+    // impedancia de 50 ohm. Mientras estan soldadas, cualquier medida en esos
+    // pines sale dividida: es un conflicto electrico REAL, no un artefacto, y
+    // por eso hay que despegarlas para medir.
+    void adc_links(bool on) {
+        lnk_u5_u4->set_enabled(on);      // PC12 -> PA1
+        lnk_u3_u2->set_enabled(on);      // PB10 -> PA3
+    }
+    void adc_sources_off() {
+        src_pa0->release(); src_pa1->release(); src_pa2->release();
+        src_pa4->release(); src_pc0->release(); src_pc1->release();
+    }
+    // Programa una secuencia regular de un solo canal y arranca por software.
+    // Devuelve el dato o 0xFFFFFFFF si no llega EOC.
+    uint32_t adc_convert(uint32_t b, unsigned ch, uint32_t cr1 = 0, uint32_t cr2 = 0,
+                         unsigned smp = 7) {
+        a_wr(b, AdcBlockBase::R_CR1, cr1);
+        a_wr(b, AdcBlockBase::R_SQR1, 0);                       // L = 1 conversión
+        a_wr(b, AdcBlockBase::R_SQR3, ch);
+        if (ch < 10) a_wr(b, AdcBlockBase::R_SMPR2, smp << (3 * ch));
+        else         a_wr(b, AdcBlockBase::R_SMPR1, smp << (3 * (ch - 10)));
+        a_wr(b, AdcBlockBase::R_CR2, cr2 | 1u);                 // ADON
+        wait(10, SC_US);                                        // estabilización
+        a_wr(b, AdcBlockBase::R_CR2, cr2 | 1u | (1u << 30));    // SWSTART
+        return adc_wait_eoc(b);
+    }
+    // Arranca una conversion y espera a EOC SIN leer DR, para poder observar la
+    // bandera y la interrupcion antes de que la lectura las borre.
+    void adc_start_only(uint32_t b, unsigned ch, uint32_t cr1) {
+        a_wr(b, AdcBlockBase::R_CR1, cr1);
+        a_wr(b, AdcBlockBase::R_SQR1, 0);
+        a_wr(b, AdcBlockBase::R_SQR3, ch);
+        a_wr(b, AdcBlockBase::R_SMPR2, 0);
+        a_wr(b, AdcBlockBase::R_SR, 0);
+        a_wr(b, AdcBlockBase::R_CR2, 1u);
+        wait(10, SC_US);
+        a_wr(b, AdcBlockBase::R_CR2, 1u | (1u << 30));
+        const sc_time t0 = sc_time_stamp();
+        while (sc_time_stamp() - t0 < sc_time(2, SC_MS)) {
+            if (a_rd(b, AdcBlockBase::R_SR) & AdcBlockBase::S_EOC) return;
+            wait(200, SC_NS);
+        }
+    }
+    uint32_t adc_wait_eoc(uint32_t b, sc_time limit = sc_time(3, SC_MS)) {
+        const sc_time t0 = sc_time_stamp();
+        while (sc_time_stamp() - t0 < limit) {
+            if (a_rd(b, AdcBlockBase::R_SR) & AdcBlockBase::S_EOC)
+                return a_rd(b, AdcBlockBase::R_DR);
+            wait(100, SC_NS);
+        }
+        return 0xFFFFFFFFu;
+    }
+    // Comparacion de codigos del ADC con tolerancia ABSOLUTA en LSB: un
+    // convertidor se juzga en cuentas, no en tanto por ciento.
+    static bool check_code(uint32_t got, unsigned exp, const char* what,
+                           unsigned lsb = 2) {
+        const bool ok = (got + lsb >= exp) && (exp + lsb >= got);
+        (ok ? g_pass : g_fail)++;
+        if (ok) std::printf("  [OK  ] %s (%u)\n", what, got);
+        else    std::printf("  [FALLO] %s (obtenido %u, esperado %u +-%u LSB)\n",
+                            what, got, exp, lsb);
+        return ok;
+    }
+    // Código teórico de un SAR ideal, para contrastar con el del modelo.
+    static unsigned adc_code(double v, double vref, unsigned bits) {
+        const double full = double((1u << bits) - 1u);
+        double c = std::floor(v / vref * full + 0.5);
+        if (c < 0.0) c = 0.0;
+        if (c > full) c = full;
+        return unsigned(c);
+    }
+    // Firma de bits implementados de un registro: se escriben unos y se lee.
+    uint32_t adc_sig(uint32_t b, uint32_t off) {
+        a_wr(b, off, 0xFFFFFFFFu);
+        const uint32_t v = a_rd(b, off);
+        a_wr(b, off, 0);
+        return v;
+    }
+
+    // -----------------------------------------------------------------------
+    // T62 — Las tres instancias y la variante [IR, §12.13]
+    // -----------------------------------------------------------------------
+    void t62_adc_variantes() {
+        group("T62 ADC: las tres instancias y la variante [IR, 12.13]");
+        reset_dut();
+        adc_clocks_on();
+        s_ad_true.write(true); s_ad_rst.write(true);
+        s_ad_v.write(3.3);
+        wait(5, SC_US);
+
+        // --- Selección en tiempo de compilación (parámetro de plantilla) ----
+        static_assert(CAPS_ADC1.temp_sensor && CAPS_ADC1.vrefint && CAPS_ADC1.vbat,
+                      "el ADC1 tiene las entradas internas");
+        static_assert(!CAPS_ADC23.temp_sensor && !CAPS_ADC23.vrefint,
+                      "el ADC2 y el ADC3 no las tienen");
+        static_assert(CAPS_ADC1.multi_master && !CAPS_ADC23.multi_master,
+                      "el maestro del modo multiple es el ADC1");
+        check(dut->adc.caps(0).temp_sensor && dut->adc.caps(0).vrefint &&
+              dut->adc.caps(0).vbat,
+              "solo el ADC1 declara sensor de temperatura, VREFINT y VBAT");
+        check(!dut->adc.caps(1).temp_sensor && !dut->adc.caps(2).temp_sensor,
+              "el ADC2 y el ADC3 no declaran entradas internas");
+        check(dut->adc.caps(0).multi_master && !dut->adc.caps(1).multi_master &&
+              !dut->adc.caps(2).multi_master,
+              "solo el ADC1 gobierna el modo dual/triple [IR, 12.13-E]");
+        check(dut->adc.caps(0).n_channels() == 19u &&
+              dut->adc.caps(1).n_channels() == 16u,
+              "19 canales en el ADC1 (16 externos + 3 internos) y 16 en el ADC2");
+
+        // --- La diferencia se ve DESDE EL BUS -------------------------------
+        // SMPR1 cubre los canales 10 a 18. El ADC1 llega hasta el 18 (27 bits
+        // implementados); el ADC2 y el ADC3 se quedan en el 15 (18 bits).
+        const uint32_t s1 = adc_sig(A_B,  AdcBlockBase::R_SMPR1);
+        const uint32_t s2 = adc_sig(A2_B, AdcBlockBase::R_SMPR1);
+        const uint32_t s3 = adc_sig(A3_B, AdcBlockBase::R_SMPR1);
+        std::printf("           SMPR1    CR1        CR2        SQR1\n");
+        std::printf("    ADC1  0x%07X 0x%08X 0x%08X 0x%08X\n", s1,
+                    adc_sig(A_B, AdcBlockBase::R_CR1), adc_sig(A_B, AdcBlockBase::R_CR2),
+                    adc_sig(A_B, AdcBlockBase::R_SQR1));
+        std::printf("    ADC2  0x%07X 0x%08X 0x%08X 0x%08X\n", s2,
+                    adc_sig(A2_B, AdcBlockBase::R_CR1), adc_sig(A2_B, AdcBlockBase::R_CR2),
+                    adc_sig(A2_B, AdcBlockBase::R_SQR1));
+        std::printf("    ADC3  0x%07X 0x%08X 0x%08X 0x%08X\n", s3,
+                    adc_sig(A3_B, AdcBlockBase::R_CR1), adc_sig(A3_B, AdcBlockBase::R_CR2),
+                    adc_sig(A3_B, AdcBlockBase::R_SQR1));
+        check_eq(s1, 0x07FFFFFFu, "SMPR1 del ADC1 implementa los nueve canales 10-18");
+        check(s2 == 0x0003FFFFu && s3 == 0x0003FFFFu,
+              "SMPR1 del ADC2 y del ADC3 se queda en el canal 15: no tienen internas");
+        check(adc_sig(A_B, AdcBlockBase::R_CR1) == adc_sig(A2_B, AdcBlockBase::R_CR1) &&
+              adc_sig(A_B, AdcBlockBase::R_CR2) == adc_sig(A2_B, AdcBlockBase::R_CR2),
+              "en lo demas el bloque es el mismo: CR1 y CR2 identicos en los tres");
+
+        // El registro comun lo gobierna el ADC1: TSVREFE, VBATE y MULTI.
+        a_wr(AC_B, AdcBlockBase::R_CCR, 0xFFFFFFFFu);
+        const uint32_t ccr = a_rd(AC_B, AdcBlockBase::R_CCR);
+        a_wr(AC_B, AdcBlockBase::R_CCR, 0);
+        std::printf("    CCR comun = 0x%08X\n", ccr);
+        check((ccr & (1u << 23)) && (ccr & (1u << 22)),
+              "CCR: TSVREFE y VBATE existen porque el ADC1 tiene esas entradas");
+        check((ccr & 0x1Fu) == 0x1Fu, "CCR: MULTI existe porque hay un maestro");
+        check((ccr & (3u << 16)) == (3u << 16), "CCR: ADCPRE de dos bits");
+
+        // --- Selección en tiempo de ejecución (parámetro del constructor) ---
+        const uint32_t r_cr1 = rt_sig(AdcBlockBase::R_CR1);
+        const uint32_t r_cr2 = rt_sig(AdcBlockBase::R_CR2);
+        const uint32_t r_sq1 = rt_sig(AdcBlockBase::R_SQR1);
+        const uint32_t r_jsq = rt_sig(AdcBlockBase::R_JSQR);
+        const uint32_t r_htr = rt_sig(AdcBlockBase::R_HTR);
+        std::printf("    variante en ejecucion (a medida): CR1 = 0x%08X, CR2 = 0x%08X,\n"
+                    "        SQR1 = 0x%08X, JSQR = 0x%08X, HTR = 0x%04X\n",
+                    r_cr1, r_cr2, r_sq1, r_jsq, r_htr);
+        check((r_cr1 & (3u << 24)) == 0u,
+              "variante de ejecucion: sin CR1.RES, la resolucion es fija");
+        check_eq(a_rt->bits(0), 10u, "y esa resolucion es de 10 bits");
+        check(r_jsq == 0u && (r_cr2 & (1u << 22)) == 0u,
+              "variante de ejecucion: sin grupo inyectado (JSQR y JSWSTART reservados)");
+        check(r_htr == 0u && (r_cr1 & 0x1Fu) == 0u,
+              "variante de ejecucion: sin perro guardian (HTR y AWDCH reservados)");
+        check((r_cr2 & (3u << 8)) == 0u, "variante de ejecucion: sin DMA");
+        check(((r_sq1 >> 20) & 0xFu) == 7u,
+              "variante de ejecucion: la secuencia regular se queda en 8 rangos");
+        check(a_rt->caps(0).n_ext_channels == 8u &&
+              !std::string(a_rt->caps(0).kind).compare("ADC basico"),
+              "los ejes bits/canales/inyectadas/watchdog/DMA se fijan por el constructor");
+    }
+
+    // -----------------------------------------------------------------------
+    // T63 — Registros, reloj de conversión y resolución [IR, §12.13.2]
+    // -----------------------------------------------------------------------
+    void t63_adc_registros() {
+        group("T63 ADC: registros, reloj y resolucion [IR, 12.13.2]");
+        reset_dut();
+        adc_links(false);
+        adc_pins_analog();
+        adc_sources_off();
+
+        // --- Sin ADCEN el bloque no está en el bus --------------------------
+        uint32_t v = 0;
+        check(tm.read32(A_B + AdcBlockBase::R_CR2, v) == TLM_GENERIC_ERROR_RESPONSE,
+              "ADC sin ADCEN -> error de bus");
+        adc_clocks_on();
+        check(tm.read32(A_B + AdcBlockBase::R_CR2, v) == TLM_OK_RESPONSE,
+              "con ADCEN el bloque responde");
+
+        // --- Valores de reset ----------------------------------------------
+        check_eq(a_rd(A_B, AdcBlockBase::R_SR),  0u, "ADC_SR de reset");
+        check_eq(a_rd(A_B, AdcBlockBase::R_CR1), 0u, "ADC_CR1 de reset");
+        check_eq(a_rd(A_B, AdcBlockBase::R_CR2), 0u, "ADC_CR2 de reset");
+        check_eq(a_rd(A_B, AdcBlockBase::R_HTR), 0x0FFFu,
+                 "ADC_HTR de reset = 0x0FFF: el perro guardian no ladra solo");
+        check_eq(a_rd(A_B, AdcBlockBase::R_LTR), 0u, "ADC_LTR de reset = 0");
+        check_eq(a_rd(AC_B, AdcBlockBase::R_CSR), 0u, "ADC_CSR de reset");
+
+        // --- ADCCLK = PCLK2 / ADCPRE ---------------------------------------
+        const double pclk2 = dut->s_pclk2_hz.read();
+        for (unsigned pre = 0; pre < 4; ++pre) {
+            a_wr(AC_B, AdcBlockBase::R_CCR, pre << 16);
+            wait(1, SC_US);
+            check_near(dut->adc.adcclk_hz(), pclk2 / (2.0 * (pre + 1)), 1e-9,
+                       "ADCCLK = PCLK2 / (2,4,6,8) segun ADCPRE");
+        }
+        a_wr(AC_B, AdcBlockBase::R_CCR, 0);                // ADCPRE = /2
+        const double adcclk = dut->adc.adcclk_hz();
+        std::printf("    PCLK2 = %.0f Hz | ADCPRE = /2 -> ADCCLK = %.0f Hz\n",
+                    pclk2, adcclk);
+        check(adcclk <= 36e6, "el ADCCLK resultante respeta el maximo de 36 MHz");
+
+        // --- El tiempo de conversión sale de SMPR + la resolución ----------
+        // Se mide de verdad: se cronometra la conversión y se compara con
+        // (ciclos de muestreo + ciclos de aproximacion) / ADCCLK.
+        src_pa0->set_volts(1.0, 100.0);
+        wait(2, SC_US);
+        // El cronometraje se hace por DIFERENCIAS entre dos tiempos de muestreo:
+        // asi se cancela el sobrecoste constante del sondeo desde el bus y lo
+        // que queda es exactamente lo que aporta SMPR.
+        static const unsigned SMP_CYC[8] = {3, 15, 28, 56, 84, 112, 144, 480};
+        double t_med[3] = {0, 0, 0};
+        const unsigned SMPS[3] = {0u, 4u, 7u};
+        for (unsigned k = 0; k < 3; ++k) {
+            const unsigned smp = SMPS[k];
+            a_wr(A_B, AdcBlockBase::R_CR2, 1u);                 // ADON
+            wait(10, SC_US);
+            a_wr(A_B, AdcBlockBase::R_SQR1, 0);
+            a_wr(A_B, AdcBlockBase::R_SQR3, 0);                 // canal IN0
+            a_wr(A_B, AdcBlockBase::R_SMPR2, smp);
+            a_wr(A_B, AdcBlockBase::R_SR, 0);
+            const sc_time t0 = sc_time_stamp();
+            a_wr(A_B, AdcBlockBase::R_CR2, 1u | (1u << 30));
+            const uint32_t d = adc_wait_eoc(A_B);
+            t_med[k] = (sc_time_stamp() - t0).to_seconds();
+            std::printf("    SMP = %u (%3u ciclos + 12): conversion medida en %.2f us "
+                        "(teorico %.2f us), dato = %u\n", smp, SMP_CYC[smp],
+                        t_med[k] * 1e6, (SMP_CYC[smp] + 12.0) / adcclk * 1e6, d);
+            check(d != 0xFFFFFFFFu, "la conversion termina y levanta EOC");
+        }
+        for (unsigned k = 1; k < 3; ++k) {
+            const double d_med = t_med[k] - t_med[0];
+            const double d_teo = double(SMP_CYC[SMPS[k]] - SMP_CYC[SMPS[0]]) / adcclk;
+            std::printf("    de SMP=%u a SMP=%u: +%.2f us medidos, +%.2f us teoricos\n",
+                        SMPS[0], SMPS[k], d_med * 1e6, d_teo * 1e6);
+            check_near(d_med, d_teo, 0.05,
+                       "alargar SMPR alarga la conversion en los ciclos exactos");
+        }
+
+        // --- Resolución y alineación ---------------------------------------
+        src_pa0->set_volts(3.3, 100.0);                         // fondo de escala
+        wait(2, SC_US);
+        for (unsigned res = 0; res < 4; ++res) {
+            const unsigned bits = 12 - 2 * res;
+            const uint32_t d = adc_convert(A_B, 0, res << 24, 0, 0);
+            check_eq(d, (1u << bits) - 1u,
+                     "a fondo de escala el codigo es 2^N - 1 con la resolucion elegida");
+            check_eq(dut->adc.bits(0), bits, "CR1.RES elige 12, 10, 8 o 6 bits");
+        }
+        src_pa0->set_volts(1.65, 100.0);                        // media escala
+        wait(2, SC_US);
+        const uint32_t d12 = adc_convert(A_B, 0, 0, 0, 0);
+        check_code(d12, 2048, "media escala -> mitad del codigo (12 bits)");
+        const uint32_t dl = adc_convert(A_B, 0, 0, 1u << 11, 0);  // ALIGN = 1
+        check_eq(dl, d12 << 4, "con ALIGN = 1 el dato queda alineado a la izquierda");
+        adc_sources_off();
+    }
+
+    // -----------------------------------------------------------------------
+    // T64 — Conversión de tensiones puestas en los pines
+    // -----------------------------------------------------------------------
+    void t64_adc_pines() {
+        group("T64 ADC: convierte lo que hay en los pines de verdad");
+        reset_dut();
+        adc_links(false);
+        adc_clocks_on();
+        adc_pins_analog();
+        a_wr(AC_B, AdcBlockBase::R_CCR, 0);                     // ADCPRE = /2
+        const double vref = 3.3;
+
+        // --- Una rampa de tensiones ----------------------------------------
+        bool todas = true;
+        std::printf("    V(PA1)   codigo   esperado\n");
+        for (double v : {0.0, 0.4, 1.0, 1.65, 2.5, 3.3}) {
+            src_pa1->set_volts(v, 100.0);
+            wait(2, SC_US);
+            const uint32_t d = adc_convert(A_B, 1);
+            const unsigned e = adc_code(v, vref, 12);
+            std::printf("    %5.2f V  %6u   %6u\n", v, d, e);
+            if (d > e + 1 || e > d + 1) todas = false;
+        }
+        check(todas, "el codigo sigue a la tension del pin: code = V/VREF * 4095");
+
+        // Fuera de rango por arriba: el SAR satura, no da la vuelta.
+        src_pa1->set_volts(4.0, 100.0);
+        wait(2, SC_US);
+        check_eq(adc_convert(A_B, 1), 4095u,
+                 "por encima de VREF+ el convertidor satura a fondo de escala");
+        src_pa1->set_volts(1.0, 100.0);
+        wait(2, SC_US);
+
+        // --- Si el pin NO está en modo analógico, la medida se estropea -----
+        // El pad con pull-up interno carga el nodo: es el error real de olvidar
+        // MODER = 11, y aquí se ve como se ve en la placa.
+        pin_cfg(0, 1, 0, 1);                                    // entrada + pull-up
+        src_pa1->set_volts(1.0, 100e3);                         // fuente de 100k
+        wait(5, SC_US);
+        const uint32_t d_mal = adc_convert(A_B, 1);
+        pin_cfg(0, 1, 3);                                       // de vuelta a analogico
+        wait(5, SC_US);
+        const uint32_t d_bien = adc_convert(A_B, 1);
+        std::printf("    con el pin en entrada+pull-up: %u | en modo analogico: %u\n",
+                    d_mal, d_bien);
+        check(d_mal > d_bien + 100,
+              "olvidar el modo analogico carga el nodo y falsea la medida");
+        check_code(d_bien, adc_code(1.0, vref, 12),
+                   "en modo analogico el pad no carga el nodo y la medida es correcta");
+
+        // --- La diferencia ADC123 / ADC12, MEDIDA ---------------------------
+        // IN1 (PA1) llega a los tres; IN4 (PA4) solo al ADC1 y al ADC2, porque
+        // en el ADC3 esa entrada va a un pin del puerto F que el LQFP100 no
+        // tiene. No es una decision del modelo: es el encapsulado.
+        src_pa4->set_volts(2.0, 100.0);
+        wait(2, SC_US);
+        const uint32_t in1_a1 = adc_convert(A_B,  1);
+        const uint32_t in1_a3 = adc_convert(A3_B, 1);
+        const uint32_t in4_a1 = adc_convert(A_B,  4);
+        const uint32_t in4_a2 = adc_convert(A2_B, 4);
+        const uint32_t in4_a3 = adc_convert(A3_B, 4);
+        std::printf("    IN1 (PA1, ADC123): ADC1 = %u, ADC3 = %u\n", in1_a1, in1_a3);
+        std::printf("    IN4 (PA4, ADC12) : ADC1 = %u, ADC2 = %u, ADC3 = %u\n",
+                    in4_a1, in4_a2, in4_a3);
+        check(in1_a1 == in1_a3, "IN1 es ADC123: los tres miden el mismo pin");
+        check_code(in4_a1, adc_code(2.0, vref, 12),
+                   "IN4 es ADC12: el ADC1 lo mide");
+        check(in4_a2 == in4_a1, "y el ADC2 tambien");
+        check_eq(in4_a3, 0u,
+                 "pero en el ADC3 esa entrada no llega al encapsulado LQFP100");
+
+        // --- Entradas internas: solo las tiene el ADC1 ----------------------
+        a_wr(AC_B, AdcBlockBase::R_CCR, (1u << 23) | (1u << 22));
+        wait(2, SC_US);
+        const uint32_t vrefint = adc_convert(A_B, 17);
+        check_code(vrefint, adc_code(1.21, vref, 12),
+                   "ADC1_IN17 mide la referencia interna VREFINT = 1,21 V");
+        dut->adc.set_die_temp(25.0);
+        const uint32_t t25 = adc_convert(A_B, 16);
+        dut->adc.set_die_temp(85.0);
+        const uint32_t t85 = adc_convert(A_B, 16);
+        const double slope = (double(t85) - double(t25)) / 60.0 * vref / 4095.0;
+        std::printf("    sensor de temperatura: 25 oC -> %u, 85 oC -> %u "
+                    "(pendiente medida %.2f mV/oC)\n", t25, t85, slope * 1e3);
+        check_code(t25, adc_code(0.76, vref, 12),
+                   "ADC1_IN16 a 25 oC da los 0,76 V del sensor [IR, 12.13]");
+        check_near(slope * 1e3, 2.5, 0.1,
+                   "y la pendiente medida son los 2,5 mV/oC del sensor");
+        dut->adc.set_die_temp(25.0);
+        check_eq(adc_convert(A2_B, 17), 0u,
+                 "el ADC2 no tiene VREFINT: ese canal no existe en su instancia");
+        check_eq(adc_convert(A2_B, 16), 0u, "ni sensor de temperatura");
+        // Sin TSVREFE ni siquiera el ADC1 las ve: el bit del registro comun es
+        // el interruptor que las conecta.
+        a_wr(AC_B, AdcBlockBase::R_CCR, 0);                     // ADCPRE = /2
+        wait(2, SC_US);
+        check_eq(adc_convert(A_B, 17), 0u,
+                 "sin TSVREFE las entradas internas quedan desconectadas");
+        adc_sources_off();
+    }
+
+    // -----------------------------------------------------------------------
+    // T65 — Secuencias, inyectadas, perro guardian y modo multiple
+    // -----------------------------------------------------------------------
+    void t65_adc_secuencias() {
+        group("T65 ADC: secuencias, inyectadas, watchdog y modo multiple");
+        reset_dut();
+        adc_links(false);
+        adc_clocks_on();
+        adc_pins_analog();
+        a_wr(AC_B, AdcBlockBase::R_CCR, 0);                     // ADCPRE = /2
+        const double vref = 3.3;
+        src_pa0->set_volts(0.5, 100.0);
+        src_pa1->set_volts(1.5, 100.0);
+        src_pa2->set_volts(2.5, 100.0);
+        src_pc0->set_volts(3.0, 100.0);
+        wait(5, SC_US);
+
+        // --- Secuencia regular con SCAN y EOCS ------------------------------
+        // Tres rangos: IN0, IN1, IN2. Con EOCS = 1 el EOC salta en cada
+        // conversion, que es lo que permite leerlas una a una sin DMA.
+        a_wr(A_B, AdcBlockBase::R_CR1, 1u << 8);                // SCAN
+        a_wr(A_B, AdcBlockBase::R_SQR1, 2u << 20);              // L = 3
+        a_wr(A_B, AdcBlockBase::R_SQR3, 0u | (1u << 5) | (2u << 10));
+        a_wr(A_B, AdcBlockBase::R_SMPR2, 0);
+        a_wr(A_B, AdcBlockBase::R_CR2, 1u | (1u << 10));        // ADON, EOCS
+        wait(10, SC_US);
+        a_wr(A_B, AdcBlockBase::R_CR2, 1u | (1u << 10) | (1u << 30));
+        uint32_t seq[3] = {0, 0, 0};
+        for (unsigned i = 0; i < 3; ++i) seq[i] = adc_wait_eoc(A_B);
+        std::printf("    secuencia SCAN IN0,IN1,IN2 -> %u %u %u\n", seq[0], seq[1], seq[2]);
+        check_code(seq[0], adc_code(0.5, vref, 12),
+                   "SCAN: el rango 1 convierte IN0");
+        check_code(seq[1], adc_code(1.5, vref, 12),
+                   "el rango 2 convierte IN1");
+        check_code(seq[2], adc_code(2.5, vref, 12),
+                   "y el rango 3 convierte IN2, en ese orden");
+        check(a_rd(A_B, AdcBlockBase::R_SR) & AdcBlockBase::S_STRT,
+              "STRT dice que la secuencia regular arranco");
+
+        // --- OVR: el dato se pierde porque nadie lo leyo ---------------------
+        a_wr(A_B, AdcBlockBase::R_SR, 0);
+        a_wr(A_B, AdcBlockBase::R_CR2, 1u | (1u << 10) | (1u << 8));  // DMA = 1
+        wait(2, SC_US);
+        a_wr(A_B, AdcBlockBase::R_CR2, 1u | (1u << 10) | (1u << 8) | (1u << 30));
+        wait(500, SC_US);
+        check(a_rd(A_B, AdcBlockBase::R_SR) & AdcBlockBase::S_OVR,
+              "si nadie lee DR, la conversion siguiente marca OVR [IR, 12.13-B]");
+        a_wr(A_B, AdcBlockBase::R_SR, ~uint32_t(AdcBlockBase::S_OVR));
+        check(!(a_rd(A_B, AdcBlockBase::R_SR) & AdcBlockBase::S_OVR),
+              "OVR es rc_w0: escribir cero lo borra");
+        a_wr(A_B, AdcBlockBase::R_CR1, 0);
+        a_wr(A_B, AdcBlockBase::R_CR2, 0);
+        wait(20, SC_US);
+
+        // --- Grupo inyectado y la trampa de la alineacion de JSQR -----------
+        // Con JL = 1 (dos conversiones) la secuencia NO empieza en JSQ1 sino en
+        // JSQ3: va alineada por la DERECHA. Es la trampa clasica del manual.
+        a_wr(A_B, AdcBlockBase::R_JSQR, (1u << 20) | (0u << 10) | (2u << 15));
+        //                               JL = 1      JSQ3 = IN0   JSQ4 = IN2
+        a_wr(A_B, AdcBlockBase::R_JOFR1, 0);
+        a_wr(A_B, AdcBlockBase::R_JOFR1 + 4, 0);
+        a_wr(A_B, AdcBlockBase::R_CR2, 1u);
+        wait(10, SC_US);
+        a_wr(A_B, AdcBlockBase::R_CR2, 1u | (1u << 22));        // JSWSTART
+        wait(300, SC_US);
+        const uint32_t j1 = a_rd(A_B, AdcBlockBase::R_JDR1);
+        const uint32_t j2 = a_rd(A_B, AdcBlockBase::R_JDR1 + 4);
+        std::printf("    inyectadas con JL = 1: JDR1 = %u (IN0), JDR2 = %u (IN2)\n", j1, j2);
+        check(a_rd(A_B, AdcBlockBase::R_SR) & AdcBlockBase::S_JEOC,
+              "JEOC se levanta al terminar el GRUPO inyectado, no cada conversion");
+        check_code(j1, adc_code(0.5, vref, 12),
+                   "con JL < 4 la secuencia inyectada empieza en JSQ(4-JL), no en JSQ1");
+        check_code(j2, adc_code(2.5, vref, 12),
+                   "y el segundo rango es JSQ4");
+        // El offset de JOFRx se resta al dato inyectado, con signo.
+        a_wr(A_B, AdcBlockBase::R_JOFR1, 500);
+        a_wr(A_B, AdcBlockBase::R_SR, 0);
+        a_wr(A_B, AdcBlockBase::R_CR2, 1u | (1u << 22));
+        wait(300, SC_US);
+        check_eq(a_rd(A_B, AdcBlockBase::R_JDR1), (j1 - 500u) & 0xFFFFu,
+                 "JOFR1 se resta al dato inyectado [IR, 12.13-D]");
+        a_wr(A_B, AdcBlockBase::R_JOFR1, 0);
+        a_wr(A_B, AdcBlockBase::R_JSQR, 0);
+
+        // --- Perro guardian analogico ---------------------------------------
+        a_wr(A_B, AdcBlockBase::R_HTR, 2000);
+        a_wr(A_B, AdcBlockBase::R_LTR, 100);
+        a_wr(A_B, AdcBlockBase::R_SR, 0);
+        // IN0 = 0,5 V -> ~620: dentro de la ventana
+        (void)adc_convert(A_B, 0, 1u << 23, 0);                 // AWDEN
+        check(!(a_rd(A_B, AdcBlockBase::R_SR) & AdcBlockBase::S_AWD),
+              "dentro de la ventana [LTR, HTR] el perro guardian calla");
+        // IN2 = 2,5 V -> ~3103: por encima de HTR
+        (void)adc_convert(A_B, 2, 1u << 23, 0);
+        check(a_rd(A_B, AdcBlockBase::R_SR) & AdcBlockBase::S_AWD,
+              "por encima de HTR levanta AWD [IR, 12.13-C]");
+        // Con AWDSGL solo vigila el canal de AWDCH
+        a_wr(A_B, AdcBlockBase::R_SR, 0);
+        (void)adc_convert(A_B, 2, (1u << 23) | (1u << 9) | 0u, 0);  // AWDSGL, AWDCH=0
+        check(!(a_rd(A_B, AdcBlockBase::R_SR) & AdcBlockBase::S_AWD),
+              "con AWDSGL solo se vigila el canal de AWDCH y los demas no ladran");
+        a_wr(A_B, AdcBlockBase::R_HTR, 0x0FFF);
+        a_wr(A_B, AdcBlockBase::R_LTR, 0);
+        a_wr(A_B, AdcBlockBase::R_SR, 0);
+
+        // --- La IRQ 18 es UNA SOLA para los tres -----------------------------
+        check(!dut->s_irq[18].read(), "IRQ 18 en reposo");
+        adc_start_only(A_B, 0, 1u << 5);                        // EOCIE, sin leer DR
+        check(dut->s_irq[18].read(), "el fin de conversion del ADC1 levanta la IRQ 18");
+        uint32_t csr = a_rd(AC_B, AdcBlockBase::R_CSR);
+        check((csr & AdcBlockBase::S_EOC) != 0u,
+              "y ADC_CSR dice cual de los tres ha sido: EOC del ADC1 en los bits bajos");
+        (void)a_rd(A_B, AdcBlockBase::R_DR);                    // leer DR borra EOC
+        check(!dut->s_irq[18].read(), "leer DR borra EOC y la IRQ se retira");
+        a_wr(A_B, AdcBlockBase::R_SR, 0);
+        a_wr(A_B, AdcBlockBase::R_CR1, 0);
+        a_wr(A_B, AdcBlockBase::R_CR2, 0);
+        wait(5, SC_US);
+        adc_start_only(A2_B, 1, 1u << 5);
+        csr = a_rd(AC_B, AdcBlockBase::R_CSR);
+        check(dut->s_irq[18].read() && (csr & (AdcBlockBase::S_EOC << 8)),
+              "la misma IRQ 18 la levanta el ADC2, y CSR lo distingue [IR, 12.13-E]");
+        (void)a_rd(A2_B, AdcBlockBase::R_DR);
+        a_wr(A2_B, AdcBlockBase::R_SR, 0);
+        a_wr(A2_B, AdcBlockBase::R_CR1, 0);
+        a_wr(A2_B, AdcBlockBase::R_CR2, 0);
+        wait(5, SC_US);
+
+        // --- Disparo por TRGO de un temporizador -----------------------------
+        // EXTSEL = 0110 es TIM2_TRGO; EXTEN = 01, flanco de subida.
+        rcc_enable(Rcc::R_APB1ENR, 0);                          // TIM2
+        a_wr(A_B, AdcBlockBase::R_SQR1, 0);
+        a_wr(A_B, AdcBlockBase::R_SQR3, 1);                     // IN1
+        a_wr(A_B, AdcBlockBase::R_SR, 0);
+        a_wr(A_B, AdcBlockBase::R_CR2, 1u | (6u << 24) | (1u << 28));
+        wait(10, SC_US);
+        const uint64_t n0 = dut->adc.conversions(0);
+        tm.write32(addr::TIM2_B + 0x24, 0);                     // CNT
+        tm.write32(addr::TIM2_B + 0x2C, 199);                   // ARR
+        tm.write32(addr::TIM2_B + 0x04, 2u << 4);               // CR2.MMS = update
+        tm.write32(addr::TIM2_B + 0x00, 1u);                    // CEN
+        wait(400, SC_US);
+        tm.write32(addr::TIM2_B + 0x00, 0);
+        const uint64_t n1 = dut->adc.conversions(0);
+        std::printf("    TIM2_TRGO disparo %llu conversiones sin tocar SWSTART\n",
+                    (unsigned long long)(n1 - n0));
+        check(n1 > n0, "el TRGO de un temporizador dispara el grupo regular");
+        check_code(a_rd(A_B, AdcBlockBase::R_DR), adc_code(1.5, vref, 12),
+                   "y lo que convierte es el canal de la secuencia");
+        a_wr(A_B, AdcBlockBase::R_CR2, 0);
+        wait(20, SC_US);
+
+        // --- Modo dual y triple ---------------------------------------------
+        // ADC1 mide IN0 (0,5 V), ADC2 mide IN1 (1,5 V) y ADC3 mide IN10 (3,0 V).
+        // En modo dual regular simultaneo el dato de los dos llega EMPAQUETADO
+        // en el registro comun CDR.
+        for (uint32_t b : {A_B, A2_B, A3_B}) {
+            a_wr(b, AdcBlockBase::R_CR1, 0);
+            a_wr(b, AdcBlockBase::R_SQR1, 0);
+            a_wr(b, AdcBlockBase::R_SMPR2, 0);
+            a_wr(b, AdcBlockBase::R_SMPR1, 0);
+            a_wr(b, AdcBlockBase::R_SR, 0);
+        }
+        a_wr(A_B,  AdcBlockBase::R_SQR3, 0);                    // ADC1 -> IN0
+        a_wr(A2_B, AdcBlockBase::R_SQR3, 1);                    // ADC2 -> IN1
+        a_wr(A3_B, AdcBlockBase::R_SQR3, 10);                   // ADC3 -> IN10
+        a_wr(A2_B, AdcBlockBase::R_CR2, 1u);
+        a_wr(A3_B, AdcBlockBase::R_CR2, 1u);
+        a_wr(A_B,  AdcBlockBase::R_CR2, 1u);
+        wait(10, SC_US);
+        a_wr(AC_B, AdcBlockBase::R_CCR, 0x06u);                 // dual simultaneo
+        // El esclavo ya no obedece a su propio SWSTART.
+        const uint64_t m0 = dut->adc.conversions(1);
+        a_wr(A2_B, AdcBlockBase::R_CR2, 1u | (1u << 30));
+        wait(200, SC_US);
+        check_eq(dut->adc.conversions(1) - m0, 0u,
+                 "en modo multiple el esclavo ignora su propio SWSTART");
+        a_wr(A_B, AdcBlockBase::R_CR2, 1u | (1u << 30));        // lo arranca el maestro
+        wait(300, SC_US);
+        const uint32_t cdr = a_rd(AC_B, AdcBlockBase::R_CDR);
+        std::printf("    dual simultaneo: CDR = 0x%08X (ADC2 arriba = %u, ADC1 abajo = %u)\n",
+                    cdr, cdr >> 16, cdr & 0xFFFFu);
+        check_code(cdr & 0xFFFFu, adc_code(0.5, vref, 12),
+                   "modo dual: CDR lleva el dato del ADC1 en la media palabra baja");
+        check_code(cdr >> 16, adc_code(1.5, vref, 12),
+                   "y el del ADC2 en la alta, convertidos a la vez [IR, 12.13-E]");
+        check_code(a_rd(A2_B, AdcBlockBase::R_DR), adc_code(1.5, vref, 12),
+                   "el esclavo actualiza ademas su propio DR");
+
+        a_wr(AC_B, AdcBlockBase::R_CCR, 0x16u);                 // triple simultaneo
+        a_wr(A_B, AdcBlockBase::R_SR, 0);
+        a_wr(A_B, AdcBlockBase::R_CR2, 1u | (1u << 30));
+        wait(400, SC_US);
+        const uint32_t c1 = a_rd(AC_B, AdcBlockBase::R_CDR);
+        const uint32_t c2 = a_rd(AC_B, AdcBlockBase::R_CDR);
+        const uint32_t c3 = a_rd(AC_B, AdcBlockBase::R_CDR);
+        std::printf("    triple simultaneo: CDR leido tres veces -> %u %u %u\n", c1, c2, c3);
+        check_code(c1, adc_code(0.5, vref, 12),
+                   "modo triple: la primera lectura de CDR es el ADC1");
+        check_code(c2, adc_code(1.5, vref, 12),
+                   "la segunda el ADC2");
+        check_code(c3, adc_code(3.0, vref, 12),
+                   "y la tercera el ADC3, los tres del mismo instante");
+        a_wr(AC_B, AdcBlockBase::R_CCR, 0);                     // ADCPRE = /2
+        for (uint32_t b : {A_B, A2_B, A3_B}) a_wr(b, AdcBlockBase::R_CR2, 0);
+        adc_sources_off();
+    }
+
+    // -----------------------------------------------------------------------
+    // T66 — DMA y firmware real con CMSIS
+    // -----------------------------------------------------------------------
+    void t66_adc_dma_firmware() {
+        group("T66 ADC: DMA y firmware con CMSIS");
+        reset_dut();
+        adc_links(false);
+        adc_clocks_on();
+        adc_pins_analog();
+        dma_clocks_on();
+        a_wr(AC_B, AdcBlockBase::R_CCR, 0);                     // ADCPRE = /2
+        const double vref = 3.3;
+        src_pa0->set_volts(0.5, 100.0);
+        src_pa1->set_volts(1.5, 100.0);
+        src_pa2->set_volts(2.5, 100.0);
+        src_pc0->set_volts(3.0, 100.0);
+        wait(5, SC_US);
+
+        // --- Barrido de cuatro canales volcado por DMA -----------------------
+        // ADC1 va por DMA2, stream 0, canal 0 [IR, §12.13-E]. La CPU no toca
+        // DR: el barrido entero acaba en memoria solo.
+        ImageLoader ld(*dut);
+        const uint32_t DST = SRC_BUF + 0x200;
+        for (unsigned i = 0; i < 8; ++i) ld.poke32(DST + 4 * i, 0);
+        a_wr(A_B, AdcBlockBase::R_CR1, 1u << 8);                // SCAN
+        a_wr(A_B, AdcBlockBase::R_SQR1, 3u << 20);              // L = 4
+        a_wr(A_B, AdcBlockBase::R_SQR3, 0u | (1u << 5) | (2u << 10) | (10u << 15));
+        a_wr(A_B, AdcBlockBase::R_SMPR2, 0);
+        a_wr(A_B, AdcBlockBase::R_SMPR1, 0);
+        // periferico->memoria, 16 bits en los dos lados, memoria incremental
+        dma_setup(addr::DMA2_B, 0, A_B + AdcBlockBase::R_DR, DST, 4,
+                  (0u << 25) | (1u << 11) | (1u << 13) | (1u << 10), 0x00u);
+        a_wr(A_B, AdcBlockBase::R_CR2, 1u | (1u << 8) | (1u << 9) | (1u << 10));
+        wait(10, SC_US);
+        a_wr(A_B, AdcBlockBase::R_CR2,
+             1u | (1u << 8) | (1u << 9) | (1u << 10) | (1u << 30));
+        const bool tc = dma_wait_tc(addr::DMA2_B, 0, sc_time(20, SC_MS));
+        wait(50, SC_US);
+        uint16_t got[4] = {0, 0, 0, 0};
+        for (unsigned i = 0; i < 4; ++i)
+            got[i] = uint16_t((dut->sram1.peek32(DST - addr::SRAM1_BASE + 4 * (i / 2))
+                               >> (16 * (i % 2))) & 0xFFFFu);
+        std::printf("    barrido por DMA: %u %u %u %u (esperado %u %u %u %u)\n",
+                    got[0], got[1], got[2], got[3],
+                    adc_code(0.5, vref, 12), adc_code(1.5, vref, 12),
+                    adc_code(2.5, vref, 12), adc_code(3.0, vref, 12));
+        check(tc, "el DMA recoge los cuatro resultados del barrido");
+        check(std::abs(int(got[0]) - int(adc_code(0.5, vref, 12))) <= 2 &&
+              std::abs(int(got[3]) - int(adc_code(3.0, vref, 12))) <= 2,
+              "y en memoria queda la secuencia completa sin que la CPU toque DR");
+        a_wr(A_B, AdcBlockBase::R_CR1, 0);
+        a_wr(A_B, AdcBlockBase::R_CR2, 0);
+        adc_sources_off();
+        wait(20, SC_US);
+
+        // --- Firmware real con CMSIS -----------------------------------------
+        dut->rcc.set_internal_waveforms(false);
+        xtal_hse->attach();
+        dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(30, SC_US);
+        // Tensiones de la placa en las entradas que va a medir el firmware.
+        src_pa1->set_volts(1.65, 100.0);      // media escala
+        src_pa2->set_volts(0.33, 100.0);      // una decima de escala
+
+        ImageLoader ld2(*dut);
+        const long n = ld2.load_file(adc_fw_path_.c_str(), addr::FLASH_BASE);
+        if (!check(n > 0, "imagen del firmware de ADC cargada en la Flash")) {
+            std::printf("        (compilar con make -C verif/fw/adc_demo)\n");
+            dut->pwr_pads.nrst.set_hiz(d_nrst);
+            dut->rcc.set_internal_waveforms(true);
+            adc_sources_off();
+            return;
+        }
+        std::printf("    %ld bytes cargados desde %s\n", n, adc_fw_path_.c_str());
+        for (unsigned i = 0; i < 32; i += 4) ld2.poke32(addr::SRAM1_BASE + i, 0);
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+        bool done = false;
+        const sc_time t0 = sc_time_stamp();
+        while ((sc_time_stamp() - t0) < sc_time(400, SC_MS)) {
+            wait(200, SC_US);
+            if (dut->sram1.peek32(0) == 1u) { done = true; break; }
+        }
+        const uint32_t d_in1 = dut->sram1.peek32(4);
+        const uint32_t d_in2 = dut->sram1.peek32(8);
+        const uint32_t mv    = dut->sram1.peek32(12);
+        const uint32_t vrint = dut->sram1.peek32(16);
+        const uint32_t pclk2 = dut->sram1.peek32(20);
+        std::printf("    PCLK2 = %u Hz | IN1 = %u | IN2 = %u | IN1 = %u mV | "
+                    "VREFINT = %u\n", pclk2, d_in1, d_in2, mv, vrint);
+        check(done, "el firmware de ADC llega a su fin y publica el buzon");
+        check_eq(pclk2, 84000000u, "el firmware trabaja con PCLK2 = 84 MHz");
+        check(d_in1 > 2000 && d_in1 < 2095,
+              "mide en PA1 la media escala que hay puesta en el pin");
+        check(d_in2 > 380 && d_in2 < 440, "y en PA2 la decima parte de la escala");
+        check(mv > 1600 && mv < 1700,
+              "el propio firmware convierte el codigo a milivoltios: ~1650 mV");
+        check(vrint > 1450 && vrint < 1550,
+              "y lee la referencia interna del ADC1 por su canal 17");
+        dut->rcc.set_internal_waveforms(true);
+        adc_sources_off();
+        adc_links(true);
+    }
+
+    std::string adc_fw_path_ = "verif/fw/adc_demo/adc_demo.bin";
     std::string i2c_fw_path_ = "verif/fw/i2c_demo/i2c_demo.bin";
     std::string spi_fw_path_ = "verif/fw/spi_demo/spi_demo.bin";
     std::string exti_fw_path_ = "verif/fw/exti_demo/exti_demo.bin";
