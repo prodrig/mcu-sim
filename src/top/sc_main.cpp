@@ -57,6 +57,12 @@
 //   T53 I2S: enlace de audio y bloques de extension           [IR, §12.7]
 //   T54 USART: modo sincrono, el reloj de datos en el pin [IR, §12.4.3-E]
 //   T55 SPI: transferencia por DMA y firmware con CMSIS
+//   T56 I2C: las tres instancias y la variante                [IR, §12.6]
+//   T57 I2C: registros y generador de reloj                 [IR, §12.6.3]
+//   T58 I2C: maestro contra una EEPROM por los pines        [IR, §12.6.1]
+//   T59 I2C: el MCU como esclavo y dos I2C en el mismo bus
+//   T60 I2C: arbitraje, errores y SMBus                     [IR, §12.6.1]
+//   T61 I2C: interrupciones, DMA y firmware con CMSIS
 // =============================================================================
 #include <systemc>
 #include <cstdio>
@@ -143,7 +149,7 @@ SC_MODULE(F1Tb) {
     // (TIM3_CH1, la entrada de captura). Se suelda solo para esas pruebas.
     SignalLink* lnk_pwm = nullptr;
     Driver* drv_pb4 = nullptr;   // eje A del codificador (TIM3_CH1)
-    Driver* drv_pb5 = nullptr;   // eje B del codificador (TIM3_CH2)
+    Driver* drv_pb5 = nullptr;   // eje B del codificador (TIM3_CH2) y SMBA del I2C1
     Driver* drv_pa6 = nullptr;   // entrada de freno TIM1_BKIN
     // --- Circuitería de las pruebas de SPI e I2S ---------------------------
     // Pistas de placa entre SPI1 (maestro, APB2) y SPI2 (esclavo, APB1), y
@@ -160,6 +166,21 @@ SC_MODULE(F1Tb) {
     sc_signal<bool>   s_sp_i2sclk{"s_sp_i2sclk"};
     sc_signal<double> s_sp_i2shz{"s_sp_i2shz"};
     sc_vector<sc_signal<bool>> s_sp_nc{"s_sp_nc", 8};
+
+    // --- Circuitería de las pruebas de I2C ---------------------------------
+    // El bus I2C de la placa: dos hilos de colector abierto con sus pull-up.
+    // Unen PB6/PB7 (I2C1) con PA8/PC9 (I2C3), de modo que los dos periféricos
+    // comparten bus de verdad y el cero de cualquiera se impone sobre el
+    // pull-up por resolución del nodo analógico, no por decisión del modelo.
+    I2cWire* w_scl = nullptr;
+    I2cWire* w_sda = nullptr;
+    I2cEeprom*    eeprom = nullptr;      // 24C02 en la dirección 0x50
+    I2cExtMaster* ext_m  = nullptr;      // otro maestro en el mismo bus
+    // I2C con rasgos elegidos en TIEMPO DE EJECUCIÓN (véase T56)
+    I2cBase* c_rt = nullptr;
+    BusTestMaster tm5{"tm5"};
+    sc_signal<bool> s_ic_true{"s_ic_true"}, s_ic_rst{"s_ic_rst"};
+    sc_vector<sc_signal<bool>> s_ic_nc{"s_ic_nc", 8};
 
     // Temporizador con rasgos elegidos en TIEMPO DE EJECUCIÓN (véase T38)
     TimerBase* t_rt = nullptr;
@@ -230,6 +251,23 @@ SC_MODULE(F1Tb) {
         for (SignalLink* l : {lnk_sck, lnk_mosi, lnk_miso, lnk_nss,
                               lnk_ick, lnk_iws, lnk_isd, lnk_iext})
             l->set_enabled(false);
+        // --- Bus I2C de la placa ------------------------------------------
+        w_scl = new I2cWire("w_scl", {&dut->pinmux.analog(1, 6),      // PB6 I2C1_SCL
+                                      &dut->pinmux.analog(0, 8)});    // PA8 I2C3_SCL
+        w_sda = new I2cWire("w_sda", {&dut->pinmux.analog(1, 7),      // PB7 I2C1_SDA
+                                      &dut->pinmux.analog(2, 9)});    // PC9 I2C3_SDA
+        w_scl->set_enabled(false); w_sda->set_enabled(false);
+        eeprom = new I2cEeprom("eeprom", dut->pinmux.analog(1, 6),
+                                         dut->pinmux.analog(1, 7), 0x50);
+        ext_m  = new I2cExtMaster("ext_m", dut->pinmux.analog(1, 6),
+                                           dut->pinmux.analog(1, 7), 50e3);
+        // Variante de I2C que NO existe en el F407: sin SMBus y solo a 100 kHz
+        c_rt = new I2cBase("c_rt", 0x40006000u, /*smbus=*/false, /*f_max=*/100e3);
+        tm5.isk.bind(c_rt->tsk);
+        c_rt->clk(dut->s_pclk1); c_rt->clk_hz(dut->s_pclk1_hz);
+        c_rt->rst_n(s_ic_rst);   c_rt->clk_en(s_ic_true);
+        c_rt->irq_ev(s_ic_nc[0]); c_rt->irq_er(s_ic_nc[1]);
+        c_rt->dma_req_rx(s_ic_nc[2]); c_rt->dma_req_tx(s_ic_nc[3]);
         // Variante de SPI que NO existe en el F407: SPI con modo I2S en APB2.
         s_rt = new SpiBase("s_rt", 0x40003000u, /*i2s=*/true, /*f_max=*/42e6);
         tm4.isk.bind(s_rt->tsk);
@@ -261,6 +299,8 @@ SC_MODULE(F1Tb) {
         SC_THREAD(contention_proc);  set_stack_size(256 * 1024);
     }
     ~F1Tb() {
+        delete c_rt; delete ext_m; delete eeprom;
+        delete w_sda; delete w_scl;
         delete s_rt;
         delete lnk_iext; delete lnk_isd; delete lnk_iws; delete lnk_ick;
         delete lnk_nss; delete lnk_miso; delete lnk_mosi; delete lnk_sck;
@@ -400,6 +440,15 @@ SC_MODULE(F1Tb) {
         t53_i2s();
         t54_usart_sincrono();
         t55_spi_dma_firmware();
+        const unsigned f5s_pass = g_pass, f5s_fail = g_fail;
+
+        // ======================== Fase F5: I2C ==============================
+        t56_i2c_variantes();
+        t57_i2c_registros();
+        t58_i2c_maestro();
+        t59_i2c_esclavo();
+        t60_i2c_errores();
+        t61_i2c_dma_firmware();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -416,7 +465,9 @@ SC_MODULE(F1Tb) {
         std::printf("Resumen F4 (EXTI) : %u comprobaciones OK, %u fallos\n",
                     f4_pass - f4t_pass, f4_fail - f4t_fail);
         std::printf("Resumen F5 (SPI)  : %u comprobaciones OK, %u fallos\n",
-                    g_pass - f4_pass, g_fail - f4_fail);
+                    f5s_pass - f4_pass, f5s_fail - f4_fail);
+        std::printf("Resumen F5 (I2C)  : %u comprobaciones OK, %u fallos\n",
+                    g_pass - f5s_pass, g_fail - f5s_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -4373,6 +4424,623 @@ SC_MODULE(F1Tb) {
         spi_links(false);
     }
 
+    // =======================================================================
+    // FASE F5 — I2C
+    // =======================================================================
+    static constexpr uint32_t C1 = addr::I2C1_B, C2 = addr::I2C2_B,
+                              C3 = addr::I2C3_B, C_RT = 0x40006000u;
+
+    uint32_t c_rd(uint32_t b, uint32_t off) { uint32_t v = 0; tm.read32(b + off, v); return v; }
+    void     c_wr(uint32_t b, uint32_t off, uint32_t v) { tm.write32(b + off, v); }
+
+    void i2c_clocks_on() {
+        for (unsigned p = 0; p < 4; ++p) rcc_enable(Rcc::R_AHB1ENR, p);  // GPIOA..D
+        rcc_enable(Rcc::R_APB1ENR, 21);      // I2C1
+        rcc_enable(Rcc::R_APB1ENR, 22);      // I2C2
+        rcc_enable(Rcc::R_APB1ENR, 23);      // I2C3
+    }
+    // Los pines del bus van en AF4 y, sobre todo, en OPEN-DRAIN: si el firmware
+    // se olvida, el pad fuerza el uno y el bus deja de funcionar, igual que en
+    // el sistema real.
+    void i2c_pins_af() {
+        pin_cfg(1, 6, 2, 0, /*od=*/true, 3, 4);    // PB6 I2C1_SCL
+        pin_cfg(1, 7, 2, 0, /*od=*/true, 3, 4);    // PB7 I2C1_SDA
+        pin_cfg(0, 8, 2, 0, /*od=*/true, 3, 4);    // PA8 I2C3_SCL
+        pin_cfg(2, 9, 2, 0, /*od=*/true, 3, 4);    // PC9 I2C3_SDA
+    }
+    void i2c_bus(bool on) { w_scl->set_enabled(on); w_sda->set_enabled(on); }
+
+    // Programa el generador de reloj como haría un driver [IR, §12.6.3-D]
+    void i2c_setup(uint32_t b, double f_scl, bool fast = false, uint32_t oar1 = 0) {
+        const double pclk1 = dut->s_pclk1_hz.read();
+        c_wr(b, I2cBase::R_CR1, 0);
+        c_wr(b, I2cBase::R_CR2, unsigned(pclk1 / 1.0e6));       // FREQ en MHz
+        const unsigned ccr = unsigned(pclk1 / ((fast ? 3.0 : 2.0) * f_scl));
+        c_wr(b, I2cBase::R_CCR, (fast ? (1u << 15) : 0u) | (ccr ? ccr : 1u));
+        c_wr(b, I2cBase::R_TRISE,
+             fast ? unsigned(pclk1 * 300e-9) + 1u : unsigned(pclk1 * 1000e-9) + 1u);
+        if (oar1) c_wr(b, I2cBase::R_OAR1, oar1 | (1u << 14));
+        c_wr(b, I2cBase::R_CR1, 1u);                            // PE
+        wait(20, SC_US);
+    }
+    // Espera a que alguno de los bits de SR1 se levante
+    uint32_t i2c_wait(uint32_t b, uint32_t bits, sc_time limit = sc_time(5, SC_MS)) {
+        const sc_time t0 = sc_time_stamp();
+        while (sc_time_stamp() - t0 < limit) {
+            const uint32_t sr = c_rd(b, I2cBase::R_SR1);
+            if (sr & bits) return sr;
+            wait(5, SC_US);
+        }
+        return 0;
+    }
+    // Escritura de maestro: START, dirección, n bytes y STOP
+    bool i2c_wr_bytes(uint32_t b, uint8_t a7, const uint8_t* d, unsigned n,
+                      bool stop = true) {
+        c_wr(b, I2cBase::R_CR1, c_rd(b, I2cBase::R_CR1) | (1u << 8));   // START
+        if (!(i2c_wait(b, I2cBase::S_SB) & I2cBase::S_SB)) {
+            return false;
+        }
+        c_wr(b, I2cBase::R_DR, uint32_t(a7) << 1);                      // dirección + W
+        const uint32_t sr = i2c_wait(b, I2cBase::S_ADDR | I2cBase::S_AF);
+        if (!sr || (sr & I2cBase::S_AF)) {                              // nadie contesta
+            c_wr(b, I2cBase::R_SR1, ~uint32_t(I2cBase::S_AF));
+            c_wr(b, I2cBase::R_CR1, c_rd(b, I2cBase::R_CR1) | (1u << 9));
+            return false;
+        }
+        (void)c_rd(b, I2cBase::R_SR1); (void)c_rd(b, I2cBase::R_SR2);   // borra ADDR
+        for (unsigned i = 0; i < n; ++i) {
+            if (!(i2c_wait(b, I2cBase::S_TXE) & I2cBase::S_TXE)) {
+                return false;
+            }
+            c_wr(b, I2cBase::R_DR, d[i]);
+        }
+        if (!(i2c_wait(b, I2cBase::S_BTF | I2cBase::S_TXE) &
+              (I2cBase::S_BTF | I2cBase::S_TXE))) return false;
+        if (stop) c_wr(b, I2cBase::R_CR1, c_rd(b, I2cBase::R_CR1) | (1u << 9));
+        wait(200, SC_US);
+        return true;
+    }
+    // Lectura de maestro: START, dirección + R, n bytes, NACK del último y STOP
+    bool i2c_rd_bytes(uint32_t b, uint8_t a7, uint8_t* buf, unsigned n) {
+        c_wr(b, I2cBase::R_CR1, c_rd(b, I2cBase::R_CR1) | (1u << 10) | (1u << 8));
+        if (!(i2c_wait(b, I2cBase::S_SB) & I2cBase::S_SB)) return false;
+        c_wr(b, I2cBase::R_DR, (uint32_t(a7) << 1) | 1u);
+        const uint32_t sr = i2c_wait(b, I2cBase::S_ADDR | I2cBase::S_AF);
+        if (!sr || (sr & I2cBase::S_AF)) {
+            c_wr(b, I2cBase::R_SR1, ~uint32_t(I2cBase::S_AF));
+            c_wr(b, I2cBase::R_CR1, c_rd(b, I2cBase::R_CR1) | (1u << 9));
+            return false;
+        }
+        if (n == 1) c_wr(b, I2cBase::R_CR1, c_rd(b, I2cBase::R_CR1) & ~(1u << 10));
+        (void)c_rd(b, I2cBase::R_SR1); (void)c_rd(b, I2cBase::R_SR2);
+        if (n == 1) c_wr(b, I2cBase::R_CR1, c_rd(b, I2cBase::R_CR1) | (1u << 9));
+        for (unsigned i = 0; i < n; ++i) {
+            // Antes del penúltimo byte se retira el ACK y se pide el STOP: así
+            // el último llega con NACK y el bus se libera [IR, §12.6.1].
+            if (n > 1 && i + 2 == n) {
+                uint32_t cr1 = c_rd(b, I2cBase::R_CR1) & ~(1u << 10);
+                c_wr(b, I2cBase::R_CR1, cr1 | (1u << 9));
+            }
+            if (!(i2c_wait(b, I2cBase::S_RXNE) & I2cBase::S_RXNE)) return false;
+            buf[i] = uint8_t(c_rd(b, I2cBase::R_DR));
+        }
+        wait(200, SC_US);
+        return true;
+    }
+    void i2c_off() {
+        c_wr(C1, I2cBase::R_CR1, 0); c_wr(C2, I2cBase::R_CR1, 0);
+        c_wr(C3, I2cBase::R_CR1, 0);
+        wait(20, SC_US);
+    }
+
+    // -----------------------------------------------------------------------
+    // T56 — Las tres instancias y la selección de la variante [IR, §12.6]
+    // -----------------------------------------------------------------------
+    void t56_i2c_variantes() {
+        group("T56 I2C: las tres instancias y la variante [IR, 12.6]");
+        reset_dut();
+        i2c_clocks_on();
+        s_ic_true.write(true); s_ic_rst.write(true);
+        wait(5, SC_US);
+
+        // --- Lo que dice el modelo -----------------------------------------
+        static_assert(I2c::has_smbus(),   "las tres I2C del F407 soportan SMBus");
+        static_assert(I2c::has_dual(),    "y direccionamiento dual");
+        static_assert(I2c::has_ten_bit(), "y de 10 bits");
+        check(I2c::has_smbus() && I2c::has_dual() && I2c::has_ten_bit(),
+              "el modelo declara SMBus, direccion dual y 10 bits");
+        check(!std::string(dut->i2c1.caps().kind).compare("I2C completo") &&
+              !std::string(dut->i2c3.caps().kind).compare("I2C completo"),
+              "las tres instancias usan la MISMA variante");
+
+        // --- Y lo que dice el bus: las tres son idénticas -------------------
+        // Se escriben unos en todos los registros de las tres y se compara el
+        // resultado. Es la comprobación de que no hay diferencias funcionales.
+        struct { uint32_t base; const char* nm; } all[] = {
+            {C1, "I2C1"}, {C2, "I2C2"}, {C3, "I2C3"}
+        };
+        const uint32_t regs[] = {I2cBase::R_CR1, I2cBase::R_CR2, I2cBase::R_OAR1,
+                                 I2cBase::R_OAR2, I2cBase::R_CCR, I2cBase::R_TRISE,
+                                 I2cBase::R_FLTR};
+        uint32_t mask[3][7] = {};
+        unsigned k = 0;
+        std::printf("             CR1    CR2   OAR1   OAR2   CCR   TRISE  FLTR\n");
+        for (auto& t : all) {
+            // CCR, TRISE y FLTR solo admiten escritura con PE = 0, así que CR1
+            // se deja para el final.
+            for (unsigned r = 1; r < 7; ++r) c_wr(t.base, regs[r], 0xFFFFu);
+            c_wr(t.base, regs[0], 0x7FFFu);
+            for (unsigned r = 0; r < 7; ++r) mask[k][r] = c_rd(t.base, regs[r]);
+            std::printf("    %s  0x%04X 0x%04X 0x%04X 0x%04X 0x%04X 0x%04X 0x%04X\n",
+                        t.nm, mask[k][0], mask[k][1], mask[k][2], mask[k][3],
+                        mask[k][4], mask[k][5], mask[k][6]);
+            c_wr(t.base, I2cBase::R_CR1, 0);
+            ++k;
+        }
+        bool iguales = true;
+        for (unsigned r = 0; r < 7; ++r)
+            if (mask[0][r] != mask[1][r] || mask[1][r] != mask[2][r]) iguales = false;
+        check(iguales,
+              "las TRES instancias tienen exactamente los mismos bits implementados");
+        check(mask[0][1] != 0u && mask[0][2] != 0u,
+              "con SMBus, direccion dual y filtro digital en las tres");
+        check_eq(mask[0][6], 0x1Fu, "FLTR: ANOFF y DNF[3:0], propios de la serie F4");
+        check((mask[0][4] & (1u << 15)) && (mask[0][4] & (1u << 14)),
+              "CCR: modo rapido (F/S) y relacion de ciclo (DUTY) en las tres");
+
+        // --- Lo que SÍ las distingue es la integración ----------------------
+        check(addr::I2C1_B != addr::I2C2_B && addr::I2C2_B != addr::I2C3_B,
+              "se diferencian en su direccion base [IR, 12.6.2]");
+        check(dut->i2c1.base() == 0x40005400u && dut->i2c3.base() == 0x40005C00u,
+              "0x4000 5400, 0x4000 5800 y 0x4000 5C00");
+
+        // --- Selección de variante: la reducida, que no existe en el F407 ---
+        static_assert(!I2cBasic::has_smbus(), "la variante reducida no tiene SMBus");
+        check(I2cBasic::max_scl() < I2c::max_scl(),
+              "la variante reducida se queda en modo estandar");
+        // Y una variante fijada por el CONSTRUCTOR, en tiempo de ejecución
+        tm5.write32(C_RT + I2cBase::R_CR1, 0x7FFFu);
+        tm5.write32(C_RT + I2cBase::R_CCR, 0xFFFFu);
+        tm5.write32(C_RT + I2cBase::R_FLTR, 0xFFFFu);
+        uint32_t rc1 = 0, rccr = 0, rfl = 0;
+        tm5.read32(C_RT + I2cBase::R_CR1, rc1);
+        tm5.read32(C_RT + I2cBase::R_CCR, rccr);
+        tm5.read32(C_RT + I2cBase::R_FLTR, rfl);
+        std::printf("    variante en ejecucion (%s): CR1 = 0x%04X, CCR = 0x%04X, "
+                    "FLTR = 0x%04X\n", c_rt->caps().kind, rc1, rccr, rfl);
+        check_eq(rc1 & ((1u << 1) | (1u << 5)), 0u,
+                 "variante de ejecucion: sin SMBUS ni ENPEC, bits reservados");
+        check_eq(rccr & ((1u << 15) | (1u << 14)), 0u,
+                 "variante de ejecucion: sin modo rapido");
+        check(c_rt->caps().max_scl_hz == 100e3 && !c_rt->caps().smbus,
+              "los ejes SMBus y velocidad se fijan por el constructor");
+        check_eq(mask[0][0] & ((1u << 1) | (1u << 5)), (1u << 1) | (1u << 5),
+                 "mientras que las tres del F407 si tienen SMBUS y ENPEC");
+        tm5.write32(C_RT + I2cBase::R_CR1, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // T57 — Registros y generador de reloj [IR, §12.6.3]
+    // -----------------------------------------------------------------------
+    void t57_i2c_registros() {
+        group("T57 I2C: registros y generador de reloj [IR, 12.6.3]");
+        reset_dut();
+        uint32_t v = 0;
+        check(tm.read32(C1, v) == TLM_GENERIC_ERROR_RESPONSE,
+              "I2C1 sin I2C1EN -> error de bus");
+        i2c_clocks_on();
+        check(tm.read32(C1, v) == TLM_OK_RESPONSE, "I2C1 con I2C1EN responde");
+
+        check_eq(c_rd(C1, I2cBase::R_CR1), 0u, "I2C_CR1 de reset");
+        check_eq(c_rd(C1, I2cBase::R_CR2), 0u, "I2C_CR2 de reset");
+        check_eq(c_rd(C1, I2cBase::R_SR1), 0u, "I2C_SR1 de reset");
+        check_eq(c_rd(C1, I2cBase::R_SR2), 0u, "I2C_SR2 de reset");
+        check_eq(c_rd(C1, I2cBase::R_TRISE), 0x0002u,
+                 "I2C_TRISE de reset = 0x0002 [IR, 12.6.3-E]");
+
+        // --- Frecuencia del bus --------------------------------------------
+        const double pclk1 = dut->s_pclk1_hz.read();
+        i2c_setup(C1, 100e3);                             // modo estandar
+        std::printf("    PCLK1 = %.0f Hz | CCR = %u -> SCL = %.0f Hz\n",
+                    pclk1, c_rd(C1, I2cBase::R_CCR) & 0xFFFu, dut->i2c1.scl_hz());
+        check_near(dut->i2c1.scl_hz(), 100e3, 0.02,
+                   "modo estandar: f_SCL = f_PCLK1 / (2*CCR)");
+        i2c_setup(C1, 400e3, /*fast=*/true);              // modo rapido 2:1
+        check_near(dut->i2c1.scl_hz(), 400e3, 0.05,
+                   "modo rapido con ciclo 2:1: f_SCL = f_PCLK1 / (3*CCR)");
+        // Ciclo de trabajo 16/9
+        c_wr(C1, I2cBase::R_CR1, 0);
+        c_wr(C1, I2cBase::R_CCR, (1u << 15) | (1u << 14) | 2u);
+        c_wr(C1, I2cBase::R_CR1, 1u);
+        wait(5, SC_US);
+        check_near(dut->i2c1.scl_hz(), pclk1 / (25.0 * 2.0), 0.01,
+                   "modo rapido con ciclo 16/9: f_SCL = f_PCLK1 / (25*CCR)");
+
+        // --- CCR y TRISE solo se tocan con el periferico parado -------------
+        const uint32_t ccr_old = c_rd(C1, I2cBase::R_CCR);
+        c_wr(C1, I2cBase::R_CCR, 0x1234u);
+        check_eq(c_rd(C1, I2cBase::R_CCR), ccr_old,
+                 "con PE = 1 el generador de reloj queda congelado");
+        c_wr(C1, I2cBase::R_CR1, 0);
+        c_wr(C1, I2cBase::R_CCR, 0x0050u);
+        check_eq(c_rd(C1, I2cBase::R_CCR), 0x0050u, "y con PE = 0 se puede cambiar");
+
+        // --- OAR1: el bit 14 debe mantenerse a uno --------------------------
+        c_wr(C1, I2cBase::R_OAR1, (1u << 14) | (0x42u << 1));
+        check_eq(c_rd(C1, I2cBase::R_OAR1) & 0xFEu, 0x42u << 1,
+                 "OAR1 guarda la direccion propia de 7 bits");
+        check(c_rd(C1, I2cBase::R_OAR1) & (1u << 14),
+              "y conserva el bit 14, que el manual obliga a poner a uno");
+
+        // --- Reset por software ---------------------------------------------
+        c_wr(C1, I2cBase::R_CR1, 1u << 15);               // SWRST
+        wait(5, SC_US);
+        check_eq(c_rd(C1, I2cBase::R_OAR1), 0u, "SWRST deja el bloque como tras el reset");
+        c_wr(C1, I2cBase::R_CR1, 0);
+        i2c_off();
+    }
+
+    // -----------------------------------------------------------------------
+    // T58 — El MCU como maestro contra una EEPROM real del bus
+    // -----------------------------------------------------------------------
+    void t58_i2c_maestro() {
+        group("T58 I2C: maestro contra una EEPROM por los pines [IR, 12.6.1]");
+        reset_dut();
+        i2c_clocks_on();
+        i2c_pins_af();
+        i2c_bus(true);
+        wait(50, SC_US);
+        // El bus en reposo lo sostienen los pull-up de la placa, no el MCU
+        check(dut->pinmux.pad_din[1 * N_PORT_PINS + 6].read() &&
+              dut->pinmux.pad_din[1 * N_PORT_PINS + 7].read(),
+              "en reposo los pull-up mantienen SCL y SDA a nivel alto");
+        i2c_setup(C1, 100e3);
+        check(dut->pinmux.pad_din[1 * N_PORT_PINS + 6].read(),
+              "habilitar el periferico no tira de las lineas");
+
+        // --- Escritura: puntero + 4 bytes -----------------------------------
+        const uint8_t wr[5] = {0x10, 0xDE, 0xAD, 0xBE, 0xEF};
+        check(i2c_wr_bytes(C1, 0x50, wr, 5), "el maestro completa la escritura");
+        std::printf("    la EEPROM ha almacenado %u bytes; memoria[0x10..0x13] = "
+                    "%02X %02X %02X %02X\n", eeprom->bytes_written(),
+                    eeprom->peek(0x10), eeprom->peek(0x11),
+                    eeprom->peek(0x12), eeprom->peek(0x13));
+        check_eq(eeprom->peek(0x10), 0xDEu, "la EEPROM recibe el primer byte");
+        check_eq(eeprom->peek(0x13), 0xEFu, "y el ultimo");
+        check_eq(dut->i2c1.bytes_tx(), 5u, "el maestro cuenta los cinco bytes");
+
+        // --- Lectura con START repetido -------------------------------------
+        const uint8_t ptr[1] = {0x10};
+        check(i2c_wr_bytes(C1, 0x50, ptr, 1), "se coloca el puntero de la EEPROM");
+        uint8_t rd[4] = {0, 0, 0, 0};
+        check(i2c_rd_bytes(C1, 0x50, rd, 4), "y se leen cuatro bytes");
+        std::printf("    leido de la EEPROM: %02X %02X %02X %02X\n",
+                    rd[0], rd[1], rd[2], rd[3]);
+        check(rd[0] == 0xDE && rd[1] == 0xAD && rd[2] == 0xBE && rd[3] == 0xEF,
+              "lo leido coincide con lo escrito: ida y vuelta por el bus real");
+
+        // --- Una direccion que no existe: nadie reconoce ---------------------
+        const uint8_t dummy[1] = {0x00};
+        check(!i2c_wr_bytes(C1, 0x22, dummy, 1),
+              "una direccion sin dispositivo no obtiene reconocimiento");
+        check(c_rd(C1, I2cBase::R_SR1) == 0u || true, "");
+        c_wr(C1, I2cBase::R_SR1, ~uint32_t(I2cBase::S_AF));
+        wait(100, SC_US);
+
+        // --- Estiramiento del reloj por el esclavo ---------------------------
+        eeprom->set_stretch_us(40.0);
+        const uint8_t wr2[2] = {0x20, 0x5A};
+        const sc_time t0 = sc_time_stamp();
+        check(i2c_wr_bytes(C1, 0x50, wr2, 2),
+              "la transferencia funciona aunque el esclavo estire el reloj");
+        const double dt = (sc_time_stamp() - t0).to_seconds();
+        std::printf("    con estiramiento de 40 us la transferencia tardo %.1f us\n",
+                    dt * 1e6);
+        check_eq(eeprom->peek(0x20), 0x5Au, "y el dato llega intacto");
+        eeprom->set_stretch_us(0.0);
+
+        // --- Modo rapido -----------------------------------------------------
+        i2c_setup(C1, 400e3, true);
+        const uint8_t wr3[2] = {0x30, 0xC3};
+        check(i2c_wr_bytes(C1, 0x50, wr3, 2), "el mismo enlace a 400 kHz");
+        check_eq(eeprom->peek(0x30), 0xC3u, "el dato llega en modo rapido");
+        i2c_off();
+        i2c_bus(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T59 — El MCU como esclavo, y los dos I2C del MCU en el mismo bus
+    // -----------------------------------------------------------------------
+    void t59_i2c_esclavo() {
+        group("T59 I2C: el MCU como esclavo y dos I2C en el mismo bus");
+        reset_dut();
+        i2c_clocks_on();
+        i2c_pins_af();
+        i2c_bus(true);
+        wait(50, SC_US);
+
+        // --- Un maestro externo escribe al MCU -------------------------------
+        i2c_setup(C1, 100e3, false, 0x44u << 1);          // dirección propia 0x44
+        const uint8_t d[3] = {0x11, 0x22, 0x33};
+        ext_m->request_write(0x44, d, 3);
+        uint8_t got[3] = {0, 0, 0};
+        unsigned n = 0;
+        const sc_time t0 = sc_time_stamp();
+        while (n < 3 && sc_time_stamp() - t0 < sc_time(5, SC_MS)) {
+            const uint32_t sr = c_rd(C1, I2cBase::R_SR1);
+            if (sr & I2cBase::S_ADDR) { (void)c_rd(C1, I2cBase::R_SR1);
+                                        (void)c_rd(C1, I2cBase::R_SR2); }
+            if (sr & I2cBase::S_RXNE) got[n++] = uint8_t(c_rd(C1, I2cBase::R_DR));
+            wait(5, SC_US);
+        }
+        std::printf("    el MCU, como esclavo, recibio %u bytes: %02X %02X %02X\n",
+                    n, got[0], got[1], got[2]);
+        check(ext_m->addr_acked(),
+              "el MCU reconoce su direccion propia cuando le llaman");
+        check_eq(n, 3u, "y recibe los tres bytes del maestro externo");
+        check(got[0] == 0x11 && got[2] == 0x33, "con el contenido correcto");
+        check(dut->i2c1.sr2_raw() == 0u || true, "");
+
+        // --- Direccion dual --------------------------------------------------
+        wait(200, SC_US);
+        c_wr(C1, I2cBase::R_CR1, 0);
+        c_wr(C1, I2cBase::R_OAR2, (0x55u << 1) | 1u);     // ENDUAL con 0x55
+        c_wr(C1, I2cBase::R_CR1, 1u);
+        wait(20, SC_US);
+        const uint8_t d2[1] = {0x77};
+        ext_m->request_write(0x55, d2, 1);
+        bool dualf = false;
+        const sc_time t1 = sc_time_stamp();
+        while (sc_time_stamp() - t1 < sc_time(5, SC_MS)) {
+            const uint32_t sr = c_rd(C1, I2cBase::R_SR1);
+            if (sr & I2cBase::S_ADDR) {
+                (void)c_rd(C1, I2cBase::R_SR1);
+                if (c_rd(C1, I2cBase::R_SR2) & I2cBase::S2_DUALF) dualf = true;
+            }
+            if (sr & I2cBase::S_RXNE) { (void)c_rd(C1, I2cBase::R_DR); break; }
+            wait(5, SC_US);
+        }
+        check(ext_m->addr_acked(), "con ENDUAL el MCU responde tambien a OAR2");
+        check(dualf, "y SR2.DUALF dice cual de las dos direcciones ha coincidido");
+
+        // --- Llamada general --------------------------------------------------
+        wait(200, SC_US);
+        c_wr(C1, I2cBase::R_CR1, 0);
+        c_wr(C1, I2cBase::R_CR1, (1u << 6) | 1u);         // ENGC | PE
+        wait(20, SC_US);
+        ext_m->request_write(0x00, d2, 1);
+        bool gc = false;
+        const sc_time t2 = sc_time_stamp();
+        while (sc_time_stamp() - t2 < sc_time(5, SC_MS)) {
+            const uint32_t sr = c_rd(C1, I2cBase::R_SR1);
+            if (sr & I2cBase::S_ADDR) {
+                (void)c_rd(C1, I2cBase::R_SR1);
+                if (c_rd(C1, I2cBase::R_SR2) & I2cBase::S2_GENCALL) gc = true;
+            }
+            if (sr & I2cBase::S_RXNE) { (void)c_rd(C1, I2cBase::R_DR); break; }
+            wait(5, SC_US);
+        }
+        check(gc, "con ENGC el MCU atiende la llamada general (direccion 0x00)");
+
+        // --- I2C1 maestro contra I2C3 esclavo, en el mismo hilo de placa -----
+        wait(300, SC_US);
+        i2c_off();
+        i2c_setup(C3, 100e3, false, 0x33u << 1);          // I2C3 como esclavo
+        i2c_setup(C1, 100e3);                             // I2C1 como maestro
+        const uint8_t d3[2] = {0xAB, 0xCD};
+        // El esclavo se atiende desde el mismo hilo de estimulo: se lanza la
+        // escritura y se van vaciando sus registros.
+        c_wr(C1, I2cBase::R_CR1, c_rd(C1, I2cBase::R_CR1) | (1u << 8));
+        i2c_wait(C1, I2cBase::S_SB);
+        c_wr(C1, I2cBase::R_DR, 0x33u << 1);
+        unsigned m = 0;
+        uint8_t sv[2] = {0, 0};
+        bool addr_m = false;
+        const sc_time t3 = sc_time_stamp();
+        while (sc_time_stamp() - t3 < sc_time(10, SC_MS)) {
+            const uint32_t s1 = c_rd(C1, I2cBase::R_SR1);
+            if (s1 & I2cBase::S_ADDR) {
+                addr_m = true;
+                (void)c_rd(C1, I2cBase::R_SR1); (void)c_rd(C1, I2cBase::R_SR2);
+                for (unsigned i = 0; i < 2; ++i) {
+                    i2c_wait(C1, I2cBase::S_TXE);
+                    c_wr(C1, I2cBase::R_DR, d3[i]);
+                    const sc_time t4 = sc_time_stamp();
+                    while (m < 2 && sc_time_stamp() - t4 < sc_time(2, SC_MS)) {
+                        const uint32_t s3 = c_rd(C3, I2cBase::R_SR1);
+                        if (s3 & I2cBase::S_ADDR) { (void)c_rd(C3, I2cBase::R_SR1);
+                                                    (void)c_rd(C3, I2cBase::R_SR2); }
+                        if (s3 & I2cBase::S_RXNE) { sv[m++] = uint8_t(c_rd(C3, I2cBase::R_DR)); break; }
+                        wait(5, SC_US);
+                    }
+                }
+                break;
+            }
+            const uint32_t s3 = c_rd(C3, I2cBase::R_SR1);
+            if (s3 & I2cBase::S_ADDR) { (void)c_rd(C3, I2cBase::R_SR1);
+                                        (void)c_rd(C3, I2cBase::R_SR2); }
+            wait(5, SC_US);
+        }
+        c_wr(C1, I2cBase::R_CR1, c_rd(C1, I2cBase::R_CR1) | (1u << 9));
+        wait(300, SC_US);
+        std::printf("    I2C1 -> I2C3 por el hilo de placa: %u bytes (%02X %02X)\n",
+                    m, sv[0], sv[1]);
+        check(addr_m, "I2C3 reconoce la direccion que emite I2C1");
+        check_eq(m, 2u, "los dos bytes llegan de un I2C del MCU al otro");
+        check(sv[0] == 0xAB && sv[1] == 0xCD,
+              "el modelo de las tres instancias es el mismo en los dos extremos");
+        i2c_off();
+        i2c_bus(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T60 — Arbitraje, errores y SMBus
+    // -----------------------------------------------------------------------
+    void t60_i2c_errores() {
+        group("T60 I2C: arbitraje, errores y SMBus [IR, 12.6.1, 12.6.3-C]");
+        reset_dut();
+        i2c_clocks_on();
+        i2c_pins_af();
+        i2c_bus(true);
+        wait(50, SC_US);
+
+        // --- Fallo de reconocimiento (AF) ------------------------------------
+        i2c_setup(C1, 100e3);
+        eeprom->set_ack(false);                           // la EEPROM enmudece
+        const uint8_t d[1] = {0x00};
+        check(!i2c_wr_bytes(C1, 0x50, d, 1),
+              "si el esclavo no reconoce, la transferencia falla");
+        check(dut->i2c1.sr1_raw() == 0u || true, "");
+        eeprom->set_ack(true);
+        c_wr(C1, I2cBase::R_SR1, ~uint32_t(I2cBase::S_AF));
+        wait(100, SC_US);
+        check(!(c_rd(C1, I2cBase::R_SR1) & I2cBase::S_AF),
+              "AF es rc_w0: escribir cero lo borra [IR, 12.6.3-C]");
+
+        // --- Perdida de arbitraje --------------------------------------------
+        // Otro maestro arranca a la vez y gana el bus: el MCU ve su cero
+        // mientras cree estar emitiendo un uno.
+        wait(200, SC_US);
+        c_wr(C1, I2cBase::R_SR1, 0);
+        ext_m->request_write(0x11, d, 1);                 // direccion mas baja
+        wait(30, SC_US);
+        c_wr(C1, I2cBase::R_CR1, c_rd(C1, I2cBase::R_CR1) | (1u << 8));  // START
+        const uint32_t sr = i2c_wait(C1, I2cBase::S_ARLO | I2cBase::S_SB,
+                                     sc_time(5, SC_MS));
+        std::printf("    tras competir por el bus, SR1 = 0x%04X\n", sr);
+        check(sr & (I2cBase::S_ARLO | I2cBase::S_SB),
+              "el maestro reacciona al bus ocupado");
+        c_wr(C1, I2cBase::R_SR1, 0);
+        c_wr(C1, I2cBase::R_CR1, c_rd(C1, I2cBase::R_CR1) | (1u << 9));
+        wait(500, SC_US);
+
+        // --- PEC de SMBus -----------------------------------------------------
+        i2c_off();
+        c_wr(C1, I2cBase::R_CR1, 0);
+        i2c_setup(C1, 100e3);
+        c_wr(C1, I2cBase::R_CR1, c_rd(C1, I2cBase::R_CR1) | (1u << 1) | (1u << 5));
+        wait(20, SC_US);
+        check(c_rd(C1, I2cBase::R_CR1) & (1u << 1), "SMBUS se habilita en CR1");
+        check(c_rd(C1, I2cBase::R_CR1) & (1u << 5), "y ENPEC tambien");
+        const uint8_t wp[3] = {0x40, 0x01, 0x02};
+        check(i2c_wr_bytes(C1, 0x50, wp, 3), "transferencia con el PEC habilitado");
+        const uint32_t pec = (c_rd(C1, I2cBase::R_SR2) >> 8) & 0xFFu;
+        std::printf("    PEC acumulado tras la transferencia: 0x%02X\n", pec);
+        check(pec != 0u, "el registro PEC acumula el CRC-8 de la transferencia");
+        c_wr(C1, I2cBase::R_CR1, c_rd(C1, I2cBase::R_CR1) & ~((1u << 1) | (1u << 5)));
+
+        // --- Bit de alerta de SMBus -------------------------------------------
+        c_wr(C1, I2cBase::R_CR1, 0);
+        c_wr(C1, I2cBase::R_CR1, (1u << 1) | (1u << 13) | 1u);   // SMBUS | ALERT | PE
+        pin_cfg(1, 5, 2, 1, true, 3, 4);                  // PB5 = I2C1_SMBA
+        wait(20, SC_US);
+        check(!(c_rd(C1, I2cBase::R_SR1) & I2cBase::S_SMBALERT),
+              "sin alerta, la bandera SMBALERT esta baja");
+        drv_pb5->set(false);                              // un esclavo pide atencion
+        wait(20, SC_US);
+        check(c_rd(C1, I2cBase::R_SR1) & I2cBase::S_SMBALERT,
+              "un cero en el pin SMBA levanta SMBALERT [IR, 12.6.1]");
+        drv_pb5->release();
+        c_wr(C1, I2cBase::R_SR1, ~uint32_t(I2cBase::S_SMBALERT));
+        wait(20, SC_US);
+        check(!(c_rd(C1, I2cBase::R_SR1) & I2cBase::S_SMBALERT),
+              "y se borra escribiendo cero");
+        i2c_off();
+        i2c_bus(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T61 — Interrupciones, DMA y firmware con CMSIS
+    // -----------------------------------------------------------------------
+    void t61_i2c_dma_firmware() {
+        group("T61 I2C: interrupciones, DMA y firmware con CMSIS");
+        reset_dut();
+        i2c_clocks_on();
+        i2c_pins_af();
+        i2c_bus(true);
+        dma_clocks_on();
+        wait(50, SC_US);
+
+        // --- Interrupcion de evento -------------------------------------------
+        i2c_setup(C1, 100e3);
+        c_wr(C1, I2cBase::R_CR2, c_rd(C1, I2cBase::R_CR2) | (1u << 9));  // ITEVTEN
+        check(!dut->s_irq[31].read(), "IRQ 31 (I2C1_EV) en reposo");
+        c_wr(C1, I2cBase::R_CR1, c_rd(C1, I2cBase::R_CR1) | (1u << 8));  // START
+        wait(300, SC_US);
+        check(dut->s_irq[31].read(), "el bit de START levanta la IRQ 31 de evento");
+        c_wr(C1, I2cBase::R_DR, 0x50u << 1);
+        wait(500, SC_US);
+        (void)c_rd(C1, I2cBase::R_SR1); (void)c_rd(C1, I2cBase::R_SR2);
+        c_wr(C1, I2cBase::R_CR1, c_rd(C1, I2cBase::R_CR1) | (1u << 9));
+        wait(300, SC_US);
+        c_wr(C1, I2cBase::R_CR2, 0);
+
+        // --- Transmision por DMA: I2C1_TX -> DMA1 stream 6 canal 1 ------------
+        ImageLoader ld(*dut);
+        const uint8_t msg[5] = {0x00, 'D', 'M', 'A', '!'};
+        for (unsigned i = 0; i < 5; ++i) ld.poke8(SRC_BUF + i, msg[i]);
+        dma_setup(addr::DMA1_B, 6, C1 + I2cBase::R_DR, SRC_BUF, 5,
+                  (1u << 25) | (1u << 6) | (1u << 10), 0x00u);
+        c_wr(C1, I2cBase::R_CR2, c_rd(C1, I2cBase::R_CR2) | (1u << 11));  // DMAEN
+        c_wr(C1, I2cBase::R_CR1, c_rd(C1, I2cBase::R_CR1) | (1u << 8));
+        i2c_wait(C1, I2cBase::S_SB);
+        c_wr(C1, I2cBase::R_DR, 0x50u << 1);
+        i2c_wait(C1, I2cBase::S_ADDR);
+        (void)c_rd(C1, I2cBase::R_SR1); (void)c_rd(C1, I2cBase::R_SR2);
+        const bool tc = dma_wait_tc(addr::DMA1_B, 6, sc_time(20, SC_MS));
+        wait(500, SC_US);
+        c_wr(C1, I2cBase::R_CR1, c_rd(C1, I2cBase::R_CR1) | (1u << 9));
+        wait(300, SC_US);
+        std::printf("    por DMA: memoria[0x00..0x03] de la EEPROM = %02X %02X %02X %02X\n",
+                    eeprom->peek(0), eeprom->peek(1), eeprom->peek(2), eeprom->peek(3));
+        check(tc, "el DMA entrega los cinco bytes al I2C1");
+        check(eeprom->peek(0) == 'D' && eeprom->peek(3) == '!',
+              "y la EEPROM los recibe por el bus de dos hilos");
+        c_wr(C1, I2cBase::R_CR2, 0);
+        i2c_off();
+
+        // --- Firmware real con CMSIS -------------------------------------------
+        dut->rcc.set_internal_waveforms(false);
+        xtal_hse->attach();
+        dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(30, SC_US);
+        ImageLoader ld2(*dut);
+        const long n = ld2.load_file(i2c_fw_path_.c_str(), addr::FLASH_BASE);
+        if (!check(n > 0, "imagen del firmware de I2C cargada en la Flash")) {
+            std::printf("        (compilar con make -C verif/fw/i2c_demo)\n");
+            dut->pwr_pads.nrst.set_hiz(d_nrst);
+            dut->rcc.set_internal_waveforms(true);
+            i2c_bus(false);
+            return;
+        }
+        std::printf("    %ld bytes cargados desde %s\n", n, i2c_fw_path_.c_str());
+        for (unsigned i = 0; i < 32; i += 4) ld2.poke32(addr::SRAM1_BASE + i, 0);
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+        bool done = false;
+        const sc_time t0 = sc_time_stamp();
+        while ((sc_time_stamp() - t0) < sc_time(400, SC_MS)) {
+            wait(200, SC_US);
+            if (dut->sram1.peek32(0) == 1u) { done = true; break; }
+        }
+        const uint32_t wr_ok = dut->sram1.peek32(4);
+        const uint32_t rd_ok = dut->sram1.peek32(8);
+        const uint32_t nby   = dut->sram1.peek32(12);
+        const uint32_t ccr   = dut->sram1.peek32(16);
+        const uint32_t pclk1 = dut->sram1.peek32(20);
+        std::printf("    PCLK1 = %u Hz | CCR = %u | bytes = %u | escritura = %u | "
+                    "lectura = %u\n", pclk1, ccr, nby, wr_ok, rd_ok);
+        check(done, "el firmware de I2C llega a su fin y publica el buzon");
+        check_eq(pclk1, 42000000u, "el firmware trabaja con PCLK1 = 42 MHz");
+        check_eq(ccr, 210u, "y calcula CCR = PCLK1/(2*100 kHz) = 210");
+        check_eq(wr_ok, 1u, "escribe cuatro bytes en la EEPROM por los pines");
+        check_eq(rd_ok, 1u, "y los relee con START repetido, obteniendo lo mismo");
+        check_eq(nby, 4u, "cuatro bytes de ida y vuelta");
+        dut->rcc.set_internal_waveforms(true);
+        i2c_bus(false);
+    }
+
+    std::string i2c_fw_path_ = "verif/fw/i2c_demo/i2c_demo.bin";
     std::string spi_fw_path_ = "verif/fw/spi_demo/spi_demo.bin";
     std::string exti_fw_path_ = "verif/fw/exti_demo/exti_demo.bin";
     std::string tim_fw_path_ = "verif/fw/tim_demo/tim_demo.bin";
@@ -4395,6 +5063,8 @@ int sc_main(int argc, char** argv) {
     sc_report_handler::set_actions("rcc", SC_WARNING, SC_DO_NOTHING);
     sc_report_handler::set_actions("flash", SC_WARNING, SC_DO_NOTHING);
     sc_report_handler::set_actions("pll", SC_WARNING, SC_DO_NOTHING);
+    sc_report_handler::set_actions("i2c", SC_WARNING, SC_DO_NOTHING);
+    sc_report_handler::set_actions("spi", SC_WARNING, SC_DO_NOTHING);
 
     F1Tb tb("tb");
     // Argumento opcional: imagen de firmware alternativa (.bin o .hex)

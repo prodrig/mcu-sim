@@ -44,6 +44,11 @@ public:
     // Conductancia total del nodo [S] y condición de nodo flotante (alta Z).
     virtual double conductance() const                         = 0;
     virtual bool  floating() const                             = 0;
+    // Tensión que tendría el nodo SIN la aportación de un driver concreto. La
+    // necesita cualquier pieza que quiera saber qué está haciendo el resto del
+    // nodo sin contarse a sí misma: por ejemplo, un hilo de bus de colector
+    // abierto que propaga el cero de un pin a los demás sin realimentarse.
+    virtual float voltage_excluding(int id, bool& floating_out) const = 0;
     virtual const sc_core::sc_event& value_changed_event() const = 0;
 };
 
@@ -68,6 +73,16 @@ public:
     }
     double conductance() const override { return g_tot_; }
     bool   floating()    const override { return g_tot_ < G_FLOAT; }
+    float voltage_excluding(int id, bool& floating_out) const override {
+        double num = 0.0, den = 0.0;
+        for (size_t i = 0; i < drv_.size(); ++i) {
+            if (int(i) == id) continue;
+            num += drv_[i].v_drv / drv_[i].r_out;
+            den += 1.0 / drv_[i].r_out;
+        }
+        floating_out = (den < G_FLOAT);
+        return floating_out ? v_pin_ : float(num / den);
+    }
     // Corriente total que entra al nodo desde los drivers cuyo id no se pasa;
     // sirve al encapsulado para acumular el consumo por VDD/VSS [IR, §2.4].
     float abs_current(int id) const { return std::fabs(current(id)); }

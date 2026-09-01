@@ -536,8 +536,29 @@ inline void Stm32F407VG::bind_analog() {
     pinmux.connect_af(0,  6, 9, af_ch(tim13, 0));  // PA6  TIM13_CH1
     pinmux.connect_af(0,  7, 9, af_ch(tim14, 0));  // PA7  TIM14_CH1
 
-    pinmux.connect_af(1, 6, 4, AfEndpoint{&i2c1.scl_out, &i2c1.scl_oe, &i2c1.scl_in}); // PB6 I2C1_SCL
-    pinmux.connect_af(1, 7, 4, AfEndpoint{&i2c1.sda_out, &i2c1.sda_oe, &i2c1.sda_in}); // PB7 I2C1_SDA
+    // ---- I2C (AF4) [IR, §12.6.2; tabla AF de §2.1] -----------------------
+    // SCL y SDA son bidireccionales y de colector abierto: el periférico solo
+    // tira de la línea a cero y el pad, con OTYPER = open-drain, la deja en
+    // alta impedancia cuando escribe un uno. El nivel alto lo da el pull-up de
+    // la placa, no el MCU. En reposo la entrada se fuerza a uno (línea libre).
+    auto af_i2c = [](sc_core::sc_signal<bool>& o, sc_core::sc_signal<bool>& e,
+                     sc_core::sc_signal<bool>& i) {
+        return AfEndpoint{&o, &e, &i, true};
+    };
+    // I2C1: SCL en PB6 o PB8, SDA en PB7 o PB9, SMBA en PB5
+    pinmux.connect_af(1, 6, 4, af_i2c(i2c1.scl_out, i2c1.scl_oe, i2c1.scl_in));
+    pinmux.connect_af(1, 8, 4, af_i2c(i2c1.scl_out, i2c1.scl_oe, i2c1.scl_in));
+    pinmux.connect_af(1, 7, 4, af_i2c(i2c1.sda_out, i2c1.sda_oe, i2c1.sda_in));
+    pinmux.connect_af(1, 9, 4, af_i2c(i2c1.sda_out, i2c1.sda_oe, i2c1.sda_in));
+    pinmux.connect_af(1, 5, 4, af_i2c(i2c1.smba_out, i2c1.smba_oe, i2c1.smba_in));
+    // I2C2: SCL en PB10, SDA en PB11, SMBA en PB12 (PF0/PF1 no existen en LQFP100)
+    pinmux.connect_af(1, 10, 4, af_i2c(i2c2.scl_out, i2c2.scl_oe, i2c2.scl_in));
+    pinmux.connect_af(1, 11, 4, af_i2c(i2c2.sda_out, i2c2.sda_oe, i2c2.sda_in));
+    pinmux.connect_af(1, 12, 4, af_i2c(i2c2.smba_out, i2c2.smba_oe, i2c2.smba_in));
+    // I2C3: SCL en PA8, SDA en PC9, SMBA en PA9
+    pinmux.connect_af(0, 8, 4, af_i2c(i2c3.scl_out, i2c3.scl_oe, i2c3.scl_in));
+    pinmux.connect_af(2, 9, 4, af_i2c(i2c3.sda_out, i2c3.sda_oe, i2c3.sda_in));
+    pinmux.connect_af(0, 9, 4, af_i2c(i2c3.smba_out, i2c3.smba_oe, i2c3.smba_in));
     // ---- SPI e I2S [IR, §12.5.3-D: pines tipicos; tabla AF de §2.1] ------
     // Cada pin de un SPI es bidireccional: el mismo hilo es salida en un
     // extremo y entrada en el otro segun quien sea maestro, asi que se registra
