@@ -167,6 +167,16 @@ SC_MODULE(F1Tb) {
     sc_signal<double> s_sp_i2shz{"s_sp_i2shz"};
     sc_vector<sc_signal<bool>> s_sp_nc{"s_sp_nc", 8};
 
+    // --- Circuitería de las pruebas del DAC --------------------------------
+    // DAC con rasgos elegidos en TIEMPO DE EJECUCIÓN (véase T67)
+    DacBase* d_rt = nullptr;
+    BusTestMaster tm7{"tm7"};
+    sc_signal<bool>   s_dc_true{"s_dc_true"}, s_dc_rst{"s_dc_rst"};
+    sc_signal<bool>   s_dc_irq{"s_dc_irq"};
+    sc_vector<sc_signal<bool>> s_dc_nc{"s_dc_nc", 2};
+    sc_vector<sc_signal<bool>> s_dc_trg{"s_dc_trg", 8};
+    sc_signal<double> s_dc_v{"s_dc_v"};
+
     // --- Circuitería de las pruebas del ADC --------------------------------
     // Fuentes de tensión externas soldadas a las entradas analógicas. Son
     // drivers Thevenin de baja impedancia: el pad, en modo analógico, queda en
@@ -251,6 +261,16 @@ SC_MODULE(F1Tb) {
         src_pa4 = new Driver(dut->pinmux.analog(0, 4));   // ADC12_IN4 (NO ADC3)
         src_pc0 = new Driver(dut->pinmux.analog(2, 0));   // ADC123_IN10
         src_pc1 = new Driver(dut->pinmux.analog(2, 1));   // ADC123_IN11
+        // Un DAC con los rasgos puestos en tiempo de EJECUCIÓN: 8 bits, un
+        // solo canal, sin buffer, sin ondas, sin disparo y sin DMA.
+        d_rt = new DacBase("d_rt", CAPS_DAC_BASIC);
+        tm7.isk.bind(d_rt->tsk);
+        d_rt->clk(dut->s_pclk1); d_rt->clk_hz(dut->s_pclk1_hz);
+        d_rt->rst_n(s_dc_rst);   d_rt->clk_en(s_dc_true);
+        d_rt->irq(s_dc_irq);
+        d_rt->dma_req_ch1(s_dc_nc[0]); d_rt->dma_req_ch2(s_dc_nc[1]);
+        d_rt->vref(s_dc_v);
+        for (unsigned i = 0; i < 8; ++i) d_rt->trig[i](s_dc_trg[i]);
         // Un ADC con los rasgos puestos en tiempo de EJECUCIÓN: 10 bits fijos,
         // ocho canales, sin grupo inyectado, sin perro guardián y sin DMA.
         a_rt = new AdcBlockBase("a_rt", CAPS_ADC_BASIC, CAPS_ADC_BASIC, CAPS_ADC_BASIC);
@@ -342,6 +362,7 @@ SC_MODULE(F1Tb) {
         delete lnk_iext; delete lnk_isd; delete lnk_iws; delete lnk_ick;
         delete lnk_nss; delete lnk_miso; delete lnk_mosi; delete lnk_sck;
         delete t_rt;
+        delete d_rt;
         delete a_rt;
         delete src_pc1; delete src_pc0; delete src_pa4;
         delete src_pa2; delete src_pa1; delete src_pa0;
@@ -497,6 +518,13 @@ SC_MODULE(F1Tb) {
         t64_adc_pines();
         t65_adc_secuencias();
         t66_adc_dma_firmware();
+        const unsigned f5a_pass = g_pass, f5a_fail = g_fail;
+
+        // ======================== Fase F5: DAC ==============================
+        t67_dac_variantes();
+        t68_dac_registros();
+        t69_dac_buffer_ondas();
+        t70_dac_dma_firmware();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -517,7 +545,9 @@ SC_MODULE(F1Tb) {
         std::printf("Resumen F5 (I2C)  : %u comprobaciones OK, %u fallos\n",
                     f5i_pass - f5s_pass, f5i_fail - f5s_fail);
         std::printf("Resumen F5 (ADC)  : %u comprobaciones OK, %u fallos\n",
-                    g_pass - f5i_pass, g_fail - f5i_fail);
+                    f5a_pass - f5i_pass, f5a_fail - f5i_fail);
+        std::printf("Resumen F5 (DAC)  : %u comprobaciones OK, %u fallos\n",
+                    g_pass - f5a_pass, g_fail - f5a_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -5800,6 +5830,497 @@ SC_MODULE(F1Tb) {
         adc_links(true);
     }
 
+
+    // =======================================================================
+    // FASE F5 — DAC
+    // =======================================================================
+    static constexpr uint32_t D_B = addr::DAC_B;
+
+    uint32_t d_rd(uint32_t off) { uint32_t v = 0; tm.read32(D_B + off, v); return v; }
+    void     d_wr(uint32_t off, uint32_t v) { tm.write32(D_B + off, v); }
+    // La variante elegida en tiempo de ejecución vive fuera del mapa del MCU y
+    // se accede por su propio maestro de bus.
+    uint32_t dv_rd(uint32_t off) { uint32_t v = 0; tm7.read32(D_B + off, v); return v; }
+    void     dv_wr(uint32_t off, uint32_t v) { tm7.write32(D_B + off, v); }
+    uint32_t dv_sig(uint32_t off) {
+        dv_wr(off, 0xFFFFFFFFu);
+        const uint32_t v = dv_rd(off);
+        dv_wr(off, 0);
+        return v;
+    }
+    uint32_t d_sig(uint32_t off) {
+        d_wr(off, 0xFFFFFFFFu);
+        const uint32_t v = d_rd(off);
+        d_wr(off, 0);
+        return v;
+    }
+    void dac_clocks_on() {
+        rcc_enable(Rcc::R_AHB1ENR, 0);       // GPIOA
+        rcc_enable(Rcc::R_APB1ENR, 29);      // DACEN
+    }
+    // Las salidas del DAC exigen el pin en MODO ANALÓGICO: si se dejan como
+    // GPIO, el buffer de salida del pad pelea con el amplificador del DAC.
+    void dac_pins_analog() { pin_cfg(0, 4, 3); pin_cfg(0, 5, 3); }
+    double dac_pin_v(unsigned ch) {
+        return double(dut->pinmux.analog(0, ch == 0 ? 4 : 5).voltage());
+    }
+    // Tensión teórica de un código de 12 bits
+    static double dac_volts(unsigned code, double vref = 3.3) {
+        return double(code) / 4095.0 * vref;
+    }
+
+    // -----------------------------------------------------------------------
+    // T67 — Los dos canales y las variantes [IR, §12.14]
+    // -----------------------------------------------------------------------
+    void t67_dac_variantes() {
+        group("T67 DAC: los dos canales y las variantes [IR, 12.14]");
+        reset_dut();
+        dac_clocks_on();
+        s_dc_true.write(true); s_dc_rst.write(true);
+        s_dc_v.write(3.3);
+        wait(5, SC_US);
+
+        // --- Selección en tiempo de compilación (parámetro de plantilla) ----
+        static_assert(Dac::channels() == 2 && Dac::bits() == 12,
+                      "el F407 lleva dos canales de 12 bits");
+        static_assert(Dac1Ch::channels() == 1, "la variante de un canal");
+        static_assert(DacBasic::bits() == 8, "la variante reducida es de 8 bits");
+        check(Dac::channels() == 2 && Dac::bits() == 12,
+              "el parametro de plantilla fija canales y bits");
+        check(dut->dac.caps().dual && dut->dac.caps().buffer &&
+              dut->dac.caps().noise && dut->dac.caps().triangle,
+              "el DAC del F407 declara registros duales, buffer y las dos ondas");
+
+        // --- LOS DOS CANALES SON SIMETRICOS, y se comprueba desde el bus ----
+        // Se escriben unos a CR y se compara la mitad alta con la baja: si el
+        // canal 2 es una copia desplazada 16 bits del canal 1, coinciden.
+        const uint32_t cr = d_sig(DacBase::R_CR);
+        const uint32_t lo = cr & 0xFFFFu, hi = (cr >> 16) & 0xFFFFu;
+        std::printf("    DAC_CR = 0x%08X -> canal 1 = 0x%04X, canal 2 = 0x%04X\n",
+                    cr, lo, hi);
+        check_eq(hi, lo,
+                 "DAC_CR: el canal 2 es el canal 1 desplazado 16 bits, bit a bit");
+        check_eq(lo, 0x3FFFu,
+                 "y cada mitad implementa EN, BOFF, TEN, TSEL, WAVE, MAMP, DMAEN y DMAUDRIE");
+        // DAC_SR no admite el truco de escribir unos: sus banderas son w1c y
+        // escribir uno las BORRA. La simetria se demuestra provocando el mismo
+        // desbordamiento en cada canal y viendo donde aparece la bandera.
+        d_wr(DacBase::R_SR, 0xFFFFFFFFu);                     // partir de cero
+        uint32_t sr = 0;
+        for (unsigned c = 0; c < 2; ++c) {
+            const uint32_t cfg = 1u | (1u << 1) | (1u << 2) | (7u << 3) | (1u << 12);
+            d_wr(DacBase::R_CR, cfg << (16 * c));             // TSEL = SW, DMAEN
+            wait(3, SC_US);
+            d_wr(DacBase::R_SWTRIGR, 1u << c);                // pide dato
+            wait(3, SC_US);
+            d_wr(DacBase::R_SWTRIGR, 1u << c);                // nadie lo sirvio
+            wait(3, SC_US);
+            sr |= d_rd(DacBase::R_SR);
+        }
+        d_wr(DacBase::R_CR, 0);
+        std::printf("    DAC_SR tras desbordar los dos canales = 0x%08X\n", sr);
+        check_eq(sr, DacBase::S_DMAUDR1 | DacBase::S_DMAUDR2,
+                 "DAC_SR: DMAUDR1 en el bit 13 y DMAUDR2 en el 29, el mismo desplazamiento");
+        d_wr(DacBase::R_SR, 0xFFFFFFFFu);
+
+        // Los tres formatos existen en los dos canales
+        d_wr(DacBase::R_DHR12R1, 0x0ABC);
+        d_wr(DacBase::R_DHR12R2, 0x0ABC);
+        check(d_rd(DacBase::R_DHR12R1) == d_rd(DacBase::R_DHR12R2),
+              "los dos canales tienen los mismos registros de datos");
+        check(d_rd(DacBase::R_DHR12L1) == 0xABC0u && d_rd(DacBase::R_DHR12L2) == 0xABC0u,
+              "y los dos aceptan los tres formatos de alineacion");
+        d_wr(DacBase::R_DHR12R1, 0); d_wr(DacBase::R_DHR12R2, 0);
+
+        // --- Selección en tiempo de ejecución (parámetro del constructor) ---
+        const uint32_t v_cr  = dv_sig(DacBase::R_CR);
+        const uint32_t v_sr  = dv_sig(DacBase::R_SR);
+        dv_wr(DacBase::R_DHR12R2, 0x0FFF);
+        const uint32_t v_ch2 = dv_rd(DacBase::R_DHR12R2);
+        dv_wr(DacBase::R_DHR12RD, 0x0FFF0FFF);
+        const uint32_t v_dual = dv_rd(DacBase::R_DHR12RD);
+        dv_wr(DacBase::R_DHR8R1, 0x00A0);
+        const uint32_t v_8 = dv_rd(DacBase::R_DHR12R1);
+        std::printf("    variante en ejecucion (a medida): CR = 0x%08X, SR = 0x%08X,\n"
+                    "        canal 2 = 0x%04X, dual = 0x%08X, DHR8R1 = 0x%03X\n",
+                    v_cr, v_sr, v_ch2, v_dual, v_8);
+        check_eq(v_cr & 0xFFFF0000u, 0u,
+                 "variante de ejecucion: el canal 2 no existe (mitad alta de CR reservada)");
+        check_eq(v_ch2, 0u, "ni su registro de datos");
+        check_eq(v_dual, 0u, "ni los registros duales, que exigen los dos canales");
+        check_eq(v_cr & 0xFFFFu, 0x0001u,
+                 "sin buffer, sin ondas, sin disparo y sin DMA: solo queda EN1");
+        check_eq(v_sr, 0u, "sin DMA no hay bandera de desbordamiento");
+        check_eq(v_8, 0x0A00u,
+                 "y con 8 bits el dato se coloca en la parte alta de DHR");
+        check(d_rt->caps().bits == 8u && d_rt->caps().n_channels == 1u,
+              "los ejes bits/canales/buffer/ondas/disparo/DMA se fijan por el constructor");
+        dv_wr(DacBase::R_DHR12R1, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // T68 — Registros, formatos de dato y tension en el pin
+    // -----------------------------------------------------------------------
+    void t68_dac_registros() {
+        group("T68 DAC: registros, formatos y tension en el pin [IR, 12.14.2]");
+        reset_dut();
+        dac_pins_analog();
+
+        uint32_t v = 0;
+        check(tm.read32(D_B + DacBase::R_CR, v) == TLM_GENERIC_ERROR_RESPONSE,
+              "DAC sin DACEN -> error de bus");
+        dac_clocks_on();
+        check(tm.read32(D_B + DacBase::R_CR, v) == TLM_OK_RESPONSE,
+              "con DACEN el bloque responde");
+
+        // --- Valores de reset ----------------------------------------------
+        check_eq(d_rd(DacBase::R_CR), 0u, "DAC_CR de reset");
+        check_eq(d_rd(DacBase::R_SR), 0u, "DAC_SR de reset");
+        check_eq(d_rd(DacBase::R_DOR1), 0u, "DAC_DOR1 de reset");
+        check_eq(d_rd(DacBase::R_DOR2), 0u, "DAC_DOR2 de reset");
+        check_eq(d_rd(DacBase::R_SWTRIGR), 0u, "DAC_SWTRIGR se lee como cero: es de solo escritura");
+
+        // --- Sin disparo, el dato pasa a DOR de inmediato -------------------
+        d_wr(DacBase::R_CR, 1u | (1u << 1));                  // EN1, BOFF1
+        wait(2, SC_US);
+        d_wr(DacBase::R_DHR12R1, 0x0800);
+        wait(2, SC_US);
+        check_eq(d_rd(DacBase::R_DOR1), 0x0800u,
+                 "con TEN = 0 el dato pasa de DHR a DOR sin esperar a nadie");
+
+        // --- Los tres formatos cargan el mismo valor ------------------------
+        d_wr(DacBase::R_DHR12L1, 0x0ABC << 4);
+        wait(2, SC_US);
+        check_eq(d_rd(DacBase::R_DOR1), 0x0ABCu,
+                 "DHR12L1: los 12 bits alineados a la izquierda");
+        d_wr(DacBase::R_DHR8R1, 0xAB);
+        wait(2, SC_US);
+        check_eq(d_rd(DacBase::R_DOR1), 0x0AB0u,
+                 "DHR8R1: los 8 bits se colocan en la parte alta del dato");
+
+        // --- El registro DUAL carga los dos canales de una vez --------------
+        d_wr(DacBase::R_CR, 1u | (1u << 1) | ((1u | (1u << 1)) << 16));  // EN1 y EN2
+        wait(2, SC_US);
+        d_wr(DacBase::R_DHR12RD, 0x0111 | (0x0222u << 16));
+        wait(2, SC_US);
+        check_eq(d_rd(DacBase::R_DOR1), 0x0111u,
+                 "DHR12RD carga el canal 1 con una sola escritura...");
+        check_eq(d_rd(DacBase::R_DOR2), 0x0222u,
+                 "...y el canal 2 en el mismo instante [IR, 12.14.2-C]");
+        d_wr(DacBase::R_DHR8RD, 0x33 | (0x44u << 8));
+        wait(2, SC_US);
+        check(d_rd(DacBase::R_DOR1) == 0x0330u && d_rd(DacBase::R_DOR2) == 0x0440u,
+              "y lo mismo con el formato dual de 8 bits");
+
+        // --- La tension del PIN sigue al codigo -----------------------------
+        // BOFF = 1: sin amplificador, la salida llega de rail a rail.
+        d_wr(DacBase::R_CR, 1u | (1u << 1));                  // solo canal 1, BOFF
+        wait(5, SC_US);
+        bool todas = true;
+        std::printf("    codigo   V(PA4)   esperado\n");
+        for (unsigned code : {0u, 1024u, 2048u, 3072u, 4095u}) {
+            d_wr(DacBase::R_DHR12R1, code);
+            wait(20, SC_US);
+            const double vp = dac_pin_v(0), ve = dac_volts(code);
+            std::printf("    %6u  %6.3f V  %6.3f V\n", code, vp, ve);
+            if (std::fabs(vp - ve) > 0.005) todas = false;
+        }
+        check(todas, "la tension del pin es V = DOR/4095 * VREF+ [IR, 12.14]");
+        check_eq(dut->dac.updates(0) >= 5u, 1u, "el canal ha actualizado su salida");
+
+        // --- Latencia de estabilizacion -------------------------------------
+        // Escribir el dato no mueve el pin al instante: hay que esperar
+        // t_SETTLING, igual que en el silicio.
+        d_wr(DacBase::R_DHR12R1, 0);
+        wait(20, SC_US);
+        const double v0 = dac_pin_v(0);
+        d_wr(DacBase::R_DHR12R1, 4095);
+        wait(1, SC_US);                                        // t < t_SETTLING
+        const double v_mid = dac_pin_v(0);
+        wait(20, SC_US);                                       // t > t_SETTLING
+        const double v1 = dac_pin_v(0);
+        std::printf("    escalon 0 -> 4095: a 1 us el pin esta a %.3f V, a 21 us a %.3f V\n",
+                    v_mid, v1);
+        check(std::fabs(v_mid - v0) < 0.01,
+              "antes de t_SETTLING el pin conserva la tension anterior");
+        check(std::fabs(v1 - 3.3) < 0.01, "y despues toma la nueva");
+        d_wr(DacBase::R_CR, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // T69 — Buffer, carga, disparo y generadores de onda
+    // -----------------------------------------------------------------------
+    void t69_dac_buffer_ondas() {
+        group("T69 DAC: buffer de salida, disparos y ondas [IR, 12.14.2-B]");
+        reset_dut();
+        dac_clocks_on();
+        dac_pins_analog();
+
+        // --- El buffer no llega a los railes --------------------------------
+        d_wr(DacBase::R_CR, 1u);                               // EN1, buffer PUESTO
+        wait(5, SC_US);
+        d_wr(DacBase::R_DHR12R1, 0);
+        wait(20, SC_US);
+        const double v_lo_buf = dac_pin_v(0);
+        d_wr(DacBase::R_DHR12R1, 4095);
+        wait(20, SC_US);
+        const double v_hi_buf = dac_pin_v(0);
+        d_wr(DacBase::R_CR, 1u | (1u << 1));                   // BOFF1: sin buffer
+        wait(20, SC_US);
+        const double v_hi_off = dac_pin_v(0);
+        d_wr(DacBase::R_DHR12R1, 0);
+        wait(20, SC_US);
+        const double v_lo_off = dac_pin_v(0);
+        std::printf("    con buffer: %.3f V a %.3f V | sin buffer: %.3f V a %.3f V\n",
+                    v_lo_buf, v_hi_buf, v_lo_off, v_hi_off);
+        check(v_lo_buf > 0.15 && v_lo_buf < 0.25,
+              "con el buffer puesto la salida no baja de ~0,2 V");
+        check(v_hi_buf > 3.05 && v_hi_buf < 3.15,
+              "ni sube hasta VREF+: se queda a 0,2 V del rail");
+        check(v_lo_off < 0.01 && v_hi_off > 3.29,
+              "con BOFF la salida SI llega de rail a rail [IR, 12.14.2-B]");
+
+        // --- ...pero sin buffer no puede con una carga ----------------------
+        // Es la razon de ser del amplificador: con BOFF la impedancia de salida
+        // es de ~15 kohm y cualquier carga hunde la tension.
+        d_wr(DacBase::R_DHR12R1, 4095);
+        wait(20, SC_US);
+        {
+            Resistor carga(dut->pinmux.analog(0, 4), 0.0, 1000.0);   // 1k a VSS
+            wait(20, SC_US);
+            const double v_carga_off = dac_pin_v(0);
+            d_wr(DacBase::R_CR, 1u);                            // buffer puesto
+            wait(30, SC_US);
+            const double v_carga_buf = dac_pin_v(0);
+            std::printf("    con 1 kohm a masa: sin buffer %.3f V, con buffer %.3f V\n",
+                        v_carga_off, v_carga_buf);
+            check(v_carga_off < 0.3,
+                  "sin buffer, una carga de 1 kohm hunde la salida: 15 kohm no pueden con ella");
+            check(v_carga_buf > 2.9,
+                  "con el buffer la misma carga apenas la mueve");
+        }
+        wait(20, SC_US);
+
+        // --- Disparo por software -------------------------------------------
+        // Con TEN = 1 el dato se queda esperando: DOR no cambia hasta el
+        // disparo. TSEL = 111 es el disparo por software.
+        d_wr(DacBase::R_CR, 1u | (1u << 1) | (1u << 2) | (7u << 3));  // EN,BOFF,TEN,TSEL=SW
+        wait(5, SC_US);
+        d_wr(DacBase::R_DHR12R1, 0);
+        d_wr(DacBase::R_SWTRIGR, 1u);
+        wait(20, SC_US);
+        d_wr(DacBase::R_DHR12R1, 0x0C00);
+        wait(10, SC_US);
+        check_eq(d_rd(DacBase::R_DOR1), 0u,
+                 "con TEN = 1 escribir el dato NO mueve la salida");
+        d_wr(DacBase::R_SWTRIGR, 1u);
+        wait(20, SC_US);
+        check_eq(d_rd(DacBase::R_DOR1), 0x0C00u,
+                 "el disparo por software (SWTRIGR) es el que la mueve");
+        check_near(dac_pin_v(0), dac_volts(0x0C00), 0.02,
+                   "y la tension del pin sigue al nuevo DOR");
+
+        // --- Disparo por TRGO de un temporizador ----------------------------
+        // TSEL = 000 es TIM6_TRGO, el disparo canonico del DAC.
+        rcc_enable(Rcc::R_APB1ENR, 4);                          // TIM6
+        d_wr(DacBase::R_CR, 1u | (1u << 1) | (1u << 2));        // TEN, TSEL = 000
+        d_wr(DacBase::R_DHR12R1, 0x0400);
+        wait(10, SC_US);
+        const uint64_t n0 = dut->dac.updates(0);
+        tm.write32(addr::TIM6_B + 0x24, 0);                     // CNT
+        tm.write32(addr::TIM6_B + 0x2C, 199);                   // ARR
+        tm.write32(addr::TIM6_B + 0x04, 2u << 4);               // CR2.MMS = update
+        tm.write32(addr::TIM6_B + 0x00, 1u);                    // CEN
+        wait(300, SC_US);
+        tm.write32(addr::TIM6_B + 0x00, 0);
+        const uint64_t n1 = dut->dac.updates(0);
+        std::printf("    TIM6_TRGO movio la salida %llu veces\n",
+                    (unsigned long long)(n1 - n0));
+        check(n1 > n0, "el TRGO del TIM6 dispara la actualizacion del DAC");
+        check_eq(d_rd(DacBase::R_DOR1), 0x0400u, "y lo que sale es el dato cargado");
+
+        // --- Generador de TRIANGULO -----------------------------------------
+        // MAMP = 3 -> amplitud 2^4 - 1 = 15. La salida sube de 0 a 15 y vuelve.
+        d_wr(DacBase::R_CR, 1u | (1u << 1) | (1u << 2) | (7u << 3) |
+                            (2u << 6) | (3u << 8));             // WAVE = 1x, MAMP = 3
+        d_wr(DacBase::R_DHR12R1, 0x0100);
+        wait(5, SC_US);
+        unsigned tri_max = 0, tri_min = 0xFFFFu;
+        bool bajo = false;
+        unsigned prev = 0x0100;
+        for (unsigned i = 0; i < 40; ++i) {
+            d_wr(DacBase::R_SWTRIGR, 1u);
+            wait(2, SC_US);
+            const unsigned d = d_rd(DacBase::R_DOR1);
+            if (d > tri_max) tri_max = d;
+            if (d < tri_min) tri_min = d;
+            if (i > 0 && d < prev) bajo = true;
+            prev = d;
+        }
+        std::printf("    triangulo con MAMP = 3: DOR entre %u y %u (base 256, amplitud 15)\n",
+                    tri_min, tri_max);
+        check_eq(tri_max, 0x0100u + 15u,
+                 "el triangulo sube hasta DHR + (2^(MAMP+1) - 1)");
+        check(tri_min >= 0x0100u, "nunca baja del dato base");
+        check(bajo, "y vuelve a bajar: es un triangulo, no una rampa");
+
+        // --- Generador de RUIDO ---------------------------------------------
+        // MAMP = 7 -> mascara de 8 bits sobre el LFSR de 12.
+        d_wr(DacBase::R_CR, 1u | (1u << 1) | (1u << 2) | (7u << 3) |
+                            (1u << 6) | (7u << 8));             // WAVE = 01, MAMP = 7
+        d_wr(DacBase::R_DHR12R1, 0x0200);
+        wait(5, SC_US);
+        unsigned distintos = 0, fuera = 0, ant = 0xFFFFu;
+        for (unsigned i = 0; i < 32; ++i) {
+            d_wr(DacBase::R_SWTRIGR, 1u);
+            wait(2, SC_US);
+            const unsigned d = d_rd(DacBase::R_DOR1);
+            if (d != ant) ++distintos;
+            if (d < 0x0200u || d > 0x0200u + 0xFFu) ++fuera;
+            ant = d;
+        }
+        std::printf("    ruido con MAMP = 7: %u valores distintos de 32, %u fuera de rango\n",
+                    distintos, fuera);
+        check(distintos > 20u, "el generador de ruido cambia la salida en cada disparo");
+        check_eq(fuera, 0u,
+                 "y se queda dentro de DHR + la mascara de MAMP [IR, 12.14.2-B]");
+        d_wr(DacBase::R_CR, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // T70 — DMA, desbordamiento y firmware con CMSIS
+    // -----------------------------------------------------------------------
+    void t70_dac_dma_firmware() {
+        group("T70 DAC: DMA, desbordamiento y firmware con CMSIS");
+        reset_dut();
+        dac_clocks_on();
+        dac_pins_analog();
+        dma_clocks_on();
+        rcc_enable(Rcc::R_APB1ENR, 4);                          // TIM6
+
+        // --- Una forma de onda entregada por DMA -----------------------------
+        // El canal 1 del DAC va por DMA1, stream 5, canal 7 [IR, §12.14].
+        ImageLoader ld(*dut);
+        static const uint16_t onda[8] = {0, 585, 1170, 1755, 2340, 2925, 3510, 4095};
+        for (unsigned i = 0; i < 4; ++i)
+            ld.poke32(SRC_BUF + 4 * i, uint32_t(onda[2 * i]) | (uint32_t(onda[2 * i + 1]) << 16));
+        d_wr(DacBase::R_CR, 1u | (1u << 1) | (1u << 2));        // EN1, BOFF1, TEN1, TSEL=TIM6
+        wait(5, SC_US);
+        // memoria -> periferico, 16 bits en los dos lados, memoria incremental
+        dma_setup(addr::DMA1_B, 5, D_B + DacBase::R_DHR12R1, SRC_BUF, 8,
+                  (7u << 25) | (1u << 6) | (1u << 10) | (1u << 11) | (1u << 13), 0x00u);
+        d_wr(DacBase::R_CR, 1u | (1u << 1) | (1u << 2) | (1u << 12));   // DMAEN1
+        tm.write32(addr::TIM6_B + 0x24, 0);
+        tm.write32(addr::TIM6_B + 0x2C, 399);                   // ARR
+        tm.write32(addr::TIM6_B + 0x04, 2u << 4);               // MMS = update
+        tm.write32(addr::TIM6_B + 0x00, 1u);                    // CEN
+        const bool tc = dma_wait_tc(addr::DMA1_B, 5, sc_time(20, SC_MS));
+        // Ojo a la tuberia del disparo: cada disparo saca a DOR el dato que ya
+        // estaba en DHR Y PIDE el siguiente. Cuando el DMA termina, la ultima
+        // muestra esta en DHR esperando un disparo mas. Es lo que hace el
+        // silicio, y es la causa clasica de que la ultima muestra de una tabla
+        // "no salga" [IR, §12.14.1].
+        wait(5, SC_US);
+        const uint32_t dor_tc = d_rd(DacBase::R_DOR1);
+        wait(60, SC_US);                                        // 4 disparos mas
+        tm.write32(addr::TIM6_B + 0x00, 0);
+        wait(30, SC_US);
+        const uint32_t dor_fin = d_rd(DacBase::R_DOR1);
+        std::printf("    al terminar el DMA, DOR1 = %u; tras un disparo mas, DOR1 = %u "
+                    "(%.3f V en PA4)\n", dor_tc, dor_fin, dac_pin_v(0));
+        check(tc, "el DMA entrega las ocho muestras al DAC");
+        check_eq(dor_tc, uint32_t(onda[6]),
+                 "al acabar el DMA la ultima muestra sigue en DHR: la tuberia del disparo");
+        check_eq(dor_fin, 4095u,
+                 "el disparo siguiente la saca, sin que la CPU toque DHR");
+        check_near(dac_pin_v(0), 3.3, 0.02, "que es lo que mide el pin PA4");
+
+        // --- Desbordamiento del DMA (DMAUDR) ---------------------------------
+        // Si llega otro disparo antes de que el DMA sirva el dato anterior, el
+        // silicio marca DMAUDRx y deja de pedir. Aqui se provoca disparando por
+        // software dos veces seguidas sin que nadie escriba DHR.
+        d_wr(DacBase::R_CR, 0);
+        d_wr(DacBase::R_SR, 0xFFFFFFFFu);
+        wait(5, SC_US);
+        d_wr(DacBase::R_CR, 1u | (1u << 1) | (1u << 2) | (7u << 3) |
+                            (1u << 12) | (1u << 13));           // TSEL=SW, DMAEN, DMAUDRIE
+        wait(5, SC_US);
+        check(!dut->s_irq[54].read(), "IRQ 54 en reposo");
+        d_wr(DacBase::R_SWTRIGR, 1u);                           // primer disparo: pide dato
+        wait(5, SC_US);
+        check(!(d_rd(DacBase::R_SR) & DacBase::S_DMAUDR1),
+              "un disparo suelto solo pide el dato, no desborda");
+        d_wr(DacBase::R_SWTRIGR, 1u);                           // segundo: nadie sirvio
+        wait(5, SC_US);
+        check(d_rd(DacBase::R_SR) & DacBase::S_DMAUDR1,
+              "el segundo disparo sin dato nuevo marca DMAUDR1 [IR, 12.14.2]");
+        check(dut->s_irq[54].read(),
+              "con DMAUDRIE1 el desbordamiento levanta la IRQ 54, compartida con el TIM6");
+        // DMAUDRx es w1c: escribir CERO no lo borra, escribir UNO si.
+        d_wr(DacBase::R_SR, 0u);
+        check(d_rd(DacBase::R_SR) & DacBase::S_DMAUDR1,
+              "DMAUDR1 no se borra escribiendo cero...");
+        d_wr(DacBase::R_SR, DacBase::S_DMAUDR1);
+        check(!(d_rd(DacBase::R_SR) & DacBase::S_DMAUDR1),
+              "...sino escribiendo UNO: es w1c, al reves que casi todo el dispositivo");
+        check(!dut->s_irq[54].read(), "y la IRQ 54 se retira");
+        d_wr(DacBase::R_CR, 0);
+        wait(10, SC_US);
+
+        // --- Firmware real con CMSIS -----------------------------------------
+        dut->rcc.set_internal_waveforms(false);
+        xtal_hse->attach();
+        dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(30, SC_US);
+
+        ImageLoader ld2(*dut);
+        const long n = ld2.load_file(dac_fw_path_.c_str(), addr::FLASH_BASE);
+        if (!check(n > 0, "imagen del firmware de DAC cargada en la Flash")) {
+            std::printf("        (compilar con make -C verif/fw/dac_demo)\n");
+            dut->pwr_pads.nrst.set_hiz(d_nrst);
+            dut->rcc.set_internal_waveforms(true);
+            return;
+        }
+        std::printf("    %ld bytes cargados desde %s\n", n, dac_fw_path_.c_str());
+        for (unsigned i = 0; i < 32; i += 4) ld2.poke32(addr::SRAM1_BASE + i, 0);
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+        // Mientras el firmware genera la rampa se vigila el pin desde fuera.
+        bool done = false;
+        double v_min = 9.9, v_max = -9.9;
+        const sc_time t0 = sc_time_stamp();
+        while ((sc_time_stamp() - t0) < sc_time(400, SC_MS)) {
+            wait(50, SC_US);
+            const double v = dac_pin_v(0);
+            if (dut->sram1.peek32(0) == 0u) {          // solo durante la rampa
+                if (v < v_min) v_min = v;
+                if (v > v_max) v_max = v;
+            }
+            if (dut->sram1.peek32(0) == 1u) { done = true; break; }
+        }
+        const uint32_t dor   = dut->sram1.peek32(4);
+        const uint32_t pasos = dut->sram1.peek32(8);
+        const uint32_t mv    = dut->sram1.peek32(12);
+        const uint32_t dual  = dut->sram1.peek32(16);
+        const uint32_t pclk1 = dut->sram1.peek32(20);
+        std::printf("    PCLK1 = %u Hz | DOR1 final = %u | pasos = %u | %u mV | dual = %u\n",
+                    pclk1, dor, pasos, mv, dual);
+        std::printf("    el pin PA4 recorrio de %.3f V a %.3f V durante la rampa\n",
+                    v_min, v_max);
+        check(done, "el firmware de DAC llega a su fin y publica el buzon");
+        check_eq(pclk1, 42000000u, "el firmware trabaja con PCLK1 = 42 MHz");
+        check_eq(pasos, 16u, "genera los 16 pasos de la rampa");
+        check_eq(dor, 4095u, "y termina a fondo de escala");
+        check(mv > 3200 && mv <= 3300,
+              "el propio firmware convierte DOR a milivoltios: ~3300 mV");
+        check_eq(dual, 1u,
+                 "y comprueba que el registro dual carga los dos canales de una vez");
+        check(v_min < 0.3 && v_max > 3.0,
+              "medido en el pin, la rampa recorre de verdad casi toda la escala");
+        dut->rcc.set_internal_waveforms(true);
+    }
+
+    std::string dac_fw_path_ = "verif/fw/dac_demo/dac_demo.bin";
     std::string adc_fw_path_ = "verif/fw/adc_demo/adc_demo.bin";
     std::string i2c_fw_path_ = "verif/fw/i2c_demo/i2c_demo.bin";
     std::string spi_fw_path_ = "verif/fw/spi_demo/spi_demo.bin";
