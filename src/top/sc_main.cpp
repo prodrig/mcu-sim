@@ -167,6 +167,18 @@ SC_MODULE(F1Tb) {
     sc_signal<double> s_sp_i2shz{"s_sp_i2shz"};
     sc_vector<sc_signal<bool>> s_sp_nc{"s_sp_nc", 8};
 
+    // --- Circuitería de las pruebas del SDIO -------------------------------
+    // Una tarjeta SD en su zócalo: CK, CMD y D0-D3 con sus pull-up. Habla el
+    // protocolo de verdad, bit a bit, igual que la EEPROM del bus I2C.
+    SdCard* card = nullptr;
+    // SDIO con rasgos elegidos en TIEMPO DE EJECUCIÓN (véase T75)
+    SdioBase* sd_rt = nullptr;
+    BusTestMaster tm8{"tm8"};
+    sc_signal<bool>   s_sd_true{"s_sd_true"}, s_sd_rst{"s_sd_rst"};
+    sc_signal<bool>   s_sd_irq{"s_sd_irq"}, s_sd_drq{"s_sd_drq"};
+    sc_signal<bool>   s_sd_ck{"s_sd_ck"};
+    sc_signal<double> s_sd_hz{"s_sd_hz"};
+
     // --- Circuitería de las pruebas del DAC --------------------------------
     // DAC con rasgos elegidos en TIEMPO DE EJECUCIÓN (véase T67)
     DacBase* d_rt = nullptr;
@@ -261,6 +273,21 @@ SC_MODULE(F1Tb) {
         src_pa4 = new Driver(dut->pinmux.analog(0, 4));   // ADC12_IN4 (NO ADC3)
         src_pc0 = new Driver(dut->pinmux.analog(2, 0));   // ADC123_IN10
         src_pc1 = new Driver(dut->pinmux.analog(2, 1));   // ADC123_IN11
+        // --- La tarjeta SD del zócalo (AF12) ------------------------------
+        card = new SdCard("card", dut->pinmux.analog(2, 12),   // PC12 CK
+                                  dut->pinmux.analog(3, 2),    // PD2  CMD
+                                 &dut->pinmux.analog(2, 8),    // PC8  D0
+                                 &dut->pinmux.analog(2, 9),    // PC9  D1
+                                 &dut->pinmux.analog(2, 10),   // PC10 D2
+                                 &dut->pinmux.analog(2, 11));  // PC11 D3
+        // Un SDIO con los rasgos puestos en tiempo de EJECUCIÓN: un solo hilo,
+        // FIFO de 16 palabras, sin DMA ni funciones de SD I/O.
+        sd_rt = new SdioBase("sd_rt", CAPS_SDIO_BASIC);
+        tm8.isk.bind(sd_rt->tsk);
+        sd_rt->clk(dut->s_pclk2); sd_rt->clk_hz(dut->s_pclk2_hz);
+        sd_rt->rst_n(s_sd_rst);   sd_rt->clk_en(s_sd_true);
+        sd_rt->irq(s_sd_irq);     sd_rt->dma_req(s_sd_drq);
+        sd_rt->sdioclk(s_sd_ck);  sd_rt->sdioclk_hz(s_sd_hz);
         // Un DAC con los rasgos puestos en tiempo de EJECUCIÓN: 8 bits, un
         // solo canal, sin buffer, sin ondas, sin disparo y sin DMA.
         d_rt = new DacBase("d_rt", CAPS_DAC_BASIC);
@@ -362,6 +389,8 @@ SC_MODULE(F1Tb) {
         delete lnk_iext; delete lnk_isd; delete lnk_iws; delete lnk_ick;
         delete lnk_nss; delete lnk_miso; delete lnk_mosi; delete lnk_sck;
         delete t_rt;
+        delete sd_rt;
+        delete card;
         delete d_rt;
         delete a_rt;
         delete src_pc1; delete src_pc0; delete src_pa4;
@@ -532,6 +561,14 @@ SC_MODULE(F1Tb) {
         t72_rtc_calendario();
         t73_rtc_alarmas();
         t74_watchdogs();
+        const unsigned f5r_pass = g_pass, f5r_fail = g_fail;
+
+        // ======================== Fase F5: SDIO =============================
+        t75_sdio_variantes();
+        t76_sdio_registros();
+        t77_sdio_tarjeta();
+        t78_sdio_errores_dma();
+        t79_sdio_firmware();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -556,7 +593,9 @@ SC_MODULE(F1Tb) {
         std::printf("Resumen F5 (DAC)  : %u comprobaciones OK, %u fallos\n",
                     f5d_pass - f5a_pass, f5d_fail - f5a_fail);
         std::printf("Resumen F5 (RTC/WDG): %u comprobaciones OK, %u fallos\n",
-                    g_pass - f5d_pass, g_fail - f5d_fail);
+                    f5r_pass - f5d_pass, f5r_fail - f5d_fail);
+        std::printf("Resumen F5 (SDIO) : %u comprobaciones OK, %u fallos\n",
+                    g_pass - f5r_pass, g_fail - f5r_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -6338,6 +6377,25 @@ SC_MODULE(F1Tb) {
     static constexpr uint32_t IW_B = addr::IWDG_B;
     static constexpr uint32_t PW_B = addr::PWR_B;
 
+    // Pone en marcha el PLL para que haya PLL48CK, que es lo que alimenta al
+    // SDIO. No hace falta conmutar el SYSCLK: el SDIOCLK sale directamente de
+    // la salida Q del PLL [IR, §4.4].
+    void pll48_on() {
+        wdg_fast(true);                         // las esperas de arranque son largas
+        xtal_hse->attach();
+        uint32_t cr = 0;
+        tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        tm.write32(addr::RCC_B + Rcc::R_CR, cr | (1u << 16));       // HSEON
+        wait(3, SC_MS);
+        // M = 8, N = 336, P = 2, Q = 7 -> VCO = 336 MHz y PLL48CK = 48 MHz
+        tm.write32(addr::RCC_B + Rcc::R_PLLCFGR,
+                   8u | (336u << 6) | (0u << 16) | (1u << 22) | (7u << 24));
+        tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        tm.write32(addr::RCC_B + Rcc::R_CR, cr | (1u << 24));       // PLLON
+        wait(1, SC_MS);
+        wdg_fast(false);
+    }
+
     // Banderas de causa de reset en RCC_CSR: WWDGRSTF (30) e IWDGRSTF (29).
     // Son lo que mira un firmware real al arrancar para saber quien lo reinicio,
     // y son mucho mas fiables de observar que el pulso de peticion.
@@ -6983,6 +7041,556 @@ SC_MODULE(F1Tb) {
         wdg_fast(false);
     }
 
+
+    // =======================================================================
+    // FASE F5 — SDIO
+    // =======================================================================
+    static constexpr uint32_t SD_B = addr::SDIO_B;
+
+    uint32_t sd_rd(uint32_t off) { uint32_t v = 0; tm.read32(SD_B + off, v); return v; }
+    void     sd_wr(uint32_t off, uint32_t v) { tm.write32(SD_B + off, v); }
+    uint32_t sd_rt_rd(uint32_t off) { uint32_t v = 0; tm8.read32(SD_B + off, v); return v; }
+    void     sd_rt_wr(uint32_t off, uint32_t v) { tm8.write32(SD_B + off, v); }
+    uint32_t sd_rt_sig(uint32_t off) {
+        sd_rt_wr(off, 0xFFFFFFFFu);
+        const uint32_t v = sd_rt_rd(off);
+        sd_rt_wr(off, 0);
+        return v;
+    }
+    uint32_t sd_sig(uint32_t off) {
+        sd_wr(off, 0xFFFFFFFFu);
+        const uint32_t v = sd_rd(off);
+        sd_wr(off, 0);
+        return v;
+    }
+    // La pista de placa de las pruebas de UART (PA0 -> PD2) cae justo sobre
+    // SDIO_CMD, y el hilo del bus I2C pasa por PC9, que es SDIO_D1. Mientras
+    // estan soldados, la tarjeta ve niveles que no ha puesto nadie del SDIO: es
+    // un conflicto electrico REAL, no un artefacto del modelo, y hay que
+    // despegarlos para usar el zocalo.
+    void sdio_links(bool on) {
+        lnk_u4_u5->set_enabled(on);      // PA0 -> PD2 (SDIO_CMD)
+        if (!on) i2c_bus(false);         // el hilo I2C toca PC9 (SDIO_D1)
+    }
+    void sdio_clocks_on() {
+        for (unsigned p = 0; p < 4; ++p) rcc_enable(Rcc::R_AHB1ENR, p);  // GPIOA..D
+        rcc_enable(Rcc::R_APB2ENR, 11);      // SDIOEN
+    }
+    // Los diez pines del zocalo en AF12, con la velocidad alta que pide un bus
+    // de 24 MHz. El pull-up lo pone la tarjeta, como en la placa.
+    void sdio_pins_af() {
+        pin_cfg(2, 12, 2, 0, false, 3, 12);   // PC12 CK
+        pin_cfg(3,  2, 2, 0, false, 3, 12);   // PD2  CMD
+        for (unsigned i = 8; i <= 11; ++i) pin_cfg(2, i, 2, 0, false, 3, 12);  // PC8-11
+    }
+    // Manda un comando y espera a que la CPSM termine. Devuelve STA.
+    uint32_t sdio_cmd(unsigned idx, uint32_t arg, unsigned waitresp,
+                      sc_time limit = sc_time(2, SC_MS)) {
+        sd_wr(SdioBase::R_ICR, 0xFFFFFFFFu);
+        sd_wr(SdioBase::R_ARG, arg);
+        sd_wr(SdioBase::R_CMD, (idx & 0x3Fu) | (waitresp << 6) | (1u << 10));
+        const sc_time t0 = sc_time_stamp();
+        while (sc_time_stamp() - t0 < limit) {
+            const uint32_t s = sd_rd(SdioBase::R_STA);
+            if (s & (SdioBase::S_CMDSENT | SdioBase::S_CMDREND |
+                     SdioBase::S_CTIMEOUT | SdioBase::S_CCRCFAIL)) return s;
+            wait(1, SC_US);
+        }
+        return 0;
+    }
+    // Arranque completo de una tarjeta SD, tal cual lo hace un driver.
+    bool sdio_card_init(unsigned width = 4) {
+        sd_wr(SdioBase::R_POWER, 3u);                       // encender
+        sd_wr(SdioBase::R_CLKCR, 118u | (1u << 8));         // ~400 kHz, CLKEN
+        wait(20, SC_US);
+        sdio_cmd(0, 0, 0);                                  // GO_IDLE_STATE
+        uint32_t s = sdio_cmd(8, 0x1AAu, 1);                // SEND_IF_COND
+        if (!(s & SdioBase::S_CMDREND)) return false;
+        if ((sd_rd(SdioBase::R_RESP1) & 0xFFFu) != 0x1AAu) return false;
+        for (unsigned i = 0; i < 8; ++i) {                  // ACMD41
+            sdio_cmd(55, 0, 1);
+            s = sdio_cmd(41, 0x40FF8000u, 1);
+            if ((sd_rd(SdioBase::R_RESP1) & 0x80000000u)) break;
+        }
+        if (!(sd_rd(SdioBase::R_RESP1) & 0x80000000u)) return false;
+        if (!(sdio_cmd(2, 0, 3) & SdioBase::S_CMDREND)) return false;   // CID
+        if (!(sdio_cmd(3, 0, 1) & SdioBase::S_CMDREND)) return false;   // RCA
+        rca_ = sd_rd(SdioBase::R_RESP1) >> 16;
+        if (!(sdio_cmd(9, uint32_t(rca_) << 16, 3) & SdioBase::S_CMDREND)) return false;
+        if (!(sdio_cmd(7, uint32_t(rca_) << 16, 1) & SdioBase::S_CMDREND)) return false;
+        sdio_cmd(16, 512, 1);                               // SET_BLOCKLEN
+        if (width == 4) {
+            sdio_cmd(55, uint32_t(rca_) << 16, 1);
+            sdio_cmd(6, 2u, 1);                             // ACMD6: cuatro hilos
+            sd_wr(SdioBase::R_CLKCR, 1u | (1u << 8) | (1u << 11));   // 4 hilos, rapido
+        } else {
+            sd_wr(SdioBase::R_CLKCR, 1u | (1u << 8));
+        }
+        wait(10, SC_US);
+        return true;
+    }
+    unsigned rca_ = 0;
+
+    // -----------------------------------------------------------------------
+    // T75 — Un solo bloque, y sus ejes de variacion [IR, §12.17]
+    // -----------------------------------------------------------------------
+    void t75_sdio_variantes() {
+        group("T75 SDIO: un solo bloque y sus ejes de variacion [IR, 12.17]");
+        sdio_links(false);
+        reset_dut();
+        sdio_clocks_on();
+        s_sd_true.write(true); s_sd_rst.write(true);
+        s_sd_hz.write(48e6);
+        wait(5, SC_US);
+
+        // --- Seleccion en tiempo de compilacion -----------------------------
+        static_assert(Sdio::bus_width_max() == 8, "el F407 llega a ocho hilos");
+        static_assert(SdioSd4::bus_width_max() == 4, "la variante de solo SD, a cuatro");
+        static_assert(SdioBasic::bus_width_max() == 1, "y la reducida, a uno");
+        check(Sdio::bus_width_max() == 8 && SdioSd4::bus_width_max() == 4,
+              "el parametro de plantilla fija el ancho maximo del bus");
+        check(dut->sdio.caps().sdio_card && dut->sdio.caps().ceata &&
+              dut->sdio.caps().stream_mode,
+              "el bloque del F407 habla los tres protocolos: MMC, SD y SD I/O");
+        check(dut->sdio.caps().fifo_words == 32u,
+              "y su FIFO es de 32 palabras [IR, 12.17.2]");
+
+        // --- Los ejes se ven DESDE EL BUS ------------------------------------
+        const uint32_t clkcr = sd_sig(SdioBase::R_CLKCR);
+        const uint32_t cmdr  = sd_sig(SdioBase::R_CMD);
+        const uint32_t dctrl = sd_sig(SdioBase::R_DCTRL);
+        std::printf("    CLKCR = 0x%04X | CMD = 0x%04X | DCTRL = 0x%04X\n",
+                    clkcr, cmdr, dctrl);
+        check((clkcr & (3u << 11)) == (3u << 11),
+              "CLKCR: WIDBUS de dos bits, porque el bloque llega a ocho hilos");
+        check(clkcr & (1u << 10), "CLKCR: BYPASS existe");
+        check(clkcr & (1u << 14), "CLKCR: control de flujo por hardware (HWFC_EN)");
+        check(dctrl & (1u << 11), "DCTRL: SDIOEN, propio de las tarjetas SD I/O");
+        check(dctrl & (1u << 2), "DCTRL: DTMODE, el flujo continuo de la MMC");
+        check(cmdr & (1u << 14), "CMD: los bits de CE-ATA");
+
+        // --- Seleccion en tiempo de ejecucion --------------------------------
+        const uint32_t r_clkcr = sd_rt_sig(SdioBase::R_CLKCR);
+        const uint32_t r_dctrl = sd_rt_sig(SdioBase::R_DCTRL);
+        const uint32_t r_cmd   = sd_rt_sig(SdioBase::R_CMD);
+        std::printf("    variante en ejecucion (a medida): CLKCR = 0x%04X, "
+                    "DCTRL = 0x%04X, CMD = 0x%04X\n", r_clkcr, r_dctrl, r_cmd);
+        check((r_clkcr & (3u << 11)) == 0u,
+              "variante de ejecucion: sin WIDBUS, el bus es de un solo hilo");
+        check((r_clkcr & (1u << 10)) == 0u, "sin BYPASS del divisor");
+        check((r_clkcr & (1u << 14)) == 0u, "sin control de flujo por hardware");
+        check((r_dctrl & (1u << 3)) == 0u, "sin DMA");
+        check((r_dctrl & (0xFu << 8)) == 0u,
+              "y sin las funciones de SD I/O ni el flujo continuo de la MMC");
+        check((r_cmd & (7u << 12)) == 0u, "ni CE-ATA");
+        check(sd_rt->caps().fifo_words == 16u && sd_rt->caps().max_bus_width == 1u,
+              "los ejes hilos/FIFO/protocolos/DMA se fijan por el constructor");
+    }
+
+    // -----------------------------------------------------------------------
+    // T76 — Registros y generador de SDIO_CK [IR, §12.17.2]
+    // -----------------------------------------------------------------------
+    void t76_sdio_registros() {
+        group("T76 SDIO: registros y generador de SDIO_CK [IR, 12.17.2]");
+        sdio_links(false);
+        reset_dut();
+
+        uint32_t v = 0;
+        check(tm.read32(SD_B + SdioBase::R_POWER, v) == TLM_GENERIC_ERROR_RESPONSE,
+              "SDIO sin SDIOEN -> error de bus");
+        sdio_clocks_on();
+        check(tm.read32(SD_B + SdioBase::R_POWER, v) == TLM_OK_RESPONSE,
+              "con SDIOEN el bloque responde");
+
+        // --- Valores de reset ------------------------------------------------
+        check_eq(sd_rd(SdioBase::R_POWER), 0u, "SDIO_POWER de reset (apagado)");
+        check_eq(sd_rd(SdioBase::R_CLKCR), 0u, "SDIO_CLKCR de reset");
+        check_eq(sd_rd(SdioBase::R_STA), 0u, "SDIO_STA de reset");
+        check_eq(sd_rd(SdioBase::R_MASK), 0u, "SDIO_MASK de reset");
+        check_eq(sd_rd(SdioBase::R_ICR), 0u, "SDIO_ICR se lee como cero: es de solo escritura");
+        check_eq(sd_rd(SdioBase::R_FIFOCNT), 0u, "la FIFO arranca vacia");
+
+        // --- SDIO_CK = SDIOCLK / (CLKDIV + 2) --------------------------------
+        // El PLL48CK se pone en marcha configurando el PLL como haria un driver.
+        pll48_on();
+        const double f48 = dut->s_pll48_hz.read();
+        sd_wr(SdioBase::R_POWER, 3u);
+        for (unsigned div : {0u, 2u, 118u, 255u}) {
+            sd_wr(SdioBase::R_CLKCR, div | (1u << 8));
+            wait(2, SC_US);
+            check_near(dut->sdio.ck_hz(), f48 / double(div + 2u), 1e-9,
+                       "SDIO_CK = SDIOCLK / (CLKDIV + 2) [IR, 12.17.2]");
+        }
+        sd_wr(SdioBase::R_CLKCR, (1u << 8) | (1u << 10));       // BYPASS
+        wait(2, SC_US);
+        std::printf("    SDIOCLK = %.0f Hz | con BYPASS, SDIO_CK = %.0f Hz\n",
+                    f48, dut->sdio.ck_hz());
+        check_near(dut->sdio.ck_hz(), f48, 1e-9,
+                   "con BYPASS el divisor se salta y SDIO_CK es el propio SDIOCLK");
+
+        // --- El ancho de bus lo fija WIDBUS ------------------------------------
+        for (unsigned wb = 0; wb < 3; ++wb) {
+            sd_wr(SdioBase::R_CLKCR, 2u | (1u << 8) | (wb << 11));
+            wait(1, SC_US);
+            static const unsigned esp[3] = {1, 4, 8};
+            check_eq(dut->sdio.bus_width(), esp[wb],
+                     "WIDBUS elige un bus de 1, 4 u 8 hilos");
+        }
+        sd_wr(SdioBase::R_CLKCR, 2u | (1u << 8));
+
+        // --- La FIFO y sus banderas -------------------------------------------
+        check(sd_rd(SdioBase::R_STA) & SdioBase::S_TXFIFOE, "TXFIFOE con la FIFO vacia");
+        for (unsigned i = 0; i < 32; ++i) sd_wr(SdioBase::R_FIFO, 0xA0000000u + i);
+        check_eq(sd_rd(SdioBase::R_FIFOCNT), 32u, "FIFOCNT cuenta las palabras metidas");
+        check(sd_rd(SdioBase::R_STA) & SdioBase::S_TXFIFOF, "y TXFIFOF dice que esta llena");
+        check(!(sd_rd(SdioBase::R_STA) & SdioBase::S_TXFIFOE), "ya no esta vacia");
+        bool fifo_ok = true;
+        for (unsigned i = 0; i < 32; ++i)
+            if (sd_rd(SdioBase::R_FIFO) != 0xA0000000u + i) fifo_ok = false;
+        check(fifo_ok, "y la FIFO devuelve las 32 palabras en orden");
+        check_eq(sd_rd(SdioBase::R_FIFOCNT), 0u, "quedando vacia otra vez");
+
+        // --- ICR borra las banderas estaticas, no las dinamicas ---------------
+        sd_wr(SdioBase::R_POWER, 0u);
+        wait(2, SC_US);
+        sd_wr(SdioBase::R_POWER, 3u);
+        sd_wr(SdioBase::R_CLKCR, 2u | (1u << 8));
+        // Un comando a un bus sin tarjeta acaba en CTIMEOUT
+        const uint32_t s = sdio_cmd(55, 0, 1);
+        std::printf("    sin tarjeta en el zocalo, el comando acaba con STA = 0x%08X\n", s);
+        check(s & SdioBase::S_CTIMEOUT,
+              "sin tarjeta, la CPSM agota su plazo de 64 ciclos: CTIMEOUT");
+        sd_wr(SdioBase::R_ICR, SdioBase::S_CTIMEOUT);
+        check(!(sd_rd(SdioBase::R_STA) & SdioBase::S_CTIMEOUT),
+              "y SDIO_ICR la borra escribiendo UNO en su bit");
+        sd_wr(SdioBase::R_POWER, 0u);
+    }
+
+    // -----------------------------------------------------------------------
+    // T77 — Arranque de una tarjeta SD por los pines
+    // -----------------------------------------------------------------------
+    void t77_sdio_tarjeta() {
+        group("T77 SDIO: arranque de una tarjeta SD por los pines [IR, 12.17.1]");
+        sdio_links(false);
+        reset_dut();
+        sdio_clocks_on();
+        sdio_pins_af();
+        pll48_on();
+
+        // --- La secuencia de identificacion completa --------------------------
+        const bool ok = sdio_card_init(4);
+        std::printf("    la tarjeta atendio %u comandos; el ultimo fue el CMD%u\n",
+                    card->commands(), card->last_cmd());
+        check(ok, "el arranque completo de la tarjeta SD llega hasta el final");
+        check(card->commands() >= 10u,
+              "y la tarjeta ha visto la decena larga de comandos del protocolo");
+        check(card->selected(), "CMD7 la deja seleccionada");
+        check_eq(card->bus_width(), 4u,
+                 "ACMD6 pone el bus a cuatro hilos EN LOS DOS EXTREMOS");
+        check_eq(dut->sdio.bus_width(), 4u, "y el host lo sabe por WIDBUS");
+        check_eq(rca_, 0x0002u, "CMD3 devuelve la direccion relativa de la tarjeta");
+
+        // --- El CID llega entero: 136 bits ------------------------------------
+        sdio_cmd(2, 0, 3);
+        const uint32_t c1 = sd_rd(SdioBase::R_RESP1), c2 = sd_rd(SdioBase::R_RESP2);
+        const uint32_t c3 = sd_rd(SdioBase::R_RESP3), c4 = sd_rd(SdioBase::R_RESP4);
+        std::printf("    CID = %08X %08X %08X %08X\n", c1, c2, c3, c4);
+        check_eq(c1, 0x02544D53u, "una respuesta larga trae los 128 bits del CID...");
+        check_eq(c4, 0x44012A00u, "...repartidos en RESP1 a RESP4 [IR, 12.17.2]");
+        check_eq(sd_rd(SdioBase::R_RESPCMD), 0x3Fu,
+                 "y RESPCMD vale 0x3F: una respuesta larga no lleva indice");
+
+        // --- Una respuesta corta si lo lleva ----------------------------------
+        sdio_cmd(13, uint32_t(rca_) << 16, 1);
+        check_eq(sd_rd(SdioBase::R_RESPCMD), 13u,
+                 "en una respuesta corta, RESPCMD devuelve el indice del comando");
+
+        // --- LECTURA DE UN BLOQUE, por las cuatro lineas ----------------------
+        // El firmware arranca la DPSM ANTES del comando: la tarjeta empieza a
+        // soltar datos en cuanto responde, y si la maquina de datos no esta ya
+        // esperando se pierde el bit de arranque.
+        for (unsigned i = 0; i < 512; ++i) card->poke(i, uint8_t(0x40u + (i & 0x3Fu)));
+        sd_wr(SdioBase::R_ICR, 0xFFFFFFFFu);
+        sd_wr(SdioBase::R_DTIMER, 100000u);
+        sd_wr(SdioBase::R_DLEN, 512u);
+        sd_wr(SdioBase::R_DCTRL, (9u << 4) | (1u << 1) | 1u);   // bloque 512, tarjeta->host
+        sd_wr(SdioBase::R_ARG, 0);
+        sd_wr(SdioBase::R_CMD, 17u | (1u << 6) | (1u << 10));   // CMD17
+        uint8_t got[512] = {};
+        unsigned n = 0;
+        const sc_time t0 = sc_time_stamp();
+        while (n < 512 && sc_time_stamp() - t0 < sc_time(10, SC_MS)) {
+            if (sd_rd(SdioBase::R_STA) & SdioBase::S_RXDAVL) {
+                const uint32_t w = sd_rd(SdioBase::R_FIFO);
+                for (unsigned k = 0; k < 4 && n < 512; ++k) got[n++] = uint8_t(w >> (8 * k));
+            } else if (sd_rd(SdioBase::R_STA) &
+                       (SdioBase::S_DTIMEOUT | SdioBase::S_DCRCFAIL)) break;
+            else wait(1, SC_US);
+        }
+        const uint32_t sta_rd = sd_rd(SdioBase::R_STA);
+        bool igual = (n == 512);
+        for (unsigned i = 0; i < n; ++i)
+            if (got[i] != uint8_t(0x40u + (i & 0x3Fu))) igual = false;
+        std::printf("    leidos %u bytes: %02X %02X %02X ... %02X (STA = 0x%08X)\n",
+                    n, got[0], got[1], got[2], got[511], sta_rd);
+        check_eq(n, 512u, "CMD17 trae un bloque de 512 bytes por las lineas de datos");
+        check(igual, "y llega intacto, con su CRC16 por linea cuadrando");
+        check(sta_rd & SdioBase::S_DATAEND, "DATAEND avisa de que el bloque termino");
+        check(!(sta_rd & SdioBase::S_DCRCFAIL), "sin fallo de CRC de datos");
+        check_eq(card->blocks_read(), 1u, "la tarjeta cuenta un bloque servido");
+
+        // --- ESCRITURA DE UN BLOQUE -------------------------------------------
+        sd_wr(SdioBase::R_ICR, 0xFFFFFFFFu);
+        sd_wr(SdioBase::R_DLEN, 512u);
+        sd_wr(SdioBase::R_ARG, 0);
+        sd_wr(SdioBase::R_CMD, 24u | (1u << 6) | (1u << 10));   // CMD24
+        sdio_wait_cmd();
+        // Se rellena la FIFO y se arranca la maquina de datos hacia la tarjeta
+        for (unsigned i = 0; i < 32; ++i)
+            sd_wr(SdioBase::R_FIFO, 0x11223344u + i);
+        sd_wr(SdioBase::R_DCTRL, (9u << 4) | 1u);               // host -> tarjeta
+        unsigned sent = 32;
+        const sc_time t1 = sc_time_stamp();
+        while (sent < 128 && sc_time_stamp() - t1 < sc_time(10, SC_MS)) {
+            if (sd_rd(SdioBase::R_STA) & SdioBase::S_TXFIFOHE) {
+                for (unsigned k = 0; k < 8 && sent < 128; ++k)
+                    sd_wr(SdioBase::R_FIFO, 0x11223344u + sent++);
+            } else wait(1, SC_US);
+        }
+        const sc_time t2 = sc_time_stamp();
+        while (!(sd_rd(SdioBase::R_STA) & SdioBase::S_DATAEND) &&
+               sc_time_stamp() - t2 < sc_time(10, SC_MS)) wait(2, SC_US);
+        wait(200, SC_US);
+        // La palabra 127 vale 0x11223344 + 127 = 0x112233C3 y, en little endian,
+        // ocupa los desplazamientos 508..511 del bloque.
+        std::printf("    escritos: la tarjeta guarda %02X %02X %02X %02X ... "
+                    "%02X %02X %02X %02X (esperado 44 33 22 11 ... C3 33 22 11)\n",
+                    card->peek(0), card->peek(1), card->peek(2), card->peek(3),
+                    card->peek(508), card->peek(509),
+                    card->peek(510), card->peek(511));
+        check_eq(card->blocks_written(), 1u, "CMD24 entrega un bloque a la tarjeta");
+        check(card->peek(0) == 0x44u && card->peek(1) == 0x33u &&
+              card->peek(2) == 0x22u && card->peek(3) == 0x11u,
+              "y lo que guarda es lo que salio de la FIFO, byte a byte");
+        check(card->peek(508) == 0xC3u && card->peek(509) == 0x33u &&
+              card->peek(510) == 0x22u && card->peek(511) == 0x11u,
+              "incluida la ultima palabra del bloque");
+        sd_wr(SdioBase::R_DCTRL, 0);
+        sd_wr(SdioBase::R_POWER, 0u);
+        sdio_links(true);
+    }
+
+    void sdio_wait_cmd(sc_time limit = sc_time(2, SC_MS)) {
+        const sc_time t0 = sc_time_stamp();
+        while (sc_time_stamp() - t0 < limit) {
+            const uint32_t s = sd_rd(SdioBase::R_STA);
+            if (s & (SdioBase::S_CMDREND | SdioBase::S_CTIMEOUT |
+                     SdioBase::S_CCRCFAIL | SdioBase::S_CMDSENT)) return;
+            wait(1, SC_US);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // T78 — Errores, interrupcion y DMA
+    // -----------------------------------------------------------------------
+    void t78_sdio_errores_dma() {
+        group("T78 SDIO: errores, interrupcion y DMA");
+        sdio_links(false);
+        reset_dut();
+        sdio_clocks_on();
+        sdio_pins_af();
+        dma_clocks_on();
+        pll48_on();
+        check(sdio_card_init(4), "la tarjeta vuelve a arrancar");
+
+        // --- CRC de respuesta estropeado -> CCRCFAIL --------------------------
+        card->break_resp_crc(true);
+        const uint32_t s_crc = sdio_cmd(13, uint32_t(rca_) << 16, 1);
+        card->break_resp_crc(false);
+        std::printf("    con el CRC7 de la respuesta roto: STA = 0x%08X\n", s_crc);
+        check(s_crc & SdioBase::S_CCRCFAIL,
+              "un CRC7 de respuesta que no cuadra levanta CCRCFAIL [IR, 12.17.2]");
+        check(!(s_crc & SdioBase::S_CMDREND), "y NO se da la respuesta por buena");
+        sd_wr(SdioBase::R_ICR, 0xFFFFFFFFu);
+
+        // --- La tarjeta no contesta -> CTIMEOUT --------------------------------
+        card->set_mute(true);
+        const uint32_t s_to = sdio_cmd(13, uint32_t(rca_) << 16, 1);
+        card->set_mute(false);
+        check(s_to & SdioBase::S_CTIMEOUT,
+              "si la tarjeta calla, la CPSM agota su plazo: CTIMEOUT");
+        sd_wr(SdioBase::R_ICR, 0xFFFFFFFFu);
+        check(sdio_cmd(13, uint32_t(rca_) << 16, 1) & SdioBase::S_CMDREND,
+              "y en cuanto vuelve a hablar, el comando siguiente va bien");
+
+        // --- CRC de datos estropeado -> DCRCFAIL --------------------------------
+        card->break_data_crc(true);
+        sd_wr(SdioBase::R_ICR, 0xFFFFFFFFu);
+        sd_wr(SdioBase::R_DTIMER, 100000u);
+        sd_wr(SdioBase::R_DLEN, 512u);
+        sd_wr(SdioBase::R_DCTRL, (9u << 4) | (1u << 1) | 1u);
+        sd_wr(SdioBase::R_ARG, 0);
+        sd_wr(SdioBase::R_CMD, 17u | (1u << 6) | (1u << 10));
+        const sc_time td = sc_time_stamp();
+        while (!(sd_rd(SdioBase::R_STA) & (SdioBase::S_DCRCFAIL | SdioBase::S_DATAEND)) &&
+               sc_time_stamp() - td < sc_time(10, SC_MS)) wait(2, SC_US);
+        const uint32_t s_dc = sd_rd(SdioBase::R_STA);
+        card->break_data_crc(false);
+        std::printf("    con el CRC16 de datos roto: STA = 0x%08X\n", s_dc);
+        check(s_dc & SdioBase::S_DCRCFAIL,
+              "un CRC16 de datos que no cuadra levanta DCRCFAIL");
+        sd_wr(SdioBase::R_DCTRL, 0);
+        sd_wr(SdioBase::R_ICR, 0xFFFFFFFFu);
+        while (sd_rd(SdioBase::R_STA) & SdioBase::S_RXDAVL) (void)sd_rd(SdioBase::R_FIFO);
+
+        // --- Datos que no llegan -> DTIMEOUT ------------------------------------
+        // Se arranca la maquina de datos SIN mandar el comando: nadie va a
+        // contestar, y el temporizador de datos tiene que saltar.
+        sd_wr(SdioBase::R_ICR, 0xFFFFFFFFu);
+        sd_wr(SdioBase::R_DTIMER, 2000u);
+        sd_wr(SdioBase::R_DLEN, 512u);
+        sd_wr(SdioBase::R_DCTRL, (9u << 4) | (1u << 1) | 1u);
+        const sc_time tt = sc_time_stamp();
+        while (!(sd_rd(SdioBase::R_STA) & SdioBase::S_DTIMEOUT) &&
+               sc_time_stamp() - tt < sc_time(10, SC_MS)) wait(5, SC_US);
+        check(sd_rd(SdioBase::R_STA) & SdioBase::S_DTIMEOUT,
+              "si los datos no llegan en DTIMER ciclos, salta DTIMEOUT");
+        sd_wr(SdioBase::R_DCTRL, 0);
+        sd_wr(SdioBase::R_ICR, 0xFFFFFFFFu);
+
+        // --- La interrupcion 49 y su mascara -------------------------------------
+        check(!dut->s_irq[49].read(), "IRQ 49 en reposo");
+        sd_wr(SdioBase::R_MASK, SdioBase::S_CMDREND);
+        sdio_cmd(13, uint32_t(rca_) << 16, 1);
+        check(dut->s_irq[49].read(),
+              "con CMDREND desenmascarado, el fin de comando levanta la IRQ 49");
+        sd_wr(SdioBase::R_ICR, 0xFFFFFFFFu);
+        check(!dut->s_irq[49].read(), "y borrar la bandera la retira");
+        sd_wr(SdioBase::R_MASK, 0);
+
+        // --- Un bloque recogido por DMA ------------------------------------------
+        // El SDIO va por DMA2, stream 3 canal 4 [IR, §12.17-integracion].
+        ImageLoader ld(*dut);
+        const uint32_t DST = SRC_BUF + 0x400;
+        for (unsigned i = 0; i < 128; ++i) ld.poke32(DST + 4 * i, 0);
+        for (unsigned i = 0; i < 512; ++i) card->poke(i, uint8_t(0xC0u ^ i));
+        sd_wr(SdioBase::R_ICR, 0xFFFFFFFFu);
+        sd_wr(SdioBase::R_DTIMER, 100000u);
+        sd_wr(SdioBase::R_DLEN, 512u);
+        // periferico -> memoria, 32 bits, memoria incremental, rafagas de 4
+        dma_setup(addr::DMA2_B, 3, SD_B + SdioBase::R_FIFO, DST, 128,
+                  (4u << 25) | (1u << 10) | (2u << 11) | (2u << 13), 0x00u);
+        sd_wr(SdioBase::R_DCTRL, (9u << 4) | (1u << 1) | (1u << 3) | 1u);  // DMAEN
+        sd_wr(SdioBase::R_ARG, 0);
+        sd_wr(SdioBase::R_CMD, 17u | (1u << 6) | (1u << 10));
+        const bool tc = dma_wait_tc(addr::DMA2_B, 3, sc_time(20, SC_MS));
+        wait(100, SC_US);
+        bool dma_ok = true;
+        for (unsigned i = 0; i < 512; i += 4) {
+            const uint32_t w = dut->sram1.peek32(DST - addr::SRAM1_BASE + i);
+            for (unsigned k = 0; k < 4; ++k)
+                if (uint8_t(w >> (8 * k)) != uint8_t(0xC0u ^ (i + k))) dma_ok = false;
+        }
+        std::printf("    por DMA: memoria[0..3] = %02X %02X %02X %02X (esperado C0 C1 C2 C3)\n",
+                    uint8_t(dut->sram1.peek32(DST - addr::SRAM1_BASE)),
+                    uint8_t(dut->sram1.peek32(DST - addr::SRAM1_BASE) >> 8),
+                    uint8_t(dut->sram1.peek32(DST - addr::SRAM1_BASE) >> 16),
+                    uint8_t(dut->sram1.peek32(DST - addr::SRAM1_BASE) >> 24));
+        check(tc, "el DMA recoge el bloque entero de la FIFO del SDIO");
+        check(dma_ok, "y en memoria queda el bloque completo sin que la CPU lo toque");
+        sd_wr(SdioBase::R_DCTRL, 0);
+        sd_wr(SdioBase::R_POWER, 0u);
+        sdio_links(true);
+    }
+
+    // -----------------------------------------------------------------------
+    // T79 — Firmware real de tarjeta SD, compilado con CMSIS
+    //
+    // Es la prueba que cierra el bloque: el arranque completo de una tarjeta,
+    // la lectura y la escritura de un bloque, todo escrito contra la cabecera
+    // de ST y ejecutado por el Cortex-M4 del modelo, sin que el banco toque un
+    // solo registro del SDIO.
+    // -----------------------------------------------------------------------
+    void t79_sdio_firmware() {
+        group("T79 SDIO: firmware real con CMSIS");
+        sdio_links(false);
+        reset_dut();
+        dut->rcc.set_internal_waveforms(false);
+        xtal_hse->attach();
+        dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(30, SC_US);
+
+        // El bloque 0 de la tarjeta lleva un patron conocido, y el banco
+        // comprueba luego que el firmware lo leyo entero y sin errores.
+        uint32_t suma_esp = 0;
+        for (unsigned i = 0; i < 512; ++i) {
+            const uint8_t b = uint8_t(0x5Au + (i & 0x7Fu));
+            card->poke(i, b);
+            suma_esp += b;
+        }
+
+        ImageLoader ld(*dut);
+        const long n = ld.load_file(sdio_fw_path_.c_str(), addr::FLASH_BASE);
+        if (!check(n > 0, "imagen del firmware de SDIO cargada en la Flash")) {
+            std::printf("        (compilar con make -C verif/fw/sdio_demo)\n");
+            dut->pwr_pads.nrst.set_hiz(d_nrst);
+            dut->rcc.set_internal_waveforms(true);
+            sdio_links(true);
+            return;
+        }
+        std::printf("    %ld bytes cargados desde %s\n", n, sdio_fw_path_.c_str());
+        for (unsigned i = 0; i < 40; i += 4) ld.poke32(addr::SRAM1_BASE + i, 0);
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+
+        bool done = false;
+        const sc_time t0 = sc_time_stamp();
+        while ((sc_time_stamp() - t0) < sc_time(600, SC_MS)) {
+            wait(100, SC_US);
+            if (dut->sram1.peek32(0) == 1u) { done = true; break; }
+        }
+        const uint32_t etapa    = dut->sram1.peek32(4);
+        const uint32_t rca      = dut->sram1.peek32(8);
+        const uint32_t cid0     = dut->sram1.peek32(12);
+        const uint32_t ck_hz    = dut->sram1.peek32(16);
+        const uint32_t leidos   = dut->sram1.peek32(20);
+        const uint32_t suma     = dut->sram1.peek32(24);
+        const uint32_t escritos = dut->sram1.peek32(28);
+        const uint32_t ancho    = dut->sram1.peek32(32);
+        const uint32_t sta      = dut->sram1.peek32(36);
+        std::printf("    etapa = %u | RCA = 0x%04X | CID0 = %08X | SDIO_CK = %u Hz\n",
+                    etapa, rca, cid0, ck_hz);
+        std::printf("    leidos %u bytes (suma %u, esperada %u), escritos %u | STA = 0x%08X\n",
+                    leidos, suma, suma_esp, escritos, sta);
+        std::printf("    la tarjeta atendio %u comandos y movio %u+%u bloques\n",
+                    card->commands(), card->blocks_read(), card->blocks_written());
+
+        check(done, "el firmware de SDIO llega a su fin y publica el buzon");
+        check_eq(etapa, 12u,
+                 "recorre las doce etapas del arranque de una tarjeta SD");
+        check_eq(rca, 0x0002u, "el CMD3 le devuelve la RCA de la tarjeta");
+        check_eq(cid0, 0x02544D53u, "y el CMD2 le trae el CID completo");
+        check_eq(ck_hz, 4000000u,
+                 "el propio firmware calcula SDIO_CK = 48/(CLKDIV+2) = 4 MHz");
+        check_eq(ancho, 4u, "deja el bus a cuatro hilos con ACMD6 y WIDBUS");
+        check_eq(leidos, 512u, "el CMD17 le trae el bloque entero por la FIFO");
+        check_eq(suma, suma_esp, "y los 512 bytes coinciden uno a uno");
+        check_eq(escritos, 512u, "el CMD24 entrega otro bloque completo");
+        check(!(sta & (SdioBase::S_DCRCFAIL | SdioBase::S_DTIMEOUT |
+                       SdioBase::S_RXOVERR | SdioBase::S_TXUNDERR)),
+              "sin CRC roto, sin plazo agotado y sin desbordar la FIFO");
+        bool esc_ok = true;
+        for (unsigned i = 0; i < 512; ++i)
+            if (card->peek(i) != uint8_t(0xA0u + (i & 0x1Fu))) esc_ok = false;
+        check(esc_ok, "y en la tarjeta queda escrito lo que el firmware puso");
+        check(card->blocks_read() >= 1u && card->blocks_written() >= 1u,
+              "la tarjeta ha visto un bloque en cada sentido");
+
+        dut->rcc.set_internal_waveforms(true);
+        sdio_links(true);
+    }
+
+    std::string sdio_fw_path_ = "verif/fw/sdio_demo/sdio_demo.bin";
     std::string dac_fw_path_ = "verif/fw/dac_demo/dac_demo.bin";
     std::string adc_fw_path_ = "verif/fw/adc_demo/adc_demo.bin";
     std::string i2c_fw_path_ = "verif/fw/i2c_demo/i2c_demo.bin";

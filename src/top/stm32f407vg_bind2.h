@@ -180,6 +180,7 @@ inline void Stm32F407VG::bind_periph_common() {
     rng.pll48ck(s_pll48); rng.hclk_hz(s_hclk_hz);
     bind_bus_slave(sdio, s_pclk2, P_SDIO);
     sdio.sdioclk(s_pll48);
+    sdio.sdioclk_hz(s_pll48_hz);
     bind_bus_slave(dcmi, s_hclk, P_DCMI);
     bind_bus_slave(eth, s_hclk, P_ETHMAC);
     eth.mii_rmii_sel(s_mii);
@@ -586,6 +587,26 @@ inline void Stm32F407VG::bind_analog() {
     pinmux.connect_af(0, 8, 4, af_i2c(i2c3.scl_out, i2c3.scl_oe, i2c3.scl_in));
     pinmux.connect_af(2, 9, 4, af_i2c(i2c3.sda_out, i2c3.sda_oe, i2c3.sda_in));
     pinmux.connect_af(0, 9, 4, af_i2c(i2c3.smba_out, i2c3.smba_oe, i2c3.smba_in));
+    // ---- SDIO (AF12) [IR, §12.17-integración; tabla AF de §2.1] ----------
+    // CK es una salida del host; CMD y D0-D7 son BIDIRECCIONALES: el mismo hilo
+    // lo gobierna el MCU mientras manda y la tarjeta mientras contesta, y quien
+    // decide es el bit de habilitación de salida. En reposo la entrada se fuerza
+    // a uno, que es lo que dan los pull-up del zócalo.
+    auto af_sd = [](sc_core::sc_signal<bool>& o, sc_core::sc_signal<bool>& e,
+                    sc_core::sc_signal<bool>& i) {
+        return AfEndpoint{&o, &e, &i, true};
+    };
+    pinmux.connect_af(2, 12, 12, af_sd(sdio.ck_out,  sdio.ck_oe,  sdio.ck_in));   // PC12 CK
+    pinmux.connect_af(3,  2, 12, af_sd(sdio.cmd_out, sdio.cmd_oe, sdio.cmd_in));  // PD2  CMD
+    pinmux.connect_af(2,  8, 12, af_sd(sdio.d_out[0], sdio.d_oe[0], sdio.d_in[0]));
+    pinmux.connect_af(2,  9, 12, af_sd(sdio.d_out[1], sdio.d_oe[1], sdio.d_in[1]));
+    pinmux.connect_af(2, 10, 12, af_sd(sdio.d_out[2], sdio.d_oe[2], sdio.d_in[2]));
+    pinmux.connect_af(2, 11, 12, af_sd(sdio.d_out[3], sdio.d_oe[3], sdio.d_in[3]));
+    pinmux.connect_af(1,  8, 12, af_sd(sdio.d_out[4], sdio.d_oe[4], sdio.d_in[4]));
+    pinmux.connect_af(1,  9, 12, af_sd(sdio.d_out[5], sdio.d_oe[5], sdio.d_in[5]));
+    pinmux.connect_af(2,  6, 12, af_sd(sdio.d_out[6], sdio.d_oe[6], sdio.d_in[6]));
+    pinmux.connect_af(2,  7, 12, af_sd(sdio.d_out[7], sdio.d_oe[7], sdio.d_in[7]));
+
     // ---- SPI e I2S [IR, §12.5.3-D: pines tipicos; tabla AF de §2.1] ------
     // Cada pin de un SPI es bidireccional: el mismo hilo es salida en un
     // extremo y entrada en el otro segun quien sea maestro, asi que se registra

@@ -26,9 +26,9 @@
 #include <systemc>
 #include <cmath>
 #include <vector>
-#include <cstdio>
 #include <utility>
 #include "../common/analog_net.h"
+#include "../periph/sdio.h"   // sd_crc7 y SdCrc16: el protocolo es el mismo
 
 namespace stm32 {
 
@@ -400,6 +400,312 @@ private:
     bool do_ack_ = true, ack_next_ = false;
     double stretch_us_ = 0.0;
     sc_core::sc_event stretch_ev_;
+};
+
+
+// ===========================================================================
+// Tarjeta SD de memoria, a nivel de PIN [IR, §12.17]
+//
+// Es el equivalente de la EEPROM del bus I2C: una pieza de la placa que habla
+// el protocolo de verdad, bit a bit, con su CRC7 en los comandos y su CRC16 por
+// cada línea de datos. No entiende de registros del MCU; solo ve CK, CMD y
+// D0-D3, y contesta lo que contestaría una tarjeta.
+//
+// Implementa el arranque completo de una tarjeta SD v2.0:
+//   CMD0  GO_IDLE_STATE          (sin respuesta)
+//   CMD8  SEND_IF_COND           R7: eco de la tensión y del patrón
+//   CMD55 APP_CMD                R1
+//   ACMD41 SD_SEND_OP_COND       R3: el OCR, con el bit de "listo"
+//   CMD2  ALL_SEND_CID           R2: los 128 bits del CID
+//   CMD3  SEND_RELATIVE_ADDR     R6: la dirección que se queda la tarjeta
+//   CMD9  SEND_CSD               R2
+//   CMD7  SELECT_CARD            R1
+//   CMD16 SET_BLOCKLEN           R1
+//   ACMD6 SET_BUS_WIDTH          R1: es lo que pone el bus a cuatro hilos
+//   CMD17 READ_SINGLE_BLOCK      R1 + un bloque por las líneas de datos
+//   CMD24 WRITE_BLOCK            R1 + un bloque que llega por las líneas
+//
+// Puede además ESTROPEAR a propósito el CRC de la respuesta o el de los datos,
+// que es como se comprueba que el host levanta CCRCFAIL y DCRCFAIL de verdad.
+// ===========================================================================
+SC_MODULE(SdCard) {
+    SdCard(sc_core::sc_module_name nm, analog_net_if& ck, analog_net_if& cmd,
+           analog_net_if* d0, analog_net_if* d1, analog_net_if* d2,
+           analog_net_if* d3, double vdd = 3.3)
+        : sc_core::sc_module(nm), ck_(&ck), cmd_(&cmd), vdd_(vdd) {
+        dat_[0] = d0; dat_[1] = d1; dat_[2] = d2; dat_[3] = d3;
+        id_cmd_ = cmd_->register_driver("sdcard_cmd");
+        // El pull-up de la placa: CMD y las líneas de datos reposan en alto,
+        // como en cualquier zócalo de tarjeta.
+        id_cmd_pu_ = cmd_->register_driver("sd_pu_cmd");
+        cmd_->set_drive(id_cmd_pu_, float(vdd_), 47e3f);
+        cmd_->set_hiz(id_cmd_);
+        for (unsigned i = 0; i < 4; ++i) {
+            if (!dat_[i]) continue;
+            id_dat_[i] = dat_[i]->register_driver("sdcard_dat");
+            id_dat_pu_[i] = dat_[i]->register_driver("sd_pu_dat");
+            dat_[i]->set_drive(id_dat_pu_[i], float(vdd_), 47e3f);
+            dat_[i]->set_hiz(id_dat_[i]);
+        }
+        for (unsigned i = 0; i < sizeof mem_; ++i) mem_[i] = uint8_t(i * 7u + 3u);
+        SC_HAS_PROCESS(SdCard);
+        SC_METHOD(edge_proc);
+        sensitive << ck_->value_changed_event();
+        dont_initialize();
+    }
+    ~SdCard() override {
+        cmd_->set_hiz(id_cmd_);
+        for (unsigned i = 0; i < 4; ++i) if (dat_[i]) dat_[i]->set_hiz(id_dat_[i]);
+    }
+
+    // ---- Observación y control desde el banco ----------------------------
+    uint8_t  peek(unsigned i) const { return mem_[i % sizeof mem_]; }
+    void     poke(unsigned i, uint8_t v) { mem_[i % sizeof mem_] = v; }
+    unsigned commands() const { return n_cmd_; }
+    unsigned last_cmd() const { return last_cmd_; }
+    uint32_t last_arg() const { return last_arg_; }
+    unsigned bus_width() const { return width_; }
+    bool     selected() const { return selected_; }
+    unsigned blocks_read()    const { return n_rd_; }
+    unsigned blocks_written() const { return n_wr_; }
+    // Averías a propósito, para comprobar que el host las detecta
+    void break_resp_crc(bool on) { bad_resp_crc_ = on; }
+    void break_data_crc(bool on) { bad_data_crc_ = on; }
+    void set_mute(bool on)       { mute_ = on; }     // no contesta: CTIMEOUT
+    void set_block_len(unsigned n) { blen_ = n; }
+
+private:
+    enum St { RX_CMD, TX_RESP, TX_GAP, TX_DATA, RX_DATA_WAIT, RX_DATA };
+
+    bool ck() const { return ck_->voltage() > 0.5 * vdd_; }
+    bool cmd_level() const { return cmd_->voltage() > 0.5 * vdd_; }
+    bool dat_level(unsigned i) const {
+        return dat_[i] && dat_[i]->voltage() > 0.5 * vdd_;
+    }
+    void drive_cmd(bool v) { cmd_->set_drive(id_cmd_, v ? float(vdd_) : 0.0f, 30.0f); }
+    void release_cmd()     { cmd_->set_hiz(id_cmd_); }
+    void drive_dat(unsigned i, bool v) {
+        if (dat_[i]) dat_[i]->set_drive(id_dat_[i], v ? float(vdd_) : 0.0f, 30.0f);
+    }
+    void release_dat() {
+        for (unsigned i = 0; i < 4; ++i) if (dat_[i]) dat_[i]->set_hiz(id_dat_[i]);
+    }
+
+    void edge_proc() {
+        const bool c = ck();
+        const bool prev = ck_prev_;
+        ck_prev_ = c;
+        if (!c && prev) falling();
+        else if (c && !prev) rising();
+    }
+
+    // El flanco de BAJADA es cuando la tarjeta pone su bit, igual que el host.
+    void falling() {
+        switch (st_) {
+            case TX_RESP:
+                if (rbit_ < rlen_) {
+                    drive_cmd(((resp_[rbit_ / 8] >> (7u - rbit_ % 8)) & 1u) != 0);
+                } else {
+                    release_cmd();
+                    // Tras la respuesta, la tarjeta se coloca donde toque: a
+                    // soltar un bloque (lectura), a esperarlo (escritura) o a
+                    // escuchar el comando siguiente.
+                    st_ = pending_read_  ? TX_GAP
+                        : pending_write_ ? RX_DATA_WAIT : RX_CMD;
+                    gap_ = 8;
+                    cbit_ = 0;
+                }
+                return;
+            case TX_GAP:
+                release_dat();
+                if (gap_ > 0) { --gap_; return; }
+                st_ = TX_DATA; dbit_ = 0;
+                for (auto& x : crc_) x.reset();
+                return;
+            case TX_DATA: {
+                const unsigned nl = width_;
+                const unsigned nbits = blen_ * 8u / nl;
+                if (dbit_ == 0) {
+                    for (unsigned l = 0; l < nl; ++l) drive_dat(l, false);   // arranque
+                } else if (dbit_ <= nbits) {
+                    const unsigned k = dbit_ - 1u;
+                    for (unsigned l = 0; l < nl; ++l) {
+                        const bool b = bit_of(&mem_[addr_ % sizeof mem_], k, l, nl);
+                        drive_dat(l, b);
+                        crc_[l].bit(b);
+                    }
+                } else if (dbit_ <= nbits + 16u) {
+                    const unsigned k = dbit_ - nbits - 1u;
+                    for (unsigned l = 0; l < nl; ++l) {
+                        uint16_t v = crc_[l].v;
+                        if (bad_data_crc_) v = uint16_t(v ^ 0x8000u);
+                        drive_dat(l, ((v >> (15u - k)) & 1u) != 0);
+                    }
+                } else if (dbit_ == nbits + 17u) {
+                    for (unsigned l = 0; l < nl; ++l) drive_dat(l, true);    // parada
+                } else {
+                    release_dat();
+                    ++n_rd_;
+                    pending_read_ = false;
+                    st_ = RX_CMD; cbit_ = 0;
+                    return;
+                }
+                ++dbit_;
+                return;
+            }
+            default:
+                release_cmd();
+                return;
+        }
+    }
+
+    // El flanco de SUBIDA es cuando la tarjeta muestrea.
+    void rising() {
+        switch (st_) {
+            case RX_CMD: {
+                const bool b = cmd_level();
+                if (cbit_ == 0 && b) return;              // esperando el arranque
+                if (cbit_ == 0) { for (auto& x : rx_) x = 0; }
+                if (b) rx_[cbit_ / 8] = uint8_t(rx_[cbit_ / 8] | (0x80u >> (cbit_ % 8)));
+                if (++cbit_ >= 48) { cbit_ = 0; handle_command(); }
+                return;
+            }
+            case TX_RESP:
+                ++rbit_;
+                return;
+            case RX_DATA_WAIT:
+                if (!dat_level(0)) { st_ = RX_DATA; dbit_ = 0;
+                                     for (auto& x : crc_) x.reset();
+                                     for (auto& x : wbuf_) x = 0; }
+                return;
+            case RX_DATA: {
+                const unsigned nl = width_;
+                const unsigned nbits = blen_ * 8u / nl;
+                if (dbit_ < nbits) {
+                    for (unsigned l = 0; l < nl; ++l) {
+                        const bool b = dat_level(l);
+                        set_bit_of(wbuf_, dbit_, l, nl, b);
+                        crc_[l].bit(b);
+                    }
+                    ++dbit_;
+                } else if (dbit_ < nbits + 16u) {
+                    ++dbit_;
+                } else {
+                    for (unsigned i = 0; i < blen_ && i < sizeof wbuf_; ++i)
+                        mem_[(addr_ + i) % sizeof mem_] = wbuf_[i];
+                    ++n_wr_;
+                    pending_write_ = false;
+                    st_ = RX_CMD; cbit_ = 0;
+                }
+                return;
+            }
+            default: return;
+        }
+    }
+
+    // --- El juego de comandos ---------------------------------------------
+    void handle_command() {
+        const unsigned idx = rx_[0] & 0x3Fu;
+        const uint32_t arg = (uint32_t(rx_[1]) << 24) | (uint32_t(rx_[2]) << 16) |
+                             (uint32_t(rx_[3]) << 8)  |  uint32_t(rx_[4]);
+        last_cmd_ = idx; last_arg_ = arg; ++n_cmd_;
+        // El CRC7 del comando tiene que cuadrar: si no, la tarjeta calla, y el
+        // host acaba marcando CTIMEOUT. Es lo que pasa en la placa.
+        if (sd_crc7_ext(rx_, 5) != ((rx_[5] >> 1) & 0x7Fu)) { st_ = RX_CMD; return; }
+        if (mute_) { st_ = RX_CMD; return; }
+
+        const bool app = app_cmd_;
+        app_cmd_ = false;
+        pending_read_ = false; pending_write_ = false;
+
+        if (app && idx == 41u) { resp_r3(ocr_ | 0x80000000u); return; }   // ACMD41
+        if (app && idx == 6u)  {                                         // ACMD6
+            width_ = ((arg & 3u) == 2u) ? 4u : 1u;
+            resp_r1(idx); return;
+        }
+        switch (idx) {
+            case 0:  st_ = RX_CMD; selected_ = false; return;   // CMD0: sin respuesta
+            case 8:  resp_r1_arg(idx, arg & 0xFFFu); return;    // CMD8: eco
+            case 55: app_cmd_ = true; resp_r1(idx); return;
+            case 2:  resp_r2(cid_); return;
+            case 3:  resp_r1_arg(idx, (uint32_t(rca_) << 16) | 0x0500u); return;
+            case 9:  resp_r2(csd_); return;
+            case 7:  selected_ = ((arg >> 16) == rca_); resp_r1(idx); return;
+            case 16: blen_ = arg ? arg : 512u; resp_r1(idx); return;
+            case 17: addr_ = arg; pending_read_ = true; resp_r1(idx); return;
+            case 24: addr_ = arg; pending_write_ = true; resp_r1(idx); return;
+            case 12: resp_r1(idx); return;                       // STOP_TRANSMISSION
+            default: resp_r1(idx); return;
+        }
+    }
+    void begin_resp(unsigned len) {
+        rlen_ = len; rbit_ = 0; st_ = TX_RESP;
+    }
+    void resp_r1(unsigned idx) { resp_r1_arg(idx, card_status()); }
+    void resp_r1_arg(unsigned idx, uint32_t v) {
+        resp_[0] = uint8_t(idx & 0x3Fu);
+        resp_[1] = uint8_t(v >> 24); resp_[2] = uint8_t(v >> 16);
+        resp_[3] = uint8_t(v >> 8);  resp_[4] = uint8_t(v);
+        uint8_t crc = sd_crc7_ext(resp_, 5);
+        if (bad_resp_crc_) crc = uint8_t(crc ^ 0x55u);
+        resp_[5] = uint8_t((crc << 1) | 1u);
+        begin_resp(48);
+    }
+    // R3 (el OCR) viaja con el índice a unos y SIN CRC: la tarjeta manda unos.
+    void resp_r3(uint32_t v) {
+        resp_[0] = 0x3Fu;
+        resp_[1] = uint8_t(v >> 24); resp_[2] = uint8_t(v >> 16);
+        resp_[3] = uint8_t(v >> 8);  resp_[4] = uint8_t(v);
+        resp_[5] = 0xFFu;
+        begin_resp(48);
+    }
+    // R2: 136 bits con los 128 del registro pedido.
+    void resp_r2(const uint8_t* reg16) {
+        resp_[0] = 0x3Fu;
+        for (unsigned i = 0; i < 16; ++i) resp_[1 + i] = reg16[i];
+        resp_[17] = 0xFFu;
+        begin_resp(136);
+    }
+    uint32_t card_status() const {
+        // READY_FOR_DATA (bit 8) y estado TRAN (4) o STBY (3) en [12:9]
+        return (1u << 8) | ((selected_ ? 4u : 3u) << 9);
+    }
+
+    static uint8_t sd_crc7_ext(const uint8_t* d, unsigned n) { return sd_crc7(d, n); }
+    static bool bit_of(const uint8_t* b, unsigned c, unsigned line, unsigned nl) {
+        const unsigned p = c * nl + (nl - 1u - line);
+        return ((b[p / 8] >> (7u - p % 8)) & 1u) != 0;
+    }
+    static void set_bit_of(uint8_t* b, unsigned c, unsigned line, unsigned nl, bool v) {
+        const unsigned p = c * nl + (nl - 1u - line);
+        if (v) b[p / 8] = uint8_t(b[p / 8] | (1u << (7u - p % 8)));
+    }
+
+    analog_net_if *ck_, *cmd_;
+    analog_net_if *dat_[4] = {nullptr, nullptr, nullptr, nullptr};
+    double vdd_;
+    int id_cmd_ = -1, id_cmd_pu_ = -1;
+    int id_dat_[4] = {-1, -1, -1, -1}, id_dat_pu_[4] = {-1, -1, -1, -1};
+
+    St       st_ = RX_CMD;
+    bool     ck_prev_ = false;
+    unsigned cbit_ = 0, rbit_ = 0, rlen_ = 0, dbit_ = 0, gap_ = 0;
+    uint8_t  rx_[6] = {}, resp_[18] = {};
+    uint8_t  mem_[2048] = {}, wbuf_[512] = {};
+    SdCrc16  crc_[4];
+    unsigned width_ = 1, blen_ = 512, n_cmd_ = 0, n_rd_ = 0, n_wr_ = 0;
+    unsigned last_cmd_ = 0;
+    uint32_t last_arg_ = 0, addr_ = 0;
+    uint16_t rca_ = 0x0002u;
+    uint32_t ocr_ = 0x00FF8000u;
+    bool     app_cmd_ = false, selected_ = false, pending_read_ = false;
+    bool     bad_resp_crc_ = false, bad_data_crc_ = false, mute_ = false;
+    bool     pending_write_ = false;
+    // Identificación de la tarjeta: 128 bits cada uno [IR, §12.17]
+    uint8_t  cid_[16] = {0x02,0x54,0x4D,0x53,0x41,0x30,0x34,0x47,
+                         0x00,0x11,0x22,0x33,0x44,0x01,0x2A,0x00};
+    uint8_t  csd_[16] = {0x40,0x0E,0x00,0x32,0x5B,0x59,0x00,0x00,
+                         0x1D,0x8A,0x7F,0x80,0x0A,0x40,0x00,0x00};
 };
 
 // ---------------------------------------------------------------------------
