@@ -313,6 +313,15 @@ inline void Cpu::exec_16(uint32_t hw) {
             return;
         }
         if ((hw & 0xFF00u) == 0xBE00u) {          // BKPT
+            // Con el depurador habilitado (DHCSR.C_DEBUGEN) el nucleo SE PARA
+            // en la propia instruccion: la direccion de retorno de depuracion
+            // es la del BKPT, no la siguiente [IR, §13.4]. Es tambien lo que
+            // hace un comparador del FPB, porque inyecta este mismo opcode.
+            if (dbg && dbg->dbg_enabled()) {
+                dbg->dbg_request_halt(DFSR_BKPT);
+                next_pc_ = cur_pc_;               // no avanza
+                return;
+            }
             // Sin depurador conectado se comporta como HardFault de depuración
             sys->set_hfsr(1u << 31);              // HFSR.DEBUGEVT
             take_fault(EXC_HARDFAULT, 0, false, 0);

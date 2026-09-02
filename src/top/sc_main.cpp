@@ -167,6 +167,13 @@ SC_MODULE(F1Tb) {
     sc_signal<double> s_sp_i2shz{"s_sp_i2shz"};
     sc_vector<sc_signal<bool>> s_sp_nc{"s_sp_nc", 8};
 
+    // --- Circuitería de las pruebas de depuración (fase F6) ----------------
+    // Una sonda soldada a PA14/PA13, que es donde estan SWCLK y SWDIO, y un
+    // analizador de traza colgado de PB3 (SWO). Los dos son piezas de banco:
+    // el MCU termina en sus pines.
+    SwdProbe*     sonda = nullptr;
+    SwoReceiver*  swo_rx = nullptr;
+
     // --- Circuitería de las pruebas del bxCAN ------------------------------
     // El bus es un CABLE EN Y con su terminador. Los dos bxCAN del MCU se
     // enganchan a él por sendos transceptores, y hay además un nodo externo
@@ -289,6 +296,11 @@ SC_MODULE(F1Tb) {
         src_pa4 = new Driver(dut->pinmux.analog(0, 4));   // ADC12_IN4 (NO ADC3)
         src_pc0 = new Driver(dut->pinmux.analog(2, 0));   // ADC123_IN10
         src_pc1 = new Driver(dut->pinmux.analog(2, 1));   // ADC123_IN11
+        // --- La sonda de depuracion (AF0, activo desde el reset) ----------
+        sonda  = new SwdProbe(dut->pinmux.analog(0, 14),   // PA14 SWCLK
+                              dut->pinmux.analog(0, 13),   // PA13 SWDIO
+                              2e6);
+        swo_rx = new SwoReceiver("swo_rx", dut->pinmux.analog(1, 3), 1e6);  // PB3
         // --- El bus CAN de la placa (AF9) ---------------------------------
         // CAN1 en PD0/PD1 y CAN2 en PB12/PB13: dos juegos de pines que no
         // chocan con nada de lo que ya usa el banco.
@@ -627,6 +639,16 @@ SC_MODULE(F1Tb) {
         t86_can_filtros();
         t87_can_arbitraje_errores();
         t88_can_firmware();
+        const unsigned f5n_pass = g_pass, f5n_fail = g_fail;
+
+        // ========================= Fase F6: depuracion ======================
+        t89_dbg_registros();
+        t90_dbg_halt_step();
+        t91_dbg_fpb();
+        t92_dbg_dwt();
+        t93_dbg_itm_swo();
+        t94_dbg_sonda_swd();
+        t95_dbg_firmware();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -657,7 +679,9 @@ SC_MODULE(F1Tb) {
         std::printf("Resumen F5 (CRC/RNG): %u comprobaciones OK, %u fallos\n",
                     f5c_pass - f5sd_pass, f5c_fail - f5sd_fail);
         std::printf("Resumen F5 (bxCAN): %u comprobaciones OK, %u fallos\n",
-                    g_pass - f5c_pass, g_fail - f5c_fail);
+                    f5n_pass - f5c_pass, f5n_fail - f5c_fail);
+        std::printf("Resumen F6 (debug): %u comprobaciones OK, %u fallos\n",
+                    g_pass - f5n_pass, g_fail - f5n_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -6992,12 +7016,19 @@ SC_MODULE(F1Tb) {
         check((w_rd(Wwdg::R_CR) & 0x7Fu) > 0x70u, "el contador vuelve a lo alto");
 
         // --- El depurador congela la cuenta ------------------------------------
+        // Ahora esto se hace COMO EN LA PLACA: se pone el bit del perro
+        // guardian en DBGMCU_APB1_FZ y se para el nucleo. La linea de
+        // congelacion la genera el propio DBGMCU [IR, §13.9].
         wait(sc_time(10.0 * per, SC_SEC));               // dejarlo bajar un poco
         const unsigned tf0 = w_rd(Wwdg::R_CR) & 0x7Fu;
-        dut->s_freeze[FZ_WWDG].write(true);
+        // El PPB solo lo alcanzan el nucleo y el DAP: el maestro de pruebas
+        // NO llega ahi. Se escribe por el AHB-AP, que es la via del depurador.
+        dut->core.debug.ap_write32(0xE0042008u, 1u << 11);   // DBG_WWDG_STOP
+        dut->core.debug.set_halt(true);
         wait(sc_time(20.0 * per, SC_SEC));
         const unsigned tf1 = w_rd(Wwdg::R_CR) & 0x7Fu;
-        dut->s_freeze[FZ_WWDG].write(false);
+        dut->core.debug.set_halt(false);
+        dut->core.debug.ap_write32(0xE0042008u, 0);
         std::printf("    con el depurador parado, T se queda en %u (era %u)\n", tf1, tf0);
         check_eq(tf1, tf0,
                  "el bit de congelacion del depurador para la cuenta: parar en un "
@@ -8773,6 +8804,631 @@ SC_MODULE(F1Tb) {
         can_links(false);
     }
 
+    // =======================================================================
+    // FASE F6 — Subsistema de depuracion
+    //
+    // El PPB (0xE000 0000-0xE00F FFFF) SOLO lo alcanzan el nucleo y el DAP. El
+    // maestro de pruebas del banco NO llega ahi, igual que no llega el DMA, asi
+    // que todo lo que sigue se hace por el AHB-AP del depurador -que es
+    // exactamente como se hace en una placa [IR, §13-Implicaciones].
+    // =======================================================================
+    uint32_t dbg_rd(uint32_t a) {
+        uint32_t v = 0;
+        dut->core.debug.ap_read32(a, v);
+        return v;
+    }
+    void dbg_wr(uint32_t a, uint32_t v) { dut->core.debug.ap_write32(a, v); }
+
+    static constexpr uint32_t R_DHCSR = 0xE000EDF0u, R_DCRSR = 0xE000EDF4u,
+                              R_DCRDR = 0xE000EDF8u, R_DEMCR = 0xE000EDFCu;
+    static constexpr uint32_t LLAVE = 0xA05F0000u;
+    static constexpr uint32_t B_ITM = 0xE0000000u, B_DWT = 0xE0001000u,
+                              B_FPB = 0xE0002000u, B_TPIU = 0xE0040000u,
+                              B_DBGMCU = 0xE0042000u, B_ROM = 0xE00FF000u;
+
+    void dbg_halt()   { dbg_wr(R_DHCSR, LLAVE | 0x3u); wait(20, SC_US); }
+    void dbg_resume() { dbg_wr(R_DHCSR, LLAVE | 0x1u); wait(20, SC_US); }
+    void dbg_step()   { dbg_wr(R_DHCSR, LLAVE | 0x5u); wait(20, SC_US); }
+    bool dbg_parado() { return (dbg_rd(R_DHCSR) & (1u << 17)) != 0; }
+    uint32_t dbg_reg(unsigned sel) {
+        dbg_wr(R_DCRSR, sel & 0x7Fu);
+        return dbg_rd(R_DCRDR);
+    }
+    void dbg_set_reg(unsigned sel, uint32_t v) {
+        dbg_wr(R_DCRDR, v);
+        dbg_wr(R_DCRSR, (1u << 16) | (sel & 0x7Fu));
+    }
+
+    // Carga un programita en la Flash. Son unas pocas instrucciones Thumb
+    // escritas a mano: lo justo para probar el paso a paso, el FPB y el DWT sin
+    // depender de un firmware externo.
+    //
+    // Se coloca en 0x0800 0200 y NO se toca el vector de reset: el nucleo
+    // arranca en el bucle de aparcamiento del banco y es el DEPURADOR quien
+    // lo para y le pone el PC encima del programa. Es exactamente lo que hace
+    // una herramienta al cargar un programa en RAM y arrancarlo.
+    static constexpr uint32_t DBG_PROG = 0x08000200u;
+    void dbg_programa(const uint32_t* palabras, unsigned n) {
+        ImageLoader ld(*dut);
+        for (unsigned i = 0; i < n; ++i) ld.poke32(DBG_PROG + 4 * i, palabras[i]);
+    }
+    // Deja el nucleo parado en la primera instruccion del programita.
+    void dbg_arranca_programa() {
+        dbg_halt();
+        dbg_set_reg(15, DBG_PROG);
+        dbg_wr(0xE000ED30u, 0xFFu);                   // limpiar DFSR
+    }
+
+    // -----------------------------------------------------------------------
+    // T89 — El PPB, la ROM table y los bancos de registros
+    // -----------------------------------------------------------------------
+    void t89_dbg_registros() {
+        group("T89 Debug: PPB, ROM table y bancos de registros [IR, 13.3]");
+        reset_dut();
+
+        // --- El PPB es privado -----------------------------------------------
+        uint32_t v = 0;
+        check(tm.read32(R_DHCSR, v) != TLM_OK_RESPONSE,
+              "el PPB NO lo alcanza el maestro de pruebas: es privado del nucleo y del DAP");
+        check(dut->core.debug.ap_read32(R_DHCSR, v) == TLM_OK_RESPONSE,
+              "pero el AHB-AP del depurador si llega");
+
+        // --- La ROM table: el auto-descubrimiento -----------------------------
+        // Es lo primero que lee una herramienta al conectarse: la lista de
+        // componentes presentes, cada uno con su desplazamiento [IR, 13.3].
+        const uint32_t rom[6] = {dbg_rd(B_ROM + 0x00), dbg_rd(B_ROM + 0x04),
+                                 dbg_rd(B_ROM + 0x08), dbg_rd(B_ROM + 0x0C),
+                                 dbg_rd(B_ROM + 0x10), dbg_rd(B_ROM + 0x14)};
+        std::printf("    ROM table: %08X %08X %08X %08X %08X %08X\n",
+                    rom[0], rom[1], rom[2], rom[3], rom[4], rom[5]);
+        check_eq(rom[0], 0xFFF0F003u, "la ROM table apunta al SCS...");
+        check_eq(rom[1], 0xFFF02003u, "...al DWT...");
+        check_eq(rom[2], 0xFFF03003u, "...al FPB...");
+        check_eq(rom[3], 0xFFF01003u, "...al ITM...");
+        check_eq(rom[4], 0xFFF41003u, "...al TPIU...");
+        check_eq(rom[5], 0xFFF42003u, "...y al ETM [IR, 13.3]");
+        check_eq(dbg_rd(B_ROM + 0x18), 0u, "y termina con una entrada a cero");
+
+        // --- DBGMCU: quien es este chip ---------------------------------------
+        const uint32_t idc = dbg_rd(B_DBGMCU);
+        std::printf("    DBGMCU_IDCODE = 0x%08X (DEV_ID = 0x%03X, REV_ID = 0x%04X)\n",
+                    idc, idc & 0xFFFu, idc >> 16);
+        check_eq(idc, 0x10016413u,
+                 "DBGMCU_IDCODE identifica un STM32F405/407 [IR, 13.9.1]");
+        check_eq(idc & 0xFFFu, 0x413u, "DEV_ID = 0x413");
+
+        // --- Valores de reset --------------------------------------------------
+        check_eq(dbg_rd(B_FPB + 0x00), 0x00000260u,
+                 "FP_CTRL de reset: 6 comparadores de instruccion y 2 literales");
+        check_eq(dbg_rd(B_FPB + 0x04) & (1u << 29), 1u << 29,
+                 "FP_REMAP dice que el remapeado esta soportado");
+        check_eq(dbg_rd(B_DWT + 0x00) >> 28, 4u,
+                 "DWT_CTRL.NUMCOMP = 4: cuatro comparadores [IR, 13.5.1]");
+        check_eq(dbg_rd(B_TPIU + 0x0F0), 1u,
+                 "TPIU_SPPR de reset: Manchester asincrono [IR, 13.8.1]");
+        check_eq(dbg_rd(B_TPIU + 0x304), 0x0102u, "TPIU_FFCR de reset");
+        check_eq(dbg_rd(0xE0040000u + 0x000), 0xFu,
+                 "TPIU_SSPSR: admite puertos de traza de 1 a 4 bits");
+
+        // --- La llave de DHCSR --------------------------------------------------
+        // Sin 0xA05F en la parte alta, la escritura se ignora ENTERA. Es lo que
+        // impide que un firmware descarrilado se pare a si mismo.
+        // Los registros de depuracion NO se resetean con el reset del sistema
+        // -viven en el dominio de depuracion-, asi que primero se limpian a
+        // mano, con la llave.
+        dbg_wr(R_DHCSR, LLAVE | 0u);
+        dbg_wr(R_DHCSR, 0x00000003u);                 // sin llave
+        check(!(dbg_rd(R_DHCSR) & 1u),
+              "sin la llave 0xA05F, escribir DHCSR no hace NADA [IR, 13.4.1]");
+        dbg_wr(R_DHCSR, LLAVE | 1u);
+        check(dbg_rd(R_DHCSR) & 1u, "con la llave, C_DEBUGEN queda puesto");
+
+        // --- El candado del ITM ------------------------------------------------
+        check_eq(dbg_rd(B_ITM + 0xFB4) & 3u, 3u,
+                 "el ITM arranca CERRADO: su registro de estado lo dice");
+        dbg_wr(B_ITM + 0xE80, 1u);
+        check_eq(dbg_rd(B_ITM + 0xE80) & 1u, 0u,
+                 "y cerrado no acepta configuracion");
+        dbg_wr(B_ITM + 0xFB0, 0xC5ACCE55u);           // la llave de CoreSight
+        check(!(dbg_rd(B_ITM + 0xFB4) & 2u),
+              "escribiendo 0xC5ACCE55 en ITM_LAR se abre");
+        dbg_wr(B_ITM + 0xE80, 1u);
+        check_eq(dbg_rd(B_ITM + 0xE80) & 1u, 1u, "y ya si se deja configurar");
+        dbg_wr(R_DHCSR, LLAVE | 0u);
+    }
+
+    // -----------------------------------------------------------------------
+    // T90 — Parar, reanudar, paso a paso y registros del nucleo
+    // -----------------------------------------------------------------------
+    void t90_dbg_halt_step() {
+        group("T90 Debug: parada, paso a paso y registros del nucleo [IR, 13.4]");
+        reset_dut();
+
+        // Un programita: cuatro sumas y un bucle. Sin firmware externo.
+        //   movs r0,#0 ; adds r0,#1 ; adds r0,#2 ; adds r0,#4 ; adds r0,#8 ; b .
+        const uint32_t prog[3] = {
+            0x30012000u,          // movs r0,#0   ; adds r0,#1
+            0x30043002u,          // adds r0,#2   ; adds r0,#4
+            0xE7FE3008u           // adds r0,#8   ; b .
+        };
+        dbg_programa(prog, 3);
+        wait(200, SC_US);
+
+        // --- Parar --------------------------------------------------------------
+        check(!dbg_parado(), "el nucleo arranca corriendo");
+        dbg_halt();
+        check(dbg_parado(), "C_HALT lo detiene: DHCSR.S_HALT lo confirma");
+        dbg_set_reg(15, DBG_PROG);                    // el depurador lo apunta al programa
+        const uint32_t pc0 = dbg_reg(15);
+        const uint32_t r0_0 = dbg_reg(0);
+        wait(500, SC_US);
+        check_eq(dbg_reg(15), pc0,
+                 "y parado esta parado: el PC no se mueve en medio milisegundo");
+
+        // --- Los registros del nucleo, por DCRSR/DCRDR --------------------------
+        std::printf("    parado en pc = 0x%08X, r0 = %u, sp = 0x%08X, xpsr = 0x%08X\n",
+                    pc0, r0_0, dbg_reg(13), dbg_reg(16));
+        check(pc0 >= DBG_PROG && pc0 < (DBG_PROG + 0x20),
+              "el PC esta dentro del programita cargado");
+        check((dbg_reg(16) & (1u << 24)) != 0,
+              "y el bit T de xPSR esta puesto: el nucleo esta en estado Thumb");
+        dbg_set_reg(1, 0xCAFEBABEu);
+        check_eq(dbg_reg(1), 0xCAFEBABEu,
+                 "el depurador ESCRIBE los registros del nucleo, no solo los lee");
+
+        // --- Paso a paso ---------------------------------------------------------
+        // Se coloca el PC al principio y se avanza instruccion a instruccion,
+        // comprobando que r0 va tomando 0, 1, 3, 7, 15.
+        dbg_set_reg(15, DBG_PROG);
+        dbg_set_reg(0, 0xFFFFFFFFu);
+        const unsigned esperado[5] = {0, 1, 3, 7, 15};
+        unsigned bien = 0;
+        uint32_t pc_prev = DBG_PROG;
+        bool avanza = true;
+        for (unsigned i = 0; i < 5; ++i) {
+            dbg_step();
+            const uint32_t r0 = dbg_reg(0), pc = dbg_reg(15);
+            if (r0 == esperado[i]) ++bien;
+            if (pc != pc_prev + 2u) avanza = false;
+            pc_prev = pc;
+        }
+        std::printf("    tras cinco pasos: r0 = %u, pc = 0x%08X\n",
+                    dbg_reg(0), dbg_reg(15));
+        check_eq(bien, 5u,
+                 "el paso a paso ejecuta UNA instruccion cada vez: r0 = 0,1,3,7,15");
+        check(avanza, "y el PC avanza dos bytes por instruccion de 16 bits");
+        check(dbg_parado(), "entre paso y paso el nucleo sigue formalmente parado");
+
+        // --- Reanudar -------------------------------------------------------------
+        dbg_resume();
+        check(!dbg_parado(), "quitando C_HALT el nucleo vuelve a correr");
+        wait(300, SC_US);
+        dbg_halt();
+        check_eq(dbg_reg(0), 15u,
+                 "y al llegar al bucle final se queda con r0 = 15");
+
+        // --- La causa de la parada, en DFSR ---------------------------------------
+        const uint32_t dfsr = dbg_rd(0xE000ED30u);
+        std::printf("    SCB_DFSR = 0x%08X\n", dfsr);
+        check(dfsr & 1u, "DFSR.HALTED dice que la parada la pidio el depurador");
+        dbg_wr(0xE000ED30u, 0xFFu);
+        check_eq(dbg_rd(0xE000ED30u), 0u, "y DFSR se borra escribiendo unos");
+        dbg_resume();
+    }
+
+    // -----------------------------------------------------------------------
+    // T91 — FPB: puntos de ruptura y parcheo de la Flash
+    // -----------------------------------------------------------------------
+    void t91_dbg_fpb() {
+        group("T91 Debug: FPB, puntos de ruptura y parcheo [IR, 13.7]");
+        reset_dut();
+        const uint32_t prog[3] = {
+            0x30012000u,          // 0x100 movs r0,#0 ; 0x102 adds r0,#1
+            0x30043002u,          // 0x104 adds r0,#2 ; 0x106 adds r0,#4
+            0xE7FE3008u           // 0x108 adds r0,#8 ; 0x10A b .
+        };
+        dbg_programa(prog, 3);
+        wait(200, SC_US);
+        dbg_arranca_programa();
+
+        // --- Un punto de ruptura en 0x0800 0106 --------------------------------
+        // FP_COMP guarda la direccion de la PALABRA y elige la media palabra
+        // con REPLACE: 01 la baja, 10 la alta [IR, 13.7.2].
+        dbg_wr(B_FPB + 0x08, ((DBG_PROG + 4) & 0x1FFFFFFCu) | (2u << 30) | 1u);
+        dbg_wr(B_FPB + 0x00, 3u);                     // KEY | ENABLE
+        check_eq(dbg_rd(B_FPB + 0x00) & 1u, 1u, "FP_CTRL.ENABLE con su llave");
+        dbg_set_reg(15, DBG_PROG);
+        dbg_wr(0xE000ED30u, 0xFFu);                   // limpiar DFSR
+        dbg_resume();
+        wait(300, SC_US);
+        const uint32_t pc = dbg_reg(15);
+        const uint32_t r0 = dbg_reg(0);
+        const uint32_t dfsr = dbg_rd(0xE000ED30u);
+        std::printf("    el FPB para en pc = 0x%08X con r0 = %u (DFSR = 0x%08X)\n", pc, r0, dfsr);
+        check(dbg_parado(), "el comparador del FPB PARA el nucleo");
+        check_eq(pc, (DBG_PROG + 6), "justo en la instruccion marcada, sin ejecutarla");
+        check_eq(r0, 3u, "con r0 = 3: se ejecutaron las dos anteriores y ninguna mas");
+        check(dfsr & 2u,
+              "y DFSR.BKPT dice por que: el FPB inyecta un BKPT [IR, 13-Implic.]");
+
+        // --- Quitarlo y seguir ---------------------------------------------------
+        dbg_wr(B_FPB + 0x08, 0);
+        dbg_wr(0xE000ED30u, 0xFFu);
+        dbg_resume();
+        wait(300, SC_US);
+        dbg_halt();
+        check_eq(dbg_reg(0), 15u,
+                 "quitado el comparador, el programa llega al final");
+
+        // --- Deshabilitar la unidad entera ---------------------------------------
+        dbg_wr(B_FPB + 0x08, ((DBG_PROG + 4) & 0x1FFFFFFCu) | (2u << 30) | 1u);
+        dbg_wr(B_FPB + 0x00, 2u);                     // KEY, ENABLE = 0
+        dbg_set_reg(15, DBG_PROG);
+        dbg_set_reg(0, 0);
+        dbg_resume();
+        wait(300, SC_US);
+        dbg_halt();
+        check_eq(dbg_reg(0), 15u,
+                 "con FP_CTRL.ENABLE a cero los comparadores no actuan");
+
+        // --- Parcheo: una instruccion de la Flash servida desde la SRAM ----------
+        // Es para lo que nacio la unidad: corregir un error de una Flash ya
+        // grabada [IR, 13.7.1]. Se remapea la palabra de 0x0800 0104 -que
+        // contiene "adds r0,#2 ; adds r0,#4"- a una palabra en SRAM con
+        // "adds r0,#32 ; adds r0,#64".
+        ImageLoader ld(*dut);
+        const uint32_t remap = addr::SRAM1_BASE + 0x800u;
+        ld.poke32(remap, 0x30403020u);                // adds r0,#32 ; adds r0,#64
+        dbg_wr(B_FPB + 0x04, remap);                  // FP_REMAP
+        dbg_wr(B_FPB + 0x08, ((DBG_PROG + 4) & 0x1FFFFFFCu) | (0u << 30) | 1u);
+        dbg_wr(B_FPB + 0x00, 3u);
+        dbg_set_reg(15, DBG_PROG);
+        dbg_set_reg(0, 0);
+        dbg_resume();
+        wait(300, SC_US);
+        dbg_halt();
+        const uint32_t r_parche = dbg_reg(0);
+        std::printf("    con el parche activo, r0 = %u (sin parche seria 15)\n", r_parche);
+        check_eq(r_parche, 0u + 1u + 32u + 64u + 8u,
+                 "el FPB SIRVE la instruccion desde la SRAM: la Flash no se toca");
+        dbg_wr(B_FPB + 0x00, 2u);
+        dbg_wr(B_FPB + 0x08, 0);
+        dbg_wr(0xE000ED30u, 0xFFu);
+        dbg_resume();
+    }
+
+    // -----------------------------------------------------------------------
+    // T92 — DWT: contador de ciclos y watchpoints
+    // -----------------------------------------------------------------------
+    void t92_dbg_dwt() {
+        group("T92 Debug: DWT, contador de ciclos y watchpoints [IR, 13.5]");
+        reset_dut();
+        // movs r0,#0 ; ldr r1,=dir ; str r0,[r1] ; adds r0,#1 ; b .
+        const uint32_t prog[4] = {
+            0x49012000u,          // 0x100 movs r0,#0   ; 0x102 ldr r1,[pc,#4]
+            0xE7FE3001u,          // 0x104 adds r0,#1   ; 0x106 b .
+            0x20000900u,          // 0x108 (literal: direccion)
+            0x00000000u
+        };
+        dbg_programa(prog, 4);
+        wait(200, SC_US);
+        dbg_arranca_programa();
+        dbg_resume();
+
+        // --- CYCCNT: sin TRCENA no cuenta -----------------------------------
+        dbg_wr(R_DEMCR, 0);
+        dbg_wr(B_DWT + 0x00, 1u);                     // CYCCNTENA
+        dbg_wr(B_DWT + 0x04, 0);
+        wait(200, SC_US);
+        check_eq(dbg_rd(B_DWT + 0x04), 0u,
+                 "sin DEMCR.TRCENA el DWT esta apagado: CYCCNT no cuenta [IR, 13.4.3]");
+
+        // --- Con TRCENA cuenta ciclos de HCLK -------------------------------
+        dbg_wr(R_DEMCR, 1u << 24);                    // TRCENA
+        dbg_wr(B_DWT + 0x04, 0);
+        const uint32_t c0 = dbg_rd(B_DWT + 0x04);
+        wait(500, SC_US);
+        const uint32_t c1 = dbg_rd(B_DWT + 0x04);
+        const double f = dut->s_hclk_hz.read();
+        std::printf("    CYCCNT: %u -> %u en 500 us con HCLK = %.0f Hz\n", c0, c1, f);
+        check(c1 > c0, "con TRCENA, CYCCNT avanza");
+        // El bucle "b ." son dos ciclos por vuelta, asi que la cuenta va por
+        // debajo de HCLK; lo que se comprueba es que es del orden correcto.
+        check(double(c1 - c0) > 0.2 * f * 500e-6 && double(c1 - c0) <= f * 500e-6 * 1.05,
+              "y lo hace al ritmo de los ciclos que el modelo factura de verdad");
+
+        // --- El DWT se para con el nucleo ------------------------------------
+        dbg_halt();
+        const uint32_t ch0 = dbg_rd(B_DWT + 0x04);
+        wait(500, SC_US);
+        check_eq(dbg_rd(B_DWT + 0x04), ch0,
+                 "con el nucleo parado, CYCCNT se para tambien: cuenta ciclos"
+                 " RETIRADOS, no tiempo");
+
+        // --- Contadores de perfil ---------------------------------------------
+        dbg_wr(B_DWT + 0x00, 1u | (1u << 17) | (1u << 18) | (1u << 20));
+        dbg_wr(B_DWT + 0x08, 0); dbg_wr(B_DWT + 0x14, 0);
+        dbg_resume();
+        wait(300, SC_US);
+        dbg_halt();
+        std::printf("    CPICNT = %u, EXCCNT = %u, LSUCNT = %u, FOLDCNT = %u\n",
+                    dbg_rd(B_DWT + 0x08), dbg_rd(B_DWT + 0x0C),
+                    dbg_rd(B_DWT + 0x14), dbg_rd(B_DWT + 0x18));
+        check(dbg_rd(B_DWT + 0x08) != 0u || dbg_rd(B_DWT + 0x14) != 0u,
+              "los contadores de perfil se alimentan de la contabilidad de"
+              " ciclos del propio modelo");
+
+        // --- Un watchpoint de escritura ---------------------------------------
+        // Se vigila 0x2000 0900, que es donde el programita escribe.
+        const uint32_t prog2[4] = {
+            0x49022000u,          // 0x100 movs r0,#0   ; 0x102 ldr r1,[pc,#8]
+            0x30016008u,          // 0x104 str r0,[r1]  ; 0x106 adds r0,#1
+            0xBF00E7FEu,          // 0x108 b .          ; 0x10A nop
+            0x20000900u           // 0x10C literal
+        };
+        dbg_programa(prog2, 4);
+        dbg_arranca_programa();
+        dbg_wr(R_DEMCR, 1u << 24);
+        dbg_wr(B_DWT + 0x20, 0x20000900u);            // COMP0
+        dbg_wr(B_DWT + 0x24, 0);                      // MASK0: coincidencia exacta
+        dbg_wr(B_DWT + 0x28, 6u);                     // FUNCTION0: escritura
+        dbg_wr(0xE000ED30u, 0xFFu);
+        dbg_set_reg(15, DBG_PROG);
+        dbg_resume();
+        wait(300, SC_US);
+        const uint32_t pcw = dbg_reg(15);
+        const uint32_t dfsr = dbg_rd(0xE000ED30u);
+        std::printf("    el watchpoint para en pc = 0x%08X (DFSR = 0x%08X, FUNCTION0 = 0x%08X)\n",
+                    pcw, dfsr, dbg_rd(B_DWT + 0x28));
+        check(dbg_parado(), "un comparador del DWT PARA el nucleo al tocar la direccion");
+        check(dfsr & 4u, "y DFSR.DWTTRAP dice por que [IR, 13.4]");
+        check(dbg_rd(B_DWT + 0x28) & (1u << 24),
+              "el propio comparador se marca con MATCHED");
+        check_eq(dbg_rd(0x20000900u), 0u,
+                 "la escritura vigilada SI ocurrio: el watchpoint no la impide");
+
+        // --- Y una lectura no lo dispara si solo se vigilan escrituras -----------
+        dbg_wr(B_DWT + 0x28, 0);
+        dbg_wr(0xE000ED30u, 0xFFu);
+        dbg_wr(B_DWT + 0x28, 5u);                     // solo lecturas
+        dbg_set_reg(15, DBG_PROG);
+        dbg_resume();
+        wait(300, SC_US);
+        check(!dbg_parado(),
+              "vigilando solo LECTURAS, la misma escritura no lo dispara");
+        dbg_wr(B_DWT + 0x28, 0);
+        dbg_halt();
+    }
+
+    // -----------------------------------------------------------------------
+    // T93 — ITM y traza por el pin SWO
+    // -----------------------------------------------------------------------
+    void t93_dbg_itm_swo() {
+        group("T93 Debug: ITM y traza por el pin SWO [IR, 13.6, 13.8]");
+        reset_dut();
+        wait(100, SC_US);
+
+        // --- La secuencia de un driver de traza --------------------------------
+        const double f = dut->s_hclk_hz.read();
+        const uint32_t presc = 15;                    // f_SWO = HCLK/16
+        dbg_wr(R_DEMCR, 1u << 24);                    // TRCENA
+        dbg_wr(B_TPIU + 0x0F0, 2u);                   // SPPR = NRZ
+        dbg_wr(B_TPIU + 0x010, presc);                // ACPR
+        dbg_wr(B_TPIU + 0x304, 0x100u);               // sin formateador
+        dbg_wr(B_ITM + 0xFB0, 0xC5ACCE55u);           // abrir el candado
+        dbg_wr(B_ITM + 0xE80, 1u | (1u << 16));       // ITMENA, TraceBusID = 1
+        dbg_wr(B_ITM + 0xE00, 0xFFFFFFFFu);           // todos los puertos
+        swo_rx->set_bitrate(f / double(presc + 1));
+        swo_rx->clear();
+        std::printf("    HCLK = %.0f Hz, ACPR = %u -> f_SWO = %.0f bit/s\n",
+                    f, presc, f / double(presc + 1));
+
+        // --- Un mensaje por el puerto 0 ------------------------------------------
+        const char* msg = "F6 OK";
+        for (const char* p = msg; *p; ++p) {
+            // Escritura de UN BYTE: el ITM genera un paquete de un byte.
+            unsigned char b = uint8_t(*p);
+            dut->core.debug.ap_access(true, B_ITM + 0x00, &b, 1);
+        }
+        wait(2, SC_MS);
+        const std::string recibido = swo_rx->texto(0);
+        std::printf("    por SWO llegaron %u bytes, %u mensajes: \"%s\"\n",
+                    swo_rx->bytes(), swo_rx->mensajes(), recibido.c_str());
+        check(swo_rx->bytes() > 0u, "el pin SWO transmite de verdad, bit a bit");
+        check(recibido == std::string(msg),
+              "y el analizador desempaqueta el ITM y recupera el mensaje entero");
+
+        // --- El tamano del acceso cambia el paquete -------------------------------
+        swo_rx->clear();
+        dbg_wr(B_ITM + 0x04, 0x11223344u);            // puerto 1, palabra
+        wait(2, SC_MS);
+        std::printf("    puerto 1, palabra: %u mensajes, primero = 0x%08X (puerto %u)\n",
+                    swo_rx->mensajes(), swo_rx->mensaje(0), swo_rx->puerto(0));
+        check_eq(swo_rx->mensajes(), 1u, "una escritura de palabra da UN paquete");
+        check_eq(swo_rx->mensaje(0), 0x11223344u, "con los cuatro bytes");
+        check_eq(swo_rx->puerto(0), 1u, "y el numero de puerto en la cabecera");
+
+        // --- Un puerto deshabilitado no sale ---------------------------------------
+        swo_rx->clear();
+        dbg_wr(B_ITM + 0xE00, 1u);                    // solo el puerto 0
+        dbg_wr(B_ITM + 0x04, 0xAABBCCDDu);            // puerto 1: descartado
+        dbg_wr(B_ITM + 0x00, 0x5Au);                  // puerto 0: sale
+        wait(2, SC_MS);
+        check_eq(swo_rx->mensajes(), 1u,
+                 "ITM_TER filtra puerto a puerto: lo deshabilitado no llega al pin");
+        check_eq(swo_rx->puerto(0), 0u, "y lo que llega es del puerto habilitado");
+
+        // --- Sin TRCENA no hay traza ------------------------------------------------
+        swo_rx->clear();
+        dbg_wr(R_DEMCR, 0);
+        dbg_wr(B_ITM + 0x00, 0x99u);
+        wait(1, SC_MS);
+        check_eq(swo_rx->bytes(), 0u,
+                 "quitando DEMCR.TRCENA se apaga toda la traza de golpe");
+        dbg_wr(R_DEMCR, 1u << 24);
+    }
+
+    // -----------------------------------------------------------------------
+    // T94 — La sonda, por los pines
+    // -----------------------------------------------------------------------
+    void t94_dbg_sonda_swd() {
+        group("T94 Debug: una sonda SWD por PA13/PA14 [IR, 13.1, 13.2]");
+        reset_dut();
+        wait(100, SC_US);
+
+        rcc_enable(Rcc::R_AHB1ENR, 0);                // GPIOAEN, para poder mirar
+        // Los pines de depuracion estan en AF0 DESDE EL RESET: no hace falta
+        // que ningun firmware los configure, y por eso una sonda puede rescatar
+        // un chip cuyo programa no arranca [IR, 13.1].
+        std::printf("    tras el reset, GPIOA_MODER = 0x%08X, PUPDR = 0x%08X\n",
+                    tm.rd32(addr::GPIOA_B + 0x00), tm.rd32(addr::GPIOA_B + 0x0C));
+        check_eq((tm.rd32(addr::GPIOA_B + 0x00) >> 26) & 0x3Fu, 0x2Au,
+                 "PA13, PA14 y PA15 estan en AF desde el reset");
+        check_eq((tm.rd32(addr::GPIOA_B + 0x0C) >> 26) & 0x3Fu, 0x19u,
+                 "con pull-up en SWDIO y pull-down en SWCLK [IR, 13.1]");
+
+        // --- La secuencia de enganche ---------------------------------------------
+        const uint32_t id = sonda->conectar_swd();
+        std::printf("    la sonda lee IDCODE = 0x%08X en %u paquetes\n",
+                    id, sonda->acks_ok());
+        check_eq(id, 0x2BA01477u,
+                 "reset de linea + 0xE79E + reset: el SW-DP contesta su IDCODE");
+        check_eq(sonda->acks_mal(), 0u, "y todos los paquetes salen con ACK correcto");
+
+        // --- El AHB-AP se identifica ------------------------------------------------
+        uint32_t idr = 0, base = 0;
+        sonda->escribir_dp(0x8, 0x000000F0u);         // SELECT: banco 0xF
+        sonda->leer_ap_real(0xC, idr);                // IDR
+        sonda->leer_ap_real(0x8, base);               // BASE
+        sonda->escribir_dp(0x8, 0);
+        std::printf("    AHB-AP: IDR = 0x%08X, BASE = 0x%08X\n", idr, base);
+        check_eq(idr, 0x24770011u, "el AP se identifica como un AHB-AP de ARM");
+        check_eq(base, 0xE00FF003u, "y apunta a la ROM table [IR, 13.2]");
+
+        // --- Leer y escribir memoria POR LOS PINES -----------------------------------
+        uint32_t v = 0;
+        check(sonda->mem_read32(0xE0042000u, v), "la sonda lee el PPB por los pines");
+        std::printf("    DBGMCU_IDCODE leido por SWD = 0x%08X\n", v);
+        check_eq(v, 0x10016413u, "y ve el mismo IDCODE que por dentro");
+        check(sonda->mem_write32(addr::SRAM1_BASE + 0x40u, 0xDEADBEEFu),
+              "escribe en la SRAM por los pines...");
+        check_eq(tm.rd32(addr::SRAM1_BASE + 0x40u), 0xDEADBEEFu,
+                 "...y el dato esta de verdad en la memoria");
+        sonda->mem_read32(addr::SRAM1_BASE + 0x40u, v);
+        check_eq(v, 0xDEADBEEFu, "y lo vuelve a leer igual");
+
+        // --- Un bloque con auto-incremento de TAR --------------------------------------
+        for (unsigned i = 0; i < 8; ++i)
+            tm.write32(addr::SRAM1_BASE + 0x80u + 4 * i, 0xA0000000u + i);
+        uint32_t buf[8] = {};
+        const unsigned n = sonda->mem_read_block(addr::SRAM1_BASE + 0x80u, buf, 8);
+        bool bloque_ok = (n == 8);
+        for (unsigned i = 0; i < 8 && bloque_ok; ++i)
+            if (buf[i] != 0xA0000000u + i) bloque_ok = false;
+        std::printf("    bloque leido: %08X %08X ... %08X (%u palabras)\n",
+                    buf[0], buf[1], buf[7], n);
+        check(bloque_ok,
+              "CSW.AddrInc permite volcar un bloque sin reescribir TAR en cada palabra");
+
+        // --- Parar el nucleo DESDE LOS PINES ---------------------------------------
+        const uint32_t prog[3] = {0x30012000u, 0x30043002u, 0xE7FE3008u};
+        dbg_programa(prog, 3);
+        dbg_arranca_programa();
+        dbg_resume();
+        wait(100, SC_US);
+        sonda->conectar_swd();
+        check(sonda->halt(), "la sonda pide la parada escribiendo DHCSR");
+        wait(50, SC_US);
+        check(sonda->is_halted(), "y el nucleo se para de verdad");
+        uint32_t pc = 0;
+        sonda->leer_reg(15, pc);
+        std::printf("    la sonda ve pc = 0x%08X\n", pc);
+        check(pc >= DBG_PROG && pc < (DBG_PROG + 0x20),
+              "lee el PC del nucleo por DCRSR/DCRDR, todo por dos hilos");
+        sonda->escribir_reg(0, 0x12345678u);
+        uint32_t r0 = 0;
+        sonda->leer_reg(0, r0);
+        check_eq(r0, 0x12345678u, "y tambien lo escribe");
+        check(sonda->resume(), "y lo suelta");
+        wait(50, SC_US);
+        check(!sonda->is_halted(), "el nucleo vuelve a correr");
+
+        std::printf("    en toda la sesion: %u paquetes con ACK OK, %u con fallo\n",
+                    sonda->acks_ok(), sonda->acks_mal());
+        check_eq(sonda->acks_mal(), 0u,
+                 "ni un solo paquete perdido en toda la sesion por los pines");
+        sonda->desconectar();
+    }
+
+    // -----------------------------------------------------------------------
+    // T95 — Firmware real con CMSIS: printf por SWO y medida con el DWT
+    // -----------------------------------------------------------------------
+    void t95_dbg_firmware() {
+        group("T95 Debug: firmware real con CMSIS (ITM y DWT)");
+        reset_dut();
+        dut->rcc.set_internal_waveforms(false);
+        xtal_hse->attach();
+        dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(30, SC_US);
+
+        ImageLoader ld(*dut);
+        const long n = ld.load_file(dbg_fw_path_.c_str(), addr::FLASH_BASE);
+        if (!check(n > 0, "imagen del firmware de depuracion cargada en la Flash")) {
+            std::printf("        (compilar con make -C verif/fw/debug_demo)\n");
+            dut->pwr_pads.nrst.set_hiz(d_nrst);
+            dut->rcc.set_internal_waveforms(true);
+            return;
+        }
+        std::printf("    %ld bytes cargados desde %s\n", n, dbg_fw_path_.c_str());
+        for (unsigned i = 0; i < 32; i += 4) ld.poke32(addr::SRAM1_BASE + i, 0);
+        // El analizador de traza a la velocidad que el firmware va a programar:
+        // 168 MHz / 84 = 2 Mbit/s.
+        swo_rx->set_bitrate(168.0e6 / 84.0);
+        swo_rx->clear();
+        // Y se deja C_DEBUGEN puesto, como si hubiera una sonda enganchada.
+        dbg_wr(R_DHCSR, LLAVE | 1u);
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+
+        bool done = false;
+        const sc_time t0 = sc_time_stamp();
+        while ((sc_time_stamp() - t0) < sc_time(200, SC_MS)) {
+            wait(100, SC_US);
+            if (dut->sram1.peek32(0) == 1u) { done = true; break; }
+        }
+        wait(2, SC_MS);
+        const uint32_t etapa = dut->sram1.peek32(4);
+        const uint32_t chars = dut->sram1.peek32(8);
+        const uint32_t ciclos = dut->sram1.peek32(12);
+        const uint32_t vueltas = dut->sram1.peek32(16);
+        const uint32_t hclk = dut->sram1.peek32(20);
+        const uint32_t swo_hz = dut->sram1.peek32(24);
+        const uint32_t depu = dut->sram1.peek32(28);
+        const std::string texto = swo_rx->texto(0);
+        std::printf("    etapa = %u | HCLK = %u | SWO = %u bit/s | depurador visto = %u\n",
+                    etapa, hclk, swo_hz, depu);
+        std::printf("    %u vueltas medidas en %u ciclos (%.2f ciclos por vuelta)\n",
+                    vueltas, ciclos, vueltas ? double(ciclos) / double(vueltas) : 0.0);
+        std::printf("    por SWO llegaron %u bytes: \"%s\"\n",
+                    swo_rx->bytes(), texto.c_str());
+
+        check(done, "el firmware de depuracion llega a su fin y publica el buzon");
+        check_eq(etapa, 4u, "recorre las cuatro etapas: reloj, traza, texto y ciclos");
+        check_eq(hclk, 168000000u, "trabaja a 168 MHz");
+        check_eq(swo_hz, 2000000u, "y programa el SWO a 2 Mbit/s con TPIU_ACPR");
+        check_eq(depu, 1u,
+                 "el firmware VE al depurador leyendo DHCSR.C_DEBUGEN");
+        check_eq(chars, 19u, "manda 19 caracteres por el ITM con ITM_SendChar");
+        check(texto.find("STM32F407 F6 listo") != std::string::npos,
+              "y el analizador de traza los recupera enteros desde el pin SWO");
+        check(texto.find("ciclos=") != std::string::npos,
+              "incluida la medida que el propio firmware imprime");
+        check(ciclos > vueltas && ciclos < vueltas * 20u,
+              "DWT_CYCCNT mide el bucle en unos pocos ciclos por vuelta");
+        dut->rcc.set_internal_waveforms(true);
+    }
+
+    std::string dbg_fw_path_ = "verif/fw/debug_demo/debug_demo.bin";
     std::string can_fw_path_ = "verif/fw/can_demo/can_demo.bin";
     std::string crc_fw_path_ = "verif/fw/crc_rng_demo/crc_rng_demo.bin";
     std::string sdio_fw_path_ = "verif/fw/sdio_demo/sdio_demo.bin";

@@ -83,6 +83,8 @@ public:
     virtual int raise_fault(int excp, uint32_t cfsr_bits, bool addr_valid,
                             uint32_t addr, const RegFile& reg) = 0;
     virtual void set_hfsr(uint32_t bits) = 0;
+    // Causa de la ultima parada de depuracion (SCB_DFSR) [IR, §13.4]
+    virtual void set_dfsr(uint32_t bits) = 0;
 
     // --- MPU ----------------------------------------------------------------
     virtual bool mpu_check(uint32_t addr, bool write, bool instr, bool priv) const = 0;
@@ -489,6 +491,7 @@ public:
         return excp;
     }
     void set_hfsr(uint32_t bits) override { hfsr_ |= bits; }
+    void set_dfsr(uint32_t bits) override { dfsr_ |= bits; }
 
     // Estado observable por el banco de pruebas
     uint32_t reg_cfsr() const { return cfsr_; }

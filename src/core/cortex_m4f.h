@@ -70,7 +70,12 @@ SC_MODULE(CortexM4F) {
         scs.rst_n(rst_n);
         debug.halt_req(sig_halt_req_);
         debug.halted(sig_halted_);
-        debug.cpu_reg = &cpu.reg;            // acceso del DCRSR al banco (F6)
+        debug.hclk_hz(fclk_hz);              // referencia del SWO y del CYCCNT
+        debug.cpu_reg = &cpu.reg;            // acceso del DCRSR al banco
+        debug.cpu     = &cpu;
+        // Y el enganche que hace que esto sea depuracion de verdad: la CPU
+        // llama al subsistema en cada busqueda, cada acceso y cada excepcion.
+        cpu.dbg = &debug;
 
         // FPU: la unidad funcional vive dentro de la CPU (Cpu::fpu); este
         // módulo solo publica la línea de interrupción de excepciones FP.

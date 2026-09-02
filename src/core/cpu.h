@@ -33,6 +33,7 @@
 #include <tlm_utils/simple_initiator_socket.h>
 #include "../common/ahb_types.h"
 #include "cpu_state.h"
+#include "debug_if.h"
 #include "scs.h"
 #include "fpu.h"
 
@@ -58,6 +59,9 @@ SC_MODULE(Cpu) {
     sc_core::sc_out<bool> dbg_halted{"dbg_halted"};
 
     RegFile  reg;          // estado arquitectónico (accesible por el debug DCRSR)
+    // Subsistema de depuración. A nulo, el núcleo se comporta como si no
+    // hubiera depurador conectado: es lo que pasa en un chip sin sonda.
+    core_debug_if* dbg = nullptr;
     FpuCore  fpu;          // unidad funcional FPv4-SP
     Fpu*     fpu_mod = nullptr;   // para la línea de IRQ 81 (lo fija CortexM4F)
 
@@ -124,6 +128,13 @@ SC_MODULE(Cpu) {
 
     // Estado observable por el banco de pruebas y el subsistema de depuración
     uint32_t pc() const { return cur_pc_; }
+    // El PC que ve y escribe el depurador por DCRSR/DCRDR: es la DIRECCION DE
+    // RETORNO DE DEPURACION, o sea la instruccion que se ejecutaria al
+    // reanudar [IR, §13.4.2].
+    uint32_t dbg_pc() const { return cur_pc_; }
+    void dbg_set_pc(uint32_t v) { cur_pc_ = v & ~1u; flush_prefetch(); }
+    // Ejecuta UNA instruccion. Solo tiene sentido con el nucleo detenido.
+    void dbg_step_one() { check_exceptions(); if (running_) step(); }
 
     // Ciclos de reloj -> tiempo
     sc_core::sc_time cycles_time(unsigned n) const {
@@ -142,6 +153,7 @@ private:
     bool     aborted_ = false;   // fault detectado durante la instrucción
     int      fault_exc_ = 0;     // excepción a tomar
     unsigned cycles_ = 1;        // ciclos de la instrucción en curso
+    unsigned lsu_extra_ = 0;     // ciclos de mas por accesos a memoria (DWT_LSUCNT)
     bool     running_ = false;
     bool     sleeping_state_ = false;
     bool     event_reg_ = false; // registro de evento para WFE/SEV
@@ -229,6 +241,7 @@ private:
             take_fault(EXC_BUSFAULT, BF_PRECISERR, true, addr);
             return false;
         }
+        if (dbg) dbg->dbg_data(addr, size, false, out);
         return true;
     }
     bool mem_write(uint32_t addr, unsigned size, uint32_t val,
@@ -245,6 +258,7 @@ private:
             take_fault(EXC_BUSFAULT, BF_PRECISERR, true, addr);
             return false;
         }
+        if (dbg) dbg->dbg_data(addr, size, true, val);
         return true;
     }
     // Buffer de prebúsqueda de una palabra: el núcleo real lee la Flash en
@@ -260,6 +274,24 @@ private:
         if (!sys->mpu_check(addr, false, true, reg.privileged())) {
             take_fault(EXC_MEMMANAGE, MM_IACCVIOL, false, 0);
             return false;
+        }
+        // EL FPB VA ANTES QUE LA MEMORIA. Es un filtro sobre los buses ICode y
+        // DCode: si un comparador casa, la transaccion original hacia la Flash
+        // NO llega a ocurrir [IR, §13-Implicaciones, §13.7].
+        uint32_t sub = 0, alt = 0;
+        if (dbg) {
+            const int act = dbg->dbg_fetch(addr, sub, alt);
+            if (act == FETCH_SUBST) { hw = sub; return true; }
+            if (act == FETCH_REMAP) {
+                uint32_t d = 0;
+                if (!bus_access(dbus, false, alt & ~3u, 4, d, BusMaster::CORE_DBUS,
+                                false, false)) {
+                    take_fault(EXC_BUSFAULT, BF_IBUSERR, false, 0);
+                    return false;
+                }
+                hw = (d >> (8u * (alt & 2u))) & 0xFFFFu;
+                return true;
+            }
         }
         const uint32_t wa = addr & ~3u;
         if (pf_addr_ != wa) {
@@ -366,7 +398,11 @@ inline void Cpu::do_reset() {
     halted_on_lockup = false;
     local_time_ = sc_core::SC_ZERO_TIME;
     o_sleeping_ = o_sleepdeep_ = o_event_ = o_halted_ = false;
+    lsu_extra_ = 0;
     publish();
+    // El subsistema de depuracion se entera del reset: es lo que arma
+    // DHCSR.S_RESET_ST y, si esta pedida, la captura de vector de reset.
+    if (dbg) dbg->dbg_reset();
 
     // MSP inicial de [VTOR+0] y PC de [VTOR+4] [IR, §7.2.2]
     const uint32_t base = sys->vtor();
@@ -403,10 +439,33 @@ inline void Cpu::exec_proc() {
                 wait(fclk_hz.value_changed_event() | rst_n.value_changed_event());
                 continue;
             }
-            if (dbg_halt_req.read()) {           // parada del depurador
+            // PARADA DEL DEPURADOR. El hilo de ejecucion se suspende y el
+            // nucleo entra en espera reactiva: solo el DAP puede tocar el
+            // sistema mientras tanto [IR, §13-Implicaciones].
+            if (dbg_halt_req.read() || (dbg && dbg->dbg_halt_now())) {
+                // Parar SACA AL NUCLEO DEL SUEÑO. Un nucleo detenido no esta
+                // dormido: si al reanudar volviera al bucle de WFI, el
+                // depurador no podria arrancar nada tras un halt sobre un WFI,
+                // que es justo la situacion mas comun al enganchar una sonda.
+                if (sleeping_state_) {
+                    sleeping_state_ = false;
+                    o_sleeping_ = false; o_sleepdeep_ = false;
+                }
                 if (!o_halted_) { o_halted_ = true; publish(); }
                 sync();
-                wait(dbg_halt_req.value_changed_event() | rst_n.value_changed_event());
+                // El PASO A PASO se ejecuta AQUI, con el nucleo formalmente
+                // detenido: una instruccion y vuelta a la espera [IR, §13.4.1].
+                if (dbg && dbg->dbg_take_step()) {
+                    check_exceptions();
+                    if (running_) step();
+                    sync();
+                    continue;
+                }
+                if (dbg) wait(dbg_halt_req.value_changed_event() |
+                              rst_n.value_changed_event() | dbg->dbg_wake());
+                else     wait(dbg_halt_req.value_changed_event() |
+                              rst_n.value_changed_event());
+                if (dbg_halt_req.read() || (dbg && dbg->dbg_halt_now())) continue;
                 if (o_halted_) { o_halted_ = false; publish(); }
                 continue;
             }
@@ -487,6 +546,10 @@ inline void Cpu::step() {
     else                reg.it_advance();
 
     cur_pc_ = next_pc_;
+    // Los contadores de perfil del DWT se alimentan de la propia contabilidad
+    // de ciclos del modelo, no de una estimacion aparte [IR, §13.5.2].
+    if (dbg) dbg->dbg_cycles(cycles_, lsu_extra_);
+    lsu_extra_ = 0;
     consume(cycles_time(cycles_));
 }
 
@@ -548,7 +611,15 @@ inline void Cpu::push_stack(int excp) {
 
 inline void Cpu::exception_entry(int excp) {
     if (excp <= 0) return;
+    // CAPTURA DE VECTORES: con el bit correspondiente de DEMCR, el nucleo se
+    // para ANTES de entrar en el manejador, de modo que el depurador ve el
+    // estado con el que ocurrio el fallo [IR, §13.4.3].
+    if (dbg && dbg->dbg_enabled() && dbg->dbg_vector_catch(excp)) {
+        dbg->dbg_request_halt(DFSR_VCATCH);
+        return;
+    }
     ++exc_count;
+    if (dbg) dbg->dbg_exception(excp, true);
     aborted_ = false;
     if (fault_trace) {
         --fault_trace;
