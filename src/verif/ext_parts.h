@@ -26,9 +26,11 @@
 #include <systemc>
 #include <cmath>
 #include <vector>
+#include <deque>
 #include <utility>
 #include "../common/analog_net.h"
 #include "../periph/sdio.h"   // sd_crc7 y SdCrc16: el protocolo es el mismo
+#include "../periph/can.h"    // can_crc15 y el relleno de bits: idem
 
 namespace stm32 {
 
@@ -810,6 +812,350 @@ public:
     void release()       { hiz(); }
 private:
     double vdd_, r_;
+};
+
+// ===========================================================================
+// EL BUS CAN
+//
+// Un bus CAN NO es una senal: es un CABLE EN Y. El estado dominante gana al
+// recesivo porque un cero de baja impedancia gana a una resistencia de subida,
+// y de ahi -no de un `&&` en C++- salen el arbitraje y el asentimiento.
+//
+// La topologia es la de una placa de verdad:
+//
+//   pin CAN_TX (push-pull) --> [transceptor] --> nodo del bus (cable en Y)
+//   pin CAN_RX (entrada)   <-- [transceptor] <-- nodo del bus
+//
+// El nodo del bus es un AnalogNet mas, con su terminador haciendo de pull-up.
+// Cada transceptor tira de el a cero cuando su entrada TXD esta a cero, y lo
+// suelta cuando esta a uno. La resolucion la hace la superposicion de
+// conductancias del propio canal.
+// ===========================================================================
+
+// El hilo comun: un nodo analogico con su terminador. Recesivo = alto.
+class CanWire {
+public:
+    explicit CanWire(double vdd = 3.3, double r_term = 1000.0) : vdd_(vdd) {
+        id_term_ = net_.register_driver("terminador");
+        net_.set_drive(id_term_, float(vdd), float(r_term));
+    }
+    analog_net_if& net() { return net_; }
+    double vdd() const { return vdd_; }
+    bool dominant() const { return net_.voltage() < 0.5 * vdd_; }
+    float voltage() const { return net_.voltage(); }
+    // Desconectar el terminador deja el hilo flotando: es lo que se ve al
+    // desenchufar el cable.
+    void set_terminated(bool on) {
+        net_.set_drive(id_term_, float(vdd_), on ? 1000.0f : R_HIZ);
+    }
+private:
+    AnalogNet net_{"can_bus"};
+    double vdd_;
+    int id_term_ = -1;
+};
+
+// El transceptor: convierte los dos pines digitales del MCU en el estado del
+// hilo, y al reves. Es el chip que va soldado al lado del microcontrolador.
+SC_MODULE(CanTransceiver) {
+    CanTransceiver(sc_core::sc_module_name nm, analog_net_if& tx_pin,
+                   analog_net_if& rx_pin, CanWire& bus, double vdd = 3.3)
+        : sc_core::sc_module(nm), tx_(&tx_pin), rx_(&rx_pin),
+          bus_(&bus), vdd_(vdd) {
+        // La entrada TXD del transceptor lleva PULL-UP, como los chips de
+        // verdad. No es un adorno: es lo que garantiza que un TXD flotante
+        // -el MCU todavia sin configurar, o el pin en reset- deje el hilo
+        // RECESIVO en vez de atascar el bus entero en dominante.
+        id_txd_ = tx_->register_driver("xcvr_txd_pu");
+        id_rxd_ = rx_->register_driver("xcvr_rxd");
+        id_bus_ = bus_->net().register_driver("xcvr_bus");
+        SC_HAS_PROCESS(CanTransceiver);
+        SC_THREAD(run);
+        set_attached(attached_);
+    }
+    // Un transceptor en reposo (STB) deja de gobernar el hilo, pero sigue
+    // escuchando: es lo que hacen los de verdad en bajo consumo.
+    void set_enabled(bool on) { on_ = on; ev_.notify(sc_core::SC_ZERO_TIME); }
+    // Soldarlo o quitarlo de la placa. Sin el, sus dos pines quedan libres
+    // para lo que quiera hacer el resto del banco de pruebas.
+    void set_attached(bool on) {
+        attached_ = on;
+        if (!on) {
+            tx_->set_hiz(id_txd_);
+            rx_->set_hiz(id_rxd_);
+            bus_->net().set_hiz(id_bus_);
+        } else {
+            tx_->set_drive(id_txd_, float(vdd_), 10000.0f);   // pull-up de TXD
+        }
+        ev_.notify(sc_core::SC_ZERO_TIME);
+    }
+private:
+    void run() {
+        for (;;) {
+            if (!attached_) { wait(ev_); continue; }
+            const bool txd = tx_->voltage() > 0.5 * vdd_;   // 1 = recesivo
+            if (on_ && !txd) bus_->net().set_drive(id_bus_, 0.0f, 20.0f);
+            else             bus_->net().set_hiz(id_bus_);
+            // RXD sale push-pull hacia el pin del MCU.
+            const bool dom = bus_->dominant();
+            rx_->set_drive(id_rxd_, dom ? 0.0f : float(vdd_), 50.0f);
+            wait(tx_->value_changed_event() | bus_->net().value_changed_event() | ev_);
+        }
+    }
+    analog_net_if *tx_, *rx_;
+    CanWire* bus_;
+    double vdd_;
+    bool on_ = true, attached_ = false;
+    int id_txd_ = -1, id_rxd_ = -1, id_bus_ = -1;
+    sc_core::sc_event ev_;
+};
+
+// ---------------------------------------------------------------------------
+// Un nodo CAN externo: otro controlador colgado del mismo hilo. Habla el
+// protocolo de verdad -relleno de bits, CRC15, asentimiento- reutilizando las
+// mismas funciones que el periferico del MCU, igual que la tarjeta SD reutiliza
+// los CRC del SDIO.
+//
+// Sirve para tres cosas que sin el no se pueden probar:
+//   * ASENTIR los marcos del MCU (sin nadie que asienta, un bus CAN no
+//     entrega nada: es el error mas comun al montar el primer nodo);
+//   * MANDAR marcos al MCU, para ejercitar los filtros;
+//   * COMPETIR en el arbitraje, que es lo que decide quien manda cuando dos
+//     nodos empiezan a la vez.
+// ---------------------------------------------------------------------------
+SC_MODULE(CanNode) {
+    CanNode(sc_core::sc_module_name nm, CanWire& bus, double bitrate = 500e3,
+            double vdd = 3.3)
+        : sc_core::sc_module(nm), bus_(&bus), tb_(1.0 / bitrate), vdd_(vdd) {
+        id_ = bus_->net().register_driver("nodo_can");
+        bus_->net().set_hiz(id_);
+        SC_HAS_PROCESS(CanNode);
+        SC_THREAD(run);
+    }
+
+    // --- Mandos del banco de pruebas ---------------------------------------
+    void set_enabled(bool on) { on_ = on; ev_.notify(sc_core::SC_ZERO_TIME); }
+    void set_ack(bool on)     { ack_ = on; }        // deja de asentir: error de ACK
+    void set_bitrate(double b){ tb_ = 1.0 / b; }
+    // Vacia la cola y los contadores. Un nodo CAN reintenta indefinidamente un
+    // marco que nadie le asiente, asi que sin esto un marco pendiente de una
+    // prueba monopoliza el hilo en la siguiente.
+    void flush() {
+        cola_.clear();
+        n_rx_ = n_tx_ = n_alst_ = n_err_ = 0;
+        ev_.notify(sc_core::SC_ZERO_TIME);
+    }
+    // Encola un marco para transmitir en cuanto el hilo quede libre.
+    void send(const CanFrame& f) { cola_.push_back(f); ev_.notify(sc_core::SC_ZERO_TIME); }
+    bool sending() const { return !cola_.empty() || tx_activo_; }
+
+    // --- Lo que ha visto ----------------------------------------------------
+    unsigned received() const { return n_rx_; }
+    unsigned sent()     const { return n_tx_; }
+    unsigned lost_arb() const { return n_alst_; }
+    unsigned errors()   const { return n_err_; }
+    const CanFrame& last() const { return ultimo_; }
+
+private:
+    void dominante() { bus_->net().set_drive(id_, 0.0f, 20.0f); }
+    void recesivo()  { bus_->net().set_hiz(id_); }
+    void poner(bool nivel) { if (nivel) recesivo(); else dominante(); }
+    bool leer() const { return !bus_->dominant(); }
+
+    void run() {
+        recesivo();
+        for (;;) {
+            if (!on_) { recesivo(); wait(ev_); continue; }
+            // Reposo: se espera a tener algo que mandar o a ver un bit de
+            // arranque de otro. La sincronizacion es dura, sobre el flanco.
+            recesivo();
+            if (cola_.empty() && leer()) {
+                wait(sc_core::sc_time(tb_, sc_core::SC_SEC),
+                     ev_ | bus_->net().value_changed_event());
+                continue;
+            }
+            // Si el hilo se pone dominante Y este nodo tenia algo que mandar,
+            // NO se limita a escuchar: SE SUMA A LA PUJA desde ese mismo bit de
+            // arranque. Es lo que hace un nodo de verdad cuando dos empiezan a
+            // la vez, y es la unica forma de provocar un arbitraje autentico.
+            if (!leer() && cola_.empty()) { recibir(); continue; }
+            transmitir();
+        }
+    }
+
+    // --- Transmision, con arbitraje ----------------------------------------
+    void transmitir() {
+        const CanFrame f = cola_.front();
+        std::vector<bool> flags; unsigned nst = 0, arb = 0;
+        std::vector<bool> bits = can_wire_bits(f, &flags, &nst, &arb);
+        tx_activo_ = true;
+        bool ack = false;
+        for (size_t i = 0; i < bits.size(); ++i) {
+            poner(bits[i]);
+            wait(sc_core::sc_time(tb_ * 0.75, sc_core::SC_SEC));
+            const bool visto = leer();
+            if (i == nst + 1u) {
+                ack = !visto;                       // ranura de asentimiento
+            } else if (visto != bits[i]) {
+                if (i < arb && bits[i] && !flags[i]) {
+                    // Ha perdido la puja: suelta el hilo y pasa a escuchar el
+                    // marco del que ha ganado, sin perder el suyo.
+                    ++n_alst_;
+                    recesivo();
+                    tx_activo_ = false;
+                    seguir_recibiendo(i);
+                    return;
+                }
+                ++n_err_;
+                recesivo();
+                tx_activo_ = false;
+                wait(sc_core::sc_time(tb_ * 11.0, sc_core::SC_SEC));
+                return;
+            }
+            wait(sc_core::sc_time(tb_ * 0.25, sc_core::SC_SEC));
+        }
+        recesivo();
+        tx_activo_ = false;
+        if (ack) { ++n_tx_; cola_.pop_front(); }
+        else     { ++n_err_; }
+    }
+
+    // --- Recepcion, con asentimiento ---------------------------------------
+    void recibir() { decodificar(0); }
+    void seguir_recibiendo(size_t ya) { decodificar(ya); }
+
+    // `ya` = bits del marco que ya han pasado por el hilo (los que este nodo
+    // creia estar transmitiendo antes de perder el arbitraje).
+    void decodificar(size_t ya) {
+        std::vector<bool> sinrelleno;
+        unsigned run = 0; bool last = false; bool first = true;
+        // El bit de arranque ya esta en el hilo cuando se entra aqui.
+        if (ya == 0) {
+            sinrelleno.push_back(false);
+            run = 1; last = false; first = false;
+            wait(sc_core::sc_time(tb_ * 0.75, sc_core::SC_SEC));
+            // ese bit ya se ha muestreado implicitamente al detectar el flanco
+            wait(sc_core::sc_time(tb_ * 0.25, sc_core::SC_SEC));
+        } else {
+            // Se reconstruyen los bits ya vistos: son los que este nodo
+            // acababa de emitir, y coincidian con el hilo hasta la puja.
+            (void)first;
+            sinrelleno.push_back(false);
+            run = 1; last = false; first = false;
+        }
+        bool completo = false;
+        unsigned total = 0;
+        // Zona con relleno
+        for (unsigned k = 0; k < 200 && !completo; ++k) {
+            wait(sc_core::sc_time(tb_ * 0.75, sc_core::SC_SEC));
+            const bool b = leer();
+            wait(sc_core::sc_time(tb_ * 0.25, sc_core::SC_SEC));
+            if (run == 5) {
+                if (b == last) { ++n_err_; esperar_libre(); return; }
+                last = b; run = 1;
+                continue;
+            }
+            sinrelleno.push_back(b);
+            if (b == last) ++run; else run = 1;
+            last = b;
+            total = longitud(sinrelleno);
+            if (total && sinrelleno.size() >= total) completo = true;
+        }
+        if (!completo) { esperar_libre(); return; }
+        // Si el ULTIMO bit del CRC completa una racha de cinco, el emisor
+        // inserta un bit de relleno DESPUES de el: sigue estando dentro de la
+        // zona con relleno. Hay que tragarselo, o el delimitador de CRC se
+        // muestrea un bit antes de tiempo y todo el final del marco se
+        // desplaza -que es exactamente el fallo que costo encontrar aqui-.
+        if (run == 5) {
+            wait(sc_core::sc_time(tb_ * 0.75, sc_core::SC_SEC));
+            const bool sb = leer();
+            wait(sc_core::sc_time(tb_ * 0.25, sc_core::SC_SEC));
+            if (sb == last) { ++n_err_; esperar_libre(); return; }
+        }
+
+        // CRC
+        const size_t n = sinrelleno.size();
+        std::vector<bool> cuerpo(sinrelleno.begin(), sinrelleno.end() - 15);
+        uint16_t crc = 0;
+        for (size_t i = n - 15; i < n; ++i) crc = uint16_t((crc << 1) | (sinrelleno[i] ? 1u : 0u));
+        const bool crc_ok = (can_crc15(cuerpo) == crc);
+
+        // Delimitador de CRC
+        wait(sc_core::sc_time(tb_ * 0.75, sc_core::SC_SEC));
+        const bool delim = leer();
+        wait(sc_core::sc_time(tb_ * 0.25, sc_core::SC_SEC));
+        // Ranura de asentimiento: si el marco esta bien, este nodo la pone a
+        // DOMINANTE. Es su unica intervencion en un marco ajeno, y sin ella el
+        // emisor da el marco por no entregado.
+        if (crc_ok && delim && ack_) dominante(); else recesivo();
+        wait(sc_core::sc_time(tb_, sc_core::SC_SEC));
+        recesivo();
+        if (!crc_ok) { ++n_err_; esperar_libre(); return; }
+        ultimo_ = armar(sinrelleno);
+        ++n_rx_;
+        esperar_libre();
+    }
+
+    // Cuantos bits (sin relleno) tiene el marco entero, incluido el CRC. Cero
+    // mientras todavia no se sabe.
+    static unsigned longitud(const std::vector<bool>& b) {
+        if (b.size() < 14) return 0;
+        const bool ide = b[13];
+        const unsigned cab = ide ? 39u : 19u;
+        if (b.size() < cab) return 0;
+        unsigned dlc = 0;
+        for (unsigned i = 0; i < 4; ++i) dlc = (dlc << 1) | (b[cab - 4 + i] ? 1u : 0u);
+        if (dlc > 8) dlc = 8;
+        const bool rtr = ide ? b[32] : b[12];
+        return cab + (rtr ? 0u : dlc * 8u) + 15u;
+    }
+
+    static CanFrame armar(const std::vector<bool>& b) {
+        CanFrame f;
+        f.ide = b[13];
+        unsigned p = 1; uint32_t base = 0;
+        for (unsigned i = 0; i < 11; ++i) base = (base << 1) | (b[p++] ? 1u : 0u);
+        if (!f.ide) { f.rtr = b[12]; f.id = base; p = 15; }
+        else {
+            p = 14; uint32_t ext = 0;
+            for (unsigned i = 0; i < 18; ++i) ext = (ext << 1) | (b[p++] ? 1u : 0u);
+            f.id = (base << 18) | ext;
+            f.rtr = b[p]; p += 3;
+        }
+        unsigned dlc = 0;
+        for (unsigned i = 0; i < 4; ++i) dlc = (dlc << 1) | (b[p++] ? 1u : 0u);
+        f.dlc = uint8_t(dlc > 8 ? 8 : dlc);
+        if (!f.rtr)
+            for (unsigned k = 0; k < f.dlc; ++k) {
+                uint32_t by = 0;
+                for (unsigned i = 0; i < 8; ++i) by = (by << 1) | (b[p++] ? 1u : 0u);
+                f.data[k] = uint8_t(by);
+            }
+        return f;
+    }
+
+    // Espera al espacio entre tramas antes de volver a pujar por el hilo.
+    void esperar_libre() {
+        recesivo();
+        // Tras la ranura de asentimiento quedan el delimitador de ACK, los siete
+        // bits de fin de trama y los tres de intermision: once bits recesivos.
+        // Empezar antes seria pisarle al emisor su ultimo bit, y eso el emisor
+        // lo ve como un error de bit -que es exactamente lo que pasaba aqui-.
+        unsigned rec = 0;
+        for (unsigned k = 0; k < 40 && rec < 11; ++k) {
+            wait(sc_core::sc_time(tb_, sc_core::SC_SEC));
+            if (leer()) ++rec; else rec = 0;
+        }
+    }
+
+    CanWire* bus_;
+    double tb_, vdd_;
+    int id_ = -1;
+    bool on_ = true, ack_ = true, tx_activo_ = false;
+    std::deque<CanFrame> cola_;
+    CanFrame ultimo_{};
+    unsigned n_rx_ = 0, n_tx_ = 0, n_alst_ = 0, n_err_ = 0;
+    sc_core::sc_event ev_;
 };
 
 } // namespace stm32

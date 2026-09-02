@@ -566,6 +566,30 @@ inline void Stm32F407VG::bind_analog() {
     pinmux.connect_af(0,  6, 9, af_ch(tim13, 0));  // PA6  TIM13_CH1
     pinmux.connect_af(0,  7, 9, af_ch(tim14, 0));  // PA7  TIM14_CH1
 
+    // ---- bxCAN (AF9) [IR, §12.12-integracion; tabla AF de §2.1] ----------
+    // CAN_TX es una salida push-pull normal y CAN_RX una entrada. El bus en si
+    // -el cable en Y, dominante contra recesivo- vive FUERA del MCU, del otro
+    // lado del transceptor. En reposo la entrada se fuerza a UNO: sin nadie
+    // conectado, el hilo esta recesivo.
+    auto af_can_tx = [](BxCanBase& c) {
+        return AfEndpoint{&c.tx_out, &c.tx_oe, nullptr, true};
+    };
+    auto af_can_rx = [](BxCanBase& c) {
+        return AfEndpoint{nullptr, nullptr, &c.rx_in, true};
+    };
+    // CAN1: PA11/PA12, PB8/PB9 o PD0/PD1
+    pinmux.connect_af(0, 11, 9, af_can_rx(can1));  // PA11 CAN1_RX
+    pinmux.connect_af(0, 12, 9, af_can_tx(can1));  // PA12 CAN1_TX
+    pinmux.connect_af(1,  8, 9, af_can_rx(can1));  // PB8  CAN1_RX
+    pinmux.connect_af(1,  9, 9, af_can_tx(can1));  // PB9  CAN1_TX
+    pinmux.connect_af(3,  0, 9, af_can_rx(can1));  // PD0  CAN1_RX
+    pinmux.connect_af(3,  1, 9, af_can_tx(can1));  // PD1  CAN1_TX
+    // CAN2: PB5/PB6 o PB12/PB13
+    pinmux.connect_af(1,  5, 9, af_can_rx(can2));  // PB5  CAN2_RX
+    pinmux.connect_af(1,  6, 9, af_can_tx(can2));  // PB6  CAN2_TX
+    pinmux.connect_af(1, 12, 9, af_can_rx(can2));  // PB12 CAN2_RX
+    pinmux.connect_af(1, 13, 9, af_can_tx(can2));  // PB13 CAN2_TX
+
     // ---- I2C (AF4) [IR, §12.6.2; tabla AF de §2.1] -----------------------
     // SCL y SDA son bidireccionales y de colector abierto: el periférico solo
     // tira de la línea a cero y el pad, con OTYPER = open-drain, la deja en

@@ -167,6 +167,22 @@ SC_MODULE(F1Tb) {
     sc_signal<double> s_sp_i2shz{"s_sp_i2shz"};
     sc_vector<sc_signal<bool>> s_sp_nc{"s_sp_nc", 8};
 
+    // --- Circuitería de las pruebas del bxCAN ------------------------------
+    // El bus es un CABLE EN Y con su terminador. Los dos bxCAN del MCU se
+    // enganchan a él por sendos transceptores, y hay además un nodo externo
+    // que habla el protocolo de verdad: asiente, transmite y compite en el
+    // arbitraje. Sin nadie que asienta, un bus CAN no entrega nada.
+    CanWire*         can_bus  = nullptr;
+    CanTransceiver*  xcvr1    = nullptr;
+    CanTransceiver*  xcvr2    = nullptr;
+    CanNode*         nodo_ext = nullptr;
+    // bxCAN con rasgos elegidos en TIEMPO DE EJECUCIÓN (véase T83)
+    BxCanBase* can_rt = nullptr;
+    BusTestMaster tm9{"tm9"};
+    sc_signal<bool> s_cn_true{"s_cn_true"}, s_cn_rst{"s_cn_rst"};
+    sc_signal<bool> s_cn_fz{"s_cn_fz"};
+    sc_vector<sc_signal<bool>> s_cn_irq{"s_cn_irq", 4};
+
     // --- Circuitería de las pruebas del SDIO -------------------------------
     // Una tarjeta SD en su zócalo: CK, CMD y D0-D3 con sus pull-up. Habla el
     // protocolo de verdad, bit a bit, igual que la EEPROM del bus I2C.
@@ -273,6 +289,33 @@ SC_MODULE(F1Tb) {
         src_pa4 = new Driver(dut->pinmux.analog(0, 4));   // ADC12_IN4 (NO ADC3)
         src_pc0 = new Driver(dut->pinmux.analog(2, 0));   // ADC123_IN10
         src_pc1 = new Driver(dut->pinmux.analog(2, 1));   // ADC123_IN11
+        // --- El bus CAN de la placa (AF9) ---------------------------------
+        // CAN1 en PD0/PD1 y CAN2 en PB12/PB13: dos juegos de pines que no
+        // chocan con nada de lo que ya usa el banco.
+        can_bus = new CanWire();
+        xcvr1 = new CanTransceiver("xcvr1", dut->pinmux.analog(3, 1),   // PD1 TX
+                                            dut->pinmux.analog(3, 0),   // PD0 RX
+                                            *can_bus);
+        xcvr2 = new CanTransceiver("xcvr2", dut->pinmux.analog(1, 13),  // PB13 TX
+                                            dut->pinmux.analog(1, 12),  // PB12 RX
+                                            *can_bus);
+        nodo_ext = new CanNode("nodo_ext", *can_bus, 500e3);
+        // Un bxCAN con los rasgos puestos en tiempo de EJECUCIÓN: un solo
+        // buzón, una sola FIFO de dos marcos, sin identificador extendido.
+        {
+            CanCaps c{};
+            c.tx_mailboxes = 1; c.rx_fifos = 1; c.fifo_depth = 2;
+            c.ext_id = false; c.ttcm = false;
+            c.filter_banks = 8; c.shared_filters = false;
+            c.kind = "bxCAN a medida";
+            can_rt = new BxCanBase("can_rt", addr::CAN1_B, c);
+        }
+        tm9.isk.bind(can_rt->tsk);
+        can_rt->clk(dut->s_pclk1); can_rt->clk_hz(dut->s_pclk1_hz);
+        can_rt->rst_n(s_cn_rst);   can_rt->clk_en(s_cn_true);
+        can_rt->freeze(s_cn_fz);
+        can_rt->irq_tx(s_cn_irq[0]);  can_rt->irq_rx0(s_cn_irq[1]);
+        can_rt->irq_rx1(s_cn_irq[2]); can_rt->irq_sce(s_cn_irq[3]);
         // --- La tarjeta SD del zócalo (AF12) ------------------------------
         card = new SdCard("card", dut->pinmux.analog(2, 12),   // PC12 CK
                                   dut->pinmux.analog(3, 2),    // PD2  CMD
@@ -575,6 +618,15 @@ SC_MODULE(F1Tb) {
         t80_crc();
         t81_rng();
         t82_crc_rng_firmware();
+        const unsigned f5c_pass = g_pass, f5c_fail = g_fail;
+
+        // ======================== Fase F5: bxCAN ============================
+        t83_can_variantes();
+        t84_can_registros();
+        t85_can_hilo();
+        t86_can_filtros();
+        t87_can_arbitraje_errores();
+        t88_can_firmware();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -603,7 +655,9 @@ SC_MODULE(F1Tb) {
         std::printf("Resumen F5 (SDIO) : %u comprobaciones OK, %u fallos\n",
                     f5sd_pass - f5r_pass, f5sd_fail - f5r_fail);
         std::printf("Resumen F5 (CRC/RNG): %u comprobaciones OK, %u fallos\n",
-                    g_pass - f5sd_pass, g_fail - f5sd_fail);
+                    f5c_pass - f5sd_pass, f5c_fail - f5sd_fail);
+        std::printf("Resumen F5 (bxCAN): %u comprobaciones OK, %u fallos\n",
+                    g_pass - f5c_pass, g_fail - f5c_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -8030,6 +8084,696 @@ SC_MODULE(F1Tb) {
         dut->rcc.set_internal_waveforms(true);
     }
 
+    // =======================================================================
+    // FASE F5 — bxCAN
+    // =======================================================================
+    static constexpr uint32_t C1_B = addr::CAN1_B;
+    static constexpr uint32_t C2_B = addr::CAN2_B;
+
+
+    // Encender los relojes. OJO: para usar CAN2 hay que encender TAMBIEN el de
+    // CAN1, porque sus filtros viven alli. Es el tropiezo clasico en una placa.
+    void can_clocks_on() {
+        rcc_enable(Rcc::R_AHB1ENR, 1);          // GPIOB
+        rcc_enable(Rcc::R_AHB1ENR, 3);          // GPIOD
+        rcc_enable(Rcc::R_APB1ENR, 25);         // CAN1EN
+        rcc_enable(Rcc::R_APB1ENR, 26);         // CAN2EN
+    }
+    void can_pins_af() {
+        pin_cfg(3, 0, 2, 0, false, 2, 9);       // PD0  CAN1_RX
+        pin_cfg(3, 1, 2, 0, false, 2, 9);       // PD1  CAN1_TX
+        pin_cfg(1, 12, 2, 0, false, 2, 9);      // PB12 CAN2_RX
+        pin_cfg(1, 13, 2, 0, false, 2, 9);      // PB13 CAN2_TX
+    }
+    // Los transceptores van SOLDADOS a PD0/PD1 y PB12/PB13, y esos pines los
+    // usan tambien otras pruebas (SPI2/I2S2 en PB12/PB13). Se sueldan solo
+    // mientras hacen falta, igual que en una placa con puentes.
+    void can_links(bool on) {
+        xcvr1->set_attached(on);
+        xcvr2->set_attached(on);
+        nodo_ext->set_enabled(on);
+        nodo_ext->set_ack(true);
+        nodo_ext->flush();
+    }
+
+    // Sale de reposo, entra en inicializacion, programa BTR y vuelve a marcha
+    // normal. Es el procedimiento exacto de un driver [IR, 12.12].
+    bool can_init(uint32_t b, uint32_t btr, uint32_t mcr_extra = 0) {
+        c_wr(b, BxCanBase::R_MCR, BxCanBase::M_INRQ);      // INRQ, y SLEEP fuera
+        const sc_time t0 = sc_time_stamp();
+        while (!(c_rd(b, BxCanBase::R_MSR) & BxCanBase::S_INAK) &&
+               sc_time_stamp() - t0 < sc_time(1, SC_MS)) wait(1, SC_US);
+        if (!(c_rd(b, BxCanBase::R_MSR) & BxCanBase::S_INAK)) return false;
+        c_wr(b, BxCanBase::R_BTR, btr);
+        c_wr(b, BxCanBase::R_MCR, mcr_extra);              // fuera INRQ y SLEEP
+        const sc_time t1 = sc_time_stamp();
+        while ((c_rd(b, BxCanBase::R_MSR) & BxCanBase::S_INAK) &&
+               sc_time_stamp() - t1 < sc_time(1, SC_MS)) wait(1, SC_US);
+        return !(c_rd(b, BxCanBase::R_MSR) & BxCanBase::S_INAK);
+    }
+
+    // BTR para 500 kbit/s con PCLK1 = 16 MHz (HSI, sin PLL): BRP = 1 -> t_q =
+    // 125 ns; 1 + TS1(13) + TS2(2) = 16 cuantos -> 2 us de bit... con BRP = 0
+    // salen 16 cuantos de 62,5 ns = 1 us. Se toma BRP = 1 y 16 cuantos: 2 us,
+    // o sea 500 kbit/s exactos con PCLK1 = 8 MHz. Aqui PCLK1 = 16 MHz.
+    // BRP = 1 (divide por 2) -> t_q = 125 ns; 16 cuantos -> t_bit = 2 us.
+    static constexpr uint32_t BTR_500K = (1u) | (12u << 16) | (1u << 20);
+
+    // Un filtro que lo deja pasar todo, en el banco `b`, hacia la FIFO `f`.
+    void can_filtro_abierto(unsigned banco, unsigned fifo) {
+        c_wr(C1_B, BxCanBase::R_FMR, 1u | (14u << 8));        // FINIT
+        c_wr(C1_B, BxCanBase::R_FA1R,
+             c_rd(C1_B, BxCanBase::R_FA1R) & ~(1u << banco)); // desactivar
+        c_wr(C1_B, BxCanBase::R_FS1R,
+             c_rd(C1_B, BxCanBase::R_FS1R) | (1u << banco));  // 32 bits
+        c_wr(C1_B, BxCanBase::R_FM1R,
+             c_rd(C1_B, BxCanBase::R_FM1R) & ~(1u << banco)); // mascara
+        if (fifo) c_wr(C1_B, BxCanBase::R_FFA1R,
+                       c_rd(C1_B, BxCanBase::R_FFA1R) | (1u << banco));
+        else      c_wr(C1_B, BxCanBase::R_FFA1R,
+                       c_rd(C1_B, BxCanBase::R_FFA1R) & ~(1u << banco));
+        c_wr(C1_B, BxCanBase::R_F0R1 + 8 * banco, 0u);        // identificador
+        c_wr(C1_B, BxCanBase::R_F0R1 + 8 * banco + 4, 0u);    // mascara: nada
+        c_wr(C1_B, BxCanBase::R_FA1R,
+             c_rd(C1_B, BxCanBase::R_FA1R) | (1u << banco));  // activar
+        c_wr(C1_B, BxCanBase::R_FMR, 14u << 8);               // fuera FINIT
+    }
+
+    // Carga un buzon SIN pedir el envio. Se separa del disparo para poder
+    // provocar un arranque simultaneo de dos nodos en la prueba de arbitraje.
+    void can_cargar(uint32_t b, unsigned mb, const uint8_t* d, unsigned n) {
+        const uint32_t off = BxCanBase::R_TI0R + 0x10u * mb;
+        uint32_t dl = 0, dh = 0;
+        for (unsigned i = 0; i < n && i < 4; ++i) dl |= uint32_t(d[i]) << (8 * i);
+        for (unsigned i = 4; i < n && i < 8; ++i) dh |= uint32_t(d[i]) << (8 * (i - 4));
+        c_wr(b, off + 0x8, dl);
+        c_wr(b, off + 0xC, dh);
+        c_wr(b, off + 0x4, n & 0xFu);
+    }
+    // Escribe TIxR con TXRQ: es LA escritura que lanza el marco.
+    void can_disparar(uint32_t b, unsigned mb, uint32_t id, bool ide, bool rtr = false) {
+        const uint32_t off = BxCanBase::R_TI0R + 0x10u * mb;
+        const uint32_t tir = ide ? ((id << 3) | (1u << 2)) : ((id & 0x7FFu) << 21);
+        c_wr(b, off, tir | (rtr ? 2u : 0u) | 1u);
+    }
+    // Carga un buzon y pide el envio.
+    void can_enviar(uint32_t b, unsigned mb, uint32_t id, bool ide,
+                    const uint8_t* d, unsigned n, bool rtr = false) {
+        can_cargar(b, mb, d, n);
+        can_disparar(b, mb, id, ide, rtr);
+    }
+    // Espera a que el buzon acabe (RQCP) y devuelve TSR.
+    uint32_t can_espera_tx(uint32_t b, unsigned mb, sc_time lim = sc_time(2, SC_MS)) {
+        const sc_time t0 = sc_time_stamp();
+        while (sc_time_stamp() - t0 < lim) {
+            const uint32_t t = c_rd(b, BxCanBase::R_TSR);
+            if (t & (1u << (8 * mb))) return t;
+            wait(2, SC_US);
+        }
+        return c_rd(b, BxCanBase::R_TSR);
+    }
+    // Espera a que llegue algo a una FIFO.
+    bool can_espera_rx(uint32_t b, unsigned f, sc_time lim = sc_time(3, SC_MS)) {
+        const uint32_t off = f ? BxCanBase::R_RF1R : BxCanBase::R_RF0R;
+        const sc_time t0 = sc_time_stamp();
+        while (sc_time_stamp() - t0 < lim) {
+            if (c_rd(b, off) & 3u) return true;
+            wait(2, SC_US);
+        }
+        return false;
+    }
+    void can_liberar(uint32_t b, unsigned f) {
+        c_wr(b, f ? BxCanBase::R_RF1R : BxCanBase::R_RF0R, 1u << 5);
+    }
+
+    // -----------------------------------------------------------------------
+    // T83 — Dos bloques iguales que NO son intercambiables
+    // -----------------------------------------------------------------------
+    void t83_can_variantes() {
+        group("T83 bxCAN: en que se diferencian CAN1 y CAN2 [IR, 12.12]");
+        can_links(true);
+        reset_dut();
+        can_clocks_on();
+        s_cn_true.write(true); s_cn_rst.write(true); s_cn_fz.write(false);
+        wait(5, SC_US);
+
+        // --- Seleccion en tiempo de compilacion -----------------------------
+        static_assert(Can1::caps_estaticos.filter_master,
+                      "CAN1 es el dueno de los filtros");
+        static_assert(!Can2::caps_estaticos.filter_master,
+                      "CAN2 no tiene ventana de filtros propia");
+        static_assert(CanSingle::caps_estaticos.filter_banks == 14,
+                      "el bxCAN unico administra 14 bancos");
+        check(dut->can1.caps().filter_master && !dut->can2.caps().filter_master,
+              "el parametro de plantilla decide quien es el maestro de filtros");
+        check(dut->can1.caps().filter_banks == 28u,
+              "CAN1 administra los 28 bancos del dispositivo");
+        check(dut->can1.caps().tx_mailboxes == 3u &&
+              dut->can1.caps().rx_fifos == 2u &&
+              dut->can1.caps().fifo_depth == 3u,
+              "y los dos tienen 3 buzones y 2 FIFOs de 3 marcos: eso SI es igual");
+
+        // --- CAN2SB: el reparto de los 28 bancos, al reset -------------------
+        const uint32_t fmr0 = c_rd(C1_B, BxCanBase::R_FMR);
+        std::printf("    CAN_FMR de reset = 0x%08X -> CAN2SB = %u\n",
+                    fmr0, (fmr0 >> 8) & 0x3Fu);
+        check_eq((fmr0 >> 8) & 0x3Fu, 14u,
+                 "al reset CAN2SB vale 14: mitad de bancos para cada bloque");
+
+        // --- La diferencia se ve DESDE EL BUS --------------------------------
+        // La ventana de filtros de CAN2 esta RESERVADA: escribir alli no
+        // configura nada y se lee cero. Es LA diferencia entre los dos bloques.
+        c_wr(C1_B, BxCanBase::R_FMR, 1u | (14u << 8));   // FINIT en el maestro
+        c_wr(C1_B, BxCanBase::R_F0R1, 0xDEADBEEFu);
+        c_wr(C2_B, BxCanBase::R_F0R1, 0xCAFEBABEu);
+        const uint32_t f1 = c_rd(C1_B, BxCanBase::R_F0R1);
+        const uint32_t f2 = c_rd(C2_B, BxCanBase::R_F0R1);
+        std::printf("    banco 0 visto desde CAN1 = 0x%08X, desde CAN2 = 0x%08X\n", f1, f2);
+        check_eq(f1, 0xDEADBEEFu, "el banco de filtros vive en el espacio de CAN1");
+        check_eq(f2, 0u,
+                 "y en el de CAN2 esta RESERVADO: se lee cero, como en el silicio");
+        check_eq(c_rd(C2_B, BxCanBase::R_FMR), 0u,
+                 "CAN2 no tiene ni siquiera CAN_FMR propio");
+
+        // --- CAN2SB se puede mover -------------------------------------------
+        c_wr(C1_B, BxCanBase::R_FMR, 1u | (20u << 8));
+        check_eq((c_rd(C1_B, BxCanBase::R_FMR) >> 8) & 0x3Fu, 20u,
+                 "y CAN2SB se puede mover: 20 bancos para CAN1 y 8 para CAN2");
+        c_wr(C1_B, BxCanBase::R_FMR, 1u | (14u << 8));
+        can_links(false);
+
+        // --- La variante de EJECUCION ----------------------------------------
+        // Un bxCAN a medida: un solo buzon, una FIFO, sin identificador
+        // extendido y sin reparto de filtros.
+        tm9.write32(C1_B + BxCanBase::R_TSR, 0);
+        const uint32_t tsr_rt = tm9.rd32(C1_B + BxCanBase::R_TSR);
+        tm9.write32(C1_B + BxCanBase::R_MCR, 0xFFFFFFFFu);
+        const uint32_t mcr_rt = tm9.rd32(C1_B + BxCanBase::R_MCR);
+        tm9.write32(C1_B + BxCanBase::R_FMR, 0xFFFFFFFFu);
+        const uint32_t fmr_rt = tm9.rd32(C1_B + BxCanBase::R_FMR);
+        std::printf("    variante a medida: TSR = 0x%08X, MCR = 0x%08X, FMR = 0x%08X\n",
+                    tsr_rt, mcr_rt, fmr_rt);
+        check(!(tsr_rt & (1u << 27)) && !(tsr_rt & (1u << 28)),
+              "variante de ejecucion: solo hay UN buzon, TME1 y TME2 no existen");
+        check(tsr_rt & (1u << 26), "y el unico que hay arranca libre");
+        check(!(mcr_rt & BxCanBase::M_TTCM),
+              "sin comunicacion disparada por tiempo");
+        check(!(fmr_rt & 0x3F00u),
+              "y sin CAN2SB: no comparte los filtros con nadie");
+        check(tm9.rd32(C1_B + BxCanBase::R_RF1R) == 0u,
+              "la segunda FIFO tampoco existe: RF1R se lee cero");
+        check(dut->can1.caps().shared_filters && !can_rt->caps().shared_filters,
+              "los ejes filtros/buzones/FIFOs/identificador son independientes");
+        // El identificador extendido tampoco: IDE no se guarda.
+        tm9.write32(C1_B + BxCanBase::R_TI0R, (1u << 2));
+        check(!(tm9.rd32(C1_B + BxCanBase::R_TI0R) & (1u << 2)),
+              "sin CAN 2.0B, el bit IDE del buzon no se guarda");
+    }
+
+    // -----------------------------------------------------------------------
+    // T84 — Registros, modos y tiempo de bit
+    // -----------------------------------------------------------------------
+    void t84_can_registros() {
+        group("T84 bxCAN: registros, modos y tiempo de bit [IR, 12.12]");
+        can_links(true);
+        reset_dut();
+
+        uint32_t v = 0;
+        check(tm.read32(C1_B + BxCanBase::R_MCR, v) == TLM_GENERIC_ERROR_RESPONSE,
+              "CAN1 sin CAN1EN -> error de bus");
+        can_clocks_on();
+        check(tm.read32(C1_B + BxCanBase::R_MCR, v) == TLM_OK_RESPONSE,
+              "con CAN1EN el bloque responde");
+
+        // --- Valores de reset -------------------------------------------------
+        check_eq(c_rd(C1_B, BxCanBase::R_MCR), 0x00010002u,
+                 "CAN_MCR de reset: el bloque arranca DORMIDO (SLEEP = 1)");
+        check_eq(c_rd(C1_B, BxCanBase::R_MSR), 0x00000C02u,
+                 "CAN_MSR de reset: y lo confirma con SLAK");
+        check_eq(c_rd(C1_B, BxCanBase::R_TSR), 0x1C000000u,
+                 "CAN_TSR de reset: los tres buzones libres");
+        check_eq(c_rd(C1_B, BxCanBase::R_BTR), 0x01230000u, "CAN_BTR de reset");
+        check_eq(c_rd(C1_B, BxCanBase::R_ESR), 0u, "CAN_ESR de reset: sin errores");
+
+        // --- La secuencia de inicializacion ----------------------------------
+        c_wr(C1_B, BxCanBase::R_MCR, BxCanBase::M_INRQ);
+        wait(20, SC_US);
+        check(c_rd(C1_B, BxCanBase::R_MSR) & BxCanBase::S_INAK,
+              "pidiendo INRQ, el bloque confirma con INAK: esta en inicializacion");
+        check(!(c_rd(C1_B, BxCanBase::R_MSR) & BxCanBase::S_SLAK),
+              "y ha salido del reposo");
+
+        // BTR solo se deja escribir en inicializacion. Es una proteccion real:
+        // cambiar el tiempo de bit en marcha desincronizaria todo el bus.
+        c_wr(C1_B, BxCanBase::R_BTR, BTR_500K);
+        check_eq(c_rd(C1_B, BxCanBase::R_BTR), BTR_500K,
+                 "en inicializacion, CAN_BTR se deja programar");
+        c_wr(C1_B, BxCanBase::R_MCR, 0);
+        wait(20, SC_US);
+        check(!(c_rd(C1_B, BxCanBase::R_MSR) & BxCanBase::S_INAK),
+              "al quitar INRQ, el bloque vuelve a marcha normal");
+        c_wr(C1_B, BxCanBase::R_BTR, 0x00000000u);
+        check_eq(c_rd(C1_B, BxCanBase::R_BTR), BTR_500K,
+                 "pero EN MARCHA no: CAN_BTR se protege, como en el silicio");
+
+        // --- El tiempo de bit sale de BTR -------------------------------------
+        // t_q = (BRP+1)/PCLK1 ; t_bit = (1 + TS1 + TS2) * t_q
+        const double pclk1 = dut->s_pclk1_hz.read();
+        const double tb = dut->can1.bit_time();
+        const double esperado = (1.0 + 13.0 + 2.0) * 2.0 / pclk1;
+        std::printf("    PCLK1 = %.0f Hz, BRP = 1, TS1 = 13, TS2 = 2 -> t_bit = %.0f ns"
+                    " (%.0f kbit/s)\n", pclk1, tb * 1e9, 1e-3 / tb);
+        check_near(tb, esperado, 0.001,
+                   "t_bit = (1 + TS1 + TS2) x (BRP+1)/PCLK1 [IR, 12.12]");
+
+        // --- Buzones: prioridad y aborto --------------------------------------
+        // Sin nadie en el bus no hay asentimiento, asi que se usa el BUCLE
+        // CERRADO: el bloque se oye a si mismo sin salir al pin.
+        can_init(C1_B, BTR_500K | (1u << 30), BxCanBase::M_NART);   // LBKM + NART
+        check_eq((c_rd(C1_B, BxCanBase::R_TSR) >> 24) & 3u, 0u,
+                 "CODE apunta al primer buzon libre: el 0");
+        const uint8_t d[2] = {0x11, 0x22};
+        can_enviar(C1_B, 1, 0x123, false, d, 2);
+        check(!(c_rd(C1_B, BxCanBase::R_TSR) & (1u << 27)),
+              "pedir el envio deja el buzon 1 OCUPADO: ya es del hardware");
+        can_espera_tx(C1_B, 1);
+        check(c_rd(C1_B, BxCanBase::R_TSR) & (1u << 27),
+              "y al terminar vuelve a estar libre");
+        check(c_rd(C1_B, BxCanBase::R_TSR) & (1u << 9),
+              "con TXOK1: el marco salio y alguien lo asintio");
+        c_wr(C1_B, BxCanBase::R_TSR, 1u << 8);          // RQCP1 es w1c
+        check(!(c_rd(C1_B, BxCanBase::R_TSR) & (0xFu << 8)),
+              "escribir RQCP limpia el buzon entero: RQCP, TXOK, ALST y TERR");
+        c_wr(C1_B, BxCanBase::R_MCR, BxCanBase::M_INRQ);
+        can_links(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T85 — El marco, por el hilo, contra un nodo de verdad
+    // -----------------------------------------------------------------------
+    void t85_can_hilo() {
+        group("T85 bxCAN: un marco por el hilo, con su CRC15 y su asentimiento");
+        can_links(true);
+        reset_dut();
+        can_clocks_on();
+        can_pins_af();
+        nodo_ext->set_enabled(true);
+        nodo_ext->set_ack(true);
+        can_filtro_abierto(0, 0);
+        check(can_init(C1_B, BTR_500K), "CAN1 entra y sale de inicializacion");
+
+        // --- El bus en reposo esta RECESIVO ------------------------------------
+        wait(50, SC_US);
+        const float v_rep = can_bus->voltage();
+        std::printf("    hilo en reposo: %.2f V (recesivo)\n", v_rep);
+        check(v_rep > 2.0f,
+              "en reposo el terminador mantiene el hilo RECESIVO, en alto");
+
+        // --- Un marco estandar de 8 bytes --------------------------------------
+        const uint8_t d[8] = {0xDE,0xAD,0xBE,0xEF,0xCA,0xFE,0xBA,0xBE};
+        const unsigned rx0 = nodo_ext->received();
+        can_enviar(C1_B, 0, 0x123, false, d, 8);
+        const uint32_t tsr = can_espera_tx(C1_B, 0);
+        wait(200, SC_US);
+        const CanFrame& f = nodo_ext->last();
+        std::printf("    el nodo externo recibe id=0x%03X dlc=%u datos %02X %02X ... %02X\n",
+                    f.id, f.dlc, f.data[0], f.data[1], f.data[7]);
+        check(tsr & 2u, "TXOK0: el marco salio y ALGUIEN lo asintio");
+        check_eq(nodo_ext->received(), rx0 + 1u,
+                 "y el nodo externo lo ha recibido entero, por el hilo");
+        check_eq(f.id, 0x123u, "con su identificador");
+        check_eq(f.dlc, 8u, "su longitud");
+        bool igual = true;
+        for (unsigned i = 0; i < 8; ++i) if (f.data[i] != d[i]) igual = false;
+        check(igual, "y sus ocho bytes intactos, con el CRC15 cuadrando");
+        c_wr(C1_B, BxCanBase::R_TSR, 1u);
+
+        // --- Un marco EXTENDIDO (CAN 2.0B) --------------------------------------
+        const uint8_t e[3] = {0x01, 0x02, 0x03};
+        can_enviar(C1_B, 0, 0x12345678u, true, e, 3);
+        can_espera_tx(C1_B, 0);
+        wait(200, SC_US);
+        const CanFrame& g = nodo_ext->last();
+        std::printf("    extendido: id=0x%08X ide=%d dlc=%u\n", g.id, int(g.ide), g.dlc);
+        check(g.ide, "un identificador EXTENDIDO viaja marcado con IDE");
+        check_eq(g.id, 0x12345678u, "y sus 29 bits llegan enteros");
+        check_eq(g.dlc, 3u, "con la longitud correcta");
+        c_wr(C1_B, BxCanBase::R_TSR, 1u);
+
+        // --- El camino de vuelta: el nodo externo manda al MCU -------------------
+        CanFrame in;
+        in.id = 0x321; in.ide = false; in.dlc = 4;
+        in.data[0] = 0x11; in.data[1] = 0x22; in.data[2] = 0x33; in.data[3] = 0x44;
+        nodo_ext->send(in);
+        check(can_espera_rx(C1_B, 0), "un marco del nodo externo llega a la FIFO 0");
+        const uint32_t rir = c_rd(C1_B, BxCanBase::R_RI0R);
+        const uint32_t rdt = c_rd(C1_B, BxCanBase::R_RI0R + 4);
+        const uint32_t rdl = c_rd(C1_B, BxCanBase::R_RI0R + 8);
+        std::printf("    RI0R = 0x%08X, DLC = %u, datos = 0x%08X\n",
+                    rir, rdt & 0xFu, rdl);
+        check_eq((rir >> 21) & 0x7FFu, 0x321u, "con su identificador en RI0R");
+        check(!((rir >> 2) & 1u), "marcado como estandar");
+        check_eq(rdt & 0xFu, 4u, "su longitud en RDT0R");
+        check_eq(rdl, 0x44332211u, "y sus datos en RDL0R, en little endian");
+        check_eq(c_rd(C1_B, BxCanBase::R_RF0R) & 3u, 1u,
+                 "FMP0 dice que hay un marco pendiente");
+        can_liberar(C1_B, 0);
+        check_eq(c_rd(C1_B, BxCanBase::R_RF0R) & 3u, 0u,
+                 "y RFOM0 lo libera: la FIFO vuelve a estar vacia");
+
+        // --- Sin nadie que asienta, no hay entrega -------------------------------
+        // Es el fallo mas comun al montar el primer nodo de un bus: un solo
+        // controlador no puede entregar nada, porque nadie pone la ranura de
+        // asentimiento a dominante.
+        nodo_ext->set_ack(false);
+        c_wr(C1_B, BxCanBase::R_MCR, BxCanBase::M_NART);   // sin reintentos
+        const unsigned tec0 = dut->can1.tec();
+        can_enviar(C1_B, 0, 0x123, false, d, 1);
+        const uint32_t t_noack = can_espera_tx(C1_B, 0);
+        std::printf("    sin asentimiento: TSR = 0x%08X, TEC = %u -> %u, LEC = %u\n",
+                    t_noack, tec0, dut->can1.tec(),
+                    (c_rd(C1_B, BxCanBase::R_ESR) >> 4) & 7u);
+        check(t_noack & 8u, "sin nadie que asienta, el buzon marca TERR0");
+        check(!(t_noack & 2u), "y NO marca TXOK: el marco no ha llegado a nadie");
+        check_eq((c_rd(C1_B, BxCanBase::R_ESR) >> 4) & 7u, 3u,
+                 "LEC = 3: error de asentimiento [IR, 12.12]");
+        check(dut->can1.tec() > tec0,
+              "y el contador de errores de transmision sube de ocho en ocho");
+        nodo_ext->set_ack(true);
+        c_wr(C1_B, BxCanBase::R_TSR, 1u);
+        c_wr(C1_B, BxCanBase::R_MCR, BxCanBase::M_INRQ);
+        can_links(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T86 — Los filtros
+    // -----------------------------------------------------------------------
+    void t86_can_filtros() {
+        group("T86 bxCAN: los 28 bancos de filtros y su reparto [IR, 12.12]");
+        can_links(true);
+        reset_dut();
+        can_clocks_on();
+        can_pins_af();
+        nodo_ext->set_enabled(true);
+        nodo_ext->set_ack(true);
+
+        // Banco 0: mascara de 32 bits, deja pasar solo 0x2xx -> FIFO 0
+        // Banco 1: lista de 32 bits con dos identificadores -> FIFO 1
+        c_wr(C1_B, BxCanBase::R_FMR, 1u | (14u << 8));
+        c_wr(C1_B, BxCanBase::R_FA1R, 0);
+        c_wr(C1_B, BxCanBase::R_FS1R, 0x3u);              // bancos 0 y 1 a 32 bits
+        c_wr(C1_B, BxCanBase::R_FM1R, 0x2u);              // banco 1 en modo lista
+        c_wr(C1_B, BxCanBase::R_FFA1R, 0x2u);             // banco 1 -> FIFO 1
+        c_wr(C1_B, BxCanBase::R_F0R1,     0x200u << 21);  // identificador 0x200
+        c_wr(C1_B, BxCanBase::R_F0R1 + 4, 0x700u << 21);  // mascara: los 3 altos
+        c_wr(C1_B, BxCanBase::R_F0R1 + 8, 0x555u << 21);  // lista: 0x555
+        c_wr(C1_B, BxCanBase::R_F0R1 + 12, 0x556u << 21); //        y 0x556
+        c_wr(C1_B, BxCanBase::R_FA1R, 0x3u);
+        c_wr(C1_B, BxCanBase::R_FMR, 14u << 8);
+        check(can_init(C1_B, BTR_500K), "CAN1 en marcha con dos bancos activos");
+
+        auto manda = [&](uint32_t id) {
+            CanFrame f; f.id = id; f.dlc = 1; f.data[0] = uint8_t(id);
+            nodo_ext->send(f);
+            wait(600, SC_US);
+        };
+
+        manda(0x201);
+        check(can_espera_rx(C1_B, 0, sc_time(500, SC_US)),
+              "0x201 casa con la mascara 0x200/0x700 y entra por la FIFO 0");
+        check_eq(c_rd(C1_B, BxCanBase::R_RI0R) >> 21, 0x201u, "con su identificador");
+        check_eq((c_rd(C1_B, BxCanBase::R_RI0R + 4) >> 8) & 0xFFu, 0u,
+                 "y FMI = 0: lo acepto el primer filtro, que es lo que dice RDT0R");
+        can_liberar(C1_B, 0);
+
+        manda(0x555);
+        check(can_espera_rx(C1_B, 1, sc_time(500, SC_US)),
+              "0x555 esta en la lista del banco 1 y entra por la FIFO 1");
+        check_eq(c_rd(C1_B, BxCanBase::R_RI0R + 0x10) >> 21, 0x555u,
+                 "por la segunda FIFO, que es la que le asigno FFA1R");
+        can_liberar(C1_B, 1);
+        manda(0x556);
+        check(can_espera_rx(C1_B, 1, sc_time(500, SC_US)),
+              "y el segundo identificador de la lista tambien");
+        check_eq((c_rd(C1_B, BxCanBase::R_RI0R + 0x14) >> 8) & 0xFFu, 1u,
+                 "esta vez con FMI = 1: fue el segundo filtro del banco");
+        can_liberar(C1_B, 1);
+
+        // --- Lo que NO casa se descarta EN EL HARDWARE --------------------------
+        const uint64_t rx_antes = dut->can1.frames_rx();
+        manda(0x111);
+        manda(0x557);
+        check(!(c_rd(C1_B, BxCanBase::R_RF0R) & 3u) &&
+              !(c_rd(C1_B, BxCanBase::R_RF1R) & 3u),
+              "lo que no casa con ningun banco NO llega a las FIFOs");
+        check_eq(dut->can1.frames_rx(), rx_antes,
+                 "el filtrado ocurre en el hardware: la CPU ni se entera");
+
+        // --- La FIFO tiene fondo: tres marcos y desbordamiento ------------------
+        manda(0x202); manda(0x203); manda(0x204);
+        check_eq(c_rd(C1_B, BxCanBase::R_RF0R) & 3u, 3u,
+                 "la FIFO guarda TRES marcos completos [IR, 12.12.1]");
+        check(c_rd(C1_B, BxCanBase::R_RF0R) & (1u << 3), "y avisa con FULL0");
+        manda(0x205);
+        check(c_rd(C1_B, BxCanBase::R_RF0R) & (1u << 4),
+              "el cuarto la desborda: FOVR0");
+        check_eq(c_rd(C1_B, BxCanBase::R_RI0R) >> 21, 0x202u,
+                 "el primero en entrar sigue siendo el primero en salir");
+        c_wr(C1_B, BxCanBase::R_RF0R, (1u << 4) | (1u << 3));
+        for (unsigned i = 0; i < 3; ++i) can_liberar(C1_B, 0);
+
+        // --- El reparto CAN2SB, visto en funcionamiento -------------------------
+        // Se mueve la frontera a 1: el banco 0 queda para CAN1 y el 1 pasa a
+        // CAN2. A partir de ahi, CAN1 deja de ver los marcos de la lista.
+        c_wr(C1_B, BxCanBase::R_FMR, 1u | (1u << 8));
+        c_wr(C1_B, BxCanBase::R_FMR, 1u << 8);
+        wait(20, SC_US);
+        manda(0x555);
+        check(!(c_rd(C1_B, BxCanBase::R_RF1R) & 3u),
+              "moviendo CAN2SB a 1, el banco 1 deja de ser de CAN1...");
+        manda(0x201);
+        check(can_espera_rx(C1_B, 0, sc_time(500, SC_US)),
+              "...pero el banco 0 sigue siendolo y sigue filtrando");
+        can_liberar(C1_B, 0);
+        c_wr(C1_B, BxCanBase::R_FMR, 1u | (14u << 8));
+        c_wr(C1_B, BxCanBase::R_FMR, 14u << 8);
+        c_wr(C1_B, BxCanBase::R_MCR, BxCanBase::M_INRQ);
+        can_links(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T87 — Arbitraje y errores
+    // -----------------------------------------------------------------------
+    void t87_can_arbitraje_errores() {
+        group("T87 bxCAN: arbitraje en el hilo, modo silencioso y bus-off");
+        can_links(true);
+        reset_dut();
+        can_clocks_on();
+        can_pins_af();
+        nodo_ext->set_enabled(true);
+        nodo_ext->set_ack(true);
+        can_filtro_abierto(0, 0);
+        check(can_init(C1_B, BTR_500K), "CAN1 en marcha a 500 kbit/s");
+
+        // --- El arbitraje se decide EN EL HILO ---------------------------------
+        // Los dos nodos empiezan a la vez. El identificador MAS BAJO gana,
+        // porque sus ceros son dominantes y ganan a los unos del otro por
+        // superposicion de conductancias, no por un `if`.
+        // Los dos arrancan a la vez: el nodo externo tiene su marco en la cola
+        // cuando el MCU pone el bit de arranque, asi que SE SUMA A LA PUJA
+        // desde ese mismo bit, igual que en un bus real.
+        CanFrame bajo; bajo.id = 0x100; bajo.dlc = 1; bajo.data[0] = 0xAA;
+        const uint8_t d[1] = {0x55};
+        // El buzon se carga ANTES; lo unico que queda es la escritura de TIxR,
+        // que es la que lanza el marco. Asi los dos nodos ponen su bit de
+        // arranque en el mismo instante y la puja es de verdad.
+        can_cargar(C1_B, 0, d, 1);
+        nodo_ext->send(bajo);
+        can_disparar(C1_B, 0, 0x700, false);            // identificador mas alto
+        wait(300, SC_US);
+        const uint32_t t_puja = c_rd(C1_B, BxCanBase::R_TSR);
+        std::printf("    en plena puja: TSR = 0x%08X, ALST0 = %d\n",
+                    t_puja, int((t_puja >> 2) & 1u));
+        check((t_puja >> 2) & 1u,
+              "0x700 contra 0x100: el MCU PIERDE el arbitraje y marca ALST0");
+        check(can_espera_rx(C1_B, 0, sc_time(2, SC_MS)),
+              "y recibe el marco del que ha ganado, sin haberse perdido su principio");
+        check_eq(c_rd(C1_B, BxCanBase::R_RI0R) >> 21, 0x100u,
+                 "el identificador MAS BAJO es el que gana: sus ceros son dominantes");
+        check_eq(c_rd(C1_B, BxCanBase::R_RI0R + 8) & 0xFFu, 0xAAu,
+                 "con sus datos intactos, pese a haber empezado creyendo que transmitia");
+        can_liberar(C1_B, 0);
+        // Y el buzon del MCU sigue pidiendo: el arbitraje perdido NO es un
+        // error, y el marco se reintenta en cuanto el hilo queda libre.
+        const uint32_t t_arb = can_espera_tx(C1_B, 0, sc_time(3, SC_MS));
+        std::printf("    tras reintentar: TSR = 0x%08X\n", t_arb);
+        check(t_arb & 2u,
+              "perder la puja no es un error: el marco sale al siguiente intento");
+        check(dut->can1.tec() == 0u,
+              "y el contador de errores NO sube: ceder el hilo es lo normal en CAN");
+        c_wr(C1_B, BxCanBase::R_TSR, 1u);
+
+        // --- Prioridad entre buzones -------------------------------------------
+        // Sin TXFP manda el identificador; con TXFP, el orden de peticion.
+        const uint8_t a[1] = {1}, b[1] = {2};
+        can_enviar(C1_B, 0, 0x600, false, a, 1);
+        can_enviar(C1_B, 1, 0x200, false, b, 1);
+        wait(3, SC_MS);
+        check(nodo_ext->received() > 0u, "los dos buzones acaban saliendo");
+        c_wr(C1_B, BxCanBase::R_TSR, 1u | (1u << 8));
+
+        // --- Modo silencioso: escucha sin perturbar ----------------------------
+        // Un nodo en modo silencioso NUNCA manda dominante, ni siquiera para
+        // asentir. Es lo que permite pinchar un analizador en un bus vivo.
+        c_wr(C1_B, BxCanBase::R_MCR, BxCanBase::M_INRQ);
+        wait(20, SC_US);
+        c_wr(C1_B, BxCanBase::R_BTR, BTR_500K | (1u << 31));    // SILM
+        c_wr(C1_B, BxCanBase::R_MCR, 0);
+        wait(50, SC_US);
+        CanFrame f2; f2.id = 0x201; f2.dlc = 1; f2.data[0] = 0x99;
+        nodo_ext->send(f2);
+        check(can_espera_rx(C1_B, 0, sc_time(2, SC_MS)),
+              "en modo silencioso el bloque SIGUE recibiendo");
+        check_eq(c_rd(C1_B, BxCanBase::R_RI0R) >> 21, 0x201u, "y entrega el marco");
+        can_liberar(C1_B, 0);
+        // Y el nodo externo no ha recibido asentimiento del MCU, porque el
+        // silencioso no lo da. Con otro nodo que asienta seguiria funcionando.
+        wait(2, SC_MS);
+        const unsigned err_ext = nodo_ext->errors();
+        std::printf("    en modo silencioso, el nodo externo lleva %u marcos sin asentir\n",
+                    err_ext);
+        check(err_ext > 0u,
+              "y NO asiente: el nodo externo se queda sin asentimiento, que es"
+              " justo lo que permite pinchar un analizador en un bus vivo");
+
+        // --- Bucle cerrado: el bloque se oye a si mismo -------------------------
+        c_wr(C1_B, BxCanBase::R_MCR, BxCanBase::M_INRQ);
+        wait(20, SC_US);
+        c_wr(C1_B, BxCanBase::R_BTR, BTR_500K | (1u << 30));    // LBKM
+        c_wr(C1_B, BxCanBase::R_MCR, 0);
+        wait(50, SC_US);
+        const uint64_t tx0 = dut->can1.frames_tx();
+        const uint8_t z[2] = {0xC0, 0xDE};
+        can_enviar(C1_B, 0, 0x2AA, false, z, 2);
+        can_espera_tx(C1_B, 0);
+        check(dut->can1.frames_tx() > tx0,
+              "en bucle cerrado el bloque se asiente a si mismo y el marco sale");
+        check(!(c_rd(C1_B, BxCanBase::R_TSR) & 8u),
+              "sin errores: no hace falta que haya nadie en el bus");
+        c_wr(C1_B, BxCanBase::R_TSR, 1u);
+
+        // --- Los contadores de error y el bus-off ------------------------------
+        // Se quita el nodo externo del bus. Sin nadie que asienta, cada intento
+        // suma ocho al contador de transmision, y a los 255 el bloque se
+        // desconecta solo: es el bus-off del protocolo.
+        c_wr(C1_B, BxCanBase::R_MCR, BxCanBase::M_INRQ);
+        wait(20, SC_US);
+        c_wr(C1_B, BxCanBase::R_BTR, BTR_500K);
+        c_wr(C1_B, BxCanBase::R_MCR, 0);
+        nodo_ext->set_enabled(false);
+        wait(50, SC_US);
+        unsigned intentos = 0;
+        while (intentos < 40 && !(c_rd(C1_B, BxCanBase::R_ESR) & BxCanBase::E_BOFF)) {
+            c_wr(C1_B, BxCanBase::R_MCR, BxCanBase::M_NART);
+            can_enviar(C1_B, 0, 0x123, false, z, 1);
+            can_espera_tx(C1_B, 0, sc_time(1, SC_MS));
+            c_wr(C1_B, BxCanBase::R_TSR, 1u);
+            ++intentos;
+            if (intentos == 12) {
+                const uint32_t e = c_rd(C1_B, BxCanBase::R_ESR);
+                std::printf("    tras %u intentos sin asentimiento: TEC = %u, ESR = 0x%08X\n",
+                            intentos, (e >> 16) & 0xFFu, e);
+                check(e & BxCanBase::E_EWGF,
+                      "pasados 96 errores salta EWGF: el nodo esta en aviso");
+            }
+            if (intentos == 17) {
+                check(c_rd(C1_B, BxCanBase::R_ESR) & BxCanBase::E_EPVF,
+                      "y pasados 128, EPVF: pasivo ante los errores");
+            }
+        }
+        const uint32_t esr = c_rd(C1_B, BxCanBase::R_ESR);
+        std::printf("    al cabo de %u intentos: ESR = 0x%08X (TEC = %u)\n",
+                    intentos, esr, (esr >> 16) & 0xFFu);
+        check(esr & BxCanBase::E_BOFF,
+              "y al llegar a 255 el nodo se desconecta solo: bus-off [IR, 12.12]");
+        check_eq((esr >> 4) & 7u, 3u, "con LEC = 3, error de asentimiento");
+        nodo_ext->set_enabled(true);
+        c_wr(C1_B, BxCanBase::R_MCR, BxCanBase::M_INRQ);
+        wait(20, SC_US);
+        can_links(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T88 — Firmware real con CMSIS
+    // -----------------------------------------------------------------------
+    void t88_can_firmware() {
+        group("T88 bxCAN: firmware real con CMSIS");
+        can_links(true);
+        reset_dut();
+        nodo_ext->set_enabled(true);
+        nodo_ext->set_ack(true);
+        dut->rcc.set_internal_waveforms(false);
+        xtal_hse->attach();
+        dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(30, SC_US);
+
+        ImageLoader ld(*dut);
+        const long n = ld.load_file(can_fw_path_.c_str(), addr::FLASH_BASE);
+        if (!check(n > 0, "imagen del firmware de CAN cargada en la Flash")) {
+            std::printf("        (compilar con make -C verif/fw/can_demo)\n");
+            dut->pwr_pads.nrst.set_hiz(d_nrst);
+            dut->rcc.set_internal_waveforms(true);
+            return;
+        }
+        std::printf("    %ld bytes cargados desde %s\n", n, can_fw_path_.c_str());
+        for (unsigned i = 0; i < 40; i += 4) ld.poke32(addr::SRAM1_BASE + i, 0);
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+
+        // El nodo externo va contestando a lo que le llega.
+        bool done = false;
+        unsigned mandados = 0;
+        const sc_time t0 = sc_time_stamp();
+        while ((sc_time_stamp() - t0) < sc_time(300, SC_MS)) {
+            wait(200, SC_US);
+            if (nodo_ext->received() >= 1u && mandados < 3) {
+                CanFrame f;
+                f.id = 0x321 + mandados; f.dlc = 2;
+                f.data[0] = uint8_t(0xA0 + mandados); f.data[1] = 0x5A;
+                nodo_ext->send(f);
+                ++mandados;
+                wait(2, SC_MS);
+            }
+            if (dut->sram1.peek32(0) == 1u) { done = true; break; }
+        }
+        const uint32_t etapa   = dut->sram1.peek32(4);
+        const uint32_t enviado = dut->sram1.peek32(8);
+        const uint32_t recib   = dut->sram1.peek32(12);
+        const uint32_t id_rx   = dut->sram1.peek32(16);
+        const uint32_t dato    = dut->sram1.peek32(20);
+        const uint32_t esr     = dut->sram1.peek32(24);
+        const uint32_t brate   = dut->sram1.peek32(28);
+        std::printf("    etapa = %u | enviados = %u | recibidos = %u | id = 0x%03X | dato = 0x%08X\n",
+                    etapa, enviado, recib, id_rx, dato);
+        std::printf("    ESR = 0x%08X | el firmware calcula %u bit/s | el nodo externo vio %u marcos\n",
+                    esr, brate, nodo_ext->received());
+
+        check(done, "el firmware de CAN llega a su fin y publica el buzon");
+        check_eq(etapa, 5u, "recorre las cinco etapas de la puesta en marcha");
+        check_eq(brate, 500000u,
+                 "el propio firmware calcula su velocidad: 500 kbit/s");
+        check(enviado >= 1u, "transmite al menos un marco y lo ve asentido");
+        check(recib >= 1u, "y recibe los del nodo externo por su filtro");
+        check_eq(id_rx, 0x321u, "con el identificador correcto");
+        check_eq(dato & 0xFFFFu, 0x5AA0u, "y los datos intactos");
+        check(!(esr & 7u), "sin avisos, sin pasividad y sin bus-off");
+        check(nodo_ext->received() >= 1u,
+              "y el nodo externo ha oido de verdad al MCU por el hilo");
+        dut->rcc.set_internal_waveforms(true);
+        can_links(false);
+    }
+
+    std::string can_fw_path_ = "verif/fw/can_demo/can_demo.bin";
     std::string crc_fw_path_ = "verif/fw/crc_rng_demo/crc_rng_demo.bin";
     std::string sdio_fw_path_ = "verif/fw/sdio_demo/sdio_demo.bin";
     std::string dac_fw_path_ = "verif/fw/dac_demo/dac_demo.bin";

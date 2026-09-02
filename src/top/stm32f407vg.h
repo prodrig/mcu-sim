@@ -104,7 +104,10 @@ SC_MODULE(Stm32F407VG) {
     I2sExt i2s2ext{"i2s2ext", addr::I2S2EXT_B};           // solo audio, esclavo
     I2sExt i2s3ext{"i2s3ext", addr::I2S3EXT_B};
     I2c   i2c1{"i2c1", addr::I2C1_B}, i2c2{"i2c2", addr::I2C2_B}, i2c3{"i2c3", addr::I2C3_B};
-    BxCan can1{"can1", addr::CAN1_B, true}, can2{"can2", addr::CAN2_B, false};
+    // CAN1 es el MAESTRO de los 28 bancos de filtros; CAN2 no tiene ventana de
+    // filtros propia y usa la de CAN1 [IR, §12.12]. La diferencia va en el tipo.
+    Can1 can1{"can1", addr::CAN1_B};
+    Can2 can2{"can2", addr::CAN2_B};
 
     AdcBlock adc{"adc"};
     Dac      dac{"dac"};
