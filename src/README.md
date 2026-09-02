@@ -14,14 +14,14 @@ P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
 | **F3** | Pads/pin_mux/GPIO y RCC eléctrico completos | **completada** |
 | **F4** | DMA1/2, USART, TIM, EXTI/SYSCFG | **completada** |
 | **F5** | Resto de periféricos: SPI/I2S, I2C, ADC, DAC, RTC, watchdogs, SDIO, CRC/RNG y bxCAN | **completada** |
-| **F6** | Debug: SWJ-DP/AHB-AP, Core Debug, FPB, DWT, ITM/TPIU, ROM table y DBGMCU | **completada** |
+| **F6** | Debug: SWJ-DP/AHB-AP, Core Debug, FPB, DWT, ITM/TPIU, ROM table, DBGMCU y los dos servidores GDB/RSP | **completada** |
 | F7 | Bajo consumo, OTG/ETH/FSMC/DCMI, afinado AT | pendiente |
 
-`make test` compila y ejecuta la suite de verificación acumulada (1362
+`make test` compila y ejecuta la suite de verificación acumulada (1385
 comprobaciones autocomprobables: 124 de F1 + 12 de F2 + 80 de F3 + 343 de F4
 (DMA, UART/USART, TIM y EXTI/SYSCFG) + 675 de F5 (SPI/I2S, I2C, ADC, DAC, RTC y
-perros guardianes, SDIO, CRC/RNG y bxCAN) + 128 de F6 (depuración y servidor
-GDB); código de salida 0 si todas pasan, en unos 6 s). Verificado con SystemC 2.3.4 / g++ 13 / C++17
+perros guardianes, SDIO, CRC/RNG y bxCAN) + 151 de F6 (depuración y los dos
+servidores GDB); código de salida 0 si todas pasan, en unos 6 s). Verificado con SystemC 2.3.4 / g++ 13 / C++17
 y arm-none-eabi-gcc 13.2.
 
 Las pruebas T15-T17, T25, T31, T37, T43, T48, T55, T61, T66, T70, T79, T82, T88 y T95 necesitan los firmwares del repositorio; se
@@ -41,30 +41,47 @@ make -f Makefile.stm32 test           # o: cp Makefile.stm32 Makefile && make te
 make -f Makefile.stm32 run IMG=fw.bin # carga una imagen y simula
 ```
 
-**Depuración interactiva desde un IDE.** El modelo lleva un servidor GDB/RSP
-soldado a los pines SWCLK/SWDIO (véase `doc/stm32f407vg_fase6_gdb.md`):
+**Depuración interactiva desde un IDE.** El modelo lleva DOS servidores
+GDB/RSP, con el mismo protocolo y las mismas respuestas, que se diferencian
+solo en cómo llegan al DAP:
 
 ```
-./build/stm32f407vg --gdb [--port=3333] [imagen.bin]
+./build/stm32f407vg --gdb     [--port=3333] [imagen.bin]   # por los pines SWD
+./build/stm32f407vg --gdb-dap [--port=3333] [imagen.bin]   # por dentro, al DAP
 ```
 
-no ejecuta la suite: levanta el modelo y abre el puerto. Desde Eclipse CDT,
-STM32CubeIDE o un `arm-none-eabi-gdb` a pelo, `target extended-remote
-localhost:3333` da una sesión completa —descarga a Flash incluida— igual que
-contra una placa con un ST-LINK.
+Ninguno de los dos ejecuta la suite: levantan el modelo y abren el puerto.
+Desde Eclipse CDT, STM32CubeIDE o un `arm-none-eabi-gdb` a pelo, `target
+extended-remote localhost:3333` da una sesión completa —descarga a Flash
+incluida— igual que contra una placa con un ST-LINK.
+
+- `--gdb` es la SONDA (`verif/gdb_stub.h`): se suelda a PA13/PA14 y habla SWD
+  bit a bit, con su reset de línea, sus ACK y su paridad. Es el modo fiel, y el
+  único que verifica el propio protocolo de transporte.
+  Véase `doc/stm32f407vg_fase6_gdb.md`.
+- `--gdb-dap` es el stub INTERNO (`core/gdb_stub_dap.h`): el núcleo reserva los
+  cinco pines de depuración (PA13/14/15, PB3-SWO y PB4) sin usarlos y crea
+  dentro de sí un stub pegado al AHB-AP. Un acceso pasa de ~100 flancos de
+  SWCLK a una transacción TLM: **x390** en tiempo simulado (medido en T97).
+  El criterio para elegir uno u otro está en
+  `doc/stm32f407vg_fase6_gdb2.md`.
+
+La elección es un parámetro del núcleo, no una opción del banco:
+`CortexM4F core{"core", DBG_PINES}` o `DBG_INTERNO`, con los alias
+`CortexM4F_Pines` y `CortexM4F_GdbDap` para fijarlo en tiempo de compilación.
 
 ## Estructura
 
 | Carpeta | Contenido |
 | :--- | :--- |
-| `common/` | Tipos de bus y extensión AHB, mapa de memoria, sectores de Flash y tabla de estados de espera (`ahb_types.h`); nodo analógico de pin (`analog_net.h`); generador de reloj reprogramable (`clock_gen.h`); clase base de esclavo con byte enables y respuestas AHB (`periph_base.h`) |
+| `common/` | Tipos de bus y extensión AHB, mapa de memoria, sectores de Flash y tabla de estados de espera (`ahb_types.h`); nodo analógico de pin (`analog_net.h`); generador de reloj reprogramable (`clock_gen.h`); clase base de esclavo con byte enables y respuestas AHB (`periph_base.h`); el motor del Remote Serial Protocol de GDB, compartido por los dos stubs y con el transporte como interfaz virtual (`gdb_rsp.h`) |
 | `pins/` | `pad.h` (frontera V/I float <-> digital, Schmitt con histéresis, open-drain, pulls, rango y corriente), `pin_mux.h` (pads + mux AF + ruta analógica), `af_types.h` (tipos del mux), `power_pads.h` (VDD/NRST/BOOT0, POR/PDR/BOR) |
 | `bus/` | `ahb_matrix.h` (8x7 con máscara de conectividad y arbitraje), `ahb_decoder.h` (decodificadores de segmento + puente AHB-APB), `bitband.h` (alias de bit-banding) |
 | `mem/` | `flash_if.h` (Flash 1 MB + ART + registros FLASH + option bytes + cargador), `sram.h` (SRAM1/2, BKPSRAM, CCM) |
 | `rcc/` | `rcc.h` (banco de registros, árbol de reloj, gating, controlador de reset), `osc_pll.h` (HSI/HSE/LSI/LSE, PLL, PLLI2S) |
-| `core/` | `cortex_m4f.h` (router I/D/S/CCM/PPB con alias de 0x0 y bit-banding), `cpu.h` (bucle fetch/decode/execute, excepciones, prebúsqueda), `cpu_state.h` (RegFile y utilidades arquitectónicas), `cpu_exec16.h` / `cpu_exec32.h` (ISA completa [II]), `fpu.h` (FPv4-SP), `scs.h` (SCB + NVIC + SysTick + MPU), `debug_if.h` (el contrato por el que la CPU llama al depurador en cada búsqueda, cada acceso y cada excepción) y `debug.h` (el subsistema CoreSight completo: SWJ-DP con el protocolo SWD a nivel de bit, AHB-AP, Core Debug, FPB, DWT, ITM/TPIU con salida por SWO, ROM table y DBGMCU; véase `doc/stm32f407vg_fase6_debug.md`) |
+| `core/` | `cortex_m4f.h` (router I/D/S/CCM/PPB con alias de 0x0 y bit-banding), `cpu.h` (bucle fetch/decode/execute, excepciones, prebúsqueda), `cpu_state.h` (RegFile y utilidades arquitectónicas), `cpu_exec16.h` / `cpu_exec32.h` (ISA completa [II]), `fpu.h` (FPv4-SP), `scs.h` (SCB + NVIC + SysTick + MPU), `debug_if.h` (el contrato por el que la CPU llama al depurador en cada búsqueda, cada acceso y cada excepción) y `debug.h` (el subsistema CoreSight completo: SWJ-DP con el protocolo SWD a nivel de bit, AHB-AP, Core Debug, FPB, DWT, ITM/TPIU con salida por SWO, ROM table y DBGMCU; véase `doc/stm32f407vg_fase6_debug.md`) y `gdb_stub_dap.h` (el segundo servidor GDB, el que se engancha al DAP por dentro cuando el núcleo se construye con `DBG_INTERNO`; véase `doc/stm32f407vg_fase6_gdb2.md`) |
 | `periph/` | un fichero por familia de periférico, todos derivados de `BusSlave`. `usart.h` es un único modelo parametrizado del que salen los tipos `Usart` y `Uart` (véase `doc/stm32f407vg_fase4_uart.md`), `timers.h` uno del que salen los seis tipos de temporizador del F407 (véase `doc/stm32f407vg_fase4_tim.md`), `spi.h` uno del que salen las cinco instancias de SPI/I2S, incluidos los bloques de extensión I2SxEXT (véase `doc/stm32f407vg_fase5_spi.md`), `i2c.h` uno del que salen los tres I2C/SMBus, que en el F407 resultan ser idénticos (véase `doc/stm32f407vg_fase5_i2c.md`), `adc.h` uno del que salen los tres convertidores, que en cambio SÍ se diferencian —entradas internas, papel de maestro y canales disponibles— (véase `doc/stm32f407vg_fase5_adc.md`), `dac.h` uno del que salen las variantes de uno y dos canales (véase `doc/stm32f407vg_fase5_dac.md`), `rtc.h` y `watchdog.h` los periféricos de sistema que sobreviven al reset o al fallo del reloj (véase `doc/stm32f407vg_fase5_rtc_wdog.md`), `sdio.h` el bloque de tarjetas SD/SD I/O/MMC, modelado a nivel de bit sobre los nueve pines del bus (véase `doc/stm32f407vg_fase5_sdio.md`), `crc_rng.h` la unidad de cálculo CRC y el generador de números aleatorios, este último con su fuente de ruido y sus dos condiciones de error (véase `doc/stm32f407vg_fase5_crc_rng.md`), y `can.h` uno del que salen los dos bxCAN, que se diferencian en algo esencial —CAN1 es el dueño de los 28 bancos de filtros y CAN2 no tiene ventana de filtros propia— (véase `doc/stm32f407vg_fase5_can.md`) |
-| `verif/` | `bus_test_master.h` (maestro de bus de verificación), `image_loader.h` (carga de .bin/.hex y tabla de vectores), `decoder_vectors.h` (254 vectores generados desde `doc/valida_instrucciones.py` por `gen_decoder_vectors.py`), `ext_parts.h` (circuitería externa de placa: cristal, reloj, LED, pulsador, resistencia, driver, pista entre pines, hilo de bus I2C con pull-up, EEPROM 24Cxx, maestro I2C externo, tarjeta SD a nivel de pin, el bus CAN completo —hilo cableado en Y con su terminador, transceptores y un nodo CAN externo que habla el protocolo—, una sonda SWD que habla el protocolo bit a bit por PA13/PA14 y un analizador de traza SWO colgado de PB3); `swd_port.h` (el maestro SWD a nivel de bit, con el tratamiento de WAIT/FAULT y demás peculiaridades de ADIv5), `gdb_stub.h` (servidor GDB/RSP sobre TCP enganchado a esos mismos dos pines) y `gdb_client.h` (un GDB de mentira para verificarlo), `fw/` (firmware de autocomprobación, *port* bare-metal de CoreMark, CMSIS oficial, blinky de referencia y demostraciones del DMA, de los puertos serie, de los temporizadores, del EXTI, del SPI, del I2C, del ADC, del DAC, del SDIO, del CRC/RNG, del bxCAN y de la traza ITM/DWT) |
+| `verif/` | `bus_test_master.h` (maestro de bus de verificación), `image_loader.h` (carga de .bin/.hex y tabla de vectores), `decoder_vectors.h` (254 vectores generados desde `doc/valida_instrucciones.py` por `gen_decoder_vectors.py`), `ext_parts.h` (circuitería externa de placa: cristal, reloj, LED, pulsador, resistencia, driver, pista entre pines, hilo de bus I2C con pull-up, EEPROM 24Cxx, maestro I2C externo, tarjeta SD a nivel de pin, el bus CAN completo —hilo cableado en Y con su terminador, transceptores y un nodo CAN externo que habla el protocolo—, una sonda SWD que habla el protocolo bit a bit por PA13/PA14 y un analizador de traza SWO colgado de PB3); `swd_port.h` (el maestro SWD a nivel de bit, con el tratamiento de WAIT/FAULT y demás peculiaridades de ADIv5), `gdb_stub.h` (el servidor GDB/RSP de los pines: solo el transporte, porque el protocolo vive en `common/gdb_rsp.h`) y `gdb_client.h` (un GDB de mentira para verificarlo), `fw/` (firmware de autocomprobación, *port* bare-metal de CoreMark, CMSIS oficial, blinky de referencia y demostraciones del DMA, de los puertos serie, de los temporizadores, del EXTI, del SPI, del I2C, del ADC, del DAC, del SDIO, del CRC/RNG, del bxCAN y de la traza ITM/DWT) |
 | `top/` | `stm32f407vg.h` + `stm32f407vg_bind2.h` (netlist/contrato de integración), `sc_main.cpp` (suite de verificación acumulada F1-F4) |
 
 ## Convenciones

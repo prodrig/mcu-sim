@@ -16,9 +16,35 @@
 #include "fpu.h"
 #include "scs.h"
 #include "debug.h"
+#include "gdb_stub_dap.h"
 #include "../bus/bitband.h"
 
 namespace stm32 {
+
+// =============================================================================
+// Rasgos de depuración del núcleo — cómo se llega al DAP
+//
+// Misma receta que en el resto del modelo (UsartCaps, TimCaps, SpiCaps...): un
+// struct constexpr de rasgos, unas instancias con nombre y una clase base no
+// plantilla que los toma POR VALOR, de modo que se puede elegir en tiempo de
+// compilación (con el alias) o en tiempo de ejecución (con el constructor).
+//
+//   attach == DebugAttach::Pines   -> el núcleo EXPONE SWCLK/SWDIO/JTDI/SWO/
+//        NJTRST y no crea ningún stub. Quien quiera depurar se conecta por
+//        fuera (verif/gdb_stub.h), como un ST-LINK. Es el modo fiel.
+//   attach == DebugAttach::Interno -> el núcleo RESERVA esos cinco pines (no
+//        los puede usar nadie más, pero quedan mudos) y crea dentro de sí un
+//        GdbStubDap que habla con el DAP por llamada de función. Es el modo
+//        rápido.
+//
+// El criterio para elegir está en doc/stm32f407vg_fase6_gdb2.md.
+// =============================================================================
+struct DebugCaps {
+    DebugAttach attach;      // pines expuestos o reservados
+    unsigned    puerto;      // puerto TCP del stub interno (0 = no escuchar)
+};
+inline constexpr DebugCaps DBG_PINES  { DebugAttach::Pines,   0    };
+inline constexpr DebugCaps DBG_INTERNO{ DebugAttach::Interno, 3333 };
 
 SC_MODULE(CortexM4F) {
     // --- Puertos de bus hacia el sistema (los conecta el top) ---------------
@@ -53,7 +79,24 @@ SC_MODULE(CortexM4F) {
     Fpu fpu{"fpu"};
     Scs scs{"scs"};
 
-    SC_CTOR(CortexM4F) : irq_in("irq_in", N_IRQ) {
+    // El stub interno solo existe en modo Interno; en modo Pines es nullptr y
+    // no cuesta ni un evento de simulación.
+    GdbStubDap* gdb = nullptr;
+
+    const DebugCaps caps;
+
+    explicit CortexM4F(sc_core::sc_module_name nm, DebugCaps c = DBG_PINES)
+        : sc_core::sc_module(nm), irq_in("irq_in", N_IRQ), caps(c) {
+        SC_HAS_PROCESS(CortexM4F);
+        // --- La elección de los dos stubs, en tres líneas ---------------------
+        if (caps.attach == DebugAttach::Interno) {
+            // Los pines siguen siendo del puerto de depuración -el top los
+            // conecta igual, y el mux los sigue reservando en AF0- pero el
+            // frente SWD deja de escucharlos y el SWO deja de emitir.
+            debug.set_pines_debug(false);
+            if (caps.puerto) gdb = new GdbStubDap("gdb", debug, caps.puerto);
+        }
+
         // CPU <-> infra
         cpu.fclk(fclk); cpu.fclk_hz(fclk_hz); cpu.rst_n(rst_n);
         cpu.sys(scs.cpu_if);                 // SCB + NVIC + SysTick + MPU
@@ -102,7 +145,12 @@ SC_MODULE(CortexM4F) {
         dbg_isk_.bind(debug.ppb);
     }
 
+    ~CortexM4F() { delete gdb; }
+
     sc_core::sc_signal<bool>& fpu_irq_sig() { return sig_irq_fpu_; }
+
+    // ¿Están los pines de depuración expuestos o solo reservados?
+    bool pines_debug_expuestos() const { return caps.attach == DebugAttach::Pines; }
 
 private:
     // Sockets internos del router
@@ -222,6 +270,17 @@ private:
         give_back(gp, lent);
     }
 };
+
+// -----------------------------------------------------------------------------
+// La misma elección, pero en tiempo de compilación. `CortexM4F` sigue siendo la
+// clase que hace el trabajo; esto solo fija sus rasgos.
+// -----------------------------------------------------------------------------
+template <const DebugCaps& C>
+struct CoreT : CortexM4F {
+    explicit CoreT(sc_core::sc_module_name nm) : CortexM4F(nm, C) {}
+};
+using CortexM4F_Pines   = CoreT<DBG_PINES>;     // depuración por los pines
+using CortexM4F_GdbDap  = CoreT<DBG_INTERNO>;   // depuración por el DAP
 
 } // namespace stm32
 #endif // STM32_CORE_CORTEX_M4F_H

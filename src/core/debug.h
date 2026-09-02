@@ -115,6 +115,22 @@ SC_MODULE(DebugSys), public core_debug_if {
     }
     bool is_halted() const { return halted.read(); }
 
+    // -----------------------------------------------------------------------
+    // Pines de depuracion EXPUESTOS o RESERVADOS.
+    //
+    // Con `false` los cinco pines (PA13/14/15, PB3/PB4) siguen asignados al
+    // puerto de depuracion en el mux -no los puede usar nadie mas, igual que
+    // en el silicio- pero el frente SWD deja de escuchar y el SWO deja de
+    // emitir. Es lo que hace el nucleo cuando se construye con el stub
+    // interno: reservados, aunque sin usar [véase doc/..._fase6_gdb2.md].
+    // -----------------------------------------------------------------------
+    void set_pines_debug(bool expuestos) {
+        pines_dbg_ = expuestos;
+        if (!expuestos) { o_swdio_oe_ = false; o_swo_ = true; publish(); }
+        swo_ev_.notify(sc_core::SC_ZERO_TIME);
+    }
+    bool pines_debug() const { return pines_dbg_; }
+
     tlm::tlm_response_status ap_access(bool write, uint64_t a,
                                        unsigned char* d, unsigned len) {
         sc_core::sc_time t = sc_core::SC_ZERO_TIME;
@@ -308,6 +324,8 @@ private:
     // ---- SWJ-DP ------------------------------------------------------------
     uint64_t n_swd_ = 0;
     bool     o_swdio_ = true, o_swdio_oe_ = false;
+    // Pines expuestos (sonda externa) o reservados sin usar (stub interno).
+    bool     pines_dbg_ = true;
 
     bool trcena() const { return (demcr_ & (1u << 24)) != 0; }
 
@@ -660,6 +678,15 @@ private:
     void swo_proc() {
         o_swo_ = true; publish();
         for (;;) {
+            // Con los pines RESERVADOS (stub interno) el SWO no emite: el pin
+            // sigue siendo del puerto de depuracion, pero en reposo. La FIFO
+            // del TPIU se vacia igualmente para que el ITM no se atasque.
+            if (!pines_dbg_) {
+                if (!o_swo_) { o_swo_ = true; publish(); }
+                tpiu_fifo_.clear();
+                wait(swo_ev_);
+                continue;
+            }
             if (tpiu_fifo_.empty() || tpiu_sppr_ != 2u || !trcena()) {
                 if (!o_swo_) { o_swo_ = true; publish(); }
                 wait(swo_ev_);
@@ -761,6 +788,10 @@ private:
         for (;;) {
             wait(swclk_tck.value_changed_event());
             const bool c = swclk_tck.read();
+            // Pines reservados pero no usados: el frente SWD no escucha. Lo
+            // que llegue por SWCLK/SWDIO se ignora y SWDIO se queda en alta
+            // impedancia, como si no hubiera nadie soldado.
+            if (!pines_dbg_) { prev = c; continue; }
             if (c && !prev)      swd_subida();
             else if (!c && prev) swd_bajada();
             prev = c;

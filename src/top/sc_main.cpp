@@ -68,6 +68,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <chrono>
 #include <string>
 #include "stm32f407vg.h"
 #include "../verif/bus_test_master.h"
@@ -75,6 +76,7 @@
 #include "../verif/ext_parts.h"
 #include "../verif/decoder_vectors.h"
 #include "../verif/gdb_stub.h"
+#include "../core/gdb_stub_dap.h"
 #include "../verif/gdb_client.h"
 
 using namespace sc_core;
@@ -93,6 +95,9 @@ static std::string g_group;
 // construye durante la elaboracion y ahi ya tiene que saber su puerto.
 static unsigned g_gdb_puerto = 3333;
 static bool     g_modo_gdb   = false;
+// Que stub se usa en el modo servidor: la sonda soldada a los pines (por
+// omision) o el que el propio nucleo crea contra el DAP (--gdb-dap).
+static bool     g_modo_gdb_dap = false;
 
 static void group(const char* g) {
     g_group = g;
@@ -184,8 +189,14 @@ SC_MODULE(F1Tb) {
     // construye desconectado del hilo (soltando los pines) y solo se activa
     // durante su propia prueba, para no pelearse con la sonda del T94.
     GdbStub*      gdb = nullptr;
+    // El SEGUNDO stub: el mismo motor RSP, pero pegado al DAP por dentro. En la
+    // suite se instancia desde el banco -es la misma clase que crea el nucleo
+    // en modo interno- para poder correr el mismo trabajo por los dos caminos
+    // y medir la diferencia (T97).
+    GdbStubDap*   gdb_dap = nullptr;
     unsigned&     gdb_puerto_ = g_gdb_puerto;
     bool&         modo_gdb_ = g_modo_gdb;
+    bool&         modo_gdb_dap_ = g_modo_gdb_dap;
 
     // --- Circuitería de las pruebas del bxCAN ------------------------------
     // El bus es un CABLE EN Y con su terminador. Los dos bxCAN del MCU se
@@ -268,7 +279,16 @@ SC_MODULE(F1Tb) {
     int d_vdd = -1, d_vdda = -1, d_nrst = -1, d_bt0 = -1, d_pb2 = -1;
 
     SC_CTOR(F1Tb) {
-        dut = new Stm32F407VG("dut");
+        // Los rasgos de depuracion del nucleo: en la suite, pines EXPUESTOS,
+        // que es lo que necesitan el T94 (sonda), el T93 (SWO) y el T96 (stub
+        // de pines). Con --gdb-dap se construye en modo INTERNO y es el propio
+        // nucleo quien crea su stub contra el DAP.
+        // Los rasgos se pueden componer tambien en TIEMPO DE EJECUCION, que es
+        // justo lo que hace falta aqui: el puerto lo dice la linea de ordenes.
+        DebugCaps dbg_caps = DBG_PINES;
+        if (g_modo_gdb_dap) { dbg_caps.attach = DebugAttach::Interno;
+                              dbg_caps.puerto = g_gdb_puerto; }
+        dut = new Stm32F407VG("dut", dbg_caps);
         tm.isk.bind(dut->matrix.from_tb);          // puerto de verificación
         xtal_hse = new Crystal(dut->pinmux.analog(7, 0));    // PH0-OSC_IN
         xtal_lse = new Crystal(dut->pinmux.analog(2, 14));   // PC14-OSC32_IN
@@ -314,10 +334,19 @@ SC_MODULE(F1Tb) {
                               dut->pinmux.analog(0, 13),   // PA13 SWDIO
                               2e6);
         swo_rx = new SwoReceiver("swo_rx", dut->pinmux.analog(1, 3), 1e6);  // PB3
+        // En modo --gdb-dap manda el stub que ha creado el nucleo: este se
+        // construye con puerto 0, es decir, sin escuchar.
         gdb = new GdbStub("gdb", dut->pinmux.analog(0, 14),   // PA14 SWCLK
                                  dut->pinmux.analog(0, 13),   // PA13 SWDIO
-                                 gdb_puerto_, 2e6);
+                                 g_modo_gdb_dap ? 0u : gdb_puerto_, 2e6);
         gdb->set_enabled(false);
+        // El del DAP escucha en el puerto siguiente. Solo se instancia si el
+        // nucleo NO lo ha creado ya por dentro (modo --gdb-dap), porque en ese
+        // caso el suyo es el bueno y dos servidores no comparten puerto.
+        if (!dut->core.gdb) {
+            gdb_dap = new GdbStubDap("gdb_dap", dut->core.debug, gdb_puerto_ + 1);
+            gdb_dap->set_enabled(false);
+        }
         // --- El bus CAN de la placa (AF9) ---------------------------------
         // CAN1 en PD0/PD1 y CAN2 en PB12/PB13: dos juegos de pines que no
         // chocan con nada de lo que ya usa el banco.
@@ -541,7 +570,12 @@ SC_MODULE(F1Tb) {
                                        n, fw_path_.c_str());
             }
             reset_dut();
-            gdb->set_enabled(true);
+            // Uno u otro, nunca los dos: el que eligio la linea de ordenes.
+            if (modo_gdb_dap_) {
+                if (dut->core.gdb) dut->core.gdb->set_enabled(true);
+            } else {
+                gdb->set_enabled(true);
+            }
             for (;;) wait(10, SC_MS);        // el stub vive en su propio hilo
         }
 
@@ -686,6 +720,7 @@ SC_MODULE(F1Tb) {
         t94_dbg_sonda_swd();
         t95_dbg_firmware();
         t96_gdb_rsp();
+        t97_gdb_dap();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -9644,6 +9679,227 @@ SC_MODULE(F1Tb) {
         wait(1, SC_MS);
     }
 
+    // -----------------------------------------------------------------------
+    // T97 — El SEGUNDO stub: el que se pega al DAP por dentro
+    //
+    // Aqui se comprueban las tres cosas que justifican que existan dos stubs:
+    //
+    //   1. Que son INTERCAMBIABLES. La misma sesion de GDB, paquete a paquete,
+    //      da exactamente las mismas respuestas por los dos caminos. Si no
+    //      fuera asi, elegir uno u otro cambiaria lo que se depura, y entonces
+    //      el rapido no serviria de nada.
+    //   2. Que los pines se RESERVAN aunque no se usen. Con el nucleo en modo
+    //      interno, PA13/PA14 siguen siendo del puerto de depuracion -nadie
+    //      mas los toca- pero el frente SWD esta mudo: una sonda soldada ahi
+    //      no engancha. El stub del DAP, en cambio, sigue trabajando.
+    //   3. CUANTO se gana. Se mide el mismo trabajo -leer un bloque de
+    //      memoria- por los dos transportes, en tiempo simulado y en tiempo de
+    //      pared. Es el numero que decide cual usar.
+    // -----------------------------------------------------------------------
+    GdbClient gdb_cli2_;
+
+    void t97_gdb_dap() {
+        group("T97 GDB: el stub interno del DAP frente al de los pines");
+        can_links(false);
+        reset_dut();
+        const uint32_t prog[3] = {0x30012000u, 0x30043002u, 0xE7FE3008u};
+        dbg_programa(prog, 3);
+        wait(200, SC_US);
+
+        // --- 1. El nucleo de la suite: pines EXPUESTOS ----------------------
+        // Es el modo por omision, y el que necesitan el T93 (SWO), el T94
+        // (sonda) y el T96 (stub de pines).
+        check(dut->core.pines_debug_expuestos(),
+              "el nucleo de la suite se construyo con los pines de depuracion expuestos");
+        check(dut->core.gdb == nullptr,
+              "y por eso NO crea ningun stub interno: el depurador va por fuera");
+        check(dut->core.debug.pines_debug(),
+              "el frente SWD del DebugSys escucha los pines");
+        check(gdb_dap != nullptr,
+              "el banco instancia por su cuenta el mismo stub que crearia el nucleo");
+        if (!gdb_dap) return;
+        std::printf("    stub de pines en :%u, stub del DAP en :%u\n",
+                    gdb->puerto(), gdb_dap->puerto());
+
+        // --- 2. La misma sesion, por los dos caminos ------------------------
+        // Un puñado de paquetes representativos: negociacion, banco de
+        // registros completo y un trozo de memoria. Se guardan las respuestas
+        // de cada camino y se comparan.
+        auto sesion = [&](GdbClient& cli, unsigned puerto, std::string& sup,
+                          std::string& gg, std::string& mm) -> bool {
+            if (!cli.conectar(puerto)) return false;
+            wait(2, SC_MS);
+            sup = cli.pedir("qSupported:swbreak+;hwbreak+");
+            cli.pedir("?");
+            cli.pedir("P0f=" + hex_le(DBG_PROG));
+            cli.pedir("P00=" + hex_le(0x12345678u));
+            gg = cli.pedir("g");
+            mm = cli.pedir("m8000000,10");
+            cli.pedir("D");
+            cli.desconectar();
+            wait(1, SC_MS);
+            return true;
+        };
+
+        sonda->desconectar();
+        gdb->set_enabled(true);
+        wait(1, SC_MS);
+        std::string sup_p, g_p, m_p;
+        const bool ok_p = sesion(gdb_cli_, gdb->puerto(), sup_p, g_p, m_p);
+        gdb->set_enabled(false);
+        gdb->soltar_pines();
+        wait(1, SC_MS);
+
+        gdb_dap->set_enabled(true);
+        wait(1, SC_MS);
+        std::string sup_d, g_d, m_d;
+        const bool ok_d = sesion(gdb_cli2_, gdb_dap->puerto(), sup_d, g_d, m_d);
+        wait(1, SC_MS);
+
+        check(ok_p && ok_d, "los dos stubs escuchan y aceptan una conexion de GDB");
+        check(!sup_d.empty() && sup_d == sup_p,
+              "los dos anuncian exactamente las mismas capacidades en qSupported");
+        check(!g_d.empty() && g_d == g_p,
+              "y devuelven el mismo banco de 23 registros ante el mismo estado");
+        check(!m_d.empty() && m_d == m_p,
+              "y el mismo contenido de memoria: son el mismo depurador");
+        check_eq(le32(g_d, 0), 0x12345678u,
+                 "el stub del DAP escribe registros del nucleo igual que el otro");
+
+        // --- 3. Pines RESERVADOS pero no usados -----------------------------
+        // Es lo que hace el nucleo en modo interno. Se fuerza aqui sobre el
+        // mismo DebugSys para poder comprobarlo dentro de la suite.
+        const uint64_t paq_antes = dut->core.debug.swd_packets();
+        dut->core.debug.set_pines_debug(false);
+        wait(10, SC_US);
+        const uint32_t id_mudo = sonda->conectar_swd();
+        check(id_mudo != 0x2BA01477u,
+              "con los pines reservados una sonda soldada a PA13/PA14 no engancha");
+        check_eq(unsigned(dut->core.debug.swd_packets() - paq_antes), 0u,
+                 "el frente SWD no atiende ni un solo paquete: los pines estan mudos");
+        // ...y sin embargo el camino del DAP sigue abierto. Ese es el sentido
+        // del segundo stub: no necesita los pines para nada.
+        uint32_t v_dap = 0;
+        const bool leido = dut->core.debug.ap_read32(0x08000000u, v_dap)
+                           == tlm::TLM_OK_RESPONSE;
+        check(leido && v_dap == dbg_rd(0x08000000u),
+              "pero el stub interno llega al DAP igual, porque no pasa por ellos");
+        sonda->desconectar();
+        dut->core.debug.set_pines_debug(true);
+        wait(10, SC_US);
+        const uint32_t id_vivo = sonda->conectar_swd();
+        check_eq(id_vivo, 0x2BA01477u,
+                 "y en cuanto se exponen otra vez, la sonda vuelve a leer el IDCODE");
+
+        // --- 4. Cuanto se gana ----------------------------------------------
+        // El mismo trabajo por los dos transportes: leer 256 palabras. Es lo
+        // que hace GDB al refrescar una ventana de memoria, y multiplicado por
+        // miles, lo que hace al descargar un binario.
+        static constexpr unsigned N_PAL = 256;
+        std::vector<uint32_t> buf(N_PAL, 0);
+        const uint32_t base = addr::SRAM1_BASE;
+        for (unsigned i = 0; i < N_PAL; ++i) dbg_wr(base + 4 * i, 0xA5A50000u + i);
+
+        const sc_time t0 = sc_time_stamp();
+        const auto w0 = std::chrono::steady_clock::now();
+        const unsigned n_p = sonda->mem_read_block(base, buf.data(), N_PAL);
+        const sc_time sim_pines = sc_time_stamp() - t0;
+        const double wall_pines =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - w0).count();
+        check_eq(n_p, N_PAL, "la sonda lee las 256 palabras por SWD");
+        check_eq(buf[N_PAL - 1], 0xA5A50000u + N_PAL - 1,
+                 "y lo que lee es lo que hay");
+
+        std::vector<uint32_t> buf2(N_PAL, 0);
+        const sc_time t1 = sc_time_stamp();
+        const auto w1 = std::chrono::steady_clock::now();
+        bool ok_dap = true;
+        for (unsigned i = 0; i < N_PAL; ++i)
+            ok_dap &= dut->core.debug.ap_read32(base + 4 * i, buf2[i])
+                      == tlm::TLM_OK_RESPONSE;
+        const sc_time sim_dap = sc_time_stamp() - t1;
+        const double wall_dap =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - w1).count();
+        check(ok_dap, "el DAP lee las mismas 256 palabras por transaccion TLM");
+        check(buf2 == buf, "y sale exactamente lo mismo por los dos caminos");
+
+        const double rp = sim_pines.to_seconds(), rd = sim_dap.to_seconds();
+        std::printf("    256 palabras por los PINES: %s simulados, %.3f s de pared\n",
+                    sim_pines.to_string().c_str(), wall_pines);
+        std::printf("    256 palabras por el DAP   : %s simulados, %.3f s de pared\n",
+                    sim_dap.to_string().c_str(), wall_dap);
+        if (rd > 0.0)
+            std::printf("    ganancia: x%.0f en tiempo simulado\n", rp / rd);
+        check(rd > 0.0 && rp / rd > 10.0,
+              "el camino del DAP cuesta mas de un orden de magnitud menos");
+        // El tiempo de pared es el que sufre quien depura, y va detras del
+        // simulado porque cada flanco de SWCLK es un evento del planificador.
+        check(wall_dap < wall_pines,
+              "y tambien tarda menos en tiempo real, que es lo que se buscaba");
+        std::printf("    (el SWD gasta ~%u flancos por palabra; el DAP, ninguno)\n",
+                    100u);
+
+
+        // --- 5. Y lo mismo, pero descargando firmware -----------------------
+        // El caso que de verdad importa: un `load` de GDB. Aqui la ganancia
+        // NO es la misma, y conviene saberlo: programar la Flash cuesta 16 us
+        // por palabra en el propio controlador [IR, §5.9], y eso se paga por
+        // los dos caminos. El transporte solo es el resto.
+        auto descarga = [&](GdbClient& cli, unsigned puerto,
+                            sc_time& sim, double& pared) -> bool {
+            if (!cli.conectar(puerto)) return false;
+            wait(2, SC_MS);
+            cli.pedir("qSupported:swbreak+");
+            std::string datos;
+            for (unsigned i = 0; i < 512; ++i) datos.push_back(char(0x20 + (i & 0x3F)));
+            const sc_time t = sc_time_stamp();
+            const auto w = std::chrono::steady_clock::now();
+            const bool a = cli.pedir("vFlashErase:8000000,4000",
+                                     sc_time(200, SC_MS)) == "OK";
+            const bool b = cli.pedir("vFlashWrite:8000800:" + bin_escapado(datos),
+                                     sc_time(400, SC_MS)) == "OK";
+            const bool c = cli.pedir("vFlashDone") == "OK";
+            sim = sc_time_stamp() - t;
+            pared = std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() - w).count();
+            cli.pedir("D");
+            cli.desconectar();
+            wait(1, SC_MS);
+            return a && b && c;
+        };
+
+        sc_time sim_dl_dap, sim_dl_pin;
+        double  wall_dl_dap = 0, wall_dl_pin = 0;
+        const bool dl_d = descarga(gdb_cli2_, gdb_dap->puerto(), sim_dl_dap, wall_dl_dap);
+        gdb_dap->set_enabled(false);
+        check(dl_d && dbg_rd(0x08000800u) == 0x23222120u,
+              "el stub del DAP borra un sector y programa 512 B en la Flash");
+
+        sonda->desconectar();
+        gdb->set_enabled(true);
+        wait(1, SC_MS);
+        const bool dl_p = descarga(gdb_cli_, gdb->puerto(), sim_dl_pin, wall_dl_pin);
+        gdb->set_enabled(false);
+        gdb->soltar_pines();
+        check(dl_p && dbg_rd(0x08000800u) == 0x23222120u,
+              "y el de los pines hace exactamente la misma descarga por SWD");
+
+        std::printf("    descarga de 512 B por los PINES: %s simulados\n",
+                    sim_dl_pin.to_string().c_str());
+        std::printf("    descarga de 512 B por el DAP   : %s simulados\n",
+                    sim_dl_dap.to_string().c_str());
+        // Aqui la ganancia es modesta A PROPOSITO: el borrado (1 ms) y los
+        // 16 us por palabra del controlador de Flash son comportamiento del
+        // MCU, no del cable, y ninguno de los dos stubs se los salta.
+        check(sim_dl_dap < sim_dl_pin,
+              "la descarga tambien es mas corta por el DAP");
+        check(sim_dl_dap > sc_time(1, SC_MS),
+              "pero no gratis: el tiempo del controlador de Flash se paga igual");
+
+        sonda->desconectar();
+        wait(1, SC_MS);
+    }
+
     // Ayudas del cliente de pruebas
     static std::string hex_le(uint32_t v) {
         static const char* h = "0123456789abcdef";
@@ -9723,27 +9979,37 @@ int sc_main(int argc, char** argv) {
     // No ejecuta la suite: levanta el modelo, abre el puerto y se queda
     // esperando a que se conecte Eclipse CDT, STM32CubeIDE o un
     // arm-none-eabi-gdb. Es el modo de trabajo interactivo.
-    bool modo_gdb = false;
+    //
+    // Con --gdb-dap se elige el SEGUNDO stub: el nucleo se construye reservando
+    // los pines de depuracion y creandose por dentro un stub pegado al DAP. La
+    // sesion de GDB es identica; lo que cambia es que va entre diez y mil veces
+    // mas rapida. El criterio para elegir esta en doc/..._fase6_gdb2.md.
+    bool modo_gdb = false, modo_dap = false;
     unsigned puerto = 3333;
     const char* imagen = nullptr;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--gdb") modo_gdb = true;
+        else if (a == "--gdb-dap") { modo_gdb = true; modo_dap = true; }
         else if (a.rfind("--port=", 0) == 0) puerto = unsigned(std::atoi(a.c_str() + 7));
         else imagen = argv[i];
     }
 
-    g_modo_gdb   = modo_gdb;
-    g_gdb_puerto = puerto;
+    g_modo_gdb     = modo_gdb;
+    g_modo_gdb_dap = modo_dap;
+    g_gdb_puerto   = puerto;
     F1Tb tb("tb");
     // Argumento opcional: imagen de firmware alternativa (.bin o .hex)
     if (imagen) tb.fw_path_ = imagen;
     if (modo_gdb) {
         std::printf("=====================================================\n"
                     "  STM32F407VG — modelo SystemC con servidor GDB\n"
+                    "  Enganche: %s\n"
                     "  Conectar con:  target extended-remote localhost:%u\n"
                     "  (Ctrl-C para terminar la simulacion)\n"
                     "=====================================================\n",
+                    modo_dap ? "DAP interno (pines reservados, rapido)"
+                             : "pines SWD (sonda externa, fiel)",
                     puerto);
         std::fflush(stdout);
     }

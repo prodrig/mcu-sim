@@ -56,7 +56,10 @@ SC_MODULE(Stm32F407VG) {
     PinMux    pinmux{"pinmux"};
     PowerPads pwr_pads{"pwr_pads"};
     Rcc       rcc{"rcc"};
-    CortexM4F core{"core"};
+    // El núcleo, con sus rasgos de depuración: pines expuestos (por omisión) o
+    // reservados con el stub interno enganchado al DAP. Véase core/cortex_m4f.h
+    // y doc/stm32f407vg_fase6_gdb2.md.
+    CortexM4F core;
     AhbMatrix matrix{"matrix"};
 
     FlashIf flash{"flash"};
@@ -204,8 +207,11 @@ SC_MODULE(Stm32F407VG) {
     sc_core::sc_signal<bool> s_or_in[20];
 
     // ============================ Construcción ==============================
-    SC_CTOR(Stm32F407VG) : gpio("gpio", N_GPIO_PORTS, [](const char* nm, size_t i) {
-                                   return new GpioPort(nm, unsigned(i)); }) {
+    explicit Stm32F407VG(sc_core::sc_module_name nm, DebugCaps dbg = DBG_PINES)
+        : sc_core::sc_module(nm), core("core", dbg),
+          gpio("gpio", N_GPIO_PORTS, [](const char* n, size_t i) {
+                   return new GpioPort(n, unsigned(i)); }) {
+        SC_HAS_PROCESS(Stm32F407VG);
         bind_clocks_resets();
         bind_bus();
         bind_core();
