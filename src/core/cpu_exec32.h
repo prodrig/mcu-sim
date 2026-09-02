@@ -405,12 +405,13 @@ inline void Cpu::exec_32_branch_misc(uint32_t hw1, uint32_t hw2) {
                     case 0x00: case 0x01: break;                        // NOP / YIELD
                     case 0x02:                                          // WFE
                         if (event_reg_ || event_in.read()) event_reg_ = false;
-                        else { sleeping_state_ = true; o_sleepdeep_ = sleepdeep_cfg.read(); publish(); }
+                        else { sleeping_state_ = true; sleep_wfe_ = true;
+                           o_sleepdeep_ = sys->scr_sleepdeep(); publish(); }
                         break;
                     case 0x03:                                          // WFI
                         if (!sys->any_pending()) {
-                            sleeping_state_ = true;
-                            o_sleepdeep_ = sleepdeep_cfg.read(); publish();
+                            sleeping_state_ = true; sleep_wfe_ = false;
+                            o_sleepdeep_ = sys->scr_sleepdeep(); publish();
                         }
                         break;
                     case 0x04:                                          // SEV

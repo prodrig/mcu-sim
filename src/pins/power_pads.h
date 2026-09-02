@@ -17,6 +17,15 @@
 //     PORRSTF y BORRSTF de RCC_CSR [IR, §4.10];
 //   * validación de rango de VDD, VDDA y VBAT y de la diferencia VDD-VDDA
 //     (máximo 300 mV) [IR, §2.2].
+//
+// Fase F7 — el CONSUMO como magnitud eléctrica:
+//   el PWR calcula cuánta corriente pide el MCU según el modo, la frecuencia y
+//   los relojes abiertos [IR, §14], y aquí esa corriente se presenta como una
+//   CARGA REAL sobre el nodo VDD (y sobre VBAT cuando falta VDD). No es una
+//   cifra guardada en una variable: es un driver más del nodo analógico, de
+//   modo que una fuente con resistencia interna se hunde al despertar el MCU y
+//   se recupera al dormirlo, exactamente como en la placa. La medida se lee en
+//   float con `idd_medida()`, que es la corriente que atraviesa esa carga.
 // =============================================================================
 #ifndef STM32_PINS_POWER_PADS_H
 #define STM32_PINS_POWER_PADS_H
@@ -45,6 +54,9 @@ SC_MODULE(PowerPads) {
     // Entradas
     sc_core::sc_in<bool>    drive_nrst_low{"drive_nrst_low"};  // reset interno
     sc_core::sc_in<uint8_t> bor_lev{"bor_lev"};                // OPTCR[3:2]
+    // Corriente que el MCU pide por cada dominio [A]. La calcula el PWR.
+    sc_core::sc_in<double>  idd_req{"idd_req"};
+    sc_core::sc_in<double>  ibat_req{"ibat_req"};
 
     // --- Umbrales [IR, §5.7.1 para BOR_LEV; §2.2 para los rangos] -----------
     // ⚠ NO DISPONIBLE EN LAS FUENTES con valor numérico: las tensiones exactas
@@ -62,6 +74,7 @@ SC_MODULE(PowerPads) {
         SC_METHOD(nrst_drive_proc);
         sensitive << drive_nrst_low;
         dont_initialize();
+        SC_THREAD(carga_proc);
     }
 
     void end_of_elaboration() override {
@@ -69,7 +82,16 @@ SC_MODULE(PowerPads) {
         id_nrst_drv_ = nrst.register_driver("mcu_od");
         nrst.set_drive(id_nrst_pu_, 3.3f, 40e3f);
         nrst.set_hiz(id_nrst_drv_);
+        id_idd_  = vdd.register_driver("idd");           // consumo del MCU
+        id_ibat_ = vbat.register_driver("ibat");
+        vdd.set_hiz(id_idd_);
+        vbat.set_hiz(id_ibat_);
     }
+
+    // Corriente REAL que sale por cada pin de alimentación hacia el MCU [A].
+    // Es la del nodo resuelto, no la pedida: si la fuente se hunde, baja.
+    double idd_medida()  const { return -double(vdd.current(id_idd_)); }
+    double ibat_medida() const { return -double(vbat.current(id_ibat_)); }
 
     // Umbral de caída vigente (el más alto entre PDR y el BOR programado).
     double trip_level() const {
@@ -126,6 +148,37 @@ private:
         }
     }
 
+    // -----------------------------------------------------------------------
+    // La carga del MCU sobre sus pines de alimentación.
+    //
+    // Un consumo de corriente constante no es un equivalente Thevenin, así que
+    // se presenta como la RESISTENCIA que a la tensión actual del nodo pide esa
+    // corriente: R = V/I. Como la tensión depende a su vez de la carga, se
+    // repite el cálculo hasta que deja de moverse; con una fuente de baja
+    // impedancia converge en una vuelta. Es el mismo truco que se usa para
+    // resolver una carga no lineal en un simulador de circuitos.
+    // -----------------------------------------------------------------------
+    void carga_proc() {
+        for (;;) {
+            aplica_carga(vdd, id_idd_,  idd_req.read());
+            aplica_carga(vbat, id_ibat_, ibat_req.read());
+            wait(idd_req.value_changed_event() | ibat_req.value_changed_event() |
+                 vdd.value_changed_event() | vbat.value_changed_event());
+        }
+    }
+    static void aplica_carga(AnalogNet& n, int id, double i) {
+        if (i <= 0.0) { n.set_hiz(id); return; }
+        bool solo = false;
+        const double voc = n.voltage_excluding(id, solo);
+        if (solo || voc < 0.05) { n.set_hiz(id); return; } // nadie alimenta
+        // El punto de trabajo actual; la primera vez, el de vacío.
+        double v = n.voltage();
+        if (v < 0.05) v = voc;
+        double r = v / i;
+        if (r < 0.1) r = 0.1;                              // cortocircuito
+        n.set_drive(id, 0.0f, float(r));
+    }
+
     static void check_range(double v, double lo, double hi, bool& warned,
                             const char* msg) {
         if (v > 0.5 && (v < lo || v > hi)) {
@@ -135,7 +188,7 @@ private:
         }
     }
 
-    int  id_nrst_pu_ = -1, id_nrst_drv_ = -1;
+    int  id_nrst_pu_ = -1, id_nrst_drv_ = -1, id_idd_ = -1, id_ibat_ = -1;
     bool ok_ = false, written_ = false;
     bool warn_vdd_ = false, warn_vdda_ = false, warn_vbat_ = false, warn_diff_ = false;
 };

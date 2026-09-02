@@ -115,6 +115,17 @@ public:
     sc_core::sc_out<double> lsi_hz{"lsi_hz"};
     sc_core::sc_out<bool>   systick_ext{"systick_ext"};   // HCLK/8
 
+    // ---- Bajo consumo [IR, §14] -------------------------------------------
+    // El PWR es quien manda: dice en qué modo está el MCU y, cuando toca,
+    // ordena parar los relojes del dominio de 1,2 V o apagarlo entero.
+    sc_core::sc_in<uint8_t> lp_mode{"lp_mode"};        // LpMode
+    sc_core::sc_in<bool>    stop_req{"stop_req"};      // Stop: parar relojes
+    sc_core::sc_in<bool>    standby_req{"standby_req"};// Standby: apagar 1,2 V
+    // Cuántos relojes de periférico están abiertos AHORA (con el criterio del
+    // modo: ENR en Run, LPENR en Sleep). Es el término que más pesa en el
+    // consumo y por eso lo necesita el modelo de IDD del PWR.
+    sc_core::sc_out<unsigned> periph_on{"periph_on"};
+
     // ---- Gating y reset por periférico (ENR/RSTR) --------------------------
     sc_core::sc_vector<sc_core::sc_out<bool>> periph_clk_en;   // [PeriphId]
     sc_core::sc_vector<sc_core::sc_out<bool>> periph_rst_n;    // [PeriphId]
@@ -187,7 +198,10 @@ public:
         SC_THREAD(css_nmi_proc);
         SC_METHOD(rst_src_proc);
         sensitive << por_ok << bor_rst << nrst_in_n << wwdg_rst_req
-                  << iwdg_rst_req << sysresetreq;
+                  << iwdg_rst_req << sysresetreq << standby_req;
+        dont_initialize();
+        SC_METHOD(lp_proc);
+        sensitive << lp_mode << stop_req << standby_req;
         dont_initialize();
         // Valores de reset iniciales. No se llama a apply_osc_controls() aquí:
         // notificar eventos durante la elaboración no está permitido; el primer
@@ -302,9 +316,14 @@ private:
 
     // --- Propaga los bits de control a osciladores y PLLs -------------------
     void apply_osc_controls() {
-        hsi.enable((cr_ >> 0) & 1u);
+        // En Stop y en Standby se apagan HSI, HSE y los PLL; el LSI y el LSE
+        // NO, porque están fuera del dominio de 1,2 V y son los que mantienen
+        // vivos el perro independiente y el RTC, que es justo lo que se espera
+        // de ellos mientras el MCU duerme [IR, §14.4.2].
+        const bool parado = relojes_parados_;
+        hsi.enable(!parado && ((cr_ >> 0) & 1u));
         hse.bypass = ((cr_ >> 18) & 1u) != 0;
-        hse.enable((cr_ >> 16) & 1u);
+        hse.enable(!parado && ((cr_ >> 16) & 1u));
         lsi.enable((csr_ & 1u) || iwdg_lsi_req.read());
         lse.bypass = ((bdcr_ >> 2) & 1u) != 0;
         lse.enable(bdcr_ & 1u);
@@ -318,13 +337,13 @@ private:
         pll_ref_hz_ = ref;                    // referencia para el SSCGR
         pll.configure(m, n, p, q);
         pll.set_ref_hz(ref);
-        pll.enable((cr_ >> 24) & 1u);
+        pll.enable(!parado && ((cr_ >> 24) & 1u));
 
         const unsigned i2sn = (plli2scfgr_ >> 6) & 0x1FFu;
         const unsigned i2sr = (plli2scfgr_ >> 28) & 0x7u;
         plli2s.configure(m, i2sn, i2sr ? i2sr : 2u, 1u);
         plli2s.set_ref_hz(ref);
-        plli2s.enable((cr_ >> 26) & 1u);
+        plli2s.enable(!parado && ((cr_ >> 26) & 1u));
     }
 
     // --- Recalcula todo el árbol y reprograma los generadores ---------------
@@ -344,6 +363,11 @@ private:
         else if (sw == 2 && f_pll > 0.0) { f_sys = f_pll; sws = 2; }
         else if (sw == 0 && f_hsi > 0.0) { f_sys = f_hsi; sws = 0; }
         else { f_sys = f_sysclk_; sws = sws_; }        // fuente no disponible
+        // Con el dominio de 1,2 V parado no hay SYSCLK que valga: no es que la
+        // fuente no esté lista, es que no hay reloj. Sin esta línea la regla de
+        // "si la fuente pedida no está, se mantiene la anterior" dejaría el
+        // árbol corriendo dentro del modo Stop.
+        if (relojes_parados_) { f_sys = 0.0; sws = sws_; }
         f_sysclk_ = f_sys; sws_ = sws;
 
         const unsigned hd  = hpre_div((cfgr_ >> 4) & 0xFu);
@@ -425,18 +449,61 @@ private:
                      case G_AHB3: return ahb3rstr_; case G_APB1: return apb1rstr_;
                      default:     return apb2rstr_; }
     }
+    uint32_t grp_lpenr(uint8_t g) const {
+        switch (g) { case G_AHB1: return ahb1lpenr_; case G_AHB2: return ahb2lpenr_;
+                     case G_AHB3: return ahb3lpenr_; case G_APB1: return apb1lpenr_;
+                     default:     return apb2lpenr_; }
+    }
+    // -----------------------------------------------------------------------
+    // QUÉ REGISTRO GOBIERNA EL GATING, según el modo [IR, §4.8, §14.3]
+    //
+    //   Run            -> RCC_xxxENR
+    //   Sleep          -> RCC_xxxENR **y** RCC_xxxLPENR
+    //   Stop / Standby -> ninguno: no hay reloj que repartir
+    //
+    // DECISIÓN, porque el manual admite dos lecturas. La descripción de cada
+    // bit LPEN es incondicional ("0: reloj del periférico desactivado durante
+    // el modo Sleep"), y leída al pie de la letra diría que en Sleep manda
+    // SOLO el LPENR. Como el valor de reset de los LPENR es "todo a uno", eso
+    // significaría que al dormirse el MCU se le encienden los relojes a
+    // periféricos que el firmware nunca habilitó.
+    //
+    // Aquí se modela la puerta como ENR **AND** LPENR, que es la lectura
+    // física: el gate de Run está aguas arriba en el árbol de reloj, y el de
+    // Sleep lo estrecha todavía más. Los dos criterios solo se diferencian en
+    // el caso EN=0 y LPEN=1, que en silicio únicamente se puede observar
+    // metiendo un maestro ajeno a la CPU -el DMA o el AHB-AP del depurador- en
+    // un periférico que nadie habilitó.
+    //
+    // Lo que NO cambia es para lo que sirven los LPENR: limpiar el LPEN de un
+    // periférico habilitado le quita el reloj al dormir, y eso se mide aquí en
+    // el consumo (T100).
+    // -----------------------------------------------------------------------
+    uint32_t grp_gate(uint8_t g) const {
+        // Lo que decide NO es el modo arquitectonico sino si de verdad hay
+        // relojes: con los bits de DBGMCU puestos, el MCU esta en Stop o en
+        // Standby y sin embargo el arbol sigue girando, y entonces los
+        // perifericos siguen recibiendo su reloj -atenuado por los LPENR, que
+        // es lo que corresponde a un MCU dormido- [IR, §13.9, §14.3].
+        if (relojes_parados_)        return 0;
+        if (modo_lp_ != LP_RUN)      return grp_enr(g) & grp_lpenr(g);
+        return grp_enr(g);
+    }
     void refresh_periph(bool sys_reset_active) {
+        unsigned n = 0;
         for (unsigned i = 0; i < P_COUNT; ++i) {
             o_pcen_[i]  = false;
             o_prstn_[i] = !sys_reset_active;
         }
         for (unsigned i = 0; i < RCC_BITMAP_N; ++i) {
             const RccBitMap& e = RCC_BITMAP[i];
-            const bool en  = (grp_enr(e.grp)  >> e.bit) & 1u;
+            const bool en  = (grp_gate(e.grp) >> e.bit) & 1u;
             const bool rst = (grp_rstr(e.grp) >> e.bit) & 1u;
             o_pcen_[e.id]  = en && !sys_reset_active;
             o_prstn_[e.id] = !rst && !sys_reset_active;
+            if (o_pcen_[e.id]) ++n;
         }
+        o_periph_on_ = n;
         publish();
     }
 
@@ -448,6 +515,7 @@ private:
         drive_nrst_low.write(o_drive_nrst_);
         nmi_css.write(o_nmi_css_);
         irq.write(o_irq_);
+        periph_on.write(o_periph_on_);
         for (unsigned i = 0; i < P_COUNT; ++i) {
             periph_clk_en[i].write(o_pcen_[i]);
             periph_rst_n[i].write(o_prstn_[i]);
@@ -475,6 +543,13 @@ private:
         if (iwdg_rst_req.read())   flag |= (1u << 29);   // IWDGRSTF
         if (sysresetreq.read())    flag |= (1u << 28);   // SFTRSTF
         if (flag) { pending_flags_ |= flag; rst_req_ev_.notify(sc_core::SC_ZERO_TIME); }
+        // La entrada en Standby apaga el dominio de 1,2 V: para el modelo es un
+        // reset que se MANTIENE hasta que el PWR encuentra un despertador. No
+        // deja flag en RCC_CSR -de eso se encarga SBF en PWR_CSR-, que es lo
+        // que distingue esta salida de un POR de verdad [IR, §14.5.3].
+        const bool sb = standby_req.read();
+        if (sb && !standby_prev_) rst_req_ev_.notify(sc_core::SC_ZERO_TIME);
+        standby_prev_ = sb;
     }
 
     void reset_ctrl_proc() {
@@ -499,8 +574,9 @@ private:
             o_drive_nrst_ = false;  publish();
             wait(sc_core::sc_time(1, sc_core::SC_NS));   // el pad se recupera
             driving_nrst_ = false;
-            while (!por_ok.read() || !nrst_in_n.read())
-                wait(por_ok.value_changed_event() | nrst_in_n.value_changed_event());
+            while (!por_ok.read() || !nrst_in_n.read() || standby_req.read())
+                wait(por_ok.value_changed_event() | nrst_in_n.value_changed_event() |
+                     standby_req.value_changed_event());
             wait(t_rst_release);
 
             // ---------------- salida de reset --------------------------------
@@ -515,6 +591,34 @@ private:
 
             wait(rst_req_ev_);                 // hasta la próxima causa de reset
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Bajo consumo: lo que el RCC tiene que hacer en cada modo [IR, §14]
+    // -----------------------------------------------------------------------
+    void lp_proc() {
+        const uint8_t m  = lp_mode.read();
+        const bool    st = stop_req.read() || standby_req.read();
+        const bool cambia_gate = (m != modo_lp_);
+        modo_lp_ = m;
+        if (st != relojes_parados_) {
+            relojes_parados_ = st;
+            if (st) {
+                // Lo que hace el hardware al entrar: apaga HSE, los PLL y el
+                // CSS, y deja seleccionado el HSI para la vuelta. Por eso al
+                // despertar de Stop se corre a 16 MHz y hay que reprogramar el
+                // PLL: no es un olvido del firmware, es el silicio [IR, §14.4.3].
+                cr_   &= ~((1u << 16) | (1u << 19) | (1u << 24) | (1u << 26));
+                cr_   |= 1u;                    // HSION
+                cfgr_ &= ~0x3u;                 // SW = HSI
+            }
+            apply_osc_controls();
+            update_clocks();
+        }
+        // El reparto de relojes depende del modo Y de si estan parados, asi que
+        // se rehace siempre que cambie cualquiera de los dos.
+        (void)cambia_gate;
+        refresh_periph(!o_sys_rst_n_);
     }
 
     void clock_tree_proc() {
@@ -608,6 +712,11 @@ private:
     bool o_sys_rst_n_ = false, o_bkp_rst_n_ = false, o_drive_nrst_ = true;
     bool o_irq_ = false, o_nmi_css_ = false;
     bool o_pcen_[P_COUNT] = {}, o_prstn_[P_COUNT] = {};
+    unsigned o_periph_on_ = 0;
+    // Estado de bajo consumo visto desde el RCC
+    uint8_t  modo_lp_ = LP_RUN;
+    bool     relojes_parados_ = false;   // Stop o Standby (sin DBGMCU)
+    bool     standby_prev_ = false;
     sc_core::sc_event pub_ev_;
     // Frecuencias de los generadores sin puerto externo (SysTick ext, MCO1/2)
     sc_core::sc_signal<double> s_stk_hz_{"s_stk_hz"},
@@ -746,11 +855,13 @@ inline void Rcc::reg_write(uint32_t off, uint32_t v, uint32_t be) {
         case R_AHB3ENR:  ahb3enr_  = v & 0x00000001u; periph = true; break;
         case R_APB1ENR:  apb1enr_  = v & 0x36FEC9FFu; periph = true; break;
         case R_APB2ENR:  apb2enr_  = v & 0x00075F33u; periph = true; break;
-        case R_AHB1LPENR:ahb1lpenr_= v & 0x7E6791FFu; break;
-        case R_AHB2LPENR:ahb2lpenr_= v & 0x000000F1u; break;
-        case R_AHB3LPENR:ahb3lpenr_= v & 0x00000001u; break;
-        case R_APB1LPENR:apb1lpenr_= v & 0x36FEC9FFu; break;
-        case R_APB2LPENR:apb2lpenr_= v & 0x00075F33u; break;
+        // Los LPENR mandan mientras el MCU duerme, asi que tocarlos tambien
+        // reparte relojes: es la palanca para gastar menos en Sleep [IR, §4.8].
+        case R_AHB1LPENR:ahb1lpenr_= v & 0x7E6791FFu; periph = true; break;
+        case R_AHB2LPENR:ahb2lpenr_= v & 0x000000F1u; periph = true; break;
+        case R_AHB3LPENR:ahb3lpenr_= v & 0x00000001u; periph = true; break;
+        case R_APB1LPENR:apb1lpenr_= v & 0x36FEC9FFu; periph = true; break;
+        case R_APB2LPENR:apb2lpenr_= v & 0x00075F33u; periph = true; break;
         case R_BDCR:
             // BDRST es un nivel: mientras está a 1 el dominio de backup (RTC y
             // el propio RCC_BDCR) permanece en reset [IR, §4.1.3, §4.9].

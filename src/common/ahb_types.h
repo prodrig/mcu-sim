@@ -68,6 +68,12 @@ inline const char* slave_name(BusSlaveId s) {
 // ---------------------------------------------------------------------------
 // Tipos de transferencia y ráfaga AHB-Lite [IR, §6.3]
 // ---------------------------------------------------------------------------
+// Los cuatro modos de energía del MCU [IR, §14.2]. Vive aquí, con los tipos
+// del sistema, porque lo mira medio modelo: el RCC para decidir qué reloj
+// reparte, los pines para saber si tienen que quedarse en alta impedancia y el
+// propio PWR, que es quien lo decide.
+enum LpMode : uint8_t { LP_RUN = 0, LP_SLEEP = 1, LP_STOP = 2, LP_STANDBY = 3 };
+
 enum class HTrans : uint8_t { IDLE = 0, BUSY = 1, NONSEQ = 2, SEQ = 3 };
 enum class HBurst : uint8_t {
     SINGLE = 0, INCR = 1, WRAP4 = 2, INCR4 = 3,

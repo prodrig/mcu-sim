@@ -339,12 +339,14 @@ inline void Cpu::exec_16(uint32_t hw) {
                 case 1: break;                                        // YIELD
                 case 2:                                               // WFE
                     if (event_reg_ || event_in.read()) { event_reg_ = false; }
-                    else { sleeping_state_ = true; o_sleepdeep_ = sleepdeep_cfg.read(); publish(); }
+                    else { sleeping_state_ = true; sleep_wfe_ = true;
+                           o_sleepdeep_ = sys->scr_sleepdeep(); publish(); }
                     return;
                 case 3:                                               // WFI
                     if (!sys->any_pending()) {
                         sleeping_state_ = true;
-                        o_sleepdeep_ = sleepdeep_cfg.read();
+                        sleep_wfe_ = false;
+                        o_sleepdeep_ = sys->scr_sleepdeep();
                         publish();
                     }
                     return;

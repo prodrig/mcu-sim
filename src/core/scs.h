@@ -68,6 +68,12 @@ public:
     virtual bool unalign_trp() const     = 0;   // CCR.UNALIGN_TRP
     virtual bool stkalign() const        = 0;   // CCR.STKALIGN
     virtual bool sleeponexit() const     = 0;   // SCR.SLEEPONEXIT
+    // SCR.SLEEPDEEP. El núcleo lo lee AQUÍ, no por una señal: el SCB es suyo y
+    // lo consulta de forma combinacional en el mismo instante en que ejecuta el
+    // WFI/WFE. Por una señal llegaría tarde -el valor no se propaga hasta el
+    // siguiente delta- y un firmware que escriba SCR y duerma en la misma
+    // ráfaga de instrucciones entraría en Sleep en vez de en Stop [IR, §14.4.1].
+    virtual bool scr_sleepdeep() const   = 0;   // SCR.SLEEPDEEP
     virtual bool sevonpend() const       = 0;   // SCR.SEVONPEND
     virtual unsigned cpacr_cp10() const  = 0;   // acceso a la FPU [IR, §8.12.1]
     virtual bool fpccr_aspen() const     = 0;
@@ -452,6 +458,7 @@ public:
     bool unalign_trp() const override     { return (ccr_ >> 3) & 1u; }
     bool stkalign() const override        { return (ccr_ >> 9) & 1u; }
     bool sleeponexit() const override     { return (scr_ >> 1) & 1u; }
+    bool scr_sleepdeep() const override   { return (scr_ >> 2) & 1u; }
     bool sevonpend() const override       { return (scr_ >> 4) & 1u; }
     unsigned cpacr_cp10() const override  { return (cpacr_ >> 20) & 0x3u; }
     bool fpccr_aspen() const override     { return (fpccr_ >> 31) & 1u; }

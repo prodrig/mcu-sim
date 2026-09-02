@@ -52,6 +52,9 @@ SC_MODULE(Cpu) {
 
     sc_core::sc_out<bool> sleeping{"sleeping"};
     sc_core::sc_out<bool> sleepdeep_out{"sleepdeep_out"};
+    // Vigilancia de SCR.SLEEPDEEP para quien quiera trazarla desde fuera. El
+    // núcleo NO la usa para decidir: para eso lee el SCB directamente (véase
+    // core_sys_if::sleepdeep), porque una señal llegaría un delta tarde.
     sc_core::sc_in<bool>  sleepdeep_cfg{"sleepdeep_cfg"};
     sc_core::sc_in<bool>  event_in{"event_in"};
     sc_core::sc_out<bool> event_out{"event_out"};
@@ -135,6 +138,11 @@ SC_MODULE(Cpu) {
     void dbg_set_pc(uint32_t v) { cur_pc_ = v & ~1u; flush_prefetch(); }
     // Ejecuta UNA instruccion. Solo tiene sentido con el nucleo detenido.
     void dbg_step_one() { check_exceptions(); if (running_) step(); }
+    // Ventana al estado de sueño, para el banco de pruebas de bajo consumo:
+    // no basta con ver `sleeping` desde fuera, hay que saber CÓMO se durmió.
+    bool durmiendo() const { return sleeping_state_; }
+    bool durmio_con_wfe() const { return sleep_wfe_; }
+    bool evento_armado() const { return event_reg_; }
 
     // Ciclos de reloj -> tiempo
     sc_core::sc_time cycles_time(unsigned n) const {
@@ -157,6 +165,15 @@ private:
     bool     running_ = false;
     bool     sleeping_state_ = false;
     bool     event_reg_ = false; // registro de evento para WFE/SEV
+    // CÓMO se durmió: con WFE o con WFI. No es un detalle, es lo que decide
+    // quién puede despertarlo [IR, §14.3.2; ARMv7-M B1.5.18]:
+    //   WFI -> solo una excepción (o el depurador, o el reset). El registro de
+    //          evento NO lo despierta, aunque esté armado.
+    //   WFE -> además, cualquier evento; y al despertar lo CONSUME.
+    // Confundirlos tiene una consecuencia muy concreta: como el registro de
+    // evento no se limpia solo, un núcleo dormido con WFI que despertara con él
+    // no volvería a dormirse nunca.
+    bool     sleep_wfe_ = false;
     // Monitor exclusivo local (LDREX/STREX) [II, §2.2]
     bool     excl_valid_ = false;
     uint32_t excl_addr_ = 0;
@@ -426,7 +443,21 @@ inline void Cpu::do_reset() {
 inline void Cpu::exec_proc() {
     for (;;) {
         // --- fuera de reset -------------------------------------------------
-        while (!rst_n.read()) { running_ = false; wait(rst_n.value_changed_event()); }
+        // Un núcleo en reset NO está dormido. Hay que decirlo en voz alta,
+        // porque `sleeping` y `sleepdeep` los mira el PWR para decidir el modo
+        // de energía: si se quedaran colgados a uno durante todo el reset -que
+        // en Standby dura cientos de microsegundos-, al soltar el reset el PWR
+        // creería que el núcleo acaba de ejecutar otro WFI y volvería a
+        // dormir el MCU antes incluso de que ejecutara su primera instrucción.
+        while (!rst_n.read()) {
+            running_ = false;
+            sleeping_state_ = false;
+            if (o_sleeping_ || o_sleepdeep_ || o_halted_) {
+                o_sleeping_ = o_sleepdeep_ = o_halted_ = false;
+                publish();
+            }
+            wait(rst_n.value_changed_event());
+        }
         do_reset();
         while (rst_n.read() && running_) {
             // Sin reloj no hay ejecución. Además de ser lo que hace el
@@ -472,10 +503,22 @@ inline void Cpu::exec_proc() {
             if (sleeping_state_) {
                 sync();
                 if (!o_sleeping_) { o_sleeping_ = true; publish(); }
-                // Despierta con cualquier excepción pendiente o evento
+                // Despierta con cualquier excepción pendiente o evento.
+                //
+                // Si el árbol de reloj está PARADO -modo Stop o Standby, donde
+                // el PWR ha mandado apagar el dominio de 1,2 V- no tiene
+                // sentido sondear cada microsegundo: el núcleo no puede
+                // reanudar nada hasta que vuelva el reloj, y esperarlo es
+                // además lo que modela el tiempo de despertar [IR, §14.4.3].
+                if (fclk_hz.read() <= 0.0) {
+                    wait(fclk_hz.value_changed_event() | rst_n.value_changed_event());
+                    continue;
+                }
                 wait(sc_core::sc_time(1, sc_core::SC_US));
-                if (sys->any_pending() || event_reg_ || event_in.read() ||
-                    !rst_n.read()) {
+                const bool por_evento = sleep_wfe_ &&
+                                        (event_reg_ || event_in.read());
+                if (sys->any_pending() || por_evento || !rst_n.read()) {
+                    if (por_evento) event_reg_ = false;   // WFE lo consume
                     sleeping_state_ = false;
                     o_sleeping_ = false; o_sleepdeep_ = false; publish();
                 }
@@ -717,7 +760,8 @@ inline void Cpu::exception_return(uint32_t exc_ret) {
     // SLEEPONEXIT [IR, §10.2.4]
     if (!reg.handler_mode && sys->sleeponexit()) {
         sleeping_state_ = true;
-        o_sleepdeep_ = sleepdeep_cfg.read();
+        sleep_wfe_ = false;                  // SLEEPONEXIT duerme como un WFI
+        o_sleepdeep_ = sys->scr_sleepdeep();
         publish();
     }
 }

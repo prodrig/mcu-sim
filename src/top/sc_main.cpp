@@ -530,7 +530,16 @@ SC_MODULE(F1Tb) {
     void park_cpu() {
         ImageLoader ld(*dut);
         ld.write_reset_vector(addr::SRAM1_BASE + addr::SRAM1_SIZE, 0x08000100u);
-        ld.poke32(addr::FLASH_BASE + 0x100, 0xE7FEBF30u);   // wfi ; b .
+        // wfi ; b .-2  -> vuelve a dormirse en cuanto lo despiertan. Con el
+        // `b .` de antes, cualquier despertar dejaba al nucleo girando a la
+        // frecuencia del sistema durante el resto de la suite; asi el banco
+        // puede despertarlo y volver a dormirlo tantas veces como quiera, que
+        // es justo lo que hacen las pruebas de bajo consumo (F7).
+        // Se duerme con WFE, no con WFI, por una razon muy concreta: al WFE lo
+        // despierta un EVENTO del EXTI, y un evento no necesita tabla de
+        // vectores. Con WFI haria falta una interrupcion de verdad -y por
+        // tanto un manejador- solo para poder despertar al nucleo aparcado.
+        ld.poke32(addr::FLASH_BASE + 0x100, 0xE7FDBF20u);   // wfe ; b .-2
     }
 
     // Selección del maestro que impersona el banco de pruebas. La tabla de
@@ -721,6 +730,16 @@ SC_MODULE(F1Tb) {
         t95_dbg_firmware();
         t96_gdb_rsp();
         t97_gdb_dap();
+        const unsigned f6_pass = g_pass, f6_fail = g_fail;
+
+        // ========================= Fase F7: bajo consumo ====================
+        t98_pwr_registros();
+        t99_sleep();
+        t100_stop();
+        t101_standby();
+        t102_consumo();
+        t103_lp_firmware();
+        t104_lp_debug();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -753,7 +772,9 @@ SC_MODULE(F1Tb) {
         std::printf("Resumen F5 (bxCAN): %u comprobaciones OK, %u fallos\n",
                     f5n_pass - f5c_pass, f5n_fail - f5c_fail);
         std::printf("Resumen F6 (debug): %u comprobaciones OK, %u fallos\n",
-                    g_pass - f5n_pass, g_fail - f5n_fail);
+                    f6_pass - f5n_pass, f6_fail - f5n_fail);
+        std::printf("Resumen F7 (bajo consumo): %u comprobaciones OK, %u fallos\n",
+                    g_pass - f6_pass, g_fail - f6_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -9897,7 +9918,737 @@ SC_MODULE(F1Tb) {
               "pero no gratis: el tiempo del controlador de Flash se paga igual");
 
         sonda->desconectar();
+        // Los dos stubs paran el nucleo al engancharse y ninguno lo suelta al
+        // despedirse: hay que devolverlo a la vida o el resto de la suite
+        // correria con un nucleo detenido -que, dicho sea de paso, es
+        // exactamente lo que le pasa a quien cierra el IDE sin darle a
+        // "resume" [IR, §13.4].
+        dbg_resume();
         wait(1, SC_MS);
+    }
+
+    // =======================================================================
+    // FASE F7 — BAJO CONSUMO [IR, cap. 14]
+    //
+    // Cuatro modos, y lo que de verdad los distingue no es un bit sino QUÉ SE
+    // APAGA: en Sleep, el núcleo; en Stop, los relojes del dominio de 1,2 V;
+    // en Standby, el dominio entero, con todo lo que había dentro. Estas
+    // pruebas comprueban las tres cosas por separado y, al final, la que las
+    // resume todas: cuánta corriente pide el chip por el pin VDD.
+    //
+    // Nota sobre el banco: el firmware de aparcamiento es `wfi ; b .-2`, de
+    // modo que el MCU de la suite pasa su vida en modo Sleep y vuelve a
+    // dormirse en cuanto se le despierta. Eso es lo que permite que estas
+    // pruebas lo saquen y lo metan en los modos profundos sin cargar un
+    // firmware distinto para cada una.
+    // =======================================================================
+    static constexpr uint32_t SCB_SCR = 0xE000ED10u;      // SLEEPDEEP / SLEEPONEXIT
+
+    // --- Utilidades del grupo -----------------------------------------------
+    uint32_t pwr_cr()  { uint32_t v = 0; tm.read32(PW_B + Pwr::R_CR, v);  return v; }
+    uint32_t pwr_csr() { uint32_t v = 0; tm.read32(PW_B + Pwr::R_CSR, v); return v; }
+    void pwr_cr_w(uint32_t v)  { tm.write32(PW_B + Pwr::R_CR, v); }
+    void pwr_csr_w(uint32_t v) { tm.write32(PW_B + Pwr::R_CSR, v); }
+    void pwr_on() { rcc_enable(Rcc::R_APB1ENR, 28); }     // PWREN
+
+    // Deja EXTI0 (PA0) como fuente de EVENTO por flanco de subida. Se usa el
+    // camino de evento y no el de interrupción a propósito: despierta igual
+    // -es una línea EXTI desenmascarada- y no necesita tabla de vectores.
+    void exti0_evento() {
+        rcc_enable(Rcc::R_APB2ENR, 14);                   // SYSCFGEN
+        tm.write32(addr::SYSCFG_B + 0x08, 0);             // EXTICR1: PA0
+        tm.write32(EX_B + 0x04, 1u);                      // EMR0
+        tm.write32(EX_B + 0x08, 1u);                      // RTSR0
+        tm.write32(EX_B + 0x14, 0xFFFFFFFFu);             // PR: limpiar
+    }
+    // Deja PA0 en un cero de verdad y espera a que el nodo lo resuelva.
+    void pa0_bajo() {
+        src_pa0->set(false);
+        wait(20, SC_US);
+    }
+
+    // Hace que el núcleo vuelva a ejecutar SU WFE, ahora con la configuración
+    // que se acabe de escribir en SCB_SCR. Se hace con el depurador -parar,
+    // poner el PC encima del WFE y reanudar- porque es DETERMINISTA: si se
+    // dejara al azar de un despertar, el instante en que el núcleo relee
+    // SLEEPDEEP dependería de cuándo llega el evento.
+    void volver_a_dormir() {
+        dbg_halt();
+        dbg_set_reg(15, addr::FLASH_BASE + 0x100);        // el WFE del aparcamiento
+        dbg_resume();
+        wait(100, SC_US);
+    }
+
+    // Un pulso en PA0: despierta al núcleo (y, en Standby, es el pin WKUP).
+    void pulso_pa0(sc_time ancho = sc_time(50, SC_US)) {
+        pa0_bajo();                                       // partir de un cero real
+        src_pa0->set(true);
+        wait(ancho);
+        src_pa0->set(false);
+        // OJO: hay que dejar que el nodo se resuelva ANTES de soltarlo. Un
+        // AnalogNet sin ningun driver conserva su ultima tension -no se inventa
+        // un cero-, asi que `set(false)` seguido de `release()` en el mismo
+        // delta dejaria el pin ALTO y el flanco siguiente no existiria.
+        wait(20, SC_US);
+        src_pa0->release();
+        wait(20, SC_US);
+        // Limpiar EXTI_PR es OBLIGATORIO: mientras haya un pendiente sin
+        // atender, la peticion de despertar sigue activa y el MCU no puede
+        // volver a entrar en Stop. Es el mismo requisito que en la placa.
+        tm.write32(EX_B + 0x14, 0xFFFFFFFFu);
+        wait(20, SC_US);
+    }
+
+    // -----------------------------------------------------------------------
+    // T98 — El PWR: banco de registros, PVD y regulador de backup
+    // -----------------------------------------------------------------------
+    void t98_pwr_registros() {
+        group("T98 PWR: registros, PVD sobre VDD real y regulador de backup [IR, 14.6]");
+        reset_dut();
+        pwr_on();
+
+        // --- Valores de reset y máscaras de escritura ------------------------
+        check_eq(pwr_cr(), 0x0000C000u,
+                 "PWR_CR tras reset: VOS = escala 1, todo lo demas a cero");
+        check_eq(pwr_csr() & ~Pwr::CSR_PVDO, Pwr::CSR_VOSRDY,
+                 "PWR_CSR tras reset: solo VOSRDY");
+        // CWUF y CSBF son órdenes, no bits: se escriben pero no se leen.
+        pwr_cr_w(Pwr::CR_CWUF | Pwr::CR_CSBF | Pwr::CR_LPDS);
+        check_eq(pwr_cr() & 0xFu, Pwr::CR_LPDS,
+                 "CWUF y CSBF son ordenes de borrado: nunca se leen puestos");
+        pwr_cr_w(0xFFFFFFFFu);
+        check_eq(pwr_cr(), 0x0000C3F3u,
+                 "los bits reservados de PWR_CR no se guardan");
+        pwr_cr_w(0);
+        pwr_csr_w(0xFFFFFFFFu);
+        check_eq(pwr_csr() & ~Pwr::CSR_PVDO, Pwr::CSR_EWUP | Pwr::CSR_BRE | Pwr::CSR_VOSRDY,
+                 "de PWR_CSR solo se escriben EWUP y BRE; el resto son banderas");
+        pwr_csr_w(0);
+
+        // --- DBP: la llave del dominio de backup -----------------------------
+        check(!dut->s_dbp.read(), "DBP arranca cerrado: el dominio de backup protegido");
+        pwr_cr_w(Pwr::CR_DBP);
+        wait(1, SC_US);
+        check(dut->s_dbp.read(), "y se abre escribiendo DBP [IR, 12.9-integracion]");
+
+        // --- El PVD, contra el nivel REAL de VDD -----------------------------
+        // No es un bit que se pone a mano: es un comparador sobre el pin.
+        pwr_cr_w(Pwr::CR_PVDE | (5u << 5));               // PLS = 101 -> 2,7 V
+        wait(10, SC_US);
+        check(!(pwr_csr() & Pwr::CSR_PVDO),
+              "con VDD = 3,3 V y umbral 2,7 V, PVDO esta a cero");
+        check(!dut->s_pvd_line.read(), "y la linea EXTI16 en reposo");
+        dut->pwr_pads.vdd.set_drive(d_vdd, 2.5f, 0.1f);   // por debajo del umbral
+        wait(50, SC_US);
+        check(pwr_csr() & Pwr::CSR_PVDO,
+              "al bajar VDD por debajo de 2,7 V, PVDO se pone [IR, 14.6.2]");
+        check(dut->s_pvd_line.read(),
+              "y el aviso sale por la linea EXTI16, que es como llega al NVIC");
+        // Histéresis: volver justo por encima del umbral NO lo suelta.
+        dut->pwr_pads.vdd.set_drive(d_vdd, 2.75f, 0.1f);
+        wait(50, SC_US);
+        check(pwr_csr() & Pwr::CSR_PVDO,
+              "un repunte dentro de la histeresis no lo suelta: no hay parpadeo");
+        dut->pwr_pads.vdd.set_drive(d_vdd, 3.3f, 0.1f);
+        wait(50, SC_US);
+        check(!(pwr_csr() & Pwr::CSR_PVDO), "y con VDD sana vuelve a cero");
+        // Un umbral distinto es un comparador distinto.
+        pwr_cr_w(Pwr::CR_PVDE | (0u << 5));               // PLS = 000 -> 2,0 V
+        dut->pwr_pads.vdd.set_drive(d_vdd, 2.5f, 0.1f);
+        wait(50, SC_US);
+        check(!(pwr_csr() & Pwr::CSR_PVDO),
+              "con el umbral en 2,0 V los mismos 2,5 V ya no disparan el PVD");
+        dut->pwr_pads.vdd.set_drive(d_vdd, 3.3f, 0.1f);
+        pwr_cr_w(0);
+        wait(20, SC_US);
+
+        // --- El regulador de backup: BRE no es BRR ---------------------------
+        check(!(pwr_csr() & Pwr::CSR_BRR),
+              "BRR arranca a cero: el regulador de backup esta apagado");
+        pwr_csr_w(Pwr::CSR_BRE);
+        wait(100, SC_US);
+        check(!(pwr_csr() & Pwr::CSR_BRR),
+              "pedirlo no es tenerlo: BRR sigue a cero mientras arranca");
+        wait(1, SC_MS);
+        check(pwr_csr() & Pwr::CSR_BRR,
+              "y se pone cuando la BKPSRAM esta alimentada de verdad [IR, 14.7]");
+        check(dut->s_bre.read(), "el resto del modelo se entera de que BRE esta puesto");
+    }
+
+    // -----------------------------------------------------------------------
+    // T99 — Sleep: el núcleo se para, los relojes no
+    // -----------------------------------------------------------------------
+    void t99_sleep() {
+        group("T99 Sleep: el nucleo se para y los relojes siguen [IR, 14.3]");
+        reset_dut();
+        dbg_resume();                                     // por si viene parado
+        wait(300, SC_US);
+
+        // El firmware de aparcamiento hace WFI: el MCU está dormido AHORA.
+        check_eq(unsigned(dut->pwr.modo()), unsigned(LP_SLEEP),
+                 "tras el WFI del firmware, el PWR ve el MCU en modo Sleep");
+        check(dut->s_sleeping.read() && !dut->s_sleepdeep.read(),
+              "sleeping = 1 y sleepdeep = 0: es Sleep, no Stop");
+        check(dut->rcc.hclk_freq() > 0.0,
+              "en Sleep los relojes SIGUEN: HCLK no se para [IR, 14.3]");
+
+        // --- Los LPENR: para esto existen ------------------------------------
+        // Un periférico habilitado (ENR) al que se le quita el LPEN pierde el
+        // reloj MIENTRAS SE DUERME, y lo recupera al despertar.
+        pwr_on();
+        rcc_enable(Rcc::R_AHB1ENR, 0);                    // GPIOAEN
+        wait(10, SC_US);
+        check(dut->s_pcen[P_GPIOA].read(),
+              "GPIOA tiene reloj: su bit esta en ENR y en LPENR");
+        uint32_t lp = 0;
+        tm.read32(addr::RCC_B + Rcc::R_AHB1LPENR, lp);
+        tm.write32(addr::RCC_B + Rcc::R_AHB1LPENR, lp & ~1u);   // GPIOALPEN = 0
+        wait(10, SC_US);
+        check(!dut->s_pcen[P_GPIOA].read(),
+              "al limpiar GPIOALPEN se queda SIN reloj mientras el MCU duerme");
+        uint32_t v = 0;
+        check(tm.read32(addr::GPIOA_B, v) == TLM_GENERIC_ERROR_RESPONSE,
+              "y sin reloj sus registros no responden, como cualquier otro apagado");
+        tm.write32(addr::RCC_B + Rcc::R_AHB1LPENR, lp);
+        wait(10, SC_US);
+        check(dut->s_pcen[P_GPIOA].read(), "devolviendo el LPEN vuelve el reloj");
+
+        // --- Despertar: cualquier evento -------------------------------------
+        exti0_evento();
+        const unsigned n_evt = dut->pwr.entradas_stop();
+        const unsigned n_des = dut->pwr.despertares();
+        check(dut->core.cpu.durmio_con_wfe(),
+              "el nucleo aparcado duerme con WFE: lo despierta un evento");
+        pulso_pa0();
+        check(dut->pwr.despertares() > n_des,
+              "un evento de EXTI lo despierta: el MCU pasa por Run [IR, 14.3.2]");
+        check_eq(dut->pwr.entradas_stop(), n_evt,
+                 "y no ha pasado por Stop: era un Sleep de los de siempre");
+        check_eq(unsigned(dut->pwr.modo()), unsigned(LP_SLEEP),
+                 "para cuando se le mira ya se ha vuelto a dormir: dos ordenes en un ciclo");
+        // Un evento SIN linea desenmascarada no despierta a nadie.
+        tm.write32(EX_B + 0x04, 0);                       // EMR = 0
+        const unsigned n_des2 = dut->pwr.despertares();
+        pulso_pa0();
+        check_eq(dut->pwr.despertares(), n_des2,
+                 "con la linea enmascarada, el mismo flanco ya no despierta");
+        tm.write32(EX_B + 0x04, 1u);
+        tm.write32(EX_B + 0x14, 0xFFFFFFFFu);             // limpiar PR
+    }
+
+    // -----------------------------------------------------------------------
+    // T100 — Stop: se paran los relojes del dominio de 1,2 V
+    // -----------------------------------------------------------------------
+    void t100_stop() {
+        group("T100 Stop: relojes parados, estado intacto y vuelta por HSI [IR, 14.4]");
+        reset_dut();
+        dbg_resume();
+        pwr_on();
+        exti0_evento();
+        wait(300, SC_US);
+
+        // Se deja el sistema corriendo del PLL a 168 MHz: al volver de Stop
+        // tiene que estar en HSI, que es la trampa clasica de este modo.
+        pll48_on();
+        uint32_t cfg = 0;
+        tm.read32(addr::RCC_B + Rcc::R_CFGR, cfg);
+        tm.write32(addr::RCC_B + Rcc::R_CFGR, (cfg & ~0x3u) | 2u);   // SW = PLL
+        wait(200, SC_US);
+        const double f_antes = dut->rcc.hclk_freq();
+        check(f_antes > 100e6, "antes de dormir, el sistema corre del PLL");
+
+        // Marca en la SRAM: el Stop NO se la puede llevar.
+        tm.write32(addr::SRAM1_BASE + 0x40, 0xC0FFEE07u);
+
+        // --- Entrada en Stop --------------------------------------------------
+        // SLEEPDEEP vive en el SCB, que es PPB: solo se llega por el DAP.
+        dbg_wr(SCB_SCR, 1u << 2);                          // SLEEPDEEP = 1
+        pwr_cr_w(0);                                       // PDDS = 0 -> Stop
+        volver_a_dormir();                                 // re-ejecutar el WFE
+        check_eq(unsigned(dut->pwr.modo()), unsigned(LP_STOP),
+                 "con SLEEPDEEP = 1 y PDDS = 0, el WFI lleva a Stop");
+        check_eq(dut->rcc.hclk_freq(), 0.0,
+                 "y en Stop NO hay HCLK: el dominio de 1,2 V esta sin relojes");
+        check_eq(dut->rcc.sysclk_hz(), 0.0, "ni SYSCLK");
+        const uint32_t cr = dut->rcc.peek_reg(Rcc::R_CR);
+        check(!(cr & (1u << 16)) && !(cr & (1u << 24)),
+              "el hardware ha apagado HSEON y PLLON al entrar [IR, 14.4.2]");
+        check(cr & 1u, "y ha dejado HSION puesto para la vuelta");
+        check(dut->rcc.rtc_freq() >= 0.0 && dut->rcc.lsi.out_hz() >= 0.0,
+              "el LSI y el LSE no se apagan: viven fuera del dominio de 1,2 V");
+        // Los periféricos no tienen reloj, pero conservan lo que tenían.
+        check_eq(dut->s_periph_on.read(), 0u,
+                 "ningun periferico tiene reloj mientras dura el Stop");
+        check_eq(dut->sram1.peek32(0x40), 0xC0FFEE07u,
+                 "la SRAM conserva su contenido: Stop no la apaga [IR, 14.4.2]");
+
+        // --- Salida: cualquier linea EXTI ------------------------------------
+        const sc_time t0 = sc_time_stamp();
+        pulso_pa0();
+        wait(100, SC_US);
+        const sc_time t_wu = sc_time_stamp() - t0;
+        check_eq(unsigned(dut->pwr.modo()), unsigned(LP_RUN),
+                 "una linea EXTI desenmascarada saca del Stop [IR, 14.4.3]");
+        check(dut->rcc.hclk_freq() > 0.0, "y los relojes vuelven");
+        check_near(dut->rcc.hclk_freq(), 16e6, 0.10,
+                   "pero se vuelve con HSI: 16 MHz, no los 168 de antes");
+        std::printf("    del evento al reloj: %s (el firmware debe reprogramar el PLL)\n",
+                    t_wu.to_string().c_str());
+        check_eq(dut->sram1.peek32(0x40), 0xC0FFEE07u,
+                 "y la marca de la SRAM sigue ahi al volver");
+
+        // --- El regulador en bajo consumo tarda mas en volver ----------------
+        dbg_wr(SCB_SCR, 1u << 2);
+        pwr_cr_w(Pwr::CR_LPDS | Pwr::CR_FPDS);            // regulador LP + Flash
+        volver_a_dormir();
+        check_eq(unsigned(dut->pwr.modo()), unsigned(LP_STOP),
+                 "con LPDS y FPDS se entra igual en Stop");
+        const sc_time t1 = sc_time_stamp();
+        pulso_pa0();
+        wait(200, SC_US);
+        check(dut->rcc.hclk_freq() > 0.0, "y tambien se sale");
+        check(sc_time_stamp() - t1 > t_wu,
+              "pero cuesta mas volver: el regulador y la Flash estaban dormidos");
+
+        // --- Deshacer: sin SLEEPDEEP se vuelve a Sleep normal ----------------
+        dbg_wr(SCB_SCR, 0);
+        pwr_cr_w(0);
+        volver_a_dormir();
+        check_eq(unsigned(dut->pwr.modo()), unsigned(LP_SLEEP),
+                 "limpiando SLEEPDEEP, el mismo WFE vuelve a ser un Sleep");
+        tm.write32(EX_B + 0x14, 0xFFFFFFFFu);
+    }
+
+    // -----------------------------------------------------------------------
+    // T101 — Standby: se apaga el dominio de 1,2 V
+    // -----------------------------------------------------------------------
+    void t101_standby() {
+        group("T101 Standby: se apaga el dominio de 1,2 V y se pierde todo [IR, 14.5]");
+        reset_dut();
+        dbg_resume();
+        pwr_on();
+        wait(300, SC_US);
+
+        // Marcas: una en la SRAM (se perdera) y otra en la BKPSRAM (no).
+        tm.write32(addr::SRAM1_BASE + 0x80, 0xDEADBEEFu);
+        pwr_cr_w(Pwr::CR_DBP);                             // abrir el backup
+        rcc_enable(Rcc::R_AHB1ENR, 18);                    // BKPSRAMEN
+        pwr_csr_w(Pwr::CSR_BRE);                           // regulador de backup
+        wait(1500, SC_US);
+        check(pwr_csr() & Pwr::CSR_BRR, "el regulador de backup, listo");
+        tm.write32(addr::BKPSRAM_BASE + 0x10, 0x5A5AA5A5u);
+
+        // Un pin de salida en alto, para ver que en Standby queda en alta Z.
+        rcc_enable(Rcc::R_AHB1ENR, 0);                     // GPIOAEN
+        tm.write32(addr::GPIOA_B + 0x00, 1u << (5 * 2));   // PA5 salida
+        tm.write32(addr::GPIOA_B + 0x14, 1u << 5);         // ODR5 = 1
+        wait(20, SC_US);
+        check(dut->pinmux.analog(0, 5).voltage() > 2.0f,
+              "antes de dormir, PA5 esta conduciendo un uno");
+
+        // --- Intento con WUF puesto: NO entra --------------------------------
+        pwr_csr_w(Pwr::CSR_BRE | Pwr::CSR_EWUP);           // habilitar PA0-WKUP
+        pa0_bajo();
+        src_pa0->set(true); wait(20, SC_US);
+        src_pa0->set(false); wait(20, SC_US); src_pa0->release();
+        wait(20, SC_US);
+        check(pwr_csr() & Pwr::CSR_WUF,
+              "un flanco en WKUP pone WUF aunque el MCU este despierto");
+        const unsigned n_stby = dut->pwr.entradas_standby();
+        dbg_wr(SCB_SCR, 1u << 2);
+        pwr_cr_w(Pwr::CR_DBP | Pwr::CR_PDDS);              // PDDS = 1 -> Standby
+        exti0_evento();
+        volver_a_dormir();
+        check_eq(dut->pwr.entradas_standby(), n_stby,
+                 "con WUF puesto NO se entra en Standby: por eso se limpia antes");
+
+        // --- Ahora sí ---------------------------------------------------------
+        // Primero se saca al nucleo del sueno PROFUNDO: la condicion de entrada
+        // en Standby es de nivel, asi que limpiar WUF con SLEEPDEEP todavia a
+        // uno lo meteria dentro en ese mismo instante.
+        dbg_wr(SCB_SCR, 0);
+        volver_a_dormir();                                 // Sleep normal
+        pwr_cr_w(Pwr::CR_DBP | Pwr::CR_PDDS | Pwr::CR_CWUF);   // limpiar WUF
+        wait(20, SC_US);
+        check(!(pwr_csr() & Pwr::CSR_WUF), "CWUF limpia la bandera");
+        check_eq(unsigned(dut->pwr.modo()), unsigned(LP_SLEEP),
+                 "y con SLEEPDEEP a cero el MCU se queda en Sleep, no cae en Standby");
+        dbg_wr(SCB_SCR, 1u << 2);
+        volver_a_dormir();
+        check_eq(unsigned(dut->pwr.modo()), unsigned(LP_STANDBY),
+                 "con PDDS = 1 y SLEEPDEEP = 1, el WFI apaga el dominio de 1,2 V");
+        check(dut->s_standby.read(), "y se le dice al RCC que lo apague");
+        check(!dut->s_sysrst_n.read(),
+              "el dominio apagado equivale a mantener el reset del sistema");
+        check(dut->pinmux.analog(0, 5).floating(),
+              "todos los pines quedan en alta impedancia [IR, 14.5.2]");
+        check_eq(dut->sram1.peek32(0x80), 0u,
+                 "la SRAM ha perdido su contenido: eso es apagar el dominio");
+        check_eq(dut->bkpsram.peek32(0x10), 0x5A5AA5A5u,
+                 "la BKPSRAM no, porque el regulador de backup la sostiene");
+        check(dut->pwr.consumo() < 10e-6,
+              "y el consumo baja a unos pocos microamperios");
+
+        // --- Despertar por el pin WKUP ---------------------------------------
+        const unsigned n_des = dut->pwr.despertares();
+        const sc_time t0 = sc_time_stamp();
+        src_pa0->set(true);
+        wait(600, SC_US);
+        // Para cuando se mira, el firmware de aparcamiento ya ha arrancado y se
+        // ha vuelto a dormir: lo que se comprueba es que SALIO, no donde esta.
+        check(dut->pwr.despertares() > n_des &&
+              dut->pwr.modo() != LP_STANDBY,
+              "un flanco de subida en WKUP saca del Standby [IR, 14.5.3]");
+        std::printf("    del flanco en WKUP a la vuelta: %s\n",
+                    (sc_time_stamp() - t0).to_string().c_str());
+        check(dut->s_sysrst_n.read(),
+              "y la salida es un RESET: el nucleo arranca por el vector");
+        // Tras el reset, RCC_APB1ENR vuelve a cero: para poder LEER por que se
+        // ha arrancado hay que reactivar antes el reloj del propio PWR. Es el
+        // primer paso de cualquier firmware que use Standby.
+        pwr_on();
+        check(pwr_csr() & Pwr::CSR_SBF,
+              "SBF sobrevive al reset y dice POR QUE se ha arrancado");
+        check(pwr_csr() & Pwr::CSR_WUF, "y WUF, por donde");
+        check_eq(dut->rcc.peek_reg(Rcc::R_CFGR), 0u,
+                 "el RCC si ha vuelto a sus valores de reset: estaba en el dominio");
+        check_eq(dut->bkpsram.peek32(0x10), 0x5A5AA5A5u,
+                 "la BKPSRAM sigue intacta despues del ciclo entero");
+        src_pa0->set(false); wait(20, SC_US); src_pa0->release();
+        pwr_cr_w(Pwr::CR_CSBF | Pwr::CR_CWUF);
+        wait(20, SC_US);
+        check(!(pwr_csr() & (Pwr::CSR_SBF | Pwr::CSR_WUF)),
+              "y CSBF/CWUF las dejan limpias para la proxima");
+        dbg_wr(SCB_SCR, 0);
+        wait(100, SC_US);
+    }
+
+    // -----------------------------------------------------------------------
+    // T102 — El consumo, medido en el pin
+    //
+    // Aqui es donde el bajo consumo deja de ser una maquina de estados y pasa
+    // a ser lo que es: corriente. El MCU presenta una carga real sobre el nodo
+    // VDD y la medida se toma como se tomaria en el laboratorio, mirando lo
+    // que entra por el pin.
+    // -----------------------------------------------------------------------
+    void t102_consumo() {
+        group("T102 Consumo: IDD por modo, frecuencia y perifericos [IR, 14.2]");
+        reset_dut();
+        dbg_resume();
+        pwr_on();
+        wait(300, SC_US);
+
+        // --- Run frente a Sleep, a la misma frecuencia -----------------------
+        // El nucleo parado por el depurador NO esta dormido: el MCU esta en
+        // Run con sus relojes, que es lo que se quiere medir aqui.
+        dbg_halt();
+        wait(50, SC_US);
+        check_eq(unsigned(dut->pwr.modo()), unsigned(LP_RUN),
+                 "con el nucleo parado por el depurador, el MCU esta en Run");
+        const double i_run16 = dut->pwr_pads.idd_medida();
+        dbg_resume();
+        wait(200, SC_US);
+        const double i_slp16 = dut->pwr_pads.idd_medida();
+        std::printf("    a 16 MHz:  Run %.2f mA   Sleep %.2f mA\n",
+                    1e3 * i_run16, 1e3 * i_slp16);
+        check(i_run16 > 0.0, "el MCU pide corriente de verdad por el pin VDD");
+        check(i_slp16 < i_run16,
+              "dormir el nucleo baja el consumo: para eso esta el Sleep");
+
+        // --- La frecuencia manda ---------------------------------------------
+        pll48_on();
+        uint32_t cfg = 0;
+        tm.read32(addr::RCC_B + Rcc::R_CFGR, cfg);
+        tm.write32(addr::RCC_B + Rcc::R_CFGR, (cfg & ~0x3u) | 2u);
+        wait(200, SC_US);
+        dbg_halt();
+        wait(50, SC_US);
+        const double i_run168 = dut->pwr_pads.idd_medida();
+        std::printf("    a %.0f MHz: Run %.2f mA\n",
+                    dut->rcc.hclk_freq() / 1e6, 1e3 * i_run168);
+        check(i_run168 > 3.0 * i_run16,
+              "a 168 MHz el consumo se dispara: es casi todo dinamico");
+        check_near(1e3 * i_run168, 60.0, 0.30,
+                   "y cae donde dice el datasheet para Run sin perifericos");
+
+        // --- Cada reloj de periferico cuesta ---------------------------------
+        const unsigned n0 = dut->s_periph_on.read();
+        tm.write32(addr::RCC_B + Rcc::R_AHB1ENR, 0x001008FFu);   // ocho GPIO + CCM
+        tm.write32(addr::RCC_B + Rcc::R_APB1ENR, 0x10000000u | 0x3Fu);
+        wait(50, SC_US);
+        const unsigned n1 = dut->s_periph_on.read();
+        const double i_perif = dut->pwr_pads.idd_medida();
+        check(n1 > n0, "el RCC publica cuantos relojes de periferico hay abiertos");
+        check(i_perif > i_run168,
+              "y cada uno se paga: abrir relojes sube la corriente");
+        std::printf("    %u perifericos con reloj: %.2f mA (%u antes: %.2f mA)\n",
+                    n1, 1e3 * i_perif, n0, 1e3 * i_run168);
+
+        // --- La caida de tension en una fuente real --------------------------
+        // Con una fuente de 5 ohm -una pila con su resistencia interna, o una
+        // pista larga- la corriente se ve como lo que es: una caida.
+        dut->pwr_pads.vdd.set_drive(d_vdd, 3.3f, 5.0f);
+        wait(50, SC_US);
+        const double v_run = dut->pwr_pads.vdd.voltage();
+        dbg_resume();
+        wait(300, SC_US);
+        const double v_slp = dut->pwr_pads.vdd.voltage();
+        std::printf("    con fuente de 5 ohm: VDD = %.3f V en Run, %.3f V en Sleep\n",
+                    v_run, v_slp);
+        check(v_run < 3.2, "con 5 ohm de fuente, el consumo en Run HUNDE la VDD");
+        check(v_slp > v_run, "y al dormirse, la alimentacion se recupera");
+        dut->pwr_pads.vdd.set_drive(d_vdd, 3.3f, 0.1f);
+        wait(50, SC_US);
+
+        // --- Los LPENR, medidos ----------------------------------------------
+        // Esta es la razon de ser de los LPENR: apagar en Sleep lo que no hace
+        // falta. Aqui se ve en la corriente, que es donde se ve en la placa.
+        const double i_slp_todo = dut->pwr_pads.idd_medida();
+        tm.write32(addr::RCC_B + Rcc::R_AHB1LPENR, 0);
+        tm.write32(addr::RCC_B + Rcc::R_APB1LPENR, 0);
+        wait(50, SC_US);
+        const double i_slp_poco = dut->pwr_pads.idd_medida();
+        std::printf("    en Sleep: %.2f mA con los LPEN puestos, %.2f mA sin ellos\n",
+                    1e3 * i_slp_todo, 1e3 * i_slp_poco);
+        check(i_slp_poco < i_slp_todo,
+              "limpiar los LPEN antes de dormir se nota en la corriente [IR, 4.8]");
+
+        // --- Stop y Standby, tres ordenes de magnitud abajo ------------------
+        exti0_evento();
+        dbg_wr(SCB_SCR, 1u << 2);
+        pwr_cr_w(0);
+        volver_a_dormir();
+        check_eq(unsigned(dut->pwr.modo()), unsigned(LP_STOP), "en Stop para medir");
+        const double i_stop = dut->pwr_pads.idd_medida();
+        pulso_pa0();
+        wait(200, SC_US);
+        pwr_cr_w(Pwr::CR_LPDS | Pwr::CR_FPDS);
+        volver_a_dormir();
+        const double i_stop_lp = dut->pwr_pads.idd_medida();
+        std::printf("    Stop: %.0f uA con el regulador normal, %.0f uA con LPDS+FPDS\n",
+                    1e6 * i_stop, 1e6 * i_stop_lp);
+        check(i_stop < 1e-3 && i_stop > 0.0,
+              "en Stop el consumo baja a centenares de microamperios");
+        check(i_stop_lp < i_stop,
+              "y el regulador en bajo consumo con la Flash dormida baja aun mas");
+        pulso_pa0();
+        wait(200, SC_US);
+        dbg_wr(SCB_SCR, 0);
+        pwr_cr_w(0);
+        volver_a_dormir();
+        std::printf("    resumen: Run %.1f mA -> Sleep %.1f mA -> Stop %.0f uA\n",
+                    1e3 * i_perif, 1e3 * i_slp_poco, 1e6 * i_stop_lp);
+        check(i_stop_lp * 50.0 < i_slp_poco,
+              "entre Sleep y Stop hay mas de cincuenta veces de diferencia");
+        check(i_stop_lp * 200.0 < i_perif,
+              "y entre Run y Stop, mas de dos ordenes de magnitud");
+    }
+
+    // -----------------------------------------------------------------------
+    // T103 — Firmware real recorriendo los tres modos
+    //
+    // Hasta aqui las pruebas han empujado al MCU a cada modo desde fuera. Esta
+    // lo hace al reves: un binario compilado con CMSIS -el mismo que se
+    // grabaria en la placa- se duerme solo, y el banco se limita a apretar el
+    // pulsador de PA0 cuando toca. Es la prueba de que la secuencia canonica
+    // de cada modo funciona TAL Y COMO LA ESCRIBE la gente, no como la escribe
+    // quien conoce el modelo por dentro.
+    // -----------------------------------------------------------------------
+    void t103_lp_firmware() {
+        group("T103 Bajo consumo: firmware real con CMSIS por los tres modos");
+        reset_dut();
+        dbg_resume();
+        dut->rcc.set_internal_waveforms(false);
+        xtal_hse->attach();
+        dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
+        dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(30, SC_US);
+
+        ImageLoader ld(*dut);
+        const long n = ld.load_file(lp_fw_path_.c_str(), addr::FLASH_BASE);
+        if (!check(n > 0, "imagen del firmware de bajo consumo cargada en la Flash")) {
+            std::printf("        (compilar con make -C verif/fw/lowpower_demo)\n");
+            dut->pwr_pads.nrst.set_hiz(d_nrst);
+            dut->rcc.set_internal_waveforms(true);
+            return;
+        }
+        std::printf("    %ld bytes cargados desde %s\n", n, lp_fw_path_.c_str());
+        for (unsigned i = 0; i < 32; i += 4) ld.poke32(addr::SRAM1_BASE + i, 0);
+        pa0_bajo();
+        dut->pwr_pads.nrst.set_hiz(d_nrst);
+
+        // El buzon del firmware, en 0x2000 0000
+        auto mb = [&](unsigned i) { return dut->sram1.peek32(4 * i); };
+        enum { M_DONE = 0, M_ETAPA, M_HCLK, M_HCLK_STOP, M_STBY, M_ARRANQUES,
+               M_MARCA, M_LPEN };
+        // Espera a que el firmware llegue a una etapa (o se rinde).
+        auto esperar_etapa = [&](uint32_t e, sc_time limite) {
+            const sc_time t0 = sc_time_stamp();
+            while (sc_time_stamp() - t0 < limite) {
+                wait(50, SC_US);
+                if (mb(M_ETAPA) == e) return true;
+            }
+            return false;
+        };
+
+        // --- 1. Sleep ---------------------------------------------------------
+        check(esperar_etapa(2u, sc_time(50, SC_MS)),
+              "el firmware arranca, programa el PLL y se duerme con WFE");
+        check_near(double(mb(M_HCLK)), 168e6, 0.02,
+                   "y lo hace despues de subir el sistema a 168 MHz");
+        check_eq(mb(M_MARCA), 0xC0FFEE42u, "deja su marca en la SRAM");
+        check_eq(mb(M_ARRANQUES), 1u, "y su cuenta de arranques en la BKPSRAM");
+        wait(500, SC_US);
+        check_eq(unsigned(dut->pwr.modo()), unsigned(LP_SLEEP),
+                 "el MCU esta en Sleep de verdad, esperando");
+        // Los LPEN que el firmware ha dejado puestos: ha apagado casi todo.
+        check(mb(M_LPEN) == 0x7E6791FFu,
+              "antes de dormir leyo el AHB1LPENR entero, con su valor de reset");
+        const unsigned n_periph_sleep = dut->s_periph_on.read();
+        check(n_periph_sleep <= 4u,
+              "y lo dejo casi vacio: en Sleep solo mantiene lo que usa");
+        std::printf("    en Sleep quedan %u relojes de periferico abiertos\n",
+                    n_periph_sleep);
+
+        // El banco aprieta el pulsador: un evento en PA0.
+        pulso_pa0();
+        check(esperar_etapa(3u, sc_time(20, SC_MS)),
+              "el evento del EXTI lo despierta y pasa a preparar el Stop");
+
+        // --- 2. Stop ----------------------------------------------------------
+        wait(2, SC_MS);
+        check_eq(unsigned(dut->pwr.modo()), unsigned(LP_STOP),
+                 "con LPDS, FPDS y SLEEPDEEP, el WFE lo mete en Stop");
+        check_eq(dut->rcc.hclk_freq(), 0.0, "los relojes del dominio 1,2 V, parados");
+        check(dut->pwr_pads.idd_medida() < 1e-3,
+              "y el consumo, en centenares de microamperios");
+        pulso_pa0();
+        // Al salir de Stop el firmware vuelve a arrancar el HSE y a esperar su
+        // cristal: 2 ms de arranque [IR, 4.2]. Hay que darselos, porque esa
+        // espera tambien es parte del precio de haber dormido profundo.
+        wait(10, SC_MS);
+        // A partir de aqui el buzon de la SRAM ya no sirve: el firmware corre
+        // hasta el Standby en unos pocos microsegundos y el apagado se lleva la
+        // SRAM por delante. Lo que se mira es la BKPSRAM, que es justo para lo
+        // que el firmware la usa.
+        auto bk = [&](unsigned i) { return dut->bkpsram.peek32(4 * i); };
+        check_eq(bk(2), 4u,
+                 "otro evento lo saca del Stop y lo lleva a preparar el Standby");
+        // LA TRAMPA: el firmware midio su reloj nada mas volver.
+        std::printf("    el firmware midio %u Hz al salir de Stop\n", bk(1));
+        check_near(double(bk(1)), 16e6, 0.02,
+                   "y al volver de Stop se encontro corriendo a 16 MHz con HSI");
+
+        // --- 3. Standby -------------------------------------------------------
+        check_eq(unsigned(dut->pwr.modo()), unsigned(LP_STANDBY),
+                 "y se apaga: PDDS, WUF limpio y WFE");
+        check(!dut->s_sysrst_n.read(), "el dominio de 1,2 V, fuera");
+        const unsigned n_des = dut->pwr.despertares();
+
+        // El pulsador otra vez, ahora como WKUP.
+        src_pa0->set(true);
+        wait(3, SC_MS);
+        check(dut->pwr.despertares() > n_des,
+              "el pin WKUP lo resucita [IR, 14.5.3]");
+        check_eq(mb(M_STBY), 1u,
+                 "y el firmware, al arrancar, MIRA SBF y sabe de donde viene");
+        check_eq(mb(M_MARCA), 0u,
+                 "su marca en la SRAM ha desaparecido: el Standby se la llevo");
+        check_eq(mb(M_ARRANQUES), 2u,
+                 "pero la cuenta de la BKPSRAM sigue: es su unica memoria");
+        check_eq(mb(M_ETAPA), 5u, "y lo deja dicho en el buzon");
+        src_pa0->set(false);
+        wait(50, SC_US);
+        src_pa0->release();
+        dut->rcc.set_internal_waveforms(true);
+    }
+
+    // -----------------------------------------------------------------------
+    // T104 — Depurar firmware que duerme [IR, §13.9, §14]
+    //
+    // Un modo de bajo consumo y una sonda enganchada son enemigos naturales:
+    // en cuanto el firmware ejecuta su primer WFI con SLEEPDEEP, el reloj del
+    // dominio de depuracion se para, el DAP deja de contestar y el IDE dice
+    // que ha perdido el objetivo. Para eso existen los tres bits de DBGMCU_CR:
+    // el MCU ENTRA igual en el modo -el firmware se comporta como se comporta-
+    // pero no se le quitan los relojes ni se le apaga el dominio.
+    //
+    // El precio es que deja de ser bajo consumo, y eso tambien se mide aqui.
+    // -----------------------------------------------------------------------
+    void t104_lp_debug() {
+        group("T104 Bajo consumo con sonda: DBG_SLEEP/DBG_STOP/DBG_STANDBY [IR, 13.9]");
+        reset_dut();
+        dbg_resume();
+        pwr_on();
+        exti0_evento();
+        wait(300, SC_US);
+
+        static constexpr uint32_t DBGMCU_CR = 0xE0042004u;
+        check_eq(dbg_rd(DBGMCU_CR) & 7u, 0u,
+                 "DBGMCU_CR arranca a cero: sin sonda, el bajo consumo manda");
+
+        // --- Stop SIN los bits: el objetivo se apaga -------------------------
+        dbg_wr(SCB_SCR, 1u << 2);
+        pwr_cr_w(0);
+        volver_a_dormir();
+        check_eq(unsigned(dut->pwr.modo()), unsigned(LP_STOP), "entra en Stop");
+        check_eq(dut->rcc.hclk_freq(), 0.0,
+                 "y sin DBG_STOP se queda sin relojes: la sonda pierde el objetivo");
+        const double i_stop = dut->pwr_pads.idd_medida();
+        pulso_pa0();
+        wait(300, SC_US);
+
+        // --- Stop CON DBG_STOP: el objetivo sigue vivo -----------------------
+        dbg_wr(DBGMCU_CR, 2u);                            // DBG_STOP
+        wait(20, SC_US);
+        check_eq(dut->s_dbg_lp.read() & 7u, 2u,
+                 "DBGMCU_CR llega al PWR y al RCC, que son quienes obedecen");
+        dbg_wr(SCB_SCR, 1u << 2);
+        volver_a_dormir();
+        check_eq(unsigned(dut->pwr.modo()), unsigned(LP_STOP),
+                 "el MCU entra en Stop igual: el firmware no nota la diferencia");
+        check(dut->rcc.hclk_freq() > 0.0,
+              "pero los relojes SIGUEN: por eso el depurador no se cae [IR, 13.9]");
+        uint32_t dh = 0;
+        check(dut->core.debug.ap_read32(0xE000EDF0u, dh) == tlm::TLM_OK_RESPONSE &&
+              (dh & 1u),
+              "y el DAP contesta estando el MCU en Stop: se puede seguir depurando");
+        const double i_stop_dbg = dut->pwr_pads.idd_medida();
+        std::printf("    Stop: %.0f uA sin sonda, %.2f mA con DBG_STOP\n",
+                    1e6 * i_stop, 1e3 * i_stop_dbg);
+        check(i_stop_dbg > 10.0 * i_stop,
+              "y se paga: con los relojes en marcha ya no es bajo consumo");
+
+        // --- Standby CON DBG_STANDBY: no hay reset ni perdida de estado ------
+        tm.write32(addr::SRAM1_BASE + 0xC0, 0xABCDEF01u);
+        dbg_wr(DBGMCU_CR, 4u);                            // solo DBG_STANDBY
+        wait(20, SC_US);
+        pulso_pa0();
+        wait(200, SC_US);
+        pwr_csr_w(Pwr::CSR_EWUP);
+        pwr_cr_w(Pwr::CR_PDDS | Pwr::CR_CWUF);
+        dbg_wr(SCB_SCR, 1u << 2);
+        volver_a_dormir();
+        check_eq(unsigned(dut->pwr.modo()), unsigned(LP_STANDBY),
+                 "con DBG_STANDBY el MCU tambien entra en Standby");
+        check(dut->s_sysrst_n.read(),
+              "pero el dominio de 1,2 V NO se apaga: no hay reset");
+        check_eq(dut->sram1.peek32(0xC0), 0xABCDEF01u,
+                 "y la SRAM conserva su contenido, que es lo que hace depurable el modo");
+        check(pwr_csr() & Pwr::CSR_SBF,
+              "SBF se pone igual: el firmware ve lo mismo que veria sin sonda");
+
+        // --- Deshacer --------------------------------------------------------
+        src_pa0->set(true);
+        wait(200, SC_US);
+        src_pa0->set(false); wait(20, SC_US); src_pa0->release();
+        dbg_wr(DBGMCU_CR, 0);
+        dbg_wr(SCB_SCR, 0);
+        pwr_cr_w(Pwr::CR_CSBF | Pwr::CR_CWUF);
+        pwr_csr_w(0);
+        volver_a_dormir();
+        check_eq(dbg_rd(DBGMCU_CR) & 7u, 0u,
+                 "y al quitar los bits, el MCU vuelve a ser lo ahorrador que era");
     }
 
     // Ayudas del cliente de pruebas
@@ -9943,6 +10694,7 @@ SC_MODULE(F1Tb) {
     }
 
     std::string dbg_fw_path_ = "verif/fw/debug_demo/debug_demo.bin";
+    std::string lp_fw_path_  = "verif/fw/lowpower_demo/lowpower_demo.bin";
     std::string can_fw_path_ = "verif/fw/can_demo/can_demo.bin";
     std::string crc_fw_path_ = "verif/fw/crc_rng_demo/crc_rng_demo.bin";
     std::string sdio_fw_path_ = "verif/fw/sdio_demo/sdio_demo.bin";

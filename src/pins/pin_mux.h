@@ -46,6 +46,18 @@ SC_MODULE(PinMux), public af_sel_if {
     sc_core::sc_vector<sc_core::sc_signal<bool>>     pad_din_ok;
     sc_core::sc_vector<sc_core::sc_signal<bool>>     pad_oor;
 
+    // -----------------------------------------------------------------------
+    // Modo Standby: TODOS los pines de puerto pasan a alta impedancia, sin
+    // pull-up ni pull-down y con el buffer de entrada desconectado, porque el
+    // dominio de 1,2 V que los gobierna está apagado [IR, §14.5.2]. Se salvan
+    // los que no dependen de él: NRST (que no es un pin de puerto), el pin
+    // WKUP cuando está habilitado -su circuito vive en el dominio VDD- y los
+    // de depuración si DBGMCU manda mantenerlos.
+    // -----------------------------------------------------------------------
+    sc_core::sc_in<bool> standby{"standby"};
+    sc_core::sc_in<bool> wkup_en{"wkup_en"};      // PWR_CSR.EWUP
+    sc_core::sc_in<bool> dbg_pins{"dbg_pins"};    // DBGMCU_CR.DBG_STANDBY
+
     SC_CTOR(PinMux)
         : gpio_drive("gpio_drive", N_GPIO_PORTS * N_PORT_PINS),
           pad_drive("pad_drive",   N_GPIO_PORTS * N_PORT_PINS),
@@ -157,12 +169,30 @@ private:
             if (ep->out) o.set_sensitivity(&ep->out->value_changed_event());
             if (ep->oe)  o.set_sensitivity(&ep->oe->value_changed_event());
         }
+        o.set_sensitivity(&standby.value_changed_event());
+        o.set_sensitivity(&wkup_en.value_changed_event());
+        o.set_sensitivity(&dbg_pins.value_changed_event());
         sc_core::sc_spawn([this, p, i, k] { drive_pad(p, i, k); },
                           ("mux_out_" + std::to_string(k)).c_str(), &o);
         drive_pad(p, i, k);           // valor inicial coherente con el reset
     }
 
+    // ¿Sobrevive este pin al apagado del dominio de 1,2 V? [IR, §14.5.2]
+    bool pin_de_standby(unsigned p, unsigned i) const {
+        if (p == 0 && i == 0 && wkup_en.read()) return true;      // PA0-WKUP
+        if (!dbg_pins.read()) return false;
+        if (p == 0 && (i == 13 || i == 14 || i == 15)) return true;  // SWDIO/CLK/JTDI
+        if (p == 1 && (i == 3 || i == 4)) return true;               // SWO/NJTRST
+        return false;
+    }
+
     void drive_pad(unsigned p, unsigned i, unsigned k) {
+        if (standby.read() && !pin_de_standby(p, i)) {
+            PadDrive z;                          // oe=0, sin pull, buffer fuera
+            z.analog = true;
+            pad_drive[k].write(z);
+            return;
+        }
         PadDrive d = gpio_drive[k].read();       // configuración del puerto
         const uint8_t a = af_sel_[p][i];
         if (a != AF_NONE) {

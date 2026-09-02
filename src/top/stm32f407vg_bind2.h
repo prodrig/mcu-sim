@@ -171,8 +171,22 @@ inline void Stm32F407VG::bind_periph_common() {
     pwr.exti_wakeup(s_exti_wakeup);
     pwr.irq_pvd(s_pvd_line);                // PVD -> línea EXTI16
     pwr.dbp(s_dbp);
-    pwr.standby_req(s_nc[nc()]);            // TODO(F7) -> RCC
-    pwr.stop_req(s_nc[nc()]);
+    // --- Bajo consumo [IR, §14] --------------------------------------------
+    pwr.hclk_hz(s_hclk_hz);                 // términos del modelo de consumo
+    pwr.rtcclk_hz(s_rtcclk_hz);
+    pwr.periph_on(s_periph_on);
+    pwr.dbg_lp(s_dbg_lp);
+    // Las tres fuentes de despertar del Standby que no son el pin [IR, §14.8]
+    pwr.rtc_alarm(s_rtc_l17);
+    pwr.rtc_tamper(s_rtc_l21);
+    pwr.rtc_wkup(s_rtc_l22);
+    pwr.standby_req(s_standby);             // -> RCC: apagar el dominio 1,2 V
+    pwr.stop_req(s_stop_req);               // -> RCC: parar los relojes
+    pwr.lp_mode(s_lp_mode);
+    pwr.ewup(s_ewup);
+    pwr.bre(s_bre);
+    pwr.idd(s_idd);                         // -> pines de alimentación
+    pwr.ibat(s_ibat);
     pwr.vos_rdy(s_nc[nc()]);
 
     bind_bus_slave(crc, s_hclk, P_CRC);

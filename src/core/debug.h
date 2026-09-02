@@ -71,6 +71,11 @@ SC_MODULE(DebugSys), public core_debug_if {
     sc_core::sc_out<bool> halt_req{"halt_req"};
     sc_core::sc_in<bool>  halted{"halted"};
     sc_core::sc_vector<sc_core::sc_out<bool>> freeze;
+    // DBGMCU_CR[2:0] = DBG_STANDBY | DBG_STOP | DBG_SLEEP hacia el PWR y el
+    // RCC: con ellos el MCU entra igual en el modo, pero no se le quita el
+    // reloj al dominio de depuracion ni se apaga el de 1,2 V, que es lo que
+    // permite depurar firmware que duerme [IR, §13.5, §14].
+    sc_core::sc_out<uint8_t> dbg_lp{"dbg_lp"};
 
     // El núcleo. Los fija CortexM4F durante la elaboración.
     RegFile* cpu_reg = nullptr;
@@ -331,6 +336,7 @@ private:
 
     void publish() { pub_ev_.notify(sc_core::SC_ZERO_TIME); }
     void pub_proc() {
+        dbg_lp.write(uint8_t(dbgmcu_cr_ & 0x7u));
         halt_req.write(o_halt_);
         swdio_out.write(o_swdio_);
         swdio_oe.write(o_swdio_oe_);
@@ -637,7 +643,7 @@ private:
         // --- DBGMCU ----------------------------------------------------------
         if (a >= B_DBGMCU && a < B_DBGMCU + 0x1000u) {
             switch (a - B_DBGMCU) {
-                case 0x04: dbgmcu_cr_ = v & 0x000000E7u; return;
+                case 0x04: dbgmcu_cr_ = v & 0x000000E7u; publish(); return;
                 case 0x08: dbg_apb1_fz_ = v; fz_ev_.notify(sc_core::SC_ZERO_TIME); return;
                 case 0x0C: dbg_apb2_fz_ = v; fz_ev_.notify(sc_core::SC_ZERO_TIME); return;
                 default: return;

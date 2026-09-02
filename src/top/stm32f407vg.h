@@ -161,6 +161,14 @@ SC_MODULE(Stm32F407VG) {
                              s_rtc_l22{"s_rtc_l22"}, s_fswk_l18{"s_fswk_l18"},
                              s_ethwk_l19{"s_ethwk_l19"}, s_hswk_l20{"s_hswk_l20"};
     sc_core::sc_signal<bool> s_exti_wakeup{"s_exti_wakeup"};
+    // ---- Bajo consumo [IR, §14] -------------------------------------------
+    sc_core::sc_signal<uint8_t> s_lp_mode{"s_lp_mode"};      // LpMode (PWR -> todos)
+    sc_core::sc_signal<bool>    s_stop_req{"s_stop_req"}, s_standby{"s_standby"};
+    sc_core::sc_signal<bool>    s_ewup{"s_ewup"}, s_bre{"s_bre"};
+    sc_core::sc_signal<unsigned> s_periph_on{"s_periph_on"};
+    sc_core::sc_signal<uint8_t> s_dbg_lp{"s_dbg_lp"};        // DBGMCU_CR[2:0]
+    sc_core::sc_signal<bool>    s_dbg_stby{"s_dbg_stby"};    // DBG_STANDBY suelto
+    sc_core::sc_signal<double>  s_idd{"s_idd"}, s_ibat{"s_ibat"};
     // Debug / freeze
     sc_core::sc_vector<sc_core::sc_signal<bool>> s_freeze{"s_freeze", FZ_COUNT};
     sc_core::sc_signal<bool> s_swdio_o{"s_swdio_o"}, s_swdio_oe{"s_swdio_oe"},
@@ -221,7 +229,28 @@ SC_MODULE(Stm32F407VG) {
         bind_dma_requests();
         bind_analog();
         SC_THREAD(init_proc);
+        // El apagado del dominio de 1,2 V y el bit suelto que necesita el mux
+        SC_METHOD(standby_proc); sensitive << s_standby; dont_initialize();
+        SC_METHOD(dbg_stby_proc); sensitive << s_dbg_lp;
     }
+
+    // -----------------------------------------------------------------------
+    // Entrada en Standby: se APAGA el dominio de 1,2 V y con él se va todo lo
+    // que vivía allí. Es el efecto más brutal de los cuatro modos y el que más
+    // sorprende al firmware: al volver, la SRAM no vale nada [IR, §14.5.2].
+    //
+    // Sobreviven, y por eso NO se tocan aquí: el dominio de backup (RTC y sus
+    // registros), el PWR, y la BKPSRAM si -y solo si- el regulador de backup
+    // está encendido, que es exactamente para lo que existe BRE.
+    // -----------------------------------------------------------------------
+    void standby_proc() {
+        if (!s_standby.read()) return;
+        sram1.pierde_contenido();
+        sram2.pierde_contenido();
+        ccm.pierde_contenido();
+        if (!s_bre.read()) bkpsram.pierde_contenido();
+    }
+    void dbg_stby_proc() { s_dbg_stby.write((s_dbg_lp.read() & 4u) != 0); }
 
     // Muestreo de los pines de arranque: BOOT0 (pin dedicado) y BOOT1 (PB2) se
     // capturan en el 4º flanco ascendente de SYSCLK tras la salida de reset y
@@ -306,6 +335,11 @@ inline void Stm32F407VG::bind_clocks_resets() {
     rcc.iwdg_rst_req(s_iwdg_rr);
     rcc.iwdg_lsi_req(s_iwdg_lsi);
     rcc.sysresetreq(s_sysresetreq);
+    // Bajo consumo: el PWR manda y el RCC obedece [IR, §14]
+    rcc.lp_mode(s_lp_mode);
+    rcc.stop_req(s_stop_req);
+    rcc.standby_req(s_standby);
+    rcc.periph_on(s_periph_on);
     rcc.nmi_css(s_nmi);
     rcc.irq(s_irq[5]);
     // RCC como esclavo de su propio dominio AHB1 (gating siempre activo)
@@ -321,6 +355,14 @@ inline void Stm32F407VG::bind_clocks_resets() {
     pwr_pads.vdd_lvl(s_vdd);
     pwr_pads.vdda_lvl(s_vdda);
     pwr_pads.drive_nrst_low(s_nrst_drv);
+    // El consumo del MCU, como carga real sobre los pines de alimentación
+    pwr_pads.idd_req(s_idd);
+    pwr_pads.ibat_req(s_ibat);
+    // Standby: los pines de puerto quedan en alta impedancia salvo WKUP y,
+    // si DBGMCU lo pide, los de depuración [IR, §14.5.2]
+    pinmux.standby(s_standby);
+    pinmux.wkup_en(s_ewup);
+    pinmux.dbg_pins(s_dbg_stby);
     // Cristales externos hacia HSE/LSE por ruta analógica [plan P4]
     rcc.hse.xtal_in = &pinmux.analog(7, 0);    // PH0
     rcc.lse.xtal_in = &pinmux.analog(2, 14);   // PC14
@@ -441,6 +483,7 @@ inline void Stm32F407VG::bind_core() {
     core.debug.jtdi(s_dbg_jtdi);                         // PA15
     core.debug.jtdo_swo(s_jtdo);                         // PB3
     core.debug.njtrst(s_dbg_njtrst);                     // PB4
+    core.debug.dbg_lp(s_dbg_lp);                         // DBGMCU_CR[2:0]
     for (unsigned i = 0; i < FZ_COUNT; ++i) core.debug.freeze[i](s_freeze[i]);
     // (debug.ahb_ap queda enlazado al router dentro de CortexM4F)
 

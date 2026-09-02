@@ -52,6 +52,12 @@ public:
         uint32_t v = 0; std::memcpy(&v, mem_.data() + off, 4); return v;
     }
     void poke32(uint32_t off, uint32_t v) { std::memcpy(mem_.data() + off, &v, 4); }
+    // El apagado del dominio de 1,2 V se lleva por delante el contenido: al
+    // volver de Standby la SRAM NO conserva nada [IR, §14.5.2]. El informe
+    // pide reinicializar a los valores de reset o a 0x00; se usa 0x00, que es
+    // lo que hace que un firmware que confie en datos viejos falle aqui igual
+    // que fallaria en la placa.
+    void pierde_contenido(uint8_t v = 0) { std::fill(mem_.begin(), mem_.end(), v); }
 
 protected:
     uint32_t base_;
