@@ -117,15 +117,26 @@ SC_MODULE(DebugSys), public core_debug_if {
 
     tlm::tlm_response_status ap_access(bool write, uint64_t a,
                                        unsigned char* d, unsigned len) {
+        sc_core::sc_time t = sc_core::SC_ZERO_TIME;
+        const auto r = ap_access_nb(write, a, d, len, t);
+        sc_core::wait(t);
+        return r;
+    }
+    // La misma transaccion, pero SIN consumir el tiempo anotado: devuelve
+    // cuanto ha costado. Es lo que necesita la maquina del SWD, que no puede
+    // quedarse bloqueada en mitad de un paquete mientras el bus trabaja: en el
+    // silicio el DAP POSPONE el acceso y contesta WAIT a lo que llegue mientras
+    // tanto, y eso es justo lo que se modela con ese tiempo.
+    tlm::tlm_response_status ap_access_nb(bool write, uint64_t a,
+                                          unsigned char* d, unsigned len,
+                                          sc_core::sc_time& t) {
         tlm::tlm_generic_payload gp;
         AhbExt ext;
         ext.master     = BusMaster::CORE_SBUS;   // el AP se presenta como S-bus
         ext.privileged = true;
         gp_setup(gp, write, a, d, len);
         gp.set_extension(&ext);
-        sc_core::sc_time t = sc_core::SC_ZERO_TIME;
         ahb_ap->b_transport(gp, t);
-        sc_core::wait(t);
         gp.clear_extension(&ext);
         return gp.get_response_status();
     }
@@ -146,6 +157,7 @@ SC_MODULE(DebugSys), public core_debug_if {
     uint32_t dhcsr() const { return leer_dhcsr(); }
     uint64_t swo_bytes() const { return n_swo_; }
     uint64_t swd_packets() const { return n_swd_; }
+    uint64_t swd_waits() const { return n_wait_; }
     unsigned itm_fifo() const { return unsigned(tpiu_fifo_.size()); }
 
     // =======================================================================
@@ -810,8 +822,17 @@ private:
                 // r = 9: turnaround (nadie gobierna); r = 10..12: el ACK.
                 if (r >= 10 && r <= 12) drive(( (sw_ack_ >> (r - 10)) & 1u) != 0);
                 else if (r == 13) {
-                    if (sw_lectura_) { drive(((sw_dato_ >> 0) & 1u) != 0); sw_st_ = SW_RD; }
-                    else             { suelta(); sw_st_ = SW_WR; }
+                    // Con un ACK que no sea OK, la FASE DE DATOS NO OCURRE: el
+                    // paquete termina en el propio ACK. Seguir soltando bits
+                    // seria pelearse con el anfitrion, que ya ha dado la
+                    // transaccion por terminada [ADIv5].
+                    if (sw_ack_ != 1u) {
+                        suelta(); sw_st_ = SW_IDLE; sw_n_ = 0; sw_espera_idle_ = true;
+                    } else if (sw_lectura_) {
+                        drive(((sw_dato_ >> 0) & 1u) != 0); sw_st_ = SW_RD;
+                    } else {
+                        suelta(); sw_st_ = SW_WR;
+                    }
                 } else suelta();
                 return;
             case SW_RD:
@@ -850,11 +871,58 @@ private:
         sw_ack_ = 1;                                   // OK
         sw_dato_ = 0;
         ++n_swd_;
+        // La lectura se resuelve YA, porque de ella puede salir un FAULT que
+        // hay que anunciar en el propio ACK. En una escritura el ACK va por
+        // delante del dato, asi que el bloqueo se comprueba aqui.
         if (rnw) sw_dato_ = ejecuta_lectura();
+        else if (sw_ap_ && ap_bloqueado()) sw_ack_ = 4;
+        else if (sw_ap_ && ap_ocupado()) { sw_ack_ = 2; ++n_wait_; }
         sw_st_ = SW_ACK;
     }
 
     // --- Registros del DP y del AHB-AP --------------------------------------
+    //
+    // Las tres peculiaridades de ADIv5 que una sonda TIENE que respetar y que
+    // por tanto estan modeladas:
+    //   1. Sin las peticiones de encendido (CDBGPWRUPREQ y CSYSPWRUPREQ) y sus
+    //      acuses, el AP NO responde: contesta FAULT.
+    //   2. Un acceso del AP que falla en el bus deja PEGADO el bit STICKYERR de
+    //      CTRL/STAT, y a partir de ahi TODOS los accesos al AP contestan FAULT
+    //      hasta que se limpia escribiendo en ABORT.
+    //   3. El auto-incremento de TAR no cruza la frontera de 1 KiB.
+    static constexpr uint32_t ST_STICKYORUN = 1u << 1;
+    static constexpr uint32_t ST_STICKYCMP  = 1u << 4;
+    static constexpr uint32_t ST_STICKYERR  = 1u << 5;
+    static constexpr uint32_t ST_READOK     = 1u << 6;
+    static constexpr uint32_t ST_WDATAERR   = 1u << 7;
+    bool ap_encendido() const {
+        // CDBGPWRUPREQ (28) y CSYSPWRUPREQ (30) pedidos.
+        return (dp_ctrl_ & (1u << 28)) && (dp_ctrl_ & (1u << 30));
+    }
+    bool ap_bloqueado() const {
+        return !ap_encendido() || (dp_ctrl_ & ST_STICKYERR) != 0;
+    }
+    // Mientras el acceso anterior sigue en vuelo por el bus, el DAP contesta
+    // WAIT. Es la razon de ser de ese ACK, y lo que obliga a toda sonda a
+    // reintentar en vez de darse por vencida.
+    bool ap_ocupado() const { return sc_core::sc_time_stamp() < ap_libre_; }
+    sc_core::sc_time ap_libre_{sc_core::SC_ZERO_TIME};
+    uint64_t n_wait_ = 0;
+
+    // Un acceso del AP a 32 bits que NO bloquea el hilo del SWD: apunta cuando
+    // quedara libre y sigue.
+    tlm::tlm_response_status ap_nb(bool write, uint32_t a, uint32_t& v) {
+        unsigned char b[4];
+        if (write) for (unsigned i = 0; i < 4; ++i) b[i] = uint8_t(v >> (8 * i));
+        else       for (unsigned i = 0; i < 4; ++i) b[i] = 0;
+        sc_core::sc_time t = sc_core::SC_ZERO_TIME;
+        const auto r = ap_access_nb(write, a, b, 4, t);
+        ap_libre_ = sc_core::sc_time_stamp() + t;
+        if (!write) v = uint32_t(b[0]) | (uint32_t(b[1]) << 8) |
+                        (uint32_t(b[2]) << 16) | (uint32_t(b[3]) << 24);
+        return r;
+    }
+
     uint32_t ejecuta_lectura() {
         if (!sw_ap_) {
             switch (sw_addr_) {
@@ -866,6 +934,8 @@ private:
                 default:  return dp_rdbuff_;           // RDBUFF
             }
         }
+        if (ap_bloqueado()) { sw_ack_ = 4; return dp_rdbuff_; }   // FAULT
+        if (ap_ocupado()) { sw_ack_ = 2; ++n_wait_; return dp_rdbuff_; }  // WAIT
         // Las lecturas del AP van con un ciclo de retraso: la que se pide ahora
         // se recoge en la siguiente, o en RDBUFF. Es el comportamiento real del
         // DAP, y el que espera cualquier sonda.
@@ -877,7 +947,8 @@ private:
             case 0x04: v = ap_tar_; break;
             case 0x0C: {
                 uint32_t d = 0;
-                ap_read32(ap_tar_, d);
+                const auto r = ap_nb(false, ap_tar_, d);
+                if (r != tlm::TLM_OK_RESPONSE) dp_ctrl_ |= ST_STICKYERR;
                 v = d;
                 incrementa_tar();
                 break;
@@ -894,25 +965,53 @@ private:
     void ejecuta_escritura() {
         if (!sw_ap_) {
             switch (sw_addr_) {
-                case 0x0: return;                      // ABORT
-                case 0x4: dp_ctrl_ = sw_dato_ & 0xFFFFFFFFu; return;
+                case 0x0:
+                    // ABORT: es el UNICO camino para limpiar los bits pegajosos
+                    // de CTRL/STAT. Sin el, un acceso fallido deja al DAP mudo
+                    // para siempre, y esa es la trampa clasica de una sonda mal
+                    // escrita.
+                    if (sw_dato_ & (1u << 1)) dp_ctrl_ &= ~ST_STICKYCMP;
+                    if (sw_dato_ & (1u << 2)) dp_ctrl_ &= ~ST_STICKYERR;
+                    if (sw_dato_ & (1u << 3)) dp_ctrl_ &= ~ST_WDATAERR;
+                    if (sw_dato_ & (1u << 4)) dp_ctrl_ &= ~ST_STICKYORUN;
+                    return;
+                case 0x4:
+                    // Los bits pegajosos NO se escriben desde aqui.
+                    dp_ctrl_ = (dp_ctrl_ & 0x000000F2u) |
+                               (sw_dato_ & ~0x000000F2u);
+                    return;
                 case 0x8: dp_select_ = sw_dato_; return;
                 default:  return;
             }
         }
+        if (ap_bloqueado()) { sw_ack_ = 4; return; }               // FAULT
+        if (ap_ocupado()) { sw_ack_ = 2; ++n_wait_; return; }       // WAIT
         const uint32_t reg = (dp_select_ & 0xF0u) | sw_addr_;
         switch (reg) {
             case 0x00: ap_csw_ = (ap_csw_ & 0xFFFFFF00u) | (sw_dato_ & 0xFFu); return;
             case 0x04: ap_tar_ = sw_dato_; return;
-            case 0x0C: ap_write32(ap_tar_, sw_dato_); incrementa_tar(); return;
+            case 0x0C: {
+                uint32_t d = sw_dato_;
+                const auto r = ap_nb(true, ap_tar_, d);
+                if (r != tlm::TLM_OK_RESPONSE) dp_ctrl_ |= ST_STICKYERR;
+                incrementa_tar();
+                return;
+            }
             default:   return;
         }
     }
     // CSW.AddrInc: el auto-incremento de TAR es lo que permite volcar un bloque
-    // de memoria sin reescribir la direccion en cada palabra.
+    // de memoria sin reescribir la direccion en cada palabra. Y su limite: NO
+    // cruza la frontera de 1 KiB, asi que una sonda tiene que reescribir TAR en
+    // cada una. Es de las cosas que mas quebraderos de cabeza dan al escribir
+    // un programador desde cero.
     void incrementa_tar() {
         const unsigned inc = (ap_csw_ >> 4) & 3u;
-        if (inc == 1) ap_tar_ += 1u << (ap_csw_ & 3u);
+        if (inc != 1) return;
+        const uint32_t paso = 1u << (ap_csw_ & 3u);
+        const uint32_t sig = ap_tar_ + paso;
+        if ((sig & ~0x3FFu) != (ap_tar_ & ~0x3FFu)) return;   // frontera de 1 KiB
+        ap_tar_ = sig;
     }
 
 public:

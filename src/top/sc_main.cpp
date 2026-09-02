@@ -74,6 +74,8 @@
 #include "../verif/image_loader.h"
 #include "../verif/ext_parts.h"
 #include "../verif/decoder_vectors.h"
+#include "../verif/gdb_stub.h"
+#include "../verif/gdb_client.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -86,6 +88,11 @@ using tlm::TLM_GENERIC_ERROR_RESPONSE;
 // ---------------------------------------------------------------------------
 static unsigned g_pass = 0, g_fail = 0;
 static std::string g_group;
+
+// Configuracion del servidor GDB. Se fija ANTES de elaborar, porque el stub se
+// construye durante la elaboracion y ahi ya tiene que saber su puerto.
+static unsigned g_gdb_puerto = 3333;
+static bool     g_modo_gdb   = false;
 
 static void group(const char* g) {
     g_group = g;
@@ -173,6 +180,12 @@ SC_MODULE(F1Tb) {
     // el MCU termina en sus pines.
     SwdProbe*     sonda = nullptr;
     SwoReceiver*  swo_rx = nullptr;
+    // El servidor GDB/RSP, soldado a los mismos dos pines que la sonda. Se
+    // construye desconectado del hilo (soltando los pines) y solo se activa
+    // durante su propia prueba, para no pelearse con la sonda del T94.
+    GdbStub*      gdb = nullptr;
+    unsigned&     gdb_puerto_ = g_gdb_puerto;
+    bool&         modo_gdb_ = g_modo_gdb;
 
     // --- Circuitería de las pruebas del bxCAN ------------------------------
     // El bus es un CABLE EN Y con su terminador. Los dos bxCAN del MCU se
@@ -301,6 +314,10 @@ SC_MODULE(F1Tb) {
                               dut->pinmux.analog(0, 13),   // PA13 SWDIO
                               2e6);
         swo_rx = new SwoReceiver("swo_rx", dut->pinmux.analog(1, 3), 1e6);  // PB3
+        gdb = new GdbStub("gdb", dut->pinmux.analog(0, 14),   // PA14 SWCLK
+                                 dut->pinmux.analog(0, 13),   // PA13 SWDIO
+                                 gdb_puerto_, 2e6);
+        gdb->set_enabled(false);
         // --- El bus CAN de la placa (AF9) ---------------------------------
         // CAN1 en PD0/PD1 y CAN2 en PB12/PB13: dos juegos de pines que no
         // chocan con nada de lo que ya usa el banco.
@@ -509,6 +526,25 @@ SC_MODULE(F1Tb) {
         park_cpu();
         power_up();
 
+        // --- Modo servidor GDB: nada de suite ------------------------------
+        // El modelo se queda corriendo con el stub escuchando, esperando a que
+        // se conecte un IDE. Si se pidio una imagen, se carga; si no, el nucleo
+        // arranca en el bucle de aparcamiento y sera GDB quien descargue.
+        if (modo_gdb_) {
+            dut->rcc.set_internal_waveforms(false);
+            xtal_hse->attach();
+            sonda->desconectar();
+            if (!fw_path_.empty()) {
+                ImageLoader ld(*dut);
+                const long n = ld.load_file(fw_path_.c_str(), addr::FLASH_BASE);
+                if (n > 0) std::printf("  imagen: %ld bytes desde %s\n",
+                                       n, fw_path_.c_str());
+            }
+            reset_dut();
+            gdb->set_enabled(true);
+            for (;;) wait(10, SC_MS);        // el stub vive en su propio hilo
+        }
+
         t01_reset_y_relojes();
         t02_gating();
         t03_memorias();
@@ -649,6 +685,7 @@ SC_MODULE(F1Tb) {
         t93_dbg_itm_swo();
         t94_dbg_sonda_swd();
         t95_dbg_firmware();
+        t96_gdb_rsp();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -9428,6 +9465,227 @@ SC_MODULE(F1Tb) {
         dut->rcc.set_internal_waveforms(true);
     }
 
+    // -----------------------------------------------------------------------
+    // T96 — El servidor GDB/RSP, de punta a punta
+    //
+    // El banco hace de GDB: abre un socket contra el puerto del stub y le habla
+    // el Remote Serial Protocol. El stub, por su lado, no tiene mas acceso al
+    // modelo que los dos pines de depuracion. Todo lo que se comprueba aqui
+    // viaja por SWD.
+    // -----------------------------------------------------------------------
+    GdbClient gdb_cli_;
+
+    void t96_gdb_rsp() {
+        group("T96 GDB: servidor RSP en TCP y sesion completa por SWD");
+        can_links(false);
+        reset_dut();
+        // El programita de siempre, cargado a mano en la Flash.
+        const uint32_t prog[3] = {0x30012000u, 0x30043002u, 0xE7FE3008u};
+        dbg_programa(prog, 3);
+        wait(200, SC_US);
+        // Se suelta la sonda del T94 y se enciende el stub: comparten pines.
+        sonda->desconectar();
+        gdb->set_enabled(true);
+        wait(1, SC_MS);
+
+        check(gdb->escuchando(), "el stub escucha en un puerto TCP");
+        std::printf("    el stub escucha en localhost:%u\n", gdb->puerto());
+        if (!gdb_cli_.conectar(gdb->puerto())) {
+            check(false, "el banco se conecta al stub como haria un GDB");
+            gdb->set_enabled(false);
+            return;
+        }
+        wait(2, SC_MS);
+        check(gdb->conectado(), "el banco se conecta al stub como haria un GDB");
+
+        // --- El apreton de manos de cualquier IDE -----------------------------
+        const std::string sup = gdb_cli_.pedir("qSupported:multiprocess+;swbreak+;"
+                                               "hwbreak+;qRelocInsn+;xmlRegisters=arm");
+        std::printf("    qSupported -> %s\n", sup.c_str());
+        check(sup.find("PacketSize=") != std::string::npos,
+              "contesta a qSupported con su tamano de paquete");
+        check(sup.find("qXfer:features:read+") != std::string::npos,
+              "y anuncia que sabe describir el objetivo");
+        check_eq(gdb_cli_.pedir("QStartNoAckMode") == "OK" ? 1u : 0u, 1u,
+                 "acepta el modo sin acuses, que es lo que pide GDB moderno");
+
+        // --- La descripcion del objetivo ---------------------------------------
+        // Sin ella GDB supondria un ARM clasico con registros de coma flotante
+        // FPA, y el paquete de registros no cuadraria.
+        std::string xml;
+        for (unsigned off = 0; off < 4096; off += 512) {
+            char pet[64];
+            std::snprintf(pet, sizeof pet, "qXfer:features:read:target.xml:%x,200", off);
+            const std::string r = gdb_cli_.pedir(pet);
+            if (r.empty()) break;
+            xml += r.substr(1);
+            if (r[0] == 'l') break;
+        }
+        std::printf("    target.xml: %u bytes\n", unsigned(xml.size()));
+        check(xml.find("org.gnu.gdb.arm.m-profile") != std::string::npos,
+              "y esa descripcion dice que el objetivo es un Cortex-M");
+        check(xml.find("xpsr") != std::string::npos && xml.find("msp") != std::string::npos,
+              "con sus 23 registros, xPSR y los del sistema incluidos");
+
+        // --- Estado: el objetivo esta parado al conectarse -----------------------
+        const std::string par = gdb_cli_.pedir("?");
+        std::printf("    ? -> %s\n", par.c_str());
+        check(par.rfind("T05", 0) == 0,
+              "al conectarse, el stub PARA el objetivo y lo dice con T05");
+        check(par.find("thread:1;") != std::string::npos, "con su hilo unico");
+
+        // --- Registros ------------------------------------------------------------
+        gdb_cli_.pedir("P0f=" + hex_le(DBG_PROG));        // pc = principio
+        const std::string g = gdb_cli_.pedir("g");
+        std::printf("    g -> %u bytes (%u registros)\n",
+                    unsigned(g.size()), unsigned(g.size() / 8));
+        check_eq(g.size(), 23u * 8u, "el paquete g trae los 23 registros");
+        check_eq(le32(g, 15), DBG_PROG,
+                 "y el PC es el que se acaba de escribir con P");
+        gdb_cli_.pedir("P00=" + hex_le(0xCAFEBABEu));
+        check_eq(le32(gdb_cli_.pedir("g"), 0), 0xCAFEBABEu,
+                 "escribir un registro suelto con P tambien funciona");
+
+        // --- Memoria ---------------------------------------------------------------
+        tm.write32(addr::SRAM1_BASE + 0x100u, 0x11223344u);
+        const std::string m = gdb_cli_.pedir("m20000100,4");
+        std::printf("    m20000100,4 -> %s\n", m.c_str());
+        check(m == "44332211", "lee memoria: cuatro bytes en orden little endian");
+        check_eq(gdb_cli_.pedir("M20000104,4:efbeadde") == "OK" ? 1u : 0u, 1u,
+                 "y la escribe con M");
+        check_eq(tm.rd32(addr::SRAM1_BASE + 0x104u), 0xDEADBEEFu,
+                 "el dato llega de verdad a la SRAM, por los pines");
+        // Una escritura NO alineada, que es lo que hace GDB al poner una
+        // variable de un byte.
+        check_eq(gdb_cli_.pedir("M20000105,1:55") == "OK" ? 1u : 0u, 1u,
+                 "acepta escrituras no alineadas...");
+        check_eq(tm.rd32(addr::SRAM1_BASE + 0x104u), 0xDEAD55EFu,
+                 "...y solo toca el byte pedido: leer, modificar, escribir");
+
+        // --- Paso a paso -------------------------------------------------------------
+        gdb_cli_.pedir("P0f=" + hex_le(DBG_PROG));
+        gdb_cli_.pedir("P00=" + hex_le(0xFFFFFFFFu));
+        const std::string s1 = gdb_cli_.pedir("s");
+        const uint32_t r0_1 = le32(gdb_cli_.pedir("g"), 0);
+        gdb_cli_.pedir("s");
+        const uint32_t r0_2 = le32(gdb_cli_.pedir("g"), 0);
+        std::printf("    tras dos pasos: r0 = %u -> %u (respuesta %s)\n",
+                    r0_1, r0_2, s1.c_str());
+        check(s1.rfind("T05", 0) == 0, "el paso a paso contesta con T05");
+        check_eq(r0_1, 0u, "y ejecuta UNA instruccion: movs r0,#0");
+        check_eq(r0_2, 1u, "y la siguiente: adds r0,#1");
+
+        // --- Un punto de ruptura por hardware ------------------------------------------
+        // GDB pide Z1 y el stub lo coloca en un comparador del FPB.
+        char zp[32];
+        std::snprintf(zp, sizeof zp, "Z1,%x,2", DBG_PROG + 6);
+        check(gdb_cli_.pedir(zp) == "OK", "acepta un punto de ruptura por hardware (Z1)");
+        gdb_cli_.pedir("P0f=" + hex_le(DBG_PROG));
+        gdb_cli_.enviar("c");                              // continuar: sin respuesta
+        wait(20, SC_MS);                                   // hasta que pare solo
+        const std::string stop = gdb_cli_.recibir(sc_time(20, SC_MS));
+        std::printf("    tras continuar: %s\n", stop.c_str());
+        check(stop.rfind("T05", 0) == 0,
+              "el stub AVISA a GDB en cuanto el objetivo se para solo");
+        check(stop.find("swbreak") != std::string::npos,
+              "y dice que fue un punto de ruptura");
+        const std::string g2 = gdb_cli_.pedir("g");
+        check_eq(le32(g2, 15), uint32_t(DBG_PROG + 6),
+                 "parado exactamente en la instruccion marcada");
+        check_eq(le32(g2, 0), 3u, "con r0 = 3: las dos anteriores y ninguna mas");
+        char zq[32];
+        std::snprintf(zq, sizeof zq, "z1,%x,2", DBG_PROG + 6);
+        check(gdb_cli_.pedir(zq) == "OK", "y lo quita cuando GDB se lo pide");
+
+        // --- Un watchpoint -----------------------------------------------------------
+        check(gdb_cli_.pedir("Z2,20000200,4") == "OK",
+              "y un watchpoint de escritura (Z2) sobre el DWT");
+        check(gdb_cli_.pedir("z2,20000200,4") == "OK", "que tambien se quita");
+
+        // --- monitor ------------------------------------------------------------------
+        check(gdb_cli_.pedir("qRcmd," + a_hex("halt")) == "OK",
+              "atiende `monitor halt`, que es lo que manda un IDE");
+
+        // --- Descarga a la FLASH -------------------------------------------------------
+        // Es la prueba de fuego: `load` sobre 0x0800 0000 NO puede ser una
+        // escritura al bus. El stub desbloquea el controlador con FLASH_KEYR,
+        // borra el sector y programa palabra a palabra, todo por SWD.
+        const uint32_t n_antes = gdb->flash_palabras();
+        check(gdb_cli_.pedir("vFlashErase:8000000,4000",
+                             sc_time(60, SC_MS)) == "OK",
+              "vFlashErase borra el sector 0 por el controlador de Flash");
+        std::printf("    tras borrar: FLASH_CR = 0x%08X, FLASH_SR = 0x%08X, Flash[0x300] = 0x%08X\n",
+                    dbg_rd(0x40023C10u), dbg_rd(0x40023C0Cu), dbg_rd(0x08000300u));
+        check_eq(dbg_rd(0x08000300u), 0xFFFFFFFFu,
+                 "y la Flash queda de verdad a unos");
+        // Cuatro palabras: movs r0,#0x5A ; b . (y relleno)
+        const std::string datos = bin_escapado("\x5A\x20\xFE\xE7\x00\xBF\x00\xBF");
+        check(gdb_cli_.pedir("vFlashWrite:8000300:" + datos,
+                             sc_time(60, SC_MS)) == "OK",
+              "vFlashWrite programa palabra a palabra con PG y PSIZE");
+        check(gdb_cli_.pedir("vFlashDone") == "OK", "y vFlashDone vuelve a bloquearla");
+        std::printf("    programadas %u palabras; Flash[0x300] = 0x%08X (SR = 0x%08X)\n",
+                    gdb->flash_palabras() - n_antes, dbg_rd(0x08000300u),
+                    dbg_rd(0x40023C0Cu));
+        check_eq(dbg_rd(0x08000300u), 0xE7FE205Au,
+                 "el codigo queda escrito en la Flash: la descarga funciona");
+        // Y se ejecuta: es lo que hace GDB tras un `load`.
+        gdb_cli_.pedir("P0f=" + hex_le(0x08000300u));
+        gdb_cli_.pedir("s");
+        check_eq(le32(gdb_cli_.pedir("g"), 0), 0x5Au,
+                 "y el nucleo ejecuta lo que se acaba de programar");
+
+        // --- Cierre ---------------------------------------------------------------------
+        check(gdb_cli_.pedir("D") == "OK", "y se despide con D cuando GDB se va");
+        std::printf("    el stub atendio %u paquetes en la sesion\n", gdb->paquetes());
+        check(gdb->paquetes() > 30u, "toda la sesion fue por el socket y por dos pines");
+        gdb_cli_.desconectar();
+        gdb->set_enabled(false);
+        wait(1, SC_MS);
+    }
+
+    // Ayudas del cliente de pruebas
+    static std::string hex_le(uint32_t v) {
+        static const char* h = "0123456789abcdef";
+        std::string s;
+        for (unsigned i = 0; i < 4; ++i) {
+            const uint8_t b = uint8_t(v >> (8 * i));
+            s.push_back(h[b >> 4]); s.push_back(h[b & 0xF]);
+        }
+        return s;
+    }
+    static uint32_t le32(const std::string& s, unsigned reg) {
+        uint32_t v = 0;
+        const size_t i = 8u * reg;
+        if (i + 8 > s.size()) return 0;
+        for (unsigned k = 0; k < 4; ++k) {
+            auto d = [](char c) -> unsigned {
+                if (c >= '0' && c <= '9') return unsigned(c - '0');
+                if (c >= 'a' && c <= 'f') return unsigned(c - 'a' + 10);
+                return unsigned(c - 'A' + 10);
+            };
+            v |= uint32_t(d(s[i + 2 * k]) * 16u + d(s[i + 2 * k + 1])) << (8 * k);
+        }
+        return v;
+    }
+    static std::string a_hex(const std::string& t) {
+        static const char* h = "0123456789abcdef";
+        std::string s;
+        for (unsigned char c : t) { s.push_back(h[c >> 4]); s.push_back(h[c & 0xF]); }
+        return s;
+    }
+    // El escapado binario del RSP: 0x23 ('#'), 0x24 ('$') y 0x7D se mandan
+    // precedidos de 0x7D y con el bit 5 invertido.
+    static std::string bin_escapado(const std::string& d) {
+        std::string s;
+        for (unsigned char c : d) {
+            if (c == 0x23 || c == 0x24 || c == 0x7D || c == 0x2A) {
+                s.push_back(char(0x7D)); s.push_back(char(c ^ 0x20));
+            } else s.push_back(char(c));
+        }
+        return s;
+    }
+
     std::string dbg_fw_path_ = "verif/fw/debug_demo/debug_demo.bin";
     std::string can_fw_path_ = "verif/fw/can_demo/can_demo.bin";
     std::string crc_fw_path_ = "verif/fw/crc_rng_demo/crc_rng_demo.bin";
@@ -9460,9 +9718,35 @@ int sc_main(int argc, char** argv) {
     sc_report_handler::set_actions("i2c", SC_WARNING, SC_DO_NOTHING);
     sc_report_handler::set_actions("spi", SC_WARNING, SC_DO_NOTHING);
 
+    // --- Modo SERVIDOR GDB -------------------------------------------------
+    //   ./stm32f407vg --gdb [puerto] [imagen]
+    // No ejecuta la suite: levanta el modelo, abre el puerto y se queda
+    // esperando a que se conecte Eclipse CDT, STM32CubeIDE o un
+    // arm-none-eabi-gdb. Es el modo de trabajo interactivo.
+    bool modo_gdb = false;
+    unsigned puerto = 3333;
+    const char* imagen = nullptr;
+    for (int i = 1; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--gdb") modo_gdb = true;
+        else if (a.rfind("--port=", 0) == 0) puerto = unsigned(std::atoi(a.c_str() + 7));
+        else imagen = argv[i];
+    }
+
+    g_modo_gdb   = modo_gdb;
+    g_gdb_puerto = puerto;
     F1Tb tb("tb");
     // Argumento opcional: imagen de firmware alternativa (.bin o .hex)
-    if (argc > 1) tb.fw_path_ = argv[1];
+    if (imagen) tb.fw_path_ = imagen;
+    if (modo_gdb) {
+        std::printf("=====================================================\n"
+                    "  STM32F407VG — modelo SystemC con servidor GDB\n"
+                    "  Conectar con:  target extended-remote localhost:%u\n"
+                    "  (Ctrl-C para terminar la simulacion)\n"
+                    "=====================================================\n",
+                    puerto);
+        std::fflush(stdout);
+    }
     sc_start();
     std::printf("\nTiempo simulado: %s\n", sc_time_stamp().to_string().c_str());
     return (g_fail == 0) ? 0 : 1;
