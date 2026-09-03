@@ -1237,5 +1237,160 @@ private:
     uint32_t acc_ = 0;
 };
 
+// ===========================================================================
+// UN SENSOR DE IMAGEN CMOS, en los pines
+//
+// Es la otra mitad del DCMI, y sin ella el periferico no se puede probar: el
+// DCMI no pide datos, los RECIBE, asi que hace falta alguien que los ponga en
+// catorce hilos al ritmo de su propio reloj. Este sensor hace exactamente lo
+// que hace un OV7670 o un MT9V034 en una placa:
+//
+//   * genera PIXCLK a la frecuencia que se le pida y conduce los datos en el
+//     flanco CONTRARIO al que muestrea el DCMI, que es como se cumple el
+//     tiempo de establecimiento;
+//   * marca los bordes con VSYNC y HSYNC, con las polaridades que se le
+//     configuren -o, si se le pide, SIN ellas, metiendo los codigos de
+//     sincronismo en el propio flujo de datos (BT.656);
+//   * emite un patron reproducible, de modo que el banco puede comprobar
+//     PIXEL A PIXEL lo que ha llegado a la memoria;
+//   * y no se puede parar. Esa es la caracteristica esencial: si el DCMI no
+//     vacia su FIFO a tiempo, los datos se pierden. Un modelo de sensor que
+//     esperase seria un modelo inutil.
+// ===========================================================================
+SC_MODULE(CameraSensor) {
+    // Los tres pines de control mas hasta catorce de datos. Los que no existan
+    // en el encapsulado se pasan como nullptr: el sensor no los conduce, y el
+    // DCMI lee lo que haya, que es justo lo que pasa en la placa.
+    CameraSensor(sc_core::sc_module_name nm, analog_net_if& pixclk,
+                 analog_net_if& hsync, analog_net_if& vsync,
+                 const std::vector<analog_net_if*>& d, double vdd = 3.3)
+        : sc_core::sc_module(nm), pclk_(&pixclk), hs_(&hsync), vs_(&vsync),
+          d_(d), vdd_(vdd) {
+        id_pclk_ = pclk_->register_driver("cam_pixclk");
+        id_hs_   = hs_->register_driver("cam_hsync");
+        id_vs_   = vs_->register_driver("cam_vsync");
+        for (size_t i = 0; i < d_.size(); ++i)
+            id_d_.push_back(d_[i] ? d_[i]->register_driver("cam_d") : -1);
+        SC_HAS_PROCESS(CameraSensor);
+        SC_THREAD(run);
+        soltar();
+    }
+
+    // --- Configuracion del sensor -------------------------------------------
+    void set_formato(unsigned ancho, unsigned alto, unsigned bits) {
+        ancho_ = ancho; alto_ = alto; bits_ = bits;
+    }
+    void set_pixclk(double hz)          { f_pix_ = hz; }
+    // Polaridades TAL Y COMO LAS VE EL DCMI: nivel activo de cada sincronismo,
+    // que es el nivel de BORRADO [IR, §12.22.2].
+    void set_polaridad(bool vs_act_alto, bool hs_act_alto, bool datos_en_subida) {
+        vs_alto_ = vs_act_alto; hs_alto_ = hs_act_alto; subida_ = datos_en_subida;
+    }
+    void set_blanking(unsigned h_pix, unsigned v_lin) { hb_ = h_pix; vb_ = v_lin; }
+    // Sincronismo embebido: en vez de mover HSYNC y VSYNC, mete los cuatro
+    // codigos en el flujo (BT.656). Los pines de sincronismo quedan quietos.
+    void set_embebido(bool on, uint8_t fs = 0xFF, uint8_t ls = 0xFE,
+                      uint8_t le = 0xFD, uint8_t fe = 0xFC) {
+        emb_ = on; c_fs_ = fs; c_ls_ = ls; c_le_ = le; c_fe_ = fe;
+    }
+    // El patron. Por omision, una rampa que depende de la posicion: cada pixel
+    // vale algo distinto y comprobable.
+    void set_patron(unsigned p) { patron_ = p; }
+    uint32_t pixel_esperado(unsigned x, unsigned y) const {
+        const uint32_t m = (1u << bits_) - 1u;
+        switch (patron_) {
+            case 1:  return (x ^ y) & m;                 // tablero
+            case 2:  return (0xA5A5u + 7u * y) & m;      // constante por linea
+            default: return (x + 3u * y) & m;            // rampa
+        }
+    }
+
+    // --- Mando --------------------------------------------------------------
+    void emitir(unsigned n_cuadros) { pedidos_ += n_cuadros; ev_.notify(sc_core::SC_ZERO_TIME); }
+    void parar() { pedidos_ = 0; }
+    unsigned emitidos() const { return n_emitidos_; }
+    // Desuelda el sensor: deja los diecisiete pines en alta impedancia. Hace
+    // falta porque en el LQFP100 estos pines los comparten otras funciones.
+    void soltar() {
+        pclk_->set_hiz(id_pclk_); hs_->set_hiz(id_hs_); vs_->set_hiz(id_vs_);
+        for (size_t i = 0; i < d_.size(); ++i)
+            if (d_[i] && id_d_[i] >= 0) d_[i]->set_hiz(id_d_[i]);
+        soldado_ = false;
+    }
+    void soldar() {
+        soldado_ = true;
+        nivel(*vs_, id_vs_, vs_alto_);      // en reposo: borrado vertical
+        nivel(*hs_, id_hs_, hs_alto_);
+        nivel(*pclk_, id_pclk_, false);
+    }
+
+private:
+    void nivel(analog_net_if& n, int id, bool alto) {
+        if (id >= 0) n.set_drive(id, alto ? float(vdd_) : 0.0f, 25.0f);
+    }
+    void datos(uint32_t v) {
+        for (size_t i = 0; i < d_.size(); ++i)
+            if (d_[i] && id_d_[i] >= 0) nivel(*d_[i], id_d_[i], (v >> i) & 1u);
+    }
+    // Un ciclo de pixel entero: el dato se pone con el reloj en reposo y se
+    // mantiene durante el flanco activo, que es lo que hace un sensor real.
+    void ciclo(uint32_t dato) {
+        const sc_core::sc_time t(0.5e12 / f_pix_, sc_core::SC_PS);
+        datos(dato);
+        nivel(*pclk_, id_pclk_, !subida_);      // nivel de reposo
+        wait(t);
+        nivel(*pclk_, id_pclk_, subida_);       // flanco que muestrea el DCMI
+        wait(t);
+    }
+
+    void run() {
+        for (;;) {
+            if (!pedidos_ || !soldado_) { wait(ev_); continue; }
+            --pedidos_;
+            emitir_cuadro();
+            ++n_emitidos_;
+        }
+    }
+
+    void emitir_cuadro() {
+        if (emb_) { emitir_cuadro_embebido(); return; }
+        // Sale del borrado vertical: empieza el cuadro.
+        nivel(*vs_, id_vs_, !vs_alto_);
+        for (unsigned y = 0; y < alto_; ++y) {
+            nivel(*hs_, id_hs_, !hs_alto_);            // linea activa
+            for (unsigned x = 0; x < ancho_; ++x) ciclo(pixel_esperado(x, y));
+            nivel(*hs_, id_hs_, hs_alto_);             // borrado horizontal
+            for (unsigned k = 0; k < hb_; ++k) ciclo(0);
+        }
+        nivel(*vs_, id_vs_, vs_alto_);                 // borrado vertical
+        for (unsigned k = 0; k < vb_; ++k) ciclo(0);
+    }
+
+    // BT.656: los sincronismos van EN LOS DATOS. Los pines HSYNC y VSYNC no se
+    // mueven, y el DCMI se entera de todo por los cuatro codigos.
+    void emitir_cuadro_embebido() {
+        ciclo(c_fs_);
+        for (unsigned y = 0; y < alto_; ++y) {
+            ciclo(c_ls_);
+            for (unsigned x = 0; x < ancho_; ++x) ciclo(pixel_esperado(x, y));
+            ciclo(c_le_);
+        }
+        ciclo(c_fe_);
+    }
+
+    analog_net_if *pclk_, *hs_, *vs_;
+    std::vector<analog_net_if*> d_;
+    std::vector<int> id_d_;
+    int id_pclk_ = -1, id_hs_ = -1, id_vs_ = -1;
+    double vdd_, f_pix_ = 6.0e6;
+    unsigned ancho_ = 16, alto_ = 8, bits_ = 8;
+    unsigned hb_ = 4, vb_ = 2, patron_ = 0;
+    bool vs_alto_ = false, hs_alto_ = false, subida_ = true;
+    bool emb_ = false, soldado_ = false;
+    uint8_t c_fs_ = 0xFF, c_ls_ = 0xFE, c_le_ = 0xFD, c_fe_ = 0xFC;
+    unsigned pedidos_ = 0, n_emitidos_ = 0;
+    sc_core::sc_event ev_;
+};
+
 } // namespace stm32
 #endif // STM32_VERIF_EXT_PARTS_H

@@ -198,6 +198,20 @@ SC_MODULE(F1Tb) {
     bool&         modo_gdb_ = g_modo_gdb;
     bool&         modo_gdb_dap_ = g_modo_gdb_dap;
 
+    // --- DCMI con rasgos elegidos en TIEMPO DE EJECUCIÓN (véase T105) -------
+    // Es el mismo bloque del MCU con otros rasgos: ocho bits, sin recorte, sin
+    // JPEG y sin sincronismo embebido. Sirve para comprobar sobre el BUS -no
+    // leyendo una tabla- que las máscaras de escritura siguen a los rasgos.
+    DcmiBase* dcmi_rt = nullptr;
+    BusTestMaster tm10{"tm10"};
+    sc_signal<bool>   s_dcm_true{"s_dcm_true"}, s_dcm_rst{"s_dcm_rst"};
+    sc_signal<bool>   s_dcm_irq{"s_dcm_irq"}, s_dcm_drq{"s_dcm_drq"};
+
+    // --- El sensor de imagen de la placa (AF13) -----------------------------
+    // Diecisiete pines: PIXCLK, HSYNC, VSYNC y doce de datos. Son los que el
+    // LQFP100 tiene para el DCMI; D12 y D13 no existen en este encapsulado.
+    CameraSensor* cam = nullptr;
+
     // --- Circuitería de las pruebas del bxCAN ------------------------------
     // El bus es un CABLE EN Y con su terminador. Los dos bxCAN del MCU se
     // enganchan a él por sendos transceptores, y hay además un nodo externo
@@ -347,6 +361,40 @@ SC_MODULE(F1Tb) {
             gdb_dap = new GdbStubDap("gdb_dap", dut->core.debug, gdb_puerto_ + 1);
             gdb_dap->set_enabled(false);
         }
+        // Un DCMI de ocho bits con los rasgos puestos en tiempo de EJECUCIÓN.
+        {
+            DcmiCaps c{};
+            c.max_edm = 0; c.lineas_pin = 8;
+            c.crop = false; c.jpeg = false; c.embedded_sync = false;
+            c.frame_rate_ctrl = false;
+            c.kind = "DCMI a medida: 8 bits, sin recorte ni sincronismo embebido";
+            dcmi_rt = new DcmiBase("dcmi_rt", c);
+        }
+        tm10.isk.bind(dcmi_rt->tsk);
+        dcmi_rt->clk(dut->s_hclk);  dcmi_rt->clk_hz(dut->s_hclk_hz);
+        dcmi_rt->rst_n(s_dcm_rst);   dcmi_rt->clk_en(s_dcm_true);
+        dcmi_rt->irq(s_dcm_irq);     dcmi_rt->dma_req(s_dcm_drq);
+
+        // --- El sensor de imagen (AF13) -----------------------------------
+        // Se sueldan los doce hilos que el encapsulado tiene. Los dos que
+        // faltan -D12 y D13- no se pasan: no hay pin al que soldarlos, y el
+        // DCMI leera lo que haya en unas entradas que nadie conduce.
+        cam = new CameraSensor("cam",
+                  dut->pinmux.analog(0, 6),          // PA6  PIXCLK
+                  dut->pinmux.analog(0, 4),          // PA4  HSYNC
+                  dut->pinmux.analog(1, 7),          // PB7  VSYNC
+                  { &dut->pinmux.analog(2, 6),       // PC6  D0
+                    &dut->pinmux.analog(2, 7),       // PC7  D1
+                    &dut->pinmux.analog(4, 0),       // PE0  D2
+                    &dut->pinmux.analog(4, 1),       // PE1  D3
+                    &dut->pinmux.analog(4, 4),       // PE4  D4
+                    &dut->pinmux.analog(1, 6),       // PB6  D5
+                    &dut->pinmux.analog(4, 5),       // PE5  D6
+                    &dut->pinmux.analog(4, 6),       // PE6  D7
+                    &dut->pinmux.analog(2, 10),      // PC10 D8
+                    &dut->pinmux.analog(2, 12),      // PC12 D9
+                    &dut->pinmux.analog(1, 5),       // PB5  D10
+                    &dut->pinmux.analog(3, 2) });    // PD2  D11
         // --- El bus CAN de la placa (AF9) ---------------------------------
         // CAN1 en PD0/PD1 y CAN2 en PB12/PB13: dos juegos de pines que no
         // chocan con nada de lo que ya usa el banco.
@@ -488,6 +536,7 @@ SC_MODULE(F1Tb) {
         delete w_sda; delete w_scl;
         delete s_rt;
         delete lnk_iext; delete lnk_isd; delete lnk_iws; delete lnk_ick;
+        delete cam; delete dcmi_rt;
         delete lnk_nss; delete lnk_miso; delete lnk_mosi; delete lnk_sck;
         delete t_rt;
         delete sd_rt;
@@ -740,6 +789,11 @@ SC_MODULE(F1Tb) {
         t102_consumo();
         t103_lp_firmware();
         t104_lp_debug();
+        const unsigned f7lp_pass = g_pass, f7lp_fail = g_fail;
+        t105_dcmi_variantes();
+        t106_dcmi_captura();
+        t107_dcmi_recorte_dma();
+        t108_dcmi_embebido();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -774,7 +828,9 @@ SC_MODULE(F1Tb) {
         std::printf("Resumen F6 (debug): %u comprobaciones OK, %u fallos\n",
                     f6_pass - f5n_pass, f6_fail - f5n_fail);
         std::printf("Resumen F7 (bajo consumo): %u comprobaciones OK, %u fallos\n",
-                    g_pass - f6_pass, g_fail - f6_fail);
+                    f7lp_pass - f6_pass, f7lp_fail - f6_fail);
+        std::printf("Resumen F7 (DCMI): %u comprobaciones OK, %u fallos\n",
+                    g_pass - f7lp_pass, g_fail - f7lp_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -10651,6 +10707,527 @@ SC_MODULE(F1Tb) {
                  "y al quitar los bits, el MCU vuelve a ser lo ahorrador que era");
     }
 
+    // =======================================================================
+    // FASE F7 — INTERFAZ DE CÁMARA (DCMI) [IR, §12.22]
+    //
+    // El DCMI es el unico periferico del modelo que NO PUEDE PARAR a quien le
+    // habla. Un USART negocia, un I2C estira el reloj, un SPI es maestro: el
+    // DCMI mira. El sensor pone datos a su ritmo y el que no llegue a tiempo,
+    // los pierde. Por eso todas estas pruebas empiezan igual -soldando un
+    // sensor de verdad a los pines- y por eso una de ellas comprueba
+    // precisamente que se pierden.
+    // =======================================================================
+    static constexpr uint32_t DC_B = addr::DCMI_B;
+
+    uint32_t dcmi_rd(uint32_t off) { uint32_t v = 0; tm.read32(DC_B + off, v); return v; }
+    void dcmi_wr(uint32_t off, uint32_t v) { tm.write32(DC_B + off, v); }
+
+    // Los diecisiete pines del interfaz de camara en AF13 [IR, cap. 2]. Ponerlos
+    // DESCONECTA lo que hubiera en ellos: PB6/PB7 dejan de ser el I2C1 y PA4/PA6
+    // dejan de ser el SPI1, que es exactamente lo que pasa en una placa cuando
+    // se decide para que sirve cada pin.
+    void dcmi_pines(unsigned n_datos) {
+        rcc_enable(Rcc::R_AHB1ENR, 0);   // GPIOA
+        rcc_enable(Rcc::R_AHB1ENR, 1);   // GPIOB
+        rcc_enable(Rcc::R_AHB1ENR, 2);   // GPIOC
+        rcc_enable(Rcc::R_AHB1ENR, 3);   // GPIOD
+        rcc_enable(Rcc::R_AHB1ENR, 4);   // GPIOE
+        static const unsigned pines[12][2] = {
+            {2, 6}, {2, 7}, {4, 0}, {4, 1}, {4, 4}, {1, 6},
+            {4, 5}, {4, 6}, {2, 10}, {2, 12}, {1, 5}, {3, 2}
+        };
+        pin_cfg(0, 6, 2, 0, false, 0, 13);          // PA6  PIXCLK
+        pin_cfg(0, 4, 2, 0, false, 0, 13);          // PA4  HSYNC
+        pin_cfg(1, 7, 2, 0, false, 0, 13);          // PB7  VSYNC
+        for (unsigned i = 0; i < n_datos && i < 12; ++i)
+            pin_cfg(pines[i][0], pines[i][1], 2, 0, false, 0, 13);
+    }
+
+    // Deja la placa lista para la camara: se quitan los enlaces y las fuentes
+    // que comparten esos mismos pines con otras pruebas.
+    void dcmi_placa(bool on) {
+        spi_links(on ? false : true);
+        // Y se levanta el bus I2C de la placa: sus hilos pasan por PB6 y PB7,
+        // que en esta prueba son DCMI_D5 y DCMI_VSYNC. Un hilo de colector
+        // abierto no se puede compartir con una salida push-pull: el que tira
+        // a cero gana, y el sensor se queda mudo. En una placa de verdad, la
+        // decision es la misma y se toma con el soldador.
+        i2c_bus(!on);
+        if (on) {
+            src_pa4->release(); drv_pa6->release(); drv_pb5->release();
+            src_pa1->release(); src_pa2->release();
+            rcc_enable(Rcc::R_AHB2ENR, 0);          // DCMIEN
+            cam->soldar();
+        } else {
+            cam->soltar();
+        }
+        wait(10, SC_US);
+    }
+
+    // Lee un cuadro entero por sondeo de la FIFO, que es la forma mas simple
+    // -y la mas lenta- de usar el DCMI.
+    unsigned dcmi_sondeo(std::vector<uint32_t>& out, unsigned max_pal,
+                         sc_time limite = sc_time(5, SC_MS)) {
+        const sc_time t0 = sc_time_stamp();
+        out.clear();
+        while (out.size() < max_pal && sc_time_stamp() - t0 < limite) {
+            if (dcmi_rd(Dcmi::R_SR) & Dcmi::SR_FNE) out.push_back(dcmi_rd(Dcmi::R_DR));
+            else wait(1, SC_US);
+        }
+        return unsigned(out.size());
+    }
+
+    // -----------------------------------------------------------------------
+    // T105 — Los rasgos: en que se diferencian los "canales" del DCMI
+    // -----------------------------------------------------------------------
+    void t105_dcmi_variantes() {
+        group("T105 DCMI: rasgos, variantes y los dos hilos que no existen [IR, 12.22]");
+        reset_dut();
+        dbg_resume();
+        rcc_enable(Rcc::R_AHB2ENR, 0);              // DCMIEN
+        wait(50, SC_US);
+
+        // --- Una sola instancia, y catorce canales que no son iguales --------
+        check_eq(dut->dcmi.caps.max_edm, 3u,
+                 "el REGISTRO del F407 llega a 14 bits (EDM = 11)");
+        check_eq(dut->dcmi.caps.lineas_pin, 12u,
+                 "pero el ENCAPSULADO solo tiene doce hilos cableados");
+        std::printf("    variante: %s\n", dut->dcmi.caps.kind);
+
+        // --- Las mascaras de escritura, que es donde viven los rasgos --------
+        dcmi_wr(Dcmi::R_CR, 0xFFFFFFFFu);
+        const uint32_t cr = dcmi_rd(Dcmi::R_CR);
+        check_eq(cr & Dcmi::CR_ENABLE, Dcmi::CR_ENABLE, "ENABLE se guarda");
+        check_eq((cr >> 10) & 3u, 3u, "EDM llega a 11: el F407 admite 14 bits");
+        check((cr & Dcmi::CR_CROP) && (cr & Dcmi::CR_JPEG) && (cr & Dcmi::CR_ESS),
+              "CROP, JPEG y ESS existen en esta variante");
+        check_eq((cr >> 8) & 3u, 3u, "y el control de cadencia FCRC tambien");
+        check_eq(cr & 0xFFE00000u, 0u, "los bits reservados no se guardan");
+        check_eq(cr & (Dcmi::CR_BSM | Dcmi::CR_LSM), 0u,
+                 "la seleccion de byte y de linea NO esta en el F407 [IR, 12.22.2]");
+        dcmi_wr(Dcmi::R_CR, 0);
+
+        // Los registros de la ventana y de los codigos existen porque la
+        // variante los tiene.
+        dcmi_wr(Dcmi::R_CWSTRT, 0x00100020u);
+        dcmi_wr(Dcmi::R_CWSIZE, 0x00080040u);
+        check_eq(dcmi_rd(Dcmi::R_CWSTRT), 0x00100020u, "DCMI_CWSTRT se guarda");
+        check_eq(dcmi_rd(Dcmi::R_CWSIZE), 0x00080040u, "DCMI_CWSIZE se guarda");
+        dcmi_wr(Dcmi::R_ESCR, 0xFCFDFEFFu);
+        check_eq(dcmi_rd(Dcmi::R_ESCR), 0xFCFDFEFFu,
+                 "y los codigos de sincronismo embebido");
+        dcmi_wr(Dcmi::R_CWSTRT, 0); dcmi_wr(Dcmi::R_CWSIZE, 0); dcmi_wr(Dcmi::R_ESCR, 0);
+
+        // --- La otra variante, sobre el BUS ---------------------------------
+        // El mismo modelo con otros rasgos, elegidos en tiempo de EJECUCION y
+        // conectado a su propio maestro de pruebas. Lo que se comprueba no es
+        // una tabla: es que los bits no se guardan.
+        s_dcm_true.write(true); s_dcm_rst.write(true);
+        wait(20, SC_US);
+        std::printf("    variante en ejecucion: %s\n", dcmi_rt->caps.kind);
+        tm10.write32(DC_B + Dcmi::R_CR, 0xFFFFFFFFu);
+        const uint32_t cr8 = tm10.rd32(DC_B + Dcmi::R_CR);
+        check_eq((cr8 >> 10) & 3u, 0u,
+                 "en la variante de 8 bits, EDM no se guarda: no hay mas hilos");
+        check_eq(cr8 & (Dcmi::CR_CROP | Dcmi::CR_JPEG | Dcmi::CR_ESS), 0u,
+                 "ni CROP, ni JPEG, ni ESS: los bits que no existen leen cero");
+        check_eq((cr8 >> 8) & 3u, 0u, "ni el control de cadencia");
+        check(cr8 & Dcmi::CR_ENABLE,
+              "pero ENABLE, CAPTURE y las polaridades siguen ahi: eso lo tiene todo DCMI");
+        tm10.write32(DC_B + Dcmi::R_CWSTRT, 0x00100020u);
+        tm10.write32(DC_B + Dcmi::R_ESCR, 0xFFFFFFFFu);
+        check_eq(tm10.rd32(DC_B + Dcmi::R_CWSTRT), 0u,
+                 "y sus registros de ventana se leen cero, como bits reservados");
+        check_eq(tm10.rd32(DC_B + Dcmi::R_ESCR), 0u, "y los de sincronismo embebido");
+        tm10.write32(DC_B + Dcmi::R_CR, 0);
+        check(dut->dcmi.caps.crop && !dcmi_rt->caps.crop &&
+              dut->dcmi.caps.max_edm > dcmi_rt->caps.max_edm,
+              "los ejes ancho / recorte / JPEG / embebido son independientes");
+        check_eq(CAPS_DCMI_BSM.lineas_pin, 14u,
+                 "y la variante de los F4x9/F7 anade seleccion de byte y de linea");
+        check(CAPS_DCMI_BSM.byte_select && CAPS_DCMI_BSM.line_select,
+              "con los catorce hilos cableados, que es lo que cambia de verdad");
+
+        // --- La comprobacion que importa: los dos hilos que faltan -----------
+        // No es un rasgo inventado: sale de la tabla de pines del informe.
+        dcmi_pines(12);
+        check(true, "los doce hilos del LQFP100 se configuran en AF13 [IR, cap. 2]");
+        std::printf("    D0..D11 tienen pin; D12 y D13 solo salen por PF11/PG6 y "
+                    "PG7/PI0, que no existen aqui\n");
+        dcmi_wr(Dcmi::R_CR, Dcmi::CR_ENABLE | (3u << 10));   // EDM = 14 bits
+        wait(10, SC_US);
+        check_eq(dut->dcmi.ancho_bits(), 14u, "se puede PROGRAMAR un bus de 14 bits");
+        check_eq(dut->dcmi.bits_utiles(), 12u, "pero solo doce llegan de verdad");
+        dcmi_wr(Dcmi::R_CR, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // T106 — Captura con sincronismo por hardware
+    // -----------------------------------------------------------------------
+    void t106_dcmi_captura() {
+        group("T106 DCMI: captura de un cuadro por HSYNC/VSYNC [IR, 12.22.1]");
+        reset_dut();
+        dbg_resume();
+        dcmi_pines(8);
+        dcmi_placa(true);
+
+        cam->set_formato(16, 8, 8);          // 16x8 pixeles de 8 bits
+        cam->set_pixclk(6.0e6);
+        cam->set_polaridad(false, false, true);   // sincronismos activos BAJOS
+        cam->set_blanking(4, 2);
+        cam->set_patron(0);                  // rampa: pixel = x + 3y
+
+        // VSPOL = HSPOL = 0 (sincronismo activo bajo), PCKPOL = 1 (flanco de
+        // subida), EDM = 8 bits, captura continua.
+        dcmi_wr(Dcmi::R_CR, Dcmi::CR_ENABLE | Dcmi::CR_PCKPOL);
+        check_eq(dcmi_rd(Dcmi::R_SR) & Dcmi::SR_FNE, 0u,
+                 "con el sensor quieto, la FIFO esta vacia");
+        check(dcmi_rd(Dcmi::R_SR) & Dcmi::SR_VSYNC,
+              "y el DCMI ve el borrado vertical: no hay cuadro en curso");
+
+        // CAPTURE no captura AHORA: arma. El cuadro que ya esta en marcha no se
+        // parte por la mitad [IR, 12.22.1].
+        dcmi_wr(Dcmi::R_CR, dcmi_rd(Dcmi::R_CR) | Dcmi::CR_CAPTURE);
+        cam->emitir(1);
+        std::vector<uint32_t> pal;
+        const unsigned n = dcmi_sondeo(pal, 16u * 8u / 4u);
+        check_eq(n, 32u, "llegan las 32 palabras de un cuadro de 16x8 a 8 bits");
+
+        // Y ahora lo que de verdad importa: que los pixeles sean los que puso
+        // el sensor, en el orden en que los puso.
+        unsigned malos = 0;
+        for (unsigned i = 0; i < n && i < 32u; ++i) {
+            for (unsigned b = 0; b < 4; ++b) {
+                const unsigned idx = 4 * i + b;
+                const unsigned x = idx % 16u, y = idx / 16u;
+                const uint8_t esperado = uint8_t(cam->pixel_esperado(x, y));
+                const uint8_t leido = uint8_t(pal[i] >> (8 * b));
+                if (esperado != leido) ++malos;
+            }
+        }
+        check_eq(malos, 0u,
+                 "y cada pixel esta donde y como lo puso el sensor: cuatro por palabra");
+        check(dcmi_rd(Dcmi::R_RIS) & Dcmi::F_FRAME,
+              "el final del cuadro levanta FRAME [IR, 12.22.2]");
+        check(dcmi_rd(Dcmi::R_RIS) & Dcmi::F_LINE, "y el de cada linea, LINE");
+        check(dcmi_rd(Dcmi::R_RIS) & Dcmi::F_VSYNC, "y el sincronismo de cuadro, VSYNC");
+        check_eq(dut->dcmi.desbordes(), 0u, "sin desbordes: la FIFO se vacio a tiempo");
+        dcmi_wr(Dcmi::R_ICR, 0x1Fu);
+        check_eq(dcmi_rd(Dcmi::R_RIS), 0u, "DCMI_ICR limpia las banderas");
+
+        // --- La interrupcion, por el camino de verdad ------------------------
+        dcmi_wr(Dcmi::R_IER, Dcmi::F_FRAME);
+        cam->emitir(1);
+        wait(400, SC_US);
+        check(dut->s_irq[78].read(), "con FRAME_IE puesto, el final de cuadro va al NVIC");
+        check_eq(dcmi_rd(Dcmi::R_MIS) & Dcmi::F_FRAME, Dcmi::F_FRAME,
+                 "y DCMI_MIS solo ensena lo que esta desenmascarado");
+        dcmi_wr(Dcmi::R_ICR, 0x1Fu);
+        wait(20, SC_US);
+        check(!dut->s_irq[78].read(), "limpiarla la retira");
+        dcmi_wr(Dcmi::R_IER, 0);
+
+        // --- Instantanea: un cuadro y para ----------------------------------
+        std::vector<uint32_t> p2;
+        dcmi_sondeo(p2, 64u, sc_time(200, SC_US));       // vaciar restos
+        dcmi_wr(Dcmi::R_CR, Dcmi::CR_ENABLE | Dcmi::CR_PCKPOL | Dcmi::CR_CM |
+                            Dcmi::CR_CAPTURE);
+        const uint64_t c0 = dut->dcmi.cuadros();
+        cam->emitir(3);                                   // el sensor manda tres
+        wait(1500, SC_US);
+        check_eq(unsigned(dut->dcmi.cuadros() - c0), 1u,
+                 "en modo instantanea se captura UN cuadro aunque lleguen tres");
+        check_eq(dcmi_rd(Dcmi::R_CR) & Dcmi::CR_CAPTURE, 0u,
+                 "y es el HARDWARE quien limpia CAPTURE al terminar [IR, 12.22.2]");
+
+        // --- Cadencia: uno de cada dos cuadros -------------------------------
+        std::vector<uint32_t> p3;
+        dcmi_sondeo(p3, 256u, sc_time(300, SC_US));
+        dcmi_wr(Dcmi::R_ICR, 0x1Fu);
+        dcmi_wr(Dcmi::R_CR, Dcmi::CR_ENABLE | Dcmi::CR_PCKPOL | (1u << 8) |
+                            Dcmi::CR_CAPTURE);
+        const uint64_t c1 = dut->dcmi.cuadros();
+        cam->emitir(4);
+        // Se vacia la FIFO mientras llegan, o el desborde falsearia la cuenta.
+        for (unsigned i = 0; i < 400; ++i) {
+            if (dcmi_rd(Dcmi::R_SR) & Dcmi::SR_FNE) dcmi_rd(Dcmi::R_DR);
+            else wait(5, SC_US);
+        }
+        wait(500, SC_US);
+        const unsigned cap = unsigned(dut->dcmi.cuadros() - c1);
+        std::printf("    con FCRC = 01 el sensor mando 4 cuadros y se capturaron %u\n", cap);
+        check(cap == 2u, "FCRC = 01 captura uno de cada dos cuadros [IR, 12.22.2]");
+
+        // --- Polaridades: el sensor y el DCMI tienen que estar de acuerdo ----
+        dcmi_wr(Dcmi::R_CR, 0);
+        dcmi_wr(Dcmi::R_ICR, 0x1Fu);
+        cam->set_polaridad(true, true, false);   // ahora todo al reves
+        cam->soldar();      // y reposa en el nivel de borrado NUEVO
+        wait(20, SC_US);
+        // El DCMI, configurado igual: VSPOL = HSPOL = 1, PCKPOL = 0.
+        dcmi_wr(Dcmi::R_CR, Dcmi::CR_ENABLE | Dcmi::CR_VSPOL | Dcmi::CR_HSPOL |
+                            Dcmi::CR_CAPTURE);
+        cam->emitir(1);
+        std::vector<uint32_t> p4;
+        const unsigned n4 = dcmi_sondeo(p4, 32u);
+        check_eq(n4, 32u, "con las tres polaridades invertidas se captura igual");
+        unsigned malos4 = 0;
+        for (unsigned i = 0; i < n4; ++i)
+            for (unsigned b = 0; b < 4; ++b) {
+                const unsigned idx = 4 * i + b;
+                if (uint8_t(p4[i] >> (8 * b)) !=
+                    uint8_t(cam->pixel_esperado(idx % 16u, idx / 16u))) ++malos4;
+            }
+        check_eq(malos4, 0u, "y los pixeles siguen siendo los mismos");
+
+        // Y si NO estan de acuerdo, no se captura nada: es el fallo mas comun
+        // al conectar un sensor nuevo.
+        dcmi_wr(Dcmi::R_CR, 0);
+        dcmi_wr(Dcmi::R_ICR, 0x1Fu);
+        // El sensor sigue con sus sincronismos activos en ALTO y el DCMI se
+        // configura al reves. Es el fallo mas comun al estrenar un sensor.
+        dcmi_wr(Dcmi::R_CR, Dcmi::CR_ENABLE | Dcmi::CR_CAPTURE);   // VSPOL = 0
+        const uint64_t pal0 = dut->dcmi.palabras_capturadas();
+        cam->emitir(1);
+        wait(600, SC_US);
+        check_eq(unsigned(dut->dcmi.palabras_capturadas() - pal0), 0u,
+                 "con VSPOL al reves que el sensor no se captura NADA");
+        dcmi_wr(Dcmi::R_CR, 0);
+        cam->set_polaridad(false, false, true);
+        dcmi_placa(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T107 — Recorte, anchos de bus y el cuadro entero por DMA
+    //
+    // Es el uso real del periferico: nadie saca una imagen leyendo DCMI_DR en
+    // un bucle. El DCMI pide, el DMA2 sirve, y la imagen aparece en la SRAM sin
+    // que el nucleo se entere.
+    // -----------------------------------------------------------------------
+    void t107_dcmi_recorte_dma() {
+        group("T107 DCMI: ventana de recorte, EDM y el cuadro entero por DMA2");
+        reset_dut();
+        dbg_resume();
+        dcmi_pines(12);
+        dcmi_placa(true);
+        cam->set_formato(16, 8, 8);
+        cam->set_pixclk(6.0e6);
+        cam->set_polaridad(false, false, true);
+        cam->set_blanking(4, 2);
+        cam->set_patron(0);
+
+        // --- La ventana de recorte -------------------------------------------
+        // Del cuadro de 16x8 solo interesan 8 pixeles de ancho a partir del
+        // cuarto, y 4 lineas a partir de la segunda.
+        dcmi_wr(Dcmi::R_CWSTRT, (2u << 16) | 4u);      // VST = 2, HOFFCNT = 4
+        dcmi_wr(Dcmi::R_CWSIZE, (4u << 16) | 8u);      // VLINE = 4, CAPCNT = 8
+        dcmi_wr(Dcmi::R_CR, Dcmi::CR_ENABLE | Dcmi::CR_PCKPOL | Dcmi::CR_CROP |
+                            Dcmi::CR_CAPTURE);
+        cam->emitir(1);
+        std::vector<uint32_t> pal;
+        const unsigned n = dcmi_sondeo(pal, 8u);
+        check_eq(n, 8u, "de un cuadro de 16x8 recortado a 8x4 salen 8 palabras");
+        unsigned malos = 0;
+        for (unsigned i = 0; i < n; ++i)
+            for (unsigned b = 0; b < 4; ++b) {
+                const unsigned k = 4 * i + b;              // pixel dentro del recorte
+                const unsigned x = 4u + (k % 8u), y = 2u + (k / 8u);
+                if (uint8_t(pal[i] >> (8 * b)) !=
+                    uint8_t(cam->pixel_esperado(x, y))) ++malos;
+            }
+        check_eq(malos, 0u,
+                 "y son exactamente los pixeles de dentro de la ventana [IR, 12.22.2]");
+        dcmi_wr(Dcmi::R_CR, 0);
+        dcmi_wr(Dcmi::R_ICR, 0x1Fu);
+
+        // --- Anchos de bus: como se empaquetan 10 y 12 bits ------------------
+        // Con mas de 8 bits cada pixel ocupa MEDIA PALABRA, no un byte: dos por
+        // palabra en vez de cuatro [IR, 12.22.1].
+        dcmi_wr(Dcmi::R_CWSTRT, 0); dcmi_wr(Dcmi::R_CWSIZE, 0);
+        cam->set_formato(8, 4, 12);
+        dcmi_wr(Dcmi::R_CR, Dcmi::CR_ENABLE | Dcmi::CR_PCKPOL | (2u << 10) |
+                            Dcmi::CR_CAPTURE);          // EDM = 10 -> 12 bits
+        check_eq(dut->dcmi.ancho_bits(), 12u, "EDM = 10 son doce bits");
+        check_eq(dut->dcmi.bits_utiles(), 12u, "y en el F407VG los doce estan cableados");
+        cam->emitir(1);
+        std::vector<uint32_t> p12;
+        const unsigned n12 = dcmi_sondeo(p12, 8u * 4u / 2u);
+        check_eq(n12, 16u, "un cuadro de 8x4 a 12 bits son 16 palabras: dos pixeles cada una");
+        unsigned malos12 = 0;
+        for (unsigned i = 0; i < n12; ++i)
+            for (unsigned h = 0; h < 2; ++h) {
+                const unsigned k = 2 * i + h;
+                const uint32_t esperado = cam->pixel_esperado(k % 8u, k / 8u) & 0xFFFu;
+                if (((p12[i] >> (16 * h)) & 0xFFFFu) != esperado) ++malos12;
+            }
+        check_eq(malos12, 0u,
+                 "cada pixel en su media palabra, con los cuatro bits altos a cero");
+        dcmi_wr(Dcmi::R_CR, 0);
+        dcmi_wr(Dcmi::R_ICR, 0x1Fu);
+
+        // --- Y los dos hilos que no existen ----------------------------------
+        // Aqui se conecta un sensor de CATORCE bits, que es para lo que EDM = 11
+        // existe, y se programa el DCMI para leerlo. No da ningun error: da una
+        // imagen a la que le faltan los dos bits mas significativos de cada
+        // pixel, porque D12 y D13 no tienen pin en este encapsulado. Es el
+        // fallo mas dificil de encontrar de todos los que da este periferico:
+        // la captura funciona, los contadores cuadran y la imagen esta mal.
+        cam->set_formato(8, 4, 14);                     // sensor de 14 bits...
+        cam->set_patron(2);                             // ...con valores grandes
+        dcmi_wr(Dcmi::R_CR, Dcmi::CR_ENABLE | Dcmi::CR_PCKPOL | (3u << 10) |
+                            Dcmi::CR_CAPTURE);          // EDM = 11 -> 14 bits
+        cam->emitir(1);
+        std::vector<uint32_t> p14;
+        const unsigned n14 = dcmi_sondeo(p14, 16u);
+        check_eq(n14, 16u, "con EDM = 11 el DCMI captura igual, sin quejarse");
+        unsigned perdidos = 0, altos = 0;
+        for (unsigned i = 0; i < n14; ++i)
+            for (unsigned h = 0; h < 2; ++h) {
+                const unsigned k = 2 * i + h;
+                const uint32_t esperado = cam->pixel_esperado(k % 8u, k / 8u);
+                const uint32_t leido = (p14[i] >> (16 * h)) & 0x3FFFu;
+                if (leido != esperado) ++perdidos;
+                if (leido & 0x3000u) ++altos;
+                if (esperado & 0x3000u && (leido & 0xFFFu) != (esperado & 0xFFFu))
+                    ++altos;                            // ni siquiera coinciden abajo
+            }
+        check_eq(perdidos, 2u * n14,
+                 "y NINGUN pixel de 14 bits llega entero: faltan sus dos bits altos");
+        check_eq(altos, 0u,
+                 "los bits 13:12 se leen siempre cero, porque nadie los conduce");
+        std::printf("    sensor de 14 bits en un encapsulado de 12: %u de %u pixeles "
+                    "mutilados\n", perdidos, 2 * n14);
+        cam->set_patron(0);
+        dcmi_wr(Dcmi::R_CR, 0);
+        dcmi_wr(Dcmi::R_ICR, 0x1Fu);
+
+        // --- El cuadro entero, por DMA2 --------------------------------------
+        // DCMI -> DMA2 stream 1 canal 1 -> SRAM1 [IR, §11.4, §12.22.1].
+        cam->set_formato(32, 16, 8);                    // 512 bytes = 128 palabras
+        cam->set_patron(1);                             // tablero: x ^ y
+        const uint32_t DST = addr::SRAM1_BASE + 0x2000u;
+        for (unsigned i = 0; i < 128; ++i) tm.write32(DST + 4 * i, 0xDEADBEEFu);
+        rcc_enable(Rcc::R_AHB1ENR, 22);                 // DMA2EN
+        const uint32_t S1 = addr::DMA2_B + 0x10u + 1u * 0x18u;   // stream 1
+        tm.write32(S1 + 0x00, 0);                                // SxCR: parar
+        wait(5, SC_US);
+        tm.write32(addr::DMA2_B + 0x00, 0x3Fu << 6);             // LIFCR: limpiar
+        tm.write32(S1 + 0x04, 128);                              // SxNDTR
+        tm.write32(S1 + 0x08, DC_B + Dcmi::R_DR);                // SxPAR
+        tm.write32(S1 + 0x0C, DST);                              // SxM0AR
+        // CHSEL = 1, PSIZE = MSIZE = 32 bits, MINC, periferico -> memoria, EN
+        tm.write32(S1 + 0x00, (1u << 25) | (2u << 13) | (2u << 11) | (1u << 10) | 1u);
+        wait(20, SC_US);
+
+        dcmi_wr(Dcmi::R_CR, Dcmi::CR_ENABLE | Dcmi::CR_PCKPOL | Dcmi::CR_CM |
+                            Dcmi::CR_CAPTURE);          // una instantanea
+        cam->emitir(1);
+        const sc_time t0 = sc_time_stamp();
+        while (sc_time_stamp() - t0 < sc_time(3, SC_MS)) {
+            wait(50, SC_US);
+            uint32_t nd = 0; tm.read32(S1 + 0x04, nd);
+            if (nd == 0) break;
+        }
+        uint32_t ndtr = 0; tm.read32(S1 + 0x04, ndtr);
+        check_eq(ndtr, 0u, "el DMA2 mueve las 128 palabras del cuadro sin ayuda del nucleo");
+        unsigned malos_dma = 0;
+        for (unsigned i = 0; i < 128; ++i) {
+            const uint32_t w = dut->sram1.peek32(0x2000u + 4 * i);
+            for (unsigned b = 0; b < 4; ++b) {
+                const unsigned k = 4 * i + b;
+                if (uint8_t(w >> (8 * b)) !=
+                    uint8_t(cam->pixel_esperado(k % 32u, k / 32u))) ++malos_dma;
+            }
+        }
+        check_eq(malos_dma, 0u,
+                 "y en la SRAM esta la imagen entera, pixel a pixel, sin un solo error");
+        std::printf("    imagen de 32x16 en 0x%08X: %u bytes correctos\n",
+                    DST, 512u - malos_dma);
+        check_eq(dut->dcmi.desbordes(), 0u, "y sin un solo desborde de la FIFO");
+        tm.write32(S1 + 0x00, 0);
+        dcmi_wr(Dcmi::R_CR, 0);
+        dcmi_wr(Dcmi::R_ICR, 0x1Fu);
+
+        // --- Lo que pasa cuando nadie vacia la FIFO --------------------------
+        // Es LA caracteristica del DCMI: no puede parar al sensor. Cuatro
+        // palabras de FIFO y nadie que las lea significa datos perdidos.
+        const uint64_t ovr0 = dut->dcmi.desbordes();
+        dcmi_wr(Dcmi::R_CR, Dcmi::CR_ENABLE | Dcmi::CR_PCKPOL | Dcmi::CR_CAPTURE);
+        cam->emitir(1);
+        wait(2, SC_MS);                                  // sin leer DCMI_DR
+        check(dut->dcmi.desbordes() > ovr0,
+              "sin nadie que vacie la FIFO, los datos SE PIERDEN [IR, 12.22.1]");
+        check(dcmi_rd(Dcmi::R_RIS) & Dcmi::F_OVR, "y el DCMI lo dice por OVR");
+        std::printf("    con la FIFO de %u palabras sin vaciar: %llu desbordes\n",
+                    dut->dcmi.caps.fifo_words,
+                    (unsigned long long)(dut->dcmi.desbordes() - ovr0));
+        dcmi_wr(Dcmi::R_CR, 0);
+        dcmi_wr(Dcmi::R_ICR, 0x1Fu);
+        cam->set_patron(0);
+        dcmi_placa(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T108 — Sincronismo embebido (BT.656)
+    //
+    // Sin HSYNC ni VSYNC: los bordes viajan dentro del propio flujo de datos,
+    // como cuatro codigos de un byte. Es lo que permite conectar un sensor con
+    // tres hilos menos, y lo que obliga al DCMI a mirar cada byte que entra.
+    // -----------------------------------------------------------------------
+    void t108_dcmi_embebido() {
+        group("T108 DCMI: sincronismo embebido en el flujo de datos [IR, 12.22.1]");
+        reset_dut();
+        dbg_resume();
+        dcmi_pines(8);
+        dcmi_placa(true);
+        cam->set_formato(8, 4, 8);
+        cam->set_pixclk(6.0e6);
+        cam->set_polaridad(false, false, true);
+        cam->set_patron(2);                    // constante por linea: 0xA5 + 7y
+        cam->set_embebido(true, 0xFF, 0xFE, 0xFD, 0xFC);
+
+        // Los cuatro codigos, y la mascara que dice que se comparan enteros.
+        dcmi_wr(Dcmi::R_ESCR, 0xFCFDFEFFu);    // FEC FE, LEC FD, LSC FE... (ver abajo)
+        dcmi_wr(Dcmi::R_ESUR, 0xFFFFFFFFu);
+        check_eq(dcmi_rd(Dcmi::R_ESCR), 0xFCFDFEFFu,
+                 "los cuatro codigos van en DCMI_ESCR: FSC, LSC, LEC y FEC");
+        dcmi_wr(Dcmi::R_CR, Dcmi::CR_ENABLE | Dcmi::CR_PCKPOL | Dcmi::CR_ESS |
+                            Dcmi::CR_CAPTURE);
+        cam->emitir(1);
+        std::vector<uint32_t> pal;
+        const unsigned n = dcmi_sondeo(pal, 8u);
+        check_eq(n, 8u, "se captura el cuadro entero sin mover HSYNC ni VSYNC");
+        unsigned malos = 0;
+        for (unsigned i = 0; i < n; ++i)
+            for (unsigned b = 0; b < 4; ++b) {
+                const unsigned k = 4 * i + b;
+                if (uint8_t(pal[i] >> (8 * b)) !=
+                    uint8_t(cam->pixel_esperado(k % 8u, k / 8u))) ++malos;
+            }
+        check_eq(malos, 0u, "y los datos son los del sensor: los codigos NO se guardan");
+        check(dcmi_rd(Dcmi::R_RIS) & Dcmi::F_FRAME,
+              "el codigo de fin de cuadro levanta FRAME igual que lo haria VSYNC");
+        check_eq(dcmi_rd(Dcmi::R_RIS) & Dcmi::F_ERR, 0u,
+                 "y no hay error: los codigos llegaron en su orden");
+        dcmi_wr(Dcmi::R_ICR, 0x1Fu);
+
+        // --- Un codigo fuera de sitio ----------------------------------------
+        // Dos "inicio de cuadro" seguidos sin su fin: eso es exactamente lo que
+        // el bit ERR existe para contar.
+        cam->set_embebido(true, 0xFF, 0xFF, 0xFD, 0xFC);   // LSC = FSC: se repite
+        cam->emitir(1);
+        wait(600, SC_US);
+        check(dcmi_rd(Dcmi::R_RIS) & Dcmi::F_ERR,
+              "un codigo de sincronismo fuera de secuencia levanta ERR [IR, 12.22.2]");
+        std::printf("    tras el fallo de sincronismo: RIS = 0x%02X\n",
+                    dcmi_rd(Dcmi::R_RIS));
+        dcmi_wr(Dcmi::R_CR, 0);
+        dcmi_wr(Dcmi::R_ICR, 0x1Fu);
+        cam->set_embebido(false);
+        cam->set_patron(0);
+        dcmi_placa(false);
+    }
+
     // Ayudas del cliente de pruebas
     static std::string hex_le(uint32_t v) {
         static const char* h = "0123456789abcdef";
@@ -10724,6 +11301,9 @@ int sc_main(int argc, char** argv) {
     sc_report_handler::set_actions("flash", SC_WARNING, SC_DO_NOTHING);
     sc_report_handler::set_actions("pll", SC_WARNING, SC_DO_NOTHING);
     sc_report_handler::set_actions("i2c", SC_WARNING, SC_DO_NOTHING);
+    // El DCMI avisa cuando se le piden mas bits de los que el encapsulado tiene
+    // cableados: la suite provoca esa situacion a proposito (T105, T107).
+    sc_report_handler::set_actions("dcmi", SC_WARNING, SC_DO_NOTHING);
     sc_report_handler::set_actions("spi", SC_WARNING, SC_DO_NOTHING);
 
     // --- Modo SERVIDOR GDB -------------------------------------------------
