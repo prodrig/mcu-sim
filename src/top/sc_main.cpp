@@ -198,6 +198,19 @@ SC_MODULE(F1Tb) {
     bool&         modo_gdb_ = g_modo_gdb;
     bool&         modo_gdb_dap_ = g_modo_gdb_dap;
 
+    // --- Las memorias del bus externo (AF12) --------------------------------
+    // Una SRAM asíncrona y una NAND, soldadas a los mismos dieciséis hilos de
+    // datos: es la topología de cualquier placa con memoria externa, donde lo
+    // único que las distingue es qué chip select baja.
+    ExtSram* xram = nullptr;
+    ExtNand* xnand = nullptr;
+    // FSMC con rasgos elegidos en TIEMPO DE EJECUCIÓN (véase T109)
+    FsmcBase* fsmc_rt = nullptr;
+    BusTestMaster tm11{"tm11"};
+    sc_signal<bool>   s_fs_true{"s_fs_true"}, s_fs_rst{"s_fs_rst"};
+    sc_signal<bool>   s_fs_irq{"s_fs_irq"}, s_fs_clk{"s_fs_clk"};
+    sc_signal<double> s_fs_hz{"s_fs_hz"};
+
     // --- DCMI con rasgos elegidos en TIEMPO DE EJECUCIÓN (véase T105) -------
     // Es el mismo bloque del MCU con otros rasgos: ocho bits, sin recorte, sin
     // JPEG y sin sincronismo embebido. Sirve para comprobar sobre el BUS -no
@@ -375,6 +388,45 @@ SC_MODULE(F1Tb) {
         dcmi_rt->rst_n(s_dcm_rst);   dcmi_rt->clk_en(s_dcm_true);
         dcmi_rt->irq(s_dcm_irq);     dcmi_rt->dma_req(s_dcm_drq);
 
+        // --- Las memorias del bus externo (AF12) --------------------------
+        // La SRAM se conecta a los dieciséis hilos de datos, a los OCHO de
+        // dirección que este encapsulado tiene y a las cuatro señales de
+        // control. La NAND comparte los ocho hilos bajos y usa A16/A17 como
+        // CLE y ALE, que es como el FSMC le habla.
+        {
+            std::vector<analog_net_if*> dn, an;
+            static const unsigned dp[16][2] = {
+                {3,14},{3,15},{3,0},{3,1},{4,7},{4,8},{4,9},{4,10},
+                {4,11},{4,12},{4,13},{4,14},{4,15},{3,8},{3,9},{3,10} };
+            static const unsigned ap[8][2] = {
+                {3,11},{3,12},{3,13},{4,3},{4,4},{4,5},{4,6},{4,2} };
+            for (auto& q : dp) dn.push_back(&dut->pinmux.analog(q[0], q[1]));
+            for (auto& q : ap) an.push_back(&dut->pinmux.analog(q[0], q[1]));
+            xram = new ExtSram("xram", dn, an,
+                               dut->pinmux.analog(3, 7),    // PD7 NE1
+                               dut->pinmux.analog(3, 4),    // PD4 NOE
+                               dut->pinmux.analog(3, 5),    // PD5 NWE
+                               dut->pinmux.analog(1, 7),    // PB7 NL
+                               &dut->pinmux.analog(4, 0),   // PE0 NBL0
+                               &dut->pinmux.analog(4, 1),   // PE1 NBL1
+                               &dut->pinmux.analog(3, 6));  // PD6 NWAIT
+            std::vector<analog_net_if*> dn8(dn.begin(), dn.begin() + 8);
+            xnand = new ExtNand("xnand", dn8,
+                                dut->pinmux.analog(3, 11),  // PD11 A16 = CLE
+                                dut->pinmux.analog(3, 12),  // PD12 A17 = ALE
+                                dut->pinmux.analog(3, 7),   // PD7  NCE2
+                                dut->pinmux.analog(3, 4),   // PD4  NOE
+                                dut->pinmux.analog(3, 5),   // PD5  NWE
+                                &dut->pinmux.analog(3, 6)); // PD6  R/B
+        }
+        // Un FSMC con los rasgos puestos en tiempo de EJECUCIÓN: un solo banco
+        // de SRAM de 8 bits, sin multiplexar, sin ráfaga y sin modo extendido.
+        fsmc_rt = new FsmcBase("fsmc_rt", CAPS_FSMC_MIN);
+        tm11.isk.bind(fsmc_rt->mem);
+        fsmc_rt->hclk(s_fs_clk); fsmc_rt->hclk_hz(s_fs_hz);
+        fsmc_rt->rst_n(s_fs_rst); fsmc_rt->clk_en(s_fs_true);
+        fsmc_rt->irq(s_fs_irq);
+
         // --- El sensor de imagen (AF13) -----------------------------------
         // Se sueldan los doce hilos que el encapsulado tiene. Los dos que
         // faltan -D12 y D13- no se pasan: no hay pin al que soldarlos, y el
@@ -536,7 +588,7 @@ SC_MODULE(F1Tb) {
         delete w_sda; delete w_scl;
         delete s_rt;
         delete lnk_iext; delete lnk_isd; delete lnk_iws; delete lnk_ick;
-        delete cam; delete dcmi_rt;
+        delete cam; delete dcmi_rt; delete xram; delete xnand; delete fsmc_rt;
         delete lnk_nss; delete lnk_miso; delete lnk_mosi; delete lnk_sck;
         delete t_rt;
         delete sd_rt;
@@ -794,6 +846,11 @@ SC_MODULE(F1Tb) {
         t106_dcmi_captura();
         t107_dcmi_recorte_dma();
         t108_dcmi_embebido();
+        const unsigned f7dc_pass = g_pass, f7dc_fail = g_fail;
+        t109_fsmc_bancos();
+        t110_fsmc_ciclo();
+        t111_fsmc_encapsulado();
+        t112_fsmc_nand();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -830,7 +887,9 @@ SC_MODULE(F1Tb) {
         std::printf("Resumen F7 (bajo consumo): %u comprobaciones OK, %u fallos\n",
                     f7lp_pass - f6_pass, f7lp_fail - f6_fail);
         std::printf("Resumen F7 (DCMI): %u comprobaciones OK, %u fallos\n",
-                    g_pass - f7lp_pass, g_fail - f7lp_fail);
+                    f7dc_pass - f7lp_pass, f7dc_fail - f7lp_fail);
+        std::printf("Resumen F7 (FSMC): %u comprobaciones OK, %u fallos\n",
+                    g_pass - f7dc_pass, g_fail - f7dc_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -11226,6 +11285,418 @@ SC_MODULE(F1Tb) {
         cam->set_embebido(false);
         cam->set_patron(0);
         dcmi_placa(false);
+    }
+
+    // =======================================================================
+    // FASE F7 — CONTROLADOR DE MEMORIA EXTERNA (FSMC) [IR, §12.18]
+    //
+    // El FSMC no tiene protocolo: tiene TIEMPOS. Todo lo que se comprueba aqui
+    // sale de ahi -cuantos ciclos dura un acceso, cuando baja cada senal, quien
+    // conduce los dieciseis hilos en cada instante- y de una cosa mas: de que
+    // en este encapsulado faltan la mitad de los hilos del bus.
+    // =======================================================================
+    static constexpr uint32_t FS_B = addr::FSMC_REGS;
+
+    uint32_t fsmc_rd(uint32_t off) { uint32_t v = 0; tm.read32(FS_B + off, v); return v; }
+    void fsmc_wr(uint32_t off, uint32_t v) { tm.write32(FS_B + off, v); }
+
+    // Los pines del bus externo en AF12. Ponerlos DESCONECTA lo que hubiera:
+    // PD0/PD1 dejan de ser el CAN1 y PB7 deja de ser el I2C1, que es lo que
+    // pasa en una placa cuando se decide para que sirve cada pin.
+    void fsmc_pines() {
+        for (unsigned p = 0; p < 5; ++p) rcc_enable(Rcc::R_AHB1ENR, p);
+        rcc_enable(Rcc::R_AHB3ENR, 0);                 // FSMCEN
+        static const unsigned pd[16][2] = {
+            {3,14},{3,15},{3,0},{3,1},{4,7},{4,8},{4,9},{4,10},
+            {4,11},{4,12},{4,13},{4,14},{4,15},{3,8},{3,9},{3,10} };
+        static const unsigned pa[8][2] = {
+            {3,11},{3,12},{3,13},{4,3},{4,4},{4,5},{4,6},{4,2} };
+        for (auto& q : pd) pin_cfg(q[0], q[1], 2, 0, false, 3, 12);
+        for (auto& q : pa) pin_cfg(q[0], q[1], 2, 0, false, 3, 12);
+        pin_cfg(3, 4, 2, 0, false, 3, 12);             // NOE
+        pin_cfg(3, 5, 2, 0, false, 3, 12);             // NWE
+        pin_cfg(3, 6, 2, 1, false, 3, 12);             // NWAIT (pull-up)
+        pin_cfg(3, 7, 2, 0, false, 3, 12);             // NE1 / NCE2
+        pin_cfg(1, 7, 2, 0, false, 3, 12);             // NL
+        pin_cfg(4, 0, 2, 0, false, 3, 12);             // NBL0
+        pin_cfg(4, 1, 2, 0, false, 3, 12);             // NBL1
+    }
+    // Deja la placa lista para el bus externo.
+    void fsmc_placa(bool on) {
+        can_links(!on);
+        i2c_bus(!on);
+        if (on) { cam->soltar(); fsmc_pines(); }
+        xram->set_conectada(on);
+        xnand->set_conectada(false);
+        wait(20, SC_US);
+    }
+    // Un acceso al bus externo, midiendo lo que tarda de verdad.
+    sc_time fsmc_mide(bool escr, uint32_t dir, uint32_t& v) {
+        const sc_time t0 = sc_time_stamp();
+        if (escr) tm.write32(dir, v); else tm.read32(dir, v);
+        return sc_time_stamp() - t0;
+    }
+
+    // -----------------------------------------------------------------------
+    // T109 — Los cuatro bancos, que no son cuatro copias
+    // -----------------------------------------------------------------------
+    void t109_fsmc_bancos() {
+        group("T109 FSMC: los cuatro bancos y sus rasgos [IR, 12.18]");
+        reset_dut();
+        dbg_resume();
+        rcc_enable(Rcc::R_AHB3ENR, 0);                 // FSMCEN
+        wait(50, SC_US);
+
+        std::printf("    variante: %s\n", dut->fsmc.caps.kind);
+        for (unsigned b = 0; b < 4; ++b)
+            std::printf("      banco %u: %-16s %u chip select(s)%s%s%s%s\n", b + 1,
+                        dut->fsmc.caps.banco[b].nombre,
+                        dut->fsmc.caps.banco[b].chip_sel,
+                        dut->fsmc.caps.banco[b].mux    ? " mux" : "",
+                        dut->fsmc.caps.banco[b].sync   ? " sincrono" : "",
+                        dut->fsmc.caps.banco[b].ecc    ? " ECC" : "",
+                        dut->fsmc.caps.banco[b].io_space ? " E/S" : "");
+
+        // --- Cada banco tiene SUS registros, y no los del vecino -------------
+        check_eq(fsmc_rd(Fsmc::R_BCR1), 0x000030DBu,
+                 "BCR1 arranca habilitado y multiplexado [IR, 12.18.2]");
+        check_eq(fsmc_rd(0x08) & 1u, 0u,
+                 "y los otros tres subbancos NO: cuatro chip selects a la vez "
+                 "en el mismo bus serian un cortocircuito");
+        check_eq(fsmc_rd(Fsmc::R_BTR1), 0x0FFFFFFFu, "BTR1 arranca con todo a uno");
+        // Los NAND no tienen BTR ni BCR: tienen PCR, SR, PMEM, PATT y ECCR.
+        fsmc_wr(Fsmc::R_PCR2, 0xFFFFFFFFu);
+        const uint32_t pcr2 = fsmc_rd(Fsmc::R_PCR2);
+        check(pcr2 & Fsmc::PCR_PBKEN, "PCR2 existe: es el banco NAND");
+        check(pcr2 & Fsmc::PCR_ECCEN, "y tiene ECC, que es lo que lo distingue");
+        check_eq(fsmc_rd(Fsmc::R_ECCR2) & 0xFFFF0000u, 0u,
+                 "su ECCR se lee, y arranca vacio");
+        fsmc_wr(Fsmc::R_PCR4, 0xFFFFFFFFu);
+        check_eq(fsmc_rd(Fsmc::R_PCR4) & Fsmc::PCR_ECCEN, 0u,
+                 "el banco 4 es PC Card y NO tiene ECC: ese bit no se guarda");
+        fsmc_wr(Fsmc::R_PIO4, 0x12345678u);
+        check_eq(fsmc_rd(Fsmc::R_PIO4), 0x12345678u,
+                 "pero SI tiene PIO4: un tercer espacio de E/S que nadie mas tiene");
+        fsmc_wr(Fsmc::R_PCR2, 0); fsmc_wr(Fsmc::R_PCR4, 0); fsmc_wr(Fsmc::R_PIO4, 0);
+
+        // --- Un banco apagado no contesta ------------------------------------
+        uint32_t v = 0;
+        check(tm.read32(0x70000000u, v) != TLM_OK_RESPONSE,
+              "con PBKEN a cero, el banco NAND no contesta al bus");
+        fsmc_wr(Fsmc::R_PCR2, Fsmc::PCR_PBKEN);
+        check(tm.read32(0x70000000u, v) == TLM_OK_RESPONSE,
+              "y en cuanto se habilita, si");
+        fsmc_wr(Fsmc::R_PCR2, 0);
+        check(tm.read32(0x90000000u, v) != TLM_OK_RESPONSE,
+              "el banco 4 tampoco, mientras nadie lo encienda");
+
+        // --- La variante de ejecucion, sobre el bus --------------------------
+        s_fs_true.write(true); s_fs_rst.write(true); s_fs_hz.write(168e6);
+        wait(20, SC_US);
+        std::printf("    variante en ejecucion: %s\n", fsmc_rt->caps.kind);
+        tm11.write32(FS_B + Fsmc::R_BCR1, 0xFFFFFFFFu);
+        const uint32_t cr = tm11.rd32(FS_B + Fsmc::R_BCR1);
+        check_eq(cr & Fsmc::BCR_MUXEN, 0u,
+                 "en la variante minima MUXEN no se guarda: no hay bus multiplexado");
+        check_eq(cr & Fsmc::BCR_BURSTEN, 0u, "ni rafaga sincrona");
+        check_eq(cr & Fsmc::BCR_EXTMOD, 0u, "ni modo extendido");
+        check_eq((cr >> 4) & 3u, 1u,
+                 "y MWID se queda en 8 bits: no hay dieciseis hilos que usar");
+        tm11.write32(FS_B + Fsmc::R_BWTR1, 0x12345678u);
+        check_eq(tm11.rd32(FS_B + Fsmc::R_BWTR1), 0u,
+                 "sin modo extendido, BWTR1 se lee cero entero");
+        tm11.write32(FS_B + Fsmc::R_PCR2, 0xFFFFFFFFu);
+        check_eq(tm11.rd32(FS_B + Fsmc::R_PCR2), 0u,
+                 "y sin banco NAND, PCR2 tampoco existe");
+        check(dut->fsmc.caps.banco[0].extmod && !fsmc_rt->caps.banco[0].extmod &&
+              dut->fsmc.caps.banco[1].ecc,
+              "los ejes mux / rafaga / extendido / ECC / E-S son independientes");
+    }
+
+    // -----------------------------------------------------------------------
+    // T110 — El ciclo de bus, en los pines
+    // -----------------------------------------------------------------------
+    void t110_fsmc_ciclo() {
+        group("T110 FSMC: el ciclo de bus externo sobre una SRAM soldada");
+        reset_dut();
+        dbg_resume();
+        fsmc_placa(true);
+        xram->set_mux(true);
+        xram->set_ancho(16);
+
+        // Banco 1: multiplexado, 16 bits, NOR, escritura habilitada, y unos
+        // tiempos cortos pero realistas: ADDSET = 1, ADDHLD = 1, DATAST = 3.
+        fsmc_wr(Fsmc::R_BTR1, (1u << 0) | (1u << 4) | (3u << 8) | (1u << 16));
+        fsmc_wr(Fsmc::R_BCR1, Fsmc::BCR_MBKEN | Fsmc::BCR_MUXEN |
+                              (2u << 2) | (1u << 4) | Fsmc::BCR_FACCEN |
+                              Fsmc::BCR_WREN);
+        wait(10, SC_US);
+
+        // --- Escritura: del bus AHB a los hilos y a la memoria ---------------
+        const uint32_t DIR = addr::FSMC_MEM + 0x40u;
+        uint32_t dato = 0x12345678u;
+        const unsigned esc0 = xram->escrituras();
+        tm.write32(DIR, dato);
+        wait(2, SC_US);
+        check(xram->escrituras() > esc0,
+              "la SRAM soldada al bus recibe la escritura de verdad");
+        // La celda 0x40 del bus AHB cae en el byte 0x40 de la SRAM: el FSMC
+        // saca por los hilos la direccion de PALABRA (0x20), y la memoria, que
+        // es de 16 bits, la vuelve a multiplicar por dos.
+        check_eq(xram->lee16(0x40u), 0x5678u,
+                 "y guarda la mitad baja donde toca");
+        check_eq(xram->lee16(0x42u), 0x1234u,
+                 "y la alta en el ciclo siguiente: 32 bits son DOS accesos de 16");
+        check_eq(dut->fsmc.ciclos_ext() >= 2u ? 1u : 0u, 1u,
+                 "el controlador ha hecho dos ciclos externos, no uno");
+
+        // --- Lectura: y vuelve por los mismos hilos --------------------------
+        uint32_t leido = 0;
+        tm.read32(DIR, leido);
+        check_eq(leido, 0x12345678u,
+                 "y lo leido por el bus es exactamente lo que hay en la SRAM");
+        check_eq(xram->ultima_dir(), 0x21u,
+                 "la direccion la engancho la SRAM con NL: sin multiplexar no habria");
+
+        // --- Los carriles de byte --------------------------------------------
+        // Escribir UN byte no puede llevarse por delante al vecino: para eso
+        // estan NBL0 y NBL1.
+        xram->escribe(0x50u, 0xAA); xram->escribe(0x51u, 0xBB);
+        tm.write8(addr::FSMC_MEM + 0x50u, uint8_t(0x5A));
+        wait(2, SC_US);
+        check_eq(xram->lee(0x50u), 0x5Au, "una escritura de un byte llega");
+        check_eq(xram->lee(0x51u), 0xBBu,
+                 "y el byte de al lado NO se toca: NBL0/NBL1 hacen su trabajo");
+
+        // --- Los tiempos, que es de lo que va este periferico -----------------
+        uint32_t x = 0;
+        const sc_time t_rapido = fsmc_mide(false, DIR, x);
+        const unsigned h_rapido = dut->fsmc.ultimos_hclk();
+        // Ahora, unos tiempos lentos: DATAST = 15 en vez de 3.
+        fsmc_wr(Fsmc::R_BTR1, (1u << 0) | (1u << 4) | (15u << 8) | (1u << 16));
+        wait(5, SC_US);
+        const sc_time t_lento = fsmc_mide(false, DIR, x);
+        const unsigned h_lento = dut->fsmc.ultimos_hclk();
+        std::printf("    lectura de 32 bits: %s con DATAST=3, %s con DATAST=15\n",
+                    t_rapido.to_string().c_str(), t_lento.to_string().c_str());
+        check(h_lento > h_rapido,
+              "alargar DATAST alarga el acceso: los tiempos son los del registro");
+        check_eq(h_lento - h_rapido, 24u,
+                 "y exactamente en 12 ciclos de HCLK por cada uno de los dos accesos");
+        check(t_lento > t_rapido,
+              "y el bus AHB se queda esperando, que es lo que cuesta la memoria externa");
+
+        // --- Modo extendido: la escritura con sus propios tiempos ------------
+        fsmc_wr(Fsmc::R_BTR1, (1u << 0) | (1u << 4) | (15u << 8) | (1u << 16));
+        fsmc_wr(Fsmc::R_BWTR1, (1u << 0) | (1u << 4) | (2u << 8));
+        fsmc_wr(Fsmc::R_BCR1, fsmc_rd(Fsmc::R_BCR1) | Fsmc::BCR_EXTMOD);
+        wait(5, SC_US);
+        uint32_t y = 0xCAFEBABEu;
+        fsmc_mide(true, DIR, y);
+        const unsigned h_escr = dut->fsmc.ultimos_hclk();
+        fsmc_mide(false, DIR, x);
+        const unsigned h_lect = dut->fsmc.ultimos_hclk();
+        std::printf("    con EXTMOD: escritura %u ciclos, lectura %u\n", h_escr, h_lect);
+        check(h_escr < h_lect,
+              "con EXTMOD la escritura usa BWTR y puede ser mas rapida que la lectura");
+        check_eq(x, 0xCAFEBABEu, "y lo escrito con esos tiempos se lee bien");
+
+        // --- Protección de escritura -----------------------------------------
+        fsmc_wr(Fsmc::R_BCR1, fsmc_rd(Fsmc::R_BCR1) & ~Fsmc::BCR_WREN);
+        wait(5, SC_US);
+        const unsigned esc1 = xram->escrituras();
+        check(tm.write32(DIR, 0xDEADBEEFu) != TLM_OK_RESPONSE,
+              "con WREN a cero el banco es de solo lectura: el bus da error");
+        check_eq(xram->escrituras(), esc1, "y a la SRAM no le llega nada");
+        fsmc_wr(Fsmc::R_BCR1, fsmc_rd(Fsmc::R_BCR1) | Fsmc::BCR_WREN);
+
+        // --- Ocho bits: la misma memoria cuesta el doble ---------------------
+        xram->set_ancho(8);
+        fsmc_wr(Fsmc::R_BCR1, (fsmc_rd(Fsmc::R_BCR1) & ~(3u << 4)) & ~Fsmc::BCR_EXTMOD);
+        wait(5, SC_US);
+        const uint64_t c0 = dut->fsmc.ciclos_ext();
+        tm.read32(DIR, x);
+        check_eq(unsigned(dut->fsmc.ciclos_ext() - c0), 4u,
+                 "con un bus de 8 bits, una palabra de 32 son CUATRO ciclos externos");
+        xram->set_ancho(16);
+        fsmc_wr(Fsmc::R_BCR1, fsmc_rd(Fsmc::R_BCR1) | (1u << 4));
+        fsmc_placa(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T111 — Lo que este encapsulado NO tiene
+    // -----------------------------------------------------------------------
+    void t111_fsmc_encapsulado() {
+        group("T111 FSMC: los dieciseis hilos de direccion que faltan [IR, cap. 2]");
+        reset_dut();
+        dbg_resume();
+        fsmc_placa(true);
+        xram->set_mux(true);
+        xram->set_ancho(16);
+
+        check_eq(dut->fsmc.caps.lineas_addr, 8u,
+                 "del FSMC salen OCHO hilos de direccion a este encapsulado");
+        check_eq(dut->fsmc.caps.addr_base, 16u, "y son A16 a A23: los altos");
+        check_eq(dut->fsmc.caps.chip_sel_pin, 1u,
+                 "y UN solo chip select, aunque el banco 1 gobierne cuatro");
+        std::printf("    A0-A15 viven en PF0-PF15 y NE2/NE3/NE4 en PG9/PG10/PG12: "
+                    "puertos que el LQFP100 no tiene\n");
+
+        fsmc_wr(Fsmc::R_BTR1, (1u << 0) | (1u << 4) | (3u << 8) | (1u << 16));
+        fsmc_wr(Fsmc::R_BCR1, Fsmc::BCR_MBKEN | Fsmc::BCR_MUXEN | (2u << 2) |
+                              (1u << 4) | Fsmc::BCR_WREN);
+        wait(10, SC_US);
+        check(dut->fsmc.direccionable(),
+              "multiplexado, el bus SI puede direccionar: la direccion baja va por D");
+
+        // Dos direcciones distintas dentro del mismo bloque de 64 K.
+        tm.write32(addr::FSMC_MEM + 0x100u, 0x11111111u);
+        tm.write32(addr::FSMC_MEM + 0x200u, 0x22222222u);
+        wait(2, SC_US);
+        uint32_t a = 0, b = 0;
+        tm.read32(addr::FSMC_MEM + 0x100u, a);
+        tm.read32(addr::FSMC_MEM + 0x200u, b);
+        check(a == 0x11111111u && b == 0x22222222u,
+              "y dos direcciones distintas dan dos datos distintos, como debe ser");
+
+        // --- Y ahora SIN multiplexar -----------------------------------------
+        // Es lo que haria cualquiera que copie un ejemplo de una placa con
+        // encapsulado grande. Sin A0-A15, todas las direcciones de un mismo
+        // bloque de 64 K salen IGUALES al bus.
+        fsmc_wr(Fsmc::R_BCR1, fsmc_rd(Fsmc::R_BCR1) & ~Fsmc::BCR_MUXEN);
+        xram->set_mux(false);
+        wait(5, SC_US);
+        check(!dut->fsmc.direccionable(),
+              "sin multiplexar, este encapsulado NO puede direccionar el bus");
+        tm.write32(addr::FSMC_MEM + 0x100u, 0x33333333u);
+        wait(2, SC_US);
+        uint32_t c = 0;
+        tm.read32(addr::FSMC_MEM + 0x200u, c);
+        check_eq(c, 0x33333333u,
+                 "y se ve: escribir en 0x100 y leer en 0x200 da LO MISMO, porque "
+                 "los dieciseis hilos de abajo no existen");
+        std::printf("    sin A0-A15, 0x100 y 0x200 son la misma celda: alias de 64 K\n");
+
+        // --- El chip select que no esta cableado ------------------------------
+        fsmc_wr(Fsmc::R_BCR1, fsmc_rd(Fsmc::R_BCR1) | Fsmc::BCR_MUXEN);
+        xram->set_mux(true);
+        fsmc_wr(0x08, Fsmc::BCR_MBKEN | Fsmc::BCR_MUXEN | (2u << 2) | (1u << 4) |
+                      Fsmc::BCR_WREN);                 // habilitar el subbanco 2
+        wait(5, SC_US);
+        const unsigned rd0 = xram->lecturas();
+        uint32_t z = 0;
+        const auto r = tm.read32(addr::FSMC_MEM + 0x04000000u, z);   // NE2
+        check(r == TLM_OK_RESPONSE,
+              "el subbanco 2 esta habilitado y el controlador hace su ciclo");
+        check_eq(xram->lecturas(), rd0,
+                 "pero la SRAM no se entera: NE2 no tiene pin en este encapsulado");
+        fsmc_wr(0x08, 0);
+        fsmc_placa(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T112 — La NAND: mandatos, direcciones, datos y ECC
+    // -----------------------------------------------------------------------
+    void t112_fsmc_nand() {
+        group("T112 FSMC: NAND por CLE/ALE y el ECC por hardware [IR, 12.18.2]");
+        reset_dut();
+        dbg_resume();
+        fsmc_placa(true);
+        xram->set_conectada(false);          // el bus es de uno en uno
+        xnand->set_conectada(true);
+        wait(20, SC_US);
+
+        // Banco 2: NAND de 8 bits, con sus tiempos de espacio comun.
+        fsmc_wr(Fsmc::R_PMEM2, (2u << 0) | (3u << 8) | (2u << 16) | (1u << 24));
+        fsmc_wr(Fsmc::R_PATT2, (2u << 0) | (3u << 8) | (2u << 16) | (1u << 24));
+        fsmc_wr(Fsmc::R_PCR2, Fsmc::PCR_PBKEN);
+        wait(10, SC_US);
+
+        // --- Leer la identificacion: mandato, direccion y cuatro datos -------
+        // ESCRIBIR EN 0x7001_0000 es un ciclo de MANDATO (A16 = CLE); en
+        // 0x7002_0000, de DIRECCION (A17 = ALE); en 0x7000_0000, de dato.
+        const uint32_t NAND = 0x70000000u;
+        tm.write8(NAND + 0x10000u, uint8_t(0x90));     // mandato: leer ID
+        tm.write8(NAND + 0x20000u, uint8_t(0x00));     // direccion
+        wait(2, SC_US);
+        check(xnand->mandatos() > 0u, "la NAND recibe el mandato por CLE");
+        uint8_t id0 = 0, id1 = 0;
+        tm.read8(NAND, id0);
+        tm.read8(NAND, id1);
+        check_eq(id0, 0x20u, "y contesta su identificacion: fabricante 0x20");
+        check_eq(id1, 0x33u, "y dispositivo 0x33");
+
+        // --- Programar una pagina --------------------------------------------
+        tm.write8(NAND + 0x10000u, uint8_t(0x80u));             // mandato: programar
+        for (unsigned i = 0; i < 4; ++i) tm.write8(NAND + 0x20000u, uint8_t(0));  // direccion 0
+        for (unsigned i = 0; i < 32; ++i) tm.write8(NAND, uint8_t(0xC0u + i));
+        tm.write8(NAND + 0x10000u, uint8_t(0x10u));             // confirmar
+        wait(5, SC_US);
+        check_eq(xnand->lee(0), 0xC0u, "los datos llegan a la celda de la NAND");
+        check_eq(xnand->lee(31), 0xDFu, "los treinta y dos, en orden");
+
+        // --- Y leerla de vuelta ----------------------------------------------
+        tm.write8(NAND + 0x10000u, uint8_t(0x00u));
+        for (unsigned i = 0; i < 4; ++i) tm.write8(NAND + 0x20000u, uint8_t(0));
+        tm.write8(NAND + 0x10000u, uint8_t(0x30u));
+        unsigned malos = 0;
+        for (unsigned i = 0; i < 32; ++i) {
+            uint8_t v = 0;
+            tm.read8(NAND, v);
+            if (v != uint8_t(0xC0u + i)) ++malos;
+        }
+        check_eq(malos, 0u, "y se leen las treinta y dos de vuelta, sin un error");
+
+        // --- El ECC ------------------------------------------------------------
+        // Es la unica aritmetica que hace el FSMC, y la hace SIN COSTE para el
+        // firmware: mientras los datos pasan por el bus.
+        fsmc_wr(Fsmc::R_PCR2, Fsmc::PCR_PBKEN | Fsmc::PCR_ECCEN);  // ECCPS = 256 B
+        wait(5, SC_US);
+        tm.write8(NAND + 0x10000u, uint8_t(0x00u));
+        for (unsigned i = 0; i < 4; ++i) tm.write8(NAND + 0x20000u, uint8_t(0));
+        tm.write8(NAND + 0x10000u, uint8_t(0x30u));
+        for (unsigned i = 0; i < 32; ++i) { uint8_t v = 0; tm.read8(NAND, v); }
+        const uint32_t ecc1 = fsmc_rd(Fsmc::R_ECCR2);
+        std::printf("    ECC de la pagina intacta: 0x%08X\n", ecc1);
+        // Que salga CERO no es un fallo: 0xC0..0xDF son treinta y dos bytes con
+        // tantos unos como ceros en cada columna y en cada mitad, de modo que
+        // todas las paridades se cancelan. Un ECC de Hamming no promete un
+        // valor distinto de cero, promete ser una FUNCION de los datos: el
+        // mismo contenido da el mismo ECC, y un bit distinto lo cambia.
+        fsmc_wr(Fsmc::R_PCR2, Fsmc::PCR_PBKEN);        // reiniciar el acumulador
+        fsmc_wr(Fsmc::R_PCR2, Fsmc::PCR_PBKEN | Fsmc::PCR_ECCEN);
+        check_eq(fsmc_rd(Fsmc::R_ECCR2), 0u,
+                 "encender el ECC pone el acumulador a cero: no arrastra la pagina anterior");
+        tm.write8(NAND + 0x10000u, uint8_t(0x00u));
+        for (unsigned i = 0; i < 4; ++i) tm.write8(NAND + 0x20000u, uint8_t(0));
+        tm.write8(NAND + 0x10000u, uint8_t(0x30u));
+        for (unsigned i = 0; i < 32; ++i) { uint8_t v = 0; tm.read8(NAND, v); }
+        check_eq(fsmc_rd(Fsmc::R_ECCR2), ecc1,
+                 "leer la MISMA pagina da el MISMO ECC: se calcula sobre la marcha, "
+                 "sin que el firmware toque nada");
+
+        // Ahora se cambia UN BIT de la pagina -que es lo que le pasa a una NAND
+        // vieja- y se vuelve a leer: el ECC tiene que salir distinto.
+        fsmc_wr(Fsmc::R_PCR2, Fsmc::PCR_PBKEN);        // reiniciar el acumulador
+        fsmc_wr(Fsmc::R_PCR2, Fsmc::PCR_PBKEN | Fsmc::PCR_ECCEN);
+        xnand->escribe(7, uint8_t(xnand->lee(7) ^ 0x08u));
+        tm.write8(NAND + 0x10000u, uint8_t(0x00u));
+        for (unsigned i = 0; i < 4; ++i) tm.write8(NAND + 0x20000u, uint8_t(0));
+        tm.write8(NAND + 0x10000u, uint8_t(0x30u));
+        for (unsigned i = 0; i < 32; ++i) { uint8_t v = 0; tm.read8(NAND, v); }
+        const uint32_t ecc2 = fsmc_rd(Fsmc::R_ECCR2);
+        check(ecc2 != ecc1, "un solo bit cambiado da un ECC distinto: se DETECTA");
+        const uint32_t sind = ecc1 ^ ecc2;
+        check_eq((sind >> 16) & 0xFFu, 0x08u,
+                 "y la paridad de columna dice QUE BIT de los ocho se ha caido");
+        check_eq(sind & 0xFFFFu, 7u & 0xFFFFu,
+                 "y la de linea, en que byte: con las dos, el bit se corrige");
+        std::printf("    ECC tras cambiar el bit 3 del byte 7: 0x%08X (sindrome 0x%08X)\n",
+                    ecc2, sind);
+
+        fsmc_wr(Fsmc::R_PCR2, 0);
+        xnand->set_conectada(false);
+        fsmc_placa(false);
     }
 
     // Ayudas del cliente de pruebas

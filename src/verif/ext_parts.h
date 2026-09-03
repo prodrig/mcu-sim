@@ -1392,5 +1392,256 @@ private:
     sc_core::sc_event ev_;
 };
 
+// ===========================================================================
+// UNA SRAM ASINCRONA EN EL BUS EXTERNO
+//
+// Es la memoria que se suelda al FSMC: dieciseis hilos de datos, los de
+// direccion que haya, y cuatro senales de control. No tiene reloj y no negocia
+// nada; solo obedece:
+//
+//   * si NE y NOE estan a cero, conduce el dato de la direccion que le hayan
+//     puesto -y lo suelta en cuanto NOE sube-;
+//   * si NE esta a cero y NWE sube, guarda lo que hubiera en los datos, byte a
+//     byte segun NBL0/NBL1;
+//   * y si esta en modo MULTIPLEXADO, coge la parte baja de la direccion de los
+//     PROPIOS HILOS DE DATOS en el flanco de subida de NL. Sin eso, en un
+//     encapsulado sin A0-A15 no habria forma de decirle que palabra se quiere.
+//
+// Puede ademas pedir tiempo por NWAIT, que es lo unico del bus externo que no
+// decide el controlador.
+// ===========================================================================
+SC_MODULE(ExtSram) {
+    ExtSram(sc_core::sc_module_name nm,
+            const std::vector<analog_net_if*>& d,     // D0..D15
+            const std::vector<analog_net_if*>& a,     // A16..A23 (las que haya)
+            analog_net_if& ne, analog_net_if& noe, analog_net_if& nwe,
+            analog_net_if& nl, analog_net_if* nbl0, analog_net_if* nbl1,
+            analog_net_if* nwait = nullptr, double vdd = 3.3)
+        : sc_core::sc_module(nm), d_(d), a_(a), ne_(&ne), noe_(&noe), nwe_(&nwe),
+          nl_(&nl), nbl0_(nbl0), nbl1_(nbl1), nwait_(nwait), vdd_(vdd) {
+        for (analog_net_if* n : d_) id_d_.push_back(n->register_driver("sram_d"));
+        if (nwait_) {
+            id_wait_ = nwait_->register_driver("sram_wait");
+            nwait_->set_hiz(id_wait_);
+        }
+        mem_.assign(64u * 1024u, 0);
+        for (size_t i = 0; i < mem_.size(); ++i) mem_[i] = uint8_t(0xA0u + (i & 0x3Fu));
+        SC_HAS_PROCESS(ExtSram);
+        SC_METHOD(ctrl_proc);
+        sensitive << ne_->value_changed_event() << noe_->value_changed_event()
+                  << nwe_->value_changed_event() << nl_->value_changed_event();
+        dont_initialize();
+        soltar();
+    }
+
+    // --- Configuracion de la placa ------------------------------------------
+    void set_mux(bool on)        { mux_ = on; }
+    void set_ancho(unsigned b)   { ancho_ = b; }
+    void set_conectada(bool on)  { puesta_ = on; if (!on) soltar(); }
+    void escribe(uint32_t off, uint8_t v) { if (off < mem_.size()) mem_[off] = v; }
+    uint8_t lee(uint32_t off) const { return off < mem_.size() ? mem_[off] : 0u; }
+    uint32_t lee16(uint32_t off) const {
+        return uint32_t(lee(off)) | (uint32_t(lee(off + 1)) << 8);
+    }
+    unsigned lecturas() const { return n_rd_; }
+    unsigned escrituras() const { return n_wr_; }
+    uint32_t ultima_dir() const { return dir_; }
+
+private:
+    bool nivel(analog_net_if* n) const { return n && n->voltage() > 0.5 * vdd_; }
+    void soltar() { for (size_t i = 0; i < d_.size(); ++i) d_[i]->set_hiz(id_d_[i]); }
+    void conduce(uint32_t v) {
+        for (size_t i = 0; i < d_.size(); ++i)
+            d_[i]->set_drive(id_d_[i], ((v >> i) & 1u) ? float(vdd_) : 0.0f, 30.0f);
+    }
+    uint32_t datos_leidos() const {
+        uint32_t v = 0;
+        for (size_t i = 0; i < d_.size(); ++i)
+            if (d_[i]->voltage() > 0.5 * vdd_) v |= 1u << i;
+        return v;
+    }
+    uint32_t dir_alta() const {
+        uint32_t v = 0;
+        for (size_t i = 0; i < a_.size(); ++i)
+            if (a_[i]->voltage() > 0.5 * vdd_) v |= 1u << i;
+        return v << 16;                       // A16 en adelante
+    }
+
+    void ctrl_proc() {
+        if (!puesta_) return;
+        const bool sel = !nivel(ne_);         // NE activo a cero
+        const bool oe  = !nivel(noe_);
+        const bool we  = !nivel(nwe_);
+        const bool adv = !nivel(nl_);
+
+        // 1. Enganche de la direccion baja: el flanco de SUBIDA de NL.
+        if (mux_ && prev_adv_ && !adv && sel) dir_baja_ = datos_leidos() & 0xFFFFu;
+        prev_adv_ = adv;
+
+        if (!sel) { soltar(); prev_oe_ = prev_we_ = false; return; }
+        dir_ = mux_ ? (dir_alta() | dir_baja_) : dir_alta();
+
+        // 2. Lectura: mientras NOE este abajo, la memoria conduce.
+        if (oe && !we) {
+            const uint32_t off = dir_ * (ancho_ == 16 ? 2u : 1u);
+            conduce(ancho_ == 16 ? lee16(off) : lee(off));
+            if (!prev_oe_) ++n_rd_;
+        } else if (!oe) {
+            soltar();
+        }
+        // 3. Escritura: se guarda en el flanco de SUBIDA de NWE, que es cuando
+        //    el controlador garantiza que los datos son validos.
+        if (prev_we_ && !we) {
+            const uint32_t v = datos_leidos();
+            const uint32_t off = dir_ * (ancho_ == 16 ? 2u : 1u);
+            const bool b0 = !nivel(nbl0_), b1 = !nivel(nbl1_);
+            if (off < mem_.size() && (b0 || ancho_ == 8)) mem_[off] = uint8_t(v);
+            if (ancho_ == 16 && b1 && off + 1 < mem_.size())
+                mem_[off + 1] = uint8_t(v >> 8);
+            ++n_wr_;
+        }
+        prev_oe_ = oe; prev_we_ = we;
+    }
+
+    std::vector<analog_net_if*> d_, a_;
+    std::vector<int> id_d_;
+    analog_net_if *ne_, *noe_, *nwe_, *nl_, *nbl0_, *nbl1_, *nwait_;
+    int id_wait_ = -1;
+    double vdd_;
+    std::vector<uint8_t> mem_;
+    uint32_t dir_ = 0, dir_baja_ = 0;
+    unsigned ancho_ = 16, n_rd_ = 0, n_wr_ = 0;
+    bool mux_ = true, puesta_ = false;
+    bool prev_oe_ = false, prev_we_ = false, prev_adv_ = false;
+};
+
+// ===========================================================================
+// UNA NAND FLASH EN EL BUS EXTERNO
+//
+// Una NAND no tiene bus de direcciones: tiene ocho hilos por los que van
+// mandatos, direcciones y datos, y dos senales -CLE y ALE- que dicen cual de
+// las tres cosas viaja en cada ciclo. El FSMC saca CLE y ALE por A16 y A17, de
+// modo que ESCRIBIR EN UNA DIRECCION U OTRA del banco es lo que elige el tipo
+// de ciclo.
+//
+// Entiende los cuatro mandatos que hacen falta para que la cosa sea util:
+// leer identificacion (0x90), leer pagina (0x00 ... 0x30), programar
+// (0x80 ... 0x10) y leer estado (0x70).
+// ===========================================================================
+SC_MODULE(ExtNand) {
+    ExtNand(sc_core::sc_module_name nm, const std::vector<analog_net_if*>& d,
+            analog_net_if& cle, analog_net_if& ale, analog_net_if& nce,
+            analog_net_if& noe, analog_net_if& nwe, analog_net_if* rb = nullptr,
+            double vdd = 3.3)
+        : sc_core::sc_module(nm), d_(d), cle_(&cle), ale_(&ale), nce_(&nce),
+          noe_(&noe), nwe_(&nwe), rb_(rb), vdd_(vdd) {
+        for (analog_net_if* n : d_) id_d_.push_back(n->register_driver("nand_d"));
+        if (rb_) { id_rb_ = rb_->register_driver("nand_rb"); }
+        mem_.assign(PAGINAS * PAGINA, 0xFFu);
+        SC_HAS_PROCESS(ExtNand);
+        SC_METHOD(ctrl_proc);
+        sensitive << nce_->value_changed_event() << noe_->value_changed_event()
+                  << nwe_->value_changed_event();
+        dont_initialize();
+        soltar();
+    }
+    static constexpr unsigned PAGINA = 512, PAGINAS = 16;
+
+    void set_conectada(bool on) {
+        puesta_ = on;
+        if (!on) { soltar(); if (rb_) rb_->set_hiz(id_rb_); }
+        else if (rb_) rb_->set_drive(id_rb_, float(vdd_), 1000.0f);  // listo
+    }
+    void escribe(uint32_t off, uint8_t v) { if (off < mem_.size()) mem_[off] = v; }
+    uint8_t lee(uint32_t off) const { return off < mem_.size() ? mem_[off] : 0xFFu; }
+    unsigned mandatos() const { return n_cmd_; }
+    unsigned bytes_leidos() const { return n_rd_; }
+    unsigned bytes_escritos() const { return n_wr_; }
+
+private:
+    bool nivel(analog_net_if* n) const { return n && n->voltage() > 0.5 * vdd_; }
+    void soltar() { for (size_t i = 0; i < d_.size(); ++i) d_[i]->set_hiz(id_d_[i]); }
+    void conduce(uint8_t v) {
+        for (size_t i = 0; i < d_.size(); ++i)
+            d_[i]->set_drive(id_d_[i], ((v >> i) & 1u) ? float(vdd_) : 0.0f, 30.0f);
+    }
+    uint8_t datos_leidos() const {
+        uint32_t v = 0;
+        for (size_t i = 0; i < d_.size() && i < 8; ++i)
+            if (d_[i]->voltage() > 0.5 * vdd_) v |= 1u << i;
+        return uint8_t(v);
+    }
+
+    void ctrl_proc() {
+        if (!puesta_) return;
+        const bool sel = !nivel(nce_);
+        const bool oe  = !nivel(noe_);
+        const bool we  = !nivel(nwe_);
+        if (!sel) { soltar(); prev_we_ = prev_oe_ = false; return; }
+
+        // Ciclo de escritura: el dato se toma en el flanco de subida de NWE.
+        if (prev_we_ && !we) {
+            const uint8_t v = datos_leidos();
+            if (nivel(cle_))      manda(v);
+            else if (nivel(ale_)) direcciona(v);
+            else                  programa(v);
+        }
+        // Ciclo de lectura: mientras NOE este abajo, la NAND conduce.
+        if (oe) {
+            conduce(dato_saliente());
+            if (!prev_oe_) ++n_rd_;
+        } else if (prev_oe_) {
+            soltar();
+        }
+        prev_we_ = we; prev_oe_ = oe;
+    }
+
+    void manda(uint8_t c) {
+        ++n_cmd_;
+        cmd_ = c; n_dir_ = 0; dir_ = 0;
+        if (c == 0x90u) { modo_ = ID;      idx_ = 0; }
+        if (c == 0x70u) { modo_ = ESTADO;  }
+        if (c == 0x00u) { modo_ = LEER;    }
+        if (c == 0x30u) { modo_ = LEER;    idx_ = dir_; }
+        if (c == 0x80u) { modo_ = ESCRIBIR; }
+        if (c == 0x10u) { modo_ = ESTADO;  }     // fin de programacion
+        if (c == 0xFFu) { modo_ = ESTADO; dir_ = 0; }
+    }
+    void direcciona(uint8_t v) {
+        dir_ |= uint32_t(v) << (8u * n_dir_);
+        ++n_dir_;
+        idx_ = dir_ & (PAGINAS * PAGINA - 1u);
+    }
+    void programa(uint8_t v) {
+        if (modo_ != ESCRIBIR) return;
+        if (idx_ < mem_.size()) mem_[idx_] &= v;   // programar solo baja bits
+        ++idx_; ++n_wr_;
+    }
+    uint8_t dato_saliente() {
+        switch (modo_) {
+            case ID: {
+                static const uint8_t id[4] = {0x20, 0x33, 0x00, 0x00};
+                return id[(idx_++) & 3u];
+            }
+            case ESTADO: return 0xC0u;                 // listo y sin error
+            case LEER:   return (idx_ < mem_.size()) ? mem_[idx_++] : 0xFFu;
+            default:     return 0xFFu;
+        }
+    }
+
+    enum Modo { NADA, ID, ESTADO, LEER, ESCRIBIR };
+    std::vector<analog_net_if*> d_;
+    std::vector<int> id_d_;
+    analog_net_if *cle_, *ale_, *nce_, *noe_, *nwe_, *rb_;
+    int id_rb_ = -1;
+    double vdd_;
+    std::vector<uint8_t> mem_;
+    Modo modo_ = NADA;
+    uint8_t cmd_ = 0;
+    uint32_t dir_ = 0, idx_ = 0;
+    unsigned n_dir_ = 0, n_cmd_ = 0, n_rd_ = 0, n_wr_ = 0;
+    bool puesta_ = false, prev_we_ = false, prev_oe_ = false;
+};
+
 } // namespace stm32
 #endif // STM32_VERIF_EXT_PARTS_H

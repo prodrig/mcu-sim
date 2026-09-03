@@ -67,7 +67,6 @@ SC_MODULE(Stm32F407VG) {
     Sram    sram2{"sram2", addr::SRAM2_BASE, addr::SRAM2_SIZE};
     BkpSram bkpsram{"bkpsram"};
     Ccm     ccm{"ccm"};
-    Sram    ext_ram_stub{"ext_ram_stub", addr::FSMC_MEM, 0x100000}; // TB la sustituye
 
     AhbDecoder   ahb1_dec{"ahb1_dec"}, ahb2_dec{"ahb2_dec"};
     AhbDecoder   apb1_dec{"apb1_dec"}, apb2_dec{"apb2_dec"};
@@ -456,9 +455,11 @@ inline void Stm32F407VG::bind_bus() {
     apb2_dec.add_slave("to_tim9", addr::TIM9_B, 0x400)->bind(tim9.tsk);
     apb2_dec.add_slave("to_tim10", addr::TIM10_B, 0x400)->bind(tim10.tsk);
     apb2_dec.add_slave("to_tim11", addr::TIM11_B, 0x400)->bind(tim11.tsk);
-    // FSMC (los registros 0xA000_0000 se decodifican dentro de fsmc.mem)
-    fsmc.ext_mem.bind(ext_ram_stub.tsk);
-    fsmc.hclk(s_hclk); fsmc.rst_n(s_prst[P_FSMC]); fsmc.clk_en(s_pcen[P_FSMC]);
+    // FSMC (los registros 0xA000_0000 se decodifican dentro de fsmc.mem).
+    // Ya NO hay memoria TLM detrás: lo que conteste al bus externo tiene que
+    // estar SOLDADO A LOS PINES, como en la placa. Véase verif/ext_parts.h.
+    fsmc.hclk(s_hclk); fsmc.hclk_hz(s_hclk_hz);
+    fsmc.rst_n(s_prst[P_FSMC]); fsmc.clk_en(s_pcen[P_FSMC]);
 }
 
 // ===========================================================================
@@ -491,7 +492,6 @@ inline void Stm32F407VG::bind_core() {
     sram1.hclk(s_hclk); sram1.rst_n(s_sysrst_n);
     sram2.hclk(s_hclk); sram2.rst_n(s_sysrst_n);
     bkpsram.hclk(s_hclk); bkpsram.rst_n(s_bkprst_n);
-    ext_ram_stub.hclk(s_hclk); ext_ram_stub.rst_n(s_sysrst_n);
     flash.hclk(s_hclk); flash.hclk_hz(s_hclk_hz); flash.rst_n(s_sysrst_n);
     flash.irq(s_irq[4]);
     flash.bor_lev(s_bor_lev);          // OPTCR.BOR_LEV -> supervisor de VDD
@@ -570,6 +570,46 @@ inline void Stm32F407VG::bind_gpio_pins() {
     pinmux.connect_af(0,  4, 13, af_in(&dcmi.hsync_in));   // PA4
     pinmux.connect_af(1,  7, 13, af_in(&dcmi.vsync_in));   // PB7
     pinmux.connect_af(0,  6, 13, af_in(&dcmi.pixclk_in));  // PA6
+
+    // -----------------------------------------------------------------------
+    // El bus de memoria externa (AF12) [IR, §12.18, cap. 2]
+    //
+    // Lo que este encapsulado tiene, y solo esto: dieciséis hilos de datos,
+    // OCHO de dirección (A16-A23), NOE, NWE, NWAIT, NBL0/1, NL y UN chip
+    // select. No hay A0-A15 -viven en PF0-PF15- ni NE2/NE3/NE4 ni ninguna
+    // señal del banco 4. Por eso el bus de este chip solo sirve multiplexado.
+    // -----------------------------------------------------------------------
+    auto af_io = [&](sc_core::sc_signal<bool>* o, sc_core::sc_signal<bool>* e,
+                     sc_core::sc_signal<bool>* i) {
+        AfEndpoint ep; ep.out = o; ep.oe = e; ep.in = i; ep.idle_in = true;
+        return ep;
+    };
+    auto af_out = [&](sc_core::sc_signal<bool>* o) {
+        return af(o, &s_true, nullptr);
+    };
+    // Datos D0-D15: bidireccionales, que es lo que hace de esto un bus.
+    static const unsigned d_pin[16][2] = {
+        {3, 14}, {3, 15}, {3, 0}, {3, 1}, {4, 7}, {4, 8}, {4, 9}, {4, 10},
+        {4, 11}, {4, 12}, {4, 13}, {4, 14}, {4, 15}, {3, 8}, {3, 9}, {3, 10}
+    };
+    for (unsigned i = 0; i < 16; ++i)
+        pinmux.connect_af(d_pin[i][0], d_pin[i][1], 12,
+                          af_io(&fsmc.d_out[i], &fsmc.d_oe[i], &fsmc.d_in[i]));
+    // Direcciones A16-A23: las únicas que salen al encapsulado.
+    static const unsigned a_pin[8][2] = {
+        {3, 11}, {3, 12}, {3, 13}, {4, 3}, {4, 4}, {4, 5}, {4, 6}, {4, 2}
+    };
+    for (unsigned i = 0; i < 8; ++i)
+        pinmux.connect_af(a_pin[i][0], a_pin[i][1], 12, af_out(&fsmc.a_out[i]));
+    pinmux.connect_af(3,  4, 12, af_out(&fsmc.noe));      // PD4  NOE
+    pinmux.connect_af(3,  5, 12, af_out(&fsmc.nwe));      // PD5  NWE
+    pinmux.connect_af(1,  7, 12, af_out(&fsmc.nl));       // PB7  NL (NADV)
+    pinmux.connect_af(4,  0, 12, af_out(&fsmc.nbl[0]));   // PE0  NBL0
+    pinmux.connect_af(4,  1, 12, af_out(&fsmc.nbl[1]));   // PE1  NBL1
+    // PD7 es NE1 para el banco 1 y NCE2 para el banco 2: el MISMO pin con dos
+    // nombres, según qué banco lo use. El informe lo lista como NCE2.
+    pinmux.connect_af(3,  7, 12, af_out(&fsmc.ne[0]));
+    pinmux.connect_af(3,  6, 12, af(nullptr, nullptr, &fsmc.nwait_in, true));
 
     // EVENTOUT (AF15) está disponible en todos los pines: es la salida de
     // evento del núcleo (instrucción SEV) [IR, §2.1].
