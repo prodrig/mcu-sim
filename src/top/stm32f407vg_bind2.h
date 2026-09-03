@@ -435,6 +435,38 @@ inline void Stm32F407VG::bind_analog() {
     // DAC [IR, §12.14]
     dac.bind_out(0, pinmux.analog(0, 4));        // PA4
     dac.bind_out(1, pinmux.analog(0, 5));        // PA5
+    // ---- Ethernet MAC (AF11) ----------------------------------------------
+    // Los dieciocho pines de MII y los nueve de RMII son LOS MISMOS pines: la
+    // interfaz se elige con SYSCFG_PMC y el mux no cambia, cambia quien mira
+    // cada hilo. RMII usa TXD0/1, RXD0/1, TX_EN y CRS_DV; MII anade TXD2/3,
+    // RXD2/3, RX_ER, CRS, COL y su propio TX_CLK [IR, cap. 2].
+    {
+        auto af_e = [&](sc_core::sc_signal<bool>* o, sc_core::sc_signal<bool>* e,
+                        sc_core::sc_signal<bool>* i) {
+            AfEndpoint ep; ep.out = o; ep.oe = e; ep.in = i; ep.idle_in = false;
+            return ep;
+        };
+        pinmux.connect_af(2,  1, 11, af_e(&eth.mdc_out, &s_true, nullptr));   // PC1
+        pinmux.connect_af(0,  2, 11, af_e(&eth.mdio_out, &eth.mdio_oe,
+                                          &eth.mdio_in));                     // PA2
+        pinmux.connect_af(2,  3, 11, af_e(nullptr, nullptr, &eth.tx_clk_in));  // PC3
+        pinmux.connect_af(0,  1, 11, af_e(nullptr, nullptr, &eth.ref_clk_in)); // PA1
+        pinmux.connect_af(1, 11, 11, af_e(&eth.tx_en_out, &s_true, nullptr));  // PB11
+        pinmux.connect_af(1, 12, 11, af_e(&eth.txd_out[0], &s_true, nullptr)); // PB12
+        pinmux.connect_af(1, 13, 11, af_e(&eth.txd_out[1], &s_true, nullptr)); // PB13
+        pinmux.connect_af(2,  2, 11, af_e(&eth.txd_out[2], &s_true, nullptr)); // PC2
+        pinmux.connect_af(1,  8, 11, af_e(&eth.txd_out[3], &s_true, nullptr)); // PB8
+        pinmux.connect_af(2,  4, 11, af_e(nullptr, nullptr, &eth.rxd_in[0]));  // PC4
+        pinmux.connect_af(2,  5, 11, af_e(nullptr, nullptr, &eth.rxd_in[1]));  // PC5
+        pinmux.connect_af(1,  0, 11, af_e(nullptr, nullptr, &eth.rxd_in[2]));  // PB0
+        pinmux.connect_af(1,  1, 11, af_e(nullptr, nullptr, &eth.rxd_in[3]));  // PB1
+        pinmux.connect_af(0,  7, 11, af_e(nullptr, nullptr, &eth.rx_dv_in));   // PA7
+        pinmux.connect_af(1, 10, 11, af_e(nullptr, nullptr, &eth.rx_er_in));   // PB10
+        pinmux.connect_af(0,  0, 11, af_e(nullptr, nullptr, &eth.crs_in));     // PA0
+        pinmux.connect_af(0,  3, 11, af_e(nullptr, nullptr, &eth.col_in));     // PA3
+        pinmux.connect_af(1,  5, 11, af_e(&eth.pps_out, &s_true, nullptr));    // PB5
+    }
+
     // USB OTG_FS: PHY integrado en PA11 (DM) y PA12 (DP), sensado de VBUS en
     // PA9 y pin ID en PA10 [IR, §12.15.4]. Los cuatro son RUTA ANALOGICA, no
     // funcion alternativa digital: por D+ y D- no van unos y ceros, van

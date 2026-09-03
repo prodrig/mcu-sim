@@ -33,6 +33,7 @@
 #include "../periph/sdio.h"   // sd_crc7 y SdCrc16: el protocolo es el mismo
 #include "../periph/can.h"    // can_crc15 y el relleno de bits: idem
 #include "../periph/otg.h"    // usb_dev_if y los PID: el aparejo habla lo mismo
+#include "../periph/eth_mac.h" // eth_fcs: el CRC del cable lo calculan los dos igual
 #include "swd_port.h"        // el maestro SWD a nivel de bit, compartido con el stub GDB
 
 namespace stm32 {
@@ -1878,6 +1879,306 @@ private:
     unsigned n_rst_ = 0, n_sof_ = 0, n_setup_ = 0;
     uint16_t trama_ = 0;
     sc_core::sc_time t_se0_{sc_core::SC_ZERO_TIME};
+};
+
+// ===========================================================================
+// EL PHY DE ETHERNET
+//
+// Es el integrado que hay entre el MAC y el conector RJ45, y hace tres cosas
+// que el MAC no puede hacer solo:
+//
+//   * PONE LOS RELOJES. En MII saca TX_CLK y RX_CLK (25 MHz a 100 Mbit/s, o
+//     2,5 a 10); en RMII, un unico REF_CLK de 50 MHz que sirve para los dos
+//     sentidos. El MAC no genera nada: los sigue.
+//   * habla por MDIO, que es un bus serie de dos hilos con su propia trama de
+//     32 bits, y en el viven los registros del PHY (BMCR, BMSR, identificacion
+//     y autonegociacion);
+//   * y convierte nibbles o dibits en pulsos por el par trenzado, que es lo
+//     unico que este modelo NO simula: aqui el "cable" es un buzon de tramas.
+//
+// Se conecta a los nodos analogicos de los pines, como todo lo que se suelda a
+// la placa en este proyecto.
+// ===========================================================================
+SC_MODULE(EthPhy) {
+    // Los pines, en el orden en que salen del encapsulado.
+    EthPhy(sc_core::sc_module_name nm,
+           analog_net_if& mdc, analog_net_if& mdio,
+           analog_net_if& tx_clk, analog_net_if& rx_clk,
+           analog_net_if& tx_en, const std::vector<analog_net_if*>& txd,
+           const std::vector<analog_net_if*>& rxd,
+           analog_net_if& rx_dv, analog_net_if& rx_er,
+           analog_net_if& crs, analog_net_if& col, double vdd = 3.3)
+        : sc_core::sc_module(nm), mdc_(&mdc), mdio_(&mdio), txclk_(&tx_clk),
+          rxclk_(&rx_clk), txen_(&tx_en), txd_(txd), rxd_(rxd), rxdv_(&rx_dv),
+          rxer_(&rx_er), crs_(&crs), col_(&col), vdd_(vdd) {
+        id_mdio_ = mdio_->register_driver("phy_mdio");
+        // La RESISTENCIA DE PULL-UP del MDIO, que en la placa son 1,5 a 10 kohm
+        // y sin la cual el bus no tiene estado de reposo. Es lo que hace que
+        // preguntarle a una direccion donde no hay nadie devuelva TODO UNOS en
+        // vez de un valor cualquiera.
+        id_mdio_pu_ = mdio_->register_driver("mdio_pullup");
+        id_txclk_ = txclk_->register_driver("phy_txclk");
+        id_rxclk_ = rxclk_->register_driver("phy_rxclk");
+        id_rxdv_ = rxdv_->register_driver("phy_rxdv");
+        id_rxer_ = rxer_->register_driver("phy_rxer");
+        id_crs_ = crs_->register_driver("phy_crs");
+        id_col_ = col_->register_driver("phy_col");
+        for (analog_net_if* n : rxd_) id_rxd_.push_back(n->register_driver("phy_rxd"));
+        // Registros del PHY: los cuatro primeros son los de la norma.
+        reg_.assign(32, 0);
+        reg_[0] = 0x3100;                 // BMCR: 100 Mbit/s, full duplex, ANEG
+        reg_[1] = 0x786D;                 // BMSR: enlace arriba, ANEG completa
+        reg_[2] = 0x0007;                 // PHYID1  (identificacion de fabrica)
+        reg_[3] = 0xC0F1;                 // PHYID2
+        reg_[4] = 0x01E1;                 // ANAR
+        reg_[5] = 0x0000;                 // ANLPAR
+        SC_HAS_PROCESS(EthPhy);
+        SC_THREAD(reloj_proc);
+        SC_METHOD(mdio_proc);
+        sensitive << mdc_->value_changed_event();
+        dont_initialize();
+        SC_METHOD(tx_proc);
+        sensitive << txclk_->value_changed_event() << rxclk_->value_changed_event();
+        dont_initialize();
+        soltar();
+    }
+
+    // --- La placa ------------------------------------------------------------
+    void conectar(bool on) {
+        puesto_ = on;
+        mdio_->set_drive(id_mdio_pu_, on ? float(vdd_) : 0.0f,
+                         on ? 10.0e3f : R_HIZ);
+        if (!on) soltar();
+        ev_.notify(sc_core::SC_ZERO_TIME);
+    }
+    void set_rmii(bool r)   { rmii_ = r; }
+    void set_cien(bool c)   { cien_ = c; }
+    void set_enlace(bool e) { reg_[1] = uint16_t(e ? 0x786D : 0x7809); }
+    void set_dir(unsigned a) { dir_ = a & 0x1Fu; }
+
+    // --- El cable ------------------------------------------------------------
+    // Lo que el MAC ha sacado por los pines (con FCS, sin preambulo).
+    const std::deque<std::vector<uint8_t>>& recibidas() const { return rx_; }
+    unsigned n_recibidas() const { return n_rx_; }
+    void limpiar() { rx_.clear(); n_rx_ = 0; }
+    // Y una trama que llega del segmento hacia el MAC. Se le anade el
+    // preambulo, el delimitador y la FCS, como haria el PHY de verdad.
+    void enviar(const std::vector<uint8_t>& t, bool fcs_mala = false) {
+        pend_.push_back(std::make_pair(t, fcs_mala));
+        ev_.notify(sc_core::SC_ZERO_TIME);
+    }
+    unsigned mdio_lecturas() const { return n_mdio_rd_; }
+    unsigned mdio_escrituras() const { return n_mdio_wr_; }
+    uint16_t reg(unsigned r) const { return r < reg_.size() ? reg_[r] : 0; }
+    void set_reg(unsigned r, uint16_t v) { if (r < reg_.size()) reg_[r] = v; }
+
+private:
+    bool nivel(analog_net_if* n) const { return n->voltage() > 0.5 * vdd_; }
+    void pon(analog_net_if* n, int id, bool v) {
+        n->set_drive(id, v ? float(vdd_) : 0.0f, 30.0f);
+    }
+    void soltar() {
+        mdio_->set_hiz(id_mdio_);
+        txclk_->set_hiz(id_txclk_); rxclk_->set_hiz(id_rxclk_);
+        rxdv_->set_hiz(id_rxdv_); rxer_->set_hiz(id_rxer_);
+        crs_->set_hiz(id_crs_); col_->set_hiz(id_col_);
+        for (size_t i = 0; i < rxd_.size(); ++i) rxd_[i]->set_hiz(id_rxd_[i]);
+    }
+
+    // --- Los relojes y la inyeccion de tramas --------------------------------
+    // Un solo hilo lleva el reloj Y la trama de recepcion, porque la trama va
+    // sincronizada con el: son la misma cosa vista desde dos sitios.
+    void reloj_proc() {
+        for (;;) {
+            if (!puesto_) { sc_core::wait(ev_); continue; }
+            // 25 MHz de nibble en MII a 100 Mbit/s; 50 MHz de dibit en RMII.
+            const double ns = rmii_ ? (cien_ ? 10.0 : 100.0)
+                                    : (cien_ ? 20.0 : 200.0);
+            const sc_core::sc_time semi(ns, sc_core::SC_NS);
+            // Flanco de bajada: es donde el MAC muestrea, asi que los datos se
+            // ponen aqui y llegan estables al flanco de subida.
+            pon(txclk_, id_txclk_, false);
+            pon(rxclk_, id_rxclk_, false);
+            paso_rx();
+            sc_core::wait(semi);
+            pon(txclk_, id_txclk_, true);
+            pon(rxclk_, id_rxclk_, true);
+            sc_core::wait(semi);
+        }
+    }
+
+    // Un ciclo de la maquina de inyeccion: saca el nibble/dibit que toque.
+    void paso_rx() {
+        const unsigned n = rmii_ ? 2u : 4u;
+        if (hilo_.empty()) {
+            if (pend_.empty()) {
+                pon(rxdv_, id_rxdv_, false);
+                pon(rxer_, id_rxer_, false);
+                pon(crs_, id_crs_, false);
+                for (size_t i = 0; i < rxd_.size(); ++i) pon(rxd_[i], id_rxd_[i], false);
+                return;
+            }
+            const std::vector<uint8_t>& t = pend_.front().first;
+            const bool mala = pend_.front().second;
+            for (unsigned i = 0; i < 7; ++i) hilo_.push_back(0x55);
+            hilo_.push_back(0xD5);
+            for (uint8_t b : t) hilo_.push_back(b);
+            uint32_t fcs = eth_fcs(t.data(), t.size());
+            if (mala) fcs ^= 0xA5A5A5A5u;      // una trama con el CRC roto
+            for (unsigned i = 0; i < 4; ++i) hilo_.push_back(uint8_t(fcs >> (8 * i)));
+            pend_.pop_front();
+            idx_ = 0;
+        }
+        pon(rxdv_, id_rxdv_, true);
+        pon(crs_, id_crs_, true);
+        const uint8_t b = hilo_[idx_ / (8u / n)];
+        const unsigned s = idx_ % (8u / n);
+        for (size_t i = 0; i < rxd_.size(); ++i)
+            pon(rxd_[i], id_rxd_[i], i < n && (((b >> (n * s)) >> i) & 1u));
+        if (++idx_ >= hilo_.size() * (8u / n)) { hilo_.clear(); idx_ = 0; }
+    }
+
+    // --- Captura de lo que transmite el MAC ----------------------------------
+    void tx_proc() {
+        if (!puesto_) return;
+        // Se muestrea en el flanco de SUBIDA, medio ciclo despues de que el MAC
+        // haya puesto el dato: es el margen de establecimiento de siempre.
+        analog_net_if* clk = rmii_ ? rxclk_ : txclk_;
+        const bool alto = nivel(clk);
+        if (!alto || alto == prev_clk_) { prev_clk_ = alto; return; }
+        prev_clk_ = alto;
+        const unsigned n = rmii_ ? 2u : 4u;
+        if (!nivel(txen_)) {
+            if (!tx_bytes_.empty()) {
+                // Se quita el preambulo y el delimitador; lo demas es la trama.
+                size_t i = 0;
+                while (i < tx_bytes_.size() && tx_bytes_[i] == 0x55) ++i;
+                if (i < tx_bytes_.size() && tx_bytes_[i] == 0xD5) ++i;
+                if (i < tx_bytes_.size()) {
+                    rx_.push_back(std::vector<uint8_t>(tx_bytes_.begin() + long(i),
+                                                       tx_bytes_.end()));
+                    ++n_rx_;
+                }
+                tx_bytes_.clear();
+                tx_acc_ = 0; tx_n_ = 0;
+            }
+            return;
+        }
+        uint8_t v = 0;
+        for (size_t i = 0; i < txd_.size() && i < n; ++i)
+            if (nivel(txd_[i])) v |= uint8_t(1u << i);
+        tx_acc_ |= uint8_t(v << (n * tx_n_));
+        if (++tx_n_ >= 8u / n) { tx_bytes_.push_back(tx_acc_); tx_acc_ = 0; tx_n_ = 0; }
+    }
+
+    // --- MDIO: la trama de 32 bits, bit a bit --------------------------------
+    void mdio_proc() {
+        if (!puesto_) return;
+        const bool c = nivel(mdc_);
+        if (c == prev_mdc_) return;
+        prev_mdc_ = c;
+        if (!c) {                                 // flanco de bajada
+            // Si toca conducir, se pone el bit aqui para que el MAC lo lea en
+            // el flanco de subida.
+            if (fase_ == LEER_DATO && bit_ < 16) {
+                pon(mdio_, id_mdio_, ((dato_ >> (15 - bit_)) & 1u) != 0);
+            }
+            return;
+        }
+        // Flanco de subida: se muestrea lo que conduce el MAC.
+        const bool b = nivel(mdio_);
+        switch (fase_) {
+            case PREAMBULO:
+                if (b) { if (++unos_ >= 32) { fase_ = ST; bit_ = 0; sr_ = 0; } }
+                else if (unos_ >= 2) { fase_ = ST; bit_ = 1; sr_ = 0; unos_ = 0; }
+                else unos_ = 0;
+                return;
+            case ST:
+                sr_ = uint32_t((sr_ << 1) | (b ? 1u : 0u));
+                if (++bit_ >= 2) { fase_ = OP; bit_ = 0; st_ = sr_ & 3u; sr_ = 0; }
+                return;
+            case OP:
+                sr_ = uint32_t((sr_ << 1) | (b ? 1u : 0u));
+                if (++bit_ >= 2) { op_ = sr_ & 3u; fase_ = PA; bit_ = 0; sr_ = 0; }
+                return;
+            case PA:
+                sr_ = uint32_t((sr_ << 1) | (b ? 1u : 0u));
+                if (++bit_ >= 5) { pa_ = sr_ & 0x1Fu; fase_ = RA; bit_ = 0; sr_ = 0; }
+                return;
+            case RA:
+                sr_ = uint32_t((sr_ << 1) | (b ? 1u : 0u));
+                if (++bit_ >= 5) {
+                    ra_ = sr_ & 0x1Fu; bit_ = 0; sr_ = 0;
+                    if (op_ == 2u && pa_ == dir_) {      // lectura
+                        dato_ = reg_[ra_];
+                        fase_ = TA_LEER;
+                    } else {
+                        fase_ = (op_ == 1u) ? TA_ESCR : IGNORA;
+                    }
+                }
+                return;
+            case TA_LEER:
+                if (++bit_ >= 2) { fase_ = LEER_DATO; bit_ = 0; }
+                return;
+            case TA_ESCR:
+                if (++bit_ >= 2) { fase_ = ESCR_DATO; bit_ = 0; sr_ = 0; }
+                return;
+            case LEER_DATO:
+                if (++bit_ >= 16) {
+                    mdio_->set_hiz(id_mdio_);
+                    ++n_mdio_rd_;
+                    fase_ = PREAMBULO; unos_ = 0; bit_ = 0;
+                }
+                return;
+            case ESCR_DATO:
+                sr_ = uint32_t((sr_ << 1) | (b ? 1u : 0u));
+                if (++bit_ >= 16) {
+                    if (pa_ == dir_) {
+                        reg_[ra_] = uint16_t(sr_);
+                        // BMCR.RESET (bit 15) se autoborra, como en el silicio.
+                        if (ra_ == 0 && (reg_[0] & 0x8000u)) reg_[0] &= 0x7FFFu;
+                        ++n_mdio_wr_;
+                    }
+                    fase_ = PREAMBULO; unos_ = 0; bit_ = 0;
+                }
+                return;
+            default:
+                if (++bit_ >= 18) { fase_ = PREAMBULO; unos_ = 0; bit_ = 0; }
+                return;
+        }
+    }
+
+    enum Fase { PREAMBULO, ST, OP, PA, RA, TA_LEER, TA_ESCR, LEER_DATO,
+                ESCR_DATO, IGNORA };
+
+    analog_net_if *mdc_, *mdio_, *txclk_, *rxclk_, *txen_;
+    std::vector<analog_net_if*> txd_, rxd_;
+    analog_net_if *rxdv_, *rxer_, *crs_, *col_;
+    std::vector<int> id_rxd_;
+    int id_mdio_ = -1, id_mdio_pu_ = -1, id_txclk_ = -1, id_rxclk_ = -1, id_rxdv_ = -1;
+    int id_rxer_ = -1, id_crs_ = -1, id_col_ = -1;
+    double vdd_;
+    bool puesto_ = false, rmii_ = true, cien_ = true;
+    unsigned dir_ = 0;
+    std::vector<uint16_t> reg_;
+    // Transmision del MAC hacia aqui
+    std::vector<uint8_t> tx_bytes_;
+    uint8_t tx_acc_ = 0; unsigned tx_n_ = 0;
+    bool prev_clk_ = false;
+    std::deque<std::vector<uint8_t>> rx_;
+    unsigned n_rx_ = 0;
+    // Inyeccion hacia el MAC
+    std::deque<std::pair<std::vector<uint8_t>, bool>> pend_;
+    std::vector<uint8_t> hilo_;
+    size_t idx_ = 0;
+    // MDIO
+    Fase fase_ = PREAMBULO;
+    bool prev_mdc_ = false;
+    unsigned unos_ = 0, bit_ = 0, st_ = 0, op_ = 0, pa_ = 0, ra_ = 0;
+    uint32_t sr_ = 0;
+    uint16_t dato_ = 0;
+    unsigned n_mdio_rd_ = 0, n_mdio_wr_ = 0;
+    sc_core::sc_event ev_;
 };
 
 } // namespace stm32

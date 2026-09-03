@@ -211,6 +211,18 @@ SC_MODULE(F1Tb) {
     sc_signal<bool>   s_fs_irq{"s_fs_irq"}, s_fs_clk{"s_fs_clk"};
     sc_signal<double> s_fs_hz{"s_fs_hz"};
 
+    // --- El PHY de Ethernet, al otro lado de los pines (véase T117-T120) ----
+    // Pone los relojes, habla MDIO y hace de buzón de tramas. Sin él, el MAC no
+    // puede ni transmitir: el reloj del camino de datos viene de fuera.
+    EthPhy* phy = nullptr;
+    // ETH con rasgos elegidos en TIEMPO DE EJECUCIÓN (véase T117)
+    EthBase* eth_rt = nullptr;
+    BusTestMaster tm13{"tm13"};
+    sc_signal<bool>   s_et_true{"s_et_true"}, s_et_rst{"s_et_rst"};
+    sc_signal<bool>   s_et_irq{"s_et_irq"}, s_et_wk{"s_et_wk"}, s_et_mii{"s_et_mii"};
+    sc_signal<bool>   s_et_clk{"s_et_clk"};
+    sc_signal<double> s_et_hz{"s_et_hz"};
+
     // --- El otro extremo del cable USB (véase T113-T116) --------------------
     // Un PC colgado del OTG_FS -para probar el modo DISPOSITIVO- y un pendrive
     // colgado del OTG_HS -para probar el modo ANFITRIÓN-. Los dos se enganchan
@@ -435,6 +447,39 @@ SC_MODULE(F1Tb) {
                                 dut->pinmux.analog(3, 5),   // PD5  NWE
                                 &dut->pinmux.analog(3, 6)); // PD6  R/B
         }
+        // --- El PHY de Ethernet (AF11) ------------------------------------
+        // Dieciocho pines para MII; de ellos, nueve son los de RMII.
+        {
+            std::vector<analog_net_if*> tx, rx;
+            tx.push_back(&dut->pinmux.analog(1, 12));   // PB12 TXD0
+            tx.push_back(&dut->pinmux.analog(1, 13));   // PB13 TXD1
+            tx.push_back(&dut->pinmux.analog(2,  2));   // PC2  MII_TXD2
+            tx.push_back(&dut->pinmux.analog(1,  8));   // PB8  MII_TXD3
+            rx.push_back(&dut->pinmux.analog(2,  4));   // PC4  RXD0
+            rx.push_back(&dut->pinmux.analog(2,  5));   // PC5  RXD1
+            rx.push_back(&dut->pinmux.analog(1,  0));   // PB0  MII_RXD2
+            rx.push_back(&dut->pinmux.analog(1,  1));   // PB1  MII_RXD3
+            phy = new EthPhy("phy",
+                      dut->pinmux.analog(2, 1),         // PC1  MDC
+                      dut->pinmux.analog(0, 2),         // PA2  MDIO
+                      dut->pinmux.analog(2, 3),         // PC3  MII_TX_CLK
+                      dut->pinmux.analog(0, 1),         // PA1  REF_CLK/RX_CLK
+                      dut->pinmux.analog(1, 11),        // PB11 TX_EN
+                      tx, rx,
+                      dut->pinmux.analog(0, 7),         // PA7  RX_DV / CRS_DV
+                      dut->pinmux.analog(1, 10),        // PB10 MII_RX_ER
+                      dut->pinmux.analog(0, 0),         // PA0  MII_CRS
+                      dut->pinmux.analog(0, 3));        // PA3  MII_COL
+        }
+        // Un MAC con los rasgos puestos en tiempo de EJECUCIÓN: solo RMII, un
+        // filtro de direccion, sin PTP, sin MMC y sin hash.
+        eth_rt = new EthBase("eth_rt", CAPS_ETH_BASIC);
+        tm13.isk.bind(eth_rt->tsk);
+        eth_rt->clk(s_et_clk);  eth_rt->clk_hz(s_et_hz);
+        eth_rt->rst_n(s_et_rst); eth_rt->clk_en(s_et_true);
+        eth_rt->irq(s_et_irq);  eth_rt->wkup_line(s_et_wk);
+        eth_rt->mii_rmii_sel(s_et_mii);
+
         // --- Los dos extremos del cable USB -------------------------------
         // El PC va al OTG_FS: PA11 (DM), PA12 (DP), PA9 (VBUS) y PA10 (ID).
         hrig = new UsbHostRig("hrig",
@@ -627,6 +672,7 @@ SC_MODULE(F1Tb) {
         delete lnk_iext; delete lnk_isd; delete lnk_iws; delete lnk_ick;
         delete cam; delete dcmi_rt; delete xram; delete xnand; delete fsmc_rt;
         delete hrig; delete drig; delete otg_rt;
+        delete phy; delete eth_rt;
         delete lnk_nss; delete lnk_miso; delete lnk_mosi; delete lnk_sck;
         delete t_rt;
         delete sd_rt;
@@ -894,6 +940,11 @@ SC_MODULE(F1Tb) {
         t114_otg_phy();
         t115_otg_dispositivo();
         t116_otg_hs();
+        const unsigned f7ot_pass = g_pass, f7ot_fail = g_fail;
+        t117_eth_variantes();
+        t118_eth_mdio();
+        t119_eth_trama();
+        t120_eth_filtros();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -934,7 +985,9 @@ SC_MODULE(F1Tb) {
         std::printf("Resumen F7 (FSMC): %u comprobaciones OK, %u fallos\n",
                     f7fs_pass - f7dc_pass, f7fs_fail - f7dc_fail);
         std::printf("Resumen F7 (OTG) : %u comprobaciones OK, %u fallos\n",
-                    g_pass - f7fs_pass, g_fail - f7fs_fail);
+                    f7ot_pass - f7fs_pass, f7ot_fail - f7fs_fail);
+        std::printf("Resumen F7 (ETH) : %u comprobaciones OK, %u fallos\n",
+                    g_pass - f7ot_pass, g_fail - f7ot_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -12343,6 +12396,554 @@ SC_MODULE(F1Tb) {
         uhs_wr(OtgHs::R_GCCFG, 0);
         uhs_wr(OtgHs::R_GUSBCFG, 0);
         usb_suelta();
+    }
+
+    // =======================================================================
+    // FASE F7 — ETHERNET MAC 10/100 CON DMA PROPIO [IR, §12.16]
+    //
+    // Tres cosas de tres naturalezas: unos registros repartidos en cuatro
+    // bloques que no comparten nada, una maquina de descriptores que vive en la
+    // SRAM del usuario, y una trama que sale y entra POR LOS PINES nibble a
+    // nibble, con su preambulo y su CRC de verdad.
+    // =======================================================================
+    static constexpr uint32_t EB = addr::ETH_B;
+
+    uint32_t eth_rd(uint32_t off) { uint32_t v = 0; tm.read32(EB + off, v); return v; }
+    void     eth_wr(uint32_t off, uint32_t v) { tm.write32(EB + off, v); }
+
+    // UNA DECISION DE PLACA, Y DE LAS CARAS.
+    // El Ethernet se lleva dieciocho pines en MII, y ninguno esta libre: PA0 es
+    // el WKUP, PA1/PA2 son el USART2, PA3 y PB0/PB1/PB5/PB10-PB13 son el ULPI
+    // del USB, PB12/PB13 son ademas el SPI2 y el CAN2, y PC4/PC5 son dos
+    // entradas del ADC. Se sueltan todos antes de enchufar el PHY.
+    // Los dieciocho pines del Ethernet en el LQFP100 [IR, cap. 2].
+    static const unsigned (*eth_pin_tabla())[2] {
+        static const unsigned t[18][2] = {
+            {2,1},{0,2},{0,1},{1,11},{1,12},{1,13},{2,4},{2,5},{0,7},
+            {2,3},{2,2},{1,8},{1,0},{1,1},{1,10},{0,0},{0,3},{1,5} };
+        return t;
+    }
+    void eth_placa(bool on) {
+        // SOLTAR LOS PINES ANTES DE DEVOLVER LAS PISTAS. Al terminar, PB12
+        // vuelve a ser SPI2_NSS y CAN2_RX, y esas pistas conducen a 50 ohm: si
+        // el MAC sigue gobernando el pad, son un cortocircuito de verdad -y el
+        // modelo lo denuncia por corriente de pin-. En una placa esto no pasa
+        // porque un pin tiene UNA funcion; en el banco de pruebas hay que
+        // deshacer el cableado en el orden correcto.
+        if (!on) {
+            const unsigned (*t)[2] = eth_pin_tabla();
+            for (unsigned i = 0; i < 18; ++i) pin_cfg(t[i][0], t[i][1], 0, 0, false, 0, 0);
+        }
+        can_links(!on);
+        spi_links(!on);
+        i2s_links(!on);
+        i2c_bus(!on);
+        // Y las cuatro pistas de las pruebas de puerto serie, que cruzan justo
+        // por encima del Ethernet: PA2 (MDIO) esta cableado a PB11 (TX_EN) y
+        // PC12 a PA1 (REF_CLK). Dejarlas puestas es un CORTOCIRCUITO de verdad
+        // -el modelo avisa por corriente de pin-, no un artefacto de la
+        // simulacion.
+        lnk_u2_u3->set_enabled(!on);     // PA2  -> PB11
+        lnk_u3_u2->set_enabled(!on);     // PB10 -> PA3
+        lnk_u4_u5->set_enabled(!on);     // PA0  -> PD2
+        lnk_u5_u4->set_enabled(!on);     // PC12 -> PA1
+        if (on) cam->soltar();
+        phy->conectar(on);
+        wait(20, SC_US);
+    }
+    void eth_pines(bool mii) {
+        for (unsigned p = 0; p < 3; ++p) rcc_enable(Rcc::R_AHB1ENR, p);   // A,B,C
+        for (unsigned b = 25; b <= 28; ++b) rcc_enable(Rcc::R_AHB1ENR, b);
+        rcc_enable(Rcc::R_APB2ENR, 14);                                   // SYSCFG
+        // RMII: nueve pines. MII: nueve mas.
+        pin_cfg(2, 1, 2, 0, false, 3, 11);        // PC1  MDC
+        pin_cfg(0, 2, 2, 0, false, 3, 11);        // PA2  MDIO
+        pin_cfg(0, 1, 2, 0, false, 3, 11);        // PA1  REF_CLK / MII_RX_CLK
+        pin_cfg(1, 11, 2, 0, false, 3, 11);       // PB11 TX_EN
+        pin_cfg(1, 12, 2, 0, false, 3, 11);       // PB12 TXD0
+        pin_cfg(1, 13, 2, 0, false, 3, 11);       // PB13 TXD1
+        pin_cfg(2, 4, 2, 0, false, 3, 11);        // PC4  RXD0
+        pin_cfg(2, 5, 2, 0, false, 3, 11);        // PC5  RXD1
+        pin_cfg(0, 7, 2, 0, false, 3, 11);        // PA7  RX_DV / CRS_DV
+        if (mii) {
+            pin_cfg(2, 3, 2, 0, false, 3, 11);    // PC3  MII_TX_CLK
+            pin_cfg(2, 2, 2, 0, false, 3, 11);    // PC2  MII_TXD2
+            pin_cfg(1, 8, 2, 0, false, 3, 11);    // PB8  MII_TXD3
+            pin_cfg(1, 0, 2, 0, false, 3, 11);    // PB0  MII_RXD2
+            pin_cfg(1, 1, 2, 0, false, 3, 11);    // PB1  MII_RXD3
+            pin_cfg(1, 10, 2, 0, false, 3, 11);   // PB10 MII_RX_ER
+            pin_cfg(0, 0, 2, 0, false, 3, 11);    // PA0  MII_CRS  (el WKUP!)
+            pin_cfg(0, 3, 2, 0, false, 3, 11);    // PA3  MII_COL
+        }
+        // SYSCFG_PMC bit 23: MII (0) o RMII (1). Solo con el MAC en reset.
+        tm.write32(addr::SYSCFG_B + Syscfg::PMC, mii ? 0u : (1u << 23));
+        phy->set_rmii(!mii);
+        phy->set_cien(true);
+        wait(20, SC_US);
+    }
+    // Un descriptor de cuatro palabras, escrito por el maestro de pruebas.
+    void desc_wr(uint32_t a, uint32_t w0, uint32_t w1, uint32_t w2, uint32_t w3) {
+        tm.write32(a, w0); tm.write32(a + 4, w1);
+        tm.write32(a + 8, w2); tm.write32(a + 12, w3);
+    }
+    uint32_t desc_rd(uint32_t a) { uint32_t v = 0; tm.read32(a, v); return v; }
+    // Una trama de prueba: destino, origen, tipo y relleno numerado.
+    std::vector<uint8_t> trama_de(const uint8_t* dst, unsigned n = 60) {
+        static const uint8_t src[6] = {0x02, 0x11, 0x22, 0x33, 0x44, 0x55};
+        std::vector<uint8_t> t;
+        for (unsigned i = 0; i < 6; ++i) t.push_back(dst[i]);
+        for (unsigned i = 0; i < 6; ++i) t.push_back(src[i]);
+        t.push_back(0x08); t.push_back(0x00);              // IPv4
+        for (unsigned i = 14; i < n; ++i) t.push_back(uint8_t(0xA0 + (i & 0x3F)));
+        return t;
+    }
+
+    // -----------------------------------------------------------------------
+    // T117 — Los tres sentidos de "canal" en el Ethernet
+    // -----------------------------------------------------------------------
+    void t117_eth_variantes() {
+        group("T117 ETH: MII/RMII, los dos anillos y los cuatro filtros [IR, 12.16]");
+        reset_dut();
+        dbg_resume();
+        eth_placa(true);
+        eth_pines(true);                 // MII: los dieciocho pines
+        wait(20, SC_US);
+        std::printf("    %s\n", dut->eth.caps.kind);
+
+        // --- Valores de reset -------------------------------------------------
+        check_eq(eth_rd(Eth::R_MACCR), 0x00008000u,
+                 "ETH_MACCR arranca en 0x0000 8000 [IR, 12.16.2]");
+        check_eq(eth_rd(Eth::R_DMABMR), 0x00020101u, "y ETH_DMABMR en 0x0002 0101");
+        std::printf("    el uno del reset de MACCR es el BIT 15, reservado: el "
+                    "informe lo atribuye al 14 (RE), pero entonces seria 0x4000\n");
+        eth_wr(Eth::R_MACCR, 0);
+        check_eq(eth_rd(Eth::R_MACCR), 0x00008000u,
+                 "ese bit no se puede borrar: es fijo, no una bandera");
+
+        // --- A) LAS DOS INTERFACES FISICAS -----------------------------------
+        check(dut->eth.caps.mii && dut->eth.caps.rmii,
+              "el F407 trae las dos interfaces: la placa elige una");
+        check(dut->eth.modo_mii(), "con SYSCFG_PMC a cero, el MAC habla MII");
+        tm.write32(addr::SYSCFG_B + Syscfg::PMC, 1u << 23);
+        wait(10, SC_US);
+        check(!dut->eth.modo_mii(), "y con el bit 23 puesto, RMII");
+        std::printf("    MII son 18 pines y DOS relojes; RMII, 9 pines y UNO\n");
+
+        // --- B) LOS DOS ANILLOS NO SON COPIAS ---------------------------------
+        // Arranque y parada estan en bits DISTINTOS del mismo registro, y sus
+        // umbrales de FIFO en campos distintos.
+        eth_wr(Eth::R_DMAOMR, Eth::OMR_ST);
+        check_eq(eth_rd(Eth::R_DMAOMR) & Eth::OMR_SR, 0u,
+                 "ST arranca la transmision y NO toca la recepcion");
+        check_eq((eth_rd(Eth::R_DMASR) >> 20) & 7u, 1u,
+                 "y el estado de la maquina de TX pasa a 'buscando descriptor'");
+        check_eq((eth_rd(Eth::R_DMASR) >> 17) & 7u, 0u, "mientras la de RX sigue parada");
+        eth_wr(Eth::R_DMAOMR, Eth::OMR_SR);
+        check_eq((eth_rd(Eth::R_DMASR) >> 17) & 7u, 1u, "y al reves con SR");
+        eth_wr(Eth::R_DMAOMR, 0);
+        // Los punteros de lista tampoco son el mismo registro.
+        eth_wr(Eth::R_DMATDLAR, 0x20007000u);
+        eth_wr(Eth::R_DMARDLAR, 0x20007100u);
+        check_eq(eth_rd(Eth::R_DMATDLAR), 0x20007000u,
+                 "cada anillo tiene su propio puntero de lista: TDLAR");
+        check_eq(eth_rd(Eth::R_DMARDLAR), 0x20007100u, "y RDLAR");
+
+        // --- C) LOS CUATRO FILTROS: EL 0 ES DISTINTO --------------------------
+        check_eq(eth_rd(Eth::R_MACA0HR) & Eth::MACA_AE, Eth::MACA_AE,
+                 "el filtro 0 arranca HABILITADO y no se puede apagar");
+        eth_wr(Eth::R_MACA0HR, 0);
+        check_eq(eth_rd(Eth::R_MACA0HR) & Eth::MACA_AE, Eth::MACA_AE,
+                 "escribir AE a cero en el filtro 0 no sirve de nada");
+        eth_wr(Eth::R_MACA0HR, 0xFFFFFFFFu);
+        check_eq(eth_rd(Eth::R_MACA0HR) & (Eth::MACA_MBC | Eth::MACA_SA), 0u,
+                 "y no tiene ni mascara de bytes ni seleccion de origen: solo "
+                 "compara la direccion de DESTINO, entera");
+        eth_wr(Eth::R_MACA0HR + 8u, 0xFFFFFFFFu);
+        check_eq(eth_rd(Eth::R_MACA0HR + 8u) & (Eth::MACA_MBC | Eth::MACA_SA),
+                 Eth::MACA_MBC | Eth::MACA_SA,
+                 "el filtro 1, en cambio, SI las tiene: son otro registro");
+        eth_wr(Eth::R_MACA0HR + 8u, 0);
+        check_eq(eth_rd(Eth::R_MACA0HR + 8u) & Eth::MACA_AE, 0u,
+                 "y se puede apagar, que es lo que se hace con los tres que sobran");
+
+        // --- Los cuatro bloques de registros ---------------------------------
+        eth_wr(Eth::R_PTPSSIR, 0x5Au);
+        check_eq(eth_rd(Eth::R_PTPSSIR), 0x5Au, "el bloque PTP existe en el F407");
+        eth_wr(Eth::R_MMCCR, 0x1u);
+        check_eq(eth_rd(Eth::R_MMCTGFCR), 0u, "y el MMC, con sus contadores a cero");
+        eth_wr(Eth::R_MACHTHR, 0x12345678u);
+        check_eq(eth_rd(Eth::R_MACHTHR), 0x12345678u, "y la tabla hash de 64 bits");
+
+        // --- La variante de ejecucion, sobre el bus ---------------------------
+        s_et_true.write(true); s_et_rst.write(true); s_et_hz.write(168e6);
+        s_et_mii.write(true);
+        wait(20, SC_US);
+        std::printf("    variante en ejecucion: %s\n", eth_rt->caps.kind);
+        check(!eth_rt->modo_mii(),
+              "en la variante RMII, el bit de SYSCFG_PMC no tiene nada que elegir");
+        tm13.write32(EB + Eth::R_PTPSSIR, 0x5Au);
+        check_eq(tm13.rd32(EB + Eth::R_PTPSSIR), 0u,
+                 "sin PTP, todo el bloque 0x700 se lee cero");
+        tm13.write32(EB + Eth::R_MMCCR, 0xFFu);
+        check_eq(tm13.rd32(EB + Eth::R_MMCCR), 0u, "sin MMC, el 0x100 tampoco existe");
+        tm13.write32(EB + Eth::R_MACHTHR, 0xFFFFFFFFu);
+        check_eq(tm13.rd32(EB + Eth::R_MACHTHR), 0u, "ni la tabla hash");
+        tm13.write32(EB + Eth::R_MACFCR, 0xFFFFFFFFu);
+        check_eq(tm13.rd32(EB + Eth::R_MACFCR), 0u,
+                 "ni el control de flujo: sin tramas PAUSE no hay registro");
+        tm13.write32(EB + Eth::R_MACA0HR + 8u, 0xFFFFFFFFu);
+        check_eq(tm13.rd32(EB + Eth::R_MACA0HR + 8u), 0u,
+                 "y con un solo filtro, MACA1 no esta");
+        tm13.write32(EB + Eth::R_MACCR, 0xFFFFFFFFu);
+        check_eq(tm13.rd32(EB + Eth::R_MACCR) & Eth::CR_IPCO, 0u,
+                 "sin descarga de suma de comprobacion, IPCO no se guarda");
+        check(dut->eth.caps.ptp && !eth_rt->caps.ptp &&
+              dut->eth.caps.mii && !eth_rt->caps.mii &&
+              dut->eth.caps.filtros == 4 && eth_rt->caps.filtros == 1,
+              "los ejes MII / PTP / MMC / hash / filtros son independientes");
+        eth_placa(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T118 — MDIO: la gestion del PHY, bit a bit por dos pines
+    // -----------------------------------------------------------------------
+    void t118_eth_mdio() {
+        group("T118 ETH: MDIO, dos hilos y una trama de 32 bits [IR, 12.16.2]");
+        reset_dut();
+        dbg_resume();
+        eth_placa(true);
+        eth_pines(false);
+        phy->set_dir(0);
+        wait(50, SC_US);
+
+        // Leer la identificacion del PHY. El firmware solo pone MB y espera.
+        auto mdio_leer = [&](unsigned reg) {
+            eth_wr(Eth::R_MACMIIAR, (0u << 11) | (reg << 6) | (2u << 2) | Eth::MII_MB);
+            for (unsigned i = 0; i < 200 && (eth_rd(Eth::R_MACMIIAR) & Eth::MII_MB); ++i)
+                wait(2, SC_US);
+            return eth_rd(Eth::R_MACMIIDR) & 0xFFFFu;
+        };
+        auto mdio_escribir = [&](unsigned reg, uint16_t v) {
+            eth_wr(Eth::R_MACMIIDR, v);
+            eth_wr(Eth::R_MACMIIAR, (0u << 11) | (reg << 6) | (2u << 2) |
+                                    Eth::MII_MW | Eth::MII_MB);
+            for (unsigned i = 0; i < 200 && (eth_rd(Eth::R_MACMIIAR) & Eth::MII_MB); ++i)
+                wait(2, SC_US);
+        };
+
+        const unsigned ops0 = phy->mdio_lecturas();
+        const uint32_t id1 = mdio_leer(2), id2 = mdio_leer(3);
+        std::printf("    identificacion del PHY leida por MDIO: %04X %04X\n", id1, id2);
+        check_eq(id1, 0x0007u, "PHYID1 sale del PHY por los pines, no de una tabla");
+        check_eq(id2, 0xC0F1u, "y PHYID2 igual");
+        check_eq(phy->mdio_lecturas() - ops0, 2u, "el PHY ha visto DOS lecturas");
+        check_eq(eth_rd(Eth::R_MACMIIAR) & Eth::MII_MB, 0u,
+                 "MACMIIAR.MB lo borra el hardware al terminar: el firmware espera a eso");
+
+        const uint32_t bmsr = mdio_leer(1);
+        check(bmsr & (1u << 2), "BMSR dice que el enlace esta arriba");
+        phy->set_enlace(false);
+        check(!(mdio_leer(1) & (1u << 2)),
+              "y si se cae el cable, el mismo registro lo dice: el MAC no se entera solo");
+        phy->set_enlace(true);
+
+        // Escribir en el PHY: reiniciarlo.
+        const unsigned wr0 = phy->mdio_escrituras();
+        mdio_escribir(0, 0x8000u);                    // BMCR.RESET
+        check_eq(phy->mdio_escrituras() - wr0, 1u, "una escritura llega al PHY");
+        check_eq(phy->reg(0) & 0x8000u, 0u,
+                 "y BMCR.RESET se autoborra en el PHY, como en el silicio");
+        mdio_escribir(0, 0x1000u);                    // autonegociacion
+        check_eq(phy->reg(0), 0x1000u, "lo escrito se queda escrito");
+
+        // Un PHY en otra direccion no contesta: MDIO es un bus de hasta 32.
+        phy->set_dir(3);
+        const uint32_t nada = mdio_leer(2);
+        check_eq(nada, 0xFFFFu,
+                 "hablarle a la direccion equivocada devuelve todo unos: no hay nadie");
+        phy->set_dir(0);
+        check_eq(mdio_leer(2), 0x0007u, "y con la direccion buena, vuelve a contestar");
+        eth_placa(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T119 — Una trama entera: descriptores, pines y CRC
+    // -----------------------------------------------------------------------
+    void t119_eth_trama() {
+        group("T119 ETH: la trama sale y entra POR LOS PINES [IR, 12.16.2]");
+        reset_dut();
+        dbg_resume();
+        eth_placa(true);
+        eth_pines(false);            // RMII: 9 pines, un solo reloj de 50 MHz
+        phy->limpiar();
+
+        const uint32_t TD = addr::SRAM1_BASE + 0x7000u;   // descriptor de TX
+        const uint32_t RD = addr::SRAM1_BASE + 0x7100u;   // descriptor de RX
+        const uint32_t TB = addr::SRAM1_BASE + 0x7200u;   // buffer de TX
+        const uint32_t RB = addr::SRAM1_BASE + 0x7400u;   // buffer de RX
+
+        // Direccion MAC propia: 02:00:00:00:00:01
+        eth_wr(Eth::R_MACA0LR, 0x00000002u);
+        eth_wr(Eth::R_MACA0HR, 0x00000100u);
+        eth_wr(Eth::R_MACCR, Eth::CR_TE | Eth::CR_RE | Eth::CR_FES | Eth::CR_DM);
+        eth_wr(Eth::R_DMAIER, 0x0001FFFFu);
+        wait(20, SC_US);
+
+        // --- Transmision ------------------------------------------------------
+        static const uint8_t dst[6] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x02};
+        const std::vector<uint8_t> t = trama_de(dst, 60);
+        for (size_t i = 0; i < t.size(); i += 4) {
+            uint32_t w = 0;
+            for (unsigned k = 0; k < 4 && i + k < t.size(); ++k)
+                w |= uint32_t(t[i + k]) << (8 * k);
+            tm.write32(TB + uint32_t(i), w);
+        }
+        // Un solo descriptor, anillo de uno (TER), primera y ultima, con aviso.
+        desc_wr(TD, Eth::TD0_OWN | Eth::TD0_FS | Eth::TD0_LS | Eth::TD0_IC |
+                    Eth::TD0_TER, uint32_t(t.size()), TB, 0);
+        eth_wr(Eth::R_DMATDLAR, TD);
+        eth_wr(Eth::R_DMAOMR, Eth::OMR_ST | Eth::OMR_TSF);
+        wait(80, SC_US);
+
+        check_eq(phy->n_recibidas(), 1u,
+                 "la trama ha salido por los pines y el PHY la ha recogido entera");
+        check_eq(desc_rd(TD) & Eth::TD0_OWN, 0u,
+                 "y el DMA ha devuelto el descriptor: OWN otra vez del firmware");
+        if (phy->n_recibidas()) {
+            const std::vector<uint8_t>& v = phy->recibidas().front();
+            check_eq(unsigned(v.size()), unsigned(t.size() + 4u),
+                     "con sus cuatro bytes de secuencia de comprobacion al final");
+            check(std::equal(t.begin(), t.end(), v.begin()),
+                  "y los bytes son EXACTAMENTE los del buffer de la SRAM");
+            uint32_t fcs = 0;
+            for (unsigned i = 0; i < 4; ++i)
+                fcs |= uint32_t(v[t.size() + i]) << (8 * i);
+            check_eq(fcs, eth_fcs(t.data(), t.size()),
+                     "el CRC-32 del cable esta bien calculado: lo comprueba el otro extremo");
+        }
+        check(eth_rd(Eth::R_DMASR) & Eth::DMA_TS, "DMASR.TS avisa de la transmision");
+        check(eth_rd(Eth::R_DMASR) & Eth::DMA_NIS,
+              "y el resumen NORMAL, que es el que hay que borrar tambien");
+        check(dut->s_irq[61].read(), "la IRQ 61 llega al NVIC");
+        check(dut->eth.maestro_accesos() > 0u,
+              "y el MAC ha ido a la SRAM el solo, como maestro del bus");
+        check(dut->matrix.n_xfer[unsigned(BusMaster::ETH_DMA)]
+                                [unsigned(BusSlaveId::SRAM1)] > 0,
+              "cosa que la matriz ha visto pasar como ETH_DMA, no como CPU");
+
+        // Sin mas descriptores, el DMA se queda sin buffer y lo dice.
+        eth_wr(Eth::R_DMASR, 0xFFFFFFFFu);
+        eth_wr(Eth::R_DMATPDR, 0);
+        wait(40, SC_US);
+        check(eth_rd(Eth::R_DMASR) & Eth::DMA_TBUS,
+              "sin descriptor libre, TBUS: el anillo se ha quedado sin nada que enviar");
+
+        // --- Recepcion --------------------------------------------------------
+        eth_wr(Eth::R_DMASR, 0xFFFFFFFFu);
+        for (unsigned i = 0; i < 128; i += 4) tm.write32(RB + i, 0xDEADBEEFu);
+        desc_wr(RD, Eth::RD0_OWN, Eth::RD1_RER | 128u, RB, 0);
+        eth_wr(Eth::R_DMARDLAR, RD);
+        eth_wr(Eth::R_DMAOMR, Eth::OMR_ST | Eth::OMR_SR | Eth::OMR_TSF | Eth::OMR_RSF);
+        wait(20, SC_US);
+
+        static const uint8_t mio[6] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x01};
+        const std::vector<uint8_t> r = trama_de(mio, 60);
+        phy->enviar(r);
+        wait(80, SC_US);
+
+        check_eq(dut->eth.tramas_rx(), 1u, "una trama que llega del segmento se recibe");
+        check_eq(desc_rd(RD) & Eth::RD0_OWN, 0u,
+                 "y el DMA devuelve el descriptor de recepcion");
+        const uint32_t rd0 = desc_rd(RD);
+        check(rd0 & Eth::RD0_FS, "marcado como primero");
+        check(rd0 & Eth::RD0_LS, "y ultimo: cabia en un solo buffer");
+        check_eq((rd0 >> 16) & 0x3FFFu, unsigned(r.size() + 4u),
+                 "con la longitud de la trama ENTERA, secuencia de comprobacion incluida");
+        check_eq(rd0 & Eth::RD0_ES, 0u, "y sin error");
+        uint32_t p0 = 0, p1 = 0;
+        tm.read32(RB, p0); tm.read32(RB + 4, p1);
+        check_eq(p0, 0x00000002u, "los datos estan en la SRAM: los seis del destino...");
+        check_eq(p1, 0x11020100u, "...y detras el origen, byte a byte como en el cable");
+        check(eth_rd(Eth::R_DMASR) & Eth::DMA_RS, "DMASR.RS avisa de la recepcion");
+
+        // --- Sin reloj del PHY no hay trama que valga -------------------------
+        eth_wr(Eth::R_DMASR, 0xFFFFFFFFu);
+        phy->conectar(false);
+        desc_wr(TD, Eth::TD0_OWN | Eth::TD0_FS | Eth::TD0_LS | Eth::TD0_TER,
+                uint32_t(t.size()), TB, 0);
+        eth_wr(Eth::R_DMATPDR, 0);
+        wait(60, SC_US);
+        check(eth_rd(Eth::R_DMASR) & Eth::DMA_TUS,
+              "sin el reloj del PHY el MAC no puede transmitir, y lo dice por TUS");
+        check(eth_rd(Eth::R_DMASR) & Eth::DMA_AIS,
+              "que va en el resumen ANORMAL, no en el normal");
+        std::printf("    el reloj del camino de datos lo pone el PHY: en RMII, "
+                    "un REF_CLK de 50 MHz por PA1\n");
+        phy->conectar(true);
+        eth_wr(Eth::R_DMAOMR, 0);
+        eth_placa(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T120 — El filtrado, las estadisticas y lo que el Ethernet cuesta en pines
+    // -----------------------------------------------------------------------
+    void t120_eth_filtros() {
+        group("T120 ETH: filtrado de direcciones, MMC, PTP y los pines que cuesta");
+        reset_dut();
+        dbg_resume();
+        eth_placa(true);
+        eth_pines(false);
+        phy->limpiar();
+
+        const uint32_t RD = addr::SRAM1_BASE + 0x7100u;
+        const uint32_t RB = addr::SRAM1_BASE + 0x7400u;
+        auto arma_rx = [&]() {
+            desc_wr(RD, Eth::RD0_OWN, Eth::RD1_RER | 256u, RB, 0);
+        };
+        eth_wr(Eth::R_MACA0LR, 0x00000002u);       // 02:00:00:00:00:01
+        eth_wr(Eth::R_MACA0HR, 0x00000100u);
+        eth_wr(Eth::R_MACCR, Eth::CR_TE | Eth::CR_RE | Eth::CR_FES | Eth::CR_DM);
+        eth_wr(Eth::R_DMARDLAR, RD);
+        eth_wr(Eth::R_MMCCR, 1u);                  // contadores a cero
+        arma_rx();
+        eth_wr(Eth::R_DMAOMR, Eth::OMR_SR | Eth::OMR_RSF);
+        wait(20, SC_US);
+
+        static const uint8_t mio[6]   = {0x02, 0x00, 0x00, 0x00, 0x00, 0x01};
+        static const uint8_t otro[6]  = {0x02, 0x00, 0x00, 0x00, 0x00, 0x99};
+        static const uint8_t bcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+        static const uint8_t multi[6] = {0x01, 0x00, 0x5E, 0x00, 0x00, 0x01};
+
+        // --- El filtro exacto -------------------------------------------------
+        const unsigned d0 = dut->eth.descartadas();
+        phy->enviar(trama_de(otro));
+        wait(60, SC_US);
+        check_eq(dut->eth.tramas_rx(), 0u,
+                 "una trama para otro NO llega: el filtro la tira antes del DMA");
+        check(dut->eth.descartadas() > d0,
+              "y se cuenta, que es lo que evita despertar al procesador por nada");
+        phy->enviar(trama_de(mio));
+        wait(60, SC_US);
+        check_eq(dut->eth.tramas_rx(), 1u, "y la que va dirigida a nosotros, si");
+
+        // --- Difusion ---------------------------------------------------------
+        arma_rx();
+        phy->enviar(trama_de(bcast));
+        wait(60, SC_US);
+        check_eq(dut->eth.tramas_rx(), 2u, "la difusion se acepta sin programar nada");
+        eth_wr(Eth::R_MACFFR, Eth::FF_BFD);
+        arma_rx();
+        phy->enviar(trama_de(bcast));
+        wait(60, SC_US);
+        check_eq(dut->eth.tramas_rx(), 2u, "salvo que se vete con MACFFR.BFD");
+
+        // --- El filtro hash ---------------------------------------------------
+        // Los seis bits ALTOS del CRC-32 del destino indexan una tabla de 64.
+        {
+            const uint32_t crc = eth_crc32(multi, 6);
+            const unsigned idx = (crc >> 26) & 0x3Fu;
+            eth_wr(Eth::R_MACHTHR, idx >= 32 ? (1u << (idx - 32)) : 0u);
+            eth_wr(Eth::R_MACHTLR, idx < 32 ? (1u << idx) : 0u);
+            eth_wr(Eth::R_MACFFR, Eth::FF_HM);
+            arma_rx();
+            phy->enviar(trama_de(multi));
+            wait(60, SC_US);
+            check_eq(dut->eth.tramas_rx(), 3u,
+                     "un multicast cuyo bit esta en la tabla hash se acepta");
+            check(desc_rd(RD) & Eth::RD0_AFM,
+                  "y el descriptor dice que lo acepto el HASH, no un filtro exacto");
+            std::printf("    hash de %02X:%02X:%02X:%02X:%02X:%02X -> bit %u de 64\n",
+                        multi[0], multi[1], multi[2], multi[3], multi[4], multi[5], idx);
+            eth_wr(Eth::R_MACHTHR, 0); eth_wr(Eth::R_MACHTLR, 0);
+            arma_rx();
+            phy->enviar(trama_de(multi));
+            wait(60, SC_US);
+            check_eq(dut->eth.tramas_rx(), 3u, "y sin ese bit, se tira");
+        }
+
+        // --- El filtro 1, con su mascara de bytes -----------------------------
+        // MBC deja comparar solo parte de la direccion: un grupo entero de
+        // aparatos con un solo filtro.
+        eth_wr(Eth::R_MACFFR, 0);
+        eth_wr(Eth::R_MACA0HR + 8u + 4u, 0x00000002u);         // MACA1LR
+        eth_wr(Eth::R_MACA0HR + 8u, Eth::MACA_AE | (0x03u << 24) | 0x0100u);
+        arma_rx();
+        phy->enviar(trama_de(otro));                            // difiere en el ultimo
+        wait(60, SC_US);
+        check_eq(dut->eth.tramas_rx(), 4u,
+                 "con MBC enmascarando los dos ultimos bytes, el filtro 1 la acepta");
+        eth_wr(Eth::R_MACA0HR + 8u, 0);
+
+        // --- Promiscuo --------------------------------------------------------
+        eth_wr(Eth::R_MACFFR, Eth::FF_PM);
+        arma_rx();
+        phy->enviar(trama_de(otro));
+        wait(60, SC_US);
+        check_eq(dut->eth.tramas_rx(), 5u, "en modo promiscuo entra todo, como un sniffer");
+        eth_wr(Eth::R_MACFFR, 0);
+
+        // --- Una trama con el CRC roto ----------------------------------------
+        arma_rx();
+        const unsigned crc0 = dut->eth.errores_crc();
+        phy->enviar(trama_de(mio), true);
+        wait(60, SC_US);
+        check(dut->eth.errores_crc() > crc0,
+              "una trama con la secuencia de comprobacion rota se detecta");
+        check_eq(dut->eth.tramas_rx(), 5u,
+                 "y no se entrega: sin FEF, el MAC la tira el solo");
+        check(eth_rd(Eth::R_MMCRFCECR) > 0u,
+              "el contador MMC de errores de CRC lo cuenta, sin coste para el firmware");
+
+        // --- PTP: el sello de tiempo del 1588 ---------------------------------
+        eth_wr(Eth::R_PTPTSHUR, 0x00000005u);
+        eth_wr(Eth::R_PTPTSLUR, 0x00000000u);
+        eth_wr(Eth::R_PTPTSCR, 0x1u | (1u << 2));       // TSE + TSSTI
+        wait(10, SC_US);
+        check_eq(eth_rd(Eth::R_PTPTSCR) & (1u << 2), 0u,
+                 "TSSTI se autoborra: el reloj ya esta cargado");
+        check_eq(eth_rd(Eth::R_PTPTSHR), 5u, "y el reloj PTP arranca en el segundo 5");
+        eth_wr(Eth::R_PTPTSHUR, 3u);
+        eth_wr(Eth::R_PTPTSLUR, 0u);
+        eth_wr(Eth::R_PTPTSCR, 0x1u | (1u << 3));       // TSSTU: sumar
+        wait(10, SC_US);
+        check_eq(eth_rd(Eth::R_PTPTSHR), 8u,
+                 "y TSSTU le suma lo que diga PTPTSHUR: asi se ajusta a un maestro");
+
+        // --- El despertar por Magic Packet ------------------------------------
+        eth_wr(Eth::R_DMAOMR, 0);
+        eth_wr(Eth::R_MACIMR, 0);
+        eth_wr(Eth::R_MACPMTCSR, Eth::PMT_MPE | Eth::PMT_PD);
+        wait(20, SC_US);
+        {
+            // Seis bytes 0xFF y dieciseis copias de la direccion MAC.
+            std::vector<uint8_t> mp = trama_de(bcast, 14);
+            for (unsigned i = 0; i < 6; ++i) mp.push_back(0xFF);
+            for (unsigned k = 0; k < 16; ++k)
+                for (unsigned i = 0; i < 6; ++i) mp.push_back(mio[i]);
+            eth_wr(Eth::R_DMAOMR, Eth::OMR_SR);
+            phy->enviar(mp);
+            wait(120, SC_US);
+        }
+        check(eth_rd(Eth::R_MACPMTCSR) & Eth::PMT_MPR,
+              "un Magic Packet despierta al MAC: MACPMTCSR.MPR");
+        check(dut->s_ethwk_l19.read(),
+              "y sale por la linea 19 del EXTI, que es lo que saca al MCU de Stop");
+        check(eth_rd(Eth::R_MACSR) & Eth::SR_PMTS, "con su bandera en MACSR");
+        eth_wr(Eth::R_MACPMTCSR, 0);
+
+        // --- Lo que el Ethernet cuesta en pines -------------------------------
+        // Aqui no falta ningun pin: el LQFP100 tiene los dieciocho. Lo que pasa
+        // es que TODOS estan cogidos, y uno de ellos es especialmente caro.
+        check(dut->pinmux.pad[0][0]->bonded && dut->pinmux.pad[2][5]->bonded,
+              "los dieciocho pines de MII existen en este encapsulado");
+        std::printf("    pero MII_CRS es PA0-WKUP: con MII cableado, el MCU pierde "
+                    "el pin de despertar desde Standby\n");
+        std::printf("    MII_RXD0/1 son PC4/PC5 = ADC12_IN14/15, y MII_COL es PA3 = "
+                    "OTG_HS_ULPI_D0: Ethernet y USB de alta velocidad no caben juntos\n");
+        check(dut->eth.caps.mii,
+              "por eso el rasgo MII es del MODELO: describe la PLACA, no el silicio");
+        eth_wr(Eth::R_MACCR, 0);
+        eth_placa(false);
     }
 
     // Ayudas del cliente de pruebas
