@@ -32,6 +32,7 @@
 #include "../common/analog_net.h"
 #include "../periph/sdio.h"   // sd_crc7 y SdCrc16: el protocolo es el mismo
 #include "../periph/can.h"    // can_crc15 y el relleno de bits: idem
+#include "../periph/otg.h"    // usb_dev_if y los PID: el aparejo habla lo mismo
 #include "swd_port.h"        // el maestro SWD a nivel de bit, compartido con el stub GDB
 
 namespace stm32 {
@@ -1641,6 +1642,242 @@ private:
     uint32_t dir_ = 0, idx_ = 0;
     unsigned n_dir_ = 0, n_cmd_ = 0, n_rd_ = 0, n_wr_ = 0;
     bool puesta_ = false, prev_we_ = false, prev_oe_ = false;
+};
+
+// ===========================================================================
+// EL OTRO EXTREMO DEL CABLE USB
+//
+// Dos aparejos simetricos, porque el OTG es de doble rol y hay que probar los
+// dos lados:
+//
+//   * UsbHostRig    - un PC: da los 5 V de VBUS, pone los dos 15 kohm a masa,
+//                     hace el reset de bus con un SE0 largo y manda testigos.
+//   * UsbDeviceRig  - un pendrive: pone su 1,5 kohm en D+ cuando lo enchufan,
+//                     contesta a los testigos y se entera del reset por el
+//                     cable, no porque nadie se lo diga.
+//
+// Todo lo ELECTRICO va por los nodos analogicos con tensiones de verdad: la
+// conexion, la velocidad y el reset salen del divisor resistivo, no de una
+// variable booleana. Los paquetes cruzan como paquetes (vease la frontera del
+// modelo en periph/otg.h).
+// ===========================================================================
+SC_MODULE(UsbHostRig) {
+    UsbHostRig(sc_core::sc_module_name nm, analog_net_if& dm, analog_net_if& dp,
+               analog_net_if& vbus, analog_net_if& id, double vdd = 3.3)
+        : sc_core::sc_module(nm), dm_(&dm), dp_(&dp), vbus_(&vbus), id_(&id),
+          vdd_(vdd) {
+        id_dm_ = dm_->register_driver("host_dm");
+        id_dp_ = dp_->register_driver("host_dp");
+        id_pd_dm_ = dm_->register_driver("host_pd_dm");
+        id_pd_dp_ = dp_->register_driver("host_pd_dp");
+        id_vb_ = vbus_->register_driver("host_vbus");
+        id_id_ = id_->register_driver("host_id");
+        soltar();
+    }
+
+    // --- La placa ------------------------------------------------------------
+    void conectar(bool on) {
+        puesto_ = on;
+        // Los dos 15 kohm a masa son lo que convierte a este extremo en
+        // anfitrion: sin ellos, el cable no tiene referencia.
+        dm_->set_drive(id_pd_dm_, 0.0f, on ? 15.0e3f : R_HIZ);
+        dp_->set_drive(id_pd_dp_, 0.0f, on ? 15.0e3f : R_HIZ);
+        if (!on) soltar();
+    }
+    void set_vbus(bool on) {
+        vbus_->set_drive(id_vb_, on ? 5.0f : 0.0f, on ? 0.5f : 1.0e6f);
+    }
+    // ID a masa = cable A = el que lo tiene enchufado es el anfitrion.
+    void set_id_a(bool a) {
+        if (a) id_->set_drive(id_id_, 0.0f, 10.0f);
+        else   id_->set_hiz(id_id_);
+    }
+    void conectar_dispositivo(usb_dev_if* d) { dev_ = d; }
+
+    // --- El cable ------------------------------------------------------------
+    void reposo() {                                    // estado J de Full Speed
+        dp_->set_drive(id_dp_, float(vdd_), 45.0f);
+        dm_->set_drive(id_dm_, 0.0f, 45.0f);
+    }
+    void soltar() { dp_->set_hiz(id_dp_); dm_->set_hiz(id_dm_); }
+    // El reset de bus: los dos hilos a cero durante 10 ms. No hay registro que
+    // lo mande; es esto.
+    void reset_bus(double ms = 10.0) {
+        dp_->set_drive(id_dp_, 0.0f, 45.0f);
+        dm_->set_drive(id_dm_, 0.0f, 45.0f);
+        sc_core::wait(ms, sc_core::SC_MS);
+        soltar();
+        sc_core::wait(10, sc_core::SC_US);
+    }
+    // Reanudacion: una K de 20 ms para despertar a un dispositivo suspendido.
+    void resume(double ms = 20.0) {
+        dp_->set_drive(id_dp_, 0.0f, 45.0f);
+        dm_->set_drive(id_dm_, float(vdd_), 45.0f);
+        sc_core::wait(ms, sc_core::SC_MS);
+        soltar();
+        sc_core::wait(10, sc_core::SC_US);
+    }
+
+    // --- Los testigos --------------------------------------------------------
+    uint8_t setup(uint8_t addr, const std::vector<uint8_t>& d) {
+        std::vector<uint8_t> e;
+        return llamar(PID_SETUP, addr, 0, d, e);
+    }
+    uint8_t in(uint8_t addr, uint8_t ep, std::vector<uint8_t>& d) {
+        static const std::vector<uint8_t> vacio;
+        d.clear();
+        return llamar(PID_IN, addr, ep, vacio, d);
+    }
+    uint8_t out(uint8_t addr, uint8_t ep, const std::vector<uint8_t>& d) {
+        std::vector<uint8_t> e;
+        return llamar(PID_OUT, addr, ep, d, e);
+    }
+    // El latido de 1 ms. Sin el, todo dispositivo se suspende.
+    void sofs(unsigned n) {
+        for (unsigned i = 0; i < n; ++i) {
+            if (dev_) dev_->sof(uint16_t(++trama_ & 0x3FFFu));
+            sc_core::wait(1, sc_core::SC_MS);
+        }
+    }
+    unsigned acks() const { return n_ack_; }
+    unsigned naks() const { return n_nak_; }
+    unsigned stalls() const { return n_stall_; }
+
+private:
+    uint8_t llamar(uint8_t pid, uint8_t addr, uint8_t ep,
+                   const std::vector<uint8_t>& s, std::vector<uint8_t>& e) {
+        if (!dev_) return PID_NADIE;
+        const uint8_t r = dev_->transaccion(pid, addr, ep, s, e);
+        if (r == PID_ACK) ++n_ack_;
+        else if (r == PID_NAK) ++n_nak_;
+        else if (r == PID_STALL) ++n_stall_;
+        sc_core::wait(1, sc_core::SC_US);
+        return r;
+    }
+    analog_net_if *dm_, *dp_, *vbus_, *id_;
+    int id_dm_ = -1, id_dp_ = -1, id_pd_dm_ = -1, id_pd_dp_ = -1;
+    int id_vb_ = -1, id_id_ = -1;
+    double vdd_;
+    bool puesto_ = false;
+    usb_dev_if* dev_ = nullptr;
+    unsigned trama_ = 0, n_ack_ = 0, n_nak_ = 0, n_stall_ = 0;
+};
+
+// ---------------------------------------------------------------------------
+// Un dispositivo USB de verdad al otro lado: contesta a los testigos y se
+// entera del reset porque VE el SE0, no porque nadie se lo cuente.
+// ---------------------------------------------------------------------------
+SC_MODULE(UsbDeviceRig), public usb_dev_if {
+    UsbDeviceRig(sc_core::sc_module_name nm, analog_net_if& dm, analog_net_if& dp,
+                 analog_net_if& vbus, double vdd = 3.3)
+        : sc_core::sc_module(nm), dm_(&dm), dp_(&dp), vbus_(&vbus), vdd_(vdd) {
+        id_pu_ = dp_->register_driver("dev_pullup");
+        id_pu_lo_ = dm_->register_driver("dev_pullup_ls");
+        // El interruptor de 5 V de la placa. No lo da el MCU -PB13 es una
+        // ENTRADA de sensado-, lo da un conmutador externo que el firmware
+        // gobierna por un GPIO cualquiera; aqui lo maneja la prueba.
+        id_vb_ = vbus_->register_driver("placa_vbus");
+        dp_->set_hiz(id_pu_); dm_->set_hiz(id_pu_lo_);
+        SC_HAS_PROCESS(UsbDeviceRig);
+        SC_METHOD(linea_proc);
+        sensitive << dp_->value_changed_event() << dm_->value_changed_event()
+                  << vbus_->value_changed_event();
+        dont_initialize();
+        // Un descriptor de dispositivo de los de verdad: 18 bytes.
+        desc_ = {0x12, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x40,
+                 0x83, 0x04, 0x40, 0x57, 0x00, 0x02, 0x01, 0x02,
+                 0x03, 0x01};
+    }
+
+    // Enchufar el cable: aparece el 1,5 kohm de D+ y el anfitrion lo ve.
+    void enchufar(bool on) {
+        puesto_ = on;
+        actualiza();
+    }
+    void alimentacion_placa(bool on) {
+        vbus_->set_drive(id_vb_, on ? 5.0f : 0.0f, on ? 0.5f : 1.0e6f);
+        actualiza();
+    }
+    void set_baja_velocidad(bool ls) { ls_ = ls; actualiza(); }
+    uint8_t direccion() const { return dir_; }
+    unsigned resets() const { return n_rst_; }
+    const std::vector<uint8_t>& recibido() const { return rx_; }
+    void set_stall(bool s) { stall_ = s; }
+
+    uint8_t transaccion(uint8_t pid, uint8_t addr, uint8_t ep,
+                        const std::vector<uint8_t>& salida,
+                        std::vector<uint8_t>& entrada) override {
+        if (!puesto_ || vbus_->voltage() < 3.0f) return PID_NADIE;
+        if (addr != dir_) return PID_NADIE;
+        if (stall_ && ep != 0) return PID_STALL;
+        if (pid == PID_SETUP) {
+            if (salida.size() < 8) return PID_NADIE;
+            const uint8_t breq = salida[1];
+            const uint16_t wval = uint16_t(salida[2] | (salida[3] << 8));
+            const uint16_t wlen = uint16_t(salida[6] | (salida[7] << 8));
+            tx_.clear(); tx_i_ = 0;
+            if (breq == 0x06 && (wval >> 8) == 0x01) {          // GET_DESCRIPTOR
+                tx_ = desc_;
+                if (wlen < tx_.size()) tx_.resize(wlen);
+            } else if (breq == 0x05) {                          // SET_ADDRESS
+                dir_pend_ = uint8_t(wval & 0x7Fu);
+            }
+            ++n_setup_;
+            return PID_ACK;
+        }
+        if (pid == PID_IN) {
+            const unsigned n = tx_.size() - tx_i_ < 8 ? unsigned(tx_.size() - tx_i_) : 8u;
+            entrada.assign(tx_.begin() + long(tx_i_), tx_.begin() + long(tx_i_ + n));
+            tx_i_ += n;
+            // Una IN de longitud cero es la fase de estado de un control OUT:
+            // es AHI donde se aplica de verdad la direccion nueva.
+            if (n == 0 && dir_pend_ != 0xFF) { dir_ = dir_pend_; dir_pend_ = 0xFF; }
+            return PID_ACK;
+        }
+        if (pid == PID_OUT) {
+            for (uint8_t b : salida) rx_.push_back(b);
+            if (salida.empty() && dir_pend_ != 0xFF) { dir_ = dir_pend_; dir_pend_ = 0xFF; }
+            return PID_ACK;
+        }
+        return PID_NADIE;
+    }
+    void sof(uint16_t t) override { trama_ = t; ++n_sof_; }
+    unsigned tramas() const { return n_sof_; }
+    unsigned setups() const { return n_setup_; }
+
+private:
+    void actualiza() {
+        const bool alim = vbus_->voltage() > 3.0f;
+        const bool on = puesto_ && alim;
+        // EL 1,5 KOHM ES LA DECLARACION DE EXISTENCIA. Y en cual de los dos
+        // hilos se pone es lo que dice la velocidad: D+ para Full Speed, D-
+        // para Low Speed. No hay ningun otro sitio donde eso se diga.
+        dp_->set_drive(id_pu_, (on && !ls_) ? float(vdd_) : 0.0f,
+                       (on && !ls_) ? 1.5e3f : R_HIZ);
+        dm_->set_drive(id_pu_lo_, (on && ls_) ? float(vdd_) : 0.0f,
+                       (on && ls_) ? 1.5e3f : R_HIZ);
+    }
+    void linea_proc() {
+        actualiza();
+        const bool se0 = dp_->voltage() < 1.6f && dm_->voltage() < 1.6f;
+        if (se0 && !se0_) t_se0_ = sc_core::sc_time_stamp();
+        if (!se0 && se0_ && puesto_ &&
+            sc_core::sc_time_stamp() - t_se0_ >
+                sc_core::sc_time(2500, sc_core::SC_NS)) {
+            dir_ = 0; dir_pend_ = 0xFF; tx_.clear(); tx_i_ = 0; ++n_rst_;
+        }
+        se0_ = se0;
+    }
+    analog_net_if *dm_, *dp_, *vbus_;
+    double vdd_;
+    int id_pu_ = -1, id_pu_lo_ = -1, id_vb_ = -1;
+    bool puesto_ = false, ls_ = false, se0_ = false, stall_ = false;
+    uint8_t dir_ = 0, dir_pend_ = 0xFF;
+    std::vector<uint8_t> desc_, tx_, rx_;
+    size_t tx_i_ = 0;
+    unsigned n_rst_ = 0, n_sof_ = 0, n_setup_ = 0;
+    uint16_t trama_ = 0;
+    sc_core::sc_time t_se0_{sc_core::SC_ZERO_TIME};
 };
 
 } // namespace stm32

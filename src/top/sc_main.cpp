@@ -211,6 +211,22 @@ SC_MODULE(F1Tb) {
     sc_signal<bool>   s_fs_irq{"s_fs_irq"}, s_fs_clk{"s_fs_clk"};
     sc_signal<double> s_fs_hz{"s_fs_hz"};
 
+    // --- El otro extremo del cable USB (véase T113-T116) --------------------
+    // Un PC colgado del OTG_FS -para probar el modo DISPOSITIVO- y un pendrive
+    // colgado del OTG_HS -para probar el modo ANFITRIÓN-. Los dos se enganchan
+    // a los nodos analógicos de sus pines: la conexión, la velocidad y el reset
+    // salen de un divisor resistivo, no de una variable.
+    UsbHostRig*   hrig = nullptr;
+    UsbDeviceRig* drig = nullptr;
+    // OTG con rasgos elegidos en TIEMPO DE EJECUCIÓN (véase T113)
+    OtgBase* otg_rt = nullptr;
+    BusTestMaster tm12{"tm12"};
+    sc_signal<bool>   s_ug_true{"s_ug_true"}, s_ug_rst{"s_ug_rst"};
+    sc_signal<bool>   s_ug_irq{"s_ug_irq"}, s_ug_wk{"s_ug_wk"};
+    sc_signal<bool>   s_ug_wku{"s_ug_wku"}, s_ug_e1o{"s_ug_e1o"}, s_ug_e1i{"s_ug_e1i"};
+    sc_signal<bool>   s_ug_clk{"s_ug_clk"};
+    sc_signal<double> s_ug_hz{"s_ug_hz"}, s_ug_48{"s_ug_48"};
+
     // --- DCMI con rasgos elegidos en TIEMPO DE EJECUCIÓN (véase T105) -------
     // Es el mismo bloque del MCU con otros rasgos: ocho bits, sin recorte, sin
     // JPEG y sin sincronismo embebido. Sirve para comprobar sobre el BUS -no
@@ -419,6 +435,27 @@ SC_MODULE(F1Tb) {
                                 dut->pinmux.analog(3, 5),   // PD5  NWE
                                 &dut->pinmux.analog(3, 6)); // PD6  R/B
         }
+        // --- Los dos extremos del cable USB -------------------------------
+        // El PC va al OTG_FS: PA11 (DM), PA12 (DP), PA9 (VBUS) y PA10 (ID).
+        hrig = new UsbHostRig("hrig",
+                   dut->pinmux.analog(0, 11), dut->pinmux.analog(0, 12),
+                   dut->pinmux.analog(0, 9),  dut->pinmux.analog(0, 10));
+        // El pendrive va al OTG_HS en su modo FS integrado: PB14 (DM),
+        // PB15 (DP) y PB13 (VBUS, que en modo anfitrión lo da la placa).
+        drig = new UsbDeviceRig("drig",
+                   dut->pinmux.analog(1, 14), dut->pinmux.analog(1, 15),
+                   dut->pinmux.analog(1, 13));
+        // Un OTG con los rasgos puestos en tiempo de EJECUCIÓN: solo
+        // dispositivo, sin anfitrión, sin OTG y con tres endpoints.
+        otg_rt = new OtgBase("otg_rt", 0x50000000u, 0x40000u, CAPS_OTG_DEV);
+        tm12.isk.bind(otg_rt->tsk);
+        otg_rt->clk(s_ug_clk);  otg_rt->clk_hz(s_ug_hz);
+        otg_rt->rst_n(s_ug_rst); otg_rt->clk_en(s_ug_true);
+        otg_rt->clk48(s_ug_clk); otg_rt->clk48_hz(s_ug_48);
+        otg_rt->irq_global(s_ug_irq); otg_rt->wkup_line(s_ug_wk);
+        otg_rt->irq_wkup(s_ug_wku);
+        otg_rt->irq_ep1_out(s_ug_e1o); otg_rt->irq_ep1_in(s_ug_e1i);
+
         // Un FSMC con los rasgos puestos en tiempo de EJECUCIÓN: un solo banco
         // de SRAM de 8 bits, sin multiplexar, sin ráfaga y sin modo extendido.
         fsmc_rt = new FsmcBase("fsmc_rt", CAPS_FSMC_MIN);
@@ -589,6 +626,7 @@ SC_MODULE(F1Tb) {
         delete s_rt;
         delete lnk_iext; delete lnk_isd; delete lnk_iws; delete lnk_ick;
         delete cam; delete dcmi_rt; delete xram; delete xnand; delete fsmc_rt;
+        delete hrig; delete drig; delete otg_rt;
         delete lnk_nss; delete lnk_miso; delete lnk_mosi; delete lnk_sck;
         delete t_rt;
         delete sd_rt;
@@ -851,6 +889,11 @@ SC_MODULE(F1Tb) {
         t110_fsmc_ciclo();
         t111_fsmc_encapsulado();
         t112_fsmc_nand();
+        const unsigned f7fs_pass = g_pass, f7fs_fail = g_fail;
+        t113_otg_variantes();
+        t114_otg_phy();
+        t115_otg_dispositivo();
+        t116_otg_hs();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -889,7 +932,9 @@ SC_MODULE(F1Tb) {
         std::printf("Resumen F7 (DCMI): %u comprobaciones OK, %u fallos\n",
                     f7dc_pass - f7lp_pass, f7dc_fail - f7lp_fail);
         std::printf("Resumen F7 (FSMC): %u comprobaciones OK, %u fallos\n",
-                    g_pass - f7dc_pass, g_fail - f7dc_fail);
+                    f7fs_pass - f7dc_pass, f7fs_fail - f7dc_fail);
+        std::printf("Resumen F7 (OTG) : %u comprobaciones OK, %u fallos\n",
+                    g_pass - f7fs_pass, g_fail - f7fs_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -11697,6 +11742,607 @@ SC_MODULE(F1Tb) {
         fsmc_wr(Fsmc::R_PCR2, 0);
         xnand->set_conectada(false);
         fsmc_placa(false);
+    }
+
+    // =======================================================================
+    // FASE F7 — USB ON-THE-GO [IR, §12.15 y §12.23]
+    //
+    // Aqui se prueban tres cosas de tres naturalezas distintas: unos registros
+    // que dependen de la instancia, una RED DE RESISTENCIAS que decide quien
+    // esta enchufado y a que velocidad, y un protocolo de testigos y acuses.
+    // =======================================================================
+    static constexpr uint32_t UFS = addr::OTG_FS_B;
+    static constexpr uint32_t UHS = addr::OTG_HS_B;
+
+    uint32_t ufs_rd(uint32_t off) { uint32_t v = 0; tm.read32(UFS + off, v); return v; }
+    void     ufs_wr(uint32_t off, uint32_t v) { tm.write32(UFS + off, v); }
+    uint32_t uhs_rd(uint32_t off) { uint32_t v = 0; tm.read32(UHS + off, v); return v; }
+    void     uhs_wr(uint32_t off, uint32_t v) { tm.write32(UHS + off, v); }
+
+    // UNA DECISION DE PLACA, Y HAY QUE TOMARLA A LA VISTA.
+    // Los cuatro pines del USB estan muy solicitados: PA11/PA12 son tambien
+    // CAN1_RX/CAN1_TX, y PB14/PB15 son SPI2_MISO/MOSI y ademas I2S2ext_SD. En
+    // una placa se decide para que sirve cada pin y se suelda en consecuencia;
+    // aqui se hace igual, soltando lo que estorba antes de enchufar el cable.
+    void usb_placa(bool on) {
+        can_links(!on);
+        spi_links(!on);
+        i2s_links(!on);
+        wait(20, SC_US);
+    }
+    // Enciende los dos bloques y los pines de sus PHY integrados.
+    void usb_relojes() {
+        usb_placa(true);
+        for (unsigned p = 0; p < 3; ++p) rcc_enable(Rcc::R_AHB1ENR, p);  // GPIOA-C
+        rcc_enable(Rcc::R_AHB1ENR, 29);              // OTGHSEN
+        rcc_enable(Rcc::R_AHB2ENR, 7);               // OTGFSEN
+        pll48_on();
+    }
+    // Deja el OTG_FS listo para hacer de dispositivo colgado de un PC.
+    void usb_fs_dispositivo() {
+        usb_relojes();
+        // PA11/PA12 en AF10 y PA9/PA10 en entrada: por D+ y D- no van unos y
+        // ceros, va una tension, y el pad tiene que dejar de estorbar.
+        pin_cfg(0, 11, 2, 0, false, 3, 10);
+        pin_cfg(0, 12, 2, 0, false, 3, 10);
+        pin_cfg(0,  9, 0, 0, false, 0, 0);           // VBUS: entrada pura
+        pin_cfg(0, 10, 0, 0, false, 0, 0);           // ID
+        dut->otg_fs.conectar_dispositivo(nullptr);
+        hrig->conectar_dispositivo(&dut->otg_fs);
+        hrig->conectar(true);
+        hrig->set_id_a(false);                       // cable B: somos el aparato
+        hrig->set_vbus(true);
+        wait(50, SC_US);
+        ufs_wr(OtgFs::R_GCCFG, OtgFs::CCFG_PWRDWN | OtgFs::CCFG_VBUSBSEN);
+        wait(50, SC_US);
+    }
+    void usb_suelta() {
+        usb_placa(false);
+        hrig->conectar(false);
+        hrig->set_vbus(false);
+        hrig->set_id_a(false);
+        drig->enchufar(false);
+        drig->alimentacion_placa(false);
+        ufs_wr(OtgFs::R_GCCFG, 0);
+        uhs_wr(OtgHs::R_GCCFG, 0);
+        wait(50, SC_US);
+    }
+    // Empuja n bytes por la ventana de FIFO del endpoint ep.
+    void fifo_push_bytes(uint32_t base, unsigned ep, const std::vector<uint8_t>& d) {
+        for (size_t i = 0; i < d.size(); i += 4) {
+            uint32_t w = 0;
+            for (unsigned k = 0; k < 4 && i + k < d.size(); ++k)
+                w |= uint32_t(d[i + k]) << (8 * k);
+            tm.write32(base + 0x1000u * (ep + 1u), w);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // T113 — Las dos instancias, y los tres sentidos de la palabra "canal"
+    // -----------------------------------------------------------------------
+    void t113_otg_variantes() {
+        group("T113 OTG: FS y HS no son dos copias [IR, 12.15, 12.23]");
+        reset_dut();
+        dbg_resume();
+        usb_relojes();
+        wait(20, SC_US);
+
+        std::printf("    %s\n    %s\n", dut->otg_fs.caps.kind, dut->otg_hs.caps.kind);
+
+        // --- A) Las dos instancias -------------------------------------------
+        check_eq(dut->otg_fs.caps.endpoints, 4u,
+                 "el OTG_FS gobierna cuatro endpoints, EP0 incluido");
+        check_eq(dut->otg_hs.caps.endpoints, 6u, "y el OTG_HS, seis");
+        check_eq(dut->otg_fs.caps.canales, 8u, "ocho canales de anfitrion en el FS");
+        check_eq(dut->otg_hs.caps.canales, 12u, "y doce en el HS");
+        check_eq(dut->otg_fs.palabras_ram(), 320u,
+                 "1,25 KB de RAM de FIFOs en el FS: 320 palabras");
+        check_eq(dut->otg_hs.palabras_ram(), 1024u, "y 4 KB en el HS: 1024");
+        check(!dut->otg_fs.caps.dma_interno && dut->otg_hs.caps.dma_interno,
+              "solo el HS es MAESTRO del bus: tiene DMA propio");
+        check(!dut->otg_fs.caps.ulpi && dut->otg_hs.caps.ulpi,
+              "y solo el HS habla ULPI con un PHY externo");
+        check(dut->otg_fs.caps.cid != dut->otg_hs.caps.cid,
+              "hasta el identificador de nucleo (CID) es distinto");
+        check_eq(ufs_rd(OtgFs::R_CID), dut->otg_fs.caps.cid, "y se lee por el bus");
+
+        // GAHBCFG: DMAEN y HBSTLEN solo existen donde hay DMA.
+        ufs_wr(OtgFs::R_GAHBCFG, 0xFFFFFFFFu);
+        uhs_wr(OtgHs::R_GAHBCFG, 0xFFFFFFFFu);
+        check_eq(ufs_rd(OtgFs::R_GAHBCFG) & (OtgFs::AHB_DMAEN | OtgFs::AHB_HBSTLEN), 0u,
+                 "en el FS, DMAEN y HBSTLEN no se guardan: no hay nada que gobernar");
+        check_eq(uhs_rd(OtgHs::R_GAHBCFG) & OtgHs::AHB_DMAEN, OtgHs::AHB_DMAEN,
+                 "en el HS si: son los que ponen a trabajar al octavo maestro");
+        ufs_wr(OtgFs::R_GAHBCFG, 0); uhs_wr(OtgHs::R_GAHBCFG, 0);
+
+        // GUSBCFG: PHYSEL es de SOLO LECTURA y vale uno donde no hay PHY externo.
+        ufs_wr(OtgFs::R_GUSBCFG, 0);
+        check_eq(ufs_rd(OtgFs::R_GUSBCFG) & OtgFs::USB_PHYSEL, OtgFs::USB_PHYSEL,
+                 "PHYSEL se queda a uno en el FS aunque se escriba cero: no hay ULPI");
+        uhs_wr(OtgHs::R_GUSBCFG, 0xFFFFFFFFu);
+        check(uhs_rd(OtgHs::R_GUSBCFG) & OtgHs::USB_ULPIEVBUSD,
+              "y los bits de ULPI solo se guardan en el HS");
+        ufs_wr(OtgFs::R_GUSBCFG, 0xFFFFFFFFu);
+        check_eq(ufs_rd(OtgFs::R_GUSBCFG) & OtgFs::USB_ULPIEVBUSD, 0u,
+                 "en el FS se leen cero, como cualquier bit reservado");
+        uhs_wr(OtgHs::R_GUSBCFG, 0); ufs_wr(OtgFs::R_GUSBCFG, 0);
+
+        // --- B) Los canales de anfitrion SI son copias ------------------------
+        uhs_wr(OtgHs::R_HC0 + 0x20u * 3u, 0x00001234u);
+        uhs_wr(OtgHs::R_HC0 + 0x20u * 9u, 0x00001234u);
+        check_eq(uhs_rd(OtgHs::R_HC0 + 0x20u * 3u),
+                 uhs_rd(OtgHs::R_HC0 + 0x20u * 9u),
+                 "el canal 3 y el canal 9 del HS se comportan igual: son copias");
+        ufs_wr(OtgFs::R_HC0 + 0x20u * 9u, 0xFFFFFFFFu);
+        check_eq(ufs_rd(OtgFs::R_HC0 + 0x20u * 9u), 0u,
+                 "pero en el FS el canal 9 no existe y se lee cero entero");
+        uhs_wr(OtgHs::R_HC0 + 0x20u * 3u, 0); uhs_wr(OtgHs::R_HC0 + 0x20u * 9u, 0);
+
+        // --- C) Los endpoints NO son copias: el 0 es distinto -----------------
+        // En un endpoint normal, MPSIZ son once bits de bytes.
+        ufs_wr(OtgFs::R_DIEP0 + 0x20u, 0x000001F4u);          // EP1 IN, 500 bytes
+        check_eq(ufs_rd(OtgFs::R_DIEP0 + 0x20u) & 0x7FFu, 500u,
+                 "en el EP1, MPSIZ son bytes: 500 se guarda tal cual");
+        // En el 0 son DOS bits codificados, y lo demas no se guarda.
+        ufs_wr(OtgFs::R_DIEP0, 0x000001F4u);
+        check_eq(ufs_rd(OtgFs::R_DIEP0) & 0x7FFu, 0u,
+                 "en el EP0 ese mismo valor no cabe: MPSIZ son dos bits codificados");
+        ufs_wr(OtgFs::R_DIEP0, 2u);
+        check_eq(ufs_rd(OtgFs::R_DIEP0) & 3u, 2u, "y el codigo 2 (16 bytes) si");
+        // Y su contador de transferencia tampoco tiene el mismo tamano.
+        ufs_wr(OtgFs::R_DIEP0 + 0x10u, 0x0007FFFFu);
+        check_eq(ufs_rd(OtgFs::R_DIEP0 + 0x10u) & 0x7FFFFu, 0x7Fu,
+                 "XFRSIZ del EP0 son SIETE bits, no diecinueve");
+        ufs_wr(OtgFs::R_DIEP0 + 0x20u + 0x10u, 0x0007FFFFu);
+        check_eq(ufs_rd(OtgFs::R_DIEP0 + 0x20u + 0x10u) & 0x7FFFFu, 0x7FFFFu,
+                 "y en el EP1 los diecinueve");
+        // Los endpoints que no hay se leen cero.
+        ufs_wr(OtgFs::R_DIEP0 + 0x20u * 4u, 0xFFFFFFFFu);
+        check_eq(ufs_rd(OtgFs::R_DIEP0 + 0x20u * 4u), 0u,
+                 "el EP4 no existe en el FS: se lee cero");
+        check(uhs_rd(OtgHs::R_DIEPTXF1 + 4u * 4u) != 0u ||
+              dut->otg_hs.caps.endpoints > 5u,
+              "y el HS si tiene DIEPTXF5, porque tiene seis endpoints");
+        ufs_wr(OtgFs::R_DIEPTXF1 + 4u * 4u, 0x12345678u);
+        check_eq(ufs_rd(OtgFs::R_DIEPTXF1 + 4u * 4u), 0u,
+                 "que en el FS tampoco existe");
+        ufs_wr(OtgFs::R_DIEP0, 0); ufs_wr(OtgFs::R_DIEP0 + 0x20u, 0);
+
+        // --- La variante de ejecucion, sobre el bus ---------------------------
+        s_ug_true.write(true); s_ug_rst.write(true);
+        s_ug_hz.write(168e6);  s_ug_48.write(48e6);
+        wait(20, SC_US);
+        std::printf("    variante en ejecucion: %s\n", otg_rt->caps.kind);
+        tm12.write32(0x50000000u + OtgFs::R_HCFG, 0xFFFFFFFFu);
+        check_eq(tm12.rd32(0x50000000u + OtgFs::R_HCFG), 0u,
+                 "sin rol de anfitrion, HCFG no existe: cero entero");
+        tm12.write32(0x50000000u + OtgFs::R_HPRT, 0xFFFFFFFFu);
+        check_eq(tm12.rd32(0x50000000u + OtgFs::R_HPRT), 0u, "ni HPRT");
+        tm12.write32(0x50000000u + OtgFs::R_GOTGCTL, 0xFFFFFFFFu);
+        check_eq(tm12.rd32(0x50000000u + OtgFs::R_GOTGCTL), 0u,
+                 "y sin protocolos OTG, GOTGCTL tampoco: no hay ID que leer");
+        tm12.write32(0x50000000u + OtgFs::R_DCFG, 0xFFFFFFFFu);
+        check_eq(tm12.rd32(0x50000000u + OtgFs::R_DCFG) & 3u, 3u,
+                 "pero DCFG si, y DSPD se queda en Full Speed");
+        ufs_wr(OtgFs::R_DCFG, 0);
+        check_eq(ufs_rd(OtgFs::R_DCFG) & 3u, 2u,
+                 "en el FS, escribir DSPD = 00 (alta velocidad) no cuela: el bit 1 "
+                 "se queda a uno porque no hay PHY que lo haga");
+        uhs_wr(OtgHs::R_DCFG, 0);
+        check_eq(uhs_rd(OtgHs::R_DCFG) & 3u, 0u,
+                 "y en el HS si: DSPD = 00 es alta velocidad de verdad");
+        uhs_wr(OtgHs::R_DCFG, 3u);
+        tm12.write32(0x50000000u + OtgFs::R_DIEP0 + 0x20u * 3u, 0xFFFFFFFFu);
+        check_eq(tm12.rd32(0x50000000u + OtgFs::R_DIEP0 + 0x20u * 3u), 0u,
+                 "y solo hay tres endpoints: el tercero no esta");
+        check(dut->otg_hs.caps.dma_interno && !otg_rt->caps.dma_interno &&
+              dut->otg_fs.caps.host && !otg_rt->caps.host &&
+              dut->otg_hs.caps.ep1_irq && !dut->otg_fs.caps.ep1_irq,
+              "los ejes DMA / anfitrion / OTG / ULPI / IRQ de EP1 son independientes");
+    }
+
+    // -----------------------------------------------------------------------
+    // T114 — El PHY en los pines: la red de resistencias que decide todo
+    // -----------------------------------------------------------------------
+    void t114_otg_phy() {
+        group("T114 OTG_FS: conexion, velocidad y reset SON un divisor resistivo");
+        reset_dut();
+        dbg_resume();
+        usb_fs_dispositivo();
+
+        auto vdp = [&] { return dut->pinmux.analog(0, 12).voltage(); };
+        auto vdm = [&] { return dut->pinmux.analog(0, 11).voltage(); };
+
+        // --- VBUS: sin el no hay sesion --------------------------------------
+        check(dut->otg_fs.vbus_mv() > 4400u,
+              "el PC da los 5 V de VBUS y el pin PA9 los ve de verdad");
+        check(ufs_rd(OtgFs::R_GOTGCTL) & OtgFs::OTGCTL_BSVLD,
+              "y con VBUSBSEN encendido, GOTGCTL.BSVLD lo confirma");
+        std::printf("    VBUS = %u mV, D+ = %.2f V, D- = %.2f V\n",
+                    dut->otg_fs.vbus_mv(), vdp(), vdm());
+
+        // --- El 1,5 kohm de D+ es la declaracion de existencia ---------------
+        check(dut->otg_fs.pullup_puesto(), "el transceptor pone su 1,5 kohm en D+");
+        check(vdp() > 2.5f,
+              "y D+ sube: 1,5 kohm a 3,3 V contra los 15 kohm a masa del PC");
+        check(vdm() < 0.5f, "mientras D- se queda abajo: eso es Full Speed");
+
+        // SDIS quita el pull-up. Es como una pila USB reenumera sin tocar el
+        // cable, y se ve en el PIN.
+        ufs_wr(OtgFs::R_DCTL, OtgFs::DCTL_SDIS);
+        wait(50, SC_US);
+        check(vdp() < 0.5f,
+              "DCTL.SDIS lo quita y D+ cae: para el PC, el aparato se ha ido");
+        ufs_wr(OtgFs::R_DCTL, 0);
+        wait(50, SC_US);
+        check(vdp() > 2.5f, "y al soltarlo vuelve, sin tocar el cable");
+
+        // --- Sin 48 MHz no hay USB, y ningun registro lo dice ----------------
+        pll48_lento();
+        wait(200, SC_US);
+        check(vdp() < 0.5f,
+              "sin los 48 MHz de PLL48CK el transceptor no arranca: D+ ni se mueve");
+        std::printf("    PLL48CK = %.1f MHz -> D+ = %.2f V\n",
+                    dut->s_pll48_hz.read() / 1e6, vdp());
+        pll48_on();
+        wait(200, SC_US);
+        check(vdp() > 2.5f, "y con los 48 MHz de vuelta, el PC lo ve otra vez");
+
+        // --- Apagar el transceptor: GCCFG.PWRDWN -----------------------------
+        ufs_wr(OtgFs::R_GCCFG, OtgFs::CCFG_VBUSBSEN);
+        wait(50, SC_US);
+        check(vdp() < 0.5f, "con PWRDWN a cero el transceptor esta apagado");
+        ufs_wr(OtgFs::R_GCCFG, OtgFs::CCFG_PWRDWN | OtgFs::CCFG_VBUSBSEN);
+        wait(50, SC_US);
+
+        // --- El pin ID decide el rol -----------------------------------------
+        check(ufs_rd(OtgFs::R_GOTGCTL) & OtgFs::OTGCTL_CIDSTS,
+              "con ID al aire somos el aparato: CIDSTS = 1");
+        check(!(ufs_rd(OtgFs::R_GINTSTS) & OtgFs::INT_CMOD),
+              "y GINTSTS.CMOD dice modo dispositivo");
+        hrig->set_id_a(true);
+        wait(100, SC_US);
+        check(!(ufs_rd(OtgFs::R_GOTGCTL) & OtgFs::OTGCTL_CIDSTS),
+              "poner ID a masa -un cable A- nos convierte en anfitrion");
+        check(dut->otg_fs.modo_host(), "y el nucleo cambia de rol el solo");
+        check(ufs_rd(OtgFs::R_GINTSTS) & OtgFs::INT_CIDSCHG,
+              "avisando por CIDSCHG, que es para lo que existe esa interrupcion");
+        hrig->set_id_a(false);
+        wait(100, SC_US);
+        check(!dut->otg_fs.modo_host(), "y al quitarlo, otra vez dispositivo");
+
+        // --- El reset de bus: dos hilos a cero -------------------------------
+        ufs_wr(OtgFs::R_GINTSTS, 0xFFFFFFFFu);
+        hrig->reset_bus(10.0);
+        check(ufs_rd(OtgFs::R_GINTSTS) & OtgFs::INT_USBRST,
+              "diez milisegundos de SE0 son un reset de bus, y el nucleo lo VE");
+        check(ufs_rd(OtgFs::R_GINTSTS) & OtgFs::INT_ENUMDNE,
+              "y detras llega ENUMDNE con la velocidad negociada");
+        check_eq((ufs_rd(OtgFs::R_DSTS) >> 1) & 3u, 3u,
+                 "que en un nucleo FS solo puede ser Full Speed");
+
+        // --- Suspension y despertar ------------------------------------------
+        ufs_wr(OtgFs::R_GINTSTS, 0xFFFFFFFFu);
+        hrig->sofs(2);
+        check(!(ufs_rd(OtgFs::R_DSTS) & OtgFs::DSTS_SUSPSTS),
+              "con SOF cada milisegundo el aparato esta despierto");
+        wait(6, SC_MS);
+        check(ufs_rd(OtgFs::R_DSTS) & OtgFs::DSTS_SUSPSTS,
+              "tres milisegundos sin SOF y se suspende: hay que bajar a 2,5 mA");
+        check(ufs_rd(OtgFs::R_GINTSTS) & OtgFs::INT_USBSUSP, "avisando por USBSUSP");
+        ufs_wr(OtgFs::R_GINTSTS, OtgFs::INT_WKUINT);
+        hrig->resume(1.0);
+        check(ufs_rd(OtgFs::R_GINTSTS) & OtgFs::INT_WKUINT,
+              "y una K larga en el cable lo despierta: WKUINT");
+        check(dut->s_fswk_l18.read(),
+              "que ademas sale por la linea 18 del EXTI, para poder salir de Stop");
+        ufs_wr(OtgFs::R_GINTSTS, OtgFs::INT_WKUINT);
+        wait(50, SC_US);
+        check(!dut->s_fswk_l18.read(), "y se retira al reconocerla");
+        usb_suelta();
+    }
+
+    // -----------------------------------------------------------------------
+    // T115 — La enumeracion por el endpoint 0, y la RAM de FIFOs
+    // -----------------------------------------------------------------------
+    void t115_otg_dispositivo() {
+        group("T115 OTG_FS: endpoint 0, FIFOs y la particion que nadie comprueba");
+        reset_dut();
+        dbg_resume();
+        usb_fs_dispositivo();
+        hrig->reset_bus(10.0);
+
+        // --- La particion de la RAM de FIFOs ----------------------------------
+        // Lo primero que hay que decir de ella es lo que nadie dice: LOS
+        // VALORES DE RESET NO SON UNA PARTICION VALIDA.
+        check_eq(ufs_rd(OtgFs::R_GRXFSIZ), 0x200u,
+                 "GRXFSIZ arranca pidiendo 512 palabras... de una RAM de 320");
+        check(dut->otg_fs.fifos_solapadas(),
+              "al salir del reset la particion de la RAM de FIFOs es INVALIDA: "
+              "programarlas TODAS no es opcional, y el silicio no avisa");
+        // Una particion que si cabe: 128 + 64 + 32 + 32 + 32 = 288 de 320.
+        ufs_wr(OtgFs::R_GRXFSIZ, 128u);
+        ufs_wr(OtgFs::R_DIEPTXF0, (64u << 16) | 128u);
+        ufs_wr(OtgFs::R_DIEPTXF1, (32u << 16) | 192u);
+        ufs_wr(OtgFs::R_DIEPTXF1 + 4u, (32u << 16) | 224u);
+        ufs_wr(OtgFs::R_DIEPTXF1 + 8u, (32u << 16) | 256u);
+        wait(20, SC_US);
+        check(!dut->otg_fs.fifos_solapadas(),
+              "128 + 64 + 32 + 32 + 32 = 288 palabras de las 320 que hay: cabe");
+        // Y ahora la averia clasica: la FIFO 0 empieza DENTRO de la de recepcion.
+        ufs_wr(OtgFs::R_DIEPTXF0, (64u << 16) | 100u);
+        wait(20, SC_US);
+        check(dut->otg_fs.fifos_solapadas(),
+              "empezar la FIFO 0 en la palabra 100 la mete DENTRO de la de "
+              "recepcion: el silicio no dice nada y los datos se corrompen");
+        ufs_wr(OtgFs::R_DIEPTXF0, (64u << 16) | 128u);
+        // Pasarse del final de la RAM tampoco lo comprueba nadie.
+        ufs_wr(OtgFs::R_DIEPTXF1, (64u << 16) | 300u);
+        wait(20, SC_US);
+        check(dut->otg_fs.fifos_solapadas(),
+              "y pedir la palabra 300 + 64 en una RAM de 320 se sale por el final");
+        ufs_wr(OtgFs::R_DIEPTXF1, (32u << 16) | 192u);
+        wait(20, SC_US);
+        check(!dut->otg_fs.fifos_solapadas(), "con 192 + 32 vuelve a caber todo");
+
+        // --- Un SETUP de verdad ----------------------------------------------
+        ufs_wr(OtgFs::R_DOEPMSK, 0x0Du);
+        ufs_wr(OtgFs::R_DIEPMSK, 0x0Du);
+        ufs_wr(OtgFs::R_DAINTMSK, 0xFFFFFFFFu);
+        ufs_wr(OtgFs::R_GINTMSK, OtgFs::INT_RXFLVL | OtgFs::INT_OEPINT |
+                                 OtgFs::INT_IEPINT);
+        ufs_wr(OtgFs::R_GAHBCFG, OtgFs::AHB_GINTMSK);
+        ufs_wr(OtgFs::R_DOEP0, OtgFs::EPC_EPENA | OtgFs::EPC_CNAK);
+        wait(20, SC_US);
+
+        // GET_DESCRIPTOR(device), los ocho bytes de siempre.
+        const std::vector<uint8_t> setup = {0x80, 0x06, 0x00, 0x01,
+                                            0x00, 0x00, 0x12, 0x00};
+        check_eq(hrig->setup(0, setup), unsigned(PID_ACK),
+                 "el aparato acusa el SETUP: un control siempre se acepta");
+        wait(20, SC_US);
+        check(ufs_rd(OtgFs::R_GINTSTS) & OtgFs::INT_RXFLVL,
+              "y avisa por RXFLVL de que hay algo en la FIFO de recepcion");
+        check(dut->s_irq[67].read(),
+              "que llega al NVIC por la IRQ 67, con sus tres mascaras encadenadas");
+
+        // GRXSTSR MIRA; GRXSTSP SACA. Es la unica pareja asi del chip.
+        const uint32_t mira = ufs_rd(OtgFs::R_GRXSTSR);
+        check_eq(ufs_rd(OtgFs::R_GRXSTSR), mira,
+                 "GRXSTSR se puede leer dos veces y da lo mismo: solo MIRA");
+        const uint32_t st = ufs_rd(OtgFs::R_GRXSTSP);
+        check_eq((st >> 17) & 0xFu, 6u, "PKTSTS = 6: datos de un SETUP");
+        check_eq((st >> 4) & 0x7FFu, 8u, "y ocho bytes, que es lo que mide un SETUP");
+        // Los datos salen por la ventana de FIFO, que es OTRA cola: la de estado
+        // y la de datos no son la misma, y se vacian por separado.
+        uint32_t w0 = 0, w1 = 0;
+        tm.read32(UFS + 0x1000u, w0);
+        tm.read32(UFS + 0x1000u, w1);
+        check_eq(w0, 0x01000680u, "los cuatro primeros bytes del SETUP, en la FIFO");
+        check_eq(w1, 0x00120000u, "y los otros cuatro");
+        const uint32_t st2 = ufs_rd(OtgFs::R_GRXSTSP);
+        check_eq((st2 >> 17) & 0xFu, 4u,
+                 "y detras viene un segundo estado, PKTSTS = 4: el SETUP ha terminado");
+        check(!(ufs_rd(OtgFs::R_GINTSTS) & OtgFs::INT_RXFLVL),
+              "con la cola de estado vacia, RXFLVL se retira solo: no es rc_w1");
+        check(ufs_rd(OtgFs::R_DOEP0 + 0x08u) & OtgFs::EPI_STUP,
+              "DOEPINT0.STUP dice que lo que llego era un SETUP, no datos");
+
+        // --- La respuesta: dieciocho bytes por el endpoint 0 -----------------
+        const std::vector<uint8_t> desc = {0x12, 0x01, 0x00, 0x02, 0x00, 0x00,
+                                           0x00, 0x40, 0x83, 0x04, 0x40, 0x57,
+                                           0x00, 0x02, 0x01, 0x02, 0x03, 0x01};
+        ufs_wr(OtgFs::R_DIEP0, 0u);                       // MPSIZ = 64 (codigo 0)
+        ufs_wr(OtgFs::R_DIEP0 + 0x10u, (1u << 19) | 18u); // 1 paquete, 18 bytes
+        fifo_push_bytes(UFS, 0, desc);
+        ufs_wr(OtgFs::R_DIEP0, OtgFs::EPC_EPENA | OtgFs::EPC_CNAK);
+        wait(20, SC_US);
+        std::vector<uint8_t> leido;
+        check_eq(hrig->in(0, 0, leido), unsigned(PID_ACK),
+                 "el PC pide los datos con una IN y el aparato contesta");
+        check_eq(unsigned(leido.size()), 18u, "con los dieciocho bytes del descriptor");
+        check(leido == desc, "y son EXACTAMENTE los que el firmware puso en la FIFO");
+        check(ufs_rd(OtgFs::R_DIEP0 + 0x08u) & OtgFs::EPI_XFRC,
+              "y DIEPINT0.XFRC dice que la transferencia esta hecha");
+
+        // --- NAK y STALL, que es como un endpoint dice "ahora no" y "nunca" --
+        std::vector<uint8_t> nada;
+        check_eq(hrig->in(0, 0, nada), unsigned(PID_NAK),
+                 "sin EPENA el endpoint contesta NAK: el PC reintentara");
+        ufs_wr(OtgFs::R_DIEP0, OtgFs::EPC_STALL);
+        check_eq(hrig->in(0, 0, nada), unsigned(PID_STALL),
+                 "y con STALL contesta STALL: eso el PC no lo reintenta");
+        // Un SETUP levanta el STALL: es la unica forma de rescatar un endpoint.
+        ufs_wr(OtgFs::R_DOEP0, OtgFs::EPC_STALL);
+        check_eq(hrig->setup(0, setup), unsigned(PID_ACK),
+                 "pero un SETUP se acepta INCLUSO con el endpoint en STALL");
+        ufs_wr(OtgFs::R_GRSTCTL, OtgFs::RST_RXFFLSH);
+        ufs_wr(OtgFs::R_DIEP0, 0);
+
+        // --- SET_ADDRESS: hasta aqui hablabamos con la direccion cero --------
+        check_eq(ufs_rd(OtgFs::R_DCFG) >> 4 & 0x7Fu, 0u,
+                 "el aparato arranca en la direccion cero: por eso empieza ahi todo");
+        ufs_wr(OtgFs::R_DCFG, (ufs_rd(OtgFs::R_DCFG) & ~(0x7Fu << 4)) | (5u << 4));
+        wait(20, SC_US);
+        check_eq(hrig->setup(0, setup), unsigned(PID_NADIE),
+                 "con la direccion 5 puesta, a la cero ya no contesta nadie");
+        check_eq(hrig->setup(5, setup), unsigned(PID_ACK), "y a la cinco si");
+
+        // --- Los reset del nucleo son AUTOBORRABLES --------------------------
+        ufs_wr(OtgFs::R_GRSTCTL, OtgFs::RST_CSRST);
+        check_eq(ufs_rd(OtgFs::R_GRSTCTL) & OtgFs::RST_CSRST, 0u,
+                 "CSRST se borra solo: un firmware que lo espere no puede colgarse");
+        check(ufs_rd(OtgFs::R_GRSTCTL) & OtgFs::RST_AHBIDL,
+              "y AHBIDL dice que el bus esta en reposo");
+        check_eq(ufs_rd(OtgFs::R_DCFG) >> 4 & 0x7Fu, 0u,
+                 "y el reset del nucleo devuelve la direccion a cero");
+        usb_suelta();
+    }
+
+    // -----------------------------------------------------------------------
+    // T116 — El OTG_HS: anfitrion, DMA propio y los pines que se pelea con ETH
+    // -----------------------------------------------------------------------
+    void t116_otg_hs() {
+        group("T116 OTG_HS: anfitrion con DMA propio [IR, 12.23]");
+        reset_dut();
+        dbg_resume();
+        usb_relojes();
+        // PB14/PB15 en AF10: el nucleo HS con su transceptor FS integrado.
+        pin_cfg(1, 14, 2, 0, false, 3, 10);
+        pin_cfg(1, 15, 2, 0, false, 3, 10);
+        pin_cfg(1, 13, 0, 0, false, 0, 0);            // VBUS de sensado
+        pin_cfg(1, 12, 0, 0, false, 0, 0);            // ID
+        dut->otg_hs.conectar_dispositivo(drig);
+        drig->alimentacion_placa(true);               // el conmutador de la placa
+        wait(50, SC_US);
+
+        // --- Forzar el rol de anfitrion --------------------------------------
+        uhs_wr(OtgHs::R_GUSBCFG, OtgHs::USB_FHMOD);
+        uhs_wr(OtgHs::R_GCCFG, OtgHs::CCFG_PWRDWN | OtgHs::CCFG_VBUSASEN);
+        wait(50, SC_US);
+        check(dut->otg_hs.modo_host(),
+              "GUSBCFG.FHMOD fuerza el rol de anfitrion sin mirar el pin ID");
+        check(uhs_rd(OtgHs::R_GINTSTS) & OtgHs::INT_CMOD,
+              "y GINTSTS.CMOD lo confirma");
+        uhs_wr(OtgHs::R_HPRT, OtgHs::HPRT_PPWR);
+        wait(50, SC_US);
+        check_eq(uhs_rd(OtgHs::R_HPRT) & OtgHs::HPRT_PCSTS, 0u,
+                 "con el puerto alimentado pero sin nada enchufado, PCSTS = 0");
+
+        // --- Enchufar el aparato: lo dice el divisor resistivo ---------------
+        drig->enchufar(true);
+        wait(200, SC_US);
+        check(uhs_rd(OtgHs::R_HPRT) & OtgHs::HPRT_PCSTS,
+              "el 1,5 kohm del aparato levanta D+ y el anfitrion LO VE");
+        check(uhs_rd(OtgHs::R_HPRT) & OtgHs::HPRT_PCDET, "avisando por PCDET");
+        check_eq((uhs_rd(OtgHs::R_HPRT) >> 17) & 3u, 1u,
+                 "y la velocidad sale del hilo que subio: D+ es Full Speed");
+        std::printf("    D+ = %.2f V, D- = %.2f V -> PSPD = %u\n",
+                    dut->pinmux.analog(1, 15).voltage(),
+                    dut->pinmux.analog(1, 14).voltage(),
+                    (uhs_rd(OtgHs::R_HPRT) >> 17) & 3u);
+
+        // --- EL ERROR CLASICO: PENA se BORRA escribiendo uno ------------------
+        const unsigned r0 = drig->resets();
+        uhs_wr(OtgHs::R_HPRT, (uhs_rd(OtgHs::R_HPRT) & ~OtgHs::HPRT_RC_W1) |
+                              OtgHs::HPRT_PPWR | OtgHs::HPRT_PRST);
+        wait(2, SC_MS);
+        uhs_wr(OtgHs::R_HPRT, OtgHs::HPRT_PPWR);
+        wait(200, SC_US);
+        check(drig->resets() > r0,
+              "PRST pone los dos hilos a cero y el aparato ve un reset de verdad");
+        check(uhs_rd(OtgHs::R_HPRT) & OtgHs::HPRT_PENA,
+              "y al soltarlo el puerto queda habilitado");
+        // Ahora, el read-modify-write ingenuo.
+        uhs_wr(OtgHs::R_HPRT, uhs_rd(OtgHs::R_HPRT));
+        check_eq(uhs_rd(OtgHs::R_HPRT) & OtgHs::HPRT_PENA, 0u,
+                 "devolver HPRT entero APAGA el puerto: PENA se borra con un uno");
+        uhs_wr(OtgHs::R_HPRT, OtgHs::HPRT_PPWR | OtgHs::HPRT_PRST);
+        wait(2, SC_MS);
+        uhs_wr(OtgHs::R_HPRT, OtgHs::HPRT_PPWR);
+        wait(200, SC_US);
+        check(uhs_rd(OtgHs::R_HPRT) & OtgHs::HPRT_PENA, "y hay que repetir el reset");
+
+        // --- El latido de las tramas -----------------------------------------
+        const unsigned t0 = drig->tramas();
+        wait(5, SC_MS);
+        check(drig->tramas() >= t0 + 4u,
+              "el anfitrion manda un SOF por milisegundo: es el latido del bus");
+
+        // --- Un canal: SETUP y luego IN --------------------------------------
+        uhs_wr(OtgHs::R_GRXFSIZ, 256u);
+        uhs_wr(OtgHs::R_DIEPTXF0, (128u << 16) | 256u);    // = HNPTXFSIZ
+        uhs_wr(OtgHs::R_HAINTMSK, 0xFFFFu);
+        uhs_wr(OtgHs::R_HC0 + 0x0Cu, 0x7FFu);
+        // Canal 0: control OUT al aparato 0, endpoint 0, 64 bytes de paquete.
+        uhs_wr(OtgHs::R_HC0 + 0x10u, (3u << 29) | (1u << 19) | 8u);  // SETUP
+        uhs_wr(OtgHs::R_HC0, 64u | (0u << 11) | (0u << 18) | (0u << 22));
+        fifo_push_bytes(UHS, 0, {0x80, 0x06, 0x00, 0x01, 0x00, 0x00, 0x12, 0x00});
+        uhs_wr(OtgHs::R_HC0, uhs_rd(OtgHs::R_HC0) | OtgHs::HCC_CHENA);
+        wait(3, SC_MS);
+        check(uhs_rd(OtgHs::R_HC0 + 0x08u) & OtgHs::HCI_XFRC,
+              "el canal 0 saca el SETUP y el aparato lo acusa: HCINT.XFRC");
+        check_eq(drig->setups(), 1u, "y al otro lado ha llegado uno, no dos");
+
+        // La fase de datos: tres paquetes de ocho hacia dentro.
+        uhs_wr(OtgHs::R_HC0 + 0x08u, 0xFFFFFFFFu);
+        uhs_wr(OtgHs::R_HC0 + 0x10u, (3u << 19) | 18u);
+        uhs_wr(OtgHs::R_HC0, 8u | OtgHs::HCC_EPDIR);
+        uhs_wr(OtgHs::R_HC0, uhs_rd(OtgHs::R_HC0) | OtgHs::HCC_CHENA);
+        wait(6, SC_MS);
+        check(uhs_rd(OtgHs::R_GINTSTS) & OtgHs::INT_RXFLVL,
+              "los datos que vuelven se apilan en la FIFO de recepcion");
+        const uint32_t st = uhs_rd(OtgHs::R_GRXSTSP);
+        check_eq(st & 0xFu, 0u, "con el numero de CANAL, que en modo anfitrion es eso");
+        check_eq((st >> 4) & 0x7FFu, 8u, "y el tamano del paquete");
+        uint32_t d0 = 0;
+        tm.read32(UHS + 0x1000u, d0);
+        check_eq(d0, 0x02000112u,
+                 "y por la ventana de FIFO sale el descriptor del aparato");
+
+        // --- EL DMA PROPIO: el HS va SOLO a por la memoria -------------------
+        // Es LA diferencia practica frente al FS. Con DMAEN el nucleo no deja
+        // los datos en una FIFO para que alguien los saque: los ESCRIBE en la
+        // SRAM, como octavo maestro de la matriz.
+        const uint32_t DEST = addr::SRAM1_BASE + 0x6000u;
+        for (unsigned i = 0; i < 24; i += 4) tm.write32(DEST + i, 0xDEADBEEFu);
+        const unsigned dw0 = dut->otg_hs.dma_escrituras();
+        uhs_wr(OtgHs::R_GAHBCFG, OtgHs::AHB_DMAEN);
+        uhs_wr(OtgHs::R_HC0 + 0x08u, 0xFFFFFFFFu);
+        uhs_wr(OtgHs::R_HC0 + 0x14u, DEST);                 // HCDMA
+        // Otro GET_DESCRIPTOR para volver a tener datos que traer.
+        uhs_wr(OtgHs::R_HC0 + 0x10u, (3u << 29) | (1u << 19) | 8u);
+        uhs_wr(OtgHs::R_HC0, 64u);
+        uint32_t tmp = addr::SRAM1_BASE + 0x6100u;
+        tm.write32(tmp,     0x01000680u);
+        tm.write32(tmp + 4, 0x00120000u);
+        uhs_wr(OtgHs::R_HC0 + 0x14u, tmp);
+        uhs_wr(OtgHs::R_HC0, uhs_rd(OtgHs::R_HC0) | OtgHs::HCC_CHENA);
+        wait(3, SC_MS);
+        check(dut->otg_hs.dma_lecturas() > 0u,
+              "con DMAEN, el SETUP lo LEE el nucleo de la memoria, no la CPU");
+        uhs_wr(OtgHs::R_HC0 + 0x08u, 0xFFFFFFFFu);
+        uhs_wr(OtgHs::R_HC0 + 0x14u, DEST);
+        uhs_wr(OtgHs::R_HC0 + 0x10u, (3u << 19) | 18u);
+        uhs_wr(OtgHs::R_HC0, 8u | OtgHs::HCC_EPDIR);
+        uhs_wr(OtgHs::R_HC0, uhs_rd(OtgHs::R_HC0) | OtgHs::HCC_CHENA);
+        wait(6, SC_MS);
+        check(dut->otg_hs.dma_escrituras() > dw0,
+              "y los datos que vuelven los ESCRIBE el en la SRAM");
+        uint32_t m0 = 0, m1 = 0;
+        tm.read32(DEST, m0); tm.read32(DEST + 4, m1);
+        check_eq(m0, 0x02000112u,
+                 "sin que la CPU toque una FIFO: el descriptor esta en la SRAM");
+        check_eq(m1, 0x40000000u, "los dieciocho bytes, en orden");
+        check(dut->matrix.n_xfer[unsigned(BusMaster::OTG_HS_DMA)]
+                               [unsigned(BusSlaveId::SRAM1)] > 0,
+              "y la matriz lo ha visto pasar como OCTAVO MAESTRO, no como CPU");
+        check_eq(unsigned(dut->matrix.n_xfer[unsigned(BusMaster::OTG_HS_DMA)]
+                                            [unsigned(BusSlaveId::AHB2_SEG)]), 0u,
+                 "por caminos que la mascara de conectividad le permite, ademas");
+        uhs_wr(OtgHs::R_GAHBCFG, 0);
+
+        // --- Los pines que el ULPI se pelea con el Ethernet ------------------
+        // Todo el ULPI SI esta cableado en el LQFP100 -PA3/PA5, PB0/PB1/PB5,
+        // PB10-PB13, PC0/PC2/PC3-, que es lo contrario de lo que pasaba con el
+        // FSMC y con el DCMI. Pero tres de esos pines son los del RMII.
+        static const unsigned comunes[3][2] = {{1, 11}, {1, 12}, {1, 13}};
+        unsigned n_comunes = 0;
+        for (auto& q : comunes)
+            if (dut->pinmux.pad[q[0]][q[1]]->bonded) ++n_comunes;
+        check_eq(n_comunes, 3u,
+                 "PB11, PB12 y PB13 existen en este encapsulado: el ULPI cabe entero");
+        std::printf("    ULPI D4/D5/D6 (PB11/PB12/PB13) son tambien "
+                    "ETH_RMII_TX_EN/TXD0/TXD1: ULPI y Ethernet NO caben a la vez\n");
+        check(dut->otg_hs.caps.ulpi && dut->otg_hs.caps.hs,
+              "y por eso el rasgo ULPI es del MODELO, no del silicio: una placa "
+              "que ponga ahi el Ethernet deja el HS en su transceptor FS");
+
+        drig->enchufar(false);
+        drig->alimentacion_placa(false);
+        uhs_wr(OtgHs::R_GCCFG, 0);
+        uhs_wr(OtgHs::R_GUSBCFG, 0);
+        usb_suelta();
     }
 
     // Ayudas del cliente de pruebas

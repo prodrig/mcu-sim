@@ -202,12 +202,15 @@ inline void Stm32F407VG::bind_periph_common() {
     eth.mii_rmii_sel(s_mii);
     eth.wkup_line(s_ethwk_l19);
     bind_bus_slave(otg_fs, s_hclk, P_OTGFS);
-    otg_fs.clk48(s_pll48);
+    otg_fs.clk48(s_pll48);   otg_fs.clk48_hz(s_pll48_hz);
     otg_fs.wkup_line(s_fswk_l18);
     otg_fs.irq_wkup(s_nc[nc()]);            // la IRQ 42 real llega vía EXTI18
+    otg_fs.irq_ep1_out(s_nc[nc()]);         // el FS no tiene IRQ de EP1
+    otg_fs.irq_ep1_in(s_nc[nc()]);
     bind_bus_slave(otg_hs, s_hclk, P_OTGHS);
-    otg_hs.clk48(s_pll48);
+    otg_hs.clk48(s_pll48);   otg_hs.clk48_hz(s_pll48_hz);
     otg_hs.wkup_line(s_hswk_l20);
+    otg_hs.irq_wkup(s_nc[nc()]);
     bind_bus_slave(dma1, s_hclk, P_DMA1);
     bind_bus_slave(dma2, s_hclk, P_DMA2);
 }
@@ -432,8 +435,41 @@ inline void Stm32F407VG::bind_analog() {
     // DAC [IR, §12.14]
     dac.bind_out(0, pinmux.analog(0, 4));        // PA4
     dac.bind_out(1, pinmux.analog(0, 5));        // PA5
-    // USB FS PHY integrado (PA11=DM, PA12=DP)
+    // USB OTG_FS: PHY integrado en PA11 (DM) y PA12 (DP), sensado de VBUS en
+    // PA9 y pin ID en PA10 [IR, §12.15.4]. Los cuatro son RUTA ANALOGICA, no
+    // funcion alternativa digital: por D+ y D- no van unos y ceros, van
+    // tensiones, y de ellas salen la conexion y la velocidad.
     otg_fs.bind_phy(pinmux.analog(0, 11), pinmux.analog(0, 12));
+    otg_fs.bind_vbus(pinmux.analog(0, 9));
+    otg_fs.bind_id(pinmux.analog(0, 10));
+    // USB OTG_HS: en este encapsulado el nucleo HS tiene DOS caminos posibles.
+    //   * su transceptor FS integrado, por PB14 (DM) y PB15 (DP);
+    //   * o el PHY externo ULPI (AF10), que SI esta completo en el LQFP100.
+    // VBUS en PB13 y ID en PB12 [IR, cap. 2].
+    otg_hs.bind_phy(pinmux.analog(1, 14), pinmux.analog(1, 15));
+    otg_hs.bind_vbus(pinmux.analog(1, 13));
+    otg_hs.bind_id(pinmux.analog(1, 12));
+    {
+        // Los ocho hilos de datos del ULPI son bidireccionales; DIR y NXT los
+        // gobierna el PHY, STP el controlador y CK es el reloj de 60 MHz que
+        // entra desde fuera. Todos por AF10 [IR, §12.23.1].
+        auto af_u = [&](sc_core::sc_signal<bool>* o, sc_core::sc_signal<bool>* e,
+                        sc_core::sc_signal<bool>* i) {
+            AfEndpoint ep; ep.out = o; ep.oe = e; ep.in = i; ep.idle_in = false;
+            return ep;
+        };
+        static const unsigned ulpi_d[8][2] = {
+            {0, 3}, {1, 0}, {1, 1}, {1, 10}, {1, 11}, {1, 12}, {1, 13}, {1, 5}
+        };
+        for (unsigned i = 0; i < 8; ++i)
+            pinmux.connect_af(ulpi_d[i][0], ulpi_d[i][1], 10,
+                              af_u(&otg_hs.ulpi_d_out[i], &otg_hs.ulpi_d_oe[i],
+                                   &otg_hs.ulpi_d_in[i]));
+        pinmux.connect_af(0, 5, 10, af_u(nullptr, nullptr, &otg_hs.ulpi_ck_in));
+        pinmux.connect_af(2, 0, 10, af_u(&otg_hs.ulpi_stp_out, &s_true, nullptr));
+        pinmux.connect_af(2, 2, 10, af_u(nullptr, nullptr, &otg_hs.ulpi_dir_in));
+        pinmux.connect_af(2, 3, 10, af_u(nullptr, nullptr, &otg_hs.ulpi_nxt_in));
+    }
     // Osciladores externos: HSE en PH0/PH1 (OSC_IN/OSC_OUT) y LSE en PC14/PC15
     // (OSC32_IN/OSC32_OUT) [IR, §2.1]. El oscilador solo arranca si hay algo
     // conectado eléctricamente al nodo de OSC_IN; en modo bypass mide además la
