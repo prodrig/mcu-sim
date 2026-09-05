@@ -514,7 +514,41 @@ inline void Cpu::exec_proc() {
                     wait(fclk_hz.value_changed_event() | rst_n.value_changed_event());
                     continue;
                 }
-                wait(sc_core::sc_time(1, sc_core::SC_US));
+                // DORMIR ES ESPERAR, NO SONDEAR.
+                //
+                // Antes se miraba cada microsegundo si habia algo pendiente: un
+                // MILLON de despertares por cada segundo simulado, casi todos
+                // para comprobar que no habia nada y volver a dormirse. Ahora se
+                // espera a los sucesos que de verdad pueden despertar al nucleo,
+                // que son estos y solo estos [ARMv7-M B1.5.18]:
+                //
+                //   * una excepcion queda pendiente        -> sys->pending_ev()
+                //   * llega un evento del EXTI (WFE)       -> event_in
+                //   * el nucleo entra en reset             -> rst_n
+                //   * se para el arbol de reloj (Stop)     -> fclk_hz
+                //   * el depurador quiere parar            -> dbg_halt_req / dbg_wake
+                //
+                // La condicion se RE-COMPRUEBA justo antes de bloquear. Sin eso
+                // habria una carrera: un suceso que ocurriera entre la
+                // instruccion WFI/WFE y la espera se perderia, porque wait()
+                // solo ve las notificaciones POSTERIORES a la propia espera.
+                // El sondeo de antes tapaba esa carrera a base de fuerza bruta.
+                {
+                    const bool ya = sys->any_pending() ||
+                                    (sleep_wfe_ && (event_reg_ || event_in.read())) ||
+                                    !rst_n.read() || dbg_halt_req.read() ||
+                                    (dbg && dbg->dbg_halt_now());
+                    if (!ya) {
+                        sc_core::sc_event_or_list despertadores =
+                              sys->pending_ev()
+                            | event_in.value_changed_event()
+                            | rst_n.value_changed_event()
+                            | fclk_hz.value_changed_event()
+                            | dbg_halt_req.value_changed_event();
+                        if (dbg) despertadores |= dbg->dbg_wake();
+                        wait(despertadores);
+                    }
+                }
                 const bool por_evento = sleep_wfe_ &&
                                         (event_reg_ || event_in.read());
                 if (sys->any_pending() || por_evento || !rst_n.read()) {

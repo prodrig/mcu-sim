@@ -1,4 +1,4 @@
-# ¿Cuánto cuesta llevar dentro un periférico que el programa no usa?
+# ¿Cuánto cuesta simular lo que no hace nada?
 
 Medida del coste de simulación del USB OTG y del Ethernet cuando el firmware no
 los toca. La pregunta se planteó como una elección entre dos escenarios:
@@ -13,6 +13,12 @@ viene de modelar el periférico, sino de **dos bucles de sondeo** que se
 despiertan aunque nadie haya encendido nada. Corregidos —escenario **C**—, el
 modelo completo cuesta **exactamente lo mismo que el dummy**, y sigue estando
 entero.
+
+Y midiendo eso apareció un sondeo mucho mayor en el propio núcleo, que la
+sección 6 cuenta: **un MCU dormido pasó de 0,575 s de anfitrión por cada dos
+segundos simulados a 0,000 s**, y el parpadeo de referencia —que retrasa con
+`WFI`— es ahora **catorce veces y media más rápido haciendo exactamente el mismo
+trabajo**.
 
 ---
 
@@ -34,7 +40,8 @@ cargas:
 | :--- | :--- |
 | **A** | el modelo tal como estaba: OTG y ETH completos |
 | **B** | `periph/otg.h` y `periph/eth_mac.h` sustituidos por *dummies*: mismos puertos, mismo mapa, banco de registros, **ningún proceso de SystemC** |
-| **C** | el modelo completo de A, con los dos bucles de sondeo convertidos en espera por evento |
+| **C** | el modelo completo de A, con los dos bucles de sondeo de los periféricos convertidos en espera por evento |
+| **D** | C más el bucle de sueño del núcleo, también por evento — **es el estado actual del árbol** |
 
 | Carga | Qué hace el núcleo |
 | :--- | :--- |
@@ -45,6 +52,17 @@ cargas:
 La onda cuadrada de los relojes internos se apaga (`set_internal_waveforms(false)`),
 que es lo que hace el modo de ejecución normal del modelo; con ella encendida,
 los flancos de HCLK ahogarían cualquier otra medida.
+
+> **Los tiempos absolutos solo valen dentro de una misma tanda.** La máquina es
+> compartida y su carga varía: el mismo binario con la misma carga sale entre un
+> 10 % y un 20 % distinto según el momento. Todas las comparaciones de este
+> documento se han medido **en la misma tanda**, alternando variantes, y con la
+> mediana de 15 repeticiones. Entre tablas de secciones distintas, compárense
+> las proporciones, no los segundos. La métrica que **no** depende de la carga
+> de la máquina es el número de **deltas**, y por eso aparece siempre al lado.
+
+A la variante C se le añadió después una cuarta, **D**, con el bucle de sueño
+del núcleo convertido también en espera por evento (sección 6).
 
 ---
 
@@ -183,18 +201,105 @@ cuántas veces despierta, no a lo complicado que sea**. Un periférico de mil
 líneas que solo reacciona a eventos es gratis cuando está apagado; uno de
 cincuenta líneas que mira el reloj cada 20 µs no lo es nunca.
 
-Merece la pena revisar con este criterio los demás bloques del modelo. Los dos
-sospechosos que quedan son:
-
-* el bucle de sueño del núcleo en `core/cpu.h`, que **sondea cada 1 µs**
-  mientras la CPU está dormida —un millón de despertares por segundo simulado,
-  veinte veces más que OTG y ETH juntos—. Ya tiene la mitad del arreglo hecha:
-  con el árbol de reloj parado espera a un evento en vez de sondear;
-* `ClockGen`, cuando las ondas cuadradas están encendidas.
+Aplicada esa misma regla al resto del modelo, el sospechoso mayor no era ningún
+periférico: era el propio núcleo. La sección 6 lo cuenta.
 
 ---
 
-## 6. Cómo reproducirlo
+## 6. El núcleo dormido: el mismo error, veinte veces mayor
+
+El bucle de sueño de `core/cpu.h` **sondeaba cada 1 µs** mientras la CPU estaba
+dormida en un `WFI` o un `WFE`: **un millón de despertares por segundo
+simulado**, veinte veces más que OTG y ETH juntos. Cada uno para preguntar si
+había algo pendiente, encontrar que no, y volver a dormirse.
+
+Y es el caso que más importa, porque **dormir es lo que hace un MCU la mayor
+parte del tiempo**. El blinky de referencia del propio proyecto retrasa así:
+
+```c
+while ((g_ms - t0) < ms) { __WFI(); }     // verif/fw/blinky/blinky.c:93
+```
+
+### El arreglo
+
+Esperar a los sucesos que de verdad despiertan al núcleo, que son estos y solo
+estos [ARMv7-M B1.5.18]:
+
+| Suceso | De dónde viene |
+| :--- | :--- |
+| una excepción queda pendiente | `sys->pending_ev()`, nuevo en `core_sys_if` |
+| llega un evento del EXTI (WFE) | `event_in` |
+| el núcleo entra en reset | `rst_n` |
+| se para el árbol de reloj (Stop) | `fclk_hz` |
+| el depurador quiere parar | `dbg_halt_req` y `dbg->dbg_wake()` |
+
+El evento nuevo, `pending_ev()`, se dispara en tres sitios del SCS: al muestrear
+las líneas de interrupción (`sample_proc`), en `set_pending()`, y **en cualquier
+escritura al SCS**. Este último es el que evita el error sutil: `ISPR`, `STIR`,
+`ICSR` con `PENDSVSET` o `SHCSR` pueden dejar una excepción pendiente, y esas
+escrituras **pueden venir del depurador con el núcleo dormido**. En vez de
+enumerar los casos uno a uno —y olvidarse de alguno—, se avisa siempre: escribir
+en el SCS es un suceso raro comparado con sondear.
+
+### La carrera que había que cerrar
+
+`wait()` solo ve las notificaciones **posteriores** a la propia espera. Un
+suceso que ocurriera entre la instrucción `WFI`/`WFE` y la espera se perdería, y
+el núcleo se dormiría para siempre. El sondeo de antes tapaba esa carrera a base
+de fuerza bruta.
+
+Por eso la condición **se re-comprueba justo antes de bloquear**, y solo se
+bloquea si en ese instante no hay nada. Entre la comprobación y el `wait` no
+cede el control ningún otro proceso, así que la ventana se cierra del todo.
+
+### Lo que cuesta ahora un MCU dormido
+
+Dos segundos de tiempo simulado con el MCU encendido y parado en `wfe`:
+
+| | Deltas | Tiempo de anfitrión |
+| :--- | ---: | ---: |
+| Original | 2 112 245 | 0,575 s |
+| Solo periféricos (§5) | 2 000 229 | 0,492 s |
+| **Núcleo y periféricos** | **50** | **0,000 s** |
+
+**Cuarenta y dos mil veces menos eventos.** El tiempo simulado con el MCU
+dormido ha dejado de costar nada, que es exactamente lo que debe costar en un
+modelo de eventos discretos.
+
+### Y con firmware de verdad
+
+200 ms simulados, 15 repeticiones, mediana:
+
+| Carga | Original | Solo periféricos | **Núcleo y periféricos** | Mejora |
+| :--- | ---: | ---: | ---: | ---: |
+| MCU aparcado en `wfe` | 0,0580 s | 0,0491 s | **0,0000 s** | — |
+| `blinky` (SysTick + WFI) | 0,0608 s | 0,0530 s | **0,0047 s** | **12,9×** |
+| CoreMark | 0,1362 s | 0,1247 s | **0,1052 s** | **1,29×** |
+| Suite completa (2,33 s simulados) | 18,20 s | — | **17,20 s** | 5,5 % |
+
+**La prueba de que no se ha cambiado nada más:** en `blinky`, las transacciones
+que cruzan la matriz son **13 713 en las dos versiones**, exactamente las
+mismas. Mismas instrucciones, mismo tráfico de bus; lo único que ha desaparecido
+es la espera desperdiciada. Los deltas bajan de 215 872 a 7 197 y el tiempo de
+anfitrión de 0,0726 s a 0,0050 s: **catorce veces y media más rápido haciendo el
+mismo trabajo**.
+
+La suite mejora poco —un 5,5 %— y tiene sentido: está dominada por trabajo
+activo (el maestro de pruebas machacando el bus, CoreMark, los quince
+firmwares), no por esperas. Es justo el perfil en el que menos se nota. El
+tiempo simulado total cambia en 20 ns sobre 2,33 s, que es el redondeo de la
+latencia de despertar al pasar de 1 µs de granularidad a inmediata.
+
+### Lo que queda
+
+`ClockGen`, cuando las ondas cuadradas de los relojes están encendidas. Ahí el
+sondeo **sí es el modelo** —un reloj es una onda—, así que no es un error sino
+un coste legítimo; lo que hay es el interruptor `set_internal_waveforms(false)`
+para apagarlo cuando nadie observa los flancos, y eso ya está.
+
+---
+
+## 7. Cómo reproducirlo
 
 ```sh
 make -f Makefile.stm32 bench

@@ -61,6 +61,13 @@ public:
     virtual int  execution_priority(const RegFile& reg) const = 0;
     // ¿Hay alguna excepción pendiente (para SEVONPEND / WFE)?
     virtual bool any_pending() const = 0;
+    // EL SUCESO QUE PERMITE DORMIR DE VERDAD. Se dispara cada vez que algo
+    // PUEDE haber quedado pendiente: una linea de interrupcion que sube, el
+    // SysTick que vence, o una escritura al SCS -ISPR, STIR, ICSR, SHCSR- que
+    // puede venir del depurador mientras el nucleo duerme. Sin el, un nucleo
+    // dormido no tiene mas remedio que sondear
+    // [vease doc/stm32f407vg_coste_simulacion.md].
+    virtual const sc_core::sc_event& pending_ev() const = 0;
 
     // --- Configuración del SCB que la CPU consulta [IR, §10.2] --------------
     virtual uint32_t vtor() const        = 0;
@@ -437,6 +444,7 @@ public:
         pending_[e] = p;
         sync_shcsr_from_state();
         publish();
+        if (p) pend_ev_.notify(sc_core::SC_ZERO_TIME);
     }
     bool is_pending(int e) const override {
         return (e > 0 && e < int(N_EXCEPTIONS)) ? pending_[e] : false;
@@ -449,6 +457,7 @@ public:
             if (pending_[e]) return true;
         return false;
     }
+    const sc_core::sc_event& pending_ev() const override { return pend_ev_; }
 
     // =======================================================================
     // core_sys_if — configuración
@@ -521,6 +530,7 @@ private:
     bool prev_irq_[N_IRQ] = {}, prev_nmi_ = false, prev_tick_ = false;
     bool o_sysreset_ = false, o_sleepdeep_ = false;
     sc_core::sc_event pub_ev_;
+    sc_core::sc_event pend_ev_;      // "puede haber algo pendiente": despierta al nucleo
 
     void publish() { pub_ev_.notify(sc_core::SC_ZERO_TIME); }
     void publish_proc() {
@@ -583,6 +593,7 @@ private:
         const bool tk = s_tick_.read();
         if (tk && !prev_tick_) pending_[EXC_SYSTICK] = true;
         prev_tick_ = tk;
+        pend_ev_.notify(sc_core::SC_ZERO_TIME);
     }
 
     uint32_t icsr_value() {
@@ -645,7 +656,16 @@ private:
         return 0;
     }
 
+    // Envoltorio de la escritura: cualquier registro del SCS puede dejar una
+    // excepcion pendiente -ISPR, STIR, ICSR con PENDSVSET o NMIPENDSET, SHCSR-
+    // y esas escrituras pueden venir del DEPURADOR con el nucleo dormido. En
+    // vez de enumerar los casos uno a uno -y olvidarse de alguno-, se avisa
+    // siempre: una escritura al SCS es un suceso raro comparado con sondear.
     void write_word(uint32_t off, uint32_t v) {
+        write_word_impl(off, v);
+        pend_ev_.notify(sc_core::SC_ZERO_TIME);
+    }
+    void write_word_impl(uint32_t off, uint32_t v) {
         if (off >= 0x010 && off < 0x100) { systick.reg_write(off - 0x010, v); return; }
         if (off >= 0x100 && off < 0x180) {              // ISER: 1 habilita
             const unsigned b = ((off - 0x100) / 4) * 32;

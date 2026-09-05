@@ -430,3 +430,64 @@ bloque es proporcional a cuántas veces despierta, no a lo complicado que sea**.
 Con ese criterio queda un sospechoso mucho mayor que OTG y ETH juntos: el bucle
 de sueño del núcleo en `core/cpu.h` **sondea cada 1 µs** mientras la CPU está
 dormida — un millón de despertares por segundo simulado, veinte veces más.
+
+
+## 2026-09-05 (turno actual) UTC
+
+**Mensaje:**
+
+> Completa la mejora del tiempo de simulación del núcleo
+
+**Respuesta:**
+
+Hecho, y el resultado es mayor de lo que esperaba: **un MCU dormido ha dejado de
+costar tiempo de simulación**. Dos segundos simulados con el núcleo parado en
+`wfe` pasan de **2 112 245 deltas y 0,575 s** de anfitrión a **50 deltas y
+0,000 s**. Cuarenta y dos mil veces menos eventos.
+
+El bucle de sueño de `core/cpu.h` sondeaba cada 1 µs — un millón de despertares
+por segundo simulado, veinte veces más que OTG y ETH juntos — para preguntar si
+había algo pendiente, encontrar que no, y volver a dormirse. Ahora espera a los
+cinco sucesos que de verdad despiertan al núcleo: una excepción pendiente, un
+evento del EXTI, el reset, la parada del árbol de reloj y el depurador.
+
+Para el primero hice falta un evento nuevo, `pending_ev()` en `core_sys_if`, que
+el SCS dispara al muestrear las líneas de interrupción, en `set_pending()` y **en
+cualquier escritura al SCS**. Este último es el que evita el error sutil: `ISPR`,
+`STIR`, `ICSR` con `PENDSVSET` o `SHCSR` pueden dejar una excepción pendiente, y
+esas escrituras **pueden venir del depurador con el núcleo dormido**. En vez de
+enumerar los casos y olvidarme de alguno, aviso siempre — escribir en el SCS es
+rarísimo comparado con sondear.
+
+Y había una carrera que cerrar: `wait()` solo ve las notificaciones posteriores a
+la propia espera, así que un suceso ocurrido entre el `WFI` y el `wait` se
+perdería y el núcleo dormiría **para siempre**. El sondeo tapaba eso por fuerza
+bruta. La condición se re-comprueba justo antes de bloquear, y entre esa
+comprobación y el `wait` no cede el control ningún otro proceso.
+
+Medido con firmware de verdad (200 ms simulados, 15 repeticiones, mediana):
+
+| Carga | Original | Solo periféricos | Núcleo y periféricos | Mejora |
+| :--- | ---: | ---: | ---: | ---: |
+| MCU aparcado en `wfe` | 0,0580 s | 0,0491 s | **0,0000 s** | — |
+| blinky (SysTick + WFI) | 0,0608 s | 0,0530 s | **0,0047 s** | **12,9×** |
+| CoreMark | 0,1362 s | 0,1247 s | **0,1052 s** | 1,29× |
+| Suite completa | 18,20 s | — | **17,20 s** | 5,5 % |
+
+**La prueba de que no se ha cambiado nada más:** en blinky las transacciones que
+cruzan la matriz son **13 713 en las dos versiones, exactamente las mismas**.
+Mismas instrucciones, mismo tráfico de bus; lo único que desaparece es la espera
+desperdiciada. El tiempo simulado total de la suite cambia en 20 ns sobre 2,33 s,
+que es el redondeo de la latencia de despertar al pasar de 1 µs de granularidad
+a inmediata.
+
+**Suite: 1811/1811, 0 fallos.** Es la red de seguridad que importaba aquí,
+porque incluye las pruebas de bajo consumo (WFI/WFE, Stop, Standby, despertar por
+EXTI, por temporizador y por el depurador), que son justo las que se romperían si
+me hubiera dejado una fuente de despertar fuera.
+
+La suite mejora poco —5,5 %— y tiene sentido: está dominada por trabajo activo,
+no por esperas. Es el perfil en el que menos se nota. Y lo que queda, `ClockGen`
+con las ondas cuadradas encendidas, **no es un error**: ahí el sondeo *es* el
+modelo, porque un reloj es una onda; para eso está el interruptor
+`set_internal_waveforms(false)`.
