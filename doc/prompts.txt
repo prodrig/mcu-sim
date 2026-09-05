@@ -1,0 +1,114 @@
+Actúa como diseñador hardware senior con gran experiencia en el diseño y modelado de MCUs usando SystemC para construir un modelo del MCU stm32f407vg usando SystemC v2.3.
+El fichero doc/informe_revisado.md es el informe técnico completo para el diseño de bajo nivel en SystemC de un MCU stm32f407vg, y doc/informe_instrucciones.md contiene la codificación a bajo nivel de todas las instrucciones soportadas por la CPU.
+
+Como información general:
+- El código se genera en la carpeta src.
+- Los pines del modelo de MCU deben trabajar como en el sistema real: es posible que los pines queden en alta impedancia debido al circuito externo del MCU, que el voltaje en el pin no esté en  el rango adecuado, que un pin sea configurado como entrada o salida, con salida en colector abierto o push-pull, etc. Para ello el circuito diseñado debe modelar voltajes y corrientes en los pines del MCU usando float. Una vez la información entra en la parte digital de un periférico o puerto GPIO puede simplificarse a 0 o 1.
+- Las señales de reloj, tanto externas como internas, pueden modelarse directamente en digital; en el caso de osciladores se asume que generan una señal digital cuadrada.
+
+El diseño se hará por fases, la estrategia y plan de diseño está en el fichero doc/stm32f407_diseño.md; todas las decisiones que aparecen en este informe y que requieren aprobación han sido aprobadas.
+
+La fase F0 ya está completada; el fichero doc/stm32f407vg_fase0.md contiene el informe de implementación de dicha fase.
+
+La fase F1 ya está completada; el fichero doc/stm32f407vg_fase1.md contiene el informe de implementación de dicha fase.
+
+La fase F2 ya está completada; el fichero doc/stm32f407vg_fase2.md contiene el informe de implementación de dicha fase.
+
+La fase F3 ya está completada; el fichero doc/stm32f407vg_fase3.md contiene el informe de implementación de dicha fase.
+
+Completa ahora la fase F4, pero solamente lo referente al DMA. Documenta el trabajo en el fichero doc/stm32f407vg_fase4_dma.md. 
+
+Completa ahora la fase F4, pero solamente lo referente a UARTs y USARTs. 
+Realiza un diseño flexible de forma que, mediante parámetros de clases template C++ o parámetros del constructor de la clase, se pueda seleccionar el funcionamiento como UART o USART.
+Documenta el trabajo en el fichero doc/stm32f407vg_fase4_uart.md, especialmente cómo seleccionar el funcionamiento UART/USART.
+
+
+Completa ahora la fase F4, pero solamente lo referente a los temporizadores TIM (todos). Realiza un diseño flexible de forma que, mediante parámetros de clases template C++ o parámetros del constructor de la clase, se pueda seleccionar el tipo de temporizador, número de bits, número de canales, etc.
+Documenta el trabajo en el fichero doc/stm32f407vg_fase4_tim.md, especialmente cómo seleccionar el funcionamiento de cada tipo de temporizador TIM.
+
+
+Completa ahora la fase F4, pero solamente lo referente al EXTI/SYSCFG. Documenta el trabajo en el fichero doc/stm32f407vg_fase4_exti_syscfg.md.
+
+
+Completa ahora la fase F5, pero solamente lo referente a los periféricos SPI/I2S (todos). Analiza las similitudes y diferencias de los diferentes canales SPI/I2S. En caso de existir diferencias, realiza un diseño flexible de forma que, mediante parámetros de clases template C++ o parámetros del constructor de la clase, se pueda seleccionar el tipo de SPI.
+Aprovecha para terminar el modo síncrono que quedó pendiente del modelado de las UART/USARTs; esto está descrito en doc/stm32f407vg_fase4_uart.md, sección 8 "Trabajo pendiente".
+Documenta el trabajo en el fichero doc/stm32f407vg_fase5_spi.md.
+
+---
+Del bloque queda pendiente lo menor: formato de trama TI, PCM, las combinaciones de 24/32 bits de audio y las celdas de DMA de los I2SxEXT, que [IR] no recoge. 
+---
+
+Completa ahora la fase F5, pero solamente lo referente a los periféricos I2C. 
+Analiza las similitudes y diferencias de los diferentes canales I2C. En caso de existir diferencias, realiza un diseño flexible de forma que, mediante parámetros de clases template C++ o parámetros del constructor de la clase, se pueda seleccionar el tipo de I2C.
+Documenta el trabajo en el fichero doc/stm32f407vg_fase5_i2c.md.
+
+
+Completa ahora la fase F5, pero solamente lo referente al ADC. 
+Analiza las similitudes y diferencias de los diferentes ADC del MCU. 
+Realiza un diseño flexible de forma que, mediante parámetros de clases template C++ o parámetros del constructor de la clase, se pueda seleccionar, por ejemplo, el número de bits, número de canales, etc.
+Documenta el trabajo en el fichero doc/stm32f407vg_fase5_adc.md.
+
+Completa ahora la fase F5, pero solamente lo referente al DAC. 
+Analiza las similitudes y diferencias de los diferentes DAC. 
+Realiza un diseño flexible de forma que, mediante parámetros de clases template C++ o parámetros del constructor de la clase, se pueda seleccionar, por ejemplo, el número de bits, número de canales, etc.
+Documenta el trabajo en el fichero doc/stm32f407vg_fase5_dac.md.
+
+
+Completa ahora la fase F5, pero solamente lo referente al RTC y watchdogs. Documenta el trabajo en el fichero doc/stm32f407vg_fase5_rtc_wdog.md.
+
+Completa ahora la fase F5, pero solamente lo referente al SDIO. 
+Analiza las similitudes y diferencias de los diferentes canales SDIO. En caso de existir diferencias, realiza un diseño flexible de forma que, mediante parámetros de clases template C++ o parámetros del constructor de la clase, se pueda seleccionar el tipo de SDIO.
+Documenta el trabajo en el fichero doc/stm32f407vg_fase5_sdio.md.
+
+
+Completa ahora la fase F5, pero solamente lo referente al CRC y RNG. 
+Documenta el trabajo en el fichero doc/stm32f407vg_fase5_crc_rng.md.
+
+Completa ahora la fase F5, pero solamente lo referente a bxCAN. 
+Analiza las similitudes y diferencias de los diferentes canales CAN. En caso de existir diferencias, realiza un diseño flexible de forma que, mediante parámetros de clases template C++ o parámetros del constructor de la clase, se pueda seleccionar el tipo de CAN.
+Documenta el trabajo en el fichero doc/stm32f407vg_fase5_can.md.
+
+
+
+
+Completa ahora la fase F6 de debug completamente (DAP/FPB/DWT/ITM, DBGMCU, trazas, etc.) hasta conectar con los pines de depuración del MCU. 
+Documenta el trabajo en el fichero doc/stm32f407vg_fase6_debug.md.
+
+
+Añade un elemento GDB-stub al namespace stm32 que conecte por un lado a los pines de depuración del MCU y por otro a un puerto TCP 3333 usando el protocolo GDB/RSP para permitir la conexión directa desde un programa como Eclipse CDT o STM32CubeIDE al modelo de simulación para la descarga y depuración de firmware. Ten en cuenta las peculiaridades de las capacidades de depuración de ARM sobre JTAG/SWD detalladas en https://support.arm.com/documentation/101636/0100/Debug-and-Trace/JTAG-SWD-Interface.
+Documenta el trabajo en el fichero doc/stm32f407vg_fase6_gdb.md.
+
+Añade un segundo elemento GDB-stub al namespace stm32 que reserve, aunque no use, los pines de depuración (incluído SWO) y se conecte directamente con el DAP para la descarga y depuración de firmware. Utiliza un parámtetro de template o un parámetro de constructor del core del MCU para elegir entre exponer los pines de depuración y, externamente al core, conectar el primer GDB-stub a dichos pines, o reservar los pines de depuración e, internamente al core, crear el segundo stub.
+Lo que se busca con este segundo stub es que la depuración sea más rápida cuando se ejecuta el modelo de simulación.
+Documenta el trabajo en el fichero doc/stm32f407vg_fase6_gdb2.md, especialmente cómo elegir entre ambos GDB-stubs.
+
+
+
+
+
+
+
+
+
+Completa ahora la fase F7, pero solamente lo referente a bajo consumo. 
+Documenta el trabajo en el fichero doc/stm32f407vg_fase7_lowpower.md.
+
+Completa ahora la fase F7, pero solamente lo referente a DCMI. 
+Analiza las similitudes y diferencias de los diferentes canales DCMI. En caso de existir diferencias, realiza un diseño flexible de forma que, mediante parámetros de clases template C++ o parámetros del constructor de la clase, se pueda seleccionar el tipo de DCMI.
+Documenta el trabajo en el fichero doc/stm32f407vg_fase7_dcmi.md.
+
+Completa ahora la fase F7, pero solamente lo referente a FSMC. 
+Analiza las similitudes y diferencias de los diferentes canales FSMC. En caso de existir diferencias, realiza un diseño flexible de forma que, mediante parámetros de clases template C++ o parámetros del constructor de la clase, se pueda seleccionar el tipo de FSMC.
+Documenta el trabajo en el fichero doc/stm32f407vg_fase7_fsmc.md.
+
+Completa ahora la fase F7, pero solamente lo referente a OTG.
+Analiza las similitudes y diferencias de los diferentes canales OTG. En caso de existir diferencias, realiza un diseño flexible de forma que, mediante parámetros de clases template C++ o parámetros del constructor de la clase, se pueda seleccionar el tipo de OTG.
+Documenta el trabajo en el fichero doc/stm32f407vg_fase7_otg.md.
+
+Completa ahora la fase F7, pero solamente lo referente a ETH. 
+Analiza las similitudes y diferencias de los diferentes canales ETH. En caso de existir diferencias, realiza un diseño flexible de forma que, mediante parámetros de clases template C++ o parámetros del constructor de la clase, se pueda seleccionar el tipo de ETH.
+Documenta el trabajo en el fichero doc/stm32f407vg_fase7_eth.md.
+
+Revisa todas las fases de diseño y determina qué partes han ido quedando pendientes revisando los informes de los ficheros MD en la subcarpeta doc. 
+Documenta todo lo que queda pendiente de todas las fases en el fichero doc/stm32f407vg_todo_rev1.md
+

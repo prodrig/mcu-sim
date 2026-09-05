@@ -368,3 +368,65 @@ Dos decisiones de criterio que conviene que veas, por si prefieres otra cosa:
 De aquí en adelante añado cada intercambio al final del fichero, y lo dejo dicho también en la cabecera para que la convención no dependa de que yo me acuerde.
 
 Una cosa que no puedo garantizar sola: **si esta sesión vuelve a compactarse, el tramo perdido tendrá el mismo problema**. El registro JSONL sigue creciendo en el disco del contenedor, así que mientras la sesión viva se puede volver a extraer; pero el contenedor es efímero. Si te importa que el diario quede completo, lo prudente es que lo commitee al terminar cada turno —que es lo que voy a hacer— y no dejarlo para el final.
+
+
+## 2026-09-05 (turno actual) UTC
+
+**Mensaje:**
+
+> Evalúa el ahorro en tiempo de simulación entre dos escenarios: A) el MCU
+> incluye el modelado de OTG y ETH pero el programa del MCU no usa estos
+> periféricos, y B) El MCU no incluye el modelado de OTG y ETH, sólo bloques
+> dummy con los registros pero sin funcionalidad
+
+**Respuesta:**
+
+Lo he medido en vez de estimarlo, y el resultado cambia la pregunta: **la
+elección entre A y B es falsa**. Casi todo el coste de A no viene de modelar los
+periféricos, sino de **dos bucles de sondeo**. Corregidos —escenario C—, el
+modelo completo cuesta **exactamente lo mismo que el dummy** y sigue estando
+entero. Está en `doc/stm32f407vg_coste_simulacion.md` y el banco de medida, en
+`src/top/bench_main.cpp` (`make bench`).
+
+**El coste puro, con NRST abajo para que no haya nada más en la simulación**
+(2 s simulados): A → 112 033 deltas y 0,0154 s de anfitrión; B → 29 deltas;
+**C → 29 deltas**. No es que C se parezca a B: es el mismo número.
+
+Esos 112 000 despertares son tres bucles, y uno se lleva el 89 %:
+`EthBase::tx_proc` miraba **cada 20 µs** si el DMA de transmisión tenía algo que
+enviar; con `DMAOMR.ST` a cero la respuesta era que no, cincuenta mil veces por
+segundo simulado. El `motor_proc` del OTG_HS despertaba cada microtrama —125 µs,
+ocho mil veces por segundo— **por estar apagado**.
+
+**Con el MCU funcionando** (200 ms simulados, 15 repeticiones, mediana):
+
+| Carga | A | B | C | A→B | A→C |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| MCU aparcado | 0,0689 s | 0,0638 s | 0,0609 s | 7,4 % | 11,6 % |
+| blinky | 0,0731 s | 0,0688 s | 0,0653 s | 5,9 % | 10,7 % |
+| CoreMark | 0,1614 s | 0,1575 s | 0,1537 s | 2,4 % | 4,8 % |
+| Suite completa | 20,81 s | — | 20,65 s | — | 0,5 % |
+
+**El sobrecoste es una tasa fija por segundo simulado, no un porcentaje**: unos
+56 000 despertares, entre 8 y 25 ms de anfitrión por segundo simulado. Lo que
+cambia con la carga es el denominador, y por eso citar un porcentaje suelto
+engaña. Cuanto más trabajo real hace la simulación, menos se nota: en la suite
+completa es el 0,5 %.
+
+Y tres cosas que **no** cuestan, porque la intuición suele ir al revés: la
+**elaboración es indistinguible** (0,0337 s en las tres variantes: construir los
+dos periféricos no se nota), la **memoria** tampoco (16,9 frente a 17,0 MiB), y
+el **decodificador de bus no cambia**, porque el dummy sigue ocupando su entrada
+en la tabla de esclavos. Un periférico modelado pero quieto no cuesta casi nada
+por existir; solo cuesta por despertarse.
+
+He aplicado C al árbol —dos condiciones más las notificaciones que despiertan al
+hilo cuando el bloque vuelve a la vida— y **la suite sigue en 1811/1811, 0
+fallos**. Si prefieres el modelo tal como estaba, se revierte con quitar esas
+dos condiciones.
+
+La regla que deja esto: en un modelo de eventos discretos **el coste de un
+bloque es proporcional a cuántas veces despierta, no a lo complicado que sea**.
+Con ese criterio queda un sospechoso mucho mayor que OTG y ETH juntos: el bucle
+de sueño del núcleo en `core/cpu.h` **sondea cada 1 µs** mientras la CPU está
+dormida — un millón de despertares por segundo simulado, veinte veces más.

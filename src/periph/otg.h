@@ -558,13 +558,19 @@ protected:
     // El motor
     // =======================================================================
     void motor_proc();
-    void rst_proc() { if (!rst_n.read()) { reset_regs(); actualiza_pines(); publica(); } }
+    void rst_proc() {
+        motor_ev_.notify(sc_core::SC_ZERO_TIME);
+        if (!rst_n.read()) { reset_regs(); actualiza_pines(); publica(); }
+    }
     void pub_proc() {
         irq_global.write(o_irq_); wkup_line.write(o_wkup_); irq_wkup.write(false);
         irq_ep1_out.write(o_ep1o_); irq_ep1_in.write(o_ep1i_);
     }
     void publica() { pub_ev_.notify(sc_core::SC_ZERO_TIME); }
-    void phy_proc() { actualiza_pines(); }
+    void phy_proc() {
+        actualiza_pines();
+        motor_ev_.notify(sc_core::SC_ZERO_TIME);   // por si el motor dormia
+    }
     // UN SOLO PROCESO PARA LOS PINES. Los nodos analogicos se enlazan despues
     // de construir el modulo, cuando ya no se puede ampliar la lista estatica
     // de sensibilidad; asi que la lista se arma aqui, en tiempo de ejecucion.
@@ -1179,7 +1185,9 @@ inline void OtgBase::reg_write(uint32_t off, uint32_t v, uint32_t /*be*/) {
         case R_GRXFSIZ: grxfsiz_ = v & 0xFFFFu; reparte_fifos(); return;
         case R_DIEPTXF0: dieptxf0_ = v; reparte_fifos(); return;
         case R_GCCFG:   gccfg_ = v & mask_gccfg(); vbus_proc();
-                        actualiza_pines(); return;
+                        actualiza_pines();
+                        motor_ev_.notify(sc_core::SC_ZERO_TIME);
+                        return;
         case R_HPTXFSIZ: if (caps.host) hptxfsiz_ = v; return;
         case R_HCFG:    if (caps.host) hcfg_ = v & 0x7u; return;
         case R_HFIR:    if (caps.host) hfir_ = v & 0xFFFFu; return;
@@ -1487,6 +1495,14 @@ inline void OtgBase::motor_proc() {
     // Periodo de trama: 1 ms en Full Speed, 125 us en High Speed. Es el latido
     // del bus y de él cuelgan las transferencias periódicas.
     for (;;) {
+        // Mismo criterio que en el Ethernet: con el transceptor apagado no hay
+        // tramas que contar ni canales que atender, asi que el motor espera a
+        // un evento en vez de despertarse cada milisegundo -o cada 125 us en
+        // alta velocidad- para no hacer nada.
+        if (!rst_n.read() || !clock_enabled() || !phy_encendido()) {
+            sc_core::wait(motor_ev_);
+            continue;
+        }
         const sc_core::sc_time paso =
             (caps.hs && caps.ulpi && vel_ == 0)
                 ? sc_core::sc_time(125, sc_core::SC_US)

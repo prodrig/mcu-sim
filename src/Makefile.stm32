@@ -27,9 +27,21 @@ TARGET := build/stm32f407vg
 
 all: $(TARGET)
 
+.PHONY: all test smoke bench run clean
+
 $(TARGET): top/sc_main.cpp $(HDRS)
 	@mkdir -p build
 	$(CXX) $(CXXFLAGS) -o $@ top/sc_main.cpp $(LDFLAGS) $(LDLIBS)
+
+# Banco de MEDIDA del coste de simulación (no verifica: mide)
+#   make bench && ./build/bench [imagen.bin] [ms_simulados] [reset]
+BENCH := build/bench
+
+$(BENCH): top/bench_main.cpp $(HDRS)
+	@mkdir -p build
+	$(CXX) $(CXXFLAGS) -o $@ top/bench_main.cpp $(LDFLAGS) $(LDLIBS)
+
+bench: $(BENCH)
 
 # Suite de verificación de la fase F1 (autocomprobable: código de salida 0/1)
 test: $(TARGET)

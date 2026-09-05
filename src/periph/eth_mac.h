@@ -191,7 +191,11 @@ public:
         SC_THREAD(rx_proc);
         SC_METHOD(rst_proc); sensitive << rst_n;   dont_initialize();
         SC_METHOD(pub_proc); sensitive << pub_ev_; dont_initialize();
+        // Si el hilo de transmision se ha dormido a la espera de un evento, hay
+        // que despertarlo cuando el bloque recibe reloj o sale de reset.
+        SC_METHOD(wake_proc); sensitive << rst_n << clk_en; dont_initialize();
     }
+    void wake_proc() { tx_ev_.notify(sc_core::SC_ZERO_TIME); }
     void before_end_of_elaboration() override {
         if (dma_m.size() == 0) {
             dma_nc_ = new tlm_utils::simple_target_socket<EthBase>("dma_nc");
@@ -1078,6 +1082,12 @@ inline void EthBase::tx_proc() {
     tx_en_out.write(false);
     for (unsigned i = 0; i < 4; ++i) txd_out[i].write(false);
     for (;;) {
+        // UN PERIFERICO APAGADO NO DEBE COSTAR TIEMPO DE SIMULACION. Mientras
+        // el DMA de transmision este parado no hay nada que sondear: se espera
+        // al EVENTO, no al reloj. Sondear cada 20 us cuando nadie ha encendido
+        // el MAC son cincuenta mil despertares por segundo simulado a cambio
+        // de nada [vease doc/stm32f407vg_coste_simulacion.md].
+        if (!mac_activo() || !(dmaomr_ & OMR_ST)) { sc_core::wait(tx_ev_); continue; }
         sc_core::wait(sc_core::sc_time(20, sc_core::SC_US), tx_ev_);
         if (!mac_activo()) continue;
         if (!(dmaomr_ & OMR_ST)) continue;          // el DMA de TX esta parado
