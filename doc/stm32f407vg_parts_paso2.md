@@ -10,7 +10,7 @@ completo está en `doc/stm32f407vg_chat.md`; el paso anterior, en
 
 El paso 1 hizo que cada pieza supiera decir por dónde está soldada: terminales
 con nombre y un inventario volcable. Eso permite **mirar el modelo ya construido
-y describirlo** — es lo que hace `--netlist`.
+y describirlo** — es lo que hace hoy `--inventario`.
 
 Este paso hace lo contrario, que es lo que de verdad hacía falta: **describir
 primero y construir después**.
@@ -30,7 +30,7 @@ paso 3. Aquí cada instancia lleva su propio creador **tipado**, puesto por quie
 la declara. El resultado es que la declaración ya es datos, que es lo que hacía
 falta para que **el formato lo defina el modelo y no la especulación**.
 
-**Suite: 1839/1839, 0 fallos** (1811 anteriores + 28 nuevas).
+**Suite: 1840/1840, 0 fallos** (1811 anteriores + 29 nuevas).
 
 ---
 
@@ -46,8 +46,11 @@ falta para que **el formato lo defina el modelo y no la especulación**.
 * `Netlist` — declara, valida, construye, consulta y vuelca.
 
 **`parts/netlist_parts.h`** — los constructores tipados: `led`, `pulsador`,
-`cristal`, `resistencia`, `driver`, `pista`, `hilo_can`, `transceptor_can`,
-`nodo_can`. Cada uno declara los terminales **y** pone el creador que los usa.
+`cristal`, `resistencia`, `driver`, `pista`, `reloj_ext`, `hilo_i2c`,
+`eeprom_i2c`, `maestro_i2c`, `analizador_swo`, `tarjeta_sd`, `sensor_imagen`,
+`sram_ext`, `nand_ext`, `aparejo_usb_host`, `aparejo_usb_disp`, `phy_eth`,
+`hilo_can`, `transceptor_can` y `nodo_can` — uno por tipo de pieza de la
+librería. Cada uno declara los terminales **y** pone el creador que los usa.
 Están juntos a propósito: si un día alguien añade un terminal y se olvida de
 conectarlo, la comprobación de ida y vuelta lo caza. En el paso 3 se reescribe
 **este** fichero; `netlist.h` no se toca.
@@ -86,13 +89,14 @@ Después:
 
 ```cpp
 nodos.registra_mcu(dut->pinmux, dut->pwr_pads);
-hilo_can(placa_can, "can_bus", "n_can");
-transceptor_can(placa_can, "xcvr1", "PD1",  "PD0",  "can_bus").desconectada();
-transceptor_can(placa_can, "xcvr2", "PB13", "PB12", "can_bus").desconectada();
-nodo_can(placa_can, "nodo_ext", "n_can", "can_bus", 500e3);
-for (const std::string& e : placa_can.valida(nodos)) SC_REPORT_ERROR("netlist", e.c_str());
-placa_can.construye(nodos);
-can_bus = placa_can.como<CanWire>("can_bus");   // ...y los otros tres
+hilo_can(placa, "can_bus", "n_can");
+transceptor_can(placa, "xcvr1", "PD1",  "PD0",  "can_bus").desconectada();
+transceptor_can(placa, "xcvr2", "PB13", "PB12", "can_bus").desconectada();
+nodo_can(placa, "nodo_ext", "n_can", "can_bus", 500e3);
+// ...y al final del constructor, una sola vez para toda la placa:
+for (const std::string& e : placa.valida(nodos)) SC_REPORT_ERROR("netlist", e.c_str());
+placa.construye(nodos);
+can_bus = placa.como<CanWire>("can_bus");   // ...y los otros cuarenta y dos
 ```
 
 Las setenta y pico líneas de prueba que usan `can_bus`, `xcvr1`, `xcvr2` y
@@ -169,15 +173,14 @@ un pin con dos funciones alternativas asignadas.
 ## 6. Los dos volcados, y por qué son dos
 
 ```
-./build/stm32f407vg --netlist          # inventario: lo que HAY construido
-Netlist::volcar_xml(os)                # declaración: lo que se PIDIÓ construir
+./build/stm32f407vg --netlist       # declaración: lo que se PIDIÓ construir
+./build/stm32f407vg --inventario    # inventario: lo que HAY construido
 ```
 
 No son redundantes:
 
 * el **inventario** recorre el modelo ya montado. Es la verdad sobre el terreno,
-  cubre las 43 piezas de la placa —también las que todavía se montan a mano— y
-  no puede conocer ni los parámetros ni cuáles de los nodos hubo que crear;
+  y no puede conocer ni los parámetros ni cuáles de los nodos hubo que crear;
 * la **declaración** es lo que un día leerá el paso 3. Lleva parámetros,
   referencias y la marca `externo="si"` de los nodos que no son pines.
 
@@ -220,10 +223,6 @@ descubrir que hacían falta referencias entre instancias, que los nodos externos
 hay que declararlos y que el orden de declaración es semántico. Ninguna de las
 tres se habría visto especulando.
 
-**Solo un grupo está migrado.** Los otros 39 componentes se siguen montando a
-mano y aparecen en el inventario pero no en ninguna declaración. Es lo previsto:
-migrarlos todos antes de tener lector no aporta nada y arriesga mucho.
-
 **La validación es de la declaración, no eléctrica.** Ver §5.
 
 **El `NodeMap` conoce un solo encapsulado.** `registra_mcu` marca lo que sale en
@@ -232,7 +231,71 @@ la estructura ya lo admite.
 
 ---
 
-## 8. Siguiente
+## 8. Cierre: la placa entera
+
+El grupo del CAN fue el banco de pruebas del formato. Con el formato ya
+establecido —y las tres lecciones de §4 incorporadas—, migrar el resto era
+mecánico, y se hizo antes de pasar al paso 3: **no quedan `new` de piezas
+externas en `sc_main.cpp`**. Las 43 piezas de 20 tipos se declaran y las
+construye el netlist.
+
+Doce tipos más necesitaron ayudante: `ExtClock`, `I2cWire`, `I2cEeprom`,
+`I2cExtMaster`, `SdCard`, `SwoReceiver`, `CameraSensor`, `ExtSram`, `ExtNand`,
+`UsbHostRig`, `UsbDeviceRig` y `EthPhy`.
+
+**Las piezas de muchas patillas se declaran con lista de pares.** Un
+constructor de doce argumentos posicionales es exactamente lo que el netlist
+viene a eliminar, así que el sitio de la llamada ya tiene la forma del XML:
+
+```cpp
+phy_eth(placa, "phy", {
+    {"mdc","PC1"},   {"mdio","PA2"},
+    {"tx_clk","PC3"},{"rx_clk","PA1"},
+    {"tx_en","PB11"},
+    {"txd0","PB12"}, {"txd1","PB13"}, {"txd2","PC2"}, {"txd3","PB8"},
+    {"rxd0","PC4"},  {"rxd1","PC5"},  {"rxd2","PB0"}, {"rxd3","PB1"},
+    {"rx_dv","PA7"}, {"rx_er","PB10"},
+    {"crs","PA0"},   {"col","PA3"} }).desconectada();
+```
+
+Compárese con lo que sustituye: dos `std::vector` construidos a mano y una
+llamada de doce argumentos donde el orden era todo.
+
+### Lo que apareció al cerrar
+
+**Una fuga de memoria de la fase F5.** `can_bus`, `xcvr1`, `xcvr2` y `nodo_ext`
+nunca se destruían. No es que se olvidaran: es que mantener a mano una lista de
+veintitantos `delete` en el orden correcto es justo lo que un netlist hace por
+ti. El destructor pasa de veintidós `delete` a diez, y los diez que quedan son
+periféricos del MCU, no piezas de placa.
+
+**Un uso después de liberar, evitado por poco.** El destructor de un miembro
+corre *después* del cuerpo del destructor que lo contiene. Con el netlist como
+miembro de `F1Tb`, sus piezas se habrían destruido después de `delete dut` —y
+cada pieza suelta sus pines al morir, sobre unos `AnalogNet` ya liberados. De
+ahí `Netlist::libera()`, que se llama al principio del destructor. Es un fallo
+que el orden manual no tenía porque nunca hubo un miembro que poseyera piezas.
+
+**Las resistencias siguen siendo objetos locales, y está bien.** Los cinco
+`Resistor` de `sc_main.cpp` se crean dentro de funciones de prueba, durante la
+simulación: son sondas temporales —una carga de 1 kΩ, un cortocircuito de
+0,5 Ω— y no piezas de la placa. El inventario las ve aparecer y desaparecer,
+que es exactamente lo que deben hacer.
+
+### Los dos volcados, ahora completos
+
+```
+./build/stm32f407vg --netlist       # la placa DECLARADA (43 componentes)
+./build/stm32f407vg --inventario    # la placa CONSTRUIDA (43 componentes)
+```
+
+Los dos dan 43 componentes, y T121 comprueba en las dos direcciones que dicen lo
+mismo: 147 conexiones declaradas que existen en las piezas, y ningún terminal de
+las piezas fuera del netlist. El paso 3 ya tiene qué leer.
+
+---
+
+## 9. Siguiente
 
 El paso 3: factoría con auto-registro por tipo, lector de XML (TinyXML-2 o
 expat, sin dependencias pesadas), validación eléctrica y un ejecutable que

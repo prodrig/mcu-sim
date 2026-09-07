@@ -269,7 +269,7 @@ SC_MODULE(F1Tb) {
     // Los punteros siguen ahí y apuntan a lo mismo: las setenta y pico líneas
     // de prueba que los usan no se han tocado.
     NodeMap          nodos;
-    Netlist          placa_can;
+    Netlist          placa;
     CanWire*         can_bus  = nullptr;
     CanTransceiver*  xcvr1    = nullptr;
     CanTransceiver*  xcvr2    = nullptr;
@@ -357,21 +357,21 @@ SC_MODULE(F1Tb) {
                               dbg_caps.puerto = g_gdb_puerto; }
         dut = new Stm32F407VG("dut", dbg_caps);
         tm.isk.bind(dut->matrix.from_tb);          // puerto de verificación
-        xtal_hse = new Crystal(dut->pinmux.analog(7, 0));    // PH0-OSC_IN
-        xtal_lse = new Crystal(dut->pinmux.analog(2, 14));   // PC14-OSC32_IN
-        led_pd12 = new Led("led_pd12", dut->pinmux.analog(3, 12), true);
-        btn_pa0  = new Button(dut->pinmux.analog(0, 0));
-        osc_ext  = new ExtClock("osc_ext", dut->pinmux.analog(7, 0), 0.0);
+        // Los nodos de la placa: los 144 pads con su nombre de esquematico y
+        // los diez de alimentacion y arranque. Tiene que ir antes que nada,
+        // porque todo lo que se declara debajo se cuelga de ellos.
+        nodos.registra_mcu(dut->pinmux, dut->pwr_pads);
+        cristal(placa, "xtal_hse", "PH0");     // PH0-OSC_IN
+        cristal(placa, "xtal_lse", "PC14");    // PC14-OSC32_IN
+        led(placa, "led_pd12", "PD12");
+        pulsador(placa, "btn_pa0", "PA0");
+        reloj_ext(placa, "osc_ext", "PH0", 0.0);
         // PA2 (USART2_TX) -> PB11 (USART3_RX) y PB10 (USART3_TX) -> PA3 (USART2_RX)
-        lnk_u2_u3 = new SignalLink("lnk_u2_u3", dut->pinmux.analog(0, 2),
-                                                dut->pinmux.analog(1, 11));
-        lnk_u3_u2 = new SignalLink("lnk_u3_u2", dut->pinmux.analog(1, 10),
-                                                dut->pinmux.analog(0, 3));
+        pista(placa, "lnk_u2_u3", "PA2",  "PB11");
+        pista(placa, "lnk_u3_u2", "PB10", "PA3");
         // PA0 (UART4_TX) -> PD2 (UART5_RX) y PC12 (UART5_TX) -> PA1 (UART4_RX)
-        lnk_u4_u5 = new SignalLink("lnk_u4_u5", dut->pinmux.analog(0, 0),
-                                                dut->pinmux.analog(3, 2));
-        lnk_u5_u4 = new SignalLink("lnk_u5_u4", dut->pinmux.analog(2, 12),
-                                                dut->pinmux.analog(0, 1));
+        pista(placa, "lnk_u4_u5", "PA0",  "PD2");
+        pista(placa, "lnk_u5_u4", "PC12", "PA1");
         // Variante mixta elegida en tiempo de ejecución (véase T32)
         u_rt = new UsartBase("u_rt", 0x40004400u,
                              UsartCaps{/*synchronous*/false, /*flow_control*/true,
@@ -383,24 +383,22 @@ SC_MODULE(F1Tb) {
         u_rt->irq(s_rt_irq); u_rt->dma_req_rx(s_rt_drx); u_rt->dma_req_tx(s_rt_dtx);
 
         // --- Circuitería de las pruebas de temporizadores -------------------
-        lnk_pwm = new SignalLink("lnk_pwm", dut->pinmux.analog(3, 12),   // PD12
-                                            dut->pinmux.analog(1, 4));   // PB4
-        lnk_pwm->set_enabled(false);
-        drv_pb4 = new Driver(dut->pinmux.analog(1, 4));
-        drv_pb5 = new Driver(dut->pinmux.analog(1, 5));
-        drv_pa6 = new Driver(dut->pinmux.analog(0, 6));
+        pista(placa, "lnk_pwm", "PD12", "PB4").desconectada();
+        driver(placa, "drv_pb4", "PB4");
+        driver(placa, "drv_pb5", "PB5");
+        driver(placa, "drv_pa6", "PA6");
         // --- Fuentes analógicas de las pruebas del ADC ---------------------
-        src_pa0 = new Driver(dut->pinmux.analog(0, 0));   // ADC123_IN0
-        src_pa1 = new Driver(dut->pinmux.analog(0, 1));   // ADC123_IN1
-        src_pa2 = new Driver(dut->pinmux.analog(0, 2));   // ADC123_IN2
-        src_pa4 = new Driver(dut->pinmux.analog(0, 4));   // ADC12_IN4 (NO ADC3)
-        src_pc0 = new Driver(dut->pinmux.analog(2, 0));   // ADC123_IN10
-        src_pc1 = new Driver(dut->pinmux.analog(2, 1));   // ADC123_IN11
+        driver(placa, "src_pa0", "PA0");   // ADC123_IN0
+        driver(placa, "src_pa1", "PA1");   // ADC123_IN1
+        driver(placa, "src_pa2", "PA2");   // ADC123_IN2
+        driver(placa, "src_pa4", "PA4");   // ADC12_IN4 (NO ADC3)
+        driver(placa, "src_pc0", "PC0");   // ADC123_IN10
+        driver(placa, "src_pc1", "PC1");   // ADC123_IN11
         // --- La sonda de depuracion (AF0, activo desde el reset) ----------
         sonda  = new SwdProbe(dut->pinmux.analog(0, 14),   // PA14 SWCLK
                               dut->pinmux.analog(0, 13),   // PA13 SWDIO
                               2e6);
-        swo_rx = new SwoReceiver("swo_rx", dut->pinmux.analog(1, 3), 1e6);  // PB3
+        analizador_swo(placa, "swo_rx", "PB3", 1e6);
         // En modo --gdb-dap manda el stub que ha creado el nucleo: este se
         // construye con puerto 0, es decir, sin escuchar.
         gdb = new GdbStub("gdb", dut->pinmux.analog(0, 14),   // PA14 SWCLK
@@ -433,56 +431,34 @@ SC_MODULE(F1Tb) {
         // dirección que este encapsulado tiene y a las cuatro señales de
         // control. La NAND comparte los ocho hilos bajos y usa A16/A17 como
         // CLE y ALE, que es como el FSMC le habla.
-        {
-            std::vector<analog_net_if*> dn, an;
-            static const unsigned dp[16][2] = {
-                {3,14},{3,15},{3,0},{3,1},{4,7},{4,8},{4,9},{4,10},
-                {4,11},{4,12},{4,13},{4,14},{4,15},{3,8},{3,9},{3,10} };
-            static const unsigned ap[8][2] = {
-                {3,11},{3,12},{3,13},{4,3},{4,4},{4,5},{4,6},{4,2} };
-            for (auto& q : dp) dn.push_back(&dut->pinmux.analog(q[0], q[1]));
-            for (auto& q : ap) an.push_back(&dut->pinmux.analog(q[0], q[1]));
-            xram = new ExtSram("xram", dn, an,
-                               dut->pinmux.analog(3, 7),    // PD7 NE1
-                               dut->pinmux.analog(3, 4),    // PD4 NOE
-                               dut->pinmux.analog(3, 5),    // PD5 NWE
-                               dut->pinmux.analog(1, 7),    // PB7 NL
-                               &dut->pinmux.analog(4, 0),   // PE0 NBL0
-                               &dut->pinmux.analog(4, 1),   // PE1 NBL1
-                               &dut->pinmux.analog(3, 6));  // PD6 NWAIT
-            std::vector<analog_net_if*> dn8(dn.begin(), dn.begin() + 8);
-            xnand = new ExtNand("xnand", dn8,
-                                dut->pinmux.analog(3, 11),  // PD11 A16 = CLE
-                                dut->pinmux.analog(3, 12),  // PD12 A17 = ALE
-                                dut->pinmux.analog(3, 7),   // PD7  NCE2
-                                dut->pinmux.analog(3, 4),   // PD4  NOE
-                                dut->pinmux.analog(3, 5),   // PD5  NWE
-                                &dut->pinmux.analog(3, 6)); // PD6  R/B
-        }
+        sram_ext(placa, "xram", {
+            {"d0","PD14"},{"d1","PD15"},{"d2","PD0"}, {"d3","PD1"},
+            {"d4","PE7"}, {"d5","PE8"}, {"d6","PE9"}, {"d7","PE10"},
+            {"d8","PE11"},{"d9","PE12"},{"d10","PE13"},{"d11","PE14"},
+            {"d12","PE15"},{"d13","PD8"},{"d14","PD9"},{"d15","PD10"},
+            {"a16","PD11"},{"a17","PD12"},{"a18","PD13"},{"a19","PE3"},
+            {"a20","PE4"}, {"a21","PE5"}, {"a22","PE6"}, {"a23","PE2"},
+            {"ne","PD7"}, {"noe","PD4"}, {"nwe","PD5"}, {"nl","PB7"},
+            {"nbl0","PE0"},{"nbl1","PE1"},{"nwait","PD6"} }).desconectada();
+        // La NAND comparte los ocho hilos bajos de datos y usa A16/A17 como CLE
+        // y ALE, que es como el FSMC le habla. Y su NCE es EL MISMO PIN que el
+        // NE1 de la SRAM: por eso las dos no pueden estar puestas a la vez, y
+        // por eso el netlist tiene que poder decir cual esta soldada.
+        nand_ext(placa, "xnand", {
+            {"d0","PD14"},{"d1","PD15"},{"d2","PD0"},{"d3","PD1"},
+            {"d4","PE7"}, {"d5","PE8"}, {"d6","PE9"},{"d7","PE10"},
+            {"cle","PD11"},{"ale","PD12"},{"nce","PD7"},
+            {"noe","PD4"}, {"nwe","PD5"}, {"rb","PD6"} }).desconectada();
         // --- El PHY de Ethernet (AF11) ------------------------------------
         // Dieciocho pines para MII; de ellos, nueve son los de RMII.
-        {
-            std::vector<analog_net_if*> tx, rx;
-            tx.push_back(&dut->pinmux.analog(1, 12));   // PB12 TXD0
-            tx.push_back(&dut->pinmux.analog(1, 13));   // PB13 TXD1
-            tx.push_back(&dut->pinmux.analog(2,  2));   // PC2  MII_TXD2
-            tx.push_back(&dut->pinmux.analog(1,  8));   // PB8  MII_TXD3
-            rx.push_back(&dut->pinmux.analog(2,  4));   // PC4  RXD0
-            rx.push_back(&dut->pinmux.analog(2,  5));   // PC5  RXD1
-            rx.push_back(&dut->pinmux.analog(1,  0));   // PB0  MII_RXD2
-            rx.push_back(&dut->pinmux.analog(1,  1));   // PB1  MII_RXD3
-            phy = new EthPhy("phy",
-                      dut->pinmux.analog(2, 1),         // PC1  MDC
-                      dut->pinmux.analog(0, 2),         // PA2  MDIO
-                      dut->pinmux.analog(2, 3),         // PC3  MII_TX_CLK
-                      dut->pinmux.analog(0, 1),         // PA1  REF_CLK/RX_CLK
-                      dut->pinmux.analog(1, 11),        // PB11 TX_EN
-                      tx, rx,
-                      dut->pinmux.analog(0, 7),         // PA7  RX_DV / CRS_DV
-                      dut->pinmux.analog(1, 10),        // PB10 MII_RX_ER
-                      dut->pinmux.analog(0, 0),         // PA0  MII_CRS
-                      dut->pinmux.analog(0, 3));        // PA3  MII_COL
-        }
+        phy_eth(placa, "phy", {
+            {"mdc","PC1"},   {"mdio","PA2"},
+            {"tx_clk","PC3"},{"rx_clk","PA1"},          // REF_CLK en RMII
+            {"tx_en","PB11"},
+            {"txd0","PB12"}, {"txd1","PB13"}, {"txd2","PC2"}, {"txd3","PB8"},
+            {"rxd0","PC4"},  {"rxd1","PC5"},  {"rxd2","PB0"}, {"rxd3","PB1"},
+            {"rx_dv","PA7"}, {"rx_er","PB10"},
+            {"crs","PA0"},   {"col","PA3"} }).desconectada();
         // Un MAC con los rasgos puestos en tiempo de EJECUCIÓN: solo RMII, un
         // filtro de direccion, sin PTP, sin MMC y sin hash.
         eth_rt = new EthBase("eth_rt", CAPS_ETH_BASIC);
@@ -494,14 +470,14 @@ SC_MODULE(F1Tb) {
 
         // --- Los dos extremos del cable USB -------------------------------
         // El PC va al OTG_FS: PA11 (DM), PA12 (DP), PA9 (VBUS) y PA10 (ID).
-        hrig = new UsbHostRig("hrig",
-                   dut->pinmux.analog(0, 11), dut->pinmux.analog(0, 12),
-                   dut->pinmux.analog(0, 9),  dut->pinmux.analog(0, 10));
+        aparejo_usb_host(placa, "hrig", {
+            {"dm","PA11"}, {"dp","PA12"}, {"vbus","PA9"}, {"id","PA10"}
+        }).desconectada();
         // El pendrive va al OTG_HS en su modo FS integrado: PB14 (DM),
         // PB15 (DP) y PB13 (VBUS, que en modo anfitrión lo da la placa).
-        drig = new UsbDeviceRig("drig",
-                   dut->pinmux.analog(1, 14), dut->pinmux.analog(1, 15),
-                   dut->pinmux.analog(1, 13));
+        aparejo_usb_disp(placa, "drig", {
+            {"dm","PB14"}, {"dp","PB15"}, {"vbus","PB13"}
+        }).desconectada();
         // Un OTG con los rasgos puestos en tiempo de EJECUCIÓN: solo
         // dispositivo, sin anfitrión, sin OTG y con tres endpoints.
         otg_rt = new OtgBase("otg_rt", 0x50000000u, 0x40000u, CAPS_OTG_DEV);
@@ -525,48 +501,23 @@ SC_MODULE(F1Tb) {
         // Se sueldan los doce hilos que el encapsulado tiene. Los dos que
         // faltan -D12 y D13- no se pasan: no hay pin al que soldarlos, y el
         // DCMI leera lo que haya en unas entradas que nadie conduce.
-        cam = new CameraSensor("cam",
-                  dut->pinmux.analog(0, 6),          // PA6  PIXCLK
-                  dut->pinmux.analog(0, 4),          // PA4  HSYNC
-                  dut->pinmux.analog(1, 7),          // PB7  VSYNC
-                  { &dut->pinmux.analog(2, 6),       // PC6  D0
-                    &dut->pinmux.analog(2, 7),       // PC7  D1
-                    &dut->pinmux.analog(4, 0),       // PE0  D2
-                    &dut->pinmux.analog(4, 1),       // PE1  D3
-                    &dut->pinmux.analog(4, 4),       // PE4  D4
-                    &dut->pinmux.analog(1, 6),       // PB6  D5
-                    &dut->pinmux.analog(4, 5),       // PE5  D6
-                    &dut->pinmux.analog(4, 6),       // PE6  D7
-                    &dut->pinmux.analog(2, 10),      // PC10 D8
-                    &dut->pinmux.analog(2, 12),      // PC12 D9
-                    &dut->pinmux.analog(1, 5),       // PB5  D10
-                    &dut->pinmux.analog(3, 2) });    // PD2  D11
+        sensor_imagen(placa, "cam", {
+            {"pixclk","PA6"}, {"hsync","PA4"}, {"vsync","PB7"},
+            {"d0","PC6"}, {"d1","PC7"}, {"d2","PE0"},  {"d3","PE1"},
+            {"d4","PE4"}, {"d5","PB6"}, {"d6","PE5"},  {"d7","PE6"},
+            {"d8","PC10"},{"d9","PC12"},{"d10","PB5"}, {"d11","PD2"}
+        }).desconectada();
         // --- El bus CAN de la placa (AF9) ---------------------------------
         // CAN1 en PD0/PD1 y CAN2 en PB12/PB13: dos juegos de pines que no
         // chocan con nada de lo que ya usa el banco.
-        // El netlist necesita saber cómo se llaman los nodos antes de que nadie
-        // se cuelgue de ellos: los 144 pads con su nombre de esquemático y los
-        // diez de alimentación y arranque.
-        nodos.registra_mcu(dut->pinmux, dut->pwr_pads);
-        // Y aquí está la placa, declarada. No hay ni un `new`: hay nodos,
-        // instancias y conexiones, que es exactamente lo que llevará el XML.
-        hilo_can(placa_can, "can_bus", "n_can");
+        hilo_can(placa, "can_bus", "n_can");
         // Los dos transceptores nacen DESOLDADOS. No es un capricho: PD0/PD1 y
         // PB12/PB13 los usan otros grupos de prueba, y `can_links(true)` es la
         // decisión de placa que los suelda cuando toca. Es exactamente el caso
         // «está en el XML pero no en el SVG»: se construye, desconectado.
-        transceptor_can(placa_can, "xcvr1", "PD1",  "PD0",  "can_bus").desconectada();
-        transceptor_can(placa_can, "xcvr2", "PB13", "PB12", "can_bus").desconectada();
-        nodo_can(placa_can, "nodo_ext", "n_can", "can_bus", 500e3);
-        // Validar ANTES de construir: nodo inexistente, identificador repetido,
-        // terminal duplicado o pad que este encapsulado no saca. Sin simular.
-        for (const std::string& e : placa_can.valida(nodos))
-            SC_REPORT_ERROR("netlist", e.c_str());
-        placa_can.construye(nodos);
-        can_bus  = placa_can.como<CanWire>("can_bus");
-        xcvr1    = placa_can.como<CanTransceiver>("xcvr1");
-        xcvr2    = placa_can.como<CanTransceiver>("xcvr2");
-        nodo_ext = placa_can.como<CanNode>("nodo_ext");
+        transceptor_can(placa, "xcvr1", "PD1",  "PD0",  "can_bus").desconectada();
+        transceptor_can(placa, "xcvr2", "PB13", "PB12", "can_bus").desconectada();
+        nodo_can(placa, "nodo_ext", "n_can", "can_bus", 500e3);
         // Un bxCAN con los rasgos puestos en tiempo de EJECUCIÓN: un solo
         // buzón, una sola FIFO de dos marcos, sin identificador extendido.
         {
@@ -584,12 +535,9 @@ SC_MODULE(F1Tb) {
         can_rt->irq_tx(s_cn_irq[0]);  can_rt->irq_rx0(s_cn_irq[1]);
         can_rt->irq_rx1(s_cn_irq[2]); can_rt->irq_sce(s_cn_irq[3]);
         // --- La tarjeta SD del zócalo (AF12) ------------------------------
-        card = new SdCard("card", dut->pinmux.analog(2, 12),   // PC12 CK
-                                  dut->pinmux.analog(3, 2),    // PD2  CMD
-                                 &dut->pinmux.analog(2, 8),    // PC8  D0
-                                 &dut->pinmux.analog(2, 9),    // PC9  D1
-                                 &dut->pinmux.analog(2, 10),   // PC10 D2
-                                 &dut->pinmux.analog(2, 11));  // PC11 D3
+        tarjeta_sd(placa, "card", {
+            {"ck","PC12"}, {"cmd","PD2"},
+            {"dat0","PC8"},{"dat1","PC9"},{"dat2","PC10"},{"dat3","PC11"} });
         // Un SDIO con los rasgos puestos en tiempo de EJECUCIÓN: un solo hilo,
         // FIFO de 16 palabras, sin DMA ni funciones de SD I/O.
         sd_rt = new SdioBase("sd_rt", CAPS_SDIO_BASIC);
@@ -624,37 +572,25 @@ SC_MODULE(F1Tb) {
         }
         // --- Pistas de placa de SPI e I2S --------------------------------
         // SPI1 (PA4..PA7) <-> SPI2 (PB12..PB15)
-        lnk_sck  = new SignalLink("lnk_sck",  dut->pinmux.analog(0, 5),
-                                              dut->pinmux.analog(1, 13));
-        lnk_mosi = new SignalLink("lnk_mosi", dut->pinmux.analog(0, 7),
-                                              dut->pinmux.analog(1, 15));
-        lnk_miso = new SignalLink("lnk_miso", dut->pinmux.analog(1, 14),
-                                              dut->pinmux.analog(0, 6));
-        lnk_nss  = new SignalLink("lnk_nss",  dut->pinmux.analog(0, 4),
-                                              dut->pinmux.analog(1, 12));
+        pista(placa, "lnk_sck",  "PA5", "PB13").desconectada();
+        pista(placa, "lnk_mosi", "PA7", "PB15").desconectada();
+        pista(placa, "lnk_miso", "PB14","PA6").desconectada();
+        pista(placa, "lnk_nss",  "PA4", "PB12").desconectada();
         // I2S2 maestro (PB13 CK, PB12 WS, PB15 SD) -> I2S3 esclavo (PC10, PA15,
         // PC12) y -> I2S2ext (PB14 SD): la otra mitad del full-duplex.
-        lnk_ick  = new SignalLink("lnk_ick",  dut->pinmux.analog(1, 13),
-                                              dut->pinmux.analog(2, 10));
-        lnk_iws  = new SignalLink("lnk_iws",  dut->pinmux.analog(1, 12),
-                                              dut->pinmux.analog(0, 15));
-        lnk_isd  = new SignalLink("lnk_isd",  dut->pinmux.analog(1, 15),
-                                              dut->pinmux.analog(2, 12));
-        lnk_iext = new SignalLink("lnk_iext", dut->pinmux.analog(1, 15),
-                                              dut->pinmux.analog(1, 14));
-        for (SignalLink* l : {lnk_sck, lnk_mosi, lnk_miso, lnk_nss,
-                              lnk_ick, lnk_iws, lnk_isd, lnk_iext})
-            l->set_enabled(false);
+        pista(placa, "lnk_ick",  "PB13","PC10").desconectada();
+        pista(placa, "lnk_iws",  "PB12","PA15").desconectada();
+        pista(placa, "lnk_isd",  "PB15","PC12").desconectada();
+        pista(placa, "lnk_iext", "PB15","PB14").desconectada();
         // --- Bus I2C de la placa ------------------------------------------
-        w_scl = new I2cWire("w_scl", {&dut->pinmux.analog(1, 6),      // PB6 I2C1_SCL
-                                      &dut->pinmux.analog(0, 8)});    // PA8 I2C3_SCL
-        w_sda = new I2cWire("w_sda", {&dut->pinmux.analog(1, 7),      // PB7 I2C1_SDA
-                                      &dut->pinmux.analog(2, 9)});    // PC9 I2C3_SDA
-        w_scl->set_enabled(false); w_sda->set_enabled(false);
-        eeprom = new I2cEeprom("eeprom", dut->pinmux.analog(1, 6),
-                                         dut->pinmux.analog(1, 7), 0x50);
-        ext_m  = new I2cExtMaster("ext_m", dut->pinmux.analog(1, 6),
-                                           dut->pinmux.analog(1, 7), 50e3);
+        hilo_i2c(placa, "w_scl", {{"l0","PB6"},   // I2C1_SCL
+                                  {"l1","PA8"}}   // I2C3_SCL
+                ).desconectada();
+        hilo_i2c(placa, "w_sda", {{"l0","PB7"},   // I2C1_SDA
+                                  {"l1","PC9"}}   // I2C3_SDA
+                ).desconectada();
+        eeprom_i2c(placa, "eeprom", "PB6", "PB7", 0x50);
+        maestro_i2c(placa, "ext_m", "PB6", "PB7", 50e3);
         // Variante de I2C que NO existe en el F407: sin SMBus y solo a 100 kHz
         c_rt = new I2cBase("c_rt", 0x40006000u, /*smbus=*/false, /*f_max=*/100e3);
         tm5.isk.bind(c_rt->tsk);
@@ -687,32 +623,90 @@ SC_MODULE(F1Tb) {
         t_rt->dma_up(s_tt_nc[6]);     t_rt->dma_trig(s_tt_nc[7]);
         t_rt->dma_com(s_tt_nc[8]);
         for (unsigned i = 0; i < 4; ++i) t_rt->dma_cc[i](s_tt_nc[9 + i]);
+        // --- LA PLACA: validar, construir y recoger --------------------------
+        // Todo lo anterior era DECLARACION. Aqui se valida sin simular -nodo
+        // inexistente, pad que este encapsulado no saca, identificador
+        // repetido, terminal duplicado, referencia inexistente o hacia
+        // delante- y solo despues se construye. Tiene que ocurrir en la
+        // elaboracion: SystemC no deja crear modulos con la simulacion en
+        // marcha, y por eso una pieza que la placa no lleve se construye
+        // DESCONECTADA en vez de no construirse.
+        for (const std::string& e : placa.valida(nodos))
+            SC_REPORT_ERROR("netlist", e.c_str());
+        placa.construye(nodos);
+        // Los punteros de siempre, ahora recogidos del netlist. Las miles de
+        // lineas de prueba que los usan no se enteran de nada.
+        xtal_hse = placa.como<Crystal>("xtal_hse");
+        xtal_lse = placa.como<Crystal>("xtal_lse");
+        led_pd12 = placa.como<Led>("led_pd12");
+        btn_pa0  = placa.como<Button>("btn_pa0");
+        osc_ext  = placa.como<ExtClock>("osc_ext");
+        lnk_u2_u3 = placa.como<SignalLink>("lnk_u2_u3");
+        lnk_u3_u2 = placa.como<SignalLink>("lnk_u3_u2");
+        lnk_u4_u5 = placa.como<SignalLink>("lnk_u4_u5");
+        lnk_u5_u4 = placa.como<SignalLink>("lnk_u5_u4");
+        lnk_pwm  = placa.como<SignalLink>("lnk_pwm");
+        drv_pb4  = placa.como<Driver>("drv_pb4");
+        drv_pb5  = placa.como<Driver>("drv_pb5");
+        drv_pa6  = placa.como<Driver>("drv_pa6");
+        src_pa0  = placa.como<Driver>("src_pa0");
+        src_pa1  = placa.como<Driver>("src_pa1");
+        src_pa2  = placa.como<Driver>("src_pa2");
+        src_pa4  = placa.como<Driver>("src_pa4");
+        src_pc0  = placa.como<Driver>("src_pc0");
+        src_pc1  = placa.como<Driver>("src_pc1");
+        swo_rx   = placa.como<SwoReceiver>("swo_rx");
+        xram     = placa.como<ExtSram>("xram");
+        xnand    = placa.como<ExtNand>("xnand");
+        phy      = placa.como<EthPhy>("phy");
+        hrig     = placa.como<UsbHostRig>("hrig");
+        drig     = placa.como<UsbDeviceRig>("drig");
+        cam      = placa.como<CameraSensor>("cam");
+        can_bus  = placa.como<CanWire>("can_bus");
+        xcvr1    = placa.como<CanTransceiver>("xcvr1");
+        xcvr2    = placa.como<CanTransceiver>("xcvr2");
+        nodo_ext = placa.como<CanNode>("nodo_ext");
+        card     = placa.como<SdCard>("card");
+        lnk_sck  = placa.como<SignalLink>("lnk_sck");
+        lnk_mosi = placa.como<SignalLink>("lnk_mosi");
+        lnk_miso = placa.como<SignalLink>("lnk_miso");
+        lnk_nss  = placa.como<SignalLink>("lnk_nss");
+        lnk_ick  = placa.como<SignalLink>("lnk_ick");
+        lnk_iws  = placa.como<SignalLink>("lnk_iws");
+        lnk_isd  = placa.como<SignalLink>("lnk_isd");
+        lnk_iext = placa.como<SignalLink>("lnk_iext");
+        w_scl    = placa.como<I2cWire>("w_scl");
+        w_sda    = placa.como<I2cWire>("w_sda");
+        eeprom   = placa.como<I2cEeprom>("eeprom");
+        ext_m    = placa.como<I2cExtMaster>("ext_m");
+
         // La pila por defecto de un SC_THREAD (64 KB) se queda corta con las
         // cadenas de llamadas TLM anidadas al compilar con sanitizers.
         SC_THREAD(stim_proc);        set_stack_size(1024 * 1024);
         SC_THREAD(contention_proc);  set_stack_size(256 * 1024);
     }
     ~F1Tb() {
-        delete c_rt; delete ext_m; delete eeprom;
-        delete w_sda; delete w_scl;
+        // Las 43 piezas externas las destruye el netlist, en orden inverso al
+        // de construccion: un transceptor guarda un puntero a su hilo de bus, y
+        // liberar el hilo antes seria un uso despues de liberar. Aqui solo
+        // quedan los PERIFERICOS de variante en tiempo de ejecucion, que son
+        // del MCU y no de la placa.
+        //
+        // De paso se cierra una fuga que llevaba ahi desde F5: can_bus, xcvr1,
+        // xcvr2 y nodo_ext no se destruian. No es que se olvidaran: es que
+        // mantener a mano una lista de veintitantos `delete` en el orden bueno
+        // es justo lo que un netlist hace por ti.
+        placa.libera();          // las piezas, antes que los nodos a los que van
+        delete c_rt;
         delete s_rt;
-        delete lnk_iext; delete lnk_isd; delete lnk_iws; delete lnk_ick;
-        delete cam; delete dcmi_rt; delete xram; delete xnand; delete fsmc_rt;
-        delete hrig; delete drig; delete otg_rt;
-        delete phy; delete eth_rt;
-        delete lnk_nss; delete lnk_miso; delete lnk_mosi; delete lnk_sck;
+        delete dcmi_rt; delete fsmc_rt;
+        delete otg_rt;
+        delete eth_rt;
         delete t_rt;
         delete sd_rt;
-        delete card;
         delete d_rt;
         delete a_rt;
-        delete src_pc1; delete src_pc0; delete src_pa4;
-        delete src_pa2; delete src_pa1; delete src_pa0;
-        delete drv_pa6; delete drv_pb5; delete drv_pb4; delete lnk_pwm;
         delete u_rt;
-        delete lnk_u5_u4; delete lnk_u4_u5; delete lnk_u3_u2; delete lnk_u2_u3;
-        delete osc_ext; delete btn_pa0; delete led_pd12;
-        delete xtal_lse; delete xtal_hse;
         delete dut;
     }
 
@@ -12994,19 +12988,19 @@ SC_MODULE(F1Tb) {
         group("T121 Netlist: la placa declarada y la placa construida");
 
         // --- 1. Lo declarado se ha construido, y con su tipo real ------------
-        check(placa_can.como<CanWire>("can_bus") == can_bus &&
+        check(placa.como<CanWire>("can_bus") == can_bus &&
               can_bus != nullptr, "el hilo del bus lo construye el netlist");
-        check(placa_can.como<CanTransceiver>("xcvr1") == xcvr1 && xcvr1,
+        check(placa.como<CanTransceiver>("xcvr1") == xcvr1 && xcvr1,
               "y los dos transceptores");
-        check(placa_can.como<CanTransceiver>("xcvr2") == xcvr2 && xcvr2,
+        check(placa.como<CanTransceiver>("xcvr2") == xcvr2 && xcvr2,
               "los dos, con su tipo real y no como ExtPartBase");
-        check(placa_can.como<CanNode>("nodo_ext") == nodo_ext && nodo_ext,
+        check(placa.como<CanNode>("nodo_ext") == nodo_ext && nodo_ext,
               "y el nodo CAN externo");
         // Pedir una pieza con el tipo equivocado devuelve nada, no basura: es
         // un dynamic_cast, no una conversion a ciegas.
-        check(placa_can.como<CanNode>("xcvr1") == nullptr,
+        check(placa.como<CanNode>("xcvr1") == nullptr,
               "pedir una pieza con el tipo que no es devuelve nada, no basura");
-        check(placa_can.pieza("no_existe") == nullptr,
+        check(placa.pieza("no_existe") == nullptr,
               "y una instancia que no existe, tampoco");
 
         // --- 2. IDA Y VUELTA: cada conexion declarada existe en la pieza ------
@@ -13014,7 +13008,7 @@ SC_MODULE(F1Tb) {
         // terminales que la pieza construyo por su cuenta. Son dos caminos
         // independientes hacia el mismo dato.
         unsigned n_con = 0, n_mal = 0;
-        for (const Instancia& i : placa_can.instancias()) {
+        for (const Instancia& i : placa.instancias()) {
             if (!i.pieza) { ++n_mal; continue; }
             for (const Conexion& c : i.pines) {
                 ++n_con;
@@ -13027,15 +13021,18 @@ SC_MODULE(F1Tb) {
                     c.pin.c_str(), c.nodo.c_str(), t->nodo.c_str()); }
             }
         }
-        check_eq(n_con, 8u, "ocho conexiones declaradas en el grupo del CAN");
-        check_eq(n_mal, 0u, "y las ocho coinciden con los terminales reales");
+        // La placa entera, no solo el grupo del CAN: 43 piezas de 20 tipos.
+        check_eq(unsigned(placa.instancias().size()), 43u,
+                 "las 43 piezas de la placa estan declaradas en el netlist");
+        check_eq(n_con, 147u, "con 147 conexiones entre terminales y nodos");
+        check_eq(n_mal, 0u, "y las 147 coinciden con los terminales reales");
 
         // Y LA VUELTA: ningun terminal de las piezas se queda sin declarar. Sin
         // esto la comprobacion anterior seria complaciente —declarar poco
         // pasaria igual—, y es justo el error facil: anadir un terminal a una
         // pieza y olvidarlo en el ayudante que la declara.
         unsigned n_sin_declarar = 0;
-        for (const Instancia& i : placa_can.instancias()) {
+        for (const Instancia& i : placa.instancias()) {
             if (!i.pieza) continue;
             for (const Terminal& t : i.pieza->terminales())
                 if (i.nodo_de(t.nombre).empty()) {
@@ -13057,7 +13054,7 @@ SC_MODULE(F1Tb) {
               "un nodo externo se distingue de un pin: no es un pad del MCU");
 
         // --- 4. El netlist bueno valida sin una sola queja -------------------
-        check_eq(unsigned(placa_can.valida(nodos).size()), 0u,
+        check_eq(unsigned(placa.valida(nodos).size()), 0u,
                  "el netlist de la placa valida sin errores");
 
         // --- 5. Y los netlists ROTOS se rechazan ANTES de construir ----------
@@ -13122,7 +13119,7 @@ SC_MODULE(F1Tb) {
         // de los nodos hubo que crear. Este es lo que un dia leera el paso 3.
         {
             std::ostringstream os;
-            placa_can.volcar_xml(os, "can-de-pruebas");
+            placa.volcar_xml(os, "banco-de-pruebas");
             const std::string x = os.str();
             check(x.find("<nodo id=\"n_can\" externo=\"si\"/>") != std::string::npos,
                   "el XML declara que n_can es un nodo que hay que crear");
@@ -13134,7 +13131,8 @@ SC_MODULE(F1Tb) {
                   "y la pieza que nace desoldada lo dice");
             check(x.find("<ref nombre=\"hilo\" componente=\"can_bus\"/>") != std::string::npos,
                   "y lo que une dos componentes sin ser un nodo, va como referencia");
-            std::printf("%s", x.c_str());
+            std::printf("    (la placa entera son %u componentes; se vuelca con "
+                        "--netlist)\n", unsigned(placa.instancias().size()));
         }
 
         // --- 7. Desoldada de verdad, no solo en el papel ---------------------
@@ -13239,13 +13237,15 @@ int sc_main(int argc, char** argv) {
     // los pines de depuracion y creandose por dentro un stub pegado al DAP. La
     // sesion de GDB es identica; lo que cambia es que va entre diez y mil veces
     // mas rapida. El criterio para elegir esta en doc/..._fase6_gdb2.md.
-    bool modo_gdb = false, modo_dap = false, dump_netlist = false;
+    bool modo_gdb = false, modo_dap = false;
+    bool dump_netlist = false, dump_inventario = false;
     unsigned puerto = 3333;
     const char* imagen = nullptr;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--gdb") modo_gdb = true;
         else if (a == "--netlist") dump_netlist = true;
+        else if (a == "--inventario") dump_inventario = true;
         else if (a == "--gdb-dap") { modo_gdb = true; modo_dap = true; }
         else if (a.rfind("--port=", 0) == 0) puerto = unsigned(std::atoi(a.c_str() + 7));
         else imagen = argv[i];
@@ -13257,17 +13257,22 @@ int sc_main(int argc, char** argv) {
     F1Tb tb("tb");
     // Argumento opcional: imagen de firmware alternativa (.bin o .hex)
     if (imagen) tb.fw_path_ = imagen;
-    // --- Volcado del NETLIST de la placa -----------------------------------
-    //   ./stm32f407vg --netlist
-    // Recorre el inventario de piezas externas y escribe el grafo
-    // componente-terminal-nodo en el XML que propone el esquema de QtSysC. No
-    // simula: la elaboracion de SystemC ya ha terminado aqui, que es
-    // precisamente el punto en el que un lector de XML tendria que haber
-    // construido las piezas. Vease doc/stm32f407vg_parts_paso1.md.
-    if (dump_netlist) {
-        ExtPartBase::volcar_netlist(std::cout);
-        return 0;
-    }
+    // --- Volcados de la placa ----------------------------------------------
+    //   ./stm32f407vg --netlist       la placa DECLARADA
+    //   ./stm32f407vg --inventario    la placa CONSTRUIDA
+    //
+    // No son lo mismo y por eso son dos. El primero es la declaracion: nodos,
+    // instancias, parametros, referencias y conexiones, o sea exactamente lo
+    // que un dia leera el lector de XML del paso 3. El segundo recorre el
+    // modelo ya montado y dice lo que hay de verdad, sin saber de parametros
+    // ni de que nodos hubo que crear. Que coincidan en lo que ambos pueden ver
+    // es lo que comprueba T121, en las dos direcciones.
+    //
+    // Ninguno simula: la elaboracion de SystemC ya ha terminado aqui, que es
+    // precisamente el punto en el que el lector tendria que haber construido
+    // las piezas. Vease doc/stm32f407vg_parts_paso2.md.
+    if (dump_netlist)    { tb.placa.volcar_xml(std::cout, "banco-de-pruebas"); return 0; }
+    if (dump_inventario) { ExtPartBase::volcar_netlist(std::cout);             return 0; }
     if (modo_gdb) {
         std::printf("=====================================================\n"
                     "  STM32F407VG — modelo SystemC con servidor GDB\n"

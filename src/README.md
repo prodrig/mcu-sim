@@ -22,7 +22,7 @@ P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
 | **F7** (ETH) | Ethernet 10/100: MII/RMII en los pines, MDIO, descriptores, filtrado, MMC y PTP | **completada** |
 | F7 (resto) | afinado AT | pendiente |
 
-`make test` compila y ejecuta la suite de verificación acumulada (1839
+`make test` compila y ejecuta la suite de verificación acumulada (1840
 comprobaciones autocomprobables: 124 de F1 + 12 de F2 + 80 de F3 + 343 de F4
 (DMA, UART/USART, TIM y EXTI/SYSCFG) + 675 de F5 (SPI/I2S, I2C, ADC, DAC, RTC y
 perros guardianes, SDIO, CRC/RNG y bxCAN) + 151 de F6 (depuración y los dos
@@ -50,12 +50,19 @@ make -f Makefile.stm32 run IMG=fw.bin # carga una imagen y simula
 ```
 
 **El netlist de la placa.** Todo lo que se suelda fuera del encapsulado vive en
-`parts/` y se apunta en un inventario. Volcarlo no simula nada: se elabora el
-modelo y se escribe el grafo componente-terminal-nodo.
+`parts/` y se DECLARA: nodos, instancias y conexiones nominales. No queda ni un
+`new` de pieza externa en `sc_main.cpp`. Volcarlo no simula nada.
 
 ```
-./build/stm32f407vg --netlist            # XML de componentes, terminales y nodos
+./build/stm32f407vg --netlist            # la placa DECLARADA: nodos, instancias,
+                                         # parámetros, referencias y conexiones
+./build/stm32f407vg --inventario         # la placa CONSTRUIDA, vista desde el modelo
 ```
+
+Los dos dan los mismos 43 componentes, y la suite (T121) comprueba en las dos
+direcciones que dicen lo mismo. Son distintos porque el primero es lo que se
+pidió construir —con sus parámetros y sus referencias entre componentes— y el
+segundo lo que hay.
 
 **Depuración interactiva desde un IDE.** El modelo lleva DOS servidores
 GDB/RSP, con el mismo protocolo y las mismas respuestas, que se diferencian

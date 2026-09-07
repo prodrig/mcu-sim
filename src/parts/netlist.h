@@ -181,6 +181,18 @@ struct Instancia {
         for (const Conexion& c : pines) if (c.pin == p) return c.nodo;
         return vacio;
     }
+    // Terminales INDEXADOS: d0, d1, d2... o rxd0, rxd1... Es como se describen
+    // los buses en un netlist, y hay piezas —la SRAM, el sensor, el PHY— cuya
+    // mitad de las patillas son de esta forma.
+    unsigned n_indexados(const char* prefijo) const {
+        unsigned k = 0;
+        char t[24];
+        for (;; ++k) {
+            std::snprintf(t, sizeof t, "%s%u", prefijo, k);
+            if (nodo_de(t).empty()) break;
+        }
+        return k;
+    }
     double num(const char* clave, double omision) const {
         auto it = params.find(clave);
         return it == params.end() ? omision : std::atof(it->second.c_str());
@@ -209,8 +221,17 @@ public:
     // Las piezas se destruyen en orden INVERSO al de construcción. No es un
     // detalle: un transceptor guarda un puntero a su hilo de bus, y destruir
     // el hilo antes que el transceptor sería un uso después de liberar.
-    ~Netlist() {
+    ~Netlist() { libera(); }
+
+    // Destruye las piezas AHORA. Hace falta cuando el netlist es miembro de un
+    // módulo que en su destructor borra el MCU: las piezas guardan punteros a
+    // los AnalogNet de los pines y los sueltan al morir, así que tienen que
+    // morir antes que ellos. El destructor de un miembro corre DESPUÉS del
+    // cuerpo del destructor que lo contiene, que es demasiado tarde.
+    void libera() {
         for (size_t i = piezas_.size(); i-- > 0;) delete piezas_[i];
+        piezas_.clear();
+        for (Instancia& i : inst_) i.pieza = nullptr;
     }
     Netlist(const Netlist&)            = delete;
     Netlist& operator=(const Netlist&) = delete;

@@ -790,3 +790,60 @@ prueba que usan `can_bus`, `xcvr1`, `xcvr2` y `nodo_ext` no se han tocado: los
 punteros siguen ahí y apuntan a lo mismo, y las 97 comprobaciones del bxCAN son la
 red de seguridad real. El tiempo simulado sube 20 µs sobre 2,33 s, que son las dos
 esperas de la comprobación de soldar y desoldar.
+
+
+## 2026-09-07 UTC — Cierre del paso 2
+
+**Mensaje:**
+
+> Termina lo que queda antes de pasar al paso 3
+
+**Respuesta:**
+
+Entendí «lo que queda» como lo que el paso 2 dejó a medias a propósito —solo un
+grupo migrado, los otros 39 componentes a mano—, porque un lector de XML no sirve
+de nada si solo cuatro de cuarenta y tres piezas son declarables. Hecho: **no
+queda ni un `new` de pieza externa en `sc_main.cpp`**.
+
+Doce tipos más necesitaron ayudante: `ExtClock`, `I2cWire`, `I2cEeprom`,
+`I2cExtMaster`, `SdCard`, `SwoReceiver`, `CameraSensor`, `ExtSram`, `ExtNand`,
+`UsbHostRig`, `UsbDeviceRig` y `EthPhy`. Las piezas de muchas patillas se declaran
+con lista de pares `{terminal, nodo}`, no con argumentos posicionales: un
+constructor de doce argumentos es justo lo que el netlist viene a eliminar, y así
+el sitio de la llamada ya tiene la forma del XML.
+
+**Dos cosas aparecieron al cerrar, y las dos son del tipo que solo se ve
+haciéndolo:**
+
+*Una fuga de memoria de la fase F5.* `can_bus`, `xcvr1`, `xcvr2` y `nodo_ext` no
+se destruían nunca. No es que se olvidaran: es que mantener a mano una lista de
+veintitantos `delete` en el orden correcto es exactamente lo que un netlist hace
+por ti. El destructor pasa de veintidós `delete` a diez, y los diez que quedan son
+periféricos del MCU, no piezas de placa.
+
+*Un uso después de liberar, evitado por poco.* El destructor de un miembro corre
+**después** del cuerpo del destructor que lo contiene. Con el netlist como miembro
+de `F1Tb`, sus piezas se habrían destruido después de `delete dut`, y cada pieza
+suelta sus pines al morir sobre unos `AnalogNet` ya liberados. De ahí
+`Netlist::libera()`, al principio del destructor. Es un fallo que el orden manual
+no podía tener porque nunca hubo un miembro que poseyera piezas.
+
+**Los cinco `Resistor` siguen siendo objetos locales, y está bien.** Se crean
+dentro de funciones de prueba, durante la simulación: son sondas temporales —una
+carga de 1 kΩ, un cortocircuito de 0,5 Ω—, no piezas de placa. El inventario las
+ve aparecer y desaparecer, que es lo que deben hacer.
+
+**Los dos volcados, ahora completos y separados:**
+
+```
+./build/stm32f407vg --netlist       # la placa DECLARADA
+./build/stm32f407vg --inventario    # la placa CONSTRUIDA
+```
+
+Los dos dan 43 componentes, y T121 comprueba en las dos direcciones que dicen lo
+mismo: 147 conexiones declaradas que existen en las piezas, y ningún terminal de
+las piezas fuera del netlist.
+
+**Suite: 1840/1840, 0 fallos**, compilación limpia, tiempo simulado idéntico al de
+antes de esta migración (2 327 857 024 213 ps) y el banco sigue en 50 deltas. El
+paso 3 ya tiene qué leer.
