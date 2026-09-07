@@ -66,3 +66,8 @@ desktop.ini
 
 # Residuos que dejo yo: el sandbox remoto no puede borrar ficheros.
 _to_delete/
+
+# Copias en disco de los ficheros que Claude entrega por la conversación: la
+# aplicación de escritorio las deja aquí. Es salida, no fuente; lo que valga la
+# pena se versiona en su sitio (doc/, src/).
+Claude outputs/
