@@ -47,6 +47,8 @@
 #include <string>
 #include <vector>
 #include "part_base.h"
+#include "part_factory.h"
+#include "xml_min.h"
 #include "../pins/pin_mux.h"
 #include "../pins/power_pads.h"
 
@@ -245,16 +247,35 @@ public:
         externos_.push_back(nombre);
         return *this;
     }
+    // Un nodo donde VARIOS componentes conducen a la vez y eso es correcto: un
+    // bus de colector abierto, un cable en Y. Hay que decirlo, porque la
+    // validación eléctrica no puede distinguir sola un bus de un cortocircuito
+    // —en los dos casos hay dos piezas tirando del mismo punto— y callarse
+    // ante los dos la dejaría sin servir para nada.
+    Netlist& nodo_bus(const std::string& nombre) {
+        for (const std::string& n : buses_) if (n == nombre) return *this;
+        buses_.push_back(nombre);
+        return *this;
+    }
+    bool es_bus(const std::string& nombre) const {
+        for (const std::string& n : buses_) if (n == nombre) return true;
+        return false;
+    }
     bool es_externo(const std::string& nombre) const {
         for (const std::string& n : externos_) if (n == nombre) return true;
         return false;
     }
     const std::vector<std::string>& externos() const { return externos_; }
 
+    // El creador lo pone la FACTORÍA a partir del nombre del tipo. Da igual
+    // que la instancia venga de un ayudante tipado o de un fichero XML: por
+    // aquí pasan las dos, y las dos salen sabiendo construirse. Si el tipo no
+    // se conoce, `crea` se queda vacío y `valida()` lo dice con nombres.
     Instancia& add(const char* tipo, const char* id) {
         inst_.emplace_back();
         inst_.back().tipo = tipo;
         inst_.back().id   = id;
+        if (const Fabrica::Creador* c = Fabrica::busca(tipo)) inst_.back().crea = *c;
         return inst_.back();
     }
 
@@ -313,7 +334,8 @@ public:
             if (i.tipo.empty())
                 err.push_back(i.id + ": instancia sin tipo");
             if (!i.crea)
-                err.push_back(i.id + ": no se sabe construir (falta el creador)");
+                err.push_back(i.id + ": tipo desconocido '" + i.tipo +
+                              "'. La fabrica conoce: " + Fabrica::tipos_como_texto());
             for (const auto& r : i.refs) {
                 const Instancia* dest = busca(r.second);
                 if (!dest) {
@@ -351,6 +373,70 @@ public:
         return err;
     }
 
+    // --- Validación ELÉCTRICA -----------------------------------------------
+    // Esta corre DESPUÉS de construir, porque necesita saber qué terminal de
+    // cada pieza conduce y cuál solo escucha, y eso lo sabe la pieza, no la
+    // declaración. Sigue sin simular: es un recorrido del grafo.
+    //
+    // Detecta las dos formas en que un nodo puede estar mal montado:
+    //
+    //   CONFLICTO   dos o más piezas conectadas y CONDUCIENDO sobre el mismo
+    //               nodo, sin que ese nodo esté declarado como bus. Es el
+    //               cortocircuito de placa, y es la familia de fallos que más
+    //               tiempo ha costado en este proyecto: aparecía como un aviso
+    //               de sobrecorriente del pad en mitad de una simulación, y
+    //               había que rastrearlo hacia atrás.
+    //
+    //   FLOTANTE    un nodo EXTERNO con piezas colgadas pero ninguna que
+    //               conduzca. Su tensión no está definida, y como un AnalogNet
+    //               conserva la última resuelta, lo que se lea de él será lo que
+    //               dejó otro —que es exactamente por lo que un host de USB
+    //               llegó a "ver" un dispositivo que no estaba enchufado—. En un
+    //               PIN esto no es un aviso: al otro lado está el pad del MCU.
+    //
+    // El pad del MCU NO cuenta como conductor aquí: si conduce o no lo decide
+    // el firmware en tiempo de ejecución, y este análisis es estático. Lo que
+    // se comprueba es lo que la PLACA impone.
+    std::vector<std::string> valida_electrica(const NodeMap& nodos) const {
+        std::vector<std::string> err;
+        // nodo -> piezas conectadas que conducen, y total de piezas colgadas
+        std::map<std::string, std::vector<std::string>> activos;
+        std::map<std::string, unsigned> colgados;
+        for (const Instancia& i : inst_) {
+            if (!i.pieza) continue;
+            for (const Terminal& t : i.pieza->terminales()) {
+                ++colgados[t.nodo];
+                if (t.pasivo || t.ids.empty()) continue;
+                if (!i.pieza->conectada()) continue;    // desoldada: no cuenta
+                activos[t.nodo].push_back(i.id + "." + t.nombre);
+            }
+        }
+        for (const auto& kv : activos) {
+            if (kv.second.size() < 2 || es_bus(kv.first)) continue;
+            std::string quien;
+            for (const std::string& q : kv.second) {
+                if (!quien.empty()) quien += " y ";
+                quien += q;
+            }
+            err.push_back("nodo " + kv.first + ": conducen a la vez " + quien +
+                          ". Si es un bus, declaralo con nodo_bus()");
+        }
+        for (const auto& kv : colgados) {
+            if (activos.count(kv.first)) continue;
+            // Un PIN no puede quedar flotante por culpa de la placa: al otro
+            // lado esta el pad del MCU, que conduce o no segun lo que mande el
+            // firmware. Que ninguna pieza externa lo gobierne es lo normal en
+            // una entrada. El aviso solo tiene sentido en los nodos que no son
+            // pines: ahi no hay nadie mas, y si nadie conduce, nadie conduce.
+            const Nodo* nd = nodos.busca(kv.first);
+            if (nd && nd->es_pin) continue;
+            err.push_back("nodo " + kv.first + ": " + std::to_string(kv.second) +
+                          " terminal(es) colgados y ninguno conduce; su tension "
+                          "no esta definida");
+        }
+        return err;
+    }
+
     // ¿`a` se declara antes que `b`?
     bool antes(const std::string& a, const std::string& b) const {
         for (const Instancia& i : inst_) {
@@ -365,7 +451,7 @@ public:
     // paso 3, y por eso lleva los nodos y los parámetros, que el volcado del
     // inventario (ExtPartBase::volcar_netlist) no puede conocer.
     void volcar_xml(std::ostream& os, const char* nombre_placa = "placa") const {
-        os << "<placa nombre=\"" << nombre_placa << "\">\n";
+        os << "<placa nombre=\"" << xml_escapa(nombre_placa) << "\">\n";
         // Los nodos externos primero: son los que el lector tendrá que crear.
         std::map<std::string, bool> usados;
         for (const Instancia& i : inst_)
@@ -373,12 +459,13 @@ public:
         for (const auto& kv : usados) {
             os << "  <nodo id=\"" << kv.first << "\"";
             if (es_externo(kv.first)) os << " externo=\"si\"";
+            if (es_bus(kv.first))     os << " bus=\"si\"";
             os << "/>\n";
         }
         for (const Instancia& i : inst_) {
             os << "  <componente tipo=\"" << i.tipo << "\" id=\"" << i.id << "\"";
             for (const auto& p : i.params)
-                os << " " << p.first << "=\"" << p.second << "\"";
+                os << " " << p.first << "=\"" << xml_escapa(p.second) << "\"";
             if (!i.conectada) os << " conectada=\"no\"";
             os << ">\n";
             for (const Conexion& c : i.pines)
@@ -399,6 +486,7 @@ private:
     // garantiza sin números mágicos.
     std::list<Instancia>       inst_;
     std::vector<std::string>   externos_;
+    std::vector<std::string>   buses_;
     std::vector<ExtPartBase*>  piezas_;
 };
 

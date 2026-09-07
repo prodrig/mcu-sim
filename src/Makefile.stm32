@@ -27,7 +27,7 @@ TARGET := build/stm32f407vg
 
 all: $(TARGET)
 
-.PHONY: all test smoke bench run clean
+.PHONY: all test smoke bench sim run clean
 
 $(TARGET): top/sc_main.cpp $(HDRS)
 	@mkdir -p build
@@ -43,6 +43,16 @@ $(BENCH): top/bench_main.cpp $(HDRS)
 
 bench: $(BENCH)
 
+# El modelo con la PLACA EN UN FICHERO (paso 3 de parts/)
+#   make sim && ./build/sim placa.xml [firmware.bin] [ms]
+SIM := build/sim
+
+$(SIM): top/sim_main.cpp $(HDRS)
+	@mkdir -p build
+	$(CXX) $(CXXFLAGS) -o $@ top/sim_main.cpp $(LDFLAGS) $(LDLIBS)
+
+sim: $(SIM)
+
 # Suite de verificación de la fase F1 (autocomprobable: código de salida 0/1)
 test: $(TARGET)
 	./$(TARGET)
@@ -56,4 +66,4 @@ run: $(TARGET)
 clean:
 	rm -rf build
 
-.PHONY: all test smoke run clean
+.PHONY: all test smoke bench sim run clean

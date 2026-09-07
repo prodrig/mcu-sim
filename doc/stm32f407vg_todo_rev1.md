@@ -357,8 +357,9 @@ Cosas que **están modeladas** pero que la suite no ejercita.
 | **I-08** | **Restricciones de entorno**: la biblioteca SystemC de Ubuntu está construida con **C++17** y el estándar debe coincidir o falla el enlazado (`sc_api_version...`); `simple_target_socket_optional` exige **SystemC ≥ 2.3.3** | F0 | Requisitos mínimos a dejar escritos en el README |
 | **I-09** | **Carpetas `_to_delete/git-tmp*` acumuladas en el repositorio** por los restos de bloqueo de git del puente remoto | — | Limpieza pendiente; no se pueden borrar desde el contenedor |
 | **I-11** | ~~**Paso 2: `Netlist` en memoria**~~ | — | **HECHO Y CERRADO.** `parts/netlist.h` + `parts/netlist_parts.h`; **la placa entera** —43 piezas de 20 tipos— se declara y la construye el netlist, y no queda ni un `new` de pieza externa en `sc_main.cpp`; 29 comprobaciones nuevas (T121). El ejercicio destapó tres cosas: los nodos son del circuito y no del componente (`CanWire` tenía el suyo), no todo lo que une dos componentes es un nodo (de ahí `Instancia::refs`) y la ida y vuelta necesita las dos direcciones. De paso se cerró una fuga de F5 (`can_bus`, `xcvr1`, `xcvr2` y `nodo_ext` no se destruían) y se evitó un uso después de liberar en el destructor. Véase `doc/stm32f407vg_parts_paso2.md` |
-| **I-12** | **Paso 3: lector de XML y VALIDADOR ELÉCTRICO.** Exige una factoría con auto-registro por tipo (C++ no tiene reflexión) y tiene que correr antes de `sc_start()` (la elaboración de SystemC es estática) | — | **Pendiente, y es donde está el retorno grande.** El paso 2 ya valida la DECLARACIÓN (nodo inexistente, pad no bonded, id repetido, terminal duplicado, referencia inexistente o hacia delante); falta la ELÉCTRICA: dos drivers de baja impedancia con tensiones incompatibles sobre el mismo nodo, un nodo sin terminal activo, un pin con dos funciones alternativas (véase el caso PA2/PB11 en `doc/stm32f407vg_parts_paso1.md` §3) |
-| **I-13** | **Paso 4: generador de SVG desde el netlist** (ya hay de dónde: `Netlist::volcar_xml` da el grafo con parámetros y referencias), con `id` estables, y opcionalmente coloreado desde una traza de simulación | — | **Pendiente.** Valor documental; la interacción en vivo sobre el SVG queda descartada salvo caso de uso concreto, porque reintroduciría sondeos periódicos |
+| **I-12** | ~~**Paso 3: lector de XML y validador eléctrico**~~ | — | **HECHO.** `parts/part_factory.h` (registro cadena→creador con auto-registro), `parts/xml_min.h` (lector de XML estricto, sin dependencias), `parts/netlist_xml.h` y el ejecutable `./build/sim placa.xml firmware.bin`. La validación eléctrica encontró **siete conducciones simultáneas ciertas** en la placa del banco —dos buses I2C reales, el cable en Y del CAN y cuatro pines compartidos entre grupos de prueba— que vivían implícitas en `i2c_bus()`, `adc_links()` y compañía; declararlas dejó la placa en 0 avisos. El cortocircuito PA2/PB11 de F7-ETH está reconstruido en T121 y salta **antes de simular**. Véase `doc/stm32f407vg_parts_paso3.md` |
+| **I-13** | **Paso 4: generador de SVG desde el netlist**, con `id` estables por componente y por nodo, y opcionalmente coloreado desde una traza | — | **Pendiente, y ya tiene de dónde salir**: el netlist lleva nodos, terminales, parámetros, referencias y la marca de qué nodos hay que crear |
+| **I-14** | **La validación eléctrica avisa por conducción simultánea, no por tensiones incompatibles.** Dos piezas que conducen el MISMO nivel sobre un nodo no son un cortocircuito, y hoy se avisa igual | — | **Falso positivo conocido y acotado.** Distinguirlo exigiría que cada terminal declarase qué tensión y qué impedancia presenta, información que hoy solo existe dentro del constructor de cada pieza. Se calla declarando el nodo con `nodo_bus()`, y declararlo documenta |
 | **I-10** | **Referencia cruzada errónea en el informe de F1 §1**: la fila del RCC dice "Completo salvo lo eléctrico (**ver §6**)", pero el contenido pendiente está en **§9** | F1 | Errata documental |
 
 ---
@@ -442,10 +443,10 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 | **D** — Datos sin fuente | 13 |
 | **X** — Discrepancias y silencios de [IR] | 12 |
 | **V** — Huecos de verificación | 9 |
-| **I** — Deuda de instrumentación y proyecto | 13 *(una cerrada: I-11)* |
-| **Total** | **127** |
+| **I** — Deuda de instrumentación y proyecto | 14 *(dos cerradas: I-11 e I-12)* |
+| **Total** | **128** |
 
-De los 127, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 128, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.

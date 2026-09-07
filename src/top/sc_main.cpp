@@ -75,6 +75,7 @@
 #include "../verif/image_loader.h"
 #include "../parts/ext_parts.h"
 #include "../parts/netlist_parts.h"
+#include "../parts/netlist_xml.h"
 #include "../verif/decoder_vectors.h"
 #include "../verif/gdb_stub.h"
 #include "../core/gdb_stub_dap.h"
@@ -270,6 +271,15 @@ SC_MODULE(F1Tb) {
     // de prueba que los usan no se han tocado.
     NodeMap          nodos;
     Netlist          placa;
+    // Dos placas de mentira que se montan en la ELABORACION solo para
+    // comprobar que la validacion electrica las caza. Tienen que montarse ahi
+    // y no en una prueba: SystemC no deja crear modulos ni canales primitivos
+    // con la simulacion en marcha, y una pieza es lo uno o lo otro. Que la
+    // validacion sea cosa de la elaboracion no es un detalle del banco: es la
+    // razon por la que sirve para algo, porque avisa ANTES de simular.
+    NodeMap  nodos_mal;
+    Netlist  placa_corto, placa_suelta;
+    std::vector<std::string> diag_corto, diag_suelto;
     CanWire*         can_bus  = nullptr;
     CanTransceiver*  xcvr1    = nullptr;
     CanTransceiver*  xcvr2    = nullptr;
@@ -623,6 +633,23 @@ SC_MODULE(F1Tb) {
         t_rt->dma_up(s_tt_nc[6]);     t_rt->dma_trig(s_tt_nc[7]);
         t_rt->dma_com(s_tt_nc[8]);
         for (unsigned i = 0; i < 4; ++i) t_rt->dma_cc[i](s_tt_nc[9 + i]);
+        // --- Los nodos con VARIOS CONDUCTORES a la vez -----------------------
+        // La validacion electrica avisa cuando dos piezas conducen sobre el
+        // mismo nodo, porque eso normalmente es un cortocircuito. Estos siete
+        // no lo son, y decirlo aqui es lo que convierte una decision de placa
+        // que antes vivia repartida por `i2c_bus()`, `adc_links()` y compania
+        // en algo escrito en un sitio.
+        placa.nodo_bus("PB6");    // I2C1_SCL: la EEPROM y el maestro externo
+        placa.nodo_bus("PB7");    // I2C1_SDA: colector abierto, es SU forma de ser
+        placa.nodo_bus("n_can");  // el hilo CAN: cable en Y, terminador y nodos
+        // Y estos cuatro son pines que el banco COMPARTE entre grupos de
+        // prueba. Las piezas reposan en alta impedancia y cada grupo suelda la
+        // suya, pero sobre la placa las dos estan ahi.
+        placa.nodo_bus("PA0");    // el pulsador y la fuente del ADC123_IN0
+        placa.nodo_bus("PA1");    // la pista de UART5->UART4 y ADC123_IN1
+        placa.nodo_bus("PD2");    // UART5_RX y el CMD de la tarjeta SD
+        placa.nodo_bus("PH0");    // el cristal del HSE y el oscilador externo
+
         // --- LA PLACA: validar, construir y recoger --------------------------
         // Todo lo anterior era DECLARACION. Aqui se valida sin simular -nodo
         // inexistente, pad que este encapsulado no saca, identificador
@@ -634,6 +661,10 @@ SC_MODULE(F1Tb) {
         for (const std::string& e : placa.valida(nodos))
             SC_REPORT_ERROR("netlist", e.c_str());
         placa.construye(nodos);
+        // Y la electrica, que necesita las piezas ya montadas para saber que
+        // terminal conduce y cual solo escucha. Sigue sin simular.
+        for (const std::string& e : placa.valida_electrica(nodos))
+            SC_REPORT_ERROR("netlist", e.c_str());
         // Los punteros de siempre, ahora recogidos del netlist. Las miles de
         // lineas de prueba que los usan no se enteran de nada.
         xtal_hse = placa.como<Crystal>("xtal_hse");
@@ -680,6 +711,27 @@ SC_MODULE(F1Tb) {
         eeprom   = placa.como<I2cEeprom>("eeprom");
         ext_m    = placa.como<I2cExtMaster>("ext_m");
 
+        // --- Las dos placas de mentira de T121 -------------------------------
+        nodos_mal.registra_mcu(dut->pinmux, dut->pwr_pads);
+        // (a) El cortocircuito de F7-ETH, reconstruido: una pista que gobierna
+        //     PB11 y el TX_EN del PHY sobre el mismo pin. Entonces costo horas
+        //     de depuracion y se manifesto como un aviso de sobrecorriente en
+        //     mitad de una prueba de USART.
+        driver(placa_corto, "u2_tx",    "PB11");
+        driver(placa_corto, "phy_txen", "PB11");
+        placa_corto.construye(nodos_mal);
+        diag_corto = placa_corto.valida_electrica(nodos_mal);
+        // (b) Un nodo externo del que nadie tira. Un AnalogNet conserva la
+        //     ultima tension resuelta, asi que lo que se lea de el sera lo que
+        //     dejo otro: es como un host de USB llego a "ver" un dispositivo
+        //     que no estaba enchufado.
+        //     La pieza va DESOLDADA y sobre un nodo que no es de nadie mas, para
+        //     que esta placa de mentira no toque en nada a la de verdad.
+        placa_suelta.nodo_externo("n_suelto");
+        driver(placa_suelta, "d1", "n_suelto").desconectada();
+        placa_suelta.construye(nodos_mal);
+        diag_suelto = placa_suelta.valida_electrica(nodos_mal);
+
         // La pila por defecto de un SC_THREAD (64 KB) se queda corta con las
         // cadenas de llamadas TLM anidadas al compilar con sanitizers.
         SC_THREAD(stim_proc);        set_stack_size(1024 * 1024);
@@ -697,6 +749,8 @@ SC_MODULE(F1Tb) {
         // mantener a mano una lista de veintitantos `delete` en el orden bueno
         // es justo lo que un netlist hace por ti.
         placa.libera();          // las piezas, antes que los nodos a los que van
+        placa_suelta.libera();
+        placa_corto.libera();
         delete c_rt;
         delete s_rt;
         delete dcmi_rt; delete fsmc_rt;
@@ -13109,8 +13163,20 @@ SC_MODULE(F1Tb) {
             Netlist malo;
             malo.add("Led", "d1").pin("anodo", "PD12").pin("anodo", "PD13");
             const std::vector<std::string> e = malo.valida(nodos);
-            check(e.size() == 2,
-                  "un terminal conectado dos veces, y una pieza que nadie sabe construir");
+            check(e.size() == 1 && dice(e, "terminal repetido"),
+                  "y un terminal conectado a dos nodos a la vez");
+        }
+        {
+            // Un tipo que la fabrica no conoce. Es EL error del paso 3: quien
+            // se equivoca escribiendo ya no es un programador con el compilador
+            // delante, sino una persona con un fichero de texto.
+            Netlist malo;
+            malo.add("Lde", "d1").pin("anodo", "PD12");
+            const std::vector<std::string> e = malo.valida(nodos);
+            check(e.size() == 1 && dice(e, "tipo desconocido"),
+                  "un tipo que la fabrica no conoce se rechaza por su nombre");
+            check(e.size() == 1 && dice(e, "Led") && dice(e, "EthPhy"),
+                  "y el mensaje dice cuales SI conoce, que es la otra mitad del aviso");
         }
 
         // --- 6. El volcado de la DECLARACION ---------------------------------
@@ -13121,8 +13187,9 @@ SC_MODULE(F1Tb) {
             std::ostringstream os;
             placa.volcar_xml(os, "banco-de-pruebas");
             const std::string x = os.str();
-            check(x.find("<nodo id=\"n_can\" externo=\"si\"/>") != std::string::npos,
-                  "el XML declara que n_can es un nodo que hay que crear");
+            check(x.find("<nodo id=\"n_can\" externo=\"si\" bus=\"si\"/>") != std::string::npos,
+                  "el XML declara que n_can hay que crearlo y que admite varios "
+                  "conductores");
             check(x.find("<nodo id=\"PD1\"/>") != std::string::npos,
                   "y que PD1 no: es un pin, ya existe");
             check(x.find("bitrate=\"500000\"") != std::string::npos,
@@ -13135,7 +13202,111 @@ SC_MODULE(F1Tb) {
                         "--netlist)\n", unsigned(placa.instancias().size()));
         }
 
-        // --- 7. Desoldada de verdad, no solo en el papel ---------------------
+        // --- 7. LA IDA Y VUELTA POR FICHERO (paso 3) -------------------------
+        // Se vuelca la placa entera a XML, se vuelve a leer con el lector de
+        // verdad y se comprueba que sale el MISMO grafo. Es la prueba que de
+        // verdad cierra el formato: si el escritor y el lector no coinciden en
+        // algo -un atributo que uno pone y el otro ignora- aqui se ve.
+        {
+            std::ostringstream os;
+            placa.volcar_xml(os, "ida-y-vuelta");
+            Netlist copia;
+            std::string nombre;
+            const std::string e = netlist_desde_texto(copia, os.str(), &nombre);
+            check(e.empty(), e.empty() ? "el XML de la placa se relee sin errores"
+                                       : e.c_str());
+            check(nombre == "ida-y-vuelta", "y con el nombre de placa que llevaba");
+            check_eq(unsigned(copia.instancias().size()),
+                     unsigned(placa.instancias().size()),
+                     "mismo numero de componentes al releer");
+            unsigned dif = 0;
+            auto it_o = placa.instancias().begin();
+            auto it_c = copia.instancias().begin();
+            for (; it_o != placa.instancias().end() && it_c != copia.instancias().end();
+                 ++it_o, ++it_c) {
+                const Instancia& o = *it_o;
+                const Instancia& c = *it_c;
+                if (o.tipo != c.tipo || o.id != c.id) { ++dif; continue; }
+                if (o.conectada != c.conectada) { ++dif; continue; }
+                if (o.pines.size() != c.pines.size() ||
+                    o.refs.size()  != c.refs.size()  ||
+                    o.params.size()!= c.params.size()) { ++dif; continue; }
+                for (const Conexion& x : o.pines)
+                    if (c.nodo_de(x.pin) != x.nodo) ++dif;
+                for (const auto& r : o.refs)
+                    if (c.ref_de(r.first.c_str()) != r.second) ++dif;
+                for (const auto& q : o.params)
+                    if (c.txt(q.first.c_str()) != q.second) ++dif;
+            }
+            check_eq(dif, 0u, "y el mismo grafo: tipo, id, terminales, referencias, "
+                              "parametros y estado de conexion");
+            // Los nodos que hay que crear y los que admiten varios conductores
+            // tambien sobreviven al viaje.
+            check(copia.es_externo("n_can") && copia.es_bus("n_can") &&
+                  copia.es_bus("PB6"),
+                  "y las marcas de los nodos: externo y bus");
+            // Y lo releido se sabe construir: la fabrica reconocio los 20 tipos.
+            unsigned sin_creador = 0;
+            for (const Instancia& i : copia.instancias()) if (!i.crea) ++sin_creador;
+            check_eq(sin_creador, 0u,
+                     "la fabrica sabe construir los 43 componentes releidos");
+        }
+
+        // --- 8. Los XML rotos se rechazan diciendo donde ----------------------
+        {
+            struct Caso { const char* xml; const char* dice; const char* que; };
+            static const Caso casos[] = {
+              { "<placa><componente tipo=\"Led\" id=\"d\"></placa>",
+                "cierra", "una etiqueta que cierra lo que no abrio" },
+              { "<placa><componente tipo=Led id=\"d\"/></placa>",
+                "comillas", "un atributo sin comillas" },
+              { "<placa><nodo id=\"a\" id=\"b\"/></placa>",
+                "atributo repetido", "un atributo repetido" },
+              { "<placa><componente tipo=\"Led\" id=\"d\"/>texto</placa>",
+                "texto suelto", "texto donde el formato no lo admite" },
+              { "<tablero/>",
+                "se esperaba <placa>", "un elemento raiz que no es una placa" },
+              { "<placa><componente id=\"d\"/></placa>",
+                "sin atributo tipo", "un componente sin tipo" },
+              { "<placa><componente tipo=\"Led\" id=\"d\"><cable/></componente></placa>",
+                "elemento desconocido", "un elemento que el formato no tiene" },
+              { "<placa><nodo id=\"a\" externo=\"quiza\"/></placa>",
+                "si o no", "un si/no que no lo es" },
+              { "<placa><componente tipo=\"Led\" id=\"d\" a=\"&pepe;\"/></placa>",
+                "entidad desconocida", "una entidad que no es de la norma" },
+            };
+            unsigned ok = 0;
+            for (const Caso& c : casos) {
+                Netlist n;
+                const std::string e = netlist_desde_texto(n, c.xml);
+                if (!e.empty() && e.find(c.dice) != std::string::npos) { ++ok; continue; }
+                std::printf("    %s: se esperaba un error con \"%s\", salio \"%s\"\n",
+                            c.que, c.dice, e.empty() ? "(ninguno)" : e.c_str());
+            }
+            check_eq(ok, unsigned(sizeof casos / sizeof casos[0]),
+                     "los nueve XML rotos se rechazan, cada uno por su motivo");
+        }
+
+        // --- 9. LA VALIDACION ELECTRICA --------------------------------------
+        // Es el retorno del paso 3: la familia de fallos que hasta ahora se
+        // descubria como un aviso de sobrecorriente en mitad de una simulacion.
+        // Los dos diagnosticos se calcularon en la ELABORACION, que es donde
+        // esto tiene sentido y donde ademas es lo unico posible: SystemC no
+        // deja construir piezas con la simulacion en marcha.
+        check(diag_corto.size() == 1 && dice(diag_corto, "conducen a la vez") &&
+              dice(diag_corto, "PB11"),
+              "dos piezas conduciendo el mismo pin: cortocircuito, sin simular");
+        check(dice(diag_suelto, "ninguno conduce") && dice(diag_suelto, "n_suelto"),
+              "y un nodo externo que nadie gobierna: flotante por construccion");
+        // La placa buena pasa la misma criba EN EL ARRANQUE -si no, el
+        // constructor habria abortado con SC_REPORT_ERROR y esto no correria-.
+        // Aqui, a mitad de la suite, las piezas estan soldadas y desoldadas
+        // segun lo que cada grupo de prueba haya dejado, asi que el recuento no
+        // es el de la placa en reposo y comprobarlo no diria nada.
+        std::printf("    (la placa en reposo valida sin avisos; se comprueba con "
+                    "--valida)\n");
+
+        // --- 10. Desoldada de verdad, no solo en el papel --------------------
         can_links(false);
         wait(10, SC_US);
         check(!xcvr1->conectada() && !xcvr2->conectada(),
@@ -13238,7 +13409,7 @@ int sc_main(int argc, char** argv) {
     // sesion de GDB es identica; lo que cambia es que va entre diez y mil veces
     // mas rapida. El criterio para elegir esta en doc/..._fase6_gdb2.md.
     bool modo_gdb = false, modo_dap = false;
-    bool dump_netlist = false, dump_inventario = false;
+    bool dump_netlist = false, dump_inventario = false, valida = false;
     unsigned puerto = 3333;
     const char* imagen = nullptr;
     for (int i = 1; i < argc; ++i) {
@@ -13246,6 +13417,7 @@ int sc_main(int argc, char** argv) {
         if (a == "--gdb") modo_gdb = true;
         else if (a == "--netlist") dump_netlist = true;
         else if (a == "--inventario") dump_inventario = true;
+        else if (a == "--valida") valida = true;
         else if (a == "--gdb-dap") { modo_gdb = true; modo_dap = true; }
         else if (a.rfind("--port=", 0) == 0) puerto = unsigned(std::atoi(a.c_str() + 7));
         else imagen = argv[i];
@@ -13271,6 +13443,19 @@ int sc_main(int argc, char** argv) {
     // Ninguno simula: la elaboracion de SystemC ya ha terminado aqui, que es
     // precisamente el punto en el que el lector tendria que haber construido
     // las piezas. Vease doc/stm32f407vg_parts_paso2.md.
+    if (valida) {
+        // Validación de la placa, sin simular: primero la declaración, después
+        // la eléctrica —que necesita las piezas ya construidas para saber qué
+        // terminal conduce y cuál solo escucha—.
+        unsigned n = 0;
+        for (const std::string& e : tb.placa.valida(tb.nodos))
+            { std::printf("  [decl] %s\n", e.c_str()); ++n; }
+        for (const std::string& e : tb.placa.valida_electrica(tb.nodos))
+            { std::printf("  [elec] %s\n", e.c_str()); ++n; }
+        std::printf("%u avisos sobre %u componentes y %u nodos\n", n,
+                    unsigned(tb.placa.instancias().size()), tb.nodos.size());
+        return n ? 1 : 0;
+    }
     if (dump_netlist)    { tb.placa.volcar_xml(std::cout, "banco-de-pruebas"); return 0; }
     if (dump_inventario) { ExtPartBase::volcar_netlist(std::cout);             return 0; }
     if (modo_gdb) {

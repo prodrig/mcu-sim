@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Una placa mínima al estilo de las Discovery de ST: cristal de 8 MHz,
+     un LED en PD12 y el pulsador de usuario en PA0. Nada más. -->
+<placa nombre="discovery-min">
+  <nodo id="PH0"/>
+  <nodo id="PD12"/>
+  <nodo id="PA0"/>
+
+  <componente tipo="Crystal" id="X1" vdd="3.3">
+    <pin nombre="osc_in" nodo="PH0"/>
+  </componente>
+
+  <componente tipo="Led" id="LD4" a_vss="si" vf="2.0" r="330">
+    <pin nombre="anodo" nodo="PD12"/>
+  </componente>
+
+  <componente tipo="Button" id="B1" r_cerrado="10">
+    <pin nombre="pin" nodo="PA0"/>
+  </componente>
+</placa>

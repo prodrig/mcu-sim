@@ -847,3 +847,82 @@ las piezas fuera del netlist.
 **Suite: 1840/1840, 0 fallos**, compilación limpia, tiempo simulado idéntico al de
 antes de esta migración (2 327 857 024 213 ps) y el banco sigue en 50 deltas. El
 paso 3 ya tiene qué leer.
+
+
+## 2026-09-07 UTC — Paso 3
+
+**Mensaje:**
+
+> Ejecuta el paso 3
+
+**Respuesta:**
+
+Hecho, documentado en `doc/stm32f407vg_parts_paso3.md`. El arco de los tres pasos
+cabe ahora en un renglón:
+
+```
+$ ./build/sim placas/discovery_min.xml verif/fw/blinky/blinky.bin 205
+placa 'discovery-min': 3 componentes, 154 nodos, 0 avisos
+firmware: 1032 bytes de verif/fw/blinky/blinky.bin
+simulados 205.000 ms en 0.008 s de anfitrion (7341 deltas)
+  LED LD4 en PD12: encendido  (3.11 V, 3.38 mA)
+```
+
+Firmware de verdad gobernando un LED descrito en un fichero de texto, con la
+corriente resuelta en float. A 200 ms está apagado y a 205 encendido, porque el
+blinky parpadea. Para cambiar de placa no hay que recompilar nada.
+
+**Cuatro ficheros:** la factoría con auto-registro (`part_factory.h`), el lector
+de XML (`xml_min.h`), el puente al netlist (`netlist_xml.h`) y el ejecutable
+(`sim_main.cpp`). Y `netlist_parts.h` se reescribió sobre la factoría **tal como
+el paso 2 predijo**: `netlist.h` no se tocó salvo para que `add()` consulte el
+registro.
+
+**Lector de XML propio, y es la decisión discutible del paso.** Este proyecto
+tiene una dependencia —SystemC— y se compila con un Makefile de veinte líneas;
+añadir TinyXML-2 por un formato de tres elementos cambia eso para todo el que se
+baje el repositorio. Escribir un analizador a mano suele ser un error, así que lo
+evité por la vía de ser **estricto**: lo que no entiende es un error con línea y
+columna, nunca una suposición. Nueve XML rotos a propósito están en T121, uno por
+motivo. Detalle que merece nota: en este formato ningún elemento tiene contenido
+textual, así que texto entre etiquetas no es algo que ignorar — es alguien que se
+ha equivocado, y se dice.
+
+**La validación eléctrica es el retorno que justificaba los tres pasos**, y tuvo
+un momento instructivo. La primera versión sacó **59 avisos, de los que 52 eran
+falsos**: marcaba como flotante cualquier pin que ninguna pieza externa gobernara.
+Está mal — al otro lado de un pin está el pad del MCU, y que nadie de la placa
+tire de él es lo normal en una entrada. El aviso solo tiene sentido en nodos que
+no son pines. Un validador que grita por todo no se usa, así que ese ajuste era la
+diferencia entre una herramienta y un ruido.
+
+Con el criterio afinado quedaron **siete, y los siete eran ciertos**: los buses
+I2C de la EEPROM y el maestro externo, el cable en Y del CAN, y cuatro pines que
+el banco comparte entre grupos de prueba (PA0, PA1, PD2 y PH0 — este último, en
+una placa real, sería un error: cristal y oscilador externo sobre el mismo pin).
+Ninguno es un fallo, pero **ninguno estaba escrito en ningún sitio**: vivían
+repartidos por `i2c_bus()`, `adc_links()`, `can_links()` como efectos laterales.
+Declararlos con `nodo_bus()` —siete líneas comentadas— convirtió siete decisiones
+de placa implícitas en explícitas. Eso ya vale el ejercicio. Ahora: **0 avisos
+sobre 43 componentes y 155 nodos**, y la validación corre en cada arranque.
+
+**Y el caso que lo empezó todo**, reconstruido en T121:
+
+```
+nodo PB11: conducen a la vez u2_tx.pin y phy_txen.pin
+```
+
+El cortocircuito de F7-ETH. Entonces salió como un aviso de sobrecorriente del pad
+en mitad de una prueba de USART y hubo que rastrearlo hacia atrás. Ahora salta
+antes de simular, con los dos culpables por su nombre.
+
+**La ida y vuelta** cierra el formato: se vuelca la placa entera a XML, se relee
+con el lector de verdad y se comprueba que sale el mismo grafo —tipo,
+identificador, terminales, referencias, parámetros, estado de conexión y las
+marcas de los nodos—. Y el mismo fichero, leído por **otro ejecutable**:
+`./build/stm32f407vg --netlist > placas/banco.xml` y luego `./build/sim
+placas/banco.xml --valida` da los 43 componentes montados por un programa que no
+sabe nada de la suite.
+
+**Suite: 1851/1851, 0 fallos**, los tres binarios compilan limpios y el banco
+sigue en 50 deltas. Queda el paso 4, el SVG, que ya tiene de dónde salir.
