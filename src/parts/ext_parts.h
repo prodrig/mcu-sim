@@ -1,5 +1,11 @@
 // =============================================================================
-// ext_parts.h — Circuitería externa al MCU para el banco de pruebas (fase F3)
+// ext_parts.h — LIBRERÍA DE COMPONENTES EXTERNOS al MCU
+//
+// (Nació en fase F3 como «circuitería del banco de pruebas» y vivía en verif/.
+//  Desde el paso 1 de la ruta de adopción del esquema XML+SVG vive en parts/,
+//  porque ya no es solo verificación: es la librería de piezas de placa. Todas
+//  derivan de ExtPartBase —parts/part_base.h—, declaran sus terminales por
+//  NOMBRE y se conectan y desconectan con un único set_enabled(bool).)
 //
 // El contrato eléctrico del modelo es que el exterior del encapsulado son los
 // AnalogNet (uno por pin) y que cualquier cosa conectada a un pin se registra
@@ -18,36 +24,50 @@
 //              conflictos con la salida del MCU)
 //   SignalLink pista de placa unidireccional entre dos pines (TX -> RX)
 //
-// Ninguna de estas piezas forma parte del MCU: viven en verif/.
+// Ninguna de estas piezas forma parte del MCU: viven en parts/.
 // =============================================================================
-#ifndef STM32_VERIF_EXT_PARTS_H
-#define STM32_VERIF_EXT_PARTS_H
+#ifndef STM32_PARTS_EXT_PARTS_H
+#define STM32_PARTS_EXT_PARTS_H
 
 #include <systemc>
 #include <cmath>
+#include <cstdio>
 #include <vector>
 #include <deque>
 #include <string>
 #include <utility>
 #include "../common/analog_net.h"
+#include "part_base.h"        // ExtPartBase: terminales con nombre y set_enabled
 #include "../periph/sdio.h"   // sd_crc7 y SdCrc16: el protocolo es el mismo
 #include "../periph/can.h"    // can_crc15 y el relleno de bits: idem
 #include "../periph/otg.h"    // usb_dev_if y los PID: el aparejo habla lo mismo
 #include "../periph/eth_mac.h" // eth_fcs: el CRC del cable lo calculan los dos igual
-#include "swd_port.h"        // el maestro SWD a nivel de bit, compartido con el stub GDB
+#include "../verif/swd_port.h" // el maestro SWD a nivel de bit, compartido con el stub GDB
 
 namespace stm32 {
 
 // ---------------------------------------------------------------------------
-// Base: cualquier componente conectado a un pin es un driver del nodo.
+// Base de las piezas de UNA SOLA PATILLA: un LED, un pulsador, una resistencia,
+// un cristal. Es una comodidad sobre ExtPartBase —declara el terminal y guarda
+// el nodo y el identificador del driver a mano— porque el grueso de la librería
+// tiene una patilla y nada más.
+//
+// El nombre del terminal se puede dar: para el netlist no es lo mismo "anodo"
+// que "osc_in", aunque eléctricamente sean la misma clase de conexión.
 // ---------------------------------------------------------------------------
-class ExtPart {
+class ExtPart : public ExtPartBase {
 public:
-    ExtPart(analog_net_if& n, const char* nm) : net_(&n) { id_ = net_->register_driver(nm); }
+    // `tipo` es el nombre de la clase tal y como lo escribirá el XML; `drv` es
+    // la etiqueta con la que la pieza se apunta como driver del nodo (aparece
+    // en los avisos de sobrecorriente del pad); `term`, el nombre nominal de la
+    // patilla. El identificador de instancia lo pone la base.
+    ExtPart(analog_net_if& n, const char* tipo, const char* drv,
+            const char* term = "pin", const char* nombre = nullptr)
+        : ExtPartBase(tipo, nombre), net_(&n) { id_ = add_pin(term, n, drv); }
     // Al destruirse, el componente se "desuelda": deja el nodo en alta
     // impedancia. Sin esto, un componente temporal del banco de pruebas
     // seguiría cargando el pin durante el resto de la simulación.
-    virtual ~ExtPart() { if (net_ && id_ >= 0) net_->set_hiz(id_); }
+    ~ExtPart() override { if (net_ && id_ >= 0) net_->set_hiz(id_); }
     float  pin_voltage() const { return net_->voltage(); }
     float  pin_current() const { return net_->current(id_); }   // >0: entra al nodo
 protected:
@@ -67,10 +87,13 @@ protected:
 class Crystal : public ExtPart {
 public:
     Crystal(analog_net_if& osc_in, double vdd = 3.3, double r_bias = 1e6)
-        : ExtPart(osc_in, "xtal"), vdd_(vdd), r_(r_bias) { attach(); }
-    void attach() { drive(float(vdd_ * 0.5), float(r_)); present_ = true; }
-    void detach() { hiz(); present_ = false; }
+        : ExtPart(osc_in, "Crystal", "xtal", "osc_in"), vdd_(vdd), r_(r_bias) { attach(); }
+    void attach() { drive(float(vdd_ * 0.5), float(r_)); present_ = true; conectada_ = true; }
+    void detach() { hiz(); present_ = false; conectada_ = false; }
     bool present() const { return present_; }
+    // Desoldar el cristal es exactamente detach(): el interruptor común de la
+    // librería y el que ya tenía esta pieza son la misma operación.
+    void set_enabled(bool on) override { if (on) attach(); else detach(); }
 private:
     double vdd_, r_;
     bool   present_ = false;
@@ -82,17 +105,21 @@ private:
 SC_MODULE(ExtClock), public ExtPart {
     ExtClock(sc_core::sc_module_name nm, analog_net_if& n, double hz,
              double vdd = 3.3, double r_out = 50.0)
-        : sc_core::sc_module(nm), ExtPart(n, "extclk"),
+        : sc_core::sc_module(nm), ExtPart(n, "ExtClock", "extclk", "out", nm),
           hz_(hz), vdd_(vdd), r_(r_out) {
         SC_HAS_PROCESS(ExtClock);
         SC_THREAD(run);
     }
     void set_freq(double hz) { hz_ = hz; ev_.notify(sc_core::SC_ZERO_TIME); }
     void stop()              { set_freq(0.0); }
+    void set_enabled(bool on) override {
+        ExtPartBase::set_enabled(on);
+        ev_.notify(sc_core::SC_ZERO_TIME);
+    }
 private:
     void run() {
         for (;;) {
-            if (hz_ <= 0.0) { hiz(); wait(ev_); continue; }
+            if (hz_ <= 0.0 || !conectada_) { hiz(); wait(ev_); continue; }
             const sc_core::sc_time half(0.5e12 / hz_, sc_core::SC_PS);
             drive(lvl_ ? float(vdd_) : 0.0f, float(r_));
             lvl_ = !lvl_;
@@ -110,7 +137,15 @@ private:
 class Resistor : public ExtPart {
 public:
     Resistor(analog_net_if& n, double to_volts, double ohms)
-        : ExtPart(n, "resistor") { drive(float(to_volts), float(ohms)); }
+        : ExtPart(n, "Resistor", "resistor", "a"), v_(to_volts), r_(ohms) {
+        drive(float(v_), float(r_));
+    }
+    void set_enabled(bool on) override {
+        conectada_ = on;
+        if (on) drive(float(v_), float(r_)); else hiz();
+    }
+private:
+    double v_, r_;
 };
 
 // ---------------------------------------------------------------------------
@@ -126,7 +161,7 @@ public:
 SC_MODULE(Led), public ExtPart {
     Led(sc_core::sc_module_name nm, analog_net_if& n, bool to_vss = true,
         double vf = 2.0, double r_series = 330.0, double vdd = 3.3)
-        : sc_core::sc_module(nm), ExtPart(n, "led"),
+        : sc_core::sc_module(nm), ExtPart(n, "Led", "led", "anodo", nm),
           to_vss_(to_vss), vf_(vf), r_(r_series), vdd_(vdd) {
         SC_HAS_PROCESS(Led);
         SC_THREAD(run);
@@ -137,7 +172,8 @@ private:
     void run() {
         hiz();
         for (;;) {
-            wait(net_->value_changed_event());
+            wait(net_->value_changed_event() | evento_conexion());
+            if (!conectada_) { hiz(); on_ = false; continue; }
             const double v = net_->voltage();
             // Conducción: pin -> LED -> R -> VSS, o VDD -> LED -> R -> pin
             const bool cond = to_vss_ ? (v > vf_) : (v < vdd_ - vf_);
@@ -157,10 +193,12 @@ private:
 class Button : public ExtPart {
 public:
     Button(analog_net_if& n, double r_closed = 10.0)
-        : ExtPart(n, "button"), r_(r_closed) { release(); }
-    void press()   { drive(0.0f, float(r_)); down_ = true; }
+        : ExtPart(n, "Button", "button", "pin"), r_(r_closed) { release(); }
+    // Un pulsador desoldado no cierra nada aunque se le pulse.
+    void press()   { if (!conectada_) return; drive(0.0f, float(r_)); down_ = true; }
     void release() { hiz(); down_ = false; }
     bool pressed() const { return down_; }
+    void set_enabled(bool on) override { ExtPartBase::set_enabled(on); if (!on) down_ = false; }
 private:
     double r_; bool down_ = false;
 };
@@ -179,8 +217,9 @@ private:
 SC_MODULE(SignalLink), public ExtPart {
     SignalLink(sc_core::sc_module_name nm, analog_net_if& from, analog_net_if& to,
                double vdd = 3.3, double r_out = 50.0)
-        : sc_core::sc_module(nm), ExtPart(to, "link"),
+        : sc_core::sc_module(nm), ExtPart(to, "SignalLink", "link", "destino", nm),
           from_(&from), vdd_(vdd), r_(r_out) {
+        add_ref("origen", from);      // el origen solo se lee: no lleva driver
         SC_HAS_PROCESS(SignalLink);
         SC_THREAD(run);
     }
@@ -188,7 +227,9 @@ SC_MODULE(SignalLink), public ExtPart {
     // Soldar o quitar la pista. Sin ella el pin de destino queda como estaba:
     // así una misma placa sirve para pruebas que necesitan el enlace y para
     // otras que usan ese pin para otra cosa.
-    void set_enabled(bool on) { on_ = on; ev_.notify(sc_core::SC_ZERO_TIME); }
+    void set_enabled(bool on) override {
+        conectada_ = on; on_ = on; ev_.notify(sc_core::SC_ZERO_TIME);
+    }
 private:
     void run() {
         for (;;) {
@@ -218,15 +259,16 @@ private:
 
 // Base común: una pieza conectada a las dos líneas del bus, capaz de tirar de
 // cada una a cero o soltarla, y de leerlas con el umbral de un receptor I2C.
-class I2cPart {
+class I2cPart : public ExtPartBase {
 public:
-    I2cPart(analog_net_if& scl, analog_net_if& sda, const char* nm, double vdd = 3.3)
-        : scl_(&scl), sda_(&sda), vdd_(vdd) {
-        id_scl_ = scl_->register_driver(nm);
-        id_sda_ = sda_->register_driver(nm);
+    I2cPart(analog_net_if& scl, analog_net_if& sda, const char* tipo,
+            const char* drv, const char* nombre, double vdd = 3.3)
+        : ExtPartBase(tipo, nombre), scl_(&scl), sda_(&sda), vdd_(vdd) {
+        id_scl_ = add_pin("scl", scl, drv);
+        id_sda_ = add_pin("sda", sda, drv);
         release_scl(); release_sda();
     }
-    virtual ~I2cPart() { scl_->set_hiz(id_scl_); sda_->set_hiz(id_sda_); }
+    ~I2cPart() override { scl_->set_hiz(id_scl_); sda_->set_hiz(id_sda_); }
     bool scl() const { return scl_->voltage() > 0.5 * vdd_; }
     bool sda() const { return sda_->voltage() > 0.5 * vdd_; }
 protected:
@@ -248,20 +290,27 @@ protected:
 // (analog_net_if::voltage_excluding), que es lo que evita que la propagación se
 // realimente y se quede enganchada.
 // ---------------------------------------------------------------------------
-SC_MODULE(I2cWire) {
+SC_MODULE(I2cWire), public ExtPartBase {
     I2cWire(sc_core::sc_module_name nm, std::vector<analog_net_if*> nets,
             double vdd = 3.3, double r_pull = 4700.0)
-        : sc_core::sc_module(nm), nets_(std::move(nets)), vdd_(vdd) {
-        for (analog_net_if* n : nets_) {
-            id_pu_.push_back(n->register_driver("i2c_pullup"));
-            id_pd_.push_back(n->register_driver("i2c_wire"));
-            n->set_drive(id_pu_.back(), float(vdd), float(r_pull));
-            n->set_hiz(id_pd_.back());
+        : sc_core::sc_module(nm), ExtPartBase("I2cWire", nm),
+          nets_(std::move(nets)), vdd_(vdd) {
+        char t[16];
+        for (size_t i = 0; i < nets_.size(); ++i) {
+            std::snprintf(t, sizeof t, "l%u", unsigned(i));
+            // Dos drivers por línea: el pull-up de la placa y el hilo que
+            // propaga el cero de los demás.
+            id_pu_.push_back(add_pin(t, *nets_[i], "i2c_pullup"));
+            id_pd_.push_back(add_drv(t, "i2c_wire"));
+            nets_[i]->set_drive(id_pu_.back(), float(vdd), float(r_pull));
+            nets_[i]->set_hiz(id_pd_.back());
         }
         SC_HAS_PROCESS(I2cWire);
         SC_THREAD(run);
     }
-    void set_enabled(bool on) { on_ = on; ev_.notify(sc_core::SC_ZERO_TIME); }
+    void set_enabled(bool on) override {
+        conectada_ = on; on_ = on; ev_.notify(sc_core::SC_ZERO_TIME);
+    }
 private:
     void run() {
         for (;;) {
@@ -301,7 +350,7 @@ private:
 SC_MODULE(I2cEeprom), public I2cPart {
     I2cEeprom(sc_core::sc_module_name nm, analog_net_if& scl, analog_net_if& sda,
               uint8_t dev_addr = 0x50, double vdd = 3.3)
-        : sc_core::sc_module(nm), I2cPart(scl, sda, "eeprom", vdd), addr_(dev_addr) {
+        : sc_core::sc_module(nm), I2cPart(scl, sda, "I2cEeprom", "eeprom", nm, vdd), addr_(dev_addr) {
         for (unsigned i = 0; i < sizeof mem_; ++i) mem_[i] = uint8_t(0xA0 + i);
         SC_HAS_PROCESS(I2cEeprom);
         SC_METHOD(edge_proc);
@@ -434,22 +483,26 @@ private:
 // Puede además ESTROPEAR a propósito el CRC de la respuesta o el de los datos,
 // que es como se comprueba que el host levanta CCRCFAIL y DCRCFAIL de verdad.
 // ===========================================================================
-SC_MODULE(SdCard) {
+SC_MODULE(SdCard), public ExtPartBase {
     SdCard(sc_core::sc_module_name nm, analog_net_if& ck, analog_net_if& cmd,
            analog_net_if* d0, analog_net_if* d1, analog_net_if* d2,
            analog_net_if* d3, double vdd = 3.3)
-        : sc_core::sc_module(nm), ck_(&ck), cmd_(&cmd), vdd_(vdd) {
+        : sc_core::sc_module(nm), ExtPartBase("SdCard", nm),
+          ck_(&ck), cmd_(&cmd), vdd_(vdd) {
         dat_[0] = d0; dat_[1] = d1; dat_[2] = d2; dat_[3] = d3;
-        id_cmd_ = cmd_->register_driver("sdcard_cmd");
+        add_ref("ck", ck);                    // el reloj lo pone el host
+        id_cmd_ = add_pin("cmd", cmd, "sdcard_cmd");
         // El pull-up de la placa: CMD y las líneas de datos reposan en alto,
         // como en cualquier zócalo de tarjeta.
-        id_cmd_pu_ = cmd_->register_driver("sd_pu_cmd");
+        id_cmd_pu_ = add_drv("cmd", "sd_pu_cmd");
         cmd_->set_drive(id_cmd_pu_, float(vdd_), 47e3f);
         cmd_->set_hiz(id_cmd_);
+        char t[8];
         for (unsigned i = 0; i < 4; ++i) {
             if (!dat_[i]) continue;
-            id_dat_[i] = dat_[i]->register_driver("sdcard_dat");
-            id_dat_pu_[i] = dat_[i]->register_driver("sd_pu_dat");
+            std::snprintf(t, sizeof t, "dat%u", i);
+            id_dat_[i] = add_pin(t, *dat_[i], "sdcard_dat");
+            id_dat_pu_[i] = add_drv(t, "sd_pu_dat");
             dat_[i]->set_drive(id_dat_pu_[i], float(vdd_), 47e3f);
             dat_[i]->set_hiz(id_dat_[i]);
         }
@@ -462,6 +515,16 @@ SC_MODULE(SdCard) {
     ~SdCard() override {
         cmd_->set_hiz(id_cmd_);
         for (unsigned i = 0; i < 4; ++i) if (dat_[i]) dat_[i]->set_hiz(id_dat_[i]);
+    }
+
+    // Sacar la tarjeta del zócalo: se van con ella los pull-ups, que es
+    // precisamente lo que distingue un zócalo vacío de uno ocupado.
+    void set_enabled(bool on) override {
+        ExtPartBase::set_enabled(on);
+        if (!on) { st_ = RX_CMD; return; }
+        cmd_->set_drive(id_cmd_pu_, float(vdd_), 47e3f);
+        for (unsigned i = 0; i < 4; ++i)
+            if (dat_[i]) dat_[i]->set_drive(id_dat_pu_[i], float(vdd_), 47e3f);
     }
 
     // ---- Observación y control desde el banco ----------------------------
@@ -498,6 +561,7 @@ private:
     }
 
     void edge_proc() {
+        if (!conectada_) return;              // tarjeta fuera del zócalo
         const bool c = ck();
         const bool prev = ck_prev_;
         ck_prev_ = c;
@@ -721,7 +785,7 @@ private:
 SC_MODULE(I2cExtMaster), public I2cPart {
     I2cExtMaster(sc_core::sc_module_name nm, analog_net_if& scl, analog_net_if& sda,
                  double f_scl = 100e3, double vdd = 3.3)
-        : sc_core::sc_module(nm), I2cPart(scl, sda, "extmaster", vdd),
+        : sc_core::sc_module(nm), I2cPart(scl, sda, "I2cExtMaster", "extmaster", nm, vdd),
           half_(sc_core::sc_time(0.5e12 / f_scl, sc_core::SC_PS)) {
         SC_HAS_PROCESS(I2cExtMaster);
         SC_THREAD(run);
@@ -775,6 +839,7 @@ private:
         release_scl(); release_sda();
         for (;;) {
             wait(go_);
+            if (!conectada_) { busy_ = false; continue; }   // maestro desoldado
             // START
             release_sda(); release_scl(); wait(half_);
             pull_sda(); wait(half_);
@@ -810,9 +875,9 @@ private:
 class Driver : public ExtPart {
 public:
     Driver(analog_net_if& n, double vdd = 3.3, double r_out = 25.0)
-        : ExtPart(n, "extdrv"), vdd_(vdd), r_(r_out) { hiz(); }
-    void set(bool level) { drive(level ? float(vdd_) : 0.0f, float(r_)); }
-    void set_volts(double v, double r) { drive(float(v), float(r)); }
+        : ExtPart(n, "Driver", "extdrv", "pin"), vdd_(vdd), r_(r_out) { hiz(); }
+    void set(bool level) { if (conectada_) drive(level ? float(vdd_) : 0.0f, float(r_)); }
+    void set_volts(double v, double r) { if (conectada_) drive(float(v), float(r)); }
     void release()       { hiz(); }
 private:
     double vdd_, r_;
@@ -837,10 +902,12 @@ private:
 // ===========================================================================
 
 // El hilo comun: un nodo analogico con su terminador. Recesivo = alto.
-class CanWire {
+class CanWire : public ExtPartBase {
 public:
-    explicit CanWire(double vdd = 3.3, double r_term = 1000.0) : vdd_(vdd) {
-        id_term_ = net_.register_driver("terminador");
+    explicit CanWire(double vdd = 3.3, double r_term = 1000.0,
+                     const char* nm = "can_bus")
+        : ExtPartBase("CanWire", nm), net_(nm), vdd_(vdd), r_term_(r_term) {
+        id_term_ = add_pin("bus", net_, "terminador");
         net_.set_drive(id_term_, float(vdd), float(r_term));
     }
     analog_net_if& net() { return net_; }
@@ -850,39 +917,45 @@ public:
     // Desconectar el terminador deja el hilo flotando: es lo que se ve al
     // desenchufar el cable.
     void set_terminated(bool on) {
-        net_.set_drive(id_term_, float(vdd_), on ? 1000.0f : R_HIZ);
+        conectada_ = on;
+        net_.set_drive(id_term_, float(vdd_), on ? float(r_term_) : R_HIZ);
     }
+    void set_enabled(bool on) override { set_terminated(on); }
 private:
-    AnalogNet net_{"can_bus"};
-    double vdd_;
+    AnalogNet net_;
+    double vdd_, r_term_;
     int id_term_ = -1;
 };
 
 // El transceptor: convierte los dos pines digitales del MCU en el estado del
 // hilo, y al reves. Es el chip que va soldado al lado del microcontrolador.
-SC_MODULE(CanTransceiver) {
+SC_MODULE(CanTransceiver), public ExtPartBase {
     CanTransceiver(sc_core::sc_module_name nm, analog_net_if& tx_pin,
                    analog_net_if& rx_pin, CanWire& bus, double vdd = 3.3)
-        : sc_core::sc_module(nm), tx_(&tx_pin), rx_(&rx_pin),
-          bus_(&bus), vdd_(vdd) {
+        : sc_core::sc_module(nm), ExtPartBase("CanTransceiver", nm),
+          tx_(&tx_pin), rx_(&rx_pin), bus_(&bus), vdd_(vdd) {
         // La entrada TXD del transceptor lleva PULL-UP, como los chips de
         // verdad. No es un adorno: es lo que garantiza que un TXD flotante
         // -el MCU todavia sin configurar, o el pin en reset- deje el hilo
         // RECESIVO en vez de atascar el bus entero en dominante.
-        id_txd_ = tx_->register_driver("xcvr_txd_pu");
-        id_rxd_ = rx_->register_driver("xcvr_rxd");
-        id_bus_ = bus_->net().register_driver("xcvr_bus");
+        id_txd_ = add_pin("txd", *tx_, "xcvr_txd_pu");
+        id_rxd_ = add_pin("rxd", *rx_, "xcvr_rxd");
+        id_bus_ = add_pin("bus", bus_->net(), "xcvr_bus");
         SC_HAS_PROCESS(CanTransceiver);
         SC_THREAD(run);
         set_attached(attached_);
     }
     // Un transceptor en reposo (STB) deja de gobernar el hilo, pero sigue
-    // escuchando: es lo que hacen los de verdad en bajo consumo.
-    void set_enabled(bool on) { on_ = on; ev_.notify(sc_core::SC_ZERO_TIME); }
+    // escuchando: es lo que hacen los de verdad en bajo consumo. Ojo: esto NO
+    // es lo mismo que quitarlo de la placa, y por eso el interruptor de la
+    // librería —set_enabled— es el segundo, no el primero.
+    void set_standby(bool activo) { on_ = activo; ev_.notify(sc_core::SC_ZERO_TIME); }
     // Soldarlo o quitarlo de la placa. Sin el, sus dos pines quedan libres
     // para lo que quiera hacer el resto del banco de pruebas.
+    void set_enabled(bool on) override { set_attached(on); }
     void set_attached(bool on) {
         attached_ = on;
+        conectada_ = on;
         if (!on) {
             tx_->set_hiz(id_txd_);
             rx_->set_hiz(id_rxd_);
@@ -926,18 +999,21 @@ private:
 //   * COMPETIR en el arbitraje, que es lo que decide quien manda cuando dos
 //     nodos empiezan a la vez.
 // ---------------------------------------------------------------------------
-SC_MODULE(CanNode) {
+SC_MODULE(CanNode), public ExtPartBase {
     CanNode(sc_core::sc_module_name nm, CanWire& bus, double bitrate = 500e3,
             double vdd = 3.3)
-        : sc_core::sc_module(nm), bus_(&bus), tb_(1.0 / bitrate), vdd_(vdd) {
-        id_ = bus_->net().register_driver("nodo_can");
+        : sc_core::sc_module(nm), ExtPartBase("CanNode", nm),
+          bus_(&bus), tb_(1.0 / bitrate), vdd_(vdd) {
+        id_ = add_pin("bus", bus_->net(), "nodo_can");
         bus_->net().set_hiz(id_);
         SC_HAS_PROCESS(CanNode);
         SC_THREAD(run);
     }
 
     // --- Mandos del banco de pruebas ---------------------------------------
-    void set_enabled(bool on) { on_ = on; ev_.notify(sc_core::SC_ZERO_TIME); }
+    void set_enabled(bool on) override {
+        conectada_ = on; on_ = on; ev_.notify(sc_core::SC_ZERO_TIME);
+    }
     void set_ack(bool on)     { ack_ = on; }        // deja de asentir: error de ACK
     void set_bitrate(double b){ tb_ = 1.0 / b; }
     // Vacia la cola y los contadores. Un nodo CAN reintenta indefinidamente un
@@ -1173,7 +1249,7 @@ private:
 SC_MODULE(SwoReceiver), public ExtPart {
     SwoReceiver(sc_core::sc_module_name nm, analog_net_if& swo, double bitrate,
                 double vdd = 3.3)
-        : sc_core::sc_module(nm), ExtPart(swo, "swo_rx"), tb_(1.0 / bitrate),
+        : sc_core::sc_module(nm), ExtPart(swo, "SwoReceiver", "swo_rx", "swo", nm), tb_(1.0 / bitrate),
           vdd_(vdd) {
         hiz();                                        // solo escucha
         SC_HAS_PROCESS(SwoReceiver);
@@ -1259,20 +1335,23 @@ private:
 //     vacia su FIFO a tiempo, los datos se pierden. Un modelo de sensor que
 //     esperase seria un modelo inutil.
 // ===========================================================================
-SC_MODULE(CameraSensor) {
+SC_MODULE(CameraSensor), public ExtPartBase {
     // Los tres pines de control mas hasta catorce de datos. Los que no existan
     // en el encapsulado se pasan como nullptr: el sensor no los conduce, y el
     // DCMI lee lo que haya, que es justo lo que pasa en la placa.
     CameraSensor(sc_core::sc_module_name nm, analog_net_if& pixclk,
                  analog_net_if& hsync, analog_net_if& vsync,
                  const std::vector<analog_net_if*>& d, double vdd = 3.3)
-        : sc_core::sc_module(nm), pclk_(&pixclk), hs_(&hsync), vs_(&vsync),
-          d_(d), vdd_(vdd) {
-        id_pclk_ = pclk_->register_driver("cam_pixclk");
-        id_hs_   = hs_->register_driver("cam_hsync");
-        id_vs_   = vs_->register_driver("cam_vsync");
-        for (size_t i = 0; i < d_.size(); ++i)
-            id_d_.push_back(d_[i] ? d_[i]->register_driver("cam_d") : -1);
+        : sc_core::sc_module(nm), ExtPartBase("CameraSensor", nm),
+          pclk_(&pixclk), hs_(&hsync), vs_(&vsync), d_(d), vdd_(vdd) {
+        id_pclk_ = add_pin("pixclk", pixclk, "cam_pixclk");
+        id_hs_   = add_pin("hsync",  hsync,  "cam_hsync");
+        id_vs_   = add_pin("vsync",  vsync,  "cam_vsync");
+        char t[8];
+        for (size_t i = 0; i < d_.size(); ++i) {
+            std::snprintf(t, sizeof t, "d%u", unsigned(i));
+            id_d_.push_back(d_[i] ? add_pin(t, *d_[i], "cam_d") : -1);
+        }
         SC_HAS_PROCESS(CameraSensor);
         SC_THREAD(run);
         soltar();
@@ -1318,13 +1397,17 @@ SC_MODULE(CameraSensor) {
         for (size_t i = 0; i < d_.size(); ++i)
             if (d_[i] && id_d_[i] >= 0) d_[i]->set_hiz(id_d_[i]);
         soldado_ = false;
+        conectada_ = false;
     }
     void soldar() {
         soldado_ = true;
+        conectada_ = true;
         nivel(*vs_, id_vs_, vs_alto_);      // en reposo: borrado vertical
         nivel(*hs_, id_hs_, hs_alto_);
         nivel(*pclk_, id_pclk_, false);
     }
+    // soldar()/soltar() son el interruptor de la librería con otro nombre.
+    void set_enabled(bool on) override { if (on) soldar(); else soltar(); }
 
 private:
     void nivel(analog_net_if& n, int id, bool alto) {
@@ -1412,18 +1495,31 @@ private:
 // Puede ademas pedir tiempo por NWAIT, que es lo unico del bus externo que no
 // decide el controlador.
 // ===========================================================================
-SC_MODULE(ExtSram) {
+SC_MODULE(ExtSram), public ExtPartBase {
     ExtSram(sc_core::sc_module_name nm,
             const std::vector<analog_net_if*>& d,     // D0..D15
             const std::vector<analog_net_if*>& a,     // A16..A23 (las que haya)
             analog_net_if& ne, analog_net_if& noe, analog_net_if& nwe,
             analog_net_if& nl, analog_net_if* nbl0, analog_net_if* nbl1,
             analog_net_if* nwait = nullptr, double vdd = 3.3)
-        : sc_core::sc_module(nm), d_(d), a_(a), ne_(&ne), noe_(&noe), nwe_(&nwe),
+        : sc_core::sc_module(nm), ExtPartBase("ExtSram", nm),
+          d_(d), a_(a), ne_(&ne), noe_(&noe), nwe_(&nwe),
           nl_(&nl), nbl0_(nbl0), nbl1_(nbl1), nwait_(nwait), vdd_(vdd) {
-        for (analog_net_if* n : d_) id_d_.push_back(n->register_driver("sram_d"));
+        char t[8];
+        for (size_t i = 0; i < d_.size(); ++i) {
+            std::snprintf(t, sizeof t, "d%u", unsigned(i));
+            id_d_.push_back(add_pin(t, *d_[i], "sram_d"));
+        }
+        // Las direcciones y las señales de control solo se LEEN: las gobierna
+        // el FSMC, y la memoria se limita a obedecer.
+        for (size_t i = 0; i < a_.size(); ++i) {
+            std::snprintf(t, sizeof t, "a%u", unsigned(i + 16));
+            add_ref(t, *a_[i]);
+        }
+        add_ref("ne", ne); add_ref("noe", noe); add_ref("nwe", nwe);
+        add_ref("nl", nl); add_ref_opt("nbl0", nbl0); add_ref_opt("nbl1", nbl1);
         if (nwait_) {
-            id_wait_ = nwait_->register_driver("sram_wait");
+            id_wait_ = add_pin("nwait", *nwait_, "sram_wait");
             nwait_->set_hiz(id_wait_);
         }
         mem_.assign(64u * 1024u, 0);
@@ -1439,7 +1535,8 @@ SC_MODULE(ExtSram) {
     // --- Configuracion de la placa ------------------------------------------
     void set_mux(bool on)        { mux_ = on; }
     void set_ancho(unsigned b)   { ancho_ = b; }
-    void set_conectada(bool on)  { puesta_ = on; if (!on) soltar(); }
+    void set_enabled(bool on) override { puesta_ = on; conectada_ = on; if (!on) soltar(); }
+    void set_conectada(bool on)  { set_enabled(on); }      // nombre histórico
     void escribe(uint32_t off, uint8_t v) { if (off < mem_.size()) mem_[off] = v; }
     uint8_t lee(uint32_t off) const { return off < mem_.size() ? mem_[off] : 0u; }
     uint32_t lee16(uint32_t off) const {
@@ -1530,15 +1627,22 @@ private:
 // leer identificacion (0x90), leer pagina (0x00 ... 0x30), programar
 // (0x80 ... 0x10) y leer estado (0x70).
 // ===========================================================================
-SC_MODULE(ExtNand) {
+SC_MODULE(ExtNand), public ExtPartBase {
     ExtNand(sc_core::sc_module_name nm, const std::vector<analog_net_if*>& d,
             analog_net_if& cle, analog_net_if& ale, analog_net_if& nce,
             analog_net_if& noe, analog_net_if& nwe, analog_net_if* rb = nullptr,
             double vdd = 3.3)
-        : sc_core::sc_module(nm), d_(d), cle_(&cle), ale_(&ale), nce_(&nce),
+        : sc_core::sc_module(nm), ExtPartBase("ExtNand", nm),
+          d_(d), cle_(&cle), ale_(&ale), nce_(&nce),
           noe_(&noe), nwe_(&nwe), rb_(rb), vdd_(vdd) {
-        for (analog_net_if* n : d_) id_d_.push_back(n->register_driver("nand_d"));
-        if (rb_) { id_rb_ = rb_->register_driver("nand_rb"); }
+        char t[8];
+        for (size_t i = 0; i < d_.size(); ++i) {
+            std::snprintf(t, sizeof t, "d%u", unsigned(i));
+            id_d_.push_back(add_pin(t, *d_[i], "nand_d"));
+        }
+        add_ref("cle", cle); add_ref("ale", ale); add_ref("nce", nce);
+        add_ref("noe", noe); add_ref("nwe", nwe);
+        if (rb_) { id_rb_ = add_pin("rb", *rb_, "nand_rb"); }
         mem_.assign(PAGINAS * PAGINA, 0xFFu);
         SC_HAS_PROCESS(ExtNand);
         SC_METHOD(ctrl_proc);
@@ -1549,11 +1653,13 @@ SC_MODULE(ExtNand) {
     }
     static constexpr unsigned PAGINA = 512, PAGINAS = 16;
 
-    void set_conectada(bool on) {
+    void set_enabled(bool on) override {
         puesta_ = on;
+        conectada_ = on;
         if (!on) { soltar(); if (rb_) rb_->set_hiz(id_rb_); }
         else if (rb_) rb_->set_drive(id_rb_, float(vdd_), 1000.0f);  // listo
     }
+    void set_conectada(bool on) { set_enabled(on); }       // nombre histórico
     void escribe(uint32_t off, uint8_t v) { if (off < mem_.size()) mem_[off] = v; }
     uint8_t lee(uint32_t off) const { return off < mem_.size() ? mem_[off] : 0xFFu; }
     unsigned mandatos() const { return n_cmd_; }
@@ -1662,23 +1768,26 @@ private:
 // variable booleana. Los paquetes cruzan como paquetes (vease la frontera del
 // modelo en periph/otg.h).
 // ===========================================================================
-SC_MODULE(UsbHostRig) {
+SC_MODULE(UsbHostRig), public ExtPartBase {
     UsbHostRig(sc_core::sc_module_name nm, analog_net_if& dm, analog_net_if& dp,
                analog_net_if& vbus, analog_net_if& id, double vdd = 3.3)
-        : sc_core::sc_module(nm), dm_(&dm), dp_(&dp), vbus_(&vbus), id_(&id),
-          vdd_(vdd) {
-        id_dm_ = dm_->register_driver("host_dm");
-        id_dp_ = dp_->register_driver("host_dp");
-        id_pd_dm_ = dm_->register_driver("host_pd_dm");
-        id_pd_dp_ = dp_->register_driver("host_pd_dp");
-        id_vb_ = vbus_->register_driver("host_vbus");
-        id_id_ = id_->register_driver("host_id");
+        : sc_core::sc_module(nm), ExtPartBase("UsbHostRig", nm),
+          dm_(&dm), dp_(&dp), vbus_(&vbus), id_(&id), vdd_(vdd) {
+        id_dm_ = add_pin("dm", dm, "host_dm");
+        id_dp_ = add_pin("dp", dp, "host_dp");
+        id_pd_dm_ = add_drv("dm", "host_pd_dm");     // los dos 15 kohm a masa
+        id_pd_dp_ = add_drv("dp", "host_pd_dp");
+        id_vb_ = add_pin("vbus", vbus, "host_vbus");
+        id_id_ = add_pin("id", id, "host_id");
+        conectada_ = false;                          // nace desenchufado
         soltar();
     }
 
     // --- La placa ------------------------------------------------------------
+    void set_enabled(bool on) override { conectar(on); }
     void conectar(bool on) {
         puesto_ = on;
+        conectada_ = on;
         // Los dos 15 kohm a masa son lo que convierte a este extremo en
         // anfitrion: sin ellos, el cable no tiene referencia.
         dm_->set_drive(id_pd_dm_, 0.0f, on ? 15.0e3f : R_HIZ);
@@ -1768,16 +1877,18 @@ private:
 // Un dispositivo USB de verdad al otro lado: contesta a los testigos y se
 // entera del reset porque VE el SE0, no porque nadie se lo cuente.
 // ---------------------------------------------------------------------------
-SC_MODULE(UsbDeviceRig), public usb_dev_if {
+SC_MODULE(UsbDeviceRig), public ExtPartBase, public usb_dev_if {
     UsbDeviceRig(sc_core::sc_module_name nm, analog_net_if& dm, analog_net_if& dp,
                  analog_net_if& vbus, double vdd = 3.3)
-        : sc_core::sc_module(nm), dm_(&dm), dp_(&dp), vbus_(&vbus), vdd_(vdd) {
-        id_pu_ = dp_->register_driver("dev_pullup");
-        id_pu_lo_ = dm_->register_driver("dev_pullup_ls");
+        : sc_core::sc_module(nm), ExtPartBase("UsbDeviceRig", nm),
+          dm_(&dm), dp_(&dp), vbus_(&vbus), vdd_(vdd) {
+        id_pu_ = add_pin("dp", dp, "dev_pullup");
+        id_pu_lo_ = add_pin("dm", dm, "dev_pullup_ls");
         // El interruptor de 5 V de la placa. No lo da el MCU -PB13 es una
         // ENTRADA de sensado-, lo da un conmutador externo que el firmware
         // gobierna por un GPIO cualquiera; aqui lo maneja la prueba.
-        id_vb_ = vbus_->register_driver("placa_vbus");
+        id_vb_ = add_pin("vbus", vbus, "placa_vbus");
+        conectada_ = false;                          // nace desenchufado
         dp_->set_hiz(id_pu_); dm_->set_hiz(id_pu_lo_);
         SC_HAS_PROCESS(UsbDeviceRig);
         SC_METHOD(linea_proc);
@@ -1790,9 +1901,12 @@ SC_MODULE(UsbDeviceRig), public usb_dev_if {
                  0x03, 0x01};
     }
 
-    // Enchufar el cable: aparece el 1,5 kohm de D+ y el anfitrion lo ve.
+    // Enchufar el cable: aparece el 1,5 kohm de D+ y el anfitrion lo ve. Es el
+    // interruptor de la librería: un dispositivo desenchufado no existe.
+    void set_enabled(bool on) override { enchufar(on); }
     void enchufar(bool on) {
         puesto_ = on;
+        conectada_ = on;
         actualiza();
     }
     void alimentacion_placa(bool on) {
@@ -1899,7 +2013,7 @@ private:
 // Se conecta a los nodos analogicos de los pines, como todo lo que se suelda a
 // la placa en este proyecto.
 // ===========================================================================
-SC_MODULE(EthPhy) {
+SC_MODULE(EthPhy), public ExtPartBase {
     // Los pines, en el orden en que salen del encapsulado.
     EthPhy(sc_core::sc_module_name nm,
            analog_net_if& mdc, analog_net_if& mdio,
@@ -1908,22 +2022,35 @@ SC_MODULE(EthPhy) {
            const std::vector<analog_net_if*>& rxd,
            analog_net_if& rx_dv, analog_net_if& rx_er,
            analog_net_if& crs, analog_net_if& col, double vdd = 3.3)
-        : sc_core::sc_module(nm), mdc_(&mdc), mdio_(&mdio), txclk_(&tx_clk),
+        : sc_core::sc_module(nm), ExtPartBase("EthPhy", nm),
+          mdc_(&mdc), mdio_(&mdio), txclk_(&tx_clk),
           rxclk_(&rx_clk), txen_(&tx_en), txd_(txd), rxd_(rxd), rxdv_(&rx_dv),
           rxer_(&rx_er), crs_(&crs), col_(&col), vdd_(vdd) {
-        id_mdio_ = mdio_->register_driver("phy_mdio");
+        add_ref("mdc", mdc);                  // el reloj del MDIO lo pone el MAC
+        id_mdio_ = add_pin("mdio", mdio, "phy_mdio");
         // La RESISTENCIA DE PULL-UP del MDIO, que en la placa son 1,5 a 10 kohm
         // y sin la cual el bus no tiene estado de reposo. Es lo que hace que
         // preguntarle a una direccion donde no hay nadie devuelva TODO UNOS en
         // vez de un valor cualquiera.
-        id_mdio_pu_ = mdio_->register_driver("mdio_pullup");
-        id_txclk_ = txclk_->register_driver("phy_txclk");
-        id_rxclk_ = rxclk_->register_driver("phy_rxclk");
-        id_rxdv_ = rxdv_->register_driver("phy_rxdv");
-        id_rxer_ = rxer_->register_driver("phy_rxer");
-        id_crs_ = crs_->register_driver("phy_crs");
-        id_col_ = col_->register_driver("phy_col");
-        for (analog_net_if* n : rxd_) id_rxd_.push_back(n->register_driver("phy_rxd"));
+        id_mdio_pu_ = add_drv("mdio", "mdio_pullup");
+        id_txclk_ = add_pin("tx_clk", tx_clk, "phy_txclk");
+        id_rxclk_ = add_pin("rx_clk", rx_clk, "phy_rxclk");
+        id_rxdv_ = add_pin("rx_dv", rx_dv, "phy_rxdv");
+        id_rxer_ = add_pin("rx_er", rx_er, "phy_rxer");
+        id_crs_ = add_pin("crs", crs, "phy_crs");
+        id_col_ = add_pin("col", col, "phy_col");
+        char t[8];
+        for (size_t i = 0; i < rxd_.size(); ++i) {
+            std::snprintf(t, sizeof t, "rxd%u", unsigned(i));
+            id_rxd_.push_back(add_pin(t, *rxd_[i], "phy_rxd"));
+        }
+        // Lo que sale del MAC solo se escucha: TX_EN y los TXD los gobierna el.
+        add_ref("tx_en", tx_en);
+        for (size_t i = 0; i < txd_.size(); ++i) {
+            std::snprintf(t, sizeof t, "txd%u", unsigned(i));
+            add_ref(t, *txd_[i]);
+        }
+        conectada_ = false;                   // nace sin soldar
         // Registros del PHY: los cuatro primeros son los de la norma.
         reg_.assign(32, 0);
         reg_[0] = 0x3100;                 // BMCR: 100 Mbit/s, full duplex, ANEG
@@ -1944,8 +2071,10 @@ SC_MODULE(EthPhy) {
     }
 
     // --- La placa ------------------------------------------------------------
+    void set_enabled(bool on) override { conectar(on); }
     void conectar(bool on) {
         puesto_ = on;
+        conectada_ = on;
         mdio_->set_drive(id_mdio_pu_, on ? float(vdd_) : 0.0f,
                          on ? 10.0e3f : R_HIZ);
         if (!on) soltar();

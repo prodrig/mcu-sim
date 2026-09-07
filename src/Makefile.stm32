@@ -20,7 +20,7 @@ LDFLAGS  += -L$(SYSTEMC_HOME)/lib -L$(SYSTEMC_HOME)/lib-linux64 \
             -Wl,-rpath,$(SYSTEMC_HOME)/lib -Wl,-rpath,$(SYSTEMC_HOME)/lib-linux64
 LDLIBS   += -lsystemc -lpthread
 
-HDRS := $(wildcard common/*.h pins/*.h bus/*.h mem/*.h rcc/*.h core/*.h \
+HDRS := $(wildcard common/*.h pins/*.h parts/*.h bus/*.h mem/*.h rcc/*.h core/*.h \
                    periph/*.h verif/*.h top/*.h)
 
 TARGET := build/stm32f407vg

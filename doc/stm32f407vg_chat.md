@@ -491,3 +491,238 @@ no por esperas. Es el perfil en el que menos se nota. Y lo que queda, `ClockGen`
 con las ondas cuadradas encendidas, **no es un error**: ahí el sondeo *es* el
 modelo, porque un reloj es una onda; para eso está el interruptor
 `set_internal_waveforms(false)`.
+
+
+## 2026-09-07 UTC — Estrategia XML + SVG de QtSysC
+
+**Mensaje:**
+
+> El proyecto QtSysC, sibling de este proyecto, permite especificar el circuito
+> SystemC a construir con dos ficheros, un XML que especifica los componentes y
+> conexiones y un SVG que contiene una descripción gráfica de dicho circuito (no
+> todos los componentes del XML deben estar presentes).
+> Analiza las posibilidades de aplicar la misma estrategia en este proyecto
+> creando una librería de componentes externos al MCU, como LEDs, botones, etc.
+> CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.
+
+**Respuesta:**
+
+### 1. Qué hay ya construido que encaja con esa estrategia
+
+El proyecto no parte de cero. `src/verif/ext_parts.h` es, de facto, una librería
+de componentes externos al MCU con unas veinte piezas: `Crystal`, `ExtClock`,
+`Led`, `Button`, divisores y resistencias, `SignalLink`, `I2cWire`, EEPROM
+24Cxx, maestro I2C externo, `SdCard`, `CanWire`/`CanTransceiver`/`CanNode`,
+sonda SWD, analizador SWO, `CameraSensor`, `ExtSram`, `ExtNand`, `UsbHostRig`,
+`UsbDeviceRig` y `EthPhy`.
+
+Y lo importante: **todas comparten ya el mismo contrato de conexión**. Cada una
+recibe en el constructor una o varias referencias `analog_net_if&` y llama a
+`register_driver()` sobre ellas. El testbench las conecta invariablemente con
+`pinmux.analog(port, pin)`. Eso significa que el «netlist» de la placa ya existe
+conceptualmente; lo que ocurre es que hoy está escrito en C++ dentro del bloque
+de elaboración de `F1Tb` en `sc_main.cpp`, mezclado con la lógica de los 1811
+checks.
+
+Dicho de otra forma: la distancia entre lo que hay y lo que propone QtSysC no es
+de arquitectura, es de **formato de descripción**. El grafo componente–pin–red ya
+está bien definido y es uniforme. Falta externalizarlo.
+
+### 2. El esquema XML natural para este proyecto
+
+Tres tipos de entidad:
+
+- **Componentes.** Tipo (el nombre registrado en una factoría), identificador de
+  instancia y parámetros propios de la pieza (`Led` necesita color/Vf/serie,
+  `Crystal` la frecuencia, `ExtSram` el tamaño y los tiempos, `EthPhy` la
+  dirección MDIO, `SdCard` la imagen de respaldo, `Button` el rebote).
+- **Nodos eléctricos.** Cada `AnalogNet` es un nodo. Los del MCU se nombran por
+  su pad (`PA5`, `PH0`, `VDD`, `NRST`, `BOOT0`) y se resuelven con
+  `pinmux.analog()` o los pads de alimentación; los puramente externos (el nudo
+  entre un LED y su resistencia, el bus I2C, el par diferencial de USB) hay que
+  crearlos.
+- **Conexiones.** Pares (instancia, terminal) → nodo. El terminal debe ser
+  **nominal** («anodo», «catodo», «sda», «scl», «mdio», «d0».."d15") y no
+  posicional: el orden de los argumentos del constructor es un detalle de
+  implementación que no debe filtrarse al XML.
+
+```xml
+<placa nombre="discovery-min">
+  <nodo id="PA5"/>
+  <nodo id="n_led1"/>
+  <componente tipo="Led" id="LD2" vf="2.0" r_serie="330">
+    <pin nombre="anodo" nodo="PA5"/>
+  </componente>
+  <componente tipo="Crystal" id="X1" f="8M">
+    <pin nombre="in" nodo="PH0"/>
+  </componente>
+</placa>
+```
+
+### 3. Los tres obstáculos reales
+
+**(a) C++ no tiene reflexión: hace falta una factoría.** El XML dice
+`tipo="Led"` y alguien tiene que convertir esa cadena en un `new Led(...)`:
+registro estático `std::map<std::string, creador>` poblado por macros de
+auto-registro. Obliga a **homogeneizar los constructores** o a escribir un
+adaptador por pieza; lo segundo no toca el código existente y es por donde
+conviene empezar.
+
+**(b) La elaboración de SystemC es estática.** No se pueden construir
+`sc_module` una vez arrancado `sc_start()`. El XML **debe leerse y construirse
+antes de simular**, exactamente donde hoy `sc_main.cpp` instancia sus partes.
+Consecuencia: «elige la placa al lanzar el ejecutable» sí; editor interactivo
+que añade componentes con la simulación en marcha, no.
+
+**(c) `AnalogNet` no tiene desregistro de drivers**, solo Hi-Z (punto I-03 del
+TODO). Es en realidad una buena noticia para el requisito de que no todos los
+componentes del XML estén en el SVG: «presente en XML, ausente en SVG» no
+significa «no lo instancies» sino «instáncialo y déjalo desconectado». El idioma
+ya existe en el proyecto (`set_enabled`, `set_conectada`, `conectar`);
+generalizarlo a **todas** las piezas es trabajo pequeño y mecánico, con
+beneficio inmediato aunque no haya XML.
+
+### 4. Qué papel puede jugar el SVG aquí
+
+En QtSysC el SVG tiene sentido porque hay una GUI Qt que lo pinta. Aquí no la
+hay, y el SVG puede desempeñar tres papeles de valor decreciente:
+
+1. **Visualización de placa** (valor alto, coste bajo): un SVG generado *desde*
+   el XML, no escrito a mano. Hoy, entender qué está conectado a PB11 en un test
+   dado exige leer `sc_main.cpp`.
+2. **Traza gráfica de post-simulación** (valor alto, coste medio): el mismo SVG
+   con `id` en cada elemento más un volcado de eventos. Explota lo que ya tiene
+   el modelo —tensiones y corrientes reales en float— y que hoy solo se ve por
+   `printf`.
+3. **Interacción en vivo** (valor discutible, coste alto): pulsar un botón del
+   SVG durante la simulación exige un proceso que sondee una fuente externa, y
+   el trabajo de esta última fase ha ido justo en la dirección contraria —
+   eliminar sondeos. Debe ser opcional y estar apagado en la suite.
+
+### 5. El beneficio que no es obvio: validación eléctrica de la placa
+
+Es el argumento más fuerte, por encima de la comodidad. Funciones como
+`can_links`, `spi_links`, `i2s_links`, `i2c_bus`, `adc_links`, `dcmi_placa`,
+`fsmc_placa`, `usb_placa` y `eth_placa` existen para **resolver conflictos de
+pines entre grupos de test**, y nacieron de errores reales: el aviso de
+sobrecorriente en PB12/PB11 era un cortocircuito genuino entre el cable de USART
+y el MDIO/TX_EN de Ethernet; el host de USB «vio» un dispositivo inexistente
+porque una `AnalogNet` flotante conserva su último voltaje y un enlace I2S
+olvidado había dejado PB15 a 3,3 V.
+
+Un netlist declarativo permite detectar eso **antes de simular**: dos
+componentes de baja impedancia con tensiones incompatibles sobre el mismo nodo,
+un pin con dos funciones alternativas asignadas, un nodo sin camino a masa, un
+pad no bonded en LQFP100 con algo conectado. Es un recorrido del grafo, barato,
+y convierte una clase entera de fallos de banco en un mensaje de arranque.
+
+### 6. Ruta de adopción por incrementos
+
+1. **Consolidar la librería.** `ExtPart` gana `set_enabled(bool)`, descripción
+   de terminales por nombre y constructor canónico o adaptador. Sacar
+   `ext_parts.h` de `verif/` a `parts/`. Sin cambio de comportamiento.
+2. **Netlist en memoria + volcado.** Estructura `Netlist` y volcado a XML, para
+   que el formato lo defina lo que el proyecto necesita y no la especulación.
+3. **Lector de XML y validador**, con las comprobaciones de §5. Aquí está el
+   retorno grande.
+4. **Generador de SVG** desde el netlist, con `id` estables.
+
+### 7. Conclusión
+
+La estrategia es aplicable porque la parte difícil —un conjunto uniforme de
+componentes que se conectan por referencias a nodos eléctricos con semántica
+física real— ya está hecha y probada. Las tres restricciones que la moldean son
+la ausencia de reflexión en C++, la elaboración estática de SystemC y la
+ausencia de desregistro en `AnalogNet`. La diferencia principal respecto a
+QtSysC es que allí el SVG es la interfaz y aquí sería documentación y traza; y el
+beneficio principal no es la comodidad, sino la validación automática del
+netlist.
+
+
+## 2026-09-07 UTC — Paso 1 de la adopción
+
+**Mensaje:**
+
+> Actualiza el MD del chat con lo anterior y ejecuta el paso 1 de la adopción
+
+**Respuesta:**
+
+Hecho. El paso 1 era el único de los cuatro que **no añade funcionalidad**: pone
+la librería en condiciones de ser descrita desde fuera. Está documentado entero
+en `doc/stm32f407vg_parts_paso1.md`; aquí lo esencial.
+
+**`src/verif/ext_parts.h` → `src/parts/ext_parts.h`**, junto a un
+`parts/part_base.h` nuevo. El cambio de carpeta no es cosmético: la pieza dejó
+de ser «circuitería del banco» hace tiempo; es la librería de componentes de
+placa, y `verif/` la escondía.
+
+**Terminales con nombre.** Cada pieza declara ahora sus patillas por un nombre
+nominal —`anodo`, `sda`, `mdio`, `d0`— y no por la posición del argumento en el
+constructor. Es el punto entero: un XML tiene que poder decir «el pin `sda` de
+`eeprom` va al nodo `PB7`» sin conocer un detalle de implementación. Un terminal
+puede llevar **varios drivers** (el `cmd` de la SD lleva el driver de la tarjeta
+y el pull-up de 47 kΩ del zócalo) y puede no llevar **ninguno** (`pasivo`: el
+`NOE` de la SRAM, el `MDC` del PHY, el origen de una pista). Esa distinción
+importa porque un nodo donde todo el mundo es pasivo está flotante por
+construcción, y eso es un error de placa detectable sin simular.
+
+**Un solo interruptor.** El proyecto tenía la idea de desoldar repartida en
+**siete nombres** (`set_enabled`, `set_attached`, `set_conectada`, `conectar`,
+`soldar`/`soltar`, `enchufar`, `attach`/`detach`). Ahora todos son el mismo
+método virtual `set_enabled(bool)`, y **los nombres antiguos se conservan como
+alias**: `sc_main.cpp` no se ha tocado ni una línea, que es lo que convierte a la
+suite en una comprobación honesta del refactor. Diez piezas que no tenían
+interruptor lo tienen. Una excepción deliberada: `CanTransceiver` tenía dos con
+significados físicos distintos —soldarlo, y el modo reposo STB—, así que el
+segundo pasa a llamarse `set_standby`. Es el único renombre con cambio de
+significado.
+
+**Por qué desconectar y no dejar de construir.** Las dos restricciones de
+siempre: la elaboración de SystemC es estática y `AnalogNet` no sabe
+desregistrar drivers (I-03). De ahí la lectura correcta del requisito de QtSysC
+de que no todos los componentes del XML estén en el SVG: la pieza ausente **se
+construye desconectada**. Con `R_HIZ = 1e12` frente a 30 Ω, eso es eléctricamente
+invisible.
+
+**Y el volcado, que no estaba pedido pero sale gratis:**
+
+```
+./build/stm32f407vg --netlist
+```
+
+43 componentes de 20 tipos. Al montarlo apareció un hueco que no se veía desde
+dentro del C++: las piezas de una sola patilla no tenían identificador de
+instancia, y salían nueve componentes llamados `extdrv`. Eso obligó a separar
+tres nombres que iban mezclados —**tipo** (`Led`), **instancia** (`led_pd12`) y
+**etiqueta de driver** (`led`, la que sale en los avisos de sobrecorriente del
+pad)—, que es exactamente la clase de cosa que solo se ve cuando intentas
+escribir el modelo hacia fuera.
+
+**El argumento entero está en dos entradas contiguas del volcado:**
+
+```xml
+<componente tipo="SignalLink" id="lnk_u2_u3" conectada="si">
+  <pin nombre="destino" nodo="PB11"/>
+  <pin nombre="origen"  nodo="PA2" pasivo="si"/>
+</componente>
+<componente tipo="EthPhy" id="phy" conectada="no">
+  <pin nombre="mdio"  nodo="PA2"/>
+  ...
+  <pin nombre="tx_en" nodo="PB11" pasivo="si"/>
+</componente>
+```
+
+Ese es **el cortocircuito que costó horas de depuración en F7-ETH**: la pista de
+USART PA2→PB11 contra el MDIO y el TX_EN del PHY. Se manifestó como un aviso de
+sobrecorriente en mitad de una simulación y hubo que rastrearlo hacia atrás.
+Ahora son dos líneas de un `grep`, sin XML, sin SVG y sin simular. Es la razón
+por la que el paso 1 se paga solo aunque los pasos 3 y 4 no se hagan nunca.
+
+**Suite: 1811/1811, 0 fallos**, y el tiempo simulado total es **idéntico al
+picosegundo** (2 327 837 024 213 ps). Esa es la prueba dura: cualquier cambio en
+el instante o el orden de una conducción lo habría desplazado. El banco de
+medida sigue dando 50 deltas para un MCU aparcado en `wfe`.
+
+Lo que queda anotado en el TODO como I-11, I-12 e I-13 (127 puntos ahora): el
+netlist en memoria, el lector de XML con su validador —donde está el retorno
+grande— y el generador de SVG.

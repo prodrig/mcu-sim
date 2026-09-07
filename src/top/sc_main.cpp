@@ -73,7 +73,7 @@
 #include "stm32f407vg.h"
 #include "../verif/bus_test_master.h"
 #include "../verif/image_loader.h"
-#include "../verif/ext_parts.h"
+#include "../parts/ext_parts.h"
 #include "../verif/decoder_vectors.h"
 #include "../verif/gdb_stub.h"
 #include "../core/gdb_stub_dap.h"
@@ -132,7 +132,7 @@ SC_MODULE(F1Tb) {
     Stm32F407VG*  dut;
     BusTestMaster tm{"tm"};
 
-    // --- Circuitería externa de la placa (verif/ext_parts.h) ---------------
+    // --- Circuitería externa de la placa (parts/ext_parts.h) ---------------
     // Cristal de 8 MHz en PH0/PH1 y de 32.768 kHz en PC14/PC15: sin ellos el
     // HSE y el LSE no arrancan, igual que en el sistema real [IR, §4.2].
     Crystal* xtal_hse = nullptr;
@@ -13034,12 +13034,13 @@ int sc_main(int argc, char** argv) {
     // los pines de depuracion y creandose por dentro un stub pegado al DAP. La
     // sesion de GDB es identica; lo que cambia es que va entre diez y mil veces
     // mas rapida. El criterio para elegir esta en doc/..._fase6_gdb2.md.
-    bool modo_gdb = false, modo_dap = false;
+    bool modo_gdb = false, modo_dap = false, dump_netlist = false;
     unsigned puerto = 3333;
     const char* imagen = nullptr;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--gdb") modo_gdb = true;
+        else if (a == "--netlist") dump_netlist = true;
         else if (a == "--gdb-dap") { modo_gdb = true; modo_dap = true; }
         else if (a.rfind("--port=", 0) == 0) puerto = unsigned(std::atoi(a.c_str() + 7));
         else imagen = argv[i];
@@ -13051,6 +13052,17 @@ int sc_main(int argc, char** argv) {
     F1Tb tb("tb");
     // Argumento opcional: imagen de firmware alternativa (.bin o .hex)
     if (imagen) tb.fw_path_ = imagen;
+    // --- Volcado del NETLIST de la placa -----------------------------------
+    //   ./stm32f407vg --netlist
+    // Recorre el inventario de piezas externas y escribe el grafo
+    // componente-terminal-nodo en el XML que propone el esquema de QtSysC. No
+    // simula: la elaboracion de SystemC ya ha terminado aqui, que es
+    // precisamente el punto en el que un lector de XML tendria que haber
+    // construido las piezas. Vease doc/stm32f407vg_parts_paso1.md.
+    if (dump_netlist) {
+        ExtPartBase::volcar_netlist(std::cout);
+        return 0;
+    }
     if (modo_gdb) {
         std::printf("=====================================================\n"
                     "  STM32F407VG — modelo SystemC con servidor GDB\n"

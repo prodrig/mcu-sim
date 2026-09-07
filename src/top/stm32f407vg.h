@@ -457,7 +457,7 @@ inline void Stm32F407VG::bind_bus() {
     apb2_dec.add_slave("to_tim11", addr::TIM11_B, 0x400)->bind(tim11.tsk);
     // FSMC (los registros 0xA000_0000 se decodifican dentro de fsmc.mem).
     // Ya NO hay memoria TLM detrás: lo que conteste al bus externo tiene que
-    // estar SOLDADO A LOS PINES, como en la placa. Véase verif/ext_parts.h.
+    // estar SOLDADO A LOS PINES, como en la placa. Véase parts/ext_parts.h.
     fsmc.hclk(s_hclk); fsmc.hclk_hz(s_hclk_hz);
     fsmc.rst_n(s_prst[P_FSMC]); fsmc.clk_en(s_pcen[P_FSMC]);
 }

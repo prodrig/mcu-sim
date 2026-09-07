@@ -19,7 +19,7 @@
 #include <string>
 #include "stm32f407vg.h"
 #include "../verif/image_loader.h"
-#include "../verif/ext_parts.h"
+#include "../parts/ext_parts.h"
 
 using namespace sc_core;
 using namespace stm32;

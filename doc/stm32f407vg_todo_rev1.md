@@ -349,13 +349,16 @@ Cosas que **están modeladas** pero que la suite no ejercita.
 | :--- | :--- | :--- | :--- |
 | **I-01** | **`DmaCtrl::tb_set_request()`** — instrumentación que "no corresponde a ningún registro del silicio", declarada como algo que "**desaparecerá de las pruebas en cuanto cada periférico active su propia línea**" | F4-DMA §5.1 | **Sigue viva:** 6 usos en `top/sc_main.cpp` *(verificado en código)*. Ligada a P-07 |
 | **I-02** | **Puerto `from_tb` de la matriz** — socket que "no corresponde a hardware", creado porque en F1 no existían los maestros DMA/ETH/OTG_HS | F1 §3.1 | Los tres maestros ya existen; el puerto sigue siendo necesario para las pruebas de conectividad, pero conviene revisar si aún hace falta para todo lo que hoy lo usa |
-| **I-03** | **`AnalogNet` no tiene desregistro.** Un componente externo destruido seguía cargando el pin; paliado en el destructor de `ExtPart` dejando el driver en alta impedancia | F3 §9 | **Limitación estructural del canal que persiste**: hay Hi-Z, no desregistro real |
+| **I-03** | **`AnalogNet` no tiene desregistro.** Un componente externo destruido seguía cargando el pin; paliado en el destructor de `ExtPart` dejando el driver en alta impedancia | F3 §9 | **Limitación estructural del canal que persiste**: hay Hi-Z, no desregistro real. *(Paso 1 de `parts/`: deja de ser un problema práctico —`ExtPartBase::set_enabled(false)` pone en Hi-Z todos los drivers de la pieza, y con `R_HIZ = 1e12` frente a 30 Ω eso es eléctricamente invisible. Sigue siendo la razón por la que una pieza ausente del SVG se construirá DESCONECTADA y no se dejará de construir.)* |
 | **I-04** | **`TODO(F4/F5)` de la tabla de funciones alternativas obsoleto** | F3 §4 | *(Verificado en código: `top/stm32f407vg_bind2.h:766` sigue pidiendo "TIM CHx, CAN, SDIO, FSMC, ETH, ULPI, DCMI, RTC_AF1", pero **todos salvo `RTC_AF1` (PC13, tamper/timestamp) están ya registrados**: AF10 ULPI, AF11 ETH, AF12 FSMC/SDIO, AF13 DCMI.)* **Actualizar el comentario y dejar solo `RTC_AF1`** |
-| **I-05** | **`SignalLink` es unidireccional por construcción.** No sirve para un hilo compartido de verdad: el medio dúplex y el bus open-drain se modelan conectando los pines al mismo `AnalogNet` | F4-UART §5.1 | Limitación asumida de la pieza de verificación |
-| **I-06** | **Falta de dispositivos externos en `ext_parts.h`** que bloquean F-25, F-26 y F-27: no hay **tarjeta SD I/O** ni **MMC** | F5-SDIO §6 | Bloqueante de tres funciones |
+| **I-05** | **`SignalLink` es unidireccional por construcción.** No sirve para un hilo compartido de verdad: el medio dúplex y el bus open-drain se modelan conectando los pines al mismo `AnalogNet` | F4-UART §5.1 | Limitación asumida de la pieza. *(Paso 1: la asimetría es ahora visible desde fuera —el terminal `origen` sale marcado `pasivo` en el netlist y el `destino` no—, así que un validador puede comprobarla en vez de confiar en que se recuerde.)* |
+| **I-06** | **Falta de dispositivos externos en `parts/ext_parts.h`** que bloquean F-25, F-26 y F-27: no hay **tarjeta SD I/O** ni **MMC** | F5-SDIO §6 | Bloqueante de tres funciones |
 | **I-07** | **`Makefile.stm32` no se llama `Makefile`** porque el puente remoto no permite escribir ese nombre; se sugería renombrarlo | F0 | Divergencia con lo documentado en el plan (§5: "`src/ Makefile, README.md`") |
 | **I-08** | **Restricciones de entorno**: la biblioteca SystemC de Ubuntu está construida con **C++17** y el estándar debe coincidir o falla el enlazado (`sc_api_version...`); `simple_target_socket_optional` exige **SystemC ≥ 2.3.3** | F0 | Requisitos mínimos a dejar escritos en el README |
 | **I-09** | **Carpetas `_to_delete/git-tmp*` acumuladas en el repositorio** por los restos de bloqueo de git del puente remoto | — | Limpieza pendiente; no se pueden borrar desde el contenedor |
+| **I-11** | **Paso 2 de la librería de piezas: `Netlist` en memoria.** El paso 1 dejó el grafo componente-terminal-nodo accesible y volcable (`--netlist`), pero sigue construyéndose a mano en el bloque de elaboración de `sc_main.cpp` | — | **Pendiente.** Estructura `Netlist` + reescritura de UN grupo de prueba sobre ella, para que el formato lo defina lo que el modelo necesita. Véase `doc/stm32f407vg_parts_paso1.md` §6 |
+| **I-12** | **Paso 3: lector de XML y VALIDADOR del netlist.** Exige una factoría con auto-registro por tipo (C++ no tiene reflexión) y tiene que correr antes de `sc_start()` (la elaboración de SystemC es estática) | — | **Pendiente, y es donde está el retorno grande**: detectar antes de simular los conflictos de pines que hoy se descubren como avisos de sobrecorriente en mitad de una simulación (véase el caso PA2/PB11 en `doc/stm32f407vg_parts_paso1.md` §3) |
+| **I-13** | **Paso 4: generador de SVG desde el netlist**, con `id` estables, y opcionalmente coloreado desde una traza de simulación | — | **Pendiente.** Valor documental; la interacción en vivo sobre el SVG queda descartada salvo caso de uso concreto, porque reintroduciría sondeos periódicos |
 | **I-10** | **Referencia cruzada errónea en el informe de F1 §1**: la fila del RCC dice "Completo salvo lo eléctrico (**ver §6**)", pero el contenido pendiente está en **§9** | F1 | Errata documental |
 
 ---
@@ -439,10 +442,10 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 | **D** — Datos sin fuente | 13 |
 | **X** — Discrepancias y silencios de [IR] | 12 |
 | **V** — Huecos de verificación | 9 |
-| **I** — Deuda de instrumentación y proyecto | 10 |
-| **Total** | **124** |
+| **I** — Deuda de instrumentación y proyecto | 13 |
+| **Total** | **127** |
 
-De los 124, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 127, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.
