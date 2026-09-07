@@ -726,3 +726,67 @@ medida sigue dando 50 deltas para un MCU aparcado en `wfe`.
 Lo que queda anotado en el TODO como I-11, I-12 e I-13 (127 puntos ahora): el
 netlist en memoria, el lector de XML con su validador —donde está el retorno
 grande— y el generador de SVG.
+
+
+## 2026-09-07 UTC — Paso 2 de la adopción
+
+**Mensaje:**
+
+> Ejecuta el paso 2 de la adopción
+
+**Respuesta:**
+
+Hecho, documentado en `doc/stm32f407vg_parts_paso2.md`. El paso 1 hacía que el
+modelo supiera describirse; este invierte la dirección: **describir primero y
+construir después**.
+
+**Dos ficheros.** `parts/netlist.h` es la máquina —`NodeMap` con los 144 pads por
+su nombre de esquemático y los que no son pines, `Instancia` con tipo,
+identificador, parámetros, referencias y conexiones nominales, y `Netlist` que
+declara, valida, construye y vuelca— y no conoce ni una sola clase de pieza.
+`parts/netlist_parts.h` es la otra mitad: los constructores tipados. En el paso 3
+se reescribe el segundo y el primero no se toca.
+
+**Sin factoría por cadena, a propósito.** Convertir `tipo="Led"` en un `new
+Led(...)` exige auto-registro por tipo, y eso es el paso 3. Aquí cada instancia
+lleva su creador tipado, con el compilador comprobándolo.
+
+**El grupo elegido fue el bus CAN, y no por comodidad.** Las ocho pistas de
+SPI/I2S habrían sido mucho más fáciles, pero son ocho `SignalLink` idénticos y no
+habrían probado nada. El CAN exige lo que ninguna pista exige: tres tipos, un
+nodo que no es un pin —el hilo—, referencias entre instancias —un transceptor
+necesita el objeto del hilo, no solo el punto eléctrico—, orden de construcción y
+un componente que el MCU ni ve. El objetivo del paso 2 era descubrir qué necesita
+el formato, no confirmar lo que ya se sabía.
+
+**Y descubrió tres cosas, que es exactamente para lo que servía:**
+
+*Los nodos son del circuito, no de los componentes.* `CanWire` creaba su propio
+`AnalogNet`. Parecía razonable hasta que el netlist quiso referirse al hilo por
+nombre y aparecieron **dos nodos distintos llamados igual**. Ahora `CanWire` puede
+recibir el nodo desde fuera; el constructor histórico sigue ahí.
+
+*No todo lo que une dos componentes es un nodo.* La referencia al hilo viajaba al
+principio como parámetro de texto: funcionaba y era mentira, porque un parámetro
+es un valor y esto es una arista del grafo. De ahí `Instancia::refs`, que el
+volcado escribe (`<ref nombre="hilo" componente="can_bus"/>`) y la validación
+comprueba, **incluido el orden**: referirse a algo declarado después es un error,
+porque se construye en orden de declaración.
+
+*La ida y vuelta necesita las dos direcciones.* Comprobar que cada conexión
+declarada existe en la pieza construida es insuficiente: declarar de menos pasaría
+igual. Y era lo que estaba pasando — el terminal `bus` del transceptor estaba en
+la pieza y no en el netlist. Con las dos direcciones, descripción y modelo no
+pueden divergir en silencio.
+
+**Validación antes de construir, sin simular.** Ocho clases de error —nodo
+inexistente, pad que el LQFP100 no saca, identificador repetido, terminal
+duplicado, referencia inexistente, referencia hacia delante, instancia sin tipo,
+instancia que nadie sabe construir— todas ejercitadas en T121 con netlists rotos
+a propósito. Falta la validación **eléctrica**, que es el paso 3.
+
+**Suite: 1839/1839, 0 fallos** (1811 + 28 nuevas). Las setenta y pico líneas de
+prueba que usan `can_bus`, `xcvr1`, `xcvr2` y `nodo_ext` no se han tocado: los
+punteros siguen ahí y apuntan a lo mismo, y las 97 comprobaciones del bxCAN son la
+red de seguridad real. El tiempo simulado sube 20 µs sobre 2,33 s, que son las dos
+esperas de la comprobación de soldar y desoldar.

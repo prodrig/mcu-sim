@@ -34,6 +34,7 @@
 #include <cstdio>
 #include <vector>
 #include <deque>
+#include <memory>
 #include <string>
 #include <utility>
 #include "../common/analog_net.h"
@@ -904,25 +905,38 @@ private:
 // El hilo comun: un nodo analogico con su terminador. Recesivo = alto.
 class CanWire : public ExtPartBase {
 public:
+    // El hilo CON SU PROPIO NODO. Es el uso histórico del banco de pruebas:
+    // quien crea el bus crea también el punto eléctrico.
     explicit CanWire(double vdd = 3.3, double r_term = 1000.0,
                      const char* nm = "can_bus")
-        : ExtPartBase("CanWire", nm), net_(nm), vdd_(vdd), r_term_(r_term) {
-        id_term_ = add_pin("bus", net_, "terminador");
-        net_.set_drive(id_term_, float(vdd), float(r_term));
+        : ExtPartBase("CanWire", nm), propio_(new AnalogNet(nm)),
+          net_(propio_.get()), vdd_(vdd), r_term_(r_term) { pon_terminador(); }
+    // El hilo sobre un nodo QUE YA EXISTE. Es lo que hace el netlist, y es la
+    // forma correcta: un nodo es del circuito, no del componente que se cuelga
+    // de él. Si el hilo se trae su propio nodo, nadie más puede referirse a él
+    // por su nombre, que es justo lo que un netlist necesita poder hacer.
+    CanWire(analog_net_if& n, double vdd, double r_term, const char* nm)
+        : ExtPartBase("CanWire", nm), net_(&n), vdd_(vdd), r_term_(r_term) {
+        pon_terminador();
     }
-    analog_net_if& net() { return net_; }
+    analog_net_if& net() { return *net_; }
     double vdd() const { return vdd_; }
-    bool dominant() const { return net_.voltage() < 0.5 * vdd_; }
-    float voltage() const { return net_.voltage(); }
+    bool dominant() const { return net_->voltage() < 0.5 * vdd_; }
+    float voltage() const { return net_->voltage(); }
     // Desconectar el terminador deja el hilo flotando: es lo que se ve al
     // desenchufar el cable.
     void set_terminated(bool on) {
         conectada_ = on;
-        net_.set_drive(id_term_, float(vdd_), on ? float(r_term_) : R_HIZ);
+        net_->set_drive(id_term_, float(vdd_), on ? float(r_term_) : R_HIZ);
     }
     void set_enabled(bool on) override { set_terminated(on); }
 private:
-    AnalogNet net_;
+    void pon_terminador() {
+        id_term_ = add_pin("bus", *net_, "terminador");
+        net_->set_drive(id_term_, float(vdd_), float(r_term_));
+    }
+    std::unique_ptr<AnalogNet> propio_;      // solo si el hilo crea su nodo
+    analog_net_if* net_ = nullptr;
     double vdd_, r_term_;
     int id_term_ = -1;
 };

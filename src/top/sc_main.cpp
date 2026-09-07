@@ -74,6 +74,7 @@
 #include "../verif/bus_test_master.h"
 #include "../verif/image_loader.h"
 #include "../parts/ext_parts.h"
+#include "../parts/netlist_parts.h"
 #include "../verif/decoder_vectors.h"
 #include "../verif/gdb_stub.h"
 #include "../core/gdb_stub_dap.h"
@@ -258,6 +259,17 @@ SC_MODULE(F1Tb) {
     // enganchan a él por sendos transceptores, y hay además un nodo externo
     // que habla el protocolo de verdad: asiente, transmite y compite en el
     // arbitraje. Sin nadie que asienta, un bus CAN no entrega nada.
+    //
+    // ESTE GRUPO ES EL PRIMERO QUE NO SE MONTA A MANO: se DECLARA en un
+    // Netlist y lo construye él (paso 2 de la ruta de adopción del esquema
+    // XML+SVG; véase doc/stm32f407vg_parts_paso2.md). Se eligió este y no otro
+    // porque es el que exige más del formato: tres tipos de pieza, un nodo que
+    // NO es un pin —el hilo—, referencias entre instancias —un transceptor
+    // necesita su hilo, no solo el nodo— y un componente que el MCU ni ve.
+    // Los punteros siguen ahí y apuntan a lo mismo: las setenta y pico líneas
+    // de prueba que los usan no se han tocado.
+    NodeMap          nodos;
+    Netlist          placa_can;
     CanWire*         can_bus  = nullptr;
     CanTransceiver*  xcvr1    = nullptr;
     CanTransceiver*  xcvr2    = nullptr;
@@ -532,14 +544,29 @@ SC_MODULE(F1Tb) {
         // --- El bus CAN de la placa (AF9) ---------------------------------
         // CAN1 en PD0/PD1 y CAN2 en PB12/PB13: dos juegos de pines que no
         // chocan con nada de lo que ya usa el banco.
-        can_bus = new CanWire();
-        xcvr1 = new CanTransceiver("xcvr1", dut->pinmux.analog(3, 1),   // PD1 TX
-                                            dut->pinmux.analog(3, 0),   // PD0 RX
-                                            *can_bus);
-        xcvr2 = new CanTransceiver("xcvr2", dut->pinmux.analog(1, 13),  // PB13 TX
-                                            dut->pinmux.analog(1, 12),  // PB12 RX
-                                            *can_bus);
-        nodo_ext = new CanNode("nodo_ext", *can_bus, 500e3);
+        // El netlist necesita saber cómo se llaman los nodos antes de que nadie
+        // se cuelgue de ellos: los 144 pads con su nombre de esquemático y los
+        // diez de alimentación y arranque.
+        nodos.registra_mcu(dut->pinmux, dut->pwr_pads);
+        // Y aquí está la placa, declarada. No hay ni un `new`: hay nodos,
+        // instancias y conexiones, que es exactamente lo que llevará el XML.
+        hilo_can(placa_can, "can_bus", "n_can");
+        // Los dos transceptores nacen DESOLDADOS. No es un capricho: PD0/PD1 y
+        // PB12/PB13 los usan otros grupos de prueba, y `can_links(true)` es la
+        // decisión de placa que los suelda cuando toca. Es exactamente el caso
+        // «está en el XML pero no en el SVG»: se construye, desconectado.
+        transceptor_can(placa_can, "xcvr1", "PD1",  "PD0",  "can_bus").desconectada();
+        transceptor_can(placa_can, "xcvr2", "PB13", "PB12", "can_bus").desconectada();
+        nodo_can(placa_can, "nodo_ext", "n_can", "can_bus", 500e3);
+        // Validar ANTES de construir: nodo inexistente, identificador repetido,
+        // terminal duplicado o pad que este encapsulado no saca. Sin simular.
+        for (const std::string& e : placa_can.valida(nodos))
+            SC_REPORT_ERROR("netlist", e.c_str());
+        placa_can.construye(nodos);
+        can_bus  = placa_can.como<CanWire>("can_bus");
+        xcvr1    = placa_can.como<CanTransceiver>("xcvr1");
+        xcvr2    = placa_can.como<CanTransceiver>("xcvr2");
+        nodo_ext = placa_can.como<CanNode>("nodo_ext");
         // Un bxCAN con los rasgos puestos en tiempo de EJECUCIÓN: un solo
         // buzón, una sola FIFO de dos marcos, sin identificador extendido.
         {
@@ -945,6 +972,8 @@ SC_MODULE(F1Tb) {
         t118_eth_mdio();
         t119_eth_trama();
         t120_eth_filtros();
+        const unsigned f7et_pass = g_pass, f7et_fail = g_fail;
+        t121_netlist();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -987,7 +1016,9 @@ SC_MODULE(F1Tb) {
         std::printf("Resumen F7 (OTG) : %u comprobaciones OK, %u fallos\n",
                     f7ot_pass - f7fs_pass, f7ot_fail - f7fs_fail);
         std::printf("Resumen F7 (ETH) : %u comprobaciones OK, %u fallos\n",
-                    g_pass - f7ot_pass, g_fail - f7ot_fail);
+                    f7et_pass - f7ot_pass, f7et_fail - f7ot_fail);
+        std::printf("Resumen netlist  : %u comprobaciones OK, %u fallos\n",
+                    g_pass - f7et_pass, g_fail - f7et_fail);
         std::printf("TOTAL     : %u comprobaciones OK, %u fallos\n", g_pass, g_fail);
         std::printf("=====================================================\n");
         sc_stop();
@@ -12944,6 +12975,180 @@ SC_MODULE(F1Tb) {
               "por eso el rasgo MII es del MODELO: describe la PLACA, no el silicio");
         eth_wr(Eth::R_MACCR, 0);
         eth_placa(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T121 — EL NETLIST: lo declarado y lo construido tienen que coincidir
+    //
+    // El grupo del bus CAN ya no se monta a mano: se declara (nodos,
+    // instancias, conexiones) y lo construye el Netlist. Que las pruebas del
+    // bxCAN sigan pasando es la red de seguridad de verdad —son 97
+    // comprobaciones sobre ese mismo hilo—, pero no comprueban lo que aquí
+    // interesa: que la DESCRIPCIÓN y el MODELO digan lo mismo. Si un día
+    // alguien añade un terminal a una pieza y se olvida de conectarlo en el
+    // creador, el modelo funcionará igual y el netlist mentirá. Eso es lo que
+    // cazan estas comprobaciones, y por eso van aquí y no en el grupo del CAN.
+    // Véase doc/stm32f407vg_parts_paso2.md.
+    // -----------------------------------------------------------------------
+    void t121_netlist() {
+        group("T121 Netlist: la placa declarada y la placa construida");
+
+        // --- 1. Lo declarado se ha construido, y con su tipo real ------------
+        check(placa_can.como<CanWire>("can_bus") == can_bus &&
+              can_bus != nullptr, "el hilo del bus lo construye el netlist");
+        check(placa_can.como<CanTransceiver>("xcvr1") == xcvr1 && xcvr1,
+              "y los dos transceptores");
+        check(placa_can.como<CanTransceiver>("xcvr2") == xcvr2 && xcvr2,
+              "los dos, con su tipo real y no como ExtPartBase");
+        check(placa_can.como<CanNode>("nodo_ext") == nodo_ext && nodo_ext,
+              "y el nodo CAN externo");
+        // Pedir una pieza con el tipo equivocado devuelve nada, no basura: es
+        // un dynamic_cast, no una conversion a ciegas.
+        check(placa_can.como<CanNode>("xcvr1") == nullptr,
+              "pedir una pieza con el tipo que no es devuelve nada, no basura");
+        check(placa_can.pieza("no_existe") == nullptr,
+              "y una instancia que no existe, tampoco");
+
+        // --- 2. IDA Y VUELTA: cada conexion declarada existe en la pieza ------
+        // Se recorre la declaracion y se comprueba contra la tabla de
+        // terminales que la pieza construyo por su cuenta. Son dos caminos
+        // independientes hacia el mismo dato.
+        unsigned n_con = 0, n_mal = 0;
+        for (const Instancia& i : placa_can.instancias()) {
+            if (!i.pieza) { ++n_mal; continue; }
+            for (const Conexion& c : i.pines) {
+                ++n_con;
+                const Terminal* t = i.pieza->terminal(c.pin);
+                if (!t)                    { ++n_mal; std::printf(
+                    "    %s: la pieza no tiene el terminal '%s'\n",
+                    i.id.c_str(), c.pin.c_str()); continue; }
+                if (t->nodo != c.nodo)     { ++n_mal; std::printf(
+                    "    %s.%s: declarado en %s, soldado a %s\n", i.id.c_str(),
+                    c.pin.c_str(), c.nodo.c_str(), t->nodo.c_str()); }
+            }
+        }
+        check_eq(n_con, 8u, "ocho conexiones declaradas en el grupo del CAN");
+        check_eq(n_mal, 0u, "y las ocho coinciden con los terminales reales");
+
+        // Y LA VUELTA: ningun terminal de las piezas se queda sin declarar. Sin
+        // esto la comprobacion anterior seria complaciente —declarar poco
+        // pasaria igual—, y es justo el error facil: anadir un terminal a una
+        // pieza y olvidarlo en el ayudante que la declara.
+        unsigned n_sin_declarar = 0;
+        for (const Instancia& i : placa_can.instancias()) {
+            if (!i.pieza) continue;
+            for (const Terminal& t : i.pieza->terminales())
+                if (i.nodo_de(t.nombre).empty()) {
+                    ++n_sin_declarar;
+                    std::printf("    %s: el terminal '%s' existe en la pieza y no "
+                                "esta en el netlist\n", i.id.c_str(), t.nombre.c_str());
+                }
+        }
+        check_eq(n_sin_declarar, 0u,
+                 "y ningun terminal de las piezas se queda fuera del netlist");
+
+        // --- 3. Y el nodo es el MISMO objeto, no solo el mismo nombre --------
+        check(&nodos["PD1"]  == xcvr1->terminal("txd")->net &&
+              &nodos["PD0"]  == xcvr1->terminal("rxd")->net,
+              "el nodo del netlist y el que conduce la pieza son el mismo objeto");
+        check(&nodos["n_can"] == &can_bus->net(),
+              "y el hilo del bus es el nodo externo que declaro el netlist");
+        check(nodos.busca("n_can") && !nodos.busca("n_can")->es_pin,
+              "un nodo externo se distingue de un pin: no es un pad del MCU");
+
+        // --- 4. El netlist bueno valida sin una sola queja -------------------
+        check_eq(unsigned(placa_can.valida(nodos).size()), 0u,
+                 "el netlist de la placa valida sin errores");
+
+        // --- 5. Y los netlists ROTOS se rechazan ANTES de construir ----------
+        // Es lo que de verdad justifica el formato: estos cuatro fallos son
+        // errores de PLACA, y hoy se descubren simulando —el de PA2/PB11 salio
+        // como un aviso de sobrecorriente en mitad de una prueba de USART—.
+        // Un netlist roto suele estarlo de varias formas a la vez, asi que se
+        // busca el diagnostico en toda la lista y no solo en el primero.
+        auto dice = [](const std::vector<std::string>& e, const char* t) {
+            for (const std::string& s : e) if (s.find(t) != std::string::npos) return true;
+            return false;
+        };
+        {
+            Netlist malo;
+            transceptor_can(malo, "x", "PD1", "NO_EXISTE", "h");
+            const std::vector<std::string> e = malo.valida(nodos);
+            check(dice(e, "nodo desconocido"),
+                  "un nodo que no existe se detecta sin simular");
+            check(dice(e, "referencia a un componente que no existe"),
+                  "y un hilo que nadie ha declarado, tambien");
+        }
+        {
+            Netlist malo;
+            // PF3 existe en el silicio del F407 pero NO sale al LQFP100.
+            pulsador(malo, "b1", "PF3");
+            const std::vector<std::string> e = malo.valida(nodos);
+            check(e.size() == 1 && dice(e, "no sale al encapsulado"),
+                  "y un pad que este encapsulado no saca, tambien");
+            check(nodos.busca("PF3") && !nodos.busca("PF3")->bonded &&
+                  nodos.busca("PA5") && nodos.busca("PA5")->bonded,
+                  "porque el mapa de nodos sabe que PF3 no esta cableado y PA5 si");
+        }
+        {
+            // Referirse a un componente que se declara DESPUES: el netlist se
+            // construye en orden, asi que eso no puede funcionar.
+            Netlist malo;
+            transceptor_can(malo, "x", "PD1", "PD0", "h");
+            hilo_can(malo, "h", "n_h");
+            const std::vector<std::string> e = malo.valida(nodos);
+            check(e.size() == 1 && dice(e, "se declara despues"),
+                  "y una referencia hacia delante: el hilo va antes que quien se cuelga");
+        }
+        {
+            Netlist malo;
+            led(malo, "d1", "PD12");
+            led(malo, "d1", "PD13");
+            const std::vector<std::string> e = malo.valida(nodos);
+            check(e.size() == 1 && dice(e, "repetido"),
+                  "dos componentes con el mismo identificador no son un netlist");
+        }
+        {
+            Netlist malo;
+            malo.add("Led", "d1").pin("anodo", "PD12").pin("anodo", "PD13");
+            const std::vector<std::string> e = malo.valida(nodos);
+            check(e.size() == 2,
+                  "un terminal conectado dos veces, y una pieza que nadie sabe construir");
+        }
+
+        // --- 6. El volcado de la DECLARACION ---------------------------------
+        // Es distinto del volcado del inventario (--netlist): aquel mira el
+        // modelo ya construido y no puede conocer ni los parametros ni cuales
+        // de los nodos hubo que crear. Este es lo que un dia leera el paso 3.
+        {
+            std::ostringstream os;
+            placa_can.volcar_xml(os, "can-de-pruebas");
+            const std::string x = os.str();
+            check(x.find("<nodo id=\"n_can\" externo=\"si\"/>") != std::string::npos,
+                  "el XML declara que n_can es un nodo que hay que crear");
+            check(x.find("<nodo id=\"PD1\"/>") != std::string::npos,
+                  "y que PD1 no: es un pin, ya existe");
+            check(x.find("bitrate=\"500000\"") != std::string::npos,
+                  "los parametros viajan en el XML, no en el codigo");
+            check(x.find("conectada=\"no\"") != std::string::npos,
+                  "y la pieza que nace desoldada lo dice");
+            check(x.find("<ref nombre=\"hilo\" componente=\"can_bus\"/>") != std::string::npos,
+                  "y lo que une dos componentes sin ser un nodo, va como referencia");
+            std::printf("%s", x.c_str());
+        }
+
+        // --- 7. Desoldada de verdad, no solo en el papel ---------------------
+        can_links(false);
+        wait(10, SC_US);
+        check(!xcvr1->conectada() && !xcvr2->conectada(),
+              "can_links(false) desuelda los transceptores");
+        check(can_bus->net().floating() || can_bus->voltage() > 3.0f,
+              "y el hilo queda en manos de su terminador, sin nadie tirando de el");
+        can_links(true);
+        wait(10, SC_US);
+        check(xcvr1->conectada() && xcvr2->conectada(),
+              "y can_links(true) los vuelve a soldar");
+        can_links(false);
     }
 
     // Ayudas del cliente de pruebas
