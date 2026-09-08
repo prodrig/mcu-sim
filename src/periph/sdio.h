@@ -202,6 +202,11 @@ public:
 
 protected:
     SdioCaps caps_;
+    // «Avisar una vez» de que SDIO_CK se pasa del máximo, POR INSTANCIA y no en
+    // un `static` local: con dos MCUs, una bandera compartida hace que el aviso
+    // del segundo se lo trague el primero. `mutable` porque quien lo mira es
+    // `ck_hz() const`. [doc/stm32f407vg_multi_mcu.md, §7.3]
+    mutable bool aviso_ck_ = false;
 
     // ---- Registros ----
     uint32_t power_ = 0, clkcr_ = 0, arg_ = 0, cmd_ = 0;
@@ -773,12 +778,9 @@ inline double SdioBase::ck_hz() const {
     const double f = sdioclk_hz.read();
     if (f <= 0.0) return 0.0;
     const double r = bypass() ? f : f / double(clkdiv() + 2u);
-    if (r > caps_.max_ck_hz) {
-        static bool warned = false;
-        if (!warned) {
-            warned = true;
-            SC_REPORT_WARNING("sdio", "SDIO_CK por encima del maximo [IR, 12.17]");
-        }
+    if (r > caps_.max_ck_hz && !aviso_ck_) {
+        aviso_ck_ = true;
+        SC_REPORT_WARNING("sdio", "SDIO_CK por encima del maximo [IR, 12.17]");
     }
     return r;
 }

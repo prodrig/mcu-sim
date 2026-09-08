@@ -1182,3 +1182,81 @@ de comportamiento indefinido**, y los otros dos ejecutables (`sim` y `bench`)
 también. El tiempo simulado no se movió ni un picosegundo: 2328209149213 ps antes
 y después, que es la prueba de que hoistar las listas de espera no cambió ni un
 evento.
+
+---
+
+## 2026-09-08 UTC — Varios MCUs, cada uno con su stub de GDB
+
+**Prompt.** «Modifica el programa y sus parámetros de entrada para poder ejecutar
+varios GDB-stubs, uno por cada MCU del XML, incluyendo el cambio en el puerto
+TCP. Si no se instancia explícitamente ningún MCU o sólo se instancia
+explícitamente uno en el XML, entonces los parámetros actuales deben seguir
+sirviendo. Si hay dos o más MCUs instanciados en el XML, entonces debe ser
+posible especificar el tipo de gdb-stub y puerto TCP para cada MCU».
+
+**Tres decisiones que pregunté antes de escribir**, porque cambiaban el
+comportamiento y no eran mías: con un solo MCU **manda la línea de órdenes**
+sobre el XML; con dos o más, un argumento global es **un error que nombra los
+MCUs**; y `depuracion` por omisión es **`pines` y sin escuchar**, para que ningún
+XML existente abra un socket por sorpresa.
+
+**Lo implementado.** El elemento `<mcu>`, que era el paso 2 del análisis:
+
+```xml
+<mcu tipo="STM32F407VG" id="u0" firmware="a.bin" depuracion="dap"   puerto_gdb="3333"/>
+<mcu tipo="STM32F407VG" id="u1" firmware="b.bin" depuracion="pines" puerto_gdb="3334"/>
+```
+
+`DeclMcu` y `Netlist::add_mcu()` en `parts/netlist.h`, la pasada cero del lector
+en `parts/netlist_xml.h`, y `sim_main.cpp` reescrito alrededor de un vector de
+MCUs montados. Cada chip lleva su `DebugCaps` —que ya era por instancia, así que
+el modelo no hubo que tocarlo—, su `ImageLoader`, sus cuatro drivers de
+alimentación y su stub. Los dos modos conviven en la misma placa: `u0` habla con
+su DAP por llamada de función y `u1` bit a bit por SWCLK/SWDIO, como un ST-LINK.
+
+**La regla de compatibilidad** vive entera en `Netlist::resuelve_pad()`: ningún
+`<mcu>` → nombres desnudos; uno → valen los dos y apuntan al **mismo**
+`AnalogNet` (`registra_mcu` se llama dos veces y `NodeMap::registra` es
+idempotente); dos o más → solo cualificados, y el desnudo es un error que dice
+los candidatos. Las cuatro placas de `placas/` siguen valiendo sin tocar una
+línea, que era la condición.
+
+**El puente entre chips sale gratis**, y eso fue lo satisfactorio: el `Cableado`
+del turno anterior es un mapa pad → nodo, así que unir `u0.PB6` con `u1.PB6` es
+el mismo mecanismo que unir dos pines del mismo chip. Solo hubo que indexarlo por
+identificador de MCU. `placas/dos_mcu.xml` son dos F407 con dos hilos I2C
+compartidos y sus pull-up.
+
+**Y funciona de verdad**, que es lo que había que comprobar: los dos stubs
+escuchan en 3333 y 3334, y contestan `qSupported` y `?` de forma independiente
+—lo verifiqué hablando RSP contra los dos puertos—.
+
+**Dos cosas que aparecieron por el camino.**
+
+*La cifra de nodos mentía.* Con un MCU declarado como `u0` el mapa tiene dos
+nombres por pad, así que `nodos.size()` decía 308 en una placa de 154. `size()`
+sigue contando nombres y `n_nodos()` cuenta `AnalogNet` distintos, que es lo que
+se imprime. De paso el banco pasó de decir 156 a decir 154, que es la verdad
+desde que PB9 y PD3 comparten nodo.
+
+*El argumento de milisegundos.* Es global —hay un solo reloj de simulación— pero
+como argumento posicional va detrás del firmware, que con varios MCUs ya no se
+pone ahí. De ahí `--ms=2`.
+
+**Cerrados también I-17** (los dos `static bool warned` de `adc.h` y `sdio.h`
+pasan a miembros `mutable`, y el puerto de GDB deja de salir de una global) y
+el paso 1b del análisis. Se dejaron pendientes a propósito en el turno anterior
+porque su síntoma era imposible con un solo chip; con dos es inevitable.
+
+**Lo que NO está**, y conviene que se lea: `mcu_if` con su factoría (§6.1) y el
+encapsulado como dato de instancia (§6.3), que son lo que hace falta para un MCU
+**distinto**, no para otro igual. Y la comprobación automática del **montaje**
+de dos MCUs (I-21): **T123** cubre la capa de declaración con 28 comprobaciones
+—leer `<mcu>`, resolver `u0.PD12`, el nombre ambiguo, el chip inexistente, el
+puerto repetido, los cinco `<mcu>` rotos y la ida y vuelta por XML— pero que dos
+chips arranquen y se hablen solo se verifica a mano con `sim`. La suite monta un
+único `dut` del que cuelgan la mitad de sus comprobaciones, y meter un segundo
+dentro sería duplicar la elaboración del banco entero para probar otra cosa.
+
+**Suite: 1899/1899, 0 fallos**, tiempo simulado invariante (2328209149213 ps),
+`make asan` limpio, y `sim` con dos MCUs también limpio bajo ASan.

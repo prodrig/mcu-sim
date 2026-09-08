@@ -8,10 +8,13 @@ se marca como tal.*
 Caso de referencia: una placa con **dos STM32F407**, `u0` y `u1`, donde los
 nodos se escriben `PD12` si solo hay un MCU y `u0.PD12` si hay varios.
 
-**Estado.** Lo que era «lo difícil» —los nodos compartidos, §4.3— **está
-implementado**, junto con los dos fallos mudos de §7.1 y §7.2. Lo demás sigue
-siendo análisis: no hay `<mcu>` todavía, y por tanto tampoco dos MCUs. Cada
-sección dice en qué estado está.
+**Estado.** Ya se puede poner **dos STM32F407 en una placa, hablarse por un bus
+y depurarlos a la vez, cada uno en su puerto de GDB**: `placas/dos_mcu.xml`.
+Están hechos los nodos compartidos (§4.3), el elemento `<mcu>` con sus stubs
+(§5.1 y §5.2), la regla de nombres (§3) y las cuatro cosas que estaban mal (§7).
+Sigue siendo análisis lo que hace falta para un MCU **distinto**: la interfaz
+`mcu_if` con su factoría (§6.1) y el encapsulado como dato de instancia (§6.3).
+Cada sección dice en qué estado está.
 
 ---
 
@@ -20,7 +23,7 @@ sección dice en qué estado está.
 | | | Estado |
 | :--- | :--- | :--- |
 | **Lo fácil** | El esquema de nombres `u0.PD12`. El `NodeMap` es un mapa de cadenas: admite prefijos sin tocar nada de su lógica | **hecho** (`registra_mcu(prefijo, …)`) |
-| **Lo medio** | Un elemento `<mcu>` en el XML y una interfaz `mcu_if` con su factoría. La superficie que `sim_main.cpp` usa del MCU son **cuatro cosas** | pendiente |
+| **Lo medio** | Un elemento `<mcu>` en el XML y una interfaz `mcu_if` con su factoría. La superficie que `sim_main.cpp` usa del MCU son **cuatro cosas** | `<mcu>` **hecho**; `mcu_if` pendiente (§6.1) |
 | **Lo difícil** | **Unir un pin de `u0` con un pin de `u1`.** Cada pad poseía su propio `AnalogNet` y lo ataba a un `sc_port` en el constructor. Es el único cambio que toca el interior del MCU | **hecho** (`une=`, `Cableado`) |
 | **Lo que ya no estorba** | No hay estado global mutable que impida dos instancias. SystemC ya separa las jerarquías por el nombre del módulo | — |
 
@@ -152,11 +155,15 @@ documental: el `NodeMap` ya tiene esa entrada y la declaración no haría más q
 ratificarla. Un `une` con un solo pad también sería legal en apariencia, pero no
 uniría nada, y por eso se rechaza con un error propio.
 
-**Un detalle de implementación que hay que cuidar** cuando llegue el `<mcu>`: el
-alias desnudo debe resolverse al **nombre canónico cualificado antes** de mirar
-el `NodeMap`, no crear una segunda entrada. Si no, un `une="u0.PD12"` y un
-`nodo="PD12"` acabarían en nodos distintos. Es un `if` en el resolutor, pero es
-el sitio donde el fallo sería silencioso.
+**El detalle que había que cuidar**, y así se resolvió: con un solo MCU, los dos
+nombres se dan de alta apuntando al **mismo `AnalogNet`**, no a dos. `sim` llama
+a `registra_mcu("u0", …)` y después a `registra_mcu("", …)`, y `NodeMap::registra`
+es idempotente cuando el nodo es el mismo (§7.2). Así, un `une="u0.PD12"` y un
+`nodo="PD12"` acaban en el mismo sitio, que era el fallo silencioso que se temía.
+
+El precio es que el mapa tiene más **nombres** que **nodos**, y por eso
+`NodeMap::n_nodos()` cuenta `AnalogNet` distintos: decir «308 nodos» de una placa
+que tiene 154 es mentir con una cifra exacta.
 
 ---
 
@@ -406,14 +413,15 @@ nodo compartido.
 
 ## 5. El XML
 
-### 5.1 El elemento `<mcu>`
+### 5.1 El elemento `<mcu>`  *(implementado)*
 
-Una cuarta entidad, junto a `<nodo>`, `<componente>` y `<ref>`:
+Una cuarta entidad, junto a `<nodo>`, `<componente>` y `<ref>`. La placa
+`placas/dos_mcu.xml` es exactamente esto y funciona:
 
 ```xml
 <placa nombre="dos-efe-cuatro">
-  <mcu tipo="STM32F407VG" id="u0" firmware="maestro.bin"/>
-  <mcu tipo="STM32F407VG" id="u1" firmware="esclavo.bin" depuracion="dap" puerto_gdb="3334"/>
+  <mcu tipo="STM32F407VG" id="u0" depuracion="dap"   puerto_gdb="3333"/>
+  <mcu tipo="STM32F407VG" id="u1" depuracion="pines" puerto_gdb="3334"/>
 
   <nodo id="n_scl" externo="si" bus="si" une="u0.PB6 u1.PB6"/>
   <nodo id="n_sda" externo="si" bus="si" une="u0.PB7 u1.PB7"/>
@@ -421,22 +429,67 @@ Una cuarta entidad, junto a `<nodo>`, `<componente>` y `<ref>`:
   <componente tipo="Rpull" id="R1" v="3.3" r="4700"><pin nombre="a" nodo="n_scl"/></componente>
   <componente tipo="Rpull" id="R2" v="3.3" r="4700"><pin nombre="a" nodo="n_sda"/></componente>
 
-  <componente tipo="Crystal" id="X0"><pin nombre="osc_in" nodo="u0.PH0"/></componente>
-  <componente tipo="Crystal" id="X1"><pin nombre="osc_in" nodo="u1.PH0"/></componente>
+  <componente tipo="Crystal" id="X0" hz="8e6"><pin nombre="osc_in" nodo="u0.PH0"/></componente>
+  <componente tipo="Crystal" id="X1" hz="8e6"><pin nombre="osc_in" nodo="u1.PH0"/></componente>
   <componente tipo="Led" id="LD0"><pin nombre="anodo" nodo="u0.PD12"/></componente>
 </placa>
 ```
 
 | Atributo | Omisión | Qué hace |
 | :--- | :--- | :--- |
-| `tipo` | obligatorio | El modelo de MCU, por la factoría de MCUs |
+| `tipo` | obligatorio | El modelo de MCU. Hoy solo se sabe construir `STM32F407VG`, y cualquier otro se rechaza diciéndolo (§6.1) |
 | `id` | obligatorio | El prefijo de sus nodos, y su nombre de módulo en SystemC |
-| `firmware` | ninguno | La imagen que se le carga. **Uno por MCU**, que es lo que hace útil tener dos |
-| `encapsulado` | el del tipo | Decide qué pads salen (§6.3) |
-| `depuracion` | `pines` | `pines` o `dap`, el `DebugCaps` que ya existe |
-| `puerto_gdb` | 0 | Dos MCUs necesitan dos puertos distintos |
+| `firmware` | ninguno | La imagen que se le carga. **Una por MCU**, que es lo que hace útil tener dos |
+| `depuracion` | `pines` | `pines` o `dap`, el `DebugCaps` que ya existía. Por instancia, así que un chip puede llevar el stub interno y el de al lado el de pines |
+| `puerto_gdb` | 0 | Puerto TCP de su stub. **0 = no se abre ninguno**, que es lo que hace que ningún XML existente empiece a escuchar por sorpresa |
 
-### 5.2 El orden y su validación
+`encapsulado` no está: mientras todos los MCUs sean LQFP100 no hace falta, y
+cuando haga falta va con §6.3, que sigue pendiente.
+
+**Un MCU no lleva hijos.** Un `<pin>` dentro de un `<mcu>` se rechaza: sus 144
+pads existen sin declararlos, y decirlo así evita que alguien intente describir
+un chip como si fuera un componente (§9).
+
+### 5.2 Los stubs de GDB, uno por MCU  *(implementado)*
+
+Es lo que de verdad se gana con `<mcu>`, porque es lo primero que se necesita en
+cuanto hay dos chips: poder pararlos por separado.
+
+```
+$ ./build/sim placas/dos_mcu.xml
+placa 'dos-efe-cuatro': 2 MCU(s), 6 componentes, 306 nodos, 0 avisos
+  mcu u0: sin firmware, gdb por dap en el puerto 3333
+  mcu u1: sin firmware, gdb por pines en el puerto 3334
+[gdb-dap] escuchando en localhost:3333
+[gdb] escuchando en localhost:3334
+esperando a GDB; la simulacion no se detiene sola (Ctrl-C para salir)
+```
+
+Dos sesiones a la vez, cada una contra su chip y **por transportes distintos**:
+`u0` por llamada de función contra el DAP, `u1` bit a bit por SWCLK/SWDIO como
+un ST-LINK. Los dos responden `qSupported` y `?` de forma independiente.
+
+Con algún stub escuchando, `sim` **no se detiene solo**: un depurador necesita
+que el modelo siga ahí. El argumento de milisegundos deja de aplicarse y se
+dice por pantalla.
+
+Dos MCUs con el mismo `puerto_gdb` se rechazan antes de montar nada. No es una
+delicadeza: el segundo `bind()` fallaría en silencio y el síntoma sería un GDB
+conectado al chip equivocado.
+
+#### La línea de órdenes
+
+| MCUs declarados | Qué pasa con `firmware.bin`, `--gdb`, `--gdb-dap`, `--port=` |
+| :--- | :--- |
+| ninguno, o uno | **Siguen sirviendo y mandan sobre el XML.** El fichero es la configuración y el argumento es la intención inmediata, así que se puede depurar la placa de otro sin editarla |
+| dos o más | **Se rechazan**, nombrando los MCUs: «la placa lleva 2 MCUs (u0, u1), así que un firmware o un puerto sueltos no dicen a cuál». Elegir uno por nuestra cuenta cargaría el firmware en el chip equivocado, que es de los fallos más caros de diagnosticar |
+
+El tiempo simulado es la excepción, porque **sí** es global: hay un solo reloj de
+simulación por muchos chips que haya. Como argumento posicional va detrás del
+firmware, que con varios MCUs ya no se pone ahí; de ahí `--ms=2`, que es la
+forma utilizable entonces.
+
+### 5.3 El orden y su validación
 
 Los `<mcu>` se leen **antes** que todo lo demás, igual que hoy los `<nodo>` se
 leen antes que los `<componente>`. La validación gana tres casos:
@@ -445,7 +498,7 @@ leen antes que los `<componente>`. La validación gana tres casos:
 * un `une` que nombra un pad de un MCU que no existe, o dos veces el mismo pad;
 * un nombre desnudo con dos MCUs declarados (§3).
 
-### 5.3 El atributo `une`  *(implementado)*
+### 5.4 El atributo `une`  *(implementado)*
 
 De todo §5, esto es lo único que ya existe, porque es lo que la opción B
 necesitaba y no depende de que haya `<mcu>`:
@@ -471,7 +524,7 @@ Cuando llegue el `<mcu>`, `une` pasará a admitir `u0.PB6 u1.PB6` con la misma
 regla de nombres de §3. Hoy solo admite nombres desnudos, que es lo único que
 puede significar algo con un MCU.
 
-### 5.4 Lo que NO cambia
+### 5.5 Lo que NO cambia
 
 `<componente>`, `<pin>` y `<ref>` no se tocan. Un componente externo sigue sin
 saber a qué MCU va conectado, y no tiene por qué saberlo: se conecta a un nodo y
@@ -482,10 +535,15 @@ para dos MCUs sin una línea nueva.
 
 ## 6. El C++
 
-### 6.1 `mcu_if`, con su factoría
+### 6.1 `mcu_if`, con su factoría  *(pendiente)*
 
-Para que `tipo="STM32F407VG"` signifique algo hay que hacer con los MCUs lo que
-el paso 3 hizo con las piezas: una interfaz y un registro por cadena.
+Hoy `tipo=` se comprueba, no se despacha: `sim_main.cpp` acepta
+`STM32F407VG` y rechaza cualquier otro nombre diciendo cuál conoce. Es
+suficiente mientras solo haya un modelo de MCU —una factoría con un solo tipo
+registrado es andamio sin obra— y deja de serlo el día que haya dos.
+
+Para que `tipo=` signifique algo de verdad hay que hacer con los MCUs lo que el
+paso 3 hizo con las piezas: una interfaz y un registro por cadena.
 
 ```cpp
 class mcu_if {
@@ -599,30 +657,28 @@ El prefijo arregla el problema; el error hace que, si alguien se lo salta, se
 entere. Un fallo mudo que se vuelve ruidoso vale más que un fallo mudo que se
 evita por convenio.
 
-### 7.3 Dos avisos de una sola vez  *(pendiente, documentado)*
+### 7.3 Dos avisos de una sola vez  *(arreglado)*
 
 ```cpp
 static bool warned = false;      // periph/adc.h:861 y periph/sdio.h:777
 ```
 
-Son banderas de «avisar una vez» compartidas por todas las instancias del
-proceso. Con dos MCUs, **el aviso del segundo se lo traga el primero**. Es
-cosmético, pero es justo la clase de cosa que hace perder una tarde: el chip que
-falla es el que no avisa. Pasan a ser miembros.
+Eran banderas de «avisar una vez» compartidas por todas las instancias del
+proceso. Con dos MCUs, **el aviso del segundo se lo tragaba el primero**: el chip
+que falla es justo el que no avisa. Ahora son miembros —`aviso_adcclk_` y
+`aviso_ck_`, `mutable` porque quien los mira es un método `const`— y cada chip
+avisa de lo suyo.
 
-*Se deja como está a propósito.* Con un solo MCU no se manifiesta, y arreglarlo
-ahora sería tocar dos periféricos para un síntoma que todavía no puede darse.
-Cuando llegue el `<mcu>`, esto va antes que nada: son dos líneas.
+Se dejó pendiente mientras no había un segundo MCU y se arregló al haberlo, que
+es cuando el síntoma pasó de imposible a inevitable.
 
-### 7.4 Un solo puerto de GDB  *(pendiente, documentado)*
+### 7.4 Un solo puerto de GDB  *(arreglado)*
 
-Los dos servidores GDB toman un puerto de una variable global del banco. Con dos
-MCUs hacen falta dos puertos, de ahí el atributo `puerto_gdb` de §5.1. Es
-configuración, no arquitectura.
-
-*Se deja como está a propósito.* No hay dónde poner el segundo puerto mientras no
-exista el elemento `<mcu>` que lo lleve, así que el arreglo y su sitio llegan
-juntos o no llegan.
+El puerto salía de una variable global del banco. Ahora es un atributo por chip,
+`puerto_gdb`, y `DebugCaps` ya lo llevaba por instancia, así que el modelo no
+hubo que tocarlo: solo quien lo construye. Dos MCUs con el mismo puerto se
+rechazan antes de montar nada (§5.2), porque el segundo `bind()` fallaría en
+silencio y el síntoma sería un GDB conectado al chip equivocado.
 
 ---
 
@@ -633,24 +689,33 @@ Cada paso deja el árbol funcionando y verificable con la suite.
 | | Trabajo | Tamaño | Qué desbloquea | Estado |
 | :--- | :--- | :--- | :--- | :--- |
 | 1a | §7.1 nombre jerárquico + §7.2 prefijo y error ruidoso | pequeño | Fallos mudos: mejor antes | **hecho** |
-| 1b | §7.3 los dos `static bool warned` + §7.4 el puerto de GDB | pequeño | Nada mientras haya un MCU | pendiente |
-| 2 | `<mcu>` en el XML + la regla de compatibilidad de §3 | pequeño | `u0.PD12` funciona; una placa con un MCU nombrado | pendiente |
-| 3 | `mcu_if` + factoría de MCUs + `ImageLoader` sobre la interfaz | medio | `tipo=` significa algo; firmware por MCU | pendiente |
-| 4 | Encapsulado como dato de instancia | pequeño | Dos MCUs distintos | pendiente |
+| 1b | §7.3 los dos `static bool warned` + §7.4 el puerto de GDB | pequeño | Que cada chip avise de lo suyo y depure en su puerto | **hecho** |
+| 2 | `<mcu>` en el XML + la regla de compatibilidad de §3 | pequeño | `u0.PD12` funciona; firmware, depuración y puerto por chip | **hecho** |
+| 3 | `mcu_if` + factoría de MCUs + `ImageLoader` sobre la interfaz | medio | `tipo=` despacha en vez de comprobar | pendiente (§6.1) |
+| 4 | Encapsulado como dato de instancia | pequeño | Dos MCUs **distintos** | pendiente (§6.3) |
 | 5 | **Nodos compartidos** (`une`, `Cableado`, `PinMux`) | el grande | Que dos pines cualesquiera sean el mismo punto | **hecho** |
-| 6 | Placa de ejemplo con dos F407 por I2C, y su comprobación en la suite | medio | Que esto no se rompa sin que nos enteremos | pendiente |
+| 6 | Placa de ejemplo con dos F407 por I2C, y su comprobación en la suite | medio | Que esto no se rompa sin que nos enteremos | **a medias** |
 
-El orden real fue 1a y 5, saltándose el resto. No es lo que decía la tabla, y la
-razón es la de §4.5: el paso 5 vale por sí solo para unir dos pines del **mismo**
-MCU, que es un caso que se puede montar en el banco y probar hoy (**T122**). Se
-pagó el paso caro con el caso pequeño, y así el día que llegue el segundo MCU lo
-difícil ya está hecho y probado.
+El orden real fue 1a, 5, y luego 1b y 2 juntos. No es el de la tabla, y la razón
+es la de §4.5: el paso 5 valía por sí solo para unir dos pines del **mismo** MCU,
+que es un caso que cabe en el banco y se prueba hoy (**T122**). Se pagó el paso
+caro con el caso pequeño, y cuando llegó el segundo chip lo difícil ya estaba
+hecho y probado. El 1b se hizo con el 2 porque hasta entonces su síntoma era
+imposible y desde entonces es inevitable.
 
-Los pasos 2 a 4 no tienen riesgo apreciable: son renombrados y parámetros.
+Los pasos 3 y 4 son los que hacen falta para un MCU **distinto**, no para otro
+igual, y no tienen riesgo apreciable: son un registro por cadena y un parámetro.
 
-El 6 sigue sin ser opcional. Sin una placa de dos MCUs en la suite, todo esto se
-oxidaría en una semana; lo que hay ahora es el puente PB9–PD3 del banco, que
-ejercita el mecanismo pero no la multiplicidad.
+**El 6 está a medias, y conviene decirlo.** Hay una placa de dos F407 por I2C
+—`placas/dos_mcu.xml`— y **T123** comprueba toda la capa de declaración: leer
+`<mcu>`, resolver `u0.PD12`, rechazar el nombre ambiguo, el chip que no existe,
+el puerto repetido y los cinco `<mcu>` mal escritos. Lo que **no** está
+automatizado es el montaje: que dos chips se construyan, arranquen y se hablen
+solo se comprueba a mano, corriendo `sim`. La suite monta un único `dut` del que
+cuelgan la mitad de sus 1899 comprobaciones, y meter un segundo dentro sería
+duplicar la elaboración de todo el banco para probar otra cosa. El sitio natural
+es un banco aparte que corra `sim` sobre las placas de `placas/`, y eso todavía
+no existe.
 
 ---
 

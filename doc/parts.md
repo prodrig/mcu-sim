@@ -42,6 +42,41 @@ De ahí salen tres cosas que conviene tener presentes al escribir una placa:
 
 ## 2. Cómo se establecen las conexiones
 
+### 2.0 Los MCUs: `<mcu>`
+
+Una placa puede no decir nada —y entonces lleva un STM32F407VG con los nodos de
+nombre desnudo, que es como han sido todas hasta ahora— o declarar los chips que
+lleva:
+
+```xml
+<mcu tipo="STM32F407VG" id="u0" firmware="maestro.bin" depuracion="dap"   puerto_gdb="3333"/>
+<mcu tipo="STM32F407VG" id="u1" firmware="esclavo.bin" depuracion="pines" puerto_gdb="3334"/>
+```
+
+| Atributo | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `tipo` | *(obligatorio)* | El modelo. Hoy solo se sabe construir `STM32F407VG` |
+| `id` | *(obligatorio)* | El prefijo de sus nodos (`u0.PD12`) y su nombre en la jerarquía de SystemC |
+| `firmware` | ninguno | La imagen que se le carga en la Flash. **Una por chip** |
+| `depuracion` | `pines` | `pines`: expone SWCLK/SWDIO y el stub se cuelga por fuera, como un ST-LINK. `dap`: reserva los cinco pines de depuración y el stub habla con el núcleo por llamada de función |
+| `puerto_gdb` | `0` | Puerto TCP de su stub. **0 = no se abre ninguno** |
+
+**Un `<mcu>` no lleva hijos.** Sus 144 pads existen sin declararlos: un
+`<pin>` dentro de un `<mcu>` se rechaza.
+
+**Cómo se nombran los pines**, que es la parte que hay que tener clara:
+
+| MCUs declarados | Nombres de nodo válidos |
+| :--- | :--- |
+| ninguno | Solo el desnudo: `PD12` |
+| uno | Los dos: `PD12` y `u0.PD12`, y designan el mismo pad |
+| dos o más | Solo el cualificado. `PD12` a secas es un error que dice cuáles son los candidatos |
+
+Con dos o más chips, **cada uno lleva lo suyo en el XML**: un firmware o un
+puerto sueltos en la línea de órdenes ya no dicen a cuál, y se rechazan. Con uno
+solo —declarado o implícito— los argumentos de siempre valen y mandan sobre el
+fichero. Los detalles están en `doc/stm32f407vg_multi_mcu.md`, §5.
+
 ### 2.1 Los nodos
 
 ```xml

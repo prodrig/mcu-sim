@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Dos STM32F407 en la misma placa, hablando por un bus I2C.
+
+     Es la placa que da sentido a todo lo del prefijo `u0.`: dos chips iguales,
+     cada uno con su firmware, su modo de depuración y su puerto de GDB, y dos
+     hilos que son el MISMO punto eléctrico para los dos.
+
+     Los nodos de los MCUs NO se declaran: los 154 de cada chip existen desde
+     que se construye. Lo que sí hay que declarar son los dos hilos del bus,
+     porque un nodo que ES dos pads a la vez tiene que existir ANTES que los
+     chips: `Pad::net` es un `sc_port` y un `sc_port` no se reata.
+
+     Con dos MCUs el nombre desnudo `PB6` deja de designar un pin concreto y se
+     rechaza; hay que escribir `u0.PB6` o `u1.PB6`.
+
+         ./build/sim placas/dos_mcu.xml --valida
+         ./build/sim placas/dos_mcu.xml 2
+
+     Y para depurarlos a la vez, cada uno en su puerto:
+
+         arm-none-eabi-gdb -ex 'target remote :3333'   (u0, por el DAP)
+         arm-none-eabi-gdb -ex 'target remote :3334'   (u1, por los pines SWD)
+-->
+<placa nombre="dos-efe-cuatro">
+  <!-- u0 depura por el DAP: reserva PA13/PA14/PA15/PB3/PB4 y habla con el
+       núcleo por llamada de función. Es el modo rápido.
+       u1 depura por los PINES: expone SWCLK/SWDIO y el stub se cuelga de ellos
+       por fuera, como un ST-LINK. Es el modo fiel. -->
+  <mcu tipo="STM32F407VG" id="u0" depuracion="dap"   puerto_gdb="3333"/>
+  <mcu tipo="STM32F407VG" id="u1" depuracion="pines" puerto_gdb="3334"/>
+
+  <!-- El bus I2C: dos hilos, cada uno compartido por un pin de cada chip.
+       `bus="si"` dice que varios conductores a la vez es a propósito: es un bus
+       de colector abierto y esa es su forma de ser. -->
+  <nodo id="n_scl" externo="si" bus="si" une="u0.PB6 u1.PB6"/>
+  <nodo id="n_sda" externo="si" bus="si" une="u0.PB7 u1.PB7"/>
+
+  <!-- Los pull-up del bus. Sin ellos el hilo no tiene quien lo suba: en
+       colector abierto nadie fuerza un uno. -->
+  <componente tipo="Rpull" id="R1" v="3.3" r="4700">
+    <pin nombre="a" nodo="n_scl"/>
+  </componente>
+  <componente tipo="Rpull" id="R2" v="3.3" r="4700">
+    <pin nombre="a" nodo="n_sda"/>
+  </componente>
+
+  <!-- Un cristal de 8 MHz por chip, y un LED en cada uno para ver quién hace
+       qué desde fuera. -->
+  <componente tipo="Crystal" id="X0" hz="8e6">
+    <pin nombre="osc_in" nodo="u0.PH0"/>
+  </componente>
+  <componente tipo="Crystal" id="X1" hz="8e6">
+    <pin nombre="osc_in" nodo="u1.PH0"/>
+  </componente>
+  <componente tipo="Led" id="LD0" a_vss="si" vf="2.0" r="330">
+    <pin nombre="anodo" nodo="u0.PD12"/>
+  </componente>
+  <componente tipo="Led" id="LD1" a_vss="si" vf="2.0" r="330">
+    <pin nombre="anodo" nodo="u1.PD12"/>
+  </componente>
+</placa>

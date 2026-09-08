@@ -22,12 +22,12 @@ P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
 | **F7** (ETH) | Ethernet 10/100: MII/RMII en los pines, MDIO, descriptores, filtrado, MMC y PTP | **completada** |
 | F7 (resto) | afinado AT | pendiente |
 
-`make test` compila y ejecuta la suite de verificación acumulada (1871
+`make test` compila y ejecuta la suite de verificación acumulada (1899
 comprobaciones autocomprobables: 124 de F1 + 12 de F2 + 80 de F3 + 343 de F4
 (DMA, UART/USART, TIM y EXTI/SYSCFG) + 675 de F5 (SPI/I2S, I2C, ADC, DAC, RTC y
 perros guardianes, SDIO, CRC/RNG y bxCAN) + 151 de F6 (depuración y los dos
 servidores GDB) + 426 de F7 (116 de bajo consumo, 61 del DCMI, 54 del FSMC,
-113 del USB OTG y 82 del Ethernet) + 60 del netlist;
+113 del USB OTG y 82 del Ethernet) + 88 del netlist;
 código de
 salida 0 si todas pasan, en unos 23 s). Verificado con SystemC 2.3.4 / g++ 13 / C++17
 y arm-none-eabi-gcc 13.2.
@@ -77,13 +77,16 @@ direcciones que dicen lo mismo. Son distintos porque el primero es lo que se
 pidió construir —con sus parámetros y sus referencias entre componentes— y el
 segundo lo que hay.
 
-**El modelo con la placa en un fichero.** Un MCU, la placa que diga el XML y el
-firmware que se le pase. Para cambiar de placa no hay que recompilar.
+**El modelo con la placa en un fichero.** Los MCUs, la placa que diga el XML y el
+firmware que se les pase. Para cambiar de placa no hay que recompilar.
 
 ```
 make sim
 ./build/sim placa.xml [firmware.bin] [ms]   # simula
+./build/sim placa.xml --ms=2                # el tiempo, sin firmware por delante
 ./build/sim placa.xml --valida              # solo comprueba la placa
+./build/sim placa.xml --gdb --port=3333     # stub de GDB por los pines SWD
+./build/sim placa.xml --gdb-dap             # o el stub interno contra el DAP
 ./build/sim --help                          # y los tipos que sabe construir
 ```
 
@@ -93,6 +96,25 @@ referencia hacia delante, tipo desconocido) y lo ELÉCTRICO (dos piezas
 conduciendo el mismo nodo, un nodo externo que nadie gobierna). Véase
 `doc/stm32f407vg_parts_paso3.md`, y `doc/parts.md` para el catálogo de
 componentes con sus parámetros.
+
+**Varios MCUs.** Una placa puede declarar los chips que lleva, cada uno con su
+firmware, su modo de depuración y su puerto de GDB:
+
+```xml
+<mcu tipo="STM32F407VG" id="u0" depuracion="dap"   puerto_gdb="3333"/>
+<mcu tipo="STM32F407VG" id="u1" depuracion="pines" puerto_gdb="3334"/>
+```
+
+Sin ningún `<mcu>` la placa lleva un STM32F407VG implícito y los nodos se llaman
+`PD12`, que es como han sido todas hasta ahora. Con uno declarado valen los dos
+nombres, `PD12` y `u0.PD12`. **Con dos o más solo vale el cualificado**, y cada
+chip lleva lo suyo en el XML: un firmware o un puerto sueltos en la línea de
+órdenes ya no dicen a cuál y se rechazan nombrando los MCUs.
+
+Con algún stub escuchando, `sim` no se detiene solo: se pueden abrir dos
+sesiones de GDB a la vez, una por chip y cada una en su puerto. `placas/dos_mcu.xml`
+es esa placa —dos F407 hablando por I2C—; la comparación entre los dos modos de
+depuración y el resto está en `doc/stm32f407vg_multi_mcu.md`, §5.
 
 **Puentes entre pines.** Dos pines pueden ser el MISMO punto eléctrico, no dos
 puntos parecidos:
@@ -111,13 +133,14 @@ haya que soldar y despegar entre pruebas está `SignalLink`. El banco lleva el
 puente PB9–PD3 y lo comprueba T122; la comparación entre las dos formas está en
 `doc/stm32f407vg_multi_mcu.md`, §4.5.
 
-En `placas/` hay tres:
+En `placas/` hay cuatro:
 
 | Fichero | Qué es |
 | :--- | :--- |
 | `discovery_min.xml` | Lo mínimo: cristal, LED y pulsador |
 | `led_azul_5v.xml` | Un LED azul de 3,0 V colgado de 5 V con el cátodo al pin |
 | `banco.xml` | La placa entera de la suite: 43 componentes de 20 tipos |
+| `dos_mcu.xml` | Dos STM32F407 hablando por I2C, cada uno con su puerto de GDB |
 
 `banco.xml` está **generado** por el propio modelo y versionado a propósito. Se
 regenera con

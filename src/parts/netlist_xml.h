@@ -11,6 +11,8 @@
 // nodos, que el orden de declaración es semántico) ya estaba hecho.
 //
 //   <placa nombre="...">
+//     <mcu tipo="STM32F407VG" id="u0"         un chip: aporta 154 nodos
+//          firmware="a.bin" depuracion="dap" puerto_gdb="3333"/>
 //     <nodo id="PA5"/>                        un pin: ya existe
 //     <nodo id="n_can" externo="si"/>         hay que crearlo
 //     <nodo id="n_p" une="PB9 PD3"/>          dos pads SON este nodo
@@ -57,6 +59,37 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
                ">, se esperaba <placa>";
     if (nombre_placa) *nombre_placa = raiz.attr_o("nombre", "placa");
 
+    // Pasada cero: los MCUs. Van antes que los nodos porque son quienes los
+    // aportan: sin saber cuántos hay no se puede decidir si `PD12` designa un
+    // pin concreto o es ambiguo.
+    for (const XmlNodo& h : raiz.hijos) {
+        if (h.nombre != "mcu") continue;
+        if (!h.tiene("tipo")) return donde(h) + "<mcu> sin atributo tipo";
+        if (!h.tiene("id"))   return donde(h) + "<mcu> sin atributo id";
+        DeclMcu m;
+        m.tipo = h.attr_o("tipo");
+        m.id   = h.attr_o("id");
+        for (const auto& a : h.attrs) {
+            if (a.first == "tipo" || a.first == "id") continue;
+            if      (a.first == "firmware")   m.firmware   = a.second;
+            else if (a.first == "depuracion") m.depuracion = a.second;
+            else if (a.first == "puerto_gdb") {
+                const long v = std::atol(a.second.c_str());
+                if (v < 0 || v > 65535)
+                    return donde(h) + "<mcu id=\"" + m.id + "\">: puerto_gdb "
+                           "fuera de rango: " + a.second;
+                m.puerto_gdb = unsigned(v);
+            } else {
+                return donde(h) + "<mcu id=\"" + m.id +
+                       "\">: atributo desconocido: " + a.first;
+            }
+        }
+        if (!h.hijos.empty())
+            return donde(h) + "<mcu id=\"" + m.id + "\">: un MCU no lleva hijos; "
+                   "sus pines existen sin declararlos";
+        nl.add_mcu(m);
+    }
+
     // Primera pasada: los nodos. Tienen que estar antes de que nadie los
     // mencione, igual que en el modelo.
     for (const XmlNodo& h : raiz.hijos) {
@@ -101,7 +134,7 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
     // Segunda pasada: los componentes, EN ORDEN. El orden del fichero es el
     // orden de construccion, y de eso depende que una referencia funcione.
     for (const XmlNodo& h : raiz.hijos) {
-        if (h.nombre == "nodo") continue;
+        if (h.nombre == "nodo" || h.nombre == "mcu") continue;
         if (h.nombre != "componente")
             return donde(h) + "elemento desconocido dentro de <placa>: <" +
                    h.nombre + ">";

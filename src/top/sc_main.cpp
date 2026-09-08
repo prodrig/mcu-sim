@@ -376,12 +376,14 @@ SC_MODULE(F1Tb) {
         // `Pad::net` es un `sc_port` y un `sc_port` no se reata. Es la unica
         // parte del montaje que no puede esperar. [T122]
         placa.nodo_une("n_puente", {"PB9", "PD3"});
-        Cableado cab;
+        // El cableado sale indexado por identificador de MCU; el banco lleva
+        // uno solo y sin declarar, asi que el suyo es el de la cadena vacia.
+        std::map<std::string, Cableado> cabs;
         {
-            const std::string e = cableado_desde_netlist(placa, nodos, cab);
+            const std::string e = cableado_desde_netlist(placa, nodos, cabs);
             if (!e.empty()) SC_REPORT_ERROR("netlist", e.c_str());
         }
-        dut = new Stm32F407VG("dut", dbg_caps, cab);
+        dut = new Stm32F407VG("dut", dbg_caps, cabs[std::string()]);
         tm.isk.bind(dut->matrix.from_tb);          // puerto de verificación
         // Los nodos de la placa: los 144 pads con su nombre de esquematico y
         // los diez de alimentacion y arranque. Tiene que ir antes que nada,
@@ -1050,6 +1052,7 @@ SC_MODULE(F1Tb) {
         const unsigned f7et_pass = g_pass, f7et_fail = g_fail;
         t121_netlist();
         t122_nodo_compartido();
+        t123_varios_mcu();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -13493,6 +13496,207 @@ SC_MODULE(F1Tb) {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // T123 — VARIOS MCUs en la placa: la declaración
+    //
+    // El banco monta un solo chip y no puede montar dos: su placa está escrita
+    // en C++ y la mitad de las 1871 comprobaciones cuelgan de `dut`. Lo que sí
+    // se puede —y es donde están los errores que de verdad duelen— es la capa
+    // de DECLARACIÓN: leer `<mcu>`, resolver un nombre de pad contra la lista
+    // de chips, y rechazar lo que no tiene sentido antes de construir nada.
+    //
+    // Que dos MCUs se monten de verdad, con su firmware y su stub de GDB cada
+    // uno, lo comprueba `placas/dos_mcu.xml` con el ejecutable `sim`; véase
+    // doc/stm32f407vg_multi_mcu.md, §5.
+    // -----------------------------------------------------------------------
+    void t123_varios_mcu() {
+        group("T123 Varios MCUs: la declaracion y sus errores");
+        auto dice = [](const std::vector<std::string>& e, const char* t) {
+            for (const std::string& s : e) if (s.find(t) != std::string::npos) return true;
+            return false;
+        };
+
+        // --- 1. Ninguno declarado: uno implicito, como siempre ---------------
+        check_eq(placa.n_mcus_efectivos(), 1u,
+                 "una placa sin <mcu> lleva un STM32F407VG implicito");
+        check(placa.mcus().empty(),
+              "y no declara ninguno: es lo que hace que las placas de antes "
+              "sigan valiendo sin migrarlas");
+
+        // --- 2. El elemento <mcu> se lee entero ------------------------------
+        {
+            Netlist n;
+            const std::string e = netlist_desde_texto(n,
+                "<placa>"
+                "<mcu tipo=\"STM32F407VG\" id=\"u0\" firmware=\"a.bin\""
+                "     depuracion=\"dap\" puerto_gdb=\"3333\"/>"
+                "<mcu tipo=\"STM32F407VG\" id=\"u1\" depuracion=\"pines\""
+                "     puerto_gdb=\"3334\"/>"
+                "</placa>");
+            check(e.empty(), e.empty() ? "el XML declara dos MCUs y se lee"
+                                       : e.c_str());
+            check_eq(unsigned(n.mcus().size()), 2u, "y salen los dos");
+            const DeclMcu* u0 = n.mcu("u0");
+            check(u0 && u0->firmware == "a.bin" && u0->depuracion == "dap" &&
+                  u0->puerto_gdb == 3333,
+                  "con su firmware, su modo de depuracion y su puerto de GDB");
+            const DeclMcu* u1 = n.mcu("u1");
+            check(u1 && u1->firmware.empty() && u1->depuracion == "pines" &&
+                  u1->puerto_gdb == 3334,
+                  "y el segundo con los suyos, que son distintos");
+            check(n.mcu("u2") == nullptr, "y no se inventa los que no hay");
+        }
+
+        // --- 3. La regla de los nombres de pad, que es el corazon ------------
+        // [doc/stm32f407vg_multi_mcu.md, §3]
+        {
+            Netlist uno;
+            uno.add_mcu(DeclMcu{"STM32F407VG", "u0", "", "pines", 0});
+            std::string id; unsigned p = 0, i = 0;
+            check(uno.resuelve_pad("PD12", id, p, i).empty() && id == "u0" &&
+                  p == 3 && i == 12,
+                  "con UN MCU llamado u0, el nombre desnudo PD12 sigue valiendo");
+            check(uno.resuelve_pad("u0.PD12", id, p, i).empty() && id == "u0",
+                  "y el cualificado u0.PD12 tambien: son el mismo pad");
+
+            Netlist dos;
+            dos.add_mcu(DeclMcu{"STM32F407VG", "u0", "", "pines", 0});
+            dos.add_mcu(DeclMcu{"STM32F407VG", "u1", "", "pines", 0});
+            const std::string amb = dos.resuelve_pad("PD12", id, p, i);
+            check(amb.find("ambiguo") != std::string::npos &&
+                  amb.find("u0.PD12 o u1.PD12") != std::string::npos,
+                  "con DOS, el desnudo es un error que dice los dos candidatos");
+            check(dos.resuelve_pad("u1.PD12", id, p, i).empty() && id == "u1",
+                  "y el cualificado resuelve al chip que nombra");
+            const std::string aje = dos.resuelve_pad("u7.PD12", id, p, i);
+            check(aje.find("no hay ningun MCU llamado 'u7'") != std::string::npos &&
+                  aje.find("u0, u1") != std::string::npos,
+                  "un MCU que la placa no lleva se rechaza diciendo cuales lleva");
+            check(!dos.resuelve_pad("u0.PF3", id, p, i).empty(),
+                  "y un pad que el encapsulado no saca, aunque el chip exista");
+        }
+
+        // --- 4. Los <mcu> mal declarados --------------------------------------
+        {
+            Netlist n;
+            n.add_mcu(DeclMcu{"STM32F407VG", "u0", "", "pines", 3333});
+            n.add_mcu(DeclMcu{"STM32F407VG", "u0", "", "pines", 4444});
+            check(dice(n.valida(nodos), "identificador repetido"),
+                  "dos MCUs con el mismo id no son dos MCUs");
+        }
+        {
+            Netlist n;
+            n.add_mcu(DeclMcu{"STM32F407VG", "u0", "", "swd", 0});
+            check(dice(n.valida(nodos), "depuracion debe ser"),
+                  "un modo de depuracion que no existe se rechaza por su nombre");
+        }
+        {
+            // El de verdad importante: dos stubs en el mismo puerto TCP no dan
+            // un error de red, dan un GDB conectado al chip equivocado.
+            Netlist n;
+            n.add_mcu(DeclMcu{"STM32F407VG", "u0", "", "dap", 3333});
+            n.add_mcu(DeclMcu{"STM32F407VG", "u1", "", "pines", 3333});
+            check(dice(n.valida(nodos), "el puerto de GDB 3333 ya lo usa u0"),
+                  "y dos MCUs no pueden compartir el puerto de GDB");
+        }
+        {
+            Netlist n;
+            n.add_mcu(DeclMcu{"STM32F407VG", "u0", "", "dap", 3333});
+            n.add_mcu(DeclMcu{"STM32F407VG", "u1", "", "pines", 3334});
+            check(n.valida(nodos).empty(),
+                  "y con puertos distintos no hay nada que decir");
+        }
+
+        // --- 5. Puentes entre pines de DOS chips distintos -------------------
+        {
+            Netlist n;
+            n.add_mcu(DeclMcu{"STM32F407VG", "u0", "", "pines", 0});
+            n.add_mcu(DeclMcu{"STM32F407VG", "u1", "", "pines", 0});
+            n.nodo_une("n_scl", {"u0.PB6", "u1.PB6"});
+            check(n.valida(nodos).empty(),
+                  "un hilo compartido entre un pin de u0 y uno de u1 es legal");
+            Netlist m;
+            m.add_mcu(DeclMcu{"STM32F407VG", "u0", "", "pines", 0});
+            m.add_mcu(DeclMcu{"STM32F407VG", "u1", "", "pines", 0});
+            m.nodo_une("a", {"u0.PB6", "u1.PB6"});
+            m.nodo_une("b", {"u0.PB6", "u1.PB7"});
+            check(dice(m.valida(nodos), "esta en dos nodos a la vez"),
+                  "y el mismo pad de u0 en dos hilos sigue siendo un error");
+            Netlist k;
+            k.add_mcu(DeclMcu{"STM32F407VG", "u0", "", "pines", 0});
+            k.nodo_une("a", {"PB9", "u0.PB9"});
+            check(dice(k.valida(nodos), "aparece dos veces"),
+                  "con un solo MCU, PB9 y u0.PB9 son EL MISMO pad y no se unen "
+                  "consigo mismos por escribirlos distinto");
+        }
+
+        // --- 6. Y viaja en el XML, ida y vuelta ------------------------------
+        {
+            Netlist n;
+            n.add_mcu(DeclMcu{"STM32F407VG", "u0", "a.bin", "dap", 3333});
+            n.add_mcu(DeclMcu{"STM32F407VG", "u1", "", "pines", 3334});
+            n.nodo_une("n_scl", {"u0.PB6", "u1.PB6"});
+            std::ostringstream os;
+            n.volcar_xml(os, "dos");
+            const std::string x = os.str();
+            check(x.find("<mcu tipo=\"STM32F407VG\" id=\"u0\" firmware=\"a.bin\""
+                         " depuracion=\"dap\" puerto_gdb=\"3333\"/>")
+                      != std::string::npos,
+                  "el XML escribe el <mcu> con todo lo que lleva");
+            check(x.find("<mcu tipo=\"STM32F407VG\" id=\"u1\" puerto_gdb=\"3334\"/>")
+                      != std::string::npos,
+                  "y omite lo que vale por omision: depuracion=pines no se dice");
+            Netlist copia;
+            const std::string e = netlist_desde_texto(copia, x);
+            check(e.empty(), e.empty() ? "se relee sin errores" : e.c_str());
+            const DeclMcu* a = copia.mcu("u0");
+            const DeclMcu* b = copia.mcu("u1");
+            check(a && b && a->firmware == "a.bin" && a->depuracion == "dap" &&
+                  a->puerto_gdb == 3333 && b->depuracion == "pines" &&
+                  b->puerto_gdb == 3334,
+                  "y los dos MCUs salen iguales de la ida y vuelta");
+            const std::vector<std::string>* u = copia.union_de("n_scl");
+            check(u && u->size() == 2 && (*u)[0] == "u0.PB6" && (*u)[1] == "u1.PB6",
+                  "con el hilo que los une y los pads cualificados");
+        }
+
+        // --- 7. Lo que el LECTOR rechaza, con su linea ----------------------
+        {
+            struct Caso { const char* xml; const char* dice; const char* que; };
+            static const Caso casos[] = {
+              { "<placa><mcu id=\"u0\"/></placa>",
+                "sin atributo tipo", "un MCU sin tipo" },
+              { "<placa><mcu tipo=\"STM32F407VG\"/></placa>",
+                "sin atributo id", "un MCU sin identificador" },
+              { "<placa><mcu tipo=\"X\" id=\"u0\" velocidad=\"3\"/></placa>",
+                "atributo desconocido", "un atributo que el formato no tiene" },
+              { "<placa><mcu tipo=\"X\" id=\"u0\" puerto_gdb=\"99999\"/></placa>",
+                "fuera de rango", "un puerto de GDB que no es un puerto" },
+              { "<placa><mcu tipo=\"X\" id=\"u0\"><pin nombre=\"a\" nodo=\"b\"/>"
+                "</mcu></placa>",
+                "no lleva hijos", "un MCU con <pin>: sus pines existen sin declararlos" },
+            };
+            unsigned ok = 0;
+            for (const Caso& c : casos) {
+                Netlist n;
+                const std::string e = netlist_desde_texto(n, c.xml);
+                if (!e.empty() && e.find(c.dice) != std::string::npos) { ++ok; continue; }
+                std::printf("    %s: se esperaba un error con \"%s\", salio \"%s\"\n",
+                            c.que, c.dice, e.empty() ? "(ninguno)" : e.c_str());
+            }
+            check_eq(ok, unsigned(sizeof casos / sizeof casos[0]),
+                     "los cinco <mcu> rotos se rechazan, cada uno por su motivo");
+        }
+
+        // --- 8. Un nodo tiene tantos NOMBRES como haga falta, pero es uno ----
+        check_eq(nodos.n_nodos(), 154u,
+                 "la placa del banco tiene 154 nodos electricos: 144 pads mas "
+                 "diez de alimentacion, con PB9 y PD3 puenteados y el hilo CAN");
+        check(nodos.size() > nodos.n_nodos(),
+              "y mas NOMBRES que nodos, porque un puente tiene el suyo y el de "
+              "cada pad que lo forma");
+    }
+
     // Ayudas del cliente de pruebas
     static std::string hex_le(uint32_t v) {
         static const char* h = "0123456789abcdef";
@@ -13626,7 +13830,7 @@ int sc_main(int argc, char** argv) {
         for (const std::string& e : tb.placa.valida_electrica(tb.nodos))
             { std::printf("  [elec] %s\n", e.c_str()); ++n; }
         std::printf("%u avisos sobre %u componentes y %u nodos\n", n,
-                    unsigned(tb.placa.instancias().size()), tb.nodos.size());
+                    unsigned(tb.placa.instancias().size()), tb.nodos.n_nodos());
         return n ? 1 : 0;
     }
     if (dump_netlist)    { tb.placa.volcar_xml(std::cout, "banco-de-pruebas"); return 0; }

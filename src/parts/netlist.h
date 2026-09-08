@@ -43,6 +43,7 @@
 #include <map>
 #include <memory>
 #include <ostream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -145,11 +146,48 @@ public:
         return *n->net;
     }
     bool existe(const std::string& nombre) const { return busca(nombre) != nullptr; }
+    // Cuántos NOMBRES hay dados de alta.
     unsigned size() const { return unsigned(m_.size()); }
+    // Cuántos nodos ELÉCTRICOS distintos. No es lo mismo: un mismo AnalogNet
+    // puede tener varios nombres —el desnudo y el cualificado cuando hay un
+    // solo MCU, o un puente y cada uno de los pads que lo forman—, y decir
+    // «308 nodos» de una placa que tiene 154 es mentir con una cifra exacta.
+    unsigned n_nodos() const {
+        std::set<const analog_net_if*> v;
+        for (const auto& kv : m_) v.insert(kv.second.net);
+        return unsigned(v.size());
+    }
 
 private:
     std::map<std::string, Nodo>             m_;
     std::vector<std::unique_ptr<AnalogNet>> propios_;
+};
+
+// ---------------------------------------------------------------------------
+// UN MCU DE LA PLACA.
+//
+// Es la cuarta entidad del formato, junto a `<nodo>`, `<componente>` y `<ref>`,
+// y es deliberadamente distinta de las otras: un componente SE CONECTA a nodos y
+// un MCU LOS APORTA. Declarar sus 144 pads como `<pin>` sería absurdo, así que
+// el MCU no es un componente más [doc/stm32f407vg_multi_mcu.md, §9].
+//
+// Como todo lo demás en este fichero, aquí solo hay DATOS: cadenas y números.
+// Convertir `tipo="STM32F407VG"` en un objeto es trabajo de quien construye
+// —hoy `sim_main.cpp`, mañana una factoría de MCUs paralela a la de piezas— y
+// tiene que ocurrir en la elaboración.
+// ---------------------------------------------------------------------------
+struct DeclMcu {
+    std::string tipo;              // "STM32F407VG"
+    std::string id;                // "u0": prefijo de sus nodos y nombre de módulo
+    std::string firmware;          // imagen que se le carga (vacío: ninguna)
+    // Cómo se llega a su DAP:
+    //   "pines" (omisión) el núcleo EXPONE SWCLK/SWDIO y el stub se cuelga de
+    //                     ellos por fuera, como un ST-LINK. Es el modo fiel.
+    //   "dap"             el núcleo RESERVA los cinco pines de depuración y
+    //                     crea dentro un stub que habla con el DAP por llamada
+    //                     de función. Es el modo rápido.
+    std::string depuracion = "pines";
+    unsigned    puerto_gdb = 0;    // 0: no se abre ningún puerto TCP
 };
 
 // ---------------------------------------------------------------------------
@@ -264,6 +302,22 @@ public:
     }
     Netlist(const Netlist&)            = delete;
     Netlist& operator=(const Netlist&) = delete;
+
+    // --- Los MCUs de la placa -----------------------------------------------
+    // Se declaran ANTES que nada, porque son quienes aportan los nodos de pin.
+    // Ninguno declarado significa «un STM32F407VG implícito con nombres de nodo
+    // desnudos», que es el comportamiento de siempre y lo que hace que las
+    // placas escritas hasta hoy sigan valiendo sin tocarlas.
+    Netlist& add_mcu(const DeclMcu& m) { mcus_.push_back(m); return *this; }
+    const std::vector<DeclMcu>& mcus() const { return mcus_; }
+    const DeclMcu* mcu(const std::string& id) const {
+        for (const DeclMcu& m : mcus_) if (m.id == id) return &m;
+        return nullptr;
+    }
+    // Cuántos hay DE VERDAD: ninguno declarado es uno implícito.
+    unsigned n_mcus_efectivos() const {
+        return mcus_.empty() ? 1u : unsigned(mcus_.size());
+    }
 
     // --- Declaración --------------------------------------------------------
     // Un nodo que NO es un pin del MCU y que, por tanto, hay que crear: el hilo
@@ -387,30 +441,59 @@ public:
     // validación eléctrica.
     std::vector<std::string> valida(const NodeMap& nodos) const {
         std::vector<std::string> err;
-        // Los nodos compartidos, primero: son sintaxis pura -nombres de pad- y
-        // se pueden comprobar sin MCU ninguno. Lo que no se puede es dejarlos
-        // sin comprobar, porque un `une` mal escrito no se manifiesta como un
-        // error sino como un puente que no está.
+        // Los MCUs, primero de todo: son quienes aportan los nodos, así que un
+        // <mcu> mal escrito invalida todo lo que venga detrás.
+        {
+            std::map<std::string, unsigned> ids;
+            std::map<unsigned, std::string> puertos;
+            for (const DeclMcu& m : mcus_) {
+                if (m.id.empty()) { err.push_back("<mcu> sin identificador"); continue; }
+                if (++ids[m.id] > 1)
+                    err.push_back("mcu " + m.id + ": identificador repetido");
+                if (m.tipo.empty())
+                    err.push_back("mcu " + m.id + ": sin tipo");
+                if (m.depuracion != "pines" && m.depuracion != "dap")
+                    err.push_back("mcu " + m.id + ": depuracion debe ser 'pines' "
+                                  "o 'dap', no '" + m.depuracion + "'");
+                // Dos stubs en el mismo puerto TCP no es un aviso: es que el
+                // segundo no llega a escuchar y el fallo aparece más tarde,
+                // como un GDB que se conecta al chip equivocado.
+                if (m.puerto_gdb) {
+                    const auto it = puertos.find(m.puerto_gdb);
+                    if (it != puertos.end())
+                        err.push_back("mcu " + m.id + ": el puerto de GDB " +
+                                      std::to_string(m.puerto_gdb) +
+                                      " ya lo usa " + it->second);
+                    else puertos[m.puerto_gdb] = m.id;
+                }
+            }
+        }
+        // Los nodos compartidos: un `une` mal escrito no se manifiesta como un
+        // error sino como un puente que no está, así que hay que comprobarlo.
         std::map<std::string, std::string> pad_de;   // pad -> nodo que lo reclama
         for (const auto& u : uniones_) {
             if (u.second.size() < 2)
                 err.push_back("nodo " + u.first + ": une necesita al menos dos "
                               "pads; con uno solo el nodo ya es del pad");
             for (const std::string& s : u.second) {
+                std::string id_mcu;
                 unsigned p = 0, i = 0;
-                if (!pad_desde_nombre(s, p, i)) {
-                    err.push_back("nodo " + u.first + ": '" + s + "' no es un pad "
-                                  "del MCU (se esperaba algo como PD12)");
-                    continue;
-                }
-                if (!PinMux::is_bonded_lqfp100(p, i))
+                const std::string e = resuelve_pad(s, id_mcu, p, i);
+                if (!e.empty()) { err.push_back("nodo " + u.first + ": " + e); continue; }
+                // La clave es el pad FÍSICO, no como esté escrito: con un solo
+                // MCU llamado u0, `PB9` y `u0.PB9` son el mismo pad y ponerlos
+                // en dos puentes distintos tiene que seguir siendo un error.
+                const std::string clave =
+                    id_mcu + ":" + std::to_string(p * N_PORT_PINS + i);
+                const auto it = pad_de.find(clave);
+                if (it == pad_de.end())      pad_de[clave] = u.first;
+                else if (it->second == u.first)
                     err.push_back("nodo " + u.first + ": el pad " + s +
-                                  " no sale al encapsulado LQFP100");
-                const auto it = pad_de.find(s);
-                if (it != pad_de.end())
+                                  " aparece dos veces; unirlo consigo mismo no "
+                                  "une nada");
+                else
                     err.push_back("el pad " + s + " esta en dos nodos a la vez: " +
                                   it->second + " y " + u.first);
-                else pad_de[s] = u.first;
             }
         }
         std::map<std::string, unsigned> vistos;
@@ -445,8 +528,19 @@ public:
                 if (!nd) {
                     // Todavía no existe: solo vale si está declarado como nodo
                     // externo, porque entonces lo creará `construye()`.
-                    if (!es_externo(c.nodo))
-                        err.push_back(i.id + "." + c.pin + ": nodo desconocido: " + c.nodo);
+                    if (es_externo(c.nodo)) continue;
+                    // Y si lo que ha escrito TIENE FORMA DE PAD, el aviso útil
+                    // no es «no existe» sino POR QUÉ no existe: con dos MCUs,
+                    // `PD12` a secas ya no designa un pin concreto, y `u2.PA0`
+                    // nombra un chip que la placa no lleva. Para cualquier otra
+                    // cosa —un hilo que nadie declaró— el aviso de siempre.
+                    std::string pref, id_mcu;
+                    unsigned pp = 0, qq = 0;
+                    if (pad_desde_nombre(c.nodo, pref, pp, qq)) {
+                        const std::string e = resuelve_pad(c.nodo, id_mcu, pp, qq);
+                        if (!e.empty()) { err.push_back(i.id + "." + c.pin + ": " + e); continue; }
+                    }
+                    err.push_back(i.id + "." + c.pin + ": nodo desconocido: " + c.nodo);
                     continue;
                 }
                 // Conectar algo a un pad que este encapsulado no saca es un
@@ -529,6 +623,54 @@ public:
         return err;
     }
 
+    // --- Resolución de un nombre de PAD -------------------------------------
+    // `PD12` o `u0.PD12` -> a qué MCU y a qué (puerto, pin). Devuelve "" si el
+    // nombre vale, o el problema explicado. Es el sitio donde vive la regla de
+    // compatibilidad entera [doc/stm32f407vg_multi_mcu.md, §3]:
+    //
+    //   ningún <mcu>   -> uno implícito; solo valen los nombres desnudos
+    //   un <mcu>       -> valen los dos, `PD12` y `u0.PD12`
+    //   dos o más      -> solo con prefijo; el desnudo es un error que dice
+    //                     cuáles son los candidatos, que es la mitad útil del
+    //                     aviso
+    std::string resuelve_pad(const std::string& s, std::string& id_mcu,
+                             unsigned& port, unsigned& pin) const {
+        std::string pref;
+        if (!pad_desde_nombre(s, pref, port, pin))
+            return "'" + s + "' no es un pad del MCU (se esperaba algo como "
+                   "PD12 o u0.PD12)";
+        if (pref.empty()) {
+            if (n_mcus_efectivos() > 1)
+                return "'" + s + "' es ambiguo, hay " +
+                       std::to_string(mcus_.size()) + " MCUs. Escribe " +
+                       lista_cualificada(s);
+            id_mcu = mcus_.empty() ? std::string() : mcus_.front().id;
+        } else {
+            if (!mcu(pref))
+                return "'" + s + "': no hay ningun MCU llamado '" + pref +
+                       "'. La placa declara: " + lista_mcus();
+            id_mcu = pref;
+        }
+        if (!PinMux::is_bonded_lqfp100(port, pin))
+            return "el pad " + s + " no sale al encapsulado LQFP100";
+        return std::string();
+    }
+    std::string lista_mcus() const {
+        if (mcus_.empty()) return "(ninguno; hay un STM32F407VG implicito)";
+        std::string s;
+        for (const DeclMcu& m : mcus_) { if (!s.empty()) s += ", "; s += m.id; }
+        return s;
+    }
+    // "u0.PD12 o u1.PD12", para el error de ambigüedad.
+    std::string lista_cualificada(const std::string& pad) const {
+        std::string s;
+        for (size_t k = 0; k < mcus_.size(); ++k) {
+            if (k) s += (k + 1 == mcus_.size()) ? " o " : ", ";
+            s += mcus_[k].id + "." + pad;
+        }
+        return s;
+    }
+
     // ¿`a` se declara antes que `b`?
     bool antes(const std::string& a, const std::string& b) const {
         for (const Instancia& i : inst_) {
@@ -544,7 +686,19 @@ public:
     // inventario (ExtPartBase::volcar_netlist) no puede conocer.
     void volcar_xml(std::ostream& os, const char* nombre_placa = "placa") const {
         os << "<placa nombre=\"" << xml_escapa(nombre_placa) << "\">\n";
-        // Los nodos externos primero: son los que el lector tendrá que crear.
+        // Los MCUs primero: son quienes aportan los nodos, y el lector los
+        // necesita antes de poder resolver un solo nombre de pin.
+        for (const DeclMcu& m : mcus_) {
+            os << "  <mcu tipo=\"" << xml_escapa(m.tipo) << "\" id=\""
+               << xml_escapa(m.id) << "\"";
+            if (!m.firmware.empty())
+                os << " firmware=\"" << xml_escapa(m.firmware) << "\"";
+            if (m.depuracion != "pines")
+                os << " depuracion=\"" << xml_escapa(m.depuracion) << "\"";
+            if (m.puerto_gdb) os << " puerto_gdb=\"" << m.puerto_gdb << "\"";
+            os << "/>\n";
+        }
+        // Los nodos externos después: son los que el lector tendrá que crear.
         std::map<std::string, bool> usados;
         for (const Instancia& i : inst_)
             for (const Conexion& c : i.pines) usados[c.nodo] = true;
@@ -593,6 +747,7 @@ private:
     // recorren el volcado y el cableado, y los dos tienen que salir en el mismo
     // orden en dos ejecuciones distintas.
     std::map<std::string, std::vector<std::string>> uniones_;
+    std::vector<DeclMcu>       mcus_;
     std::vector<ExtPartBase*>  piezas_;
 };
 
@@ -618,27 +773,33 @@ private:
 // todo está bien, o el primer problema. Los nodos los posee el `NodeMap`, que
 // tiene que sobrevivir al MCU: los pads guardan un `sc_port` hacia ellos.
 // ---------------------------------------------------------------------------
+// `cabs` sale indexado por IDENTIFICADOR DE MCU —cadena vacía para el MCU
+// implícito de una placa que no declara ninguno—, porque un puente puede unir
+// dos pines del mismo chip o un pin de `u0` con uno de `u1`, y cada constructor
+// necesita el suyo. Un MCU que no aparezca en el mapa se construye con un
+// cableado vacío, que es exactamente lo de siempre.
 inline std::string cableado_desde_netlist(const Netlist& nl, NodeMap& nodos,
-                                          Cableado& cab) {
-    std::map<std::string, std::string> pad_de;   // pad -> nodo que lo reclama
+                                          std::map<std::string, Cableado>& cabs) {
+    std::map<std::string, std::string> pad_de;   // pad físico -> nodo que lo reclama
     for (const auto& u : nl.uniones()) {
         if (u.second.size() < 2)
             return "nodo " + u.first + ": une necesita al menos dos pads";
         analog_net_if& n = nodos.externo(u.first);
         for (const std::string& s : u.second) {
+            std::string id_mcu;
             unsigned p = 0, i = 0;
-            if (!pad_desde_nombre(s, p, i))
-                return "nodo " + u.first + ": '" + s + "' no es un pad del MCU "
-                       "(se esperaba algo como PD12)";
-            if (!PinMux::is_bonded_lqfp100(p, i))
-                return "nodo " + u.first + ": el pad " + s +
-                       " no sale al encapsulado LQFP100";
-            const auto it = pad_de.find(s);
+            const std::string e = nl.resuelve_pad(s, id_mcu, p, i);
+            if (!e.empty()) return "nodo " + u.first + ": " + e;
+            const std::string clave =
+                id_mcu + ":" + std::to_string(p * N_PORT_PINS + i);
+            const auto it = pad_de.find(clave);
             if (it != pad_de.end())
-                return "el pad " + s + " esta en dos nodos a la vez: " +
+                return it->second == u.first
+                     ? "nodo " + u.first + ": el pad " + s + " aparece dos veces"
+                     : "el pad " + s + " esta en dos nodos a la vez: " +
                        it->second + " y " + u.first;
-            pad_de[s] = u.first;
-            cab.une(p, i, n);
+            pad_de[clave] = u.first;
+            cabs[id_mcu].une(p, i, n);
         }
     }
     return std::string();

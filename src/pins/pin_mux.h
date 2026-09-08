@@ -74,20 +74,35 @@ private:
     std::map<unsigned, analog_net_if*> m_;
 };
 
-// "PD12" -> (3, 12). Falso si no es el nombre de un pad de puerto. Es la
-// traducción inversa de `nombre_nodo()`, y la necesita quien lee la placa: el
-// XML habla de `PD12` y el constructor del MCU habla de (puerto, pin).
-inline bool pad_desde_nombre(const std::string& s, unsigned& port, unsigned& pin) {
-    if (s.size() < 3 || s.size() > 4 || s[0] != 'P') return false;
-    if (s[1] < 'A' || s[1] >= char('A' + N_GPIO_PORTS)) return false;
-    for (size_t k = 2; k < s.size(); ++k)
-        if (s[k] < '0' || s[k] > '9') return false;
-    if (s.size() == 4 && s[2] == '0') return false;      // "P A 0 5" no existe
-    const unsigned i = unsigned(std::atoi(s.c_str() + 2));
+// "PD12" -> ("", 3, 12);  "u0.PD12" -> ("u0", 3, 12). Falso si no es el nombre
+// de un pad de puerto. Es la traducción inversa de `nombre_nodo()`, y la
+// necesita quien lee la placa: el XML habla de `PD12` o de `u0.PD12`, y el
+// constructor del MCU habla de (puerto, pin).
+inline bool pad_desde_nombre(const std::string& s, std::string& mcu,
+                             unsigned& port, unsigned& pin) {
+    const size_t p = s.rfind('.');
+    if (p == std::string::npos) {
+        mcu.clear();
+    } else {
+        if (p == 0 || p + 1 >= s.size()) return false;
+        mcu = s.substr(0, p);
+    }
+    const std::string t = (p == std::string::npos) ? s : s.substr(p + 1);
+    if (t.size() < 3 || t.size() > 4 || t[0] != 'P') return false;
+    if (t[1] < 'A' || t[1] >= char('A' + N_GPIO_PORTS)) return false;
+    for (size_t k = 2; k < t.size(); ++k)
+        if (t[k] < '0' || t[k] > '9') return false;
+    if (t.size() == 4 && t[2] == '0') return false;      // "PA05" no existe
+    const unsigned i = unsigned(std::atoi(t.c_str() + 2));
     if (i >= N_PORT_PINS) return false;
-    port = unsigned(s[1] - 'A');
+    port = unsigned(t[1] - 'A');
     pin  = i;
     return true;
+}
+// Sin prefijo: para quien ya sabe que solo hay un MCU.
+inline bool pad_desde_nombre(const std::string& s, unsigned& port, unsigned& pin) {
+    std::string mcu;
+    return pad_desde_nombre(s, mcu, port, pin) && mcu.empty();
 }
 
 SC_MODULE(PinMux), public af_sel_if {

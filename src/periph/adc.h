@@ -209,6 +209,13 @@ public:
     double die_temp() const { return temp_c_; }
 
 protected:
+    // «Avisar una vez» de que ADCCLK se pasa del máximo. Es POR INSTANCIA y no
+    // un `static` local: con dos MCUs en la placa, una bandera compartida hace
+    // que el aviso del segundo chip se lo trague el primero, y entonces el que
+    // falla es justo el que no avisa. `mutable` porque quien lo mira es
+    // `adcclk_hz() const`. [doc/stm32f407vg_multi_mcu.md, §7.3]
+    mutable bool aviso_adcclk_ = false;
+
     // =======================================================================
     // Estado de un convertidor
     // =======================================================================
@@ -857,12 +864,9 @@ inline double AdcBlockBase::adcclk_hz() const {
     if (f <= 0.0) return 0.0;
     const double div = 2.0 * double(adcpre() + 1u);
     const double a = f / div;
-    if (a > u_[0].caps.max_adcclk_hz) {
-        static bool warned = false;
-        if (!warned) {
-            warned = true;
-            SC_REPORT_WARNING("adc", "ADCCLK por encima del maximo de 36 MHz [IR, 12.13]");
-        }
+    if (a > u_[0].caps.max_adcclk_hz && !aviso_adcclk_) {
+        aviso_adcclk_ = true;
+        SC_REPORT_WARNING("adc", "ADCCLK por encima del maximo de 36 MHz [IR, 12.13]");
     }
     return a;
 }
