@@ -1,0 +1,313 @@
+<placa nombre="banco-de-pruebas">
+  <nodo id="PA0" bus="si"/>
+  <nodo id="PA1" bus="si"/>
+  <nodo id="PA10"/>
+  <nodo id="PA11"/>
+  <nodo id="PA12"/>
+  <nodo id="PA15"/>
+  <nodo id="PA2"/>
+  <nodo id="PA3"/>
+  <nodo id="PA4"/>
+  <nodo id="PA5"/>
+  <nodo id="PA6"/>
+  <nodo id="PA7"/>
+  <nodo id="PA8"/>
+  <nodo id="PA9"/>
+  <nodo id="PB0"/>
+  <nodo id="PB1"/>
+  <nodo id="PB10"/>
+  <nodo id="PB11"/>
+  <nodo id="PB12"/>
+  <nodo id="PB13"/>
+  <nodo id="PB14"/>
+  <nodo id="PB15"/>
+  <nodo id="PB3"/>
+  <nodo id="PB4"/>
+  <nodo id="PB5"/>
+  <nodo id="PB6" bus="si"/>
+  <nodo id="PB7" bus="si"/>
+  <nodo id="PB8"/>
+  <nodo id="PC0"/>
+  <nodo id="PC1"/>
+  <nodo id="PC10"/>
+  <nodo id="PC11"/>
+  <nodo id="PC12"/>
+  <nodo id="PC14"/>
+  <nodo id="PC2"/>
+  <nodo id="PC3"/>
+  <nodo id="PC4"/>
+  <nodo id="PC5"/>
+  <nodo id="PC6"/>
+  <nodo id="PC7"/>
+  <nodo id="PC8"/>
+  <nodo id="PC9"/>
+  <nodo id="PD0"/>
+  <nodo id="PD1"/>
+  <nodo id="PD10"/>
+  <nodo id="PD11"/>
+  <nodo id="PD12"/>
+  <nodo id="PD13"/>
+  <nodo id="PD14"/>
+  <nodo id="PD15"/>
+  <nodo id="PD2" bus="si"/>
+  <nodo id="PD4"/>
+  <nodo id="PD5"/>
+  <nodo id="PD6"/>
+  <nodo id="PD7"/>
+  <nodo id="PD8"/>
+  <nodo id="PD9"/>
+  <nodo id="PE0"/>
+  <nodo id="PE1"/>
+  <nodo id="PE10"/>
+  <nodo id="PE11"/>
+  <nodo id="PE12"/>
+  <nodo id="PE13"/>
+  <nodo id="PE14"/>
+  <nodo id="PE15"/>
+  <nodo id="PE2"/>
+  <nodo id="PE3"/>
+  <nodo id="PE4"/>
+  <nodo id="PE5"/>
+  <nodo id="PE6"/>
+  <nodo id="PE7"/>
+  <nodo id="PE8"/>
+  <nodo id="PE9"/>
+  <nodo id="PH0" bus="si"/>
+  <nodo id="n_can" externo="si" bus="si"/>
+  <componente tipo="Crystal" id="xtal_hse" vdd="3.3">
+    <pin nombre="osc_in" nodo="PH0"/>
+  </componente>
+  <componente tipo="Crystal" id="xtal_lse" vdd="3.3">
+    <pin nombre="osc_in" nodo="PC14"/>
+  </componente>
+  <componente tipo="Led" id="led_pd12" a_vss="si" r="330" vdd="3.3" vf="2">
+    <pin nombre="anodo" nodo="PD12"/>
+  </componente>
+  <componente tipo="Button" id="btn_pa0" r_cerrado="10">
+    <pin nombre="pin" nodo="PA0"/>
+  </componente>
+  <componente tipo="ExtClock" id="osc_ext" hz="0">
+    <pin nombre="out" nodo="PH0"/>
+  </componente>
+  <componente tipo="SignalLink" id="lnk_u2_u3">
+    <pin nombre="origen" nodo="PA2"/>
+    <pin nombre="destino" nodo="PB11"/>
+  </componente>
+  <componente tipo="SignalLink" id="lnk_u3_u2">
+    <pin nombre="origen" nodo="PB10"/>
+    <pin nombre="destino" nodo="PA3"/>
+  </componente>
+  <componente tipo="SignalLink" id="lnk_u4_u5">
+    <pin nombre="origen" nodo="PA0"/>
+    <pin nombre="destino" nodo="PD2"/>
+  </componente>
+  <componente tipo="SignalLink" id="lnk_u5_u4">
+    <pin nombre="origen" nodo="PC12"/>
+    <pin nombre="destino" nodo="PA1"/>
+  </componente>
+  <componente tipo="SignalLink" id="lnk_pwm" conectada="no">
+    <pin nombre="origen" nodo="PD12"/>
+    <pin nombre="destino" nodo="PB4"/>
+  </componente>
+  <componente tipo="Driver" id="drv_pb4" r_out="25" vdd="3.3">
+    <pin nombre="pin" nodo="PB4"/>
+  </componente>
+  <componente tipo="Driver" id="drv_pb5" r_out="25" vdd="3.3">
+    <pin nombre="pin" nodo="PB5"/>
+  </componente>
+  <componente tipo="Driver" id="drv_pa6" r_out="25" vdd="3.3">
+    <pin nombre="pin" nodo="PA6"/>
+  </componente>
+  <componente tipo="Driver" id="src_pa0" r_out="25" vdd="3.3">
+    <pin nombre="pin" nodo="PA0"/>
+  </componente>
+  <componente tipo="Driver" id="src_pa1" r_out="25" vdd="3.3">
+    <pin nombre="pin" nodo="PA1"/>
+  </componente>
+  <componente tipo="Driver" id="src_pa2" r_out="25" vdd="3.3">
+    <pin nombre="pin" nodo="PA2"/>
+  </componente>
+  <componente tipo="Driver" id="src_pa4" r_out="25" vdd="3.3">
+    <pin nombre="pin" nodo="PA4"/>
+  </componente>
+  <componente tipo="Driver" id="src_pc0" r_out="25" vdd="3.3">
+    <pin nombre="pin" nodo="PC0"/>
+  </componente>
+  <componente tipo="Driver" id="src_pc1" r_out="25" vdd="3.3">
+    <pin nombre="pin" nodo="PC1"/>
+  </componente>
+  <componente tipo="SwoReceiver" id="swo_rx" bitrate="1e+06">
+    <pin nombre="swo" nodo="PB3"/>
+  </componente>
+  <componente tipo="ExtSram" id="xram" conectada="no">
+    <pin nombre="d0" nodo="PD14"/>
+    <pin nombre="d1" nodo="PD15"/>
+    <pin nombre="d2" nodo="PD0"/>
+    <pin nombre="d3" nodo="PD1"/>
+    <pin nombre="d4" nodo="PE7"/>
+    <pin nombre="d5" nodo="PE8"/>
+    <pin nombre="d6" nodo="PE9"/>
+    <pin nombre="d7" nodo="PE10"/>
+    <pin nombre="d8" nodo="PE11"/>
+    <pin nombre="d9" nodo="PE12"/>
+    <pin nombre="d10" nodo="PE13"/>
+    <pin nombre="d11" nodo="PE14"/>
+    <pin nombre="d12" nodo="PE15"/>
+    <pin nombre="d13" nodo="PD8"/>
+    <pin nombre="d14" nodo="PD9"/>
+    <pin nombre="d15" nodo="PD10"/>
+    <pin nombre="a16" nodo="PD11"/>
+    <pin nombre="a17" nodo="PD12"/>
+    <pin nombre="a18" nodo="PD13"/>
+    <pin nombre="a19" nodo="PE3"/>
+    <pin nombre="a20" nodo="PE4"/>
+    <pin nombre="a21" nodo="PE5"/>
+    <pin nombre="a22" nodo="PE6"/>
+    <pin nombre="a23" nodo="PE2"/>
+    <pin nombre="ne" nodo="PD7"/>
+    <pin nombre="noe" nodo="PD4"/>
+    <pin nombre="nwe" nodo="PD5"/>
+    <pin nombre="nl" nodo="PB7"/>
+    <pin nombre="nbl0" nodo="PE0"/>
+    <pin nombre="nbl1" nodo="PE1"/>
+    <pin nombre="nwait" nodo="PD6"/>
+  </componente>
+  <componente tipo="ExtNand" id="xnand" conectada="no">
+    <pin nombre="d0" nodo="PD14"/>
+    <pin nombre="d1" nodo="PD15"/>
+    <pin nombre="d2" nodo="PD0"/>
+    <pin nombre="d3" nodo="PD1"/>
+    <pin nombre="d4" nodo="PE7"/>
+    <pin nombre="d5" nodo="PE8"/>
+    <pin nombre="d6" nodo="PE9"/>
+    <pin nombre="d7" nodo="PE10"/>
+    <pin nombre="cle" nodo="PD11"/>
+    <pin nombre="ale" nodo="PD12"/>
+    <pin nombre="nce" nodo="PD7"/>
+    <pin nombre="noe" nodo="PD4"/>
+    <pin nombre="nwe" nodo="PD5"/>
+    <pin nombre="rb" nodo="PD6"/>
+  </componente>
+  <componente tipo="EthPhy" id="phy" conectada="no">
+    <pin nombre="mdc" nodo="PC1"/>
+    <pin nombre="mdio" nodo="PA2"/>
+    <pin nombre="tx_clk" nodo="PC3"/>
+    <pin nombre="rx_clk" nodo="PA1"/>
+    <pin nombre="tx_en" nodo="PB11"/>
+    <pin nombre="txd0" nodo="PB12"/>
+    <pin nombre="txd1" nodo="PB13"/>
+    <pin nombre="txd2" nodo="PC2"/>
+    <pin nombre="txd3" nodo="PB8"/>
+    <pin nombre="rxd0" nodo="PC4"/>
+    <pin nombre="rxd1" nodo="PC5"/>
+    <pin nombre="rxd2" nodo="PB0"/>
+    <pin nombre="rxd3" nodo="PB1"/>
+    <pin nombre="rx_dv" nodo="PA7"/>
+    <pin nombre="rx_er" nodo="PB10"/>
+    <pin nombre="crs" nodo="PA0"/>
+    <pin nombre="col" nodo="PA3"/>
+  </componente>
+  <componente tipo="UsbHostRig" id="hrig" conectada="no">
+    <pin nombre="dm" nodo="PA11"/>
+    <pin nombre="dp" nodo="PA12"/>
+    <pin nombre="vbus" nodo="PA9"/>
+    <pin nombre="id" nodo="PA10"/>
+  </componente>
+  <componente tipo="UsbDeviceRig" id="drig" conectada="no">
+    <pin nombre="dm" nodo="PB14"/>
+    <pin nombre="dp" nodo="PB15"/>
+    <pin nombre="vbus" nodo="PB13"/>
+  </componente>
+  <componente tipo="CameraSensor" id="cam" conectada="no">
+    <pin nombre="pixclk" nodo="PA6"/>
+    <pin nombre="hsync" nodo="PA4"/>
+    <pin nombre="vsync" nodo="PB7"/>
+    <pin nombre="d0" nodo="PC6"/>
+    <pin nombre="d1" nodo="PC7"/>
+    <pin nombre="d2" nodo="PE0"/>
+    <pin nombre="d3" nodo="PE1"/>
+    <pin nombre="d4" nodo="PE4"/>
+    <pin nombre="d5" nodo="PB6"/>
+    <pin nombre="d6" nodo="PE5"/>
+    <pin nombre="d7" nodo="PE6"/>
+    <pin nombre="d8" nodo="PC10"/>
+    <pin nombre="d9" nodo="PC12"/>
+    <pin nombre="d10" nodo="PB5"/>
+    <pin nombre="d11" nodo="PD2"/>
+  </componente>
+  <componente tipo="CanWire" id="can_bus" r_term="1000" vdd="3.3">
+    <pin nombre="bus" nodo="n_can"/>
+  </componente>
+  <componente tipo="CanTransceiver" id="xcvr1" vdd="3.3" conectada="no">
+    <pin nombre="txd" nodo="PD1"/>
+    <pin nombre="rxd" nodo="PD0"/>
+    <pin nombre="bus" nodo="n_can"/>
+    <ref nombre="hilo" componente="can_bus"/>
+  </componente>
+  <componente tipo="CanTransceiver" id="xcvr2" vdd="3.3" conectada="no">
+    <pin nombre="txd" nodo="PB13"/>
+    <pin nombre="rxd" nodo="PB12"/>
+    <pin nombre="bus" nodo="n_can"/>
+    <ref nombre="hilo" componente="can_bus"/>
+  </componente>
+  <componente tipo="CanNode" id="nodo_ext" bitrate="500000">
+    <pin nombre="bus" nodo="n_can"/>
+    <ref nombre="hilo" componente="can_bus"/>
+  </componente>
+  <componente tipo="SdCard" id="card">
+    <pin nombre="ck" nodo="PC12"/>
+    <pin nombre="cmd" nodo="PD2"/>
+    <pin nombre="dat0" nodo="PC8"/>
+    <pin nombre="dat1" nodo="PC9"/>
+    <pin nombre="dat2" nodo="PC10"/>
+    <pin nombre="dat3" nodo="PC11"/>
+  </componente>
+  <componente tipo="SignalLink" id="lnk_sck" conectada="no">
+    <pin nombre="origen" nodo="PA5"/>
+    <pin nombre="destino" nodo="PB13"/>
+  </componente>
+  <componente tipo="SignalLink" id="lnk_mosi" conectada="no">
+    <pin nombre="origen" nodo="PA7"/>
+    <pin nombre="destino" nodo="PB15"/>
+  </componente>
+  <componente tipo="SignalLink" id="lnk_miso" conectada="no">
+    <pin nombre="origen" nodo="PB14"/>
+    <pin nombre="destino" nodo="PA6"/>
+  </componente>
+  <componente tipo="SignalLink" id="lnk_nss" conectada="no">
+    <pin nombre="origen" nodo="PA4"/>
+    <pin nombre="destino" nodo="PB12"/>
+  </componente>
+  <componente tipo="SignalLink" id="lnk_ick" conectada="no">
+    <pin nombre="origen" nodo="PB13"/>
+    <pin nombre="destino" nodo="PC10"/>
+  </componente>
+  <componente tipo="SignalLink" id="lnk_iws" conectada="no">
+    <pin nombre="origen" nodo="PB12"/>
+    <pin nombre="destino" nodo="PA15"/>
+  </componente>
+  <componente tipo="SignalLink" id="lnk_isd" conectada="no">
+    <pin nombre="origen" nodo="PB15"/>
+    <pin nombre="destino" nodo="PC12"/>
+  </componente>
+  <componente tipo="SignalLink" id="lnk_iext" conectada="no">
+    <pin nombre="origen" nodo="PB15"/>
+    <pin nombre="destino" nodo="PB14"/>
+  </componente>
+  <componente tipo="I2cWire" id="w_scl" r_pull="4700" conectada="no">
+    <pin nombre="l0" nodo="PB6"/>
+    <pin nombre="l1" nodo="PA8"/>
+  </componente>
+  <componente tipo="I2cWire" id="w_sda" r_pull="4700" conectada="no">
+    <pin nombre="l0" nodo="PB7"/>
+    <pin nombre="l1" nodo="PC9"/>
+  </componente>
+  <componente tipo="I2cEeprom" id="eeprom" dir="80">
+    <pin nombre="scl" nodo="PB6"/>
+    <pin nombre="sda" nodo="PB7"/>
+  </componente>
+  <componente tipo="I2cExtMaster" id="ext_m" f_scl="50000">
+    <pin nombre="scl" nodo="PB6"/>
+    <pin nombre="sda" nodo="PB7"/>
+  </componente>
+</placa>

@@ -78,10 +78,29 @@ make sim
 Antes de simular valida dos veces y sin simular: la DECLARACIÓN (nodo
 inexistente, pad que este encapsulado no saca, identificador repetido,
 referencia hacia delante, tipo desconocido) y lo ELÉCTRICO (dos piezas
-conduciendo el mismo nodo, un nodo externo que nadie gobierna). Hay una placa de
-ejemplo en `placas/discovery_min.xml`, y la del propio banco se saca con
-`./build/stm32f407vg --netlist > placas/banco.xml`. Véase
-`doc/stm32f407vg_parts_paso3.md`.
+conduciendo el mismo nodo, un nodo externo que nadie gobierna). Véase
+`doc/stm32f407vg_parts_paso3.md`, y `doc/parts.md` para el catálogo de
+componentes con sus parámetros.
+
+En `placas/` hay tres:
+
+| Fichero | Qué es |
+| :--- | :--- |
+| `discovery_min.xml` | Lo mínimo: cristal, LED y pulsador |
+| `led_azul_5v.xml` | Un LED azul de 3,0 V colgado de 5 V con el cátodo al pin |
+| `banco.xml` | La placa entera de la suite: 43 componentes de 20 tipos |
+
+`banco.xml` está **generado** por el propio modelo y versionado a propósito. Se
+regenera con
+
+```
+./build/stm32f407vg --netlist > placas/banco.xml
+```
+
+y como el volcado es determinista, `git diff --exit-code placas/banco.xml`
+después de regenerarlo dice si la placa del banco ha cambiado sin querer. Es la
+única forma de ver ese cambio: en `sc_main.cpp` está repartido por el bloque de
+elaboración, y aquí sale en una línea de diff.
 
 **Depuración interactiva desde un IDE.** El modelo lleva DOS servidores
 GDB/RSP, con el mismo protocolo y las mismas respuestas, que se diferencian
