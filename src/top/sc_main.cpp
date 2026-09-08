@@ -1940,7 +1940,7 @@ SC_MODULE(F1Tb) {
         // 40 kohm externos a VDD contra el pull-down interno de 40 kohm dan
         // VDD/2, que cae entre VIL y VIH: el nivel no esta garantizado.
         {
-            Resistor r_ext(dut->pinmux.analog(PE, PIN), 3.3, 40e3);
+            Rpull r_ext(dut->pinmux.analog(PE, PIN), 3.3, 40e3);
             wait(1, SC_US);
             check_near(pad.voltage(), 1.65, 0.05,
                        "divisor 40k/40k resuelto por el nodo analogico");
@@ -1954,7 +1954,7 @@ SC_MODULE(F1Tb) {
 
         // --- Salida push-pull contra una carga ------------------------------
         {
-            Resistor carga(dut->pinmux.analog(PE, PIN), 0.0, 1000.0);  // 1k a VSS
+            Rpull carga(dut->pinmux.analog(PE, PIN), 0.0, 1000.0);  // 1k a VSS
             pin_cfg(PE, PIN, 1, 0, false, 0);
             gpio_wr(PE, 0x18, 1u << PIN);                              // BSRR set
             wait(1, SC_US);
@@ -1975,7 +1975,7 @@ SC_MODULE(F1Tb) {
         }
         // Open-drain a 1 con pull-up externo: sube a VDD
         {
-            Resistor pu(dut->pinmux.analog(PE, PIN), 3.3, 4700.0);
+            Rpull pu(dut->pinmux.analog(PE, PIN), 3.3, 4700.0);
             wait(1, SC_US);
             check_near(pad.voltage(), 3.3, 0.02,
                        "open-drain a 1 con pull-up externo: el pin sube a VDD");
@@ -1989,7 +1989,7 @@ SC_MODULE(F1Tb) {
         {
             pin_cfg(PE, PIN, 1, 0, false, 3);
             gpio_wr(PE, 0x18, 1u << PIN);
-            Resistor corto(dut->pinmux.analog(PE, PIN), 0.0, 0.5);
+            Rpull corto(dut->pinmux.analog(PE, PIN), 0.0, 0.5);
             wait(1, SC_US);
             check(pad.overcurrent(), "un cortocircuito a VSS supera los 25 mA");
         }
@@ -6605,7 +6605,7 @@ SC_MODULE(F1Tb) {
         d_wr(DacBase::R_DHR12R1, 4095);
         wait(20, SC_US);
         {
-            Resistor carga(dut->pinmux.analog(0, 4), 0.0, 1000.0);   // 1k a VSS
+            Rpull carga(dut->pinmux.analog(0, 4), 0.0, 1000.0);   // 1k a VSS
             wait(20, SC_US);
             const double v_carga_off = dac_pin_v(0);
             d_wr(DacBase::R_CR, 1u);                            // buffer puesto

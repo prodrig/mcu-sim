@@ -175,7 +175,7 @@ Thevenin con el que la pieza gobierna el nodo. Cuanto menor, más «fuerte».
 
 | Parámetro | Dónde | Qué es |
 | :--- | :--- | :--- |
-| `r` | `Led`, `Resistor` | La resistencia en serie del LED, que fija su corriente; el valor de la resistencia |
+| `r` | `Led`, `Rpull` | La resistencia en serie del LED, que fija su corriente; el valor de la rama resistiva |
 | `r_out` | `Driver` | Impedancia de salida del driver |
 | `r_cerrado` | `Button` | Resistencia del contacto cerrado |
 | `r_pull` | `I2cWire` | Pull-up del bus I2C |
@@ -270,7 +270,7 @@ Y el montaje clásico, para comparar:
 #### `Button`
 
 Pulsador a masa. **Sin pulsar deja el pin abierto**, así que el nivel alto tiene
-que darlo alguien: el pull-up interno del MCU o un `Resistor` externo. Sin
+que darlo alguien: el pull-up interno del MCU o un `Rpull` externo. Sin
 ninguno de los dos, el pin queda indeterminado — que es lo que pasa en una placa
 real y lo que el modelo reproduce.
 
@@ -285,11 +285,12 @@ real y lo que el modelo reproduce.
 Se acciona desde C++ con `press()` y `release()`. **Un pulsador
 `conectada="no"` no cierra aunque se le pulse.**
 
-#### `Resistor`
+#### `Rpull`
 
-Una resistencia entre el nodo y una tensión fija. Es el pull-up o el pull-down
-de la placa, y también la carga con la que se mide cuánta corriente entrega un
-pad.
+Una rama resistiva entre el nodo y una tensión fija. Es el equivalente Thevenin
+`{v, r}` y nada más, así que sirve para el pull-up y el pull-down de la placa,
+para polarizar una entrada y para cargar un pad y medir cuánta corriente
+entrega.
 
 | Terminal | | |
 | :--- | :--- | :--- |
@@ -297,11 +298,46 @@ pad.
 
 | Parámetro | Omisión | Efecto |
 | :--- | :--- | :--- |
-| `v` | `3.3` | La tensión del otro extremo. `3.3` = pull-up; `0` = pull-down; cualquier otra cosa = un divisor contra lo que haya en el nodo |
-| `r` | `10000` | El valor, en ohmios |
+| `v` | `3.3` | La tensión del otro extremo. **Es una tensión cualquiera, no una elección entre VDD y masa**, y no tiene por qué existir en el MCU |
+| `r` | `10000` | El valor de la resistencia, en ohmios |
 
-Conduce siempre desde que se construye. Es el único componente cuyo efecto no
-depende de ningún proceso.
+Lo que `v` permite:
+
+| | Qué monta |
+| :--- | :--- |
+| `v="3.3" r="4700"` | Pull-up al mismo raíl que el chip |
+| `v="5" r="4700"` | **Pull-up a un raíl de 5 V**, como el de un bus I2C mixto |
+| `v="0" r="4700"` | Pull-down |
+| `v="1.8" r="10000"` | Polarización a media escala para una entrada de ADC |
+| `v="0" r="1000"` | Una carga de 1 kΩ con la que medir la corriente de un pad |
+
+Los dos últimos enseñan por qué la pieza no se llama `PullUp`: lo que hace es
+una rama resistiva a un potencial, y de ahí salen tanto los pulls como las
+cargas de prueba.
+
+**Conduce siempre desde que se construye.** Es el único componente cuyo efecto
+no depende de ningún proceso, y por eso es la forma más directa de sujetar un
+nodo que si no quedaría flotante.
+
+Un pull-up de 5 V sobre un pin donde también hay un LED, para ver que la tensión
+es real y no una etiqueta:
+
+```xml
+<placa nombre="pull-5v">
+  <nodo id="PE2" bus="si"/>          <!-- dos piezas conducen, a propósito -->
+  <componente tipo="Rpull" id="R1" v="5" r="4700">
+    <pin nombre="a" nodo="PE2"/>
+  </componente>
+  <componente tipo="Led" id="LD1" a_vss="si" vf="2.0" r="330">
+    <pin nombre="anodo" nodo="PE2"/>
+  </componente>
+</placa>
+```
+
+Con el pin en entrada, el nodo lo resuelve la superposición de los dos: **2,20 V
+y 0,60 mA** por el LED, que luce débil porque un pull-up de 4,7 kΩ no da para
+más. Con `v="3.3"` bajan a 2,09 V y 0,26 mA; con `v="1.8"`, por debajo de la Vf,
+el LED no conduce y el nodo se queda en 1,80 V.
 
 #### `Driver`
 
@@ -752,7 +788,7 @@ $ ./build/sim placas/led_azul_5v.xml verif/fw/blinky/blinky.bin 205
 ```
 
 Y la placa entera del banco de pruebas —43 componentes de 20 de los 21 tipos,
-todos menos `Resistor`— se saca
+todos menos `Rpull`— se saca
 del propio modelo, que es la mejor referencia de formato que hay:
 
 ```

@@ -16,7 +16,7 @@
 //   Crystal    cristal + condensadores de carga en OSC_IN/OSC_OUT (HSE, LSE)
 //   ExtClock   reloj externo de onda cuadrada (HSE/LSE en modo bypass, o
 //              estímulo digital de una entrada)
-//   Resistor   resistencia a VDD o a VSS (pull externo)
+//   Rpull      resistencia de pull a una tensión cualquiera (3,3 V, 5 V, masa)
 //   Led        LED con resistencia en serie (a VSS: activo en alto; a VDD:
 //              activo en bajo, típico de las placas Discovery/Nucleo)
 //   Button     pulsador a VSS con pull-up externo opcional
@@ -133,12 +133,24 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// Resistencia externa a VDD (pull-up) o a VSS (pull-down).
+// Resistencia de pull: une el nodo con una tensión FIJA a través de un valor
+// dado. Es un equivalente Thevenin {V, R} y nada más, así que la tensión puede
+// ser cualquiera y no tiene por qué existir en el MCU:
+//
+//   {3,3 V, 4k7}   pull-up al mismo raíl que el chip
+//   {5 V,   4k7}   pull-up a un raíl de 5 V, como el de un bus I2C mixto
+//   {0 V,   4k7}   pull-down
+//   {1,8 V, 10k}   polarización a media escala para una entrada de ADC
+//   {0 V,   1k}    una carga con la que medir cuánta corriente entrega un pad
+//
+// Los dos últimos enseñan por qué la pieza no se llamó `PullUp`: lo que hace es
+// una rama resistiva a un potencial, y de ahí salen tanto los pulls como las
+// cargas de prueba.
 // ---------------------------------------------------------------------------
-class Resistor : public ExtPart {
+class Rpull : public ExtPart {
 public:
-    Resistor(analog_net_if& n, double to_volts, double ohms)
-        : ExtPart(n, "Resistor", "resistor", "a"), v_(to_volts), r_(ohms) {
+    Rpull(analog_net_if& n, double to_volts, double ohms)
+        : ExtPart(n, "Rpull", "rpull", "a"), v_(to_volts), r_(ohms) {
         drive(float(v_), float(r_));
     }
     void set_enabled(bool on) override {
@@ -182,14 +194,22 @@ private:
     void run() {
         hiz();
         for (;;) {
+            // Se evalua ANTES de esperar, no despues. Parece un detalle de
+            // estilo y no lo es: esperar primero solo funciona si el nodo se
+            // mueve, y hay montajes donde no se mueve nunca -un LED sujeto por
+            // una resistencia de pull, con el pin en entrada-. Ahi el LED
+            // luciria de verdad y este modelo se quedaba a oscuras porque nadie
+            // le habia avisado de nada.
+            if (!conectada_) { hiz(); on_ = false; }
+            else {
+                const double v = net_->voltage();
+                // Conducción: pin -> LED -> R -> VSS, o VDD -> LED -> R -> pin
+                const bool cond = to_vss_ ? (v > vf_) : (v < vdd_ - vf_);
+                if (cond) drive(float(to_vss_ ? vf_ : vdd_ - vf_), float(r_));
+                else      hiz();
+                on_ = cond;
+            }
             wait(net_->value_changed_event() | evento_conexion());
-            if (!conectada_) { hiz(); on_ = false; continue; }
-            const double v = net_->voltage();
-            // Conducción: pin -> LED -> R -> VSS, o VDD -> LED -> R -> pin
-            const bool cond = to_vss_ ? (v > vf_) : (v < vdd_ - vf_);
-            if (cond) drive(float(to_vss_ ? vf_ : vdd_ - vf_), float(r_));
-            else      hiz();
-            on_ = cond;
         }
     }
     bool to_vss_; double vf_, r_, vdd_;

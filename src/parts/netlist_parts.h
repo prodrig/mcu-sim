@@ -87,8 +87,11 @@ REGISTRA_PARTE(Crystal, [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartB
         return new Crystal(n[d.nodo_de("osc_in")], d.num("vdd", 3.3));
     });
 
-REGISTRA_PARTE(Resistor, [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
-        return new Resistor(n[d.nodo_de("a")], d.num("v", 3.3), d.num("r", 10e3));
+REGISTRA_PARTE(Rpull, [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        // `v` es una tension cualquiera, no una eleccion entre VDD y masa: 5 V
+        // para un pull-up a un rail de 5 V, 1,8 para polarizar una entrada, 0
+        // para un pull-down.
+        return new Rpull(n[d.nodo_de("a")], d.num("v", 3.3), d.num("r", 10e3));
     });
 
 REGISTRA_PARTE(Driver, [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
@@ -261,9 +264,12 @@ inline Instancia& cristal(Netlist& nl, const char* id, const std::string& nodo,
     return i;
 }
 
-inline Instancia& resistencia(Netlist& nl, const char* id, const std::string& nodo,
-                              double a_voltios, double ohmios) {
-    Instancia& i = nl.add("Resistor", id);
+// Una rama resistiva del nodo a una tensión fija. `a_voltios` es una tensión
+// cualquiera, no una elección entre VDD y masa: 5 para un pull-up a un raíl de
+// 5 V, 1.8 para polarizar una entrada, 0 para un pull-down.
+inline Instancia& rpull(Netlist& nl, const char* id, const std::string& nodo,
+                        double a_voltios = 3.3, double ohmios = 10e3) {
+    Instancia& i = nl.add("Rpull", id);
     i.pin("a", nodo).par("v", a_voltios).par("r", ohmios);
     return i;
 }
