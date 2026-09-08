@@ -23,9 +23,12 @@
 #include <systemc>
 #include <sysc/kernel/sc_spawn.h>
 #include <array>
+#include <cstdlib>
 #include <map>
+#include <string>
 #include <vector>
 #include "../common/analog_net.h"
+#include "../common/nombres_nodo.h"
 #include "af_types.h"
 #include "pad.h"
 
@@ -34,10 +37,68 @@ namespace stm32 {
 constexpr unsigned N_GPIO_PORTS = 9;   // A..I
 constexpr unsigned N_PORT_PINS  = 16;
 
+// ---------------------------------------------------------------------------
+// EL CABLEADO: qué pads NO crean su propio nodo.
+//
+// Por omisión cada pad crea su `AnalogNet` y lo ata a su `sc_port`. Eso vale
+// mientras el pad sea el único dueño del punto eléctrico, que es el caso de
+// casi todo: un LED, un pulsador o un cristal se cuelgan del nodo del pad y ya
+// está. Deja de valer en cuanto DOS pads son el mismo punto —un puente de placa
+// entre dos pines, o el mismo hilo compartido por dos MCUs—, porque entonces el
+// nodo no pertenece a ninguno de los dos: pertenece al circuito.
+//
+// Y no se puede arreglar después. `Pad::net` es un `sc_port` y un `sc_port` no
+// se reata, así que la elección tiene que estar tomada CUANDO SE CONSTRUYE el
+// MCU. De ahí este objeto: la placa lo rellena leyendo su fichero —leer no
+// construye, que es lo que lo hace posible— y se lo pasa al constructor.
+//
+// Un `Cableado` vacío deja el modelo exactamente como estaba: el bucle del
+// constructor no encuentra nada y cada pad crea su nodo. El coste para una
+// placa sin puentes es cero.
+// [doc/stm32f407vg_multi_mcu.md, §4.3 y §4.5]
+// ---------------------------------------------------------------------------
+class Cableado {
+public:
+    void une(unsigned port, unsigned pin, analog_net_if& n) {
+        m_[clave(port, pin)] = &n;
+    }
+    analog_net_if* busca(unsigned port, unsigned pin) const {
+        const auto it = m_.find(clave(port, pin));
+        return it == m_.end() ? nullptr : it->second;
+    }
+    bool     vacio() const { return m_.empty(); }
+    unsigned size()  const { return unsigned(m_.size()); }
+
+private:
+    static unsigned clave(unsigned p, unsigned i) { return p * N_PORT_PINS + i; }
+    std::map<unsigned, analog_net_if*> m_;
+};
+
+// "PD12" -> (3, 12). Falso si no es el nombre de un pad de puerto. Es la
+// traducción inversa de `nombre_nodo()`, y la necesita quien lee la placa: el
+// XML habla de `PD12` y el constructor del MCU habla de (puerto, pin).
+inline bool pad_desde_nombre(const std::string& s, unsigned& port, unsigned& pin) {
+    if (s.size() < 3 || s.size() > 4 || s[0] != 'P') return false;
+    if (s[1] < 'A' || s[1] >= char('A' + N_GPIO_PORTS)) return false;
+    for (size_t k = 2; k < s.size(); ++k)
+        if (s[k] < '0' || s[k] > '9') return false;
+    if (s.size() == 4 && s[2] == '0') return false;      // "P A 0 5" no existe
+    const unsigned i = unsigned(std::atoi(s.c_str() + 2));
+    if (i >= N_PORT_PINS) return false;
+    port = unsigned(s[1] - 'A');
+    pin  = i;
+    return true;
+}
+
 SC_MODULE(PinMux), public af_sel_if {
-    // Nodos analógicos y pads de todos los pines de puerto (creados aquí).
-    std::array<std::array<AnalogNet*, N_PORT_PINS>, N_GPIO_PORTS> net{};
-    std::array<std::array<Pad*,       N_PORT_PINS>, N_GPIO_PORTS> pad{};
+    // Nodos analógicos y pads de todos los pines de puerto.
+    //
+    // `net` son los que este mux POSEE y destruirá; vale nullptr en los pines
+    // cuyo nodo pone la placa (véase Cableado). `nodo` es el que usa el pad, y
+    // ese está siempre: es el que hay que mirar para todo lo demás.
+    std::array<std::array<AnalogNet*,     N_PORT_PINS>, N_GPIO_PORTS> net{};
+    std::array<std::array<analog_net_if*, N_PORT_PINS>, N_GPIO_PORTS> nodo{};
+    std::array<std::array<Pad*,           N_PORT_PINS>, N_GPIO_PORTS> pad{};
 
     // Bundles hacia los puertos GPIO (los conecta el top).
     sc_core::sc_vector<sc_core::sc_signal<PadDrive>> gpio_drive;  // GPIO -> mux
@@ -58,26 +119,42 @@ SC_MODULE(PinMux), public af_sel_if {
     sc_core::sc_in<bool> wkup_en{"wkup_en"};      // PWR_CSR.EWUP
     sc_core::sc_in<bool> dbg_pins{"dbg_pins"};    // DBGMCU_CR.DBG_STANDBY
 
-    SC_CTOR(PinMux)
-        : gpio_drive("gpio_drive", N_GPIO_PORTS * N_PORT_PINS),
+    // `cab` dice qué pines reciben su nodo de la placa en vez de crearlo. Vacío
+    // —que es lo normal— deja el comportamiento de siempre.
+    explicit PinMux(sc_core::sc_module_name nm_mod,
+                    const Cableado& cab = Cableado())
+        : sc_core::sc_module(nm_mod),
+          gpio_drive("gpio_drive", N_GPIO_PORTS * N_PORT_PINS),
           pad_drive("pad_drive",   N_GPIO_PORTS * N_PORT_PINS),
           pad_din("pad_din",       N_GPIO_PORTS * N_PORT_PINS),
           pad_din_ok("pad_din_ok", N_GPIO_PORTS * N_PORT_PINS),
           pad_oor("pad_oor",       N_GPIO_PORTS * N_PORT_PINS) {
+        // Hay un PinMux por MCU, así que este es el sitio donde contarlos sin
+        // que nadie tenga que acordarse. Lo usa nombre_nodo() para decidir si
+        // un pad se llama `PA5` o `u0.PA5`.
+        ++n_mcus();
         char nm[16];
         for (unsigned p = 0; p < N_GPIO_PORTS; ++p)
             for (unsigned i = 0; i < N_PORT_PINS; ++i) {
                 const unsigned k = idx(p, i);
                 af_sel_[p][i] = AF_NONE;
-                std::snprintf(nm, sizeof nm, "net_%c%u", 'A' + p, i);
-                net[p][i] = new AnalogNet(nm);
+                // El nodo: el que ponga la placa si este pin va a un punto
+                // compartido, y si no uno propio. Es la única decisión que hay
+                // que tomar aquí y no se puede tomar después.
+                if (analog_net_if* compartido = cab.busca(p, i)) {
+                    nodo[p][i] = compartido;
+                } else {
+                    std::snprintf(nm, sizeof nm, "net_%c%u", 'A' + p, i);
+                    net[p][i]  = new AnalogNet(nm);
+                    nodo[p][i] = net[p][i];
+                }
                 std::snprintf(nm, sizeof nm, "pad_%c%u", 'A' + p, i);
                 pad[p][i] = new Pad(nm);
                 pad[p][i]->drive(pad_drive[k]);
                 pad[p][i]->din(pad_din[k]);
                 pad[p][i]->din_valid(pad_din_ok[k]);
                 pad[p][i]->out_of_range(pad_oor[k]);
-                pad[p][i]->net(*net[p][i]);
+                pad[p][i]->net(*nodo[p][i]);
                 pad[p][i]->bonded = is_bonded_lqfp100(p, i);
                 // PC13/PC14/PC15 pasan por el conmutador de potencia del dominio
                 // de backup: 3 mA máximos y 2 MHz [IR, §2.1 nota 2].
@@ -86,6 +163,9 @@ SC_MODULE(PinMux), public af_sel_if {
     }
 
     ~PinMux() override {
+        // Los nodos compartidos NO son de este mux: los destruye quien los creó,
+        // y tiene que hacerlo después. `delete nullptr` es válido y aquí es
+        // justo lo que hace falta.
         for (unsigned p = 0; p < N_GPIO_PORTS; ++p)
             for (unsigned i = 0; i < N_PORT_PINS; ++i) { delete pad[p][i]; delete net[p][i]; }
     }
@@ -101,8 +181,14 @@ SC_MODULE(PinMux), public af_sel_if {
         for (unsigned p = 0; p < N_GPIO_PORTS; ++p)
             for (unsigned i = 0; i < N_PORT_PINS; ++i) connect_af(p, i, af, ep);
     }
-    // Ruta analógica (ADC/DAC/HSE/LSE): devuelve el nodo del pin.
-    analog_net_if& analog(unsigned port, unsigned pin) { return *net[port][pin]; }
+    // Ruta analógica (ADC/DAC/HSE/LSE): devuelve el nodo del pin, sea propio o
+    // compartido con otro pad.
+    analog_net_if& analog(unsigned port, unsigned pin) { return *nodo[port][pin]; }
+    // ¿Este pin comparte su nodo con otro? Lo pregunta la validación, que
+    // necesita saber que no es el dueño de lo que hay al otro lado.
+    bool comparte_nodo(unsigned port, unsigned pin) const {
+        return net[port][pin] == nullptr;
+    }
 
     // --- Selección de AF (la publica el puerto GPIO) ------------------------
     void set_af(unsigned port, unsigned pin, uint8_t af) override {

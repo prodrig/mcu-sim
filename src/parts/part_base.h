@@ -47,6 +47,7 @@
 #include <string>
 #include <vector>
 #include "../common/analog_net.h"
+#include "../common/nombres_nodo.h"
 
 namespace stm32 {
 
@@ -181,12 +182,13 @@ protected:
     // El nombre del nodo, tal y como lo verá el XML. Los nodos de pin se llaman
     // net_A5 dentro del modelo; fuera son PA5, que es como los llama el
     // esquemático y como los llamará el netlist.
+    //
+    // La traducción vive en common/nombres_nodo.h porque la necesitan también
+    // los pines, y porque tiene una trampa que costó verla: hay que partir del
+    // nombre JERÁRQUICO. Con `basename()` el pad PA5 de un MCU y el de otro se
+    // vuelcan los dos como `PA5`.
     static std::string nombre_nodo(const analog_net_if& n) {
-        const sc_core::sc_object* o = dynamic_cast<const sc_core::sc_object*>(&n);
-        if (!o) return "?";
-        std::string b = o->basename();
-        if (b.rfind("net_", 0) == 0) return "P" + b.substr(4);
-        return b;
+        return ::stm32::nombre_nodo(n);
     }
 
     bool conectada_ = true;

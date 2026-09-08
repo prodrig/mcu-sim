@@ -49,6 +49,7 @@ De ahí salen tres cosas que conviene tener presentes al escribir una placa:
   <nodo id="PA5"/>                          <!-- un pin: ya existe -->
   <nodo id="n_led1" externo="si"/>           <!-- hay que crearlo -->
   <nodo id="PB6" bus="si"/>                  <!-- varios conductores, a propósito -->
+  <nodo id="n_puente" une="PB9 PD3"/>        <!-- dos pines soldados entre sí -->
   ...
 </placa>
 ```
@@ -58,6 +59,7 @@ De ahí salen tres cosas que conviene tener presentes al escribir una placa:
 | `id` | *(obligatorio)* | El nombre del nodo |
 | `externo` | `no` | `si` = no es un pin del MCU; el netlist lo crea |
 | `bus` | `no` | `si` = varias piezas pueden conducir a la vez sin que sea un error |
+| `une` | *(ninguno)* | Los pads que **son** este nodo, separados por espacios. Al menos dos |
 
 **Los nodos de pin no hace falta declararlos.** Los 144 pads del chip y los diez
 nodos de alimentación y arranque existen desde el principio, con su nombre de
@@ -74,6 +76,40 @@ dos montajes. Si no se declara y hay dos conductores, `--valida` lo dice.
 **Los pads que este encapsulado no saca son un error.** El LQFP100 solo tiene
 los puertos A–E más `PH0` y `PH1`. Conectar algo a `PF3` se rechaza antes de
 simular, aunque el nodo exista en el modelo.
+
+**`une` sí cambia algo eléctrico, y es el único atributo que lo hace.** Un nodo
+con `une` no se cuelga de los pads: **los sustituye**. Los pads que nombra dejan
+de tener su propio punto eléctrico y pasan a compartir este, de modo que hay un
+solo `AnalogNet` y la superposición los resuelve juntos. Es un puente de placa de
+verdad: bidireccional, sin retardo, con la corriente repartida entre los dos, y
+si los dos pines conducen a la vez en sentidos opuestos el conflicto **sale**
+—media tensión en el nodo y sobrecorriente en los dos pads—.
+
+```xml
+<nodo id="n_puente" externo="si" une="PB9 PD3"/>
+<componente tipo="Rpull" id="R1" v="3.3" r="10000">
+  <pin nombre="a" nodo="n_puente"/>          <!-- o nodo="PB9": es el mismo punto -->
+</componente>
+```
+
+Cuatro cosas que conviene saber antes de usarlo:
+
+* **el nodo hay que declararlo**, al revés que los de pin. Es la única forma de
+  decírselo al MCU **antes** de construirlo, y hay que hacerlo antes porque el
+  pad ata su nodo a un `sc_port` en el constructor y un `sc_port` no se reata;
+* `une` implica `externo="si"`: el nodo lo crea la placa, no un pad;
+* el nombre del puente y el de cualquiera de sus pads designan el **mismo**
+  punto, así que una pieza puede conectarse por cualquiera de los dos;
+* **no se puede desoldar en marcha.** Un puente es permanente; `conectada="no"`
+  no se aplica a un nodo. Para un enlace que haya que soldar y despegar entre
+  pruebas —o que sea unidireccional, como una salida PWM hacia una entrada de
+  captura— la pieza correcta es [`SignalLink`](#signallink), que es un buffer y
+  no un cable. La comparación entre las dos está en
+  `doc/stm32f407vg_multi_mcu.md`, §4.5.
+
+Se rechazan antes de simular, cada uno con su mensaje: un nombre que no es un
+pad, un pad que el encapsulado no saca, el mismo pad en dos puentes, y un `une`
+con un solo pad.
 
 ### 2.2 Los terminales: `<pin>`
 
@@ -367,7 +403,15 @@ el destino con 50 Ω.
 Es **unidireccional por construcción**, que es lo que hace falta en un enlace
 full-duplex donde cada hilo tiene un único emisor. Un hilo compartido de verdad
 —medio dúplex, colector abierto— **no se modela con esta pieza**, sino
-conectando los dos pines al mismo nodo.
+conectando los dos pines al mismo nodo con [`une`](#21-los-nodos).
+
+Sirve igual entre dos pines del **mismo** MCU: el banco lleva una pista de PD12
+(la salida PWM de TIM4) a PB4 (la entrada de captura de TIM3) para medir con un
+temporizador lo que genera otro, y la suelda solo para esas pruebas. Frente a un
+nodo compartido, la pista tiene dos ventajas y una carencia: **se puede desoldar
+en marcha** y no carga el origen, pero **el conflicto entre los dos extremos es
+invisible** —si los dos conducen, uno pisa al otro sin que nada avise—. La
+comparación completa está en `doc/stm32f407vg_multi_mcu.md`, §4.5.
 
 | Terminal | | |
 | :--- | :--- | :--- |

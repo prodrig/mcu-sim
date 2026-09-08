@@ -365,7 +365,22 @@ SC_MODULE(F1Tb) {
         DebugCaps dbg_caps = DBG_PINES;
         if (g_modo_gdb_dap) { dbg_caps.attach = DebugAttach::Interno;
                               dbg_caps.puerto = g_gdb_puerto; }
-        dut = new Stm32F407VG("dut", dbg_caps);
+        // --- El PUENTE DE PLACA entre PB9 y PD3 ------------------------------
+        // Dos pines del mismo MCU soldados al mismo punto. No es un SignalLink
+        // -no hay buffer, ni umbral, ni sentido- sino UN AnalogNet con los dos
+        // pads registrados en él: la superposición los resuelve juntos, en los
+        // dos sentidos y sin gastar un delta.
+        //
+        // Tiene que declararse AQUI, antes de construir el MCU, porque
+        // `Pad::net` es un `sc_port` y un `sc_port` no se reata. Es la unica
+        // parte del montaje que no puede esperar. [T122]
+        placa.nodo_une("n_puente", {"PB9", "PD3"});
+        Cableado cab;
+        {
+            const std::string e = cableado_desde_netlist(placa, nodos, cab);
+            if (!e.empty()) SC_REPORT_ERROR("netlist", e.c_str());
+        }
+        dut = new Stm32F407VG("dut", dbg_caps, cab);
         tm.isk.bind(dut->matrix.from_tb);          // puerto de verificación
         // Los nodos de la placa: los 144 pads con su nombre de esquematico y
         // los diez de alimentacion y arranque. Tiene que ir antes que nada,
@@ -1022,6 +1037,7 @@ SC_MODULE(F1Tb) {
         t120_eth_filtros();
         const unsigned f7et_pass = g_pass, f7et_fail = g_fail;
         t121_netlist();
+        t122_nodo_compartido();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -13318,6 +13334,151 @@ SC_MODULE(F1Tb) {
         check(xcvr1->conectada() && xcvr2->conectada(),
               "y can_links(true) los vuelve a soldar");
         can_links(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // T122 — UN NODO COMPARTIDO entre dos pines del MISMO MCU
+    //
+    // La placa lleva un puente entre PB9 y PD3: dos pines del chip soldados al
+    // mismo punto. No es un montaje frecuente —y como banco de pruebas es casi
+    // una excusa— pero es el caso pequeño de lo que de verdad hace falta para
+    // dos MCUs sobre un hilo, y tiene la virtud de caber en un grupo de
+    // pruebas.
+    //
+    // Lo que se comprueba aquí es la diferencia entre las dos maneras de
+    // juntar dos pines, que es la única razón por la que este trabajo merece
+    // la pena [doc/stm32f407vg_multi_mcu.md, §4]:
+    //
+    //   * una PISTA (`SignalLink`, y ahí sigue: lnk_pwm lleva el PWM de PD12 a
+    //     PB4 en T41 y T43) es un buffer con umbral y sentido. Vale, y muy
+    //     bien, cuando hay un emisor y un receptor, y se puede despegar entre
+    //     pruebas;
+    //   * un NODO COMPARTIDO es un solo AnalogNet con los dos pads dentro. No
+    //     tiene sentido, no cuesta un delta, y —esto es lo que ninguna pista
+    //     puede hacer— si los dos pines conducen a la vez, el conflicto SALE:
+    //     media tensión en el nodo y sobrecorriente en los dos pads.
+    // -----------------------------------------------------------------------
+    void t122_nodo_compartido() {
+        group("T122 Un nodo compartido entre dos pines del mismo MCU");
+        reset_dut();
+        rcc_enable(Rcc::R_AHB1ENR, 1);              // GPIOBEN
+        rcc_enable(Rcc::R_AHB1ENR, 3);              // GPIODEN
+
+        // --- 1. Es UN nodo, no dos parecidos --------------------------------
+        check(&nodos["PB9"] == &nodos["PD3"],
+              "PB9 y PD3 son el MISMO AnalogNet, no dos acoplados por una pieza");
+        check(&nodos["n_puente"] == &nodos["PB9"],
+              "y el nombre de placa del puente designa ese mismo nodo");
+        check(dut->pinmux.comparte_nodo(1, 9) && dut->pinmux.comparte_nodo(3, 3),
+              "los dos pads reciben su nodo de la placa en vez de crearlo");
+        check(!dut->pinmux.comparte_nodo(0, 5),
+              "y un pin sin puente sigue creando el suyo: el coste es cero");
+
+        // --- 2. De PB9 a PD3 -------------------------------------------------
+        pin_cfg(1, 9, 1);                           // PB9 salida push-pull
+        pin_cfg(3, 3, 0);                           // PD3 entrada sin pull
+        gpio_wr(1, 0x14, 1u << 9);                  // ODR9 = 1
+        wait(1, SC_US);
+        check_near(nodos["PD3"].voltage(), 3.3, 0.02,
+                   "PB9 en alto lleva el nodo a VDD");
+        check(((gpio_rd(3, 0x10) >> 3) & 1u) == 1u,
+              "y PD3 lo lee: la tension es la misma porque el nodo es el mismo");
+        gpio_wr(1, 0x14, 0u);
+        wait(1, SC_US);
+        check(((gpio_rd(3, 0x10) >> 3) & 1u) == 0u, "y el cero, igual");
+
+        // --- 3. Y de PD3 a PB9 ----------------------------------------------
+        // Un cable no tiene sentido. Una pista, si.
+        pin_cfg(1, 9, 0);                           // ahora PB9 entrada
+        pin_cfg(3, 3, 1);                           // y PD3 salida
+        gpio_wr(3, 0x14, 1u << 3);
+        wait(1, SC_US);
+        check(((gpio_rd(1, 0x10) >> 9) & 1u) == 1u,
+              "al reves tambien: el nodo compartido es BIDIRECCIONAL, cosa que "
+              "una pista unidireccional no puede ser");
+
+        // --- 4. Los dos conduciendo a la vez: el conflicto SALE --------------
+        // Dos buffers de 55 ohm enfrentados dejan el nodo a media tension y
+        // hacen pasar 30 mA por cada pad, por encima de los 25 mA del maximo
+        // [IR, §2.4]. Con un acoplador entre dos nodos esto no se veria: no
+        // habria conflicto que resolver, uno de los dos pisaria al otro.
+        pin_cfg(1, 9, 1);                           // PB9 salida...
+        gpio_wr(1, 0x14, 0u);                       // ...a cero, contra el uno de PD3
+        wait(1, SC_US);
+        check_near(nodos["PB9"].voltage(), 1.65, 0.05,
+                   "dos salidas enfrentadas dejan el nodo a media tension");
+        check(dut->pinmux.pad[1][9]->overcurrent() &&
+              dut->pinmux.pad[3][3]->overcurrent(),
+              "y los DOS pads avisan de sobrecorriente: el cortocircuito es real, "
+              "no una aproximacion");
+
+        // --- 5. Y se deshace dejando los dos pines como entradas -------------
+        pin_cfg(1, 9, 0);
+        pin_cfg(3, 3, 0);
+        wait(1, SC_US);
+        check(dut->pinmux.pad[1][9]->is_floating(),
+              "con los dos de entrada el nodo queda flotante, que es lo que un "
+              "punto sin nadie que lo gobierne debe hacer");
+
+        // --- 6. Y viaja en el XML -------------------------------------------
+        // El puente es placa, no modelo: tiene que poder escribirse en el
+        // fichero y volver a leerse. Y tiene que salir SIEMPRE, aunque no lleve
+        // ninguna pieza colgada, que es justo el caso de este.
+        {
+            std::ostringstream os;
+            placa.volcar_xml(os, "con-puente");
+            const std::string x = os.str();
+            check(x.find("<nodo id=\"n_puente\" externo=\"si\" une=\"PB9 PD3\"/>")
+                      != std::string::npos,
+                  "el XML declara el puente con los pads que lo forman");
+            Netlist copia;
+            const std::string e = netlist_desde_texto(copia, x);
+            check(e.empty(), e.empty() ? "y se relee sin errores" : e.c_str());
+            const std::vector<std::string>* u = copia.union_de("n_puente");
+            check(u && u->size() == 2 && (*u)[0] == "PB9" && (*u)[1] == "PD3",
+                  "con los dos pads y en el mismo orden");
+            check(copia.es_externo("n_puente"),
+                  "y marcado como externo: un puente lo crea la placa, no el pad");
+        }
+
+        // --- 7. Los `une` mal escritos se rechazan por su nombre -------------
+        auto dice = [](const std::vector<std::string>& e, const char* t) {
+            for (const std::string& s : e) if (s.find(t) != std::string::npos) return true;
+            return false;
+        };
+        {
+            Netlist malo;
+            malo.nodo_une("n1", {"PB9", "PZ9"});
+            check(dice(malo.valida(nodos), "no es un pad del MCU"),
+                  "un pad que no existe se rechaza diciendo cual");
+        }
+        {
+            Netlist malo;
+            malo.nodo_une("n1", {"PB9", "PF3"});
+            check(dice(malo.valida(nodos), "no sale al encapsulado"),
+                  "y un pad que este encapsulado no saca, tambien");
+        }
+        {
+            Netlist malo;
+            malo.nodo_une("n1", {"PB9", "PD3"});
+            malo.nodo_une("n2", {"PB9", "PD4"});
+            check(dice(malo.valida(nodos), "esta en dos nodos a la vez"),
+                  "y un pad en dos puentes es un error: solo tiene un nodo");
+        }
+        {
+            Netlist malo;
+            malo.nodo_une("n1", {"PB9"});
+            check(dice(malo.valida(nodos), "al menos dos"),
+                  "y unir un pad consigo mismo no une nada");
+        }
+        {
+            // La otra mitad: lo que el LECTOR rechaza, con su linea.
+            Netlist n;
+            const std::string e = netlist_desde_texto(
+                n, "<placa><nodo id=\"a\" une=\"PB9\"/></placa>");
+            check(!e.empty() && e.find("al menos dos") != std::string::npos,
+                  "y el lector de XML lo dice tambien, antes de construir nada");
+        }
     }
 
     // Ayudas del cliente de pruebas

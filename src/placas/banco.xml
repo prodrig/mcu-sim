@@ -74,6 +74,7 @@
   <nodo id="PE9"/>
   <nodo id="PH0" bus="si"/>
   <nodo id="n_can" externo="si" bus="si"/>
+  <nodo id="n_puente" externo="si" une="PB9 PD3"/>
   <componente tipo="Crystal" id="xtal_hse" vdd="3.3">
     <pin nombre="osc_in" nodo="PH0"/>
   </componente>

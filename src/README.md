@@ -82,6 +82,23 @@ conduciendo el mismo nodo, un nodo externo que nadie gobierna). Véase
 `doc/stm32f407vg_parts_paso3.md`, y `doc/parts.md` para el catálogo de
 componentes con sus parámetros.
 
+**Puentes entre pines.** Dos pines pueden ser el MISMO punto eléctrico, no dos
+puntos parecidos:
+
+```xml
+<nodo id="n_puente" externo="si" une="PB9 PD3"/>
+```
+
+Los pads que `une` nombra dejan de crear su propio `AnalogNet` y comparten este,
+así que la superposición los resuelve juntos: bidireccional, sin retardo, y si
+los dos conducen a la vez el conflicto sale —media tensión y sobrecorriente en
+los dos pads—. Hay que declararlo porque el pad ata su nodo a un `sc_port` en el
+constructor del MCU y un `sc_port` no se reata; por eso el fichero se lee ANTES
+de construir el MCU. Un puente es permanente: para un enlace unidireccional que
+haya que soldar y despegar entre pruebas está `SignalLink`. El banco lleva el
+puente PB9–PD3 y lo comprueba T122; la comparación entre las dos formas está en
+`doc/stm32f407vg_multi_mcu.md`, §4.5.
+
 En `placas/` hay tres:
 
 | Fichero | Qué es |

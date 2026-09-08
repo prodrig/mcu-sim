@@ -926,3 +926,195 @@ sabe nada de la suite.
 
 **Suite: 1851/1851, 0 fallos**, los tres binarios compilan limpios y el banco
 sigue en 50 deltas. Queda el paso 4, el SVG, que ya tiene de dónde salir.
+
+---
+
+## 2026-09-07 UTC — `doc/parts.md`, el catálogo de componentes
+
+**Prompt.** «Hecho el commit a mano. Genera un fichero MD llamado doc/parts.md,
+con la explicación detallada de cada componente externo disponible en la carpeta
+parts, incluyendo el significado y uso de cada parámetro. Por ejemplo, en
+`<componente tipo="Led" id="LD4" a_vss="si" vf="2.0" r="330">`, indica qué efecto
+tienen los parámetros tipo, id, a_vss, vf y r. Crea una sección en el MD para los
+parámetros que son comunes a todos o muchos de los componentes, y explica en otra
+sección cómo se establecen las conexiones».
+
+**Respuesta.** Catálogo de las 21 piezas, con tres secciones previas: cómo se
+establecen las conexiones (nodos, `<pin>`, `<ref>`, `conectada`), los parámetros
+comunes (`tipo`, `id`, `conectada`; `vdd`; las resistencias) y cómo se escriben
+los valores. Ese último apartado documenta una trampa real: los números se leen
+con `atof`, así que `0x50` funciona (glibc lee hexadecimal en coma flotante) pero
+**`8M` vale 8 y `4.7k` vale 4,7**, en silencio. Escribir `8e6` y `4700`.
+
+---
+
+## 2026-09-07 UTC — El parámetro `vdd` del LED
+
+**Prompt.** «Añade el parámetro vdd con valor por defecto de 3.3V al Led, tanto en
+el XML como en SystemC y la documentación. De esta manera se puede modelar un Led
+azul con vf = 3.0V conectando el ánodo a 5V y el cátodo al pin del MCU».
+
+**Respuesta.** `Led(..., double vdd = 3.3, const char* term = "anodo")`. Con
+`a_vss="no"` el LED conduce cuando la tensión del pin baja de `vdd - vf`, y ese
+`vdd` ya no está clavado a 3,3. Placa de ejemplo `placas/led_azul_5v.xml`.
+
+Añadí además, **sin que se pidiera y diciéndolo**, el alias de terminal `catodo`,
+para que el montaje con el cátodo al pin se escriba como es. Ofrecí quitarlo.
+
+---
+
+## 2026-09-07 UTC — Las placas XML al repositorio, y la limpieza
+
+**Prompts.** «Añade los xml utilizandos en los bancos de prueba al repositorio
+(git add), aunque sean regenerables» y «Borra los residuos en _to_delete».
+
+**Respuesta.** `placas/discovery_min.xml`, `led_azul_5v.xml` y `banco.xml`
+versionados: el último es regenerable con `--netlist`, y precisamente por eso
+tenerlo en el repositorio hace que un cambio en la placa aparezca como un diff en
+vez de como nada. Los residuos de `_to_delete` —restos de bloqueos de git del
+puente remoto— borrados tras volver a pedir permiso de borrado, que se pierde al
+reiniciar el espacio de trabajo.
+
+---
+
+## 2026-09-07 UTC — `Resistor` → `Rpull`, y una corrección mía
+
+**Prompt.** «Cambia el nombre de Resistor a Rpull para que sea coherente con su
+función. Modifica el comportamiento del parámetro v para que se pueda conectar a
+diferentes tensiones (por ejemplo, v = "5", para construir una resistencia de
+pull-up a 5V). Actualiza no sólo el código, también la documentación».
+
+**Respuesta.** El renombrado, sí. Pero la segunda mitad del encargo **no hacía
+falta**: comprobé empíricamente que `v` ya aceptaba cualquier tensión —es la
+tensión del extremo lejano de un driver Thevenin, y siempre lo fue—. Lo que
+estaba mal era **mi documentación**, que decía «`3.3` = pull-up; `0` = pull-down;
+cualquier otra cosa = un divisor», como si solo hubiera tres casos. Lo dije en
+lugar de fingir un cambio de código, y reescribí el apartado.
+
+De paso salió **un fallo de verdad en el `Led`**: su hilo esperaba un cambio de
+tensión *antes* de evaluar, así que un LED sostenido por una resistencia de pull
+con el pin como entrada informaba «apagado, 0,00 mA» aunque estuviera encendido.
+Evaluar primero y esperar después. Verificado contra la superposición calculada a
+mano: 2,20 V / 0,60 mA con `v=5`, 2,09 V / 0,26 mA con 3,3, y apagado con 1,8.
+
+---
+
+## 2026-09-07 UTC — Análisis: varios MCUs en una placa
+
+**Prompt.** «Analiza las modificaciones necesarias al XML y al código C++ para
+que, en el futuro, se pueda modificar el MCU que lleva la placa o incluso poner
+varios MCUs. […] los nodos de los MCUs no hace falta declararlos, así que las
+referencias deberían ser algo así como `nodo = "PD12"` si sólo hay un MCU o
+`nodo = "u0.PD12"` si hay dos».
+
+**Respuesta.** `doc/stm32f407vg_multi_mcu.md`, con cada cita de código verificada.
+Lo fácil es el esquema de nombres (`NodeMap` es un mapa de cadenas). Lo medio, un
+elemento `<mcu>` y una interfaz `mcu_if` con su factoría — la superficie que
+`sim_main.cpp` usa del MCU son cuatro cosas. **Lo difícil es unir un pin de `u0`
+con uno de `u1`**, porque cada pad crea su `AnalogNet` y lo ata a un `sc_port` en
+el constructor, y un `sc_port` no se reata: la decisión hay que tomarla al
+construir el MCU. Opción A (un acoplador que generaliza `I2cWire`) solo propaga
+el cero, cuesta un delta y aproxima tensiones; **opción B (nodo compartido de
+verdad), recomendada**. Y cuatro cosas que ya estaban mal: `basename()`,
+`registra_mcu` pisándose, dos `static bool warned` y un solo puerto de GDB.
+
+---
+
+## 2026-09-08 UTC — Dos preguntas sobre la opción B
+
+**Prompt 1.** «En el caso de aplicar la solución recomendada al problema "cada pad
+crea su `AnalogNet`", en el caso de un único MCU declarado explícitamente como
+"u0", ¿sería necesario declarar explícitamente el nodo del pin PD12 de u0 o un
+LED, por ejemplo, podría seguir conectando con `nodo="PD12"`?»
+
+**Respuesta.** No hace falta declararlo, por dos razones independientes que
+conviene no mezclar: por el **nombre** (la regla depende de que haya un solo MCU,
+no de que sea implícito; los pads existen desde que se construye el `PinMux` y
+`<nodo>` solo es obligatorio para los externos) y por la **mecánica de la opción
+B** (un pad solo deja de crear su nodo si un `une` lo nombra, así que el
+`Cableado` llega vacío y el coste es cero). La asimetría: `une` nombra *pads* y
+crea un nodo que *sustituye* al suyo, así que un puente hay que declararlo y un
+LED sobre un pad no.
+
+**Prompt 2.** «Y si quisiera unir dos pines del mismo MCU, por ejemplo, una salida
+PWM de un canal de un temporizador y una entrada de un canal de otro temporizador
+para medirla, aunque no tenga mucho sentido, ¿es posible? ¿cómo se haría?»
+
+**Respuesta.** Sí, y **ese caso exacto ya estaba en el banco**: `lnk_pwm` lleva
+PD12 (TIM4_CH1) a PB4 (TIM3_CH1) y T41 y T43 lo usan. Pero `SignalLink` no es un
+cable: es un buffer unidireccional con el umbral de un pad. Para ese montaje es
+fiel —un solo emisor, cero tiempo simulado, y se puede despegar— y no lo es para
+un punto eléctrico de verdad. Con la opción B se escribiría
+`<nodo id="n" une="PD12 PB4"/>`, y unir dos pines del mismo chip sale gratis
+porque el `Cableado` es un mapa pad→nodo al que no le importa de qué chip es cada
+pad. El precio: un nodo compartido es soldadura permanente.
+
+---
+
+## 2026-09-08 UTC — Implementación de los nodos compartidos
+
+**Prompt.** «Añade al fichero stm32f407 multi mcu.md toda esta información […].
+Aplica los cambios al código y al XML usando la solución recomendada para "cada
+pad crea su `AnalogNet` y lo ata a un `sc_port` en el constructor de `PinMux`",
+resuelve los problemas de `--inventario` por usar `basename()` y de llamar a
+`registra_mcu` dos veces sin prefijo, pero deja los otros dos solamente
+documentados y pendientes. Después comitea todo».
+
+**Respuesta.** Tres cosas hechas y dos deliberadamente no hechas.
+
+**La opción B.** `Cableado` y `pad_desde_nombre()` en `pins/pin_mux.h`; el
+constructor de `PinMux` y el de `Stm32F407VG` lo reciben; `PinMux` distingue
+ahora entre `net[p][i]` —los nodos que **posee** y destruirá, `nullptr` en los
+pines con puente— y `nodo[p][i]`, el que el pad usa. En el XML, el atributo
+`une="PB9 PD3"`, con `Netlist::nodo_une()` y `cableado_desde_netlist()`. El orden
+de montaje se invierte: **leer → crear los nodos compartidos → construir el MCU →
+registrar los nodos → construir las piezas**, y es viable porque leer no
+construye. Para una placa sin puentes el mapa va vacío y el constructor hace lo de
+siempre: **coste cero**, y las tres placas de `placas/` siguen valiendo sin tocar
+una línea.
+
+Lo que el análisis no había previsto: el nombre del puente y el de sus pads
+designan el mismo `AnalogNet`, y la validación agrupa por nombre. Hubo que
+enseñarle que un puente no puede «quedar flotante por culpa de la placa» —al otro
+lado hay pads— y que declararlo `bus` por cualquiera de sus nombres quiere decir
+lo mismo (`es_bus_efectivo`).
+
+**§7.1, `basename()`.** La traducción nodo→nombre se muda a
+`common/nombres_nodo.h`, parte del nombre **jerárquico** y cualifica el pad con su
+MCU cuando hay más de uno (`n_mcus()`, que cuenta el constructor de `PinMux`
+porque hay exactamente uno por MCU). Con un solo MCU el volcado sale idéntico, que
+era la condición para no migrar nada.
+
+**§7.2, `registra_mcu`.** Gana el prefijo, y `NodeMap::registra()` convierte en
+`SC_REPORT_ERROR` lo que antes era un solapamiento mudo: dar de alta un nombre dos
+veces con dos `AnalogNet` distintos. Con el mismo nodo sigue valiendo, y hace
+falta que valga: es lo que ocurre cuando un pad forma parte de un puente ya
+registrado.
+
+**§7.3 y §7.4 se quedan pendientes**, marcados como tales en el análisis y en el
+TODO (I-17). Los `static bool warned` no se manifiestan con un solo MCU, y el
+puerto de GDB no tiene dónde ponerse mientras no exista el `<mcu>` que lo lleve:
+el arreglo y su sitio llegan juntos.
+
+**Prueba.** El banco lleva ahora el puente **PB9–PD3** y lo comprueba **T122**, con
+20 comprobaciones: que los dos nombres son el mismo objeto, que el nivel pasa en
+los dos sentidos —cosa que una pista no puede—, que la ida y vuelta por XML lo
+conserva, que los cuatro `une` mal escritos se rechazan cada uno por su motivo, y
+lo que de verdad justifica el trabajo: **con los dos pines conduciendo a la vez el
+nodo se queda a 1,65 V y los dos pads avisan de sobrecorriente**. Con un acoplador
+entre dos nodos ese conflicto no existiría.
+
+Un tropiezo mío que conviene dejar escrito: creí encontrar una discrepancia
+—`src/README.md` documenta `make sim` y el `Makefile` del contenedor no tenía esa
+regla— y añadí la regla. Estaba mirando el fichero equivocado. El versionado es
+**`src/Makefile.stm32`** (`src/Makefile` está en `.gitignore`, es la copia
+generada), y ahí la regla existía desde siempre, junto con la de `bench`. Mi copia
+del contenedor se había quedado atrás. Deshecho: `src/Makefile` vuelve a ser una
+copia exacta de `Makefile.stm32`, y de paso comprobé que `build/bench` —el tercer
+ejecutable, que no había tocado— compila y corre con los cambios.
+
+**Suite: 1871/1871, 0 fallos.** Bajo ASan la comparación con el árbol previo da
+los mismos 17 fallos y las mismas 8 asignaciones filtradas —todas anteriores—, así
+que el cambio de propiedad de los nodos no ha introducido ni fugas ni accesos
+indebidos. `placas/banco.xml` regenerado con el puente; las tres placas validan
+con 0 avisos.

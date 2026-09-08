@@ -13,11 +13,17 @@
 //   <placa nombre="...">
 //     <nodo id="PA5"/>                        un pin: ya existe
 //     <nodo id="n_can" externo="si"/>         hay que crearlo
+//     <nodo id="n_p" une="PB9 PD3"/>          dos pads SON este nodo
 //     <componente tipo="Led" id="LD2" vf="2.0" r="330" conectada="no">
 //       <pin nombre="anodo" nodo="PA5"/>
 //       <ref nombre="hilo" componente="can_bus"/>
 //     </componente>
 //   </placa>
+//
+// `une` es el único atributo que cambia algo del MCU y no solo de la placa: los
+// pads que nombra dejan de crear su propio AnalogNet. Por eso hay que leer el
+// fichero ANTES de construir el MCU (véase cableado_desde_netlist en netlist.h);
+// leer no construye, y esa es justo la propiedad que lo hace posible.
 //
 // Todo atributo de <componente> que no sea `tipo`, `id` o `conectada` es un
 // PARÁMETRO de la pieza, tal cual, sin lista blanca. Es deliberado: la factoría
@@ -59,16 +65,37 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
         const std::string id = h.attr_o("id");
         const std::string ex = h.attr_o("externo", "no");
         const std::string bs = h.attr_o("bus", "no");
+        const std::string un = h.attr_o("une", "");
         if (ex != "si" && ex != "no")
             return donde(h) + "<nodo id=\"" + id + "\">: externo debe ser si o no";
         if (bs != "si" && bs != "no")
             return donde(h) + "<nodo id=\"" + id + "\">: bus debe ser si o no";
         for (const auto& a : h.attrs)
-            if (a.first != "id" && a.first != "externo" && a.first != "bus")
+            if (a.first != "id" && a.first != "externo" && a.first != "bus" &&
+                a.first != "une")
                 return donde(h) + "<nodo id=\"" + id + "\">: atributo desconocido: " +
                        a.first;
         if (ex == "si") nl.nodo_externo(id);
         if (bs == "si") nl.nodo_bus(id);
+        // `une` es la lista de pads que SON este nodo, separados por espacios.
+        // No es una conexión más: dice que esos pads no van a crear su propio
+        // AnalogNet, y por eso hay que leerlo antes de construir el MCU. La
+        // comprobación de que cada nombre es un pad de verdad la hace
+        // `Netlist::valida()`; aquí solo se separa la lista.
+        if (!un.empty()) {
+            std::vector<std::string> pads;
+            std::string t;
+            for (size_t k = 0; k <= un.size(); ++k) {
+                const char c = (k == un.size()) ? ' ' : un[k];
+                if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+                    if (!t.empty()) { pads.push_back(t); t.clear(); }
+                } else t.push_back(c);
+            }
+            if (pads.size() < 2)
+                return donde(h) + "<nodo id=\"" + id + "\">: une necesita al menos "
+                       "dos pads separados por espacios";
+            nl.nodo_une(id, pads);          // implica externo: lo crea la placa
+        }
     }
 
     // Segunda pasada: los componentes, EN ORDEN. El orden del fichero es el

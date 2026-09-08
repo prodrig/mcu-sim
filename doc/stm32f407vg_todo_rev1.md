@@ -360,6 +360,9 @@ Cosas que **están modeladas** pero que la suite no ejercita.
 | **I-12** | ~~**Paso 3: lector de XML y validador eléctrico**~~ | — | **HECHO.** `parts/part_factory.h` (registro cadena→creador con auto-registro), `parts/xml_min.h` (lector de XML estricto, sin dependencias), `parts/netlist_xml.h` y el ejecutable `./build/sim placa.xml firmware.bin`. La validación eléctrica encontró **siete conducciones simultáneas ciertas** en la placa del banco —dos buses I2C reales, el cable en Y del CAN y cuatro pines compartidos entre grupos de prueba— que vivían implícitas en `i2c_bus()`, `adc_links()` y compañía; declararlas dejó la placa en 0 avisos. El cortocircuito PA2/PB11 de F7-ETH está reconstruido en T121 y salta **antes de simular**. Véase `doc/stm32f407vg_parts_paso3.md` |
 | **I-13** | **Paso 4: generador de SVG desde el netlist**, con `id` estables por componente y por nodo, y opcionalmente coloreado desde una traza | — | **Pendiente, y ya tiene de dónde salir**: el netlist lleva nodos, terminales, parámetros, referencias y la marca de qué nodos hay que crear |
 | **I-14** | **La validación eléctrica avisa por conducción simultánea, no por tensiones incompatibles.** Dos piezas que conducen el MISMO nivel sobre un nodo no son un cortocircuito, y hoy se avisa igual | — | **Falso positivo conocido y acotado.** Distinguirlo exigiría que cada terminal declarase qué tensión y qué impedancia presenta, información que hoy solo existe dentro del constructor de cada pieza. Se calla declarando el nodo con `nodo_bus()`, y declararlo documenta |
+| **I-15** | ~~**Nodos compartidos entre pines: cada pad creaba su `AnalogNet` y lo ataba a un `sc_port`**~~ | multi-MCU §4.3 | **HECHO.** `Cableado` en `pins/pin_mux.h`, el atributo `une=` en el XML, `Netlist::nodo_une()` y `cableado_desde_netlist()`. Un pad solo deja de crear su nodo si un `<nodo … une="…">` lo nombra, así que el coste para una placa sin puentes es cero. El banco lleva el puente PB9–PD3 y **T122** lo comprueba, incluido lo que ninguna pista (`SignalLink`) puede dar: con los dos pines conduciendo, el nodo se queda a 1,65 V y los dos pads avisan de sobrecorriente. Véase `doc/stm32f407vg_multi_mcu.md`, §4.3 y §4.5 |
+| **I-16** | ~~**El volcado del inventario daba nombres de nodo ambiguos** (`basename()` descarta la jerarquía) y **`registra_mcu()` sin prefijo se pisaba a sí mismo en silencio**~~ | multi-MCU §7.1 y §7.2 | **HECHO.** `common/nombres_nodo.h` parte del nombre jerárquico y cualifica el pad con su MCU cuando hay más de uno; `registra_mcu(prefijo, …)` y un `SC_REPORT_ERROR` en `NodeMap::registra()` cuando un nombre se da de alta dos veces con dos `AnalogNet` distintos. Con un solo MCU el volcado sale idéntico al anterior, que era la condición para hacerlo sin migrar nada |
+| **I-17** | **Dos fallos mudos que solo se manifiestan con DOS MCUs**: los `static bool warned` de `periph/adc.h:861` y `periph/sdio.h:777` (el aviso del segundo chip se lo traga el primero) y el **puerto de GDB único**, que sale de una variable global del banco | multi-MCU §7.3 y §7.4 | **Pendiente a propósito.** Con un solo MCU no se manifiestan, y el puerto no tiene dónde ponerse mientras no exista el elemento `<mcu>` que lo lleve. Los dos son dos líneas cada uno y van con el paso 2 de `doc/stm32f407vg_multi_mcu.md`, §8 |
 | **I-10** | **Referencia cruzada errónea en el informe de F1 §1**: la fila del RCC dice "Completo salvo lo eléctrico (**ver §6**)", pero el contenido pendiente está en **§9** | F1 | Errata documental |
 
 ---
@@ -443,10 +446,10 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 | **D** — Datos sin fuente | 13 |
 | **X** — Discrepancias y silencios de [IR] | 12 |
 | **V** — Huecos de verificación | 9 |
-| **I** — Deuda de instrumentación y proyecto | 14 *(dos cerradas: I-11 e I-12)* |
-| **Total** | **128** |
+| **I** — Deuda de instrumentación y proyecto | 17 *(cuatro cerradas: I-11, I-12, I-15 e I-16)* |
+| **Total** | **131** |
 
-De los 128, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 131, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.

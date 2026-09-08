@@ -13,20 +13,28 @@
 //
 // El orden importa y es el único posible:
 //
-//   1. construir el MCU y dar de alta sus nodos (los 144 pads con su nombre de
-//      esquemático y los diez de alimentación);
-//   2. leer el fichero -que NO construye nada, solo declara-;
-//   3. validar la declaración: nodo inexistente, pad que este encapsulado no
+//   1. leer el fichero -que NO construye nada, solo declara-;
+//   2. crear los nodos COMPARTIDOS que la placa declare con `une`, porque un
+//      pad que va a un nodo compartido no puede crear el suyo y `Pad::net` es
+//      un `sc_port` que se ata en el constructor: la decisión hay que tomarla
+//      antes de que el MCU exista;
+//   3. construir el MCU con ese cableado y dar de alta sus nodos (los 144 pads
+//      con su nombre de esquemático y los diez de alimentación);
+//   4. validar la declaración: nodo inexistente, pad que este encapsulado no
 //      saca, identificador repetido, referencia hacia delante, tipo que la
 //      factoría no conoce;
-//   4. construir las piezas;
-//   5. validar lo ELÉCTRICO, que necesita las piezas montadas para saber qué
+//   5. construir las piezas;
+//   6. validar lo ELÉCTRICO, que necesita las piezas montadas para saber qué
 //      terminal conduce y cuál solo escucha;
-//   6. y solo entonces `sc_start()`.
+//   7. y solo entonces `sc_start()`.
 //
-// Todo lo que va del 1 al 5 ocurre en la elaboración, porque la de SystemC es
+// Que leer vaya ANTES que construir el MCU no era así al principio, y es lo que
+// permite el paso 2. Fue un acierto del paso 3 que aquí se cobra solo: leer
+// devuelve datos, y con datos todavía se puede decidir.
+//
+// Todo lo que va del 1 al 6 ocurre en la elaboración, porque la de SystemC es
 // estática: no se puede añadir una pieza con la simulación en marcha. Esa es
-// también la razón por la que los pasos 3 y 5 sirven para algo — avisan antes
+// también la razón por la que los pasos 4 y 6 sirven para algo — avisan antes
 // de simular, que es cuando el aviso todavía ahorra tiempo.
 // =============================================================================
 #include <systemc>
@@ -55,14 +63,23 @@ SC_MODULE(Sim) {
     unsigned     n_avisos = 0;
 
     SC_CTOR(Sim) {
-        dut = new Stm32F407VG("dut");
-        nodos.registra_mcu(dut->pinmux, dut->pwr_pads);
-
         const std::string e = netlist_desde_fichero(placa, g_placa, &g_nombre);
         if (!e.empty()) {
             std::fprintf(stderr, "error de netlist: %s\n", e.c_str());
             std::exit(2);
         }
+        // Los nodos COMPARTIDOS, antes del MCU. Si la placa no declara ninguno
+        // -que es lo normal- el cableado sale vacío y el MCU se construye
+        // exactamente igual que siempre.
+        Cableado cab;
+        const std::string ec = cableado_desde_netlist(placa, nodos, cab);
+        if (!ec.empty()) {
+            std::fprintf(stderr, "  [decl] %s\n", ec.c_str());
+            std::exit(2);
+        }
+        dut = new Stm32F407VG("dut", DBG_PINES, cab);
+        nodos.registra_mcu(dut->pinmux, dut->pwr_pads);
+
         for (const std::string& q : placa.valida(nodos)) {
             std::fprintf(stderr, "  [decl] %s\n", q.c_str());
             ++n_avisos;

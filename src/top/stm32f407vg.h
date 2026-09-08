@@ -53,7 +53,7 @@ SC_MODULE(Or2) {
 
 SC_MODULE(Stm32F407VG) {
     // =========================== Subcomponentes =============================
-    PinMux    pinmux{"pinmux"};
+    PinMux    pinmux;
     PowerPads pwr_pads{"pwr_pads"};
     Rcc       rcc{"rcc"};
     // El núcleo, con sus rasgos de depuración: pines expuestos (por omisión) o
@@ -214,8 +214,15 @@ SC_MODULE(Stm32F407VG) {
     sc_core::sc_signal<bool> s_or_in[20];
 
     // ============================ Construcción ==============================
-    explicit Stm32F407VG(sc_core::sc_module_name nm, DebugCaps dbg = DBG_PINES)
-        : sc_core::sc_module(nm), core("core", dbg),
+    // `cab` es el cableado de la PLACA: los pines cuyo nodo eléctrico no es
+    // suyo sino compartido con otro pad —un puente de placa entre dos pines de
+    // este mismo chip, o un hilo que comparte con otro MCU—. Tiene que llegar
+    // por el constructor porque `Pad::net` es un `sc_port` y un `sc_port` no se
+    // reata; vacío, el MCU se construye exactamente igual que siempre.
+    // [doc/stm32f407vg_multi_mcu.md, §4.3]
+    explicit Stm32F407VG(sc_core::sc_module_name nm, DebugCaps dbg = DBG_PINES,
+                         const Cableado& cab = Cableado())
+        : sc_core::sc_module(nm), pinmux("pinmux", cab), core("core", dbg),
           gpio("gpio", N_GPIO_PORTS, [](const char* n, size_t i) {
                    return new GpioPort(n, unsigned(i)); }) {
         SC_HAS_PROCESS(Stm32F407VG);
