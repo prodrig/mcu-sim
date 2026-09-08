@@ -160,9 +160,18 @@ private:
 // corte (alta impedancia)— reevaluados cada vez que cambia la tensión del pin.
 // ---------------------------------------------------------------------------
 SC_MODULE(Led), public ExtPart {
+    // `vdd` es la tensión del OTRO extremo de la rama, la que no toca el pin.
+    // Con to_vss = true ese extremo es masa y `vdd` no interviene; con
+    // to_vss = false es la alimentación contra la que se enciende el LED, y NO
+    // tiene por qué ser la del MCU: un LED azul de 3,0 V no luce con 3,3 V, así
+    // que en una placa real se cuelga de los 5 V con el cátodo al pin.
+    //
+    // `term` es cómo se llama la patilla que va al pin. Con el ánodo al pin es
+    // el ánodo; con el cátodo al pin, el cátodo. El netlist usa ese nombre.
     Led(sc_core::sc_module_name nm, analog_net_if& n, bool to_vss = true,
-        double vf = 2.0, double r_series = 330.0, double vdd = 3.3)
-        : sc_core::sc_module(nm), ExtPart(n, "Led", "led", "anodo", nm),
+        double vf = 2.0, double r_series = 330.0, double vdd = 3.3,
+        const char* term = "anodo")
+        : sc_core::sc_module(nm), ExtPart(n, "Led", "led", term, nm),
           to_vss_(to_vss), vf_(vf), r_(r_series), vdd_(vdd) {
         SC_HAS_PROCESS(Led);
         SC_THREAD(run);

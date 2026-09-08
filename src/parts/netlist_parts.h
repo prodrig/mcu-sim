@@ -61,8 +61,22 @@ inline Instancia& conecta(Instancia& i, std::initializer_list<Conexion> pines) {
 // ---------------------------------------------------------------------------
 
 REGISTRA_PARTE(Led, [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
-        return new Led(d.id.c_str(), n[d.nodo_de("anodo")], d.si("a_vss", true),
-                       d.num("vf", 2.0), d.num("r", 330.0));
+        // La patilla que va al pin se puede llamar `anodo` o `catodo`, segun el
+        // montaje. Es un nombre, no un cambio de fisica -eso lo decide
+        // `a_vss`-, pero escribir `catodo` cuando lo que va al pin es el catodo
+        // es lo que haria cualquiera con un esquematico delante.
+        const bool tiene_a = !d.nodo_de("anodo").empty();
+        const bool tiene_c = !d.nodo_de("catodo").empty();
+        if (tiene_a && tiene_c) {
+            SC_REPORT_ERROR("netlist",
+                (d.id + ": un LED tiene UNA patilla en el pin; estan declaradas "
+                 "'anodo' y 'catodo'").c_str());
+            return nullptr;
+        }
+        const char* term = tiene_c ? "catodo" : "anodo";
+        return new Led(d.id.c_str(), n[d.nodo_de(term)], d.si("a_vss", true),
+                       d.num("vf", 2.0), d.num("r", 330.0), d.num("vdd", 3.3),
+                       term);
     });
 
 REGISTRA_PARTE(Button, [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
@@ -218,12 +232,18 @@ REGISTRA_PARTE(CanNode, [](const Instancia& d, NodeMap&, Netlist& red) -> ExtPar
 // ---------------------------------------------------------------------------
 
 // Un LED con su resistencia en serie. `a_vss` distingue el montaje: ánodo al
-// pin (se enciende en alto) o cátodo al pin (se enciende en bajo, que es lo que
-// hacen las placas de evaluación de ST).
+// pin y cátodo a masa (se enciende en alto), o ánodo a `vdd` y cátodo al pin
+// (se enciende en bajo, que es lo que hacen las placas de evaluación de ST).
+//
+// `vdd` es la tensión del extremo que NO toca el pin, y solo interviene en el
+// segundo montaje. Vale 3,3 por omisión, pero no tiene por qué ser la del MCU:
+// un LED azul con vf = 3,0 no luce con 3,3 V y se cuelga de los 5 V.
 inline Instancia& led(Netlist& nl, const char* id, const std::string& nodo,
-                      bool a_vss = true, double vf = 2.0, double r = 330.0) {
+                      bool a_vss = true, double vf = 2.0, double r = 330.0,
+                      double vdd = 3.3) {
     Instancia& i = nl.add("Led", id);
-    i.pin("anodo", nodo).par("a_vss", a_vss ? "si" : "no").par("vf", vf).par("r", r);
+    i.pin(a_vss ? "anodo" : "catodo", nodo)
+     .par("a_vss", a_vss ? "si" : "no").par("vf", vf).par("r", r).par("vdd", vdd);
     return i;
 }
 

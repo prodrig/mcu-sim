@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Un LED azul de 3,0 V no luce con 3,3 V: no queda margen para la
+     resistencia. La solucion de siempre es colgarlo de los 5 V con el CATODO al
+     pin, de modo que el MCU lo enciende poniendo el pin a CERO.
+
+       ./build/sim placas/led_azul_5v.xml verif/fw/blinky/blinky.bin 200
+       LED LD_AZUL en PD12: encendido  (0.40 V, 7.27 mA)                -->
+<placa nombre="led-azul-5v">
+  <nodo id="PH0"/>
+  <nodo id="PD12"/>
+
+  <componente tipo="Crystal" id="X1">
+    <pin nombre="osc_in" nodo="PH0"/>
+  </componente>
+
+  <componente tipo="Led" id="LD_AZUL" a_vss="no" vdd="5.0" vf="3.0" r="220">
+    <pin nombre="catodo" nodo="PD12"/>
+  </componente>
+</placa>

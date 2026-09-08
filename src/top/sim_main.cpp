@@ -142,8 +142,11 @@ SC_MODULE(Sim) {
             if (i.tipo != "Led") continue;
             const Led* l = placa.como<Led>(i.id);
             if (!l) continue;
+            // La patilla del pin se llama `anodo` o `catodo` segun el montaje.
+            const std::string& nd = i.nodo_de("anodo").empty()
+                                  ? i.nodo_de("catodo") : i.nodo_de("anodo");
             std::printf("  LED %s en %s: %s  (%.2f V, %.2f mA)\n", i.id.c_str(),
-                        i.nodo_de("anodo").c_str(), l->on() ? "encendido" : "apagado",
+                        nd.c_str(), l->on() ? "encendido" : "apagado",
                         double(l->pin_voltage()), l->current() * 1e3);
         }
         sc_stop();
