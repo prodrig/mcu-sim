@@ -27,7 +27,7 @@ TARGET := build/stm32f407vg
 
 all: $(TARGET)
 
-.PHONY: all test smoke bench sim run clean
+.PHONY: all test asan smoke bench sim run clean
 
 $(TARGET): top/sc_main.cpp $(HDRS)
 	@mkdir -p build
@@ -53,6 +53,32 @@ $(SIM): top/sim_main.cpp $(HDRS)
 
 sim: $(SIM)
 
+# La misma suite, con los sanitizers de direcciones y de comportamiento
+# indefinido. Detecta lo que la suite no puede ver por sí sola: accesos fuera de
+# sitio, usos después de liberar y memoria que no se devuelve.
+#
+#   make asan            # compila y corre; debe salir 0 fugas y 0 avisos
+#
+# Va a -O1 porque con -O2 los sanitizers pierden marcos y los informes dejan de
+# decir dónde. Y NO hace falta poner ASAN_OPTIONS a mano: el ejecutable trae su
+# propia configuración (véase common/asan_opciones.h), sin la cual SystemC se
+# rompe antes de la primera comprobación.
+#
+# Ojo: como `test`, hay que correrlo desde `src/`. Las imágenes de firmware se
+# cargan por rutas relativas (`verif/fw/...`) y desde otro directorio fallan
+# diecisiete comprobaciones que no tienen nada que ver con la memoria.
+ASAN     := build/tb_asan
+ASANFLAGS := -std=$(CXXSTD) -Wall -Wextra -Wno-unused-parameter -g -O1 \
+             -fsanitize=address,undefined -fno-omit-frame-pointer \
+             -I$(SYSTEMC_HOME)/include -I.
+
+$(ASAN): top/sc_main.cpp $(HDRS)
+	@mkdir -p build
+	$(CXX) $(ASANFLAGS) -o $@ top/sc_main.cpp $(LDFLAGS) $(LDLIBS)
+
+asan: $(ASAN)
+	./$(ASAN)
+
 # Suite de verificación de la fase F1 (autocomprobable: código de salida 0/1)
 test: $(TARGET)
 	./$(TARGET)
@@ -66,4 +92,4 @@ run: $(TARGET)
 clean:
 	rm -rf build
 
-.PHONY: all test smoke bench sim run clean
+.PHONY: all test asan smoke bench sim run clean

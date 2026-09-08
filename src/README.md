@@ -22,15 +22,26 @@ P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
 | **F7** (ETH) | Ethernet 10/100: MII/RMII en los pines, MDIO, descriptores, filtrado, MMC y PTP | **completada** |
 | F7 (resto) | afinado AT | pendiente |
 
-`make test` compila y ejecuta la suite de verificación acumulada (1851
+`make test` compila y ejecuta la suite de verificación acumulada (1871
 comprobaciones autocomprobables: 124 de F1 + 12 de F2 + 80 de F3 + 343 de F4
 (DMA, UART/USART, TIM y EXTI/SYSCFG) + 675 de F5 (SPI/I2S, I2C, ADC, DAC, RTC y
 perros guardianes, SDIO, CRC/RNG y bxCAN) + 151 de F6 (depuración y los dos
 servidores GDB) + 426 de F7 (116 de bajo consumo, 61 del DCMI, 54 del FSMC,
-113 del USB OTG y 82 del Ethernet);
+113 del USB OTG y 82 del Ethernet) + 60 del netlist;
 código de
 salida 0 si todas pasan, en unos 23 s). Verificado con SystemC 2.3.4 / g++ 13 / C++17
 y arm-none-eabi-gcc 13.2.
+
+`make asan` corre esa misma suite con AddressSanitizer y UndefinedBehaviorSanitizer,
+y hoy sale limpia: **0 fugas y 0 avisos**. No hay que poner `ASAN_OPTIONS` a
+mano; el ejecutable trae su propia configuración, porque ASan sin
+`detect_stack_use_after_return=0` es incompatible con las corrutinas de SystemC
+y revienta antes de la primera comprobación (véase `common/asan_opciones.h`).
+
+**Las dos hay que ejecutarlas desde `src/`**, que es lo que hace `make`. Las
+imágenes de firmware se cargan por rutas relativas, y desde otro directorio
+fallan diecisiete comprobaciones por un motivo que no tiene nada que ver con lo
+que se estaba mirando.
 
 Las pruebas T15-T17, T25, T31, T37, T43, T48, T55, T61, T66, T70, T79, T82, T88, T95 y T103 necesitan los firmwares del repositorio; se
 compilan con `make -C verif/fw`, `make -C verif/fw/coremark`,
@@ -46,6 +57,7 @@ la imagen. `F2_SKIP_COREMARK=1` omite la ejecución de CoreMark.
 
 ```
 make -f Makefile.stm32 test           # o: cp Makefile.stm32 Makefile && make test
+make -f Makefile.stm32 asan           # la misma suite con ASan + UBSan
 make -f Makefile.stm32 run IMG=fw.bin # carga una imagen y simula
 ```
 

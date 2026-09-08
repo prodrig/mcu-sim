@@ -65,6 +65,9 @@ SC_MODULE(Cpu) {
     // Subsistema de depuración. A nulo, el núcleo se comporta como si no
     // hubiera depurador conectado: es lo que pasa en un chip sin sonda.
     core_debug_if* dbg = nullptr;
+    // Las dos listas de espera del bucle de ejecución, armadas al arrancar
+    // exec_proc() y no en cada vuelta (véase el comentario de allí).
+    sc_core::sc_event_or_list ev_sueno_, ev_parada_;
     FpuCore  fpu;          // unidad funcional FPv4-SP
     Fpu*     fpu_mod = nullptr;   // para la línea de IRQ 81 (lo fija CortexM4F)
 
@@ -441,6 +444,21 @@ inline void Cpu::do_reset() {
 }
 
 inline void Cpu::exec_proc() {
+    // Las dos listas de espera del núcleo —la del sueño (WFI/WFE) y la de la
+    // parada del depurador— se arman UNA VEZ, aquí. Ninguno de sus eventos
+    // cambia después de la elaboración, incluido `dbg`, que se engancha al
+    // construir el MCU. Rearmarlas en cada vuelta reservaba memoria en dos
+    // caminos que se recorren mucho —cada WFI del firmware— y, cuando la
+    // simulación termina con el núcleo parado en un `wfi`, la última lista se
+    // perdía: un SC_THREAD suspendido en `wait()` no desenrolla su pila.
+    ev_sueno_ |= sys->pending_ev()
+               | event_in.value_changed_event()
+               | rst_n.value_changed_event()
+               | fclk_hz.value_changed_event()
+               | dbg_halt_req.value_changed_event();
+    if (dbg) ev_sueno_ |= dbg->dbg_wake();
+    ev_parada_ |= dbg_halt_req.value_changed_event() | rst_n.value_changed_event();
+    if (dbg) ev_parada_ |= dbg->dbg_wake();
     for (;;) {
         // --- fuera de reset -------------------------------------------------
         // Un núcleo en reset NO está dormido. Hay que decirlo en voz alta,
@@ -492,10 +510,7 @@ inline void Cpu::exec_proc() {
                     sync();
                     continue;
                 }
-                if (dbg) wait(dbg_halt_req.value_changed_event() |
-                              rst_n.value_changed_event() | dbg->dbg_wake());
-                else     wait(dbg_halt_req.value_changed_event() |
-                              rst_n.value_changed_event());
+                wait(ev_parada_);
                 if (dbg_halt_req.read() || (dbg && dbg->dbg_halt_now())) continue;
                 if (o_halted_) { o_halted_ = false; publish(); }
                 continue;
@@ -538,16 +553,7 @@ inline void Cpu::exec_proc() {
                                     (sleep_wfe_ && (event_reg_ || event_in.read())) ||
                                     !rst_n.read() || dbg_halt_req.read() ||
                                     (dbg && dbg->dbg_halt_now());
-                    if (!ya) {
-                        sc_core::sc_event_or_list despertadores =
-                              sys->pending_ev()
-                            | event_in.value_changed_event()
-                            | rst_n.value_changed_event()
-                            | fclk_hz.value_changed_event()
-                            | dbg_halt_req.value_changed_event();
-                        if (dbg) despertadores |= dbg->dbg_wake();
-                        wait(despertadores);
-                    }
+                    if (!ya) wait(ev_sueno_);
                 }
                 const bool por_evento = sleep_wfe_ &&
                                         (event_reg_ || event_in.read());

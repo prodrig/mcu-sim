@@ -363,6 +363,8 @@ Cosas que **están modeladas** pero que la suite no ejercita.
 | **I-15** | ~~**Nodos compartidos entre pines: cada pad creaba su `AnalogNet` y lo ataba a un `sc_port`**~~ | multi-MCU §4.3 | **HECHO.** `Cableado` en `pins/pin_mux.h`, el atributo `une=` en el XML, `Netlist::nodo_une()` y `cableado_desde_netlist()`. Un pad solo deja de crear su nodo si un `<nodo … une="…">` lo nombra, así que el coste para una placa sin puentes es cero. El banco lleva el puente PB9–PD3 y **T122** lo comprueba, incluido lo que ninguna pista (`SignalLink`) puede dar: con los dos pines conduciendo, el nodo se queda a 1,65 V y los dos pads avisan de sobrecorriente. Véase `doc/stm32f407vg_multi_mcu.md`, §4.3 y §4.5 |
 | **I-16** | ~~**El volcado del inventario daba nombres de nodo ambiguos** (`basename()` descarta la jerarquía) y **`registra_mcu()` sin prefijo se pisaba a sí mismo en silencio**~~ | multi-MCU §7.1 y §7.2 | **HECHO.** `common/nombres_nodo.h` parte del nombre jerárquico y cualifica el pad con su MCU cuando hay más de uno; `registra_mcu(prefijo, …)` y un `SC_REPORT_ERROR` en `NodeMap::registra()` cuando un nombre se da de alta dos veces con dos `AnalogNet` distintos. Con un solo MCU el volcado sale idéntico al anterior, que era la condición para hacerlo sin migrar nada |
 | **I-17** | **Dos fallos mudos que solo se manifiestan con DOS MCUs**: los `static bool warned` de `periph/adc.h:861` y `periph/sdio.h:777` (el aviso del segundo chip se lo traga el primero) y el **puerto de GDB único**, que sale de una variable global del banco | multi-MCU §7.3 y §7.4 | **Pendiente a propósito.** Con un solo MCU no se manifiestan, y el puerto no tiene dónde ponerse mientras no exista el elemento `<mcu>` que lo lleve. Los dos son dos líneas cada uno y van con el paso 2 de `doc/stm32f407vg_multi_mcu.md`, §8 |
+| **I-18** | ~~**Fugas de memoria bajo AddressSanitizer**: 248 bytes en 8 asignaciones~~ | — | **HECHO.** Seis sitios, dos causas. (a) La sonda SWD y el stub de GDB del banco nunca se destruían —el stub no salía en el informe porque, siendo `sc_module`, sigue colgado de la jerarquía de SystemC y LeakSanitizer lo ve alcanzable—. (b) Las otras cinco eran el mismo patrón: un `sc_event_or_list` (o un `std::vector`) declarado DENTRO del bucle de un `SC_THREAD` vive a través del `wait()`, y un hilo suspendido al terminar la simulación **no desenrolla su pila**, así que su destructor no corre nunca. Armar esas listas una sola vez —`Cpu::exec_proc`, `Rcc::clock_tree_proc`, `CanBase::bit_proc`, `OtgBase::pines_proc`, `I2cWire::run`— quita la fuga y, de paso, una reserva por cada despertar en cinco caminos calientes. Los tres ejecutables salen ahora con **0 fugas y 0 avisos**; `make asan` lo comprueba |
+| **I-19** | **ASan es incompatible con las corrutinas de SystemC si `detect_stack_use_after_return` está encendido** (lo está por omisión desde GCC 13): los marcos falsos son por hilo del sistema operativo y todas las corrutinas comparten uno, así que un proceso ve los del anterior. El síntoma es un SIGSEGV antes de la primera comprobación, en un sitio sin relación | — | **Acotado y desactivado en el binario**, no en un README: `common/asan_opciones.h` define `__asan_default_options()`. No es arreglable por nuestra parte —es de la biblioteca—, pero así no vuelve a costar una tarde |
 | **I-10** | **Referencia cruzada errónea en el informe de F1 §1**: la fila del RCC dice "Completo salvo lo eléctrico (**ver §6**)", pero el contenido pendiente está en **§9** | F1 | Errata documental |
 
 ---
@@ -446,10 +448,10 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 | **D** — Datos sin fuente | 13 |
 | **X** — Discrepancias y silencios de [IR] | 12 |
 | **V** — Huecos de verificación | 9 |
-| **I** — Deuda de instrumentación y proyecto | 17 *(cuatro cerradas: I-11, I-12, I-15 e I-16)* |
-| **Total** | **131** |
+| **I** — Deuda de instrumentación y proyecto | 19 *(cinco cerradas: I-11, I-12, I-15, I-16 e I-18)* |
+| **Total** | **133** |
 
-De los 131, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 133, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.

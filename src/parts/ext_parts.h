@@ -335,6 +335,22 @@ SC_MODULE(I2cWire), public ExtPartBase {
             nets_[i]->set_drive(id_pu_.back(), float(vdd), float(r_pull));
             nets_[i]->set_hiz(id_pd_.back());
         }
+        // La lista de espera y el vector de trabajo se arman UNA VEZ, aquí, y
+        // no en cada vuelta del bucle. Dos motivos, y el segundo es el bueno:
+        //
+        //   * las líneas del hilo no cambian después de la elaboración, así que
+        //     rearmar la lista en cada despertar es trabajo repetido en el
+        //     camino caliente de todas las transacciones del bus;
+        //   * y un objeto declarado dentro del bucle de un SC_THREAD vive a
+        //     través del `wait()`. Cuando la simulación termina, el hilo se
+        //     queda suspendido y su pila NO SE DESENROLLA: los destructores de
+        //     sus locales no llegan a correr nunca. Lo que hayan reservado se
+        //     pierde. Es una fuga acotada —una por proceso— pero ensucia el
+        //     informe de LeakSanitizer, y un informe sucio es un informe que
+        //     nadie mira.
+        for (analog_net_if* p : nets_) espera_ |= p->value_changed_event();
+        espera_ |= ev_;
+        bajo_.assign(nets_.size(), false);
         SC_HAS_PROCESS(I2cWire);
         SC_THREAD(run);
     }
@@ -343,31 +359,30 @@ SC_MODULE(I2cWire), public ExtPartBase {
     }
 private:
     void run() {
+        const size_t n = nets_.size();
         for (;;) {
-            const size_t n = nets_.size();
-            std::vector<bool> low(n, false);
             for (size_t i = 0; i < n; ++i) {
                 bool fl = false;
                 const float v = nets_[i]->voltage_excluding(id_pd_[i], fl);
-                low[i] = on_ && !fl && (v < 0.3 * vdd_);
+                bajo_[i] = on_ && !fl && (v < 0.3 * vdd_);
             }
             for (size_t j = 0; j < n; ++j) {
                 bool any = false;
-                for (size_t i = 0; i < n; ++i) if (i != j && low[i]) any = true;
+                for (size_t i = 0; i < n; ++i) if (i != j && bajo_[i]) any = true;
                 if (any) nets_[j]->set_drive(id_pd_[j], 0.0f, 20.0f);
                 else     nets_[j]->set_hiz(id_pd_[j]);
                 nets_[j]->set_drive(id_pu_[j], float(vdd_), on_ ? 4700.0f : R_HIZ);
             }
-            sc_core::sc_event_or_list any_change;
-            for (analog_net_if* p : nets_) any_change |= p->value_changed_event();
-            wait(any_change | ev_);
+            wait(espera_);      // armada en el constructor: ni reserva ni fuga
         }
     }
     std::vector<analog_net_if*> nets_;
     std::vector<int> id_pu_, id_pd_;
+    std::vector<bool> bajo_;             // quién está tirando de su línea a cero
     double vdd_;
     bool on_ = true;
     sc_core::sc_event ev_;
+    sc_core::sc_event_or_list espera_;   // las líneas, más ev_
 };
 
 // ---------------------------------------------------------------------------

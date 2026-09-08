@@ -273,6 +273,7 @@ private:
     ClockGen g_hclk_, g_pclk1_, g_pclk2_, g_timclk1_, g_timclk2_;
     ClockGen g_rtcclk_, g_stk_, g_mco1_, g_mco2_;
     sc_core::sc_event clk_ev_, rst_req_ev_;
+    sc_core::sc_event_or_list arbol_ev_;   // armada al arrancar clock_tree_proc
 
     // -----------------------------------------------------------------------
     // Valores de reset [IR, §4.12]. bkp = true => también el dominio de backup.
@@ -622,10 +623,18 @@ private:
     }
 
     void clock_tree_proc() {
+        // Los siete eventos del árbol de reloj no cambian nunca: son los de los
+        // seis osciladores/PLL y el aviso de escritura en un registro. Armar la
+        // lista aquí, una vez, en vez de dentro del bucle, ahorra una reserva
+        // por cada despertar —y este proceso despierta en cada escritura al
+        // RCC— y evita que la lista se pierda al terminar la simulación: un
+        // SC_THREAD suspendido en `wait()` no desenrolla su pila, así que sus
+        // locales no se destruyen nunca.
+        arbol_ev_ |= hsi.state_event() | hse.state_event() | lsi.state_event()
+                   | lse.state_event() | pll.state_event() | plli2s.state_event()
+                   | clk_ev_;
         for (;;) {
-            wait(hsi.state_event() | hse.state_event() | lsi.state_event() |
-                 lse.state_event() | pll.state_event() | plli2s.state_event() |
-                 clk_ev_);
+            wait(arbol_ev_);
             check_css();                       // fallo del HSE [IR, §4.2]
             apply_osc_controls();              // la referencia del PLL cambia
             update_clocks();

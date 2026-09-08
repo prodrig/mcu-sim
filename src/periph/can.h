@@ -299,6 +299,7 @@ protected:
     bool o_tx_ = true, o_oe_ = false;
     bool o_irq_[4] = {false, false, false, false};
     sc_core::sc_event pub_ev_, ev_;
+    sc_core::sc_event_or_list parado_ev_;   // armada al arrancar bit_proc
 
     // =======================================================================
     // Campos de los registros
@@ -764,11 +765,16 @@ protected:
     }
 
     void bit_proc() {
+        // Igual que en el RCC: la lista de espera del estado «parado» se arma
+        // una vez y no en cada vuelta. Ni reserva por despertar, ni una lista
+        // perdida si la simulación termina con el proceso suspendido aquí.
+        parado_ev_ |= ev_ | rx_in.value_changed_event()
+                    | rst_n.value_changed_event() | freeze.value_changed_event()
+                    | clk_hz.value_changed_event();
         for (;;) {
             if (!en_marcha()) {
                 if (o_tx_ != true || o_oe_) { o_tx_ = true; o_oe_ = false; publish(); }
-                wait(ev_ | rx_in.value_changed_event() | rst_n.value_changed_event() |
-                     freeze.value_changed_event() | clk_hz.value_changed_event());
+                wait(parado_ev_);
                 continue;
             }
             const double tb = bit_time_s();

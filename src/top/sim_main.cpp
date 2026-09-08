@@ -42,6 +42,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include "../common/asan_opciones.h"
 #include "stm32f407vg.h"
 #include "../verif/image_loader.h"
 #include "../parts/netlist_parts.h"

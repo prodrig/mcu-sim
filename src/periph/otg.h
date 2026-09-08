@@ -575,13 +575,20 @@ protected:
     // de construir el modulo, cuando ya no se puede ampliar la lista estatica
     // de sensibilidad; asi que la lista se arma aqui, en tiempo de ejecucion.
     void pines_proc() {
+        // La lista se arma UNA VEZ, aquí y no dentro del bucle: los nodos se
+        // enlazan durante la elaboración y ya no cambian. Rearmarla en cada
+        // despertar era trabajo repetido, y además un `sc_event_or_list` local
+        // que vive a través del `wait()` se pierde al terminar la simulación:
+        // el hilo se queda suspendido y su pila no se desenrolla, así que su
+        // destructor no llega a correr.
+        if (dm_)     lista_pines_ |= dm_->value_changed_event()
+                                   | dp_->value_changed_event();
+        if (vbus_)   lista_pines_ |= vbus_->value_changed_event();
+        if (id_net_) lista_pines_ |= id_net_->value_changed_event();
+        const bool sin_pines = (!dm_ && !vbus_ && !id_net_);
         for (;;) {
-            if (!dm_ && !vbus_ && !id_net_) { sc_core::wait(nunca_); continue; }
-            sc_core::sc_event_or_list l;
-            if (dm_)     l |= dm_->value_changed_event() | dp_->value_changed_event();
-            if (vbus_)   l |= vbus_->value_changed_event();
-            if (id_net_) l |= id_net_->value_changed_event();
-            sc_core::wait(l);
+            if (sin_pines) { sc_core::wait(nunca_); continue; }
+            sc_core::wait(lista_pines_);
             vbus_proc(); id_proc(); linea_proc();
         }
     }
@@ -589,6 +596,7 @@ protected:
         gp.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE);
     }
     sc_core::sc_event nunca_;
+    sc_core::sc_event_or_list lista_pines_;   // armada al arrancar pines_proc
     void linea_proc();
     void vbus_proc();
     void id_proc();

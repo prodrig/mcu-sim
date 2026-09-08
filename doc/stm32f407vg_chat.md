@@ -1118,3 +1118,67 @@ los mismos 17 fallos y las mismas 8 asignaciones filtradas —todas anteriores�
 que el cambio de propiedad de los nodos no ha introducido ni fugas ni accesos
 indebidos. `placas/banco.xml` regenerado con el puente; las tres placas validan
 con 0 avisos.
+
+---
+
+## 2026-09-08 UTC — Los problemas de ASan
+
+**Prompt.** «Analiza y corrige los problemas detectados con ASan».
+
+**Respuesta.** Tres cosas, y la primera es una rectificación.
+
+**Los 17 fallos no existían: eran míos.** En el turno anterior informé de «17
+fallos bajo ASan, los mismos antes y después del cambio, todos anteriores». Es
+falso. Había ejecutado el binario desde `/home/claude` en lugar de desde `src/`,
+porque una orden anterior había reiniciado el directorio de trabajo del shell.
+Las imágenes de firmware se cargan por **rutas relativas** (`verif/fw/...`), así
+que fallaron las dieciséis comprobaciones de «imagen … cargada en la Flash» más
+la del MCO1 que depende de una de ellas, y se saltaron 128 más. Desde `src/` la
+suite bajo ASan da **1871/1871, 0 fallos**. No era ruido de sanitizer ni un fallo
+anterior: era mi error de directorio, y lo di por bueno demasiado deprisa.
+
+**Las fugas sí existían, y ya no.** 248 bytes en 8 asignaciones, seis sitios, dos
+causas:
+
+*Objetos del banco que nadie destruía.* La sonda SWD y el stub de GDB van
+soldados a PA13/PA14 pero no pasan por el netlist —son instrumentos, no
+circuitería—, así que había que borrarlos a mano y no se hacía. Detalle
+instructivo: **solo la sonda aparecía en el informe**. `GdbStub` es un
+`sc_module` y sigue colgando de la jerarquía de SystemC, de modo que
+LeakSanitizer lo ve *alcanzable*; se perdía igual, pero en silencio.
+
+*Locales que viven a través de un `wait()`.* Las otras cinco eran el mismo
+patrón, y merece la pena entenderlo porque se repetirá: un `sc_event_or_list`
+—o un `std::vector`— declarado **dentro** del bucle de un `SC_THREAD` sigue vivo
+mientras el proceso está suspendido. Cuando la simulación termina, el hilo se
+queda ahí y **su pila no se desenrolla**: los destructores de sus locales no
+corren nunca. Es una fuga acotada, una por proceso, pero ensucia el informe, y un
+informe sucio es un informe que nadie mira.
+
+Los cinco: `Cpu::exec_proc` (las listas del sueño WFI/WFE y de la parada del
+depurador), `Rcc::clock_tree_proc` (siete eventos del árbol de reloj),
+`CanBase::bit_proc`, `OtgBase::pines_proc` e `I2cWire::run`. En los cinco, los
+eventos **no cambian después de la elaboración**, así que la lista se arma una
+vez y se reutiliza. Además de quitar la fuga, eso elimina una reserva de montón
+por cada despertar en cinco caminos que se recorren mucho —cada WFI del firmware,
+cada escritura al RCC, cada flanco de un bus I2C—, que es justo la regla de coste
+del proyecto: lo que importa no es lo que hace un bloque, sino cuántas veces
+despierta.
+
+**Y el SIGSEGV que había atribuido a «ruido de sanitizer».** Tampoco era ruido.
+ASan trae encendido `detect_stack_use_after_return` desde GCC 13, y eso es
+incompatible con las corrutinas de SystemC: el registro de marcos falsos es por
+hilo del sistema operativo, todas las corrutinas comparten uno, y en cuanto el
+planificador salta de pila un proceso ve los marcos del anterior. El síntoma es
+un `SEGV on address 0x20` dentro de `sc_in<bool>::value_changed_event()`, antes
+de la primera comprobación y en un sitio sin relación con nada. No es arreglable
+por nuestra parte —es de la biblioteca—, pero sí evitable: `common/asan_opciones.h`
+define `__asan_default_options()`, de modo que el binario trae su propia
+configuración y **no hay que acordarse de nada** en la línea de órdenes.
+
+**Resultado.** `make asan` es ahora un objetivo del `Makefile.stm32`: compila la
+suite con ASan y UBSan a `-O1` y la ejecuta. Sale **1871/1871, 0 fugas, 0 avisos
+de comportamiento indefinido**, y los otros dos ejecutables (`sim` y `bench`)
+también. El tiempo simulado no se movió ni un picosegundo: 2328209149213 ps antes
+y después, que es la prueba de que hoistar las listas de espera no cambió ni un
+evento.

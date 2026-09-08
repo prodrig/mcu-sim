@@ -70,6 +70,7 @@
 #include <ctime>
 #include <chrono>
 #include <string>
+#include "../common/asan_opciones.h"
 #include "stm32f407vg.h"
 #include "../verif/bus_test_master.h"
 #include "../verif/image_loader.h"
@@ -766,6 +767,17 @@ SC_MODULE(F1Tb) {
         placa.libera();          // las piezas, antes que los nodos a los que van
         placa_suelta.libera();
         placa_corto.libera();
+        // La sonda SWD y el stub de GDB tampoco son de la placa —van soldados a
+        // PA13/PA14 pero no pasan por el netlist, porque son instrumentos y no
+        // circuitería—, y por eso hay que destruirlos a mano. Antes que `dut`:
+        // los dos guardan referencias a los AnalogNet de esos dos pines.
+        //
+        // El stub no aparecía en el informe de fugas y la sonda sí, y la razón
+        // es instructiva: `GdbStub` es un `sc_module` y sigue colgando de la
+        // jerarquía de SystemC, así que LeakSanitizer lo ve ALCANZABLE. La
+        // sonda no es un módulo. Las dos se perdían igual.
+        delete sonda;
+        delete gdb;
         delete c_rt;
         delete s_rt;
         delete dcmi_rt; delete fsmc_rt;
