@@ -1084,25 +1084,39 @@ el simulador tampoco. Bien: es fiel. Pero el simulador **puede** decir «has
 configurado PD13 como salida y en esta placa no hay nada conectado ahí», porque
 conoce la placa entera. Otra ventaja didáctica que sale gratis del netlist.
 
-### 19.3 Se distribuye, y eso es un requisito nuevo
+### 19.3 Se distribuye, y eso es un requisito nuevo  *(el paso 0b, hecho a medias)*
 
-Los alumnos usan Windows y macOS; el proyecto se compila hoy en Linux con `g++` y
-SystemC del sistema. **Este es el riesgo no cuantificado más grande de todo el
-informe**, y no puedo evaluarlo desde aquí: no sé qué cuesta SystemC 2.3.4 con
-MSVC ni cómo se empaqueta Qt para las tres plataformas.
+Los alumnos usan Windows y macOS; el proyecto se compilaba solo en Linux. Este
+era **el riesgo no cuantificado más grande del informe**, y una parte ya está
+resuelta: *(añadido después de hacerlo)*
 
-Lo que sí se puede decir:
+* la dependencia del sistema operativo estaba **acotada a dos ficheros** —
+  `common/gdb_rsp.h`, el servidor que sí va en el producto, y
+  `verif/gdb_client.h`, el cliente con el que la suite se prueba a sí misma —, y
+  ahora está acotada a **uno solo**: `common/red.h`, que traduce entre Berkeley
+  y Winsock y que es lo único de `src/` que incluye una cabecera del sistema;
+* el **Makefile es único para las tres plataformas**, con detección automática y
+  una variable (`PLATAFORMA`) para forzarla;
+* **verificado**: Linux con g++ y con clang, 1899/1899 y el mismo tiempo simulado
+  al picosegundo; `make red` —trece comprobaciones de la capa de sockets, sin
+  SystemC de por medio— pasa en Linux y **cruza a Windows con MinGW-w64 sin un
+  aviso**, produciendo un PE32+;
+* **no verificado, y hay que decirlo**: construir SystemC para MinGW y ejecutar
+  allí, y lo mismo en un Mac. El modelo no usa nada exótico, pero eso no es una
+  demostración.
 
-* hay que **probarlo pronto**, porque si SystemC no compila cómodamente en
-  Windows el proyecto entero cambia de forma;
-* el modelo no usa nada exótico —C++17, `<systemc>`, sockets POSIX— salvo **los
-  sockets**, que en Windows son Winsock y necesitan una capa fina;
-* la dependencia del sistema operativo está **acotada a dos ficheros**, y solo
-  uno entra en el producto. Buscando las cabeceras POSIX en todo `src/` salen
-  exactamente estos: `common/gdb_rsp.h` —el servidor, que sí va en `sim`— y
-  `verif/gdb_client.h` —el cliente de RSP que usa la suite para probarse a sí
-  misma, que no—. Todo lo demás es C++17 y `<systemc>`. Portar el servidor a
-  Winsock es un fichero.
+Las trampas concretas que aparecieron al hacerlo, por si sirven de aviso para el
+resto de la portabilidad:
+
+* en Windows el descriptor de socket es un entero **sin signo**, así que el
+  `if (s < 0)` de todo el código POSIX **nunca es cierto** y los errores se
+  tragaban en silencio. No es un error de compilación: es un fallo mudo;
+* MinGW usa por omisión el `printf` de msvcrt, que **no entiende `%llu`**, y el
+  modelo lo usa veintiocho veces. Se arregla con `-D__USE_MINGW_ANSI_STDIO=1`;
+* y una que no es de Windows sino de **macOS**: allí no existe `MSG_NOSIGNAL`, y
+  escribir en un socket que el otro extremo cerró manda un `SIGPIPE` que **mata
+  el proceso**. Un simulador que se muere porque el alumno cerró el IDE de golpe
+  no es aceptable, así que la capa pone `SO_NOSIGPIPE` al crear cada socket.
 
 ### 19.4 Y hay una asimetría cómoda
 
@@ -1123,7 +1137,7 @@ puede existir.**
 | | Trabajo | Tamaño | Por qué va aquí |
 | :--- | :--- | :--- | :--- |
 | **0** | **La ida y vuelta con CubeIDE** (§14.2): conectar, cargar, parar en `main`, punto de ruptura, inspeccionar, SWV | pequeño | **Es lo único que puede invalidar el proyecto.** Cuesta una tarde y decide todo lo demás |
-| **0b** | **Compilar en Windows** (§19.3), aunque sea a mano y feo | medio | El otro que puede invalidarlo. Acotado a `gdb_rsp.h` |
+| **0b** | **Compilar en Windows** (§19.3) | medio | El otro que puede invalidarlo. **Hecho a medias**: la capa de red cruza a MinGW sin avisos y el Makefile ya es multiplataforma; falta construir SystemC allí y ejecutarlo |
 | 1 | Ritmo en tiempo real, y la relación tiempo simulado / tiempo de pared visible | pequeño | Sin esto, nada de lo que se vea tiene sentido (§15) |
 | 2 | `Observable` / `Mando`, instantánea y cola de órdenes (§5) | pequeño | La frontera. Igual que antes |
 | 3 | Mensajes de error para alguien que empieza, y avisos de «esto no está modelado» (§16.3, §17) | medio | Es lo que más rendimiento didáctico da por línea escrita |

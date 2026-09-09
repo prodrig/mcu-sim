@@ -19,12 +19,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
-#include <fcntl.h>
-#include <unistd.h>
-#include <errno.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
+#include "../common/red.h"     // la unica dependencia del sistema operativo
 
 namespace stm32 {
 
@@ -34,21 +29,13 @@ public:
 
     bool conectar(unsigned puerto) {
         desconectar();
-        s_ = ::socket(AF_INET, SOCK_STREAM, 0);
-        if (s_ < 0) return false;
-        sockaddr_in a{};
-        a.sin_family = AF_INET;
-        a.sin_port = htons(uint16_t(puerto));
-        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        if (::connect(s_, (sockaddr*)&a, sizeof a) < 0) { desconectar(); return false; }
-        ::fcntl(s_, F_SETFL, O_NONBLOCK);
-        int uno = 1;
-        ::setsockopt(s_, IPPROTO_TCP, TCP_NODELAY, &uno, sizeof uno);
+        s_ = red::conecta_local(puerto);
+        if (!red::valido(s_)) return false;
         rx_.clear();
         return true;
     }
-    void desconectar() { if (s_ >= 0) { ::close(s_); s_ = -1; } }
-    bool conectado() const { return s_ >= 0; }
+    void desconectar() { red::cerrar(s_); }
+    bool conectado() const { return red::valido(s_); }
 
     // Manda un paquete y espera la respuesta. `limite` es tiempo SIMULADO: el
     // stub solo corre cuando corre la simulacion.
@@ -65,12 +52,12 @@ public:
         crudo(p);
     }
     void crudo(const std::string& d) {
-        if (s_ < 0) return;
+        if (!red::valido(s_)) return;
         size_t k = 0;
         while (k < d.size()) {
-            const ssize_t r = ::send(s_, d.data() + k, d.size() - k, MSG_NOSIGNAL);
+            const long r = red::enviar(s_, d.data() + k, d.size() - k);
             if (r > 0) { k += size_t(r); continue; }
-            if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            if (r < 0 && red::reintentar()) {
                 sc_core::wait(sc_core::sc_time(100, sc_core::SC_US));
                 continue;
             }
@@ -100,13 +87,13 @@ private:
     static char hexd(unsigned v) { return char(v < 10 ? '0' + v : 'a' + v - 10); }
 
     void sorber() {
-        if (s_ < 0) return;
+        if (!red::valido(s_)) return;
         char b[4096];
         for (;;) {
-            const ssize_t r = ::recv(s_, b, sizeof b, 0);
+            const long r = red::recibir(s_, b, sizeof b);
             if (r > 0) { rx_.append(b, size_t(r)); continue; }
             if (r == 0) { desconectar(); return; }
-            return;                                   // EAGAIN
+            return;                                   // no hay nada mas ahora
         }
     }
     std::string extraer() {
@@ -124,7 +111,7 @@ private:
         }
     }
 
-    int s_ = -1;
+    red::socket_t s_ = red::invalido();
     std::string rx_;
     bool visto_ = false;
 };

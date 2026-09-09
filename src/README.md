@@ -61,6 +61,63 @@ make -f Makefile.stm32 asan           # la misma suite con ASan + UBSan
 make -f Makefile.stm32 run IMG=fw.bin # carga una imagen y simula
 ```
 
+## Las tres plataformas
+
+**Un solo Makefile.** La plataforma se detecta sola —por `OS=Windows_NT` o por
+`uname`— y se puede forzar con una variable, que es lo único que hay que
+ajustar:
+
+```
+make                                  # Linux o macOS, nativo
+make PLATAFORMA=windows               # Windows con MinGW-w64 (MSYS2 o Git Bash)
+make PLATAFORMA=windows CXX=x86_64-w64-mingw32-g++   # cruzado desde Linux
+make plataforma                       # qué ha decidido: compilador, rutas, bibliotecas
+```
+
+Las tres variables que deciden todo son `PLATAFORMA` (`linux` | `macos` |
+`windows`), `SYSTEMC_HOME` y `CXX`. `make plataforma` las imprime, y es lo
+primero que hay que mirar cuando la compilación falla en una máquina nueva.
+
+**Todo el modelo es C++17 y `<systemc>` salvo un fichero.** La única parte que
+sabe en qué sistema operativo corre es `common/red.h`, que traduce entre los
+sockets de Berkeley y Winsock: el descriptor es `int` y −1 en POSIX pero un
+`SOCKET` **sin signo** en Windows —así que `if (s < 0)` allí es *siempre falso*
+y el error se traga en silencio—, se cierra con `close` o con `closesocket`, y
+el «ahora mismo no hay datos» se llama `EAGAIN` o `WSAEWOULDBLOCK`. Y una
+tercera diferencia que no es de Windows sino de macOS: sin `MSG_NOSIGNAL`,
+escribir en un socket que el otro extremo cerró manda un `SIGPIPE` que mataría
+el proceso; allí se evita con `SO_NOSIGPIPE` al crear el socket.
+
+Los dos usuarios de esa capa son los servidores de GDB (`common/gdb_rsp.h`) y el
+cliente de RSP con el que la suite se prueba a sí misma
+(`verif/gdb_client.h`). Ningún otro fichero de `src/` incluye una cabecera del
+sistema.
+
+```
+make red        # compila y ejecuta 13 comprobaciones de la capa de red
+make red PLATAFORMA=windows CXX=x86_64-w64-mingw32-g++    # solo compila y enlaza
+```
+
+`make red` no necesita SystemC, así que corre en cualquier sitio y sirve para
+validar una plataforma nueva antes de pelearse con la biblioteca.
+
+| Plataforma | Estado | Comprobado |
+| :--- | :--- | :--- |
+| Linux, g++ 13 | **verificado** | 1899/1899 comprobaciones, `make red` 13/13, ASan limpio |
+| Linux, clang | **verificado** | 1899/1899, mismo tiempo simulado al picosegundo |
+| Windows, MinGW-w64 | **compila y enlaza** (cruzado con g++ 13-win32) | `make red` genera un PE32+ sin avisos; **falta ejecutarlo en Windows y construir SystemC allí** |
+| macOS, clang | **la rama específica compila** | Se fuerza la combinación de macOS —sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`— y compila con g++ y con clang; **falta probarlo en un Mac** |
+
+Lo que en Windows y macOS **no** está verificado es lo mismo en los dos casos:
+construir la biblioteca de SystemC y ejecutar allí. El modelo no usa nada
+exótico, pero eso no es una demostración.
+
+En Windows, además, MinGW usa por omisión el `printf` de msvcrt, que **no
+entiende `%llu`**, y el modelo lo usa veintiocho veces; el Makefile pasa
+`-D__USE_MINGW_ANSI_STDIO=1` para arreglarlo. Y enlaza con
+`-static-libgcc -static-libstdc++`, de modo que el `.exe` no necesita las DLL de
+MinGW instaladas: para repartirlo, eso no es un lujo.
+
 **El netlist de la placa.** Todo lo que se suelda fuera del encapsulado vive en
 `parts/` y se DECLARA: nodos, instancias y conexiones nominales. No queda ni un
 `new` de pieza externa en `sc_main.cpp`. Volcarlo no simula nada.

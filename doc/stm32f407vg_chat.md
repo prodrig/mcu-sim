@@ -1401,3 +1401,60 @@ en el producto): todo lo demás es C++17 y `<systemc>`.
 Lo que **no** cambia: la frontera de §5, las cifras de §3 y la recomendación del
 escenario 2. Y las piezas que faltan siguen siendo lo caro, pero dejan de ser lo
 urgente, porque el propio enunciado dice que se añaden después.
+
+---
+
+## 2026-09-09 UTC — Windows, Linux y macOS
+
+**Prompt.** «Modifica el programa y genera los makefiles para que pueda ser
+compilado en Windows, Linux y Mac. En la primera plataforma asume que el
+compilador es mingw 11.2.0 64 bits (o una versión más moderna). La selección de
+la plataforma puede hacerse con distintos makefiles o ajustando uno o más
+valores en un makefile único».
+
+**Respuesta.** Un Makefile único con detección automática y `PLATAFORMA=` para
+forzarla, y toda la dependencia del sistema operativo recogida en **un solo
+fichero nuevo**, `common/red.h`.
+
+El análisis de la GUI ya había localizado el problema: de todo `src/`, solo dos
+ficheros incluían cabeceras del sistema —`common/gdb_rsp.h`, el servidor de GDB
+que va en el producto, y `verif/gdb_client.h`, el cliente con el que la suite se
+prueba a sí misma—. Ahora ninguno de los dos las incluye: las dos usan `red.h`,
+y el resto del modelo sigue siendo C++17 y `<systemc>` sin una sola directiva de
+preprocesador.
+
+**Las tres trampas que aparecieron**, y las tres son fallos mudos y no errores de
+compilación:
+
+* en Windows el descriptor de socket es un entero **sin signo**, así que el
+  `if (s < 0)` de todo el código POSIX **nunca es cierto**: los errores se
+  tragarían en silencio. De ahí `red::valido()` en vez de una comparación;
+* MinGW usa por omisión el `printf` de msvcrt, que **no entiende `%llu`**, y el
+  modelo lo usa veintiocho veces. `-D__USE_MINGW_ANSI_STDIO=1`;
+* y una que no es de Windows sino de **macOS**: allí no existe `MSG_NOSIGNAL`, y
+  escribir en un socket que el otro extremo cerró manda un `SIGPIPE` que mata el
+  proceso. Un simulador que se muere porque el alumno cerró el IDE de golpe no
+  vale, así que la capa pone `SO_NOSIGPIPE` al crear cada socket.
+
+**Lo que sí he verificado**, y lo separo a propósito de lo que no:
+
+* Linux con **g++** y con **clang**: 1899/1899 y el mismo tiempo simulado al
+  picosegundo. Los 151 checks de F6 son sesiones TCP de verdad entre el cliente
+  y los dos stubs, así que la capa está ejercitada por la suite entera;
+* `make red` —trece comprobaciones de la capa sola, sin SystemC de por medio,
+  en `verif/prueba_red.cpp`— pasa en Linux;
+* **el cruce a Windows con MinGW-w64 compila y enlaza un PE32+ sin un aviso**,
+  con `-Wall -Wextra`. Instalé el cruce en el contenedor para poder decirlo;
+* la rama de macOS compila con g++ y con clang, forzando su combinación de
+  macros (sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`).
+
+**Lo que NO he verificado, y no quiero que se lea de otra manera:** no he
+construido SystemC para MinGW ni para macOS, ni he ejecutado nada en esas dos
+plataformas. No hay Wine en el contenedor y las fuentes de SystemC no son
+alcanzables desde aquí. Que el código compile y enlace no es que funcione. Queda
+como I-23 en el TODO, y es el paso 0b del orden de trabajo del análisis de la
+GUI: para un programa que se reparte a alumnos no es opcional.
+
+De paso, el `.exe` se enlaza con `-static-libgcc -static-libstdc++`, que para
+repartirlo no es un lujo, y `make asan` avisa en vez de fallar cuando la
+plataforma es Windows, porque MinGW no trae AddressSanitizer.

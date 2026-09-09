@@ -365,6 +365,8 @@ Cosas que **están modeladas** pero que la suite no ejercita.
 | **I-17** | ~~**Dos fallos mudos que solo se manifiestan con DOS MCUs**: los `static bool warned` de `periph/adc.h` y `periph/sdio.h` y el puerto de GDB único~~ | multi-MCU §7.3 y §7.4 | **HECHO**, al mismo tiempo que I-20, que es cuando su síntoma pasó de imposible a inevitable. Los dos avisos son ahora miembros `mutable` (`aviso_adcclk_`, `aviso_ck_`), así que cada chip avisa de lo suyo; el puerto sale del atributo `puerto_gdb` de cada `<mcu>`, y `DebugCaps` ya lo llevaba por instancia, de modo que el modelo no hubo que tocarlo |
 | **I-20** | ~~**Varios MCUs en una placa, con un stub de GDB por chip**~~ | multi-MCU §5 | **HECHO.** El elemento `<mcu tipo id firmware depuracion puerto_gdb>` en `parts/netlist.h` y `parts/netlist_xml.h`; `sim` monta uno o varios chips, cada uno con su firmware, su modo de depuración (`pines` o `dap`) y su puerto TCP, y con algún stub escuchando no se detiene solo. La regla de compatibilidad —ningún `<mcu>`: nombres desnudos; uno: los dos nombres y mandan los argumentos de la línea de órdenes; dos o más: solo cualificados y un argumento global se rechaza nombrando los MCUs— deja valer sin tocar todo lo escrito hasta hoy. `placas/dos_mcu.xml` son dos F407 hablando por I2C y depurables a la vez en 3333 y 3334; **T123** cubre la capa de declaración con 28 comprobaciones |
 | **I-21** | **No hay comprobación automática del MONTAJE de varios MCUs.** T123 cubre la declaración —leer `<mcu>`, resolver `u0.PD12`, rechazar lo ambiguo, el chip inexistente y el puerto repetido—, pero que dos chips se construyan, arranquen y se hablen solo se verifica a mano corriendo `sim` sobre `placas/dos_mcu.xml` | multi-MCU §8, paso 6 | **Hueco conocido.** La suite monta un único `dut` del que cuelgan la mitad de sus 1899 comprobaciones, y meter un segundo dentro sería duplicar la elaboración del banco entero para probar otra cosa. El sitio natural es un banco aparte que ejecute `sim` sobre las placas de `placas/`, y no existe |
+| **I-22** | ~~**El modelo solo compilaba en Linux**~~ | analisis_gui §19.3 | **HECHO A MEDIAS, y lo que falta está acotado.** Toda la dependencia del sistema operativo se ha recogido en `common/red.h` —traducción entre sockets de Berkeley y Winsock, más `SO_NOSIGPIPE` para macOS— y ningún otro fichero de `src/` incluye ya una cabecera del sistema. El `Makefile.stm32` es único para las tres plataformas, con detección automática y `PLATAFORMA=` para forzarla, sufijo `.exe`, `-lws2_32`, `-D__USE_MINGW_ANSI_STDIO=1` (MinGW no entiende `%llu` sin él, y el modelo lo usa 28 veces) y enlazado estático de las DLL de MinGW. `verif/prueba_red.cpp` (`make red`) ejercita la capa con 13 comprobaciones sin necesitar SystemC. **Verificado**: Linux con g++ y con clang, 1899/1899 y el mismo tiempo simulado; el cruce a MinGW-w64 compila y enlaza un PE32+ sin un aviso; la rama de macOS compila forzando su combinación de macros. **Falta**: construir SystemC para MinGW y para macOS, y ejecutar allí |
+| **I-23** | **Sin verificación en Windows ni en macOS.** El cruce con MinGW demuestra que el código compila y enlaza, no que funcione; y de macOS solo se ha compilado la rama específica | analisis_gui §19.3 | **Hueco conocido.** Lo que falta es tener la biblioteca de SystemC en las dos plataformas y pasar allí `make red` y `make test`. Es el paso 0b del orden de trabajo del análisis de la GUI, y para un programa que se reparte a alumnos no es opcional |
 | **I-10** | **Referencia cruzada errónea en el informe de F1 §1**: la fila del RCC dice "Completo salvo lo eléctrico (**ver §6**)", pero el contenido pendiente está en **§9** | F1 | Errata documental |
 
 ---
@@ -448,10 +450,10 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 | **D** — Datos sin fuente | 13 |
 | **X** — Discrepancias y silencios de [IR] | 12 |
 | **V** — Huecos de verificación | 9 |
-| **I** — Deuda de instrumentación y proyecto | 21 *(siete cerradas: I-11, I-12, I-15, I-16, I-17, I-18 e I-20)* |
-| **Total** | **135** |
+| **I** — Deuda de instrumentación y proyecto | 23 *(ocho cerradas: I-11, I-12, I-15, I-16, I-17, I-18, I-20 e I-22)* |
+| **Total** | **137** |
 
-De los 135, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 137, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.

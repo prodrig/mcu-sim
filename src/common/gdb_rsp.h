@@ -33,12 +33,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
-#include <fcntl.h>
-#include <unistd.h>
-#include <errno.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
+#include "red.h"          // la unica dependencia del sistema operativo
 
 namespace stm32 {
 
@@ -79,8 +74,8 @@ public:
     }
 
     // --- Estado observable ---------------------------------------------------
-    bool     escuchando() const { return srv_ >= 0; }
-    bool     conectado() const  { return cli_ >= 0; }
+    bool     escuchando() const { return red::valido(srv_); }
+    bool     conectado() const  { return red::valido(cli_); }
     unsigned puerto() const     { return puerto_; }
     unsigned paquetes() const   { return n_paq_; }
     unsigned flash_palabras() const { return n_flash_; }
@@ -136,12 +131,12 @@ protected:
             sc_core::wait(poll_, ev_);
             if (!activo_) continue;
             aceptar();
-            if (cli_ < 0) continue;
+            if (!red::valido(cli_)) continue;
             rx_poll();
             procesar_rx();
             // Con el objetivo corriendo hay que vigilar si se ha parado solo
             // -un punto de ruptura, un watchpoint- para avisar a GDB.
-            if (corriendo_ && cli_ >= 0) {
+            if (corriendo_ && red::valido(cli_)) {
                 if (++espera_ >= vueltas_vigilancia_) {
                     espera_ = 0;
                     if (parado()) { corriendo_ = false; responder(parada()); }
@@ -341,30 +336,17 @@ private:
     // El lado del socket
     // =======================================================================
     bool abrir() {
-        srv_ = ::socket(AF_INET, SOCK_STREAM, 0);
-        if (srv_ < 0) return false;
-        int uno = 1;
-        ::setsockopt(srv_, SOL_SOCKET, SO_REUSEADDR, &uno, sizeof uno);
-        sockaddr_in a{};
-        a.sin_family = AF_INET;
-        a.sin_port = htons(uint16_t(puerto_));
-        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        if (::bind(srv_, (sockaddr*)&a, sizeof a) < 0) { cerrar(); return false; }
-        if (::listen(srv_, 1) < 0) { cerrar(); return false; }
-        ::fcntl(srv_, F_SETFL, O_NONBLOCK);
-        return true;
+        srv_ = red::escucha_local(puerto_);
+        return red::valido(srv_);
     }
     void cerrar() {
-        if (cli_ >= 0) { ::close(cli_); cli_ = -1; }
-        if (srv_ >= 0) { ::close(srv_); srv_ = -1; }
+        red::cerrar(cli_);
+        red::cerrar(srv_);
     }
     void aceptar() {
-        if (cli_ >= 0 || srv_ < 0) return;
-        const int f = ::accept(srv_, nullptr, nullptr);
-        if (f < 0) return;
-        ::fcntl(f, F_SETFL, O_NONBLOCK);
-        int uno = 1;
-        ::setsockopt(f, IPPROTO_TCP, TCP_NODELAY, &uno, sizeof uno);
+        if (red::valido(cli_) || !red::valido(srv_)) return;
+        const red::socket_t f = red::acepta(srv_);
+        if (!red::valido(f)) return;
         cli_ = f;
         rx_.clear();
         sin_ack_ = false;
@@ -373,28 +355,28 @@ private:
         if (halt_al_conectar_) { parar(); }
     }
     void desconectar() {
-        if (cli_ >= 0) { ::close(cli_); cli_ = -1; }
+        red::cerrar(cli_);
         std::printf("[%s] cliente desconectado\n", etiqueta_); std::fflush(stdout);
     }
     void tx(const char* d, size_t n) {
-        if (cli_ < 0) return;
+        if (!red::valido(cli_)) return;
         size_t k = 0;
         while (k < n) {
-            const ssize_t r = ::send(cli_, d + k, n - k, MSG_NOSIGNAL);
+            const long r = red::enviar(cli_, d + k, n - k);
             if (r > 0) { k += size_t(r); continue; }
-            if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
+            if (r < 0 && red::reintentar()) break;
             desconectar();
             return;
         }
     }
     void rx_poll() {
-        if (cli_ < 0) return;
+        if (!red::valido(cli_)) return;
         char b[4096];
         for (;;) {
-            const ssize_t r = ::recv(cli_, b, sizeof b, 0);
+            const long r = red::recibir(cli_, b, sizeof b);
             if (r > 0) { rx_.append(b, size_t(r)); continue; }
             if (r == 0) { desconectar(); return; }
-            if (errno == EAGAIN || errno == EWOULDBLOCK) return;
+            if (red::reintentar()) return;
             desconectar();
             return;
         }
@@ -747,7 +729,7 @@ private:
     }
 
     // --- Estado --------------------------------------------------------------
-    int      srv_ = -1, cli_ = -1;
+    red::socket_t srv_ = red::invalido(), cli_ = red::invalido();
     std::string rx_, ultimo_;
     bool     verboso_ = false, sin_ack_ = false, corriendo_ = false;
     bool     anunciado_ = false;
