@@ -300,8 +300,14 @@ SC_MODULE(Sim) {
         // --- Los stubs de GDB, uno por MCU ----------------------------------
         // Se abren DESPUÉS del reset, como en el banco: un depurador que se
         // engancha antes de que el chip arranque ve un DAP que todavía no
-        // responde. Cada stub vive en su propio hilo de sistema operativo y en
-        // su propio puerto TCP.
+        // responde.
+        //
+        // Un stub NO es un hilo del sistema operativo: es un SC_THREAD que
+        // atiende un socket no bloqueante cada 100 us de tiempo SIMULADO
+        // (common/gdb_rsp.h). La consecuencia practica es que su capacidad de
+        // respuesta va atada a lo deprisa que avance el tiempo simulado: con el
+        // modelo yendo mas rapido que el tiempo real es instantaneo, y con
+        // --ondas se nota. Cada uno tiene su propio puerto TCP, eso si.
         if (hay_stub) {
             for (McuMontado& m : mcus) {
                 if (!m.decl.puerto_gdb) continue;

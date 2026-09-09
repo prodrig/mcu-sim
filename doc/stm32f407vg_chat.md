@@ -1260,3 +1260,71 @@ dentro sería duplicar la elaboración del banco entero para probar otra cosa.
 
 **Suite: 1899/1899, 0 fallos**, tiempo simulado invariante (2328209149213 ps),
 `make asan` limpio, y `sim` con dos MCUs también limpio bajo ASan.
+
+---
+
+## 2026-09-09 UTC — Una GUI en Qt sobre la simulación: análisis
+
+**Prompt.** «Analiza las posibilidades y consecuencias de conectar la simulación
+SystemC con un programa gráfico en Qt […] sólo sería necesario visualizar el
+estado de los LEDs, el ángulo de posición de los servos, el periodo y ciclo de
+trabajo de las señales PWM, y la información sobre el giro de los motores […]
+También debería ser posible actuar sobre los botones, finales de carrera, etc.
+[…] escenarios: 1) un único programa Qt con un único thread, 2) un thread Qt
+para la simulación y otros para la parte visual, 3) dos programas separados.
+Escribe el informe en doc/analisis_gui.md».
+
+**Respuesta.** `doc/analisis_gui.md`, con las conclusiones medidas y no supuestas.
+Escribí una sonda que trocea `sc_start()` y cronometra cada rodaja, y las cifras
+cambiaron el orden de las prioridades:
+
+* **el modelo va entre 11 y 200 veces más RÁPIDO que el tiempo real** (0,089 s de
+  anfitrión por segundo simulado con el núcleo al 100 %; 0,005 aparcado). El
+  problema no es que la simulación no dé abasto para la pantalla: es frenarla;
+* **trocear `sc_start()` no cuesta nada**: mismo número de deltas exacto —29 837
+  con blinky, troceado o no— y el tiempo dentro del ruido. La rodaja peor en
+  régimen permanente es **1 ms** contra los 16,7 de un fotograma;
+* **la vista le cuesta al modelo 60 despertares por segundo simulado**: +299
+  deltas en 5 s, el 0,2 %. Para comparar, OTG y ETH costaban 56 000;
+* y la excepción, que decide el reparto en hilos: **con `--ondas` el modelo pasa
+  a ser 222 veces más lento que el tiempo real** y una rodaja de 1 ms tarda un
+  cuarto de segundo. Ninguna arquitectura de un solo hilo sobrevive a eso.
+
+**La tesis del informe** es que la decisión importante no es el reparto en hilos
+sino **dónde se pone la frontera y qué la cruza**. Si por ella solo pasan
+escalares con nombre y unidad —«ángulo», «ciclo», «encendido»— los tres
+escenarios son tres formas de dar cuerda a la misma máquina. Si un widget llama a
+`led->on()`, el escenario 1 es el único posible y no hay camino desde ahí. De ahí
+el contrato de `Observable` / `Mando` sobre `ExtPartBase`, que además deja que la
+GUI **enumere la placa sin conocer un solo tipo de C++**, igual que la factoría
+del paso 3 construye piezas desde una cadena.
+
+Un corolario que no es evidente: **la medida tiene que ocurrir dentro del
+modelo**. Muestrear un pin a 60 Hz no permite recuperar el ciclo de trabajo de
+una PWM de 50 Hz con pulsos de 1 a 2 ms; hace falta una pieza que cronometre
+flancos y publique un escalar.
+
+**Recomendación: el escenario 2, con la frontera diseñada como si fuera el 3.**
+
+**Dos hallazgos que no esperaba.**
+
+*Los stubs de GDB no usan hilos del sistema operativo.* Son `SC_THREAD` que
+atienden un socket no bloqueante cada 100 µs de tiempo **simulado**. Eso hace de
+precedente y de aviso: la capacidad de respuesta frente al exterior va atada a lo
+deprisa que avance el tiempo simulado. De paso corregí un comentario mío de
+`sim_main.cpp` del turno anterior que decía justo lo contrario.
+
+*La interactividad rompe el determinismo*, que es el activo principal de este
+proyecto, y **en los tres escenarios**: no es un problema de concurrencia sino de
+tener a una persona en el lazo. El arreglo es barato —la cola de órdenes ya lleva
+el instante simulado, así que grabarla es un fichero— y da algo a cambio: un
+fallo encontrado haciendo clic se convierte en un caso reproducible y de ahí en
+una prueba de la suite. Lo puse como paso 5 del orden de trabajo, **antes** que
+los motores: en cuanto haya algo que se pueda romper haciendo clic, querremos
+poder contar cómo se rompió.
+
+**Y lo que de verdad cuesta no es la GUI.** De lo que el enunciado quiere ver,
+solo LEDs y botones existen: de los 21 tipos del catálogo no hay servo, ni
+medidor de PWM, ni etapa de potencia, ni paso a paso, ni motor de continua, ni
+encoder. Todas se pueden escribir y verificar con el banco de siempre, sin
+ventana ninguna.
