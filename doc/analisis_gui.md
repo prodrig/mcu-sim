@@ -14,7 +14,18 @@ los motores**; y se quiere poder **pulsar botones y finales de carrera** y que
 el modelo se entere. No se quiere ver ni una tensión de pin ni un registro del
 MCU.
 
+> **Nota de lectura.** Las partes 1 a 12 se escribieron sabiendo *qué* había que
+> enseñar pero no *para qué*. Después se aclaró el objetivo real: **un programa
+> didáctico para alumnos que no tienen placa, que desarrollan y depuran con
+> STM32CubeIDE y prueban contra el simulador como lo harían contra el hardware.**
+> Eso no invalida nada de lo anterior —las medidas son las mismas y la
+> recomendación no cambia— pero **reordena las prioridades y añade requisitos que
+> no estaban**. La **parte II**, a partir de §13, dice qué cambia y por qué. Si
+> solo se va a leer una cosa, que sea §13 y §16.
+
 ---
+
+## PARTE I — La GUI como problema técnico
 
 ## 1. Resumen
 
@@ -668,6 +679,11 @@ por la ventana lleva a una ventana bonita enseñando dos LEDs.
 
 ## 12. Orden de trabajo, y cómo reproducir las medidas
 
+> **Este orden quedó superado por §20**, que lo rehace bajo el objetivo
+> didáctico: lo primero pasa a ser demostrar que CubeIDE habla con `sim`. Se
+> conserva porque el razonamiento de por qué la frontera va antes que la ventana
+> sigue valiendo.
+
 | | Trabajo | Tamaño | Qué desbloquea |
 | :--- | :--- | :--- | :--- |
 | 1 | `Observable` / `Mando` en `ExtPartBase`, y declararlos en `Led` y `Button` | pequeño | La frontera existe y se puede probar con lo que ya hay |
@@ -702,3 +718,457 @@ descartando las 20 primeras rodajas, que llevan el reset, la carga del firmware 
 los fallos de página del anfitrión. Los números de referencia del modelo sin GUI
 están medidos con `./build/bench` y explicados en
 `doc/stm32f407vg_coste_simulacion.md`.
+
+---
+---
+
+# PARTE II — El objetivo real: un simulador didáctico
+
+*Añadido después de aclararse para qué es todo esto: **un programa didáctico para
+alumnos universitarios que empiezan con sistemas embebidos y no tienen material
+hardware**. El alumno desarrolla y depura con STM32CubeIDE —o con otro entorno—
+y prueba contra este programa **igual que lo haría contra una placa real**. Las
+piezas externas que no existen (variadores, servos, etapas de potencia, finales
+de carrera, motores) se añaden después.*
+
+---
+
+## 13. Qué cambia, y qué no
+
+Lo primero, para no perderlo: **la parte I sigue siendo válida.** Las medidas de
+§3 no dependen del uso, la frontera de §5 es la misma, y la recomendación de
+escenario tampoco cambia. Lo que cambia es **el orden de las prioridades y el
+rasero con el que se juzga cada decisión**.
+
+| Conclusión de la parte I | Bajo el objetivo didáctico |
+| :--- | :--- |
+| La GUI es la interfaz con el usuario | **Se invierte.** La interfaz principal es el **servidor de GDB**: el alumno vive en su IDE, y la ventana es el «cacharro» que mira de reojo (§14) |
+| El ritmo es una comodidad; hay tres políticas y se elige | **Se endurece.** El tiempo real deja de ser una opción y pasa a ser **el modo por omisión y un requisito de corrección**: un `blinky` que parpadea 55 veces más rápido no enseña nada (§15) |
+| La fidelidad del modelo se da por buena | **Aparece un requisito nuevo, y es el más serio del informe.** «Exactitud funcional» hay que acotarla: hay una discrepancia de ~3× en el tiempo de cómputo que un alumno **va a ver** (§16) |
+| El escenario 1 es viable, con reservas | **Deja de serlo.** Un argumento nuevo y concreto: si la ventana se bloquea, el IDE del alumno da el objetivo por muerto (§18) |
+| Las piezas que faltan son lo caro | **Se mantiene**, pero dejan de ser lo urgente: el enunciado dice que se añaden después (§20) |
+| La reproducibilidad se rompe con la interactividad (§9) | **Se refuerza**, y por un motivo nuevo: un alumno que informa de un fallo no sabe describirlo. Una sesión grabada es la única forma de que un profesor vea lo que él vio (§17) |
+| Las piezas se verifican con la suite | **Se mantiene tal cual**, y ahora protege a terceros: un fallo del modelo lo paga un alumno que creerá que su código está mal |
+
+Y aparece una restricción que en la parte I no existía: **el programa se
+distribuye**. Deja de ser una herramienta para quien lo escribió y pasa a
+instalarse en el portátil de cien personas que no van a compilar SystemC (§19.3).
+
+---
+
+## 14. La interfaz principal no es la GUI: es el servidor de GDB
+
+> «que el usuario pueda desarrollar y depurar la aplicación embebida con
+> STM32CubeIDE u otro entorno de desarrollo para MCUs […] de la misma manera que
+> lo haría con el hardware real»
+
+Con hardware real, ese «de la misma manera» quiere decir una cosa muy concreta:
+CubeIDE compila, lanza un **servidor de GDB** —el de ST-LINK, u OpenOCD—, y su
+depurador habla RSP por TCP contra él. **Sustituir la placa es sustituir ese
+servidor.** Y eso ya está hecho: `sim` abre un puerto TCP y habla RSP
+(`--gdb-dap`, `puerto_gdb=` por MCU).
+
+Dicho de otra manera: **el producto ya existe a medias, y la mitad que existe no
+es la que este informe empezó analizando.**
+
+### 14.1 Lo que el motor RSP ya cubre
+
+Verificado en `common/gdb_rsp.h`:
+
+| Necesidad del IDE | Estado |
+| :--- | :--- |
+| Tramado `$cuerpo#suma`, `QStartNoAckMode` | **sí** (`qSupported`, línea 649) |
+| Registros: `g`/`G`/`p`/`P` y `target.xml` por `qXfer:features:read` | **sí** (23 registros descritos) |
+| Memoria: `m`/`M`/`X` | **sí**, y por el AHB-AP, así que **funcionan con el núcleo corriendo** — que es lo que necesitan las *Live Expressions* y la vista de registros de periféricos |
+| Cargar el programa: `vFlashErase` / `vFlashWrite` / `vFlashDone` | **sí**, y además una escritura suelta a `0x0800_0000` se encamina al controlador de Flash, así que las dos rutas de `load` funcionan |
+| Puntos de ruptura y watchpoints: `Z`/`z`, `swbreak+`, `hwbreak+` | **sí**, sobre el FPB y el DWT de verdad |
+| Ejecución: `c`, `s`, `vCont;c;C;s;S` | **sí** |
+| Reset: `R`, `r` y `monitor reset` | **sí**, con captura del vector de reset, que es lo que hace `monitor reset halt` |
+| `monitor halt` / `monitor resume` | **sí** |
+| `printf` por SWV/ITM | **sí**: 32 puertos de estímulo con empaquetado CoreSight, TPIU, y una pieza `SwoReceiver` que lo decodifica |
+
+Esa última fila merece detenerse. **El `printf` por SWV funciona**, y para un
+alumno sin placa eso es enorme: es cómo se saca texto de un Cortex-M sin gastar
+un UART, y es una de las primeras cosas que se enseñan.
+
+Y una consecuencia que ahorra trabajo: **el ELF no hay que leerlo.** GDB carga
+los símbolos en el lado del IDE y por el socket solo manda escrituras de memoria.
+La inspección de variables, los tipos, los `struct` de CMSIS: todo eso lo resuelve
+el IDE con el ELF que él mismo generó. El simulador no se entera.
+
+### 14.2 Lo que falta comprobar, y cómo
+
+Aquí hay que ser honesto sobre el límite de este análisis: **no he podido probar
+CubeIDE contra `sim`.** Lo que sigue no es una lista de defectos sino el guion de
+la prueba que decide si el proyecto es viable, y **va antes que cualquier otra
+cosa de este informe**.
+
+1. Compilar un proyecto vacío de CubeIDE para la F407 y lanzar `sim` a mano con
+   `--gdb-dap --port=3333`.
+2. Configurar en CubeIDE una depuración *GDB Hardware Debugging* (o equivalente)
+   apuntando a `localhost:3333`, y comprobar, en este orden:
+   **conecta → `load` → para en `main` → punto de ruptura → paso a paso →
+   inspección de variables → SFR de un periférico → reiniciar → SWV**.
+3. Anotar cada paquete que el stub responda con `""` (no soportado). Ahí está la
+   lista de trabajo real.
+
+Candidatos conocidos a salir de esa prueba:
+
+* **`qXfer:memory-map:read`**, que hoy no se anuncia. Sin él GDB no sabe dónde
+  está la Flash y usa escrituras sueltas —que funcionan— en vez de `vFlash*`.
+  Anunciarlo es más correcto y probablemente lo que el IDE espera.
+* **Los `monitor` que el IDE mande por su cuenta.** Hoy se aceptan `reset`,
+  `halt` y `resume`; cualquier otro devuelve vacío. Los servidores de ST y de
+  OpenOCD aceptan un vocabulario más amplio y un IDE puede mandar alguno al
+  arrancar.
+* **`vRun` / `qAttached` / `!` (modo extendido)**, que algunos flujos usan.
+* **El tiempo de espera del IDE al conectar.** Si el modelo va despacio —con
+  `--ondas`, o mientras carga— el sondeo de 100 µs simulados puede tardar en
+  reloj de pared más de lo que el IDE tolera. Es la misma raíz que §18.
+
+Ninguno es difícil. Lo que importa es que **esta prueba se haga la primera**,
+porque es la única que puede invalidar el producto entero, y hacerla cuesta una
+tarde.
+
+### 14.3 Consecuencia sobre el reparto de trabajo
+
+La ventana en Qt deja de ser el objetivo y pasa a ser **la mitad barata**: da los
+LEDs, los botones y los motores. La otra mitad —el depurador— ya está escrita,
+verificada con 151 comprobaciones (fase F6) y solo hay que hacerla hablar con un
+IDE de verdad. Empezar por la ventana sería empezar por la mitad que no decide
+nada.
+
+---
+
+## 15. El ritmo deja de ser una opción
+
+En la parte I, las tres políticas de ritmo (§5.3) eran una comodidad. Con alumnos
+delante, **dos de las tres dejan de ser aceptables por omisión**:
+
+* un `blinky` de 1 Hz que parpadea a 55 Hz no es un LED parpadeando: es un LED
+  encendido;
+* un servo que recorre 180° en dos centésimas no enseña qué es un servo;
+* y un alumno que mide «cuánto tarda mi bucle» con un cronómetro obtiene un
+  número sin relación con nada.
+
+**El tiempo real tiene que ser el modo por omisión**, y las otras dos políticas
+—libre y a demanda— quedan como herramientas explícitas, no como estados en los
+que uno se pueda encontrar sin querer.
+
+Las medidas de §3.1 dicen que eso es holgado: con el núcleo al 100 %, un
+fotograma de 16,7 ms simulados cuesta 1,5 ms de reloj de pared, el 9 % del
+presupuesto. **Hay margen de sobra para frenar; no lo hay para acelerar.**
+
+### 15.1 Y hay un caso que hay que decidir a propósito
+
+Cuando el alumno para en un punto de ruptura, ¿el tiempo simulado sigue
+corriendo?
+
+En hardware real, **sí**: el núcleo se para, pero el cristal sigue oscilando, los
+temporizadores siguen contando salvo que DBGMCU los congele, y el motor sigue
+girando por inercia. El modelo ya reproduce eso, incluida la congelación
+selectiva por DBGMCU.
+
+Para enseñar hay un argumento a favor de lo contrario —congelarlo todo, para que
+el alumno inspeccione un estado coherente— y es un argumento razonable. Pero
+**sería una divergencia deliberada con el hardware**, y este proyecto tiene por
+norma no divergir en silencio. Mi recomendación: **que el tiempo siga corriendo,
+como en la placa**, y que la GUI lo enseñe («parado en un punto de ruptura; el
+tiempo simulado sigue»). Que un motor se descontrole mientras el alumno mira una
+variable **es exactamente la lección** que el hardware da y que un simulador
+demasiado amable le ahorraría.
+
+Si se decide lo contrario, que sea un interruptor con nombre y documentado, no el
+comportamiento por omisión.
+
+---
+
+## 16. «Exactitud funcional»: dónde acaba
+
+Este es el apartado más importante de la parte II, y el que puede obligar a
+reordenar el trabajo de todo el proyecto.
+
+Un simulador didáctico tiene un modo de fallo peor que no funcionar: **enseñar
+algo que no es verdad**. Un alumno que ve un comportamiento raro no tiene criterio
+para saber si el raro es él o el simulador — no tiene placa con la que comparar,
+que es justo el motivo por el que usa esto.
+
+Así que hay que decir, y decírselo a él, **en qué se puede confiar**.
+
+### 16.1 Lo que es fiel, y es casi todo
+
+Las siete fases del proyecto modelan los periféricos **a nivel de registro**, con
+1 899 comprobaciones que los ejercitan. Un alumno que escriba en `GPIOD->ODR`,
+configure un temporizador, arranque un ADC, mande una trama por SPI o pida una
+interrupción externa **ve lo que vería en la placa**. Y la frontera del
+encapsulado está modelada en `float` —alta impedancia, pull internos,
+open-drain, sobrecorriente—, así que hasta los errores de conexión se
+manifiestan como en el hardware.
+
+Eso, para lo que se enseña en un primer curso de embebidos, es prácticamente
+todo.
+
+### 16.2 Lo que NO es fiel, y el alumno lo va a ver
+
+**El tiempo de cómputo del núcleo.** El modelo mide **≈ 4,7 ciclos por
+instrucción frente a ≈ 1,5 del Cortex-M4 real**; en CoreMark, 0,71 CoreMark/MHz
+contra los ≈ 3,4 del silicio (`doc/stm32f407vg_fase2.md`, §405-407). No hay
+solapamiento entre búsqueda y ejecución, cada acceso al bus se factura entero y
+no se modela la cola de prebúsqueda.
+
+Traducido a lo que un alumno hace:
+
+| Lo que el alumno escribe | Qué pasa en el simulador |
+| :--- | :--- |
+| `for (volatile int i = 0; i < 100000; i++);` como retardo | Tarda **unas 3 veces más** que en la placa. Si lo calibra aquí, en la placa irá 3 veces rápido |
+| Un retardo con SysTick, `HAL_Delay()`, o un temporizador | **Exacto.** Lo gobierna el árbol de reloj, no el contador de instrucciones |
+| Una interrupción cada N µs por TIM | **Exacto** en el disparo; la latencia de entrada es pesimista |
+| Bit-banging de un protocolo con bucles | Sale más lento de lo que saldría; puede parecer que no cumple un requisito temporal que sí cumpliría |
+| Medir «cuántas cuentas por segundo hace mi lazo» | **Pesimista en ~3×** |
+
+**Esto no es un defecto que se pueda esconder: es una decisión de alcance del
+proyecto** (punto **P-02** del TODO, «modo aproximado por ciclos del núcleo»,
+declarado desde la fase F2). Lo que cambia con el objetivo didáctico es su
+prioridad: en el informe de F2 se anotó que «nada de lo verificado depende de
+ello», y era cierto. **Con alumnos delante, es la primera cosa que van a notar.**
+
+Tres formas de tratarlo, y no son excluyentes:
+
+1. **Decirlo, y convertirlo en lección.** «Los retardos por bucle no son
+   portables ni medibles; usa un temporizador» es un buen consejo *aunque no
+   hubiera simulador*. El programa puede decirlo donde se note —en la ventana, al
+   arrancar— en vez de esconderlo.
+2. **Calibrar el modelo**, aplicando un factor a la anotación de ciclos para que
+   CoreMark/MHz se parezca al del silicio. Es barato y **es mentir mejor**: sería
+   más parecido de media y seguiría siendo falso en cada instrucción concreta. Si
+   se hace, que quede escrito que es una calibración y no un modelo.
+3. **Arreglarlo de verdad** (P-02: solapamiento, cola de prebúsqueda, coste real
+   de los saltos). Es trabajo serio y no lo pide el objetivo didáctico salvo que
+   se quieran enseñar cosas de rendimiento.
+
+Mi recomendación es la **1**, y anotar la 2 como posibilidad si algún ejercicio
+del curso lo exige. Lo que no vale es callarlo.
+
+### 16.3 El resto de la letra pequeña
+
+`doc/stm32f407vg_todo_rev1.md` tiene 135 puntos, y casi todos son caminos que
+ningún firmware corriente usa. Pero **la lista está escrita desde el punto de
+vista de quien hace el modelo, no del alumno**. Hace falta una lectura nueva, y
+corta, con otra pregunta: *¿un alumno de primer curso puede tropezar con esto?*
+
+De un primer repaso, lo que sí puede aparecer:
+
+* **el bus es *loosely-timed*** (P-01): no hay contención real entre maestros, así
+  que un ejercicio de DMA compitiendo con el núcleo no enseñará la contención;
+* **los errores dinámicos de FIFO del DMA no existen** (P-04): un desbordamiento
+  por falta de ancho de banda no se puede provocar;
+* **el `ack` del DMA no se reenvía a los periféricos** (P-07), con una
+  consecuencia anotada en F4-TIM: una petición puede perderse donde el silicio la
+  mantendría;
+* y las **48 funciones «bits sin máquina»**, que se comportan como registros que
+  guardan y no hacen nada. Ahí está el peor caso: el alumno configura algo, lee
+  de vuelta lo que escribió, y no pasa nada. En la placa tampoco pasaría nada si
+  se equivoca, así que **no distingue un modelo incompleto de un error suyo**.
+
+De ahí una propuesta concreta que no cuesta casi nada: **que el modelo avise
+cuando el firmware toca algo que no está modelado.** El proyecto ya usa
+`SC_REPORT_WARNING` con etiquetas por periférico; un aviso «has habilitado X y
+este modelo no lo implementa» convertido en una línea en la ventana del
+simulador es, para un alumno, la diferencia entre una tarde perdida y aprender
+algo. **Es más valioso que cualquier función que se pueda añadir en ese tiempo.**
+
+---
+
+## 17. Lo que un alumno hace y el hardware perdona
+
+Un alumno de primer curso escribe firmware que se cuelga, desreferencia punteros
+nulos, se pasa de los límites de un vector, deshabilita interrupciones y no las
+vuelve a habilitar, y configura el reloj mal. Con una placa eso es normal: se
+pulsa reset y a otra cosa.
+
+El simulador tiene que **portarse igual de bien**, y eso son requisitos:
+
+| Lo que hará el alumno | Qué tiene que pasar | Estado |
+| :--- | :--- | :--- |
+| Desreferenciar un puntero nulo | HardFault, y el depurador parando ahí | **Modelado** (escalado a HardFault, [IR §9]) |
+| Bucle infinito con interrupciones cerradas | El simulador sigue vivo y GDB puede pararlo | Funciona; en el escenario 1 **no** (§18) |
+| Escribir en una dirección reservada | Fallo de bus, como en la placa | Modelado |
+| Pulsar «reset» en la ventana | NRST, arranque limpio | El pad existe; falta el mando |
+| Cargar un firmware corrupto | Un mensaje claro, no un volcado de SystemC | **Falta**: hoy los errores están escritos para nosotros |
+| Cerrar la ventana con GDB conectado | Salida limpia | Falta |
+
+Esa penúltima fila es una categoría entera de trabajo: **los mensajes del
+programa tienen que estar escritos para alguien que empieza.** Los del netlist ya
+lo están —«el pad PF3 no sale al encapsulado LQFP100» se entiende— pero un
+`SC_REPORT_ERROR` sin capturar saca un volcado que a un alumno no le dice nada y
+le hace pensar que ha roto el simulador.
+
+Y la contrapartida, que es la parte bonita: **un simulador puede explicar cosas
+que el hardware no puede.** «Estás conduciendo PB6 desde dos sitios a la vez»,
+«ese pin no está en este encapsulado», «has puesto ADCCLK por encima de su
+máximo» son avisos que el modelo **ya sabe dar** —la validación eléctrica y los
+avisos de periférico existen— y que en una placa se manifiestan como un
+comportamiento raro y nada más. Es una ventaja didáctica real que ya está pagada.
+
+---
+
+## 18. Los tres escenarios, revisados
+
+La recomendación no cambia —**escenario 2**— pero los motivos sí, y hay uno nuevo
+que es decisivo.
+
+### 18.1 El argumento que mata el escenario 1
+
+En el escenario 1, quien da cuerda al modelo es el temporizador de la GUI. Y el
+servidor de GDB **es un proceso de SystemC que sondea su socket en tiempo
+simulado** (§4.1). Encadenando las dos cosas:
+
+> **si la ventana se bloquea, el tiempo simulado deja de avanzar; si el tiempo
+> simulado no avanza, el socket de GDB no se atiende; y si el socket no se
+> atiende, el IDE del alumno da el objetivo por muerto.**
+
+Y se bloquea por cosas normales: un diálogo para abrir un fichero, arrastrar la
+ventana en algunos sistemas, un repintado lento en un portátil modesto. El alumno
+verá «target not responding» y **culpará a su código**, que es el peor resultado
+posible en una herramienta de enseñanza.
+
+En la parte I el escenario 1 era «viable con reservas». Con el IDE al otro lado
+del socket, **no es viable como producto**. Sigue valiendo como primer hito
+interno (§20), donde no hay alumnos.
+
+### 18.2 El escenario 3 gana peso, pero no gana
+
+A favor, y son argumentos nuevos:
+
+* el IDE del alumno **ya es un tercer proceso** hablando por TCP, así que la
+  arquitectura de procesos separados no es una rareza en este producto: es lo
+  normal;
+* **la robustez importa más cuando el código de entrada es de cien alumnos**. Un
+  fallo del modelo provocado por un firmware raro no se llevaría la ventana;
+* y `sim` seguiría sin depender de Qt, lo que mantiene la suite compilable en
+  cualquier sitio.
+
+En contra, y pesa mucho en este contexto: **la distribución.** Un alumno tiene
+que instalar *una* cosa y pulsar *un* icono. Dos ejecutables que se buscan por un
+puerto es una fuente de incidencias de soporte —cortafuegos, puertos ocupados,
+uno que arranca y el otro no— que consume el tiempo del profesor, que es el
+recurso escaso.
+
+**Veredicto: escenario 2**, un solo ejecutable que trae la ventana y el servidor
+de GDB. Y con el matiz de siempre: **si la frontera de §5 está bien puesta, pasar
+al 3 sigue siendo cambiar una cola por un socket**, así que la decisión es
+reversible y no hay que agonizar con ella.
+
+---
+
+## 19. Lo que el producto tiene que ser, y no estaba en la parte I
+
+### 19.1 La placa es del profesor, no del alumno
+
+El alumno **no debe escribir XML**. Elige una placa de una lista y ya está.
+
+El XML se convierte en la herramienta del **profesor**: describe la placa de la
+práctica, la reparte con el enunciado, y el simulador la carga. Eso encaja con lo
+que ya hay —`placas/` con cuatro ficheros, `--valida` para comprobarlos antes de
+repartirlos— y le da un uso que justifica el trabajo del paso 3.
+
+Sugerencia concreta: una placa **`discovery.xml`** que reproduzca una placa real
+de las que se usan en clase, para que el alumno que sí tenga hardware vea lo
+mismo en los dos sitios. Eso es lo que hace que el simulador sea un sustituto y
+no otra cosa.
+
+### 19.2 El alumno tiene que poder equivocarse de placa
+
+Si la práctica dice PD12 y el alumno escribe PD13, en la placa no pasa nada y en
+el simulador tampoco. Bien: es fiel. Pero el simulador **puede** decir «has
+configurado PD13 como salida y en esta placa no hay nada conectado ahí», porque
+conoce la placa entera. Otra ventaja didáctica que sale gratis del netlist.
+
+### 19.3 Se distribuye, y eso es un requisito nuevo
+
+Los alumnos usan Windows y macOS; el proyecto se compila hoy en Linux con `g++` y
+SystemC del sistema. **Este es el riesgo no cuantificado más grande de todo el
+informe**, y no puedo evaluarlo desde aquí: no sé qué cuesta SystemC 2.3.4 con
+MSVC ni cómo se empaqueta Qt para las tres plataformas.
+
+Lo que sí se puede decir:
+
+* hay que **probarlo pronto**, porque si SystemC no compila cómodamente en
+  Windows el proyecto entero cambia de forma;
+* el modelo no usa nada exótico —C++17, `<systemc>`, sockets POSIX— salvo **los
+  sockets**, que en Windows son Winsock y necesitan una capa fina;
+* la dependencia del sistema operativo está **acotada a dos ficheros**, y solo
+  uno entra en el producto. Buscando las cabeceras POSIX en todo `src/` salen
+  exactamente estos: `common/gdb_rsp.h` —el servidor, que sí va en `sim`— y
+  `verif/gdb_client.h` —el cliente de RSP que usa la suite para probarse a sí
+  misma, que no—. Todo lo demás es C++17 y `<systemc>`. Portar el servidor a
+  Winsock es un fichero.
+
+### 19.4 Y hay una asimetría cómoda
+
+El alumno **no necesita compilar nada del simulador**, y el simulador **no
+necesita compilar nada del alumno**: el IDE le da el ELF a GDB y GDB manda bytes.
+No hay cadena de herramientas cruzada, ni versiones de compilador que casar. Es
+el reparto de trabajo más limpio que podía tocar, y es gratis por haber elegido
+RSP.
+
+---
+
+## 20. Orden de trabajo, revisado
+
+El de §12 seguía la lógica «primero la frontera, luego la GUI». Con el objetivo
+didáctico el orden cambia, y bastante: **lo primero es demostrar que el producto
+puede existir.**
+
+| | Trabajo | Tamaño | Por qué va aquí |
+| :--- | :--- | :--- | :--- |
+| **0** | **La ida y vuelta con CubeIDE** (§14.2): conectar, cargar, parar en `main`, punto de ruptura, inspeccionar, SWV | pequeño | **Es lo único que puede invalidar el proyecto.** Cuesta una tarde y decide todo lo demás |
+| **0b** | **Compilar en Windows** (§19.3), aunque sea a mano y feo | medio | El otro que puede invalidarlo. Acotado a `gdb_rsp.h` |
+| 1 | Ritmo en tiempo real, y la relación tiempo simulado / tiempo de pared visible | pequeño | Sin esto, nada de lo que se vea tiene sentido (§15) |
+| 2 | `Observable` / `Mando`, instantánea y cola de órdenes (§5) | pequeño | La frontera. Igual que antes |
+| 3 | Mensajes de error para alguien que empieza, y avisos de «esto no está modelado» (§16.3, §17) | medio | Es lo que más rendimiento didáctico da por línea escrita |
+| 4 | GUI mínima, **escenario 2 directamente** | medio | El 1 ya no vale como producto (§18.1); el hito interno con un hilo cuesta lo mismo |
+| 5 | Grabación y reproducción de sesiones (§9) | pequeño | Es cómo un alumno cuenta un fallo |
+| 6 | Una placa de curso (`discovery.xml`) y un guion de práctica que la use | pequeño | Es el producto puesto delante de alguien |
+| 7 | `PwmMeter`, `Servo`, `Encoder`, `StepperDriver`, `DcMotor` | grande | El enunciado dice explícitamente que van después |
+| 8 | Decidir qué hacer con P-02 (§16.2) | — | Depende de qué se quiera enseñar |
+
+Los pasos **0 y 0b van antes que todo**, y no por prudencia: es que si alguno
+sale mal, el trabajo que hay debajo cambia de forma. Todo lo demás del informe
+supone que esos dos salen bien.
+
+---
+
+## 21. Los riesgos didácticos, que son distintos de los técnicos
+
+Para cerrar, y porque en una herramienta de enseñanza los fallos que importan no
+son los que rompen el programa:
+
+**Que el alumno aprenda algo falso.** Es el peor, y el ejemplo concreto está en
+§16.2: quien calibre un retardo por bucle en el simulador tendrá código que en la
+placa va tres veces rápido. Mitigación: decirlo, y empujar hacia los
+temporizadores, que es lo correcto de todos modos.
+
+**Que el alumno crea que su código está mal cuando lo que falta es el modelo.**
+Mitigación: los avisos de «esto no está modelado» (§16.3). Es la mitigación más
+rentable de la lista.
+
+**Que el simulador sea más amable que el hardware.** Un simulador que no deja
+colgarse, que congela el mundo en los puntos de ruptura y que no deja meter la
+pata enseña a programar simuladores, no sistemas embebidos. La norma debería ser:
+**divergir del hardware solo a propósito, y decirlo.** Es la misma norma que ha
+seguido el modelo hasta ahora con [IR].
+
+**Que el alumno se acostumbre a no medir.** Con hardware hay un osciloscopio y
+hay dudas. Aquí el simulador puede dar la respuesta exacta siempre, y eso quita
+una parte del oficio. Mitigación posible: que la ventana enseñe magnitudes como
+las enseñaría un instrumento —un valor con su unidad, no la variable interna— que
+es exactamente lo que §2.2 propone por razones técnicas y resulta que también es
+lo pedagógicamente correcto.
+
+**Y el que no es un riesgo sino una oportunidad:** el simulador ve cosas que
+ninguna placa deja ver. Dos piezas conduciendo el mismo nodo, un pad que el
+encapsulado no saca, un reloj por encima de su máximo, un nodo flotante. Todo eso
+**ya está implementado y verificado**, y hoy solo lo mira quien ejecuta
+`--valida`. Ponerlo delante de un alumno no cuesta código nuevo: cuesta decidir
+dónde se enseña.

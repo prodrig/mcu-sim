@@ -1328,3 +1328,76 @@ solo LEDs y botones existen: de los 21 tipos del catálogo no hay servo, ni
 medidor de PWM, ni etapa de potencia, ni paso a paso, ni motor de continua, ni
 encoder. Todas se pueden escribir y verificar con el banco de siempre, sin
 ventana ninguna.
+
+---
+
+## 2026-09-09 UTC — El objetivo real: un simulador didáctico
+
+**Prompt.** «Lo que busco es un programa didáctico que permita simular con
+exactitud funcional el funcionamiento de sistemas embebidos para alumnos
+universitarios que comienzan a programar este tipo de sistemas y no disponen de
+material hardware. […] El objetivo fundamental es que el usuario pueda
+desarrollar y depurar la aplicación embebida con STM32CubeIDE u otro entorno de
+desarrollo para MCUs y que pruebe el funcionamiento con este programa […] de la
+misma manera que lo haría con el hardware real. Analiza cómo afecta este objetivo
+al análisis y añade tus conclusiones al informe».
+
+**Respuesta.** Una parte II en `doc/analisis_gui.md` (§13–§21). Las medidas de la
+parte I no cambian y la recomendación de escenario tampoco, pero **el orden de
+las prioridades sí, y bastante**.
+
+**Lo que se invierte: la interfaz principal no es la GUI, es el servidor de
+GDB.** «Depurar con CubeIDE como con el hardware real» quiere decir exactamente
+que el IDE lanza un servidor de GDB y habla RSP por TCP; sustituir la placa es
+sustituir ese servidor. Y ya está escrito. Repasé la cobertura de
+`common/gdb_rsp.h` y cubre lo que hace falta: registros con `target.xml`, memoria
+por el AHB-AP —así que las *Live Expressions* y la vista de SFR funcionan con el
+núcleo corriendo—, `vFlashErase/Write/Done`, puntos de ruptura sobre el FPB y el
+DWT, `monitor reset/halt/resume`, y **`printf` por SWV/ITM**, que para un alumno
+sin placa vale su peso en oro. El ELF ni siquiera hay que leerlo: GDB carga los
+símbolos en el lado del IDE y por el socket solo van bytes.
+
+Lo que no pude hacer es probarlo contra CubeIDE de verdad, así que en vez de
+afirmar lo escribí como **el guion de la prueba que decide si el producto puede
+existir**, y la puse como paso **0** del orden de trabajo, antes que todo lo
+demás: cuesta una tarde y es lo único que puede invalidar el proyecto.
+
+**Lo que se endurece: el ritmo.** Un `blinky` que va 55 veces más rápido que el
+tiempo real no es un LED parpadeando, es un LED encendido. El tiempo real pasa de
+opción a modo por omisión. Y hay un caso que hay que decidir a propósito: si el
+tiempo simulado sigue corriendo cuando el alumno para en un punto de ruptura. En
+hardware sí —el motor sigue girando— y recomiendo mantenerlo, porque eso **es la
+lección** que un simulador demasiado amable le ahorraría.
+
+**Lo más serio, y es nuevo: dónde acaba la «exactitud funcional».** El modelo hace
+≈4,7 ciclos por instrucción donde el silicio hace ≈1,5
+(`doc/stm32f407vg_fase2.md`, §405-407). Consecuencia práctica: un retardo por
+bucle tarda **unas tres veces más** que en la placa, mientras que cualquier cosa
+temporizada por SysTick o por un TIM sale exacta. En F2 se anotó que «nada de lo
+verificado depende de ello» y era cierto; **con alumnos delante es lo primero que
+van a notar**, y quien calibre un retardo aquí tendrá código que en la placa va
+tres veces rápido. P-02 cambia de prioridad. Recomiendo decirlo y empujar hacia
+los temporizadores —que es el consejo correcto igualmente— antes que calibrar el
+modelo, que sería mentir mejor.
+
+**Y el argumento que mata el escenario 1**, que no existía en la parte I: el
+servidor de GDB es un `SC_THREAD` que sondea su socket en tiempo simulado, y en
+el escenario 1 quien hace avanzar el tiempo simulado es el temporizador de la
+ventana. Si la ventana se bloquea —un diálogo, arrastrarla, un repintado lento—
+el socket deja de atenderse y **el IDE del alumno da el objetivo por muerto**. El
+alumno culpará a su código, que es el peor resultado posible aquí.
+
+**Dos cosas más que salieron del cambio de objetivo.** Una: el peor modo de fallo
+de un simulador didáctico no es romperse, es **enseñar algo falso**, y el caso
+concreto son las 48 funciones «bits sin máquina» —el alumno configura algo, lee
+de vuelta lo que escribió y no pasa nada, sin poder distinguir un modelo
+incompleto de un error suyo—. De ahí la propuesta más rentable del informe: que
+el modelo avise «has habilitado X y esto no está modelado». Y dos: **se
+distribuye**, y eso es un requisito que no existía; el riesgo grande y no
+cuantificado es Windows. La buena noticia es que la dependencia del sistema
+operativo está acotada a `common/gdb_rsp.h` (y a `verif/gdb_client.h`, que no va
+en el producto): todo lo demás es C++17 y `<systemc>`.
+
+Lo que **no** cambia: la frontera de §5, las cifras de §3 y la recomendación del
+escenario 2. Y las piezas que faltan siguen siendo lo caro, pero dejan de ser lo
+urgente, porque el propio enunciado dice que se añaden después.
