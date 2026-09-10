@@ -1855,3 +1855,57 @@ desde fuera. Anotado como **I-28**, cerrado. Puntos: 141 → 142.
 
 Suite 1899/1899 y `2328209149213 ps` después de todo esto, que es lo que dice
 que tocar el DAP no ha movido nada más.
+
+---
+
+## 2026-09-10 UTC — «Truncated register 18»: el GDB equivocado
+
+**Prompt.** Con `GDB Hardware Debugging`, CubeIDE falla en
+`-target-select remote localhost:3333` con «Truncated register 18 in remote 'g'
+packet», y la traza muestra la sesión completa hasta un `g` y la desconexión.
+
+**Respuesta.** La causa está en el **primer** paquete de la traza, no en el
+último. Ahí, entre las capacidades que GDB anuncia, viene:
+
+```
+xmlRegisters=i386
+```
+
+**Ese GDB es un depurador de PC**, no de ARM. Es el `gdb` del sistema, no
+`arm-none-eabi-gdb`, y por eso el fallo aparece justo al pedir los registros:
+todo lo anterior —negociar, leer `target.xml`, enumerar hilos— no depende de la
+arquitectura, y el paquete `g` sí.
+
+**Las cuentas salen justas, que es lo que lo convierte en certeza y no en
+sospecha.** El modelo manda 23 registros de 32 bits: **184 caracteres**
+(comprobado midiendo el paquete). Un GDB de i386 espera ocho de 32 bits, `EIP`,
+`EFLAGS` y seis de segmento —16 × 8 = 128 caracteres—, y a continuación los de
+x87, que son de **80 bits**, o sea 20 caracteres cada uno: 128 + 20 + 20 = 168,
+y el registro 18 necesitaría llegar a 188. Hay 184. **Truncado en el registro
+18**, ni el 17 ni el 19.
+
+Y no se arregla mandándole otro `target.xml`: aunque le decimos
+`<architecture>arm</architecture>`, un GDB construido solo para x86 no lleva ARM
+dentro y no puede hacer nada con eso.
+
+**La solución** es una línea: *Debugger → GDB Command*, con la **ruta completa**
+del `arm-none-eabi-gdb` que trae CubeIDE, que vive por
+`STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.<version>/tools/bin/`.
+Conviene la ruta entera y no fiarse del `PATH`.
+
+**Y un cambio, porque este fallo lo va a repetir todo el mundo.** El stub mira
+ahora `xmlRegisters=` en el `qSupported` y, si no dice ARM, avisa **en el
+momento de conectar**, antes de que el IDE llegue al `g` y falle con un mensaje
+que no se parece en nada a la causa:
+
+```
+[gdb] AVISO: el depurador conectado dice ser para 'i386', no para ARM.
+[gdb]        Esto es el `gdb` del PC, no arm-none-eabi-gdb. Fallara en el paquete `g`
+[gdb]        con "Truncated register ... in remote 'g' packet".
+[gdb]        En el IDE: Debugger > GDB Command, con la RUTA COMPLETA de arm-none-eabi-gdb.
+```
+
+Es el mismo criterio que la validación eléctrica de la placa: **decirlo antes,
+que es cuando el aviso todavía ahorra tiempo.** Documentado en
+`cubeide/README.md`, con la aritmética del 18 incluida. Suite 1899/1899 y
+`2328209149213 ps`.

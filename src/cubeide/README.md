@@ -18,9 +18,57 @@ depurar. No termina solo: se sale con Ctrl-C.
 **2. Importar la configuración.** En CubeIDE, *File → Import… → Run/Debug →
 Launch Configurations*, y elegir esta carpeta.
 
-**3. Ajustar dos cosas.** En la configuración importada, sustituir
+**3. Ajustar tres cosas.** En la configuración importada, sustituir
 `TU_PROYECTO` por el nombre real del proyecto y por la ruta de su `.elf`
-—normalmente `Debug/TU_PROYECTO.elf`—. Nada más.
+—normalmente `Debug/TU_PROYECTO.elf`—; y comprobar, en *Debugger → GDB
+Command*, que ahí está **`arm-none-eabi-gdb`, con su ruta completa**. Lo
+siguiente explica por qué eso no es un detalle.
+
+## El otro error: «Truncated register 18 in remote 'g' packet»
+
+Si el depurador que se lanza es el **`gdb` del PC** en vez del de ARM, la sesión
+llega más lejos —negocia, lee `target.xml`, enumera hilos— y muere al pedir los
+registros:
+
+```
+Error message from debugger back end:
+Truncated register 18 in remote 'g' packet
+```
+
+Y la causa está escrita en el **primer** paquete de la sesión, que `--traza-gdb`
+enseña:
+
+```
+qSupported:...;xmlRegisters=i386;error-message+
+```
+
+`xmlRegisters=i386`. Ese GDB es un depurador de PC. Las cuentas salen justas:
+el modelo manda **23 registros de 32 bits = 184 caracteres**, y un GDB de i386
+espera 8 registros de 32 bits, `EIP`, `EFLAGS` y seis de segmento —16 × 8 = 128
+caracteres— y a continuación los de x87, que son de **80 bits**, o sea 20
+caracteres cada uno: 128 + 20 + 20 = 168, y el registro 18 necesitaría llegar a
+188. Hay 184. **Truncado en el registro 18**, exactamente.
+
+No es que el paquete esté mal: es que lo está leyendo quien no debe. Un GDB de
+x86 no entiende `<architecture>arm</architecture>` aunque se lo mandemos, porque
+no lleva ARM dentro.
+
+**El simulador lo dice ahora en cuanto pasa**, sin esperar al fallo:
+
+```
+[gdb] AVISO: el depurador conectado dice ser para 'i386', no para ARM.
+[gdb]        Esto es el `gdb` del PC, no arm-none-eabi-gdb. Fallara en el paquete `g`
+[gdb]        con "Truncated register ... in remote 'g' packet".
+[gdb]        En el IDE: Debugger > GDB Command, con la RUTA COMPLETA de arm-none-eabi-gdb.
+```
+
+El `arm-none-eabi-gdb` de CubeIDE está dentro de su instalación, por la zona de
+
+```
+STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.<version>/tools/bin/
+```
+
+Merece la pena poner la ruta entera y no confiar en el `PATH`.
 
 Depurar es entonces lo de siempre: se para en `main`, se pone un punto de
 ruptura, se mira una variable, se avanza. La Flash la programa el propio GDB con

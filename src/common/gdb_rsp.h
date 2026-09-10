@@ -638,6 +638,35 @@ private:
 
     void cmd_q(const std::string& p) {
         if (p.rfind("qSupported", 0) == 0) {
+            // GDB anuncia aqui PARA QUE ARQUITECTURA esta construido, en
+            // `xmlRegisters=`. Si no es ARM, lo que hay al otro lado no es un
+            // depurador de Cortex-M sino el `gdb` del PC, y la sesion morira
+            // unos paquetes despues con un mensaje que no se parece en nada a
+            // la causa: "Truncated register 18 in remote 'g' packet" —porque un
+            // GDB de i386 espera 8 registros de 32 bits, EIP, EFLAGS, seis de
+            // segmento y luego los de x87, de OCHENTA bits cada uno, y nuestro
+            // paquete `g` son 23 palabras de 32—. Costo horas la primera vez;
+            // dicho aqui, cuesta cero.
+            const size_t xr = p.find("xmlRegisters=");
+            const size_t fxr = (xr == std::string::npos)
+                             ? std::string::npos : p.find(';', xr);
+            const std::string arqs = (xr == std::string::npos)
+                                   ? std::string()
+                                   : p.substr(xr + 13, fxr - xr - 13);
+            if (xr != std::string::npos &&
+                arqs.find("arm") == std::string::npos) {
+                std::printf("[%s] AVISO: el depurador conectado dice ser para "
+                            "'%s', no para ARM.\n"
+                            "[%s]        Esto es el `gdb` del PC, no "
+                            "arm-none-eabi-gdb. Fallara en el paquete `g`\n"
+                            "[%s]        con \"Truncated register ... in remote "
+                            "'g' packet\".\n"
+                            "[%s]        En el IDE: Debugger > GDB Command, con "
+                            "la RUTA COMPLETA de arm-none-eabi-gdb.\n",
+                            etiqueta_, arqs.c_str(),
+                            etiqueta_, etiqueta_, etiqueta_);
+                std::fflush(stdout);
+            }
             responder("PacketSize=1000;qXfer:features:read+;QStartNoAckMode+;"
                       "swbreak+;hwbreak+;vContSupported+");
             return;
