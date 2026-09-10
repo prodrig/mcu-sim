@@ -75,6 +75,41 @@ ruptura, se mira una variable, se avanza. La Flash la programa el propio GDB con
 `load`, porque el stub implementa `vFlashErase` y `vFlashWrite`, igual que
 programaría la del chip.
 
+## El tercero: se carga el programa y el núcleo se bloquea
+
+Síntoma: la sesión llega **entera** —carga, `Pf=` con el PC, `vCont;c`— y
+entonces el IDE empieza a leer memoria en `0xffffffc0`, `0x0`, `0xffffff80` y
+acaba matando la sesión con `vKill`. Esas direcciones son la firma de un núcleo
+**bloqueado**: PC en `0xFFFFFFFE`, que es donde acaba un Cortex-M tras un
+HardFault sin vector válido.
+
+La causa está unos paquetes antes, en cómo se cargó el programa:
+
+```
+X8000000,188:...   X8000188,f78:...   X8001100,fa0:...
+```
+
+Paquetes **`X`**, o sea escrituras de memoria a pelo sobre `0x08000000`. Y **la
+Flash no se escribe escribiendo**: el controlador ignora esas escrituras
+mientras no se desbloquee y se ponga `PG`. En el modelo eso es literal
+—`mem/flash_if.h` responde `TLM_GENERIC_ERROR_RESPONSE` con `LOCK` puesto— y por
+SWD ese rechazo se convierte en un bit pegajoso de `CTRL/STAT`, no en un error
+del paquete. Es decir: **la carga se pierde en silencio**, exactamente como en el
+silicio. Luego se salta a `main`, allí hay `0xFF`, y de ahí al bloqueo.
+
+**Corregido: el stub ya reconoce el rango.** Una sonda de verdad no escribe la
+Flash a pelo, ejecuta la secuencia de programación, y este stub *es* la sonda.
+Un `M`/`X` sobre `0x0800….` borra el sector la primera vez que se toca —solo la
+primera, o cada trozo destruiría el anterior— y programa. Comprobado de punta a
+punta: `verif/fw/blinky/blinky.bin` cargado por paquetes `X`, leído de vuelta
+byte a byte idéntico, `SP`/`PC` puestos, `continue`, y al parar el PC estaba en
+`0x080003C4`, dentro del programa.
+
+Sigue habiendo un camino mejor y no está hecho: **anunciar el mapa de memoria**
+(`qXfer:memory-map:read`), que es lo que hace que GDB use `vFlashErase` /
+`vFlashWrite` —ya implementados— en vez de `X`. Sin mapa, GDB cae a `X`. Es el
+punto **I-29**.
+
 ## Por qué esta configuración y no la de siempre
 
 Porque la de siempre no funciona, y el mensaje que da despista.

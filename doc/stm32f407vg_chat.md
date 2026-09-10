@@ -1909,3 +1909,61 @@ Es el mismo criterio que la validación eléctrica de la placa: **decirlo antes,
 que es cuando el aviso todavía ahorra tiempo.** Documentado en
 `cubeide/README.md`, con la aritmética del 18 incluida. Suite 1899/1899 y
 `2328209149213 ps`.
+
+---
+
+## 2026-09-10 UTC — La carga que se perdía en silencio: `X` sobre la Flash
+
+**Prompt.** Con la sonda `ST-LINK (ST-LINK GDB Server)` la sesión llega mucho más
+lejos —carga con paquetes `X`, pone el PC con `Pf=380d0008`, continúa— y acaba
+leyendo `mffffffc0`, `m0`, `mffffff80` y matando la sesión con `vKill`/`k`.
+
+**Respuesta.** Esas direcciones son la firma de un núcleo **bloqueado**: PC en
+`0xFFFFFFFE`, donde acaba un Cortex-M tras un HardFault sin vector válido. El
+IDE no está leyendo memoria: está intentando desensamblar alrededor de un PC
+imposible. Y la causa está unos paquetes antes.
+
+**El programa se cargó con paquetes `X`** —`X8000000,188:`, `X8000188,f78:`,
+`X8001100,fa0:`…— que son escrituras de memoria a pelo sobre `0x08000000`. Y
+**la Flash no se escribe escribiendo**: el controlador ignora esas escrituras
+mientras no se desbloquee y se ponga `PG`. En el modelo es literal —verificado
+en `mem/flash_if.h:374`: con `LOCK` puesto responde
+`TLM_GENERIC_ERROR_RESPONSE`— y por SWD ese rechazo se convierte en un **bit
+pegajoso de `CTRL/STAT`**, no en un error del paquete, así que el cliente nunca
+se entera. **La carga se pierde en silencio, exactamente como en el silicio.**
+Después se salta a `main`, allí hay `0xFF`, y de ahí al bloqueo.
+
+Que el síntoma esté tan lejos de la causa —un PC en `0xFFFFFFFE` treinta
+paquetes después de la escritura que se perdió— es lo que hace este fallo caro.
+
+**Y por qué usó `X` y no `vFlashWrite`,** que está implementado desde F6: GDB
+solo usa `vFlashErase`/`vFlashWrite` si **conoce el mapa de memoria**, y el stub
+no lo anuncia (`qXfer:memory-map:read`). Sin mapa, cae a `X`.
+
+**Corregido por donde arregla a todos los clientes.** Una sonda de verdad no
+escribe la Flash a pelo: reconoce el rango y ejecuta la secuencia de
+programación. Este stub *es* la sonda, así que `escribir_bytes()` mira la
+dirección: Flash por su secuencia, todo lo demás al bus. El borrado es **por
+sector y solo la primera vez que se toca cada uno** —borrar en cada trozo
+destruiría lo escrito por el trozo anterior del mismo sector—, y los sectores
+vuelven a marcarse «por borrar» cuando se conecta un cliente nuevo, porque una
+segunda carga sin borrar solo puede APAGAR bits y dejar el programa corrupto de
+una forma preciosa de depurar.
+
+**Comprobado de punta a punta**, que es lo que convierte esto en un hecho:
+
+* `verif/fw/blinky/blinky.bin`, 1032 bytes, cargado entero por paquetes `X`;
+* releído con `m` y **byte a byte idéntico** al fichero;
+* dos trozos del mismo sector: el segundo no borró el primero;
+* otro sector, y la RAM por el bus, intactos;
+* `SP`/`PC` puestos con `P`, `vCont;c`, Ctrl-C, y **el PC estaba en
+  `0x080003C4`**, dentro del blinky. Antes habría estado en `0xFFFFFFFE`.
+
+Suite 1899/1899 y `2328209149213 ps`.
+
+**Lo que queda, anotado como I-29:** anunciar el mapa de memoria sería lo
+canónico y haría que GDB usara `vFlash*`. Se ha dejado fuera a propósito: un
+mapa incompleto hace que GDB **se niegue a leer** lo que no aparezca en él —los
+periféricos, el PPB—, y eso no se puede verificar sin un GDB de ARM, que en el
+contenedor no hay. El arreglo elegido no depende del cliente, que era la
+propiedad importante. Puntos: 142 → 143.

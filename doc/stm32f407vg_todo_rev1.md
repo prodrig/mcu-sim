@@ -372,6 +372,7 @@ Cosas que **están modeladas** pero que la suite no ejercita.
 | **I-26** | **`sim` acepta como firmware cualquier argumento que no reconozca**, incluida una opción mal escrita: `sim placa.xml --netlist` intenta cargar un fichero llamado `--netlist` y muere con «no se puede cargar --netlist» | — | **Errata de usabilidad, barata.** `--netlist`, `--inventario` y `--valida` son opciones de `stm32f407vg` y solo la última existe en `sim`, así que confundirlas es lo esperable. Bastaría rechazar todo argumento posicional que empiece por `-` remitiendo a `--help` |
 | **I-27** | **El camino por omisión de STM32CubeIDE no sirve, y el que sirve hay que enseñarlo.** Con `STM32 C/C++ Application` y sonda `ST-LINK` —da igual GDB server u OpenOCD— el IDE manda `monitor ReadAPEx 0x0 0xF8` y, sin la respuesta que espera, se despide con `D` y culpa al servidor: «Could not verify ST device!» | analisis_gui §17 | **Atacado por los dos lados, y solo uno está verificado.** (1) `cubeide/simulador.launch` + `cubeide/README.md`: configuración de `GDB Hardware Debugging` lista para importar, que **funciona** y es la que se reparte. (2) El stub responde ya a `ReadAPEx`/`WriteAPEx` —`common/gdb_rsp.h`, con `dap_leer_ap()`/`dap_escribir_ap()` en los dos stubs y `DebugSys::ap_registro()`—, pero **el formato de la respuesta que ST espera no está publicado**: se devuelve el valor en texto (`0xE00FF003`) por analogía con sus otras órdenes `monitor`, y eso es una conjetura razonada, no un hecho. **Falta probarlo contra el IDE**; `--traza-gdb` dice dónde se atasca. Si resultara que basta, el alumno no tendría que configurar nada |
 | **I-28** | ~~**El SW-DP ignoraba APSEL**~~ | F6 | **HECHO, y encontrado por accidente** al probar `ReadAPEx 0x1 0xF8`: cualquier AP contestaba lo que el AP 0, porque `ejecuta_lectura()`/`ejecuta_escritura()` solo miraban `SELECT[7:4]` (APBANKSEL) y no `SELECT[31:24]`. En el silicio un AP que no existe lee ceros, **y así es como una sonda cuenta cuántos hay**: recorriendo IDR hasta que sale 0. Con el fallo, esa enumeración no terminaba nunca. Corregido en `core/debug.h` en los dos caminos, y `DebugSys::ap_registro()` sigue el mismo criterio |
+| **I-29** | **El stub no anuncia el mapa de memoria** (`qXfer:memory-map:read`), así que GDB no sabe dónde hay Flash y **cae a paquetes `X`** para cargar el programa en vez de usar `vFlashErase`/`vFlashWrite`, que están implementados desde F6 y no los usa nadie | F6 | **Paliado, no cerrado.** El síntoma —la carga perdida en silencio y el núcleo bloqueado— está resuelto por el otro lado: `escribir_bytes()` reconoce el rango de Flash y ejecuta la secuencia de programación, que es lo que hace una sonda de verdad, y eso arregla a **cualquier** cliente, anuncie o no mapa. Anunciarlo sería lo canónico y además le diría a GDB qué es RAM y qué no; se dejó fuera porque un mapa incompleto hace que GDB **se niegue a leer** lo que no aparece en él —los periféricos, el PPB— y eso no se puede verificar sin un GDB de ARM, que en el contenedor no hay |
 | **I-10** | **Referencia cruzada errónea en el informe de F1 §1**: la fila del RCC dice "Completo salvo lo eléctrico (**ver §6**)", pero el contenido pendiente está en **§9** | F1 | Errata documental |
 
 ---
@@ -455,10 +456,10 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 | **D** — Datos sin fuente | 13 |
 | **X** — Discrepancias y silencios de [IR] | 12 |
 | **V** — Huecos de verificación | 9 |
-| **I** — Deuda de instrumentación y proyecto | 28 *(nueve cerradas: I-11, I-12, I-15, I-16, I-17, I-18, I-20, I-22 e I-28)* |
-| **Total** | **142** |
+| **I** — Deuda de instrumentación y proyecto | 29 *(nueve cerradas: I-11, I-12, I-15, I-16, I-17, I-18, I-20, I-22 e I-28)* |
+| **Total** | **143** |
 
-De los 142, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 143, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.

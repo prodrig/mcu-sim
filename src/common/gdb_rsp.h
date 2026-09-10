@@ -360,6 +360,11 @@ private:
         cli_ = f;
         rx_.clear();
         sin_ack_ = false;
+        // Sesion de programacion nueva: los sectores vuelven a estar "por
+        // borrar". Sin esto, una segunda carga escribiria sobre lo anterior sin
+        // borrar, y en una Flash eso solo puede APAGAR bits: el programa
+        // quedaria corrupto de una forma preciosa de depurar.
+        for (bool& b : sector_borrado_) b = false;
         std::printf("[%s] cliente conectado\n", etiqueta_); std::fflush(stdout);
         if (!enganchado_) enganchar();
         if (halt_al_conectar_) { parar(); }
@@ -582,9 +587,51 @@ private:
         else                                  responder("E01");
     }
 
+    // Escribir donde toque: la Flash por su secuencia, todo lo demas al bus.
+    bool escribir_bytes(uint32_t a, const uint8_t* d, unsigned n) {
+        // LA FLASH NO SE ESCRIBE ESCRIBIENDO. Un `M`/`X` sobre 0x0800.... es una
+        // escritura al bus, y el controlador de Flash la ignora si no se ha
+        // desbloqueado y puesto PG: los datos se pierden EN SILENCIO, el
+        // programa nunca llega al chip y lo que se ve despues es un nucleo
+        // ejecutando 0xFFFF, o sea un HardFault y un bloqueo con el PC en
+        // 0xFFFFFFFE. Diagnosticarlo desde ahi es dificilisimo, y el sintoma no
+        // se parece en nada a la causa.
+        //
+        // Una sonda de verdad no hace eso: reconoce el rango y ejecuta la
+        // secuencia de programacion. Este stub ES la sonda, asi que hace lo
+        // mismo. Hace falta porque no todos los clientes usan `vFlashWrite`:
+        // GDB solo lo usa si conoce el mapa de memoria, y sin mapa cae a `X`,
+        // que es exactamente lo que hace STM32CubeIDE.
+        if (sector_de(a) >= 0) return escribir_flash(a, d, n);
+        return escribir_bus(a, d, n);
+    }
+
+    // El borrado es POR SECTOR, y ahi esta la trampa: borrar en cada trozo que
+    // llega destruiria lo escrito por el trozo anterior del mismo sector. Se
+    // borra la PRIMERA vez que se toca cada sector, y se recuerda.
+    bool escribir_flash(uint32_t a, const uint8_t* d, unsigned n) {
+        for (unsigned i = 0; i < n; ) {
+            const uint32_t dir = a + i;
+            const int s = sector_de(dir);
+            if (s < 0) return escribir_bus(dir, d + i, n - i);   // se salio
+            if (s < 12 && !sector_borrado_[s]) {
+                if (!flash_borrar(dir, 1)) return false;
+                sector_borrado_[s] = true;
+            }
+            // Lo que quede dentro de ESTE sector, de una vez.
+            const uint32_t tam = (s < 4) ? 0x4000u : (s == 4) ? 0x10000u : 0x20000u;
+            const uint32_t fin = ((dir & ~(tam - 1u)) + tam);
+            unsigned trozo = n - i;
+            if (dir + trozo > fin) trozo = unsigned(fin - dir);
+            if (!flash_programar(dir, d + i, trozo)) return false;
+            i += trozo;
+        }
+        return true;
+    }
+
     // La escritura byte a byte sobre un AP de 32 bits: leer-modificar-escribir
     // en los extremos no alineados. GDB escribe trozos de cualquier tamano.
-    bool escribir_bytes(uint32_t a, const uint8_t* d, unsigned n) {
+    bool escribir_bus(uint32_t a, const uint8_t* d, unsigned n) {
         unsigned i = 0;
         while (i < n) {
             const uint32_t dir = a + i;
@@ -812,6 +859,8 @@ private:
     red::socket_t srv_ = red::invalido(), cli_ = red::invalido();
     std::string rx_, ultimo_;
     bool     verboso_ = false, sin_ack_ = false, corriendo_ = false;
+    // Que sectores se han borrado ya en esta sesion de programacion.
+    bool     sector_borrado_[12] = {};
     bool     anunciado_ = false;
     bool     halt_al_conectar_ = true, activo_ = true;
     unsigned n_paq_ = 0, n_flash_ = 0, n_acc_ = 0, espera_ = 0;
