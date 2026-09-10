@@ -2068,3 +2068,63 @@ distintos, tres de ellos nuestros y arreglados —la Flash que se perdía en
 silencio (el grave), el APSEL, y una traza que solo contaba la mitad de la
 conversación— y uno que no es nuestro y no tiene arreglo desde este lado. No es
 mal reparto para una persecución que empezó con «Could not verify ST device!».
+
+---
+
+## 2026-09-10 UTC — Ya depura: `C_MASKINTS`, el bit que nadie miraba
+
+**Prompt.** Proyecto de CubeIDE con el plugin de configuración gráfica,
+`GDB Hardware Debugging` sobre `Generic TCP/IP` a `localhost:3333`. **La
+depuración arranca.** Para en `Reset_Handler` y no en `main`; con un punto de
+ruptura en `main()` se llega a `MX_GPIO_Init()`, pero el paso a paso salta sin
+parar a `SysTick_Handler`.
+
+**Respuesta.** Funciona. Un STM32CubeIDE depurando un programa dentro del modelo
+SystemC, que era el objetivo del proyecto. Y los dos peros son de naturaleza
+distinta: uno es configuración y el otro era **un fallo del modelo**.
+
+**Lo de `Reset_Handler` es la pestaña *Startup***: «Set breakpoint at: `main`» y
+«Resume», marcados. Sin eso GDB deja el PC en el punto de entrada y para ahí,
+que es exactamente `Reset_Handler`. El `simulador.launch` ya lo trae.
+
+**Lo del paso a paso era nuestro.** Cuando una sonda da un paso escribe en
+`DHCSR` dos bits juntos: `C_STEP` **y `C_MASKINTS`**. El segundo dice «mientras
+doy este paso, las excepciones configurables se quedan pendientes» —NMI y
+HardFault pasan igual, que no se enmascaran—. Sin él, cada paso se come la
+interrupción que hubiera pendiente, y en un proyecto de CubeIDE, con SysTick a
+1 kHz, **siempre hay una**: «paso sobre esta línea» se convierte en «entra en
+`SysTick_Handler`», una y otra vez.
+
+En el modelo el bit **se guardaba y no lo consultaba nadie** —está en la máscara
+`0x2F` de `DebugSys::escribir()` desde F6, y ahí se quedaba— y el stub tampoco
+lo ponía. Ahora: `core_debug_if::dbg_mask_ints()`, `Cpu::check_exceptions()`
+deja pendientes las configurables mientras esté puesto, y `GdbRsp::paso()`
+escribe `C_STEP|C_MASKINTS|C_DEBUGEN`, quitándolo al reanudar —un `continue`
+tiene que volver a recibir sus interrupciones o no se parecería a la realidad—.
+
+**Medido, con control negativo**, mismo firmware, misma interrupción forzada a
+mano con `ICSR.PENDSTSET` y el mismo paso; lo único distinto es el bit:
+
+| DHCSR del paso | PC después | IPSR |
+| :--- | :--- | :--- |
+| `0xA05F0005` (como antes) | `0x0800027E` | **15** — dentro de `SysTick_Handler` |
+| `0xA05F000D` (ahora) | `0x0800018C` | **0** — sigue en el programa |
+
+Y con ocho pasos seguidos: `IPSR=0` en los ocho, y el bit de SysTick **sigue
+pendiente** al final, que es la semántica exacta —no se pierde la interrupción,
+espera—. *(El control tuvo que rehacerse: la primera versión medía el segundo
+caso con el núcleo todavía en modo manejador por culpa del primero, y daba
+`IPSR=15` en los dos. Un `monitor reset` entre casos lo arregló. La moraleja de
+siempre: un experimento que no aísla su estado inicial no mide lo que cree.)*
+
+Anotado como **I-30**, cerrado. Suite 1899/1899 y `2328209149213 ps`.
+
+**Y lo que esto NO arregla, dicho antes de que se note (I-31):** en el modelo el
+SysTick **sigue contando con el núcleo parado**, y ARMv7-M dice que no debería
+—el contador no decrementa con el procesador detenido en Debug state—. Aquí
+pesa más que en el silicio: pararse en una placa real cinco segundos son cinco
+segundos de temporizadores, pero aquí, con el núcleo parado, no queda casi nada
+que simular y **el tiempo simulado vuela**, así que mientras el alumno mira una
+variable pueden pasar segundos simulados y al reanudar hay una interrupción
+esperando siempre. Va de la mano del freno de tiempo real (I-25): son el mismo
+problema visto desde dos sitios. Puntos: 143 → 145.

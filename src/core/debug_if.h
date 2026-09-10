@@ -48,6 +48,10 @@ public:
     virtual bool dbg_halt_now() const = 0;
     // DHCSR.C_DEBUGEN: sin él, un BKPT escala a HardFault en vez de parar.
     virtual bool dbg_enabled() const = 0;
+    // DHCSR.C_MASKINTS: con él puesto, las excepciones configurables NO se
+    // toman —quedan pendientes—; NMI y HardFault sí. Lo pone la sonda para dar
+    // un paso, y es lo que impide que cada `step` caiga en un manejador.
+    virtual bool dbg_mask_ints() const = 0;
     // El núcleo se para POR SU CUENTA: BKPT, watchpoint o captura de vector.
     virtual void dbg_request_halt(uint32_t dfsr_bits) = 0;
     // Consume una petición de paso a paso (DHCSR.C_STEP). Devuelve true una

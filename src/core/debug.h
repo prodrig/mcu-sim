@@ -219,6 +219,9 @@ SC_MODULE(DebugSys), public core_debug_if {
     bool dbg_halt_now() const override {
         return (dhcsr_ & C_DEBUGEN) && ((dhcsr_ & C_HALT) != 0);
     }
+    bool dbg_mask_ints() const override {
+        return (dhcsr_ & C_MASKINTS) && (dhcsr_ & C_DEBUGEN);
+    }
     bool dbg_enabled() const override { return (dhcsr_ & C_DEBUGEN) != 0; }
 
     void dbg_request_halt(uint32_t bits) override {

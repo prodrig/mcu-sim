@@ -182,8 +182,17 @@ protected:
 
     bool parado() { return (leer_o(R_DHCSR) & (1u << 17)) != 0; }
     void parar()  { escribir(R_DHCSR, LLAVE | 0x3u); }
+    // Al reanudar se QUITA C_MASKINTS: el programa tiene que volver a recibir
+    // sus interrupciones, o un `continue` no se parecería en nada a la realidad.
     void seguir() { escribir(R_DHCSR, LLAVE | 0x1u); }
-    void paso()   { escribir(R_DHCSR, LLAVE | 0x5u); }
+    // C_STEP (0x4) + C_MASKINTS (0x8) + C_DEBUGEN (0x1). El enmascaramiento es
+    // lo que distingue un paso a paso usable de uno inservible: sin el, cada
+    // paso se come la interrupcion pendiente y el depurador aterriza en el
+    // manejador —tipicamente SysTick_Handler, que en un proyecto de CubeIDE
+    // late a 1 kHz—, asi que "paso sobre esta linea" se convierte en "entra en
+    // SysTick_Handler" una y otra vez. Cualquier sonda pone los dos bits
+    // juntos, y por eso el IDE ofrece esto como opcion.
+    void paso()   { escribir(R_DHCSR, LLAVE | 0xDu); }
 
     unsigned puerto_;
     const char* etiqueta_;

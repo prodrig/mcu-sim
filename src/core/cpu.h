@@ -642,7 +642,17 @@ inline void Cpu::step() {
 inline void Cpu::check_exceptions() {
     const int cur = sys->execution_priority(reg);
     const int e = sys->pending_exception(cur, reg);
-    if (e > 0) exception_entry(e);
+    if (e <= 0) return;
+    // DHCSR.C_MASKINTS [ARMv7-M, C1.6.2]. Mientras el depurador lo tenga
+    // puesto, las excepciones CONFIGURABLES no se toman: siguen pendientes y
+    // esperan. Solo pasan NMI y HardFault, que no se pueden enmascarar.
+    //
+    // Esto no es un adorno: es lo que hace que dar un paso sobre una linea de C
+    // no acabe dentro de SysTick_Handler. Una sonda pone C_MASKINTS junto con
+    // C_STEP justamente por eso, porque si no cada paso se come la interrupcion
+    // que estuviera pendiente y el paso a paso se vuelve inutilizable.
+    if (dbg && dbg->dbg_mask_ints() && e != EXC_NMI && e != EXC_HARDFAULT) return;
+    exception_entry(e);
 }
 
 inline void Cpu::push_stack(int excp) {

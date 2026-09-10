@@ -110,6 +110,51 @@ Sigue habiendo un camino mejor y no está hecho: **anunciar el mapa de memoria**
 `vFlashWrite` —ya implementados— en vez de `X`. Sin mapa, GDB cae a `X`. Es el
 punto **I-29**.
 
+## El cuarto: el paso a paso cae siempre en `SysTick_Handler`
+
+Síntoma: la sesión funciona, se llega a `main`, y al dar *step over* el
+depurador aterriza en `SysTick_Handler` una vez tras otra, de modo que avanzar
+por el código es imposible.
+
+**No es del simulador ni del IDE: era del modelo, y ya está corregido.** Cuando
+una sonda da un paso escribe en `DHCSR` dos bits juntos: `C_STEP` **y
+`C_MASKINTS`**. El segundo dice «mientras doy este paso, las excepciones
+configurables se quedan pendientes» —NMI y HardFault pasan igual, que no se
+enmascaran—. Sin él, cada paso se come la interrupción que hubiera pendiente, y
+en un proyecto de CubeIDE, con SysTick latiendo a 1 kHz, siempre hay una.
+
+En el modelo el bit **se guardaba y no lo consultaba nadie**, y el stub tampoco
+lo ponía. Ahora sí: `core_debug_if::dbg_mask_ints()`,
+`Cpu::check_exceptions()` lo respeta y `GdbRsp::paso()` escribe
+`C_STEP|C_MASKINTS|C_DEBUGEN`, quitándolo al reanudar —un `continue` tiene que
+volver a recibir sus interrupciones o no se parecería a la realidad—.
+
+Medido con el control negativo, mismo firmware y misma interrupción pendiente:
+
+| DHCSR del paso | PC después | IPSR |
+| :--- | :--- | :--- |
+| `0xA05F0005` (sin `C_MASKINTS`, como antes) | `0x0800027E` | **15** — dentro de `SysTick_Handler` |
+| `0xA05F000D` (con `C_MASKINTS`, ahora) | `0x0800018C` | **0** — sigue en el programa |
+
+**Y una cosa que esto NO arregla,** por si se nota al reanudar: en el modelo el
+SysTick **sigue contando con el núcleo parado**, y además el tiempo simulado
+corre muy deprisa mientras nadie ejecuta. O sea que mientras miras una variable
+pueden pasar segundos simulados y al continuar hay una interrupción esperando
+siempre. En ARMv7-M el contador del SysTick no decrementa con el procesador
+detenido en Debug state; el modelo aún no lo hace. Es **I-31**, y va de la mano
+del freno de tiempo real (**I-25**).
+
+## Se para en `Reset_Handler` y no en `main`
+
+Eso es la configuración, no el simulador. En la pestaña *Startup* de
+`GDB Hardware Debugging`:
+
+* **Set breakpoint at:** `main` — marcado;
+* **Resume** — marcado.
+
+Sin eso, GDB deja el PC en el punto de entrada y para ahí, que es exactamente
+`Reset_Handler`. El `simulador.launch` de esta carpeta ya lo trae puesto.
+
 ## Por qué esta configuración y no la de siempre
 
 Porque la de siempre no funciona, y el mensaje que da despista.
