@@ -57,7 +57,19 @@ public:
     virtual ~GdbRsp() { cerrar(); }
 
     // --- Mandos -------------------------------------------------------------
-    void set_verbose(bool v)          { verboso_ = v; }
+    // Con la traza puesta se dice tambien CUANDO SE CONSTRUYO este binario.
+    // Parece una tonteria y no lo es: cuando un fallo se persigue a base de
+    // cambios en el stub, la primera pregunta ante una traza que no cambia es
+    // si lo que corre lleva el cambio dentro, y sin esta linea no hay forma de
+    // saberlo mirando la salida.
+    void set_verbose(bool v) {
+        verboso_ = v;
+        if (v) {
+            std::printf("[%s] traza de paquetes activada (stub construido el "
+                        "%s %s)\n", etiqueta_, __DATE__, __TIME__);
+            std::fflush(stdout);
+        }
+    }
     // Cada cuánto tiempo SIMULADO se atiende el socket. Es el compromiso entre
     // capacidad de respuesta frente a GDB y coste de simulación.
     void set_poll(sc_core::sc_time t) { poll_ = t; }
@@ -423,6 +435,13 @@ private:
         const uint8_t c = suma(d);
         p.push_back(hexd(c >> 4)); p.push_back(hexd(c & 0xF));
         tx(p.data(), p.size());
+        // La traza SIN las respuestas es media conversacion, y con un cliente
+        // que se va sin explicarse la mitad que falta suele ser la que importa:
+        // una respuesta VACIA a un paquete que el cliente considera obligatorio
+        // es la forma habitual de que una sesion se caiga sin decir nada.
+        if (verboso_)
+            std::printf("[%s] -> %s\n", etiqueta_,
+                        d.empty() ? "(vacia)" : d.substr(0, 120).c_str());
         ultimo_ = d;
     }
 

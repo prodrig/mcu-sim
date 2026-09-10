@@ -1967,3 +1967,57 @@ mapa incompleto hace que GDB **se niegue a leer** lo que no aparezca en él —l
 periféricos, el PPB—, y eso no se puede verificar sin un GDB de ARM, que en el
 contenedor no hay. El arreglo elegido no depende del cliente, que era la
 propiedad importante. Puntos: 142 → 143.
+
+---
+
+## 2026-09-10 UTC — La traza que no cambia: media conversación no basta
+
+**Prompt.** Con la sonda `ST-LINK (ST-LINK GDB Server)`, la traza vuelve a
+terminar en `qRcmd,ReadAPEx 0x0 0xF8` y `D`.
+
+**Respuesta.** Esa traza es **idéntica** a la primera, la de antes de implementar
+`ReadAPEx`, y ahí está lo interesante: idéntica es compatible con dos historias
+muy distintas, y **la traza tal como estaba no podía distinguirlas**.
+
+1. El binario que corre no lleva el cambio —extraer el tar no recompila; hace
+   falta `make sim`—, así que sigue respondiendo vacío.
+2. El binary sí lo lleva, contestó `0xE00FF003`, y **ST rechazó el formato**.
+
+La causa de no poder distinguirlas es que la traza imprimía **solo los paquetes
+recibidos**. Media conversación. Y con un cliente que se marcha sin explicarse,
+la mitad que falta es justo la que importa: una respuesta vacía a un paquete que
+el cliente considera obligatorio es la forma habitual de que una sesión se caiga
+sin decir nada.
+
+**Dos añadidos, los dos pequeños y los dos por lo mismo:**
+
+* `responder()` traza también la **salida**, con `->`. Una respuesta vacía sale
+  como `(vacia)`, que es lo que hay que ver de un vistazo.
+* Al activar la traza, el stub dice **cuándo se construyó**:
+  `traza de paquetes activada (stub construido el Sep 10 2026 14:02:44)`.
+  Parece una tontería y no lo es: cuando un fallo se persigue a base de cambios
+  en el stub, la primera pregunta ante una traza que no cambia es si lo que
+  corre lleva el cambio dentro, y sin esa línea no hay forma de saberlo mirando
+  la salida.
+
+Con eso, la próxima traza contesta sola:
+
+```
+[gdb] <- qRcmd,5265616441504578203078302030784638
+[gdb] -> 307845303046463030330a          <- 0xE00FF003\n en hexadecimal
+```
+
+Si ese `->` no aparece, falta recompilar. Si aparece, el stub hizo su parte y lo
+que falla es el formato que ST espera, que es lo único de todo esto que no se
+puede averiguar sin documentación suya.
+
+**Y una observación sobre la traza anterior:** la sesión que cargó el programa
+con paquetes `X` y acabó bloqueada **no contenía ningún `ReadAPEx`**. Un mismo
+IDE no manda esa orden unas veces sí y otras no; lo más probable es que aquella
+fuera la configuración de `GDB Hardware Debugging` y esta la de ST. Si es así,
+la buena noticia es que **el camino que funciona ya no tiene el fallo de la
+Flash**: aquella sesión murió por la carga perdida, que está corregida y
+verificada de punta a punta. Merece la pena repetirla antes que seguir peleando
+con la sonda de ST.
+
+Suite 1899/1899 y `2328209149213 ps`.

@@ -151,5 +151,22 @@ que se sabe que funciona**. Para comprobar si la otra ya pasa:
 ./build/sim placas/discovery_min.xml --gdb --traza-gdb
 ```
 
-imprime cada paquete recibido, y el último antes de `cliente desconectado` dice
-exactamente dónde se atascó.
+imprime cada paquete recibido **y cada respuesta**, más la fecha en que se
+construyó el binario:
+
+```
+[gdb] traza de paquetes activada (stub construido el Sep 10 2026 14:02:44)
+[gdb] <- qRcmd,5265616441504578203078302030784638
+[gdb] -> 307845303046463030330a
+```
+
+Esas dos líneas son las que hacen falta para saber en qué mitad está el
+problema. Si tras el `qRcmd` **no** aparece un `->` con la respuesta, o la
+respuesta es `(vacia)`, el binario que corre no lleva `ReadAPEx`: falta
+recompilar (`make sim`). Si sí aparece —`307845...` es `0xE00FF003\n` en
+hexadecimal— entonces el stub contestó y **fue ST quien no aceptó el formato**,
+que es lo único que aquí no se puede saber sin documentación suya.
+
+Y la fecha de construcción está ahí por un motivo práctico: cuando un fallo se
+persigue a base de cambios en el stub, la primera pregunta ante una traza que no
+cambia es si lo que está corriendo lleva el cambio dentro.
