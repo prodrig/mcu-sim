@@ -20,8 +20,16 @@
 #ifndef STM32_PINS_PIN_MUX_H
 #define STM32_PINS_PIN_MUX_H
 
+// `sc_spawn()` (procesos dinámicos) NO forma parte de la API que `<systemc>`
+// expone por omisión: hay que pedirla con esta macro ANTES de incluirlo, y por
+// eso el Makefile la pasa en la línea de órdenes. La alternativa —incluir
+// <sysc/kernel/sc_spawn.h> a mano— funcionaba, pero es meter mano en la
+// distribución interna de cabeceras de SystemC, que es justo lo que cambia de
+// una versión mayor a la siguiente. Si esto falla, falta -DSC_INCLUDE_DYNAMIC_PROCESSES.
+#ifndef SC_INCLUDE_DYNAMIC_PROCESSES
+#  error "compila con -DSC_INCLUDE_DYNAMIC_PROCESSES: pin_mux.h usa sc_spawn()"
+#endif
 #include <systemc>
-#include <sysc/kernel/sc_spawn.h>
 #include <array>
 #include <cstdlib>
 #include <map>

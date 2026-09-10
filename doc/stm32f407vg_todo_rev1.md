@@ -367,6 +367,7 @@ Cosas que **están modeladas** pero que la suite no ejercita.
 | **I-21** | **No hay comprobación automática del MONTAJE de varios MCUs.** T123 cubre la declaración —leer `<mcu>`, resolver `u0.PD12`, rechazar lo ambiguo, el chip inexistente y el puerto repetido—, pero que dos chips se construyan, arranquen y se hablen solo se verifica a mano corriendo `sim` sobre `placas/dos_mcu.xml` | multi-MCU §8, paso 6 | **Hueco conocido.** La suite monta un único `dut` del que cuelgan la mitad de sus 1899 comprobaciones, y meter un segundo dentro sería duplicar la elaboración del banco entero para probar otra cosa. El sitio natural es un banco aparte que ejecute `sim` sobre las placas de `placas/`, y no existe |
 | **I-22** | ~~**El modelo solo compilaba en Linux**~~ | analisis_gui §19.3 | **HECHO A MEDIAS, y lo que falta está acotado.** Toda la dependencia del sistema operativo se ha recogido en `common/red.h` —traducción entre sockets de Berkeley y Winsock, más `SO_NOSIGPIPE` para macOS— y ningún otro fichero de `src/` incluye ya una cabecera del sistema. El `Makefile.stm32` es único para las tres plataformas, con detección automática y `PLATAFORMA=` para forzarla, sufijo `.exe`, `-lws2_32`, `-D__USE_MINGW_ANSI_STDIO=1` (MinGW no entiende `%llu` sin él, y el modelo lo usa 28 veces) y enlazado estático de las DLL de MinGW. `verif/prueba_red.cpp` (`make red`) ejercita la capa con 13 comprobaciones sin necesitar SystemC. **Verificado**: Linux con g++ y con clang, 1899/1899 y el mismo tiempo simulado; el cruce a MinGW-w64 compila y enlaza un PE32+ sin un aviso; la rama de macOS compila forzando su combinación de macros. **Falta**: construir SystemC para MinGW y para macOS, y ejecutar allí |
 | **I-23** | **Sin verificación en Windows ni en macOS.** El cruce con MinGW demuestra que el código compila y enlaza, no que funcione; y de macOS solo se ha compilado la rama específica | analisis_gui §19.3 | **Hueco conocido.** Lo que falta es tener la biblioteca de SystemC en las dos plataformas y pasar allí `make red` y `make test`. Es el paso 0b del orden de trabajo del análisis de la GUI, y para un programa que se reparte a alumnos no es opcional |
+| **I-24** | **Se sigue en SystemC 2.3.4 (IEEE 1666-2011) pudiendo estar en la línea 3.0 (IEEE 1666-2023)** | analisis_systemc3 | **Decisión consciente, no olvido.** El inventario de la API que el modelo usa —`sc_module`, procesos, señales, `sc_prim_channel`, `sc_spawn` y TLM-2.0, nada más— es tan central que no se espera ningún cambio, y el único `#include` de cabeceras internas de SystemC ya se ha eliminado. Pero **ninguna ventaja conocida de la 3.0 ataca un problema que tengamos** —el coste lo domina el número de despertares, no el planificador— y sí tiene un coste: hoy la 2.3.4 se instala con `apt` y la 3.0 habría que compilarla. **La pregunta está subordinada a I-23**: quien construya SystemC para Windows y macOS que pruebe las dos versiones a la vez |
 | **I-10** | **Referencia cruzada errónea en el informe de F1 §1**: la fila del RCC dice "Completo salvo lo eléctrico (**ver §6**)", pero el contenido pendiente está en **§9** | F1 | Errata documental |
 
 ---
@@ -450,10 +451,10 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 | **D** — Datos sin fuente | 13 |
 | **X** — Discrepancias y silencios de [IR] | 12 |
 | **V** — Huecos de verificación | 9 |
-| **I** — Deuda de instrumentación y proyecto | 23 *(ocho cerradas: I-11, I-12, I-15, I-16, I-17, I-18, I-20 e I-22)* |
-| **Total** | **137** |
+| **I** — Deuda de instrumentación y proyecto | 24 *(ocho cerradas: I-11, I-12, I-15, I-16, I-17, I-18, I-20 e I-22)* |
+| **Total** | **138** |
 
-De los 137, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 138, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.

@@ -94,7 +94,12 @@ endif
 
 # --- 3. Lo que NO cambia -----------------------------------------------------
 AVISOS   := -Wall -Wextra -Wno-unused-parameter
-CXXFLAGS += -std=$(CXXSTD) $(AVISOS) $(DEF_SO) -g -O2 \
+# Procesos dinamicos (sc_spawn), que pin_mux.h usa para los procesos del mux.
+# `<systemc>` solo los expone si esta macro esta definida ANTES de incluirlo, asi
+# que tiene que venir de aqui. Es la via oficial; la alternativa seria incluir
+# una cabecera interna de SystemC, y esa es la que cambia entre versiones.
+DEFS     := -DSC_INCLUDE_DYNAMIC_PROCESSES
+CXXFLAGS += -std=$(CXXSTD) $(AVISOS) $(DEFS) $(DEF_SO) -g -O2 \
             -I$(SYSTEMC_HOME)/include -I.
 LDFLAGS  += $(foreach d,$(LIBDIRS),-L$(d)) $(RPATH) $(LDEXTRA)
 LDLIBS   += -lsystemc $(LIBS_SO)
@@ -170,7 +175,7 @@ red: $(RED)
 # rompe antes de la primera comprobación.
 #
 # Solo en Linux y macOS: MinGW no trae AddressSanitizer.
-ASANFLAGS := -std=$(CXXSTD) $(AVISOS) $(DEF_SO) -g -O1 \
+ASANFLAGS := -std=$(CXXSTD) $(AVISOS) $(DEFS) $(DEF_SO) -g -O1 \
              -fsanitize=address,undefined -fno-omit-frame-pointer \
              -I$(SYSTEMC_HOME)/include -I.
 

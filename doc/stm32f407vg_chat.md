@@ -1458,3 +1458,62 @@ GUI: para un programa que se reparte a alumnos no es opcional.
 De paso, el `.exe` se enlaza con `-static-libgcc -static-libstdc++`, que para
 repartirlo no es un lujo, y `make asan` avisa en vez de fallar cuando la
 plataforma es Windows, porque MinGW no trae AddressSanitizer.
+
+---
+
+## 2026-09-09 UTC — ¿Pasar a SystemC 3.0?
+
+**Prompt.** «Analiza qué cambios sería necesario hacer al código para usar
+SystemC 3.0.2 y si el cambio a la última versión de SystemC ofrece alguna
+ventaja».
+
+**Respuesta.** `doc/analisis_systemc3.md`, y con una advertencia por delante que
+es parte del resultado: **no he podido examinar SystemC 3.0.** Aquí solo está la
+2.3.4 y las fuentes de Accellera no son alcanzables —GitHub está cerrado para
+esta sesión—, así que lo que digo de la 3.0 viene de lo que sé y no de haber
+leído sus cabeceras; en particular no sé qué distingue la 3.0.2 de la 3.0.0. Por
+eso construí el informe para que **la parte débil no cambie la conclusión**: la
+pregunta «¿qué habría que cambiar?» se contesta desde nuestro lado, con el
+inventario exacto de la API que el modelo usa, sacado del código.
+
+**Y ese inventario es la respuesta:** `sc_module`, procesos, `sc_time`,
+`sc_signal`/`sc_in`/`sc_out`/`sc_vector`, `sc_event`, `sc_prim_channel`,
+`sc_port`, `sc_export`, `sc_spawn`, `sc_report_handler` y TLM-2.0. Nada más. Ni
+tipos de datos de SystemC, ni `sc_fifo`, ni `sc_clock`, ni control de procesos,
+ni nada del subconjunto de síntesis. Es la parte de IEEE 1666 que lleva estable
+veinte años, así que **no espero ningún cambio necesario**.
+
+**Lo que sí encontré, y arreglé sobre la marcha:** el modelo tenía exactamente
+**un** `#include` de las tripas de SystemC —`<sysc/kernel/sc_spawn.h>` en
+`pin_mux.h`—, que no es API sino distribución interna de cabeceras, justo lo que
+cambia entre versiones mayores sin que nadie lo considere una ruptura. Estaba ahí
+por un motivo real: `sc_spawn()` solo se expone si se define una macro **antes**
+de incluir `<systemc>`, y eso no se puede hacer desde una cabecera. Ahora el
+Makefile pasa `-DSC_INCLUDE_DYNAMIC_PROCESSES` y `pin_mux.h` da un `#error` claro
+si falta. Con eso, `src/` no incluye ni una cabecera interna: es la precondición
+de cualquier migración. 1899/1899 y el mismo tiempo simulado.
+
+**Medido, además:** el modelo y las cabeceras de la 2.3.4 pasan `-fsyntax-only`
+en **C++17, C++20 y C++23** sin un error, así que el estándar tampoco es un
+obstáculo por ninguno de los dos lados.
+
+**¿Compensa? Mi respuesta es que hoy no**, y por un motivo que no es sobre la
+3.0 sino sobre nosotros: ninguna ventaja conocida ataca un problema que tengamos.
+Rendimiento, no —el coste lo domina cuántas veces despierta un proceso, y ya
+vamos entre 11 y 200 veces más rápido que el tiempo real; el problema es
+frenarlo—. Y hay un coste en contra que se olvida: hoy en Linux SystemC se
+instala con `apt`, y la 3.0 habría que compilarla, que es lo contrario de lo que
+quiere un proyecto que se reparte a alumnos.
+
+**La única ventaja posible es también la única pregunta abierta:** que la 3.0 sea
+más fácil de construir en **Windows y macOS**, que es lo que bloquea repartir el
+programa (I-23). Si lo es, eso solo justifica el cambio; si no, no queda ningún
+motivo. De ahí lo único que cambiaría el plan: **«¿2.3.4 o 3.0?» no es una
+decisión aparte, es una rama de «¿cómo se construye esto en Windows?»**. Quien
+ataque I-23 que pruebe las dos a la vez.
+
+Y una cosa que me gustó comprobar: la red de seguridad para una migración así ya
+existe y no se hizo para esto. Las 1899 comprobaciones pasan, pero el criterio de
+verdad es que **el tiempo simulado sale idéntico al picosegundo** entre
+ejecuciones, compiladores y plataformas. Si al cambiar de biblioteca esa cifra se
+moviera, algo del planificador sería distinto y se sabría en veintitrés segundos.
