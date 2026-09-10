@@ -85,6 +85,11 @@ private:
     bool dap_escribir(uint32_t a, uint32_t v) override {
         return dbg_.ap_write32(a, v) == tlm::TLM_OK_RESPONSE;
     }
+    // Los registros propios del AP, sin banco que conmutar ni RDBUFF que
+    // recoger: aqui el AP esta al lado y se le pregunta.
+    bool dap_leer_ap(unsigned ap, unsigned reg, uint32_t& v) override {
+        return dbg_.ap_registro(ap, reg, v);
+    }
     // El bloque también es palabra a palabra, pero cada palabra es una
     // transacción, no un paquete de 46 bits: no hay frontera de 1 KiB que
     // respetar porque no hay TAR que se auto-incremente.

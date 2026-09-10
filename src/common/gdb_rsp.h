@@ -30,6 +30,7 @@
 #include <systemc>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -95,6 +96,15 @@ protected:
     virtual bool dap_enganchar() = 0;
     virtual bool dap_leer(uint32_t a, uint32_t& v) = 0;
     virtual bool dap_escribir(uint32_t a, uint32_t v) = 0;
+    // Los registros PROPIOS del AP (CSW, TAR, BASE, IDR), que no son memoria.
+    // No los pide GDB: los piden los IDE, con ordenes `monitor` propias, para
+    // identificar el chip antes de tocarlo. `false` = ese registro no existe.
+    virtual bool dap_leer_ap(unsigned /*ap*/, unsigned /*reg*/, uint32_t& /*v*/) {
+        return false;
+    }
+    virtual bool dap_escribir_ap(unsigned /*ap*/, unsigned /*reg*/, uint32_t /*v*/) {
+        return false;
+    }
     // Lectura de un bloque alineado. Por omisión, palabra a palabra; la sonda
     // la sustituye por una ráfaga con auto-incremento de TAR, que es mucho más
     // barata en flancos.
@@ -662,7 +672,48 @@ private:
                                              responder("OK"); return; }
         if (c.rfind("resume", 0) == 0)     { seguir(); corriendo_ = true;
                                              responder("OK"); return; }
+        // `ReadAPEx <ap> <reg>` y `WriteAPEx <ap> <reg> <valor>`: no son de GDB,
+        // son de las herramientas de ST, y son lo que un STM32CubeIDE
+        // configurado con sonda ST-LINK pregunta ANTES de nada para decidir si
+        // lo que tiene delante es un ST. Sin respuesta se despide con `D` y
+        // acusa al servidor ("Could not verify ST device!"), asi que responder
+        // no es un capricho: es la diferencia entre que el IDE arranque o no.
+        //
+        // El formato de la RESPUESTA es la parte que ST no publica. Aqui se
+        // devuelve el valor en texto ("0xE00FF003"), que es lo que imprimen las
+        // demas ordenes `monitor` de su servidor. Si el IDE siguiera sin
+        // arrancar, `--traza-gdb` dice cual fue el ultimo paquete y por donde
+        // seguir: es una conjetura documentada, no un hecho verificado.
+        if (c.rfind("ReadAPEx", 0) == 0 || c.rfind("WriteAPEx", 0) == 0) {
+            const bool escritura = (c[0] == 'W');
+            unsigned ap = 0, reg = 0; unsigned long val = 0;
+            const char* p = c.c_str() + (escritura ? 9 : 8);
+            char* fin = nullptr;
+            ap  = unsigned(std::strtoul(p, &fin, 0));
+            reg = unsigned(std::strtoul(fin, &fin, 0));
+            if (escritura) val = std::strtoul(fin, &fin, 0);
+            uint32_t v = 0;
+            bool ok;
+            if (escritura) { ok = dap_escribir_ap(ap, reg, uint32_t(val)); }
+            else           { ok = dap_leer_ap(ap, reg, v); }
+            if (!ok) { responder(""); return; }
+            char t[32];
+            std::snprintf(t, sizeof t, "0x%08X\n", unsigned(v));
+            responder_texto(escritura ? "OK\n" : t);
+            return;
+        }
+        if (verboso_)
+            std::printf("[%s] monitor no soportado: %s\n", etiqueta_, c.c_str());
         responder("");
+    }
+
+    // La salida de una orden `monitor` viaja en HEXADECIMAL: es texto para la
+    // consola del depurador, no un codigo de respuesta.
+    void responder_texto(const std::string& t) {
+        std::string h;
+        char b[3];
+        for (unsigned char ch : t) { std::snprintf(b, sizeof b, "%02x", ch); h += b; }
+        responder(h);
     }
 
     void cmd_v(const std::string& p) {

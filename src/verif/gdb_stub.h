@@ -89,6 +89,21 @@ private:
     }
     bool dap_leer(uint32_t a, uint32_t& v) override  { return swd_.mem_read32(a, v); }
     bool dap_escribir(uint32_t a, uint32_t v) override { return swd_.mem_write32(a, v); }
+    // Los registros PROPIOS del AP. En SWD la direccion del AP son solo dos
+    // bits (A[3:2]): el resto sale del campo APBANKSEL de SELECT, asi que para
+    // llegar a 0xF8 hay que cambiar de banco, leer, y DEJARLO COMO ESTABA. Lo
+    // ultimo no es cortesia: todo el acceso a memoria vive en el banco 0, y
+    // dejarlo en otro deja al depurador leyendo basura sin decir nada.
+    // Y la lectura del AP va con un ciclo de retraso, como en el silicio: el
+    // dato se recoge en RDBUFF.
+    bool dap_leer_ap(unsigned ap, unsigned reg, uint32_t& v) override {
+        uint32_t basura = 0;
+        if (!swd_.escribir_dp(0x8, (uint32_t(ap) << 24) | (reg & 0xF0u)))
+            return false;
+        const bool ok = swd_.leer_ap(reg & 0x0Cu, basura) && swd_.leer_dp(0xC, v);
+        swd_.escribir_dp(0x8, 0);
+        return ok;
+    }
     // Ráfaga con auto-incremento de TAR: un solo TAR para hasta 1 KiB, que es
     // la única forma de que un `load` no tarde una eternidad.
     unsigned dap_leer_bloque(uint32_t a, uint32_t* w, unsigned n) override {

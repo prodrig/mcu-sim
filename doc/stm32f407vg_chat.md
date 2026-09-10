@@ -1786,3 +1786,72 @@ verdad se parecería al objetivo —«que pruebe igual que con la placa real»�
 repartir el fichero de configuración de lanzamiento ya hecho, para que el alumno
 no tenga que elegir. Suplantar el protocolo del servidor de ST es la tercera
 opción y no está publicada. Puntos: 140 → 141.
+
+---
+
+## 2026-09-10 UTC — La traza señala el paquete: `monitor ReadAPEx 0x0 0xF8`
+
+**Prompt.** Cambiada la sonda a `ST-LINK (OpenOCD)`, el mensaje de CubeIDE es el
+mismo, y la traza de `sim` muestra la sesión entera: `qSupported`, `vCont?`,
+`QStartNoAckMode`, `target.xml`, `?`, hilos, `m8000102,4`, `g`, `qSymbol::`,
+`qRcmd,5265616441504578203078302030784638` y `D`.
+
+**Respuesta.** La traza cierra el diagnóstico sin margen de duda. Ese `qRcmd` en
+hexadecimal se lee **`ReadAPEx 0x0 0xF8`**, y es el **último** paquete antes del
+`D` con el que el cliente se despide.
+
+**Lo que la traza demuestra:** todo lo que es GDB estándar funcionó. Se negoció
+`qSupported`, se sirvió `target.xml`, se contestó `?` con la parada, se
+enumeraron hilos, **se leyó memoria en `0x08000102`** —el bucle `wfe` que el
+simulador inyecta— y **se leyeron los registros con `g`**. El IDE llegó hasta el
+final y se fue en la única orden que no es de GDB: una orden `monitor` propia de
+ST. Cambiar de `ST-LINK GDB server` a `ST-LINK (OpenOCD)` no cambia nada porque
+**la comprobación no la hace el servidor, la hace el IDE**: las dos sondas viven
+bajo el mismo tipo de lanzamiento, `STM32 C/C++ Application`, y ese tipo es el
+que exige un ST al otro lado.
+
+**Y qué es `ReadAPEx 0x0 0xF8`:** leer el registro **`BASE` del AP 0**, que en
+ADIv5 es el puntero a la ROM table. Con él, un depurador identifica lo que tiene
+delante recorriendo la tabla. Detalle que da rabia: **esa información está en el
+modelo** —`AP_BASE` = `0xE00FF003`, y la ROM table con sus PID/CID está
+implementada desde F6—. No faltaba el dato: faltaba la orden con la que ST lo
+pide.
+
+**Decidido hacer las dos cosas, en este orden.**
+
+**1. La configuración ya hecha, que es lo que funciona hoy.**
+`cubeide/simulador.launch` + `cubeide/README.md`: `GDB Hardware Debugging` con
+`Generic TCP/IP` a `localhost:3333`, `monitor reset` / `monitor halt` como
+órdenes de arranque, `load` marcado —el stub implementa `vFlashErase` y
+`vFlashWrite`— y parada en `main`. El alumno importa y cambia dos cosas: el
+nombre del proyecto y la ruta de su `.elf`. *(Una nota de camino: `--gdb` dentro
+de un comentario XML es ilegal —`--` no se admite ahí— y el fichero no validaba;
+la prosa se movió al README.)*
+
+**2. `ReadAPEx` y `WriteAPEx` en el stub.** `dap_leer_ap()`/`dap_escribir_ap()`
+nuevas en `common/gdb_rsp.h`, resueltas por cada stub a su manera —el de pines
+con una transacción SWD de verdad, conmutando `APBANKSEL` en `SELECT` y
+**dejándolo como estaba**, porque todo el acceso a memoria vive en el banco 0; el
+interno preguntando a `DebugSys::ap_registro()`—. Comprobado con un cliente RSP
+crudo: `ReadAPEx 0x0 0xF8` → `0xE00FF003`, `0xFC` → `0x24770011`, y la memoria
+sigue leyéndose bien después de haber tocado `SELECT`.
+
+**Lo que NO puedo afirmar:** que con esto CubeIDE arranque. **El formato de la
+respuesta no lo publica ST.** Devuelvo el valor en texto (`0x%08X`) por analogía
+con lo que imprimen sus otras órdenes `monitor`, y eso es una conjetura razonada,
+no un hecho verificado. Está escrito así en el código, en el README y en I-27, y
+`--traza-gdb` dirá dónde se atasca si no basta.
+
+**Un fallo del modelo encontrado por accidente,** probando mi propia
+implementación: pedí `ReadAPEx 0x1 0xF8` —un AP que no existe— y contestó lo
+mismo que el AP 0. El SW-DP **ignoraba APSEL**: `ejecuta_lectura()` y
+`ejecuta_escritura()` solo miraban `SELECT[7:4]` (APBANKSEL) y nunca
+`SELECT[31:24]`. En el silicio un AP inexistente lee ceros, **y así es
+exactamente como una sonda cuenta cuántos hay**: recorre los IDR hasta que sale
+0. Con el fallo, esa enumeración no habría terminado nunca — que es una forma
+muy plausible de colgar a un IDE. Corregido en los dos caminos, y
+`ap_registro()` sigue el mismo criterio para que los dos stubs se vean idénticos
+desde fuera. Anotado como **I-28**, cerrado. Puntos: 141 → 142.
+
+Suite 1899/1899 y `2328209149213 ps` después de todo esto, que es lo que dice
+que tocar el DAP no ha movido nada más.

@@ -89,6 +89,15 @@ SC_MODULE(DebugSys), public core_debug_if {
         B_SCS = 0xE000E000u, B_TPIU = 0xE0040000u, B_ETM = 0xE0041000u,
         B_DBGMCU = 0xE0042000u, B_ROM = 0xE00FF000u
     };
+    // Los dos registros CONSTANTES del AHB-AP. Estaban escritos a mano dentro
+    // del camino de bits del SW-DP; con nombre se pueden servir también por
+    // llamada de función, que es lo que necesitan el stub interno y las
+    // órdenes `monitor ReadAPEx` con las que los IDE de ST identifican el chip.
+    enum : uint32_t {
+        AP_BASE = 0xE00FF003u,      // puntero a la ROM table (con los bits de
+                                    // formato y de presencia)
+        AP_IDR  = 0x24770011u       // identificador del AHB-AP del Cortex-M4
+    };
     // Core debug, dentro del SCS pero atendido aquí [IR, §13.4]
     enum : uint32_t {
         R_DHCSR = 0xE000EDF0u, R_DCRSR = 0xE000EDF4u,
@@ -172,6 +181,29 @@ SC_MODULE(DebugSys), public core_debug_if {
         v = uint32_t(b[0]) | (uint32_t(b[1]) << 8) |
             (uint32_t(b[2]) << 16) | (uint32_t(b[3]) << 24);
         return r;
+    }
+
+    // Los registros PROPIOS del AP —CSW, TAR, BASE, IDR—, que NO son la memoria
+    // que hay detrás de él. Un depurador los lee para saber qué tiene delante
+    // antes de tocar nada: BASE le da la ROM table y con ella identifica el
+    // núcleo y sus unidades. `false` significa "ese AP o ese registro no
+    // existe", que es información, no un error.
+    bool ap_registro(unsigned ap, unsigned reg, uint32_t& v) const {
+        v = 0;
+        // Este chip tiene UN solo AP. Un AP que no existe no da error: da
+        // ceros, y esa es justamente la forma en que una sonda descubre
+        // cuantos hay —los recorre leyendo IDR hasta que sale 0—. Devolver
+        // aqui el IDR del AP 0 para todos haria que esa cuenta no terminara
+        // nunca. Un registro no implementado, lo mismo.
+        if (ap != 0) return true;
+        switch (reg & 0xFCu) {
+            case 0x00: v = ap_csw_; break;
+            case 0x04: v = ap_tar_; break;
+            case 0xF8: v = AP_BASE; break;
+            case 0xFC: v = AP_IDR;  break;
+            default:   break;
+        }
+        return true;
     }
 
     // Ventanas del banco de pruebas
@@ -979,6 +1011,14 @@ private:
         const uint32_t previo = dp_rdbuff_;
         const uint32_t reg = (dp_select_ & 0xF0u) | sw_addr_;
         uint32_t v = 0;
+        // APSEL. Solo hay un AP; los demas leen ceros, que es como una sonda
+        // averigua cuantos hay. Sin esto, el AP 7 contestaba lo mismo que el 0
+        // y una enumeracion no terminaria nunca.
+        if ((dp_select_ >> 24) != 0) {
+            dp_rdbuff_ = 0;
+            ap_pend_ = true;
+            return previo;
+        }
         switch (reg) {
             case 0x00: v = ap_csw_; break;
             case 0x04: v = ap_tar_; break;
@@ -990,8 +1030,8 @@ private:
                 incrementa_tar();
                 break;
             }
-            case 0xF8: v = 0xE00FF003u; break;         // ROM table base
-            case 0xFC: v = 0x24770011u; break;         // IDR del AHB-AP
+            case 0xF8: v = AP_BASE; break;             // ROM table base
+            case 0xFC: v = AP_IDR;  break;             // IDR del AHB-AP
             default:   v = 0; break;
         }
         dp_rdbuff_ = v;
@@ -1024,6 +1064,7 @@ private:
         if (ap_bloqueado()) { sw_ack_ = 4; return; }               // FAULT
         if (ap_ocupado()) { sw_ack_ = 2; ++n_wait_; return; }       // WAIT
         const uint32_t reg = (dp_select_ & 0xF0u) | sw_addr_;
+        if ((dp_select_ >> 24) != 0) return;       // APSEL: no hay mas APs
         switch (reg) {
             case 0x00: ap_csw_ = (ap_csw_ & 0xFFFFFF00u) | (sw_dato_ & 0xFFu); return;
             case 0x04: ap_tar_ = sw_dato_; return;

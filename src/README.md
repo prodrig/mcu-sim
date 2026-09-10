@@ -265,6 +265,27 @@ arm-none-eabi-gdb tu_programa.elf
 (gdb) continue
 ```
 
+**Más corto todavía: `cubeide/simulador.launch`.** Es esa misma configuración ya
+hecha, para importar con *File → Import… → Run/Debug → Launch Configurations*;
+solo hay que sustituir `TU_PROYECTO` por el nombre del proyecto y la ruta de su
+`.elf`. Véase `cubeide/README.md`.
+
+**Qué es exactamente lo que rechaza la sonda de ST.** Con la traza puesta se ve
+que la sesión no muere por nada de GDB: `qSupported`, `target.xml`, `?`, `g` y
+las lecturas de memoria se responden bien, y el último paquete antes del adiós
+(`D`) es una orden `monitor` propia de ST:
+
+```
+monitor ReadAPEx 0x0 0xF8
+```
+
+—leer el registro `BASE` del AP 0, el puntero a la ROM table—. **El stub la
+responde** desde ahora, y también `WriteAPEx`, con el valor en texto
+(`0xE00FF003`); pero **el formato exacto que ST espera no está publicado**, así
+que eso es una conjetura razonada y no un hecho verificado. Si el IDE arrancara
+con la sonda de ST, mejor; mientras no se confirme, la configuración de arriba
+es la que se sabe que funciona.
+
 **Y si aun así se desconecta, la traza dice por qué:**
 
 ```
