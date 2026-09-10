@@ -26,6 +26,28 @@
 #   PLATAFORMA    linux | macos | windows
 #   SYSTEMC_HOME  dónde está SystemC (include/ y la biblioteca)
 #   CXX           el compilador
+#   CXXSTD        el estándar de C++; TIENE que ser el mismo con el que se
+#                 compiló la biblioteca de SystemC, o el enlazado falla con un
+#                 `undefined reference to sc_api_version_...` (véase abajo)
+#
+# Y dos ganchos para añadir cosas SIN tocar este fichero, que es lo que hace
+# falta cuando la biblioteca de SystemC de una máquina concreta se construyó con
+# opciones distintas:
+#
+#   make EXTRA=-DSC_DISABLE_VIRTUAL_BIND        una macro más al compilar
+#   make EXTRA_LD=-L/otra/ruta                  algo más al enlazar
+#
+# QUÉ HACER SI EL ENLAZADO FALLA CON `undefined reference to
+# sc_core::sc_api_version_2_3_4_cxx201703L<...>`: no falta la biblioteca -si
+# faltara, no habría UN símbolo sin resolver sino miles-. Es la comprobación
+# deliberada que SystemC hace para que la aplicación y la biblioteca no se
+# compilen con opciones distintas, y el nombre del símbolo lleva dentro la
+# versión, el estándar de C++ y algunas macros. Para ver qué tiene la biblioteca
+# de verdad:
+#
+#   nm -C $(SYSTEMC_HOME)/lib/libsystemc.a | grep api_version | head
+#
+# y comparar las dos cadenas. Si dice `cxx201402L`, compila con CXXSTD=c++14.
 # =============================================================================
 
 # --- 1. La plataforma --------------------------------------------------------
@@ -99,10 +121,24 @@ AVISOS   := -Wall -Wextra -Wno-unused-parameter
 # que tiene que venir de aqui. Es la via oficial; la alternativa seria incluir
 # una cabecera interna de SystemC, y esa es la que cambia entre versiones.
 DEFS     := -DSC_INCLUDE_DYNAMIC_PROCESSES
+# `-isystem` y no `-I` para SystemC: le dice al compilador que esas cabeceras no
+# son nuestras y deja de avisar de lo que pasa dentro de ellas. Con GCC 16 sobre
+# SystemC 2.3.4 salen decenas de avisos de -Woverloaded-virtual en los sockets de
+# TLM que no podemos arreglar y que solo tapan los nuestros.
+#
+# CON UNA EXCEPCION, y muerde: si SystemC viene del sistema (SYSTEMC_HOME=/usr,
+# que es el caso del paquete de Ubuntu), marcar /usr/include como -isystem lo
+# SACA de su sitio en la cadena estandar de cabeceras y deja de encontrarse
+# <stdlib.h>. Ahi hay que usar -I normal.
+ifeq ($(SYSTEMC_HOME),/usr)
+  INC_SYSTEMC := -I$(SYSTEMC_HOME)/include
+else
+  INC_SYSTEMC := -isystem $(SYSTEMC_HOME)/include
+endif
 CXXFLAGS += -std=$(CXXSTD) $(AVISOS) $(DEFS) $(DEF_SO) -g -O2 \
-            -I$(SYSTEMC_HOME)/include -I.
+            $(INC_SYSTEMC) -I. $(EXTRA)
 LDFLAGS  += $(foreach d,$(LIBDIRS),-L$(d)) $(RPATH) $(LDEXTRA)
-LDLIBS   += -lsystemc $(LIBS_SO)
+LDLIBS   += -lsystemc $(LIBS_SO) $(EXTRA_LD)
 
 HDRS := $(wildcard common/*.h pins/*.h parts/*.h bus/*.h mem/*.h rcc/*.h core/*.h \
                    periph/*.h verif/*.h top/*.h)
@@ -177,7 +213,7 @@ red: $(RED)
 # Solo en Linux y macOS: MinGW no trae AddressSanitizer.
 ASANFLAGS := -std=$(CXXSTD) $(AVISOS) $(DEFS) $(DEF_SO) -g -O1 \
              -fsanitize=address,undefined -fno-omit-frame-pointer \
-             -I$(SYSTEMC_HOME)/include -I.
+             $(INC_SYSTEMC) -I. $(EXTRA)
 
 $(ASAN): top/sc_main.cpp $(HDRS)
 	@mkdir -p build

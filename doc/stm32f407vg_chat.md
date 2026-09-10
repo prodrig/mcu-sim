@@ -1517,3 +1517,94 @@ existe y no se hizo para esto. Las 1899 comprobaciones pasan, pero el criterio d
 verdad es que **el tiempo simulado sale idéntico al picosegundo** entre
 ejecuciones, compiladores y plataformas. Si al cambiar de biblioteca esa cifra se
 moviera, algo del planificador sería distinto y se sabría en veintitrés segundos.
+
+---
+
+## 2026-09-10 UTC — El enlace que falla en MSYS2, y la guía de compilación
+
+**Prompt.** «¿Cómo hago en Windows para ejecutar make y construir el programa
+modificando la ruta de instalación de SystemC *sin* modificar el Makefile?» —y,
+tras la salida real de MSYS2 con el error de enlace,— «Añade esta explicación a
+un fichero doc/compilacion.md y haz el commit de todo».
+
+**Respuesta.** La respuesta corta a la primera pregunta es
+`make SYSTEMC_HOME=/c/systemc`: todas las variables del Makefile están
+declaradas con `?=`, así que la línea de órdenes gana siempre y no hay que tocar
+nada. Pero la salida que me pasaste contenía un problema mucho más interesante
+que la ruta, y esa es la parte que merecía un documento.
+
+**El error decía:**
+`undefined reference to sc_core::sc_api_version_2_3_4_cxx201703L<&sc_core::SC_DISABLE_VIRTUAL_BIND_UNDEFINED_>`.
+
+**Lo primero que hay que ver es lo que *no* dice.** Falta **un solo símbolo**. Si
+la biblioteca no se hubiera encontrado, o la ruta estuviera mal, no habría un
+`undefined reference` sino miles: `sc_start`, `sc_time`, `sc_module`, todo. Que
+falte exactamente uno significa que la biblioteca **se encontró y se enlazó**, y
+que lo único que no cuadra es el símbolo que SystemC pone ahí precisamente para
+que no cuadre.
+
+**Porque ese símbolo es un detector de incompatibilidades, no una función.**
+Verificado en `sc_ver.h:100-195`: SystemC declara una plantilla
+`sc_api_version_<M>_<m>_<p>_cxx<SC_CPLUSPLUS>` parametrizada por la dirección de
+`SC_DISABLE_VIRTUAL_BIND_DEFINED_` o `SC_DISABLE_VIRTUAL_BIND_UNDEFINED_`, y la
+biblioteca instancia **una sola variante**. Tu programa referencia la variante
+que le corresponde según cómo lo estés compilando tú. Si las dos coinciden,
+enlaza; si no, el enlazador te lo dice con este error. Es decir: **el error es el
+mecanismo funcionando**, no un fallo de configuración de rutas.
+
+Lo que tiene que coincidir son cinco cosas, tres en tiempo de enlace —la versión
+exacta, `SC_CPLUSPLUS` (que en GCC y clang es `__cplusplus`, `sc_cmnhdr.h:123`, o
+sea tu `-std=`) y si `SC_DISABLE_VIRTUAL_BIND` está definida— y dos más que se
+comprueban al **arrancar** el programa, pasadas como argumentos del constructor:
+`SC_DEFAULT_WRITER_POLICY` y `SC_ENABLE_COVARIANT_VIRTUAL_BASE`. De ahí que un
+programa pueda enlazar y luego abortar nada más empezar: son comprobaciones
+distintas.
+
+**La orden que lo resuelve en un segundo** —y que es el centro de la guía— es
+preguntarle a la biblioteca qué variante tiene dentro:
+
+```bash
+nm -C /ruta/a/libsystemc.a | grep -i api_version | head
+```
+
+Si sale `..._cxx201402L`, tu SystemC se compiló con C++14 y la solución es
+`make CXXSTD=c++14`. Si sale `..._DEFINED_` y tú referencias `..._UNDEFINED_`, te
+falta `-DSC_DISABLE_VIRTUAL_BIND`. Si sale `2_3_3` y tú pides `2_3_4`, tienes dos
+instalaciones y `SYSTEMC_HOME` apunta a la que no crees.
+
+**Y el segundo hallazgo, en tus propios avisos:** aparecían advertencias dentro
+de las cabeceras de SystemC. Eso pasa porque el Makefile las metía con `-I`. Con
+`-isystem` el compilador las trata como cabeceras del sistema y calla. Lo cambié
+—y ahí me llevé un susto propio que también está documentado: **poner `-isystem`
+sobre `/usr/include` rompe la compilación en Linux** (`fatal error: stdlib.h: No
+such file or directory`), porque reordena la cadena de cabeceras estándar. Por
+eso el Makefile lleva ahora una guarda explícita para cuando `SYSTEMC_HOME=/usr`.
+
+**Tres cambios de código**, todos verificados con 1899/1899 y el mismo tiempo
+simulado (`2328209149213 ps`):
+
+1. `EXTRA` y `EXTRA_LD` en el Makefile. Hacían falta por una trampa de `make`
+   que muerde a mucha gente: escribir `make CXXFLAGS=-I/c/systemc/include`
+   **sustituye** todo lo que el Makefile había acumulado con `+=` —incluido
+   `-std=c++17` y `-DSC_INCLUDE_DYNAMIC_PROCESSES`—, así que en lugar de añadir
+   una opción te cargas la compilación. `EXTRA=` añade sin destruir.
+2. `-isystem` para las cabeceras de SystemC, con la guarda de `/usr`.
+3. Fuera el `SC_HAS_PROCESS(CortexM4F);` de `core/cortex_m4f.h`: ese módulo no
+   declara procesos propios, así que la macro no hacía nada salvo aparecer en el
+   sitio donde alguien la buscaría por un motivo equivocado.
+
+**Y el documento.** `doc/compilacion.md` está ordenado **por síntoma**, que es
+como se lee una guía así: con el error delante y sin ganas de leer nada más. Lo
+mínimo, lo que se puede ajustar sin tocar el Makefile, las tres plataformas, y
+luego el catálogo: `sc_api_version` (§5.1, con el mecanismo entero y la tabla de
+`nm -C`), `cannot find -lsystemc`, la trampa de `stdlib.h`, `make` desde
+`cmd.exe`, `%llu` en MinGW, los avisos de las cabeceras, `sc_spawn` y el abort en
+tiempo de ejecución. Con una advertencia honesta sobre
+`SC_DISABLE_API_VERSION_CHECK`: **sí, silencia el error, y no, no lo arregla** —
+apagar el detector de incompatibilidades no hace compatibles las opciones; solo
+mueve el fallo a un sitio peor, normalmente una corrupción de memoria.
+
+El criterio de aceptación sigue siendo el mismo y está escrito en §6: no que
+pasen las 1899 comprobaciones, sino que el **tiempo simulado salga idéntico al
+picosegundo**. Si al cambiar de biblioteca, compilador o plataforma esa cifra se
+moviera, algo del planificador sería distinto, y se sabe en veintitrés segundos.

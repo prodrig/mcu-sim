@@ -87,7 +87,9 @@ SC_MODULE(CortexM4F) {
 
     explicit CortexM4F(sc_core::sc_module_name nm, DebugCaps c = DBG_PINES)
         : sc_core::sc_module(nm), irq_in("irq_in", N_IRQ), caps(c) {
-        SC_HAS_PROCESS(CortexM4F);
+        // Sin SC_HAS_PROCESS: este módulo no declara ningún proceso propio -sus
+        // hijos (cpu, fpu, scs) sí, cada uno el suyo-, y la macro solo define un
+        // typedef que entonces no usa nadie. GCC y clang avisan de ello.
         // --- La elección de los dos stubs, en tres líneas ---------------------
         if (caps.attach == DebugAttach::Interno) {
             // Los pines siguen siendo del puerto de depuración -el top los

@@ -118,6 +118,13 @@ entiende `%llu`**, y el modelo lo usa veintiocho veces; el Makefile pasa
 `-static-libgcc -static-libstdc++`, de modo que el `.exe` no necesita las DLL de
 MinGW instaladas: para repartirlo, eso no es un lujo.
 
+**Cuando la compilación falla**, `doc/compilacion.md` es la guía completa: qué se
+puede ajustar sin tocar el `Makefile` (`SYSTEMC_HOME`, `CXXSTD`, `EXTRA`,
+`EXTRA_LD`) y un catálogo de errores ordenado **por síntoma**, empezando por el
+más común de todos —el `undefined reference` a `sc_api_version_…`, que no
+significa que falte la biblioteca sino que se compiló con otras opciones que las
+tuyas.
+
 **El netlist de la placa.** Todo lo que se suelda fuera del encapsulado vive en
 `parts/` y se DECLARA: nodos, instancias y conexiones nominales. No queda ni un
 `new` de pieza externa en `sc_main.cpp`. Volcarlo no simula nada.
