@@ -88,6 +88,7 @@ static std::string g_placa, g_img, g_nombre = "placa";
 static double      g_ms      = 100.0;
 static bool        g_solo_valida = false;
 static bool        g_ondas = false;
+static bool        g_traza_gdb = false;
 // Depuración pedida por la línea de órdenes. `g_gdb_modo` vacío = no se pidió.
 static std::string g_gdb_modo;          // "pines" o "dap"
 static unsigned    g_gdb_puerto = 0;
@@ -311,9 +312,18 @@ SC_MODULE(Sim) {
         if (hay_stub) {
             for (McuMontado& m : mcus) {
                 if (!m.decl.puerto_gdb) continue;
-                if (m.stub) m.stub->set_enabled(true);          // modo pines
-                else if (m.dut->core.gdb)                       // modo dap
+                // La traza imprime CADA paquete RSP que llega. Es lo unico que
+                // sirve cuando un IDE se conecta y se va sin decir por que: el
+                // ultimo paquete antes del "cliente desconectado" es el que no
+                // le gusto. La capacidad ya existia en el stub (set_verbose);
+                // lo que faltaba era poder pedirla desde fuera.
+                if (m.stub) {                                   // modo pines
+                    m.stub->set_verbose(g_traza_gdb);
+                    m.stub->set_enabled(true);
+                } else if (m.dut->core.gdb) {                   // modo dap
+                    m.dut->core.gdb->set_verbose(g_traza_gdb);
                     m.dut->core.gdb->set_enabled(true);
+                }
             }
             std::printf("esperando a GDB; la simulacion no se detiene sola "
                         "(Ctrl-C para salir)\n");
@@ -361,6 +371,7 @@ int sc_main(int argc, char** argv) {
         const std::string a = argv[i];
         if (a == "--valida") g_solo_valida = true;
         else if (a == "--ondas") g_ondas = true;
+        else if (a == "--traza-gdb") g_traza_gdb = true;
         // El tiempo simulado SÍ es global: hay un solo reloj de simulación por
         // muchos chips que haya. Como argumento posicional va detrás del
         // firmware, y con varios MCUs el firmware ya no se pone ahí; de ahí
@@ -379,6 +390,7 @@ int sc_main(int argc, char** argv) {
                 "     sim placa.xml --gdb        stub de GDB por los pines SWD\n"
                 "     sim placa.xml --gdb-dap    stub de GDB contra el DAP\n"
                 "     sim placa.xml --port=3333  puerto TCP del stub\n"
+                "     sim placa.xml --traza-gdb  imprime cada paquete RSP recibido\n"
                 "     sim placa.xml --ms=2       tiempo simulado (global: hay un\n"
                 "                                solo reloj por muchos chips)\n"
                 "\n"

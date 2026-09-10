@@ -1719,3 +1719,70 @@ hecho: lo dije y no lo ejecuté. Va en este commit, con los dos huecos anotados 
 depurador» son hoy la misma opción cuando son dos cosas; es requisito de la GUI)
 e **I-26** (el argumento posicional que se traga las opciones mal escritas)—.
 Total de puntos: 138 → 140.
+
+---
+
+## 2026-09-10 UTC — «Could not verify ST device!»: el IDE elige mal la sonda
+
+**Prompt.** Configurado STM32CubeIDE con la sonda `ST-LINK (ST-LINK GDB server)`
+apuntando a `localhost:3333` contra `build/sim placas/discovery_min.xml --gdb`,
+el simulador registra «cliente conectado» y «cliente desconectado», y el IDE da
+«Could not verify ST device! Please verify that the latest version of the
+GDB-server is used for the connection».
+
+**Respuesta.** El fallo no está en el simulador ni en la red: está en **el tipo
+de sonda elegido**, y el mensaje lo dice aunque no lo parezca.
+
+**Lo primero: ese mensaje no lo escribe GDB.** GDB, cuando algo le falla con un
+servidor remoto, se queja del protocolo —«Remote replied unexpectedly», «Ignoring
+packet error»—. Hablar de «ST device» y de «the GDB-server» es la capa de ST, que
+está comprobando una cosa muy concreta: que al otro lado del puerto esté **su
+propio servidor** (`ST-LINK_gdbserver`) hablando con **una sonda ST-LINK de
+verdad por USB**. No lo está —lo que hay es un servidor de GDB corriente—, así
+que se identifica, no reconoce a los suyos y cierra. De ahí el «conectado» y
+«desconectado» seguidos: la sesión sí se abrió; lo que no pasó es el saludo.
+
+**Y lo segundo, que era lo importante de comprobar: el stub responde bien.** Lo
+verifiqué con un cliente RSP crudo, sin IDE de por medio:
+
+```
+-> qSupported   <- PacketSize=1000;qXfer:features:read+;QStartNoAckMode+;...
+-> ?            <- T050d:00c00120;0f:02010008;thread:1;
+-> me0042000,4  <- 13640110
+-> qXfer:features:read:target.xml:0,100  <- <target><architecture>arm</...
+-> qRcmd,7265736574 ("reset")            <- OK
+```
+
+Ese `13640110` es little-endian de **`0x10016413`**, o sea el `DBGMCU_IDCODE` del
+STM32F407 con **DEV_ID `0x413`** (F405/407/415/417) y **REV_ID `0x1001`**. Es
+decir: **el dispositivo se identifica correctamente como el ST que es**, y aun
+así la comprobación falla, porque lo que ST comprueba no es el identificador del
+chip sino quién sirve el puerto. Saberlo ahorra ir a buscar el problema al
+IDCODE, que es donde la literalidad del mensaje lleva a mirar primero.
+
+**La solución es cambiar de tipo de sonda:** en CubeIDE, **Run → Debug
+Configurations → `GDB Hardware Debugging`** (no `STM32 C/C++ Application`), con
+`Use remote target` marcado, `JTAG Device` = **`Generic TCP/IP`**, host
+`localhost`, puerto `3333`, y en *Startup* sin `Reset and Delay` ni `Halt`
+—eso lo hacen `monitor reset` y `monitor halt`, que el stub implementa— y con
+`Load image` marcado, porque el stub implementa `vFlashErase`/`vFlashWrite`.
+Queda documentado en `src/README.md` con la tabla de ajustes.
+
+**Y antes de pelearse con el IDE, la comprobación que separa los dos problemas
+en diez segundos:** `arm-none-eabi-gdb tu.elf` y `target remote localhost:3333`.
+Si eso conecta, el stub está bien y lo único que falta es la configuración.
+
+**Un cambio de código: `--traza-gdb`.** La capacidad de imprimir cada paquete RSP
+ya existía en `common/gdb_rsp.h` (`set_verbose`) y **no había manera de pedirla
+desde fuera**, que es justo lo que hace falta cuando un IDE se conecta y se va
+sin explicar por qué: **el último paquete antes de «cliente desconectado» es el
+que no le gustó**. Ahora `./build/sim placa.xml --gdb --traza-gdb` lo imprime.
+Suite 1899/1899 y el mismo tiempo simulado.
+
+**Lo que esto significa para el objetivo del proyecto**, anotado como **I-27**:
+la vuelta funciona, pero **el camino que un alumno toma por omisión en CubeIDE es
+el de ST**, y ese es el que falla. Documentarlo es lo que se ha hecho; lo que de
+verdad se parecería al objetivo —«que pruebe igual que con la placa real»— es
+repartir el fichero de configuración de lanzamiento ya hecho, para que el alumno
+no tenga que elegir. Suplantar el protocolo del servidor de ST es la tercera
+opción y no está publicada. Puntos: 140 → 141.

@@ -213,6 +213,69 @@ solo que más tarde, no atiende a nada mientras tanto y —con el núcleo dormid
 en un bucle— llega al final en un suspiro: `--ms=10000` cuesta lo mismo que
 `--ms=1` porque el coste va con los sucesos, no con el tiempo.
 
+### Conectar un IDE: qué tipo de sonda elegir
+
+**Esto no es un ST-LINK, es un servidor de GDB.** El stub habla el protocolo
+remoto de GDB (RSP) por TCP, que es lo que habla `arm-none-eabi-gdb`; no habla
+USB, ni el protocolo propietario de la sonda ST-LINK, ni el de su servidor.
+Cualquier IDE que sepa «conéctate a un GDB remoto en este puerto» funciona.
+
+**En STM32CubeIDE hay que usar `GDB Hardware Debugging`, no `ST-LINK`.**
+Elegir `ST-LINK (ST-LINK GDB server)` y apuntarlo a `localhost:3333` falla con
+un mensaje que despista mucho:
+
+```
+Could not verify ST device! Please verify that the latest version of
+the GDB-server is used for the connection
+```
+
+No lo dice GDB: lo dice la capa de ST, que da por hecho que al otro lado está
+*su* servidor hablando con una sonda ST-LINK de verdad y comprueba que así sea.
+No lo está, así que corta. En el simulador se ve exactamente eso —`cliente
+conectado` seguido de `cliente desconectado`— y **no es un fallo del stub**:
+respondiendo desde un cliente RSP crudo, `qSupported`, `?`, `g`, `m` y
+`qXfer:features:read:target.xml` contestan bien, y `m e0042000,4` devuelve
+`13640110`, o sea el `DBGMCU_IDCODE` correcto `0x10016413` —DEV_ID `0x413`
+(STM32F405/407/415/417), REV_ID `0x1001`—. El identificador está bien; lo que no
+encaja es el tipo de sonda.
+
+La configuración que sí vale, en **Run → Debug Configurations → GDB Hardware
+Debugging**:
+
+| Pestaña | Campo | Valor |
+| :--- | :--- | :--- |
+| Main | C/C++ Application | el `.elf` del proyecto |
+| Debugger | GDB Command | el `arm-none-eabi-gdb` que trae CubeIDE |
+| Debugger | Use remote target | ✔ |
+| Debugger | JTAG Device | `Generic TCP/IP` |
+| Debugger | Host / Port | `localhost` / `3333` |
+| Startup | Reset and Delay, Halt | desmarcados (los hace `monitor reset` / `monitor halt`) |
+| Startup | Load image, Load symbols | ✔ — el stub implementa `vFlashErase` / `vFlashWrite` |
+
+**Compruébalo antes por la línea de órdenes**, que separa los dos problemas en
+diez segundos: si esto funciona, el stub está bien y lo que falta es ajustar el
+IDE.
+
+```
+arm-none-eabi-gdb tu_programa.elf
+(gdb) target remote localhost:3333
+(gdb) monitor reset
+(gdb) load
+(gdb) break main
+(gdb) continue
+```
+
+**Y si aun así se desconecta, la traza dice por qué:**
+
+```
+./build/sim placa.xml --gdb --traza-gdb
+```
+
+imprime cada paquete RSP que llega, y **el último antes de `cliente
+desconectado` es el que no le gustó al otro extremo**. Un `+$#00` —respuesta
+vacía— a un paquete que el cliente considere obligatorio es la forma habitual de
+que una sesión se caiga sin más explicación.
+
 **Varios MCUs.** Una placa puede declarar los chips que lleva, cada uno con su
 firmware, su modo de depuración y su puerto de GDB:
 
