@@ -140,12 +140,29 @@ Esta configuración usa `GDB Hardware Debugging`, que se conecta a un GDB remoto
 por TCP y no da nada por supuesto sobre quién sirve el puerto. Que es lo que el
 simulador es: un servidor de GDB, no un ST-LINK.
 
-**El stub responde también a `ReadAPEx` y `WriteAPEx`** desde la versión que
-acompaña a este fichero, así que la sonda de ST podría llegar a funcionar. Pero
-el **formato de la respuesta** no está publicado por ST: lo que devuelve el
-modelo —el valor en texto, `0xE00FF003`— es una conjetura razonada, no un hecho
-verificado. Mientras no se confirme contra el IDE, **esta configuración es la
-que se sabe que funciona**. Para comprobar si la otra ya pasa:
+**El stub responde a `ReadAPEx` y `WriteAPEx`, y aun así no basta.** Probado
+contra el IDE, con la traza de entrada y de salida delante:
+
+```
+[gdb] <- qRcmd,5265616441504578203078302030784638      (= ReadAPEx 0x0 0xF8)
+[gdb] -> 307845303046463030330a                        (= "0xE00FF003\n")
+[gdb] <- D
+```
+
+El stub contesta —con el valor correcto: `0xE00FF003` es el `BASE` del AP 0, el
+puntero a la ROM table— y **ST se despide igual, sin reintentar y sin pedir nada
+más**. Si estuviera identificando el dispositivo de verdad, con ese puntero
+recorrería la ROM table con paquetes `m`, que el stub sirve; no lo hace. O sea
+que lo que rechaza no es el valor: es el formato de la respuesta, o el hecho
+mismo de que quien contesta no sea su servidor.
+
+**Y ahí se acaba lo que se puede averiguar sin documentación de ST.** El
+protocolo de sus órdenes `monitor` no está publicado; seguir es probar formatos
+a ciegas, sin saber cuántas órdenes más vendrían detrás si se acertara con esta.
+Por eso la configuración de `GDB Hardware Debugging` de esta carpeta no es un
+apaño temporal: **es el camino soportado**, y el que se reparte.
+
+Para mirar una sesión por dentro:
 
 ```
 ./build/sim placas/discovery_min.xml --gdb --traza-gdb

@@ -2021,3 +2021,50 @@ verificada de punta a punta. Merece la pena repetirla antes que seguir peleando
 con la sonda de ST.
 
 Suite 1899/1899 y `2328209149213 ps`.
+
+---
+
+## 2026-09-10 UTC — Conjetura refutada: ST rechaza la respuesta, no el valor
+
+**Prompt.** Con el binario recién construido (16:10:43) y la traza de entrada y
+salida, la sesión con la sonda `ST-LINK (ST-LINK GDB Server)` muestra:
+`<- qRcmd,ReadAPEx 0x0 0xF8`, `-> 307845303046463030330a`, `<- D`.
+
+**Respuesta.** Ya no hay ambigüedad, y la respuesta es que **mi conjetura era
+falsa**. El binario es el bueno —lo dice su fecha de construcción—, el stub
+contestó `0xE00FF003`, que es el valor correcto, y **ST se despidió igual**.
+
+Lo que dice la traza, ahora que se ve entera:
+
+* **el stub responde**: `307845...` es `"0xE00FF003\n"` en hexadecimal;
+* **el valor es el correcto**: `0xE00FF003` es el `BASE` del AP 0, el puntero a
+  la ROM table, con sus bits de formato y presencia;
+* **ST no reintenta, no pide otra cosa, y no recorre la ROM table**. Esto último
+  es lo decisivo: si estuviera identificando el dispositivo de verdad, con ese
+  puntero en la mano leería la tabla con paquetes `m` —que el stub sirve sin
+  problema— y encontraría el Cortex-M4 y sus unidades. No lo intenta.
+
+**Conclusión: lo que rechaza no es el valor, es la respuesta.** O el formato, o
+el hecho mismo de que quien contesta no sea su servidor. Y eso ya no se puede
+averiguar desde aquí: el protocolo de las órdenes `monitor` de ST no está
+publicado, y seguir es probar formatos a ciegas **sin saber siquiera cuántas
+órdenes más vendrían detrás si se acertara con esta**. Es una búsqueda sin
+fondo conocido, que es la peor clase.
+
+**Así que cierro I-27 como decisión, no como pendiente**, con las dos ramas
+probadas y una de ellas funcionando: `GDB Hardware Debugging` con
+`Generic TCP/IP` es **el camino soportado**, y `cubeide/simulador.launch` lo
+deja hecho para que el alumno no tenga que elegir. Deja de ser un apaño
+provisional para pasar a ser la respuesta.
+
+**Lo implementado se queda.** `ReadAPEx`/`WriteAPEx`, `dap_leer_ap()` y
+`DebugSys::ap_registro()` no estorban, son fieles —un AP tiene esos registros y
+ahora se pueden leer por los dos stubs— y dejan el camino hecho si algún día
+aparece la especificación. Y de paso destaparon **I-28**, el APSEL que el SW-DP
+ignoraba, que sí era un fallo del modelo.
+
+**El balance de estos cinco intercambios**, que es lo que queda: cuatro fallos
+distintos, tres de ellos nuestros y arreglados —la Flash que se perdía en
+silencio (el grave), el APSEL, y una traza que solo contaba la mitad de la
+conversación— y uno que no es nuestro y no tiene arreglo desde este lado. No es
+mal reparto para una persecución que empezó con «Could not verify ST device!».
