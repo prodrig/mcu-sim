@@ -135,6 +135,8 @@ SC_MODULE(CortexM4F) {
         scs.systick.ext_clk(systick_ext);
         scs.systick.clk_hz(fclk_hz);
         scs.systick.rst_n(rst_n);
+        // El SysTick es parte del núcleo: se para con él. [ARMv7-M, B3.3.1]
+        scs.systick.parado(sig_halted_);
 
         // Router: CPU I/D/S y AHB-AP -> destinos
         cpu.ibus.bind(rt_ibus_);  cpu.dbus.bind(rt_dbus_);  cpu.sbus.bind(rt_sbus_);

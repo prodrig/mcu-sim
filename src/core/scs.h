@@ -118,6 +118,13 @@ SC_MODULE(SysTick) {
     sc_core::sc_in<bool>   ext_clk{"ext_clk"};      // HCLK/8 (idem)
     sc_core::sc_in<double> clk_hz{"clk_hz"};        // frecuencia de FCLK
     sc_core::sc_in<bool>   rst_n{"rst_n"};
+    // El núcleo detenido por el depurador. [ARMv7-M, B3.3.1] El contador del
+    // SysTick NO decrementa mientras el procesador está parado en Debug state:
+    // es parte del núcleo, no un periférico, y se para con él. Sin esto, mirar
+    // una variable durante un rato deja una interrupción esperando SIEMPRE al
+    // reanudar —y en el simulador es peor que en el silicio, porque con el
+    // núcleo parado no queda casi nada que simular y el tiempo simulado vuela—.
+    sc_core::sc_in<bool>   parado{"parado"};
     sc_core::sc_out<bool>  tick_irq{"tick_irq"};    // excepción 15
 
     enum : uint32_t { CSR = 0x00, RVR = 0x04, CVR = 0x08, CALIB = 0x0C };
@@ -126,6 +133,7 @@ SC_MODULE(SysTick) {
         SC_THREAD(tick_proc);
         SC_METHOD(reset_proc);  sensitive << rst_n;   dont_initialize();
         SC_METHOD(freq_proc);   sensitive << clk_hz;  dont_initialize();
+        SC_METHOD(halt_proc);   sensitive << parado;  dont_initialize();
         SC_METHOD(irq_proc);    sensitive << irq_ev_; dont_initialize();
     }
 
@@ -181,27 +189,42 @@ private:
                        : sc_core::SC_ZERO_TIME;
     }
 
-    // Ticks transcurridos desde t_base_
-    uint64_t elapsed_ticks() const {
+    // Ticks transcurridos desde t_base_, MIRE O NO si el núcleo está parado.
+    // La distinción hace falta de verdad: `halt_proc()` corre cuando la señal
+    // `parado` YA vale true, y justo ahí hay que calcular el valor con los
+    // ticks que sí pasaron antes de la parada. Usar la versión que respeta el
+    // paro devolvería el valor viejo y el contador retrocedería.
+    uint64_t elapsed_ticks_brutos() const {
         const double f = tick_hz();
         if (!enabled() || f <= 0.0) return 0;
         const double dt = (sc_core::sc_time_stamp() - t_base_).to_seconds();
         return uint64_t(dt * f + 0.5e-9);
     }
-    // Valor actual del contador [IR, §10.3]: decrementa hasta 0 y recarga RVR
-    uint32_t cvr_now() const {
-        const uint64_t k = elapsed_ticks();
+    uint64_t elapsed_ticks() const {
+        return parado.read() ? 0 : elapsed_ticks_brutos();
+    }
+    // Valor del contador dados unos ticks [IR, §10.3]: decrementa hasta 0 y
+    // recarga RVR
+    uint32_t cvr_con(uint64_t k) const {
         if (k == 0) return cvr_;
         const uint64_t per = uint64_t(rvr_ & 0x00FFFFFFu) + 1u;
         if (cvr_ == 0) return uint32_t(rvr_ - ((k - 1) % per));
         if (k <= cvr_) return uint32_t(cvr_ - k);
         return uint32_t(rvr_ - ((k - cvr_ - 1) % per));
     }
+    uint32_t cvr_now() const { return cvr_con(elapsed_ticks()); }
     void rebase() {
         t_base_ = sc_core::sc_time_stamp();
         resched_ev_.notify(sc_core::SC_ZERO_TIME);
     }
     void freq_proc() { cvr_ = cvr_now(); rebase(); }
+    // Al PARAR se congela el valor que hubiera; al REANUDAR se vuelve a contar
+    // desde ese mismo valor. El tiempo que el núcleo pasó detenido, sencillamente
+    // no existe para este contador.
+    void halt_proc() {
+        if (parado.read()) cvr_ = cvr_con(elapsed_ticks_brutos());
+        rebase();
+    }
     void reset_proc() {
         if (!rst_n.read()) {
             csr_ = 0; rvr_ = 0; cvr_ = 0;
@@ -216,6 +239,9 @@ private:
         for (;;) {
             const sc_core::sc_time per = tick_period();
             if (!enabled() || per == sc_core::SC_ZERO_TIME) { wait(resched_ev_); continue; }
+            // Con el núcleo parado no hay cuenta y no hay vencimiento: se espera
+            // a que algo cambie -reanudar, reprogramar, cambiar de frecuencia-.
+            if (parado.read()) { wait(resched_ev_); continue; }
             const uint32_t c = cvr_now();
             // Ticks hasta el próximo cero: si ya está en 0, recarga y RVR+1 más
             const uint64_t n = (c == 0) ? (uint64_t(rvr_ & 0x00FFFFFFu) + 1u) : c;

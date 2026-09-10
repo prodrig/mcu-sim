@@ -63,6 +63,7 @@
 // =============================================================================
 #include <systemc>
 #include <chrono>
+#include <thread>
 #include <cstdio>
 #include <cstdlib>
 #include <map>
@@ -89,6 +90,10 @@ static double      g_ms      = 100.0;
 static bool        g_solo_valida = false;
 static bool        g_ondas = false;
 static bool        g_traza_gdb = false;
+// Factor de tiempo real: 0 = a toda velocidad (lo de siempre);
+// 1 = un segundo simulado por segundo de reloj de pared; 0,5 = a la
+// mitad, para poder mirar lo que pasa.
+static double      g_tiempo_real = 0.0;
 // Depuración pedida por la línea de órdenes. `g_gdb_modo` vacío = no se pidió.
 static std::string g_gdb_modo;          // "pines" o "dap"
 static unsigned    g_gdb_puerto = 0;
@@ -257,6 +262,38 @@ SC_MODULE(Sim) {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // ESPERAR, con freno opcional de tiempo real.
+    //
+    // Sin `--tiempo-real` esto es un `wait()` y ya está: el modelo corre todo lo
+    // deprisa que puede, que es lo que quiere una prueba. Con él, el proceso se
+    // DUERME hasta que el reloj de pared alcanza al simulado, y eso arregla dos
+    // cosas de golpe:
+    //
+    //   * un LED que parpadea a 1 Hz parpadea a 1 Hz, y no doscientas veces por
+    //     segundo, así que se puede MIRAR. Para un simulador didáctico eso no es
+    //     un lujo: es la diferencia entre ver el sistema y ver un borrón;
+    //   * deja de comerse un núcleo entero esperando —medido: 98,6 % de CPU—,
+    //     porque dormir es dormir.
+    //
+    // Dormir dentro de un proceso de SystemC detiene TODA la simulación, que es
+    // justo lo que aquí se quiere: las corrutinas comparten el hilo del sistema.
+    // El freno solo frena; si el modelo va MÁS LENTO que el tiempo real, no hay
+    // nada que hacer y se sigue sin dormir, sin acumular deuda.
+    // -----------------------------------------------------------------------
+    void espera(const sc_time& d) {
+        if (g_tiempo_real <= 0.0) { wait(d); return; }
+        const auto t0 = std::chrono::steady_clock::now();
+        const double sim0 = sc_time_stamp().to_seconds();
+        wait(d);
+        const double avance = sc_time_stamp().to_seconds() - sim0;
+        const double debe = avance / g_tiempo_real;      // segundos de pared
+        const double lleva =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        if (debe > lleva)
+            std::this_thread::sleep_for(std::chrono::duration<double>(debe - lleva));
+    }
+
     void run() {
         if (g_solo_valida) { sc_stop(); return; }
         // La onda cuadrada de los relojes internos se apaga por omision. No es
@@ -333,11 +370,14 @@ SC_MODULE(Sim) {
             // este modo solo se sale con Ctrl-C, sin este fflush el mensaje que
             // explica como salir es justo el que se pierde.
             std::fflush(stdout);
-            for (;;) wait(10, SC_MS);
+            // Rodajas de 1 ms: con el freno puesto, la rodaja es tambien lo
+            // que el proceso duerme de una vez, y dormido no atiende el socket.
+            // Un milisegundo de latencia ante GDB no se nota; diez, si.
+            for (;;) espera(sc_time(1, SC_MS));
         }
 
         const auto h0 = std::chrono::steady_clock::now();
-        wait(g_ms, SC_MS);
+        espera(sc_time(g_ms, SC_MS));
         const double seg =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - h0).count();
         std::printf("simulados %.3f ms en %.3f s de anfitrion (%llu deltas)\n",
@@ -372,6 +412,9 @@ int sc_main(int argc, char** argv) {
         if (a == "--valida") g_solo_valida = true;
         else if (a == "--ondas") g_ondas = true;
         else if (a == "--traza-gdb") g_traza_gdb = true;
+        else if (a == "--tiempo-real") g_tiempo_real = 1.0;
+        else if (a.rfind("--tiempo-real=", 0) == 0)
+            g_tiempo_real = std::atof(a.c_str() + 14);
         // El tiempo simulado SÍ es global: hay un solo reloj de simulación por
         // muchos chips que haya. Como argumento posicional va detrás del
         // firmware, y con varios MCUs el firmware ya no se pone ahí; de ahí
@@ -391,6 +434,8 @@ int sc_main(int argc, char** argv) {
                 "     sim placa.xml --gdb-dap    stub de GDB contra el DAP\n"
                 "     sim placa.xml --port=3333  puerto TCP del stub\n"
                 "     sim placa.xml --traza-gdb  imprime cada paquete RSP recibido\n"
+                "     sim placa.xml --tiempo-real  frena la simulacion al reloj de\n"
+                "                                pared (=0.5 a mitad de velocidad)\n"
                 "     sim placa.xml --ms=2       tiempo simulado (global: hay un\n"
                 "                                solo reloj por muchos chips)\n"
                 "\n"

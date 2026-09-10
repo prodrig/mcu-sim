@@ -9,10 +9,12 @@ camino corto: lo que hace falta es que el alumno no tenga que elegir nada.
 el IDE, que es lo normal:
 
 ```
-./build/sim placas/discovery_min.xml --gdb
+./build/sim placas/discovery_min.xml --gdb --tiempo-real
 ```
 
-Tiene que decir `[gdb] escuchando en localhost:3333` **antes** de darle a
+El `--tiempo-real` no es opcional en la práctica: sin él la simulación va cientos
+de veces más rápida que el reloj de pared y lo que pasa en los pines no se puede
+mirar. Tiene que decir `[gdb] escuchando en localhost:3333` **antes** de darle a
 depurar. No termina solo: se sale con Ctrl-C.
 
 **2. Importar la configuración.** En CubeIDE, *File → Import… → Run/Debug →
@@ -136,13 +138,27 @@ Medido con el control negativo, mismo firmware y misma interrupción pendiente:
 | `0xA05F0005` (sin `C_MASKINTS`, como antes) | `0x0800027E` | **15** — dentro de `SysTick_Handler` |
 | `0xA05F000D` (con `C_MASKINTS`, ahora) | `0x0800018C` | **0** — sigue en el programa |
 
-**Y una cosa que esto NO arregla,** por si se nota al reanudar: en el modelo el
-SysTick **sigue contando con el núcleo parado**, y además el tiempo simulado
-corre muy deprisa mientras nadie ejecuta. O sea que mientras miras una variable
-pueden pasar segundos simulados y al continuar hay una interrupción esperando
-siempre. En ARMv7-M el contador del SysTick no decrementa con el procesador
-detenido en Debug state; el modelo aún no lo hace. Es **I-31**, y va de la mano
-del freno de tiempo real (**I-25**).
+**Y la otra mitad del problema, también corregida.** Aunque el paso a paso ya no
+caiga en el manejador, quedaba esto: en el modelo el SysTick **seguía contando
+con el núcleo parado**, y el tiempo simulado corre muy deprisa mientras nadie
+ejecuta, así que mientras mirabas una variable pasaban segundos simulados y al
+reanudar había una interrupción esperando siempre. Dos arreglos:
+
+* **El SysTick se para con el núcleo.** ARMv7-M §B3.3.1: el contador no
+  decrementa con el procesador detenido en Debug state —es parte del núcleo, no
+  un periférico—. Medido: núcleo parado, dos segundos de reloj de pared,
+  `CVR` idéntico; tras reanudar, movido.
+* **`--tiempo-real`**, que ata el avance simulado al reloj de pared:
+
+```
+./build/sim placa.xml --gdb --tiempo-real      # un segundo por segundo
+./build/sim placa.xml --gdb --tiempo-real=0.5  # a la mitad, para mirar despacio
+```
+
+  Medido: 2000 ms simulados salen en 0,033 s sin freno y en **2,000 s** con él, y
+  la CPU al esperar baja de **99,6 % a 5,3 %**. **Para trabajar con el IDE,
+  ponlo**: sin freno, un LED que parpadea a 1 Hz parpadea doscientas veces por
+  segundo y no hay nada que mirar.
 
 ## Se para en `Reset_Handler` y no en `main`
 

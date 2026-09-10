@@ -2128,3 +2128,63 @@ que simular y **el tiempo simulado vuela**, así que mientras el alumno mira una
 variable pueden pasar segundos simulados y al reanudar hay una interrupción
 esperando siempre. Va de la mano del freno de tiempo real (I-25): son el mismo
 problema visto desde dos sitios. Puntos: 143 → 145.
+
+---
+
+## 2026-09-10 UTC — Las dos mitades del tiempo: SysTick congelado y freno real
+
+**Prompt.** «Sí» —atacar I-31 (el SysTick contando con el núcleo parado) y I-25
+(el freno de tiempo real)—.
+
+**Respuesta.** Son el mismo problema visto desde dos sitios, y por eso van
+juntos: **con el núcleo parado, el tiempo del modelo no se comporta como el de
+una placa**. Los dos arreglados y medidos.
+
+**I-31. El SysTick es parte del núcleo y se para con él.** ARMv7-M §B3.3.1: el
+contador no decrementa con el procesador detenido en Debug state. En el modelo
+era un `SC_THREAD` que no sabía nada del `halt`. Ahora `SysTick` tiene una
+entrada `parado`, atada a `sig_halted_` en `cortex_m4f.h`: al parar congela el
+valor, al reanudar sigue desde él, y **el tiempo detenido sencillamente no
+existe para ese contador**.
+
+Un detalle que costó una relectura y que merece quedar escrito: `halt_proc()` es
+un `SC_METHOD` sensible a esa señal, así que **corre cuando `parado` ya vale
+true**. Calcular ahí el valor con la función que respeta el paro devolvería el
+valor viejo —el contador retrocedería— y por eso hay dos:
+`elapsed_ticks_brutos()`, que ignora el paro y es la que usa la congelación, y
+`elapsed_ticks()`, que lo respeta y es la que usan las lecturas.
+
+**Medido:** núcleo parado, dos segundos de reloj de pared —muchísimos simulados—,
+`CVR` idéntico al picosegundo; tras reanudar y volver a parar, `CVR` movido.
+
+**I-25. `--tiempo-real`.** Ata el avance simulado al reloj de pared, con factor
+opcional: `--tiempo-real=4` va cuatro veces más rápido, `=0.5` a la mitad. El
+proceso **se duerme** hasta que el reloj de pared alcanza al simulado, y dormir
+dentro de un proceso de SystemC detiene toda la simulación —las corrutinas
+comparten el hilo del sistema—, que es exactamente lo que se busca. Solo frena:
+si el modelo fuera más lento que el tiempo real, no duerme ni acumula deuda.
+
+**Medido:**
+
+| | pared para 2000 ms simulados | CPU esperando a GDB |
+| :--- | ---: | ---: |
+| sin freno | 0,033 s | 99,6 % |
+| `--tiempo-real` | **2,000 s** | **5,3 %** |
+| `--tiempo-real=4` | 0,500 s | — |
+
+Dos consecuencias que valen más que los números. La primera: **un LED que
+parpadea a 1 Hz parpadea a 1 Hz**, y no doscientas veces por segundo, así que se
+puede *mirar*. Para un simulador didáctico eso no es un lujo, es la diferencia
+entre ver el sistema y ver un borrón. La segunda: deja de comerse un núcleo
+entero por esperar, porque dormir es dormir.
+
+Y un ajuste fino: el bucle de espera pasó de rodajas de 10 ms a **1 ms**, porque
+con el freno la rodaja es también lo que el proceso duerme de una vez, y dormido
+no atiende el socket. Un milisegundo de latencia ante GDB no se nota; diez, sí.
+
+**Para trabajar con el IDE hay que ponerlo**, y así queda documentado en
+`cubeide/README.md`, en `README.md` y en la ayuda.
+
+Suite 1899/1899, `2328209149213 ps`, y **ASan + UBSan limpios** —importaba
+comprobarlo: se ha tocado el núcleo y se ha metido un `sleep` dentro de un
+proceso—. Puntos cerrados: I-25, I-30 e I-31.

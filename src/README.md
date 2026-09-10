@@ -197,12 +197,21 @@ que dos chips se depuran a la vez, cada uno en su puerto.
 termina la ventana de `--ms`, y en este modo no termina nunca. Con un stub, lo
 que se ve por dentro se ve por GDB.
 
-**2. Corre tan deprisa como pueda, y se come un núcleo.** Medido: esperando sin
-firmware, el proceso se queda en **98,6 % de CPU**. No hay freno de tiempo real
-—el modelo va entre 11 y 200 veces más rápido que el hardware según lo que
-ejecute—, así que «esperar» aquí no es dormir: es simular a toda velocidad. Para
-un rato es indiferente; para dejarlo abierto toda una sesión de prácticas en un
-portátil, no. Es el hueco **I-25**.
+**2. Sin freno, corre tan deprisa como pueda y se come un núcleo.** Para eso
+está `--tiempo-real`, que ata el avance simulado al reloj de pared:
+
+```
+./build/sim placa.xml --gdb --tiempo-real      # un segundo por segundo
+./build/sim placa.xml --tiempo-real=4          # cuatro veces más rápido
+./build/sim placa.xml --tiempo-real=0.5        # a la mitad, para mirar despacio
+```
+
+Medido: 2000 ms simulados salen en **0,033 s** sin freno, **2,000 s** con
+`--tiempo-real` y **0,500 s** con `=4`; y esperando a GDB la CPU baja de
+**99,6 % a 5,3 %**, porque dormir es dormir. Sin él, un LED que parpadea a 1 Hz
+parpadea doscientas veces por segundo y no hay nada que mirar. El freno **solo
+frena**: si el modelo va más lento que el tiempo real, sigue sin dormir y sin
+acumular deuda.
 
 **3. Redirigido a un fichero, los mensajes se pierden al matarlo.** En un
 terminal la salida es línea a línea y se ve todo; con `> log.txt` es por bloques,
