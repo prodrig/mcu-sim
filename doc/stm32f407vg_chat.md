@@ -1608,3 +1608,114 @@ El criterio de aceptación sigue siendo el mismo y está escrito en §6: no que
 pasen las 1899 comprobaciones, sino que el **tiempo simulado salga idéntico al
 picosegundo**. Si al cambiar de biblioteca, compilador o plataforma esa cifra se
 moviera, algo del planificador sería distinto, y se sabe en veintitrés segundos.
+
+---
+
+## 2026-09-10 UTC — Qué dice la salida de `sim` sobre una placa mínima
+
+**Prompt.** «Explica la salida de esta ejecución: `build/sim
+placas/discovery_min.xml`» —con las cinco líneas de la ejecución.
+
+**Respuesta.** Reproducida la ejecución tal cual, línea a línea.
+
+**`placa 'discovery-min': 1 MCU(s), 3 componentes, 154 nodos, 0 avisos`.** Sale
+después de construir y pasar los dos validadores. Un MCU porque el XML no
+declara ningún `<mcu>` y se instancia el implícito; tres componentes son las
+instancias declaradas —X1, LD4, B1—, no los pines.
+
+**Los 154 nodos son el número que sorprende, y no es un error.** El XML declara
+tres nodos y salen 154 porque el recuento no es de nodos *declarados* sino de
+redes eléctricas distintas: 9 puertos × 16 pines = 144 pads, más los diez de
+alimentación y control. Cada pad tiene su `AnalogNet` haya o no algo soldado,
+que es lo que hace que un pin al aire sea un pin al aire de verdad y no un cero.
+**Declarar un nodo en el XML no crea una red: le pone nombre a una que ya
+existía.** Y «0 avisos» es que pasan los dos validadores, el de declaración —que
+es fatal— y el eléctrico —que solo avisa, porque un pin compartido puede ser
+deliberado—.
+
+**`sin firmware: el nucleo se aparca en wfe`.** Sin imagen, en vez de dejar la
+Flash a 0xFF —que daría un fallo de bus nada más arrancar y no enseñaría nada—
+el cargador escribe un vector de reset mínimo: SP al final de SRAM1, PC a
+0x08000100 y allí `0xBF20 0xE7FD`, o sea `wfe ; b .-2`. El núcleo **sí** ejecuta:
+busca, ejecuta el WFE y se bloquea en un `sc_event`, con la condición de
+despertar recomprobada justo antes de esperar para que no se pierda un suceso
+que llegue entre la instrucción y la espera. Lo que queda es un chip alimentado,
+fuera de reset y con sus periféricos en estado de reset. La línea base correcta
+para mirar lo eléctrico sin que el firmware lo enturbie.
+
+**`simulados 100.000 ms en 0.000 s de anfitrion (49 deltas)`.** El 0.000 s es que
+el tiempo de anfitrión queda por debajo de la resolución con la que se imprime.
+Los 49 deltas son lo interesante, y lo medí: son **los mismos 49** con `--ms=1`,
+`--ms=100`, `--ms=1000` y `--ms=10000`. Todos vienen de la secuencia de encendido
+anterior a la ventana —dar de alta los drivers, subir VDD/VDDA, los 10 µs, BOOT0
+y NRST, los 100 µs, soltar NRST, el reset propagándose—. Con el núcleo en WFE,
+**la ventana de 100 ms cuesta cero deltas**: diez segundos simulados valen lo
+mismo que un milisegundo porque en ninguno de los dos pasa nada. Es la regla
+sobre la que está construido el modelo —el coste es proporcional a cuántas veces
+despierta algo, no al tiempo que transcurre— en su caso más puro. Corolario: el
+reloj **no** se modela como una señal que conmuta a 168 MHz; si lo fuera, esos
+100 ms serían 16,8 millones de sucesos.
+
+**`LED LD4 en PD12: apagado (0.00 V, 0.00 mA)`.** El LED es el instrumento de
+medida. LD4 va con `a_vss="si"`, `vf="2.0"`, `r="330"`: ánodo al pin, cátodo a
+masa por 330 Ω, luce cuando el pin sube. Tras el reset PD12 es entrada sin pull,
+o sea el pad en alta impedancia (`R_HIZ = 1e12`); y el LED, con el nodo por
+debajo de Vf, está en corte, o sea **también** en alta impedancia. Las dos ramas
+del nodo son alta impedancia, la superposición da 0,00 V y por el diodo no pasa
+nada. No está apagado porque un booleano lo diga: está apagado porque la tensión
+resuelta no llega a la de conducción, y por eso se imprimen los `float`.
+
+**`Info: /OSCI/SystemC: Simulation stopped by user`** es el mensaje normal del
+planificador tras `sc_stop()`: la simulación terminó donde se le pidió y no por
+una excepción.
+
+**Un hueco encontrado de paso:** `sim` toma como firmware cualquier argumento que
+no reconozca, así que `sim placa.xml --netlist` intenta cargar un fichero llamado
+`--netlist`. `--netlist` e `--inventario` son de `stm32f407vg`, no de `sim`.
+Anotado como **I-26**.
+
+---
+
+## 2026-09-10 UTC — Que `sim` no termine hasta que lo digas tú
+
+**Prompt.** «Añade la explicación de cómo lanzar el programa sim para que no
+termine hasta que el usuario no lo decida y haz el commit».
+
+**Respuesta.** La forma es **pedir un stub de GDB**, y merece la pena decir por
+qué, porque no es evidente: lo que hace que `sim` no termine no es una opción de
+duración sino que haya **un puerto escuchando**. `--gdb`, `--gdb-dap` o
+`--port=` valen igual, y **no hace falta que GDB llegue a conectarse**: el
+puerto se abre, la simulación corre indefinidamente y se sale con Ctrl-C. Es
+justo el modo al que apunta el objetivo del proyecto —el simulador esperando
+mientras STM32CubeIDE compila y se engancha— y el mismo en el que dos chips se
+depuran a la vez, cada uno en su puerto.
+
+Documentado en `README.md` con las **tres consecuencias** de dejarlo encendido,
+que son lo que de verdad hacía falta escribir:
+
+1. **Se salta el informe final** de los LEDs, que se imprime al acabar la ventana
+   de `--ms` y en este modo no acaba nunca. Con un stub, lo que pasa dentro se
+   mira por GDB.
+2. **Corre tan deprisa como puede y se come un núcleo**: medido, **98,6 % de
+   CPU** esperando sin firmware. No hay freno de tiempo real, así que «esperar»
+   aquí no es dormir, es simular a toda velocidad.
+3. **Redirigido a un fichero, los mensajes se pierden al matarlo**: la salida
+   pasa de línea a línea a bloques, y el Ctrl-C se lleva el buffer.
+
+Y lo que **no** es una forma de conseguirlo: un `--ms` enorme. Termina igual,
+solo que más tarde, y llega al final en un suspiro por lo medido en el
+intercambio anterior —`--ms=10000` cuesta lo mismo que `--ms=1`—.
+
+**Dos cambios de código, mínimos.** Un `fflush(stdout)` tras el mensaje
+«esperando a GDB»: es el último `printf` antes de un bucle infinito del que solo
+se sale con Ctrl-C, así que sin vaciar el buffer el mensaje que explica cómo
+salir es exactamente el que se pierde al redirigir. Y `--help` ahora lo cuenta,
+que es donde lo va a buscar quien lo necesite.
+
+**Y una corrección mía.** En el intercambio anterior dije que había anotado el
+hueco en el TODO y añadido el intercambio a este registro «en local». No lo había
+hecho: lo dije y no lo ejecuté. Va en este commit, con los dos huecos anotados —
+**I-25** (no hay freno de tiempo real, y «correr sin parar» y «aceptar un
+depurador» son hoy la misma opción cuando son dos cosas; es requisito de la GUI)
+e **I-26** (el argumento posicional que se traga las opciones mal escritas)—.
+Total de puntos: 138 → 140.

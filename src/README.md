@@ -161,6 +161,58 @@ conduciendo el mismo nodo, un nodo externo que nadie gobierna). Véase
 `doc/stm32f407vg_parts_paso3.md`, y `doc/parts.md` para el catálogo de
 componentes con sus parámetros.
 
+### Que no termine hasta que tú lo digas
+
+Por omisión `sim` simula **100 ms y para**. Eso está bien para mirar una placa,
+y no para trabajar con ella: lo normal es querer el simulador encendido mientras
+tú programas, depuras o pulsas cosas, y que se apague cuando lo digas tú.
+
+**La forma de hacerlo es pedir un stub de GDB.** Cualquiera de las tres opciones
+sirve, porque lo que hace que no termine es que haya un puerto escuchando:
+
+```
+./build/sim placa.xml --gdb                 # sonda SWD por PA13/PA14, puerto 3333
+./build/sim placa.xml --gdb-dap             # el stub interno contra el DAP
+./build/sim placa.xml --port=3333           # implica --gdb
+./build/sim placa.xml fw.bin --gdb          # lo normal: con firmware dentro
+```
+
+Y lo dice al arrancar:
+
+```
+[gdb] escuchando en localhost:3333
+esperando a GDB; la simulacion no se detiene sola (Ctrl-C para salir)
+```
+
+A partir de ahí el tiempo simulado avanza indefinidamente y **se sale con
+Ctrl-C**. No hace falta que GDB llegue a conectarse: el puerto se abre y la
+simulación corre igual, así que `--gdb` vale también como «déjalo andando». Es
+justo el modo de uso al que apunta el objetivo del proyecto —tener el simulador
+esperando mientras STM32CubeIDE compila y se engancha—, y es el mismo modo en el
+que dos chips se depuran a la vez, cada uno en su puerto.
+
+**Tres consecuencias que conviene saber antes de dejarlo encendido:**
+
+**1. Se salta el informe final.** El resumen de los LEDs se imprime cuando
+termina la ventana de `--ms`, y en este modo no termina nunca. Con un stub, lo
+que se ve por dentro se ve por GDB.
+
+**2. Corre tan deprisa como pueda, y se come un núcleo.** Medido: esperando sin
+firmware, el proceso se queda en **98,6 % de CPU**. No hay freno de tiempo real
+—el modelo va entre 11 y 200 veces más rápido que el hardware según lo que
+ejecute—, así que «esperar» aquí no es dormir: es simular a toda velocidad. Para
+un rato es indiferente; para dejarlo abierto toda una sesión de prácticas en un
+portátil, no. Es el hueco **I-25**.
+
+**3. Redirigido a un fichero, los mensajes se pierden al matarlo.** En un
+terminal la salida es línea a línea y se ve todo; con `> log.txt` es por bloques,
+y un Ctrl-C se lleva lo que quedara en el buffer.
+
+**Lo que NO es una forma de conseguirlo:** poner un `--ms` enorme. Termina igual,
+solo que más tarde, no atiende a nada mientras tanto y —con el núcleo dormido o
+en un bucle— llega al final en un suspiro: `--ms=10000` cuesta lo mismo que
+`--ms=1` porque el coste va con los sucesos, no con el tiempo.
+
 **Varios MCUs.** Una placa puede declarar los chips que lleva, cada uno con su
 firmware, su modo de depuración y su puerto de GDB:
 

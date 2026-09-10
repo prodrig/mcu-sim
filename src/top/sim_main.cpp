@@ -317,6 +317,12 @@ SC_MODULE(Sim) {
             }
             std::printf("esperando a GDB; la simulacion no se detiene sola "
                         "(Ctrl-C para salir)\n");
+            // Y se vacia el buffer, que aqui no es manía. Este printf es el
+            // ULTIMO antes de un bucle infinito: redirigida la salida a un
+            // fichero deja de ser linea a linea y pasa a bloques, y como de
+            // este modo solo se sale con Ctrl-C, sin este fflush el mensaje que
+            // explica como salir es justo el que se pierde.
+            std::fflush(stdout);
             for (;;) wait(10, SC_MS);
         }
 
@@ -375,6 +381,12 @@ int sc_main(int argc, char** argv) {
                 "     sim placa.xml --port=3333  puerto TCP del stub\n"
                 "     sim placa.xml --ms=2       tiempo simulado (global: hay un\n"
                 "                                solo reloj por muchos chips)\n"
+                "\n"
+                "Por omision simula 100 ms y para. Para que NO termine hasta que lo\n"
+                "digas tu, pide un stub: con un puerto escuchando la simulacion corre\n"
+                "indefinidamente y se sale con Ctrl-C. No hace falta que GDB llegue a\n"
+                "conectarse. A cambio no se imprime el informe final de los LEDs, que\n"
+                "sale al acabar la ventana de --ms.\n"
                 "\n"
                 "La placa se describe en XML: MCUs, nodos, componentes y conexiones.\n"
                 "\n"
