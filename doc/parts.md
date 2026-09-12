@@ -854,16 +854,16 @@ nadie lo lee y la pieza usa su valor por omisión.
 osciladores, los cuatro LEDs, los dos pulsadores, el arranque y los pines de
 depuración. El fichero lleva en la cabecera las tres cosas que conviene saber
 antes de usarla —el pulsador azul va a VDD y no a masa, el negro va a NRST y no
-a PB2, y el cristal del LSE no viene soldado en la tarjeta real—. Aquí, el
-esqueleto:
+a PB2, y el cristal del LSE está **declarado pero desoldado**, porque en la
+tarjeta real el zócalo está vacío—. Aquí, el esqueleto:
 
 ```xml
 <placa nombre="discovery">
   <componente tipo="Crystal" id="X2" vdd="3.3">          <!-- HSE 8 MHz  -->
     <pin nombre="osc_in" nodo="PH0"/>
   </componente>
-  <componente tipo="Crystal" id="X3" vdd="3.3">          <!-- LSE 32 kHz -->
-    <pin nombre="osc_in" nodo="PC14"/>
+  <componente tipo="Crystal" id="X3" vdd="3.3" conectada="no">
+    <pin nombre="osc_in" nodo="PC14"/>    <!-- LSE: zocalo vacio, como alli -->
   </componente>
 
   <!-- verde PD12, naranja PD13, rojo PD14, azul PD15; 680 ohmios -->

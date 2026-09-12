@@ -346,7 +346,7 @@ En `placas/` hay cuatro:
 
 | Fichero | Qué es |
 | :--- | :--- |
-| `discovery_min.xml` | La **STM32F4DISCOVERY** entera: HSE y LSE, los cuatro LEDs, el pulsador azul (a VDD) y el negro de reset (a NRST), BOOT0/BOOT1 y los pines de depuración |
+| `discovery_min.xml` | La **STM32F4DISCOVERY** entera: HSE de 8 MHz, LSE **declarado y desoldado** (como el zócalo vacío de la tarjeta), los cuatro LEDs, el pulsador azul (a VDD) y el negro de reset (a NRST), BOOT0/BOOT1 y los pines de depuración |
 | `led_azul_5v.xml` | Un LED azul de 3,0 V colgado de 5 V con el cátodo al pin |
 | `banco.xml` | La placa entera de la suite: 43 componentes de 20 tipos |
 | `dos_mcu.xml` | Dos STM32F407 hablando por I2C, cada uno con su puerto de GDB |

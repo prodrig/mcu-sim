@@ -20,12 +20,13 @@
         "desde Flash". Un pulsador en PB2 no resetearía nada: cambiaría el modo
         de arranque, y solo si además BOOT0 estuviera alto.
 
-     3. EL CRISTAL DEL LSE (X3) NO VIENE SOLDADO EN LA TARJETA REAL. Aquí está
-        puesto porque se pidió, pero es la única pieza de este fichero que la
-        Discovery no lleva de fábrica: un firmware que use el RTC con LSE
-        funcionará en el simulador y NO en la tarjeta. Para que coincida de
-        verdad, basta con `conectada="no"` en X3 —así queda el zócalo vacío,
-        que es lo que hay— y el LSE no arrancará, igual que allí.
+     3. EL CRISTAL DEL LSE (X3) ESTÁ DECLARADO PERO DESOLDADO, porque en la
+        tarjeta real tampoco está: la MB997 trae el zócalo vacío. Así que el
+        LSE NO ARRANCA -LSERDY se queda a cero para siempre- y un firmware que
+        quiera el RTC con LSE se colgará esperándolo, exactamente igual que con
+        la tarjeta en la mano. Si se quiere el cristal, quítese `conectada="no"`
+        de X3; entonces el LSE tarda DOS SEGUNDOS en arrancar, que es lo que
+        tarda de verdad un cuarzo de 32 kHz.
      ========================================================================= -->
 <placa nombre="discovery">
 
@@ -48,8 +49,15 @@
     <pin nombre="osc_in" nodo="PH0"/>
   </componente>
 
-  <!-- X3: cristal de 32,768 kHz del LSE. LÉASE LA NOTA 3 DE LA CABECERA. -->
-  <componente tipo="Crystal" id="X3" vdd="3.3">
+  <!-- X3: cristal de 32,768 kHz del LSE. DESOLDADO, como en la tarjeta real:
+       la MB997 trae el zócalo serigrafiado y vacío. Se declara igualmente, y
+       eso es información y no su ausencia: dice que AHÍ VA un cristal y que no
+       está puesto. Con `conectada="no"` el nodo queda al aire, el LSE no
+       alcanza nunca LSERDY y un firmware que lo espere se queda colgado —igual
+       que con la tarjeta en la mano—.
+       Para soldarlo: quítese `conectada="no"`, o desde C++ `attach()` en marcha,
+       que es una demostración bonita de qué cambia al poner el componente. -->
+  <componente tipo="Crystal" id="X3" vdd="3.3" conectada="no">
     <pin nombre="osc_in" nodo="PC14"/>
   </componente>
 

@@ -2426,3 +2426,38 @@ y por eso el SWO de la Discovery no se puede leer con su depurador de a bordo.
 En el simulador sí se puede, descomentando el `SwoReceiver` del fichero.
 
 Puntos: 146 → 148.
+
+---
+
+## 2026-09-12 UTC — El LSE, desoldado como en la tarjeta
+
+**Prompt.** «Si no hay cristal LSE externo en la placa, ¿cómo es que el circuito
+interno que comprueba el LSE sí arranca (tras 2 segundos)?» — y, tras la
+respuesta, «Sí, déjalo así».
+
+**Respuesta.** Porque en el fichero que entregué **el cristal estaba**: lo puse
+yo, porque se pidieron dos. Lo que no lo lleva es la tarjeta. El simulador no
+inventaba nada: simulaba la placa que le describí.
+
+Comprobado antes de contestar, con LD6 enseñando `LSERDY`:
+
+| placa | LSERDY a los 3 s |
+| :--- | :--- |
+| con X3 (como se entregó) | encendido |
+| X3 con `conectada="no"` | apagado |
+| X3 borrado del fichero | apagado |
+
+Y el HSE sigue arrancando en los tres casos, que es el control: falla el LSE y
+solo el LSE. O sea que el mecanismo está bien —es el mismo `source_present()`
+que se arregló ayer para el HSE en bypass—: sin nada en PC14, el oscilador no
+alcanza RDY nunca.
+
+**Ahora queda `conectada="no"`,** que es la opción fiel y además la más útil para
+enseñar: el alumno que intente el RTC con LSE se encontrará aquí el mismo
+problema que se encontraría con la tarjeta en la mano. Se ha preferido a borrar
+el componente porque **declararlo desoldado es información, y borrarlo es
+ausencia de información**: el fichero sigue diciendo que ahí va un cristal y que
+no está puesto, y desde C++ se puede soldar en marcha con `attach()`.
+
+Actualizados el fichero, su cabecera, `doc/parts.md` y el `README`. Sigue en
+11 componentes y 0 avisos.
