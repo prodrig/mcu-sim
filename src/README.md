@@ -22,8 +22,8 @@ P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
 | **F7** (ETH) | Ethernet 10/100: MII/RMII en los pines, MDIO, descriptores, filtrado, MMC y PTP | **completada** |
 | F7 (resto) | afinado AT | pendiente |
 
-`make test` compila y ejecuta la suite de verificación acumulada (1899
-comprobaciones autocomprobables: 124 de F1 + 12 de F2 + 80 de F3 + 343 de F4
+`make test` compila y ejecuta la suite de verificación acumulada (1902
+comprobaciones autocomprobables: 127 de F1 + 12 de F2 + 80 de F3 + 343 de F4
 (DMA, UART/USART, TIM y EXTI/SYSCFG) + 675 de F5 (SPI/I2S, I2C, ADC, DAC, RTC y
 perros guardianes, SDIO, CRC/RNG y bxCAN) + 151 de F6 (depuración y los dos
 servidores GDB) + 426 de F7 (116 de bajo consumo, 61 del DCMI, 54 del FSMC,
@@ -103,8 +103,8 @@ validar una plataforma nueva antes de pelearse con la biblioteca.
 
 | Plataforma | Estado | Comprobado |
 | :--- | :--- | :--- |
-| Linux, g++ 13 | **verificado** | 1899/1899 comprobaciones, `make red` 13/13, ASan limpio |
-| Linux, clang | **verificado** | 1899/1899, mismo tiempo simulado al picosegundo |
+| Linux, g++ 13 | **verificado** | 1902/1902 comprobaciones, `make red` 13/13, ASan limpio |
+| Linux, clang | **verificado** | 1902/1902, mismo tiempo simulado al picosegundo |
 | Windows, MinGW-w64 | **compila y enlaza** (cruzado con g++ 13-win32) | `make red` genera un PE32+ sin avisos; **falta ejecutarlo en Windows y construir SystemC allí** |
 | macOS, clang | **la rama específica compila** | Se fuerza la combinación de macOS —sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`— y compila con g++ y con clang; **falta probarlo en un Mac** |
 
@@ -346,7 +346,7 @@ En `placas/` hay cuatro:
 
 | Fichero | Qué es |
 | :--- | :--- |
-| `discovery_min.xml` | Lo mínimo: cristal, LED y pulsador |
+| `discovery_min.xml` | La **STM32F4DISCOVERY** entera: HSE y LSE, los cuatro LEDs, el pulsador azul (a VDD) y el negro de reset (a NRST), BOOT0/BOOT1 y los pines de depuración |
 | `led_azul_5v.xml` | Un LED azul de 3,0 V colgado de 5 V con el cátodo al pin |
 | `banco.xml` | La placa entera de la suite: 43 componentes de 20 tipos |
 | `dos_mcu.xml` | Dos STM32F407 hablando por I2C, cada uno con su puerto de GDB |

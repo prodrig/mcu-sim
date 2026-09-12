@@ -2188,3 +2188,241 @@ no atiende el socket. Un milisegundo de latencia ante GDB no se nota; diez, sí.
 Suite 1899/1899, `2328209149213 ps`, y **ASan + UBSan limpios** —importaba
 comprobarlo: se ha tocado el núcleo y se ha metido un `sleep` dentro de un
 proceso—. Puntos cerrados: I-25, I-30 e I-31.
+
+---
+
+## 2026-09-11 UTC — Análisis del proyecto `idetest/sim_discovery_min`
+
+**Prompt.** «Analiza si el código configura correctamente el reloj y el LED de
+la placa `discovery_min`, y qué pasará con los otros elementos configurados
+—otros LEDs, TIM2, salida PWM— que no están conectados a nada en la placa
+simulada».
+
+**Respuesta.** Analizado **y ejecutado**: el proyecto se compiló con
+`arm-none-eabi-gcc` y se corrió sobre `placas/discovery_min.xml`, y los valores
+de abajo están leídos de los registros del modelo con el stub de GDB, no
+deducidos del código.
+
+**El reloj está bien, y es más: los números del temporizador solo cuadran con
+él.** HSI (16 MHz) → PLL M=8, N=90, P=2 → entrada del VCO 2,00 MHz (el máximo
+recomendado por ST, dentro de 0,95–2,1), VCO 180 MHz (dentro de 100–432),
+**SYSCLK 90 MHz**. HCLK/1 = 90 MHz (≤168 ✓), APB1 y APB2 a /4 = 22,5 MHz (≤42 y
+≤84 ✓). `FLASH_LATENCY_2` es exactamente lo que pide 90 MHz a 3,3 V —2 WS cubre
+de 60 a 90—, o sea justo en el borde y correcto. Leído del modelo:
+`RCC_CFGR.SWS=2` (PLL), `SystemCoreClock = 90000000`.
+
+Con eso, TIM2 recibe **45 MHz** (APB1 ≠ /1, así que el reloj del temporizador es
+el doble de PCLK1), y `PSC=1249`, `ARR=35999` dan 45 MHz/1250/36000 = **1 Hz
+exacto**, con `CCR3=2699` = 7,5 % de ciclo de trabajo. Es decir: los valores se
+calcularon para esta configuración, no al azar.
+
+**Dos matices sobre el reloj, ninguno un error.** El programa usa **HSI, no
+HSE**, así que el cristal de 8 MHz que la placa declara en PH0 está decorativo;
+en hardware real eso significa ±1 % de error, que para un PWM de 1 Hz no importa
+y para un UART sí importaría. Y APB2 a /4 es innecesariamente lento, aunque
+legal. *(Si algún día se pasa a HSE, el modelo lo soporta: el oscilador observa
+el pad y no arranca sin cristal —`rcc/osc_pll.h:64`, `source_present()`—, que es
+justo lo que hace el silicio.)*
+
+**El LED está bien configurado y nunca se enciende.** PD12 queda como salida
+push-pull sin pull, que es lo correcto para esta placa —el LED tiene el ánodo al
+pin y el cátodo a masa por 330 Ω, así que luce en alto—. Pero `MX_GPIO_Init()`
+lo pone a `RESET` y **`while(1)` está vacío**: no hay `HAL_GPIO_TogglePin`, ni
+`HAL_Delay`, ni nada. Ejecutado:
+
+```
+LED LD4 en PD12: apagado  (0.00 V, 0.00 mA)
+```
+
+La misma línea que sin firmware, por un motivo distinto: aquí el pin **conduce**
+0 V, antes estaba en alta impedancia.
+
+**Lo que no está conectado a nada: no pasa nada, y eso es lo correcto.** Cada pad
+del modelo tiene su propio nodo eléctrico —los 154 de los que habla el arranque—
+así que LD3, LD5 y LD6 (PD13/14/15) quedan como salidas conduciendo 0 V contra un
+nodo sin nada más colgado: sin corriente, sin conflicto y sin aviso. Igual PA2.
+La placa declara **0 avisos**, que es lo que debe ser: un pin que no va a ningún
+sitio no es un error, es una placa sin poblar.
+
+**El PWM no llega a existir.** `MX_TIM2_Init()` deja TIM2 configurado —OC3M=6
+(PWM1), PSC, ARR y CCR3 escritos, PA2 en AF1 push-pull— pero **falta
+`HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3)`**. Leído del modelo: `CR1.CEN = 0`
+(contador parado) y `CCER.CC3E = 0` (salida no habilitada). No es que no se vea
+por no estar conectado: es que no oscila.
+
+**Y el pulsador no puede funcionar en esta placa, por dos motivos
+independientes.** Uno de software: EXTI0 está armado en el periférico
+(`IMR.0 = 1`, `RTSR.0 = 1`) pero **el NVIC no** (`ISER0` bit 6 = 0) y no hay
+`EXTI0_IRQHandler` en el proyecto, así que pulsar solo pondría un bit en `PR`.
+Otro eléctrico, más interesante: el código pide **flanco de subida** y **sin
+pull**, pero la pieza `Button` de esta placa es **un pulsador a masa**. Sin
+pulsar, PA0 queda **flotante**; pulsado, a 0 V. Nunca hay un flanco de subida.
+En la Discovery real el botón lleva el pin a VDD con una resistencia externa a
+masa, y por eso el código generado espera subida: **la placa simulada modela otra
+cosa**. Un pin de entrada flotante sin pull es además un defecto real, no del
+simulador.
+
+**Y una sorpresa medida, que corrige algo que yo mismo había escrito.** Este
+firmware cuesta **4,8 s de anfitrión por segundo simulado** (986 422 deltas por
+segundo), o sea **cinco veces más lento que el tiempo real**; el blinky del
+repositorio hace ese mismo segundo en **0,014 s**, setenta veces más rápido. La
+diferencia no es el tamaño del programa: es que **este nunca duerme**. El núcleo
+se sincroniza con el planificador cada 1 µs —el *quantum* del modelo LT,
+`core/cpu.h:75`—, así que un `while(1)` vacío a 90 MHz paga un millón de
+sincronizaciones por segundo simulado; el blinky usa `WFI` (dos en su binario,
+cero en este) y el modelo se queda dormido con él.
+
+Consecuencias prácticas, las dos honestas: **el `while(1)` vacío que genera
+CubeMX es el peor caso para el simulador**, y **`--tiempo-real` no hace nada
+aquí** —medido: los mismos 5 s— porque el freno solo frena. La frase del README
+sobre ir «entre 11 y 200 veces más rápido que el hardware» vale para el firmware
+que se midió, no para éste, y conviene matizarla: la referencia es **P-02** (≈4,7
+ciclos por instrucción modelados frente a ≈1,5 reales).
+
+---
+
+## 2026-09-11 UTC — El HSE en bypass con un cristal: I-32, anotado y cerrado
+
+**Prompt.** «Sí, anota todo como punto nuevo del TODO y lo arreglas».
+
+**Respuesta.** Hecho: **I-32**, con prueba automática.
+
+**El defecto.** `Oscillator::source_present()` solo comprobaba que el nodo de
+OSC_IN **no estuviera al aire**, y `effective_hz()` caía a la frecuencia nominal
+cuando no había podido medir nada. Como la pieza `Crystal` polariza el pin a
+VDD/2 por 1 MΩ, un `RCC_HSE_BYPASS` sobre un cristal pasivo **arrancaba**. En el
+silicio no: con `BYPASS` el amplificador está apagado y OSC_IN es una entrada
+digital, así que un resonador pasivo no entrega nada, `HSERDY` no sube y el
+firmware se queda esperando o cae en su `Error_Handler`. **El simulador era más
+permisivo que el chip** — la dirección de error que peor le viene a un proyecto
+didáctico: funciona aquí y se cuelga en la placa.
+
+**El arreglo.** Una función nueva, `fuente_valida()`, que separa los dos modos
+con lo único que hay: la electricidad del pin. **En bypass hace falta que el pin
+CONMUTE** —que se haya podido medir una frecuencia—; en modo cristal basta con
+que haya algo conectado. Y un segundo fallo que salió al escribir la prueba: la
+medida era **pegajosa**. Si se retira el reloj externo y se cuelga otra cosa del
+mismo pin, el bypass habría arrancado con la frecuencia del reloj que ya no
+está; ahora se borra en cuanto el nodo queda al aire.
+
+**Un cambio que parecía natural y era falso.** De camino hice también que el
+modo cristal usara la frecuencia **medida** en el pin en vez de la nominal. Rompió
+tres comprobaciones —HCLK a 252 MHz en vez de 168— y **está bien que las
+rompiera**: lo que oscila en OSC_IN en modo cristal es el propio amplificador
+contra el cuarzo, no una señal ajena, y quien manda es el corte del cristal.
+Revertido, y el motivo escrito en el comentario para que nadie lo intente otra
+vez. El invariante del tiempo simulado hizo exactamente su trabajo: la cifra se
+movió, y eso fue la primera señal.
+
+**Verificado por los dos lados.** Con firmware real compilado del proyecto de
+STM32CubeIDE, sobre `placas/discovery_min.xml`:
+
+| modo | qué hay en PH0 | HSERDY | SYSCLK | dónde acaba |
+| :--- | :--- | :---: | ---: | :--- |
+| `HSE_BYPASS` | `Crystal` (pasivo) | **0** | 16 MHz (HSI) | `Error_Handler` |
+| `HSE_BYPASS` | `ExtClock` 8 MHz | 1 | 90 MHz | `main` |
+| `HSE_ON` | `Crystal` | 1 | 90 MHz | `main` |
+| `HSE_ON` | `ExtClock` | 1 | 90 MHz | `main` |
+| cualquiera | nada | 0 | 16 MHz | `Error_Handler` |
+
+Y con **tres comprobaciones nuevas en T21**, para que no vuelva: el cristal en
+bypass no sube `HSERDY`, el mismo cristal sin bypass sí, y lo hace a su
+frecuencia **nominal**.
+
+**La suite pasa de 1899 a 1902 comprobaciones** y el invariante del tiempo
+simulado a **`2336211899213 ps`**. Es la primera vez que esa cifra se mueve por
+un motivo legítimo —añadir pruebas mueve el reloj—, así que queda actualizada en
+`README.md`, en `doc/compilacion.md` y en este registro; las entradas anteriores
+conservan la cifra que era cierta cuando se escribieron. Puntos: 145 → 146.
+
+---
+
+## 2026-09-12 UTC — La Discovery entera, y el fallo que destapó
+
+**Prompt.** «Modifica `discovery_min.xml` para que contenga dos
+cristales/osciladores externos, LSE y HSE, igual que la tarjeta real. Conecta
+los cuatro pines de los cuatro LEDs (PD12 a PD15), el botón azul en PA0, el
+botón negro (de reset) en PB2 y todos los pines de depuración con la circuitería
+necesaria para que el resultado coincida con la tarjeta real».
+
+**Respuesta.** Hecha, contrastada con UM1472 y el esquemático MB997, y con **dos
+correcciones al enunciado y un fallo del modelo** que apareció al comprobarla.
+
+**Corrección 1: el pulsador negro no va a PB2, va a NRST.** PB2 es **BOOT1**, y
+en esta tarjeta está sujeto a masa por resistencia para que el arranque sea
+desde la Flash de usuario. Un pulsador en PB2 no resetearía nada. El de reset va
+a NRST, cuyo nivel alto lo da el pull-up interno de 40 kΩ del propio pad.
+Modelados los dos: `B2` sobre NRST y una `Rpull` a masa en PB2.
+
+**Corrección 2: el cristal del LSE no viene soldado en la tarjeta real.** X3 es
+un zócalo vacío en la MB997. Se ha puesto porque se pidió, pero es la única
+pieza del fichero que la Discovery no lleva de fábrica, y está avisado en la
+cabecera: un firmware que use el RTC con LSE funcionará aquí y no allí. Para que
+coincida de verdad basta `conectada="no"` en X3.
+
+**Y una tercera cosa que no es corrección sino hallazgo: el botón azul va a VDD,
+no a masa.** Cerrado lleva PA0 a 3,3 V y una resistencia externa lo sujeta abajo
+—por eso el código que CubeMX genera para esta placa pide EXTI por flanco de
+**subida** sin pull interno, que es justo lo que tenía el proyecto de prueba—.
+La pieza `Button` del modelo **solo sabía ir a masa**, así que la placa no se
+podía describir. Ahora tiene `v_cerrado` (**I-34**).
+
+**El fallo del modelo, que es lo gordo (I-33).** Al comprobar el botón salió que
+PA0 se leía **0** con el nodo a 3,3 V. No era el botón: `Pad::pad_proc()`
+escribía `din = false` y **se ponía a esperar** un cambio en el nodo o en la
+configuración. Un nodo que ya está gobernado cuando empieza la simulación —una
+resistencia de pull, que conduce desde que se construye— no genera ningún evento
+después, así que el pad **nunca llegaba a mirarlo**: el IDR decía cero,
+indefinidamente.
+
+Lo que lo hace notable es que **es el mismo fallo que ya se había corregido en
+el `Led`**, con su comentario y todo —«se evalúa ANTES de esperar, no después…
+hay montajes donde el nodo no se mueve nunca»— y que nadie fue a mirar en el
+`Pad`. Y aquí es peor: en el LED quien se equivocaba era el modelo; aquí es **el
+firmware que lo lee**, y el alumno se pasaría la tarde buscando el error en su
+código. El banco no lo veía porque sus entradas las mueve un `Driver` en marcha,
+y mover el nodo sí despierta al pad.
+
+Arreglado mirando una vez antes del bucle. **Medido**: tres pines sujetos a
+3,3 V desde el arranque pasan de leerse `0` a leerse `1`; 1902/1902 y el mismo
+tiempo simulado **al picosegundo**, que es lo que dice que no se ha movido nada
+más.
+
+**La comprobación de la placa se cuenta sola.** Un firmware mínimo que usa los
+cuatro LEDs como indicadores —LD4: estoy vivo; LD3: el botón; LD5: HSERDY;
+LD6: LSERDY—:
+
+| | LD4 vivo | LD3 botón | LD5 HSE | LD6 LSE |
+| :--- | :---: | :---: | :---: | :---: |
+| tal cual, botón suelto | ● | ○ | ● | ● |
+| botón azul pulsado | ● | **●** | ● | ● |
+| botón negro de reset pulsado | ○ | ○ | ○ | ○ |
+
+La última fila es el MCU entero detenido en reset, que es exactamente lo que
+tiene que pasar. Y el LSE tarda **dos segundos** en arrancar —a 2000 ms de
+simulación todavía está apagado y a 3000 ms ya no—, que es el tiempo real de
+arranque de un cuarzo de 32 kHz y estaba ya en el modelo.
+
+**Y los cuatro LEDs encendidos enseñan de un vistazo por qué el azul es
+especial:**
+
+```
+  LED LD4 en PD12: encendido  (3.20 V, 1.77 mA)      verde,   Vf 2,0
+  LED LD3 en PD13: encendido  (3.20 V, 1.77 mA)      naranja, Vf 2,0
+  LED LD5 en PD14: encendido  (3.19 V, 2.04 mA)      rojo,    Vf 1,8
+  LED LD6 en PD15: encendido  (3.28 V, 0.41 mA)      azul,    Vf 3,0
+```
+
+Cuatro veces menos corriente por el azul: con 3,0 V de caída sobre 3,3 V no
+queda casi nada para la resistencia de 680 Ω. No es una simplificación, es la
+tarjeta.
+
+**Lo que queda fuera, dicho:** los valores de la resistencia de pull-down del
+botón (100 kΩ) y de serie de los LEDs (680 Ω) salen del esquemático MB997 leído
+con herramientas automáticas y **no los he podido contrastar a mano**; ninguno
+cambia la lógica, solo la corriente. Y `PA15`, `PB3` y `PB4` no llevan nada
+colgado **porque en la tarjeta real tampoco**: solo PA13 y PA14 van al ST-LINK,
+y por eso el SWO de la Discovery no se puede leer con su depurador de a bordo.
+En el simulador sí se puede, descomentando el `SwoReceiver` del fichero.
+
+Puntos: 146 → 148.

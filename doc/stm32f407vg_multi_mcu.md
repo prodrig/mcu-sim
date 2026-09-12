@@ -712,7 +712,7 @@ igual, y no tienen riesgo apreciable: son un registro por cadena y un parámetro
 el puerto repetido y los cinco `<mcu>` mal escritos. Lo que **no** está
 automatizado es el montaje: que dos chips se construyan, arranquen y se hablen
 solo se comprueba a mano, corriendo `sim`. La suite monta un único `dut` del que
-cuelgan la mitad de sus 1899 comprobaciones, y meter un segundo dentro sería
+cuelgan la mitad de sus 1902 comprobaciones, y meter un segundo dentro sería
 duplicar la elaboración de todo el banco para probar otra cosa. El sitio natural
 es un banco aparte que corra `sim` sobre las placas de `placas/`, y eso todavía
 no existe.

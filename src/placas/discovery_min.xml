@@ -1,20 +1,146 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Una placa mínima al estilo de las Discovery de ST: cristal de 8 MHz,
-     un LED en PD12 y el pulsador de usuario en PA0. Nada más. -->
-<placa nombre="discovery-min">
-  <nodo id="PH0"/>
-  <nodo id="PD12"/>
-  <nodo id="PA0"/>
+<!-- =========================================================================
+     STM32F4DISCOVERY (MB997) — la parte de la placa que rodea al STM32F407VG
 
-  <componente tipo="Crystal" id="X1" vdd="3.3">
+     Reproduce lo que hay soldado alrededor del chip en la tarjeta real: los dos
+     osciladores, los cuatro LEDs de usuario, el pulsador azul, el negro de
+     reset, la configuración de arranque y los cinco pines de depuración.
+     Referencias: UM1472 (manual de la tarjeta) y el esquemático MB997.
+
+     TRES COSAS QUE CONVIENE SABER ANTES DE USARLA
+     ---------------------------------------------------------------------
+     1. EL PULSADOR AZUL VA A VDD, NO A MASA. Cerrado lleva PA0 a 3,3 V y es
+        R35 quien lo sujeta abajo mientras está suelto. Por eso el código que
+        STM32CubeIDE genera para esta tarjeta configura PA0 como EXTI por
+        flanco de SUBIDA y sin pull interno: con un pulsador a masa ese flanco
+        no llegaría nunca.
+
+     2. EL PULSADOR NEGRO VA A NRST, NO A PB2. PB2 es BOOT1, y en esta tarjeta
+        está sujeto a masa por una resistencia para que el modo de arranque sea
+        "desde Flash". Un pulsador en PB2 no resetearía nada: cambiaría el modo
+        de arranque, y solo si además BOOT0 estuviera alto.
+
+     3. EL CRISTAL DEL LSE (X3) NO VIENE SOLDADO EN LA TARJETA REAL. Aquí está
+        puesto porque se pidió, pero es la única pieza de este fichero que la
+        Discovery no lleva de fábrica: un firmware que use el RTC con LSE
+        funcionará en el simulador y NO en la tarjeta. Para que coincida de
+        verdad, basta con `conectada="no"` en X3 —así queda el zócalo vacío,
+        que es lo que hay— y el LSE no arrancará, igual que allí.
+     ========================================================================= -->
+<placa nombre="discovery">
+
+  <!-- ===================================================================
+       Relojes [UM1472 §6.9]
+       =================================================================== -->
+  <nodo id="PH0"/>                     <!-- OSC_IN  -->
+  <nodo id="PC14"/>                    <!-- OSC32_IN -->
+
+  <!-- X2: cristal de 8 MHz del HSE. La frecuencia no es un dato del cristal
+       sino del árbol de reloj: se configura en el RCC (PLLM/PLLN a partir de
+       8 MHz). El cristal solo dice que HAY cristal, que es la condición para
+       que el HSE arranque.
+       Nota: esta tarjeta puede alimentar el HSE de dos maneras -el cristal X2
+       o los 8 MHz del MCO del ST-LINK-, y como las dos son de 8 MHz el
+       resultado visto desde el firmware es el mismo. Si se quiere modelar la
+       segunda, se sustituye este componente por un ExtClock de 8e6 y se pone
+       HSEBYP en el RCC; con el cristal hay que usar HSE_ON, no HSE_BYPASS. -->
+  <componente tipo="Crystal" id="X2" vdd="3.3">
     <pin nombre="osc_in" nodo="PH0"/>
   </componente>
 
-  <componente tipo="Led" id="LD4" a_vss="si" vf="2.0" r="330">
-    <pin nombre="anodo" nodo="PD12"/>
+  <!-- X3: cristal de 32,768 kHz del LSE. LÉASE LA NOTA 3 DE LA CABECERA. -->
+  <componente tipo="Crystal" id="X3" vdd="3.3">
+    <pin nombre="osc_in" nodo="PC14"/>
   </componente>
 
-  <componente tipo="Button" id="B1" r_cerrado="10">
+  <!-- ===================================================================
+       Los cuatro LEDs de usuario [UM1472 §6.3]
+       Ánodo al pin y cátodo a masa por su resistencia: LUCEN CON EL PIN ALTO.
+       Las Vf son las típicas de cada color; la resistencia, 680 Ω, es la del
+       esquemático MB997.
+       El azul es el caso interesante: con Vf ~3,0 V sobre 3,3 V apenas queda
+       margen, así que luce mucho más flojo que los otros tres. No es un
+       defecto del modelo, es lo que pasa en la tarjeta.
+       =================================================================== -->
+  <nodo id="PD12"/>  <nodo id="PD13"/>  <nodo id="PD14"/>  <nodo id="PD15"/>
+
+  <componente tipo="Led" id="LD4" a_vss="si" vf="2.0" r="680">   <!-- verde   -->
+    <pin nombre="anodo" nodo="PD12"/>
+  </componente>
+  <componente tipo="Led" id="LD3" a_vss="si" vf="2.0" r="680">   <!-- naranja -->
+    <pin nombre="anodo" nodo="PD13"/>
+  </componente>
+  <componente tipo="Led" id="LD5" a_vss="si" vf="1.8" r="680">   <!-- rojo    -->
+    <pin nombre="anodo" nodo="PD14"/>
+  </componente>
+  <componente tipo="Led" id="LD6" a_vss="si" vf="3.0" r="680">   <!-- azul    -->
+    <pin nombre="anodo" nodo="PD15"/>
+  </componente>
+
+  <!-- ===================================================================
+       Pulsador azul de usuario, B1, en PA0 [UM1472 §6.4]
+       Cerrado lleva PA0 a VDD; R35 lo sujeta a masa mientras está suelto.
+       Las dos piezas conducen a la vez con el botón pulsado -eso es el
+       divisor, no un cortocircuito-, de ahí `bus="si"`.
+       PA0 es además WKUP, así que este mismo botón despierta de Standby.
+       =================================================================== -->
+  <nodo id="PA0" bus="si"/>
+  <componente tipo="Button" id="B1" v_cerrado="3.3" r_cerrado="10">
     <pin nombre="pin" nodo="PA0"/>
   </componente>
+  <componente tipo="Rpull" id="R35" v="0" r="100000">
+    <pin nombre="a" nodo="PA0"/>
+  </componente>
+
+  <!-- ===================================================================
+       Pulsador negro de RESET, B2, sobre NRST [UM1472 §6.4]
+       A masa: pulsarlo resetea. El nivel alto lo da el pull-up interno de
+       40 kΩ del propio pad NRST, igual que en el silicio; la tarjeta no lleva
+       pull-up externo, solo el condensador de filtro (que aquí no hace falta
+       porque no hay rebotes que filtrar).
+       =================================================================== -->
+  <nodo id="NRST" bus="si"/>
+  <componente tipo="Button" id="B2" r_cerrado="10">
+    <pin nombre="pin" nodo="NRST"/>
+  </componente>
+
+  <!-- ===================================================================
+       Arranque: BOOT0 y BOOT1 [UM1472 tabla 6]
+       Los dos a masa por resistencia, que es lo que hace que la tarjeta
+       arranque SIEMPRE desde la Flash de usuario. BOOT0 lo gobierna además el
+       propio `sim` durante el encendido, de ahí el `bus="si"`: dos ramas
+       tirando del mismo nodo hacia el mismo sitio, a propósito.
+       PB2 es esto, y no el pulsador de reset.
+       =================================================================== -->
+  <nodo id="BOOT0" bus="si"/>
+  <nodo id="PB2"/>
+  <componente tipo="Rpull" id="R34" v="0" r="10000">
+    <pin nombre="a" nodo="BOOT0"/>
+  </componente>
+  <componente tipo="Rpull" id="R28" v="0" r="10000">
+    <pin nombre="a" nodo="PB2"/>
+  </componente>
+
+  <!-- ===================================================================
+       Depuración [UM1472 tabla 5 y tabla 7]
+       El ST-LINK integrado solo lleva SWD: PA13 (SWDIO) y PA14 (SWCLK), más
+       NRST, que ya está arriba. Se declaran para que tengan nombre en el
+       inventario; no llevan nada soldado encima porque en la tarjeta tampoco:
+       al otro lado hay una sonda, y aquí esa sonda es `sim --gdb`, que se
+       engancha a esos dos pines exactamente igual.
+
+       PA15 (JTDI), PB3 (JTDO/SWO) y PB4 (NJTRST) NO van al ST-LINK en esta
+       tarjeta: salen a los conectores de expansión como E/S libres. Por eso
+       aquí tampoco cuelga nada de ellos, y por eso el SWO de la Discovery no
+       se puede leer con su depurador de a bordo. Para capturar la traza ITM en
+       el simulador -que sí se puede, y es una de las cosas que la tarjeta real
+       no deja hacer- se descomenta el receptor de abajo.
+       =================================================================== -->
+  <nodo id="PA13"/>  <nodo id="PA14"/>
+  <nodo id="PA15"/>  <nodo id="PB3"/>   <nodo id="PB4"/>
+
+  <!-- <componente tipo="SwoReceiver" id="TRAZA" bitrate="2000000">
+         <pin nombre="swo" nodo="PB3"/>
+       </componente> -->
+
 </placa>

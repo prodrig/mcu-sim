@@ -222,15 +222,25 @@ private:
 // ---------------------------------------------------------------------------
 class Button : public ExtPart {
 public:
-    Button(analog_net_if& n, double r_closed = 10.0)
-        : ExtPart(n, "Button", "button", "pin"), r_(r_closed) { release(); }
+    // `v_cerrado` es la tension a la que el pulsador lleva el pin al cerrarse.
+    // Por omision 0 V -pulsador a masa, el montaje de siempre-, pero NO todos
+    // son asi: en la STM32F4-Discovery el boton de usuario lleva PA0 a VDD y es
+    // una resistencia externa la que lo sujeta abajo, por eso el codigo que
+    // genera CubeMX para esa placa espera flanco de SUBIDA. Sin este parametro
+    // ese boton no se podia describir, y una placa que dice ser la Discovery
+    // con un pulsador a masa jamas daria el flanco que el firmware espera.
+    Button(analog_net_if& n, double r_closed = 10.0, double v_closed = 0.0)
+        : ExtPart(n, "Button", "button", "pin"), r_(r_closed), v_(v_closed) {
+        release();
+    }
     // Un pulsador desoldado no cierra nada aunque se le pulse.
-    void press()   { if (!conectada_) return; drive(0.0f, float(r_)); down_ = true; }
+    void press()   { if (!conectada_) return; drive(float(v_), float(r_)); down_ = true; }
     void release() { hiz(); down_ = false; }
     bool pressed() const { return down_; }
+    double v_cerrado() const { return v_; }
     void set_enabled(bool on) override { ExtPartBase::set_enabled(on); if (!on) down_ = false; }
 private:
-    double r_; bool down_ = false;
+    double r_, v_; bool down_ = false;
 };
 
 // ---------------------------------------------------------------------------

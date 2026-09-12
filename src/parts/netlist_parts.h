@@ -80,7 +80,8 @@ REGISTRA_PARTE(Led, [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase*
     });
 
 REGISTRA_PARTE(Button, [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
-        return new Button(n[d.nodo_de("pin")], d.num("r_cerrado", 10.0));
+        return new Button(n[d.nodo_de("pin")], d.num("r_cerrado", 10.0),
+                          d.num("v_cerrado", 0.0));
     });
 
 REGISTRA_PARTE(Crystal, [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {

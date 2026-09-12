@@ -2189,7 +2189,33 @@ SC_MODULE(F1Tb) {
         wait(20, SC_US);
         tm.read32(addr::RCC_B + Rcc::R_CR, cr);
         check_eq((cr >> 17) & 1u, 0u, "al retirar el reloj externo, HSERDY se apaga");
-        xtal_hse->attach();
+
+        // Y el caso que el modelo daba por bueno y el silicio no: BYPASS con un
+        // CRISTAL colgado del pin. En bypass el amplificador esta APAGADO y
+        // OSC_IN es una entrada digital; un resonador pasivo no conmuta, asi
+        // que no hay reloj que medir. Antes bastaba con que el nodo no
+        // estuviera al aire -el cristal lo polariza- y el HSE arrancaba a su
+        // frecuencia nominal: el simulador era MAS PERMISIVO que el chip, y un
+        // `RCC_HSE_BYPASS` sobre un cristal funcionaba aqui y se colgaba en la
+        // placa. Esa es la direccion de error que no queremos.
+        xtal_hse->attach();                                   // cristal, pasivo
+        wait(1, SC_US);
+        tm.write32(addr::RCC_B + Rcc::R_CR, 0x00010001u);      // HSEON sin BYP
+        tm.write32(addr::RCC_B + Rcc::R_CR, 0x00050001u);      // HSEBYP | HSEON
+        wait(4, SC_MS);
+        tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        check_eq((cr >> 17) & 1u, 0u,
+                 "en bypass, un cristal pasivo no es un reloj: HSERDY no sube");
+        // El mismo cristal, con el amplificador ENCENDIDO, si arranca.
+        tm.write32(addr::RCC_B + Rcc::R_CR, 0x00000001u);      // HSEON a 0
+        wait(1, SC_US);
+        tm.write32(addr::RCC_B + Rcc::R_CR, 0x00010001u);      // HSEON, sin BYP
+        wait(4, SC_MS);
+        tm.read32(addr::RCC_B + Rcc::R_CR, cr);
+        check_eq((cr >> 17) & 1u, 1u,
+                 "y el mismo cristal sin bypass si arranca: HSERDY a 1");
+        check_near(dut->rcc.hse.out_hz(), 8e6, 0.001,
+                   "a su frecuencia NOMINAL, que la marca el corte del cuarzo");
     }
 
     // -----------------------------------------------------------------------

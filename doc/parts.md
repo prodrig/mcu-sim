@@ -351,7 +351,25 @@ real y lo que el modelo reproduce.
 
 | Parámetro | Omisión | Efecto |
 | :--- | :--- | :--- |
-| `r_cerrado` | `10` | Resistencia del contacto cerrado, en ohmios. Pulsado, la pieza gobierna el nodo con `{0 V, r_cerrado}` |
+| `r_cerrado` | `10` | Resistencia del contacto cerrado, en ohmios. Pulsado, la pieza gobierna el nodo con `{v_cerrado, r_cerrado}` |
+| `v_cerrado` | `0` | **La tensión a la que lleva el pin al cerrarse.** Cero es el pulsador a masa de siempre; `3.3` es el pulsador a VDD |
+
+**No todos los pulsadores van a masa, y la diferencia se nota en el firmware.**
+En la STM32F4-Discovery el botón de usuario lleva PA0 **a VDD** y es una
+resistencia externa la que lo sujeta abajo; por eso el código que STM32CubeIDE
+genera para esa placa configura PA0 como EXTI por flanco de **subida** y sin
+pull interno. Descrito con un pulsador a masa, ese flanco no llegaría nunca y el
+firmware parecería roto sin estarlo:
+
+```xml
+<nodo id="PA0" bus="si"/>              <!-- los dos conducen al pulsar -->
+<componente tipo="Button" id="B1" v_cerrado="3.3" r_cerrado="10">
+  <pin nombre="pin" nodo="PA0"/>
+</componente>
+<componente tipo="Rpull" id="R35" v="0" r="100000">
+  <pin nombre="a" nodo="PA0"/>
+</componente>
+```
 
 Se acciona desde C++ con `press()` y `release()`. **Un pulsador
 `conectada="no"` no cierra aunque se le pulse.**
@@ -832,29 +850,56 @@ nadie lo lee y la pieza usa su valor por omisión.
 
 ## 6. Un ejemplo completo
 
-`src/placas/discovery_min.xml` — una placa mínima al estilo de las Discovery de
-ST:
+`src/placas/discovery_min.xml` — la **STM32F4DISCOVERY (MB997)**: los dos
+osciladores, los cuatro LEDs, los dos pulsadores, el arranque y los pines de
+depuración. El fichero lleva en la cabecera las tres cosas que conviene saber
+antes de usarla —el pulsador azul va a VDD y no a masa, el negro va a NRST y no
+a PB2, y el cristal del LSE no viene soldado en la tarjeta real—. Aquí, el
+esqueleto:
 
 ```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<placa nombre="discovery-min">
-  <nodo id="PH0"/>
-  <nodo id="PD12"/>
-  <nodo id="PA0"/>
-
-  <componente tipo="Crystal" id="X1" vdd="3.3">
+<placa nombre="discovery">
+  <componente tipo="Crystal" id="X2" vdd="3.3">          <!-- HSE 8 MHz  -->
     <pin nombre="osc_in" nodo="PH0"/>
   </componente>
-
-  <componente tipo="Led" id="LD4" a_vss="si" vf="2.0" r="330">
-    <pin nombre="anodo" nodo="PD12"/>
+  <componente tipo="Crystal" id="X3" vdd="3.3">          <!-- LSE 32 kHz -->
+    <pin nombre="osc_in" nodo="PC14"/>
   </componente>
 
-  <componente tipo="Button" id="B1" r_cerrado="10">
+  <!-- verde PD12, naranja PD13, rojo PD14, azul PD15; 680 ohmios -->
+  <componente tipo="Led" id="LD4" a_vss="si" vf="2.0" r="680">
+    <pin nombre="anodo" nodo="PD12"/>
+  </componente>
+  <!-- ... LD3, LD5 y LD6 igual ... -->
+
+  <nodo id="PA0" bus="si"/>                              <!-- boton azul -->
+  <componente tipo="Button" id="B1" v_cerrado="3.3" r_cerrado="10">
     <pin nombre="pin" nodo="PA0"/>
+  </componente>
+  <componente tipo="Rpull" id="R35" v="0" r="100000">
+    <pin nombre="a" nodo="PA0"/>
+  </componente>
+
+  <nodo id="NRST" bus="si"/>                             <!-- boton negro -->
+  <componente tipo="Button" id="B2" r_cerrado="10">
+    <pin nombre="pin" nodo="NRST"/>
   </componente>
 </placa>
 ```
+
+Con los cuatro LEDs encendidos, el informe final enseña de un vistazo por qué
+llevan Vf distintas:
+
+```
+  LED LD4 en PD12: encendido  (3.20 V, 1.77 mA)      verde,   Vf 2,0
+  LED LD3 en PD13: encendido  (3.20 V, 1.77 mA)      naranja, Vf 2,0
+  LED LD5 en PD14: encendido  (3.19 V, 2.04 mA)      rojo,    Vf 1,8
+  LED LD6 en PD15: encendido  (3.28 V, 0.41 mA)      azul,    Vf 3,0
+```
+
+El azul da **cuatro veces menos corriente** que los otros: con 3,0 V de caída
+sobre 3,3 V de alimentación no queda casi nada para la resistencia. No es una
+simplificación del modelo, es lo que pasa en la tarjeta.
 
 `src/placas/led_azul_5v.xml` — el montaje invertido a 5 V de §4.1, listo para
 correr con el blinky:

@@ -131,6 +131,15 @@ private:
         din.write(false); din_valid.write(false); out_of_range.write(false);
         pending_ = drive.read();
         apply_ev_.notify(sc_core::SC_ZERO_TIME);
+        // MIRAR ANTES DE ESPERAR. Un nodo que ya esta sujeto cuando arranca la
+        // simulacion -una resistencia de pull externa, que conduce desde que se
+        // construye- no genera ningun evento despues, asi que esperar primero
+        // dejaba la entrada leyendo 0 PARA SIEMPRE: el IDR decia cero con el pin
+        // a 3,3 V. Es el mismo fallo que ya se corrigio en el LED por el mismo
+        // motivo -hay montajes donde el nodo no se mueve nunca- y aqui es peor,
+        // porque quien se equivoca no es el modelo sino el firmware que lo lee.
+        wait(sc_core::SC_ZERO_TIME);      // que se aplique el drive inicial
+        sample_input();
         for (;;) {
             wait(drive.value_changed_event() | net->value_changed_event());
             const PadDrive d = drive.read();

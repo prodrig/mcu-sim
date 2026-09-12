@@ -60,15 +60,42 @@ SC_MODULE(Oscillator) {
         SC_METHOD(pub_proc); sensitive << pub_ev_;
     }
 
-    // ¿Hay fuente externa conectada al pin OSC_IN?
+    // ¿Hay algo conectado eléctricamente al pin OSC_IN?
     bool source_present() const {
         if (!needs_source) return true;
         return xtal_in && !xtal_in->floating();
     }
-    // Frecuencia efectiva: en bypass, la medida en el pin si se ha podido medir.
-    double effective_hz() const {
-        return (bypass && meas_hz_ > 0.0) ? meas_hz_ : nominal_hz;
+    // ¿Es esa fuente la que este MODO necesita? Que haya algo conectado no
+    // basta, porque los dos modos piden cosas distintas y el silicio los
+    // distingue [IR, §4.2]:
+    //
+    //   BYPASS = 0 (cristal): el oscilador EXCITA un resonador. Le vale
+    //            cualquier componente pasivo colgado del pin.
+    //   BYPASS = 1 (reloj externo): el amplificador esta APAGADO y el pin es
+    //            una entrada digital. Hace falta una senal que CONMUTE. Un
+    //            cristal pasivo aqui no da nada, xxxRDY no sube nunca y el
+    //            firmware se queda esperando -o cae en su Error_Handler-.
+    //
+    // Esa segunda linea es la que faltaba: se daba por buena cualquier fuente
+    // presente y se caia a la frecuencia nominal, con lo que un
+    // `RCC_HSE_BYPASS` sobre un cristal FUNCIONABA en el modelo y se habria
+    // colgado en la placa. El simulador era mas permisivo que el silicio, que
+    // es la direccion de error que no queremos: el alumno lo ve funcionar aqui
+    // y fallar alli.
+    //
+    // La distincion se hace con lo unico que hay: la electricidad del pin. Si
+    // conmuta, se ha podido medir su frecuencia; si no, es algo pasivo.
+    bool fuente_valida() const {
+        if (!needs_source) return true;
+        if (!source_present()) return false;
+        return bypass ? (meas_hz_ > 0.0) : true;
     }
+    // Frecuencia efectiva. En bypass es SIEMPRE la medida en el pin: sin medida
+    // no hay reloj, y por eso `fuente_valida()` no deja arrancar. En modo
+    // cristal es la NOMINAL del resonante, y no la que se mida en el pin: lo
+    // que oscila ahi es el propio amplificador contra el cristal, no una senal
+    // ajena, y quien manda es el corte del cuarzo.
+    double effective_hz() const { return bypass ? meas_hz_ : nominal_hz; }
     bool failed() const { return failed_; }
     void clear_failed() { failed_ = false; }
     // Generación de la onda cuadrada (véase clock_gen.h): se puede apagar
@@ -105,7 +132,7 @@ private:
                 // que ve el firmware real cuando falta el componente externo.
                 wait(sc_core::sc_time(t_startup_s, sc_core::SC_SEC));
                 if (!on_) continue;              // se apagó durante el arranque
-                if (!source_present()) { failed_ = true; continue; }
+                if (!fuente_valida()) { failed_ = true; continue; }
                 failed_ = false;
                 gen_.set_freq(effective_hz());
                 ready_ = true;
@@ -124,13 +151,18 @@ private:
         for (;;) {
             if (!needs_source || !xtal_in) { wait(state_ev_); continue; }
             wait(xtal_in->value_changed_event() | state_ev_);
-            if (on_ && ready_ && !source_present()) {
+            // Si el pin se queda al aire, la MEDIDA deja de valer. Sin esto
+            // la frecuencia medida es pegajosa: se retira el reloj externo, se
+            // cuelga otra cosa del mismo pin y el bypass arrancaria con la
+            // frecuencia del reloj que ya no esta.
+            if (!source_present()) meas_hz_ = 0.0;
+            if (on_ && ready_ && !fuente_valida()) {
                 // La fuente ha desaparecido: el oscilador cae.
                 ready_ = false; failed_ = true;
                 gen_.set_freq(0.0);
                 publish();
                 state_ev_.notify(sc_core::SC_ZERO_TIME);
-            } else if (on_ && !ready_ && source_present()) {
+            } else if (on_ && !ready_ && fuente_valida()) {
                 // El componente externo aparece (o vuelve) con xxxON ya a 1:
                 // el oscilador reintenta el arranque, como haría el silicio.
                 ctrl_ev_.notify(sc_core::SC_ZERO_TIME);
@@ -150,10 +182,17 @@ private:
             if (dt <= 0.0) continue;
             const double hz = 1.0 / dt;
             if (std::fabs(hz - meas_hz_) > 0.001 * hz) {
+                const bool primera = (meas_hz_ == 0.0);
                 meas_hz_ = hz;
                 if (bypass && on_ && ready_) {    // reprograma en caliente
                     gen_.set_freq(effective_hz());
                     state_ev_.notify(sc_core::SC_ZERO_TIME);
+                } else if (bypass && on_ && !ready_ && primera) {
+                    // En bypass, la fuente valida NO es el nodo: es que el pin
+                    // conmute. Acaba de empezar a conmutar con xxxON ya puesto,
+                    // asi que el oscilador reintenta el arranque -lo mismo que
+                    // hace `source_proc` cuando aparece el componente-.
+                    ctrl_ev_.notify(sc_core::SC_ZERO_TIME);
                 }
             }
         }
