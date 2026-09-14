@@ -1065,6 +1065,7 @@ SC_MODULE(F1Tb) {
         t123_varios_mcu();
         t124_pulsador_nc();
         t125_nombres_de_pin();
+        t126_ayuda_componentes();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -13641,6 +13642,123 @@ SC_MODULE(F1Tb) {
               "todas se canonizan a PD12, que es como se llaman en los volcados");
         check(nombre_canonico_pad("n_scl") == "n_scl",
               "y lo que no es un pad pasa de largo sin tocarlo");
+    }
+
+    // T126 — La AYUDA de los componentes: `sim --help COMPONENTE`
+    //
+    // La comprobación que de verdad importa aquí no es que el texto de un LED
+    // diga lo que dice, sino que NO HAYA NINGUNA PIEZA SIN TEXTO — hoy y el
+    // día que alguien añada la vigésima tercera. La macro de registro ya hace
+    // imposible olvidarse (el argumento es obligatorio), pero no puede juzgar
+    // si un texto dice algo; de eso se encarga esto.
+    //
+    // Todo lo de aquí es puro: se consulta un mapa estático, no se avanza el
+    // reloj y no se toca ningún nodo. Por eso no mueve el tiempo simulado del
+    // banco ni una picosegundo, que es la invariante que este proyecto cuida.
+    // -----------------------------------------------------------------------
+    void t126_ayuda_componentes() {
+        group("T126 Ayuda: todo componente registrado se explica solo");
+
+        // --- 1. Ninguna pieza muda, que es el punto -------------------------
+        const std::vector<std::string> mudas = Fabrica::sin_documentar();
+        if (!mudas.empty()) {
+            std::string s;
+            for (const std::string& t : mudas) { if (!s.empty()) s += ", "; s += t; }
+            std::printf("    piezas sin ayuda: %s\n", s.c_str());
+        }
+        check(mudas.empty(),
+              "toda pieza registrada tiene resumen y terminales: `sim --help "
+              "TIPO` sabe que decir de cualquiera");
+        check(!Fabrica::tipos().empty(), "y hay piezas registradas que mirar");
+
+        // --- 2. Una por una, el contenido mínimo ---------------------------
+        // Recorrer la factoría y no una lista escrita a mano es lo que hace
+        // que esto siga valiendo para las piezas de mañana.
+        unsigned con_atributos = 0, con_ejemplo = 0;
+        bool todas_con_ficha = true, todas_se_nombran = true;
+        for (const std::string& t : Fabrica::tipos()) {
+            const Ayuda* a = Fabrica::ayuda(t);
+            if (!a) { todas_con_ficha = false; continue; }
+            const std::string ficha = a->texto(t);
+            // La ficha empieza por el nombre del tipo y lleva su pie común.
+            if (ficha.rfind(t + "\n", 0) != 0) todas_se_nombran = false;
+            if (ficha.find("TERMINALES") == std::string::npos ||
+                ficha.find("TODO COMPONENTE ADMITE ADEMAS") == std::string::npos ||
+                ficha.find("doc/parts.md") == std::string::npos)
+                todas_con_ficha = false;
+            // Y ninguna línea se pasa de ancho: esto sale por una consola.
+            for (size_t i = 0, j; i < ficha.size(); i = j + 1) {
+                j = ficha.find('\n', i);
+                if (j == std::string::npos) j = ficha.size();
+                // Los ejemplos de XML se imprimen tal cual y pueden ser
+                // largos; el resto va envuelto a 78.
+                if (j - i > 84) todas_con_ficha = false;
+            }
+            if (!a->atributos().empty()) ++con_atributos;
+            if (ficha.find("<componente") != std::string::npos) ++con_ejemplo;
+        }
+        check(todas_se_nombran, "cada ficha empieza nombrando su tipo");
+        check(todas_con_ficha,
+              "y todas llevan terminales, el pie comun y ninguna linea "
+              "desbordada");
+        check(con_atributos >= 10,
+              "la mayoria documenta ademas sus atributos del XML");
+        check(con_ejemplo >= 10, "y lleva un ejemplo de <componente> que copiar");
+
+        // --- 3. El contenido de dos que conocemos bien ----------------------
+        const Ayuda* led = Fabrica::ayuda("Led");
+        check(led != nullptr, "la factoria sabe de `Led`");
+        if (led) {
+            const std::string f = led->texto("Led");
+            check(f.find("a_vss") != std::string::npos &&
+                  f.find("vf") != std::string::npos &&
+                  f.find("r") != std::string::npos,
+                  "la ficha del Led nombra sus tres parametros");
+            check(f.find("por omision 2.0") != std::string::npos,
+                  "y dice el valor por omision de cada uno");
+            check(f.find("anodo") != std::string::npos &&
+                  f.find("catodo") != std::string::npos,
+                  "y las dos maneras de llamar a la patilla que va al pin");
+        }
+        const Ayuda* btn = Fabrica::ayuda("Button");
+        check(btn != nullptr, "y de `Button`");
+        if (btn) {
+            const std::string f = btn->texto("Button");
+            check(f.find("normalmente") != std::string::npos &&
+                  f.find("v_cerrado") != std::string::npos,
+                  "la ficha del Button nombra `normalmente` y `v_cerrado`");
+            check(f.find("cerrado") != std::string::npos &&
+                  f.find("XOR") != std::string::npos,
+                  "y explica que lo que conduce es pulsado XOR normalmente "
+                  "cerrado");
+        }
+
+        // --- 4. Cómo se busca: sin distinguir mayúsculas --------------------
+        // Para PREGUNTAR da igual como se escriba; para DESCRIBIR UNA PLACA
+        // no, y eso no cambia: el XML sigue distinguiendo.
+        check(Fabrica::busca_laxo("led") == "Led" &&
+              Fabrica::busca_laxo("LED") == "Led" &&
+              Fabrica::busca_laxo("Led") == "Led",
+              "`--help led`, `--help LED` y `--help Led` dan la misma ficha");
+        check(Fabrica::busca_laxo("canwire") == "CanWire",
+              "y vale igual para los nombres de dos palabras");
+        check(Fabrica::busca_laxo("Lde").empty(),
+              "un tipo que no existe no se inventa: `--help Lde` no da ficha");
+        check(Fabrica::busca_laxo("").empty(), "ni la cadena vacia");
+        check(!Fabrica::conoce("led"),
+              "pero la factoria SIGUE distinguiendo mayusculas al construir: "
+              "un <componente tipo=\"led\"> es un error, como siempre");
+
+        // --- 5. El envoltorio de texto --------------------------------------
+        {
+            using namespace detalle_ayuda;
+            const std::string t = envuelve("uno dos tres cuatro cinco", 2, 12);
+            check(t == "  uno dos\n  tres\n  cuatro\n  cinco\n",
+                  "el envoltorio corta por espacios y sangra cada linea");
+            check(envuelve("a\n\nb", 0, 20) == "a\n\nb\n",
+                  "y respeta los saltos de linea que ya trae el texto");
+            check(envuelve("", 2) == "", "un texto vacio no da linea ninguna");
+        }
     }
 
     // T123 — VARIOS MCUs en la placa: la declaración

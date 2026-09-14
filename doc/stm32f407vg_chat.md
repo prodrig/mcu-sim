@@ -2631,3 +2631,98 @@ añadido sin preguntar porque cambian la interfaz y eso se decide, no se supone.
 
 Suite 1935/1935 y `2336217899213 ps` —`sim_main.cpp` no entra en el banco, pero
 se comprueba igual—. Puntos: 150 → 151.
+
+---
+
+## `sim --help COMPONENTE`
+
+> Modifica el programa para que `sim --help COMPONENTE` informe al usuario sobre
+> el funcionamiento del componente `COMPONENTE` y sus atributos en el XML. Añade
+> esta capacidad a todos los componentes que se añadan en el futuro.
+
+Hecho. Los veintiún tipos tienen ficha:
+
+```
+$ ./build/sim --help Button
+Button
+======
+
+  Pulsador. SIN PULSAR DEJA EL PIN ABIERTO, asi que el nivel de reposo tiene
+  que darlo alguien: el pull interno del MCU o un Rpull externo. Sin ninguno
+  de los dos el pin queda indeterminado, que es lo que pasa en una placa real
+  y lo que el modelo reproduce.
+
+  <nodo id="PA0" bus="si"/>
+  <componente tipo="Button" id="B1" v_cerrado="3.3" r_cerrado="10">
+    <pin nombre="pin" nodo="PA0"/>
+  </componente>
+  ...
+
+TERMINALES  (<pin nombre="..." nodo="..."/>)
+  pin             obligatorio
+      El pin del pulsador.
+
+ATRIBUTOS DEL XML  (<componente ... nombre="valor">)
+  r_cerrado       por omision 10
+      Resistencia del contacto cerrado, en ohmios. Cerrado, la pieza gobierna
+      el nodo con {v_cerrado, r_cerrado}.
+  ...
+```
+
+**Pero la orden no es la parte interesante del encargo.** La segunda frase —«a
+todos los componentes que se añadan en el futuro»— es la que decide el diseño, y
+tiene dos respuestas posibles con consecuencias muy distintas.
+
+La cómoda es una tabla `tipo → texto` en el fichero que imprime la ayuda. Se
+escribe en veinte minutos y **se queda vieja el primer día**: alguien añade un
+parámetro al creador del `Led`, no se acuerda de la tabla, y a partir de ahí la
+ayuda miente. Una ayuda que miente es peor que no tener ninguna, porque el que la
+lee ya no vuelve al código a comprobarlo.
+
+La otra es que **el texto viaje con el registro**. `REGISTRA_PARTE` pasa a tener
+tres argumentos —tipo, ayuda y creador— en la misma llamada:
+
+```cpp
+REGISTRA_PARTE(Led,
+    Ayuda("Diodo con su resistencia en serie. NO ES LINEAL: ...")
+      .pin("anodo o catodo", "uno de los dos", "La patilla que va al pin...")
+      .atr("vf", "2.0", "Tension directa del diodo, en voltios...")
+      .nota("EL CASO DEL LED AZUL. Con vf=3,0 sobre 3,3 V...")
+      .cpp("on() dice si luce y current() la corriente..."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        return new Led(...);
+    });
+```
+
+Y el argumento del medio **no es opcional**. No hace falta acordarse de
+documentar la pieza nueva en otro sitio, porque no hay otro sitio: si no se pasa
+la ayuda, no compila. Eso es lo que responde a la segunda frase — no una
+convención que haya que recordar, sino una que no se puede saltar.
+
+Lo que la macro no puede hacer es juzgar si un texto dice algo. De eso se
+encargan tres redes, en este orden: `Ayuda::completa()` exige resumen y
+terminales, `Fabrica::sin_documentar()` enumera las que no lo cumplen, `--help`
+avisa si hay alguna, y **T126** falla. Las veintiuna comprobaciones de T126
+**recorren la factoría**, no una lista escrita a mano, que es la única forma de
+que sigan valiendo para la pieza número veintidós.
+
+Tres decisiones pequeñas dentro:
+
+* **`--help led` vale.** La búsqueda no distingue mayúsculas, porque quien
+  escribe eso en una consola está *preguntando*. El XML sigue distinguiéndolas,
+  porque ahí se está *describiendo una placa*, y son dos cosas distintas.
+* **El error de tipo desconocido lo dice ahora**: `tipo desconocido 'led'. Se
+  escribe 'Led': el tipo distingue mayúsculas`, en vez de limitarse a enumerar
+  los veintiuno y dejar que el lector los compare.
+* **El formateo respeta lo preformateado.** Una línea del texto que empiece por
+  espacio se copia tal cual, que es lo que deja meter la tablita de «pulsado XOR
+  normalmente cerrado» dentro de una nota sin que el envoltorio le destroce las
+  columnas.
+
+`doc/parts.md` no desaparece y ahora dice por qué: de los dos, `--help` es el que
+está siempre al día y se tiene a mano sin salir de la consola; el catálogo tiene
+las tablas, las comparaciones y los ejemplos largos que no caben en una ficha.
+
+Suite **1956/1956** (+21) y el invariante intacto en **`2336217899213 ps`**: todo
+lo de T126 es consulta de un mapa estático, no avanza el reloj ni toca un nodo.
+ASan+UBSan limpios. Puntos: 151 → 152, con **I-38** cerrado.

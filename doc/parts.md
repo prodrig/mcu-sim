@@ -10,10 +10,22 @@ Una placa se describe en XML y se monta con:
 ./build/sim placa.xml [firmware.bin] [ms]
 ./build/sim placa.xml --valida        # comprueba la placa sin simular
 ./build/sim --help                    # lista los tipos que conoce la factoría
+./build/sim --help Button             # qué hace ese componente y qué admite
 ```
 
-El formato y el porqué están en `doc/stm32f407vg_parts_paso3.md`; esto es el
-catálogo.
+**Este documento y `sim --help` dicen lo mismo, y no por casualidad.** La ficha
+que imprime `--help` no está escrita en el programa que la imprime: viaja con el
+registro de la pieza en la factoría, en la misma llamada que da de alta su
+creador, de modo que no hay dos sitios que puedan discrepar. La macro de
+registro **exige** esa ficha, así que una pieza nueva no se puede dar de alta
+sin explicarse, y la suite comprueba que ninguna se ha registrado con una ayuda
+de adorno (T126). El porqué está en `src/parts/part_help.h`.
+
+De los dos, `--help` es el que está siempre al día y el que se tiene a mano sin
+salir de la consola; esto es el catálogo, con tablas, comparaciones y los
+ejemplos largos que no caben en una ficha.
+
+El formato y el porqué están en `doc/stm32f407vg_parts_paso3.md`.
 
 ---
 
@@ -315,6 +327,12 @@ componente.
 ---
 
 ## 4. El catálogo
+
+> `./build/sim --help TIPO` imprime la ficha de cualquiera de estas piezas sin
+> salir de la consola: qué hace, sus terminales, sus atributos con el valor por
+> omisión de cada uno y un `<componente>` de ejemplo que copiar. Para
+> **preguntar** da igual cómo se escriba el nombre —`--help led` vale—; para
+> **describir una placa** no, que ahí `tipo="led"` sigue siendo un error.
 
 ### 4.1 Piezas pasivas y de estímulo
 
@@ -902,7 +920,14 @@ acciones, no descripción, y viven en el programa que conduce la simulación.
 siguen fijados en C++. El fichero describe lo que está fuera del chip.
 
 **Un parámetro mal escrito no se detecta** (§3.4): se guarda como parámetro,
-nadie lo lee y la pieza usa su valor por omisión.
+nadie lo lee y la pieza usa su valor por omisión. Lo único que se puede hacer
+hoy es comparar con la ficha: `sim --help Led` enumera los cuatro que un LED
+mira, y cualquier otro que aparezca en el `<componente>` sobra.
+
+**Un tipo mal escrito sí** (§3.1), y desde que existen las fichas el mensaje
+distingue el caso frecuente: si lo único que falla son las mayúsculas, lo dice
+—`tipo desconocido 'led'. Se escribe 'Led': el tipo distingue mayúsculas`— en
+lugar de limitarse a enumerar los veintiuno.
 
 ---
 

@@ -141,6 +141,43 @@ static void muere(const std::string& msg) {
     std::exit(2);
 }
 
+// ---------------------------------------------------------------------------
+// `sim --help COMPONENTE`
+//
+// La ficha de una pieza: qué hace, qué terminales tiene y qué atributos admite
+// en el XML. El texto NO ESTÁ AQUÍ: lo lleva cada entrada de la factoría, en la
+// misma llamada que da de alta el creador [parts/part_help.h]. Esto solo lo
+// busca y lo imprime, y por eso una pieza nueva sale en `--help` sin tocar este
+// fichero — que es media respuesta a «añade esta capacidad a todos los
+// componentes que se añadan en el futuro». La otra media es que la macro de
+// registro exige la ayuda, así que no se puede añadir una pieza sin ella.
+// ---------------------------------------------------------------------------
+static int ayuda_de_componente(const std::string& que) {
+    const std::string tipo = Fabrica::busca_laxo(que);
+    if (tipo.empty()) {
+        std::fprintf(stderr,
+            "no se que es un componente de tipo '%s'.\n\n"
+            "Los tipos que se saben construir son:\n  %s\n\n"
+            "Se escriben con la mayuscula inicial en el XML -`Led`, no `LED`-,\n"
+            "aunque aqui, para preguntar, da igual como se escriban.\n",
+            que.c_str(), Fabrica::tipos_como_texto().c_str());
+        return 1;
+    }
+    const Ayuda* a = Fabrica::ayuda(tipo);
+    // No puede pasar -la macro de registro exige la ayuda-, pero si alguien
+    // consigue registrar una pieza sin ella, que se vea, y que se vea dónde se
+    // arregla. Una ayuda vacía en silencio sería lo único peor que no tenerla.
+    if (!a || !a->completa()) {
+        std::fprintf(stderr,
+            "el componente '%s' existe pero no se ha explicado: su entrada en\n"
+            "src/parts/netlist_parts.h se registro con una ayuda vacia. Eso es\n"
+            "un fallo del modelo, no del fichero de placa.\n", tipo.c_str());
+        return 1;
+    }
+    std::fputs(a->texto(tipo).c_str(), stdout);
+    return 0;
+}
+
 SC_MODULE(Sim) {
     std::vector<McuMontado> mcus;
     NodeMap      nodos;
@@ -457,7 +494,15 @@ int sc_main(int argc, char** argv) {
         else if (a.rfind("--port=", 0) == 0) {
             g_gdb_puerto = unsigned(std::atoi(a.c_str() + 7));
             g_puerto_dado = true;
-        } else if (a == "-h" || a == "--help") {
+        } else if (a == "-h" || a == "--help" || a.rfind("--help=", 0) == 0) {
+            // `--help COMPONENTE` y `--help=COMPONENTE`. Lo que sigue se toma
+            // como nombre de pieza solo si no empieza por guion: así
+            // `sim --help --valida` sigue siendo la ayuda general y no un
+            // componente llamado `--valida`.
+            std::string que;
+            if (a.rfind("--help=", 0) == 0) que = a.substr(7);
+            else if (i + 1 < argc && argv[i + 1][0] != '-') que = argv[++i];
+            if (!que.empty()) return ayuda_de_componente(que);
             std::printf(
                 "uso: sim placa.xml [firmware.bin] [ms]\n"
                 "     sim placa.xml --valida     solo comprueba la placa\n"
@@ -472,6 +517,8 @@ int sc_main(int argc, char** argv) {
                 "                                declara ninguno (por omision %s)\n"
                 "     sim placa.xml --ms=2       tiempo simulado (global: hay un\n"
                 "                                solo reloj por muchos chips)\n"
+                "     sim --help COMPONENTE      que hace ese componente y que\n"
+                "                                atributos admite en el XML\n"
                 "\n"
                 "Por omision simula 100 ms y para. Para que NO termine hasta que lo\n"
                 "digas tu, pide un stub: con un puerto escuchando la simulacion corre\n"
@@ -488,9 +535,29 @@ int sc_main(int argc, char** argv) {
                 "\n"
                 "Los MCUs que se saben construir son:\n  %s\n"
                 "\n"
-                "Los tipos de componente que se saben construir son:\n  %s\n",
+                "Los tipos de componente que se saben construir son:\n  %s\n"
+                "\n"
+                "Cada uno se explica solo: `sim --help Led` cuenta lo que hace un\n"
+                "LED y que atributos admite. El catalogo completo, con tablas y\n"
+                "ejemplos, esta en doc/parts.md.\n",
                 TIPO_MCU, tipos_como_texto().c_str(),
                 Fabrica::tipos_como_texto().c_str());
+            // Si alguna pieza se ha registrado sin explicarse, que se sepa
+            // aquí y no el día que alguien la busque. No debería pasar -la
+            // macro exige la ayuda- y la suite lo comprueba (T126).
+            const std::vector<std::string> mudas = Fabrica::sin_documentar();
+            if (!mudas.empty()) {
+                std::string s;
+                for (const std::string& t : mudas) {
+                    if (!s.empty()) s += ", ";
+                    s += t;
+                }
+                std::fprintf(stderr,
+                    "\nAVISO: estos componentes se registraron sin ayuda y "
+                    "`--help` no sabra\nque decir de ellos: %s\n"
+                    "Se arregla en su entrada de src/parts/netlist_parts.h.\n",
+                    s.c_str());
+            }
             return 0;
         } else libres.push_back(a);
     }

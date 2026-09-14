@@ -515,9 +515,20 @@ public:
                 err.push_back("identificador repetido: " + i.id);
             if (i.tipo.empty())
                 err.push_back(i.id + ": instancia sin tipo");
-            if (!i.crea)
-                err.push_back(i.id + ": tipo desconocido '" + i.tipo +
-                              "'. La fabrica conoce: " + Fabrica::tipos_como_texto());
+            if (!i.crea) {
+                // Y si lo unico que falla son las mayusculas -`led` por
+                // `Led`-, decirlo, que es el error de verdad frecuente. El
+                // resto de la lista sigue saliendo: el que se equivoca aqui
+                // tiene un editor de texto delante y necesita ver que hay.
+                std::string m = i.id + ": tipo desconocido '" + i.tipo + "'.";
+                const std::string cerca = Fabrica::busca_laxo(i.tipo);
+                if (!cerca.empty())
+                    m += " Se escribe '" + cerca + "': el tipo distingue "
+                         "mayusculas.";
+                m += " La fabrica conoce: " + Fabrica::tipos_como_texto() +
+                     ". `sim --help TIPO` cuenta lo que hace cada uno.";
+                err.push_back(m);
+            }
             for (const auto& r : i.refs) {
                 const Instancia* dest = busca(r.second);
                 if (!dest) {
