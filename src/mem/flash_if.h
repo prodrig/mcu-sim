@@ -23,6 +23,7 @@
 #include <cstdio>
 #include <algorithm>
 #include "../common/periph_base.h"
+#include "mem_caps.h"
 
 namespace stm32 {
 
@@ -60,10 +61,17 @@ public:
     sc_core::sc_time t_erase{1,  sc_core::SC_MS};  // por sector
     sc_core::sc_time t_mass_erase{16, sc_core::SC_MS};
 
-    explicit FlashIf(sc_core::sc_module_name nm)
-        : sc_core::sc_module(nm),
-          mem_(addr::FLASH_SIZE, 0xFF), sysmem_(addr::SYSMEM_SIZE, 0xFF),
-          otp_(addr::OTP_SIZE, 0xFF), optb_(addr::OPT_SIZE, 0xFF) {
+    // El mapa de ESTA Flash: base, tamano, tabla de sectores, memoria de
+    // sistema, OTP y bytes de opcion, mas la curva de estados de espera. Por
+    // omision el del F407, de modo que un `FlashIf` construido como siempre es
+    // el de siempre, byte a byte. [mem/mem_caps.h]
+    const MapaFlash mapa;
+
+    explicit FlashIf(sc_core::sc_module_name nm,
+                     MapaFlash m = FLASH_STM32F407VG)
+        : sc_core::sc_module(nm), mapa(m),
+          mem_(m.size, 0xFF), sysmem_(m.sysmem_size, 0xFF),
+          otp_(m.otp_size, 0xFF), optb_(m.opt_size, 0xFF) {
         // Valor de fábrica de los option bytes (OPTCR = 0x0FFF AAED): RDP nivel
         // 0, sin protección de escritura, BOR desactivado [IR, §5.7.1].
         const uint32_t opt_factory = 0x0FFFAAEDu;
@@ -207,14 +215,14 @@ private:
     uint8_t* locate(uint32_t a) {
         if (a < 0x00100000u)                                    // espejo de boot
             return mem_.data() + (a % mem_.size());
-        if (a >= addr::FLASH_BASE && a < addr::FLASH_BASE + addr::FLASH_SIZE)
-            return mem_.data() + (a - addr::FLASH_BASE);
-        if (a >= addr::SYSMEM_BASE && a < addr::SYSMEM_BASE + addr::SYSMEM_SIZE)
-            return sysmem_.data() + (a - addr::SYSMEM_BASE);
-        if (a >= addr::OTP_BASE && a < addr::OTP_BASE + addr::OTP_SIZE)
-            return otp_.data() + (a - addr::OTP_BASE);
-        if (a >= addr::OPT_BASE && a < addr::OPT_BASE + addr::OPT_SIZE)
-            return optb_.data() + (a - addr::OPT_BASE);
+        if (a >= mapa.base && a < mapa.base + mapa.size)
+            return mem_.data() + (a - mapa.base);
+        if (a >= mapa.sysmem_base && a < mapa.sysmem_base + mapa.sysmem_size)
+            return sysmem_.data() + (a - mapa.sysmem_base);
+        if (a >= mapa.otp_base && a < mapa.otp_base + mapa.otp_size)
+            return otp_.data() + (a - mapa.otp_base);
+        if (a >= mapa.opt_base && a < mapa.opt_base + mapa.opt_size)
+            return optb_.data() + (a - mapa.opt_base);
         return nullptr;
     }
 
@@ -353,7 +361,7 @@ private:
                                    case 2: return 4; default: return 8; }
     }
     bool sector_write_protected(int sector) const {
-        if (sector < 0 || sector >= int(N_FLASH_SECTORS)) return true;
+        if (sector < 0 || sector >= int(mapa.n_sectores)) return true;
         return ((optcr_ >> (16 + sector)) & 1u) == 0;   // nWRP: 0 = protegido
     }
 
@@ -388,7 +396,7 @@ private:
         if (len != ps)                { set_err(1u << 6); ok = false; }  // PGPERR
         else if (a % ps)              { set_err(1u << 5); ok = false; }  // PGAERR
         else {
-            const int sec = flash_sector_of(a);
+            const int sec = mapa.sector_de(a);
             if (sec >= 0 && sector_write_protected(sec)) {
                 set_err(1u << 4); ok = false;                             // WRPERR
             } else {
@@ -418,16 +426,16 @@ private:
             sr_ |= 1u;
         } else if (cr_ & (1u << 1)) {                 // SER: borrado de sector
             const unsigned snb = (cr_ >> 3) & 0xFu;
-            if (snb >= N_FLASH_SECTORS) {
+            if (snb >= mapa.n_sectores) {
                 set_err(1u << 1);                     // OPERR (sector inválido)
             } else if (sector_write_protected(int(snb))) {
                 set_err(1u << 4);                     // WRPERR
                 sr_ |= (1u << 1);
             } else {
                 t += t_erase;
-                const uint32_t off = FLASH_SECTORS[snb].base - addr::FLASH_BASE;
+                const uint32_t off = mapa.sectores[snb].base - mapa.base;
                 std::fill(mem_.begin() + off,
-                          mem_.begin() + off + FLASH_SECTORS[snb].size, 0xFF);
+                          mem_.begin() + off + mapa.sectores[snb].size, 0xFF);
                 sr_ |= 1u;                            // EOP
             }
         }
@@ -497,7 +505,7 @@ private:
                 }
                 // Aviso de latencia insuficiente para la frecuencia actual
                 const double f = hclk_hz.read();
-                if (f > 0.0 && latency() < flash_min_latency(f))
+                if (f > 0.0 && latency() < mapa.latencia_minima(f))
                     SC_REPORT_WARNING("flash",
                         "FLASH_ACR.LATENCY insuficiente para la HCLK programada [IR, 5.2.2]");
                 break;

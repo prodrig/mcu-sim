@@ -25,21 +25,26 @@ public:
     explicit ImageLoader(Stm32F407VG& dut) : dut_(dut) {}
 
     // Escribe un byte en la dirección indicada del mapa de memoria.
+    //
+    // Cada bloque dice DE SÍ MISMO dónde empieza y cuánto mide (`Sram::base()`
+    // y `Sram::size()`), en vez de consultar las constantes globales del F407.
+    // No es cosmética: era el último sitio del camino de carga que daba por
+    // sabido el tamaño de las RAM, y con él un chip con otra SRAM cargaba mal
+    // el firmware sin quejarse.
     bool poke8(uint32_t a, uint8_t v) {
-        if (a >= addr::SRAM1_BASE && a < addr::SRAM1_BASE + addr::SRAM1_SIZE) {
-            uint8_t b = v; return dut_.sram1.load(&b, 1, a - addr::SRAM1_BASE);
-        }
-        if (a >= addr::SRAM2_BASE && a < addr::SRAM2_BASE + addr::SRAM2_SIZE) {
-            uint8_t b = v; return dut_.sram2.load(&b, 1, a - addr::SRAM2_BASE);
-        }
-        if (a >= addr::CCM_BASE && a < addr::CCM_BASE + addr::CCM_SIZE) {
-            uint8_t b = v; return dut_.ccm.load(&b, 1, a - addr::CCM_BASE);
-        }
-        if (a >= addr::BKPSRAM_BASE && a < addr::BKPSRAM_BASE + addr::BKPSRAM_SIZE) {
-            uint8_t b = v; return dut_.bkpsram.load(&b, 1, a - addr::BKPSRAM_BASE);
-        }
+        if (en(dut_.sram1, a))   return uno(dut_.sram1, a, v);
+        if (en(dut_.sram2, a))   return uno(dut_.sram2, a, v);
+        if (en(dut_.ccm, a))     return uno(dut_.ccm, a, v);
+        if (en(dut_.bkpsram, a)) return uno(dut_.bkpsram, a, v);
         return dut_.flash.poke_byte(a, v);          // Flash, sysmem, OTP, opt
     }
+    static bool en(const Sram& m, uint32_t a) {
+        return m.size() != 0 && a >= m.base() && a < m.base() + m.size();
+    }
+    static bool uno(Sram& m, uint32_t a, uint8_t v) {
+        uint8_t b = v; return m.load(&b, 1, a - m.base());
+    }
+
     bool poke32(uint32_t a, uint32_t v) {
         for (unsigned i = 0; i < 4; ++i)
             if (!poke8(a + i, uint8_t(v >> (8 * i)))) return false;

@@ -24,12 +24,18 @@
 #include <tlm_utils/simple_target_socket.h>
 #include <tlm_utils/simple_initiator_socket.h>
 #include "../common/ahb_types.h"
+#include "../mem/mem_caps.h"
 
 namespace stm32 {
 
 SC_MODULE(AhbMatrix) {
     static constexpr unsigned NM = unsigned(BusMaster::N_MASTERS);   // 8
     static constexpr unsigned NS = unsigned(BusSlaveId::N_SLAVES);   // 7
+
+    // El mapa de las RAM de ESTE chip, lo primero que se construye: de él salen
+    // los rangos que la matriz decodifica hacia la SRAM1, la SRAM2 y la CCM.
+    // Por omisión el del F407. [mem/mem_caps.h]
+    const MapaRam ram;
 
     sc_core::sc_vector<tlm_utils::simple_target_socket_tagged<AhbMatrix>>
         from_master;                       // [BusMaster]
@@ -51,8 +57,10 @@ SC_MODULE(AhbMatrix) {
     uint64_t n_err_ccm      = 0;         // intentos de alcanzar la CCM
     uint64_t n_contention   = 0;         // transacciones que esperaron a otra
 
-    SC_CTOR(AhbMatrix)
-        : from_master("from_master", NM), to_slave("to_slave", NS) {
+    explicit AhbMatrix(sc_core::sc_module_name nm, MapaRam r = RAM_STM32F407VG)
+        : sc_core::sc_module(nm), ram(r),
+          from_master("from_master", NM), to_slave("to_slave", NS) {
+        SC_HAS_PROCESS(AhbMatrix);
         for (unsigned m = 0; m < NM; ++m) {
             from_master[m].register_b_transport(this, &AhbMatrix::bt_tagged, m);
             from_master[m].register_transport_dbg(this, &AhbMatrix::dbg_tagged, m);
@@ -109,14 +117,16 @@ private:
     // -----------------------------------------------------------------------
     int decode(uint64_t a) const {
         using S = BusSlaveId;
-        if (a < addr::CCM_BASE)                                   // 0x0000_0000-0x0FFF_FFFF
+        if (a < ram.ccm_base)                                     // 0x0000_0000-0x0FFF_FFFF
             return int(S::FLASH_ICODE);                           //   alias 0x0 + Flash
-        if (a < uint64_t(addr::CCM_BASE) + addr::CCM_SIZE) return -2;  // CCM
+        if (ram.hay_ccm() && a < uint64_t(ram.ccm_base) + ram.ccm_size)
+            return -2;                                            // CCM
         if (a <= addr::CODE_END)                                  // sysmem/OTP/opt bytes
             return int(S::FLASH_ICODE);
-        if (a >= addr::SRAM1_BASE && a < uint64_t(addr::SRAM1_BASE) + addr::SRAM1_SIZE)
+        if (a >= ram.sram1_base && a < uint64_t(ram.sram1_base) + ram.sram1_size)
             return int(S::SRAM1);
-        if (a >= addr::SRAM2_BASE && a < uint64_t(addr::SRAM2_BASE) + addr::SRAM2_SIZE)
+        if (ram.hay_sram2() &&
+            a >= ram.sram2_base && a < uint64_t(ram.sram2_base) + ram.sram2_size)
             return int(S::SRAM2);
         if (a >= addr::SRAM_RGN && a <= addr::SRAM_RGN_END) return -1;  // resto SRAM: reservado
         if (a >= 0x40000000ull && a < 0x50000000ull) return int(S::AHB1_SEG);

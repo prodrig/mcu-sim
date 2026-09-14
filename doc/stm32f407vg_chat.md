@@ -2726,3 +2726,97 @@ las tablas, las comparaciones y los ejemplos largos que no caben en una ficha.
 Suite **1956/1956** (+21) y el invariante intacto en **`2336217899213 ps`**: todo
 lo de T126 es consulta de un mapa estático, no avanza el reloj ni toca un nodo.
 ASan+UBSan limpios. Puntos: 151 → 152, con **I-38** cerrado.
+
+---
+
+## Las piezas, reutilizables en otro MCU
+
+> Si no está hecho así ya, modifica el código para que las diferentes partes del
+> stm32f407vg sean fácilmente reutilizables en otros MCUs. Por ejemplo, que sea
+> fácil construir un MCU que tenga el mismo core pero con diferente número de
+> IRQs o bits de prioridad de las interrupciones, diferentes tamaños de memorias
+> (Flash o SRAM).
+
+No estaba hecho así, y conviene decir con precisión **en qué no lo estaba**,
+porque en el papel sí lo parecía.
+
+El proyecto ya usaba la receta de rasgos (`UsartCaps`, `TimCaps`, `SpiCaps`,
+`DebugCaps`) para los periféricos: catorce temporizadores salen del mismo modelo
+y el tipo de cada uno lo fija un `struct`. **El núcleo y las memorias se habían
+quedado fuera.** Ahí estaba todo soldado:
+
+* `N_IRQ = 82` era una constante global del `namespace stm32`, y de ella colgaban
+  `bool enabled_[N_IRQ]`, `uint8_t ipr_[N_IRQ]`, `bool pending_[N_EXCEPTIONS]`…
+  arrays de tamaño fijo, o sea el chip metido en el tipo;
+* la máscara de prioridad era un `0xF0` **escrito a mano en tres sitios**
+  distintos;
+* las ocho regiones del MPU eran `static constexpr` y los índices se recortaban
+  con `& 7u` repartido por seis líneas;
+* `FlashIf` leía `addr::FLASH_SIZE`, `N_FLASH_SECTORS` y `FLASH_SECTORS` **desde
+  dentro**, así que una Flash de otro tamaño no era una instancia distinta: era
+  otro fichero.
+
+Ahora los rasgos son datos, en tres capas:
+
+```cpp
+CoreCaps   // n_irq, prio_bits, mpu_regiones, fpu, cpuid
+MapaFlash  // base, size, tabla de sectores, sysmem/OTP/opt, curva de WS
+MapaRam    // las cuatro RAM; un tamaño a cero = ese bloque NO existe
+McuCaps    // los junta, mas los topes de reloj, con nombre y FAMILIA
+```
+
+Los reciben `Scs`, `Mpu`, `CortexM4F`, `FlashIf`, `AhbMatrix`, `Rcc` y el top,
+**todos con el F407 por omisión**. Un modelo construido como siempre es el de
+siempre, byte a byte y picosegundo a picosegundo.
+
+**Tres decisiones de diseño que merecen explicación.**
+
+*Struct y no plantilla.* Con un `struct` por valor la elección se puede hacer en
+tiempo de compilación —hay alias, `CoreT<DBG_PINES, CORE_M4F_MINIMO>`— o **en
+tiempo de ejecución**, que es lo que hace falta cuando el tipo de MCU viene de un
+XML o de `--mcu`. Una plantilla cerraría lo segundo, y lo segundo es el caso de
+uso de este simulador.
+
+*La geometría de sectores es una tabla, no una división.* Un F407 de 1 MB tiene
+doce sectores de cuatro tamaños distintos. No se calcula; hay que darla.
+
+*La curva de estados de espera sí es una regla.* En toda la familia es *un WS más
+por cada tanto de frecuencia*, y lo que cambia son el escalón y el techo. Con
+esos dos números da **exactamente** lo mismo que la tabla escrita a mano —T127 lo
+comprueba megahercio a megahercio— y además vale para un chip que no llegue a
+168 MHz.
+
+**Tres cosas que se arreglaron de camino y no eran el encargo.** `MPU_TYPE` lee
+0 en un núcleo sin MPU y `CPACR` se queda a cero en uno sin FPU, que es como
+CMSIS averigua que no los hay. El aviso del RCC imprime ahora **el tope del chip
+que se está montando** en vez de un `"HCLK > 168 MHz"` a pelo — un aviso que dice
+168 en un chip que no pasa de 84 es peor que no decir nada. Y la máscara de
+`SHPR3` dejaba fuera el byte de DebugMonitor, que ARMv7-M §B3.2.10 sí implementa;
+al derivarla de `prio_bits` para los cuatro bytes, entró sola.
+
+**La parte honesta, que es la frontera.** Está escrita en `McuCaps::familia`:
+*dos chips de la misma familia se distinguen con un descriptor; dos familias
+distintas necesitan modelo nuevo.* Un F405 es un F407 sin Ethernet ni cámara y se
+describe cambiando números. Un F446 tiene otro árbol de reloj y periféricos que
+aquí no existen, y describirlo con un `McuCaps` no lo convertiría en un F446: lo
+convertiría en **un F407 con etiqueta falsa**, que es justo la clase de mentira
+que I-32 e I-33 vinieron a quitar de este proyecto.
+
+Y lo que **sigue soldado**, anotado en la §7 del documento nuevo: el encapsulado
+(`is_bonded_lqfp100` es todavía una función estática), la tabla de funciones
+alternativas y los números de IRQ de cada periférico. Los tres son de la familia,
+no del chip.
+
+**T127**, treinta y ocho comprobaciones, y no miran los `struct`: montan **un
+NVIC de 32 líneas con tres bits de prioridad y una Flash de 256 KB con seis
+sectores como módulos de verdad, al lado del F407 y en la misma simulación**.
+Escribir `0xFF` en una prioridad deja `0xE0` en uno y `0xF0` en el otro; `ISER1`
+entero se queda a cero en el de 32 líneas mientras la IRQ 5 se habilita sin
+problema; `0x0805_0000` está en el sector 6 del F407 y en **ninguno** del de
+256 KB. Las piezas de laboratorio no son ningún chip y el código lo dice: no hay
+ahí ni un periférico, ni un árbol de reloj, ni un encapsulado.
+
+Suite **1993/1993** (+37), invariante intacto en **`2336217899213 ps`** —los
+módulos de laboratorio se atan a señales que nadie mueve, así que sus procesos no
+despiertan nunca—, ASan+UBSan limpios. Documento nuevo:
+`doc/stm32f407vg_reutilizacion.md`. Puntos: 152 → 153, con **I-39** cerrado.

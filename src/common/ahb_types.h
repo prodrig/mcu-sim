@@ -201,6 +201,12 @@ inline int flash_sector_of(uint32_t a) {
 
 // Estados de espera mínimos de la Flash para VDD = 2.7..3.6 V [IR, §5.2.2].
 // Devuelve la LATENCY mínima legal para una frecuencia HCLK dada.
+//
+// Esto es la curva DEL F407, y por eso sigue aquí. La que usa el modelo es la
+// del chip que se esté montando (`MapaFlash::latencia_minima`, en
+// mem/mem_caps.h), que es la misma regla —un estado de espera más cada 30 MHz—
+// con los dos números como dato: el escalón y el techo. Cambian con el chip y
+// con el rango de VDD, y por eso no podían quedarse escritos en una función.
 inline unsigned flash_min_latency(double hclk_hz) {
     const double f = hclk_hz;
     if (f <=  30e6) return 0;

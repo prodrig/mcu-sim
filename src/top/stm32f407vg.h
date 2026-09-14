@@ -40,6 +40,7 @@
 #include "../periph/eth_mac.h"
 #include "../periph/otg.h"
 #include "../periph/dma.h"
+#include "mcu_caps.h"
 
 namespace stm32 {
 
@@ -52,21 +53,30 @@ SC_MODULE(Or2) {
 };
 
 SC_MODULE(Stm32F407VG) {
+    // El DESCRIPTOR del chip: rasgos del núcleo, mapa de memoria y límites de
+    // reloj. Va LO PRIMERO porque de él salen los tamaños con los que se
+    // construyen las memorias y el núcleo, y por omisión es el del F407VG, de
+    // modo que un modelo construido como siempre es el de siempre.
+    // [top/mcu_caps.h]
+    const McuCaps mcu;
+
     // =========================== Subcomponentes =============================
     PinMux    pinmux;
     PowerPads pwr_pads{"pwr_pads"};
-    Rcc       rcc{"rcc"};
+    Rcc       rcc;
     // El núcleo, con sus rasgos de depuración: pines expuestos (por omisión) o
     // reservados con el stub interno enganchado al DAP. Véase core/cortex_m4f.h
     // y doc/stm32f407vg_fase6_gdb2.md.
     CortexM4F core;
-    AhbMatrix matrix{"matrix"};
+    AhbMatrix matrix;
 
-    FlashIf flash{"flash"};
-    Sram    sram1{"sram1", addr::SRAM1_BASE, addr::SRAM1_SIZE};
-    Sram    sram2{"sram2", addr::SRAM2_BASE, addr::SRAM2_SIZE};
-    BkpSram bkpsram{"bkpsram"};
-    Ccm     ccm{"ccm"};
+    // Las memorias, dimensionadas por el descriptor. Antes leían las constantes
+    // globales del F407; ahora leen las de ESTE chip, que con el descriptor por
+    // omisión son las mismas.
+    FlashIf flash;
+    Sram    sram1, sram2;
+    BkpSram bkpsram;
+    Ccm     ccm;
 
     AhbDecoder   ahb1_dec{"ahb1_dec"}, ahb2_dec{"ahb2_dec"};
     AhbDecoder   apb1_dec{"apb1_dec"}, apb2_dec{"apb2_dec"};
@@ -221,8 +231,17 @@ SC_MODULE(Stm32F407VG) {
     // reata; vacío, el MCU se construye exactamente igual que siempre.
     // [doc/stm32f407vg_multi_mcu.md, §4.3]
     explicit Stm32F407VG(sc_core::sc_module_name nm, DebugCaps dbg = DBG_PINES,
-                         const Cableado& cab = Cableado())
-        : sc_core::sc_module(nm), pinmux("pinmux", cab), core("core", dbg),
+                         const Cableado& cab = Cableado(),
+                         McuCaps caps = MCU_STM32F407VG)
+        : sc_core::sc_module(nm), mcu(caps), pinmux("pinmux", cab),
+          rcc("rcc", caps.reloj),
+          core("core", dbg, caps.nucleo),
+          matrix("matrix", caps.memoria.ram),
+          flash("flash", caps.memoria.flash),
+          sram1("sram1", caps.memoria.ram.sram1_base, caps.memoria.ram.sram1_size),
+          sram2("sram2", caps.memoria.ram.sram2_base, caps.memoria.ram.sram2_size),
+          bkpsram("bkpsram", caps.memoria.ram.bkp_base, caps.memoria.ram.bkp_size),
+          ccm("ccm", caps.memoria.ram.ccm_base, caps.memoria.ram.ccm_size),
           gpio("gpio", N_GPIO_PORTS, [](const char* n, size_t i) {
                    return new GpioPort(n, unsigned(i)); }) {
         SC_HAS_PROCESS(Stm32F407VG);

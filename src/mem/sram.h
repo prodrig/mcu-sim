@@ -122,8 +122,9 @@ protected:
 // [IR, §5.3; §6.1.2 "Restricción crítica"].
 class Ccm : public Sram {
 public:
-    explicit Ccm(sc_core::sc_module_name nm)
-        : Sram(nm, addr::CCM_BASE, addr::CCM_SIZE) {}
+    explicit Ccm(sc_core::sc_module_name nm,
+                 uint32_t base = addr::CCM_BASE, uint32_t size = addr::CCM_SIZE)
+        : Sram(nm, base, size) {}
 };
 
 // BKPSRAM: 4 KB en AHB1, alimentada por VBAT. Se modela como Sram cuyo reset
@@ -131,8 +132,10 @@ public:
 // sistema [IR, §4.1.3, §5.3].
 class BkpSram : public Sram {
 public:
-    explicit BkpSram(sc_core::sc_module_name nm)
-        : Sram(nm, addr::BKPSRAM_BASE, addr::BKPSRAM_SIZE) {}
+    explicit BkpSram(sc_core::sc_module_name nm,
+                     uint32_t base = addr::BKPSRAM_BASE,
+                     uint32_t size = addr::BKPSRAM_SIZE)
+        : Sram(nm, base, size) {}
     // Borrado por bajada del nivel de protección de lectura [IR, §4.1.3].
     void erase_on_rdp_change() { std::fill(mem_.begin(), mem_.end(), 0); }
 };

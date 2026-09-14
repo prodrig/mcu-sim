@@ -169,6 +169,34 @@ SC_MODULE(F1Tb) {
     sc_signal<double> s_rt_hz{"s_rt_hz"};
     sc_signal<bool>   s_rt_irq{"s_rt_irq"}, s_rt_drx{"s_rt_drx"}, s_rt_dtx{"s_rt_dtx"};
 
+    // --- Un NUCLEO Y UNA FLASH DE OTRO CHIP, para T127 ---------------------
+    // Mismo modelo, otros rasgos: 32 lineas de interrupcion en vez de 82, tres
+    // bits de prioridad en vez de cuatro y una Flash de 256 KB con cuatro
+    // sectores en vez de 1 MB con doce. No son un chip que el proyecto afirme
+    // modelar -no hay aqui ningun periferico, ni arbol de reloj, ni
+    // encapsulado-: son LAS PIEZAS montadas de otra manera, que es justo lo
+    // que hay que poder comprobar. Van como miembros porque la elaboracion de
+    // SystemC es estatica.
+    //
+    // Los puertos se atan a senales que nadie mueve: los procesos que cuelgan
+    // de ellas no despiertan nunca, asi que esto no cuesta ni un evento de
+    // simulacion ni un picosegundo de tiempo.
+    Scs           scs_lab{"scs_lab", CORE_M4F_MINIMO};
+    BusTestMaster tm_lab{"tm_lab"};
+    sc_core::sc_vector<sc_signal<bool>>
+                  s_lab_irq{"s_lab_irq", CORE_M4F_MINIMO.n_irq};
+    sc_signal<bool>   s_lab_nmi{"s_lab_nmi"}, s_lab_rst{"s_lab_rst"};
+    sc_signal<bool>   s_lab_srq{"s_lab_srq"}, s_lab_sd{"s_lab_sd"};
+    sc_signal<bool>   s_lab_clk{"s_lab_clk"}, s_lab_ext{"s_lab_ext"};
+    sc_signal<bool>   s_lab_par{"s_lab_par"};
+    sc_signal<double> s_lab_hz{"s_lab_hz"};
+
+    FlashIf           fl_lab{"fl_lab", FLASH_LAB_256K};
+    BusTestMaster     tm_fl{"tm_fl"}, tm_fl_i{"tm_fl_i"}, tm_fl_d{"tm_fl_d"};
+    sc_signal<bool>   s_fl_clk{"s_fl_clk"}, s_fl_rst{"s_fl_rst"}, s_fl_irq{"s_fl_irq"};
+    sc_signal<double> s_fl_hz{"s_fl_hz"};
+    sc_signal<uint8_t> s_fl_bor{"s_fl_bor"};
+
     // --- Circuitería de las pruebas de temporizadores -----------------------
     // Pista de placa PD12 (TIM4_CH1, la salida PWM que ilumina el LED) -> PB4
     // (TIM3_CH1, la entrada de captura). Se suelda solo para esas pruebas.
@@ -416,6 +444,20 @@ SC_MODULE(F1Tb) {
                                        /*smartcard*/false, /*irda*/true,
                                        /*lin*/true, /*half_duplex*/true, "UART+CTS"});
         tm2.isk.bind(u_rt->tsk);
+        // --- Las piezas del nucleo montadas con otros rasgos (T127) --------
+        for (unsigned i = 0; i < CORE_M4F_MINIMO.n_irq; ++i)
+            scs_lab.irq_in[i](s_lab_irq[i]);
+        scs_lab.nmi_in(s_lab_nmi);  scs_lab.rst_n(s_lab_rst);
+        scs_lab.sysresetreq(s_lab_srq); scs_lab.sleepdeep(s_lab_sd);
+        scs_lab.systick.proc_clk(s_lab_clk); scs_lab.systick.ext_clk(s_lab_ext);
+        scs_lab.systick.clk_hz(s_lab_hz);    scs_lab.systick.rst_n(s_lab_rst);
+        scs_lab.systick.parado(s_lab_par);
+        tm_lab.isk.bind(scs_lab.ppb);
+        fl_lab.hclk(s_fl_clk); fl_lab.hclk_hz(s_fl_hz); fl_lab.rst_n(s_fl_rst);
+        fl_lab.irq(s_fl_irq);  fl_lab.bor_lev(s_fl_bor);
+        tm_fl.isk.bind(fl_lab.regs);
+        tm_fl_i.isk.bind(fl_lab.icode);
+        tm_fl_d.isk.bind(fl_lab.dcode);
         u_rt->clk(dut->s_pclk1); u_rt->clk_hz(dut->s_pclk1_hz);
         u_rt->rst_n(s_rt_rst);   u_rt->clk_en(s_rt_true);
         u_rt->irq(s_rt_irq); u_rt->dma_req_rx(s_rt_drx); u_rt->dma_req_tx(s_rt_dtx);
@@ -1066,6 +1108,7 @@ SC_MODULE(F1Tb) {
         t124_pulsador_nc();
         t125_nombres_de_pin();
         t126_ayuda_componentes();
+        t127_piezas_reutilizables();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -13642,6 +13685,145 @@ SC_MODULE(F1Tb) {
               "todas se canonizan a PD12, que es como se llaman en los volcados");
         check(nombre_canonico_pad("n_scl") == "n_scl",
               "y lo que no es un pad pasa de largo sin tocarlo");
+    }
+
+    // T127 — LAS PIEZAS, MONTADAS DE OTRA MANERA
+    //
+    // El proyecto modela un STM32F407VG, pero casi nada de lo que hay dentro es
+    // «del F407»: el nucleo es un Cortex-M4F con licencia, y lo que ST decide al
+    // integrarlo son cuatro numeros —cuantas lineas de interrupcion, cuantos
+    // bits de prioridad, cuantas regiones de MPU, que FPU—. Otro tanto con las
+    // memorias: el controlador de Flash es el mismo en toda la familia y lo que
+    // cambia es el tamano y la tabla de sectores.
+    //
+    // Esta prueba es la que sostiene esa afirmacion. Monta un NVIC con 32 lineas
+    // y TRES bits de prioridad y una Flash de 256 KB con seis sectores, y
+    // comprueba que se comportan como el chip que describen y no como el F407
+    // que tienen al lado. Sin ella, «las piezas son reutilizables» seria una
+    // frase del README.
+    //
+    // Lo que NO es: un segundo MCU. Aqui no hay perifericos, ni arbol de reloj,
+    // ni encapsulado. Son las piezas sueltas, que es exactamente lo que se
+    // afirma que se puede recombinar.
+    // -----------------------------------------------------------------------
+    void t127_piezas_reutilizables() {
+        group("T127 Piezas reutilizables: otro NVIC, otra Flash, mismo modelo");
+
+        // --- 1. Las cuentas de los rasgos, que es de donde sale todo --------
+        check_eq(CORE_STM32F407VG.n_irq, 82u, "el F407 lleva 82 lineas de IRQ");
+        check_eq(CORE_STM32F407VG.n_excepciones(), 98u,
+                 "y 98 excepciones: 16 de sistema mas las 82");
+        check_eq(unsigned(CORE_STM32F407VG.prio_mask()), 0xF0u,
+                 "con 4 bits de prioridad la mascara es 0xF0");
+        check_eq(CORE_STM32F407VG.n_niveles(), 16u, "y hay 16 niveles distintos");
+        check_eq(unsigned(CORE_M4F_MINIMO.prio_mask()), 0xE0u,
+                 "con 3 bits es 0xE0, que es la diferencia que desconcierta al "
+                 "portar firmware");
+        check_eq(CORE_M4F_MINIMO.n_niveles(), 8u, "y solo 8 niveles");
+        check(!CORE_M3_SIN_FPU.hay_fpu() && !CORE_M3_SIN_FPU.hay_mpu(),
+              "un nucleo se puede describir sin FPU y sin MPU");
+
+        // --- 2. El NVIC de verdad, construido con esos rasgos ---------------
+        check_eq(scs_lab.caps.n_irq, 32u,
+                 "el NVIC del banco de laboratorio tiene 32 lineas, no 82");
+        check_eq(unsigned(scs_lab.irq_in.size()), 32u,
+                 "y su vector de entradas mide 32: el puerto se dimensiona solo");
+        check_eq(dut->core.scs.caps.n_irq, 82u,
+                 "mientras el del F407, al lado y en la misma simulacion, "
+                 "sigue teniendo 82");
+
+        // Los TRES BITS DE PRIORIDAD. Se escribe 0xFF en la prioridad de la
+        // IRQ 0 y se lee lo que el silicio dejaria: los bits no implementados
+        // valen cero.
+        const uint32_t NVIC_IPR0 = 0xE000E400u;
+        tm_lab.write32(NVIC_IPR0, 0xFFFFFFFFu);
+        uint32_t v = 0;
+        tm_lab.read32(NVIC_IPR0, v);
+        check_eq(v, 0xE0E0E0E0u,
+                 "con 3 bits, escribir 0xFF en una prioridad deja 0xE0");
+        check_eq(unsigned(dut->core.scs.caps.prio_mask()), 0xF0u,
+                 "mientras el NVIC del F407, en la misma simulacion, sigue "
+                 "guardando 0xF0");
+        // Que el F407 lo haga de verdad y no solo lo diga lo comprueban las
+        // pruebas del NVIC de F2, que llegan al PPB por el camino bueno -la
+        // CPU-. Aqui se llega por un socket atado a mano al `ppb` del banco de
+        // laboratorio, y ese camino no existe para el DUT: su PPB solo lo ve
+        // su propio nucleo, que es como debe ser.
+
+        // Las lineas QUE NO EXISTEN. En un NVIC de 32 lineas, la 40 esta fuera:
+        // habilitarla no hace nada, y eso es lo correcto -no un fallo de bus-,
+        // porque el registro existe y el bit no.
+        const uint32_t NVIC_ISER0 = 0xE000E100u;   // IRQ 0..31
+        const uint32_t NVIC_ISER1 = 0xE000E104u;   // IRQ 32..63
+        tm_lab.write32(NVIC_ISER0, (1u << 5));
+        tm_lab.read32(NVIC_ISER0, v);
+        check_eq(v, (1u << 5), "la IRQ 5, que SI existe, se habilita");
+        check(scs_lab.irq_enabled(5), "y el modulo lo confirma");
+        tm_lab.write32(NVIC_ISER1, 0xFFFFFFFFu);
+        tm_lab.read32(NVIC_ISER1, v);
+        check_eq(v, 0u, "pero ISER1 entero se queda a cero: ahi no hay lineas");
+        check(!scs_lab.irq_enabled(40),
+              "y la 40 sigue sin existir por mucho que se escriba");
+        tm_lab.write32(0xE000E180u, 0xFFFFFFFFu);  // ICER0: se deja limpio
+
+        // --- 3. El MPU, que tambien es un rasgo -----------------------------
+        const uint32_t MPU_TYPE = 0xE000ED90u;
+        tm_lab.read32(MPU_TYPE, v);
+        check_eq((v >> 8) & 0xFFu, 8u, "MPU_TYPE anuncia las 8 regiones que hay");
+        check_eq(scs_lab.mpu.regiones(), 8u, "y el modulo dice lo mismo");
+
+        // --- 4. La Flash: otro tamano y OTRA GEOMETRIA DE SECTORES ----------
+        check_eq(fl_lab.mapa.size, 0x40000u, "la Flash del laboratorio mide 256 KB");
+        check_eq(fl_lab.mapa.n_sectores, 6u, "y tiene seis sectores, no doce");
+        check_eq(dut->flash.mapa.n_sectores, 12u,
+                 "mientras la del F407 sigue teniendo doce");
+        // La geometria NO es proporcional, y ese es el motivo de que sea una
+        // tabla y no una division: el sector 5 mide 128 KB y el 0 mide 16.
+        check_eq(fl_lab.mapa.sectores[0].size, 0x4000u, "el sector 0 mide 16 KB");
+        check_eq(fl_lab.mapa.sectores[5].size, 0x20000u, "y el 5, 128 KB");
+        check_eq(fl_lab.mapa.sector_de(0x08020004u), 5,
+                 "una direccion del ultimo sector se localiza en el 5");
+        check_eq(fl_lab.mapa.sector_de(0x08050000u), -1,
+                 "y una que se sale de los 256 KB no esta en ningun sector");
+        check_eq(dut->flash.mapa.sector_de(0x08050000u), 6,
+                 "pero en el F407 esa misma direccion SI existe: sector 6");
+
+        // --- 5. La curva de estados de espera, que va con el chip -----------
+        check_eq(fl_lab.mapa.latencia_minima(84e6), 2u,
+                 "84 MHz piden 2 estados de espera");
+        check_eq(fl_lab.mapa.latencia_minima(168e6), 2u,
+                 "y por encima del techo se queda en su maximo: este chip no "
+                 "llega ahi");
+        check_eq(dut->flash.mapa.latencia_minima(168e6), 5u,
+                 "mientras el F407 pide 5 a 168 MHz");
+        // Y coincide con la tabla original, que es la comprobacion de que la
+        // regla generica no ha cambiado ningun valor por el camino.
+        bool igual = true;
+        for (double f = 1e6; f <= 168e6; f += 1e6)
+            if (dut->flash.mapa.latencia_minima(f) != flash_min_latency(f))
+                igual = false;
+        check(igual, "la regla generica da lo MISMO que la tabla del F407 en "
+                     "todo el rango, megahercio a megahercio");
+
+        // --- 6. El mapa de RAM: un bloque que no existe es un cero ----------
+        check(RAM_STM32F407VG.hay_ccm() && RAM_STM32F407VG.hay_sram2(),
+              "el F407 tiene CCM y SRAM2");
+        check(!RAM_LAB_64K.hay_ccm() && !RAM_LAB_64K.hay_sram2(),
+              "y un chip sin ellas se describe con un cero, no borrando codigo");
+        check_eq(RAM_STM32F407VG.fin_sram(), 0x20020000u,
+                 "el final de la SRAM contigua del F407 son los 128 KB que ve "
+                 "el enlazador");
+        check_eq(RAM_LAB_64K.fin_sram(), 0x20010000u,
+                 "y el del banco de laboratorio, 64 KB");
+
+        // --- 7. El descriptor completo --------------------------------------
+        check(std::string(MCU_STM32F407VG.nombre) == "STM32F407VG" &&
+              std::string(MCU_STM32F407VG.familia) == "STM32F4",
+              "el descriptor del chip dice su nombre y su familia");
+        check_eq(dut->mcu.reloj.hclk_max, 168e6,
+                 "y el tope de HCLK con el que se ha montado el DUT");
+        check_eq(dut->mcu.nucleo.cpuid, 0x410FC241u,
+                 "y el CPUID que el firmware leera en SCB->CPUID");
     }
 
     // T126 — La AYUDA de los componentes: `sim --help COMPONENTE`

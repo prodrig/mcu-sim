@@ -60,7 +60,7 @@ SC_MODULE(CortexM4F) {
     sc_core::sc_in<bool>   rst_n{"rst_n"};
 
     // --- Interrupciones -----------------------------------------------------
-    sc_core::sc_vector<sc_core::sc_in<bool>> irq_in;    // [82] -> NVIC
+    sc_core::sc_vector<sc_core::sc_in<bool>> irq_in;    // [caps.n_irq] -> NVIC
     sc_core::sc_in<bool> nmi_in{"nmi_in"};
 
     // --- Sistema ------------------------------------------------------------
@@ -77,16 +77,23 @@ SC_MODULE(CortexM4F) {
     // --- Submódulos ---------------------------------------------------------
     Cpu cpu{"cpu"};
     Fpu fpu{"fpu"};
-    Scs scs{"scs"};
+    Scs scs;
 
     // El stub interno solo existe en modo Interno; en modo Pines es nullptr y
     // no cuesta ni un evento de simulación.
     GdbStubDap* gdb = nullptr;
 
     const DebugCaps caps;
+    // Los rasgos del NUCLEO: cuantas lineas de interrupcion, cuantos bits de
+    // prioridad, cuantas regiones de MPU y que FPU. Por omision los del F407.
+    // Es lo que hace que este mismo modulo sirva para otro chip del mismo
+    // nucleo sin tocar una linea. [core/core_caps.h]
+    const CoreCaps nucleo;
 
-    explicit CortexM4F(sc_core::sc_module_name nm, DebugCaps c = DBG_PINES)
-        : sc_core::sc_module(nm), irq_in("irq_in", N_IRQ), caps(c) {
+    explicit CortexM4F(sc_core::sc_module_name nm, DebugCaps c = DBG_PINES,
+                       CoreCaps n = CORE_STM32F407VG)
+        : sc_core::sc_module(nm), irq_in("irq_in", n.n_irq), scs("scs", n),
+          caps(c), nucleo(n) {
         // Sin SC_HAS_PROCESS: este módulo no declara ningún proceso propio -sus
         // hijos (cpu, fpu, scs) sí, cada uno el suyo-, y la macro solo define un
         // typedef que entonces no usa nadie. GCC y clang avisan de ello.
@@ -127,7 +134,7 @@ SC_MODULE(CortexM4F) {
         fpu.fclk(fclk); fpu.rst_n(rst_n); fpu.irq_fpu(sig_irq_fpu_);
 
         // NVIC: entradas de interrupción y NMI
-        for (unsigned i = 0; i < N_IRQ; ++i) scs.irq_in[i](irq_in[i]);
+        for (unsigned i = 0; i < nucleo.n_irq; ++i) scs.irq_in[i](irq_in[i]);
         scs.nmi_in(nmi_in);
 
         // SysTick (su salida tick_irq se conecta dentro del propio SCS)
@@ -279,9 +286,9 @@ private:
 // La misma elección, pero en tiempo de compilación. `CortexM4F` sigue siendo la
 // clase que hace el trabajo; esto solo fija sus rasgos.
 // -----------------------------------------------------------------------------
-template <const DebugCaps& C>
+template <const DebugCaps& C, const CoreCaps& N = CORE_STM32F407VG>
 struct CoreT : CortexM4F {
-    explicit CoreT(sc_core::sc_module_name nm) : CortexM4F(nm, C) {}
+    explicit CoreT(sc_core::sc_module_name nm) : CortexM4F(nm, C, N) {}
 };
 using CortexM4F_Pines   = CoreT<DBG_PINES>;     // depuración por los pines
 using CortexM4F_GdbDap  = CoreT<DBG_INTERNO>;   // depuración por el DAP

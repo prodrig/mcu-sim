@@ -28,7 +28,9 @@
 #ifndef STM32_RCC_RCC_H
 #define STM32_RCC_RCC_H
 
+#include <cstdio>
 #include "../common/periph_base.h"
+#include "../top/mcu_caps.h"
 #include "osc_pll.h"
 
 namespace stm32 {
@@ -127,6 +129,12 @@ public:
     sc_core::sc_out<unsigned> periph_on{"periph_on"};
 
     // ---- Gating y reset por periférico (ENR/RSTR) --------------------------
+    // Los topes de reloj de ESTE chip, lo primero que se construye. Son la
+    // unica parte del RCC que cambia de un F4 a otro -un F401 no pasa de
+    // 84 MHz- y el aviso que sale de aqui es de los que ahorran una tarde.
+    // Por omision, los del F407. [top/mcu_caps.h]
+    const LimitesReloj limites;
+
     sc_core::sc_vector<sc_core::sc_out<bool>> periph_clk_en;   // [PeriphId]
     sc_core::sc_vector<sc_core::sc_out<bool>> periph_rst_n;    // [PeriphId]
 
@@ -165,8 +173,9 @@ public:
     // (típico 1.5 ms). Se deja como parámetro para no penalizar la simulación.
     sc_core::sc_time t_rst_release{20, sc_core::SC_US};
 
-    explicit Rcc(sc_core::sc_module_name nm)
-        : BusSlave(nm, addr::RCC_B, 0x400),
+    explicit Rcc(sc_core::sc_module_name nm,
+                 LimitesReloj lim = RELOJ_STM32F407VG)
+        : BusSlave(nm, addr::RCC_B, 0x400), limites(lim),
           periph_clk_en("periph_clk_en", P_COUNT),
           periph_rst_n("periph_rst_n", P_COUNT),
           g_hclk_("g_hclk"), g_pclk1_("g_pclk1"), g_pclk2_("g_pclk2"),
@@ -348,6 +357,17 @@ private:
     }
 
     // --- Recalcula todo el árbol y reprograma los generadores ---------------
+    // El mismo aviso para los tres dominios, con el tope puesto en el texto
+    // en vez de escrito a mano: un aviso que dice "> 168 MHz" en un chip que
+    // no pasa de 84 seria peor que no decir nada.
+    static void avisa_limite(double f, double max, const char* dominio) {
+        if (f <= max) return;
+        char m[128];
+        std::snprintf(m, sizeof m, "%s = %.1f MHz > %.1f MHz, el maximo de este "
+                      "MCU [IR, 4.4]", dominio, f / 1e6, max / 1e6);
+        SC_REPORT_WARNING("rcc", m);
+    }
+
     void update_clocks() {
         const double f_hsi = hsi.out_hz();
         const double f_hse = hse.out_hz();
@@ -394,9 +414,9 @@ private:
         if (!((bdcr_ >> 15) & 1u)) f_rtc_ = 0.0;       // RTCEN
 
         // Avisos de límites de dominio [IR, §4.4]
-        if (f_hclk_  > F_HCLK_MAX)  SC_REPORT_WARNING("rcc", "HCLK > 168 MHz [IR, 4.4]");
-        if (f_pclk1_ > F_PCLK1_MAX) SC_REPORT_WARNING("rcc", "PCLK1 > 42 MHz [IR, 4.4]");
-        if (f_pclk2_ > F_PCLK2_MAX) SC_REPORT_WARNING("rcc", "PCLK2 > 84 MHz [IR, 4.4]");
+        avisa_limite(f_hclk_,  limites.hclk_max,  "HCLK");
+        avisa_limite(f_pclk1_, limites.pclk1_max, "PCLK1");
+        avisa_limite(f_pclk2_, limites.pclk2_max, "PCLK2");
 
         g_hclk_.set_freq(f_hclk_);
         g_pclk1_.set_freq(f_pclk1_);

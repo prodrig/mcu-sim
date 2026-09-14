@@ -21,12 +21,19 @@
 #define STM32_CORE_SCS_H
 
 #include <algorithm>
+#include <vector>
 #include "../common/periph_base.h"
 #include "cpu_state.h"
+#include "core_caps.h"
 
 namespace stm32 {
 
-// Total de excepciones: 16 de sistema + 82 IRQ [IR, §9.1.2]
+// Total de excepciones del F407: 16 de sistema + 82 IRQ [IR, §9.1.2].
+//
+// Sigue existiendo porque es el número de este chip y hay código —y pruebas—
+// que lo nombran, pero YA NO ES EL QUE EL NVIC USA: ese sale de los rasgos con
+// los que se construye (`CoreCaps::n_excepciones()`), y con los rasgos por
+// omisión vale exactamente esto.
 constexpr unsigned N_EXCEPTIONS = 16 + N_IRQ;
 
 // Bits de CFSR [IR, §9.6.1]
@@ -265,39 +272,54 @@ SC_MODULE(Mpu) {
     enum : uint32_t { TYPE = 0x00, CTRL = 0x04, RNR = 0x08, RBAR = 0x0C, RASR = 0x10,
                       RBAR_A1 = 0x14, RASR_A1 = 0x18, RBAR_A2 = 0x1C, RASR_A2 = 0x20,
                       RBAR_A3 = 0x24, RASR_A3 = 0x28 };
-    static constexpr unsigned N_REGIONS = 8;
+    // Las regiones son un dato del chip, no de la arquitectura: ARMv7-M admite
+    // 0, 8 o 16, y el F4 lleva 8. El indice se recorta con una MASCARA, que es
+    // lo que hace el silicio, y por eso el numero tiene que ser potencia de dos.
+    static constexpr unsigned N_REGIONS = 8;     // el valor por omision, el del F4
 
-    SC_CTOR(Mpu) {}
+    explicit Mpu(sc_core::sc_module_name nm, unsigned regiones = N_REGIONS)
+        : sc_core::sc_module(nm),
+          n_reg_(regiones ? regiones : 1u), mask_(n_reg_ - 1u),
+          rbar_(n_reg_, 0u), rasr_(n_reg_, 0u), hay_(regiones != 0) {}
+
+    unsigned regiones() const { return hay_ ? n_reg_ : 0u; }
+    bool     presente() const { return hay_; }
 
     void reset() {
         ctrl_ = 0; rnr_ = 0;
-        for (unsigned i = 0; i < N_REGIONS; ++i) { rbar_[i] = 0; rasr_[i] = 0; }
+        std::fill(rbar_.begin(), rbar_.end(), 0u);
+        std::fill(rasr_.begin(), rasr_.end(), 0u);
     }
 
     uint32_t reg_read(uint32_t off) {
+        // Un nucleo SIN MPU no es uno con las regiones a cero: es uno cuyo
+        // MPU_TYPE lee 0, que es como CMSIS y los depuradores averiguan que no
+        // lo hay. Los demas registros leen cero y no guardan nada.
+        if (!hay_) return 0;
         switch (off) {
-            case TYPE: return 0x00000800u;         // DREGION = 8, SEPARATE = 0
+            case TYPE: return uint32_t(n_reg_) << 8;   // DREGION, SEPARATE = 0
             case CTRL: return ctrl_;
             case RNR:  return rnr_;
             case RBAR: case RBAR_A1: case RBAR_A2: case RBAR_A3:
-                return (rbar_[rnr_ & 7u] & ~0x1Fu) | (rnr_ & 7u);
+                return (rbar_[rnr_ & mask_] & ~0x1Fu) | (rnr_ & mask_);
             case RASR: case RASR_A1: case RASR_A2: case RASR_A3:
-                return rasr_[rnr_ & 7u];
+                return rasr_[rnr_ & mask_];
             default: return 0;
         }
     }
     void reg_write(uint32_t off, uint32_t v) {
+        if (!hay_) return;
         switch (off) {
             case CTRL: ctrl_ = v & 0x7u; break;
-            case RNR:  rnr_ = v & 0x7u; break;
+            case RNR:  rnr_ = v & mask_; break;
             case RBAR: case RBAR_A1: case RBAR_A2: case RBAR_A3: {
-                unsigned r = rnr_ & 7u;
-                if (v & (1u << 4)) { r = v & 0xFu; rnr_ = r & 7u; }   // VALID
-                rbar_[r & 7u] = v & ~0x1Fu;
+                unsigned r = rnr_ & mask_;
+                if (v & (1u << 4)) { r = v & 0xFu; rnr_ = r & mask_; }   // VALID
+                rbar_[r & mask_] = v & ~0x1Fu;
                 break;
             }
             case RASR: case RASR_A1: case RASR_A2: case RASR_A3:
-                rasr_[rnr_ & 7u] = v;
+                rasr_[rnr_ & mask_] = v;
                 break;
             default: break;
         }
@@ -309,11 +331,11 @@ SC_MODULE(Mpu) {
 
     // Comprobación de un acceso. Devuelve true si está permitido.
     bool check(uint32_t addr, bool write, bool instr, bool priv) const {
-        if (!enabled()) return true;
+        if (!hay_ || !enabled()) return true;
         // El espacio privado del procesador nunca lo cubre la MPU
         if (addr >= addr::PPB_BASE) return true;
         int hit = -1;
-        for (int i = int(N_REGIONS) - 1; i >= 0; --i) {   // la región alta gana
+        for (int i = int(n_reg_) - 1; i >= 0; --i) {      // la región alta gana
             const uint32_t rasr = rasr_[i];
             if (!(rasr & 1u)) continue;                          // ENABLE
             const unsigned size = (rasr >> 1) & 0x1Fu;
@@ -344,8 +366,10 @@ SC_MODULE(Mpu) {
     }
 
 private:
+    unsigned n_reg_, mask_;
     uint32_t ctrl_ = 0, rnr_ = 0;
-    uint32_t rbar_[N_REGIONS] = {}, rasr_[N_REGIONS] = {};
+    std::vector<uint32_t> rbar_, rasr_;
+    bool hay_;
 };
 
 // ===========================================================================
@@ -353,17 +377,24 @@ private:
 // ===========================================================================
 class Scs : public sc_core::sc_module, public core_sys_if {
 public:
+    // Los rasgos del núcleo, LO PRIMERO que se construye: de aquí salen el
+    // tamaño del vector de entradas, el de los arrays de estado, las regiones
+    // del MPU y la máscara de prioridad. Por omisión son los del F407, de modo
+    // que un `Scs` construido como siempre es el de siempre: 82 líneas, 4 bits
+    // de prioridad y 8 regiones. [core/core_caps.h]
+    const CoreCaps caps;
+
     tlm_utils::simple_target_socket<Scs> ppb{"ppb"};   // desde el router del núcleo
     sc_core::sc_export<core_sys_if> cpu_if{"cpu_if"};
 
-    sc_core::sc_vector<sc_core::sc_in<bool>> irq_in;   // [N_IRQ] [IR, §9.1.2]
+    sc_core::sc_vector<sc_core::sc_in<bool>> irq_in;   // [caps.n_irq] [IR, §9.1.2]
     sc_core::sc_in<bool>  nmi_in{"nmi_in"};
     sc_core::sc_in<bool>  rst_n{"rst_n"};
     sc_core::sc_out<bool> sysresetreq{"sysresetreq"};  // AIRCR -> RCC [IR, §4.1]
     sc_core::sc_out<bool> sleepdeep{"sleepdeep"};      // SCR -> CPU/PWR
 
     SysTick systick{"systick"};
-    Mpu     mpu{"mpu"};
+    Mpu     mpu;
 
     // Offsets del SCB [IR, §10.2, §10.5]
     enum : uint32_t {
@@ -373,13 +404,17 @@ public:
         AFSR = 0x3C, CPACR = 0x88
     };
 
-    explicit Scs(sc_core::sc_module_name nm)
-        : sc_core::sc_module(nm), irq_in("irq_in", N_IRQ) {
+    explicit Scs(sc_core::sc_module_name nm, CoreCaps c = CORE_STM32F407VG)
+        : sc_core::sc_module(nm), caps(c), irq_in("irq_in", c.n_irq),
+          mpu("mpu", c.mpu_regiones),
+          enabled_(c.n_irq, false), ipr_(c.n_irq, 0),
+          pending_(c.n_excepciones(), false), active_(c.n_excepciones(), false),
+          prev_irq_(c.n_irq, false) {
         cpu_if(*this);
         ppb.register_b_transport(this, &Scs::bt);
         SC_HAS_PROCESS(Scs);
         SC_METHOD(sample_proc);
-        for (unsigned i = 0; i < N_IRQ; ++i) sensitive << irq_in[i];
+        for (unsigned i = 0; i < caps.n_irq; ++i) sensitive << irq_in[i];
         sensitive << nmi_in << s_tick_;
         dont_initialize();
         SC_METHOD(reset_proc);  sensitive << rst_n;   dont_initialize();
@@ -407,7 +442,7 @@ public:
             case EXC_PENDSV:     return int((shpr_[2] >> 16) & 0xFFu);
             case EXC_SYSTICK:    return int((shpr_[2] >> 24) & 0xFFu);
             default:
-                if (e >= EXC_IRQ0 && e < int(N_EXCEPTIONS)) return int(ipr_[e - EXC_IRQ0]);
+                if (e >= EXC_IRQ0 && e < int(caps.n_excepciones())) return int(ipr_[e - EXC_IRQ0]);
                 return PRIO_NONE;
         }
     }
@@ -424,7 +459,7 @@ public:
 
     int execution_priority(const RegFile& reg) const override {
         int p = PRIO_NONE;
-        for (unsigned e = 1; e < N_EXCEPTIONS; ++e)
+        for (unsigned e = 1; e < caps.n_excepciones(); ++e)
             if (active_[e]) { const int q = group_priority(int(e)); if (q < p) p = q; }
         if (reg.faultmask) p = std::min(p, PRIO_HARDFAULT);     // eleva a -1
         if (reg.primask)   p = std::min(p, 0);                  // bloquea 0..255
@@ -440,7 +475,7 @@ public:
     int pending_exception(int current_prio, const RegFile& reg) const override {
         (void)reg;
         int best = -1, best_prio = current_prio;
-        for (unsigned e = 1; e < N_EXCEPTIONS; ++e) {
+        for (unsigned e = 1; e < caps.n_excepciones(); ++e) {
             if (!pending_[e]) continue;
             if (e >= EXC_IRQ0 && !enabled_[e - EXC_IRQ0]) continue;
             if (!sys_exc_enabled(int(e))) continue;
@@ -453,33 +488,33 @@ public:
     }
 
     void ack_exception(int e) override {
-        if (e <= 0 || e >= int(N_EXCEPTIONS)) return;
+        if (e <= 0 || e >= int(caps.n_excepciones())) return;
         pending_[e] = false;
         active_[e]  = true;
         sync_shcsr_from_state();
         publish();
     }
     void return_exception(int e) override {
-        if (e <= 0 || e >= int(N_EXCEPTIONS)) return;
+        if (e <= 0 || e >= int(caps.n_excepciones())) return;
         active_[e] = false;
         sync_shcsr_from_state();
         publish();
     }
     void set_pending(int e, bool p) override {
-        if (e <= 0 || e >= int(N_EXCEPTIONS)) return;
+        if (e <= 0 || e >= int(caps.n_excepciones())) return;
         pending_[e] = p;
         sync_shcsr_from_state();
         publish();
         if (p) pend_ev_.notify(sc_core::SC_ZERO_TIME);
     }
     bool is_pending(int e) const override {
-        return (e > 0 && e < int(N_EXCEPTIONS)) ? pending_[e] : false;
+        return (e > 0 && e < int(caps.n_excepciones())) ? pending_[e] : false;
     }
     bool is_active(int e) const override {
-        return (e > 0 && e < int(N_EXCEPTIONS)) ? active_[e] : false;
+        return (e > 0 && e < int(caps.n_excepciones())) ? active_[e] : false;
     }
     bool any_pending() const override {
-        for (unsigned e = 1; e < N_EXCEPTIONS; ++e)
+        for (unsigned e = 1; e < caps.n_excepciones(); ++e)
             if (pending_[e]) return true;
         return false;
     }
@@ -540,20 +575,29 @@ public:
     uint32_t reg_hfsr() const { return hfsr_; }
     uint32_t reg_icsr() const { return const_cast<Scs*>(this)->icsr_value(); }
     unsigned prigroup() const { return (aircr_ >> 8) & 0x7u; }
-    bool     irq_enabled(unsigned n) const { return n < N_IRQ && enabled_[n]; }
+    // La mascara del byte `n` de un SHPR, con los bits de prioridad que este
+    // nucleo implementa de verdad.
+    uint32_t m_pri(unsigned n) const { return uint32_t(caps.prio_mask()) << (8 * n); }
+    bool     irq_enabled(unsigned n) const { return n < caps.n_irq && enabled_[n]; }
     void     force_nmi() { set_pending(EXC_NMI, true); }
 
 private:
     // ---- Estado ------------------------------------------------------------
-    bool pending_[N_EXCEPTIONS] = {}, active_[N_EXCEPTIONS] = {};
-    bool enabled_[N_IRQ] = {};
-    uint8_t ipr_[N_IRQ] = {};
+    // Vectores y no arrays de tamano fijo: el numero de lineas es un rasgo del
+    // chip, no de la arquitectura. Se dimensionan en el CONSTRUCTOR y no se
+    // vuelven a tocar, asi que no hay ni una reserva de memoria con la
+    // simulacion en marcha. `std::vector<bool>` esta a proposito: empaqueta a
+    // bits, y 98 bits de pendientes caben en dos palabras.
+    std::vector<bool>    enabled_;
+    std::vector<uint8_t> ipr_;
     uint32_t shpr_[3] = {0, 0, 0};
     uint32_t vtor_ = 0, aircr_ = 0xFA050000u, scr_ = 0, ccr_ = 0x00000200u;
     uint32_t shcsr_ = 0, cfsr_ = 0, hfsr_ = 0, dfsr_ = 0;
     uint32_t mmfar_ = 0, bfar_ = 0, afsr_ = 0, cpacr_ = 0;
     uint32_t fpccr_ = 0xC0000000u, fpcar_ = 0, fpdscr_ = 0;
-    bool prev_irq_[N_IRQ] = {}, prev_nmi_ = false, prev_tick_ = false;
+    std::vector<bool> pending_, active_;
+    std::vector<bool> prev_irq_;
+    bool prev_nmi_ = false, prev_tick_ = false;
     bool o_sysreset_ = false, o_sleepdeep_ = false;
     sc_core::sc_event pub_ev_;
     sc_core::sc_event pend_ev_;      // "puede haber algo pendiente": despierta al nucleo
@@ -565,8 +609,8 @@ private:
     }
 
     void reset_state() {
-        for (unsigned i = 0; i < N_EXCEPTIONS; ++i) { pending_[i] = active_[i] = false; }
-        for (unsigned i = 0; i < N_IRQ; ++i) { enabled_[i] = false; ipr_[i] = 0; }
+        for (unsigned i = 0; i < caps.n_excepciones(); ++i) { pending_[i] = active_[i] = false; }
+        for (unsigned i = 0; i < caps.n_irq; ++i) { enabled_[i] = false; ipr_[i] = 0; }
         shpr_[0] = shpr_[1] = shpr_[2] = 0;
         vtor_ = 0; aircr_ = 0xFA050000u; scr_ = 0; ccr_ = 0x00000200u;
         shcsr_ = 0; cfsr_ = 0; hfsr_ = 0; dfsr_ = 0;
@@ -608,7 +652,7 @@ private:
     // Muestreo de las líneas de interrupción: el NVIC latchea por flanco de
     // subida (las fuentes mantienen el nivel hasta que el manejador lo limpia).
     void sample_proc() {
-        for (unsigned i = 0; i < N_IRQ; ++i) {
+        for (unsigned i = 0; i < caps.n_irq; ++i) {
             const bool v = irq_in[i].read();
             if (v && !prev_irq_[i]) pending_[EXC_IRQ0 + i] = true;
             prev_irq_[i] = v;
@@ -628,7 +672,7 @@ private:
         v |= vectactive_ & 0x1FFu;
         int pend = -1, pend_prio = PRIO_NONE;
         bool isr_pending = false;
-        for (unsigned e = 1; e < N_EXCEPTIONS; ++e) {
+        for (unsigned e = 1; e < caps.n_excepciones(); ++e) {
             if (!pending_[e]) continue;
             if (e >= EXC_IRQ0) { if (!enabled_[e - EXC_IRQ0]) continue; isr_pending = true; }
             const int gp = group_priority(int(e));
@@ -640,7 +684,7 @@ private:
         if (pending_[EXC_SYSTICK]) v |= (1u << 26);
         if (pending_[EXC_NMI]) v |= (1u << 31);
         unsigned n_active = 0;
-        for (unsigned e = 1; e < N_EXCEPTIONS; ++e) if (active_[e]) ++n_active;
+        for (unsigned e = 1; e < caps.n_excepciones(); ++e) if (active_[e]) ++n_active;
         if (n_active <= 1) v |= (1u << 11);       // RETTOBASE
         return v;
     }
@@ -666,7 +710,7 @@ private:
             const unsigned base = (off - 0x400);
             uint32_t v = 0;
             for (unsigned i = 0; i < 4; ++i)
-                if (base + i < N_IRQ) v |= uint32_t(ipr_[base + i]) << (8 * i);
+                if (base + i < caps.n_irq) v |= uint32_t(ipr_[base + i]) << (8 * i);
             return v;
         }
         if (off >= 0xD00 && off < 0xD90) return scb_read(off - 0xD00);
@@ -695,37 +739,38 @@ private:
         if (off >= 0x010 && off < 0x100) { systick.reg_write(off - 0x010, v); return; }
         if (off >= 0x100 && off < 0x180) {              // ISER: 1 habilita
             const unsigned b = ((off - 0x100) / 4) * 32;
-            for (unsigned i = 0; i < 32 && b + i < N_IRQ; ++i)
+            for (unsigned i = 0; i < 32 && b + i < caps.n_irq; ++i)
                 if ((v >> i) & 1u) enabled_[b + i] = true;
             publish(); return;
         }
         if (off >= 0x180 && off < 0x200) {              // ICER: 1 deshabilita
             const unsigned b = ((off - 0x180) / 4) * 32;
-            for (unsigned i = 0; i < 32 && b + i < N_IRQ; ++i)
+            for (unsigned i = 0; i < 32 && b + i < caps.n_irq; ++i)
                 if ((v >> i) & 1u) enabled_[b + i] = false;
             publish(); return;
         }
         if (off >= 0x200 && off < 0x280) {              // ISPR
             const unsigned b = ((off - 0x200) / 4) * 32;
-            for (unsigned i = 0; i < 32 && b + i < N_IRQ; ++i)
+            for (unsigned i = 0; i < 32 && b + i < caps.n_irq; ++i)
                 if ((v >> i) & 1u) pending_[EXC_IRQ0 + b + i] = true;
             publish(); return;
         }
         if (off >= 0x280 && off < 0x300) {              // ICPR
             const unsigned b = ((off - 0x280) / 4) * 32;
-            for (unsigned i = 0; i < 32 && b + i < N_IRQ; ++i)
+            for (unsigned i = 0; i < 32 && b + i < caps.n_irq; ++i)
                 if ((v >> i) & 1u) pending_[EXC_IRQ0 + b + i] = false;
             publish(); return;
         }
         if (off >= 0x400 && off < 0x4F0) {              // IPR
             const unsigned base = (off - 0x400);
             for (unsigned i = 0; i < 4; ++i)
-                if (base + i < N_IRQ) ipr_[base + i] = uint8_t((v >> (8 * i)) & 0xF0u);
+                if (base + i < caps.n_irq)
+                    ipr_[base + i] = uint8_t((v >> (8 * i)) & caps.prio_mask());
             return;
         }
         if (off == 0xF00) {                             // STIR [IR, §9.2.2]
             const unsigned n = v & 0x1FFu;
-            if (n < N_IRQ) { pending_[EXC_IRQ0 + n] = true; publish(); }
+            if (n < caps.n_irq) { pending_[EXC_IRQ0 + n] = true; publish(); }
             return;
         }
         if (off >= 0xD00 && off < 0xD90) { scb_write(off - 0xD00, v); return; }
@@ -743,26 +788,29 @@ private:
 
     uint32_t iser_word(unsigned w) const {
         uint32_t v = 0;
-        for (unsigned i = 0; i < 32 && w * 32 + i < N_IRQ; ++i)
+        for (unsigned i = 0; i < 32 && w * 32 + i < caps.n_irq; ++i)
             if (enabled_[w * 32 + i]) v |= (1u << i);
         return v;
     }
     uint32_t ispr_word(unsigned w) const {
         uint32_t v = 0;
-        for (unsigned i = 0; i < 32 && w * 32 + i < N_IRQ; ++i)
+        for (unsigned i = 0; i < 32 && w * 32 + i < caps.n_irq; ++i)
             if (pending_[EXC_IRQ0 + w * 32 + i]) v |= (1u << i);
         return v;
     }
     uint32_t iabr_word(unsigned w) const {
         uint32_t v = 0;
-        for (unsigned i = 0; i < 32 && w * 32 + i < N_IRQ; ++i)
+        for (unsigned i = 0; i < 32 && w * 32 + i < caps.n_irq; ++i)
             if (active_[EXC_IRQ0 + w * 32 + i]) v |= (1u << i);
         return v;
     }
 
     uint32_t scb_read(uint32_t off) {
         switch (off) {
-            case CPUID: return 0x410FC241u;              // [IR, §10.2.1]
+            // Lo que el firmware lee para saber QUE NUCLEO tiene debajo. Es
+            // un rasgo, no una constante: un M3 y un M4 no dan lo mismo aqui,
+            // y CMSIS y los depuradores lo miran. [IR, §10.2.1]
+            case CPUID: return caps.cpuid;
             case ICSR:  return icsr_value();
             case VTOR_: return vtor_;
             case AIRCR: return (aircr_ & 0x00000700u) | 0xFA050000u;
@@ -807,9 +855,17 @@ private:
                 publish();
                 break;
             case CCR:   ccr_ = (ccr_ & 0x00000200u) | (v & 0x0000021Bu); break;
-            case SHPR1: shpr_[0] = v & 0x00F0F0F0u; break;
-            case SHPR2: shpr_[1] = v & 0xF0000000u; break;
-            case SHPR3: shpr_[2] = v & 0xF0F00000u; break;
+            // Los tres SHPR guardan CUATRO prioridades de byte cada uno, y
+            // solo los bits IMPLEMENTADOS se quedan: con cuatro bits la
+            // mascara de cada byte es 0xF0, con tres 0xE0. Los bytes que no
+            // corresponden a ningun manejador se descartan enteros
+            // [ARMv7-M, B3.2.10]:
+            //   SHPR1 -> MemManage[7:0], BusFault[15:8], UsageFault[23:16]
+            //   SHPR2 -> SVCall[31:24]
+            //   SHPR3 -> DebugMon[7:0], PendSV[23:16], SysTick[31:24]
+            case SHPR1: shpr_[0] = v & (m_pri(0) | m_pri(1) | m_pri(2)); break;
+            case SHPR2: shpr_[1] = v &  m_pri(3);                        break;
+            case SHPR3: shpr_[2] = v & (m_pri(0) | m_pri(2) | m_pri(3)); break;
             case SHCSR: {
                 shcsr_ = (shcsr_ & ~0x0007F000u) | (v & 0x0007F000u);
                 pending_[EXC_USAGEFAULT] = (v >> 12) & 1u;
@@ -825,7 +881,11 @@ private:
             case MMFAR: mmfar_ = v; break;
             case BFAR:  bfar_ = v; break;
             case AFSR:  afsr_ = v; break;
-            case CPACR: cpacr_ = v & 0x00F00000u; break;
+            // CPACR gobierna el acceso a CP10/CP11, que SON la FPU. En un
+            // nucleo sin ella los dos campos leen cero hagas lo que hagas, y
+            // es asi como el codigo de arranque de CMSIS averigua que no debe
+            // habilitarla. [IR, §8.12.1]
+            case CPACR: cpacr_ = caps.hay_fpu() ? (v & 0x00F00000u) : 0u; break;
             default: break;
         }
     }
