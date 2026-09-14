@@ -80,8 +80,18 @@ REGISTRA_PARTE(Led, [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase*
     });
 
 REGISTRA_PARTE(Button, [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        // `normalmente` solo admite dos palabras, y escribir cualquier otra es
+        // un error y no un "abierto" silencioso: un pulsador de seguridad
+        // descrito al reves solo se nota el dia en que se corta un cable.
+        const std::string rep = d.txt("normalmente", "abierto");
+        if (rep != "abierto" && rep != "cerrado") {
+            SC_REPORT_ERROR("netlist",
+                ("Button '" + d.id + "': normalmente=\"" + rep + "\" no vale; "
+                 "solo \"abierto\" (por omision) o \"cerrado\"").c_str());
+            return nullptr;
+        }
         return new Button(n[d.nodo_de("pin")], d.num("r_cerrado", 10.0),
-                          d.num("v_cerrado", 0.0));
+                          d.num("v_cerrado", 0.0), rep == "cerrado");
     });
 
 REGISTRA_PARTE(Crystal, [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
@@ -252,9 +262,12 @@ inline Instancia& led(Netlist& nl, const char* id, const std::string& nodo,
 }
 
 inline Instancia& pulsador(Netlist& nl, const char* id, const std::string& nodo,
-                           double r_cerrado = 10.0) {
+                           double r_cerrado = 10.0, double v_cerrado = 0.0,
+                           bool normalmente_cerrado = false) {
     Instancia& i = nl.add("Button", id);
     i.pin("pin", nodo).par("r_cerrado", r_cerrado);
+    if (v_cerrado != 0.0) i.par("v_cerrado", v_cerrado);
+    if (normalmente_cerrado) i.par("normalmente", "cerrado");
     return i;
 }
 

@@ -353,6 +353,28 @@ real y lo que el modelo reproduce.
 | :--- | :--- | :--- |
 | `r_cerrado` | `10` | Resistencia del contacto cerrado, en ohmios. Pulsado, la pieza gobierna el nodo con `{v_cerrado, r_cerrado}` |
 | `v_cerrado` | `0` | **La tensión a la que lleva el pin al cerrarse.** Cero es el pulsador a masa de siempre; `3.3` es el pulsador a VDD |
+| `normalmente` | `abierto` | El **reposo del contacto**: `abierto` (suelto no conduce, pulsado conduce) o `cerrado` (suelto CONDUCE, y pulsarlo lo ABRE). Cualquier otra palabra es un error, no un `abierto` silencioso |
+
+**`normalmente="cerrado"` no es una rareza: es lo que hay en seguridad.** Un
+final de carrera, una seta de emergencia o un detector de puerta se cablean NC a
+propósito, para que **un cable cortado se vea igual que una pulsación** y la
+máquina pare. Descrito como NA, el montaje parece funcionar hasta el día en que
+se corta el cable — que es justo el día que importa.
+
+Lo que conduce, entonces, no es «pulsado» sino **«pulsado XOR normalmente
+cerrado»**:
+
+| `normalmente` | suelto | pulsado | desoldado |
+| :--- | :---: | :---: | :---: |
+| `abierto` (omisión) | abierto | **cierra** | abierto |
+| `cerrado` | **cierra** | abre | abierto |
+
+La última columna es la misma para los dos, y es lo razonable: **una pieza que
+no está no cierra ningún contacto.** Al volver a soldarla recupera su reposo, que
+en un NC es conduciendo.
+
+Desde C++, `pressed()` es lo que hace el **dedo** y `cerrado()` lo que hace el
+**contacto**. En un NC son opuestos, y confundirlos es el error fácil.
 
 **No todos los pulsadores van a masa, y la diferencia se nota en el firmware.**
 En la STM32F4-Discovery el botón de usuario lleva PA0 **a VDD** y es una

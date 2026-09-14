@@ -142,6 +142,16 @@ SC_MODULE(F1Tb) {
     Crystal* xtal_lse = nullptr;
     Led*     led_pd12 = nullptr;   // LED verde de la Discovery (PD12, a VSS)
     Button*  btn_pa0  = nullptr;   // pulsador de usuario en PA0-WKUP
+    // Banco de pulsadores para T124. Van sobre nodos PROPIOS, no sobre pines
+    // del MCU: lo que se prueba es la pieza, y colgarla de un pad obligaria a
+    // tocar la placa del banco para probar un componente. Se construyen aqui
+    // porque un `AnalogNet` es un `sc_object` y la elaboracion de SystemC es
+    // estatica: no se pueden crear con la simulacion en marcha.
+    AnalogNet n_btn_na{"n_btn_na"}, n_btn_nc{"n_btn_nc"};
+    Rpull     pd_na{n_btn_na, 0.0, 100e3};   // sujeta el nodo abajo
+    Rpull     pd_nc{n_btn_nc, 0.0, 100e3};
+    Button    btn_na{n_btn_na, 10.0, 3.3, false};   // normalmente ABIERTO
+    Button    btn_nc{n_btn_nc, 10.0, 3.3, true};    // normalmente CERRADO
     // Oscilador externo para el modo bypass del HSE. Los sc_module deben
     // construirse durante la elaboración, así que se crea aquí parado.
     ExtClock* osc_ext = nullptr;
@@ -1053,6 +1063,7 @@ SC_MODULE(F1Tb) {
         t121_netlist();
         t122_nodo_compartido();
         t123_varios_mcu();
+        t124_pulsador_nc();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -13523,6 +13534,56 @@ SC_MODULE(F1Tb) {
     }
 
     // -----------------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    // T124 — Pulsadores normalmente abierto y normalmente cerrado.
+    //
+    // Lo que conduce no es "pulsado" sino "pulsado XOR normalmente cerrado", y
+    // un pulsador DESOLDADO no conduce nunca, sea del tipo que sea. El NC es el
+    // de los finales de carrera de seguridad y las setas de emergencia: en
+    // reposo conduce, y se abre al pulsarlo, de modo que un cable cortado se
+    // ve igual que una pulsacion. Describir un NC como NA parece funcionar
+    // hasta el dia en que se corta el cable, que es justo el dia que importa.
+    // -----------------------------------------------------------------------
+    void t124_pulsador_nc() {
+        group("T124 Pulsador normalmente abierto y normalmente cerrado");
+        // Los dos llevan un pull-down de 100 k y cierran contra 3,3 V por 10 R,
+        // asi que "conduce" se lee como 3,3 V y "abierto" como 0 V.
+        btn_na.release(); btn_nc.release();
+        wait(1, SC_US);
+        check(!btn_na.cerrado(), "NA en reposo: contacto abierto");
+        check_near(n_btn_na.voltage(), 0.0, 0.02, "y su nodo se queda abajo");
+        check(btn_nc.cerrado(), "NC en reposo: contacto CERRADO");
+        check_near(n_btn_nc.voltage(), 3.3, 0.02, "y su nodo esta arriba");
+
+        btn_na.press(); btn_nc.press();
+        wait(1, SC_US);
+        check(btn_na.cerrado(), "NA pulsado: cierra");
+        check_near(n_btn_na.voltage(), 3.3, 0.02, "y sube el nodo");
+        check(!btn_nc.cerrado(), "NC pulsado: ABRE, que es lo contrario");
+        check_near(n_btn_nc.voltage(), 0.0, 0.02, "y el nodo se cae");
+
+        // `pressed()` es el dedo y `cerrado()` el contacto: en un NC son
+        // opuestos, y confundirlos es el error facil.
+        check(btn_nc.pressed() && !btn_nc.cerrado(),
+              "en un NC, pulsado y cerrado son cosas distintas");
+
+        // Desoldarlo abre el contacto aunque sea NC: si la pieza no esta, no
+        // hay nada que cerrar.
+        btn_nc.release();
+        wait(1, SC_US);
+        btn_nc.set_enabled(false);
+        wait(1, SC_US);
+        check(!btn_nc.cerrado(), "un NC desoldado no conduce: no esta");
+        check_near(n_btn_nc.voltage(), 0.0, 0.02, "y su nodo lo nota");
+        btn_nc.set_enabled(true);
+        wait(1, SC_US);
+        check(btn_nc.cerrado(), "y al volver a soldarlo recupera su reposo");
+        check_near(n_btn_nc.voltage(), 3.3, 0.02, "cerrado otra vez");
+
+        btn_na.release(); btn_nc.release();
+        wait(1, SC_US);
+    }
+
     // T123 — VARIOS MCUs en la placa: la declaración
     //
     // El banco monta un solo chip y no puede montar dos: su placa está escrita

@@ -226,21 +226,50 @@ public:
     // Por omision 0 V -pulsador a masa, el montaje de siempre-, pero NO todos
     // son asi: en la STM32F4-Discovery el boton de usuario lleva PA0 a VDD y es
     // una resistencia externa la que lo sujeta abajo, por eso el codigo que
-    // genera CubeMX para esa placa espera flanco de SUBIDA. Sin este parametro
-    // ese boton no se podia describir, y una placa que dice ser la Discovery
-    // con un pulsador a masa jamas daria el flanco que el firmware espera.
-    Button(analog_net_if& n, double r_closed = 10.0, double v_closed = 0.0)
-        : ExtPart(n, "Button", "button", "pin"), r_(r_closed), v_(v_closed) {
-        release();
+    // genera CubeMX para esa placa espera flanco de SUBIDA.
+    //
+    // `nc` es el REPOSO del contacto, que es cosa distinta de la tension:
+    //
+    //   nc = false  NORMALMENTE ABIERTO: suelto no conduce, pulsado conduce.
+    //               Es el pulsador de toda la vida y el valor por omision.
+    //   nc = true   NORMALMENTE CERRADO: suelto CONDUCE, y pulsarlo lo ABRE.
+    //               Es lo que hay en un final de carrera de seguridad, en la
+    //               seta de emergencia y en cualquier detector cableado para
+    //               que un cable cortado se note: si el hilo se rompe, el nodo
+    //               queda como si estuviera pulsado, y el sistema para. Un NC
+    //               descrito como NA parecerA que funciona hasta el dia en que
+    //               se corta el cable, que es justo el dia que importa.
+    //
+    // Lo que conduce, entonces, no es "pulsado" sino "pulsado XOR normalmente
+    // cerrado". Y un pulsador DESOLDADO no conduce nunca, sea del tipo que sea:
+    // si no esta, no hay contacto que cerrar.
+    Button(analog_net_if& n, double r_closed = 10.0, double v_closed = 0.0,
+           bool nc = false)
+        : ExtPart(n, "Button", "button", "pin"),
+          r_(r_closed), v_(v_closed), nc_(nc) {
+        aplica();                 // un NC conduce ya, desde que se construye
     }
-    // Un pulsador desoldado no cierra nada aunque se le pulse.
-    void press()   { if (!conectada_) return; drive(float(v_), float(r_)); down_ = true; }
-    void release() { hiz(); down_ = false; }
+    void press()   { down_ = true;  aplica(); }
+    void release() { down_ = false; aplica(); }
+    // `pressed()` es lo que hace el DEDO; `cerrado()` es lo que hace el
+    // CONTACTO. En un NC son opuestos, y confundirlos es el error facil.
     bool pressed() const { return down_; }
+    bool cerrado() const { return conectada_ && (down_ != nc_); }
+    bool normalmente_cerrado() const { return nc_; }
     double v_cerrado() const { return v_; }
-    void set_enabled(bool on) override { ExtPartBase::set_enabled(on); if (!on) down_ = false; }
+    // Al desoldar se abre el contacto; al volver a soldar, vuelve a su reposo,
+    // que en un NC es conduciendo.
+    void set_enabled(bool on) override {
+        ExtPartBase::set_enabled(on);
+        if (!on) down_ = false;
+        aplica();
+    }
 private:
-    double r_, v_; bool down_ = false;
+    void aplica() {
+        if (cerrado()) drive(float(v_), float(r_));
+        else           hiz();
+    }
+    double r_, v_; bool nc_ = false, down_ = false;
 };
 
 // ---------------------------------------------------------------------------

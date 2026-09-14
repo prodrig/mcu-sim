@@ -2461,3 +2461,64 @@ no está puesto, y desde C++ se puede soldar en marcha con `attach()`.
 
 Actualizados el fichero, su cabecera, `doc/parts.md` y el `README`. Sigue en
 11 componentes y 0 avisos.
+
+---
+
+## 2026-09-14 UTC — El pulsador normalmente cerrado
+
+**Prompt.** «El componente Button siempre cierra el circuito cuando se pulsa.
+Modifica el comportamiento y añade un atributo `normalmente` al XML para que
+pueda representar un botón normalmente-abierto o normalmente-cerrado, con los
+valores `abierto` y `cerrado`, siendo `abierto` el valor por defecto y que debe
+coincidir con el comportamiento actual».
+
+**Respuesta.** Hecho, y la regla cabe en una línea: **lo que conduce no es
+«pulsado», es «pulsado XOR normalmente cerrado»**.
+
+| `normalmente` | suelto | pulsado | desoldado |
+| :--- | :---: | :---: | :---: |
+| `abierto` (omisión) | abierto | **cierra** | abierto |
+| `cerrado` | **cierra** | abre | abierto |
+
+La última columna es la misma para los dos y es lo razonable: **una pieza que no
+está no cierra ningún contacto**. Al volver a soldarla recupera su reposo, que en
+un NC es conduciendo — de ahí que `set_enabled()` tenga que reaplicar el estado y
+no solo ponerse en alta impedancia.
+
+**Y una consecuencia de diseño que merece nombre propio:** un NC **conduce desde
+que se construye**, antes de que nadie lo toque. Eso lo pone en la misma
+categoría que `Rpull`, y es justo el caso que ayer destapó el fallo del `Pad`
+(I-33): si el pad no mirase el nodo antes de esperar, un final de carrera NC en
+reposo se leería como 0 para siempre. Arreglado ayer, funciona hoy.
+
+**Por qué esto no es una rareza.** Los finales de carrera, las setas de
+emergencia y los detectores de puerta se cablean NC **a propósito**, para que un
+cable cortado se vea igual que una pulsación y la máquina pare. Un montaje de
+seguridad descrito como NA **parece funcionar hasta el día en que se corta el
+cable**, que es justo el día que importa. Por eso una palabra que no sea una de
+las dos es **error de netlist** y no un `abierto` silencioso:
+
+```
+Error: netlist: Button 'FC1': normalmente="NC" no vale;
+       solo "abierto" (por omision) o "cerrado"
+```
+
+**Dos nombres que conviene no confundir**, y que en un NC son opuestos:
+`pressed()` es lo que hace el **dedo**, `cerrado()` lo que hace el **contacto**.
+
+**T124, trece comprobaciones nuevas.** Van sobre **nodos propios del banco**, no
+sobre pines del MCU: lo que se prueba es la pieza, y colgarla de un pad
+obligaría a tocar la placa del banco para probar un componente. Los dos
+pulsadores cierran contra 3,3 V con un pull-down de 100 kΩ, así que «conduce» se
+lee como 3,3 V y «abierto» como 0 V, y se comprueban los cuatro estados, el
+desoldado y el resoldado. *(Los `AnalogNet` son `sc_object`, así que se declaran
+como miembros: la elaboración de SystemC es estática y no se pueden crear con la
+simulación en marcha.)*
+
+Y por el lado del XML, las cuatro rutas comprobadas con `sim` y un LED espejo:
+`cerrado` lee 1 en reposo, `abierto` lee 0, **sin el atributo lee 0** —que era el
+requisito: el valor por omisión tiene que coincidir con el comportamiento de
+antes— y una palabra inválida no arranca.
+
+Suite: 1902 → **1915**, tiempo simulado `2336217899213 ps` —los 6 µs de esperas
+de T124—. Puntos: 148 → 149 (**I-35**).
