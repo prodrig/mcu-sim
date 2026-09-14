@@ -85,6 +85,27 @@ using namespace stm32;
 // sería andamio sin obra.
 static const char* TIPO_MCU = "STM32F407VG";
 
+// Los tipos de MCU que este ejecutable sabe CONSTRUIR. Hoy hay uno, y la lista
+// existe igualmente por dos motivos que no son el de mañana: `--mcu` necesita
+// contra qué contrastar lo que le escriban, y el error necesita poder decir
+// cuáles hay. Una lista de uno que se imprime sola vale más que una constante
+// repartida por el fichero.
+static const char* const TIPOS_MCU[] = { "STM32F407VG" };
+
+static std::string mayus(std::string s) {
+    for (char& c : s) if (c >= 'a' && c <= 'z') c = char(c - 'a' + 'A');
+    return s;
+}
+static bool tipo_conocido(const std::string& t) {
+    for (const char* x : TIPOS_MCU) if (t == x) return true;
+    return false;
+}
+static std::string tipos_como_texto() {
+    std::string s;
+    for (const char* x : TIPOS_MCU) { if (!s.empty()) s += ", "; s += x; }
+    return s;
+}
+
 static std::string g_placa, g_img, g_nombre = "placa";
 static double      g_ms      = 100.0;
 static bool        g_solo_valida = false;
@@ -94,6 +115,11 @@ static bool        g_traza_gdb = false;
 // 1 = un segundo simulado por segundo de reloj de pared; 0,5 = a la
 // mitad, para poder mirar lo que pasa.
 static double      g_tiempo_real = 0.0;
+// El tipo del MCU IMPLICITO: el que se monta cuando el XML no declara ningun
+// <mcu>. Se cambia con `--mcu`. NO pisa lo que diga el XML: una placa que
+// declara sus chips ya ha dicho cuales son, y la linea de ordenes no tiene por
+// que saberlo mejor.
+static std::string g_tipo_mcu = TIPO_MCU;
 // Depuración pedida por la línea de órdenes. `g_gdb_modo` vacío = no se pidió.
 static std::string g_gdb_modo;          // "pines" o "dap"
 static unsigned    g_gdb_puerto = 0;
@@ -131,14 +157,18 @@ SC_MODULE(Sim) {
         std::vector<DeclMcu> decls = placa.mcus();
         if (decls.empty()) {                 // ninguno declarado: uno implícito
             DeclMcu m;
-            m.tipo = TIPO_MCU;               // id vacío -> nodos con nombre desnudo
+            m.tipo = g_tipo_mcu;             // id vacío -> nodos con nombre desnudo
             decls.push_back(m);
         }
         aplica_linea_de_ordenes(decls);
         for (const DeclMcu& m : decls)
-            if (m.tipo != TIPO_MCU)
-                muere("mcu " + m.id + ": tipo desconocido '" + m.tipo +
-                      "'. El unico que se sabe construir es " + TIPO_MCU);
+            if (!tipo_conocido(m.tipo))
+                muere("mcu " + (m.id.empty() ? std::string("(implicito)") : m.id) +
+                      ": no se sabe construir un '" + m.tipo + "'.\n"
+                      "Los tipos que este programa modela son: " +
+                      tipos_como_texto() + ".\n"
+                      "Un MCU distinto no es un parametro: es otro modelo, con "
+                      "su mapa de memoria, sus perifericos y su encapsulado.");
 
         // --- 3. Los nodos COMPARTIDOS, antes de los MCUs --------------------
         // Si la placa no declara ninguno -que es lo normal- los cableados salen
@@ -412,6 +442,8 @@ int sc_main(int argc, char** argv) {
         if (a == "--valida") g_solo_valida = true;
         else if (a == "--ondas") g_ondas = true;
         else if (a == "--traza-gdb") g_traza_gdb = true;
+        else if (a == "--mcu" && i + 1 < argc) g_tipo_mcu = mayus(argv[++i]);
+        else if (a.rfind("--mcu=", 0) == 0)    g_tipo_mcu = mayus(a.substr(6));
         else if (a == "--tiempo-real") g_tiempo_real = 1.0;
         else if (a.rfind("--tiempo-real=", 0) == 0)
             g_tiempo_real = std::atof(a.c_str() + 14);
@@ -436,6 +468,8 @@ int sc_main(int argc, char** argv) {
                 "     sim placa.xml --traza-gdb  imprime cada paquete RSP recibido\n"
                 "     sim placa.xml --tiempo-real  frena la simulacion al reloj de\n"
                 "                                pared (=0.5 a mitad de velocidad)\n"
+                "     sim placa.xml --mcu TIPO   el MCU implicito, cuando el XML no\n"
+                "                                declara ninguno (por omision %s)\n"
                 "     sim placa.xml --ms=2       tiempo simulado (global: hay un\n"
                 "                                solo reloj por muchos chips)\n"
                 "\n"
@@ -452,7 +486,10 @@ int sc_main(int argc, char** argv) {
                 "suyo en su <mcu ... firmware= depuracion= puerto_gdb=> y un\n"
                 "argumento global se rechaza, porque ya no dice a cual.\n"
                 "\n"
+                "Los MCUs que se saben construir son:\n  %s\n"
+                "\n"
                 "Los tipos de componente que se saben construir son:\n  %s\n",
+                TIPO_MCU, tipos_como_texto().c_str(),
                 Fabrica::tipos_como_texto().c_str());
             return 0;
         } else libres.push_back(a);

@@ -2580,3 +2580,54 @@ además es ambiguo de verdad.
 una función pura, así que la prueba no mueve el reloj: la suite pasa de 1915 a
 **1935** comprobaciones con el invariante **exactamente igual**,
 `2336217899213 ps`. Puntos: 149 → 150 (**I-36**).
+
+---
+
+## 2026-09-14 UTC — `--mcu`: la opción está, el segundo MCU no
+
+**Prompt.** «Modifica el programa para aceptar por parámetro de entrada el tipo
+de MCU implícito en caso de que no esté especificado en el XML, con el valor por
+defecto `stm32f407vg`. De manera que `sim discovery_min --debug` simule un
+stm32f407vg y `sim discovery_min --mcu stm32f446re --debug` simule los mismos
+componentes con un MCU stm32f446re».
+
+**Respuesta.** La opción está hecha y hace exactamente lo que se pidió. La
+segunda mitad de la frase no se puede cumplir, y decirlo es la respuesta:
+**el único MCU que este programa modela es el STM32F407VG**.
+
+**Lo hecho.** `--mcu TIPO` (y `--mcu=TIPO`) fija el tipo del MCU **implícito**,
+el que se monta cuando el XML no declara ninguno. Insensible a mayúsculas, con
+`STM32F407VG` por omisión, y **sin pisar lo que diga el XML**: una placa que
+declara sus chips ya ha dicho cuáles son, y la línea de órdenes no tiene por qué
+saberlo mejor. Comprobado: `--mcu stm32f407vg`, `--mcu=STM32F407VG` y sin opción
+dan la misma placa, y `placas/dos_mcu.xml` sigue montando sus dos chips con la
+opción puesta.
+
+**Lo que pasa con `--mcu stm32f446re`:**
+
+```
+mcu (implicito): no se sabe construir un 'STM32F446RE'.
+Los tipos que este programa modela son: STM32F407VG.
+Un MCU distinto no es un parametro: es otro modelo, con su mapa de memoria,
+sus perifericos y su encapsulado.
+```
+
+**Y ese error es la parte importante de este cambio.** Montar un F407 mientras
+el usuario ha escrito F446RE sería exactamente la clase de mentira que llevamos
+toda la semana quitando —el HSE que arrancaba sin cristal, el pad que leía 0 con
+el pin a 3,3 V—: el alumno vería su programa «funcionar» sobre un chip que no es
+el suyo. Un MCU no es un parámetro; es 45 000 líneas de otro modelo.
+
+Lo que sí queda hecho para ese día: el sitio donde enchufarlo. `TIPOS_MCU` es
+una lista —hoy de uno— que se imprime sola en el error y en `--help`, así que
+añadir un modelo no obliga a tocar la interfaz ni a buscar por dónde se colaba
+una constante. Anotado como **I-37**.
+
+**Dos detalles del ejemplo que no son lo que parecen**, y conviene decirlos en
+vez de adivinarlos: la opción de depuración se llama **`--gdb`**, no `--debug`, y
+el fichero de placa se da **con su ruta y su extensión** (`placas/discovery_min.xml`),
+no como `discovery_min`. Las dos comodidades son de cinco minutos; no las he
+añadido sin preguntar porque cambian la interfaz y eso se decide, no se supone.
+
+Suite 1935/1935 y `2336217899213 ps` —`sim_main.cpp` no entra en el banco, pero
+se comprueba igual—. Puntos: 150 → 151.

@@ -151,6 +151,7 @@ make sim
 ./build/sim placa.xml --valida              # solo comprueba la placa
 ./build/sim placa.xml --gdb --port=3333     # stub de GDB por los pines SWD
 ./build/sim placa.xml --gdb-dap             # o el stub interno contra el DAP
+./build/sim placa.xml --mcu TIPO            # el MCU implicito (STM32F407VG)
 ./build/sim --help                          # y los tipos que sabe construir
 ```
 
@@ -315,7 +316,23 @@ firmware, su modo de depuración y su puerto de GDB:
 ```
 
 Sin ningún `<mcu>` la placa lleva un STM32F407VG implícito y los nodos se llaman
-`PD12`, que es como han sido todas hasta ahora. Con uno declarado valen los dos
+`PD12`, que es como han sido todas hasta ahora. **`--mcu TIPO` cambia el tipo de
+ese implícito** —`--mcu stm32f407vg`, en mayúsculas o minúsculas— y **no pisa lo
+que diga el XML**: una placa que declara sus chips ya ha dicho cuáles son, y la
+línea de órdenes no tiene por qué saberlo mejor.
+
+Con un tipo que el programa no modele, el error lo dice y lista los que hay:
+
+```
+mcu (implicito): no se sabe construir un 'STM32F446RE'.
+Los tipos que este programa modela son: STM32F407VG.
+Un MCU distinto no es un parametro: es otro modelo, con su mapa de memoria,
+sus perifericos y su encapsulado.
+```
+
+Que es la situación de hoy: **el único MCU modelado es el STM32F407VG**. La
+opción existe para que el día que haya un segundo no haya que cambiar la interfaz
+—y para que entre tanto el fallo sea claro en vez de silencioso—. Con uno declarado valen los dos
 nombres, `PD12` y `u0.PD12`. **Con dos o más solo vale el cualificado**, y cada
 chip lleva lo suyo en el XML: un firmware o un puerto sueltos en la línea de
 órdenes ya no dicen a cuál y se rechazan nombrando los MCUs.
