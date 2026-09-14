@@ -81,8 +81,9 @@ public:
     // nombre con el MISMO nodo sí vale: es idempotente, y ocurre de verdad
     // cuando un pad forma parte de un nodo compartido que ya estaba dado de
     // alta por su nombre de placa. [doc/stm32f407vg_multi_mcu.md, §7.2]
-    void registra(const std::string& nombre, analog_net_if& n,
+    void registra(const std::string& nom, analog_net_if& n,
                   bool es_pin = false, bool bonded = true) {
+        const std::string nombre = nombre_canonico_pad(nom);
         const auto it = m_.find(nombre);
         if (it != m_.end() && it->second.net != &n) {
             SC_REPORT_ERROR("netlist",
@@ -128,7 +129,8 @@ public:
     // Un nodo que NO es un pin: el hilo de un bus, el nudo entre dos
     // componentes externos. Lo crea y lo posee este mapa. Como todo lo demás,
     // tiene que ocurrir durante la elaboración.
-    analog_net_if& externo(const std::string& nombre) {
+    analog_net_if& externo(const std::string& nom) {
+        const std::string nombre = nombre_canonico_pad(nom);
         auto it = m_.find(nombre);
         if (it != m_.end()) return *it->second.net;
         propios_.emplace_back(new AnalogNet(nombre.c_str()));
@@ -136,8 +138,8 @@ public:
         return *propios_.back();
     }
 
-    const Nodo* busca(const std::string& nombre) const {
-        auto it = m_.find(nombre);
+    const Nodo* busca(const std::string& nom) const {
+        auto it = m_.find(nombre_canonico_pad(nom));
         return it == m_.end() ? nullptr : &it->second;
     }
     analog_net_if& operator[](const std::string& nombre) const {
@@ -224,7 +226,9 @@ struct Instancia {
 
     // --- Declaración fluida -------------------------------------------------
     Instancia& pin(const char* nombre, const std::string& nodo) {
-        pines.push_back(Conexion{nombre, nodo});
+        // Canonizado a la ENTRADA: `PD12`, `PD.12`, `P3.12` y `P312` son el
+        // mismo punto, y a partir de aqui se llama `PD12` y nada mas.
+        pines.push_back(Conexion{nombre, nombre_canonico_pad(nodo)});
         return *this;
     }
     Instancia& par(const char* clave, const std::string& valor) {
@@ -323,7 +327,8 @@ public:
     // Un nodo que NO es un pin del MCU y que, por tanto, hay que crear: el hilo
     // de un bus, el nudo entre dos componentes externos. Es el `<nodo id="..."/>`
     // del XML. Los pines no hace falta declararlos: ya existen.
-    Netlist& nodo_externo(const std::string& nombre) {
+    Netlist& nodo_externo(const std::string& nom) {
+        const std::string nombre = nombre_canonico_pad(nom);
         for (const std::string& n : externos_) if (n == nombre) return *this;
         externos_.push_back(nombre);
         return *this;
@@ -333,7 +338,8 @@ public:
     // validación eléctrica no puede distinguir sola un bus de un cortocircuito
     // —en los dos casos hay dos piezas tirando del mismo punto— y callarse
     // ante los dos la dejaría sin servir para nada.
-    Netlist& nodo_bus(const std::string& nombre) {
+    Netlist& nodo_bus(const std::string& nom) {
+        const std::string nombre = nombre_canonico_pad(nom);
         for (const std::string& n : buses_) if (n == nombre) return *this;
         buses_.push_back(nombre);
         return *this;
@@ -349,20 +355,25 @@ public:
     //
     // Un nodo con `une` es siempre externo: no lo crea ningún pad, lo crea la
     // placa. [doc/stm32f407vg_multi_mcu.md, §4.3]
-    Netlist& nodo_une(const std::string& nombre,
+    Netlist& nodo_une(const std::string& nom,
                       const std::vector<std::string>& pads) {
-        uniones_[nombre] = pads;
+        const std::string nombre = nombre_canonico_pad(nom);
+        std::vector<std::string> c;
+        c.reserve(pads.size());
+        for (const std::string& s : pads) c.push_back(nombre_canonico_pad(s));
+        uniones_[nombre] = c;
         nodo_externo(nombre);
         return *this;
     }
     const std::map<std::string, std::vector<std::string>>& uniones() const {
         return uniones_;
     }
-    const std::vector<std::string>* union_de(const std::string& nombre) const {
-        const auto it = uniones_.find(nombre);
+    const std::vector<std::string>* union_de(const std::string& nom) const {
+        const auto it = uniones_.find(nombre_canonico_pad(nom));
         return it == uniones_.end() ? nullptr : &it->second;
     }
-    bool es_bus(const std::string& nombre) const {
+    bool es_bus(const std::string& nom) const {
+        const std::string nombre = nombre_canonico_pad(nom);
         for (const std::string& n : buses_) if (n == nombre) return true;
         return false;
     }
@@ -376,7 +387,8 @@ public:
             for (const std::string& s : *u) if (es_bus(s)) return true;
         return false;
     }
-    bool es_externo(const std::string& nombre) const {
+    bool es_externo(const std::string& nom) const {
+        const std::string nombre = nombre_canonico_pad(nom);
         for (const std::string& n : externos_) if (n == nombre) return true;
         return false;
     }

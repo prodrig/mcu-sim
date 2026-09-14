@@ -1064,6 +1064,7 @@ SC_MODULE(F1Tb) {
         t122_nodo_compartido();
         t123_varios_mcu();
         t124_pulsador_nc();
+        t125_nombres_de_pin();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -13582,6 +13583,64 @@ SC_MODULE(F1Tb) {
 
         btn_na.release(); btn_nc.release();
         wait(1, SC_US);
+    }
+
+    // -----------------------------------------------------------------------
+    // T125 — El nombre de un pin, en las cuatro formas que usan los fabricantes.
+    //
+    // No cuesta tiempo simulado: `pad_desde_nombre()` es una funcion pura, y
+    // por eso esta prueba no mueve el reloj ni un picosegundo.
+    // -----------------------------------------------------------------------
+    void t125_nombres_de_pin() {
+        group("T125 Nombres de pin: PD12, PD.12, P3.12 y P312");
+        auto pad = [](const char* s, unsigned& p, unsigned& i) {
+            std::string m;
+            return pad_desde_nombre(s, m, p, i);
+        };
+        auto es = [&](const char* s, unsigned pe, unsigned ie, const char* q) {
+            unsigned p = 99, i = 99;
+            check(pad(s, p, i) && p == pe && i == ie, q);
+        };
+        auto no = [&](const char* s, const char* q) {
+            unsigned p = 0, i = 0;
+            check(!pad(s, p, i), q);
+        };
+        // Las cuatro formas del mismo pin
+        es("PD12",  3, 12, "PD12: letra sin punto, la forma de siempre");
+        es("PD.12", 3, 12, "PD.12: letra con punto, el mismo pin");
+        es("P3.12", 3, 12, "P3.12: numero con punto, el mismo pin");
+        es("P312",  3, 12, "P312: numero sin punto, el mismo pin");
+        // El numero de puerto es el INDICE: P0 = PA
+        es("P0.0", 0, 0, "P0.0 es PA0: el numero de puerto es el indice");
+        es("P00",  0, 0, "y P00 tambien");
+        es("P8.15", 8, 15, "P8.15 es PI15, el ultimo puerto del F407");
+        // La ambiguedad: siempre el puerto MAS PEQUENO
+        es("P111", 1, 11, "P111 se lee P1.11 y no P11.1: gana el puerto menor");
+        no("P11.1", "y P11.1 explicito no vale: este MCU no tiene puerto 11");
+        // Con prefijo de MCU, en cualquiera de las formas
+        {
+            std::string m; unsigned p = 0, i = 0;
+            check(pad_desde_nombre("u0.P3.12", m, p, i) && m == "u0" &&
+                  p == 3 && i == 12,
+                  "u0.P3.12: el punto del MCU y el del pin no se confunden");
+            check(pad_desde_nombre("u0.PD12", m, p, i) && m == "u0",
+                  "y u0.PD12 sigue valiendo igual que siempre");
+        }
+        // Lo que NO es un pad
+        no("P9.0",  "P9.0: no hay noveno puerto");
+        no("PJ0",   "PJ0 tampoco");
+        no("PA05",  "PA05: un cero a la izquierda no es una forma distinta");
+        no("P1.05", "ni P1.05");
+        no("P016",  "ni P016, que ademas es ambiguo de verdad");
+        no("P1",    "P1 no nombra ningun pin");
+        no("NRST",  "NRST no es un pad de puerto, y esta bien que no lo sea");
+        // Y el nombre canonico: una sola voz para los volcados
+        check(nombre_canonico_pad("P312") == "PD12" &&
+              nombre_canonico_pad("PD.12") == "PD12" &&
+              nombre_canonico_pad("u0.P3.12") == "u0.PD12",
+              "todas se canonizan a PD12, que es como se llaman en los volcados");
+        check(nombre_canonico_pad("n_scl") == "n_scl",
+              "y lo que no es un pad pasa de largo sin tocarlo");
     }
 
     // T123 — VARIOS MCUs en la placa: la declaración

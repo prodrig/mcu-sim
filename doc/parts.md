@@ -146,6 +146,42 @@ Se rechazan antes de simular, cada uno con su mensaje: un nombre que no es un
 pad, un pad que el encapsulado no saca, el mismo pad en dos puentes, y un `une`
 con un solo pad.
 
+#### Cómo se escribe el nombre de un pin
+
+El modelo acepta **las cuatro formas** con las que los fabricantes nombran un
+pin, y todas designan el mismo punto:
+
+| | |
+| :--- | :--- |
+| `PD12` | letra de puerto, sin punto — la de ST, y la **canónica** aquí |
+| `PD.12` | letra de puerto, con punto — muchos esquemáticos |
+| `P3.12` | número de puerto, con punto — LPC, MSP430, 8051… |
+| `P312` | la misma, escrita deprisa |
+
+Con el prefijo del MCU delante funcionan igual: `u0.PD12`, `u0.P3.12`.
+
+**El número de puerto es el índice, contado como las letras:** `P0` = `PA`,
+`P1` = `PB`, … `P8` = `PI`. Es la única correspondencia que hace que las dos
+formas nombren lo mismo.
+
+**El punto está sobrecargado**, y de ahí la única regla que hay que saber: en
+`u0.PD12` separa el chip del pad y en `P3.12` separa el puerto del pin. Se
+distinguen mirando lo que hay detrás del último punto — si son solo dígitos, es
+el del pin.
+
+**La ambigüedad de la forma sin punto**: `P111` puede leerse `P1.11` o `P11.1`, y
+**se elige siempre el puerto más pequeño**, `P1.11`. No es un desempate
+caprichoso: los puertos bajos son los que existen en todos los chips, y la regla
+es estable — si un modelo futuro tuviera más puertos, lo que hoy se lee `P1.11`
+se seguirá leyendo igual.
+
+Lo que **no** vale es escribir el mismo número de dos maneras: `PA05`, `P1.05` y
+`P016` son errores, no formas alternativas de `PA5`, `PB5` y `PB6`.
+
+**Se canoniza a la entrada**, así que da igual mezclar formas dentro de un
+fichero: quien declara `<nodo id="P3.12"/>` y quien conecta `nodo="PD.12"` acaban
+en el mismo nodo, y los volcados hablan siempre con una sola voz — `PD12`.
+
 ### 2.2 Los terminales: `<pin>`
 
 ```xml

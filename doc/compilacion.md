@@ -11,7 +11,7 @@ tocar el `Makefile`, y qué hacer cuando falla. La segunda mitad está ordenada 
 ```bash
 cd src
 make                    # la suite de verificación
-make test               # y la ejecuta: 1915 comprobaciones, código de salida 0/1
+make test               # y la ejecuta: 1935 comprobaciones, código de salida 0/1
 ```
 
 Hace falta **SystemC ≥ 2.3.3** de Accellera y un compilador con **C++17**. Nada
@@ -293,13 +293,13 @@ de enlazado, y el mensaje de SystemC dice cuál es.
 
 ```bash
 make red        # 13 comprobaciones de la capa de red, sin SystemC
-make test       # 1915 comprobaciones
+make test       # 1935 comprobaciones
 ```
 
 Y el criterio que de verdad vale, más allá de que pasen: al final de `make test`,
 
 ```
-TOTAL     : 1915 comprobaciones OK, 0 fallos
+TOTAL     : 1935 comprobaciones OK, 0 fallos
 Tiempo simulado: 2336217899213 ps
 ```
 
@@ -314,8 +314,8 @@ hay que entender qué antes de dar la plataforma por buena.
 
 | Plataforma | Estado |
 | :--- | :--- |
-| Linux, g++ 13 | **Verificado**: 1915/1915, `make red` 13/13, ASan limpio |
-| Linux, clang | **Verificado**: 1915/1915, mismo tiempo simulado al picosegundo |
+| Linux, g++ 13 | **Verificado**: 1935/1935, `make red` 13/13, ASan limpio |
+| Linux, clang | **Verificado**: 1935/1935, mismo tiempo simulado al picosegundo |
 | Windows, MinGW-w64 | **Compila y enlaza** cruzado desde Linux (PE32+ sin avisos). **Falta** construir SystemC allí y ejecutarlo |
 | macOS, clang | **La rama específica compila**. **Falta** probarlo en un Mac |
 

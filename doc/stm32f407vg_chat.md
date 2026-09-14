@@ -2522,3 +2522,61 @@ antes— y una palabra inválida no arranca.
 
 Suite: 1902 → **1915**, tiempo simulado `2336217899213 ps` —los 6 µs de esperas
 de T124—. Puntos: 148 → 149 (**I-35**).
+
+---
+
+## 2026-09-14 UTC — Un pin, cuatro maneras de escribirlo
+
+**Prompt.** «Unos MCUs nombran los pines PA0…PB15 y otros usan número de puerto
+con punto (P1.0) o letra con punto (PA.0). Modifica el programa para aceptar los
+tres casos. En caso de ambigüedad (P111 podría ser P1.11 o P11.1) elegir siempre
+el número de puerto más pequeño (P1.11)».
+
+**Respuesta.** Aceptadas las cuatro formas —la cuarta sale sola: si vale `P3.12`,
+tiene que valer `P312`—, y el trabajo de verdad no estaba donde parecía.
+
+| escrito | se lee |
+| :--- | :--- |
+| `PD12` | letra sin punto, la de ST y la **canónica** |
+| `PD.12` | letra con punto |
+| `P3.12` | número con punto |
+| `P312` | número sin punto |
+
+**El punto ya estaba ocupado, y ese era el problema.** En `u0.PD12` separa el
+chip del pad; en `P3.12`, el puerto del pin. La regla que los distingue cabe en
+una línea: **si detrás del último punto solo hay dígitos, ese punto es el del
+pin** —y lo de delante tiene que terminar en algo con forma de puerto—. Así
+`u0.P3.12` tiene los dos puntos y cada uno hace lo suyo.
+
+**El número de puerto es el índice**, contado como las letras: `P0` = `PA`, …
+`P8` = `PI`. No es arbitrario: es la única correspondencia que hace que las dos
+formas nombren lo mismo.
+
+**La ambigüedad, resuelta como se pidió y por un motivo:** `P111` se lee `P1.11`,
+el puerto más pequeño. No es un desempate caprichoso —los puertos bajos son los
+que existen en todos los chips— y además **es estable**: si un modelo futuro
+tuviera más puertos, lo que hoy se lee `P1.11` se seguirá leyendo igual. Se
+implementa probando el puerto más corto primero, que es también el menor.
+
+**Lo que costó más que el parser: que las cuatro formas nombren el MISMO nodo.**
+La primera versión parseaba bien y aun así fallaba, porque el `NodeMap` va por
+nombre literal: declarar `<nodo id="P3.12"/>` y conectar `nodo="PD.12"` daba
+«nodo desconocido». La solución es `nombre_canonico_pad()` aplicada **a la
+entrada** —`Instancia::pin`, `nodo_externo`, `nodo_bus`, `nodo_une` y el propio
+`NodeMap`—, de modo que todo converge a una sola clave y **los volcados siguen
+hablando con una sola voz**. Canonizar en la puerta y no en cada comparación es
+lo que evita tener que acordarse en veinte sitios.
+
+Comprobado con una placa de verdad, con las formas mezcladas a propósito: `PD12`
+declarado como `P3.12` y conectado como `PD.12`, `PD13` como `P313`. Once
+componentes, **0 avisos**, y el informe final imprime `LED LD4 en PD12`.
+
+**Lo que sigue sin valer, a propósito:** `PA05`, `P1.05` y `P016`. Un cero a la
+izquierda no es otra forma de escribir lo mismo, es una escritura distinta del
+mismo número, y admitirla convierte cualquier nombre en un acertijo. `P016`
+además es ambiguo de verdad.
+
+**T125: veinte comprobaciones y CERO tiempo simulado.** `pad_desde_nombre()` es
+una función pura, así que la prueba no mueve el reloj: la suite pasa de 1915 a
+**1935** comprobaciones con el invariante **exactamente igual**,
+`2336217899213 ps`. Puntos: 149 → 150 (**I-36**).

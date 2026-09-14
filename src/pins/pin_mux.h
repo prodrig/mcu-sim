@@ -31,6 +31,7 @@
 #endif
 #include <systemc>
 #include <array>
+#include <cstdio>
 #include <cstdlib>
 #include <map>
 #include <string>
@@ -82,13 +83,117 @@ private:
     std::map<unsigned, analog_net_if*> m_;
 };
 
-// "PD12" -> ("", 3, 12);  "u0.PD12" -> ("u0", 3, 12). Falso si no es el nombre
-// de un pad de puerto. Es la traducción inversa de `nombre_nodo()`, y la
-// necesita quien lee la placa: el XML habla de `PD12` o de `u0.PD12`, y el
-// constructor del MCU habla de (puerto, pin).
+// -----------------------------------------------------------------------------
+// El nombre de un pad, en las tres formas que usan los fabricantes.
+//
+//   PD12      letra de puerto, sin punto      (STM32, y la forma CANONICA aqui)
+//   PD.12     letra de puerto, con punto      (muchos esquematicos)
+//   P3.12     numero de puerto, con punto     (LPC, MSP430, 8051...)
+//   P312      numero de puerto, sin punto     (la misma, escrita deprisa)
+//
+// y cualquiera de ellas con el prefijo del MCU delante: `u0.PD12`, `u0.P3.12`.
+//
+// EL PUNTO ESTA SOBRECARGADO, y ese es todo el problema: en `u0.PD12` separa el
+// chip del pad, y en `P3.12` separa el puerto del pin. Se distinguen mirando lo
+// que hay DESPUES del ultimo punto: si son solo digitos, ese punto es el del
+// pin -y lo de delante tiene que terminar en algo con forma de puerto-; si no,
+// es el del MCU.
+//
+// EL NUMERO DE PUERTO ES EL INDICE, contado como las letras: P0 = PA, P1 = PB,
+// ... P8 = PI. No es una eleccion arbitraria: es la unica que hace que las dos
+// formas nombren lo mismo, y `nombre_nodo()` sigue devolviendo siempre la
+// forma canonica con letra, para que en los volcados no haya dos nombres para
+// un mismo pin.
+//
+// LA AMBIGUEDAD DE LA FORMA SIN PUNTO. `P111` puede leerse P1.11 o P11.1, y se
+// elige SIEMPRE EL PUERTO MAS PEQUENO: P1.11. La regla no es un desempate
+// caprichoso sino la mas util -los puertos bajos son los que existen en todos
+// los chips- y ademas es estable: al crecer el numero de puertos de un modelo
+// futuro, lo que hoy se lee P1.11 se seguira leyendo P1.11.
+//
+// Es la traduccion inversa de `nombre_nodo()`, y la necesita quien lee la
+// placa: el XML habla de `PD12` y el constructor del MCU de (puerto, pin).
+// -----------------------------------------------------------------------------
+namespace detalle_pad {
+
+inline bool todo_digitos(const std::string& s) {
+    if (s.empty()) return false;
+    for (char c : s) if (c < '0' || c > '9') return false;
+    return true;
+}
+// Un numero escrito sin ceros a la izquierda: "0" vale, "07" no. Se rechaza
+// por lo mismo que el modelo rechaza "PA05": un nombre, una escritura.
+inline bool numero_limpio(const std::string& s, unsigned& v) {
+    if (!todo_digitos(s)) return false;
+    if (s.size() > 1 && s[0] == '0') return false;
+    v = unsigned(std::atoi(s.c_str()));
+    return true;
+}
+// El trozo que designa un PUERTO: "PD" o "P3". Devuelve el indice.
+inline bool puerto_desde(const std::string& s, unsigned& port) {
+    if (s.size() < 2 || s[0] != 'P') return false;
+    if (s.size() == 2 && s[1] >= 'A' && s[1] < char('A' + N_GPIO_PORTS)) {
+        port = unsigned(s[1] - 'A');
+        return true;
+    }
+    unsigned v = 0;
+    if (!numero_limpio(s.substr(1), v) || v >= N_GPIO_PORTS) return false;
+    port = v;
+    return true;
+}
+// "PD12" o "P312", sin punto. Con letra no hay nada que decidir; con numeros
+// se prueba el puerto mas corto primero, que es el mas pequeno.
+inline bool pad_sin_punto(const std::string& t, unsigned& port, unsigned& pin) {
+    if (t.size() < 3 || t[0] != 'P') return false;
+    if (t[1] >= 'A' && t[1] <= 'Z') {                 // forma con letra
+        if (t[1] >= char('A' + N_GPIO_PORTS)) return false;
+        unsigned v = 0;
+        if (!numero_limpio(t.substr(2), v) || v >= N_PORT_PINS) return false;
+        port = unsigned(t[1] - 'A');
+        pin  = v;
+        return true;
+    }
+    const std::string d = t.substr(1);                // forma con numeros
+    if (!todo_digitos(d)) return false;
+    for (size_t k = 1; k < d.size(); ++k) {           // k = digitos del puerto
+        unsigned pu = 0, pi = 0;
+        if (!numero_limpio(d.substr(0, k), pu) || pu >= N_GPIO_PORTS) continue;
+        if (!numero_limpio(d.substr(k), pi)    || pi >= N_PORT_PINS) continue;
+        port = pu; pin = pi;                          // el primero que cuadra
+        return true;                                  // es el de puerto menor
+    }
+    return false;
+}
+
+} // namespace detalle_pad
+
 inline bool pad_desde_nombre(const std::string& s, std::string& mcu,
                              unsigned& port, unsigned& pin) {
+    using namespace detalle_pad;
     const size_t p = s.rfind('.');
+
+    // ¿Es el punto del PIN? Lo es si detras solo hay digitos y delante hay algo
+    // con forma de puerto.
+    if (p != std::string::npos && p + 1 < s.size() && todo_digitos(s.substr(p + 1))) {
+        const std::string izq = s.substr(0, p);
+        const size_t q = izq.rfind('.');              // por si lleva MCU delante
+        const std::string seg = (q == std::string::npos) ? izq : izq.substr(q + 1);
+        unsigned pu = 0, pi = 0;
+        if (puerto_desde(seg, pu) && numero_limpio(s.substr(p + 1), pi) &&
+            pi < N_PORT_PINS) {
+            if (q == std::string::npos) mcu.clear();
+            else {
+                if (q == 0) return false;             // ".PA.0" no es un nombre
+                mcu = izq.substr(0, q);
+            }
+            port = pu; pin = pi;
+            return true;
+        }
+        // Con forma de pin pero sin puerto delante: no es un pad. Cae abajo, y
+        // alli fallara, que es lo correcto.
+    }
+
+    // El punto, si lo hay, separa el MCU del pad.
     if (p == std::string::npos) {
         mcu.clear();
     } else {
@@ -96,18 +201,25 @@ inline bool pad_desde_nombre(const std::string& s, std::string& mcu,
         mcu = s.substr(0, p);
     }
     const std::string t = (p == std::string::npos) ? s : s.substr(p + 1);
-    if (t.size() < 3 || t.size() > 4 || t[0] != 'P') return false;
-    if (t[1] < 'A' || t[1] >= char('A' + N_GPIO_PORTS)) return false;
-    for (size_t k = 2; k < t.size(); ++k)
-        if (t[k] < '0' || t[k] > '9') return false;
-    if (t.size() == 4 && t[2] == '0') return false;      // "PA05" no existe
-    const unsigned i = unsigned(std::atoi(t.c_str() + 2));
-    if (i >= N_PORT_PINS) return false;
-    port = unsigned(t[1] - 'A');
-    pin  = i;
-    return true;
+    return pad_sin_punto(t, port, pin);
 }
-// Sin prefijo: para quien ya sabe que solo hay un MCU.
+
+// El nombre CANONICO de lo que sea: si es un pad, `[<mcu>.]P<letra><pin>`; si
+// no lo es -"n_scl", "NRST"-, el mismo que entro. Es lo que permite que las
+// cuatro formas nombren de verdad el mismo punto: quien declara `<nodo
+// id="P3.12"/>` y quien conecta `nodo="PD.12"` acaban en la MISMA clave, y los
+// volcados hablan siempre con una sola voz. Canonizar a la ENTRADA y no en cada
+// comparacion es lo que evita tener que acordarse en veinte sitios.
+inline std::string nombre_canonico_pad(const std::string& s) {
+    std::string mcu;
+    unsigned port = 0, pin = 0;
+    if (!pad_desde_nombre(s, mcu, port, pin)) return s;
+    char b[8];
+    std::snprintf(b, sizeof b, "P%c%u", char('A' + port), pin);
+    return mcu.empty() ? std::string(b) : mcu + "." + b;
+}
+
+// La misma, para quien no admite prefijo de MCU: "PD12" si, "u0.PD12" no.
 inline bool pad_desde_nombre(const std::string& s, unsigned& port, unsigned& pin) {
     std::string mcu;
     return pad_desde_nombre(s, mcu, port, pin) && mcu.empty();
