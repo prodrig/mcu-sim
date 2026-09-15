@@ -67,7 +67,7 @@ lleva:
 
 | Atributo | Omisión | Efecto |
 | :--- | :--- | :--- |
-| `tipo` | *(obligatorio)* | El modelo. Hoy solo se sabe construir `STM32F407VG` |
+| `tipo` | *(obligatorio)* | El modelo. Se saben construir **los once miembros de la familia F405/F407**: `STM32F405RG`, `STM32F405OG`, `STM32F405VG`, `STM32F405ZG`, `STM32F405OE`, `STM32F407VE`, `STM32F407VG`, `STM32F407ZE`, `STM32F407ZG`, `STM32F407IE` y `STM32F407IG`. `sim --help` los lista, y `--mcu TIPO` fija el del chip implícito. Lo que los distingue está en `doc/stm32f407vg_reutilizacion.md` §9 |
 | `id` | *(obligatorio)* | El prefijo de sus nodos (`u0.PD12`) y su nombre en la jerarquía de SystemC |
 | `firmware` | ninguno | La imagen que se le carga en la Flash. **Una por chip** |
 | `depuracion` | `pines` | `pines`: expone SWCLK/SWDIO y el stub se cuelga por fuera, como un ST-LINK. `dap`: reserva los cinco pines de depuración y el stub habla con el núcleo por llamada de función |
@@ -120,9 +120,12 @@ simultánea. Úsese cuando varias piezas conducen ese nodo por diseño —un bus
 colector abierto, un cable en Y— o cuando un pin se comparte a propósito entre
 dos montajes. Si no se declara y hay dos conductores, `--valida` lo dice.
 
-**Los pads que este encapsulado no saca son un error.** El LQFP100 solo tiene
-los puertos A–E más `PH0` y `PH1`. Conectar algo a `PF3` se rechaza antes de
-simular, aunque el nodo exista en el modelo.
+**Los pads que este encapsulado no saca son un error.** Y *este* encapsulado
+depende del chip: el LQFP100 del `F407VG` tiene los puertos A–E más `PH0`/`PH1`;
+el LQFP64 de un `F405RG` tiene A–C, **solo `PD2`** y `PH0`/`PH1`; el LQFP176 de
+un `F407IG` llega hasta `PI11`. Conectar algo a un pad que no sale se rechaza
+antes de simular —con el nombre del encapsulado en el mensaje— aunque el nodo
+exista en el modelo, porque el silicio sí lo tiene y el plástico no.
 
 **`une` sí cambia algo eléctrico, y es el único atributo que lo hace.** Un nodo
 con `une` no se cuelga de los pads: **los sustituye**. Los pads que nombra dejan

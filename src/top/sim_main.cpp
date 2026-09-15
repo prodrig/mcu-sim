@@ -79,32 +79,20 @@
 using namespace sc_core;
 using namespace stm32;
 
-// El único tipo de MCU que se sabe construir. Cuando haya un segundo, esto pasa
-// a ser una factoría con auto-registro, igual que la de piezas del paso 3
-// [doc/stm32f407vg_multi_mcu.md, §6.1]; mientras solo haya uno, una factoría
-// sería andamio sin obra.
-static const char* TIPO_MCU = "STM32F407VG";
+// El MCU que se monta cuando nadie dice otra cosa: el de la STM32F4-Discovery,
+// que es la tarjeta con la que trabaja el alumno. Los otros diez miembros de la
+// familia salen del catálogo de `top/mcu_caps.h`.
+static const char* TIPO_MCU = MCU_STM32F407VG.nombre;
 
-// Los tipos de MCU que este ejecutable sabe CONSTRUIR. Hoy hay uno, y la lista
-// existe igualmente por dos motivos que no son el de mañana: `--mcu` necesita
-// contra qué contrastar lo que le escriban, y el error necesita poder decir
-// cuáles hay. Una lista de uno que se imprime sola vale más que una constante
-// repartida por el fichero.
-static const char* const TIPOS_MCU[] = { "STM32F407VG" };
-
+// Los tipos de MCU que este ejecutable sabe CONSTRUIR: los once miembros de la
+// familia F405/F407, que salen del catálogo de `top/mcu_caps.h` y no de una
+// lista escrita aquí. Un miembro nuevo aparece en `--mcu`, en `--help` y en el
+// mensaje de error sin tocar este fichero.
 static std::string mayus(std::string s) {
     for (char& c : s) if (c >= 'a' && c <= 'z') c = char(c - 'a' + 'A');
     return s;
 }
-static bool tipo_conocido(const std::string& t) {
-    for (const char* x : TIPOS_MCU) if (t == x) return true;
-    return false;
-}
-static std::string tipos_como_texto() {
-    std::string s;
-    for (const char* x : TIPOS_MCU) { if (!s.empty()) s += ", "; s += x; }
-    return s;
-}
+static std::string tipos_como_texto() { return mcus_como_texto(); }
 
 static std::string g_placa, g_img, g_nombre = "placa";
 static double      g_ms      = 100.0;
@@ -198,14 +186,37 @@ SC_MODULE(Sim) {
             decls.push_back(m);
         }
         aplica_linea_de_ordenes(decls);
-        for (const DeclMcu& m : decls)
-            if (!tipo_conocido(m.tipo))
+        // Cada chip se resuelve contra el catálogo, y de ahí sale su descriptor
+        // completo: núcleo, memorias, encapsulado y qué periféricos lleva. Un
+        // tipo que no está NO se sustituye por otro — se rechaza diciendo
+        // cuáles hay, porque montar un F407 donde el usuario escribió otra cosa
+        // sería la clase de mentira que este modelo no se permite.
+        std::vector<const McuCaps*> caps_de(decls.size(), nullptr);
+        for (size_t k = 0; k < decls.size(); ++k) {
+            DeclMcu& m = decls[k];
+            m.tipo = mayus(m.tipo);
+            caps_de[k] = mcu_por_nombre(m.tipo);
+            if (!caps_de[k])
                 muere("mcu " + (m.id.empty() ? std::string("(implicito)") : m.id) +
                       ": no se sabe construir un '" + m.tipo + "'.\n"
-                      "Los tipos que este programa modela son: " +
-                      tipos_como_texto() + ".\n"
-                      "Un MCU distinto no es un parametro: es otro modelo, con "
-                      "su mapa de memoria, sus perifericos y su encapsulado.");
+                      "Los tipos que este programa modela son:\n  " +
+                      tipos_como_texto() + "\n"
+                      "Un MCU de OTRA FAMILIA no es un parametro: es otro modelo, "
+                      "con su arbol de reloj y sus perifericos.");
+            m.enc = &caps_de[k]->enc;
+            // Y el encapsulado tambien al netlist, que es quien valida los pads
+            // ANTES de que los MCU existan.
+            if (m.id.empty()) placa.fija_encapsulado_implicito(m.enc);
+            else              placa.fija_encapsulado(m.id, m.enc);
+            // El WLCSP90 lleva su reparto de bolas sin contrastar, y eso se
+            // dice en voz alta en vez de esconderse en un comentario.
+            if (!caps_de[k]->enc.verificado)
+                std::printf("  [aviso] %s: el reparto de pads del %s es una "
+                            "reconstruccion a partir del recuento del datasheet "
+                            "(%u E/S) y NO esta contrastado bola a bola\n",
+                            caps_de[k]->nombre, caps_de[k]->enc.nombre,
+                            caps_de[k]->enc.n_gpio);
+        }
 
         // --- 3. Los nodos COMPARTIDOS, antes de los MCUs --------------------
         // Si la placa no declara ninguno -que es lo normal- los cableados salen
@@ -229,7 +240,8 @@ SC_MODULE(Sim) {
                 caps.puerto = d.puerto_gdb;      // 0: reserva los pines, no escucha
             }
             const std::string nm = d.id.empty() ? std::string("dut") : d.id;
-            m.dut = new Stm32F407VG(nm.c_str(), caps, cab);
+            const McuCaps* mc = caps_de[size_t(&d - &decls[0])];
+            m.dut = new Stm32F407VG(nm.c_str(), caps, cab, *mc);
             // Los nodos, con el prefijo del chip. Y además con el nombre
             // desnudo cuando solo hay uno: es lo que hace que las placas
             // escritas hasta hoy sigan valiendo sin migrarlas.

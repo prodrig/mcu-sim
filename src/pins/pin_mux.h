@@ -40,10 +40,11 @@
 #include "../common/nombres_nodo.h"
 #include "af_types.h"
 #include "pad.h"
+#include "encapsulado.h"
 
 namespace stm32 {
 
-constexpr unsigned N_GPIO_PORTS = 9;   // A..I
+constexpr unsigned N_GPIO_PORTS = 9;   // A..I (el silicio; el encapsulado decide cuanto se ve)
 constexpr unsigned N_PORT_PINS  = 16;
 
 // ---------------------------------------------------------------------------
@@ -236,6 +237,11 @@ SC_MODULE(PinMux), public af_sel_if {
     std::array<std::array<Pad*,           N_PORT_PINS>, N_GPIO_PORTS> pad{};
 
     // Bundles hacia los puertos GPIO (los conecta el top).
+    // El encapsulado de ESTE chip, lo primero que se construye: que pads
+    // salen de verdad al plastico. Por omision el LQFP100, que es el que
+    // este modelo lleva desde el principio. [pins/encapsulado.h]
+    const Encapsulado enc;
+
     sc_core::sc_vector<sc_core::sc_signal<PadDrive>> gpio_drive;  // GPIO -> mux
     sc_core::sc_vector<sc_core::sc_signal<PadDrive>> pad_drive;   // mux  -> pad
     sc_core::sc_vector<sc_core::sc_signal<bool>>     pad_din;     // pad  -> GPIO
@@ -257,8 +263,9 @@ SC_MODULE(PinMux), public af_sel_if {
     // `cab` dice qué pines reciben su nodo de la placa en vez de crearlo. Vacío
     // —que es lo normal— deja el comportamiento de siempre.
     explicit PinMux(sc_core::sc_module_name nm_mod,
-                    const Cableado& cab = Cableado())
-        : sc_core::sc_module(nm_mod),
+                    const Cableado& cab = Cableado(),
+                    Encapsulado e = ENC_LQFP100)
+        : sc_core::sc_module(nm_mod), enc(e),
           gpio_drive("gpio_drive", N_GPIO_PORTS * N_PORT_PINS),
           pad_drive("pad_drive",   N_GPIO_PORTS * N_PORT_PINS),
           pad_din("pad_din",       N_GPIO_PORTS * N_PORT_PINS),
@@ -290,7 +297,7 @@ SC_MODULE(PinMux), public af_sel_if {
                 pad[p][i]->din_valid(pad_din_ok[k]);
                 pad[p][i]->out_of_range(pad_oor[k]);
                 pad[p][i]->net(*nodo[p][i]);
-                pad[p][i]->bonded = is_bonded_lqfp100(p, i);
+                pad[p][i]->bonded = enc.bonded(p, i);
                 // PC13/PC14/PC15 pasan por el conmutador de potencia del dominio
                 // de backup: 3 mA máximos y 2 MHz [IR, §2.1 nota 2].
                 if (p == 2 && i >= 13) pad[p][i]->i_max = 3e-3;
@@ -343,11 +350,16 @@ SC_MODULE(PinMux), public af_sel_if {
         return s;
     }
 
-    // Pines soldados en LQFP100: puertos A..E completos y PH0/PH1 [IR, §2.1].
+    // El encapsulado de este chip, para quien tenga el mux y no los rasgos:
+    // el netlist lo consulta para decir «ese pad no sale al encapsulado».
+    const Encapsulado& encapsulado() const { return enc; }
+
+    // Compatibilidad: el LQFP100 de siempre, ahora como consulta al descriptor.
+    // Sigue existiendo porque hay codigo que pregunta por el encapsulado del
+    // F407VG sin tener delante un mux; lo que YA NO hace nadie es usarla como
+    // «el encapsulado», que era el problema.
     static bool is_bonded_lqfp100(unsigned port, unsigned pin) {
-        if (port <= 4) return true;                       // A..E
-        if (port == 7) return pin <= 1;                   // PH0, PH1
-        return false;                                     // F, G, resto H, I
+        return ENC_LQFP100.bonded(port, pin);
     }
 
     static unsigned idx(unsigned p, unsigned i) { return p * N_PORT_PINS + i; }

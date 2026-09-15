@@ -120,6 +120,8 @@ struct McuCaps {
     CoreCaps     nucleo;
     MemCaps      memoria;
     LimitesReloj reloj;      // los topes por dominio
+    Encapsulado  enc;        // qué pads salen al plástico (§9.2)
+    Periferia    perif;      // ETH, cámara y bus externo (§9.3)
 };
 ```
 
@@ -158,12 +160,10 @@ marcha**: todo se dimensiona en el constructor, antes de `sc_start`.
 Conviene decirlo, porque es el límite real de esto y no se arregla con más
 `struct`s:
 
-* **El encapsulado.** `is_bonded_lqfp100()` sigue siendo una **función
-  estática** en `pins/pin_mux.h`. Mientras haya un solo encapsulado da igual;
-  con dos MCU de encapsulados distintos en la misma placa, no. Tiene que pasar
-  a ser un dato de instancia —un predicado o una máscara por puerto— y hay que
-  hacerlo **antes** de que exista un segundo encapsulado, no después.
-  [multi-MCU §6.3]
+* ~~**El encapsulado.**~~ **Cerrado** — véase §9.2. Era una función estática y
+  ahora es un `Encapsulado` con máscara por pin, que el `PinMux` y el netlist
+  reciben por instancia. Era el obstáculo que señalaba multi-MCU §6.3, y hasta
+  que no cayó no se podían describir los otros diez miembros de la familia.
 * **La tabla de funciones alternativas** (`pins/af_types.h`) y **el juego de
   periféricos** son de la familia, y ahí no hay parametrización posible: un
   chip con otro juego es otro modelo.
@@ -200,3 +200,116 @@ otra manera, que es exactamente lo que se afirma que se puede hacer.
 El coste en simulación es cero: los puertos de esos módulos se atan a señales
 que nadie mueve, así que sus procesos no despiertan nunca. El invariante del
 banco sigue en **2 336 217 899 213 ps**.
+
+---
+
+## 9. La familia F405/F407, entera
+
+Once referencias, y el refactor de las secciones anteriores es lo que permite
+describirlas sin duplicar nada: **son el mismo modelo con distintos rasgos**.
+
+| Referencia | Encapsulado | E/S | Flash | Sectores | ETH | Cámara | Bus ext. |
+| :--- | :--- | ---: | ---: | ---: | :---: | :---: | :---: |
+| STM32F405RG | LQFP64 | 51 | 1 MB | 12 | — | — | — |
+| STM32F405OG | WLCSP90 | 72 | 1 MB | 12 | — | — | sí |
+| STM32F405VG | LQFP100 | 82 | 1 MB | 12 | — | — | sí |
+| STM32F405ZG | LQFP144 | 114 | 1 MB | 12 | — | — | sí |
+| STM32F405OE | WLCSP90 | 72 | 512 KB | 8 | — | — | sí |
+| STM32F407VE | LQFP100 | 82 | 512 KB | 8 | sí | sí | sí |
+| **STM32F407VG** | LQFP100 | 82 | 1 MB | 12 | sí | sí | sí |
+| STM32F407ZE | LQFP144 | 114 | 512 KB | 8 | sí | sí | sí |
+| STM32F407ZG | LQFP144 | 114 | 1 MB | 12 | sí | sí | sí |
+| STM32F407IE | LQFP176 | 140 | 512 KB | 8 | sí | sí | sí |
+| STM32F407IG | LQFP176 | 140 | 1 MB | 12 | sí | sí | sí |
+
+*Fuente de los recuentos: DS8626 (STM32F405xx/407xx), tabla 2.*
+**Los once llevan el mismo núcleo** —82 líneas de IRQ, 4 bits de prioridad, 8
+regiones de MPU, FPv4-SP— **y la misma RAM**: 112 + 16 + 64 KB más 4 KB de
+backup. Ni el encapsulado ni el tamaño de Flash los cambian.
+
+### 9.1 Las tres cosas que los distinguen, y ninguna más
+
+**El dígito 5 o 7.** Un F405 es un F407 **sin Ethernet y sin cámara**. Eso es
+todo: mismo núcleo, misma memoria, mismos temporizadores, mismos puertos serie,
+mismos ADC, mismo bxCAN, mismos OTG. (El F415/F417 son los mismos con el
+acelerador criptográfico; **no están declarados** porque ese bloque no está
+modelado, y un descriptor no lo haría aparecer.)
+
+**La letra del encapsulado.** `R` = LQFP64, `O` = WLCSP90, `V` = LQFP100,
+`Z` = LQFP144, `I` = LQFP176/UFBGA176.
+
+**La última letra.** `E` = 512 KB de Flash en ocho sectores; `G` = 1 MB en doce.
+
+### 9.2 El encapsulado, que era el obstáculo
+
+`is_bonded_lqfp100()` era una **función estática** —señalada como obstáculo en
+multi-MCU §6.3— y ahora es un `Encapsulado`: una máscara de 16 bits por puerto,
+que dice **pin a pin** qué sale al plástico.
+
+Tenía que ser por pin y no por puerto, y el LQFP64 es el caso que lo demuestra:
+de su puerto D sale **un** pin, `PD2` (SDIO_CMD y UART5_RX). «El puerto D existe
+a medias» no se puede decir con un booleano.
+
+Lo que sostiene la tabla es una comprobación sencilla y eficaz: cada encapsulado
+lleva además **el número de E/S que le da el datasheet**, y T128 comprueba que
+la máscara tiene exactamente esos bits. Una máscara mal copiada deja de cuadrar
+y la prueba falla; sin ese contraste, el error sería invisible — el modelo se
+montaría igual y el alumno desarrollaría contra un chip que no es el suyo.
+
+### 9.3 Un periférico ausente es espacio reservado
+
+Que el F405 no lleve Ethernet no se modela apagándolo. Su ventana **no la
+decodifica nadie**, y tocarla da error de bus, que es lo que pasa en el silicio.
+El módulo sigue construido —la elaboración de SystemC es estática y no hay otra—
+pero sin camino desde el bus; para que la elaboración cierre, su socket se ata a
+un iniciador que no manda nada nunca.
+
+La alternativa descartada, y por qué: decodificar la ventana hacia un destino
+que devuelva error se vería igual desde el firmware, pero **mentiría en el
+netlist** — el volcado enseñaría un periférico donde no lo hay.
+
+El FSMC es el mismo caso con otro motivo: falta en el LQFP64 no por decisión de
+catálogo sino **porque no hay pines donde sacar el bus**. Y el «FSMC restringido»
+que el datasheet anota para LQFP100 y WLCSP90 no necesita ningún campo: la
+restricción es que no salen todas las líneas de dirección y datos, y eso ya lo
+dice el encapsulado. Un booleano más sería describir dos veces lo mismo y
+arriesgarse a que las dos descripciones no coincidan.
+
+### 9.4 ⚠ Lo que no está contrastado: el WLCSP90
+
+De los seis encapsulados, **cinco llevan su reparto verificado y uno no**.
+
+El recuento del WLCSP90 —72 E/S— sale de la tabla 2 del DS8626 y está
+comprobado. El **reparto bola a bola** viene de la tabla 7 del mismo datasheet,
+que no se ha podido consultar al escribir esto; lo que hay en el modelo es la
+reconstrucción razonable (A, B, C y D completos, `PE0`–`PE5` y los dos del
+oscilador) y **puede no ser la de ST**.
+
+Está marcado `verificado = false` en el descriptor, y `sim` lo dice en voz alta
+al montar una placa con un `F405OG` o un `F405OE`:
+
+```
+  [aviso] STM32F405OE: el reparto de pads del WLCSP90 es una reconstruccion a
+  partir del recuento del datasheet (72 E/S) y NO esta contrastado bola a bola
+```
+
+Es deliberado que moleste. Un mapa que parece exacto y no lo es sería peor: el
+alumno conectaría a una bola que no existe y el modelo se lo aceptaría sin
+decir nada — exactamente el tipo de mentira que I-32 e I-33 vinieron a quitar de
+aquí. Para cerrarlo hace falta la tabla 7 del DS8626; queda como **I-40**.
+
+### 9.5 Lo que sigue sin distinguirse entre miembros
+
+Honestidad sobre el alcance, que es lo que hace que lo anterior valga:
+
+* **La tabla de funciones alternativas es la misma para los once.** En el
+  silicio lo es; lo que cambia es qué pines salen, y de eso ya se encarga el
+  encapsulado. Un AF registrado sobre un pad no soldado no hace daño —ese pad no
+  se puede conectar a nada, y el netlist lo rechaza—, pero conviene saber que el
+  modelo no distingue AF por referencia.
+* **Los bits de reloj de los periféricos ausentes siguen existiendo.** En un
+  F405, `RCC_AHB1ENR.ETHMACEN` debería leer cero; aquí se escribe y se lee como
+  en el F407. El periférico no está —su ventana da error de bus—, pero el bit
+  que lo enciende sí. Es una diferencia observable y está sin cerrar.
+* **`UFBGA176` y `LQFP176` comparten reparto** y solo se distinguen por el
+  nombre, que es lo correcto: son el mismo die con otro plástico.

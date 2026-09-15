@@ -40,6 +40,7 @@
 #include "../periph/eth_mac.h"
 #include "../periph/otg.h"
 #include "../periph/dma.h"
+#include <memory>
 #include "mcu_caps.h"
 
 namespace stm32 {
@@ -233,10 +234,10 @@ SC_MODULE(Stm32F407VG) {
     explicit Stm32F407VG(sc_core::sc_module_name nm, DebugCaps dbg = DBG_PINES,
                          const Cableado& cab = Cableado(),
                          McuCaps caps = MCU_STM32F407VG)
-        : sc_core::sc_module(nm), mcu(caps), pinmux("pinmux", cab),
+        : sc_core::sc_module(nm), mcu(caps), pinmux("pinmux", cab, caps.enc),
           rcc("rcc", caps.reloj),
           core("core", dbg, caps.nucleo),
-          matrix("matrix", caps.memoria.ram),
+          matrix("matrix", caps.memoria.ram, caps.perif.fsmc),
           flash("flash", caps.memoria.flash),
           sram1("sram1", caps.memoria.ram.sram1_base, caps.memoria.ram.sram1_size),
           sram2("sram2", caps.memoria.ram.sram2_base, caps.memoria.ram.sram2_size),
@@ -312,6 +313,28 @@ private:
 
     void bind_clocks_resets();
     void bind_bus();
+
+    // ---- «Tapar» el socket de un periférico que este chip NO lleva ---------
+    //
+    // La elaboración de SystemC es estática: el módulo del Ethernet existe
+    // aunque el chip no lo tenga, y un socket de destino con su puerto sin atar
+    // es un error de elaboración. Así que se le ata un iniciador que NO MANDA
+    // NADA NUNCA.
+    //
+    // No es un apaño: es exactamente lo que se quiere decir. El periférico
+    // queda sin camino desde el bus —su ventana no está en ningún
+    // decodificador, y tocarla da error, igual que en el silicio—, y el
+    // iniciador mudo solo existe para que la elaboración cierre. Alternativa
+    // descartada: decodificar la ventana hacia un destino que devuelva error.
+    // Se vería igual desde el firmware, pero sería mentira en el netlist —el
+    // volcado enseñaría un periférico donde no lo hay—.
+    std::vector<std::unique_ptr<tlm_utils::simple_initiator_socket<Stm32F407VG>>> tapones_;
+    template <class Socket>
+    void tapa(Socket& tsk, const char* nombre) {
+        tapones_.emplace_back(
+            new tlm_utils::simple_initiator_socket<Stm32F407VG>(nombre));
+        tapones_.back()->bind(tsk);
+    }
     void bind_core();
     void bind_gpio_pins();
     void bind_periph_common();
@@ -429,13 +452,24 @@ inline void Stm32F407VG::bind_bus() {
         ->bind(bkpsram.tsk);
     ahb1_dec.add_slave("to_dma1", addr::DMA1_B, 0x400)->bind(dma1.tsk);
     ahb1_dec.add_slave("to_dma2", addr::DMA2_B, 0x400)->bind(dma2.tsk);
-    ahb1_dec.add_slave("to_eth", addr::ETH_B, 0x1400)->bind(eth.tsk);
+    // Un periferico que este miembro de la familia NO lleva no se decodifica,
+    // y eso es exactamente lo que pasa en el silicio: en un F405 la ventana
+    // del Ethernet es espacio RESERVADO, y tocarla da error de bus. Que el
+    // modulo siga construido -la elaboracion de SystemC es estatica- no lo
+    // hace visible: sin entrada en el decodificador no hay camino hasta el.
+    if (mcu.perif.eth)
+        ahb1_dec.add_slave("to_eth", addr::ETH_B, 0x1400)->bind(eth.tsk);
+    else
+        tapa(eth.tsk, "nc_eth");
     ahb1_dec.add_slave("to_otghs", addr::OTG_HS_B, 0x40000)->bind(otg_hs.tsk);
     ahb1_dec.add_slave("to_apb1", 0x40000000, 0x8000)->bind(br_apb1.ahb);
     ahb1_dec.add_slave("to_apb2", 0x40010000, 0x5800)->bind(br_apb2.ahb);
     // Segmento AHB2
     ahb2_dec.add_slave("to_otgfs", addr::OTG_FS_B, 0x40000)->bind(otg_fs.tsk);
-    ahb2_dec.add_slave("to_dcmi", addr::DCMI_B, 0x400)->bind(dcmi.tsk);
+    if (mcu.perif.dcmi)
+        ahb2_dec.add_slave("to_dcmi", addr::DCMI_B, 0x400)->bind(dcmi.tsk);
+    else
+        tapa(dcmi.tsk, "nc_dcmi");
     ahb2_dec.add_slave("to_rng", addr::RNG_B, 0x400)->bind(rng.tsk);
     // Puentes y decodificadores APB
     br_apb1.pclk(s_pclk1); br_apb1.pclk_hz(s_pclk1_hz); br_apb1.apb.bind(apb1_dec.tsk);

@@ -28,6 +28,45 @@
 
 namespace stm32 {
 
+// ---------------------------------------------------------------------------
+// Decodificación global -> esclavo de la matriz [IR, §5.1, §6.5]
+//   -1 : rango reservado / no decodificado (ERROR)
+//   -2 : rango de la CCM (no conectada a la matriz)
+//
+// Va FUERA del módulo, y como función pura, por dos razones que resultaron ser
+// la misma: depende solo de dos datos —el mapa de RAM del chip y si lleva bus
+// externo—, y así se puede comprobar la decodificación de un chip que no está
+// montado sin construir una matriz entera con sus dieciséis sockets. Es lo que
+// hace T128 para el LQFP64, que no lleva FSMC.
+// ---------------------------------------------------------------------------
+inline int decodifica_mapa(const MapaRam& ram, bool hay_fsmc, uint64_t a) {
+    using S = BusSlaveId;
+    if (a < ram.ccm_base)                                     // 0x0000_0000-0x0FFF_FFFF
+        return int(S::FLASH_ICODE);                           //   alias 0x0 + Flash
+    if (ram.hay_ccm() && a < uint64_t(ram.ccm_base) + ram.ccm_size)
+        return -2;                                            // CCM
+    if (a <= addr::CODE_END)                                  // sysmem/OTP/opt bytes
+        return int(S::FLASH_ICODE);
+    if (a >= ram.sram1_base && a < uint64_t(ram.sram1_base) + ram.sram1_size)
+        return int(S::SRAM1);
+    if (ram.hay_sram2() &&
+        a >= ram.sram2_base && a < uint64_t(ram.sram2_base) + ram.sram2_size)
+        return int(S::SRAM2);
+    if (a >= addr::SRAM_RGN && a <= addr::SRAM_RGN_END) return -1;  // resto: reservado
+    if (a >= 0x40000000ull && a < 0x50000000ull) return int(S::AHB1_SEG);
+    if (a >= 0x50000000ull && a < 0x60000000ull) return int(S::AHB2_SEG);
+    // Un chip sin bus externo no tiene ahi un periferico apagado: tiene ESPACIO
+    // RESERVADO, y tocarlo es un error de bus. Es la diferencia entre modelar
+    // la ausencia y esconderla.
+    if (hay_fsmc) {
+        if (a >= addr::FSMC_MEM && a <= addr::FSMC_MEM_END) return int(S::FSMC_EXT);
+        if (a >= addr::FSMC_REGS &&
+            a < uint64_t(addr::FSMC_REGS) + addr::FSMC_REGS_SIZE)
+            return int(S::FSMC_EXT);
+    }
+    return -1;
+}
+
 SC_MODULE(AhbMatrix) {
     static constexpr unsigned NM = unsigned(BusMaster::N_MASTERS);   // 8
     static constexpr unsigned NS = unsigned(BusSlaveId::N_SLAVES);   // 7
@@ -36,6 +75,11 @@ SC_MODULE(AhbMatrix) {
     // los rangos que la matriz decodifica hacia la SRAM1, la SRAM2 y la CCM.
     // Por omisión el del F407. [mem/mem_caps.h]
     const MapaRam ram;
+    // ¿Este miembro de la familia lleva bus externo? En el LQFP64 no hay dónde
+    // sacarlo, y entonces los 0x6000_0000-0x9FFF_FFFF y la ventana de registros
+    // del FSMC son espacio RESERVADO: tocarlos da error de bus, no un acceso
+    // silencioso a un controlador que el chip no tiene.
+    const bool hay_fsmc;
 
     sc_core::sc_vector<tlm_utils::simple_target_socket_tagged<AhbMatrix>>
         from_master;                       // [BusMaster]
@@ -57,8 +101,9 @@ SC_MODULE(AhbMatrix) {
     uint64_t n_err_ccm      = 0;         // intentos de alcanzar la CCM
     uint64_t n_contention   = 0;         // transacciones que esperaron a otra
 
-    explicit AhbMatrix(sc_core::sc_module_name nm, MapaRam r = RAM_STM32F407VG)
-        : sc_core::sc_module(nm), ram(r),
+    explicit AhbMatrix(sc_core::sc_module_name nm, MapaRam r = RAM_STM32F407VG,
+                       bool fsmc = true)
+        : sc_core::sc_module(nm), ram(r), hay_fsmc(fsmc),
           from_master("from_master", NM), to_slave("to_slave", NS) {
         SC_HAS_PROCESS(AhbMatrix);
         for (unsigned m = 0; m < NM; ++m) {
@@ -110,32 +155,8 @@ private:
         // no es esclavo de la matriz: se resuelve en el router del núcleo.
     }
 
-    // -----------------------------------------------------------------------
-    // Decodificación global -> esclavo de la matriz [IR, §5.1, §6.5]
-    //   -1 : rango reservado / no decodificado (ERROR)
-    //   -2 : rango de la CCM (no conectada a la matriz)
-    // -----------------------------------------------------------------------
-    int decode(uint64_t a) const {
-        using S = BusSlaveId;
-        if (a < ram.ccm_base)                                     // 0x0000_0000-0x0FFF_FFFF
-            return int(S::FLASH_ICODE);                           //   alias 0x0 + Flash
-        if (ram.hay_ccm() && a < uint64_t(ram.ccm_base) + ram.ccm_size)
-            return -2;                                            // CCM
-        if (a <= addr::CODE_END)                                  // sysmem/OTP/opt bytes
-            return int(S::FLASH_ICODE);
-        if (a >= ram.sram1_base && a < uint64_t(ram.sram1_base) + ram.sram1_size)
-            return int(S::SRAM1);
-        if (ram.hay_sram2() &&
-            a >= ram.sram2_base && a < uint64_t(ram.sram2_base) + ram.sram2_size)
-            return int(S::SRAM2);
-        if (a >= addr::SRAM_RGN && a <= addr::SRAM_RGN_END) return -1;  // resto SRAM: reservado
-        if (a >= 0x40000000ull && a < 0x50000000ull) return int(S::AHB1_SEG);
-        if (a >= 0x50000000ull && a < 0x60000000ull) return int(S::AHB2_SEG);
-        if (a >= addr::FSMC_MEM && a <= addr::FSMC_MEM_END) return int(S::FSMC_EXT);
-        if (a >= addr::FSMC_REGS && a < uint64_t(addr::FSMC_REGS) + addr::FSMC_REGS_SIZE)
-            return int(S::FSMC_EXT);
-        return -1;
-    }
+    // La decodificación, que vive fuera del módulo (véase `decodifica_mapa`).
+    int decode(uint64_t a) const { return decodifica_mapa(ram, hay_fsmc, a); }
 
     // -----------------------------------------------------------------------
     // Transporte

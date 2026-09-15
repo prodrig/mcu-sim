@@ -66,7 +66,11 @@ struct Nodo {
     std::string    nombre;
     analog_net_if* net = nullptr;
     bool           es_pin = false;      // pad del MCU (frente a nodo externo)
-    bool           bonded = true;       // sale al encapsulado LQFP100
+    bool           bonded = true;       // ¿sale al encapsulado de SU chip?
+    // El nombre de ese encapsulado, para que el error pueda decir cuál. Con
+    // varios MCU en la placa no tiene por qué ser el mismo para todos, así que
+    // va por nodo y no en una constante global.
+    const char*    enc = nullptr;
 };
 
 class NodeMap {
@@ -82,7 +86,8 @@ public:
     // cuando un pad forma parte de un nodo compartido que ya estaba dado de
     // alta por su nombre de placa. [doc/stm32f407vg_multi_mcu.md, §7.2]
     void registra(const std::string& nom, analog_net_if& n,
-                  bool es_pin = false, bool bonded = true) {
+                  bool es_pin = false, bool bonded = true,
+                  const char* enc = nullptr) {
         const std::string nombre = nombre_canonico_pad(nom);
         const auto it = m_.find(nombre);
         if (it != m_.end() && it->second.net != &n) {
@@ -94,6 +99,7 @@ public:
         }
         Nodo nd;
         nd.nombre = nombre; nd.net = &n; nd.es_pin = es_pin; nd.bonded = bonded;
+        nd.enc = enc;
         m_[nombre] = nd;
     }
 
@@ -113,8 +119,12 @@ public:
         for (unsigned p = 0; p < N_GPIO_PORTS; ++p)
             for (unsigned i = 0; i < N_PORT_PINS; ++i) {
                 std::snprintf(nm, sizeof nm, "P%c%u", char('A' + p), i);
+                // Quien sabe qué sale al plástico es el mux del propio chip,
+                // no una función global: dos MCU de la misma placa pueden
+                // llevar encapsulados distintos.
                 registra(pre + nm, pm.analog(p, i), true,
-                         PinMux::is_bonded_lqfp100(p, i));
+                         pm.encapsulado().bonded(p, i),
+                         pm.encapsulado().nombre);
             }
         registra(pre + "VDD", pp.vdd);       registra(pre + "VSS", pp.vss);
         registra(pre + "VDDA", pp.vdda);     registra(pre + "VSSA", pp.vssa);
@@ -190,6 +200,11 @@ struct DeclMcu {
     //                     de función. Es el modo rápido.
     std::string depuracion = "pines";
     unsigned    puerto_gdb = 0;    // 0: no se abre ningún puerto TCP
+    // El ENCAPSULADO de este chip, que es lo que decide qué pads salen de
+    // verdad. Lo rellena quien resuelve el `tipo` contra el catálogo de MCUs
+    // —antes de validar, porque de él depende el error «ese pad no sale»— y por
+    // omisión es el LQFP100, el del F407VG.
+    const Encapsulado* enc = &ENC_LQFP100;
 };
 
 // ---------------------------------------------------------------------------
@@ -314,6 +329,21 @@ public:
     // placas escritas hasta hoy sigan valiendo sin tocarlas.
     Netlist& add_mcu(const DeclMcu& m) { mcus_.push_back(m); return *this; }
     const std::vector<DeclMcu>& mcus() const { return mcus_; }
+    // Le pone a un chip declarado el encapsulado que le corresponde por su
+    // `tipo`. Lo llama quien resuelve el tipo contra el catálogo, y tiene que
+    // hacerlo ANTES de validar, porque de aquí sale el error «ese pad no sale
+    // al encapsulado»: con el encapsulado equivocado ese error se daría al
+    // revés, que es la peor manera posible de equivocarse.
+    void fija_encapsulado(const std::string& id, const Encapsulado* e) {
+        for (DeclMcu& m : mcus_) if (m.id == id) m.enc = e;
+    }
+    // Y el del MCU IMPLÍCITO: el que se monta cuando la placa no declara
+    // ninguno. Sin esto, `sim placa.xml --mcu STM32F405RG` validaría los pads
+    // contra el LQFP100 y aceptaría un PE2 que en un LQFP64 no existe.
+    void fija_encapsulado_implicito(const Encapsulado* e) {
+        if (e) enc_implicito_ = e;
+    }
+    const Encapsulado& encapsulado_implicito() const { return *enc_implicito_; }
     const DeclMcu* mcu(const std::string& id) const {
         for (const DeclMcu& m : mcus_) if (m.id == id) return &m;
         return nullptr;
@@ -571,7 +601,8 @@ public:
                 // y por eso hay que decirlo aquí.
                 if (nd->es_pin && !nd->bonded)
                     err.push_back(i.id + "." + c.pin + ": el pad " + c.nodo +
-                                  " no sale al encapsulado LQFP100");
+                                  " no sale al encapsulado " +
+                                  (nd->enc ? nd->enc : "de este MCU"));
             }
         }
         return err;
@@ -674,12 +705,18 @@ public:
                        "'. La placa declara: " + lista_mcus();
             id_mcu = pref;
         }
-        if (!PinMux::is_bonded_lqfp100(port, pin))
-            return "el pad " + s + " no sale al encapsulado LQFP100";
+        // El encapsulado del MCU al que pertenece ESE pad, que con varios
+        // chips en la placa no tiene por qué ser el mismo para todos.
+        const DeclMcu* d = id_mcu.empty() ? nullptr : mcu(id_mcu);
+        const Encapsulado& e = (d && d->enc) ? *d->enc : *enc_implicito_;
+        if (!e.bonded(port, pin))
+            return "el pad " + s + " no sale al encapsulado " +
+                   std::string(e.nombre) + " de " +
+                   (d ? d->tipo : std::string("STM32F407VG"));
         return std::string();
     }
     std::string lista_mcus() const {
-        if (mcus_.empty()) return "(ninguno; hay un STM32F407VG implicito)";
+        if (mcus_.empty()) return "(ninguno; hay uno implicito)";
         std::string s;
         for (const DeclMcu& m : mcus_) { if (!s.empty()) s += ", "; s += m.id; }
         return s;
@@ -771,6 +808,7 @@ private:
     // orden en dos ejecuciones distintas.
     std::map<std::string, std::vector<std::string>> uniones_;
     std::vector<DeclMcu>       mcus_;
+    const Encapsulado*         enc_implicito_ = &ENC_LQFP100;
     std::vector<ExtPartBase*>  piezas_;
 };
 

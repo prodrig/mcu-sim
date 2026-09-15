@@ -2820,3 +2820,98 @@ Suite **1993/1993** (+37), invariante intacto en **`2336217899213 ps`** —los
 módulos de laboratorio se atan a señales que nadie mueve, así que sus procesos no
 despiertan nunca—, ASan+UBSan limpios. Documento nuevo:
 `doc/stm32f407vg_reutilizacion.md`. Puntos: 152 → 153, con **I-39** cerrado.
+
+---
+
+## La familia F405/F407, entera (y el renombrado que no hacía falta)
+
+> Renombra tanto en el código como en los XML y la documentación el nombre del
+> MCU stm32f407vgt a stm32f407vg para eliminar la terminación 't' que indica el
+> encapsulado físico. Además, construye todos los miembros restantes de la
+> familia: STM32F405RG, STM32F405OG, STM32F405VG, STM32F405ZG, STM32F405OE,
+> STM32F407VE, STM32F407ZE, STM32F407ZG, STM32F407IE, STM32F407IG
+
+**Lo primero no había que hacerlo: el proyecto nunca usó `vgt`.** La cadena
+aparece **una sola vez en todo el árbol**, en un comentario de un fichero CMSIS
+de ST que viene con el firmware de pruebas y que además habla de otro chip:
+
+```
+src/verif/fw/cmsis/Include/stm32f4xx.h:88:
+/* #define STM32F412Vx */ /*!< STM32F412VET, STM32F412VGT, ... */
+```
+
+Todo lo nuestro —347 apariciones en código, XML y documentación— ya dice
+`STM32F407VG`. No he tocado el fichero de ST: es material del fabricante, y
+reescribirlo sería peor que dejarlo.
+
+**Lo segundo sí, y salió bien porque el refactor anterior había quitado el
+obstáculo.** Los once miembros son el mismo silicio, y lo que los distingue son
+tres cosas [DS8626, tabla 2]:
+
+| | |
+| :--- | :--- |
+| **el dígito 5 o 7** | un F405 es un F407 **sin Ethernet y sin cámara**. Eso es todo |
+| **la letra del encapsulado** | R=LQFP64, O=WLCSP90, V=LQFP100, Z=LQFP144, I=LQFP176 |
+| **la última letra** | E = 512 KB en ocho sectores, G = 1 MB en doce |
+
+Los once llevan **el mismo núcleo** (82 IRQ, 4 bits de prioridad, 8 regiones de
+MPU) y **la misma RAM** (112+16+64 KB más 4 de backup). Nada de eso cambia.
+
+**El obstáculo era el encapsulado**, y estaba señalado desde el análisis de
+varios MCU (§6.3): `is_bonded_lqfp100()` era una **función estática**. Ahora es
+un `Encapsulado` con una máscara de 16 bits por puerto. Tenía que ser por pin y
+no por puerto, y el LQFP64 es el caso que lo demuestra: de su puerto D sale **un
+solo pin**, `PD2`. «El puerto D existe a medias» no se puede decir con un
+booleano.
+
+Lo que sostiene la tabla —y es lo que me preocupaba— es un contraste barato:
+cada encapsulado lleva **el número de E/S que le da el datasheet** (51, 72, 82,
+114, 140) y T128 comprueba que la máscara tiene exactamente esos bits. Una
+máscara mal copiada deja de cuadrar. Sin eso, el error sería invisible: el
+modelo se montaría igual y el alumno trabajaría contra un chip que no es el suyo.
+
+**Un periférico ausente no es un periférico apagado.** En un F405 la ventana del
+Ethernet **no la decodifica nadie** y tocarla da error de bus, como en el
+silicio. El módulo sigue construido —la elaboración de SystemC es estática— pero
+sin camino desde el bus; su socket se ata a un iniciador mudo solo para que la
+elaboración cierre. Descarté decodificar la ventana hacia un destino que
+devolviera error: se vería igual desde el firmware, pero **mentiría en el
+netlist**, que enseñaría un periférico donde no lo hay.
+
+Funciona de punta a punta:
+
+```
+$ ./build/sim placas/discovery_min.xml --mcu STM32F405RG --valida
+  [decl] LD4.anodo: el pad PD12 no sale al encapsulado LQFP64
+  [decl] LD3.anodo: el pad PD13 no sale al encapsulado LQFP64
+  ...
+$ ./build/sim placas/discovery_min.xml blinky.bin 200 --mcu STM32F405VG
+  LED LD4 en PD12: apagado  (0.00 V, 0.00 mA)      # el F405 no tiene ETH, y da igual
+$ ./build/sim placas/discovery_min.xml --mcu STM32F446RE --valida
+  mcu (implicito): no se sabe construir un 'STM32F446RE'.
+```
+
+**Y una cosa que NO he podido verificar, dicha en voz alta.** De los seis
+encapsulados, cinco llevan su reparto contrastado y **el WLCSP90 no**. El
+recuento (72 E/S) sale de la tabla 2 y está comprobado; el reparto bola a bola
+está en la tabla 7 del mismo datasheet, que no he conseguido leer. Lo que hay en
+el modelo es la reconstrucción razonable —A, B, C y D completos, `PE0`–`PE5` y
+los dos del oscilador— y **puede no ser la de ST**. Está marcado
+`verificado = false` y `sim` lo dice al montar la placa:
+
+```
+  [aviso] STM32F405OE: el reparto de pads del WLCSP90 es una reconstruccion a
+  partir del recuento del datasheet (72 E/S) y NO esta contrastado bola a bola
+```
+
+Es deliberado que moleste: un mapa que parece exacto y no lo es sería peor que
+el aviso. Queda como **I-40**, y se cierra copiando la tabla 7 del DS8626 — la
+comprobación que lo validará ya está escrita.
+
+Sin cerrar también, y anotado en §9.5: los bits de reloj de los periféricos
+ausentes (`RCC_AHB1ENR.ETHMACEN` debería leer cero en un F405 y aquí no lo
+hace), y que la tabla de funciones alternativas es la misma para los once.
+
+**T128**, 38 comprobaciones. Suite **2031/2031** (+38), invariante intacto en
+**`2336217899213 ps`**, ASan+UBSan limpios. Puntos: 153 → 154, con **I-37**
+cerrado (ya hay once tipos que construir) e **I-40** abierto.

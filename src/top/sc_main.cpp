@@ -1109,6 +1109,7 @@ SC_MODULE(F1Tb) {
         t125_nombres_de_pin();
         t126_ayuda_componentes();
         t127_piezas_reutilizables();
+        t128_familia_f405_f407();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -13685,6 +13686,208 @@ SC_MODULE(F1Tb) {
               "todas se canonizan a PD12, que es como se llaman en los volcados");
         check(nombre_canonico_pad("n_scl") == "n_scl",
               "y lo que no es un pad pasa de largo sin tocarlo");
+    }
+
+    // T128 — LA FAMILIA F405/F407, LOS ONCE
+    //
+    // Once referencias del mismo silicio. Lo que las distingue son tres cosas
+    // [DS8626, tabla 2]: el digito 5 o 7 (Ethernet y camara, o ninguna de las
+    // dos), la letra del encapsulado (que pads salen) y la ultima letra (512 KB
+    // o 1 MB de Flash). Nada mas: mismo nucleo, misma RAM, mismos
+    // temporizadores, mismos puertos serie.
+    //
+    // Lo que esta prueba vigila es que esa tabla NO MIENTA, porque una entrada
+    // mal copiada aqui es invisible: el modelo se montaria igual y el alumno
+    // desarrollaria contra un chip que no es el suyo. De ahi la comprobacion
+    // que la sostiene: cada encapsulado lleva el numero de E/S que le da el
+    // datasheet, y se comprueba que la mascara tiene EXACTAMENTE esos bits.
+    // -----------------------------------------------------------------------
+    void t128_familia_f405_f407() {
+        group("T128 La familia F405/F407: once referencias del mismo silicio");
+
+        check_eq(N_CATALOGO_MCU, 11u, "el catalogo tiene los once miembros");
+
+        // --- 1. Los encapsulados cuadran con el datasheet -------------------
+        // Si la mascara tiene mas bits o menos que los que dice la tabla 2,
+        // esta mal copiada. Es la unica forma de cazar ese error.
+        struct { const Encapsulado* e; unsigned n; const char* q; } encs[] = {
+            { &ENC_LQFP64,   51, "LQFP64: 51 E/S" },
+            { &ENC_WLCSP90,  72, "WLCSP90: 72 E/S" },
+            { &ENC_LQFP100,  82, "LQFP100: 82 E/S" },
+            { &ENC_LQFP144, 114, "LQFP144: 114 E/S" },
+            { &ENC_LQFP176, 140, "LQFP176: 140 E/S" },
+            { &ENC_UFBGA176,140, "UFBGA176: 140 E/S, el mismo reparto que el LQFP176" },
+        };
+        for (const auto& x : encs) {
+            check(x.e->coherente() && x.e->cuenta_gpio() == x.n, x.q);
+        }
+
+        // El puerto D del LQFP64 es el caso que obliga a que la mascara sea por
+        // PIN y no por puerto: sale UN pin, PD2, y no el puerto entero.
+        check(!ENC_LQFP64.bonded(3, 0) && ENC_LQFP64.bonded(3, 2) &&
+              !ENC_LQFP64.bonded(3, 3),
+              "del puerto D del LQFP64 sale PD2 y nada mas: 'el puerto existe a "
+              "medias' no se puede decir con un booleano");
+        check(ENC_LQFP100.bonded(4, 2) && !ENC_LQFP64.bonded(4, 2),
+              "PE2 existe en el LQFP100 y no en el LQFP64");
+        check(ENC_LQFP144.bonded(6, 15) && !ENC_LQFP100.bonded(6, 15),
+              "PG15 aparece en el LQFP144, no antes");
+        check(ENC_LQFP176.bonded(8, 11) && !ENC_LQFP176.bonded(8, 12),
+              "del puerto I salen PI0..PI11 y ahi se acaba");
+        check(ENC_LQFP100.verificado && ENC_LQFP64.verificado &&
+              ENC_LQFP144.verificado && ENC_LQFP176.verificado,
+              "los cuatro LQFP llevan su reparto contrastado");
+        check(!ENC_WLCSP90.verificado,
+              "y el WLCSP90 NO: el recuento cuadra, el reparto bola a bola no "
+              "se ha podido contrastar, y eso se dice en vez de disimularlo");
+
+        // --- 2. Las dos geometrias de Flash ---------------------------------
+        check_eq(FLASH_512K.size, 0x80000u, "la Flash de los `...E` mide 512 KB");
+        check_eq(FLASH_512K.n_sectores, 8u, "y tiene ocho sectores");
+        check_eq(FLASH_STM32F407VG.n_sectores, 12u, "la de los `...G`, doce");
+        // El ultimo sector termina donde termina la Flash. Es la comprobacion
+        // que caza una tabla truncada a ojo.
+        check_eq(FLASH_512K.sectores[7].base + FLASH_512K.sectores[7].size,
+                 FLASH_512K.base + FLASH_512K.size,
+                 "el ultimo sector de 512 KB acaba justo al final de la Flash");
+        check_eq(FLASH_STM32F407VG.sectores[11].base +
+                 FLASH_STM32F407VG.sectores[11].size,
+                 FLASH_STM32F407VG.base + FLASH_STM32F407VG.size,
+                 "y el de 1 MB tambien");
+        check_eq(FLASH_512K.sector_de(0x08080000u), -1,
+                 "0x0808_0000 se sale de una Flash de 512 KB");
+        check_eq(FLASH_STM32F407VG.sector_de(0x08080000u), 8,
+                 "y en una de 1 MB es el sector 8");
+
+        // --- 3. La tabla de los once, miembro a miembro ---------------------
+        // `eth` y `dcmi` son LA diferencia entre un 405 y un 407; el resto del
+        // juego de perifericos esta en todos.
+        struct { const McuCaps* m; const char* enc; uint32_t flash;
+                 bool eth, fsmc; } tabla[] = {
+            { &MCU_STM32F405RG, "LQFP64",   0x100000, false, false },
+            { &MCU_STM32F405OG, "WLCSP90",  0x100000, false, true  },
+            { &MCU_STM32F405VG, "LQFP100",  0x100000, false, true  },
+            { &MCU_STM32F405ZG, "LQFP144",  0x100000, false, true  },
+            { &MCU_STM32F405OE, "WLCSP90",  0x080000, false, true  },
+            { &MCU_STM32F407VE, "LQFP100",  0x080000, true,  true  },
+            { &MCU_STM32F407VG, "LQFP100",  0x100000, true,  true  },
+            { &MCU_STM32F407ZE, "LQFP144",  0x080000, true,  true  },
+            { &MCU_STM32F407ZG, "LQFP144",  0x100000, true,  true  },
+            { &MCU_STM32F407IE, "LQFP176",  0x080000, true,  true  },
+            { &MCU_STM32F407IG, "LQFP176",  0x100000, true,  true  },
+        };
+        bool tabla_ok = true, todos_igual_nucleo = true, todos_igual_ram = true;
+        for (const auto& t : tabla) {
+            if (std::string(t.m->enc.nombre) != t.enc)      tabla_ok = false;
+            if (t.m->memoria.flash.size != t.flash)         tabla_ok = false;
+            if (t.m->perif.eth  != t.eth)                   tabla_ok = false;
+            if (t.m->perif.dcmi != t.eth)                   tabla_ok = false;
+            if (t.m->perif.fsmc != t.fsmc)                  tabla_ok = false;
+            if (std::string(t.m->familia) != "STM32F4")     tabla_ok = false;
+            if (t.m->nucleo.n_irq != CORE_STM32F407VG.n_irq ||
+                t.m->nucleo.prio_bits != 4)                 todos_igual_nucleo = false;
+            if (t.m->memoria.ram.total() !=
+                MEM_STM32F407VG.ram.total())                todos_igual_ram = false;
+        }
+        check(tabla_ok,
+              "los once salen con su encapsulado, su Flash y sus perifericos");
+        check(todos_igual_nucleo,
+              "y los once llevan EL MISMO nucleo: 82 lineas y 4 bits de "
+              "prioridad, del LQFP64 al UFBGA176");
+        check(todos_igual_ram,
+              "y la MISMA RAM: los 192+4 KB no dependen del encapsulado ni del "
+              "tamano de Flash");
+
+        // La camara y el Ethernet van juntos y son exactamente el digito 5 o 7.
+        bool coherente_5_7 = true;
+        for (unsigned k = 0; k < N_CATALOGO_MCU; ++k) {
+            const McuCaps* m = CATALOGO_MCU[k];
+            const bool es407 = std::string(m->nombre).substr(0, 9) == "STM32F407";
+            if (m->perif.eth != es407 || m->perif.dcmi != es407)
+                coherente_5_7 = false;
+        }
+        check(coherente_5_7,
+              "un F405 es un F407 SIN Ethernet y SIN camara, y eso es todo lo "
+              "que distingue al 5 del 7");
+        check(!MCU_STM32F405RG.perif.fsmc && MCU_STM32F405OG.perif.fsmc,
+              "el que no lleva bus externo es el LQFP64, y por falta de pines: "
+              "el WLCSP90 del mismo chip si lo lleva");
+
+        // --- 4. El catalogo se consulta por nombre --------------------------
+        check(mcu_por_nombre("STM32F407IG") == &MCU_STM32F407IG,
+              "el catalogo encuentra un miembro por su nombre");
+        check(mcu_por_nombre("stm32f405rg") == &MCU_STM32F405RG,
+              "y no distingue mayusculas, que es lo que se escribe en --mcu");
+        check(mcu_por_nombre("STM32F446RE") == nullptr,
+              "un chip de otra familia NO se encuentra, que es lo correcto: "
+              "montar un F407 en su lugar seria mentir");
+        check(mcu_por_nombre("STM32F407") == nullptr &&
+              mcu_por_nombre("STM32F407VGT6") == nullptr,
+              "ni un nombre a medias ni uno con el codigo de encapsulado y "
+              "temperatura pegado detras");
+        {   // ningun nombre repetido
+            std::set<std::string> vistos;
+            for (unsigned k = 0; k < N_CATALOGO_MCU; ++k)
+                vistos.insert(CATALOGO_MCU[k]->nombre);
+            check_eq(unsigned(vistos.size()), 11u,
+                     "los once nombres son distintos");
+        }
+
+        // --- 5. Un periferico ausente es ESPACIO RESERVADO ------------------
+        // No es "un periferico apagado": en un LQFP64 la ventana del bus
+        // externo no la decodifica nadie, y tocarla es un error de bus.
+        check_eq(dut->matrix.decode_addr(addr::FSMC_MEM),
+                 int(BusSlaveId::FSMC_EXT),
+                 "en el F407VG, 0x6000_0000 va al bus externo");
+        check_eq(decodifica_mapa(RAM_STM32F407VG, false, addr::FSMC_MEM), -1,
+                 "y en un chip sin bus externo esa misma direccion no la "
+                 "decodifica nadie: espacio reservado");
+        check_eq(decodifica_mapa(RAM_STM32F407VG, false, addr::FSMC_REGS), -1,
+                 "tampoco la ventana de registros del FSMC");
+        check_eq(decodifica_mapa(RAM_STM32F407VG, false, addr::SRAM1_BASE), int(BusSlaveId::SRAM1),
+                 "mientras el resto del mapa sigue igual");
+
+        // --- 6. Y el camino completo: la placa contra el encapsulado --------
+        // Esto no mira `struct`s: pasa por la validacion de verdad, la misma
+        // que corre `sim` antes de montar nada.
+        auto dice = [](const std::vector<std::string>& e, const char* t) {
+            for (const std::string& s : e) if (s.find(t) != std::string::npos) return true;
+            return false;
+        };
+        // 6a. El puente `une`, que consulta el encapsulado del chip al que
+        //     pertenece el pad. Es el camino que usa `sim` con varios MCU.
+        {
+            Netlist n64;
+            n64.fija_encapsulado_implicito(&ENC_LQFP64);
+            n64.nodo_une("n1", {"PA1", "PD12"});
+            const std::vector<std::string> e = n64.valida(nodos);
+            check(dice(e, "no sale al encapsulado"),
+                  "un puente a PD12 sobre un LQFP64 se rechaza antes de simular");
+            check(dice(e, "LQFP64"),
+                  "y el error dice QUE encapsulado, no uno escrito a mano");
+        }
+        {
+            Netlist n100;
+            n100.fija_encapsulado_implicito(&ENC_LQFP100);
+            n100.nodo_une("n1", {"PA1", "PD12"});
+            check(n100.valida(nodos).empty(),
+                  "el mismo puente sobre un LQFP100 pasa sin una queja");
+        }
+        // 6b. Y el terminal de un componente, que mira la marca que el nodo
+        //     trae de su propio MCU. Aqui se da de alta a mano un pad de un
+        //     LQFP64 -el banco monta un LQFP100- para poder probarlo sin
+        //     construir un segundo chip entero.
+        {
+            NodeMap n64;
+            n64.registra("PD12", n_btn_na, /*es_pin*/true, /*bonded*/false,
+                         ENC_LQFP64.nombre);
+            Netlist nl;
+            led(nl, "LD", "PD12");
+            const std::vector<std::string> e = nl.valida(n64);
+            check(dice(e, "el pad PD12 no sale al encapsulado LQFP64"),
+                  "un LED soldado a un pad que el encapsulado no saca se "
+                  "rechaza nombrando el pad y el encapsulado");
+        }
     }
 
     // T127 — LAS PIEZAS, MONTADAS DE OTRA MANERA
