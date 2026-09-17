@@ -16,13 +16,13 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
-#include "../top/stm32f407vg.h"
+#include "../top/soc_f4.h"
 
 namespace stm32 {
 
 class ImageLoader {
 public:
-    explicit ImageLoader(Stm32F407VG& dut) : dut_(dut) {}
+    explicit ImageLoader(SocF4& dut) : dut_(dut) {}
 
     // Escribe un byte en la dirección indicada del mapa de memoria.
     //
@@ -92,7 +92,7 @@ public:
     }
 
 private:
-    Stm32F407VG& dut_;
+    SocF4& dut_;
 };
 
 } // namespace stm32

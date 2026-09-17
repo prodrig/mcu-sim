@@ -3,7 +3,7 @@
 //
 // Hasta la fase 1, `tipo="STM32F407VG"` en el XML **se comprobaba, no se
 // despachaba**: `sim_main.cpp` miraba el nombre contra una lista y luego hacía
-// `new Stm32F407VG(...)` pasara lo que pasara. Eso valía mientras todos los
+// `new SocF4(...)` pasara lo que pasara. Eso valía mientras todos los
 // tipos aceptados fueran el mismo modelo con distintos rasgos —que es el caso
 // de los once miembros de la familia F405/407— y deja de valer el día que haya
 // un chip de otra familia, que es otra clase de C++.
@@ -72,6 +72,12 @@ public:
     // --- 4. El firmware -----------------------------------------------------
     // Devuelve false si el fichero no se puede leer o no cabe.
     virtual bool carga_firmware(const std::string& ruta) = 0;
+    // Y el caso de no haberlo: un chip sin firmware no es un chip que no
+    // arranca, es un chip que lee basura y se va a un fallo. Para que una placa
+    // se pueda montar y mirar sin programa, el modelo le escribe un vector de
+    // reset valido y un `wfe` en bucle. Quien sabe donde va eso es el chip -su
+    // Flash y su SRAM-, no `sim`, y por eso esta aqui.
+    virtual void aparca_en_wfe() = 0;
 
     // --- 5. Trazas ----------------------------------------------------------
     virtual void set_ondas_reloj(bool on) = 0;
@@ -79,6 +85,17 @@ public:
     // dice si existe; encenderlo cuando no lo hay no es un error, es un no-op.
     virtual bool tiene_gdb_interno() const = 0;
     virtual void gdb_interno(bool activo, bool traza) = 0;
+
+    // --- 6. Lo que este modelo TODAVIA no hace ------------------------------
+    //
+    // Un modelo incompleto no es un problema; un modelo incompleto que no lo
+    // dice, si. Cada chip devuelve aqui la lista de cosas que el silicio tiene
+    // y el modelo aun no, en una frase por linea, y `sim` las imprime al
+    // montar la placa. Vacia = el modelo cubre lo que dice cubrir.
+    //
+    // Es el mismo recurso que `Encapsulado::verificado`: preferimos un aviso
+    // repetido a un alumno desarrollando contra algo que no esta.
+    virtual std::vector<std::string> limitaciones() const { return {}; }
 };
 
 // ---------------------------------------------------------------------------

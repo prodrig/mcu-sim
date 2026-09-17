@@ -4,7 +4,7 @@
 // Qué periférico sale por qué pin con qué número de AF. Es una de las tres
 // cosas que definen a una familia de MCU —las otras dos son el juego de
 // periféricos y el árbol de reloj— y hasta la fase 1 estaba escrito dentro de
-// `Stm32F407VG::bind_analog()`, es decir, **en una función llamada «analógico»,
+// `SocF4::bind_analog()`, es decir, **en una función llamada «analógico»,
 // que es el último sitio donde alguien lo buscaría**.
 //
 // POR QUÉ ESTÁ AQUÍ Y NO EN EL TOP. Porque es lo que hay que mirar, copiar o
@@ -20,10 +20,10 @@
 // tabla no hay que rehacerla para el F446, hay que **extenderla**. Ese es el
 // motivo de que sea un fichero y no doscientas llamadas sueltas.
 //
-// POR QUÉ SIGUE SIENDO UN MIEMBRO DE `Stm32F407VG`. El cuerpo se movió TAL
+// POR QUÉ SIGUE SIENDO UN MIEMBRO DE `SocF4`. El cuerpo se movió TAL
 // CUAL, sin tocar una sola referencia, porque una función miembro definida
 // fuera de la clase ve los miembros igual que dentro. Es el mismo patrón que ya
-// usaba `stm32f407vg_bind2.h`, y es lo que hace que este movimiento sea
+// usaba `soc_f4_bind2.h`, y es lo que hace que este movimiento sea
 // mecánico y comprobable: el tiempo simulado no se movió ni un picosegundo.
 //
 // Lo que NO está aquí, y conviene saberlo: la tabla del SISTEMA (AF0 con
@@ -36,11 +36,11 @@
 #ifndef STM32_SOC_F4_MAPA_AF_H
 #define STM32_SOC_F4_MAPA_AF_H
 
-#include "../top/stm32f407vg.h"
+#include "../top/soc_f4.h"
 
 namespace stm32 {
 
-inline void Stm32F407VG::bind_mapa_af() {
+inline void SocF4::bind_mapa_af() {
     // ---- Ethernet MAC (AF11) ----------------------------------------------
     // Los dieciocho pines de MII y los nueve de RMII son LOS MISMOS pines: la
     // interfaz se elige con SYSCFG_PMC y el mux no cambia, cambia quien mira

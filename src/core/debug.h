@@ -145,6 +145,23 @@ SC_MODULE(DebugSys), public core_debug_if {
     }
     bool pines_debug() const { return pines_dbg_; }
 
+    // -----------------------------------------------------------------------
+    // EL IDENTIFICADOR DEL DISPOSITIVO, como dato
+    //
+    // `DBGMCU_IDCODE` es lo primero que lee un depurador para saber con qué
+    // está hablando, y es lo ÚNICO del subsistema de depuración que cambia de
+    // un chip a otro: el SWJ-DP, el AHB-AP, el Core Debug, el FPB, el DWT, el
+    // ITM/TPIU y la tabla ROM son idénticos en las dos piezas, y los dos
+    // manuales remiten al mismo PM0214 sin declarar particularidades.
+    //
+    // Que sea un dato importa más de lo que parece: con el valor equivocado,
+    // STM32CubeIDE no da un error claro, da un «Could not verify ST device».
+    // Por omisión, el de la familia F405/407/415/417.
+    // [RM0090 §32.6.1 = 0x1001 6413; RM0390 §33.6.1 = 0x1000 0421]
+    // -----------------------------------------------------------------------
+    void set_idcode(uint32_t v) { idcode_ = v; }
+    uint32_t idcode() const { return idcode_; }
+
     tlm::tlm_response_status ap_access(bool write, uint64_t a,
                                        unsigned char* d, unsigned len) {
         sc_core::sc_time t = sc_core::SC_ZERO_TIME;
@@ -365,6 +382,7 @@ private:
     uint64_t n_swd_ = 0;
     bool     o_swdio_ = true, o_swdio_oe_ = false;
     // Pines expuestos (sonda externa) o reservados sin usar (stub interno).
+    uint32_t idcode_ = 0x10016413u;   // F405/407/415/417, rev. 1001
     bool     pines_dbg_ = true;
 
     bool trcena() const { return (demcr_ & (1u << 24)) != 0; }
@@ -525,7 +543,7 @@ private:
         // --- DBGMCU ----------------------------------------------------------
         if (a >= B_DBGMCU && a < B_DBGMCU + 0x1000u) {
             switch (a - B_DBGMCU) {
-                case 0x00: return 0x10016413u;         // STM32F405/407 rev. 1001
+                case 0x00: return idcode_;             // quien es este chip
                 case 0x04: return dbgmcu_cr_;
                 case 0x08: return dbg_apb1_fz_;
                 case 0x0C: return dbg_apb2_fz_;

@@ -71,7 +71,7 @@
 #include <chrono>
 #include <string>
 #include "../common/asan_opciones.h"
-#include "stm32f407vg.h"
+#include "soc_f4.h"
 #include "../verif/bus_test_master.h"
 #include "../verif/image_loader.h"
 #include "../parts/ext_parts.h"
@@ -82,6 +82,7 @@
 #include "../core/gdb_stub_dap.h"
 #include "../verif/gdb_client.h"
 #include "../soc/stm32f4_mcu.h"   // el adaptador y, con el, el registro de T129
+#include "../soc/stm32f446.h"     // la segunda familia: aqui solo por T129
 
 using namespace sc_core;
 using namespace stm32;
@@ -133,7 +134,7 @@ static bool check_near(double got, double exp, double tol, const char* what) {
 // Banco de pruebas
 // ---------------------------------------------------------------------------
 SC_MODULE(F1Tb) {
-    Stm32F407VG*  dut;
+    SocF4*  dut;
     BusTestMaster tm{"tm"};
 
     // --- Circuitería externa de la placa (parts/ext_parts.h) ---------------
@@ -422,7 +423,7 @@ SC_MODULE(F1Tb) {
             const std::string e = cableado_desde_netlist(placa, nodos, cabs);
             if (!e.empty()) SC_REPORT_ERROR("netlist", e.c_str());
         }
-        dut = new Stm32F407VG("dut", dbg_caps, cabs[std::string()]);
+        dut = new SocF4("dut", dbg_caps, cabs[std::string()]);
         tm.isk.bind(dut->matrix.from_tb);          // puerto de verificación
         // Los nodos de la placa: los 144 pads con su nombre de esquematico y
         // los diez de alimentacion y arranque. Tiene que ir antes que nada,
@@ -13707,7 +13708,14 @@ SC_MODULE(F1Tb) {
     void t128_familia_f405_f407() {
         group("T128 La familia F405/F407: once referencias del mismo silicio");
 
-        check_eq(N_CATALOGO_MCU, 11u, "el catalogo tiene los once miembros");
+        // El catalogo tiene los once de esta familia... y, desde la fase 2 del
+        // plan del F446, uno mas que NO es de esta familia. Lo que esta prueba
+        // vigila es la familia F405/407, asi que cuenta los suyos: si algun dia
+        // aparece un F415 aqui sin su fila en la tabla de abajo, se cae.
+        unsigned n_f4 = 0;
+        for (unsigned k = 0; k < N_CATALOGO_MCU; ++k)
+            if (std::string(CATALOGO_MCU[k]->familia) == "STM32F4") ++n_f4;
+        check_eq(n_f4, 11u, "el catalogo tiene los once miembros de la familia");
 
         // --- 1. Los encapsulados cuadran con el datasheet -------------------
         // Si la mascara tiene mas bits o menos que los que dice la tabla 2,
@@ -13816,6 +13824,7 @@ SC_MODULE(F1Tb) {
         bool coherente_5_7 = true;
         for (unsigned k = 0; k < N_CATALOGO_MCU; ++k) {
             const McuCaps* m = CATALOGO_MCU[k];
+            if (std::string(m->familia) != "STM32F4") continue;   // otra familia
             const bool es407 = std::string(m->nombre).substr(0, 9) == "STM32F407";
             if (m->perif.eth != es407 || m->perif.dcmi != es407)
                 coherente_5_7 = false;
@@ -13832,9 +13841,16 @@ SC_MODULE(F1Tb) {
               "el catalogo encuentra un miembro por su nombre");
         check(mcu_por_nombre("stm32f405rg") == &MCU_STM32F405RG,
               "y no distingue mayusculas, que es lo que se escribe en --mcu");
-        check(mcu_por_nombre("STM32F446RE") == nullptr,
-              "un chip de otra familia NO se encuentra, que es lo correcto: "
-              "montar un F407 en su lugar seria mentir");
+        // El F446RE SI esta en el catalogo desde la fase 2 -y lo construye otra
+        // clase-, asi que lo que se comprueba ya no es que no aparezca, sino
+        // que aparezca DICIENDO QUE ES DE OTRA FAMILIA. Es la frontera entera
+        // del diseno en una linea: el catalogo nombra, la familia despacha.
+        check(mcu_por_nombre("STM32F446RE") == &MCU_STM32F446RE &&
+              std::string(MCU_STM32F446RE.familia) == "STM32F446",
+              "el F446RE esta en el catalogo y declara otra familia");
+        check(mcu_por_nombre("STM32F746ZG") == nullptr,
+              "un chip que este programa no modela NO se encuentra, que es lo "
+              "correcto: montar un F407 en su lugar seria mentir");
         check(mcu_por_nombre("STM32F407") == nullptr &&
               mcu_por_nombre("STM32F407VGT6") == nullptr,
               "ni un nombre a medias ni uno con el codigo de encapsulado y "
@@ -13843,8 +13859,8 @@ SC_MODULE(F1Tb) {
             std::set<std::string> vistos;
             for (unsigned k = 0; k < N_CATALOGO_MCU; ++k)
                 vistos.insert(CATALOGO_MCU[k]->nombre);
-            check_eq(unsigned(vistos.size()), 11u,
-                     "los once nombres son distintos");
+            check_eq(unsigned(vistos.size()), N_CATALOGO_MCU,
+                     "no hay dos entradas del catalogo con el mismo nombre");
         }
 
         // --- 5. Un periferico ausente es ESPACIO RESERVADO ------------------
@@ -13907,7 +13923,7 @@ SC_MODULE(F1Tb) {
     // T129 — LA FACTORIA DE MCU: `tipo=` DESPACHA, YA NO SOLO SE COMPRUEBA
     //
     // Hasta la fase 1, `tipo="STM32F407VG"` en el XML se miraba contra una lista
-    // y luego `sim` hacia `new Stm32F407VG(...)` pasara lo que pasara. Con una
+    // y luego `sim` hacia `new SocF4(...)` pasara lo que pasara. Con una
     // sola clase de chip eso no se nota; con dos, es la diferencia entre montar
     // el chip que el alumno escribio y montarle otro sin decirselo, que es
     // exactamente el fallo que este proyecto no se puede permitir.
@@ -13943,9 +13959,9 @@ SC_MODULE(F1Tb) {
                     "usuario cuando el tipo que pidio no tiene modelo");
 
         // --- 2. Una familia sin modelo NO se sustituye por otra --------------
-        check(!FabricaMcu::conoce("STM32F446"),
-              "la familia del F446 todavia no tiene modelo, y la factoria lo "
-              "dice en vez de disimularlo");
+        check(FabricaMcu::conoce("STM32F446"),
+              "y la del F446 tambien, desde la fase 2: son dos clases "
+              "distintas y dos creadores distintos");
         check(FabricaMcu::busca("NoExisteEstaFamilia") == nullptr,
               "una familia inventada no tiene creador");
         {
@@ -13953,7 +13969,7 @@ SC_MODULE(F1Tb) {
             // la factoria mirase el nombre de la pieza, esto construiria un
             // F407 tan contento; mirando la familia, devuelve nullptr.
             McuCaps ajeno = MCU_STM32F407VG;
-            ajeno.familia = "STM32F446";
+            ajeno.familia = "STM32F746";   // una familia que no se modela
             Cableado sin_puentes;
             check(FabricaMcu::crea(ajeno, "fantasma", DBG_PINES, sin_puentes)
                       == nullptr,
@@ -13969,16 +13985,22 @@ SC_MODULE(F1Tb) {
         for (unsigned i = 0; i < N_CATALOGO_MCU; ++i)
             if (FabricaMcu::conoce(CATALOGO_MCU[i]->familia)) ++construibles;
         check_eq(construibles, N_CATALOGO_MCU,
-                 "los once tipos del catalogo tienen modelo registrado");
+                 "todos los tipos del catalogo tienen modelo registrado");
 
-        // Y todos comparten familia: es lo que hace que un creador basten.
-        bool una_sola = true;
-        for (unsigned i = 0; i < N_CATALOGO_MCU; ++i)
-            if (std::string(CATALOGO_MCU[i]->familia) !=
-                std::string(MCU_STM32F407VG.familia)) una_sola = false;
-        check(una_sola,
-              "los once son de la misma familia: un tipo nuevo del F4 es una "
-              "linea en el catalogo, no una clase de C++");
+        // Cuantas familias hay de verdad. Mientras fue una, la factoria era
+        // andamio sin obra; con dos, `tipo=` despacha de verdad. Y los once del
+        // F405/407 siguen compartiendo creador, que es lo que hace que un tipo
+        // nuevo de esa familia sea una linea en el catalogo y no una clase.
+        std::set<std::string> fams;
+        unsigned n_f4_fam = 0;
+        for (unsigned i = 0; i < N_CATALOGO_MCU; ++i) {
+            fams.insert(CATALOGO_MCU[i]->familia);
+            if (std::string(CATALOGO_MCU[i]->familia) == "STM32F4") ++n_f4_fam;
+        }
+        check_eq(unsigned(fams.size()), 2u,
+                 "el catalogo tiene dos familias: la F405/407 y la del F446");
+        check_eq(n_f4_fam, 11u,
+                 "y once de las doce entradas las construye el MISMO creador");
 
         // --- 4. El descriptor llega intacto ---------------------------------
         // La factoria no interpreta el descriptor: lo pasa. Se comprueba sobre

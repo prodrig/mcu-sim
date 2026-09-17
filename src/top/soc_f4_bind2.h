@@ -1,9 +1,9 @@
 // =============================================================================
-// stm32f407vg_bind2.h — Continuación del netlist del top (incluido desde
-// stm32f407vg.h): periféricos, IRQs [IR, §9.1.2] y peticiones DMA [IR, §11.4].
+// soc_f4_bind2.h — Continuación del netlist del top (incluido desde
+// soc_f4.h): periféricos, IRQs [IR, §9.1.2] y peticiones DMA [IR, §11.4].
 // =============================================================================
-#ifndef STM32_TOP_STM32F407VG_BIND2_H
-#define STM32_TOP_STM32F407VG_BIND2_H
+#ifndef STM32_TOP_SOC_F4_BIND2_H
+#define STM32_TOP_SOC_F4_BIND2_H
 
 namespace stm32 {
 
@@ -27,7 +27,7 @@ static const int ITR_T12[4]  = { 3,  4, -1, -1};   // TIM4, TIM5, (TIM13/14 OC)
 // ===========================================================================
 // Relojes/reset/gating y conexiones específicas de cada periférico
 // ===========================================================================
-inline void Stm32F407VG::bind_periph_common() {
+inline void SocF4::bind_periph_common() {
     // -----------------------------------------------------------------------
     // Temporizadores. Cada uno recibe su PCLK (para el bus), su TIMCLK y la
     // frecuencia de éste —el contador cuenta en TIMCLK, que es PCLKx o 2*PCLKx
@@ -218,7 +218,7 @@ inline void Stm32F407VG::bind_periph_common() {
 // ===========================================================================
 // Interrupciones -> NVIC (numeración exacta [IR, §9.1.2])
 // ===========================================================================
-inline void Stm32F407VG::bind_irqs() {
+inline void SocF4::bind_irqs() {
     // Todos los temporizadores salen del mismo modelo y por tanto tienen las
     // cinco salidas de interrupción; los rasgos deciden CUÁLES se activan (los
     // avanzados usan los cuatro vectores separados y el resto el global), así
@@ -308,7 +308,7 @@ inline void Stm32F407VG::bind_irqs() {
 // Peticiones DMA: tablas corregidas [IR, §11.4.1/11.4.2]
 // celda = stream*8 + canal; varias celdas pueden leer la misma señal q_*
 // ===========================================================================
-inline void Stm32F407VG::bind_dma_requests() {
+inline void SocF4::bind_dma_requests() {
     // ---- Salidas de petición de los periféricos -> señales q_* -------------
     usart1.dma_req_rx(q_u1_rx); usart1.dma_req_tx(q_u1_tx);
     usart2.dma_req_rx(q_u2_rx); usart2.dma_req_tx(q_u2_tx);
@@ -415,7 +415,7 @@ inline void Stm32F407VG::bind_dma_requests() {
 // ===========================================================================
 // Rutas analógicas y funciones alternativas de ejemplo
 // ===========================================================================
-inline void Stm32F407VG::bind_analog() {
+inline void SocF4::bind_analog() {
     // Canales ADC externos [IR, §12.13-E]. La distincion ADC123 / ADC12 es
     // REAL y es la principal diferencia entre las tres instancias: IN0-3 e
     // IN10-13 llegan a los tres convertidores, mientras que IN4-9 e IN14/15
@@ -474,4 +474,4 @@ inline void Stm32F407VG::bind_analog() {
 } // namespace stm32
 #include "../soc/f4_mapa_af.h"   // el mapa de AF, que era este fichero
 
-#endif // STM32_TOP_STM32F407VG_BIND2_H
+#endif // STM32_TOP_SOC_F4_BIND2_H

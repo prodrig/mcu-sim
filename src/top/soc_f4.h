@@ -1,14 +1,35 @@
 // =============================================================================
-// stm32f407vg.h — TOP: instancia y conexiona todo el MCU
+// soc_f4.h — TOP: instancia y conexiona el DIE de la familia STM32F4
 //
 // Este fichero es el CONTRATO DE INTEGRACIÓN del modelo: aquí se materializan
-// las interconexiones del plan (doc/smt32f407vg_diseño.md §4): matriz 8x7,
-// decodificadores AHB1/AHB2, puentes APB, relojes, resets, 82 IRQs, líneas
-// EXTI, peticiones DMA (tablas [IR, §11.4]) y pines (pads + pin_mux).
-// La frontera externa del MCU son los AnalogNet de pin_mux/power_pads.
+// las interconexiones del plan (doc/smt32f407vg_diseño.md §4): la matriz,
+// decodificadores AHB1/AHB2, puentes APB, relojes, resets, las líneas de
+// interrupción, las líneas EXTI, las peticiones DMA (tablas [IR, §11.4]) y los
+// pines (pads + pin_mux). La frontera externa del MCU son los AnalogNet de
+// pin_mux/power_pads.
+//
+// SE LLAMABA `Stm32F407VG` Y AHORA SE LLAMA `SocF4`. El cambio es de nombre, no
+// de contenido, y lo pide la fase 2 del plan del F446: este netlist nunca fue
+// «del F407VG». Ya servía, sin tocar una línea, para los once miembros de la
+// familia F405/407 —cambiando el descriptor—, y sirve para el F446 por la misma
+// razón: lo que aquí se conecta es **el die de la familia F4**, y lo que un
+// miembro concreto tiene o no tiene lo dice su `McuCaps`.
+//
+// Que la clase se llamara como una de las piezas que construye era exactamente
+// la clase de mentira que este proyecto persigue: invitaba a pensar que montar
+// otro chip obligaba a copiar el fichero. `using Stm32F407VG = SocF4;`, al
+// final, deja valer todo lo escrito hasta hoy.
+//
+// UN DIE SUPERCONJUNTO, y conviene decirlo claro: aquí se CONSTRUYEN todos los
+// bloques que lleva cualquier miembro de la familia —Ethernet, RNG, CCM, los
+// bloques de extensión del I2S— y el descriptor decide cuáles son ALCANZABLES.
+// Un bloque que este chip no lleva se queda sin entrada en el decodificador y
+// su ventana es espacio reservado, que es lo que pasa en el silicio; el módulo
+// sigue construido porque la elaboración de SystemC es estática, y eso no lo
+// hace visible desde el bus. Véase `tapa()`, más abajo.
 // =============================================================================
-#ifndef STM32_TOP_STM32F407VG_H
-#define STM32_TOP_STM32F407VG_H
+#ifndef STM32_TOP_SOC_F4_H
+#define STM32_TOP_SOC_F4_H
 
 #include "../common/ahb_types.h"
 #include "../common/clock_gen.h"
@@ -42,6 +63,8 @@
 #include "../periph/otg.h"
 #include "../periph/dma.h"
 #include <memory>
+#include <string>
+#include <vector>
 #include "mcu_caps.h"
 
 namespace stm32 {
@@ -54,7 +77,7 @@ SC_MODULE(Or2) {
     void run() { y.write(a.read() || b.read()); }
 };
 
-SC_MODULE(Stm32F407VG) {
+SC_MODULE(SocF4) {
     // El DESCRIPTOR del chip: rasgos del núcleo, mapa de memoria y límites de
     // reloj. Va LO PRIMERO porque de él salen los tamaños con los que se
     // construyen las memorias y el núcleo, y por omisión es el del F407VG, de
@@ -148,8 +171,11 @@ SC_MODULE(Stm32F407VG) {
     sc_core::sc_signal<bool> s_sysrst_n{"s_sysrst_n"}, s_bkprst_n{"s_bkprst_n"};
     sc_core::sc_vector<sc_core::sc_signal<bool>> s_prst{"s_prst", P_COUNT};
     sc_core::sc_vector<sc_core::sc_signal<bool>> s_pcen{"s_pcen", P_COUNT};
-    // IRQ / NMI / eventos
-    sc_core::sc_vector<sc_core::sc_signal<bool>> s_irq{"s_irq", N_IRQ};
+    // IRQ / NMI / eventos. El TAMAÑO sale del descriptor y no de una constante
+    // global: el F407 tiene 82 posiciones y el F446 tiene 97, y las quince de
+    // más se quedan sin nadie que las gobierne, que es exactamente lo que es una
+    // posición reservada de la tabla de vectores. [core/core_caps.h]
+    sc_core::sc_vector<sc_core::sc_signal<bool>> s_irq;
     sc_core::sc_signal<bool> s_nmi{"s_nmi"}, s_evt_in{"s_evt_in"}, s_evt_out{"s_evt_out"};
     // Núcleo / sistema
     sc_core::sc_signal<bool> s_sysresetreq{"s_sysresetreq"};
@@ -232,21 +258,22 @@ SC_MODULE(Stm32F407VG) {
     // por el constructor porque `Pad::net` es un `sc_port` y un `sc_port` no se
     // reata; vacío, el MCU se construye exactamente igual que siempre.
     // [doc/stm32f407vg_multi_mcu.md, §4.3]
-    explicit Stm32F407VG(sc_core::sc_module_name nm, DebugCaps dbg = DBG_PINES,
+    explicit SocF4(sc_core::sc_module_name nm, DebugCaps dbg = DBG_PINES,
                          const Cableado& cab = Cableado(),
                          McuCaps caps = MCU_STM32F407VG)
         : sc_core::sc_module(nm), mcu(caps), pinmux("pinmux", cab, caps.enc),
           rcc("rcc", caps.reloj),
-          core("core", dbg, caps.nucleo),
-          matrix("matrix", caps.memoria.ram, caps.perif.fsmc),
+          core("core", dbg, caps.nucleo, caps.memoria.ram),
+          matrix("matrix", caps.memoria.ram, caps.perif.fsmc, caps.conn),
           flash("flash", caps.memoria.flash),
           sram1("sram1", caps.memoria.ram.sram1_base, caps.memoria.ram.sram1_size),
           sram2("sram2", caps.memoria.ram.sram2_base, caps.memoria.ram.sram2_size),
           bkpsram("bkpsram", caps.memoria.ram.bkp_base, caps.memoria.ram.bkp_size),
           ccm("ccm", caps.memoria.ram.ccm_base, caps.memoria.ram.ccm_size),
           gpio("gpio", N_GPIO_PORTS, [](const char* n, size_t i) {
-                   return new GpioPort(n, unsigned(i)); }) {
-        SC_HAS_PROCESS(Stm32F407VG);
+                   return new GpioPort(n, unsigned(i)); }),
+          s_irq("s_irq", caps.nucleo.n_irq) {
+        SC_HAS_PROCESS(SocF4);
         bind_clocks_resets();
         bind_bus();
         bind_core();
@@ -278,6 +305,17 @@ SC_MODULE(Stm32F407VG) {
         if (!s_bre.read()) bkpsram.pierde_contenido();
     }
     void dbg_stby_proc() { s_dbg_stby.write((s_dbg_lp.read() & 4u) != 0); }
+
+    // -----------------------------------------------------------------------
+    // LO QUE ESTE MODELO TODAVIA NO HACE
+    //
+    // Para los once del F405/407 la lista esta vacia, y no por optimismo: lo
+    // que falta en ellos -las revisiones del silicio, el acelerador
+    // criptografico del F415- son chips que este catalogo no nombra, no
+    // agujeros de los que si nombra. Una clase derivada que modele un chip a
+    // medias tiene que decirlo aqui, y `sim` lo imprime al montar la placa.
+    // -----------------------------------------------------------------------
+    virtual std::vector<std::string> limitaciones() const { return {}; }
 
     // Muestreo de los pines de arranque: BOOT0 (pin dedicado) y BOOT1 (PB2) se
     // capturan en el 4º flanco ascendente de SYSCLK tras la salida de reset y
@@ -332,11 +370,11 @@ private:
     // descartada: decodificar la ventana hacia un destino que devuelva error.
     // Se vería igual desde el firmware, pero sería mentira en el netlist —el
     // volcado enseñaría un periférico donde no lo hay—.
-    std::vector<std::unique_ptr<tlm_utils::simple_initiator_socket<Stm32F407VG>>> tapones_;
+    std::vector<std::unique_ptr<tlm_utils::simple_initiator_socket<SocF4>>> tapones_;
     template <class Socket>
     void tapa(Socket& tsk, const char* nombre) {
         tapones_.emplace_back(
-            new tlm_utils::simple_initiator_socket<Stm32F407VG>(nombre));
+            new tlm_utils::simple_initiator_socket<SocF4>(nombre));
         tapones_.back()->bind(tsk);
     }
     void bind_core();
@@ -364,7 +402,7 @@ private:
 // ===========================================================================
 // Relojes, resets y RCC
 // ===========================================================================
-inline void Stm32F407VG::bind_clocks_resets() {
+inline void SocF4::bind_clocks_resets() {
     rcc.hclk(s_hclk);       rcc.hclk_hz(s_hclk_hz);
     rcc.pclk1(s_pclk1);     rcc.pclk1_hz(s_pclk1_hz);
     rcc.pclk2(s_pclk2);     rcc.pclk2_hz(s_pclk2_hz);
@@ -423,7 +461,7 @@ inline void Stm32F407VG::bind_clocks_resets() {
 // ===========================================================================
 // Matriz, decodificadores y puentes
 // ===========================================================================
-inline void Stm32F407VG::bind_bus() {
+inline void SocF4::bind_bus() {
     matrix.hclk(s_hclk); matrix.hclk_hz(s_hclk_hz); matrix.rst_n(s_sysrst_n);
     // Maestros [IR, §6.1.1]
     core.icode.bind(matrix.from_master[unsigned(BusMaster::CORE_IBUS)]);
@@ -474,7 +512,10 @@ inline void Stm32F407VG::bind_bus() {
         ahb2_dec.add_slave("to_dcmi", addr::DCMI_B, 0x400)->bind(dcmi.tsk);
     else
         tapa(dcmi.tsk, "nc_dcmi");
-    ahb2_dec.add_slave("to_rng", addr::RNG_B, 0x400)->bind(rng.tsk);
+    if (mcu.perif.rng)
+        ahb2_dec.add_slave("to_rng", addr::RNG_B, 0x400)->bind(rng.tsk);
+    else
+        tapa(rng.tsk, "nc_rng");
     // Puentes y decodificadores APB
     br_apb1.pclk(s_pclk1); br_apb1.pclk_hz(s_pclk1_hz); br_apb1.apb.bind(apb1_dec.tsk);
     br_apb2.pclk(s_pclk2); br_apb2.pclk_hz(s_pclk2_hz); br_apb2.apb.bind(apb2_dec.tsk);
@@ -493,8 +534,19 @@ inline void Stm32F407VG::bind_bus() {
     apb1_dec.add_slave("to_iwdg", addr::IWDG_B, 0x400)->bind(iwdg.tsk);
     apb1_dec.add_slave("to_spi2", addr::SPI2_B, 0x400)->bind(spi2.tsk);
     apb1_dec.add_slave("to_spi3", addr::SPI3_B, 0x400)->bind(spi3.tsk);
-    apb1_dec.add_slave("to_i2s2ext", addr::I2S2EXT_B, 0x400)->bind(i2s2ext.tsk);
-    apb1_dec.add_slave("to_i2s3ext", addr::I2S3EXT_B, 0x400)->bind(i2s3ext.tsk);
+    // Los bloques de extension del I2S, que dan el full-duplex en el F407 y
+    // DESAPARECEN en el F446 [AN4658]. Y ojo con la ventana del I2S3ext,
+    // 0x4000_4000: en el F446 no esta vacia, la ocupa el SPDIF-RX, que es otro
+    // periferico. Mientras ese no este modelado, ahi no hay nada, y es mejor
+    // que haya un error de bus que un I2S3ext contestando donde el silicio
+    // tiene otra cosa. [vs_446re, 5.3 -- la trampa de direcciones]
+    if (mcu.perif.i2sext) {
+        apb1_dec.add_slave("to_i2s2ext", addr::I2S2EXT_B, 0x400)->bind(i2s2ext.tsk);
+        apb1_dec.add_slave("to_i2s3ext", addr::I2S3EXT_B, 0x400)->bind(i2s3ext.tsk);
+    } else {
+        tapa(i2s2ext.tsk, "nc_i2s2ext");
+        tapa(i2s3ext.tsk, "nc_i2s3ext");
+    }
     apb1_dec.add_slave("to_usart2", addr::USART2_B, 0x400)->bind(usart2.tsk);
     apb1_dec.add_slave("to_usart3", addr::USART3_B, 0x400)->bind(usart3.tsk);
     apb1_dec.add_slave("to_uart4", addr::UART4_B, 0x400)->bind(uart4.tsk);
@@ -529,16 +581,20 @@ inline void Stm32F407VG::bind_bus() {
 // ===========================================================================
 // Núcleo
 // ===========================================================================
-inline void Stm32F407VG::bind_core() {
+inline void SocF4::bind_core() {
     core.fclk(s_hclk); core.fclk_hz(s_hclk_hz);
     core.systick_ext(s_stk_ext); core.rst_n(s_sysrst_n);
-    for (unsigned i = 0; i < N_IRQ; ++i) core.irq_in[i](s_irq[i]);
+    for (unsigned i = 0; i < mcu.nucleo.n_irq; ++i) core.irq_in[i](s_irq[i]);
     core.nmi_in(s_nmi);
     core.sysresetreq(s_sysresetreq);
     core.sleeping(s_sleeping); core.sleepdeep(s_sleepdeep);
     core.event_in(s_evt_in);   core.event_out(s_evt_out);
     core.boot_mode(s_memmode);
     core.ccm.bind(ccm.tsk);
+    // Quien es este chip, para el depurador. Es el UNICO valor del subsistema
+    // de depuracion que cambia de una pieza a otra, y va aqui porque el que lo
+    // sabe es el descriptor. [core/debug.h; vs_446re, 10]
+    core.debug.set_idcode(mcu.idcode);
     // Debug: pines AF0 (PA13/14/15, PB3/PB4) [IR, §13.1]. Las señales llegan
     // por el mux de funciones alternativas (véase bind_gpio_pins).
     core.debug.swclk_tck(s_dbg_swclk);                   // PA14
@@ -564,7 +620,7 @@ inline void Stm32F407VG::bind_core() {
 // ===========================================================================
 // GPIO <-> pads y líneas EXTI
 // ===========================================================================
-inline void Stm32F407VG::bind_gpio_pins() {
+inline void SocF4::bind_gpio_pins() {
     for (unsigned p = 0; p < N_GPIO_PORTS; ++p) {
         bind_bus_slave(gpio[p], s_hclk, PeriphId(P_GPIOA + p));
         gpio[p].mux = &pinmux;                    // publicación de MODER/AFRx
@@ -686,8 +742,18 @@ inline void Stm32F407VG::bind_gpio_pins() {
     syscfg.mem_mode(s_memmode);
 }
 
+// ---------------------------------------------------------------------------
+// EL NOMBRE DE ANTES, que sigue valiendo.
+//
+// Los once miembros de la familia F405/407 son este mismo die con distintos
+// descriptores, así que `Stm32F407VG` nunca fue una clase distinta: era ESTA.
+// El alias no es compatibilidad hacia atrás por cortesía —no hay código ajeno
+// que mantener— sino la forma de decir que el renombrado no cambió nada.
+// ---------------------------------------------------------------------------
+using Stm32F407VG = SocF4;
+
 } // namespace stm32
 
-#include "stm32f407vg_bind2.h"   // continuación del netlist (periph/irq/dma)
+#include "soc_f4_bind2.h"   // continuación del netlist (periph/irq/dma)
 
-#endif // STM32_TOP_STM32F407VG_H
+#endif // STM32_TOP_SOC_F4_H

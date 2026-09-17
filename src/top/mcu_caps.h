@@ -16,9 +16,18 @@
 // frontera exacta está en el campo `familia`: dos chips con la misma familia se
 // distinguen con este struct; dos familias distintas necesitan modelo nuevo.
 //
-// Por eso este fichero declara UN descriptor completo —el del F407VG— y dos de
+// Por eso este fichero declara los once descriptores de la familia F405/407 —el
+// mismo silicio con otro encapsulado, otra Flash o sin Ethernet— y dos juegos de
 // laboratorio que la suite usa para comprobar que las piezas se recombinan
 // (T127). No hay aquí ningún chip que el proyecto afirme modelar y no modele.
+//
+// Y desde la fase 2 del plan del F446 hay un duodécimo, el `STM32F446RE`, que
+// es de OTRA familia y lo dice: su descriptor lleva `familia = "STM32F446"` y
+// lo construye otra clase (`soc/stm32f446.h`), no esta tabla. Lo que está aquí
+// es lo que un descriptor puede describir de él —Flash, RAM, encapsulado,
+// posiciones de vector, bloques ausentes, IDCODE—; lo que no puede, que es su
+// árbol de reloj, está en esa clase y en lo que todavía le falta, dicho en voz
+// alta. [doc/stm32f407vg_vs_446re.md, §6.3 y §13]
 // =============================================================================
 #ifndef STM32_TOP_MCU_CAPS_H
 #define STM32_TOP_MCU_CAPS_H
@@ -28,6 +37,7 @@
 #include "../core/core_caps.h"
 #include "../mem/mem_caps.h"
 #include "../pins/encapsulado.h"
+#include "../bus/conectividad.h"
 
 namespace stm32 {
 
@@ -55,10 +65,22 @@ struct LimitesReloj {
 // las líneas de dirección y datos, y eso YA lo dice el encapsulado —los pads
 // que no están, no están—. Un booleano más sería describir dos veces lo mismo
 // y arriesgarse a que las dos descripciones no coincidan.
+//
+// Los dos ÚLTIMOS los trajo el F446 en la fase 2 del plan, y son de la misma
+// clase que los tres primeros —bloques que unas piezas llevan y otras no—:
+//
+//   rng     Generador de números aleatorios. No existe en el F446: ni un solo
+//           símbolo `RNG` en `stm32f446xx.h` [CMSIS].
+//   i2sext  Los bloques de extensión I2S2ext/I2S3ext, los que dan el I2S
+//           full-duplex en el F407. Desaparecen en el F446 [AN4658], y uno de
+//           sus dos huecos —`0x4000_4000`— lo ocupa allí otro periférico
+//           distinto, el SPDIF-RX. Es la trampa de direcciones de vs_446re §5.3.
 struct Periferia {
     bool eth;
     bool dcmi;
     bool fsmc;
+    bool rng;
+    bool i2sext;
 };
 
 struct McuCaps {
@@ -69,6 +91,15 @@ struct McuCaps {
     LimitesReloj reloj;
     Encapsulado  enc;          // qué pads salen al plástico
     Periferia    perif;        // qué bloques lleva este miembro de la familia
+    // Qué maestro de la matriz alcanza a qué esclavo. Va en el descriptor, y no
+    // dentro de la matriz, porque es un rasgo del CHIP: el F446 tiene siete
+    // maestros y no ocho, y eso se dice con una fila a cero.
+    Conectividad conn;
+    // Lo que un depurador lee en `DBGMCU_IDCODE` para saber con qué habla. No
+    // es adorno: con el valor equivocado, STM32CubeIDE no da un error claro,
+    // da un «Could not verify ST device» — el mensaje que costó media sesión
+    // diagnosticar. [RM0090 §32.6.1, RM0390 §33.6.1]
+    uint32_t     idcode;
 };
 
 inline constexpr LimitesReloj RELOJ_STM32F407VG {
@@ -121,10 +152,16 @@ inline constexpr MapaFlash FLASH_512K {
 };
 inline constexpr MemCaps MEM_512K { FLASH_512K, RAM_STM32F407VG };
 
-// Los tres juegos de periféricos que hay en la familia.
-inline constexpr Periferia PERIF_F407     { true,  true,  true  };  // ETH + camara + FSMC
-inline constexpr Periferia PERIF_F405     { false, false, true  };  // sin ETH ni camara
-inline constexpr Periferia PERIF_F405_R64 { false, false, false };  // ademas, sin bus externo
+// Los tres juegos de periféricos que hay en la familia. El RNG y los bloques de
+// extensión del I2S los llevan los once, del LQFP64 al UFBGA176.
+//                                            eth    dcmi   fsmc   rng   i2sext
+inline constexpr Periferia PERIF_F407     { true,  true,  true,  true, true };
+inline constexpr Periferia PERIF_F405     { false, false, true,  true, true };
+inline constexpr Periferia PERIF_F405_R64 { false, false, false, true, true };
+
+// El identificador de la familia F405/407/415/417 en `DBGMCU_IDCODE`:
+// DEV_ID = 0x413, REV_ID = 0x1001. [RM0090, §32.6.1]
+constexpr uint32_t IDCODE_STM32F40X = 0x10016413u;
 
 // El constructor que evita repetir once veces los mismos cinco campos. Todos
 // los miembros comparten núcleo, RAM y topes de reloj; lo que se pasa es lo
@@ -132,7 +169,8 @@ inline constexpr Periferia PERIF_F405_R64 { false, false, false };  // ademas, s
 constexpr McuCaps mcu_f4(const char* nombre, const MemCaps& mem,
                          const Encapsulado& enc, const Periferia& per) {
     return McuCaps{ nombre, "STM32F4", CORE_STM32F407VG, mem,
-                    RELOJ_STM32F407VG, enc, per };
+                    RELOJ_STM32F407VG, enc, per, CONN_STM32F407VG,
+                    IDCODE_STM32F40X };
 }
 
 // --- STM32F405: sin Ethernet y sin camara -----------------------------------
@@ -162,19 +200,84 @@ inline constexpr McuCaps MCU_STM32F407IG =
     mcu_f4("STM32F407IG", MEM_STM32F407VG, ENC_LQFP176, PERIF_F407);
 
 // ---------------------------------------------------------------------------
+// EL STM32F446RE — otra FAMILIA, y por eso otro `familia` y otra clase
+//
+// Aquí está la parte del F446 que un descriptor SÍ puede describir: cuánta
+// Flash, cuánta RAM, qué pads salen, cuántas posiciones de vector, qué bloques
+// faltan y qué lee un depurador. Y aquí se acaba: lo que un descriptor NO puede
+// describir —el tercer PLL, el divisor R, los cinco registros de selección de
+// reloj que en el F407 no existen y el acoplamiento con el over-drive— es
+// justamente lo que obliga a que haya una CLASE `Stm32F446` (soc/stm32f446.h) y
+// no una fila más en esta tabla. [vs_446re, §6.3 y §13]
+//
+// Meterlo aquí y no en un fichero aparte es deliberado: este fichero es el
+// catálogo de LO QUE ESTE PROGRAMA SABE NOMBRAR, y `--mcu`, `<mcu tipo=>` y la
+// ayuda lo leen entero. Un F446 invisible para el catálogo sería un chip que el
+// modelo construye y el usuario no puede pedir.
+// ---------------------------------------------------------------------------
+
+// La RAM: los mismos 112 + 16 KB de siempre y los 4 de backup, **sin CCM**.
+// Verificado por tres caminos [vs_446re, §4.2]: `CCMDATARAM_BASE` está en
+// `stm32f407xx.h` y no en `stm32f446xx.h`; PINDATA no declara `<CCMRam>` para el
+// F446R; y RM0390 §2.2.3 habla de «up to two blocks: SRAM1 and SRAM2».
+//
+// La base de la CCM se conserva con tamaño cero, y no es un descuido: el
+// tamaño es lo que dice que no está, y la base es lo que dice DÓNDE no está.
+// Con las dos cosas, `0x1000_0000` en un F446 es espacio RESERVADO —tocarlo da
+// error de bus— y no «la CCM a la que este maestro no llega», que es otra cosa.
+inline constexpr MapaRam RAM_STM32F446 {
+    addr::SRAM1_BASE,   addr::SRAM1_SIZE,      // 112 KB
+    addr::SRAM2_BASE,   addr::SRAM2_SIZE,      //  16 KB
+    addr::CCM_BASE,     0u,                    //  sin CCM
+    addr::BKPSRAM_BASE, addr::BKPSRAM_SIZE     //   4 KB
+};
+inline constexpr MemCaps MEM_STM32F446RE { FLASH_512K, RAM_STM32F446 };
+
+// Los topes del F446 **con over-drive**: 180 / 45 / 90 MHz [DS10693, tabla 16].
+//
+// Y aquí hay una deuda declarada, que la fase 3 tiene que pagar: en el F446 los
+// topes DEPENDEN DE UN BIT DEL PWR —sin over-drive son los 168/42/84 del F407—,
+// y `LimitesReloj` es hoy una constante y no una función del estado. El modelo
+// pone el tope alto, de modo que un `SystemClock_Config()` legítimo de una
+// Nucleo-F446RE no dispara avisos falsos; lo que todavía NO hace es EXIGIR la
+// secuencia de over-drive para llegar ahí. Está dicho en `limitaciones()` de la
+// clase, que es donde `sim` lo lee y se lo cuenta al usuario.
+inline constexpr LimitesReloj RELOJ_STM32F446 { 180e6, 180e6, 45e6, 90e6 };
+
+// Lo que el F446 no lleva: Ethernet, RNG y los bloques de extensión del I2S. La
+// cámara SÍ la lleva —es fácil suponer lo contrario porque el F405 no la tiene—
+// y el bus externo existe en el die pero **no en el LQFP64**: DS10693 tabla 2
+// pone `No` en la columna RE de la fila «FMC memory controller».
+//                                        eth    dcmi  fsmc   rng    i2sext
+inline constexpr Periferia PERIF_F446RE { false, true, false, false, false };
+
+// DEV_ID = 0x421, REV_ID = 0x1000 (revisión A) [RM0390, §33.6.1, verificado en
+// la fase 0]. El JTAG ID del boundary-scan, que es otro registro y no este, es
+// 0x0641_3041.
+constexpr uint32_t IDCODE_STM32F446 = 0x10000421u;
+
+inline constexpr McuCaps MCU_STM32F446RE {
+    "STM32F446RE", "STM32F446", CORE_STM32F446, MEM_STM32F446RE,
+    RELOJ_STM32F446, ENC_LQFP64_F446, PERIF_F446RE, CONN_STM32F446,
+    IDCODE_STM32F446
+};
+
+// ---------------------------------------------------------------------------
 // EL CATÁLOGO
 //
-// Una lista y dos funciones. No hace falta la factoría con auto-registro que
-// hace falta para las piezas de placa, y conviene decir por qué: aquí los once
-// miembros son EL MISMO MODELO con distintos rasgos, no once clases. La
-// factoría hará falta el día que haya un chip de otra familia, que es otro
-// modelo de verdad. [doc/stm32f407vg_multi_mcu.md, §6.1]
+// Una lista y dos funciones. Lo que esta lista dice es qué chips se pueden
+// NOMBRAR; quién los construye lo dice `FabricaMcu`, que despacha por el campo
+// `familia`. Mientras solo hubo una familia las dos cosas coincidían y la
+// factoría era andamio sin obra; con el F446 ya no coinciden, y por eso existe:
+// once de estas doce entradas son EL MISMO MODELO con distintos rasgos, y la
+// duodécima es otra clase. [doc/stm32f407vg_multi_mcu.md, §6.1]
 // ---------------------------------------------------------------------------
 inline const McuCaps* const CATALOGO_MCU[] = {
     &MCU_STM32F405RG, &MCU_STM32F405OG, &MCU_STM32F405VG, &MCU_STM32F405ZG,
     &MCU_STM32F405OE,
     &MCU_STM32F407VE, &MCU_STM32F407VG, &MCU_STM32F407ZE, &MCU_STM32F407ZG,
-    &MCU_STM32F407IE, &MCU_STM32F407IG
+    &MCU_STM32F407IE, &MCU_STM32F407IG,
+    &MCU_STM32F446RE
 };
 inline constexpr unsigned N_CATALOGO_MCU =
     sizeof(CATALOGO_MCU) / sizeof(CATALOGO_MCU[0]);

@@ -3130,3 +3130,78 @@ UBSan limpios, las cuatro placas validan, el *blinky* enciende LD4 en los once
 `Stm32F446` necesita su clase top, su `McuCaps`, su `Conectividad` de siete
 maestros y **un `REGISTRA_MCU`** — y ni una línea de `ahb_types.h`, de la matriz,
 del CRC ni de `sim_main.cpp`.
+
+---
+
+## Fase 2 del plan del F446: el esqueleto, y el fallo que destapó
+
+> Ejecuta la fase 2 del plan
+
+Hecha, y con las dos cosas que pedía: **un `Stm32F446` que es el F407 menos lo
+que no tiene**, y **un blinky compilado para F446RE que arranca y parpadea**.
+
+```
+$ ./build/sim placas/nucleo_f446re.xml verif/fw/blinky446/blinky446.bin 700
+placa 'nucleo-f446re': 1 MCU(s), 2 componentes, 154 nodos, 0 avisos
+firmware de u0: verif/fw/blinky446/blinky446.bin
+simulados 700.000 ms en 0.010 s de anfitrion (18522 deltas)
+  LED LD2 en PA5: encendido  (3.17 V, 2.30 mA)
+```
+
+Ese firmware usa **`stm32f446xx.h` de ST sin tocar**, su `startup_stm32f446xx.s`
+y el `system_stm32f4xx.c` de siempre con `-DSTM32F446xx`. Es lo que lo convierte
+en una prueba y no en una demostración: quien decide dónde está cada registro es
+la cabecera del fabricante. El propio firmware calcula su SYSCLK con
+`SystemCoreClockUpdate()` y le salen los 84 MHz que el modelo tiene en HCLK.
+
+**El netlist se llama ahora `SocF4`.** Se llamaba `Stm32F407VG`, y ese nombre era
+de los que enseñan mal: ese fichero nunca fue «del F407VG» —ya servía para los
+once miembros del F405/407 cambiando el descriptor— y sirve para el F446 por la
+misma razón. `using Stm32F407VG = SocF4;` deja valer todo lo escrito.
+
+**Qué cabe en un descriptor y qué no.** Casi todo lo que distingue al F446 sí
+cabe: 512 KB, sin CCM, LQFP64 propio —50 E/S, que no son las 51 del LQFP64 del
+F405RG: falta PB11—, 97 posiciones de vector, siete maestros en la matriz
+(*una fila a cero*, la del DMA del Ethernet) y otro IDCODE. Lo que no cabe es el
+árbol de reloj, y por eso hay una CLASE: es el sitio donde la fase 3 pondrá el
+tercer PLL y el over-drive.
+
+**Y mientras tanto lo dice.** `sim` imprime al montar la placa las seis cosas que
+el modelo todavía no hace, cada una con su fase:
+
+```
+[ojo] u0: el arbol de reloj es todavia el del F407: [...] RCC_DCKCFGR y
+      RCC_DCKCFGR2 no existen en el modelo [fase 3]
+[ojo] u0: los topes de 180/45/90 MHz no EXIGEN la secuencia de over-drive [fase 3]
+```
+
+**EL HALLAZGO, y no es del chip nuevo.** Montando el blinky apareció que **el
+SysTick no interrumpía nunca a 84 MHz**: el contador corría, `CTRL` valía 7,
+`LOAD` valía 83 999, y la interrupción no llegaba jamás. El mismo firmware sobre
+el modelo del **F407** hacía exactamente lo mismo.
+
+La causa: `tick_proc()` esperaba N veces el periodo de un tick **redondeado a
+picosegundos**, y un tick a 84 MHz dura 11 904,7619… ps. Redondeado hacia arriba
+y multiplicado por 84 000, el contador queda **pasado** del cero; la condición de
+disparo era «¿vale exactamente cero?», no se cumplía nunca, y el bucle esperaba
+otra vuelta entera para pasarse otra vez. Las dos frecuencias que usa la suite
+—168 MHz y 16 MHz— redondean hacia abajo o caen justas, y por abajo converge. **84
+MHz no es un caso raro: es lo que sale de un PLL con P = 4.**
+
+Corregido calculando el **instante absoluto** del cruce en vez de sumar periodos.
+Y el invariante del F407 **no se movió ni un picosegundo**, porque a 168 MHz el
+camino es el mismo. Es el mejor argumento a favor del puerto: modelar la pieza
+nueva encontró un fallo de la vieja que llevaba dentro desde la fase 6.
+
+**La suite del F446 es un ejecutable aparte, y también por un hallazgo.** El
+primer intento fue construir el F446 dentro del banco del F407 para hacerle
+preguntas; eso **movió el invariante** —de `2336217899213` a `2336186149213 ps`—
+porque un segundo chip no es inerte y la simulación se volvió trece veces más
+lenta. De paso se vio que **hay una prueba del I2S cuyo resultado depende del
+reloj de pared** (queda anotada como I-42: una suite que cambia de resultado
+según la máquina no es una suite). Así que `make test446`, y la fase 5 del plan
+tenía razón por adelantado.
+
+Estado: **2045/2045 en el F407 con `2336217899213 ps` intactos**, **43/43 en el
+F446**, ASan y UBSan limpios en las dos suites y en `sim`, las cinco placas
+validan. I-41 cerrado (veintidós de cuarenta y dos).

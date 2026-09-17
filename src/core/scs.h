@@ -241,20 +241,54 @@ private:
     }
     void irq_proc() { tick_irq.write(o_irq_); }
 
-    // Espera al siguiente instante en que el contador alcanza cero
+    // -----------------------------------------------------------------------
+    // Espera al siguiente instante en que el contador alcanza cero.
+    //
+    // EL CRUCE SE CALCULA COMO UN INSTANTE ABSOLUTO, no sumando N veces el
+    // periodo de un tick, y esto NO es una elegancia: es la corrección de un
+    // fallo que se descubrió montando el F446 y que llevaba dentro desde
+    // siempre.
+    //
+    // Un tick a 84 MHz dura 11 904,7619... ps, que no es un número entero de
+    // picosegundos. `sc_time` redondea, y si redondea HACIA ARRIBA, esperar
+    // 84 000 veces ese periodo redondeado deja al contador **pasado** del
+    // cero: `cvr_now()` no vale cero sino 83 999, la condición de disparo no
+    // se cumple, el bucle vuelve a esperar otra vuelta entera y se repite lo
+    // mismo. Resultado: **el SysTick no interrumpe NUNCA**, y el firmware se
+    // queda en su `delay_ms` para siempre sin que nada indique por qué.
+    //
+    // No era un caso raro: 84 MHz es la mitad de 168 y es lo que sale de un
+    // PLL con P = 4, una configuración de las de manual. Que no se hubiera
+    // visto antes es porque las frecuencias que usaba la suite —168 MHz, con
+    // 5 952,38 ps, y 16 MHz, con 62 500 exactos— redondean hacia ABAJO o son
+    // exactas, y por abajo el bucle converge en dos vueltas.
+    //
+    // Con el cruce calculado de una vez desde `t_base_`, el error de redondeo
+    // no se acumula; y la condición de disparo pasa a ser «¿han pasado ya los
+    // ticks que faltaban?» en vez de «¿vale el contador exactamente cero?»,
+    // que es lo mismo cuando se llega justo y lo correcto cuando se pasa por
+    // un picosegundo.
+    // -----------------------------------------------------------------------
     void tick_proc() {
         for (;;) {
-            const sc_core::sc_time per = tick_period();
-            if (!enabled() || per == sc_core::SC_ZERO_TIME) { wait(resched_ev_); continue; }
+            const double f = tick_hz();
+            if (!enabled() || f <= 0.0) { wait(resched_ev_); continue; }
             // Con el núcleo parado no hay cuenta y no hay vencimiento: se espera
             // a que algo cambie -reanudar, reprogramar, cambiar de frecuencia-.
             if (parado.read()) { wait(resched_ev_); continue; }
-            const uint32_t c = cvr_now();
+            const uint64_t k0 = elapsed_ticks_brutos();
+            const uint32_t c  = cvr_con(k0);
             // Ticks hasta el próximo cero: si ya está en 0, recarga y RVR+1 más
-            const uint64_t n = (c == 0) ? (uint64_t(rvr_ & 0x00FFFFFFu) + 1u) : c;
-            wait(per * double(n), resched_ev_);
-            if (!enabled()) continue;
-            if (cvr_now() != 0) continue;         // reprogramado por software
+            const uint64_t n    = (c == 0) ? (uint64_t(rvr_ & 0x00FFFFFFu) + 1u) : c;
+            const uint64_t meta = k0 + n;      // el tick en el que se cruza el cero
+            const sc_core::sc_time cruce =
+                t_base_ + sc_core::sc_time(double(meta) / f, sc_core::SC_SEC);
+            const sc_core::sc_time ahora = sc_core::sc_time_stamp();
+            if (cruce > ahora) wait(cruce - ahora, resched_ev_);
+            if (!enabled() || parado.read()) continue;
+            // Menos ticks de los que faltaban: o lo ha reprogramado el software
+            // -y `rebase()` movió la base- o todavía no toca. Se recalcula.
+            if (elapsed_ticks_brutos() < meta) continue;
             csr_ |= (1u << 16);                   // COUNTFLAG
             if (tickint()) {                      // pulso hacia el NVIC
                 o_irq_ = true;  irq_ev_.notify(sc_core::SC_ZERO_TIME);

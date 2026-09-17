@@ -183,5 +183,36 @@ inline constexpr Encapsulado ENC_UFBGA176 {
     true
 };
 
+// ---------------------------------------------------------------------------
+// LQFP64 del STM32F446 — 50 GPIO [DS10693, tabla 2; PINDATA STM32F446R(C-E)Tx]
+//
+// MISMO ENCAPSULADO, OTRO REPARTO, y de ahí que sea una constante aparte: el
+// LQFP64 del F405RG saca 51 E/S y el del F446RE saca 50. **La diferencia es
+// PB11**, que en el F446 no tiene patilla.
+//
+// Es un pin, y es justo la clase de detalle que decide si un modelo sirve o
+// engaña: un alumno que configure PB11 en un F446RE no está encendiendo un LED
+// que no se ve, está escribiendo en un pad que en su placa no existe. Y trae
+// cola: **ULPI_D4 está en PB11 en el F407 y en PB2 en el F446RE** precisamente
+// porque PB11 no sale [vs_446re, §9.2].
+//
+// El recuento cuadra: 16 + 15 + 16 + 1 + 2 = 50 ✓, y `coherente()` lo comprueba.
+// Los puertos D (salvo PD2), E, F y G **existen en el die** —se pueden encender
+// desde el RCC y sus registros responden— pero no tienen pines aquí, que es
+// exactamente la distinción entre die y encapsulado que este fichero modela.
+// El F446 no tiene puerto I en ningún encapsulado [CMSIS].
+// ---------------------------------------------------------------------------
+inline constexpr Encapsulado ENC_LQFP64_F446 {
+    "LQFP64", 64, 50,
+    { TODOS,                        // A: PA0..PA15                 16
+      0xF7FFu,                      // B: sin PB11                  15
+      TODOS,                        // C: PC0..PC15                 16
+      1u << 2,                      // D: solo PD2                   1
+      NINGUNO, NINGUNO, NINGUNO,    // E, F, G: nada
+      hasta(2),                     // H: PH0/PH1 (OSC_IN/OUT)       2
+      NINGUNO },                    // I: el F446 no tiene puerto I
+    true
+};
+
 } // namespace stm32
 #endif // STM32_PINS_ENCAPSULADO_H

@@ -26,79 +26,9 @@
 #include <initializer_list>
 #include "../common/ahb_types.h"
 #include "../mem/mem_caps.h"
+#include "conectividad.h"   // la tabla de conectividad, que es un DATO del chip
 
 namespace stm32 {
-
-// ---------------------------------------------------------------------------
-// LA CONECTIVIDAD DE LA MATRIZ, COMO DATO
-//
-// Qué maestro alcanza a qué esclavo [IR, §6.2]. Era una función con las nueve
-// filas escritas dentro; ahora es un `struct` que la matriz recibe por el
-// constructor, igual que se hizo con el encapsulado y con el mapa de memoria.
-//
-// Una fila por maestro, un bit por esclavo. Y de ahí sale gratis algo que hará
-// falta enseguida: **un maestro cuya fila es cero es un maestro QUE NO EXISTE
-// en ese chip**. El F446 tiene siete maestros y no ocho porque le falta el del
-// Ethernet [RM0390, §2.1]; describirlo es poner su fila a cero, no tocar el
-// `enum`. Es la misma idea que «un bloque de RAM que no existe es un tamaño a
-// cero».
-// ---------------------------------------------------------------------------
-struct Conectividad {
-    uint8_t alcanza[unsigned(BusMaster::N_MASTERS)];   // bit s = llega al esclavo s
-
-    bool puede(BusMaster m, BusSlaveId s) const {
-        return ((alcanza[unsigned(m)] >> unsigned(s)) & 1u) != 0;
-    }
-    // ¿Este maestro existe en el chip? Si no alcanza a nadie, no está.
-    bool hay_maestro(BusMaster m) const { return alcanza[unsigned(m)] != 0; }
-    unsigned n_maestros() const {
-        unsigned n = 0;
-        for (unsigned m = 0; m < unsigned(BusMaster::N_MASTERS); ++m)
-            if (alcanza[m]) ++n;
-        return n;
-    }
-};
-
-// El juego de bits de una fila, para poder escribir la tabla con los nombres de
-// los esclavos en vez de con hexadecimal.
-constexpr uint8_t esclavos(std::initializer_list<BusSlaveId> ss) {
-    uint8_t m = 0;
-    for (BusSlaveId s : ss) m = uint8_t(m | (1u << unsigned(s)));
-    return m;
-}
-
-// --- La tabla del STM32F405xx/07xx: ocho maestros [RM0090, §2.1] ------------
-inline constexpr Conectividad CONN_STM32F407VG { {
-    /* CORE_IBUS   */ esclavos({BusSlaveId::FLASH_ICODE, BusSlaveId::SRAM1,
-                                BusSlaveId::SRAM2, BusSlaveId::FSMC_EXT}),
-    /* CORE_DBUS   */ esclavos({BusSlaveId::FLASH_DCODE, BusSlaveId::SRAM1,
-                                BusSlaveId::SRAM2, BusSlaveId::FSMC_EXT}),
-    /* CORE_SBUS   */ esclavos({BusSlaveId::SRAM1, BusSlaveId::SRAM2,
-                                BusSlaveId::AHB1_SEG, BusSlaveId::AHB2_SEG,
-                                BusSlaveId::FSMC_EXT}),
-    /* DMA1_MEM    */ esclavos({BusSlaveId::SRAM1, BusSlaveId::SRAM2,
-                                BusSlaveId::AHB1_SEG, BusSlaveId::AHB2_SEG,
-                                BusSlaveId::FSMC_EXT}),
-    // DMA2 alcanza ADEMÁS la Flash por el bus DCode. La tabla de [IR, §6.2]
-    // pone "No" en esa celda, pero §11.1.1 del mismo informe dice
-    // explícitamente que DMA2 «soporta transferencias memoria-a-memoria y
-    // acceso a la memoria Flash», que es lo que hace el silicio y de lo que
-    // depende el caso de uso clásico Flash -> SRAM. La contradicción se
-    // resuelve a favor de §11.1.1 [doc/stm32f407vg_fase4_dma.md, §9].
-    /* DMA2_MEM    */ esclavos({BusSlaveId::FLASH_DCODE, BusSlaveId::SRAM1,
-                                BusSlaveId::SRAM2, BusSlaveId::AHB1_SEG,
-                                BusSlaveId::AHB2_SEG, BusSlaveId::FSMC_EXT}),
-    /* DMA2_PERIPH */ esclavos({BusSlaveId::FLASH_DCODE, BusSlaveId::SRAM1,
-                                BusSlaveId::SRAM2, BusSlaveId::AHB1_SEG,
-                                BusSlaveId::AHB2_SEG, BusSlaveId::FSMC_EXT}),
-    /* ETH_DMA     */ esclavos({BusSlaveId::SRAM1, BusSlaveId::SRAM2,
-                                BusSlaveId::AHB1_SEG}),
-    /* OTG_HS_DMA  */ esclavos({BusSlaveId::SRAM1, BusSlaveId::SRAM2,
-                                BusSlaveId::AHB1_SEG})
-} };
-// La columna «CCM RAM» de la tabla solo tiene 'Sí' en el D-Bus, y la CCM no es
-// esclavo de la matriz —[RM0090, §2.1]: «not part of the bus matrix and can be
-// accessed only through the CPU»—: se resuelve en el router del núcleo.
 
 // ---------------------------------------------------------------------------
 // Decodificación global -> esclavo de la matriz [IR, §5.1, §6.5]

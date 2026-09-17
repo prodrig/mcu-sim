@@ -18,6 +18,7 @@
 #include "debug.h"
 #include "gdb_stub_dap.h"
 #include "../bus/bitband.h"
+#include "../mem/mem_caps.h"   // MapaRam: donde esta (o no esta) la CCM
 
 namespace stm32 {
 
@@ -90,10 +91,16 @@ SC_MODULE(CortexM4F) {
     // nucleo sin tocar una linea. [core/core_caps.h]
     const CoreCaps nucleo;
 
+    // `ram` solo se usa para UNA cosa: saber donde esta la CCM, que es la unica
+    // memoria que cuelga del nucleo y no de la matriz. Un chip sin ella -el
+    // F446- pasa un mapa con tamano cero y el camino directo desaparece.
     explicit CortexM4F(sc_core::sc_module_name nm, DebugCaps c = DBG_PINES,
-                       CoreCaps n = CORE_STM32F407VG)
+                       CoreCaps n = CORE_STM32F407VG,
+                       MapaRam ram = RAM_STM32F407VG)
         : sc_core::sc_module(nm), irq_in("irq_in", n.n_irq), scs("scs", n),
           caps(c), nucleo(n) {
+        ccm_base_ = ram.ccm_base;
+        ccm_size_ = ram.ccm_size;
         // Sin SC_HAS_PROCESS: este módulo no declara ningún proceso propio -sus
         // hijos (cpu, fpu, scs) sí, cada uno el suyo-, y la macro solo define un
         // typedef que entonces no usa nadie. GCC y clang avisan de ello.
@@ -182,12 +189,21 @@ private:
     // Extensiones AHB propias de cada puerto del núcleo (no se reservan por
     // transacción: el router las presta al payload y las retira al salir).
     AhbExt ext_i_, ext_d_, ext_s_, ext_dbg_;
+    uint32_t ccm_base_ = addr::CCM_BASE, ccm_size_ = addr::CCM_SIZE;
 
     static bool is_ppb(uint64_t a)  { return a >= 0xE0000000ull && a < 0xE0100000ull; }
     static bool is_scs(uint64_t a)  { return a >= 0xE000E000ull && a < 0xE000F000ull &&
                                              !(a >= 0xE000EDF0ull && a < 0xE000EEFFull); }
-    static bool is_ccm(uint64_t a)  { return a >= addr::CCM_BASE &&
-                                             a < addr::CCM_BASE + addr::CCM_SIZE; }
+    // La ventana de la CCM, COMO DATO y no como constante global. Es lo que
+    // permite que un chip sin CCM -el F446 no la lleva- no tenga aqui un camino
+    // directo desde el D-bus hacia una memoria que no existe: con tamano cero
+    // no hay ventana, el acceso sigue por el bus de sistema y acaba donde tiene
+    // que acabar, en un error. El puerto `ccm` sigue atado porque la
+    // elaboracion de SystemC es estatica; simplemente no pasa nadie por el.
+    bool is_ccm(uint64_t a) const {
+        return ccm_size_ != 0 && a >= ccm_base_ &&
+               a < uint64_t(ccm_base_) + ccm_size_;
+    }
 
     // Presta una extensión al payload si el iniciador no trajo la suya.
     // Devuelve el puntero prestado (nullptr si el payload ya tenía una).

@@ -113,6 +113,22 @@ constexpr CoreCaps core_m4f_st(unsigned n_irq) {
 // el modelo, y por eso está aquí y no repartido por seis constructores.
 inline constexpr CoreCaps CORE_STM32F407VG = core_m4f_st(N_IRQ);
 
+// El del STM32F446: **97 posiciones de vector, 0 a 96**, de las cuales 86
+// implementadas y once reservadas —61, 62, 79, 80, 82, 83, 85, 86, 88, 89 y
+// 90— [RM0390, §10.1.3, leída fila a fila en la fase 0; vs_446re §15.3].
+//
+// El número que va aquí es el de POSICIONES y no el de líneas implementadas, y
+// la diferencia importa: el NVIC dimensiona sus vectores con él, y una posición
+// reservada no necesita nada especial —una línea que nadie gobierna nunca se
+// pone pendiente, que es justo lo que hace un hueco de la tabla—. Dimensionar
+// por las 86 implementadas dejaría al SPI4 (posición 84) fuera del NVIC.
+//
+// Los dos números de portada de ST no coinciden ni con la tabla ni entre sí
+// —el RM dice 96 canales enmascarables y el datasheet dice «hasta 91»—, así que
+// el modelo se fía de la tabla, que es el único documento autoconsistente y el
+// que cuadra con el `IRQn_Type` de la cabecera de ST.
+inline constexpr CoreCaps CORE_STM32F446 = core_m4f_st(97);
+
 // Rasgos de laboratorio, para la verificación (véase el comentario de arriba).
 inline constexpr CoreCaps CORE_M4F_MINIMO {
     32, 3, 8, FpuKind::SimplePrec, CPUID_CORTEX_M4

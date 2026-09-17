@@ -141,15 +141,16 @@ LDFLAGS  += $(foreach d,$(LIBDIRS),-L$(d)) $(RPATH) $(LDEXTRA)
 LDLIBS   += -lsystemc $(LIBS_SO) $(EXTRA_LD)
 
 HDRS := $(wildcard common/*.h pins/*.h parts/*.h bus/*.h mem/*.h rcc/*.h core/*.h \
-                   periph/*.h verif/*.h top/*.h)
+                   periph/*.h soc/*.h verif/*.h top/*.h)
 
 TARGET := build/stm32f407vg$(EXE)
 SIM    := build/sim$(EXE)
+TB446  := build/tb446$(EXE)
 BENCH  := build/bench$(EXE)
 RED    := build/prueba_red$(EXE)
 ASAN   := build/tb_asan$(EXE)
 
-.PHONY: all test asan smoke bench sim red run clean plataforma
+.PHONY: all test test446 asan smoke bench sim red run clean plataforma
 
 all: $(TARGET)
 
@@ -183,6 +184,21 @@ $(SIM): top/sim_main.cpp $(HDRS)
 	$(CXX) $(CXXFLAGS) -o $@ top/sim_main.cpp $(LDFLAGS) $(LDLIBS)
 
 sim: $(SIM)
+
+# La SUITE DEL F446, que es un banco APARTE y no unas pruebas mas dentro de
+# `sc_main.cpp`. El motivo esta escrito en la cabecera de su fichero y merece
+# saberse: construir un segundo chip dentro del banco del F407 MUEVE el
+# invariante del F407, porque un chip no es inerte. Dos chips en la misma
+# simulacion son una placa de dos chips.
+#   make test446
+$(TB446): top/sc_main_f446.cpp $(HDRS)
+	@mkdir -p build
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_f446.cpp $(LDFLAGS) $(LDLIBS)
+
+tb446: $(TB446)
+
+test446: $(TB446)
+	./$(TB446)
 
 # --- La capa de red, que es la única parte no portable -----------------------
 # No necesita SystemC, así que se compila y se ejecuta en cualquier sitio, y se

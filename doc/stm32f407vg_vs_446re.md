@@ -672,7 +672,7 @@ encapsulado.
 misma suite y el mismo tiempo simulado al picosegundo. Ese es el criterio de
 aceptación, y es el que hace que la fase sea segura.
 
-### Fase 2 — El esqueleto del F446, sin periféricos nuevos
+### Fase 2 — El esqueleto del F446, sin periféricos nuevos — **HECHA, §17**
 
 Montar un `Stm32F446` que sea **el F407 menos lo que no tiene**: sin Ethernet,
 sin RNG, sin CCM, con 512 KB de Flash, con el LQFP64 del F446 y con las 97
@@ -718,9 +718,9 @@ comprobar las dos cosas, la que funciona y la que debe fallar.
 
 | Hito | Qué demuestra |
 | :--- | :--- |
-| **H1** | La fase 1 acaba con la suite intacta y el invariante en su sitio |
-| **H2** | `sim placa.xml --mcu STM32F446RE` monta y valida |
-| **H3** | Un blinky de CubeIDE para F446RE parpadea |
+| **H1** | La fase 1 acaba con la suite intacta y el invariante en su sitio — ✅ |
+| **H2** | `sim placa.xml --mcu STM32F446RE` monta y valida — ✅ fase 2 |
+| **H3** | Un blinky de CubeIDE para F446RE parpadea — ✅ fase 2 |
 | **H4** | `SystemClock_Config()` llega a 180 MHz por over-drive |
 | **H5** | El F446 se depura desde STM32CubeIDE con el `IDCODE` correcto |
 | **H6** | Los periféricos nuevos, uno a uno, con su prueba |
@@ -1024,3 +1024,131 @@ matriz, ni el CRC, ni `sim_main.cpp`. Que era justo el objetivo.
 
 Queda pendiente, de la fase 0, el único punto abierto: releer `[RM0390]`
 **rev. 9** §2.1, §10.1.1, §33.6.1 y Tabla 1, que es material de la fase 2.
+
+---
+
+## 17. Fase 2: el esqueleto, y el fallo que destapó
+
+La fase 2 pedía **un `Stm32F446` que sea el F407 menos lo que no tiene**, y un
+blinky compilado para F446RE que arranque y parpadee. Las dos cosas están, y por
+el camino apareció un fallo en el SysTick que llevaba dentro desde el principio
+y que no era del F446.
+
+**El invariante del F407 sigue intacto: `2336217899213 ps`, 2045/2045.**
+
+### 17.1 Lo que se hizo, y dónde
+
+| Pieza | Qué es |
+| :--- | :--- |
+| `SocF4` (antes `Stm32F407VG`) | el netlist pasa a llamarse por lo que es: **el die de la familia F4**. `using Stm32F407VG = SocF4;` deja valer todo lo escrito |
+| `soc/stm32f446.h` | la clase `Stm32F446`, derivada, con su `REGISTRA_MCU(STM32F446, …)` |
+| `MCU_STM32F446RE` | el descriptor: 512 KB, sin CCM, LQFP64 propio, 97 posiciones, IDCODE `0x1000 0421` |
+| `ENC_LQFP64_F446` | 50 E/S. **No es el LQFP64 del F405RG**, que saca 51: falta PB11 |
+| `CONN_STM32F446` | siete maestros. Una fila a cero: la del DMA del Ethernet |
+| `bus/conectividad.h` | la tabla sale de `ahb_matrix.h` a su propio fichero, porque es un rasgo del CHIP y lo lleva el descriptor |
+| `Periferia` + `rng` + `i2sext` | dos ausencias más, modeladas como espacio reservado |
+| `top/sc_main_f446.cpp` | **la suite del F446**, que empieza aquí y no en la fase 5 |
+| `verif/fw/blinky446/` | el firmware del hito H3, con `stm32f446xx.h` de ST |
+| `placas/nucleo_f446re.xml` | la placa: LD2 en PA5, B1 en PC13 |
+
+Tres decisiones de las que conviene dejar constancia:
+
+**El die es un superconjunto y el descriptor decide qué se alcanza.** `SocF4`
+construye el Ethernet, el RNG, la CCM y los bloques de extensión del I2S los
+lleve el chip o no —la elaboración de SystemC es estática y un módulo no se
+puede no construir—, pero **lo que no lleva no entra en ningún decodificador**.
+Su ventana es espacio reservado y tocarla es un error de bus, igual que en el
+silicio. Es el mecanismo que ya usaban el Ethernet del F405 y el bus externo del
+LQFP64; la fase 2 solo lo ha extendido.
+
+**La CCM se fue del núcleo por dato.** `is_ccm()` leía las constantes globales
+del F407; ahora el `CortexM4F` recibe el `MapaRam` y con tamaño cero no hay
+camino directo desde el D-bus. Con eso, el aviso de §4.2 —«hay que comprobar que
+el `-2` no se confunde con el `-1`»— es una comprobación de la suite del F446 y
+no una nota al pie.
+
+**El `IDCODE` es un dato del descriptor.** Era una constante escrita dentro de
+`core/debug.h`, y es lo único del subsistema de depuración que cambia entre las
+dos piezas.
+
+### 17.2 El hito H3: el blinky de la Nucleo
+
+```
+$ ./build/sim placas/nucleo_f446re.xml verif/fw/blinky446/blinky446.bin 700
+placa 'nucleo-f446re': 1 MCU(s), 2 componentes, 154 nodos, 0 avisos
+firmware de u0: verif/fw/blinky446/blinky446.bin
+simulados 700.000 ms en 0.010 s de anfitrion (18522 deltas)
+  LED LD2 en PA5: encendido  (3.17 V, 2.30 mA)
+```
+
+El firmware usa **`stm32f446xx.h` de ST sin tocar**, el `startup_stm32f446xx.s`
+oficial y el `system_stm32f4xx.c` de siempre, con `-DSTM32F446xx`. Eso es lo que
+lo convierte en una prueba y no en una demostración: quien decide dónde está
+cada registro es la cabecera del fabricante. El propio firmware calcula su
+SYSCLK con `SystemCoreClockUpdate()` y le salen los 84 MHz que el modelo tiene
+en `HCLK`; si el árbol de reloj del modelo no fuera el del F446, no coincidirían.
+
+**Por qué 84 MHz y no 180.** Llegar a 180 exige la secuencia de over-drive del
+PWR, que es la fase 3. Un `SystemClock_Config()` de CubeIDE se quedaría hoy
+esperando a `ODRDY` para siempre — y eso es exactamente el criterio de
+aceptación de esa fase.
+
+### 17.3 El fallo del SysTick, que no era del F446
+
+Al montar el blinky apareció lo siguiente: **el SysTick no interrumpía nunca a
+84 MHz**. El contador corría —`SysTick->VAL` se movía—, `CTRL` valía 7, `LOAD`
+valía 83 999, y la interrupción no llegaba jamás. El mismo firmware en el modelo
+del F407 hacía exactamente lo mismo, así que **el fallo no era del chip nuevo**.
+
+La causa: `tick_proc()` esperaba **N veces el periodo de un tick redondeado a
+picosegundos**. Un tick a 84 MHz dura 11 904,7619… ps; redondeado hacia arriba y
+multiplicado por 84 000, el contador queda **pasado** del cero. La condición de
+disparo era «¿vale el contador exactamente cero?», no se cumplía nunca, y el
+bucle volvía a esperar otra vuelta entera para pasarse otra vez.
+
+Por qué no se había visto: las frecuencias que usa la suite —168 MHz, cuyo tick
+son 5 952,38 ps, y 16 MHz, que son 62 500 exactos— redondean **hacia abajo** o
+caen justas, y por abajo el bucle converge en dos vueltas. 84 MHz es la mitad de
+168 y es lo que sale de un PLL con P = 4: no es un caso raro, es una
+configuración de manual.
+
+La corrección calcula el **instante absoluto** del cruce desde la base del
+contador, en vez de sumar periodos, y dispara cuando **han pasado** los ticks que
+faltaban en vez de exigir el cero exacto. Con ella, el invariante del F407 no se
+mueve ni un picosegundo: a 168 MHz el camino que recorre el modelo es el mismo.
+
+Es, de paso, el mejor argumento a favor del puerto: **modelar una pieza nueva
+encuentra fallos en la vieja**, y este llevaba dentro desde la fase 6.
+
+### 17.4 Por qué la suite del F446 es un ejecutable aparte
+
+El primer intento fue construir el F446 dentro del banco del F407 para hacerle
+preguntas. **Movió el invariante**: de `2336217899213` a `2336186149213 ps`. Un
+segundo chip no es inerte —sus relojes internos oscilan y su núcleo arranca—, la
+simulación se volvió trece veces más lenta, y una prueba del I2S que depende de
+lo rápido que vaya el anfitrión cambió de resultado.
+
+Dos conclusiones, y las dos valen más que la prueba que se quería hacer:
+
+* **la fase 5 del plan tenía razón**: la suite del F446 es un banco propio, y
+  empieza ya. `make test446`;
+* hay **una prueba del I2S cuyo resultado depende del reloj de pared**. No se ha
+  tocado en esta fase —el invariante manda— pero queda anotada como deuda: una
+  suite que cambia de resultado según la máquina no es una suite.
+
+### 17.5 Qué queda para la fase 3
+
+El `limitaciones()` de `Stm32F446` lo dice, y `sim` lo imprime cada vez que monta
+una placa con uno:
+
+```
+[ojo] u0: el arbol de reloj es todavia el del F407: no hay tercer PLL (PLLSAI),
+      ni divisor R, ni M/P/Q propios del PLLI2S, y RCC_DCKCFGR y RCC_DCKCFGR2 no
+      existen en el modelo [fase 3]
+[ojo] u0: los topes de 180/45/90 MHz no EXIGEN la secuencia de over-drive [fase 3]
+[ojo] u0: los seis perifericos que el F446 tiene y el F407 no [...] [fase 4]
+```
+
+Que el modelo diga en voz alta lo que aún no hace es el precio de poder
+entregarlo a medias sin mentir. La fase 3 se mide por que esas dos primeras
+líneas desaparezcan.

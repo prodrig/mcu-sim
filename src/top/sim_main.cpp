@@ -70,12 +70,13 @@
 #include <string>
 #include <vector>
 #include "../common/asan_opciones.h"
-#include "stm32f407vg.h"
+#include "soc_f4.h"
 #include "../verif/image_loader.h"
 #include "../verif/gdb_stub.h"
 #include "../parts/netlist_parts.h"
 #include "../parts/netlist_xml.h"
 #include "../soc/stm32f4_mcu.h"
+#include "../soc/stm32f446.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -137,10 +138,6 @@ struct McuMontado {
     // El chip, por la interfaz: es lo que la factoria devuelve, y lo que
     // permite que `tipo=` despache de verdad en vez de comprobarse.
     mcu_if*       mcu  = nullptr;
-    // Y el objeto concreto, para lo que la interfaz no cubre a proposito -el
-    // informe final de los LEDs-. Con dos familias, esto seria un cast que hay
-    // que comprobar; con una, es el mismo puntero visto de otra manera.
-    Stm32F407VG*  dut  = nullptr;
     GdbStub*      stub = nullptr;       // solo en modo "pines" y con puerto
 };
 
@@ -272,7 +269,11 @@ SC_MODULE(Sim) {
                       "registrado para ella.\n"
                       "Las familias que este programa sabe construir son: " +
                       familias_como_texto() + ".");
-            m.dut = &static_cast<Stm32F4Mcu*>(m.mcu)->chip();
+            // Y lo que el modelo sabe de si mismo y todavia no hace. Se dice
+            // al montar, no al final: quien lee esto tiene que saberlo ANTES
+            // de fiarse de lo que vea.
+            for (const std::string& q : m.mcu->limitaciones())
+                std::fprintf(stderr, "  [ojo] %s: %s\n", nm.c_str(), q.c_str());
             // Los nodos, con el prefijo del chip. Y además con el nombre
             // desnudo cuando solo hay uno: es lo que hace que las placas
             // escritas hasta hoy sigan valiendo sin migrarlas.
@@ -334,10 +335,8 @@ SC_MODULE(Sim) {
 
     ~Sim() {
         placa.libera();                      // las piezas, antes que los nodos
-        // El chip lo borra su ADAPTADOR, que es quien lo creo: `delete m.dut`
-        // aqui dejaria el adaptador colgando -y con el, los cuatro indices de
-        // driver-. Se borra por la interfaz, y el destructor virtual hace el
-        // resto; `m.dut` es una vista, no una propiedad.
+        // El chip lo borra su ADAPTADOR, que es quien lo creo. Se borra por la
+        // interfaz, y el destructor virtual hace el resto.
         for (McuMontado& m : mcus) { delete m.stub; delete m.mcu; }
     }
 
@@ -423,15 +422,16 @@ SC_MODULE(Sim) {
 
         for (McuMontado& m : mcus) {
             const char* quien = m.decl.id.empty() ? "" : m.decl.id.c_str();
-            ImageLoader ld(*m.dut);
+            // Todo por la interfaz: DONDE va el firmware y donde esta la SRAM
+            // lo sabe el chip, y con dos familias montadas eso ya no es un
+            // detalle -son dos mapas de memoria distintos-.
             if (!m.decl.firmware.empty()) {
-                const long n = ld.load_file(m.decl.firmware.c_str(), addr::FLASH_BASE);
-                if (n <= 0) muere("no se puede cargar " + m.decl.firmware);
-                std::printf("firmware%s%s: %ld bytes de %s\n",
-                            *quien ? " de " : "", quien, n, m.decl.firmware.c_str());
+                if (!m.mcu->carga_firmware(m.decl.firmware))
+                    muere("no se puede cargar " + m.decl.firmware);
+                std::printf("firmware%s%s: %s\n",
+                            *quien ? " de " : "", quien, m.decl.firmware.c_str());
             } else {
-                ld.write_reset_vector(addr::SRAM1_BASE + addr::SRAM1_SIZE, 0x08000100u);
-                ld.poke32(addr::FLASH_BASE + 0x100, 0xE7FDBF20u);   // wfe ; b .-2
+                m.mcu->aparca_en_wfe();
                 std::printf("sin firmware%s%s: el nucleo se aparca en wfe\n",
                             *quien ? " en " : "", quien);
             }

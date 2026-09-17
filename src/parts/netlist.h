@@ -115,6 +115,10 @@ public:
     // [doc/stm32f407vg_multi_mcu.md, §3]
     void registra_mcu(const std::string& prefijo, PinMux& pm, PowerPads& pp) {
         const std::string pre = prefijo.empty() ? std::string() : prefijo + ".";
+        // Este chip se sube a una placa. Es aqui -y no al construirlo- donde
+        // empieza a poder hacer ambiguo el nombre `PA5`, y por eso es aqui
+        // donde se cuenta. [common/nombres_nodo.h]
+        apunta_mcu_en_placa(&pm);
         char nm[8];
         for (unsigned p = 0; p < N_GPIO_PORTS; ++p)
             for (unsigned i = 0; i < N_PORT_PINS; ++i) {

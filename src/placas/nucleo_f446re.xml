@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- NUCLEO-F446RE — la placa del hito H3 de la fase 2 del plan del F446.
+
+     Es la placa con la que un alumno se encuentra de verdad si su asignatura
+     usa una Nucleo, y es deliberadamente minima: lo que lleva encima una
+     Nucleo-F446RE aparte del chip son un LED, un pulsador y el ST-LINK.
+
+         LD2   LED verde de usuario, en PA5, a masa por 510 ohmios
+         B1    pulsador azul, en PC13, a MASA, con el pull-up INTERNO del MCU
+               sujetandolo arriba (la placa no lleva resistencia ahi)
+
+     Dos cosas que no estan y conviene saber por que:
+
+       * NO hay cristal. En una Nucleo, X3 viene sin soldar de fabrica: el HSE,
+         si se usa, llega como onda cuadrada de 8 MHz desde el ST-LINK por
+         PH0 (modo bypass). El firmware de ejemplo arranca del HSI, que es lo
+         que hace el codigo que genera STM32CubeIDE si no se toca nada.
+       * NO hay LED en PD12..PD15. Los que busca la placa Discovery no existen
+         aqui: en un LQFP64 el puerto D saca UN pin, PD2. Probar
+         `--mcu STM32F446RE placas/discovery_min.xml` y ver los cuatro avisos
+         es una buena forma de comprobar que el encapsulado es de verdad.
+
+         ./build/sim placas/nucleo_f446re.xml --valida
+         ./build/sim placas/nucleo_f446re.xml verif/fw/blinky446/blinky446.bin 400
+-->
+<placa nombre="nucleo-f446re">
+  <mcu tipo="STM32F446RE" id="u0"/>
+
+  <!-- LD2: anodo al pin, catodo a masa por la resistencia de la placa. -->
+  <componente tipo="Led" id="LD2" a_vss="si" vf="2.0" r="510">
+    <pin nombre="anodo" nodo="PA5"/>
+  </componente>
+
+  <!-- B1: a masa. Suelto deja PC13 abierto, y quien lo sujeta arriba es el
+       pull-up interno que programa el firmware; sin el, el pin quedaria
+       indeterminado, que es exactamente lo que pasa en la placa real. -->
+  <componente tipo="Button" id="B1" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="PC13"/>
+  </componente>
+</placa>

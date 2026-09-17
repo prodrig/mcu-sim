@@ -271,10 +271,6 @@ SC_MODULE(PinMux), public af_sel_if {
           pad_din("pad_din",       N_GPIO_PORTS * N_PORT_PINS),
           pad_din_ok("pad_din_ok", N_GPIO_PORTS * N_PORT_PINS),
           pad_oor("pad_oor",       N_GPIO_PORTS * N_PORT_PINS) {
-        // Hay un PinMux por MCU, así que este es el sitio donde contarlos sin
-        // que nadie tenga que acordarse. Lo usa nombre_nodo() para decidir si
-        // un pad se llama `PA5` o `u0.PA5`.
-        ++n_mcus();
         char nm[16];
         for (unsigned p = 0; p < N_GPIO_PORTS; ++p)
             for (unsigned i = 0; i < N_PORT_PINS; ++i) {

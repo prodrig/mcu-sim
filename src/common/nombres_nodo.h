@@ -20,9 +20,20 @@
 //     (doc/stm32f407vg_multi_mcu.md, §3): con un MCU el nombre desnudo es
 //     suficiente y no hace falta migrar nada; con dos deja de serlo.
 //
-//   * `n_mcus()`, que es cómo se sabe cuántos hay. Lo apunta el constructor de
-//     `PinMux`, porque hay exactamente un PinMux por MCU y es el único sitio
-//     que se entera sin que nadie tenga que acordarse de avisar.
+//   * `n_mcus()`, que es cómo se sabe cuántos hay. Y aquí hay un matiz que
+//     costó un rato entender: lo que crea ambigüedad no es cuántos MCU se han
+//     CONSTRUIDO, sino cuántos están EN LA PLACA. Un chip que existe como
+//     objeto y no se ha dado de alta en ningún `NodeMap` no puede hacer
+//     ambiguo el nombre `PA5`, porque ninguna pieza se le puede soldar.
+//
+//     La distinción apareció con el F446: el banco de pruebas construye uno
+//     entero para hacerle preguntas —qué decodifica, qué IDCODE tiene— sin
+//     ponerlo en la placa, y contando construcciones eso renombraba los 154
+//     pads del F407 a `dut.PA0` y dejaba la placa del banco sin validar. Se
+//     cuenta, por tanto, en `NodeMap::registra_mcu()`, que es exactamente el
+//     momento en que un chip se sube a una placa, y por puntero, para que dar
+//     de alta el mismo chip dos veces —con prefijo y desnudo, que es lo que
+//     hace `sim` cuando solo hay uno— siga contando uno.
 //
 // Vive en `common/` y no en `parts/` porque lo necesitan los dos lados: las
 // piezas externas para nombrar sus terminales, y los pines para contarse.
@@ -32,13 +43,21 @@
 
 #include <systemc>
 #include <string>
+#include <set>
 #include "analog_net.h"
 
 namespace stm32 {
 
-// Cuántos MCUs se han construido en esta simulación. Lo incrementa el
-// constructor de PinMux; nadie más debería tocarlo.
-inline unsigned& n_mcus() { static unsigned n = 0; return n; }
+// Los MCU que están EN UNA PLACA, por puntero a su PinMux. Los apunta
+// `NodeMap::registra_mcu()`; nadie más debería tocarlo.
+inline std::set<const void*>& mcus_en_placa() {
+    static std::set<const void*> s;
+    return s;
+}
+inline void apunta_mcu_en_placa(const void* pinmux) {
+    mcus_en_placa().insert(pinmux);
+}
+inline unsigned n_mcus() { return unsigned(mcus_en_placa().size()); }
 
 // Los segmentos de un nombre jerárquico de SystemC, del último hacia atrás.
 // `k = 0` es la hoja, `k = 1` su padre, `k = 2` el abuelo. Cadena vacía si no

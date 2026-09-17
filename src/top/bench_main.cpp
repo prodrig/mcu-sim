@@ -18,7 +18,7 @@
 #include <cstdlib>
 #include <string>
 #include "../common/asan_opciones.h"
-#include "stm32f407vg.h"
+#include "soc_f4.h"
 #include "../verif/image_loader.h"
 #include "../parts/ext_parts.h"
 
@@ -29,12 +29,12 @@ static std::string g_img;
 static double      g_ms = 50.0;
 
 SC_MODULE(Bench) {
-    Stm32F407VG* dut = nullptr;
+    SocF4* dut = nullptr;
     Crystal*     xtal = nullptr;
     int d_vdd = -1, d_vdda = -1, d_nrst = -1, d_bt0 = -1, d_pb2 = -1;
 
     SC_CTOR(Bench) {
-        dut  = new Stm32F407VG("dut");
+        dut  = new SocF4("dut");
         xtal = new Crystal(dut->pinmux.analog(7, 0));       // PH0-OSC_IN
         d_vdd  = dut->pwr_pads.vdd.register_driver("tb_vdd");
         d_vdda = dut->pwr_pads.vdda.register_driver("tb_vdda");
