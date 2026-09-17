@@ -2915,3 +2915,68 @@ hace), y que la tabla de funciones alternativas es la misma para los once.
 **T128**, 38 comprobaciones. Suite **2031/2031** (+38), invariante intacto en
 **`2336217899213 ps`**, ASan+UBSan limpios. Puntos: 153 → 154, con **I-37**
 cerrado (ya hay once tipos que construir) e **I-40** abierto.
+
+---
+
+## Informe comparativo F407VG / F446RE y plan de puerto
+
+> Genera un informe detallado en la carpeta doc, llamado stm32f407vg_vs_446re.md
+> con el análisis detallado de todos los elementos (core, scs, depuración, dma,
+> memorias, buses, periféricos, reloj, etc.) comparando las similitudes y
+> diferencias entre un stm32f407vg y un stm32f446re y desarrolla un plan para
+> crear un modelo SystemC de un stm32f446re reutilizando al máximo posible el
+> código del modelo del stm32f407vg
+
+741 líneas, quince secciones. Lo he escrito contra **documentación contrastada**
+—RM0090, RM0390, PM0214, los dos datasheets, AN4658, las cabeceras CMSIS de ST y
+su base de datos de pines—, con la fuente al lado de cada afirmación y con siete
+puntos marcados explícitamente como **SIN VERIFICAR**, diciendo qué documento
+cerraría cada uno.
+
+**Las tres conclusiones:**
+
+*El F446 no es un F407 con otros números.* Comparten núcleo, mapa de buses, tabla
+de funciones alternativas y la mayoría de periféricos, pero el F446 tiene **otro
+árbol de reloj** (tres PLL, divisor R, cinco registros de selección que en el
+F407 no existen), **seis bloques nuevos** (SAI×2, SPDIF-RX, QUADSPI, FMPI2C1,
+HDMI-CEC, FMC con SDRAM) y **pierde tres** (Ethernet, RNG, CCM RAM).
+
+*Por eso no cabe en un `McuCaps`.* Y lo digo en el informe con nombre y apellidos
+porque es la tentación obvia después del refactor de la familia F405/407: un
+descriptor no puede describir cinco registros que no existen. El resultado sería
+un modelo que acepta `RCC_DCKCFGR`, no hace nada con él y no lo dice.
+
+*Pero se reutiliza el ~80 %.* De las 33.833 líneas de modelo, `core/` entero
+(5.459) vale sin tocar una línea, igual que `parts/`, `mem/` y `verif/`. Trabajo
+nuevo estimado: ~4.500 líneas, un 13 %.
+
+**Cuatro hallazgos que no esperaba y que son los que más valen del informe:**
+
+* **`0x4000_4000` es I2S3ext en el F407 y SPDIF-RX en el F446.** La única
+  dirección que cambia de dueño. Es el error más caro posible en este puerto
+  porque **no falla**: escribes en el sitio de siempre y encuentras otro chip.
+* **La tabla de AF no remezcla nada.** Comparé las dos tablas de ST par a par,
+  por máquina: 260 pares (pin, señal) comunes y **cero** diferencias de número de
+  AF. Los periféricos nuevos entran en ranuras que estaban libres en esos mismos
+  pines. Solo se vacía el AF11, el del Ethernet.
+* **Ninguna posición de vector cambia de dueño.** Las altas del F446 van todas
+  por encima de 81, donde el F407 ni llega. El `enum` se extiende, no se
+  reescribe.
+* **El LQFP64 del F446RE tiene 50 E/S y el del F405RG tiene 51**: al F446 le
+  falta PB11. No son el mismo mapa, y es justo la clase de detalle que caza la
+  comprobación `Encapsulado::coherente()` que escribimos ayer.
+
+**Y dos avisos que van en el informe por delante del plan.** El `DBGMCU_IDCODE`
+del F446 no lo he podido verificar y es **bloqueante**: ponerle el del F407
+haría que STM32CubeIDE identificara mal el chip, que es exactamente el error que
+nos costó media sesión depurar. Y el over-drive del PWR tiene una secuencia con
+dos esperas (`ODRDY`, `ODSWRDY`) que, si el modelo no acompaña, **cuelga el
+firmware en el paso 3** — el mismo fallo que I-32 con `HSERDY`, y merece el mismo
+cuidado.
+
+El plan va en seis fases con seis hitos comprobables. La fase 1 es la que
+importa: separar «familia F4» de «STM32F407» **sin añadir un solo chip**, con el
+criterio de aceptación de que la suite no se mueva ni un picosegundo. Dentro de
+ella, la pieza aburrida y decisiva es convertir las ~300 llamadas de
+`bind_gpio_pins()` en una tabla de datos: sin eso, el F446 obliga a copiarlas y
+editarlas, y dos tablas que hay que mantener a la vez acaban discrepando.
