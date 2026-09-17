@@ -13734,12 +13734,24 @@ SC_MODULE(F1Tb) {
               "PG15 aparece en el LQFP144, no antes");
         check(ENC_LQFP176.bonded(8, 11) && !ENC_LQFP176.bonded(8, 12),
               "del puerto I salen PI0..PI11 y ahi se acaba");
+        // Los seis, contrastados. El WLCSP90 fue el ultimo en caer (I-40) y el
+        // que mas justifica que esto sea una mascara y no una regla: es el
+        // unico irregular de los seis.
         check(ENC_LQFP100.verificado && ENC_LQFP64.verificado &&
-              ENC_LQFP144.verificado && ENC_LQFP176.verificado,
-              "los cuatro LQFP llevan su reparto contrastado");
-        check(!ENC_WLCSP90.verificado,
-              "y el WLCSP90 NO: el recuento cuadra, el reparto bola a bola no "
-              "se ha podido contrastar, y eso se dice en vez de disimularlo");
+              ENC_LQFP144.verificado && ENC_LQFP176.verificado &&
+              ENC_UFBGA176.verificado && ENC_WLCSP90.verificado,
+              "los seis encapsulados llevan su reparto contrastado");
+        check(!ENC_WLCSP90.bonded(2, 1) && !ENC_WLCSP90.bonded(2, 4) &&
+              !ENC_WLCSP90.bonded(2, 5) && ENC_WLCSP90.bonded(2, 0),
+              "al puerto C del WLCSP90 le faltan TRES bolas sueltas: PC1, PC4 "
+              "y PC5");
+        check(!ENC_WLCSP90.bonded(4, 0) && !ENC_WLCSP90.bonded(4, 6) &&
+              ENC_WLCSP90.bonded(4, 7) && ENC_WLCSP90.bonded(4, 15),
+              "y del puerto E sale la mitad ALTA, PE7..PE15, no la baja");
+        check(ENC_WLCSP90.bonded(8, 0) && ENC_WLCSP90.bonded(8, 1) &&
+              !ENC_LQFP144.bonded(8, 0) && !ENC_LQFP100.bonded(8, 0),
+              "PI0 y PI1 salen en el WLCSP90 de 90 bolas y NO en el LQFP144 de "
+              "144 patillas: no es que a mas patillas, mas E/S");
 
         // --- 2. Las dos geometrias de Flash ---------------------------------
         check_eq(FLASH_512K.size, 0x80000u, "la Flash de los `...E` mide 512 KB");

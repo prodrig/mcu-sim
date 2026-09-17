@@ -22,14 +22,19 @@ reutilizando el máximo posible del modelo que ya existe.
 | `[IR]` | El informe técnico interno de este proyecto |
 | **⚠ SIN VERIFICAR** | No se ha podido contrastar; se dice qué documento lo cerraría |
 
-Las revisiones de los RM consultadas **no son las últimas** (RM0390 va por la 9 y
-RM0090 por la 22; aquí se han leído la 4 y la 18). Para los datos estructurales
-que usa este documento —mapa de memoria, tabla de vectores, geometría de Flash—
-eso no debería importar, y además todos ellos están corroborados por las
-cabeceras CMSIS de ST, que son código del propio fabricante. Aun así, **conviene
-recontrastar contra la revisión vigente antes de escribir código**, y donde hay
-discrepancia entre documentos de ST se dice cuál y no se elige por nuestra
-cuenta.
+Las revisiones de los RM consultadas **no son las últimas** (RM0390 va por la 9,
+de febrero de 2026, y aquí se ha leído la 4; RM0090 va por la 22 y se ha leído
+la 18). Para los datos estructurales que usa este documento —mapa de memoria,
+tabla de vectores, geometría de Flash— eso no debería importar, y además todos
+ellos están corroborados por las cabeceras CMSIS de ST, que son código del
+propio fabricante. Donde hay discrepancia entre documentos de ST se dice cuál y
+no se elige por nuestra cuenta.
+
+> **ESTADO: la fase 0 del plan está EJECUTADA.** Los siete puntos que este
+> documento dejaba sin verificar se han cerrado leyendo los PDF completos —no
+> resúmenes— y los resultados están en la **§15**, al final. Seis se confirmaron,
+> **uno resultó estar mal** y cambió el código. Las secciones de más arriba ya
+> llevan incorporado lo verificado.
 
 ---
 
@@ -116,10 +121,11 @@ refactor anterior, y el NVIC dimensiona sus vectores con él. **Los huecos
 reservados no necesitan nada especial**: una línea que nadie gobierna nunca se
 pone pendiente, que es exactamente lo que hace una posición reservada.
 
-> ⚠ **SIN VERIFICAR**: el etiquetado literal «Reserved» de esas once posiciones
-> en `[RM0390]` Tabla 38 se ha inferido de su ausencia en el `IRQn_Type` de ST
-> más la lista de bajas de `[AN4658]`, no leyendo la tabla. Lo cerraría abrir
-> `[RM0390]` §10.1.3 directamente.
+> ✅ **VERIFICADO (fase 0).** La tabla de `[RM0390]` §10.1.3 se ha leído entera,
+> fila a fila: posiciones **0 a 96**, con las once reservadas **exactamente en
+> 61, 62, 79, 80, 82, 83, 85, 86, 88, 89 y 90**, cada una con su fila «-  -
+> Reserved» y su dirección de vector. **86 implementadas.** Coincide al cien por
+> cien con el `IRQn_Type` de ST. Detalle en §15.3.
 
 ---
 
@@ -216,11 +222,14 @@ subsecciones del RM lo corroboran desde el otro lado —`[RM0090]` §2.1 tiene u
 subsección «Ethernet DMA bus» que `[RM0390]` §2.1 no tiene—, y la numeración
 salta en consecuencia.
 
-> ⚠ **SIN VERIFICAR**: el «Seven masters» viene de una reproducción secundaria
-> de `[RM0390]` §2.1, no de st.com directamente, y **el número de esclavos del
-> F446 no se ha podido leer para ninguna de las dos piezas**. Lo cerraría abrir
-> `[RM0090]` Figura 1 y `[RM0390]` Figura 1. La coincidencia 8−1=7 es una
-> corroboración fuerte, pero es aritmética, no una lectura.
+> ✅ **VERIFICADO (fase 0), y con un hallazgo.** `[RM0090]` §2.1 dice
+> literalmente «Eight masters» y «Seven slaves» para el F405xx/07xx, y la lista
+> coincide uno a uno con el `enum BusMaster` del modelo. `[RM0390]` §2.1 dice
+> «Seven masters» y «Seven slaves» para el F446. Pero el séptimo esclavo **no es
+> el mismo**: en el F407 es `FSMC`, y en el F446 es **«FMC / QUADSPI»** — los dos
+> comparten un único puerto de esclavo de la matriz. Eso no estaba en este
+> documento y cambia el plan: el QUADSPI **no añade un octavo esclavo**. Detalle
+> en §15.1.
 
 **Trabajo previsto: quitar un maestro de un `enum` y una fila de la máscara de
 conectividad.** La máscara ya es un dato (`build_connectivity()`), así que lo
@@ -433,8 +442,19 @@ iban siempre juntos.
 | **I2S1** | *(sobre SPI1)* | — | pequeño, sobre el modelo que ya hay |
 | **FMC con SDRAM** | `0xA000_0000` | 48 | ~600 líneas sobre las 825 del FSMC |
 
-Direcciones de `[CMSIS]` `stm32f446xx.h`, corroboradas por el SVD de ST y, para
-cuatro de ellas, por `[AN4658]`.
+Direcciones verificadas en la fase 0 contra **`[RM0390]` Tabla 1 «register
+boundary addresses»**, leída directamente: SAI1 `0x4001_5800`, SAI2
+`0x4001_5C00`, SPI4 `0x4001_3400`, HDMI-CEC `0x4000_6C00`, SPDIF-RX
+`0x4000_4000`, FMC `0xA000_0000`, QUADSPI `0xA000_1000`.
+
+**Con una laguna, y conviene saberla:** la Tabla 1 de la revisión 4 **no lista
+el FMPI2C1**. Deja sin nombrar el rango `0x4000_6000`–`0x4000_63FF`, entre el
+I2C3 y el CAN1, que es exactamente donde `[CMSIS]` `stm32f446xx.h` pone
+`FMPI2C1_BASE`. El capítulo 23 del mismo RM describe el periférico entero con
+sus registros por desplazamiento, así que el bloque existe: lo que falta es su
+fila en la tabla de fronteras. La dirección se toma de la cabecera de ST —que es
+código del fabricante— y encaja en el único hueco disponible; **la revisión 9
+debería confirmarla**.
 
 **El FMPI2C merece un párrafo.** No es «el I2C con una velocidad más»: es el IP
 nuevo de ST, el mismo que llevan las familias F0/F3/L4, con otro juego de
@@ -450,14 +470,27 @@ el F407 tiene `Bank2_3` en `+0x60` y `Bank4` en `+0xA0`; el F446 tiene `Bank3`
 reutilice el decodificador del FSMC tal cual **respondería en las direcciones
 equivocadas**.
 
-> **Nota de alcance sobre el F446RE en concreto:** en LQFP64, `[DS10693]` Tabla 2
-> dice que el **FMC no está disponible** y que **SAI2 no sale**; `[PINDATA]`
-> confirma que el XML del F446R no tiene ni pines de FMC ni de SAI2 ni de SPI4.
-> Es decir: en la pieza que se pide modelar, tres de las altas de arriba
-> **existen en el die pero no tienen pines**. Con la máquina de encapsulados que
-> el modelo ya tiene, eso se describe solo — y es un buen argumento para modelar
-> **el die del F446 y el encapsulado por separado**, como se hizo con la familia
-> F405/407.
+> **Nota de alcance sobre el F446RE en concreto** *(corregida en la fase 0 —
+> la versión anterior de este párrafo atribuía al datasheet algo que no dice)*:
+>
+> * el **FMC sí está en la tabla**: `[DS10693]` Tabla 2, fila «FMC memory
+>   controller», pone **`No`** en las columnas MC/ME/RC/**RE** y `Yes` en las de
+>   LQFP100 y LQFP144. En un F446RE **no hay bus externo**, y es el datasheet
+>   quien lo dice;
+> * el **SAI no**: esa misma tabla pone **`2`** en la fila del SAI para **todas**
+>   las columnas, sin nota al pie que distinga el LQFP64. Las cuatro notas de la
+>   tabla son otras (FMC en LQFP100, SPI/I2S exclusivos, QuadSPI limitado en
+>   LQFP64, y el mínimo de VDD). Lo que ocurre con SAI2 y SPI4 es que **el die
+>   los tiene y el LQFP64 no les saca pines**, cosa que dice `[PINDATA]`, no el
+>   datasheet;
+> * el **QUADSPI sí está**, con nota 3 literal: *«For the LQFP64 package the
+>   Quad SPI is available with limited features»*.
+>
+> La distinción importa para el modelo: **FMC ausente** es un bloque que no está
+> y cuya ventana es espacio reservado; **SAI2 y SPI4 sin pines** son bloques que
+> sí están y a los que el firmware puede escribir. Son dos cosas distintas y el
+> modelo las trata distinto — y es un buen argumento para modelar **el die del
+> F446 y el encapsulado por separado**, como se hizo con la familia F405/407.
 
 ### 8.4 La tabla de vectores: dónde divergen
 
@@ -565,11 +598,11 @@ Lo único que cambia de verdad es el **DBGMCU_IDCODE**, que lleva el identificad
 del dispositivo y que un depurador lee para saber con qué está hablando — y que
 es justamente lo que hizo fallar la conexión con STM32CubeIDE en su momento.
 
-> ⚠ **SIN VERIFICAR**: el valor del `DEV_ID` del F446. El del F407 está en el
-> modelo; el del F446 lo daría `[RM0390]` §33.6.1 (registro `DBGMCU_IDCODE`).
-> **Hay que leerlo antes de escribir la línea**, porque poner el del F407
-> significaría que STM32CubeIDE identifique mal el chip — el error exacto que
-> costó media sesión depurar.
+> ✅ **VERIFICADO (fase 0). Era el punto bloqueante y ya está cerrado.**
+> `[RM0390]` §33.6.1: `DBGMCU_IDCODE` en `0xE004 2000`, **`DEV_ID = 0x421`** y
+> `REV_ID = 0x1000` (revisión A) → el registro entero vale **`0x1000 0421`**.
+> El F407 es `0x413` (`[RM0090]` §32.6.1) y el modelo devuelve `0x1001 6413`.
+> El JTAG ID del boundary-scan del F446 es `0x0641 3041`. Detalle en §15.4.
 
 `core/debug.h` (1.117 líneas), `core/gdb_stub_dap.h`, `common/gdb_rsp.h`,
 `verif/gdb_stub.h` y `verif/swd_port.h` **se reutilizan enteros**: ~3.000 líneas
@@ -715,27 +748,189 @@ toda su vida quitando.
 
 ---
 
-## 14. Lo que este documento NO ha podido verificar
+## 14. Lo que quedó sin verificar, y qué pasó con ello
 
-Recogido en un sitio para que no se pierda entre las secciones:
+La primera versión de este documento dejaba siete puntos abiertos. **La fase 0
+del plan era cerrarlos antes de escribir una línea de código**, y ya está hecha.
+Esta sección los enumera; la siguiente cuenta cómo se cerró cada uno.
 
-1. **Esclavos de la matriz AHB**, en ninguna de las dos piezas. → `[RM0090]`
-   Figura 1 y `[RM0390]` Figura 1.
-2. **Los 8 maestros del F407** están en el modelo `[IR, §6.1.2]`, pero no se ha
-   podido contrastar contra `[RM0090]` en esta pasada; y **los 7 del F446**
-   vienen de una reproducción secundaria.
-3. **El etiquetado «Reserved» de las once posiciones** de vector del F446, que se
-   ha inferido de la cabecera de ST. → `[RM0390]` §10.1.3.
-4. **`DBGMCU_IDCODE` del F446.** → `[RM0390]` §33.6.1. **Es bloqueante para la
-   depuración desde STM32CubeIDE.**
-5. **La discrepancia 96 / 91** líneas de IRQ entre `[RM0390]` §10.1.1 y
-   `[DS10693]` §3.11, que son los dos de ST.
-6. **`[RM0390]` Tabla 1** (fronteras de registros) no se ha leído: todas las
-   direcciones del F446 de este documento vienen de la cabecera CMSIS de ST y del
-   SVD, que coinciden entre sí y con `[AN4658]` en lo que este último lista.
-7. Las revisiones leídas **no son las vigentes** (RM0390 rev. 4 frente a la 9;
-   RM0090 rev. 18 frente a la 22).
+| # | Punto | Estado |
+| ---: | :--- | :--- |
+| 1 | Esclavos de la matriz AHB, en las dos piezas | ✅ cerrado, **con hallazgo** |
+| 2 | Los 8 maestros del F407 y los 7 del F446 | ✅ cerrado |
+| 3 | Etiquetado «Reserved» de las once posiciones de vector | ✅ cerrado |
+| 4 | `DBGMCU_IDCODE` del F446 *(bloqueante)* | ✅ cerrado: `0x421` |
+| 5 | Discrepancia 96 / 91 líneas de IRQ | ✅ resuelto, **y es peor de lo que parecía** |
+| 6 | `[RM0390]` Tabla 1, fronteras de registros | ✅ cerrado, **con una laguna** |
+| 7 | Las revisiones leídas no son las vigentes | ⚠️ **sigue abierto** |
 
-Ninguno de los siete invalida el plan. Los puntos 3, 4 y 5 hay que cerrarlos
-**antes** de escribir el código correspondiente; el resto afecta a comentarios y
-a comprobaciones, no a la arquitectura.
+Y el cuarto punto del propio plan —contar los pines del LQFP64 del F446RE— **se
+cerró y de paso destapó un error en otro sitio**.
+
+---
+
+## 15. Fase 0: cómo se cerró cada punto
+
+**Método.** Se descargaron los PDF completos —RM0090 (1749 páginas), RM0390
+(1328), DS8626, DS10693— y se extrajeron con `pdftotext -layout`, que preserva
+las columnas de las tablas. Nada de resúmenes: las tablas se leyeron fila a
+fila. Para los pines se usó además `STM32_open_pin_data`, la base de datos de
+ST que alimenta CubeMX.
+
+### 15.1 La matriz de buses, y el hallazgo que cambia el plan
+
+`[RM0090]` §2.1, literal:
+
+> «•  Eight masters: Cortex-M4 with FPU core I-bus, D-bus and S-bus / DMA1
+> memory bus / DMA2 memory bus / DMA2 peripheral bus / **Ethernet DMA bus** /
+> USB OTG HS DMA bus
+> •  Seven slaves: Internal Flash memory ICode bus / Internal Flash memory
+> DCode bus / Main internal SRAM1 (112 KB) / Auxiliary internal SRAM2 (16 KB) /
+> AHB1 peripherals including AHB to APB bridges and APB peripherals / AHB2
+> peripherals / **FSMC**»
+
+**8 × 7 confirmado**, y la lista coincide uno a uno con el `enum BusMaster` del
+modelo. El mismo párrafo cierra además otra cosa de rebote: *«The 64-Kbyte CCM
+data RAM is not part of the bus matrix and can be accessed only through the
+CPU»* — que es exactamente lo que el modelo hace con su código de retorno `-2`.
+
+`[RM0390]` §2.1, literal:
+
+> «•  Seven masters: […] (los mismos, **sin** el del Ethernet)
+> •  Seven slaves: […] AHB2 peripherals / **FMC / QUADSPI**»
+
+**7 × 7.** La resta 8 − 1 = 7 que este documento daba por buena era correcta en
+los maestros. **Pero el séptimo esclavo no es el mismo**, y eso no estaba:
+
+> **EL QUADSPI NO AÑADE UN ESCLAVO. Comparte el puerto del FMC.**
+
+Consecuencia directa sobre el plan: en la fase 1 hay que dejar que el séptimo
+esclavo sea **un puerto con dos destinos detrás** —decodificados por dirección,
+`0xA000_0000` y `0xA000_1000`— y no pensar en un `BusSlaveId::QUADSPI`. Si se
+hubiera descubierto al escribir el código, habría costado rehacer el `enum` y
+la máscara de conectividad.
+
+### 15.2 Los maestros
+
+Cerrado arriba. Nada que añadir salvo que el modelo ya era correcto.
+
+### 15.3 La tabla de vectores del F446
+
+`[RM0390]` §10.1.3, leída fila a fila. **97 posiciones (0–96)**, once de ellas
+con la fila `-  -  Reserved` y su dirección de vector:
+
+| | |
+| :--- | :--- |
+| Reservadas | 61, 62, 79, 80, 82, 83, 85, 86, 88, 89, 90 |
+| Implementadas | **86** |
+| Renombrada | posición **48: `FMC`** (era `FSMC`) |
+| Altas | 84 `SPI4`, 87 `SAI1`, 91 `SAI2`, 92 `QuadSPI`, 93 `HDMI-CEC`, 94 `SPDIF-Rx`, 95 `FMPI2C1`, 96 `FMPI2C1 error` |
+
+Coincide **al cien por cien** con lo que este documento había inferido del
+`IRQn_Type` de ST. La inferencia era buena; ahora además está leída.
+
+Y el contraste del F407, `[RM0090]`: posiciones **0–81 sin ningún hueco**, con
+la **79 = `CRYP`** y la **80 = `HASH_RNG`**. Ojo al matiz: esa tabla cubre
+F405/407/**415/417** a la vez, y el CRYP es de los `415/417`. En un F407VG la
+posición 79 existe en la tabla y **no tiene dueño**, que es por lo que la
+cabecera de ST tiene 81 entradas y no 82.
+
+### 15.4 El `DBGMCU_IDCODE` del F446 — el punto bloqueante
+
+`[RM0390]` §33.6.1, literal: *«The device ID is 0x421»*, con
+`REV_ID = 0x1000 = Revision A`.
+
+| | Registro completo | `DEV_ID` |
+| :--- | :--- | :--- |
+| F407 | `0x1001 6413` *(lo que devuelve el modelo hoy)* | `0x413` `[RM0090]` §32.6.1 |
+| **F446** | **`0x1000 0421`** | **`0x421`** |
+
+El JTAG ID del boundary-scan del F446 es `0x0641 3041`, y el del SW-DP del
+Cortex-M4 no cambia (`0x2BA0 1477`, el de Arm).
+
+Con esto, el hito **H5** del plan —depurar el F446 desde STM32CubeIDE— deja de
+tener un agujero. Era el punto que más podía costar, porque un `IDCODE`
+equivocado no da un error claro: da un «Could not verify ST device», que es
+exactamente el mensaje que costó media sesión diagnosticar en su día.
+
+### 15.5 La discrepancia 96 / 91, que es peor de lo que parecía
+
+Los tres números, los tres leídos directamente:
+
+| Fuente | Dice |
+| :--- | ---: |
+| `[RM0390]` §10.1.1 | «96 maskable interrupt channels» |
+| `[DS10693]` §3.11 | «up to 91 maskable interrupt channels» |
+| `[RM0390]` §10.1.3, contando la tabla | **86** implementadas en **97** ranuras |
+
+**Ninguno de los dos números de portada coincide con la tabla, ni entre sí.** El
+96 parece ser el número de la última posición y no un recuento; el 91 no se
+corresponde con nada que se pueda derivar de la tabla.
+
+Decisión, y queda escrita: **el modelo dimensiona por la tabla.** 97 posiciones,
+que es lo que mide el vector de entradas del NVIC. El recuento de implementadas
+no le hace falta a nadie: una línea que nadie gobierna no se pone pendiente
+jamás, que es precisamente lo que hace una posición reservada.
+
+### 15.6 Las fronteras de registros
+
+Cerrado en §8.3, con la laguna del FMPI2C1 documentada allí.
+
+### 15.7 Las revisiones — lo único que sigue abierto
+
+`[RM0390]` vigente es la **Rev 9, de febrero de 2026**; lo leído aquí es la
+Rev 4. No se ha podido leer la 9 más allá del índice: st.com devuelve 403 al
+cliente HTTP de este entorno, y el lector de páginas trunca un PDF de 1328
+páginas mucho antes del capítulo 33.
+
+Lo que sostiene el trabajo mientras tanto: **todo lo verificado coincide con la
+cabecera CMSIS actual de ST** (`stm32f446xx.h`), que es código del fabricante y
+está al día. Un dato estructural que hubiera cambiado entre la rev. 4 y la 9
+—una dirección base, un número de vector— tendría que aparecer también ahí, y no
+aparece.
+
+Queda como tarea de bajo riesgo: **releer en la rev. 9 los §2.1, §10.1.1,
+§33.6.1 y la Tabla 1**, sobre todo esta última, que es donde hay una laguna
+conocida.
+
+### 15.8 Los pines del LQFP64, y el error que destaparon
+
+`[DS10693]` Tabla 2 da **50 GPIOs** para el LQFP64, y `[PINDATA]`
+`STM32F446R(C-E)Tx.xml` declara `<IONb>50</IONb>` con este reparto: PA0–PA15,
+PB **sin PB11**, PC0–PC15, **solo PD2**, PH0/PH1. Confirmado.
+
+Y al comprobar con la misma herramienta el LQFP64 del F405RG —`<IONb>51</IONb>`,
+con el puerto B completo— quedó confirmado lo que este documento decía: **no son
+el mismo LQFP64**, y la diferencia es PB11.
+
+**Lo que no estaba previsto:** teniendo el DS8626 abierto, se aprovechó para
+cerrar **I-40**, el mapa del WLCSP90 que el modelo llevaba marcado como no
+verificado. El resultado fue que **la reconstrucción que había era falsa**:
+
+| | Lo que el modelo suponía | Lo que dice ST |
+| :--- | :--- | :--- |
+| PA, PB | completos | completos ✓ |
+| PC | completo | **faltan PC1, PC4 y PC5** |
+| PD | completo | **faltan PD3 y PD13** |
+| PE | PE0–PE5 | **PE7–PE15**, la mitad contraria |
+| PH | PH0/PH1 | PH0/PH1 ✓ |
+| PI | *(no se contemplaba)* | **PI0 y PI1** |
+| **Total** | 72 | **72** |
+
+**El recuento cuadraba por casualidad y la identidad estaba mal en casi todo.**
+Verificado por dos fuentes de ST que coinciden puerto a puerto —la figura 17 del
+DS8626, el diagrama de bolas, y la base de pines de CubeMX—: 16/16/13/14/9/2/2.
+
+El detalle que más sorprende: **PI0 y PI1 salen en un encapsulado de 90 bolas y
+no salen en el LQFP144 de 144 patillas**. No es que a más patillas, más E/S.
+
+Corregido en `pins/encapsulado.h`, ya marcado como verificado, y con tres
+comprobaciones nuevas en T128. El efecto se ve enseguida:
+
+```
+$ ./build/sim placas/discovery_min.xml --mcu STM32F405OE --valida
+  [decl] LD3.anodo: el pad PD13 no sale al encapsulado WLCSP90
+```
+
+La placa Discovery **no cabe en un WLCSP90**, porque le falta el pin del LED
+naranja. Con el mapa anterior eso habría pasado en silencio.

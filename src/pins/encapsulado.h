@@ -94,27 +94,44 @@ inline constexpr Encapsulado ENC_LQFP64 {
 };
 
 // ---------------------------------------------------------------------------
-// WLCSP90 — 72 GPIO [DS8626, tabla 2]
+// WLCSP90 — 72 GPIO [DS8626, tabla 2 y FIGURA 17 «STM32F40xxx WLCSP90 ballout»]
 //
-// ⚠ EL RECUENTO ESTÁ VERIFICADO; EL REPARTO NO. La tabla 2 del datasheet dice
-// 72 GPIO y esta máscara tiene 72 bits, pero la tabla 7 —la que dice bola a
-// bola cuál es cuál— no se ha podido consultar al escribir esto. El reparto de
-// aquí es la reconstrucción razonable (A, B, C y D completos, PE0-PE5 y los dos
-// del oscilador), y puede no ser el de ST.
+// EL ÚNICO QUE NO ES REGULAR, y por eso es el que más justifica que esto sea
+// una máscara y no una regla. Los otros cinco encapsulados se describen con
+// «estos puertos enteros más el oscilador»; este no:
 //
-// Se marca `verificado = false` a propósito, y `sim` avisa al montar una placa
-// con este encapsulado. Un mapa que parece exacto y no lo es sería peor que
-// este aviso: el alumno conectaría a una bola que no existe y el modelo se lo
-// aceptaría sin decir nada. Para cerrarlo hace falta la tabla 7 del DS8626.
+//   * al puerto C le faltan TRES bolas sueltas —PC1, PC4 y PC5—, que son
+//     precisamente ADC123_IN11, ADC12_IN14 y ADC12_IN15;
+//   * al D le faltan PD3 y PD13;
+//   * del E solo sale LA MITAD ALTA, PE7..PE15, y no la baja;
+//   * y aparecen PI0 y PI1, que no salen ni en el LQFP100 ni en el LQFP144 y
+//     aquí sí: en un encapsulado de 90 bolas con 72 E/S, ST sacó dos pines del
+//     puerto I que en un LQFP de 144 patillas no están.
+//
+// Ese último detalle es el que hacía falta ver. La reconstrucción que había
+// aquí antes —A, B, C y D completos más PE0..PE5— **daba 72 y era falsa en
+// casi todo**: ni C ni D están completos, el rango de E es el contrario, y PI
+// no se contemplaba. El recuento cuadraba por casualidad, que es exactamente
+// la razón por la que se marcó como no verificada en vez de darla por buena.
+//
+// VERIFICADO POR DOS FUENTES DE ST QUE COINCIDEN BOLA A BOLA:
+//   * DS8626 figura 17, el diagrama de bolas del encapsulado;
+//   * STM32_open_pin_data de ST (la base de CubeMX), `STM32F405O(E-G)Yx.xml`,
+//     que declara `<IONb>72</IONb>`.
+// Los recuentos por puerto de las dos —16/16/13/14/9/2/2— son idénticos.
+// [doc/stm32f407vg_todo_rev1.md, I-40]
 // ---------------------------------------------------------------------------
 inline constexpr Encapsulado ENC_WLCSP90 {
     "WLCSP90", 90, 72,
-    { TODOS, TODOS, TODOS, TODOS,   // A, B, C, D completos        64
-      hasta(6),                     // E: PE0..PE5                  6
+    { TODOS,                        // A: PA0..PA15                 16
+      TODOS,                        // B: PB0..PB15                 16
+      0xFFCDu,                      // C: sin PC1, PC4 ni PC5       13
+      0xDFF7u,                      // D: sin PD3 ni PD13           14
+      0xFF80u,                      // E: PE7..PE15, la mitad alta   9
       NINGUNO, NINGUNO,             // F, G: nada
-      hasta(2),                     // H: PH0/PH1                   2
-      NINGUNO },
-    false                           // <- el reparto NO esta contrastado
+      hasta(2),                     // H: PH0/PH1                    2
+      hasta(2) },                   // I: PI0/PI1, solo en este      2
+    true
 };
 
 // ---------------------------------------------------------------------------

@@ -275,28 +275,42 @@ restricción es que no salen todas las líneas de dirección y datos, y eso ya l
 dice el encapsulado. Un booleano más sería describir dos veces lo mismo y
 arriesgarse a que las dos descripciones no coincidan.
 
-### 9.4 ⚠ Lo que no está contrastado: el WLCSP90
+### 9.4 El WLCSP90: el único irregular *(cerrado — antes estaba sin contrastar)*
 
-De los seis encapsulados, **cinco llevan su reparto verificado y uno no**.
+De los seis encapsulados, **los seis llevan ya su reparto verificado**. El
+WLCSP90 fue el último, y el que más justifica que esto sea una máscara por pin y
+no una regla: los otros cinco se describen con «estos puertos enteros más el
+oscilador», y este no.
 
-El recuento del WLCSP90 —72 E/S— sale de la tabla 2 del DS8626 y está
-comprobado. El **reparto bola a bola** viene de la tabla 7 del mismo datasheet,
-que no se ha podido consultar al escribir esto; lo que hay en el modelo es la
-reconstrucción razonable (A, B, C y D completos, `PE0`–`PE5` y los dos del
-oscilador) y **puede no ser la de ST**.
+| Puerto | Bolas | Detalle |
+| :--- | ---: | :--- |
+| PA, PB | 16 + 16 | completos |
+| PC | 13 | **faltan PC1, PC4 y PC5** — ADC123_IN11, ADC12_IN14 y ADC12_IN15 |
+| PD | 14 | **faltan PD3 y PD13** |
+| PE | 9 | **solo PE7–PE15**, la mitad alta |
+| PH | 2 | PH0, PH1 |
+| PI | 2 | **PI0 y PI1**, que no salen ni en el LQFP100 ni en el LQFP144 |
 
-Está marcado `verificado = false` en el descriptor, y `sim` lo dice en voz alta
-al montar una placa con un `F405OG` o un `F405OE`:
+Verificado por dos fuentes de ST que coinciden puerto a puerto: la **figura 17
+del DS8626** (el diagrama de bolas) y **`STM32_open_pin_data`**, la base que
+alimenta CubeMX, que declara `<IONb>72</IONb>`.
+
+**Lo que había antes era falso, y conviene contarlo.** La reconstrucción
+provisional decía «A, B, C y D completos más PE0–PE5», que **suma 72 y no es el
+reparto de ST en casi nada**: ni C ni D están completos, el rango de E es el
+contrario y PI no se contemplaba. El recuento cuadraba **por casualidad**, y esa
+es justo la razón por la que `Encapsulado::coherente()` no basta por sí sola y
+por la que el campo `verificado` tenía que existir: con el mapa falso, `sim`
+aceptaba sin decir nada un componente soldado a PC4, donde no hay bola.
+
+El efecto de tenerlo bien se ve en una línea:
 
 ```
-  [aviso] STM32F405OE: el reparto de pads del WLCSP90 es una reconstruccion a
-  partir del recuento del datasheet (72 E/S) y NO esta contrastado bola a bola
+$ ./build/sim placas/discovery_min.xml --mcu STM32F405OE --valida
+  [decl] LD3.anodo: el pad PD13 no sale al encapsulado WLCSP90
 ```
 
-Es deliberado que moleste. Un mapa que parece exacto y no lo es sería peor: el
-alumno conectaría a una bola que no existe y el modelo se lo aceptaría sin
-decir nada — exactamente el tipo de mentira que I-32 e I-33 vinieron a quitar de
-aquí. Para cerrarlo hace falta la tabla 7 del DS8626; queda como **I-40**.
+La Discovery **no cabe en un WLCSP90**: le falta el pin del LED naranja.
 
 ### 9.5 Lo que sigue sin distinguirse entre miembros
 

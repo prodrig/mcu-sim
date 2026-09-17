@@ -2980,3 +2980,89 @@ criterio de aceptación de que la suite no se mueva ni un picosegundo. Dentro de
 ella, la pieza aburrida y decisiva es convertir las ~300 llamadas de
 `bind_gpio_pins()` en una tabla de datos: sin eso, el F446 obliga a copiarlas y
 editarlas, y dos tablas que hay que mantener a la vez acaban discrepando.
+
+---
+
+## Fase 0 del plan del F446: los siete puntos, cerrados
+
+> Ejecuta la fase 0 del plan
+
+Hecha. La fase 0 era **cerrar lo que estaba sin verificar antes de escribir una
+línea de código**, y no es burocracia: cada uno de esos puntos, mal, produce un
+modelo que funciona y miente.
+
+**Método.** Descargar los PDF enteros —RM0090 son 1749 páginas, RM0390 son 1328—
+y extraerlos con `pdftotext -layout`, que preserva las columnas de las tablas.
+Nada de resúmenes: las tablas leídas fila a fila. Para los pines, además,
+`STM32_open_pin_data`, la base de ST que alimenta CubeMX.
+
+**Seis de siete confirmados, y dos sorpresas.**
+
+*La sorpresa buena* — `[RM0390]` §2.1 dice «Seven masters» **y «Seven slaves»**,
+pero el séptimo esclavo del F446 **no es el mismo** que el del F407: allí es
+`FSMC` y aquí es **`FMC / QUADSPI`**. Los dos comparten un único puerto de la
+matriz. Es decir: **el QUADSPI no añade un octavo esclavo**. Eso no estaba en el
+informe y cambia el plan — si se descubre al escribir el código, cuesta rehacer
+el `enum` y la máscara de conectividad.
+
+*El punto bloqueante* — `[RM0390]` §33.6.1, literal: «The device ID is 0x421».
+Con `REV_ID = 0x1000`, el registro entero es **`0x1000 0421`**; el F407 es
+`0x1001 6413`. Ya no hay agujero en el hito H5, que era el que más podía doler:
+un `IDCODE` equivocado no da un error claro, da un «Could not verify ST device»
+— el mensaje que nos costó media sesión diagnosticar.
+
+*La discrepancia 96/91 es peor de lo que parecía.* Los tres números, leídos: el
+RM dice 96, el datasheet dice 91, y contando la tabla salen **86 implementadas
+en 97 ranuras**. **Ninguno de los dos números de portada coincide con la tabla
+ni entre sí.** Decisión escrita: el modelo dimensiona por la tabla, y el recuento
+de implementadas no le hace falta a nadie.
+
+*Una laguna documental* — la Tabla 1 del RM0390 rev. 4 **no lista el FMPI2C1**.
+Deja sin nombrar `0x4000_6000`–`0x4000_63FF`, que es donde lo pone la cabecera
+de ST, y el capítulo 23 describe el periférico entero. Falta su fila, no el
+bloque.
+
+*Lo único que sigue abierto*: la revisión vigente del RM0390 es la **9, de
+febrero de 2026**, y lo leído es la 4. st.com da 403 al cliente HTTP de aquí y
+el lector de páginas trunca un PDF de 1328 páginas mucho antes del capítulo 33.
+Lo que lo sostiene mientras tanto es que **todo lo verificado coincide con la
+cabecera CMSIS actual de ST**.
+
+**Y la sorpresa que cambió código: I-40.**
+
+Teniendo el DS8626 abierto aproveché para cerrar el punto que dejé pendiente el
+otro día, el ball-map del WLCSP90 que iba marcado como no contrastado. **Mi
+reconstrucción era falsa en casi todo**:
+
+| | Lo que suponía | Lo que dice ST |
+| :--- | :--- | :--- |
+| PC | completo | **faltan PC1, PC4, PC5** |
+| PD | completo | **faltan PD3, PD13** |
+| PE | PE0–PE5 | **PE7–PE15**, la mitad contraria |
+| PI | no existía | **PI0 y PI1** |
+| Total | 72 | 72 |
+
+**El recuento cuadraba por casualidad.** Setenta y dos bits mal repartidos siguen
+siendo setenta y dos, y eso es exactamente por lo que `coherente()` no basta sola
+y por lo que el campo `verificado` tenía que existir: con el mapa falso, `sim`
+aceptaba en silencio un LED soldado a PC4, donde no hay bola.
+
+Verificado ahora por dos fuentes de ST que coinciden puerto a puerto —la figura
+17 del DS8626, el diagrama de bolas, y la base de pines de CubeMX—:
+16/16/13/14/9/2/2. Y el detalle que más me sorprendió: **PI0 y PI1 salen en un
+encapsulado de 90 bolas y no salen en el LQFP144 de 144 patillas.** No es que a
+más patillas, más E/S.
+
+Se ve en una línea:
+
+```
+$ ./build/sim placas/discovery_min.xml --mcu STM32F405OE --valida
+  [decl] LD3.anodo: el pad PD13 no sale al encapsulado WLCSP90
+```
+
+La Discovery **no cabe en un WLCSP90**: le falta el pin del LED naranja.
+
+Suite **2033/2033** (+2), invariante intacto en **`2336217899213 ps`**, ASan+UBSan
+limpios. **I-40 cerrado** (veintiuna de cuarenta), el informe crece a 936 líneas
+con una §15 nueva que cuenta cómo se cerró cada punto, y el plan queda listo para
+la fase 1.
