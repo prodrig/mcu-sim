@@ -636,7 +636,7 @@ que no existen y ~700 el RCC. Frente a las 33.800 del modelo actual, es
 
 ## 12. El plan
 
-### Fase 0 — Cerrar lo que está sin verificar *(antes de escribir código)*
+### Fase 0 — Cerrar lo que está sin verificar *(antes de escribir código)* — **HECHA, §15**
 
 No es burocracia: cada uno de estos puntos, mal, produce un modelo que **funciona
 y miente**, que es el fallo que este proyecto más ha perseguido.
@@ -651,7 +651,7 @@ y miente**, que es el fallo que este proyecto más ha perseguido.
    la tabla por posición y por qué.
 4. Copiar la tabla de pines del LQFP64 del F446RE y comprobar que da 50.
 
-### Fase 1 — Separar «familia F4» de «STM32F407» *(sin añadir un solo chip)*
+### Fase 1 — Separar «familia F4» de «STM32F407» *(sin añadir un solo chip)* — **HECHA, §16**
 
 El movimiento clave, y el que ya tiene precedente: es lo que se le hizo al
 encapsulado.
@@ -934,3 +934,93 @@ $ ./build/sim placas/discovery_min.xml --mcu STM32F405OE --valida
 
 La placa Discovery **no cabe en un WLCSP90**, porque le falta el pin del LED
 naranja. Con el mapa anterior eso habría pasado en silencio.
+
+---
+
+## 16. Fase 1: qué se movió, y qué se aprendió moviéndolo
+
+La fase 1 no añade un chip. Su único cometido es que, cuando llegue el F446, no
+haya que **copiar y editar** nada: que lo que es «de la arquitectura ARMv7-M» y
+lo que es «de la familia F4» dejen de estar en el mismo fichero que lo que es
+«del STM32F407VG». El criterio de aceptación era severo a propósito —el modelo
+tiene que hacer **exactamente** lo que hacía, con el mismo tiempo simulado al
+picosegundo— porque una refactorización que cambia el comportamiento sin querer
+es indistinguible de una que lo cambia porque estaba mal.
+
+**Se cumplió: 2 336 217 899 213 ps antes y después, en las cinco entregas.** La
+suite pasó de 2033 a 2043 comprobaciones, y las diez nuevas son las de T129, que
+prueba la factoría; ninguna comprobación existente cambió de resultado.
+
+### 16.1 Las cinco entregas
+
+| # | Qué | Resultado |
+| :--- | :--- | :--- |
+| 1 | `periph/crc_rng.h` se parte | `crc.h` (140 líneas) + `rng.h` (288) + un `crc_rng.h` de 18 que incluye los dos |
+| 2 | La conectividad de la matriz, de función a dato | `Conectividad` + `CONN_STM32F407VG` en `bus/ahb_matrix.h` |
+| 3 | La tabla de funciones alternativas, fuera del top | `soc/f4_mapa_af.h` (357 líneas, 169 llamadas) |
+| 4 | `common/ahb_types.h` se parte | 203 líneas de arquitectura + `soc/f4_mapa_perif.h` (117) de familia |
+| 5 | `mcu_if` y `FabricaMcu` | `soc/mcu_if.h` (154) + `soc/stm32f4_mcu.h` (112), y `sim_main.cpp` migrado |
+
+Tres detalles de ejecución que merecen quedar escritos, porque son los que
+hicieron que la fase fuese aburrida en vez de arriesgada:
+
+**El truco para mover código sin leerlo.** Las 169 llamadas de la tabla de
+funciones alternativas se movieron a otro fichero como **definición fuera de
+clase** —`inline void Stm32F407VG::bind_mapa_af() { ... }`—, que ve los miembros
+exactamente igual que si siguiera dentro. Los cuerpos viajaron carácter a
+carácter, sin adaptar ni una línea. Lo mismo vale para `f4_mapa_perif.h`, que
+**no es un cabecero autónomo**: se incluye desde `ahb_types.h` con el
+`namespace addr` todavía abierto, de modo que **ningún otro fichero tuvo que
+cambiar un solo `#include`**. Es deliberadamente poco elegante y es exactamente
+lo que un criterio de aceptación al picosegundo pide.
+
+**Una fila a cero es un maestro que no existe.** Al pasar la conectividad a
+dato, la pregunta «¿y cómo se dice que el F446 tiene siete maestros y no ocho?»
+se contesta sola: con la fila del maestro que le falta puesta a cero. No hace
+falta una constante nueva ni un `if`; `hay_maestro()` lo lee de la propia tabla.
+
+**El despacho es por familia, no por pieza.** `FabricaMcu` se indexa por
+`McuCaps::familia`, no por `McuCaps::nombre`: los once miembros del F405/407
+comparten un creador y se distinguen por su descriptor. Un tipo nuevo de la
+misma familia sigue siendo **una línea en el catálogo**; el F446 será otro
+`REGISTRA_MCU`. Y cuando la familia no tiene modelo enlazado, `crea()` devuelve
+`nullptr` y `sim` lo dice con nombre —«el tipo X es de la familia Y, y no hay
+ningún modelo registrado para ella; las que sé construir son: …»—. **Nunca monta
+otro chip en su lugar**, que es la forma más silenciosa que tendría este
+programa de mentirle a un alumno.
+
+### 16.2 Dos correcciones al propio plan
+
+El plan de §12 decía dos cosas que la ejecución desmintió, y conviene corregirlo
+en vez de dejar que envejezca:
+
+* decía **`soc/f407/mapa.h`**; el fichero es **`soc/f4_mapa_perif.h`**, sin
+  subcarpeta por chip. Con un solo mapa no había nada que separar, y una carpeta
+  por chip vacía habría sido estructura por adelantado;
+* decía que la tabla de funciones alternativas eran **«300 llamadas escritas a
+  mano»**. Son **169**. La cuenta de 300 salía de contar señales, no llamadas.
+
+### 16.3 El hallazgo del quinto paso: el saneador encontró la fuga
+
+Al pasar `sim_main.cpp` a la interfaz, el destructor de `Sim` seguía haciendo
+`delete m.dut` —el chip— cuando el dueño del chip pasó a ser el **adaptador**.
+El resultado no era un doble borrado, que se habría visto enseguida, sino lo
+contrario: el chip se borraba una vez y **el adaptador se quedaba colgando**,
+248 bytes por MCU. Lo cazó AddressSanitizer sobre `sim`, no la suite, porque la
+suite no construye `sim_main.cpp`.
+
+Vale la pena anotarlo como método: **la suite no cubre el ejecutable de
+usuario**. Desde esta fase, la verificación de una entrega incluye compilar
+`sim` con `-fsanitize=address,undefined` y correr con él al menos la placa
+Discovery con el *blinky*, que es el camino que recorre un alumno.
+
+### 16.4 Qué queda preparado para la fase 2
+
+Con la fase 1 cerrada, un `Stm32F446` necesita: una clase top propia, su
+`McuCaps` en el catálogo con `familia = "STM32F446"`, su `Conectividad` de siete
+maestros, su `MapaFlash` de 512 KB, su `Encapsulado` LQFP64 —ya verificado en la
+fase 0— y **un `REGISTRA_MCU`**. Nada de eso obliga a tocar `ahb_types.h`, ni la
+matriz, ni el CRC, ni `sim_main.cpp`. Que era justo el objetivo.
+
+Queda pendiente, de la fase 0, el único punto abierto: releer `[RM0390]`
+**rev. 9** §2.1, §10.1.1, §33.6.1 y Tabla 1, que es material de la fase 2.

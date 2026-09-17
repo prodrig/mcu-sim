@@ -12,9 +12,12 @@ nodos se escriben `PD12` si solo hay un MCU y `u0.PD12` si hay varios.
 y depurarlos a la vez, cada uno en su puerto de GDB**: `placas/dos_mcu.xml`.
 Están hechos los nodos compartidos (§4.3), el elemento `<mcu>` con sus stubs
 (§5.1 y §5.2), la regla de nombres (§3) y las cuatro cosas que estaban mal (§7).
-Sigue siendo análisis lo que hace falta para un MCU **distinto**: la interfaz
-`mcu_if` con su factoría (§6.1) y el encapsulado como dato de instancia (§6.3).
-Cada sección dice en qué estado está.
+Y desde la fase 1 del plan del F446, lo que hacía falta para un MCU **distinto**
+también está: la interfaz `mcu_if` con su factoría (§6.1) y el encapsulado como
+dato de instancia (§6.3) están implementados, así que `tipo=` **despacha** en vez
+de comprobarse. Lo que falta ya no es andamiaje, es el chip: un `Stm32F446` con
+su árbol de reloj y sus periféricos propios. Cada sección dice en qué estado
+está.
 
 ---
 
@@ -23,7 +26,7 @@ Cada sección dice en qué estado está.
 | | | Estado |
 | :--- | :--- | :--- |
 | **Lo fácil** | El esquema de nombres `u0.PD12`. El `NodeMap` es un mapa de cadenas: admite prefijos sin tocar nada de su lógica | **hecho** (`registra_mcu(prefijo, …)`) |
-| **Lo medio** | Un elemento `<mcu>` en el XML y una interfaz `mcu_if` con su factoría. La superficie que `sim_main.cpp` usa del MCU son **cuatro cosas** | `<mcu>` **hecho**; `mcu_if` pendiente (§6.1) |
+| **Lo medio** | Un elemento `<mcu>` en el XML y una interfaz `mcu_if` con su factoría. La superficie que `sim_main.cpp` usa del MCU son **cuatro cosas** | `<mcu>` **hecho**; `mcu_if` **hecho** (§6.1) |
 | **Lo difícil** | **Unir un pin de `u0` con un pin de `u1`.** Cada pad poseía su propio `AnalogNet` y lo ataba a un `sc_port` en el constructor. Es el único cambio que toca el interior del MCU | **hecho** (`une=`, `Cableado`) |
 | **Lo que ya no estorba** | No hay estado global mutable que impida dos instancias. SystemC ya separa las jerarquías por el nombre del módulo | — |
 
@@ -535,7 +538,7 @@ para dos MCUs sin una línea nueva.
 
 ## 6. El C++
 
-### 6.1 `mcu_if`, con su factoría  *(pendiente)*
+### 6.1 `mcu_if`, con su factoría  *(implementado)*
 
 Hoy `tipo=` se comprueba, no se despacha: `sim_main.cpp` acepta
 `STM32F407VG` y rechaza cualquier otro nombre diciendo cuál conoce. Es
@@ -561,6 +564,28 @@ delegando en lo que ya tiene; ningún periférico se entera.
 
 Una `FabricaMcu` paralela a la de piezas, con la misma macro de auto-registro.
 Se puede escribir en media hora porque el patrón ya está resuelto.
+
+> **HECHO en la fase 1 del plan del F446** (`doc/stm32f407vg_vs_446re.md` §16):
+> está en `soc/mcu_if.h`, y el adaptador de la familia F405/407 en
+> `soc/stm32f4_mcu.h`. Lo que cambió respecto a este boceto, y por qué:
+>
+> * **son nueve métodos, no cuatro.** Aparecieron `caps()`, `nodo_analogico()`
+>   —por donde se engancha la sonda SWD a PA13/PA14—, `reset_pin()` separado de
+>   la alimentación, y los dos interruptores del stub interno de GDB. Ninguno es
+>   un periférico: siguen siendo las cuatro cosas de §2 más lo que `sim` ya le
+>   pedía al puntero concreto;
+> * **la factoría se indexa por FAMILIA, no por nombre de pieza.** No estaba
+>   previsto y es lo que la hace útil: los once miembros del F405/407 son la
+>   misma clase con descriptores distintos, así que comparten un creador, y el
+>   creador recibe además el `McuCaps`. Un tipo nuevo de la misma familia sigue
+>   siendo una línea en el catálogo;
+> * **`Stm32F407VG` no hereda de `mcu_if`**: lo envuelve un adaptador. Meterle
+>   una herencia virtual más a un `sc_module` con ciento y pico submódulos sería
+>   pagar en el sitio equivocado, y el adaptador resultó ser además el sitio
+>   natural para los cuatro índices de driver de la alimentación y el orden de
+>   arranque, que eran campos sueltos en una `struct` de `sim_main`;
+> * y una familia sin modelo enlazado devuelve **`nullptr`**. `sim` lo convierte
+>   en un error con nombre; nunca monta otro chip en su lugar.
 
 ### 6.2 `ImageLoader`
 
@@ -703,7 +728,7 @@ Cada paso deja el árbol funcionando y verificable con la suite.
 | 1a | §7.1 nombre jerárquico + §7.2 prefijo y error ruidoso | pequeño | Fallos mudos: mejor antes | **hecho** |
 | 1b | §7.3 los dos `static bool warned` + §7.4 el puerto de GDB | pequeño | Que cada chip avise de lo suyo y depure en su puerto | **hecho** |
 | 2 | `<mcu>` en el XML + la regla de compatibilidad de §3 | pequeño | `u0.PD12` funciona; firmware, depuración y puerto por chip | **hecho** |
-| 3 | `mcu_if` + factoría de MCUs + `ImageLoader` sobre la interfaz | medio | `tipo=` despacha en vez de comprobar | pendiente (§6.1) |
+| 3 | `mcu_if` + factoría de MCUs + `ImageLoader` sobre la interfaz | medio | `tipo=` despacha en vez de comprobar | **hecho** (§6.1) |
 | 4 | Encapsulado como dato de instancia | pequeño | Dos MCUs **distintos** | pendiente (§6.3) |
 | 5 | **Nodos compartidos** (`une`, `Cableado`, `PinMux`) | el grande | Que dos pines cualesquiera sean el mismo punto | **hecho** |
 | 6 | Placa de ejemplo con dos F407 por I2C, y su comprobación en la suite | medio | Que esto no se rompa sin que nos enteremos | **a medias** |

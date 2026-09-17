@@ -75,6 +75,7 @@
 #include "../verif/gdb_stub.h"
 #include "../parts/netlist_parts.h"
 #include "../parts/netlist_xml.h"
+#include "../soc/stm32f4_mcu.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -93,6 +94,20 @@ static std::string mayus(std::string s) {
     return s;
 }
 static std::string tipos_como_texto() { return mcus_como_texto(); }
+
+// Y las FAMILIAS que este ejecutable sabe construir, que es otra cosa: el
+// catálogo dice qué chips existen, y la factoría dice de cuáles hay modelo.
+// Mientras solo esté registrada `STM32F4` las dos listas se corresponden; el
+// día que el catálogo tenga un F446 y su modelo no esté enlazado, este texto
+// es el que se lo explica al usuario en vez de montarle otro chip a escondidas.
+static std::string familias_como_texto() {
+    std::string s;
+    for (const std::string& f : FabricaMcu::familias()) {
+        if (!s.empty()) s += ", ";
+        s += f;
+    }
+    return s.empty() ? std::string("(ninguna)") : s;
+}
 
 static std::string g_placa, g_img, g_nombre = "placa";
 static double      g_ms      = 100.0;
@@ -119,9 +134,14 @@ static bool        g_puerto_dado = false;
 // ---------------------------------------------------------------------------
 struct McuMontado {
     DeclMcu       decl;
+    // El chip, por la interfaz: es lo que la factoria devuelve, y lo que
+    // permite que `tipo=` despache de verdad en vez de comprobarse.
+    mcu_if*       mcu  = nullptr;
+    // Y el objeto concreto, para lo que la interfaz no cubre a proposito -el
+    // informe final de los LEDs-. Con dos familias, esto seria un cast que hay
+    // que comprobar; con una, es el mismo puntero visto de otra manera.
     Stm32F407VG*  dut  = nullptr;
     GdbStub*      stub = nullptr;       // solo en modo "pines" y con puerto
-    int d_vdd = -1, d_vdda = -1, d_nrst = -1, d_bt0 = -1;
 };
 
 static void muere(const std::string& msg) {
@@ -241,28 +261,37 @@ SC_MODULE(Sim) {
             }
             const std::string nm = d.id.empty() ? std::string("dut") : d.id;
             const McuCaps* mc = caps_de[size_t(&d - &decls[0])];
-            m.dut = new Stm32F407VG(nm.c_str(), caps, cab, *mc);
+            // AQUI es donde una cadena se convierte en un objeto. La factoria
+            // despacha por FAMILIA -los once miembros del F405/407 son la misma
+            // clase con distintos descriptores- y devuelve nullptr si esa
+            // familia no esta registrada, sin montar otra cosa en su lugar.
+            m.mcu = FabricaMcu::crea(*mc, nm.c_str(), caps, cab);
+            if (!m.mcu)
+                muere("mcu " + nm + ": el tipo '" + mc->nombre + "' es de la "
+                      "familia '" + mc->familia + "', y no hay ningun modelo "
+                      "registrado para ella.\n"
+                      "Las familias que este programa sabe construir son: " +
+                      familias_como_texto() + ".");
+            m.dut = &static_cast<Stm32F4Mcu*>(m.mcu)->chip();
             // Los nodos, con el prefijo del chip. Y además con el nombre
             // desnudo cuando solo hay uno: es lo que hace que las placas
             // escritas hasta hoy sigan valiendo sin migrarlas.
-            nodos.registra_mcu(d.id, m.dut->pinmux, m.dut->pwr_pads);
+            m.mcu->registra_nodos(d.id, nodos);
             if (decls.size() == 1 && !d.id.empty())
-                nodos.registra_mcu(std::string(), m.dut->pinmux, m.dut->pwr_pads);
+                m.mcu->registra_nodos(std::string(), nodos);
             // El stub de PINES se cuelga por fuera de PA14/PA13, como un
             // ST-LINK. El de DAP lo ha creado ya el propio núcleo.
             if (d.depuracion == "pines" && d.puerto_gdb) {
                 const std::string snm = "gdb_" + (d.id.empty() ? "dut" : d.id);
                 m.stub = new GdbStub(snm.c_str(),
-                                     m.dut->pinmux.analog(0, 14),   // PA14 SWCLK
-                                     m.dut->pinmux.analog(0, 13),   // PA13 SWDIO
+                                     m.mcu->nodo_analogico(0, 14),  // PA14 SWCLK
+                                     m.mcu->nodo_analogico(0, 13),  // PA13 SWDIO
                                      d.puerto_gdb, 2e6);
                 m.stub->set_enabled(false);      // se abre al arrancar, no aquí
             }
             if (d.puerto_gdb) hay_stub = true;
-            m.d_vdd  = m.dut->pwr_pads.vdd.register_driver("sim_vdd");
-            m.d_vdda = m.dut->pwr_pads.vdda.register_driver("sim_vdda");
-            m.d_nrst = m.dut->pwr_pads.nrst.register_driver("sim_nrst");
-            m.d_bt0  = m.dut->pwr_pads.boot0.register_driver("sim_boot0");
+            // Los cuatro drivers de alimentacion los registra el adaptador en
+            // su constructor: son suyos, no de aqui.
             mcus.push_back(m);
         }
 
@@ -305,7 +334,11 @@ SC_MODULE(Sim) {
 
     ~Sim() {
         placa.libera();                      // las piezas, antes que los nodos
-        for (McuMontado& m : mcus) { delete m.stub; delete m.dut; }
+        // El chip lo borra su ADAPTADOR, que es quien lo creo: `delete m.dut`
+        // aqui dejaria el adaptador colgando -y con el, los cuatro indices de
+        // driver-. Se borra por la interfaz, y el destructor virtual hace el
+        // resto; `m.dut` es una vista, no una propiedad.
+        for (McuMontado& m : mcus) { delete m.stub; delete m.mcu; }
     }
 
     // -----------------------------------------------------------------------
@@ -381,13 +414,10 @@ SC_MODULE(Sim) {
         // ciento de los eventos de la simulacion, y solo hacen falta cuando lo
         // que se mira es el propio arbol de reloj. `--ondas` la devuelve.
         for (McuMontado& m : mcus) {
-            m.dut->rcc.set_internal_waveforms(g_ondas);
+            m.mcu->set_ondas_reloj(g_ondas);
             // Arranque eléctrico: el mismo de siempre, porque el MCU no sabe
             // que su placa viene de un fichero.
-            m.dut->pwr_pads.vdd.set_drive(m.d_vdd, 0.0f, 1.0f);
-            m.dut->pwr_pads.vdda.set_drive(m.d_vdda, 0.0f, 1.0f);
-            m.dut->pwr_pads.boot0.set_drive(m.d_bt0, 0.0f, 10e3f);
-            m.dut->pwr_pads.nrst.set_drive(m.d_nrst, 0.0f, 100.0f);
+            m.mcu->alimenta(false);      // todo a cero, con NRST abajo
         }
         wait(10, SC_US);
 
@@ -408,11 +438,10 @@ SC_MODULE(Sim) {
         }
 
         for (McuMontado& m : mcus) {
-            m.dut->pwr_pads.vdd.set_drive(m.d_vdd, 3.3f, 0.1f);
-            m.dut->pwr_pads.vdda.set_drive(m.d_vdda, 3.3f, 0.1f);
+            m.mcu->alimenta(true);
         }
         wait(100, SC_US);
-        for (McuMontado& m : mcus) m.dut->pwr_pads.nrst.set_hiz(m.d_nrst);
+        for (McuMontado& m : mcus) m.mcu->reset_pin(false);   // se suelta NRST
 
         // --- Los stubs de GDB, uno por MCU ----------------------------------
         // Se abren DESPUÉS del reset, como en el banco: un depurador que se
@@ -436,9 +465,8 @@ SC_MODULE(Sim) {
                 if (m.stub) {                                   // modo pines
                     m.stub->set_verbose(g_traza_gdb);
                     m.stub->set_enabled(true);
-                } else if (m.dut->core.gdb) {                   // modo dap
-                    m.dut->core.gdb->set_verbose(g_traza_gdb);
-                    m.dut->core.gdb->set_enabled(true);
+                } else if (m.mcu->tiene_gdb_interno()) {       // modo dap
+                    m.mcu->gdb_interno(true, g_traza_gdb);
                 }
             }
             std::printf("esperando a GDB; la simulacion no se detiene sola "

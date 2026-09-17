@@ -33,7 +33,8 @@
 #include "../periph/exti.h"
 #include "../periph/syscfg.h"
 #include "../periph/pwr.h"
-#include "../periph/crc_rng.h"
+#include "../periph/crc.h"
+#include "../periph/rng.h"   // el F446 no lo lleva [vs_446re, 8.2]
 #include "../periph/sdio.h"
 #include "../periph/fsmc.h"
 #include "../periph/dcmi.h"
@@ -313,6 +314,9 @@ private:
 
     void bind_clocks_resets();
     void bind_bus();
+    // El mapa de funciones alternativas de los periféricos de comunicación.
+    // Vive en `soc/f4_mapa_af.h`: es el mapa DE LA FAMILIA, no del top.
+    void bind_mapa_af();
 
     // ---- «Tapar» el socket de un periférico que este chip NO lleva ---------
     //

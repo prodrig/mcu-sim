@@ -23,10 +23,82 @@
 #include <tlm>
 #include <tlm_utils/simple_target_socket.h>
 #include <tlm_utils/simple_initiator_socket.h>
+#include <initializer_list>
 #include "../common/ahb_types.h"
 #include "../mem/mem_caps.h"
 
 namespace stm32 {
+
+// ---------------------------------------------------------------------------
+// LA CONECTIVIDAD DE LA MATRIZ, COMO DATO
+//
+// Qué maestro alcanza a qué esclavo [IR, §6.2]. Era una función con las nueve
+// filas escritas dentro; ahora es un `struct` que la matriz recibe por el
+// constructor, igual que se hizo con el encapsulado y con el mapa de memoria.
+//
+// Una fila por maestro, un bit por esclavo. Y de ahí sale gratis algo que hará
+// falta enseguida: **un maestro cuya fila es cero es un maestro QUE NO EXISTE
+// en ese chip**. El F446 tiene siete maestros y no ocho porque le falta el del
+// Ethernet [RM0390, §2.1]; describirlo es poner su fila a cero, no tocar el
+// `enum`. Es la misma idea que «un bloque de RAM que no existe es un tamaño a
+// cero».
+// ---------------------------------------------------------------------------
+struct Conectividad {
+    uint8_t alcanza[unsigned(BusMaster::N_MASTERS)];   // bit s = llega al esclavo s
+
+    bool puede(BusMaster m, BusSlaveId s) const {
+        return ((alcanza[unsigned(m)] >> unsigned(s)) & 1u) != 0;
+    }
+    // ¿Este maestro existe en el chip? Si no alcanza a nadie, no está.
+    bool hay_maestro(BusMaster m) const { return alcanza[unsigned(m)] != 0; }
+    unsigned n_maestros() const {
+        unsigned n = 0;
+        for (unsigned m = 0; m < unsigned(BusMaster::N_MASTERS); ++m)
+            if (alcanza[m]) ++n;
+        return n;
+    }
+};
+
+// El juego de bits de una fila, para poder escribir la tabla con los nombres de
+// los esclavos en vez de con hexadecimal.
+constexpr uint8_t esclavos(std::initializer_list<BusSlaveId> ss) {
+    uint8_t m = 0;
+    for (BusSlaveId s : ss) m = uint8_t(m | (1u << unsigned(s)));
+    return m;
+}
+
+// --- La tabla del STM32F405xx/07xx: ocho maestros [RM0090, §2.1] ------------
+inline constexpr Conectividad CONN_STM32F407VG { {
+    /* CORE_IBUS   */ esclavos({BusSlaveId::FLASH_ICODE, BusSlaveId::SRAM1,
+                                BusSlaveId::SRAM2, BusSlaveId::FSMC_EXT}),
+    /* CORE_DBUS   */ esclavos({BusSlaveId::FLASH_DCODE, BusSlaveId::SRAM1,
+                                BusSlaveId::SRAM2, BusSlaveId::FSMC_EXT}),
+    /* CORE_SBUS   */ esclavos({BusSlaveId::SRAM1, BusSlaveId::SRAM2,
+                                BusSlaveId::AHB1_SEG, BusSlaveId::AHB2_SEG,
+                                BusSlaveId::FSMC_EXT}),
+    /* DMA1_MEM    */ esclavos({BusSlaveId::SRAM1, BusSlaveId::SRAM2,
+                                BusSlaveId::AHB1_SEG, BusSlaveId::AHB2_SEG,
+                                BusSlaveId::FSMC_EXT}),
+    // DMA2 alcanza ADEMÁS la Flash por el bus DCode. La tabla de [IR, §6.2]
+    // pone "No" en esa celda, pero §11.1.1 del mismo informe dice
+    // explícitamente que DMA2 «soporta transferencias memoria-a-memoria y
+    // acceso a la memoria Flash», que es lo que hace el silicio y de lo que
+    // depende el caso de uso clásico Flash -> SRAM. La contradicción se
+    // resuelve a favor de §11.1.1 [doc/stm32f407vg_fase4_dma.md, §9].
+    /* DMA2_MEM    */ esclavos({BusSlaveId::FLASH_DCODE, BusSlaveId::SRAM1,
+                                BusSlaveId::SRAM2, BusSlaveId::AHB1_SEG,
+                                BusSlaveId::AHB2_SEG, BusSlaveId::FSMC_EXT}),
+    /* DMA2_PERIPH */ esclavos({BusSlaveId::FLASH_DCODE, BusSlaveId::SRAM1,
+                                BusSlaveId::SRAM2, BusSlaveId::AHB1_SEG,
+                                BusSlaveId::AHB2_SEG, BusSlaveId::FSMC_EXT}),
+    /* ETH_DMA     */ esclavos({BusSlaveId::SRAM1, BusSlaveId::SRAM2,
+                                BusSlaveId::AHB1_SEG}),
+    /* OTG_HS_DMA  */ esclavos({BusSlaveId::SRAM1, BusSlaveId::SRAM2,
+                                BusSlaveId::AHB1_SEG})
+} };
+// La columna «CCM RAM» de la tabla solo tiene 'Sí' en el D-Bus, y la CCM no es
+// esclavo de la matriz —[RM0090, §2.1]: «not part of the bus matrix and can be
+// accessed only through the CPU»—: se resuelve en el router del núcleo.
 
 // ---------------------------------------------------------------------------
 // Decodificación global -> esclavo de la matriz [IR, §5.1, §6.5]
@@ -80,6 +152,8 @@ SC_MODULE(AhbMatrix) {
     // del FSMC son espacio RESERVADO: tocarlos da error de bus, no un acceso
     // silencioso a un controlador que el chip no tiene.
     const bool hay_fsmc;
+    // Qué maestro alcanza a qué esclavo. Por omisión, la del F407.
+    const Conectividad conn;
 
     sc_core::sc_vector<tlm_utils::simple_target_socket_tagged<AhbMatrix>>
         from_master;                       // [BusMaster]
@@ -102,8 +176,8 @@ SC_MODULE(AhbMatrix) {
     uint64_t n_contention   = 0;         // transacciones que esperaron a otra
 
     explicit AhbMatrix(sc_core::sc_module_name nm, MapaRam r = RAM_STM32F407VG,
-                       bool fsmc = true)
-        : sc_core::sc_module(nm), ram(r), hay_fsmc(fsmc),
+                       bool fsmc = true, Conectividad c = CONN_STM32F407VG)
+        : sc_core::sc_module(nm), ram(r), hay_fsmc(fsmc), conn(c),
           from_master("from_master", NM), to_slave("to_slave", NS) {
         SC_HAS_PROCESS(AhbMatrix);
         for (unsigned m = 0; m < NM; ++m) {
@@ -112,49 +186,15 @@ SC_MODULE(AhbMatrix) {
         }
         from_tb.register_b_transport(this, &AhbMatrix::bt_tb);
         from_tb.register_transport_dbg(this, &AhbMatrix::dbg_tb);
-        build_connectivity();
         for (unsigned s = 0; s < NS; ++s) busy_until_[s] = sc_core::SC_ZERO_TIME;
     }
 
     // Consulta de la máscara (la usa el banco de pruebas para comprobarla).
-    bool connected(BusMaster m, BusSlaveId s) const {
-        return conn_[unsigned(m)][unsigned(s)];
-    }
+    bool connected(BusMaster m, BusSlaveId s) const { return conn.puede(m, s); }
     // Decodificación pública (verificación y trazas).
     int decode_addr(uint64_t a) const { return decode(a); }
 
 private:
-    // -----------------------------------------------------------------------
-    // Tabla maestro x esclavo [IR, §6.2]. true = camino existente.
-    // -----------------------------------------------------------------------
-    bool conn_[NM][NS] = {};
-
-    void build_connectivity() {
-        auto allow = [&](BusMaster m, std::initializer_list<BusSlaveId> ss) {
-            for (auto s : ss) conn_[unsigned(m)][unsigned(s)] = true;
-        };
-        using S = BusSlaveId; using M = BusMaster;
-        // Filas exactas de la tabla [IR, §6.2]:
-        allow(M::CORE_IBUS,   {S::FLASH_ICODE, S::SRAM1, S::SRAM2, S::FSMC_EXT});
-        allow(M::CORE_DBUS,   {S::FLASH_DCODE, S::SRAM1, S::SRAM2, S::FSMC_EXT});
-        allow(M::CORE_SBUS,   {S::SRAM1, S::SRAM2, S::AHB1_SEG, S::AHB2_SEG, S::FSMC_EXT});
-        allow(M::DMA1_MEM,    {S::SRAM1, S::SRAM2, S::AHB1_SEG, S::AHB2_SEG, S::FSMC_EXT});
-        // DMA2 alcanza además la Flash por el bus DCode. La tabla de §6.2 pone
-        // "No" en esa celda, pero §11.1.1 del mismo informe dice explícitamente
-        // que DMA2 "soporta transferencias memoria-a-memoria y acceso a la
-        // memoria Flash", que es lo que hace el silicio y de lo que depende el
-        // caso de uso clásico Flash -> SRAM. Se resuelve la contradicción a
-        // favor de §11.1.1 (véase doc/stm32f407vg_fase4_dma.md, §9).
-        allow(M::DMA2_MEM,    {S::FLASH_DCODE, S::SRAM1, S::SRAM2, S::AHB1_SEG,
-                               S::AHB2_SEG, S::FSMC_EXT});
-        allow(M::DMA2_PERIPH, {S::FLASH_DCODE, S::SRAM1, S::SRAM2, S::AHB1_SEG,
-                               S::AHB2_SEG, S::FSMC_EXT});
-        allow(M::ETH_DMA,     {S::SRAM1, S::SRAM2, S::AHB1_SEG});
-        allow(M::OTG_HS_DMA,  {S::SRAM1, S::SRAM2, S::AHB1_SEG});
-        // La columna "CCM RAM" de la tabla solo tiene 'Sí' en el D-Bus y la CCM
-        // no es esclavo de la matriz: se resuelve en el router del núcleo.
-    }
-
     // La decodificación, que vive fuera del módulo (véase `decodifica_mapa`).
     int decode(uint64_t a) const { return decodifica_mapa(ram, hay_fsmc, a); }
 
@@ -190,7 +230,7 @@ private:
         if (s == int(BusSlaveId::FLASH_ICODE) && ext && !ext->instr)
             s = int(BusSlaveId::FLASH_DCODE);
 
-        if (!conn_[m][s]) {                               // camino inexistente
+        if (!conn.puede(BusMaster(m), BusSlaveId(s))) {                               // camino inexistente
             ++n_err_conn;
             gp.set_response_status(tlm::TLM_ADDRESS_ERROR_RESPONSE);
             return;
@@ -225,7 +265,7 @@ private:
         if (s < 0) return 0;
         if (s == int(BusSlaveId::FLASH_ICODE) && mid != BusMaster::CORE_IBUS)
             s = int(BusSlaveId::FLASH_DCODE);
-        if (!conn_[unsigned(mid)][s]) return 0;
+        if (!conn.puede(mid, BusSlaveId(s))) return 0;
         return to_slave[unsigned(s)]->transport_dbg(gp);
     }
 

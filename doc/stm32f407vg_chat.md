@@ -3066,3 +3066,67 @@ Suite **2033/2033** (+2), invariante intacto en **`2336217899213 ps`**, ASan+UBS
 limpios. **I-40 cerrado** (veintiuna de cuarenta), el informe crece a 936 líneas
 con una §15 nueva que cuenta cómo se cerró cada punto, y el plan queda listo para
 la fase 1.
+
+---
+
+## Fase 1 del plan del F446: separar «familia F4» de «STM32F407»
+
+> No hace falta. Ejecuta la fase 1 del plan
+
+Hecha, y con el criterio de aceptación que la hacía segura: **el modelo hace
+exactamente lo que hacía**. El tiempo simulado sigue siendo
+**`2336217899213 ps`** al picosegundo, en las cinco entregas y al final.
+
+La fase 1 no añade un chip. Su único cometido es que, cuando llegue el F446, no
+haya que copiar y editar nada. Cinco movimientos:
+
+| Qué | Resultado |
+| :--- | :--- |
+| `periph/crc_rng.h` se parte | `crc.h` (140) + `rng.h` (288) + un `crc_rng.h` de 18 líneas que incluye los dos |
+| Conectividad de la matriz, de función a dato | `Conectividad` + `CONN_STM32F407VG` |
+| Tabla de funciones alternativas, fuera del top | `soc/f4_mapa_af.h`, 169 llamadas movidas |
+| `common/ahb_types.h` se parte | 203 líneas de arquitectura + `soc/f4_mapa_perif.h` (117) de familia |
+| `mcu_if` y `FabricaMcu` | `soc/mcu_if.h` (154) + `soc/stm32f4_mcu.h` (112), y `sim_main.cpp` migrado |
+
+**El truco para mover código sin leerlo.** Las 169 llamadas de la tabla de
+funciones alternativas viajaron a otro fichero como **definición fuera de
+clase** —`inline void Stm32F407VG::bind_mapa_af() { ... }`—, que ve los miembros
+igual que si siguiera dentro: los cuerpos se movieron carácter a carácter, sin
+adaptar una línea. Y `f4_mapa_perif.h` **no es un cabecero autónomo** a
+propósito: se incluye desde `ahb_types.h` con el `namespace addr` todavía
+abierto, así que **ningún otro fichero tuvo que cambiar un `#include`**. Es poco
+elegante y es exactamente lo que pide un criterio al picosegundo.
+
+**Una fila a cero es un maestro que no existe.** Al pasar la conectividad a dato,
+la pregunta «¿cómo se dice que el F446 tiene siete maestros y no ocho?» se
+contesta sola: con la fila de ese maestro a cero. Ni constante nueva ni `if`.
+
+**El despacho es por familia, no por pieza.** `FabricaMcu` se indexa por
+`McuCaps::familia`: los once del F405/407 comparten un creador y se distinguen
+por su descriptor. Y cuando la familia no tiene modelo enlazado, `crea()`
+devuelve `nullptr` y `sim` lo dice con nombre —«el tipo X es de la familia Y, y
+no hay ningún modelo registrado para ella»—. **Nunca monta otro chip en su
+lugar**, que sería la forma más silenciosa que tendría este programa de mentirle
+a un alumno.
+
+**Dos correcciones al propio plan**, para que no envejezca: el fichero es
+`soc/f4_mapa_perif.h` y no `soc/f407/mapa.h` —con un solo mapa, una carpeta por
+chip habría sido estructura por adelantado—, y la tabla de funciones alternativas
+son **169 llamadas, no 300**; la cuenta de 300 salía de contar señales.
+
+**Y el hallazgo del último paso, que lo encontró el saneador y no la suite.** Al
+migrar `sim_main.cpp`, el destructor de `Sim` seguía haciendo `delete m.dut`
+cuando el dueño del chip pasó a ser el adaptador. No era un doble borrado, que se
+habría visto enseguida: era lo contrario, el chip se borraba una vez y **el
+adaptador se quedaba colgando**, 248 bytes por MCU. Lo cazó ASan sobre `sim`,
+porque **la suite no compila `sim_main.cpp`**. Desde ahora la verificación de una
+entrega incluye compilar `sim` con `-fsanitize=address,undefined` y correr con él
+la Discovery con el *blinky*, que es el camino que recorre un alumno.
+
+Suite **2043/2043** (+10, las de T129, que prueba el contrato de la factoría sin
+construir un solo MCU: la elaboración ya terminó cuando esa prueba corre), ASan y
+UBSan limpios, las cuatro placas validan, el *blinky* enciende LD4 en los once
+`--mcu` que sacan PD12 y los rechaza con nombre en los tres que no. Con esto, un
+`Stm32F446` necesita su clase top, su `McuCaps`, su `Conectividad` de siete
+maestros y **un `REGISTRA_MCU`** — y ni una línea de `ahb_types.h`, de la matriz,
+del CRC ni de `sim_main.cpp`.

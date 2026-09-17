@@ -81,6 +81,7 @@
 #include "../verif/gdb_stub.h"
 #include "../core/gdb_stub_dap.h"
 #include "../verif/gdb_client.h"
+#include "../soc/stm32f4_mcu.h"   // el adaptador y, con el, el registro de T129
 
 using namespace sc_core;
 using namespace stm32;
@@ -1110,6 +1111,7 @@ SC_MODULE(F1Tb) {
         t126_ayuda_componentes();
         t127_piezas_reutilizables();
         t128_familia_f405_f407();
+        t129_factoria_de_mcu();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -13900,6 +13902,92 @@ SC_MODULE(F1Tb) {
                   "un LED soldado a un pad que el encapsulado no saca se "
                   "rechaza nombrando el pad y el encapsulado");
         }
+    }
+
+    // T129 — LA FACTORIA DE MCU: `tipo=` DESPACHA, YA NO SOLO SE COMPRUEBA
+    //
+    // Hasta la fase 1, `tipo="STM32F407VG"` en el XML se miraba contra una lista
+    // y luego `sim` hacia `new Stm32F407VG(...)` pasara lo que pasara. Con una
+    // sola clase de chip eso no se nota; con dos, es la diferencia entre montar
+    // el chip que el alumno escribio y montarle otro sin decirselo, que es
+    // exactamente el fallo que este proyecto no se puede permitir.
+    //
+    // Lo que se comprueba aqui es el CONTRATO de la factoria, no el chip:
+    //
+    //   * el despacho es por FAMILIA, no por nombre de pieza -los once miembros
+    //     del catalogo son la misma clase con descriptores distintos-;
+    //   * una familia sin modelo enlazado devuelve nullptr, y NO un F407 de
+    //     consolacion. `sim` convierte ese nullptr en un error con nombre;
+    //   * y todo lo que el catalogo ofrece en `--mcu` se puede construir de
+    //     verdad, que es la unica forma de que las dos listas no se separen.
+    //
+    // Ninguna de estas comprobaciones construye un MCU, y no es por ahorrar: la
+    // elaboracion de SystemC ya termino cuando esta prueba corre, y un
+    // `sc_module` nuevo aqui seria un error de elaboracion. El unico `crea()`
+    // que se llama es el que tiene que fallar.
+    // -----------------------------------------------------------------------
+    void t129_factoria_de_mcu() {
+        group("T129 La factoria de MCU: de una cadena a un objeto");
+
+        // --- 1. La familia que este ejecutable sabe construir ----------------
+        check(FabricaMcu::conoce("STM32F4"),
+              "la familia STM32F4 se registro sola al enlazar su adaptador");
+        check(FabricaMcu::busca("STM32F4") != nullptr,
+              "y `busca` devuelve su creador");
+
+        const std::vector<std::string> fam = FabricaMcu::familias();
+        check(!fam.empty(), "la lista de familias no esta vacia");
+        bool esta = false;
+        for (const std::string& f : fam) if (f == "STM32F4") esta = true;
+        check(esta, "y STM32F4 aparece en ella: es lo que `sim` le enseña al "
+                    "usuario cuando el tipo que pidio no tiene modelo");
+
+        // --- 2. Una familia sin modelo NO se sustituye por otra --------------
+        check(!FabricaMcu::conoce("STM32F446"),
+              "la familia del F446 todavia no tiene modelo, y la factoria lo "
+              "dice en vez de disimularlo");
+        check(FabricaMcu::busca("NoExisteEstaFamilia") == nullptr,
+              "una familia inventada no tiene creador");
+        {
+            // El descriptor de un F407 al que se le cambia SOLO la familia. Si
+            // la factoria mirase el nombre de la pieza, esto construiria un
+            // F407 tan contento; mirando la familia, devuelve nullptr.
+            McuCaps ajeno = MCU_STM32F407VG;
+            ajeno.familia = "STM32F446";
+            Cableado sin_puentes;
+            check(FabricaMcu::crea(ajeno, "fantasma", DBG_PINES, sin_puentes)
+                      == nullptr,
+                  "un descriptor de familia desconocida devuelve nullptr, y no "
+                  "un chip de otra familia con el nombre cambiado");
+        }
+
+        // --- 3. El catalogo y la factoria no se separan ----------------------
+        // Todo lo que `--mcu` ofrece tiene que poderse montar. Si algun dia una
+        // entrada del catalogo cambia de familia sin que su modelo se enlace,
+        // esta comprobacion cae antes de que el usuario se lo encuentre.
+        unsigned construibles = 0;
+        for (unsigned i = 0; i < N_CATALOGO_MCU; ++i)
+            if (FabricaMcu::conoce(CATALOGO_MCU[i]->familia)) ++construibles;
+        check_eq(construibles, N_CATALOGO_MCU,
+                 "los once tipos del catalogo tienen modelo registrado");
+
+        // Y todos comparten familia: es lo que hace que un creador basten.
+        bool una_sola = true;
+        for (unsigned i = 0; i < N_CATALOGO_MCU; ++i)
+            if (std::string(CATALOGO_MCU[i]->familia) !=
+                std::string(MCU_STM32F407VG.familia)) una_sola = false;
+        check(una_sola,
+              "los once son de la misma familia: un tipo nuevo del F4 es una "
+              "linea en el catalogo, no una clase de C++");
+
+        // --- 4. El descriptor llega intacto ---------------------------------
+        // La factoria no interpreta el descriptor: lo pasa. Se comprueba sobre
+        // el catalogo, que es lo que `sim` le entrega.
+        const McuCaps* ie = mcu_por_nombre("STM32F407IE");
+        check(ie != nullptr && ie->memoria.flash.size == 512u * 1024u &&
+              ie->enc.n_pines == 176,
+              "STM32F407IE sale del catalogo con sus 512 KB y su LQFP176, que "
+              "es lo unico que lo distingue del IG");
     }
 
     // T127 — LAS PIEZAS, MONTADAS DE OTRA MANERA
