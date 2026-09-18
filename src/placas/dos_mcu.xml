@@ -13,8 +13,8 @@
      Con dos MCUs el nombre desnudo `PB6` deja de designar un pin concreto y se
      rechaza; hay que escribir `u0.PB6` o `u1.PB6`.
 
-         ./build/sim placas/dos_mcu.xml --valida
-         ./build/sim placas/dos_mcu.xml 2
+         ./build/mcu-sim placas/dos_mcu.xml --valida
+         ./build/mcu-sim placas/dos_mcu.xml 2
 
      Y para depurarlos a la vez, cada uno en su puerto:
 

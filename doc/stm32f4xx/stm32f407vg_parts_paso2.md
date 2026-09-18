@@ -173,8 +173,8 @@ un pin con dos funciones alternativas asignadas.
 ## 6. Los dos volcados, y por qué son dos
 
 ```
-./build/mcu-sim --netlist       # declaración: lo que se PIDIÓ construir
-./build/mcu-sim --inventario    # inventario: lo que HAY construido
+./build/test407 --netlist       # declaración: lo que se PIDIÓ construir
+./build/test407 --inventario    # inventario: lo que HAY construido
 ```
 
 No son redundantes:
@@ -285,8 +285,8 @@ que es exactamente lo que deben hacer.
 ### Los dos volcados, ahora completos
 
 ```
-./build/mcu-sim --netlist       # la placa DECLARADA (43 componentes)
-./build/mcu-sim --inventario    # la placa CONSTRUIDA (43 componentes)
+./build/test407 --netlist       # la placa DECLARADA (43 componentes)
+./build/test407 --inventario    # la placa CONSTRUIDA (43 componentes)
 ```
 
 Los dos dan 43 componentes, y T121 comprueba en las dos direcciones que dicen lo

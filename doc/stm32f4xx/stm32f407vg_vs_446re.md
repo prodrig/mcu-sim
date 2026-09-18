@@ -944,7 +944,7 @@ Corregido en `pins/encapsulado.h`, ya marcado como verificado, y con tres
 comprobaciones nuevas en T128. El efecto se ve enseguida:
 
 ```
-$ ./build/sim placas/discovery_min.xml --mcu STM32F405OE --valida
+$ ./build/mcu-sim placas/discovery_min.xml --mcu STM32F405OE --valida
   [decl] LD3.anodo: el pad PD13 no sale al encapsulado WLCSP90
 ```
 
@@ -1090,7 +1090,7 @@ dos piezas.
 ### 17.2 El hito H3: el blinky de la Nucleo
 
 ```
-$ ./build/sim placas/nucleo_f446re.xml verif/fw/blinky446/blinky446.bin 700
+$ ./build/mcu-sim placas/nucleo_f446re.xml verif/fw/blinky446/blinky446.bin 700
 placa 'nucleo-f446re': 1 MCU(s), 2 componentes, 154 nodos, 0 avisos
 firmware de u0: verif/fw/blinky446/blinky446.bin
 simulados 700.000 ms en 0.010 s de anfitrion (18522 deltas)
@@ -1677,7 +1677,7 @@ Decirle a quien monta un F446ZE que su SAI2 no tiene pines sería tan falso como
 callárselo en un F446RE. Así que la lista **se construye** según la referencia:
 
 ```
-$ ./build/sim placa.xml --valida        # con tipo="STM32F446MC"
+$ ./build/mcu-sim placa.xml --valida        # con tipo="STM32F446MC"
   (ninguna de las cuatro líneas de encapsulado)
 
                                         # con tipo="STM32F446RE"

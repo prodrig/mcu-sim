@@ -272,7 +272,7 @@ uno. Está resuelto desactivándolo desde el propio binario.
 
 Si la 3.0 hubiera cambiado la implementación de corrutinas, esto podría dejar de
 hacer falta. **No tengo ni idea de si lo ha hecho**, y tampoco es un problema:
-está apañado en cuatro líneas y `make asan` sale limpio.
+está apañado en cuatro líneas y `make asan407` sale limpio.
 
 ### 6.4 Mantenimiento a largo plazo — sí, pero a plazo
 
@@ -312,14 +312,14 @@ El experimento que decide, y el orden importa:
    `make SYSTEMC_HOME=/ruta/a/systemc-3.0`. Por §2 y §3, espero que compile sin
    tocar una línea; **lo que no compile es la respuesta a la pregunta del
    enunciado**, y sale en la primera pasada del compilador.
-4. `make test`. Y aquí está la red de seguridad que hace que esto sea una tarde y
+4. `make test407`. Y aquí está la red de seguridad que hace que esto sea una tarde y
    no una semana: la suite son **1899 comprobaciones** y el tiempo simulado sale
    **idéntico al picosegundo** entre ejecuciones, compiladores y plataformas
    (`2328209149213 ps` con g++ y con clang). Si un cambio de biblioteca alterase
    el orden de los eventos o la resolución del tiempo, **esa cifra se movería**, y
    se sabría en veintitrés segundos. Un invariante así es justo lo que se necesita
    para cambiar de versión sin miedo.
-5. `make asan` y `make red`, que cubren memoria y sockets.
+5. `make asan407` y `make red`, que cubren memoria y sockets.
 6. Y `./build/bench`, para ver si el planificador ha cambiado de coste.
 
 Si los seis pasos salen bien, la migración consiste en cambiar `SYSTEMC_HOME` y

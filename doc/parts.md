@@ -7,10 +7,10 @@ qué queda fuera del fichero.
 Una placa se describe en XML y se monta con:
 
 ```
-./build/sim placa.xml [firmware.bin] [ms]
-./build/sim placa.xml --valida        # comprueba la placa sin simular
-./build/sim --help                    # lista los tipos que conoce la factoría
-./build/sim --help Button             # qué hace ese componente y qué admite
+./build/mcu-sim placa.xml [firmware.bin] [ms]
+./build/mcu-sim placa.xml --valida        # comprueba la placa sin simular
+./build/mcu-sim --help                    # lista los tipos que conoce la factoría
+./build/mcu-sim --help Button             # qué hace ese componente y qué admite
 ```
 
 **Este documento y `sim --help` dicen lo mismo, y no por casualidad.** La ficha
@@ -331,7 +331,7 @@ componente.
 
 ## 4. El catálogo
 
-> `./build/sim --help TIPO` imprime la ficha de cualquiera de estas piezas sin
+> `./build/mcu-sim --help TIPO` imprime la ficha de cualquiera de estas piezas sin
 > salir de la consola: qué hace, sus terminales, sus atributos con el valor por
 > omisión de cada uno y un `<componente>` de ejemplo que copiar. Para
 > **preguntar** da igual cómo se escriba el nombre —`--help led` vale—; para
@@ -991,9 +991,9 @@ simplificación del modelo, es lo que pasa en la tarjeta.
 correr con el blinky:
 
 ```
-$ ./build/sim placas/led_azul_5v.xml verif/fw/blinky/blinky.bin 200
+$ ./build/mcu-sim placas/led_azul_5v.xml verif/fw/blinky/blinky.bin 200
   LED LD_AZUL en PD12: encendido  (0.40 V, 7.27 mA)
-$ ./build/sim placas/led_azul_5v.xml verif/fw/blinky/blinky.bin 205
+$ ./build/mcu-sim placas/led_azul_5v.xml verif/fw/blinky/blinky.bin 205
   LED LD_AZUL en PD12: apagado  (3.30 V, 0.00 mA)
 ```
 
@@ -1002,6 +1002,6 @@ todos menos `Rpull`— se saca
 del propio modelo, que es la mejor referencia de formato que hay:
 
 ```
-./build/mcu-sim --netlist > placas/banco.xml
-./build/sim placas/banco.xml --valida
+./build/test407 --netlist > placas/banco.xml
+./build/mcu-sim placas/banco.xml --valida
 ```

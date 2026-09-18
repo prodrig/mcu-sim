@@ -11,7 +11,7 @@ tocar el `Makefile`, y qué hacer cuando falla. La segunda mitad está ordenada 
 ```bash
 cd src
 make                    # la suite de verificación
-make test               # y la ejecuta: 1935 comprobaciones, código de salida 0/1
+make test407               # y la ejecuta: 1935 comprobaciones, código de salida 0/1
 ```
 
 Hace falta **SystemC ≥ 2.3.3** de Accellera y un compilador con **C++17**. Nada
@@ -62,11 +62,11 @@ Imprime qué ha decidido: `PLATAFORMA`, `CXX`, `CXXSTD`, `SYSTEMC_HOME`, `EXE`,
 
 | | |
 | :--- | :--- |
-| `make test` | La suite entera |
+| `make test407` | La suite entera |
 | `make red` | 13 comprobaciones de la capa de sockets, **sin necesitar SystemC**. Sirve para validar una plataforma nueva antes de pelearse con la biblioteca |
-| `make sim` | El modelo con la placa en un fichero XML |
+| `make mcu-sim` | El modelo con la placa en un fichero XML |
 | `make bench` | El banco de medida del coste de simulación |
-| `make asan` | La suite con ASan + UBSan (Linux y macOS; MinGW no los trae) |
+| `make asan407` | La suite con ASan + UBSan (Linux y macOS; MinGW no los trae) |
 | `make clean` | |
 
 ---
@@ -293,10 +293,10 @@ de enlazado, y el mensaje de SystemC dice cuál es.
 
 ```bash
 make red        # 13 comprobaciones de la capa de red, sin SystemC
-make test       # 1935 comprobaciones
+make test407       # 1935 comprobaciones
 ```
 
-Y el criterio que de verdad vale, más allá de que pasen: al final de `make test`,
+Y el criterio que de verdad vale, más allá de que pasen: al final de `make test407`,
 
 ```
 TOTAL     : 1935 comprobaciones OK, 0 fallos

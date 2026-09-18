@@ -20,8 +20,8 @@
          `--mcu STM32F446RE placas/discovery_min.xml` y ver los cuatro avisos
          es una buena forma de comprobar que el encapsulado es de verdad.
 
-         ./build/sim placas/nucleo_f446re.xml --valida
-         ./build/sim placas/nucleo_f446re.xml verif/fw/blinky446/blinky446.bin 400
+         ./build/mcu-sim placas/nucleo_f446re.xml --valida
+         ./build/mcu-sim placas/nucleo_f446re.xml verif/fw/blinky446/blinky446.bin 400
 -->
 <placa nombre="nucleo-f446re">
   <mcu tipo="STM32F446RE" id="u0"/>

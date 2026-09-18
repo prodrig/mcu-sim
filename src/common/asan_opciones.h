@@ -25,7 +25,7 @@
 // quiera cambiarlo puede seguir haciéndolo: ASAN_OPTIONS manda sobre esto.
 //
 // El fichero no hace nada cuando se compila sin sanitizers, que es siempre
-// salvo en `make asan`.
+// salvo en `make asan407`.
 // =============================================================================
 #ifndef STM32_COMMON_ASAN_OPCIONES_H
 #define STM32_COMMON_ASAN_OPCIONES_H

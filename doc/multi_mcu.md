@@ -459,7 +459,7 @@ Es lo que de verdad se gana con `<mcu>`, porque es lo primero que se necesita en
 cuanto hay dos chips: poder pararlos por separado.
 
 ```
-$ ./build/sim placas/dos_mcu.xml
+$ ./build/mcu-sim placas/dos_mcu.xml
 placa 'dos-efe-cuatro': 2 MCU(s), 6 componentes, 306 nodos, 0 avisos
   mcu u0: sin firmware, gdb por dap en el puerto 3333
   mcu u1: sin firmware, gdb por pines en el puerto 3334

@@ -3,7 +3,7 @@
      resistencia. La solucion de siempre es colgarlo de los 5 V con el CATODO al
      pin, de modo que el MCU lo enciende poniendo el pin a CERO.
 
-       ./build/sim placas/led_azul_5v.xml verif/fw/blinky/blinky.bin 200
+       ./build/mcu-sim placas/led_azul_5v.xml verif/fw/blinky/blinky.bin 200
        LED LD_AZUL en PD12: encendido  (0.40 V, 7.27 mA)                -->
 <placa nombre="led-azul-5v">
   <nodo id="PH0"/>

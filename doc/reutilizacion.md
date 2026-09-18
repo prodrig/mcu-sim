@@ -306,7 +306,7 @@ aceptaba sin decir nada un componente soldado a PC4, donde no hay bola.
 El efecto de tenerlo bien se ve en una línea:
 
 ```
-$ ./build/sim placas/discovery_min.xml --mcu STM32F405OE --valida
+$ ./build/mcu-sim placas/discovery_min.xml --mcu STM32F405OE --valida
   [decl] LD3.anodo: el pad PD13 no sale al encapsulado WLCSP90
 ```
 

@@ -168,8 +168,8 @@ El `Stm32F407VG` lo reenvía tal cual, de modo que el modo se elige en **una sol
 línea** del banco. Desde la línea de órdenes:
 
 ```
-./build/mcu-sim --gdb     [--port=3333] [imagen.bin]   # sonda por los pines
-./build/mcu-sim --gdb-dap [--port=3333] [imagen.bin]   # stub interno al DAP
+./build/test407 --gdb     [--port=3333] [imagen.bin]   # sonda por los pines
+./build/test407 --gdb-dap [--port=3333] [imagen.bin]   # stub interno al DAP
 ```
 
 En modo `--gdb-dap` la sonda del banco se construye con puerto 0 —existe pero no
@@ -269,7 +269,7 @@ comprueba explícitamente que la descarga por el DAP **sigue costando más de
 Con el modelo levantado en modo servidor por el camino interno,
 
 ```
-./build/mcu-sim --gdb-dap --port=3401 verif/fw/test_isa.bin
+./build/test407 --gdb-dap --port=3401 verif/fw/test_isa.bin
 ```
 
 un cliente RSP externo (proceso aparte, sin nada que ver con SystemC) obtiene:

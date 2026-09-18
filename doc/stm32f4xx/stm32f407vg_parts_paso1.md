@@ -19,7 +19,7 @@ la librería en condiciones de ser descrita desde fuera. Tres cosas concretas:
 | Sacar `ext_parts.h` de `verif/` | ahora en `parts/`, junto a `part_base.h` |
 
 Y un cuarto que no estaba pedido pero que sale gratis y demuestra que los tres
-anteriores son de verdad: **el volcado del netlist**, `./build/mcu-sim
+anteriores son de verdad: **el volcado del netlist**, `./build/test407
 --netlist`.
 
 **Suite: 1811/1811, 0 fallos.** El tiempo simulado total es idéntico al
@@ -136,7 +136,7 @@ Los tres son cosas distintas y ahora se escriben distintas.
 ## 3. El volcado del netlist
 
 ```
-./build/mcu-sim --netlist
+./build/test407 --netlist
 ```
 
 Elabora el modelo, recorre el inventario y escribe el grafo. **No simula**: se

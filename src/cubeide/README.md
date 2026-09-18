@@ -9,7 +9,7 @@ camino corto: lo que hace falta es que el alumno no tenga que elegir nada.
 el IDE, que es lo normal:
 
 ```
-./build/sim placas/discovery_min.xml --gdb --tiempo-real
+./build/mcu-sim placas/discovery_min.xml --gdb --tiempo-real
 ```
 
 El `--tiempo-real` no es opcional en la práctica: sin él la simulación va cientos
@@ -151,8 +151,8 @@ reanudar había una interrupción esperando siempre. Dos arreglos:
 * **`--tiempo-real`**, que ata el avance simulado al reloj de pared:
 
 ```
-./build/sim placa.xml --gdb --tiempo-real      # un segundo por segundo
-./build/sim placa.xml --gdb --tiempo-real=0.5  # a la mitad, para mirar despacio
+./build/mcu-sim placa.xml --gdb --tiempo-real      # un segundo por segundo
+./build/mcu-sim placa.xml --gdb --tiempo-real=0.5  # a la mitad, para mirar despacio
 ```
 
   Medido: 2000 ms simulados salen en 0,033 s sin freno y en **2,000 s** con él, y
@@ -226,7 +226,7 @@ apaño temporal: **es el camino soportado**, y el que se reparte.
 Para mirar una sesión por dentro:
 
 ```
-./build/sim placas/discovery_min.xml --gdb --traza-gdb
+./build/mcu-sim placas/discovery_min.xml --gdb --traza-gdb
 ```
 
 imprime cada paquete recibido **y cada respuesta**, más la fecha en que se
@@ -241,7 +241,7 @@ construyó el binario:
 Esas dos líneas son las que hacen falta para saber en qué mitad está el
 problema. Si tras el `qRcmd` **no** aparece un `->` con la respuesta, o la
 respuesta es `(vacia)`, el binario que corre no lleva `ReadAPEx`: falta
-recompilar (`make sim`). Si sí aparece —`307845...` es `0xE00FF003\n` en
+recompilar (`make mcu-sim`). Si sí aparece —`307845...` es `0xE00FF003\n` en
 hexadecimal— entonces el stub contestó y **fue ST quien no aceptó el formato**,
 que es lo único que aquí no se puede saber sin documentación suya.
 

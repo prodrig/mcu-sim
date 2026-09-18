@@ -36,7 +36,7 @@ P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
 | **F7** (ETH) | Ethernet 10/100: MII/RMII en los pines, MDIO, descriptores, filtrado, MMC y PTP | **completada** |
 | F7 (resto) | afinado AT | pendiente |
 
-`make test` compila y ejecuta la suite de verificación acumulada (**2055**
+`make test407` compila y ejecuta la suite de verificación acumulada (**2055**
 comprobaciones autocomprobables, y `make test446` las **200** del segundo chip —
 véase más abajo—: 127 de F1 + 12 de F2 + 80 de F3 + 343 de F4
 (DMA, UART/USART, TIM y EXTI/SYSCFG) + 675 de F5 (SPI/I2S, I2C, ADC, DAC, RTC y
@@ -47,7 +47,7 @@ código de
 salida 0 si todas pasan, en unos 23 s). Verificado con SystemC 2.3.4 / g++ 13 / C++17
 y arm-none-eabi-gcc 13.2.
 
-`make asan` corre esa misma suite con AddressSanitizer y UndefinedBehaviorSanitizer,
+`make asan407` corre esa misma suite con AddressSanitizer y UndefinedBehaviorSanitizer,
 y hoy sale limpia: **0 fugas y 0 avisos**. No hay que poner `ASAN_OPTIONS` a
 mano; el ejecutable trae su propia configuración, porque ASan sin
 `detect_stack_use_after_return=0` es incompatible con las corrutinas de SystemC
@@ -71,7 +71,7 @@ compilan con `make -C verif/fw`, `make -C verif/fw/coremark`,
 la imagen. `F2_SKIP_COREMARK=1` omite la ejecución de CoreMark.
 
 ```
-make -f Makefile.mcu-sim test           # o: cp Makefile.mcu-sim Makefile && make test
+make -f Makefile.mcu-sim test           # o: cp Makefile.mcu-sim Makefile && make test407
 make -f Makefile.mcu-sim asan           # la misma suite con ASan + UBSan
 make -f Makefile.mcu-sim run IMG=fw.bin # carga una imagen y simula
 ```
@@ -82,8 +82,8 @@ Desde la fase 2 del plan de `doc/stm32f4xx/stm32f407vg_vs_446re.md` hay **dos fa
 montables, y `tipo=` en el XML despacha de verdad entre ellas:
 
 ```
-./build/sim placas/nucleo_f446re.xml --valida
-./build/sim placas/nucleo_f446re.xml verif/fw/blinky446/blinky446.bin 700
+./build/mcu-sim placas/nucleo_f446re.xml --valida
+./build/mcu-sim placas/nucleo_f446re.xml verif/fw/blinky446/blinky446.bin 700
 make test446          # la suite del F446, que es un ejecutable APARTE
 ```
 
@@ -209,7 +209,7 @@ validar una plataforma nueva antes de pelearse con la biblioteca.
 
 | Plataforma | Estado | Comprobado |
 | :--- | :--- | :--- |
-| Linux, g++ 13 | **verificado** | 2055/2055 comprobaciones, 200/200 del F446, `make red` 13/13, ASan + UBSan limpio en las dos suites (`make asan`, `make asan446`), las cinco placas validan sin un aviso |
+| Linux, g++ 13 | **verificado** | 2055/2055 comprobaciones, 200/200 del F446, `make red` 13/13, ASan + UBSan limpio en las dos suites (`make asan407`, `make asan446`), las cinco placas validan sin un aviso |
 | Linux, clang | **verificado** | mismo resultado y mismo tiempo simulado al picosegundo |
 | Windows, MinGW-w64 | **compila y enlaza** (cruzado con g++ 13-win32) | `make red` genera un PE32+ sin avisos; **falta ejecutarlo en Windows y construir SystemC allí** |
 | macOS, clang | **la rama específica compila** | Se fuerza la combinación de macOS —sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`— y compila con g++ y con clang; **falta probarlo en un Mac** |
@@ -236,10 +236,10 @@ tuyas.
 `new` de pieza externa en `sc_main.cpp`. Volcarlo no simula nada.
 
 ```
-./build/mcu-sim --netlist            # la placa DECLARADA: nodos, instancias,
+./build/test407 --netlist            # la placa DECLARADA: nodos, instancias,
                                          # parámetros, referencias y conexiones
-./build/mcu-sim --inventario         # la placa CONSTRUIDA, vista desde el modelo
-./build/mcu-sim --valida             # comprueba la placa sin simular
+./build/test407 --inventario         # la placa CONSTRUIDA, vista desde el modelo
+./build/test407 --valida             # comprueba la placa sin simular
 ```
 
 Los dos dan los mismos 43 componentes, y la suite (T121) comprueba en las dos
@@ -251,14 +251,14 @@ segundo lo que hay.
 firmware que se les pase. Para cambiar de placa no hay que recompilar.
 
 ```
-make sim
-./build/sim placa.xml [firmware.bin] [ms]   # simula
-./build/sim placa.xml --ms=2                # el tiempo, sin firmware por delante
-./build/sim placa.xml --valida              # solo comprueba la placa
-./build/sim placa.xml --gdb --port=3333     # stub de GDB por los pines SWD
-./build/sim placa.xml --gdb-dap             # o el stub interno contra el DAP
-./build/sim placa.xml --mcu TIPO            # el MCU implicito (STM32F407VG)
-./build/sim --help                          # y los tipos que sabe construir
+make mcu-sim
+./build/mcu-sim placa.xml [firmware.bin] [ms]   # simula
+./build/mcu-sim placa.xml --ms=2                # el tiempo, sin firmware por delante
+./build/mcu-sim placa.xml --valida              # solo comprueba la placa
+./build/mcu-sim placa.xml --gdb --port=3333     # stub de GDB por los pines SWD
+./build/mcu-sim placa.xml --gdb-dap             # o el stub interno contra el DAP
+./build/mcu-sim placa.xml --mcu TIPO            # el MCU implicito (STM32F407VG)
+./build/mcu-sim --help                          # y los tipos que sabe construir
 ```
 
 Antes de simular valida dos veces y sin simular: la DECLARACIÓN (nodo
@@ -278,10 +278,10 @@ tú programas, depuras o pulsas cosas, y que se apague cuando lo digas tú.
 sirve, porque lo que hace que no termine es que haya un puerto escuchando:
 
 ```
-./build/sim placa.xml --gdb                 # sonda SWD por PA13/PA14, puerto 3333
-./build/sim placa.xml --gdb-dap             # el stub interno contra el DAP
-./build/sim placa.xml --port=3333           # implica --gdb
-./build/sim placa.xml fw.bin --gdb          # lo normal: con firmware dentro
+./build/mcu-sim placa.xml --gdb                 # sonda SWD por PA13/PA14, puerto 3333
+./build/mcu-sim placa.xml --gdb-dap             # el stub interno contra el DAP
+./build/mcu-sim placa.xml --port=3333           # implica --gdb
+./build/mcu-sim placa.xml fw.bin --gdb          # lo normal: con firmware dentro
 ```
 
 Y lo dice al arrancar:
@@ -308,9 +308,9 @@ que se ve por dentro se ve por GDB.
 está `--tiempo-real`, que ata el avance simulado al reloj de pared:
 
 ```
-./build/sim placa.xml --gdb --tiempo-real      # un segundo por segundo
-./build/sim placa.xml --tiempo-real=4          # cuatro veces más rápido
-./build/sim placa.xml --tiempo-real=0.5        # a la mitad, para mirar despacio
+./build/mcu-sim placa.xml --gdb --tiempo-real      # un segundo por segundo
+./build/mcu-sim placa.xml --tiempo-real=4          # cuatro veces más rápido
+./build/mcu-sim placa.xml --tiempo-real=0.5        # a la mitad, para mirar despacio
 ```
 
 Medido: 2000 ms simulados salen en **0,033 s** sin freno, **2,000 s** con
@@ -405,7 +405,7 @@ es la que se sabe que funciona.
 **Y si aun así se desconecta, la traza dice por qué:**
 
 ```
-./build/sim placa.xml --gdb --traza-gdb
+./build/mcu-sim placa.xml --gdb --traza-gdb
 ```
 
 imprime cada paquete RSP que llega, y **el último antes de `cliente
@@ -478,7 +478,7 @@ En `placas/` hay cuatro:
 regenera con
 
 ```
-./build/mcu-sim --netlist > placas/banco.xml
+./build/test407 --netlist > placas/banco.xml
 ```
 
 y como el volcado es determinista, `git diff --exit-code placas/banco.xml`
@@ -491,8 +491,8 @@ GDB/RSP, con el mismo protocolo y las mismas respuestas, que se diferencian
 solo en cómo llegan al DAP:
 
 ```
-./build/mcu-sim --gdb     [--port=3333] [imagen.bin]   # por los pines SWD
-./build/mcu-sim --gdb-dap [--port=3333] [imagen.bin]   # por dentro, al DAP
+./build/test407 --gdb     [--port=3333] [imagen.bin]   # por los pines SWD
+./build/test407 --gdb-dap [--port=3333] [imagen.bin]   # por dentro, al DAP
 ```
 
 Ninguno de los dos ejecuta la suite: levantan el modelo y abren el puerto.

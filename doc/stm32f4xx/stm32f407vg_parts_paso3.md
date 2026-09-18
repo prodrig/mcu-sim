@@ -8,14 +8,14 @@ anteriores, en `doc/stm32f4xx/stm32f407vg_parts_paso1.md` y `..._paso2.md`.*
 ## 1. Qué hay ahora
 
 ```
-./build/sim placa.xml [firmware.bin] [ms]
+./build/mcu-sim placa.xml [firmware.bin] [ms]
 ```
 
 Un MCU, la placa que diga el fichero y el firmware que se le pase. Para cambiar
 de placa no hace falta recompilar nada.
 
 ```
-$ ./build/sim placas/discovery_min.xml verif/fw/blinky/blinky.bin 205
+$ ./build/mcu-sim placas/discovery_min.xml verif/fw/blinky/blinky.bin 205
 placa 'discovery-min': 3 componentes, 154 nodos, 0 avisos
 firmware: 1032 bytes de verif/fw/blinky/blinky.bin
 simulados 205.000 ms en 0.008 s de anfitrion (7341 deltas)
@@ -179,8 +179,8 @@ se vería.
 Y el mismo fichero, leído por **otro ejecutable**:
 
 ```
-$ ./build/mcu-sim --netlist > placas/banco.xml
-$ ./build/sim placas/banco.xml --valida
+$ ./build/test407 --netlist > placas/banco.xml
+$ ./build/mcu-sim placas/banco.xml --valida
 placa 'banco-de-pruebas': 43 componentes, 155 nodos, 0 avisos
 ```
 

@@ -341,7 +341,7 @@ ejecución oficial se puede lanzar con la imagen de más iteraciones:
 
 ```sh
 make -C verif/fw/coremark clean && make -C verif/fw/coremark ITERATIONS=150
-F2_CM_BUDGET_MS=40000 ./build/mcu-sim
+F2_CM_BUDGET_MS=40000 ./build/test407
 ```
 
 Ejecutada así, el modelo produce una puntuación publicable y el propio benchmark

@@ -13,7 +13,7 @@ interfaz JTAG/SWD que motivó este trabajo.
 **Resultado:** con el modelo corriendo en modo servidor,
 
 ```
-./build/mcu-sim --gdb [--port=3333] [imagen.bin]
+./build/test407 --gdb [--port=3333] [imagen.bin]
 ```
 
 Eclipse CDT, STM32CubeIDE o un `arm-none-eabi-gdb` a pelo se conectan con
@@ -264,7 +264,7 @@ Las dos primeras palabras de la Flash son el vector de reset: MSP `0x2001C000` y
 **Línea de órdenes:**
 
 ```
-./build/mcu-sim --gdb --port=3333 mi_firmware.bin
+./build/test407 --gdb --port=3333 mi_firmware.bin
 ```
 
 En ese modo **no se ejecuta la suite**: el modelo arranca, abre el puerto y se

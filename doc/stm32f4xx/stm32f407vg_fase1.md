@@ -356,7 +356,7 @@ verificar la CCM y el bit-banding.
 
 ## 7. Verificación
 
-`make test` compila `top/sc_main.cpp` y ejecuta una suite autocomprobable
+`make test407` compila `top/sc_main.cpp` y ejecuta una suite autocomprobable
 (código de salida 0 si todo pasa). Resultado actual: **124 OK, 0 fallos**.
 
 | Grupo | Comprobaciones | Referencia |

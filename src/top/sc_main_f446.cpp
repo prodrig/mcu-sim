@@ -26,7 +26,7 @@
 //      fase 2, y es el que no se puede falsear: si una sola dirección del
 //      modelo no fuera la del F446, este firmware no funcionaría.
 //
-//   make test446   (o: make -C . tb446 && ./build/tb446)
+//   make test446   (o: make -C . test446-build && ./build/test446)
 // =============================================================================
 #include <systemc>
 #include <cstdio>

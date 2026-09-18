@@ -1,7 +1,7 @@
 // =============================================================================
 // sim_main.cpp — El modelo, con la placa en un fichero
 //
-//   ./build/sim placa.xml [firmware.bin] [ms_simulados]
+//   ./build/mcu-sim placa.xml [firmware.bin] [ms_simulados]
 //
 // (Paso 3 de la ruta de adopción del esquema XML+SVG de QtSysC; véase
 //  doc/stm32f4xx/stm32f407vg_parts_paso3.md.)

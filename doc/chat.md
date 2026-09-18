@@ -687,7 +687,7 @@ invisible.
 **Y el volcado, que no estaba pedido pero sale gratis:**
 
 ```
-./build/mcu-sim --netlist
+./build/test407 --netlist
 ```
 
 43 componentes de 20 tipos. Al montarlo apareció un hueco que no se veía desde
@@ -836,8 +836,8 @@ ve aparecer y desaparecer, que es lo que deben hacer.
 **Los dos volcados, ahora completos y separados:**
 
 ```
-./build/mcu-sim --netlist       # la placa DECLARADA
-./build/mcu-sim --inventario    # la placa CONSTRUIDA
+./build/test407 --netlist       # la placa DECLARADA
+./build/test407 --inventario    # la placa CONSTRUIDA
 ```
 
 Los dos dan 43 componentes, y T121 comprueba en las dos direcciones que dicen lo
@@ -861,7 +861,7 @@ Hecho, documentado en `doc/stm32f4xx/stm32f407vg_parts_paso3.md`. El arco de los
 cabe ahora en un renglón:
 
 ```
-$ ./build/sim placas/discovery_min.xml verif/fw/blinky/blinky.bin 205
+$ ./build/mcu-sim placas/discovery_min.xml verif/fw/blinky/blinky.bin 205
 placa 'discovery-min': 3 componentes, 154 nodos, 0 avisos
 firmware: 1032 bytes de verif/fw/blinky/blinky.bin
 simulados 205.000 ms en 0.008 s de anfitrion (7341 deltas)
@@ -920,7 +920,7 @@ antes de simular, con los dos culpables por su nombre.
 con el lector de verdad y se comprueba que sale el mismo grafo —tipo,
 identificador, terminales, referencias, parámetros, estado de conexión y las
 marcas de los nodos—. Y el mismo fichero, leído por **otro ejecutable**:
-`./build/mcu-sim --netlist > placas/banco.xml` y luego `./build/sim
+`./build/test407 --netlist > placas/banco.xml` y luego `./build/mcu-sim
 placas/banco.xml --valida` da los 43 componentes montados por un programa que no
 sabe nada de la suite.
 
@@ -1105,7 +1105,7 @@ nodo se queda a 1,65 V y los dos pads avisan de sobrecorriente**. Con un acoplad
 entre dos nodos ese conflicto no existiría.
 
 Un tropiezo mío que conviene dejar escrito: creí encontrar una discrepancia
-—`src/README.md` documenta `make sim` y el `Makefile` del contenedor no tenía esa
+—`src/README.md` documenta `make mcu-sim` y el `Makefile` del contenedor no tenía esa
 regla— y añadí la regla. Estaba mirando el fichero equivocado. El versionado es
 **`src/Makefile.mcu-sim`** (`src/Makefile` está en `.gitignore`, es la copia
 generada), y ahí la regla existía desde siempre, junto con la de `bench`. Mi copia
@@ -1176,7 +1176,7 @@ por nuestra parte —es de la biblioteca—, pero sí evitable: `common/asan_opc
 define `__asan_default_options()`, de modo que el binario trae su propia
 configuración y **no hay que acordarse de nada** en la línea de órdenes.
 
-**Resultado.** `make asan` es ahora un objetivo del `Makefile.mcu-sim`: compila la
+**Resultado.** `make asan407` es ahora un objetivo del `Makefile.mcu-sim`: compila la
 suite con ASan y UBSan a `-O1` y la ejecuta. Sale **1871/1871, 0 fugas, 0 avisos
 de comportamiento indefinido**, y los otros dos ejecutables (`sim` y `bench`)
 también. El tiempo simulado no se movió ni un picosegundo: 2328209149213 ps antes
@@ -1259,7 +1259,7 @@ chips arranquen y se hablen solo se verifica a mano con `sim`. La suite monta un
 dentro sería duplicar la elaboración del banco entero para probar otra cosa.
 
 **Suite: 1899/1899, 0 fallos**, tiempo simulado invariante (2328209149213 ps),
-`make asan` limpio, y `sim` con dos MCUs también limpio bajo ASan.
+`make asan407` limpio, y `sim` con dos MCUs también limpio bajo ASan.
 
 ---
 
@@ -1456,7 +1456,7 @@ como I-23 en el TODO, y es el paso 0b del orden de trabajo del análisis de la
 GUI: para un programa que se reparte a alumnos no es opcional.
 
 De paso, el `.exe` se enlaza con `-static-libgcc -static-libstdc++`, que para
-repartirlo no es un lujo, y `make asan` avisa en vez de fallar cuando la
+repartirlo no es un lujo, y `make asan407` avisa en vez de fallar cuando la
 plataforma es Windows, porque MinGW no trae AddressSanitizer.
 
 ---
@@ -1613,7 +1613,7 @@ moviera, algo del planificador sería distinto, y se sabe en veintitrés segundo
 
 ## 2026-09-10 UTC — Qué dice la salida de `sim` sobre una placa mínima
 
-**Prompt.** «Explica la salida de esta ejecución: `build/sim
+**Prompt.** «Explica la salida de esta ejecución: `build/mcu-sim
 placas/discovery_min.xml`» —con las cinco líneas de la ejecución.
 
 **Respuesta.** Reproducida la ejecución tal cual, línea a línea.
@@ -1725,7 +1725,7 @@ Total de puntos: 138 → 140.
 ## 2026-09-10 UTC — «Could not verify ST device!»: el IDE elige mal la sonda
 
 **Prompt.** Configurado STM32CubeIDE con la sonda `ST-LINK (ST-LINK GDB server)`
-apuntando a `localhost:3333` contra `build/sim placas/discovery_min.xml --gdb`,
+apuntando a `localhost:3333` contra `build/mcu-sim placas/discovery_min.xml --gdb`,
 el simulador registra «cliente conectado» y «cliente desconectado», y el IDE da
 «Could not verify ST device! Please verify that the latest version of the
 GDB-server is used for the connection».
@@ -1776,7 +1776,7 @@ Si eso conecta, el stub está bien y lo único que falta es la configuración.
 ya existía en `common/gdb_rsp.h` (`set_verbose`) y **no había manera de pedirla
 desde fuera**, que es justo lo que hace falta cuando un IDE se conecta y se va
 sin explicar por qué: **el último paquete antes de «cliente desconectado» es el
-que no le gustó**. Ahora `./build/sim placa.xml --gdb --traza-gdb` lo imprime.
+que no le gustó**. Ahora `./build/mcu-sim placa.xml --gdb --traza-gdb` lo imprime.
 Suite 1899/1899 y el mismo tiempo simulado.
 
 **Lo que esto significa para el objetivo del proyecto**, anotado como **I-27**:
@@ -1980,7 +1980,7 @@ terminar en `qRcmd,ReadAPEx 0x0 0xF8` y `D`.
 muy distintas, y **la traza tal como estaba no podía distinguirlas**.
 
 1. El binario que corre no lleva el cambio —extraer el tar no recompila; hace
-   falta `make sim`—, así que sigue respondiendo vacío.
+   falta `make mcu-sim`—, así que sigue respondiendo vacío.
 2. El binary sí lo lleva, contestó `0xE00FF003`, y **ST rechazó el formato**.
 
 La causa de no poder distinguirlas es que la traza imprimía **solo los paquetes
@@ -2643,7 +2643,7 @@ se comprueba igual—. Puntos: 150 → 151.
 Hecho. Los veintiún tipos tienen ficha:
 
 ```
-$ ./build/sim --help Button
+$ ./build/mcu-sim --help Button
 Button
 ======
 
@@ -2881,13 +2881,13 @@ netlist**, que enseñaría un periférico donde no lo hay.
 Funciona de punta a punta:
 
 ```
-$ ./build/sim placas/discovery_min.xml --mcu STM32F405RG --valida
+$ ./build/mcu-sim placas/discovery_min.xml --mcu STM32F405RG --valida
   [decl] LD4.anodo: el pad PD12 no sale al encapsulado LQFP64
   [decl] LD3.anodo: el pad PD13 no sale al encapsulado LQFP64
   ...
-$ ./build/sim placas/discovery_min.xml blinky.bin 200 --mcu STM32F405VG
+$ ./build/mcu-sim placas/discovery_min.xml blinky.bin 200 --mcu STM32F405VG
   LED LD4 en PD12: apagado  (0.00 V, 0.00 mA)      # el F405 no tiene ETH, y da igual
-$ ./build/sim placas/discovery_min.xml --mcu STM32F446RE --valida
+$ ./build/mcu-sim placas/discovery_min.xml --mcu STM32F446RE --valida
   mcu (implicito): no se sabe construir un 'STM32F446RE'.
 ```
 
@@ -3056,7 +3056,7 @@ más patillas, más E/S.
 Se ve en una línea:
 
 ```
-$ ./build/sim placas/discovery_min.xml --mcu STM32F405OE --valida
+$ ./build/mcu-sim placas/discovery_min.xml --mcu STM32F405OE --valida
   [decl] LD3.anodo: el pad PD13 no sale al encapsulado WLCSP90
 ```
 
@@ -3141,7 +3141,7 @@ Hecha, y con las dos cosas que pedía: **un `Stm32F446` que es el F407 menos lo
 que no tiene**, y **un blinky compilado para F446RE que arranca y parpadea**.
 
 ```
-$ ./build/sim placas/nucleo_f446re.xml verif/fw/blinky446/blinky446.bin 700
+$ ./build/mcu-sim placas/nucleo_f446re.xml verif/fw/blinky446/blinky446.bin 700
 placa 'nucleo-f446re': 1 MCU(s), 2 componentes, 154 nodos, 0 avisos
 firmware de u0: verif/fw/blinky446/blinky446.bin
 simulados 700.000 ms en 0.010 s de anfitrion (18522 deltas)

@@ -14,12 +14,12 @@
 # Ubuntu 24.04 usa C++17; si compilas SystemC tú mismo, ajusta CXXSTD.
 #
 #   make SYSTEMC_HOME=/opt/systemc CXXSTD=c++14
-#   make test                     # la suite del F407 (2055 comprobaciones)
+#   make test407                  # la suite del F407 (2055 comprobaciones)
 #   make test446                  # la del F446 (200), que es OTRO ejecutable
 #   make red                      # la capa de red, que NO necesita SystemC
-#   make asan                     # la suite del F407 con ASan + UBSan (Linux y macOS)
+#   make asan407                  # la suite del F407 con ASan + UBSan (Linux y macOS)
 #   make asan446                  # y la del F446
-#   make sim                      # construye el que monta una placa desde un XML
+#   make mcu-sim                  # construye el que monta una placa desde un XML
 #   make bench                    # el banco de medida del coste de simulación
 #   make run IMG=firmware.bin     # carga una imagen en la Flash y simula
 #   make plataforma               # qué ha detectado, sin compilar nada
@@ -146,17 +146,17 @@ LDLIBS   += -lsystemc $(LIBS_SO) $(EXTRA_LD)
 HDRS := $(wildcard common/*.h pins/*.h parts/*.h bus/*.h mem/*.h rcc/*.h core/*.h \
                    periph/*.h soc/*.h verif/*.h top/*.h)
 
-TARGET := build/mcu-sim$(EXE)
-SIM    := build/sim$(EXE)
-TB446  := build/tb446$(EXE)
+TEST407 := build/test407$(EXE)
+MCUSIM  := build/mcu-sim$(EXE)
+TEST446 := build/test446$(EXE)
 BENCH  := build/bench$(EXE)
 RED    := build/prueba_red$(EXE)
-ASAN   := build/tb_asan$(EXE)
-ASAN446 := build/tb446_asan$(EXE)
+ASAN407 := build/asan407$(EXE)
+ASAN446 := build/asan446$(EXE)
 
-.PHONY: all test test446 tb446 asan asan446 smoke bench sim red run clean plataforma
+.PHONY: all test407 test446 test446-build asan407 asan446 smoke bench mcu-sim red run clean plataforma
 
-all: $(TARGET)
+all: $(TEST407)
 
 # Qué ha decidido el Makefile, por si algo no cuadra. Es la primera orden que
 # hay que ejecutar cuando la compilación falla en una máquina nueva.
@@ -169,7 +169,7 @@ plataforma:
 	@echo "LDLIBS       = $(LDLIBS)"
 	@echo "LIBDIRS      = $(LIBDIRS)"
 
-$(TARGET): top/sc_main.cpp $(HDRS)
+$(TEST407): top/sc_main.cpp $(HDRS)
 	@mkdir -p build
 	$(CXX) $(CXXFLAGS) -o $@ top/sc_main.cpp $(LDFLAGS) $(LDLIBS)
 
@@ -183,11 +183,11 @@ bench: $(BENCH)
 
 # El modelo con la PLACA EN UN FICHERO (paso 3 de parts/)
 #   make sim && ./build/sim placa.xml [firmware.bin] [ms]
-$(SIM): top/sim_main.cpp $(HDRS)
+$(MCUSIM): top/sim_main.cpp $(HDRS)
 	@mkdir -p build
 	$(CXX) $(CXXFLAGS) -o $@ top/sim_main.cpp $(LDFLAGS) $(LDLIBS)
 
-sim: $(SIM)
+mcu-sim: $(MCUSIM)
 
 # La SUITE DEL F446, que es un banco APARTE y no unas pruebas mas dentro de
 # `sc_main.cpp`. El motivo esta escrito en la cabecera de su fichero y merece
@@ -195,14 +195,15 @@ sim: $(SIM)
 # invariante del F407, porque un chip no es inerte. Dos chips en la misma
 # simulacion son una placa de dos chips.
 #   make test446
-$(TB446): top/sc_main_f446.cpp $(HDRS)
+$(TEST446): top/sc_main_f446.cpp $(HDRS)
 	@mkdir -p build
 	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_f446.cpp $(LDFLAGS) $(LDLIBS)
 
-tb446: $(TB446)
+# Construir sin ejecutar, por si se quiere compilar y lanzar a mano.
+test446-build: $(TEST446)
 
-test446: $(TB446)
-	./$(TB446)
+test446: $(TEST446)
+	./$(TEST446)
 
 # --- La capa de red, que es la única parte no portable -----------------------
 # No necesita SystemC, así que se compila y se ejecuta en cualquier sitio, y se
@@ -235,16 +236,16 @@ ASANFLAGS := -std=$(CXXSTD) $(AVISOS) $(DEFS) $(DEF_SO) -g -O1 \
              -fsanitize=address,undefined -fno-omit-frame-pointer \
              $(INC_SYSTEMC) -I. $(EXTRA)
 
-$(ASAN): top/sc_main.cpp $(HDRS)
+$(ASAN407): top/sc_main.cpp $(HDRS)
 	@mkdir -p build
 	$(CXX) $(ASANFLAGS) -o $@ top/sc_main.cpp $(LDFLAGS) $(LDLIBS)
 
 ifeq ($(PLATAFORMA),windows)
-asan:
+asan407:
 	@echo "MinGW no trae AddressSanitizer: 'make asan' solo va en Linux y macOS."
 else
-asan: $(ASAN)
-	./$(ASAN)
+asan407: $(ASAN407)
+	./$(ASAN407)
 endif
 
 # Lo mismo para la suite del F446. Va aparte porque es otro ejecutable, por la
@@ -268,14 +269,14 @@ endif
 # de firmware se cargan por rutas relativas (`verif/fw/...`) y desde otro
 # directorio fallan diecisiete comprobaciones que no tienen nada que ver con lo
 # que se estuviera mirando.
-test: $(TARGET)
-	./$(TARGET)
+test407: $(TEST407)
+	./$(TEST407)
 
 # Alias histórico de la fase F0
-smoke: test
+smoke: test407
 
-run: $(TARGET)
-	./$(TARGET) $(IMG)
+run: $(TEST407)
+	./$(TEST407) $(IMG)
 
 clean:
 	$(BORRA)
