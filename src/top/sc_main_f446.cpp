@@ -102,12 +102,16 @@ SC_MODULE(Tb446) {
 
         // LA TRAMPA DE DIRECCIONES, que es la que este documento marcó como el
         // error mas caro del puerto: 0x4000_4000 es el I2S3ext en el F407 y el
-        // SPDIF-RX en el F446. Hoy, en el F446, no hay ninguno de los dos, y
-        // eso es lo unico honesto mientras el segundo no este modelado: un
-        // I2S3ext contestando ahi seria un modelo que funciona y miente.
-        check(!dut.apb1_dec.decodes(0x40004000u),
-              "0x4000_4000: en el F446 NO contesta el I2S3ext (ahi va el "
-              "SPDIF-RX, que aun no esta: fase 4)");
+        // SPDIF-RX en el F446. Desde la fase 4 ahi contesta el SPDIF-RX -un
+        // bloque DECLARADO y no modelado-, y lo que hay que comprobar es que
+        // quien contesta es EL SUYO: si el que respondiera fuese el I2S3ext,
+        // el firmware configuraria un periferico de audio creyendo hablar con
+        // otro y el modelo no diria ni pio.
+        check(dut.apb1_dec.decodes(0x40004000u),
+              "0x4000_4000: en el F446 SI hay alguien, porque ahi vive el "
+              "SPDIF-RX");
+        check_eq(uint64_t(dut.spdifrx.base()), uint64_t(0x40004000u),
+                 "y ese alguien es el SPDIF-RX, no el I2S3ext del F407");
         check(!dut.apb1_dec.decodes(addr::I2S2EXT_B),
               "0x4000_3400 (I2S2ext): reservado en el F446");
 
@@ -550,6 +554,204 @@ SC_MODULE(Tb446) {
     }
 
     // -----------------------------------------------------------------------
+    // E. LOS SIETE BLOQUES DE LA FASE 4
+    //
+    // Se ejecuta DESPUÉS de `arbol_f446()`, y no por casualidad: allí el
+    // núcleo queda aparcado en un `wfe` y el chip corriendo a 180 MHz con los
+    // tres PLL enganchados. Eso es justo lo que hace falta para preguntarle a
+    // un periférico de qué reloj come, porque la respuesta interesante no es
+    // «un número» sino «el que diga el selector».
+    // -----------------------------------------------------------------------
+    void perifericos_446() {
+        grupo("E1 El mapa: siete ventanas que en el F407 no existen");
+
+        check(dut.apb1_dec.decodes(addr446::FMPI2C1_B),
+              "0x4000_6000 (FMPI2C1): contesta, aunque la tabla de fronteras "
+              "del RM0390 rev.4 se deje ese rango sin nombrar");
+        // Y los bits de reloj que van con ellas, sacados de stm32f446xx.h y no
+        // de la memoria. El del SPDIF-RX -el 16 del APB1ENR- es el que la
+        // primera version de la fase 4 se dejo fuera: con el bloque en su sitio
+        // y su reloj sin poder encenderse, el modelo daba error de bus en una
+        // ventana que el silicio atiende [I-44].
+        check_eq(dut.rcc.bits_implementados(Rcc::R_APB1ENR), 0x3FFFC9FFu,
+                 "RCC_APB1ENR del F446: 26 bits, con el 16 (SPDIFRXEN), el 24 "
+                 "(FMPI2C1EN) y el 27 (CECEN) que el F407 no tiene");
+        check_eq(dut.rcc.bits_implementados(Rcc::R_APB2ENR), 0x00C77F33u,
+                 "RCC_APB2ENR: con SPI4EN, SAI1EN y SAI2EN");
+        check_eq(dut.rcc.bits_implementados(Rcc::R_AHB3ENR), 0x00000003u,
+                 "RCC_AHB3ENR: dos bits, FMC y QSPI, donde el F407 tiene uno");
+        check_eq(dut.rcc.bits_implementados(Rcc::R_AHB1ENR), 0x606410FFu,
+                 "y el AHB1ENR PIERDE bits: sin Ethernet y sin CCM, un F446 no "
+                 "puede encender lo que no lleva");
+        check(dut.apb1_dec.decodes(addr446::CEC_B) &&
+              dut.apb2_dec.decodes(addr446::SPI4_B) &&
+              dut.apb2_dec.decodes(addr446::SAI1_B) &&
+              dut.apb2_dec.decodes(addr446::SAI2_B),
+              "HDMI-CEC, SPI4, SAI1 y SAI2, cada uno en la suya");
+        // Los dos bloques de cada SAI son esclavos con direccion propia: el A
+        // en base+0x04 y el B en base+0x24 [stm32f446xx.h, SAI_Block_TypeDef].
+        check(dut.apb2_dec.decodes(addr446::SAI1_B + 0x04) &&
+              dut.apb2_dec.decodes(addr446::SAI1_B + 0x24),
+              "y dentro de un SAI hay DOS bloques, no un banco de registros");
+
+        // EL PUERTO COMPARTIDO. El septimo esclavo de la matriz del F446 es
+        // «FMC / QUADSPI» y no dos [RM0390, §2.1], asi que las dos ventanas
+        // del QUADSPI cuelgan del MISMO puerto, por un decodificador propio.
+        check(dut.ahb3_dec.decodes(addr446::QUADSPI_MEM) &&
+              dut.ahb3_dec.decodes(addr446::QUADSPI_B),
+              "0x9000_0000 y 0xA000_1000 salen los dos por el puerto de "
+              "memoria externa: el QUADSPI no anade un octavo esclavo");
+        check(!dut.ahb3_dec.decodes(0xA0000000u),
+              "y 0xA000_0000, los registros del FMC, NO se decodifica: en un "
+              "F446RE ese encapsulado no saca el bus externo, asi que tocarlo "
+              "da error de bus [DS10693, tabla 2]");
+
+        grupo("E2 FMPI2C1: el reloj que elige FMPI2C1SEL se ve en SCL");
+
+        // PCLK1 va a 45 MHz (180/4) desde el grupo C. Con PRESC=3 (divide por
+        // 4) y SCLL=SCLH=9, el periodo son 20 pulsos de 4/45 MHz.
+        wr(addr::RCC_B + Rcc::R_APB1ENR, rd(addr::RCC_B + Rcc::R_APB1ENR) |
+                                         (1u << 24));          // FMPI2C1EN
+        rcc_w(Rcc::R_DCKCFGR2, (1u << 27));                     // FMPI2C1SEL=00
+        wait(1, SC_US);
+        wr(addr446::FMPI2C1_B + FmpI2c::R_TIMINGR,
+           (3u << 28) | (9u << 8) | 9u);
+        check_near(dut.fmpi2c1.scl_hz(), 45e6 / 4.0 / 20.0, 0.001,
+                   "FMPI2C1SEL = 00: el bloque come de PCLK1 y su SCL sale a "
+                   "562,5 kHz con ese TIMINGR");
+        rcc_w(Rcc::R_DCKCFGR2, (1u << 27) | (1u << 22));        // FMPI2C1SEL=01
+        wait(1, SC_US);
+        check_near(dut.fmpi2c1.scl_hz(), 180e6 / 4.0 / 20.0, 0.001,
+                   "FMPI2C1SEL = 01: el MISMO TIMINGR da cuatro veces mas "
+                   "porque ahora come de SYSCLK. El selector no guarda un bit");
+        rcc_w(Rcc::R_DCKCFGR2, (1u << 27) | (2u << 22));        // FMPI2C1SEL=10
+        wait(1, SC_US);
+        check_near(dut.fmpi2c1.scl_hz(), 16e6 / 4.0 / 20.0, 0.001,
+                   "FMPI2C1SEL = 10: y del HSI, que es el caso que sirve para "
+                   "no perder el bus al cambiar de frecuencia");
+        rcc_w(Rcc::R_DCKCFGR2, (1u << 27));
+        wait(1, SC_US);
+
+        // Y lo que NO es el I2C de siempre: ISR/ICR en vez de SR1/SR2, y un
+        // TIMINGR que el silicio no deja tocar con el bloque encendido.
+        wr(addr446::FMPI2C1_B + FmpI2c::R_CR1, FmpI2c::C1_PE);
+        wr(addr446::FMPI2C1_B + FmpI2c::R_TIMINGR, 0xDEADBEEFu);
+        check_eq(rd(addr446::FMPI2C1_B + FmpI2c::R_TIMINGR),
+                 (3u << 28) | (9u << 8) | 9u,
+                 "TIMINGR con PE=1 no se escribe, igual que en el silicio "
+                 "[RM0390, 23.7.5]");
+        wr(addr446::FMPI2C1_B + FmpI2c::R_CR1, 0);
+
+        grupo("E3 QUADSPI: un comando que sale por los pines");
+
+        wr(addr::RCC_B + Rcc::R_AHB3ENR, 3u);                   // FMC + QSPIEN
+        wait(1, SC_US);
+        const unsigned cmd0 = dut.qspi.n_comandos();
+        wr(addr446::QUADSPI_B + QuadSpi::R_CR, QuadSpi::CR_EN);
+        // Leer la identificacion de una memoria: instruccion 0x9F en una
+        // linea, sin direccion, tres bytes de vuelta en una linea.
+        wr(addr446::QUADSPI_B + QuadSpi::R_DLR, 2u);
+        wr(addr446::QUADSPI_B + QuadSpi::R_CCR,
+           0x9Fu | (1u << 8) | (1u << 24) | (1u << 26));
+        wait(50, SC_US);
+        check(dut.qspi.n_comandos() == cmd0 + 1,
+              "escribir CCR sin fase de direccion LANZA el comando: es de las "
+              "cosas del QUADSPI que mas despistan y aqui esta modelada");
+        check_eq(dut.qspi.ultima_instruccion(), 0x9Fu,
+                 "y por el pin ha salido el 0x9F, no otro byte");
+
+        grupo("E4 SAI1: la trama de audio sale del reloj del selector");
+
+        wr(addr::RCC_B + Rcc::R_APB2ENR, rd(addr::RCC_B + Rcc::R_APB2ENR) |
+                                         (1u << 22));           // SAI1EN
+        // SAI1SRC = 00 (PLLSAI_Q) con PLLSAIDIVQ = 1 -> el propio Q.
+        rcc_w(Rcc::R_DCKCFGR, 0u);
+        wait(1, SC_US);
+        const double f_sai = dut.rcc.sai1_freq();
+        check(f_sai > 0.0, "el SAI1 tiene reloj: el PLLSAI engancha de verdad");
+        // MCKDIV = 1 -> MCLK = f/2, y fs = MCLK/256 con NODIV = 0.
+        wr(addr446::SAI1_B + 0x04 + SaiBlock::R_CR1, (1u << 20));
+        check_near(dut.sai1.a.mclk_hz(), f_sai / 2.0, 0.001,
+                   "MCKDIV = 1 divide el reloj del bloque por dos");
+        check_near(dut.sai1.a.fs_hz(), f_sai / 2.0 / 256.0, 0.001,
+                   "y la frecuencia de muestreo es MCLK/256, que es la "
+                   "relacion de la que viene el «256 fs» de los codecs");
+        // El mismo bloque con OTRA fuente: SAI1SRC = 10 es PLL_R.
+        rcc_w(Rcc::R_DCKCFGR, (2u << 20));
+        wait(1, SC_US);
+        check_near(dut.sai1.a.mclk_hz(), dut.rcc.pll_r_freq() / 2.0, 0.001,
+                   "cambiar SAI1SRC cambia la trama sin tocar un registro del "
+                   "SAI: es el arbol de la fase 3 llegando al pin");
+        rcc_w(Rcc::R_DCKCFGR, 0u);
+
+        grupo("E5 Lo declarado y no modelado, que lo dice");
+
+        // Un bloque declarado sigue necesitando su reloj para contestar: sin
+        // SPDIFRXEN ni CECEN, lo que hay en su ventana es un error de bus, que
+        // es otra cosa distinta y tambien correcta.
+        wr(addr::RCC_B + Rcc::R_APB1ENR, rd(addr::RCC_B + Rcc::R_APB1ENR) |
+                                         (1u << 16) | (1u << 27));
+        wait(1, SC_US);
+        const unsigned a0 = dut.spdifrx.accesos();
+        check_eq(rd(addr446::SPDIFRX_B + 0x04), 0u,
+                 "un registro del SPDIF-RX lee cero, no basura ni lo que se "
+                 "escribio antes");
+        wr(addr446::SPDIFRX_B + 0x00, 0xFFFFFFFFu);
+        check_eq(rd(addr446::SPDIFRX_B + 0x00), 0u,
+                 "y escribir no se guarda: un firmware que lo configure y lo "
+                 "lea de vuelta VE que no le ha hecho caso, en vez de creerse "
+                 "configurado y quedarse esperando");
+        check(dut.spdifrx.accesos() > a0,
+              "el bloque cuenta sus accesos, y el primero saca un aviso por el "
+              "informe de SystemC diciendo en que fase le toca");
+        check_eq(rd(addr446::CEC_B + 0x00), 0u, "lo mismo el HDMI-CEC");
+
+        grupo("E6 Lo que el die tiene y el LQFP64 no saca");
+
+        // Esto es lo que separa «el chip no lo lleva» de «el encapsulado no le
+        // saca pines», que son dos cosas distintas y el modelo las trata
+        // distinto [vs_446re, §8.3].
+        check(dut.apb2_dec.decodes(addr446::SPI4_B) &&
+              !dut.pinmux.tiene_af(4, 2, 5) && !dut.pinmux.tiene_af(4, 4, 5) &&
+              !dut.pinmux.tiene_af(4, 5, 5) && !dut.pinmux.tiene_af(4, 6, 5) &&
+              !dut.pinmux.tiene_af(6, 12, 6) && !dut.pinmux.tiene_af(6, 13, 6),
+              "el SPI4 responde en el bus y no tiene ni un pin: sus seis "
+              "ranuras del die (PE2/4/5/6, PG12/13) no estan registradas "
+              "porque el LQFP64 no las saca");
+        check(!dut.pinmux.tiene_af(4, 2, 6) && !dut.pinmux.tiene_af(5, 7, 6),
+              "y el SAI2 tampoco: ni una ranura de AF6 fuera de las del SAI1");
+
+        // EL QUADSPI, QUE SI TIENE PINES PERO NO TODOS. Esta es, literalmente,
+        // la nota 3 del datasheet: «For the LQFP64 package the Quad SPI is
+        // available with limited features». Sin IO2 no hay cuatro lineas.
+        check(dut.pinmux.tiene_af(1, 2, 9) && dut.pinmux.tiene_af(2, 9, 9) &&
+              dut.pinmux.tiene_af(2, 10, 9) && dut.pinmux.tiene_af(0, 1, 9) &&
+              dut.pinmux.tiene_af(1, 6, 10),
+              "QUADSPI: CLK en PB2, IO0 en PC9, IO1 en PC10, IO3 en PA1 y NCS "
+              "en PB6 [PINDATA: STM32F446R(C-E)Tx]");
+        check(!dut.pinmux.tiene_af(2, 8, 9) && !dut.pinmux.tiene_af(4, 2, 9),
+              "y IO2 NO tiene pin en este encapsulado: es la nota 3 del "
+              "datasheet, «available with limited features»");
+        check(dut.pinmux.tiene_af(2, 6, 4) && dut.pinmux.tiene_af(2, 7, 4),
+              "el FMPI2C1 si los tiene: SCL en PC6 y SDA en PC7, en AF4, la "
+              "misma ranura que ocupan los I2C de siempre en otros pines");
+        check(MCU_STM32F446RE.perif.spi4 && MCU_STM32F446RE.perif.sai &&
+              MCU_STM32F446RE.perif.quadspi && MCU_STM32F446RE.perif.fmpi2c1 &&
+              MCU_STM32F446RE.perif.cec && MCU_STM32F446RE.perif.spdifrx &&
+              MCU_STM32F446RE.perif.i2s1,
+              "el descriptor del F446 declara los siete");
+        check(!MCU_STM32F407VG.perif.spi4 && !MCU_STM32F407VG.perif.sai &&
+              !MCU_STM32F407VG.perif.quadspi && !MCU_STM32F407VG.perif.fmpi2c1 &&
+              !MCU_STM32F407VG.perif.cec && !MCU_STM32F407VG.perif.spdifrx &&
+              !MCU_STM32F407VG.perif.i2s1,
+              "y el del F407 no declara ninguno");
+        // El SPI1 del F446 SI hace audio, y es el mismo IP: lo que cambia es
+        // el rasgo, no la clase.
+        check(std::string(dut.spi1.caps().kind) == "SPI/I2S (APB2)",
+              "el SPI1 de un F446 es el I2S1: mismo bloque, rasgo distinto");
+    }
+
+    // -----------------------------------------------------------------------
     // D. EL HITO H4: los 180 MHz de un firmware de verdad, y el cuelgue
     // -----------------------------------------------------------------------
     void hito_h4() {
@@ -629,6 +831,7 @@ SC_MODULE(Tb446) {
         cruzada();
         blinky();
         arbol_f446();
+        perifericos_446();
         hito_h4();
         std::printf("\n=====================================================\n");
         std::printf("TOTAL F446 : %u comprobaciones OK, %u fallos\n",

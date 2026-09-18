@@ -3266,3 +3266,74 @@ F446 (eran 43), ASan y UBSan limpios en las dos suites, las cinco placas validan
 y los dos blinkys corren. Queda dicho en `limitaciones()` lo que la fase 3 no
 hace: los escalones de VOS no limitan la frecuencia, `RCC_CKGATENR` se guarda y
 no hace nada, y la conmutación del over-drive no para los relojes.
+
+## Fase 4 del plan del F446: los siete bloques nuevos, y un tercer fallo del F407
+
+> Ejecuta la fase 4 del plan
+
+Hecha, en el orden que pedía el plan —por utilidad docente y no por tamaño— y
+con el invariante del F407 intacto en **`2336217899213 ps`**.
+
+```
+--- E2 FMPI2C1: el reloj que elige FMPI2C1SEL se ve en SCL ---
+  [OK] FMPI2C1SEL = 00: el bloque come de PCLK1 y su SCL sale a 562,5 kHz
+  [OK] FMPI2C1SEL = 01: el MISMO TIMINGR da cuatro veces mas: SYSCLK
+  [OK] FMPI2C1SEL = 10: y del HSI
+
+--- E3 QUADSPI: un comando que sale por los pines ---
+  [OK] escribir CCR sin fase de direccion LANZA el comando
+  [OK] y por el pin ha salido el 0x9F, no otro byte
+
+--- E6 Lo que el die tiene y el LQFP64 no saca ---
+  [OK] el SPI4 responde en el bus y no tiene ni un pin
+  [OK] y IO2 del QUADSPI NO tiene pin: es la nota 3 del datasheet
+```
+
+**El FMPI2C1 primero, porque es otro IP.** No es el I2C de siempre con una
+velocidad más: `TIMINGR` en vez de `CCR`, `ISR`/`ICR` en vez de la pareja
+`SR1`/`SR2` leída en el orden correcto, y `NBYTES`/`RELOAD`/`AUTOEND` en vez de
+contar bytes a mano. Está modelado a nivel de bit sobre pines de colector
+abierto, y su reloj **no es PCLK1 salvo que `FMPI2C1SEL` lo diga**: cambiar el
+selector cambia la frecuencia de SCL medida en el pin, que es exactamente lo que
+la fase 3 dejó calculado esperando a que llegara el periférico.
+
+**El QUADSPI comparte puerto con el FMC**, como decía §15.1: el séptimo esclavo
+de la matriz es uno solo. `SocF4` no puede atarlo a ciegas —SystemC no deja
+reatar un socket— así que decide por el descriptor, tapa el FSMC y deja el
+puerto para la clase derivada, que lo lleva a un decodificador suyo con las dos
+ventanas: los 256 MB mapeados en memoria y el kilobyte de registros.
+
+**El SPDIF-RX y el HDMI-CEC, declarados y sin modelar, diciéndolo.** Hay tres
+maneras de tratar un bloque que el silicio tiene y el modelo no: no decodificar
+su ventana (correcto cuando el chip **no lo lleva**), contestar como si
+estuviera (la peor: el firmware se cree configurado y se queda esperando una
+bandera), o **contestar y decirlo**. Es lo tercero: ocupan su ventana, leen
+cero, no guardan lo que se escribe y avisan la primera vez que alguien los toca.
+
+**Los pines son del encapsulado, no del die**, y eso da las tres cosas que un
+alumno se encuentra en la tarjeta: el **SPI4 y el SAI2 no tienen un solo pin**
+en el LQFP64 —se pueden programar y no se ve nada—, y el **QUADSPI no tiene
+IO2**, que es la nota 3 literal del datasheet. Salen de `[PINDATA]`, los
+ficheros de pines que publica ST, y no de la memoria.
+
+**Y un tercer fallo del F407.** Las máscaras de «qué bits existen» de los
+`RCC_xxxENR` estaban escritas a mano desde la fase 1. Al necesitar las del F446
+se sacaron contando los `_Pos` de las cabeceras de ST, y con las dos columnas
+juntas saltaron tres: **`AHB1ENR` usaba la máscara del `AHB1LPENR`**,
+**`AHB2ENR`** admitía el CRYP y el HASH de un F417, y la primera versión de esta
+misma fase se dejó fuera **el bit del SPDIF-RX** (I-44). Los tres del mismo
+tipo que el SysTick y que `RCC_CIR`: el modelo era **más permisivo que el
+silicio**.
+
+Van tres, uno por fase. Y apareció una cuarta que no falla sino que calla: **el
+segmento APB2 no mide lo mismo en las dos piezas** —en el F446 sigue 2 KB más,
+porque detrás del último temporizador están los dos SAI—, de modo que el SAI
+estaba construido, con reloj y dado de alta en su decodificador, y no recibía un
+solo acceso.
+
+Estado: **2050/2050** en el F407 con el invariante intacto, **133/133** en el
+F446 (eran 101), ASan y UBSan limpios en las dos suites y las cinco placas
+validan. Queda dicho en `limitaciones()` lo que la fase 4 no hace: el PEC y los
+temporizadores de SMBus del FMPI2C1, el companding y la sincronización de los
+SAI, y que las peticiones de DMA de los bloques nuevos salen y no llegan a
+ninguna celda, porque el mapa de canales sigue siendo el del F407.

@@ -136,7 +136,11 @@ SC_MODULE(SocF4) {
     Usart usart6{"usart6", addr::USART6_B};
     // Las cinco instancias del bloque SPI/I2S salen del MISMO modelo; el tipo de
     // cada una lo fija el parámetro de plantilla con sus rasgos (periph/spi.h).
-    Spi    spi1{"spi1", addr::SPI1_B};                    // SPI puro, APB2
+    // EL SPI1 YA NO ES UN TIPO FIJO. En el F407 es un SPI puro; en el F446 el
+    // mismo bloque trae la mitad de audio conectada y se llama I2S1. Como es el
+    // MISMO IP con un rasgo distinto, lo que cambia es el rasgo —que llega por
+    // el constructor— y no la clase. `caps().kind` dice cuál de los dos es.
+    SpiBase spi1;                                        // SPI1 / I2S1
     SpiI2s spi2{"spi2", addr::SPI2_B}, spi3{"spi3", addr::SPI3_B};   // SPI + I2S
     I2sExt i2s2ext{"i2s2ext", addr::I2S2EXT_B};           // solo audio, esclavo
     I2sExt i2s3ext{"i2s3ext", addr::I2S3EXT_B};
@@ -169,6 +173,12 @@ SC_MODULE(SocF4) {
     sc_core::sc_signal<double> s_pclk2_hz{"s_pclk2_hz"}, s_timclk1_hz{"s_timclk1_hz"};
     sc_core::sc_signal<double> s_timclk2_hz{"s_timclk2_hz"}, s_pll48_hz{"s_pll48_hz"};
     sc_core::sc_signal<double> s_rtcclk_hz{"s_rtcclk_hz"};
+    // Los relojes de núcleo de los periféricos dedicados del F446. Existen en
+    // los dos chips porque el puerto del RCC existe en los dos; en un F407
+    // valen cero y no los lee nadie.
+    sc_core::sc_signal<double> s_sai1_hz{"s_sai1_hz"}, s_sai2_hz{"s_sai2_hz"};
+    sc_core::sc_signal<double> s_fmpi2c1_hz{"s_fmpi2c1_hz"};
+    sc_core::sc_signal<double> s_i2s1_hz{"s_i2s1_hz"};
     // Resets y gating
     sc_core::sc_signal<bool> s_sysrst_n{"s_sysrst_n"}, s_bkprst_n{"s_bkprst_n"};
     sc_core::sc_vector<sc_core::sc_signal<bool>> s_prst{"s_prst", P_COUNT};
@@ -267,9 +277,10 @@ SC_MODULE(SocF4) {
                          const Cableado& cab = Cableado(),
                          McuCaps caps = MCU_STM32F407VG)
         : sc_core::sc_module(nm), mcu(caps), pinmux("pinmux", cab, caps.enc),
-          rcc("rcc", caps.reloj, caps.arbol),
+          rcc("rcc", caps.reloj, caps.arbol, caps.perif.alguno_f446()),
           core("core", dbg, caps.nucleo, caps.memoria.ram),
-          matrix("matrix", caps.memoria.ram, caps.perif.fsmc, caps.conn),
+          matrix("matrix", caps.memoria.ram, caps.perif.fsmc, caps.conn,
+                 caps.perif.quadspi),
           flash("flash", caps.memoria.flash),
           sram1("sram1", caps.memoria.ram.sram1_base, caps.memoria.ram.sram1_size),
           sram2("sram2", caps.memoria.ram.sram2_base, caps.memoria.ram.sram2_size),
@@ -277,6 +288,8 @@ SC_MODULE(SocF4) {
           ccm("ccm", caps.memoria.ram.ccm_base, caps.memoria.ram.ccm_size),
           gpio("gpio", N_GPIO_PORTS, [](const char* n, size_t i) {
                    return new GpioPort(n, unsigned(i)); }),
+          spi1("spi1", addr::SPI1_B,
+               caps.perif.i2s1 ? CAPS_SPI_APB2_I2S : CAPS_SPI_APB2),
           pwr("pwr", caps.arbol.over_drive),
           s_irq("s_irq", caps.nucleo.n_irq) {
         SC_HAS_PROCESS(SocF4);
@@ -353,7 +366,13 @@ SC_MODULE(SocF4) {
         }
     }
 
-private:
+// A PARTIR DE AQUI, PROTEGIDO Y NO PRIVADO. La diferencia importa desde la
+// fase 4: `Stm32F446` es una clase DERIVADA que añade sus propios periféricos
+// -el FMPI2C1, los dos SAI, el QUADSPI...- y para engancharlos necesita lo
+// mismo que usa el die: `bind_bus_slave()` para el reloj y el gating, `tapa()`
+// para lo que no lleva camino, y `nc()` para las salidas que nadie escucha.
+// Dejarlo privado habría obligado a duplicar esas tres cosas en la derivada.
+protected:
     unsigned nc() { return nc_i_++; }   // siguiente señal de no-conectado
 
     void bind_clocks_resets();
@@ -418,6 +437,8 @@ inline void SocF4::bind_clocks_resets() {
     rcc.rtcclk(s_rtcclk);   rcc.rtcclk_hz(s_rtcclk_hz);
     rcc.lsi_clk(s_lsiclk);  rcc.lsi_hz(s_lsi_hz);
     rcc.systick_ext(s_stk_ext);
+    rcc.sai1_hz(s_sai1_hz); rcc.sai2_hz(s_sai2_hz); rcc.fmpi2c1_hz(s_fmpi2c1_hz);
+    rcc.i2s1_hz(s_i2s1_hz);
     for (unsigned i = 0; i < P_COUNT; ++i) {
         rcc.periph_clk_en[i](s_pcen[i]);
         rcc.periph_rst_n[i](s_prst[i]);
@@ -487,7 +508,16 @@ inline void SocF4::bind_bus() {
     matrix.to_slave[unsigned(BusSlaveId::SRAM2)].bind(sram2.tsk);
     matrix.to_slave[unsigned(BusSlaveId::AHB1_SEG)].bind(ahb1_dec.tsk);
     matrix.to_slave[unsigned(BusSlaveId::AHB2_SEG)].bind(ahb2_dec.tsk);
-    matrix.to_slave[unsigned(BusSlaveId::FSMC_EXT)].bind(fsmc.mem);
+    // EL PUERTO DE MEMORIA EXTERNA. En el F407 es del FSMC y punto. En el F446
+    // ese mismo puerto es «FMC / QUADSPI», así que cuando el chip lleva QUADSPI
+    // lo ata la clase derivada -a un decodificador suyo, porque ahí caben dos
+    // ventanas- y el FSMC se queda tapado. La elaboración de SystemC no permite
+    // reatar un socket, de modo que la decisión tiene que tomarse aquí.
+    if (mcu.perif.quadspi) {
+        tapa(fsmc.mem, "nc_fsmc_mem");
+    } else {
+        matrix.to_slave[unsigned(BusSlaveId::FSMC_EXT)].bind(fsmc.mem);
+    }
 
     // Segmento AHB1 [IR, §6.5]
     for (unsigned p = 0; p < N_GPIO_PORTS; ++p)
@@ -511,7 +541,15 @@ inline void SocF4::bind_bus() {
         tapa(eth.tsk, "nc_eth");
     ahb1_dec.add_slave("to_otghs", addr::OTG_HS_B, 0x40000)->bind(otg_hs.tsk);
     ahb1_dec.add_slave("to_apb1", 0x40000000, 0x8000)->bind(br_apb1.ahb);
-    ahb1_dec.add_slave("to_apb2", 0x40010000, 0x5800)->bind(br_apb2.ahb);
+    // EL SEGMENTO APB2 NO MIDE LO MISMO EN LAS DOS PIEZAS. En el F407 termina
+    // en 0x4001_57FF, y ahi se acaba; en el F446 sigue 2 KB mas porque detras
+    // del ultimo temporizador estan los dos SAI (0x4001_5800 y 0x4001_5C00).
+    // Es la clase de detalle que no da error sino silencio: con la ventana
+    // corta, el puente APB2 no reclama esas direcciones, el decodificador de
+    // AHB1 no encuentra a nadie, y el SAI -que esta perfectamente construido y
+    // dado de alta en el decodificador de APB2- no recibe un solo acceso.
+    ahb1_dec.add_slave("to_apb2", 0x40010000,
+                       mcu.perif.sai ? 0x6000 : 0x5800)->bind(br_apb2.ahb);
     // Segmento AHB2
     ahb2_dec.add_slave("to_otgfs", addr::OTG_FS_B, 0x40000)->bind(otg_fs.tsk);
     if (mcu.perif.dcmi)

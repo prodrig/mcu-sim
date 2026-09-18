@@ -80,8 +80,18 @@ inline void SocF4::bind_periph_common() {
     bind_bus_slave(spi3, s_pclk1, P_SPI3);
     bind_bus_slave(i2s2ext, s_pclk1, P_SPI2);
     bind_bus_slave(i2s3ext, s_pclk1, P_SPI3);
-    spi1.i2s_ext_clk(s_false);         // SPI1 no tiene modo I2S en el F407
-    spi1.i2s_clk_hz(s_zero_hz);
+    // EL SPI1 Y SU MITAD DE AUDIO. En el F407 no la tiene y se le entrega un
+    // reloj muerto; en el F446 SÍ la tiene -es el I2S1- y come de donde diga
+    // I2S1SRC, que es lo que trae `s_i2s1_hz`. La onda cuadrada sigue siendo
+    // la del PLLI2S: lo que gobierna la temporizacion del bloque es la
+    // FRECUENCIA, y esa sí es la del selector.
+    if (mcu.perif.i2s1) {
+        spi1.i2s_ext_clk(rcc.s_i2s_clk);
+        spi1.i2s_clk_hz(s_i2s1_hz);
+    } else {
+        spi1.i2s_ext_clk(s_false);
+        spi1.i2s_clk_hz(s_zero_hz);
+    }
     spi2.i2s_ext_clk(rcc.s_i2s_clk);   spi2.i2s_clk_hz(rcc.s_i2s_hz);
     spi3.i2s_ext_clk(rcc.s_i2s_clk);   spi3.i2s_clk_hz(rcc.s_i2s_hz);
     i2s2ext.i2s_ext_clk(rcc.s_i2s_clk); i2s2ext.i2s_clk_hz(rcc.s_i2s_hz);

@@ -319,6 +319,14 @@ SC_MODULE(PinMux), public af_sel_if {
         for (unsigned p = 0; p < N_GPIO_PORTS; ++p)
             for (unsigned i = 0; i < N_PORT_PINS; ++i) connect_af(p, i, af, ep);
     }
+    // ¿Hay algo registrado en esta ranura? Lo pregunta la verificación, que
+    // necesita distinguir dos cosas que se confunden con facilidad: un
+    // periférico que el chip NO lleva, y uno que sí lleva y al que ESTE
+    // encapsulado no le saca pines. La segunda es la del SPI4 y el SAI2 en un
+    // F446RE [vs_446re, §8.3].
+    bool tiene_af(unsigned port, unsigned pin, uint8_t af) const {
+        return af_tab_.find(key(port, pin, af)) != af_tab_.end();
+    }
     // Ruta analógica (ADC/DAC/HSE/LSE): devuelve el nodo del pin, sea propio o
     // compartido con otro pad.
     analog_net_if& analog(unsigned port, unsigned pin) { return *nodo[port][pin]; }

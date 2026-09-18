@@ -1308,6 +1308,32 @@ SC_MODULE(F1Tb) {
                  "RCC_PLLCFGR reset = 0x24003010");
         check_eq(dut->rcc.peek_reg(Rcc::R_APB1LPENR), 0x36FEC9FFu,
                  "RCC_APB1LPENR reset = 0x36FEC9FF");
+
+        // -------------------------------------------------------------------
+        // QUE BITS EXISTEN DE VERDAD EN LOS ENR [I-44]
+        //
+        // Se destapo en la fase 4, sacando las mascaras de las cabeceras de ST
+        // en vez de escribirlas a mano: el modelo usaba en RCC_AHB1ENR la
+        // mascara del AHB1LPENR, y en el AHB2 admitia los bits del CRYP y del
+        // HASH, que son de un F417. Un bit de mas es un modelo mas permisivo
+        // que el silicio, y eso aqui no vale: el alumno enciende el reloj de
+        // algo que su chip no lleva, se lo lee de vuelta, y se lo cree.
+        //
+        // Se pregunta al modelo y NO por el bus: escribir unos a todo y leer
+        // lo que queda costaria tiempo simulado, y el tiempo simulado de esta
+        // suite es un invariante del proyecto. Los numeros de la derecha estan
+        // escritos aqui a proposito: si alguien toca la tabla del RCC, los dos
+        // sitios tienen que estar de acuerdo.
+        // -------------------------------------------------------------------
+        check_eq(dut->rcc.bits_implementados(Rcc::R_AHB1ENR), 0x7E7411FFu,
+                 "RCC_AHB1ENR solo tiene los bits que da stm32f407xx.h "
+                 "(0x7E7411FF), no los del AHB1LPENR");
+        check_eq(dut->rcc.bits_implementados(Rcc::R_AHB2ENR), 0x000000C1u,
+                 "RCC_AHB2ENR son tres bits -DCMI, RNG y OTG FS-: el CRYP y el "
+                 "HASH son de un F417 y este chip no los lleva");
+        check_eq(dut->rcc.bits_implementados(Rcc::R_AHB1LPENR), 0x7E6791FFu,
+                 "y el AHB1LPENR SI tiene los suyos, que son otros: ENR y "
+                 "LPENR no son el mismo registro con distinto nombre");
     }
 
     // -----------------------------------------------------------------------

@@ -75,12 +75,39 @@ namespace stm32 {
 //           full-duplex en el F407. Desaparecen en el F446 [AN4658], y uno de
 //           sus dos huecos —`0x4000_4000`— lo ocupa allí otro periférico
 //           distinto, el SPDIF-RX. Es la trampa de direcciones de vs_446re §5.3.
+//
+// Y los SEIS que trajo la fase 4, que son la otra cara: bloques que el F446
+// tiene y el F407 no. Van uno por uno, y no como un «es un F446», porque cada
+// uno enciende una cosa distinta —una entrada del decodificador, un módulo, un
+// vector— y porque la familia F446 tiene miembros que no los llevan todos.
+//
+//   spi4      una quinta instancia del bloque SPI, en 0x4001_3400
+//   i2s1      la mitad I2S del SPI1, que en el F407 es un SPI puro
+//   sai       SAI1 y SAI2, los dos bloques de audio
+//   quadspi   memoria externa serie, que comparte puerto de matriz con el FMC
+//   fmpi2c1   el I2C moderno: OTRO IP, no el de siempre con más velocidad
+//   cec       HDMI-CEC
+//   spdifrx   receptor S/PDIF
 struct Periferia {
     bool eth;
     bool dcmi;
     bool fsmc;
     bool rng;
     bool i2sext;
+    bool spi4;
+    bool i2s1;
+    bool sai;
+    bool quadspi;
+    bool fmpi2c1;
+    bool cec;
+    bool spdifrx;
+
+    // ¿Lleva este chip alguno de los bloques que el F446 añadió? Es lo que el
+    // RCC necesita saber para abrir -o no- los siete bits de ENR que van con
+    // ellos, y preguntarlo así evita que el RCC tenga que conocer la lista.
+    bool alguno_f446() const {
+        return spi4 || sai || quadspi || fmpi2c1 || cec || spdifrx;
+    }
 };
 
 struct McuCaps {
@@ -155,10 +182,21 @@ inline constexpr MemCaps MEM_512K { FLASH_512K, RAM_STM32F407VG };
 
 // Los tres juegos de periféricos que hay en la familia. El RNG y los bloques de
 // extensión del I2S los llevan los once, del LQFP64 al UFBGA176.
-//                                            eth    dcmi   fsmc   rng   i2sext
-inline constexpr Periferia PERIF_F407     { true,  true,  true,  true, true };
-inline constexpr Periferia PERIF_F405     { false, false, true,  true, true };
-inline constexpr Periferia PERIF_F405_R64 { false, false, false, true, true };
+// Los siete ultimos campos —los del F446— van escritos a mano aunque valgan lo
+// mismo que su valor por defecto: aqui son documentacion. Un `false` explicito
+// dice «este chip NO lleva el bloque»; un hueco no dice nada, y dentro de tres
+// periféricos nadie recordara si el hueco era una decision o un olvido.
+//                                    eth    dcmi   fsmc   rng   i2sext
+//                                    spi4   i2s1   sai    qspi  fmpi2c cec    spdif
+inline constexpr Periferia PERIF_F407 {
+    true,  true,  true,  true, true,
+    false, false, false, false, false, false, false };
+inline constexpr Periferia PERIF_F405 {
+    false, false, true,  true, true,
+    false, false, false, false, false, false, false };
+inline constexpr Periferia PERIF_F405_R64 {
+    false, false, false, true, true,
+    false, false, false, false, false, false, false };
 
 // El identificador de la familia F405/407/415/417 en `DBGMCU_IDCODE`:
 // DEV_ID = 0x413, REV_ID = 0x1001. [RM0090, §32.6.1]
@@ -242,8 +280,10 @@ inline constexpr MemCaps MEM_STM32F446RE { FLASH_512K, RAM_STM32F446 };
 // cámara SÍ la lleva —es fácil suponer lo contrario porque el F405 no la tiene—
 // y el bus externo existe en el die pero **no en el LQFP64**: DS10693 tabla 2
 // pone `No` en la columna RE de la fila «FMC memory controller».
-//                                        eth    dcmi  fsmc   rng    i2sext
-inline constexpr Periferia PERIF_F446RE { false, true, false, false, false };
+//                                  eth    dcmi  fsmc   rng    i2sext
+inline constexpr Periferia PERIF_F446RE { false, true, false, false, false,
+//                                  spi4  i2s1  sai   qspi  fmpi2c1 cec   spdif
+                                    true, true, true, true, true,   true, true };
 
 // DEV_ID = 0x421, REV_ID = 0x1000 (revisión A) [RM0390, §33.6.1, verificado en
 // la fase 0]. El JTAG ID del boundary-scan, que es otro registro y no este, es

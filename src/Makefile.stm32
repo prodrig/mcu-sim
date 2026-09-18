@@ -17,6 +17,7 @@
 #   make test                     # la suite de verificación (1899 comprobaciones)
 #   make red                      # la capa de red, en la plataforma que sea
 #   make asan                     # la suite con ASan + UBSan (Linux y macOS)
+#   make asan446                  # y la del F446, que es otro ejecutable
 #   make sim                      # el modelo con la placa en un fichero XML
 #   make bench                    # el banco de medida del coste de simulación
 #   make run IMG=firmware.bin     # carga una imagen en la Flash y simula
@@ -149,8 +150,9 @@ TB446  := build/tb446$(EXE)
 BENCH  := build/bench$(EXE)
 RED    := build/prueba_red$(EXE)
 ASAN   := build/tb_asan$(EXE)
+ASAN446 := build/tb446_asan$(EXE)
 
-.PHONY: all test test446 asan smoke bench sim red run clean plataforma
+.PHONY: all test test446 asan asan446 smoke bench sim red run clean plataforma
 
 all: $(TARGET)
 
@@ -241,6 +243,21 @@ asan:
 else
 asan: $(ASAN)
 	./$(ASAN)
+endif
+
+# Lo mismo para la suite del F446. Va aparte porque es otro ejecutable, por la
+# misma razón que `test446`: dos chips en una simulación son una placa de dos
+# chips [top/sc_main_f446.cpp].
+$(ASAN446): top/sc_main_f446.cpp $(HDRS)
+	@mkdir -p build
+	$(CXX) $(ASANFLAGS) -o $@ top/sc_main_f446.cpp $(LDFLAGS) $(LDLIBS)
+
+ifeq ($(PLATAFORMA),windows)
+asan446:
+	@echo "MinGW no trae AddressSanitizer: 'make asan446' solo va en Linux y macOS."
+else
+asan446: $(ASAN446)
+	./$(ASAN446)
 endif
 
 # Suite de verificación (autocomprobable: código de salida 0/1)

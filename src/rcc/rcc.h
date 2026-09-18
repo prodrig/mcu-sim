@@ -51,6 +51,12 @@ enum PeriphId : unsigned {
     // APB2
     P_TIM1, P_TIM8, P_USART1, P_USART6, P_ADC, P_SDIO, P_SPI1, P_SYSCFG,
     P_TIM9, P_TIM10, P_TIM11,
+    // --- Los siete que solo tiene el F446 (fase 4 del plan del F446) -------
+    // Van AL FINAL y no repartidos por sus grupos, y es a propósito: así los
+    // índices de todo lo anterior no se mueven ni un número. Un índice es una
+    // posición en un vector de señales, y renumerarlos por estética habría
+    // sido tocar el F407 para añadir algo que el F407 no tiene.
+    P_SPI4, P_SAI1, P_SAI2, P_QUADSPI, P_FMPI2C1, P_CEC, P_SPDIFRX,
     P_COUNT
 };
 
@@ -84,7 +90,15 @@ static const RccBitMap RCC_BITMAP[] = {
     {G_APB2, 0, P_TIM1}, {G_APB2, 1, P_TIM8}, {G_APB2, 4, P_USART1},
     {G_APB2, 5, P_USART6}, {G_APB2, 8, P_ADC}, {G_APB2, 11, P_SDIO},
     {G_APB2, 12, P_SPI1}, {G_APB2, 14, P_SYSCFG}, {G_APB2, 16, P_TIM9},
-    {G_APB2, 17, P_TIM10}, {G_APB2, 18, P_TIM11}
+    {G_APB2, 17, P_TIM10}, {G_APB2, 18, P_TIM11},
+    // ---- Los del F446 [stm32f446xx.h] -------------------------------------
+    // En un chip que no los lleva, estos bits de ENR ni siquiera se pueden
+    // escribir -la máscara los deja fuera- y el periférico no existe, así que
+    // estas filas no hacen nada. Estar aquí no le da un reloj a nadie: se lo da
+    // el bit, y el bit solo está donde el silicio lo tiene.
+    {G_APB1, 16, P_SPDIFRX}, {G_APB1, 24, P_FMPI2C1}, {G_APB1, 27, P_CEC},
+    {G_APB2, 13, P_SPI4}, {G_APB2, 22, P_SAI1}, {G_APB2, 23, P_SAI2},
+    {G_AHB3,  1, P_QUADSPI}
 };
 constexpr unsigned RCC_BITMAP_N = sizeof(RCC_BITMAP) / sizeof(RCC_BITMAP[0]);
 
@@ -123,6 +137,23 @@ public:
     sc_core::sc_out<double> lsi_hz{"lsi_hz"};
     sc_core::sc_out<bool>   systick_ext{"systick_ext"};   // HCLK/8
 
+    // ---- LOS RELOJES DE NUCLEO DE LOS PERIFERICOS DEDICADOS ----------------
+    // Tres de los nueve selectores de DCKCFGR/DCKCFGR2 alimentan periféricos
+    // que el modelo YA tiene desde la fase 4, y que no comen de PCLK: los dos
+    // SAI y el FMPI2C1. Salen como puertos y no como getters porque el
+    // periférico tiene que ENTERARSE cuando cambian —un `sc_in<double>` se
+    // despierta solo—, y lo contrario obligaría a sondear.
+    //
+    // Se sacan SIEMPRE, también en un F407, donde valen cero porque
+    // `arbol.dckcfgr` es falso y esos selectores no se decodifican. Un puerto
+    // que existe y vale cero es más barato que un puerto condicional: la
+    // elaboración de SystemC no admite dejarlo sin atar.
+    sc_core::sc_out<double> sai1_hz{"sai1_hz"}, sai2_hz{"sai2_hz"};
+    sc_core::sc_out<double> fmpi2c1_hz{"fmpi2c1_hz"};
+    // El I2S1 es el SPI1 con la mitad de audio puesta, y su fuente la elige
+    // I2S1SRC. En un F407 vale cero porque allí el SPI1 no hace audio.
+    sc_core::sc_out<double> i2s1_hz{"i2s1_hz"};
+
     // ---- El over-drive del PWR (solo en los chips que lo tienen) ----------
     // Cuando está activo, los topes de los tres dominios suben: en el F446, de
     // 168/42/84 a 180/45/90 [DS10693, tabla 16]. El RCC no lo decide -es del
@@ -151,6 +182,7 @@ public:
     // registros de seleccion dedicados y si hay over-drive. Cada uno de los
     // cinco enciende o apaga codigo de este fichero. [rcc/reloj_caps.h]
     const ArbolReloj arbol;
+    const bool enr_f446_ = false;   // ¿existen los siete bits del F446?
 
     sc_core::sc_vector<sc_core::sc_out<bool>> periph_clk_en;   // [PeriphId]
     sc_core::sc_vector<sc_core::sc_out<bool>> periph_rst_n;    // [PeriphId]
@@ -194,10 +226,16 @@ public:
     // (típico 1.5 ms). Se deja como parámetro para no penalizar la simulación.
     sc_core::sc_time t_rst_release{20, sc_core::SC_US};
 
+    // `enr_f446` abre los siete bits de ENR/RSTR/LPENR que solo existen en esa
+    // familia. Va por separado y no dentro de `ArbolReloj` porque no es del
+    // árbol de reloj: es de qué periféricos lleva el chip, y eso lo dice
+    // `Periferia`. El top lo calcula de ahí.
     explicit Rcc(sc_core::sc_module_name nm,
                  LimitesReloj lim = RELOJ_STM32F407VG,
-                 ArbolReloj   arb = ARBOL_STM32F4)
+                 ArbolReloj   arb = ARBOL_STM32F4,
+                 bool         enr_f446 = false)
         : BusSlave(nm, addr::RCC_B, 0x400), limites(lim), arbol(arb),
+          enr_f446_(enr_f446),
           periph_clk_en("periph_clk_en", P_COUNT),
           periph_rst_n("periph_rst_n", P_COUNT),
           g_hclk_("g_hclk"), g_pclk1_("g_pclk1"), g_pclk2_("g_pclk2"),
@@ -287,6 +325,32 @@ public:
     double cec_freq()     const { return f_cec_; }
     double fmpi2c1_freq() const { return f_fmpi2c1_; }
     // Las tres VCO, para poder mirar el árbol por dentro sin adivinar.
+    // Qué bits existen de verdad en uno de los diez registros de reloj y reset.
+    // Es lo que `reg_write` aplica, y se expone para que la verificación pueda
+    // comprobarlo SIN tocar el bus: preguntarlo con transacciones costaría
+    // tiempo simulado, y el tiempo simulado de la suite del F407 es un
+    // invariante del proyecto. Devuelve cero para cualquier otro registro.
+    uint32_t bits_implementados(uint32_t off) const {
+        switch (off) {
+            case R_AHB1RSTR:  return masc().ahb1_rstr;
+            case R_AHB2RSTR:  return masc().ahb2_rstr;
+            case R_AHB3RSTR:  return masc().ahb3_rstr;
+            case R_APB1RSTR:  return masc().apb1_rstr;
+            case R_APB2RSTR:  return masc().apb2_rstr;
+            case R_AHB1ENR:   return masc().ahb1_enr;
+            case R_AHB2ENR:   return masc().ahb2_enr;
+            case R_AHB3ENR:   return masc().ahb3_enr;
+            case R_APB1ENR:   return masc().apb1_enr;
+            case R_APB2ENR:   return masc().apb2_enr;
+            case R_AHB1LPENR: return masc().ahb1_lpenr;
+            case R_AHB2LPENR: return masc().ahb2_lpenr;
+            case R_AHB3LPENR: return masc().ahb3_lpenr;
+            case R_APB1LPENR: return masc().apb1_lpenr;
+            case R_APB2LPENR: return masc().apb2_lpenr;
+            default:          return 0;
+        }
+    }
+
     double pll_r_freq()    const { return pll.out_r_hz(); }
     double pllsai_p_freq() const { return pllsai.out_p_hz(); }
     double pllsai_q_freq() const { return pllsai.out_q_hz(); }
@@ -302,6 +366,44 @@ protected:
 
 private:
     void bind_internal_();
+
+    // -----------------------------------------------------------------------
+    // QUÉ BITS EXISTEN EN CADA REGISTRO DE RELOJ Y DE RESET
+    //
+    // Una máscara aquí no es una comodidad: es la frontera entre lo que el
+    // firmware puede encender y lo que no. Un bit de más es un modelo más
+    // permisivo que el silicio, que es la peor clase de error que puede tener
+    // un simulador didáctico —el alumno enciende el reloj del Ethernet en un
+    // chip que no lo lleva, se lo lee de vuelta, y se cree en lo cierto—.
+    //
+    // LAS VEINTE CONSTANTES SALEN DE LAS CABECERAS DE ST, extraídas contando
+    // los `RCC_xxx_yyy_Pos` que cada una define: `stm32f407xx.h` para una
+    // columna y `stm32f446xx.h` para la otra, las dos vendidas en
+    // `verif/fw/cmsis/`. No están escritas a mano, y por eso destaparon tres
+    // errores del modelo que llevaban aquí desde la fase 1 [I-44]:
+    //
+    //   * AHB1ENR usaba la máscara del AHB1LPENR (0x7E6791FF en vez de
+    //     0x7E7411FF): dejaba encender bits que no existen y prohibía dos que
+    //     sí —los del OTG HS—;
+    //   * AHB2ENR/RSTR/LPENR admitían los bits 4 y 5, que son el CRYP y el
+    //     HASH de un F417 y no de un F407;
+    //   * y el APB1ENR del F446, escrito en la fase 4, se dejaba fuera el bit
+    //     16, que es justamente el SPDIF-RX.
+    // -----------------------------------------------------------------------
+    struct MascarasRcc {
+        uint32_t ahb1_rstr, ahb2_rstr, ahb3_rstr, apb1_rstr, apb2_rstr;
+        uint32_t ahb1_enr,  ahb2_enr,  ahb3_enr,  apb1_enr,  apb2_enr;
+        uint32_t ahb1_lpenr, ahb2_lpenr, ahb3_lpenr, apb1_lpenr, apb2_lpenr;
+    };
+    static constexpr MascarasRcc MASC_F407 = {
+        0x226011FFu, 0x000000C1u, 0x00000001u, 0x36FEC9FFu, 0x00075F33u,
+        0x7E7411FFu, 0x000000C1u, 0x00000001u, 0x36FEC9FFu, 0x00075F33u,
+        0x7E6791FFu, 0x000000C1u, 0x00000001u, 0x36FEC9FFu, 0x00075F33u };
+    static constexpr MascarasRcc MASC_F446 = {
+        0x206010FFu, 0x00000081u, 0x00000003u, 0x3FFFC9FFu, 0x00C77F33u,
+        0x606410FFu, 0x00000081u, 0x00000003u, 0x3FFFC9FFu, 0x00C77F33u,
+        0x606790FFu, 0x00000081u, 0x00000003u, 0x3FFFC9FFu, 0x00C77F33u };
+    const MascarasRcc& masc() const { return enr_f446_ ? MASC_F446 : MASC_F407; }
 
     // ---- Banco de registros [IR, §4.12] ------------------------------------
     // ⚠ NO DISPONIBLE EN LAS FUENTES: valor de calibración de fábrica HSICAL
@@ -356,11 +458,17 @@ private:
         cfgr_      = 0x00000000u;
         cir_       = 0x00000000u;
         ahb1rstr_ = ahb2rstr_ = ahb3rstr_ = apb1rstr_ = apb2rstr_ = 0;
-        ahb1enr_   = 0x00100000u;   // CCMDATARAMEN = 1
+        // CCMDATARAMEN vale uno al reset... en el chip que tiene CCM. En un
+        // F446 ese bit no existe, y ponerlo a uno seria decir que hay una
+        // memoria que no hay.
+        ahb1enr_   = (masc().ahb1_enr & (1u << 20));
         ahb2enr_ = ahb3enr_ = apb1enr_ = apb2enr_ = 0;
-        ahb1lpenr_ = 0x7E6791FFu; ahb2lpenr_ = 0x000000F1u;
-        ahb3lpenr_ = 0x00000001u; apb1lpenr_ = 0x36FEC9FFu;
-        apb2lpenr_ = 0x00075F33u;
+        // Los LPENR arrancan con TODOS sus bits implementados a uno: al
+        // dormirse, un periferico habilitado sigue recibiendo reloj salvo que
+        // alguien le quite su LPEN. Por eso el valor de reset ES la mascara.
+        ahb1lpenr_ = masc().ahb1_lpenr; ahb2lpenr_ = masc().ahb2_lpenr;
+        ahb3lpenr_ = masc().ahb3_lpenr; apb1lpenr_ = masc().apb1_lpenr;
+        apb2lpenr_ = masc().apb2_lpenr;
         sscgr_     = 0x00000000u;
         plli2scfgr_= arbol.plli2s_propio ? 0x24003000u : 0x20003000u;
         // ⚠ NO DISPONIBLE EN LAS FUENTES: el valor de reset del campo M de
@@ -560,6 +668,9 @@ private:
 
         set_domain_hz(f_hclk_);
         update_cir_flags();
+        // Los relojes de núcleo que salen por puerto. `publish()` no escribe:
+        // notifica, y quien escribe es siempre el mismo proceso.
+        publish();
     }
 
     // -----------------------------------------------------------------------
@@ -759,6 +870,10 @@ private:
         nmi_css.write(o_nmi_css_);
         irq.write(o_irq_);
         periph_on.write(o_periph_on_);
+        sai1_hz.write(f_sai1_);
+        sai2_hz.write(f_sai2_);
+        fmpi2c1_hz.write(f_fmpi2c1_);
+        i2s1_hz.write(f_i2s1_);
         for (unsigned i = 0; i < P_COUNT; ++i) {
             periph_clk_en[i].write(o_pcen_[i]);
             periph_rst_n[i].write(o_prstn_[i]);
@@ -1122,23 +1237,28 @@ inline void Rcc::reg_write(uint32_t off, uint32_t v, uint32_t be) {
             update_cir_flags();
             break;
         }
-        case R_AHB1RSTR: ahb1rstr_ = v & 0x22600FFFu; periph = true; break;
-        case R_AHB2RSTR: ahb2rstr_ = v & 0x000000F1u; periph = true; break;
-        case R_AHB3RSTR: ahb3rstr_ = v & 0x00000001u; periph = true; break;
-        case R_APB1RSTR: apb1rstr_ = v & 0x36FEC9FFu; periph = true; break;
-        case R_APB2RSTR: apb2rstr_ = v & 0x00075F33u; periph = true; break;
-        case R_AHB1ENR:  ahb1enr_  = v & 0x7E6791FFu; periph = true; break;
-        case R_AHB2ENR:  ahb2enr_  = v & 0x000000F1u; periph = true; break;
-        case R_AHB3ENR:  ahb3enr_  = v & 0x00000001u; periph = true; break;
-        case R_APB1ENR:  apb1enr_  = v & 0x36FEC9FFu; periph = true; break;
-        case R_APB2ENR:  apb2enr_  = v & 0x00075F33u; periph = true; break;
+        // Las mascaras dicen QUE BITS EXISTEN, y salen de la cabecera de ST
+        // del chip que toque (vease MascarasRcc): los siete del F446 se suman
+        // solo donde el chip los tiene, y en un F407 escribir el bit del
+        // FMPI2C1 no enciende nada y se lee cero, que es lo que hace un bit
+        // reservado.
+        case R_AHB1RSTR: ahb1rstr_ = v & masc().ahb1_rstr; periph = true; break;
+        case R_AHB2RSTR: ahb2rstr_ = v & masc().ahb2_rstr; periph = true; break;
+        case R_AHB3RSTR: ahb3rstr_ = v & masc().ahb3_rstr; periph = true; break;
+        case R_APB1RSTR: apb1rstr_ = v & masc().apb1_rstr; periph = true; break;
+        case R_APB2RSTR: apb2rstr_ = v & masc().apb2_rstr; periph = true; break;
+        case R_AHB1ENR:  ahb1enr_  = v & masc().ahb1_enr;  periph = true; break;
+        case R_AHB2ENR:  ahb2enr_  = v & masc().ahb2_enr;  periph = true; break;
+        case R_AHB3ENR:  ahb3enr_  = v & masc().ahb3_enr;  periph = true; break;
+        case R_APB1ENR:  apb1enr_  = v & masc().apb1_enr;  periph = true; break;
+        case R_APB2ENR:  apb2enr_  = v & masc().apb2_enr;  periph = true; break;
         // Los LPENR mandan mientras el MCU duerme, asi que tocarlos tambien
-        // reparte relojes: es la palanca para gastar menos en Sleep [IR, §4.8].
-        case R_AHB1LPENR:ahb1lpenr_= v & 0x7E6791FFu; periph = true; break;
-        case R_AHB2LPENR:ahb2lpenr_= v & 0x000000F1u; periph = true; break;
-        case R_AHB3LPENR:ahb3lpenr_= v & 0x00000001u; periph = true; break;
-        case R_APB1LPENR:apb1lpenr_= v & 0x36FEC9FFu; periph = true; break;
-        case R_APB2LPENR:apb2lpenr_= v & 0x00075F33u; periph = true; break;
+        // reparte relojes: es la palanca para gastar menos en Sleep [IR, 4.8].
+        case R_AHB1LPENR:ahb1lpenr_= v & masc().ahb1_lpenr; periph = true; break;
+        case R_AHB2LPENR:ahb2lpenr_= v & masc().ahb2_lpenr; periph = true; break;
+        case R_AHB3LPENR:ahb3lpenr_= v & masc().ahb3_lpenr; periph = true; break;
+        case R_APB1LPENR:apb1lpenr_= v & masc().apb1_lpenr; periph = true; break;
+        case R_APB2LPENR:apb2lpenr_= v & masc().apb2_lpenr; periph = true; break;
         case R_BDCR:
             // BDRST es un nivel: mientras está a 1 el dominio de backup (RTC y
             // el propio RCC_BDCR) permanece en reset [IR, §4.1.3, §4.9].

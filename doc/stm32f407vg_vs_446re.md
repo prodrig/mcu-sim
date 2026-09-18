@@ -1244,3 +1244,87 @@ SysTick de la fase 2**.
   unos ciclos; el modelo espera el tiempo pero no lo para.
 
 Las tres son de la misma clase: cosas que el modelo podría fingir y no finge.
+
+---
+
+## 19. Fase 4: los siete bloques nuevos, y un tercer fallo del F407
+
+La fase 4 era la lista de la compra: **FMPI2C1, QUADSPI, SAI1/SAI2, SPDIF-RX,
+HDMI-CEC, FMC con SDRAM**, más SPI4 e I2S1 de propina. El plan las ordenaba por
+utilidad docente y no por tamaño, y así se han hecho.
+
+**El invariante del F407 sigue intacto: `2336217899213 ps`. La suite del F407
+pasa de 2047 a 2050 comprobaciones y la del F446 de 101 a 133. ASan + UBSan
+limpios en las dos.**
+
+### 19.1 Qué se escribió, y cuánta honestidad lleva cada cosa
+
+| Bloque | Qué hace el modelo | Qué NO hace, y lo dice |
+| :--- | :--- | :--- |
+| **FMPI2C1** `periph/fmpi2c.h` | maestro y esclavo **a nivel de bit** sobre pines de colector abierto; TIMINGR de verdad contra el reloj que elige `FMPI2C1SEL`; NBYTES/RELOAD/AUTOEND; ISR/ICR; dos vectores (95 y 96) | el PEC (`PECR` lee cero) y los temporizadores de SMBus (`TIMEOUTR` se guarda y no vence) |
+| **QUADSPI** `periph/quadspi.h` | los cuatro `CCR.FMODE`: escritura y lectura indirectas, sondeo automático con PSMKR/PSMAR/PIR, y **la ventana de 256 MB mapeada en memoria**; fases de instrucción, dirección, byte alternativo, ciclos vacíos y datos, en 1, 2 o 4 líneas | en el LQFP64 **no hay pin para IO2**: un comando en cuatro líneas escribe al aire por esa línea, y es el silicio el que no puede |
+| **SAI1 y SAI2** `periph/sai.h` | dos bloques por SAI, cada uno esclavo con su dirección; MCLK/SCK/FS calculados desde el reloj del selector; FIFO de ocho con `FLVL`; OVRUDR, FREQ y **WCKCFG**, que es lo que impide arrancar con una trama imposible | companding (µ-law/A-law), MUTE, AC'97, y la sincronización SYNCIN/SYNCOUT: `GCR` se guarda y no encamina nada |
+| **SPDIF-RX** y **HDMI-CEC** `periph/bloque_declarado.h` | ocupan su ventana, leen cero, no guardan lo que se escribe y **avisan la primera vez que alguien los toca** | todo lo demás, y por eso el aviso |
+| **SPI4** | una línea: otra instancia de `spi.h` | no tiene un solo pin en el LQFP64 |
+| **I2S1** | **no es un bloque nuevo**: es el SPI1 con la mitad de audio conectada. Lo que cambia es el rasgo (`CAPS_SPI_APB2_I2S`), no la clase | — |
+| **FMC** | nada, y a propósito: en un F446**RE** el datasheet dice que ese encapsulado no saca el bus externo, así que `0xA000_0000` se queda **sin decodificar** | tocarlo da error de bus, que es lo correcto |
+
+### 19.2 Las tres cosas que costaron, y por qué
+
+**El puerto compartido.** El séptimo esclavo de la matriz del F446 es
+«FMC / QUADSPI», uno solo (§15.1). `SocF4::bind_bus()` no puede atarlo a ciegas
+porque la elaboración de SystemC no deja reatar un socket, así que decide por el
+descriptor: con `perif.quadspi`, tapa el FSMC y **deja el puerto libre para la
+clase derivada**, que lo lleva a un decodificador propio con dos ventanas
+(`0x9000_0000` y `0xA000_1000`).
+
+**Los relojes de núcleo.** Los SAI y el FMPI2C1 no comen de PCLK. La fase 3 ya
+calculaba sus frecuencias «para cuando llegara el periférico»; lo que faltaba
+era el cable, y se ha hecho con puertos del RCC (`sai1_hz`, `sai2_hz`,
+`fmpi2c1_hz`, `i2s1_hz`) en vez de con consultas, porque un `sc_in<double>`
+despierta al periférico y una consulta obliga a sondear. El resultado es lo que
+el plan pedía: **cambiar `FMPI2C1SEL` cambia la frecuencia de SCL medida en el
+pin**, sin tocar un registro del periférico.
+
+**Los pines, que son del encapsulado y no del die.** Salen de `[PINDATA]`, el
+repositorio *STM32 open pin data* de ST: `STM32F446R(C-E)Tx.xml` dice qué señal
+llega a cada pin **de este LQFP64**, y `GPIO-STM32F446_gpio_v1_0_Modes.xml` dice
+con qué número de AF. De ahí las tres consecuencias que un alumno se encuentra
+en la tarjeta: el **SPI4 y el SAI2 no tienen pines**, el **QUADSPI no tiene
+IO2** —la nota 3 literal del datasheet: *«available with limited features»*— y
+el **FMPI2C1 sí los tiene**, en PC6 y PC7 con AF4.
+
+### 19.3 El tercer fallo del F407, encontrado por sacar las máscaras de ST
+
+Las máscaras de `RCC_xxxENR`/`RSTR`/`LPENR` estaban escritas a mano desde la
+fase 1. Al necesitar las del F446 se extrajeron **contando los `RCC_xxx_yyy_Pos`
+de las cabeceras de ST**, y al poner las dos columnas una al lado de otra
+saltaron tres cosas:
+
+* **`RCC_AHB1ENR` usaba la máscara del `AHB1LPENR`** (`0x7E6791FF` en vez de
+  `0x7E7411FF`). Dejaba encender bits que no existen y prohibía dos que sí: los
+  del OTG HS;
+* **`RCC_AHB2ENR`** admitía los bits 4 y 5 —CRYP y HASH—, que son de un F417;
+* y la primera versión de esta misma fase 4 se dejó fuera **el bit 16 del
+  `APB1ENR` del F446, que es el SPDIF-RX**: el bloque estaba en su sitio y su
+  reloj no se podía encender.
+
+Es el tercer fallo del F407 que destapa el puerto —el primero fue el SysTick de
+la fase 2, el segundo el `RCC_CIR` de la fase 3—, y los tres son de la misma
+familia: **el modelo era más permisivo que el silicio**. Queda anotado como
+**I-44**, con una comprobación en T02 que no cuesta tiempo simulado.
+
+Por el camino apareció una cuarta, esta sí de la fase 4 y de las que no fallan
+sino que callan: **el segmento APB2 no mide lo mismo en las dos piezas**. En el
+F407 termina en `0x4001_57FF`; en el F446 sigue 2 KB más, porque detrás del
+último temporizador están los dos SAI. Con la ventana corta, el puente APB2 no
+reclamaba esas direcciones y el SAI —construido, dado de alta en su
+decodificador y con reloj— no recibía un solo acceso.
+
+### 19.4 Lo que la fase 4 deja dicho y no hecho
+
+`limitaciones()` lo enumera y `sim` lo imprime al montar una placa con un F446.
+Además de lo de la tabla de §19.1, queda una cosa de sistema: **las peticiones
+de DMA de los bloques nuevos salen del periférico y no llegan a ninguna celda**,
+porque el mapa de canales del DMA sigue siendo el del F407. Es trabajo de la
+fase 5.

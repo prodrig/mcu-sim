@@ -41,7 +41,8 @@ namespace stm32 {
 // montado sin construir una matriz entera con sus dieciséis sockets. Es lo que
 // hace T128 para el LQFP64, que no lleva FSMC.
 // ---------------------------------------------------------------------------
-inline int decodifica_mapa(const MapaRam& ram, bool hay_fsmc, uint64_t a) {
+inline int decodifica_mapa(const MapaRam& ram, bool hay_fsmc, uint64_t a,
+                           bool hay_qspi = false) {
     using S = BusSlaveId;
     if (a < ram.ccm_base)                                     // 0x0000_0000-0x0FFF_FFFF
         return int(S::FLASH_ICODE);                           //   alias 0x0 + Flash
@@ -66,6 +67,15 @@ inline int decodifica_mapa(const MapaRam& ram, bool hay_fsmc, uint64_t a) {
             a < uint64_t(addr::FSMC_REGS) + addr::FSMC_REGS_SIZE)
             return int(S::FSMC_EXT);
     }
+    // EL QUADSPI COMPARTE ESTE PUERTO, y no es una comodidad del modelo: en el
+    // F446 el séptimo esclavo de la matriz es literalmente «FMC / QUADSPI»
+    // [RM0390, §2.1]. Son dos ventanas: la memoria mapeada -0x9000_0000, donde
+    // aparece la Flash serie- y sus registros -0xA000_1000, justo detrás de los
+    // del FMC-.
+    if (hay_qspi) {
+        if (a >= 0x90000000ull && a <= 0x9FFFFFFFull) return int(S::FSMC_EXT);
+        if (a >= 0xA0001000ull && a <  0xA0002000ull) return int(S::FSMC_EXT);
+    }
     return -1;
 }
 
@@ -82,6 +92,8 @@ SC_MODULE(AhbMatrix) {
     // del FSMC son espacio RESERVADO: tocarlos da error de bus, no un acceso
     // silencioso a un controlador que el chip no tiene.
     const bool hay_fsmc;
+    // ¿Y el QUADSPI, que en el F446 comparte ese mismo puerto de esclavo?
+    const bool hay_qspi;
     // Qué maestro alcanza a qué esclavo. Por omisión, la del F407.
     const Conectividad conn;
 
@@ -106,8 +118,9 @@ SC_MODULE(AhbMatrix) {
     uint64_t n_contention   = 0;         // transacciones que esperaron a otra
 
     explicit AhbMatrix(sc_core::sc_module_name nm, MapaRam r = RAM_STM32F407VG,
-                       bool fsmc = true, Conectividad c = CONN_STM32F407VG)
-        : sc_core::sc_module(nm), ram(r), hay_fsmc(fsmc), conn(c),
+                       bool fsmc = true, Conectividad c = CONN_STM32F407VG,
+                       bool qspi = false)
+        : sc_core::sc_module(nm), ram(r), hay_fsmc(fsmc), hay_qspi(qspi), conn(c),
           from_master("from_master", NM), to_slave("to_slave", NS) {
         SC_HAS_PROCESS(AhbMatrix);
         for (unsigned m = 0; m < NM; ++m) {
@@ -126,7 +139,9 @@ SC_MODULE(AhbMatrix) {
 
 private:
     // La decodificación, que vive fuera del módulo (véase `decodifica_mapa`).
-    int decode(uint64_t a) const { return decodifica_mapa(ram, hay_fsmc, a); }
+    int decode(uint64_t a) const {
+        return decodifica_mapa(ram, hay_fsmc, a, hay_qspi);
+    }
 
     // -----------------------------------------------------------------------
     // Transporte

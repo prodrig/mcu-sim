@@ -97,7 +97,20 @@ constexpr SpiCaps caps_i2s_ext() {           // I2S2ext, I2S3ext [IR, mapa APB1]
     return c;
 }
 
+// El SPI1 del F446, que SI tiene modo I2S: es el «I2S1» del que hablan el
+// reference manual y RCC_DCKCFGR.I2S1SRC, y no es un bloque nuevo sino el mismo
+// SPI1 de siempre con la mitad de audio conectada. Por eso es un rasgo y no una
+// clase: el die es el mismo, lo que cambia es qué trae puesto.
+// [RM0390, §28.1; stm32f446xx.h, SPI1 y RCC_DCKCFGR_I2S1SRC]
+constexpr SpiCaps caps_spi_apb2_i2s() {
+    SpiCaps c = caps_spi_apb2();
+    c.i2s_mode = true;
+    c.kind = "SPI/I2S (APB2)";
+    return c;
+}
+
 inline constexpr SpiCaps CAPS_SPI_APB2 = caps_spi_apb2();
+inline constexpr SpiCaps CAPS_SPI_APB2_I2S = caps_spi_apb2_i2s();
 inline constexpr SpiCaps CAPS_SPI_I2S  = caps_spi_i2s();
 inline constexpr SpiCaps CAPS_I2S_EXT  = caps_i2s_ext();
 
