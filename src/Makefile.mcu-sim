@@ -14,13 +14,15 @@
 # Ubuntu 24.04 usa C++17; si compilas SystemC tú mismo, ajusta CXXSTD.
 #
 #   make SYSTEMC_HOME=/opt/systemc CXXSTD=c++14
-#   make test                     # la suite de verificación (1899 comprobaciones)
-#   make red                      # la capa de red, en la plataforma que sea
-#   make asan                     # la suite con ASan + UBSan (Linux y macOS)
-#   make asan446                  # y la del F446, que es otro ejecutable
-#   make sim                      # el modelo con la placa en un fichero XML
+#   make test                     # la suite del F407 (2055 comprobaciones)
+#   make test446                  # la del F446 (200), que es OTRO ejecutable
+#   make red                      # la capa de red, que NO necesita SystemC
+#   make asan                     # la suite del F407 con ASan + UBSan (Linux y macOS)
+#   make asan446                  # y la del F446
+#   make sim                      # construye el que monta una placa desde un XML
 #   make bench                    # el banco de medida del coste de simulación
 #   make run IMG=firmware.bin     # carga una imagen en la Flash y simula
+#   make plataforma               # qué ha detectado, sin compilar nada
 #
 # Las tres variables que deciden todo, por si hay que tocarlas a mano:
 #
@@ -152,7 +154,7 @@ RED    := build/prueba_red$(EXE)
 ASAN   := build/tb_asan$(EXE)
 ASAN446 := build/tb446_asan$(EXE)
 
-.PHONY: all test test446 asan asan446 smoke bench sim red run clean plataforma
+.PHONY: all test test446 tb446 asan asan446 smoke bench sim red run clean plataforma
 
 all: $(TARGET)
 
