@@ -9,8 +9,8 @@
 // Windows con MinGW para comprobar que la rama de Winsock al menos compila y
 // enlaza:
 //
-//   make -f Makefile.stm32 red                       # nativo
-//   make -f Makefile.stm32 red PLATAFORMA=windows CXX=x86_64-w64-mingw32-g++   # cruzado
+//   make -f Makefile.mcu-sim red                       # nativo
+//   make -f Makefile.mcu-sim red PLATAFORMA=windows CXX=x86_64-w64-mingw32-g++   # cruzado
 //
 // Código de salida 0 si todo va bien.
 // =============================================================================

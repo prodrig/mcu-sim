@@ -205,7 +205,7 @@ protected:
     // «Avisar una vez» de que SDIO_CK se pasa del máximo, POR INSTANCIA y no en
     // un `static` local: con dos MCUs, una bandera compartida hace que el aviso
     // del segundo se lo trague el primero. `mutable` porque quien lo mira es
-    // `ck_hz() const`. [doc/stm32f407vg_multi_mcu.md, §7.3]
+    // `ck_hz() const`. [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §7.3]
     mutable bool aviso_ck_ = false;
 
     // ---- Registros ----

@@ -2,7 +2,7 @@
 // xml_min.h — Lector de XML mínimo y ESTRICTO
 //
 // (Paso 3 de la ruta de adopción del esquema XML+SVG de QtSysC; véase
-//  doc/stm32f407vg_parts_paso3.md.)
+//  doc/stm32f4xx/stm32f407vg_parts_paso3.md.)
 //
 // POR QUÉ NO TINYXML2 NI EXPAT. Este proyecto tiene UNA dependencia —SystemC— y
 // se compila con un Makefile de veinte líneas en cualquier máquina con g++. Un

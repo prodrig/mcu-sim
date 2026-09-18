@@ -2,7 +2,7 @@
 // part_base.h — Base común de la LIBRERÍA DE COMPONENTES EXTERNOS al MCU
 //
 // (Paso 1 de la ruta de adopción del esquema XML+SVG de QtSysC; véase
-//  doc/stm32f407vg_parts_paso1.md.)
+//  doc/stm32f4xx/stm32f407vg_parts_paso1.md.)
 //
 // Todo lo que se suelda fuera del encapsulado —un LED, un pulsador, un cristal,
 // una SRAM, un PHY de Ethernet— comparte en este proyecto un único contrato

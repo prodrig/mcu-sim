@@ -2,7 +2,7 @@
 // soc_f4.h — TOP: instancia y conexiona el DIE de la familia STM32F4
 //
 // Este fichero es el CONTRATO DE INTEGRACIÓN del modelo: aquí se materializan
-// las interconexiones del plan (doc/smt32f407vg_diseño.md §4): la matriz,
+// las interconexiones del plan (doc/stm32f4xx/smt32f407vg_diseño.md §4): la matriz,
 // decodificadores AHB1/AHB2, puentes APB, relojes, resets, las líneas de
 // interrupción, las líneas EXTI, las peticiones DMA (tablas [IR, §11.4]) y los
 // pines (pads + pin_mux). La frontera externa del MCU son los AnalogNet de
@@ -91,7 +91,7 @@ SC_MODULE(SocF4) {
     Rcc       rcc;
     // El núcleo, con sus rasgos de depuración: pines expuestos (por omisión) o
     // reservados con el stub interno enganchado al DAP. Véase core/cortex_m4f.h
-    // y doc/stm32f407vg_fase6_gdb2.md.
+    // y doc/stm32f4xx/stm32f407vg_fase6_gdb2.md.
     CortexM4F core;
     AhbMatrix matrix;
 
@@ -288,7 +288,7 @@ SC_MODULE(SocF4) {
     // este mismo chip, o un hilo que comparte con otro MCU—. Tiene que llegar
     // por el constructor porque `Pad::net` es un `sc_port` y un `sc_port` no se
     // reata; vacío, el MCU se construye exactamente igual que siempre.
-    // [doc/stm32f407vg_multi_mcu.md, §4.3]
+    // [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §4.3]
     explicit SocF4(sc_core::sc_module_name nm, DebugCaps dbg = DBG_PINES,
                          const Cableado& cab = Cableado(),
                          McuCaps caps = MCU_STM32F407VG)

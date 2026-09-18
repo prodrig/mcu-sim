@@ -2,7 +2,7 @@
 // netlist_xml.h — El netlist, LEÍDO de un fichero
 //
 // (Paso 3 de la ruta de adopción del esquema XML+SVG de QtSysC; véase
-//  doc/stm32f407vg_parts_paso3.md.)
+//  doc/stm32f4xx/stm32f407vg_parts_paso3.md.)
 //
 // Aquí se cierra el círculo que abrió el paso 2. El formato no se ha inventado
 // para esta ocasión: es el que `Netlist::volcar_xml` ya escribía, y que salió de

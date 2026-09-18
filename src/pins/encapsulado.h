@@ -9,7 +9,7 @@
 //
 // Hasta ahora esto era una FUNCIÓN ESTÁTICA, `PinMux::is_bonded_lqfp100()`,
 // y estaba señalado como obstáculo desde el análisis de varios MCUs
-// [doc/stm32f407vg_multi_mcu.md, §6.3]: mientras hubiera un solo encapsulado
+// [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §6.3]: mientras hubiera un solo encapsulado
 // daba igual; con dos chips de encapsulados distintos en la misma placa, no.
 // Ahora es un dato de instancia, que es lo que ese análisis pedía.
 //
@@ -119,7 +119,7 @@ inline constexpr Encapsulado ENC_LQFP64 {
 //   * STM32_open_pin_data de ST (la base de CubeMX), `STM32F405O(E-G)Yx.xml`,
 //     que declara `<IONb>72</IONb>`.
 // Los recuentos por puerto de las dos —16/16/13/14/9/2/2— son idénticos.
-// [doc/stm32f407vg_todo_rev1.md, I-40]
+// [doc/todo.md, I-40]
 // ---------------------------------------------------------------------------
 inline constexpr Encapsulado ENC_WLCSP90 {
     "WLCSP90", 90, 72,

@@ -17,7 +17,7 @@
 //   * `nombre_nodo()` parte del nombre JERÁRQUICO y, cuando hay más de un MCU,
 //     cualifica el pad con el nombre del módulo que lo contiene: `u0.PA5`. Es
 //     exactamente la regla de compatibilidad del análisis
-//     (doc/stm32f407vg_multi_mcu.md, §3): con un MCU el nombre desnudo es
+//     (doc/stm32f4xx/stm32f407vg_multi_mcu.md, §3): con un MCU el nombre desnudo es
 //     suficiente y no hace falta migrar nada; con dos deja de serlo.
 //
 //   * `n_mcus()`, que es cómo se sabe cuántos hay. Y aquí hay un matiz que

@@ -2,7 +2,7 @@
 // part_factory.h — La FACTORÍA de piezas externas
 //
 // (Paso 3 de la ruta de adopción del esquema XML+SVG de QtSysC; véase
-//  doc/stm32f407vg_parts_paso3.md.)
+//  doc/stm32f4xx/stm32f407vg_parts_paso3.md.)
 //
 // El paso 2 dejó la placa descrita como datos, pero con una trampa: cada
 // instancia llevaba su creador puesto a mano, en C++, por quien la declaraba.

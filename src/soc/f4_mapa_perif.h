@@ -15,7 +15,7 @@
 //   * lo que es DE ESTA FAMILIA —que el TIM2 esté en `0x4000_0000` y el RNG en
 //     `0x5006_0800`—, que cambia con el chip. En un F446 no hay RNG y en
 //     `0x4000_4000` hay un SPDIF-RX donde aquí está el I2S3ext
-//     [doc/stm32f407vg_vs_446re.md, §5.3].
+//     [doc/stm32f4xx/stm32f407vg_vs_446re.md, §5.3].
 //
 // Lo primero se queda en `ahb_types.h`; lo segundo es esto.
 //

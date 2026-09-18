@@ -38,7 +38,7 @@ namespace stm32 {
 //        GdbStubDap que habla con el DAP por llamada de función. Es el modo
 //        rápido.
 //
-// El criterio para elegir está en doc/stm32f407vg_fase6_gdb2.md.
+// El criterio para elegir está en doc/stm32f4xx/stm32f407vg_fase6_gdb2.md.
 // =============================================================================
 struct DebugCaps {
     DebugAttach attach;      // pines expuestos o reservados

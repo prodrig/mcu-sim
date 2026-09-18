@@ -124,7 +124,7 @@ inline void SocF4::bind_periph_common() {
     // evento de captura/comparacion (TIMx_CHy) y por EXTI11/EXTI15 quedan a
     // cero porque el modelo del temporizador no exporta el evento CC en crudo
     // -solo su peticion de DMA, que esta condicionada por DIER-. Vease
-    // doc/stm32f407vg_fase5_adc.md, seccion 6.
+    // doc/stm32f4xx/stm32f407vg_fase5_adc.md, seccion 6.
     bind_bus_slave(adc, s_pclk2, P_ADC);
     adc.vdda(s_vdda);
     adc.vref(s_vdda);                  // VREF+ unido a VDDA en la placa tipica

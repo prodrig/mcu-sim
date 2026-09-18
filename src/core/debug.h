@@ -136,7 +136,7 @@ SC_MODULE(DebugSys), public core_debug_if {
     // puerto de depuracion en el mux -no los puede usar nadie mas, igual que
     // en el silicio- pero el frente SWD deja de escuchar y el SWO deja de
     // emitir. Es lo que hace el nucleo cuando se construye con el stub
-    // interno: reservados, aunque sin usar [véase doc/..._fase6_gdb2.md].
+    // interno: reservados, aunque sin usar [véase doc/stm32f4xx/stm32f407vg_fase6_gdb2.md].
     // -----------------------------------------------------------------------
     void set_pines_debug(bool expuestos) {
         pines_dbg_ = expuestos;

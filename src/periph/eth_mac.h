@@ -1086,7 +1086,7 @@ inline void EthBase::tx_proc() {
         // el DMA de transmision este parado no hay nada que sondear: se espera
         // al EVENTO, no al reloj. Sondear cada 20 us cuando nadie ha encendido
         // el MAC son cincuenta mil despertares por segundo simulado a cambio
-        // de nada [vease doc/stm32f407vg_coste_simulacion.md].
+        // de nada [vease doc/stm32f4xx/stm32f407vg_coste_simulacion.md].
         if (!mac_activo() || !(dmaomr_ & OMR_ST)) { sc_core::wait(tx_ev_); continue; }
         sc_core::wait(sc_core::sc_time(20, sc_core::SC_US), tx_ev_);
         if (!mac_activo()) continue;

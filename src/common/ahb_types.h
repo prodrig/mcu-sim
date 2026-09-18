@@ -1,6 +1,6 @@
 // =============================================================================
 // ahb_types.h — Tipos comunes del bus, extensión TLM AHB y mapa de memoria
-// Modelo SystemC del STM32F407VG. Referencias: doc/informe_revisado.md §5, §6.
+// mcu-sim, modelo SystemC de microcontroladores STM32. Referencias: doc/stm32f4xx/informe_revisado.md §5, §6.
 //
 // Fase F1: se completa el mapa de memoria (regiones ARMv7-M [IR, §5.1], sectores
 // de Flash [IR, §5.2.1], tabla de estados de espera [IR, §5.2.2], regiones de
@@ -155,7 +155,7 @@ constexpr uint32_t BB_PERIPH_ALIAS= 0x42000000, BB_PERIPH_ALEN= 0x02000000;
 // de la arquitectura, y vive aparte. Se incluye aqui, con el `namespace addr`
 // todavia abierto, para que ningun fichero de los que ya usaban `addr::TIM2_B`
 // haya tenido que cambiar un include. Es el punto exacto donde se elegiria
-// otro mapa. [doc/stm32f407vg_vs_446re.md, fase 1]
+// otro mapa. [doc/stm32f4xx/stm32f407vg_vs_446re.md, fase 1]
 #include "../soc/f4_mapa_perif.h"
 
 // ---------------------------------------------------------------------------

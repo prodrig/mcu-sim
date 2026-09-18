@@ -71,7 +71,7 @@ inline constexpr Conectividad CONN_STM32F407VG { {
     // explícitamente que DMA2 «soporta transferencias memoria-a-memoria y
     // acceso a la memoria Flash», que es lo que hace el silicio y de lo que
     // depende el caso de uso clásico Flash -> SRAM. La contradicción se
-    // resuelve a favor de §11.1.1 [doc/stm32f407vg_fase4_dma.md, §9].
+    // resuelve a favor de §11.1.1 [doc/stm32f4xx/stm32f407vg_fase4_dma.md, §9].
     /* DMA2_MEM    */ esclavos({BusSlaveId::FLASH_DCODE, BusSlaveId::SRAM1,
                                 BusSlaveId::SRAM2, BusSlaveId::AHB1_SEG,
                                 BusSlaveId::AHB2_SEG, BusSlaveId::FSMC_EXT}),

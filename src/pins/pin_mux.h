@@ -65,7 +65,7 @@ constexpr unsigned N_PORT_PINS  = 16;
 // Un `Cableado` vacío deja el modelo exactamente como estaba: el bucle del
 // constructor no encuentra nada y cada pad crea su nodo. El coste para una
 // placa sin puentes es cero.
-// [doc/stm32f407vg_multi_mcu.md, §4.3 y §4.5]
+// [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §4.3 y §4.5]
 // ---------------------------------------------------------------------------
 class Cableado {
 public:

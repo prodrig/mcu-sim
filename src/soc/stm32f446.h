@@ -2,7 +2,7 @@
 // stm32f446.h — EL STM32F446
 //
 // «El F407 menos lo que no tiene, más su árbol de reloj.» La fase 2 puso lo
-// primero [doc/stm32f407vg_vs_446re.md, §17] —sin Ethernet, sin RNG, sin CCM,
+// primero [doc/stm32f4xx/stm32f407vg_vs_446re.md, §17] —sin Ethernet, sin RNG, sin CCM,
 // sin los bloques de extensión del I2S, con 512 KB de Flash, con el LQFP64 del
 // F446 y con las 97 posiciones de vector— y la fase 3 lo segundo (§18): el
 // tercer PLL, el divisor R, los nueve selectores de RCC_DCKCFGR y DCKCFGR2, y

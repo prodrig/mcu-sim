@@ -73,7 +73,7 @@ public:
     // SysTick que vence, o una escritura al SCS -ISPR, STIR, ICSR, SHCSR- que
     // puede venir del depurador mientras el nucleo duerme. Sin el, un nucleo
     // dormido no tiene mas remedio que sondear
-    // [vease doc/stm32f407vg_coste_simulacion.md].
+    // [vease doc/stm32f4xx/stm32f407vg_coste_simulacion.md].
     virtual const sc_core::sc_event& pending_ev() const = 0;
 
     // --- Configuración del SCB que la CPU consulta [IR, §10.2] --------------

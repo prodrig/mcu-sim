@@ -212,7 +212,7 @@ pantalla necesitaría, sobre `blinky`, 5 segundos simulados:
 durante 5 segundos. El 0,2 % de los deltas de un modelo casi ocioso, y una
 diferencia de tiempo que es ruido —sale incluso más rápido—.
 
-Puesto en la escala del proyecto: `doc/stm32f407vg_coste_simulacion.md` midió que
+Puesto en la escala del proyecto: `doc/stm32f4xx/stm32f407vg_coste_simulacion.md` midió que
 OTG y ETH juntos costaban **56 000 despertares por segundo simulado**. La vista
 cuesta **60**. Tres órdenes de magnitud por debajo de algo que ya se consideró
 aceptable. **La visualización no es un problema de rendimiento y no hay que
@@ -717,7 +717,7 @@ Con `set_internal_waveforms(false)` para §3.1–3.3 y `true` para §3.4, y
 descartando las 20 primeras rodajas, que llevan el reset, la carga del firmware y
 los fallos de página del anfitrión. Los números de referencia del modelo sin GUI
 están medidos con `./build/bench` y explicados en
-`doc/stm32f407vg_coste_simulacion.md`.
+`doc/stm32f4xx/stm32f407vg_coste_simulacion.md`.
 
 ---
 ---
@@ -912,7 +912,7 @@ todo.
 
 **El tiempo de cómputo del núcleo.** El modelo mide **≈ 4,7 ciclos por
 instrucción frente a ≈ 1,5 del Cortex-M4 real**; en CoreMark, 0,71 CoreMark/MHz
-contra los ≈ 3,4 del silicio (`doc/stm32f407vg_fase2.md`, §405-407). No hay
+contra los ≈ 3,4 del silicio (`doc/stm32f4xx/stm32f407vg_fase2.md`, §405-407). No hay
 solapamiento entre búsqueda y ejecución, cada acceso al bus se factura entero y
 no se modela la cola de prebúsqueda.
 
@@ -951,7 +951,7 @@ del curso lo exige. Lo que no vale es callarlo.
 
 ### 16.3 El resto de la letra pequeña
 
-`doc/stm32f407vg_todo_rev1.md` tiene 135 puntos, y casi todos son caminos que
+`doc/todo.md` tiene 135 puntos, y casi todos son caminos que
 ningún firmware corriente usa. Pero **la lista está escrita desde el punto de
 vista de quien hace el modelo, no del alumno**. Hace falta una lectura nueva, y
 corta, con otra pregunta: *¿un alumno de primer curso puede tropezar con esto?*

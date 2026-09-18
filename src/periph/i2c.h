@@ -11,7 +11,7 @@
 // como sí pasaba entre SPI1 y SPI2/3. Lo único que las distingue es su
 // INTEGRACIÓN: dirección base, vectores de interrupción, celdas de DMA y qué
 // pines del encapsulado pueden usar. Todo eso vive en el netlist del top, no en
-// el modelo. El análisis completo está en doc/stm32f407vg_fase5_i2c.md §1.
+// el modelo. El análisis completo está en doc/stm32f4xx/stm32f407vg_fase5_i2c.md §1.
 //
 // Aun así el modelo está parametrizado con la misma receta que el resto del
 // proyecto, por dos razones: el bloque SÍ varía entre familias de STM32 (hay

@@ -4,7 +4,7 @@
 //   ./build/sim placa.xml [firmware.bin] [ms_simulados]
 //
 // (Paso 3 de la ruta de adopción del esquema XML+SVG de QtSysC; véase
-//  doc/stm32f407vg_parts_paso3.md.)
+//  doc/stm32f4xx/stm32f407vg_parts_paso3.md.)
 //
 // Es el modo de uso que justifica los tres pasos. `sc_main.cpp` es la suite de
 // verificación: 1871 comprobaciones sobre una placa fija escrita en C++. Esto
@@ -13,7 +13,7 @@
 //
 // VARIOS MCUs. Una placa puede declarar cero, uno o varios `<mcu>`, cada uno
 // con su firmware, su modo de depuración y su puerto de GDB
-// [doc/stm32f407vg_multi_mcu.md, §5]:
+// [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §5]:
 //
 //   <mcu tipo="STM32F407VG" id="u0" firmware="maestro.bin"
 //        depuracion="dap"   puerto_gdb="3333"/>

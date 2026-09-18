@@ -304,7 +304,7 @@ SC_MODULE(F1Tb) {
     //
     // ESTE GRUPO ES EL PRIMERO QUE NO SE MONTA A MANO: se DECLARA en un
     // Netlist y lo construye él (paso 2 de la ruta de adopción del esquema
-    // XML+SVG; véase doc/stm32f407vg_parts_paso2.md). Se eligió este y no otro
+    // XML+SVG; véase doc/stm32f4xx/stm32f407vg_parts_paso2.md). Se eligió este y no otro
     // porque es el que exige más del formato: tres tipos de pieza, un nodo que
     // NO es un pin —el hilo—, referencias entre instancias —un transceptor
     // necesita su hilo, no solo el nodo— y un componente que el MCU ni ve.
@@ -1165,7 +1165,7 @@ SC_MODULE(F1Tb) {
 
     // -----------------------------------------------------------------------
     // T15 — Cobertura del decodificador con los vectores de
-    //       doc/valida_instrucciones.py (codificaciones validadas contra
+    //       doc/stm32f4xx/valida_instrucciones.py (codificaciones validadas contra
     //       arm-none-eabi-as, 254/254 correctas).
     // -----------------------------------------------------------------------
     void t15_decodificador() {
@@ -13263,7 +13263,7 @@ SC_MODULE(F1Tb) {
     // alguien añade un terminal a una pieza y se olvida de conectarlo en el
     // creador, el modelo funcionará igual y el netlist mentirá. Eso es lo que
     // cazan estas comprobaciones, y por eso van aquí y no en el grupo del CAN.
-    // Véase doc/stm32f407vg_parts_paso2.md.
+    // Véase doc/stm32f4xx/stm32f407vg_parts_paso2.md.
     // -----------------------------------------------------------------------
     void t121_netlist() {
         group("T121 Netlist: la placa declarada y la placa construida");
@@ -13558,7 +13558,7 @@ SC_MODULE(F1Tb) {
     //
     // Lo que se comprueba aquí es la diferencia entre las dos maneras de
     // juntar dos pines, que es la única razón por la que este trabajo merece
-    // la pena [doc/stm32f407vg_multi_mcu.md, §4]:
+    // la pena [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §4]:
     //
     //   * una PISTA (`SignalLink`, y ahí sigue: lnk_pwm lleva el PWM de PD12 a
     //     PB4 en T41 y T43) es un buffer con umbral y sentido. Vale, y muy
@@ -14388,7 +14388,7 @@ SC_MODULE(F1Tb) {
     //
     // Que dos MCUs se monten de verdad, con su firmware y su stub de GDB cada
     // uno, lo comprueba `placas/dos_mcu.xml` con el ejecutable `sim`; véase
-    // doc/stm32f407vg_multi_mcu.md, §5.
+    // doc/stm32f4xx/stm32f407vg_multi_mcu.md, §5.
     // -----------------------------------------------------------------------
     void t123_varios_mcu() {
         group("T123 Varios MCUs: la declaracion y sus errores");
@@ -14429,7 +14429,7 @@ SC_MODULE(F1Tb) {
         }
 
         // --- 3. La regla de los nombres de pad, que es el corazon ------------
-        // [doc/stm32f407vg_multi_mcu.md, §3]
+        // [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §3]
         {
             Netlist uno;
             uno.add_mcu(DeclMcu{"STM32F407VG", "u0", "", "pines", 0});
@@ -14665,7 +14665,7 @@ int sc_main(int argc, char** argv) {
     // Con --gdb-dap se elige el SEGUNDO stub: el nucleo se construye reservando
     // los pines de depuracion y creandose por dentro un stub pegado al DAP. La
     // sesion de GDB es identica; lo que cambia es que va entre diez y mil veces
-    // mas rapida. El criterio para elegir esta en doc/..._fase6_gdb2.md.
+    // mas rapida. El criterio para elegir esta en doc/stm32f4xx/stm32f407vg_fase6_gdb2.md.
     bool modo_gdb = false, modo_dap = false;
     bool dump_netlist = false, dump_inventario = false, valida = false;
     unsigned puerto = 3333;
@@ -14700,7 +14700,7 @@ int sc_main(int argc, char** argv) {
     //
     // Ninguno simula: la elaboracion de SystemC ya ha terminado aqui, que es
     // precisamente el punto en el que el lector tendria que haber construido
-    // las piezas. Vease doc/stm32f407vg_parts_paso2.md.
+    // las piezas. Vease doc/stm32f4xx/stm32f407vg_parts_paso2.md.
     if (valida) {
         // Validación de la placa, sin simular: primero la declaración, después
         // la eléctrica —que necesita las piezas ya construidas para saber qué

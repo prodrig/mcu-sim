@@ -40,7 +40,7 @@ namespace stm32 {
 
 // -----------------------------------------------------------------------------
 // Dónde se engancha el depurador. Es el parámetro que elige entre los dos stubs
-// (véase doc/stm32f407vg_fase6_gdb2.md).
+// (véase doc/stm32f4xx/stm32f407vg_fase6_gdb2.md).
 //
 //   Pines    : el núcleo EXPONE SWCLK/SWDIO/JTDI/SWO/NJTRST y quien quiera
 //              depurar se conecta por fuera, como un ST-LINK. Es el modelo

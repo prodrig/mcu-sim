@@ -4,8 +4,8 @@
 // El banco de registros es una struct C++ (plan P3), no submódulos: R0-R12,
 // SP (MSP/PSP), LR, PC, xPSR, PRIMASK, FAULTMASK, BASEPRI, CONTROL [IR, §7.2].
 // La ISA implementada (codificación, pseudocódigo y flags) es la de
-// doc/informe_instrucciones.md [II]; el decodificador se valida con los
-// vectores de doc/valida_instrucciones.py.
+// doc/stm32f4xx/informe_instrucciones.md [II]; el decodificador se valida con los
+// vectores de doc/stm32f4xx/valida_instrucciones.py.
 //
 // Fase F2 — implementado:
 //   * Thumb de 16 bits completo [II, §1];
@@ -102,7 +102,7 @@ SC_MODULE(Cpu) {
     // Ejecuta una única instrucción situada en 'addr' sin tomar la excepción
     // que pudiera generar: devuelve el tamaño consumido (2 o 4 bytes) y los
     // bits de CFSR que la instrucción habría provocado. Es lo que permite
-    // recorrer los vectores de doc/valida_instrucciones.py y comprobar que el
+    // recorrer los vectores de doc/stm32f4xx/valida_instrucciones.py y comprobar que el
     // decodificador reconoce todas las codificaciones.
     // Debe invocarse desde un proceso y con la CPU detenida (dbg_halt_req).
     // -----------------------------------------------------------------------

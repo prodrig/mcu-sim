@@ -10,7 +10,7 @@
 //
 // Es exactamente el problema que el paso 3 resolvió para las piezas de placa, y
 // se resuelve igual: una interfaz y un registro de cadena a creador.
-// [doc/stm32f407vg_multi_mcu.md, §6.1]
+// [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §6.1]
 //
 // QUÉ TIENE QUE SABER HACER UN MCU, visto desde `sim`. Cinco cosas, y son las
 // cinco que `sim_main` le pedía al puntero concreto:

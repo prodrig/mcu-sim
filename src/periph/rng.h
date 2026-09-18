@@ -3,7 +3,7 @@
 //
 // (Separado de `crc_rng.h` en la fase 1 del plan del F446: el F446 lleva CRC y
 //  NO lleva RNG, así que este bloque tiene que poder quedarse fuera sin
-//  arrastrar al otro. Véase doc/stm32f407vg_vs_446re.md §8.2.)
+//  arrastrar al otro. Véase doc/stm32f4xx/stm32f407vg_vs_446re.md §8.2.)
 //
 // Es de los dos periféricos más pequeños del dispositivo y, precisamente por
 // eso, uno de los dos en los que es más tentador hacer trampa. Aquí no se ha

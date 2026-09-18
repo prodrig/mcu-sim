@@ -10,7 +10,7 @@
 // POR QUÉ ESTÁ AQUÍ Y NO EN EL TOP. Porque es lo que hay que mirar, copiar o
 // adaptar cuando se modela otro chip, y un mapa que no se encuentra se
 // reescribe desde cero. Sacarlo era el punto de la fase 1 que más paga y el
-// menos vistoso [doc/stm32f407vg_vs_446re.md, §13].
+// menos vistoso [doc/stm32f4xx/stm32f407vg_vs_446re.md, §13].
 //
 // LO QUE SE SABE DE SU RELACIÓN CON EL F446, y que hace que esto valga la pena:
 // se compararon las dos tablas de ST par a par, por máquina —260 pares (pin,

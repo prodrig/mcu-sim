@@ -1,5 +1,6 @@
 # ---------------------------------------------------------------------------
-# Modelo SystemC del STM32F407VG — ficheros que no se versionan
+# mcu-sim — modelo SystemC de microcontroladores STM32
+# Ficheros que no se versionan
 # ---------------------------------------------------------------------------
 
 # Artefactos de compilación
@@ -14,10 +15,10 @@ build/
 
 # Ejecutables del modelo y del banco de pruebas
 src/build/
-stm32f407vg
-stm32f407vg_f0
+mcu-sim
+mcu-sim_f0
 
-# Makefile generado a partir de Makefile.stm32 (el versionado es Makefile.stm32)
+# Makefile generado a partir de Makefile.mcu-sim (el versionado es Makefile.mcu-sim)
 src/Makefile
 
 # Salidas de simulación y traza
@@ -43,7 +44,7 @@ massif.out.*
 vgcore.*
 perf.data*
 
-# Python auxiliar (doc/valida_instrucciones.py)
+# Python auxiliar (doc/stm32f4xx/valida_instrucciones.py)
 __pycache__/
 *.pyc
 .venv/
@@ -76,5 +77,5 @@ Claude outputs/
 # 21 MB por manual, se descargan de st.com cuando hacen falta y cambian de
 # revisión sin avisar; versionarlos engordaría el repositorio sin añadir nada
 # que no esté ya citado con su sección en doc/. Lo que SÍ se versiona es lo que
-# se leyó allí y dónde: véase doc/stm32f407vg_vs_446re.md, §15.7 y §21.
-doc/stm32f446xx/
+# se leyó allí y dónde: véase doc/stm32f4xx/stm32f407vg_vs_446re.md, §15.7 y §21.
+doc/pdf/

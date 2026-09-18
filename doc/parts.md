@@ -25,7 +25,7 @@ De los dos, `--help` es el que está siempre al día y el que se tiene a mano si
 salir de la consola; esto es el catálogo, con tablas, comparaciones y los
 ejemplos largos que no caben en una ficha.
 
-El formato y el porqué están en `doc/stm32f407vg_parts_paso3.md`.
+El formato y el porqué están en `doc/stm32f4xx/stm32f407vg_parts_paso3.md`.
 
 ---
 
@@ -67,7 +67,7 @@ lleva:
 
 | Atributo | Omisión | Efecto |
 | :--- | :--- | :--- |
-| `tipo` | *(obligatorio)* | El modelo. Se saben construir **los once miembros de la familia F405/F407**: `STM32F405RG`, `STM32F405OG`, `STM32F405VG`, `STM32F405ZG`, `STM32F405OE`, `STM32F407VE`, `STM32F407VG`, `STM32F407ZE`, `STM32F407ZG`, `STM32F407IE` y `STM32F407IG`. `sim --help` los lista, y `--mcu TIPO` fija el del chip implícito. Lo que los distingue está en `doc/stm32f407vg_reutilizacion.md` §9 |
+| `tipo` | *(obligatorio)* | El modelo. Se saben construir **los once miembros de la familia F405/F407**: `STM32F405RG`, `STM32F405OG`, `STM32F405VG`, `STM32F405ZG`, `STM32F405OE`, `STM32F407VE`, `STM32F407VG`, `STM32F407ZE`, `STM32F407ZG`, `STM32F407IE` y `STM32F407IG`. `sim --help` los lista, y `--mcu TIPO` fija el del chip implícito. Lo que los distingue está en `doc/stm32f4xx/stm32f407vg_reutilizacion.md` §9 |
 | `id` | *(obligatorio)* | El prefijo de sus nodos (`u0.PD12`) y su nombre en la jerarquía de SystemC |
 | `firmware` | ninguno | La imagen que se le carga en la Flash. **Una por chip** |
 | `depuracion` | `pines` | `pines`: expone SWCLK/SWDIO y el stub se cuelga por fuera, como un ST-LINK. `dap`: reserva los cinco pines de depuración y el stub habla con el núcleo por llamada de función |
@@ -87,7 +87,7 @@ lleva:
 Con dos o más chips, **cada uno lleva lo suyo en el XML**: un firmware o un
 puerto sueltos en la línea de órdenes ya no dicen a cuál, y se rechazan. Con uno
 solo —declarado o implícito— los argumentos de siempre valen y mandan sobre el
-fichero. Los detalles están en `doc/stm32f407vg_multi_mcu.md`, §5.
+fichero. Los detalles están en `doc/stm32f4xx/stm32f407vg_multi_mcu.md`, §5.
 
 ### 2.1 Los nodos
 
@@ -155,7 +155,7 @@ Cuatro cosas que conviene saber antes de usarlo:
   pruebas —o que sea unidireccional, como una salida PWM hacia una entrada de
   captura— la pieza correcta es [`SignalLink`](#signallink), que es un buffer y
   no un cable. La comparación entre las dos está en
-  `doc/stm32f407vg_multi_mcu.md`, §4.5.
+  `doc/stm32f4xx/stm32f407vg_multi_mcu.md`, §4.5.
 
 Se rechazan antes de simular, cada uno con su mensaje: un nombre que no es un
 pad, un pad que el encapsulado no saca, el mismo pad en dos puentes, y un `une`
@@ -543,7 +543,7 @@ temporizador lo que genera otro, y la suelda solo para esas pruebas. Frente a un
 nodo compartido, la pista tiene dos ventajas y una carencia: **se puede desoldar
 en marcha** y no carga el origen, pero **el conflicto entre los dos extremos es
 invisible** —si los dos conducen, uno pisa al otro sin que nada avise—. La
-comparación completa está en `doc/stm32f407vg_multi_mcu.md`, §4.5.
+comparación completa está en `doc/stm32f4xx/stm32f407vg_multi_mcu.md`, §4.5.
 
 | Terminal | | |
 | :--- | :--- | :--- |
@@ -1002,6 +1002,6 @@ todos menos `Rpull`— se saca
 del propio modelo, que es la mejor referencia de formato que hay:
 
 ```
-./build/stm32f407vg --netlist > placas/banco.xml
+./build/mcu-sim --netlist > placas/banco.xml
 ./build/sim placas/banco.xml --valida
 ```

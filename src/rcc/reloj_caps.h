@@ -17,7 +17,7 @@
 // está o no está. No son etiquetas: si `dckcfgr` fuera `true` sin que el modelo
 // implementara los selectores, el firmware escribiría `RCC_DCKCFGR` y el modelo
 // no haría nada con él — que es exactamente la mentira que este proyecto
-// persigue [doc/stm32f407vg_vs_446re.md, §13].
+// persigue [doc/stm32f4xx/stm32f407vg_vs_446re.md, §13].
 //
 // POR QUÉ RASGOS Y NO DOS CLASES DE RCC. Porque lo que cambia entre el árbol
 // del F407 y el del F446 son **añadidos**, no otra cosa: los mismos cuatro
