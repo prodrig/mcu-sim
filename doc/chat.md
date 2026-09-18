@@ -3517,3 +3517,72 @@ referencia. Un MC no dice nada de encapsulado, un RE dice tres cosas, un VE dice
 la nota 1 de la Tabla 2 —banco 1 del FMC, NE1, multiplexado y sin línea de
 interrupción porque el puerto G no sale— y un ZE no dice ninguna, porque en un
 LQFP144 sale todo.
+
+
+## El proyecto pasa a llamarse mcu-sim
+
+> El repositorio está en una carpeta llamada stm32f407 ¿Puedo cambiar el nombre
+> de la carpeta a mcu-sim sin afectar al control de versiones?
+
+Sí, sin ninguna precaución especial. Git guarda todo dentro de `.git/`, y ahí
+dentro no hay una sola ruta absoluta que apunte a la carpeta que lo contiene:
+el repositorio es la carpeta, se llame como se llame. Lo que sí se rompe al
+renombrar está fuera de Git —los atajos, los proyectos abiertos en el IDE, las
+rutas que tengas escritas en scripts— y la carpeta conectada a esta sesión, que
+hay que volver a conectar con el nombre nuevo.
+
+> Ya he renombrado la carpeta como mcu-sim... Modifica el nombre del proyecto a
+> mcu-sim y reorganiza la carpeta de documentación
+
+El nombre nuevo dice la verdad: el modelo ya no es de un microcontrolador sino
+de diecinueve referencias de dos familias, y seguir llamándolo `stm32f407` era
+quedarse en la primera. Cambian el título del README, el del `.gitignore`, el
+ejecutable (`sim` pasa a ser `mcu-sim`) y el fichero de construcción
+(`Makefile.stm32` pasa a ser `Makefile.mcu-sim`).
+
+La documentación queda en dos niveles. En la raíz de `doc/` lo que vale para
+todo el proyecto —el registro de esta conversación, la lista de pendientes, la
+guía de compilación, el análisis de la GUI, el de SystemC 3, el coste de
+simulación, la reutilización entre familias y el multi-MCU— y en
+`doc/stm32f4xx/` los treinta y seis documentos que son de la familia F4 y solo
+de ella: los informes, las siete fases y los pasos de `parts/`. La comparativa
+del F407 con el F446RE se va con ellos, porque compara dos F4. Y `doc/pdf/`
+—con `stm32f407xx/` y `stm32f446xx/` dentro— recoge los PDF de ST, que no se
+versionan.
+
+A mitad de los `git mv` apareció un `.git/index.lock` huérfano de una operación
+anterior que bloqueaba el índice. Pedí permiso de borrado para la carpeta,
+quité el fichero y seguí; no se perdió ningún movimiento.
+
+## Los targets del Makefile, con nombres que se explican solos
+
+> Modifica el nombre de los targets en el makefile para que las suites del 407
+> sigan el mismo patrón de nombres que las del 446
+
+Había una asimetría heredada: la suite del F446 se llamaba `test446` y la del
+F407, que fue la primera, se llamaba `test` a secas; igual con `asan` y
+`asan446`. Ahora son `test407`/`asan407` y `test446`/`asan446`, `sim` es
+`mcu-sim`, y **cada target produce el binario de su nombre**: `build/test407`,
+`build/test446`, `build/asan407`, `build/asan446`, `build/mcu-sim`,
+`build/bench` y `build/prueba_red`. Antes había que saberse de memoria que
+`test` dejaba un ejecutable llamado `stm32f407vg`.
+
+> Sí, modifica el Makefile para que el target por omisión y all sean mcu-sim
+
+Hecho, y es más que una línea de Makefile: es una declaración de qué es este
+proyecto. `make` a secas construía la suite de verificación, que es lo natural
+cuando lo que tienes es un modelo que estás verificando. Ahora construye
+`build/mcu-sim`, el simulador que monta una placa desde un XML, que es lo que
+usa quien viene a usar esto y no a desarrollarlo. La verificación sigue a un
+comando de distancia, `make test407` y `make test446`, y quien la ejecuta sabe
+perfectamente que la quiere.
+
+Con el cambio se fueron tres rastros del nombre antiguo que la reescritura
+anterior había saltado a propósito porque tocaba el Makefile, y dos más en la
+documentación: `make -f Makefile.mcu-sim test` y `asan` en el README, y la
+sección «Lo mínimo» de `compilacion.md`, que además seguía prometiendo 1935
+comprobaciones cuando hoy son 2055.
+
+Verificado después de todo: F407 **2055/2055** en **`2336217899213 ps`**, F446
+**200/200**, la capa de red 13/13 y las cinco placas validan con
+`./build/mcu-sim`.

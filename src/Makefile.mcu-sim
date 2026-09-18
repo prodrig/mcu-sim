@@ -14,12 +14,12 @@
 # Ubuntu 24.04 usa C++17; si compilas SystemC tú mismo, ajusta CXXSTD.
 #
 #   make SYSTEMC_HOME=/opt/systemc CXXSTD=c++14
+#   make                          # el simulador: monta una placa desde un XML
 #   make test407                  # la suite del F407 (2055 comprobaciones)
 #   make test446                  # la del F446 (200), que es OTRO ejecutable
 #   make red                      # la capa de red, que NO necesita SystemC
 #   make asan407                  # la suite del F407 con ASan + UBSan (Linux y macOS)
 #   make asan446                  # y la del F446
-#   make mcu-sim                  # construye el que monta una placa desde un XML
 #   make bench                    # el banco de medida del coste de simulación
 #   make run IMG=firmware.bin     # carga una imagen en la Flash y simula
 #   make plataforma               # qué ha detectado, sin compilar nada
@@ -156,7 +156,7 @@ ASAN446 := build/asan446$(EXE)
 
 .PHONY: all test407 test446 test446-build asan407 asan446 smoke bench mcu-sim red run clean plataforma
 
-all: $(TEST407)
+all: $(MCUSIM)
 
 # Qué ha decidido el Makefile, por si algo no cuadra. Es la primera orden que
 # hay que ejecutar cuando la compilación falla en una máquina nueva.
@@ -182,7 +182,7 @@ $(BENCH): top/bench_main.cpp $(HDRS)
 bench: $(BENCH)
 
 # El modelo con la PLACA EN UN FICHERO (paso 3 de parts/)
-#   make sim && ./build/sim placa.xml [firmware.bin] [ms]
+#   make mcu-sim && ./build/mcu-sim placa.xml [firmware.bin] [ms]
 $(MCUSIM): top/sim_main.cpp $(HDRS)
 	@mkdir -p build
 	$(CXX) $(CXXFLAGS) -o $@ top/sim_main.cpp $(LDFLAGS) $(LDLIBS)
@@ -224,7 +224,7 @@ red: $(RED)
 # indefinido. Detecta lo que la suite no puede ver por sí sola: accesos fuera de
 # sitio, usos después de liberar y memoria que no se devuelve.
 #
-#   make asan            # compila y corre; debe salir 0 fugas y 0 avisos
+#   make asan407         # compila y corre; debe salir 0 fugas y 0 avisos
 #
 # Va a -O1 porque con -O2 los sanitizers pierden marcos y los informes dejan de
 # decir dónde. Y NO hace falta poner ASAN_OPTIONS a mano: el ejecutable trae su
@@ -242,7 +242,7 @@ $(ASAN407): top/sc_main.cpp $(HDRS)
 
 ifeq ($(PLATAFORMA),windows)
 asan407:
-	@echo "MinGW no trae AddressSanitizer: 'make asan' solo va en Linux y macOS."
+	@echo "MinGW no trae AddressSanitizer: 'make asan407' solo va en Linux y macOS."
 else
 asan407: $(ASAN407)
 	./$(ASAN407)

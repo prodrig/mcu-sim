@@ -10,8 +10,9 @@ tocar el `Makefile`, y qué hacer cuando falla. La segunda mitad está ordenada 
 
 ```bash
 cd src
-make                    # la suite de verificación
-make test407               # y la ejecuta: 1935 comprobaciones, código de salida 0/1
+make                    # el simulador: build/mcu-sim
+make test407            # construye y ejecuta la suite del F407: 2055 comprobaciones
+make test446            # y la del F446: 200 comprobaciones
 ```
 
 Hace falta **SystemC ≥ 2.3.3** de Accellera y un compilador con **C++17**. Nada
