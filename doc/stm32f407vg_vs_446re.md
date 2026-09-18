@@ -22,9 +22,9 @@ reutilizando el máximo posible del modelo que ya existe.
 | `[IR]` | El informe técnico interno de este proyecto |
 | **⚠ SIN VERIFICAR** | No se ha podido contrastar; se dice qué documento lo cerraría |
 
-Las revisiones de los RM consultadas **no son las últimas** (RM0390 va por la 9,
-de febrero de 2026, y aquí se ha leído la 4; RM0090 va por la 22 y se ha leído
-la 18). Para los datos estructurales que usa este documento —mapa de memoria,
+Las revisiones de los RM consultadas: **el RM0390 se ha leído en su Rev 9**, la
+vigente, desde la fase 6 —la fase 0 sólo pudo leer la 4, y §15.7 cuenta qué
+cambió y qué no—; del RM0090 se ha leído la 18 y va por la 22. Para los datos estructurales que usa este documento —mapa de memoria,
 tabla de vectores, geometría de Flash— eso no debería importar, y además todos
 ellos están corroborados por las cabeceras CMSIS de ST, que son código del
 propio fabricante. Donde hay discrepancia entre documentos de ST se dice cuál y
@@ -762,7 +762,7 @@ Esta sección los enumera; la siguiente cuenta cómo se cerró cada uno.
 | 4 | `DBGMCU_IDCODE` del F446 *(bloqueante)* | ✅ cerrado: `0x421` |
 | 5 | Discrepancia 96 / 91 líneas de IRQ | ✅ resuelto, **y es peor de lo que parecía** |
 | 6 | `[RM0390]` Tabla 1, fronteras de registros | ✅ cerrado, **con una laguna** |
-| 7 | Las revisiones leídas no son las vigentes | ⚠️ **sigue abierto** |
+| 7 | Las revisiones leídas no son las vigentes | ✅ cerrado en la fase 6, **con dos hallazgos** |
 
 Y el cuarto punto del propio plan —contar los pines del LQFP64 del F446RE— **se
 cerró y de paso destapó un error en otro sitio**.
@@ -876,22 +876,38 @@ jamás, que es precisamente lo que hace una posición reservada.
 
 Cerrado en §8.3, con la laguna del FMPI2C1 documentada allí.
 
-### 15.7 Las revisiones — lo único que sigue abierto
+### 15.7 Las revisiones — CERRADO en la fase 6
 
-`[RM0390]` vigente es la **Rev 9, de febrero de 2026**; lo leído aquí es la
-Rev 4. No se ha podido leer la 9 más allá del índice: st.com devuelve 403 al
-cliente HTTP de este entorno, y el lector de páginas trunca un PDF de 1328
-páginas mucho antes del capítulo 33.
+`[RM0390]` vigente es la **Rev 9, de 03-Feb-2026**; lo leído en la fase 0 era la
+Rev 4. Entonces no se pudo leer la 9 —st.com devolvía 403 al cliente HTTP de
+este entorno y el lector truncaba un PDF de 1321 páginas—, y quedó como la única
+casilla sin cerrar de las siete.
 
-Lo que sostiene el trabajo mientras tanto: **todo lo verificado coincide con la
-cabecera CMSIS actual de ST** (`stm32f446xx.h`), que es código del fabricante y
-está al día. Un dato estructural que hubiera cambiado entre la rev. 4 y la 9
-—una dirección base, un número de vector— tendría que aparecer también ahí, y no
-aparece.
+**Se ha leído.** Los cuatro puntos que la fase 0 dejó apuntados, uno por uno:
 
-Queda como tarea de bajo riesgo: **releer en la rev. 9 los §2.1, §10.1.1,
-§33.6.1 y la Tabla 1**, sobre todo esta última, que es donde hay una laguna
-conocida.
+| Punto | Rev 4 (lo que se dijo) | Rev 9 (lo que dice) |
+| :--- | :--- | :--- |
+| **§2.1** | siete maestros, siete esclavos, y el séptimo es «FMC / QUADSPI» | **idéntico**, palabra por palabra |
+| **§10.1.1** | 96 canales de interrupción enmascarables | **idéntico** |
+| **§33.6.1** | `DEV_ID = 0x421`, `REV_ID = 0x1000` | **idéntico** |
+| **Tabla 1** | **no lista el FMPI2C1**: deja sin nombrar `0x4000 6000`–`0x4000 63FF` | **la laguna sigue ahí** |
+
+Y la **Tabla 38** (vectores) confirma al dedo las ocho posiciones que el modelo
+usa: 84 SPI4, 87 SAI1, 91 SAI2, 92 QuadSPI, 93 HDMI-CEC, 94 SPDIF-Rx, 95
+FMPI2C1 evento y 96 FMPI2C1 error.
+
+**Lo que más valor tiene de esta lectura son dos cosas que no se buscaban:**
+
+* **la laguna del FMPI2C1 no era el descuido de una revisión vieja.** Cinco
+  revisiones después, la Tabla 1 sigue saltando de `I2C3` a `CAN1` sin nombrar el
+  rango donde la propia cabecera de ST pone `FMPI2C1_BASE` y donde el capítulo 23
+  del mismo manual describe el periférico entero. La decisión de la fase 0
+  —fiarse del documento que es código— queda confirmada;
+* **el `RCC_CIR` de la rev. 9 confirma el arreglo de I-43.** `LSIRDYF` en el bit
+  **0**, `LSIRDYE` en el **8**, `LSIRDYC` en el **16**, `PLLSAIRDYF` en el **6**
+  y `PLLSAIRDYC` en el **22**: exactamente lo que dice la cabecera CMSIS y
+  exactamente lo que el modelo hace desde la fase 3. **La tabla que está mal es
+  la de `[IR, §4.6]`**, y ahora hay dos documentos de ST que lo dicen.
 
 ### 15.8 Los pines del LQFP64, y el error que destaparon
 
@@ -1466,3 +1482,102 @@ se rompió ahí y no en el QUADSPI:
 | FMPI2C1, trama entera | START, AUTOEND, y un **NACK** cuando no hay nadie en la dirección: la línea sube por la resistencia de la placa porque nadie tira de ella |
 | QUADSPI mapeado en memoria | leer `0x9000_0040` **lanza un comando por los pines**: no es una memoria interna disfrazada |
 | SAI1, trama con datos | la FIFO se vacía sola al ritmo de la trama, que es lo único que demuestra que el bloque transmite y no solo está configurado |
+
+---
+
+## 21. Fase 6: las dos casillas que quedaban, cerradas con fuentes de ST
+
+Quedaban dos: **I-47**, el mapa de canales de DMA del F446, y el **punto 7 de la
+fase 0**, releer el RM0390 en su revisión vigente. Las dos estaban bloqueadas por
+lo mismo —documentación de ST que este entorno no alcanzaba— y las dos se han
+cerrado en cuanto la máquina que sí la tiene se conectó a la sesión.
+
+**El invariante del F407 sigue intacto: `2336217899213 ps`. La suite del F407
+pasa de 2053 a 2055 comprobaciones y la del F446 de 189 a 193.**
+
+### 21.1 De dónde salió el mapa de canales
+
+De **la base de datos de STM32CubeMX instalada en la máquina**, que es la fuente
+que la fase 5 buscó y no encontró. El repositorio público `STM32_open_pin_data`
+—el `[PINDATA]` que la fase 4 usó para los pines— dice en su propio README que es
+*«a subset of STM32CubeMx internal database»*: solo configuración de pines. La
+tabla de peticiones de DMA está en la base completa, un fichero por IP:
+
+```
+db/mcu/IP/DMA-STM32F417_dma_v2_0_Modes.xml    <- el que usa el F407VG
+db/mcu/IP/DMA-STM32F446_dma_v2_0_Modes.xml    <- el que usa el F446RE
+```
+
+El nombre no es una conjetura: sale del `Version=` que cada descriptor de MCU
+declara para su IP de DMA. Y la estructura obliga a cruzar dos cosas —el
+`RefMode` de cada petición da su **canal**, y el árbol de `Mode` da de qué
+**stream** cuelga—, así que las 128 celdas se extrajeron por máquina.
+
+### 21.2 Dos fuentes de ST, y coinciden celda a celda
+
+La tabla extraída de CubeMX se contrastó con las **Tablas 28 y 29 de
+`[RM0390] Rev 9`**, leídas de la página del PDF y no del texto extraído —el
+`pdftotext` destroza esas tablas, porque tienen celdas de varias líneas—.
+
+**Las 128 celdas coinciden.** Las dos tablas de ST dicen exactamente lo mismo.
+Es la verificación más fuerte que ha hecho este proyecto, y conviene decir por
+qué importa tanto aquí: un mapa de DMA mal copiado **no falla, no avisa y no
+transfiere** — el stream se arma y se queda esperando una petición que nunca
+llega.
+
+Y hay un tercer contraste, gratis: la tabla del F407 que salió de CubeMX
+**coincidía ya con la que el modelo tenía escrita a mano desde la fase 4 del
+proyecto original**, celda por celda... salvo cinco.
+
+### 21.3 Las cinco celdas que faltaban en el F407
+
+Las de los **bloques de extensión del I2S**: `I2S3ext_RX` en DMA1 0/3 y 2/2,
+`I2S2ext_RX` en 3/3, `I2S2ext_TX` en 4/2 e `I2S3ext_TX` en 5/2. El código las
+tenía al aire con un comentario honesto —«`[IR]` no recoge las celdas de DMA de
+los bloques de extensión del I2S»—, y llevaban así desde que se escribió el
+modelo del DMA. **La base de datos de ST sí las trae.** Cableadas, con una
+comprobación en T26 que no cuesta tiempo simulado.
+
+Y las del **CRYP y el HASH** —DMA2, canal 2 de los streams 5, 6 y 7— siguen sin
+fuente **a propósito**: son de un F415/F417 y este chip no lleva el acelerador
+criptográfico. Que estén vacías es la respuesta correcta, y ahora hay una
+comprobación que lo dice.
+
+### 21.4 Dónde el F446 no es el F407
+
+Las dos tablas comparten la mayoría de las celdas, y divergen justo donde cabía
+esperar:
+
+| Celda | F407 | F446 |
+| :--- | :--- | :--- |
+| DMA1 2/2 y 5/2 | I2S3ext_RX / I2S3ext_TX | **FMPI2C1_RX / FMPI2C1_TX** |
+| DMA1 1/0 y 6/0 | *(reservada)* | **SPDIFRX_DT / SPDIFRX_CS** |
+| DMA2 1/0, 3/0, 5/0, 4/1 | *(reservadas)* | **SAI1_A y SAI1_B** |
+| DMA2 7/0, 4/3, 6/3 | *(reservadas)* | **SAI2_A y SAI2_B** |
+| DMA2 7/3 | *(reservada)* | **QUADSPI** |
+| DMA2 0/4, 1/4, 3/5, 4/5 | *(reservadas)* | **SPI4_RX / SPI4_TX** |
+| DMA2 5/2, 6/2, 7/2 | CRYP_IN/OUT, HASH_IN *(F417)* | *(reservadas)* |
+
+La primera fila es **la misma trampa que `0x4000_4000`** en el mapa de
+direcciones: la celda no falla, pide otro periférico. Un firmware portado del
+F407 que arme DMA1 stream 2 canal 2 esperando su I2S3ext se encuentra con el
+FMPI2C1, y sin este trabajo el modelo se lo habría dejado pasar.
+
+De las dos del SPDIF-RX **no se cablea ninguna**, y es coherente: su bloque está
+declarado y no modelado, así que no tiene nada que pedir. Armar un stream ahí
+saca el aviso de celda sin fuente que la fase 5 introdujo — que era justamente
+para esto.
+
+### 21.5 La prueba que lo cierra
+
+Que la tabla diga que el SAI1_A está en (DMA2, stream 1, canal 0) no demuestra
+nada por sí solo. El grupo **H5** del banco del F446 hace pasar una
+transferencia entera de memoria a periférico por esa celda —dieciséis palabras
+de la SRAM a `SAI1_A->DR`, con `NDTR` bajando sin que nadie escriba `DR` desde el
+bus— y luego **repite el montaje cambiando solo `CHSEL`**: con el canal
+equivocado no se mueve un dato. Esa segunda mitad es la que vale, porque es la
+que distingue «la celda funciona» de «el stream funciona».
+
+El QUADSPI, de paso, ganó lo que le faltaba para poder pedir: `CR.DMAEN` (bit 2)
+y su línea de petición, con la condición del umbral `FTHRES` y **sin pedir nunca
+en modo mapeado en memoria**, donde quien lee es el núcleo.

@@ -1105,22 +1105,28 @@ SC_MODULE(Tb446) {
               "controladores y las dos memorias del F446 siguen en su sitio");
         wr(S0 + 0x00, 0u);
 
-        // LO QUE EL DMA DE ESTE CHIP TODAVIA NO SABE, y que ahora se oye. El
-        // mapa de canales sigue siendo el del F407, de modo que las celdas de
-        // los bloques de la fase 4 -FMPI2C1, los dos SAI, el SPI4- no tienen
-        // fuente. Antes, un stream armado ahi se quedaba esperando en silencio;
-        // desde la fase 5 avisa y dice que celda es [vs_446re, §20.3].
-        check(dut.dma2.celdas_con_fuente != ~uint64_t(0),
-              "el DMA2 sabe que NO tiene cableadas todas sus celdas, y por eso "
-              "puede avisar en vez de quedarse callado");
+        // EL MAPA DE CANALES, QUE DESDE LA FASE 6 ES EL DEL F446 [I-47].
+        // Sale de la base de datos de STM32CubeMX y esta contrastado celda a
+        // celda con las Tablas 28 y 29 de [RM0390] Rev 9.
+        auto celda = [](unsigned st, unsigned ch) { return st * 8 + ch; };
+        check((dut.dma2.celdas_con_fuente >> celda(1, 0)) & 1u,
+              "DMA2 stream 1 canal 0 tiene fuente: es el SAI1_A, un bloque que "
+              "el F407 no lleva y cuya celda alli esta reservada");
+        check(((dut.dma2.celdas_con_fuente >> celda(7, 3)) & 1u) &&
+              ((dut.dma2.celdas_con_fuente >> celda(0, 4)) & 1u) &&
+              ((dut.dma1.celdas_con_fuente >> celda(2, 2)) & 1u),
+              "y tambien el QUADSPI (DMA2 7/3), el SPI4 (DMA2 0/4) y el "
+              "FMPI2C1 (DMA1 2/2), que son celdas de este chip y de ningun otro");
+        check(dut.dma1.celdas_con_fuente != ~uint64_t(0),
+              "el DMA1 sigue sabiendo que no tiene TODAS las celdas cableadas");
         {
-            // La celda 8 del DMA2 (stream 1, canal 0) es la del SAI1_A en el
-            // F446 y esta reservada en el F407. En los dos casos, aqui no hay
-            // fuente, y las dos cosas son ciertas a la vez.
-            const bool c8 = (dut.dma2.celdas_con_fuente >> 8) & 1u;
-            check(!c8,
-                  "y la celda 8 -stream 1, canal 0- es una de las que no "
-                  "tiene: en el F407 esta reservada y en el F446 es del SAI1_A");
+            // Las dos que quedan sin fuente a proposito: el SPDIF-RX esta
+            // DECLARADO y no modelado, asi que no tiene nada que pedir.
+            const bool dt = (dut.dma1.celdas_con_fuente >> celda(1, 0)) & 1u;
+            const bool cs = (dut.dma1.celdas_con_fuente >> celda(6, 0)) & 1u;
+            check(!dt && !cs,
+                  "y las dos del SPDIF-RX -DMA1 1/0 y 6/0- siguen sin fuente, "
+                  "que es coherente: su bloque esta declarado y no modelado");
         }
 
         grupo("H2 FMPI2C1: una transferencia entera, de maestro a esclavo");
@@ -1235,6 +1241,55 @@ SC_MODULE(Tb446) {
         check(a.nivel_fifo() < f0,
               "y la FIFO se vacia sola al ritmo de la trama: el bloque esta "
               "sacando audio por el pin, no esperando a que alguien lo lea");
+        wr(BA + SaiBlock::R_CR1, 0u);
+
+        grupo("H5 El DMA alimentando al SAI1_A: la celda, de punta a punta");
+
+        // LA PRUEBA QUE CIERRA I-47. No basta con que la tabla diga que el
+        // SAI1_A esta en (DMA2, stream 1, canal 0): hay que ver una
+        // transferencia entera pasar por esa celda Y SOLO POR ESA. Es memoria
+        // a periferico, que es como se alimenta un flujo de audio.
+        for (unsigned i = 0; i < 16; ++i)
+            wr(addr::SRAM1_BASE + 0x300u + 4 * i, 0xABCD0000u + i);
+        const uint32_t S1 = addr::DMA2_B + 0x10 + 0x18;     // stream 1
+        wr(S1 + 0x00, 0u);
+        wr(S1 + 0x04, 16u);                                 // NDTR
+        wr(S1 + 0x08, BA + SaiBlock::R_DR);                 // PAR = SAI1_A->DR
+        wr(S1 + 0x0C, addr::SRAM1_BASE + 0x300u);           // M0AR
+        // CHSEL = 0 (canal 0), DIR = memoria a periferico, MINC, 32 bits.
+        wr(S1 + 0x00, (0u << 25) | (1u << 6) | (1u << 10) |
+                      (2u << 11) | (2u << 13));
+        wr(S1 + 0x00, rd(S1 + 0x00) | 1u);                  // EN
+        // Y ahora se arranca el bloque CON DMAEN: es el bit del periferico el
+        // que abre el grifo, no el del controlador.
+        wr(BA + SaiBlock::R_CR1, (1u << 20) | SaiBlock::C1_DMAEN);
+        wr(BA + SaiBlock::R_CR1, rd(BA + SaiBlock::R_CR1) | SaiBlock::C1_SAIEN);
+        wait(4, SC_MS);
+        const uint32_t ndtr = rd(S1 + 0x04);
+        std::printf("    NDTR del stream 1: 16 -> %u\n", ndtr);
+        check(ndtr < 16u,
+              "el SAI pide por su celda y el DMA le sirve: NDTR baja sin que "
+              "nadie escriba DR desde el bus");
+        // Y LA OTRA MITAD: que sea ESA celda y no otra. El canal 1 del mismo
+        // stream es el SAI1_B; con el seleccionado, el bloque A pide y el DMA
+        // no se mueve.
+        wr(BA + SaiBlock::R_CR1, 0u);
+        wr(S1 + 0x00, 0u);
+        wr(S1 + 0x04, 16u);
+        wr(S1 + 0x0C, addr::SRAM1_BASE + 0x300u);
+        wr(S1 + 0x00, (1u << 25) | (1u << 6) | (1u << 10) |
+                      (2u << 11) | (2u << 13));
+        wr(S1 + 0x00, rd(S1 + 0x00) | 1u);
+        wr(BA + SaiBlock::R_CR1, (1u << 20) | SaiBlock::C1_DMAEN);
+        wr(BA + SaiBlock::R_CR1, rd(BA + SaiBlock::R_CR1) | SaiBlock::C1_SAIEN);
+        wait(2, SC_MS);
+        std::printf("    con CHSEL = 1 (el bloque B): NDTR = %u\n",
+                    rd(S1 + 0x04));
+        check_eq(rd(S1 + 0x04), 16u,
+                 "con el canal equivocado NO se mueve un solo dato: la celda "
+                 "es (stream, canal) y no (stream), que es justo el error que "
+                 "un mapa mal copiado produce en silencio");
+        wr(S1 + 0x00, 0u);
         wr(BA + SaiBlock::R_CR1, 0u);
     }
 

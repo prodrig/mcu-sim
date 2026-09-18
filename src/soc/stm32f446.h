@@ -198,15 +198,22 @@ private:
         // las levante, y es coherente: sus bloques están declarados y no
         // modelados, de modo que tampoco tienen nada que pedir.
 
-        // Las peticiones de DMA salen, pero los canales del F446 para estos
-        // bloques no están dados de alta en el mapa del DMA [fase 5], así que
-        // hoy no llegan a ninguna celda. Se atan a señales muertas para que la
-        // elaboración cierre, que es lo mismo que hace el die con cualquier
-        // salida que nadie escucha.
-        fmpi2c1.dma_req_rx(s_nc[nc()]); fmpi2c1.dma_req_tx(s_nc[nc()]);
-        sai1.a.dma_req(s_nc[nc()]);     sai1.b.dma_req(s_nc[nc()]);
-        sai2.a.dma_req(s_nc[nc()]);     sai2.b.dma_req(s_nc[nc()]);
-        spi4.dma_req_rx(s_nc[nc()]);    spi4.dma_req_tx(s_nc[nc()]);
+        // LAS PETICIONES DE DMA, que desde la fase 6 SÍ llegan a una celda.
+        //
+        // Las señales viven en `SocF4` y no aquí, y no es un capricho: el
+        // multiplexado de celdas se cablea en el constructor de la clase base,
+        // cuando estos periféricos todavía no existen, y un `sc_in` no se
+        // reata. Así que el DMA se ató a la señal allí y el periférico se ata a
+        // la misma señal aquí, que es cuando ya está construido.
+        //
+        // El mapa de celdas sale de la base de datos de STM32CubeMX y está
+        // contrastado con las Tablas 28 y 29 de [RM0390] Rev 9, que coinciden
+        // celda a celda [vs_446re, §21].
+        fmpi2c1.dma_req_rx(q_fmpi2c1_rx); fmpi2c1.dma_req_tx(q_fmpi2c1_tx);
+        sai1.a.dma_req(q_sai1_a);         sai1.b.dma_req(q_sai1_b);
+        sai2.a.dma_req(q_sai2_a);         sai2.b.dma_req(q_sai2_b);
+        spi4.dma_req_rx(q_spi4_rx);       spi4.dma_req_tx(q_spi4_tx);
+        qspi.dma_req(q_qspi);
     }
 
     // =======================================================================
@@ -338,13 +345,11 @@ public:
             "guarda y no vence), que son justo la parte que este IP anade "
             "sobre el I2C clasico",
 
-            "las peticiones de DMA de los bloques nuevos -FMPI2C1, los dos "
-            "SAI y el SPI4- SALEN del periferico y no llegan a ninguna celda: "
-            "el mapa de canales del DMA es todavia el del F407, porque no se "
-            "ha encontrado una fuente de ST legible por maquina para el del "
-            "F446 y este modelo no se inventa tablas. Desde la fase 5 eso ya "
-            "no es silencioso: armar un stream sobre una celda sin fuente "
-            "saca un aviso que dice cual es"
+            "las dos celdas de DMA del SPDIF-RX -DMA1 stream 1 canal 0 y "
+            "stream 6 canal 0- estan en la tabla del chip y sin fuente en "
+            "este modelo, porque su bloque esta declarado y no modelado. "
+            "Armar un stream ahi saca un aviso que dice que celda es, en vez "
+            "de quedarse esperando en silencio"
         };
     }
 };

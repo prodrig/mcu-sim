@@ -2649,6 +2649,33 @@ SC_MODULE(F1Tb) {
         check(dma_flag(addr::DMA2_B, 0, DmaCtrl::F_TC), "TCIF0 activo tras la copia");
         tm.write32(addr::DMA2_B + DmaCtrl::LIFCR, 0x3Fu);
         check(!dma_flag(addr::DMA2_B, 0, DmaCtrl::F_TC), "LIFCR borra TCIF0");
+
+        // -------------------------------------------------------------------
+        // QUE CELDAS DE LA TABLA TIENEN FUENTE EN ESTE CHIP [I-47]
+        //
+        // La tabla de peticiones se saco de la base de datos de STM32CubeMX
+        // -`DMA-STM32F417_dma_v2_0_Modes.xml`, que es el fichero que el
+        // descriptor del F407VG nombra en su `Version=`- y coincidio celda a
+        // celda con la que este modelo tenia escrita a mano... salvo CINCO,
+        // las de los bloques de extension del I2S, que [IR] no recoge y que
+        // estuvieron al aire desde la fase 4 del proyecto original.
+        //
+        // Se pregunta al modelo y no al bus: no cuesta tiempo simulado.
+        // -------------------------------------------------------------------
+        auto celda = [](unsigned st, unsigned ch) { return st * 8 + ch; };
+        check(((dut->dma1.celdas_con_fuente >> celda(0, 3)) & 1u) &&
+              ((dut->dma1.celdas_con_fuente >> celda(2, 2)) & 1u) &&
+              ((dut->dma1.celdas_con_fuente >> celda(3, 3)) & 1u) &&
+              ((dut->dma1.celdas_con_fuente >> celda(4, 2)) & 1u) &&
+              ((dut->dma1.celdas_con_fuente >> celda(5, 2)) & 1u),
+              "las cinco celdas de los I2SxEXT ya tienen fuente: 0/3 y 2/2 el "
+              "I2S3ext RX, 3/3 el I2S2ext RX, 4/2 el I2S2ext TX y 5/2 el "
+              "I2S3ext TX");
+        check(!((dut->dma2.celdas_con_fuente >> celda(5, 2)) & 1u) &&
+              !((dut->dma2.celdas_con_fuente >> celda(6, 2)) & 1u) &&
+              !((dut->dma2.celdas_con_fuente >> celda(7, 2)) & 1u),
+              "y las del CRYP y el HASH NO la tienen, que es lo correcto: son "
+              "del F415/F417 y este chip no lleva el acelerador");
     }
 
     // -----------------------------------------------------------------------

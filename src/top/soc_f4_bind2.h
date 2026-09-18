@@ -335,10 +335,11 @@ inline void SocF4::bind_dma_requests() {
     spi1.dma_req_rx(q_spi1_rx); spi1.dma_req_tx(q_spi1_tx);
     spi2.dma_req_rx(q_spi2_rx); spi2.dma_req_tx(q_spi2_tx);
     spi3.dma_req_rx(q_spi3_rx); spi3.dma_req_tx(q_spi3_tx);
-    // [IR] no recoge las celdas de DMA de los bloques de extension del I2S:
-    // sus lineas quedan al aire hasta disponer de la tabla (véase el informe).
-    i2s2ext.dma_req_rx(s_nc[nc()]); i2s2ext.dma_req_tx(s_nc[nc()]);
-    i2s3ext.dma_req_rx(s_nc[nc()]); i2s3ext.dma_req_tx(s_nc[nc()]);
+    // Los bloques de extension del I2S. Sus celdas estuvieron al aire porque
+    // [IR] no trae esa tabla; la base de datos de CubeMX SI la tiene, y la
+    // fase 6 las ha cableado [vs_446re, §21].
+    i2s2ext.dma_req_rx(q_i2s2ext_rx); i2s2ext.dma_req_tx(q_i2s2ext_tx);
+    i2s3ext.dma_req_rx(q_i2s3ext_rx); i2s3ext.dma_req_tx(q_i2s3ext_tx);
     i2c1.dma_req_rx(q_i2c1_rx); i2c1.dma_req_tx(q_i2c1_tx);
     i2c2.dma_req_rx(q_i2c2_rx); i2c2.dma_req_tx(q_i2c2_tx);
     i2c3.dma_req_rx(q_i2c3_rx); i2c3.dma_req_tx(q_i2c3_tx);
@@ -374,10 +375,41 @@ inline void SocF4::bind_dma_requests() {
         t->dma_com(s_nc[nc()]);
     }
 
-    // ---- Multiplexado (stream, canal) -> señal [IR, §11.4] -----------------
+    // =======================================================================
+    // EL MULTIPLEXADO (stream, canal) -> SEÑAL, y ahora POR CHIP
+    //
+    // Esta tabla dice qué periférico pide por cada una de las 64 celdas de cada
+    // controlador. Hasta la fase 6 había una sola —la del F407— y se usaba
+    // también para el F446, que es otra: el FMPI2C1, los dos SAI, el SPI4, el
+    // QUADSPI y el SPDIF-RX ocupan celdas que en el F407 están reservadas o son
+    // de los bloques de extensión del I2S.
+    //
+    // DE DÓNDE SALEN LAS DOS. De la base de datos de STM32CubeMX —
+    // `DMA-STM32F417_dma_v2_0_Modes.xml` para el F407 y
+    // `DMA-STM32F446_dma_v2_0_Modes.xml` para el F446, que es el fichero que el
+    // descriptor de cada MCU nombra en su `Version=`—, extraídas por máquina y
+    // no a ojo. Es la misma procedencia que `[PINDATA]`, del que el repositorio
+    // público `STM32_open_pin_data` es un subconjunto: pines y nada más.
+    //
+    // Y CONTRASTADAS CON UN SEGUNDO DOCUMENTO DE ST: las Tablas 28 y 29 de
+    // `[RM0390] Rev 9` coinciden con la del F446 **celda a celda, las 128**. La
+    // del F407, además, coincidía ya con la que este modelo tenía escrita a mano
+    // —salvo las cinco celdas de los I2SxEXT, que el informe interno no recogía
+    // y que ahora entran—.
+    //
+    // UNA CELDA, UNA PETICIÓN. Varias celdas llevan más de una fuente del mismo
+    // temporizador (`TIM5_CH3/TIM5_UP`): el silicio decide cuál manda con los
+    // bits DIER del propio temporizador, y este modelo simplifica cogiendo una.
+    // Se conservan **las mismas elecciones que ya tenía el F407** para no mover
+    // su invariante; la única que no es «la primera de la lista» es DMA1/S2/C5,
+    // donde el modelo eligió TIM3_UP y la tabla pone TIM3_CH4 delante.
+    // =======================================================================
     auto C = [](unsigned s, unsigned c) { return s * 8 + c; };
     std::map<unsigned, sc_core::sc_signal<bool>*> m1, m2;
-    // DMA1 (celdas I2S*_EXT_* sin modelo propio -> quedan en s_false)
+
+    // --- Lo que las dos piezas comparten -----------------------------------
+    // Comprobado por máquina contra las dos tablas de ST: en ninguna de estas
+    // celdas hay una sola discrepancia entre el F407 y el F446.
     m1[C(0,0)] = &q_spi3_rx;  m1[C(2,0)] = &q_spi3_rx;  m1[C(3,0)] = &q_spi2_rx;
     m1[C(4,0)] = &q_spi2_tx;  m1[C(5,0)] = &q_spi3_tx;  m1[C(7,0)] = &q_spi3_tx;
     m1[C(0,1)] = &q_i2c1_rx;  m1[C(5,1)] = &q_i2c1_rx;  m1[C(6,1)] = &q_i2c1_tx;
@@ -398,7 +430,7 @@ inline void SocF4::bind_dma_requests() {
     m1[C(1,7)] = &q_tim6_up; m1[C(2,7)] = &q_i2c2_rx; m1[C(3,7)] = &q_i2c2_rx;
     m1[C(4,7)] = &q_u3_tx;   m1[C(5,7)] = &q_dac1;    m1[C(6,7)] = &q_dac2;
     m1[C(7,7)] = &q_i2c2_tx;
-    // DMA2 (celdas SAI/SPI4-6/CRYP/HASH: no existen en el F407 -> s_false)
+
     m2[C(0,0)] = &q_adc1;    m2[C(4,0)] = &q_adc1;
     m2[C(2,0)] = &q_tim_cc[5*4+0];  m2[C(6,0)] = &q_tim_cc[0*4+0];
     m2[C(1,1)] = &q_dcmi;    m2[C(7,1)] = &q_dcmi;
@@ -417,6 +449,33 @@ inline void SocF4::bind_dma_requests() {
     m2[C(1,7)] = &q_tim_up[5];      m2[C(2,7)] = &q_tim_cc[5*4+0];
     m2[C(3,7)] = &q_tim_cc[5*4+1];  m2[C(4,7)] = &q_tim_cc[5*4+2];
     m2[C(7,7)] = &q_tim_cc[5*4+3];
+
+    if (!mcu.perif.alguno_f446()) {
+        // --- Lo que solo tiene el F405/F407 --------------------------------
+        // Las cinco celdas de los bloques de extension del I2S.
+        m1[C(0,3)] = &q_i2s3ext_rx;   m1[C(2,2)] = &q_i2s3ext_rx;
+        m1[C(3,3)] = &q_i2s2ext_rx;   m1[C(4,2)] = &q_i2s2ext_tx;
+        m1[C(5,2)] = &q_i2s3ext_tx;
+        // Las del CRYP y el HASH -DMA2, canal 2 de los streams 5, 6 y 7- son
+        // del F415/F417 y NO de este chip: se quedan sin fuente a proposito.
+    } else {
+        // --- Lo que solo tiene el F446 -------------------------------------
+        // Donde el F407 tiene los I2SxEXT, el F446 tiene el FMPI2C1 y el
+        // SPDIF-RX. Es la misma clase de trampa que 0x4000_4000 en el mapa de
+        // direcciones: la celda no falla, pide otro periferico.
+        m1[C(2,2)] = &q_fmpi2c1_rx;   m1[C(5,2)] = &q_fmpi2c1_tx;
+        m2[C(1,0)] = &q_sai1_a;       m2[C(3,0)] = &q_sai1_a;
+        m2[C(5,0)] = &q_sai1_b;       m2[C(7,0)] = &q_sai2_b;
+        m2[C(4,1)] = &q_sai1_b;
+        m2[C(4,3)] = &q_sai2_a;       m2[C(6,3)] = &q_sai2_b;
+        m2[C(7,3)] = &q_qspi;
+        m2[C(0,4)] = &q_spi4_rx;      m2[C(1,4)] = &q_spi4_tx;
+        m2[C(3,5)] = &q_spi4_rx;      m2[C(4,5)] = &q_spi4_tx;
+        // Y LAS DOS QUE NO SE CABLEAN, a proposito: DMA1/S1/C0 (SPDIFRX_DT) y
+        // DMA1/S6/C0 (SPDIFRX_CS). El SPDIF-RX es un `BloqueDeclarado` y no
+        // tiene nada que pedir; armar un stream ahi saca el aviso de celda sin
+        // fuente, que es exactamente lo que se quiere que pase.
+    }
 
     // LO QUE ESTE CHIP TIENE CABLEADO, dicho en una mascara. Las celdas que no
     // estan en `m1`/`m2` se atan a `s_false`, y desde dentro del controlador

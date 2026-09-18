@@ -3403,3 +3403,63 @@ del F407, el TIM2 contando mil microsegundos en un milisegundo, el SPI1 a
 Estado: ASan y UBSan limpios en las dos suites (y de paso ASan cazó una fuga de
 72 bytes: la sonda del banco nuevo, que no es un módulo de SystemC y hay que
 devolver a mano), `make red` 13/13 y las cinco placas validan sin un aviso.
+
+## Fase 6: las dos casillas que quedaban, cerradas con fuentes de ST
+
+> En la carpeta doc/stm32f446xx tienes el RM0390 rev. 9 tanto en pdf como en
+> texto. Tienes conectada la carpeta donde este ordenador tiene instalados tanto
+> CubeMX como CubeIDE. Cierra lo que queda pendiente
+
+Hechas las dos. El invariante del F407 sigue en **`2336217899213 ps`**, la suite
+del F407 pasa a **2055** y la del F446 a **193**.
+
+**El mapa de DMA estaba donde dije que estaría, y la estructura tenía truco.**
+La tabla de peticiones no está en `STM32_open_pin_data` —ese repositorio dice en
+su README que es «a subset of STM32CubeMx internal database»: solo pines— sino en
+la base completa, un fichero por IP. Y no viene servida: el `RefMode` de cada
+petición da su **canal**, y hay que bajar por el árbol de `Mode` para saber de
+qué **stream** cuelga. Las 128 celdas se extrajeron por máquina.
+
+**Luego las contrasté con las Tablas 28 y 29 del RM0390 rev. 9** —leyendo la
+página del PDF, porque `pdftotext` destroza esas tablas: tienen celdas de varias
+líneas y las descoloca—. **Coinciden las 128.** Dos fuentes de ST independientes
+diciendo lo mismo, que es la verificación más fuerte que ha hecho este proyecto;
+y aquí importa especialmente, porque un mapa de DMA mal copiado no falla, no
+avisa y no transfiere: el stream se arma y se queda esperando.
+
+**Y salió un regalo.** La tabla del F407 que sacó CubeMX coincidía ya con la que
+el modelo tenía escrita a mano... salvo **cinco celdas**: las de los bloques de
+extensión del I2S, que llevaban al aire desde que se escribió el modelo del DMA
+con un comentario honesto («[IR] no recoge esa tabla»). La base de ST sí las
+trae. Cableadas (I-48). Las del CRYP y el HASH, en cambio, siguen sin fuente a
+propósito: son de un F417 y este chip no lleva el acelerador.
+
+**La divergencia que más me gusta** es que donde el F407 tiene el I2S3ext —DMA1
+stream 2 canal 2— el F446 tiene el **FMPI2C1**. Es exactamente la misma trampa
+que `0x4000_4000` en el mapa de direcciones: la celda no falla, pide otro
+periférico. Un firmware portado que arme ese stream se encuentra con otro chip
+dentro.
+
+**La prueba que lo cierra no es que la tabla lo diga.** El grupo H5 del banco
+hace pasar dieciséis palabras de la SRAM a `SAI1_A->DR` por su celda, y luego
+repite el montaje **cambiando solo `CHSEL`**: con el canal equivocado no se mueve
+un dato. Esa segunda mitad es la que distingue «la celda funciona» de «el stream
+funciona».
+
+**Y el RM0390 rev. 9.** Los cuatro puntos de la fase 0: §2.1 idéntico —siete
+maestros, siete esclavos, «FMC / QUADSPI»—, §10.1.1 idéntico, §33.6.1 idéntico
+(`DEV_ID = 0x421`), y la Tabla 1... **sigue sin listar el FMPI2C1**. Cinco
+revisiones después, el rango `0x4000 6000`–`0x4000 63FF` sigue sin nombre en la
+tabla de fronteras mientras el capítulo 23 del mismo manual describe el
+periférico entero. No era el descuido de una revisión vieja.
+
+De propina, el `RCC_CIR` de la rev. 9 **confirma el arreglo de I-43**: `LSIRDYF`
+en el bit 0, el IE en el 8 y el de limpieza en el 16. La tabla que está mal es la
+del informe interno, y ahora hay dos documentos de ST que lo dicen.
+
+Una nota de proceso: a mitad de faena el contenedor de la nube se reinició y
+perdí la copia de trabajo. La recuperé del repo del equipo —que tenía la fase 5
+confirmada—, reinstalé SystemC y la toolchain ARM, reconstruí los dieciocho
+firmwares de verificación y rehíce los cambios. La base volvió al picosegundo
+exacto antes de tocar nada, que es justamente para lo que sirve tener un
+invariante.

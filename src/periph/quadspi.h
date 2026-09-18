@@ -56,6 +56,10 @@ namespace stm32 {
 class QuadSpi : public BusSlave {
 public:
     sc_core::sc_out<bool> irq{"irq"};
+    // La peticion de DMA. El QUADSPI la levanta con la misma condicion que la
+    // interrupcion de FIFO -el umbral de FTHRES- pero gobernada por CR.DMAEN,
+    // y ocupa la celda (DMA2, stream 7, canal 3) [RM0390 Rev 9, tabla 29].
+    sc_core::sc_out<bool> dma_req{"dma_req"};
     // Los seis pines, por el mux. Cada IO es bidireccional: `oe` dice si el
     // controlador conduce o escucha, que es lo que cambia entre una fase de
     // comando y una de datos leídos.
@@ -78,6 +82,7 @@ public:
         R_PSMKR = 0x24, R_PSMAR = 0x28, R_PIR = 0x2C, R_LPTR = 0x30
     };
     static constexpr uint32_t CR_EN = 1u << 0, CR_ABORT = 1u << 1,
+        CR_DMAEN = 1u << 2,
         CR_TCIE = 1u << 17, CR_FTIE = 1u << 18, CR_SMIE = 1u << 19,
         CR_APMS = 1u << 22;
     static constexpr uint32_t SR_TEF = 1u << 0, SR_TCF = 1u << 1,
@@ -174,7 +179,7 @@ private:
     uint32_t cr_ = 0, dcr_ = 0, sr_ = 0, dlr_ = 0, ccr_ = 0, ar_ = 0, abr_ = 0;
     uint32_t psmkr_ = 0, psmar_ = 0, pir_ = 0, lptr_ = 0;
     std::deque<uint8_t> fifo_;
-    bool     o_irq_ = false, aborta_ = false, pedido_ = false;
+    bool     o_irq_ = false, o_dma_ = false, aborta_ = false, pedido_ = false;
     unsigned n_cmd_ = 0;
     uint8_t  ultima_inst_ = 0;
     bool     o_clk_ = false, o_ncs_ = true;
@@ -206,6 +211,7 @@ private:
             io_oe[i].write(o_ioe_[i]);
         }
         irq.write(o_irq_);
+        dma_req.write(o_dma_);
     }
     void rst_proc() {
         if (rst_n.read()) return;
@@ -214,7 +220,7 @@ private:
         fifo_.clear();
         o_ncs_ = true; o_clk_ = false;
         for (unsigned i = 0; i < 4; ++i) { o_io_[i] = true; o_ioe_[i] = false; }
-        o_irq_ = false; n_cmd_ = 0; pedido_ = false;
+        o_irq_ = false; o_dma_ = false; n_cmd_ = 0; pedido_ = false;
         publica();
     }
     void actualiza_flags() {
@@ -227,6 +233,9 @@ private:
         o_irq_ = ((cr_ & CR_TCIE) && (sr_ & SR_TCF)) ||
                  ((cr_ & CR_FTIE) && (sr_ & SR_FTF)) ||
                  ((cr_ & CR_SMIE) && (sr_ & SR_SMF));
+        // En modo mapeado en memoria no hay peticion de DMA que valga: quien
+        // lee es el nucleo por el bus, y el controlador solo responde.
+        o_dma_ = (cr_ & CR_DMAEN) && (sr_ & SR_FTF) && fmode() != 3;
         publica();
     }
     void lanza() {

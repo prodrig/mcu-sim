@@ -22,8 +22,8 @@ P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
 | **F7** (ETH) | Ethernet 10/100: MII/RMII en los pines, MDIO, descriptores, filtrado, MMC y PTP | **completada** |
 | F7 (resto) | afinado AT | pendiente |
 
-`make test` compila y ejecuta la suite de verificación acumulada (**2053**
-comprobaciones autocomprobables, y `make test446` las **189** del segundo chip —
+`make test` compila y ejecuta la suite de verificación acumulada (**2055**
+comprobaciones autocomprobables, y `make test446` las **193** del segundo chip —
 véase más abajo—: 127 de F1 + 12 de F2 + 80 de F3 + 343 de F4
 (DMA, UART/USART, TIM y EXTI/SYSCFG) + 675 de F5 (SPI/I2S, I2C, ADC, DAC, RTC y
 perros guardianes, SDIO, CRC/RNG y bxCAN) + 151 de F6 (depuración y los dos
@@ -118,6 +118,13 @@ Y se depura: una sonda SWD soldada a PA13/PA14 engancha el SW-DP, lee el AHB-AP
 y saca `DBGMCU_IDCODE = 0x1000_0421` **por los dos hilos**, que es por donde lo
 lee STM32CubeIDE antes de decidir si sabe con quién habla.
 
+Desde la **fase 6** tiene además **su propio mapa de canales de DMA**, que no es
+el del F407: donde aquél tiene los bloques de extensión del I2S, éste tiene el
+FMPI2C1; y el SPDIF-RX, los dos SAI, el SPI4 y el QUADSPI ocupan celdas que en el
+F407 están reservadas. Sale de la base de datos de STM32CubeMX y está contrastado
+celda a celda —las 128— con las Tablas 28 y 29 del RM0390 Rev 9. Es la clase de
+dato en que equivocarse no falla, no avisa y no transfiere.
+
 **Está a medias y lo dice.** `sim` imprime, al montar la placa, la lista de lo
 que el modelo todavía no hace —el SPDIF-RX y el HDMI-CEC están declarados y no
 modelados, el FMPI2C1 no calcula el PEC, los SAI no hacen companding ni
@@ -172,7 +179,7 @@ validar una plataforma nueva antes de pelearse con la biblioteca.
 
 | Plataforma | Estado | Comprobado |
 | :--- | :--- | :--- |
-| Linux, g++ 13 | **verificado** | 2053/2053 comprobaciones, 189/189 del F446, `make red` 13/13, ASan + UBSan limpio en las dos suites (`make asan`, `make asan446`), las cinco placas validan sin un aviso |
+| Linux, g++ 13 | **verificado** | 2055/2055 comprobaciones, 193/193 del F446, `make red` 13/13, ASan + UBSan limpio en las dos suites (`make asan`, `make asan446`), las cinco placas validan sin un aviso |
 | Linux, clang | **verificado** | mismo resultado y mismo tiempo simulado al picosegundo |
 | Windows, MinGW-w64 | **compila y enlaza** (cruzado con g++ 13-win32) | `make red` genera un PE32+ sin avisos; **falta ejecutarlo en Windows y construir SystemC allí** |
 | macOS, clang | **la rama específica compila** | Se fuerza la combinación de macOS —sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`— y compila con g++ y con clang; **falta probarlo en un Mac** |

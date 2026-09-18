@@ -246,7 +246,23 @@ SC_MODULE(SocF4) {
         q_u5_rx{"q_u5_rx"}, q_u5_tx{"q_u5_tx"}, q_u6_rx{"q_u6_rx"}, q_u6_tx{"q_u6_tx"},
         q_adc1{"q_adc1"}, q_adc2{"q_adc2"}, q_adc3{"q_adc3"},
         q_dac1{"q_dac1"}, q_dac2{"q_dac2"}, q_sdio{"q_sdio"}, q_dcmi{"q_dcmi"},
-        q_tim6_up{"q_tim6_up"}, q_tim7_up{"q_tim7_up"};
+        q_tim6_up{"q_tim6_up"}, q_tim7_up{"q_tim7_up"},
+        // Los bloques de extension del I2S. Sus celdas de DMA existen -la base
+        // de datos de ST las tiene, y el RM0090 tambien-; lo que pasaba es que
+        // el informe interno de este proyecto no las recogia, y por eso
+        // estuvieron al aire hasta la fase 6.
+        q_i2s2ext_rx{"q_i2s2ext_rx"}, q_i2s2ext_tx{"q_i2s2ext_tx"},
+        q_i2s3ext_rx{"q_i2s3ext_rx"}, q_i2s3ext_tx{"q_i2s3ext_tx"},
+        // LAS DEL F446. Viven aqui y no en `Stm32F446` por una razon de
+        // elaboracion: `bind_dma_requests()` corre en el constructor de ESTA
+        // clase, cuando los perifericos de la derivada todavia no existen, y un
+        // `sc_in` no se reata. Asi que el DMA se ata a la senal, y la derivada
+        // engancha su periferico a la MISMA senal cuando le toca construirse.
+        q_fmpi2c1_rx{"q_fmpi2c1_rx"}, q_fmpi2c1_tx{"q_fmpi2c1_tx"},
+        q_sai1_a{"q_sai1_a"}, q_sai1_b{"q_sai1_b"},
+        q_sai2_a{"q_sai2_a"}, q_sai2_b{"q_sai2_b"},
+        q_spi4_rx{"q_spi4_rx"}, q_spi4_tx{"q_spi4_tx"},
+        q_qspi{"q_qspi"};
     sc_core::sc_vector<sc_core::sc_signal<bool>> q_tim_cc{"q_tim_cc", 6 * 4}; // tim1/2/3/4/5/8 x ch
     sc_core::sc_signal<bool> q_tim_up[6];   // tim1/2/3/4/5/8 UP
     sc_core::sc_signal<bool> q_tim1_trig{"q_tim1_trig"}, q_tim8_trig{"q_tim8_trig"};
