@@ -71,3 +71,10 @@ _to_delete/
 # aplicación de escritorio las deja aquí. Es salida, no fuente; lo que valga la
 # pena se versiona en su sitio (doc/, src/).
 Claude outputs/
+
+# Documentación del fabricante: los PDF de ST y sus extracciones a texto. Son
+# 21 MB por manual, se descargan de st.com cuando hacen falta y cambian de
+# revisión sin avisar; versionarlos engordaría el repositorio sin añadir nada
+# que no esté ya citado con su sección en doc/. Lo que SÍ se versiona es lo que
+# se leyó allí y dónde: véase doc/stm32f407vg_vs_446re.md, §15.7 y §21.
+doc/stm32f446xx/
