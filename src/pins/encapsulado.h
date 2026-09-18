@@ -9,7 +9,7 @@
 //
 // Hasta ahora esto era una FUNCIÓN ESTÁTICA, `PinMux::is_bonded_lqfp100()`,
 // y estaba señalado como obstáculo desde el análisis de varios MCUs
-// [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §6.3]: mientras hubiera un solo encapsulado
+// [doc/multi_mcu.md, §6.3]: mientras hubiera un solo encapsulado
 // daba igual; con dos chips de encapsulados distintos en la misma placa, no.
 // Ahora es un dato de instancia, que es lo que ese análisis pedía.
 //

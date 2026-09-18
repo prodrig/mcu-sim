@@ -385,7 +385,7 @@ Lo he medido en vez de estimarlo, y el resultado cambia la pregunta: **la
 elección entre A y B es falsa**. Casi todo el coste de A no viene de modelar los
 periféricos, sino de **dos bucles de sondeo**. Corregidos —escenario C—, el
 modelo completo cuesta **exactamente lo mismo que el dummy** y sigue estando
-entero. Está en `doc/stm32f4xx/stm32f407vg_coste_simulacion.md` y el banco de medida, en
+entero. Está en `doc/coste_simulacion.md` y el banco de medida, en
 `src/top/bench_main.cpp` (`make bench`).
 
 **El coste puro, con NRST abajo para que no haya nada más en la simulación**
@@ -1007,7 +1007,7 @@ varios MCUs. […] los nodos de los MCUs no hace falta declararlos, así que las
 referencias deberían ser algo así como `nodo = "PD12"` si sólo hay un MCU o
 `nodo = "u0.PD12"` si hay dos».
 
-**Respuesta.** `doc/stm32f4xx/stm32f407vg_multi_mcu.md`, con cada cita de código verificada.
+**Respuesta.** `doc/multi_mcu.md`, con cada cita de código verificada.
 Lo fácil es el esquema de nombres (`NodeMap` es un mapa de cadenas). Lo medio, un
 elemento `<mcu>` y una interfaz `mcu_if` con su factoría — la superficie que
 `sim_main.cpp` usa del MCU son cuatro cosas. **Lo difícil es unir un pin de `u0`
@@ -2819,7 +2819,7 @@ ahí ni un periférico, ni un árbol de reloj, ni un encapsulado.
 Suite **1993/1993** (+37), invariante intacto en **`2336217899213 ps`** —los
 módulos de laboratorio se atan a señales que nadie mueve, así que sus procesos no
 despiertan nunca—, ASan+UBSan limpios. Documento nuevo:
-`doc/stm32f4xx/stm32f407vg_reutilizacion.md`. Puntos: 152 → 153, con **I-39** cerrado.
+`doc/reutilizacion.md`. Puntos: 152 → 153, con **I-39** cerrado.
 
 ---
 

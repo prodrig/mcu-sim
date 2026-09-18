@@ -13,7 +13,7 @@
 //
 // VARIOS MCUs. Una placa puede declarar cero, uno o varios `<mcu>`, cada uno
 // con su firmware, su modo de depuración y su puerto de GDB
-// [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §5]:
+// [doc/multi_mcu.md, §5]:
 //
 //   <mcu tipo="STM32F407VG" id="u0" firmware="maestro.bin"
 //        depuracion="dap"   puerto_gdb="3333"/>

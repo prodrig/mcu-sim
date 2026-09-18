@@ -13558,7 +13558,7 @@ SC_MODULE(F1Tb) {
     //
     // Lo que se comprueba aquí es la diferencia entre las dos maneras de
     // juntar dos pines, que es la única razón por la que este trabajo merece
-    // la pena [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §4]:
+    // la pena [doc/multi_mcu.md, §4]:
     //
     //   * una PISTA (`SignalLink`, y ahí sigue: lnk_pwm lleva el PWM de PD12 a
     //     PB4 en T41 y T43) es un buffer con umbral y sentido. Vale, y muy
@@ -14388,7 +14388,7 @@ SC_MODULE(F1Tb) {
     //
     // Que dos MCUs se monten de verdad, con su firmware y su stub de GDB cada
     // uno, lo comprueba `placas/dos_mcu.xml` con el ejecutable `sim`; véase
-    // doc/stm32f4xx/stm32f407vg_multi_mcu.md, §5.
+    // doc/multi_mcu.md, §5.
     // -----------------------------------------------------------------------
     void t123_varios_mcu() {
         group("T123 Varios MCUs: la declaracion y sus errores");
@@ -14429,7 +14429,7 @@ SC_MODULE(F1Tb) {
         }
 
         // --- 3. La regla de los nombres de pad, que es el corazon ------------
-        // [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §3]
+        // [doc/multi_mcu.md, §3]
         {
             Netlist uno;
             uno.add_mcu(DeclMcu{"STM32F407VG", "u0", "", "pines", 0});

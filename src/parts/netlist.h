@@ -84,7 +84,7 @@ public:
     // del primero—, y por eso conviene que suene. Volver a registrar el mismo
     // nombre con el MISMO nodo sí vale: es idempotente, y ocurre de verdad
     // cuando un pad forma parte de un nodo compartido que ya estaba dado de
-    // alta por su nombre de placa. [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §7.2]
+    // alta por su nombre de placa. [doc/multi_mcu.md, §7.2]
     void registra(const std::string& nom, analog_net_if& n,
                   bool es_pin = false, bool bonded = true,
                   const char* enc = nullptr) {
@@ -112,7 +112,7 @@ public:
     // una placa con un solo chip— deja los nombres desnudos: `PD12`. Con
     // "u0" salen `u0.PD12`, que es lo que hace falta en cuanto hay dos y el
     // nombre desnudo deja de designar un pin concreto.
-    // [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §3]
+    // [doc/multi_mcu.md, §3]
     void registra_mcu(const std::string& prefijo, PinMux& pm, PowerPads& pp) {
         const std::string pre = prefijo.empty() ? std::string() : prefijo + ".";
         // Este chip se sube a una placa. Es aqui -y no al construirlo- donde
@@ -185,7 +185,7 @@ private:
 // Es la cuarta entidad del formato, junto a `<nodo>`, `<componente>` y `<ref>`,
 // y es deliberadamente distinta de las otras: un componente SE CONECTA a nodos y
 // un MCU LOS APORTA. Declarar sus 144 pads como `<pin>` sería absurdo, así que
-// el MCU no es un componente más [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §9].
+// el MCU no es un componente más [doc/multi_mcu.md, §9].
 //
 // Como todo lo demás en este fichero, aquí solo hay DATOS: cadenas y números.
 // Convertir `tipo="STM32F407VG"` en un objeto es trabajo de quien construye
@@ -388,7 +388,7 @@ public:
     // consume `cableado_desde_netlist()` ANTES de construir nada.
     //
     // Un nodo con `une` es siempre externo: no lo crea ningún pad, lo crea la
-    // placa. [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §4.3]
+    // placa. [doc/multi_mcu.md, §4.3]
     Netlist& nodo_une(const std::string& nom,
                       const std::vector<std::string>& pads) {
         const std::string nombre = nombre_canonico_pad(nom);
@@ -684,7 +684,7 @@ public:
     // --- Resolución de un nombre de PAD -------------------------------------
     // `PD12` o `u0.PD12` -> a qué MCU y a qué (puerto, pin). Devuelve "" si el
     // nombre vale, o el problema explicado. Es el sitio donde vive la regla de
-    // compatibilidad entera [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §3]:
+    // compatibilidad entera [doc/multi_mcu.md, §3]:
     //
     //   ningún <mcu>   -> uno implícito; solo valen los nombres desnudos
     //   un <mcu>       -> valen los dos, `PD12` y `u0.PD12`

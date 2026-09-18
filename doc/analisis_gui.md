@@ -212,7 +212,7 @@ pantalla necesitaría, sobre `blinky`, 5 segundos simulados:
 durante 5 segundos. El 0,2 % de los deltas de un modelo casi ocioso, y una
 diferencia de tiempo que es ruido —sale incluso más rápido—.
 
-Puesto en la escala del proyecto: `doc/stm32f4xx/stm32f407vg_coste_simulacion.md` midió que
+Puesto en la escala del proyecto: `doc/coste_simulacion.md` midió que
 OTG y ETH juntos costaban **56 000 despertares por segundo simulado**. La vista
 cuesta **60**. Tres órdenes de magnitud por debajo de algo que ya se consideró
 aceptable. **La visualización no es un problema de rendimiento y no hay que
@@ -717,7 +717,7 @@ Con `set_internal_waveforms(false)` para §3.1–3.3 y `true` para §3.4, y
 descartando las 20 primeras rodajas, que llevan el reset, la carga del firmware y
 los fallos de página del anfitrión. Los números de referencia del modelo sin GUI
 están medidos con `./build/bench` y explicados en
-`doc/stm32f4xx/stm32f407vg_coste_simulacion.md`.
+`doc/coste_simulacion.md`.
 
 ---
 ---

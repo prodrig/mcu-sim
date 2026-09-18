@@ -604,7 +604,7 @@ topes de reloj, son ahora **datos de instancia**, y los reciben `Scs`, `Mpu`,
 omisión. Un F405 —el mismo silicio sin Ethernet ni cámara— se describe cambiando
 números; un F446 no, y el campo `McuCaps::familia` es donde está escrita esa
 frontera. Los detalles y lo que sigue soldado, en
-`doc/stm32f4xx/stm32f407vg_reutilizacion.md`.
+`doc/reutilizacion.md`.
 
 ### 6.3 Cambiar de MCU: el encapsulado
 

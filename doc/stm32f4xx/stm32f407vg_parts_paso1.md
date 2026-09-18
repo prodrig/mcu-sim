@@ -239,7 +239,7 @@ Ninguno medible, y por construcción:
 Nada de esto toca la regla que gobierna el coste en este modelo —**un bloque
 cuesta en proporción a cuántas veces despierta, no a lo complicado que sea**—,
 que es lo que se atacó en el trabajo de rendimiento de la fase anterior
-(`doc/stm32f4xx/stm32f407vg_coste_simulacion.md`). El banco de medida sigue dando **50
+(`doc/coste_simulacion.md`). El banco de medida sigue dando **50
 deltas** para un MCU aparcado en `wfe` durante 5 ms simulados.
 
 ---

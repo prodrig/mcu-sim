@@ -213,7 +213,7 @@ protected:
     // un `static` local: con dos MCUs en la placa, una bandera compartida hace
     // que el aviso del segundo chip se lo trague el primero, y entonces el que
     // falla es justo el que no avisa. `mutable` porque quien lo mira es
-    // `adcclk_hz() const`. [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §7.3]
+    // `adcclk_hz() const`. [doc/multi_mcu.md, §7.3]
     mutable bool aviso_adcclk_ = false;
 
     // =======================================================================

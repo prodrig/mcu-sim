@@ -48,7 +48,7 @@ fuente que en el F407 no existen), **seis bloques que el F407 no tiene**
 tres que sí tiene** (Ethernet, RNG y la CCM RAM).
 
 **Por eso el F446 no cabe en un `McuCaps`.** Ese descriptor
-[`doc/stm32f4xx/stm32f407vg_reutilizacion.md`] distingue chips de la misma familia —un
+[`doc/reutilizacion.md`] distingue chips de la misma familia —un
 F405 de un F407— cambiando números. Describir un F446 así lo convertiría en un
 F407 con etiqueta falsa: el firmware programaría `RCC_DCKCFGR` y el modelo lo
 ignoraría en silencio.
@@ -95,7 +95,7 @@ periféricos nuevos y **una reescritura del RCC**, que es el trabajo de verdad.
 **Consecuencia para el modelo: `core/` se reutiliza entero**, sus 5.459 líneas,
 sin tocar una. `cpu.h`, `cpu_exec16.h`, `cpu_exec32.h`, `cpu_state.h`, `fpu.h`,
 `scs.h`, `debug.h` y `cortex_m4f.h` describen el Cortex-M4F, no el F407. Eso ya
-se sabía —es la tesis de `doc/stm32f4xx/stm32f407vg_reutilizacion.md`— pero ahora está
+se sabía —es la tesis de `doc/reutilizacion.md`— pero ahora está
 contrastado contra los dos reference manuals.
 
 ### 3.2 Lo único que cambia: cuántas líneas cuelgan del NVIC

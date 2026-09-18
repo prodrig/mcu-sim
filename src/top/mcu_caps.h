@@ -400,7 +400,7 @@ inline constexpr McuCaps MCU_STM32F446ZE =
 // `familia`. Mientras solo hubo una familia las dos cosas coincidían y la
 // factoría era andamio sin obra; con el F446 ya no coinciden, y por eso existe:
 // once de estas doce entradas son EL MISMO MODELO con distintos rasgos, y la
-// duodécima es otra clase. [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §6.1]
+// duodécima es otra clase. [doc/multi_mcu.md, §6.1]
 // ---------------------------------------------------------------------------
 inline const McuCaps* const CATALOGO_MCU[] = {
     &MCU_STM32F405RG, &MCU_STM32F405OG, &MCU_STM32F405VG, &MCU_STM32F405ZG,

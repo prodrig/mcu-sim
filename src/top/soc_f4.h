@@ -288,7 +288,7 @@ SC_MODULE(SocF4) {
     // este mismo chip, o un hilo que comparte con otro MCU—. Tiene que llegar
     // por el constructor porque `Pad::net` es un `sc_port` y un `sc_port` no se
     // reata; vacío, el MCU se construye exactamente igual que siempre.
-    // [doc/stm32f4xx/stm32f407vg_multi_mcu.md, §4.3]
+    // [doc/multi_mcu.md, §4.3]
     explicit SocF4(sc_core::sc_module_name nm, DebugCaps dbg = DBG_PINES,
                          const Cableado& cab = Cableado(),
                          McuCaps caps = MCU_STM32F407VG)

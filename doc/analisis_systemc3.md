@@ -238,7 +238,7 @@ que se puede contestar una por una.
 
 ### 6.1 Rendimiento — no
 
-`doc/stm32f4xx/stm32f407vg_coste_simulacion.md` estableció la regla que gobierna el coste
+`doc/coste_simulacion.md` estableció la regla que gobierna el coste
 de este modelo: **lo que cuesta es cuántas veces despierta un proceso, no lo
 complicado que sea**. Y `doc/analisis_gui.md` §3 midió dónde estamos: entre
 **11 y 200 veces más rápido que el tiempo real** según el firmware.
