@@ -683,7 +683,7 @@ Al acabar la fase 2, **un blinky compilado para F446RE debe arrancar y parpadear
 comprobable y temprano, y vale la pena perseguirlo antes que ningún periférico
 nuevo.
 
-### Fase 3 — El RCC del F446
+### Fase 3 — El RCC del F446 — **HECHA, §18**
 
 El tercer PLL, el divisor R, `RCC_DCKCFGR` y `RCC_DCKCFGR2`, y el acoplamiento
 con el over-drive del PWR. Con sus pruebas: **cada selector tiene que cambiar una
@@ -721,7 +721,7 @@ comprobar las dos cosas, la que funciona y la que debe fallar.
 | **H1** | La fase 1 acaba con la suite intacta y el invariante en su sitio — ✅ |
 | **H2** | `sim placa.xml --mcu STM32F446RE` monta y valida — ✅ fase 2 |
 | **H3** | Un blinky de CubeIDE para F446RE parpadea — ✅ fase 2 |
-| **H4** | `SystemClock_Config()` llega a 180 MHz por over-drive |
+| **H4** | `SystemClock_Config()` llega a 180 MHz por over-drive — ✅ fase 3 |
 | **H5** | El F446 se depura desde STM32CubeIDE con el `IDCODE` correcto |
 | **H6** | Los periféricos nuevos, uno a uno, con su prueba |
 
@@ -1152,3 +1152,95 @@ una placa con uno:
 Que el modelo diga en voz alta lo que aún no hace es el precio de poder
 entregarlo a medias sin mentir. La fase 3 se mide por que esas dos primeras
 líneas desaparezcan.
+
+---
+
+## 18. Fase 3: el árbol de reloj, y un segundo fallo del F407
+
+La fase 3 era «el bloque más caro del puerto y el que más pruebas va a
+necesitar», y el motivo estaba escrito en §13: **un árbol de reloj mal modelado
+no falla, da la frecuencia equivocada**. De ahí el criterio, que se ha cumplido
+al pie de la letra: *cada selector tiene que cambiar una frecuencia observable,
+no solo guardar un bit*.
+
+**El invariante del F407 sigue intacto: `2336217899213 ps`, 2047/2047. La suite
+del F446 pasa de 43 a 101 comprobaciones.**
+
+### 18.1 El hito H4, que es lo que se ve desde fuera
+
+```
+--- D1 H4: el SystemClock_Config() de una Nucleo-F446RE ---
+    buzon: done=1 sysclk=180000000 etapa=6 od=3 ticks=59 pclk1=45000000
+  [OK] el firmware recorre las seis etapas de RM0390 5.1.3
+  [OK] y llega con ODRDY y ODSWRDY puestas: paso por el over-drive de verdad
+  [OK] SYSCLK = 180 MHz, calculado por el firmware con la cabecera de ST
+  [OK] y el modelo esta de acuerdo: HCLK = 180 MHz
+
+--- D2 H4, la otra mitad: si ODRDY no sube, el firmware NO avanza ---
+    buzon: done=0 etapa=1 (1 = escribio ODEN y sigue esperando ODRDY)
+  [OK] sesenta milisegundos despues, el firmware SIGUE en el paso 3
+  [OK] y NO hay 180 MHz: sin over-drive el chip no llega
+```
+
+Las dos mitades, como pedía el plan. La segunda se consigue sin construir un
+chip aparte: el tiempo que tarda el regulador es un **parámetro** del PWR, y
+ponerlo en diez segundos es exactamente «esta bandera no va a subir». El
+firmware es el mismo, sin recompilar.
+
+### 18.2 Qué se escribió
+
+| Pieza | Qué es |
+| :--- | :--- |
+| `rcc/reloj_caps.h` | los rasgos del árbol (`ArbolReloj`) y los topes (`LimitesReloj`), que salen de `mcu_caps.h` al subsistema que los usa |
+| `LimitesReloj` con dos juegos | 168/42/84 **sin** over-drive y 180/45/90 **con** él: por primera vez un tope depende del ESTADO y no del chip |
+| `Pll::out_r_hz()` | el divisor R, sin generador de onda: hoy solo se consulta su frecuencia |
+| `pllsai` | el tercer PLL, construido siempre y encendible solo donde existe |
+| `PLLI2S` con M/P/Q propios | en el F407 comparte la M del PLL principal —las dos VCO van atadas— y en el F446 no |
+| `R_PLLSAICFGR`/`R_DCKCFGR`/`R_CKGATENR`/`R_DCKCFGR2` | 0x88, 0x8C, 0x90 y **0x94**: DCKCFGR2 no está en 0x90, porque en medio hay un registro más |
+| nueve selectores | CK48MSEL, SDIOSEL, SPDIFRXSEL, CECSEL, FMPI2C1SEL, SAI1SRC, SAI2SRC, I2S1SRC, I2S2SRC — y TIMPRE |
+| `Pwr` con over-drive | ODEN/ODRDY, ODSWEN/ODSWRDY y la señal hacia el RCC |
+
+**Dónde se sacaron las codificaciones.** No de la memoria: de las constantes del
+propio ST. `stm32f446xx.h` da los desplazamientos de registro y las posiciones
+de bit; `stm32f4xx_hal_rcc_ex.h` da qué significa cada valor de cada selector
+(`RCC_SAI1CLKSOURCE_PLLR`, `RCC_CLK48CLKSOURCE_PLLSAIP`…), y la documentación
+del macro `__HAL_RCC_TIMCLKPRESCALER` da, con las palabras de ST, las dos reglas
+de TIMPRE. Eso permitió cazar tres cosas que se habrían copiado mal:
+
+* **DCKCFGR2 está en 0x94**, no en 0x90 — en medio está CKGATENR;
+* **PLLSAIDIVQ y PLLI2SDIVQ valen N−1**: un 3 divide por cuatro;
+* **SAI1SRC = 11 es el pin `I2S_CKIN` y SAI2SRC = 11 NO lo es**, sino la fuente
+  del PLL. La asimetría es real: el SAI2 no tiene entrada de reloj externa.
+
+### 18.3 El segundo fallo del F407, encontrado por comparar
+
+Al colocar `PLLSAIRDYF` hubo que mirar dónde estaban sus vecinos, y ahí apareció
+que **toda la mitad baja de `RCC_CIR` estaba desplazada un bit**. El modelo
+ponía `LSIRDYF` en el 1, los `xxxRDYIE` en 9..14 y los bits de limpieza en
+17..22, siguiendo la tabla de `[IR, §4.6]`. La cabecera de ST los pone en **0**,
+**8** y **16**.
+
+La tabla del informe interno está mal, y el modelo la copió fielmente. Los dos
+extremos del registro —`CSSF` en el 7 y `CSSC` en el 23— sí estaban bien, y son
+los únicos que la suite comprobaba: por eso sobrevivió. Un firmware que
+habilitara `RCC_CIR_HSERDYIE` con la constante de CMSIS no habría recibido nunca
+esa interrupción.
+
+Corregido, con una comprobación nueva en T22 que no cuesta tiempo simulado —los
+flags son pegajosos, así que basta mirar dónde cayó el uno— y el invariante
+intacto. Es el segundo fallo del F407 que destapa el puerto: **el primero fue el
+SysTick de la fase 2**.
+
+### 18.4 Lo que la fase 3 deja dicho y no hecho
+
+`limitaciones()` lo enumera, y `sim` lo imprime al montar la placa:
+
+* los **escalones de tensión** (`PWR_CR.VOS`) se leen y se escriben, pero el
+  modelo no limita la frecuencia por escala: el único techo que se mueve es el
+  del over-drive;
+* **`RCC_CKGATENR`** se guarda y se devuelve y no hace nada: su único efecto
+  observable es el consumo;
+* durante la **conmutación** del over-drive el silicio para el reloj de sistema
+  unos ciclos; el modelo espera el tiempo pero no lo para.
+
+Las tres son de la misma clase: cosas que el modelo podría fingir y no finge.

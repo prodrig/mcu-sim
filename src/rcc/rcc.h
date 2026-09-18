@@ -99,7 +99,13 @@ public:
         R_APB1ENR = 0x40, R_APB2ENR = 0x44,
         R_AHB1LPENR = 0x50, R_AHB2LPENR = 0x54, R_AHB3LPENR = 0x58,
         R_APB1LPENR = 0x60, R_APB2LPENR = 0x64,
-        R_BDCR = 0x70, R_CSR = 0x74, R_SSCGR = 0x80, R_PLLI2SCFGR = 0x84
+        R_BDCR = 0x70, R_CSR = 0x74, R_SSCGR = 0x80, R_PLLI2SCFGR = 0x84,
+        // Los cuatro que el F407 no tiene. Los desplazamientos salen de la
+        // cabecera de ST (`stm32f446xx.h`, `RCC_TypeDef`) y no de la memoria:
+        // DCKCFGR2 está en 0x94 y no en 0x90, porque en medio hay un registro
+        // más, CKGATENR, que tampoco existe en el F407.
+        R_PLLSAICFGR = 0x88, R_DCKCFGR = 0x8C,
+        R_CKGATENR   = 0x90, R_DCKCFGR2 = 0x94
     };
 
     // ---- Relojes del sistema hacia el resto del modelo [IR, §4.3/4.4] -----
@@ -117,6 +123,12 @@ public:
     sc_core::sc_out<double> lsi_hz{"lsi_hz"};
     sc_core::sc_out<bool>   systick_ext{"systick_ext"};   // HCLK/8
 
+    // ---- El over-drive del PWR (solo en los chips que lo tienen) ----------
+    // Cuando está activo, los topes de los tres dominios suben: en el F446, de
+    // 168/42/84 a 180/45/90 [DS10693, tabla 16]. El RCC no lo decide -es del
+    // PWR- pero es quien tiene que saberlo, porque es quien avisa.
+    sc_core::sc_in<bool> over_drive{"over_drive"};
+
     // ---- Bajo consumo [IR, §14] -------------------------------------------
     // El PWR es quien manda: dice en qué modo está el MCU y, cuando toca,
     // ordena parar los relojes del dominio de 1,2 V o apagarlo entero.
@@ -132,8 +144,13 @@ public:
     // Los topes de reloj de ESTE chip, lo primero que se construye. Son la
     // unica parte del RCC que cambia de un F4 a otro -un F401 no pasa de
     // 84 MHz- y el aviso que sale de aqui es de los que ahorran una tarde.
-    // Por omision, los del F407. [top/mcu_caps.h]
+    // Por omision, los del F407. [rcc/reloj_caps.h]
     const LimitesReloj limites;
+    // Y QUE TIENE el arbol de este chip: si el PLL principal saca R, si el
+    // PLLI2S tiene M/P/Q propios, si hay un tercer PLL, si existen los
+    // registros de seleccion dedicados y si hay over-drive. Cada uno de los
+    // cinco enciende o apaga codigo de este fichero. [rcc/reloj_caps.h]
+    const ArbolReloj arbol;
 
     sc_core::sc_vector<sc_core::sc_out<bool>> periph_clk_en;   // [PeriphId]
     sc_core::sc_vector<sc_core::sc_out<bool>> periph_rst_n;    // [PeriphId]
@@ -165,7 +182,11 @@ public:
 
     // ---- Osciladores y PLLs ------------------------------------------------
     Oscillator hsi{"hsi"}, hse{"hse"}, lsi{"lsi"}, lse{"lse"};
-    Pll        pll{"pll"}, plli2s{"plli2s"};
+    // Tres PLL, y el tercero solo lo tienen algunos chips. Se CONSTRUYE siempre
+    // -la elaboración de SystemC es estática- y se queda apagado y sin registro
+    // que lo programe cuando `arbol.pllsai` es falso, que es lo mismo que le
+    // pasa al Ethernet en un F405: existe el módulo y no hay camino hasta él.
+    Pll        pll{"pll"}, plli2s{"plli2s"}, pllsai{"pllsai"};
 
     // ---- Parámetros temporales del reset [IR, §4.1.1] ----------------------
     sc_core::sc_time t_rst_pulse{20, sc_core::SC_US};   // pulso mínimo interno
@@ -174,8 +195,9 @@ public:
     sc_core::sc_time t_rst_release{20, sc_core::SC_US};
 
     explicit Rcc(sc_core::sc_module_name nm,
-                 LimitesReloj lim = RELOJ_STM32F407VG)
-        : BusSlave(nm, addr::RCC_B, 0x400), limites(lim),
+                 LimitesReloj lim = RELOJ_STM32F407VG,
+                 ArbolReloj   arb = ARBOL_STM32F4)
+        : BusSlave(nm, addr::RCC_B, 0x400), limites(lim), arbol(arb),
           periph_clk_en("periph_clk_en", P_COUNT),
           periph_rst_n("periph_rst_n", P_COUNT),
           g_hclk_("g_hclk"), g_pclk1_("g_pclk1"), g_pclk2_("g_pclk2"),
@@ -235,7 +257,7 @@ public:
         // el propio HCLK aunque nadie mida sus flancos.
         hsi.set_waveform(on); hse.set_waveform(on);
         lsi.set_waveform(on); lse.set_waveform(on);
-        pll.set_waveform(on); plli2s.set_waveform(on);
+        pll.set_waveform(on); plli2s.set_waveform(on); pllsai.set_waveform(on);
         g_hclk_.set_waveform(on);
         g_pclk1_.set_waveform(on);
         g_pclk2_.set_waveform(on);
@@ -251,6 +273,26 @@ public:
     double pclk2_freq() const { return f_pclk2_; }
     double pll48_freq() const { return f_pll48_; }
     double rtc_freq()   const { return f_rtc_; }
+    // Los relojes dedicados (F446). Son la forma de comprobar que cada
+    // selector CAMBIA UNA FRECUENCIA y no solo guarda un bit, que es lo que la
+    // fase 3 del plan exige. Los periféricos que los consumen llegan en la
+    // fase 4; el número ya es correcto.
+    double ck48m_freq()   const { return f_ck48m_; }
+    double sdio_freq()    const { return f_sdio_; }
+    double sai1_freq()    const { return f_sai1_; }
+    double sai2_freq()    const { return f_sai2_; }
+    double i2s1_freq()    const { return f_i2s1_; }
+    double i2s2_freq()    const { return f_i2s2_; }
+    double spdifrx_freq() const { return f_spdifrx_; }
+    double cec_freq()     const { return f_cec_; }
+    double fmpi2c1_freq() const { return f_fmpi2c1_; }
+    // Las tres VCO, para poder mirar el árbol por dentro sin adivinar.
+    double pll_r_freq()    const { return pll.out_r_hz(); }
+    double pllsai_p_freq() const { return pllsai.out_p_hz(); }
+    double pllsai_q_freq() const { return pllsai.out_q_hz(); }
+    double plli2s_r_freq() const { return arbol.plli2s_propio ? plli2s.out_r_hz()
+                                                              : plli2s.out_p_hz(); }
+    double plli2s_q_freq() const { return plli2s.out_q_hz(); }
     uint32_t peek_reg(uint32_t off) const { return const_cast<Rcc*>(this)->reg_read(off); }
 
 protected:
@@ -270,14 +312,28 @@ private:
     uint32_t ahb1enr_, ahb2enr_, ahb3enr_, apb1enr_, apb2enr_;
     uint32_t ahb1lpenr_, ahb2lpenr_, ahb3lpenr_, apb1lpenr_, apb2lpenr_;
     uint32_t bdcr_, csr_, sscgr_, plli2scfgr_;
+    // Los del F446. En un chip sin `arbol.dckcfgr` no se decodifican: leerlos
+    // devuelve cero y escribirlos no hace nada, que es lo que hace el silicio
+    // con un desplazamiento reservado.
+    uint32_t pllsaicfgr_, dckcfgr_, ckgatenr_, dckcfgr2_;
 
     // Frecuencias calculadas
     double f_sysclk_ = 0, f_hclk_ = 0, f_pclk1_ = 0, f_pclk2_ = 0;
     double f_pll48_ = 0, f_rtc_ = 0;
+    // Los relojes dedicados del F446. En un F407 valen lo que valga PLL_Q los
+    // dos primeros y cero los demas, que es lo honesto: no es que la
+    // frecuencia sea cero, es que ese reloj no existe en este chip.
+    double f_ck48m_ = 0, f_sdio_ = 0, f_sai1_ = 0, f_sai2_ = 0;
+    double f_i2s1_ = 0, f_i2s2_ = 0, f_spdifrx_ = 0, f_cec_ = 0, f_fmpi2c1_ = 0;
+    // El pin I2S_CKIN, que es una entrada de reloj externa y no un oscilador.
+    // Hoy nadie la mueve -no hay pin conectado en el modelo- y por eso vale
+    // cero: un selector que la elija da cero, que es exactamente lo que da el
+    // silicio con ese pin al aire.
+    double f_i2s_ckin_ = 0;
     unsigned sws_ = 0;
 
     // Flags previos de RDY para detectar flancos (RCC_CIR) [IR, §4.6]
-    bool prev_rdy_[6] = {};
+    bool prev_rdy_[7] = {};
 
     ClockGen g_hclk_, g_pclk1_, g_pclk2_, g_timclk1_, g_timclk2_;
     ClockGen g_rtcclk_, g_stk_, g_mco1_, g_mco2_;
@@ -306,7 +362,16 @@ private:
         ahb3lpenr_ = 0x00000001u; apb1lpenr_ = 0x36FEC9FFu;
         apb2lpenr_ = 0x00075F33u;
         sscgr_     = 0x00000000u;
-        plli2scfgr_= 0x20003000u;
+        plli2scfgr_= arbol.plli2s_propio ? 0x24003000u : 0x20003000u;
+        // ⚠ NO DISPONIBLE EN LAS FUENTES: el valor de reset del campo M de
+        // PLLI2SCFGR y PLLSAICFGR del F446. Se usa el mismo patrón que el resto
+        // de la familia -N = 192, P = 2, Q = 4, R = 2 y M = 0-, que es el que
+        // da 0x2400 3000. Un firmware siempre los escribe antes de encender su
+        // PLL, así que el valor de reset de M no llega a usarse nunca.
+        pllsaicfgr_= 0x24003000u;
+        dckcfgr_   = 0x00000000u;
+        ckgatenr_  = 0x00000000u;
+        dckcfgr2_  = 0x00000000u;
     }
 
     // --- Decodificación de divisores [IR, §4.5.3] ---------------------------
@@ -345,15 +410,45 @@ private:
         const bool src_hse = (pllcfgr_ >> 22) & 1u;
         const double ref = src_hse ? hse.out_hz() : hsi.out_hz();
         pll_ref_hz_ = ref;                    // referencia para el SSCGR
-        pll.configure(m, n, p, q);
+        // El divisor R del PLL principal, que solo existe en el F446. Con
+        // `pll_r` a falso se pasa cero, y `out_r_hz()` devuelve cero: no es que
+        // la frecuencia sea nula, es que esa salida no existe en este chip.
+        const unsigned r = arbol.pll_r ? ((pllcfgr_ >> 28) & 0x7u) : 0u;
+        pll.configure(m, n, p, q, r);
         pll.set_ref_hz(ref);
         pll.enable(!parado && ((cr_ >> 24) & 1u));
 
+        // EL PLLI2S, y aqui hay una diferencia de verdad entre las dos piezas.
+        // En el F407 comparte la M del PLL principal y solo saca R, de modo que
+        // cambiar la M del PLL le cambia la frecuencia al I2S sin tocar su
+        // registro. En el F446 tiene M, P, Q y R PROPIOS, y las dos VCO dejan
+        // de estar atadas. [RM0390, 6.3.23]
         const unsigned i2sn = (plli2scfgr_ >> 6) & 0x1FFu;
         const unsigned i2sr = (plli2scfgr_ >> 28) & 0x7u;
-        plli2s.configure(m, i2sn, i2sr ? i2sr : 2u, 1u);
+        if (arbol.plli2s_propio) {
+            const unsigned i2sm = plli2scfgr_ & 0x3Fu;
+            const unsigned i2sp = pllp_div((plli2scfgr_ >> 16) & 0x3u);
+            const unsigned i2sq = (plli2scfgr_ >> 24) & 0xFu;
+            plli2s.configure(i2sm, i2sn, i2sp, i2sq, i2sr);
+        } else {
+            // La salida "P" del modelo hace de R, que es la unica que el F407
+            // programa. Es lo que habia y no cambia.
+            plli2s.configure(m, i2sn, i2sr ? i2sr : 2u, 1u);
+        }
         plli2s.set_ref_hz(ref);
         plli2s.enable(!parado && ((cr_ >> 26) & 1u));
+
+        // EL TERCER PLL. Sin `arbol.pllsai` no se enciende nunca: su bit de
+        // RCC_CR esta reservado en el F407 y su registro no se decodifica.
+        if (arbol.pllsai) {
+            const unsigned sm = pllsaicfgr_ & 0x3Fu;
+            const unsigned sn = (pllsaicfgr_ >> 6) & 0x1FFu;
+            const unsigned sp = pllp_div((pllsaicfgr_ >> 16) & 0x3u);
+            const unsigned sq = (pllsaicfgr_ >> 24) & 0xFu;
+            pllsai.configure(sm, sn, sp, sq);
+            pllsai.set_ref_hz(ref);
+            pllsai.enable(!parado && ((cr_ >> 28) & 1u));
+        }
     }
 
     // --- Recalcula todo el árbol y reprograma los generadores ---------------
@@ -397,10 +492,27 @@ private:
         f_hclk_  = clk_divide(f_sysclk_, hd);
         f_pclk1_ = clk_divide(f_hclk_, p1d);
         f_pclk2_ = clk_divide(f_hclk_, p2d);
-        // TIMxCLK = PCLKx si el prescaler APB es 1, si no 2*PCLKx [IR, §4.4]
-        const double f_tim1 = (p1d == 1) ? f_pclk1_ : 2.0 * f_pclk1_;
-        const double f_tim2 = (p2d == 1) ? f_pclk2_ : 2.0 * f_pclk2_;
+        // TIMxCLK. La regla de siempre [IR, §4.4] es: PCLKx si el prescaler
+        // APB es 1, y 2*PCLKx si no. En el F446 hay un bit, TIMPRE, que la
+        // cambia -y es el unico selector de DCKCFGR que afecta a un periferico
+        // que este modelo YA tiene, asi que se nota de inmediato-:
+        //
+        //   TIMPRE = 0  el prescaler de los temporizadores es HPRE si PPREx
+        //               divide por 1 o 2; si no, (HPRE*PPREx)/2
+        //   TIMPRE = 1  es HPRE si PPREx divide por 1, 2 o 4; si no,
+        //               (HPRE*PPREx)/4
+        //
+        // dicho con las frecuencias: con TIMPRE = 1 y PPRE1 = 4, los
+        // temporizadores del APB1 pasan de 2*PCLK1 a HCLK, que es el doble.
+        // [Las dos reglas, con estas palabras, en el propio HAL de ST:
+        //  __HAL_RCC_TIMCLKPRESCALER]
+        const bool timpre = arbol.dckcfgr && ((dckcfgr_ >> 24) & 1u);
+        const double f_tim1 = timpre ? ((p1d <= 4) ? f_hclk_ : 4.0 * f_pclk1_)
+                                     : ((p1d == 1) ? f_pclk1_ : 2.0 * f_pclk1_);
+        const double f_tim2 = timpre ? ((p2d <= 4) ? f_hclk_ : 4.0 * f_pclk2_)
+                                     : ((p2d == 1) ? f_pclk2_ : 2.0 * f_pclk2_);
         f_pll48_ = pll.out_q_hz();
+        actualiza_relojes_dedicados(f_hsi, f_hse);
 
         // RTCCLK [IR, §4.9]: 01 LSE, 10 LSI, 11 HSE/RTCPRE, 00 sin reloj
         const unsigned rtcsel = (bdcr_ >> 8) & 0x3u;
@@ -413,10 +525,15 @@ private:
         }
         if (!((bdcr_ >> 15) & 1u)) f_rtc_ = 0.0;       // RTCEN
 
-        // Avisos de límites de dominio [IR, §4.4]
-        avisa_limite(f_hclk_,  limites.hclk_max,  "HCLK");
-        avisa_limite(f_pclk1_, limites.pclk1_max, "PCLK1");
-        avisa_limite(f_pclk2_, limites.pclk2_max, "PCLK2");
+        // Avisos de límites de dominio [IR, §4.4]. En un chip con over-drive
+        // el tope DEPENDE DEL ESTADO, no del chip: sin él, un F446 es un F407
+        // -168/42/84- y con él sube a 180/45/90. Preguntarlo aquí, en vez de
+        // guardar un número, es lo que hace que el aviso salga cuando el
+        // firmware pide 180 MHz sin haber pasado por la secuencia del PWR.
+        const bool od = limites.hay_over_drive() && over_drive.read();
+        avisa_limite(f_hclk_,  limites.tope_hclk(od),  "HCLK");
+        avisa_limite(f_pclk1_, limites.tope_pclk1(od), "PCLK1");
+        avisa_limite(f_pclk2_, limites.tope_pclk2(od), "PCLK2");
 
         g_hclk_.set_freq(f_hclk_);
         g_pclk1_.set_freq(f_pclk1_);
@@ -445,16 +562,121 @@ private:
         update_cir_flags();
     }
 
+    // -----------------------------------------------------------------------
+    // LOS RELOJES DEDICADOS: los nueve selectores de RCC_DCKCFGR y DCKCFGR2
+    //
+    // Esto es lo que el F407 no tiene y lo que hace que el F446 no quepa en un
+    // descriptor. Cada uno de estos campos elige DE DÓNDE COME un periférico, y
+    // lo que hay que exigirle al modelo -y lo que la fase 3 del plan pide
+    // literalmente- es que **cada selector cambie una frecuencia observable**,
+    // no que guarde un bit.
+    //
+    // Las frecuencias se consultan con los `f_xxx()` de la parte pública. Cinco
+    // de los periféricos a los que alimentan todavía no existen -SAI1, SAI2,
+    // SPDIF-RX, CEC y FMPI2C1 llegan en la fase 4-, y eso no es motivo para no
+    // calcularlas: cuando lleguen, se enchufan a un número que ya es correcto y
+    // que la suite ya comprueba. Lo contrario -modelar el periférico y darle un
+    // reloj inventado- es el orden que produce sorpresas.
+    //
+    // Codificación de cada campo, tomada de las constantes del HAL de ST
+    // (`stm32f4xx_hal_rcc_ex.h`), que es código del fabricante.
+    // -----------------------------------------------------------------------
+    void actualiza_relojes_dedicados(double f_hsi, double f_hse) {
+        if (!arbol.dckcfgr) {                 // este chip no los tiene
+            f_ck48m_ = f_pll48_;              // en el F407, 48 MHz es PLL_Q
+            f_sdio_  = f_pll48_;
+            f_sai1_ = f_sai2_ = f_i2s1_ = f_i2s2_ = 0.0;
+            f_spdifrx_ = f_cec_ = f_fmpi2c1_ = 0.0;
+            return;
+        }
+        const double pll_q  = pll.out_q_hz();
+        const double pll_r  = pll.out_r_hz();
+        const double pll_in = ((pllcfgr_ >> 22) & 1u) ? f_hse : f_hsi;  // PLLSRC
+        const double sai_p  = pllsai.out_p_hz();
+        // Las salidas Q del PLLSAI y del PLLI2S pasan por un divisor propio,
+        // PLLSAIDIVQ y PLLI2SDIVQ, de cinco bits y con el valor MENOS UNO: 0
+        // divide por 1. Es de los detalles que se copian mal con facilidad.
+        const unsigned dsai = ((dckcfgr_ >> 8) & 0x1Fu) + 1u;
+        const unsigned di2s = ((dckcfgr_ >> 0) & 0x1Fu) + 1u;
+        const double sai_q  = clk_divide(pllsai.out_q_hz(), dsai);
+        const double i2s_q  = clk_divide(plli2s.out_q_hz(), di2s);
+        const double i2s_p  = plli2s.out_p_hz();
+        const double i2s_r  = plli2s.out_r_hz();
+
+        // CK48MSEL (DCKCFGR2, bit 27): 0 = PLL_Q, 1 = PLLSAI_P
+        f_ck48m_ = ((dckcfgr2_ >> 27) & 1u) ? sai_p : pll_q;
+        // SDIOSEL (bit 28): 0 = los 48 MHz, 1 = SYSCLK
+        f_sdio_  = ((dckcfgr2_ >> 28) & 1u) ? f_sysclk_ : f_ck48m_;
+        // SPDIFRXSEL (bit 29): 0 = PLL_R, 1 = PLLI2S_P
+        f_spdifrx_ = ((dckcfgr2_ >> 29) & 1u) ? i2s_p : pll_r;
+        // CECSEL (bit 26): 0 = HSI/488, 1 = LSE. Los 32,786 kHz que salen de
+        // dividir 16 MHz entre 488 son, a propósito, casi los 32,768 del LSE:
+        // el CEC necesita esa frecuencia y ST la fabrica de las dos maneras.
+        f_cec_ = ((dckcfgr2_ >> 26) & 1u) ? lse.out_hz() : f_hsi / 488.0;
+        // FMPI2C1SEL (bits 23:22): 00 = PCLK1, 01 = SYSCLK, 10 = HSI
+        switch ((dckcfgr2_ >> 22) & 0x3u) {
+            case 1:  f_fmpi2c1_ = f_sysclk_; break;
+            case 2:  f_fmpi2c1_ = f_hsi;     break;
+            default: f_fmpi2c1_ = f_pclk1_;  break;
+        }
+        // SAI1SRC (21:20): 00 = PLLSAI_Q/DIVQ, 01 = PLLI2S_Q/DIVQ,
+        //                  10 = PLL_R, 11 = I2S_CKIN (un pin externo)
+        switch ((dckcfgr_ >> 20) & 0x3u) {
+            case 1:  f_sai1_ = i2s_q; break;
+            case 2:  f_sai1_ = pll_r; break;
+            case 3:  f_sai1_ = f_i2s_ckin_; break;
+            default: f_sai1_ = sai_q; break;
+        }
+        // SAI2SRC (23:22): igual, salvo que el 11 NO es el pin sino la fuente
+        // del PLL -el HSI o el HSE, según PLLSRC-. No es simetría rota por
+        // capricho: el SAI2 no tiene pin de entrada de reloj.
+        switch ((dckcfgr_ >> 22) & 0x3u) {
+            case 1:  f_sai2_ = i2s_q;  break;
+            case 2:  f_sai2_ = pll_r;  break;
+            case 3:  f_sai2_ = pll_in; break;
+            default: f_sai2_ = sai_q;  break;
+        }
+        // I2S1SRC (26:25) y I2S2SRC (28:27): 00 = PLLI2S_R, 01 = I2S_CKIN,
+        // 10 = PLL_R, 11 = la fuente del PLL. UNO POR DOMINIO DE APB, que es
+        // la novedad: el F407 tiene un único I2SSRC global.
+        auto i2s_src = [&](unsigned sel) {
+            switch (sel) {
+                case 1:  return f_i2s_ckin_;
+                case 2:  return pll_r;
+                case 3:  return pll_in;
+                default: return i2s_r;
+            }
+        };
+        f_i2s1_ = i2s_src((dckcfgr_ >> 25) & 0x3u);
+        f_i2s2_ = i2s_src((dckcfgr_ >> 27) & 0x3u);
+    }
+
     // --- Flags de interrupción por estabilización [IR, §4.6] ----------------
+    // -----------------------------------------------------------------------
+    // ⚠ OJO CON LA NUMERACION DE ESTE REGISTRO, que estuvo mal hasta la fase 3.
+    //
+    // El modelo ponia LSIRDYF en el bit 1, los IE en 9..14 y los bits de
+    // limpieza en 17..22, siguiendo la tabla de [IR, §4.6]. **Esa tabla esta
+    // desplazada un bit**: la cabecera de ST pone LSIRDYF en el bit **0**,
+    // LSIRDYIE en el **8** y LSIRDYC en el **16** (`RCC_CIR_LSIRDYF_Pos` y
+    // companeros, en stm32f407xx.h y en stm32f446xx.h, que coinciden).
+    //
+    // Se vio comparando con la cabecera para colocar PLLSAIRDYF, que es del
+    // F446. Los dos extremos del registro -CSSF en el 7 y CSSC en el 23- SI
+    // estaban bien, y son los unicos que la suite comprobaba; por eso el fallo
+    // sobrevivio. Un firmware que habilitara HSERDYIE con la constante de CMSIS
+    // no habria recibido nunca la interrupcion. [I-43]
+    // -----------------------------------------------------------------------
     void update_cir_flags() {
-        const bool rdy[6] = { lsi.is_ready(), lse.is_ready(), hsi.is_ready(),
-                              hse.is_ready(), pll.is_ready(), plli2s.is_ready() };
-        for (unsigned i = 0; i < 6; ++i) {
-            if (rdy[i] && !prev_rdy_[i]) cir_ |= (1u << (1 + i));   // xxxRDYF
+        const bool rdy[7] = { lsi.is_ready(), lse.is_ready(), hsi.is_ready(),
+                              hse.is_ready(), pll.is_ready(), plli2s.is_ready(),
+                              arbol.pllsai && pllsai.is_ready() };
+        for (unsigned i = 0; i < 7; ++i) {
+            if (rdy[i] && !prev_rdy_[i]) cir_ |= (1u << i);         // xxxRDYF
             prev_rdy_[i] = rdy[i];
         }
-        const uint32_t f  = cir_ & 0x000000FEu;          // flags 1..7
-        const uint32_t ie = (cir_ >> 8) & 0x000000FEu;   // IE en 9..15
+        const uint32_t f  = cir_ & 0x000000FFu;          // flags 0..7 (7 = CSS)
+        const uint32_t ie = (cir_ >> 8) & 0x000000FFu;   // IE en 8..14
         o_irq_ = (f & ie) != 0;
         publish();
     }
@@ -652,7 +874,7 @@ private:
         // locales no se destruyen nunca.
         arbol_ev_ |= hsi.state_event() | hse.state_event() | lsi.state_event()
                    | lse.state_event() | pll.state_event() | plli2s.state_event()
-                   | clk_ev_;
+                   | pllsai.state_event() | clk_ev_;
         for (;;) {
             wait(arbol_ev_);
             check_css();                       // fallo del HSE [IR, §4.2]
@@ -755,15 +977,18 @@ public:
     // Señales internas osciladores -> árbol (bindeadas en bind_internal_)
     sc_core::sc_signal<bool>   s_hsi_rdy{"s_hsi_rdy"}, s_hse_rdy{"s_hse_rdy"},
                                s_lsi_rdy{"s_lsi_rdy"}, s_lse_rdy{"s_lse_rdy"},
-                               s_pll_rdy{"s_pll_rdy"}, s_plli2s_rdy{"s_plli2s_rdy"};
+                               s_pll_rdy{"s_pll_rdy"}, s_plli2s_rdy{"s_plli2s_rdy"},
+                               s_pllsai_rdy{"s_pllsai_rdy"};
     sc_core::sc_signal<bool>   s_hsi_clk{"s_hsi_clk"}, s_hse_clk{"s_hse_clk"},
                                s_lsi_clk{"s_lsi_clk"}, s_lse_clk{"s_lse_clk"},
                                s_pllp_clk{"s_pllp_clk"},
-                               s_i2s_clk{"s_i2s_clk"}, s_i2sq_clk{"s_i2sq_clk"};
+                               s_i2s_clk{"s_i2s_clk"}, s_i2sq_clk{"s_i2sq_clk"},
+                               s_sai_clk{"s_sai_clk"}, s_saiq_clk{"s_saiq_clk"};
     sc_core::sc_signal<double> s_hsi_hz{"s_hsi_hz"}, s_hse_hz{"s_hse_hz"},
                                s_lsi_hz{"s_lsi_hz"}, s_lse_hz{"s_lse_hz"},
                                s_pllp_hz{"s_pllp_hz"},
-                               s_i2s_hz{"s_i2s_hz"}, s_i2sq_hz{"s_i2sq_hz"};
+                               s_i2s_hz{"s_i2s_hz"}, s_i2sq_hz{"s_i2sq_hz"},
+                               s_sai_hz{"s_sai_hz"}, s_saiq_hz{"s_saiq_hz"};
 };
 
 // ---------------------------------------------------------------------------
@@ -778,6 +1003,8 @@ inline void Rcc::bind_internal_() {
     pll.clk_q(pll48ck);   pll.clk_q_hz(pll48ck_hz);
     plli2s.ready(s_plli2s_rdy); plli2s.clk_p(s_i2s_clk); plli2s.clk_p_hz(s_i2s_hz);
     plli2s.clk_q(s_i2sq_clk);   plli2s.clk_q_hz(s_i2sq_hz);
+    pllsai.ready(s_pllsai_rdy); pllsai.clk_p(s_sai_clk); pllsai.clk_p_hz(s_sai_hz);
+    pllsai.clk_q(s_saiq_clk);   pllsai.clk_q_hz(s_saiq_hz);
     // Generadores del árbol -> puertos de salida del RCC
     g_hclk_.clk(hclk);         g_hclk_.freq_hz(hclk_hz);
     g_pclk1_.clk(pclk1);       g_pclk1_.freq_hz(pclk1_hz);
@@ -796,16 +1023,23 @@ inline void Rcc::bind_internal_() {
 inline uint32_t Rcc::reg_read(uint32_t off) {
     switch (off) {
         case R_CR: {
-            uint32_t v = cr_ & ~0x0A020002u;      // limpiar los RDY calculados
+            uint32_t v = cr_ & ~0x2A020002u;      // limpiar los RDY calculados
             if (hsi.is_ready())    v |= (1u << 1);
             if (hse.is_ready())    v |= (1u << 17);
             if (pll.is_ready())    v |= (1u << 25);
             if (plli2s.is_ready()) v |= (1u << 27);
+            // PLLSAION (28) y PLLSAIRDY (29) estan reservados en el F407: sin
+            // tercer PLL el bit se queda a cero pase lo que pase.
+            if (arbol.pllsai && pllsai.is_ready()) v |= (1u << 29);
+            if (!arbol.pllsai) v &= ~0x30000000u;
             return v;
         }
         case R_PLLCFGR:  return pllcfgr_;
         case R_CFGR:     return (cfgr_ & ~0xCu) | ((sws_ & 3u) << 2);
-        case R_CIR:      return cir_ & 0x0000FEFEu;   // los bits C son solo escritura
+        // Flags 0..7 y habilitaciones 8..14; los bits C (16..23) son solo de
+        // escritura y leen cero. El bit 6 -PLLSAIRDYF- y el 14 -PLLSAIRDYIE-
+        // estan reservados en un chip sin tercer PLL.
+        case R_CIR:      return cir_ & (arbol.pllsai ? 0x00007FFFu : 0x00003FBFu);
         case R_AHB1RSTR: return ahb1rstr_;
         case R_AHB2RSTR: return ahb2rstr_;
         case R_AHB3RSTR: return ahb3rstr_;
@@ -825,6 +1059,13 @@ inline uint32_t Rcc::reg_read(uint32_t off) {
         case R_CSR:      return (csr_ & ~2u) | (lsi.is_ready() ? 2u : 0u);
         case R_SSCGR:    return sscgr_;
         case R_PLLI2SCFGR: return plli2scfgr_;
+        // Los del F446. En un chip que no los tiene, este `case` no llega a
+        // existir: el desplazamiento cae en el `default` y lee cero, como
+        // cualquier hueco reservado del mapa de registros.
+        case R_PLLSAICFGR: return arbol.pllsai  ? pllsaicfgr_ : 0u;
+        case R_DCKCFGR:    return arbol.dckcfgr ? dckcfgr_    : 0u;
+        case R_CKGATENR:   return arbol.dckcfgr ? ckgatenr_   : 0u;
+        case R_DCKCFGR2:   return arbol.dckcfgr ? dckcfgr2_   : 0u;
         default:         return 0;
     }
 }
@@ -845,7 +1086,9 @@ inline void Rcc::reg_write(uint32_t off, uint32_t v, uint32_t be) {
         case R_CR: {
             // Bits rw: PLLI2SON(26), PLLON(24), CSSON(19), HSEBYP(18), HSEON(16),
             // HSITRIM[7:3], HSION(0). Los RDY y HSICAL son de solo lectura.
-            const uint32_t wmask = 0x050D00F9u;
+            // Y PLLSAION(28) donde hay tercer PLL; donde no, ese bit está
+            // reservado y la escritura se pierde.
+            const uint32_t wmask = arbol.pllsai ? 0x150D00F9u : 0x050D00F9u;
             // No se puede apagar la fuente que alimenta SYSCLK [IR, §4.5.1]
             uint32_t nv = (cr_ & ~wmask) | (v & wmask);
             if (sws_ == 0) nv |= 1u;                    // HSI en uso
@@ -857,7 +1100,11 @@ inline void Rcc::reg_write(uint32_t off, uint32_t v, uint32_t be) {
         }
         case R_PLLCFGR:
             if (!pll.enabled()) {   // solo modificable con el PLL apagado
-                pllcfgr_ = (pllcfgr_ & 0xF0BC8000u) | (v & 0x0F437FFFu);
+                // PLLR (30:28) solo en el F446. En el F407 esos bits son
+                // reservados y su valor de reset -0b010- se conserva, que es
+                // justo lo que hace la máscara de guarda.
+                const uint32_t wm = arbol.pll_r ? 0x7F437FFFu : 0x0F437FFFu;
+                pllcfgr_ = (pllcfgr_ & ~wm) | (v & wm);
                 clocks = true;
             }
             break;
@@ -866,10 +1113,11 @@ inline void Rcc::reg_write(uint32_t off, uint32_t v, uint32_t be) {
             clocks = true;
             break;
         case R_CIR: {
-            const uint32_t ie   = v & 0x00007E00u;      // xxxRDYIE (bits 9..14)
-            const uint32_t clr  = (v >> 16) & 0x000000FEu; // bits C (17..23)
-            cir_ = (cir_ & ~0x00007E00u) | ie;
-            cir_ &= ~clr;                               // limpiar flags
+            const uint32_t mask_ie = arbol.pllsai ? 0x00007F00u : 0x00003F00u;
+            const uint32_t ie   = v & mask_ie;          // xxxRDYIE (bits 8..14)
+            const uint32_t clr  = (v >> 16) & 0x0000007Fu; // bits C (16..22)
+            cir_ = (cir_ & ~mask_ie) | ie;
+            cir_ &= ~clr;                               // limpiar flags 0..6
             if (v & (1u << 23)) cir_ &= ~(1u << 7);     // CSSC -> CSSF
             update_cir_flags();
             break;
@@ -915,8 +1163,39 @@ inline void Rcc::reg_write(uint32_t off, uint32_t v, uint32_t be) {
             clocks = true;
             break;
         case R_PLLI2SCFGR:
+            // Un PLL solo se programa apagado; con el encendido, el silicio
+            // ignora la escritura. En el F446 hay mas campos que escribir -M,
+            // P y Q propios- y por eso la mascara depende del rasgo.
             if (!plli2s.enabled()) {
-                plli2scfgr_ = v & 0x70007FC0u;
+                plli2scfgr_ = v & (arbol.plli2s_propio ? 0x7F03FFFFu
+                                                       : 0x70007FC0u);
+                clocks = true;
+            }
+            break;
+        case R_PLLSAICFGR:
+            if (arbol.pllsai && !pllsai.enabled()) {
+                pllsaicfgr_ = v & 0x0F03FFFFu;   // M, N, P y Q; sin R
+                clocks = true;
+            }
+            break;
+        case R_DCKCFGR:
+            if (arbol.dckcfgr) {
+                dckcfgr_ = v & 0x1FF01F1Fu;      // DIVQ, DIVQ, SRC, TIMPRE
+                clocks = true;
+            }
+            break;
+        case R_CKGATENR:
+            // Ocho bits de gating fino -el bus de AHB2APB, la matriz, la
+            // Flash, el RCC, el EXTI, el SPARE- que APAGAN reloj sin apagar el
+            // periferico. El modelo los guarda y los devuelve, y NO los
+            // implementa: son una optimizacion de consumo cuyo unico efecto
+            // observable es el IDD, y fingir que hacen algo seria peor que
+            // decir que no. Dicho en `limitaciones()`.
+            if (arbol.dckcfgr) ckgatenr_ = v & 0x000000FFu;
+            break;
+        case R_DCKCFGR2:
+            if (arbol.dckcfgr) {
+                dckcfgr2_ = v & 0x3CC00000u;     // FMPI2C1SEL..SPDIFRXSEL
                 clocks = true;
             }
             break;

@@ -1,11 +1,12 @@
 // =============================================================================
-// stm32f446.h — EL STM32F446, fase 2: el esqueleto
+// stm32f446.h — EL STM32F446
 //
-// «El F407 menos lo que no tiene.» Eso es literalmente lo que es hoy, y lo que
-// la fase 2 del plan pedía que fuera [doc/stm32f407vg_vs_446re.md, §12]: sin
-// Ethernet, sin RNG, sin CCM, sin los bloques de extensión del I2S, con 512 KB
-// de Flash, con el LQFP64 del F446 —que no es el del F405— y con las 97
-// posiciones de vector.
+// «El F407 menos lo que no tiene, más su árbol de reloj.» La fase 2 puso lo
+// primero [doc/stm32f407vg_vs_446re.md, §17] —sin Ethernet, sin RNG, sin CCM,
+// sin los bloques de extensión del I2S, con 512 KB de Flash, con el LQFP64 del
+// F446 y con las 97 posiciones de vector— y la fase 3 lo segundo (§18): el
+// tercer PLL, el divisor R, los nueve selectores de RCC_DCKCFGR y DCKCFGR2, y
+// el over-drive del PWR con el que llega a 180 MHz.
 //
 // POR QUÉ ES UNA CLASE Y NO UNA FILA MÁS DEL CATÁLOGO. Es la pregunta que este
 // fichero tiene que contestar, porque la respuesta fácil —«un descriptor más y
@@ -17,19 +18,18 @@
 // y no hay una línea de código nueva para ello: lo construye `SocF4`, el mismo
 // die de siempre, leyendo el descriptor.
 //
-// Lo que NO cabe es el árbol de reloj. El F446 tiene un tercer PLL, un divisor
-// R que el F407 no tiene, un PLLI2S con M/P/Q propios y **cinco registros de
-// selección de reloj que en el F407 no existen** (`RCC_DCKCFGR`,
-// `RCC_DCKCFGR2`). Un descriptor no puede describir un registro que no está: si
-// se intentara, el modelo aceptaría que el firmware escribiera en `DCKCFGR`, no
-// haría nada con él y no lo diría — que es exactamente la clase de mentira que
-// este proyecto lleva toda su vida quitando. De ahí esta clase: es el sitio
-// donde la fase 3 pondrá ese árbol de reloj.
+// Lo que NO cabía en un descriptor era el árbol de reloj, y esa es la razón de
+// que esta clase exista. La fase 3 lo ha escrito, y el matiz importa: lo que
+// hace que ahora SÍ quepa en el descriptor el rasgo `ArbolReloj` es que el
+// modelo IMPLEMENTA cada uno de sus cinco puntos. Un booleano que dijera «este
+// chip tiene DCKCFGR» sin que nadie decodificara el registro sería justo la
+// mentira que este proyecto lleva toda su vida quitando; un booleano que
+// enciende un registro que existe, con sus nueve selectores cambiando
+// frecuencias observables, es un rasgo.
 //
-// Y MIENTRAS TANTO, LO DICE. Hoy esta clase todavía no lo ha hecho, así que su
-// `limitaciones()` lo declara en voz alta y `sim` lo imprime cada vez que monta
-// una placa con un F446. Un modelo incompleto no es un problema; un modelo
-// incompleto que no lo dice, sí.
+// Y LO QUE SIGUE FALTANDO, LO DICE. `limitaciones()` lo enumera y `sim` lo
+// imprime cada vez que monta una placa con un F446. Un modelo incompleto no es
+// un problema; uno que no lo dice, sí.
 // =============================================================================
 #ifndef STM32_SOC_STM32F446_H
 #define STM32_SOC_STM32F446_H
@@ -57,14 +57,18 @@ public:
     // -----------------------------------------------------------------------
     std::vector<std::string> limitaciones() const override {
         return {
-            "el arbol de reloj es todavia el del F407: no hay tercer PLL "
-            "(PLLSAI), ni divisor R, ni M/P/Q propios del PLLI2S, y "
-            "RCC_DCKCFGR y RCC_DCKCFGR2 no existen en el modelo. Un firmware "
-            "que los programe no obtendra el reloj que pide [fase 3]",
+            "los escalones de tension (PWR_CR.VOS) se leen y se escriben, pero "
+            "el modelo NO limita la frecuencia por escala: en el silicio, la "
+            "escala 2 y la 3 bajan el techo de SYSCLK, y aqui el unico techo "
+            "que se mueve es el del over-drive",
 
-            "los topes de 180/45/90 MHz no EXIGEN la secuencia de over-drive "
-            "del PWR: el modelo llega a 180 MHz sin pasar por ODRDY, y el "
-            "silicio no [fase 3]",
+            "RCC_CKGATENR se guarda y se devuelve, y no hace nada: son ocho "
+            "bits de gating fino cuyo unico efecto observable es el consumo",
+
+            "durante la conmutacion del over-drive (ODSWEN) el silicio PARA el "
+            "reloj de sistema unos ciclos; el modelo espera el tiempo pero no "
+            "lo para. Se nota solo si algo cuenta ciclos de HCLK a caballo de "
+            "esa conmutacion",
 
             "los seis perifericos que el F446 tiene y el F407 no -SAI1, SAI2, "
             "SPDIF-RX, QUADSPI, FMPI2C1 y HDMI-CEC- no estan modelados, ni "

@@ -153,7 +153,9 @@ SC_MODULE(SocF4) {
     Rtc      rtc{"rtc"};
     Exti     exti{"exti"};
     Syscfg   syscfg{"syscfg"};
-    Pwr      pwr{"pwr"};
+    // El PWR, con o sin over-drive. Es el único rasgo suyo que cambia entre
+    // las dos familias, y es el que hace que el F446 llegue a 180 MHz.
+    Pwr      pwr;
     Sdio     sdio{"sdio"};
 
     // ============================== Señales =================================
@@ -187,6 +189,9 @@ SC_MODULE(SocF4) {
     sc_core::sc_signal<double> s_vdd{"s_vdd"}, s_vdda{"s_vdda"}, s_vbat{"s_vbat"};
     sc_core::sc_signal<bool>    s_bor_trip{"s_bor_trip"};
     sc_core::sc_signal<uint8_t> s_bor_lev{"s_bor_lev"};   // option bytes -> BOR
+    // El over-drive del PWR hacia el RCC (solo se mueve en los chips que lo
+    // tienen). Va con las señales de energía porque de ahí viene.
+    sc_core::sc_signal<bool>   s_over_drive{"s_over_drive"};
     sc_core::sc_signal<bool>   s_dbp{"s_dbp"}, s_pvd_line{"s_pvd_line"};
     sc_core::sc_signal<bool>   s_wwdg_rr{"s_wwdg_rr"}, s_iwdg_rr{"s_iwdg_rr"};
     sc_core::sc_signal<bool>   s_iwdg_lsi{"s_iwdg_lsi"};
@@ -262,7 +267,7 @@ SC_MODULE(SocF4) {
                          const Cableado& cab = Cableado(),
                          McuCaps caps = MCU_STM32F407VG)
         : sc_core::sc_module(nm), mcu(caps), pinmux("pinmux", cab, caps.enc),
-          rcc("rcc", caps.reloj),
+          rcc("rcc", caps.reloj, caps.arbol),
           core("core", dbg, caps.nucleo, caps.memoria.ram),
           matrix("matrix", caps.memoria.ram, caps.perif.fsmc, caps.conn),
           flash("flash", caps.memoria.flash),
@@ -272,6 +277,7 @@ SC_MODULE(SocF4) {
           ccm("ccm", caps.memoria.ram.ccm_base, caps.memoria.ram.ccm_size),
           gpio("gpio", N_GPIO_PORTS, [](const char* n, size_t i) {
                    return new GpioPort(n, unsigned(i)); }),
+          pwr("pwr", caps.arbol.over_drive),
           s_irq("s_irq", caps.nucleo.n_irq) {
         SC_HAS_PROCESS(SocF4);
         bind_clocks_resets();

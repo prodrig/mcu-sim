@@ -200,12 +200,19 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// PLL principal y PLLI2S [IR, §4.3]
+// PLL principal, PLLI2S y PLLSAI [IR, §4.3; RM0390 §6.2.3]
 //   fVCO_IN  = fPLL_IN / M      (debe quedar entre 1 y 2 MHz)
 //   fVCO_OUT = fVCO_IN  * N     (debe quedar entre 100 y 432 MHz)
 //   fP       = fVCO_OUT / P     (SYSCLK, máx 168 MHz)  [P = 2,4,6,8]
 //   fQ       = fVCO_OUT / Q     (PLL48CK: USB OTG FS, RNG, SDIO) [Q = 2..15]
-// En el PLLI2S la salida "P" del modelo representa la salida R (2..7).
+//   fR       = fVCO_OUT / R     (solo en el F446: SPDIF-RX, I2S, SAI) [R = 2..7]
+// En el PLLI2S del F407 la salida "P" del modelo representa la salida R.
+//
+// LA SALIDA R NO TIENE GENERADOR DE ONDA, y es deliberado: las otras dos sacan
+// un `sc_signal<bool>` porque alguien mide sus flancos —la P es SYSCLK y la Q
+// alimenta al USB—, y de la R, hoy, solo se consulta la FRECUENCIA. Añadirle
+// una onda cuadrada sería pagar eventos de simulación por un cable que nadie
+// mira. El día que el SAI o el SPDIF-RX la necesiten, se le pone.
 // ---------------------------------------------------------------------------
 SC_MODULE(Pll) {
     sc_core::sc_out<bool>   ready{"ready"};     // PLLRDY / PLLI2SRDY
@@ -224,10 +231,13 @@ SC_MODULE(Pll) {
         SC_THREAD(ctrl_proc);
     }
 
-    // Programación desde RCC_PLLCFGR / RCC_PLLI2SCFGR [IR, §4.5.2, §4.11.2]
-    void configure(unsigned m, unsigned n, unsigned p, unsigned q) {
-        if (m == m_ && n == n_ && p == p_ && q == q_) return;
-        m_ = m; n_ = n; p_ = p; q_ = q;
+    // Programación desde RCC_PLLCFGR / RCC_PLLI2SCFGR / RCC_PLLSAICFGR
+    // [IR, §4.5.2, §4.11.2; RM0390 §6.3.2]. `r = 0` es «este PLL no saca R»,
+    // que es el caso de todos los del F407.
+    void configure(unsigned m, unsigned n, unsigned p, unsigned q,
+                   unsigned r = 0) {
+        if (m == m_ && n == n_ && p == p_ && q == q_ && r == r_) return;
+        m_ = m; n_ = n; p_ = p; q_ = q; r_ = r;
         restart();
     }
     void set_ref_hz(double hz) {
@@ -246,6 +256,7 @@ SC_MODULE(Pll) {
     double vco_out_hz() const { return vco_in_hz() * n_; }
     double out_p_hz()   const { return (ready_ && p_) ? vco_out_hz() / p_ : 0.0; }
     double out_q_hz()   const { return (ready_ && q_) ? vco_out_hz() / q_ : 0.0; }
+    double out_r_hz()   const { return (ready_ && r_) ? vco_out_hz() / r_ : 0.0; }
     // Rangos legales [IR, §4.3.1]
     bool ranges_ok() const {
         const double vi = vco_in_hz(), vo = vco_out_hz();
@@ -256,7 +267,7 @@ SC_MODULE(Pll) {
 
 private:
     ClockGen gp_, gq_;
-    unsigned m_ = 16, n_ = 192, p_ = 2, q_ = 4;
+    unsigned m_ = 16, n_ = 192, p_ = 2, q_ = 4, r_ = 0;
     double   ref_hz_ = 0.0;
     bool     on_ = false, ready_ = false;
     sc_core::sc_event ctrl_ev_, state_ev_;

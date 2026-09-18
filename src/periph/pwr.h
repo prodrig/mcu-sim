@@ -73,6 +73,11 @@ public:
     // regulador de backup está encendido [IR, §14.5.2, §14.7].
     sc_core::sc_out<bool>    ewup{"ewup"};
     sc_core::sc_out<bool>    bre{"bre"};
+    // EL OVER-DRIVE, ya conmutado (ODSWRDY). Va al RCC, que es quien decide con
+    // él qué topes rigen: sin over-drive un F446 es un F407 -168/42/84- y con
+    // él sube a 180/45/90 [DS10693, tabla 16]. En un chip que no lo tiene se
+    // queda a cero para siempre y el RCC ni lo mira.
+    sc_core::sc_out<bool>    over_drive{"over_drive"};
 
     enum : uint32_t { R_CR = 0x00, R_CSR = 0x04 };
     // ---- PWR_CR [IR, §14.6.1] ---------------------------------------------
@@ -85,6 +90,12 @@ public:
                               CSR_PVDO = 1u << 2, CSR_BRR = 1u << 3,
                               CSR_EWUP = 1u << 8, CSR_BRE = 1u << 9,
                               CSR_VOSRDY = 1u << 14;
+    // ---- El over-drive [RM0390, §5.1.3 y §5.4] ----------------------------
+    // Los cuatro bits que el F407 no tiene. Sus posiciones salen de la cabecera
+    // de ST (`stm32f446xx.h`): ODEN y ODSWEN en PWR_CR 16 y 17, ODRDY y ODSWRDY
+    // en PWR_CSR 16 y 17.
+    static constexpr uint32_t CR_ODEN = 1u << 16, CR_ODSWEN = 1u << 17;
+    static constexpr uint32_t CSR_ODRDY = 1u << 16, CSR_ODSWRDY = 1u << 17;
 
     // =======================================================================
     // Parámetros temporales [IR, §14 — ⚠ NO DISPONIBLE EN LAS FUENTES con
@@ -96,6 +107,14 @@ public:
     sc_core::sc_time t_wu_flash{7, sc_core::SC_US};      // suplemento por FPDS
     sc_core::sc_time t_wu_standby{375, sc_core::SC_US};  // Standby -> reset
     sc_core::sc_time t_bkp_reg{1, sc_core::SC_MS};       // BRE -> BRR
+    // ⚠ NO DISPONIBLE EN LAS FUENTES con valor numérico: cuánto tarda el
+    // regulador en dar el over-drive y cuánto la conmutación. Son parámetros
+    // del modelo, del orden de magnitud que da el datasheet. Lo que importa
+    // para el firmware no es el valor exacto sino que NO sean cero: un modelo
+    // que levantara ODRDY en el mismo ciclo dejaría pasar un firmware que no
+    // espera la bandera, y ese firmware fallaría en la placa de verdad.
+    sc_core::sc_time t_od_ready{100, sc_core::SC_US};    // ODEN   -> ODRDY
+    sc_core::sc_time t_od_switch{20, sc_core::SC_US};    // ODSWEN -> ODSWRDY
 
     // =======================================================================
     // Umbrales del PVD (PLS[2:0]) e histéresis
@@ -126,10 +145,16 @@ public:
     double i_vbat = 1.29e-6;                         // dominio de backup por VBAT
     double k_vos[4] = {1.0, 0.80, 0.90, 1.0};        // escalas 3, 2 y 1 de VOS
 
-    Pwr(sc_core::sc_module_name nm) : BusSlave(nm, addr::PWR_B, 0x400) {
+    // `con_over_drive` es un rasgo del CHIP, no una opción: el F446 lo tiene y
+    // el F407 no. Con él a false, los cuatro bits de arriba no se pueden
+    // escribir y sus banderas no suben nunca — que es lo que hace el silicio
+    // con un bit reservado.
+    explicit Pwr(sc_core::sc_module_name nm, bool con_over_drive = false)
+        : BusSlave(nm, addr::PWR_B, 0x400), hay_od_(con_over_drive) {
         SC_HAS_PROCESS(Pwr);
         SC_THREAD(power_fsm);
         SC_THREAD(bkp_reg_proc);
+        SC_THREAD(over_drive_proc);
         SC_METHOD(sense_proc);
         sensitive << sleeping << sleepdeep << exti_wakeup << wkup_pin << vdd_lvl
                   << rtc_alarm << rtc_tamper << rtc_wkup << dbg_lp;
@@ -163,7 +188,8 @@ protected:
     bool     wkup_prev_ = false;
     double   i_dd_ = 0.0, i_bat_ = 0.0;
     unsigned n_stop_ = 0, n_stby_ = 0, n_desp_ = 0;
-    sc_core::sc_event pub_ev_, fsm_ev_, idd_ev_, bkp_ev_;
+    const bool hay_od_ = false;          // ¿este chip tiene over-drive?
+    sc_core::sc_event pub_ev_, fsm_ev_, idd_ev_, bkp_ev_, od_ev_;
 
     bool pdds() const { return (cr_ & CR_PDDS) != 0; }
     bool lpds() const { return (cr_ & CR_LPDS) != 0; }
@@ -187,8 +213,14 @@ protected:
             v = (cur & ~m) | (v & m);
         }
         switch (off) {
-            case R_CR:
-                cr_ = v & 0x0000C3FFu;
+            case R_CR: {
+                // Los dos bits del over-drive solo existen donde existen. En un
+                // F407 caen fuera de la máscara y se pierden, que es lo que le
+                // pasa a un bit reservado.
+                const uint32_t antes_od = cr_ & (CR_ODEN | CR_ODSWEN);
+                cr_ = v & (hay_od_ ? 0x0003C3FFu : 0x0000C3FFu);
+                if (hay_od_ && ((cr_ & (CR_ODEN | CR_ODSWEN)) != antes_od))
+                    od_ev_.notify(sc_core::SC_ZERO_TIME);
                 // CWUF y CSBF son ÓRDENES DE BORRADO, no bits guardados: se
                 // leen siempre como 0 [IR, §14.6.1].
                 if (v & CR_CWUF) csr_ &= ~CSR_WUF;
@@ -198,6 +230,7 @@ protected:
                 publish();
                 fsm_ev_.notify(sc_core::SC_ZERO_TIME);
                 return;
+            }
             case R_CSR: {
                 // Solo EWUP y BRE son de escritura; el resto son banderas.
                 const uint32_t antes = csr_;
@@ -220,8 +253,65 @@ protected:
         lp_mode.write(uint8_t(modo_));
         ewup.write((csr_ & CSR_EWUP) != 0);
         bre.write((csr_ & CSR_BRE) != 0);
+        over_drive.write((csr_ & CSR_ODSWRDY) != 0);
         idd.write(i_dd_);
         ibat.write(i_bat_);
+    }
+
+    // =======================================================================
+    // EL OVER-DRIVE [RM0390, §5.1.3]
+    //
+    // La secuencia que un firmware de verdad ejecuta, y en la que se queda
+    // colgado si el modelo no le contesta:
+    //
+    //   1. poner HSI o HSE como SYSCLK (todavía no el PLL);
+    //   2. configurar y arrancar el PLL;
+    //   3. `ODEN = 1` y ESPERAR A `ODRDY`;
+    //   4. `ODSWEN = 1` y ESPERAR A `ODSWRDY` — el reloj de sistema se detiene
+    //      durante la conmutación;
+    //   5. latencia de Flash y divisores;
+    //   6. esperar el enganche del PLL y conmutar SYSCLK.
+    //
+    // Los pasos 3 y 4 son el motivo de que esto exista. Sin ellos, el
+    // `SystemClock_Config()` que genera STM32CubeIDE para una Nucleo-F446RE se
+    // queda en un `while` para siempre, exactamente igual que se quedaba
+    // esperando `HSERDY` en el caso I-32. Y con ellos, el modelo tiene que
+    // TARDAR: una bandera que sube en el mismo ciclo deja pasar firmware que no
+    // la espera, y ese firmware falla en la placa.
+    //
+    // LO QUE ESTE MODELO NO HACE, y conviene decirlo: no detiene los relojes
+    // durante la conmutación del paso 4. El silicio sí los para unos ciclos.
+    // Lo que el firmware observa -que el tiempo pasa- aquí también pasa, porque
+    // la espera es de verdad; lo que no vería igual es un contador de ciclos de
+    // HCLK puesto a caballo de la conmutación.
+    // =======================================================================
+    void over_drive_proc() {
+        for (;;) {
+            wait(od_ev_);
+            if (!hay_od_) continue;
+            if (!(cr_ & CR_ODEN)) {              // se apaga: caen las dos
+                if (csr_ & (CSR_ODRDY | CSR_ODSWRDY)) {
+                    csr_ &= ~(CSR_ODRDY | CSR_ODSWRDY);
+                    publish();
+                }
+                continue;
+            }
+            if (!(csr_ & CSR_ODRDY)) {
+                wait(t_od_ready, od_ev_);
+                if (!(cr_ & CR_ODEN)) continue;  // se arrepintió por el camino
+                csr_ |= CSR_ODRDY;
+                publish();
+            }
+            if ((cr_ & CR_ODSWEN) && !(csr_ & CSR_ODSWRDY)) {
+                wait(t_od_switch, od_ev_);
+                if (!(cr_ & CR_ODSWEN) || !(cr_ & CR_ODEN)) continue;
+                csr_ |= CSR_ODSWRDY;
+                publish();
+            } else if (!(cr_ & CR_ODSWEN) && (csr_ & CSR_ODSWRDY)) {
+                csr_ &= ~CSR_ODSWRDY;
+                publish();
+            }
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -236,7 +326,7 @@ protected:
         const uint32_t guarda = vdd_ok ? (csr_ & (CSR_WUF | CSR_SBF | CSR_EWUP |
                                                   CSR_BRE | CSR_BRR)) : 0u;
         cr_  = 0x0000C000u;
-        csr_ = CSR_VOSRDY | guarda;
+        csr_ = CSR_VOSRDY | guarda;   // el over-drive se pierde con el reset
         if (!vdd_ok) { modo_ = LP_RUN; o_stop_ = o_stby_ = false; }
         actualiza_pvd();
         publish();

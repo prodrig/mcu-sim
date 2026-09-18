@@ -38,15 +38,15 @@
 #include "../mem/mem_caps.h"
 #include "../pins/encapsulado.h"
 #include "../bus/conectividad.h"
+#include "../rcc/reloj_caps.h"
 
 namespace stm32 {
 
-// Los topes de reloj por dominio. No son decoración: el RCC avisa cuando el
-// firmware programa un árbol que los pasa, y ese aviso es de los que ahorran
-// una tarde —un F401 a 168 MHz no existe, y el modelo tiene que decirlo—.
-struct LimitesReloj {
-    double sysclk_max, hclk_max, pclk1_max, pclk2_max;
-};
+// Los topes de reloj por dominio y los rasgos del árbol viven en
+// `rcc/reloj_caps.h`, con el subsistema que los usa. Los topes no son
+// decoración: el RCC avisa cuando el firmware programa un árbol que los pasa, y
+// ese aviso es de los que ahorran una tarde —un F401 a 168 MHz no existe, y el
+// modelo tiene que decirlo—.
 
 // Los periféricos que NO lleva todo el mundo. Son tres, y no es una lista
 // abierta a propósito: el resto del juego —los catorce temporizadores, los seis
@@ -88,7 +88,12 @@ struct McuCaps {
     const char*  familia;      // "STM32F4": la frontera de lo recombinable
     CoreCaps     nucleo;
     MemCaps      memoria;
-    LimitesReloj reloj;
+    LimitesReloj reloj;        // los topes por dominio (rcc/reloj_caps.h)
+    // Qué tiene el árbol de reloj de este chip: cuántos PLL, si el principal
+    // saca R, si hay registros de selección dedicados y si hay over-drive. Es
+    // lo que NO cabía en un descriptor hasta la fase 3, y lo que hace que
+    // quepa es que ahora el modelo IMPLEMENTA cada uno de esos rasgos.
+    ArbolReloj   arbol;
     Encapsulado  enc;          // qué pads salen al plástico
     Periferia    perif;        // qué bloques lleva este miembro de la familia
     // Qué maestro de la matriz alcanza a qué esclavo. Va en el descriptor, y no
@@ -100,10 +105,6 @@ struct McuCaps {
     // da un «Could not verify ST device» — el mensaje que costó media sesión
     // diagnosticar. [RM0090 §32.6.1, RM0390 §33.6.1]
     uint32_t     idcode;
-};
-
-inline constexpr LimitesReloj RELOJ_STM32F407VG {
-    F_SYSCLK_MAX, F_HCLK_MAX, F_PCLK1_MAX, F_PCLK2_MAX
 };
 
 // ---------------------------------------------------------------------------
@@ -169,8 +170,8 @@ constexpr uint32_t IDCODE_STM32F40X = 0x10016413u;
 constexpr McuCaps mcu_f4(const char* nombre, const MemCaps& mem,
                          const Encapsulado& enc, const Periferia& per) {
     return McuCaps{ nombre, "STM32F4", CORE_STM32F407VG, mem,
-                    RELOJ_STM32F407VG, enc, per, CONN_STM32F407VG,
-                    IDCODE_STM32F40X };
+                    RELOJ_STM32F407VG, ARBOL_STM32F4, enc, per,
+                    CONN_STM32F407VG, IDCODE_STM32F40X };
 }
 
 // --- STM32F405: sin Ethernet y sin camara -----------------------------------
@@ -233,16 +234,9 @@ inline constexpr MapaRam RAM_STM32F446 {
 };
 inline constexpr MemCaps MEM_STM32F446RE { FLASH_512K, RAM_STM32F446 };
 
-// Los topes del F446 **con over-drive**: 180 / 45 / 90 MHz [DS10693, tabla 16].
-//
-// Y aquí hay una deuda declarada, que la fase 3 tiene que pagar: en el F446 los
-// topes DEPENDEN DE UN BIT DEL PWR —sin over-drive son los 168/42/84 del F407—,
-// y `LimitesReloj` es hoy una constante y no una función del estado. El modelo
-// pone el tope alto, de modo que un `SystemClock_Config()` legítimo de una
-// Nucleo-F446RE no dispara avisos falsos; lo que todavía NO hace es EXIGIR la
-// secuencia de over-drive para llegar ahí. Está dicho en `limitaciones()` de la
-// clase, que es donde `sim` lo lee y se lo cuenta al usuario.
-inline constexpr LimitesReloj RELOJ_STM32F446 { 180e6, 180e6, 45e6, 90e6 };
+// Los topes del F446 están en `rcc/reloj_caps.h`, y desde la fase 3 son DOS
+// juegos: 168 / 42 / 84 sin over-drive y 180 / 45 / 90 con él. Quién de los dos
+// rige lo dice el PWR en tiempo de ejecución, no esta tabla.
 
 // Lo que el F446 no lleva: Ethernet, RNG y los bloques de extensión del I2S. La
 // cámara SÍ la lleva —es fácil suponer lo contrario porque el F405 no la tiene—
@@ -258,8 +252,8 @@ constexpr uint32_t IDCODE_STM32F446 = 0x10000421u;
 
 inline constexpr McuCaps MCU_STM32F446RE {
     "STM32F446RE", "STM32F446", CORE_STM32F446, MEM_STM32F446RE,
-    RELOJ_STM32F446, ENC_LQFP64_F446, PERIF_F446RE, CONN_STM32F446,
-    IDCODE_STM32F446
+    RELOJ_STM32F446, ARBOL_STM32F446, ENC_LQFP64_F446, PERIF_F446RE,
+    CONN_STM32F446, IDCODE_STM32F446
 };
 
 // ---------------------------------------------------------------------------

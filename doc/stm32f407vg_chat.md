@@ -3205,3 +3205,64 @@ tenía razón por adelantado.
 Estado: **2045/2045 en el F407 con `2336217899213 ps` intactos**, **43/43 en el
 F446**, ASan y UBSan limpios en las dos suites y en `sim`, las cinco placas
 validan. I-41 cerrado (veintidós de cuarenta y dos).
+
+---
+
+## Fase 3 del plan del F446: el árbol de reloj, y otro fallo del F407
+
+> Ejecuta la fase 3 del plan
+
+Hecha, con las dos mitades del hito H4 —la que funciona y la que **debe** fallar—
+y con el invariante del F407 intacto en **`2336217899213 ps`**.
+
+```
+--- D1 H4: el SystemClock_Config() de una Nucleo-F446RE ---
+    buzon: done=1 sysclk=180000000 etapa=6 od=3 ticks=59 pclk1=45000000
+  [OK] el firmware recorre las seis etapas de RM0390 5.1.3
+  [OK] y llega con ODRDY y ODSWRDY puestas: paso por el over-drive de verdad
+
+--- D2 H4, la otra mitad: si ODRDY no sube, el firmware NO avanza ---
+    buzon: done=0 etapa=1 (1 = escribio ODEN y sigue esperando ODRDY)
+  [OK] sesenta milisegundos despues, el firmware SIGUE en el paso 3
+```
+
+La segunda mitad no necesita un chip aparte: el tiempo que tarda el regulador es
+un **parámetro** del PWR, y ponerlo en diez segundos es exactamente «esta
+bandera no va a subir». Mismo firmware, sin recompilar.
+
+**El criterio del plan, al pie de la letra.** «Cada selector tiene que cambiar
+una frecuencia observable, no solo guardar un bit»: así que ninguna de las
+comprobaciones nuevas lee el registro que acaba de escribir, todas preguntan al
+árbol por una frecuencia. Están los nueve selectores de `RCC_DCKCFGR` y
+`DCKCFGR2`, el tercer PLL, el divisor R, el PLLI2S con M propia —en el F407
+comparte la del PLL principal, así que las dos VCO van atadas— y TIMPRE, que es
+el único que se nota en un periférico que este modelo ya tiene: con APB1 /4, los
+temporizadores pasan de 90 a 180 MHz.
+
+**Las codificaciones no salieron de la memoria.** `stm32f446xx.h` da los
+desplazamientos y las posiciones de bit; `stm32f4xx_hal_rcc_ex.h` da qué
+significa cada valor de cada selector, y el propio macro
+`__HAL_RCC_TIMCLKPRESCALER` da, con las palabras de ST, las dos reglas de
+TIMPRE. Eso cazó tres cosas que se habrían copiado mal: **DCKCFGR2 está en 0x94
+y no en 0x90** —en medio hay otro registro, CKGATENR—, **PLLSAIDIVQ vale N−1**
+(un 3 divide por cuatro) y **SAI1SRC = 11 es el pin `I2S_CKIN` pero SAI2SRC = 11
+no lo es**, sino la fuente del PLL: el SAI2 no tiene entrada de reloj externa.
+
+**Y otro fallo del F407, que es lo que más me gusta de esta fase.** Al colocar
+`PLLSAIRDYF` hubo que mirar dónde estaban sus vecinos, y resultó que **toda la
+mitad baja de `RCC_CIR` estaba desplazada un bit**: el modelo ponía `LSIRDYF` en
+el 1, los `IE` en 9..14 y los de limpieza en 17..22, copiando fielmente una
+tabla del informe interno que está mal. ST los pone en 0, 8 y 16. Sobrevivió
+porque los dos extremos —`CSSF` en el 7 y `CSSC` en el 23— sí estaban bien, y
+son los únicos que la suite miraba. Un alumno que habilitara `HSERDYIE` con la
+constante de CMSIS no habría recibido nunca esa interrupción (I-43).
+
+Van dos: el SysTick en la fase 2 y esto en la fase 3. **Modelar la pieza nueva
+sigue encontrando fallos en la vieja**, que es el argumento más sólido a favor
+del puerto que ha dado este plan.
+
+Estado: **2047/2047** en el F407 con el invariante intacto, **101/101** en el
+F446 (eran 43), ASan y UBSan limpios en las dos suites, las cinco placas validan
+y los dos blinkys corren. Queda dicho en `limitaciones()` lo que la fase 3 no
+hace: los escalones de VOS no limitan la frecuencia, `RCC_CKGATENR` se guarda y
+no hace nada, y la conmutación del over-drive no para los relojes.

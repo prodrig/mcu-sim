@@ -2310,6 +2310,26 @@ SC_MODULE(F1Tb) {
         check_near(dut->s_hclk_hz.read(), 16e6, 0.01, "HCLK vuelve a 16 MHz (HSI)");
         check(dut->core.cpu.exc_count > exc0, "el CSS genera una NMI en el nucleo");
 
+        // --- LA NUMERACION DE RCC_CIR, que estuvo mal hasta la fase 3 -------
+        // No cuesta tiempo simulado: los flags de RDY son pegajosos, y a estas
+        // alturas el HSI y el HSE ya se han estabilizado alguna vez, asi que
+        // sus banderas estan puestas. Lo que se comprueba es DONDE estan.
+        //
+        // El modelo las ponia un bit mas arriba, siguiendo una tabla de
+        // [IR, 4.6] que esta desplazada: la cabecera de ST dice HSIRDYF = 2 y
+        // HSERDYF = 3 (RCC_CIR_HSIRDYF_Pos y RCC_CIR_HSERDYF_Pos), y el modelo
+        // los ponia en 3 y 4. Un firmware que usara las constantes de CMSIS no
+        // habria visto nunca la bandera que esperaba. [I-43]
+        // El HSE se estabilizo hace un momento -es lo que esta prueba acaba
+        // de tirar abajo-, asi que su bandera esta puesta. Donde este ese uno
+        // es toda la comprobacion: con la numeracion vieja habria caido en el
+        // bit 4, que es el del PLL.
+        check(((cir >> 3) & 1u) && !((cir >> 4) & 1u),
+              "RCC_CIR: HSERDYF es el bit 3, como dice la cabecera de ST, y no "
+              "el 4 como decia el informe");
+        check_eq((cir >> 15) & 1u, 0u,
+                 "y el bit 15 esta reservado: los xxxRDYIE acaban en el 14");
+
         // CSSC limpia el flag
         tm.write32(addr::RCC_B + Rcc::R_CIR, 1u << 23);
         wait(2, SC_US);

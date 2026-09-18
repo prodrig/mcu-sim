@@ -188,6 +188,12 @@ inline void SocF4::bind_periph_common() {
     pwr.idd(s_idd);                         // -> pines de alimentación
     pwr.ibat(s_ibat);
     pwr.vos_rdy(s_nc[nc()]);
+    // El over-drive, del PWR al RCC. Es el cable que hace que los topes de
+    // reloj dependan del ESTADO y no solo del chip: sin él un F446 avisa a
+    // partir de 168 MHz, y con él aguanta los 180 [DS10693, tabla 16]. En un
+    // chip que no lo tiene, esta señal no se mueve nunca.
+    pwr.over_drive(s_over_drive);
+    rcc.over_drive(s_over_drive);
 
     bind_bus_slave(crc, s_hclk, P_CRC);
     bind_bus_slave(rng, s_hclk, P_RNG);
