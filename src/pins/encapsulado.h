@@ -214,5 +214,75 @@ inline constexpr Encapsulado ENC_LQFP64_F446 {
     true
 };
 
+// ---------------------------------------------------------------------------
+// LOS OTROS TRES ENCAPSULADOS DEL F446, y por qué no son «el de siempre menos
+// pines».
+//
+// Las máscaras salen de la base de pines de ST —un fichero por referencia,
+// `STM32F446M(C-E)Yx.xml`, `...V(C-E)Tx.xml` y `...Z(C-E)Tx.xml`— leídas por
+// máquina, y el recuento de cada una **coincide con la Tabla 2 del DS10693
+// Rev 11**: 63, 81 y 114 E/S. Dos fuentes de ST que dicen lo mismo, que es el
+// listón que este proyecto se puso desde la fase 0.
+//
+// LO QUE SE APRENDE MIRÁNDOLAS JUNTAS, y que no es lo que uno supondría:
+//
+//   * **PB11 solo existe en el LQFP144/UFBGA144.** No sale en el LQFP64, ni en
+//     el WLCSP81, ni en el LQFP100 —donde el datasheet dice, con esas palabras,
+//     «PB11 not available anymore, replaced by VCAP1»—. Es el pin que ya separó
+//     el LQFP64 del F446 del LQFP64 del F405 [vs_446re, §9.2], y resulta que la
+//     historia se repite un encapsulado más arriba;
+//   * **el WLCSP81 no es un LQFP100 recortado.** Tiene 63 E/S y se las reparte
+//     de forma propia: le faltan PC1 y PC5 —que el LQFP64, con menos patillas,
+//     sí saca— y de los puertos D y E saca un puñado salteado. Es el mismo
+//     patrón que destapó I-40 en el WLCSP90 del F407: a más bolas no
+//     corresponde, sin más, un superconjunto de pines.
+// ---------------------------------------------------------------------------
+
+// WLCSP81 (letra M). 63 E/S: PA completo, PB sin PB11, PC sin PC1 ni PC5, y
+// nueve de PD y siete de PE, salteados.
+inline constexpr Encapsulado ENC_WLCSP81_F446 {
+    "WLCSP81", 81, 63,
+    { TODOS,                        // A: PA0..PA15                 16
+      0xF7FFu,                      // B: sin PB11                  15
+      0xFFDDu,                      // C: sin PC1 ni PC5            14
+      0x38D7u,                      // D: 0,1,2,4,6,7,11,12,13       9
+      0x079Cu,                      // E: 2,3,4,7,8,9,10             7
+      NINGUNO, NINGUNO,             // F, G: nada
+      hasta(2),                     // H: PH0/PH1                    2
+      NINGUNO },                    // I: el F446 no tiene puerto I
+    true
+};
+
+// LQFP100 (letra V). 81 E/S: A, C, D y E completos, B sin PB11, y PH0/PH1.
+// Aquí SÍ hay bus externo, pero con una limitación que el datasheet pone en la
+// nota 1 de su Tabla 2 y que `Stm32F446::limitaciones()` repite: solo el banco 1
+// del FMC, solo NOR/PSRAM multiplexada y solo con NE1 — y sin línea de
+// interrupción, porque el puerto G no sale.
+inline constexpr Encapsulado ENC_LQFP100_F446 {
+    "LQFP100", 100, 81,
+    { TODOS,                        // A                            16
+      0xF7FFu,                      // B: sin PB11                  15
+      TODOS,                        // C                            16
+      TODOS,                        // D                            16
+      TODOS,                        // E                            16
+      NINGUNO, NINGUNO,             // F, G: nada
+      hasta(2),                     // H: PH0/PH1                    2
+      NINGUNO },
+    true
+};
+
+// LQFP144 y UFBGA144 (letra Z). 114 E/S: A a G completos —**incluido PB11**— y
+// PH0/PH1. Los dos encapsulados de 144 tienen el mismo reparto de puertos, así
+// que comparten descriptor de máscara; lo que cambia entre ellos es la forma del
+// paquete, que este modelo no simula.
+inline constexpr Encapsulado ENC_LQFP144_F446 {
+    "LQFP144", 144, 114,
+    { TODOS, TODOS, TODOS, TODOS,   // A, B (con PB11), C, D        64
+      TODOS, TODOS, TODOS,          // E, F, G                      48
+      hasta(2),                     // H: PH0/PH1                    2
+      NINGUNO },                    // I: el F446 no tiene puerto I
+    true
+};
+
 } // namespace stm32
 #endif // STM32_PINS_ENCAPSULADO_H

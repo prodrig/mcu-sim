@@ -97,6 +97,17 @@ struct Periferia {
     bool spi4;
     bool i2s1;
     bool sai;
+    // El SEGUNDO SAI, que no es una cuestión de pines sino de referencia. La
+    // Tabla 2 del DS10693 Rev 11 pone **1** en la fila del SAI para el LQFP64 y
+    // **2** para los demás, y la base de pines de ST lo confirma: en un F446RC
+    // o RE **no hay una sola señal de SAI2 en ningún pin**, ni siquiera en los
+    // de PA que ese encapsulado sí saca. No es que el die no lo tenga —es el
+    // mismo die— sino que ST no vende esa referencia con dos SAI.
+    //
+    // (La revisión 4 del datasheet ponía 2 en todas las columnas, y por eso
+    // vs_446re §8.3 decía que la diferencia era solo de pines. La rev. 11
+    // corrige la tabla; §22 lo cuenta.)
+    bool sai2;
     bool quadspi;
     bool fmpi2c1;
     bool cec;
@@ -187,16 +198,16 @@ inline constexpr MemCaps MEM_512K { FLASH_512K, RAM_STM32F407VG };
 // dice «este chip NO lleva el bloque»; un hueco no dice nada, y dentro de tres
 // periféricos nadie recordara si el hueco era una decision o un olvido.
 //                                    eth    dcmi   fsmc   rng   i2sext
-//                                    spi4   i2s1   sai    qspi  fmpi2c cec    spdif
+//                                    spi4   i2s1   sai    sai2  qspi   fmpi2c cec    spdif
 inline constexpr Periferia PERIF_F407 {
     true,  true,  true,  true, true,
-    false, false, false, false, false, false, false };
+    false, false, false, false, false, false, false, false };
 inline constexpr Periferia PERIF_F405 {
     false, false, true,  true, true,
-    false, false, false, false, false, false, false };
+    false, false, false, false, false, false, false, false };
 inline constexpr Periferia PERIF_F405_R64 {
     false, false, false, true, true,
-    false, false, false, false, false, false, false };
+    false, false, false, false, false, false, false, false };
 
 // El identificador de la familia F405/407/415/417 en `DBGMCU_IDCODE`:
 // DEV_ID = 0x413, REV_ID = 0x1001. [RM0090, §32.6.1]
@@ -270,31 +281,116 @@ inline constexpr MapaRam RAM_STM32F446 {
     addr::CCM_BASE,     0u,                    //  sin CCM
     addr::BKPSRAM_BASE, addr::BKPSRAM_SIZE     //   4 KB
 };
-inline constexpr MemCaps MEM_STM32F446RE { FLASH_512K, RAM_STM32F446 };
+// LA FLASH DE 256 KB, la de las referencias que acaban en C. Son los SEIS
+// primeros sectores de la tabla del manual —cuatro de 16 KB, uno de 64 y uno de
+// 128—, y es una tabla y no media porque el último sector termina donde termina
+// la Flash: un firmware que borre el sector 6 de un F446RC no está borrando
+// nada, está pidiendo algo que no existe. [RM0390 Rev 9, Tabla 4]
+inline constexpr FlashSector SECTORES_256K[] = {
+    {0x08000000, 0x04000}, {0x08004000, 0x04000},   // 0,1 : 16 KB
+    {0x08008000, 0x04000}, {0x0800C000, 0x04000},   // 2,3 : 16 KB
+    {0x08010000, 0x10000},                          // 4   : 64 KB
+    {0x08020000, 0x20000}                           // 5   : 128 KB
+};
+inline constexpr MapaFlash FLASH_256K {
+    addr::FLASH_BASE, 0x00040000u,                  // 256 KB
+    SECTORES_256K, 6,
+    addr::SYSMEM_BASE, addr::SYSMEM_SIZE,
+    addr::OTP_BASE,    addr::OTP_SIZE,
+    addr::OPT_BASE,    addr::OPT_SIZE,
+    30e6, 5
+};
+
+inline constexpr MemCaps MEM_STM32F446xE { FLASH_512K, RAM_STM32F446 };
+inline constexpr MemCaps MEM_STM32F446xC { FLASH_256K, RAM_STM32F446 };
+// El nombre que usaba la fase 2, que sigue valiendo.
+inline constexpr MemCaps MEM_STM32F446RE = MEM_STM32F446xE;
 
 // Los topes del F446 están en `rcc/reloj_caps.h`, y desde la fase 3 son DOS
 // juegos: 168 / 42 / 84 sin over-drive y 180 / 45 / 90 con él. Quién de los dos
 // rige lo dice el PWR en tiempo de ejecución, no esta tabla.
 
-// Lo que el F446 no lleva: Ethernet, RNG y los bloques de extensión del I2S. La
-// cámara SÍ la lleva —es fácil suponer lo contrario porque el F405 no la tiene—
-// y el bus externo existe en el die pero **no en el LQFP64**: DS10693 tabla 2
-// pone `No` en la columna RE de la fila «FMC memory controller».
-//                                  eth    dcmi  fsmc   rng    i2sext
-inline constexpr Periferia PERIF_F446RE { false, true, false, false, false,
-//                                  spi4  i2s1  sai   qspi  fmpi2c1 cec   spdif
-                                    true, true, true, true, true,   true, true };
+// LOS TRES JUEGOS DE RASGOS DEL F446. Lo que cambia entre las ocho referencias
+// no es el die —es el mismo en las ocho— sino qué saca cada encapsulado y qué
+// vende ST en cada una:
+//
+//   * el **FMC** solo está en el LQFP100 y en el LQFP144: DS10693 Rev 11,
+//     Tabla 2, fila «FMC memory controller», pone `No` en las columnas MC, ME,
+//     RC y RE;
+//   * el **SAI2** está en todas menos en el LQFP64, donde esa misma tabla pone
+//     `1` en la fila del SAI.
+//
+// Todo lo demás —Ethernet, RNG y los bloques de extensión del I2S, que no
+// están; la cámara, que sí— es igual en las ocho.
+//                                       eth    dcmi  fsmc   rng    i2sext
+//                                       spi4  i2s1  sai   sai2  qspi  fmp   cec   spdif
+// WLCSP81 (M): sin bus externo, con SAI2
+inline constexpr Periferia PERIF_F446_M { false, true, false, false, false,
+                                          true, true, true, true, true, true, true, true };
+// LQFP64 (R): sin bus externo y con UN SOLO SAI
+inline constexpr Periferia PERIF_F446_R { false, true, false, false, false,
+                                          true, true, true, false, true, true, true, true };
+// LQFP100 (V) y LQFP144/UFBGA144 (Z): con bus externo y con SAI2
+inline constexpr Periferia PERIF_F446_VZ{ false, true, true,  false, false,
+                                          true, true, true, true, true, true, true, true };
+// El nombre que usaba la fase 2, que sigue valiendo y apunta al de su pieza.
+inline constexpr Periferia PERIF_F446RE = PERIF_F446_R;
 
 // DEV_ID = 0x421, REV_ID = 0x1000 (revisión A) [RM0390, §33.6.1, verificado en
 // la fase 0]. El JTAG ID del boundary-scan, que es otro registro y no este, es
 // 0x0641_3041.
 constexpr uint32_t IDCODE_STM32F446 = 0x10000421u;
 
-inline constexpr McuCaps MCU_STM32F446RE {
-    "STM32F446RE", "STM32F446", CORE_STM32F446, MEM_STM32F446RE,
-    RELOJ_STM32F446, ARBOL_STM32F446, ENC_LQFP64_F446, PERIF_F446RE,
-    CONN_STM32F446, IDCODE_STM32F446
-};
+// ---------------------------------------------------------------------------
+// LA FAMILIA F446 ENTERA: ocho referencias, un die
+//
+// Cuatro encapsulados por dos tamaños de Flash. Lo que las distingue es, punto
+// por punto, lo mismo que distingue a los once miembros del F405/407:
+//
+//   LA LETRA DEL ENCAPSULADO. M = WLCSP81, R = LQFP64, V = LQFP100,
+//   Z = LQFP144 y UFBGA144. Decide qué pads salen al plástico y, de rebote, si
+//   hay bus externo y si el SAI2, el SPI4 o el segundo banco del QUADSPI
+//   tienen dónde asomarse.
+//
+//   LA ÚLTIMA LETRA, EL TAMAÑO DE FLASH. C = 256 KB (seis sectores),
+//   E = 512 KB (ocho). La RAM no cambia: los 112 + 16 KB de sistema y los 4 KB
+//   de backup están en las ocho [DS10693 Rev 11, tabla 2].
+//
+// Y lo que NO cambia, que es casi todo: el mismo núcleo, el mismo árbol de
+// reloj con sus tres PLL y su over-drive, las mismas 97 posiciones de vector,
+// los mismos siete maestros de matriz y el mismo IDCODE. Por eso las ocho son
+// `Stm32F446` con otro descriptor y no ocho clases.
+// ---------------------------------------------------------------------------
+
+// El constructor que evita repetir ocho veces los mismos seis campos, hermano
+// de `mcu_f4()`.
+constexpr McuCaps mcu_f446(const char* nombre, const MemCaps& mem,
+                           const Encapsulado& enc, const Periferia& per) {
+    return McuCaps{ nombre, "STM32F446", CORE_STM32F446, mem,
+                    RELOJ_STM32F446, ARBOL_STM32F446, enc, per,
+                    CONN_STM32F446, IDCODE_STM32F446 };
+}
+
+// --- WLCSP81: 63 E/S, sin bus externo ---------------------------------------
+inline constexpr McuCaps MCU_STM32F446MC =
+    mcu_f446("STM32F446MC", MEM_STM32F446xC, ENC_WLCSP81_F446, PERIF_F446_M);
+inline constexpr McuCaps MCU_STM32F446ME =
+    mcu_f446("STM32F446ME", MEM_STM32F446xE, ENC_WLCSP81_F446, PERIF_F446_M);
+// --- LQFP64: 50 E/S, sin bus externo y con UN SOLO SAI ----------------------
+inline constexpr McuCaps MCU_STM32F446RC =
+    mcu_f446("STM32F446RC", MEM_STM32F446xC, ENC_LQFP64_F446, PERIF_F446_R);
+inline constexpr McuCaps MCU_STM32F446RE =
+    mcu_f446("STM32F446RE", MEM_STM32F446xE, ENC_LQFP64_F446, PERIF_F446_R);
+// --- LQFP100: 81 E/S, con bus externo (banco 1, NE1, multiplexado) ----------
+inline constexpr McuCaps MCU_STM32F446VC =
+    mcu_f446("STM32F446VC", MEM_STM32F446xC, ENC_LQFP100_F446, PERIF_F446_VZ);
+inline constexpr McuCaps MCU_STM32F446VE =
+    mcu_f446("STM32F446VE", MEM_STM32F446xE, ENC_LQFP100_F446, PERIF_F446_VZ);
+// --- LQFP144 y UFBGA144: 114 E/S, el die entero asomado ---------------------
+inline constexpr McuCaps MCU_STM32F446ZC =
+    mcu_f446("STM32F446ZC", MEM_STM32F446xC, ENC_LQFP144_F446, PERIF_F446_VZ);
+inline constexpr McuCaps MCU_STM32F446ZE =
+    mcu_f446("STM32F446ZE", MEM_STM32F446xE, ENC_LQFP144_F446, PERIF_F446_VZ);
 
 // ---------------------------------------------------------------------------
 // EL CATÁLOGO
@@ -311,7 +407,10 @@ inline const McuCaps* const CATALOGO_MCU[] = {
     &MCU_STM32F405OE,
     &MCU_STM32F407VE, &MCU_STM32F407VG, &MCU_STM32F407ZE, &MCU_STM32F407ZG,
     &MCU_STM32F407IE, &MCU_STM32F407IG,
-    &MCU_STM32F446RE
+    &MCU_STM32F446MC, &MCU_STM32F446ME,
+    &MCU_STM32F446RC, &MCU_STM32F446RE,
+    &MCU_STM32F446VC, &MCU_STM32F446VE,
+    &MCU_STM32F446ZC, &MCU_STM32F446ZE
 };
 inline constexpr unsigned N_CATALOGO_MCU =
     sizeof(CATALOGO_MCU) / sizeof(CATALOGO_MCU[0]);

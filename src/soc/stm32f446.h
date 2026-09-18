@@ -217,24 +217,32 @@ private:
     }
 
     // =======================================================================
-    // LOS PINES [PINDATA: STM32F446R(C-E)Tx.xml y GPIO-STM32F446_gpio_v1_0]
+    // LOS PINES [PINDATA: los cuatro ficheros de referencia del F446 y
+    //            GPIO-STM32F446_gpio_v1_0_Modes]
+    //
+    // La tabla de AF es DEL DIE, y el encapsulado decide cuál de sus entradas
+    // llega a un pad. Por eso aquí se registran las **noventa y una** entradas
+    // que el die tiene para estos siete bloques, y no las quince que saca un
+    // LQFP64: un F446ZE con el SAI2 declarado y sin pines sería una mentira
+    // silenciosa, de las que este proyecto lleva seis fases quitando.
+    //
+    // El mux ya sabe no sacar nada por un pad que el encapsulado no suelda, así
+    // que registrar de más no miente; lo que mentiría es registrar de menos.
     //
     // La tabla de AF del F446 es la del F407 MÁS estas entradas, en ranuras que
     // en esos mismos pines estaban libres: se comprobó par a par y el número de
-    // AF no difiere en ninguno de los 260 pares comunes [vs_446re, §9.2]. Por
-    // eso aquí no se rehace nada, se AÑADE.
+    // AF no difiere en ninguno de los 260 pares comunes [vs_446re, §9.2].
     //
-    // Y solo se añade lo que el LQFP64 SACA, que no es todo lo que el die
-    // tiene. Las tres consecuencias, que son justo las que un alumno se
-    // encuentra en la tarjeta:
+    // LO QUE NO SE REGISTRA, y por qué:
     //
-    //   * el SPI4 no tiene ni un pin en este encapsulado;
-    //   * el SAI2 tampoco;
-    //   * y el QUADSPI tiene CLK, NCS de los dos bancos e IO0, IO1 e IO3 del
-    //     banco 1, pero **NO tiene IO2**. Eso es, literalmente, la nota 3 del
-    //     datasheet: «For the LQFP64 package the Quad SPI is available with
-    //     limited features». Sin IO2 no hay modo de cuatro líneas, y el modelo
-    //     lo hace notar donde se nota: en el pin.
+    //   * el **SMBA del FMPI2C1** (PD11, PF13): el modelo no tiene esa señal
+    //     porque no implementa SMBus, y `limitaciones()` lo dice;
+    //   * el **segundo banco del QUADSPI** (BK2_IO0..3, en PE7..PE10, PG9 y
+    //     PG14): este modelo tiene UN banco. Registrar sus pines sugeriría un
+    //     modo de ocho líneas que no existe aquí;
+    //   * el **SPDIF-RX** y el **HDMI-CEC**: son `BloqueDeclarado`, y un bloque
+    //     no modelado que moviera pads sería justo lo que esa clase existe para
+    //     no contar.
     // =======================================================================
     void engancha_af_446() {
         auto od = [](sc_core::sc_signal<bool>& o, sc_core::sc_signal<bool>& e,
@@ -245,45 +253,107 @@ private:
                      sc_core::sc_signal<bool>* i) {
             return AfEndpoint{o, e, i, false};
         };
+        // Un pin se escribe 0xPN: puerto en el nibble alto (A = 0), número en
+        // el bajo. Así la tabla cabe de un vistazo y el comentario de al lado
+        // la dice en el idioma del datasheet.
+        auto reg = [&](const AfEndpoint& ep, uint8_t af,
+                       std::initializer_list<uint8_t> pines) {
+            for (uint8_t p : pines) pinmux.connect_af(p >> 4, p & 0xF, af, ep);
+        };
 
-        // --- FMPI2C1 (AF4): SCL en PC6, SDA en PC7 -------------------------
-        pinmux.connect_af(2, 6, 4, od(fmpi2c1.scl_out, fmpi2c1.scl_oe,
-                                      fmpi2c1.scl_in));
-        pinmux.connect_af(2, 7, 4, od(fmpi2c1.sda_out, fmpi2c1.sda_oe,
-                                      fmpi2c1.sda_in));
+        reg(od(fmpi2c1.scl_out, fmpi2c1.scl_oe, fmpi2c1.scl_in),
+            4, {0x26, 0x3C, 0x3E, 0x5E});   // FMPI2C1_SCL: PC6 PD12 PD14 PF14
+        reg(od(fmpi2c1.sda_out, fmpi2c1.sda_oe, fmpi2c1.sda_in),
+            4, {0x27, 0x3D, 0x3F, 0x5F});   // FMPI2C1_SDA: PC7 PD13 PD15 PF15
+        reg(pp(&sai1.a.fs_out, &sai1.a.fs_oe, &sai1.a.fs_in),
+            6, {0x03, 0x44});   // SAI1_FS_A: PA3 PE4
+        reg(pp(&sai1.a.sck_out, &sai1.a.sck_oe, &sai1.a.sck_in),
+            6, {0x1A, 0x45});   // SAI1_SCK_A: PB10 PE5
+        reg(pp(&sai1.a.sd_out, &sai1.a.sd_oe, &sai1.a.sd_in),
+            6, {0x12, 0x21, 0x36, 0x46});   // SAI1_SD_A: PB2 PC1 PD6 PE6
+        reg(pp(&sai1.a.mclk_out, &sai1.a.mclk_oe, nullptr),
+            6, {0x42});   // SAI1_MCLK_A: PE2
+        reg(pp(&sai1.b.fs_out, &sai1.b.fs_oe, &sai1.b.fs_in),
+            6, {0x19, 0x59});   // SAI1_FS_B: PB9 PF9
+        reg(pp(&sai1.b.sck_out, &sai1.b.sck_oe, &sai1.b.sck_in),
+            6, {0x1C, 0x58});   // SAI1_SCK_B: PB12 PF8
+        reg(pp(&sai1.b.sd_out, &sai1.b.sd_oe, &sai1.b.sd_in),
+            6, {0x09, 0x43, 0x56});   // SAI1_SD_B: PA9 PE3 PF6
+        reg(pp(&sai1.b.mclk_out, &sai1.b.mclk_oe, nullptr),
+            6, {0x20, 0x57});   // SAI1_MCLK_B: PC0 PF7
+        reg(pp(&qspi.clk_out, &qspi.clk_oe, nullptr),
+            9, {0x12, 0x33});   // QUADSPI_CLK: PB2 PD3
+        reg(pp(&qspi.ncs_out, &qspi.ncs_oe, nullptr),
+            10, {0x16, 0x66});   // QUADSPI_BK1_NCS: PB6 PG6
+        reg(pp(&qspi.ncs_out, &qspi.ncs_oe, nullptr),
+            9, {0x2B});   // QUADSPI_BK2_NCS: PC11
+        reg(pp(&qspi.io_out[0], &qspi.io_oe[0], &qspi.io_in[0]),
+            9, {0x29, 0x3B});   // QUADSPI_BK1_IO0: PC9 PD11
+        reg(pp(&qspi.io_out[0], &qspi.io_oe[0], nullptr),
+            10, {0x58});   // QUADSPI_BK1_IO0: PF8
+        reg(pp(&qspi.io_out[1], &qspi.io_oe[1], &qspi.io_in[1]),
+            9, {0x2A, 0x3C});   // QUADSPI_BK1_IO1: PC10 PD12
+        reg(pp(&qspi.io_out[1], &qspi.io_oe[1], nullptr),
+            10, {0x59});   // QUADSPI_BK1_IO1: PF9
+        reg(pp(&qspi.io_out[2], &qspi.io_oe[2], &qspi.io_in[2]),
+            9, {0x42, 0x57});   // QUADSPI_BK1_IO2: PE2 PF7
+        reg(pp(&qspi.io_out[3], &qspi.io_oe[3], &qspi.io_in[3]),
+            9, {0x01, 0x3D, 0x56});   // QUADSPI_BK1_IO3: PA1 PD13 PF6
+        reg(pp(&spi4.sck_out, &spi4.sck_oe, &spi4.sck_in),
+            5, {0x42, 0x4C});   // SPI4_SCK: PE2 PE12
+        reg(pp(&spi4.sck_out, &spi4.sck_oe, nullptr),
+            6, {0x6B});   // SPI4_SCK: PG11
+        reg(pp(&spi4.miso_out, &spi4.miso_oe, &spi4.miso_in),
+            5, {0x30, 0x45, 0x4D});   // SPI4_MISO: PD0 PE5 PE13
+        reg(pp(&spi4.miso_out, &spi4.miso_oe, nullptr),
+            6, {0x6C});   // SPI4_MISO: PG12
+        reg(pp(&spi4.mosi_out, &spi4.mosi_oe, &spi4.mosi_in),
+            5, {0x46, 0x4E});   // SPI4_MOSI: PE6 PE14
+        reg(pp(&spi4.mosi_out, &spi4.mosi_oe, nullptr),
+            6, {0x6D});   // SPI4_MOSI: PG13
+        reg(pp(&spi4.nss_out, &spi4.nss_oe, &spi4.nss_in),
+            5, {0x44, 0x4B});   // SPI4_NSS: PE4 PE11
+        reg(pp(&spi4.nss_out, &spi4.nss_oe, nullptr),
+            6, {0x6E});   // SPI4_NSS: PG14
 
-        // --- SAI1 (AF6) ----------------------------------------------------
-        // Bloque A: FS en PA3, SCK en PB10, SD en PB2 o PC1.
-        pinmux.connect_af(0,  3, 6, pp(&sai1.a.fs_out,  &sai1.a.fs_oe,  &sai1.a.fs_in));
-        pinmux.connect_af(1, 10, 6, pp(&sai1.a.sck_out, &sai1.a.sck_oe, &sai1.a.sck_in));
-        pinmux.connect_af(1,  2, 6, pp(&sai1.a.sd_out,  &sai1.a.sd_oe,  &sai1.a.sd_in));
-        pinmux.connect_af(2,  1, 6, pp(&sai1.a.sd_out,  &sai1.a.sd_oe,  nullptr));
-        // Bloque B: SD en PA9, FS en PB9, SCK en PB12, MCLK en PC0.
-        pinmux.connect_af(0,  9, 6, pp(&sai1.b.sd_out,  &sai1.b.sd_oe,  &sai1.b.sd_in));
-        pinmux.connect_af(1,  9, 6, pp(&sai1.b.fs_out,  &sai1.b.fs_oe,  &sai1.b.fs_in));
-        pinmux.connect_af(1, 12, 6, pp(&sai1.b.sck_out, &sai1.b.sck_oe, &sai1.b.sck_in));
-        pinmux.connect_af(2,  0, 6, pp(&sai1.b.mclk_out, &sai1.b.mclk_oe, nullptr));
-        // El bloque A no saca MCLK en este encapsulado (SAI1_MCLK_A es de PE,
-        // y aquí no hay puerto E), y el SAI2 no saca ningún pin.
-
-        // --- QUADSPI (AF9, y AF10 para NCS del banco 1) --------------------
-        pinmux.connect_af(1, 2, 9, pp(&qspi.clk_out, &qspi.clk_oe, nullptr));
-        pinmux.connect_af(1, 6, 10, pp(&qspi.ncs_out, &qspi.ncs_oe, nullptr));
-        pinmux.connect_af(2, 11, 9, pp(&qspi.ncs_out, &qspi.ncs_oe, nullptr));
-        pinmux.connect_af(2,  9, 9, pp(&qspi.io_out[0], &qspi.io_oe[0], &qspi.io_in[0]));
-        pinmux.connect_af(2, 10, 9, pp(&qspi.io_out[1], &qspi.io_oe[1], &qspi.io_in[1]));
-        pinmux.connect_af(0,  1, 9, pp(&qspi.io_out[3], &qspi.io_oe[3], &qspi.io_in[3]));
-        // IO2 no tiene pin: se le entrega su entrada en reposo y nadie la mueve.
+        // EL SAI2, QUE NO ES CUESTIÓN DE PINES SINO DE REFERENCIA. En un F446RC
+        // o RE la base de pines de ST no lista **una sola** señal de SAI2, ni
+        // siquiera en los pines de PA que ese encapsulado sí saca; y la Tabla 2
+        // del datasheet pone `1` en la fila del SAI para esa columna. El die es
+        // el mismo y el bloque responde en el bus —por eso sigue construido y
+        // decodificado—, pero no tiene dónde salir, y eso lo dice el rasgo.
+        if (mcu.perif.sai2) {
+            reg(pp(&sai2.a.fs_out, &sai2.a.fs_oe, &sai2.a.fs_in),
+                10, {0x3C});   // SAI2_FS_A: PD12
+            reg(pp(&sai2.a.sck_out, &sai2.a.sck_oe, &sai2.a.sck_in),
+                10, {0x3D});   // SAI2_SCK_A: PD13
+            reg(pp(&sai2.a.sck_out, &sai2.a.sck_oe, nullptr),
+                8, {0x3E});   // SAI2_SCK_A: PD14
+            reg(pp(&sai2.a.sd_out, &sai2.a.sd_oe, &sai2.a.sd_in),
+                10, {0x3B});   // SAI2_SD_A: PD11
+            reg(pp(&sai2.a.sd_out, &sai2.a.sd_oe, nullptr),
+                8, {0x1B});   // SAI2_SD_A: PB11
+            reg(pp(&sai2.a.mclk_out, &sai2.a.mclk_oe, nullptr),
+                10, {0x40});   // SAI2_MCLK_A: PE0
+            reg(pp(&sai2.b.fs_out, &sai2.b.fs_oe, &sai2.b.fs_in),
+                10, {0x4D, 0x69});   // SAI2_FS_B: PE13 PG9
+            reg(pp(&sai2.b.fs_out, &sai2.b.fs_oe, nullptr),
+                8, {0x0C});   // SAI2_FS_B: PA12
+            reg(pp(&sai2.b.sck_out, &sai2.b.sck_oe, &sai2.b.sck_in),
+                10, {0x4C});   // SAI2_SCK_B: PE12
+            reg(pp(&sai2.b.sck_out, &sai2.b.sck_oe, nullptr),
+                8, {0x02});   // SAI2_SCK_B: PA2
+            reg(pp(&sai2.b.sd_out, &sai2.b.sd_oe, &sai2.b.sd_in),
+                10, {0x4B, 0x5B, 0x6A});   // SAI2_SD_B: PE11 PF11 PG10
+            reg(pp(&sai2.b.mclk_out, &sai2.b.mclk_oe, nullptr),
+                10, {0x01, 0x4E});   // SAI2_MCLK_B: PA1 PE14
+        }
 
         // --- I2S1 (AF5) ----------------------------------------------------
         // Los pines de SPI1 YA están registrados por el mapa de la familia, y
-        // son los mismos hilos: CK es SCK, WS es NSS y SD es MOSI. Lo único
-        // que el F407 no tiene es MCK, que en el F446 sale por PC4.
+        // son los mismos hilos: CK es SCK, WS es NSS y SD es MOSI. Lo único que
+        // el F407 no tiene es MCK, que en el F446 sale por PC4.
         pinmux.connect_af(2, 4, 5, pp(&spi1.mck_out, &spi1.mck_oe, nullptr));
-
-        // Ni el SPDIF-RX ni el HDMI-CEC registran pines: un bloque declarado y
-        // no modelado que moviera pads sería exactamente la mentira que
-        // `BloqueDeclarado` existe para no contar.
     }
 
 public:
@@ -298,7 +368,11 @@ public:
     // una que falta de verdad.
     // -----------------------------------------------------------------------
     std::vector<std::string> limitaciones() const override {
-        return {
+        // LO QUE FALTA NO ES LO MISMO EN LAS OCHO REFERENCIAS. Desde que la
+        // familia entera está modelada, esta lista se construye y no se
+        // devuelve entera: decirle a quien monta un F446ZE que su SAI2 no
+        // tiene pines sería tan falso como callárselo en un F446RE.
+        std::vector<std::string> v = {
             "los escalones de tension (PWR_CR.VOS) se leen y se escriben, pero "
             "el modelo NO limita la frecuencia por escala: en el silicio, la "
             "escala 2 y la 3 bajan el techo de SYSCLK, y aqui el unico techo "
@@ -318,20 +392,15 @@ public:
             "uno saca un aviso por el informe de SystemC. No tienen pines ni "
             "levantan sus vectores (93 y 94)",
 
-            "el FMC no esta modelado como tal (el modelo lleva el FSMC del "
-            "F407, con otros desplazamientos de registro por banco). En un "
-            "F446RE eso no se nota: el datasheet dice que ese encapsulado no "
-            "saca el bus externo, y por eso 0xA000_0000 se queda sin "
-            "decodificar y tocarlo da error de bus, que es lo correcto",
+            "el FMC no esta modelado como tal: el modelo lleva el FSMC del "
+            "F407, que tiene otros desplazamientos de registro por banco. En "
+            "las referencias que no sacan el bus externo -M y R- eso no se "
+            "nota, porque 0xA000_0000 se queda sin decodificar y tocarlo da "
+            "error de bus, que es lo correcto",
 
-            "el QUADSPI no tiene pin para IO2 en el LQFP64 -es la nota 3 del "
-            "datasheet, 'available with limited features'-, de modo que un "
-            "comando en cuatro lineas escribe al aire por esa linea. El "
-            "modelo lo deja pasar sin avisar: es el silicio el que no puede",
-
-            "el SPI4 y el SAI2 estan completos y sin un solo pin en este "
-            "encapsulado: se pueden programar y no se ve nada en ningun pad. "
-            "El die los tiene y el LQFP64 no se los saca [PINDATA]",
+            "del segundo banco del QUADSPI (BK2_IO0..3) no se modela nada: "
+            "este modelo tiene UN banco, asi que el modo de doble Flash -ocho "
+            "lineas- no existe aqui y sus pines no estan en el mux",
 
             "de los dos SAI se modela la temporizacion de trama (MCLK, SCK, "
             "FS y el hueco de cada ranura) y la FIFO, pero NO el companding "
@@ -351,6 +420,38 @@ public:
             "Armar un stream ahi saca un aviso que dice que celda es, en vez "
             "de quedarse esperando en silencio"
         };
+
+        // --- Y lo que depende de QUÉ referencia sea esta ---------------------
+        if (!mcu.perif.sai2)
+            v.push_back(
+                "esta referencia lleva UN SOLO SAI: el SAI2 responde en el bus "
+                "-el die es el mismo- pero no tiene ni una senal en ningun pin, "
+                "y el datasheet cuenta 1 en la fila del SAI para el LQFP64. Un "
+                "firmware que lo configure no vera nada en ningun pad "
+                "[DS10693 Rev 11, tabla 2; PINDATA]");
+        if (!mcu.enc.hay_puerto(4))          // sin puerto E
+            v.push_back(
+                "el SPI4 esta completo y sin un solo pin en este encapsulado: "
+                "se puede programar y no se ve nada. El die lo tiene y este "
+                "plastico no se lo saca [PINDATA]");
+        // El IO2 del primer banco sale por PE2 o por PF7, y por ningun otro
+        // sitio. Si el encapsulado no suelda ninguno de los dos, no hay cuatro
+        // lineas que valgan.
+        if (!mcu.enc.bonded(4, 2) && !mcu.enc.bonded(5, 7))
+            v.push_back(
+                "el QUADSPI no tiene pin para IO2 en este encapsulado -es la "
+                "nota 3 del datasheet, 'available with limited features'-, de "
+                "modo que un comando en cuatro lineas escribe al aire por esa "
+                "linea. El modelo lo deja pasar sin avisar: es el silicio el "
+                "que no puede");
+        if (mcu.perif.fsmc && !mcu.enc.hay_puerto(6))   // con FMC y sin puerto G
+            v.push_back(
+                "del bus externo, este encapsulado solo saca el BANCO 1 del "
+                "FMC, con NE1 y en modo multiplexado, y sin linea de "
+                "interrupcion porque el puerto G no sale [DS10693 Rev 11, "
+                "tabla 2, nota 1]. El modelo lleva ademas el FSMC del F407 y "
+                "no el FMC, que tiene otros desplazamientos de registro");
+        return v;
     }
 };
 

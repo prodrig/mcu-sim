@@ -23,7 +23,7 @@ P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
 | F7 (resto) | afinado AT | pendiente |
 
 `make test` compila y ejecuta la suite de verificación acumulada (**2055**
-comprobaciones autocomprobables, y `make test446` las **193** del segundo chip —
+comprobaciones autocomprobables, y `make test446` las **200** del segundo chip —
 véase más abajo—: 127 de F1 + 12 de F2 + 80 de F3 + 343 de F4
 (DMA, UART/USART, TIM y EXTI/SYSCFG) + 675 de F5 (SPI/I2S, I2C, ADC, DAC, RTC y
 perros guardianes, SDIO, CRC/RNG y bxCAN) + 151 de F6 (depuración y los dos
@@ -62,7 +62,7 @@ make -f Makefile.stm32 asan           # la misma suite con ASan + UBSan
 make -f Makefile.stm32 run IMG=fw.bin # carga una imagen y simula
 ```
 
-## El segundo chip: STM32F446RE
+## La segunda familia: STM32F446
 
 Desde la fase 2 del plan de `doc/stm32f407vg_vs_446re.md` hay **dos familias**
 montables, y `tipo=` en el XML despacha de verdad entre ellas:
@@ -81,6 +81,22 @@ con el que llega a 180 MHz. Un `SystemClock_Config()` como el que genera
 STM32CubeIDE para una Nucleo-F446RE recorre las seis etapas de RM0390 §5.1.3 y
 llega; y si el modelo no levanta `ODRDY`, se queda esperando, que es lo que
 haría en la placa.
+
+**Están las ocho referencias de la familia**, que es a la familia F446 lo que
+los once del F405/407 son a la suya: el mismo die con otro plástico y otra
+Flash. Ninguna es una clase nueva — las ocho son el mismo modelo con otro
+descriptor:
+
+| Referencia | Encapsulado | E/S | Flash | FMC | SAI |
+| :--- | :--- | ---: | ---: | :--- | ---: |
+| MC / ME | WLCSP81 | 63 | 256 / 512 KB | no | 2 |
+| RC / RE | LQFP64 | 50 | 256 / 512 KB | no | **1** |
+| VC / VE | LQFP100 | 81 | 256 / 512 KB | sí, banco 1 | 2 |
+| ZC / ZE | LQFP144, UFBGA144 | 114 | 256 / 512 KB | sí | 2 |
+
+Y `limitaciones()` dejó de ser una lista fija: lo que le falta a un F446ZE no es
+lo mismo que lo que le falta a un F446RE, y decirle al primero que su SAI2 no
+tiene pines sería tan falso como callárselo al segundo.
 
 El F446RE es **el die de la familia F4 menos lo que no lleva**: sin Ethernet,
 sin RNG, sin CCM, sin los bloques de extensión del I2S, con 512 KB de Flash, con
@@ -179,7 +195,7 @@ validar una plataforma nueva antes de pelearse con la biblioteca.
 
 | Plataforma | Estado | Comprobado |
 | :--- | :--- | :--- |
-| Linux, g++ 13 | **verificado** | 2055/2055 comprobaciones, 193/193 del F446, `make red` 13/13, ASan + UBSan limpio en las dos suites (`make asan`, `make asan446`), las cinco placas validan sin un aviso |
+| Linux, g++ 13 | **verificado** | 2055/2055 comprobaciones, 200/200 del F446, `make red` 13/13, ASan + UBSan limpio en las dos suites (`make asan`, `make asan446`), las cinco placas validan sin un aviso |
 | Linux, clang | **verificado** | mismo resultado y mismo tiempo simulado al picosegundo |
 | Windows, MinGW-w64 | **compila y enlaza** (cruzado con g++ 13-win32) | `make red` genera un PE32+ sin avisos; **falta ejecutarlo en Windows y construir SystemC allí** |
 | macOS, clang | **la rama específica compila** | Se fuerza la combinación de macOS —sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`— y compila con g++ y con clang; **falta probarlo en un Mac** |

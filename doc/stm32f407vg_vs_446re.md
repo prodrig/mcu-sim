@@ -1581,3 +1581,119 @@ que distingue «la celda funciona» de «el stream funciona».
 El QUADSPI, de paso, ganó lo que le faltaba para poder pedir: `CR.DMAEN` (bit 2)
 y su línea de petición, con la condición del umbral `FTHRES` y **sin pedir nunca
 en modo mapeado en memoria**, donde quien lee es el núcleo.
+
+---
+
+## 22. La familia F446 entera: ocho referencias, un die
+
+Hasta aquí el proyecto modelaba **una** pieza del F446, la RE, porque es la de la
+Nucleo. El datasheet `[DS10693] Rev 11` lista **ocho**, y son a la familia F446
+lo que los once del F405/407 son a la suya: el mismo die con otro plástico y otra
+Flash. Están las ocho.
+
+**El invariante del F407 sigue intacto: `2336217899213 ps` y 2055/2055. La suite
+del F446 pasa de 193 a 200.**
+
+| Referencia | Encapsulado | E/S | Flash | FMC | SAI |
+| :--- | :--- | ---: | ---: | :--- | ---: |
+| **MC / ME** | WLCSP81 | 63 | 256 / 512 KB | no | 2 |
+| **RC / RE** | LQFP64 | 50 | 256 / 512 KB | no | **1** |
+| **VC / VE** | LQFP100 | 81 | 256 / 512 KB | sí, **banco 1** | 2 |
+| **ZC / ZE** | LQFP144, UFBGA144 | 114 | 256 / 512 KB | sí | 2 |
+
+Ninguna es una clase nueva: las ocho son `Stm32F446` con otro `McuCaps`, que es
+exactamente lo que §6.3 decía que un descriptor SÍ puede describir.
+
+### 22.1 Las máscaras, y lo que se aprende mirándolas juntas
+
+Salen de los cuatro ficheros de referencia de la base de pines de ST, leídos por
+máquina, y el recuento de cada una **coincide con la Tabla 2 del datasheet**:
+63, 50, 81 y 114. Dos fuentes de ST otra vez.
+
+Dos cosas que no son lo que uno supondría:
+
+* **PB11 solo existe en el LQFP144/UFBGA144.** No sale en el LQFP64 —eso ya lo
+  sabíamos desde §9.2—, pero tampoco en el WLCSP81 ni en el LQFP100, donde el
+  datasheet dice con esas palabras *«PB11 not available anymore, replaced by
+  VCAP1»*. El pin lleva seis fases apareciendo;
+* **el WLCSP81 no es un LQFP100 recortado.** Tiene 63 E/S y se las reparte a su
+  manera: le faltan **PC1 y PC5, que el LQFP64 —con 17 patillas menos— sí saca**,
+  y de los puertos D y E saca un puñado salteado. Es el mismo patrón que destapó
+  I-40 en el WLCSP90 del F407, y la misma moraleja: a más bolas no corresponde,
+  sin más, un superconjunto de pines.
+
+### 22.2 El SAI2 no es cuestión de pines, y el datasheet cambió de opinión
+
+La `[vs_446re] §8.3` decía, leyendo la **revisión 4**, que la Tabla 2 ponía `2`
+en la fila del SAI para todas las columnas y que lo que pasaba en el LQFP64 era
+que el die lo tiene y el plástico no le saca pines.
+
+**La revisión 11 pone `1` en la columna del LQFP64.** Y la base de pines lo
+confirma por otro camino: en un F446RC o RE **no hay una sola señal de SAI2 en
+ningún pin**, ni siquiera en los de PA —PA1, PA2 y PA12— que ese encapsulado sí
+suelda y que en las otras siete referencias llevan SAI2. No es bonding: es que
+ST no vende esa referencia con dos SAI.
+
+Así que el SAI2 pasa a ser un rasgo de `Periferia` y no un efecto colateral del
+encapsulado. Lo que el modelo hace con él es lo de siempre: **el bloque sigue
+construido y sigue respondiendo en el bus** —el die es el mismo y sus registros
+contestan— y lo que no tiene es por dónde salir, y eso lo dice `limitaciones()`.
+
+### 22.3 La tabla de AF, ahora la del die entera
+
+`engancha_af_446()` registraba **quince** entradas, las del LQFP64. Ahora
+registra las **noventa y una** que el die tiene para esos siete bloques. El
+cambio no es cosmético: un F446ZE con el SAI2 declarado y sin un pin donde
+sacarlo habría sido una mentira silenciosa, de las que este proyecto lleva seis
+fases quitando.
+
+El mux ya sabe no sacar nada por un pad que el encapsulado no suelda, así que
+registrar de más no miente; lo que mentiría es registrar de menos.
+
+**Lo que sigue sin registrarse, y por qué:** el SMBA del FMPI2C1 (no hay SMBus
+modelado), los cuatro IO del **segundo banco** del QUADSPI (este modelo tiene un
+banco, y sus pines sugerirían un modo de ocho líneas que no existe aquí) y los
+del SPDIF-RX y el HDMI-CEC, que son `BloqueDeclarado`.
+
+### 22.4 La prueba: dieciséis cuentas contra los ficheros de ST
+
+El grupo **E6** cruza la tabla de AF del modelo con la máscara de cada
+encapsulado y compara el resultado con **la lista que ST publica para esa
+referencia** — y las dos mitades vienen de ficheros distintos: la implementación
+se escribió desde el fichero del **die**, y los números de la prueba se contaron
+sobre los cuatro de **referencia**. Que cuadren no es una tautología.
+
+```
+pines por encapsulado (WLCSP81 / LQFP64 / LQFP100 / LQFP144):
+  FMPI2C1 4 2 6 8 | SAI1 11 8 14 18 | SPI4 3 0 9 13 | QUADSPI 10 6 11 16
+```
+
+Las dieciséis cuadran, y las diferencias con los números de ST son exactamente
+las tres cosas que el modelo no registra y que acaban de nombrarse, ni una más.
+
+### 22.5 `limitaciones()` dejó de ser una lista fija
+
+Decirle a quien monta un F446ZE que su SAI2 no tiene pines sería tan falso como
+callárselo en un F446RE. Así que la lista **se construye** según la referencia:
+
+```
+$ ./build/sim placa.xml --valida        # con tipo="STM32F446MC"
+  (ninguna de las cuatro líneas de encapsulado)
+
+                                        # con tipo="STM32F446RE"
+  · esta referencia lleva UN SOLO SAI: el SAI2 responde en el bus...
+  · el SPI4 esta completo y sin un solo pin en este encapsulado...
+  · el QUADSPI no tiene pin para IO2 en este encapsulado...
+
+                                        # con tipo="STM32F446VE"
+  · del bus externo, este encapsulado solo saca el BANCO 1 del FMC, con NE1
+    y en modo multiplexado, y sin linea de interrupcion porque el puerto G
+    no sale [DS10693 Rev 11, tabla 2, nota 1]
+
+                                        # con tipo="STM32F446ZE"
+  (ninguna: en un LQFP144 sale todo)
+```
+
+Esa última línea del VE es la nota 1 de la Tabla 2, leída y repetida: el LQFP100
+tiene bus externo, pero solo el banco 1, solo NOR/PSRAM multiplexada, solo con
+NE1 y sin línea de interrupción, porque el puerto G no sale.

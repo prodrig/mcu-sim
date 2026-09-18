@@ -723,30 +723,165 @@ SC_MODULE(Tb446) {
         // Esto es lo que separa «el chip no lo lleva» de «el encapsulado no le
         // saca pines», que son dos cosas distintas y el modelo las trata
         // distinto [vs_446re, §8.3].
-        check(dut.apb2_dec.decodes(addr446::SPI4_B) &&
-              !dut.pinmux.tiene_af(4, 2, 5) && !dut.pinmux.tiene_af(4, 4, 5) &&
-              !dut.pinmux.tiene_af(4, 5, 5) && !dut.pinmux.tiene_af(4, 6, 5) &&
-              !dut.pinmux.tiene_af(6, 12, 6) && !dut.pinmux.tiene_af(6, 13, 6),
-              "el SPI4 responde en el bus y no tiene ni un pin: sus seis "
-              "ranuras del die (PE2/4/5/6, PG12/13) no estan registradas "
-              "porque el LQFP64 no las saca");
-        check(!dut.pinmux.tiene_af(4, 2, 6) && !dut.pinmux.tiene_af(5, 7, 6),
-              "y el SAI2 tampoco: ni una ranura de AF6 fuera de las del SAI1");
+        // =================================================================
+        // LOS PINES DE CADA ENCAPSULADO, CONTRA LOS DATOS DE ST
+        //
+        // La tabla de AF es DEL DIE y el encapsulado decide cuál de sus
+        // entradas llega a un pad. Esta prueba comprueba las dos mitades a la
+        // vez: que el modelo registra la entrada, y que al cruzarla con la
+        // máscara de cada encapsulado sale **exactamente la lista que ST
+        // publica para esa referencia**.
+        //
+        // Y las dos mitades vienen de FICHEROS DISTINTOS de ST: la
+        // implementación se escribió desde `GPIO-STM32F446_gpio_v1_0_Modes`,
+        // que es del die, y los números de aquí abajo se contaron sobre
+        // `STM32F446M(C-E)Yx`, `R(C-E)Tx`, `V(C-E)Tx` y `Z(C-E)Tx`, que son de
+        // la referencia. Que cuadren no es una tautología.
+        // =================================================================
+        struct RanuraAf { uint8_t port, pin, af; };
+        // Lo que el modelo registra de cada bloque, con su AF. No incluye tres
+        // cosas, y por eso los números de abajo son menores que los de ST en
+        // justo esa cantidad: el SMBA del FMPI2C1 (no hay SMBus modelado), los
+        // cuatro IO del segundo banco del QUADSPI (el modelo tiene un banco) y
+        // los pines del SPDIF-RX y el HDMI-CEC (bloques declarados).
+        static const RanuraAf FMPI2C1_[] = {
+            {2,6,4},{3,12,4},{3,14,4},{5,14,4},          // SCL
+            {2,7,4},{3,13,4},{3,15,4},{5,15,4} };        // SDA
+        static const RanuraAf SAI1_[] = {
+            {0,3,6},{4,4,6},{1,10,6},{4,5,6},{1,2,6},{2,1,6},{3,6,6},{4,6,6},
+            {4,2,6},{1,9,6},{5,9,6},{1,12,6},{5,8,6},{0,9,6},{4,3,6},{5,6,6},
+            {2,0,6},{5,7,6} };
+        static const RanuraAf SAI2_[] = {
+            {3,12,10},{3,13,10},{3,14,8},{3,11,10},{1,11,8},{4,0,10},
+            {4,13,10},{6,9,10},{0,12,8},{4,12,10},{0,2,8},
+            {4,11,10},{5,11,10},{6,10,10},{0,1,10},{4,14,10} };
+        static const RanuraAf SPI4_[] = {
+            {4,2,5},{4,12,5},{6,11,6},{3,0,5},{4,5,5},{4,13,5},{6,12,6},
+            {4,6,5},{4,14,5},{6,13,6},{4,4,5},{4,11,5},{6,14,6} };
+        static const RanuraAf QSPI_[] = {
+            {1,2,9},{3,3,9},{1,6,10},{6,6,10},{2,11,9},
+            {2,9,9},{3,11,9},{5,8,10},{2,10,9},{3,12,9},{5,9,10},
+            {4,2,9},{5,7,9},{0,1,9},{3,13,9},{5,6,9} };
 
-        // EL QUADSPI, QUE SI TIENE PINES PERO NO TODOS. Esta es, literalmente,
-        // la nota 3 del datasheet: «For the LQFP64 package the Quad SPI is
-        // available with limited features». Sin IO2 no hay cuatro lineas.
-        check(dut.pinmux.tiene_af(1, 2, 9) && dut.pinmux.tiene_af(2, 9, 9) &&
-              dut.pinmux.tiene_af(2, 10, 9) && dut.pinmux.tiene_af(0, 1, 9) &&
-              dut.pinmux.tiene_af(1, 6, 10),
-              "QUADSPI: CLK en PB2, IO0 en PC9, IO1 en PC10, IO3 en PA1 y NCS "
-              "en PB6 [PINDATA: STM32F446R(C-E)Tx]");
-        check(!dut.pinmux.tiene_af(2, 8, 9) && !dut.pinmux.tiene_af(4, 2, 9),
-              "y IO2 NO tiene pin en este encapsulado: es la nota 3 del "
-              "datasheet, «available with limited features»");
-        check(dut.pinmux.tiene_af(2, 6, 4) && dut.pinmux.tiene_af(2, 7, 4),
-              "el FMPI2C1 si los tiene: SCL en PC6 y SDA en PC7, en AF4, la "
-              "misma ranura que ocupan los I2C de siempre en otros pines");
+        auto cuenta = [&](const RanuraAf* t, size_t n, const Encapsulado& e) {
+            unsigned c = 0;
+            for (size_t i = 0; i < n; ++i)
+                if (dut.pinmux.tiene_af(t[i].port, t[i].pin, t[i].af) &&
+                    e.bonded(t[i].port, t[i].pin)) ++c;
+            return c;
+        };
+        #define CUENTA(T, E) cuenta(T, sizeof(T)/sizeof(T[0]), E)
+
+        const Encapsulado& eM = MCU_STM32F446MC.enc;   // WLCSP81
+        const Encapsulado& eR = MCU_STM32F446RE.enc;   // LQFP64
+        const Encapsulado& eV = MCU_STM32F446VE.enc;   // LQFP100
+        const Encapsulado& eZ = MCU_STM32F446ZE.enc;   // LQFP144
+
+        std::printf("    pines por encapsulado (WLCSP81 / LQFP64 / LQFP100 / LQFP144):\n");
+        std::printf("      FMPI2C1 %u %u %u %u | SAI1 %u %u %u %u | "
+                    "SPI4 %u %u %u %u | QUADSPI %u %u %u %u\n",
+                    CUENTA(FMPI2C1_, eM), CUENTA(FMPI2C1_, eR),
+                    CUENTA(FMPI2C1_, eV), CUENTA(FMPI2C1_, eZ),
+                    CUENTA(SAI1_, eM), CUENTA(SAI1_, eR),
+                    CUENTA(SAI1_, eV), CUENTA(SAI1_, eZ),
+                    CUENTA(SPI4_, eM), CUENTA(SPI4_, eR),
+                    CUENTA(SPI4_, eV), CUENTA(SPI4_, eZ),
+                    CUENTA(QSPI_, eM), CUENTA(QSPI_, eR),
+                    CUENTA(QSPI_, eV), CUENTA(QSPI_, eZ));
+
+        check(CUENTA(FMPI2C1_, eM) == 4 && CUENTA(FMPI2C1_, eR) == 2 &&
+              CUENTA(FMPI2C1_, eV) == 6 && CUENTA(FMPI2C1_, eZ) == 8,
+              "FMPI2C1: 4, 2, 6 y 8 pines de SCL/SDA segun el encapsulado "
+              "(ST cuenta uno mas en tres de ellos, el SMBA que no se modela)");
+        check(CUENTA(SAI1_, eM) == 11 && CUENTA(SAI1_, eR) == 8 &&
+              CUENTA(SAI1_, eV) == 14 && CUENTA(SAI1_, eZ) == 18,
+              "SAI1: 11, 8, 14 y 18 pines, las cuatro listas de ST al dedo");
+        check(CUENTA(SPI4_, eM) == 3 && CUENTA(SPI4_, eR) == 0 &&
+              CUENTA(SPI4_, eV) == 9 && CUENTA(SPI4_, eZ) == 13,
+              "SPI4: 3, CERO, 9 y 13. El LQFP64 es el unico que no le saca ni "
+              "un pin, y el WLCSP81 -con mas E/S- solo le saca tres");
+        check(CUENTA(QSPI_, eM) == 10 && CUENTA(QSPI_, eR) == 6 &&
+              CUENTA(QSPI_, eV) == 11 && CUENTA(QSPI_, eZ) == 16,
+              "QUADSPI: 10, 6, 11 y 16 (ST cuenta cuatro o seis mas en cada "
+              "uno: los IO del segundo banco, que este modelo no tiene)");
+
+        // EL SAI2 NO ES CUESTION DE PINES. En un F446RC o RE no hay una sola
+        // senal de SAI2 en ningun pin -ni en los de PA, que ese encapsulado si
+        // saca-, y la Tabla 2 del datasheet pone 1 en la fila del SAI. Asi que
+        // en ESTE dut, que es un RE, no hay ni una ranura registrada; en los
+        // otros tres, la cuenta cuadra con la de ST.
+        check(CUENTA(SAI2_, eR) == 0 && !MCU_STM32F446RE.perif.sai2,
+              "el SAI2 no tiene NI UNA ranura en un LQFP64, y no por falta de "
+              "pines: ST no vende esa referencia con dos SAI [DS10693 tabla 2]");
+        check(MCU_STM32F446MC.perif.sai2 && MCU_STM32F446VE.perif.sai2 &&
+              MCU_STM32F446ZE.perif.sai2,
+              "y las otras siete referencias si lo llevan");
+        check(dut.apb2_dec.decodes(addr446::SAI2_B),
+              "aun asi, en un RE el bloque SIGUE respondiendo en el bus: el "
+              "die es el mismo y sus registros contestan. Lo que no tiene es "
+              "por donde salir, que es otra cosa y se dice aparte");
+        #undef CUENTA
+
+        grupo("E7 Las ocho referencias de la familia");
+
+        struct Miembro { const McuCaps* m; unsigned gpio; unsigned kb;
+                         bool fmc; bool sai2; };
+        static const Miembro FAMILIA[] = {
+            {&MCU_STM32F446MC, 63, 256, false, true },
+            {&MCU_STM32F446ME, 63, 512, false, true },
+            {&MCU_STM32F446RC, 50, 256, false, false},
+            {&MCU_STM32F446RE, 50, 512, false, false},
+            {&MCU_STM32F446VC, 81, 256, true,  true },
+            {&MCU_STM32F446VE, 81, 512, true,  true },
+            {&MCU_STM32F446ZC, 114, 256, true, true },
+            {&MCU_STM32F446ZE, 114, 512, true, true },
+        };
+        unsigned mal = 0;
+        for (const Miembro& x : FAMILIA) {
+            if (x.m->enc.n_gpio != x.gpio) ++mal;
+            if (!x.m->enc.coherente()) ++mal;        // la mascara cuadra
+            if (!x.m->enc.verificado) ++mal;
+            if (x.m->memoria.flash.size != x.kb * 1024u) ++mal;
+            if (x.m->perif.fsmc  != x.fmc)  ++mal;
+            if (x.m->perif.sai2  != x.sai2) ++mal;
+            // Lo que NO cambia entre las ocho: mismo die.
+            if (std::string(x.m->familia) != "STM32F446") ++mal;
+            if (x.m->idcode != 0x10000421u) ++mal;
+            if (x.m->nucleo.n_irq != 97u) ++mal;
+            if (x.m->memoria.ram.sram1_size != RAM_STM32F446.sram1_size) ++mal;
+            if (x.m->memoria.ram.hay_ccm()) ++mal;
+            if (x.m->perif.eth || x.m->perif.rng || x.m->perif.i2sext) ++mal;
+        }
+        check_eq(mal, 0u,
+                 "las ocho referencias cuadran: E/S y mascara coherentes, "
+                 "Flash de 256 o 512 KB, FMC solo en V y Z, SAI2 en todas "
+                 "menos en R, y el mismo die en las ocho [DS10693 tabla 2]");
+        check(MCU_STM32F446RC.memoria.flash.n_sectores == 6 &&
+              MCU_STM32F446RE.memoria.flash.n_sectores == 8,
+              "y la Flash de 256 KB son SEIS sectores, no ocho: el ultimo "
+              "termina donde termina la Flash [RM0390 Rev 9, tabla 4]");
+        {
+            // Las ocho se pueden NOMBRAR en un XML, que es de lo que sirve el
+            // catalogo. Sin esto, `tipo="STM32F446ZE"` seria un error.
+            unsigned n = 0;
+            for (const Miembro& x : FAMILIA)
+                if (mcu_por_nombre(x.m->nombre) == x.m) ++n;
+            check_eq(n, 8u, "y las ocho estan en el catalogo por su nombre");
+        }
+        // PB11, el pin que lleva seis fases apareciendo.
+        check(!MCU_STM32F446MC.enc.bonded(1, 11) &&
+              !MCU_STM32F446RE.enc.bonded(1, 11) &&
+              !MCU_STM32F446VE.enc.bonded(1, 11) &&
+              MCU_STM32F446ZE.enc.bonded(1, 11),
+              "PB11 solo sale en el LQFP144/UFBGA144: ni en el LQFP64, ni en "
+              "el WLCSP81, ni en el LQFP100 -donde el datasheet dice que lo "
+              "sustituye VCAP1-");
+        // Y el WLCSP81 no es un LQFP100 recortado.
+        check(!MCU_STM32F446MC.enc.bonded(2, 1) &&
+              MCU_STM32F446RE.enc.bonded(2, 1),
+              "el WLCSP81 no saca PC1 y el LQFP64, con 31 patillas menos, si: "
+              "a mas bolas no corresponde un superconjunto de pines");
+
         check(MCU_STM32F446RE.perif.spi4 && MCU_STM32F446RE.perif.sai &&
               MCU_STM32F446RE.perif.quadspi && MCU_STM32F446RE.perif.fmpi2c1 &&
               MCU_STM32F446RE.perif.cec && MCU_STM32F446RE.perif.spdifrx &&

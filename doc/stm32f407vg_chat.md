@@ -3463,3 +3463,57 @@ confirmada—, reinstalé SystemC y la toolchain ARM, reconstruí los dieciocho
 firmwares de verificación y rehíce los cambios. La base volvió al picosegundo
 exacto antes de tocar nada, que es justamente para lo que sirve tener un
 invariante.
+
+## La familia F446 entera: ocho referencias, un die
+
+> En doc/stm32f446xx tienes la hoja técnica de los miembros de la familia
+> stm32f446xx, fichero DS_stm32f446mc.pdf; crea los modelos de todos los
+> miembros de la familia
+
+Hechas las ocho. El invariante del F407 sigue en **`2336217899213 ps`** con
+2055/2055, y la suite del F446 pasa de 193 a **200**.
+
+Cuatro encapsulados por dos tamaños de Flash, y ninguna es una clase nueva: son
+`Stm32F446` con otro `McuCaps`, que es exactamente lo que §6.3 decía que un
+descriptor sí puede describir. Las máscaras salen de los cuatro ficheros de
+referencia de la base de pines de ST, y su recuento —63, 50, 81 y 114— coincide
+con la Tabla 2 del datasheet.
+
+**Dos cosas que no me esperaba al mirarlas juntas.** La primera, que **PB11 solo
+existe en el LQFP144**: no sale en el LQFP64 —eso ya lo sabíamos—, pero tampoco
+en el WLCSP81 ni en el LQFP100, donde el datasheet dice literalmente que lo
+sustituye VCAP1. Ese pin lleva seis fases apareciendo. La segunda, que **el
+WLCSP81 no es un LQFP100 recortado**: le faltan PC1 y PC5, que el LQFP64 —con 17
+patillas menos— sí saca. Es el mismo patrón que destapó I-40 en el WLCSP90 del
+F407.
+
+**Y el datasheet cambió de opinión sobre el SAI2.** La revisión 4 ponía `2` en
+la fila del SAI para todas las columnas, y por eso §8.3 decía que en el LQFP64 la
+diferencia era solo de pines. **La revisión 11 pone `1`**, y la base de pines lo
+confirma por otro camino: en un RC o RE no hay una sola señal de SAI2 en ningún
+pin, ni siquiera en PA1, PA2 y PA12, que ese encapsulado sí suelda y que en las
+otras siete referencias llevan SAI2. No es bonding: ST no vende esa referencia
+con dos SAI. Así que pasa a ser un rasgo de `Periferia`, y el modelo hace lo de
+siempre: el bloque sigue respondiendo en el bus —el die es el mismo— y lo que no
+tiene es por dónde salir, y eso se dice.
+
+**Lo que más ha cambiado por dentro** es la tabla de funciones alternativas:
+registraba quince entradas, las del LQFP64, y ahora registra las noventa y una
+del die. Un F446ZE con el SAI2 declarado y sin un pin donde sacarlo habría sido
+una mentira silenciosa. El mux ya sabe no sacar nada por un pad que el
+encapsulado no suelda, así que registrar de más no miente; registrar de menos,
+sí.
+
+**La prueba que lo cierra** cruza la tabla del modelo con la máscara de cada
+encapsulado y compara con la lista que ST publica para esa referencia — y las
+dos mitades vienen de ficheros distintos: la implementación, del fichero del
+die; los números de la prueba, de los cuatro de referencia. Dieciséis cuentas,
+las dieciséis cuadran, y las diferencias con ST son exactamente las tres cosas
+que el modelo no registra y que dice que no registra: el SMBA del FMPI2C1, los
+IO del segundo banco del QUADSPI y los pines de los dos bloques declarados.
+
+Y `limitaciones()` dejó de ser una lista fija: ahora se construye según la
+referencia. Un MC no dice nada de encapsulado, un RE dice tres cosas, un VE dice
+la nota 1 de la Tabla 2 —banco 1 del FMC, NE1, multiplexado y sin línea de
+interrupción porque el puerto G no sale— y un ZE no dice ninguna, porque en un
+LQFP144 sale todo.
