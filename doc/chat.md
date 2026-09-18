@@ -3586,3 +3586,82 @@ comprobaciones cuando hoy son 2055.
 Verificado después de todo: F407 **2055/2055** en **`2336217899213 ps`**, F446
 **200/200**, la capa de red 13/13 y las cinco placas validan con
 `./build/mcu-sim`.
+
+
+## Informe comparativo F405/407 frente a F415/417, y plan de incorporación
+
+> El fichero `doc/pdf/stm32f4xx/stm32f415rxx stm32f417xx datasheet.pdf` es el
+> datasheet de los stm32f415xx y stm32f417xx. Analiza qué trabajo es necesario
+> hacer para incorporar todos estos dispositivos y prepara un plan por fases
+
+706 líneas, catorce secciones, en `doc/stm32f4xx/stm32f4xx_vs_415xx.md`. El
+resumen de lo que dice cabe en una frase: **un F415 es un F405 con el acelerador
+criptográfico y un F417 es un F407 con el acelerador criptográfico, y no hay
+nada más**.
+
+Eso no es una impresión, es una comparación por máquina. Puestas una al lado de
+otra las cabeceras `stm32f405xx.h` y `stm32f415xx.h` **de la misma versión del
+paquete** —la V1.28.3 que hay instalada en el equipo—, la diferencia son **166
+símbolos, todos `CRYP_*` o `HASH_*`, más el nombre del propio chip**. Ni un bit
+de un registro cambia fuera del acelerador.
+
+**Los pines tampoco cambian, y era la pregunta con más riesgo**, porque el F446
+enseñó que dos referencias del mismo die pueden sacar pads distintos. Se
+compararon los ocho ficheros de la base de CubeMX —cada referencia criptográfica
+contra su gemela— y las ocho comparaciones salen vacías: mismos pines y, lo que
+importa más, **la misma tabla de funciones alternativas** (405 pares
+pin-señal en el LQFP100, los mismos en el F407VG y en el F417VG). El motivo de
+fondo es que **el acelerador no tiene un solo pin**: vive entero dentro del chip.
+Resultado: la capa de encapsulados no necesita ni una línea.
+
+**Lo que hay que hacer son dos bloques y cinco enganches.** El CRYP (AES-128/192/
+256 en ECB, CBC y CTR; DES y TDES en ECB y CBC) y el HASH (MD5, SHA-1 y HMAC),
+más dos ventanas de AHB2, dos bits de `RCC_AHB2ENR`, la posición 79 del vector
+—que hoy está reservada—, la 80 compartida con el RNG, y tres celdas de DMA.
+
+**Y aquí está el hallazgo que más me ha gustado del análisis**: esas tres celdas
+—DMA2, canal 2, streams 5, 6 y 7— **ya estaban a la vista** cuando se cerró
+I-48, porque el mapa de canales del F407 sale del fichero del F417: es el mismo
+die. Se dejaron sin fuente a propósito, con su comentario en el código y su
+comprobación en T26. El trabajo de esta fase es literalmente quitar ese `if`.
+
+**El punto de diseño de verdad no es el CRYP, es el RCC.** Hoy las máscaras de
+«qué bits existen» son **por familia**, no por referencia: `masc()` elige entre
+`MASC_F407` y `MASC_F446` con un booleano. Resolver el F417 con un tercer juego
+de máscaras funcionaría y sería un error, porque deja sin tapar el agujero que
+`reutilizacion.md` §9.5 lleva abierto desde la fase 1 — en un F405,
+`RCC_AHB1ENR.ETHMACEN` se escribe y se lee como si el chip tuviera Ethernet. La
+propuesta es que la fase 1 **convierta las máscaras en función de `Periferia`**,
+con lo que el mismo cambio que enciende el CRYP en un F417 apaga el ETHMACEN en
+un F405. Es otra vez el mismo criterio de I-41, I-43, I-44 y I-45: el modelo no
+puede ser más permisivo que el silicio.
+
+**La decisión que el plan deja escrita y no toma sola** es si modelar los
+algoritmos o declarar los bloques. El informe recomienda modelarlos, con tres
+razones: son especificaciones públicas y cerradas (FIPS 197, FIPS 46-3, RFC 1321,
+RFC 3174), **tienen vectores de prueba oficiales** —lo que convierte la
+verificación en algo binario— y quien elige un F417 en vez de un F407 lo elige
+*por* el acelerador. Un F417 con el CRYP declarado y no modelado sería un F407
+con otro nombre.
+
+**Dos cosas que el propio manual de ST hace mal**, y quedan anotadas para que no
+cuesten una tarde: la sección **23.6.2 del RM0090 Rev 22 está mal titulada** —dice
+«for STM32F415/417xx» y describe el registro del F43x, con `GCM_CCMPH` y
+`ALGOMODE[3]`—, y la cabecera `stm32f417xx.h` **declara los dieciséis registros
+de GCM/CCM que el F415/F417 no tiene**, porque es compartida por toda la familia.
+La regla que sale de ahí: **la tabla de mapa de registros manda sobre la cabecera
+y sobre la descripción bit a bit**, porque es la que ST mantiene por referencia
+(la 114 termina en `0x4C`; la del F43x, en `0x8C`).
+
+El plan son ocho fases, de la 0 a la 7, con seis hitos visibles desde fuera. La
+fase 6 monta un **tercer banco de pruebas**, `sc_main_f417.cpp` con su
+`make test417`, por la misma razón que el F446 tiene el suyo: construir un
+segundo chip dentro del banco del F407 mueve el invariante, y el invariante no
+se negocia.
+
+En números: 10 referencias nuevas, 0 encapsulados, 0 pines, 0 entradas de AF, 2
+periféricos, ~1 150 líneas de modelo y ~1 000 de verificación. Del modelo actual
+—36 682 líneas sin contar los bancos— hay que tocar unas 170.
+
+Nota de proceso: este es el primer documento del proyecto escrito contra el
+**RM0090 Rev 22** (mayo de 2026, la vigente); el resto sigue anclado a la 18.
