@@ -22,8 +22,8 @@ P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
 | **F7** (ETH) | Ethernet 10/100: MII/RMII en los pines, MDIO, descriptores, filtrado, MMC y PTP | **completada** |
 | F7 (resto) | afinado AT | pendiente |
 
-`make test` compila y ejecuta la suite de verificación acumulada (**2050**
-comprobaciones autocomprobables, y `make test446` las **133** del segundo chip —
+`make test` compila y ejecuta la suite de verificación acumulada (**2053**
+comprobaciones autocomprobables, y `make test446` las **189** del segundo chip —
 véase más abajo—: 127 de F1 + 12 de F2 + 80 de F3 + 343 de F4
 (DMA, UART/USART, TIM y EXTI/SYSCFG) + 675 de F5 (SPI/I2S, I2C, ADC, DAC, RTC y
 perros guardianes, SDIO, CRC/RNG y bxCAN) + 151 de F6 (depuración y los dos
@@ -105,6 +105,19 @@ LQFP64 —se pueden programar y no se ve nada—, y el **QUADSPI no tiene IO2**,
 es, literalmente, la nota 3 del datasheet: *«for the LQFP64 package the Quad SPI
 is available with limited features»*.
 
+Desde la **fase 5** está además **verificado contra el original**. La suite del
+F446 lleva una *prueba cruzada* escrita como una tabla cuyas filas son frases
+del documento de comparación, con su sección al lado: si alguien cambia un
+descriptor sin pensar en lo que implica, la fila que se rompe dice qué párrafo
+ha dejado de ser cierto. Esa tabla encontró el primer día dos cosas en las que
+el modelo era **más permisivo que el silicio**: el AF11 del Ethernet seguía
+registrado en el mux de un chip sin Ethernet (y eso afectaba también a los dos
+F405), y la ventana de la CCM contestaba en un chip sin CCM.
+
+Y se depura: una sonda SWD soldada a PA13/PA14 engancha el SW-DP, lee el AHB-AP
+y saca `DBGMCU_IDCODE = 0x1000_0421` **por los dos hilos**, que es por donde lo
+lee STM32CubeIDE antes de decidir si sabe con quién habla.
+
 **Está a medias y lo dice.** `sim` imprime, al montar la placa, la lista de lo
 que el modelo todavía no hace —el SPDIF-RX y el HDMI-CEC están declarados y no
 modelados, el FMPI2C1 no calcula el PEC, los SAI no hacen companding ni
@@ -159,7 +172,7 @@ validar una plataforma nueva antes de pelearse con la biblioteca.
 
 | Plataforma | Estado | Comprobado |
 | :--- | :--- | :--- |
-| Linux, g++ 13 | **verificado** | 2050/2050 comprobaciones, 133/133 del F446, `make red` 13/13, ASan + UBSan limpio en las dos suites (`make asan`, `make asan446`) |
+| Linux, g++ 13 | **verificado** | 2053/2053 comprobaciones, 189/189 del F446, `make red` 13/13, ASan + UBSan limpio en las dos suites (`make asan`, `make asan446`), las cinco placas validan sin un aviso |
 | Linux, clang | **verificado** | mismo resultado y mismo tiempo simulado al picosegundo |
 | Windows, MinGW-w64 | **compila y enlaza** (cruzado con g++ 13-win32) | `make red` genera un PE32+ sin avisos; **falta ejecutarlo en Windows y construir SystemC allí** |
 | macOS, clang | **la rama específica compila** | Se fuerza la combinación de macOS —sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`— y compila con g++ y con clang; **falta probarlo en un Mac** |

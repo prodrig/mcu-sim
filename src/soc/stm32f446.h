@@ -340,7 +340,11 @@ public:
 
             "las peticiones de DMA de los bloques nuevos -FMPI2C1, los dos "
             "SAI y el SPI4- SALEN del periferico y no llegan a ninguna celda: "
-            "el mapa de canales del DMA es todavia el del F407 [fase 5]"
+            "el mapa de canales del DMA es todavia el del F407, porque no se "
+            "ha encontrado una fuente de ST legible por maquina para el del "
+            "F446 y este modelo no se inventa tablas. Desde la fase 5 eso ya "
+            "no es silencioso: armar un stream sobre una celda sin fuente "
+            "saca un aviso que dice cual es"
         };
     }
 };

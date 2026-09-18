@@ -36,6 +36,7 @@
 #include "../soc/stm32f446.h"
 #include "../verif/image_loader.h"
 #include "../verif/bus_test_master.h"
+#include "../verif/swd_port.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -76,15 +77,26 @@ SC_MODULE(Tb446) {
     // contra unos números escritos a mano. NO se construye: se consulta su
     // DESCRIPTOR, que es todo lo que hace falta para la mitad de las pruebas.
     int d_vdd = -1, d_vdda = -1, d_nrst = -1, d_bt0 = -1;
+    // Una sonda SWD soldada a PA14/PA13, igual que en el banco del F407. Es lo
+    // que hace falta para el hito H5: no basta con que el modelo SEPA su
+    // IDCODE, tiene que decirlo POR LOS DOS HILOS, que es por donde lo lee
+    // STM32CubeIDE.
+    SwdProbe* sonda = nullptr;
 
     SC_CTOR(Tb446) {
         tm.isk.bind(dut.matrix.from_tb);
+        sonda = new SwdProbe(dut.pinmux.analog(0, 14),   // PA14 SWCLK
+                             dut.pinmux.analog(0, 13),   // PA13 SWDIO
+                             2e6);
         d_vdd  = dut.pwr_pads.vdd.register_driver("tb_vdd");
         d_vdda = dut.pwr_pads.vdda.register_driver("tb_vdda");
         d_nrst = dut.pwr_pads.nrst.register_driver("tb_nrst");
         d_bt0  = dut.pwr_pads.boot0.register_driver("tb_boot0");
         SC_THREAD(run);
     }
+    // La sonda no es un modulo de SystemC -es un objeto normal soldado a dos
+    // nodos analogicos-, asi que hay que devolverla a mano. Lo dijo ASan.
+    ~Tb446() override { delete sonda; sonda = nullptr; }
 
     // -----------------------------------------------------------------------
     // A. LA PRUEBA CRUZADA: en qué se diferencian de verdad las dos piezas
@@ -827,11 +839,528 @@ SC_MODULE(Tb446) {
         dut.pwr.t_od_ready = t_od_bueno;
     }
 
+    // =======================================================================
+    // F. LA PRUEBA CRUZADA, ESCRITA COMO TAL
+    //
+    // Es el punto que la fase 5 del plan pide con nombre: «una prueba cruzada
+    // que compruebe LO QUE ESTE DOCUMENTO DICE (...) es la prueba que evita
+    // que el puerto se coma al original».
+    //
+    // Por eso se escribe como una TABLA DE AFIRMACIONES y no como veinte
+    // comprobaciones sueltas. Cada fila es una frase del documento de
+    // comparación, con su sección, y al lado la expresión que la hace verdad o
+    // mentira **preguntando a los dos descriptores a la vez**. Leída de
+    // arriba abajo, la tabla ES el documento; y si alguien cambia un
+    // descriptor sin darse cuenta de lo que implica, la fila que se rompe dice
+    // qué párrafo ha dejado de ser cierto.
+    //
+    // No cuesta un picosegundo: son todo consultas.
+    // =======================================================================
+    void prueba_cruzada() {
+        grupo("F1 El documento de comparacion, comprobado frase a frase");
+
+        struct Afirmacion { const char* seccion; const char* dice; bool cierto; };
+
+        const Encapsulado& e407 = MCU_STM32F407VG.enc;    // LQFP100
+        const Encapsulado& e405r = MCU_STM32F405RG.enc;   // LQFP64 del F405
+        const Encapsulado& e446 = MCU_STM32F446RE.enc;    // LQFP64 del F446
+
+        // ¿Queda alguna ranura de AF11 registrada en el mux de este chip? El
+        // AF11 es el del Ethernet y es el UNICO numero que se vacia entero.
+        bool hay_af11 = false;
+        for (unsigned p = 0; p < N_GPIO_PORTS && !hay_af11; ++p)
+            for (unsigned i = 0; i < N_PORT_PINS; ++i)
+                if (dut.pinmux.tiene_af(p, i, 11)) { hay_af11 = true; break; }
+
+        const Afirmacion tabla[] = {
+            // --- Las tres que el plan nombra una por una --------------------
+            { "5.3",
+              "0x4000_4000 es el I2S3ext en el F407 y el SPDIF-RX en el F446: "
+              "la unica direccion de todo el mapa que cambia de dueno",
+              MCU_STM32F407VG.perif.i2sext && !MCU_STM32F446RE.perif.i2sext &&
+              MCU_STM32F446RE.perif.spdifrx && !MCU_STM32F407VG.perif.spdifrx &&
+              dut.spdifrx.base() == 0x40004000u },
+
+            { "8.4",
+              "la posicion de vector 80 es el RNG en el F407 y esta reservada "
+              "en el F446, porque ese periferico no esta",
+              MCU_STM32F407VG.perif.rng && !MCU_STM32F446RE.perif.rng },
+
+            { "9.2 / 15",
+              "PB11 sale en el LQFP64 del F405RG y NO en el del F446RE: son "
+              "51 E/S contra 50, y por eso ULPI_D4 se muda de PB11 a PB2",
+              e405r.bonded(1, 11) && !e446.bonded(1, 11) &&
+              e405r.n_gpio == 51 && e446.n_gpio == 50 },
+
+            // --- Y el resto de lo que el documento afirma y es comprobable --
+            { "2.1 / 15.1",
+              "los dos tienen SIETE esclavos de matriz utiles, y en el F446 el "
+              "septimo es «FMC / QUADSPI» compartido: el QUADSPI NO anade un "
+              "octavo",
+              dut.ahb3_dec.decodes(addr446::QUADSPI_MEM) &&
+              dut.ahb3_dec.decodes(addr446::QUADSPI_B) &&
+              unsigned(BusSlaveId::FSMC_EXT) + 1u == 7u },
+
+            { "3",
+              "el F407 tiene OCHO maestros de bus y el F446 SIETE: la fila que "
+              "se va es la del DMA del Ethernet",
+              CONN_STM32F407VG.n_maestros() == 8u &&
+              CONN_STM32F446.n_maestros() == 7u &&
+              CONN_STM32F407VG.hay_maestro(BusMaster::ETH_DMA) &&
+              !CONN_STM32F446.hay_maestro(BusMaster::ETH_DMA) },
+
+            { "4.1",
+              "1 MB de Flash en doce sectores contra 512 KB en ocho, y la RAM "
+              "NO cambia: los 112 + 16 KB estan en los dos",
+              MCU_STM32F407VG.memoria.flash.n_sectores == 12 &&
+              MCU_STM32F446RE.memoria.flash.n_sectores == 8 &&
+              MCU_STM32F407VG.memoria.ram.sram1_size ==
+              MCU_STM32F446RE.memoria.ram.sram1_size },
+
+            { "4.2",
+              "la CCM es del F407 y el F446 no la tiene: 0x1000_0000 es una "
+              "memoria en uno y espacio reservado en el otro",
+              MCU_STM32F407VG.memoria.ram.ccm_size > 0 &&
+              MCU_STM32F446RE.memoria.ram.ccm_size == 0 &&
+              dut.matrix.decode_addr(addr::CCM_BASE) == -1 },
+
+            { "10",
+              "lo unico que cambia de verdad en la depuracion es el IDCODE: "
+              "0x1001_6413 contra 0x1000_0421",
+              MCU_STM32F407VG.idcode == 0x10016413u &&
+              MCU_STM32F446RE.idcode == 0x10000421u &&
+              dut.core.debug.idcode() == 0x10000421u },
+
+            { "9.2",
+              "el AF11 es el unico numero de funcion alternativa que se vacia "
+              "entero en el F446, porque era el del Ethernet",
+              !hay_af11 && MCU_STM32F407VG.perif.eth &&
+              !MCU_STM32F446RE.perif.eth },
+
+            { "8.4",
+              "el F407 llega a la posicion 81 y el F446 a la 96: el enum se "
+              "EXTIENDE, no se reescribe",
+              CORE_STM32F407VG.n_irq == 82u && CORE_STM32F446.n_irq == 97u &&
+              addr446::IRQ_SPI4 > CORE_STM32F407VG.n_irq - 1u },
+
+            { "6.2",
+              "el F446 llega a 180 MHz y el F407 no pasa de 168, y en el F446 "
+              "el tope DEPENDE DEL ESTADO, no del chip",
+              !RELOJ_STM32F407VG.hay_over_drive() &&
+              RELOJ_STM32F446.hay_over_drive() &&
+              RELOJ_STM32F446.tope_hclk(false) == 168e6 &&
+              RELOJ_STM32F446.tope_hclk(true)  == 180e6 },
+
+            { "19.3",
+              "el segmento APB2 no mide lo mismo: en el F407 termina antes de "
+              "0x4001_5800 y en el F446 los dos SAI estan ahi dentro",
+              dut.apb2_dec.decodes(addr446::SAI1_B) &&
+              dut.apb2_dec.decodes(addr446::SAI2_B + 0x24) },
+
+            { "5.2",
+              "lo que un bloque ausente deja no es un periferico apagado sino "
+              "ESPACIO RESERVADO: el RNG y el Ethernet del F446 no los "
+              "decodifica nadie",
+              !dut.ahb2_dec.decodes(addr::RNG_B) &&
+              !dut.ahb1_dec.decodes(addr::ETH_B) },
+
+            { "6.3",
+              "y lo contrario tambien: el F446 acepta registros que en el F407 "
+              "son huecos reservados, y por eso no cabia en un descriptor",
+              MCU_STM32F446RE.arbol.dckcfgr && !MCU_STM32F407VG.arbol.dckcfgr },
+        };
+
+        for (const Afirmacion& a : tabla) {
+            char q[512];
+            std::snprintf(q, sizeof q, "[%s] %s", a.seccion, a.dice);
+            check(a.cierto, q);
+        }
+
+        grupo("F2 Y que el puerto no se ha comido al original");
+
+        // La otra mitad de la prueba cruzada, y la que de verdad importa: que
+        // el F407 siga siendo el F407. No se construye aqui -eso moveria su
+        // invariante- sino que se le pregunta a su DESCRIPTOR, que es lo que
+        // el die lee para construirse.
+        check(e407.bonded(1, 11) && e407.n_gpio == 82 &&
+              std::string(e407.nombre) == "LQFP100",
+              "el F407VG sigue siendo un LQFP100 de 82 E/S con PB11");
+        check(MCU_STM32F407VG.perif.eth && MCU_STM32F407VG.perif.rng &&
+              MCU_STM32F407VG.perif.i2sext && MCU_STM32F407VG.perif.fsmc &&
+              MCU_STM32F407VG.perif.dcmi,
+              "con su Ethernet, su RNG, sus I2Sext, su FSMC y su camara");
+        check(!MCU_STM32F407VG.perif.sai && !MCU_STM32F407VG.perif.quadspi &&
+              !MCU_STM32F407VG.perif.fmpi2c1 && !MCU_STM32F407VG.perif.spi4 &&
+              !MCU_STM32F407VG.perif.cec && !MCU_STM32F407VG.perif.spdifrx &&
+              !MCU_STM32F407VG.perif.i2s1,
+              "y sin uno solo de los siete bloques que la fase 4 anadio: lo "
+              "nuevo se SUMA donde toca y no se cuela donde no");
+        // Y la distincion que sostiene todo el puerto, que conviene comprobar
+        // porque es contraintuitiva: los dos comparten NETLIST -los dos son un
+        // `SocF4`- y NO comparten FAMILIA. `familia` no dice de que die sale el
+        // chip: dice si se puede describir con un descriptor mas o hace falta
+        // codigo, y el F446 hizo falta codigo (§6.3). Por eso `tipo=` en el XML
+        // despacha a dos clases de C++ distintas.
+        check(std::string(MCU_STM32F407VG.familia) == "STM32F4" &&
+              std::string(MCU_STM32F446RE.familia) == "STM32F446",
+              "no son la misma familia, y por eso `tipo=` despacha a dos "
+              "clases distintas en vez de a dos descriptores");
+        check(dynamic_cast<SocF4*>(&dut) != nullptr,
+              "pero SI son el mismo netlist: un Stm32F446 ES un SocF4, que es "
+              "lo que hace que un solo modelo valga para los dos");
+    }
+
+    // =======================================================================
+    // H. EL HITO H6: «los periféricos nuevos, uno a uno, con su prueba»
+    //
+    // Con una mitad que el plan no pedía con esas palabras y que es la que de
+    // verdad podría estar rota: **los periféricos VIEJOS sobre el die nuevo**.
+    // El puerto le ha cambiado el árbol de reloj a un modelo que llevaba siete
+    // fases funcionando, y un USART que saca 115 200 baudios en un F407 a
+    // 84 MHz de APB1 no tiene por qué sacarlos en un F446 a 45. Si algo se
+    // rompió con el puerto, se rompió aquí y no en el QUADSPI.
+    // =======================================================================
+    void hito_h6() {
+        grupo("H1 Los perifericos de SIEMPRE, sobre el die nuevo a 180 MHz");
+
+        // Encenderlos todos de una vez: es lo que hace cualquier firmware.
+        wr(addr::RCC_B + Rcc::R_APB1ENR, rd(addr::RCC_B + Rcc::R_APB1ENR) |
+           (1u << 17) | (1u << 21) | (1u << 0));   // USART2EN, I2C1EN, TIM2EN
+        wr(addr::RCC_B + Rcc::R_APB2ENR, rd(addr::RCC_B + Rcc::R_APB2ENR) |
+           (1u << 12) | (1u << 8) | (1u << 0));    // SPI1EN, ADC1EN, TIM1EN
+        wr(addr::RCC_B + Rcc::R_AHB1ENR, rd(addr::RCC_B + Rcc::R_AHB1ENR) |
+           (1u << 21) | (1u << 22));               // DMA1EN, DMA2EN
+        wait(2, SC_US);
+
+        // EL USART. 45 MHz de PCLK1 y no 42: el divisor que vale en un F407 NO
+        // vale aqui, y esto lo demuestra sin ambiguedad. Con OVER8=0, BRR para
+        // 115 200 es 45e6/115200 = 390,625 -> mantisa 24, fraccion 10.
+        // 45e6 / (16 * 115200) = 24,4141: mantisa 24 y fraccion 7/16, que da
+        // 115 076 baudios. El 0,1 % que sobra es el error del divisor, y es
+        // REAL: el silicio tiene exactamente el mismo. Un modelo que diera
+        // 115 200 clavados estaria mintiendo sobre el hardware.
+        wr(addr::USART2_B + 0x08, (24u << 4) | 7u);        // BRR
+        wr(addr::USART2_B + 0x0C, (1u << 13) | (1u << 3) | (1u << 2));  // UE|TE|RE
+        wait(1, SC_US);
+        std::printf("    USART2 a 45 MHz de PCLK1 con BRR = 0x187: %.0f baudios\n",
+                    dut.usart2.baud_hz());
+        check_near(dut.usart2.baud_hz(), 115200.0, 0.005,
+                   "USART2 saca 115 200 baudios (con el 0,1 % de error del "
+                   "divisor) desde los 45 MHz de PCLK1: el periferico es el de "
+                   "siempre y el divisor ya NO es el que valia en un F407");
+
+        // EL TEMPORIZADOR. TIMCLK1 son 90 MHz (2*PCLK1 con PPRE1 = /4), asi
+        // que un prescaler de 90 da un tick de microsegundo redondo.
+        check_near(dut.s_timclk1_hz.read(), 90e6, 0.001,
+                   "TIM2 recibe 90 MHz, que es 2*PCLK1 con el APB1 dividiendo "
+                   "por cuatro [RM0390, 6.2]");
+        wr(addr::TIM2_B + 0x28, 89u);                      // PSC = 90-1
+        wr(addr::TIM2_B + 0x2C, 0xFFFFFFFFu);              // ARR
+        wr(addr::TIM2_B + 0x14, 1u);                       // EGR.UG
+        wr(addr::TIM2_B + 0x24, 0u);                       // CNT = 0
+        wr(addr::TIM2_B + 0x00, 1u);                       // CR1.CEN
+        const sc_time t0 = sc_time_stamp();
+        wait(1, SC_MS);
+        const uint32_t cnt = rd(addr::TIM2_B + 0x24);
+        wr(addr::TIM2_B + 0x00, 0u);
+        std::printf("    TIM2 cuenta %u en %s\n", cnt,
+                    (sc_time_stamp() - t0).to_string().c_str());
+        check(cnt >= 995u && cnt <= 1005u,
+              "y en un milisegundo cuenta mil microsegundos: el reloj nuevo "
+              "llega hasta el contador, no se queda en un registro");
+
+        // EL SPI, en el APB2 que va a 90 MHz. Con BR = /4 el reloj serie son
+        // 22,5 MHz, un valor que en un F407 (84 MHz de APB2) no sale.
+        wr(addr::SPI1_B + 0x00, (1u << 2) | (1u << 9) | (1u << 8) | (1u << 3));
+        wr(addr::SPI1_B + 0x00, rd(addr::SPI1_B + 0x00) | (1u << 6));  // SPE
+        wait(1, SC_US);
+        check_near(dut.s_pclk2_hz.read() / 4.0, 22.5e6, 0.001,
+                   "el SPI1 cuelga de un APB2 de 90 MHz, asi que su divisor "
+                   "por cuatro da 22,5 MHz y no los 21 del F407");
+        wr(addr::SPI1_B + 0x00, 0u);
+
+        // EL DMA. Una copia memoria a memoria, que es la prueba mas corta de
+        // que el controlador vive y alcanza las dos SRAM de este chip.
+        for (unsigned i = 0; i < 8; ++i)
+            wr(addr::SRAM1_BASE + 0x200u + 4 * i, 0xF4460000u + i);
+        const uint32_t S0 = addr::DMA2_B + 0x10;           // stream 0
+        wr(S0 + 0x00, 0u);                                  // CR = 0
+        wr(S0 + 0x04, 8u);                                  // NDTR
+        wr(S0 + 0x08, addr::SRAM1_BASE + 0x200u);           // PAR (origen)
+        wr(S0 + 0x0C, addr::SRAM2_BASE + 0x100u);           // M0AR (destino)
+        // FCR: memoria a memoria EXIGE el modo FIFO -DMDIS- porque el modo
+        // directo no existe en esa direccion. El modelo lo impone igual que el
+        // silicio, y por eso esta linea no es opcional.
+        wr(S0 + 0x14, 0x07u);
+        wr(S0 + 0x00, (2u << 6) | (1u << 9) | (1u << 10) |  // DIR=mem2mem, PINC, MINC
+                      (2u << 11) | (2u << 13));             // PSIZE/MSIZE = 32 bits
+        wr(S0 + 0x00, rd(S0 + 0x00) | 1u);                  // EN
+        wait(100, SC_US);
+        bool copia_ok = true;
+        for (unsigned i = 0; i < 8; ++i)
+            if (rd(addr::SRAM2_BASE + 0x100u + 4 * i) != 0xF4460000u + i)
+                copia_ok = false;
+        check(copia_ok,
+              "el DMA2 copia ocho palabras de la SRAM1 a la SRAM2: los dos "
+              "controladores y las dos memorias del F446 siguen en su sitio");
+        wr(S0 + 0x00, 0u);
+
+        // LO QUE EL DMA DE ESTE CHIP TODAVIA NO SABE, y que ahora se oye. El
+        // mapa de canales sigue siendo el del F407, de modo que las celdas de
+        // los bloques de la fase 4 -FMPI2C1, los dos SAI, el SPI4- no tienen
+        // fuente. Antes, un stream armado ahi se quedaba esperando en silencio;
+        // desde la fase 5 avisa y dice que celda es [vs_446re, §20.3].
+        check(dut.dma2.celdas_con_fuente != ~uint64_t(0),
+              "el DMA2 sabe que NO tiene cableadas todas sus celdas, y por eso "
+              "puede avisar en vez de quedarse callado");
+        {
+            // La celda 8 del DMA2 (stream 1, canal 0) es la del SAI1_A en el
+            // F446 y esta reservada en el F407. En los dos casos, aqui no hay
+            // fuente, y las dos cosas son ciertas a la vez.
+            const bool c8 = (dut.dma2.celdas_con_fuente >> 8) & 1u;
+            check(!c8,
+                  "y la celda 8 -stream 1, canal 0- es una de las que no "
+                  "tiene: en el F407 esta reservada y en el F446 es del SAI1_A");
+        }
+
+        grupo("H2 FMPI2C1: una transferencia entera, de maestro a esclavo");
+
+        // Lo que la fase 4 dejo comprobado era la TEMPORIZACION. Esto es la
+        // otra mitad: que por los pines pasa una trama de I2C de verdad. El
+        // maestro y el esclavo son el mismo bloque -no hay dos FMPI2C en este
+        // chip-, asi que se le habla a si mismo poniendose su propia direccion
+        // de esclavo: el bloque arbitra sus dos mitades igual que lo haria con
+        // otro chip en el mismo bus.
+        //
+        // NO se hace: el FMPI2C1 de este modelo no calcula PEC ni implementa
+        // los temporizadores de SMBus, y `limitaciones()` lo dice.
+        wr(addr446::FMPI2C1_B + FmpI2c::R_CR1, 0u);           // PE = 0
+        wr(addr446::FMPI2C1_B + FmpI2c::R_TIMINGR, (3u << 28) | (9u << 8) | 9u);
+        wr(addr446::FMPI2C1_B + FmpI2c::R_CR1, FmpI2c::C1_PE);
+        const uint32_t isr0 = dut.fmpi2c1.peek_isr();
+        check((isr0 & FmpI2c::I_TXE) != 0,
+              "con PE = 1 el registro de transmision esta vacio y lo dice "
+              "TXE, que es una bandera de ISR y no de un SR1 que haya que "
+              "leer en el orden correcto");
+        check((isr0 & FmpI2c::I_BUSY) == 0, "y el bus esta libre");
+
+        // Un START de escritura de dos bytes con AUTOEND: el maestro suelta
+        // el bus solo al terminar, que es lo que este IP anade sobre el
+        // clasico -donde habia que escribir el STOP a mano-.
+        wr(addr446::FMPI2C1_B + FmpI2c::R_CR2,
+           (0x52u << 1) | (2u << 16) | FmpI2c::C2_AUTOEND | FmpI2c::C2_START);
+        wait(5, SC_US);
+        check((dut.fmpi2c1.peek_isr() & FmpI2c::I_BUSY) != 0,
+              "arranca la trama: BUSY sube y el bloque esta tirando de SCL y "
+              "SDA por los pines, no simulando una transferencia por dentro");
+        wr(addr446::FMPI2C1_B + FmpI2c::R_TXDR, 0xA5u);
+        wait(200, SC_US);
+        wr(addr446::FMPI2C1_B + FmpI2c::R_TXDR, 0x5Au);
+        wait(400, SC_US);
+        const uint32_t isr1 = dut.fmpi2c1.peek_isr();
+        std::printf("    ISR tras la trama = 0x%08X\n", isr1);
+        // Sin nadie al otro lado, lo que tiene que pasar es que NADIE
+        // reconozca la direccion. Un modelo complaciente daria el ACK y el
+        // firmware se creeria que hay un chip ahi.
+        check((isr1 & FmpI2c::I_NACKF) != 0,
+              "y sin nadie en 0x52 el maestro recoge un NACK: la linea sube "
+              "por la resistencia de la placa porque nadie tira de ella, que "
+              "es exactamente lo que pasa en un bus vacio");
+        check((isr1 & FmpI2c::I_STOPF) != 0,
+              "AUTOEND suelta el bus solo al acabar, sin escribir el STOP");
+        wr(addr446::FMPI2C1_B + FmpI2c::R_ICR, 0x00003F38u);
+        check_eq(dut.fmpi2c1.peek_isr() & (FmpI2c::I_NACKF | FmpI2c::I_STOPF),
+                 0u, "y un uno en ICR borra la bandera: sin la danza de "
+                     "SR1 + SR2 del I2C clasico");
+        wr(addr446::FMPI2C1_B + FmpI2c::R_CR1, 0u);
+
+        grupo("H3 QUADSPI: la ventana mapeada en memoria");
+
+        // El modo que hace util a este periferico: la Flash serie aparece en
+        // 0x9000_0000 y el nucleo la LEE COMO MEMORIA. Por debajo, cada
+        // lectura lanza un comando por los pines; por arriba, es un puntero.
+        wr(addr446::QUADSPI_B + QuadSpi::R_CR, 0u);
+        wr(addr446::QUADSPI_B + QuadSpi::R_DCR, (22u << 16));   // FSIZE
+        wr(addr446::QUADSPI_B + QuadSpi::R_CR, QuadSpi::CR_EN);
+        // FMODE = 11 (mapeado en memoria), instruccion 0x0B en una linea,
+        // direccion de 24 bits en una linea, ocho ciclos vacios, datos.
+        wr(addr446::QUADSPI_B + QuadSpi::R_CCR,
+           0x0Bu | (1u << 8) | (1u << 10) | (2u << 12) | (8u << 18) |
+           (1u << 24) | (3u << 26));
+        const unsigned cmd0 = dut.qspi.n_comandos();
+        uint32_t leido = 0;
+        const auto r = tm.read32(addr446::QUADSPI_MEM + 0x40u, leido);
+        check(r == tlm::TLM_OK_RESPONSE,
+              "0x9000_0040 contesta: la ventana de 256 MB esta viva y cuelga "
+              "del puerto de memoria externa de la matriz");
+        std::printf("    lectura mapeada = 0x%08X, comandos lanzados: %u -> %u\n",
+                    leido, cmd0, dut.qspi.n_comandos());
+        check(dut.qspi.n_comandos() > cmd0,
+              "y leer esa direccion LANZA un comando por los pines: no es una "
+              "memoria interna disfrazada, es el controlador trabajando");
+        check_eq(dut.qspi.ultima_instruccion(), 0x0Bu,
+                 "con la instruccion que pide CCR -0x0B, Fast Read- y no otra");
+        wr(addr446::QUADSPI_B + QuadSpi::R_CR, 0u);
+
+        grupo("H4b SAI1: una trama de audio con datos dentro");
+
+        // La fase 4 comprobo las frecuencias. Esto comprueba que la FIFO se
+        // vacia al ritmo de esa trama, que es lo unico que demuestra que el
+        // bloque esta transmitiendo y no solo configurado.
+        rcc_w(Rcc::R_DCKCFGR, 0u);
+        wait(1, SC_US);
+        SaiBlock& a = dut.sai1.a;
+        const uint32_t BA = addr446::SAI1_B + 0x04;
+        wr(BA + SaiBlock::R_CR1, 0u);
+        wr(BA + SaiBlock::R_FRCR, 63u);                    // trama de 64 bits
+        wr(BA + SaiBlock::R_SLOTR, (1u << 8) | (3u << 16)); // 2 ranuras
+        // Maestro transmisor, MCKDIV = 1.
+        wr(BA + SaiBlock::R_CR1, (1u << 20));
+        for (unsigned i = 0; i < 4; ++i)
+            wr(BA + SaiBlock::R_DR, 0x1234'0000u + i);
+        check_eq(a.nivel_fifo(), 4u,
+                 "cuatro palabras escritas, cuatro en la FIFO: el bloque no "
+                 "se las traga antes de arrancar");
+        wr(BA + SaiBlock::R_CR1, rd(BA + SaiBlock::R_CR1) | SaiBlock::C1_SAIEN);
+        check(a.habilitado(),
+              "SAIEN arranca la trama, y arranca porque hay reloj: con el "
+              "PLLSAI apagado el silicio levantaria WCKCFG y NO arrancaria");
+        check_eq(a.peek_sr() & SaiBlock::S_WCKCFG, 0u,
+                 "y WCKCFG esta a cero, que es como se dice «esta trama si "
+                 "cabe en este reloj»");
+        const unsigned f0 = a.nivel_fifo();
+        wait(2, SC_MS);
+        std::printf("    FIFO del SAI1_A: %u palabras -> %u tras 2 ms\n",
+                    f0, a.nivel_fifo());
+        check(a.nivel_fifo() < f0,
+              "y la FIFO se vacia sola al ritmo de la trama: el bloque esta "
+              "sacando audio por el pin, no esperando a que alguien lo lea");
+        wr(BA + SaiBlock::R_CR1, 0u);
+    }
+
+    // =======================================================================
+    // G. EL HITO H5: «el F446 se depura desde STM32CubeIDE con el IDCODE
+    //    correcto»
+    //
+    // Era el ultimo hito pendiente de la tabla del plan, y el punto 4 de la
+    // fase 0 lo marco como BLOQUEANTE por una razon muy concreta: con el
+    // IDCODE equivocado, STM32CubeIDE no da un error util, da un «Could not
+    // verify ST device» y se acabo la sesion.
+    //
+    // Lo que se comprueba aqui no es que el modelo SEPA su IDCODE -eso ya lo
+    // miraba A5 preguntandoselo por dentro- sino que lo diga POR LOS DOS
+    // HILOS, que es por donde lo lee una sonda de verdad. Entre lo uno y lo
+    // otro hay una cadena entera: los pines en AF0 desde el reset, el SW-DP,
+    // el AHB-AP, la matriz y el DBGMCU.
+    // =======================================================================
+    void hito_h5() {
+        grupo("G1 H5: una sonda SWD engancha el F446 por PA13/PA14");
+
+        // Un reset frio: la sonda tiene que poder con un chip recien
+        // encendido, que es el caso que importa -rescatar una placa cuyo
+        // programa no arranca-. Se le deja el `wfe` en bucle para que el
+        // blinky anterior no ande moviendo pines.
+        apaga();
+        wait(50, SC_US);
+        {
+            ImageLoader ld(dut);
+            const MapaRam& r = dut.mcu.memoria.ram;
+            ld.write_reset_vector(r.sram1_base + r.sram1_size,
+                                  dut.mcu.memoria.flash.base + 0x100u);
+            ld.poke32(dut.mcu.memoria.flash.base + 0x100u, 0xE7FDBF20u);
+        }
+        enciende();
+        wait(200, SC_US);
+
+        // Los pines de depuracion estan en AF0 DESDE EL RESET, sin que ningun
+        // firmware los configure. Es lo mismo en las dos piezas, y es lo que
+        // permite enganchar un chip que no arranca.
+        wr(addr::RCC_B + Rcc::R_AHB1ENR, rd(addr::RCC_B + Rcc::R_AHB1ENR) | 1u);
+        check_eq((rd(addr::GPIOA_B + 0x00) >> 26) & 0x3Fu, 0x2Au,
+                 "PA13, PA14 y PA15 estan en funcion alternativa desde el reset");
+
+        const uint32_t id = sonda->conectar_swd();
+        std::printf("    la sonda lee IDCODE del SW-DP = 0x%08X en %u paquetes\n",
+                    id, sonda->acks_ok());
+        check_eq(id, 0x2BA01477u,
+                 "reset de linea + 0xE79E + reset: el SW-DP contesta. Es el "
+                 "mismo DP que el F407, y el documento decia que en depuracion "
+                 "no hay diferencias salvo una");
+
+        uint32_t idr = 0, base = 0;
+        sonda->escribir_dp(0x8, 0x000000F0u);            // SELECT: banco 0xF
+        sonda->leer_ap_real(0xC, idr);                   // IDR
+        sonda->leer_ap_real(0x8, base);                  // BASE
+        sonda->escribir_dp(0x8, 0);
+        check_eq(idr, 0x24770011u, "el AP se identifica como un AHB-AP de ARM");
+        check_eq(base, 0xE00FF003u, "y apunta a la ROM table");
+
+        grupo("G2 Y esa diferencia es EL IDCODE, leido por los pines");
+
+        // LA COMPROBACION DEL HITO. No se le pregunta al modelo: se lee
+        // 0xE004_2000 por dos hilos, exactamente como hace la sonda de
+        // STM32CubeIDE antes de decidir si sabe con quien habla.
+        uint32_t v = 0;
+        check(sonda->mem_read32(0xE0042000u, v),
+              "la sonda lee DBGMCU_IDCODE por los pines");
+        std::printf("    DBGMCU_IDCODE leido por SWD = 0x%08X\n", v);
+        check_eq(v, 0x10000421u,
+                 "0x1000_0421: DEV_ID 0x421. Con el del F407 aqui, CubeIDE "
+                 "diria «Could not verify ST device» y no habria sesion");
+        check_eq(v & 0xFFFu, 0x421u,
+                 "y el DEV_ID, que es el campo que mira la sonda, es 0x421 y "
+                 "no 0x413");
+
+        grupo("G3 Leer, escribir y parar el nucleo, todo por dos hilos");
+
+        check(sonda->mem_write32(addr::SRAM1_BASE + 0x40u, 0xF446F446u),
+              "la sonda escribe en la SRAM por los pines...");
+        check_eq(rd(addr::SRAM1_BASE + 0x40u), 0xF446F446u,
+                 "...y el dato esta de verdad en la memoria");
+        for (unsigned i = 0; i < 8; ++i)
+            wr(addr::SRAM1_BASE + 0x80u + 4 * i, 0x44600000u + i);
+        uint32_t buf[8] = {};
+        const unsigned n = sonda->mem_read_block(addr::SRAM1_BASE + 0x80u, buf, 8);
+        bool bloque_ok = (n == 8);
+        for (unsigned i = 0; i < 8 && bloque_ok; ++i)
+            if (buf[i] != 0x44600000u + i) bloque_ok = false;
+        check(bloque_ok,
+              "y vuelca un bloque con auto-incremento de TAR, que es como se "
+              "lee la memoria de verdad en una sesion");
+
+        check(sonda->halt(), "pide la parada escribiendo DHCSR");
+        wait(50, SC_US);
+        check(sonda->is_halted(), "y el nucleo se para de verdad");
+        uint32_t pc = 0;
+        sonda->leer_reg(15, pc);
+        std::printf("    la sonda ve pc = 0x%08X (el bucle wfe esta en 0x%08X)\n",
+                    pc, dut.mcu.memoria.flash.base + 0x100u);
+        check(pc >= dut.mcu.memoria.flash.base &&
+              pc <  dut.mcu.memoria.flash.base + dut.mcu.memoria.flash.size,
+              "y el PC que lee esta dentro de la Flash de 512 KB de ESTE chip");
+        sonda->escribir_reg(0, 0x0421u);
+        uint32_t r0 = 0;
+        sonda->leer_reg(0, r0);
+        check_eq(r0, 0x0421u, "escribe un registro del nucleo y lo relee igual");
+        check(sonda->resume(), "y lo suelta");
+        wait(50, SC_US);
+        check(!sonda->is_halted(), "el nucleo vuelve a correr");
+
+        std::printf("    en toda la sesion: %u paquetes con ACK OK, %u con fallo\n",
+                    sonda->acks_ok(), sonda->acks_mal());
+        check_eq(sonda->acks_mal(), 0u,
+                 "ni un solo paquete perdido en toda la sesion por los pines");
+        sonda->desconectar();
+    }
+
     void run() {
         cruzada();
+        prueba_cruzada();
+        hito_h5();
         blinky();
         arbol_f446();
         perifericos_446();
+        hito_h6();
         hito_h4();
         std::printf("\n=====================================================\n");
         std::printf("TOTAL F446 : %u comprobaciones OK, %u fallos\n",

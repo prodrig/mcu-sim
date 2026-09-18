@@ -3337,3 +3337,69 @@ validan. Queda dicho en `limitaciones()` lo que la fase 4 no hace: el PEC y los
 temporizadores de SMBus del FMPI2C1, el companding y la sincronización de los
 SAI, y que las peticiones de DMA de los bloques nuevos salen y no llegan a
 ninguna celda, porque el mapa de canales sigue siendo el del F407.
+
+## Fase 5 del plan del F446: la verificación, que encontró tres cosas más
+
+> Ejecuta la fase 5 del plan
+
+Hecha. El invariante del F407 sigue en **`2336217899213 ps`**, la suite del F407
+pasa de 2050 a **2053** y la del F446 de 133 a **189**. Los dos hitos que
+faltaban, **H5 y H6**, están cerrados.
+
+**La prueba cruzada, escrita como una tabla de afirmaciones.** Es lo que el plan
+pedía con nombre —«la prueba que evita que el puerto se coma al original»— y por
+eso no es una lista de comprobaciones sueltas: cada fila es **una frase del
+documento de comparación**, con su sección, y al lado la expresión que la hace
+verdad o mentira preguntando a los dos descriptores a la vez. Leída de arriba
+abajo, la tabla *es* el documento. Están las tres que el plan nombraba
+—`0x4000_4000`, el vector 80, PB11— y once más.
+
+**Y encontró dos cosas el primer día**, las dos de la misma familia que las tres
+fases anteriores: el modelo era más permisivo que el silicio.
+
+* **El AF11 no estaba vacío.** El documento dice que el AF11 —el del Ethernet—
+  es el único número de AF que el F446 vacía entero. No lo estaba: el mapa
+  registraba las dieciocho entradas del MAC **sin preguntar si el chip lleva
+  Ethernet**, de modo que poner `AFR = 11` en PA2 de un F446 conectaba el pad a
+  un periférico que no existe. Arreglarlo **arregla también los dos F405**, que
+  llevaban lo mismo desde la fase 1.
+* **La ventana de la CCM contestaba en un chip sin CCM**: `0x1000_0000` iba al
+  esclavo de la Flash. La prueba que había solo miraba que no devolviera el
+  código de la CCM, y por eso pasaba.
+
+**I-42, y el gusto de corregir un diagnóstico propio.** Desde la fase 2 había
+anotado que una prueba del I2S dependía del reloj de pared. **No es verdad**: la
+misma suite bajo ASan y UBSan —varias veces más lenta— da los mismos números y
+el mismo picosegundo. Lo que cambió al añadir un segundo chip no fue la
+velocidad sino **el orden en que SystemC despierta los procesos**. Y de paso
+queda claro que la consecuencia era menor: las comprobaciones son por rango, así
+que el veredicto nunca cambió, solo los números impresos. Lo que faltaba era
+comprobar lo que **no** puede moverse —un enlace de audio que funciona no pierde
+muestras— y ahora está; y las dos muestras «incorrectas» de las veintitrés
+resultaron ser **ceros del arranque del enlace**, no datos corrompidos.
+
+**El DMA: decidir y decirlo.** El mapa de canales del F446 no se ha modelado
+porque **no hay fuente de ST legible por máquina** para su tabla de peticiones,
+y este modelo no se inventa tablas —es la misma regla que en la fase 4 mandó
+buscar los ficheros de pines de ST en vez de tirar de memoria—. Lo que sí se ha
+hecho es que **deje de ser silencioso**: el controlador lleva ahora una máscara
+de las celdas que el chip cablea de verdad, y armar un stream sobre una que no
+está saca un aviso diciendo cuál es. Sin eso, una celda reservada en el silicio
+y una celda que el modelo no cablea se ven idénticas desde dentro.
+
+**H5**: una sonda SWD soldada a PA13/PA14 hace el reset de línea, engancha el
+SW-DP, lee el AHB-AP y saca `DBGMCU_IDCODE = 0x1000_0421` **por los dos hilos**,
+que es por donde lo lee CubeIDE; luego lee y escribe la SRAM, vuelca un bloque,
+para el núcleo, le escribe un registro y lo suelta. 51 paquetes, ni un ACK
+perdido.
+
+**H6**: los nuevos a fondo —una trama entera del FMPI2C1 con su NACK cuando no
+hay nadie, el QUADSPI leído por la ventana mapeada en memoria, una trama de
+audio del SAI con datos— y, sobre todo, **los viejos sobre el die nuevo**, que
+es donde se habría roto algo: el USART a 115 200 con un divisor que ya no es el
+del F407, el TIM2 contando mil microsegundos en un milisegundo, el SPI1 a
+22,5 MHz y el DMA2 copiando entre las dos SRAM.
+
+Estado: ASan y UBSan limpios en las dos suites (y de paso ASan cazó una fuga de
+72 bytes: la sonda del banco nuevo, que no es un módulo de SystemC y hay que
+devolver a mano), `make red` 13/13 y las cinco placas validan sin un aviso.

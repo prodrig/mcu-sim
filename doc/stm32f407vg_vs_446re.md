@@ -1328,3 +1328,141 @@ Además de lo de la tabla de §19.1, queda una cosa de sistema: **las peticiones
 de DMA de los bloques nuevos salen del periférico y no llegan a ninguna celda**,
 porque el mapa de canales del DMA sigue siendo el del F407. Es trabajo de la
 fase 5.
+
+---
+
+## 20. Fase 5: la verificación, que encontró tres cosas más
+
+La fase 5 pedía tres cosas y no un periférico: que **la suite del F407 no se
+moviera**, que hubiera **una suite paralela para el F446 con la misma
+estructura**, y —sobre todo— **una prueba cruzada que comprobara lo que este
+documento dice**, «la prueba que evita que el puerto se coma al original».
+
+**El invariante del F407 sigue intacto: `2336217899213 ps`. La suite del F407
+pasa de 2050 a 2053 comprobaciones y la del F446 de 133 a 189. Los dos hitos
+que faltaban, H5 y H6, están cerrados.**
+
+### 20.1 La prueba cruzada, escrita como una tabla de afirmaciones
+
+El grupo **F** del banco del F446 no es una lista de comprobaciones sueltas: es
+una **tabla cuyas filas son frases de este documento**, con su sección, y al
+lado la expresión que las hace verdad o mentira preguntando a los dos
+descriptores a la vez. Leída de arriba abajo, la tabla *es* el documento; y si
+alguien cambia un descriptor sin pensar en lo que implica, la fila que se rompe
+dice qué párrafo ha dejado de ser cierto.
+
+Están las tres que el plan nombraba una por una —`0x4000_4000`, el vector 80 y
+PB11— y once más: los siete esclavos de matriz con el séptimo compartido, los
+ocho maestros contra siete, la Flash y la RAM, la CCM, el IDCODE, el AF11 que se
+vacía, las 82 posiciones de vector contra 97, los topes que dependen del estado,
+el segmento APB2 que no mide lo mismo, y el espacio reservado.
+
+Y el grupo **F2**, que es la otra mitad y la que de verdad importa: **que el
+F407 siga siendo el F407**. No se construye —eso movería su invariante—, se le
+pregunta a su descriptor, que es lo que el die lee para construirse.
+
+### 20.2 Lo que la prueba cruzada encontró el primer día
+
+Dos cosas, las dos de la misma familia que las tres fases anteriores: **el
+modelo era más permisivo que el silicio**.
+
+**El AF11 no estaba vacío.** El documento dice, en §9.2, que el AF11 —el del
+Ethernet— es el único número de función alternativa que el F446 vacía entero. No
+lo estaba: `bind_mapa_af()` registraba las dieciocho entradas del MAC **sin
+preguntar si el chip lleva Ethernet**. El módulo se construye siempre —la
+elaboración de SystemC es estática— y su ventana de bus no la decodifica nadie
+en un F405 ni en un F446, pero poner `AFR = 11` en PA2 de un F446 conectaba el
+pad a un periférico que ese chip no tiene. Ahora la tabla va dentro de un
+`if (mcu.perif.eth)`, y esto **también arregla los dos F405**, que llevaban el
+mismo problema desde la fase 1.
+
+**La ventana de la CCM contestaba en un chip sin CCM.** `decodifica_mapa()`
+mandaba `0x1000_0000` al esclavo de la Flash cuando `ccm_size` era cero, es
+decir, decía en el netlist que ahí contesta una memoria. La prueba anterior
+(A2) solo miraba que no devolviera el código `-2`, que es el de la CCM, y por
+eso pasaba. Ahora un chip sin CCM deja esa ventana **sin decodificar**.
+
+> Queda anotado, y no arreglado, que el **resto** de la región de código por
+> encima de la CCM y por debajo de la memoria de sistema también está reservado
+> en las dos piezas y el modelo lo sigue mandando al esclavo de la Flash, que lo
+> rechaza. El efecto visto desde el firmware es el correcto —error de bus— y la
+> etiqueta del netlist no lo es. Arreglarlo es recortar la región de código
+> entera, y eso es otra tarea.
+
+### 20.3 El DMA: cuando no hay fuente, decirlo
+
+La fase 4 dejó apuntado que las peticiones de DMA de los bloques nuevos salen
+del periférico y no llegan a ninguna celda, porque el mapa de canales sigue
+siendo el del F407. La fase 5 tenía que decidir: modelar el mapa del F446 o
+decirlo con precisión.
+
+**Se dice.** No se ha encontrado una fuente de ST **legible por máquina** para
+la tabla de peticiones del F446 —las cabeceras CMSIS no la llevan y el
+repositorio de datos de pines tampoco—, y este modelo no se inventa tablas: es
+la misma regla que hizo buscar `[PINDATA]` en la fase 4 en vez de tirar de
+memoria.
+
+Lo que sí se ha hecho es **que deje de ser silencioso**. `DmaCtrl` tiene ahora
+una máscara de 64 bits, `celdas_con_fuente`, que el top rellena con las celdas
+que de verdad ha cableado; armar un stream sobre una celda que no está en ella
+saca un aviso que dice cuál es. Sin eso, los dos motivos por los que una línea
+de petición está permanentemente a cero —celda **reservada en el silicio** y
+celda **que este modelo no cablea**— se ven exactamente igual desde dentro: un
+stream que se queda esperando para siempre sin una bandera, sin un aviso y sin
+una transferencia.
+
+### 20.4 I-42: el diagnóstico estaba equivocado
+
+Desde la fase 2 había una anotación que decía que **una prueba del I2S depende
+del reloj de pared**: al construir un segundo chip en el banco del F407 la
+simulación se volvió trece veces más lenta y la prueba pasó de «I2S3 recibió 23
+muestras (21 correctas)» a «20 (18 correctas)».
+
+**No es el reloj de pared.** La misma suite, compilada con ASan y UBSan —varias
+veces más lenta— da los **mismos números** y el **mismo picosegundo**. Lo que
+cambió al añadir un chip no fue la velocidad: fue **el orden en que SystemC
+despierta los procesos**, que depende de cuántos módulos hay en la simulación.
+
+La distinción importa porque cambia qué hay que arreglar. Y de paso deja ver que
+la consecuencia era menor de lo que la anotación daba a entender: las
+comprobaciones del T53 son por rango (`got3 >= 8`, `ok3 >= got3 - 2`), de modo
+que el **veredicto** nunca cambió; lo que se movía eran los números impresos.
+
+Lo que sí faltaba era comprobar **lo que no puede moverse**, y ahora está: *un
+enlace de audio que funciona no pierde muestras*. `got3 == sent - 1` y
+`gotx == sent - 1`, sin gastar un picosegundo, porque son variables ya contadas.
+Y las dos muestras «incorrectas» de las veintitrés también están explicadas: son
+**ceros del arranque del enlace**, no datos corrompidos —el esclavo engancha el
+reloj en cuanto el maestro mueve CK y WS, y durante las primeras tramas lo que
+hay en la línea de datos todavía es silencio—. Un número raro convertido en un
+dato.
+
+### 20.5 H5 y H6, los dos hitos que faltaban
+
+**H5 — «el F446 se depura desde STM32CubeIDE con el `IDCODE` correcto».** El
+punto 4 de la fase 0 lo marcó como bloqueante por una razón concreta: con el
+IDCODE equivocado, CubeIDE no da un error útil, da un «Could not verify ST
+device». Lo que se comprueba no es que el modelo **sepa** su IDCODE —eso ya lo
+miraba A5 preguntándoselo por dentro— sino que lo diga **por los dos hilos**:
+una sonda SWD soldada a PA13/PA14 hace el reset de línea, engancha el SW-DP, lee
+el AHB-AP, y lee `0xE004_2000` **por los pines**. Sale `0x1000_0421`. Entre lo
+uno y lo otro hay una cadena entera: los pines en AF0 desde el reset, el DP, el
+AP, la matriz y el DBGMCU. Y luego lee y escribe la SRAM, vuelca un bloque con
+auto-incremento de TAR, para el núcleo, lee y escribe sus registros y lo suelta:
+51 paquetes, ni un ACK perdido.
+
+**H6 — «los periféricos nuevos, uno a uno, con su prueba»** — con una mitad que
+el plan no pedía con esas palabras y que es la que de verdad podía estar rota:
+**los periféricos VIEJOS sobre el die nuevo**. El puerto le ha cambiado el árbol
+de reloj a un modelo que llevaba siete fases funcionando, y si algo se rompió,
+se rompió ahí y no en el QUADSPI:
+
+| Prueba | Qué demuestra |
+| :--- | :--- |
+| USART2 a 115 200 baudios | con 45 MHz de PCLK1 el divisor **ya no es el que valía en un F407**, y el 0,1 % de error que queda es el del silicio |
+| TIM2 cuenta 1000 en 1 ms | los 90 MHz de TIMCLK1 llegan **hasta el contador**, no se quedan en un registro |
+| SPI1 a 22,5 MHz | un valor que con los 84 MHz de APB2 del F407 no sale |
+| DMA2 SRAM1 → SRAM2 | los dos controladores y las dos memorias siguen en su sitio (y memoria a memoria **exige** modo FIFO, igual que el silicio) |
+| FMPI2C1, trama entera | START, AUTOEND, y un **NACK** cuando no hay nadie en la dirección: la línea sube por la resistencia de la placa porque nadie tira de ella |
+| QUADSPI mapeado en memoria | leer `0x9000_0040` **lanza un comando por los pines**: no es una memoria interna disfrazada |
+| SAI1, trama con datos | la FIFO se vacía sola al ritmo de la trama, que es lo único que demuestra que el bloque transmite y no solo está configurado |

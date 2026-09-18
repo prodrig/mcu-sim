@@ -46,7 +46,17 @@ inline void SocF4::bind_mapa_af() {
     // interfaz se elige con SYSCFG_PMC y el mux no cambia, cambia quien mira
     // cada hilo. RMII usa TXD0/1, RXD0/1, TX_EN y CRS_DV; MII anade TXD2/3,
     // RXD2/3, RX_ER, CRS, COL y su propio TX_CLK [IR, cap. 2].
-    {
+    //
+    // SOLO SI ESTE CHIP LLEVA ETHERNET, y la condicion no estaba hasta la fase
+    // 5 [vs_446re, §20.2]. El modulo del MAC se construye siempre -la
+    // elaboracion de SystemC es estatica- y su ventana de bus no la decodifica
+    // nadie en un F405 o en un F446; pero estas dieciocho lineas registraban
+    // sus senales en el mux DE TODAS FORMAS, de modo que poner AFR = 11 en
+    // PA2 de un F446 conectaba el pad a un periferico que ese chip no tiene.
+    // El AF11 es el UNICO numero de funcion alternativa que el F446 vacia
+    // entero, y ahora se vacia de verdad. La encontro la prueba cruzada de la
+    // fase 5, que es literalmente para lo que el plan la pedia.
+    if (mcu.perif.eth) {
         auto af_e = [&](sc_core::sc_signal<bool>* o, sc_core::sc_signal<bool>* e,
                         sc_core::sc_signal<bool>* i) {
             AfEndpoint ep; ep.out = o; ep.oe = e; ep.in = i; ep.idle_in = false;

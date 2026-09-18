@@ -46,8 +46,27 @@ inline int decodifica_mapa(const MapaRam& ram, bool hay_fsmc, uint64_t a,
     using S = BusSlaveId;
     if (a < ram.ccm_base)                                     // 0x0000_0000-0x0FFF_FFFF
         return int(S::FLASH_ICODE);                           //   alias 0x0 + Flash
-    if (ram.hay_ccm() && a < uint64_t(ram.ccm_base) + ram.ccm_size)
-        return -2;                                            // CCM
+    // LA VENTANA DE LA CCM, EN UN CHIP QUE NO LA TIENE. No es Flash: es
+    // espacio reservado, y decodificarla hacia el esclavo de la Flash seria
+    // decir en el netlist que ahi contesta una memoria. En el F446 la ventana
+    // existe en el mapa de la ARQUITECTURA y no tiene nada detras.
+    //
+    // Lo encontro la prueba cruzada de la fase 5 [vs_446re, §20.2]: el
+    // descriptor decia `ccm_size = 0` y la matriz seguia mandando 0x1000_0000
+    // al mismo sitio que 0x0800_0000.
+    //
+    // Lo que NO se toca, y conviene saberlo: el RESTO de la region de codigo
+    // por encima de la CCM y por debajo de la memoria de sistema tambien esta
+    // reservado en las dos piezas, y el modelo lo sigue mandando al esclavo de
+    // la Flash, que lo rechaza por estar fuera de su ventana. El efecto visto
+    // desde el firmware es el correcto -error de bus- y la etiqueta del
+    // netlist no lo es; queda anotado en vez de arreglado, porque cambiarlo es
+    // recortar la region de codigo entera y eso es otra tarea.
+    if (ram.hay_ccm()) {
+        if (a < uint64_t(ram.ccm_base) + ram.ccm_size) return -2;
+    } else if (a < uint64_t(ram.ccm_base) + addr::CCM_SIZE) {
+        return -1;
+    }
     if (a <= addr::CODE_END)                                  // sysmem/OTP/opt bytes
         return int(S::FLASH_ICODE);
     if (a >= ram.sram1_base && a < uint64_t(ram.sram1_base) + ram.sram1_size)

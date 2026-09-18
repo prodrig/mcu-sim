@@ -4973,6 +4973,10 @@ SC_MODULE(F1Tb) {
         // Se alimenta el flujo sin parar y se recoge lo que llega a los dos
         // esclavos: el audio es continuo, no hay huecos entre muestras.
         unsigned sent = 1, got3 = 0, gotx = 0, ok3 = 0, okx = 0;
+        // Que muestras NO encajan en el patron, para poder decirlo en vez de
+        // dejarlo como un numero suelto [I-42].
+        unsigned raras3 = 0; uint32_t primera_rara = 0xFFFFFFFFu;
+        bool raras_todas_cero = true;
         bool chside_seen[2] = {false, false};
         const sc_time t2 = sc_time_stamp();
         while (sent < 24 && sc_time_stamp() - t2 < sc_time(3, SC_MS)) {
@@ -4983,6 +4987,8 @@ SC_MODULE(F1Tb) {
                 const uint32_t v = s_rd(S3, SpiBase::R_DR);
                 ++got3;
                 if ((v & 0xFF00u) == 0x1000u) ++ok3;
+                else { ++raras3; if (primera_rara == 0xFFFFFFFFu) primera_rara = v;
+                       if (v != 0) raras_todas_cero = false; }
                 chside_seen[(sr3 & SpiBase::S_CHSIDE) ? 1 : 0] = true;
             }
             if (s_rd(X2, SpiBase::R_SR) & SpiBase::S_RXNE) {
@@ -5002,6 +5008,37 @@ SC_MODULE(F1Tb) {
         check(chside_seen[0] && chside_seen[1],
               "CHSIDE alterna entre el canal izquierdo y el derecho [IR, 12.5.3-B]");
         check(dut->spi2.frames() > 8u, "el maestro ha desplazado los dos canales");
+
+        // ------------------------------------------------------------------
+        // LO QUE DE VERDAD NO PUEDE FALLAR, Y QUE NO DEPENDE DEL RITMO [I-42]
+        //
+        // Los numeros de arriba -cuantas muestras entraron en la ventana de
+        // sondeo- se mueven si cambia el orden en que SystemC despierta los
+        // procesos, y eso cambia al anadir modulos a la simulacion. Lo que NO
+        // puede moverse es la relacion entre ellos: un enlace de audio que
+        // funciona no PIERDE muestras. Esa es la invariante, y se comprueba
+        // aqui sin gastar un picosegundo, porque son variables ya contadas.
+        //
+        // La fase 5 del plan reviso este punto y encontro que el diagnostico
+        // anterior era equivocado: no es el reloj de pared. Correr esta misma
+        // suite bajo ASan + UBSan -varias veces mas lenta- da los MISMOS
+        // numeros y el mismo picosegundo. [vs_446re, §20.4]
+        // ------------------------------------------------------------------
+        if (raras3)
+            std::printf("    %u muestras de %u no llevan el patron; la primera "
+                        "es 0x%04X\n", raras3, got3, primera_rara);
+        // Y lo que son esas muestras tambien esta explicado, que es lo que
+        // convierte un numero raro en un dato: el esclavo empieza a recibir en
+        // cuanto el maestro mueve CK y WS, y durante las primeras tramas lo que
+        // hay en la linea de datos todavia es silencio. Ceros, no basura.
+        check(raras3 == 0 || raras_todas_cero,
+              "y las muestras que no llevan el patron son CEROS del arranque "
+              "del enlace, no datos corrompidos: el esclavo engancha el reloj "
+              "antes de que el maestro tenga algo que decir");
+        check_eq(got3, sent - 1,
+                 "no se pierde ni una muestra: entran en el esclavo tantas "
+                 "como salieron del maestro");
+        check_eq(gotx, sent - 1, "ni una en el bloque de extension");
 
         // MCK: salida de reloj maestro para el codec
         s_wr(S2, SpiBase::R_I2SCFGR, s_rd(S2, SpiBase::R_I2SCFGR) & ~(1u << 10));

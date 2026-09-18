@@ -418,6 +418,19 @@ inline void SocF4::bind_dma_requests() {
     m2[C(3,7)] = &q_tim_cc[5*4+1];  m2[C(4,7)] = &q_tim_cc[5*4+2];
     m2[C(7,7)] = &q_tim_cc[5*4+3];
 
+    // LO QUE ESTE CHIP TIENE CABLEADO, dicho en una mascara. Las celdas que no
+    // estan en `m1`/`m2` se atan a `s_false`, y desde dentro del controlador
+    // una celda reservada y una celda sin modelar se ven exactamente igual:
+    // una linea que nunca sube. La mascara le permite distinguirlas y avisar.
+    // [periph/dma.h, `celdas_con_fuente`]
+    uint64_t mascara1 = 0, mascara2 = 0;
+    for (unsigned i = 0; i < 64; ++i) {
+        if (m1.count(i)) mascara1 |= uint64_t(1) << i;
+        if (m2.count(i)) mascara2 |= uint64_t(1) << i;
+    }
+    dma1.celdas_con_fuente = mascara1;
+    dma2.celdas_con_fuente = mascara2;
+
     for (unsigned i = 0; i < 64; ++i) {
         dma1.req_in[i](m1.count(i) ? *m1[i] : s_false);
         dma2.req_in[i](m2.count(i) ? *m2[i] : s_false);

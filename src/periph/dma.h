@@ -50,6 +50,27 @@ public:
     sc_core::sc_vector<sc_core::sc_out<bool>> ack_out;               // [64]
     sc_core::sc_vector<sc_core::sc_out<bool>> irq_stream;            // [8]
 
+    // ---- QUE CELDAS DE LA TABLA TIENEN FUENTE EN ESTE MODELO --------------
+    //
+    // Una máscara de 64 bits, una por (stream, canal), que el top rellena con
+    // las celdas que de verdad ha cableado. Por omisión, todas: un `DmaCtrl`
+    // suelto no tiene por qué saber nada de esto.
+    //
+    // Existe porque hay dos motivos MUY distintos para que `req_in[i]` esté
+    // permanentemente a cero, y desde fuera se ven igual:
+    //
+    //   * la celda está RESERVADA en el silicio — no hay periférico ahí, y el
+    //     firmware que la elige se ha equivocado;
+    //   * la celda existe en el chip y este modelo todavía no la cablea — es
+    //     el caso de los bloques que llegaron en la fase 4, cuyo mapa de
+    //     canales es el del F407.
+    //
+    // En los dos casos el stream se arma y no se mueve nunca, y sin esto el
+    // fallo es SILENCIOSO: ni una bandera, ni un aviso, ni una transferencia.
+    // Con esto, armar un stream sobre una celda sin fuente avisa una vez y
+    // dice cuál es. [vs_446re, §20.3]
+    uint64_t celdas_con_fuente = ~uint64_t(0);
+
     // ---- Offsets [IR, §11.5, §11.6] ---------------------------------------
     enum : uint32_t { LISR = 0x00, HISR = 0x04, LIFCR = 0x08, HIFCR = 0x0C,
                       S0_BASE = 0x10, S_STRIDE = 0x18 };
@@ -178,6 +199,8 @@ private:
     uint32_t lisr_ = 0, hisr_ = 0;
     bool     is_dma2_;
     bool     sw_req_[N_STREAMS] = {};
+    // Un aviso por stream y no uno por arranque: el resto seria ruido.
+    bool     avisado_celda_[N_STREAMS] = {};
     bool     o_irq_[N_STREAMS] = {};
     bool     o_ack_[N_STREAMS * N_CH] = {};
     uint64_t n_rd_ = 0, n_wr_ = 0;            // estadísticas de beats
@@ -309,6 +332,26 @@ private:
             }
         }
         if (s.ndtr == 0 && !f_pfctrl(s)) { s.cr &= ~1u; return; }
+
+        // La celda elegida, ¿tiene quien pida? En memoria a memoria no hay
+        // periférico que pedir, así que la pregunta no se hace. En los otros
+        // dos sentidos, un stream armado sobre una celda sin fuente se queda
+        // esperando para siempre, y eso hay que DECIRLO: es la diferencia
+        // entre un fallo que se diagnostica en un minuto y uno que se lleva
+        // una tarde.
+        if (dir != 2) {
+            const unsigned celda = k * N_CH + f_chsel(s);
+            if (!((celdas_con_fuente >> celda) & 1u) && !avisado_celda_[k]) {
+                avisado_celda_[k] = true;
+                char m[192];
+                std::snprintf(m, sizeof m,
+                    "stream %u, canal %u (celda %u): este modelo no tiene "
+                    "ningun periferico cableado ahi, asi que la peticion no "
+                    "va a llegar nunca y el stream se quedara esperando",
+                    k, f_chsel(s), celda);
+                SC_REPORT_WARNING("dma-celda", m);
+            }
+        }
 
         // --- Estado inicial de la transferencia -----------------------------
         s.src_sz     = src_size(s);
