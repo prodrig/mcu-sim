@@ -321,9 +321,21 @@ Honestidad sobre el alcance, que es lo que hace que lo anterior valga:
   encapsulado. Un AF registrado sobre un pad no soldado no hace daño —ese pad no
   se puede conectar a nada, y el netlist lo rechaza—, pero conviene saber que el
   modelo no distingue AF por referencia.
-* **Los bits de reloj de los periféricos ausentes siguen existiendo.** En un
-  F405, `RCC_AHB1ENR.ETHMACEN` debería leer cero; aquí se escribe y se lee como
-  en el F407. El periférico no está —su ventana da error de bus—, pero el bit
-  que lo enciende sí. Es una diferencia observable y está sin cerrar.
+* ~~**Los bits de reloj de los periféricos ausentes siguen existiendo.**~~
+  **CERRADO** en la fase 1 del plan del F415/F417
+  [`doc/stm32f4xx/stm32f4xx_vs_415xx.md` §15]. Las máscaras de
+  `RCC_xxxENR`/`RSTR`/`LPENR` eran **por familia** y ahora son **por
+  referencia**: se calculan quitando de la tabla de la familia los bits de lo
+  que el chip no lleva. En un F405, `RCC_AHB1ENR.ETHMACEN` **lee cero**, y con
+  él los otros tres del MAC, el del reset y el de la cámara. Los bits que se
+  quitan no están escritos a mano: son los `RCC_xxx_yyy_Pos` que la cabecera del
+  F407 define y la del F405 no.
+
+  Con una excepción dicha en voz alta: **el bit del FSMC no se quita** en el
+  LQFP64. Que ahí no haya bus externo es cosa del encapsulado, no de la
+  referencia, y no hay cabecera de ST por encapsulado que diga si el bit
+  desaparece. Eso deja una incoherencia —ventana reservada y bit existente— que
+  queda anotada como **I-49** y sin decidir, porque decidirla bien necesita una
+  fuente que hoy no hay.
 * **`UFBGA176` y `LQFP176` comparten reparto** y solo se distinguen por el
   nombre, que es lo correcto: son el mismo die con otro plástico.

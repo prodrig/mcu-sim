@@ -293,7 +293,7 @@ SC_MODULE(SocF4) {
                          const Cableado& cab = Cableado(),
                          McuCaps caps = MCU_STM32F407VG)
         : sc_core::sc_module(nm), mcu(caps), pinmux("pinmux", cab, caps.enc),
-          rcc("rcc", caps.reloj, caps.arbol, caps.perif.alguno_f446()),
+          rcc("rcc", caps.reloj, caps.arbol, caps.perif.bloques_rcc()),
           core("core", dbg, caps.nucleo, caps.memoria.ram),
           matrix("matrix", caps.memoria.ram, caps.perif.fsmc, caps.conn,
                  caps.perif.quadspi),

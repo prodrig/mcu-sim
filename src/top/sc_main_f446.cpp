@@ -595,6 +595,20 @@ SC_MODULE(Tb446) {
         check_eq(dut.rcc.bits_implementados(Rcc::R_AHB1ENR), 0x606410FFu,
                  "y el AHB1ENR PIERDE bits: sin Ethernet y sin CCM, un F446 no "
                  "puede encender lo que no lleva");
+        // Desde la fase 1 del plan del F415/F417 estas mascaras se CALCULAN por
+        // referencia -la tabla de la familia menos lo que el chip no lleva- en
+        // vez de elegirse entre dos constantes. Que el F446 no se mueva ni un
+        // bit es justo lo que hay que comprobar: el refactor lo hizo para
+        // cerrar el agujero del F405 y no tenia que tocar esta familia.
+        check_eq(dut.rcc.bits_implementados(Rcc::R_AHB2ENR), 0x00000081u,
+                 "RCC_AHB2ENR del F446: camara y OTG FS, y SIN el RNG, que en "
+                 "esta familia no existe");
+        check_eq(dut.rcc.bits_implementados(Rcc::R_AHB2ENR) & 0x30u, 0u,
+                 "y sin CRYP ni HASH: no hay un solo simbolo de los dos en "
+                 "stm32f446xx.h");
+        check_eq(dut.rcc.bits_implementados(Rcc::R_AHB1RSTR), 0x206010FFu,
+                 "el AHB1RSTR tampoco se mueve: la tabla de la familia ya "
+                 "excluia el bit del Ethernet, asi que quitarlo no hace nada");
         check(dut.apb1_dec.decodes(addr446::CEC_B) &&
               dut.apb2_dec.decodes(addr446::SPI4_B) &&
               dut.apb2_dec.decodes(addr446::SAI1_B) &&

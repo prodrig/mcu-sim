@@ -1334,6 +1334,74 @@ SC_MODULE(F1Tb) {
         check_eq(dut->rcc.bits_implementados(Rcc::R_AHB1LPENR), 0x7E6791FFu,
                  "y el AHB1LPENR SI tiene los suyos, que son otros: ENR y "
                  "LPENR no son el mismo registro con distinto nombre");
+
+        // -------------------------------------------------------------------
+        // Y AHORA LAS MASCARAS SON POR REFERENCIA, NO POR FAMILIA
+        // [fase 1 del plan del F415/F417; cierra reutilizacion.md 9.5]
+        //
+        // Lo que habia hasta aqui era un agujero conocido y anotado: en un
+        // F405 -que NO lleva Ethernet ni camara- `RCC_AHB1ENR.ETHMACEN` se
+        // escribia y se leia igual que en un F407. El periferico no estaba, su
+        // ventana daba error de bus, y el bit que lo enciende si estaba. El
+        // alumno lo enciende, se lo lee de vuelta y se lo cree.
+        //
+        // Las mascaras nuevas NO estan escritas a mano: son la tabla de la
+        // familia menos los bits que la cabecera de ST de esa referencia no
+        // define. `stm32f405xx.h` no tiene `RCC_AHB1ENR_ETHMACEN` ni
+        // `RCC_AHB2ENR_DCMIEN`; `stm32f417xx.h` si tiene `..._CRYPEN` y
+        // `..._HASHEN`, que el del F407 no.
+        //
+        // Se pregunta SIN CONSTRUIR NINGUN CHIP: `Rcc::mascaras()` es estatica
+        // y toma el descriptor. Construir un F405 aqui moveria el invariante.
+        // -------------------------------------------------------------------
+        {
+            const auto m407 = Rcc::mascaras(PERIF_F407.bloques_rcc());
+            const auto m405 = Rcc::mascaras(PERIF_F405.bloques_rcc());
+            const auto m446 = Rcc::mascaras(PERIF_F446RE.bloques_rcc());
+
+            check_eq(m407.ahb1_enr, 0x7E7411FFu,
+                     "la mascara calculada del F407 es la de siempre: un chip "
+                     "que lo lleva todo no pierde ni un bit");
+            check_eq(m405.ahb1_enr, 0x607411FFu,
+                     "y la del F405 pierde los CUATRO bits del Ethernet "
+                     "(25..28): ETHMACEN ya no se puede encender");
+            check_eq(m405.ahb1_rstr, 0x206011FFu,
+                     "en el RSTR pierde UNO solo, el 25: el MAC se resetea "
+                     "entero y se alimenta por partes");
+            check_eq(m405.ahb1_lpenr, 0x606791FFu,
+                     "y en el LPENR los cuatro, como en el ENR");
+            check_eq(m405.ahb2_enr, 0x000000C0u,
+                     "el AHB2 del F405 pierde el bit 0, el de la camara");
+            check_eq(m405.ahb3_enr, 0x00000001u,
+                     "y NO pierde el del FSMC: que un F405RG no saque el bus "
+                     "es cosa del encapsulado, no de la referencia, y no hay "
+                     "cabecera de ST por encapsulado que lo diga");
+
+            check_eq(m407.ahb2_enr & 0x30u, 0u,
+                     "ni el F407 ni el F405 tienen los bits 4 y 5: el CRYP y "
+                     "el HASH son de un F415/F417");
+            check_eq(m405.ahb2_enr & 0x30u, 0u, "lo mismo en el F405");
+
+            // La maquinaria funciona ANTES de que exista el chip: se le pasa
+            // el descriptor que tendra un F417 y salen sus dos bits. Cuando la
+            // fase 5 declare las diez referencias, esto no sera una sorpresa.
+            Periferia f417 = PERIF_F407; f417.cryp = true; f417.hash = true;
+            check_eq(Rcc::mascaras(f417.bloques_rcc()).ahb2_enr, 0x000000F1u,
+                     "y un descriptor CON acelerador abre los dos: 0xF1 es "
+                     "0xC1 mas el CRYP y el HASH");
+            check_eq(Rcc::mascaras(f417.bloques_rcc()).ahb2_rstr, 0x000000F1u,
+                     "en el RSTR igual");
+            check_eq(Rcc::mascaras(f417.bloques_rcc()).ahb2_lpenr, 0x000000F1u,
+                     "y en el LPENR tambien");
+
+            // El F446 no se mueve: su tabla de familia ya excluia el Ethernet
+            // y el RNG, asi que quitarlos otra vez no cambia nada. Que esto
+            // salga igual es la prueba de que el refactor no ha tocado nada.
+            check_eq(m446.ahb1_enr, 0x606410FFu, "el F446 no se mueve (AHB1ENR)");
+            check_eq(m446.ahb1_rstr, 0x206010FFu, "el F446 no se mueve (AHB1RSTR)");
+            check_eq(m446.ahb2_enr, 0x00000081u,
+                     "ni en el AHB2: sigue sin RNG y con camara y OTG FS");
+        }
     }
 
     // -----------------------------------------------------------------------

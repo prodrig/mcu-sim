@@ -34,12 +34,15 @@ este informe están hechas por máquina, no a ojo**, y sobre ficheros del propio
 fabricante. Donde se dice «idéntico» quiere decir que un programa comparó los
 dos conjuntos y la diferencia salió vacía. Los recuentos están en §3.2 y §4.
 
-> **ESTADO: la fase 0 del plan está EJECUTADA.** Los siete puntos se han
+> **ESTADO: las fases 0 y 1 del plan están EJECUTADAS.** Los siete puntos se han
 > cerrado; los cinco primeros ya lo estaban al escribir este documento, y los
 > dos que quedaban —el alcance y los vectores— se cerraron con código y con
 > datos, no con una frase. Está contado en la **§14**, al final, y **encontró
-> dos erratas antes de que existiera una línea de modelo**. Las secciones de
-> más arriba llevan incorporado lo verificado.
+> dos erratas antes de que existiera una línea de modelo**. La **fase 1** está
+> en la **§15**: `Periferia` ya tiene sus dos campos, las máscaras del RCC son
+> **por referencia** y con ello se cierra un agujero que llevaba abierto desde
+> la primera fase del proyecto. Las secciones de más arriba llevan incorporado
+> lo verificado.
 
 ---
 
@@ -511,7 +514,7 @@ Casi todo cerrado ya al escribir este informe; queda decidir, no investigar:
    con su procedencia y un comprobador que los recalcula con dos motores
    independientes. `make vectores`.
 
-### Fase 1 — `Periferia` gana dos campos, y las máscaras del RCC dejan de ser por familia
+### Fase 1 — `Periferia` gana dos campos, y las máscaras del RCC dejan de ser por familia — **HECHA, §15**
 
 *Sin añadir un solo chip, y con el invariante intacto.*
 
@@ -858,3 +861,141 @@ de datos y un script de Python; no entra en ninguna compilación, no necesita
 SystemC y no se enlaza con nada. El invariante del F407 sigue donde estaba,
 **`2336217899213 ps`**, con sus 2055 comprobaciones, y el del F446 con sus 200 —
 comprobado después de la fase, no supuesto.
+
+---
+
+## 15. Fase 1: las máscaras del RCC, por referencia
+
+La fase 1 no añade un solo chip y no toca un solo periférico. Lo que hace es
+**cambiar de sitio una decisión**: hasta aquí, qué bits existían en
+`RCC_xxxENR`/`RSTR`/`LPENR` lo decidía la *familia*; a partir de aquí lo decide
+la *referencia*. Y de paso cierra un agujero que llevaba abierto desde la
+primera fase del proyecto.
+
+### 15.1 El agujero que se cierra
+
+`doc/reutilizacion.md` §9.5 lo tenía escrito, con todas sus letras:
+
+> *Los bits de reloj de los periféricos ausentes siguen existiendo. En un F405,
+> `RCC_AHB1ENR.ETHMACEN` debería leer cero; aquí se escribe y se lee como en el
+> F407. El periférico no está —su ventana da error de bus—, pero el bit que lo
+> enciende sí. Es una diferencia observable y está sin cerrar.*
+
+Es la misma familia de fallo que I-41, I-43, I-44 y I-45: **el modelo más
+permisivo que el silicio**. Y el efecto, para un alumno, es de los que no se
+diagnostican solos — enciende el reloj del Ethernet en un F405, se lo lee de
+vuelta puesto a uno, y desde ese momento está depurando la pregunta
+equivocada.
+
+**Se podía haber hecho lo fácil.** Un tercer juego de máscaras, `MASC_F417`, y
+el F417 resuelto en cinco minutos. Habría funcionado, habría dejado el modelo
+repartiendo el mundo en «F407, F417 y F446», y a la siguiente referencia habría
+hecho falta un cuarto juego. Y sobre todo: no habría tocado el F405.
+
+### 15.2 Qué se escribió
+
+Cuatro cambios, y ninguno grande:
+
+**`Periferia` gana `cryp` y `hash`** (`top/mcu_caps.h`). A `false` explícito en
+los **seis** juegos que hay —los tres del F405/F407 y los tres del F446—,
+escritos a mano como documentación, que es la costumbre del fichero. Hoy las
+quince referencias del catálogo dicen «no lo llevo», y eso es verdad: las diez
+del F415/F417 llegan en la fase 5, cuando los bloques existan. Declarar el chip
+antes que el bloque sería ponerle una etiqueta falsa.
+
+**Una estructura nueva, `BloquesRcc`** (`rcc/reloj_caps.h`), con lo poco que el
+RCC necesita saber del descriptor: `eth`, `dcmi`, `cryp`, `hash`, `rng` y el
+viejo `f446`. Vive en la capa del RCC, y no en `top/`, para que la dependencia
+apunte en la dirección correcta — `top/` conoce `rcc/`, no al revés. El puente
+es `Periferia::bloques_rcc()`, que es una línea.
+
+**`Rcc::mascaras()`**, que convierte esa estructura en las quince máscaras. La
+tabla de la familia es el punto de partida; lo que el chip no lleva se quita y
+lo que lleva y la tabla no trae se añade. Es estática y pública **a propósito**:
+así la suite puede preguntar por la máscara de una referencia **sin construir el
+chip**, y eso es lo que hace que las comprobaciones nuevas no cuesten un
+picosegundo.
+
+**Y las seis constantes de bits**, que no están escritas a mano: son los
+`RCC_xxx_yyy_Pos` que la cabecera del F407 define y la del F405 no, y los que la
+del F417 define y la del F407 no, extraídos por máquina de las cuatro cabeceras
+de STM32Cube_FW_F4 V1.28.3. Es la misma fuente y el mismo método que produjeron
+las tablas por familia cuando se cerró **I-44**:
+
+| Bloque | `AHB1ENR` / `AHB1LPENR` | `AHB1RSTR` | `AHB2*` |
+| :--- | :--- | :--- | :--- |
+| Ethernet | bits 25, 26, 27, 28 | **solo el 25** | — |
+| Cámara | — | — | bit 0 |
+| CRYP | — | — | bit 4 |
+| HASH | — | — | bit 5 |
+| RNG | — | — | bit 6 |
+
+Que el reset del MAC tenga **un** bit y su alimentación **cuatro** no es una
+errata de la extracción: el MAC se resetea entero y se alimenta por partes.
+
+### 15.3 El ajuste en las dos direcciones, que no es simetría gratuita
+
+La primera versión solo quitaba bits, y la comprobación del F417 falló en el
+sitio exacto donde tenía que fallar. El motivo es que **la tabla de la familia
+es la del F407, no la del die**: salió de `stm32f407xx.h`, que es una referencia
+concreta. Por eso hay bits que sobran en un F405 —la cámara— y bits que
+*faltan* en un F417 —el CRYP y el HASH—, y quedarse solo con el `&` habría
+dejado al F417 sin poder encender lo único que lo distingue.
+
+Lo cuento porque la prueba que lo cazó **es de un chip que todavía no existe**:
+coge el descriptor del F407, le pone `cryp` y `hash` a `true`, y comprueba que
+salen los dos bits. La maquinaria de la fase 5 está verificada tres fases antes
+de usarse.
+
+### 15.4 Lo que NO se ha tocado, y por qué
+
+**El bit del FSMC se queda.** `Periferia` lo lleva, y la tentación de meterlo en
+`BloquesRcc` era evidente: un F405RG no tiene bus externo, luego fuera el bit.
+Pero eso sería inventarse una fuente. Que un F405RG no saque el bus es un hecho
+del **encapsulado** —no hay pines donde sacarlo— y no de la referencia, y **no
+existe una cabecera de ST por encapsulado** que diga si el bit de reloj
+desaparece. Para el Ethernet, la cámara, el CRYP y el HASH sí la hay, y por eso
+esos cuatro sí entran.
+
+Queda, eso sí, una incoherencia que no es nueva pero que ahora se ve mejor: el
+modelo dice que en un LQFP64 la **ventana** del FSMC está reservada —tocarla da
+error de bus— y a la vez que su **bit de reloj** existe. Las dos cosas no pueden
+ser verdad a la vez. Se anota en `doc/todo.md` y no se decide aquí, porque
+decidirla bien necesita una fuente que hoy no tengo.
+
+### 15.5 Cómo se comprueba
+
+**Catorce comprobaciones nuevas en T02** y **tres en el grupo E1** del banco del
+F446, todas a coste cero de tiempo simulado, porque preguntan a
+`Rcc::mascaras()` en vez de escribir unos por el bus. Las del F446 son las más
+aburridas y las que más tranquilizan: comprueban que **no se ha movido nada**,
+que es lo que tenía que pasar en una familia que este trabajo no venía a tocar.
+
+Y el hito **H1**, verificado además construyendo los chips de verdad:
+
+```
+STM32F407VG  AHB1ENR=0x7E7411FF  AHB2ENR=0x000000C1  ETHMACEN=SE PUEDE ENCENDER
+STM32F405VG  AHB1ENR=0x607411FF  AHB2ENR=0x000000C0  ETHMACEN=lee cero
+STM32F405RG  AHB1ENR=0x607411FF  AHB2ENR=0x000000C0  ETHMACEN=lee cero
+```
+
+### 15.6 El estado, después
+
+| | Antes | Después |
+| :--- | ---: | ---: |
+| Suite del F407 | 2055 | **2069** |
+| Invariante del F407 | `2336217899213 ps` | **`2336217899213 ps`** |
+| Suite del F446 | 200 | **203** |
+| Invariante del F446 | `1033367277932 ps` | **`1033367277932 ps`** |
+| Capa de red | 13 | 13 |
+| Vectores | 54 | 54 |
+| ASan + UBSan | limpios | **limpios** |
+
+Las cinco placas siguen validando, y la Discovery sigue sin caber en un
+LQFP64 por donde tiene que no caber: le faltan los cuatro LED del puerto D.
+
+### 15.7 Qué deja lista la fase 2
+
+El HASH se construirá con `mcu.perif.hash` ya en el descriptor, su bit de reloj
+ya abriéndose solo cuando el chip lo lleva, y su ventana esperando en
+`0x5006 0400`. Lo que falta es el bloque.

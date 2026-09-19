@@ -106,5 +106,43 @@ inline constexpr LimitesReloj RELOJ_STM32F446 {
     180e6, 180e6, 45e6, 90e6
 };
 
+// ---------------------------------------------------------------------------
+// QUÉ BLOQUES OPCIONALES LLEVA ESTE CHIP, VISTO DESDE EL RCC
+//
+// No es una copia de `Periferia` —ese es el descriptor entero y vive en
+// `top/mcu_caps.h`— sino lo poco que el RCC necesita saber de él: **qué bits de
+// `ENR`/`RSTR`/`LPENR` existen**. Va aquí, en la capa del RCC, para que el RCC
+// no tenga que incluir el descriptor y para que la dependencia apunte en la
+// dirección correcta: `top/` conoce `rcc/`, no al revés.
+//
+// POR QUÉ HACE FALTA. Hasta la fase 1 del plan del F415/F417 las máscaras eran
+// **por familia**: un `bool` elegía entre la tabla del F407 y la del F446. Eso
+// dejaba un agujero conocido y anotado [reutilizacion.md §9.5]: en un F405
+// —que no lleva Ethernet ni cámara— `RCC_AHB1ENR.ETHMACEN` se escribía y se
+// leía igual que en un F407. El periférico no estaba, su ventana daba error de
+// bus, y el bit que lo enciende sí estaba. Un modelo más permisivo que el
+// silicio, que es la peor clase de error que puede tener un simulador
+// didáctico.
+//
+// DE DÓNDE SALE CADA CAMPO. De las cabeceras de ST, que son **por referencia**:
+// `stm32f405xx.h` no define `RCC_AHB1ENR_ETHMACEN` ni `RCC_AHB2ENR_DCMIEN`, y
+// `stm32f417xx.h` sí define `RCC_AHB2ENR_CRYPEN` y `..._HASHEN`, que el del
+// F407 no tiene. Es la misma fuente y el mismo método que produjo las tablas
+// por familia [I-44].
+//
+// LO QUE NO ESTÁ AQUÍ, Y POR QUÉ. **El FSMC no**, aunque `Periferia` lo lleve.
+// Que un F405RG no tenga bus externo es un hecho del ENCAPSULADO —no hay pines
+// donde sacarlo— y no de la referencia, y no existe una cabecera por
+// encapsulado que diga si el bit de reloj desaparece. Quitarlo sería inventarse
+// una fuente. Queda anotado en `doc/todo.md`.
+struct BloquesRcc {
+    bool eth  = true;    // AHB1: ETHMACEN/TXEN/RXEN/PTPEN y ETHMACRST
+    bool dcmi = true;    // AHB2: DCMIEN
+    bool cryp = false;   // AHB2: CRYPEN  — solo F415/F417
+    bool hash = false;   // AHB2: HASHEN  — solo F415/F417
+    bool rng  = true;    // AHB2: RNGEN
+    bool f446 = false;   // los siete bits que solo existen en esa familia
+};
+
 } // namespace stm32
 #endif // STM32_RCC_RELOJ_CAPS_H

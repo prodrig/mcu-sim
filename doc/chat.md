@@ -3728,3 +3728,69 @@ existe también en el F41x, no solo en el F43x.
 La fase 0 **no ha tocado una línea del modelo**: es una carpeta de datos y un
 script de Python que no entra en ninguna compilación. Comprobado y no supuesto:
 F407 **2055/2055** en **`2336217899213 ps`**, F446 **200/200**, red 13/13.
+
+
+## Fase 1 del F415/F417: las máscaras del RCC, por referencia
+
+> Ejecuta la fase 1
+
+Esta fase no añade un chip ni toca un periférico. Lo que hace es **cambiar de
+sitio una decisión**: hasta aquí, qué bits existían en `RCC_xxxENR`/`RSTR`/
+`LPENR` lo decidía la **familia**; a partir de aquí lo decide la **referencia**.
+
+**Y con eso se cierra un agujero que llevaba abierto desde la primera fase del
+proyecto**, el que `reutilizacion.md` §9.5 tenía escrito con todas sus letras:
+en un F405, `RCC_AHB1ENR.ETHMACEN` se escribía y se leía igual que en un F407.
+El periférico no estaba —su ventana da error de bus— y el bit que lo enciende
+sí. Es la misma familia que I-41, I-43, I-44 y I-45: **el modelo más permisivo
+que el silicio**. Ahora:
+
+```
+STM32F407VG  AHB1ENR=0x7E7411FF  AHB2ENR=0x000000C1  ETHMACEN=SE PUEDE ENCENDER
+STM32F405VG  AHB1ENR=0x607411FF  AHB2ENR=0x000000C0  ETHMACEN=lee cero
+STM32F405RG  AHB1ENR=0x607411FF  AHB2ENR=0x000000C0  ETHMACEN=lee cero
+```
+
+**Se podía haber hecho lo fácil**: un tercer juego de máscaras, `MASC_F417`, y
+el F417 resuelto en cinco minutos. Habría funcionado, habría dejado el modelo
+repartiendo el mundo en «F407, F417 y F446», y a la siguiente referencia habría
+hecho falta un cuarto juego. Y sobre todo no habría tocado el F405.
+
+**Cuatro cambios, ninguno grande.** `Periferia` gana `cryp` y `hash`, a `false`
+explícito en los seis juegos que hay. Una estructura nueva, `BloquesRcc`, con lo
+poco que el RCC necesita saber del descriptor, puesta en la capa del RCC para
+que la dependencia apunte donde debe. `Rcc::mascaras()`, que convierte esa
+estructura en las quince máscaras y que es **estática y pública a propósito**:
+así la suite pregunta por la máscara de una referencia **sin construir el chip**,
+y las comprobaciones nuevas no cuestan un picosegundo. Y las seis constantes de
+bits, que no están escritas a mano: son los `RCC_xxx_yyy_Pos` que la cabecera
+del F407 define y la del F405 no —Ethernet y cámara— y los que la del F417
+define y la del F407 no —CRYP y HASH—, extraídos por máquina de las cuatro
+cabeceras de la misma versión del paquete.
+
+**Un detalle que me gustó, porque falló donde tenía que fallar.** La primera
+versión solo *quitaba* bits, y la prueba del F417 se cayó. El motivo: la tabla
+de la familia es la del **F407**, no la del die —salió de `stm32f407xx.h`, que
+es una referencia concreta—, así que hay bits que sobran en un F405 y bits que
+**faltan** en un F417. El ajuste va en las dos direcciones. Y la prueba que lo
+cazó es de un chip que todavía no existe: coge el descriptor del F407, le pone
+`cryp` y `hash` a `true` y comprueba que salen los dos bits. **La maquinaria de
+la fase 5 queda verificada cuatro fases antes de usarse.**
+
+**Lo que NO se ha tocado, y por qué.** El bit del FSMC se queda. La tentación
+era evidente —un F405RG no tiene bus externo, luego fuera el bit— y sería
+inventarse una fuente: que ahí no haya bus es cosa del **encapsulado**, no de la
+referencia, y ST no publica una cabecera por encapsulado. Eso deja una
+incoherencia que no es nueva pero que ahora se ve mejor: la ventana del FSMC
+está sin decodificar en un LQFP64 y su bit de reloj se puede encender. Queda
+como **I-49**, abierta y con las dos salidas escritas, porque decidirla bien
+necesita el RM0090 §37 o una placa con un F405RG delante.
+
+Catorce comprobaciones nuevas en **T02** y tres en el grupo **E1** del banco del
+F446 —estas últimas las más aburridas y las que más tranquilizan: comprueban que
+esa familia **no se ha movido ni un bit**—.
+
+Suite del F407 **2069/2069** (+14) en **`2336217899213 ps`**, la del F446
+**203/203** (+3) en `1033367277932 ps`, red 13/13, vectores 54/54, ASan+UBSan
+limpios en los dos bancos y las cinco placas validando. Puntos: **I-49** de
+alta, y el segundo punto de `reutilizacion.md` §9.5 tachado.

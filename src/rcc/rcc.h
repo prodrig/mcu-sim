@@ -172,6 +172,92 @@ public:
     sc_core::sc_out<unsigned> periph_on{"periph_on"};
 
     // ---- Gating y reset por periférico (ENR/RSTR) --------------------------
+    // -----------------------------------------------------------------------
+    // QUÉ BITS EXISTEN EN CADA REGISTRO DE RELOJ Y DE RESET
+    //
+    // Una máscara aquí no es una comodidad: es la frontera entre lo que el
+    // firmware puede encender y lo que no. Un bit de más es un modelo más
+    // permisivo que el silicio, que es la peor clase de error que puede tener
+    // un simulador didáctico —el alumno enciende el reloj del Ethernet en un
+    // chip que no lo lleva, se lo lee de vuelta, y se cree en lo cierto—.
+    //
+    // LAS VEINTE CONSTANTES SALEN DE LAS CABECERAS DE ST, extraídas contando
+    // los `RCC_xxx_yyy_Pos` que cada una define: `stm32f407xx.h` para una
+    // columna y `stm32f446xx.h` para la otra, las dos vendidas en
+    // `verif/fw/cmsis/`. No están escritas a mano, y por eso destaparon tres
+    // errores del modelo que llevaban aquí desde la fase 1 [I-44]:
+    //
+    //   * AHB1ENR usaba la máscara del AHB1LPENR (0x7E6791FF en vez de
+    //     0x7E7411FF): dejaba encender bits que no existen y prohibía dos que
+    //     sí —los del OTG HS—;
+    //   * AHB2ENR/RSTR/LPENR admitían los bits 4 y 5, que son el CRYP y el
+    //     HASH de un F417 y no de un F407;
+    //   * y el APB1ENR del F446, escrito en la fase 4, se dejaba fuera el bit
+    //     16, que es justamente el SPDIF-RX.
+    // -----------------------------------------------------------------------
+    // simulado.)
+    struct MascarasRcc {
+        uint32_t ahb1_rstr, ahb2_rstr, ahb3_rstr, apb1_rstr, apb2_rstr;
+        uint32_t ahb1_enr,  ahb2_enr,  ahb3_enr,  apb1_enr,  apb2_enr;
+        uint32_t ahb1_lpenr, ahb2_lpenr, ahb3_lpenr, apb1_lpenr, apb2_lpenr;
+    };
+    static constexpr MascarasRcc MASC_F407 = {
+        0x226011FFu, 0x000000C1u, 0x00000001u, 0x36FEC9FFu, 0x00075F33u,
+        0x7E7411FFu, 0x000000C1u, 0x00000001u, 0x36FEC9FFu, 0x00075F33u,
+        0x7E6791FFu, 0x000000C1u, 0x00000001u, 0x36FEC9FFu, 0x00075F33u };
+    static constexpr MascarasRcc MASC_F446 = {
+        0x206010FFu, 0x00000081u, 0x00000003u, 0x3FFFC9FFu, 0x00C77F33u,
+        0x606410FFu, 0x00000081u, 0x00000003u, 0x3FFFC9FFu, 0x00C77F33u,
+        0x606790FFu, 0x00000081u, 0x00000003u, 0x3FFFC9FFu, 0x00C77F33u };
+    // -----------------------------------------------------------------------
+    // DE LA TABLA DE FAMILIA A LA MÁSCARA DE ESTA REFERENCIA
+    //
+    // La familia da el punto de partida; lo que el chip NO lleva se quita. Las
+    // seis constantes de abajo no están escritas a mano: son los
+    // `RCC_xxx_yyy_Pos` que la cabecera del F407 define y la del F405 no
+    // -Ethernet y cámara- y los que la del F417 define y la del F407 no
+    // -CRYP y HASH-, extraídos por máquina de las cuatro cabeceras de
+    // STM32Cube_FW_F4 V1.28.3.
+    //
+    //   ETH   AHB1ENR y AHB1LPENR: bits 25..28   AHB1RSTR: solo el 25
+    //   DCMI  AHB2, los tres registros: bit 0
+    //   CRYP  AHB2, los tres registros: bit 4
+    //   HASH  AHB2, los tres registros: bit 5
+    //   RNG   AHB2, los tres registros: bit 6
+    //
+    // Que el RSTR del Ethernet tenga UN bit y el ENR cuatro no es una errata:
+    // el MAC se resetea entero y se alimenta por partes.
+    // -----------------------------------------------------------------------
+    static constexpr uint32_t M_ETH_ENR  = 0x1E000000u;   // 25,26,27,28
+    static constexpr uint32_t M_ETH_RSTR = 0x02000000u;   // 25
+    static constexpr uint32_t M_DCMI     = 0x00000001u;   // 0
+    static constexpr uint32_t M_CRYP     = 0x00000010u;   // 4
+    static constexpr uint32_t M_HASH     = 0x00000020u;   // 5
+    static constexpr uint32_t M_RNG      = 0x00000040u;   // 6
+
+    static MascarasRcc mascaras(const BloquesRcc& b) {
+        MascarasRcc m = b.f446 ? MASC_F446 : MASC_F407;
+        if (!b.eth) {
+            m.ahb1_enr   &= ~M_ETH_ENR;
+            m.ahb1_lpenr &= ~M_ETH_ENR;
+            m.ahb1_rstr  &= ~M_ETH_RSTR;
+        }
+        // EL AHB2 SE AJUSTA EN LAS DOS DIRECCIONES, y conviene ver por qué. La
+        // tabla de la familia es la del **F407**, no la del die: salió de
+        // `stm32f407xx.h`, que es una referencia concreta. Por eso hay bits que
+        // sobran en un F405 -la cámara- y bits que FALTAN en un F417 -el CRYP y
+        // el HASH-, y quedarse solo con el `&` dejaría al F417 sin poder
+        // encender lo único que lo distingue.
+        const uint32_t dentro = (b.cryp ? M_CRYP : 0u) | (b.hash ? M_HASH : 0u);
+        const uint32_t fuera  = (b.dcmi ? 0u : M_DCMI) | (b.cryp ? 0u : M_CRYP)
+                              | (b.hash ? 0u : M_HASH) | (b.rng  ? 0u : M_RNG);
+        m.ahb2_enr   = (m.ahb2_enr   | dentro) & ~fuera;
+        m.ahb2_rstr  = (m.ahb2_rstr  | dentro) & ~fuera;
+        m.ahb2_lpenr = (m.ahb2_lpenr | dentro) & ~fuera;
+        return m;
+    }
+
+
     // Los topes de reloj de ESTE chip, lo primero que se construye. Son la
     // unica parte del RCC que cambia de un F4 a otro -un F401 no pasa de
     // 84 MHz- y el aviso que sale de aqui es de los que ahorran una tarde.
@@ -182,7 +268,17 @@ public:
     // registros de seleccion dedicados y si hay over-drive. Cada uno de los
     // cinco enciende o apaga codigo de este fichero. [rcc/reloj_caps.h]
     const ArbolReloj arbol;
-    const bool enr_f446_ = false;   // ¿existen los siete bits del F446?
+    // QUÉ BLOQUES OPCIONALES lleva este chip, de los que el RCC tiene que
+    // saber. De aquí salen las máscaras de ENR/RSTR/LPENR, que desde la fase 1
+    // del plan del F415/F417 son **por referencia** y no por familia.
+    // [rcc/reloj_caps.h]
+    const BloquesRcc bloques;
+    // Y LA MÁSCARA YA CALCULADA, que es lo que se consulta en cada acceso.
+    // Se calcula una vez, al construir, porque no cambia: es un rasgo del chip.
+    // Va declarada aquí, justo detrás de `bloques`, y no al final de la clase,
+    // porque el orden de los miembros es el orden en que se inicializan.
+    const MascarasRcc masc_;
+    const MascarasRcc& masc() const { return masc_; }
 
     sc_core::sc_vector<sc_core::sc_out<bool>> periph_clk_en;   // [PeriphId]
     sc_core::sc_vector<sc_core::sc_out<bool>> periph_rst_n;    // [PeriphId]
@@ -226,16 +322,16 @@ public:
     // (típico 1.5 ms). Se deja como parámetro para no penalizar la simulación.
     sc_core::sc_time t_rst_release{20, sc_core::SC_US};
 
-    // `enr_f446` abre los siete bits de ENR/RSTR/LPENR que solo existen en esa
-    // familia. Va por separado y no dentro de `ArbolReloj` porque no es del
-    // árbol de reloj: es de qué periféricos lleva el chip, y eso lo dice
-    // `Periferia`. El top lo calcula de ahí.
+    // `blq` dice qué bloques opcionales lleva el chip. Va por separado y no
+    // dentro de `ArbolReloj` porque no es del árbol de reloj: es de qué
+    // periféricos lleva, y eso lo dice `Periferia`. El top lo calcula de ahí
+    // con `Periferia::bloques_rcc()`.
     explicit Rcc(sc_core::sc_module_name nm,
                  LimitesReloj lim = RELOJ_STM32F407VG,
                  ArbolReloj   arb = ARBOL_STM32F4,
-                 bool         enr_f446 = false)
+                 BloquesRcc   blq = BloquesRcc{})
         : BusSlave(nm, addr::RCC_B, 0x400), limites(lim), arbol(arb),
-          enr_f446_(enr_f446),
+          bloques(blq), masc_(mascaras(blq)),
           periph_clk_en("periph_clk_en", P_COUNT),
           periph_rst_n("periph_rst_n", P_COUNT),
           g_hclk_("g_hclk"), g_pclk1_("g_pclk1"), g_pclk2_("g_pclk2"),
@@ -367,43 +463,6 @@ protected:
 private:
     void bind_internal_();
 
-    // -----------------------------------------------------------------------
-    // QUÉ BITS EXISTEN EN CADA REGISTRO DE RELOJ Y DE RESET
-    //
-    // Una máscara aquí no es una comodidad: es la frontera entre lo que el
-    // firmware puede encender y lo que no. Un bit de más es un modelo más
-    // permisivo que el silicio, que es la peor clase de error que puede tener
-    // un simulador didáctico —el alumno enciende el reloj del Ethernet en un
-    // chip que no lo lleva, se lo lee de vuelta, y se cree en lo cierto—.
-    //
-    // LAS VEINTE CONSTANTES SALEN DE LAS CABECERAS DE ST, extraídas contando
-    // los `RCC_xxx_yyy_Pos` que cada una define: `stm32f407xx.h` para una
-    // columna y `stm32f446xx.h` para la otra, las dos vendidas en
-    // `verif/fw/cmsis/`. No están escritas a mano, y por eso destaparon tres
-    // errores del modelo que llevaban aquí desde la fase 1 [I-44]:
-    //
-    //   * AHB1ENR usaba la máscara del AHB1LPENR (0x7E6791FF en vez de
-    //     0x7E7411FF): dejaba encender bits que no existen y prohibía dos que
-    //     sí —los del OTG HS—;
-    //   * AHB2ENR/RSTR/LPENR admitían los bits 4 y 5, que son el CRYP y el
-    //     HASH de un F417 y no de un F407;
-    //   * y el APB1ENR del F446, escrito en la fase 4, se dejaba fuera el bit
-    //     16, que es justamente el SPDIF-RX.
-    // -----------------------------------------------------------------------
-    struct MascarasRcc {
-        uint32_t ahb1_rstr, ahb2_rstr, ahb3_rstr, apb1_rstr, apb2_rstr;
-        uint32_t ahb1_enr,  ahb2_enr,  ahb3_enr,  apb1_enr,  apb2_enr;
-        uint32_t ahb1_lpenr, ahb2_lpenr, ahb3_lpenr, apb1_lpenr, apb2_lpenr;
-    };
-    static constexpr MascarasRcc MASC_F407 = {
-        0x226011FFu, 0x000000C1u, 0x00000001u, 0x36FEC9FFu, 0x00075F33u,
-        0x7E7411FFu, 0x000000C1u, 0x00000001u, 0x36FEC9FFu, 0x00075F33u,
-        0x7E6791FFu, 0x000000C1u, 0x00000001u, 0x36FEC9FFu, 0x00075F33u };
-    static constexpr MascarasRcc MASC_F446 = {
-        0x206010FFu, 0x00000081u, 0x00000003u, 0x3FFFC9FFu, 0x00C77F33u,
-        0x606410FFu, 0x00000081u, 0x00000003u, 0x3FFFC9FFu, 0x00C77F33u,
-        0x606790FFu, 0x00000081u, 0x00000003u, 0x3FFFC9FFu, 0x00C77F33u };
-    const MascarasRcc& masc() const { return enr_f446_ ? MASC_F446 : MASC_F407; }
 
     // ---- Banco de registros [IR, §4.12] ------------------------------------
     // ⚠ NO DISPONIBLE EN LAS FUENTES: valor de calibración de fábrica HSICAL

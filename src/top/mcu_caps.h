@@ -93,6 +93,19 @@ struct Periferia {
     bool dcmi;
     bool fsmc;
     bool rng;
+    // EL ACELERADOR CRIPTOGRÁFICO, que es lo ÚNICO que distingue un F415 de un
+    // F405 y un F417 de un F407. Son dos y no uno porque son dos bloques
+    // distintos, con dos ventanas, dos bits de reloj y dos posiciones de
+    // vector —el CRYP en la 79 y el HASH compartiendo la 80 con el RNG—.
+    //
+    // Hoy los dos valen `false` en las quince referencias del catálogo, y eso
+    // NO es un hueco a la espera de rellenarse: es la afirmación de que
+    // ninguna de ellas lo lleva, que es verdad. Las diez del F415/F417 llegan
+    // en la fase 5 de ese plan, cuando los bloques estén modelados; declarar
+    // el chip antes que el bloque sería poner una etiqueta falsa.
+    // [doc/stm32f4xx/stm32f4xx_vs_415xx.md, §4.1 y §4.2]
+    bool cryp;
+    bool hash;
     bool i2sext;
     bool spi4;
     bool i2s1;
@@ -118,6 +131,20 @@ struct Periferia {
     // ellos, y preguntarlo así evita que el RCC tenga que conocer la lista.
     bool alguno_f446() const {
         return spi4 || sai || quadspi || fmpi2c1 || cec || spdifrx;
+    }
+
+    // LO QUE EL RCC NECESITA SABER de este descriptor, y nada más. Desde la
+    // fase 1 del plan del F415/F417 las máscaras de ENR/RSTR/LPENR son **por
+    // referencia**: un F405 no tiene los bits del Ethernet ni el de la cámara,
+    // y un F417 sí tiene los del CRYP y el HASH. Antes eran por familia, y ese
+    // era el agujero que `reutilizacion.md` §9.5 tenía anotado desde la fase 1
+    // del proyecto. [rcc/reloj_caps.h]
+    //
+    // El FSMC NO va aquí aunque esté ahí arriba: que un F405RG no saque el bus
+    // externo es cosa del encapsulado, no de la referencia, y no hay cabecera
+    // de ST por encapsulado que diga si el bit de reloj desaparece.
+    BloquesRcc bloques_rcc() const {
+        return BloquesRcc{ eth, dcmi, cryp, hash, rng, alguno_f446() };
     }
 };
 
@@ -197,16 +224,16 @@ inline constexpr MemCaps MEM_512K { FLASH_512K, RAM_STM32F407VG };
 // mismo que su valor por defecto: aqui son documentacion. Un `false` explicito
 // dice «este chip NO lleva el bloque»; un hueco no dice nada, y dentro de tres
 // periféricos nadie recordara si el hueco era una decision o un olvido.
-//                                    eth    dcmi   fsmc   rng   i2sext
+//                                    eth    dcmi   fsmc   rng   cryp   hash   i2sext
 //                                    spi4   i2s1   sai    sai2  qspi   fmpi2c cec    spdif
 inline constexpr Periferia PERIF_F407 {
-    true,  true,  true,  true, true,
+    true,  true,  true,  true, false, false, true,
     false, false, false, false, false, false, false, false };
 inline constexpr Periferia PERIF_F405 {
-    false, false, true,  true, true,
+    false, false, true,  true, false, false, true,
     false, false, false, false, false, false, false, false };
 inline constexpr Periferia PERIF_F405_R64 {
-    false, false, false, true, true,
+    false, false, false, true, false, false, true,
     false, false, false, false, false, false, false, false };
 
 // El identificador de la familia F405/407/415/417 en `DBGMCU_IDCODE`:
@@ -322,16 +349,19 @@ inline constexpr MemCaps MEM_STM32F446RE = MEM_STM32F446xE;
 //
 // Todo lo demás —Ethernet, RNG y los bloques de extensión del I2S, que no
 // están; la cámara, que sí— es igual en las ocho.
-//                                       eth    dcmi  fsmc   rng    i2sext
+// Y el acelerador criptográfico tampoco: en el F446 no hay CRYP ni HASH —ni un
+// solo símbolo de los dos en `stm32f446xx.h` [CMSIS]—, así que los dos campos
+// nuevos van a `false` en las ocho, escritos y no heredados.
+//                                       eth    dcmi  fsmc   rng    cryp   hash   i2sext
 //                                       spi4  i2s1  sai   sai2  qspi  fmp   cec   spdif
 // WLCSP81 (M): sin bus externo, con SAI2
-inline constexpr Periferia PERIF_F446_M { false, true, false, false, false,
+inline constexpr Periferia PERIF_F446_M { false, true, false, false, false, false, false,
                                           true, true, true, true, true, true, true, true };
 // LQFP64 (R): sin bus externo y con UN SOLO SAI
-inline constexpr Periferia PERIF_F446_R { false, true, false, false, false,
+inline constexpr Periferia PERIF_F446_R { false, true, false, false, false, false, false,
                                           true, true, true, false, true, true, true, true };
 // LQFP100 (V) y LQFP144/UFBGA144 (Z): con bus externo y con SAI2
-inline constexpr Periferia PERIF_F446_VZ{ false, true, true,  false, false,
+inline constexpr Periferia PERIF_F446_VZ{ false, true, true,  false, false, false, false,
                                           true, true, true, true, true, true, true, true };
 // El nombre que usaba la fase 2, que sigue valiendo y apunta al de su pieza.
 inline constexpr Periferia PERIF_F446RE = PERIF_F446_R;
