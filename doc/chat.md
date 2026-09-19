@@ -3921,3 +3921,71 @@ vectores 54/54 y ASan+UBSan limpios en los tres bancos.
 
 **Los dos bloques están escritos y nadie los ha enchufado todavía**: eso es la
 fase 4, y son unas sesenta líneas de pegamento.
+
+
+## Fase 4 del F415/F417: la integración
+
+> Ejecuta la fase 4
+
+Las sesenta líneas de pegamento. Ni aritmética nueva ni un chip nuevo: enchufar
+al bus, al reloj, al vector y al DMA dos bloques que hasta ahora vivían sueltos.
+Dos ventanas de AHB2 con su `tapa()` en la rama contraria, `P_CRYP` y `P_HASH`
+al final del enum de periféricos con sus bits 4 y 5 del AHB2, la **posición 79**
+—que en un F407 no tenía dueño— y una `Or2` nueva para la **80, que el HASH
+comparte con el RNG**, y las tres celdas de DMA.
+
+**Las tres celdas llevaban dos fases esperando.** Se dejaron sin fuente a
+propósito al cerrar I-48, con su comentario puesto y su comprobación en T26,
+porque el mapa del F407 sale del fichero del F417 y ahí estaban a la vista.
+Cablearlas ha sido quitar un comentario y poner un `if`.
+
+**El riesgo de verdad era otro, y no se materializó.** Añadir dos módulos **con
+su propio `SC_THREAD`** a un SoC que construyen las diecinueve referencias podía
+mover el invariante del F407: la lección de I-42 es que el orden en que SystemC
+despierta los procesos depende de cuántos hay. **No se movió.** 2071
+comprobaciones en **`2336217899213 ps`** con el CRYP y el HASH dentro. La
+diferencia con el F446 —donde añadir un chip sí lo movía— es que aquí los
+procesos nuevos **nunca despiertan**: sus puertos están atados a señales que
+nadie mueve, igual que el Ethernet de un F405.
+
+**Dos cosas salieron mal, y las dos se cazaron solas.**
+
+La primera, en la elaboración, que es la mejor hora:
+
+```
+Error: (E115) sc_signal<T> cannot have more than one driver:
+ first driver `tb.dut.i2s2ext.irq'
+ second driver `tb.dut.hash.irq'
+```
+
+El banco de entradas para las puertas OR tiene veinte posiciones y cogí la 14 y
+la 15, que ya eran de los bloques de extensión del I2S. Las libres eran las dos
+últimas. Error de recurso compartido, con los dos culpables impresos por su
+nombre y sin simular un picosegundo.
+
+La segunda la cazó el invariante. Añadir la ventana del HASH a la lista de
+direcciones reservadas del F407 —que se leen **por el bus**— parecía lo natural:
+
+```
+TOTAL     : 2070 comprobaciones OK, 0 fallos
+Tiempo simulado: 2336217961713 ps        <- 62 500 ps de mas
+```
+
+Una lectura por el bus cuesta tiempo simulado, y el invariante no se mueve ni
+por una comprobación buena. La versión que quedó pregunta al **decodificador**,
+no cuesta nada, y de paso comprueba que el RNG —que está en el mismo
+kilobyte— **sí** se decodifica: la asimetría era el error plausible.
+
+**Y una decisión de método que me gusta.** Las diez referencias no se declaran
+hasta la fase 5, así que para probar el cableado el banco se fabrica un
+**descriptor de laboratorio**: un F407VG con `cryp` y `hash` a `true`, hecho en
+`sc_main_f417.cpp` y **no** en `mcu_caps.h`. El catálogo dice lo que el proyecto
+afirma modelar; un banco puede recombinar piezas para mirarlas. Con él, el grupo
+I1 comprueba que `RCC_AHB2ENR` abre los bits 4 y 5 (`0xF1`), que sin reloj las
+dos ventanas dan error de bus y con él contestan, que un **AES-ECB-128 entero
+por el bus del chip** da el vector F.1.1 del SP 800-38A, que el CRYP levanta la
+79 y el HASH la 80, y que las tres celdas del DMA2 tienen fuente.
+
+F407 **2071/2071** (+2) en **`2336217899213 ps`**, F446 **203/203**, F417
+**137/137** (+13), `make hash` 23/23, `make cryp` 32/32, vectores 54/54, red
+13/13, las cinco placas validan y ASan+UBSan limpios en los tres bancos.

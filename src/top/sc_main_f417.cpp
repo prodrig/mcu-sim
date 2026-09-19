@@ -44,6 +44,7 @@
 #include "../periph/hash.h"
 #include "../periph/cryp.h"
 #include "../verif/bus_test_master.h"
+#include "soc_f4.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -81,11 +82,38 @@ std::string a_hex(const uint8_t* p, size_t n) {
 // ---------------------------------------------------------------------------
 // El banco
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// EL DESCRIPTOR DE LABORATORIO
+//
+// La fase 4 integra los dos bloques; las diez referencias del F415/F417 no se
+// declaran hasta la fase 5, cuando el catalogo pueda decir la verdad sobre
+// ellas. Para probar el CABLEADO hace falta, sin embargo, un chip que SI lleve
+// el acelerador, y este es: un F407VG con `cryp` y `hash` a `true`, hecho aqui
+// y no en `mcu_caps.h`.
+//
+// La distincion importa y es la de siempre: el catalogo dice lo que el proyecto
+// afirma modelar, y un banco de pruebas puede recombinar piezas para mirarlas.
+// Es lo mismo que hizo la fase 1 al calcular la mascara de un F417 que todavia
+// no existia. [mcu_caps.h: «No hay aqui ningun chip que el proyecto afirme
+// modelar y no modele»]
+// ---------------------------------------------------------------------------
+const McuCaps& caps_lab() {
+    static const McuCaps c = [] {
+        Periferia p = PERIF_F407;
+        p.cryp = true; p.hash = true;
+        return mcu_f4("LAB-F417VG", MEM_STM32F407VG, ENC_LQFP100, p);
+    }();
+    return c;
+}
+
 struct Tb : sc_module {
     Hash          dut{"hash"};
     Cryp          cdut{"cryp"};
     BusTestMaster mst{"mst"};
     BusTestMaster cmst{"cmst"};
+    // Y un CHIP ENTERO, con el acelerador dentro, para probar la integracion.
+    SocF4         soc{"soc", DBG_PINES, Cableado(), caps_lab()};
+    BusTestMaster smst{"smst"};
 
     sc_signal<bool>   s_clk{"s_clk"}, s_rst_n{"s_rst_n"}, s_clk_en{"s_clk_en"};
     sc_signal<double> s_clk_hz{"s_clk_hz"};
@@ -105,6 +133,7 @@ struct Tb : sc_module {
         cdut.clk(s_clk); cdut.rst_n(s_rst_n); cdut.clk_en(s_clk_en);
         cdut.clk_hz(s_clk_hz);
         cdut.irq(c_irq); cdut.dma_in(c_din); cdut.dma_out(c_dout);
+        smst.isk.bind(soc.matrix.from_tb);
         // Un megabyte de pila para el hilo del banco, igual que en
         // `sc_main.cpp`: este hilo lleva el mensaje, el contexto de 51 palabras
         // y las cadenas de cada comprobacion encima.
@@ -729,6 +758,83 @@ void Tb::run() {
         cwr(Cryp::R_CR, 0);
         wait(SC_ZERO_TIME);
         check(!c_din.read(), "sin DIEN no hay peticion");
+    }
+
+    // =======================================================================
+    grupo("I1 La integracion: un chip entero con el acelerador dentro");
+    // =======================================================================
+    // Hasta aqui los dos bloques se han probado SUELTOS. Esto mira lo que la
+    // fase 4 anade: que esten enchufados al bus, al reloj, al vector y al DMA.
+    {
+        auto srd = [&](uint64_t a) { uint32_t v = 0; smst.read32(a, v); return v; };
+        auto swr = [&](uint64_t a, uint32_t v) { smst.write32(a, v); };
+        auto serr = [&](uint64_t a) {
+            uint32_t v = 0;
+            return smst.read32(a, v) != tlm::TLM_OK_RESPONSE;
+        };
+
+        wait(30, SC_US);                       // que suelte el reset
+
+        check_eq(soc.rcc.bits_implementados(Rcc::R_AHB2ENR), 0x000000F1u,
+                 "en un chip CON acelerador, RCC_AHB2ENR abre los bits 4 y 5: "
+                 "0xF1 es 0xC1 mas el CRYP y el HASH");
+        check(serr(addr::CRYP_B) && serr(addr::HASH_B),
+              "sin encender su reloj, las dos ventanas dan error de bus");
+
+        swr(addr::RCC_B + Rcc::R_AHB2ENR, 0x30u);      // CRYPEN y HASHEN
+        check_eq(srd(addr::RCC_B + Rcc::R_AHB2ENR), 0x30u,
+                 "y los dos bits se dejan encender y se leen de vuelta");
+        check_eq(srd(addr::CRYP_B + Cryp::R_SR), Cryp::SR_IFEM | Cryp::SR_IFNF,
+                 "CRYP_SR contesta por el bus del chip: 0x03");
+        check_eq(srd(addr::HASH_B + Hash::R_SR), Hash::SR_DINIS,
+                 "y HASH_SR: 0x01");
+
+        // Un cifrado de verdad, entrando por el bus del chip. Es el vector
+        // F.1.1 del SP 800-38A, el mismo que trae el ejemplo de ST.
+        const auto clave = de_hex("2b7e151628aed2a6abf7158809cf4f3c");
+        const auto ent   = de_hex("6bc1bee22e409f96e93d7e117393172a");
+        for (unsigned i = 0; i < 4; ++i)
+            swr(addr::CRYP_B + Cryp::R_K0LR + 4*(4+i), Tb::pal(&clave[4*i]));
+        swr(addr::CRYP_B + Cryp::R_CR, (Cryp::M_AES_ECB << 3) | Cryp::CR_CRYPEN);
+        for (unsigned i = 0; i < 4; ++i)
+            swr(addr::CRYP_B + Cryp::R_DIN, Tb::pal(&ent[4*i]));
+        std::string got;
+        for (unsigned i = 0; i < 4; ++i) {
+            for (unsigned t = 0; t < 1000 &&
+                 !(srd(addr::CRYP_B + Cryp::R_SR) & Cryp::SR_OFNE); ++t) wait(5, SC_NS);
+            const uint32_t v = srd(addr::CRYP_B + Cryp::R_DOUT);
+            const uint8_t b[4] = { uint8_t(v >> 24), uint8_t(v >> 16),
+                                   uint8_t(v >> 8), uint8_t(v) };
+            got += a_hex(b, 4);
+        }
+        check_hex(got, "3ad77bb40d7a3660a89ecaf32466ef97",
+                  "y un AES-ECB-128 entero por el bus del chip da el vector del NIST");
+
+        // La posicion 79, mirada en la linea que entra al NVIC.
+        swr(addr::CRYP_B + Cryp::R_CR, Cryp::CR_FFLUSH);
+        swr(addr::CRYP_B + Cryp::R_IMSCR, Cryp::I_IN);
+        swr(addr::CRYP_B + Cryp::R_CR, (Cryp::M_AES_ECB << 3) | Cryp::CR_CRYPEN);
+        wait(SC_ZERO_TIME);
+        check(soc.s_irq[79].read(),
+              "el CRYP levanta la posicion 79, que en un F407 no tiene dueno");
+        swr(addr::CRYP_B + Cryp::R_IMSCR, 0);
+        swr(addr::CRYP_B + Cryp::R_CR, 0);
+
+        // Y la 80, que es COMPARTIDA con el RNG.
+        check(!soc.s_irq[80].read(), "la 80 esta baja");
+        swr(addr::HASH_B + Hash::R_IMR, Hash::IMR_DINIE);
+        wait(SC_ZERO_TIME);
+        check(soc.s_irq[80].read(),
+              "el HASH la levanta: la 80 es «HASH and Rng», compartida");
+        swr(addr::HASH_B + Hash::R_IMR, 0);
+        wait(SC_ZERO_TIME);
+        check(!soc.s_irq[80].read(), "y al quitarle la mascara se cae");
+
+        // Las tres celdas de DMA, preguntadas a la mascara del controlador.
+        const uint64_t m = soc.dma2.celdas_con_fuente;
+        check((m >> (5*8+2)) & 1u, "DMA2 stream 5 canal 2 (CRYP_OUT) tiene fuente");
+        check((m >> (6*8+2)) & 1u, "DMA2 stream 6 canal 2 (CRYP_IN) tambien");
+        check((m >> (7*8+2)) & 1u, "y DMA2 stream 7 canal 2 (HASH_IN)");
     }
 
     std::printf("\nTOTAL F417 : %u comprobaciones OK, %u fallos\n", g_ok, g_fallo);

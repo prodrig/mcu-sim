@@ -34,7 +34,7 @@ este informe están hechas por máquina, no a ojo**, y sobre ficheros del propio
 fabricante. Donde se dice «idéntico» quiere decir que un programa comparó los
 dos conjuntos y la diferencia salió vacía. Los recuentos están en §3.2 y §4.
 
-> **ESTADO: las fases 0, 1, 2 y 3 del plan están EJECUTADAS.** Los siete puntos se han
+> **ESTADO: las fases 0 a 4 del plan están EJECUTADAS.** Los siete puntos se han
 > cerrado; los cinco primeros ya lo estaban al escribir este documento, y los
 > dos que quedaban —el alcance y los vectores— se cerraron con código y con
 > datos, no con una frase. Está contado en la **§14**, al final, y **encontró
@@ -45,8 +45,11 @@ dos conjuntos y la diferencia salió vacía. Los recuentos están en §3.2 y §4
 > calcula MD5, SHA-1 y los dos HMAC, y tiene **banco propio** —el tercer
 > ejecutable del proyecto—. La **fase 3** está en la **§17**: el CRYP cifra y
 > descifra con AES de 128, 192 y 256 bits en ECB, CBC y CTR, y con DES y TDES
-> en ECB y CBC. **Los dos bloques están escritos**; falta integrarlos, que es
-> la fase 4. Las secciones de más arriba llevan incorporado lo verificado.
+> en ECB y CBC. La **fase 4** está en la **§18**: los dos bloques **ya están
+> enchufados** —ventana de AHB2, bit de reloj, posición de vector y celda de
+> DMA— y el invariante del F407 **no se movió**. Falta declarar las diez
+> referencias, que es la fase 5. Las secciones de más arriba llevan incorporado
+> lo verificado.
 
 ---
 
@@ -562,7 +565,7 @@ claves.
 * **Criterio de salida**: FIPS 197 y NIST SP 800-38A salen bit a bit, en cifrado
   y en descifrado.
 
-### Fase 4 — La integración
+### Fase 4 — La integración — **HECHA, §18**
 
 Las ~60 líneas de pegamento, todas condicionadas por `Periferia`:
 
@@ -1248,3 +1251,124 @@ en la rama contraria, los dos bits de reloj —que desde la fase 1 se abren
 solos—, `cryp.irq` a la posición 79 y una `Or2` para la 80 que el HASH comparte
 con el RNG, y las tres celdas de DMA que desde **I-48** están esperando con su
 comentario puesto.
+
+---
+
+## 18. Fase 4: la integración
+
+Las sesenta líneas de pegamento. No hay aritmética nueva y no hay un chip nuevo:
+lo que hay es enchufar al bus, al reloj, al vector de interrupciones y al DMA
+dos bloques que hasta ahora vivían sueltos.
+
+### 18.1 Lo que se conectó
+
+| Enganche | Dónde | Cómo |
+| :--- | :--- | :--- |
+| Dos ventanas de AHB2 | `soc_f4.h` | `add_slave` si el chip lo lleva, `tapa()` si no |
+| Dos bits de reloj | `rcc.h`, `soc_f4_bind2.h` | `P_CRYP` y `P_HASH` al final del enum, bits 4 y 5 del AHB2 |
+| Posición 79 | `soc_f4_bind2.h` | `cryp.irq(s_irq[79])`, que en un F407 no tenía dueño |
+| Posición 80 | `soc_f4_bind2.h` | una `Or2` nueva: **HASH y RNG la comparten** |
+| Tres celdas de DMA | `soc_f4_bind2.h` | DMA2, canal 2, streams 5, 6 y 7 |
+
+**Los dos bloques se construyen siempre**, en las diecinueve referencias del
+catálogo, porque la elaboración de SystemC es estática y no hay otra. En un
+F405/F407 se quedan **sin camino desde el bus** —su ventana no la decodifica
+nadie y tocarla da error— exactamente igual que el Ethernet en un F405. No hace
+falta un `if` para el reloj: de eso se encarga la máscara por referencia que
+puso la fase 1, y los dos bits sencillamente no existen en un chip sin
+acelerador.
+
+**Las tres celdas de DMA llevaban dos fases esperando.** Se dejaron sin fuente a
+propósito cuando se cerró **I-48**, con su comentario en el código y su
+comprobación en T26, porque el mapa del F407 sale del fichero del F417 y ahí
+estaban a la vista. Cablearlas ha sido quitar un comentario y poner un `if`.
+
+### 18.2 El riesgo que había, y que no se materializó
+
+Añadir dos módulos **con su propio `SC_THREAD`** a un SoC que construyen las
+diecinueve referencias era el riesgo real de esta fase. La lección de **I-42**
+es que el orden en que SystemC despierta los procesos depende de cuántos hay, y
+el invariante del F407 lleva nueve fases sin moverse un picosegundo.
+
+**No se movió.** 2071 comprobaciones en `2336217899213 ps`, con el CRYP y el
+HASH construidos dentro. La diferencia con el caso del F446 —donde añadir un
+chip sí lo movía— es que aquí los procesos nuevos **nunca despiertan**: sus
+puertos están atados a señales que nadie mueve, que es el mismo motivo por el
+que el Ethernet de un F405 no cuesta nada.
+
+### 18.3 Las dos cosas que salieron mal
+
+**La primera la cazó SystemC en la elaboración**, que es la mejor hora para
+cazar algo:
+
+```
+Error: (E115) sc_signal<T> cannot have more than one driver:
+ signal `tb.dut.signal_29'
+ first driver `tb.dut.i2s2ext.irq'
+ second driver `tb.dut.hash.irq'
+```
+
+El banco de entradas para las puertas OR tiene veinte posiciones y yo cogí la 14
+y la 15, que ya eran de los bloques de extensión del I2S. Las libres eran las
+dos últimas. Un error de recurso compartido, detectado antes de simular un solo
+picosegundo y con los dos culpables impresos por su nombre.
+
+**La segunda la cazó el invariante.** La prueba de ventanas reservadas del F407
+es una lista de direcciones que se leen por el bus esperando error, y añadir la
+del HASH a esa lista parecía lo natural. El resultado:
+
+```
+TOTAL     : 2070 comprobaciones OK, 0 fallos
+Tiempo simulado: 2336217961713 ps        <- 62 500 ps de mas
+```
+
+**Una lectura por el bus cuesta tiempo simulado**, y el invariante no se mueve ni
+por una comprobación buena. La versión que quedó pregunta al **decodificador**
+—`ahb2_dec.decodes(...)`— y no cuesta nada, que es la misma costumbre que la
+fase 1 usó para las máscaras del RCC. De paso comprueba también que el RNG, que
+está en el mismo kilobyte, **sí** se decodifica: la asimetría era el error
+plausible.
+
+### 18.4 Cómo se comprueba una integración cuando el chip aún no existe
+
+Las diez referencias no se declaran hasta la fase 5. Para probar el cableado
+hace falta un chip que **sí** lleve el acelerador, y el banco se lo fabrica: un
+**descriptor de laboratorio**, un F407VG con `cryp` y `hash` a `true`, hecho en
+`sc_main_f417.cpp` y **no** en `mcu_caps.h`.
+
+La distinción no es un tecnicismo. El catálogo dice lo que el proyecto afirma
+modelar —«no hay aquí ningún chip que el proyecto afirme modelar y no
+modele»— y un banco de pruebas puede recombinar piezas para mirarlas. Es lo
+mismo que hizo la fase 1 al calcular la máscara de un F417 que no existía.
+
+Con ese chip, el grupo **I1** comprueba lo que la fase añade:
+
+* `RCC_AHB2ENR` abre los bits 4 y 5 — **`0xF1`**, que es `0xC1` más los dos;
+* **sin encender el reloj, las dos ventanas dan error de bus**, y con él contestan;
+* un **AES-ECB-128 entero por el bus del chip** da el vector F.1.1 del SP 800-38A;
+* el CRYP levanta la **posición 79**, que en un F407 no tiene dueño;
+* el HASH levanta la **80**, y al quitarle la máscara se cae — es la compartida;
+* las tres celdas del DMA2 **tienen fuente**, preguntado a `celdas_con_fuente`.
+
+Y en el lado del F407 la comprobación es la contraria y sigue pasando: las dos
+ventanas sin decodificar, las tres celdas sin fuente (T26) y los bits 4 y 5 sin
+existir (T02).
+
+### 18.5 El estado, después
+
+| | Antes | Después |
+| :--- | ---: | ---: |
+| Suite del F407 | 2069 | **2071**, en `2336217899213 ps` |
+| Suite del F446 | 203 | 203, en `1033367277932 ps` |
+| Banco del F417 | 124 | **137** |
+| `make hash` / `make cryp` | 23 / 32 | 23 / 32 |
+| `make vectores` | 54 | 54 |
+| Capa de red | 13 | 13 |
+| Placas | 5 validan | 5 validan |
+| ASan + UBSan | limpios | **limpios en los tres** |
+
+### 18.6 Qué queda para la fase 5
+
+Nada de fontanería: tres juegos de `Periferia`, diez `McuCaps` y el catálogo de
+diecinueve a veintinueve referencias. El descriptor de laboratorio del banco
+desaparece entonces, porque habrá chips de verdad que hagan su trabajo.

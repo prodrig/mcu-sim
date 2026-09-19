@@ -59,6 +59,11 @@
 #include "../periph/sdio.h"
 #include "../periph/fsmc.h"
 #include "../periph/dcmi.h"
+// El acelerador criptográfico del F415/F417. Se construye SIEMPRE -la
+// elaboración de SystemC es estática- y en un F405/F407 se queda sin camino
+// desde el bus, igual que el Ethernet en un F405. [vs_415xx §18]
+#include "../periph/cryp.h"
+#include "../periph/hash.h"
 #include "../periph/eth_mac.h"
 #include "../periph/otg.h"
 #include "../periph/dma.h"
@@ -116,6 +121,8 @@ SC_MODULE(SocF4) {
     OtgFs   otg_fs{"otg_fs"};
     Dcmi    dcmi{"dcmi"};
     Rng     rng{"rng"};
+    Cryp    cryp{"cryp"};
+    Hash    hash{"hash"};
     CrcUnit crc{"crc"};
     Fsmc    fsmc{"fsmc"};
 
@@ -262,7 +269,12 @@ SC_MODULE(SocF4) {
         q_sai1_a{"q_sai1_a"}, q_sai1_b{"q_sai1_b"},
         q_sai2_a{"q_sai2_a"}, q_sai2_b{"q_sai2_b"},
         q_spi4_rx{"q_spi4_rx"}, q_spi4_tx{"q_spi4_tx"},
-        q_qspi{"q_qspi"};
+        q_qspi{"q_qspi"},
+        // Las tres del acelerador criptográfico del F415/F417: `CRYP_IN`,
+        // `CRYP_OUT` y `HASH_IN`. Las señales existen siempre -los bloques se
+        // construyen siempre- y lo que cambia por referencia es si alguna celda
+        // del DMA las mira.
+        q_cryp_in{"q_cryp_in"}, q_cryp_out{"q_cryp_out"}, q_hash_in{"q_hash_in"};
     sc_core::sc_vector<sc_core::sc_signal<bool>> q_tim_cc{"q_tim_cc", 6 * 4}; // tim1/2/3/4/5/8 x ch
     sc_core::sc_signal<bool> q_tim_up[6];   // tim1/2/3/4/5/8 UP
     sc_core::sc_signal<bool> q_tim1_trig{"q_tim1_trig"}, q_tim8_trig{"q_tim8_trig"};
@@ -278,6 +290,11 @@ SC_MODULE(SocF4) {
     Or2 or_irq24{"or_irq24"}, or_irq25{"or_irq25"}, or_irq26{"or_irq26"};
     Or2 or_irq43{"or_irq43"}, or_irq44{"or_irq44"}, or_irq45{"or_irq45"};
     Or2 or_irq54{"or_irq54"};
+    // La posición 80 la comparten el HASH y el RNG: en el F415/F417 esa línea
+    // es «HASH and Rng global interrupt» [CMSIS, HASH_RNG_IRQn]. En un F407 el
+    // HASH no existe y su entrada se queda en cero, que es lo correcto: un OR
+    // con una entrada muerta es la misma señal.
+    Or2 or_irq80{"or_irq80"};
     // Los bloques de extension del I2S comparten el vector de su SPI padre
     Or2 or_spi2{"or_spi2"}, or_spi3{"or_spi3"};
     sc_core::sc_signal<bool> s_or_in[20];
@@ -576,6 +593,20 @@ inline void SocF4::bind_bus() {
         ahb2_dec.add_slave("to_rng", addr::RNG_B, 0x400)->bind(rng.tsk);
     else
         tapa(rng.tsk, "nc_rng");
+    // EL ACELERADOR CRIPTOGRÁFICO, en el mismo kilobyte que el RNG y justo
+    // delante de él. En un F405/F407 estas dos ventanas están RESERVADAS: no
+    // las decodifica nadie y tocarlas da error de bus, que es lo que hace el
+    // silicio. Es la misma doctrina que el Ethernet ausente, y la prueba de
+    // direcciones de la suite del F407 la comprueba desde la fase 1 con la
+    // etiqueta literal «CRYP: no existe en el F407». [RM0090 Rev 22, tabla 1]
+    if (mcu.perif.cryp)
+        ahb2_dec.add_slave("to_cryp", addr::CRYP_B, 0x400)->bind(cryp.tsk);
+    else
+        tapa(cryp.tsk, "nc_cryp");
+    if (mcu.perif.hash)
+        ahb2_dec.add_slave("to_hash", addr::HASH_B, 0x400)->bind(hash.tsk);
+    else
+        tapa(hash.tsk, "nc_hash");
     // Puentes y decodificadores APB
     br_apb1.pclk(s_pclk1); br_apb1.pclk_hz(s_pclk1_hz); br_apb1.apb.bind(apb1_dec.tsk);
     br_apb2.pclk(s_pclk2); br_apb2.pclk_hz(s_pclk2_hz); br_apb2.apb.bind(apb2_dec.tsk);

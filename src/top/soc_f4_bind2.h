@@ -207,6 +207,12 @@ inline void SocF4::bind_periph_common() {
 
     bind_bus_slave(crc, s_hclk, P_CRC);
     bind_bus_slave(rng, s_hclk, P_RNG);
+    // Los dos del acelerador criptográfico. Cuelgan de HCLK, como el resto del
+    // AHB2, y su bit de ENR solo existe en un F415/F417: de eso se encarga la
+    // máscara por referencia de la fase 1, y por eso aquí no hay ningún `if`.
+    bind_bus_slave(cryp, s_hclk, P_CRYP);
+    bind_bus_slave(hash, s_hclk, P_HASH);
+    cryp.dma_in(q_cryp_in); cryp.dma_out(q_cryp_out); hash.dma_req(q_hash_in);
     // El RNG cuelga del PLL48CK, no de HCLK: su vigilancia de reloj compara las
     // DOS frecuencias, y por eso necesita las dos [IR, §12.19].
     rng.pll48ck(s_pll48); rng.pll48ck_hz(s_pll48_hz); rng.hclk_hz(s_hclk_hz);
@@ -312,8 +318,18 @@ inline void SocF4::bind_irqs() {
     exti.irq_otghs_wkup(s_irq[76]);
     otg_hs.irq_global(s_irq[77]);
     dcmi.irq(s_irq[78]);
-    // 79 = CRYP: reservado en el F407 (sin driver)
-    rng.irq(s_irq[80]);
+    // 79 = CRYP. La posicion existe en las cuatro piezas de la familia; lo que
+    // cambia es que en un F415/F417 TIENE DUENO. En un F405/F407 el bloque esta
+    // construido y sin camino desde el bus, asi que su linea no se mueve nunca.
+    cryp.irq(s_irq[79]);
+    // 80 = HASH y RNG, COMPARTIDA [CMSIS, HASH_RNG_IRQn]. El OR es el mismo
+    // molde que las otras siete de esta tabla.
+    // (18 y 19 son las dos ultimas libres del banco: las catorce primeras son
+    // de las siete OR de temporizadores y las cuatro siguientes, de los dos
+    // bloques de extension del I2S.)
+    or_irq80.a(s_or_in[18]); or_irq80.b(s_or_in[19]); or_irq80.y(s_irq[80]);
+    rng.irq(s_or_in[18]);
+    hash.irq(s_or_in[19]);
     // 81 = FPU: TODO(F2) conectar core.fpu (señal interna del núcleo) a s_irq[81]
     // IRQs no usadas de TIM1/TIM8 (la global de los avanzados no existe)
     tim1.irq_global(s_nc[nc()]);
@@ -456,8 +472,18 @@ inline void SocF4::bind_dma_requests() {
         m1[C(0,3)] = &q_i2s3ext_rx;   m1[C(2,2)] = &q_i2s3ext_rx;
         m1[C(3,3)] = &q_i2s2ext_rx;   m1[C(4,2)] = &q_i2s2ext_tx;
         m1[C(5,2)] = &q_i2s3ext_tx;
-        // Las del CRYP y el HASH -DMA2, canal 2 de los streams 5, 6 y 7- son
-        // del F415/F417 y NO de este chip: se quedan sin fuente a proposito.
+        // Y LAS TRES DEL ACELERADOR: DMA2, canal 2, streams 5, 6 y 7
+        // [RM0090 Rev 22, tabla 44, y DMA-STM32F417_dma_v2_0_Modes.xml].
+        //
+        // Estaban a la vista desde que se cerro I-48 -el mapa del F407 sale del
+        // fichero del F417, porque es el mismo die- y se dejaron sin fuente A
+        // PROPOSITO, con su comentario aqui y su comprobacion en T26. En un
+        // F405/F407 siguen sin fuente, que es lo que T26 sigue comprobando; en
+        // un F415/F417 se cablean.
+        if (mcu.perif.cryp) {
+            m2[C(5,2)] = &q_cryp_out;   m2[C(6,2)] = &q_cryp_in;
+        }
+        if (mcu.perif.hash) m2[C(7,2)] = &q_hash_in;
     } else {
         // --- Lo que solo tiene el F446 -------------------------------------
         // Donde el F407 tiene los I2SxEXT, el F446 tiene el FMPI2C1 y el

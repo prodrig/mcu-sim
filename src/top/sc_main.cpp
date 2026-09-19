@@ -1559,6 +1559,23 @@ SC_MODULE(F1Tb) {
         };
         for (const R& r : res)
             check(tm.read32(r.a, v) == TLM_ADDRESS_ERROR_RESPONSE, r.d);
+        // LA PAREJA DEL CRYP, preguntada al DECODIFICADOR y no por el bus.
+        //
+        // La fase 4 del plan del F415/F417 construye los dos bloques en todos
+        // los F4 -la elaboracion de SystemC es estatica- y les quita el camino
+        // desde el bus en los que no los llevan. Que la ventana del CRYP diera
+        // error y la del HASH no habria sido el fallo mas tonto posible, asi
+        // que se comprueban las dos.
+        //
+        // Y se pregunta al modelo: una lectura mas por el bus habria costado
+        // 62 500 ps de tiempo simulado, y el invariante de esta suite no se
+        // mueve ni por una comprobacion buena. Se vio al intentarlo.
+        check(!dut->ahb2_dec.decodes(0x50060000ull) &&
+              !dut->ahb2_dec.decodes(0x50060400ull),
+              "ni el CRYP ni el HASH estan en el decodificador de AHB2: en un "
+              "F407 los dos bloques existen y NO tienen camino desde el bus");
+        check(dut->ahb2_dec.decodes(addr::RNG_B),
+              "y el RNG, que esta en el mismo kilobyte, si");
     }
 
     // -----------------------------------------------------------------------

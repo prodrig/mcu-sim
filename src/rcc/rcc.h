@@ -57,6 +57,9 @@ enum PeriphId : unsigned {
     // posición en un vector de señales, y renumerarlos por estética habría
     // sido tocar el F407 para añadir algo que el F407 no tiene.
     P_SPI4, P_SAI1, P_SAI2, P_QUADSPI, P_FMPI2C1, P_CEC, P_SPDIFRX,
+    // --- Y los DOS del F415/F417 (fase 4 de su plan) ----------------------
+    // Al final por el mismo motivo: añadir no puede renumerar lo que ya está.
+    P_CRYP, P_HASH,
     P_COUNT
 };
 
@@ -75,6 +78,11 @@ static const RccBitMap RCC_BITMAP[] = {
     {G_AHB1, 29, P_OTGHS},
     // ---- AHB2 ----
     {G_AHB2, 0, P_DCMI}, {G_AHB2, 6, P_RNG}, {G_AHB2, 7, P_OTGFS},
+    // Los dos del acelerador criptográfico. En un F405/F407 estos bits NO
+    // existen -la máscara por referencia de la fase 1 los deja fuera-, así que
+    // esta fila no los hace aparecer: solo dice a quién alimentan donde sí
+    // están. [stm32f417xx.h: RCC_AHB2ENR_CRYPEN_Pos = 4, _HASHEN_Pos = 5]
+    {G_AHB2, 4, P_CRYP}, {G_AHB2, 5, P_HASH},
     // ---- AHB3 ----
     {G_AHB3, 0, P_FSMC},
     // ---- APB1 ----
