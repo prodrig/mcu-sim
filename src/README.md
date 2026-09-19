@@ -76,6 +76,7 @@ make -f Makefile.mcu-sim test407      # la suite del F407 (o: cp Makefile.mcu-si
 make -f Makefile.mcu-sim test446      # la del F446
 make -f Makefile.mcu-sim test417      # la del acelerador criptografico
 make -f Makefile.mcu-sim hash         # los vectores de MD5/SHA-1, sin SystemC
+make -f Makefile.mcu-sim cryp         # los de AES/DES/TDES, tampoco
 make -f Makefile.mcu-sim asan407      # la misma suite con ASan + UBSan
 make -f Makefile.mcu-sim vectores     # los vectores del CRYP/HASH, sin SystemC
 make -f Makefile.mcu-sim run IMG=fw.bin # carga una imagen y simula

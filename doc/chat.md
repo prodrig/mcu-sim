@@ -3860,3 +3860,64 @@ causa falsa es peor que no tenerlo.
 F407 **2069/2069** en **`2336217899213 ps`**, F446 **203/203**, F417 **63/63**,
 `make hash` **23/23** contra el núcleo, `make vectores` 54/54, red 13/13 y
 ASan+UBSan limpios en los **tres** bancos.
+
+
+## Fase 3 del F415/F417: el CRYP
+
+> Ejecuta la fase 3
+
+El segundo bloque, y el que da nombre al acelerador: **AES de 128, 192 y 256
+bits en ECB, CBC y CTR, y DES y TDES en ECB y CBC**, cifrando y descifrando. Con
+esto está el juego completo que el F415/F417 tiene, que es lo que la fase 0
+decidió.
+
+Mismo reparto que en el HASH: `cryp_algo.h` son los **dos cifradores de bloque**
+y nada más, y `cryp.h` es todo lo que el silicio pone alrededor —las dos FIFO de
+ocho palabras, `DATATYPE`, el encadenado de CBC, el contador de CTR, la
+preparación de clave, `BUSY` con los ciclos de la tabla 111, las dos
+interrupciones de servicio de FIFO y las dos peticiones de DMA—. **El encadenado
+no va en el núcleo** porque en el silicio tampoco: esos XOR los hace el bloque
+alrededor del cifrador.
+
+**La caja-S del AES no es una tabla copiada: se genera.** Es el inverso
+multiplicativo en GF(2⁸) más la transformación afín de la FIPS 197, construido
+al arrancar, así que no hay 256 números que puedan estar mal copiados. Con DES
+no se puede y lo digo: sus ocho cajas-S y sus seis permutaciones son tablas
+arbitrarias de 1976, no se derivan de nada, y lo único que las protege es el
+vector clásico `"Now is t"` → `3fa40e8a984d4815`.
+
+**La preparación de clave resultó ser fácil, y por un motivo que merece la
+pena.** Descifrar en ECB o CBC necesita `ALGOMODE = 111`, y el manual dice que
+el bloque «copia el resultado de vuelta en K0…K3». Modelar eso parecía obligar a
+implementar la expansión **inversa** del AES —recuperar todas las subclaves a
+partir de la última—, que es la parte fea. No hace falta: en la tabla del
+§23.6.10 **los ocho registros de clave tienen todos sus bits marcados `w`**. Son
+de solo escritura, y esa copia no es observable. El modelo hace lo que sí se ve:
+cobra los ciclos, mantiene `BUSY` y deja `CRYPEN` a cero al terminar.
+
+**Y el banco encontró un fallo que estaba a un dato de distancia.** La condición
+del servicio de la FIFO de entrada: yo había puesto «pide cuando le **caben**
+cuatro palabras» y el §23.5 dice, literal, «cuando hay **menos de cuatro**». Con
+una FIFO de ocho las dos frases coinciden en siete de los nueve tamaños posibles
+y difieren justo en uno —con cuatro dentro, la buena se calla y la mala sigue
+pidiendo—. Un DMA atado a ese bit habría escrito una palabra de más en el peor
+momento. De rebote mejoró la prueba: ahora mira **los dos lados de la frontera**,
+con tres y con cuatro.
+
+Dos capas de comprobación, como en el HASH. `make cryp` pasa los 16 casos de
+`cryp.vec` por el núcleo **en las dos direcciones** —32 comprobaciones, sin
+SystemC—, y el banco los pasa **por el bus** con la secuencia completa de
+registros que usaría el firmware, más los cuatro `DATATYPE`, las banderas de las
+FIFO, `FFLUSH`, los ciclos de `BUSY` y las cuatro líneas de salida.
+
+También hay una comprobación que lee `0x50` y espera cero: **GCM y CCM son del
+F42x/F43x**, la tabla 114 termina en `0x4C`, y la cabecera de ST declara los
+dieciséis registros que faltan porque es compartida por toda la familia. Es la
+misma trampa que I-44, y esta vez estaba vista de antemano.
+
+Banco del F417 **124/124** (+61), `make cryp` **32/32**, `make hash` 23/23,
+F407 **2069/2069** en **`2336217899213 ps`**, F446 **203/203**, red 13/13,
+vectores 54/54 y ASan+UBSan limpios en los tres bancos.
+
+**Los dos bloques están escritos y nadie los ha enchufado todavía**: eso es la
+fase 4, y son unas sesenta líneas de pegamento.

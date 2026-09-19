@@ -42,6 +42,7 @@
 // ejecutable nuevo del proyecto se olvida de incluirlo.
 #include "../common/asan_opciones.h"
 #include "../periph/hash.h"
+#include "../periph/cryp.h"
 #include "../verif/bus_test_master.h"
 
 using namespace sc_core;
@@ -82,11 +83,14 @@ std::string a_hex(const uint8_t* p, size_t n) {
 // ---------------------------------------------------------------------------
 struct Tb : sc_module {
     Hash          dut{"hash"};
+    Cryp          cdut{"cryp"};
     BusTestMaster mst{"mst"};
+    BusTestMaster cmst{"cmst"};
 
     sc_signal<bool>   s_clk{"s_clk"}, s_rst_n{"s_rst_n"}, s_clk_en{"s_clk_en"};
     sc_signal<double> s_clk_hz{"s_clk_hz"};
     sc_signal<bool>   s_irq{"s_irq"}, s_dma{"s_dma"};
+    sc_signal<bool>   c_irq{"c_irq"}, c_din{"c_din"}, c_dout{"c_dout"};
 
     static constexpr double HCLK = 168e6;      // el F417 a tope, como el F407
 
@@ -94,6 +98,13 @@ struct Tb : sc_module {
         mst.isk.bind(dut.tsk);
         dut.clk(s_clk); dut.rst_n(s_rst_n); dut.clk_en(s_clk_en);
         dut.clk_hz(s_clk_hz); dut.irq(s_irq); dut.dma_req(s_dma);
+        // El CRYP va en su propio socket: son dos esclavos sueltos, sin SoC
+        // alrededor, y cada uno con su maestro para que las direcciones de uno
+        // no tengan que pasar por el otro.
+        cmst.isk.bind(cdut.tsk);
+        cdut.clk(s_clk); cdut.rst_n(s_rst_n); cdut.clk_en(s_clk_en);
+        cdut.clk_hz(s_clk_hz);
+        cdut.irq(c_irq); cdut.dma_in(c_din); cdut.dma_out(c_dout);
         // Un megabyte de pila para el hilo del banco, igual que en
         // `sc_main.cpp`: este hilo lleva el mensaje, el contexto de 51 palabras
         // y las cadenas de cada comprobacion encima.
@@ -160,6 +171,63 @@ struct Tb : sc_module {
         return digest(md5 ? 16 : 20);
     }
 
+    // --- El CRYP ------------------------------------------------------------
+    void cwr(uint32_t off, uint32_t v) { cmst.write32(addr::CRYP_B + off, v); }
+    uint32_t crd(uint32_t off) { uint32_t v = 0; cmst.read32(addr::CRYP_B + off, v); return v; }
+
+    // Monta la configuracion y procesa un mensaje entero, como haria el
+    // firmware: clave, IV, CRYPEN, y luego bloque a bloque mirando la FIFO.
+    std::vector<uint8_t> cryp(unsigned modo, bool descifra, unsigned keysize,
+                              const std::vector<uint8_t>& clave,
+                              const std::vector<uint8_t>& iv,
+                              const std::vector<uint8_t>& in,
+                              unsigned datatype = 0) {
+        const bool aes = modo >= Cryp::M_AES_ECB;
+        const unsigned np = aes ? 4u : 2u;          // palabras por bloque
+
+        cwr(Cryp::R_CR, Cryp::CR_FFLUSH);           // con CRYPEN = 0, vacia las FIFO
+        // La clave entra por el TROZO BAJO de los ocho registros: AES-128 por
+        // K2LR, AES-192 y TDES por K1LR, AES-256 por K0LR, DES por K1LR.
+        const unsigned nw = unsigned(clave.size() / 4);
+        const unsigned desde = (clave.size() == 8) ? 2u : (8u - nw);
+        for (unsigned i = 0; i < nw; ++i)
+            cwr(Cryp::R_K0LR + 4 * (desde + i), pal(&clave[4*i]));
+        for (unsigned i = 0; i < iv.size() / 4; ++i)
+            cwr(Cryp::R_IV0LR + 4 * i, pal(&iv[4*i]));
+
+        const uint32_t base = (modo << 3) | (descifra ? Cryp::CR_ALGODIR : 0u)
+                            | (keysize << 8) | (datatype << 6);
+        // Descifrar en ECB o CBC necesita PREPARAR LA CLAVE antes: es el modo
+        // 111, y el hardware baja CRYPEN el solo cuando termina. [23.6.1]
+        if (aes && descifra && modo != Cryp::M_AES_CTR) {
+            cwr(Cryp::R_CR, (Cryp::M_AES_PREP << 3) | (keysize << 8) | Cryp::CR_CRYPEN);
+            for (unsigned i = 0; i < 1000 && (crd(Cryp::R_CR) & Cryp::CR_CRYPEN); ++i)
+                wait(10, SC_NS);
+        }
+        cwr(Cryp::R_CR, base | Cryp::CR_CRYPEN);
+
+        std::vector<uint8_t> out;
+        for (size_t i = 0; i < in.size(); i += 4 * np) {
+            for (unsigned w = 0; w < np; ++w) cwr(Cryp::R_DIN, pal(&in[i + 4*w]));
+            for (unsigned w = 0; w < np; ++w) {
+                for (unsigned t = 0; t < 10000 && !(crd(Cryp::R_SR) & Cryp::SR_OFNE); ++t)
+                    wait(5, SC_NS);
+                const uint32_t v = crd(Cryp::R_DOUT);
+                out.push_back(uint8_t(v >> 24)); out.push_back(uint8_t(v >> 16));
+                out.push_back(uint8_t(v >> 8));  out.push_back(uint8_t(v));
+            }
+        }
+        cwr(Cryp::R_CR, base);                      // CRYPEN a cero
+        return out;
+    }
+
+    // Cuatro bytes del mensaje, en la palabra que el firmware escribiria con
+    // DATATYPE = 00 (sin reordenar): el primer byte en la parte alta.
+    static uint32_t pal(const uint8_t* p) {
+        return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16)
+             | (uint32_t(p[2]) << 8)  |  uint32_t(p[3]);
+    }
+
     void espera_digest() {
         for (unsigned i = 0; i < 100000 && !(rd(Hash::R_SR) & Hash::SR_DCIS); ++i)
             wait(10, SC_NS);
@@ -216,6 +284,50 @@ std::vector<Caso> lee_vec() {
         else if (k == "repite")    c.repite = unsigned(std::stoul(val));
     }
     return v;
+}
+
+struct CasoC {
+    std::string id, algoritmo, clave, iv, entrada, salida;
+};
+
+std::vector<CasoC> lee_cryp() {
+    std::ifstream f("verif/vectores/cryp.vec");
+    std::vector<CasoC> v;
+    std::string l;
+    while (std::getline(f, l)) {
+        while (!l.empty() && (l.back() == '\r' || l.back() == ' ')) l.pop_back();
+        if (l.empty()) continue;
+        const size_t p = l.find_first_not_of(" \t");
+        if (p == std::string::npos || l[p] == '#') continue;
+        if (l.substr(p) == "[caso]") { v.push_back(CasoC{}); continue; }
+        const size_t eq = l.find('=');
+        if (eq == std::string::npos || v.empty()) continue;
+        std::string k = l.substr(0, eq), val = l.substr(eq + 1);
+        auto rec = [](std::string& x) {
+            const size_t a = x.find_first_not_of(" \t");
+            if (a == std::string::npos) { x.clear(); return; }
+            x = x.substr(a, x.find_last_not_of(" \t") - a + 1);
+        };
+        rec(k); rec(val);
+        CasoC& c = v.back();
+        if      (k == "id")        c.id = val;
+        else if (k == "algoritmo") c.algoritmo = val;
+        else if (k == "clave")     c.clave = val;
+        else if (k == "iv")        c.iv = val;
+        else if (k == "entrada")   c.entrada = val;
+        else if (k == "salida")    c.salida = val;
+    }
+    return v;
+}
+
+unsigned modo_de(const std::string& a) {
+    if (a == "tdes-ecb") return Cryp::M_TDES_ECB;
+    if (a == "tdes-cbc") return Cryp::M_TDES_CBC;
+    if (a == "des-ecb")  return Cryp::M_DES_ECB;
+    if (a == "des-cbc")  return Cryp::M_DES_CBC;
+    if (a == "aes-ecb")  return Cryp::M_AES_ECB;
+    if (a == "aes-cbc")  return Cryp::M_AES_CBC;
+    return Cryp::M_AES_CTR;
 }
 
 void Tb::run() {
@@ -472,6 +584,151 @@ void Tb::run() {
         check_hex(digest(20), "a9993e364706816aba3e25717850c26c9cd0d89d",
                   "escribir el bit 18 -el ALGO[1] del F43x- no hace nada: sigue "
                   "siendo SHA-1, porque aqui SHA-2 no existe");
+    }
+
+    // =======================================================================
+    grupo("H1 CRYP: lo que el manual promete al arrancar");
+    // =======================================================================
+    check_eq(crd(Cryp::R_CR), 0u, "CRYP_CR reset = 0");
+    check_eq(crd(Cryp::R_SR), Cryp::SR_IFEM | Cryp::SR_IFNF,
+             "CRYP_SR reset = 0x00000003: FIFO de entrada vacia y no llena");
+    check_eq(crd(Cryp::R_RISR), Cryp::I_IN,
+             "CRYP_RISR reset = 0x00000001: la FIFO de entrada pide dato");
+    check_eq(crd(Cryp::R_MISR), 0u, "CRYP_MISR reset = 0, sin mascaras");
+    check_eq(crd(Cryp::R_DMACR), 0u, "CRYP_DMACR reset = 0");
+    check_eq(crd(Cryp::R_K0LR), 0u,
+             "y los registros de clave leen cero: son de SOLO ESCRITURA");
+    check_eq(crd(0x50), 0u,
+             "en 0x50 no hay nada: los CSGCMCCM son del F43x, y la tabla 114 "
+             "-la de este chip- termina en 0x4C");
+
+    // =======================================================================
+    grupo("H2 CRYP: los vectores de cryp.vec, por el bus y en las dos direcciones");
+    // =======================================================================
+    {
+        const auto vc = lee_cryp();
+        check(!vc.empty(), "verif/vectores/cryp.vec se lee");
+        for (const CasoC& c : vc) {
+            const auto clave = de_hex(c.clave);
+            const auto iv    = de_hex(c.iv);
+            const auto ent   = de_hex(c.entrada);
+            const auto sal   = de_hex(c.salida);
+            const unsigned m = modo_de(c.algoritmo);
+            const unsigned ks = (clave.size() == 32) ? 2u : (clave.size() == 24 &&
+                                 m >= Cryp::M_AES_ECB) ? 1u : 0u;
+
+            check_hex(a_hex(cryp(m, false, ks, clave, iv, ent).data(), sal.size()),
+                      c.salida, (c.id + " / cifrar").c_str());
+            check_hex(a_hex(cryp(m, true, ks, clave, iv, sal).data(), ent.size()),
+                      c.entrada, (c.id + " / descifrar").c_str());
+        }
+    }
+
+    // =======================================================================
+    grupo("H3 CRYP: los cuatro DATATYPE dan el mismo texto cifrado");
+    // =======================================================================
+    // La misma prueba que B2 hizo con el HASH, y por el mismo motivo: si el
+    // intercambio esta mal, el bloque cifrado sale perfectamente formado y
+    // equivocado. Aqui ademas se comprueba que la transformacion es una
+    // INVOLUCION: la salida se reordena igual que la entrada.
+    {
+        const auto clave = de_hex("2b7e151628aed2a6abf7158809cf4f3c");
+        const auto ent   = de_hex("6bc1bee22e409f96e93d7e117393172a");
+        const std::string esp = "3ad77bb40d7a3660a89ecaf32466ef97";
+        for (unsigned dt = 0; dt < 4; ++dt) {
+            // Con DATATYPE != 0 el firmware entrega las palabras reordenadas, y
+            // el resultado vuelve reordenado igual.
+            std::vector<uint8_t> in2 = ent;
+            const auto reord = [&](std::vector<uint8_t> v) {
+                for (size_t i = 0; i < v.size(); i += 4) {
+                    const uint32_t w = Tb::pal(&v[i]);
+                    const uint32_t r = Tb::empaqueta(&v[i], 4, dt);
+                    (void)w;
+                    v[i+0] = uint8_t(r >> 24); v[i+1] = uint8_t(r >> 16);
+                    v[i+2] = uint8_t(r >> 8);  v[i+3] = uint8_t(r);
+                }
+                return v;
+            };
+            const auto sal = cryp(Cryp::M_AES_ECB, false, 0, clave, {}, reord(in2), dt);
+            char q[96];
+            std::snprintf(q, sizeof q, "AES-ECB-128 con DATATYPE = %u", dt);
+            check_hex(a_hex(reord(sal).data(), 16), esp, q);
+        }
+    }
+
+    // =======================================================================
+    grupo("H4 CRYP: las FIFO y el vaciado");
+    // =======================================================================
+    {
+        cwr(Cryp::R_CR, Cryp::CR_FFLUSH);
+        check(crd(Cryp::R_SR) & Cryp::SR_IFEM, "tras FFLUSH, IFEM dice vacia");
+        for (unsigned i = 0; i < 3; ++i) cwr(Cryp::R_DIN, 0x11111111u * (i + 1));
+        check(!(crd(Cryp::R_SR) & Cryp::SR_IFEM), "con tres palabras ya no esta vacia");
+        check(crd(Cryp::R_SR) & Cryp::SR_IFNF, "y con tres de ocho, tampoco llena");
+        check(crd(Cryp::R_RISR) & Cryp::I_IN,
+              "con TRES dentro sigue pidiendo: el manual dice «menos de cuatro»");
+        cwr(Cryp::R_DIN, 0x44444444u);
+        check(!(crd(Cryp::R_RISR) & Cryp::I_IN),
+              "y con la CUARTA se calla, que es la frontera exacta del 23.5");
+        cwr(Cryp::R_CR, Cryp::CR_FFLUSH);
+        check(crd(Cryp::R_SR) & Cryp::SR_IFEM,
+              "FFLUSH con CRYPEN = 0 vacia las dos FIFO");
+        check(crd(Cryp::R_RISR) & Cryp::I_IN, "y vuelve a pedir dato");
+        check_eq(crd(Cryp::R_CR) & Cryp::CR_FFLUSH, 0u, "FFLUSH lee siempre cero");
+    }
+
+    // =======================================================================
+    grupo("H5 CRYP: BUSY dura los ciclos de la tabla 111");
+    // =======================================================================
+    {
+        const auto clave = de_hex("2b7e151628aed2a6abf7158809cf4f3c");
+        const auto ent   = de_hex("6bc1bee22e409f96e93d7e117393172a");
+        cwr(Cryp::R_CR, Cryp::CR_FFLUSH);
+        for (unsigned i = 0; i < 4; ++i) cwr(Cryp::R_K0LR + 4*(4+i), Tb::pal(&clave[4*i]));
+        cwr(Cryp::R_CR, (Cryp::M_AES_ECB << 3) | Cryp::CR_CRYPEN);
+        const uint64_t b0 = cdut.bloques_procesados();
+        const sc_time t0 = sc_time_stamp();
+        for (unsigned i = 0; i < 4; ++i) cwr(Cryp::R_DIN, Tb::pal(&ent[4*i]));
+        while (!(crd(Cryp::R_SR) & Cryp::SR_OFNE)) wait(2, SC_NS);
+        const double ns = (sc_time_stamp() - t0).to_seconds() * 1e9;
+        check_eq(unsigned(cdut.bloques_procesados() - b0), 1u, "un bloque, uno");
+        const double esp = 14.0 / HCLK * 1e9;
+        char q[128];
+        std::snprintf(q, sizeof q, "y sale tras %.1f ns: los 14 ciclos de AES-128 "
+                      "a 168 MHz son %.1f ns", ns, esp);
+        check(ns >= esp, q);
+        cwr(Cryp::R_CR, 0);
+    }
+
+    // =======================================================================
+    grupo("H6 CRYP: las dos interrupciones y las dos peticiones de DMA");
+    // =======================================================================
+    {
+        cwr(Cryp::R_CR, Cryp::CR_FFLUSH);
+        cwr(Cryp::R_IMSCR, 0);
+        cwr(Cryp::R_DMACR, 0);
+        wait(SC_ZERO_TIME);
+        check(!c_irq.read(), "sin IMSCR la linea esta baja, aunque RISR pida");
+        cwr(Cryp::R_IMSCR, Cryp::I_IN);
+        wait(SC_ZERO_TIME);
+        check(!c_irq.read(),
+              "y con la mascara puesta pero CRYPEN a cero, tampoco: el manual "
+              "dice que INMIS solo cuenta con CRYPEN = 1");
+        cwr(Cryp::R_CR, (Cryp::M_AES_ECB << 3) | Cryp::CR_CRYPEN);
+        wait(SC_ZERO_TIME);
+        check(c_irq.read(), "con CRYPEN, la FIFO de entrada vacia SI interrumpe");
+        cwr(Cryp::R_IMSCR, 0);
+        wait(SC_ZERO_TIME);
+        check(!c_irq.read(), "quitando la mascara se cae");
+
+        cwr(Cryp::R_DMACR, Cryp::DMA_DIEN);
+        wait(SC_ZERO_TIME);
+        check(c_din.read(), "DIEN levanta la peticion de la FIFO de entrada");
+        check(!c_dout.read(), "y la de salida no, que esta vacia");
+        cwr(Cryp::R_DMACR, 0);
+        cwr(Cryp::R_CR, 0);
+        wait(SC_ZERO_TIME);
+        check(!c_din.read(), "sin DIEN no hay peticion");
     }
 
     std::printf("\nTOTAL F417 : %u comprobaciones OK, %u fallos\n", g_ok, g_fallo);

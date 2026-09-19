@@ -34,7 +34,7 @@ este informe están hechas por máquina, no a ojo**, y sobre ficheros del propio
 fabricante. Donde se dice «idéntico» quiere decir que un programa comparó los
 dos conjuntos y la diferencia salió vacía. Los recuentos están en §3.2 y §4.
 
-> **ESTADO: las fases 0, 1 y 2 del plan están EJECUTADAS.** Los siete puntos se han
+> **ESTADO: las fases 0, 1, 2 y 3 del plan están EJECUTADAS.** Los siete puntos se han
 > cerrado; los cinco primeros ya lo estaban al escribir este documento, y los
 > dos que quedaban —el alcance y los vectores— se cerraron con código y con
 > datos, no con una frase. Está contado en la **§14**, al final, y **encontró
@@ -43,8 +43,10 @@ dos conjuntos y la diferencia salió vacía. Los recuentos están en §3.2 y §4
 > **por referencia** y con ello se cierra un agujero que llevaba abierto desde
 > la primera fase del proyecto. La **fase 2** está en la **§16**: el HASH existe,
 > calcula MD5, SHA-1 y los dos HMAC, y tiene **banco propio** —el tercer
-> ejecutable del proyecto—. Las secciones de más arriba llevan incorporado lo
-> verificado.
+> ejecutable del proyecto—. La **fase 3** está en la **§17**: el CRYP cifra y
+> descifra con AES de 128, 192 y 256 bits en ECB, CBC y CTR, y con DES y TDES
+> en ECB y CBC. **Los dos bloques están escritos**; falta integrarlos, que es
+> la fase 4. Las secciones de más arriba llevan incorporado lo verificado.
 
 ---
 
@@ -549,7 +551,7 @@ claves.
 * Interrupción por `DCIS`/`DINIS` hacia la posición 80.
 * **Criterio de salida**: los vectores de RFC 1321 y RFC 3174 salen bit a bit.
 
-### Fase 3 — El CRYP
+### Fase 3 — El CRYP — **HECHA, §17**
 
 * `periph/cryp.h`: los veinte registros de la tabla 114 **y ni uno más** —nada de
   GCM/CCM—, las dos FIFO de ocho palabras, el intercambio por `DATATYPE`, la
@@ -1130,3 +1132,119 @@ El CRYP entra por el mismo sitio: `periph/cryp_algo.h` para AES y DES/TDES,
 `periph/cryp.h` para los veinte registros de la tabla 114, y sus grupos en el
 banco que ya existe. La frontera entre aritmética y protocolo, el formato de los
 `.vec` y la costumbre de medir `BUSY` en ciclos ya están puestos.
+
+---
+
+## 17. Fase 3: el CRYP
+
+El segundo bloque, y el que da nombre al acelerador. **AES de 128, 192 y 256
+bits en ECB, CBC y CTR; DES y TDES en ECB y CBC**, cifrando y descifrando. Con
+eso, el juego completo que el F415/F417 tiene — que es lo que la fase 0 decidió
+en §14.1.
+
+### 17.1 El mismo reparto que el HASH, y una decisión nueva
+
+`periph/cryp_algo.h` son los **dos cifradores de bloque** y nada más;
+`periph/cryp.h` es todo lo que el silicio pone alrededor: las dos FIFO de ocho
+palabras, el intercambio de `DATATYPE`, el encadenado de CBC, el contador de
+CTR, la preparación de clave, `BUSY` con los ciclos de la tabla 111, las dos
+interrupciones de servicio de FIFO y las dos peticiones de DMA.
+
+**El encadenado no está en el núcleo**, y eso no es casualidad de
+implementación: en el silicio esos XOR los hace el bloque **alrededor** del
+cifrador, y modelarlo igual es lo que hace que CBC y CTR se puedan probar por
+separado del AES.
+
+**La caja-S del AES no es una tabla copiada, se genera.** El proyecto ya tenía
+la costumbre —la unidad CRC calcula su polinomio bit a bit en vez de usar una
+tabla— y aquí se puede ir un paso más allá: la caja-S **se define** como el
+inverso multiplicativo en GF(2⁸) más la transformación afín de la FIPS 197, así
+que se construye al arrancar. Con eso no hay 256 números que puedan estar mal
+copiados.
+
+**Con DES no se puede, y conviene decirlo.** Sus ocho cajas-S y sus seis
+permutaciones son tablas **arbitrarias** elegidas en 1976: no se derivan de
+nada, y van escritas. Lo único que las protege es el vector clásico
+`"Now is t"` → `3fa40e8a984d4815`, que está en `cryp.vec` desde la fase 0 con
+dos implementaciones independientes detrás.
+
+### 17.2 La preparación de clave, y por qué resultó ser fácil
+
+Descifrar en AES-ECB o AES-CBC necesita **preparar la clave** antes
+(`ALGOMODE = 111`): el manual dice que el bloque calcula la expansión y «copia
+el resultado de vuelta en K0…K3».
+
+Modelar esa copia parecía obligar a implementar la expansión **inversa** —
+recuperar todas las subclaves a partir de la última—, que es la parte fea del
+AES. No hace falta, y la razón está en la propia tabla del §23.6.10: **los ocho
+registros de clave tienen todos sus bits marcados `w`**. Son de solo escritura.
+Esa copia no es observable desde el firmware.
+
+Así que el modelo hace lo que **sí** se ve: cobra los ciclos, mantiene `BUSY`
+mientras tanto y **deja `CRYPEN` a cero al terminar**, que es lo que el manual
+promete y lo que el HAL de ST espera para seguir. El banco lo recorre: descifrar
+un caso de ECB o CBC pasa por la fase de preparación igual que lo haría el
+firmware.
+
+### 17.3 Lo que este chip no tiene, comprobado
+
+GCM y CCM son del F42x/F43x [§23.2], y con ellos se van los dieciséis registros
+de contexto. **La tabla 114 —la de este chip— termina en `0x4C`**; la 115, la
+del F43x, sigue hasta `0x8C`. La cabecera `stm32f417xx.h` de ST **sí** declara
+los dieciséis, porque es compartida por toda la familia F4: escribir el modelo
+desde la cabecera en vez de desde la tabla habría metido en un F417 registros
+que su silicio no tiene. Es exactamente la trampa de **I-44**, y por eso hay una
+comprobación que lee `0x50` y espera cero.
+
+### 17.4 El fallo que encontró el banco, a un dato de distancia
+
+La condición del servicio de la FIFO de entrada. La primera versión decía «pide
+cuando le **caben** cuatro palabras»; el §23.5 dice, literal, «se activa cuando
+hay **menos de cuatro** palabras en la FIFO de entrada».
+
+Con una FIFO de ocho, las dos frases coinciden en siete de los nueve tamaños
+posibles y **difieren justo en uno**: con cuatro palabras dentro, la versión
+buena se calla y la mala sigue pidiendo. Un DMA configurado contra ese bit
+habría escrito una palabra de más en el peor momento.
+
+Lo cazó el banco, y de rebote mejoró la prueba: ahora no mira un tamaño
+cualquiera sino **los dos lados de la frontera** —con tres pide, con cuatro se
+calla—, que es donde viven los errores de este tipo.
+
+### 17.5 Cómo se comprueba
+
+Dos capas, como en el HASH:
+
+**`make cryp`** pasa los 16 casos de `cryp.vec` por el núcleo aritmético, **en
+las dos direcciones**: cifrar la entrada tiene que dar la salida, y descifrar la
+salida tiene que devolver la entrada. Son 32 comprobaciones y no necesitan
+SystemC. Que CTR pase las dos es en sí una comprobación: ahí cifrar y descifrar
+son la misma operación.
+
+**El banco** (`make test417`) pasa esos mismos 16 casos **por el bus**, con la
+secuencia completa de registros que usaría el firmware —clave por el trozo bajo
+de los ocho registros, IV, preparación de clave cuando toca, `CRYPEN`, y luego
+bloque a bloque mirando `OFNE`—, y añade los cuatro `DATATYPE`, las banderas de
+las FIFO, `FFLUSH`, los ciclos de `BUSY` y las cuatro líneas de salida.
+
+### 17.6 El estado, después
+
+| | Antes | Después |
+| :--- | ---: | ---: |
+| Banco del F417 | 63 | **124** |
+| `make cryp` | — | **32/32**, las dos direcciones |
+| `make hash` | 23/23 | 23/23 |
+| Suite del F407 | 2069, `2336217899213 ps` | **igual** |
+| Suite del F446 | 203, `1033367277932 ps` | **igual** |
+| `make vectores` | 54 | 54 |
+| Capa de red | 13 | 13 |
+| ASan + UBSan | limpios | **limpios** |
+
+### 17.7 Qué queda para la fase 4
+
+Los dos bloques existen y nadie los ha enchufado todavía. La fase 4 son las ~60
+líneas de pegamento: dos ventanas en el decodificador de AHB2 con su `tapa()`
+en la rama contraria, los dos bits de reloj —que desde la fase 1 se abren
+solos—, `cryp.irq` a la posición 79 y una `Or2` para la 80 que el HASH comparte
+con el RNG, y las tres celdas de DMA que desde **I-48** están esperando con su
+comentario puesto.

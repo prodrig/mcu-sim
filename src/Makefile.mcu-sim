@@ -19,6 +19,7 @@
 #   make test446                  # la del F446, que es OTRO ejecutable
 #   make test417                  # la del acelerador criptografico del F415/F417
 #   make hash                     # los vectores de MD5/SHA-1, sin SystemC
+#   make cryp                     # los de AES/DES/TDES, tampoco
 #   make red                      # la capa de red, que NO necesita SystemC
 #   make vectores                 # los vectores del CRYP/HASH, sin SystemC ni compilar
 #   make asan407                  # la suite del F407 con ASan + UBSan (Linux y macOS)
@@ -154,13 +155,14 @@ MCUSIM  := build/mcu-sim$(EXE)
 TEST446 := build/test446$(EXE)
 TEST417 := build/test417$(EXE)
 HASHV   := build/prueba_hash$(EXE)
+CRYPV   := build/prueba_cryp$(EXE)
 BENCH  := build/bench$(EXE)
 RED    := build/prueba_red$(EXE)
 ASAN407 := build/asan407$(EXE)
 ASAN446 := build/asan446$(EXE)
 ASAN417 := build/asan417$(EXE)
 
-.PHONY: all test407 test446 test417 test446-build test417-build asan407 asan446 asan417 smoke bench mcu-sim red run clean plataforma vectores hash
+.PHONY: all test407 test446 test417 test446-build test417-build asan407 asan446 asan417 smoke bench mcu-sim red run clean plataforma vectores hash cryp
 
 all: $(MCUSIM)
 
@@ -249,6 +251,17 @@ $(HASHV): verif/prueba_hash.cpp periph/hash_algo.h
 
 hash: $(HASHV)
 	./$(HASHV) $(V)
+
+# Y los de AES, DES y TDES contra el suyo. Pasa los 16 casos de `cryp.vec` en
+# las DOS direcciones: cifrar la entrada tiene que dar la salida, y descifrar la
+# salida tiene que devolver la entrada.
+#   make cryp
+$(CRYPV): verif/prueba_cryp.cpp periph/cryp_algo.h
+	@mkdir -p build
+	$(CXX) -std=$(CXXSTD) $(AVISOS) -O2 -I. -o $@ verif/prueba_cryp.cpp
+
+cryp: $(CRYPV)
+	./$(CRYPV) $(V)
 
 red: $(RED)
 	./$(RED)
