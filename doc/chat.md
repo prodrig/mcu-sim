@@ -3794,3 +3794,69 @@ Suite del F407 **2069/2069** (+14) en **`2336217899213 ps`**, la del F446
 **203/203** (+3) en `1033367277932 ps`, red 13/13, vectores 54/54, ASan+UBSan
 limpios en los dos bancos y las cinco placas validando. Puntos: **I-49** de
 alta, y el segundo punto de `reutilizacion.md` §9.5 tachado.
+
+
+## Fase 2 del F415/F417: el HASH
+
+> Ejecuta la fase 2
+
+El primero de los dos bloques. Calcula **MD5, SHA-1 y los dos HMAC**; no calcula
+SHA-224 ni SHA-256, que son del F42x/F43x —la tabla 117, la del F415/417, tiene
+cinco registros de resumen y no ocho—. Va antes que el CRYP porque es la mitad
+de trabajo y valida el camino entero antes de meterse con las claves.
+
+**Dos ficheros, y la frontera entre ellos es lo importante.** `hash_algo.h` es
+aritmética pura —las dos rondas, el acumulador de bits, el relleno— y no sabe
+nada de buses. `hash.h` es el protocolo: los registros de la tabla 117, la
+palabra pendiente de `HASH_DIN`, `NBW`, el intercambio de `DATATYPE`, el recorte
+con `NBLW`, el disparo con `DCAL`, las cuatro fases del HMAC, los 66 o 50 ciclos
+de `BUSY`, las dos interrupciones, la petición de DMA y los 51 `HASH_CSRx`.
+
+No es manía de organización: **un `DATATYPE` mal interpretado da un resumen
+perfectamente formado y equivocado, igual que una ronda mal escrita**, y con las
+dos cosas en el mismo sitio no habría forma de saber cuál de las dos falló. Y,
+como en la unidad CRC, **se calcula y no se llama**: MD5 y SHA-1 están escritos.
+Delegar el resumen en OpenSSL no sería modelar el periférico, sería taparlo.
+
+**La parte que da la lata: el mensaje no se mide en bytes.** El chip acepta
+mensajes cuya longitud no es múltiplo de ocho bits —`NBLW` dice cuántos bits de
+la última palabra valen—, así que el acumulador trabaja con bits. Y hay un
+detalle del contrato que el manual no dice con todas sus letras y que resuelve
+el propio HAL de ST: `NBLW = 8·(tamaño mod 4)`, de modo que **`NBLW = 0`
+significa que la última palabra vale ENTERA**, no que no valga nada. Del §25.4.4
+solo caben las dos lecturas; del código de ST, una.
+
+**El banco es el TERCER ejecutable** (`make test417`), por la misma razón por la
+que el del F446 es el segundo. Y el bloque se prueba **suelto**, atando el
+maestro de pruebas a su puerto de esclavo: en la fase 2 todavía no está
+integrado —eso es la fase 4—, y así lo que falle es del bloque y no del
+cableado. Son **63 comprobaciones**, y las dos que más me gustan:
+
+* **B2**: el mismo `"abc"` entra cuatro veces, organizado en palabras, medias
+  palabras, bytes y bits sueltos, y tiene que salir el mismo SHA-1 las cuatro.
+* **F1**: se empieza un mensaje, se guarda el contexto en los 51 `CSR`, **se
+  resume otro mensaje entero por encima**, se restaura y se termina el primero.
+  Si el contexto no sirviera de verdad, el primero saldría mal.
+
+**Y encontró dos fallos.**
+
+El primero lo destapó el propio banco: `DCIS` se levantaba en el mismo instante
+del `DCAL`. Es tentador y es falso — `DCAL` no termina el resumen, lo **lanza**.
+El síntoma no fue un resultado malo sino un reloj: la prueba de `BUSY` midió
+**38 103 ns donde esperaba 393**, porque el modelo decía que había terminado y
+acumulaba una deuda de ciclos que se pagaba toda junta en el peor momento. Un
+firmware real lo habría notado leyendo un resumen que aún no existía.
+
+El segundo lo destapó ASan, y estaba escrito de antemano: `make asan417` dio un
+SIGSEGV en la primera línea de un hilo, con toda la pinta de un desbordamiento
+de pila. No lo era. El banco nuevo **se había olvidado de incluir
+`common/asan_opciones.h`**, sin el cual `detect_stack_use_after_return`
+convierte las corrutinas de SystemC en un desastre. Ese fichero existe porque el
+proyecto ya pagó esa tarde una vez, y su cabecera describe el síntoma con la
+misma frase que apareció. Los dos `set_stack_size` que había puesto persiguiendo
+la causa equivocada se quitaron: un comentario que explica un fallo con una
+causa falsa es peor que no tenerlo.
+
+F407 **2069/2069** en **`2336217899213 ps`**, F446 **203/203**, F417 **63/63**,
+`make hash` **23/23** contra el núcleo, `make vectores` 54/54, red 13/13 y
+ASan+UBSan limpios en los **tres** bancos.

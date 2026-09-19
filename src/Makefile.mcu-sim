@@ -16,7 +16,9 @@
 #   make SYSTEMC_HOME=/opt/systemc CXXSTD=c++14
 #   make                          # el simulador: monta una placa desde un XML
 #   make test407                  # la suite del F407 (2055 comprobaciones)
-#   make test446                  # la del F446 (200), que es OTRO ejecutable
+#   make test446                  # la del F446, que es OTRO ejecutable
+#   make test417                  # la del acelerador criptografico del F415/F417
+#   make hash                     # los vectores de MD5/SHA-1, sin SystemC
 #   make red                      # la capa de red, que NO necesita SystemC
 #   make vectores                 # los vectores del CRYP/HASH, sin SystemC ni compilar
 #   make asan407                  # la suite del F407 con ASan + UBSan (Linux y macOS)
@@ -150,12 +152,15 @@ HDRS := $(wildcard common/*.h pins/*.h parts/*.h bus/*.h mem/*.h rcc/*.h core/*.
 TEST407 := build/test407$(EXE)
 MCUSIM  := build/mcu-sim$(EXE)
 TEST446 := build/test446$(EXE)
+TEST417 := build/test417$(EXE)
+HASHV   := build/prueba_hash$(EXE)
 BENCH  := build/bench$(EXE)
 RED    := build/prueba_red$(EXE)
 ASAN407 := build/asan407$(EXE)
 ASAN446 := build/asan446$(EXE)
+ASAN417 := build/asan417$(EXE)
 
-.PHONY: all test407 test446 test446-build asan407 asan446 smoke bench mcu-sim red run clean plataforma vectores
+.PHONY: all test407 test446 test417 test446-build test417-build asan407 asan446 asan417 smoke bench mcu-sim red run clean plataforma vectores hash
 
 all: $(MCUSIM)
 
@@ -218,6 +223,33 @@ $(RED): verif/prueba_red.cpp common/red.h
 	$(CXX) -std=$(CXXSTD) $(AVISOS) $(DEF_SO) -O2 -I. -o $@ \
 	       verif/prueba_red.cpp $(LDEXTRA) $(LIBS_SO)
 
+# EL BANCO DEL ACELERADOR CRIPTOGRAFICO del F415/F417 (fase 2 de su plan). Es
+# el TERCER ejecutable por la misma razon que el del F446 es el segundo:
+# construir piezas nuevas dentro del banco del F407 mueve su invariante.
+# Prueba el PROTOCOLO -DATATYPE, NBLW, DCAL, las fases del HMAC, BUSY, las dos
+# interrupciones y el contexto-; la aritmetica se prueba aparte con `make hash`.
+#   make test417
+$(TEST417): top/sc_main_f417.cpp $(HDRS)
+	@mkdir -p build
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_f417.cpp $(LDFLAGS) $(LDLIBS)
+
+test417-build: $(TEST417)
+
+test417: $(TEST417)
+	./$(TEST417)
+
+# Los VECTORES de MD5 y SHA-1 contra el nucleo aritmetico. NO necesita SystemC:
+# `periph/hash_algo.h` es aritmetica pura, y los 23 casos con su procedencia
+# estan en `verif/vectores/hash.vec` desde la fase 0.
+#   make hash            # los rapidos
+#   make hash V=--lentos # tambien el del millon de letras
+$(HASHV): verif/prueba_hash.cpp periph/hash_algo.h
+	@mkdir -p build
+	$(CXX) -std=$(CXXSTD) $(AVISOS) -O2 -I. -o $@ verif/prueba_hash.cpp
+
+hash: $(HASHV)
+	./$(HASHV) $(V)
+
 red: $(RED)
 	./$(RED)
 
@@ -272,6 +304,19 @@ asan446:
 else
 asan446: $(ASAN446)
 	./$(ASAN446)
+endif
+
+# Y para el del acelerador criptográfico, que es el tercero.
+$(ASAN417): top/sc_main_f417.cpp $(HDRS)
+	@mkdir -p build
+	$(CXX) $(ASANFLAGS) -o $@ top/sc_main_f417.cpp $(LDFLAGS) $(LDLIBS)
+
+ifeq ($(PLATAFORMA),windows)
+asan417:
+	@echo "MinGW no trae AddressSanitizer: 'make asan417' solo va en Linux y macOS."
+else
+asan417: $(ASAN417)
+	./$(ASAN417)
 endif
 
 # Suite de verificación (autocomprobable: código de salida 0/1)

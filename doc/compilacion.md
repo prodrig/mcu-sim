@@ -13,6 +13,8 @@ cd src
 make                    # el simulador: build/mcu-sim
 make test407            # construye y ejecuta la suite del F407: 2055 comprobaciones
 make test446            # y la del F446: 200 comprobaciones
+make test417            # el banco del acelerador criptografico del F415/F417
+make hash               # los vectores de MD5 y SHA-1, que no necesitan SystemC
 ```
 
 Hace falta **SystemC ≥ 2.3.3** de Accellera y un compilador con **C++17**. Nada

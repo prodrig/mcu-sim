@@ -74,6 +74,8 @@ la imagen. `F2_SKIP_COREMARK=1` omite la ejecución de CoreMark.
 make -f Makefile.mcu-sim              # el simulador: build/mcu-sim
 make -f Makefile.mcu-sim test407      # la suite del F407 (o: cp Makefile.mcu-sim Makefile && make test407)
 make -f Makefile.mcu-sim test446      # la del F446
+make -f Makefile.mcu-sim test417      # la del acelerador criptografico
+make -f Makefile.mcu-sim hash         # los vectores de MD5/SHA-1, sin SystemC
 make -f Makefile.mcu-sim asan407      # la misma suite con ASan + UBSan
 make -f Makefile.mcu-sim vectores     # los vectores del CRYP/HASH, sin SystemC
 make -f Makefile.mcu-sim run IMG=fw.bin # carga una imagen y simula

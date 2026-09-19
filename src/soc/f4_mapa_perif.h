@@ -60,6 +60,11 @@ constexpr uint32_t DMA1_B = 0x40026000, DMA2_B = 0x40026400;
 constexpr uint32_t ETH_B = 0x40028000, OTG_HS_B = 0x40040000;
 // AHB2
 constexpr uint32_t OTG_FS_B = 0x50000000, DCMI_B = 0x50050000, RNG_B = 0x50060800;
+// El acelerador criptográfico del F415/F417, en el mismo kilobyte que el RNG y
+// justo delante de él. En un F405/F407 estas dos ventanas están RESERVADAS: no
+// las decodifica nadie y tocarlas da error de bus, que es lo que hace el
+// silicio. [RM0090 Rev 22, tabla 1]
+constexpr uint32_t CRYP_B = 0x50060000, HASH_B = 0x50060400;
 
 } // namespace addr
 

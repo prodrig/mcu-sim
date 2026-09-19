@@ -34,15 +34,17 @@ este informe están hechas por máquina, no a ojo**, y sobre ficheros del propio
 fabricante. Donde se dice «idéntico» quiere decir que un programa comparó los
 dos conjuntos y la diferencia salió vacía. Los recuentos están en §3.2 y §4.
 
-> **ESTADO: las fases 0 y 1 del plan están EJECUTADAS.** Los siete puntos se han
+> **ESTADO: las fases 0, 1 y 2 del plan están EJECUTADAS.** Los siete puntos se han
 > cerrado; los cinco primeros ya lo estaban al escribir este documento, y los
 > dos que quedaban —el alcance y los vectores— se cerraron con código y con
 > datos, no con una frase. Está contado en la **§14**, al final, y **encontró
 > dos erratas antes de que existiera una línea de modelo**. La **fase 1** está
 > en la **§15**: `Periferia` ya tiene sus dos campos, las máscaras del RCC son
 > **por referencia** y con ello se cierra un agujero que llevaba abierto desde
-> la primera fase del proyecto. Las secciones de más arriba llevan incorporado
-> lo verificado.
+> la primera fase del proyecto. La **fase 2** está en la **§16**: el HASH existe,
+> calcula MD5, SHA-1 y los dos HMAC, y tiene **banco propio** —el tercer
+> ejecutable del proyecto—. Las secciones de más arriba llevan incorporado lo
+> verificado.
 
 ---
 
@@ -534,7 +536,7 @@ Casi todo cerrado ya al escribir este informe; queda decidir, no investigar:
   las comprobaciones nuevas en verde. Si el invariante se mueve, la fase está mal
   hecha.
 
-### Fase 2 — El HASH
+### Fase 2 — El HASH — **HECHA, §16**
 
 Primero el HASH y no el CRYP, porque es la mitad de trabajo y valida el camino
 entero —ventana, reloj, interrupción compartida, DMA— antes de meterse con las
@@ -999,3 +1001,132 @@ LQFP64 por donde tiene que no caber: le faltan los cuatro LED del puerto D.
 El HASH se construirá con `mcu.perif.hash` ya en el descriptor, su bit de reloj
 ya abriéndose solo cuando el chip lo lleva, y su ventana esperando en
 `0x5006 0400`. Lo que falta es el bloque.
+
+---
+
+## 16. Fase 2: el HASH
+
+El primero de los dos bloques. Calcula **MD5 y SHA-1**, y los dos HMAC
+correspondientes; no calcula SHA-224 ni SHA-256, que son del F42x/F43x. Va
+primero —y no el CRYP— porque es la mitad de trabajo y valida el camino entero
+antes de meterse con las claves.
+
+### 16.1 Dos ficheros, y la frontera entre ellos es lo importante
+
+**`periph/hash_algo.h`** es aritmética pura: las dos rondas, el acumulador de
+bits y el relleno. No sabe nada de registros, de buses ni de SystemC.
+
+**`periph/hash.h`** es el protocolo: los registros de la tabla 117, la palabra
+pendiente en `HASH_DIN`, `NBW`, el intercambio de `DATATYPE`, el recorte con
+`NBLW`, el disparo con `DCAL`, las cuatro fases del HMAC, los 66 o 50 ciclos de
+`BUSY`, las dos interrupciones, la petición de DMA y los 51 `HASH_CSRx`.
+
+**Por qué separarlos, que no es manía de organización.** Son dos preguntas que
+fallan de formas distintas. «¿Sale el resumen correcto?» se contesta con
+vectores y no necesita simulación. «¿Sale por donde el firmware lo pide?»
+necesita el bus. Y la razón de fondo: **un `DATATYPE` mal interpretado da un
+resumen perfectamente formado y equivocado**, exactamente igual que una ronda
+mal escrita. Con las dos cosas en el mismo sitio no habría forma de saber cuál
+de las dos falló.
+
+**Y se calcula, no se llama.** Igual que la unidad CRC calcula su polinomio bit
+a bit en vez de usar una tabla [`periph/crc.h`], aquí están MD5 y SHA-1
+escritos. Un simulador didáctico que delegara el resumen en OpenSSL no estaría
+modelando el periférico: estaría tapándolo. Lo que sí se hace es **comprobar**
+contra dos implementaciones independientes, y eso ya estaba desde la fase 0.
+
+### 16.2 La parte que da la lata: el mensaje no se mide en bytes
+
+El F415/F417 acepta mensajes cuya longitud **no es múltiplo de ocho bits**.
+`HASH_STR.NBLW` dice cuántos bits de la última palabra escrita valen, de 0 a 31,
+y el relleno empieza justo ahí. Por eso el acumulador no trabaja con bytes sino
+con bits: un vector de bytes no sabría representar un mensaje de 27 bits, y el
+silicio sí.
+
+Hay un detalle del contrato que el manual no dice con todas sus letras y que
+**lo resuelve el propio HAL de ST**: `__HAL_HASH_SET_NBVALIDBITS` calcula
+`NBLW = 8 · (tamaño mod 4)`, de modo que un mensaje de cuatro bytes justos lleva
+`NBLW = 0`. Es decir, **`NBLW = 0` significa que la última palabra vale entera**,
+no que no valga nada. Leyendo solo el §25.4.4 caben las dos lecturas; leyendo el
+código de ST, una sola.
+
+### 16.3 El banco: el tercer ejecutable
+
+`top/sc_main_f417.cpp`, con `make test417`, y es el tercero por la misma razón
+por la que el del F446 es el segundo: construir piezas nuevas dentro del banco
+del F407 **mueve su invariante**.
+
+El bloque se prueba **suelto**, sin SoC alrededor: en la fase 2 todavía no está
+integrado —eso es la fase 4— así que el maestro de pruebas se ata directamente
+a su puerto de esclavo. Se gana algo con ello: lo que falle aquí es del bloque y
+no del cableado.
+
+**63 comprobaciones**, en siete grupos:
+
+| | Qué mira |
+| :--- | :--- |
+| **A1** | los valores de reset de la tabla 117, incluido `HASH_CSR0` = `0x0000 0002` |
+| **A2** | 51 registros de contexto y el alias del resumen en `0x310` |
+| **B1** | los trece casos de hash.vec de MD5 y SHA-1, **por el bus** |
+| **B2** | el **mismo** mensaje con los **cuatro** valores de `DATATYPE` |
+| **B3** | `NBLW` en las tres fronteras del relleno (55, 56 y 64 bytes) y el mensaje vacío |
+| **C1** | los diez HMAC, con clave corta y con clave larga (`LKEY`) |
+| **D1** | `BUSY` dura los 66 ciclos de HCLK que dice el §25.3.1 |
+| **E1/E2** | las dos interrupciones y la petición de DMA |
+| **F1** | el contexto: dos mensajes **intercalados** |
+| **G1** | que escribir el `ALGO[1]` del F43x no haga nada, porque aquí SHA-2 no existe |
+
+**B2 es la que más falta hacía** y la que justifica el grupo entero: el mismo
+`"abc"` entra cuatro veces, organizado en palabras, medias palabras, bytes y
+bits sueltos, y tiene que salir el mismo SHA-1 las cuatro.
+
+**F1 es la que más me gusta.** Los 51 `HASH_CSRx` existen para que una tarea
+prioritaria pueda llevarse el bloque a media faena. La prueba empieza un
+mensaje, guarda el contexto, **resume otro mensaje entero por encima**, restaura
+y termina el primero. Si el contexto no sirviera de verdad, el primero saldría
+mal. El formato de esos 51 registros es **el de este modelo y no el de ST** —ST
+no lo documenta— y eso está dicho en la cabecera del fichero: lo que el silicio
+promete es que guardar y restaurar funciona, y eso es lo que aquí se reproduce.
+
+### 16.4 Los dos fallos que encontró, y quién los encontró
+
+**El primero lo encontró el propio banco**: `DCIS` se levantaba en el mismo
+instante del `DCAL`. Es tentador y es falso — `DCAL` no termina el resumen, lo
+**lanza**, y el bit se levanta 66 o 50 ciclos después. El síntoma no fue un
+resultado malo, fue un reloj: la prueba de `BUSY` midió **38 103 ns donde
+esperaba 393**, porque el modelo iba diciendo que había terminado y acumulando
+una deuda de ciclos que se pagaba toda junta en el peor momento. Un firmware
+real lo habría notado leyendo un resumen que todavía no existía.
+
+**El segundo lo encontró ASan**, y estaba escrito de antemano. `make asan417`
+dio un SIGSEGV en `trabajo_proc()`, en la primera línea del hilo, con toda la
+pinta de un desbordamiento de pila. No lo era: el banco nuevo **se había
+olvidado de incluir `common/asan_opciones.h`**, sin el cual
+`detect_stack_use_after_return` convierte las corrutinas de SystemC en un
+desastre. Ese fichero existe precisamente porque el proyecto ya pagó esa tarde
+una vez, y su cabecera describe el síntoma con la misma frase que apareció. Dos
+`set_stack_size` que había puesto persiguiendo la causa equivocada se quitaron:
+un comentario que explica un fallo con una causa falsa es peor que no tenerlo.
+
+### 16.5 El estado, después
+
+| | Antes | Después |
+| :--- | ---: | ---: |
+| Suite del F407 | 2069 | 2069, en `2336217899213 ps` |
+| Suite del F446 | 203 | 203, en `1033367277932 ps` |
+| **Banco del F417** | — | **63** |
+| Vectores (`make hash`) | — | **23/23** contra el núcleo |
+| Vectores (`make vectores`) | 54 | 54 |
+| Capa de red | 13 | 13 |
+| ASan + UBSan | limpios en 2 bancos | **limpios en los 3** |
+
+`make hash` es nuevo y no necesita SystemC: compila `verif/prueba_hash.cpp`
+contra el núcleo aritmético y pasa los 23 casos de `hash.vec`, el del millón de
+letras incluido si se le pide.
+
+### 16.6 Qué deja lista la fase 3
+
+El CRYP entra por el mismo sitio: `periph/cryp_algo.h` para AES y DES/TDES,
+`periph/cryp.h` para los veinte registros de la tabla 114, y sus grupos en el
+banco que ya existe. La frontera entre aritmética y protocolo, el formato de los
+`.vec` y la costumbre de medir `BUSY` en ciclos ya están puestos.
