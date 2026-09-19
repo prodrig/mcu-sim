@@ -34,6 +34,13 @@ este informe están hechas por máquina, no a ojo**, y sobre ficheros del propio
 fabricante. Donde se dice «idéntico» quiere decir que un programa comparó los
 dos conjuntos y la diferencia salió vacía. Los recuentos están en §3.2 y §4.
 
+> **ESTADO: la fase 0 del plan está EJECUTADA.** Los siete puntos se han
+> cerrado; los cinco primeros ya lo estaban al escribir este documento, y los
+> dos que quedaban —el alcance y los vectores— se cerraron con código y con
+> datos, no con una frase. Está contado en la **§14**, al final, y **encontró
+> dos erratas antes de que existiera una línea de modelo**. Las secciones de
+> más arriba llevan incorporado lo verificado.
+
 ---
 
 ## 1. Resumen ejecutivo: tres frases
@@ -486,7 +493,7 @@ periférico y reescribió el RCC entero.
 
 ## 9. El plan por fases
 
-### Fase 0 — Cerrar lo que está sin verificar *(antes de escribir código)*
+### Fase 0 — Cerrar lo que está sin verificar *(antes de escribir código)* — **HECHA, §14**
 
 Casi todo cerrado ya al escribir este informe; queda decidir, no investigar:
 
@@ -497,11 +504,12 @@ Casi todo cerrado ya al escribir este informe; queda decidir, no investigar:
 4. ~~Posiciones de vector~~ — **cerrado**, `[CMSIS]`.
 5. ~~¿Cambian los pines o la tabla AF?~~ — **cerrado**, ocho comparaciones por
    máquina, ninguna diferencia.
-6. **Decidir el alcance de la primera entrega de algoritmos** (§5). Es la única
-   casilla que necesita una respuesta y no un documento.
-7. **Elegir y anotar la fuente de cada vector de prueba** —FIPS 197, NIST SP
-   800-38A, RFC 1321, RFC 3174— y meterlos en el repositorio como datos, no como
-   números sueltos dentro de una prueba.
+6. ~~**Decidir el alcance de la primera entrega de algoritmos**~~ — **decidido,
+   §14.1: el juego COMPLETO del F415/F417, sin entrega parcial.**
+7. ~~**Elegir y anotar la fuente de cada vector de prueba** y meterlos en el
+   repositorio como datos~~ — **hecho, §14.2**: `src/verif/vectores/`, 39 casos
+   con su procedencia y un comprobador que los recalcula con dos motores
+   independientes. `make vectores`.
 
 ### Fase 1 — `Periferia` gana dos campos, y las máscaras del RCC dejan de ser por familia
 
@@ -630,10 +638,12 @@ referencias**.
 
 Poco, y dicho con su remedio:
 
-* ⚠ **El reset exacto de cada `HASH_CSRx`.** La tabla 117 los da como
-  `0x0000 0000` salvo `CSR0` = `0x0000 0002`; el modelo debería reproducir eso y
-  no ceros a secas. Lo cierra una lectura de la propia tabla 117 al escribir el
-  fichero.
+* ~~⚠ **El reset exacto de cada `HASH_CSRx`.**~~ — **cerrado en la fase 0**
+  leyendo la tabla 117 entera: son **51 registros**, `CSR0` a `CSR50`, de
+  `0x0F8` a `0x1C0`; el reset de `CSR0` es **`0x0000 0002`** y el de los otros
+  cincuenta, cero. La misma lectura confirma el reset de `HASH_SR`
+  (`0x0000 0001`, con `DINIS` a uno) y que el alias de los cinco registros de
+  resumen en `0x310`–`0x320` **también existe en el F41x**, no solo en el F43x.
 * ⚠ **El comportamiento del CRYP cuando el firmware cambia `ALGOMODE` con
   `BUSY = 1`.** `[RM0090]` §23.6.1 dice que «no tiene efecto»; lo que no dice es
   qué pasa con lo que ya estaba en la FIFO. Se modelará como «se ignora la
@@ -704,3 +714,147 @@ las dos se contradicen, porque es la que ST mantiene por referencia.
 cuatro cabeceras `[CMSIS]` de STM32Cube_FW_F4 V1.28.3 y la base de datos
 `[CUBEMX]` instalada en la máquina. Las comparaciones de pines, señales y
 símbolos son automáticas y reproducibles.*
+
+---
+
+## 14. Fase 0: cómo se cerró cada punto
+
+La fase 0 de un plan es la que no produce modelo y evita reescribirlo. Aquí
+tenía siete puntos; cinco ya estaban cerrados al escribir las secciones de
+arriba, y los dos que quedaban —el alcance y los vectores— se han cerrado con
+**una decisión argumentada y con datos en el repositorio**, no con una frase de
+intenciones. De propina se cerró el primero de los tres ⚠ de la §11.
+
+### 14.1 El alcance: el juego completo, sin entrega parcial *(punto 6)*
+
+§5 dejaba abierta la posibilidad de una primera entrega reducida —AES-128 en
+ECB y CBC, y SHA-1 sin HMAC— y la descarta. **Se implementa el juego completo
+que el F415/F417 tiene**: AES de 128, 192 y 256 bits en ECB, CBC y CTR; DES y
+TDES en ECB y CBC; MD5, SHA-1 y HMAC con clave corta y larga.
+
+Tres razones, en orden de peso:
+
+**La primera, que el conjunto está cerrado y es pequeño.** No es una decisión
+entre «poco» y «mucho», sino entre «poco» y «todo lo que hay»: el F415/F417 no
+tiene GCM, ni CCM, ni SHA-2. Lo que ST no puso en este chip es justamente la
+mitad cara del problema, y eso ya lo decidió el silicio.
+
+**La segunda, que la entrega parcial no ahorra lo que parece.** Un modelo que
+solo hace AES-ECB tiene que **decir en voz alta** que no hace los demás modos:
+detectar `ALGOMODE = 000`, avisar por su nombre, no comportarse como el modo de
+al lado. Esa maquinaria hay que escribirla, probarla y luego quitarla. Entre
+escribirla y escribir el modo de verdad hay muy poca diferencia — y una de las
+dos cosas hay que tirarla después.
+
+**Y la tercera, que el riesgo no está donde parece.** Lo que puede salir mal en
+este trabajo no es el algoritmo —AES es una especificación acabada, con
+vectores oficiales, que se comprueba en un `if`— sino **el alrededor**: el
+intercambio de bytes del `DATATYPE`, el orden de las medias palabras de la
+clave, la preparación de clave para descifrar, el relleno del HASH, la
+interacción con la FIFO y con el DMA. Todo eso hay que hacerlo igual para un
+modo que para siete, y es donde se van a ir las tardes.
+
+Lo que **sí** se mantiene del reparto original es el orden de las fases: el
+HASH antes que el CRYP (fase 2 y fase 3), porque es la mitad del trabajo y
+valida el camino entero —ventana, reloj, interrupción compartida, DMA— antes de
+meterse con las claves.
+
+Y lo que no cambia en absoluto es la regla de honestidad: **lo que no esté
+modelado lo dice el modelo**, por su nombre y en el momento en que el firmware
+lo pide.
+
+### 14.2 Los vectores: 39 casos, dos motores, un comprobador *(punto 7)*
+
+El punto 7 pedía «elegir y anotar la fuente de cada vector, y meterlos en el
+repositorio como datos, no como números sueltos dentro de una prueba». Está
+hecho, en `src/verif/vectores/`:
+
+```
+cryp.vec                 16 casos: AES-ECB/CBC/CTR de 128, 192 y 256 bits,
+                         DES y TDES en ECB y CBC, y TDES de dos claves
+hash.vec                 23 casos: MD5, SHA-1, HMAC-MD5 y HMAC-SHA-1
+comprueba_vectores.py    los recalcula TODOS con dos motores independientes
+README.md                de dónde sale cada número y por qué existe la carpeta
+```
+
+```
+$ make vectores
+cryp.vec: 16 casos
+hash.vec: 23 casos
+
+RESULTADO  54 comprobaciones con dos motores, 0 con uno solo, 0 fallos, 1 saltadas
+Motores    hashlib, openssl, pycrypto
+```
+
+*(La saltada es el millón de letras «a» del RFC 3174, que son 15 625 bloques y
+está marcado `lento = si`; `make vectores V=--lentos` lo corre también, y
+también sale.)*
+
+**Las fuentes.** NIST SP 800-38A apéndice F para todo el AES; FIPS PUB 81 para
+el vector clásico de DES; RFC 1321, RFC 3174 y RFC 2202 para MD5, SHA-1 y HMAC;
+y **los ejemplos del propio ST para esta placa** —`STM324xG_EVAL/Examples/CRYP`
+y `.../HASH` de CubeF4 V1.28.3—, que son los que el alumno reproducirá con el
+HAL. Los motores que recalculan son OpenSSL (con su proveedor `legacy`, sin el
+cual OpenSSL 3 ya no hace DES simple), pycryptodome y el `hashlib`/`hmac` de
+Python.
+
+**Un detalle que conviene saber y que no es una casualidad afortunada**: los
+vectores de los ejemplos de ST **son los del SP 800-38A**. Misma clave, mismo
+texto claro, mismo vector inicial. Eso es cómodo —lo que valide este modelo
+valida también el ejemplo de ST— pero es una sola fuente contada dos veces, y
+por eso los motores independientes no son decoración.
+
+**Qué ejercita cada grupo**, porque los casos están elegidos y no cogidos al
+azar: el mensaje vacío, cuya única razón de ser es que su relleno es un bloque
+entero; mensajes de 1, 3, 14, 26, 62 y 80 bytes, ninguno múltiplo de 4, para
+`NBLW`; los tres tamaños frontera del relleno (55, 56 y 64); los 261 bytes del
+ejemplo de ST, que son cuatro bloques y un resto de cinco; y HMAC con clave de
+4, 16, 20, 80 y 261 bytes, que es lo que distingue `LKEY = 0` de `LKEY = 1`.
+
+### 14.3 Las dos erratas que la fase 0 cazó, sin una línea de modelo
+
+Las dos aparecieron el primer día, y las dos son de la clase que no da error:
+
+**Una del documento leído.** La extracción automática del apéndice F.5 del
+SP 800-38A devolvió el contador inicial de CTR como
+`00000000000000000000000000000000` cuando es `f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff`,
+y con él seis de los doce bloques de CTR-AES192 y CTR-AES256. Saltó porque los
+dos motores decían otra cosa — y porque los vectores de ST, que son los mismos,
+coincidían con los motores y no con la lectura. Es exactamente el fallo que
+`[VS446]` §19.3 documenta para las máscaras del RCC: **un número copiado de
+donde no tocaba, que no rompe nada y lo estropea todo**.
+
+**Y otra propia.** Al transcribir el digest del cuarto caso de SHA-1 del
+RFC 3174 se coló una `d` de más y dos dígitos bailados
+(`…cdddd90c7…4f60452` por `…cddd90c7…4f460452`). La cazó
+`comprueba_vectores.py` **en su primera pasada**, que es para lo que está.
+
+Ninguna de las dos habría dado un error al compilar ni al simular. La primera
+habría dado por roto un modelo bueno; la segunda, por bueno un modelo roto. Las
+dos habrían costado una tarde de buscar el fallo en el sitio equivocado.
+
+### 14.4 De propina: cerrado el primero de los tres ⚠
+
+Leyendo la tabla 117 entera para escribir el fichero de vectores se cerró de
+paso el punto de la §11 sobre los `HASH_CSRx`: son **51 registros**, `CSR0` a
+`CSR50`, de `0x0F8` a `0x1C0`; el reset de `CSR0` es **`0x0000 0002`** y el de
+los otros cincuenta es cero. La misma lectura confirma el reset de `HASH_SR`
+—`0x0000 0001`, con `DINIS` a uno— y que el alias de los cinco registros de
+resumen en `0x310`–`0x320` **también existe en el F41x**.
+
+Quedan los otros dos ⚠, y los dos son de comportamiento y no de dato: qué pasa
+con la FIFO del CRYP cuando se toca `ALGOMODE` con `BUSY = 1`, y la prueba del
+HASH y el RNG compitiendo por la posición 80. El primero se cierra con una
+decisión anotada en la fase 3; el segundo, con una prueba en la fase 6.
+
+### 14.5 Qué deja lista la fase 0, y qué NO ha tocado
+
+**Lista**: la decisión de alcance, los 39 vectores con su procedencia, el
+comprobador, el target `make vectores` y el formato de fichero que el banco de
+la fase 6 va a leer sin tener que inventarse nada.
+
+**No ha tocado**: ni una línea del modelo. `src/verif/vectores/` es una carpeta
+de datos y un script de Python; no entra en ninguna compilación, no necesita
+SystemC y no se enlaza con nada. El invariante del F407 sigue donde estaba,
+**`2336217899213 ps`**, con sus 2055 comprobaciones, y el del F446 con sus 200 —
+comprobado después de la fase, no supuesto.

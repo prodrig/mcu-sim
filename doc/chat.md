@@ -3665,3 +3665,66 @@ periféricos, ~1 150 líneas de modelo y ~1 000 de verificación. Del modelo act
 
 Nota de proceso: este es el primer documento del proyecto escrito contra el
 **RM0090 Rev 22** (mayo de 2026, la vigente); el resto sigue anclado a la 18.
+
+
+## Fase 0 del F415/F417: la decisión y los vectores
+
+> Ejecuta la fase 0
+
+Cinco de los siete puntos ya estaban cerrados al escribir el informe. Los dos
+que quedaban se han cerrado **con datos y con código**, no con una frase, y de
+propina se ha cerrado el primero de los tres ⚠ que el informe dejaba abiertos.
+
+**El alcance: el juego completo, sin entrega parcial.** El informe dejaba
+abierta una primera entrega reducida —AES-128 en ECB y CBC, SHA-1 sin HMAC— y
+la descarto por tres razones. La primera, que el conjunto está cerrado y es
+pequeño: el F415/F417 **no tiene GCM, ni CCM, ni SHA-2**, así que la elección no
+es entre «poco» y «mucho» sino entre «poco» y «todo lo que hay», y la mitad cara
+del problema ya la descartó el silicio. La segunda, que la entrega parcial no
+ahorra lo que parece: un modelo que solo hace AES-ECB tiene que **detectar y
+denunciar** los modos que no hace, y esa maquinaria hay que escribirla, probarla
+y luego tirarla. Y la tercera, que el riesgo no está en el algoritmo —AES es una
+especificación acabada que se comprueba en un `if`— sino **en el alrededor**: el
+intercambio de bytes del `DATATYPE`, el orden de las medias palabras de la
+clave, la preparación de clave para descifrar, el relleno del HASH, la FIFO, el
+DMA. Todo eso cuesta lo mismo para un modo que para siete.
+
+**Los vectores: 39 casos en `src/verif/vectores/`, y un comprobador.**
+`cryp.vec` trae dieciséis —AES en ECB, CBC y CTR con las tres claves; DES y TDES
+en ECB y CBC; TDES de dos claves— y `hash.vec` veintitrés —MD5, SHA-1,
+HMAC-MD5 y HMAC-SHA-1 con clave corta y larga—. Cada caso lleva **de dónde
+sale**: SP 800-38A, FIPS 81, RFC 1321, RFC 3174, RFC 2202 y los ejemplos del
+propio ST para esta placa. Y `comprueba_vectores.py` los **recalcula todos con
+dos motores independientes** —OpenSSL con su proveedor `legacy`, pycryptodome y
+el `hashlib`/`hmac` de Python— y falla si algún caso queda confirmado por uno
+solo. Hay target: `make vectores`, que no compila nada y no necesita SystemC.
+
+```
+$ make vectores
+RESULTADO  54 comprobaciones con dos motores, 0 con uno solo, 0 fallos, 1 saltadas
+Motores    hashlib, openssl, pycrypto
+```
+
+**Y aquí está lo que justifica la ceremonia: la fase 0 cazó dos erratas sin
+escribir una línea de modelo.** La primera, del documento leído: la extracción
+automática del apéndice F.5 del SP 800-38A devolvió el contador inicial de CTR
+como todo ceros cuando es `f0f1f2…fcfdfeff`, y con él **seis de los doce
+bloques** de CTR-AES192 y CTR-AES256. Saltó porque los dos motores decían otra
+cosa —y porque los vectores de ST coincidían con los motores y no con la
+lectura—. La segunda, propia: al transcribir el digest del cuarto caso de SHA-1
+del RFC 3174 se me coló una `d` de más y dos dígitos bailados; la cazó el
+comprobador **en su primera pasada**.
+
+Ninguna de las dos habría dado un error al compilar ni al simular. La primera
+habría dado por roto un modelo bueno; la segunda, por bueno un modelo roto. Es
+la misma familia que I-44: un número copiado de donde no tocaba.
+
+**De propina, el ⚠ de los `HASH_CSRx`.** Leyendo la tabla 117 entera: son
+**51 registros**, `CSR0` a `CSR50`, de `0x0F8` a `0x1C0`; el reset de `CSR0` es
+`0x0000 0002` y el de los otros cincuenta, cero. La misma lectura confirma el
+reset de `HASH_SR` y que el alias de los cinco registros de resumen en `0x310`
+existe también en el F41x, no solo en el F43x.
+
+La fase 0 **no ha tocado una línea del modelo**: es una carpeta de datos y un
+script de Python que no entra en ninguna compilación. Comprobado y no supuesto:
+F407 **2055/2055** en **`2336217899213 ps`**, F446 **200/200**, red 13/13.

@@ -75,6 +75,7 @@ make -f Makefile.mcu-sim              # el simulador: build/mcu-sim
 make -f Makefile.mcu-sim test407      # la suite del F407 (o: cp Makefile.mcu-sim Makefile && make test407)
 make -f Makefile.mcu-sim test446      # la del F446
 make -f Makefile.mcu-sim asan407      # la misma suite con ASan + UBSan
+make -f Makefile.mcu-sim vectores     # los vectores del CRYP/HASH, sin SystemC
 make -f Makefile.mcu-sim run IMG=fw.bin # carga una imagen y simula
 ```
 

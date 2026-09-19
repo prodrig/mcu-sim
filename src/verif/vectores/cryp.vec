@@ -1,0 +1,184 @@
+# =============================================================================
+# cryp.vec — VECTORES DE PRUEBA DEL ACELERADOR CRIPTOGRÁFICO (CRYP)
+#
+# Los números de este fichero NO los ha inventado este proyecto y NO salen de
+# una sola fuente. Cada caso lleva su procedencia, y `comprueba_vectores.py`
+# los recalcula con DOS implementaciones independientes —OpenSSL y
+# pycryptodome— antes de que valgan para nada.
+#
+# POR QUÉ TANTA CEREMONIA PARA UNOS NÚMEROS. Un acelerador criptográfico mal
+# modelado no falla: cifra. Devuelve un bloque perfectamente formado que no
+# coincide con el de la tarjeta, y el alumno descubre el problema cuando su PC
+# no sabe descifrar lo que su placa cifró. Un vector equivocado en este fichero
+# haría exactamente eso mismo, pero al revés: daría por bueno un modelo roto.
+# Por eso ninguna cifra entra aquí con una sola fuente. [fase 0, punto 7]
+#
+# FORMATO. Bloques separados por una línea en blanco. `entrada` y `salida` son
+# hexadecimal continuo, sin separadores. `iv` vacío significa que el modo no lo
+# usa. Un `#` al principio de línea es un comentario.
+#
+#   id         nombre del caso, único
+#   algoritmo  aes-ecb | aes-cbc | aes-ctr | des-ecb | des-cbc | tdes-ecb | tdes-cbc
+#   clave      hexadecimal; su longitud fija KEYSIZE (16/24/32 en AES)
+#   iv         hexadecimal, o vacío
+#   entrada    texto claro, hexadecimal
+#   salida     texto cifrado esperado, hexadecimal
+#   fuente     de dónde sale, separado por ` ; `
+#
+# LA MITAD QUE NO SE VE. El CRYP descifra además de cifrar, y en ECB y CBC
+# descifrar NO es repetir la operación: hay que preparar la clave
+# (`ALGOMODE = 111`). Cada caso de este fichero se usa en las dos direcciones:
+# cifrar `entrada` tiene que dar `salida`, y descifrar `salida` tiene que
+# devolver `entrada`. En CTR las dos direcciones son la misma operación, y eso
+# también hay que comprobarlo. [RM0090 Rev 22, §23.6.1]
+# =============================================================================
+
+[caso]
+id        = AES-ECB-128
+algoritmo = aes-ecb
+clave     = 2b7e151628aed2a6abf7158809cf4f3c
+iv        = 
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710
+salida    = 3ad77bb40d7a3660a89ecaf32466ef97f5d3d58503b9699de785895a96fdbaaf43b1cd7f598ece23881b00e3ed0306887b0c785e27e8ad3f8223207104725dd4
+fuente    = NIST SP 800-38A, apéndice F.1 ; ST, Projects/STM324xG_EVAL/Examples/CRYP (CubeF4 V1.28.3) ; OpenSSL ; pycryptodome
+
+[caso]
+id        = AES-ECB-192
+algoritmo = aes-ecb
+clave     = 8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b
+iv        = 
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710
+salida    = bd334f1d6e45f25ff712a214571fa5cc974104846d0ad3ad7734ecb3ecee4eefef7afd2270e2e60adce0ba2face6444e9a4b41ba738d6c72fb16691603c18e0e
+fuente    = NIST SP 800-38A, apéndice F.1 ; OpenSSL ; pycryptodome
+
+[caso]
+id        = AES-ECB-256
+algoritmo = aes-ecb
+clave     = 603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4
+iv        = 
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710
+salida    = f3eed1bdb5d2a03c064b5a7e3db181f8591ccb10d410ed26dc5ba74a31362870b6ed21b99ca6f4f9f153e7b1beafed1d23304b7a39f9f3ff067d8d8f9e24ecc7
+fuente    = NIST SP 800-38A, apéndice F.1 ; OpenSSL ; pycryptodome
+
+[caso]
+id        = AES-CBC-128
+algoritmo = aes-cbc
+clave     = 2b7e151628aed2a6abf7158809cf4f3c
+iv        = 000102030405060708090a0b0c0d0e0f
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710
+salida    = 7649abac8119b246cee98e9b12e9197d5086cb9b507219ee95db113a917678b273bed6b8e3c1743b7116e69e222295163ff1caa1681fac09120eca307586e1a7
+fuente    = NIST SP 800-38A, apéndice F.2 ; OpenSSL ; pycryptodome
+
+[caso]
+id        = AES-CBC-192
+algoritmo = aes-cbc
+clave     = 8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b
+iv        = 000102030405060708090a0b0c0d0e0f
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710
+salida    = 4f021db243bc633d7178183a9fa071e8b4d9ada9ad7dedf4e5e738763f69145a571b242012fb7ae07fa9baac3df102e008b0e27988598881d920a9e64f5615cd
+fuente    = NIST SP 800-38A, apéndice F.2 ; ST, Projects/STM324xG_EVAL/Examples/CRYP (CubeF4 V1.28.3) ; OpenSSL ; pycryptodome
+
+[caso]
+id        = AES-CBC-256
+algoritmo = aes-cbc
+clave     = 603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4
+iv        = 000102030405060708090a0b0c0d0e0f
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710
+salida    = f58c4c04d6e5f1ba779eabfb5f7bfbd69cfc4e967edb808d679f777bc6702c7d39f23369a9d9bacfa530e26304231461b2eb05e2c39be9fcda6c19078c6a9d1b
+fuente    = NIST SP 800-38A, apéndice F.2 ; OpenSSL ; pycryptodome
+
+[caso]
+id        = AES-CTR-128
+algoritmo = aes-ctr
+clave     = 2b7e151628aed2a6abf7158809cf4f3c
+iv        = f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710
+salida    = 874d6191b620e3261bef6864990db6ce9806f66b7970fdff8617187bb9fffdff5ae4df3edbd5d35e5b4f09020db03eab1e031dda2fbe03d1792170a0f3009cee
+fuente    = NIST SP 800-38A, apéndice F.5 ; OpenSSL ; pycryptodome
+
+[caso]
+id        = AES-CTR-192
+algoritmo = aes-ctr
+clave     = 8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b
+iv        = f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710
+salida    = 1abc932417521ca24f2b0459fe7e6e0b090339ec0aa6faefd5ccc2c6f4ce8e941e36b26bd1ebc670d1bd1d665620abf74f78a7f6d29809585a97daec58c6b050
+fuente    = NIST SP 800-38A, apéndice F.5 ; OpenSSL ; pycryptodome
+
+[caso]
+id        = AES-CTR-256
+algoritmo = aes-ctr
+clave     = 603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4
+iv        = f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710
+salida    = 601ec313775789a5b7a7f504bbf3d228f443e3ca4d62b59aca84e990cacaf5c52b0930daa23de94ce87017ba2d84988ddfc9c58db67aada613c2dd08457941a6
+fuente    = NIST SP 800-38A, apéndice F.5 ; ST, Projects/STM324xG_EVAL/Examples/CRYP (CubeF4 V1.28.3) ; OpenSSL ; pycryptodome
+
+[caso]
+id        = TDES-ECB-192
+algoritmo = tdes-ecb
+clave     = 0123456789abcdef23456789abcdef01456789abcdef0123
+iv        = 
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e51
+salida    = 714772f339841d34267fcc4bd2949cc3ee11c22a576a303876183f99c0b6de87
+fuente    = ST, Projects/STM324xG_EVAL/Examples/CRYP (CubeF4 V1.28.3) ; OpenSSL ; pycryptodome
+
+[caso]
+id        = TDES-CBC-192
+algoritmo = tdes-cbc
+clave     = 0123456789abcdef23456789abcdef01456789abcdef0123
+iv        = f69f2445df4f9b17
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e51
+salida    = 2079c3d53aa763e193b79e2569ab5262516570481f25b50f73c0bda85c8e0da7
+fuente    = ST, Projects/STM324xG_EVAL/Examples/CRYP (CubeF4 V1.28.3) ; OpenSSL ; pycryptodome
+
+[caso]
+id        = DES-ECB
+algoritmo = des-ecb
+clave     = 0123456789abcdef
+iv        = 
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e51
+salida    = 7277a00dc1c1c36b2256338b7a9f36ef6e511022cfebec489a4a53a1c7d22e5b
+fuente    = OpenSSL (proveedor legacy) ; pycryptodome
+nota      = sin fuente publicada; lo ancla el caso DES-FIPS81, que sí la tiene
+
+[caso]
+id        = DES-CBC
+algoritmo = des-cbc
+clave     = 0123456789abcdef
+iv        = f69f2445df4f9b17
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e51
+salida    = 2d121f90fcf68631ed788fcfe31a62dffa784891fa512ef928ea856d934257c6
+fuente    = OpenSSL (proveedor legacy) ; pycryptodome
+nota      = igual que DES-ECB: dos implementaciones, ancladas por DES-FIPS81
+
+[caso]
+id        = DES-FIPS81
+algoritmo = des-ecb
+clave     = 0123456789abcdef
+iv        = 
+entrada   = 4e6f772069732074
+salida    = 3fa40e8a984d4815
+fuente    = FIPS PUB 81 / el vector clásico del NBS ; OpenSSL (proveedor legacy) ; pycryptodome
+nota      = el texto claro es la cadena ASCII "Now is t"
+
+[caso]
+id        = TDES-ECB-2K
+algoritmo = tdes-ecb
+clave     = 0123456789abcdef23456789abcdef010123456789abcdef
+iv        = 
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e51
+salida    = 06ede3d82884090aff322c19f0518486730576972a666e58b6c88cf107340d3d
+fuente    = OpenSSL (proveedor legacy) ; pycryptodome
+nota      = TDES de DOS claves. El CRYP no tiene un modo aparte para esto: son los mismos tres registros K1/K2/K3 con K3 = K1, que es lo que el RM0090 llama clave de 128 bits. La prueba existe para que ese camino se ejercite de verdad
+
+[caso]
+id        = TDES-CBC-2K
+algoritmo = tdes-cbc
+clave     = 0123456789abcdef23456789abcdef010123456789abcdef
+iv        = f69f2445df4f9b17
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e51
+salida    = 7401ce1eab6d003caff84bf47b36cc2154f0238f9ffecd8f6acf118392b45581
+fuente    = OpenSSL (proveedor legacy) ; pycryptodome
+nota      = la pareja en CBC de TDES-ECB-2K
+

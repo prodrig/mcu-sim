@@ -18,6 +18,7 @@
 #   make test407                  # la suite del F407 (2055 comprobaciones)
 #   make test446                  # la del F446 (200), que es OTRO ejecutable
 #   make red                      # la capa de red, que NO necesita SystemC
+#   make vectores                 # los vectores del CRYP/HASH, sin SystemC ni compilar
 #   make asan407                  # la suite del F407 con ASan + UBSan (Linux y macOS)
 #   make asan446                  # y la del F446
 #   make bench                    # el banco de medida del coste de simulación
@@ -154,7 +155,7 @@ RED    := build/prueba_red$(EXE)
 ASAN407 := build/asan407$(EXE)
 ASAN446 := build/asan446$(EXE)
 
-.PHONY: all test407 test446 test446-build asan407 asan446 smoke bench mcu-sim red run clean plataforma
+.PHONY: all test407 test446 test446-build asan407 asan446 smoke bench mcu-sim red run clean plataforma vectores
 
 all: $(MCUSIM)
 
@@ -219,6 +220,16 @@ $(RED): verif/prueba_red.cpp common/red.h
 
 red: $(RED)
 	./$(RED)
+
+# Los VECTORES DE PRUEBA del acelerador criptográfico del F415/F417. No compila
+# nada y no necesita SystemC: vuelve a calcular con dos implementaciones
+# independientes -OpenSSL y, si está, pycryptodome- los 39 casos de
+# `verif/vectores/*.vec` y los compara con lo que dice el fichero. Es la red de
+# seguridad de un periférico que, mal modelado, NO falla: cifra.
+#   make vectores            # los rápidos
+#   make vectores V=--lentos # también el del millón de letras
+vectores:
+	python3 verif/vectores/comprueba_vectores.py $(V)
 
 # La misma suite, con los sanitizers de direcciones y de comportamiento
 # indefinido. Detecta lo que la suite no puede ver por sí sola: accesos fuera de
