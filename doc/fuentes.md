@@ -99,5 +99,12 @@ solo. El PDF serviría para leer el porqué, no para saber si el número es buen
    **STM32CubeMX**, en `db/mcu` y `db/mcu/IP`. Sin CubeMX instalado, el
    repositorio público `STM32_open_pin_data` cubre la parte de pines.
 
+La regla de colocación, para no volver a desparramarlo: **las carpetas de
+familia —`stm32f407xx/` y `stm32f446xx/`— llevan solo PDF y su extracción a
+texto**, y las fuentes legibles por máquina van cada una a la suya
+(`cmsis_v1.28.3/`, `cubemx/`). Las cuatro cabeceras que estuvieron sueltas en
+`stm32f407xx/` eran copias byte a byte de las de `cmsis_v1.28.3/` y se han
+quitado.
+
 `doc/pdf/src_snapshot.tgz` no es documentación de ST: es una instantánea del
 árbol `src/` que se dejó ahí como copia de seguridad de trabajo.

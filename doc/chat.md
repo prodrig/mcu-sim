@@ -4225,3 +4225,21 @@ que el resto del proyecto sigue anclado a la Rev 18, y que el
 `en.DM00031020.pdf` y el `en.DM00037051.pdf` que citan los informes antiguos son
 el RM0090 y el DS8626. Un informe que cita una sección sin decir de qué revisión
 envejece mintiendo.
+
+## Fuera las cabeceras duplicadas de doc/pdf
+
+> Sí, quita las cabeceras duplicadas de doc/pdf/stm32f407xx
+
+Borradas `stm32f405xx.h`, `f407_v1283.h`, `stm32f415xx.h` y `stm32f417xx.h` de
+`doc/pdf/stm32f407xx/`: 4,6 MB que eran copia byte a byte de las de
+`cmsis_v1.28.3/`. Vuelto a comprobar con `cmp` **antes** de borrar —el borrado
+en esta máquina es permanente, sin papelera— y comprobado también que ningún
+documento ni ningún fuente las citaba por esa ruta.
+
+`doc/pdf` pasa de 72 a **69 MB**, y `stm32f407xx/` queda con lo que le
+corresponde: los dos PDF y sus dos extracciones a texto.
+
+Anotada en `doc/fuentes.md` la regla de colocación, para no volver a
+desparramarlo: **las carpetas de familia llevan solo PDF y su texto**, y las
+fuentes legibles por máquina van cada una a la suya —`cmsis_v1.28.3/` y
+`cubemx/`—.
