@@ -73,9 +73,11 @@ _to_delete/
 # pena se versiona en su sitio (doc/, src/).
 Claude outputs/
 
-# Documentación del fabricante: los PDF de ST y sus extracciones a texto. Son
-# 21 MB por manual, se descargan de st.com cuando hacen falta y cambian de
-# revisión sin avisar; versionarlos engordaría el repositorio sin añadir nada
-# que no esté ya citado con su sección en doc/. Lo que SÍ se versiona es lo que
-# se leyó allí y dónde: véase doc/stm32f4xx/stm32f407vg_vs_446re.md, §15.7 y §21.
+# Documentación del fabricante: los PDF de ST, sus extracciones a texto y las
+# fuentes legibles por máquina (cabeceras CMSIS y XML de CubeMX). Son 72 MB, se
+# descargan de st.com o salen de la instalación de CubeMX cuando hacen falta, y
+# cambian de revisión sin avisar; versionarlos engordaría el repositorio sin
+# añadir nada que no esté ya citado con su sección en doc/. Lo que SÍ se
+# versiona es el ÍNDICE de todo ello -qué documento, qué revisión, dónde está la
+# copia local y de dónde se baja lo que falta-: doc/fuentes.md.
 doc/pdf/

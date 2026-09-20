@@ -4174,3 +4174,54 @@ del primero, también desfasado, se ha vuelto a sumar: 143 + 12 + 85 + 345 + 678
 informe. Invariante del F407 intacto en `2336217899213 ps` —la fase 7 no toca
 una línea de modelo—, seis placas con 0 avisos, ASan+UBSan limpios en los tres
 bancos y 29 referencias en el catálogo.
+
+## El índice de fuentes, y lo que falta por bajar
+
+> Copia en la carpeta pdf la documentación utilizada hasta ahora que falta
+
+**Copiado de esta máquina** a `doc/pdf/`: las **seis cabeceras** de dispositivo
+de `STM32Cube_FW_F4 V1.28.3` (`cmsis_v1.28.3/`), los **22 descriptores** de
+CubeMX de las referencias del F405/F407, F415/F417 y F446 (`cubemx/mcu/`) y los
+**cuatro XML de modos** de DMA y GPIO que dieron las 128 celdas del mapa de
+canales y la tabla de funciones alternativas (`cubemx/IP/`). Eran la mitad que
+faltaba: en `doc/pdf` estaban los PDF, que explican, y no estaban los ficheros
+legibles por máquina, que son con los que se comparó.
+
+**Dos extracciones a texto nuevas**, que los otros manuales ya tenían:
+`ds_f405_f407.txt` (DS8626 Rev 12) y `ds_f446.txt` (DS10693 Rev 11).
+
+**Un duplicado menos**: `DS_stm32f446mc.pdf` y `stm32f446xx datasheet.pdf` eran
+el mismo fichero byte a byte. Borrado el segundo.
+
+**Y una comprobación que salió sola.** Con las cabeceras de V1.28.3 al lado de
+las vendidas en `src/verif/fw/cmsis/` se pudo medir por fin el aviso de método
+de la §12.1 del informe del F415/F417 —*comparar cabeceras de versiones
+distintas mezcla diferencias de chip con diferencias de edición*—. El resultado:
+`stm32f417xx.h` y `stm32f4xx.h` son **idénticas**; `stm32f407xx.h` y
+`stm32f446xx.h` son distintas, **pero no difiere ni una línea `#define`**, ni en
+nombre ni en valor. Cambian comentarios y espaciado. El aviso sigue en pie como
+método, y ahora se sabe que en este caso **la mezcla no causó daño**, medido en
+vez de supuesto.
+
+**Lo que NO se ha podido bajar, y se dice.** La red de este entorno rechaza
+`www.st.com`, `nvlpubs.nist.gov` y `www.rfc-editor.org` —403 del proxy, tanto
+desde el contenedor como desde la máquina—, así que faltan `[PM0214]` (Cortex-M4
+programming manual rev. 10), `[AN4658]` (migración F429/439 → F446) y las cinco
+especificaciones de cripto: FIPS 197, NIST SP 800-38A y las RFC 1321, 3174 y
+2202. El ARMv7-M ARM tampoco está, y ese exige registro en ARM.
+
+Que los cinco documentos de cripto no estén en disco **no deja los vectores sin
+contrastar**: cada uno se recalcula con dos motores independientes y
+`comprueba_vectores.py` falla si algún caso se apoya en uno solo. El PDF sirve
+para leer el porqué, no para saber si el número es bueno.
+
+**El índice, que sí se versiona: `doc/fuentes.md`.** Los 72 MB de `doc/pdf` no
+van al repositorio —cambian de revisión sin avisar—, pero el índice dice qué
+documento se usó, **en qué revisión** (RM0090 Rev 22, DS8626 Rev 12, DS8597
+Rev 9, RM0390 Rev 9, DS10693 Rev 11), dónde está la copia local, qué falta con
+su URL, y cómo volver a llenar la carpeta en otra máquina. Deja escrito también
+que el plan del F415/F417 es **el primer informe escrito contra la Rev 22** y
+que el resto del proyecto sigue anclado a la Rev 18, y que el
+`en.DM00031020.pdf` y el `en.DM00037051.pdf` que citan los informes antiguos son
+el RM0090 y el DS8626. Un informe que cita una sección sin decir de qué revisión
+envejece mintiendo.

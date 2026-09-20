@@ -19,7 +19,9 @@ con su banco propio en `make test417`.
 
 La documentación de cómo se construyó el modelo del F407 —y la comparativa con
 el F446— está en `doc/stm32f4xx/`. Los manuales de ST no se versionan; van a
-`doc/pdf/`, que el `.gitignore` excluye.
+`doc/pdf/`, que el `.gitignore` excluye. **Lo que sí se versiona es el índice de
+fuentes**, `doc/fuentes.md`: qué documento se leyó, en qué revisión, dónde está
+la copia local y de dónde se baja lo que falta.
 
 Estructura generada según `doc/stm32f4xx/smt32f407vg_diseño.md` (plan aprobado, propuestas
 P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
