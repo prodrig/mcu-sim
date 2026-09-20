@@ -71,6 +71,7 @@
 #include <chrono>
 #include <string>
 #include "../common/asan_opciones.h"
+#include "../common/gui_destino.h"
 #include "soc_f4.h"
 #include "../verif/bus_test_master.h"
 #include "../verif/image_loader.h"
@@ -1113,6 +1114,7 @@ SC_MODULE(F1Tb) {
         t127_piezas_reutilizables();
         t128_familia_f405_f407();
         t129_factoria_de_mcu();
+        t130_argumento_gui();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -14204,6 +14206,136 @@ SC_MODULE(F1Tb) {
     // `sc_module` nuevo aqui seria un error de elaboracion. El unico `crea()`
     // que se llama es el que tiene que fallar.
     // -----------------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    // T130 — EL ARGUMENTO `--gui host:puerto`, Y SOLO EL ARGUMENTO
+    //
+    // Fase 0 del plan de `mcu-sim-gui`: el simulador RECONOCE a dónde apuntaría
+    // la ventana y no hace nada más. Aquí se comprueba el parseo, que es una
+    // función pura sobre una cadena: no abre un socket, no resuelve un nombre y
+    // **no gasta un picosegundo de tiempo simulado**. Por eso esto vive en el
+    // banco y no en un programa aparte.
+    //
+    // Lo que de verdad se está protegiendo no es que `--gui 7000` funcione
+    // —eso se ve a ojo la primera vez— sino las formas RARAS, que son las que
+    // nadie prueba a mano y las que un día alguien escribe: el puerto 0, el
+    // 65536, el IPv6 sin corchetes, el corchete sin cerrar. Un parseo que se
+    // equivoca ahí no da error: se conecta a otro sitio, y eso se depura mal.
+    // -----------------------------------------------------------------------
+    void t130_argumento_gui() {
+        group("T130 El argumento --gui: las formas buenas y las raras");
+        using namespace stm32::gui;
+
+        // --- 1. Las seis formas que el plan enumera -------------------------
+        {
+            const Destino d = parsea("");            // `--gui` a secas
+            check(d.valido && d.host == "localhost" &&
+                  d.puerto == mcusim::proto::PUERTO_OMISION,
+                  "--gui a secas es localhost y el puerto de omision");
+        }
+        {
+            const Destino d = parsea("7000");
+            check(d.valido && d.host == "localhost" && d.puerto == 7000,
+                  "un numero suelto es el PUERTO, no el host");
+        }
+        {
+            const Destino d = parsea("maquina");
+            check(d.valido && d.host == "maquina" &&
+                  d.puerto == mcusim::proto::PUERTO_OMISION,
+                  "un nombre suelto es el HOST, con el puerto de omision");
+        }
+        {
+            const Destino d = parsea("maquina:9000");
+            check(d.valido && d.host == "maquina" && d.puerto == 9000,
+                  "host:puerto, que es la forma normal");
+        }
+        {
+            const Destino d = parsea("[::1]:5000");
+            check(d.valido && d.host == "[::1]" && d.puerto == 5000,
+                  "IPv6 entre corchetes, con puerto");
+        }
+        {
+            const Destino d = parsea("[::1]");
+            check(d.valido && d.host == "[::1]" &&
+                  d.puerto == mcusim::proto::PUERTO_OMISION,
+                  "IPv6 entre corchetes, sin puerto");
+        }
+        {
+            const Destino d = parsea("192.168.1.40:3344");
+            check(d.valido && d.host == "192.168.1.40" && d.puerto == 3344,
+                  "una IPv4 es un host como cualquier otro");
+        }
+
+        // --- 2. Los limites del puerto, que es donde se cuela un fallo ------
+        check(parsea("1").valido    && parsea("1").puerto == 1,
+              "el 1 es un puerto valido");
+        check(parsea("65535").valido && parsea("65535").puerto == 65535,
+              "el 65535 tambien: es el ultimo");
+        check(!parsea("0").valido,      "el 0 NO vale: 'dame cualquiera' aqui no significa nada");
+        check(!parsea("65536").valido,  "el 65536 se sale por arriba");
+        check(!parsea("99999").valido,  "y el 99999 tambien");
+        check(!parsea("123456").valido, "un numero de seis cifras no es un puerto");
+        check(!parsea("h:7000x").valido, "un puerto con una letra dentro no es un puerto");
+
+        // --- 3. Las formas malas, y que el mensaje diga algo ----------------
+        struct Caso { const char* texto; const char* debe_mencionar; };
+        static const Caso malos[] = {
+            { "::1:5000", "corchetes" },    // IPv6 sin corchetes: AMBIGUO
+            { "[::1",     "corchete"  },    // sin cerrar
+            { "[]:80",    "vacia"     },    // corchetes vacios
+            { ":5000",    "host"      },    // sin host
+            { "host:",    "puerto"    },    // sin puerto
+            { "[::1]x",   "sobra"     }     // basura detras de los corchetes
+        };
+        for (const Caso& c : malos) {
+            const Destino d = parsea(c.texto);
+            const std::string r = std::string("'") + c.texto + "' se rechaza";
+            const std::string m = std::string("...y el error menciona '")
+                                + c.debe_mencionar + "'";
+            check(!d.valido, r.c_str());
+            check(d.error.find(c.debe_mencionar) != std::string::npos, m.c_str());
+        }
+
+        // Por que el IPv6 EXIGE corchetes, dicho con una comprobacion y no con
+        // un comentario: `::1:5000` es una direccion IPv6 legal, asi que sin
+        // corchetes no hay forma de saber si esos dos puntos finales separan un
+        // puerto o son parte de la direccion. Se rechaza en vez de adivinar.
+        check(!parsea("fe80::1").valido,
+              "una IPv6 sin corchetes se rechaza aunque no lleve puerto: "
+              "adivinar ahi es lo peligroso");
+
+        // --- 4. La politica del host, que es una decision ------------------
+        check(es_bucle_local("localhost"),   "localhost es la propia maquina");
+        check(es_bucle_local("127.0.0.1"),   "127.0.0.1 tambien");
+        check(es_bucle_local("127.1.2.3"),   "y TODO el 127.0.0.0/8, no solo el .1");
+        check(es_bucle_local("::1"),         "::1 es el bucle local de IPv6");
+        check(es_bucle_local("[::1]"),       "con corchetes o sin ellos");
+        check(!es_bucle_local("192.168.1.40"), "una IP de la red local NO lo es");
+        check(!es_bucle_local("maquina"),      "ni un nombre cualquiera");
+        // Se mira por el NOMBRE, no resolviendo: resolver es una operacion de
+        // red y este parseo no hace red. La consecuencia es que un alias del
+        // `hosts` que apunte a 127.0.0.1 avisa de mas, y avisar de mas es el
+        // lado bueno en el que equivocarse.
+        check(!es_bucle_local("mi-alias-local"),
+              "un alias del hosts avisa de mas: no se resuelve a proposito");
+
+        // --- 5. Como se escribe de vuelta ----------------------------------
+        check(como_texto(parsea("")) == "localhost:3344",
+              "el destino se imprime host:puerto");
+        check(como_texto(parsea("[::1]:5000")) == "[::1]:5000",
+              "y el IPv6 conserva sus corchetes al imprimirse");
+
+        // --- 6. Las constantes del protocolo, escritas donde se leen --------
+        // Compilan por `static_assert`, pero un numero que solo vive en un
+        // `static_assert` no aparece en ningun informe de pruebas. Aqui si.
+        check(mcusim::proto::VERSION == 1,        "protocolo v1");
+        check(mcusim::proto::PUERTO_OMISION == 3344,
+              "puerto de omision 3344, vecino del 3333 de los dos GDB");
+        check(sizeof(mcusim::proto::Cabecera) == 16, "la cabecera son 16 bytes");
+        check(sizeof(mcusim::proto::Orden)    == 16, "una Orden son 16 bytes");
+        check(sizeof(mcusim::proto::Muestra)  ==  8, "una Muestra son 8 bytes");
+        check(mcusim::proto::MAGIA == 0x3147534Du,   "la magia es 'MSG1'");
+    }
+
     void t129_factoria_de_mcu() {
         group("T129 La factoria de MCU: de una cadena a un objeto");
 

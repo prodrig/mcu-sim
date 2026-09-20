@@ -61,22 +61,22 @@ familia corre la suya.
 
 | Orden | Qué ejecuta | Comprobaciones | Tiempo simulado |
 | :--- | :--- | ---: | ---: |
-| `make test407` | La suite acumulada de las siete fases, sobre el F407VG | **2074** | `2336217899213 ps` |
+| `make test407` | La suite acumulada de las siete fases, sobre el F407VG | **2117** | `2336217899213 ps` |
 | `make test446` | La del F446RE y sus ocho referencias | **203** | `1033367277932 ps` |
 | `make test417` | La del acelerador criptográfico del F415/F417 | **164** | `718988288 ps` |
 
-Las 2074 del primero salen de: 143 de F1 + 12 de F2 + 85 de F3 + 345 de F4
+Las 2117 del primero salen de: 143 de F1 + 12 de F2 + 85 de F3 + 345 de F4
 (DMA, UART/USART, TIM y EXTI/SYSCFG) + 678 de F5 (SPI/I2S, I2C, ADC, DAC, RTC y
 perros guardianes, SDIO, CRC/RNG y bxCAN) + 151 de F6 (depuración y los dos
 servidores GDB) + 426 de F7 (116 de bajo consumo, 61 del DCMI, 54 del FSMC,
-113 del USB OTG y 82 del Ethernet) + 234 del netlist. Código de salida 0 si
+113 del USB OTG y 82 del Ethernet) + 277 del netlist. Código de salida 0 si
 todas pasan, en unos 23 s. Verificado con SystemC 2.3.4 / g++ 13 / C++17
 y arm-none-eabi-gcc 13.2.
 
 **El tiempo simulado del F407 es un invariante del proyecto**, no una
 curiosidad: vale `2336217899213 ps` al picosegundo desde la fase 7 y once
 planes después sigue valiendo lo mismo. Si un cambio lo mueve, ha cambiado el
-comportamiento de algo, aunque las 2074 sigan pasando.
+comportamiento de algo, aunque las 2117 sigan pasando.
 
 `make asan407` corre esa misma suite con AddressSanitizer y UndefinedBehaviorSanitizer,
 y hoy sale limpia: **0 fugas y 0 avisos**. No hay que poner `ASAN_OPTIONS` a
@@ -248,7 +248,7 @@ validar una plataforma nueva antes de pelearse con la biblioteca.
 
 | Plataforma | Estado | Comprobado |
 | :--- | :--- | :--- |
-| Linux, g++ 13 | **verificado** | 2074/2074 comprobaciones, 203/203 del F446 y 164/164 del F417, `make red` 13/13, ASan + UBSan limpio en las tres suites (`make asan407`, `make asan446`, `make asan417`), las seis placas validan sin un aviso |
+| Linux, g++ 13 | **verificado** | 2117/2117 comprobaciones, 203/203 del F446 y 164/164 del F417, `make red` 13/13, ASan + UBSan limpio en las tres suites (`make asan407`, `make asan446`, `make asan417`), las seis placas validan sin un aviso |
 | Linux, clang | **verificado** | mismo resultado y mismo tiempo simulado al picosegundo |
 | Windows, MinGW-w64 | **compila y enlaza** (cruzado con g++ 13-win32) | `make red` genera un PE32+ sin avisos; **falta ejecutarlo en Windows y construir SystemC allí** |
 | macOS, clang | **la rama específica compila** | Se fuerza la combinación de macOS —sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`— y compila con g++ y con clang; **falta probarlo en un Mac** |

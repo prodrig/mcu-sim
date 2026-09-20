@@ -7,7 +7,7 @@ extraído de los veintidós informes de `doc/` y contrastado contra el código d
 
 **Puesto al día con los dos planes de familia posteriores** —el del F446 y el
 del F415/F417—, que cerraron puntos y abrieron otros. Estado de hoy: **tres
-bancos**, `test407` (2074), `test446` (203) y `test417` (164), **0 fallos**, y
+bancos**, `test407` (2117), `test446` (203) y `test417` (164), **0 fallos**, y
 el invariante del F407 intacto en `2336217899213 ps`.
 
 ## Cómo leer este documento
@@ -177,8 +177,9 @@ no hay comprobación automática del límite acumulado del encapsulado.
 en todo el árbol.)*
 
 ### P-12 — La contraparte gráfica: `mcu-sim-gui`, en dos procesos
-**Fase:** posterior a F7. **Analizado en `doc/analisis_gui.md`; plan escrito y
-repositorio creado; código, ninguno todavía.**
+**Fase:** posterior a F7. **Analizado en `doc/analisis_gui.md`; plan escrito,
+repositorio creado y FASE 0 EJECUTADA** — `--gui host:puerto` se reconoce, con
+T130 detrás (43 comprobaciones puras) y el invariante intacto.
 
 `doc/analisis_gui.md` comparaba tres escenarios y recomendaba el **2** —un solo
 ejecutable Qt con la simulación en su propio hilo—. **La decisión tomada es la
@@ -199,7 +200,7 @@ aquí:
 
 | | Qué | Fase del plan |
 | :--- | :--- | :--- |
-| a | `--gui host:puerto`, con `localhost:3344` por omisión. **Sin el argumento, nada cambia** | 0 |
+| a | ~~`--gui host:puerto`, con `localhost:3344` por omisión~~ **HECHO en la fase 0**, con las seis formas, sus siete errores y el aviso cuando el host no es la propia máquina. **Sin el argumento, nada cambia**: 2117/203/164 y `2336217899213 ps` | 0 |
 | b | `Observable` / `Mando` en `ExtPartBase`, y las tres primeras piezas que los declaran (`Led`, `Button`, `Crystal`) | 1 |
 | c | La instantánea y la cola de órdenes: los dos `SC_THREAD` de la frontera | 1 |
 | d | `conecta(host, puerto)` y `escucha(host, puerto)` en `common/red.h`, **al lado** de las de bucle local y sin sustituirlas | 2 |

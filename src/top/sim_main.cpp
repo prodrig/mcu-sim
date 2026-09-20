@@ -70,6 +70,7 @@
 #include <string>
 #include <vector>
 #include "../common/asan_opciones.h"
+#include "../common/gui_destino.h"
 #include "soc_f4.h"
 #include "../verif/image_loader.h"
 #include "../verif/gdb_stub.h"
@@ -128,6 +129,13 @@ static std::string g_tipo_mcu = TIPO_MCU;
 static std::string g_gdb_modo;          // "pines" o "dap"
 static unsigned    g_gdb_puerto = 0;
 static bool        g_puerto_dado = false;
+
+// --- La ventana (`mcu-sim-gui`), fase 0 ------------------------------------
+// De momento SOLO se reconoce el argumento y se dice a donde apuntaria. El
+// socket es la fase 3 del plan; hasta entonces `--gui` no cambia nada de lo que
+// el programa hace, que es justo lo que la fase 0 tiene que demostrar.
+static bool          g_gui_pedida = false;
+static stm32::gui::Destino g_gui;
 
 // ---------------------------------------------------------------------------
 // Un MCU montado: lo que la placa declaró, el chip, su stub de pines si lo
@@ -534,6 +542,21 @@ int sc_main(int argc, char** argv) {
         else if (a.rfind("--port=", 0) == 0) {
             g_gdb_puerto = unsigned(std::atoi(a.c_str() + 7));
             g_puerto_dado = true;
+        }
+        // `--gui`, `--gui host:puerto` y `--gui=host:puerto`. Lo que sigue se
+        // toma como destino solo si NO empieza por guion: asi `--gui --ondas`
+        // sigue siendo la ventana por omision y las ondas, y no un host
+        // llamado `--ondas`. Es la misma regla que ya usa `--help`.
+        else if (a == "--gui" || a.rfind("--gui=", 0) == 0) {
+            std::string dest;
+            if (a.rfind("--gui=", 0) == 0) dest = a.substr(6);
+            else if (i + 1 < argc && argv[i + 1][0] != '-') dest = argv[++i];
+            g_gui = stm32::gui::parsea(dest);
+            if (!g_gui.valido) {
+                std::fprintf(stderr, "--gui: %s\n", g_gui.error.c_str());
+                return 1;
+            }
+            g_gui_pedida = true;
         } else if (a == "-h" || a == "--help" || a.rfind("--help=", 0) == 0) {
             // `--help COMPONENTE` y `--help=COMPONENTE`. Lo que sigue se toma
             // como nombre de pieza solo si no empieza por guion: así
@@ -551,6 +574,9 @@ int sc_main(int argc, char** argv) {
                 "     sim placa.xml --gdb-dap    stub de GDB contra el DAP\n"
                 "     sim placa.xml --port=3333  puerto TCP del stub\n"
                 "     sim placa.xml --traza-gdb  imprime cada paquete RSP recibido\n"
+                "     sim placa.xml --gui[=host:puerto]  habla con mcu-sim-gui\n"
+                "                                (por omision localhost:%u; sin\n"
+                "                                el argumento nada cambia)\n"
                 "     sim placa.xml --tiempo-real  frena la simulacion al reloj de\n"
                 "                                pared (=0.5 a mitad de velocidad)\n"
                 "     sim placa.xml --mcu TIPO   el MCU implicito, cuando el XML no\n"
@@ -580,6 +606,7 @@ int sc_main(int argc, char** argv) {
                 "Cada uno se explica solo: `sim --help Led` cuenta lo que hace un\n"
                 "LED y que atributos admite. El catalogo completo, con tablas y\n"
                 "ejemplos, esta en doc/parts.md.\n",
+                unsigned(mcusim::proto::PUERTO_OMISION),
                 TIPO_MCU, tipos_como_texto().c_str(),
                 Fabrica::tipos_como_texto().c_str());
             // Si alguna pieza se ha registrado sin explicarse, que se sepa
@@ -608,6 +635,24 @@ int sc_main(int argc, char** argv) {
     g_placa = libres[0];
     if (libres.size() > 1) g_img = libres[1];
     if (libres.size() > 2) g_ms  = std::atof(libres[2].c_str());
+
+    // --- La ventana, fase 0 -------------------------------------------------
+    // Se dice a donde apuntaria y se avisa si no es la propia maquina. Todavia
+    // no se abre nada: el socket es la fase 3 del plan, y hasta entonces esto
+    // tiene que ser exactamente el programa de siempre mas una linea impresa.
+    if (g_gui_pedida) {
+        std::printf("gui: hablaria con mcu-sim-gui en %s "
+                    "(protocolo v%u) -- fase 0: todavia no se conecta\n",
+                    stm32::gui::como_texto(g_gui).c_str(),
+                    unsigned(mcusim::proto::VERSION));
+        if (!stm32::gui::es_bucle_local(g_gui.host))
+            std::fprintf(stderr,
+                "AVISO: '%s' no es la propia maquina. Este enlace NO esta\n"
+                "       autenticado: quien lo alcance podra ver el estado de la\n"
+                "       simulacion y accionar sus mandos. Los servidores de GDB\n"
+                "       de este programa solo escuchan en bucle local por esto\n"
+                "       mismo.\n", g_gui.host.c_str());
+    }
 
     Sim s("sim");
     sc_start();

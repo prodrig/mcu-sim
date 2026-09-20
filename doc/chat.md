@@ -4338,3 +4338,62 @@ pasa a **169**; el recuadro de decisión en `doc/analisis_gui.md`; y la mención
 `src/README.md`, dejando claro por qué la ventana va aparte: **lo que hace que
 estas 2 074 comprobaciones valgan en cualquier máquina es que este árbol siga
 siendo C++17 y `<systemc>` y nada más.**
+
+## Fase 0 de mcu-sim-gui: el argumento, y que nada más cambie
+
+> Ejecuta la fase 0
+
+La fase barata del plan nuevo, y la que solo tenía que demostrar una cosa:
+**que sin `--gui` no ha cambiado nada**.
+
+**Cuatro ficheros en `mcu-sim`.** `common/protocolo.h`, la copia vendida —
+comprobada idéntica byte a byte a la de `mcu-sim-gui`—; `common/gui_destino.h`,
+el parseo; `top/sim_main.cpp`, que reconoce las tres formas del argumento, dice
+a dónde apuntaría y lo pone en `--help`; y **T130** en `top/sc_main.cpp`.
+
+**Por qué el parseo es un fichero y no cuatro líneas dentro de `sc_main`.**
+Porque así se puede probar. Lo que se equivoca no es `--gui 7000` —eso se ve a
+ojo la primera vez— sino el puerto 0, el 65536, el IPv6 sin corchetes y el
+corchete sin cerrar, que nadie escribe a mano en una prueba manual. Y un parseo
+que falla ahí **no da error**: se conecta a otro sitio, y eso se depura mal.
+
+**El IPv6 exige corchetes, y no es capricho**: `::1:5000` es una dirección IPv6
+perfectamente válida, así que sin corchetes no hay forma de saber si esos dos
+puntos finales separan un puerto o son parte de la dirección. Se rechaza en vez
+de adivinar, y el mensaje lo explica. Los siete mensajes de error se han mirado
+uno a uno, porque un mensaje de error es lo único que alguien lee cuando se
+equivoca.
+
+**La política del host.** `--gui otra-maquina:3344` funciona —hace falta para
+una GUI remota— pero avisa por la salida de error de que el enlace no está
+autenticado, y recuerda que los dos servidores de GDB solo escuchan en bucle
+local por ese mismo motivo. `es_bucle_local()` mira el NOMBRE y no resuelve,
+porque resolver es una operación de red y ese fichero no hace red: la
+consecuencia es que un alias del `hosts` avisa de más, y avisar de más es el
+lado bueno en el que equivocarse. Está dicho, y comprobado.
+
+**T130: 43 comprobaciones, todas puras.** Siete formas buenas, los cinco límites
+del puerto, los seis casos malos con el texto de su error, ocho de
+`es_bucle_local()`, dos de cómo se reimprime un destino y seis de las constantes
+del protocolo. Esas seis compilan por `static_assert` de todos modos; están
+además en T130 porque **un número que solo vive en un `static_assert` no aparece
+en ningún informe de pruebas**, y el tamaño de `Orden` es justo el dato que, si
+cambia sin querer, desconecta los dos programas sin un error de compilación.
+
+**Lo medido:** `make test407` pasa de 2074 a **2117** (+43) y el tiempo simulado
+sigue en **`2336217899213 ps`, al picosegundo**. F446 203, F417 164, `make red`
+13, ASan+UBSan limpio con las 2117, seis placas con 0 avisos. El invariante no
+se movió porque las 43 nuevas son funciones puras sobre cadenas: no pasan por el
+bus, no despiertan un proceso y no piden tiempo.
+
+**Y un detalle del camino que vale como aviso:** el `CMakeLists.txt` de la GUI
+pedía Qt 6.5 por costumbre, y donde se compiló solo hay 6.4.2. Se bajó a **6.3**,
+que es la versión desde la que existe `qt_standard_project_setup()` y por tanto
+el mínimo real. Pedir más versión de la que se usa no protege de nada: solo deja
+fuera máquinas que habrían funcionado.
+
+**Lo que NO se ha hecho, que también es la fase 0:** ni un socket, ni un
+`Observable`, ni una ventana con contenido. Hoy `--gui` imprime una línea y
+sigue. Y lo que sigue **sin verificar** es el riesgo R-1: Windows y macOS, ni la
+GUI ni SystemC. Nada del esqueleto es específico de plataforma, pero eso no es
+una demostración.
