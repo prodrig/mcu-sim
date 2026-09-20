@@ -4515,3 +4515,60 @@ encontrado un antivirus, una DLL, un comentario del Makefile que mentía y un
 choque con el preprocesador. Nada de eso se ve desde Linux, y por eso el paso
 0b del informe de la GUI —compilar en Windows— estaba bien puesto como riesgo
 que va **antes** que el trabajo que lo supone resuelto.
+
+## La suite corre en Windows, y los tres fallos raros eran uno solo
+
+> [salida de `make test407` en MSYS2: 1991 OK, 18 fallos, 1498143073809 ps]
+
+**El titular: la suite entera se ejecuta en Windows.** No solo compila y enlaza
+—eso ya se sabía— sino que **corre los 130 grupos hasta el final**. Es la mitad
+de R-1 que llevaba abierta desde el principio.
+
+**Los 18 fallos, clasificados.** Quince son **firmwares `.bin` sin compilar**:
+no se versionan —los excluye el `.gitignore`— así que un árbol recién clonado no
+tiene ninguno, y quince grupos fallan con «imagen … cargada en la Flash». Eso no
+es un fallo del modelo ni de Windows: es `make -C verif/fw` sin ejecutar.
+
+**Los otros tres sí parecían serios**, y no lo eran: **T23** medía `0 Hz` en el
+pin de MCO1 y **T53** perdía dos muestras de I2S. Dos grupos que no tienen nada
+que ver con ningún firmware.
+
+**Y la causa era uno de los quince.** Los grupos que ejecutan firmware **apagan
+la onda cuadrada de los relojes internos**, porque generarla a 168 MHz domina el
+tiempo de simulación. Cuando el `.bin` no está, se van por un `return` temprano
+**sin volver a encenderla**, y queda apagada **para todo el resto de la suite**.
+Sin onda no hay flancos que contar, y T23 mide cero.
+
+**Reproducido en Linux antes de tocar nada**, que es lo que convierte una
+hipótesis en un hecho: escondiendo `coremark.bin` y nada más, en esta máquina
+caen las mismas cuatro comprobaciones —T17, T23 y las dos de T53—. **No había
+ningún defecto específico de Windows.** Lo único que hizo Windows fue ser la
+primera máquina donde los firmwares no estaban compilados.
+
+**Arreglado por construcción**, no por vigilancia: un guarda RAII,
+`GuardaOndas`, que recuerda el estado anterior y lo restaura por **cualquier**
+camino de salida. Los dieciséis sitios que apagaban la onda a mano pasan a
+usarlo, y el RCC gana el getter que hacía falta para restaurar lo que había en
+vez de lo que se supone que había. Comprobado en las dos direcciones: con los
+firmwares puestos, **2117/2117**; escondiendo CoreMark a propósito, ahora cae
+solo la que debe caer.
+
+**Y T53 resistió, lo cual fue el segundo hallazgo.** Con el guarda puesto sigue
+perdiendo muestras si CoreMark no corre, así que su causa es otra: **la
+comprobación depende del instante simulado en que el grupo arranca**. Cuenta
+cuántas muestras entraron en el esclavo frente a cuántas salieron del maestro, y
+ese número cambia con la fase a la que el enlace de audio engancha — que depende
+de todo lo que se haya ejecutado antes. No es un fallo del modelo de I2S: es una
+comprobación que mide algo que no es estable. Queda anotada como **V-11**, con
+las dos salidas posibles escritas, y **sin arreglar a escondidas**: cambiar lo
+que una comprobación afirma no es una corrección menor.
+
+**Lo que todavía no se puede decir: si el invariante se mantiene.** El tiempo
+simulado de Windows fue `1498143073809 ps` frente a `2336217899213 ps`, pero es
+que **no corrieron los mismos grupos** — CoreMark solo se lleva la mayor parte
+de esa diferencia. Comparar el invariante exige compilar antes los firmwares
+allí, con `arm-none-eabi-gcc`, y volver a medir. Hasta entonces la cifra no dice
+nada, y decir que "no coincide" sería tan falso como decir que coincide.
+
+Suites en Linux tras el cambio: **2117 / 203 / 164**, `2336217899213 ps`,
+`make red` 13/13.

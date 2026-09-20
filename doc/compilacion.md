@@ -337,6 +337,40 @@ de enlazado, y el mensaje de SystemC dice cuál es.
 
 ## 6. Comprobar que ha salido bien
 
+### 6.1 Si faltan los firmwares, no te creas los fallos que salen después
+
+*Corregido; queda escrito porque el síntoma apuntaba al sitio equivocado.*
+
+Los `.bin` de `verif/fw/` **no se versionan** —los excluye el `.gitignore`— así
+que un árbol recién clonado no tiene ninguno y quince grupos de la suite fallan
+con «imagen … cargada en la Flash». Eso es normal y se arregla compilándolos:
+
+```bash
+make -C verif/fw            # y lo mismo para coremark, blinky, dma_demo, ...
+```
+
+Lo que **no** era normal es lo que venía detrás. Los grupos que ejecutan
+firmware **apagan la onda cuadrada de los relojes internos** porque generarla a
+168 MHz domina el tiempo de simulación. Cuando el `.bin` no estaba, esos grupos
+se iban por un `return` temprano **sin volver a encenderla**, y quedaba apagada
+para **todo el resto de la suite**. Consecuencia:
+
+* **T23** medía `0 Hz` en el pin de MCO1 — no había flancos que contar;
+* **T53** perdía dos muestras de I2S.
+
+Tres fallos en grupos que no tenían nada que ver con el firmware que faltaba.
+En una máquina de desarrollo no se ve nunca, porque allí los firmwares están
+siempre compilados; apareció la primera vez que la suite corrió en Windows.
+
+Arreglado con un guarda RAII (`GuardaOndas`) que restaura el estado anterior por
+cualquier camino de salida. **Comprobado en las dos direcciones**: escondiendo
+`coremark.bin` a propósito, antes caían cuatro comprobaciones y ahora cae solo
+la que debe caer — más las dos de T53, que resultaron tener otra causa y están
+anotadas como **V-11**: esa comprobación depende del instante simulado en que
+arranca, y eso no lo arregla el guarda.
+
+
+
 ```bash
 make red        # 13 comprobaciones de la capa de red, sin SystemC
 make test407    # 2117 comprobaciones
@@ -367,7 +401,7 @@ hay que entender qué antes de dar la plataforma por buena.
 | :--- | :--- |
 | Linux, g++ 13 | **Verificado**: 2117/2117, 203/203, 164/164, `make red` 13/13, ASan limpio en los tres |
 | Linux, clang | **Verificado**: 2117/2117, mismo tiempo simulado al picosegundo |
-| Windows, MSYS2 / MinGW-w64 | **SystemC construido y `mcu-sim.exe` EJECUTÁNDOSE** en la terminal MINGW64 (22,5 MB, PE32+). **Falta**: pasar las tres suites allí, y comprobar el `-static` de §5.6 fuera de MSYS2 |
+| Windows, MSYS2 / MinGW-w64 | **SystemC construido y LA SUITE EJECUTÁNDOSE.** `make test407` corre entera: **1991 comprobaciones OK** y 18 fallos, **todos explicados y ninguno del modelo** — 15 son firmwares `.bin` sin compilar (no se versionan) y los otros 3 eran el arrastre de §6.1, ya corregido. **Falta**: compilar los firmwares allí con `arm-none-eabi-gcc` y volver a medir, que es lo único que permite comparar el invariante |
 | Windows, cruzado desde Linux | **Compila y enlaza** (`make red PLATAFORMA=windows CXX=x86_64-w64-mingw32-g++`, PE32+ sin avisos). Ojo: el cruzado de Debian usa hilos **win32** y el de MSYS2 **posix**, así que no reproduce el caso de §5.6 |
 | macOS, clang | **La rama específica compila**. **Falta** probarlo en un Mac |
 

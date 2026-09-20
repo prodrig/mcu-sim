@@ -136,6 +136,36 @@ static bool check_near(double got, double exp, double tol, const char* what) {
 // ---------------------------------------------------------------------------
 SC_MODULE(F1Tb) {
     SocF4*  dut;
+
+    // -----------------------------------------------------------------------
+    // GUARDA DE LAS ONDAS CUADRADAS.
+    //
+    // Apagar la onda de los relojes internos acelera mucho las cargas largas de
+    // CPU, y por eso los grupos que ejecutan firmware la apagan. El problema no
+    // era apagarla: era que un `return` TEMPRANO -el de un firmware que no esta
+    // compilado, que es lo normal en un arbol recien clonado, porque los `.bin`
+    // no se versionan- se iba SIN volver a encenderla, y entonces quedaba
+    // apagada para TODO EL RESTO DE LA SUITE.
+    //
+    // Lo que eso producia: T23 medía 0 Hz en el pin de MCO1 y T53 perdía dos
+    // muestras de I2S. Tres fallos que no eran suyos, en grupos que no tenian
+    // nada que ver con el firmware que faltaba, y que apuntaban al sitio
+    // equivocado. Se tardo en verlo porque en esta maquina los firmwares
+    // siempre estan compilados; aparecio al ejecutar la suite en Windows por
+    // primera vez, donde no lo estaban.
+    //
+    // Con esto el fallo es imposible por construccion: da igual por donde se
+    // salga de la funcion.
+    // -----------------------------------------------------------------------
+    struct GuardaOndas {
+        stm32::Rcc& rcc;
+        const bool  antes;
+        explicit GuardaOndas(stm32::Rcc& r)
+            : rcc(r), antes(r.internal_waveforms()) { rcc.set_internal_waveforms(false); }
+        ~GuardaOndas() { rcc.set_internal_waveforms(antes); }
+        GuardaOndas(const GuardaOndas&) = delete;
+        GuardaOndas& operator=(const GuardaOndas&) = delete;
+    };
     BusTestMaster tm{"tm"};
 
     // --- Circuitería externa de la placa (parts/ext_parts.h) ---------------
@@ -913,7 +943,7 @@ SC_MODULE(F1Tb) {
         // se conecte un IDE. Si se pidio una imagen, se carga; si no, el nucleo
         // arranca en el bucle de aparcamiento y sera GDB quien descargue.
         if (modo_gdb_) {
-            dut->rcc.set_internal_waveforms(false);
+            GuardaOndas guarda_ondas(dut->rcc);
             xtal_hse->attach();
             sonda->desconectar();
             if (!fw_path_.empty()) {
@@ -1986,7 +2016,7 @@ SC_MODULE(F1Tb) {
         // Las ondas cuadradas de HCLK/PCLK no son observables en esta carga
         // (no hay pines ni temporizadores en juego) y su generación domina el
         // tiempo de simulación: se apagan y se deja solo la frecuencia.
-        dut->rcc.set_internal_waveforms(false);
+        GuardaOndas guarda_ondas(dut->rcc);
         dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
         wait(30, SC_US);
         ImageLoader ld(*dut);
@@ -2536,7 +2566,7 @@ SC_MODULE(F1Tb) {
         // de simulación y aquí no la observa nadie: el LED se mueve por el
         // camino GPIO -> pad -> nodo analógico, y el IDR se muestrea con la
         // frecuencia del dominio (véase clock_gen.h y gpio_port.h).
-        dut->rcc.set_internal_waveforms(false);
+        GuardaOndas guarda_ondas(dut->rcc);
         xtal_hse->attach();
         dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
         dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
@@ -3040,7 +3070,7 @@ SC_MODULE(F1Tb) {
     // -----------------------------------------------------------------------
     void t31_dma_firmware() {
         group("T31 DMA gobernado por firmware con CMSIS");
-        dut->rcc.set_internal_waveforms(false);
+        GuardaOndas guarda_ondas(dut->rcc);
         xtal_hse->attach();
         dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
         dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
@@ -3488,7 +3518,7 @@ SC_MODULE(F1Tb) {
     // -----------------------------------------------------------------------
     void t37_usart_firmware() {
         group("T37 USART/UART gobernados por firmware con CMSIS");
-        dut->rcc.set_internal_waveforms(false);
+        GuardaOndas guarda_ondas(dut->rcc);
         xtal_hse->attach();
         dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
         dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
@@ -4178,7 +4208,7 @@ SC_MODULE(F1Tb) {
         // La pista de la placa PD12 -> PB4 lleva el PWM de TIM4 a la entrada
         // de captura de TIM3, igual que en T41.
         lnk_pwm->set_enabled(true);
-        dut->rcc.set_internal_waveforms(false);
+        GuardaOndas guarda_ondas(dut->rcc);
         xtal_hse->attach();
         dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
         dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
@@ -4566,7 +4596,7 @@ SC_MODULE(F1Tb) {
     // -----------------------------------------------------------------------
     void t48_exti_firmware() {
         group("T48 EXTI/SYSCFG gobernados por firmware con CMSIS");
-        dut->rcc.set_internal_waveforms(false);
+        GuardaOndas guarda_ondas(dut->rcc);
         xtal_hse->attach();
         btn_pa0->release();
         dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
@@ -5296,7 +5326,7 @@ SC_MODULE(F1Tb) {
 
         // --- Firmware real con CMSIS -----------------------------------------
         spi_links(true);
-        dut->rcc.set_internal_waveforms(false);
+        GuardaOndas guarda_ondas(dut->rcc);
         xtal_hse->attach();
         dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
         dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
@@ -5913,7 +5943,7 @@ SC_MODULE(F1Tb) {
         i2c_off();
 
         // --- Firmware real con CMSIS -------------------------------------------
-        dut->rcc.set_internal_waveforms(false);
+        GuardaOndas guarda_ondas(dut->rcc);
         xtal_hse->attach();
         dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
         dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
@@ -6615,7 +6645,7 @@ SC_MODULE(F1Tb) {
         wait(20, SC_US);
 
         // --- Firmware real con CMSIS -----------------------------------------
-        dut->rcc.set_internal_waveforms(false);
+        GuardaOndas guarda_ondas(dut->rcc);
         xtal_hse->attach();
         dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
         dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
@@ -7101,7 +7131,7 @@ SC_MODULE(F1Tb) {
         wait(10, SC_US);
 
         // --- Firmware real con CMSIS -----------------------------------------
-        dut->rcc.set_internal_waveforms(false);
+        GuardaOndas guarda_ondas(dut->rcc);
         xtal_hse->attach();
         dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
         dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
@@ -8313,7 +8343,7 @@ SC_MODULE(F1Tb) {
         group("T79 SDIO: firmware real con CMSIS");
         sdio_links(false);
         reset_dut();
-        dut->rcc.set_internal_waveforms(false);
+        GuardaOndas guarda_ondas(dut->rcc);
         xtal_hse->attach();
         dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
         dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
@@ -8758,7 +8788,7 @@ SC_MODULE(F1Tb) {
     void t82_crc_rng_firmware() {
         group("T82 CRC y RNG: firmware real con CMSIS");
         reset_dut();
-        dut->rcc.set_internal_waveforms(false);
+        GuardaOndas guarda_ondas(dut->rcc);
         xtal_hse->attach();
         dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
         dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
@@ -9442,7 +9472,7 @@ SC_MODULE(F1Tb) {
         reset_dut();
         nodo_ext->set_enabled(true);
         nodo_ext->set_ack(true);
-        dut->rcc.set_internal_waveforms(false);
+        GuardaOndas guarda_ondas(dut->rcc);
         xtal_hse->attach();
         dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
         dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
@@ -10065,7 +10095,7 @@ SC_MODULE(F1Tb) {
     void t95_dbg_firmware() {
         group("T95 Debug: firmware real con CMSIS (ITM y DWT)");
         reset_dut();
-        dut->rcc.set_internal_waveforms(false);
+        GuardaOndas guarda_ondas(dut->rcc);
         xtal_hse->attach();
         dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
         dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
@@ -11064,7 +11094,7 @@ SC_MODULE(F1Tb) {
         group("T103 Bajo consumo: firmware real con CMSIS por los tres modos");
         reset_dut();
         dbg_resume();
-        dut->rcc.set_internal_waveforms(false);
+        GuardaOndas guarda_ondas(dut->rcc);
         xtal_hse->attach();
         dut->pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);
         dut->pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);

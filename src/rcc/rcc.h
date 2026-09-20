@@ -388,7 +388,12 @@ public:
     // acelera mucho las cargas largas de CPU: los consumidores internos usan
     // la frecuencia (xxx_hz) y programan sus propios eventos. Debe estar
     // encendida cuando algo mida flancos (MCO, GPIO, captura de temporizadores).
+    // ¿Están encendidas hoy? Lo pregunta el guarda del banco para restaurar
+    // lo que había y no lo que se supone que había.
+    bool internal_waveforms() const { return ondas_internas_; }
+
     void set_internal_waveforms(bool on) {
+        ondas_internas_ = on;
         // Los generadores de MCO1/MCO2 entran también: su fuente por defecto
         // (MCO2SEL = 00) es SYSCLK, de modo que a 168 MHz dominan el coste de
         // simulación aunque PA8/PC9 no estén configurados como AF0.
@@ -506,6 +511,7 @@ private:
 
     ClockGen g_hclk_, g_pclk1_, g_pclk2_, g_timclk1_, g_timclk2_;
     ClockGen g_rtcclk_, g_stk_, g_mco1_, g_mco2_;
+    bool     ondas_internas_ = true;
     sc_core::sc_event clk_ev_, rst_req_ev_;
     sc_core::sc_event_or_list arbol_ev_;   // armada al arrancar clock_tree_proc
 
