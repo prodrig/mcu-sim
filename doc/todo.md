@@ -41,6 +41,9 @@ redactar esta revisión, no solo leído en un informe.
   *loosely-timed* a *approximately-timed* (**P-01**). Es la última línea de la
   tabla de fases de `smt32f407vg_diseño.md` y arrastra consigo otros cuatro
   puntos que dependen de ella.
+- **Y un proyecto entero que empieza**: `mcu-sim-gui`, la contraparte gráfica,
+  **en dos procesos** (**P-12**). Repositorio aparte, plan por fases escrito y
+  protocolo especificado; de código, todavía nada.
 - **Cincuenta y una funciones "bits sin máquina"**: registros que se guardan, se
   enmascaran y se leen correctamente, pero cuya lógica no se ejecuta. Casi todas
   corresponden a caminos que ningún firmware corriente usa, y casi todas están
@@ -172,6 +175,45 @@ del núcleo y no está enrutada al NVIC.
 no hay comprobación automática del límite acumulado del encapsulado.
 *(Verificado en código: `pins/pin_mux.h:117` es la única aparición del símbolo
 en todo el árbol.)*
+
+### P-12 — La contraparte gráfica: `mcu-sim-gui`, en dos procesos
+**Fase:** posterior a F7. **Analizado en `doc/analisis_gui.md`; plan escrito y
+repositorio creado; código, ninguno todavía.**
+
+`doc/analisis_gui.md` comparaba tres escenarios y recomendaba el **2** —un solo
+ejecutable Qt con la simulación en su propio hilo—. **La decisión tomada es la
+de dos procesos**, el escenario 3, y el motivo por el que el análisis la
+descartaba —la distribución: «un alumno tiene que instalar *una* cosa y pulsar
+*un* icono»— se convierte en diseño en vez de en excusa: **la GUI escucha
+primero y lanza `mcu-sim` como proceso hijo**, con lo que no hay carrera de
+arranque, no hay puerto ocupado y no hay cortafuegos.
+
+El proyecto vive en un repositorio aparte, `mcu-sim-gui`, a propósito: `mcu-sim`
+tiene que seguir clonándose y compilándose **sin Qt** en cualquier máquina, que
+es lo que hace que sus 2 074 comprobaciones valgan en todas partes. Allí están
+el plan por fases (`doc/plan_dos_procesos.md`, nueve fases) y la especificación
+del protocolo (`doc/protocolo.md`).
+
+**Lo que este repositorio tiene que crecer**, y es lo que cuenta como pendiente
+aquí:
+
+| | Qué | Fase del plan |
+| :--- | :--- | :--- |
+| a | `--gui host:puerto`, con `localhost:3344` por omisión. **Sin el argumento, nada cambia** | 0 |
+| b | `Observable` / `Mando` en `ExtPartBase`, y las tres primeras piezas que los declaran (`Led`, `Button`, `Crystal`) | 1 |
+| c | La instantánea y la cola de órdenes: los dos `SC_THREAD` de la frontera | 1 |
+| d | `conecta(host, puerto)` y `escucha(host, puerto)` en `common/red.h`, **al lado** de las de bucle local y sin sustituirlas | 2 |
+| e | El saludo antes de `sc_start()`, y `--valida --gui` | 3 |
+| f | Los avisos de `SC_REPORT` desviados al socket | 4 |
+| g | `--argumentos`: que el programa vuelque su lista de opciones, para que el diálogo de lanzamiento de la GUI no envejezca | 7 |
+| h | `--sesion fichero.xml`: reproducir una sesión grabada **sin GUI**, que es lo que devuelve el determinismo que la interactividad quita | 8 |
+
+**El riesgo que hay que vigilar, y tiene su mitigación escrita:** los dos
+`SC_THREAD` de la frontera se construyen siempre —la elaboración de SystemC es
+estática— y un proceso que despierta **mueve el invariante**. Sin `--gui` tienen
+que esperar sobre un evento que nadie notifica nunca. Que eso funciona está
+probado: la fase 4 del plan del F415/F417 metió el CRYP y el HASH enteros en la
+elaboración del F407 sin que `2336217899213 ps` se moviera un picosegundo.
 
 ---
 
@@ -503,16 +545,16 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 
 | Categoría | Puntos |
 | :--- | ---: |
-| **P** — Pendientes de plan | 11 |
+| **P** — Pendientes de plan | 12 |
 | **F** — Funciones no modeladas | 51 |
 | **T** — Temporización y física | 21 |
 | **D** — Datos sin fuente | 14 |
 | **X** — Discrepancias, silencios de [IR] y erratas de ST | 14 |
 | **V** — Huecos de verificación | 10 |
 | **I** — Deuda de instrumentación y proyecto | 47 *(veintiocho cerradas: I-11, I-12, I-15, I-16, I-17, I-20, I-22, I-25, I-28, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38, I-39, I-40, I-41, I-42, I-43, I-44, I-45, I-46, I-47 e I-48)* |
-| **Total** | **168** |
+| **Total** | **169** |
 
-De los 168, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 169, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.
@@ -523,4 +565,4 @@ en el informe que la originó.
 > y la casilla decía 159—, y (2) la fila de la **I** contaba hasta el
 > identificador más alto, no las filas que hay: **I-18 e I-19 no existen**, así
 > que son 47 puntos y no 49, y la lista de cerradas nombraba un I-18 inexistente.
-> Ahora el total **es la suma de la columna**: 11 + 51 + 21 + 14 + 14 + 10 + 47.
+> Ahora el total **es la suma de la columna**: 12 + 51 + 21 + 14 + 14 + 10 + 47.

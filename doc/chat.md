@@ -4243,3 +4243,98 @@ Anotada en `doc/fuentes.md` la regla de colocación, para no volver a
 desparramarlo: **las carpetas de familia llevan solo PDF y su texto**, y las
 fuentes legibles por máquina van cada una a la suya —`cmsis_v1.28.3/` y
 `cubemx/`—.
+
+## mcu-sim-gui: el proyecto nuevo, el protocolo y el plan por fases
+
+> En la carpeta conectada mcu-sim-gui crea un repositorio para crear un programa
+> gráfico con Qt llamado mcu-sim-gui. Explica en su README que es la contraparte
+> de visualización gráfica de mcu-sim siguiendo la opción de 2 procesos indicada
+> en doc/analisis_gui.md. Añade este nuevo proyecto al trabajo. Diseña un plan
+> detallado por fases para implementar dicha opción 2 y conectar mcu-sim con
+> mcu-sim-gui. [...] --gui host:puerto [...] struct Orden [...]
+
+**Repositorio creado** en `repos/mcu-sim-gui`, con su primer commit: README,
+`doc/protocolo.md`, `doc/plan_dos_procesos.md` y un esqueleto Qt 6 + CMake que
+**compila, enlaza y arranca** —verificado aquí con g++ 13 y Qt 6.4.2; sin
+verificar en Windows y macOS, y dicho en el README—.
+
+**Lo primero que hubo que decir en voz alta: esta decisión NO es la que el
+análisis recomienda.** `doc/analisis_gui.md` compara tres escenarios y se queda
+con el **2**; lo que se va a construir es el **3, dos procesos**. El motivo por
+el que §18.2 lo descartaba es bueno y sigue siéndolo —*la distribución*: «un
+alumno tiene que instalar una cosa y pulsar un icono»—, así que se ha convertido
+en diseño: **la GUI escucha primero y lanza `mcu-sim` como proceso hijo**. De ahí
+salen las tres respuestas: no hay carrera de arranque, no hay puerto ocupado —si
+lo está, la GUI toma otro y se lo pasa al hijo— y no hay cortafuegos, porque por
+omisión es `localhost`. Lo que queda del precio está escrito: dos ciclos de
+compilación y dos sitios donde mirar. El análisis lleva ahora un recuadro al
+principio que dice todo esto, porque un documento que recomienda A mientras se
+construye B envejece mintiendo.
+
+**Quién llama a quién, que es al revés de lo que uno diría.** `mcu-sim` es el
+**cliente** y la GUI escucha. Tres razones: quien lanza el proceso es la GUI, así
+que ya está escuchando; `--gui host:puerto` quiere decir *dónde está la ventana*,
+que es el dato que el que arranca puede dar; y si el modelo escuchara, dos
+simulaciones a la vez se pelearían por el puerto, que es justo la incidencia que
+se quería evitar. El modo contrario —engancharse a una simulación en marcha— está
+previsto para la fase 9 con un argumento distinto.
+
+**«La simulación no empieza hasta que la GUI lo diga», en sentido literal.** No
+es que empiece y se quede quieta: es que **`sc_start()` no se ha llamado**. El
+saludo entero —quién soy, el XML de la placa, el catálogo de observables y
+mandos, la suscripción, incluso una secuencia de órdenes programada por
+adelantado— ocurre en `sc_main`, con lecturas bloqueantes normales, antes de que
+exista un solo proceso de SystemC. Y tiene una consecuencia agradable: **ese
+diálogo no cuesta tiempo simulado**, porque todavía no hay tiempo simulado.
+
+**El protocolo.** Una conexión TCP; marco de 16 bytes con magia, versión, tipo,
+longitud y secuencia. La longitud está aunque el tipo casi siempre la determine,
+y esa redundancia es toda la estrategia de versionado: **un extremo se salta un
+mensaje que no entiende** en vez de morirse, así que añadir un tipo nuevo no sube
+la versión. El saludo va en el XML que `--netlist` **ya produce**, más un
+catálogo en el mismo estilo, y con eso la GUI construye su pantalla **sin conocer
+ni un tipo de C++**: añadir una pieza al simulador la hace aparecer en la ventana
+sin recompilar la GUI.
+
+**Las órdenes, que es la parte con miga.** Dentro de un mensaje, la primera
+`Orden` lleva tiempo absoluto si llega antes de arrancar y relativo al ahora si
+la simulación ya corre; **las demás llevan el tiempo transcurrido desde la
+anterior**. Como `t_sim_ns` no tiene signo, la monotonía es por construcción: no
+hay forma de expresar una orden hacia atrás. El ejemplo del enunciado —cuatro
+órdenes sobre un pulsador— sale en 1,00 s, 1,50 s, 4,00 s y 4,22 s, y es la
+prueba de aceptación de la fase 5.
+
+**Y lo que eso le hace al determinismo, dicho y no escondido.** Una secuencia
+enviada antes de arrancar es reproducible al picosegundo; una orden enviada en
+marcha aterriza donde el reloj de pared decida, y esa ejecución **no se puede
+repetir**. No es un defecto que se pueda arreglar: es lo que significa tener una
+persona dentro del lazo. Por eso el modelo devuelve el instante **real** en que
+aplicó cada orden: con eso la sesión se graba y se vuelve a ejecutar sin GUI, y
+un fallo encontrado a mano se convierte en una prueba de la suite, que es la
+moneda de este proyecto.
+
+**Tres decisiones más que evitan deuda desde el primer día.** Los avisos **nunca
+se tiran** y las instantáneas **sí** —una muestra perdida la corrige la
+siguiente; un aviso perdido se parece mucho a un modelo que funciona—. Las dos
+copias de `protocolo.h` las compara una prueba byte a byte, porque un protocolo
+cuyos extremos discrepan en un `uint16_t` no falla al compilar. Y `mcu-sim
+--argumentos` volcará su propia lista de opciones para que el diálogo de
+lanzamiento de la GUI no envejezca: es el mismo truco del netlist y de `--help`,
+un programa que se describe a sí mismo.
+
+**El plan: nueve fases**, cada una con qué deja hecha, cómo se comprueba y qué NO
+entra. La 1 y la 2 son independientes —el modelo por dentro y los bytes por el
+socket—; de la 3 en adelante es una cadena. Y el criterio de aceptación de las
+fases 1 a 6 es el de siempre: **2074 / 203 / 164 y `2336217899213 ps` al
+picosegundo**. El riesgo evidente —dos `SC_THREAD` nuevos que la elaboración
+estática construye siempre— tiene la mitigación ya probada: sin `--gui` esperan
+sobre un evento que nadie notifica, y un proceso que nunca despierta no mueve el
+invariante, como demostró la fase 4 del plan del F415/F417 metiendo el CRYP y el
+HASH enteros en el F407.
+
+**Dado de alta en el trabajo:** **P-12** en `doc/todo.md`, con las ocho cosas que
+le toca crecer a `mcu-sim` y la fase del plan en que toca cada una; el recuento
+pasa a **169**; el recuadro de decisión en `doc/analisis_gui.md`; y la mención en
+`src/README.md`, dejando claro por qué la ventana va aparte: **lo que hace que
+estas 2 074 comprobaciones valgan en cualquier máquina es que este árbol siga
+siendo C++17 y `<systemc>` y nada más.**

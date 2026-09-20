@@ -17,6 +17,16 @@ que ya está es una línea en el catálogo. Lo que costó fueron **sus dos bloqu
 —el CRYP y el HASH—, y esos sí son código: `periph/cryp.h` y `periph/hash.h`,
 con su banco propio en `make test417`.
 
+**La ventana va aparte.** La contraparte de visualización gráfica de este
+simulador es **`mcu-sim-gui`**, un programa Qt 6 en su propio repositorio, y la
+forma elegida de conectarlos es la de **dos procesos**: `mcu-sim` gana un
+argumento, `--gui host:puerto`, que le dice dónde está la ventana, y **sin ese
+argumento se comporta exactamente como hoy**. Ni una cabecera de Qt entra aquí:
+lo que hace que estas 2 074 comprobaciones valgan en cualquier máquina es que
+este árbol sea C++17 y `<systemc>` y nada más. El análisis previo está en
+`doc/analisis_gui.md`, lo que le toca crecer a este lado en el punto **P-12** de
+`doc/todo.md`, y el plan por fases y el protocolo en el otro repositorio.
+
 La documentación de cómo se construyó el modelo del F407 —y la comparativa con
 el F446— está en `doc/stm32f4xx/`. Los manuales de ST no se versionan; van a
 `doc/pdf/`, que el `.gitignore` excluye. **Lo que sí se versiona es el índice de

@@ -23,6 +23,28 @@ MCU.
 > no estaban**. La **parte II**, a partir de §13, dice qué cambia y por qué. Si
 > solo se va a leer una cosa, que sea §13 y §16.
 
+> **DECISIÓN TOMADA, y NO es la que este documento recomienda.** Este análisis
+> recomienda el **escenario 2** —un solo ejecutable Qt con la simulación en su
+> propio hilo (§7, §18.2)—. Lo que se va a construir es el **escenario 3: dos
+> procesos**, con la GUI en un repositorio aparte, **`mcu-sim-gui`**.
+>
+> El motivo por el que §18.2 descartaba los dos procesos —*la distribución*: «un
+> alumno tiene que instalar una cosa y pulsar un icono»— se convierte en diseño
+> en vez de en excusa: **la GUI escucha primero y lanza `mcu-sim` como proceso
+> hijo**, así que no hay carrera de arranque, ni puerto ocupado, ni cortafuegos
+> por medio. `mcu-sim` gana un solo argumento, `--gui host:puerto`, y **sin él
+> se comporta exactamente como hoy**.
+>
+> Todo lo demás de este documento sigue valiendo, empezando por lo que más
+> cuesta: la frontera de §5 —observables, mandos, instantánea y cola de
+> órdenes— es **la misma en los tres escenarios**, y las piezas que no existen
+> (§8) siguen siendo la parte grande de verdad.
+>
+> El plan por fases y la especificación del protocolo están en el otro
+> repositorio: `mcu-sim-gui/doc/plan_dos_procesos.md` y
+> `mcu-sim-gui/doc/protocolo.md`. En este está el punto **P-12** de `todo.md`,
+> con lo que le toca crecer a `mcu-sim`.
+
 ---
 
 ## PARTE I — La GUI como problema técnico
