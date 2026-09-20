@@ -34,7 +34,7 @@ este informe están hechas por máquina, no a ojo**, y sobre ficheros del propio
 fabricante. Donde se dice «idéntico» quiere decir que un programa comparó los
 dos conjuntos y la diferencia salió vacía. Los recuentos están en §3.2 y §4.
 
-> **ESTADO: las fases 0 a 5 del plan están EJECUTADAS.** Los siete puntos se han
+> **ESTADO: las fases 0 a 6 del plan están EJECUTADAS.** Los siete puntos se han
 > cerrado; los cinco primeros ya lo estaban al escribir este documento, y los
 > dos que quedaban —el alcance y los vectores— se cerraron con código y con
 > datos, no con una frase. Está contado en la **§14**, al final, y **encontró
@@ -49,8 +49,11 @@ dos conjuntos y la diferencia salió vacía. Los recuentos están en §3.2 y §4
 > enchufados** —ventana de AHB2, bit de reloj, posición de vector y celda de
 > DMA— y el invariante del F407 **no se movió**. La **fase 5** está en la
 > **§19**: **las diez referencias están declaradas** y el catálogo pasa de
-> diecinueve a veintinueve. Queda la fase 6, la verificación cruzada. Las
-> secciones de más arriba llevan incorporado lo verificado.
+> diecinueve a veintinueve. La **fase 6** está en la **§20**: el chip ejecuta un
+> **firmware real** que cifra y resume desde dentro, y las afirmaciones de este
+> documento se comprueban **una a una** contra el modelo. Queda la fase 7, que
+> es documentación. Las secciones de más arriba llevan incorporado lo
+> verificado.
 
 ---
 
@@ -584,7 +587,7 @@ Las ~60 líneas de pegamento, todas condicionadas por `Periferia`:
 * Una placa de ejemplo con un F417, para que `--valida` los ejercite.
 * Comprobaciones de descriptor en el banco del F407, a coste cero.
 
-### Fase 6 — Verificación
+### Fase 6 — Verificación — **HECHA, §20**
 
 * `top/sc_main_f417.cpp`, `make test417`, `make asan417` (§7).
 * `verif/fw/crypto_demo`: un firmware en C, compilado con `arm-none-eabi-gcc`,
@@ -1478,3 +1481,100 @@ La verificación cruzada: convertir este documento en una tabla de afirmaciones 
 comprobarlas contra el modelo, que es lo que en el puerto del F446 destapó que
 §9.2 era falso. Y el firmware `crypto_demo`, compilado con `arm-none-eabi-gcc`,
 que cifre y resuma los vectores oficiales **desde dentro del chip**.
+
+---
+
+## 20. Fase 6: la verificación
+
+Dos cosas que ninguna fase anterior había hecho: **ejecutar el acelerador desde
+dentro del chip** y **contrastar este documento contra el modelo, frase a
+frase**.
+
+### 20.1 El firmware: el chip usándose a sí mismo
+
+Todo lo anterior escribía registros **desde el banco**. `verif/fw/crypto_demo`
+no: es un binario compilado con `arm-none-eabi-gcc` contra `stm32f417xx.h` —la
+cabecera de ST, sin una sola adaptación al modelo— que el **Cortex-M4 del F417
+ejecuta de verdad**. Es la única prueba que responde a la pregunta que importa:
+*si un alumno escribe esto en STM32CubeIDE, ¿le sale bien?*
+
+Hace tres cosas y las tres tienen respuesta publicada:
+
+```
+    AES-ECB-128 = 3ad77bb40d7a3660a89ecaf32466ef97
+    SHA-1("abc") = a9993e364706816aba3e25717850c26c9cd0d89d
+    MD5("abc")   = 900150983cd24fb0d6963f7d28e17f72
+    un bloque de AES-128 costo 767 ciclos de HCLK
+```
+
+Y **descifra de vuelta**, pasando antes por la preparación de clave
+(`ALGOMODE = 111`), que es la mitad que se olvida.
+
+**Los 767 ciclos merecen una explicación**, porque el manual dice catorce. Los
+catorce son los del núcleo criptográfico; los 767 son lo que tarda **la rutina
+entera** medida con el SysTick desde dentro: escribir la clave, configurar
+`CRYP_CR`, meter cuatro palabras por `CRYP_DIN`, sondear `OFNE` cuatro veces y
+sacar otras cuatro por `CRYP_DOUT`. Son dieciséis accesos al bus AHB2 más el
+bucle en C. Que el bloque sea catorce ciclos y la operación completa unos
+setecientos es exactamente lo que se mide en una placa, y es por lo que el DMA
+existe.
+
+Tres detalles del firmware que vale la pena decir:
+
+* **Arranca del HSI**, no del cristal: el banco monta el chip a secas, así que
+  el PLL cuelga del oscilador interno —M = 16, N = 336, P = 2— y salen los
+  mismos 168 MHz.
+* **Reusa el `startup_stm32f407xx.s` de ST** y vale tal cual: el arranque de las
+  dos referencias es idéntico y este firmware no usa interrupciones, así que la
+  única posición que las distingue —la 79— no interviene.
+* La cabecera `stm32f417xx.h` se vendió en `verif/fw/cmsis/Include/`, junto a
+  las del F407 y el F446.
+
+### 20.2 La prueba cruzada: el informe, frase a frase
+
+En el puerto del F446, esta prueba destapó que una afirmación del documento
+—§9.2, sobre el AF11— **era falsa**. Se repite aquí por el mismo motivo: *un
+informe que nadie contrasta envejece mintiendo.*
+
+**Dieciocho afirmaciones** de este documento, cada una convertida en una
+comprobación sobre el modelo: que un F417 es un F407 más dos campos y nada más;
+que las cuatro piezas tienen 82 posiciones de vector y el mismo `IDCODE`; que no
+hay ningún F415 de 512 KB; que los pines son los mismos referencia a referencia;
+que **las entradas nuevas en la tabla de funciones alternativas son cero** —y que
+el AF11 del Ethernet sigue registrado, porque un F417 sí lo lleva—; que el mapa
+de registros del CRYP termina en `0x4C`; que los ciclos son 14/16/18, 16 y 48;
+que el HASH tiene cinco palabras de resumen y 51 `CSR`; que las ventanas están
+donde dicen; y que el catálogo no se ha inventado ninguna referencia.
+
+**Las dieciocho salen.** Esta vez el informe no mentía — pero eso solo se sabe
+porque se ha comprobado.
+
+**Y una fila se cayó de la tabla, por buenas razones.** La afirmación de §4.4
+—la posición 79 del CRYP y la 80 compartida con el RNG— estuvo un rato ahí con
+un `true` escrito a mano y un comentario que decía «ya se comprueba en I1». Una
+fila que no puede fallar no es una comprobación, es decoración. Se quitó: esa
+afirmación se comprueba de verdad en I1, **moviendo las líneas y mirándolas**.
+
+### 20.3 El estado final del plan
+
+| | |
+| :--- | ---: |
+| Suite del F407 | **2074**, en `2336217899213 ps` |
+| Suite del F446 | **203**, en `1033367277932 ps` |
+| Banco del F417 | **164** |
+| `make hash` (núcleo) | 23/23 |
+| `make cryp` (núcleo, dos direcciones) | 32/32 |
+| `make vectores` (dos motores) | 54/54 |
+| Capa de red | 13/13 |
+| Placas que validan | 6 |
+| ASan + UBSan | limpios en los tres bancos |
+| Referencias en el catálogo | **29** |
+
+El invariante del F407 lleva **once fases** sin moverse un picosegundo.
+
+### 20.4 Lo que queda: la fase 7
+
+Sólo documentación, y buena parte ya entró con la fase 5 —`reutilizacion.md`
+§9, `parts.md`, el README—. Queda repasar `todo.md`: dar de alta lo que del CRYP
+y del HASH **no** se ha modelado y que está dicho en las cabeceras de sus
+ficheros, y dar de baja lo que estas seis fases han cerrado.

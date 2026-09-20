@@ -4058,3 +4058,64 @@ $ ./build/mcu-sim placas/cripto_f417.xml verif/fw/blinky/blinky.bin 205
 F407 **2074/2074** (+3) en **`2336217899213 ps`**, F446 **203/203**, F417
 **138/138**, `make hash` 23/23, `make cryp` 32/32, vectores 54/54, red 13/13,
 **seis placas** validan y ASan+UBSan limpios.
+
+
+## Fase 6 del F415/F417: la verificación
+
+> Ejecuta la fase 6
+
+Dos cosas que ninguna fase anterior había hecho: **ejecutar el acelerador desde
+dentro del chip** y **contrastar el informe contra el modelo, frase a frase**.
+
+**El firmware.** Todo lo anterior escribía registros desde el banco.
+`verif/fw/crypto_demo` no: es un binario compilado con `arm-none-eabi-gcc`
+contra `stm32f417xx.h` —la cabecera de ST, sin una sola adaptación al modelo— que
+el **Cortex-M4 del F417 ejecuta de verdad**. Es la única prueba que responde a la
+pregunta que importa: *si un alumno escribe esto en STM32CubeIDE, ¿le sale bien?*
+
+```
+    AES-ECB-128 = 3ad77bb40d7a3660a89ecaf32466ef97
+    SHA-1("abc") = a9993e364706816aba3e25717850c26c9cd0d89d
+    MD5("abc")   = 900150983cd24fb0d6963f7d28e17f72
+    un bloque de AES-128 costo 767 ciclos de HCLK
+```
+
+Y descifra de vuelta, pasando antes por la preparación de clave
+(`ALGOMODE = 111`), que es la mitad que se olvida.
+
+**Los 767 ciclos merecen explicación, porque el manual dice catorce.** Los
+catorce son los del núcleo criptográfico; los 767 son lo que tarda la rutina
+entera medida con el SysTick desde dentro: escribir la clave, configurar el `CR`,
+meter cuatro palabras por `DIN`, sondear `OFNE` cuatro veces y sacar otras cuatro
+por `DOUT`. Dieciséis accesos al bus AHB2 más el bucle en C. Que el bloque sean
+catorce ciclos y la operación completa setecientos es exactamente lo que se mide
+en una placa — y es por lo que el DMA existe.
+
+**La prueba cruzada.** En el puerto del F446 esta prueba destapó que una
+afirmación del documento era **falsa**. Se repite aquí por el mismo motivo: *un
+informe que nadie contrasta envejece mintiendo.* **Dieciocho afirmaciones** del
+informe, cada una convertida en una comprobación sobre el modelo: que un F417 es
+un F407 más dos campos y nada más; las 82 posiciones de vector y el mismo
+IDCODE; que no hay ningún F415 de 512 KB; que los pines son los mismos; que **las
+entradas nuevas en la tabla AF son cero** —y que el AF11 del Ethernet sigue ahí,
+porque un F417 sí lo lleva—; que el mapa del CRYP termina en `0x4C`; los ciclos
+14/16/18, 16 y 48; las cinco palabras de resumen y los 51 `CSR`; las ventanas; y
+que el catálogo no se ha inventado ninguna referencia.
+
+**Las dieciocho salen.** Esta vez el informe no mentía, pero eso solo se sabe
+porque se ha comprobado.
+
+**Y una fila se cayó de la tabla, por buenas razones.** La afirmación sobre las
+posiciones 79 y 80 estuvo ahí un rato con un `true` escrito a mano y un
+comentario que decía «ya se comprueba en I1». Una fila que no puede fallar no es
+una comprobación, es decoración. Se quitó: esa se comprueba de verdad en I1,
+moviendo las líneas y mirándolas.
+
+Banco del F417 **164/164** (+26), F407 **2074/2074** en **`2336217899213 ps`**
+—**once fases** sin moverse un picosegundo—, F446 **203/203**, `make hash`
+23/23, `make cryp` 32/32, vectores 54/54, red 13/13, seis placas y ASan+UBSan
+limpios en los tres bancos.
+
+Queda la fase 7, que es documentación: repasar `todo.md` para dar de alta lo que
+del CRYP y del HASH **no** está modelado —y que está dicho en las cabeceras de
+sus ficheros— y de baja lo que estas seis fases han cerrado.

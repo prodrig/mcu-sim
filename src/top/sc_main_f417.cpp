@@ -45,6 +45,7 @@
 #include "../periph/cryp.h"
 #include "../verif/bus_test_master.h"
 #include "soc_f4.h"
+#include "../verif/image_loader.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -109,6 +110,7 @@ struct Tb : sc_module {
     sc_signal<bool>   c_irq{"c_irq"}, c_din{"c_din"}, c_dout{"c_dout"};
 
     static constexpr double HCLK = 168e6;      // el F417 a tope, como el F407
+    int d_vdd = -1, d_vdda = -1, d_nrst = -1, d_bt0 = -1, d_pb2 = -1;
 
     SC_CTOR(Tb) {
         mst.isk.bind(dut.tsk);
@@ -254,6 +256,29 @@ struct Tb : sc_module {
             wait(10, SC_NS);
     }
 
+    // Alimentar el chip y soltarle el reset, igual que hace `sc_main.cpp`.
+    // Hasta la fase 5 este banco no lo necesitaba -entraba por el bus de
+    // pruebas y el nucleo no ejecutaba nada-, pero la fase 6 mete un firmware
+    // de verdad, y para eso el Cortex-M4 tiene que arrancar.
+    void enciende() {
+        d_vdd  = soc.pwr_pads.vdd.register_driver("tb_vdd");
+        d_vdda = soc.pwr_pads.vdda.register_driver("tb_vdda");
+        d_nrst = soc.pwr_pads.nrst.register_driver("tb_nrst");
+        d_bt0  = soc.pwr_pads.boot0.register_driver("tb_boot0");
+        d_pb2  = soc.pinmux.analog(1, 2).register_driver("tb_pb2");
+        soc.pwr_pads.vdd.set_drive(d_vdd, 0.0f, 1.0f);
+        soc.pwr_pads.vdda.set_drive(d_vdda, 0.0f, 1.0f);
+        soc.pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);        // arranca de Flash
+        soc.pinmux.analog(1, 2).set_drive(d_pb2, 0.0f, 10e3f);
+        soc.pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        wait(10, SC_US);
+        soc.pwr_pads.vdd.set_drive(d_vdd, 3.3f, 0.1f);
+        soc.pwr_pads.vdda.set_drive(d_vdda, 3.3f, 0.1f);
+        wait(100, SC_US);
+        soc.pwr_pads.nrst.set_hiz(d_nrst);
+        wait(200, SC_US);
+    }
+
     void run();
 };
 
@@ -354,6 +379,7 @@ void Tb::run() {
     wait(1, SC_NS);
     s_rst_n.write(true);
     wait(1, SC_NS);
+    enciende();
 
     // =======================================================================
     grupo("A1 Reset: lo que el manual promete al arrancar");
@@ -761,8 +787,6 @@ void Tb::run() {
             return smst.read32(a, v) != tlm::TLM_OK_RESPONSE;
         };
 
-        wait(30, SC_US);                       // que suelte el reset
-
         check(std::string(soc.mcu.nombre) == "STM32F417VG",
               "el chip que monta este banco es un STM32F417VG DEL CATALOGO, no "
               "un descriptor de laboratorio: desde la fase 5 existe de verdad");
@@ -826,6 +850,218 @@ void Tb::run() {
         check((m >> (5*8+2)) & 1u, "DMA2 stream 5 canal 2 (CRYP_OUT) tiene fuente");
         check((m >> (6*8+2)) & 1u, "DMA2 stream 6 canal 2 (CRYP_IN) tambien");
         check((m >> (7*8+2)) & 1u, "y DMA2 stream 7 canal 2 (HASH_IN)");
+    }
+
+    // =======================================================================
+    grupo("J1 El acelerador DESDE DENTRO: firmware real con CMSIS");
+    // =======================================================================
+    // Todo lo anterior escribe registros desde el banco. Esto no: aqui el
+    // Cortex-M4 del F417 ejecuta un firmware compilado con `arm-none-eabi-gcc`
+    // contra `stm32f417xx.h`, la cabecera de ST, **sin una sola adaptacion al
+    // modelo**. Es el mismo binario que se grabaria en la placa, y es la unica
+    // prueba que responde a la pregunta que de verdad importa: si un alumno
+    // escribe este codigo en STM32CubeIDE, ¿le sale el resultado correcto?
+    {
+        soc.pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);      // sujetar el reset
+        wait(20, SC_US);
+        ImageLoader ld(soc);
+        const long n = ld.load_file("verif/fw/crypto_demo/crypto_demo.bin",
+                                    addr::FLASH_BASE);
+        check(n > 0, "imagen del firmware criptografico cargada en la Flash");
+        if (n <= 0) {
+            std::printf("        (compilar con make -C verif/fw/crypto_demo)\n");
+            soc.pwr_pads.nrst.set_hiz(d_nrst);
+        } else {
+            std::printf("    %ld bytes cargados desde verif/fw/crypto_demo\n", n);
+            for (unsigned i = 0; i < 64; i += 4) ld.poke32(addr::SRAM1_BASE + i, 0);
+            soc.pwr_pads.nrst.set_hiz(d_nrst);
+
+            bool listo = false;
+            const sc_time t0 = sc_time_stamp();
+            while ((sc_time_stamp() - t0) < sc_time(200, SC_MS)) {
+                wait(100, SC_US);
+                if (soc.sram1.peek32(0) == 1u) { listo = true; break; }
+            }
+            check(listo, "el firmware llega a su fin y publica el buzon");
+
+            const uint32_t aes_ok  = soc.sram1.peek32(4);
+            const uint32_t vuelta  = soc.sram1.peek32(8);
+            uint8_t ct[16], sha[20], md5[16];
+            for (unsigned i = 0; i < 4; ++i) {
+                const uint32_t v = soc.sram1.peek32(12 + 4*i);
+                ct[4*i+0] = uint8_t(v >> 24); ct[4*i+1] = uint8_t(v >> 16);
+                ct[4*i+2] = uint8_t(v >> 8);  ct[4*i+3] = uint8_t(v);
+            }
+            for (unsigned i = 0; i < 5; ++i) {
+                const uint32_t v = soc.sram1.peek32(28 + 4*i);
+                sha[4*i+0] = uint8_t(v >> 24); sha[4*i+1] = uint8_t(v >> 16);
+                sha[4*i+2] = uint8_t(v >> 8);  sha[4*i+3] = uint8_t(v);
+            }
+            for (unsigned i = 0; i < 4; ++i) {
+                const uint32_t v = soc.sram1.peek32(48 + 4*i);
+                md5[4*i+0] = uint8_t(v >> 24); md5[4*i+1] = uint8_t(v >> 16);
+                md5[4*i+2] = uint8_t(v >> 8);  md5[4*i+3] = uint8_t(v);
+            }
+            const uint32_t ciclos = soc.sram1.peek32(64);
+
+            std::printf("    AES-ECB-128 = %s\n", a_hex(ct, 16).c_str());
+            std::printf("    SHA-1(\"abc\") = %s\n", a_hex(sha, 20).c_str());
+            std::printf("    MD5(\"abc\")   = %s\n", a_hex(md5, 16).c_str());
+            std::printf("    un bloque de AES-128 costo %u ciclos de HCLK "
+                        "(el manual dice 14 mas el trasiego del bus)\n", ciclos);
+
+            check_eq(aes_ok, 1u,
+                     "el firmware cifra el vector F.1.1 del SP 800-38A y le sale "
+                     "el texto cifrado que ese documento publica");
+            check_eq(vuelta, 1u,
+                     "y lo descifra de vuelta, pasando antes por la preparacion "
+                     "de clave (ALGOMODE = 111), que es la mitad que se olvida");
+            check_hex(a_hex(ct, 16), "3ad77bb40d7a3660a89ecaf32466ef97",
+                      "el texto cifrado, visto desde fuera");
+            check_hex(a_hex(sha, 20), "a9993e364706816aba3e25717850c26c9cd0d89d",
+                      "SHA-1(\"abc\") calculado POR EL CHIP coincide con el RFC 3174");
+            check_hex(a_hex(md5, 16), "900150983cd24fb0d6963f7d28e17f72",
+                      "y MD5(\"abc\") con el RFC 1321");
+            check(ciclos >= 14u && ciclos < 2000u,
+                  "y el bloque costo del orden de decenas de ciclos, no miles: "
+                  "eso es para lo que existe un acelerador");
+        }
+    }
+
+    // =======================================================================
+    grupo("K1 El informe, comprobado frase a frase");
+    // =======================================================================
+    // La prueba cruzada. Es la que en el puerto del F446 destapo que una
+    // afirmacion del documento -la 9.2, sobre el AF11- era FALSA, y por eso se
+    // repite aqui: un informe que nadie contrasta envejece mintiendo. Cada fila
+    // es una frase de `doc/stm32f4xx/stm32f4xx_vs_415xx.md` y su veredicto.
+    {
+        struct Afirmacion { const char* seccion; const char* dice; bool cierto; };
+
+        // ¿Cuantas ranuras de AF tiene registradas este F417? El informe dice
+        // en 13 que las entradas de la tabla AF nuevas son CERO, asi que tiene
+        // que haber exactamente las mismas que en un F407 -incluido el AF11 del
+        // Ethernet, que este chip SI lleva-.
+        unsigned n_af = 0; bool hay_af11 = false;
+        for (unsigned pt = 0; pt < N_GPIO_PORTS; ++pt)
+            for (unsigned pi = 0; pi < N_PORT_PINS; ++pi)
+                for (unsigned af = 0; af < 16; ++af)
+                    if (soc.pinmux.tiene_af(pt, pi, af)) {
+                        ++n_af;
+                        if (af == 11) hay_af11 = true;
+                    }
+
+        const auto m417 = Rcc::mascaras(PERIF_F417.bloques_rcc());
+        const auto m407 = Rcc::mascaras(PERIF_F407.bloques_rcc());
+        const uint64_t celdas = soc.dma2.celdas_con_fuente;
+
+        // Cada referencia con cripto contra su gemela, otra vez pero aqui: lo
+        // que el informe afirma en 1 es que NO hay nada mas.
+        bool solo_dos_campos = true;
+        {
+            Periferia p = PERIF_F407; p.cryp = true; p.hash = true;
+            if (std::memcmp(&p, &PERIF_F417, sizeof(Periferia)) != 0) solo_dos_campos = false;
+            Periferia q = PERIF_F405; q.cryp = true; q.hash = true;
+            if (std::memcmp(&q, &PERIF_F415, sizeof(Periferia)) != 0) solo_dos_campos = false;
+        }
+        bool mismos_pines = true;
+        {
+            const McuCaps* par[][2] = {
+                { &MCU_STM32F415RG, &MCU_STM32F405RG },
+                { &MCU_STM32F415OG, &MCU_STM32F405OG },
+                { &MCU_STM32F415VG, &MCU_STM32F405VG },
+                { &MCU_STM32F415ZG, &MCU_STM32F405ZG },
+                { &MCU_STM32F417VG, &MCU_STM32F407VG },
+                { &MCU_STM32F417ZG, &MCU_STM32F407ZG },
+                { &MCU_STM32F417IG, &MCU_STM32F407IG },
+            };
+            for (auto& x : par)
+                if (x[0]->enc.cuenta_gpio() != x[1]->enc.cuenta_gpio())
+                    mismos_pines = false;
+        }
+        bool sin_f415_512k = true;
+        for (unsigned k = 0; k < N_CATALOGO_MCU; ++k) {
+            const McuCaps* m = CATALOGO_MCU[k];
+            if (std::string(m->nombre).substr(0, 9) == "STM32F415" &&
+                m->memoria.flash.size != 0x100000u) sin_f415_512k = false;
+        }
+
+        const Afirmacion tabla[] = {
+          { "1",  "un F417 es un F407 mas el acelerador, y NADA mas: los dos "
+                  "juegos de rasgos se diferencian en dos campos",
+                  solo_dos_campos },
+          { "2",  "las cuatro piezas tienen 82 posiciones de vector",
+                  MCU_STM32F417VG.nucleo.n_irq == MCU_STM32F407VG.nucleo.n_irq &&
+                  MCU_STM32F417VG.nucleo.n_irq == 82u },
+          { "2",  "y el mismo IDCODE, 0x1001 6413: un depurador no distingue un "
+                  "F417 de un F407",
+                  MCU_STM32F417VG.idcode == MCU_STM32F407VG.idcode &&
+                  MCU_STM32F417VG.idcode == 0x10016413u },
+          { "2",  "la RAM no cambia: 192 KB de sistema en las cuatro",
+                  MCU_STM32F417VG.memoria.ram.total() ==
+                  MCU_STM32F407VG.memoria.ram.total() },
+          { "2",  "ST no vende ningun F415 de 512 KB",
+                  sin_f415_512k },
+          { "3.2","los pines son los MISMOS, referencia a referencia",
+                  mismos_pines },
+          { "13", "entradas nuevas en la tabla de funciones alternativas: CERO "
+                  "-y el AF11 del Ethernet sigue ahi, porque un F417 lo lleva-",
+                  n_af > 0 && hay_af11 },
+          { "4.1","el mapa de registros del CRYP termina en 0x4C: los del "
+                  "GCM/CCM son del F43x",
+                  crd(0x50) == 0u && crd(0x8C) == 0u },
+          { "4.1","AES cuesta 14, 16 y 18 ciclos segun la clave; DES 16 y "
+                  "TDES 48 [tabla 111]",
+                  Cryp::CICLOS_AES[0] == 14 && Cryp::CICLOS_AES[1] == 16 &&
+                  Cryp::CICLOS_AES[2] == 18 && Cryp::CICLOS_DES == 16 &&
+                  Cryp::CICLOS_TDES == 48 },
+          { "4.2","el HASH tiene CINCO palabras de resumen y 51 registros de "
+                  "contexto, no ocho y 54",
+                  Hash::N_CSR == 51 && Hash::R_CSR50 - Hash::R_CSR0 == 200 },
+          { "4.2","66 ciclos por bloque en SHA-1 y 50 en MD5",
+                  Hash::CICLOS_SHA1 == 66 && Hash::CICLOS_MD5 == 50 },
+          { "4.2","y el alias de los cinco registros de resumen en 0x310 "
+                  "existe tambien en el F41x",
+                  Hash::R_HR_ALIAS == 0x310 },
+          { "4.3","el RCC de un F417 abre los bits 4 y 5 del AHB2, y el de un "
+                  "F407 no",
+                  (m417.ahb2_enr & 0x30u) == 0x30u &&
+                  (m407.ahb2_enr & 0x30u) == 0u },
+          { "4.5","tres celdas de DMA: DMA2, canal 2, streams 5, 6 y 7",
+                  ((celdas >> (5*8+2)) & 1u) && ((celdas >> (6*8+2)) & 1u) &&
+                  ((celdas >> (7*8+2)) & 1u) },
+          { "4.6","las dos ventanas estan en 0x5006 0000 y 0x5006 0400, con el "
+                  "RNG detras en 0x5006 0800",
+                  addr::CRYP_B == 0x50060000u && addr::HASH_B == 0x50060400u &&
+                  addr::RNG_B == 0x50060800u },
+          { "6",  "diez referencias nuevas, cuatro F415 y seis F417",
+                  mcu_por_nombre("STM32F415RG") && mcu_por_nombre("STM32F415OG") &&
+                  mcu_por_nombre("STM32F415VG") && mcu_por_nombre("STM32F415ZG") &&
+                  mcu_por_nombre("STM32F417VE") && mcu_por_nombre("STM32F417VG") &&
+                  mcu_por_nombre("STM32F417ZE") && mcu_por_nombre("STM32F417ZG") &&
+                  mcu_por_nombre("STM32F417IE") && mcu_por_nombre("STM32F417IG") },
+          { "6",  "y ninguna referencia inventada: no hay STM32F415OE ni "
+                  "STM32F415RE",
+                  mcu_por_nombre("STM32F415OE") == nullptr &&
+                  mcu_por_nombre("STM32F415RE") == nullptr },
+          { "13", "encapsulados nuevos: CERO -el F417VG usa el LQFP100 de "
+                  "siempre-",
+                  &MCU_STM32F417VG.enc == &MCU_STM32F407VG.enc ||
+                  std::string(MCU_STM32F417VG.enc.nombre) == "LQFP100" },
+        };
+
+        // Una fila que no puede fallar no es una comprobacion, es decoracion.
+        // La afirmacion de 4.4 -la posicion 79 del CRYP y la 80 compartida con
+        // el RNG- estuvo aqui un rato con un `true` escrito a mano y se quito:
+        // esa se comprueba DE VERDAD en I1, moviendo las lineas y mirandolas.
+        std::printf("    %zu afirmaciones del informe, contrastadas contra el "
+                    "modelo (la de 4.4 se comprueba en I1, sobre las lineas)\n",
+                    sizeof(tabla) / sizeof(tabla[0]));
+        for (const Afirmacion& a : tabla) {
+            char q[320];
+            std::snprintf(q, sizeof q, "[%s] %s", a.seccion, a.dice);
+            check(a.cierto, q);
+        }
     }
 
     std::printf("\nTOTAL F417 : %u comprobaciones OK, %u fallos\n", g_ok, g_fallo);

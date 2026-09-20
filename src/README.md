@@ -74,6 +74,8 @@ compilan con `make -C verif/fw`, `make -C verif/fw/coremark`,
 `make -C verif/fw/dac_demo`, `make -C verif/fw/sdio_demo`,
 `make -C verif/fw/crc_rng_demo`, `make -C verif/fw/can_demo`,
 `make -C verif/fw/debug_demo` y `make -C verif/fw/lowpower_demo`
+(y `make -C verif/fw/crypto_demo`, que es del banco del F417 y se compila
+con `-DSTM32F417xx`)
 (requieren `arm-none-eabi-gcc`). Sin ellos, esas pruebas informan de que falta
 la imagen. `F2_SKIP_COREMARK=1` omite la ejecución de CoreMark.
 
