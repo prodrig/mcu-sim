@@ -11,9 +11,9 @@ tocar el `Makefile`, y qué hacer cuando falla. La segunda mitad está ordenada 
 ```bash
 cd src
 make                    # el simulador: build/mcu-sim
-make test407            # construye y ejecuta la suite del F407: 2055 comprobaciones
-make test446            # y la del F446: 200 comprobaciones
-make test417            # el banco del acelerador criptografico del F415/F417
+make test407            # construye y ejecuta la suite del F407: 2074 comprobaciones
+make test446            # y la del F446: 203 comprobaciones
+make test417            # el acelerador criptografico del F415/F417: 164
 make hash               # los vectores de MD5 y SHA-1, que no necesitan SystemC
 make cryp               # los de AES, DES y TDES, en las dos direcciones
 ```
@@ -297,15 +297,20 @@ de enlazado, y el mensaje de SystemC dice cuál es.
 
 ```bash
 make red        # 13 comprobaciones de la capa de red, sin SystemC
-make test407       # 1935 comprobaciones
+make test407    # 2074 comprobaciones
+make test446    # 203
+make test417    # 164
 ```
 
 Y el criterio que de verdad vale, más allá de que pasen: al final de `make test407`,
 
 ```
-TOTAL     : 1935 comprobaciones OK, 0 fallos
+TOTAL     : 2074 comprobaciones OK, 0 fallos
 Tiempo simulado: 2336217899213 ps
 ```
+
+Los otros dos bancos tienen su propio invariante —`1033367277932 ps` el del
+F446 y `718988288 ps` el del F417— y valen para lo mismo.
 
 **Ese picosegundo es el mismo en Linux con g++, en Linux con clang y en cualquier
 sitio donde el modelo se comporte igual.** Si las comprobaciones pasan pero la
@@ -318,8 +323,8 @@ hay que entender qué antes de dar la plataforma por buena.
 
 | Plataforma | Estado |
 | :--- | :--- |
-| Linux, g++ 13 | **Verificado**: 1935/1935, `make red` 13/13, ASan limpio |
-| Linux, clang | **Verificado**: 1935/1935, mismo tiempo simulado al picosegundo |
+| Linux, g++ 13 | **Verificado**: 2074/2074, 203/203, 164/164, `make red` 13/13, ASan limpio en los tres |
+| Linux, clang | **Verificado**: 2074/2074, mismo tiempo simulado al picosegundo |
 | Windows, MinGW-w64 | **Compila y enlaza** cruzado desde Linux (PE32+ sin avisos). **Falta** construir SystemC allí y ejecutarlo |
 | macOS, clang | **La rama específica compila**. **Falta** probarlo en un Mac |
 

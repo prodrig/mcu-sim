@@ -2,7 +2,13 @@
 
 Inventario consolidado de **todo lo que las siete fases han ido dejando fuera**,
 extraído de los veintidós informes de `doc/` y contrastado contra el código de
-`src/`. Fecha de corte: fase F7 cerrada, **1811/1811 comprobaciones, 0 fallos**.
+`src/`. Fecha de corte original: fase F7 cerrada, **1811/1811 comprobaciones,
+0 fallos**.
+
+**Puesto al día con los dos planes de familia posteriores** —el del F446 y el
+del F415/F417—, que cerraron puntos y abrieron otros. Estado de hoy: **tres
+bancos**, `test407` (2074), `test446` (203) y `test417` (164), **0 fallos**, y
+el invariante del F407 intacto en `2336217899213 ps`.
 
 ## Cómo leer este documento
 
@@ -20,7 +26,7 @@ anotado y qué impacto tiene. Las categorías son:
 | **F** | Función no modelada | Los bits existen y se guardan; falta la máquina |
 | **T** | Temporización y física | Simplificaciones de tiempo, pipeline o eléctrica |
 | **D** | Dato no disponible en las fuentes | Parámetro inventado o tomado del datasheet |
-| **X** | Discrepancia con el informe técnico | [IR] se contradice, omite o choca con RM0090 |
+| **X** | Discrepancia documental | [IR] se contradice, omite o choca con RM0090 — o ST se contradice consigo mismo |
 | **V** | Hueco de verificación | Está modelado pero no se ejercita |
 | **I** | Deuda de instrumentación y de proyecto | Andamios del banco, higiene del repositorio |
 
@@ -35,16 +41,17 @@ redactar esta revisión, no solo leído en un informe.
   *loosely-timed* a *approximately-timed* (**P-01**). Es la última línea de la
   tabla de fases de `smt32f407vg_diseño.md` y arrastra consigo otros cuatro
   puntos que dependen de ella.
-- **Cuarenta y ocho funciones "bits sin máquina"**: registros que se guardan, se
+- **Cincuenta y una funciones "bits sin máquina"**: registros que se guardan, se
   enmascaran y se leen correctamente, pero cuya lógica no se ejecuta. Casi todas
   corresponden a caminos que ningún firmware corriente usa, y casi todas están
   bloqueadas por la falta de un dispositivo externo que las ejercite.
 - **Ocho discrepancias con el informe técnico [IR]** —más cuatro silencios que
-  hubo que resolver por decisión propia—. Tres son contradicciones internas del
+  hubo que resolver por decisión propia, y **dos erratas de ST consigo mismo**
+  que el plan del F415/F417 destapó—. Tres son contradicciones internas del
   propio informe y dos son omisiones que hubo que rellenar desde RM0090. Siete
   están resueltas de forma documentada y reversible; **X-04 (`FP_REMAP`) sigue
   abierta**, con la contradicción escrita en un comentario del código.
-- **Trece parámetros sin fuente documental**, todos expuestos como variables
+- **Catorce parámetros sin fuente documental**, todos expuestos como variables
   públicas para poder ajustarlos sin tocar el código.
 - **Dos puntos que se perdieron entre fases** y que esta revisión recupera:
   **P-06** (espejo de 0x0 visto por maestros ajenos al núcleo, anotado en F1 como
@@ -241,6 +248,18 @@ leen correctamente; lo que no hay es una máquina que los ejecute.
 | **F-47** | **Filtrado VLAN por etiqueta** | F7-ETH §6 | `MACVLANTR` se guarda |
 | **F-48** | **Contadores MMC completos** | F7-ETH §6 | El modelo lleva **cinco**, no los treinta y tantos del bloque |
 
+### El acelerador criptográfico del F415/F417
+
+Los tres puntos que siguen vienen del plan del F415/F417
+(`doc/stm32f4xx/stm32f4xx_vs_415xx.md`). La columna *Fase* nombra la fase de
+**ese** plan y la sección de **ese** informe, no las de las siete originales.
+
+| Id | Qué falta | Fase | Motivo declarado |
+| :--- | :--- | :--- | :--- |
+| **F-49** | **El formato interno de los `HASH_CSRx`** | F415-2 §16.1 | Los 51 registros salvan y restauran el contexto **de verdad** —hay una prueba que intercala dos mensajes y los termina bien—, pero el formato de cada palabra **es el de este modelo, no el de ST**. Un firmware que *interprete* el contenido de un CSR no funcionaría; ninguno lo hace, porque **ST tampoco documenta el formato**: lo único que el silicio promete es que guardar los 51 y volverlos a escribir restaura el estado |
+| **F-50** | **Clave de HMAC cuyo tamaño no es múltiplo de ocho bits** | F415-2 §16.2 | `HASH_STR.NBLW` admite cualquier número de bits y el silicio deja meter así la clave; la RFC 2104 no dice qué hacer con una clave que no acaba en byte entero y el HAL de ST nunca la genera. El modelo **avisa por `SC_REPORT_WARNING` y recorta al byte**, en vez de inventarse un relleno que nadie podría contrastar |
+| **F-51** | **La copia de la clave preparada en `K0..K3`** | F415-3 §17.2 | Al preparar la clave para descifrar en AES (`ALGOMODE = 111`) el manual dice que el resultado «se copia de vuelta» en los registros de clave. Esos registros son **de solo escritura** [RM0090 Rev 22, §23.6.10, todos los bits marcados `w`], así que la copia **no es observable desde el firmware**. El modelo hace lo que sí se ve: cobra los ciclos, mantiene `BUSY` y deja `CRYPEN` a cero al terminar |
+
 ---
 
 ## 4. Temporización y física (T)
@@ -296,10 +315,11 @@ código. Ninguno es una constante verificada contra el silicio.
 | **D-11** | Matriz ITRx de los temporizadores | ⚠ **[IR] no la recoge en absoluto**; cableada desde RM0090 y aislada en el *netlist*. "Corregirla es cambiar ocho líneas de datos; ninguna prueba de `timers.h` depende de ella" | F4-TIM §4.3 |
 | **D-12** | `CID` (Core ID) de los dos núcleos USB | Valores distintos elegidos como rasgo de variante; el valor exacto es específico del dispositivo | F7-OTG §2 |
 | **D-13** | Celdas de DMA de los I2SxEXT | ⚠ **[IR] no recoge su asignación en las tablas de [IR, §11.4]**; sus líneas de petición quedan **sin conectar** | F5-SPI §7 |
+| **D-14** | Ciclos de la preparación de clave del AES (`ALGOMODE = 111`) | ⚠ **la tabla 111 del [RM0090 Rev 22] no le da un número propio**: da los ciclos por bloque de cada algoritmo y calla sobre la preparación. El modelo cobra **lo mismo que una ronda de su tamaño de clave** (14, 16 o 18 ciclos) y lo dice en el comentario del `nucleo_proc`, en vez de cobrar cero | F415-3 §17.2 |
 
 ---
 
-## 6. Discrepancias con el informe técnico [IR] (X)
+## 6. Discrepancias con el informe técnico [IR], y erratas de ST (X)
 
 Ocho en total. Todas resueltas de forma documentada y **reversible**.
 
@@ -323,6 +343,18 @@ Ocho en total. Todas resueltas de forma documentada y **reversible**.
 | **X-11** | **Reinterpretación de `NDTR`**: la lectura literal de [IR, §11.3.1] es "inconsistente con el empaquetado" | El modelo cuenta en bytes y expone `NDTR` como elementos del **ancho de origen**. Con `PSIZE = MSIZE` las dos lecturas coinciden | F4-DMA §3.4 |
 | **X-12** | **Variantes del CRC programable exigirían registros (`CRC_INIT`, `CRC_POL`) que no están en [IR]** y que este dispositivo no tiene | Se decide **no parametrizar** CRC/RNG por rasgos: "montar una `struct` de rasgos para describir un espacio con un solo punto sería maquinaria sin contrapartida". Polinomio y valor inicial quedan como constantes con nombre en un solo sitio | F5-CRC/RNG §1 |
 
+### Erratas de la documentación de ST, y la regla que las desempata
+
+No son discrepancias con [IR] sino **de ST consigo mismo**, encontradas al
+preparar el F415/F417. Ninguna afecta al modelo —las dos se resolvieron antes de
+escribir una línea— pero las dos harían perder una tarde a quien las encuentre
+por su cuenta, y por eso quedan aquí.
+
+| Id | Errata | Resolución adoptada | Fase |
+| :--- | :--- | :--- | :--- |
+| **X-13** | **La sección 23.6.2 del [RM0090 Rev 22] está mal titulada**: el manual tiene dos secciones seguidas, 23.6.1 y 23.6.2, tituladas las dos «CRYP control register (CRYP_CR) for STM32F415/417xx». La segunda **es la del F42x/F43x** —su figura lleva `GCM_CCMPH[1:0]` en 17:16 y `ALGOMODE[3]` en el 19, reservados en el F415/F417—, y el índice repite el error | Regla del proyecto: **el mapa de registros manda sobre la descripción bit a bit** cuando las dos se contradicen, porque es el que ST mantiene por referencia. Las tablas 114 y 115 sí están bien tituladas y se distinguen solas: la 114 termina en `0x4C` y la 115 en `0x8C`. El modelo se escribió desde la **114** | F415-0 §12.2 |
+| **X-14** | **`stm32f417xx.h` no declara `DCMI_CR_CRE` ni `SYSCFG_PMC_MII_RMII`**, que `stm32f407xx.h` **de la misma versión del paquete** (V1.28.3) sí declara. Los dos chips llevan el mismo DCMI y el mismo SYSCFG | **No es una diferencia de silicio sino una omisión de ST en su cabecera**: el `[RM0090]` es un solo documento para los dos y no distingue. El modelo no lee nada de ahí. Advertencia de método que esto destapó: comparar cabeceras de **versiones distintas** mezcla diferencias de chip con diferencias de edición, y el `stm32f407xx.h` vendido en `verif/fw/cmsis/` es de otra versión | F415-0 §12.1 |
+
 ---
 
 ## 7. Huecos de verificación (V)
@@ -340,6 +372,7 @@ Cosas que **están modeladas** pero que la suite no ejercita.
 | **V-07** | **`DATLEN` de 24 y 32 bits con `CHLEN = 32` en el I2S.** La ruta está escrita y el registro se respeta, pero **solo se verifica la combinación 16/16** | F5-SPI §7 |
 | **V-08** | **`PINCOS` del DMA.** Implementado como incremento forzado de 4 bytes; "falta contrastarlo cuando existan periféricos de 32 bits con acceso empaquetado" | F4-DMA §8 |
 | **V-09** | **Regresión que solo use `--gdb-dap` dejaría de ejercitar el SW-DP por completo.** Mitigado hoy porque T94 y T96 siguen usando los pines — es una condición a mantener, no un hueco actual | F6-gdb2 §8 |
+| **V-10** | **La posición 80, compartida, con el HASH y el RNG pidiendo a la vez.** El OR de dos entradas está puesto y verificado por un lado —el grupo I1 del banco del F417 comprueba que el HASH la levanta y que al enmascararlo se cae—, pero **no hay ninguna prueba con las dos fuentes activas simultáneamente**, que es donde un OR mal cableado se nota: con el RNG pidiendo, bajar el HASH no debe bajar la línea | F415-4 §18 |
 
 ---
 
@@ -471,15 +504,23 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 | Categoría | Puntos |
 | :--- | ---: |
 | **P** — Pendientes de plan | 11 |
-| **F** — Funciones no modeladas | 48 |
+| **F** — Funciones no modeladas | 51 |
 | **T** — Temporización y física | 21 |
-| **D** — Datos sin fuente | 13 |
-| **X** — Discrepancias y silencios de [IR] | 12 |
-| **V** — Huecos de verificación | 9 |
-| **I** — Deuda de instrumentación y proyecto | 49 *(veintinueve cerradas: I-11, I-12, I-15, I-16, I-17, I-18, I-20, I-22, I-25, I-28, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38, I-39, I-40, I-41, I-42, I-43, I-44, I-45, I-46, I-47 e I-48)* |
-| **Total** | **159** |
+| **D** — Datos sin fuente | 14 |
+| **X** — Discrepancias, silencios de [IR] y erratas de ST | 14 |
+| **V** — Huecos de verificación | 10 |
+| **I** — Deuda de instrumentación y proyecto | 47 *(veintiocho cerradas: I-11, I-12, I-15, I-16, I-17, I-20, I-22, I-25, I-28, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38, I-39, I-40, I-41, I-42, I-43, I-44, I-45, I-46, I-47 e I-48)* |
+| **Total** | **168** |
 
-De los 159, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 168, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.
+
+> **Dos correcciones del recuento, dichas en vez de calladas.** Al revisar esta
+> tabla para dar de alta lo del F415/F417 se contaron las filas una a una y
+> salieron dos errores propios: (1) el **total no sumaba** —la columna daba 162
+> y la casilla decía 159—, y (2) la fila de la **I** contaba hasta el
+> identificador más alto, no las filas que hay: **I-18 e I-19 no existen**, así
+> que son 47 puntos y no 49, y la lista de cerradas nombraba un I-18 inexistente.
+> Ahora el total **es la suma de la columna**: 11 + 51 + 21 + 14 + 14 + 10 + 47.

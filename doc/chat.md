@@ -4119,3 +4119,58 @@ limpios en los tres bancos.
 Queda la fase 7, que es documentación: repasar `todo.md` para dar de alta lo que
 del CRYP y del HASH **no** está modelado —y que está dicho en las cabeceras de
 sus ficheros— y de baja lo que estas seis fases han cerrado.
+
+## Fase 7 del F415/F417: la documentación, y dos errores de recuento
+
+> Ejecuta la fase 7
+
+Era la fase barata —sólo documentación, y buena parte había entrado ya con la
+fase 5— y resultó tener dentro la corrección de dos errores que llevaban meses
+en `todo.md`. Es lo que pasa cuando se cuenta algo de verdad en vez de copiar el
+número anterior.
+
+**Lo que el acelerador no modela, dado de alta.** Las cabeceras de `cryp.h` y
+`hash.h` ya lo decían, pero eso sólo lo lee quien abre el fichero; el inventario
+consolidado es `todo.md`, y ahí no estaba. **Siete puntos nuevos**: **F-49** el
+formato interno de los `HASH_CSRx`, que es el de este modelo y no el de ST —
+salvar y restaurar funciona de verdad, pero un firmware que *interprete* un CSR
+no funcionaría, y ninguno lo hace porque ST tampoco documenta el formato—;
+**F-50** la clave de HMAC que no acaba en byte entero, que el silicio admite y
+la RFC 2104 no sabe qué hacer con ella, y que el modelo avisa y recorta;
+**F-51** la copia de la clave preparada en `K0..K3`, que no es observable porque
+esos registros son de solo escritura; **D-14** los ciclos de la preparación de
+clave, a los que la tabla 111 no da número propio; **X-13** y **X-14**, las dos
+erratas de ST que la fase 0 cazó y que hasta hoy vivían sólo en el informe; y
+**V-10**, la posición 80 con el HASH y el RNG pidiendo a la vez, que el OR de la
+fase 4 resuelve y ninguna prueba ejercita con las dos fuentes activas.
+
+**De baja, poco, y es buena señal.** Estas seis fases no vinieron a arreglar
+nada del F407 sino a añadir una familia, así que no cerraron puntos de
+`todo.md`. La única baja ya estaba escrita: el segundo apartado de
+`reutilizacion.md` §9.5, que la fase 1 tachó al hacer las máscaras del RCC por
+referencia — y que de paso abrió **I-49**, el bit del FSMC en el LQFP64, sin
+decidir porque decidirlo bien necesita una fuente que hoy no hay.
+
+**Los dos errores de recuento.** Contar las filas una a una para poner los
+números nuevos destapó que la tabla de recuento **no era correcta desde antes**:
+el total **no sumaba** —la columna daba 162 y la casilla decía 159— y la fila de
+la `I` contaba **hasta el identificador más alto**, no las filas que hay:
+**`I-18` e `I-19` no existen**, son 47 puntos y no 49, y la lista de cerradas
+nombraba un `I-18` inexistente diciendo «veintinueve» sobre veintiocho. Los dos
+quedan corregidos **y la corrección queda escrita en el documento**, en una nota
+bajo la tabla. Borrarlo en silencio habría sido más cómodo: un recuento que no
+suma es justo la clase de dato que un lector usa sin comprobar. El total de hoy
+es la suma de la columna: 11 + 51 + 21 + 14 + 14 + 10 + 47 = **168**.
+
+**El README y `compilacion.md`: tres bancos, no dos.** Los dos hablaban de dos
+suites y daban cifras de hace dos planes —2055 y 200—. Ahora dan las tres, y con
+su tiempo simulado, que es el dato que sirve para saber si una plataforma nueva
+se comporta igual: `test407` **2074** en `2336217899213 ps`, `test446` **203** en
+`1033367277932 ps`, `test417` **164** en `718988288 ps`. El desglose por fases
+del primero, también desfasado, se ha vuelto a sumar: 143 + 12 + 85 + 345 + 678
++ 151 + 426 + 234 = 2074.
+
+**El plan está cerrado**, las ocho fases de la 0 a la 7, contado en la §21 del
+informe. Invariante del F407 intacto en `2336217899213 ps` —la fase 7 no toca
+una línea de modelo—, seis placas con 0 avisos, ASan+UBSan limpios en los tres
+bancos y 29 referencias en el catálogo.

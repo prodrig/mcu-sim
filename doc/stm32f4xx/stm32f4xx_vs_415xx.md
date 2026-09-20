@@ -34,7 +34,7 @@ este informe están hechas por máquina, no a ojo**, y sobre ficheros del propio
 fabricante. Donde se dice «idéntico» quiere decir que un programa comparó los
 dos conjuntos y la diferencia salió vacía. Los recuentos están en §3.2 y §4.
 
-> **ESTADO: las fases 0 a 6 del plan están EJECUTADAS.** Los siete puntos se han
+> **ESTADO: el plan está EJECUTADO ENTERO, de la fase 0 a la 7.** Los siete puntos se han
 > cerrado; los cinco primeros ya lo estaban al escribir este documento, y los
 > dos que quedaban —el alcance y los vectores— se cerraron con código y con
 > datos, no con una frase. Está contado en la **§14**, al final, y **encontró
@@ -51,9 +51,11 @@ dos conjuntos y la diferencia salió vacía. Los recuentos están en §3.2 y §4
 > **§19**: **las diez referencias están declaradas** y el catálogo pasa de
 > diecinueve a veintinueve. La **fase 6** está en la **§20**: el chip ejecuta un
 > **firmware real** que cifra y resume desde dentro, y las afirmaciones de este
-> documento se comprueban **una a una** contra el modelo. Queda la fase 7, que
-> es documentación. Las secciones de más arriba llevan incorporado lo
-> verificado.
+> documento se comprueban **una a una** contra el modelo. La **fase 7** está en
+> la **§21**: `todo.md` da de alta lo que el acelerador **no** modela —y de
+> paso se le corrigen dos errores de recuento propios—, y el README y
+> `compilacion.md` pasan a contar **tres bancos**. Las secciones de más arriba
+> llevan incorporado lo verificado.
 
 ---
 
@@ -1578,3 +1580,92 @@ Sólo documentación, y buena parte ya entró con la fase 5 —`reutilizacion.md
 §9, `parts.md`, el README—. Queda repasar `todo.md`: dar de alta lo que del CRYP
 y del HASH **no** se ha modelado y que está dicho en las cabeceras de sus
 ficheros, y dar de baja lo que estas seis fases han cerrado.
+
+---
+
+## 21. Fase 7: la documentación, y lo que contar obliga a mirar
+
+Era la fase barata: sólo documentación, y buena parte había entrado ya con la
+fase 5. Resultó tener dentro la corrección de dos errores que llevaban meses en
+`todo.md` sin que nadie los mirara, que es lo que suele pasar cuando se cuenta
+algo de verdad en vez de copiar el número anterior.
+
+### 21.1 Lo que el acelerador NO modela, dado de alta
+
+Las cabeceras de `periph/cryp.h` y `periph/hash.h` decían ya lo que el modelo
+deja fuera —esa es la convención del proyecto desde la primera fase— pero eso
+sólo lo lee quien abre el fichero. El inventario consolidado es `todo.md`, y
+ahí no estaba. Ahora sí, **siete puntos nuevos**, cada uno con la sección de
+este informe que lo originó:
+
+| Id | Qué dice |
+| :--- | :--- |
+| **F-49** | El formato interno de los `HASH_CSRx` es **el de este modelo, no el de ST**. Salvar y restaurar el contexto funciona de verdad —hay prueba que intercala dos mensajes—, pero un firmware que *interprete* un CSR no funcionaría. Ninguno lo hace: ST tampoco documenta el formato |
+| **F-50** | Una clave de HMAC cuyo tamaño no es múltiplo de ocho bits: el silicio la admite, la RFC 2104 no dice qué hacer con ella. El modelo **avisa y recorta al byte** |
+| **F-51** | La copia de la clave preparada en `K0..K3`. Los registros de clave son de **solo escritura**, así que la copia no es observable; el modelo hace lo que sí se ve |
+| **D-14** | Los ciclos de la preparación de clave. **La tabla 111 no le da un número propio**; se cobra lo mismo que una ronda de su tamaño de clave, y se dice |
+| **X-13** | La sección 23.6.2 del RM0090 Rev 22, mal titulada. La regla que la desempata: **el mapa de registros manda sobre la descripción bit a bit** |
+| **X-14** | Los dos símbolos que `stm32f417xx.h` no declara y `stm32f407xx.h` sí. Omisión de ST en su cabecera, no diferencia de silicio |
+| **V-10** | La posición 80 con el HASH **y** el RNG pidiendo a la vez. El OR está puesto y verificado por un lado; con las dos fuentes activas, no |
+
+Las dos erratas de la §12 —que hasta ahora vivían sólo en este informe— pasan
+así al inventario, que es donde alguien que no esté leyendo esto las encontrará.
+
+### 21.2 Lo que se da de baja
+
+Poco, y es buena señal: las seis fases anteriores **no cerraron puntos de
+`todo.md`**, porque no vinieron a arreglar nada del F407 sino a añadir una
+familia. La única baja ya estaba escrita antes de esta fase —el segundo
+apartado de `reutilizacion.md` §9.5, «los bits de reloj de los periféricos
+ausentes siguen existiendo», que la fase 1 tachó— y trajo de vuelta un punto
+abierto, **I-49**: el bit del FSMC, que no se quita en el LQFP64 porque eso es
+cosa del encapsulado y no de la referencia, y no hay fuente de ST por
+encapsulado que lo decida. Queda anotado y sin decidir, que es lo honesto.
+
+### 21.3 Los dos errores de recuento, dichos en vez de callados
+
+Contar las filas una a una para poner los números nuevos destapó que la tabla
+de recuento de `todo.md` **no era correcta desde antes**:
+
+1. **El total no sumaba.** La columna daba 162 y la casilla decía **159**.
+2. **La fila de la `I` contaba hasta el identificador más alto**, no las filas
+   que hay. **`I-18` e `I-19` no existen**: son 47 puntos, no 49. Y la lista de
+   cerradas nombraba un `I-18` inexistente, con lo que decía «veintinueve» sobre
+   veintiocho.
+
+Los dos quedan corregidos y **la corrección queda escrita en el propio
+documento**, en una nota bajo la tabla. Un recuento que no suma es exactamente
+la clase de dato que un lector usa sin comprobar; borrarlo en silencio habría
+sido más cómodo y menos útil. El total de hoy **es la suma de la columna**:
+11 + 51 + 21 + 14 + 14 + 10 + 47 = **168**.
+
+### 21.4 El README y `compilacion.md`: tres bancos, no dos
+
+Los dos hablaban de **dos** suites y daban cifras de hace dos planes —2055 y
+200—. Ahora dan las tres, medidas al ejecutarlas, con su tiempo simulado, que
+es el dato que de verdad sirve para saber si una plataforma nueva se comporta
+igual:
+
+| Orden | Comprobaciones | Tiempo simulado |
+| :--- | ---: | ---: |
+| `make test407` | **2074** | `2336217899213 ps` |
+| `make test446` | **203** | `1033367277932 ps` |
+| `make test417` | **164** | `718988288 ps` |
+
+Y el desglose por fases del primero, que también estaba desfasado, se ha vuelto
+a sumar: 143 + 12 + 85 + 345 + 678 + 151 + 426 + 234 = 2074.
+
+### 21.5 El estado final
+
+| | |
+| :--- | ---: |
+| Suites | **2074 + 203 + 164**, 0 fallos |
+| Invariante del F407 | `2336217899213 ps`, **once fases sin moverse** — la 7 no toca una línea de modelo |
+| Núcleos criptográficos | `make hash` 23/23, `make cryp` 32/32 |
+| Vectores con dos motores | `make vectores` 54/54 |
+| Placas que validan | 6, con 0 avisos |
+| ASan + UBSan | limpios en los tres bancos |
+| Referencias en el catálogo | **29** |
+| Puntos en `todo.md` | **168**, y el total suma |
+
+**El plan está cerrado.** Las ocho fases, de la 0 a la 7.
