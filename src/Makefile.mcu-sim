@@ -90,9 +90,23 @@ ifeq ($(PLATAFORMA),windows)
   # MinGW usa por omisión el printf de msvcrt, que NO entiende %llu ni %zu. El
   # modelo los usa 28 veces; sin esto, las cifras salen mal en silencio.
   DEF_SO       := -D__USE_MINGW_ANSI_STDIO=1
-  # Un .exe que no necesita las DLL de MinGW instaladas: para repartirlo a
+  # Un .exe que no necesita NINGUNA DLL de MinGW instalada: para repartirlo a
   # alumnos, esto no es un lujo.
-  LDEXTRA      := -static-libgcc -static-libstdc++
+  #
+  # Y tiene que ser `-static`, no solo las dos de abajo, porque el GCC de MSYS2
+  # esta construido con el modelo de hilos POSIX: `std::chrono`, `std::thread` y
+  # SystemC entran por **winpthreads**, y eso mete una importacion de
+  # `libwinpthread-1.dll` que `-static-libgcc -static-libstdc++` NO cubre.
+  #
+  # Lo que pasa si falta, medido en una maquina de verdad: el ejecutable
+  # funciona desde el shell MINGW64 -ahi la DLL buena esta en el PATH- y desde
+  # `cmd` da «no se encuentra el punto de entrada clock_gettime64 en la
+  # biblioteca de vinculos dinamicos». Ojo al mensaje: NO dice que falte la DLL,
+  # dice que la DLL que ha encontrado no exporta ese simbolo. Es decir, hay
+  # OTRA `libwinpthread-1.dll` mas antigua delante en el PATH -de otro MinGW,
+  # de Qt, de un IDE- y gana ella. Un fallo que depende del orden del PATH de
+  # cada maquina es exactamente el que no se puede depurar por correo.
+  LDEXTRA      := -static -static-libgcc -static-libstdc++
   LIBDIRS      := $(SYSTEMC_HOME)/lib $(SYSTEMC_HOME)/lib-mingw64 \
                   $(SYSTEMC_HOME)/lib64
   RPATH        :=

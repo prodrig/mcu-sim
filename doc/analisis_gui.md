@@ -1123,9 +1123,18 @@ resuelta: *(añadido después de hacerlo)*
   al picosegundo; `make red` —trece comprobaciones de la capa de sockets, sin
   SystemC de por medio— pasa en Linux y **cruza a Windows con MinGW-w64 sin un
   aviso**, produciendo un PE32+;
-* **no verificado, y hay que decirlo**: construir SystemC para MinGW y ejecutar
-  allí, y lo mismo en un Mac. El modelo no usa nada exótico, pero eso no es una
-  demostración.
+* **verificado después, y era la mitad que faltaba**: SystemC 2.3.4 **sí** se
+  construye para MinGW, y `mcu-sim.exe` —22,5 MB, PE32+— **arranca y responde**
+  desde la terminal MINGW64. Queda pasar las tres suites allí y comprobar que el
+  tiempo simulado sale idéntico al picosegundo;
+* **y una trampa que solo aparece al ejecutarlo FUERA de MSYS2**: el GCC de
+  MSYS2 usa el modelo de hilos POSIX, así que `std::chrono` y SystemC arrastran
+  una importación de `libwinpthread-1.dll`. Desde `cmd` gana la primera copia
+  que haya en el `PATH` y, si es antigua, el programa no arranca: «no se
+  encuentra el punto de entrada `clock_gettime64`». Arreglado con `-static` en
+  el Makefile; contado en `doc/compilacion.md` §5.6. Importa aquí porque **es
+  exactamente el fallo que tendrá el alumno que reciba el ejecutable**;
+* **no verificado, y hay que decirlo**: macOS, entero.
 
 Las trampas concretas que aparecieron al hacerlo, por si sirven de aviso para el
 resto de la portabilidad:

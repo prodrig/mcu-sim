@@ -250,7 +250,7 @@ validar una plataforma nueva antes de pelearse con la biblioteca.
 | :--- | :--- | :--- |
 | Linux, g++ 13 | **verificado** | 2117/2117 comprobaciones, 203/203 del F446 y 164/164 del F417, `make red` 13/13, ASan + UBSan limpio en las tres suites (`make asan407`, `make asan446`, `make asan417`), las seis placas validan sin un aviso |
 | Linux, clang | **verificado** | mismo resultado y mismo tiempo simulado al picosegundo |
-| Windows, MinGW-w64 | **compila y enlaza** (cruzado con g++ 13-win32) | `make red` genera un PE32+ sin avisos; **falta ejecutarlo en Windows y construir SystemC allí** |
+| Windows, MSYS2 / MinGW-w64 | **SystemC construido y el programa ejecutándose** | `mcu-sim.exe` (22,5 MB, PE32+) arranca y responde en la terminal MINGW64. **Falta** pasar las tres suites allí. Para que corra FUERA de MSYS2 hace falta el `-static` del Makefile: véase `doc/compilacion.md` §5.6 |
 | macOS, clang | **la rama específica compila** | Se fuerza la combinación de macOS —sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`— y compila con g++ y con clang; **falta probarlo en un Mac** |
 
 Lo que en Windows y macOS **no** está verificado es lo mismo en los dos casos:

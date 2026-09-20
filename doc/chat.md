@@ -4397,3 +4397,68 @@ fuera máquinas que habrían funcionado.
 sigue. Y lo que sigue **sin verificar** es el riesgo R-1: Windows y macOS, ni la
 GUI ni SystemC. Nada del esqueleto es específico de plataforma, pero eso no es
 una demostración.
+
+## Windows: mcu-sim.exe sí corre, y la DLL que lo delata
+
+> Explica por qué este problema no aparece con los programas generados por el
+> makefile del proyecto mcu-sim, como mcu-sim.exe, por ejemplo
+> [...] En MSYS2-mingw funciona; en PowerShell no hace nada; en CMD se queja de
+> clock_gettime64. El ejecutable sigue donde estaba tras las tres ejecuciones.
+
+La pregunta destapó dos cosas, y ninguna era la que se buscaba.
+
+**Uno: `mcu-sim.exe` existe, y corre.** En `src/build/` hay un PE32+ de consola
+de **22,5 MB** construido en esta misma máquina. Que ese fichero enlace
+significa que **SystemC 2.3.4 está construido para MinGW**, y que arranque y
+conteste a `--help` significa que el modelo se ejecuta en Windows. Las dos cosas
+llevaban desde el principio listadas como pendientes en `compilacion.md` y en la
+§19.3 de `analisis_gui.md`. **Media década de «no verificado» que sí estaba
+hecho y nadie había escrito.** Lo que sigue faltando, y ahora se dice con
+precisión, es pasar las tres suites allí y comprobar que el tiempo simulado sale
+idéntico al picosegundo, que es el criterio de verdad.
+
+**Dos: el antivirus no era la diferencia.** El `.exe` sobrevivió a las tres
+ejecuciones, así que ESET no lo está tocando. Lo que distinguía a aquel `t.exe`
+de 32 KB no era el proyecto: era el fichero —32 KB que no hacen nada, recién
+compilados y lanzados al segundo, es lo que parece un *dropper*— y el gesto.
+**Que un binario sobreviva no demuestra que el mecanismo no le aplique**, y eso
+queda dicho para que nadie concluya que mcu-sim es inmune.
+
+**Y tres, que es el hallazgo de verdad: `clock_gettime64`.** El mensaje de
+`cmd` no dice que falte la DLL: dice que **la que ha encontrado no exporta ese
+símbolo**. La encontró, y es la equivocada. El GCC de MSYS2 está construido con
+el modelo de hilos **POSIX**, así que `std::chrono`, `std::thread` y SystemC
+entran por **winpthreads** y dejan en el ejecutable una importación de
+`libwinpthread-1.dll`. Desde el shell MINGW64 el `PATH` lleva delante la buena;
+desde `cmd` gana cualquier otra copia de la máquina —de otro MinGW, de Qt, de un
+IDE— y si es anterior al cambio a `time_t` de 64 bits, no exporta el símbolo.
+
+**El comentario del Makefile era falso, y ahora está demostrado.** Decía «un
+`.exe` que no necesita las DLL de MinGW instaladas» junto a
+`-static-libgcc -static-libstdc++`, que cubre la biblioteca estándar de C++ y la
+de GCC **pero no winpthreads**. Enlazado ahora con **`-static`**, que sí las
+cubre todas. Comentario reescrito para explicar por qué hacen falta las tres.
+
+**Lo que se ha podido comprobar aquí y lo que no.** Se instaló el cruzado
+`x86_64-w64-mingw32-g++` y se reconstruyó `make red PLATAFORMA=windows`: sale un
+PE32+ correcto. Lo que **no** se ha podido reproducir es el fallo, y el motivo
+es interesante: el cruzado de Debian está configurado con `--enable-threads=win32`
+y nunca enlaza winpthreads, mientras que el de MSYS2 usa `posix` y sí. O sea que
+**el cruzado desde Linux no vale para probar este caso**, y eso queda anotado en
+la tabla de plataformas para que nadie dé por verificado lo que no lo está. El
+`-static` es el arreglo correcto por construcción, pero **está sin comprobar en
+la cadena que de verdad importa**, y así se dice.
+
+**Consecuencia para el producto, que es lo que más vale de todo esto.** Ese
+fallo es exactamente el que tendrá el alumno: un programa que arranca en la
+máquina del profesor y no en la suya, quejándose de una DLL de la que nunca ha
+oído hablar, y que **depende del orden de su `PATH`**, así que va en unas
+máquinas y en otras no, aparentemente al azar. Para `mcu-sim-gui` es peor,
+porque además hay que llevar las DLL de **Qt** y eso no lo arregla un `-static`:
+hace falta `windeployqt` y probarlo en una máquina sin Qt instalado. La fase 9
+del plan pasa a tener **tres deberes**: firmar el ejecutable, enlazar
+estáticamente lo que se pueda y empaquetar lo que no.
+
+Suites intactas tras el cambio —**2117 / 203 / 164**, `make red` 13/13 y
+`2336217899213 ps`—, que era lo esperado: el cambio vive entero dentro del
+`ifeq ($(PLATAFORMA),windows)`.

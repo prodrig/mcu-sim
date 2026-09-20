@@ -271,7 +271,49 @@ Falta `-D__USE_MINGW_ANSI_STDIO=1`, que el Makefile pone solo cuando
 `PLATAFORMA=windows`. Comprueba con `make plataforma` que la detección ha
 acertado.
 
-### 5.6 Decenas de avisos dentro de las cabeceras de SystemC
+### 5.6 «No se encuentra el punto de entrada `clock_gettime64`»
+
+*Arreglado en el Makefile; queda aquí porque el mensaje no se parece a su causa
+y porque es EXACTAMENTE lo que le pasará a un alumno.*
+
+El síntoma, medido en una máquina de verdad:
+
+| Dónde | Qué hace `mcu-sim.exe --help` |
+| :--- | :--- |
+| Terminal **MINGW64** de MSYS2 | funciona |
+| **PowerShell** | no dice nada y no hace nada |
+| **`cmd.exe`** | *«No se encuentra el punto de entrada `clock_gettime64` en la biblioteca de vínculos dinámicos…»* |
+
+Lee bien el mensaje, porque ahí está todo: **no dice que falte la DLL**. Dice
+que la DLL que ha encontrado **no exporta ese símbolo**. Es decir, la encontró —
+y es la equivocada.
+
+**De dónde sale.** El GCC de MSYS2 está construido con el modelo de hilos
+**POSIX**, así que `std::chrono`, `std::thread` y SystemC entran por
+**winpthreads**, y eso deja en el ejecutable una importación de
+`libwinpthread-1.dll`. Desde el shell MINGW64 el `PATH` lleva delante la DLL
+buena, la de `/mingw64/bin`, y todo va. Desde `cmd` gana la primera que
+aparezca en el `PATH` del sistema — de otro MinGW, de Qt, de un IDE— y si es
+anterior al cambio a `time_t` de 64 bits, no exporta `clock_gettime64`.
+
+Para ver cuál gana en tu máquina:
+
+```
+where libwinpthread-1.dll
+```
+
+**El arreglo, y por qué no es «pon la DLL al lado».** El Makefile enlaza con
+**`-static`** en Windows. `-static-libgcc -static-libstdc++` —lo que había—
+cubre la biblioteca estándar de C++ y la de GCC, pero **no** winpthreads: esa se
+colaba igual. Con `-static` no hay ninguna DLL de MinGW que buscar, que es lo
+que el comentario del Makefile llevaba prometiendo.
+
+Repartir la DLL junto al `.exe` también «funciona», y es peor: basta con que el
+alumno lo ejecute desde otra carpeta, o que tenga otra copia antes en su `PATH`,
+para volver al mismo sitio. **Un fallo que depende del orden del `PATH` de cada
+máquina no se depura por correo.**
+
+### 5.7 Decenas de avisos dentro de las cabeceras de SystemC
 
 Con compiladores muy nuevos sobre SystemC 2.3.4 salen avisos de
 `-Woverloaded-virtual` en los sockets de TLM y similares. No son nuestros y no
@@ -279,13 +321,13 @@ los podemos arreglar: el Makefile los silencia con `-isystem`. Si aparecen de
 todas formas, es que `SYSTEMC_HOME=/usr` y estamos en el caso de §5.3, donde hay
 que usar `-I`.
 
-### 5.7 `undefined reference to sc_core::sc_spawn(...)`
+### 5.8 `undefined reference to sc_core::sc_spawn(...)`
 
 Falta `-DSC_INCLUDE_DYNAMIC_PROCESSES`, que el Makefile pone siempre.
 `pins/pin_mux.h` usa procesos dinámicos y `<systemc>` solo los expone si esa
 macro está definida **antes** de incluirlo. Si compilas a mano, ponla.
 
-### 5.8 El enlazado va bien pero el programa aborta al arrancar
+### 5.9 El enlazado va bien pero el programa aborta al arrancar
 
 Mira los dos últimos de la tabla de §5.1: `SC_DEFAULT_WRITER_POLICY` y
 `SC_ENABLE_COVARIANT_VIRTUAL_BASE` se comprueban en tiempo de **ejecución**, no
@@ -325,13 +367,17 @@ hay que entender qué antes de dar la plataforma por buena.
 | :--- | :--- |
 | Linux, g++ 13 | **Verificado**: 2117/2117, 203/203, 164/164, `make red` 13/13, ASan limpio en los tres |
 | Linux, clang | **Verificado**: 2117/2117, mismo tiempo simulado al picosegundo |
-| Windows, MinGW-w64 | **Compila y enlaza** cruzado desde Linux (PE32+ sin avisos). **Falta** construir SystemC allí y ejecutarlo |
+| Windows, MSYS2 / MinGW-w64 | **SystemC construido y `mcu-sim.exe` EJECUTÁNDOSE** en la terminal MINGW64 (22,5 MB, PE32+). **Falta**: pasar las tres suites allí, y comprobar el `-static` de §5.6 fuera de MSYS2 |
+| Windows, cruzado desde Linux | **Compila y enlaza** (`make red PLATAFORMA=windows CXX=x86_64-w64-mingw32-g++`, PE32+ sin avisos). Ojo: el cruzado de Debian usa hilos **win32** y el de MSYS2 **posix**, así que no reproduce el caso de §5.6 |
 | macOS, clang | **La rama específica compila**. **Falta** probarlo en un Mac |
 
-Lo que falta en Windows y macOS es lo mismo en los dos casos: **la biblioteca de
-SystemC**. Que el código compile y enlace no es que funcione. Es el punto **I-23**
-del trabajo pendiente, y para un programa que se reparte a alumnos no es
-opcional.
+**En Windows esto acaba de avanzar mucho**, y conviene ser preciso con qué se
+sabe y qué no. Se sabe que **SystemC 2.3.4 se construye para MinGW** —el
+`mcu-sim.exe` de 22,5 MB enlaza— y que **el programa arranca y responde** desde
+la terminal MINGW64. No se sabe todavía si las tres suites pasan allí ni si el
+tiempo simulado sale idéntico al picosegundo, que es el criterio de verdad. En
+**macOS** sigue faltando todo: es el punto **I-23** del trabajo pendiente, y
+para un programa que se reparte a alumnos no es opcional.
 
 ---
 
