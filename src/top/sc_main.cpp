@@ -14327,7 +14327,7 @@ SC_MODULE(F1Tb) {
         // --- 6. Las constantes del protocolo, escritas donde se leen --------
         // Compilan por `static_assert`, pero un numero que solo vive en un
         // `static_assert` no aparece en ningun informe de pruebas. Aqui si.
-        check(mcusim::proto::VERSION == 1,        "protocolo v1");
+        check(mcusim::proto::VERSION_PROTO == 1,        "protocolo v1");
         check(mcusim::proto::PUERTO_OMISION == 3344,
               "puerto de omision 3344, vecino del 3333 de los dos GDB");
         check(sizeof(mcusim::proto::Cabecera) == 16, "la cabecera son 16 bytes");

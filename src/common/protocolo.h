@@ -29,12 +29,38 @@
 //     PA7, no);
 //   * registros del MCU. Para eso están los dos servidores de GDB, que ya
 //     existen y hablan un protocolo que los IDE entienden.
+//
+// UNA REGLA QUE ESTE FICHERO APRENDIÓ A GOLPES, y que vale para cualquier
+// cabecera que tenga que compilar en Windows:
+//
+//   **UN `namespace` NO PROTEGE DE UNA MACRO.** El preprocesador corre antes
+//   que el compilador y no sabe qué es un espacio de nombres. Un enumerador
+//   llamado `R_OK` dentro de `mcusim::proto` se convierte igual en `4 = 0` en
+//   cuanto alguien arrastra `<sys/stat.h>`, y el error que sale —«expected
+//   identifier before numeric constant»— no menciona la macro por ningún lado.
+//
+// Pasó de verdad: el primero de estos se llamaba `R_OK`, compilaba en Linux sin un aviso, y en
+// MSYS2 reventaba porque `<systemc>` incluye `<string>`, que incluye
+// `<cwchar>`, que incluye `<wchar.h>`, que incluye `<sys/stat.h>`, que incluye
+// `<io.h>`, donde `R_OK` vale 4. Cinco niveles de distancia entre la causa y
+// el síntoma. De ahí que los enumerados de aquí lleven prefijos largos y feos:
+// son feos a propósito.
 // =============================================================================
 #ifndef MCU_SIM_PROTOCOLO_H
 #define MCU_SIM_PROTOCOLO_H
 
 #include <cstdint>
 #include <cstddef>
+
+// La lápida de aquel fallo. Si alguien vuelve a introducir un nombre que ya es
+// macro, que se entere aquí y no cinco cabeceras más abajo.
+#ifdef R_OK
+#  if R_OK != 4
+#    error "R_OK es una macro con un valor inesperado"
+#  endif
+// Es la de `access()`: la esperamos. Lo que NO puede haber es un enumerador
+// nuestro que se llame igual.
+#endif
 
 namespace mcusim {
 namespace proto {
@@ -48,10 +74,12 @@ namespace proto {
 // puerto) y resincronizar una traza a mano.
 inline constexpr uint32_t MAGIA = 0x3147534Du;
 
-// La versión del PROTOCOLO, no la del programa. Sube cuando cambia el
+// La versión del PROTOCOLO, no la del programa. Se llama `VERSION_PROTO` y no
+// `VERSION` por la regla de arriba: `VERSION` es de los nombres que media
+// docena de sistemas de construcción definen como macro. Sube cuando cambia el
 // significado o la disposición de algo que ya existía; NO sube por añadir un
 // tipo de mensaje nuevo, porque para eso está el salto por longitud.
-inline constexpr uint16_t VERSION = 1;
+inline constexpr uint16_t VERSION_PROTO = 1;
 
 // El puerto por omisión. Vecino del 3333 de los dos servidores de GDB, para que
 // los puertos del proyecto se recuerden juntos, y fuera del rango bien
@@ -178,11 +206,11 @@ struct OrdenHecha {
 static_assert(sizeof(OrdenHecha) == 24, "OrdenHecha son 24 bytes");
 
 enum Resultado : uint32_t {
-    R_OK          = 0,
-    R_PIEZA       = 1,   // no hay tal pieza
-    R_MANDO       = 2,   // la pieza no tiene ese mando
-    R_RANGO       = 3,   // valor fuera de [min, max] del mando: se recorta y se avisa
-    R_TARDE       = 4    // el instante pedido ya había pasado: se aplicó al recibirla
+    RES_OK          = 0,
+    RES_PIEZA       = 1,   // no hay tal pieza
+    RES_MANDO       = 2,   // la pieza no tiene ese mando
+    RES_RANGO       = 3,   // valor fuera de [min, max] del mando: se recorta y se avisa
+    RES_TARDE       = 4    // el instante pedido ya había pasado: se aplicó al recibirla
 };
 
 // T_ARRANCA

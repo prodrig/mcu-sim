@@ -4462,3 +4462,56 @@ estáticamente lo que se pueda y empaquetar lo que no.
 Suites intactas tras el cambio —**2117 / 203 / 164**, `make red` 13/13 y
 `2336217899213 ps`—, que era lo esperado: el cambio vive entero dentro del
 `ifeq ($(PLATAFORMA),windows)`.
+
+## `R_OK`: un `namespace` no protege de una macro
+
+> [fallo de compilación en MSYS2] protocolo.h:181:5: error: expected identifier
+> before numeric constant — R_OK = 0
+
+Fallo mío, y de los que valen la pena: **lo caza Windows y Linux no puede**.
+
+**Qué pasaba.** `R_OK` es el modo de lectura de `access()`, y en MinGW vale 4.
+Nuestro enumerado se llamaba igual, así que el preprocesador lo convertía en
+`4 = 0`. El camino desde la causa hasta el síntoma tiene **cinco cabeceras**:
+`<systemc>` incluye `<string>`, que incluye `<cwchar>`, que incluye
+`<wchar.h>`, que incluye `<sys/stat.h>`, que incluye `<io.h>`, donde está la
+macro. Y el error no la menciona por ningún lado.
+
+**La regla, que es lo que hay que llevarse:** **un `namespace` no protege de una
+macro.** El preprocesador corre antes que el compilador y no sabe qué es un
+espacio de nombres; estar dentro de `mcusim::proto` no sirve de nada. Está
+escrita en la cabecera del fichero, con el recorrido de las cinco cabeceras, y
+es la razón de que los enumerados de ahí lleven prefijos largos y feos: **son
+feos a propósito.**
+
+**Lo que se ha cambiado.** `R_OK`…`R_TARDE` pasan a `RES_OK`…`RES_TARDE`. Y de
+paso `VERSION` pasa a `VERSION_PROTO`, que no había dado guerra todavía pero es
+de los nombres que media docena de sistemas de construcción definen como macro:
+el siguiente en caer. Las dos copias de `protocolo.h` siguen idénticas byte a
+byte, comprobado.
+
+**Y la parte que de verdad importa: que no vuelva a pasar, sin ir a Windows.**
+`verif/prueba_macros_win.cpp` es una prueba de **compilación**, sin `main` y sin
+salida: define a mano el campo de minas —`R_OK`, `W_OK`, `X_OK`, `F_OK`, `min`,
+`max`, `ERROR`, `TRUE`, `FALSE`, `near`, `far`, `small`, `interface`, `IN`,
+`OUT`, `VERSION`, `DEBUG`…— e incluye después las dos cabeceras compartidas. Si
+alguna vuelve a usar un nombre que en Windows es macro, **falla en Linux**, en
+la máquina de quien escribe el código.
+
+Va colgada de `make red` porque es la otra comprobación que no necesita SystemC
+y que hay que pasar antes de dar por buena una plataforma. **Comprobado que
+funciona en las dos direcciones**: con los nombres actuales pasa, y volviendo a
+poner `R_OK` a propósito, falla.
+
+Un barrido con el cruzado a Windows confirmó además que `R_OK` era la **única**
+colisión de las dos cabeceras, incluso con `<windows.h>` puesto delante.
+
+Suites intactas: **2117 / 203 / 164**, `2336217899213 ps`, `make red` 13/13, y
+la GUI sigue compilando y enlazando.
+
+**La lección de fondo, que es la misma de las tres últimas entradas:** esta
+tanda de fallos de Windows no ha encontrado ni un error del modelo. Ha
+encontrado un antivirus, una DLL, un comentario del Makefile que mentía y un
+choque con el preprocesador. Nada de eso se ve desde Linux, y por eso el paso
+0b del informe de la GUI —compilar en Windows— estaba bien puesto como riesgo
+que va **antes** que el trabajo que lo supone resuelto.

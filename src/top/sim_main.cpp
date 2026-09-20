@@ -644,7 +644,7 @@ int sc_main(int argc, char** argv) {
         std::printf("gui: hablaria con mcu-sim-gui en %s "
                     "(protocolo v%u) -- fase 0: todavia no se conecta\n",
                     stm32::gui::como_texto(g_gui).c_str(),
-                    unsigned(mcusim::proto::VERSION));
+                    unsigned(mcusim::proto::VERSION_PROTO));
         if (!stm32::gui::es_bucle_local(g_gui.host))
             std::fprintf(stderr,
                 "AVISO: '%s' no es la propia maquina. Este enlace NO esta\n"

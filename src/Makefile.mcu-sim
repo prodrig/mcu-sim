@@ -277,8 +277,22 @@ $(CRYPV): verif/prueba_cryp.cpp periph/cryp_algo.h
 cryp: $(CRYPV)
 	./$(CRYPV) $(V)
 
-red: $(RED)
+red: $(RED) macros-win
 	./$(RED)
+
+# EL CAMPO DE MINAS DEL PREPROCESADOR DE WINDOWS. Prueba de COMPILACION, no de
+# ejecucion: define a mano las macros que Windows trae -R_OK, min, max, ERROR,
+# VERSION...- e incluye las dos cabeceras que este proyecto comparte con
+# mcu-sim-gui. Si alguna vuelve a usar un nombre que alli es macro, falla AQUI,
+# en Linux, y no tres semanas despues en la maquina de un alumno.
+#
+# Va colgado de `red` a proposito: es la otra comprobacion que no necesita
+# SystemC y que hay que pasar antes de dar por buena una plataforma.
+.PHONY: macros-win
+macros-win:
+	@$(CXX) -std=$(CXXSTD) $(AVISOS) -fsyntax-only -I. \
+	        verif/prueba_macros_win.cpp \
+	 && echo "  [OK  ] las cabeceras compartidas sobreviven a las macros de Windows"
 
 # Los VECTORES DE PRUEBA del acelerador criptográfico del F415/F417. No compila
 # nada y no necesita SystemC: vuelve a calcular con dos implementaciones
