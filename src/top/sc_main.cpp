@@ -13903,14 +13903,21 @@ SC_MODULE(F1Tb) {
     void t128_familia_f405_f407() {
         group("T128 La familia F405/F407: once referencias del mismo silicio");
 
-        // El catalogo tiene los once de esta familia... y, desde la fase 2 del
-        // plan del F446, uno mas que NO es de esta familia. Lo que esta prueba
-        // vigila es la familia F405/407, asi que cuenta los suyos: si algun dia
-        // aparece un F415 aqui sin su fila en la tabla de abajo, se cae.
-        unsigned n_f4 = 0;
+        // El catalogo cuenta los de ESTA familia, y la cuenta subio: los once
+        // del F405/F407 mas los diez del F415/F417 que declaro la fase 5 de su
+        // plan. El aviso que habia escrito aqui -«si algun dia aparece un F415
+        // sin su fila en la tabla de abajo, se cae»- hizo su trabajo: la tabla
+        // de mas abajo tiene ahora veintiuna filas.
+        unsigned n_f4 = 0, n_cripto = 0;
         for (unsigned k = 0; k < N_CATALOGO_MCU; ++k)
-            if (std::string(CATALOGO_MCU[k]->familia) == "STM32F4") ++n_f4;
-        check_eq(n_f4, 11u, "el catalogo tiene los once miembros de la familia");
+            if (std::string(CATALOGO_MCU[k]->familia) == "STM32F4") {
+                ++n_f4;
+                if (CATALOGO_MCU[k]->perif.cryp) ++n_cripto;
+            }
+        check_eq(n_f4, 21u, "el catalogo tiene los veintiun miembros de la familia");
+        check_eq(n_cripto, 10u,
+                 "y diez de ellos llevan el acelerador criptografico: cuatro "
+                 "F415 y seis F417 [DS8597, tabla 1]");
 
         // --- 1. Los encapsulados cuadran con el datasheet -------------------
         // Si la mascara tiene mas bits o menos que los que dice la tabla 2,
@@ -13976,22 +13983,34 @@ SC_MODULE(F1Tb) {
         check_eq(FLASH_STM32F407VG.sector_de(0x08080000u), 8,
                  "y en una de 1 MB es el sector 8");
 
-        // --- 3. La tabla de los once, miembro a miembro ---------------------
-        // `eth` y `dcmi` son LA diferencia entre un 405 y un 407; el resto del
-        // juego de perifericos esta en todos.
+        // --- 3. La tabla de los VEINTIUNO, miembro a miembro -----------------
+        // `eth` y `dcmi` son LA diferencia entre un 405 y un 407; `cryp` y
+        // `hash`, la que hay entre un 405 y un 415 o entre un 407 y un 417. El
+        // resto del juego de perifericos esta en los veintiuno.
         struct { const McuCaps* m; const char* enc; uint32_t flash;
-                 bool eth, fsmc; } tabla[] = {
-            { &MCU_STM32F405RG, "LQFP64",   0x100000, false, false },
-            { &MCU_STM32F405OG, "WLCSP90",  0x100000, false, true  },
-            { &MCU_STM32F405VG, "LQFP100",  0x100000, false, true  },
-            { &MCU_STM32F405ZG, "LQFP144",  0x100000, false, true  },
-            { &MCU_STM32F405OE, "WLCSP90",  0x080000, false, true  },
-            { &MCU_STM32F407VE, "LQFP100",  0x080000, true,  true  },
-            { &MCU_STM32F407VG, "LQFP100",  0x100000, true,  true  },
-            { &MCU_STM32F407ZE, "LQFP144",  0x080000, true,  true  },
-            { &MCU_STM32F407ZG, "LQFP144",  0x100000, true,  true  },
-            { &MCU_STM32F407IE, "LQFP176",  0x080000, true,  true  },
-            { &MCU_STM32F407IG, "LQFP176",  0x100000, true,  true  },
+                 bool eth, fsmc, cripto; } tabla[] = {
+            { &MCU_STM32F405RG, "LQFP64",   0x100000, false, false, false },
+            { &MCU_STM32F405OG, "WLCSP90",  0x100000, false, true,  false },
+            { &MCU_STM32F405VG, "LQFP100",  0x100000, false, true,  false },
+            { &MCU_STM32F405ZG, "LQFP144",  0x100000, false, true,  false },
+            { &MCU_STM32F405OE, "WLCSP90",  0x080000, false, true,  false },
+            { &MCU_STM32F407VE, "LQFP100",  0x080000, true,  true,  false },
+            { &MCU_STM32F407VG, "LQFP100",  0x100000, true,  true,  false },
+            { &MCU_STM32F407ZE, "LQFP144",  0x080000, true,  true,  false },
+            { &MCU_STM32F407ZG, "LQFP144",  0x100000, true,  true,  false },
+            { &MCU_STM32F407IE, "LQFP176",  0x080000, true,  true,  false },
+            { &MCU_STM32F407IG, "LQFP176",  0x100000, true,  true,  false },
+            // Los diez del acelerador. Ni un F415 de 512 KB: ST no lo vende.
+            { &MCU_STM32F415RG, "LQFP64",   0x100000, false, false, true  },
+            { &MCU_STM32F415OG, "WLCSP90",  0x100000, false, true,  true  },
+            { &MCU_STM32F415VG, "LQFP100",  0x100000, false, true,  true  },
+            { &MCU_STM32F415ZG, "LQFP144",  0x100000, false, true,  true  },
+            { &MCU_STM32F417VE, "LQFP100",  0x080000, true,  true,  true  },
+            { &MCU_STM32F417VG, "LQFP100",  0x100000, true,  true,  true  },
+            { &MCU_STM32F417ZE, "LQFP144",  0x080000, true,  true,  true  },
+            { &MCU_STM32F417ZG, "LQFP144",  0x100000, true,  true,  true  },
+            { &MCU_STM32F417IE, "LQFP176",  0x080000, true,  true,  true  },
+            { &MCU_STM32F417IG, "LQFP176",  0x100000, true,  true,  true  },
         };
         bool tabla_ok = true, todos_igual_nucleo = true, todos_igual_ram = true;
         for (const auto& t : tabla) {
@@ -14000,6 +14019,10 @@ SC_MODULE(F1Tb) {
             if (t.m->perif.eth  != t.eth)                   tabla_ok = false;
             if (t.m->perif.dcmi != t.eth)                   tabla_ok = false;
             if (t.m->perif.fsmc != t.fsmc)                  tabla_ok = false;
+            // El CRYP y el HASH van SIEMPRE juntos: no hay un F41x con uno y
+            // sin el otro, y una fila que los separase seria un chip inventado.
+            if (t.m->perif.cryp != t.cripto)                tabla_ok = false;
+            if (t.m->perif.hash != t.cripto)                tabla_ok = false;
             if (std::string(t.m->familia) != "STM32F4")     tabla_ok = false;
             if (t.m->nucleo.n_irq != CORE_STM32F407VG.n_irq ||
                 t.m->nucleo.prio_bits != 4)                 todos_igual_nucleo = false;
@@ -14007,26 +14030,70 @@ SC_MODULE(F1Tb) {
                 MEM_STM32F407VG.ram.total())                todos_igual_ram = false;
         }
         check(tabla_ok,
-              "los once salen con su encapsulado, su Flash y sus perifericos");
+              "los veintiuno salen con su encapsulado, su Flash y sus perifericos");
         check(todos_igual_nucleo,
-              "y los once llevan EL MISMO nucleo: 82 lineas y 4 bits de "
+              "y los veintiuno llevan EL MISMO nucleo: 82 lineas y 4 bits de "
               "prioridad, del LQFP64 al UFBGA176");
         check(todos_igual_ram,
-              "y la MISMA RAM: los 192+4 KB no dependen del encapsulado ni del "
-              "tamano de Flash");
+              "y la MISMA RAM: los 192+4 KB no dependen del encapsulado, del "
+              "tamano de Flash ni del acelerador");
 
-        // La camara y el Ethernet van juntos y son exactamente el digito 5 o 7.
-        bool coherente_5_7 = true;
+        // --- 3 bis. Cada referencia con cripto es su gemela mas dos campos ---
+        // No es una comprobacion de adorno: es LA afirmacion del informe
+        // (vs_415xx 1), y si algun dia alguien toca un descriptor del F417
+        // creyendo que asi arregla algo, esto se cae. Se comparan los pares.
+        struct { const McuCaps* con; const McuCaps* sin; } gemelas[] = {
+            { &MCU_STM32F415RG, &MCU_STM32F405RG },
+            { &MCU_STM32F415OG, &MCU_STM32F405OG },
+            { &MCU_STM32F415VG, &MCU_STM32F405VG },
+            { &MCU_STM32F415ZG, &MCU_STM32F405ZG },
+            { &MCU_STM32F417VE, &MCU_STM32F407VE },
+            { &MCU_STM32F417VG, &MCU_STM32F407VG },
+            { &MCU_STM32F417ZE, &MCU_STM32F407ZE },
+            { &MCU_STM32F417ZG, &MCU_STM32F407ZG },
+            { &MCU_STM32F417IE, &MCU_STM32F407IE },
+            { &MCU_STM32F417IG, &MCU_STM32F407IG },
+        };
+        bool pares_ok = true;
+        for (const auto& g : gemelas) {
+            Periferia p = g.sin->perif;
+            p.cryp = true; p.hash = true;
+            if (std::memcmp(&p, &g.con->perif, sizeof(Periferia)) != 0) pares_ok = false;
+            if (std::string(g.con->enc.nombre) != g.sin->enc.nombre)    pares_ok = false;
+            if (g.con->memoria.flash.size != g.sin->memoria.flash.size) pares_ok = false;
+            if (g.con->idcode != g.sin->idcode)                         pares_ok = false;
+        }
+        check(pares_ok,
+              "cada una de las diez es su gemela MAS `cryp` y `hash`, y nada "
+              "mas: mismo encapsulado, misma Flash y el mismo IDCODE 0x413");
+
+        // La camara y el Ethernet van juntos y son exactamente el DIGITO 5 o 7
+        // -en las dos parejas: 405/407 y 415/417-. Y el acelerador es el otro
+        // digito, el 0 o el 1. Los dos ejes son independientes, que es la
+        // afirmacion entera del informe del F415/F417 en una comprobacion.
+        //
+        //   STM32F4 0 5 RG      STM32F4 1 7 VG
+        //           ^ ^                 ^ ^
+        //           | +- 5 o 7: Ethernet y camara
+        //           +--- 0 o 1: acelerador criptografico
+        bool coherente_5_7 = true, coherente_0_1 = true;
         for (unsigned k = 0; k < N_CATALOGO_MCU; ++k) {
             const McuCaps* m = CATALOGO_MCU[k];
             if (std::string(m->familia) != "STM32F4") continue;   // otra familia
-            const bool es407 = std::string(m->nombre).substr(0, 9) == "STM32F407";
-            if (m->perif.eth != es407 || m->perif.dcmi != es407)
+            const std::string n = m->nombre;
+            const bool digito7 = (n[8] == '7');
+            const bool digito1 = (n[7] == '1');
+            if (m->perif.eth != digito7 || m->perif.dcmi != digito7)
                 coherente_5_7 = false;
+            if (m->perif.cryp != digito1 || m->perif.hash != digito1)
+                coherente_0_1 = false;
         }
         check(coherente_5_7,
-              "un F405 es un F407 SIN Ethernet y SIN camara, y eso es todo lo "
-              "que distingue al 5 del 7");
+              "el digito 5 o 7 es el Ethernet y la camara, en las DOS parejas: "
+              "un F405 es un F407 sin ellos y un F415 es un F417 sin ellos");
+        check(coherente_0_1,
+              "y el digito 0 o 1 es el acelerador criptografico: los dos ejes "
+              "son independientes, que es lo que dice vs_415xx 1");
         check(!MCU_STM32F405RG.perif.fsmc && MCU_STM32F405OG.perif.fsmc,
               "el que no lleva bus externo es el LQFP64, y por falta de pines: "
               "el WLCSP90 del mismo chip si lo lleva");
@@ -14194,8 +14261,10 @@ SC_MODULE(F1Tb) {
         }
         check_eq(unsigned(fams.size()), 2u,
                  "el catalogo tiene dos familias: la F405/407 y la del F446");
-        check_eq(n_f4_fam, 11u,
-                 "y once de las doce entradas las construye el MISMO creador");
+        check_eq(n_f4_fam, 21u,
+                 "y veintiuna de las veintinueve entradas las construye el "
+                 "MISMO creador: anadir una referencia de esta familia es una "
+                 "linea en el catalogo, no una clase");
 
         // --- 4. El descriptor llega intacto ---------------------------------
         // La factoria no interpreta el descriptor: lo pasa. Se comprueba sobre

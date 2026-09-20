@@ -203,37 +203,59 @@ banco sigue en **2 336 217 899 213 ps**.
 
 ---
 
-## 9. La familia F405/F407, entera
+## 9. La familia F405/F407/F415/F417, entera
 
-Once referencias, y el refactor de las secciones anteriores es lo que permite
-describirlas sin duplicar nada: **son el mismo modelo con distintos rasgos**.
+**Veintiuna referencias**, y el refactor de las secciones anteriores es lo que
+permite describirlas sin duplicar nada: **son el mismo modelo con distintos
+rasgos**.
 
-| Referencia | Encapsulado | E/S | Flash | Sectores | ETH | Cámara | Bus ext. |
-| :--- | :--- | ---: | ---: | ---: | :---: | :---: | :---: |
-| STM32F405RG | LQFP64 | 51 | 1 MB | 12 | — | — | — |
-| STM32F405OG | WLCSP90 | 72 | 1 MB | 12 | — | — | sí |
-| STM32F405VG | LQFP100 | 82 | 1 MB | 12 | — | — | sí |
-| STM32F405ZG | LQFP144 | 114 | 1 MB | 12 | — | — | sí |
-| STM32F405OE | WLCSP90 | 72 | 512 KB | 8 | — | — | sí |
-| STM32F407VE | LQFP100 | 82 | 512 KB | 8 | sí | sí | sí |
-| **STM32F407VG** | LQFP100 | 82 | 1 MB | 12 | sí | sí | sí |
-| STM32F407ZE | LQFP144 | 114 | 512 KB | 8 | sí | sí | sí |
-| STM32F407ZG | LQFP144 | 114 | 1 MB | 12 | sí | sí | sí |
-| STM32F407IE | LQFP176 | 140 | 512 KB | 8 | sí | sí | sí |
-| STM32F407IG | LQFP176 | 140 | 1 MB | 12 | sí | sí | sí |
+| Referencia | Encapsulado | E/S | Flash | Sectores | ETH | Cámara | Bus ext. | Cripto |
+| :--- | :--- | ---: | ---: | ---: | :---: | :---: | :---: | :---: |
+| STM32F405RG | LQFP64 | 51 | 1 MB | 12 | — | — | — | — |
+| STM32F405OG | WLCSP90 | 72 | 1 MB | 12 | — | — | sí | — |
+| STM32F405VG | LQFP100 | 82 | 1 MB | 12 | — | — | sí | — |
+| STM32F405ZG | LQFP144 | 114 | 1 MB | 12 | — | — | sí | — |
+| STM32F405OE | WLCSP90 | 72 | 512 KB | 8 | — | — | sí | — |
+| STM32F407VE | LQFP100 | 82 | 512 KB | 8 | sí | sí | sí | — |
+| **STM32F407VG** | LQFP100 | 82 | 1 MB | 12 | sí | sí | sí | — |
+| STM32F407ZE | LQFP144 | 114 | 512 KB | 8 | sí | sí | sí | — |
+| STM32F407ZG | LQFP144 | 114 | 1 MB | 12 | sí | sí | sí | — |
+| STM32F407IE | LQFP176 | 140 | 512 KB | 8 | sí | sí | sí | — |
+| STM32F407IG | LQFP176 | 140 | 1 MB | 12 | sí | sí | sí | — |
+| STM32F415RG | LQFP64 | 51 | 1 MB | 12 | — | — | — | **sí** |
+| STM32F415OG | WLCSP90 | 72 | 1 MB | 12 | — | — | sí | **sí** |
+| STM32F415VG | LQFP100 | 82 | 1 MB | 12 | — | — | sí | **sí** |
+| STM32F415ZG | LQFP144 | 114 | 1 MB | 12 | — | — | sí | **sí** |
+| STM32F417VE | LQFP100 | 82 | 512 KB | 8 | sí | sí | sí | **sí** |
+| STM32F417VG | LQFP100 | 82 | 1 MB | 12 | sí | sí | sí | **sí** |
+| STM32F417ZE | LQFP144 | 114 | 512 KB | 8 | sí | sí | sí | **sí** |
+| STM32F417ZG | LQFP144 | 114 | 1 MB | 12 | sí | sí | sí | **sí** |
+| STM32F417IE | LQFP176 | 140 | 512 KB | 8 | sí | sí | sí | **sí** |
+| STM32F417IG | LQFP176 | 140 | 1 MB | 12 | sí | sí | sí | **sí** |
 
-*Fuente de los recuentos: DS8626 (STM32F405xx/407xx), tabla 2.*
-**Los once llevan el mismo núcleo** —82 líneas de IRQ, 4 bits de prioridad, 8
-regiones de MPU, FPv4-SP— **y la misma RAM**: 112 + 16 + 64 KB más 4 KB de
-backup. Ni el encapsulado ni el tamaño de Flash los cambian.
+*Fuente de los recuentos: DS8626 (F405xx/407xx) y DS8597 (F415xx/417xx), tabla 2
+de cada uno. **No hay ningún F415 de 512 KB**: ST no lo vende, y el hueco de la
+tabla es suyo, no de este modelo.*
 
-### 9.1 Las tres cosas que los distinguen, y ninguna más
+**Los veintiuno llevan el mismo núcleo** —82 líneas de IRQ, 4 bits de prioridad,
+8 regiones de MPU, FPv4-SP— **y la misma RAM**: 112 + 16 + 64 KB más 4 KB de
+backup. Ni el encapsulado, ni el tamaño de Flash, ni el acelerador los cambian.
+
+### 9.1 Las CUATRO cosas que los distinguen, y ninguna más
 
 **El dígito 5 o 7.** Un F405 es un F407 **sin Ethernet y sin cámara**. Eso es
 todo: mismo núcleo, misma memoria, mismos temporizadores, mismos puertos serie,
-mismos ADC, mismo bxCAN, mismos OTG. (El F415/F417 son los mismos con el
-acelerador criptográfico; **no están declarados** porque ese bloque no está
-modelado, y un descriptor no lo haría aparecer.)
+mismos ADC, mismo bxCAN, mismos OTG.
+
+**El dígito 0 o 1.** Un F415 es un F405 **con el acelerador criptográfico**, y un
+F417 es un F407 con él. Y nada más: la comparación por máquina de las cabeceras
+de ST da **166 símbolos nuevos, todos `CRYP_*` o `HASH_*`**, más el nombre del
+propio chip. Los dos ejes son independientes, y así se comprueba en T127.
+
+*(Estas diez referencias estuvieron sin declarar hasta la fase 5 del plan de
+`doc/stm32f4xx/stm32f4xx_vs_415xx.md`, y el motivo está en la línea que había
+aquí escrita: un descriptor no hace aparecer un bloque que no existe. Se
+declararon cuando el CRYP y el HASH existieron y estuvieron enchufados.)
 
 **La letra del encapsulado.** `R` = LQFP64, `O` = WLCSP90, `V` = LQFP100,
 `Z` = LQFP144, `I` = LQFP176/UFBGA176.

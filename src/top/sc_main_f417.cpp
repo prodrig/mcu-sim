@@ -83,36 +83,24 @@ std::string a_hex(const uint8_t* p, size_t n) {
 // El banco
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// EL DESCRIPTOR DE LABORATORIO
+// EL CHIP QUE ESTE BANCO MONTA
 //
-// La fase 4 integra los dos bloques; las diez referencias del F415/F417 no se
-// declaran hasta la fase 5, cuando el catalogo pueda decir la verdad sobre
-// ellas. Para probar el CABLEADO hace falta, sin embargo, un chip que SI lleve
-// el acelerador, y este es: un F407VG con `cryp` y `hash` a `true`, hecho aqui
-// y no en `mcu_caps.h`.
+// Hasta la fase 4 esto era un DESCRIPTOR DE LABORATORIO —un F407VG con `cryp` y
+// `hash` puestos a mano aqui mismo—, porque los bloques ya estaban integrados y
+// las referencias todavia no declaradas. La fase 5 las declara, asi que el
+// laboratorio sobra: ahora se monta un **STM32F417VG de verdad**, sacado del
+// catalogo, y lo que este banco prueba es el chip que el proyecto vende.
 //
-// La distincion importa y es la de siempre: el catalogo dice lo que el proyecto
-// afirma modelar, y un banco de pruebas puede recombinar piezas para mirarlas.
-// Es lo mismo que hizo la fase 1 al calcular la mascara de un F417 que todavia
-// no existia. [mcu_caps.h: «No hay aqui ningun chip que el proyecto afirme
-// modelar y no modele»]
+// Se nota en una linea, y la linea dice mucho: donde habia una lambda que
+// recombinaba piezas, hay un nombre.
 // ---------------------------------------------------------------------------
-const McuCaps& caps_lab() {
-    static const McuCaps c = [] {
-        Periferia p = PERIF_F407;
-        p.cryp = true; p.hash = true;
-        return mcu_f4("LAB-F417VG", MEM_STM32F407VG, ENC_LQFP100, p);
-    }();
-    return c;
-}
-
 struct Tb : sc_module {
     Hash          dut{"hash"};
     Cryp          cdut{"cryp"};
     BusTestMaster mst{"mst"};
     BusTestMaster cmst{"cmst"};
     // Y un CHIP ENTERO, con el acelerador dentro, para probar la integracion.
-    SocF4         soc{"soc", DBG_PINES, Cableado(), caps_lab()};
+    SocF4         soc{"soc", DBG_PINES, Cableado(), MCU_STM32F417VG};
     BusTestMaster smst{"smst"};
 
     sc_signal<bool>   s_clk{"s_clk"}, s_rst_n{"s_rst_n"}, s_clk_en{"s_clk_en"};
@@ -761,7 +749,7 @@ void Tb::run() {
     }
 
     // =======================================================================
-    grupo("I1 La integracion: un chip entero con el acelerador dentro");
+    grupo("I1 La integracion: un STM32F417VG entero, sacado del catalogo");
     // =======================================================================
     // Hasta aqui los dos bloques se han probado SUELTOS. Esto mira lo que la
     // fase 4 anade: que esten enchufados al bus, al reloj, al vector y al DMA.
@@ -775,6 +763,9 @@ void Tb::run() {
 
         wait(30, SC_US);                       // que suelte el reset
 
+        check(std::string(soc.mcu.nombre) == "STM32F417VG",
+              "el chip que monta este banco es un STM32F417VG DEL CATALOGO, no "
+              "un descriptor de laboratorio: desde la fase 5 existe de verdad");
         check_eq(soc.rcc.bits_implementados(Rcc::R_AHB2ENR), 0x000000F1u,
                  "en un chip CON acelerador, RCC_AHB2ENR abre los bits 4 y 5: "
                  "0xF1 es 0xC1 mas el CRYP y el HASH");

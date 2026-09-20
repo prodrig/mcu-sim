@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Una placa con un STM32F417VG — la referencia que la fase 5 del plan del
+     F415/F417 declara, y la primera del catalogo que lleva el acelerador
+     criptografico.
+
+     Es deliberadamente minima, porque lo que esta placa demuestra NO se ve en
+     los pines: el CRYP y el HASH no tienen un solo pin. Viven enteros dentro
+     del chip, y por eso las ocho comparaciones de pines entre un F407 y un
+     F417 salieron vacias. Lo que se ve desde fuera es lo de siempre -un
+     cristal, un LED- y lo que cambia esta en el mapa de memoria:
+
+         0x5006 0000   CRYP    en un F407, ventana RESERVADA
+         0x5006 0400   HASH    en un F407, ventana RESERVADA
+         0x5006 0800   RNG     en los dos
+
+     Para verlo con una sola orden, y notar la diferencia:
+
+         ./build/mcu-sim placas/cripto_f417.xml --valida
+         ./build/mcu-sim placas/cripto_f417.xml --valida --mcu STM32F407VG
+
+     El segundo monta un F407 con la misma placa —los pines son los mismos, asi
+     que la placa cabe— y ahi el acelerador no esta: sus dos ventanas no las
+     decodifica nadie y tocarlas da error de bus, igual que en el silicio.
+
+     El LED va en PD12 como en la Discovery, de modo que el blinky de siempre
+     sirve sin tocar nada:
+
+         ./build/mcu-sim placas/cripto_f417.xml verif/fw/blinky/blinky.bin 205
+-->
+<placa nombre="cripto-f417">
+  <mcu tipo="STM32F417VG" id="u0"/>
+
+  <!-- El cristal de 8 MHz de la Discovery, en PH0/PH1. -->
+  <nodo id="PH0"/>
+  <nodo id="PH1"/>
+  <componente tipo="Crystal" id="X1" vdd="3.3">
+    <pin nombre="osc_in"  nodo="PH0"/>
+    <pin nombre="osc_out" nodo="PH1"/>
+  </componente>
+
+  <!-- Un LED verde al aire, para que la placa haga algo visible. -->
+  <nodo id="PD12"/>
+  <componente tipo="Led" id="LD_VERDE" a_vss="si" vf="2.0" r="680">
+    <pin nombre="anodo" nodo="PD12"/>
+  </componente>
+</placa>

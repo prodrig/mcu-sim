@@ -34,7 +34,7 @@ este informe están hechas por máquina, no a ojo**, y sobre ficheros del propio
 fabricante. Donde se dice «idéntico» quiere decir que un programa comparó los
 dos conjuntos y la diferencia salió vacía. Los recuentos están en §3.2 y §4.
 
-> **ESTADO: las fases 0 a 4 del plan están EJECUTADAS.** Los siete puntos se han
+> **ESTADO: las fases 0 a 5 del plan están EJECUTADAS.** Los siete puntos se han
 > cerrado; los cinco primeros ya lo estaban al escribir este documento, y los
 > dos que quedaban —el alcance y los vectores— se cerraron con código y con
 > datos, no con una frase. Está contado en la **§14**, al final, y **encontró
@@ -47,9 +47,10 @@ dos conjuntos y la diferencia salió vacía. Los recuentos están en §3.2 y §4
 > descifra con AES de 128, 192 y 256 bits en ECB, CBC y CTR, y con DES y TDES
 > en ECB y CBC. La **fase 4** está en la **§18**: los dos bloques **ya están
 > enchufados** —ventana de AHB2, bit de reloj, posición de vector y celda de
-> DMA— y el invariante del F407 **no se movió**. Falta declarar las diez
-> referencias, que es la fase 5. Las secciones de más arriba llevan incorporado
-> lo verificado.
+> DMA— y el invariante del F407 **no se movió**. La **fase 5** está en la
+> **§19**: **las diez referencias están declaradas** y el catálogo pasa de
+> diecinueve a veintinueve. Queda la fase 6, la verificación cruzada. Las
+> secciones de más arriba llevan incorporado lo verificado.
 
 ---
 
@@ -576,7 +577,7 @@ Las ~60 líneas de pegamento, todas condicionadas por `Periferia`:
 * **T26 se queda como está para el F407**, que es la comprobación de que el
   trabajo no ha hecho más permisivo al chip que no lleva el acelerador.
 
-### Fase 5 — Las diez referencias
+### Fase 5 — Las diez referencias — **HECHA, §19**
 
 * Tres `Periferia` nuevas y diez `McuCaps`; `CATALOGO_MCU` pasa a veintinueve.
 * `sim --help` y `--mcu` los listan solos: salen del catálogo.
@@ -1372,3 +1373,108 @@ existir (T02).
 Nada de fontanería: tres juegos de `Periferia`, diez `McuCaps` y el catálogo de
 diecinueve a veintinueve referencias. El descriptor de laboratorio del banco
 desaparece entonces, porque habrá chips de verdad que hagan su trabajo.
+
+---
+
+## 19. Fase 5: las diez referencias
+
+La fase más corta del plan y la que más se nota desde fuera: el catálogo pasa de
+**diecinueve a veintinueve** referencias, y `STM32F417VG` deja de ser algo que
+este documento describe para ser algo que el programa construye.
+
+### 19.1 Tres juegos de rasgos y diez descriptores
+
+`PERIF_F415_R64`, `PERIF_F415` y `PERIF_F417` son, literalmente, los tres del
+F405/F407 con `cryp` y `hash` a `true`. Y los diez `McuCaps` son los diez de sus
+gemelas con ese juego cambiado. No hay una clase nueva, ni un netlist nuevo, ni
+una línea de periférico: **veintiuna de las veintinueve entradas del catálogo
+las construye el mismo creador**, que es justo lo que el descriptor existía para
+permitir.
+
+Dos huecos deliberados, los dos de la tabla 1 del `[DS8597]`:
+
+* **No hay ningún F415 de 512 KB.** El F405 tiene su `OE`; el F415 no tiene
+  equivalente porque ST no lo vende. El hueco de la tabla es suyo, no del modelo.
+* **El F417I en UFBGA176 no se distingue del F417I en LQFP176**, igual que pasa
+  con el F407IG: mismo die, mismo reparto de pads, otro plástico.
+
+### 19.2 Lo que desaparece: el descriptor de laboratorio
+
+La fase 4 probó el cableado con un F407VG al que le ponía `cryp` y `hash` a mano
+dentro del banco, porque no había chip que lo llevara. Ahora lo hay, así que el
+laboratorio sobra: el banco monta un **`MCU_STM32F417VG` sacado del catálogo**, y
+hay una comprobación que lo dice con todas sus letras.
+
+Donde había una lambda que recombinaba piezas, hay un nombre. Es una línea, y es
+la que separa «el modelo puede describir esto» de «el proyecto vende esto».
+
+### 19.3 Las comprobaciones, y la que avisó de su propia caducidad
+
+La suite del F407 tenía escrito, desde que se declaró la familia F405/F407:
+
+> *Lo que esta prueba vigila es la familia F405/407, así que cuenta los suyos:
+> **si algún día aparece un F415 aquí sin su fila en la tabla de abajo, se
+> cae**.*
+
+Se cayó, exactamente como estaba previsto y en el sitio previsto. La tabla tiene
+ahora veintiuna filas y la cuenta dice veintiuno. Una prueba que predice su
+propia caducidad y la cumple es lo más parecido a documentación viva que tiene
+este proyecto.
+
+Lo que se añadió, todo a coste cero de tiempo simulado:
+
+* **la tabla de los veintiuno**, ahora con una columna más — y `cryp` y `hash`
+  van siempre **juntos**: no hay ningún F41x con uno y sin el otro, y una fila
+  que los separase sería un chip inventado;
+* **los diez pares**, comprobados uno a uno: cada referencia con acelerador es
+  su gemela **más esos dos campos y nada más** — mismo encapsulado, misma Flash,
+  mismo `IDCODE 0x413`. Si alguien toca un descriptor del F417 creyendo que
+  arregla algo, esto se cae;
+* **los dos ejes, por separado**, leídos del propio nombre:
+
+```
+  STM32F4 0 5 RG      STM32F4 1 7 VG
+          ^ ^                 ^ ^
+          | +- 5 o 7: Ethernet y camara
+          +--- 0 o 1: acelerador criptografico
+```
+
+### 19.4 Una placa, y una orden que enseña la diferencia
+
+`placas/cripto_f417.xml` monta un F417VG con un cristal y un LED. Es
+deliberadamente mínima, **porque lo que demuestra no se ve en los pines**: el
+CRYP y el HASH no tienen ni uno. La gracia está en poder correr la misma placa
+con el otro chip:
+
+```
+./build/mcu-sim placas/cripto_f417.xml --valida
+./build/mcu-sim placas/cripto_f417.xml --valida --mcu STM32F407VG
+```
+
+La placa cabe en los dos —los pines son los mismos— y lo que cambia está en el
+mapa de memoria: en el F407 esas dos ventanas no las decodifica nadie. Y el
+blinky de siempre funciona sin tocar nada:
+
+```
+$ ./build/mcu-sim placas/cripto_f417.xml verif/fw/blinky/blinky.bin 205
+  LED LD_VERDE en PD12: encendido  (3.20 V, 1.77 mA)
+```
+
+### 19.5 El estado, después
+
+| | Antes | Después |
+| :--- | ---: | ---: |
+| Referencias en el catálogo | 19 | **29** |
+| Suite del F407 | 2071 | **2074**, en `2336217899213 ps` |
+| Suite del F446 | 203 | 203, en `1033367277932 ps` |
+| Banco del F417 | 137 | **138**, con un F417VG del catálogo |
+| Placas que validan | 5 | **6** |
+| `make hash` / `make cryp` / `vectores` / red | 23 / 32 / 54 / 13 | igual |
+| ASan + UBSan | limpios | limpios |
+
+### 19.6 Qué queda para la fase 6
+
+La verificación cruzada: convertir este documento en una tabla de afirmaciones y
+comprobarlas contra el modelo, que es lo que en el puerto del F446 destapó que
+§9.2 era falso. Y el firmware `crypto_demo`, compilado con `arm-none-eabi-gcc`,
+que cifre y resuma los vectores oficiales **desde dentro del chip**.

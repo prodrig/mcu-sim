@@ -16,10 +16,12 @@
 // frontera exacta está en el campo `familia`: dos chips con la misma familia se
 // distinguen con este struct; dos familias distintas necesitan modelo nuevo.
 //
-// Por eso este fichero declara los once descriptores de la familia F405/407 —el
-// mismo silicio con otro encapsulado, otra Flash o sin Ethernet— y dos juegos de
-// laboratorio que la suite usa para comprobar que las piezas se recombinan
-// (T127). No hay aquí ningún chip que el proyecto afirme modelar y no modele.
+// Por eso este fichero declara los VEINTIÚN descriptores de la familia
+// F405/407/415/417 —el mismo silicio con otro encapsulado, otra Flash, sin
+// Ethernet o con el acelerador criptográfico— y dos juegos de laboratorio que la
+// suite usa para comprobar que las piezas se recombinan (T127). No hay aquí
+// ningún chip que el proyecto afirme modelar y no modele: las diez referencias
+// del F415/F417 esperaron cuatro fases, hasta que sus dos bloques existieron.
 //
 // Y desde la fase 2 del plan del F446 hay un duodécimo, el `STM32F446RE`, que
 // es de OTRA familia y lo dice: su descriptor lleva `familia = "STM32F446"` y
@@ -180,9 +182,15 @@ struct McuCaps {
 //
 //   EL DÍGITO 5 O 7. Un F405 es un F407 SIN Ethernet y SIN cámara. Eso es todo:
 //   mismo núcleo, misma memoria, mismos temporizadores, mismos puertos serie.
-//   (El F415/F417, que aquí no están, son los mismos con el acelerador
-//   criptográfico; no se declaran porque ese bloque no está modelado y un
-//   descriptor no lo haría aparecer.)
+//
+//   EL DÍGITO 1, que llegó con la fase 5 del plan del F415/F417: un F415 es un
+//   F405 **con el acelerador criptográfico** y un F417 es un F407 con él. Y no
+//   hay nada más — la comparación por máquina de las cabeceras de ST da 166
+//   símbolos nuevos, todos `CRYP_*` o `HASH_*`, y el nombre del propio chip.
+//   Durante cuatro fases estas diez referencias NO estuvieron declaradas, y el
+//   motivo está escrito unas líneas más abajo: un descriptor no hace aparecer
+//   un bloque que no existe. Ahora los dos bloques existen
+//   (`periph/cryp.h`, `periph/hash.h`) y están enchufados, así que se declaran.
 //
 //   LA LETRA DEL ENCAPSULADO. R = LQFP64, O = WLCSP90, V = LQFP100,
 //   Z = LQFP144, I = LQFP176/UFBGA176. Decide qué pads salen al plástico, y de
@@ -236,6 +244,22 @@ inline constexpr Periferia PERIF_F405_R64 {
     false, false, false, true, false, false, true,
     false, false, false, false, false, false, false, false };
 
+// --- Y los tres del F415/F417: los de arriba MÁS el acelerador --------------
+// Nada más cambia. Ni un temporizador, ni un puerto serie, ni un pin: eso es lo
+// que dicen la tabla 2 del DS8597 y las ocho comparaciones por máquina de los
+// ficheros de pines de ST. [vs_415xx §3]
+//                                        eth    dcmi   fsmc   rng   cryp  hash  i2sext
+//                                        spi4   i2s1   sai    sai2  qspi  fmpi2c cec   spdif
+inline constexpr Periferia PERIF_F417 {
+    true,  true,  true,  true, true, true, true,
+    false, false, false, false, false, false, false, false };
+inline constexpr Periferia PERIF_F415 {
+    false, false, true,  true, true, true, true,
+    false, false, false, false, false, false, false, false };
+inline constexpr Periferia PERIF_F415_R64 {
+    false, false, false, true, true, true, true,
+    false, false, false, false, false, false, false, false };
+
 // El identificador de la familia F405/407/415/417 en `DBGMCU_IDCODE`:
 // DEV_ID = 0x413, REV_ID = 0x1001. [RM0090, §32.6.1]
 constexpr uint32_t IDCODE_STM32F40X = 0x10016413u;
@@ -275,6 +299,44 @@ inline constexpr McuCaps MCU_STM32F407IE =
     mcu_f4("STM32F407IE", MEM_512K,        ENC_LQFP176, PERIF_F407);
 inline constexpr McuCaps MCU_STM32F407IG =
     mcu_f4("STM32F407IG", MEM_STM32F407VG, ENC_LQFP176, PERIF_F407);
+
+// ---------------------------------------------------------------------------
+// LA FAMILIA STM32F415/F417, ENTERA — diez referencias
+//
+// El mismo silicio otra vez, con el acelerador criptográfico soldado. Dos cosas
+// que conviene no pasar por alto, y las dos salen de la tabla 1 del DS8597:
+//
+//   * **NO hay ningún F415 de 512 KB.** El F405 tiene su `OE`; el F415 no tiene
+//     equivalente, y ST no lo vende. Añadirlo «porque encajaría» sería
+//     inventarse una referencia.
+//   * **El F417I en UFBGA176 no se distingue del F417I en LQFP176**, igual que
+//     pasa con el F407IG. Es correcto: son el mismo die con otro plástico, y su
+//     reparto de pads es el mismo. [reutilizacion.md §9.5]
+// ---------------------------------------------------------------------------
+
+// --- STM32F415: un F405 con acelerador, y solo de 1 MB ----------------------
+inline constexpr McuCaps MCU_STM32F415RG =
+    mcu_f4("STM32F415RG", MEM_STM32F407VG, ENC_LQFP64,  PERIF_F415_R64);
+inline constexpr McuCaps MCU_STM32F415OG =
+    mcu_f4("STM32F415OG", MEM_STM32F407VG, ENC_WLCSP90, PERIF_F415);
+inline constexpr McuCaps MCU_STM32F415VG =
+    mcu_f4("STM32F415VG", MEM_STM32F407VG, ENC_LQFP100, PERIF_F415);
+inline constexpr McuCaps MCU_STM32F415ZG =
+    mcu_f4("STM32F415ZG", MEM_STM32F407VG, ENC_LQFP144, PERIF_F415);
+
+// --- STM32F417: un F407 con acelerador --------------------------------------
+inline constexpr McuCaps MCU_STM32F417VE =
+    mcu_f4("STM32F417VE", MEM_512K,        ENC_LQFP100, PERIF_F417);
+inline constexpr McuCaps MCU_STM32F417VG =
+    mcu_f4("STM32F417VG", MEM_STM32F407VG, ENC_LQFP100, PERIF_F417);
+inline constexpr McuCaps MCU_STM32F417ZE =
+    mcu_f4("STM32F417ZE", MEM_512K,        ENC_LQFP144, PERIF_F417);
+inline constexpr McuCaps MCU_STM32F417ZG =
+    mcu_f4("STM32F417ZG", MEM_STM32F407VG, ENC_LQFP144, PERIF_F417);
+inline constexpr McuCaps MCU_STM32F417IE =
+    mcu_f4("STM32F417IE", MEM_512K,        ENC_LQFP176, PERIF_F417);
+inline constexpr McuCaps MCU_STM32F417IG =
+    mcu_f4("STM32F417IG", MEM_STM32F407VG, ENC_LQFP176, PERIF_F417);
 
 // ---------------------------------------------------------------------------
 // EL STM32F446RE — otra FAMILIA, y por eso otro `familia` y otra clase
@@ -437,6 +499,9 @@ inline const McuCaps* const CATALOGO_MCU[] = {
     &MCU_STM32F405OE,
     &MCU_STM32F407VE, &MCU_STM32F407VG, &MCU_STM32F407ZE, &MCU_STM32F407ZG,
     &MCU_STM32F407IE, &MCU_STM32F407IG,
+    &MCU_STM32F415RG, &MCU_STM32F415OG, &MCU_STM32F415VG, &MCU_STM32F415ZG,
+    &MCU_STM32F417VE, &MCU_STM32F417VG, &MCU_STM32F417ZE, &MCU_STM32F417ZG,
+    &MCU_STM32F417IE, &MCU_STM32F417IG,
     &MCU_STM32F446MC, &MCU_STM32F446ME,
     &MCU_STM32F446RC, &MCU_STM32F446RE,
     &MCU_STM32F446VC, &MCU_STM32F446VE,

@@ -3,12 +3,19 @@
 Un simulador didáctico, pensado para quien desarrolla en STM32CubeIDE y no tiene
 la tarjeta delante: se compila el firmware igual que para el chip y se ejecuta
 contra este modelo igual que contra una placa. Hoy hay **dos familias y
-diecinueve referencias** montables:
+veintinueve referencias** montables:
 
 | Familia | Referencias | Dónde está |
 | :--- | :--- | :--- |
 | **STM32F405 / F407** | once, del LQFP64 al UFBGA176 | `src/top/soc_f4.h` + su descriptor |
+| **STM32F415 / F417** | diez, las mismas **con el acelerador criptográfico** | el mismo netlist, otro descriptor |
 | **STM32F446** | ocho, del WLCSP81 al UFBGA144 | `src/soc/stm32f446.h` + su descriptor |
+
+Que las diez del F415/F417 sean «el mismo netlist con otro descriptor» es
+exactamente lo que el proyecto quería poder decir: un chip nuevo de una familia
+que ya está es una línea en el catálogo. Lo que costó fueron **sus dos bloques**
+—el CRYP y el HASH—, y esos sí son código: `periph/cryp.h` y `periph/hash.h`,
+con su banco propio en `make test417`.
 
 La documentación de cómo se construyó el modelo del F407 —y la comparativa con
 el F446— está en `doc/stm32f4xx/`. Los manuales de ST no se versionan; van a

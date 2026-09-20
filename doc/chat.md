@@ -3989,3 +3989,72 @@ por el bus del chip** da el vector F.1.1 del SP 800-38A, que el CRYP levanta la
 F407 **2071/2071** (+2) en **`2336217899213 ps`**, F446 **203/203**, F417
 **137/137** (+13), `make hash` 23/23, `make cryp` 32/32, vectores 54/54, red
 13/13, las cinco placas validan y ASan+UBSan limpios en los tres bancos.
+
+
+## Fase 5 del F415/F417: las diez referencias
+
+> Ejecuta la fase 5
+
+La fase más corta y la que más se nota desde fuera: el catálogo pasa de
+**diecinueve a veintinueve** referencias, y `STM32F417VG` deja de ser algo que el
+informe describe para ser algo que el programa construye.
+
+Tres juegos de rasgos —los tres del F405/F407 con `cryp` y `hash` a `true`— y
+diez descriptores. Ni una clase nueva, ni un netlist nuevo, ni una línea de
+periférico: **veintiuna de las veintinueve entradas las construye el mismo
+creador**, que es exactamente para lo que existía el descriptor. Dos huecos
+deliberados, los dos de la tabla 1 del datasheet: **no hay ningún F415 de
+512 KB** —ST no lo vende— y el F417I en UFBGA176 no se distingue del de LQFP176,
+igual que pasa con el F407IG.
+
+**Y desaparece el descriptor de laboratorio.** La fase 4 probó el cableado con un
+F407VG al que le ponía los dos campos a mano dentro del banco, porque no había
+chip que los llevara. Ahora lo hay: el banco monta un `MCU_STM32F417VG` sacado
+del catálogo. Donde había una lambda que recombinaba piezas, hay un nombre — y
+esa línea es la que separa «el modelo puede describir esto» de «el proyecto
+vende esto».
+
+**La suite avisó de su propia caducidad, y cumplió.** Desde que se declaró la
+familia F405/F407 había escrito ahí:
+
+> *si algún día aparece un F415 aquí sin su fila en la tabla de abajo, se cae*
+
+Se cayó, en el sitio previsto y por el motivo previsto. La tabla tiene ahora
+veintiuna filas. Una prueba que predice su propia caducidad y la cumple es lo más
+parecido a documentación viva que tiene esto.
+
+Lo que se añadió, todo a coste cero de tiempo simulado: la tabla de los
+veintiuno con una columna más —y `cryp` y `hash` van **siempre juntos**, porque
+un F41x con uno y sin el otro sería un chip inventado—; **los diez pares**,
+comprobados uno a uno, cada referencia con acelerador contra su gemela, mismo
+encapsulado, misma Flash y el mismo IDCODE; y **los dos ejes por separado**,
+leídos del propio nombre:
+
+```
+  STM32F4 0 5 RG      STM32F4 1 7 VG
+          ^ ^                 ^ ^
+          | +- 5 o 7: Ethernet y camara
+          +--- 0 o 1: acelerador criptografico
+```
+
+**Y una placa que enseña la diferencia con una orden.**
+`placas/cripto_f417.xml` es deliberadamente mínima —un cristal y un LED— porque
+lo que demuestra **no se ve en los pines**: el CRYP y el HASH no tienen ni uno.
+La gracia es correr la misma placa con el otro chip:
+
+```
+./build/mcu-sim placas/cripto_f417.xml --valida
+./build/mcu-sim placas/cripto_f417.xml --valida --mcu STM32F407VG
+```
+
+Cabe en los dos, porque los pines son los mismos, y lo que cambia está en el mapa
+de memoria. El blinky de siempre funciona sin tocar nada:
+
+```
+$ ./build/mcu-sim placas/cripto_f417.xml verif/fw/blinky/blinky.bin 205
+  LED LD_VERDE en PD12: encendido  (3.20 V, 1.77 mA)
+```
+
+F407 **2074/2074** (+3) en **`2336217899213 ps`**, F446 **203/203**, F417
+**138/138**, `make hash` 23/23, `make cryp` 32/32, vectores 54/54, red 13/13,
+**seis placas** validan y ASan+UBSan limpios.
