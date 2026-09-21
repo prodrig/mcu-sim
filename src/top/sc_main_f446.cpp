@@ -29,6 +29,7 @@
 //   make test446   (o: make -C . test446-build && ./build/test446)
 // =============================================================================
 #include <systemc>
+#include <type_traits>
 #include <cstdio>
 #include <cmath>
 #include <string>
@@ -1154,7 +1155,19 @@ SC_MODULE(Tb446) {
               std::string(MCU_STM32F446RE.familia) == "STM32F446",
               "no son la misma familia, y por eso `tipo=` despacha a dos "
               "clases distintas en vez de a dos descriptores");
-        check(dynamic_cast<SocF4*>(&dut) != nullptr,
+        // La mitad de COMPILACION: que `Stm32F446` derive de `SocF4` lo dice
+        // el lenguaje, y donde se dice es aqui.
+        static_assert(std::is_base_of<SocF4, Stm32F446>::value,
+                      "un Stm32F446 tiene que SER un SocF4");
+        // Y la mitad de EJECUCION, que es la que vale la pena comprobar: bajar
+        // desde el puntero a la base hasta el tipo derivado. Antes esto era un
+        // `dynamic_cast<SocF4*>(&dut)`, o sea una conversion HACIA ARRIBA, que
+        // no puede dar nulo nunca: una comprobacion que no puede fallar es
+        // decoracion, y ademas g++ 16 lo dice con -Waddress. Asi es un
+        // dynamic_cast de verdad, con su RTTI, que SI daria nulo si la
+        // jerarquia no fuera la que se afirma.
+        SocF4& base = dut;                 // conversion implicita hacia la base
+        check(dynamic_cast<Stm32F446*>(&base) != nullptr,
               "pero SI son el mismo netlist: un Stm32F446 ES un SocF4, que es "
               "lo que hace que un solo modelo valga para los dos");
     }

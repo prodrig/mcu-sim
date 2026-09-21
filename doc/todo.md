@@ -327,6 +327,7 @@ Los tres puntos que siguen vienen del plan del F415/F417
 | **T-16** | **La velocidad del stub GDB depende del ritmo de simulación** (atiende el socket cada 100 µs simulados) | F6-gdb §8 | "No es un problema de corrección sino de ritmo" |
 | **T-17** | **Capa física de paquetes, no de bits, en el USB**: sin NRZI, sin relleno de bits, sin CRC5/CRC16 ni reintentos por CRC | F7-OTG §3.1 y §6 | **Frontera deliberada**, escrita en la cabecera del fichero: "simular el bitstream no aporta nada a un modelo de MCU" |
 | **T-18** | **Capa eléctrica del par trenzado y autonegociación fuera del Ethernet** | F7-ETH §3.1 | Es cosa del PHY, al otro lado de los pines; la autonegociación se resuelve por MDIO como en el silicio |
+| **T-22** | **El invariante del F407 es estable en UNA máquina, no entre máquinas.** `2336217899213 ps` se ha mantenido al picosegundo durante doce fases, y en Windows sale `2334217899213 ps`: **exactamente 2 ms menos**. La causa está localizada y es estructural, y es la otra cara de **T-16**: el cliente de RSP del banco (`verif/gdb_client.h`) espera la respuesta del stub **sondeando cada 200 µs de tiempo SIMULADO** sobre un socket TCP real, así que el número de sondeos —y con él el tiempo simulado que consume— depende de lo deprisa que el sistema operativo entregue los bytes por el bucle local. 2 ms son **diez sondeos** repartidos entre las 44 peticiones de T96 y T97. **Lo corrobora el control negativo**: las suites del F446 y del F417, que NO usan el cliente de GDB, salen **idénticas al picosegundo** en las dos plataformas. El invariante sigue sirviendo para lo que se usa —ver si un cambio movió el comportamiento en la misma máquina— pero **no es una firma portable**, y decir que lo era sería falso. Cerrarlo es medir aparte lo que consumen los dos grupos de GDB | F6-gdb2 §8 |
 
 ### Tres divergencias de comportamiento, no solo de precisión
 
@@ -549,14 +550,14 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 | :--- | ---: |
 | **P** — Pendientes de plan | 12 |
 | **F** — Funciones no modeladas | 51 |
-| **T** — Temporización y física | 21 |
+| **T** — Temporización y física | 22 |
 | **D** — Datos sin fuente | 14 |
 | **X** — Discrepancias, silencios de [IR] y erratas de ST | 14 |
 | **V** — Huecos de verificación | 11 |
 | **I** — Deuda de instrumentación y proyecto | 47 *(veintiocho cerradas: I-11, I-12, I-15, I-16, I-17, I-20, I-22, I-25, I-28, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38, I-39, I-40, I-41, I-42, I-43, I-44, I-45, I-46, I-47 e I-48)* |
-| **Total** | **170** |
+| **Total** | **171** |
 
-De los 170, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 171, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.
@@ -567,4 +568,4 @@ en el informe que la originó.
 > y la casilla decía 159—, y (2) la fila de la **I** contaba hasta el
 > identificador más alto, no las filas que hay: **I-18 e I-19 no existen**, así
 > que son 47 puntos y no 49, y la lista de cerradas nombraba un I-18 inexistente.
-> Ahora el total **es la suma de la columna**: 12 + 51 + 21 + 14 + 14 + 11 + 47.
+> Ahora el total **es la suma de la columna**: 12 + 51 + 22 + 14 + 14 + 11 + 47.

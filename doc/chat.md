@@ -4662,3 +4662,59 @@ De paso, el mensaje de `CROSS` seguía recomendando el paquete `-gcc` en vez del
 grupo `-toolchain`: corregido también ahí, que es donde de verdad se lee.
 
 Suites intactas: 2117 / 203 / 164, `2336217899213 ps`, `make red` 13/13.
+
+## Windows verificado, y el invariante resulta no ser portable
+
+> make -f Makefile.mcu-sim test407fw → 2117 OK, 0 fallos, 2334217899213 ps
+> make -f Makefile.mcu-sim test446fw → 203 OK, 1033367277932 ps
+> make -f Makefile.mcu-sim test417fw → No rule to make target 'test417'
+
+**El titular: las tres suites pasan en Windows.** 2117, 203 y 164
+comprobaciones, 0 fallos, con los firmwares compilados por el
+`arm-none-eabi-gcc` que trae STM32CubeIDE. **R-1 cerrado para `mcu-sim`**, que
+llevaba abierto desde el primer informe.
+
+### El fallo de test417fw era mío
+
+La receta hacía `$(MAKE) --no-print-directory test417`, **sin pasar `-f`**. Al
+llamarse con `make -f Makefile.mcu-sim`, el sub-make cogía el `Makefile` por
+omisión —una copia vieja, anterior a la fase del F415/F417— y contestaba «No
+rule to make target 'test417'» hablando de un objetivo que sí existe. Ahora hay
+`ESTE_MAKEFILE := $(firstword $(MAKEFILE_LIST))` y las tres recursiones lo
+pasan. Reproducido el caso exacto —con `-f` y sin `Makefile` por omisión— antes
+y después.
+
+### El aviso de g++ 16 señalaba una comprobación que no podía fallar
+
+`dynamic_cast<SocF4*>(&dut) != nullptr` sobre un `Stm32F446` es una conversión
+**hacia arriba**: nunca da nulo. O sea, por la doctrina de esta casa, decoración
+—la misma que se quitó en la fase 6 del F415/F417—. Ahora la mitad de
+compilación es un `static_assert(is_base_of<SocF4, Stm32F446>)` y la de
+ejecución un `dynamic_cast` **hacia abajo** desde una referencia a la base, que
+sí puede dar nulo y sí ejercita el RTTI. Hicieron falta un compilador dos
+versiones más nuevo y otra plataforma para que alguien lo dijera.
+
+### Y el hallazgo grande: `2334217899213 ps`, exactamente 2 ms menos
+
+No es ruido ni redondeo: **2 000 000 000 ps clavados**. La causa está
+localizada y es estructural, y es la otra cara de **T-16**: el cliente de RSP
+del banco espera la respuesta del stub **sondeando cada 200 µs de tiempo
+simulado** sobre un socket TCP de verdad. Cuántos sondeos hagan falta depende de
+lo deprisa que el sistema operativo entregue los bytes por el bucle local, así
+que **el tiempo simulado que consumen T96 y T97 depende del anfitrión**. 2 ms
+son diez sondeos repartidos entre 44 peticiones.
+
+**El control negativo lo confirma, y es lo que convierte esto en un diagnóstico
+y no en una sospecha:** las suites del F446 y del F417 **no usan el cliente de
+GDB** —cero apariciones— y salen **idénticas al picosegundo** en las dos
+plataformas. `1033367277932 ps` y `718988288 ps`, clavados.
+
+Lo que esto le hace a la afirmación del proyecto: el invariante **sigue
+sirviendo para lo que se usa** —ver si un cambio movió el comportamiento en la
+misma máquina, que es como se ha usado doce fases— pero **no es una firma
+portable**, y llevábamos diciendo que lo era. Corregido en el README, en
+`compilacion.md` y anotado como **T-22**, con la salida escrita: medir aparte lo
+que consumen los dos grupos de GDB y comparar el resto, que sí es exacto.
+
+Hacía falta una segunda máquina para poder verlo. Es el argumento entero a favor
+del paso 0b del informe de la GUI, y ha tardado veinte turnos en cobrarse.

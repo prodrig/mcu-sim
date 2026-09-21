@@ -86,6 +86,13 @@ curiosidad: vale `2336217899213 ps` al picosegundo desde la fase 7 y once
 planes después sigue valiendo lo mismo. Si un cambio lo mueve, ha cambiado el
 comportamiento de algo, aunque las 2117 sigan pasando.
 
+**Con un matiz que costó una segunda máquina descubrir**: es estable en UNA
+máquina, no entre máquinas. En Windows sale 2 ms por debajo, porque los dos
+grupos que hablan con un GDB de verdad sondean un socket TCP cada 200 µs de
+tiempo simulado y el número de sondeos depende del sistema operativo. Las
+suites del F446 y del F417, que no usan sockets, sí salen idénticas al
+picosegundo en las dos plataformas. Está en **T-22** de `doc/todo.md`.
+
 `make asan407` corre esa misma suite con AddressSanitizer y UndefinedBehaviorSanitizer,
 y hoy sale limpia: **0 fugas y 0 avisos**. No hay que poner `ASAN_OPTIONS` a
 mano; el ejecutable trae su propia configuración, porque ASan sin
@@ -258,7 +265,7 @@ validar una plataforma nueva antes de pelearse con la biblioteca.
 | :--- | :--- | :--- |
 | Linux, g++ 13 | **verificado** | 2117/2117 comprobaciones, 203/203 del F446 y 164/164 del F417, `make red` 13/13, ASan + UBSan limpio en las tres suites (`make asan407`, `make asan446`, `make asan417`), las seis placas validan sin un aviso |
 | Linux, clang | **verificado** | mismo resultado y mismo tiempo simulado al picosegundo |
-| Windows, MSYS2 / MinGW-w64 | **SystemC construido y el programa ejecutándose** | `mcu-sim.exe` (22,5 MB, PE32+) arranca y responde en la terminal MINGW64. **Falta** pasar las tres suites allí. Para que corra FUERA de MSYS2 hace falta el `-static` del Makefile: véase `doc/compilacion.md` §5.6 |
+| Windows, MSYS2 / MinGW-w64 | **verificado** | **Las tres suites pasan**: 2117/2117, 203/203 y 164/164. El tiempo simulado del F446 y del F417, idéntico al picosegundo; el del F407, 2 ms por debajo (**T-22**). Para que el ejecutable corra FUERA de MSYS2 hace falta el `-static` del Makefile: `doc/compilacion.md` §5.6 |
 | macOS, clang | **la rama específica compila** | Se fuerza la combinación de macOS —sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`— y compila con g++ y con clang; **falta probarlo en un Mac** |
 
 Lo que en Windows y macOS **no** está verificado es lo mismo en los dos casos:

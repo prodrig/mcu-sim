@@ -524,16 +524,18 @@ hay que entender qué antes de dar la plataforma por buena.
 | :--- | :--- |
 | Linux, g++ 13 | **Verificado**: 2117/2117, 203/203, 164/164, `make red` 13/13, ASan limpio en los tres |
 | Linux, clang | **Verificado**: 2117/2117, mismo tiempo simulado al picosegundo |
-| Windows, MSYS2 / MinGW-w64 | **SystemC construido y LA SUITE EJECUTÁNDOSE.** `make test407` corre entera: **1991 comprobaciones OK** y 18 fallos, **todos explicados y ninguno del modelo** — 15 son firmwares `.bin` sin compilar (no se versionan) y los otros 3 eran el arrastre de §6.1, ya corregido. **Falta**: compilar los firmwares allí con `arm-none-eabi-gcc` y volver a medir, que es lo único que permite comparar el invariante |
+| **Windows, MSYS2 / MinGW-w64** | **VERIFICADO: las tres suites pasan.** 2117/2117, 203/203 y 164/164, con los firmwares compilados con el `arm-none-eabi-gcc` de STM32CubeIDE. El F446 y el F417 dan **el mismo tiempo simulado al picosegundo**; el del F407 sale 2 ms por debajo, por el motivo de **T-22** |
 | Windows, cruzado desde Linux | **Compila y enlaza** (`make red PLATAFORMA=windows CXX=x86_64-w64-mingw32-g++`, PE32+ sin avisos). Ojo: el cruzado de Debian usa hilos **win32** y el de MSYS2 **posix**, así que no reproduce el caso de §5.6 |
 | macOS, clang | **La rama específica compila**. **Falta** probarlo en un Mac |
 
-**En Windows esto acaba de avanzar mucho**, y conviene ser preciso con qué se
-sabe y qué no. Se sabe que **SystemC 2.3.4 se construye para MinGW** —el
-`mcu-sim.exe` de 22,5 MB enlaza— y que **el programa arranca y responde** desde
-la terminal MINGW64. No se sabe todavía si las tres suites pasan allí ni si el
-tiempo simulado sale idéntico al picosegundo, que es el criterio de verdad. En
-**macOS** sigue faltando todo: es el punto **I-23** del trabajo pendiente, y
+**Windows está verificado.** SystemC 2.3.4 se construye para MinGW, el modelo
+se ejecuta y **las tres suites pasan enteras**: 2117, 203 y 164 comprobaciones,
+0 fallos. El tiempo simulado del F446 y del F417 sale **idéntico al
+picosegundo**; el del F407 se queda 2 ms corto, y eso **no es un fallo de
+Windows** sino una propiedad del propio banco que hasta ahora nadie había podido
+ver, porque hacía falta una segunda máquina para verla: está en **T-22**.
+
+En **macOS** sigue faltando todo: es el punto **I-23** del trabajo pendiente, y
 para un programa que se reparte a alumnos no es opcional.
 
 ---

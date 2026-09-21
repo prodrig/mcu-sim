@@ -479,6 +479,13 @@ enlaza:
 	@printf 'include Makefile.mcu-sim\n' > Makefile
 	@echo "  Makefile ahora incluye Makefile.mcu-sim: ya no puede quedarse atras."
 
+# El makefile que se esta leyendo: `Makefile` si se entro por el enlace de una
+# linea, o `Makefile.mcu-sim` si se llamo con -f. Las llamadas recursivas de
+# abajo TIENEN que pasarlo, porque si no el sub-make coge el `Makefile` por
+# omision, que puede ser una copia vieja -o no existir- y contesta «No rule to
+# make target 'test417'» hablando de un objetivo que si existe aqui.
+ESTE_MAKEFILE := $(firstword $(MAKEFILE_LIST))
+
 CROSS ?= arm-none-eabi-
 export CROSS
 
@@ -541,13 +548,13 @@ fw: fw407 fw446 fw417
 # orden que hay que dar en una maquina nueva: sin los firmwares, quince grupos
 # del F407 fallan y ademas arrastraban (vease doc/compilacion.md 6.1).
 test407fw: fw407
-	$(MAKE) --no-print-directory test407
+	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) test407
 
 test446fw: fw446
-	$(MAKE) --no-print-directory test446
+	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) test446
 
 test417fw: fw417
-	$(MAKE) --no-print-directory test417
+	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) test417
 
 # Borra los .bin, .elf, .o y .map de TODOS los firmwares, sean de la suite que
 # sean. Util para comprobar que la cadena cruzada funciona de cero, y para
