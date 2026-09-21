@@ -421,9 +421,21 @@ run: $(TEST407)
 # De donde sacarlo en cada sistema:
 #
 #   Debian/Ubuntu   apt install gcc-arm-none-eabi
-#   MSYS2 (MINGW64) pacman -S mingw-w64-x86_64-arm-none-eabi-gcc
+#   MSYS2           pacman -S mingw-w64-x86_64-arm-none-eabi-toolchain
 #   macOS           brew install --cask gcc-arm-embedded
-#   Cualquiera      el que ya trae STM32CubeIDE, dentro de sus `plugins`
+#
+# En MSYS2, el GRUPO `-toolchain` y no el paquete `-gcc` a secas: estos
+# Makefiles necesitan ademas `objcopy`, que viene en binutils. Y si ese nombre
+# no existe -MSYS2 los renombra de vez en cuando-, se averigua en vez de
+# adivinarse:  pacman -Ss arm-none-eabi
+#
+# EL ATAJO, y probablemente el mejor: quien usa este simulador tiene
+# STM32CubeIDE, y CubeIDE trae su propio arm-none-eabi-gcc con su objcopy. No
+# hay que instalar nada, solo encontrarlo:
+#
+#   ls -d /c/ST/STM32CubeIDE_*/STM32CubeIDE/plugins/*gnu-tools-for-stm32*/tools/bin
+#   export CROSS=<esa ruta>/arm-none-eabi-
+#   ${CROSS}gcc --version
 #
 # No hace falta que sea la misma version que se uso aqui: el firmware es C
 # bare-metal corriente y no depende de nada exotico.
