@@ -4819,3 +4819,38 @@ El desglose del socket se queda: separa una cifra que **podría** haber variado,
 y es la prueba de que no varía.
 
 Suites: 2117 / 203 / 164, `make red` 13/13.
+
+
+---
+
+## Comprobación: las dos imágenes de CoreMark no son la misma
+
+**Prompt:** *(continuación; ninguna orden nueva)*
+
+**Respuesta:**
+
+La predicción que dejé escrita al cerrar T-22 era comprobable sin pedirle nada
+a nadie: si la causa es el binario, las huellas de los dos `coremark.bin` tienen
+que diferir. La carpeta de Windows está montada en esta sesión, así que la
+comprobación consistió en calcular la misma FNV-1a sobre las dos copias.
+
+| Máquina | Compilador cruzado | `coremark.bin` | Huella |
+| :--- | :--- | ---: | :--- |
+| Linux (contenedor) | `arm-none-eabi-gcc` 13.2, Debian | **14528 B** | **`0x644FCE21`** |
+| Windows (MSYS2) | `arm-none-eabi-gcc` 13.3.1, STM32CubeIDE | **14856 B** | **`0x5157F2C7`** |
+
+**328 bytes de diferencia y huellas distintas.** No se estaban comparando dos
+ejecuciones del mismo programa sobre plataformas distintas, sino **dos programas
+distintos** sobre el mismo modelo. Los 2 ms no eran un síntoma de nada del
+anfitrión: eran la única forma que tiene el reloj de expresar que al sondeo de
+`t17_coremark()` —`wait(2, SC_MS)`— le sobra o le falta una vuelta.
+
+Con esto T-22 deja de ser un diagnóstico y pasa a ser un hecho medido en las dos
+máquinas. Lo he escrito así en `doc/todo.md` (T-22) y en `doc/compilacion.md`
+(§7, con la tabla), que antes decían «medido en una sola máquina».
+
+**Lo que queda pendiente y no me invento que esté resuelto:** los `.bin` de
+`verif/fw/` siguen sin versionarse. Mientras se compilen en cada sitio, la
+huella es la única defensa —avisa, pero no impide el error—. Versionarlos, o
+fijar el compilador cruzado, sería la solución de verdad; no la he tomado
+porque es una decisión de política del repositorio, no una corrección.

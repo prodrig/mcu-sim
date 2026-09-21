@@ -528,6 +528,19 @@ diferencia sale **cuantizada a 2 ms**. Está medido en una sola máquina:
 recompilando CoreMark de `-O2` a `-O1`, el total se mueve **24 ms exactos**,
 doce pasos del bucle.
 
+Y está **comprobado entre las dos máquinas**, que es lo que cierra el asunto.
+Las dos imágenes de CoreMark no son la misma:
+
+| Máquina | Compilador cruzado | `coremark.bin` | Huella | Total F407 |
+| :--- | :--- | ---: | :--- | ---: |
+| Linux (contenedor) | `arm-none-eabi-gcc` 13.2, Debian | 14528 B | `0x644FCE21` | `2336217899213 ps` |
+| Windows (MSYS2) | `arm-none-eabi-gcc` 13.3.1, STM32CubeIDE | 14856 B | `0x5157F2C7` | `2334217899213 ps` |
+
+**No se estaba comparando la misma simulación**, sino dos programas distintos
+corriendo sobre el mismo modelo. La diferencia de 2 ms no era un síntoma; era
+la única forma que tenía el reloj de expresar «aquí sobra o falta una vuelta
+del sondeo de T17».
+
 Por eso la suite publica la **huella** de la imagen. **Dos totales solo son
 comparables si la huella coincide.** Si coincide y el total no, entonces sí hay
 algo del planificador o de la resolución del tiempo que es distinto, y hay que
