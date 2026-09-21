@@ -441,6 +441,44 @@ run: $(TEST407)
 # bare-metal corriente y no depende de nada exotico.
 # =============================================================================
 
+# =============================================================================
+# EL `Makefile` DE ESTA CARPETA NO SE VERSIONA, Y ESO TIENE UNA TRAMPA
+#
+# Lo versionado es ESTE fichero, `Makefile.mcu-sim`. El `Makefile` a secas esta
+# en el .gitignore y es local de cada maquina. El motivo es de fontaneria: las
+# herramientas con las que se edita este arbol en remoto se niegan a escribir un
+# fichero llamado `Makefile`, por ser un nombre protegido.
+#
+# LA TRAMPA: durante mucho tiempo la receta fue `cp Makefile.mcu-sim Makefile`,
+# y una copia **envejece en silencio**. Un `git pull` que traiga objetivos
+# nuevos aqui no los pone ahi, y `make` contesta «No rule to make target», que
+# es un mensaje que no se parece en nada a su causa: el objetivo existe, lo que
+# pasa es que tu `Makefile` es de antes.
+#
+# LA SALIDA, que no envejece: que el `Makefile` no sea una copia sino un
+# ENLACE de una linea.
+#
+#     make -f Makefile.mcu-sim enlaza
+#
+# deja un `Makefile` que dice `include Makefile.mcu-sim` y ya nunca hay que
+# volver a acordarse. Y mientras tanto, `make -f Makefile.mcu-sim <objetivo>`
+# funciona siempre, con copia o sin ella.
+# =============================================================================
+
+# Si este fichero NO aparece en la lista de makefiles leidos, es que se esta
+# ejecutando una COPIA suya llamada `Makefile`. Funciona, pero caduca.
+ifeq ($(filter Makefile.mcu-sim,$(MAKEFILE_LIST)),)
+  $(warning )
+  $(warning   ojo: estas usando una COPIA de Makefile.mcu-sim, que envejece sin avisar.)
+  $(warning   Cambiala por un enlace de una linea y olvidate:  make -f Makefile.mcu-sim enlaza)
+  $(warning )
+endif
+
+.PHONY: enlaza
+enlaza:
+	@printf 'include Makefile.mcu-sim\n' > Makefile
+	@echo "  Makefile ahora incluye Makefile.mcu-sim: ya no puede quedarse atras."
+
 CROSS ?= arm-none-eabi-
 export CROSS
 
@@ -469,7 +507,7 @@ define COMPRUEBA_CROSS
 	  echo "  ojo: no encuentro '$(CROSS)gcc' en el PATH."; \
 	  echo "  Dale la ruta con CROSS, que es un PREFIJO y acaba en guion:"; \
 	  echo "      make $@ CROSS=/ruta/a/bin/arm-none-eabi-"; \
-	  echo "  (Debian: apt install gcc-arm-none-eabi | MSYS2: pacman -S mingw-w64-x86_64-arm-none-eabi-gcc)"; \
+	  echo "  (Debian: apt install gcc-arm-none-eabi | MSYS2: pacman -S mingw-w64-x86_64-arm-none-eabi-toolchain)"; \
 	  echo ""; }
 endef
 

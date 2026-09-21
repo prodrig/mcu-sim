@@ -4623,3 +4623,42 @@ saca el aviso y falla limpiamente.
 `doc/compilacion.md` gana la **§6** entera —la tabla de objetivos, la variable
 `CROSS` con las cuatro maneras de conseguir el compilador y el aviso— y la §7.1
 (la del arrastre de las ondas) ya no manda compilar a mano: manda `test407fw`.
+
+## «No rule to make target 'test407fw'»: el `Makefile` que envejece
+
+> make test407fw SYSTEMC_HOME=/opt/systemc
+> make: *** No rule to make target 'test407fw'. Stop.
+
+El objetivo existe; lo que pasa es que **tu `Makefile` es de antes**. Lo que se
+versiona es `Makefile.mcu-sim`; el `Makefile` a secas está en el `.gitignore`
+porque las herramientas con las que se edita este árbol en remoto se niegan a
+escribir un fichero con ese nombre, que es un nombre protegido.
+
+**La receta de hasta hoy era `cp Makefile.mcu-sim Makefile`, y una copia
+envejece en silencio.** Cada vez que se toca el build aquí, la copia de la otra
+máquina se queda atrás y `make` contesta algo que no se parece en nada a su
+causa. Ya había pasado antes y no lo vimos venir: **iba a repetirse cada vez**.
+
+**La salida no es acordarse mejor: es que no haya nada que recordar.** Ahora el
+`Makefile` no es una copia sino un **enlace de una línea**:
+
+```
+make -f Makefile.mcu-sim enlaza     # deja un Makefile que dice: include Makefile.mcu-sim
+```
+
+Un `include` no puede quedarse atrás. Comprobados los cuatro caminos: con el
+enlace funciona y no avisa; con `-f Makefile.mcu-sim` tampoco; **con una copia
+avisa** —hay un detector que mira si `Makefile.mcu-sim` aparece en
+`$(MAKEFILE_LIST)`, y si no aparece es que se está ejecutando una copia—; y el
+objetivo `enlaza` arregla el caso. El objetivo por omisión sigue siendo
+`mcu-sim`.
+
+El detector tiene un límite que conviene decir: **una copia vieja no lo lleva
+dentro**, así que no puede avisar a quien todavía no ha actualizado. Avisa a
+partir de la primera vez. No hay forma de que un fichero que no se lee advierta
+de que no se está leyendo.
+
+De paso, el mensaje de `CROSS` seguía recomendando el paquete `-gcc` en vez del
+grupo `-toolchain`: corregido también ahí, que es donde de verdad se lee.
+
+Suites intactas: 2117 / 203 / 164, `2336217899213 ps`, `make red` 13/13.

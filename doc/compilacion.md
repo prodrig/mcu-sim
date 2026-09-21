@@ -8,6 +8,22 @@ tocar el `Makefile`, y qué hacer cuando falla. La segunda mitad está ordenada 
 
 ## 1. Lo mínimo
 
+> **Lo primero, y una sola vez por copia de trabajo.** Lo que se versiona es
+> `src/Makefile.mcu-sim`; el `src/Makefile` a secas está en el `.gitignore` y es
+> local de cada máquina —las herramientas con las que se edita este árbol en
+> remoto se niegan a escribir un fichero llamado `Makefile`, que es un nombre
+> protegido—. **No lo copies: enlázalo.**
+>
+> ```bash
+> cd src
+> make -f Makefile.mcu-sim enlaza     # deja un Makefile de una línea
+> ```
+>
+> Una copia **envejece en silencio**: un `git pull` que traiga objetivos nuevos
+> no los pone en tu copia, y `make` contesta «No rule to make target», que no se
+> parece en nada a su causa. El enlace no puede quedarse atrás. Y mientras
+> tanto, `make -f Makefile.mcu-sim <objetivo>` funciona siempre.
+
 ```bash
 cd src
 make                    # el simulador: build/mcu-sim
