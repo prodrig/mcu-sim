@@ -65,6 +65,14 @@ familia corre la suya.
 | `make test446` | La del F446RE y sus ocho referencias | **203** | `1033367277932 ps` |
 | `make test417` | La del acelerador criptográfico del F415/F417 | **164** | `718988288 ps` |
 
+**En una máquina nueva, la orden es `make test407fw`** (y `test446fw`,
+`test417fw`): compila primero los firmwares que la suite carga en la Flash —que
+no se versionan, porque son producto de compilación— y después ejecuta la
+suite. `make fw` construye los tres juegos sin simular y `make cleanfw` los
+borra todos. Hace falta un compilador cruzado de ARM; si no está en el `PATH`
+se le dice dónde con `CROSS=/ruta/a/bin/arm-none-eabi-`, que es un **prefijo** y
+acaba en guion. Está contado en `doc/compilacion.md` §6.
+
 Las 2117 del primero salen de: 143 de F1 + 12 de F2 + 85 de F3 + 345 de F4
 (DMA, UART/USART, TIM y EXTI/SYSCFG) + 678 de F5 (SPI/I2S, I2C, ADC, DAC, RTC y
 perros guardianes, SDIO, CRC/RNG y bxCAN) + 151 de F6 (depuración y los dos

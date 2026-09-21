@@ -28,11 +28,19 @@
 #   make run IMG=firmware.bin     # carga una imagen en la Flash y simula
 #   make plataforma               # qué ha detectado, sin compilar nada
 #
+#   make test407fw                # compila los firmwares de la suite y LUEGO test407
+#   make test446fw                # lo mismo para la del F446
+#   make test417fw                # y para la del F415/F417
+#   make fw                       # solo los firmwares de las tres, sin simular
+#   make cleanfw                  # borra los firmwares de TODAS las suites
+#
 # Las tres variables que deciden todo, por si hay que tocarlas a mano:
 #
 #   PLATAFORMA    linux | macos | windows
 #   SYSTEMC_HOME  dónde está SystemC (include/ y la biblioteca)
 #   CXX           el compilador
+#   CROSS         el PREFIJO del compilador cruzado de ARM para los firmwares
+#                 (por omisión `arm-none-eabi-`); véase «Los firmwares» abajo
 #   CXXSTD        el estándar de C++; TIENE que ser el mismo con el que se
 #                 compiló la biblioteca de SystemC, o el enlazado falla con un
 #                 `undefined reference to sc_api_version_...` (véase abajo)
@@ -176,7 +184,7 @@ ASAN407 := build/asan407$(EXE)
 ASAN446 := build/asan446$(EXE)
 ASAN417 := build/asan417$(EXE)
 
-.PHONY: all test407 test446 test417 test446-build test417-build asan407 asan446 asan417 smoke bench mcu-sim red run clean plataforma vectores hash cryp
+.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build asan407 asan446 asan417 smoke bench mcu-sim red run clean plataforma vectores hash cryp
 
 all: $(MCUSIM)
 
@@ -374,6 +382,131 @@ smoke: test407
 
 run: $(TEST407)
 	./$(TEST407) $(IMG)
+
+# =============================================================================
+# LOS FIRMWARES DE LAS SUITES
+#
+# Veinte grupos de las tres suites cargan un `.bin` de verdad en la Flash del
+# modelo y lo ejecutan con el Cortex-M4. Esos `.bin` **no se versionan** -los
+# excluye el .gitignore, porque son producto de compilacion- asi que un arbol
+# recien clonado no tiene ninguno y esos grupos fallan diciendo «imagen ...
+# cargada en la Flash». No es un fallo del modelo: es que faltan.
+#
+# Antes habia que compilarlos a mano, uno por uno, y acordarse de cuales usa
+# cada suite. Para eso estan estos objetivos.
+#
+# ---------------------------------------------------------------------------
+# COMO SE LE DICE DONDE ESTA EL COMPILADOR DE ARM
+#
+# Con UNA variable, `CROSS`, que es el PREFIJO del nombre de las herramientas.
+# El Makefile de cada firmware la respeta desde siempre (`CROSS ?= arm-none-eabi-`)
+# y de ahi salen `$(CROSS)gcc`, `$(CROSS)objcopy` y `$(CROSS)objdump`.
+#
+#   1. Si `arm-none-eabi-gcc` esta en el PATH, no hay que hacer NADA.
+#
+#   2. Si no lo esta, se da la ruta completa hasta el guion final:
+#
+#        make test407fw CROSS=/opt/gcc-arm/bin/arm-none-eabi-
+#        make test407fw CROSS='C:/ST/STM32CubeIDE_1.17.0/STM32CubeIDE/plugins/\
+#                              com.st.stm32cube.ide.mcu.externaltools.gnu-tools-\
+#                              for-stm32.../tools/bin/arm-none-eabi-'
+#
+#      Ojo al guion del final: es un PREFIJO, no un ejecutable. Sin el, el
+#      Makefile intentara ejecutar algo llamado `.../bingcc`.
+#
+#   3. Y si se va a usar siempre la misma, se exporta una vez por sesion:
+#
+#        export CROSS=/opt/gcc-arm/bin/arm-none-eabi-
+#
+# De donde sacarlo en cada sistema:
+#
+#   Debian/Ubuntu   apt install gcc-arm-none-eabi
+#   MSYS2 (MINGW64) pacman -S mingw-w64-x86_64-arm-none-eabi-gcc
+#   macOS           brew install --cask gcc-arm-embedded
+#   Cualquiera      el que ya trae STM32CubeIDE, dentro de sus `plugins`
+#
+# No hace falta que sea la misma version que se uso aqui: el firmware es C
+# bare-metal corriente y no depende de nada exotico.
+# =============================================================================
+
+CROSS ?= arm-none-eabi-
+export CROSS
+
+# Que firmware usa cada suite. La lista sale de los `.bin` que cada sc_main
+# carga, y es la parte que habia que recordar de memoria.
+#
+# `verif/fw` es la raiz y construye `test_isa.bin` (T15/T16); los demas son un
+# directorio por demo.
+FW407 := verif/fw verif/fw/coremark verif/fw/blinky verif/fw/dma_demo \
+         verif/fw/uart_demo verif/fw/tim_demo verif/fw/exti_demo \
+         verif/fw/spi_demo verif/fw/i2c_demo verif/fw/adc_demo \
+         verif/fw/dac_demo verif/fw/sdio_demo verif/fw/crc_rng_demo \
+         verif/fw/can_demo verif/fw/debug_demo verif/fw/lowpower_demo
+FW446 := verif/fw/blinky446 verif/fw/clk446_demo
+FW417 := verif/fw/crypto_demo
+
+# Todos los que hay, para `cleanfw`. Se calculan buscando Makefiles en vez de
+# escribir otra lista: asi un firmware nuevo se borra sin tocar esto.
+FW_TODOS := $(sort $(patsubst %/Makefile,%,$(wildcard verif/fw/Makefile verif/fw/*/Makefile)))
+
+# Un aviso util en vez de veinte errores de «command not found». No aborta: hay
+# quien tiene el compilador en un sitio raro y sabe lo que hace.
+define COMPRUEBA_CROSS
+	@command -v $(CROSS)gcc >/dev/null 2>&1 || { \
+	  echo ""; \
+	  echo "  ojo: no encuentro '$(CROSS)gcc' en el PATH."; \
+	  echo "  Dale la ruta con CROSS, que es un PREFIJO y acaba en guion:"; \
+	  echo "      make $@ CROSS=/ruta/a/bin/arm-none-eabi-"; \
+	  echo "  (Debian: apt install gcc-arm-none-eabi | MSYS2: pacman -S mingw-w64-x86_64-arm-none-eabi-gcc)"; \
+	  echo ""; }
+endef
+
+.PHONY: fw fw407 fw446 fw417 cleanfw test407fw test446fw test417fw
+
+fw407:
+	$(COMPRUEBA_CROSS)
+	@for d in $(FW407); do \
+	   echo "  [fw] $$d"; $(MAKE) --no-print-directory -C $$d || exit 1; \
+	 done
+	@echo "  [fw] los $(words $(FW407)) firmwares de la suite del F407, listos"
+
+fw446:
+	$(COMPRUEBA_CROSS)
+	@for d in $(FW446); do \
+	   echo "  [fw] $$d"; $(MAKE) --no-print-directory -C $$d || exit 1; \
+	 done
+	@echo "  [fw] los $(words $(FW446)) firmwares de la suite del F446, listos"
+
+fw417:
+	$(COMPRUEBA_CROSS)
+	@for d in $(FW417); do \
+	   echo "  [fw] $$d"; $(MAKE) --no-print-directory -C $$d || exit 1; \
+	 done
+	@echo "  [fw] el firmware de la suite del F415/F417, listo"
+
+# Los tres juegos, sin simular nada.
+fw: fw407 fw446 fw417
+
+# Y las suites con sus firmwares delante. Son dos ordenes en una, pero es LA
+# orden que hay que dar en una maquina nueva: sin los firmwares, quince grupos
+# del F407 fallan y ademas arrastraban (vease doc/compilacion.md 6.1).
+test407fw: fw407
+	$(MAKE) --no-print-directory test407
+
+test446fw: fw446
+	$(MAKE) --no-print-directory test446
+
+test417fw: fw417
+	$(MAKE) --no-print-directory test417
+
+# Borra los .bin, .elf, .o y .map de TODOS los firmwares, sean de la suite que
+# sean. Util para comprobar que la cadena cruzada funciona de cero, y para
+# reproducir el estado de un arbol recien clonado.
+cleanfw:
+	@for d in $(FW_TODOS); do \
+	   $(MAKE) --no-print-directory -C $$d clean >/dev/null 2>&1 || true; \
+	 done
+	@echo "  [fw] borrados los firmwares de $(words $(FW_TODOS)) directorios"
 
 clean:
 	$(BORRA)

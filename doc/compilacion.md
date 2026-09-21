@@ -14,6 +14,12 @@ make                    # el simulador: build/mcu-sim
 make test407            # construye y ejecuta la suite del F407: 2117 comprobaciones
 make test446            # y la del F446: 203 comprobaciones
 make test417            # el acelerador criptografico del F415/F417: 164
+
+make test407fw          # EN UNA MAQUINA NUEVA: los firmwares y LUEGO la suite
+make test446fw          # lo mismo para la del F446
+make test417fw          # y para la del F415/F417
+make fw                 # solo los firmwares de las tres, sin simular
+make cleanfw            # borrarlos todos (deja el arbol como recien clonado)
 make hash               # los vectores de MD5 y SHA-1, que no necesitan SystemC
 make cryp               # los de AES, DES y TDES, en las dos direcciones
 ```
@@ -335,19 +341,84 @@ de enlazado, y el mensaje de SystemC dice cuál es.
 
 ---
 
-## 6. Comprobar que ha salido bien
+## 6. Los firmwares de las suites, y el compilador de ARM
 
-### 6.1 Si faltan los firmwares, no te creas los fallos que salen después
+Veinte grupos de las tres suites cargan un `.bin` **de verdad** en la Flash del
+modelo y lo ejecutan con el Cortex-M4. Esos binarios no se versionan —son
+producto de compilación— así que hay que construirlos, y para eso hace falta un
+compilador cruzado de ARM bare-metal.
+
+| Orden | Qué hace |
+| :--- | :--- |
+| `make test407fw` | Compila los **16** firmwares de la suite del F407 y la ejecuta |
+| `make test446fw` | Los **2** del F446 y su suite |
+| `make test417fw` | El del F415/F417 y su banco |
+| `make fw` | Los tres juegos, sin simular |
+| `make fw407` / `fw446` / `fw417` | Solo el juego de una suite |
+| `make cleanfw` | Borra los de **todos** los directorios (19), no solo los de una suite |
+
+### 6.1 Dónde está el compilador: la variable `CROSS`
+
+Una sola variable, y es el **prefijo** del nombre de las herramientas. Cada
+Makefile de firmware la respeta desde siempre (`CROSS ?= arm-none-eabi-`) y de
+ahí salen `$(CROSS)gcc`, `$(CROSS)objcopy` y `$(CROSS)objdump`.
+
+**Si `arm-none-eabi-gcc` está en el `PATH`, no hay que hacer nada.** Si no:
+
+```bash
+make test407fw CROSS=/opt/gcc-arm/bin/arm-none-eabi-
+```
+
+**Ojo al guion del final.** Es un prefijo, no un ejecutable: sin él, el Makefile
+intentará ejecutar algo llamado `.../bingcc`. Y si se va a usar siempre la
+misma, se exporta una vez por sesión:
+
+```bash
+export CROSS=/opt/gcc-arm/bin/arm-none-eabi-
+```
+
+De dónde sacarlo:
+
+| Sistema | Cómo |
+| :--- | :--- |
+| Debian / Ubuntu | `apt install gcc-arm-none-eabi` |
+| MSYS2 (MINGW64) | `pacman -S mingw-w64-x86_64-arm-none-eabi-gcc` |
+| macOS | `brew install --cask gcc-arm-embedded` |
+| Cualquiera | El que ya trae **STM32CubeIDE**, dentro de sus `plugins` |
+
+La versión no importa mucho: el firmware es C bare-metal corriente y no usa nada
+exótico. Aquí se compila con `arm-none-eabi-gcc 13.2`.
+
+Si el prefijo apunta a donde no hay nada, el Makefile **lo dice antes de
+empezar** en vez de soltar veinte «command not found»:
+
+```
+  ojo: no encuentro '/no/existe/arm-none-eabi-gcc' en el PATH.
+  Dale la ruta con CROSS, que es un PREFIJO y acaba en guion:
+      make fw417 CROSS=/ruta/a/bin/arm-none-eabi-
+```
+
+---
+
+## 7. Comprobar que ha salido bien
+
+### 7.1 Si faltan los firmwares, no te creas los fallos que salen después
 
 *Corregido; queda escrito porque el síntoma apuntaba al sitio equivocado.*
 
 Los `.bin` de `verif/fw/` **no se versionan** —los excluye el `.gitignore`— así
 que un árbol recién clonado no tiene ninguno y quince grupos de la suite fallan
-con «imagen … cargada en la Flash». Eso es normal y se arregla compilándolos:
+con «imagen … cargada en la Flash». Eso es normal, y **en una máquina nueva la
+orden que hay que dar es ésta**:
 
 ```bash
-make -C verif/fw            # y lo mismo para coremark, blinky, dma_demo, ...
+make test407fw          # compila los 16 firmwares de la suite y luego la ejecuta
 ```
+
+No hay que acordarse de cuáles usa cada suite: `test407fw`, `test446fw` y
+`test417fw` lo saben. `make fw` compila los tres juegos sin simular nada, y
+`make cleanfw` los borra todos, que es como se reproduce el estado de un árbol
+recién clonado para comprobar que la cadena cruzada funciona de cero.
 
 Lo que **no** era normal es lo que venía detrás. Los grupos que ejecutan
 firmware **apagan la onda cuadrada de los relojes internos** porque generarla a
@@ -395,7 +466,7 @@ hay que entender qué antes de dar la plataforma por buena.
 
 ---
 
-## 7. Qué está verificado y qué no
+## 8. Qué está verificado y qué no
 
 | Plataforma | Estado |
 | :--- | :--- |
@@ -415,7 +486,7 @@ para un programa que se reparte a alumnos no es opcional.
 
 ---
 
-## 8. Y si la biblioteca da guerra
+## 9. Y si la biblioteca da guerra
 
 Si construir SystemC 2.3.4 en Windows o en macOS resulta ser un problema, la
 alternativa está analizada en `doc/analisis_systemc3.md`: el modelo usa

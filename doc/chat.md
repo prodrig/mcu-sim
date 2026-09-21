@@ -4572,3 +4572,54 @@ nada, y decir que "no coincide" sería tan falso como decir que coincide.
 
 Suites en Linux tras el cambio: **2117 / 203 / 164**, `2336217899213 ps`,
 `make red` 13/13.
+
+## `test407fw`, `test446fw`, `test417fw` y `cleanfw`
+
+> Modifica el makefile de mcu-sim para incluir nuevos targets: test407 ya
+> existe, añade test407fw debe construir los firmwares que usa la suite antes de
+> hacer test407, y lo mismo para las demás suites; añade también el target
+> cleanfw para borrar todos los firmwares de todas las suites e indica cómo
+> configurar el makefile para encontrar el compilador arm-none-eabi-gcc
+
+Lo que hacía falta después de la tanda de Windows: que **nadie tenga que
+acordarse de qué firmware usa cada suite**, que era exactamente lo que faltaba
+cuando quince grupos fallaron por no tener los `.bin`.
+
+**Los objetivos.** `test407fw` compila los **16** firmwares de la suite del
+F407 y la ejecuta; `test446fw` los **2** del F446; `test417fw` el del F415/F417.
+`fw` construye los tres juegos sin simular, `fw407`/`fw446`/`fw417` uno solo, y
+`cleanfw` borra los de **los 19 directorios** que hay, no solo los de una suite.
+
+**Las listas no son una lista más que mantener.** Las de cada suite salen de los
+`.bin` que carga su `sc_main`, y la de `cleanfw` **se calcula sola** con un
+`wildcard` sobre los `Makefile` de `verif/fw`: un firmware nuevo se borra sin
+tocar nada. Es la diferencia entre un dato y una copia del dato.
+
+**El compilador: una variable, `CROSS`.** No hubo que inventar nada — cada
+Makefile de firmware ya decía `CROSS ?= arm-none-eabi-` desde siempre, y de ahí
+salen `gcc`, `objcopy` y `objdump`. El Makefile principal la declara, la
+**exporta** a los sub-makes y la documenta. Si `arm-none-eabi-gcc` está en el
+`PATH`, no hay que hacer nada; si no:
+
+```
+make test407fw CROSS=/opt/gcc-arm/bin/arm-none-eabi-
+```
+
+Con el guion del final, porque es un **prefijo** y no un ejecutable — sin él,
+`make` busca algo llamado `.../bingcc`. Y si el prefijo apunta a donde no hay
+nada, **se dice antes de empezar**, con el nombre del objetivo y las órdenes de
+instalación de Debian y MSYS2, en vez de soltar veinte «command not found».
+
+**Comprobado de la manera que importa: desde cero.** `make cleanfw` —19
+directorios, 0 `.bin` en el árbol— y después `make test407fw`: reconstruye los
+dieciséis y la suite da **2117/2117** con el invariante en `2336217899213 ps`.
+Lo mismo con `test446fw` (203, `1033367277932 ps`) y `test417fw` (164,
+`718988288 ps`). O sea que **los firmwares son reproducibles desde su fuente**,
+que hasta ahora se suponía y no se había medido.
+
+También probado el camino malo: `make fw417 CROSS=/no/existe/arm-none-eabi-`
+saca el aviso y falla limpiamente.
+
+`doc/compilacion.md` gana la **§6** entera —la tabla de objetivos, la variable
+`CROSS` con las cuatro maneras de conseguir el compilador y el aviso— y la §7.1
+(la del arrastre de las ondas) ya no manda compilar a mano: manda `test407fw`.
