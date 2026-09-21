@@ -4935,3 +4935,55 @@ máquina nueva» ya no es verdad y se ha reescrito.
 T-22 queda tachado y marcado como resuelto, con la historia entera dentro: el
 síntoma, la hipótesis falsa del socket de GDB, la medida que la refutó, la
 causa real y la corrección.
+
+
+---
+
+## El invariante, por fin, en las dos máquinas
+
+**Prompt:** *(salida de `make -f Makefile.mcu-sim test407 SYSTEMC_HOME=/opt/systemc` en Windows)*
+
+```
+TOTAL     : 2118 comprobaciones OK, 0 fallos
+Tiempo simulado: 2336217899213 ps
+  de los cuales T96+T97 (socket de GDB): 96665875 ns
+  el resto                             : 2239552024213 ps
+  huella de coremark.bin               : 0x644FCE21
+```
+
+**Respuesta:**
+
+Las tres cifras que había que mirar, y las tres salen exactas:
+
+| | Linux | Windows |
+| :--- | ---: | ---: |
+| Comprobaciones | 2118 | **2118** |
+| Tiempo simulado | `2336217899213 ps` | **`2336217899213 ps`** |
+| Huella de `coremark.bin` | `0x644FCE21` | **`0x644FCE21`** |
+
+Los 2 ms han desaparecido. **Era el binario, y nada más**: ni el planificador
+de SystemC, ni la resolución del tiempo, ni el sondeo del socket de GDB —esa
+fue mi primera hipótesis y era falsa—. El invariante que aguantó doce fases en
+una sola máquina aguanta ahora en dos sistemas operativos distintos, con dos
+compiladores de C++ distintos, ejecutando el mismo programa de ARM.
+
+Lo que hace que esto valga algo no es el resultado sino el orden: la
+predicción —«2118 y `2336217899213 ps` exactos»— estaba escrita en
+`doc/compilacion.md` §8 y en **T-22** *antes* de que la ejecutaras. Si hubiera
+salido cualquier otra cosa, el diagnóstico habría quedado incompleto y habría
+tenido que decirlo. Una hipótesis que solo se evalúa después de ver el
+resultado no informa de nada.
+
+Actualizado: **T-22** con la confirmación, §8 de `compilacion.md` con la salida
+real en vez de la predicción, y la tabla de plataformas de `src/README.md`.
+
+**Lo que queda, que no lo tapo:**
+
+- Falta repetir `test446` y `test417` en Windows con las imágenes versionadas.
+  No espero nada distinto —sus tiempos ya coincidían cuando no había ninguna
+  garantía de que los firmwares fueran los mismos— pero no está hecho.
+- **macOS sigue sin tocar**, que para un programa que se reparte a alumnos no
+  es un detalle.
+- Y sigue sin demostrarse que esta cadena cruzada reproduzca los `.bin` byte a
+  byte en otra máquina. Ya no importa para el invariante, porque hemos dejado
+  de depender de ello, pero no es lo mismo que haberlo resuelto.

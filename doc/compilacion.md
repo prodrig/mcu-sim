@@ -593,17 +593,34 @@ haber variado.)*
 | :--- | :--- |
 | Linux, g++ 13 | **Verificado**: 2118/2118, 204/204, 165/165, `make red` 13/13, ASan limpio en los tres |
 | Linux, clang | **Verificado** con el codigo anterior a versionar los firmwares: 2117/2117, mismo tiempo simulado al picosegundo. Falta repetirlo; no se espera nada distinto, pero no se ha hecho |
-| **Windows, MSYS2 / MinGW-w64** | **VERIFICADO: las tres suites pasan.** 2117/2117, 203/203 y 164/164 **con el codigo y los firmwares de entonces** -los suyos, compilados con el `arm-none-eabi-gcc` 13.3.1 de STM32CubeIDE-. El F446 y el F417 dieron **el mismo tiempo simulado al picosegundo**; el del F407 salio 2 ms por debajo **porque su CoreMark era otro binario** (**T-22**). Desde que los `.bin` se versionan eso ya no puede pasar, y la prediccion, escrita antes de comprobarla, es **2118/204/165 y `2336217899213 ps` exactos**. Falta ejecutarla |
+| **Windows, MSYS2 / MinGW-w64** | **VERIFICADO, y el invariante es el mismo en las dos maquinas.** Con los firmwares versionados, `make test407` da **2118/2118** y **`2336217899213 ps`**, identico a Linux al picosegundo, con `huella de coremark.bin : 0x644FCE21`. Antes, con los firmwares de cada sitio, salia `2334217899213 ps`: los 2 ms eran el binario y nada mas (**T-22**). Queda por repetir `test446` y `test417` con las imagenes versionadas; antes daban 203/203 y 164/164 con su tiempo exacto |
 | Windows, cruzado desde Linux | **Compila y enlaza** (`make red PLATAFORMA=windows CXX=x86_64-w64-mingw32-g++`, PE32+ sin avisos). Ojo: el cruzado de Debian usa hilos **win32** y el de MSYS2 **posix**, así que no reproduce el caso de §5.6 |
 | macOS, clang | **La rama específica compila**. **Falta** probarlo en un Mac |
 
-**Windows está verificado.** SystemC 2.3.4 se construye para MinGW, el modelo
-se ejecuta y **las tres suites pasaron enteras**: 2117, 203 y 164
-comprobaciones, 0 fallos. El tiempo simulado del F446 y del F417 salió
-**idéntico al picosegundo**; el del F407 se quedó 2 ms corto, y eso **no era un
-fallo de Windows** sino una propiedad del propio banco que hasta entonces nadie
-había podido ver, porque hacía falta una segunda máquina para verla: está en
-**T-22**, y se corrigió versionando los firmwares.
+**Windows está verificado, y ahora también el invariante.** SystemC 2.3.4 se
+construye para MinGW, el modelo se ejecuta y las tres suites pasaron enteras
+—2117, 203 y 164 comprobaciones, 0 fallos— ya antes de versionar los
+firmwares. Lo que faltaba era el tiempo: el F446 y el F417 salían **idénticos
+al picosegundo**, y el del F407 se quedaba **2 ms corto**.
+
+**Ese hueco ya no está.** Con los `.bin` versionados, `make test407` en Windows
+da:
+
+```
+TOTAL     : 2118 comprobaciones OK, 0 fallos
+Tiempo simulado: 2336217899213 ps
+  huella de coremark.bin               : 0x644FCE21
+```
+
+**El mismo picosegundo y la misma huella que en Linux.** Era el binario, y nada
+más: ni el planificador de SystemC, ni la resolución del tiempo, ni el socket
+de GDB —esa fue la primera hipótesis, y era falsa—. La predicción estaba
+escrita en §8 y en **T-22** *antes* de ejecutarla, que es la única forma de que
+una confirmación signifique algo.
+
+Queda repetir `test446` y `test417` en Windows con las imágenes versionadas.
+No se espera nada distinto: sus tiempos ya coincidían cuando no había ninguna
+garantía de que los firmwares fueran los mismos.
 
 En **macOS** sigue faltando todo: es el punto **I-23** del trabajo pendiente, y
 para un programa que se reparte a alumnos no es opcional.

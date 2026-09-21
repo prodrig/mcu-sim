@@ -269,7 +269,7 @@ validar una plataforma nueva antes de pelearse con la biblioteca.
 | :--- | :--- | :--- |
 | Linux, g++ 13 | **verificado** | 2118/2118 comprobaciones, 204/204 del F446 y 165/165 del F417, `make red` 13/13, ASan + UBSan limpio en las tres suites (`make asan407`, `make asan446`, `make asan417`), las seis placas validan sin un aviso |
 | Linux, clang | **verificado** | mismo resultado y mismo tiempo simulado al picosegundo |
-| Windows, MSYS2 / MinGW-w64 | **verificado**, con el código anterior | **Las tres suites pasaron**: 2117/2117, 203/203 y 164/164, con sus propios firmwares. El tiempo simulado del F446 y del F417, idéntico al picosegundo; el del F407, 2 ms por debajo (**T-22**). Desde que los `.bin` se versionan la predicción es 2118/204/165 y `2336217899213 ps` exactos; **falta ejecutarla**. Para que el ejecutable corra FUERA de MSYS2 hace falta el `-static` del Makefile: `doc/compilacion.md` §5.6 |
+| Windows, MSYS2 / MinGW-w64 | **verificado** | **El invariante del F407 es el mismo en las dos máquinas**: con los firmwares versionados, 2118/2118 y `2336217899213 ps` al picosegundo, huella `0x644FCE21`. Antes salía 2 ms por debajo, y eran el binario y nada más (**T-22**). Con el código anterior las tres suites pasaban (2117/203/164); falta repetir `test446` y `test417` con las imágenes versionadas. Para que el ejecutable corra FUERA de MSYS2 hace falta el `-static` del Makefile: `doc/compilacion.md` §5.6 |
 | macOS, clang | **la rama específica compila** | Se fuerza la combinación de macOS —sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`— y compila con g++ y con clang; **falta probarlo en un Mac** |
 
 Lo que en Windows y macOS **no** está verificado es lo mismo en los dos casos:
