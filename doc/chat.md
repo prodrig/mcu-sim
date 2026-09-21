@@ -4757,3 +4757,65 @@ no la llevan porque no la necesitan —no usan sockets— y su total ya es porta
 tal cual: `1033367277932 ps` y `718988288 ps`, iguales en las dos plataformas.
 
 Suites intactas: 2117 / 203 / 164, `make red` 13/13.
+
+## La predicción falló, y eso la hizo útil
+
+> Tiempo simulado: 2334217899213 ps
+>   de los cuales T96+T97 (socket de GDB): 96665875 ns
+>   INVARIANTE PORTABLE (el resto)       : 2237552024213 ps
+
+**Mi hipótesis era falsa, y la medida que añadí para comprobarla es lo que la
+tiró.** T96+T97 consumen `96665875 ns` **exactamente iguales** en las dos
+plataformas. El socket de GDB no tenía nada que ver. Los 2 ms estaban enteros
+en el trozo que yo había etiquetado, con notable seguridad, como «INVARIANTE
+PORTABLE».
+
+**La causa real, encontrada mirando dónde podían esconderse 2 ms exactos.** En
+T17:
+
+```cpp
+while ((sc_time_stamp() - t0) < sc_time(cm_budget_ms_, SC_MS)) {
+    wait(2, SC_MS);                                   // ← el paso
+    ...
+    if (dut->sram1.peek32(0) == 1u) { done = true; break; }
+}
+```
+
+El final de CoreMark se sondea **cada 2 ms**, así que el tiempo que consume T17
+está **cuantizado a 2 ms**. Y lo que cambia entre las dos máquinas no es el
+anfitrión: **es el binario**. Los `.bin` no se versionan —se compilan en cada
+sitio— y aquí los produce `arm-none-eabi-gcc` 13.2 de Debian mientras que allí
+los produce el **13.3.1 de STM32CubeIDE**. Otro compilador, otro código, otro
+número de instrucciones, otro instante de terminación — y el bucle lo redondea
+a un múltiplo de 2 ms.
+
+**Demostrado sin salir de esta máquina, que es lo que lo convierte en causa y no
+en otra conjetura:** recompilando CoreMark de `-O2` a `-O1` —mismo programa,
+mismo compilador, distinto binario— el total pasa de `2336217899213` a
+`2360217899213 ps`. **24 ms exactos. Doce pasos del bucle.**
+
+**La precondición correcta**, que no es la que yo dije: el tiempo simulado se
+puede comparar entre dos máquinas **si los firmwares son los mismos binarios**.
+Por eso la suite publica ahora la **huella FNV-1a de `coremark.bin`**:
+
+```
+  huella de coremark.bin               : 0x644FCE21
+  (dos maquinas solo son comparables si esta huella coincide: T-22)
+```
+
+Si la huella coincide y el total no, entonces sí hay algo del planificador o de
+la resolución del tiempo que es distinto. Si no coincide, no hay nada que
+explicar.
+
+**Lo que me llevo, y no es sobre relojes.** Puse la etiqueta «INVARIANTE
+PORTABLE» sobre una cifra que no lo era, y lo hice en el mismo turno en que
+presumía de estar haciendo una predicción falsable. Las dos cosas a la vez: el
+instrumento estaba bien y la conclusión estaba mal. Lo único que salvó el
+episodio fue haber dejado la predicción **por escrito y en números**, porque
+así el resultado pudo contradecirla en vez de admitir una explicación a
+posteriori. Una hipótesis que no puede perder no informa de nada.
+
+El desglose del socket se queda: separa una cifra que **podría** haber variado,
+y es la prueba de que no varía.
+
+Suites: 2117 / 203 / 164, `make red` 13/13.

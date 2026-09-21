@@ -86,17 +86,14 @@ curiosidad: vale `2336217899213 ps` al picosegundo desde la fase 7 y once
 planes después sigue valiendo lo mismo. Si un cambio lo mueve, ha cambiado el
 comportamiento de algo, aunque las 2117 sigan pasando.
 
-**Con un matiz que costó una segunda máquina descubrir**: es estable en UNA
-máquina, no entre máquinas. En Windows sale 2 ms por debajo, porque los dos
-grupos que hablan con un GDB de verdad sondean un socket TCP cada 200 µs de
-tiempo simulado y el número de sondeos depende del sistema operativo. Las
-suites del F446 y del F417, que no usan sockets, sí salen idénticas al
-picosegundo en las dos plataformas. Está en **T-22** de `doc/todo.md`.
-
-Por eso la suite publica ahora **dos** cifras: el total, y el total **menos lo
-que consumen esos dos grupos**, que vale `2239552024213 ps` y es la que se
-puede comparar entre máquinas. Medir lo que no es reproducible es lo que deja
-exacto todo lo demás.
+**Con una precondición que costó una segunda máquina descubrir**: vale siempre
+que los **firmwares sean los mismos binarios**. Los `.bin` no se versionan —se
+compilan en cada sitio con el compilador cruzado de allí— y un binario distinto
+ejecuta un número distinto de instrucciones; como T17 sondea el final de
+CoreMark cada 2 ms, eso sale cuantizado a 2 ms. En Windows el total es
+`2334217899213 ps` por eso, y no por nada de Windows. Por eso la suite publica
+ahora la **huella** de `coremark.bin`: **dos totales solo son comparables si la
+huella coincide**. Está en **T-22** de `doc/todo.md`.
 
 `make asan407` corre esa misma suite con AddressSanitizer y UndefinedBehaviorSanitizer,
 y hoy sale limpia: **0 fugas y 0 avisos**. No hay que poner `ASAN_OPTIONS` a

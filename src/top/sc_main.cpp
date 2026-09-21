@@ -120,6 +120,7 @@ static unsigned g_pass = 0, g_fail = 0;
 // Vease T-22 en doc/todo.md.
 // -----------------------------------------------------------------------------
 static sc_core::sc_time g_t_gdb = sc_core::SC_ZERO_TIME;
+static uint32_t         g_huella_cm = 0;
 static std::string g_group;
 
 // Configuracion del servidor GDB. Se fija ANTES de elaborar, porque el stub se
@@ -129,6 +130,21 @@ static bool     g_modo_gdb   = false;
 // Que stub se usa en el modo servidor: la sonda soldada a los pines (por
 // omision) o el que el propio nucleo crea contra el DAP (--gdb-dap).
 static bool     g_modo_gdb_dap = false;
+
+// FNV-1a de 32 bits sobre un fichero. Sirve para una sola cosa, y es
+// importante: decir si dos maquinas estan ejecutando EL MISMO firmware. Los
+// `.bin` no se versionan -se compilan en cada sitio, con el compilador cruzado
+// que alli haya- asi que dos totales de tiempo simulado solo son comparables si
+// las huellas coinciden. Vease T-22.
+static uint32_t huella_fichero(const char* ruta) {
+    std::FILE* f = std::fopen(ruta, "rb");
+    if (!f) return 0;
+    uint32_t h = 2166136261u;
+    int c;
+    while ((c = std::fgetc(f)) != EOF) { h ^= uint32_t(c); h *= 16777619u; }
+    std::fclose(f);
+    return h;
+}
 
 static void group(const char* g) {
     g_group = g;
@@ -2055,7 +2071,9 @@ SC_MODULE(F1Tb) {
             dut->pwr_pads.nrst.set_hiz(d_nrst);
             return;
         }
-        std::printf("    %ld bytes cargados desde %s\n", n, cm_path_.c_str());
+        std::printf("    %ld bytes cargados desde %s (huella 0x%08X)\n",
+                    n, cm_path_.c_str(), huella_fichero(cm_path_.c_str()));
+        g_huella_cm = huella_fichero(cm_path_.c_str());
         const uint64_t i0 = dut->core.cpu.inst_count;
         if (std::getenv("F2_CM_FAULTS")) dut->core.cpu.fault_trace = 8;
         if (const char* t = std::getenv("F2_CM_TRACE")) {
@@ -15080,9 +15098,19 @@ int sc_main(int argc, char** argv) {
     if (g_t_gdb != SC_ZERO_TIME) {
         const sc_time resto = sc_time_stamp() - g_t_gdb;
         std::printf("  de los cuales T96+T97 (socket de GDB): %s\n"
-                    "  INVARIANTE PORTABLE (el resto)       : %s\n"
-                    "  (el total depende del anfitrion; el resto, no. Vease T-22)\n",
+                    "  el resto                             : %s\n",
                     g_t_gdb.to_string().c_str(), resto.to_string().c_str());
     }
+    // La precondicion para comparar el tiempo simulado con el de OTRA maquina,
+    // que no es la que parecia. Los `.bin` no se versionan: se compilan en cada
+    // sitio con el compilador cruzado que alli haya, y un binario distinto
+    // ejecuta un numero distinto de instrucciones. T17 ademas sondea el final
+    // de CoreMark cada 2 ms, asi que esa diferencia sale CUANTIZADA a 2 ms.
+    // Medido: recompilando CoreMark de -O2 a -O1, el total se mueve 24 ms
+    // exactos, o sea doce pasos del bucle. Vease T-22.
+    if (g_huella_cm)
+        std::printf("  huella de coremark.bin               : 0x%08X\n"
+                    "  (dos maquinas solo son comparables si esta huella coincide: T-22)\n",
+                    g_huella_cm);
     return (g_fail == 0) ? 0 : 1;
 }

@@ -511,28 +511,34 @@ Tiempo simulado: 2336217899213 ps
 Los otros dos bancos tienen su propio invariante —`1033367277932 ps` el del
 F446 y `718988288 ps` el del F417— y valen para lo mismo.
 
-Y debajo, desde que la suite corrió en una segunda máquina, **dos cifras más**:
+Y debajo, desde que la suite corrió en una segunda máquina, **tres líneas más**:
 
 ```
   de los cuales T96+T97 (socket de GDB): 96665875 ns
-  INVARIANTE PORTABLE (el resto)       : 2239552024213 ps
+  el resto                             : 2239552024213 ps
+  huella de coremark.bin               : 0x644FCE21
+  (dos maquinas solo son comparables si esta huella coincide: T-22)
 ```
 
-**Por qué hacen falta dos números y no uno.** El total es el invariante de
-siempre y sirve para lo de siempre: compararse consigo mismo **en la misma
-máquina**. Lo que no es, y llevábamos diciendo que sí, es una firma portable —
-los dos grupos que hablan con un GDB de verdad consumen tiempo simulado
-**sondeando un socket TCP cada 200 µs**, y cuántos sondeos hagan falta lo decide
-el sistema operativo. En Windows el total sale 2 ms por debajo por eso, y solo
-por eso (**T-22**).
+**La precondición para comparar dos máquinas no es la que parecía.** Los `.bin`
+de `verif/fw/` **no se versionan**: se compilan en cada sitio con el compilador
+cruzado que allí haya. Un binario distinto ejecuta un número distinto de
+instrucciones, y **T17 sondea el final de CoreMark cada 2 ms**, así que esa
+diferencia sale **cuantizada a 2 ms**. Está medido en una sola máquina:
+recompilando CoreMark de `-O2` a `-O1`, el total se mueve **24 ms exactos**,
+doce pasos del bucle.
 
-**El resto sí es exacto en cualquier sitio**, y es contra el que hay que medir
-una plataforma nueva. Las suites del F446 y del F417 no tienen este problema
-—no usan sockets— así que su total ya es portable tal cual.
+Por eso la suite publica la **huella** de la imagen. **Dos totales solo son
+comparables si la huella coincide.** Si coincide y el total no, entonces sí hay
+algo del planificador o de la resolución del tiempo que es distinto, y hay que
+entenderlo antes de dar la plataforma por buena.
 
-Si las comprobaciones pasan pero **el resto** cambia, algo del planificador o de
-la resolución del tiempo es distinto, y hay que entender qué antes de dar la
-plataforma por buena.
+*(El desglose del socket de GDB se quedó de la primera hipótesis, que era otra y
+resultó falsa: se creía que el sondeo del socket era lo que dependía del
+anfitrión. La propia medida que se añadió para comprobarlo la refutó —T96+T97
+consumen exactamente lo mismo en las dos plataformas— y de paso dejó localizada
+la diferencia en el resto. Se mantiene porque separa una cifra que sí podría
+haber variado.)*
 
 ---
 
@@ -542,7 +548,7 @@ plataforma por buena.
 | :--- | :--- |
 | Linux, g++ 13 | **Verificado**: 2117/2117, 203/203, 164/164, `make red` 13/13, ASan limpio en los tres |
 | Linux, clang | **Verificado**: 2117/2117, mismo tiempo simulado al picosegundo |
-| **Windows, MSYS2 / MinGW-w64** | **VERIFICADO: las tres suites pasan.** 2117/2117, 203/203 y 164/164, con los firmwares compilados con el `arm-none-eabi-gcc` de STM32CubeIDE. El F446 y el F417 dan **el mismo tiempo simulado al picosegundo**; el del F407 sale 2 ms por debajo, por el motivo de **T-22** |
+| **Windows, MSYS2 / MinGW-w64** | **VERIFICADO: las tres suites pasan.** 2117/2117, 203/203 y 164/164, con los firmwares compilados con el `arm-none-eabi-gcc` 13.3.1 de STM32CubeIDE. El F446 y el F417 dan **el mismo tiempo simulado al picosegundo**; el del F407 sale 2 ms por debajo **porque su CoreMark es otro binario** (**T-22**), no por nada de Windows |
 | Windows, cruzado desde Linux | **Compila y enlaza** (`make red PLATAFORMA=windows CXX=x86_64-w64-mingw32-g++`, PE32+ sin avisos). Ojo: el cruzado de Debian usa hilos **win32** y el de MSYS2 **posix**, así que no reproduce el caso de §5.6 |
 | macOS, clang | **La rama específica compila**. **Falta** probarlo en un Mac |
 
