@@ -34,6 +34,7 @@
 #include <cmath>
 #include <string>
 #include "../common/asan_opciones.h"
+#include "../common/huella_fw.h"
 #include "../soc/stm32f446.h"
 #include "../verif/image_loader.h"
 #include "../verif/bus_test_master.h"
@@ -1570,7 +1571,20 @@ SC_MODULE(Tb446) {
         sonda->desconectar();
     }
 
+    // Las dos imagenes que carga esta suite -el blinky de la NUCLEO-F446RE y
+    // el demo de reloj- estan versionadas. Se comprueba antes de nada, porque
+    // un binario distinto da resultados plausibles con otros numeros, que es
+    // peor que un fallo. Vease T-22. No cuesta tiempo simulado.
+    void firmwares() {
+        grupo("A0 Imagenes de firmware [verif/fw/huellas.txt]");
+        const huella_fw::Veredicto v =
+            huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "446");
+        std::printf("         %d imagenes: %s\n", v.comprobadas, v.detalle.c_str());
+        check(v.ok(), "las 2 imagenes de la suite del F446 son las versionadas");
+    }
+
     void run() {
+        firmwares();
         cruzada();
         prueba_cruzada();
         hito_h5();

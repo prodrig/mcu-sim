@@ -58,6 +58,7 @@
 // Y ahora las cabeceras compartidas, que tienen que sobrevivir a todo eso.
 #include "../common/protocolo.h"
 #include "../common/gui_destino.h"
+#include "../common/huella_fw.h"
 
 // Una comprobación de que lo de arriba no es decorativo: si `VERSION` se
 // hubiera quedado como nombre de constante, esta línea no compilaría.

@@ -61,19 +61,20 @@ familia corre la suya.
 
 | Orden | Qué ejecuta | Comprobaciones | Tiempo simulado |
 | :--- | :--- | ---: | ---: |
-| `make test407` | La suite acumulada de las siete fases, sobre el F407VG | **2117** | `2336217899213 ps` |
-| `make test446` | La del F446RE y sus ocho referencias | **203** | `1033367277932 ps` |
-| `make test417` | La del acelerador criptográfico del F415/F417 | **164** | `718988288 ps` |
+| `make test407` | La suite acumulada de las siete fases, sobre el F407VG | **2118** | `2336217899213 ps` |
+| `make test446` | La del F446RE y sus ocho referencias | **204** | `1033367277932 ps` |
+| `make test417` | La del acelerador criptográfico del F415/F417 | **165** | `718988288 ps` |
 
-**En una máquina nueva, la orden es `make test407fw`** (y `test446fw`,
-`test417fw`): compila primero los firmwares que la suite carga en la Flash —que
-no se versionan, porque son producto de compilación— y después ejecuta la
-suite. `make fw` construye los tres juegos sin simular y `make cleanfw` los
-borra todos. Hace falta un compilador cruzado de ARM; si no está en el `PATH`
-se le dice dónde con `CROSS=/ruta/a/bin/arm-none-eabi-`, que es un **prefijo** y
-acaba en guion. Está contado en `doc/compilacion.md` §6.
+**En una máquina nueva no hace falta nada más**: los diecinueve firmwares que
+las suites cargan en la Flash **están versionados** (37 KB), así que `make
+test407` funciona en un árbol recién clonado y **sin compilador cruzado de
+ARM**. Cuál es la imagen buena lo dice `verif/fw/huellas.txt`, y el primer
+grupo de cada suite —`T00` en el F407, `A0` en las otras dos— lo comprueba
+antes de simular nada. `make fw407` y compañía siguen ahí para **regenerarlos**,
+que es otra cosa y avisa antes: `doc/compilacion.md` §6, y **T-22** para el
+motivo.
 
-Las 2117 del primero salen de: 143 de F1 + 12 de F2 + 85 de F3 + 345 de F4
+Las 2118 del primero salen de: 1 de T00 + 143 de F1 + 12 de F2 + 85 de F3 + 345 de F4
 (DMA, UART/USART, TIM y EXTI/SYSCFG) + 678 de F5 (SPI/I2S, I2C, ADC, DAC, RTC y
 perros guardianes, SDIO, CRC/RNG y bxCAN) + 151 de F6 (depuración y los dos
 servidores GDB) + 426 de F7 (116 de bajo consumo, 61 del DCMI, 54 del FSMC,
@@ -84,16 +85,17 @@ y arm-none-eabi-gcc 13.2.
 **El tiempo simulado del F407 es un invariante del proyecto**, no una
 curiosidad: vale `2336217899213 ps` al picosegundo desde la fase 7 y once
 planes después sigue valiendo lo mismo. Si un cambio lo mueve, ha cambiado el
-comportamiento de algo, aunque las 2117 sigan pasando.
+comportamiento de algo, aunque las 2118 sigan pasando.
 
 **Con una precondición que costó una segunda máquina descubrir**: vale siempre
-que los **firmwares sean los mismos binarios**. Los `.bin` no se versionan —se
-compilan en cada sitio con el compilador cruzado de allí— y un binario distinto
-ejecuta un número distinto de instrucciones; como T17 sondea el final de
-CoreMark cada 2 ms, eso sale cuantizado a 2 ms. En Windows el total es
-`2334217899213 ps` por eso, y no por nada de Windows. Por eso la suite publica
-ahora la **huella** de `coremark.bin`: **dos totales solo son comparables si la
-huella coincide**. Está en **T-22** de `doc/todo.md`.
+que los **firmwares sean los mismos binarios**. Mientras los `.bin` no se
+versionaron, cada máquina compilaba los suyos, y un binario distinto ejecuta un
+número distinto de instrucciones; como T17 sondea el final de CoreMark cada
+2 ms, eso salía cuantizado a 2 ms. En Windows el total era `2334217899213 ps`
+por eso, y no por nada de Windows. **Corregido versionando los `.bin`**: el
+primer grupo de cada suite contrasta lo que hay contra `verif/fw/huellas.txt`
+antes de simular, y el total sigue publicando la huella de `coremark.bin` por
+si alguna vez vuelve a hacer falta. Está en **T-22** de `doc/todo.md`.
 
 `make asan407` corre esa misma suite con AddressSanitizer y UndefinedBehaviorSanitizer,
 y hoy sale limpia: **0 fugas y 0 avisos**. No hay que poner `ASAN_OPTIONS` a
@@ -265,9 +267,9 @@ validar una plataforma nueva antes de pelearse con la biblioteca.
 
 | Plataforma | Estado | Comprobado |
 | :--- | :--- | :--- |
-| Linux, g++ 13 | **verificado** | 2117/2117 comprobaciones, 203/203 del F446 y 164/164 del F417, `make red` 13/13, ASan + UBSan limpio en las tres suites (`make asan407`, `make asan446`, `make asan417`), las seis placas validan sin un aviso |
+| Linux, g++ 13 | **verificado** | 2118/2118 comprobaciones, 204/204 del F446 y 165/165 del F417, `make red` 13/13, ASan + UBSan limpio en las tres suites (`make asan407`, `make asan446`, `make asan417`), las seis placas validan sin un aviso |
 | Linux, clang | **verificado** | mismo resultado y mismo tiempo simulado al picosegundo |
-| Windows, MSYS2 / MinGW-w64 | **verificado** | **Las tres suites pasan**: 2117/2117, 203/203 y 164/164. El tiempo simulado del F446 y del F417, idéntico al picosegundo; el del F407, 2 ms por debajo (**T-22**). Para que el ejecutable corra FUERA de MSYS2 hace falta el `-static` del Makefile: `doc/compilacion.md` §5.6 |
+| Windows, MSYS2 / MinGW-w64 | **verificado**, con el código anterior | **Las tres suites pasaron**: 2117/2117, 203/203 y 164/164, con sus propios firmwares. El tiempo simulado del F446 y del F417, idéntico al picosegundo; el del F407, 2 ms por debajo (**T-22**). Desde que los `.bin` se versionan la predicción es 2118/204/165 y `2336217899213 ps` exactos; **falta ejecutarla**. Para que el ejecutable corra FUERA de MSYS2 hace falta el `-static` del Makefile: `doc/compilacion.md` §5.6 |
 | macOS, clang | **la rama específica compila** | Se fuerza la combinación de macOS —sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`— y compila con g++ y con clang; **falta probarlo en un Mac** |
 
 Lo que en Windows y macOS **no** está verificado es lo mismo en los dos casos:

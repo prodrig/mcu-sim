@@ -1,0 +1,25 @@
+# ===========================================================================
+# .gitattributes - mcu-sim
+#
+# Una sola cosa, y no es cosmetica.
+#
+# Las diecinueve imagenes de firmware de src/verif/fw SE VERSIONAN, para que
+# todas las maquinas ejecuten el mismo programa y el tiempo simulado sea
+# comparable (T-22 en doc/todo.md). Eso se va al traste si git decide que un
+# `.bin` es texto y le convierte los finales de linea al sacarlo en Windows
+# con `core.autocrlf=true`: cambiarian bytes, cambiaria la huella, y el primer
+# grupo de cada suite (T00 / A0) lo cantaria.
+#
+# La heuristica de git -si tiene un NUL en los primeros bytes, es binario-
+# acertaria casi siempre. «Casi siempre» no es la propiedad que se quiere de
+# un fichero cuya razon de ser es ser identico byte a byte, asi que se dice
+# explicitamente.
+#
+# No se pone `* text=auto`: normalizaria de golpe todos los ficheros de texto
+# del repositorio y eso es otra decision, con su propio diff, que aqui no
+# toca.
+# ===========================================================================
+
+*.bin   binary
+*.hex   binary
+*.elf   binary

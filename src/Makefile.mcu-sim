@@ -28,11 +28,16 @@
 #   make run IMG=firmware.bin     # carga una imagen en la Flash y simula
 #   make plataforma               # qué ha detectado, sin compilar nada
 #
-#   make test407fw                # compila los firmwares de la suite y LUEGO test407
+# Los firmwares YA NO hay que compilarlos: los `.bin` estan versionados y un
+# arbol recien clonado los trae. Estos objetivos siguen aqui para REGENERARLOS,
+# que es otra cosa y no es gratis -lee «Los firmwares» mas abajo antes de usar
+# ninguno-:
+#
+#   make test407fw                # regenera los firmwares de la suite y LUEGO test407
 #   make test446fw                # lo mismo para la del F446
 #   make test417fw                # y para la del F415/F417
 #   make fw                       # solo los firmwares de las tres, sin simular
-#   make cleanfw                  # borra los firmwares de TODAS las suites
+#   make cleanfw                  # BORRA los firmwares, que estan versionados
 #
 # Las tres variables que deciden todo, por si hay que tocarlas a mano:
 #
@@ -387,13 +392,27 @@ run: $(TEST407)
 # LOS FIRMWARES DE LAS SUITES
 #
 # Veinte grupos de las tres suites cargan un `.bin` de verdad en la Flash del
-# modelo y lo ejecutan con el Cortex-M4. Esos `.bin` **no se versionan** -los
-# excluye el .gitignore, porque son producto de compilacion- asi que un arbol
-# recien clonado no tiene ninguno y esos grupos fallan diciendo «imagen ...
-# cargada en la Flash». No es un fallo del modelo: es que faltan.
+# modelo y lo ejecutan con el Cortex-M4. Esos diecinueve `.bin` **SI se
+# versionan**, con una excepcion explicita en el .gitignore, y son 37 KB.
 #
-# Antes habia que compilarlos a mano, uno por uno, y acordarse de cuales usa
-# cada suite. Para eso estan estos objetivos.
+# POR QUE, que es lo unico interesante de todo esto. Antes no se versionaban,
+# «porque son producto de compilacion», y habia que construirlos en cada
+# maquina. Consecuencia: cada maquina ejecutaba UN PROGRAMA DISTINTO. El
+# `arm-none-eabi-gcc` 13.2 de Debian y el 13.3.1 de STM32CubeIDE producen
+# CoreMark de 14528 y 14856 bytes; un binario distinto ejecuta un numero
+# distinto de instrucciones; y como `t17_coremark()` sondea el final cada 2 ms,
+# la diferencia salia cuantizada a 2 ms y parecia un problema de plataforma.
+# Se tardo dos diagnosticos en verlo. Vease T-22 en doc/todo.md.
+#
+# Asi que un arbol recien clonado YA TIENE los firmwares y `make test407` basta.
+# Cual es la imagen buena lo dice `verif/fw/huellas.txt`, y el primer grupo de
+# cada suite (T00 / A0) lo comprueba antes de simular nada.
+#
+# Estos objetivos sirven para REGENERARLOS, que es una decision y no un
+# tramite: con otra cadena cruzada saldran otros binarios, el tiempo simulado
+# se movera, y habra que actualizar el manifiesto y los invariantes de
+# doc/compilacion.md. Los objetivos avisan y no lo impiden; `git checkout -- .`
+# deshace.
 #
 # ---------------------------------------------------------------------------
 # COMO SE LE DICE DONDE ESTA EL COMPILADOR DE ARM
@@ -518,9 +537,25 @@ define COMPRUEBA_CROSS
 	  echo ""; }
 endef
 
+# Los .bin estan versionados, asi que regenerarlos ENSUCIA el arbol de trabajo.
+# No se prohibe -hay que poder rehacerlos- pero se dice, antes y no despues.
+define AVISA_VERSIONADOS
+	@echo ""
+	@echo "  ojo: los .bin de verif/fw estan VERSIONADOS; esto los sobrescribe."
+	@echo "  Con otra cadena cruzada saldran otros binarios, el tiempo simulado"
+	@echo "  se movera y el primer grupo de la suite (T00/A0) fallara, porque"
+	@echo "  contrasta lo que hay contra verif/fw/huellas.txt."
+	@echo "      git status verif/fw      -> que ha cambiado"
+	@echo "      git checkout -- verif/fw -> deshacerlo"
+	@echo "  Si el cambio es querido, actualiza tambien huellas.txt y los"
+	@echo "  invariantes de doc/compilacion.md. Vease T-22."
+	@echo ""
+endef
+
 .PHONY: fw fw407 fw446 fw417 cleanfw test407fw test446fw test417fw
 
 fw407:
+	$(AVISA_VERSIONADOS)
 	$(COMPRUEBA_CROSS)
 	@for d in $(FW407); do \
 	   echo "  [fw] $$d"; $(MAKE) --no-print-directory -C $$d || exit 1; \
@@ -528,6 +563,7 @@ fw407:
 	@echo "  [fw] los $(words $(FW407)) firmwares de la suite del F407, listos"
 
 fw446:
+	$(AVISA_VERSIONADOS)
 	$(COMPRUEBA_CROSS)
 	@for d in $(FW446); do \
 	   echo "  [fw] $$d"; $(MAKE) --no-print-directory -C $$d || exit 1; \
@@ -535,6 +571,7 @@ fw446:
 	@echo "  [fw] los $(words $(FW446)) firmwares de la suite del F446, listos"
 
 fw417:
+	$(AVISA_VERSIONADOS)
 	$(COMPRUEBA_CROSS)
 	@for d in $(FW417); do \
 	   echo "  [fw] $$d"; $(MAKE) --no-print-directory -C $$d || exit 1; \
@@ -544,9 +581,11 @@ fw417:
 # Los tres juegos, sin simular nada.
 fw: fw407 fw446 fw417
 
-# Y las suites con sus firmwares delante. Son dos ordenes en una, pero es LA
-# orden que hay que dar en una maquina nueva: sin los firmwares, quince grupos
-# del F407 fallan y ademas arrastraban (vease doc/compilacion.md 6.1).
+# Y las suites con sus firmwares delante. En una maquina nueva ya NO hacen
+# falta: `make test407` a secas funciona, porque los .bin vienen en el
+# repositorio. Sirven para lo contrario, comprobar que la cadena cruzada de
+# esta maquina reproduce las imagenes buenas: si las reproduce, T00 pasa y el
+# tiempo simulado no se mueve; si no, T00 lo dice en la primera linea.
 test407fw: fw407
 	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) test407
 
@@ -557,13 +596,18 @@ test417fw: fw417
 	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) test417
 
 # Borra los .bin, .elf, .o y .map de TODOS los firmwares, sean de la suite que
-# sean. Util para comprobar que la cadena cruzada funciona de cero, y para
-# reproducir el estado de un arbol recien clonado.
+# sean. Util para comprobar que la cadena cruzada funciona de cero.
+#
+# Lo que YA NO hace, y antes si: reproducir el estado de un arbol recien
+# clonado. Un arbol recien clonado trae los .bin. Esto los BORRA, y lo que deja
+# es un arbol roto en el que las tres suites fallan en su primer grupo.
 cleanfw:
 	@for d in $(FW_TODOS); do \
 	   $(MAKE) --no-print-directory -C $$d clean >/dev/null 2>&1 || true; \
 	 done
 	@echo "  [fw] borrados los firmwares de $(words $(FW_TODOS)) directorios"
+	@echo "  [fw] ojo: los .bin estan versionados. Para recuperarlos:"
+	@echo "           git checkout -- verif/fw"
 
 clean:
 	$(BORRA)

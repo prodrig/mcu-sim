@@ -1,0 +1,65 @@
+# ===========================================================================
+# verif/fw/huellas.txt - que imagen de firmware es la buena
+#
+# Los `.bin` de este arbol SI se versionan, y este fichero dice cuales. Cada
+# linea es:
+#
+#     <suite>  <ruta relativa a verif/fw>  <bytes>  <FNV-1a de 32 bits>
+#
+# POR QUE EXISTE. Durante doce fases el tiempo simulado total del F407 valio
+# `2336217899213 ps` al picosegundo, y se dio por hecho que la precondicion
+# era «la misma maquina». No lo era. Los `.bin` se compilaban en cada sitio
+# con el compilador cruzado que alli hubiera, y dos binarios distintos
+# ejecutan un numero distinto de instrucciones: en Windows el total salia
+# `2334217899213 ps`, 2 ms menos, porque `t17_coremark()` sondea el final de
+# CoreMark cada 2 ms y la diferencia sale cuantizada a ese paso. Las dos
+# imagenes de CoreMark no eran la misma: 14528 B frente a 14856 B. Vease
+# T-22 en doc/todo.md.
+#
+# Versionar los `.bin` quita la causa. Este fichero es la defensa de segundo
+# orden: las tres suites lo leen al arrancar y comprueban, a coste cero de
+# tiempo simulado, que las imagenes que van a cargar son estas. Si alguien
+# regenera un firmware -`make fw407`, por ejemplo- y le sale otra cosa, la
+# suite lo dice en la primera linea en vez de dejarlo salir como una
+# diferencia de picosegundos veinte grupos mas abajo.
+#
+# COMO SE REGENERA. Recompilar el firmware y actualizar la linea de este
+# fichero es una decision, no un tramite: cambia el tiempo simulado y hay
+# que actualizar tambien los invariantes de doc/compilacion.md. Este fichero
+# es la UNICA fuente de verdad; ningun `.cpp` lleva una huella escrita a
+# mano.
+#
+# CADENA CRUZADA QUE PRODUJO ESTAS IMAGENES
+#   arm-none-eabi-gcc (15:13.2.rel1-2) 13.2.1 20231009   (Debian)
+#   opciones: las de cada verif/fw/*/Makefile, sin tocar
+#
+# Se ha comprobado que NO reproducen byte a byte con otras cadenas: el
+# `arm-none-eabi-gcc` 13.3.1 que trae STM32CubeIDE 1.17.0 da otro tamano y
+# otra huella para el mismo fuente. Eso no es un fallo de nadie; es la razon
+# por la que estos binarios se versionan en vez de recompilarse.
+# ===========================================================================
+
+# --- suite del F407 ---
+407  test_isa.bin                       3592  0x53650FC8
+407  coremark/coremark.bin             14528  0x644FCE21
+407  blinky/blinky.bin                  1032  0xAB6869FA
+407  dma_demo/dma_demo.bin              1284  0x767B6C4D
+407  uart_demo/uart_demo.bin            1452  0x63E40E5A
+407  tim_demo/tim_demo.bin              1240  0xDF1B9F26
+407  exti_demo/exti_demo.bin            1080  0x022D626B
+407  spi_demo/spi_demo.bin              1228  0x290B1A5D
+407  i2c_demo/i2c_demo.bin              1432  0xB5B11DDD
+407  adc_demo/adc_demo.bin              1076  0xB27A0070
+407  dac_demo/dac_demo.bin              1092  0xD111C83B
+407  sdio_demo/sdio_demo.bin            2032  0xAE5E6865
+407  crc_rng_demo/crc_rng_demo.bin      1280  0xC1254BAB
+407  can_demo/can_demo.bin              1332  0x8991DA49
+407  debug_demo/debug_demo.bin          1280  0x0762F988
+407  lowpower_demo/lowpower_demo.bin    1140  0x8A10BF69
+
+# --- suite del F446 ---
+446  blinky446/blinky446.bin            1088  0xF18FB39D
+446  clk446_demo/clk446.bin             1156  0x6EDB43D1
+
+# --- suite del F415/F417 ---
+417  crypto_demo/crypto_demo.bin        1236  0xDF57A39E

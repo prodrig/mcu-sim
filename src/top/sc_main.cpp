@@ -72,6 +72,7 @@
 #include <string>
 #include "../common/asan_opciones.h"
 #include "../common/gui_destino.h"
+#include "../common/huella_fw.h"
 #include "soc_f4.h"
 #include "../verif/bus_test_master.h"
 #include "../verif/image_loader.h"
@@ -131,20 +132,11 @@ static bool     g_modo_gdb   = false;
 // omision) o el que el propio nucleo crea contra el DAP (--gdb-dap).
 static bool     g_modo_gdb_dap = false;
 
-// FNV-1a de 32 bits sobre un fichero. Sirve para una sola cosa, y es
-// importante: decir si dos maquinas estan ejecutando EL MISMO firmware. Los
-// `.bin` no se versionan -se compilan en cada sitio, con el compilador cruzado
-// que alli haya- asi que dos totales de tiempo simulado solo son comparables si
-// las huellas coinciden. Vease T-22.
-static uint32_t huella_fichero(const char* ruta) {
-    std::FILE* f = std::fopen(ruta, "rb");
-    if (!f) return 0;
-    uint32_t h = 2166136261u;
-    int c;
-    while ((c = std::fgetc(f)) != EOF) { h ^= uint32_t(c); h *= 16777619u; }
-    std::fclose(f);
-    return h;
-}
+// La huella de la imagen de CoreMark se sigue imprimiendo al final, junto al
+// tiempo simulado total, porque es la cifra que explica una diferencia entre
+// maquinas si alguna vez vuelve a aparecer. El calculo vive ahora en
+// common/huella_fw.h, con la comprobacion de T00. Vease T-22.
+using huella_fw::huella_fichero;
 
 static void group(const char* g) {
     g_group = g;
@@ -183,10 +175,9 @@ SC_MODULE(F1Tb) {
     //
     // Apagar la onda de los relojes internos acelera mucho las cargas largas de
     // CPU, y por eso los grupos que ejecutan firmware la apagan. El problema no
-    // era apagarla: era que un `return` TEMPRANO -el de un firmware que no esta
-    // compilado, que es lo normal en un arbol recien clonado, porque los `.bin`
-    // no se versionan- se iba SIN volver a encenderla, y entonces quedaba
-    // apagada para TODO EL RESTO DE LA SUITE.
+    // era apagarla: era que un `return` TEMPRANO -el de un firmware que no
+    // esta- se iba SIN volver a encenderla, y entonces quedaba apagada para
+    // TODO EL RESTO DE LA SUITE.
     //
     // Lo que eso producia: T23 medía 0 Hz en el pin de MCO1 y T53 perdía dos
     // muestras de I2S. Tres fallos que no eran suyos, en grupos que no tenian
@@ -1003,6 +994,7 @@ SC_MODULE(F1Tb) {
             for (;;) wait(10, SC_MS);        // el stub vive en su propio hilo
         }
 
+        t00_firmwares();
         t01_reset_y_relojes();
         t02_gating();
         t03_memorias();
@@ -1359,6 +1351,26 @@ SC_MODULE(F1Tb) {
         check_eq(failed, 0, "el firmware no reporta ninguna discrepancia");
         check(dut->core.cpu.exc_count > 0, "el nucleo ha tomado excepciones (SVC/PendSV/IRQ)");
         check(!dut->core.cpu.halted_on_lockup, "el nucleo no ha entrado en lockup");
+    }
+
+    // -----------------------------------------------------------------------
+    // T00 — Las imagenes de firmware son las del manifiesto.
+    //
+    // Va la PRIMERA a proposito. Quince de los grupos de esta suite cargan un
+    // `.bin`, y si el binario no es el que se documento, lo que sale no es un
+    // fallo sino algo peor: un resultado plausible con otro numero. Antes eso
+    // aparecia como quince fallos dispersos -cuando faltaban los ficheros- o
+    // como una diferencia de 2 ms en el total -cuando estaban pero eran
+    // otros-, y en los dos casos apuntaba al sitio equivocado. Vease T-22.
+    //
+    // No cuesta tiempo simulado: son lecturas de disco del anfitrion.
+    // -----------------------------------------------------------------------
+    void t00_firmwares() {
+        group("T00 Imagenes de firmware [verif/fw/huellas.txt]");
+        const huella_fw::Veredicto v =
+            huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "407");
+        std::printf("         %d imagenes: %s\n", v.comprobadas, v.detalle.c_str());
+        check(v.ok(), "las 16 imagenes de la suite del F407 son las versionadas");
     }
 
     // -----------------------------------------------------------------------
@@ -15101,16 +15113,17 @@ int sc_main(int argc, char** argv) {
                     "  el resto                             : %s\n",
                     g_t_gdb.to_string().c_str(), resto.to_string().c_str());
     }
-    // La precondicion para comparar el tiempo simulado con el de OTRA maquina,
-    // que no es la que parecia. Los `.bin` no se versionan: se compilan en cada
-    // sitio con el compilador cruzado que alli haya, y un binario distinto
-    // ejecuta un numero distinto de instrucciones. T17 ademas sondea el final
-    // de CoreMark cada 2 ms, asi que esa diferencia sale CUANTIZADA a 2 ms.
-    // Medido: recompilando CoreMark de -O2 a -O1, el total se mueve 24 ms
-    // exactos, o sea doce pasos del bucle. Vease T-22.
+    // La precondicion para comparar el tiempo simulado con el de OTRA maquina.
+    // Ya no depende de la suerte: los `.bin` se versionan y T00 comprueba al
+    // arrancar que son los del manifiesto. Esta linea se queda porque es la
+    // cifra que explicaria una diferencia si alguna vez vuelve a aparecer: un
+    // binario distinto ejecuta un numero distinto de instrucciones, y T17
+    // sondea el final de CoreMark cada 2 ms, asi que la diferencia saldria
+    // CUANTIZADA a 2 ms. Medido: recompilando CoreMark de -O2 a -O1 el total
+    // se mueve 24 ms exactos, doce pasos del bucle. Vease T-22.
     if (g_huella_cm)
         std::printf("  huella de coremark.bin               : 0x%08X\n"
-                    "  (dos maquinas solo son comparables si esta huella coincide: T-22)\n",
+                    "  (la que debe ser esta en verif/fw/huellas.txt, y T00 lo comprueba: T-22)\n",
                     g_huella_cm);
     return (g_fail == 0) ? 0 : 1;
 }

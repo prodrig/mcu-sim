@@ -27,11 +27,11 @@ tocar el `Makefile`, y qué hacer cuando falla. La segunda mitad está ordenada 
 ```bash
 cd src
 make                    # el simulador: build/mcu-sim
-make test407            # construye y ejecuta la suite del F407: 2117 comprobaciones
-make test446            # y la del F446: 203 comprobaciones
-make test417            # el acelerador criptografico del F415/F417: 164
+make test407            # construye y ejecuta la suite del F407: 2118 comprobaciones
+make test446            # y la del F446: 204 comprobaciones
+make test417            # el acelerador criptografico del F415/F417: 165
 
-make test407fw          # EN UNA MAQUINA NUEVA: los firmwares y LUEGO la suite
+make test407fw          # REGENERA los firmwares (estan versionados) y LUEGO la suite
 make test446fw          # lo mismo para la del F446
 make test417fw          # y para la del F415/F417
 make fw                 # solo los firmwares de las tres, sin simular
@@ -360,18 +360,45 @@ de enlazado, y el mensaje de SystemC dice cuál es.
 ## 6. Los firmwares de las suites, y el compilador de ARM
 
 Veinte grupos de las tres suites cargan un `.bin` **de verdad** en la Flash del
-modelo y lo ejecutan con el Cortex-M4. Esos binarios no se versionan —son
-producto de compilación— así que hay que construirlos, y para eso hace falta un
-compilador cruzado de ARM bare-metal.
+modelo y lo ejecutan con el Cortex-M4.
+
+**Esos diecinueve binarios se versionan**, y un árbol recién clonado los trae.
+Son 37 KB. Para ejecutar las suites **no hace falta ningún compilador cruzado**:
+`make test407` basta.
+
+No fue así siempre, y el motivo del cambio es el único interesante de esta
+sección. Mientras no se versionaban, cada máquina compilaba los suyos con el
+compilador cruzado que allí hubiera, y por tanto **cada máquina ejecutaba un
+programa distinto**: el `arm-none-eabi-gcc` 13.2 de Debian y el 13.3.1 de
+STM32CubeIDE producen un CoreMark de 14528 y de 14856 bytes. Un binario
+distinto ejecuta un número distinto de instrucciones, `t17_coremark()` sondea
+el final cada 2 ms, y la diferencia salía cuantizada a 2 ms pareciendo un
+problema de plataforma. Costó dos diagnósticos, el primero equivocado. Está
+en **T-22**.
+
+Cuál es la imagen buena lo dice **`src/verif/fw/huellas.txt`** —ruta, tamaño y
+FNV-1a de cada una— y el **primer grupo de cada suite** (`T00` en el F407, `A0`
+en las otras dos) lo comprueba antes de simular nada, a coste cero de tiempo
+simulado. Ese fichero es la única fuente de verdad: ningún `.cpp` lleva una
+huella escrita a mano.
+
+Los objetivos de abajo ya no hacen falta para ejecutar las suites. Sirven para
+**regenerar** los firmwares, que es otra cosa: ensucian el árbol de trabajo, y
+si la cadena cruzada de esta máquina no reproduce las imágenes buenas, `T00`
+lo dice en la primera línea. Todos avisan antes de escribir.
 
 | Orden | Qué hace |
 | :--- | :--- |
-| `make test407fw` | Compila los **16** firmwares de la suite del F407 y la ejecuta |
+| `make test407fw` | **Regenera** los **16** firmwares de la suite del F407 y la ejecuta |
 | `make test446fw` | Los **2** del F446 y su suite |
 | `make test417fw` | El del F415/F417 y su banco |
 | `make fw` | Los tres juegos, sin simular |
 | `make fw407` / `fw446` / `fw417` | Solo el juego de una suite |
-| `make cleanfw` | Borra los de **todos** los directorios (19), no solo los de una suite |
+| `make cleanfw` | **Borra** los de **todos** los directorios (19). Están versionados: `git checkout -- verif/fw` los devuelve |
+
+Si el cambio es querido —otra versión de CoreMark, otra opción de compilación—
+hay que actualizar también `huellas.txt` y los invariantes de tiempo simulado
+de §7. Es una decisión, no un trámite.
 
 ### 6.1 Dónde está el compilador: la variable `CROSS`
 
@@ -458,19 +485,21 @@ empezar** en vez de soltar veinte «command not found»:
 
 *Corregido; queda escrito porque el síntoma apuntaba al sitio equivocado.*
 
-Los `.bin` de `verif/fw/` **no se versionan** —los excluye el `.gitignore`— así
-que un árbol recién clonado no tiene ninguno y quince grupos de la suite fallan
-con «imagen … cargada en la Flash». Eso es normal, y **en una máquina nueva la
-orden que hay que dar es ésta**:
+*Ya no puede pasar por descuido: los `.bin` se versionan (§6) y el primer grupo
+de cada suite comprueba que están y que son los buenos. Pero `make cleanfw` los
+borra, así que el síntoma sigue siendo alcanzable, y merece quedar escrito
+porque apuntaba al sitio equivocado.*
 
-```bash
-make test407fw          # compila los 16 firmwares de la suite y luego la ejecuta
+Cuando los `.bin` no estaban, quince grupos de la suite fallaban con «imagen …
+cargada en la Flash». Eso era lo esperable. **Ahora eso sale como un solo
+fallo, el primero de todos**, que nombra los ficheros que faltan:
+
 ```
-
-No hay que acordarse de cuáles usa cada suite: `test407fw`, `test446fw` y
-`test417fw` lo saben. `make fw` compila los tres juegos sin simular nada, y
-`make cleanfw` los borra todos, que es como se reproduce el estado de un árbol
-recién clonado para comprobar que la cadena cruzada funciona de cero.
+--- T00 Imagenes de firmware [verif/fw/huellas.txt] ---
+         16 imagenes:
+         falta coremark/coremark.bin
+  [FALLO] las 16 imagenes de la suite del F407 son las versionadas
+```
 
 Lo que **no** era normal es lo que venía detrás. Los grupos que ejecutan
 firmware **apagan la onda cuadrada de los relojes internos** porque generarla a
@@ -496,15 +525,15 @@ arranca, y eso no lo arregla el guarda.
 
 ```bash
 make red        # 13 comprobaciones de la capa de red, sin SystemC
-make test407    # 2117 comprobaciones
-make test446    # 203
-make test417    # 164
+make test407    # 2118 comprobaciones
+make test446    # 204
+make test417    # 165
 ```
 
 Y el criterio que de verdad vale, más allá de que pasen: al final de `make test407`,
 
 ```
-TOTAL     : 2117 comprobaciones OK, 0 fallos
+TOTAL     : 2118 comprobaciones OK, 0 fallos
 Tiempo simulado: 2336217899213 ps
 ```
 
@@ -517,19 +546,19 @@ Y debajo, desde que la suite corrió en una segunda máquina, **tres líneas má
   de los cuales T96+T97 (socket de GDB): 96665875 ns
   el resto                             : 2239552024213 ps
   huella de coremark.bin               : 0x644FCE21
-  (dos maquinas solo son comparables si esta huella coincide: T-22)
+  (la que debe ser esta en verif/fw/huellas.txt, y T00 lo comprueba: T-22)
 ```
 
-**La precondición para comparar dos máquinas no es la que parecía.** Los `.bin`
-de `verif/fw/` **no se versionan**: se compilan en cada sitio con el compilador
-cruzado que allí haya. Un binario distinto ejecuta un número distinto de
+**La precondición para comparar dos máquinas no era la que parecía.** Mientras
+los `.bin` no se versionaron, se compilaban en cada sitio con el compilador
+cruzado que allí hubiera. Un binario distinto ejecuta un número distinto de
 instrucciones, y **T17 sondea el final de CoreMark cada 2 ms**, así que esa
-diferencia sale **cuantizada a 2 ms**. Está medido en una sola máquina:
+diferencia salía **cuantizada a 2 ms**. Medido en una sola máquina:
 recompilando CoreMark de `-O2` a `-O1`, el total se mueve **24 ms exactos**,
 doce pasos del bucle.
 
-Y está **comprobado entre las dos máquinas**, que es lo que cierra el asunto.
-Las dos imágenes de CoreMark no son la misma:
+Y comprobado **entre las dos máquinas**, que es lo que cerró el asunto. Las dos
+imágenes de CoreMark no eran la misma:
 
 | Máquina | Compilador cruzado | `coremark.bin` | Huella | Total F407 |
 | :--- | :--- | ---: | :--- | ---: |
@@ -541,10 +570,13 @@ corriendo sobre el mismo modelo. La diferencia de 2 ms no era un síntoma; era
 la única forma que tenía el reloj de expresar «aquí sobra o falta una vuelta
 del sondeo de T17».
 
-Por eso la suite publica la **huella** de la imagen. **Dos totales solo son
-comparables si la huella coincide.** Si coincide y el total no, entonces sí hay
-algo del planificador o de la resolución del tiempo que es distinto, y hay que
-entenderlo antes de dar la plataforma por buena.
+**La corrección fue quitar la causa, no documentarla mejor**: los diecinueve
+`.bin` se versionan (§6), y el primer grupo de cada suite los contrasta con
+`verif/fw/huellas.txt` antes de simular nada. La línea de la huella se queda
+porque es la cifra que explicaría una diferencia si alguna vez vuelve a
+aparecer: **si la huella coincide y el total no**, entonces sí hay algo del
+planificador o de la resolución del tiempo que es distinto en esa plataforma, y
+hay que entenderlo antes de darla por buena.
 
 *(El desglose del socket de GDB se quedó de la primera hipótesis, que era otra y
 resultó falsa: se creía que el sondeo del socket era lo que dependía del
@@ -559,18 +591,19 @@ haber variado.)*
 
 | Plataforma | Estado |
 | :--- | :--- |
-| Linux, g++ 13 | **Verificado**: 2117/2117, 203/203, 164/164, `make red` 13/13, ASan limpio en los tres |
-| Linux, clang | **Verificado**: 2117/2117, mismo tiempo simulado al picosegundo |
-| **Windows, MSYS2 / MinGW-w64** | **VERIFICADO: las tres suites pasan.** 2117/2117, 203/203 y 164/164, con los firmwares compilados con el `arm-none-eabi-gcc` 13.3.1 de STM32CubeIDE. El F446 y el F417 dan **el mismo tiempo simulado al picosegundo**; el del F407 sale 2 ms por debajo **porque su CoreMark es otro binario** (**T-22**), no por nada de Windows |
+| Linux, g++ 13 | **Verificado**: 2118/2118, 204/204, 165/165, `make red` 13/13, ASan limpio en los tres |
+| Linux, clang | **Verificado** con el codigo anterior a versionar los firmwares: 2117/2117, mismo tiempo simulado al picosegundo. Falta repetirlo; no se espera nada distinto, pero no se ha hecho |
+| **Windows, MSYS2 / MinGW-w64** | **VERIFICADO: las tres suites pasan.** 2117/2117, 203/203 y 164/164 **con el codigo y los firmwares de entonces** -los suyos, compilados con el `arm-none-eabi-gcc` 13.3.1 de STM32CubeIDE-. El F446 y el F417 dieron **el mismo tiempo simulado al picosegundo**; el del F407 salio 2 ms por debajo **porque su CoreMark era otro binario** (**T-22**). Desde que los `.bin` se versionan eso ya no puede pasar, y la prediccion, escrita antes de comprobarla, es **2118/204/165 y `2336217899213 ps` exactos**. Falta ejecutarla |
 | Windows, cruzado desde Linux | **Compila y enlaza** (`make red PLATAFORMA=windows CXX=x86_64-w64-mingw32-g++`, PE32+ sin avisos). Ojo: el cruzado de Debian usa hilos **win32** y el de MSYS2 **posix**, así que no reproduce el caso de §5.6 |
 | macOS, clang | **La rama específica compila**. **Falta** probarlo en un Mac |
 
 **Windows está verificado.** SystemC 2.3.4 se construye para MinGW, el modelo
-se ejecuta y **las tres suites pasan enteras**: 2117, 203 y 164 comprobaciones,
-0 fallos. El tiempo simulado del F446 y del F417 sale **idéntico al
-picosegundo**; el del F407 se queda 2 ms corto, y eso **no es un fallo de
-Windows** sino una propiedad del propio banco que hasta ahora nadie había podido
-ver, porque hacía falta una segunda máquina para verla: está en **T-22**.
+se ejecuta y **las tres suites pasaron enteras**: 2117, 203 y 164
+comprobaciones, 0 fallos. El tiempo simulado del F446 y del F417 salió
+**idéntico al picosegundo**; el del F407 se quedó 2 ms corto, y eso **no era un
+fallo de Windows** sino una propiedad del propio banco que hasta entonces nadie
+había podido ver, porque hacía falta una segunda máquina para verla: está en
+**T-22**, y se corrigió versionando los firmwares.
 
 En **macOS** sigue faltando todo: es el punto **I-23** del trabajo pendiente, y
 para un programa que se reparte a alumnos no es opcional.

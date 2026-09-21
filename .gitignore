@@ -35,6 +35,19 @@ trace/
 *.ihex
 *.map
 
+# ...con una excepción: los .bin del banco de pruebas SÍ se versionan.
+#
+# Durante doce fases el tiempo simulado total del F407 valió 2336217899213 ps
+# al picosegundo, y se creyó que la precondición era «la misma máquina». No lo
+# era: los .bin se compilaban en cada sitio con el compilador cruzado que allí
+# hubiera, y dos binarios distintos ejecutan un número distinto de
+# instrucciones. Las dos imágenes de CoreMark no eran la misma -14528 B frente
+# a 14856 B- y el total salía 2 ms distinto. Versionarlas quita la causa; son
+# 37 KB en total. Cuál es la buena lo dice src/verif/fw/huellas.txt, y las tres
+# suites lo comprueban al arrancar. Véase T-22 en doc/todo.md.
+!src/verif/fw/*.bin
+!src/verif/fw/*/*.bin
+
 # Herramientas de análisis
 *.gcda
 *.gcno

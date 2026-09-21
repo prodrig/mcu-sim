@@ -41,6 +41,7 @@
 // que se corrió este banco con los sanitizers, y lo que pasa siempre que un
 // ejecutable nuevo del proyecto se olvida de incluirlo.
 #include "../common/asan_opciones.h"
+#include "../common/huella_fw.h"
 #include "../periph/hash.h"
 #include "../periph/cryp.h"
 #include "../verif/bus_test_master.h"
@@ -380,6 +381,19 @@ void Tb::run() {
     s_rst_n.write(true);
     wait(1, SC_NS);
     enciende();
+
+    // =======================================================================
+    // La unica imagen que carga esta suite -crypto_demo- esta versionada. Se
+    // comprueba antes de nada: un binario distinto da resultados plausibles
+    // con otros numeros, que es peor que un fallo. Vease T-22.
+    grupo("A0 Imagenes de firmware [verif/fw/huellas.txt]");
+    // =======================================================================
+    {
+        const huella_fw::Veredicto v =
+            huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "417");
+        std::printf("         %d imagenes: %s\n", v.comprobadas, v.detalle.c_str());
+        check(v.ok(), "la imagen de la suite del F415/F417 es la versionada");
+    }
 
     // =======================================================================
     grupo("A1 Reset: lo que el manual promete al arrancar");

@@ -4854,3 +4854,84 @@ máquinas. Lo he escrito así en `doc/todo.md` (T-22) y en `doc/compilacion.md`
 huella es la única defensa —avisa, pero no impide el error—. Versionarlos, o
 fijar el compilador cruzado, sería la solución de verdad; no la he tomado
 porque es una decisión de política del repositorio, no una corrección.
+
+
+---
+
+## Versionar los .bin
+
+**Prompt:** Versiona los .bin
+
+**Respuesta:**
+
+Hecho, y con la parte que hace que versionarlos sirva de algo.
+
+**Lo que se versiona.** Los diecinueve `.bin` de `src/verif/fw`, 37 KB en
+total, con una excepción explícita en el `.gitignore` (`!src/verif/fw/*.bin` y
+`!src/verif/fw/*/*.bin`; los `.elf`, `.o` y `.map` siguen fuera). El juego
+canónico es el de esta máquina, `arm-none-eabi-gcc` 13.2 de Debian, **porque es
+el que produjo los invariantes documentados**: cambiar al de CubeIDE habría
+movido el total del F407 y obligado a reescribir los tres invariantes. Si
+prefieres el revés, es rehacer los binarios y actualizar tres cifras.
+
+**Un `.gitattributes` nuevo, con `*.bin binary`.** Sin él, un git con
+`core.autocrlf=true` decide por heurística si un fichero es texto. La
+heurística acierta casi siempre. «Casi siempre» no es la propiedad que se
+quiere de un fichero cuya razón de ser es ser idéntico byte a byte.
+
+**`src/verif/fw/huellas.txt`, la única fuente de verdad.** Una línea por
+imagen: suite, ruta, tamaño y FNV-1a; y en la cabecera, la cadena cruzada que
+las produjo y por qué existe el fichero. **Ningún `.cpp` lleva una huella
+escrita a mano**, a propósito: dos sitios que hay que actualizar a la vez son
+un sitio que se queda viejo. Llegué a escribir `0x644FCE21` en un `printf` y lo
+quité en cuanto vi que contradecía lo que acababa de escribir en la cabecera.
+
+**La comprobación.** `common/huella_fw.h` la hace, y las tres suites la
+ejecutan **la primera**: `T00` en el F407, `A0` en el F446 y el F417. No cuesta
+tiempo simulado —son lecturas de disco del anfitrión— y por eso los tres
+invariantes no se mueven. Un detalle que no es cosmético: `Veredicto::ok()`
+exige `comprobadas > 0`, porque sin esa condición un manifiesto ilegible daría
+por buena la suite entera, y una comprobación que no puede fallar no comprueba
+nada.
+
+**Comprobado que falla cuando debe**, en los tres casos, sobre la suite del
+F417:
+
+| Qué le hago | Qué dice |
+| :--- | :--- |
+| Escondo `crypto_demo.bin` | `falta crypto_demo/crypto_demo.bin` → FALLO |
+| Le cambio **un byte** | `huella 0x7953FD36, se esperaba 0xDF57A39E` → FALLO |
+| Escondo el manifiesto | `no encuentro el manifiesto` → FALLO |
+| Lo restauro todo | `todas coinciden` → OK |
+
+**Efecto en los números.** Las suites pasan de **2117 / 203 / 164** a **2118 /
+204 / 165**, una comprobación nueva en cada una, y los tres tiempos simulados
+quedan **intactos**: `2336217899213`, `1033367277932` y `718988288 ps`. `T00`
+se cuenta aparte del resumen de F1, para que esa fase siga diciendo 143, que es
+lo que dice su informe.
+
+**Lo que cambia en el Makefile.** `make test407` basta en un árbol recién
+clonado, sin compilador cruzado. `fw407`, `fw446`, `fw417` y `fw` siguen ahí
+para **regenerar**, avisan antes de escribir y recuerdan que `git checkout --
+verif/fw` deshace; `cleanfw` avisa de que borra ficheros versionados. El
+comentario que decía que `test407fw` era «LA orden que hay que dar en una
+máquina nueva» ya no es verdad y se ha reescrito.
+
+**Lo que no queda cerrado, y no lo disimulo:**
+
+- Los objetivos de regeneración **avisan, no impiden**. Un `make fw407` con
+  otra cadena sigue siendo posible; lo que ya no es posible es que pase
+  inadvertido.
+- **Nadie ha comprobado que esta cadena cruzada reproduzca estas imágenes byte
+  a byte en otra máquina.** La de CubeIDE no lo hace —ése era justamente el
+  problema—, así que la reproducibilidad del binario sigue sin demostrar; lo
+  que se ha hecho es dejar de depender de ella.
+- La verificación de Windows de la semana pasada se hizo con el código y los
+  firmwares de entonces. La he marcado como tal en `doc/compilacion.md` §8 y en
+  `src/README.md`, con la predicción escrita **antes** de ejecutarla:
+  **2118 / 204 / 165 y `2336217899213 ps` exactos**. Si sale otra cosa, el
+  diagnóstico de T-22 estaba incompleto.
+
+T-22 queda tachado y marcado como resuelto, con la historia entera dentro: el
+síntoma, la hipótesis falsa del socket de GDB, la medida que la refutó, la
+causa real y la corrección.
