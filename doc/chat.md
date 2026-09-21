@@ -4718,3 +4718,42 @@ que consumen los dos grupos de GDB y comparar el resto, que sí es exacto.
 
 Hacía falta una segunda máquina para poder verlo. Es el argumento entero a favor
 del paso 0b del informe de la GUI, y ha tardado veinte turnos en cobrarse.
+
+## Las dos marcas: separar lo que no es reproducible de lo que sí
+
+> Sí, implementa dos marcas de tiempo alrededor de T96/T97
+
+Hecho. La suite marca el reloj simulado antes y después de los dos grupos que
+hablan con un GDB de verdad, y el resumen saca **dos cifras** donde antes había
+una:
+
+```
+Tiempo simulado: 2336217899213 ps
+  de los cuales T96+T97 (socket de GDB): 96665875 ns
+  INVARIANTE PORTABLE (el resto)       : 2239552024213 ps
+```
+
+**Por qué dos y no una.** El total sigue sirviendo para lo de siempre:
+compararse consigo mismo en la misma máquina, que es como se ha usado doce
+fases. Lo que no es —y llevábamos diciendo que sí— es una firma portable, porque
+T96 y T97 consumen tiempo simulado sondeando un socket TCP cada 200 µs y el
+número de sondeos lo decide el sistema operativo. **El resto sí es exacto en
+cualquier sitio**, y es contra lo que hay que medir una plataforma nueva.
+
+La idea de fondo, que vale más que el cambio: **medir lo que no es reproducible
+es lo que deja exacto todo lo demás**. Mientras estaba mezclado con el resto,
+contaminaba una cifra de trece dígitos; separado, es un número más de los que el
+banco publica.
+
+**Y esto hace una predicción falsable, que es lo que lo convierte en un
+diagnóstico y no en un relato.** Si la causa es la que digo, al ejecutar la
+suite en Windows el total volverá a salir ~2 ms por debajo **pero el resto tiene
+que salir exactamente `2239552024213 ps`**. Si sale otra cosa, el diagnóstico
+está mal y hay algo más.
+
+La línea solo aparece cuando la suite ha corrido entera: en el modo servidor de
+GDB no se ejecutan esos grupos y no se imprime. Las suites del F446 y del F417
+no la llevan porque no la necesitan —no usan sockets— y su total ya es portable
+tal cual: `1033367277932 ps` y `718988288 ps`, iguales en las dos plataformas.
+
+Suites intactas: 2117 / 203 / 164, `make red` 13/13.

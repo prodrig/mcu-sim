@@ -93,6 +93,11 @@ tiempo simulado y el número de sondeos depende del sistema operativo. Las
 suites del F446 y del F417, que no usan sockets, sí salen idénticas al
 picosegundo en las dos plataformas. Está en **T-22** de `doc/todo.md`.
 
+Por eso la suite publica ahora **dos** cifras: el total, y el total **menos lo
+que consumen esos dos grupos**, que vale `2239552024213 ps` y es la que se
+puede comparar entre máquinas. Medir lo que no es reproducible es lo que deja
+exacto todo lo demás.
+
 `make asan407` corre esa misma suite con AddressSanitizer y UndefinedBehaviorSanitizer,
 y hoy sale limpia: **0 fugas y 0 avisos**. No hay que poner `ASAN_OPTIONS` a
 mano; el ejecutable trae su propia configuración, porque ASan sin

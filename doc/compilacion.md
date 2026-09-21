@@ -511,10 +511,28 @@ Tiempo simulado: 2336217899213 ps
 Los otros dos bancos tienen su propio invariante —`1033367277932 ps` el del
 F446 y `718988288 ps` el del F417— y valen para lo mismo.
 
-**Ese picosegundo es el mismo en Linux con g++, en Linux con clang y en cualquier
-sitio donde el modelo se comporte igual.** Si las comprobaciones pasan pero la
-cifra cambia, algo del planificador o de la resolución del tiempo es distinto, y
-hay que entender qué antes de dar la plataforma por buena.
+Y debajo, desde que la suite corrió en una segunda máquina, **dos cifras más**:
+
+```
+  de los cuales T96+T97 (socket de GDB): 96665875 ns
+  INVARIANTE PORTABLE (el resto)       : 2239552024213 ps
+```
+
+**Por qué hacen falta dos números y no uno.** El total es el invariante de
+siempre y sirve para lo de siempre: compararse consigo mismo **en la misma
+máquina**. Lo que no es, y llevábamos diciendo que sí, es una firma portable —
+los dos grupos que hablan con un GDB de verdad consumen tiempo simulado
+**sondeando un socket TCP cada 200 µs**, y cuántos sondeos hagan falta lo decide
+el sistema operativo. En Windows el total sale 2 ms por debajo por eso, y solo
+por eso (**T-22**).
+
+**El resto sí es exacto en cualquier sitio**, y es contra el que hay que medir
+una plataforma nueva. Las suites del F446 y del F417 no tienen este problema
+—no usan sockets— así que su total ya es portable tal cual.
+
+Si las comprobaciones pasan pero **el resto** cambia, algo del planificador o de
+la resolución del tiempo es distinto, y hay que entender qué antes de dar la
+plataforma por buena.
 
 ---
 

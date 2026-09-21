@@ -95,6 +95,31 @@ using tlm::TLM_GENERIC_ERROR_RESPONSE;
 // Utilidades de comprobación
 // ---------------------------------------------------------------------------
 static unsigned g_pass = 0, g_fail = 0;
+
+// -----------------------------------------------------------------------------
+// TIEMPO SIMULADO QUE CONSUMEN LOS DOS GRUPOS QUE HABLAN CON UN GDB DE VERDAD
+//
+// El tiempo simulado total de esta suite es el invariante del proyecto: vale
+// 2336217899213 ps al picosegundo y llevaba doce fases sin moverse. Al
+// ejecutarla en una SEGUNDA maquina -Windows- salio 2 ms menos, y la causa
+// resulto ser estructural y estar localizada aqui:
+//
+//   T96 y T97 hablan con el stub de RSP por un socket TCP DE VERDAD, y el
+//   cliente (`verif/gdb_client.h`) espera cada respuesta SONDEANDO cada 200 us
+//   de tiempo SIMULADO. Cuantos sondeos hagan falta depende de lo deprisa que
+//   el sistema operativo entregue los bytes por el bucle local. Es decir: el
+//   tiempo simulado que consumen esos dos grupos DEPENDE DEL ANFITRION.
+//
+// Lo confirma el control negativo: las suites del F446 y del F417 no usan el
+// cliente de GDB y dan el mismo tiempo al picosegundo en las dos plataformas.
+//
+// La salida no es fingir que no pasa: es MEDIRLO. Se marca el reloj simulado
+// antes y despues de los dos grupos, y el resumen publica las dos cifras. El
+// total sigue sirviendo para comparar contra uno mismo en la misma maquina; el
+// RESTO -total menos esto- es la cifra que SI se puede comparar entre maquinas.
+// Vease T-22 en doc/todo.md.
+// -----------------------------------------------------------------------------
+static sc_core::sc_time g_t_gdb = sc_core::SC_ZERO_TIME;
 static std::string g_group;
 
 // Configuracion del servidor GDB. Se fija ANTES de elaborar, porque el stub se
@@ -1102,8 +1127,12 @@ SC_MODULE(F1Tb) {
         t93_dbg_itm_swo();
         t94_dbg_sonda_swd();
         t95_dbg_firmware();
+        // Las dos marcas: lo que va entre ellas es lo unico de esta suite
+        // cuyo coste en tiempo simulado no es reproducible entre maquinas.
+        const sc_time t_gdb0 = sc_time_stamp();
         t96_gdb_rsp();
         t97_gdb_dap();
+        g_t_gdb += sc_time_stamp() - t_gdb0;
         const unsigned f6_pass = g_pass, f6_fail = g_fail;
 
         // ========================= Fase F7: bajo consumo ====================
@@ -15046,5 +15075,14 @@ int sc_main(int argc, char** argv) {
     }
     sc_start();
     std::printf("\nTiempo simulado: %s\n", sc_time_stamp().to_string().c_str());
+    // Y la parte que SI se puede comparar entre maquinas. Solo tiene sentido
+    // cuando la suite ha corrido entera: en el modo servidor no se ejecuta.
+    if (g_t_gdb != SC_ZERO_TIME) {
+        const sc_time resto = sc_time_stamp() - g_t_gdb;
+        std::printf("  de los cuales T96+T97 (socket de GDB): %s\n"
+                    "  INVARIANTE PORTABLE (el resto)       : %s\n"
+                    "  (el total depende del anfitrion; el resto, no. Vease T-22)\n",
+                    g_t_gdb.to_string().c_str(), resto.to_string().c_str());
+    }
     return (g_fail == 0) ? 0 : 1;
 }
