@@ -4987,3 +4987,42 @@ real en vez de la predicción, y la tabla de plataformas de `src/README.md`.
 - Y sigue sin demostrarse que esta cadena cruzada reproduzca los `.bin` byte a
   byte en otra máquina. Ya no importa para el invariante, porque hemos dejado
   de depender de ello, pero no es lo mismo que haberlo resuelto.
+
+
+---
+
+## Las tres suites, los tres invariantes, las dos máquinas
+
+**Prompt:** *(salidas de `test417` y `test446` en Windows, ejecutadas dos veces)*
+
+**Respuesta:**
+
+Completo. Los tres invariantes coinciden al picosegundo:
+
+| Suite | Comprobaciones | Tiempo simulado | Linux |
+| :--- | ---: | ---: | :--- |
+| `test407` | 2118 | `2336217899213 ps` | idéntico |
+| `test446` | 204 | `1033367277932 ps` | idéntico |
+| `test417` | 165 | `718988288 ps` | idéntico |
+
+Y un dato que no pedí y vale la pena anotar: **ejecutaste las dos suites dos
+veces, y la salida es idéntica**. Es lo que debe pasar en un modelo donde el
+tiempo lo lleva el planificador y no el reloj de pared, pero una cosa es que
+deba pasar y otra haberlo visto. Descarta de paso cualquier dependencia de la
+carga de la máquina.
+
+**Lo que esto cierra.** El invariante del F407 dejó de ser una propiedad de
+*esta* máquina. Ahora es una propiedad del modelo, comprobada en dos sistemas
+operativos, con dos compiladores de C++ distintos, ejecutando el mismo programa
+de ARM porque el programa va en el repositorio. Los 2 ms que costaron dos
+diagnósticos —el primero equivocado, el del socket de GDB— eran el binario y
+nada más.
+
+Actualizados **T-22**, la §8 de `doc/compilacion.md` con la tabla de las tres
+suites, la cabecera de `doc/todo.md` y la tabla de plataformas de
+`src/README.md`.
+
+**Lo que queda.** **macOS**, que sigue sin tocar y para un programa que se
+reparte a alumnos no es un detalle; y que la cadena cruzada reproduzca los
+`.bin` byte a byte en otra máquina, cosa de la que ya no depende nada pero que
+tampoco está resuelta.

@@ -593,7 +593,7 @@ haber variado.)*
 | :--- | :--- |
 | Linux, g++ 13 | **Verificado**: 2118/2118, 204/204, 165/165, `make red` 13/13, ASan limpio en los tres |
 | Linux, clang | **Verificado** con el codigo anterior a versionar los firmwares: 2117/2117, mismo tiempo simulado al picosegundo. Falta repetirlo; no se espera nada distinto, pero no se ha hecho |
-| **Windows, MSYS2 / MinGW-w64** | **VERIFICADO, y el invariante es el mismo en las dos maquinas.** Con los firmwares versionados, `make test407` da **2118/2118** y **`2336217899213 ps`**, identico a Linux al picosegundo, con `huella de coremark.bin : 0x644FCE21`. Antes, con los firmwares de cada sitio, salia `2334217899213 ps`: los 2 ms eran el binario y nada mas (**T-22**). Queda por repetir `test446` y `test417` con las imagenes versionadas; antes daban 203/203 y 164/164 con su tiempo exacto |
+| **Windows, MSYS2 / MinGW-w64** | **VERIFICADO POR COMPLETO, y los TRES invariantes coinciden con los de Linux al picosegundo.** Con los firmwares versionados: **2118/2118** en `2336217899213 ps` (huella `0x644FCE21`), **204/204** en `1033367277932 ps` y **165/165** en `718988288 ps`. Antes, con los firmwares de cada sitio, el del F407 salia `2334217899213 ps`: los 2 ms eran el binario y nada mas (**T-22**) |
 | Windows, cruzado desde Linux | **Compila y enlaza** (`make red PLATAFORMA=windows CXX=x86_64-w64-mingw32-g++`, PE32+ sin avisos). Ojo: el cruzado de Debian usa hilos **win32** y el de MSYS2 **posix**, así que no reproduce el caso de §5.6 |
 | macOS, clang | **La rama específica compila**. **Falta** probarlo en un Mac |
 
@@ -603,24 +603,26 @@ construye para MinGW, el modelo se ejecuta y las tres suites pasaron enteras
 firmwares. Lo que faltaba era el tiempo: el F446 y el F417 salían **idénticos
 al picosegundo**, y el del F407 se quedaba **2 ms corto**.
 
-**Ese hueco ya no está.** Con los `.bin` versionados, `make test407` en Windows
-da:
+**Ese hueco ya no está.** Con los `.bin` versionados, las tres suites dan en
+Windows exactamente lo mismo que en Linux:
 
-```
-TOTAL     : 2118 comprobaciones OK, 0 fallos
-Tiempo simulado: 2336217899213 ps
-  huella de coremark.bin               : 0x644FCE21
-```
+| Suite | Comprobaciones | Tiempo simulado | Linux |
+| :--- | ---: | ---: | :--- |
+| `test407` | 2118 | `2336217899213 ps` | idéntico |
+| `test446` | 204 | `1033367277932 ps` | idéntico |
+| `test417` | 165 | `718988288 ps` | idéntico |
 
-**El mismo picosegundo y la misma huella que en Linux.** Era el binario, y nada
-más: ni el planificador de SystemC, ni la resolución del tiempo, ni el socket
-de GDB —esa fue la primera hipótesis, y era falsa—. La predicción estaba
-escrita en §8 y en **T-22** *antes* de ejecutarla, que es la única forma de que
-una confirmación signifique algo.
+y el F407 imprime `huella de coremark.bin : 0x644FCE21`, la del manifiesto.
 
-Queda repetir `test446` y `test417` en Windows con las imágenes versionadas.
-No se espera nada distinto: sus tiempos ya coincidían cuando no había ninguna
-garantía de que los firmwares fueran los mismos.
+**El mismo picosegundo en los tres.** Era el binario, y nada más: ni el
+planificador de SystemC, ni la resolución del tiempo, ni el socket de GDB —ésa
+fue la primera hipótesis, y era falsa—. La predicción estaba escrita en §8 y en
+**T-22** *antes* de ejecutarla, que es la única forma de que una confirmación
+signifique algo.
+
+El F446 y el F417 se ejecutaron **dos veces**, con salida idéntica: el tiempo
+simulado no depende de la carga de la máquina, como debe ser en un modelo
+donde el tiempo lo lleva el planificador y no el reloj de pared.
 
 En **macOS** sigue faltando todo: es el punto **I-23** del trabajo pendiente, y
 para un programa que se reparte a alumnos no es opcional.

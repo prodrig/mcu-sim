@@ -83,8 +83,9 @@ todas pasan, en unos 23 s. Verificado con SystemC 2.3.4 / g++ 13 / C++17
 y arm-none-eabi-gcc 13.2.
 
 **El tiempo simulado del F407 es un invariante del proyecto**, no una
-curiosidad: vale `2336217899213 ps` al picosegundo desde la fase 7 y once
-planes después sigue valiendo lo mismo. Si un cambio lo mueve, ha cambiado el
+curiosidad: vale `2336217899213 ps` al picosegundo desde la fase 7, once
+planes después sigue valiendo lo mismo, y desde que los firmwares se versionan
+vale **lo mismo en Linux y en Windows**. Si un cambio lo mueve, ha cambiado el
 comportamiento de algo, aunque las 2118 sigan pasando.
 
 **Con una precondición que costó una segunda máquina descubrir**: vale siempre
@@ -269,7 +270,7 @@ validar una plataforma nueva antes de pelearse con la biblioteca.
 | :--- | :--- | :--- |
 | Linux, g++ 13 | **verificado** | 2118/2118 comprobaciones, 204/204 del F446 y 165/165 del F417, `make red` 13/13, ASan + UBSan limpio en las tres suites (`make asan407`, `make asan446`, `make asan417`), las seis placas validan sin un aviso |
 | Linux, clang | **verificado** | mismo resultado y mismo tiempo simulado al picosegundo |
-| Windows, MSYS2 / MinGW-w64 | **verificado** | **El invariante del F407 es el mismo en las dos máquinas**: con los firmwares versionados, 2118/2118 y `2336217899213 ps` al picosegundo, huella `0x644FCE21`. Antes salía 2 ms por debajo, y eran el binario y nada más (**T-22**). Con el código anterior las tres suites pasaban (2117/203/164); falta repetir `test446` y `test417` con las imágenes versionadas. Para que el ejecutable corra FUERA de MSYS2 hace falta el `-static` del Makefile: `doc/compilacion.md` §5.6 |
+| Windows, MSYS2 / MinGW-w64 | **verificado** | **Los tres invariantes son los mismos que en Linux, al picosegundo**: 2118/2118 en `2336217899213 ps` (huella `0x644FCE21`), 204/204 en `1033367277932 ps` y 165/165 en `718988288 ps`. Antes el del F407 salía 2 ms por debajo, y era el binario y nada más (**T-22**). Para que el ejecutable corra FUERA de MSYS2 hace falta el `-static` del Makefile: `doc/compilacion.md` §5.6 |
 | macOS, clang | **la rama específica compila** | Se fuerza la combinación de macOS —sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`— y compila con g++ y con clang; **falta probarlo en un Mac** |
 
 Lo que en Windows y macOS **no** está verificado es lo mismo en los dos casos:
