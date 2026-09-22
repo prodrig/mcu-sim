@@ -119,18 +119,29 @@ jobs:
       fail-fast: false            # que una arquitectura no tape a la otra
       matrix:
         include:
+          # LAS DOS ARQUITECTURAS USAN PTHREADS, y ya no por precaucion.
+          #
+          # QuickThreads -el paquete de corrutinas por omision- declara los dos
+          # simbolos de ASan `__sanitizer_start_switch_fiber` y
+          # `__sanitizer_finish_switch_fiber` como REFERENCIAS DEBILES
+          # (`__attribute__((weakref(...)))`) y luego comprueba en ejecucion si
+          # son nulos. Ese modismo es de ELF: en Mach-O, el enlazador de Apple
+          # no los deja sin resolver y el enlazado del modelo muere con
+          # «Undefined symbols for architecture x86_64». Con pthreads,
+          # `sc_cor_qt.cpp` ni se usa.
+          #
+          # Lo encontro el trabajo de Intel. El de Apple Silicon no lo habia
+          # visto porque ya llevaba pthreads puesto por OTRO motivo -miedo a
+          # que QuickThreads no tuviera ensamblador de arm64-, asi que aquella
+          # precaucion acerto por una razon que no era la suya. Sigue sin
+          # saberse si QuickThreads funciona en arm64: nunca se le ha dejado
+          # intentarlo.
           - os: macos-26
             arq: Apple Silicon
-            # QuickThreads, el paquete de corrutinas por omision de SystemC,
-            # tiene ensamblador por arquitectura. Forzar pthreads en arm64 es
-            # una precaucion, no un diagnostico: si la primera ejecucion
-            # demuestra que no hace falta, se quita. Que el invariante salga
-            # igual con DOS paquetes de corrutinas distintos seria ademas una
-            # prueba de que el tiempo lo lleva el planificador y nada mas.
             cmake_extra: "-DENABLE_PTHREADS=ON"
           - os: macos-26-intel
             arq: Intel
-            cmake_extra: ""
+            cmake_extra: "-DENABLE_PTHREADS=ON"
     steps:
       - uses: actions/checkout@v4
 
@@ -139,7 +150,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/systemc
-          key: systemc-${{ env.SYSTEMC_VER }}-cxx17-${{ matrix.os }}-v1
+          key: systemc-${{ env.SYSTEMC_VER }}-cxx17-${{ matrix.os }}-pthreads-v2
 
       - name: Construir SystemC si no estaba en la cache
         run: sh ci/construye_systemc.sh "$GITHUB_WORKSPACE/systemc" ${{ matrix.cmake_extra }}
@@ -195,16 +206,21 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/systemc
-          key: systemc-${{ env.SYSTEMC_VER }}-cxx17-mingw64-v1
+          key: systemc-${{ env.SYSTEMC_VER }}-cxx17-mingw64-fiber-v2
 
       - name: Construir SystemC si no estaba en la cache
-        # En MinGW, QuickThreads da problemas de enlazado conocidos
-        # (accellera-official/systemc, incidencia 3), asi que pthreads. El
-        # GCC de MSYS2 usa el modelo de hilos POSIX, con lo que winpthreads
-        # esta ahi de todas formas.
+        # AQUI NO SE PIDE PTHREADS, al reves que en macOS. El CMakeLists de
+        # SystemC lo prohibe explicitamente:
+        #
+        #   if (WIN32 AND ENABLE_PTHREADS)
+        #     message (FATAL_ERROR "Pthreads is not supported on ...")
+        #
+        # En Windows el paquete de corrutinas por omision es Fiber, que es de
+        # la propia API de Win32 y funciona. Lo puse por una incidencia de
+        # MinGW que habia leido por encima y que no decia lo que yo entendi.
         run: |
           sh ci/construye_systemc.sh "$(cygpath -u "$GITHUB_WORKSPACE")/systemc" \
-              -G Ninja -DENABLE_PTHREADS=ON
+              -G Ninja
 
       - name: Las tres suites
         working-directory: src
