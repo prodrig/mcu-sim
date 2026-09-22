@@ -20,6 +20,23 @@
 # Se instala la biblioteca ESTATICA (BUILD_SHARED_LIBS=OFF): asi el ejecutable
 # no arrastra un rpath a un directorio de la cache, que es un sitio que puede
 # no existir cuando alguien se baja el artefacto.
+#
+# ---------------------------------------------------------------------------
+# POR QUE ESTA AQUI `CMAKE_POLICY_VERSION_MINIMUM=3.5`
+#
+# SystemC 2.3.4 es de 2022 y su CMakeLists.txt declara
+# `cmake_minimum_required` por debajo de 3.5. **CMake 4 ha retirado esa
+# compatibilidad**, asi que en una maquina moderna la configuracion aborta
+# con «Compatibility with CMake < 3.5 has been removed from CMake».
+#
+# Esta opcion es la salida que el propio CMake propone en el mensaje de
+# error, y no oculta nada: no toca como se compila SystemC, solo permite
+# seguir leyendo un CMakeLists.txt viejo. Lo que SI hace es documentar un
+# hecho que la integracion continua ha sacado a la luz el primer dia:
+# **2.3.4 se esta quedando fuera de las cadenas de herramientas actuales.**
+# Eso es un argumento concreto, y hasta ahora no habia ninguno, a favor de
+# subir a la linea 3.0 -que es el punto I-24 de doc/todo.md, donde consta
+# que la decision estaba tomada al reves por falta de motivos-.
 # ===========================================================================
 set -eu
 
@@ -39,16 +56,23 @@ fi
 echo "  [systemc] $version -> $prefijo"
 rm -rf systemc-fuente systemc-obj
 
-# `git clone` de la etiqueta y no un tarball: si la etiqueta no existe, falla
-# diciendolo, en vez de bajarse un 404 de 9 bytes y morir cuatro pasos mas
-# tarde dentro de cmake.
-git clone --quiet --depth 1 --branch "$version" \
-    https://github.com/accellera-official/systemc.git systemc-fuente
+# Clon completo y luego `checkout` de la etiqueta, en vez de `--depth 1
+# --branch`. Con la version superficial, git escupe «refs/tags/2.3.4 ... is
+# not a commit!» y deja en el aire si lo que se ha construido es la etiqueta o
+# la rama por omision, que hoy es la linea 3.0. Son unos segundos mas, solo
+# cuando la cache falla, a cambio de no tener que preguntarselo.
+git clone --quiet https://github.com/accellera-official/systemc.git systemc-fuente
+git -C systemc-fuente checkout --quiet "$version"
+
+# Y se dice en voz alta QUE se ha construido, que es la mitad del valor de
+# todo esto.
+echo "  [systemc] fuente: $(git -C systemc-fuente describe --tags --always)"
 
 cmake -S systemc-fuente -B systemc-obj \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_CXX_STANDARD=17 \
       -DBUILD_SHARED_LIBS=OFF \
+      -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
       -DCMAKE_INSTALL_PREFIX="$prefijo" \
       "$@"
 
