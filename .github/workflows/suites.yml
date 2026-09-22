@@ -114,56 +114,63 @@ jobs:
     name: macOS ${{ matrix.arq }}
     runs-on: ${{ matrix.os }}
     needs: rapidas
-    timeout-minutes: 45
+    timeout-minutes: 30
     strategy:
       fail-fast: false            # que una arquitectura no tape a la otra
       matrix:
+        os: [macos-26, macos-26-intel]
         include:
-          # LAS DOS ARQUITECTURAS USAN PTHREADS, y ya no por precaucion.
-          #
-          # QuickThreads -el paquete de corrutinas por omision- declara los dos
-          # simbolos de ASan `__sanitizer_start_switch_fiber` y
-          # `__sanitizer_finish_switch_fiber` como REFERENCIAS DEBILES
-          # (`__attribute__((weakref(...)))`) y luego comprueba en ejecucion si
-          # son nulos. Ese modismo es de ELF: en Mach-O, el enlazador de Apple
-          # no los deja sin resolver y el enlazado del modelo muere con
-          # «Undefined symbols for architecture x86_64». Con pthreads,
-          # `sc_cor_qt.cpp` ni se usa.
-          #
-          # Lo encontro el trabajo de Intel. El de Apple Silicon no lo habia
-          # visto porque ya llevaba pthreads puesto por OTRO motivo -miedo a
-          # que QuickThreads no tuviera ensamblador de arm64-, asi que aquella
-          # precaucion acerto por una razon que no era la suya. Sigue sin
-          # saberse si QuickThreads funciona en arm64: nunca se le ha dejado
-          # intentarlo.
           - os: macos-26
             arq: Apple Silicon
-            cmake_extra: "-DENABLE_PTHREADS=ON"
           - os: macos-26-intel
             arq: Intel
-            cmake_extra: "-DENABLE_PTHREADS=ON"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache de SystemC
-        id: cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/systemc
-          key: systemc-${{ env.SYSTEMC_VER }}-cxx17-${{ matrix.os }}-pthreads-v2
+      # ---------------------------------------------------------------------
+      # SystemC DE HOMEBREW, no compilada aqui. Es LA VIA QUE DOCUMENTA
+      # compilacion.md 4 -«SYSTEMC_HOME se detecta entre /opt/homebrew (Apple
+      # Silicon) y /usr/local (Intel)»-, o sea que es lo que hace un alumno.
+      # El mismo criterio que en Linux con apt: el CI verifica las
+      # instrucciones que damos, no una receta que solo existe aqui.
+      #
+      # Y arregla de paso el desastre de la ejecucion anterior. Por miedo a
+      # QuickThreads puse `ENABLE_PTHREADS` en las dos arquitecturas, y las
+      # corrutinas de pthreads cuestan un cambio de contexto del sistema
+      # operativo por cada despertar del planificador, que es justo lo que
+      # este modelo hace sin parar. MEDIDO en la misma maquina, mismo codigo,
+      # mismo firmware: test407 con QuickThreads tarda 20,8 s; con pthreads
+      # seguia corriendo a los 41 minutos. macOS Intel no se colgaba: iba dos
+      # ordenes de magnitud mas lento y se comia los 45 minutos de limite.
+      #
+      # OJO CON LA VERSION: Homebrew trae la 3.0.2, no la 2.3.4 de Linux y
+      # Windows. Es deliberado y tiene su control: Apple Silicon ya paso con
+      # 2.3.4 + pthreads dando los tres invariantes EXACTOS, asi que este
+      # cambio es de una sola variable sobre una medida conocida. Si el
+      # invariante se mueve, ha sido la version de SystemC. Y entonces NO se
+      # toca verif/invariantes.txt: se averigua por que. Vease I-24.
+      # ---------------------------------------------------------------------
+      - name: SystemC desde Homebrew
+        run: |
+          brew install systemc
+          brew list --versions systemc
 
-      - name: Construir SystemC si no estaba en la cache
-        run: sh ci/construye_systemc.sh "$GITHUB_WORKSPACE/systemc" ${{ matrix.cmake_extra }}
+      # `make plataforma` es el primer paso que compilacion.md manda dar
+      # cuando algo no cuadra. Que lo de el CI vale por dos: comprueba la
+      # deteccion automatica de SYSTEMC_HOME y deja en el log que se detecto.
+      - name: Que ha detectado el Makefile
+        working-directory: src
+        run: make -f Makefile.mcu-sim plataforma
 
+      # SIN pasar SYSTEMC_HOME, a proposito: aqui se ejerce la deteccion
+      # automatica, que es la que se encuentra un alumno.
       - name: Las tres suites
         working-directory: src
         run: |
           set -o pipefail
           mkdir -p build
           for s in test407 test446 test417; do
-            make -f Makefile.mcu-sim $s \
-                 SYSTEMC_HOME="$GITHUB_WORKSPACE/systemc" \
-                 CXX=clang++ 2>&1 | tee build/$s.log
+            make -f Makefile.mcu-sim $s CXX=clang++ 2>&1 | tee build/$s.log
           done
 
       - name: Los tres invariantes, al picosegundo
@@ -180,8 +187,11 @@ jobs:
 
   # -------------------------------------------------------------------------
   # Windows con MSYS2, que es lo que usa el autor y lo que documenta el
-  # proyecto. SystemC no viene empaquetada ahi, asi que se construye igual que
-  # en macOS, con la misma receta.
+  # proyecto. Es la UNICA plataforma en la que SystemC se construye aqui:
+  # Linux la tiene en apt y macOS en Homebrew, y en las dos se usa el paquete
+  # para que el CI ejerza lo que dice la documentacion. En MSYS2 no hay
+  # paquete, y como construirla ahi es justo lo que compilacion.md 3 NO
+  # cuenta, esta receta es de momento la unica que existe escrita.
   # -------------------------------------------------------------------------
   windows:
     name: Windows (MSYS2 / MinGW-w64)
