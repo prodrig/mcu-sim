@@ -1,0 +1,33 @@
+# ===========================================================================
+# verif/invariantes.txt - lo que tiene que salir, exactamente
+#
+# Una linea por suite:
+#
+#     <suite>  <comprobaciones>  <tiempo simulado en ps>
+#
+# POR QUE EXISTE. El criterio que de verdad vale en este proyecto no es que
+# las suites pasen, sino que el TIEMPO SIMULADO no se mueva: si un cambio lo
+# mueve, ha cambiado el comportamiento de algo aunque todas las
+# comprobaciones sigan en verde. El del F407 lleva valiendo lo mismo al
+# picosegundo desde la fase 7, y desde que los firmwares se versionan vale lo
+# mismo en Linux y en Windows.
+#
+# Hasta ahora ese criterio vivia en la cabeza de quien ejecutaba las suites y
+# en tres cifras repetidas por la documentacion. Aqui esta una sola vez, y
+# `ci/comprueba_invariante.sh` lo lee para que la integracion continua falle
+# -no avise: falle- cuando una plataforma nueva da otra cosa.
+#
+# COMO SE CAMBIA. Mover una de estas cifras es declarar que el comportamiento
+# del modelo ha cambiado a proposito. Tiene que ir acompanado de la razon, en
+# el mensaje del commit y en doc/compilacion.md 7. Si no sabes por que se ha
+# movido, no la actualices: ese es exactamente el fallo que este fichero
+# existe para cazar.
+#
+# Vease tambien verif/huellas.txt, que garantiza la otra mitad: que el
+# firmware que se ejecuta es el mismo binario en todas las maquinas (T-22).
+# ===========================================================================
+
+# suite      comprobaciones   tiempo simulado (ps)
+test407               2118      2336217899213
+test446                204      1033367277932
+test417                165           718988288

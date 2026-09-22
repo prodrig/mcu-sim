@@ -1,0 +1,235 @@
+# ===========================================================================
+# Las tres suites, en las cuatro plataformas, en cada commit.
+#
+# LO QUE SE COMPRUEBA NO ES QUE PASEN. Eso lo comprueba cualquiera. Lo que se
+# comprueba es que el TIEMPO SIMULADO no se mueva, al picosegundo, contra
+# src/verif/invariantes.txt. Un cambio que deje las 2118 comprobaciones en
+# verde pero mueva el reloj del modelo ha cambiado el comportamiento de algo,
+# y eso tiene que teñir el commit de rojo.
+#
+# Que esto sea posible es reciente: hasta que los firmwares se versionaron,
+# cada maquina compilaba los suyos y ejecutaba un programa distinto, asi que
+# el tiempo simulado no era comparable entre maquinas (T-22 en doc/todo.md).
+# Sin aquello, este fichero no podria existir.
+#
+# macOS entra aqui por una razon concreta: es la unica plataforma de las tres
+# que el proyecto declara soportar y que nadie ha ejecutado nunca. La forma
+# legal de probarla desde un PC con Windows es esta -hardware Apple de
+# verdad-, no una maquina virtual: la licencia de macOS solo permite
+# virtualizarla sobre un ordenador Apple.
+# ===========================================================================
+name: suites
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Un empujon nuevo cancela el anterior de la misma rama: las suites tardan
+# minutos y no tiene sentido pagar por resultados que ya no interesan.
+concurrency:
+  group: suites-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SYSTEMC_VER: "2.3.4"
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Lo que no necesita SystemC. Tarda menos de un minuto y caza los errores
+  # tontos antes de encender cuatro maquinas.
+  # -------------------------------------------------------------------------
+  rapidas:
+    name: Sin SystemC (red, macros de Windows, vectores)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Capa de red, minas de Windows, vectores de CRYP y HASH
+        working-directory: src
+        run: make -f Makefile.mcu-sim red hash cryp vectores
+
+  # -------------------------------------------------------------------------
+  # Linux con el paquete de la distribucion, que es LA VIA QUE DOCUMENTAMOS en
+  # doc/compilacion.md 4. Si algun dia desaparece de Ubuntu, quiero que falle
+  # aqui y no en el portatil de un alumno.
+  # -------------------------------------------------------------------------
+  linux:
+    name: Linux (g++, libsystemc-dev)
+    runs-on: ubuntu-latest
+    needs: rapidas
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: SystemC desde el paquete de Ubuntu
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsystemc-dev
+          dpkg -l libsystemc-dev | tail -1
+
+      - name: Las tres suites
+        working-directory: src
+        run: |
+          set -o pipefail
+          mkdir -p build
+          for s in test407 test446 test417; do
+            make -f Makefile.mcu-sim $s 2>&1 | tee build/$s.log
+          done
+
+      - name: Los tres invariantes, al picosegundo
+        run: |
+          for s in test407 test446 test417; do
+            sh ci/comprueba_invariante.sh $s src/build/$s.log
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: salidas-linux
+          path: src/build/*.log
+
+  # -------------------------------------------------------------------------
+  # macOS, en las dos arquitecturas. La de Apple Silicon es la que usan los
+  # alumnos; la Intel esta porque el Makefile tiene una rama para ella
+  # (lib-macosx64) y una rama que nadie ejecuta no esta verificada.
+  # -------------------------------------------------------------------------
+  macos:
+    name: macOS ${{ matrix.arq }}
+    runs-on: ${{ matrix.os }}
+    needs: rapidas
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false            # que una arquitectura no tape a la otra
+      matrix:
+        include:
+          - os: macos-26
+            arq: Apple Silicon
+            # QuickThreads, el paquete de corrutinas por omision de SystemC,
+            # tiene ensamblador por arquitectura. Forzar pthreads en arm64 es
+            # una precaucion, no un diagnostico: si la primera ejecucion
+            # demuestra que no hace falta, se quita. Que el invariante salga
+            # igual con DOS paquetes de corrutinas distintos seria ademas una
+            # prueba de que el tiempo lo lleva el planificador y nada mas.
+            cmake_extra: "-DENABLE_PTHREADS=ON"
+          - os: macos-26-intel
+            arq: Intel
+            cmake_extra: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache de SystemC
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/systemc
+          key: systemc-${{ env.SYSTEMC_VER }}-cxx17-${{ matrix.os }}-v1
+
+      - name: Construir SystemC si no estaba en la cache
+        run: sh ci/construye_systemc.sh "$GITHUB_WORKSPACE/systemc" ${{ matrix.cmake_extra }}
+
+      - name: Las tres suites
+        working-directory: src
+        run: |
+          set -o pipefail
+          mkdir -p build
+          for s in test407 test446 test417; do
+            make -f Makefile.mcu-sim $s \
+                 SYSTEMC_HOME="$GITHUB_WORKSPACE/systemc" \
+                 CXX=clang++ 2>&1 | tee build/$s.log
+          done
+
+      - name: Los tres invariantes, al picosegundo
+        run: |
+          for s in test407 test446 test417; do
+            sh ci/comprueba_invariante.sh $s src/build/$s.log
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: salidas-macos-${{ matrix.os }}
+          path: src/build/*.log
+
+  # -------------------------------------------------------------------------
+  # Windows con MSYS2, que es lo que usa el autor y lo que documenta el
+  # proyecto. SystemC no viene empaquetada ahi, asi que se construye igual que
+  # en macOS, con la misma receta.
+  # -------------------------------------------------------------------------
+  windows:
+    name: Windows (MSYS2 / MinGW-w64)
+    runs-on: windows-latest
+    needs: rapidas
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: git make
+          pacboy: toolchain:p cmake:p ninja:p
+
+      - name: Cache de SystemC
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/systemc
+          key: systemc-${{ env.SYSTEMC_VER }}-cxx17-mingw64-v1
+
+      - name: Construir SystemC si no estaba en la cache
+        # En MinGW, QuickThreads da problemas de enlazado conocidos
+        # (accellera-official/systemc, incidencia 3), asi que pthreads. El
+        # GCC de MSYS2 usa el modelo de hilos POSIX, con lo que winpthreads
+        # esta ahi de todas formas.
+        run: |
+          sh ci/construye_systemc.sh "$(cygpath -u "$GITHUB_WORKSPACE")/systemc" \
+              -G Ninja -DENABLE_PTHREADS=ON
+
+      - name: Las tres suites
+        working-directory: src
+        run: |
+          set -o pipefail
+          mkdir -p build
+          for s in test407 test446 test417; do
+            make -f Makefile.mcu-sim $s \
+                 SYSTEMC_HOME="$(cygpath -u "$GITHUB_WORKSPACE")/systemc" \
+                 2>&1 | tee build/$s.log
+          done
+
+      - name: Los tres invariantes, al picosegundo
+        run: |
+          for s in test407 test446 test417; do
+            sh ci/comprueba_invariante.sh $s src/build/$s.log
+          done
+
+      - name: Que el .exe no dependa de ninguna DLL de MinGW
+        # El `-static` del Makefile no es un lujo: sin el, el ejecutable
+        # funciona dentro del shell de MSYS2 y desde `cmd` se queja de
+        # `clock_gettime64`. Esta contado en doc/compilacion.md 5.6, y una
+        # comprobacion que nadie ejecuta no protege de nada.
+        working-directory: src
+        run: |
+          make -f Makefile.mcu-sim mcu-sim \
+               SYSTEMC_HOME="$(cygpath -u "$GITHUB_WORKSPACE")/systemc"
+          objdump -p build/mcu-sim.exe | grep 'DLL Name'
+          if objdump -p build/mcu-sim.exe |
+             grep -Ei 'DLL Name:.*(libwinpthread|libstdc\+\+|libgcc)'; then
+            echo "  [FALLO] el ejecutable arrastra DLL de MinGW"
+            exit 1
+          fi
+          echo "  [OK  ] ninguna DLL de MinGW en las dependencias"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: salidas-windows
+          path: src/build/*.log
