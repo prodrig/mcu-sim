@@ -5026,3 +5026,66 @@ suites, la cabecera de `doc/todo.md` y la tabla de plataformas de
 reparte a alumnos no es un detalle; y que la cadena cruzada reproduzca los
 `.bin` byte a byte en otra máquina, cosa de la que ya no depende nada pero que
 tampoco está resuelta.
+
+
+---
+
+## Integracion continua, y lo que encontro el primer dia
+
+**Prompt:** *(varios: la via de GitHub Actions, subir el repositorio sin perder el historial, los dos fallos del CI, el README, la licencia)*
+
+**Respuesta:**
+
+El repositorio está en `github.com/prodrig/mcu-sim`, público, con los 102
+commits y sus fechas. `git push` de un repositorio que ya existe conserva el
+historial; lo que lo tira es arrastrar los ficheros a la interfaz web.
+
+**El CI.** Cuatro trabajos: uno rápido sin SystemC, Linux con el paquete de
+Ubuntu —que verifica *la vía que documenta el §4*—, macOS en las dos
+arquitecturas y Windows con MSYS2. Lo que comprueba no es que las suites pasen:
+que el **tiempo simulado no se mueva**, al picosegundo, contra
+`src/verif/invariantes.txt`. Eso es P-13.
+
+**Y lo que encontró, en dos ejecuciones:**
+
+| Fallo | Qué era |
+| :--- | :--- |
+| El trabajo rápido, 8 segundos | `comprueba_vectores.py` devuelve 1 si un caso queda confirmado por **un solo motor**. Sin `pycryptodome`, los 32 de AES/DES/TDES se quedan con openssl solo |
+| Los tres que construyen SystemC | **SystemC 2.3.4 no configura con CMake 4**: pide un `cmake_minimum_required` anterior al 3.5 y esa compatibilidad se ha retirado |
+
+**Ninguno de los dos estaba en mi lista de cinco sospechosos**, que había
+escrito en `doc/integracion_continua.md` §4 antes de ejecutar nada. La lista se
+queda sin retocar y el §4.1 cuenta lo que pasó de verdad: una previsión que se
+corrige después de ver el resultado no es una previsión.
+
+El segundo fallo vale más que el arreglo. Hasta hoy, I-24 —seguir en 2.3.4
+pudiendo estar en la 3.0— decía que *«ninguna ventaja conocida de la 3.0 ataca
+un problema que tengamos»*. Ya no es cierto: **2.3.4 se está quedando fuera de
+las cadenas de herramientas actuales.** Se sigue en 2.3.4 con
+`-DCMAKE_POLICY_VERSION_MINIMUM=3.5`, que es un parche con fecha de caducidad,
+y queda escrito en I-24 como tal.
+
+**El primer fallo lo diagnostiqué sin poder leer los logs** —piden iniciar
+sesión— reproduciéndolo aquí: escondí el módulo `Crypto` y salió exactamente lo
+mismo, 32 casos con un motor y salida 1. Es el método que debí usar con el
+socket de GDB y no usé.
+
+**La licencia.** Todo lo de terceros es Apache-2.0: SystemC, CMSIS-Core, las
+cabeceras de ST y el código de CoreMark. Apache-2.0 entra en una obra GPLv3
+—no en GPLv2—, así que **GPLv3 o posterior** funciona. El `LICENSE.md` de
+CoreMark no es la licencia del software sino un acuerdo de **marca**, y la
+GPLv3 admite eso expresamente en su §7(e); los deberes prácticos son no usar la
+marca con una copia modificada y **no publicar puntuaciones**, que mcu-sim no
+publica.
+
+Y el riesgo que sí veo, que **no está en el código sino en `doc/`**:
+`informe_revisado.md` e `informe_instrucciones.md` salen de los manuales de ST
+y de ARM. Los hechos no son de nadie; la expresión sí. Poner GPLv3 encima no lo
+arregla, porque solo se puede licenciar lo que es propio. Queda abierto como
+**I-50**, que es donde debe estar mientras nadie haya leído esos dos documentos
+con esa pregunta en la mano.
+
+**Lo que no se ha hecho:** elegir licencia —GPLv3 cierra la puerta a que alguien
+incruste mcu-sim como biblioteca en una herramienta propietaria, y si eso
+importa la respuesta es LGPLv3 o MPL-2.0—, y ejecutar macOS con éxito, que
+sigue siendo I-23.
