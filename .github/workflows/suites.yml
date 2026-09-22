@@ -206,21 +206,32 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/systemc
-          key: systemc-${{ env.SYSTEMC_VER }}-cxx17-mingw64-fiber-v2
+          key: systemc-${{ env.SYSTEMC_VER }}-cxx17-mingw64-qt-v3
 
       - name: Construir SystemC si no estaba en la cache
-        # AQUI NO SE PIDE PTHREADS, al reves que en macOS. El CMakeLists de
-        # SystemC lo prohibe explicitamente:
+        # NI PTHREADS NI FIBER: QuickThreads, como en cualquier Unix, y con el
+        # preprocesador encendido para el ensamblador.
         #
-        #   if (WIN32 AND ENABLE_PTHREADS)
-        #     message (FATAL_ERROR "Pthreads is not supported on ...")
+        # El CMakeLists de SystemC 2.3.4 solo elige Fiber cuando el compilador
+        # es MSVC. Con MinGW detecta `__x86_64__` y se va a QuickThreads, cuyo
+        # `iX86_64.s` termina asi:
         #
-        # En Windows el paquete de corrutinas por omision es Fiber, que es de
-        # la propia API de Win32 y funciona. Lo puse por una incidencia de
-        # MinGW que habia leido por encima y que no decia lo que yo entendi.
+        #     #if defined(__linux__) && defined(__ELF__)
+        #     .section .note.GNU-stack,"",%progbits
+        #     #endif
+        #
+        # Un fichero `.s` en minuscula NO pasa por el preprocesador, asi que el
+        # `#if` se trata como un comentario y la directiva se ensambla siempre.
+        # En COFF eso no vale y `as` corta con «junk at end of line, first
+        # unrecognized character is `-'», que es el guion de `GNU-stack`.
+        #
+        # `-x assembler-with-cpp` enciende el preprocesador: `__linux__` no
+        # esta definido, la seccion no se emite y el objeto sale. Reproducido y
+        # comprobado en las dos direcciones con el MinGW cruzado de Debian
+        # antes de escribir esto, no deducido del log.
         run: |
           sh ci/construye_systemc.sh "$(cygpath -u "$GITHUB_WORKSPACE")/systemc" \
-              -G Ninja
+              -G Ninja -DCMAKE_ASM_FLAGS="-x assembler-with-cpp"
 
       - name: Las tres suites
         working-directory: src
