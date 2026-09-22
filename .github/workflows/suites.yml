@@ -49,6 +49,18 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+
+      - name: El SEGUNDO motor de los vectores de cifrado
+        # `verif/vectores/comprueba_vectores.py` devuelve 1 si algun caso queda
+        # confirmado por UN SOLO motor, y hace bien: un vector que solo
+        # confirma openssl no es una comprobacion independiente, es openssl
+        # comparandose consigo mismo. En una maquina recien hecha falta
+        # pycryptodome, y los 32 casos de AES, DES y TDES caen a un motor.
+        #
+        # Esto no es un remiendo para poner el CI en verde: es la dependencia
+        # que la comprobacion necesita para valer lo que dice que vale.
+        run: python3 -m pip install --break-system-packages pycryptodome
+
       - name: Capa de red, minas de Windows, vectores de CRYP y HASH
         working-directory: src
         run: make -f Makefile.mcu-sim red hash cryp vectores
