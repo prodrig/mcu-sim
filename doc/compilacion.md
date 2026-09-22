@@ -595,7 +595,8 @@ haber variado.)*
 | Linux, clang | **Verificado** con el codigo anterior a versionar los firmwares: 2117/2117, mismo tiempo simulado al picosegundo. Falta repetirlo; no se espera nada distinto, pero no se ha hecho |
 | **Windows, MSYS2 / MinGW-w64** | **VERIFICADO POR COMPLETO, y los TRES invariantes coinciden con los de Linux al picosegundo.** Con los firmwares versionados: **2118/2118** en `2336217899213 ps` (huella `0x644FCE21`), **204/204** en `1033367277932 ps` y **165/165** en `718988288 ps`. Antes, con los firmwares de cada sitio, el del F407 salia `2334217899213 ps`: los 2 ms eran el binario y nada mas (**T-22**) |
 | Windows, cruzado desde Linux | **Compila y enlaza** (`make red PLATAFORMA=windows CXX=x86_64-w64-mingw32-g++`, PE32+ sin avisos). Ojo: el cruzado de Debian usa hilos **win32** y el de MSYS2 **posix**, así que no reproduce el caso de §5.6 |
-| macOS, clang | **La rama específica compila**. **Falta** probarlo en un Mac |
+| **macOS, Apple Silicon** | **VERIFICADO por la integración continua** (`macos-26`, clang, SystemC 2.3.4 compilada con `ENABLE_PTHREADS`): las tres suites pasan y los tres invariantes coinciden, porque el trabajo falla si no coinciden. **Tercera plataforma en dar las mismas cifras** |
+| macOS, Intel | **La rama específica compila; el enlazado no.** QuickThreads declara dos símbolos de ASan como referencias débiles, modismo de ELF que el enlazador de Apple no acepta. Se construye con `ENABLE_PTHREADS`, igual que en arm64; sin ejecutar cuando se escribe esto |
 
 **Windows está verificado, y ahora también el invariante.** SystemC 2.3.4 se
 construye para MinGW, el modelo se ejecuta y las tres suites pasaron enteras

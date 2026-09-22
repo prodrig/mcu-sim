@@ -190,7 +190,27 @@ logs era benigno —la etiqueta sí se sacaba— pero dejaba en el aire si lo
 construido era la etiqueta o la rama por omisión, que hoy es la 3.0. Ahora el
 script imprime qué fuente ha usado.
 
-**Lo que esto dice del CI**, y es la única conclusión que aguanta dos casos: ha
-encontrado en dos ejecuciones dos cosas que tres máquinas de desarrollo no
-habían visto en meses, y las dos estaban en el entorno, no en el modelo. Que es
-exactamente para lo que sirve.
+**Tercera ejecución: macOS Apple Silicon pasa.** Las tres suites, los tres
+invariantes. Es la tercera plataforma que da las mismas cifras, y la primera
+que las da con un **paquete de corrutinas distinto** —pthreads en vez de
+QuickThreads—, lo que confirma lo que se esperaba pero no se había medido: el
+tiempo simulado lo lleva el planificador de SystemC y nada más.
+
+Y dos fallos más, los dos míos y de signo contrario:
+
+* **Windows**: le pedí `ENABLE_PTHREADS=ON` y el `CMakeLists` de SystemC lo
+  **prohíbe explícitamente** (`Pthreads is not supported on Windows`). Allí el
+  paquete por omisión es Fiber, de la API de Win32, y funciona. Lo puse por una
+  incidencia de MinGW que leí por encima.
+* **macOS Intel**: con QuickThreads, el enlazado muere con `Undefined symbols`.
+  `sc_cor_qt.cpp` declara dos símbolos de ASan como **referencias débiles**, un
+  modismo de ELF que el enlazador de Mach-O no acepta. O sea que **QuickThreads
+  está roto en macOS con SystemC 2.3.4**, en las dos arquitecturas; en
+  Apple Silicon no se vio porque allí ya llevaba pthreads por otro motivo. Esa
+  precaución acertó por una razón que no era la suya, y sigue sin saberse si
+  QuickThreads funciona en arm64: nunca se le ha dejado intentarlo.
+
+**Lo que esto dice del CI**, y es la conclusión que aguanta cuatro casos: ha
+encontrado en tres ejecuciones cuatro cosas que tres máquinas de desarrollo no
+habían visto en meses, y las cuatro estaban en el entorno, no en el modelo. Que
+es exactamente para lo que sirve.
