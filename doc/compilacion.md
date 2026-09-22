@@ -624,8 +624,22 @@ El F446 y el F417 se ejecutaron **dos veces**, con salida idéntica: el tiempo
 simulado no depende de la carga de la máquina, como debe ser en un modelo
 donde el tiempo lo lleva el planificador y no el reloj de pared.
 
-En **macOS** sigue faltando todo: es el punto **I-23** del trabajo pendiente, y
-para un programa que se reparte a alumnos no es opcional.
+En **macOS** sigue faltando la verificación, pero ya no es un hueco sin plan:
+entra por la **integración continua**, en las dos arquitecturas y sobre
+hardware Apple real —que es la única forma legal de probarlo desde un PC con
+Windows, porque la licencia de macOS solo permite virtualizarla sobre un
+ordenador Apple—. Está contado en **`doc/integracion_continua.md`**, y sigue
+siendo el punto **I-23** del trabajo pendiente hasta que salgan las 2 118
+comprobaciones y el invariante.
+
+## 8.1 Y lo mismo, en cada cambio
+
+`.github/workflows/suites.yml` ejecuta las tres suites en las cuatro
+plataformas en cada empujón a `main`, y **contrasta el tiempo simulado contra
+`src/verif/invariantes.txt`**, que es donde viven esas tres cifras una sola vez.
+Si no coinciden, el trabajo falla; no avisa, falla. El porqué de ese criterio
+—y no el de «las suites pasan»— está en §7, y el detalle de los cuatro trabajos
+en `doc/integracion_continua.md`.
 
 ---
 

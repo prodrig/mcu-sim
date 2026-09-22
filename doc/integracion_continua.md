@@ -156,3 +156,41 @@ en macOS con el mismo firmware, hay una diferencia real de comportamiento entre
 plataformas y hay que entenderla antes de dar macOS por buena. Cambiar la cifra
 esperada para que el CI se ponga verde sería exactamente la clase de arreglo
 que este proyecto no hace.
+
+### 4.1 Lo que falló de verdad, que no estaba en la lista
+
+Dos ejecuciones, dos fallos, **y ninguno de los dos aparecía arriba**. La lista
+se queda como estaba, sin retocar a posteriori: una previsión que se corrige
+después de ver el resultado no es una previsión.
+
+**Primera: el trabajo rápido, el que no necesita SystemC.** `make vectores`
+llama a `comprueba_vectores.py`, que devuelve 1 si algún caso queda confirmado
+por **un solo motor**. En una máquina recién hecha no está `pycryptodome`, así
+que los 32 casos de AES, DES y TDES se quedaron solo con `openssl`. El script
+tiene razón —un vector que solo confirma openssl es openssl comparándose
+consigo mismo— y el que estaba mal era el workflow, al que le faltaba la
+dependencia. Corregido instalándola, no relajando el criterio.
+
+**Segunda: los tres trabajos que construyen SystemC, idénticamente.**
+
+```
+CMake Error at CMakeLists.txt:209 (cmake_minimum_required):
+  Compatibility with CMake < 3.5 has been removed from CMake.
+```
+
+SystemC 2.3.4 es de 2022 y pide un CMake anterior al 3.5; **CMake 4 ha retirado
+esa compatibilidad**. Linux no lo sufre porque allí la biblioteca viene de
+`apt`. Se añade `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`, que es la salida que el
+propio CMake propone, y queda anotado en **I-24** como el primer argumento
+concreto para subir a la línea 3.0: hasta ese día no había ninguno.
+
+De paso se cambió el clon superficial por uno completo con `checkout` de la
+etiqueta. El aviso `refs/tags/2.3.4 ... is not a commit!` que salía en los tres
+logs era benigno —la etiqueta sí se sacaba— pero dejaba en el aire si lo
+construido era la etiqueta o la rama por omisión, que hoy es la 3.0. Ahora el
+script imprime qué fuente ha usado.
+
+**Lo que esto dice del CI**, y es la única conclusión que aguanta dos casos: ha
+encontrado en dos ejecuciones dos cosas que tres máquinas de desarrollo no
+habían visto en meses, y las dos estaban en el entorno, no en el modelo. Que es
+exactamente para lo que sirve.
