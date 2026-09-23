@@ -7909,7 +7909,16 @@ SC_MODULE(F1Tb) {
         check(iwdg_rst,
               "el perro INDEPENDIENTE sigue contando aunque se pare el reloj de "
               "sistema: es justo para lo que existe [IR, 12.11]");
-        check_near(dti, dut->iwdg.timeout_s(), 0.05,
+        // TOLERANCIA DEL 0,2 %, no del 5 %. La que habia aqui dejaba pasar
+        // +-10 ms sobre un plazo de 201, y el fallo que tenia que cazar -un
+        // tick de mas, T-23- son 1 ms: la comprobacion era DIEZ VECES MAS
+        // FLOJA que el defecto, y por eso el defecto vivio hasta que lo
+        // destapo una diferencia entre dos versiones de SystemC.
+        //
+        // El 0,2 % son +-0,4 ms, cuatro veces el paso del sondeo de arriba
+        // -100 us- y menos de la mitad de un tick del IWDG. Puede fallar, que
+        // es lo minimo que se le pide a una comprobacion.
+        check_near(dti, dut->iwdg.timeout_s(), 0.002,
                    "y lo hace exactamente en el plazo programado");
 
         // El reset de sistema NO para al perro independiente: en el silicio solo

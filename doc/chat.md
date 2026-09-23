@@ -5245,3 +5245,130 @@ necesita un alumno con un Mac.
 **Lo que NO cubre el CI, y queda dicho en I-23**: los objetivos `asan*` no se
 ejecutan alli, y macOS sigue sin probarse en el portatil de nadie. Hardware
 Apple alquilado por minutos vale para esto, pero no es lo mismo.
+
+
+---
+
+## T-23 cerrado: el perro ladraba un tick antes, y el invariante se mueve
+
+**Prompt:** *(prepara un parche para cerrar I-23 y otro para cerrar T-23)*
+
+**Respuesta:**
+
+El IWDG reseteaba **al llegar** el contador a cero. [RM0090, §21.3] da el plazo
+como `t_LSI x 4 x 2^PR x (RLR+1)`: el reset llega **una cuenta despues** de
+cero, no al llegar. Y `timeout_s()` ya decia `(rlr_+1) * tick_period()` desde
+siempre, o sea que el modelo se contradecia a si mismo y nadie lo noto.
+
+Con un plazo de 201,0 ms el perro ladraba a los **200,0**; ahora lo hace a los
+**201,1**, que es el primer sondeo del banco despues del plazo.
+
+**Quien lo destapo no fue una comprobacion, fue una diferencia entre versiones
+de SystemC.** Con la 3.0.2 el redondeo caia del otro lado y compensaba el tick
+de mas por accidente; al poner la guarda (`common/guarda_tick.h`) las dos
+versiones se pusieron de acuerdo —en los 200,0— y el defecto quedo a la vista.
+
+**La parte incomoda.** La comprobacion que debia cazarlo era
+
+```cpp
+check_near(dti, dut->iwdg.timeout_s(), 0.05, "...");
+```
+
+Un **5 % de tolerancia para un error del 0,5 %**: diez veces mas floja que el
+fallo. Ahora es **0,2 %** —±0,4 ms, cuatro veces el paso del sondeo del banco y
+menos de medio tick del perro—, o sea que **puede fallar**, que es lo minimo que
+se le pide a una comprobacion. La doctrina del proyecto ya lo decia para los
+casos que no pueden fallar; esto es el mismo defecto en version atenuada.
+
+**El invariante se mueve, a proposito.** Es la primera vez desde la fase 7, y
+el propio `verif/invariantes.txt` dice que mover una de esas cifras es
+*declarar que el comportamiento del modelo ha cambiado a proposito*. Pues se
+declara:
+
+```
+test407   resto   2239552024213  ->  2240553274213 ps   (+1,00125 ms)
+test407   total   2336217899213  ->  2337219149213 ps
+test446           1033367277932 ps   sin cambio
+test417                718988288 ps   sin cambio
+```
+
+Las otras dos suites no ejercen el plazo del perro, asi que no se mueven —que
+es exactamente lo que deberia pasar si el cambio es el que creemos que es—.
+
+Comprobado con **SystemC 2.3.4 y 3.0.2**: las mismas cifras al picosegundo con
+las dos.
+
+
+---
+
+## Sacar los informes de TODA la historia de GitHub: lo que cuesta de verdad
+
+**Prompt:** *¿Cómo sacamos los informes de doc borrándolos de toda la historia de
+versiones presente en GitHub?*
+
+**Respuesta:**
+
+Se hace con **`git filter-repo`** —no con `filter-branch`, que está
+desaconsejado por el propio git, ni con BFG, que se niega a tocar ficheros que
+siguen en `HEAD`—. Pero antes de la receta hay tres cosas que conviene saber,
+porque son las que deciden si merece la pena.
+
+**1. Los informes estuvieron en DOS rutas.** Hasta `97aabd1` («el proyecto
+cambia de nombre y la documentacion se reordena») vivían en `doc/*.md`; después,
+en `doc/stm32f4xx/`. Filtrar solo la carpeta nueva **los deja intactos en los
+primeros 72 commits**. Hay que dar las dos rutas.
+
+**2. Cambian TODOS los hashes.** El primer commit que mete un informe es
+`cd50f52`, el primero del repositorio, así que la reescritura alcanza a los 116.
+Y este proyecto **cita hashes en su propia documentación**: `todo.md`,
+`chat.md`, `integracion_continua.md` y unos cuantos mensajes de commit hablan de
+`4a14566`, `45c39f7`, `97aabd1`… Todos esos punteros se quedan apuntando a nada.
+
+**3. Borrarlo de la historia no lo borra del mundo.** Lo que se va es la
+*referencia*; GitHub conserva los objetos inalcanzables y siguen sirviéndose por
+URL directa (`/commit/<sha>`) hasta que **Soporte** pasa el recolector, y eso hay
+que pedirlo por un ticket. Cualquier clon, fork, réplica o rastreador que ya
+pasara por ahí conserva el contenido entero.
+
+**Por eso, con un repositorio de cuatro días y sin forks, sale más limpio
+BORRARLO EN GitHub Y VOLVERLO A SUBIR** ya filtrado: no hay objetos
+inalcanzables que pedir que recojan, y no hay que fiarse de la limpieza de
+nadie. Se pierden las ejecuciones del CI, que no son gran cosa.
+
+La receta, sobre un clon recién hecho y con el original a salvo:
+
+```bash
+git clone --mirror git@github.com:prodrig/mcu-sim.git mcu-sim-espejo
+cd mcu-sim-espejo
+git filter-repo \
+  --invert-paths \
+  --path doc/stm32f4xx/ \
+  --path-glob 'doc/informe*' \
+  --path-glob 'doc/stm32f407vg_*' \
+  --path-glob 'doc/stm32f4xx_*'
+```
+
+Y **antes de subir nada**, comprobar que no queda rastro:
+
+```bash
+git log --all --pretty=format: --name-only | sort -u | grep -i informe
+git rev-list --objects --all | wc -l
+```
+
+**Lo que hay que mirar antes de decidirlo**, que es la parte que no es técnica:
+
+- `doc/stm32f4xx/valida_instrucciones.py` **no es un informe**, es la
+  herramienta que valida las codificaciones. Si se filtra la carpeta entera, se
+  va con ella.
+- El código cita los informes por todas partes —`[IR, 12.11]`, `[II, §3]`— y
+  `doc/fuentes.md` los da como fuente. Sacarlos deja **cientos de referencias
+  colgando** en los comentarios del modelo.
+- Los que son claramente propios —`compilacion.md`, `todo.md`, `chat.md`,
+  `integracion_continua.md`, `analisis_gui.md`, `coste_simulacion.md`— **no
+  tienen por qué irse**. El riesgo que anota **I-50** es el de los informes que
+  transcriben manuales de ST y de ARM, no el de todo lo escrito en el proyecto.
+
+Y la de fondo: **I-50 dice que solo se puede licenciar lo que es propio.** Si los
+informes son transcripción, sacarlos es lo correcto; pero es una decisión que se
+toma por sus méritos, mirando qué hay dentro de cada fichero, no por reflejo.
+Reescribir la historia es la opción nuclear y solo se hace una vez bien.

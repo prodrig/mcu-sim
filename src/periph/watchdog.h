@@ -357,12 +357,27 @@ protected:
                 continue;
             }
             if (!run_ || frozen_ || p <= 0.0) { wait(ev_); continue; }
-            const unsigned c = cnt_now();
-            if (c > 0) {
-                // Una sola cita: cuándo llegará a cero. Nada de contar flancos,
-                // y por eso el perro sigue vivo aunque se apague la onda
-                // cuadrada de los relojes internos.
-                wait(sc_core::sc_time(double(c) * p, sc_core::SC_SEC), ev_);
+            // EL PLAZO SON RLR+1 CUENTAS, NO RLR.
+            //
+            // [RM0090, §21.3] da el plazo como t_LSI x 4 x 2^PR x (RLR+1), que
+            // es lo mismo que dice `timeout_s()` aquí desde siempre. El
+            // contador baja de RLR a 0 —eso son RLR cuentas— y el reset llega
+            // en la cuenta SIGUIENTE, cuando se pasa de cero. Durante ese
+            // último tick el registro lee 0 y todavía no ha pasado nada, que
+            // es lo que hace el silicio.
+            //
+            // Antes se reseteaba al LLEGAR a cero, o sea un tick antes de
+            // tiempo: con un plazo de 201,0 ms el perro ladraba a los 200,0.
+            // Era T-23, y no lo veía nadie porque la comprobación que lo mira
+            // tenía un 5 % de tolerancia para un error del 0,5 %.
+            const double dt = (sc_core::sc_time_stamp() - t_ref_).to_seconds();
+            const uint64_t n    = uint64_t(dt / p + GUARDA_TICK);
+            const uint64_t meta = uint64_t(cnt0_) + 1u;
+            if (n < meta) {
+                // Una sola cita: cuándo se pasa de cero. Nada de contar
+                // flancos, y por eso el perro sigue vivo aunque se apague la
+                // onda cuadrada de los relojes internos.
+                wait(sc_core::sc_time(double(meta - n) * p, sc_core::SC_SEC), ev_);
                 continue;
             }
             o_rst_ = true;                       // se acabó el plazo

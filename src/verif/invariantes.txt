@@ -47,7 +47,12 @@
 #   macOS Intel                   T96+T97 = 97 065 875 ns   total 2336617899213
 #
 # Cuatro sondeos de mas, 400 us exactos, TODOS dentro de T96+T97: la columna
-# «el resto» vale 2239552024213 ps en las cuatro plataformas, al picosegundo.
+# «el resto» valia lo mismo en las cuatro plataformas, al picosegundo.
+#
+# (Esas cifras son de antes de cerrar T-23. Al corregir el tick de mas del
+#  IWDG la columna «resto» del F407 paso de 2239552024213 a 2240553274213 ps,
+#  1,00125 ms mas, y el total a 2337219149213. Las otras dos suites no se
+#  mueven: no ejercen el plazo del perro.)
 #
 # O sea que contrastar el total generaba un fallo falso en una plataforma y
 # tapaba el criterio de verdad. Contrastar `resto` no afloja nada: quita del
@@ -60,6 +65,6 @@
 # 2336217899213 ps.
 
 # suite      comprobaciones   tiempo simulado (ps)   cifra
-test407               2118      2239552024213        resto
+test407               2118      2240553274213        resto
 test446                204      1033367277932        total
 test417                165           718988288        total
