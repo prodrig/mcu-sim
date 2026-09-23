@@ -5468,3 +5468,55 @@ quedan.
 Y por qué borrar el repositorio en vez de forzar el empujón: para que **no
 queden objetos inalcanzables** sirviéndose por SHA directo. Eso solo lo recoge
 Soporte de GitHub, y Soporte es de plan de pago.
+
+
+---
+
+## Las cuatro plataformas en verde sobre el repositorio republicado
+
+**Prompt:** *(gh run watch 35873254064 → success)*
+
+**Respuesta:**
+
+Séptima ejecución, la primera sobre el repositorio nuevo y con la historia
+reescrita. **Los cinco trabajos en verde:**
+
+```
+Sin SystemC (red, macros, vectores)        10 s
+macOS Apple Silicon   (Homebrew, 3.0.2)   1:53
+Linux (g++, libsystemc-dev, 2.3.4)        2:40
+macOS Intel           (Homebrew, 3.0.2)   2:53
+Windows (MSYS2 / MinGW-w64, 2.3.4)        6:12
+```
+
+Seis minutos de Windows contra dos de los demás, y es justo: es el único que
+**compila SystemC**, porque es la única plataforma sin paquete. Y macOS Intel,
+que con los pthreads no había terminado en 44 minutos, tarda ahora menos de
+tres.
+
+**Lo que esta ejecución valida no es el traslado de los informes** —que no toca
+una línea de código— sino **el invariante movido por T-23**. La corrección del
+perro se midió con SystemC 2.3.4 y 3.0.2, pero las dos son la misma máquina y
+el mismo compilador. Ahora `2240553274213 ps` sale en cuatro plataformas, dos
+versiones de SystemC, dos compiladores y tres sistemas operativos, al
+picosegundo. El cambio movió el invariante **exactamente lo que tenía que
+moverlo**, y eso ya no es la afirmación de una máquina.
+
+**P-13 queda en pie y en verde.** De los tres puntos que le quedaban: el `a`
+era I-23 y está cerrado; el `c` —si `ENABLE_PTHREADS` hacía falta en arm64— se
+resuelve con un *no hacía falta nada de eso*, porque macOS ya no compila
+SystemC; y el `b`, subir las acciones a la v5, sigue pendiente.
+
+**Y aparece un punto `d`, con fecha.** El propio log lo avisa: **el 19 de
+octubre de 2026 `ubuntu-latest` pasa a Ubuntu 26**. El trabajo de Linux se
+apoya en el `libsystemc-dev` del sistema, así que ese día puede cambiarle la
+versión de SystemC debajo sin que nadie toque nada. No es alarmante —desde
+I-24 sabemos que la 2.3.4 y la 3.0.2 dan las mismas cifras— pero queda escrito
+lo que hay que hacer si se pone rojo: mirar qué versión trae el paquete, y **no
+tocar `verif/invariantes.txt`** hasta saberlo.
+
+**El saldo de la semana, ya completo:** los informes fuera del repositorio y
+fuera de su historia; el invariante del F407 corregido y movido a propósito por
+primera vez desde la fase 7; y un CI que en siete ejecuciones ha encontrado
+seis cosas que tres máquinas de desarrollo no vieron en meses. Una de ellas
+estaba en el modelo. Otra, en el criterio con el que lo juzgábamos.

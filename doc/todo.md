@@ -237,18 +237,35 @@ no un aviso.
 versionaban, cada máquina ejecutaba un programa distinto y un CI
 multiplataforma habría dado rojo permanentemente por la razón equivocada.
 
+**EN PIE Y EN VERDE desde el 2026-09-23.** Séptima ejecución, la primera sobre
+el repositorio republicado: los cinco trabajos pasan. `10 s` el rápido,
+`1:53` macOS arm64, `2:40` Linux, `2:53` macOS Intel y `6:12` Windows —el único
+que compila SystemC, porque es el único sin paquete—.
+
 **Lo que queda:**
 
 | | Qué | Estado |
 | :--- | :--- | :--- |
-| a | Que macOS pase por primera vez | **Es el objeto de I-23**; sin ejecutar cuando se escribe esto |
-| b | Subir `actions/checkout`, `cache` y `upload-artifact` a la v5 | El aviso de Node 20 ya sale en los logs; hoy se ejecutan forzadas sobre Node 24 |
-| c | Decidir si `ENABLE_PTHREADS` en arm64 hace falta de verdad | Se puso por precaución; la primera ejecución lo dirá |
+| a | Que macOS pase por primera vez | **HECHO**; es I-23, cerrado el 2026-09-23 con las dos arquitecturas |
+| b | Subir `actions/checkout`, `cache` y `upload-artifact` a la v5 | **PENDIENTE.** Node 20 está obsoleto y las tres se ejecutan ya forzadas sobre Node 24: funciona, pero es prestado |
+| c | Decidir si `ENABLE_PTHREADS` en arm64 hace falta de verdad | **RESUELTO, y la respuesta fue que no hacía falta nada de eso**: macOS ya no compila SystemC, usa la de Homebrew. La precaución costó una ejecución de 44 minutos sin terminar en Intel |
+| d | **19 de octubre de 2026: `ubuntu-latest` pasa a Ubuntu 26** | **CON FECHA.** El trabajo de Linux se apoya en `libsystemc-dev` del sistema, así que ese día puede cambiarle la versión de SystemC debajo sin que nadie toque nada. Desde I-24 sabemos que la 2.3.4 y la 3.0.2 dan las mismas cifras, así que no es alarmante; pero si se pone rojo, lo primero es mirar qué versión trae el paquete, y **no se toca `verif/invariantes.txt`** hasta saberlo |
 
-**Lo que ya ha enseñado, en dos ejecuciones:** que
-`comprueba_vectores.py` necesita un segundo motor y en una máquina recién hecha
-no lo tiene; y que **SystemC 2.3.4 no configura con CMake 4** (véase I-24).
-Ninguna de las dos cosas la había visto nadie en tres máquinas de desarrollo.
+**Lo que ha enseñado, en siete ejecuciones:** seis fallos que tres máquinas de
+desarrollo no habían visto en meses. Cuatro en el entorno —el segundo motor de
+`comprueba_vectores.py`, **SystemC 2.3.4 contra CMake 4**, el `#if` que no se
+evalúa del ensamblador de QuickThreads, pthreads cien veces más lento—; **uno
+en el modelo**, la guarda de redondeo, que llevaba ahí desde siempre sin que
+ninguna de las 2 118 comprobaciones lo viera (I-24, y de ahí salió T-23); y
+**uno en el propio criterio**, el tiempo que el stub de GDB gasta esperando un
+socket (T-16).
+
+**Y una propiedad que no estaba en el plan:** los tres invariantes salen
+idénticos al picosegundo en **cuatro plataformas, con dos versiones de SystemC,
+dos compiladores y tres sistemas operativos**. Dejaron de ser una propiedad de
+una máquina. La ejecución del 2026-09-23 es además la primera que lo comprueba
+con **el invariante movido por T-23**, que hasta entonces solo se había medido
+en Linux.
 
 ---
 

@@ -298,3 +298,48 @@ habían visto en meses. Cuatro estaban en el entorno. **La quinta estaba en el
 modelo, llevaba ahí desde siempre, y ninguna de las 2 118 comprobaciones la
 veía. La sexta estaba en el propio criterio**: el número que el proyecto
 llamaba invariante no era del todo suyo.
+
+---
+
+## 5. El estado al cierre, 23 de septiembre de 2026
+
+Séptima ejecución, la primera sobre el repositorio republicado y con la
+historia reescrita. **Los cinco trabajos en verde**, y estos son los tiempos
+de pared:
+
+| Trabajo | SystemC | Tiempo |
+| :--- | :--- | ---: |
+| Sin SystemC (red, macros de Windows, vectores) | — | **10 s** |
+| macOS Apple Silicon | 3.0.2, Homebrew | **1 min 53 s** |
+| Linux (g++, `libsystemc-dev`) | 2.3.4, apt | **2 min 40 s** |
+| macOS Intel | 3.0.2, Homebrew | **2 min 53 s** |
+| Windows (MSYS2 / MinGW-w64) | 2.3.4, compilada | **6 min 12 s** |
+
+Seis minutos de Windows contra dos de los demás: es el único que **compila
+SystemC**, porque es la única plataforma sin paquete. Y macOS Intel, que en la
+ejecución de los pthreads no había terminado en 44 minutos, tarda ahora menos
+de tres.
+
+**Lo que esta ejecución valida, y no es el traslado de los informes.** Es la
+primera que contrasta **el invariante movido por T-23** —`2240553274213 ps` en
+la columna `resto`— fuera de Linux. La corrección del perro se había medido
+aquí con SystemC 2.3.4 y 3.0.2, pero las dos son la misma máquina y el mismo
+compilador. Ahora la misma cifra sale en **cuatro plataformas, dos versiones de
+SystemC, dos compiladores y tres sistemas operativos**, al picosegundo.
+
+Dicho de otra forma: el cambio de T-23 movió el invariante **exactamente lo que
+tenía que moverlo**, y eso ya no es una afirmación de una máquina.
+
+### Dos avisos con fecha que el propio CI imprime
+
+**`ubuntu-latest` pasa a Ubuntu 26 el 19 de octubre de 2026.** El trabajo de
+Linux se apoya en `libsystemc-dev` de Ubuntu, así que ese día puede cambiarle
+la versión de SystemC debajo sin que nadie toque nada. **No es alarmante y por
+una razón medida**: desde I-24 sabemos que los tres invariantes valen lo mismo
+con la 2.3.4 y con la 3.0.2. Pero si ese día el trabajo de Linux se pone rojo,
+lo primero que hay que mirar es qué versión trae el paquete nuevo — y **no se
+toca `verif/invariantes.txt`** hasta saberlo.
+
+**Node 20 está obsoleto** y `actions/checkout@v4`, `cache` y `upload-artifact@v4`
+se ejecutan ya forzados sobre Node 24. Funciona, pero es prestado: subirlas a
+la v5 sigue siendo el punto **b** de P-13.
