@@ -124,6 +124,15 @@ en obra derivada de un documento que no es nuestro. Cada cita sigue diciendo
 qué sección respalda el código; para leerla hace falta el RM0090, que es de
 donde salió. `doc/fuentes.md` dice cuál y en qué revisión.
 
+**Y por qué los hashes de la documentación no existen aquí.** Los informes
+estuvieron versionados hasta el **23 de septiembre de 2026**, y sacarlos exigió
+reescribir la historia pública entera con `git filter-repo`. No se ha perdido
+ningún commit —están los mismos, en el mismo orden y con los mismos mensajes—
+pero **todos cambiaron de hash**, así que los que cita `doc/todo.md`,
+`doc/chat.md` y `doc/integracion_continua.md` —`4a14566`, `45c39f7`,
+`97aabd1`…— son de la historia anterior y no resuelven. Se localizan por el
+asunto del commit, que sí es el mismo.
+
 ---
 
 ## Estado

@@ -58,6 +58,11 @@ con él**. No dejan el código sin justificar —cada una dice qué sección lo
 respalda— pero para leer esa sección hace falta el manual de ST, que es de
 dónde salió. La tabla de la sección 1 dice cuál y en qué revisión.
 
+**Tampoco están en el historial.** Estuvieron versionados hasta el 23 de
+septiembre de 2026; sacarlos del pasado exigió reescribir la historia pública
+con `git filter-repo`, así que los commits son los mismos pero **sus hashes no**.
+Lo cuenta el `README`, y el porqué entero está en **I-50** de `doc/todo.md`.
+
 ---
 
 ## 1. Manuales y hojas técnicas de ST, en `doc/refs/`

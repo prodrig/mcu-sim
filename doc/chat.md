@@ -5429,3 +5429,42 @@ cambiados y una decisión que sigue pendiente.
 viene con el repositorio. No dejan el código sin justificar —cada una dice qué
 sección lo respalda— pero para leer esa sección hace falta el RM0090. Lo dicen
 el `README`, el de `src/` y la nueva **§0 de `doc/fuentes.md`**.
+
+
+---
+
+## La línea del README para la historia reescrita
+
+**Prompt:** *Prepara esa línea para el README y aplico el diff antes de usar la
+alternativa con git-filter-repo*
+
+**Respuesta:**
+
+El problema que resuelve es concreto: después de `git filter-repo` **los 116
+commits siguen ahí pero con otro hash**, y esta documentación cita hashes
+—`4a14566`, `45c39f7`, `97aabd1`— en `todo.md`, en este mismo diario y en
+`integracion_continua.md`. Sin una línea que lo diga, quien clone el
+repositorio prueba `git show 4a14566`, no resuelve, y no sabe si es que el
+commit no existe o es que la documentación miente.
+
+Dice, en el `README`, que los informes estuvieron versionados hasta el 23 de
+septiembre de 2026, que sacarlos exigió reescribir la historia, que **no se ha
+perdido ningún commit** —los mismos, en el mismo orden y con los mismos
+mensajes— y que **se localizan por el asunto**, que sí es el mismo. Una línea
+equivalente va a la §0 de `fuentes.md`.
+
+**Esta parte importa: el commit es la costura.** Va en el ÚLTIMO commit de la
+historia vieja, para que después de filtrar quede como el último de la nueva.
+Eso significa que **entre aplicarlo y ejecutar `git filter-repo` el repositorio
+afirma algo que todavía no es verdad**. Si al final no se reescribe la
+historia, este commit hay que revertirlo; si no, el `README` miente.
+
+I-50 se cierra con los dos pasos escritos, incluida la parte que costó: las
+**seis rutas** que hay que nombrar en el filtro, porque hasta `97aabd1` los
+informes vivían en `doc/*.md`. El glob cómodo, `doc/informe*`, se habría
+llevado por delante los cuatro ficheros de prompts, que son el método y se
+quedan.
+
+Y por qué borrar el repositorio en vez de forzar el empujón: para que **no
+queden objetos inalcanzables** sirviéndose por SHA directo. Eso solo lo recoge
+Soporte de GitHub, y Soporte es de plan de pago.
