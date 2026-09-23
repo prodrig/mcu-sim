@@ -53,9 +53,10 @@ sudo apt install libsystemc-dev
 cd src && make -f Makefile.mcu-sim test407
 ```
 
-En **Windows (MSYS2)** y en **macOS** hay que construir SystemC antes; está
-contado paso a paso en `doc/compilacion.md`, junto con el catálogo de fallos
-por síntoma, que es la parte que ahorra tardes.
+En **macOS** son igual de pocas: `brew install systemc` y a compilar. En
+**Windows (MSYS2)** hay que construir SystemC, que es la única plataforma sin
+paquete; está contado paso a paso en `doc/compilacion.md`, junto con el
+catálogo de fallos por síntoma, que es la parte que ahorra tardes.
 
 No hace falta compilador cruzado de ARM: los firmwares que usan las pruebas
 **vienen en el repositorio**.
@@ -119,9 +120,14 @@ Esto es la portada; lo que hay debajo es bastante más largo.
 
 ## Estado
 
-Siete fases cerradas más dos planes de familia. **Verificado en Linux y en
-Windows**; macOS entra ahora por la integración continua y hasta que no haya
-ejecutado no se dará por bueno.
+Siete fases cerradas más dos planes de familia. **Verificado en las cuatro
+plataformas** —Linux, Windows, macOS Apple Silicon y macOS Intel— por la
+integración continua, que en cada empujón comprueba las 2 118 comprobaciones
+**y que el tiempo simulado no se mueva al picosegundo**.
+
+Con un detalle que salió gratis: esas mismas cifras se obtienen con **dos
+versiones de SystemC** —la 2.3.4 en Linux y Windows, la 3.0.2 de Homebrew en
+los dos macOS—, dos compiladores y tres sistemas operativos.
 
 La contraparte gráfica vive en un repositorio aparte, **`mcu-sim-gui`** (Qt 6),
 y se comunica con éste por un socket. `mcu-sim` tiene que seguir compilándose

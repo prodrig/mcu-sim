@@ -5212,3 +5212,36 @@ si le muevo «el resto» 786 ps a mano, falla.
 **Lo que queda escrito como pendiente**: el dia que T-16 se arregle —que el
 stub no gaste tiempo simulado esperando a un socket— la columna vuelve a
 `total` y la cifra vuelve a ser `2336217899213 ps`.
+
+
+---
+
+## Las cuatro plataformas en verde: I-23 cerrado
+
+**Prompt:** *(commit 4a14566: todas las plataformas pasan)*
+
+**Respuesta:**
+
+`Linux (apt, 2.3.4)`, `Windows (MSYS2, 2.3.4)`, `macOS Apple Silicon (Homebrew,
+3.0.2)` y `macOS Intel (Homebrew, 3.0.2)`: **2118 / 204 / 165 y los tres
+invariantes**. I-23 queda cerrado, y con una propiedad que no estaba en el
+plan: las mismas cifras con **dos versiones de SystemC**, dos compiladores y
+tres sistemas operativos.
+
+**El saldo de la semana**, que es lo que merece quedar escrito: seis fallos en
+cinco ejecuciones del CI. Cuatro estaban en el entorno —el segundo motor de los
+vectores, CMake 4, el `#if` que no se evalua del ensamblador de QuickThreads,
+pthreads cien veces mas lento—. **Uno estaba en el modelo** y llevaba ahi desde
+siempre sin que ninguna de las 2 118 comprobaciones lo viera. **Y el sexto
+estaba en el criterio**: el numero que llamabamos invariante incluia el tiempo
+que el stub de GDB gasta esperando un socket de verdad.
+
+Actualizados: **I-23** cerrado con lo que cubre y lo que no; la tabla de
+plataformas de `compilacion.md` §8, con las dos filas de macOS y lo que costo
+cada una; el `README`; y **`compilacion.md` §4, que ahora dice `brew install
+systemc`** — la linea que le faltaba desde siempre y que es justo la que
+necesita un alumno con un Mac.
+
+**Lo que NO cubre el CI, y queda dicho en I-23**: los objetivos `asan*` no se
+ejecutan alli, y macOS sigue sin probarse en el portatil de nadie. Hardware
+Apple alquilado por minutos vale para esto, pero no es lo mismo.

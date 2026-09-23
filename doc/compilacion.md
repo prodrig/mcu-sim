@@ -137,9 +137,22 @@ MinGW instaladas.
 **Linux.** SystemC viene empaquetada: `apt install libsystemc-dev` en Ubuntu
 24.04 pone la 2.3.4 en `/usr`, que es el valor por omisión. `make` y ya está.
 
-**macOS.** `SYSTEMC_HOME` se detecta entre `/opt/homebrew` (Apple Silicon) y
-`/usr/local` (Intel). El compilador es clang, y el modelo compila con él sin
-avisos propios.
+**macOS.** También viene empaquetada, y ésta es la línea que faltaba aquí:
+
+```bash
+brew install systemc
+cd src && make test407
+```
+
+`SYSTEMC_HOME` se detecta solo entre `/opt/homebrew` (Apple Silicon) y
+`/usr/local` (Intel), que es donde Homebrew enlaza sus cabeceras; no hay que
+darle nada. El compilador es clang y el modelo compila con él sin avisos
+propios. Si quieres ver qué ha detectado antes de compilar: `make plataforma`.
+
+**Homebrew trae la 3.0.2, no la 2.3.4 de Linux y Windows, y da igual**: los
+tres invariantes son los mismos con las dos versiones. No lo fueron siempre
+—con la 3.0.2 la suite llegó a no terminar— y la historia de por qué está en
+**I-24**, que es de las que merece leerse.
 
 ---
 
@@ -595,8 +608,8 @@ haber variado.)*
 | Linux, clang | **Verificado** con el codigo anterior a versionar los firmwares: 2117/2117, mismo tiempo simulado al picosegundo. Falta repetirlo; no se espera nada distinto, pero no se ha hecho |
 | **Windows, MSYS2 / MinGW-w64** | **VERIFICADO POR COMPLETO, y los TRES invariantes coinciden con los de Linux al picosegundo.** Con los firmwares versionados: **2118/2118** en `2336217899213 ps` (huella `0x644FCE21`), **204/204** en `1033367277932 ps` y **165/165** en `718988288 ps`. Antes, con los firmwares de cada sitio, el del F407 salia `2334217899213 ps`: los 2 ms eran el binario y nada mas (**T-22**) |
 | Windows, cruzado desde Linux | **Compila y enlaza** (`make red PLATAFORMA=windows CXX=x86_64-w64-mingw32-g++`, PE32+ sin avisos). Ojo: el cruzado de Debian usa hilos **win32** y el de MSYS2 **posix**, así que no reproduce el caso de §5.6 |
-| **macOS, Apple Silicon** | **VERIFICADO por la integración continua** (`macos-26`, clang, SystemC 2.3.4 compilada con `ENABLE_PTHREADS`): las tres suites pasan y los tres invariantes coinciden, porque el trabajo falla si no coinciden. **Tercera plataforma en dar las mismas cifras** |
-| macOS, Intel | **La rama específica compila; el enlazado no.** QuickThreads declara dos símbolos de ASan como referencias débiles, modismo de ELF que el enlazador de Apple no acepta. Se construye con `ENABLE_PTHREADS`, igual que en arm64; sin ejecutar cuando se escribe esto |
+| **macOS, Apple Silicon** | **VERIFICADO por la integración continua** (`macos-26`, clang, SystemC **3.0.2 de Homebrew**): 2118/2118, 204/204, 165/165 y los tres invariantes, porque el trabajo falla si no coinciden |
+| **macOS, Intel** | **VERIFICADO por la integración continua** (`macos-26-intel`, mismas cifras). Costó tres intentos: QuickThreads no enlazaba con la 2.3.4 por un `weakref` que Mach-O no acepta, pthreads iba cien veces más lento, y la 3.0.2 de Homebrew destapó **el redondeo de los contadores** —`common/guarda_tick.h`, I-24—. Nada de eso era de macOS |
 
 **Windows está verificado, y ahora también el invariante.** SystemC 2.3.4 se
 construye para MinGW, el modelo se ejecuta y las tres suites pasaron enteras
