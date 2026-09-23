@@ -3,7 +3,13 @@
 #
 # Una linea por suite:
 #
-#     <suite>  <comprobaciones>  <tiempo simulado en ps>
+#     <suite>  <comprobaciones>  <tiempo simulado en ps>  [total|resto]
+#
+# La cuarta columna dice QUE cifra se contrasta:
+#
+#   total   el tiempo simulado entero, que es lo que imprime la suite.
+#   resto   ese total MENOS lo que consumen T96 y T97, los dos grupos que
+#           hablan con un GDB de verdad por un socket de verdad.
 #
 # POR QUE EXISTE. El criterio que de verdad vale en este proyecto no es que
 # las suites pasen, sino que el TIEMPO SIMULADO no se mueva: si un cambio lo
@@ -27,7 +33,33 @@
 # firmware que se ejecuta es el mismo binario en todas las maquinas (T-22).
 # ===========================================================================
 
-# suite      comprobaciones   tiempo simulado (ps)
-test407               2118      2336217899213
-test446                204      1033367277932
-test417                165           718988288
+# POR QUE EL F407 CONTRASTA `resto` Y NO `total`
+#
+# Porque el total de esa suite lleva dentro una cifra que NO es del modelo. El
+# stub de GDB atiende su socket cada 100 us simulados (T-16), asi que mientras
+# espera una respuesta de un proceso de verdad, por un TCP de verdad, el reloj
+# SIMULADO avanza en pasos de 100 us. Cuantos pasos hagan falta depende de la
+# maquina.
+#
+# Y se ha medido: el 2026-09-23, con el mismo commit y los mismos firmwares,
+#
+#   Linux, Windows, macOS arm64   T96+T97 = 96 665 875 ns   total 2336217899213
+#   macOS Intel                   T96+T97 = 97 065 875 ns   total 2336617899213
+#
+# Cuatro sondeos de mas, 400 us exactos, TODOS dentro de T96+T97: la columna
+# «el resto» vale 2239552024213 ps en las cuatro plataformas, al picosegundo.
+#
+# O sea que contrastar el total generaba un fallo falso en una plataforma y
+# tapaba el criterio de verdad. Contrastar `resto` no afloja nada: quita del
+# criterio exactamente la parte que el propio proyecto tiene documentada como
+# dependiente del anfitrion, y deja dentro todo lo que el modelo decide. El
+# total se sigue imprimiendo, y el desglose tambien.
+#
+# El dia que T-16 se arregle -que el stub no gaste tiempo simulado esperando a
+# un socket- esta columna vuelve a `total` y la cifra vuelve a ser
+# 2336217899213 ps.
+
+# suite      comprobaciones   tiempo simulado (ps)   cifra
+test407               2118      2239552024213        resto
+test446                204      1033367277932        total
+test417                165           718988288        total

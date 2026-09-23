@@ -5156,3 +5156,59 @@ para un error del 0,5 %. **Diez veces más floja que el fallo.**
 desde el commit anterior, y ahora funciona. El parche que mandé después —volver
 a QuickThreads con los stubs de ASan— **ya no hace falta y no hay que
 aplicarlo**.
+
+
+---
+
+## Los 0,4 ms de macOS Intel: el criterio no era del todo del modelo
+
+**Prompt:** *(log de macOS Intel, unico trabajo en rojo)*
+
+**Respuesta:**
+
+Con la guarda de redondeo, macOS Intel pasa las tres suites en **159 segundos**
+—venia de no terminar en 45 minutos— y las 2 118 comprobaciones salen en verde.
+Fallaba una sola cosa: `2336617899213 ps` frente a `2336217899213`. **0,4 ms.**
+
+Comparadas las dos salidas linea a linea: de **2 548 lineas, la unica distinta
+era esa**. Ni una comprobacion con otro valor.
+
+Y el desglose que imprime la suite lo situo en una linea:
+
+| | `T96+T97` (socket de GDB) | el resto |
+| :--- | ---: | ---: |
+| Linux, Windows, macOS arm64 | 96 665 875 ns | `2239552024213 ps` |
+| macOS Intel | **97 065 875 ns** | **`2239552024213 ps`** |
+
+Los 400 µs estan **enteros** dentro de los dos grupos que hablan con un `gdb` de
+verdad por un socket de verdad: cuatro sondeos mas, de los 100 µs simulados que
+el stub tarda en atender el socket. Es **T-16**, que estaba anotado desde la
+fase F6 como «no es un problema de correccion sino de ritmo» y al que le faltaba
+la mitad: tambien **gasta tiempo simulado**, y cuanto depende de la maquina.
+
+**Lo que me gusta de esto**: ese desglose lo anadi para comprobar una hipotesis
+que resulto FALSA —crei que el socket explicaba los 2 ms del F407 entre
+maquinas, y era el binario del firmware—. Lo deje puesto diciendo que «separa
+una cifra que si podria haber variado». Hoy vario, y lo localizo en una linea.
+Un instrumento que sobrevive a la hipotesis que lo justifico.
+
+**La correccion es del criterio, no del modelo.** `verif/invariantes.txt` tiene
+ahora una cuarta columna y la suite del F407 contrasta `resto`:
+
+```
+# suite      comprobaciones   tiempo simulado (ps)   cifra
+test407               2118      2239552024213        resto
+test446                204      1033367277932        total
+test417                165           718988288        total
+```
+
+No afloja nada: quita del criterio exactamente la parte que el proyecto ya
+tenia documentada como dependiente del anfitrion, y deja dentro todo lo que
+decide el modelo. El total se sigue imprimiendo debajo, para el registro.
+
+Comprobado con los logs de verdad: el de macOS Intel pasa, el de Linux pasa, y
+si le muevo «el resto» 786 ps a mano, falla.
+
+**Lo que queda escrito como pendiente**: el dia que T-16 se arregle —que el
+stub no gaste tiempo simulado esperando a un socket— la columna vuelve a
+`total` y la cifra vuelve a ser `2336217899213 ps`.

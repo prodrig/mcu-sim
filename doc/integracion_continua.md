@@ -258,8 +258,43 @@ Linux, Homebrew en macOS— sin renunciar a comparar. De paso quedó destapado
 **T-23**: el IWDG resetea un tick antes de su plazo, y la comprobación que lo
 vigila tiene diez veces más tolerancia que el error.
 
-**Lo que esto dice del CI**, y es la conclusión que aguanta cinco casos: ha
-encontrado en cuatro ejecuciones cinco cosas que tres máquinas de desarrollo no
+### 4.3 El sexto, y lo encontró un instrumento que se añadió para otra cosa
+
+Con el redondeo corregido, macOS Intel pasó a ejecutar las tres suites en **159
+segundos** —de no terminar en 45 minutos— con las 2 118 comprobaciones en
+verde. Falló una sola cosa: el tiempo simulado, `2336617899213 ps` frente a
+`2336217899213`. **0,4 ms de más.**
+
+Comparadas las dos salidas línea a línea, **de 2 548 líneas la única distinta
+era esa**. Ni una comprobación con otro valor. Y el desglose que la suite
+imprime desde la investigación de T-22 lo situó en una línea:
+
+| | `T96+T97` (socket de GDB) | el resto |
+| :--- | ---: | ---: |
+| Linux, Windows, macOS arm64 | 96 665 875 ns | `2239552024213 ps` |
+| macOS Intel | **97 065 875 ns** | **`2239552024213 ps`** |
+
+Los 400 µs están **enteros** dentro de los dos grupos que hablan con un `gdb`
+de verdad por un socket de verdad: cuatro sondeos más de los 100 µs simulados
+que el stub tarda en atender el socket. Es **T-16**, documentado desde la fase
+F6 como «no es un problema de corrección sino de ritmo» — y resulta que también
+consume tiempo simulado que depende del anfitrión, cosa que no estaba dicha.
+
+**La parte que da gusto**: ese desglose se añadió para comprobar una hipótesis
+que resultó **falsa** —se creía que el socket explicaba los 2 ms de diferencia
+del F407 entre máquinas, y era el binario del firmware—. Se dejó puesto con el
+argumento de que «separa una cifra que sí podría haber variado». Hoy varió, y
+lo localizó en una línea.
+
+**La corrección** es del criterio, no del modelo: `verif/invariantes.txt` tiene
+ahora una cuarta columna y la suite del F407 contrasta `resto` en vez de
+`total`. No afloja nada —quita exactamente la parte que el proyecto ya tenía
+documentada como dependiente del anfitrión, y deja dentro todo lo que decide el
+modelo— y el total se sigue imprimiendo para el registro.
+
+**Lo que esto dice del CI**, y es la conclusión que aguanta seis casos: ha
+encontrado en cinco ejecuciones seis cosas que tres máquinas de desarrollo no
 habían visto en meses. Cuatro estaban en el entorno. **La quinta estaba en el
 modelo, llevaba ahí desde siempre, y ninguna de las 2 118 comprobaciones la
-veía.**
+veía. La sexta estaba en el propio criterio**: el número que el proyecto
+llamaba invariante no era del todo suyo.
