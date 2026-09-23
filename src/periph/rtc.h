@@ -50,6 +50,7 @@
 
 #include <array>
 #include "../common/periph_base.h"
+#include "../common/guarda_tick.h"
 
 namespace stm32 {
 
@@ -327,7 +328,7 @@ protected:
         const double fa = apre_hz();
         if (fa <= 0.0 || init_mode()) return 0;
         const double dt = (sc_core::sc_time_stamp() - t_sec_).to_seconds();
-        const unsigned n = unsigned(dt * fa);
+        const unsigned n = unsigned(dt * fa + GUARDA_TICK);
         const unsigned ps = prediv_s();
         return (n > ps) ? 0u : (ps - n);
     }

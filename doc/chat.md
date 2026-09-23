@@ -5089,3 +5089,70 @@ con esa pregunta en la mano.
 incruste mcu-sim como biblioteca en una herramienta propietaria, y si eso
 importa la respuesta es LGPLv3 o MPL-2.0—, y ejecutar macOS con éxito, que
 sigue siendo I-23.
+
+
+---
+
+## El invariante deja de depender de la version de SystemC
+
+**Prompt:** Averigua por qué la suite no termina con SystemC 3.0.2 y modifica el programa para corregir el problema de manera que se pueda usar esa misma versión en todas las plataformas
+
+**Respuesta:**
+
+Hecho, y sale mejor de lo que se pedía: no es que se pueda usar la 3.0.2 en
+todas partes, es que **da igual cuál se use**.
+
+| | 2.3.4 | 3.0.2 |
+| :--- | ---: | ---: |
+| `test407` | 2118 · `2336217899213 ps` | 2118 · `2336217899213 ps` |
+| `test446` | 204 · `1033367277932 ps` | 204 · `1033367277932 ps` |
+| `test417` | 165 · `718988288 ps` | 165 · `718988288 ps` |
+
+**Lo primero es que mi diagnóstico anterior era falso.** Dije «se cuelga en
+T24» y lo escribí en un commit y en I-24. T24 era lo último que se veía porque
+el aviso de `SC_REPORT` sale por `stderr` —sin búfer— y las comprobaciones por
+`stdout` —con búfer de bloque—. Con `stdbuf -oL` el cuelgue estaba en **T25**,
+en el `delay_ms` del blinky, y el proceso gastaba el 100 % de CPU dentro de
+`SysTick::tick_proc`. Es la tercera vez en este proyecto que confundo «lo
+último que imprimió» con «donde está».
+
+**La causa, con `gdb` sobre el proceso colgado.** `t_base_` = 134 197 542 098 ps,
+ahora = 203 197 542 098, f = 168 MHz. `dt` = 0,069 s exactos, que son
+11 592 000 ticks exactos. Pero:
+
+```
+2.3.4:  to_seconds() = 0,069000000000000005773  ->  11592000,000000002  ->  11592000
+3.0.2:  to_seconds() = 0,068999999999999991895  ->  11591999,999999998  ->  11591999
+```
+
+Un ULP, en direcciones opuestas. Y la guarda de redondeo que había en
+`elapsed_ticks_brutos()` era `0.5e-9` ticks, **más pequeña que el error del
+propio `double` a esa escala, que es 3e-9**. Con la 3.0.2 el contador se queda
+un tick corto; el cruce calculado cae en el mismo picosegundo que el instante
+actual, así que `tick_proc` no espera; y el `continue` gira en ciclos delta
+para siempre. Tiempo simulado congelado, `m_delta_count` subiendo.
+
+**La corrección** es `common/guarda_tick.h`: `1e-6` de tick, cinco órdenes por
+encima del error del `double` y seis por debajo de un tick —a 168 MHz son seis
+milésimas de picosegundo, por debajo de la resolución del simulador—. Aplicada
+en los cuatro sitios que interpolan contadores: SysTick, IWDG, WWDG y los
+subsegundos del RTC. Y un seguro en `tick_proc`: si no se ha esperado, se
+espera un picosegundo antes de reintentar, para que un bucle sin espera no
+pueda existir. **Comprobado que el seguro nunca llega a dispararse**: la
+guarda sola da el mismo resultado. Se queda porque un camino que puede girar
+en delta es un defecto latente, no porque haga falta hoy.
+
+**De paso apareció T-23.** Comparando las salidas de las dos versiones, la
+única diferencia sustantiva era el IWDG: 200,0 ms con la 2.3.4 y 201,1 con la
+3.0.2, sobre un plazo programado de 201,0. O sea que **el modelo resetea un
+tick antes de su plazo** y la 3.0.2 lo compensaba por accidente. La guarda deja
+las dos versiones de acuerdo —en los 200,0—, así que el tick de más sigue ahí.
+No lo he arreglado a escondidas: arreglarlo mueve el invariante y eso es una
+decisión. Queda como T-23, con la parte incómoda escrita: la comprobación que
+debía cazarlo, `check_near(dti, timeout_s, 0.05)`, tiene un 5 % de tolerancia
+para un error del 0,5 %. **Diez veces más floja que el fallo.**
+
+**Lo que esto cambia en el CI**: nada. El workflow ya usa Homebrew en macOS
+desde el commit anterior, y ahora funciona. El parche que mandé después —volver
+a QuickThreads con los stubs de ASan— **ya no hace falta y no hay que
+aplicarlo**.

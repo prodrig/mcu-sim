@@ -210,7 +210,56 @@ Y dos fallos más, los dos míos y de signo contrario:
   precaución acertó por una razón que no era la suya, y sigue sin saberse si
   QuickThreads funciona en arm64: nunca se le ha dejado intentarlo.
 
-**Lo que esto dice del CI**, y es la conclusión que aguanta cuatro casos: ha
-encontrado en tres ejecuciones cuatro cosas que tres máquinas de desarrollo no
-habían visto en meses, y las cuatro estaban en el entorno, no en el modelo. Que
-es exactamente para lo que sirve.
+### 4.2 Y el que no estaba en el entorno
+
+Los cuatro fallos anteriores estaban fuera del modelo. El quinto, no.
+
+Al pasar macOS a la SystemC de Homebrew —que es la 3.0.2— **la suite dejó de
+terminar**. El primer diagnóstico fue *«se cuelga en T24»*, y **era falso**:
+T24 era sencillamente lo último que se veía, porque el aviso de `SC_REPORT`
+sale por `stderr`, sin búfer, y las comprobaciones salen por `stdout`, con
+búfer de bloque. Con `stdbuf -oL` el cuelgue apareció donde estaba: en **T25**,
+dentro del `delay_ms` del blinky, con el proceso al 100 % de CPU dentro de
+`SysTick::tick_proc`.
+
+**La causa era del modelo.** Los contadores que se interpolan desde el tiempo
+simulado —SysTick, IWDG, WWDG, subsegundos del RTC— calculan los ticks con un
+`double` que vale decenas de millones, y el SysTick le sumaba una guarda de
+redondeo de `0.5e-9` ticks **cuando el error del propio `double` a esa escala
+es de unos 3e-9**. De qué lado cae el truncamiento depende del último bit de
+`to_seconds()`, y ese bit cambió entre versiones:
+
+| | `to_seconds()` de 69 000 000 000 ps | `× 168 MHz` |
+| :--- | :--- | :--- |
+| SystemC 2.3.4 | `0,069000000000000005773` | `11592000,000000002` → **11592000** |
+| SystemC 3.0.2 | `0,068999999999999991895` | `11591999,999999998` → **11591999** |
+
+Un ULP, en direcciones opuestas. Con la 3.0.2 el contador se quedaba un tick
+corto, el cruce calculado caía en el mismo picosegundo que el instante actual
+—luego no se esperaba— y el `continue` giraba en ciclos delta para siempre.
+
+Corregido en `common/guarda_tick.h`: guarda de `1e-6` de tick, cinco órdenes
+por encima del error del `double` y seis por debajo de un tick, o sea por
+debajo de la resolución del simulador. Y un seguro en `tick_proc` para que un
+camino que no espera no pueda existir.
+
+**El resultado es mejor que el arreglo.** Las tres suites dan ahora lo mismo
+con las DOS versiones de SystemC, al picosegundo:
+
+| | 2.3.4 | 3.0.2 |
+| :--- | ---: | ---: |
+| `test407` | `2336217899213 ps` | `2336217899213 ps` |
+| `test446` | `1033367277932 ps` | `1033367277932 ps` |
+| `test417` | `718988288 ps` | `718988288 ps` |
+
+Es decir: **el invariante ha dejado de depender de la versión de SystemC**, y
+el CI puede usar en cada plataforma lo que esa plataforma empaqueta —`apt` en
+Linux, Homebrew en macOS— sin renunciar a comparar. De paso quedó destapado
+**T-23**: el IWDG resetea un tick antes de su plazo, y la comprobación que lo
+vigila tiene diez veces más tolerancia que el error.
+
+**Lo que esto dice del CI**, y es la conclusión que aguanta cinco casos: ha
+encontrado en cuatro ejecuciones cinco cosas que tres máquinas de desarrollo no
+habían visto en meses. Cuatro estaban en el entorno. **La quinta estaba en el
+modelo, llevaba ahí desde siempre, y ninguna de las 2 118 comprobaciones la
+veía.**

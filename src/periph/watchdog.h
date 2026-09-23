@@ -34,6 +34,7 @@
 #define STM32_PERIPH_WATCHDOG_H
 
 #include "../common/periph_base.h"
+#include "../common/guarda_tick.h"
 
 namespace stm32 {
 
@@ -85,7 +86,7 @@ protected:
         const double p = tick_period();
         if (p <= 0.0) return t0_;
         const double dt = (sc_core::sc_time_stamp() - t_ref_).to_seconds();
-        const unsigned n = unsigned(dt / p);
+        const unsigned n = unsigned(dt / p + GUARDA_TICK);
         return (n >= t0_) ? 0u : (t0_ - n);
     }
 
@@ -258,7 +259,7 @@ protected:
         const double p = tick_period();
         if (p <= 0.0) return cnt0_;
         const double dt = (sc_core::sc_time_stamp() - t_ref_).to_seconds();
-        const unsigned n = unsigned(dt / p);
+        const unsigned n = unsigned(dt / p + GUARDA_TICK);
         return (n >= cnt0_) ? 0u : (cnt0_ - n);
     }
 

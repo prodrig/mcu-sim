@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <vector>
 #include "../common/periph_base.h"
+#include "../common/guarda_tick.h"
 #include "cpu_state.h"
 #include "core_caps.h"
 
@@ -201,11 +202,27 @@ private:
     // `parado` YA vale true, y justo ahí hay que calcular el valor con los
     // ticks que sí pasaron antes de la parada. Usar la versión que respeta el
     // paro devolvería el valor viejo y el contador retrocedería.
+    // GUARDA DE REDONDEO, y el numero importa.
+    //
+    // `dt * f` es un `double` que vale decenas de millones de ticks, y un
+    // `double` tiene 2,2e-16 de precision RELATIVA: a 11,6 millones de ticks
+    // eso son unos 3e-9 ticks de error absoluto. La guarda que habia aqui era
+    // `0.5e-9`, es decir **mas pequena que el error que pretendia absorber**.
+    //
+    // Que funcionara durante todo el proyecto fue suerte: con SystemC 2.3.4,
+    // `to_seconds()` de 69 000 000 000 ps devuelve 0,069000000000000005773 y
+    // el producto cae por ARRIBA del entero; con la 3.0.2 devuelve
+    // 0,068999999999999991895 y cae por ABAJO. Un ULP, en el lado malo, y el
+    // contador se queda UN TICK CORTO. Con eso, `tick_proc` entraba en un
+    // bucle de ciclos delta del que no salia: vease el comentario de ahi.
+    //
+    // El numero, y por que es ese, en common/guarda_tick.h.
+
     uint64_t elapsed_ticks_brutos() const {
         const double f = tick_hz();
         if (!enabled() || f <= 0.0) return 0;
         const double dt = (sc_core::sc_time_stamp() - t_base_).to_seconds();
-        return uint64_t(dt * f + 0.5e-9);
+        return uint64_t(dt * f + GUARDA_TICK);
     }
     uint64_t elapsed_ticks() const {
         return parado.read() ? 0 : elapsed_ticks_brutos();
@@ -284,11 +301,31 @@ private:
             const sc_core::sc_time cruce =
                 t_base_ + sc_core::sc_time(double(meta) / f, sc_core::SC_SEC);
             const sc_core::sc_time ahora = sc_core::sc_time_stamp();
-            if (cruce > ahora) wait(cruce - ahora, resched_ev_);
+            const bool ha_esperado = (cruce > ahora);
+            if (ha_esperado) wait(cruce - ahora, resched_ev_);
             if (!enabled() || parado.read()) continue;
             // Menos ticks de los que faltaban: o lo ha reprogramado el software
             // -y `rebase()` movió la base- o todavía no toca. Se recalcula.
-            if (elapsed_ticks_brutos() < meta) continue;
+            if (elapsed_ticks_brutos() < meta) {
+                // PERO si no hemos esperado nada, recalcular no cambia nada:
+                // el instante es el mismo, las cuentas son las mismas, y este
+                // `continue` gira en ciclos delta PARA SIEMPRE. Es lo que
+                // pasaba con SystemC 3.0.2: el cruce calculado caia en este
+                // mismo picosegundo -`cruce == ahora`, luego no se espera- y a
+                // la vez `elapsed_ticks_brutos()` devolvia un tick menos que
+                // `meta` por el redondeo del `double`. Las dos cosas a la vez
+                // cierran el bucle.
+                //
+                // Un picosegundo de espera lo hace IMPOSIBLE por construccion:
+                // el tiempo avanza, la cuenta cambia, y la siguiente vuelta
+                // decide de verdad. Cuando si se ha esperado, esto no se
+                // ejecuta y el comportamiento es el de siempre -ahi el
+                // `continue` significa «me han reprogramado», y el que
+                // reprograma ya movio la base-.
+                if (!ha_esperado)
+                    wait(sc_core::sc_time(1, sc_core::SC_PS), resched_ev_);
+                continue;
+            }
             csr_ |= (1u << 16);                   // COUNTFLAG
             if (tickint()) {                      // pulso hacia el NVIC
                 o_irq_ = true;  irq_ev_.notify(sc_core::SC_ZERO_TIME);
