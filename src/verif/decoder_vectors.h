@@ -6,7 +6,7 @@
 //
 // Cada entrada es una instrucción real ensamblada por arm-none-eabi-as en modo
 // Cortex-M4F Thumb, cuya codificación coincide bit a bit con la documentada en
-// doc/stm32f4xx/informe_instrucciones.md (el script de validación da 254/254 correctos).
+// doc/refs/stm32f407xx/informe_instrucciones.md (el script de validación da 254/254 correctos).
 // El banco de pruebas coloca la codificación en memoria, la ejecuta con la
 // sonda del decodificador y comprueba que:
 //   * no se genera UsageFault UNDEFINSTR (la instrucción se reconoce), y
@@ -20,7 +20,7 @@
 namespace stm32 {
 
 struct DecoderVector {
-    const char* section;    // sección de doc/stm32f4xx/informe_instrucciones.md
+    const char* section;    // sección de doc/refs/stm32f407xx/informe_instrucciones.md
     const char* asm_text;   // instrucción en ensamblador
     uint16_t    hw[2];      // codificación en orden de programa
     unsigned    n_hw;       // 1 = 16 bits, 2 = 32 bits

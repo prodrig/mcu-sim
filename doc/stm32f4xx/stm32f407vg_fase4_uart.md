@@ -3,7 +3,7 @@
 Informe de implementación de la **parte de UART y USART** de la fase F4 del plan
 `doc/stm32f4xx/smt32f407vg_diseño.md` (§7). Continúa a `doc/stm32f4xx/stm32f407vg_fase3.md` (pines,
 GPIO y RCC eléctrico) y a `doc/stm32f4xx/stm32f407vg_fase4_dma.md` (controladores DMA).
-Fuentes: `doc/stm32f4xx/informe_revisado.md` [IR] y `doc/stm32f4xx/informe_instrucciones.md` [II].
+Fuentes: `doc/refs/stm32f407xx/informe_revisado.md` [IR] y `doc/refs/stm32f407xx/informe_instrucciones.md` [II].
 
 **Alcance de este entregable:** las seis interfaces serie del STM32F407VG
 —USART1, USART2, USART3, USART6, UART4 y UART5— [IR, §12.4], con el requisito

@@ -3,7 +3,7 @@
 Informe de implementación de la **fase F6** del plan `doc/stm32f4xx/smt32f407vg_diseño.md`.
 Continúa a las fases F1-F5, que quedaron cerradas con el bxCAN
 (`doc/stm32f4xx/stm32f407vg_fase5_can.md`).
-Fuentes: `doc/stm32f4xx/informe_revisado.md` [IR, cap. 13] y `doc/stm32f4xx/informe_instrucciones.md` [II].
+Fuentes: `doc/refs/stm32f407xx/informe_revisado.md` [IR, cap. 13] y `doc/refs/stm32f407xx/informe_instrucciones.md` [II].
 
 **Alcance:** el subsistema de depuración del STM32F407VG **completo y hasta los
 pines**: el Debug Access Port con el protocolo SWD a nivel de bit sobre

@@ -6,7 +6,7 @@ convierte el modelo en un **objetivo de depuración de verdad**: un servidor
 GDB/RSP que por un lado habla SWD sobre `SWCLK`/`SWDIO` y por el otro escucha en
 un puerto TCP.
 
-Fuentes: `doc/stm32f4xx/informe_revisado.md` [IR, cap. 13], la especificación *ARM Debug
+Fuentes: `doc/refs/stm32f407xx/informe_revisado.md` [IR, cap. 13], la especificación *ARM Debug
 Interface v5* (ADIv5) para el modelo DP/AP, y la documentación de ARM sobre el
 interfaz JTAG/SWD que motivó este trabajo.
 

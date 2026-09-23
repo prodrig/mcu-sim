@@ -86,11 +86,29 @@ _to_delete/
 # pena se versiona en su sitio (doc/, src/).
 Claude outputs/
 
-# Documentación del fabricante: los PDF de ST, sus extracciones a texto y las
-# fuentes legibles por máquina (cabeceras CMSIS y XML de CubeMX). Son 72 MB, se
-# descargan de st.com o salen de la instalación de CubeMX cuando hacen falta, y
-# cambian de revisión sin avisar; versionarlos engordaría el repositorio sin
-# añadir nada que no esté ya citado con su sección en doc/. Lo que SÍ se
-# versiona es el ÍNDICE de todo ello -qué documento, qué revisión, dónde está la
-# copia local y de dónde se baja lo que falta-: doc/fuentes.md.
+# Documentación DE REFERENCIA, propia y ajena. Antes esta carpeta se llamaba
+# doc/pdf/ y solo tenía PDF; ahora tiene dos clases de cosa y por eso se llama
+# doc/refs/.
+#
+# La ajena: los PDF de ST, sus extracciones a texto y las fuentes legibles por
+# máquina (cabeceras CMSIS y XML de CubeMX). Son 72 MB, se descargan de st.com o
+# salen de la instalación de CubeMX cuando hacen falta, y cambian de revisión
+# sin avisar; versionarlos engordaría el repositorio sin añadir nada que no esté
+# ya citado con su sección en doc/.
+#
+# La propia, pero DERIVADA de la ajena: los informes técnicos internos
+# -informe.md, informe_revisado.md e informe_instrucciones.md- que se
+# escribieron con la regla explícita de «prohibido remitir a otro documento,
+# reproduce el dato en el propio informe» (doc/stm32f4xx/informe_reglas.md).
+# Esa regla es justo la que los convierte en obra derivada de los manuales de
+# ST y de ARM: son reproducción, no comentario. Solo se puede licenciar lo que
+# es propio, así que salen del repositorio y se quedan al lado de los manuales
+# de los que salieron. Véase I-50 en doc/todo.md.
+#
+# Lo que SÍ se versiona es el ÍNDICE de todo ello -qué documento, qué revisión,
+# dónde está la copia local y de dónde se baja lo que falta-: doc/fuentes.md.
+doc/refs/
+
+# El nombre viejo, que se queda por seguridad: si alguna copia del repositorio
+# todavía tiene la carpeta sin renombrar, sigue sin subirse.
 doc/pdf/

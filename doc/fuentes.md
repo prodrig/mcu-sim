@@ -7,14 +7,60 @@ De ahí que aquí haya dos clases de documento y no una: los PDF de ST, que
 explican, y los XML y las cabeceras de ST, que se pueden comparar por programa.
 
 Los ficheros **no se versionan**: son 72 MB, cambian de revisión sin avisar y
-`.gitignore` excluye `doc/pdf/`. Lo que sí se versiona es **este índice**: qué
+`.gitignore` excluye `doc/refs/`. Lo que sí se versiona es **este índice**: qué
 documento se usó, en qué revisión, dónde está la copia local y —para lo que
 falta— de dónde se baja. Un informe que cita una sección sin decir de qué
 revisión envejece mintiendo.
 
+**La carpeta se llamaba `doc/pdf/`** y se renombró a `doc/refs/` cuando dejó de
+tener solo PDF: ahora guarda también los informes internos del proyecto, por lo
+que dice la sección 0.
+
 ---
 
-## 1. Manuales y hojas técnicas de ST, en `doc/pdf/`
+## 0. Los informes internos del proyecto, en `doc/refs/stm32f407xx/`
+
+Tres ficheros que **este proyecto escribió y que sin embargo no están en el
+repositorio**:
+
+| Etiqueta | Fichero | Qué es |
+| :--- | :--- | :--- |
+| `[IR]` | `informe_revisado.md` | El informe técnico de bajo nivel. La fuente del modelo: se cita 1 083 veces en `src/` |
+| `[II]` | `informe_instrucciones.md` | La codificación de todas las instrucciones del Cortex-M4F |
+| — | `informe.md` | La primera versión del informe, anterior a la revisión |
+
+**Por qué no se versionan, que no es lo mismo que por qué no se publican.** Se
+escribieron con una regla explícita, la que está en
+`doc/stm32f4xx/informe_reglas.md`:
+
+> *Prohibido remitir a otro documento: nunca escribas «véase el manual de
+> referencia»… Reproduce el dato en el propio informe.* … *No resumas ni
+> selecciones «lo más importante».*
+
+Esa regla es exactamente la que los convierte en **obra derivada**: se pidieron
+para **sustituir** al manual, no para comentarlo. El equipo destinatario «NO
+tendrá acceso a los manuales originales», decía el encargo. Los **hechos** —una
+dirección base, una máscara, un canal de DMA— no son de nadie; la **expresión**
+sí, y un documento que sigue la estructura del manual y reproduce sus tablas
+puede ser derivado de él. **Solo se puede licenciar lo que es propio**, y el
+repositorio es público. Véase **I-50** en `doc/todo.md`.
+
+**Dónde está la raya.** Se va lo que se escribió para *reemplazar* el manual; se
+queda lo que se escribió para *razonar sobre* él. Por eso siguen versionados los
+planes de fase de `doc/stm32f4xx/`, las dos comparativas entre piezas y los
+cuatro ficheros de prompts —`informe_general.md`, `informe_reglas.md`,
+`informe_capitulos.md`, `informe_genera_capitulo.txt`—, que son el **método** y
+no el contenido.
+
+**Qué implica para quien clone el repositorio.** Las 1 083 citas `[IR, §x]` y
+`[II, §y]` de los comentarios del modelo **apuntan a un documento que no viene
+con él**. No dejan el código sin justificar —cada una dice qué sección lo
+respalda— pero para leer esa sección hace falta el manual de ST, que es de
+dónde salió. La tabla de la sección 1 dice cuál y en qué revisión.
+
+---
+
+## 1. Manuales y hojas técnicas de ST, en `doc/refs/`
 
 | Etiqueta | Documento | Revisión | Fichero |
 | :--- | :--- | :--- | :--- |
@@ -31,11 +77,11 @@ como se leen las tablas largas sin abrir el visor: `rm0090.txt`,
 **Dos avisos de revisión que importan.** El primero: el informe del F415/F417 es
 **el primero del proyecto escrito contra el RM0090 Rev 22**; los anteriores
 leyeron la **Rev 18**, y el resto del proyecto sigue anclado a ella. El segundo:
-los informes más antiguos —`doc/stm32f4xx/informe.md`— citan los documentos por
+los informes más antiguos —`doc/refs/stm32f407xx/informe.md`— citan los documentos por
 su identificador interno de ST, `en.DM00031020.pdf` y `en.DM00037051.pdf`, que
 son **el RM0090 y el DS8626**, los mismos dos de la tabla.
 
-## 2. Fuentes legibles por máquina, en `doc/pdf/`
+## 2. Fuentes legibles por máquina, en `doc/refs/`
 
 | Carpeta | Qué hay | Para qué se usó |
 | :--- | :--- | :--- |
@@ -88,7 +134,7 @@ motores independientes** —OpenSSL y pycryptodome, más `hashlib`— y
 `src/verif/vectores/comprueba_vectores.py` falla si algún caso se apoya en uno
 solo. El PDF serviría para leer el porqué, no para saber si el número es bueno.
 
-## 4. Cómo volver a llenar `doc/pdf/` en otra máquina
+## 4. Cómo volver a llenar `doc/refs/` en otra máquina
 
 1. Los cinco PDF de ST se bajan de `st.com` buscando su etiqueta (`RM0090`,
    `DS8626`, `DS8597`, `RM0390`, `DS10693`) y se extraen con
@@ -106,5 +152,5 @@ texto**, y las fuentes legibles por máquina van cada una a la suya
 `stm32f407xx/` eran copias byte a byte de las de `cmsis_v1.28.3/` y se han
 quitado.
 
-`doc/pdf/src_snapshot.tgz` no es documentación de ST: es una instantánea del
+`doc/refs/src_snapshot.tgz` no es documentación de ST: es una instantánea del
 árbol `src/` que se dejó ahí como copia de seguridad de trabajo.

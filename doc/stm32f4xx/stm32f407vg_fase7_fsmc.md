@@ -1,7 +1,7 @@
 # Fase F7 (parte de FSMC) — El bus externo, y los dieciséis hilos que no salen del encapsulado
 
 Modelo del *Flexible Static Memory Controller* del STM32F407VG en SystemC 2.3,
-sobre el informe técnico `doc/stm32f4xx/informe_revisado.md` [IR, §12.18] y la tabla de
+sobre el informe técnico `doc/refs/stm32f407xx/informe_revisado.md` [IR, §12.18] y la tabla de
 pines del capítulo 2. El código está en `src/periph/fsmc.h`; la circuitería
 externa que se le suelda, en `src/verif/ext_parts.h`; las pruebas, en los
 grupos T109–T112 de `src/top/sc_main.cpp`.

@@ -4,8 +4,8 @@ Informe de implementación de la **parte de DMA** de la fase F4 del plan
 `doc/stm32f4xx/smt32f407vg_diseño.md` (§7). Continúa a `doc/stm32f4xx/smt32f407vg_fase0.md`,
 `doc/stm32f4xx/stm32f407vg_fase1.md` (infraestructura y matriz AHB),
 `doc/stm32f4xx/stm32f407vg_fase2.md` (núcleo Cortex-M4F) y `doc/stm32f4xx/stm32f407vg_fase3.md`
-(pines, GPIO y RCC eléctrico). Fuentes: `doc/stm32f4xx/informe_revisado.md` [IR] y
-`doc/stm32f4xx/informe_instrucciones.md` [II].
+(pines, GPIO y RCC eléctrico). Fuentes: `doc/refs/stm32f407xx/informe_revisado.md` [IR] y
+`doc/refs/stm32f407xx/informe_instrucciones.md` [II].
 
 **Alcance de la fase según el plan:** *"DMA1/2, USART, TIM avanzados,
 EXTI/SYSCFG"*, con criterio de salida *"firmware con drivers HAL básicos"*.

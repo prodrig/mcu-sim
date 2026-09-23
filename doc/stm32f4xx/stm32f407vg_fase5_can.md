@@ -4,7 +4,7 @@ Informe de implementación de la **parte de bxCAN** de la fase F5 del plan
 `doc/stm32f4xx/smt32f407vg_diseño.md` (§7). Cierra la fase F5, tras SPI/I2S, I2C, ADC,
 DAC, RTC/watchdogs, SDIO y CRC/RNG (`doc/stm32f4xx/stm32f407vg_fase5_spi.md`, `_i2c.md`,
 `_adc.md`, `_dac.md`, `_rtc_wdog.md`, `_sdio.md`, `_crc_rng.md`).
-Fuentes: `doc/stm32f4xx/informe_revisado.md` [IR] y `doc/stm32f4xx/informe_instrucciones.md` [II].
+Fuentes: `doc/refs/stm32f407xx/informe_revisado.md` [IR] y `doc/refs/stm32f407xx/informe_instrucciones.md` [II].
 
 **Alcance de este entregable:** los dos bloques bxCAN del STM32F407VG
 [IR, §12.12], con el requisito explícito de **analizar las similitudes y

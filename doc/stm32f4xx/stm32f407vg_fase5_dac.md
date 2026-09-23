@@ -4,7 +4,7 @@ Informe de implementación de la **parte de DAC** de la fase F5 del plan
 `doc/stm32f4xx/smt32f407vg_diseño.md` (§7). Continúa a los cuatro entregables de la fase
 F4 y a las partes de SPI/I2S, I2C y ADC de esta misma fase
 (`doc/stm32f4xx/stm32f407vg_fase5_spi.md`, `_i2c.md`, `_adc.md`).
-Fuentes: `doc/stm32f4xx/informe_revisado.md` [IR] y `doc/stm32f4xx/informe_instrucciones.md` [II].
+Fuentes: `doc/refs/stm32f407xx/informe_revisado.md` [IR] y `doc/refs/stm32f407xx/informe_instrucciones.md` [II].
 
 **Alcance de este entregable:** el bloque DAC del STM32F407VG con sus **dos
 canales** [IR, §12.14], con el requisito explícito de **analizar sus

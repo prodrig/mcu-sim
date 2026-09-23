@@ -3,8 +3,8 @@
 Informe de implementación de la fase **F2** del plan `doc/stm32f4xx/smt32f407vg_diseño.md`
 (§7). Continúa a `doc/stm32f4xx/smt32f407vg_fase0.md` (esqueleto y contrato de
 integración) y a `doc/stm32f4xx/stm32f407vg_fase1.md` (infraestructura: relojes, reset,
-matriz AHB, memorias). Fuentes: `doc/stm32f4xx/informe_revisado.md` [IR] y
-`doc/stm32f4xx/informe_instrucciones.md` [II].
+matriz AHB, memorias). Fuentes: `doc/refs/stm32f407xx/informe_revisado.md` [IR] y
+`doc/refs/stm32f407xx/informe_instrucciones.md` [II].
 
 **Alcance según el plan:** *"CPU: fetch/decode/execute ISA entera [II] +
 excepciones + NVIC/SysTick"*.
@@ -138,7 +138,7 @@ cada instrucción provocaría un cambio de contexto de la simulación.
 
 ## 4. ISA implementada
 
-La ISA implementada es exactamente la de `doc/stm32f4xx/informe_instrucciones.md`. La
+La ISA implementada es exactamente la de `doc/refs/stm32f407xx/informe_instrucciones.md`. La
 tabla resume la correspondencia entre secciones del documento, funciones del
 modelo y vectores de decodificación probados en T15.
 

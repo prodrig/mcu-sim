@@ -1,7 +1,7 @@
 # Fase F7 (parte de OTG) — USB, y las tres cosas que se llaman "canal"
 
 Modelo de los dos controladores USB On-The-Go del STM32F407VG en SystemC 2.3,
-sobre `doc/stm32f4xx/informe_revisado.md` [IR, §12.15 (OTG_FS), §12.23 (OTG_HS)] y la
+sobre `doc/refs/stm32f407xx/informe_revisado.md` [IR, §12.15 (OTG_FS), §12.23 (OTG_HS)] y la
 tabla de pines del capítulo 2. El código está en `src/periph/otg.h`; los dos
 extremos del cable, en `src/verif/ext_parts.h`; las pruebas, en los grupos
 T113–T116 de `src/top/sc_main.cpp`.

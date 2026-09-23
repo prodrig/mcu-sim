@@ -4,7 +4,7 @@ Informe de implementación de la fase **F3** del plan `doc/stm32f4xx/smt32f407vg
 (§7). Continúa a `doc/stm32f4xx/smt32f407vg_fase0.md` (esqueleto), a
 `doc/stm32f4xx/stm32f407vg_fase1.md` (infraestructura: relojes, reset, matriz AHB,
 memorias) y a `doc/stm32f4xx/stm32f407vg_fase2.md` (núcleo Cortex-M4F). Fuentes:
-`doc/stm32f4xx/informe_revisado.md` [IR] y `doc/stm32f4xx/informe_instrucciones.md` [II].
+`doc/refs/stm32f407xx/informe_revisado.md` [IR] y `doc/refs/stm32f407xx/informe_instrucciones.md` [II].
 
 **Alcance según el plan:** *"Pads/pin_mux/GPIO/RCC completos (modelo
 eléctrico)"*.

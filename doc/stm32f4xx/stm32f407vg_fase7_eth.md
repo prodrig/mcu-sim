@@ -1,7 +1,7 @@
 # Fase F7 (parte de ETH) — El Ethernet, y las tres cosas que se llaman "canal"
 
 Modelo del controlador Ethernet MAC 10/100 con DMA propio del STM32F407VG en
-SystemC 2.3, sobre `doc/stm32f4xx/informe_revisado.md` [IR, §12.16] y la tabla de pines
+SystemC 2.3, sobre `doc/refs/stm32f407xx/informe_revisado.md` [IR, §12.16] y la tabla de pines
 del capítulo 2. El código está en `src/periph/eth_mac.h`; el PHY que se le
 suelda, en `src/verif/ext_parts.h`; las pruebas, en los grupos T117–T120 de
 `src/top/sc_main.cpp`.

@@ -5,7 +5,7 @@ Informe de implementación de la **parte de ADC** de la fase F5 del plan
 F4 (`doc/stm32f4xx/stm32f407vg_fase4_dma.md`, `_uart.md`, `_tim.md` y `_exti_syscfg.md`) y
 a las partes de SPI/I2S e I2C de esta misma fase
 (`doc/stm32f4xx/stm32f407vg_fase5_spi.md`, `doc/stm32f4xx/stm32f407vg_fase5_i2c.md`).
-Fuentes: `doc/stm32f4xx/informe_revisado.md` [IR] y `doc/stm32f4xx/informe_instrucciones.md` [II].
+Fuentes: `doc/refs/stm32f407xx/informe_revisado.md` [IR] y `doc/refs/stm32f407xx/informe_instrucciones.md` [II].
 
 **Alcance de este entregable:** los **tres** convertidores del STM32F407VG
 —ADC1, ADC2 y ADC3— y su bloque de registros comunes [IR, §12.13], con el

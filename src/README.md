@@ -29,13 +29,16 @@ este árbol sea C++17 y `<systemc>` y nada más. El análisis previo está en
 
 La documentación de cómo se construyó el modelo del F407 —y la comparativa con
 el F446— está en `doc/stm32f4xx/`. Los manuales de ST no se versionan; van a
-`doc/pdf/`, que el `.gitignore` excluye. **Lo que sí se versiona es el índice de
+`doc/refs/`, que el `.gitignore` excluye. **Y los informes técnicos internos
+tampoco: están ahí al lado, en `doc/refs/stm32f407xx/`**, porque se escribieron
+para sustituir al manual y no para comentarlo, lo que los hace obra derivada de
+él (§0 del índice de fuentes, e I-50). **Lo que sí se versiona es el índice de
 fuentes**, `doc/fuentes.md`: qué documento se leyó, en qué revisión, dónde está
 la copia local y de dónde se baja lo que falta.
 
 Estructura generada según `doc/stm32f4xx/smt32f407vg_diseño.md` (plan aprobado, propuestas
 P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
-[IR, §x] = `doc/stm32f4xx/informe_revisado.md`; [II] = `doc/stm32f4xx/informe_instrucciones.md`.
+[IR, §x] = `doc/refs/stm32f407xx/informe_revisado.md`; [II] = `doc/refs/stm32f407xx/informe_instrucciones.md`.
 
 ## Estado por fases
 

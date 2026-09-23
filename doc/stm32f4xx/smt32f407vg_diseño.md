@@ -3,8 +3,8 @@
 Documento de planificación de arquitectura. No contiene implementación: define la
 jerarquía de módulos, las interconexiones y las convenciones, y registra las
 propuestas de cambio sobre la jerarquía inicial (sección 2) que requieren
-aprobación. Fuentes: `doc/stm32f4xx/informe_revisado.md` (referenciado como [IR, §x]) y
-`doc/stm32f4xx/informe_instrucciones.md` [II].
+aprobación. Fuentes: `doc/refs/stm32f407xx/informe_revisado.md` (referenciado como [IR, §x]) y
+`doc/refs/stm32f407xx/informe_instrucciones.md` [II].
 
 ---
 

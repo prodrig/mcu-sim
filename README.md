@@ -111,10 +111,18 @@ Esto es la portada; lo que hay debajo es bastante más largo.
 | `doc/compilacion.md` | **Empieza aquí si algo no compila.** Las tres plataformas, y un catálogo de fallos por síntoma |
 | `doc/todo.md` | Lo que no está modelado, lo que se sabe que diverge del silicio y lo que falta por verificar. **El documento más útil del proyecto** |
 | `doc/integracion_continua.md` | Qué comprueba el CI y por qué el criterio es el tiempo simulado |
-| `doc/fuentes.md` | Qué manual, qué revisión y de dónde se baja. Los PDF de ST **no** están en el repositorio: son suyos |
-| `doc/stm32f4xx/` | Los informes técnicos que originaron cada fase, y la tabla de codificaciones de instrucciones |
+| `doc/fuentes.md` | Qué manual, qué revisión y de dónde se baja. Los PDF de ST **no** están en el repositorio: son suyos, y **los informes técnicos internos tampoco**, por la razón que explica su §0 |
+| `doc/stm32f4xx/` | Los planes de fase que originaron cada parte del modelo, las comparativas entre piezas y los prompts con que se escribieron los informes |
 | `src/README.md` | El recorrido por el código: qué hay en cada carpeta y por qué |
 | `doc/chat.md` | El diario de trabajo, sin editar. Incluye los diagnósticos equivocados |
+
+**Lo que no viene en el repositorio, y hay que decirlo antes de que sorprenda.**
+Los comentarios del modelo citan mil ochenta y tres veces un informe técnico
+interno, `[IR, §x]` y `[II, §y]`, que **no está aquí**: se escribió con la
+regla de reproducir el manual de ST en vez de remitir a él, y eso lo convierte
+en obra derivada de un documento que no es nuestro. Cada cita sigue diciendo
+qué sección respalda el código; para leerla hace falta el RM0090, que es de
+donde salió. `doc/fuentes.md` dice cuál y en qué revisión.
 
 ---
 

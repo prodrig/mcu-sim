@@ -1,6 +1,6 @@
 // =============================================================================
 // ahb_types.h — Tipos comunes del bus, extensión TLM AHB y mapa de memoria
-// mcu-sim, modelo SystemC de microcontroladores STM32. Referencias: doc/stm32f4xx/informe_revisado.md §5, §6.
+// mcu-sim, modelo SystemC de microcontroladores STM32. Referencias: doc/refs/stm32f407xx/informe_revisado.md §5, §6.
 //
 // Fase F1: se completa el mapa de memoria (regiones ARMv7-M [IR, §5.1], sectores
 // de Flash [IR, §5.2.1], tabla de estados de espera [IR, §5.2.2], regiones de

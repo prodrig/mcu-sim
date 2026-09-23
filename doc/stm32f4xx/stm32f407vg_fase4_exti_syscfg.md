@@ -5,7 +5,7 @@ plan `doc/stm32f4xx/smt32f407vg_diseño.md` (§7), y **cierre de la fase F4**. C
 `doc/stm32f4xx/stm32f407vg_fase4_dma.md` (controladores DMA),
 `doc/stm32f4xx/stm32f407vg_fase4_uart.md` (interfaces serie) y
 `doc/stm32f4xx/stm32f407vg_fase4_tim.md` (temporizadores). Fuentes:
-`doc/stm32f4xx/informe_revisado.md` [IR] y `doc/stm32f4xx/informe_instrucciones.md` [II].
+`doc/refs/stm32f407xx/informe_revisado.md` [IR] y `doc/refs/stm32f407xx/informe_instrucciones.md` [II].
 
 **Alcance de este entregable:** el controlador de interrupciones externas
 **EXTI** con sus 23 líneas [IR, §9.4] y el bloque de configuración del sistema

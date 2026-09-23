@@ -5,7 +5,7 @@ gen_decoder_vectors.py — Genera verif/decoder_vectors.h a partir de
 doc/stm32f4xx/valida_instrucciones.py.
 
 Toma los casos de prueba del validador de codificaciones (que ya compara las
-tablas de doc/stm32f4xx/informe_instrucciones.md contra un ensamblador ARM real), los
+tablas de doc/refs/stm32f407xx/informe_instrucciones.md contra un ensamblador ARM real), los
 ensambla con arm-none-eabi-as en modo Cortex-M4F Thumb y emite la cabecera de
 vectores que consume el banco de pruebas de la fase F2.
 
@@ -35,7 +35,7 @@ CABECERA = """// ===============================================================
 //
 // Cada entrada es una instrucción real ensamblada por arm-none-eabi-as en modo
 // Cortex-M4F Thumb, cuya codificación coincide bit a bit con la documentada en
-// doc/stm32f4xx/informe_instrucciones.md (el script de validación da 254/254 correctos).
+// doc/refs/stm32f407xx/informe_instrucciones.md (el script de validación da 254/254 correctos).
 // El banco de pruebas coloca la codificación en memoria, la ejecuta con la
 // sonda del decodificador y comprueba que:
 //   * no se genera UsageFault UNDEFINSTR (la instrucción se reconoce), y
@@ -49,7 +49,7 @@ CABECERA = """// ===============================================================
 namespace stm32 {
 
 struct DecoderVector {
-    const char* section;    // sección de doc/stm32f4xx/informe_instrucciones.md
+    const char* section;    // sección de doc/refs/stm32f407xx/informe_instrucciones.md
     const char* asm_text;   // instrucción en ensamblador
     uint16_t    hw[2];      // codificación en orden de programa
     unsigned    n_hw;       // 1 = 16 bits, 2 = 32 bits

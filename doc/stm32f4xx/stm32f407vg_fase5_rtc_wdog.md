@@ -3,7 +3,7 @@
 Informe de implementación de la **parte de RTC, IWDG y WWDG** de la fase F5 del
 plan `doc/stm32f4xx/smt32f407vg_diseño.md` (§7). Continúa a los cuatro entregables de la
 fase F4 y a las partes de SPI/I2S, I2C, ADC y DAC de esta misma fase.
-Fuentes: `doc/stm32f4xx/informe_revisado.md` [IR] y `doc/stm32f4xx/informe_instrucciones.md` [II].
+Fuentes: `doc/refs/stm32f407xx/informe_revisado.md` [IR] y `doc/refs/stm32f407xx/informe_instrucciones.md` [II].
 
 **Alcance de este entregable:** el **reloj de tiempo real** con su dominio de
 backup [IR, §12.9] y los **dos perros guardianes**, el de ventana (WWDG)

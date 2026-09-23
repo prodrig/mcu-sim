@@ -5,7 +5,7 @@ Informe de implementación de la **parte de SDIO** de la fase F5 del plan
 F4 y a las partes de SPI/I2S, I2C, ADC, DAC y RTC/watchdogs de esta misma fase
 (`doc/stm32f4xx/stm32f407vg_fase5_spi.md`, `_i2c.md`, `_adc.md`, `_dac.md`,
 `_rtc_wdog.md`).
-Fuentes: `doc/stm32f4xx/informe_revisado.md` [IR] y `doc/stm32f4xx/informe_instrucciones.md` [II].
+Fuentes: `doc/refs/stm32f407xx/informe_revisado.md` [IR] y `doc/refs/stm32f407xx/informe_instrucciones.md` [II].
 
 **Alcance de este entregable:** el bloque SDIO del STM32F407VG [IR, §12.17],
 con el requisito explícito de **analizar las similitudes y diferencias de los

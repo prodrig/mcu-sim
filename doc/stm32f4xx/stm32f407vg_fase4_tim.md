@@ -4,7 +4,7 @@ Informe de implementación de la **parte de temporizadores** de la fase F4 del
 plan `doc/stm32f4xx/smt32f407vg_diseño.md` (§7). Continúa a `doc/stm32f4xx/stm32f407vg_fase3.md`
 (pines, GPIO y RCC eléctrico), `doc/stm32f4xx/stm32f407vg_fase4_dma.md` (controladores
 DMA) y `doc/stm32f4xx/stm32f407vg_fase4_uart.md` (interfaces serie). Fuentes:
-`doc/stm32f4xx/informe_revisado.md` [IR] y `doc/stm32f4xx/informe_instrucciones.md` [II].
+`doc/refs/stm32f407xx/informe_revisado.md` [IR] y `doc/refs/stm32f407xx/informe_instrucciones.md` [II].
 
 **Alcance de este entregable:** los **catorce** temporizadores del STM32F407VG
 —TIM1 y TIM8 (control avanzado, [IR, §12.1]), TIM2 a TIM5 (propósito general,

@@ -4,7 +4,7 @@
 // El banco de registros es una struct C++ (plan P3), no submódulos: R0-R12,
 // SP (MSP/PSP), LR, PC, xPSR, PRIMASK, FAULTMASK, BASEPRI, CONTROL [IR, §7.2].
 // La ISA implementada (codificación, pseudocódigo y flags) es la de
-// doc/stm32f4xx/informe_instrucciones.md [II]; el decodificador se valida con los
+// doc/refs/stm32f407xx/informe_instrucciones.md [II]; el decodificador se valida con los
 // vectores de doc/stm32f4xx/valida_instrucciones.py.
 //
 // Fase F2 — implementado:

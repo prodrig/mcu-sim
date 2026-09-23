@@ -3,7 +3,7 @@
 Informe de implementación de la **parte de SPI e I2S** de la fase F5 del plan
 `doc/stm32f4xx/smt32f407vg_diseño.md` (§7). Continúa a los cuatro entregables de la fase
 F4 (`doc/stm32f4xx/stm32f407vg_fase4_dma.md`, `_uart.md`, `_tim.md` y `_exti_syscfg.md`).
-Fuentes: `doc/stm32f4xx/informe_revisado.md` [IR] y `doc/stm32f4xx/informe_instrucciones.md` [II].
+Fuentes: `doc/refs/stm32f407xx/informe_revisado.md` [IR] y `doc/refs/stm32f407xx/informe_instrucciones.md` [II].
 
 **Alcance de este entregable:** **todos** los canales SPI/I2S del STM32F407VG
 —SPI1, SPI2/I2S2, SPI3/I2S3 y los bloques de extensión I2S2ext e I2S3ext—

@@ -1,5 +1,5 @@
 Actúa como diseñador hardware senior con gran experiencia en el diseño y modelado de MCUs usando SystemC para construir un modelo del MCU stm32f407vg usando SystemC v2.3.
-El fichero doc/stm32f4xx/informe_revisado.md es el informe técnico completo para el diseño de bajo nivel en SystemC de un MCU stm32f407vg, y doc/stm32f4xx/informe_instrucciones.md contiene la codificación a bajo nivel de todas las instrucciones soportadas por la CPU.
+El fichero doc/refs/stm32f407xx/informe_revisado.md es el informe técnico completo para el diseño de bajo nivel en SystemC de un MCU stm32f407vg, y doc/refs/stm32f407xx/informe_instrucciones.md contiene la codificación a bajo nivel de todas las instrucciones soportadas por la CPU.
 
 Como información general:
 - El código se genera en la carpeta src.

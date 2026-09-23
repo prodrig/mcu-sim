@@ -4,7 +4,7 @@ Informe de implementación de la **parte de I2C** de la fase F5 del plan
 `doc/stm32f4xx/smt32f407vg_diseño.md` (§7). Continúa a los cuatro entregables de la fase
 F4 (`doc/stm32f4xx/stm32f407vg_fase4_dma.md`, `_uart.md`, `_tim.md` y `_exti_syscfg.md`) y
 a la parte de SPI/I2S de esta misma fase (`doc/stm32f4xx/stm32f407vg_fase5_spi.md`).
-Fuentes: `doc/stm32f4xx/informe_revisado.md` [IR] y `doc/stm32f4xx/informe_instrucciones.md` [II].
+Fuentes: `doc/refs/stm32f407xx/informe_revisado.md` [IR] y `doc/refs/stm32f407xx/informe_instrucciones.md` [II].
 
 **Alcance de este entregable:** los **tres** canales I2C del STM32F407VG —I2C1,
 I2C2 e I2C3— [IR, §12.6], con el requisito explícito de **analizar sus

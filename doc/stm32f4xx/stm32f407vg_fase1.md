@@ -2,8 +2,8 @@
 
 Informe de implementación de la fase **F1** del plan `doc/stm32f4xx/smt32f407vg_diseño.md`
 (§7). Continúa a `doc/stm32f4xx/smt32f407vg_fase0.md` (esqueleto y contrato de
-integración). Fuentes: `doc/stm32f4xx/informe_revisado.md` [IR] y
-`doc/stm32f4xx/informe_instrucciones.md` [II].
+integración). Fuentes: `doc/refs/stm32f407xx/informe_revisado.md` [IR] y
+`doc/refs/stm32f407xx/informe_instrucciones.md` [II].
 
 **Alcance según el plan:** *"Infraestructura: ClockGen, reset, matriz LT,
 flash/sram, cargador de binario"*.

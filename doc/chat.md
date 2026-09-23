@@ -5372,3 +5372,60 @@ Y la de fondo: **I-50 dice que solo se puede licenciar lo que es propio.** Si lo
 informes son transcripción, sacarlos es lo correcto; pero es una decisión que se
 toma por sus méritos, mirando qué hay dentro de cada fichero, no por reflejo.
 Reescribir la historia es la opción nuclear y solo se hace una vez bien.
+
+
+---
+
+## Los informes salen del repositorio: `doc/pdf` pasa a ser `doc/refs`
+
+**Prompt:** *Mueve los informes que podrían ser obra derivada de los manuales de
+ST a doc/pdf/stm32f407xx, renombra doc/pdf como doc/refs y mantén la carpeta
+fuera del track de git en .gitignore*
+
+**Respuesta:**
+
+Se van tres: `informe.md`, `informe_revisado.md` [IR] e
+`informe_instrucciones.md` [II]. A `doc/refs/stm32f407xx/`, que es donde ya
+estaban el RM0090 y las dos hojas técnicas: **al lado de los manuales de los que
+salieron**, que es el sitio que les corresponde.
+
+**El criterio no me lo he inventado, estaba escrito en el propio proyecto.**
+`informe_reglas.md` ordena, con esas palabras:
+
+> *Prohibido remitir a otro documento: nunca escribas «véase el manual de
+> referencia»… Reproduce el dato en el propio informe.* … *No resumas ni
+> selecciones «lo más importante».*
+
+Y `informe_general.md` explica para qué: *«el equipo NO tendrá acceso a los
+manuales originales: este informe será su única fuente»*. O sea que los tres se
+encargaron **para sustituir al manual**, no para comentarlo. Eso es exactamente
+lo que los hace obra derivada, y lo dice su propio pliego de condiciones.
+
+De ahí sale la raya, que es limpia y se puede defender: **se va lo que se
+escribió para reemplazar el manual; se queda lo que se escribió para razonar
+sobre él.** Por eso siguen versionados los veinte planes de fase, las dos
+comparativas entre piezas —que citan por sección en vez de reproducir— y los
+cuatro ficheros de prompts, que son el método y no el contenido.
+
+**Dos que me he dejado a propósito y conviene mirar.**
+`stm32f407vg_vs_446re.md` y `stm32f4xx_vs_415xx.md` son análisis propio con
+fuente por afirmación, pero consolidan tablas de funciones alternativas y de
+canales de DMA que vienen de ST. Se quedan **por criterio, no por lectura**: no
+los ha leído nadie con esta pregunta en la mano. Queda anotado en I-50.
+
+**La carpeta cambia de nombre porque el viejo mentía.** `doc/pdf/` ya no tiene
+solo PDF: tiene los PDF, sus extracciones a texto, las cabeceras CMSIS, los XML
+de CubeMX y ahora los informes. `doc/refs/` dice lo que hay. `.gitignore`
+excluye las dos rutas —la nueva y la vieja— porque si alguna copia del
+repositorio se queda sin renombrar, más vale que siga sin subirse.
+
+**Lo que esto NO arregla, y hay que decirlo.** Los informes siguen en los 116
+commits del historial público. Esto los saca de la punta, no del pasado. Sacar
+el pasado es `git filter-repo` con las dos rutas históricas, todos los hashes
+cambiados y una decisión que sigue pendiente.
+
+**Y el efecto visible para quien clone**: las **1 083 citas** `[IR, §x]` y
+`[II, §y]` de los comentarios del modelo apuntan ahora a un documento que no
+viene con el repositorio. No dejan el código sin justificar —cada una dice qué
+sección lo respalda— pero para leer esa sección hace falta el RM0090. Lo dicen
+el `README`, el de `src/` y la nueva **§0 de `doc/fuentes.md`**.
