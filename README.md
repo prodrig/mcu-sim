@@ -58,6 +58,12 @@ En **macOS** son igual de pocas: `brew install systemc` y a compilar. En
 paquete; está contado paso a paso en `doc/compilacion.md`, junto con el
 catálogo de fallos por síntoma, que es la parte que ahorra tardes.
 
+**Y si no quieres compilar nada**, hay ejecutables publicados en *Releases* para
+Windows, Linux y los dos macOS, construidos por la integración continua y
+publicados **solo si en su plataforma pasaron las tres suites y los tres
+invariantes coincidieron al picosegundo**. Qué descargar, qué instalar —en macOS,
+un `brew install systemc`— y cómo convencer a Gatekeeper: **`doc/ejecutables.md`**.
+
 No hace falta compilador cruzado de ARM: los firmwares que usan las pruebas
 **vienen en el repositorio**.
 
@@ -108,7 +114,9 @@ Esto es la portada; lo que hay debajo es bastante más largo.
 
 | Documento | Para qué |
 | :--- | :--- |
+| `doc/ejecutables.md` | **Empieza aquí si solo quieres usarlo.** Qué descargar en cada plataforma y cómo saltarse a Gatekeeper |
 | `doc/compilacion.md` | **Empieza aquí si algo no compila.** Las tres plataformas, y un catálogo de fallos por síntoma |
+| `TERCEROS.md` | El software ajeno que lleva dentro, con qué licencia, y qué de eso viaja en el ejecutable |
 | `doc/todo.md` | Lo que no está modelado, lo que se sabe que diverge del silicio y lo que falta por verificar. **El documento más útil del proyecto** |
 | `doc/integracion_continua.md` | Qué comprueba el CI y por qué el criterio es el tiempo simulado |
 | `doc/fuentes.md` | Qué manual, qué revisión y de dónde se baja. Los PDF de ST **no** están en el repositorio: son suyos, y **los informes técnicos internos tampoco**, por la razón que explica su §0 |

@@ -343,3 +343,45 @@ toca `verif/invariantes.txt`** hasta saberlo.
 **Node 20 está obsoleto** y `actions/checkout@v4`, `cache` y `upload-artifact@v4`
 se ejecutan ya forzados sobre Node 24. Funciona, pero es prestado: subirlas a
 la v5 sigue siendo el punto **b** de P-13.
+
+---
+
+## 6. Desde el 26 de septiembre de 2026, el CI también construye lo que se reparte
+
+Cada plataforma empaqueta su ejecutable y una etiqueta `v*` lo publica como
+*Release*. El `needs` del trabajo que publica incluye a todos los demás, así que
+**un binario no se publica si su plataforma no pasó las suites y los tres
+invariantes**. La guía para el alumno es `doc/ejecutables.md`.
+
+Y el trabajo de Linux pasa a ser una **matriz de dos distribuciones**,
+`ubuntu-22.04` y `ubuntu-latest`. La primera es el **suelo** que el ejecutable de
+Linux declara soportar, y una plataforma soportada que nadie ejecuta no está
+verificada: es exactamente la lección de I-23 con macOS.
+
+### Lo que salió de hacerlo, que era el motivo de hacerlo
+
+**Una tercera versión de SystemC, gratis.** Ubuntu 22.04 empaqueta la **2.3.3**,
+no la 2.3.4 de 24.04. Medido aquí antes de escribir el `workflow` —2.3.3
+construida aparte, modelo compilado con `g++-11`, que es el de 22.04, sin un solo
+aviso—, las tres suites dan **las mismas cifras al picosegundo**:
+
+| | 2.3.3 + GCC 11 | 2.3.4 | 3.0.2 |
+| :--- | ---: | ---: | ---: |
+| `test407`, resto | 2240553274213 ps | 2240553274213 ps | 2240553274213 ps |
+| `test446` | 1033367277932 ps | 1033367277932 ps | 1033367277932 ps |
+| `test417` | 718988288 ps | 718988288 ps | 718988288 ps |
+
+**Y un defecto de diseño del reparto, que este trabajo destapó antes de que lo
+hiciera un alumno.** El paquete de 22.04 instala `libsystemc-2.3.3.so` y el de
+24.04 `libsystemc-2.3.4.so`: **SONAME distintos**. Un ejecutable de Linux
+enlazado dinámicamente contra uno no encuentra el otro, así que repartirlo así
+**no habría funcionado ni entre dos Ubuntu**. De ahí que el de Linux lleve
+SystemC estática dentro, más `-static-libgcc -static-libstdc++`, y que lo único
+que quede fuera sea glibc —con una comprobación de `objdump -T` que falla si el
+suelo pasa de 2.35—.
+
+En macOS, en cambio, SystemC **no** va dentro: el alumno la instala con
+`brew install systemc`. Eso mantiene el paquete pequeño y tiene una consecuencia
+que no estaba buscada —la biblioteca no se redistribuye, así que la sección 4 de
+la Apache-2.0 no entra en juego en ese paquete—. Donde sí entra, el paquete lleva
+su `LICENSE` y su `NOTICE`; el inventario completo está en `TERCEROS.md`.

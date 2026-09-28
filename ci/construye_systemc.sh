@@ -79,5 +79,19 @@ cmake -S systemc-fuente -B systemc-obj \
 cmake --build systemc-obj --parallel 4
 cmake --install systemc-obj
 
+# LA LICENCIA VIAJA CON LA BIBLIOTECA, y no es papeleo.
+#
+# SystemC es Apache-2.0 y trae un fichero NOTICE con las atribuciones de
+# Accellera, Arm, Cadence, Doulos, Intel, NXP, ST, Synopsys y unos cuantos
+# mas. La seccion 4 de esa licencia se aplica a distribuir «in Source OR
+# OBJECT form», asi que cuando el ejecutable se enlaza ESTATICAMENTE -que es
+# lo que hace esto- la biblioteca va dentro del binario y sus dos ficheros
+# tienen que ir al lado.
+#
+# `cmake --install` no los copia, y la fuente se borra tres lineas mas abajo,
+# asi que se copian aqui o no se copian nunca.
+cp systemc-fuente/LICENSE systemc-fuente/NOTICE "$prefijo/" 2>/dev/null || \
+    echo "  [systemc] AVISO: no encuentro LICENSE/NOTICE en la fuente"
+
 rm -rf systemc-fuente systemc-obj
 echo "  [systemc] instalada"

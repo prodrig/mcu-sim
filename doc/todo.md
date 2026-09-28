@@ -242,6 +242,21 @@ el repositorio republicado: los cinco trabajos pasan. `10 s` el rápido,
 `1:53` macOS arm64, `2:40` Linux, `2:53` macOS Intel y `6:12` Windows —el único
 que compila SystemC, porque es el único sin paquete—.
 
+**Y desde el 2026-09-26 hace una segunda cosa: CONSTRUYE LO QUE SE REPARTE.**
+Cada plataforma empaqueta su ejecutable y una etiqueta `v*` lo publica como
+*Release*, con `needs` de todos los trabajos: **un binario no se publica si su
+plataforma no pasó las suites y los invariantes**. Eso convierte la promesa de
+`doc/ejecutables.md` en algo comprobado en vez de dicho.
+
+Tres decisiones dentro de eso, y las tres tienen su razón escrita en el
+`workflow`:
+
+| | Decisión | Por qué |
+| :--- | :--- | :--- |
+| El ejecutable de Linux se construye en **Ubuntu 22.04** | Un binario de Linux corre hacia adelante y no hacia atrás: el de 24.04 pide `GLIBC_2.38` y en 22.04 no arranca. **La glibc del que construye es el suelo de lo que se puede repartir**, así que se elige la distribución más vieja que se quiere soportar, no la más nueva que hay. **Y de paso aparece una TERCERA versión de SystemC**: 22.04 empaqueta la 2.3.3. Medido antes de escribirlo —2.3.3 construida aparte, modelo compilado con `g++-11` sin un solo aviso— las tres suites dan **las mismas cifras al picosegundo** que con 2.3.4 y 3.0.2 |
+| En Linux y Windows, SystemC va **estática**; en macOS, **no** | 22.04 empaqueta `libsystemc-2.3.3.so` y 24.04 `libsystemc-2.3.4.so`: **SONAME distintos**, así que un binario de Linux enlazado dinámicamente no funcionaría ni entre dos Ubuntu. En macOS el alumno la instala con un `brew install`, y así SystemC **no se redistribuye** y la Apache-2.0 §4 no entra en juego —donde sí entra, el paquete lleva su `LICENSE` y su `NOTICE`; véase `TERCEROS.md`— |
+| Se empaqueta con `tar`, no con el zip de `upload-artifact` | El zip de esa acción **pierde el bit de ejecución**, y el alumno se encuentra un `Permission denied` que no tiene nada que ver con su máquina |
+
 **Lo que queda:**
 
 | | Qué | Estado |
@@ -249,7 +264,9 @@ que compila SystemC, porque es el único sin paquete—.
 | a | Que macOS pase por primera vez | **HECHO**; es I-23, cerrado el 2026-09-23 con las dos arquitecturas |
 | b | Subir `actions/checkout`, `cache` y `upload-artifact` a la v5 | **PENDIENTE.** Node 20 está obsoleto y las tres se ejecutan ya forzadas sobre Node 24: funciona, pero es prestado |
 | c | Decidir si `ENABLE_PTHREADS` en arm64 hace falta de verdad | **RESUELTO, y la respuesta fue que no hacía falta nada de eso**: macOS ya no compila SystemC, usa la de Homebrew. La precaución costó una ejecución de 44 minutos sin terminar en Intel |
-| d | **19 de octubre de 2026: `ubuntu-latest` pasa a Ubuntu 26** | **CON FECHA.** El trabajo de Linux se apoya en `libsystemc-dev` del sistema, así que ese día puede cambiarle la versión de SystemC debajo sin que nadie toque nada. Desde I-24 sabemos que la 2.3.4 y la 3.0.2 dan las mismas cifras, así que no es alarmante; pero si se pone rojo, lo primero es mirar qué versión trae el paquete, y **no se toca `verif/invariantes.txt`** hasta saberlo |
+| d | **19 de octubre de 2026: `ubuntu-latest` pasa a Ubuntu 26** | **CON FECHA.** El trabajo de Linux se apoya en `libsystemc-dev` del sistema, así que ese día puede cambiarle la versión de SystemC debajo sin que nadie toque nada. Desde I-24 sabemos que la 2.3.4 y la 3.0.2 dan las mismas cifras, así que no es alarmante; pero si se pone rojo, lo primero es mirar qué versión trae el paquete, y **no se toca `verif/invariantes.txt`** hasta saberlo. **Mitigado en parte el 2026-09-26**: el trabajo de Linux corre ahora en `ubuntu-22.04` **y** en `ubuntu-latest`, así que la migración ya no puede llevarse la única cobertura de Linux por delante |
+| e | **17 de abril de 2027: se retira la imagen `ubuntu-22.04`** | **CON FECHA, y ésta duele más.** Es la máquina que fija el **suelo de glibc del ejecutable de Linux** (2.35). Empezó su retirada el 17 de septiembre de 2026 y queda sin soporte el 17 de abril de 2027 [actions/runner-images#14254]. Ese día el suelo sube a 24.04 —glibc 2.39— quiera o no, y hay que **decirlo en `doc/ejecutables.md` antes de que un alumno con 22.04 se encuentre un `GLIBC_2.39 not found`**. La alternativa, si hiciera falta bajar más el suelo, es construir en un contenedor viejo en vez de en la imagen del runner |
+| f | Firmar los ejecutables | **PENDIENTE, y decidido por ahora que no.** macOS exige cuenta de Apple Developer de pago para notarizar, y Windows un certificado de firma de código. Mientras no se firmen, el alumno ve el aviso de SmartScreen y tiene que quitar la cuarentena a mano en macOS: **`doc/ejecutables.md` §4.3** lo explica paso a paso, que es el sustituto honesto de firmar |
 
 **Lo que ha enseñado, en siete ejecuciones:** seis fallos que tres máquinas de
 desarrollo no habían visto en meses. Cuatro en el entorno —el segundo motor de

@@ -4,6 +4,11 @@
 tocar el `Makefile`, y qué hacer cuando falla. La segunda mitad está ordenada por
 **síntoma**, que es como se lee un documento así: con el error delante.*
 
+> **Si lo único que quieres es EJECUTAR el simulador, no estás en el documento
+> correcto.** Hay ejecutables publicados para las cuatro plataformas y no hace
+> falta compilar nada: **`doc/ejecutables.md`**. Este documento es para quien
+> construye el modelo desde el código.
+
 ---
 
 ## 1. Lo mínimo

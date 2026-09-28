@@ -5520,3 +5520,85 @@ fuera de su historia; el invariante del F407 corregido y movido a propósito por
 primera vez desde la fase 7; y un CI que en siete ejecuciones ha encontrado
 seis cosas que tres máquinas de desarrollo no vieron en meses. Una de ellas
 estaba en el modelo. Otra, en el criterio con el que lo juzgábamos.
+
+
+---
+
+## Los ejecutables: que el alumno no tenga que compilar
+
+**Prompt:** *Construye el parche que indicas. Prepara la plataforma Linux CI en
+GitHub para usar la distribución ubuntu 22.4, de manera que esta sea la
+distribución más antigua soportada por el ejecutable linux. Deja macOS con el
+requisito de `brew install` e indica las instrucciones paso a paso para eliminar
+manualmente el atributo que mencionas para que se pueda ejecutar mcu-sim sin que
+se queje el Gatekeeper*
+
+**Respuesta:**
+
+El CI pasa a hacer dos cosas: comprobar y **construir lo que se reparte**. Cada
+plataforma empaqueta su ejecutable, y una etiqueta `v*` lo publica como
+*Release* con `needs` de todos los trabajos: **un binario no se publica si su
+plataforma no pasó las suites y los invariantes**. La promesa de
+`doc/ejecutables.md` queda comprobada en vez de dicha.
+
+**Ubuntu 22.04 como suelo, y dos cosas que aparecieron al hacerlo.**
+
+La primera: **el paquete de 22.04 es SystemC 2.3.3, no la 2.3.4 de 24.04.** Así
+que el trabajo de Linux pasa a ser una matriz de las dos distribuciones y eso
+contrasta los invariantes contra una **tercera versión de SystemC** sin pagar una
+máquina más. Es también lo que evita que la migración a Ubuntu 26 del 19 de
+octubre se lleve por delante la única cobertura de Linux.
+
+**Y lo he medido antes de escribirlo, no dejado al primer rojo.** SystemC 2.3.3
+construida aparte, modelo compilado con `g++-11` —el de 22.04—, sin un solo
+aviso. Las tres suites, idénticas al picosegundo: `2118 / 2240553274213 ps` de
+resto, `204 / 1033367277932` y `165 / 718988288`. El invariante aguanta ya
+**tres versiones de SystemC**, dos compiladores de GNU, clang y tres sistemas
+operativos.
+
+La segunda, y ésta cambia el diseño: **`libsystemc-2.3.3.so` y
+`libsystemc-2.3.4.so` son SONAME distintos.** Un ejecutable de Linux enlazado
+dinámicamente contra uno no encuentra el otro, así que **no funcionaría ni entre
+dos Ubuntu**. El ejecutable de Linux lleva SystemC dentro —`construye_systemc.sh`
+ya la compilaba estática para Windows, se reutiliza tal cual— más
+`-static-libgcc -static-libstdc++`. Lo único que queda fuera es glibc, y el
+trabajo comprueba con `objdump -T` que el suelo no pase de 2.35.
+
+**Y una fecha que no es agradable.** La imagen `ubuntu-22.04` **empezó su
+retirada el 17 de septiembre de 2026** y queda sin soporte el 17 de abril de
+2027 [actions/runner-images#14254]. O sea que el suelo que acabamos de fijar
+tiene siete meses de vida garantizada. Queda como punto **e** de P-13, con lo
+que hay que hacer ese día escrito por adelantado.
+
+**macOS se queda con `brew install systemc`, como pediste**, y eso tiene un
+efecto secundario bueno que no había visto venir: al no llevar SystemC dentro,
+**no se redistribuye**, así que la sección 4 de la Apache-2.0 no entra en juego
+en ese paquete. Donde sí entra —Linux y Windows— el paquete lleva el `LICENSE` y
+el `NOTICE` de SystemC, y `construye_systemc.sh` los copia al prefijo porque
+`cmake --install` no lo hace y la fuente se borra dos líneas después.
+
+**La cuarentena de Gatekeeper, paso a paso**, que es la parte que si falta cuesta
+una tarde de correos. Está en `doc/ejecutables.md` §4.3:
+
+```bash
+xattr -l mcu-sim                          # ver si el atributo está
+xattr -d com.apple.quarantine mcu-sim     # quitarlo
+chmod +x mcu-sim                          # el bit que se pierde al descomprimir
+./mcu-sim --help
+```
+
+Con tres avisos que evitan preguntas: que `No such xattr` es buena noticia; que
+para una carpeta entera es `xattr -dr`; y que **nada de esto necesita `sudo`** —si
+algo pide la contraseña de administrador, hay que parar y mirar qué se está
+ejecutando—. Y el camino por la interfaz, para quien no quiera Terminal:
+**Ajustes → Privacidad y seguridad → Abrir de todos modos**, porque el truco
+antiguo de botón derecho → Abrir ya no basta siempre.
+
+**Dos detalles pequeños que son los que rompen un reparto.** Se empaqueta con
+`tar` y no con el zip de `upload-artifact`, porque ese zip **pierde el bit de
+ejecución**; y cada trabajo ejecuta `mcu-sim --help` antes de empaquetar, porque
+un binario que enlaza no es lo mismo que un binario que arranca.
+
+Nuevos: `doc/ejecutables.md`, `doc/notas_release.md` y `TERCEROS.md`.
+`compilacion.md` gana un aviso arriba —«si solo quieres ejecutarlo, no estás en
+el documento correcto»— y el `README`, la fila que faltaba.

@@ -23,11 +23,12 @@ name: suites
 on:
   push:
     branches: [main]
+    tags: ['v*']            # una etiqueta publica los ejecutables (job `publica`)
   pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: read            # el job `publica` se lo sube a write, y solo el
 
 # Un empujon nuevo cancela el anterior de la misma rama: las suites tardan
 # minutos y no tiene sentido pagar por resultados que ya no interesan.
@@ -70,11 +71,29 @@ jobs:
   # doc/compilacion.md 4. Si algun dia desaparece de Ubuntu, quiero que falle
   # aqui y no en el portatil de un alumno.
   # -------------------------------------------------------------------------
+  #
+  # EN DOS DISTRIBUCIONES, y no por gusto. `ubuntu-22.04` es el SUELO que el
+  # ejecutable de Linux declara soportar (vease `paquete-linux`), y una
+  # plataforma soportada que nadie ejecuta no esta verificada: es la leccion de
+  # I-23 con macOS. `ubuntu-latest` sigue porque es donde vive un alumno hoy.
+  #
+  # Y trae un regalo: 22.04 empaqueta SystemC 2.3.3, no la 2.3.4 de 24.04, asi
+  # que esto contrasta los invariantes contra una TERCERA version de SystemC
+  # sin pagar una maquina mas.
+  #
+  # MEDIDO ANTES DE ESCRIBIR ESTO, no confiado al primer rojo: se construyo la
+  # 2.3.3 aparte y se compilo el modelo con g++-11 -el de 22.04-. Sin un aviso,
+  # y las tres suites dan las MISMAS cifras al picosegundo: 2118 con
+  # 2240553274213 ps de resto, 204 con 1033367277932 y 165 con 718988288.
   linux:
-    name: Linux (g++, libsystemc-dev)
-    runs-on: ubuntu-latest
+    name: Linux ${{ matrix.os }} (g++, libsystemc-dev)
+    runs-on: ${{ matrix.os }}
     needs: rapidas
     timeout-minutes: 30
+    strategy:
+      fail-fast: false      # que una distribucion no tape a la otra
+      matrix:
+        os: [ubuntu-22.04, ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -102,8 +121,103 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: salidas-linux
+          name: salidas-linux-${{ matrix.os }}
           path: src/build/*.log
+
+  # -------------------------------------------------------------------------
+  # EL EJECUTABLE DE LINUX, y por que se construye en Ubuntu 22.04.
+  #
+  # Un binario de Linux corre HACIA ADELANTE Y NO HACIA ATRAS. El que se
+  # compila en 24.04 pide `GLIBC_2.38` y `GLIBCXX_3.4.32` -medido con
+  # `objdump -T`- y en 22.04, que trae glibc 2.35, no arranca. La version de
+  # glibc de la maquina que construye es EL SUELO de lo que se puede repartir,
+  # asi que se elige a proposito la distribucion mas vieja que queremos
+  # soportar, no la mas nueva que hay.
+  #
+  # Y SystemC va ESTATICA aqui, no la de `apt`, por una razon que no es
+  # estetica: 22.04 instala `libsystemc-2.3.3.so` y 24.04
+  # `libsystemc-2.3.4.so`. Son SONAME distintos, asi que un ejecutable
+  # enlazado contra uno NO ENCUENTRA el otro y repartir el binario de Linux
+  # enlazado dinamicamente no funcionaria ni entre dos Ubuntu. Metiendola
+  # dentro desaparece el problema; `-static-libgcc -static-libstdc++` quita las
+  # otras dos que envejecen, y lo unico que queda fuera es glibc.
+  #
+  # OJO, ESTO TIENE FECHA: la imagen `ubuntu-22.04` empezo su retirada el 17 de
+  # septiembre de 2026 y queda sin soporte el 17 de abril de 2027
+  # (actions/runner-images#14254). Ese dia el suelo sube a 24.04 quiera o no;
+  # esta anotado en P-13 para que sea una decision y no un descubrimiento.
+  # -------------------------------------------------------------------------
+  paquete-linux:
+    name: Ejecutable de Linux (suelo Ubuntu 22.04)
+    runs-on: ubuntu-22.04
+    needs: rapidas
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache de SystemC estatica
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/systemc
+          key: systemc-${{ env.SYSTEMC_VER }}-cxx17-ubuntu2204-estatica-v1
+
+      - name: Construir SystemC si no estaba en la cache
+        run: sh ci/construye_systemc.sh "$GITHUB_WORKSPACE/systemc"
+
+      - name: Construir mcu-sim
+        working-directory: src
+        run: |
+          make -f Makefile.mcu-sim mcu-sim \
+               SYSTEMC_HOME="$GITHUB_WORKSPACE/systemc" \
+               EXTRA_LD="-static-libgcc -static-libstdc++"
+
+      - name: Que no dependa de nada que envejezca
+        # Tres cosas, y las tres pueden fallar de verdad:
+        #   1. que SystemC y libstdc++ NO aparezcan en las dependencias
+        #   2. que el suelo de glibc no pase de 2.35, la de Ubuntu 22.04
+        #   3. que el programa arranque, que es lo que nadie comprueba
+        working-directory: src
+        run: |
+          ldd build/mcu-sim
+          if ldd build/mcu-sim | grep -E 'libsystemc|libstdc\+\+'; then
+            echo "  [FALLO] el ejecutable arrastra SystemC o libstdc++"
+            exit 1
+          fi
+          suelo=$(objdump -T build/mcu-sim |
+                  grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -1)
+          mayor=$(printf '%s\n2.35\n' "$suelo" | sort -V | tail -1)
+          echo "  suelo de glibc: $suelo (limite 2.35)"
+          if [ "$mayor" != "2.35" ]; then
+            echo "  [FALLO] $suelo es mas alto que el de Ubuntu 22.04"
+            exit 1
+          fi
+          echo "  [OK  ] nada que envejezca fuera del binario"
+          ./build/mcu-sim --help > /dev/null
+          echo "  [OK  ] el ejecutable arranca"
+
+      - name: Empaquetar
+        # `tar`, NO el zip de upload-artifact: el zip PIERDE EL BIT DE
+        # EJECUCION y el alumno se encuentra un «Permission denied» que no
+        # tiene nada que ver con su maquina.
+        #
+        # LICENSE y NOTICE de SystemC van dentro porque la biblioteca va dentro
+        # del binario: eso es lo que pide la seccion 4 de la Apache-2.0 al
+        # distribuir «in Source OR OBJECT form». Los deja ahi
+        # ci/construye_systemc.sh.
+        run: |
+          mkdir -p paquete
+          cp src/build/mcu-sim paquete/
+          cp README.md TERCEROS.md paquete/
+          cp "$GITHUB_WORKSPACE/systemc/LICENSE" paquete/LICENSE-SystemC.txt
+          cp "$GITHUB_WORKSPACE/systemc/NOTICE"  paquete/NOTICE-SystemC.txt
+          tar czf mcu-sim-linux-x86_64.tar.gz -C paquete .
+          tar tzvf mcu-sim-linux-x86_64.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcu-sim-linux-x86_64
+          path: mcu-sim-linux-x86_64.tar.gz
 
   # -------------------------------------------------------------------------
   # macOS, en las dos arquitecturas. La de Apple Silicon es la que usan los
@@ -122,8 +236,10 @@ jobs:
         include:
           - os: macos-26
             arq: Apple Silicon
+            etiqueta: arm64
           - os: macos-26-intel
             arq: Intel
+            etiqueta: x86_64
     steps:
       - uses: actions/checkout@v4
 
@@ -185,6 +301,50 @@ jobs:
           name: salidas-macos-${{ matrix.os }}
           path: src/build/*.log
 
+      # -----------------------------------------------------------------
+      # EL EJECUTABLE DE macOS SE QUEDA ENLAZADO A LA SystemC DE HOMEBREW,
+      # a proposito y por decision tomada.
+      #
+      # Es la unica plataforma donde el alumno instala la biblioteca el
+      # mismo -`brew install systemc`, un comando- y eso tiene dos
+      # consecuencias buenas: el paquete pesa poco, y SystemC NO SE
+      # REDISTRIBUYE, asi que la seccion 4 de la Apache-2.0 no entra en
+      # juego aqui. El alumno la obtiene de Accellera via Homebrew, con su
+      # licencia al lado.
+      #
+      # Lo que se paga: si Homebrew sube de version mayor, el `dylib` que
+      # el binario pide deja de estar. Por eso `otool -L` queda impreso en
+      # el log: el dia que un alumno vea «Library not loaded», la linea que
+      # lo explica esta aqui.
+      # -----------------------------------------------------------------
+      - name: Construir mcu-sim
+        working-directory: src
+        run: make -f Makefile.mcu-sim mcu-sim CXX=clang++
+
+      - name: De que depende, y que arranca
+        working-directory: src
+        run: |
+          otool -L build/mcu-sim
+          ./build/mcu-sim --help > /dev/null
+          echo "  [OK  ] el ejecutable arranca"
+
+      - name: Empaquetar
+        # `tar`, no zip: el zip de upload-artifact PIERDE EL BIT DE
+        # EJECUCION. Y el `tar` conserva de paso la ausencia de cuarentena,
+        # que es cosa del navegador del alumno y no nuestra: como quitarla
+        # esta en doc/ejecutables.md.
+        run: |
+          mkdir -p paquete
+          cp src/build/mcu-sim paquete/
+          cp README.md TERCEROS.md paquete/
+          tar czf mcu-sim-macos-${{ matrix.etiqueta }}.tar.gz -C paquete .
+          tar tzvf mcu-sim-macos-${{ matrix.etiqueta }}.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcu-sim-macos-${{ matrix.etiqueta }}
+          path: mcu-sim-macos-${{ matrix.etiqueta }}.tar.gz
+
   # -------------------------------------------------------------------------
   # Windows con MSYS2, que es lo que usa el autor y lo que documenta el
   # proyecto. Es la UNICA plataforma en la que SystemC se construye aqui:
@@ -208,7 +368,7 @@ jobs:
         with:
           msystem: MINGW64
           update: true
-          install: git make
+          install: git make zip unzip
           pacboy: toolchain:p cmake:p ninja:p
 
       - name: Cache de SystemC
@@ -282,3 +442,73 @@ jobs:
         with:
           name: salidas-windows
           path: src/build/*.log
+
+      # El `.exe` ya esta construido por el paso de arriba, que lo hacia para
+      # comprobar las DLL. Aqui solo se comprueba que arranca y se empaqueta.
+      #
+      # Windows es la UNICA plataforma donde el ejecutable es autonomo de
+      # verdad: `-static` mete SystemC, libstdc++, libgcc y winpthread dentro.
+      # Por eso LICENSE y NOTICE de SystemC van en el paquete —la biblioteca
+      # se redistribuye— y por eso no hace falta instalar nada.
+      - name: Que arranca, y empaquetar
+        run: |
+          ./src/build/mcu-sim.exe --help > /dev/null
+          echo "  [OK  ] el ejecutable arranca"
+          mkdir -p paquete
+          cp src/build/mcu-sim.exe paquete/
+          cp README.md TERCEROS.md paquete/
+          cp "$(cygpath -u "$GITHUB_WORKSPACE")/systemc/LICENSE" paquete/LICENSE-SystemC.txt
+          cp "$(cygpath -u "$GITHUB_WORKSPACE")/systemc/NOTICE"  paquete/NOTICE-SystemC.txt
+          cd paquete && zip -r ../mcu-sim-windows-x86_64.zip . && cd ..
+          unzip -l mcu-sim-windows-x86_64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcu-sim-windows-x86_64
+          path: mcu-sim-windows-x86_64.zip
+
+  # -------------------------------------------------------------------------
+  # PUBLICAR. Solo cuando se empuja una etiqueta `v*`, y solo si TODO lo
+  # anterior esta en verde: `needs` es lo que impide repartir un ejecutable que
+  # no pasa las suites o que mueve el invariante.
+  #
+  # `gh release create` con el GITHUB_TOKEN del propio trabajo, sin acciones de
+  # terceros: son cuatro lineas y una dependencia menos a la que confiarle un
+  # permiso de escritura sobre el repositorio.
+  # -------------------------------------------------------------------------
+  publica:
+    name: Publicar los ejecutables de una etiqueta
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [paquete-linux, macos, windows, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write         # solo aqui, y solo para crear la Release
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mcu-sim-*
+          path: paquetes
+          merge-multiple: true
+
+      - name: Que estan los cuatro
+        run: |
+          ls -la paquetes
+          for f in mcu-sim-linux-x86_64.tar.gz \
+                   mcu-sim-macos-arm64.tar.gz \
+                   mcu-sim-macos-x86_64.tar.gz \
+                   mcu-sim-windows-x86_64.zip; do
+            [ -f "paquetes/$f" ] || { echo "  [FALLO] falta $f"; exit 1; }
+          done
+          echo "  [OK  ] los cuatro paquetes"
+          (cd paquetes && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+
+      - name: Crear la Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+             --title "mcu-sim $GITHUB_REF_NAME" \
+             --notes-file doc/notas_release.md \
+             paquetes/*
