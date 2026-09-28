@@ -71,6 +71,25 @@ jobs:
         # que la comprobacion necesita para valer lo que dice que vale.
         run: python3 -m pip install --break-system-packages pycryptodome
 
+      - name: La licencia esta puesta, y con nombre
+        # Tres cosas que un reparto no puede llevar mal, y las tres pueden
+        # fallar de verdad -que es lo minimo que se le pide a una
+        # comprobacion-:
+        #   1. que exista el fichero LICENSE
+        #   2. que sea la AGPLv3 y no un recordatorio de ponerla
+        #   3. que el titular del copyright este relleno. La AGPL se hace
+        #      valer a traves del copyright: un binario que imprime «PON AQUI
+        #      TU NOMBRE» no tiene quien exija nada.
+        run: |
+          test -f LICENSE || { echo "  [FALLO] falta LICENSE en la raiz"; exit 1; }
+          grep -q "GNU AFFERO GENERAL PUBLIC LICENSE" LICENSE || {
+            echo "  [FALLO] LICENSE no es el texto de la AGPLv3"; exit 1; }
+          if grep -q "PON AQUI TU NOMBRE" src/top/sim_main.cpp; then
+            echo "  [FALLO] TITULAR_COPYRIGHT sigue sin rellenar"
+            exit 1
+          fi
+          echo "  [OK  ] AGPLv3 con titular"
+
       - name: Capa de red, minas de Windows, vectores de CRYP y HASH
         working-directory: src
         run: make -f Makefile.mcu-sim red hash cryp vectores
@@ -213,7 +232,7 @@ jobs:
         run: |
           mkdir -p paquete
           cp src/build/mcu-sim paquete/
-          cp README.md TERCEROS.md paquete/
+          cp README.md TERCEROS.md LICENSE paquete/
           cp "$GITHUB_WORKSPACE/systemc/LICENSE" paquete/LICENSE-SystemC.txt
           cp "$GITHUB_WORKSPACE/systemc/NOTICE"  paquete/NOTICE-SystemC.txt
           tar czf mcu-sim-linux-x86_64.tar.gz -C paquete .
@@ -341,7 +360,7 @@ jobs:
         run: |
           mkdir -p paquete
           cp src/build/mcu-sim paquete/
-          cp README.md TERCEROS.md paquete/
+          cp README.md TERCEROS.md LICENSE paquete/
           tar czf mcu-sim-macos-${{ matrix.etiqueta }}.tar.gz -C paquete .
           tar tzvf mcu-sim-macos-${{ matrix.etiqueta }}.tar.gz
 
@@ -457,7 +476,7 @@ jobs:
           echo "  [OK  ] el ejecutable arranca"
           mkdir -p paquete
           cp src/build/mcu-sim.exe paquete/
-          cp README.md TERCEROS.md paquete/
+          cp README.md TERCEROS.md LICENSE paquete/
           cp "$(cygpath -u "$GITHUB_WORKSPACE")/systemc/LICENSE" paquete/LICENSE-SystemC.txt
           cp "$(cygpath -u "$GITHUB_WORKSPACE")/systemc/NOTICE"  paquete/NOTICE-SystemC.txt
           cd paquete && zip -r ../mcu-sim-windows-x86_64.zip . && cd ..

@@ -161,7 +161,28 @@ todas partes.
 
 ## Licencia
 
-**Pendiente de decidir.** El material de terceros trae la suya
-(`src/verif/fw/cmsis/LICENSE-*.md`, `src/verif/fw/coremark/LICENSE.md`); el
-código propio, todavía no. Hasta que la haya, no hay permiso de uso concedido,
-cosa que hay que arreglar antes de repartirlo a nadie.
+**GNU Affero General Public License, versión 3** (`LICENSE`).
+
+En las palabras que importan para lo que es esto: **puedes usarlo, estudiarlo,
+modificarlo y repartirlo libremente**, y si lo haces —añadir el core de otro
+microcontrolador, un periférico nuevo, una placa— **tus cambios tienen que
+quedar disponibles bajo esta misma licencia**. Esa obligación es el motivo de
+elegirla y no un efecto secundario: lo que se construya encima de un simulador
+didáctico debe poder usarlo el siguiente que lo necesite.
+
+**Y la «A» de AGPL cubre un caso que aquí no es hipotético.** La GPL corriente
+solo obliga a publicar cuando se *distribuye* el programa; un departamento que
+monte mcu-sim en un servidor y lo ofrezca a sus alumnos por la red no
+distribuiría nada y no tendría que compartir nada. La AGPL cierra ese hueco:
+ofrecerlo por red cuenta igual que repartirlo.
+
+El programa lo dice de sí mismo —`mcu-sim --licencia` imprime la licencia,
+dónde está el fuente y el software ajeno que lleva dentro—, lo cual no es
+adorno: es como el aviso viaja cuando alguien copia solo el ejecutable.
+
+**El software de terceros conserva la suya**, que es más permisiva y compatible:
+SystemC, CMSIS y CoreMark son Apache-2.0, y `libstdc++`/`libgcc` van con la GCC
+Runtime Library Exception. El inventario, y qué parte viaja en cada paquete,
+está en **`TERCEROS.md`**. Apache-2.0 es compatible con AGPLv3 en esta
+dirección; con la GPLv2 no lo habría sido, así que esa nunca estuvo sobre la
+mesa.

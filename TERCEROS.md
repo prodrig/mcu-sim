@@ -5,6 +5,12 @@ todo eso viaja con el ejecutable que se reparte. Está aquí porque algunas de
 esas licencias obligan a que sus avisos acompañen al programa, también cuando
 lo que se entrega es un binario.*
 
+> **mcu-sim en sí es AGPLv3** (`LICENSE`). Este documento cubre **lo que no es
+> nuestro**, que conserva su propia licencia. Todas las de abajo son
+> permisivas y compatibles con la AGPLv3 en esta dirección —código Apache-2.0
+> puede formar parte de una obra AGPLv3, no al revés—. Con la GPLv2 no lo
+> habrían sido, y por eso esa versión quedó descartada desde el principio.
+
 ---
 
 ## 1. SystemC — Apache License 2.0
