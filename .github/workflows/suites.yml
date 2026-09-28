@@ -30,10 +30,19 @@ on:
 permissions:
   contents: read            # el job `publica` se lo sube a write, y solo el
 
-# Un empujon nuevo cancela el anterior de la misma rama: las suites tardan
-# minutos y no tiene sentido pagar por resultados que ya no interesan.
+# POR COMMIT, no por rama. Antes era `github.ref`, y eso hacia que empujar
+# `main` y despues la etiqueta `v0.1.0` -el MISMO commit- lanzara la matriz
+# entera DOS VECES Y A LA VEZ. Los runners de macOS Intel son el recurso mas
+# escaso que usamos, y en la primera etiqueta del proyecto uno de esos dos
+# trabajos gemelos se paso de los 30 minutos mientras el otro terminaba en
+# tres. No esta demostrado que la causa fuera la contencion -al relanzarlo
+# solo, paso-, pero ponerle dos trabajos identicos en paralelo a la maquina
+# mas lenta no tiene ninguna ventaja que defender.
+#
+# Con `github.sha`, la ejecucion de la etiqueta SUSTITUYE a la de la rama: es
+# el mismo codigo y ademas publica, o sea que es un superconjunto.
 concurrency:
-  group: suites-${{ github.ref }}
+  group: suites-${{ github.sha }}
   cancel-in-progress: true
 
 env:
@@ -104,13 +113,9 @@ jobs:
           dpkg -l libsystemc-dev | tail -1
 
       - name: Las tres suites
-        working-directory: src
-        run: |
-          set -o pipefail
-          mkdir -p build
-          for s in test407 test446 test417; do
-            make -f Makefile.mcu-sim $s 2>&1 | tee build/$s.log
-          done
+        env:
+          SUITES_PRESUPUESTO: 600
+        run: sh ci/pasa_suites.sh
 
       - name: Los tres invariantes, al picosegundo
         run: |
@@ -267,9 +272,13 @@ jobs:
       # toca verif/invariantes.txt: se averigua por que. Vease I-24.
       # ---------------------------------------------------------------------
       - name: SystemC desde Homebrew
+        # `coreutils` no es capricho: macOS NO trae `timeout` ni `stdbuf`
+        # -son de GNU- y ci/pasa_suites.sh los necesita para ponerle
+        # presupuesto a cada suite y para que el log salga en orden. Llegan
+        # como `gtimeout` y `gstdbuf`, que es lo que el script busca.
         run: |
-          brew install systemc
-          brew list --versions systemc
+          brew install systemc coreutils
+          brew list --versions systemc coreutils
 
       # `make plataforma` es el primer paso que compilacion.md manda dar
       # cuando algo no cuadra. Que lo de el CI vale por dos: comprueba la
@@ -281,13 +290,9 @@ jobs:
       # SIN pasar SYSTEMC_HOME, a proposito: aqui se ejerce la deteccion
       # automatica, que es la que se encuentra un alumno.
       - name: Las tres suites
-        working-directory: src
-        run: |
-          set -o pipefail
-          mkdir -p build
-          for s in test407 test446 test417; do
-            make -f Makefile.mcu-sim $s CXX=clang++ 2>&1 | tee build/$s.log
-          done
+        env:
+          SUITES_PRESUPUESTO: 600
+        run: sh ci/pasa_suites.sh CXX=clang++
 
       - name: Los tres invariantes, al picosegundo
         run: |
@@ -404,15 +409,11 @@ jobs:
               -G Ninja -DCMAKE_ASM_FLAGS="-x assembler-with-cpp"
 
       - name: Las tres suites
-        working-directory: src
+        env:
+          SUITES_PRESUPUESTO: 900      # aqui SystemC se compila antes: mas margen
         run: |
-          set -o pipefail
-          mkdir -p build
-          for s in test407 test446 test417; do
-            make -f Makefile.mcu-sim $s \
-                 SYSTEMC_HOME="$(cygpath -u "$GITHUB_WORKSPACE")/systemc" \
-                 2>&1 | tee build/$s.log
-          done
+          sh ci/pasa_suites.sh \
+             SYSTEMC_HOME="$(cygpath -u "$GITHUB_WORKSPACE")/systemc"
 
       - name: Los tres invariantes, al picosegundo
         run: |

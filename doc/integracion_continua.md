@@ -385,3 +385,93 @@ En macOS, en cambio, SystemC **no** va dentro: el alumno la instala con
 que no estaba buscada —la biblioteca no se redistribuye, así que la sección 4 de
 la Apache-2.0 no entra en juego en ese paquete—. Donde sí entra, el paquete lleva
 su `LICENSE` y su `NOTICE`; el inventario completo está en `TERCEROS.md`.
+
+---
+
+## 7. La primera Release, y las cuatro cosas que salieron mal
+
+`v0.1.0` se publicó el 28 de septiembre de 2026. Merece quedar escrito lo que
+costó, porque **ninguno de los cuatro tropiezos estaba en el modelo** y tres de
+ellos son de la clase que se repite si no se anota.
+
+### 7.1 La etiqueta empujada desde el repositorio equivocado
+
+El `git tag` y el `git push` se hicieron en la copia **vieja** —la que conserva
+la historia sin filtrar— en vez de en la publicada. Y empujar una etiqueta
+empuja también todos los objetos que necesita, así que **los tres informes
+volvieron a GitHub**, dentro de los 120 commits que la etiqueta arrastraba.
+
+Se detectó en minutos, se borró la etiqueta y se volvió a borrar y recrear el
+repositorio, que es lo único que garantiza que no queden objetos inalcanzables
+servidos por SHA.
+
+**La causa de fondo no fue el despiste**, sino tener dos carpetas casi
+homónimas —`mcu-sim` y `mcu-sim-publico`—, una con la historia limpia y otra con
+la sucia, **y las dos con `origin` apuntando al mismo sitio**. Quitarle el
+remoto al archivo es la mitad del arreglo; que no se llame parecido es la otra
+mitad.
+
+### 7.2 `git commit -a` no añade ficheros nuevos
+
+El commit de los ejecutables llegó **sin `TERCEROS.md`, sin `doc/ejecutables.md`
+y sin `doc/notas_release.md`**: existían en disco, pero sin seguimiento. `-a`
+registra modificaciones y bajas de lo que ya estaba versionado, y nada más.
+
+No se notó al empujar porque el CI de `main` pasó igual —esos tres ficheros solo
+los usa el empaquetado—, y habría reventado al publicar, en el `cp` y en el
+`--notes-file`.
+
+### 7.3 Finales de línea
+
+Los siete ficheros modificados acabaron en CRLF en la copia de trabajo mientras
+el repositorio los guarda en LF. Se vio porque `git diff` marcaba 8 082 líneas
+cambiadas y **`git diff --ignore-cr-at-eol` salía vacío**: ni un carácter de
+contenido distinto.
+
+Si eso se comete, `ci/*.sh` entra con CRLF y los trabajos de Linux y Windows
+mueren con un `bad interpreter`. Se deshizo con `git checkout -- .` tras poner
+`core.autocrlf false` en esa copia, que es coherente con lo que el
+`.gitattributes` ya decidió: **no** normalizar en masa.
+
+### 7.4 El fallo de macOS Intel que no sabemos explicar
+
+El mismo commit, el mismo workflow y el mismo tipo de runner: **tres minutos en
+la ejecución de `main` y más de treinta en la de la etiqueta**, agotando el
+límite del trabajo. Al relanzar solo ese trabajo, sin tocar una línea, pasó.
+
+**No es reproducible y la causa sigue abierta.** Las dos hipótesis son la
+contención —los dos trabajos gemelos corrían a la vez sobre el mismo commit— y
+una diferencia en lo que sirvió Homebrew. Ninguna está demostrada.
+
+**Y lo peor no fue el fallo, sino que nos quedamos sin el cuerpo.** Cuando
+`timeout-minutes` mata un trabajo, GitHub no archiva su log —`gh run view
+--log` contesta `log not found`— y se lleva por delante los pasos que faltaban,
+incluido el `upload-artifact` que tiene `if: always()` justamente para esto. El
+CI no podía investigar su propio fallo más caro.
+
+### 7.5 Lo que se ha cambiado, que es lo único que evita el siguiente
+
+**`ci/pasa_suites.sh`**, que ejecuta las tres suites con dos propiedades nuevas:
+
+- **Presupuesto propio por suite**, más corto que el límite del trabajo. Si se
+  agota, falla *la etapa* en vez de morir *el trabajo*, el `upload-artifact` sí
+  se ejecuta y quedan los tres `.log` con el desglose por grupos —que es lo que
+  distingue «uniformemente lento» de «parado en T25»—. Y **se detiene en la
+  primera suite que agota su presupuesto**, para no comerse el límite del
+  trabajo con las otras dos.
+- **Sin búfer de bloque** (`stdbuf -oL`). Ya evitó un diagnóstico falso una vez:
+  el cuelgue que parecía estar en T24 estaba en T25, y T24 solo era lo último
+  que se *veía*.
+
+En macOS hace falta `brew install coreutils`, porque BSD no trae ni `timeout` ni
+`stdbuf`; llegan como `gtimeout` y `gstdbuf` y el script busca los dos nombres.
+Si no encuentra ninguno **lo dice en voz alta y sigue sin presupuesto**: una
+protección que se desactiva en silencio es peor que no tenerla.
+
+**Y el grupo de concurrencia pasa a ser por `github.sha`** en vez de por rama,
+así que la ejecución de una etiqueta sustituye a la de la rama sobre el mismo
+commit en vez de duplicarla. No demuestra que la contención fuera la causa de
+7.4, pero elimina la hipótesis del mapa y deja de pagar dos veces por lo mismo.
+
+Lo que **no** se ha hecho es subir el `timeout-minutes`. Un límite que se
+afloja cada vez que molesta ya no comprueba nada.

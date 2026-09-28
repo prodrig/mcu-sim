@@ -5602,3 +5602,72 @@ un binario que enlaza no es lo mismo que un binario que arranca.
 Nuevos: `doc/ejecutables.md`, `doc/notas_release.md` y `TERCEROS.md`.
 `compilacion.md` gana un aviso arriba —«si solo quieres ejecutarlo, no estás en
 el documento correcto»— y el `README`, la fila que faltaba.
+
+
+---
+
+## La primera Release, y las cuatro cosas que salieron mal
+
+**Prompt:** *Sí, construye el parche G*
+
+**Respuesta:**
+
+`v0.1.0` está publicada, y de las cuatro cosas que se torcieron por el camino
+**ninguna estaba en el modelo**. Tres son de la clase que se repite si no se
+anota, así que quedan escritas en `integracion_continua.md` §7 y como puntos
+**g**, **h** e **i** de P-13.
+
+**Una: la etiqueta se empujó desde el repositorio equivocado**, la copia vieja
+con la historia sin filtrar. Y empujar una etiqueta empuja los objetos que
+necesita, así que **los tres informes volvieron a GitHub** dentro de los 120
+commits que arrastraba. Borrada la etiqueta, borrado y recreado el repositorio.
+La causa de fondo no fue el despiste: eran dos carpetas casi homónimas, una con
+la historia limpia y otra con la sucia, **y las dos con `origin`**.
+
+**Dos: `git commit -a` no añade ficheros nuevos.** Eso fue culpa mía —la orden
+que te di— y se llevó `TERCEROS.md`, `doc/ejecutables.md` y
+`doc/notas_release.md` fuera del commit. No se notó en `main` porque solo los
+usa el empaquetado; habría reventado al publicar.
+
+**Tres: los finales de línea.** Siete ficheros en CRLF contra un repositorio en
+LF; `git diff` marcaba 8 082 líneas y `git diff --ignore-cr-at-eol` salía vacío.
+Si se comete, `ci/*.sh` entra con CRLF y Linux y Windows mueren con un
+`bad interpreter`.
+
+**Y cuatro: macOS Intel tardó más de 30 minutos en un commit que tarda 3.**
+Mismo `a2dd59b`, mismo workflow, mismo runner. Relanzado solo, sin tocar nada,
+pasó. **No es reproducible y no sé por qué**, y prefiero dejarlo escrito así que
+inventar una causa: en este proyecto ya he confundido tres veces «lo último que
+imprimió» con «dónde está».
+
+**Lo que de verdad arregla el parche G no es ese fallo, sino que nos quedáramos
+sin el cuerpo.** Cuando `timeout-minutes` mata un trabajo, GitHub no archiva su
+log y se lleva por delante los pasos que faltaban —incluido el
+`upload-artifact` con `if: always()` que existe justamente para esto—. El CI no
+podía investigar su fallo más caro.
+
+`ci/pasa_suites.sh` le da a **cada suite un presupuesto propio**, más corto que
+el límite del trabajo: si se agota falla la etapa y no el trabajo, y los tres
+`.log` se suben con el desglose por grupos, que es lo que distingue «lento» de
+«parado». Se detiene en la primera que lo agote, para no comerse el límite con
+las otras dos. Y ejecuta **sin búfer de bloque**, que es lo que en su día sacó
+el cuelgue de T24 —donde no estaba— a T25 —donde estaba—.
+
+Dos detalles que costaron su rato:
+
+- En macOS **no existen `timeout` ni `stdbuf`**: son de GNU. Llegan con
+  `brew install coreutils` como `gtimeout` y `gstdbuf`, y el script busca los
+  dos nombres. Si no hay ninguno **lo dice en voz alta** y sigue sin
+  presupuesto: una protección que se apaga en silencio es peor que no tenerla.
+- El `set +e` dentro del subshell **no sobra**. Sin él, el `set -e` heredado
+  aborta antes de escribir el código de salida y el script se queda sin saber
+  si hubo timeout. Lo descubrí probándolo con un presupuesto de 5 segundos, que
+  es la clase de prueba que conviene hacer antes y no después.
+
+**Y el grupo de concurrencia pasa a ser por `github.sha`**, así que una etiqueta
+ya no lanza la matriz entera en paralelo con la rama sobre el mismo commit. No
+demuestra que la contención causara lo de macOS, pero quita esa hipótesis del
+mapa y deja de pagar dos veces por lo mismo.
+
+Lo que **no** se ha hecho es subir el `timeout-minutes`. Un límite que se afloja
+cada vez que molesta ya no comprueba nada.
