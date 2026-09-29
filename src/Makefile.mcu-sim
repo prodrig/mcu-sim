@@ -21,6 +21,7 @@
 #   make hash                     # los vectores de MD5/SHA-1, sin SystemC
 #   make cryp                     # los de AES/DES/TDES, tampoco
 #   make red                      # la capa de red, que NO necesita SystemC
+#   make serie                    # el destino de un PuenteSerie, tampoco
 #   make vectores                 # los vectores del CRYP/HASH, sin SystemC ni compilar
 #   make asan407                  # la suite del F407 con ASan + UBSan (Linux y macOS)
 #   make asan446                  # y la del F446
@@ -185,11 +186,12 @@ HASHV   := build/prueba_hash$(EXE)
 CRYPV   := build/prueba_cryp$(EXE)
 BENCH  := build/bench$(EXE)
 RED    := build/prueba_red$(EXE)
+SERIEP := build/prueba_serie$(EXE)
 ASAN407 := build/asan407$(EXE)
 ASAN446 := build/asan446$(EXE)
 ASAN417 := build/asan417$(EXE)
 
-.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build asan407 asan446 asan417 smoke bench mcu-sim red run clean plataforma vectores hash cryp
+.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build asan407 asan446 asan417 smoke bench mcu-sim red serie run clean plataforma vectores hash cryp
 
 all: $(MCUSIM)
 
@@ -292,6 +294,18 @@ cryp: $(CRYPV)
 
 red: $(RED) macros-win
 	./$(RED)
+
+# EL DESTINO DE UN PUENTE SERIE (fase D0 de doc/analisis_puente_serie.md §10):
+# el parseo de `host=` y de `--serie ID=DESTINO`, y los choques de puertos. Es
+# aritmetica de cadenas, asi que NO necesita SystemC ni toca las tres cifras de
+# verif/invariantes.txt: va con `red` y `hash` en el trabajo rapido del CI.
+#   make serie
+$(SERIEP): verif/prueba_serie.cpp common/serie_destino.h
+	@mkdir -p build
+	$(CXX) -std=$(CXXSTD) $(AVISOS) -O2 -I. -o $@ verif/prueba_serie.cpp
+
+serie: $(SERIEP)
+	./$(SERIEP)
 
 # EL CAMPO DE MINAS DEL PREPROCESADOR DE WINDOWS. Prueba de COMPILACION, no de
 # ejecucion: define a mano las macros que Windows trae -R_OK, min, max, ERROR,

@@ -71,6 +71,7 @@
 #include <vector>
 #include "../common/asan_opciones.h"
 #include "../common/gui_destino.h"
+#include "../common/serie_destino.h"
 #include "soc_f4.h"
 #include "../verif/image_loader.h"
 
@@ -152,6 +153,14 @@ static bool        g_puerto_dado = false;
 // el programa hace, que es justo lo que la fase 0 tiene que demostrar.
 static bool          g_gui_pedida = false;
 static stm32::gui::Destino g_gui;
+
+// --- Los puentes serie (`PuenteSerie`), fase D0 -----------------------------
+// Lo mismo que la ventana en su fase 0: se RECONOCE `--serie ID=DESTINO`, se
+// aplica sobre lo que dice la placa y se comprueba que no choca con nada. La
+// pieza llega en la fase D2 y el socket en la D3 [doc/analisis_puente_serie.md
+// §10]; hasta entonces ninguna placa puede tener un puente, y un `--serie` se
+// rechaza diciendo exactamente eso.
+static std::vector<stm32::serie::Asignacion> g_serie;
 
 // ---------------------------------------------------------------------------
 // Un MCU montado: lo que la placa declaró, el chip, su stub de pines si lo
@@ -329,6 +338,13 @@ SC_MODULE(Sim) {
             muere(g_placa + ": " + std::to_string(n_avisos) +
                   " problemas de declaracion; no se monta");
 
+        // --- 5 bis. Los puentes serie: a donde da cada uno -------------------
+        // Tambien es declaracion, y va aqui por lo mismo que el resto: avisa
+        // antes de construir nada. Un puerto repetido o cogido por un GDB no
+        // falla al montar sino al abrir, en marcha, y ese mensaje sale donde
+        // nadie mira.
+        resuelve_puentes_serie();
+
         // --- 6 y 7. Construir las piezas y validar lo eléctrico -------------
         placa.construye(nodos);
         for (const std::string& q : placa.valida_electrica(nodos)) {
@@ -362,6 +378,45 @@ SC_MODULE(Sim) {
         // El chip lo borra su ADAPTADOR, que es quien lo creo. Se borra por la
         // interfaz, y el destructor virtual hace el resto.
         for (McuMontado& m : mcus) { delete m.stub; delete m.mcu; }
+    }
+
+    // -----------------------------------------------------------------------
+    // Los puentes serie de la placa, con `--serie` encima.
+    //
+    // Los puertos que ya tienen dueño son los de los stubs de GDB -uno por MCU
+    // que lo pida- y el de la GUI si es esta maquina: `mcu-sim` es CLIENTE de
+    // la GUI, pero la GUI escucha en ese puerto aqui mismo, y un puente que se
+    // pusiera encima no podria abrirlo.
+    // -----------------------------------------------------------------------
+    std::vector<serie::Pieza> puentes;
+
+    void resuelve_puentes_serie() {
+        std::vector<serie::Pieza> decl;
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "PuenteSerie") continue;
+            const auto h = i.params.find("host");
+            decl.push_back({ i.id, h == i.params.end() ? serie::por_omision()
+                                                       : serie::parsea(h->second) });
+        }
+        std::vector<serie::Ocupado> ocupados;
+        for (const McuMontado& m : mcus)
+            if (m.decl.puerto_gdb)
+                ocupados.push_back({ m.decl.puerto_gdb,
+                                     m.decl.id.empty() ? std::string("el GDB")
+                                                       : "el GDB de " + m.decl.id });
+        if (g_gui_pedida && gui::es_bucle_local(g_gui.host))
+            ocupados.push_back({ g_gui.puerto, "mcu-sim-gui" });
+
+        const serie::Resultado r = serie::resuelve(decl, g_serie, ocupados);
+        for (const std::string& q : r.errores)
+            std::fprintf(stderr, "  [serie] %s\n", q.c_str());
+        if (!r.errores.empty())
+            muere(g_placa + ": " + std::to_string(r.errores.size()) +
+                  " problemas con los puentes serie; no se monta");
+        puentes = r.piezas;
+        for (const serie::Pieza& p : puentes)
+            std::printf("  serie %s: %s -- fase D0: todavia no se abre\n",
+                        p.id.c_str(), serie::describe(p.destino).c_str());
     }
 
     // -----------------------------------------------------------------------
@@ -573,6 +628,27 @@ int sc_main(int argc, char** argv) {
                 return 1;
             }
             g_gui_pedida = true;
+        }
+        // `--serie ID=DESTINO` y `--serie=ID=DESTINO`, tantas veces como
+        // puentes. La SINTAXIS se comprueba aqui, en cuanto se lee, como la de
+        // `--gui`; que el puente exista y que su puerto este libre se
+        // comprueba al leer la placa, que es cuando se sabe.
+        else if (a == "--serie" || a.rfind("--serie=", 0) == 0) {
+            std::string v;
+            if (a.rfind("--serie=", 0) == 0) v = a.substr(8);
+            else if (i + 1 < argc && argv[i + 1][0] != '-') v = argv[++i];
+            if (v.empty()) {
+                std::fprintf(stderr, "--serie: falta ID=DESTINO, como en "
+                             "--serie VCP=rfc2217:%u\n",
+                             stm32::serie::PUERTO_OMISION);
+                return 1;
+            }
+            const stm32::serie::Asignacion as = stm32::serie::parsea_asignacion(v);
+            if (!as.valido) {
+                std::fprintf(stderr, "--serie: %s\n", as.error.c_str());
+                return 1;
+            }
+            g_serie.push_back(as);
         } else if (a == "--licencia" || a == "--licencias") {
             // POR QUE ESTO ES UNA OPCION Y NO SOLO UN FICHERO SUELTO.
             //
@@ -640,6 +716,10 @@ int sc_main(int argc, char** argv) {
                 "                                el argumento nada cambia)\n"
                 "     sim placa.xml --tiempo-real  frena la simulacion al reloj de\n"
                 "                                pared (=0.5 a mitad de velocidad)\n"
+                "     sim placa.xml --serie ID=DESTINO  a donde da el PuenteSerie ID:\n"
+                "                                memoria, tcp:PUERTO o rfc2217:PUERTO\n"
+                "                                (manda sobre su host= del XML; la\n"
+                "                                pieza llega en la fase D2)\n"
                 "     sim placa.xml --mcu TIPO   el MCU implicito, cuando el XML no\n"
                 "                                declara ninguno (por omision %s)\n"
                 "     sim placa.xml --ms=2       tiempo simulado (global: hay un\n"

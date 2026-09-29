@@ -45,6 +45,10 @@ redactar esta revisión, no solo leído en un informe.
 - **Y un proyecto entero que empieza**: `mcu-sim-gui`, la contraparte gráfica,
   **en dos procesos** (**P-12**). Repositorio aparte, plan por fases escrito y
   protocolo especificado; de código, todavía nada.
+- **Y un puente UART hacia el ordenador** (**P-14**): una USART del MCU hasta
+  un puerto TCP con RFC 2217, y de ahí al puerto serie que ponga una
+  herramienta externa. Plan de nueve fases en `doc/analisis_puente_serie.md`;
+  la D0 está hecha en la rama `puente-uart`.
 - **Cincuenta y una funciones "bits sin máquina"**: registros que se guardan, se
   enmascaran y se leen correctamente, pero cuya lógica no se ejecuta. Casi todas
   corresponden a caminos que ningún firmware corriente usa, y casi todas están
@@ -286,6 +290,38 @@ dos compiladores y tres sistemas operativos**. Dejaron de ser una propiedad de
 una máquina. La ejecución del 2026-09-23 es además la primera que lo comprueba
 con **el invariante movido por T-23**, que hasta entonces solo se había medido
 en Linux.
+
+### P-14 — El puente UART: una USART del MCU hasta un puerto serie del ordenador
+
+**Fase:** posterior a F7. **Analizado y planificado en
+`doc/analisis_puente_serie.md`** (§10, arquitectura D con RFC 2217). **En
+marcha desde 2026-09-29 en la rama `puente-uart`; FASE D0 EJECUTADA.**
+
+Lo que hace un ST-LINK/V2-1 en una Nucleo: una pieza de placa, `PuenteSerie`,
+colgada de los pines de una USART, que lleva sus bytes a un puerto TCP de esta
+máquina. El puerto serie del sistema **no lo abre `mcu-sim`**: lo pone una
+herramienta externa y gratuita (socat, gensio, com0com + hub4com, HW VSP3...),
+y así `common/red.h` sigue siendo el único fichero que sabe en qué sistema
+operativo corre. Con RFC 2217, los baudios que el alumno elige en su terminal
+llegan a la línea simulada, y un desajuste da basura en la USART del modelo,
+como en la placa.
+
+| | Qué | Fase del plan |
+| :--- | :--- | :--- |
+| a | ~~`--serie ID=DESTINO` y el parseo de `host=`~~ **HECHO**: `common/serie_destino.h`, `make serie` con 72 comprobaciones puras, fuera del banco. Puerto por omisión **3355** (no el 5000 del AirPlay de macOS). **Sin el argumento, nada cambia**: 2118/204/165 y los tres invariantes intactos | D0 |
+| b | `MotorUart` extraído de `SwoReceiver`, **con `test407` idéntico al picosegundo** | D1 |
+| c | La pieza `PuenteSerie`, su ficha de `--help` (aplazada desde D0: registrarla sin pieza sería más permisivo que lo que hay) y `make testserie` con su propio invariante | D2 |
+| d | TCP en crudo sobre `red.h`, reconexión, «no termina sola» | D3 |
+| e | El códec Telnet + RFC 2217, puro, con `make rfc2217` | D4 |
+| f | RFC 2217 en la pieza: `baudios="host"`, BREAK → `LBD`, líneas de módem, PURGE | D5 |
+| g | Interoperabilidad: pySerial en CI (cuatro plataformas), socat en Linux y macOS; matriz manual para Windows | D6 |
+| h | Recetas por plataforma (`doc/puente_serie.md`) y `placas/nucleo_f446re_vcp.xml` | D7 |
+| i | Modo cliente, opcional | D8 |
+
+**Lo que no resuelve, dicho desde el principio:** en Windows, un `COMn` que no
+es físico exige un driver, y ninguna herramienta gratuita lo evita (§7.1 del
+análisis). Para ver lo que imprime el firmware no hace falta: basta un terminal
+que hable TCP, como CoolTerm o PuTTY en modo *Raw*.
 
 ---
 
@@ -623,16 +659,16 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 
 | Categoría | Puntos |
 | :--- | ---: |
-| **P** — Pendientes de plan | 13 |
+| **P** — Pendientes de plan | 14 |
 | **F** — Funciones no modeladas | 51 |
 | **T** — Temporización y física | 23 |
 | **D** — Datos sin fuente | 14 |
 | **X** — Discrepancias, silencios de [IR] y erratas de ST | 14 |
 | **V** — Huecos de verificación | 11 |
 | **I** — Deuda de instrumentación y proyecto | 48 *(veintiocho cerradas: I-11, I-12, I-15, I-16, I-17, I-20, I-22, I-25, I-28, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38, I-39, I-40, I-41, I-42, I-43, I-44, I-45, I-46, I-47 e I-48)* |
-| **Total** | **174** |
+| **Total** | **175** |
 
-De los 174, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 175, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.
