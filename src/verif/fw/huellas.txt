@@ -63,3 +63,7 @@
 
 # --- suite del F415/F417 ---
 417  crypto_demo/crypto_demo.bin        1236  0xDF57A39E
+
+# El banco del puente UART (P-14, fase D2). Compilado con la misma cadena que
+# las demas, que reproduce byte a byte uart_demo.bin (1452 B, 0x63E40E5A).
+serie  vcp_demo/vcp_demo.bin          1096  0x8BAC8D5B

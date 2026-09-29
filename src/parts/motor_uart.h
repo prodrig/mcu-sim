@@ -85,17 +85,24 @@ public:
         while (!nivel()) sc_core::wait(net_->value_changed_event());
         // Y ahora sí, el flanco de bajada del bit de arranque.
         while (nivel()) sc_core::wait(net_->value_changed_event());
-        sc_core::wait(sc_core::sc_time(tb_ * 1.5, sc_core::SC_SEC));   // al centro del bit 0
+        // La configuración se FIJA aquí, en el flanco de arranque: un cambio de
+        // baudios o de formato que llegue a mitad de trama se aplica en la
+        // siguiente, como en un UART real al que se le reprograma el divisor
+        // (decisión D-4 del plan). Son las mismas cuentas con los mismos
+        // valores, así que el tiempo no cambia ni un picosegundo.
+        const double      tb = tb_;
+        const FormatoUart f  = f_;
+        sc_core::wait(sc_core::sc_time(tb * 1.5, sc_core::SC_SEC));    // al centro del bit 0
         bool todo_cero = true;
-        for (unsigned i = 0; i < f_.bits; ++i) {
+        for (unsigned i = 0; i < f.bits; ++i) {
             if (nivel()) { t.dato = uint16_t(t.dato | (1u << i)); todo_cero = false; }
-            sc_core::wait(sc_core::sc_time(tb_, sc_core::SC_SEC));
+            sc_core::wait(sc_core::sc_time(tb, sc_core::SC_SEC));
         }
-        if (f_.con_paridad()) {
+        if (f.con_paridad()) {
             const bool p = nivel();
             if (p) todo_cero = false;
-            t.error_paridad = (p != f_.bit_de_paridad(t.dato));
-            sc_core::wait(sc_core::sc_time(tb_, sc_core::SC_SEC));
+            t.error_paridad = (p != f.bit_de_paridad(t.dato));
+            sc_core::wait(sc_core::sc_time(tb, sc_core::SC_SEC));
         }
         // El PRIMER bit de parada, en su centro. Los demás (el medio o el
         // segundo) no se comprueban: un receptor real tampoco lo hace, y es lo
@@ -149,19 +156,23 @@ public:
     // Una trama entera: arranque, datos LSB primero, paridad y parada. Bloquea
     // el SC_THREAD que la llama lo que dura la trama, parada incluida.
     void emite(unsigned dato) {
-        const sc_core::sc_time tb(tb_, sc_core::SC_SEC);
+        // Fijada al empezar, como en el receptor: un cambio a mitad de trama
+        // vale para la siguiente (D-4).
+        const double      tb_s = tb_;
+        const FormatoUart f    = f_;
+        const sc_core::sc_time tb(tb_s, sc_core::SC_SEC);
         nivel(false);                                   // arranque
         sc_core::wait(tb);
-        for (unsigned i = 0; i < f_.bits; ++i) {
+        for (unsigned i = 0; i < f.bits; ++i) {
             nivel(((dato >> i) & 1u) != 0);
             sc_core::wait(tb);
         }
-        if (f_.con_paridad()) {
-            nivel(f_.bit_de_paridad(dato & f_.mascara()));
+        if (f.con_paridad()) {
+            nivel(f.bit_de_paridad(dato & f.mascara()));
             sc_core::wait(tb);
         }
         nivel(true);                                    // parada
-        sc_core::wait(sc_core::sc_time(tb_ * 0.5 * f_.medios_de_parada(),
+        sc_core::wait(sc_core::sc_time(tb_s * 0.5 * f.medios_de_parada(),
                                        sc_core::SC_SEC));
         ++n_tramas_;
     }

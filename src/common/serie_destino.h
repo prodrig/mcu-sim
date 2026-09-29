@@ -329,6 +329,67 @@ inline Resultado resuelve(const std::vector<Pieza>& placa,
     return r;
 }
 
+
+// ---------------------------------------------------------------------------
+// Los otros dos atributos de texto de la pieza (fase D2)
+// ---------------------------------------------------------------------------
+
+// `baudios="115200"` o `baudios="host"`. Con `host` la velocidad de la línea
+// la fija el terminal del alumno por RFC 2217 (decisión D-3); hasta que diga
+// algo -o si el destino no es RFC 2217- vale `BAUDIOS_OMISION`.
+inline constexpr double BAUDIOS_OMISION = 115200.0;
+
+inline std::string parsea_baudios(const std::string& s, double& out, bool& host) {
+    if (s == "host") { host = true; out = BAUDIOS_OMISION; return std::string(); }
+    if (!detalle::solo_digitos(s) || s.size() > 8)
+        return "'" + s + "' no son baudios: un numero entero, como 115200, o "
+               "'host' para que los fije el terminal";
+    const unsigned long v = std::stoul(s);
+    // Por abajo, 50 baudios es lo mas lento que ofrece un terminal; por arriba,
+    // la USART del F407 no pasa de 10,5 Mbit/s (PCLK2 = 84 MHz y sobremuestreo
+    // por 8). Fuera de eso no hay nada al otro lado que lo entienda.
+    if (v < 50 || v > 10500000)
+        return "'" + s + "' baudios esta fuera de 50..10500000";
+    host = false;
+    out = double(v);
+    return std::string();
+}
+
+// El `guion=` del destino `memoria`: lo que el «terminal» teclea al arrancar.
+// Admite los escapes de C que hacen falta para hablar con un firmware:
+// \r \n \t \\ \0 y \xNN (dos cifras hexadecimales, exactamente). Un escape que
+// no es ninguno de esos se rechaza en vez de pasarse tal cual: `\d` no es un
+// carácter, es una equivocación.
+inline std::string desescapa(const std::string& s, std::string& out) {
+    std::string r;
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] != '\\') { r += s[i]; continue; }
+        if (i + 1 >= s.size()) return "el guion acaba en '\\' sin nada detras";
+        const char c = s[++i];
+        switch (c) {
+        case 'r':  r += '\r'; break;
+        case 'n':  r += '\n'; break;
+        case 't':  r += '\t'; break;
+        case '0':  r += '\0'; break;
+        case '\\': r += '\\'; break;
+        case 'x': {
+            const std::string h = s.substr(i + 1, 2);
+            if (h.size() != 2 || !std::isxdigit(static_cast<unsigned char>(h[0])) ||
+                !std::isxdigit(static_cast<unsigned char>(h[1])))
+                return "'\\x" + h + "': \\x necesita dos cifras hexadecimales";
+            r += char(std::stoi(h, nullptr, 16));
+            i += 2;
+            break;
+        }
+        default:
+            return std::string("'\\") + c + "' no es un escape: los que hay son "
+                   "\\r \\n \\t \\0 \\\\ y \\xNN";
+        }
+    }
+    out = r;
+    return std::string();
+}
+
 } // namespace serie
 } // namespace stm32
 

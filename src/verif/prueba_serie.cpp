@@ -329,6 +329,48 @@ int main() {
         comprueba(s7.mascara() == 0x7Fu, "y la mascara de siete bits es 0x7F");
     }
 
+    // --- 8. Baudios y guion (fase D2) ----------------------------------------
+    grupo("8. Los baudios y el guion de la pieza");
+    {
+        double b = 0; bool h = true;
+        comprueba(parsea_baudios("115200", b, h).empty() && b == 115200.0 && !h,
+                  "115200 son 115200 baudios");
+        comprueba(parsea_baudios("host", b, h).empty() && h && b == 115200.0,
+                  "'host': los fija el terminal, y mientras tanto 115200");
+        comprueba(parsea_baudios("50", b, h).empty() &&
+                  parsea_baudios("10500000", b, h).empty(),
+                  "50 y 10500000 son los limites, y valen");
+        comprueba(!parsea_baudios("49", b, h).empty() &&
+                  !parsea_baudios("10500001", b, h).empty(),
+                  "49 y 10500001 no");
+        comprueba(parsea_baudios("9600.5", b, h).find("no son baudios") != std::string::npos &&
+                  !parsea_baudios("", b, h).empty() &&
+                  !parsea_baudios("Host", b, h).empty(),
+                  "ni un decimal, ni nada, ni 'Host' con mayuscula");
+    }
+    {
+        std::string g;
+        comprueba(desescapa("hola\\r\\n", g).empty() && g == "hola\r\n",
+                  "\\r y \\n");
+        comprueba(desescapa("a\\tb\\\\c", g).empty() && g == "a\tb\\c",
+                  "\\t y la barra doble");
+        comprueba(desescapa("\\x13\\xFf\\x00", g).empty() && g.size() == 3 &&
+                  g[0] == '\x13' && g[1] == '\xFF' && g[2] == '\0',
+                  "\\xNN en mayuscula o minuscula, y un cero de verdad dentro");
+        comprueba(desescapa("\\0", g).empty() && g.size() == 1 && g[0] == '\0',
+                  "\\0");
+        comprueba(desescapa("", g).empty() && g.empty(), "el guion vacio vale");
+        const std::string antes = "intacto";
+        g = antes;
+        comprueba(desescapa("\\d", g).find("no es un escape") != std::string::npos &&
+                  g == antes, "\\d se rechaza, y no toca la salida");
+        comprueba(!desescapa("a\\", g).empty(), "una barra al final se rechaza");
+        comprueba(desescapa("\\x4", g).find("dos cifras") != std::string::npos,
+                  "\\x con una sola cifra se rechaza");
+        comprueba(desescapa("\\xG1", g).find("dos cifras") != std::string::npos,
+                  "\\x con una letra que no es hexadecimal se rechaza");
+    }
+
     std::printf("RESULTADO %u ok, %u fallos\n", g_ok, g_mal);
     return g_mal ? 1 : 0;
 }

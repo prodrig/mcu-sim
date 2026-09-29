@@ -564,6 +564,7 @@ FW407 := verif/fw verif/fw/coremark verif/fw/blinky verif/fw/dma_demo \
          verif/fw/can_demo verif/fw/debug_demo verif/fw/lowpower_demo
 FW446 := verif/fw/blinky446 verif/fw/clk446_demo
 FW417 := verif/fw/crypto_demo
+FWSERIE := verif/fw/vcp_demo
 
 # Todos los que hay, para `cleanfw`. Se calculan buscando Makefiles en vez de
 # escribir otra lista: asi un firmware nuevo se borra sin tocar esto.
@@ -596,7 +597,7 @@ define AVISA_VERSIONADOS
 	@echo ""
 endef
 
-.PHONY: fw fw407 fw446 fw417 cleanfw test407fw test446fw test417fw
+.PHONY: fw fw407 fw446 fw417 fwserie cleanfw test407fw test446fw test417fw testseriefw
 
 fw407:
 	$(AVISA_VERSIONADOS)
@@ -622,8 +623,16 @@ fw417:
 	 done
 	@echo "  [fw] el firmware de la suite del F415/F417, listo"
 
-# Los tres juegos, sin simular nada.
-fw: fw407 fw446 fw417
+fwserie:
+	$(AVISA_VERSIONADOS)
+	$(COMPRUEBA_CROSS)
+	@for d in $(FWSERIE); do \
+	   echo "  [fw] $$d"; $(MAKE) --no-print-directory -C $$d || exit 1; \
+	 done
+	@echo "  [fw] el firmware de la suite del puente UART, listo"
+
+# Los cuatro juegos, sin simular nada.
+fw: fw407 fw446 fw417 fwserie
 
 # Y las suites con sus firmwares delante. En una maquina nueva ya NO hacen
 # falta: `make test407` a secas funciona, porque los .bin vienen en el
@@ -638,6 +647,9 @@ test446fw: fw446
 
 test417fw: fw417
 	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) test417
+
+testseriefw: fwserie
+	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) testserie
 
 # Borra los .bin, .elf, .o y .map de TODOS los firmwares, sean de la suite que
 # sean. Util para comprobar que la cadena cruzada funciona de cero.

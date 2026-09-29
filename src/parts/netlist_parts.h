@@ -31,6 +31,7 @@
 #include "netlist.h"
 #include "part_factory.h"
 #include "ext_parts.h"
+#include "puente_serie.h"
 
 namespace stm32 {
 
@@ -403,6 +404,112 @@ REGISTRA_PARTE(SwoReceiver,
     [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
         return new SwoReceiver(d.id.c_str(), n[d.nodo_de("swo")],
                                d.num("bitrate", 1e6));
+    });
+
+// ---------------------------------------------------------------------------
+// El puente UART (P-14). La validación de sus atributos va aparte de la
+// factoría porque el creador no puede decir por qué falla -solo devolver
+// nullptr- y `sim` tiene que poder decirlo ANTES de construir nada, con el
+// resto de errores de declaración. `sim_main.cpp` la llama en su paso 5 bis.
+// ---------------------------------------------------------------------------
+inline std::vector<std::string> valida_puente_serie(const Instancia& i) {
+    std::vector<std::string> e;
+    const std::string pre = i.id + ": ";
+    const auto h = i.params.find("host");
+    const serie::Destino d = h == i.params.end() ? serie::por_omision()
+                                                 : serie::parsea(h->second);
+    if (!d.valido) e.push_back(pre + "host=" + d.error);
+    else if (d.modo == serie::Modo::tcp)
+        e.push_back(pre + "host=\"" + serie::como_texto(d) + "\": el modo TCP "
+                    "llega en la fase D3 del plan. De momento solo existe "
+                    "host=\"memoria\"");
+    else if (d.modo == serie::Modo::rfc2217)
+        e.push_back(pre + "host=\"" + serie::como_texto(d) + "\"" +
+                    (h == i.params.end() ? " (el de omision)" : "") +
+                    ": RFC 2217 llega en la fase D5 del plan. De momento solo "
+                    "existe host=\"memoria\"");
+    const bool rx = !i.nodo_de("rx").empty(), tx = !i.nodo_de("tx").empty();
+    if (!rx && !tx) e.push_back(pre + "le falta rx y tx: hace falta al menos uno");
+    double b; bool bh;
+    const std::string eb = serie::parsea_baudios(i.txt("baudios", "115200"), b, bh);
+    if (!eb.empty()) e.push_back(pre + "baudios=" + eb);
+    FormatoUart f;
+    const std::string ef = parsea_formato(i.txt("formato", "8N1"), f);
+    if (!ef.empty()) e.push_back(pre + "formato=" + ef);
+    const std::string fl = i.txt("flujo", "no");
+    if (fl != "no" && fl != "rtscts")
+        e.push_back(pre + "flujo=\"" + fl + "\": es \"no\" o \"rtscts\"");
+    else if (fl == "rtscts" && i.nodo_de("cts").empty())
+        e.push_back(pre + "flujo=\"rtscts\" necesita el terminal cts, que es "
+                    "por donde se lee el RTS del MCU");
+    std::string g;
+    const std::string eg = serie::desescapa(i.txt("guion", ""), g);
+    if (!eg.empty()) e.push_back(pre + "guion=" + eg);
+    else if (!g.empty() && !tx)
+        e.push_back(pre + "un guion sin terminal tx no llega a ningun sitio");
+    return e;
+}
+
+REGISTRA_PARTE(PuenteSerie,
+    Ayuda("Un puente UART de placa, como el puerto COM virtual del ST-LINK de "
+          "una Nucleo: lee el TX de una USART por los pines, gobierna su RX y "
+          "lleva los bytes a otro sitio. Si los baudios o el formato no "
+          "coinciden con los del firmware, la USART ve BASURA y levanta sus "
+          "errores, como en la placa.")
+      .ejemplo("<componente tipo=\"PuenteSerie\" id=\"VCP\" host=\"memoria\"\n"
+               "            baudios=\"115200\" formato=\"8N1\" muestra=\"si\">\n"
+               "  <pin nombre=\"rx\" nodo=\"PA2\"/>   <!-- USART2_TX -->\n"
+               "  <pin nombre=\"tx\" nodo=\"PA3\"/>   <!-- USART2_RX -->\n"
+               "</componente>")
+      .pin("rx", "opcional",
+           "Lee el TX del MCU. Solo escucha. Hace falta rx, tx o los dos.")
+      .pin("tx", "opcional", "Gobierna el RX del MCU, con 50 ohmios.")
+      .pin("cts", "opcional",
+           "Lee el RTS del MCU: con flujo=\"rtscts\", alto = no le mandes.")
+      .pin("rts", "opcional",
+           "Gobierna el CTS del MCU: bajo = puede mandar.")
+      .pin("dtr", "opcional", "Alta en reposo; baja si el anfitrion la activa.")
+      .atr("host", "rfc2217:3355",
+           "A donde van los bytes: memoria, tcp:PUERTO o rfc2217:PUERTO. HOY "
+           "SOLO EXISTE memoria; tcp llega en la fase D3 y rfc2217 en la D5. "
+           "Se cambia sin tocar el XML con --serie ID=DESTINO.")
+      .atr("baudios", "115200",
+           "Un numero, o host para que los fije el terminal por RFC 2217.")
+      .atr("formato", "8N1",
+           "Bits (5..9, sin la paridad), paridad N/E/O/M/S y parada 1, 1.5 o 2.")
+      .atr("flujo", "no", "no, o rtscts: no manda mientras el RTS del MCU este alto.")
+      .atr("muestra", "si", "Imprime linea a linea lo que manda el MCU.")
+      .atr("guion", "nada",
+           "Lo que se teclea al arrancar, con \\r \\n \\t \\0 \\\\ y \\xNN. Solo "
+           "con host=memoria.")
+      .atr("guion_ms", "10", "Cuando se teclea, en ms simulados.")
+      .nota("Una trama con error de trama o de paridad SE ENTREGA igual: es la "
+            "basura que tiene que verse cuando los baudios no cuadran. Un break "
+            "no es un byte: se cuenta y no se entrega.")
+      .nota("El puerto serie del ordenador NO lo abre mcu-sim: lo pone una "
+            "herramienta externa conectada por TCP. Vease "
+            "doc/analisis_puente_serie.md, 7.")
+      .cpp("envia(texto), recibido(), set_baudios(), set_formato(), "
+           "envia_break(), set_rts(), set_dtr() y los contadores."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        // `sim` ya ha pasado valida_puente_serie(): aqui no se vuelve a
+        // explicar nada, solo se construye lo que se sabe construir.
+        if (!valida_puente_serie(d).empty()) return nullptr;
+        PuenteSerie::Config c;
+        const auto h = d.params.find("host");
+        c.destino = h == d.params.end() ? serie::por_omision() : serie::parsea(h->second);
+        serie::parsea_baudios(d.txt("baudios", "115200"), c.baudios, c.baudios_host);
+        parsea_formato(d.txt("formato", "8N1"), c.formato);
+        c.flujo_rtscts = d.txt("flujo", "no") == "rtscts";
+        c.muestra      = d.si("muestra", true);
+        serie::desescapa(d.txt("guion", ""), c.guion);
+        c.guion_ms     = d.num("guion_ms", 10.0);
+        auto nodo = [&](const char* t) -> analog_net_if* {
+            const std::string& s = d.nodo_de(t);
+            return s.empty() ? nullptr : &n[s];
+        };
+        return new PuenteSerie(d.id.c_str(), nodo("rx"), nodo("tx"), nodo("cts"),
+                               nodo("rts"), nodo("dtr"), c);
     });
 
 REGISTRA_PARTE(SdCard,

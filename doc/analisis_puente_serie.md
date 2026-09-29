@@ -748,7 +748,7 @@ una nota en `doc/chat.md`.
 | :--- | :--- | :--- |
 | **D0 · Frontera** ✅ | Identificador en `doc/todo.md` (**P-14**). Parseo puro de `host=` y `--serie` con sus formas válidas y rechazadas (`tcp:0`, `tcp:65536`, un id inexistente, dos piezas en el mismo puerto). ~~Ficha de `--help PuenteSerie`~~ **se pasa a D2** (§10.8) | **HECHO el 29-09-2026** en la rama `puente-uart`: `make serie` 72/72, invariantes intactos (§10.8) |
 | **D1 · Motor UART** ✅ | `MotorUart` extraído de `SwoReceiver` y ampliado (5-9 bits, paridad, 1/1,5/2 bits de parada, break, contadores). `SwoReceiver` migra a él | **HECHO el 29-09-2026**: `test407` da las mismas 2118 y el mismo `resto` (2240553274213 ps; el `2336217899213` de esta tabla era la cifra antigua del total) (§10.8) |
-| **D2 · Pieza con backend `memoria`** | `PuenteSerie` en los pines con cola y ritmo en baudios; firmware `vcp_demo`; nuevo `make testserie` con su invariante | Eco de 256 bytes (incluidos `0x00` y `0xFF`); desajuste de baudios → FE/NF en la USART; 7E1 y 8N2; break → `LBD`; RTS/CTS parando la cola; cola llena → aviso único |
+| **D2 · Pieza con backend `memoria`** ✅ | `PuenteSerie` en los pines con cola y ritmo en baudios; firmware `vcp_demo`; ~~nuevo~~ `make testserie` (nació en D1) | **HECHO el 29-09-2026** (§10.8). Los formatos 7E1 y 8N2 se prueban en el motor (D1), no con el firmware, que va en 8N1 |
 | **D3 · TCP crudo** | `CanalTcp` sobre `red.h`: servidor en `localhost`, sondeo adaptativo, reconexión con sustitución, «no termina sola», `--serie`, aviso de `--tiempo-real` | Cliente TCP del banco: eco, desconexión y reconexión en caliente, 0 bytes perdidos a 115 200 con `--tiempo-real`, y medida de CPU en reposo (objetivo: la de `--gdb`, el 5,3 %) |
 | **D4 · Códec RFC 2217** | `common/telnet2217.h`: negociación (`WILL`/`DO` 44, BINARY, SGA), subnegociaciones, escape de `IAC` en datos y dentro de `SB`, regla `CR NUL` sin BINARY. `make rfc2217` sin SystemC | Vectores sacados del texto de la RFC y de capturas de `pyserial` y `com2tcp-rfc2217`: tramas partidas en cualquier byte, `IAC IAC` en los datos, órdenes desconocidas que se ignoran sin desincronizar |
 | **D5 · RFC 2217 en la pieza** | `CanalRfc2217`; `baudios="host"`; la tabla del §10.4 completa; notificaciones LINESTATE/MODEMSTATE con máscaras | `verif/cliente_2217.h` cambia la velocidad a mitad de sesión y se comprueba el cambio **entre tramas** (D-4); desajuste de baudios provocado **desde el host**; BREAK ON/OFF → `LBD`; PURGE; SUSPEND/RESUME; la firma |
@@ -916,6 +916,104 @@ comprobaciones. `make asanserie`: limpio.
 **PENDIENTE A MANO, como en D0:** que el CI ejecute `testserie` y contraste su
 invariante. Hace falta tocar `.github/workflows/suites.yml`, y las herramientas
 remotas no pueden.
+
+
+#### D2 · La pieza — 29-09-2026, rama `puente-uart`
+
+**Qué se ha hecho:**
+
+| Fichero | Qué |
+| :--- | :--- |
+| `src/parts/puente_serie.h` | `PuenteSerie`: terminales `rx`, `tx`, `cts`, `rts` y `dtr` (con los nombres del adaptador), un hilo por sentido, control de flujo mirando el CTS antes de cada trama, break hacia el MCU, `muestra` línea a línea y `guion`. Las tramas con error se entregan (es la basura que hay que ver) y los breaks se cuentan |
+| `src/parts/canal_host.h` | La interfaz `CanalHost` (nadie bloquea; aviso por evento o sondeo) y su primer backend, `CanalMemoria`, con cola de 4 KiB hacia el MCU. TCP y RFC 2217 serán otros dos backends de la misma interfaz |
+| `src/parts/netlist_parts.h` | El registro en la factoría, **con la ficha de `--help` que se aplazó en D0**, y `valida_puente_serie()` |
+| `src/parts/motor_uart.h` | El receptor y el emisor **fijan formato y baudios al empezar cada trama** (D-4). Son las mismas cuentas con los mismos valores: `test407` no se ha movido |
+| `src/common/serie_destino.h` | `parsea_baudios()` y `desescapa()` (el `guion`), puros. `make serie` pasa a **114** |
+| `src/top/sim_main.cpp` | `--serie` se escribe en la instancia antes de validar y construir; los atributos de la pieza se validan en el paso 5 bis; al acabar, lo que quede a medias en `muestra` y un resumen de contadores por puente |
+| `src/top/sc_main_serie.cpp` | La mitad D2 del banco: un F407 con `vcp_demo` y la pieza en PA0-PA3. `testserie`: **79** y **`149861131044 ps`** |
+| `src/verif/fw/vcp_demo/` | El firmware: USART2 a 115200 8N1 con RTS por hardware y `LINEN`, HSI a 16 MHz sin PLL (sin cristal, y diez veces menos instrucciones por ms simulado), eco de lo que llega sin error, y la orden `0x13` para dejar de leer 5 ms. 1096 B, `0x8BAC8D5B` |
+| `src/verif/fw/huellas.txt` | Su línea, suite `serie`. **La cadena cruzada usada reproduce byte a byte `uart_demo.bin`** (1452 B, `0x63E40E5A`): es la misma que produjo las demás |
+| `src/Makefile.mcu-sim` | `fwserie` y `testseriefw`, como los de las otras suites |
+| `src/placas/vcp_memoria.xml` | Una placa de ejemplo: el F407 implícito y un puente en memoria con guion y RTS/CTS |
+| `doc/parts.md` | §4.9, la pieza en el catálogo |
+
+**Qué prueba `testserie` en esta fase** (P0-P10, además de lo de D1):
+
+* P1 — el firmware arranca, saluda y el saludo llega entero; BRR = `0x8B`;
+* P2 y P3 — el eco de un mensaje y de **los 255 valores de byte** (todos menos
+  la orden de pausa), en orden y sin tocar;
+* P4 y P5 — **RTS/CTS**: con el firmware sin leer durante 5 ms, sin control de
+  flujo la USART se desborda (ORE) y se pierden 39 de 40 bytes; con él, el
+  puente espera al RTS del MCU y llegan los 40;
+* P6 — **baudios equivocados**: el puente a 9600 y el firmware a 115200 dan
+  errores de trama o ruido en la USART y el eco no dice lo que se mandó; de
+  vuelta a 115200 todo funciona;
+* P7 — **un cambio a mitad de trama espera a la siguiente (D-4)**, en los dos
+  sentidos: la Z que el puente ya estaba mandando llega entera aunque se le
+  cambien formato y baudios, y la Y que el MCU ya estaba devolviendo se lee
+  entera aunque se cambien los baudios del receptor;
+* P8 — un break del puente es un break LIN: `LBD` sube una vez y la línea sigue
+  funcionando;
+* P9 — el `rts` del puente, en el pin;
+* P10 — la cola hacia el MCU tiene límite, rechaza lo que no cabe y lo cuenta.
+
+**Y desde el XML, con `mcu-sim`:** `placas/vcp_memoria.xml` con `vcp_demo`
+imprime el saludo y el eco del guion. Con `baudios="9600"` imprime la basura,
+avisa una vez de que los baudios no cuadran y da el recuento de errores. Los
+destinos `tcp` y `rfc2217` (el de omisión incluido), un `formato` o unos
+`baudios` mal escritos, un guion con un escape que no existe y `rtscts` sin
+terminal `cts` se rechazan antes de montar, con el motivo.
+
+**Cómo se ha comprobado que las pruebas pueden fallar:** cinco mutaciones. No
+mirar el CTS (3 fallos), no emitir el break (1), y leer en vivo, sin fijarlos al
+empezar la trama, el formato del emisor (1) y los baudios del receptor (1). **La
+quinta, leer en vivo los baudios del emisor, no la caza ningún banco**, y con
+razón: el emisor ya construía el tiempo de bit al empezar la trama, así que esa
+mutación solo alarga la parada, y eso es inofensivo. La primera versión de P7
+solo cambiaba los baudios del emisor y no cazaba ninguna de estas mutaciones;
+por eso se amplió al formato y al receptor.
+
+**Resultado de la verificación, compilado desde cero** con g++ 13 y SystemC
+2.3.4, sin avisos: `test407` 2118 y `resto` 2240553274213 ps, `test446` 204 y
+1033367277932 ps, `test417` 165 y 718988288 ps (**las tres intactas**);
+`testserie` 79 y 149861131044 ps, determinista entre ejecuciones; `make serie`
+114; `asanserie` limpio con el chip dentro; las siete placas validan sin un
+aviso; `T126` acepta la ficha nueva.
+
+**Desviaciones del plan y decisiones tomadas por el camino:**
+
+1. **`CanalHost` ya existe en D2**, con un solo backend. La pieza no tendrá que
+   cambiar cuando lleguen TCP y RFC 2217, solo ganar backends.
+2. **Los atributos de la pieza se validan antes de montar**, y no como en el
+   resto del catálogo, donde un atributo mal escrito se queda en su valor por
+   omisión. En esta pieza callarlo sería peor: `formato="8N1,5"` haría un 8N1
+   sin decirlo y el alumno buscaría el fallo en su firmware.
+3. **`muestra` y `guion`**, que no estaban en el plan: sin ellos, el destino
+   `memoria` solo servía para el banco. Con ellos, `mcu-sim` enseña lo que
+   imprime el firmware sin herramientas externas, que es el uso más común.
+4. **La placa de ejemplo es `placas/vcp_memoria.xml`**, un F407. La de la Nucleo
+   (`nucleo_f446re_vcp.xml`) sigue en D7, cuando haya TCP.
+5. **Los formatos 7E1 y 8N2 no se prueban contra el firmware**, que va en 8N1:
+   se prueban en el motor (D1, grupo S2). Probarlos con la USART es probar la
+   USART, que ya tiene su banco.
+
+**Queda sin probar, y está en P-14:** `set_dtr()` y el terminal `dtr`, que
+moverá RFC 2217 en D5.
+
+**PENDIENTE A MANO, como en D0 y D1:** que el CI corra `testserie`
+(`.github/workflows/`). **Y uno nuevo:** `src/verif/fw/vcp_demo/Makefile`, que
+las herramientas remotas tampoco pueden escribir (tratan como protegido
+cualquier fichero llamado `Makefile`). Es el de `uart_demo` con el nombre
+cambiado, y se genera con una línea:
+
+```
+sed -e 's/uart_demo/vcp_demo/g' \
+    -e 's/Firmware de demostracion de USART y UART con CMSIS (fase F4)/Firmware del puente UART: eco por la USART2 con RTS (P-14, fase D2)/' \
+    src/verif/fw/uart_demo/Makefile > src/verif/fw/vcp_demo/Makefile
+```
+
+Sin él, las suites funcionan igual (el `.bin` está versionado); lo que falla
+es `make fwserie`, que regenera el firmware.
 
 ---
 

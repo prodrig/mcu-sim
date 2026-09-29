@@ -15,7 +15,14 @@
 // no está aquí sino en `test407`: que su invariante no se mueva, que es la
 // prueba de que el receptor extraído hace lo mismo que el de antes.
 //
-// FASE D2 — LA PIEZA. (Llega en el commit siguiente.)
+// FASE D2 — LA PIEZA. Un STM32F407VG entero, con el firmware `vcp_demo`
+// -compilado contra la cabecera de ST, sin una adaptación al modelo- y un
+// `PuenteSerie` en memoria colgado de PA2/PA3 (USART2) y de PA1/PA0 (RTS/CTS).
+// El firmware saluda, devuelve lo que recibe, cuenta sus errores en un buzón
+// de la SRAM y sabe dejar de leer a propósito, que es como se prueba el
+// control de flujo. Aquí se comprueba de punta a punta lo que el alumno verá:
+// el saludo, el eco, los 255 valores de byte, lo que pasa con los baudios
+// equivocados, un cambio de velocidad a mitad de trama, el break y RTS/CTS.
 //
 //   make testserie
 // =============================================================================
@@ -23,9 +30,14 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include <functional>
 #include "../common/asan_opciones.h"
 #include "../common/analog_net.h"
+#include "../common/huella_fw.h"
 #include "../parts/motor_uart.h"
+#include "../parts/puente_serie.h"
+#include "soc_f4.h"
+#include "../verif/image_loader.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -68,6 +80,7 @@ struct TbMotor : sc_module {
     ReceptorUart rx{linea, 115200.0};
     std::vector<Recibida> llegadas;
     sc_event     llego;
+    sc_event     fin;          // el banco de la pieza espera a que acabe este
 
     SC_CTOR(TbMotor) {
         drv = linea.register_driver("tx");
@@ -282,6 +295,282 @@ struct TbMotor : sc_module {
                   "un 0x00 es un dato, no un break: su parada es un uno");
         }
 
+        tx->reposo();
+        fin.notify(SC_ZERO_TIME);
+    }
+};
+
+// ---------------------------------------------------------------------------
+// D2: un F407 con `vcp_demo` y un PuenteSerie en memoria
+// ---------------------------------------------------------------------------
+// El buzon del firmware, en el orden de `verif/fw/vcp_demo/main.c`.
+enum Buzon : uint32_t {
+    B_LISTO = 0, B_RX = 4, B_ECO = 8, B_FE = 12, B_NE = 16, B_PE = 20,
+    B_ORE = 24, B_LBD = 28, B_PAUSAS = 32, B_BRR = 36, B_ULTIMO = 40, B_MS = 44
+};
+
+struct TbPieza : sc_module {
+    SocF4        soc{"soc", DBG_PINES, Cableado(), MCU_STM32F407VG};
+    PuenteSerie* vcp = nullptr;
+    sc_event&    empieza;
+    int d_vdd = -1, d_vdda = -1, d_nrst = -1, d_bt0 = -1, d_pb2 = -1;
+
+    static PuenteSerie::Config config() {
+        PuenteSerie::Config c;
+        c.destino = serie::parsea("memoria");
+        return c;                          // 115200 8N1, sin flujo, callado
+    }
+
+    TbPieza(sc_module_name nm, sc_event& ev) : sc_module(nm), empieza(ev) {
+        // rx <- PA2 (USART2_TX), tx -> PA3 (USART2_RX), cts <- PA1 (RTS),
+        // rts -> PA0 (el CTS, que este firmware no usa: se mira la tension).
+        vcp = new PuenteSerie("vcp", &soc.pinmux.analog(0, 2),
+                              &soc.pinmux.analog(0, 3),
+                              &soc.pinmux.analog(0, 1),
+                              &soc.pinmux.analog(0, 0), nullptr, config());
+        SC_HAS_PROCESS(TbPieza);
+        SC_THREAD(run);  set_stack_size(1024 * 1024);
+    }
+    ~TbPieza() { delete vcp; }
+
+    uint32_t buzon(uint32_t off) { return soc.sram1.peek32(off); }
+
+    // Espera a que se cumpla algo, mirando cada 100 us, como mucho `max`.
+    bool espera(const std::function<bool()>& c, const sc_time& max) {
+        const sc_time t0 = sc_time_stamp();
+        while (!c()) {
+            if (sc_time_stamp() - t0 >= max) return false;
+            wait(100, SC_US);
+        }
+        return true;
+    }
+    bool recibe(const std::string& esp, const sc_time& max) {
+        return espera([&] { return vcp->recibido().size() >= esp.size(); }, max) &&
+               vcp->recibido() == esp;
+    }
+
+    void enciende() {
+        d_vdd  = soc.pwr_pads.vdd.register_driver("tb_vdd");
+        d_vdda = soc.pwr_pads.vdda.register_driver("tb_vdda");
+        d_nrst = soc.pwr_pads.nrst.register_driver("tb_nrst");
+        d_bt0  = soc.pwr_pads.boot0.register_driver("tb_boot0");
+        d_pb2  = soc.pinmux.analog(1, 2).register_driver("tb_pb2");
+        soc.pwr_pads.vdd.set_drive(d_vdd, 0.0f, 1.0f);
+        soc.pwr_pads.vdda.set_drive(d_vdda, 0.0f, 1.0f);
+        soc.pwr_pads.boot0.set_drive(d_bt0, 0.0f, 10e3f);        // arranca de Flash
+        soc.pinmux.analog(1, 2).set_drive(d_pb2, 0.0f, 10e3f);
+        soc.pwr_pads.nrst.set_drive(d_nrst, 0.0f, 100.0f);
+        // Sin la onda cuadrada de los relojes internos, como hace `sim` por
+        // omision: son el grueso de los sucesos y aqui no se mira el reloj.
+        soc.rcc.set_internal_waveforms(false);
+        wait(10, SC_US);
+        soc.pwr_pads.vdd.set_drive(d_vdd, 3.3f, 0.1f);
+        soc.pwr_pads.vdda.set_drive(d_vdda, 3.3f, 0.1f);
+        wait(100, SC_US);
+    }
+
+    void run() {
+        wait(empieza);
+
+        // --- 0. El firmware es el versionado ---------------------------------
+        grupo("P0 Imagen de firmware [verif/fw/huellas.txt]");
+        {
+            const huella_fw::Veredicto v =
+                huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "serie");
+            std::printf("         %d imagenes: %s\n", v.comprobadas, v.detalle.c_str());
+            check(v.ok(), "vcp_demo.bin es la imagen versionada");
+        }
+
+        // --- 1. Arranque y saludo -------------------------------------------
+        grupo("P1 El firmware arranca y saluda por el puente");
+        enciende();
+        ImageLoader ld(soc);
+        const long n = ld.load_file("verif/fw/vcp_demo/vcp_demo.bin", addr::FLASH_BASE);
+        if (!check(n > 0, "vcp_demo.bin se carga en la Flash")) { termina(); return; }
+        for (unsigned i = 0; i < 48; i += 4) ld.poke32(addr::SRAM1_BASE + i, 0);
+        soc.pwr_pads.nrst.set_hiz(d_nrst);
+        check(espera([&] { return buzon(B_LISTO) == 1u; }, sc_time(50, SC_MS)),
+              "el firmware llega a su bucle de eco");
+        check(recibe("vcp_demo listo\r\n", sc_time(10, SC_MS)),
+              "y el saludo llega entero al puente: \"vcp_demo listo\\r\\n\"");
+        // 16 MHz / 115200 = 8,68: mantisa 8 y fraccion round(0,68 * 16) = 11
+        check_eq(buzon(B_BRR), 0x8Bu, "BRR = 0x8B: el divisor del driver de ST");
+        check(vcp->errores_trama() == 0 && vcp->errores_paridad() == 0,
+              "sin un error en el lado del puente");
+
+        // --- 2. Eco -----------------------------------------------------------
+        grupo("P2 Lo que se teclea vuelve");
+        {
+            vcp->borra_recibido();
+            const std::string m = "Hola, mcu-sim\r\n";
+            check(vcp->envia(m) == m.size(), "el mensaje cabe en la cola");
+            check(recibe(m, sc_time(20, SC_MS)), "el eco es exactamente el mensaje");
+            check_eq(buzon(B_RX), 15u, "el firmware conto quince tramas");
+            check_eq(buzon(B_ECO), 15u, "y devolvio las quince");
+            check(buzon(B_FE) == 0 && buzon(B_NE) == 0 && buzon(B_PE) == 0 &&
+                  buzon(B_ORE) == 0,
+                  "sin error de trama, ruido, paridad ni desbordamiento");
+            check(vcp->bytes_hacia_mcu() == 15u,
+                  "el puente mando quince bytes");
+        }
+
+        // --- 3. Transparencia -------------------------------------------------
+        grupo("P3 Los 255 valores de byte, incluidos 0x00 y 0xFF");
+        {
+            vcp->borra_recibido();
+            std::string todos;
+            for (unsigned v = 0; v < 256; ++v)
+                if (v != 0x13u) todos += char(v);    // 0x13 es la orden de pausa
+            vcp->envia(todos);
+            check(recibe(todos, sc_time(100, SC_MS)),
+                  "los 255 bytes vuelven en orden y sin tocar");
+            check(buzon(B_FE) == 0 && buzon(B_ORE) == 0, "sin un error");
+        }
+
+        // --- 4. Control de flujo ----------------------------------------------
+        grupo("P4 RTS/CTS: sin control de flujo, la USART se desborda");
+        std::string rafaga;
+        for (unsigned i = 0; i < 40; ++i) rafaga += char('A' + (i % 26));
+        {
+            vcp->borra_recibido();
+            const uint32_t ore0 = buzon(B_ORE);
+            vcp->envia(std::string(1, '\x13') + rafaga);
+            wait(20, SC_MS);
+            check_eq(buzon(B_PAUSAS), 1u, "el firmware atendio la pausa");
+            check(buzon(B_ORE) > ore0,
+                  "mientras no leia, llegaron bytes encima: desbordamiento");
+            check(vcp->recibido().size() < rafaga.size(),
+                  "y el eco se queda corto: se han perdido bytes (" +
+                  std::to_string(vcp->recibido().size()) + " de 40)");
+        }
+        grupo("P5 RTS/CTS: con control de flujo, el puente espera");
+        {
+            vcp->set_flujo_rtscts(true);
+            vcp->borra_recibido();
+            const uint32_t ore0 = buzon(B_ORE);
+            vcp->envia(std::string(1, '\x13') + rafaga);
+            check(recibe(rafaga, sc_time(40, SC_MS)),
+                  "los cuarenta llegan y vuelven, en orden");
+            check_eq(buzon(B_PAUSAS), 2u, "con su pausa de por medio");
+            check(buzon(B_ORE) == ore0, "sin un solo desbordamiento");
+            check(vcp->esperas_por_cts() > 0,
+                  "porque el puente espero al RTS del MCU");
+            vcp->set_flujo_rtscts(false);
+        }
+
+        // --- 6. Baudios equivocados -------------------------------------------
+        grupo("P6 Baudios equivocados: basura, como en la placa");
+        {
+            wait(2, SC_MS);
+            vcp->borra_recibido();
+            const uint32_t err0 = buzon(B_FE) + buzon(B_NE);
+            vcp->set_baudios(9600.0);
+            vcp->envia("Hola");
+            wait(15, SC_MS);
+            check(buzon(B_FE) + buzon(B_NE) > err0,
+                  "el puente a 9600 y el firmware a 115200: la USART levanta "
+                  "errores de trama o de ruido");
+            check(vcp->recibido().find("Hola") == std::string::npos,
+                  "y el eco no dice Hola");
+            vcp->set_baudios(115200.0);
+            wait(5, SC_MS);
+            vcp->borra_recibido();
+            vcp->envia("ok\r\n");
+            check(recibe("ok\r\n", sc_time(20, SC_MS)),
+                  "de vuelta a 115200, todo vuelve a funcionar");
+        }
+
+        // --- 7. Cambio de velocidad a mitad de trama (D-4) --------------------
+        grupo("P7 Un cambio a mitad de trama espera a la siguiente (D-4)");
+        {
+            // El EMISOR del puente: se le cambian formato y baudios con una Z
+            // en la linea. La Z tiene que llegar entera; si el emisor leyera
+            // el formato en vivo, le meteria un bit de paridad (un 0, porque
+            // 0x5A tiene cuatro unos) donde el MCU espera la parada.
+            wait(2, SC_MS);
+            const uint32_t rx0 = buzon(B_RX), fe0 = buzon(B_FE);
+            vcp->envia("Z");
+            wait(30, SC_US);                       // la trama dura 87 us
+            FormatoUart f8e1;
+            parsea_formato("8E1", f8e1);
+            vcp->set_formato(f8e1);
+            vcp->set_baudios(57600.0);
+            wait(3, SC_MS);
+            check(buzon(B_RX) == rx0 + 1 && buzon(B_FE) == fe0 &&
+                  buzon(B_ULTIMO) == uint32_t('Z'),
+                  "emisor: la Z que ya estaba en la linea llega entera, sin "
+                  "la velocidad ni la paridad nuevas");
+            vcp->set_formato(FormatoUart{});
+            vcp->set_baudios(115200.0);
+            wait(5, SC_MS);
+        }
+        {
+            // El RECEPTOR del puente: se le cambian los baudios mientras el MCU
+            // esta devolviendo una Y. El flanco de arranque de la Y se busca
+            // en PA2, que es por donde sale.
+            vcp->borra_recibido();
+            const uint64_t et0 = vcp->errores_trama(), ep0 = vcp->errores_paridad();
+            vcp->envia("Y");
+            const analog_net_if& pa2 = soc.pinmux.analog(0, 2);
+            wait(100, SC_US);                      // que la Y llegue al MCU
+            const sc_time t0 = sc_time_stamp();
+            while (pa2.voltage() > 1.0f && sc_time_stamp() - t0 < sc_time(5, SC_MS))
+                wait(sc_time(5, SC_MS), pa2.value_changed_event());
+            check(pa2.voltage() < 1.0f, "el MCU empieza a devolver la Y");
+            wait(30, SC_US);
+            vcp->set_baudios(57600.0);
+            wait(3, SC_MS);
+            check(vcp->recibido() == "Y" && vcp->errores_trama() == et0 &&
+                  vcp->errores_paridad() == ep0,
+                  "receptor: la Y que ya estaba en la linea se lee entera a "
+                  "115200");
+            vcp->set_baudios(115200.0);
+            wait(5, SC_MS);
+        }
+
+        // --- 8. Break -----------------------------------------------------------
+        grupo("P8 Un break del puente es un break LIN para la USART");
+        {
+            const uint32_t lbd0 = buzon(B_LBD);
+            vcp->envia_break();
+            check(espera([&] { return buzon(B_LBD) == lbd0 + 1; }, sc_time(5, SC_MS)),
+                  "LBD sube una vez, y el firmware lo cuenta");
+            vcp->borra_recibido();
+            vcp->envia("b\r\n");
+            check(recibe("b\r\n", sc_time(20, SC_MS)),
+                  "y despues del break la linea sigue funcionando");
+        }
+
+        // --- 9. Las lineas que gobierna el puente -------------------------------
+        grupo("P9 El rts del puente, en el pin");
+        {
+            const analog_net_if& pa0 = soc.pinmux.analog(0, 0);
+            check(pa0.voltage() < 0.5f, "en reposo, rts bajo: el MCU puede mandar");
+            vcp->set_rts(false);
+            wait(1, SC_US);
+            check(pa0.voltage() > 3.0f, "set_rts(false) lo sube");
+            vcp->set_rts(true);
+            wait(1, SC_US);
+            check(pa0.voltage() < 0.5f, "y set_rts(true) lo vuelve a bajar");
+        }
+
+        // --- 10. La cola hacia el MCU -------------------------------------------
+        grupo("P10 La cola hacia el MCU tiene limite, y lo dice");
+        {
+            CanalMemoria c(8);
+            check(c.empuja("0123456789") == 8u, "con 8 de cola caben 8 de 10");
+            check(c.rechazados() == 2u && c.pendientes() == 8u,
+                  "los otros dos se rechazan y se cuentan");
+            uint8_t b[16];
+            check(c.leer(b, 16) == 8u && b[0] == '0' && b[7] == '7',
+                  "y salen en orden, los que cupieron");
+            check(c.leer(b, 16) == 0u, "vacia, leer no bloquea: devuelve cero");
+        }
+
+        termina();
+    }
+
+    void termina() {
         std::printf("\n=====================================================\n");
         std::printf("TOTAL SERIE : %u comprobaciones OK, %u fallos\n",
                     g_ok, g_fallos);
@@ -295,6 +584,7 @@ struct TbMotor : sc_module {
 int sc_main(int, char*[]) {
     sc_report_handler::set_actions(SC_WARNING, SC_DO_NOTHING);
     TbMotor tb("tb");
+    TbPieza tp("tp", tb.fin);
     sc_start();
     std::printf("\nTiempo simulado: %s\n", sc_time_stamp().to_string().c_str());
     return g_fallos ? 1 : 0;

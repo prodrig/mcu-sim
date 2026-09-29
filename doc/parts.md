@@ -902,6 +902,48 @@ Desde C++: `peek`/`poke`, `commands()`, `bus_width()`, y tres averías a
 propósito —`break_resp_crc`, `break_data_crc` y `set_mute`— para comprobar que
 el host levanta CCRCFAIL, DCRCFAIL y CTIMEOUT de verdad.
 
+### 4.9 El puente UART hacia el ordenador
+
+#### `PuenteSerie`
+
+Lo que hace el ST-LINK/V2-1 de una Nucleo con su puerto COM virtual: un UART de
+placa colgado de los pines de una USART, que lleva los bytes a otro sitio
+(**P-14**; el plan está en `doc/analisis_puente_serie.md` §10). Lee el TX del MCU
+con el mismo receptor que `SwoReceiver` y gobierna su RX con 50 Ω, así que **si
+los baudios o el formato no coinciden con los del firmware, la USART del modelo
+ve basura y levanta FE/NF**, como en la placa.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `rx` | opcional | Lee el TX del MCU. Pasivo |
+| `tx` | opcional | Gobierna el RX del MCU |
+| `cts` | opcional | Lee el RTS del MCU. Pasivo. Imprescindible con `flujo="rtscts"` |
+| `rts` | opcional | Gobierna el CTS del MCU: bajo = puede mandar |
+| `dtr` | opcional | Alta en reposo, baja si el anfitrión la activa |
+
+Hace falta al menos `rx` o `tx`. Los nombres son los del **adaptador**, como
+vienen serigrafiados en uno de verdad: su `rx` va al TX del MCU.
+
+| Atributo | Por omisión | |
+| :--- | :--- | :--- |
+| `host` | `rfc2217:3355` | `memoria`, `tcp:PUERTO` o `rfc2217:PUERTO`. **Hoy solo existe `memoria`**: TCP llega en la fase D3 y RFC 2217 en la D5, y hasta entonces se rechazan diciéndolo. `--serie ID=DESTINO` lo cambia sin tocar el XML |
+| `baudios` | `115200` | Un entero entre 50 y 10 500 000, o `host` (los fijará el terminal por RFC 2217) |
+| `formato` | `8N1` | Bits de datos **sin contar la paridad** (5..9), paridad `N`/`E`/`O`/`M`/`S` y parada `1`, `1.5` o `2` |
+| `flujo` | `no` | `rtscts`: no manda mientras el RTS del MCU esté alto |
+| `muestra` | `si` | Imprime línea a línea lo que manda el MCU, con el id delante; lo que quede a medias sale al acabar |
+| `guion` | nada | Lo que se «teclea» al arrancar, con `\r \n \t \0 \\ \xNN` |
+| `guion_ms` | `10` | Cuándo se teclea, en ms simulados |
+
+A diferencia del resto del catálogo, **los atributos de esta pieza se validan
+antes de montar**: un formato, unos baudios o un destino mal escritos no se
+quedan en su valor por omisión, se rechazan con el motivo. Una trama con error se
+entrega igual —es la basura que el alumno tiene que ver— y un break se cuenta y
+no se entrega.
+
+Desde C++: `envia(texto)`, `recibido()`, `set_baudios()`, `set_formato()`,
+`envia_break()`, `set_rts()`, `set_dtr()` y los contadores. Ejemplo completo en
+`placas/vcp_memoria.xml`.
+
 ---
 
 ## 5. Lo que el fichero todavía no puede hacer

@@ -154,12 +154,12 @@ static bool        g_puerto_dado = false;
 static bool          g_gui_pedida = false;
 static stm32::gui::Destino g_gui;
 
-// --- Los puentes serie (`PuenteSerie`), fase D0 -----------------------------
-// Lo mismo que la ventana en su fase 0: se RECONOCE `--serie ID=DESTINO`, se
-// aplica sobre lo que dice la placa y se comprueba que no choca con nada. La
-// pieza llega en la fase D2 y el socket en la D3 [doc/analisis_puente_serie.md
-// §10]; hasta entonces ninguna placa puede tener un puente, y un `--serie` se
-// rechaza diciendo exactamente eso.
+// --- Los puentes serie (`PuenteSerie`) --------------------------------------
+// `--serie ID=DESTINO` se aplica sobre lo que dice la placa y se comprueba que
+// no choca con nada (fase D0). Desde la D2 la pieza existe, con el destino
+// `memoria`; el socket llega en la D3 y RFC 2217 en la D5
+// [doc/analisis_puente_serie.md §10], y hasta entonces esos dos modos se
+// rechazan diciendo en qué fase llegan.
 static std::vector<stm32::serie::Asignacion> g_serie;
 
 // ---------------------------------------------------------------------------
@@ -357,6 +357,9 @@ SC_MODULE(Sim) {
         std::printf("placa '%s': %u MCU(s), %u componentes, %u nodos, %u avisos\n",
                     g_nombre.c_str(), unsigned(mcus.size()),
                     unsigned(placa.instancias().size()), nodos.n_nodos(), n_avisos);
+        for (const serie::Pieza& p : puentes)
+            if (const PuenteSerie* ps = placa.como<PuenteSerie>(p.id))
+                std::printf("  serie %s: %s\n", p.id.c_str(), ps->describir().c_str());
         for (const McuMontado& m : mcus) {
             if (!m.decl.puerto_gdb && m.decl.firmware.empty() && m.decl.id.empty())
                 continue;                    // el caso de siempre: no dice nada
@@ -408,15 +411,24 @@ SC_MODULE(Sim) {
             ocupados.push_back({ g_gui.puerto, "mcu-sim-gui" });
 
         const serie::Resultado r = serie::resuelve(decl, g_serie, ocupados);
-        for (const std::string& q : r.errores)
+        std::vector<std::string> err = r.errores;
+        // Lo que manda la linea de ordenes se ESCRIBE en la instancia, para que
+        // la validacion y el creador vean lo mismo que se ha decidido aqui.
+        if (err.empty())
+            for (const serie::Pieza& p : r.piezas)
+                if (Instancia* i = placa.busca(p.id))
+                    i->params["host"] = serie::como_texto(p.destino);
+        // Y el resto de atributos de cada puente: baudios, formato, flujo,
+        // guion y los terminales. Tambien antes de construir.
+        for (const Instancia& i : placa.instancias())
+            if (i.tipo == "PuenteSerie")
+                for (const std::string& q : valida_puente_serie(i)) err.push_back(q);
+        for (const std::string& q : err)
             std::fprintf(stderr, "  [serie] %s\n", q.c_str());
-        if (!r.errores.empty())
-            muere(g_placa + ": " + std::to_string(r.errores.size()) +
+        if (!err.empty())
+            muere(g_placa + ": " + std::to_string(err.size()) +
                   " problemas con los puentes serie; no se monta");
         puentes = r.piezas;
-        for (const serie::Pieza& p : puentes)
-            std::printf("  serie %s: %s -- fase D0: todavia no se abre\n",
-                        p.id.c_str(), serie::describe(p.destino).c_str());
     }
 
     // -----------------------------------------------------------------------
@@ -583,6 +595,18 @@ SC_MODULE(Sim) {
                         nd.c_str(), l->on() ? "encendido" : "apagado",
                         double(l->pin_voltage()), l->current() * 1e3);
         }
+        // Y lo que los puentes serie tengan a medias, que tambien se ve desde
+        // fuera: es la basura de unos baudios equivocados.
+        for (const serie::Pieza& p : puentes)
+            if (PuenteSerie* ps = placa.como<PuenteSerie>(p.id)) {
+                ps->vacia_muestra();
+                std::printf("  serie %s: %llu bytes del MCU (%llu con error de "
+                            "trama, %llu de paridad), %llu hacia el MCU\n",
+                            p.id.c_str(), (unsigned long long)ps->bytes_desde_mcu(),
+                            (unsigned long long)ps->errores_trama(),
+                            (unsigned long long)ps->errores_paridad(),
+                            (unsigned long long)ps->bytes_hacia_mcu());
+            }
         sc_stop();
     }
 };
@@ -718,8 +742,8 @@ int sc_main(int argc, char** argv) {
                 "                                pared (=0.5 a mitad de velocidad)\n"
                 "     sim placa.xml --serie ID=DESTINO  a donde da el PuenteSerie ID:\n"
                 "                                memoria, tcp:PUERTO o rfc2217:PUERTO\n"
-                "                                (manda sobre su host= del XML; la\n"
-                "                                pieza llega en la fase D2)\n"
+                "                                (manda sobre su host= del XML; hoy\n"
+                "                                solo existe memoria)\n"
                 "     sim placa.xml --mcu TIPO   el MCU implicito, cuando el XML no\n"
                 "                                declara ninguno (por omision %s)\n"
                 "     sim placa.xml --ms=2       tiempo simulado (global: hay un\n"
