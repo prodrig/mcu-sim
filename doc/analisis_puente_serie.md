@@ -749,7 +749,7 @@ una nota en `doc/chat.md`.
 | **D0 · Frontera** ✅ | Identificador en `doc/todo.md` (**P-14**). Parseo puro de `host=` y `--serie` con sus formas válidas y rechazadas (`tcp:0`, `tcp:65536`, un id inexistente, dos piezas en el mismo puerto). ~~Ficha de `--help PuenteSerie`~~ **se pasa a D2** (§10.8) | **HECHO el 29-09-2026** en la rama `puente-uart`: `make serie` 72/72, invariantes intactos (§10.8) |
 | **D1 · Motor UART** ✅ | `MotorUart` extraído de `SwoReceiver` y ampliado (5-9 bits, paridad, 1/1,5/2 bits de parada, break, contadores). `SwoReceiver` migra a él | **HECHO el 29-09-2026**: `test407` da las mismas 2118 y el mismo `resto` (2240553274213 ps; el `2336217899213` de esta tabla era la cifra antigua del total) (§10.8) |
 | **D2 · Pieza con backend `memoria`** ✅ | `PuenteSerie` en los pines con cola y ritmo en baudios; firmware `vcp_demo`; ~~nuevo~~ `make testserie` (nació en D1) | **HECHO el 29-09-2026** (§10.8). Los formatos 7E1 y 8N2 se prueban en el motor (D1), no con el firmware, que va en 8N1 |
-| **D3 · TCP crudo** | `CanalTcp` sobre `red.h`: servidor en `localhost`, sondeo adaptativo, reconexión con sustitución, «no termina sola», `--serie`, aviso de `--tiempo-real` | Cliente TCP del banco: eco, desconexión y reconexión en caliente, 0 bytes perdidos a 115 200 con `--tiempo-real`, y medida de CPU en reposo (objetivo: la de `--gdb`, el 5,3 %) |
+| **D3 · TCP crudo** ✅ | `CanalTcp` sobre `red.h`: servidor en `localhost`, sondeo adaptativo, reconexión con sustitución, «no termina sola», `--serie`, aviso de `--tiempo-real` | **HECHO el 29-09-2026** (§10.8). La medida de CPU se hizo contra `--gdb` en la misma máquina, no contra el 5,3 % de otra |
 | **D4 · Códec RFC 2217** | `common/telnet2217.h`: negociación (`WILL`/`DO` 44, BINARY, SGA), subnegociaciones, escape de `IAC` en datos y dentro de `SB`, regla `CR NUL` sin BINARY. `make rfc2217` sin SystemC | Vectores sacados del texto de la RFC y de capturas de `pyserial` y `com2tcp-rfc2217`: tramas partidas en cualquier byte, `IAC IAC` en los datos, órdenes desconocidas que se ignoran sin desincronizar |
 | **D5 · RFC 2217 en la pieza** | `CanalRfc2217`; `baudios="host"`; la tabla del §10.4 completa; notificaciones LINESTATE/MODEMSTATE con máscaras | `verif/cliente_2217.h` cambia la velocidad a mitad de sesión y se comprueba el cambio **entre tramas** (D-4); desajuste de baudios provocado **desde el host**; BREAK ON/OFF → `LBD`; PURGE; SUSPEND/RESUME; la firma |
 | **D6 · Interoperabilidad** | `verif/serie/interop.py`: pySerial con `rfc2217://` y `socket://` en CI (Linux, Windows y los dos macOS). socat (`pty` ↔ `tcp`) en CI de Linux y macOS | CI verde en las cuatro plataformas. La matriz manual del §10.6 hecha una vez y anotada con versión y fecha |
@@ -1014,6 +1014,83 @@ sed -e 's/uart_demo/vcp_demo/g' \
 
 Sin él, las suites funcionan igual (el `.bin` está versionado); lo que falla
 es `make fwserie`, que regenera el firmware.
+
+
+#### D3 · TCP en crudo — 29-09-2026, rama `puente-uart`
+
+**Qué se ha hecho:**
+
+| Fichero | Qué |
+| :--- | :--- |
+| `src/parts/canal_host.h` | `CanalTcp`: servidor en `localhost` sobre `common/red.h`, **sin una línea de código de SO nueva**. Un cliente; el nuevo sustituye al viejo y se avisa una vez (D-5). Cola de 4 KiB hacia el MCU: cuando se llena se deja de leer el socket y TCP frena al emisor, así que en ese sentido **no se tira nada**. Hacia el anfitrión, sin cliente o con 64 KiB sin leer, se descarta y se cuenta. `CanalHost` gana `sondear()` y `pendientes()` |
+| `src/parts/puente_serie.h` | El canal según el destino, `canal_ok()`/`error_canal()` (puerto ocupado), `por_red()`, y `hilo_canal`: el **sondeo en tiempo simulado, adaptativo** (un tiempo de carácter con tráfico, 1 ms en reposo; D-9) |
+| `src/parts/netlist_parts.h` | `tcp` deja de rechazarse; `guion` con un destino que no es `memoria`, sí. La ficha lo cuenta, y dice qué poner al otro lado |
+| `src/top/sim_main.cpp` | Si un puente no puede escuchar, `sim` no arranca y dice por qué. Con un puente por TCP la simulación **no termina sola** (como con `--gdb`), y sin `--tiempo-real` se avisa |
+| `src/top/sc_main_serie.cpp` | P11-P17 con un cliente TCP de verdad en el propio banco. `testserie`: **101** y **`236861131044 ps`** |
+| `src/placas/vcp_tcp.xml` | La placa de ejemplo por TCP, con las recetas del §7.4 en su cabecera |
+
+**El problema que había que resolver, y cómo.** Un socket de verdad entrega
+los datos cuando quiere el sistema operativo. Si la pieza los descubre en un
+sondeo en tiempo simulado, cuántos sondeos hacen falta depende de la máquina, y
+el tiempo simulado del banco con ello: es exactamente lo que le pasa a
+`test407` con el stub de GDB, y por lo que allí se contrasta el `resto`. Aquí se
+ha evitado desde el diseño: el banco **provoca** cada efecto del anfitrión
+(conectar, mandar, cerrar) y **espera en tiempo de pared**, llamando al
+`sondear()` del canal, a que el canal lo tenga dentro; solo entonces deja
+avanzar la simulación. Mientras espera no corre ningún proceso de SystemC,
+porque comparten un hilo. Resultado: **`testserie` sigue contrastando el
+`total`**, y sale igual al picosegundo en cinco ejecuciones seguidas, dos de
+ellas con cuatro procesos compitiendo por la CPU.
+
+**Qué prueba `testserie` en esta fase:**
+
+* P11 — escucha en `localhost`, se describe, acepta a un cliente;
+* P12 y P13 — el eco por TCP de un mensaje y de los 255 valores de byte;
+* P14 — **sin cliente**, lo que manda el MCU se descarta y se cuenta (la «x» que
+  ya estaba dentro llega igual al MCU);
+* P15 — reconexión en caliente;
+* P16 — un cliente nuevo sustituye al anterior: al viejo se le cierra, el eco va
+  al nuevo;
+* P17 — **puerto ocupado**: un canal no puede escuchar y una pieza sobre ese
+  puerto lo dice con `canal_ok()`, que es lo que mira `sim` para no arrancar.
+
+**Y con `mcu-sim`, a mano:** `placas/vcp_tcp.xml` con `vcp_demo` y
+`--tiempo-real`, y un cliente en Python: el saludo sale por la consola, lo que
+manda el cliente llega al MCU y el eco vuelve al cliente. **Consumo en reposo**,
+seis segundos medidos en `/proc` en la misma máquina:
+
+| | CPU |
+| :--- | ---: |
+| puente TCP, `--tiempo-real` | **9,2 %** |
+| solo `--gdb`, `--tiempo-real` | 11,0 % |
+| puente TCP, sin freno | 97 % (un núcleo: es lo que avisa `sim`) |
+
+El 5,3 % que decía el plan era de otra máquina; lo que vale es que el puente
+cueste lo mismo o menos que el stub de GDB en la misma, y cuesta menos.
+
+**Cómo se ha comprobado que las pruebas pueden fallar:** tres mutaciones del
+canal y la pieza (no contar lo descartado, no avisar al emisor cuando llegan
+datos, rechazar al cliente nuevo en vez de sustituir al viejo): 1, 4 y 4 fallos.
+
+**Verificación**, compilado desde cero con g++ 13 y SystemC 2.3.4 y **con el
+propio `ci/pasa_suites.sh`**: `test407` 2118 y `resto` 2240553274213 ps,
+`test446` 204 y 1033367277932 ps, `test417` 165 y 718988288 ps (**intactas**),
+`testserie` 101 y 236861131044 ps; `make serie` 114; `asanserie` limpio; las
+ocho placas validan sin un aviso; `testserie` con clang 18, igual al
+picosegundo. `canal_host.h` mete `red.h` en todo lo que monta piezas, pero
+**los cuatro bancos y `mcu-sim` ya la incluían antes** por el stub de GDB: en
+Windows no entra ninguna cabecera que no estuviera.
+
+**Lo que no se ha hecho, y era del plan o lo roza:**
+
+1. **`escucha="red"` (D-7)**: abrir el puerto a otras máquinas exige una
+   función nueva en `red.h`. No hace falta para nada de lo que viene y queda
+   para cuando alguien lo pida.
+2. **«0 bytes perdidos a 115 200 con `--tiempo-real`»** no está en un banco:
+   con tiempo de pared de por medio no sería determinista. Lo cubren P13 (255
+   bytes seguidos, sin freno) y la prueba a mano.
+3. **Dos `testserie` a la vez en la misma máquina chocan en el puerto 47355**:
+   el segundo falla en P11 diciéndolo. En el CI cada trabajo tiene su máquina.
 
 ---
 

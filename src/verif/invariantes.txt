@@ -71,5 +71,12 @@ test417                165           718988288        total
 # El banco del puente UART (P-14). Crece con cada fase del plan de
 # doc/analisis_puente_serie.md §10, y cada fase que lo mueve lo dice en su
 # commit. D1: el motor UART suelto, sin chip (43, 51783680816 ps). D2: la
-# pieza, con un F407 y el firmware vcp_demo.
-testserie               79        149861131044        total
+# pieza, con un F407 y el firmware vcp_demo (79, 149861131044 ps). D3: TCP en
+# crudo, con un cliente de verdad en el propio banco.
+#
+# QUE ESTE BANCO USE SOCKETS Y AUN ASI CONTRASTE `total` es a proposito, y no
+# es lo mismo que le pasa al F407 con GDB: el banco espera en tiempo de PARED a
+# que el canal tenga dentro lo que hizo el cliente, y solo despues deja avanzar
+# la simulacion (vease la cabecera de top/sc_main_serie.cpp). Por eso el tiempo
+# simulado no depende de la maquina. Medido: el mismo con la CPU cargada.
+testserie              101        236861131044        total

@@ -5,7 +5,7 @@
 // el ST-LINK/V2-1 de una Nucleo con su puerto COM virtual: un UART de placa
 // colgado de dos pines del MCU, que lleva los bytes a otro sitio. Aquí ese
 // otro sitio es un `CanalHost` (parts/canal_host.h): en esta fase, una cola en
-// memoria; en la D3, un puerto TCP; en la D5, RFC 2217.
+// memoria (D2), un puerto TCP en crudo (D3) y, en la D5, RFC 2217.
 //
 // VA EN LOS PINES (opción M1 del análisis), como el resto de `parts/`. Lee el
 // TX del MCU con el mismo receptor que `SwoReceiver` y gobierna su RX con un
@@ -84,17 +84,41 @@ SC_MODULE(PuenteSerie), public ExtPartBase {
         if (cts) { add_ref("cts", *cts); cts_ = cts; }
         if (rts) { id_rts_ = add_pin("rts", *rts, "vcp_rts"); rts_ = rts; }
         if (dtr) { id_dtr_ = add_pin("dtr", *dtr, "vcp_dtr"); dtr_ = dtr; }
-        // En D2 el único canal es la memoria. El creador del XML no construye
-        // la pieza con otro destino (sim lo rechaza antes, diciendo en qué fase
-        // llega), y aquí se hace lo mismo por si alguien la monta desde C++.
-        mem_ = new CanalMemoria(c.cola);
-        canal_.reset(mem_);
+        // El canal, según el destino. RFC 2217 es la fase D5: hasta entonces
+        // `sim` no deja montar la pieza con ese destino, y si alguien lo hace
+        // desde C++ se queda en memoria y `canal_ok()` dice por qué.
+        switch (c.destino.modo) {
+        case serie::Modo::tcp:
+            tcp_ = new CanalTcp(c.destino.puerto, c.cola);
+            canal_.reset(tcp_);
+            if (!tcp_->abierto())
+                error_canal_ = "no se puede escuchar en localhost:" +
+                               std::to_string(c.destino.puerto) + ": ¿lo tiene "
+                               "otro programa (otro mcu-sim, un GDB)?";
+            break;
+        case serie::Modo::rfc2217:
+            error_canal_ = "RFC 2217 llega en la fase D5 del plan";
+            // sigue: se monta en memoria para que la pieza no quede sin canal
+            [[fallthrough]];
+        case serie::Modo::memoria:
+            mem_ = new CanalMemoria(c.cola);
+            canal_.reset(mem_);
+            break;
+        }
         niveles_de_reposo();
         SC_HAS_PROCESS(PuenteSerie);
         SC_THREAD(hilo_rx);
         SC_THREAD(hilo_tx);
         SC_THREAD(hilo_guion);
+        SC_THREAD(hilo_canal);
     }
+
+    // ¿El canal está listo? Si no, `error_canal()` dice por qué, y `sim` no
+    // arranca: un puente que no escucha no es un puente.
+    bool canal_ok() const { return error_canal_.empty(); }
+    const std::string& error_canal() const { return error_canal_; }
+    // ¿Va por la red? Entonces la simulación no termina sola (D3).
+    bool por_red() const { return tcp_ != nullptr; }
 
     // --- Conexión ------------------------------------------------------------
     void set_enabled(bool on) override {
@@ -135,6 +159,8 @@ SC_MODULE(PuenteSerie), public ExtPartBase {
 
     // --- El canal en memoria: lo que usa un banco de pruebas ----------------
     CanalMemoria* memoria() { return mem_; }
+    CanalTcp*     tcp()     { return tcp_; }
+    CanalHost&    canal()   { return *canal_; }
     std::size_t envia(const std::string& s) { return mem_ ? mem_->empuja(s) : 0; }
     const std::string& recibido() const { return mem_->recibido(); }
     void borra_recibido() { if (mem_) mem_->borra_recibido(); }
@@ -225,11 +251,33 @@ private:
                 ++n_hacia_;
                 continue;
             }
+            // Nada que mandar. El canal en memoria avisa cuando llega algo; los
+            // de red no pueden, y los sondea `hilo_canal`, que avisa por ev_tx_.
             const sc_core::sc_event* a = canal_->aviso();
-            // En D2 siempre hay aviso (memoria). El sondeo en tiempo simulado
-            // para los canales que no lo tienen llega con TCP, en la D3.
             if (a) wait(*a | ev_tx_ | evento_conexion());
             else   wait(ev_tx_ | evento_conexion());
+        }
+    }
+
+    // ---- El sondeo de los canales sin aviso (D-9) --------------------------
+    // En TIEMPO SIMULADO, como los stubs de GDB. El periodo es ADAPTATIVO: un
+    // tiempo de carácter mientras hay tráfico -para no ir más lento que la
+    // línea- y un milisegundo en reposo, que es lo que cuesta poco.
+    void hilo_canal() {
+        if (canal_->aviso()) return;                 // la memoria no se sondea
+        uint64_t antes = 0;
+        for (;;) {
+            if (!conectada_) { wait(evento_conexion()); continue; }
+            canal_->sondear();
+            if (canal_->pendientes()) ev_tx_.notify(sc_core::SC_ZERO_TIME);
+            const uint64_t ahora = n_desde_ + n_hacia_;
+            const bool trafico = canal_->pendientes() || ahora != antes;
+            antes = ahora;
+            if (trafico)
+                wait(sc_core::sc_time(0.5 * cfg_.formato.medios_de_trama() / cfg_.baudios,
+                                      sc_core::SC_SEC));
+            else
+                wait(sc_core::sc_time(1, sc_core::SC_MS));
         }
     }
 
@@ -262,6 +310,8 @@ private:
     std::unique_ptr<EmisorUart>   tx_;
     std::unique_ptr<CanalHost>    canal_;
     CanalMemoria*                 mem_ = nullptr;
+    CanalTcp*                     tcp_ = nullptr;
+    std::string                   error_canal_;
     analog_net_if* cts_ = nullptr;
     analog_net_if* rts_ = nullptr;
     analog_net_if* dtr_ = nullptr;

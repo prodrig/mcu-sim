@@ -222,6 +222,7 @@ SC_MODULE(Sim) {
     Netlist      placa;
     unsigned     n_avisos = 0;
     bool         hay_stub = false;
+    bool         hay_puente_red = false;   // un PuenteSerie por TCP (D3)
 
     SC_CTOR(Sim) {
         // --- 1. Leer. No construye nada: devuelve datos ---------------------
@@ -357,9 +358,22 @@ SC_MODULE(Sim) {
         std::printf("placa '%s': %u MCU(s), %u componentes, %u nodos, %u avisos\n",
                     g_nombre.c_str(), unsigned(mcus.size()),
                     unsigned(placa.instancias().size()), nodos.n_nodos(), n_avisos);
-        for (const serie::Pieza& p : puentes)
-            if (const PuenteSerie* ps = placa.como<PuenteSerie>(p.id))
-                std::printf("  serie %s: %s\n", p.id.c_str(), ps->describir().c_str());
+        for (const serie::Pieza& p : puentes) {
+            const PuenteSerie* ps = placa.como<PuenteSerie>(p.id);
+            if (!ps) continue;
+            // Un puente que no escucha no es un puente: el alumno abriria su
+            // terminal contra un puerto que es de otro. Se para aqui.
+            if (!ps->canal_ok()) muere("  [serie] " + p.id + ": " + ps->error_canal());
+            if (ps->por_red()) hay_puente_red = true;
+            std::printf("  serie %s: %s\n", p.id.c_str(), ps->describir().c_str());
+        }
+        if (hay_puente_red && g_tiempo_real <= 0.0 && !g_solo_valida)
+            std::fprintf(stderr,
+                "  [serie] AVISO: hay un puente serie por TCP y no se ha pedido\n"
+                "          --tiempo-real. El terminal vera el ritmo de la\n"
+                "          simulacion, no el de la placa: un printf por segundo\n"
+                "          puede llegar cien veces por segundo, y el procesador\n"
+                "          va a tope. Con --tiempo-real va como en la placa.\n");
         for (const McuMontado& m : mcus) {
             if (!m.decl.puerto_gdb && m.decl.firmware.empty() && m.decl.id.empty())
                 continue;                    // el caso de siempre: no dice nada
@@ -560,8 +574,15 @@ SC_MODULE(Sim) {
                     m.mcu->gdb_interno(true, g_traza_gdb);
                 }
             }
-            std::printf("esperando a GDB; la simulacion no se detiene sola "
-                        "(Ctrl-C para salir)\n");
+        }
+        // Con un stub de GDB o con un puente serie por TCP hay alguien al otro
+        // lado de un puerto, y la simulacion no puede terminar por su cuenta:
+        // se sale con Ctrl-C.
+        if (hay_stub || hay_puente_red) {
+            std::printf("esperando a %s; la simulacion no se detiene sola "
+                        "(Ctrl-C para salir)\n",
+                        hay_stub && hay_puente_red ? "GDB y a los puentes serie"
+                        : hay_stub ? "GDB" : "los puentes serie");
             // Y se vacia el buffer, que aqui no es manía. Este printf es el
             // ULTIMO antes de un bucle infinito: redirigida la salida a un
             // fichero deja de ser linea a linea y pasa a bloques, y como de

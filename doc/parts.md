@@ -926,12 +926,12 @@ vienen serigrafiados en uno de verdad: su `rx` va al TX del MCU.
 
 | Atributo | Por omisión | |
 | :--- | :--- | :--- |
-| `host` | `rfc2217:3355` | `memoria`, `tcp:PUERTO` o `rfc2217:PUERTO`. **Hoy solo existe `memoria`**: TCP llega en la fase D3 y RFC 2217 en la D5, y hasta entonces se rechazan diciéndolo. `--serie ID=DESTINO` lo cambia sin tocar el XML |
+| `host` | `rfc2217:3355` | `memoria`, `tcp:PUERTO` o `rfc2217:PUERTO`, siempre en `localhost`. **Hoy existen `memoria` y `tcp`**: RFC 2217 llega en la fase D5, y hasta entonces se rechaza diciéndolo. `--serie ID=DESTINO` lo cambia sin tocar el XML. Con `tcp`, la simulación no termina sola (como con `--gdb`) y conviene `--tiempo-real` |
 | `baudios` | `115200` | Un entero entre 50 y 10 500 000, o `host` (los fijará el terminal por RFC 2217) |
 | `formato` | `8N1` | Bits de datos **sin contar la paridad** (5..9), paridad `N`/`E`/`O`/`M`/`S` y parada `1`, `1.5` o `2` |
 | `flujo` | `no` | `rtscts`: no manda mientras el RTS del MCU esté alto |
 | `muestra` | `si` | Imprime línea a línea lo que manda el MCU, con el id delante; lo que quede a medias sale al acabar |
-| `guion` | nada | Lo que se «teclea» al arrancar, con `\r \n \t \0 \\ \xNN` |
+| `guion` | nada | Lo que se «teclea» al arrancar, con `\r \n \t \0 \\ \xNN`. Solo con `host="memoria"`: con un terminal al otro lado, teclea el terminal |
 | `guion_ms` | `10` | Cuándo se teclea, en ms simulados |
 
 A diferencia del resto del catálogo, **los atributos de esta pieza se validan
@@ -941,8 +941,9 @@ entrega igual —es la basura que el alumno tiene que ver— y un break se cuent
 no se entrega.
 
 Desde C++: `envia(texto)`, `recibido()`, `set_baudios()`, `set_formato()`,
-`envia_break()`, `set_rts()`, `set_dtr()` y los contadores. Ejemplo completo en
-`placas/vcp_memoria.xml`.
+`envia_break()`, `set_rts()`, `set_dtr()` y los contadores. Ejemplos completos en
+`placas/vcp_memoria.xml` y `placas/vcp_tcp.xml`; este último explica qué poner al
+otro lado del puerto en cada sistema.
 
 ---
 

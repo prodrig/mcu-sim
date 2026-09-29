@@ -6,8 +6,8 @@
      un UART de placa colgado de PA2/PA3 que lleva los bytes a otro sitio. En
      esta fase el otro sitio es la MEMORIA: lo que manda el firmware sale por
      la consola de `mcu-sim`, linea a linea, y lo que dice `guion` se «teclea»
-     a los 10 ms. El puerto TCP llega en la fase D3 y RFC 2217 en la D5
-     [doc/analisis_puente_serie.md §10].
+     a los 10 ms. La misma placa por TCP es vcp_tcp.xml (fase D3); RFC 2217
+     llega en la D5 [doc/analisis_puente_serie.md §10].
 
          ./build/mcu-sim placas/vcp_memoria.xml verif/fw/vcp_demo/vcp_demo.bin 30
 

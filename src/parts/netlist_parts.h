@@ -419,15 +419,11 @@ inline std::vector<std::string> valida_puente_serie(const Instancia& i) {
     const serie::Destino d = h == i.params.end() ? serie::por_omision()
                                                  : serie::parsea(h->second);
     if (!d.valido) e.push_back(pre + "host=" + d.error);
-    else if (d.modo == serie::Modo::tcp)
-        e.push_back(pre + "host=\"" + serie::como_texto(d) + "\": el modo TCP "
-                    "llega en la fase D3 del plan. De momento solo existe "
-                    "host=\"memoria\"");
     else if (d.modo == serie::Modo::rfc2217)
         e.push_back(pre + "host=\"" + serie::como_texto(d) + "\"" +
                     (h == i.params.end() ? " (el de omision)" : "") +
-                    ": RFC 2217 llega en la fase D5 del plan. De momento solo "
-                    "existe host=\"memoria\"");
+                    ": RFC 2217 llega en la fase D5 del plan. De momento existen "
+                    "host=\"memoria\" y host=\"tcp:PUERTO\"");
     const bool rx = !i.nodo_de("rx").empty(), tx = !i.nodo_de("tx").empty();
     if (!rx && !tx) e.push_back(pre + "le falta rx y tx: hace falta al menos uno");
     double b; bool bh;
@@ -447,6 +443,9 @@ inline std::vector<std::string> valida_puente_serie(const Instancia& i) {
     if (!eg.empty()) e.push_back(pre + "guion=" + eg);
     else if (!g.empty() && !tx)
         e.push_back(pre + "un guion sin terminal tx no llega a ningun sitio");
+    else if (!g.empty() && d.valido && d.modo != serie::Modo::memoria)
+        e.push_back(pre + "guion= solo tiene sentido con host=\"memoria\": con "
+                    "un terminal al otro lado, teclea el terminal");
     return e;
 }
 
@@ -470,9 +469,9 @@ REGISTRA_PARTE(PuenteSerie,
            "Gobierna el CTS del MCU: bajo = puede mandar.")
       .pin("dtr", "opcional", "Alta en reposo; baja si el anfitrion la activa.")
       .atr("host", "rfc2217:3355",
-           "A donde van los bytes: memoria, tcp:PUERTO o rfc2217:PUERTO. HOY "
-           "SOLO EXISTE memoria; tcp llega en la fase D3 y rfc2217 en la D5. "
-           "Se cambia sin tocar el XML con --serie ID=DESTINO.")
+           "A donde van los bytes: memoria, tcp:PUERTO o rfc2217:PUERTO, siempre "
+           "en esta maquina. HOY EXISTEN memoria y tcp; rfc2217 llega en la "
+           "fase D5. Se cambia sin tocar el XML con --serie ID=DESTINO.")
       .atr("baudios", "115200",
            "Un numero, o host para que los fije el terminal por RFC 2217.")
       .atr("formato", "8N1",
@@ -487,8 +486,13 @@ REGISTRA_PARTE(PuenteSerie,
             "basura que tiene que verse cuando los baudios no cuadran. Un break "
             "no es un byte: se cuenta y no se entrega.")
       .nota("El puerto serie del ordenador NO lo abre mcu-sim: lo pone una "
-            "herramienta externa conectada por TCP. Vease "
+            "herramienta externa conectada por TCP (socat en Linux y macOS; "
+            "com0com + hub4com o HW VSP3 en Windows). Para solo mirar basta un "
+            "terminal que hable TCP: PuTTY en modo Raw, CoolTerm, nc. Vease "
             "doc/analisis_puente_serie.md, 7.")
+      .nota("Con host=tcp la simulacion no termina sola, como con --gdb: se sale "
+            "con Ctrl-C. Usese con --tiempo-real, o el terminal vera el ritmo "
+            "de la simulacion y no el de la placa.")
       .cpp("envia(texto), recibido(), set_baudios(), set_formato(), "
            "envia_break(), set_rts(), set_dtr() y los contadores."),
     [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {

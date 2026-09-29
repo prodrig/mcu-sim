@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     Un STM32F407VG con un PUENTE UART por TCP en la USART2 (P-14, fase D3)
+
+     La misma placa que vcp_memoria.xml, pero con los bytes en un puerto TCP de
+     esta maquina en vez de en la consola. Al otro lado va lo que el alumno
+     quiera: un terminal que hable TCP, o una herramienta que convierta el
+     puerto TCP en un puerto serie del sistema [doc/analisis_puente_serie.md
+     §7].
+
+         ./build/mcu-sim placas/vcp_tcp.xml verif/fw/vcp_demo/vcp_demo.bin --tiempo-real
+
+     No termina sola: como con --gdb, se sale con Ctrl-C. Y sin --tiempo-real
+     el terminal ve el ritmo de la simulacion, no el de la placa.
+
+     AL OTRO LADO, de mas sencillo a mas completo:
+
+       - para mirar y teclear, sin instalar nada raro:
+             nc localhost 3355                (Linux, macOS)
+             PuTTY, tipo de conexion «Raw», localhost, 3355   (Windows)
+             CoolTerm, conexion TCP, localhost:3355           (los tres)
+       - un puerto serie de verdad en Linux o macOS:
+             socat pty,link=$HOME/vcp,raw,echo=0 tcp:localhost:3355
+             picocom -b 115200 ~/vcp
+       - un COM en Windows: com0com + hub4com, o HW VSP3 Single
+
+     El puerto se cambia sin tocar el fichero: --serie VCP=tcp:4000.
+     ========================================================================= -->
+<placa nombre="vcp-tcp">
+  <componente tipo="PuenteSerie" id="VCP" host="tcp:3355"
+              baudios="115200" formato="8N1" flujo="rtscts" muestra="si">
+    <pin nombre="rx"  nodo="PA2"/>   <!-- USART2_TX -->
+    <pin nombre="tx"  nodo="PA3"/>   <!-- USART2_RX -->
+    <pin nombre="cts" nodo="PA1"/>   <!-- USART2_RTS -->
+  </componente>
+</placa>

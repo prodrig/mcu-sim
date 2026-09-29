@@ -226,8 +226,8 @@ int main() {
         const std::vector<Ocupado> gdb = { { 3333, "el GDB de u0" },
                                            { 3344, "mcu-sim-gui" } };
         const Resultado r1 = resuelve(dos, { parsea_asignacion("VCP=tcp:3333") }, gdb);
-        comprueba(dice(r1.errores, "VCP escucharia en el puerto 3333, que ya es "
-                                   "de el GDB de u0"),
+        comprueba(dice(r1.errores, "VCP escucharia en el puerto 3333, que ya lo "
+                                   "usa el GDB de u0"),
                   "un puente en el puerto de un GDB se rechaza nombrando al GDB");
         const Resultado r2 = resuelve(dos, { parsea_asignacion("AUX=tcp:3344") }, gdb);
         comprueba(dice(r2.errores, "mcu-sim-gui"),

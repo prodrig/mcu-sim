@@ -24,13 +24,31 @@
 // el saludo, el eco, los 255 valores de byte, lo que pasa con los baudios
 // equivocados, un cambio de velocidad a mitad de trama, el break y RTS/CTS.
 //
+// FASE D3 — TCP EN CRUDO. Un segundo puente en los mismos pines, desoldado
+// hasta ahora, con `host="tcp:47355"`, y un cliente TCP de verdad en el propio
+// banco: eco, los 255 valores, desconexion (lo que manda el MCU se descarta y
+// se cuenta), reconexion, sustitucion de un cliente por otro y puerto ocupado.
+//
+// EL TIEMPO SIMULADO NO DEPENDE DE LA MAQUINA, y es a proposito. Un socket de
+// verdad entrega los datos cuando el sistema operativo quiere; si la pieza los
+// descubriera en su sondeo en tiempo simulado, cuantos sondeos hicieran falta
+// dependeria de la maquina, que es lo que le pasa al stub de GDB en test407 y
+// por lo que alli se contrasta el `resto` y no el total. Aqui no: el banco
+// PROVOCA el efecto del anfitrion -conectar, mandar, cerrar- y ESPERA EN TIEMPO
+// DE PARED, llamando al sondeo del canal, a que el canal lo tenga dentro. Solo
+// entonces deja avanzar la simulacion. Mientras espera no corre ningun proceso
+// de SystemC -comparten un hilo-, asi que la simulacion ve siempre lo mismo.
+//
 //   make testserie
 // =============================================================================
 #include <systemc>
 #include <cstdio>
 #include <string>
 #include <vector>
+#include <chrono>
 #include <functional>
+#include <thread>
+#include "../common/red.h"
 #include "../common/asan_opciones.h"
 #include "../common/analog_net.h"
 #include "../common/huella_fw.h"
@@ -312,7 +330,10 @@ enum Buzon : uint32_t {
 struct TbPieza : sc_module {
     SocF4        soc{"soc", DBG_PINES, Cableado(), MCU_STM32F407VG};
     PuenteSerie* vcp = nullptr;
+    PuenteSerie* vcp_tcp = nullptr;       // D3: el mismo puente, por TCP
+    PuenteSerie* vcp_ocupado = nullptr;   // D3: y uno que no puede escuchar
     sc_event&    empieza;
+    static constexpr unsigned PUERTO = 47355;   // alto: que no choque con nada
     int d_vdd = -1, d_vdda = -1, d_nrst = -1, d_bt0 = -1, d_pb2 = -1;
 
     static PuenteSerie::Config config() {
@@ -328,10 +349,64 @@ struct TbPieza : sc_module {
                               &soc.pinmux.analog(0, 3),
                               &soc.pinmux.analog(0, 1),
                               &soc.pinmux.analog(0, 0), nullptr, config());
+        PuenteSerie::Config ct = config();
+        ct.destino = serie::parsea("tcp:" + std::to_string(PUERTO));
+        vcp_tcp = new PuenteSerie("vcp_tcp", &soc.pinmux.analog(0, 2),
+                                  &soc.pinmux.analog(0, 3),
+                                  &soc.pinmux.analog(0, 1),
+                                  &soc.pinmux.analog(0, 0), nullptr, ct);
+        vcp_tcp->set_enabled(false);      // desoldado hasta la fase D3
+        // Y otro en el MISMO puerto, que no puede escuchar (P17). Sin pines.
+        vcp_ocupado = new PuenteSerie("vcp_ocupado", nullptr, nullptr, nullptr,
+                                      nullptr, nullptr, ct);
+        vcp_ocupado->set_enabled(false);
         SC_HAS_PROCESS(TbPieza);
         SC_THREAD(run);  set_stack_size(1024 * 1024);
     }
-    ~TbPieza() { delete vcp; }
+    ~TbPieza() { delete vcp_ocupado; delete vcp_tcp; delete vcp; }
+
+    // ---- Tiempo de PARED, con la simulacion parada ---------------------------
+    // Espera a que se cumpla algo mirando el canal TCP, hasta dos segundos de
+    // reloj. No avanza el tiempo simulado: es lo que lo hace determinista.
+    bool en_pared(const std::function<bool()>& c, double seg = 2.0) {
+        const auto t0 = std::chrono::steady_clock::now();
+        for (;;) {
+            vcp_tcp->tcp()->sondear();
+            if (c()) return true;
+            if (std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+                    .count() > seg) return false;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    bool manda(red::socket_t c, const std::string& m) {
+        size_t hecho = 0;
+        const auto t0 = std::chrono::steady_clock::now();
+        while (hecho < m.size()) {
+            const long n = red::enviar(c, m.data() + hecho, m.size() - hecho);
+            if (n > 0) { hecho += size_t(n); continue; }
+            if (n < 0 && red::reintentar() &&
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+                    .count() < 2.0) continue;
+            return false;
+        }
+        return true;
+    }
+    // Lee `n` bytes del cliente, o lo que llegue en dos segundos de reloj.
+    std::string lee(red::socket_t c, size_t n) {
+        std::string r;
+        char b[512];
+        en_pared([&] {
+            const long k = red::recibir(c, b, sizeof b);
+            if (k > 0) r.append(b, size_t(k));
+            return r.size() >= n;
+        });
+        return r;
+    }
+    // ¿El otro lado ha cerrado? recv devuelve 0.
+    bool cerrado_por_el_otro(red::socket_t c) {
+        char b[16];
+        return en_pared([&] { return red::recibir(c, b, sizeof b) == 0; });
+    }
 
     uint32_t buzon(uint32_t off) { return soc.sram1.peek32(off); }
 
@@ -567,7 +642,115 @@ struct TbPieza : sc_module {
             check(c.leer(b, 16) == 0u, "vacia, leer no bloquea: devuelve cero");
         }
 
+        tcp_en_crudo();
         termina();
+    }
+
+    // -----------------------------------------------------------------------
+    // D3: TCP en crudo
+    // -----------------------------------------------------------------------
+    void tcp_en_crudo() {
+        CanalTcp* tcp = vcp_tcp->tcp();
+        const std::string dir = "localhost:" + std::to_string(PUERTO);
+
+        grupo("P11 TCP en crudo: el puente escucha y acepta");
+        vcp->set_enabled(false);                  // se desuelda el de memoria
+        vcp_tcp->set_enabled(true);               // y se suelda el de TCP
+        wait(1, SC_MS);
+        if (!check(vcp_tcp->canal_ok(), "el puente escucha en " + dir)) {
+            std::printf("         %s\n", vcp_tcp->error_canal().c_str());
+            return;
+        }
+        check(vcp_tcp->describir() == "TCP en crudo en " + dir + ", 115200 8N1",
+              "y lo dice: \"" + vcp_tcp->describir() + "\"");
+        check(!tcp->conectado(), "sin cliente todavia");
+        red::socket_t c1 = red::conecta_local(PUERTO);
+        check(red::valido(c1), "un cliente se conecta");
+        check(en_pared([&] { return tcp->conectado(); }), "y el puente lo acepta");
+
+        grupo("P12 El eco, por TCP");
+        {
+            const uint32_t eco0 = buzon(B_ECO);
+            const std::string m = "Hola por TCP\r\n";
+            manda(c1, m);
+            check(en_pared([&] { return tcp->pendientes() == m.size(); }),
+                  "los catorce bytes estan en el canal antes de simular");
+            wait(10, SC_MS);
+            check(lee(c1, m.size()) == m, "y vuelven, exactos, por el socket");
+            check_eq(buzon(B_ECO) - eco0, uint32_t(m.size()),
+                     "el firmware devolvio los catorce");
+        }
+
+        grupo("P13 Los 255 valores de byte, por TCP");
+        {
+            std::string todos;
+            for (unsigned v = 0; v < 256; ++v) if (v != 0x13u) todos += char(v);
+            manda(c1, todos);
+            check(en_pared([&] { return tcp->pendientes() == todos.size(); }),
+                  "los 255 bytes estan en el canal");
+            wait(60, SC_MS);
+            check(lee(c1, todos.size()) == todos,
+                  "y vuelven en orden: 0x00, 0xFF y 0x0D no se tocan");
+        }
+
+        grupo("P14 Sin cliente, lo que manda el MCU se descarta y se cuenta");
+        {
+            manda(c1, "x");
+            check(en_pared([&] { return tcp->pendientes() == 1u; }), "una x en el canal");
+            red::cerrar(c1);
+            check(en_pared([&] { return !tcp->conectado(); }),
+                  "el cliente cierra, y el puente se entera");
+            const uint64_t d0 = tcp->descartados();
+            const uint32_t eco0 = buzon(B_ECO);
+            wait(5, SC_MS);
+            check_eq(buzon(B_ECO) - eco0, 1u,
+                     "la x llega al MCU igual: ya estaba dentro");
+            check(tcp->descartados() == d0 + 1,
+                  "y su eco, sin nadie al otro lado, se descarta y se cuenta");
+        }
+
+        grupo("P15 Reconexion en caliente");
+        red::socket_t c2 = red::conecta_local(PUERTO);
+        check(en_pared([&] { return tcp->conectado(); }), "un cliente nuevo entra");
+        {
+            manda(c2, "de nuevo\r\n");
+            en_pared([&] { return tcp->pendientes() == 10u; });
+            wait(5, SC_MS);
+            check(lee(c2, 10) == "de nuevo\r\n", "y el eco funciona como antes");
+        }
+
+        grupo("P16 Un cliente nuevo sustituye al anterior (D-5)");
+        red::socket_t c3 = red::conecta_local(PUERTO);
+        {
+            check(en_pared([&] { return tcp->sustituidos() == 1u; }),
+                  "el tercero entra con el segundo aun conectado");
+            check(cerrado_por_el_otro(c2),
+                  "y al segundo se le cierra la conexion");
+            manda(c3, "tres\r\n");
+            en_pared([&] { return tcp->pendientes() == 6u; });
+            wait(5, SC_MS);
+            check(lee(c3, 6) == "tres\r\n", "el eco va al tercero");
+            check(tcp->conexiones() == 3u, "tres conexiones en total");
+        }
+
+        grupo("P17 Puerto ocupado");
+        {
+            CanalTcp otro(PUERTO);
+            check(!otro.abierto(),
+                  "un segundo canal en el mismo puerto no puede escuchar");
+            // Y una PIEZA con el puerto cogido no se da por buena: `sim` mira
+            // canal_ok() y no arranca. Esta se construyo en la elaboracion,
+            // despues de vcp_tcp y sobre su mismo puerto.
+            check(!vcp_ocupado->canal_ok() &&
+                  vcp_ocupado->error_canal().find("no se puede escuchar en " + dir) == 0,
+                  "un puente sobre un puerto cogido lo dice: \"" +
+                  vcp_ocupado->error_canal() + "\"");
+        }
+
+        red::cerrar(c2);
+        red::cerrar(c3);
+        vcp_tcp->set_enabled(false);
+        wait(1, SC_MS);
     }
 
     void termina() {

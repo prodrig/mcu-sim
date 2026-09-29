@@ -323,7 +323,7 @@ inline Resultado resuelve(const std::vector<Pieza>& placa,
         for (const Ocupado& o : ocupados)
             if (o.puerto == p.destino.puerto)
                 r.errores.push_back(p.id + " escucharia en el puerto " +
-                                    std::to_string(o.puerto) + ", que ya es de " +
+                                    std::to_string(o.puerto) + ", que ya lo usa " +
                                     o.quien);
     }
     return r;
