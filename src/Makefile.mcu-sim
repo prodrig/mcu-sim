@@ -23,6 +23,7 @@
 #   make cryp                     # los de AES/DES/TDES, tampoco
 #   make red                      # la capa de red, que NO necesita SystemC
 #   make serie                    # el destino y el formato de un PuenteSerie, tampoco
+#   make rfc2217                  # el codec de Telnet y RFC 2217, tampoco
 #   make vectores                 # los vectores del CRYP/HASH, sin SystemC ni compilar
 #   make asan407                  # la suite del F407 con ASan + UBSan (Linux y macOS)
 #   make asan446                  # y la del F446
@@ -189,12 +190,13 @@ CRYPV   := build/prueba_cryp$(EXE)
 BENCH  := build/bench$(EXE)
 RED    := build/prueba_red$(EXE)
 SERIEP := build/prueba_serie$(EXE)
+RFC2217P := build/prueba_rfc2217$(EXE)
 ASAN407 := build/asan407$(EXE)
 ASAN446 := build/asan446$(EXE)
 ASAN417 := build/asan417$(EXE)
 ASANSERIE := build/asanserie$(EXE)
 
-.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie run clean plataforma vectores hash cryp
+.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 run clean plataforma vectores hash cryp
 
 all: $(MCUSIM)
 
@@ -323,6 +325,20 @@ $(SERIEP): verif/prueba_serie.cpp common/serie_destino.h common/formato_uart.h
 
 serie: $(SERIEP)
 	./$(SERIEP)
+
+# EL CODEC DE TELNET Y RFC 2217 (fase D4 de P-14): contra el texto de las RFC y
+# contra una sesion de verdad de pySerial (verif/vectores/rfc2217_pyserial.vec).
+# Tampoco necesita SystemC. Enlaza con la capa de red solo por su modo
+# `--servidor PUERTO`, que no es una prueba sino un banco de interoperabilidad
+# para clientes de verdad; por eso lleva las mismas opciones que `red`.
+#   make rfc2217
+$(RFC2217P): verif/prueba_rfc2217.cpp common/telnet2217.h common/red.h
+	@mkdir -p build
+	$(CXX) -std=$(CXXSTD) $(AVISOS) $(DEF_SO) -O2 -I. -o $@ \
+	       verif/prueba_rfc2217.cpp $(LDEXTRA) $(LIBS_SO)
+
+rfc2217: $(RFC2217P)
+	./$(RFC2217P)
 
 # EL CAMPO DE MINAS DEL PREPROCESADOR DE WINDOWS. Prueba de COMPILACION, no de
 # ejecucion: define a mano las macros que Windows trae -R_OK, min, max, ERROR,

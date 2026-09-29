@@ -674,6 +674,7 @@ RFC 2217 pasa de S4 a justo después de S1.
 | D-9 | ¿Cómo se consulta al host? | **Sondeo en tiempo simulado (T1)**, adaptativo: cada tiempo de carácter con tráfico y cada 1 ms en reposo | Sin hilos, con el patrón de `gdb_rsp.h`. T2 queda como mejora medible (§4.1) |
 | D-10 | ¿Dónde van las pruebas con simulación? | En un **ejecutable nuevo, `make testserie`, con su propio invariante** | Añadir pruebas que simulan a `test407` movería los `2336217899213 ps`. Es la misma razón por la que existen `test446` y `test417` |
 | D-11 | Puerto por omisión | **3355**, con RFC 2217 (`host` ausente = `rfc2217:3355`) | Sigue la serie del proyecto (3333 GDB, 3344 GUI) y **esquiva el 5000**, que en macOS desde Monterey es del receptor de AirPlay. *(Decidido en D0; los ejemplos de este documento decían 5000 y se han cambiado.)* |
+| D-13 | ¿Cuándo pide el servidor BINARY? | **Pasivo hasta que el cliente negocia algo; en ese momento pide BINARY en los dos sentidos, una vez** | Afina D-2 y D-8. La captura de pySerial enseña que su cliente no ofrece BINARY por su cuenta: lo acepta cuando se lo piden. Sin pedirlo, la sesión se quedaría en NVT y un NUL detrás de un CR se perdería. Pedirlo tras la primera negociación no rompe la pasividad: el cliente ya ha demostrado que habla Telnet. *(Decidido en D4.)* |
 | D-12 | ¿Dónde van las pruebas puras (sin simulación)? | En **programas aparte sin SystemC** (`make serie`, `make rfc2217`), en el trabajo rápido del CI | No tocan las cifras de `verif/invariantes.txt`, ni siquiera el número de comprobaciones: T130 sí lo movió al vivir dentro de `test407`. *(Decidido en D0.)* |
 
 ### 10.3 Componentes
@@ -750,7 +751,7 @@ una nota en `doc/chat.md`.
 | **D1 · Motor UART** ✅ | `MotorUart` extraído de `SwoReceiver` y ampliado (5-9 bits, paridad, 1/1,5/2 bits de parada, break, contadores). `SwoReceiver` migra a él | **HECHO el 29-09-2026**: `test407` da las mismas 2118 y el mismo `resto` (2240553274213 ps; el `2336217899213` de esta tabla era la cifra antigua del total) (§10.8) |
 | **D2 · Pieza con backend `memoria`** ✅ | `PuenteSerie` en los pines con cola y ritmo en baudios; firmware `vcp_demo`; ~~nuevo~~ `make testserie` (nació en D1) | **HECHO el 29-09-2026** (§10.8). Los formatos 7E1 y 8N2 se prueban en el motor (D1), no con el firmware, que va en 8N1 |
 | **D3 · TCP crudo** ✅ | `CanalTcp` sobre `red.h`: servidor en `localhost`, sondeo adaptativo, reconexión con sustitución, «no termina sola», `--serie`, aviso de `--tiempo-real` | **HECHO el 29-09-2026** (§10.8). La medida de CPU se hizo contra `--gdb` en la misma máquina, no contra el 5,3 % de otra |
-| **D4 · Códec RFC 2217** | `common/telnet2217.h`: negociación (`WILL`/`DO` 44, BINARY, SGA), subnegociaciones, escape de `IAC` en datos y dentro de `SB`, regla `CR NUL` sin BINARY. `make rfc2217` sin SystemC | Vectores sacados del texto de la RFC y de capturas de `pyserial` y `com2tcp-rfc2217`: tramas partidas en cualquier byte, `IAC IAC` en los datos, órdenes desconocidas que se ignoran sin desincronizar |
+| **D4 · Códec RFC 2217** ✅ | `common/telnet2217.h`: negociación (`WILL`/`DO` 44, BINARY, SGA), subnegociaciones, escape de `IAC` en datos y dentro de `SB`, regla `CR NUL` sin BINARY. `make rfc2217` sin SystemC | **HECHO el 29-09-2026** (§10.8). La captura de `com2tcp-rfc2217` necesita Windows y com0com: pasa a la matriz manual de D6 |
 | **D5 · RFC 2217 en la pieza** | `CanalRfc2217`; `baudios="host"`; la tabla del §10.4 completa; notificaciones LINESTATE/MODEMSTATE con máscaras | `verif/cliente_2217.h` cambia la velocidad a mitad de sesión y se comprueba el cambio **entre tramas** (D-4); desajuste de baudios provocado **desde el host**; BREAK ON/OFF → `LBD`; PURGE; SUSPEND/RESUME; la firma |
 | **D6 · Interoperabilidad** | `verif/serie/interop.py`: pySerial con `rfc2217://` y `socket://` en CI (Linux, Windows y los dos macOS). socat (`pty` ↔ `tcp`) en CI de Linux y macOS | CI verde en las cuatro plataformas. La matriz manual del §10.6 hecha una vez y anotada con versión y fecha |
 | **D7 · Recetas y placas** | `doc/puente_serie.md` con los montajes del §7.4 actualizados, un apartado en `doc/ejecutables.md`, y la placa `placas/nucleo_f446re_vcp.xml` (**aparte**, para no tocar `test446`) | Un alumno sin experiencia sigue la receta de su plataforma y ve el `printf` de `vcp_demo` |
@@ -1092,6 +1093,77 @@ Windows no entra ninguna cabecera que no estuviera.
 3. **Dos `testserie` a la vez en la misma máquina chocan en el puerto 47355**:
    el segundo falla en P11 diciéndolo. En el CI cada trabajo tiene su máquina.
 
+
+#### D4 · El códec de Telnet y RFC 2217 — 29-09-2026, rama `puente-uart`
+
+**Qué se ha hecho:**
+
+| Fichero | Qué |
+| :--- | :--- |
+| `src/common/telnet2217.h` | El códec, **puro**: `Decodificador` (datos por un lado, sucesos por otro; el estado vive entre llamadas, así que una orden puede llegar partida en cualquier byte), el codificador (`escapa`, `negociacion`, `subopcion`, `orden_2217`, los baudios en orden de red) y el `Negociador`, la política del servidor |
+| `src/verif/prueba_rfc2217.cpp` | `make rfc2217`: **64 comprobaciones** sin SystemC. Y un modo `--servidor PUERTO`, un servidor RFC 2217 mínimo con este códec para probar clientes de verdad |
+| `src/verif/vectores/captura_rfc2217.py` | Graba una sesión RFC 2217 byte a byte. Sin argumentos, entre el cliente y el servidor de pySerial; con `--contra PUERTO`, de proxy delante de otro servidor |
+| `src/verif/vectores/rfc2217_pyserial.vec` | pySerial 3.5 contra pySerial 3.5: abrir, datos con `0xFF` y CR, 9600, 7E1, dos de parada, RTS y DTR, break y purga. 35 órdenes |
+| `src/verif/vectores/rfc2217_pyserial_mcusim.vec` | La misma sesión, **pySerial contra el servidor de este proyecto** |
+| `src/Makefile.mcu-sim` | `make rfc2217` |
+
+**La política del servidor, y una decisión nueva (D-13).** Pasivo hasta que el
+cliente negocia algo; entonces pide BINARY en los dos sentidos, una sola vez.
+Acepta que el cliente haga BINARY, SGA y COM-PORT; hace él BINARY y SGA;
+rechaza lo demás, ECHO incluido (el eco lo hace el firmware, si lo hace). No
+contesta a lo que no cambia nada (RFC 1143), así que no hay bucles. La primera
+captura es la que obligó a D-13: el servidor de pySerial **no es pasivo**
+(ofrece ECHO, SGA, BINARY y COM-PORT nada más conectarse) y su cliente **no
+ofrece BINARY por su cuenta**, solo lo acepta cuando se lo piden.
+
+**Lo que se ha comprobado:**
+
+* **Contra las RFC:** datos y `IAC IAC`; la regla `CR NUL` sin BINARY, en los
+  dos sentidos; negociaciones y órdenes sueltas (`NOP`, `AYT`, un `SE` suelto);
+  subopciones con `0xFF` dentro (65535 baudios); un flujo cortado en **cada uno
+  de sus 24 puntos**, y byte a byte, da lo mismo que entero; un `SB` sin `SE` se
+  da por cerrado sin perder lo de detrás, y uno de mil bytes se corta en 256 y
+  se cuenta; los 256 valores de byte van y vuelven con BINARY y sin él; y la
+  política del negociador, caso por caso.
+* **Contra pySerial contra pySerial:** decodificado con nuestro negociador, lo
+  que manda el cliente da exactamente los datos que mandó (`Hola\r\xFF\x00fin`,
+  con el `NUL` detrás del CR intacto) y las 35 órdenes en su orden con sus
+  valores. Y **las respuestas del servidor de pySerial son, byte a byte, las que
+  compone este codificador** para las mismas órdenes.
+* **Contra pySerial contra este código:** el cliente de pySerial se entiende con
+  el servidor pasivo, acaba en RFC 2217 y en BINARY en los dos sentidos, y las
+  35 órdenes dejan la línea en 9600 7E2. **La sesión grabada se reproduce
+  entera**: con lo que mandó el cliente, el servidor contesta exactamente los
+  292 bytes grabados, a trozos o de golpe.
+
+**Dos cosas que las pruebas encontraron por el camino.** La primera versión del
+servidor mínimo devolvía el eco de los datos al final de cada trozo, detrás de
+las respuestas: con una sesión entera de golpe, el eco salía fuera de su sitio.
+Lo cazó la comprobación «de un solo trozo, lo mismo», y el servidor contesta
+ahora en el orden en que llegan las cosas, que es lo que tendrá que hacer el
+canal de D5. La segunda: una prueba contaba mal a mano las posiciones de dos
+órdenes (21 y 27, no 17 y 23) y comparaba una respuesta con el código 106 en vez
+del 102; eran fallos de la prueba, no del códec.
+
+**Cómo se ha comprobado que las pruebas pueden fallar:** cinco mutaciones del
+códec (no doblar el `IAC` al codificar, no quitar el `NUL` del `CR NUL`,
+contestar a un `WILL` repetido, no pedir BINARY, no entregar las subopciones):
+4, 4, 1, 6 y 13 fallos. La última hacía que la prueba se cayera leyendo fuera de
+una lista vacía; ahora lo dice y sigue.
+
+**Y en Windows:** `prueba_rfc2217`, `prueba_serie` y `prueba_red` compilan con
+MinGW-w64 (`x86_64-w64-mingw32-g++`) **sin un solo aviso**. Los nombres de
+Telnet (`SE`, `DO`, `IP`, `EC`...) no chocan con ninguna macro de las cabeceras
+de Windows. No se han ejecutado allí: eso lo hará el CI si se añade al trabajo
+rápido.
+
+**Lo que no se ha hecho, y era del plan:** la captura de `com2tcp-rfc2217`. Hace
+falta Windows con com0com, así que pasa a la matriz manual de D6, que ya la
+tenía.
+
+**PENDIENTE A MANO:** añadir `rfc2217` a la línea `run:` del trabajo `rapidas`
+(`.github/workflows/`).
+
 ---
 
 ## Fuentes
@@ -1108,6 +1180,8 @@ Windows no entra ninguna cabecera que no estuviera.
 * [com0com y Secure Boot, solicitud de soporte #28](https://sourceforge.net/p/com0com/support-requests/28/) ·
   [Código 52 con Secure Boot](https://sourceforge.net/p/com0com/discussion/440109/thread/cc3d9e2b97/)
 * [RFC 2217, Telnet Com Port Control Option](https://www.rfc-editor.org/rfc/rfc2217.txt): códigos de orden, máscaras iniciales y obligación de confirmar cada orden con el valor aplicado (§10.4).
+* RFC 854 (Telnet), 855 (opciones), 856 (BINARY) y 1143 (negociación sin bucles): la base del códec de D4.
+* [pySerial 3.5](https://pyserial.readthedocs.io/): su cliente `rfc2217://` y su `PortManager` son los dos extremos de las sesiones grabadas en `verif/vectores/rfc2217_pyserial*.vec`.
 * Arquitectura D (§7), consultadas el 29-09-2026:
   * SerialTool (Duolabs): [FAQ y licencia](https://serialtool.com/_en/faq) ·
     [Serial packet to network, límites de la edición FREE](https://serialtool.com/_en/serial-port-packet-to-network) ·

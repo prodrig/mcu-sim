@@ -92,7 +92,7 @@ jobs:
 
       - name: Capa de red, minas de Windows, vectores de CRYP y HASH
         working-directory: src
-        run: make -f Makefile.mcu-sim red hash cryp vectores serie
+        run: make -f Makefile.mcu-sim red hash cryp vectores serie rfc2217
 
   # -------------------------------------------------------------------------
   # Linux con el paquete de la distribucion, que es LA VIA QUE DOCUMENTAMOS en

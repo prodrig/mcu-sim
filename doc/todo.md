@@ -295,7 +295,7 @@ en Linux.
 
 **Fase:** posterior a F7. **Analizado y planificado en
 `doc/analisis_puente_serie.md`** (§10, arquitectura D con RFC 2217). **En
-marcha desde 2026-09-29 en la rama `puente-uart`; FASES D0 A D3 EJECUTADAS.**
+marcha desde 2026-09-29 en la rama `puente-uart`; FASES D0 A D4 EJECUTADAS.**
 
 Lo que hace un ST-LINK/V2-1 en una Nucleo: una pieza de placa, `PuenteSerie`,
 colgada de los pines de una USART, que lleva sus bytes a un puerto TCP de esta
@@ -312,7 +312,7 @@ como en la placa.
 | b | ~~`MotorUart` extraído de `SwoReceiver`~~ **HECHO**: `parts/motor_uart.h` (`ReceptorUart` y `EmisorUart`, de 5 a 9 bits, paridad N/E/O/M/S, 1, 1,5 y 2 de parada, break) y `common/formato_uart.h`. **`test407` idéntico al picosegundo**: 2118 y `resto` 2240553274213 ps, con la misma salida línea a línea. Estrena `make testserie` (43, `51783680816 ps`) | D1 |
 | c | ~~La pieza `PuenteSerie`~~ **HECHO**: `parts/puente_serie.h` en los pines, `parts/canal_host.h` con el canal `memoria`, su ficha de `--help`, sus atributos validados antes de montar, el firmware `vcp_demo` y `placas/vcp_memoria.xml`. `testserie` pasa a 79 y `149861131044 ps`; las otras tres suites, intactas | D2 |
 | d | ~~TCP en crudo sobre `red.h`~~ **HECHO**: `CanalTcp` en `localhost`, un cliente (el nuevo sustituye al viejo), reconexión, «no termina sola», aviso sin `--tiempo-real` y `placas/vcp_tcp.xml`. `testserie` pasa a 101 y `236861131044 ps`, **determinista aunque use sockets de verdad**. En reposo, con `--tiempo-real`, un 9 % de un núcleo (el stub de GDB, un 11 % en la misma máquina) | D3 |
-| e | El códec Telnet + RFC 2217, puro, con `make rfc2217` | D4 |
+| e | ~~El códec Telnet + RFC 2217~~ **HECHO**: `common/telnet2217.h` (decodificador, codificador y la política del servidor), `make rfc2217` con 64 comprobaciones, contra las RFC y contra **dos sesiones de verdad grabadas**: pySerial contra pySerial, y pySerial contra este códec, que se reproduce byte a byte. Compila para Windows con MinGW sin avisos | D4 |
 | f | RFC 2217 en la pieza: `baudios="host"`, BREAK → `LBD`, líneas de módem, PURGE | D5 |
 | g | Interoperabilidad: pySerial en CI (cuatro plataformas), socat en Linux y macOS; matriz manual para Windows | D6 |
 | h | Recetas por plataforma (`doc/puente_serie.md`) y `placas/nucleo_f446re_vcp.xml` | D7 |
