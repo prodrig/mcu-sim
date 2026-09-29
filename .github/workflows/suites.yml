@@ -131,14 +131,14 @@ jobs:
           sudo apt-get install -y libsystemc-dev
           dpkg -l libsystemc-dev | tail -1
 
-      - name: Las tres suites
+      - name: Las suites (las tres de siempre y testserie)
         env:
           SUITES_PRESUPUESTO: 600
         run: sh ci/pasa_suites.sh
 
-      - name: Los tres invariantes, al picosegundo
+      - name: Los invariantes de las cuatro, al picosegundo
         run: |
-          for s in test407 test446 test417; do
+          for s in test407 test446 test417 testserie; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -308,14 +308,14 @@ jobs:
 
       # SIN pasar SYSTEMC_HOME, a proposito: aqui se ejerce la deteccion
       # automatica, que es la que se encuentra un alumno.
-      - name: Las tres suites
+      - name: Las suites (las tres de siempre y testserie)
         env:
           SUITES_PRESUPUESTO: 600
         run: sh ci/pasa_suites.sh CXX=clang++
 
-      - name: Los tres invariantes, al picosegundo
+      - name: Los invariantes de las cuatro, al picosegundo
         run: |
-          for s in test407 test446 test417; do
+          for s in test407 test446 test417 testserie; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -427,16 +427,16 @@ jobs:
           sh ci/construye_systemc.sh "$(cygpath -u "$GITHUB_WORKSPACE")/systemc" \
               -G Ninja -DCMAKE_ASM_FLAGS="-x assembler-with-cpp"
 
-      - name: Las tres suites
+      - name: Las suites (las tres de siempre y testserie)
         env:
           SUITES_PRESUPUESTO: 900      # aqui SystemC se compila antes: mas margen
         run: |
           sh ci/pasa_suites.sh \
              SYSTEMC_HOME="$(cygpath -u "$GITHUB_WORKSPACE")/systemc"
 
-      - name: Los tres invariantes, al picosegundo
+      - name: Los invariantes de las cuatro, al picosegundo
         run: |
-          for s in test407 test446 test417; do
+          for s in test407 test446 test417 testserie; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
