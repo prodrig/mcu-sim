@@ -68,3 +68,7 @@
 test407               2118      2240553274213        resto
 test446                204      1033367277932        total
 test417                165           718988288        total
+# El banco del puente UART (P-14). Crece con cada fase del plan de
+# doc/analisis_puente_serie.md §10, y cada fase que lo mueve lo dice en su
+# commit. D1: el motor UART suelto, sin chip.
+testserie               43         51783680816        total

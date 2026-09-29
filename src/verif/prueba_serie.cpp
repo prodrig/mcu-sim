@@ -17,12 +17,16 @@
 // Código de salida 0 si todo va bien.
 // =============================================================================
 #include "../common/serie_destino.h"
+#include "../common/formato_uart.h"
 
 #include <cstdio>
 #include <string>
 #include <vector>
 
 using namespace stm32::serie;
+using stm32::FormatoUart;
+using stm32::Paridad;
+using stm32::Parada;
 
 static unsigned g_ok = 0, g_mal = 0;
 static bool comprueba(bool c, const std::string& que) {
@@ -246,6 +250,83 @@ int main() {
         const Resultado r = resuelve(p, { parsea_asignacion("VCP=tcp:7000") }, nada);
         comprueba(dice(r.errores, "VCP: host="),
                   "un host= malo en el XML se dice aunque --serie lo tape");
+    }
+
+    // --- 7. El formato de trama (fase D1) ------------------------------------
+    grupo("7. El formato de trama: 8N1 y compania");
+    {
+        FormatoUart f;
+        comprueba(stm32::parsea_formato("8N1", f).empty() && f.bits == 8 &&
+                  f.paridad == Paridad::ninguna && f.parada == Parada::uno,
+                  "8N1: ocho bits, sin paridad, uno de parada");
+        comprueba(f.medios_de_trama() == 20u, "8N1 ocupa diez bits de linea");
+    }
+    {
+        FormatoUart f;
+        comprueba(stm32::parsea_formato("7E1", f).empty() && f.bits == 7 &&
+                  f.paridad == Paridad::par, "7E1: siete bits y paridad par");
+        comprueba(f.medios_de_trama() == 20u,
+                  "7E1 tambien ocupa diez: los bits NO cuentan la paridad");
+    }
+    {
+        FormatoUart f;
+        comprueba(stm32::parsea_formato("8N1.5", f).empty() &&
+                  f.parada == Parada::uno_y_medio && f.medios_de_trama() == 21u,
+                  "8N1.5: diez bits y medio");
+        comprueba(stm32::parsea_formato("9O2", f).empty() &&
+                  f.medios_de_trama() == 2u * (1 + 9 + 1) + 4u,
+                  "9O2: arranque, nueve, paridad y dos de parada = 13 bits");
+        comprueba(stm32::parsea_formato("8n1", f).empty(),
+                  "la paridad admite minuscula: 8n1");
+    }
+    for (const char* t : { "8N1", "7E1", "8O2", "9N1", "5M1", "6S2", "8N1.5" }) {
+        FormatoUart f;
+        stm32::parsea_formato(t, f);
+        comprueba(stm32::como_texto(f) == t,
+                  std::string("'") + t + "' se lee y se vuelve a escribir igual");
+    }
+    {
+        struct Caso { const char* t; const char* dice; };
+        static const Caso malos[] = {
+            { "",      "no es un formato" },
+            { "8N",    "no es un formato" },
+            { "4N1",   "de 5 a 9" },
+            { "0N1",   "de 5 a 9" },
+            { "8X1",   "no es una paridad" },
+            { "8N3",   "no son bits de parada" },
+            { "8N1,5", "con punto" },
+            { "8N0.5", "no son bits de parada" }
+        };
+        for (const Caso& c : malos) {
+            FormatoUart f;
+            const std::string e = stm32::parsea_formato(c.t, f);
+            comprueba(!e.empty() && e.find(c.dice) != std::string::npos,
+                      std::string("'") + c.t + "' se rechaza diciendo '" + c.dice + "'");
+        }
+        FormatoUart f;  f.bits = 7;
+        const FormatoUart antes = f;
+        stm32::parsea_formato("8X1", f);
+        comprueba(f == antes, "un formato malo no toca el que habia");
+    }
+    {
+        // La paridad, contra la definicion: par = numero TOTAL de unos par.
+        FormatoUart p;  stm32::parsea_formato("8E1", p);
+        FormatoUart i;  stm32::parsea_formato("8O1", i);
+        comprueba(!p.bit_de_paridad(0x00) &&  p.bit_de_paridad(0x01) &&
+                  !p.bit_de_paridad(0x03) &&  p.bit_de_paridad(0x07),
+                  "paridad par: el bit completa un numero par de unos");
+        comprueba( i.bit_de_paridad(0x00) && !i.bit_de_paridad(0x01) &&
+                   i.bit_de_paridad(0x03) && !i.bit_de_paridad(0x07),
+                  "paridad impar: lo contrario");
+        FormatoUart m;  stm32::parsea_formato("8M1", m);
+        FormatoUart e;  stm32::parsea_formato("8S1", e);
+        comprueba(m.bit_de_paridad(0x00) && m.bit_de_paridad(0xFF) &&
+                  !e.bit_de_paridad(0x00) && !e.bit_de_paridad(0xFF),
+                  "marca siempre 1 y espacio siempre 0, sea cual sea el dato");
+        FormatoUart s7; stm32::parsea_formato("7E1", s7);
+        comprueba(!s7.bit_de_paridad(0x80),
+                  "con siete bits, el octavo no cuenta para la paridad");
+        comprueba(s7.mascara() == 0x7Fu, "y la mascara de siete bits es 0x7F");
     }
 
     std::printf("RESULTADO %u ok, %u fallos\n", g_ok, g_mal);

@@ -747,7 +747,7 @@ una nota en `doc/chat.md`.
 | Fase | Contenido | Criterio de cierre |
 | :--- | :--- | :--- |
 | **D0 · Frontera** ✅ | Identificador en `doc/todo.md` (**P-14**). Parseo puro de `host=` y `--serie` con sus formas válidas y rechazadas (`tcp:0`, `tcp:65536`, un id inexistente, dos piezas en el mismo puerto). ~~Ficha de `--help PuenteSerie`~~ **se pasa a D2** (§10.8) | **HECHO el 29-09-2026** en la rama `puente-uart`: `make serie` 72/72, invariantes intactos (§10.8) |
-| **D1 · Motor UART** | `MotorUart` extraído de `SwoReceiver` y ampliado (5-9 bits, paridad, 1/1,5/2 bits de parada, break, contadores). `SwoReceiver` migra a él | **`test407` da los mismos `2336217899213 ps` y las mismas 2118**. Es la prueba de que la refactorización no ha cambiado nada |
+| **D1 · Motor UART** ✅ | `MotorUart` extraído de `SwoReceiver` y ampliado (5-9 bits, paridad, 1/1,5/2 bits de parada, break, contadores). `SwoReceiver` migra a él | **HECHO el 29-09-2026**: `test407` da las mismas 2118 y el mismo `resto` (2240553274213 ps; el `2336217899213` de esta tabla era la cifra antigua del total) (§10.8) |
 | **D2 · Pieza con backend `memoria`** | `PuenteSerie` en los pines con cola y ritmo en baudios; firmware `vcp_demo`; nuevo `make testserie` con su invariante | Eco de 256 bytes (incluidos `0x00` y `0xFF`); desajuste de baudios → FE/NF en la USART; 7E1 y 8N2; break → `LBD`; RTS/CTS parando la cola; cola llena → aviso único |
 | **D3 · TCP crudo** | `CanalTcp` sobre `red.h`: servidor en `localhost`, sondeo adaptativo, reconexión con sustitución, «no termina sola», `--serie`, aviso de `--tiempo-real` | Cliente TCP del banco: eco, desconexión y reconexión en caliente, 0 bytes perdidos a 115 200 con `--tiempo-real`, y medida de CPU en reposo (objetivo: la de `--gdb`, el 5,3 %) |
 | **D4 · Códec RFC 2217** | `common/telnet2217.h`: negociación (`WILL`/`DO` 44, BINARY, SGA), subnegociaciones, escape de `IAC` en datos y dentro de `SB`, regla `CR NUL` sin BINARY. `make rfc2217` sin SystemC | Vectores sacados del texto de la RFC y de capturas de `pyserial` y `com2tcp-rfc2217`: tramas partidas en cualquier byte, `IAC IAC` en los datos, órdenes desconocidas que se ignoran sin desincronizar |
@@ -853,6 +853,69 @@ Aqui va tcp:PUERTO o rfc2217:PUERTO
 
 **Lo que no se ha hecho y era del plan:** la nota en `doc/chat.md`. Es el diario
 de trabajo sin editar, y no es sitio para que yo escriba entradas en tu nombre.
+
+
+#### D1 · Motor UART — 29-09-2026, rama `puente-uart`
+
+**Qué se ha hecho:**
+
+| Fichero | Qué |
+| :--- | :--- |
+| `src/common/formato_uart.h` | La parte PURA: `FormatoUart` (bits sin contar la paridad, paridad N/E/O/M/S, parada 1, 1.5 o 2), lo que ocupa una trama en medios bits, el bit de paridad de un dato, y `parsea_formato("8N1")` con sus errores. Probado en `make serie`, que pasa de 72 a **100** comprobaciones |
+| `src/parts/motor_uart.h` | `ReceptorUart` (lee un nodo, no conduce) y `EmisorUart` (lo conduce con un Thevenin, 50 Ω por omisión). No son módulos: son ayudantes que usa el hilo de una pieza. Contadores de tramas, errores de trama, de paridad y breaks |
+| `src/parts/ext_parts.h` | `SwoReceiver` usa `ReceptorUart` en 8N1. Pierde veinte líneas y ningún comportamiento |
+| `src/top/sc_main_serie.cpp` | **`make testserie`**, el cuarto banco, con su invariante: **43** comprobaciones y **`51783680816 ps`** |
+| `src/Makefile.mcu-sim` | `testserie`, `testserie-build` y `asanserie` |
+| `src/verif/invariantes.txt` | La línea de `testserie` |
+
+**El criterio de la fase, cumplido.** El receptor hace en 8N1 exactamente las
+mismas esperas que hacía `SwoReceiver`, con las mismas expresiones de tiempo
+(la conversión de segundos a picosegundos redondea, y escribir la cuenta de
+otra forma podría redondear distinto). Resultado:
+
+* `test407`: **2118** comprobaciones y `resto` **`2240553274213 ps`**, total
+  `2337219149213 ps`. **Igual al picosegundo.** Además, la salida entera de la
+  suite, línea a línea, es la misma que antes del cambio; solo cambian las dos
+  líneas que miden la velocidad del anfitrión;
+* `test446` y `test417`: 204 / `1033367277932 ps` y 165 / `718988288 ps`, que
+  tampoco podían moverse (no montan un `SwoReceiver`, pero se compilan con él).
+
+**Qué prueba `testserie` en esta fase** (el motor suelto, sin chip):
+
+* S0 — la línea sin gobierno al arrancar no da tramas fantasma, que es lo que
+  ya resolvía `SwoReceiver`;
+* S1 — en 8N1, **los tiempos exactos**: el emisor tarda diez bits y el receptor
+  entrega la trama 9,5 bits después del flanco de arranque, en el centro de la
+  parada. Si eso cambiara, cambiaría el SWO del F407;
+* S2 — ida y vuelta en once formatos (7E1, 7O1, 8E1, 8O2, 8M1, 8S1, 9N1, 5N1,
+  6E2, 8N1.5 y 8N1);
+* S3 — la duración de 1, 1,5 y 2 bits de parada, y que un emisor 8N2 se entiende
+  con un receptor 8N1;
+* S4 — los errores provocados: paridad al revés (error de paridad y solo de
+  paridad), **baudios distintos** (9600 contra 115 200: sale basura y errores de
+  trama, que es lo que el puente tiene que reproducir), break (se ve, se cuenta
+  y el receptor se recupera) y que un `0x00` no es un break.
+
+**Cómo se ha comprobado que las pruebas pueden fallar:** cuatro mutaciones del
+motor (muestrear a 1,4 bits en vez de 1,5; no marcar nunca el break; la parada
+siempre de un bit; no mirar la paridad) hacen fallar 1, 2, 2 y 2
+comprobaciones. `make asanserie`: limpio.
+
+**Desviaciones del plan:**
+
+1. **`testserie` nace en D1 y no en D2.** El motor ampliado tiene paridad,
+   break y formatos que `SwoReceiver` no ejercita, y dejarlos sin probar hasta
+   el commit siguiente habría sido cerrar la fase con código sin probar.
+2. **El formato va en un fichero puro** (`common/formato_uart.h`), que no
+   estaba en la tabla de componentes del §10.3. Así el parseo de `formato=` se
+   prueba sin SystemC, como el de `host=`.
+3. **El muestreo es simple, no triple.** Es el de `SwoReceiver` y no puede
+   cambiar sin mover el invariante. Un terminal no informa de ruido, así que al
+   puente no le falta.
+
+**PENDIENTE A MANO, como en D0:** que el CI ejecute `testserie` y contraste su
+invariante. Hace falta tocar `.github/workflows/suites.yml`, y las herramientas
+remotas no pueden.
 
 ---
 

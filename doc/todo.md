@@ -295,7 +295,7 @@ en Linux.
 
 **Fase:** posterior a F7. **Analizado y planificado en
 `doc/analisis_puente_serie.md`** (§10, arquitectura D con RFC 2217). **En
-marcha desde 2026-09-29 en la rama `puente-uart`; FASE D0 EJECUTADA.**
+marcha desde 2026-09-29 en la rama `puente-uart`; FASES D0 Y D1 EJECUTADAS.**
 
 Lo que hace un ST-LINK/V2-1 en una Nucleo: una pieza de placa, `PuenteSerie`,
 colgada de los pines de una USART, que lleva sus bytes a un puerto TCP de esta
@@ -309,7 +309,7 @@ como en la placa.
 | | Qué | Fase del plan |
 | :--- | :--- | :--- |
 | a | ~~`--serie ID=DESTINO` y el parseo de `host=`~~ **HECHO**: `common/serie_destino.h`, `make serie` con 72 comprobaciones puras, fuera del banco. Puerto por omisión **3355** (no el 5000 del AirPlay de macOS). **Sin el argumento, nada cambia**: 2118/204/165 y los tres invariantes intactos | D0 |
-| b | `MotorUart` extraído de `SwoReceiver`, **con `test407` idéntico al picosegundo** | D1 |
+| b | ~~`MotorUart` extraído de `SwoReceiver`~~ **HECHO**: `parts/motor_uart.h` (`ReceptorUart` y `EmisorUart`, de 5 a 9 bits, paridad N/E/O/M/S, 1, 1,5 y 2 de parada, break) y `common/formato_uart.h`. **`test407` idéntico al picosegundo**: 2118 y `resto` 2240553274213 ps, con la misma salida línea a línea. Estrena `make testserie` (43, `51783680816 ps`) | D1 |
 | c | La pieza `PuenteSerie`, su ficha de `--help` (aplazada desde D0: registrarla sin pieza sería más permisivo que lo que hay) y `make testserie` con su propio invariante | D2 |
 | d | TCP en crudo sobre `red.h`, reconexión, «no termina sola» | D3 |
 | e | El códec Telnet + RFC 2217, puro, con `make rfc2217` | D4 |
