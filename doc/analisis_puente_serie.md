@@ -1276,6 +1276,10 @@ y el terminal solo lee su socket una de cada cuatro. El banco de la primera
 versión, con ruido, falla en cuatro comprobaciones y se desvía a
 `402590784008 ps`; el arreglado da 189 y `400677589564 ps` con ruido y sin él,
 que es la cifra del invariante y la que ya daba en Linux.
+**Y el CI lo pasa con ruido en Linux:** el trabajo `linux` (las dos Ubuntu)
+ejecuta `testserie` una segunda vez con `TESTSERIE_RUIDO=1` y la contrasta
+contra la misma línea de `verif/invariantes.txt`. Una espera nueva mal
+sincronizada se ve ahí, sin esperar a que la destape un macOS.
 
 **Lo que no se ha hecho, dicho:** LINESTATE no notifica desbordamiento (bit 1)
 cuando se llena la cola hacia el anfitrión: se cuenta en `descartados()`. La

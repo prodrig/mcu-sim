@@ -142,6 +142,34 @@ jobs:
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
+      # -----------------------------------------------------------------
+      # testserie OTRA VEZ, CON UN LOOPBACK LENTO. En la D5 del puente UART
+      # los dos macOS la tumbaron -un fallo y el tiempo simulado desviado 1 y
+      # 2 ms- por dos esperas del banco que daban por llegado al otro lado del
+      # socket lo que aun estaba en el nucleo. En Linux el loopback es tan
+      # rapido que nunca se veia. TESTSERIE_RUIDO hace que el banco sondee el
+      # canal solo una vez de cada cuatro y que el terminal lea su socket una
+      # de cada cuatro: si alguna espera nueva no se sincroniza bien, falla
+      # AQUI, o se mueve la cifra, y no hace falta un Mac para enterarse.
+      #
+      # Se contrasta contra la MISMA linea de invariantes.txt que la pasada
+      # normal: con ruido y sin el, el banco tiene que dar lo mismo. El
+      # ejecutable ya lo ha construido pasa_suites.sh.
+      # -----------------------------------------------------------------
+      - name: testserie con un loopback lento (TESTSERIE_RUIDO), al picosegundo
+        working-directory: src
+        env:
+          TESTSERIE_RUIDO: 1
+        run: |
+          rc=0
+          timeout 600 ./build/testserie > build/testserie_ruido.log 2>&1 || rc=$?
+          if [ "$rc" != "0" ]; then
+            tail -40 build/testserie_ruido.log
+            echo "  [FALLO] testserie con ruido termino con codigo $rc"
+            exit 1
+          fi
+          cd .. && sh ci/comprueba_invariante.sh testserie src/build/testserie_ruido.log
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
