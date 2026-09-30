@@ -774,12 +774,12 @@ versión de la herramienta y la fecha.
 | pySerial `rfc2217://` | RFC 2217 | las cuatro | **CI** (`make interop`, I1-I7) | Negociación, eco binario, baudios y paridad **con efecto en la USART**, líneas de módem, RTS/DTR, break, purge, control de flujo, reapertura y sustitución, línea fija en el XML | Linux 30-09-2026 (pySerial 3.5); resto, en el CI de D6 |
 | pySerial `socket://` | crudo | las cuatro | **CI** (I8) | Eco, los 255 valores | ídem |
 | socat `pty` ↔ `tcp` | crudo | Linux, macOS | **CI** (I9) | Eco y los 255 valores a través de un pty abierto como puerto serie | Linux 30-09-2026 (socat 1.8.0.0); macOS, en el CI |
-| socat `pty` ↔ `tcp` + `picocom` | crudo | Linux, macOS | manual | Receta del §7.4 tal cual | **Linux 30-09-2026** (socat 1.8.0.0, picocom 3.1): eco de `Hola picocom`. macOS, pendiente |
-| `com2tcp-rfc2217` + com0com + Tera Term | RFC 2217 | Windows | manual | Cambiar la velocidad en Tera Term → basura en el MCU; volver a la buena → texto limpio | pendiente |
-| HW VSP3 Single + PuTTY | RFC 2217 y crudo | Windows 10 y 11 x64 | manual | Instalación sin modo de prueba; reconexión al reiniciar `mcu-sim` | pendiente |
-| HHD Free Com Port Redirector | RFC 2217 | Windows 11 | manual (si se aclara la licencia) | Ídem | pendiente |
-| ttynvt | RFC 2217 | Linux | manual | `/dev/ttyNVT0` con `stty` cambiando la velocidad | pendiente (necesita CUSE) |
-| CoolTerm (TCP), PuTTY *Raw* | crudo | las tres | manual | El camino recomendado para la mayoría (§7.6) | pendiente |
+| socat `pty` ↔ `tcp` + `picocom` | crudo | Linux, macOS | manual | Receta del §7.4 tal cual | **Linux 30-09-2026** (socat 1.8.0.0, picocom 3.1): eco de `Hola picocom`. macOS, pendiente (**M3**) |
+| `com2tcp-rfc2217` + com0com + Tera Term | RFC 2217 | Windows | manual | Cambiar la velocidad en Tera Term → basura en el MCU; volver a la buena → texto limpio | pendiente (**M6**) |
+| HW VSP3 Single + PuTTY | RFC 2217 y crudo | Windows 10 y 11 x64 | manual | Instalación sin modo de prueba; reconexión al reiniciar `mcu-sim` | pendiente (**M5**) |
+| HHD Free Com Port Redirector | RFC 2217 | Windows 11 | manual (si se aclara la licencia) | Ídem | pendiente, licencia antes (**M7**) |
+| ttynvt | RFC 2217 | Linux | manual | `/dev/ttyNVT0` con `stty` cambiando la velocidad | pendiente, necesita CUSE (**M4**) |
+| CoolTerm (TCP), PuTTY *Raw* | crudo | las tres | manual | El camino recomendado para la mayoría (§7.6) | pendiente (**M1**, **M2**) |
 
 ### 10.7 Riesgos específicos
 
@@ -1339,12 +1339,433 @@ el enlace, con eco (socat 1.8.0.0, picocom 3.1). **Lo demás necesita Windows o
 un escritorio y queda PENDIENTE A MANO:** `com2tcp-rfc2217` + com0com + Tera
 Term, HW VSP3 + PuTTY, HHD (si se aclara la licencia), CoolTerm y PuTTY *Raw*,
 socat + picocom en macOS, y ttynvt (necesita CUSE, que este entorno no tiene).
-La D4 ya había mandado aquí la captura de `com2tcp-rfc2217`.
+La D4 ya había mandado aquí la captura de `com2tcp-rfc2217`. **Cómo hacerlas, una
+a una, está justo detrás del registro de la D6** (M1 a M8).
 
 **Y el riesgo 3 del §10.7** (`FLOWCONTROL-SUSPEND` hacia el cliente cuando se
 llena la cola hacia el MCU) **no se ha hecho, y no hace falta**: cuando la cola
 está llena el canal deja de leer el socket, y TCP para al cliente sin perder
 nada (D3). Ningún cliente de la matriz automática lo echa de menos.
+
+---
+
+#### D6 · Las pruebas manuales pendientes, una a una
+
+Lo que sigue es el guion para completar la matriz del §10.6. Cada prueba se
+puede hacer sola, pero **conviene seguir el orden M1 → M8**: primero lo que no
+instala nada, después un redirector cada vez. Los redirectores de Windows son
+drivers, y dos a la vez peleándose por el mismo `COM20` dan fallos que no son
+del puente. Por eso cada prueba de Windows usa su propio número de COM y dice
+cómo desinstalar lo que ha instalado.
+
+##### Lo común a todas
+
+**El firmware y la placa.** Todas usan `vcp_demo` (`src/verif/fw/vcp_demo/vcp_demo.bin`,
+versionado) y `src/placas/vcp_rfc2217.xml`: USART2 del F407 a 115200 8N1, puente
+`VCP` con `host="rfc2217:3355"` y `baudios="host"`, `cts` en PA1 y `dtr` en PB0.
+Lo que hace el firmware, y es lo único que hay que saber para leer los
+resultados:
+
+* al arrancar manda `vcp_demo listo\r\n`. **Casi siempre se pierde**: sale a
+  los pocos milisegundos, cuando todavía no hay nadie conectado, y el puente
+  descarta lo que no tiene a quién dar (D-6). Se ve en la consola de
+  `mcu-sim`, no en el terminal;
+* **devuelve cada byte que recibe sin error**, tal cual, sin añadir ni quitar
+  finales de línea. Los que llegan con error de trama, de ruido o de paridad
+  **no** los devuelve: por eso un desajuste de baudios se ve como «no vuelve
+  nada», y no como basura;
+* el byte `0x13` (**Ctrl-S**) no lo devuelve: es la orden de dejar de leer
+  5 ms. Si el terminal manda Ctrl-S por su cuenta (XOFF), el firmware se para
+  un momento, y ya está.
+
+**La consola de `mcu-sim`** enseña, con `[VCP]` delante, lo que manda el MCU,
+**línea a línea**: solo imprime cuando llega un `\n`. Si el terminal manda solo
+CR al pulsar Intro, el eco se ve en el terminal pero no en la consola hasta que
+llegue un LF. Para las pruebas conviene que Intro mande **CR+LF**.
+
+**El ejecutable.**
+
+* **Linux y macOS**: el del repositorio, `cd src && make -f Makefile.mcu-sim
+  mcu-sim`, o el paquete de un CI verde (`mcu-sim-linux-x86_64.tar.gz`,
+  `mcu-sim-macos-arm64.tar.gz`, `mcu-sim-macos-x86_64.tar.gz`; en macOS hace
+  falta `brew install systemc` y quitar la cuarentena, `doc/ejecutables.md`
+  §4.3).
+* **Windows**: el artefacto `mcu-sim-windows-x86_64` de una ejecución verde de
+  `suites` en GitHub (Actions → la ejecución → *Artifacts*), descomprimido en
+  `C:\mcu-sim-win\`. No necesita MSYS2 ni ninguna DLL. Las pruebas de Windows
+  se hacen desde `cmd` o PowerShell, **no** desde un shell de MSYS2, que es como
+  lo usará un alumno.
+* Y del repositorio, en todas: la carpeta `src` con `placas/` y
+  `verif/fw/vcp_demo/`. En Windows se supone clonado en `C:\mcu-sim\`.
+
+**El arranque, igual en todas**, desde `src` y **siempre antes que el
+redirector o el terminal** (el puente es el servidor; D-1):
+
+```
+# Linux y macOS
+./build/mcu-sim placas/vcp_rfc2217.xml verif/fw/vcp_demo/vcp_demo.bin --tiempo-real
+
+# Windows (cmd)
+cd C:\mcu-sim\src
+C:\mcu-sim-win\mcu-sim.exe placas\vcp_rfc2217.xml verif\fw\vcp_demo\vcp_demo.bin --tiempo-real
+```
+
+Tiene que decir, en este orden:
+
+```
+  serie VCP: RFC 2217 en localhost:3355, 115200 8N1
+  ...
+esperando a los puentes serie; la simulacion no se detiene sola (Ctrl-C para salir)
+  [VCP] vcp_demo listo
+```
+
+Para el modo en crudo, lo mismo con `--serie VCP=tcp:3355` al final (la
+consola dirá `TCP en crudo en localhost:3355`). Se para con **Ctrl-C**. Si
+Windows pregunta por el cortafuegos al arrancar, se puede cancelar: el puente
+solo escucha en `127.0.0.1`, y el bucle local no pasa por el cortafuegos.
+
+**La comprobación básica**, que se repite en todas y se llama **ECO** en lo que
+sigue: se teclea `Hola` e Intro, y en el terminal aparece `Hola` (una vez, la
+del firmware; si sale dos veces, el terminal tiene el eco local encendido y hay
+que apagarlo) y en la consola de `mcu-sim` aparece `[VCP] Hola`.
+
+**Lo que hay que anotar** al terminar cada una, en la columna *Estado* del
+§10.6: la fecha, el sistema (con versión y arquitectura), la versión de cada
+programa, y «bien» o qué falló. Si falla, conviene guardar la consola de
+`mcu-sim` y, si el programa la tiene, su traza.
+
+##### M1 · CoolTerm por TCP, sin puerto (D-c) — Windows, macOS y Linux
+
+**Para qué:** es el camino que el §7.6 recomienda a la mayoría. No instala
+drivers. Se hace en las tres plataformas.
+
+**Programas:** CoolTerm de Roger Meier (freeware), la última versión de
+<https://freeware.the-meiers.org/>. En Linux, el paquete para x86-64; en macOS,
+el universal.
+
+**Pasos:**
+
+1. Arrancar `mcu-sim` en **modo crudo**: la orden común con `--serie VCP=tcp:3355`.
+2. Abrir CoolTerm. *Connection → Options…* (o el botón *Options*):
+   * *Serial Port → Port*: **TCP Connection**; *Mode*: **Client**; *IP
+     Address*: `127.0.0.1`; *Port*: `3355`;
+   * *Terminal → Enter Key Emulation*: **CR+LF**; *Local Echo*: **desmarcado**.
+   * *OK*.
+3. *Connect*. Hacer **ECO**.
+4. Pegar en el terminal un texto de unas 200 letras (*Connection → Send
+   String…*, o pegar con el portapapeles). Tiene que volver entero.
+5. *Disconnect*, *Connect* otra vez, y **ECO**: la reconexión funciona (D-5).
+6. Parar `mcu-sim` con Ctrl-C **con CoolTerm conectado**. CoolTerm tiene que
+   enterarse (se desconecta o avisa). Volver a arrancar `mcu-sim`, *Connect*, y
+   **ECO**.
+7. *(Opcional)* Arrancar `mcu-sim` **en modo RFC 2217** (la orden común sin
+   `--serie`) y conectar CoolTerm igual. CoolTerm no habla Telnet: el puente
+   es pasivo hasta que alguien negocie (D-13), así que tiene que funcionar
+   igual que en crudo, con dos diferencias: **un byte `0xFF` no llega bien**
+   (sin Telnet, el puente lo toma por el principio de una orden), y cada CR del
+   eco llega **seguido de un NUL** (la regla del NVT, D-8), que CoolTerm no
+   pinta pero se ve en su vista hexadecimal (*View → View Hex*). Con texto
+   normal no se nota. Esto confirma por qué D-2 separa los dos modos.
+
+**Bien si:** 3 a 6 dan eco, sin eco doble. **Se anota:** versión de CoolTerm y
+sistema, una vez por plataforma.
+
+##### M2 · PuTTY en modo *Raw* (D-c) — Windows (Linux opcional)
+
+**Programas:** PuTTY 0.8x de <https://www.chiark.greenend.org.uk/~sgtatham/putty/>
+(`putty.exe` basta; no hace falta instalar).
+
+**Pasos:**
+
+1. `mcu-sim` en **modo crudo** (`--serie VCP=tcp:3355`).
+2. Lanzar PuTTY **desde la línea de órdenes**, que fija todo sin tocar la
+   configuración guardada:
+
+   ```
+   putty.exe -raw -P 3355 127.0.0.1
+   ```
+
+   Y, antes de teclear, en el menú de la ventana (clic en el icono → *Change
+   Settings…*) → *Terminal*: *Local echo* **Force off** y *Local line editing*
+   **Force off**. En modo *Raw*, PuTTY los deja en *Auto* y, con eso, suele
+   mandar la línea entera al pulsar Intro y pintarla él: parecería eco doble.
+   *Apply*.
+3. **ECO**. Intro en PuTTY manda solo CR: el eco sale en PuTTY, pero la consola
+   de `mcu-sim` no imprime la línea hasta un LF (Ctrl-J lo manda).
+4. Cerrar PuTTY, volver a lanzarlo, **ECO** (reconexión).
+
+**Bien si:** eco sin duplicar. **Se anota:** versión de PuTTY y de Windows. En
+Linux, lo mismo con `putty -raw -P 3355 127.0.0.1` (paquete `putty`), opcional.
+
+##### M3 · socat + picocom en macOS (D-b sin driver) — macOS, los dos
+
+**Para qué:** la receta del §7.4 en macOS. En Linux está hecha (arriba); el
+CI ya prueba socat en macOS con pySerial, pero no con un terminal.
+
+**Programas:** `brew install socat picocom` (Homebrew).
+
+**Pasos, en tres terminales:**
+
+1. Terminal 1, desde `src`: `mcu-sim` en **modo crudo**
+   (`./build/mcu-sim placas/vcp_rfc2217.xml verif/fw/vcp_demo/vcp_demo.bin --tiempo-real --serie VCP=tcp:3355`).
+2. Terminal 2: `socat -d -d pty,link=$HOME/vcp,raw,echo=0 tcp:127.0.0.1:3355`.
+   Tiene que decir `PTY is /dev/ttys00N` y `starting data transfer loop`. **Usar
+   `127.0.0.1`**: el puente solo escucha en IPv4, y según la herramienta y el
+   sistema `localhost` puede resolverse antes a `::1`. Si con `localhost`
+   funciona igual, anotarlo: las recetas lo usan.
+3. Terminal 3: `picocom -b 115200 --omap crcrlf ~/vcp` (salir con **Ctrl-A
+   Ctrl-X**). `--omap crcrlf` hace que Intro mande CR+LF (véase «lo común»).
+   **ECO**.
+4. En picocom, **Ctrl-A Ctrl-U** sube la velocidad del pty: en crudo **no pasa
+   nada** (el pty no transmite baudios: es lo esperado, y la razón de RFC 2217).
+5. Salir de picocom y volver a entrar: **ECO**.
+6. Comprobar que el pty no aparece en `/dev/cu.*` (la advertencia del §5.2):
+   `ls /dev/cu.*`. Las aplicaciones gráficas que solo listan `cu.*` no lo verán.
+
+**Bien si:** 3 y 5 con eco. **Se anota:** macOS y arquitectura, versiones de
+socat y picocom. Hacerlo en Apple Silicon **y** en Intel si se tiene.
+
+##### M4 · ttynvt: un `/dev/tty` que habla RFC 2217 — Linux
+
+**Para qué:** el equivalente Linux de HW VSP (§7.3), y la única forma en Linux
+de que **`stty` o picocom cambien los baudios de la línea simulada** con un
+puerto serie del sistema.
+
+**Requisitos:** un Linux con CUSE (`sudo modprobe cuse`; tiene que existir
+`/dev/cuse`), y para compilar `git autoconf automake make gcc pkg-config` y
+`libfuse-dev` (FUSE 2; en Debian/Ubuntu, `sudo apt install libfuse-dev`). Hace
+falta `sudo`. **No vale un contenedor** sin `/dev/cuse` (es por lo que no se ha
+hecho aquí).
+
+**Instalación:**
+
+```
+git clone https://github.com/lars-thrane-as/ttynvt.git
+cd ttynvt
+autoreconf -vif
+./configure
+make
+```
+
+**Pasos:**
+
+1. Terminal 1: `mcu-sim` en **modo RFC 2217** (la orden común, sin `--serie`).
+2. Terminal 2, con las opciones de la documentación de ci4rail (`-f`, en
+   primer plano). El ejecutable es el `ttynvt` que deja `make` (`find . -name
+   ttynvt -type f` si no está en `src/`):
+
+   ```
+   sudo ./src/ttynvt -f -E -M 199 -m 6 -n ttyNVT0 -S 127.0.0.1:3355
+   ```
+
+   `-M 199 -m 6` son el número mayor y menor del dispositivo; si 199 está
+   ocupado en esa máquina (`grep 199 /proc/devices`), otro libre. Tiene que
+   aparecer `/dev/ttyNVT0` (`ls -l /dev/ttyNVT0`; si hace falta, `sudo chmod
+   666 /dev/ttyNVT0` para no usar sudo en picocom).
+3. Terminal 3: `picocom -b 115200 --omap crcrlf /dev/ttyNVT0`. **ECO**.
+4. En picocom, **Ctrl-A Ctrl-B**, escribir `9600` e Intro: picocom cambia la
+   velocidad y ttynvt la manda por RFC 2217. Teclear `Hola`: **no vuelve
+   nada** (el firmware sigue a 115200 y descarta las tramas con error).
+5. **Ctrl-A Ctrl-B**, `115200`: **ECO** otra vez.
+6. Salir de picocom. Con `stty -F /dev/ttyNVT0 9600` y después `stty -F
+   /dev/ttyNVT0` tiene que leerse `speed 9600 baud`; volver con `stty -F
+   /dev/ttyNVT0 115200`.
+7. *(Opcional)* Paridad: `picocom -b 115200 -p e --omap crcrlf /dev/ttyNVT0`
+   (8E1). `A` no vuelve (paridad 0: la USART la toma por una parada mala); `C`
+   sí vuelve (paridad 1). Es lo mismo que comprueba I3 con pySerial.
+
+**Bien si:** 3 y 5 con eco, 4 sin él, 6 con la velocidad leída. **Se anota:**
+distribución y núcleo, *commit* de ttynvt, versión de picocom. Si en 4 **sí**
+vuelve el eco, ttynvt no está mandando SET-BAUDRATE: la traza del puente no lo
+dice, pero la consola de `mcu-sim` tampoco mostraría errores; mirar la
+salida de ttynvt en el terminal 2 (va en primer plano por `-f`).
+
+##### M5 · HW VSP3 Single + PuTTY (o Tera Term) — Windows 10 y 11, x64
+
+**Para qué:** un COM de Windows con un solo programa, cliente TCP, con RFC 2217
+(«NVT») y sin él. Su ficha solo cita hasta Windows 10: **la prueba es sobre
+todo que se instale y funcione en Windows 10 y 11 x64 sin modo de prueba**.
+
+**Programas:** HW VSP3 Single, `hw-vsp3s_3-1-2.exe`, de
+<https://www.hw-group.com/software/hw-vsp3-virtual-serial-port> (freeware; para
+una empresa, la condición de citar a HW group). PuTTY como en M2, o Tera Term 5.
+
+**Instalación:** ejecutar `hw-vsp3s_3-1-2.exe` **como administrador**. Si
+Windows pide aceptar un driver, aceptarlo. **Anotar** si pide desactivar Secure
+Boot, activar el modo de prueba o si *Integridad de memoria* (Seguridad de
+Windows → Seguridad del dispositivo → Aislamiento del núcleo) lo bloquea: eso
+es el resultado de la prueba, no un obstáculo que sortear.
+
+**Pasos — con RFC 2217:**
+
+1. `mcu-sim` en **modo RFC 2217** (la orden común, sin `--serie`).
+2. Abrir HW VSP3 (como administrador). Pestaña *Settings*: marcar **NVT
+   Enable**, **Create VSP Port at HW VSP startup** y **Connect to device even if
+   VSP Port is closed**; desmarcar **Strict Baudrate Emulation**. Pestaña
+   *Virtual Serial Port*: *Port Name* `COM20`, *IP Address* `127.0.0.1`, *Port*
+   `3355`. **Create COM**. El estado tiene que pasar a conectado.
+3. Terminal sobre el COM:
+
+   ```
+   putty.exe -serial COM20 -sercfg 115200,8,n,1,N
+   ```
+
+   **ECO**. (PuTTY en serie no tiene eco local: no hace falta tocar nada.)
+4. **Cambio de baudios desde el terminal.** Cerrar PuTTY y abrir
+   `putty.exe -serial COM20 -sercfg 9600,8,n,1,N`. `Hola`: **no vuelve nada**.
+   Cerrar y volver con 115200: **ECO**. (Con Tera Term se hace en caliente:
+   `ttermpro.exe /C=20 /BAUD=115200`, y *Setup → Serial port… → Speed* 9600 →
+   *New setting*; volver a 115200.)
+5. **Reconexión al reiniciar `mcu-sim`:** con PuTTY abierto en COM20, parar
+   `mcu-sim` (Ctrl-C) y volver a arrancarlo. HW VSP3 tiene que reconectar solo
+   (el estado lo dice). **ECO** en el mismo PuTTY, sin cerrarlo.
+6. *(Opcional)* Paridad: `-sercfg 115200,8,e,1,N`. `A` no vuelve, `C` sí.
+
+**Pasos — en crudo:** parar todo; `mcu-sim` con `--serie VCP=tcp:3355`; en
+HW VSP3, *Delete COM*, desmarcar **NVT Enable**, *Create COM* igual. Repetir 3
+y 5. En 4, ahora **sí** vuelve el eco a 9600 (en crudo los baudios no llegan a
+la línea: el pty de M3 hace lo mismo).
+
+**Desinstalar** antes de M6: *Delete COM* y desinstalar HW VSP3 desde
+*Aplicaciones*.
+
+**Bien si:** instala sin modo de prueba; con NVT, 3 y 5 con eco y 4 sin él; en
+crudo, eco siempre. **Se anota:** Windows 10 y 11 por separado (versión y
+compilación, `winver`), versión de HW VSP3, y lo que pidió al instalar.
+
+##### M6 · com0com + `com2tcp-rfc2217` + Tera Term — Windows 10 y 11, x64
+
+**Para qué:** la opción libre (GPL) y la que el §7.4 da por más probada. Es
+también la prueba de que el cliente RFC 2217 de hub4com se entiende con un
+servidor **pasivo** (D-13), que la D4 no pudo capturar.
+
+**Programas:**
+
+* **com0com 2.2.2.0 firmado**, `com0com-2.2.2.0-x64-fre-signed.zip`, de
+  <https://sourceforge.net/projects/com0com/files/com0com/2.2.2.0/>. **No la
+  3.0.0.0**: esa va firmada solo para pruebas y exige `bcdedit -set TESTSIGNING
+  ON`, que no se le puede pedir a un alumno.
+* **hub4com 2.1.0.0**, `hub4com-2.1.0.0-386.zip`, de
+  <https://sourceforge.net/projects/com0com/files/hub4com/>. Se descomprime en
+  `C:\hub4com\`; trae `hub4com.exe` y los `.bat`, entre ellos
+  `com2tcp-rfc2217.bat`.
+* **Tera Term 5**, de <https://teratermproject.github.io/>.
+
+**Instalación del par virtual:**
+
+1. Descomprimir com0com y ejecutar `setup.exe` **como administrador**. Aceptar
+   el driver. **Anotar** si Windows lo bloquea (Secure Boot, *Integridad de
+   memoria*; §5.4).
+2. Abrir *Setup Command Prompt* (en el menú de inicio, carpeta com0com) como
+   administrador. Ver qué hay con `list`. Si el instalador ya creó el par
+   `CNCA0`/`CNCB0`, quitarlo con `remove 0`.
+3. Crear el par con el lado del alumno como `COM21` y la emulación de baudios:
+
+   ```
+   install PortName=COM21,EmuBR=yes -
+   list
+   ```
+
+   `list` tiene que enseñar algo como `CNCA0 PortName=COM21,EmuBR=yes` y
+   `CNCB0 PortName=-`. **El lado `CNCB0` es el que usa hub4com; el alumno abre
+   `COM21`.** Si el número de par no es 0, usar `CNCBn` en lo que sigue.
+
+**Pasos:**
+
+1. `mcu-sim` en **modo RFC 2217** (la orden común, sin `--serie`).
+2. En un `cmd` normal:
+
+   ```
+   cd C:\hub4com
+   com2tcp-rfc2217.bat \\.\CNCB0 127.0.0.1 3355
+   ```
+
+   Se queda en primer plano. Con `127.0.0.1` y el puerto hace de **cliente**
+   (con solo el puerto haría de servidor). Guardar lo que imprime: es la traza
+   de la negociación.
+3. Tera Term sobre el otro lado:
+
+   ```
+   "C:\Program Files (x86)\teraterm5\ttermpro.exe" /C=21 /BAUD=115200
+   ```
+
+   (la ruta es la de la instalación por omisión; si no está ahí, la del acceso
+   directo del menú de inicio).
+
+   *Setup → Terminal…*: *New-line* **Receive: AUTO**, **Transmit: CR+LF**;
+   *Local echo* **desmarcado**. **ECO**.
+4. **Cambio de baudios en caliente, que es el objeto de esta prueba:** *Setup →
+   Serial port… → Speed* **9600** → *New setting*. `Hola`: **no vuelve nada**.
+   Volver a **115200**: **ECO**, el texto sale limpio.
+5. *Setup → Serial port…*: *Data* 8, *Parity* **even**, *Stop* 1 → *New
+   setting*. `A` no vuelve; `C` sí. Volver a *none*.
+6. *Control → Send break* (Alt+B): después, **ECO**. La línea sigue viva.
+7. Cerrar Tera Term y volver a abrirlo con la misma orden: **ECO** (hub4com
+   sigue conectado; el puente no ha visto nada).
+8. Parar `mcu-sim` y volver a arrancarlo. Ver qué hace `com2tcp-rfc2217`: si
+   reconecta solo o termina. **Anotarlo**; si termina, relanzarlo (paso 2) y
+   **ECO**.
+
+**Desinstalar** después: en *Setup Command Prompt*, `remove 0`; y desinstalar
+com0com desde *Aplicaciones*.
+
+**Bien si:** el paso 2 negocia sin quedarse esperando (si se queda colgado sin
+datos, el cliente espera que el servidor hable primero: sería un choque con
+D-13, y se anota tal cual con la traza); 3, 4, 5 y 6 como se describe. **Se
+anota:** Windows 10 y 11, versiones de com0com, hub4com y Tera Term, lo que
+pidió el driver, y el comportamiento del paso 8.
+
+##### M7 · HHD Free Com Port Redirector + PuTTY — Windows 11 (x64 o ARM64)
+
+**Antes de nada, la licencia.** La edición gratuita prohíbe el uso comercial,
+gubernamental y militar (§7.3). **No se hace esta prueba** hasta que HHD
+confirme por escrito si una universidad pública entra en «gubernamental». Si
+la respuesta es que no se puede, la fila del §10.6 se cierra con «descartado
+por licencia» y la fecha de la respuesta.
+
+**Programas:** Free Com Port Redirector de <https://freecomportredirector.com/>
+(instalador x86/x64; hay versión ARM64). PuTTY como en M2.
+
+**Pasos, si la licencia lo permite:**
+
+1. `mcu-sim` en **modo RFC 2217**.
+2. Instalar como administrador y abrir el programa. Crear un puerto en modo
+   **cliente TCP** (*Serial TCP/IP client*): *host* `127.0.0.1`, *puerto*
+   `3355`, protocolo **RFC 2217**. La edición gratuita no deja elegir el nombre
+   del COM: **anotar el que asigne**. Tampoco lo guarda: al reiniciar Windows
+   hay que volver a crearlo.
+3. `putty.exe -serial COMn -sercfg 115200,8,n,1,N` con el COM asignado. **ECO**.
+4. Como en M5: 9600 sin eco, 115200 con eco, y reconexión al reiniciar
+   `mcu-sim`.
+5. *(Opcional)* Lo mismo con protocolo **Raw** y `mcu-sim --serie VCP=tcp:3355`.
+
+**Se anota:** la respuesta de HHD sobre la licencia, versión del programa,
+Windows y arquitectura, y el resultado.
+
+##### M8 · Opcional: capturar la sesión de un redirector
+
+La D4 dejó pendiente **grabar byte a byte** lo que manda `com2tcp-rfc2217`
+(y, por extensión, HW VSP3 y ttynvt), para añadirlo a `verif/vectores/` como se
+hizo con pySerial. `captura_rfc2217.py` no sirve tal cual: en modo `--contra`
+lanza él mismo el cliente de pySerial. Hace falta un **proxy que solo grabe**,
+y en Windows no hay socat. Si se quiere hacer, lo razonable es añadir a
+`captura_rfc2217.py` un modo `--proxy ESCUCHA DESTINO` (es la función `proxy()`
+que ya tiene, sin el cliente), arrancar `mcu-sim` en el 3355, el proxy en el
+3356 hacia el 3355, y apuntar el redirector al **3356**. Queda anotado aquí; no
+es condición para cerrar la D6.
+
+##### Resumen del orden y de lo que ocupa cada una
+
+| Orden | Prueba | Plataforma | `mcu-sim` | Instala | COM |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| M1 | CoolTerm por TCP | Windows, macOS, Linux | crudo (y RFC 2217, opcional) | nada (una aplicación) | — |
+| M2 | PuTTY *Raw* | Windows | crudo | nada | — |
+| M3 | socat + picocom | macOS | crudo | Homebrew | pty `~/vcp` |
+| M4 | ttynvt + picocom | Linux | RFC 2217 | compilar ttynvt, CUSE | `/dev/ttyNVT0` |
+| M5 | HW VSP3 + PuTTY | Windows 10 y 11 | RFC 2217 y crudo | driver | `COM20` |
+| M6 | com0com + hub4com + Tera Term | Windows 10 y 11 | RFC 2217 | driver | `COM21` ↔ `CNCB0` |
+| M7 | HHD + PuTTY | Windows 11 | RFC 2217 | driver, **licencia antes** | el que asigne |
+| M8 | captura de un redirector | cualquiera | RFC 2217 | — | — |
 
 ---
 
