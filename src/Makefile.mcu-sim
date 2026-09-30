@@ -18,9 +18,13 @@
 #   make test407                  # la suite del F407 (2055 comprobaciones)
 #   make test446                  # la del F446, que es OTRO ejecutable
 #   make test417                  # la del acelerador criptografico del F415/F417
+#   make testserie                # la del puente UART (P-14), OTRO ejecutable
 #   make hash                     # los vectores de MD5/SHA-1, sin SystemC
 #   make cryp                     # los de AES/DES/TDES, tampoco
 #   make red                      # la capa de red, que NO necesita SystemC
+#   make serie                    # el destino y el formato de un PuenteSerie, tampoco
+#   make rfc2217                  # el codec de Telnet y RFC 2217, tampoco
+#   make interop                  # el puente UART contra pySerial y socat (Python)
 #   make vectores                 # los vectores del CRYP/HASH, sin SystemC ni compilar
 #   make asan407                  # la suite del F407 con ASan + UBSan (Linux y macOS)
 #   make asan446                  # y la del F446
@@ -181,15 +185,19 @@ TEST407 := build/test407$(EXE)
 MCUSIM  := build/mcu-sim$(EXE)
 TEST446 := build/test446$(EXE)
 TEST417 := build/test417$(EXE)
+TESTSERIE := build/testserie$(EXE)
 HASHV   := build/prueba_hash$(EXE)
 CRYPV   := build/prueba_cryp$(EXE)
 BENCH  := build/bench$(EXE)
 RED    := build/prueba_red$(EXE)
+SERIEP := build/prueba_serie$(EXE)
+RFC2217P := build/prueba_rfc2217$(EXE)
 ASAN407 := build/asan407$(EXE)
 ASAN446 := build/asan446$(EXE)
 ASAN417 := build/asan417$(EXE)
+ASANSERIE := build/asanserie$(EXE)
 
-.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build asan407 asan446 asan417 smoke bench mcu-sim red run clean plataforma vectores hash cryp
+.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 interop run clean plataforma vectores hash cryp
 
 all: $(MCUSIM)
 
@@ -267,6 +275,20 @@ test417-build: $(TEST417)
 test417: $(TEST417)
 	./$(TEST417)
 
+# EL BANCO DEL PUENTE UART (P-14, doc/analisis_puente_serie.md §10). CUARTO
+# ejecutable, por la razon de siempre: sus piezas dentro del banco del F407
+# moverian su invariante. Tiene el suyo en verif/invariantes.txt, y crece con
+# cada fase: en D1 prueba el motor UART suelto; en D2, la pieza con un F407.
+#   make testserie
+$(TESTSERIE): top/sc_main_serie.cpp $(HDRS)
+	@mkdir -p build
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_serie.cpp $(LDFLAGS) $(LDLIBS)
+
+testserie-build: $(TESTSERIE)
+
+testserie: $(TESTSERIE)
+	./$(TESTSERIE)
+
 # Los VECTORES de MD5 y SHA-1 contra el nucleo aritmetico. NO necesita SystemC:
 # `periph/hash_algo.h` es aritmetica pura, y los 23 casos con su procedencia
 # estan en `verif/vectores/hash.vec` desde la fase 0.
@@ -292,6 +314,42 @@ cryp: $(CRYPV)
 
 red: $(RED) macros-win
 	./$(RED)
+
+# EL DESTINO DE UN PUENTE SERIE (fase D0 de doc/analisis_puente_serie.md §10):
+# el parseo de `host=` y de `--serie ID=DESTINO`, y los choques de puertos. Es
+# aritmetica de cadenas, asi que NO necesita SystemC ni toca las tres cifras de
+# verif/invariantes.txt: va con `red` y `hash` en el trabajo rapido del CI.
+#   make serie
+$(SERIEP): verif/prueba_serie.cpp common/serie_destino.h common/formato_uart.h
+	@mkdir -p build
+	$(CXX) -std=$(CXXSTD) $(AVISOS) -O2 -I. -o $@ verif/prueba_serie.cpp
+
+serie: $(SERIEP)
+	./$(SERIEP)
+
+# EL CODEC DE TELNET Y RFC 2217 (fase D4 de P-14): contra el texto de las RFC y
+# contra una sesion de verdad de pySerial (verif/vectores/rfc2217_pyserial.vec).
+# Tampoco necesita SystemC. Enlaza con la capa de red solo por su modo
+# `--servidor PUERTO`, que no es una prueba sino un banco de interoperabilidad
+# para clientes de verdad; por eso lleva las mismas opciones que `red`.
+#   make rfc2217
+$(RFC2217P): verif/prueba_rfc2217.cpp common/telnet2217.h common/red.h
+	@mkdir -p build
+	$(CXX) -std=$(CXXSTD) $(AVISOS) $(DEF_SO) -O2 -I. -o $@ \
+	       verif/prueba_rfc2217.cpp $(LDEXTRA) $(LIBS_SO)
+
+rfc2217: $(RFC2217P)
+	./$(RFC2217P)
+
+# LA INTEROPERABILIDAD DEL PUENTE UART (fase D6 de doc/analisis_puente_serie.md
+# §10): el `mcu-sim` de verdad, con `placas/vcp_rfc2217.xml` y `vcp_demo`,
+# contra el cliente `rfc2217://` y `socket://` de pySerial y contra un pty de
+# socat si esta. Necesita Python 3 y pySerial; no toca ningun invariante.
+#
+#   make interop
+PYTHON ?= python3
+interop: $(MCUSIM)
+	$(PYTHON) verif/serie/interop.py
 
 # EL CAMPO DE MINAS DEL PREPROCESADOR DE WINDOWS. Prueba de COMPILACION, no de
 # ejecucion: define a mano las macros que Windows trae -R_OK, min, max, ERROR,
@@ -371,6 +429,19 @@ asan417:
 else
 asan417: $(ASAN417)
 	./$(ASAN417)
+endif
+
+# Y para el del puente UART, que es el cuarto.
+$(ASANSERIE): top/sc_main_serie.cpp $(HDRS)
+	@mkdir -p build
+	$(CXX) $(ASANFLAGS) -o $@ top/sc_main_serie.cpp $(LDFLAGS) $(LDLIBS)
+
+ifeq ($(PLATAFORMA),windows)
+asanserie:
+	@echo "MinGW no trae AddressSanitizer: 'make asanserie' solo va en Linux y macOS."
+else
+asanserie: $(ASANSERIE)
+	./$(ASANSERIE)
 endif
 
 # Suite de verificación (autocomprobable: código de salida 0/1)
@@ -520,6 +591,7 @@ FW407 := verif/fw verif/fw/coremark verif/fw/blinky verif/fw/dma_demo \
          verif/fw/can_demo verif/fw/debug_demo verif/fw/lowpower_demo
 FW446 := verif/fw/blinky446 verif/fw/clk446_demo
 FW417 := verif/fw/crypto_demo
+FWSERIE := verif/fw/vcp_demo
 
 # Todos los que hay, para `cleanfw`. Se calculan buscando Makefiles en vez de
 # escribir otra lista: asi un firmware nuevo se borra sin tocar esto.
@@ -552,7 +624,7 @@ define AVISA_VERSIONADOS
 	@echo ""
 endef
 
-.PHONY: fw fw407 fw446 fw417 cleanfw test407fw test446fw test417fw
+.PHONY: fw fw407 fw446 fw417 fwserie cleanfw test407fw test446fw test417fw testseriefw
 
 fw407:
 	$(AVISA_VERSIONADOS)
@@ -578,8 +650,16 @@ fw417:
 	 done
 	@echo "  [fw] el firmware de la suite del F415/F417, listo"
 
-# Los tres juegos, sin simular nada.
-fw: fw407 fw446 fw417
+fwserie:
+	$(AVISA_VERSIONADOS)
+	$(COMPRUEBA_CROSS)
+	@for d in $(FWSERIE); do \
+	   echo "  [fw] $$d"; $(MAKE) --no-print-directory -C $$d || exit 1; \
+	 done
+	@echo "  [fw] el firmware de la suite del puente UART, listo"
+
+# Los cuatro juegos, sin simular nada.
+fw: fw407 fw446 fw417 fwserie
 
 # Y las suites con sus firmwares delante. En una maquina nueva ya NO hacen
 # falta: `make test407` a secas funciona, porque los .bin vienen en el
@@ -594,6 +674,9 @@ test446fw: fw446
 
 test417fw: fw417
 	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) test417
+
+testseriefw: fwserie
+	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) testserie
 
 # Borra los .bin, .elf, .o y .map de TODOS los firmwares, sean de la suite que
 # sean. Util para comprobar que la cadena cruzada funciona de cero.

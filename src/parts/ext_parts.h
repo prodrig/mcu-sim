@@ -39,6 +39,7 @@
 #include <utility>
 #include "../common/analog_net.h"
 #include "part_base.h"        // ExtPartBase: terminales con nombre y set_enabled
+#include "motor_uart.h"       // ReceptorUart: el de SwoReceiver, y el del puente serie
 #include "../periph/sdio.h"   // sd_crc7 y SdCrc16: el protocolo es el mismo
 #include "../periph/can.h"    // can_crc15 y el relleno de bits: idem
 #include "../periph/otg.h"    // usb_dev_if y los PID: el aparejo habla lo mismo
@@ -1342,17 +1343,21 @@ private:
 // literalmente un receptor de UART: espera el bit de arranque, muestrea ocho
 // bits en el centro y comprueba el de parada. Encima va el desempaquetado del
 // protocolo ITM, que es lo que convierte los bytes en mensajes.
+//
+// Desde la fase D1 del puente serie (P-14) el receptor ya no vive aqui: es el
+// `ReceptorUart` de parts/motor_uart.h, en 8N1, que hace exactamente las mismas
+// esperas que hacia este modulo. El invariante del F407 es la prueba.
 // ---------------------------------------------------------------------------
 SC_MODULE(SwoReceiver), public ExtPart {
     SwoReceiver(sc_core::sc_module_name nm, analog_net_if& swo, double bitrate,
                 double vdd = 3.3)
-        : sc_core::sc_module(nm), ExtPart(swo, "SwoReceiver", "swo_rx", "swo", nm), tb_(1.0 / bitrate),
-          vdd_(vdd) {
+        : sc_core::sc_module(nm), ExtPart(swo, "SwoReceiver", "swo_rx", "swo", nm),
+          rx_(swo, bitrate, vdd) {
         hiz();                                        // solo escucha
         SC_HAS_PROCESS(SwoReceiver);
         SC_THREAD(run);
     }
-    void set_bitrate(double b) { tb_ = 1.0 / b; }
+    void set_bitrate(double b) { rx_.set_bitrate(b); }
     void clear() { bytes_.clear(); msg_.clear(); puerto_.clear();
                    pend_ = 0; k_ = 0; acc_ = 0; }
     unsigned bytes() const { return unsigned(bytes_.size()); }
@@ -1367,24 +1372,11 @@ SC_MODULE(SwoReceiver), public ExtPart {
         return t;
     }
 private:
-    bool nivel() const { return net_->voltage() > 0.5 * vdd_; }
     void run() {
         for (;;) {
-            // Primero, esperar a que la linea este EN REPOSO (alta). Sin esto,
-            // al arrancar la simulacion el nodo todavia no lo gobierna nadie y
-            // el receptor tomaria el nivel indefinido por un bit de arranque,
-            // desincronizando toda la trama.
-            while (!nivel()) wait(net_->value_changed_event());
-            // Y ahora si, el flanco de bajada del bit de arranque.
-            while (nivel()) wait(net_->value_changed_event());
-            wait(sc_core::sc_time(tb_ * 1.5, sc_core::SC_SEC));   // al centro del bit 0
-            uint8_t b = 0;
-            for (unsigned i = 0; i < 8; ++i) {
-                if (nivel()) b = uint8_t(b | (1u << i));
-                wait(sc_core::sc_time(tb_, sc_core::SC_SEC));
-            }
-            if (!nivel()) continue;                   // bit de parada malo
-            bytes_.push_back(b);
+            const TramaUart t = rx_.recibe();         // 8N1, el de siempre
+            if (t.error_trama) continue;              // bit de parada malo
+            bytes_.push_back(uint8_t(t.dato));
             desempaqueta();
         }
     }
@@ -1404,7 +1396,7 @@ private:
         ++k_; --pend_;
         if (pend_ == 0) { msg_.push_back(acc_); puerto_.push_back(p_); }
     }
-    double tb_, vdd_;
+    ReceptorUart rx_;
     std::vector<uint8_t> bytes_;
     std::vector<uint32_t> msg_;
     std::vector<unsigned> puerto_;

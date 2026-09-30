@@ -1,0 +1,81 @@
+# Sesion RFC 2217 entre el cliente rfc2217:// y el PortManager de
+# pySerial 3.5, grabada por verif/vectores/captura_rfc2217.py.
+# c> del cliente al servidor; s> del servidor al cliente.
+= paso abrir
+s> fffb01
+s> fffb03
+s> fffd00
+s> fffb2c
+c> fffd01fffb03fffd03fffd2cfffb2c
+s> fffd03
+s> fffa2c6bbbfff0
+s> fffd2c
+s> fffa2c6bb0fff0
+c> fffb00
+c> fffa2c010001c200fff0fffa2c0208fff0fffa2c0301fff0fffa2c0401fff0
+s> fffa2c650001c200fff0
+s> fffa2c6608fff0
+s> fffa2c6701fff0
+s> fffa2c6801fff0
+c> fffa2c0501fff0
+s> fffa2c6901fff0
+c> fffa2c0508fff0
+s> fffa2c6908fff0
+c> fffa2c050bfff0
+s> fffa2c690bfff0
+c> fffa2c0c01fff0
+s> fffa2c7001fff0
+c> fffa2c0c02fff0
+s> fffa2c7002fff0
+= paso datos con 0xFF y CR
+c> 486f6c610dffff0066696e
+s> 486f6c610dffff0066696e
+= paso baudios 9600
+c> fffa2c0100002580fff0fffa2c0208fff0fffa2c0301fff0fffa2c0401fff0
+s> fffa2c6500002580fff0
+s> fffa2c6608fff0
+s> fffa2c6701fff0
+s> fffa2c6801fff0
+c> fffa2c0501fff0
+s> fffa2c6901fff0
+= paso paridad par y 7 bits
+c> fffa2c0100002580fff0fffa2c0207fff0fffa2c0301fff0fffa2c0401fff0
+s> fffa2c6500002580fff0
+s> fffa2c6607fff0
+s> fffa2c6701fff0
+s> fffa2c6801fff0
+c> fffa2c0501fff0
+s> fffa2c6901fff0
+c> fffa2c0100002580fff0fffa2c0207fff0fffa2c0303fff0fffa2c0401fff0
+s> fffa2c6500002580fff0
+s> fffa2c6607fff0
+s> fffa2c6703fff0
+s> fffa2c6801fff0
+c> fffa2c0501fff0
+s> fffa2c6901fff0
+= paso dos bits de parada
+c> fffa2c0100002580fff0
+s> fffa2c6500002580fff0
+c> fffa2c0207fff0fffa2c0303fff0fffa2c0402fff0
+s> fffa2c6607fff0
+s> fffa2c6703fff0
+s> fffa2c6802fff0
+c> fffa2c0501fff0
+s> fffa2c6901fff0
+= paso RTS bajo y DTR bajo
+c> fffa2c050cfff0
+s> fffa2c690cfff0
+s> fffa2c6ba1fff0
+c> fffa2c0509fff0
+s> fffa2c6909fff0
+s> fffa2c6b82fff0
+= paso break
+c> fffa2c0505fff0
+s> fffa2c6905fff0
+c> fffa2c0506fff0
+s> fffa2c6906fff0
+= paso purgar
+c> fffa2c0c01fff0
+s> fffa2c7001fff0
+c> fffa2c0c02fff0
+s> fffa2c7002fff0

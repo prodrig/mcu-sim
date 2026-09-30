@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     Un STM32F407VG con un PUENTE UART en la USART2 (P-14, fase D2)
+
+     Es lo que hace el ST-LINK/V2-1 de una Nucleo con su puerto COM virtual:
+     un UART de placa colgado de PA2/PA3 que lleva los bytes a otro sitio. En
+     esta fase el otro sitio es la MEMORIA: lo que manda el firmware sale por
+     la consola de `mcu-sim`, linea a linea, y lo que dice `guion` se «teclea»
+     a los 10 ms. La misma placa por TCP es vcp_tcp.xml (fase D3); RFC 2217
+     llega en la D5 [doc/analisis_puente_serie.md §10].
+
+         ./build/mcu-sim placas/vcp_memoria.xml verif/fw/vcp_demo/vcp_demo.bin 30
+
+     Con el firmware de prueba del puente, que saluda y devuelve lo que recibe,
+     tiene que salir el saludo y despues el eco del guion:
+
+         [VCP] vcp_demo listo
+         [VCP] hola desde el guion
+
+     PRUEBA A EQUIVOCARTE A PROPOSITO: pon baudios="9600". El firmware sigue a
+     115200, la USART del modelo ve basura, y la consola la muestra —y avisa
+     una vez de que los baudios no cuadran—, que es lo que veria el alumno en
+     su terminal con la placa en la mano.
+
+     El `cts` lee el RTS del MCU (PA1), y con flujo="rtscts" el puente no manda
+     mientras este alto. vcp_demo tiene RTS por hardware (CR3.RTSE).
+     ========================================================================= -->
+<placa nombre="vcp-memoria">
+  <componente tipo="PuenteSerie" id="VCP" host="memoria"
+              baudios="115200" formato="8N1" flujo="rtscts" muestra="si"
+              guion="hola desde el guion\r\n">
+    <pin nombre="rx"  nodo="PA2"/>   <!-- USART2_TX -->
+    <pin nombre="tx"  nodo="PA3"/>   <!-- USART2_RX -->
+    <pin nombre="cts" nodo="PA1"/>   <!-- USART2_RTS -->
+  </componente>
+</placa>

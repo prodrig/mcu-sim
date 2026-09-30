@@ -902,6 +902,55 @@ Desde C++: `peek`/`poke`, `commands()`, `bus_width()`, y tres averías a
 propósito —`break_resp_crc`, `break_data_crc` y `set_mute`— para comprobar que
 el host levanta CCRCFAIL, DCRCFAIL y CTIMEOUT de verdad.
 
+### 4.9 El puente UART hacia el ordenador
+
+#### `PuenteSerie`
+
+Lo que hace el ST-LINK/V2-1 de una Nucleo con su puerto COM virtual: un UART de
+placa colgado de los pines de una USART, que lleva los bytes a otro sitio
+(**P-14**; el plan está en `doc/analisis_puente_serie.md` §10). Lee el TX del MCU
+con el mismo receptor que `SwoReceiver` y gobierna su RX con 50 Ω, así que **si
+los baudios o el formato no coinciden con los del firmware, la USART del modelo
+ve basura y levanta FE/NF**, como en la placa.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `rx` | opcional | Lee el TX del MCU. Pasivo |
+| `tx` | opcional | Gobierna el RX del MCU |
+| `cts` | opcional | Lee el RTS del MCU. Pasivo. Imprescindible con `flujo="rtscts"` |
+| `rts` | opcional | Gobierna el CTS del MCU: bajo = puede mandar |
+| `dtr` | opcional | Alta en reposo, baja si el anfitrión activa DTR (por RFC 2217) |
+
+Hace falta al menos `rx` o `tx`. Los nombres son los del **adaptador**, como
+vienen serigrafiados en uno de verdad: su `rx` va al TX del MCU.
+
+| Atributo | Por omisión | |
+| :--- | :--- | :--- |
+| `host` | `rfc2217:3355` | `memoria`, `tcp:PUERTO` (en crudo) o `rfc2217:PUERTO` (Telnet con la opción 44: el terminal puede fijar la línea, mover DTR y RTS y mandar breaks), escuchando siempre en `localhost`. O **conectándose** a un servidor que ya escucha: `tcp-cliente:HOST:PUERTO` o `rfc2217-cliente:HOST:PUERTO` (este configura el puerto remoto con la línea del puente), reintentando cada segundo. `--serie ID=DESTINO` lo cambia sin tocar el XML. Con cualquier destino de red, la simulación no termina sola (como con `--gdb`) y conviene `--tiempo-real` |
+| `baudios` | `115200` | Un entero entre 50 y 10 500 000, o `host`: los fija el terminal por RFC 2217, **y con ellos el formato y el control de flujo**. Con un número, el XML manda: lo que pida el terminal se le contesta con lo que hay, y se avisa una vez |
+| `formato` | `8N1` | Bits de datos **sin contar la paridad** (5..9), paridad `N`/`E`/`O`/`M`/`S` y parada `1`, `1.5` o `2` |
+| `flujo` | `no` | `rtscts`: no manda mientras el RTS del MCU esté alto |
+| `muestra` | `si` | Imprime línea a línea lo que manda el MCU, con el id delante; lo que quede a medias sale al acabar |
+| `guion` | nada | Lo que se «teclea» al arrancar, con `\r \n \t \0 \\ \xNN`. Solo con `host="memoria"`: con un terminal al otro lado, teclea el terminal |
+| `guion_ms` | `10` | Cuándo se teclea, en ms simulados |
+
+A diferencia del resto del catálogo, **los atributos de esta pieza se validan
+antes de montar**: un formato, unos baudios o un destino mal escritos no se
+quedan en su valor por omisión, se rechazan con el motivo. Una trama con error se
+entrega igual —es la basura que el alumno tiene que ver— y un break se cuenta y
+no se entrega. Con `rfc2217`, los dos llegan además al terminal como
+`NOTIFY-LINESTATE` si los pide con su máscara, y el RTS del MCU (terminal `cts`)
+es el CTS del terminal, en `NOTIFY-MODEMSTATE`; DSR y DCD, siempre activas.
+
+Desde C++: `envia(texto)`, `recibido()`, `set_baudios()`, `set_formato()`,
+`envia_break()`, `set_break()`, `set_rts()`, `set_dtr()`, `rfc2217()` y los
+contadores. Ejemplos completos en `placas/vcp_memoria.xml`, `placas/vcp_tcp.xml`,
+`placas/vcp_rfc2217.xml` y `placas/nucleo_f446re_vcp.xml` (la Nucleo-F446RE con
+el VCP del ST-LINK). **La receta para ver el `printf` en tu ordenador, por
+sistema, está en `doc/puente_serie.md`**; con `--espera-terminal`, `mcu-sim` no
+arranca el MCU hasta que el terminal está conectado, y así no se pierde lo que
+el firmware imprime al arrancar.
+
 ---
 
 ## 5. Lo que el fichero todavía no puede hacer

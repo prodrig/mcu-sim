@@ -45,6 +45,11 @@ redactar esta revisión, no solo leído en un informe.
 - **Y un proyecto entero que empieza**: `mcu-sim-gui`, la contraparte gráfica,
   **en dos procesos** (**P-12**). Repositorio aparte, plan por fases escrito y
   protocolo especificado; de código, todavía nada.
+- **Y un puente UART hacia el ordenador** (**P-14**): una USART del MCU hasta
+  un puerto TCP con RFC 2217, y de ahí al puerto serie que ponga una
+  herramienta externa. Plan de nueve fases en `doc/analisis_puente_serie.md`,
+  **las nueve hechas y P-14 cerrado** el 30-09-2026, con la matriz de pruebas
+  manuales a medias, aceptada así.
 - **Cincuenta y una funciones "bits sin máquina"**: registros que se guardan, se
   enmascaran y se leen correctamente, pero cuya lógica no se ejecuta. Casi todas
   corresponden a caminos que ningún firmware corriente usa, y casi todas están
@@ -286,6 +291,69 @@ dos compiladores y tres sistemas operativos**. Dejaron de ser una propiedad de
 una máquina. La ejecución del 2026-09-23 es además la primera que lo comprueba
 con **el invariante movido por T-23**, que hasta entonces solo se había medido
 en Linux.
+
+### P-14 — El puente UART: una USART del MCU hasta un puerto serie del ordenador
+
+**Fase:** posterior a F7. **Analizado y planificado en
+`doc/analisis_puente_serie.md`** (§10, arquitectura D con RFC 2217).
+**CERRADO el 30-09-2026**: las nueve fases (D0 a D8) ejecutadas en la rama
+`puente-uart`, con el CI en verde en las cuatro plataformas, e integrado en
+`main`. **Se acepta con la matriz manual del §10.6 a medias** (véase abajo lo
+que queda abierto, y por qué no bloquea).
+
+Lo que hace un ST-LINK/V2-1 en una Nucleo: una pieza de placa, `PuenteSerie`,
+colgada de los pines de una USART, que lleva sus bytes a un puerto TCP de esta
+máquina. El puerto serie del sistema **no lo abre `mcu-sim`**: lo pone una
+herramienta externa y gratuita (socat, gensio, com0com + hub4com, HW VSP3...),
+y así `common/red.h` sigue siendo el único fichero que sabe en qué sistema
+operativo corre. Con RFC 2217, los baudios que el alumno elige en su terminal
+llegan a la línea simulada, y un desajuste da basura en la USART del modelo,
+como en la placa.
+
+| | Qué | Fase del plan |
+| :--- | :--- | :--- |
+| a | ~~`--serie ID=DESTINO` y el parseo de `host=`~~ **HECHO**: `common/serie_destino.h`, `make serie` con 72 comprobaciones puras, fuera del banco. Puerto por omisión **3355** (no el 5000 del AirPlay de macOS). **Sin el argumento, nada cambia**: 2118/204/165 y los tres invariantes intactos | D0 |
+| b | ~~`MotorUart` extraído de `SwoReceiver`~~ **HECHO**: `parts/motor_uart.h` (`ReceptorUart` y `EmisorUart`, de 5 a 9 bits, paridad N/E/O/M/S, 1, 1,5 y 2 de parada, break) y `common/formato_uart.h`. **`test407` idéntico al picosegundo**: 2118 y `resto` 2240553274213 ps, con la misma salida línea a línea. Estrena `make testserie` (43, `51783680816 ps`) | D1 |
+| c | ~~La pieza `PuenteSerie`~~ **HECHO**: `parts/puente_serie.h` en los pines, `parts/canal_host.h` con el canal `memoria`, su ficha de `--help`, sus atributos validados antes de montar, el firmware `vcp_demo` y `placas/vcp_memoria.xml`. `testserie` pasa a 79 y `149861131044 ps`; las otras tres suites, intactas | D2 |
+| d | ~~TCP en crudo sobre `red.h`~~ **HECHO**: `CanalTcp` en `localhost`, un cliente (el nuevo sustituye al viejo), reconexión, «no termina sola», aviso sin `--tiempo-real` y `placas/vcp_tcp.xml`. `testserie` pasa a 101 y `236861131044 ps`, **determinista aunque use sockets de verdad**. En reposo, con `--tiempo-real`, un 9 % de un núcleo (el stub de GDB, un 11 % en la misma máquina) | D3 |
+| e | ~~El códec Telnet + RFC 2217~~ **HECHO**: `common/telnet2217.h` (decodificador, codificador y la política del servidor), `make rfc2217` con 64 comprobaciones, contra las RFC y contra **dos sesiones de verdad grabadas**: pySerial contra pySerial, y pySerial contra este códec, que se reproduce byte a byte. Compila para Windows con MinGW sin avisos | D4 |
+| f | ~~RFC 2217 en la pieza~~ **HECHO**: `CanalRfc2217` sobre `CanalTcp` y el códec de la D4; la pieza es la `LineaSerie` que decide lo que pide el terminal. `baudios="host"` entrega al terminal baudios, formato y flujo (**D-14**); break sostenido → `LBD`; DTR y RTS en los pines; LINESTATE y MODEMSTATE con máscaras; PURGE; SUSPEND/RESUME; `placas/vcp_rfc2217.xml`. `testserie` pasa a 189 y `400677589564 ps`, las otras tres intactas. Y `miniterm` de pySerial contra `mcu-sim`, a mano: eco, 9600, vuelta, CTS/DSR/CD, DTR y break | D5 |
+| g | ~~Interoperabilidad automática~~ **HECHA** (en verde en Linux; el CI dirá macOS y Windows): `verif/serie/interop.py` y `make interop`, el `mcu-sim` de verdad contra pySerial (`rfc2217://`, `socket://`) y un pty de socat, 30 comprobaciones, en el CI de las cuatro plataformas (socat solo en Linux y macOS). **Pendiente a mano: la matriz manual de Windows y escritorio** (§10.6 del análisis; el guion, prueba a prueba, M1 a M8, detrás del registro de la D6). Y un aviso para la D7: con la línea fija y `flujo="rtscts"`, pySerial no abre sin `rtscts=True` | D6 |
+| h | ~~Recetas y placas~~ **HECHO**: `doc/puente_serie.md` (la receta del alumno, por sistema y por síntoma), §6 de `doc/ejecutables.md`, `placas/nucleo_f446re_vcp.xml`, `--espera-terminal` para que el saludo del firmware no se pierda (D-15) y `ejemplos/` en los paquetes (D-16). Comprobado en Linux y con pySerial y socat en el CI (`make interop`, 36); las recetas de Windows con `COM`, pendientes de la matriz manual | D7 |
+| i | ~~Modo cliente~~ **HECHO**: `tcp-cliente:HOST:PUERTO` y `rfc2217-cliente:HOST:PUERTO`, con conexión sin bloquear y reintento cada segundo; el cliente RFC 2217 configura el puerto remoto con la línea del puente (D-17). `make interop` 47 (I12, I13 contra el `PortManager` de pySerial sobre un pty de socat), `make serie` 138, `make rfc2217` 74. `rfc2217_server.py` tal cual **no** sirve sobre un pty: su `PortManager` lee CTS/DSR y se cae | D8 |
+
+**Lo que la D2 deja sin probar, dicho:** ~~`set_dtr()` y el terminal `dtr` no
+los ejercita ningún banco~~ (la D5 los prueba, P26); de una trama de 9 bits se entregan al anfitrión los 8 de abajo, porque RFC 2217 no
+admite más; y el canal en memoria no tiene límite hacia el anfitrión, solo hacia
+el MCU.
+
+**Lo que queda abierto al cerrar, y se acepta así.** Lo que el alumno usará
+casi siempre está comprobado: pySerial (`rfc2217://`, `socket://`), socat y el
+modo cliente, en el CI de las cuatro plataformas; la receta de Linux a mano; y
+**CoolTerm en Windows 10 Pro 22H2** (M1 entera, 30-09-2026). Lo que falta de la
+matriz necesita Windows con drivers o un escritorio, y se hará cuando haya
+máquina y ocasión, anotando cada fila con versión y fecha en el §10.6; el guion,
+prueba a prueba, está en el registro de la D6:
+
+* **M1** CoolTerm en macOS y Linux · **M2** PuTTY *Raw* · **M3** socat +
+  picocom en macOS · **M4** ttynvt · **M5** HW VSP3 · **M6** com0com +
+  `com2tcp-rfc2217` (y, con ella, si el cliente de hub4com se entiende con un
+  servidor pasivo, D-13) · **M7** HHD, solo si su licencia lo permite · **M8**
+  la captura de un redirector, opcional.
+* Y lo no hecho que el registro de cada fase ya dice: LINESTATE sin el bit de
+  desbordamiento; ningún banco provoca un break desde el MCU; la firma sin
+  versión; `escucha="red"` (D-7); y el cliente sin DTR/RTS (D-17), sin
+  reenviar las notificaciones del servidor y con la resolución de nombres
+  bloqueante.
+
+Las recetas de Windows con `COM` (`doc/puente_serie.md` §4.2) siguen diciendo
+«sin comprobar» hasta que M5 o M6 digan otra cosa. **D-16** (`ejemplos/` en los
+paquetes) queda **confirmada**.
+
+**Lo que no resuelve, dicho desde el principio:** en Windows, un `COMn` que no
+es físico exige un driver, y ninguna herramienta gratuita lo evita (§7.1 del
+análisis). Para ver lo que imprime el firmware no hace falta: basta un terminal
+que hable TCP, como CoolTerm o PuTTY en modo *Raw*.
 
 ---
 
@@ -623,16 +691,16 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 
 | Categoría | Puntos |
 | :--- | ---: |
-| **P** — Pendientes de plan | 13 |
+| **P** — Pendientes de plan | 14 *(una cerrada: P-14, con la matriz manual a medias)* |
 | **F** — Funciones no modeladas | 51 |
 | **T** — Temporización y física | 23 |
 | **D** — Datos sin fuente | 14 |
 | **X** — Discrepancias, silencios de [IR] y erratas de ST | 14 |
 | **V** — Huecos de verificación | 11 |
 | **I** — Deuda de instrumentación y proyecto | 48 *(veintiocho cerradas: I-11, I-12, I-15, I-16, I-17, I-20, I-22, I-25, I-28, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38, I-39, I-40, I-41, I-42, I-43, I-44, I-45, I-46, I-47 e I-48)* |
-| **Total** | **174** |
+| **Total** | **175** |
 
-De los 174, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 175, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.

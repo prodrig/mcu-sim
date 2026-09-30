@@ -92,7 +92,7 @@ jobs:
 
       - name: Capa de red, minas de Windows, vectores de CRYP y HASH
         working-directory: src
-        run: make -f Makefile.mcu-sim red hash cryp vectores
+        run: make -f Makefile.mcu-sim red hash cryp vectores serie rfc2217
 
   # -------------------------------------------------------------------------
   # Linux con el paquete de la distribucion, que es LA VIA QUE DOCUMENTAMOS en
@@ -126,21 +126,63 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: SystemC desde el paquete de Ubuntu
+        # python3-serial y socat son para la interoperabilidad del puente UART
+        # (el ultimo paso): pySerial de la distribucion, que es la 3.5 en las
+        # dos Ubuntu, y socat, que es la receta del 7.4 del analisis.
         run: |
           sudo apt-get update
-          sudo apt-get install -y libsystemc-dev
-          dpkg -l libsystemc-dev | tail -1
+          sudo apt-get install -y libsystemc-dev python3-serial socat
+          dpkg -l libsystemc-dev python3-serial socat | tail -3
 
-      - name: Las tres suites
+      - name: Las suites (las tres de siempre y testserie)
         env:
           SUITES_PRESUPUESTO: 600
         run: sh ci/pasa_suites.sh
 
-      - name: Los tres invariantes, al picosegundo
+      - name: Los invariantes de las cuatro, al picosegundo
         run: |
-          for s in test407 test446 test417; do
+          for s in test407 test446 test417 testserie; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
+
+      # -----------------------------------------------------------------
+      # testserie OTRA VEZ, CON UN LOOPBACK LENTO. En la D5 del puente UART
+      # los dos macOS la tumbaron -un fallo y el tiempo simulado desviado 1 y
+      # 2 ms- por dos esperas del banco que daban por llegado al otro lado del
+      # socket lo que aun estaba en el nucleo. En Linux el loopback es tan
+      # rapido que nunca se veia. TESTSERIE_RUIDO hace que el banco sondee el
+      # canal solo una vez de cada cuatro y que el terminal lea su socket una
+      # de cada cuatro: si alguna espera nueva no se sincroniza bien, falla
+      # AQUI, o se mueve la cifra, y no hace falta un Mac para enterarse.
+      #
+      # Se contrasta contra la MISMA linea de invariantes.txt que la pasada
+      # normal: con ruido y sin el, el banco tiene que dar lo mismo. El
+      # ejecutable ya lo ha construido pasa_suites.sh.
+      # -----------------------------------------------------------------
+      - name: testserie con un loopback lento (TESTSERIE_RUIDO), al picosegundo
+        working-directory: src
+        env:
+          TESTSERIE_RUIDO: 1
+        run: |
+          rc=0
+          timeout 600 ./build/testserie > build/testserie_ruido.log 2>&1 || rc=$?
+          if [ "$rc" != "0" ]; then
+            tail -40 build/testserie_ruido.log
+            echo "  [FALLO] testserie con ruido termino con codigo $rc"
+            exit 1
+          fi
+          cd .. && sh ci/comprueba_invariante.sh testserie src/build/testserie_ruido.log
+
+      # -----------------------------------------------------------------
+      # EL PUENTE UART CONTRA CLIENTES DE VERDAD (fase D6). El `mcu-sim`
+      # ejecutable, con placas/vcp_rfc2217.xml y vcp_demo, contra el cliente
+      # rfc2217:// y socket:// de pySerial y contra un pty de socat. Aqui no
+      # hay invariante: corre con --tiempo-real, como lo corre el alumno, y lo
+      # que se comprueba no depende de la velocidad de la maquina.
+      # -----------------------------------------------------------------
+      - name: Interoperabilidad del puente UART (pySerial y socat)
+        working-directory: src
+        run: make -f Makefile.mcu-sim interop
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -221,6 +263,10 @@ jobs:
           echo "  [OK  ] el ejecutable arranca"
 
       - name: Empaquetar
+        # `ejemplos/` (P-14, fase D7): las dos placas con el puerto serie del
+        # MCU y el firmware `vcp_demo`, para que doc/puente_serie.md se pueda
+        # seguir con el paquete y sin el repositorio. Van en los TRES paquetes.
+        #
         # `tar`, NO el zip de upload-artifact: el zip PIERDE EL BIT DE
         # EJECUCION y el alumno se encuentra un «Permission denied» que no
         # tiene nada que ver con su maquina.
@@ -230,9 +276,11 @@ jobs:
         # distribuir «in Source OR OBJECT form». Los deja ahi
         # ci/construye_systemc.sh.
         run: |
-          mkdir -p paquete
+          mkdir -p paquete/ejemplos
           cp src/build/mcu-sim paquete/
           cp README.md TERCEROS.md LICENSE paquete/
+          cp src/placas/nucleo_f446re_vcp.xml src/placas/vcp_rfc2217.xml \
+             src/verif/fw/vcp_demo/vcp_demo.bin paquete/ejemplos/
           cp "$GITHUB_WORKSPACE/systemc/LICENSE" paquete/LICENSE-SystemC.txt
           cp "$GITHUB_WORKSPACE/systemc/NOTICE"  paquete/NOTICE-SystemC.txt
           tar czf mcu-sim-linux-x86_64.tar.gz -C paquete .
@@ -295,9 +343,16 @@ jobs:
         # -son de GNU- y ci/pasa_suites.sh los necesita para ponerle
         # presupuesto a cada suite y para que el log salga en orden. Llegan
         # como `gtimeout` y `gstdbuf`, que es lo que el script busca.
+        #
+        # socat y pySerial son para la interoperabilidad del puente UART. El
+        # Python de los runners de macOS es de Homebrew, que rechaza `pip
+        # install` sin --break-system-packages (PEP 668).
         run: |
-          brew install systemc coreutils
-          brew list --versions systemc coreutils
+          brew install systemc coreutils socat
+          brew list --versions systemc coreutils socat
+          python3 -m pip install --break-system-packages pyserial ||
+            python3 -m pip install --user pyserial
+          python3 -c "import serial; print('pySerial', serial.VERSION)"
 
       # `make plataforma` es el primer paso que compilacion.md manda dar
       # cuando algo no cuadra. Que lo de el CI vale por dos: comprueba la
@@ -308,14 +363,14 @@ jobs:
 
       # SIN pasar SYSTEMC_HOME, a proposito: aqui se ejerce la deteccion
       # automatica, que es la que se encuentra un alumno.
-      - name: Las tres suites
+      - name: Las suites (las tres de siempre y testserie)
         env:
           SUITES_PRESUPUESTO: 600
         run: sh ci/pasa_suites.sh CXX=clang++
 
-      - name: Los tres invariantes, al picosegundo
+      - name: Los invariantes de las cuatro, al picosegundo
         run: |
-          for s in test407 test446 test417; do
+          for s in test407 test446 test417 testserie; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -352,15 +407,21 @@ jobs:
           ./build/mcu-sim --help > /dev/null
           echo "  [OK  ] el ejecutable arranca"
 
+      - name: Interoperabilidad del puente UART (pySerial y socat)
+        working-directory: src
+        run: python3 verif/serie/interop.py
+
       - name: Empaquetar
         # `tar`, no zip: el zip de upload-artifact PIERDE EL BIT DE
         # EJECUCION. Y el `tar` conserva de paso la ausencia de cuarentena,
         # que es cosa del navegador del alumno y no nuestra: como quitarla
         # esta en doc/ejecutables.md.
         run: |
-          mkdir -p paquete
+          mkdir -p paquete/ejemplos
           cp src/build/mcu-sim paquete/
           cp README.md TERCEROS.md LICENSE paquete/
+          cp src/placas/nucleo_f446re_vcp.xml src/placas/vcp_rfc2217.xml \
+             src/verif/fw/vcp_demo/vcp_demo.bin paquete/ejemplos/
           tar czf mcu-sim-macos-${{ matrix.etiqueta }}.tar.gz -C paquete .
           tar tzvf mcu-sim-macos-${{ matrix.etiqueta }}.tar.gz
 
@@ -427,16 +488,16 @@ jobs:
           sh ci/construye_systemc.sh "$(cygpath -u "$GITHUB_WORKSPACE")/systemc" \
               -G Ninja -DCMAKE_ASM_FLAGS="-x assembler-with-cpp"
 
-      - name: Las tres suites
+      - name: Las suites (las tres de siempre y testserie)
         env:
           SUITES_PRESUPUESTO: 900      # aqui SystemC se compila antes: mas margen
         run: |
           sh ci/pasa_suites.sh \
              SYSTEMC_HOME="$(cygpath -u "$GITHUB_WORKSPACE")/systemc"
 
-      - name: Los tres invariantes, al picosegundo
+      - name: Los invariantes de las cuatro, al picosegundo
         run: |
-          for s in test407 test446 test417; do
+          for s in test407 test446 test417 testserie; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -457,6 +518,17 @@ jobs:
           fi
           echo "  [OK  ] ninguna DLL de MinGW en las dependencias"
 
+      # Con el Python DEL RUNNER, no el de MSYS2: el alumno de Windows ejecuta
+      # el .exe desde cmd o PowerShell, no desde un shell de MSYS2, y el .exe
+      # es autonomo (el paso de arriba lo acaba de comprobar). Sin socat, que
+      # en Windows no hace un COM: eso es com0com, y va a la matriz manual.
+      - name: Interoperabilidad del puente UART (pySerial)
+        shell: pwsh
+        working-directory: src
+        run: |
+          python -m pip install pyserial
+          python verif/serie/interop.py
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -474,9 +546,11 @@ jobs:
         run: |
           ./src/build/mcu-sim.exe --help > /dev/null
           echo "  [OK  ] el ejecutable arranca"
-          mkdir -p paquete
+          mkdir -p paquete/ejemplos
           cp src/build/mcu-sim.exe paquete/
           cp README.md TERCEROS.md LICENSE paquete/
+          cp src/placas/nucleo_f446re_vcp.xml src/placas/vcp_rfc2217.xml \
+             src/verif/fw/vcp_demo/vcp_demo.bin paquete/ejemplos/
           cp "$(cygpath -u "$GITHUB_WORKSPACE")/systemc/LICENSE" paquete/LICENSE-SystemC.txt
           cp "$(cygpath -u "$GITHUB_WORKSPACE")/systemc/NOTICE"  paquete/NOTICE-SystemC.txt
           cd paquete && zip -r ../mcu-sim-windows-x86_64.zip . && cd ..

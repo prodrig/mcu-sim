@@ -161,17 +161,43 @@ que el camino de la Terminal está primero.
 
 ---
 
-## 6. Lo que estos paquetes **no** traen
+## 6. Ver el `printf` de tu firmware: el puerto serie
+
+Como en una Nucleo, lo que el firmware manda por una USART puede llegar a tu
+ordenador: a un terminal, o a un puerto serie del sistema. La receta completa,
+por sistema, está en **`doc/puente_serie.md`**. Para comprobar que todo
+funciona, con lo que trae el paquete:
+
+```bash
+./mcu-sim ejemplos/nucleo_f446re_vcp.xml ejemplos/vcp_demo.bin --tiempo-real --espera-terminal
+# Windows: mcu-sim.exe ejemplos\nucleo_f446re_vcp.xml ejemplos\vcp_demo.bin --tiempo-real --espera-terminal
+```
+
+Se queda esperando a un terminal en `127.0.0.1:3355`. El más sencillo, en los
+tres sistemas, es **CoolTerm** con una conexión TCP (añade `--serie
+VCP=tcp:3355` a la orden de arriba); con Python, `python3 -m pip install
+pyserial` y `python3 -m serial.tools.miniterm rfc2217://127.0.0.1:3355 115200`.
+En cuanto se conecta, aparece `vcp_demo listo` y lo que teclees vuelve.
+
+**Windows puede preguntar por el cortafuegos** la primera vez que `mcu-sim`
+abre ese puerto. Se puede cancelar: solo escucha en tu propia máquina
+(`127.0.0.1`), y eso no pasa por el cortafuegos.
+
+---
+
+## 7. Lo que estos paquetes **no** traen
 
 - **Las suites de verificación** (`test407`, `test446`, `test417`). Se construyen
   desde el código; el CI las ejecuta en cada cambio y su resultado es público.
-- **Los firmwares de ejemplo.** El uso previsto es que compiles el tuyo en
+- **Los firmwares de ejemplo**, salvo `ejemplos/vcp_demo.bin`, que está para
+  comprobar el puerto serie (§6). El uso previsto es que compiles el tuyo en
   STM32CubeIDE y lo cargues aquí, que es para lo que existe el proyecto.
 - **La interfaz gráfica**, que vive en el repositorio `mcu-sim-gui` y se conecta
   a este programa por un socket.
 - **Los manuales de ST.** No son nuestros; `doc/fuentes.md` dice cuáles son, en
   qué revisión y de dónde se bajan.
 
-Lo que sí traen, además del ejecutable: el `README.md`, el `TERCEROS.md` con las
-licencias del software ajeno, y —en Windows y Linux, donde SystemC va dentro del
-binario— la licencia y el aviso de atribución de SystemC.
+Lo que sí traen, además del ejecutable: la carpeta `ejemplos/` del §6, el
+`README.md`, el `TERCEROS.md` con las licencias del software ajeno, y —en
+Windows y Linux, donde SystemC va dentro del binario— la licencia y el aviso de
+atribución de SystemC.

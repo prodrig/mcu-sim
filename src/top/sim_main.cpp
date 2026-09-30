@@ -71,6 +71,7 @@
 #include <vector>
 #include "../common/asan_opciones.h"
 #include "../common/gui_destino.h"
+#include "../common/serie_destino.h"
 #include "soc_f4.h"
 #include "../verif/image_loader.h"
 
@@ -130,6 +131,10 @@ static std::string familias_como_texto() {
 static std::string g_placa, g_img, g_nombre = "placa";
 static double      g_ms      = 100.0;
 static bool        g_solo_valida = false;
+// `--espera-terminal` (P-14, fase D7): no arrancar el MCU hasta que haya un
+// terminal en cada puente serie por red. Sin esto, lo primero que imprime un
+// firmware -el saludo- sale cuando todavia no hay nadie y se descarta (D-6).
+static bool        g_espera_terminal = false;
 static bool        g_ondas = false;
 static bool        g_traza_gdb = false;
 // Factor de tiempo real: 0 = a toda velocidad (lo de siempre);
@@ -152,6 +157,13 @@ static bool        g_puerto_dado = false;
 // el programa hace, que es justo lo que la fase 0 tiene que demostrar.
 static bool          g_gui_pedida = false;
 static stm32::gui::Destino g_gui;
+
+// --- Los puentes serie (`PuenteSerie`) --------------------------------------
+// `--serie ID=DESTINO` se aplica sobre lo que dice la placa y se comprueba que
+// no choca con nada (fase D0). La pieza existe desde la D2 con el destino
+// `memoria`; el socket en crudo llegó en la D3 y RFC 2217 en la D5
+// [doc/analisis_puente_serie.md §10].
+static std::vector<stm32::serie::Asignacion> g_serie;
 
 // ---------------------------------------------------------------------------
 // Un MCU montado: lo que la placa declaró, el chip, su stub de pines si lo
@@ -213,6 +225,7 @@ SC_MODULE(Sim) {
     Netlist      placa;
     unsigned     n_avisos = 0;
     bool         hay_stub = false;
+    bool         hay_puente_red = false;   // un PuenteSerie por TCP (D3)
 
     SC_CTOR(Sim) {
         // --- 1. Leer. No construye nada: devuelve datos ---------------------
@@ -329,6 +342,13 @@ SC_MODULE(Sim) {
             muere(g_placa + ": " + std::to_string(n_avisos) +
                   " problemas de declaracion; no se monta");
 
+        // --- 5 bis. Los puentes serie: a donde da cada uno -------------------
+        // Tambien es declaracion, y va aqui por lo mismo que el resto: avisa
+        // antes de construir nada. Un puerto repetido o cogido por un GDB no
+        // falla al montar sino al abrir, en marcha, y ese mensaje sale donde
+        // nadie mira.
+        resuelve_puentes_serie();
+
         // --- 6 y 7. Construir las piezas y validar lo eléctrico -------------
         placa.construye(nodos);
         for (const std::string& q : placa.valida_electrica(nodos)) {
@@ -341,6 +361,22 @@ SC_MODULE(Sim) {
         std::printf("placa '%s': %u MCU(s), %u componentes, %u nodos, %u avisos\n",
                     g_nombre.c_str(), unsigned(mcus.size()),
                     unsigned(placa.instancias().size()), nodos.n_nodos(), n_avisos);
+        for (const serie::Pieza& p : puentes) {
+            const PuenteSerie* ps = placa.como<PuenteSerie>(p.id);
+            if (!ps) continue;
+            // Un puente que no escucha no es un puente: el alumno abriria su
+            // terminal contra un puerto que es de otro. Se para aqui.
+            if (!ps->canal_ok()) muere("  [serie] " + p.id + ": " + ps->error_canal());
+            if (ps->por_red()) hay_puente_red = true;
+            std::printf("  serie %s: %s\n", p.id.c_str(), ps->describir().c_str());
+        }
+        if (hay_puente_red && g_tiempo_real <= 0.0 && !g_solo_valida)
+            std::fprintf(stderr,
+                "  [serie] AVISO: hay un puente serie por TCP y no se ha pedido\n"
+                "          --tiempo-real. El terminal vera el ritmo de la\n"
+                "          simulacion, no el de la placa: un printf por segundo\n"
+                "          puede llegar cien veces por segundo, y el procesador\n"
+                "          va a tope. Con --tiempo-real va como en la placa.\n");
         for (const McuMontado& m : mcus) {
             if (!m.decl.puerto_gdb && m.decl.firmware.empty() && m.decl.id.empty())
                 continue;                    // el caso de siempre: no dice nada
@@ -362,6 +398,54 @@ SC_MODULE(Sim) {
         // El chip lo borra su ADAPTADOR, que es quien lo creo. Se borra por la
         // interfaz, y el destructor virtual hace el resto.
         for (McuMontado& m : mcus) { delete m.stub; delete m.mcu; }
+    }
+
+    // -----------------------------------------------------------------------
+    // Los puentes serie de la placa, con `--serie` encima.
+    //
+    // Los puertos que ya tienen dueño son los de los stubs de GDB -uno por MCU
+    // que lo pida- y el de la GUI si es esta maquina: `mcu-sim` es CLIENTE de
+    // la GUI, pero la GUI escucha en ese puerto aqui mismo, y un puente que se
+    // pusiera encima no podria abrirlo.
+    // -----------------------------------------------------------------------
+    std::vector<serie::Pieza> puentes;
+
+    void resuelve_puentes_serie() {
+        std::vector<serie::Pieza> decl;
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "PuenteSerie") continue;
+            const auto h = i.params.find("host");
+            decl.push_back({ i.id, h == i.params.end() ? serie::por_omision()
+                                                       : serie::parsea(h->second) });
+        }
+        std::vector<serie::Ocupado> ocupados;
+        for (const McuMontado& m : mcus)
+            if (m.decl.puerto_gdb)
+                ocupados.push_back({ m.decl.puerto_gdb,
+                                     m.decl.id.empty() ? std::string("el GDB")
+                                                       : "el GDB de " + m.decl.id });
+        if (g_gui_pedida && gui::es_bucle_local(g_gui.host))
+            ocupados.push_back({ g_gui.puerto, "mcu-sim-gui" });
+
+        const serie::Resultado r = serie::resuelve(decl, g_serie, ocupados);
+        std::vector<std::string> err = r.errores;
+        // Lo que manda la linea de ordenes se ESCRIBE en la instancia, para que
+        // la validacion y el creador vean lo mismo que se ha decidido aqui.
+        if (err.empty())
+            for (const serie::Pieza& p : r.piezas)
+                if (Instancia* i = placa.busca(p.id))
+                    i->params["host"] = serie::como_texto(p.destino);
+        // Y el resto de atributos de cada puente: baudios, formato, flujo,
+        // guion y los terminales. Tambien antes de construir.
+        for (const Instancia& i : placa.instancias())
+            if (i.tipo == "PuenteSerie")
+                for (const std::string& q : valida_puente_serie(i)) err.push_back(q);
+        for (const std::string& q : err)
+            std::fprintf(stderr, "  [serie] %s\n", q.c_str());
+        if (!err.empty())
+            muere(g_placa + ": " + std::to_string(err.size()) +
+                  " problemas con los puentes serie; no se monta");
+        puentes = r.piezas;
     }
 
     // -----------------------------------------------------------------------
@@ -429,8 +513,75 @@ SC_MODULE(Sim) {
             std::this_thread::sleep_for(std::chrono::duration<double>(debe - lleva));
     }
 
+    // -----------------------------------------------------------------------
+    // `--espera-terminal`: con el tiempo simulado en CERO, antes de dar
+    // corriente al MCU, espera en tiempo de pared a que cada puente serie por
+    // red tenga su terminal. Es lo que en una Nucleo se hace abriendo el
+    // terminal y pulsando RESET: sin ello, lo que el firmware imprime al
+    // arrancar sale cuando todavia no hay nadie, y se descarta (D-6).
+    //
+    // Y no basta con que se conecte: un terminal, al abrir, CONFIGURA -
+    // negocia Telnet, manda baudios, formato, lineas, y el de pySerial acaba
+    // PURGANDO lo recibido-. Lo que el MCU mandase en medio se perderia igual,
+    // o saldria antes de BINARY con la regla del NVT. Asi que se espera a que
+    // el cliente lleve 300 ms callado (con RFC 2217, ademas, con la
+    // negociacion terminada si la empezo, y como mucho dos segundos). Mientras
+    // tanto no corre ningun proceso de SystemC -comparten un hilo-, asi que
+    // el sondeo del canal, que en marcha hace la pieza, es cosa de aqui.
+    // -----------------------------------------------------------------------
+    void espera_terminales() {
+        std::vector<PuenteSerie*> red;
+        for (const serie::Pieza& p : puentes)
+            if (PuenteSerie* ps = placa.como<PuenteSerie>(p.id))
+                if (ps->por_red()) red.push_back(ps);
+        if (red.empty()) {
+            std::fprintf(stderr, "  [serie] --espera-terminal: esta placa no tiene "
+                         "puentes serie por red; no hay nada que esperar\n");
+            return;
+        }
+        for (PuenteSerie* ps : red)
+            std::printf("esperando a un terminal en %s (Ctrl-C para salir)\n",
+                        ps->canal().describir().c_str());
+        std::fflush(stdout);
+        using reloj = std::chrono::steady_clock;
+        const auto segundos = [](reloj::time_point t) {
+            return std::chrono::duration<double>(reloj::now() - t).count();
+        };
+        const std::size_t n = red.size();
+        std::vector<reloj::time_point> desde(n), ultimo(n);
+        std::vector<uint64_t> bytes(n, 0);
+        std::vector<bool> tenia(n, false);
+        for (;;) {
+            bool todos = true;
+            for (std::size_t i = 0; i < n; ++i) {
+                CanalTcp* c = red[i]->tcp();
+                c->sondear();
+                const bool hay = c->conectado();
+                if (hay && !tenia[i]) { desde[i] = ultimo[i] = reloj::now(); bytes[i] = 0; }
+                tenia[i] = hay;
+                if (!hay) { todos = false; continue; }
+                if (c->recibidos_conexion() != bytes[i]) {
+                    bytes[i] = c->recibidos_conexion();
+                    ultimo[i] = reloj::now();
+                }
+                bool listo = segundos(ultimo[i]) > 0.3;
+                if (CanalRfc2217* r = red[i]->rfc2217()) {
+                    const auto& ng = r->negociador();
+                    if (ng.despierto() && !(ng.com_port() && ng.binario_salida()))
+                        listo = false;
+                }
+                todos = todos && (listo || segundos(desde[i]) > 2.0);
+            }
+            if (todos) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        std::printf("terminal conectado: arranca el MCU\n");
+        std::fflush(stdout);
+    }
+
     void run() {
         if (g_solo_valida) { sc_stop(); return; }
+        if (g_espera_terminal) espera_terminales();
         // La onda cuadrada de los relojes internos se apaga por omision. No es
         // una simplificacion del modelo: es un interruptor que ya existia. Con
         // ella encendida, los flancos de HCLK son el noventa y tantos por
@@ -493,8 +644,15 @@ SC_MODULE(Sim) {
                     m.mcu->gdb_interno(true, g_traza_gdb);
                 }
             }
-            std::printf("esperando a GDB; la simulacion no se detiene sola "
-                        "(Ctrl-C para salir)\n");
+        }
+        // Con un stub de GDB o con un puente serie por TCP hay alguien al otro
+        // lado de un puerto, y la simulacion no puede terminar por su cuenta:
+        // se sale con Ctrl-C.
+        if (hay_stub || hay_puente_red) {
+            std::printf("esperando a %s; la simulacion no se detiene sola "
+                        "(Ctrl-C para salir)\n",
+                        hay_stub && hay_puente_red ? "GDB y a los puentes serie"
+                        : hay_stub ? "GDB" : "los puentes serie");
             // Y se vacia el buffer, que aqui no es manía. Este printf es el
             // ULTIMO antes de un bucle infinito: redirigida la salida a un
             // fichero deja de ser linea a linea y pasa a bloques, y como de
@@ -528,6 +686,18 @@ SC_MODULE(Sim) {
                         nd.c_str(), l->on() ? "encendido" : "apagado",
                         double(l->pin_voltage()), l->current() * 1e3);
         }
+        // Y lo que los puentes serie tengan a medias, que tambien se ve desde
+        // fuera: es la basura de unos baudios equivocados.
+        for (const serie::Pieza& p : puentes)
+            if (PuenteSerie* ps = placa.como<PuenteSerie>(p.id)) {
+                ps->vacia_muestra();
+                std::printf("  serie %s: %llu bytes del MCU (%llu con error de "
+                            "trama, %llu de paridad), %llu hacia el MCU\n",
+                            p.id.c_str(), (unsigned long long)ps->bytes_desde_mcu(),
+                            (unsigned long long)ps->errores_trama(),
+                            (unsigned long long)ps->errores_paridad(),
+                            (unsigned long long)ps->bytes_hacia_mcu());
+            }
         sc_stop();
     }
 };
@@ -541,6 +711,7 @@ int sc_main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--valida") g_solo_valida = true;
+        else if (a == "--espera-terminal") g_espera_terminal = true;
         else if (a == "--ondas") g_ondas = true;
         else if (a == "--traza-gdb") g_traza_gdb = true;
         else if (a == "--mcu" && i + 1 < argc) g_tipo_mcu = mayus(argv[++i]);
@@ -573,6 +744,27 @@ int sc_main(int argc, char** argv) {
                 return 1;
             }
             g_gui_pedida = true;
+        }
+        // `--serie ID=DESTINO` y `--serie=ID=DESTINO`, tantas veces como
+        // puentes. La SINTAXIS se comprueba aqui, en cuanto se lee, como la de
+        // `--gui`; que el puente exista y que su puerto este libre se
+        // comprueba al leer la placa, que es cuando se sabe.
+        else if (a == "--serie" || a.rfind("--serie=", 0) == 0) {
+            std::string v;
+            if (a.rfind("--serie=", 0) == 0) v = a.substr(8);
+            else if (i + 1 < argc && argv[i + 1][0] != '-') v = argv[++i];
+            if (v.empty()) {
+                std::fprintf(stderr, "--serie: falta ID=DESTINO, como en "
+                             "--serie VCP=rfc2217:%u\n",
+                             stm32::serie::PUERTO_OMISION);
+                return 1;
+            }
+            const stm32::serie::Asignacion as = stm32::serie::parsea_asignacion(v);
+            if (!as.valido) {
+                std::fprintf(stderr, "--serie: %s\n", as.error.c_str());
+                return 1;
+            }
+            g_serie.push_back(as);
         } else if (a == "--licencia" || a == "--licencias") {
             // POR QUE ESTO ES UNA OPCION Y NO SOLO UN FICHERO SUELTO.
             //
@@ -640,6 +832,15 @@ int sc_main(int argc, char** argv) {
                 "                                el argumento nada cambia)\n"
                 "     sim placa.xml --tiempo-real  frena la simulacion al reloj de\n"
                 "                                pared (=0.5 a mitad de velocidad)\n"
+                "     sim placa.xml --serie ID=DESTINO  a donde da el PuenteSerie ID:\n"
+                "                                memoria, tcp:PUERTO, rfc2217:PUERTO,\n"
+                "                                tcp-cliente:HOST:PUERTO o\n"
+                "                                rfc2217-cliente:HOST:PUERTO\n"
+                "                                (manda sobre su host= del XML)\n"
+                "     sim placa.xml --espera-terminal  no arranca el MCU hasta que\n"
+                "                                haya un terminal en cada puente\n"
+                "                                serie por red: asi se ve el saludo\n"
+                "                                (doc/puente_serie.md)\n"
                 "     sim placa.xml --mcu TIPO   el MCU implicito, cuando el XML no\n"
                 "                                declara ninguno (por omision %s)\n"
                 "     sim placa.xml --ms=2       tiempo simulado (global: hay un\n"
