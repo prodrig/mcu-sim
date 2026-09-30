@@ -39,6 +39,17 @@
 // entonces deja avanzar la simulacion. Mientras espera no corre ningun proceso
 // de SystemC -comparten un hilo-, asi que la simulacion ve siempre lo mismo.
 //
+// FASE D5 — RFC 2217. Un tercer puente en los mismos pines, con
+// `host="rfc2217:47357"` y `baudios="host"`, y un terminal RFC 2217 hecho con el
+// códec de la D4 (verif/cliente_2217.h). Se prueba todo lo que el terminal
+// puede hacer y el efecto que tiene EN LOS PINES Y EN EL FIRMWARE, no en el
+// protocolo: los baudios que pide el terminal los ve la USART (con basura si
+// no cuadran), el formato cambia lo que el firmware recibe, el break sube LBD,
+// DTR y RTS se miden en voltios, el control de flujo evita el desbordamiento,
+// los errores del MCU vuelven como LINESTATE y el RTS del MCU como el CTS del
+// terminal. Y lo que no debe pasar: órdenes sin negociar COM-PORT, o baudios
+// pedidos a un puente que los tiene fijos.
+//
 //   make testserie
 // =============================================================================
 #include <systemc>
@@ -56,6 +67,7 @@
 #include "../parts/puente_serie.h"
 #include "soc_f4.h"
 #include "../verif/image_loader.h"
+#include "../verif/cliente_2217.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -332,8 +344,10 @@ struct TbPieza : sc_module {
     PuenteSerie* vcp = nullptr;
     PuenteSerie* vcp_tcp = nullptr;       // D3: el mismo puente, por TCP
     PuenteSerie* vcp_ocupado = nullptr;   // D3: y uno que no puede escuchar
+    PuenteSerie* vcp_2217 = nullptr;      // D5: RFC 2217, con DTR en PB0
     sc_event&    empieza;
     static constexpr unsigned PUERTO = 47355;   // alto: que no choque con nada
+    static constexpr unsigned PUERTO_2217 = 47357;
     int d_vdd = -1, d_vdda = -1, d_nrst = -1, d_bt0 = -1, d_pb2 = -1;
 
     static PuenteSerie::Config config() {
@@ -360,10 +374,20 @@ struct TbPieza : sc_module {
         vcp_ocupado = new PuenteSerie("vcp_ocupado", nullptr, nullptr, nullptr,
                                       nullptr, nullptr, ct);
         vcp_ocupado->set_enabled(false);
+        // D5: el de RFC 2217. Los baudios los fija el terminal.
+        PuenteSerie::Config cr = config();
+        cr.destino = serie::parsea("rfc2217:" + std::to_string(PUERTO_2217));
+        cr.baudios_host = true;
+        vcp_2217 = new PuenteSerie("vcp_2217", &soc.pinmux.analog(0, 2),
+                                   &soc.pinmux.analog(0, 3),
+                                   &soc.pinmux.analog(0, 1),
+                                   &soc.pinmux.analog(0, 0),
+                                   &soc.pinmux.analog(1, 0), cr);
+        vcp_2217->set_enabled(false);
         SC_HAS_PROCESS(TbPieza);
         SC_THREAD(run);  set_stack_size(1024 * 1024);
     }
-    ~TbPieza() { delete vcp_ocupado; delete vcp_tcp; delete vcp; }
+    ~TbPieza() { delete vcp_2217; delete vcp_ocupado; delete vcp_tcp; delete vcp; }
 
     // ---- Tiempo de PARED, con la simulacion parada ---------------------------
     // Espera a que se cumpla algo mirando el canal TCP, hasta dos segundos de
@@ -643,6 +667,7 @@ struct TbPieza : sc_module {
         }
 
         tcp_en_crudo();
+        rfc2217();
         termina();
     }
 
@@ -750,6 +775,401 @@ struct TbPieza : sc_module {
         red::cerrar(c2);
         red::cerrar(c3);
         vcp_tcp->set_enabled(false);
+        wait(1, SC_MS);
+    }
+
+    // -----------------------------------------------------------------------
+    // D5: RFC 2217
+    // -----------------------------------------------------------------------
+    // Espera en tiempo SIMULADO a que el MCU empiece a mandar por PA2.
+    bool espera_arranque_mcu() {
+        const analog_net_if& pa2 = soc.pinmux.analog(0, 2);
+        const sc_time t0 = sc_time_stamp();
+        while (pa2.voltage() > 1.0f && sc_time_stamp() - t0 < sc_time(5, SC_MS))
+            wait(sc_time(5, SC_MS), pa2.value_changed_event());
+        return pa2.voltage() < 1.0f;
+    }
+    // Lo mismo en PA3, que es por donde el puente le manda al MCU.
+    bool espera_arranque_puente() {
+        const analog_net_if& pa3 = soc.pinmux.analog(0, 3);
+        const sc_time t0 = sc_time_stamp();
+        while (pa3.voltage() > 1.0f && sc_time_stamp() - t0 < sc_time(5, SC_MS))
+            wait(sc_time(5, SC_MS), pa3.value_changed_event());
+        return pa3.voltage() < 1.0f;
+    }
+    // Manda datos por el terminal y espera a que estén dentro del puente.
+    bool teclea(Cliente2217& t, CanalHost& c, const std::string& m) {
+        const std::size_t p0 = c.pendientes();
+        t.datos(m);
+        return t.espera([&] { return c.pendientes() >= p0 + m.size(); });
+    }
+    // Deja correr la simulación y recoge lo que haya llegado al terminal.
+    std::string eco(Cliente2217& t, std::size_t n, const sc_time& max) {
+        const sc_time t0 = sc_time_stamp();
+        for (;;) {
+            t.espera([&] { return t.recibido().size() >= n; }, 0.0);
+            if (t.recibido().size() >= n || sc_time_stamp() - t0 >= max) break;
+            wait(500, SC_US);
+        }
+        std::string r = t.recibido();
+        t.recibido().clear();
+        return r;
+    }
+
+    void rfc2217() {
+        CanalRfc2217* rfc = vcp_2217->rfc2217();
+        CanalHost& canal = vcp_2217->canal();
+        const std::string dir = "localhost:" + std::to_string(PUERTO_2217);
+        const analog_net_if& pa0 = soc.pinmux.analog(0, 0);
+        const analog_net_if& pa3 = soc.pinmux.analog(0, 3);
+        const analog_net_if& pb0 = soc.pinmux.analog(1, 0);
+        namespace cpo = telnet::cpo;
+        using V = std::vector<uint8_t>;
+
+        grupo("P18 RFC 2217: negociacion y estado de modem inicial");
+        vcp_2217->set_enabled(true);
+        wait(1, SC_MS);
+        if (!check(vcp_2217->canal_ok() && rfc, "el puente escucha en " + dir)) {
+            std::printf("         %s\n", vcp_2217->error_canal().c_str());
+            return;
+        }
+        check(vcp_2217->describir() == "RFC 2217 en " + dir + ", 115200 8N1",
+              "y lo dice: \"" + vcp_2217->describir() + "\"");
+        Cliente2217 t;
+        t.bomba = [&] { canal.sondear(); };
+        check(t.conecta(PUERTO_2217) && t.espera([&] { return canal.conectado(); }),
+              "un terminal se conecta");
+        t.calma();
+        check(t.bytes() == 0u,
+              "el servidor es pasivo: al conectarse no manda nada (D-13)");
+        check(t.negocia(), "COM-PORT aceptado y BINARY en los dos sentidos");
+        check(rfc->negociador().com_port() && rfc->negociador().binario_entrada() &&
+              rfc->negociador().binario_salida(),
+              "y el puente lo sabe igual");
+        {
+            // El RTS del MCU esta bajo (RTSE y nada por leer): el CTS del
+            // terminal, activo. DSR y DCD siempre. Y los tres «han cambiado»,
+            // porque es la primera vez.
+            t.espera([&] { return t.sucesos_pendientes() > 0; });
+            const auto m = t.saca_todas(cpo::NOTIFY_MODEMSTATE + cpo::RESPUESTA);
+            check(m.size() == 1u && m[0] == V{0xBB},
+                  "llega un NOTIFY-MODEMSTATE 0xBB: CTS, DSR y DCD, con sus deltas");
+        }
+
+        grupo("P19 La firma");
+        {
+            V r;
+            check(t.orden(cpo::SIGNATURE, {}, r) &&
+                  std::string(r.begin(), r.end()) == "mcu-sim PuenteSerie vcp_2217",
+                  "SIGNATURE vacia: \"" + std::string(r.begin(), r.end()) + "\"");
+            t.orden_sin_respuesta(cpo::SIGNATURE, {'t', 'b'});
+            check(t.espera([&] { return rfc->firma_cliente() == "tb"; }),
+                  "con texto es la del terminal: se guarda...");
+            t.calma();
+            check(t.sucesos_pendientes() == 0u, "...y no se contesta");
+        }
+
+        grupo("P20 Los 255 valores de byte, por RFC 2217 en BINARY");
+        {
+            std::string todos;
+            for (unsigned v = 0; v < 256; ++v) if (v != 0x13u) todos += char(v);
+            todos += "\r";
+            todos += '\0';                          // un CR NUL de verdad
+            check(teclea(t, canal, todos), "los 257 bytes estan en el puente, "
+                  "con el IAC ya sin doblar");
+            const std::string r = eco(t, todos.size(), sc_time(80, SC_MS));
+            check(r == todos, "y vuelven exactos: 0xFF se dobla y se desdobla, y "
+                  "el NUL detras del CR no se come");
+        }
+
+        grupo("P21 Los baudios, desde el terminal");
+        {
+            V r;
+            check(t.orden(cpo::SET_BAUDRATE, telnet::u32_red(9600), r) &&
+                  r == telnet::u32_red(9600),
+                  "SET-BAUDRATE 9600 se confirma con 9600");
+            check(vcp_2217->baudios() == 9600.0, "y el puente esta a 9600");
+            const uint32_t err0 = buzon(B_FE) + buzon(B_NE);
+            teclea(t, canal, "Hola");
+            wait(15, SC_MS);
+            check(buzon(B_FE) + buzon(B_NE) > err0,
+                  "la USART, a 115200, levanta errores: el alumno lo ve igual "
+                  "que si se equivoca en el terminal de la placa");
+            check(eco(t, 4, sc_time(5, SC_MS)).find("Hola") == std::string::npos,
+                  "y el eco no dice Hola");
+            check(t.orden(cpo::SET_BAUDRATE, telnet::u32_red(0), r) &&
+                  r == telnet::u32_red(9600), "SET-BAUDRATE 0 es una consulta: 9600");
+            check(t.orden(cpo::SET_BAUDRATE, telnet::u32_red(115200), r) &&
+                  r == telnet::u32_red(115200), "vuelta a 115200");
+            wait(5, SC_MS);
+            t.recibido().clear();
+            teclea(t, canal, "ok\r\n");
+            check(eco(t, 4, sc_time(20, SC_MS)) == "ok\r\n", "y el eco vuelve a funcionar");
+            check(t.orden(cpo::SET_BAUDRATE, telnet::u32_red(20000000), r) &&
+                  r == telnet::u32_red(115200),
+                  "20 Mbaudios no los hace la USART: se contesta con los que hay");
+        }
+
+        grupo("P22 El formato, desde el terminal");
+        {
+            check(t.orden1(cpo::SET_DATASIZE, 7) == 7, "SET-DATASIZE 7");
+            check(t.orden1(cpo::SET_PARITY, 3) == 3, "SET-PARITY 3 (par)");
+            check(t.orden1(cpo::SET_STOPSIZE, 2) == 2, "SET-STOPSIZE 2 (dos)");
+            check(como_texto(vcp_2217->formato()) == "7E2",
+                  "el puente queda en 7E2");
+            check(t.orden1(cpo::SET_DATASIZE, 0) == 7 && t.orden1(cpo::SET_PARITY, 0) == 3 &&
+                  t.orden1(cpo::SET_STOPSIZE, 0) == 2, "y las consultas lo dicen");
+            // Una C (0x43, tres unos) en 7E2 lleva paridad 1 detras de los
+            // siete bits: la USART, en 8N1, lee ese uno como su octavo bit.
+            teclea(t, canal, "C");
+            wait(3, SC_MS);
+            check_eq(buzon(B_ULTIMO), 0xC3u,
+                     "el firmware, en 8N1, recibe 0xC3: la paridad es su bit 7");
+            check(t.orden1(cpo::SET_DATASIZE, 8) == 8 && t.orden1(cpo::SET_PARITY, 1) == 1 &&
+                  t.orden1(cpo::SET_STOPSIZE, 1) == 1, "vuelta a 8N1");
+            check(t.orden1(cpo::SET_PARITY, 9) == 1, "una paridad que no existe: la que hay");
+            wait(5, SC_MS);
+            t.recibido().clear();
+            teclea(t, canal, "8N1\r\n");
+            check(eco(t, 5, sc_time(20, SC_MS)) == "8N1\r\n", "y el eco, bien");
+        }
+
+        grupo("P23 Un cambio del terminal a mitad de trama espera (D-4)");
+        {
+            const uint32_t rx0 = buzon(B_RX), fe0 = buzon(B_FE);
+            teclea(t, canal, "Z");
+            check(espera_arranque_puente(), "la Z empieza a salir por PA3");
+            wait(30, SC_US);
+            V r;
+            t.orden(cpo::SET_BAUDRATE, telnet::u32_red(57600), r);
+            t.orden1(cpo::SET_PARITY, 3);
+            wait(3, SC_MS);
+            check(buzon(B_RX) == rx0 + 1 && buzon(B_FE) == fe0 &&
+                  buzon(B_ULTIMO) == uint32_t('Z'),
+                  "la Z que ya estaba en la linea llega entera");
+            t.orden(cpo::SET_BAUDRATE, telnet::u32_red(115200), r);
+            t.orden1(cpo::SET_PARITY, 1);
+            wait(5, SC_MS);
+            t.recibido().clear();
+        }
+
+        grupo("P24 Con los baudios fijos en el XML, el terminal no manda (D-14)");
+        {
+            vcp_2217->set_baudios_host(false);
+            V r;
+            check(t.orden(cpo::SET_BAUDRATE, telnet::u32_red(9600), r) &&
+                  r == telnet::u32_red(115200),
+                  "SET-BAUDRATE 9600 se contesta con 115200");
+            check(vcp_2217->baudios() == 115200.0, "y el puente sigue a 115200");
+            check(t.orden1(cpo::SET_DATASIZE, 7) == 8 && t.orden1(cpo::SET_CONTROL, 3) == 1,
+                  "ni el formato ni el control de flujo");
+            check(t.orden1(cpo::SET_CONTROL, 12) == 12 && !vcp_2217->rts_listo(),
+                  "RTS si: es una senal, no configuracion");
+            t.orden1(cpo::SET_CONTROL, 11);
+            vcp_2217->set_baudios_host(true);
+        }
+
+        grupo("P25 Break desde el terminal: LBD en la USART");
+        {
+            const uint32_t lbd0 = buzon(B_LBD);
+            check(t.orden1(cpo::SET_CONTROL, 5) == 5 && vcp_2217->break_activo(),
+                  "SET-CONTROL 5 enciende el break");
+            wait(1, SC_MS);
+            check(pa3.voltage() < 0.5f, "PA3 a cero, sostenido");
+            check(t.orden1(cpo::SET_CONTROL, 4) == 5, "la consulta dice que esta encendido");
+            check(t.orden1(cpo::SET_CONTROL, 6) == 6, "SET-CONTROL 6 lo apaga");
+            wait(1, SC_US);
+            check(pa3.voltage() > 3.0f, "PA3 vuelve a reposo");
+            check(espera([&] { return buzon(B_LBD) == lbd0 + 1; }, sc_time(5, SC_MS)),
+                  "y el firmware conto un break LIN");
+            t.recibido().clear();
+            teclea(t, canal, "b\r\n");
+            check(eco(t, 3, sc_time(20, SC_MS)) == "b\r\n", "la linea sigue viva");
+        }
+
+        grupo("P26 DTR y RTS desde el terminal, en voltios");
+        {
+            check(pb0.voltage() > 3.0f, "DTR inactivo: PB0 alto");
+            check(t.orden1(cpo::SET_CONTROL, 8) == 8, "SET-CONTROL 8: DTR activo");
+            wait(1, SC_US);
+            check(pb0.voltage() < 0.5f, "PB0 baja");
+            check(t.orden1(cpo::SET_CONTROL, 7) == 8, "y la consulta lo dice");
+            check(t.orden1(cpo::SET_CONTROL, 9) == 9, "SET-CONTROL 9: inactivo");
+            wait(1, SC_US);
+            check(pb0.voltage() > 3.0f, "PB0 sube");
+            check(t.orden1(cpo::SET_CONTROL, 12) == 12, "SET-CONTROL 12: RTS inactivo");
+            wait(1, SC_US);
+            check(pa0.voltage() > 3.0f, "el CTS del MCU (PA0) sube");
+            check(t.orden1(cpo::SET_CONTROL, 10) == 12, "y la consulta lo dice");
+            check(t.orden1(cpo::SET_CONTROL, 11) == 11, "SET-CONTROL 11: RTS activo");
+            wait(1, SC_US);
+            check(pa0.voltage() < 0.5f, "PA0 baja");
+        }
+
+        grupo("P27 El control de flujo, desde el terminal");
+        {
+            check(t.orden1(cpo::SET_CONTROL, 3) == 3, "SET-CONTROL 3: RTS/CTS");
+            std::string rafaga;
+            for (unsigned i = 0; i < 40; ++i) rafaga += char('A' + (i % 26));
+            const uint32_t ore0 = buzon(B_ORE), p0 = buzon(B_PAUSAS);
+            t.recibido().clear();
+            teclea(t, canal, std::string(1, '\x13') + rafaga);
+            check(eco(t, 40, sc_time(40, SC_MS)) == rafaga,
+                  "los cuarenta vuelven, en orden");
+            check(buzon(B_PAUSAS) == p0 + 1 && buzon(B_ORE) == ore0,
+                  "con la pausa del firmware y sin un desbordamiento");
+            check(t.orden1(cpo::SET_CONTROL, 0) == 3, "la consulta dice RTS/CTS");
+            check(t.orden1(cpo::SET_CONTROL, 2) == 3,
+                  "XON/XOFF no lo tiene el adaptador: se queda como estaba");
+            check(t.orden1(cpo::SET_CONTROL, 13) == 14,
+                  "el de entrada no lo hay: 14, ninguno");
+            check(t.orden1(cpo::SET_CONTROL, 1) == 1 && !vcp_2217->config().flujo_rtscts,
+                  "SET-CONTROL 1: sin control de flujo");
+        }
+
+        grupo("P28 NOTIFY-MODEMSTATE: el RTS del MCU es el CTS del terminal");
+        {
+            // Una pausa de 5 ms con un byte detras: RXNE se queda puesto y el
+            // RTS por hardware sube. El terminal tiene que verlo caer y volver.
+            t.saca_todas(cpo::NOTIFY_MODEMSTATE + cpo::RESPUESTA);
+            teclea(t, canal, std::string("\x13") + "m");
+            wait(12, SC_MS);
+            t.espera([] { return false; }, 0.0);
+            const auto m = t.saca_todas(cpo::NOTIFY_MODEMSTATE + cpo::RESPUESTA);
+            bool cae = false, vuelve = false;
+            for (const auto& v : m) {
+                if (v == V{0xA1}) cae = true;
+                if (cae && v == V{0xB1}) vuelve = true;
+            }
+            check(cae, "CTS cae (0xA1: DSR y DCD, y el delta de CTS)");
+            check(vuelve, "y vuelve (0xB1) cuando el firmware lee");
+            check(t.orden1(cpo::NOTIFY_MODEMSTATE, 0) == 0xB0,
+                  "el terminal lo pregunta y le dicen 0xB0");
+            check(t.orden1(cpo::SET_MODEMSTATE_MASK, 0) == 0, "mascara de modem a cero");
+            const uint64_t n0 = rfc->notificaciones_modem();
+            teclea(t, canal, std::string("\x13") + "m");
+            wait(12, SC_MS);
+            t.espera([] { return false; }, 0.0);
+            check(rfc->notificaciones_modem() == n0 &&
+                  t.saca_todas(cpo::NOTIFY_MODEMSTATE + cpo::RESPUESTA).empty(),
+                  "y con ella a cero no se manda nada");
+            check(t.orden1(cpo::SET_MODEMSTATE_MASK, 255) == 255, "mascara otra vez a 255");
+            t.recibido().clear();
+        }
+
+        grupo("P29 NOTIFY-LINESTATE: los errores del MCU, si se piden");
+        {
+            // Una A a 115200, y con ella ya en la linea, el puente a 230400:
+            // la A llega bien al MCU (D-4), pero su eco se lee al doble de
+            // velocidad y la parada cae en el bit 3 de la A, que es un cero.
+            auto provoca = [&] {
+                V r;
+                const uint64_t e0 = vcp_2217->errores_trama();
+                teclea(t, canal, "A");
+                espera_arranque_puente();
+                wait(30, SC_US);
+                t.orden(cpo::SET_BAUDRATE, telnet::u32_red(230400), r);
+                wait(3, SC_MS);
+                t.orden(cpo::SET_BAUDRATE, telnet::u32_red(115200), r);
+                wait(3, SC_MS);
+                t.espera([] { return false; }, 0.0);
+                t.recibido().clear();
+                return vcp_2217->errores_trama() > e0;
+            };
+            check(provoca(), "con los baudios cambiados, el puente ve errores de trama");
+            check(rfc->notificaciones_linea() == 0u &&
+                  t.saca_todas(cpo::NOTIFY_LINESTATE + cpo::RESPUESTA).empty(),
+                  "con la mascara de omision (0), el terminal no se entera");
+            check(t.orden1(cpo::SET_LINESTATE_MASK, 0x0C) == 0x0C,
+                  "SET-LINESTATE-MASK 0x0C: trama y paridad");
+            check(provoca(), "otra vez errores...");
+            const auto l = t.saca_todas(cpo::NOTIFY_LINESTATE + cpo::RESPUESTA);
+            bool trama = !l.empty();
+            for (const auto& v : l) trama = trama && v.size() == 1 && (v[0] & 0x08) &&
+                                            !(v[0] & ~0x0Cu);
+            check(trama && rfc->notificaciones_linea() == l.size(),
+                  "...y ahora llegan como NOTIFY-LINESTATE con el bit 3 (" +
+                  std::to_string(l.size()) + ")");
+            check(t.orden1(cpo::NOTIFY_LINESTATE, 0) == 0,
+                  "si lo pregunta, 0: los errores son sucesos, no estado");
+            t.orden1(cpo::SET_LINESTATE_MASK, 0);
+        }
+
+        grupo("P30 PURGE-DATA 2: lo que va hacia el MCU");
+        {
+            wait(5, SC_MS);
+            const uint32_t rx0 = buzon(B_RX);
+            t.datos(std::string(100, 'p'));
+            t.manda_crudo(telnet::orden_2217(cpo::PURGE_DATA, {2}));
+            V r;
+            check(t.espera([&] { return t.saca_todas(cpo::PURGE_DATA + cpo::RESPUESTA)
+                                         .size() == 1; }),
+                  "PURGE-DATA 2 se confirma");
+            check(canal.pendientes() == 0u, "y la cola hacia el MCU esta vacia");
+            wait(10, SC_MS);
+            check(buzon(B_RX) == rx0, "no le llega ni una p al firmware");
+        }
+
+        grupo("P31 FLOWCONTROL-SUSPEND y RESUME, y PURGE-DATA 1");
+        {
+            t.recibido().clear();
+            t.orden_sin_respuesta(cpo::FLOWCONTROL_SUSPEND, {});
+            check(t.espera([&] { return rfc->suspendido(); }),
+                  "SUSPEND: el puente deja de mandar (y no contesta)");
+            teclea(t, canal, "susp\r\n");
+            wait(10, SC_MS);
+            t.calma();
+            check(t.recibido().empty() && rfc->retenidos() == 6u,
+                  "el eco se queda en el puente: seis bytes retenidos");
+            t.orden_sin_respuesta(cpo::FLOWCONTROL_RESUME, {});
+            check(t.espera([&] { return t.recibido() == "susp\r\n"; }),
+                  "RESUME: llegan, en orden");
+            // Y ahora se tiran: SUSPEND, eco, PURGE 1, RESUME.
+            t.recibido().clear();
+            t.orden_sin_respuesta(cpo::FLOWCONTROL_SUSPEND, {});
+            teclea(t, canal, "tira\r\n");
+            wait(10, SC_MS);
+            t.orden_sin_respuesta(cpo::PURGE_DATA, {1});
+            check(t.espera([&] { return rfc->retenidos() == 0u; }),
+                  "PURGE-DATA 1 vacia lo retenido");
+            t.calma();
+            const bool calla = t.saca_todas(cpo::PURGE_DATA + cpo::RESPUESTA).empty();
+            check(calla, "y su confirmacion no sale mientras dure el SUSPEND: "
+                  "tampoco las ordenes");
+            t.orden_sin_respuesta(cpo::FLOWCONTROL_RESUME, {});
+            check(t.espera([&] { return t.saca_todas(cpo::PURGE_DATA + cpo::RESPUESTA)
+                                         .size() == 1; }),
+                  "su confirmacion llega al reanudar");
+            t.calma();
+            check(t.recibido().empty(), "y el eco tirado no llega");
+        }
+
+        grupo("P32 Sin negociar COM-PORT no se atiende nada; y el NVT");
+        {
+            Cliente2217 crudo;
+            crudo.bomba = [&] { canal.sondear(); };
+            check(crudo.conecta(PUERTO_2217) &&
+                  crudo.espera([&] { return rfc->sustituidos() == 1u; }),
+                  "un cliente sin Telnet sustituye al terminal (D-5)");
+            t.calma();
+            const uint64_t ign0 = rfc->ordenes_ignoradas();
+            crudo.manda_crudo(telnet::orden_2217(cpo::SET_BAUDRATE, telnet::u32_red(9600)));
+            check(crudo.espera([&] { return rfc->ordenes_ignoradas() == ign0 + 1; }),
+                  "un SET-BAUDRATE sin WILL COM-PORT se ignora");
+            check(vcp_2217->baudios() == 115200.0 && crudo.bytes() == 0u,
+                  "los baudios no se tocan y no se contesta");
+            check(!rfc->negociador().com_port() && rfc->mascara_modem() == 255,
+                  "la sesion nueva empieza de cero");
+            crudo.manda_crudo("nvt\r\n");
+            check(crudo.espera([&] { return canal.pendientes() == 5u; }), "datos en NVT");
+            wait(10, SC_MS);
+            crudo.espera([&] { return crudo.crudo().size() >= 6; });
+            check(crudo.crudo() == std::string("nvt\r\0\n", 6),
+                  "sin BINARY, el CR del eco sale como CR NUL, como manda el NVT");
+        }
+
+        t.cierra();
+        vcp_2217->set_enabled(false);
         wait(1, SC_MS);
     }
 

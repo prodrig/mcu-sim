@@ -676,6 +676,7 @@ RFC 2217 pasa de S4 a justo después de S1.
 | D-11 | Puerto por omisión | **3355**, con RFC 2217 (`host` ausente = `rfc2217:3355`) | Sigue la serie del proyecto (3333 GDB, 3344 GUI) y **esquiva el 5000**, que en macOS desde Monterey es del receptor de AirPlay. *(Decidido en D0; los ejemplos de este documento decían 5000 y se han cambiado.)* |
 | D-13 | ¿Cuándo pide el servidor BINARY? | **Pasivo hasta que el cliente negocia algo; en ese momento pide BINARY en los dos sentidos, una vez** | Afina D-2 y D-8. La captura de pySerial enseña que su cliente no ofrece BINARY por su cuenta: lo acepta cuando se lo piden. Sin pedirlo, la sesión se quedaría en NVT y un NUL detrás de un CR se perdería. Pedirlo tras la primera negociación no rompe la pasividad: el cliente ya ha demostrado que habla Telnet. *(Decidido en D4.)* |
 | D-12 | ¿Dónde van las pruebas puras (sin simulación)? | En **programas aparte sin SystemC** (`make serie`, `make rfc2217`), en el trabajo rápido del CI | No tocan las cifras de `verif/invariantes.txt`, ni siquiera el número de comprobaciones: T130 sí lo movió al vivir dentro de `test407`. *(Decidido en D0.)* |
+| D-14 | ¿Qué gobierna `baudios="host"`? | **La configuración entera de la línea: baudios, formato y control de flujo.** Con unos baudios fijos, el XML manda en las tres y el terminal recibe los valores del XML (con un aviso, una vez). DTR, RTS y el break los mueve **siempre** el terminal | El cliente de pySerial manda `SET-CONTROL 1` (sin control de flujo) cada vez que abre el puerto: si el control de flujo fuera siempre del terminal, un `flujo="rtscts"` del XML duraría hasta que se conectase alguien. DTR, RTS y break no son configuración, son señales. *(Decidido en D5.)* |
 
 ### 10.3 Componentes
 
@@ -714,26 +715,28 @@ decir «no» sin romper el protocolo: se contesta con el valor vigente.
 
 | Orden (cliente → servidor) | Efecto en el modelo | Respuesta |
 | :--- | :--- | :--- |
-| `SIGNATURE` (0) | — | `100` con el texto `mcu-sim <versión> <id de la pieza>` |
-| `SET-BAUDRATE` (1) | Con `baudios="host"`, cambia la velocidad de la línea entre tramas. Con un número fijo, se ignora y se avisa una vez | `101` con la velocidad vigente; 0 es consulta |
-| `SET-DATASIZE` (2) | 7 u 8 bits, aplicados a la línea. 5 y 6 se aceptan si `MotorUart` los tiene (lo previsto) | `102` con el valor vigente |
+| `SIGNATURE` (0) | Vacía, pide la del servidor; con texto, es la del cliente: se guarda y no se contesta | `100` con el texto `mcu-sim PuenteSerie <id de la pieza>` (el proyecto no tiene número de versión) |
+| `SET-BAUDRATE` (1) | Con `baudios="host"`, cambia la velocidad de la línea entre tramas (50 a 10 500 000). Con un número fijo, se ignora y se avisa una vez | `101` con la velocidad vigente; 0 es consulta |
+| `SET-DATASIZE` (2) | 5 a 8 bits, aplicados a la línea (D-14) | `102` con el valor vigente (8 si el XML dice 9) |
 | `SET-PARITY` (3) | NONE, ODD, EVEN, MARK, SPACE | `103` |
 | `SET-STOPSIZE` (4) | 1, 2 y 1,5 | `104` |
-| `SET-CONTROL` 1-3, 13-19 | Control de flujo: `HARDWARE` (3/16) activa RTS/CTS si la pieza tiene esos terminales; `XON/XOFF` no se admite | `105` con el modo vigente (1 si no hay terminales) |
+| `SET-CONTROL` 0-3, 17, 19 | Control de flujo **de salida** (del puente al MCU): `HARDWARE` (3) activa RTS/CTS si hay terminal `cts` y `baudios="host"` (D-14); `XON/XOFF` (2), DCD (17) y DSR (19) no se admiten | `105` con el modo vigente, 1 o 3 |
+| `SET-CONTROL` 13-16, 18 | Control de flujo **de entrada**: el puente no para nunca al MCU por su cuenta; el RTS lo mueve el terminal | `105` con 14 (ninguno) |
 | `SET-CONTROL` 4-6 (BREAK) | Con BREAK ON, el terminal `tx` se mantiene en bajo hasta el OFF. **Es lo que dispara la detección de break LIN (`LBD`) en la USART del modelo** | `105` con el estado |
 | `SET-CONTROL` 7-9 (DTR) | Gobierna el terminal `dtr` si está cableado; si no, solo se recuerda | `105` |
-| `SET-CONTROL` 10-12 (RTS) | Gobierna el terminal `rts` (el CTS del MCU) si está cableado y el flujo no es automático | `105` |
-| `NOTIFY-LINESTATE` / `NOTIFY-MODEMSTATE` | Los manda el servidor (106/107), **solo con los bits que dejen pasar las máscaras** | — |
+| `SET-CONTROL` 10-12 (RTS) | Gobierna el terminal `rts` (el CTS del MCU) si está cableado | `105` |
+| `NOTIFY-LINESTATE` / `NOTIFY-MODEMSTATE` (6/7) | Los manda el servidor (106/107) al cambiar algo, **solo con los bits que dejen pasar las máscaras**. Si los manda el cliente, es una pregunta: LINESTATE 0 (los errores son sucesos, no estado) y el MODEMSTATE actual | `106` / `107` |
 | `SET-LINESTATE-MASK` (10) | Máscara inicial 0, como dice la RFC | `110` |
 | `SET-MODEMSTATE-MASK` (11) | Máscara inicial 255 | `111` |
-| `FLOWCONTROL-SUSPEND` / `RESUME` (8/9) | Deja de enviar al cliente (datos y órdenes) y encola, con el límite del §4.2 | `108` / `109` |
-| `PURGE-DATA` (12) | 1: vacía la cola hacia el MCU; 2: hacia el host; 3: las dos | `112` |
+| `FLOWCONTROL-SUSPEND` / `RESUME` (8/9) | Deja de enviar al cliente (datos y órdenes): los datos del MCU se retienen, hasta 64 KiB, y las respuestas esperan en la cola de salida | **Ninguna**: la RFC no las confirma, y el servidor de pySerial tampoco *(corregido en D5; el plan decía 108/109)* |
+| `PURGE-DATA` (12) | 1: el búfer de **recepción** del servidor, lo que ha llegado del MCU y no ha salido; 2: el de **transmisión**, lo que espera para ir al MCU; 3: los dos *(corregido en D5: el plan lo decía al revés)* | `112` |
 
 Lo que el servidor **notifica** sin que se lo pidan:
 
 * **LINESTATE**: errores de trama (bit 3) y de paridad (bit 2) que detecta el
-  receptor del puente en el TX del MCU, break (bit 4) cuando el MCU manda un
-  break (`SBK`), y desbordamiento (bit 1) si se llena la cola hacia el host;
+  receptor del puente en el TX del MCU, y break (bit 4) cuando el MCU manda un
+  break (`SBK`). ~~Y desbordamiento (bit 1) si se llena la cola hacia el host~~:
+  **no se ha hecho** en D5 (lo que no cabe se cuenta en `descartados()`);
 * **MODEMSTATE**: CTS (bit 4 y su delta, bit 0) sigue al RTS del MCU si el
   terminal `cts` está cableado. DSR y DCD se dan fijos en activo, como un
   adaptador USB-serie sin esas líneas. Las notificaciones se mandan **al
@@ -752,7 +755,7 @@ una nota en `doc/chat.md`.
 | **D2 · Pieza con backend `memoria`** ✅ | `PuenteSerie` en los pines con cola y ritmo en baudios; firmware `vcp_demo`; ~~nuevo~~ `make testserie` (nació en D1) | **HECHO el 29-09-2026** (§10.8). Los formatos 7E1 y 8N2 se prueban en el motor (D1), no con el firmware, que va en 8N1 |
 | **D3 · TCP crudo** ✅ | `CanalTcp` sobre `red.h`: servidor en `localhost`, sondeo adaptativo, reconexión con sustitución, «no termina sola», `--serie`, aviso de `--tiempo-real` | **HECHO el 29-09-2026** (§10.8). La medida de CPU se hizo contra `--gdb` en la misma máquina, no contra el 5,3 % de otra |
 | **D4 · Códec RFC 2217** ✅ | `common/telnet2217.h`: negociación (`WILL`/`DO` 44, BINARY, SGA), subnegociaciones, escape de `IAC` en datos y dentro de `SB`, regla `CR NUL` sin BINARY. `make rfc2217` sin SystemC | **HECHO el 29-09-2026** (§10.8). La captura de `com2tcp-rfc2217` necesita Windows y com0com: pasa a la matriz manual de D6 |
-| **D5 · RFC 2217 en la pieza** | `CanalRfc2217`; `baudios="host"`; la tabla del §10.4 completa; notificaciones LINESTATE/MODEMSTATE con máscaras | `verif/cliente_2217.h` cambia la velocidad a mitad de sesión y se comprueba el cambio **entre tramas** (D-4); desajuste de baudios provocado **desde el host**; BREAK ON/OFF → `LBD`; PURGE; SUSPEND/RESUME; la firma |
+| **D5 · RFC 2217 en la pieza** ✅ | `CanalRfc2217`; `baudios="host"`; la tabla del §10.4 completa; notificaciones LINESTATE/MODEMSTATE con máscaras | `verif/cliente_2217.h` cambia la velocidad a mitad de sesión y se comprueba el cambio **entre tramas** (D-4); desajuste de baudios provocado **desde el host**; BREAK ON/OFF → `LBD`; PURGE; SUSPEND/RESUME; la firma. **HECHO el 30-09-2026** (§10.8) |
 | **D6 · Interoperabilidad** | `verif/serie/interop.py`: pySerial con `rfc2217://` y `socket://` en CI (Linux, Windows y los dos macOS). socat (`pty` ↔ `tcp`) en CI de Linux y macOS | CI verde en las cuatro plataformas. La matriz manual del §10.6 hecha una vez y anotada con versión y fecha |
 | **D7 · Recetas y placas** | `doc/puente_serie.md` con los montajes del §7.4 actualizados, un apartado en `doc/ejecutables.md`, y la placa `placas/nucleo_f446re_vcp.xml` (**aparte**, para no tocar `test446`) | Un alumno sin experiencia sigue la receta de su plataforma y ve el `printf` de `vcp_demo` |
 | **D8 · Modo cliente** (opcional) | `tcp-cliente:HOST:PUERTO` y `rfc2217-cliente:…`, con reintento, para ser2tcp, tio y `rfc2217_server.py` | Eco contra `rfc2217_server.py` de pySerial sobre un pty de socat, en CI de Linux |
@@ -1163,6 +1166,92 @@ tenía.
 
 **PENDIENTE A MANO:** añadir `rfc2217` a la línea `run:` del trabajo `rapidas`
 (`.github/workflows/`).
+
+---
+
+#### D5 · RFC 2217 en la pieza — 30-09-2026, rama `puente-uart`
+
+**Qué se ha hecho:**
+
+| Fichero | Qué |
+| :--- | :--- |
+| `src/parts/canal_host.h` | `LineaSerie`, la interfaz de lo que el terminal puede pedirle a la línea (cada `pide_*` devuelve lo **aplicado**, que es lo que se confirma). `CanalTcp` gana tres ganchos protegidos (`recibidos`, `al_conectar`, `puede_mandar`) sin cambiar lo que hace. Y `CanalRfc2217`, encima: el códec de la D4 **por conexión**, procesado byte a byte (una negociación cambia cómo se leen los datos que vienen detrás), la tabla del §10.4 entera, las máscaras, SUSPEND con retención de hasta 64 KiB y PURGE |
+| `src/parts/puente_serie.h` | La pieza **es** la `LineaSerie`: decide qué se aplica según D-14. Break sostenido (`set_break`, SET-CONTROL 5/6), las líneas de módem que ve el anfitrión (CTS = el RTS del MCU; DSR y DCD siempre) y un hilo que avisa al canal cuando el MCU mueve su RTS. Los errores y breaks del MCU van al canal como LINESTATE |
+| `src/parts/motor_uart.h` | `EmisorUart::a_cero()`, para el break sostenido |
+| `src/parts/netlist_parts.h` | `rfc2217` deja de rechazarse, y el valor por omisión (`rfc2217:3355`) pasa a ser válido. Ficha actualizada |
+| `src/verif/cliente_2217.h` | El terminal del banco: negocia como pySerial, manda datos con el `IAC` doblado y órdenes esperando su respuesta, **bombeando el canal en tiempo de pared** para que el banco siga siendo determinista |
+| `src/top/sc_main_serie.cpp` | Un tercer puente en los mismos pines, con `host="rfc2217:47357"`, `baudios="host"` y DTR en PB0. Grupos **P18 a P32** |
+| `src/placas/vcp_rfc2217.xml` | La placa de ejemplo, con `baudios="host"` y qué poner al otro lado |
+
+**Una decisión nueva (D-14):** `baudios="host"` entrega al terminal la
+configuración entera de la línea -baudios, formato y control de flujo-, y unos
+baudios fijos se la quitan entera. DTR, RTS y el break son señales, y esas las
+mueve siempre el terminal. La obligó la captura de la D4: el cliente de pySerial
+manda «sin control de flujo» cada vez que abre el puerto, y un `flujo="rtscts"`
+del XML habría durado hasta la primera conexión.
+
+**Dos correcciones del plan (§10.4).** PURGE-DATA estaba al revés: 1 es el búfer
+de **recepción** del servidor (lo que ha llegado del MCU y no ha salido), 2 el de
+**transmisión** (lo que espera para ir al MCU), como dicen la RFC y pySerial. Y
+SUSPEND/RESUME **no se confirman** (el plan decía 108/109): la RFC no lo pide y
+el servidor de pySerial no lo hace. Mientras dura un SUSPEND no sale nada, ni
+datos ni respuestas; las respuestas esperan en la cola y salen al reanudar.
+
+**Lo que se ha comprobado** (`testserie`: 101 → **189**, `400677589564 ps`,
+determinista también con la CPU cargada), siempre mirando el efecto **en los
+pines y en el firmware**, no en el protocolo:
+
+* **P18-P20:** el servidor no manda nada al conectarse (D-13); la negociación
+  acaba en COM-PORT y BINARY en los dos sentidos; llega un MODEMSTATE inicial
+  `0xBB`; la firma; los 255 valores de byte más un `CR NUL` van y vuelven.
+* **P21-P23:** SET-BAUDRATE 9600 **desde el terminal** hace que la USART levante
+  errores; 0 es consulta; 20 Mbaudios se contestan con los que hay. 7E2 desde
+  el terminal: una `C` llega al firmware (en 8N1) como `0xC3`, porque la paridad
+  es su octavo bit. Un cambio de baudios y paridad mientras una `Z` está en la
+  línea espera a la trama siguiente (D-4).
+* **P24:** con los baudios fijos, el terminal recibe los del XML en baudios,
+  formato y flujo, pero RTS sí se mueve.
+* **P25-P27:** break sostenido → PA3 a cero → `LBD` en el firmware; DTR en PB0 y
+  RTS en PA0, en voltios; RTS/CTS pedido por el terminal evita el desbordamiento
+  que P4 provoca; XON/XOFF y el flujo de entrada se contestan como no admitidos.
+* **P28:** una pausa del firmware (RXNE puesto, RTS por hardware arriba) llega al
+  terminal como `0xA1` y la vuelta como `0xB1`; con la máscara a cero, nada.
+* **P29:** con la máscara de LINESTATE a cero (la de omisión), los errores de
+  trama no salen; con `0x0C`, llegan con el bit 3. Se provocan poniendo el
+  puente a 230 400 con una `A` ya en la línea: la `A` llega bien (D-4) y su eco
+  se lee al doble, con la parada cayendo en un cero.
+* **P30-P31:** PURGE 2 tira 100 bytes antes de que lleguen al firmware; SUSPEND
+  retiene el eco y RESUME lo entrega en orden; PURGE 1 tira lo retenido, y su
+  confirmación no sale hasta el RESUME.
+* **P32:** un cliente sin Telnet sustituye al terminal (D-5), su SET-BAUDRATE
+  sin WILL COM-PORT se ignora sin contestar, la sesión empieza de cero, y sin
+  BINARY el CR del eco sale como `CR NUL`.
+
+**Y con `mcu-sim` y pySerial de verdad, a mano:** `placas/vcp_rfc2217.xml` con
+`vcp_demo` y `--tiempo-real`, y un script con `rfc2217://localhost:3355`: eco a
+115200 (con `0xFF` y `0x00`), a 9600 el firmware no devuelve nada (le llegan
+tramas con error), de vuelta a 115200 eco otra vez, `cts`, `dsr` y `cd`
+verdaderos, DTR y un `send_break` sin romper la línea. Es un adelanto de la D6,
+no la D6: esto no está en el CI.
+
+**Cómo se ha comprobado que las pruebas pueden fallar:** ocho mutaciones —PURGE 1
+y 2 cambiados, la máscara de LINESTATE ignorada, el decodificador sin pasar a
+BINARY, el terminal mandando aunque los baudios sean fijos, el break sostenido
+ignorado, sin el delta de CTS, órdenes atendidas sin negociar COM-PORT y SUSPEND
+sin retener las respuestas—: 2, 2, 2, 6, 2, 3, 3 y 2 fallos. La última
+**sobrevivió** a la primera versión del banco (los datos se retenían, pero las
+respuestas salían igual) y se añadió la comprobación que la caza.
+
+**Las otras tres suites, intactas:** `test407` 2118 y `resto` 2240553274213 ps,
+`test446` 204 y 1033367277932 ps, `test417` 165 y 718988288 ps. `make serie`
+(114) y `make rfc2217` (64) siguen igual. `make asanserie` (AddressSanitizer y UBSan): 189 comprobaciones, el mismo tiempo al picosegundo y ni un aviso. Sin avisos nuevos con
+clang, y `prueba_serie` sigue compilando con MinGW.
+
+**Lo que no se ha hecho, dicho:** LINESTATE no notifica desbordamiento (bit 1)
+cuando se llena la cola hacia el anfitrión: se cuenta en `descartados()`. La
+firma no lleva versión, porque el proyecto no tiene número de versión. Un break
+que manda el MCU va como LINESTATE bit 4, pero ningún banco lo provoca:
+`vcp_demo` no manda breaks.
 
 ---
 

@@ -156,10 +156,9 @@ static stm32::gui::Destino g_gui;
 
 // --- Los puentes serie (`PuenteSerie`) --------------------------------------
 // `--serie ID=DESTINO` se aplica sobre lo que dice la placa y se comprueba que
-// no choca con nada (fase D0). Desde la D2 la pieza existe, con el destino
-// `memoria`; el socket llega en la D3 y RFC 2217 en la D5
-// [doc/analisis_puente_serie.md §10], y hasta entonces esos dos modos se
-// rechazan diciendo en qué fase llegan.
+// no choca con nada (fase D0). La pieza existe desde la D2 con el destino
+// `memoria`; el socket en crudo llegó en la D3 y RFC 2217 en la D5
+// [doc/analisis_puente_serie.md §10].
 static std::vector<stm32::serie::Asignacion> g_serie;
 
 // ---------------------------------------------------------------------------

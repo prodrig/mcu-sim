@@ -48,7 +48,7 @@ redactar esta revisión, no solo leído en un informe.
 - **Y un puente UART hacia el ordenador** (**P-14**): una USART del MCU hasta
   un puerto TCP con RFC 2217, y de ahí al puerto serie que ponga una
   herramienta externa. Plan de nueve fases en `doc/analisis_puente_serie.md`;
-  la D0 está hecha en la rama `puente-uart`.
+  de la D0 a la D5 están hechas en la rama `puente-uart`.
 - **Cincuenta y una funciones "bits sin máquina"**: registros que se guardan, se
   enmascaran y se leen correctamente, pero cuya lógica no se ejecuta. Casi todas
   corresponden a caminos que ningún firmware corriente usa, y casi todas están
@@ -295,7 +295,7 @@ en Linux.
 
 **Fase:** posterior a F7. **Analizado y planificado en
 `doc/analisis_puente_serie.md`** (§10, arquitectura D con RFC 2217). **En
-marcha desde 2026-09-29 en la rama `puente-uart`; FASES D0 A D4 EJECUTADAS.**
+marcha desde 2026-09-29 en la rama `puente-uart`; FASES D0 A D5 EJECUTADAS.**
 
 Lo que hace un ST-LINK/V2-1 en una Nucleo: una pieza de placa, `PuenteSerie`,
 colgada de los pines de una USART, que lleva sus bytes a un puerto TCP de esta
@@ -313,14 +313,13 @@ como en la placa.
 | c | ~~La pieza `PuenteSerie`~~ **HECHO**: `parts/puente_serie.h` en los pines, `parts/canal_host.h` con el canal `memoria`, su ficha de `--help`, sus atributos validados antes de montar, el firmware `vcp_demo` y `placas/vcp_memoria.xml`. `testserie` pasa a 79 y `149861131044 ps`; las otras tres suites, intactas | D2 |
 | d | ~~TCP en crudo sobre `red.h`~~ **HECHO**: `CanalTcp` en `localhost`, un cliente (el nuevo sustituye al viejo), reconexión, «no termina sola», aviso sin `--tiempo-real` y `placas/vcp_tcp.xml`. `testserie` pasa a 101 y `236861131044 ps`, **determinista aunque use sockets de verdad**. En reposo, con `--tiempo-real`, un 9 % de un núcleo (el stub de GDB, un 11 % en la misma máquina) | D3 |
 | e | ~~El códec Telnet + RFC 2217~~ **HECHO**: `common/telnet2217.h` (decodificador, codificador y la política del servidor), `make rfc2217` con 64 comprobaciones, contra las RFC y contra **dos sesiones de verdad grabadas**: pySerial contra pySerial, y pySerial contra este códec, que se reproduce byte a byte. Compila para Windows con MinGW sin avisos | D4 |
-| f | RFC 2217 en la pieza: `baudios="host"`, BREAK → `LBD`, líneas de módem, PURGE | D5 |
+| f | ~~RFC 2217 en la pieza~~ **HECHO**: `CanalRfc2217` sobre `CanalTcp` y el códec de la D4; la pieza es la `LineaSerie` que decide lo que pide el terminal. `baudios="host"` entrega al terminal baudios, formato y flujo (**D-14**); break sostenido → `LBD`; DTR y RTS en los pines; LINESTATE y MODEMSTATE con máscaras; PURGE; SUSPEND/RESUME; `placas/vcp_rfc2217.xml`. `testserie` pasa a 189 y `400677589564 ps`, las otras tres intactas. Y `miniterm` de pySerial contra `mcu-sim`, a mano: eco, 9600, vuelta, CTS/DSR/CD, DTR y break | D5 |
 | g | Interoperabilidad: pySerial en CI (cuatro plataformas), socat en Linux y macOS; matriz manual para Windows | D6 |
 | h | Recetas por plataforma (`doc/puente_serie.md`) y `placas/nucleo_f446re_vcp.xml` | D7 |
 | i | Modo cliente, opcional | D8 |
 
-**Lo que la D2 deja sin probar, dicho:** `set_dtr()` y el terminal `dtr` no los
-ejercita ningún banco (en la D5 los moverá RFC 2217 y se probarán entonces); de
-una trama de 9 bits se entregan al anfitrión los 8 de abajo, porque RFC 2217 no
+**Lo que la D2 deja sin probar, dicho:** ~~`set_dtr()` y el terminal `dtr` no
+los ejercita ningún banco~~ (la D5 los prueba, P26); de una trama de 9 bits se entregan al anfitrión los 8 de abajo, porque RFC 2217 no
 admite más; y el canal en memoria no tiene límite hacia el anfitrión, solo hacia
 el MCU.
 

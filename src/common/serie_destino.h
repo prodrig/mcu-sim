@@ -339,6 +339,9 @@ inline Resultado resuelve(const std::vector<Pieza>& placa,
 // algo -o si el destino no es RFC 2217- vale `BAUDIOS_OMISION`.
 inline constexpr double BAUDIOS_OMISION = 115200.0;
 
+// Los límites, que usa también la pieza cuando es el terminal quien los pide.
+inline constexpr unsigned long BAUDIOS_MIN = 50, BAUDIOS_MAX = 10500000;
+
 inline std::string parsea_baudios(const std::string& s, double& out, bool& host) {
     if (s == "host") { host = true; out = BAUDIOS_OMISION; return std::string(); }
     if (!detalle::solo_digitos(s) || s.size() > 8)
@@ -348,7 +351,7 @@ inline std::string parsea_baudios(const std::string& s, double& out, bool& host)
     // Por abajo, 50 baudios es lo mas lento que ofrece un terminal; por arriba,
     // la USART del F407 no pasa de 10,5 Mbit/s (PCLK2 = 84 MHz y sobremuestreo
     // por 8). Fuera de eso no hay nada al otro lado que lo entienda.
-    if (v < 50 || v > 10500000)
+    if (v < BAUDIOS_MIN || v > BAUDIOS_MAX)
         return "'" + s + "' baudios esta fuera de 50..10500000";
     host = false;
     out = double(v);

@@ -419,11 +419,6 @@ inline std::vector<std::string> valida_puente_serie(const Instancia& i) {
     const serie::Destino d = h == i.params.end() ? serie::por_omision()
                                                  : serie::parsea(h->second);
     if (!d.valido) e.push_back(pre + "host=" + d.error);
-    else if (d.modo == serie::Modo::rfc2217)
-        e.push_back(pre + "host=\"" + serie::como_texto(d) + "\"" +
-                    (h == i.params.end() ? " (el de omision)" : "") +
-                    ": RFC 2217 llega en la fase D5 del plan. De momento existen "
-                    "host=\"memoria\" y host=\"tcp:PUERTO\"");
     const bool rx = !i.nodo_de("rx").empty(), tx = !i.nodo_de("tx").empty();
     if (!rx && !tx) e.push_back(pre + "le falta rx y tx: hace falta al menos uno");
     double b; bool bh;
@@ -467,13 +462,17 @@ REGISTRA_PARTE(PuenteSerie,
            "Lee el RTS del MCU: con flujo=\"rtscts\", alto = no le mandes.")
       .pin("rts", "opcional",
            "Gobierna el CTS del MCU: bajo = puede mandar.")
-      .pin("dtr", "opcional", "Alta en reposo; baja si el anfitrion la activa.")
+      .pin("dtr", "opcional",
+           "Alta en reposo; baja si el anfitrion activa DTR (RFC 2217).")
       .atr("host", "rfc2217:3355",
-           "A donde van los bytes: memoria, tcp:PUERTO o rfc2217:PUERTO, siempre "
-           "en esta maquina. HOY EXISTEN memoria y tcp; rfc2217 llega en la "
-           "fase D5. Se cambia sin tocar el XML con --serie ID=DESTINO.")
+           "A donde van los bytes: memoria, tcp:PUERTO (en crudo) o "
+           "rfc2217:PUERTO (Telnet con la opcion 44: el terminal puede cambiar "
+           "baudios, formato, DTR, RTS y mandar breaks), siempre en esta "
+           "maquina. Se cambia sin tocar el XML con --serie ID=DESTINO.")
       .atr("baudios", "115200",
-           "Un numero, o host para que los fije el terminal por RFC 2217.")
+           "Un numero, o host para que los fije el terminal por RFC 2217 (y con "
+           "ellos el formato y el control de flujo). Con un numero, lo que pida "
+           "el terminal se le contesta con lo que hay, y se avisa una vez.")
       .atr("formato", "8N1",
            "Bits (5..9, sin la paridad), paridad N/E/O/M/S y parada 1, 1.5 o 2.")
       .atr("flujo", "no", "no, o rtscts: no manda mientras el RTS del MCU este alto.")
@@ -490,11 +489,16 @@ REGISTRA_PARTE(PuenteSerie,
             "com0com + hub4com o HW VSP3 en Windows). Para solo mirar basta un "
             "terminal que hable TCP: PuTTY en modo Raw, CoolTerm, nc. Vease "
             "doc/analisis_puente_serie.md, 7.")
-      .nota("Con host=tcp la simulacion no termina sola, como con --gdb: se sale "
+      .nota("Con rfc2217, los errores de trama y de paridad y los breaks que "
+            "manda el MCU llegan al terminal como NOTIFY-LINESTATE si los pide "
+            "con su mascara, y el RTS del MCU (terminal cts) como el CTS del "
+            "terminal, en NOTIFY-MODEMSTATE. DSR y DCD siempre estan activas.")
+      .nota("Con host=tcp o rfc2217 la simulacion no termina sola, como con --gdb: se sale "
             "con Ctrl-C. Usese con --tiempo-real, o el terminal vera el ritmo "
             "de la simulacion y no el de la placa.")
       .cpp("envia(texto), recibido(), set_baudios(), set_formato(), "
-           "envia_break(), set_rts(), set_dtr() y los contadores."),
+           "envia_break(), set_break(), set_rts(), set_dtr(), rfc2217() y los "
+           "contadores."),
     [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
         // `sim` ya ha pasado valida_puente_serie(): aqui no se vuelve a
         // explicar nada, solo se construye lo que se sabe construir.

@@ -152,6 +152,9 @@ public:
     // receptor del otro lado ve un nodo sin gobierno.
     void reposo() { nivel(true); }
     void suelta() { net_->set_hiz(id_); }
+    // La línea a cero y ahí se queda, hasta `reposo()`: el break que el
+    // anfitrión enciende y apaga con SET-CONTROL 5 y 6 (fase D5).
+    void a_cero() { nivel(false); }
 
     // Una trama entera: arranque, datos LSB primero, paridad y parada. Bloquea
     // el SC_THREAD que la llama lo que dura la trama, parada incluida.

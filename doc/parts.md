@@ -919,15 +919,15 @@ ve basura y levanta FE/NF**, como en la placa.
 | `tx` | opcional | Gobierna el RX del MCU |
 | `cts` | opcional | Lee el RTS del MCU. Pasivo. Imprescindible con `flujo="rtscts"` |
 | `rts` | opcional | Gobierna el CTS del MCU: bajo = puede mandar |
-| `dtr` | opcional | Alta en reposo, baja si el anfitrión la activa |
+| `dtr` | opcional | Alta en reposo, baja si el anfitrión activa DTR (por RFC 2217) |
 
 Hace falta al menos `rx` o `tx`. Los nombres son los del **adaptador**, como
 vienen serigrafiados en uno de verdad: su `rx` va al TX del MCU.
 
 | Atributo | Por omisión | |
 | :--- | :--- | :--- |
-| `host` | `rfc2217:3355` | `memoria`, `tcp:PUERTO` o `rfc2217:PUERTO`, siempre en `localhost`. **Hoy existen `memoria` y `tcp`**: RFC 2217 llega en la fase D5, y hasta entonces se rechaza diciéndolo. `--serie ID=DESTINO` lo cambia sin tocar el XML. Con `tcp`, la simulación no termina sola (como con `--gdb`) y conviene `--tiempo-real` |
-| `baudios` | `115200` | Un entero entre 50 y 10 500 000, o `host` (los fijará el terminal por RFC 2217) |
+| `host` | `rfc2217:3355` | `memoria`, `tcp:PUERTO` (en crudo) o `rfc2217:PUERTO` (Telnet con la opción 44: el terminal puede fijar la línea, mover DTR y RTS y mandar breaks), siempre en `localhost`. `--serie ID=DESTINO` lo cambia sin tocar el XML. Con `tcp` o `rfc2217`, la simulación no termina sola (como con `--gdb`) y conviene `--tiempo-real` |
+| `baudios` | `115200` | Un entero entre 50 y 10 500 000, o `host`: los fija el terminal por RFC 2217, **y con ellos el formato y el control de flujo**. Con un número, el XML manda: lo que pida el terminal se le contesta con lo que hay, y se avisa una vez |
 | `formato` | `8N1` | Bits de datos **sin contar la paridad** (5..9), paridad `N`/`E`/`O`/`M`/`S` y parada `1`, `1.5` o `2` |
 | `flujo` | `no` | `rtscts`: no manda mientras el RTS del MCU esté alto |
 | `muestra` | `si` | Imprime línea a línea lo que manda el MCU, con el id delante; lo que quede a medias sale al acabar |
@@ -938,12 +938,15 @@ A diferencia del resto del catálogo, **los atributos de esta pieza se validan
 antes de montar**: un formato, unos baudios o un destino mal escritos no se
 quedan en su valor por omisión, se rechazan con el motivo. Una trama con error se
 entrega igual —es la basura que el alumno tiene que ver— y un break se cuenta y
-no se entrega.
+no se entrega. Con `rfc2217`, los dos llegan además al terminal como
+`NOTIFY-LINESTATE` si los pide con su máscara, y el RTS del MCU (terminal `cts`)
+es el CTS del terminal, en `NOTIFY-MODEMSTATE`; DSR y DCD, siempre activas.
 
 Desde C++: `envia(texto)`, `recibido()`, `set_baudios()`, `set_formato()`,
-`envia_break()`, `set_rts()`, `set_dtr()` y los contadores. Ejemplos completos en
-`placas/vcp_memoria.xml` y `placas/vcp_tcp.xml`; este último explica qué poner al
-otro lado del puerto en cada sistema.
+`envia_break()`, `set_break()`, `set_rts()`, `set_dtr()`, `rfc2217()` y los
+contadores. Ejemplos completos en `placas/vcp_memoria.xml`, `placas/vcp_tcp.xml`
+y `placas/vcp_rfc2217.xml`; los dos últimos explican qué poner al otro lado del
+puerto en cada sistema.
 
 ---
 

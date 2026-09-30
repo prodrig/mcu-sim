@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     Un STM32F407VG con un PUENTE UART por RFC 2217 en la USART2 (P-14, fase D5)
+
+     La misma placa que vcp_tcp.xml, pero el puerto habla Telnet con la opcion
+     44 (RFC 2217): el terminal del otro lado puede fijar los baudios, el
+     formato y el control de flujo de la linea simulada, mover DTR y RTS y
+     mandar un break. Con baudios="host", lo que elija el alumno en su terminal
+     es lo que ve la USART del modelo: si no coincide con lo que programa el
+     firmware, la USART levanta sus errores y el terminal ve basura, como en la
+     placa.
+
+         ./build/mcu-sim placas/vcp_rfc2217.xml verif/fw/vcp_demo/vcp_demo.bin --tiempo-real
+
+     No termina sola: como con --gdb, se sale con Ctrl-C.
+
+     AL OTRO LADO, un cliente RFC 2217:
+
+       - Python, con pySerial:
+             python3 -m serial.tools.miniterm rfc2217://localhost:3355 115200
+       - un puerto serie de verdad en Linux o macOS: socat NO habla RFC 2217;
+         para eso esta host="tcp:3355" (vcp_tcp.xml). Con RFC 2217, ttynvt
+         (Linux) o el redirector que se prefiera
+       - un COM en Windows: HW VSP3 (con «Telnet/RFC 2217» marcado) o
+         com0com + com2tcp-rfc2217
+
+     El DTR del terminal sale por PB0 (bajo = activo), por si el firmware lo
+     quiere mirar. El puerto se cambia sin tocar el fichero:
+     --serie VCP=rfc2217:4000.
+     ========================================================================= -->
+<placa nombre="vcp-rfc2217">
+  <componente tipo="PuenteSerie" id="VCP" host="rfc2217:3355"
+              baudios="host" formato="8N1" muestra="si">
+    <pin nombre="rx"  nodo="PA2"/>   <!-- USART2_TX -->
+    <pin nombre="tx"  nodo="PA3"/>   <!-- USART2_RX -->
+    <pin nombre="cts" nodo="PA1"/>   <!-- USART2_RTS -->
+    <pin nombre="dtr" nodo="PB0"/>
+  </componente>
+</placa>
