@@ -467,8 +467,12 @@ REGISTRA_PARTE(PuenteSerie,
       .atr("host", "rfc2217:3355",
            "A donde van los bytes: memoria, tcp:PUERTO (en crudo) o "
            "rfc2217:PUERTO (Telnet con la opcion 44: el terminal puede cambiar "
-           "baudios, formato, DTR, RTS y mandar breaks), siempre en esta "
-           "maquina. Se cambia sin tocar el XML con --serie ID=DESTINO.")
+           "baudios, formato, DTR, RTS y mandar breaks), escuchando siempre en "
+           "esta maquina. O conectandose a un servidor que ya escucha: "
+           "tcp-cliente:HOST:PUERTO y rfc2217-cliente:HOST:PUERTO (este "
+           "configura el puerto remoto con los baudios y el formato del "
+           "puente); reintenta cada segundo. Se cambia sin tocar el XML con "
+           "--serie ID=DESTINO.")
       .atr("baudios", "115200",
            "Un numero, o host para que los fije el terminal por RFC 2217 (y con "
            "ellos el formato y el control de flujo). Con un numero, lo que pida "

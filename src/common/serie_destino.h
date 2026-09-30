@@ -11,12 +11,24 @@
 // ejecutar el programa entero. Lo prueba `make serie` (verif/prueba_serie.cpp),
 // que no necesita SystemC y corre en el trabajo rápido del CI en segundos.
 //
-// LOS TRES MODOS, y son todos los de la arquitectura D:
+// LOS MODOS, y son todos los de la arquitectura D:
 //
 //     memoria            una cola en proceso, para las pruebas. Sin red
 //     tcp:PUERTO         TCP en crudo: los bytes del socket son los de la línea
 //     rfc2217:PUERTO     Telnet con la opción 44 (RFC 2217): los datos, más
 //                        baudios, formato, líneas de módem y break
+//
+// Y sus dos CLIENTES (fase D8), para cuando al otro lado hay un programa que
+// solo sabe ser servidor -ser2tcp, tio, `rfc2217_server.py` de pySerial, un
+// ser2net con un puerto de verdad-:
+//
+//     tcp-cliente:HOST:PUERTO       TCP en crudo, conectándose a HOST
+//     rfc2217-cliente:HOST:PUERTO   RFC 2217 del lado del terminal: el puente
+//                                   CONFIGURA el puerto remoto con sus baudios
+//                                   y su formato
+//
+// Un cliente no escucha, así que no choca con nadie por puerto; y se conecta
+// a donde se le diga, porque es él quien sale (D-7 va de quién puede ENTRAR).
 //
 // Y lo que NO es un destino, dicho en el error en vez de callado:
 //
@@ -24,9 +36,10 @@
 //     arquitectura D `mcu-sim` no abre ninguno: lo pone una herramienta externa
 //     conectada por TCP (§7 del análisis). Quien escribe `COM7` aquí no se ha
 //     equivocado de sintaxis sino de idea, y el mensaje se lo dice;
-//   * el modo cliente (`tcp-cliente:…`), que es la fase D8 y todavía no existe;
-//   * un host. El puente escucha SIEMPRE en esta máquina, como los stubs de GDB
-//     (decisión D-7). `tcp:localhost:3355` se rechaza nombrando el motivo.
+//   * un host en un modo servidor. El puente escucha SIEMPRE en esta máquina,
+//     como los stubs de GDB (decisión D-7). `tcp:localhost:3355` se rechaza
+//     nombrando el motivo, y diciendo que si lo que se quería era CONECTARSE a
+//     ese host, eso es `tcp-cliente:`.
 //
 // EL PUERTO POR OMISIÓN ES EL 3355, y no el 5000 de los ejemplos del análisis.
 // Sigue la serie del proyecto -3333 los dos GDB, 3344 la GUI- y esquiva el 5000,
@@ -46,23 +59,31 @@ namespace serie {
 // El vecino de 3333 (GDB) y 3344 (GUI).
 inline constexpr unsigned PUERTO_OMISION = 3355;
 
-enum class Modo { memoria, tcp, rfc2217 };
+enum class Modo { memoria, tcp, rfc2217, tcp_cliente, rfc2217_cliente };
 
 inline const char* nombre_modo(Modo m) {
     switch (m) {
-    case Modo::memoria: return "memoria";
-    case Modo::tcp:     return "tcp";
-    case Modo::rfc2217: return "rfc2217";
+    case Modo::memoria:         return "memoria";
+    case Modo::tcp:             return "tcp";
+    case Modo::rfc2217:         return "rfc2217";
+    case Modo::tcp_cliente:     return "tcp-cliente";
+    case Modo::rfc2217_cliente: return "rfc2217-cliente";
     }
     return "?";
 }
 
-// ¿Este modo escucha en un puerto? Solo `memoria` no.
-inline bool usa_puerto(Modo m) { return m != Modo::memoria; }
+// ¿Este modo ESCUCHA en un puerto de esta máquina? Es lo que puede chocar con
+// otro puente, con un GDB o con la GUI. Ni `memoria` ni los clientes.
+inline bool usa_puerto(Modo m) { return m == Modo::tcp || m == Modo::rfc2217; }
+// ¿Se conecta él a otro?
+inline bool es_cliente(Modo m) { return m == Modo::tcp_cliente || m == Modo::rfc2217_cliente; }
+// ¿Va por la red, en un sentido u otro?
+inline bool por_red(Modo m) { return m != Modo::memoria; }
 
 struct Destino {
     Modo        modo   = Modo::rfc2217;
     unsigned    puerto = PUERTO_OMISION;   // sin sentido en `memoria`
+    std::string host;                      // solo en los clientes
     bool        valido = true;
     std::string error;                     // vacío si `valido`
 };
@@ -96,6 +117,18 @@ inline std::string minus(std::string s) {
     return s;
 }
 
+// Un nombre de máquina o una IPv4: letras, cifras, puntos y guiones. Nada de
+// IPv6 literal, que lleva `:` y chocaría con el separador del puerto -y el
+// resto del proyecto tampoco habla IPv6-.
+inline bool host_valido(const std::string& h) {
+    if (h.empty() || h.size() > 253) return false;
+    for (char c : h) {
+        const unsigned char u = static_cast<unsigned char>(c);
+        if (!(std::isalnum(u) || c == '.' || c == '-')) return false;
+    }
+    return h.front() != '-' && h.front() != '.';
+}
+
 inline Destino malo(const std::string& porque) {
     Destino d;
     d.valido = false;
@@ -125,7 +158,8 @@ inline bool parece_puerto_del_sistema(const std::string& s) {
 inline Destino parsea(const std::string& s) {
     using detalle::malo;
     static const char* const LOS_QUE_HAY =
-        "memoria, tcp:PUERTO o rfc2217:PUERTO";
+        "memoria, tcp:PUERTO, rfc2217:PUERTO, tcp-cliente:HOST:PUERTO o "
+        "rfc2217-cliente:HOST:PUERTO";
 
     if (s.empty())
         return malo(std::string("falta el destino: ") + LOS_QUE_HAY);
@@ -134,7 +168,8 @@ inline Destino parsea(const std::string& s) {
         return malo("'" + s + "' es un puerto serie del sistema, y mcu-sim no "
                     "abre ninguno: lo pone una herramienta externa conectada "
                     "por TCP (doc/analisis_puente_serie.md, 7). Aqui va "
-                    "tcp:PUERTO o rfc2217:PUERTO");
+                    "tcp:PUERTO o rfc2217:PUERTO (o, si esa herramienta hace "
+                    "de servidor, tcp-cliente:HOST:PUERTO)");
 
     const std::string::size_type dp = s.find(':');
     const std::string modo  = s.substr(0, dp);
@@ -148,17 +183,38 @@ inline Destino parsea(const std::string& s) {
         d.puerto = 0;
         return d;
     }
-    if (modo == "tcp")          d.modo = Modo::tcp;
-    else if (modo == "rfc2217") d.modo = Modo::rfc2217;
+    if (modo == "tcp")                  d.modo = Modo::tcp;
+    else if (modo == "rfc2217")         d.modo = Modo::rfc2217;
+    else if (modo == "tcp-cliente")     d.modo = Modo::tcp_cliente;
+    else if (modo == "rfc2217-cliente") d.modo = Modo::rfc2217_cliente;
     else {
         const std::string m = detalle::minus(modo);
-        if (m == "memoria" || m == "tcp" || m == "rfc2217")
+        if (m == "memoria" || m == "tcp" || m == "rfc2217" ||
+            m == "tcp-cliente" || m == "rfc2217-cliente")
             return malo("se escribe '" + m + "': el modo distingue mayusculas");
-        if (m == "tcp-cliente" || m == "rfc2217-cliente")
-            return malo("el modo cliente ('" + modo + "') es la fase D8 del "
-                        "plan y todavia no existe");
         return malo("modo desconocido '" + modo + "': los que hay son " +
                     LOS_QUE_HAY);
+    }
+
+    if (es_cliente(d.modo)) {
+        // HOST:PUERTO, los dos obligatorios: un cliente sin a dónde ir no es
+        // nada, y suponer `localhost` escondería el error de quien se lo dejó.
+        const std::string::size_type dp2 = resto.rfind(':');
+        if (!hay_p || resto.empty() || dp2 == std::string::npos)
+            return malo("falta el host o el puerto: se escribe " + modo +
+                        ":HOST:PUERTO, como en " + modo + ":127.0.0.1:3355");
+        const std::string host = resto.substr(0, dp2);
+        const std::string pto  = resto.substr(dp2 + 1);
+        if (host.find(':') != std::string::npos)
+            return malo("'" + host + "' no es un host: IPv6 no esta soportado; "
+                        "un nombre o una IPv4, como 127.0.0.1");
+        if (!detalle::host_valido(host))
+            return malo("'" + host + "' no es un host: un nombre o una IPv4, "
+                        "como 127.0.0.1");
+        if (!detalle::puerto_valido(pto, d.puerto))
+            return malo("'" + pto + "' no es un puerto (1..65535)");
+        d.host = host;
+        return d;
     }
 
     if (!hay_p || resto.empty())
@@ -167,7 +223,8 @@ inline Destino parsea(const std::string& s) {
     if (resto.find(':') != std::string::npos)
         return malo("'" + s + "' lleva un host, y el puente no lo admite: "
                     "escucha siempre en esta maquina, como los stubs de GDB. "
-                    "Se escribe " + modo + ":PUERTO");
+                    "Se escribe " + modo + ":PUERTO; y si lo que quieres es "
+                    "conectarte a ese host, " + modo + "-cliente:HOST:PUERTO");
     if (!detalle::puerto_valido(resto, d.puerto))
         return malo("'" + resto + "' no es un puerto (1..65535)");
     return d;
@@ -176,6 +233,9 @@ inline Destino parsea(const std::string& s) {
 // Cómo se escribe de vuelta, en la misma forma en que se lee.
 inline std::string como_texto(const Destino& d) {
     if (d.modo == Modo::memoria) return "memoria";
+    if (es_cliente(d.modo))
+        return std::string(nombre_modo(d.modo)) + ":" + d.host + ":" +
+               std::to_string(d.puerto);
     return std::string(nombre_modo(d.modo)) + ":" + std::to_string(d.puerto);
 }
 
@@ -185,6 +245,10 @@ inline std::string describe(const Destino& d) {
     case Modo::memoria: return "en memoria (sin red)";
     case Modo::tcp:     return "TCP en crudo en localhost:" + std::to_string(d.puerto);
     case Modo::rfc2217: return "RFC 2217 en localhost:" + std::to_string(d.puerto);
+    case Modo::tcp_cliente:
+        return "TCP en crudo hacia " + d.host + ":" + std::to_string(d.puerto) + " (cliente)";
+    case Modo::rfc2217_cliente:
+        return "RFC 2217 hacia " + d.host + ":" + std::to_string(d.puerto) + " (cliente)";
     }
     return "?";
 }

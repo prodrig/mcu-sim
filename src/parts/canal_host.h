@@ -11,6 +11,9 @@
 //   CanalTcp       TCP en crudo sobre common/red.h                   fase D3
 //   CanalRfc2217   TCP con Telnet y la opción 44                     fase D5
 //
+// y, desde la D8, los dos en modo CLIENTE: `CanalTcp` con host y
+// `CanalRfc2217Cliente`, para cuando al otro lado solo hay un servidor.
+//
 // LAS DOS REGLAS DEL CONTRATO, que valen para los tres:
 //
 //   * NADIE BLOQUEA. `leer()` devuelve lo que haya, aunque sea cero bytes, y
@@ -28,6 +31,7 @@
 
 #include <systemc>
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdio>
 #include <cstdint>
@@ -193,18 +197,40 @@ class CanalTcp : public CanalHost {
 public:
     static constexpr std::size_t MAX_SALIDA = 64 * 1024;
 
+    // Servidor: escucha en localhost:PUERTO (D-1, D-7).
     explicit CanalTcp(unsigned puerto, std::size_t cola = 4096)
         : puerto_(puerto), max_(cola) {
         srv_ = red::escucha_local(puerto_);
     }
-    ~CanalTcp() override { red::cerrar(cli_); red::cerrar(srv_); }
+    // CLIENTE (fase D8): se conecta a HOST:PUERTO, y si no puede, o si la
+    // conexión se cae, lo vuelve a intentar cada segundo de reloj. Sin
+    // bloquear nunca: la conexión se empieza en un sondeo y se mira en los
+    // siguientes.
+    CanalTcp(const std::string& host, unsigned puerto, std::size_t cola = 4096)
+        : puerto_(puerto), max_(cola), cliente_(true), host_(host) {}
+    ~CanalTcp() override { red::cerrar(cli_); red::cerrar(srv_); red::cerrar(conectando_); }
 
     // ¿Se pudo abrir el puerto? Si no, lo más probable es que lo tenga otro
-    // programa: otro mcu-sim, un GDB, un servidor cualquiera.
-    bool abierto() const { return red::valido(srv_); }
+    // programa: otro mcu-sim, un GDB, un servidor cualquiera. Un cliente no
+    // abre ninguno: siempre «abierto», y lo que falle se reintenta.
+    bool abierto() const { return cliente_ || red::valido(srv_); }
     unsigned puerto() const { return puerto_; }
+    bool es_cliente() const { return cliente_; }
+    const std::string& host() const { return host_; }
 
     void sondear() override {
+        if (cliente_) {
+            if (!red::valido(cli_)) intenta_conectar();
+        } else {
+            acepta_clientes();
+        }
+        if (!red::valido(cli_)) return;
+        lee_y_manda();
+    }
+
+private:
+    // ---- El servidor: aceptar, y si ya había alguien, sustituirlo ---------
+    void acepta_clientes() {
         if (!red::valido(srv_)) return;
         // Aceptar, y si ya había alguien, sustituirlo.
         for (;;) {
@@ -220,13 +246,72 @@ public:
                                  "sustituye al anterior\n", puerto_);
                 }
             }
-            cli_ = c;
-            ++n_conexiones_;
-            n_recibidos_con_ = n_enviados_con_ = 0;
-            al_conectar();
+            nuevo_cliente(c);
         }
-        if (!red::valido(cli_)) return;
-        // Leer lo que haya, mientras quepa.
+    }
+
+    // ---- El cliente: conectar, sin bloquear, y reintentar -----------------
+    using reloj = std::chrono::steady_clock;
+    static constexpr double REINTENTO_S = 1.0;   // entre intentos
+    static constexpr double PLAZO_S     = 3.0;   // lo que se espera a un connect
+
+    void intenta_conectar() {
+        const auto ahora = reloj::now();
+        if (red::valido(conectando_)) {
+            const int e = red::estado_conexion(conectando_);
+            if (e == 0 && segundos(inicio_, ahora) < PLAZO_S) return;   // sigue
+            if (e <= 0) {                                           // falló, o tarda
+                red::cerrar(conectando_);
+                falla("no contesta");
+                return;
+            }
+            red::socket_t c = conectando_;
+            conectando_ = red::invalido();
+            if (avisado_fallo_) {
+                std::fflush(stdout);
+                std::fprintf(stderr, "  [serie] %s:%u: conectado\n", host_.c_str(), puerto_);
+            }
+            avisado_fallo_ = false;
+            nuevo_cliente(c);
+            return;
+        }
+        if (ahora < proximo_) return;
+        if (!dir_ok_) {
+            dir_ok_ = red::direccion_ipv4(host_.c_str(), puerto_, dir_);
+            // Resolver un nombre BLOQUEA (getaddrinfo no tiene versión sin
+            // bloqueo portable), así que un nombre que no resuelve se vuelve
+            // a intentar cada diez segundos y no cada uno: si el DNS tarda,
+            // la simulación se para ese rato. Con una IP no pasa nunca.
+            if (!dir_ok_) { falla("no se encuentra esa maquina", 10.0); return; }
+        }
+        conectando_ = red::empieza_conexion(dir_);
+        inicio_ = ahora;
+        ++n_intentos_;
+        if (!red::valido(conectando_)) falla("no se puede abrir un socket");
+    }
+    void falla(const char* porque, double tras_s = REINTENTO_S) {
+        proximo_ = reloj::now() + std::chrono::milliseconds(int(tras_s * 1000));
+        if (avisado_fallo_) return;
+        avisado_fallo_ = true;
+        std::fflush(stdout);
+        std::fprintf(stderr, "  [serie] %s:%u: %s; se reintenta cada %s\n",
+                     host_.c_str(), puerto_, porque,
+                     tras_s > REINTENTO_S ? "diez segundos" : "segundo");
+    }
+    static double segundos(reloj::time_point a, reloj::time_point b) {
+        return std::chrono::duration<double>(b - a).count();
+    }
+
+    void nuevo_cliente(red::socket_t c) {
+        cli_ = c;
+        ++n_conexiones_;
+        n_recibidos_con_ = n_enviados_con_ = 0;
+        al_conectar();
+        vacia_salida();                    // lo que haya encolado al_conectar
+    }
+
+    // ---- Leer lo que haya, mientras quepa, y mandar lo pendiente ----------
+    void lee_y_manda() {
         char b[512];
         while (entrada_.size() < max_) {
             const std::size_t hueco = std::min(sizeof b, max_ - entrada_.size());
@@ -245,6 +330,7 @@ public:
         vacia_salida();
     }
 
+public:
     std::size_t leer(uint8_t* b, std::size_t n) override {
         std::size_t k = 0;
         while (k < n && !entrada_.empty()) { b[k++] = entrada_.front(); entrada_.pop_front(); }
@@ -260,11 +346,14 @@ public:
     }
     bool conectado() const override { return red::valido(cli_); }
     std::string describir() const override {
+        if (cliente_)
+            return "TCP en crudo hacia " + host_ + ":" + std::to_string(puerto_) + " (cliente)";
         return "TCP en crudo en localhost:" + std::to_string(puerto_);
     }
     std::size_t pendientes() const override { return entrada_.size(); }
 
     uint64_t conexiones()  const { return n_conexiones_; }
+    uint64_t intentos()    const { return n_intentos_; }     // solo el cliente
     uint64_t sustituidos() const { return n_sustituidos_; }
     uint64_t recibidos()   const { return n_recibidos_; }
     // Lo que ha pasado por el socket con el cliente ACTUAL, en cada sentido.
@@ -310,10 +399,13 @@ protected:
         }
     }
     // Lo que quedara por mandar a un cliente que se va, se pierde y se cuenta.
+    // Si el que se va es el servidor al que se conectó el modo cliente, se
+    // vuelve a intentar dentro de un segundo, avisando.
     void suelta_cliente() {
         red::cerrar(cli_);
         n_descartados_ += salida_.size();
         salida_.clear();
+        if (cliente_) falla("se ha perdido la conexion");
     }
 
     std::deque<uint8_t> entrada_;
@@ -324,6 +416,15 @@ private:
     std::size_t         max_;
     red::socket_t       srv_ = red::invalido();
     red::socket_t       cli_ = red::invalido();
+    // El modo cliente
+    bool                cliente_ = false;
+    std::string         host_;
+    sockaddr_in         dir_{};
+    bool                dir_ok_ = false;
+    red::socket_t       conectando_ = red::invalido();
+    reloj::time_point   inicio_{}, proximo_{};
+    bool                avisado_fallo_ = false;
+    uint64_t            n_intentos_ = 0;
     uint64_t            n_conexiones_ = 0, n_sustituidos_ = 0, n_recibidos_ = 0;
     uint64_t            n_recibidos_con_ = 0, n_enviados_con_ = 0;
     bool                avisado_sust_ = false;
@@ -575,6 +676,126 @@ private:
     std::string           firma_cliente_;
     uint64_t              n_ordenes_ = 0, n_ignoradas_ = 0, n_linestate_ = 0,
                           n_modemstate_ = 0;
+};
+
+
+// ---------------------------------------------------------------------------
+// El cliente RFC 2217 (fase D8)
+// ---------------------------------------------------------------------------
+// Con `rfc2217-cliente:HOST:PUERTO` el puente hace de TERMINAL frente a un
+// servidor RFC 2217 -`rfc2217_server.py` de pySerial, ser2net, un servidor de
+// puertos- que tiene un puerto serie de verdad (o un pty) al otro lado. Así que
+// los papeles se dan la vuelta: es el puente el que ofrece COM-PORT y el que
+// CONFIGURA el puerto remoto, con lo que tiene la línea simulada -sus baudios,
+// su formato, su control de flujo-, que se le pide a la pieza con las mismas
+// consultas de `LineaSerie` (el 0 de cada `pide_*`).
+//
+// De lo que contesta el servidor se guarda lo último de cada orden, para quien
+// quiera comprobarlo; sus notificaciones se cuentan y no se usan: la línea
+// simulada no tiene a quién darle un CTS remoto. Y un SUSPEND del servidor se
+// respeta: se deja de mandar hasta el RESUME.
+class CanalRfc2217Cliente : public CanalTcp {
+public:
+    CanalRfc2217Cliente(const std::string& host, unsigned puerto, std::size_t cola = 4096,
+                        LineaSerie* linea = nullptr)
+        : CanalTcp(host, puerto, cola), linea_(linea) {}
+
+    void set_linea(LineaSerie* l) { linea_ = l; }
+
+    std::string describir() const override {
+        return "RFC 2217 hacia " + host() + ":" + std::to_string(puerto()) + " (cliente)";
+    }
+
+    void escribir(const uint8_t* b, std::size_t n) override {
+        if (!hay_cliente()) { n_descartados_ += n; return; }
+        std::string e;
+        telnet::escapa(b, n, neg_.binario_salida(), e);
+        for (std::size_t i = 0; i < e.size(); ++i) {
+            if (salida_.size() >= MAX_SALIDA) {
+                ++n_descartados_;
+                if (uint8_t(e[i]) == telnet::IAC && i + 1 < e.size()) ++i;
+                continue;
+            }
+            salida_ += e[i];
+        }
+        vacia_salida();
+    }
+
+    // --- Lo que mira un banco de pruebas --------------------------------------
+    const telnet::NegociadorCliente& negociador() const { return neg_; }
+    bool configurado() const { return configurado_; }
+    // La última respuesta del servidor a cada orden (código del cliente, 0..12),
+    // o vacía si no ha contestado.
+    const std::vector<uint8_t>& respuesta(uint8_t cod) const { return resp_[cod % 13]; }
+    uint64_t notificaciones() const { return n_notif_; }
+    bool suspendido() const { return suspendido_; }
+
+protected:
+    void al_conectar() override {
+        dec_ = telnet::Decodificador{};
+        neg_ = telnet::NegociadorCliente{};
+        configurado_ = suspendido_ = false;
+        for (auto& r : resp_) r.clear();
+        encola_crudo(neg_.inicio());
+    }
+    bool puede_mandar() const override { return !suspendido_; }
+
+    void recibidos(const uint8_t* b, std::size_t n) override {
+        std::vector<uint8_t> datos;
+        std::vector<telnet::Suceso> ev;
+        for (std::size_t i = 0; i < n; ++i) {
+            datos.clear();
+            ev.clear();
+            dec_.alimenta(b + i, 1, datos, ev);
+            for (uint8_t c : datos) entrada_.push_back(c);
+            for (const auto& s : ev) atiende(s);
+        }
+        vacia_salida();
+    }
+
+private:
+    void atiende(const telnet::Suceso& s) {
+        using telnet::Suceso;
+        namespace cpo = telnet::cpo;
+        if (s.tipo == Suceso::Tipo::negociacion) {
+            encola_crudo(neg_.recibe(s.verbo, s.opcion));
+            dec_.set_binario(neg_.binario_entrada());
+            if (neg_.com_port() && !configurado_) configura();
+            return;
+        }
+        telnet::OrdenCpo o;
+        if (!telnet::es_cpo(s, o)) return;
+        if (o.cod == cpo::FLOWCONTROL_SUSPEND + cpo::RESPUESTA) { suspendido_ = true; return; }
+        if (o.cod == cpo::FLOWCONTROL_RESUME + cpo::RESPUESTA) { suspendido_ = false; return; }
+        if (o.cod == cpo::NOTIFY_LINESTATE + cpo::RESPUESTA ||
+            o.cod == cpo::NOTIFY_MODEMSTATE + cpo::RESPUESTA) { ++n_notif_; return; }
+        if (o.cod >= cpo::RESPUESTA && o.cod <= cpo::RESPUESTA + cpo::PURGE_DATA)
+            resp_[o.cod - cpo::RESPUESTA] = o.valor;
+    }
+
+    // La configuración de la línea simulada, al puerto remoto. Una vez por
+    // conexión, en cuanto el servidor acepta COM-PORT.
+    void configura() {
+        configurado_ = true;
+        namespace cpo = telnet::cpo;
+        const uint32_t baud = linea_ ? linea_->pide_baudios(0) : 115200u;
+        const uint8_t  dat  = linea_ ? linea_->pide_datos(0)   : uint8_t(8);
+        const uint8_t  par  = linea_ ? linea_->pide_paridad(0) : uint8_t(1);
+        const uint8_t  sto  = linea_ ? linea_->pide_parada(0)  : uint8_t(1);
+        const uint8_t  flu  = linea_ ? linea_->pide_control(0) : uint8_t(1);
+        encola_crudo(telnet::orden_2217(cpo::SET_BAUDRATE, telnet::u32_red(baud)));
+        encola_crudo(telnet::orden_2217(cpo::SET_DATASIZE, {dat}));
+        encola_crudo(telnet::orden_2217(cpo::SET_PARITY, {par}));
+        encola_crudo(telnet::orden_2217(cpo::SET_STOPSIZE, {sto}));
+        encola_crudo(telnet::orden_2217(cpo::SET_CONTROL, {flu}));
+    }
+
+    LineaSerie*               linea_;
+    telnet::Decodificador     dec_;
+    telnet::NegociadorCliente neg_;
+    bool                      configurado_ = false, suspendido_ = false;
+    std::vector<uint8_t>      resp_[13];
+    uint64_t                  n_notif_ = 0;
 };
 
 } // namespace stm32

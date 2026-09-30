@@ -5,7 +5,8 @@
 // el ST-LINK/V2-1 de una Nucleo con su puerto COM virtual: un UART de placa
 // colgado de dos pines del MCU, que lleva los bytes a otro sitio. Aquí ese
 // otro sitio es un `CanalHost` (parts/canal_host.h): en esta fase, una cola en
-// memoria (D2), un puerto TCP en crudo (D3) o RFC 2217 (D5).
+// memoria (D2), un puerto TCP en crudo (D3) o RFC 2217 (D5), escuchando o, desde
+// la D8, conectándose a un servidor (`tcp-cliente:`, `rfc2217-cliente:`).
 //
 // VA EN LOS PINES (opción M1 del análisis), como el resto de `parts/`. Lee el
 // TX del MCU con el mismo receptor que `SwoReceiver` y gobierna su RX con un
@@ -100,6 +101,14 @@ SC_MODULE(PuenteSerie), public ExtPartBase, public LineaSerie {
             break;
         case serie::Modo::tcp:
             tcp_ = new CanalTcp(c.destino.puerto, c.cola);
+            break;
+        // Los clientes (D8). En RFC 2217 la pieza sigue siendo la LineaSerie:
+        // el canal le PREGUNTA la configuración para mandarla al servidor.
+        case serie::Modo::tcp_cliente:
+            tcp_ = new CanalTcp(c.destino.host, c.destino.puerto, c.cola);
+            break;
+        case serie::Modo::rfc2217_cliente:
+            tcp_ = new CanalRfc2217Cliente(c.destino.host, c.destino.puerto, c.cola, this);
             break;
         case serie::Modo::memoria:
             break;

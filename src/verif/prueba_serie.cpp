@@ -91,9 +91,15 @@ int main() {
         { "udp:3355",            "modo desconocido" },
         { "RFC2217:3355",        "se escribe 'rfc2217'" },
         { "Tcp:3355",            "se escribe 'tcp'" },
-        { "tcp-cliente:h:3355",  "fase D8" },
-        { "rfc2217-cliente:h:1", "fase D8" },
-        { "tcp:localhost:3355",  "host" },
+        { "tcp-cliente",         "falta el host o el puerto" },
+        { "tcp-cliente:3355",    "falta el host o el puerto" },
+        { "tcp-cliente:h:",      "no es un puerto" },
+        { "tcp-cliente::3355",   "no es un host" },
+        { "rfc2217-cliente:h:0", "no es un puerto" },
+        { "tcp-cliente:a_b:1",   "no es un host" },
+        { "tcp-cliente:::1:22",  "IPv6" },
+        { "TCP-cliente:h:1",     "se escribe 'tcp-cliente'" },
+        { "tcp:localhost:3355",  "tcp-cliente:HOST:PUERTO" },
         { "COM7",                "puerto serie del sistema" },
         { "com12",               "puerto serie del sistema" },
         { "/dev/ttyUSB0",        "herramienta externa" },
@@ -369,6 +375,53 @@ int main() {
                   "\\x con una sola cifra se rechaza");
         comprueba(desescapa("\\xG1", g).find("dos cifras") != std::string::npos,
                   "\\x con una letra que no es hexadecimal se rechaza");
+    }
+
+    // --- 9. Los clientes (fase D8) -------------------------------------------
+    grupo("9. El modo cliente: tcp-cliente y rfc2217-cliente");
+    {
+        const Destino d = parsea("tcp-cliente:127.0.0.1:7000");
+        comprueba(d.valido && d.modo == Modo::tcp_cliente && d.host == "127.0.0.1" &&
+                  d.puerto == 7000, "tcp-cliente:127.0.0.1:7000");
+        const Destino e = parsea("rfc2217-cliente:ser2net.lab-3.upv.es:2001");
+        comprueba(e.valido && e.modo == Modo::rfc2217_cliente &&
+                  e.host == "ser2net.lab-3.upv.es" && e.puerto == 2001,
+                  "rfc2217-cliente con un nombre de maquina, con puntos y guion");
+        comprueba(es_cliente(d.modo) && es_cliente(e.modo) && !es_cliente(Modo::tcp) &&
+                  !es_cliente(Modo::memoria), "es_cliente distingue los dos");
+        comprueba(!usa_puerto(Modo::tcp_cliente) && !usa_puerto(Modo::rfc2217_cliente) &&
+                  por_red(Modo::tcp_cliente) && !por_red(Modo::memoria),
+                  "un cliente no escucha en ningun puerto, pero va por la red");
+    }
+    for (const char* t : { "tcp-cliente:localhost:1", "rfc2217-cliente:10.0.0.7:65535" })
+        comprueba(como_texto(parsea(t)) == t,
+                  std::string("'") + t + "' se lee y se vuelve a escribir igual");
+    comprueba(describe(parsea("rfc2217-cliente:h:2217")) ==
+              "RFC 2217 hacia h:2217 (cliente)",
+              "la descripcion dice a donde y que es el cliente");
+    comprueba(describe(parsea("tcp-cliente:h:9")) == "TCP en crudo hacia h:9 (cliente)",
+              "tambien en crudo");
+    {
+        // Un cliente al puerto de un GDB, o al mismo que otro puente de la
+        // placa, NO choca: no escucha. Dos puentes de la misma placa unidos
+        // por TCP, uno escuchando y el otro conectandose, es un montaje que
+        // tiene sentido: las UART de dos MCU por un cable virtual.
+        const std::vector<Pieza> p = {
+            { "A", parsea("tcp:4000") },
+            { "B", parsea("tcp-cliente:127.0.0.1:4000") } };
+        const std::vector<Ocupado> gdb = { { 4000, "el GDB" } };
+        comprueba(resuelve(p, {}, {}).errores.empty(),
+                  "un puente escuchando y otro conectandose a el: vale");
+        const Resultado r = resuelve({ { "B", parsea("tcp-cliente:127.0.0.1:3333") } },
+                                     {}, { { 3333, "el GDB" } });
+        comprueba(r.errores.empty(), "un cliente al puerto de un GDB no choca");
+        comprueba(!resuelve(p, {}, gdb).errores.empty(),
+                  "pero el que escucha sigue chocando con el GDB");
+    }
+    {
+        const Asignacion a = parsea_asignacion("VCP=rfc2217-cliente:127.0.0.1:2217");
+        comprueba(a.valido && a.destino.modo == Modo::rfc2217_cliente &&
+                  a.destino.host == "127.0.0.1", "--serie VCP=rfc2217-cliente:127.0.0.1:2217");
     }
 
     std::printf("RESULTADO %u ok, %u fallos\n", g_ok, g_mal);

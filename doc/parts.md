@@ -926,7 +926,7 @@ vienen serigrafiados en uno de verdad: su `rx` va al TX del MCU.
 
 | Atributo | Por omisión | |
 | :--- | :--- | :--- |
-| `host` | `rfc2217:3355` | `memoria`, `tcp:PUERTO` (en crudo) o `rfc2217:PUERTO` (Telnet con la opción 44: el terminal puede fijar la línea, mover DTR y RTS y mandar breaks), siempre en `localhost`. `--serie ID=DESTINO` lo cambia sin tocar el XML. Con `tcp` o `rfc2217`, la simulación no termina sola (como con `--gdb`) y conviene `--tiempo-real` |
+| `host` | `rfc2217:3355` | `memoria`, `tcp:PUERTO` (en crudo) o `rfc2217:PUERTO` (Telnet con la opción 44: el terminal puede fijar la línea, mover DTR y RTS y mandar breaks), escuchando siempre en `localhost`. O **conectándose** a un servidor que ya escucha: `tcp-cliente:HOST:PUERTO` o `rfc2217-cliente:HOST:PUERTO` (este configura el puerto remoto con la línea del puente), reintentando cada segundo. `--serie ID=DESTINO` lo cambia sin tocar el XML. Con cualquier destino de red, la simulación no termina sola (como con `--gdb`) y conviene `--tiempo-real` |
 | `baudios` | `115200` | Un entero entre 50 y 10 500 000, o `host`: los fija el terminal por RFC 2217, **y con ellos el formato y el control de flujo**. Con un número, el XML manda: lo que pida el terminal se le contesta con lo que hay, y se avisa una vez |
 | `formato` | `8N1` | Bits de datos **sin contar la paridad** (5..9), paridad `N`/`E`/`O`/`M`/`S` y parada `1`, `1.5` o `2` |
 | `flujo` | `no` | `rtscts`: no manda mientras el RTS del MCU esté alto |

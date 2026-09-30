@@ -40,10 +40,12 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 try:
     import serial
+    import serial.rfc2217 as rfc
 except ImportError:
     print("  [FALLO] falta pySerial: pip install pyserial (o python3-serial)")
     sys.exit(2)
@@ -81,10 +83,11 @@ class Simulador:
     """Un mcu-sim con la placa vcp_rfc2217.xml y vcp_demo, en un puerto."""
 
     def __init__(self, sim, modo, puerto, tiempo_real, log,
-                 placa="placas/vcp_rfc2217.xml", extra=()):
+                 placa="placas/vcp_rfc2217.xml", extra=(), host_puerto=None):
         self.puerto = puerto
+        destino = "%s:%s" % (modo, host_puerto) if host_puerto else "%s:%d" % (modo, puerto)
         args = [sim, placa, "verif/fw/vcp_demo/vcp_demo.bin",
-                "--serie", "VCP=%s:%d" % (modo, puerto)] + list(extra)
+                "--serie", "VCP=" + destino] + list(extra)
         if tiempo_real:
             args.append("--tiempo-real")
         self.log = open(log, "w")
@@ -424,6 +427,158 @@ def espera_terminal(sim, tiempo_real, dir_log, con_socat):
         s.para()
 
 
+# ---------------------------------------------------------------------------
+# El modo cliente (fase D8)
+# ---------------------------------------------------------------------------
+def lee_socket(c, n, seg=3.0):
+    r = b""
+    t0 = time.time()
+    c.settimeout(0.1)
+    while len(r) < n and time.time() - t0 < seg:
+        try:
+            x = c.recv(n - len(r))
+            if not x:
+                break
+            r += x
+        except socket.timeout:
+            pass
+    return r
+
+
+def cliente_tcp(sim, tiempo_real, dir_log):
+    # mcu-sim se conecta a un servidor que TODAVIA NO EXISTE: tiene que
+    # reintentar, conectarse cuando aparezca, y volver a hacerlo si se cae.
+    grupo("I12 tcp-cliente: mcu-sim se conecta a un servidor, reintentando")
+    srv = socket.socket()
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    puerto = srv.getsockname()[1]
+    srv.close()                                  # todavia no escucha nadie
+    log = os.path.join(dir_log, "interop_tcp_cliente.log")
+    s = Simulador(sim, "tcp-cliente", 0, tiempo_real, log, extra=["--espera-terminal"],
+                  host_puerto="127.0.0.1:%d" % puerto)
+    try:
+        time.sleep(2.5)                          # dos o tres intentos fallidos
+        check(s.p.poll() is None, "mcu-sim sigue vivo sin servidor al otro lado")
+        srv = socket.socket()
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", puerto))
+        srv.listen(1)
+        srv.settimeout(5)
+        c, _ = srv.accept()
+        check(True, "cuando aparece el servidor, mcu-sim se conecta")
+        check(lee_socket(c, len(SALUDO)) == SALUDO,
+              "y con --espera-terminal el saludo es lo primero que llega")
+        c.sendall(b"cliente\r\n")
+        check(lee_socket(c, 9) == b"cliente\r\n", "el eco")
+        c.close()                                # el servidor se va...
+        c, _ = srv.accept()                      # ...y mcu-sim vuelve
+        c.sendall(b"otra\r\n")
+        check(lee_socket(c, 6) == b"otra\r\n",
+              "si el servidor cierra, mcu-sim se reconecta solo, y el eco sigue")
+        c.close()
+        srv.close()
+    except Exception as e:
+        check(False, "excepcion: %s: %s" % (type(e).__name__, e))
+    finally:
+        s.para()
+    with open(log) as f:
+        texto = f.read()
+    check("se reintenta cada segundo" in texto,
+          "y lo dice en la consola: '... se reintenta cada segundo'")
+
+
+class PtySerial(serial.Serial):
+    """Un pty no tiene lineas de modem: TIOCMGET da ENOTTY. El PortManager de
+    pySerial las lee al activarse COM-PORT, y sin esto se cae. Es por lo que
+    `rfc2217_server.py` no sirve TAL CUAL sobre un pty de socat."""
+    def _linea(self, nombre):
+        try:
+            return getattr(serial.Serial, nombre).fget(self)
+        except OSError:
+            return False
+    cts = property(lambda self: self._linea("cts"))
+    dsr = property(lambda self: self._linea("dsr"))
+    ri = property(lambda self: self._linea("ri"))
+    cd = property(lambda self: self._linea("cd"))
+
+
+def cliente_rfc2217(sim, tiempo_real, dir_log):
+    # Un servidor RFC 2217 hecho con el PortManager de pySerial, que es lo que
+    # hay dentro de su `rfc2217_server.py`, sobre un extremo de un par de ptys
+    # de socat; en el otro extremo, el «terminal» del alumno. mcu-sim hace de
+    # CLIENTE: se conecta y configura el puerto remoto con su linea.
+    grupo("I13 rfc2217-cliente: contra el servidor de pySerial, sobre un pty")
+    d = tempfile.mkdtemp(prefix="d8")
+    A, B = os.path.join(d, "a"), os.path.join(d, "b")
+    so = subprocess.Popen(["socat", "pty,link=%s,raw,echo=0" % A,
+                           "pty,link=%s,raw,echo=0" % B],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    s = None
+    try:
+        t0 = time.time()
+        while not (os.path.exists(A) and os.path.exists(B)) and time.time() - t0 < 10:
+            time.sleep(0.05)
+        remoto = PtySerial(A, 9600, timeout=0)   # el servidor lo abre a 9600
+        srv = socket.socket()
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        puerto = srv.getsockname()[1]
+        fallo = []
+
+        def servidor():
+            try:
+                c, _ = srv.accept()
+                c.settimeout(0.02)
+
+                class Conexion:
+                    def write(self, x):
+                        c.sendall(x)
+                pm = rfc.PortManager(remoto, Conexion())
+                while True:
+                    try:
+                        x = c.recv(4096)
+                        if not x:
+                            break
+                        remoto.write(b"".join(pm.filter(x)))
+                    except socket.timeout:
+                        pass
+                    n = remoto.in_waiting
+                    if n:
+                        c.sendall(b"".join(pm.escape(remoto.read(n))))
+                    pm.check_modem_lines()
+            except OSError:
+                pass
+            except Exception as e:                # que no muera en silencio
+                fallo.append(e)
+
+        threading.Thread(target=servidor, daemon=True).start()
+        terminal = serial.Serial(B, 115200, timeout=0.5)
+        s = Simulador(sim, "rfc2217-cliente", 0, tiempo_real,
+                      os.path.join(dir_log, "interop_rfc2217_cliente.log"),
+                      extra=["--espera-terminal"], host_puerto="127.0.0.1:%d" % puerto)
+        check(lee(terminal, len(SALUDO), 10.0) == SALUDO,
+              "el saludo llega al terminal, a traves del servidor RFC 2217")
+        check(eco(terminal, b"por rfc2217\r\n") == b"por rfc2217\r\n", "y el eco")
+        check(remoto.baudrate == 115200,
+              "mcu-sim configuro el puerto del servidor: de 9600 a 115200 (%d)"
+              % remoto.baudrate)
+        check(remoto.bytesize == 8 and remoto.parity == serial.PARITY_NONE and
+              remoto.stopbits == serial.STOPBITS_ONE, "y en 8N1")
+        check(not fallo, "el servidor no ha fallado" +
+              ("" if not fallo else ": %r" % fallo[0]))
+        terminal.close()
+    except Exception as e:
+        check(False, "excepcion: %s: %s" % (type(e).__name__, e))
+    finally:
+        if s:
+            s.para()
+        so.terminate()
+        so.wait()
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def main():
     a = argparse.ArgumentParser(description="El puente UART contra clientes de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -446,6 +601,9 @@ def main():
     fijos(o.sim, tr, dir_log)
     crudo(o.sim, tr, dir_log, con_socat)
     espera_terminal(o.sim, tr, dir_log, con_socat)
+    cliente_tcp(o.sim, tr, dir_log)
+    if con_socat:
+        cliente_rfc2217(o.sim, tr, dir_log)
     print("\n=====================================================")
     print("TOTAL INTEROP : %d comprobaciones OK, %d fallos" % (ok, fallos))
     print("=====================================================")

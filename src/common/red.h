@@ -45,8 +45,10 @@
 #  include <ws2tcpip.h>
 #else
 #  include <sys/socket.h>
+#  include <sys/select.h>
 #  include <netinet/in.h>
 #  include <netinet/tcp.h>
+#  include <netdb.h>
 #  include <fcntl.h>
 #  include <unistd.h>
 #  include <errno.h>
@@ -232,6 +234,74 @@ inline socket_t conecta_local(unsigned puerto) {
     if (!no_bloqueante(s))                          { cerrar(s); return invalido(); }
     sin_nagle(s);
     return s;
+}
+
+// ---------------------------------------------------------------------------
+// Y un tercer montaje, para el modo cliente del puente serie (P-14, fase D8):
+// conectarse a un HOST cualquiera SIN BLOQUEAR. `conecta_local` bloquea en el
+// `connect`, y contra 127.0.0.1 eso es instantaneo -se acepta o se rechaza en
+// el acto-; contra otra maquina puede tardar lo que tarde el TCP en rendirse,
+// con la simulacion entera parada. Aqui se empieza la conexion y se pregunta
+// despues si ha terminado, en cada sondeo.
+//
+// Solo IPv4, como el resto del fichero.
+// ---------------------------------------------------------------------------
+inline bool direccion_ipv4(const char* host, unsigned puerto, sockaddr_in& a) {
+    if (!arranca()) return false;
+    addrinfo pista{};
+    pista.ai_family   = AF_INET;
+    pista.ai_socktype = SOCK_STREAM;
+    addrinfo* r = nullptr;
+    if (::getaddrinfo(host, nullptr, &pista, &r) != 0 || !r) return false;
+    a = *reinterpret_cast<const sockaddr_in*>(r->ai_addr);
+    a.sin_port = htons(uint16_t(puerto));
+    ::freeaddrinfo(r);
+    return true;
+}
+
+// Empieza a conectarse. Devuelve el socket, ya no bloqueante, con la conexion
+// EN CURSO (o ya hecha), o invalido() si ni siquiera se pudo empezar.
+inline socket_t empieza_conexion(const sockaddr_in& a) {
+    if (!arranca()) return invalido();
+    socket_t s = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (!valido(s)) return invalido();
+    sin_sigpipe(s);
+    if (!no_bloqueante(s)) { cerrar(s); return invalido(); }
+    if (::connect(s, reinterpret_cast<const sockaddr*>(&a), sizeof a) == 0) return s;
+#if defined(_WIN32)
+    const bool en_curso = ::WSAGetLastError() == WSAEWOULDBLOCK;
+#else
+    const bool en_curso = errno == EINPROGRESS || errno == EINTR;
+#endif
+    if (!en_curso) { cerrar(s); return invalido(); }
+    return s;
+}
+
+// ¿Ha terminado la conexion que empezo `empieza_conexion`? 1 si esta hecha, 0
+// si sigue en curso y -1 si ha fallado (y entonces hay que cerrar el socket).
+// Sin esperar: un `select` con tiempo cero. Windows avisa del fallo por el
+// conjunto de excepciones, y POSIX marcandolo como escribible con SO_ERROR.
+inline int estado_conexion(socket_t s) {
+    fd_set esc, exc;
+    FD_ZERO(&esc);
+    FD_ZERO(&exc);
+    FD_SET(s, &esc);
+    FD_SET(s, &exc);
+    timeval cero{0, 0};
+#if defined(_WIN32)
+    const int n = ::select(0, nullptr, &esc, &exc, &cero);     // nfds se ignora
+#else
+    const int n = ::select(s + 1, nullptr, &esc, &exc, &cero);
+#endif
+    if (n < 0) return -1;
+    if (n == 0) return 0;
+    if (FD_ISSET(s, &exc)) return -1;
+    int err = 0;
+    socklen_t l = sizeof err;
+    if (::getsockopt(s, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&err), &l) != 0 ||
+        err != 0) return -1;
+    sin_nagle(s);
+    return 1;
 }
 
 } // namespace red

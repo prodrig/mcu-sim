@@ -684,6 +684,7 @@ RFC 2217 pasa de S4 a justo después de S1.
 | D-14 | ¿Qué gobierna `baudios="host"`? | **La configuración entera de la línea: baudios, formato y control de flujo.** Con unos baudios fijos, el XML manda en las tres y el terminal recibe los valores del XML (con un aviso, una vez). DTR, RTS y el break los mueve **siempre** el terminal | El cliente de pySerial manda `SET-CONTROL 1` (sin control de flujo) cada vez que abre el puerto: si el control de flujo fuera siempre del terminal, un `flujo="rtscts"` del XML duraría hasta que se conectase alguien. DTR, RTS y break no son configuración, son señales. *(Decidido en D5.)* |
 | D-15 | ¿Cómo se ve lo que el firmware imprime al arrancar? | **`--espera-terminal`**: con el tiempo simulado en cero, `mcu-sim` no da corriente al MCU hasta que cada puente por red tiene su terminal **y ese terminal lleva 300 ms sin mandar nada** (con RFC 2217, además, con la negociación terminada si la empezó; como mucho 2 s) | Sin ello el saludo sale cuando no hay nadie y se descarta (D-6). No basta con «conectado»: pySerial, al abrir, configura el puerto y **purga lo recibido** al final, y lo que el MCU mandase en medio se perdería igual; medido. Es lo que en la placa se hace abriendo el terminal y pulsando RESET. Con socat hace falta `wait-slave`, o socat se conecta antes de que nadie abra el pty. *(Decidido en D7.)* |
 | D-16 | ¿Llevan los paquetes con qué probar el puerto serie? | **Sí: `ejemplos/`** con `nucleo_f446re_vcp.xml`, `vcp_rfc2217.xml` y `vcp_demo.bin` (unos 4 KB) | Sin una placa con la pieza y un firmware que imprima, la receta no se puede seguir con el paquete solo, y el alumno no tiene cómo distinguir «mi firmware no imprime» de «mi montaje está mal». Es la única excepción a «los paquetes no traen firmwares de ejemplo» (`doc/ejecutables.md` §7). *(Decidido en D7.)* |
+| D-17 | En modo cliente, ¿quién configura la línea? | **El puente**: `rfc2217-cliente` hace el papel del terminal, ofrece COM-PORT y manda al servidor SET-BAUDRATE, DATASIZE, PARITY, STOPSIZE y CONTROL con lo que tiene la línea simulada (las consultas de `LineaSerie`). Con `baudios="host"` manda 115 200. DTR y RTS no los toca | Al otro lado de un servidor RFC 2217 hay un puerto serie —de verdad o un pty— que tiene que ir a la velocidad del MCU simulado, y no hay terminal que la elija. No mover DTR evita reiniciar la placa que haya al otro lado de un adaptador (un Arduino se resetea con DTR). *(Decidido en D8.)* |
 
 ### 10.3 Componentes
 
@@ -765,7 +766,7 @@ una nota en `doc/chat.md`.
 | **D5 · RFC 2217 en la pieza** ✅ | `CanalRfc2217`; `baudios="host"`; la tabla del §10.4 completa; notificaciones LINESTATE/MODEMSTATE con máscaras | `verif/cliente_2217.h` cambia la velocidad a mitad de sesión y se comprueba el cambio **entre tramas** (D-4); desajuste de baudios provocado **desde el host**; BREAK ON/OFF → `LBD`; PURGE; SUSPEND/RESUME; la firma. **HECHO el 30-09-2026** (§10.8) |
 | **D6 · Interoperabilidad** ◐ | `verif/serie/interop.py`: pySerial con `rfc2217://` y `socket://` en CI (Linux, Windows y los dos macOS). socat (`pty` ↔ `tcp`) en CI de Linux y macOS | CI verde en las cuatro plataformas. La matriz manual del §10.6 hecha una vez y anotada con versión y fecha. **Lo automático, escrito y en verde en Linux el 30-09-2026** (§10.8), a falta de verlo en el CI de las cuatro; la matriz manual, a medias: necesita Windows y un escritorio |
 | **D7 · Recetas y placas** ✅ | `doc/puente_serie.md` con los montajes del §7.4 actualizados, un apartado en `doc/ejecutables.md`, y la placa `placas/nucleo_f446re_vcp.xml` (**aparte**, para no tocar `test446`) | Un alumno sin experiencia sigue la receta de su plataforma y ve el `printf` de `vcp_demo`. **HECHO el 30-09-2026** (§10.8), con `--espera-terminal` (D-15) y `ejemplos/` en los paquetes (D-16); comprobado en Linux, y automáticamente con pySerial y socat en el CI |
-| **D8 · Modo cliente** (opcional) | `tcp-cliente:HOST:PUERTO` y `rfc2217-cliente:…`, con reintento, para ser2tcp, tio y `rfc2217_server.py` | Eco contra `rfc2217_server.py` de pySerial sobre un pty de socat, en CI de Linux |
+| **D8 · Modo cliente** (opcional) ✅ | `tcp-cliente:HOST:PUERTO` y `rfc2217-cliente:…`, con reintento, para ser2tcp, tio y `rfc2217_server.py` | Eco contra `rfc2217_server.py` de pySerial sobre un pty de socat, en CI de Linux. **HECHO el 30-09-2026** (§10.8) contra su `PortManager` —el script tal cual se cae sobre un pty—, en el CI de Linux y macOS |
 
 Dependencias: D1 → D2 → D3 → D5, y D4 en paralelo con D2-D3. D6 necesita D5.
 D7 y D8 solo necesitan D5.
@@ -1835,6 +1836,46 @@ M2) y socat + picocom en macOS (M3). `miniterm` no se ha usado a mano (necesita
 una consola), pero es el cliente de pySerial que el CI prueba en las cuatro
 plataformas. El criterio «un alumno sin experiencia sigue la receta» lo tiene
 que confirmar alguien que no la haya escrito.
+
+---
+
+#### D8 · Modo cliente — 30-09-2026, rama `puente-uart`
+
+**Qué se ha hecho:**
+
+| Fichero | Qué |
+| :--- | :--- |
+| `src/common/serie_destino.h` | Dos modos nuevos, `tcp-cliente:HOST:PUERTO` y `rfc2217-cliente:HOST:PUERTO`, con su host (un nombre o una IPv4; IPv6 se rechaza diciéndolo). Un cliente **no escucha**, así que no choca con otros puentes ni con GDB: dos puentes de la misma placa, uno escuchando y otro conectándose a él, es un montaje válido (las UART de dos MCU por un cable virtual). `tcp:localhost:3355` sigue rechazándose, pero el mensaje dice ahora que conectarse a ese host es `tcp-cliente:` |
+| `src/common/red.h` | `direccion_ipv4`, `empieza_conexion` y `estado_conexion`: conectarse **sin bloquear**, empezando en un sondeo y mirando en los siguientes. Contra otra máquina un `connect` bloqueante pararía la simulación lo que tarde TCP en rendirse |
+| `src/common/telnet2217.h` | La política RFC 1143 sale a una clase `Opciones`, que usan el negociador del servidor (sin cambiar lo que hace: las 64 comprobaciones de la D4 y la sesión de pySerial reproducida, igual) y el nuevo **`NegociadorCliente`**, que ofrece COM-PORT y pide BINARY y SGA al conectarse |
+| `src/parts/canal_host.h` | `CanalTcp` gana un modo cliente: se conecta, y si no puede o se cae la conexión reintenta cada segundo, avisando una vez. Y `CanalRfc2217Cliente`: el códec del lado del terminal; en cuanto el servidor acepta COM-PORT, **configura el puerto remoto con la línea simulada** (D-17); respeta el SUSPEND del servidor y guarda sus respuestas |
+| `src/parts/puente_serie.h` | Los dos destinos nuevos. La pieza sigue siendo la `LineaSerie`: el cliente le pregunta la configuración |
+| `src/verif/prueba_serie.cpp`, `prueba_rfc2217.cpp` | `make serie` 114 → **138** (el parseo, las formas malas y los choques de puertos de los clientes); `make rfc2217` 64 → **74** (el negociador del cliente contra el del servidor hasta que se callan, sin bucle, y contra un servidor que ofrece de más) |
+| `src/verif/serie/interop.py` | **I12**: `tcp-cliente` contra un servidor que aparece dos segundos y medio después, con el saludo, el eco y la reconexión cuando el servidor cierra. **I13**: `rfc2217-cliente` contra el `PortManager` de pySerial sobre un par de ptys de socat; el saludo y el eco llegan al «terminal» del otro pty, y el puerto remoto, que el servidor abrió a 9600, queda a **115200 8N1**. **47 comprobaciones** |
+| `src/top/sim_main.cpp`, `parts/netlist_parts.h`, `doc/parts.md`, `doc/puente_serie.md` | La ayuda, la ficha, la tabla de atributos y la receta (§4.4, «Al revés: el simulador se conecta a un servidor») |
+
+**Lo que ha enseñado.** El criterio decía «contra `rfc2217_server.py` sobre un
+pty de socat», y **eso no funciona, y no por el puente**: el `PortManager` de
+pySerial, al activarse COM-PORT, lee CTS, DSR, RI y DCD del puerto con
+`TIOCMGET`, un pty contesta `ENOTTY` y la excepción se lleva el servidor por
+delante. El banco usa el mismo `PortManager` con un puerto que devuelve «falso»
+en esas líneas cuando el sistema no las tiene, y la receta lo avisa. Y la
+primera versión del banco no lo vio porque el hilo del servidor moría sin
+decir nada: ahora un fallo del servidor es una comprobación más.
+
+**Cómo se ha comprobado que puede fallar:** sin mandar SET-BAUDRATE, I13 lo ve
+(el puerto remoto se queda a 9600); sin reintento, I12 se queda esperando al
+servidor y falla. Las cuatro suites, con sus cifras de siempre (`testserie`
+189 y 400677589564 ps, también con `TESTSERIE_RUIDO`), porque el modo servidor
+de `CanalTcp` hace lo mismo que antes. `prueba_red`, `prueba_rfc2217` y
+`prueba_serie` compilan con MinGW sin avisos.
+
+**Lo que no se ha hecho, dicho:** el cliente no mueve DTR ni RTS del puerto
+remoto (D-17), no reenvía a la línea simulada las notificaciones del servidor
+(las cuenta), y la resolución de un nombre de máquina **bloquea** —no hay
+`getaddrinfo` sin bloqueo portable—: si no resuelve, se reintenta cada diez
+segundos en vez de cada uno. Contra un `ser2net` de verdad o `tio --socket` no
+se ha probado.
 
 ---
 

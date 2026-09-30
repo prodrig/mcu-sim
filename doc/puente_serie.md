@@ -273,6 +273,39 @@ Con los dos, arranca `mcu-sim` primero, luego el redirector, y el terminal el
 cambian los baudios de la línea simulada. Necesita compilarlo y un núcleo con
 CUSE, y **tampoco está comprobado todavía**: prueba **M4** del mismo guion.
 
+### 4.4 Al revés: el simulador se conecta a un servidor
+
+Todo lo anterior deja al simulador **escuchando** y a la herramienta
+conectándose. Algunas herramientas solo saben hacer lo contrario —escuchar—:
+`ser2net` o `rfc2217_server.py` compartiendo un puerto serie de verdad,
+`tio --socket`, `ser2tcp`, o un programa tuyo. Para esas, el puente se conecta
+él:
+
+```bash
+# En crudo
+./mcu-sim placa.xml fw.bin --tiempo-real --espera-terminal --serie VCP=tcp-cliente:127.0.0.1:2000
+# Con RFC 2217
+./mcu-sim placa.xml fw.bin --tiempo-real --espera-terminal --serie VCP=rfc2217-cliente:127.0.0.1:2217
+```
+
+* **Si el servidor no está todavía, o se cae**, `mcu-sim` lo dice una vez
+  (`... no contesta; se reintenta cada segundo`) y se reconecta solo cuando
+  aparece. Puedes arrancar las dos cosas en el orden que quieras.
+* **Con `rfc2217-cliente` es el simulador quien configura el puerto remoto**:
+  le manda los baudios, el formato y el control de flujo de la placa. Con
+  `baudios="host"` no hay terminal que los elija, así que manda 115200.
+* **Puede ser otra máquina** (`rfc2217-cliente:ser2net.lab:2001`), porque es
+  el simulador el que sale; el puerto que escucha el simulador sigue siendo solo
+  de la tuya. Mejor con una IP: si un nombre no se resuelve, se reintenta cada
+  diez segundos y cada intento para la simulación lo que tarde el DNS.
+* **`rfc2217_server.py` de pySerial no sirve tal cual sobre un pty de
+  socat**: su `PortManager`, al activarse RFC 2217, lee CTS y DSR del puerto;
+  un pty no los tiene y se cae (comprobado). Con un puerto de verdad, que sí
+  tiene esas líneas, no debería pasar.
+
+Con eso se pueden unir **las UART de dos simuladores**: uno con `tcp:4000` y el
+otro con `tcp-cliente:127.0.0.1:4000`.
+
 ---
 
 ## 5. Problemas, por síntoma
@@ -281,6 +314,7 @@ CUSE, y **tampoco está comprobado todavía**: prueba **M4** del mismo guion.
 | :--- | :--- | :--- |
 | `mcu-sim` dice `no se puede escuchar en localhost:3355` | El puerto lo tiene otro programa: otro `mcu-sim` que sigue abierto, un GDB | Cierra el otro, o usa otro puerto: `--serie VCP=rfc2217:3356` (y el mismo en el terminal) |
 | El terminal no conecta | `mcu-sim` no está arrancado, o está en otro puerto | Arranca `mcu-sim` **antes** que el terminal y mira el puerto que dice en `serie VCP: …` |
+| `... no contesta; se reintenta cada segundo` | Con `tcp-cliente` o `rfc2217-cliente`: el servidor al que se conecta el simulador no está, o no en ese puerto | Arráncalo; el simulador se conecta solo. Si no, revisa `HOST:PUERTO` |
 | Conecta, pero no sale el saludo | Falta `--espera-terminal`, o socat sin `wait-slave` | §2.1 y §4.1. El saludo solo sale una vez: si ya salió, teclea algo para ver el eco |
 | Todo sale **dos veces** | El terminal tiene el eco local encendido | Apágalo: *Local Echo* en CoolTerm, *Force off* en PuTTY |
 | Lo que tecleo **no vuelve** | Los baudios o la paridad del terminal no son los del firmware (con RFC 2217 llegan a la línea) | Pon **115200 8N1**, que es lo que usa `vcp_demo`. Con tu firmware, lo que programe su `huart` |

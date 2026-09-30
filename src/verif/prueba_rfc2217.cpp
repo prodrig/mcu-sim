@@ -504,6 +504,57 @@ int main(int argc, char** argv) {
                   "y el eco lleva el 0xFF doblado y el NUL detras del CR");
     }
 
+    // --- 11. El negociador del cliente (fase D8) ------------------------------
+    grupo("11. El negociador del CLIENTE, contra el del servidor");
+    {
+        // Se hablan el uno al otro hasta que ninguno tenga nada que decir, con
+        // un tope de vueltas: si hubiera un bucle de negociacion, no pararia.
+        using namespace stm32::telnet;
+        NegociadorCliente cli;
+        Negociador srv;
+        Decodificador dc, ds;
+        std::string a_srv = cli.inicio(), a_cli;
+        comprueba(a_srv == negociacion(WILL, OPT_BINARY) + negociacion(DO, OPT_BINARY) +
+                           negociacion(WILL, OPT_SGA) + negociacion(DO, OPT_SGA) +
+                           negociacion(WILL, OPT_COM_PORT),
+                  "al conectarse ofrece BINARY, SGA y COM-PORT, y pide BINARY y SGA");
+        int vueltas = 0;
+        while ((!a_srv.empty() || !a_cli.empty()) && vueltas < 20) {
+            ++vueltas;
+            std::vector<uint8_t> d; std::vector<Suceso> ev;
+            ds.alimenta(a_srv, d, ev);
+            a_srv.clear();
+            for (const Suceso& e : ev) a_cli += srv.recibe(e.verbo, e.opcion);
+            d.clear(); ev.clear();
+            dc.alimenta(a_cli, d, ev);
+            a_cli.clear();
+            for (const Suceso& e : ev) a_srv += cli.recibe(e.verbo, e.opcion);
+        }
+        comprueba(vueltas < 20, "la negociacion termina (" + std::to_string(vueltas) +
+                  " vueltas): no hay bucle");
+        comprueba(cli.com_port() && srv.com_port(), "COM-PORT, aceptado por los dos");
+        comprueba(cli.binario_salida() && srv.binario_entrada() &&
+                  cli.binario_entrada() && srv.binario_salida(),
+                  "BINARY en los dos sentidos, y los dos lo saben");
+        comprueba(cli.ellos(OPT_SGA) && cli.nosotros(OPT_SGA), "SGA en los dos sentidos");
+    }
+    {
+        // Contra un servidor que ofrece de mas, como el de pySerial: WILL ECHO
+        // se rechaza, y lo ya pedido no se vuelve a contestar.
+        using namespace stm32::telnet;
+        NegociadorCliente cli;
+        cli.inicio();
+        comprueba(cli.recibe(WILL, OPT_ECHO) == negociacion(DONT, OPT_ECHO),
+                  "WILL ECHO del servidor: DONT ECHO (el eco lo hace el firmware)");
+        comprueba(cli.recibe(DO, OPT_COM_PORT).empty() && cli.com_port(),
+                  "DO COM-PORT a lo que se ofrecio: se toma, sin contestar");
+        comprueba(cli.recibe(DO, OPT_COM_PORT).empty(), "repetido: silencio");
+        comprueba(cli.recibe(DO, 24) == negociacion(WONT, 24),
+                  "DO TERMINAL-TYPE: WONT");
+        comprueba(cli.recibe(DONT, OPT_COM_PORT) == negociacion(WONT, OPT_COM_PORT) &&
+                  !cli.com_port(), "DONT COM-PORT lo apaga, y se confirma");
+    }
+
     std::printf("RESULTADO %u ok, %u fallos\n", g_ok, g_mal);
     return g_mal ? 1 : 0;
 }

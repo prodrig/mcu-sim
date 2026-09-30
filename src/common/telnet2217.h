@@ -53,6 +53,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -275,6 +276,83 @@ inline bool es_cpo(const Suceso& s, OrdenCpo& o) {
 }
 
 // ---------------------------------------------------------------------------
+// Las opciones de un extremo: RFC 1143 en pequeño
+// ---------------------------------------------------------------------------
+// Lo común a los dos negociadores: qué opciones acepta hacer este extremo (a
+// un DO contesta WILL), cuáles acepta que haga el otro (a un WILL contesta
+// DO), y la cuenta de lo que ha pedido él mismo, para no contestar a una
+// respuesta como si fuera una petición -que es como empiezan los bucles-.
+class Opciones {
+public:
+    Opciones(std::initializer_list<uint8_t> hacemos,
+             std::initializer_list<uint8_t> aceptamos) {
+        for (uint8_t o : hacemos)   hacemos_[o] = true;
+        for (uint8_t o : aceptamos) aceptamos_[o] = true;
+    }
+
+    bool hacemos(uint8_t op)   const { return hacemos_[op]; }
+    bool aceptamos(uint8_t op) const { return aceptamos_[op]; }
+
+    // Una negociación que llega. Devuelve lo que hay que contestar, que puede
+    // ser nada.
+    std::string recibe(uint8_t verbo, uint8_t op) {
+        std::string r;
+        switch (verbo) {
+        case WILL:
+            if (pido_do_[op]) { pido_do_[op] = false; ellos_[op] = true; break; }
+            if (ellos_[op]) break;                        // ya estaba: silencio
+            if (aceptamos_[op]) { ellos_[op] = true; r = negociacion(DO, op); }
+            else r = negociacion(DONT, op);
+            break;
+        case WONT:
+            if (pido_do_[op]) { pido_do_[op] = false; ellos_[op] = false; break; }
+            if (!ellos_[op]) break;
+            ellos_[op] = false;
+            r = negociacion(DONT, op);
+            break;
+        case DO:
+            if (pido_will_[op]) { pido_will_[op] = false; nosotros_[op] = true; break; }
+            if (nosotros_[op]) break;
+            if (hacemos_[op]) { nosotros_[op] = true; r = negociacion(WILL, op); }
+            else r = negociacion(WONT, op);
+            break;
+        case DONT:
+            if (pido_will_[op]) { pido_will_[op] = false; nosotros_[op] = false; break; }
+            if (!nosotros_[op]) break;
+            nosotros_[op] = false;
+            r = negociacion(WONT, op);
+            break;
+        default:
+            break;
+        }
+        return r;
+    }
+
+    // Pedir por iniciativa propia. Nada si ya está, o si ya se pidió.
+    std::string pide_do(uint8_t op) {
+        if (ellos_[op] || pido_do_[op]) return std::string();
+        pido_do_[op] = true;
+        return negociacion(DO, op);
+    }
+    std::string pide_will(uint8_t op) {
+        if (nosotros_[op] || pido_will_[op]) return std::string();
+        pido_will_[op] = true;
+        return negociacion(WILL, op);
+    }
+
+    bool ellos(uint8_t op)    const { return ellos_[op]; }
+    bool nosotros(uint8_t op) const { return nosotros_[op]; }
+
+private:
+    bool hacemos_[256]   = {};
+    bool aceptamos_[256] = {};
+    bool ellos_[256]     = {};    // opciones que hace el otro extremo
+    bool nosotros_[256]  = {};    // opciones que hace este
+    bool pido_do_[256]   = {};    // se ha pedido DO y se espera respuesta
+    bool pido_will_[256] = {};    // se ha ofrecido WILL y se espera respuesta
+};
+
+// ---------------------------------------------------------------------------
 // El negociador del servidor
 // ---------------------------------------------------------------------------
 class Negociador {
@@ -290,65 +368,65 @@ public:
     // ser nada. La primera vez que el cliente negocia algo, añade además la
     // petición de BINARY en los dos sentidos (véase la cabecera).
     std::string recibe(uint8_t verbo, uint8_t op) {
-        std::string r;
-        switch (verbo) {
-        case WILL:
-            if (pido_do_[op]) { pido_do_[op] = false; ellos_[op] = true; break; }
-            if (ellos_[op]) break;                        // ya estaba: silencio
-            if (aceptamos(op)) { ellos_[op] = true; r = negociacion(DO, op); }
-            else r = negociacion(DONT, op);
-            break;
-        case WONT:
-            if (pido_do_[op]) { pido_do_[op] = false; ellos_[op] = false; break; }
-            if (!ellos_[op]) break;
-            ellos_[op] = false;
-            r = negociacion(DONT, op);
-            break;
-        case DO:
-            if (pido_will_[op]) { pido_will_[op] = false; nosotros_[op] = true; break; }
-            if (nosotros_[op]) break;
-            if (hacemos(op)) { nosotros_[op] = true; r = negociacion(WILL, op); }
-            else r = negociacion(WONT, op);
-            break;
-        case DONT:
-            if (pido_will_[op]) { pido_will_[op] = false; nosotros_[op] = false; break; }
-            if (!nosotros_[op]) break;
-            nosotros_[op] = false;
-            r = negociacion(WONT, op);
-            break;
-        default:
-            return r;
-        }
+        if (verbo < WILL) return std::string();
+        std::string r = o_.recibe(verbo, op);
         if (!despierto_) {
             despierto_ = true;
-            if (!ellos_[OPT_BINARY] && !pido_do_[OPT_BINARY]) {
-                pido_do_[OPT_BINARY] = true;
-                r += negociacion(DO, OPT_BINARY);
-            }
-            if (!nosotros_[OPT_BINARY] && !pido_will_[OPT_BINARY]) {
-                pido_will_[OPT_BINARY] = true;
-                r += negociacion(WILL, OPT_BINARY);
-            }
+            r += o_.pide_do(OPT_BINARY);
+            r += o_.pide_will(OPT_BINARY);
         }
         return r;
     }
 
     // ¿El cliente habla RFC 2217? Es lo que decide si las subopciones 44 se
     // atienden: RFC 2217 exige que la opción esté negociada antes.
-    bool com_port()        const { return ellos_[OPT_COMPORT_IDX]; }
-    bool binario_entrada() const { return ellos_[OPT_BINARY]; }   // el cliente manda binario
-    bool binario_salida()  const { return nosotros_[OPT_BINARY]; } // el servidor manda binario
+    bool com_port()        const { return o_.ellos(OPT_COM_PORT); }
+    bool binario_entrada() const { return o_.ellos(OPT_BINARY); }    // el cliente manda binario
+    bool binario_salida()  const { return o_.nosotros(OPT_BINARY); } // el servidor manda binario
     bool despierto()       const { return despierto_; }
-    bool ellos(uint8_t op)    const { return ellos_[op]; }
-    bool nosotros(uint8_t op) const { return nosotros_[op]; }
+    bool ellos(uint8_t op)    const { return o_.ellos(op); }
+    bool nosotros(uint8_t op) const { return o_.nosotros(op); }
 
 private:
-    static constexpr uint8_t OPT_COMPORT_IDX = OPT_COM_PORT;
-    bool ellos_[256]     = {};    // opciones que el cliente hace
-    bool nosotros_[256]  = {};    // opciones que el servidor hace
-    bool pido_do_[256]   = {};    // el servidor ha pedido DO y espera respuesta
-    bool pido_will_[256] = {};    // el servidor ha ofrecido WILL y espera respuesta
-    bool despierto_ = false;      // el cliente ya ha negociado algo
+    Opciones o_{ { OPT_BINARY, OPT_SGA }, { OPT_BINARY, OPT_SGA, OPT_COM_PORT } };
+    bool     despierto_ = false;      // el cliente ya ha negociado algo
+};
+
+// ---------------------------------------------------------------------------
+// El negociador del CLIENTE (fase D8)
+// ---------------------------------------------------------------------------
+// Cuando el puente es el que se conecta -`rfc2217-cliente:`-, el papel es el
+// del terminal: al conectarse OFRECE COM-PORT y pide BINARY y SGA en los dos
+// sentidos, que es lo que hace el cliente de pySerial más BINARY (que pySerial
+// solo acepta cuando se lo piden, y aquí no se espera a que el servidor lo
+// pida). Acepta que el servidor haga BINARY y SGA; ECHO no, como el servidor.
+class NegociadorCliente {
+public:
+    // Lo que se manda nada más conectarse.
+    std::string inicio() {
+        std::string r;
+        r += o_.pide_will(OPT_BINARY);
+        r += o_.pide_do(OPT_BINARY);
+        r += o_.pide_will(OPT_SGA);
+        r += o_.pide_do(OPT_SGA);
+        r += o_.pide_will(OPT_COM_PORT);
+        return r;
+    }
+    std::string recibe(uint8_t verbo, uint8_t op) {
+        if (verbo < WILL) return std::string();
+        return o_.recibe(verbo, op);
+    }
+
+    // ¿El servidor ha aceptado COM-PORT? Hasta entonces no se le manda ninguna
+    // orden de la opción 44.
+    bool com_port()        const { return o_.nosotros(OPT_COM_PORT); }
+    bool binario_entrada() const { return o_.ellos(OPT_BINARY); }     // el servidor manda binario
+    bool binario_salida()  const { return o_.nosotros(OPT_BINARY); }  // el cliente manda binario
+    bool ellos(uint8_t op)    const { return o_.ellos(op); }
+    bool nosotros(uint8_t op) const { return o_.nosotros(op); }
+
+private:
+    Opciones o_{ { OPT_BINARY, OPT_SGA, OPT_COM_PORT }, { OPT_BINARY, OPT_SGA } };
 };
 
 } // namespace telnet
