@@ -1179,7 +1179,7 @@ tenía.
 | `src/parts/puente_serie.h` | La pieza **es** la `LineaSerie`: decide qué se aplica según D-14. Break sostenido (`set_break`, SET-CONTROL 5/6), las líneas de módem que ve el anfitrión (CTS = el RTS del MCU; DSR y DCD siempre) y un hilo que avisa al canal cuando el MCU mueve su RTS. Los errores y breaks del MCU van al canal como LINESTATE |
 | `src/parts/motor_uart.h` | `EmisorUart::a_cero()`, para el break sostenido |
 | `src/parts/netlist_parts.h` | `rfc2217` deja de rechazarse, y el valor por omisión (`rfc2217:3355`) pasa a ser válido. Ficha actualizada |
-| `src/verif/cliente_2217.h` | El terminal del banco: negocia como pySerial, manda datos con el `IAC` doblado y órdenes esperando su respuesta, **bombeando el canal en tiempo de pared** para que el banco siga siendo determinista |
+| `src/verif/cliente_2217.h` | El terminal del banco: negocia como pySerial, manda datos con el `IAC` doblado y órdenes esperando su respuesta, **bombeando el canal en tiempo de pared** y **sincronizándose** con él (los bytes de cada lado, contados por los dos) para que el banco siga siendo determinista |
 | `src/top/sc_main_serie.cpp` | Un tercer puente en los mismos pines, con `host="rfc2217:47357"`, `baudios="host"` y DTR en PB0. Grupos **P18 a P32** |
 | `src/placas/vcp_rfc2217.xml` | La placa de ejemplo, con `baudios="host"` y qué poner al otro lado |
 
@@ -1246,6 +1246,36 @@ respuestas salían igual) y se añadió la comprobación que la caza.
 `test446` 204 y 1033367277932 ps, `test417` 165 y 718988288 ps. `make serie`
 (114) y `make rfc2217` (64) siguen igual. `make asanserie` (AddressSanitizer y UBSan): 189 comprobaciones, el mismo tiempo al picosegundo y ni un aviso. Sin avisos nuevos con
 clang, y `prueba_serie` sigue compilando con MinGW.
+
+**El CI la tumbó en los dos macOS, y con razón.** Linux y Windows en verde;
+en Apple Silicon e Intel, un fallo en P18 («y el puente lo sabe igual») y el
+tiempo simulado desviado en 1 y 2 ms exactos. La causa era del banco, no del
+puente: dos esperas daban por hecho lo que no estaba garantizado.
+
+* `negocia()` terminaba en cuanto **el cliente** había visto lo que esperaba,
+  pero su última respuesta (el `WILL BINARY` que contesta a un `DO`) podía
+  seguir en el núcleo. En Linux el loopback es tan rápido que siempre había
+  llegado; en macOS no, y el puente aún no la tenía al comprobarlo. Peor: esos
+  bytes los recogía después el **sondeo de la pieza, en tiempo simulado**, que
+  es justo lo que la regla de la D3 prohíbe.
+* `eco()` decidía si seguir esperando medio milisegundo simulado más mirando
+  lo que **ya había entregado el loopback**. Dos vueltas de más son el
+  milisegundo de más.
+
+El arreglo es contar los bytes de los dos lados: `CanalTcp` lleva lo que ha
+recibido y mandado **con el cliente actual** (`recibidos_conexion()`,
+`enviados_conexion()`), el terminal lo que ha mandado y recibido, y
+`Cliente2217::sincroniza()` espera, bombeando, a que coincidan en los dos
+sentidos. Todas las esperas de P18-P32 pasan por ahí: lo que el banco mira, y
+lo que la simulación ve al seguir, es todo lo que se han dicho, no lo que el
+núcleo haya tenido a bien entregar.
+
+Y para no depender de tener un macOS a mano, **el banco sabe hacerse el lento**:
+con `TESTSERIE_RUIDO` en el entorno, solo sondea el canal una vez de cada cuatro
+y el terminal solo lee su socket una de cada cuatro. El banco de la primera
+versión, con ruido, falla en cuatro comprobaciones y se desvía a
+`402590784008 ps`; el arreglado da 189 y `400677589564 ps` con ruido y sin él,
+que es la cifra del invariante y la que ya daba en Linux.
 
 **Lo que no se ha hecho, dicho:** LINESTATE no notifica desbordamiento (bit 1)
 cuando se llena la cola hacia el anfitrión: se cuenta en `descartados()`. La

@@ -57,6 +57,7 @@
 #include <string>
 #include <vector>
 #include <chrono>
+#include <cstdlib>
 #include <functional>
 #include <thread>
 #include "../common/red.h"
@@ -389,13 +390,27 @@ struct TbPieza : sc_module {
     }
     ~TbPieza() { delete vcp_2217; delete vcp_ocupado; delete vcp_tcp; delete vcp; }
 
+    // ---- El sondeo del banco, y el RUIDO ------------------------------------
+    // Con TESTSERIE_RUIDO en el entorno, el banco solo sondea el canal una vez
+    // de cada cuatro, y el terminal RFC 2217 solo lee su socket una de cada
+    // cuatro. Es como un loopback lento -el de los macOS del CI, que es el que
+    // destapo el problema en la D5-: lo que manda cada lado tarda en entrar. Si alguna espera del banco no esta bien sincronizada, esos bytes
+    // los recoge el sondeo de la PIEZA, en tiempo simulado, y la cifra de
+    // `Tiempo simulado` cambia. Con ruido y sin el, tiene que dar lo mismo.
+    const bool ruido_ = std::getenv("TESTSERIE_RUIDO") != nullptr;
+    unsigned   n_bombeos_ = 0;
+    void bombea(CanalHost& c) {
+        if (ruido_ && (++n_bombeos_ % 4u) != 0u) return;
+        c.sondear();
+    }
+
     // ---- Tiempo de PARED, con la simulacion parada ---------------------------
     // Espera a que se cumpla algo mirando el canal TCP, hasta dos segundos de
     // reloj. No avanza el tiempo simulado: es lo que lo hace determinista.
     bool en_pared(const std::function<bool()>& c, double seg = 2.0) {
         const auto t0 = std::chrono::steady_clock::now();
         for (;;) {
-            vcp_tcp->tcp()->sondear();
+            bombea(*vcp_tcp->tcp());
             if (c()) return true;
             if (std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
                     .count() > seg) return false;
@@ -797,17 +812,24 @@ struct TbPieza : sc_module {
             wait(sc_time(5, SC_MS), pa3.value_changed_event());
         return pa3.voltage() < 1.0f;
     }
+    // Sincroniza el terminal con el canal del puente: nada en vuelo en ningún
+    // sentido. ES LO QUE HACE DETERMINISTA ESTA PARTE DEL BANCO; véase la
+    // cabecera de verif/cliente_2217.h, y por qué hizo falta.
+    bool sinc(Cliente2217& t) { return t.sincroniza(*vcp_2217->tcp()); }
     // Manda datos por el terminal y espera a que estén dentro del puente.
     bool teclea(Cliente2217& t, CanalHost& c, const std::string& m) {
         const std::size_t p0 = c.pendientes();
         t.datos(m);
-        return t.espera([&] { return c.pendientes() >= p0 + m.size(); });
+        return sinc(t) && c.pendientes() >= p0 + m.size();
     }
-    // Deja correr la simulación y recoge lo que haya llegado al terminal.
+    // Deja correr la simulación y recoge lo que haya llegado al terminal. La
+    // decisión de seguir esperando se toma con el terminal SINCRONIZADO: lo
+    // que tiene es todo lo que el puente ha mandado hasta este instante
+    // simulado, y no lo que el loopback haya tenido a bien entregar ya.
     std::string eco(Cliente2217& t, std::size_t n, const sc_time& max) {
         const sc_time t0 = sc_time_stamp();
         for (;;) {
-            t.espera([&] { return t.recibido().size() >= n; }, 0.0);
+            sinc(t);
             if (t.recibido().size() >= n || sc_time_stamp() - t0 >= max) break;
             wait(500, SC_US);
         }
@@ -836,13 +858,14 @@ struct TbPieza : sc_module {
         check(vcp_2217->describir() == "RFC 2217 en " + dir + ", 115200 8N1",
               "y lo dice: \"" + vcp_2217->describir() + "\"");
         Cliente2217 t;
-        t.bomba = [&] { canal.sondear(); };
+        t.bomba = [&] { bombea(canal); };
+        t.ruido = ruido_;
         check(t.conecta(PUERTO_2217) && t.espera([&] { return canal.conectado(); }),
               "un terminal se conecta");
-        t.calma();
+        sinc(t);
         check(t.bytes() == 0u,
               "el servidor es pasivo: al conectarse no manda nada (D-13)");
-        check(t.negocia(), "COM-PORT aceptado y BINARY en los dos sentidos");
+        check(t.negocia() && sinc(t), "COM-PORT aceptado y BINARY en los dos sentidos");
         check(rfc->negociador().com_port() && rfc->negociador().binario_entrada() &&
               rfc->negociador().binario_salida(),
               "y el puente lo sabe igual");
@@ -865,7 +888,7 @@ struct TbPieza : sc_module {
             t.orden_sin_respuesta(cpo::SIGNATURE, {'t', 'b'});
             check(t.espera([&] { return rfc->firma_cliente() == "tb"; }),
                   "con texto es la del terminal: se guarda...");
-            t.calma();
+            sinc(t);
             check(t.sucesos_pendientes() == 0u, "...y no se contesta");
         }
 
@@ -1034,7 +1057,7 @@ struct TbPieza : sc_module {
             t.saca_todas(cpo::NOTIFY_MODEMSTATE + cpo::RESPUESTA);
             teclea(t, canal, std::string("\x13") + "m");
             wait(12, SC_MS);
-            t.espera([] { return false; }, 0.0);
+            sinc(t);
             const auto m = t.saca_todas(cpo::NOTIFY_MODEMSTATE + cpo::RESPUESTA);
             bool cae = false, vuelve = false;
             for (const auto& v : m) {
@@ -1049,7 +1072,7 @@ struct TbPieza : sc_module {
             const uint64_t n0 = rfc->notificaciones_modem();
             teclea(t, canal, std::string("\x13") + "m");
             wait(12, SC_MS);
-            t.espera([] { return false; }, 0.0);
+            sinc(t);
             check(rfc->notificaciones_modem() == n0 &&
                   t.saca_todas(cpo::NOTIFY_MODEMSTATE + cpo::RESPUESTA).empty(),
                   "y con ella a cero no se manda nada");
@@ -1072,7 +1095,7 @@ struct TbPieza : sc_module {
                 wait(3, SC_MS);
                 t.orden(cpo::SET_BAUDRATE, telnet::u32_red(115200), r);
                 wait(3, SC_MS);
-                t.espera([] { return false; }, 0.0);
+                sinc(t);
                 t.recibido().clear();
                 return vcp_2217->errores_trama() > e0;
             };
@@ -1118,7 +1141,7 @@ struct TbPieza : sc_module {
                   "SUSPEND: el puente deja de mandar (y no contesta)");
             teclea(t, canal, "susp\r\n");
             wait(10, SC_MS);
-            t.calma();
+            sinc(t);
             check(t.recibido().empty() && rfc->retenidos() == 6u,
                   "el eco se queda en el puente: seis bytes retenidos");
             t.orden_sin_respuesta(cpo::FLOWCONTROL_RESUME, {});
@@ -1132,7 +1155,7 @@ struct TbPieza : sc_module {
             t.orden_sin_respuesta(cpo::PURGE_DATA, {1});
             check(t.espera([&] { return rfc->retenidos() == 0u; }),
                   "PURGE-DATA 1 vacia lo retenido");
-            t.calma();
+            sinc(t);
             const bool calla = t.saca_todas(cpo::PURGE_DATA + cpo::RESPUESTA).empty();
             check(calla, "y su confirmacion no sale mientras dure el SUSPEND: "
                   "tampoco las ordenes");
@@ -1140,18 +1163,19 @@ struct TbPieza : sc_module {
             check(t.espera([&] { return t.saca_todas(cpo::PURGE_DATA + cpo::RESPUESTA)
                                          .size() == 1; }),
                   "su confirmacion llega al reanudar");
-            t.calma();
+            sinc(t);
             check(t.recibido().empty(), "y el eco tirado no llega");
         }
 
         grupo("P32 Sin negociar COM-PORT no se atiende nada; y el NVT");
         {
             Cliente2217 crudo;
-            crudo.bomba = [&] { canal.sondear(); };
+            crudo.bomba = [&] { bombea(canal); };
+            crudo.ruido = ruido_;
             check(crudo.conecta(PUERTO_2217) &&
                   crudo.espera([&] { return rfc->sustituidos() == 1u; }),
                   "un cliente sin Telnet sustituye al terminal (D-5)");
-            t.calma();
+            crudo.sincroniza(*vcp_2217->tcp());
             const uint64_t ign0 = rfc->ordenes_ignoradas();
             crudo.manda_crudo(telnet::orden_2217(cpo::SET_BAUDRATE, telnet::u32_red(9600)));
             check(crudo.espera([&] { return rfc->ordenes_ignoradas() == ign0 + 1; }),
@@ -1161,9 +1185,10 @@ struct TbPieza : sc_module {
             check(!rfc->negociador().com_port() && rfc->mascara_modem() == 255,
                   "la sesion nueva empieza de cero");
             crudo.manda_crudo("nvt\r\n");
-            check(crudo.espera([&] { return canal.pendientes() == 5u; }), "datos en NVT");
+            check(crudo.sincroniza(*vcp_2217->tcp()) && canal.pendientes() == 5u,
+                  "datos en NVT");
             wait(10, SC_MS);
-            crudo.espera([&] { return crudo.crudo().size() >= 6; });
+            crudo.sincroniza(*vcp_2217->tcp());
             check(crudo.crudo() == std::string("nvt\r\0\n", 6),
                   "sin BINARY, el CR del eco sale como CR NUL, como manda el NVT");
         }

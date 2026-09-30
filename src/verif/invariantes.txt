@@ -81,4 +81,6 @@ test417                165           718988288        total
 # que el canal tenga dentro lo que hizo el cliente, y solo despues deja avanzar
 # la simulacion (vease la cabecera de top/sc_main_serie.cpp). Por eso el tiempo
 # simulado no depende de la maquina. Medido: el mismo con la CPU cargada.
+# Y desde la D5, el mismo con TESTSERIE_RUIDO=1, que imita un loopback lento
+# (el de los macOS del CI, que destaparon dos esperas mal sincronizadas).
 testserie              189        400677589564        total

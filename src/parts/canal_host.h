@@ -222,6 +222,7 @@ public:
             }
             cli_ = c;
             ++n_conexiones_;
+            n_recibidos_con_ = n_enviados_con_ = 0;
             al_conectar();
         }
         if (!red::valido(cli_)) return;
@@ -232,6 +233,7 @@ public:
             const long n = red::recibir(cli_, b, hueco);
             if (n > 0) {
                 n_recibidos_ += uint64_t(n);
+                n_recibidos_con_ += uint64_t(n);
                 recibidos(reinterpret_cast<const uint8_t*>(b), std::size_t(n));
                 if (!red::valido(cli_)) return;            // lo ha echado el protocolo
                 continue;
@@ -265,6 +267,11 @@ public:
     uint64_t conexiones()  const { return n_conexiones_; }
     uint64_t sustituidos() const { return n_sustituidos_; }
     uint64_t recibidos()   const { return n_recibidos_; }
+    // Lo que ha pasado por el socket con el cliente ACTUAL, en cada sentido.
+    // Es lo que usa un banco para saber que el cliente y el canal se han
+    // dicho todo antes de dejar avanzar la simulación.
+    uint64_t recibidos_conexion() const { return n_recibidos_con_; }
+    uint64_t enviados_conexion()  const { return n_enviados_con_; }
 
 protected:
     // ---- Lo que cambia un canal que habla un protocolo encima --------------
@@ -292,7 +299,11 @@ protected:
         while (red::valido(cli_) && !salida_.empty()) {
             const long n = red::enviar(cli_, salida_.data(),
                                        std::min<std::size_t>(salida_.size(), 1024));
-            if (n > 0) { salida_.erase(0, std::size_t(n)); continue; }
+            if (n > 0) {
+                salida_.erase(0, std::size_t(n));
+                n_enviados_con_ += uint64_t(n);
+                continue;
+            }
             if (n < 0 && red::reintentar()) return;        // el núcleo está lleno
             suelta_cliente();
             return;
@@ -314,6 +325,7 @@ private:
     red::socket_t       srv_ = red::invalido();
     red::socket_t       cli_ = red::invalido();
     uint64_t            n_conexiones_ = 0, n_sustituidos_ = 0, n_recibidos_ = 0;
+    uint64_t            n_recibidos_con_ = 0, n_enviados_con_ = 0;
     bool                avisado_sust_ = false;
 };
 

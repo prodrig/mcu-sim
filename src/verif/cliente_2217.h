@@ -12,6 +12,14 @@
 // dentro del puente, y lo que el puente contesta está fuera, SIN que avance el
 // tiempo simulado. Es la misma regla que hace determinista el banco de la D3.
 //
+// Y ESPERA A QUE SE LO HAYAN DICHO TODO (`sincroniza`). No basta con esperar a
+// lo que se busca: una respuesta del cliente -el WILL BINARY que contesta a un
+// DO- puede seguir en el núcleo cuando la condición ya se cumple, y entrar en el
+// puente en un sondeo en tiempo simulado u otro según lo rápido que sea el
+// loopback. En Linux daba igual; en los macOS del CI, no (fase D5).
+// `sincroniza` espera a que los bytes que ha mandado cada lado sean los que ha
+// recibido el otro, contados por los dos.
+//
 // Usa el códec de common/telnet2217.h, que se probó en la D4 contra el texto de
 // las RFC y contra pySerial; aquí no se prueba el códec, se prueba el puente.
 // =============================================================================
@@ -25,12 +33,16 @@
 #include <vector>
 #include "../common/red.h"
 #include "../common/telnet2217.h"
+#include "../parts/canal_host.h"
 
 namespace stm32 {
 
 class Cliente2217 {
 public:
     std::function<void()> bomba = [] {};
+    // Un loopback lento, en el otro sentido: con esto, `espera` solo recoge el
+    // socket una vez de cada cuatro. Lo pone el banco con TESTSERIE_RUIDO.
+    bool ruido = false;
 
     ~Cliente2217() { cierra(); }
 
@@ -40,6 +52,8 @@ public:
         dec_ = telnet::Decodificador{};
         datos_.clear(); sucesos_.clear();
         bin_sal_ = bin_ent_ = com_port_ = false;
+        n_bytes_ = n_enviados_ = 0;
+        crudo_.clear();
         return red::valido(s_);
     }
     void cierra() { red::cerrar(s_); }
@@ -82,7 +96,7 @@ public:
         const auto t0 = std::chrono::steady_clock::now();
         while (hecho < m.size()) {
             const long n = red::enviar(s_, m.data() + hecho, m.size() - hecho);
-            if (n > 0) { hecho += std::size_t(n); continue; }
+            if (n > 0) { hecho += std::size_t(n); n_enviados_ += uint64_t(n); continue; }
             if (n < 0 && red::reintentar() && segundos(t0) < 2.0) { bomba(); continue; }
             return false;
         }
@@ -114,11 +128,19 @@ public:
         const auto t0 = std::chrono::steady_clock::now();
         for (;;) {
             bomba();
-            recoge();
+            if (!ruido || (++n_esperas_ % 4u) == 0u) recoge();
             if (c()) return true;
             if (segundos(t0) > seg) return false;
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
+    }
+    // Espera a que el cliente y el canal se lo hayan dicho TODO, en los dos
+    // sentidos: lo que ha salido de uno ha llegado al otro. Con las respuestas
+    // que el cliente da solo (a las negociaciones), hasta que nadie mande nada.
+    bool sincroniza(const CanalTcp& c) {
+        return espera([&] {
+            return n_bytes_ == c.enviados_conexion() && n_enviados_ == c.recibidos_conexion();
+        });
     }
     // Deja pasar un rato de pared bombeando: para comprobar que NO llega nada.
     void calma(double seg = 0.05) { espera([] { return false; }, seg); }
@@ -143,6 +165,7 @@ public:
     bool binario_entrada() const { return bin_ent_; }
     bool com_port()        const { return com_port_; }
     uint64_t bytes() const { return n_bytes_; }
+    uint64_t enviados() const { return n_enviados_; }
 
 private:
     static double segundos(std::chrono::steady_clock::time_point t0) {
@@ -179,7 +202,8 @@ private:
     std::string                datos_, crudo_;
     std::vector<telnet::OrdenCpo> sucesos_;
     bool                       bin_sal_ = false, bin_ent_ = false, com_port_ = false;
-    uint64_t                   n_bytes_ = 0;
+    uint64_t                   n_bytes_ = 0, n_enviados_ = 0;
+    unsigned                   n_esperas_ = 0;
 };
 
 } // namespace stm32
