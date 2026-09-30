@@ -47,8 +47,9 @@ redactar esta revisión, no solo leído en un informe.
   protocolo especificado; de código, todavía nada.
 - **Y un puente UART hacia el ordenador** (**P-14**): una USART del MCU hasta
   un puerto TCP con RFC 2217, y de ahí al puerto serie que ponga una
-  herramienta externa. Plan de nueve fases en `doc/analisis_puente_serie.md`;
-  de la D0 a la D8 están hechas en la rama `puente-uart`.
+  herramienta externa. Plan de nueve fases en `doc/analisis_puente_serie.md`,
+  **las nueve hechas y P-14 cerrado** el 30-09-2026, con la matriz de pruebas
+  manuales a medias, aceptada así.
 - **Cincuenta y una funciones "bits sin máquina"**: registros que se guardan, se
   enmascaran y se leen correctamente, pero cuya lógica no se ejecuta. Casi todas
   corresponden a caminos que ningún firmware corriente usa, y casi todas están
@@ -294,8 +295,11 @@ en Linux.
 ### P-14 — El puente UART: una USART del MCU hasta un puerto serie del ordenador
 
 **Fase:** posterior a F7. **Analizado y planificado en
-`doc/analisis_puente_serie.md`** (§10, arquitectura D con RFC 2217). **En
-marcha desde 2026-09-29 en la rama `puente-uart`; FASES D0 A D8 EJECUTADAS (la D6, salvo su matriz manual).**
+`doc/analisis_puente_serie.md`** (§10, arquitectura D con RFC 2217).
+**CERRADO el 30-09-2026**: las nueve fases (D0 a D8) ejecutadas en la rama
+`puente-uart`, con el CI en verde en las cuatro plataformas, e integrado en
+`main`. **Se acepta con la matriz manual del §10.6 a medias** (véase abajo lo
+que queda abierto, y por qué no bloquea).
 
 Lo que hace un ST-LINK/V2-1 en una Nucleo: una pieza de placa, `PuenteSerie`,
 colgada de los pines de una USART, que lleva sus bytes a un puerto TCP de esta
@@ -322,6 +326,29 @@ como en la placa.
 los ejercita ningún banco~~ (la D5 los prueba, P26); de una trama de 9 bits se entregan al anfitrión los 8 de abajo, porque RFC 2217 no
 admite más; y el canal en memoria no tiene límite hacia el anfitrión, solo hacia
 el MCU.
+
+**Lo que queda abierto al cerrar, y se acepta así.** Lo que el alumno usará
+casi siempre está comprobado: pySerial (`rfc2217://`, `socket://`), socat y el
+modo cliente, en el CI de las cuatro plataformas; la receta de Linux a mano; y
+**CoolTerm en Windows 10 Pro 22H2** (M1 entera, 30-09-2026). Lo que falta de la
+matriz necesita Windows con drivers o un escritorio, y se hará cuando haya
+máquina y ocasión, anotando cada fila con versión y fecha en el §10.6; el guion,
+prueba a prueba, está en el registro de la D6:
+
+* **M1** CoolTerm en macOS y Linux · **M2** PuTTY *Raw* · **M3** socat +
+  picocom en macOS · **M4** ttynvt · **M5** HW VSP3 · **M6** com0com +
+  `com2tcp-rfc2217` (y, con ella, si el cliente de hub4com se entiende con un
+  servidor pasivo, D-13) · **M7** HHD, solo si su licencia lo permite · **M8**
+  la captura de un redirector, opcional.
+* Y lo no hecho que el registro de cada fase ya dice: LINESTATE sin el bit de
+  desbordamiento; ningún banco provoca un break desde el MCU; la firma sin
+  versión; `escucha="red"` (D-7); y el cliente sin DTR/RTS (D-17), sin
+  reenviar las notificaciones del servidor y con la resolución de nombres
+  bloqueante.
+
+Las recetas de Windows con `COM` (`doc/puente_serie.md` §4.2) siguen diciendo
+«sin comprobar» hasta que M5 o M6 digan otra cosa. **D-16** (`ejemplos/` en los
+paquetes) queda **confirmada**.
 
 **Lo que no resuelve, dicho desde el principio:** en Windows, un `COMn` que no
 es físico exige un driver, y ninguna herramienta gratuita lo evita (§7.1 del
@@ -664,7 +691,7 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 
 | Categoría | Puntos |
 | :--- | ---: |
-| **P** — Pendientes de plan | 14 |
+| **P** — Pendientes de plan | 14 *(una cerrada: P-14, con la matriz manual a medias)* |
 | **F** — Funciones no modeladas | 51 |
 | **T** — Temporización y física | 23 |
 | **D** — Datos sin fuente | 14 |

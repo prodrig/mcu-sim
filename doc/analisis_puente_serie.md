@@ -683,7 +683,7 @@ RFC 2217 pasa de S4 a justo después de S1.
 | D-12 | ¿Dónde van las pruebas puras (sin simulación)? | En **programas aparte sin SystemC** (`make serie`, `make rfc2217`), en el trabajo rápido del CI | No tocan las cifras de `verif/invariantes.txt`, ni siquiera el número de comprobaciones: T130 sí lo movió al vivir dentro de `test407`. *(Decidido en D0.)* |
 | D-14 | ¿Qué gobierna `baudios="host"`? | **La configuración entera de la línea: baudios, formato y control de flujo.** Con unos baudios fijos, el XML manda en las tres y el terminal recibe los valores del XML (con un aviso, una vez). DTR, RTS y el break los mueve **siempre** el terminal | El cliente de pySerial manda `SET-CONTROL 1` (sin control de flujo) cada vez que abre el puerto: si el control de flujo fuera siempre del terminal, un `flujo="rtscts"` del XML duraría hasta que se conectase alguien. DTR, RTS y break no son configuración, son señales. *(Decidido en D5.)* |
 | D-15 | ¿Cómo se ve lo que el firmware imprime al arrancar? | **`--espera-terminal`**: con el tiempo simulado en cero, `mcu-sim` no da corriente al MCU hasta que cada puente por red tiene su terminal **y ese terminal lleva 300 ms sin mandar nada** (con RFC 2217, además, con la negociación terminada si la empezó; como mucho 2 s) | Sin ello el saludo sale cuando no hay nadie y se descarta (D-6). No basta con «conectado»: pySerial, al abrir, configura el puerto y **purga lo recibido** al final, y lo que el MCU mandase en medio se perdería igual; medido. Es lo que en la placa se hace abriendo el terminal y pulsando RESET. Con socat hace falta `wait-slave`, o socat se conecta antes de que nadie abra el pty. *(Decidido en D7.)* |
-| D-16 | ¿Llevan los paquetes con qué probar el puerto serie? | **Sí: `ejemplos/`** con `nucleo_f446re_vcp.xml`, `vcp_rfc2217.xml` y `vcp_demo.bin` (unos 4 KB) | Sin una placa con la pieza y un firmware que imprima, la receta no se puede seguir con el paquete solo, y el alumno no tiene cómo distinguir «mi firmware no imprime» de «mi montaje está mal». Es la única excepción a «los paquetes no traen firmwares de ejemplo» (`doc/ejecutables.md` §7). *(Decidido en D7.)* |
+| D-16 | ¿Llevan los paquetes con qué probar el puerto serie? | **Sí: `ejemplos/`** con `nucleo_f446re_vcp.xml`, `vcp_rfc2217.xml` y `vcp_demo.bin` (unos 4 KB) | Sin una placa con la pieza y un firmware que imprima, la receta no se puede seguir con el paquete solo, y el alumno no tiene cómo distinguir «mi firmware no imprime» de «mi montaje está mal». Es la única excepción a «los paquetes no traen firmwares de ejemplo» (`doc/ejecutables.md` §7). *(Decidido en D7; confirmada al cerrar P-14, 30-09-2026.)* |
 | D-17 | En modo cliente, ¿quién configura la línea? | **El puente**: `rfc2217-cliente` hace el papel del terminal, ofrece COM-PORT y manda al servidor SET-BAUDRATE, DATASIZE, PARITY, STOPSIZE y CONTROL con lo que tiene la línea simulada (las consultas de `LineaSerie`). Con `baudios="host"` manda 115 200. DTR y RTS no los toca | Al otro lado de un servidor RFC 2217 hay un puerto serie —de verdad o un pty— que tiene que ir a la velocidad del MCU simulado, y no hay terminal que la elija. No mover DTR evita reiniciar la placa que haya al otro lado de un adaptador (un Arduino se resetea con DTR). *(Decidido en D8.)* |
 
 ### 10.3 Componentes
@@ -764,7 +764,7 @@ una nota en `doc/chat.md`.
 | **D3 · TCP crudo** ✅ | `CanalTcp` sobre `red.h`: servidor en `localhost`, sondeo adaptativo, reconexión con sustitución, «no termina sola», `--serie`, aviso de `--tiempo-real` | **HECHO el 29-09-2026** (§10.8). La medida de CPU se hizo contra `--gdb` en la misma máquina, no contra el 5,3 % de otra |
 | **D4 · Códec RFC 2217** ✅ | `common/telnet2217.h`: negociación (`WILL`/`DO` 44, BINARY, SGA), subnegociaciones, escape de `IAC` en datos y dentro de `SB`, regla `CR NUL` sin BINARY. `make rfc2217` sin SystemC | **HECHO el 29-09-2026** (§10.8). La captura de `com2tcp-rfc2217` necesita Windows y com0com: pasa a la matriz manual de D6 |
 | **D5 · RFC 2217 en la pieza** ✅ | `CanalRfc2217`; `baudios="host"`; la tabla del §10.4 completa; notificaciones LINESTATE/MODEMSTATE con máscaras | `verif/cliente_2217.h` cambia la velocidad a mitad de sesión y se comprueba el cambio **entre tramas** (D-4); desajuste de baudios provocado **desde el host**; BREAK ON/OFF → `LBD`; PURGE; SUSPEND/RESUME; la firma. **HECHO el 30-09-2026** (§10.8) |
-| **D6 · Interoperabilidad** ◐ | `verif/serie/interop.py`: pySerial con `rfc2217://` y `socket://` en CI (Linux, Windows y los dos macOS). socat (`pty` ↔ `tcp`) en CI de Linux y macOS | CI verde en las cuatro plataformas. La matriz manual del §10.6 hecha una vez y anotada con versión y fecha. **Lo automático, escrito y en verde en Linux el 30-09-2026** (§10.8), a falta de verlo en el CI de las cuatro; la matriz manual, a medias: necesita Windows y un escritorio |
+| **D6 · Interoperabilidad** ✅ | `verif/serie/interop.py`: pySerial con `rfc2217://` y `socket://` en CI (Linux, Windows y los dos macOS). socat (`pty` ↔ `tcp`) en CI de Linux y macOS | CI verde en las cuatro plataformas. La matriz manual del §10.6 hecha una vez y anotada con versión y fecha. **Lo automático, escrito y en verde en Linux el 30-09-2026** (§10.8), a falta de verlo en el CI de las cuatro; la matriz manual, a medias: necesita Windows y un escritorio. **Aceptada así al cerrar P-14** (30-09-2026, §10.8) |
 | **D7 · Recetas y placas** ✅ | `doc/puente_serie.md` con los montajes del §7.4 actualizados, un apartado en `doc/ejecutables.md`, y la placa `placas/nucleo_f446re_vcp.xml` (**aparte**, para no tocar `test446`) | Un alumno sin experiencia sigue la receta de su plataforma y ve el `printf` de `vcp_demo`. **HECHO el 30-09-2026** (§10.8), con `--espera-terminal` (D-15) y `ejemplos/` en los paquetes (D-16); comprobado en Linux, y automáticamente con pySerial y socat en el CI |
 | **D8 · Modo cliente** (opcional) ✅ | `tcp-cliente:HOST:PUERTO` y `rfc2217-cliente:…`, con reintento, para ser2tcp, tio y `rfc2217_server.py` | Eco contra `rfc2217_server.py` de pySerial sobre un pty de socat, en CI de Linux. **HECHO el 30-09-2026** (§10.8) contra su `PortManager` —el script tal cual se cae sobre un pty—, en el CI de Linux y macOS |
 
@@ -1877,6 +1877,23 @@ remoto (D-17), no reenvía a la línea simulada las notificaciones del servidor
 `getaddrinfo` sin bloqueo portable—: si no resuelve, se reintenta cada diez
 segundos en vez de cada uno. Contra un `ser2net` de verdad o `tio --socket` no
 se ha probado.
+
+---
+
+#### Cierre de P-14 — 30-09-2026
+
+Las nueve fases están hechas y el CI está en verde en las cuatro plataformas
+(las cuatro suites con sus invariantes, `testserie` también con
+`TESTSERIE_RUIDO`, y `make interop` con 47 comprobaciones). **P-14 se cierra y
+la rama `puente-uart` se integra en `main`.**
+
+**La matriz manual del §10.6 se acepta a medias.** Está comprobado lo que usará
+casi todo el mundo: pySerial y socat en el CI, la receta de Linux a mano, y
+CoolTerm en Windows 10 Pro 22H2 (M1 entera). Faltan M1 en macOS y Linux, y M2 a
+M8, que piden Windows con drivers o un escritorio; se irán anotando en el §10.6,
+fila a fila, con versión y fecha. Hasta entonces las recetas de Windows con
+`COM` siguen diciendo «sin comprobar». **D-16 queda confirmada.** Lo no hecho de
+cada fase está dicho en su registro y resumido en P-14 (`doc/todo.md`).
 
 ---
 
