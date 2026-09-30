@@ -756,7 +756,7 @@ una nota en `doc/chat.md`.
 | **D3 · TCP crudo** ✅ | `CanalTcp` sobre `red.h`: servidor en `localhost`, sondeo adaptativo, reconexión con sustitución, «no termina sola», `--serie`, aviso de `--tiempo-real` | **HECHO el 29-09-2026** (§10.8). La medida de CPU se hizo contra `--gdb` en la misma máquina, no contra el 5,3 % de otra |
 | **D4 · Códec RFC 2217** ✅ | `common/telnet2217.h`: negociación (`WILL`/`DO` 44, BINARY, SGA), subnegociaciones, escape de `IAC` en datos y dentro de `SB`, regla `CR NUL` sin BINARY. `make rfc2217` sin SystemC | **HECHO el 29-09-2026** (§10.8). La captura de `com2tcp-rfc2217` necesita Windows y com0com: pasa a la matriz manual de D6 |
 | **D5 · RFC 2217 en la pieza** ✅ | `CanalRfc2217`; `baudios="host"`; la tabla del §10.4 completa; notificaciones LINESTATE/MODEMSTATE con máscaras | `verif/cliente_2217.h` cambia la velocidad a mitad de sesión y se comprueba el cambio **entre tramas** (D-4); desajuste de baudios provocado **desde el host**; BREAK ON/OFF → `LBD`; PURGE; SUSPEND/RESUME; la firma. **HECHO el 30-09-2026** (§10.8) |
-| **D6 · Interoperabilidad** | `verif/serie/interop.py`: pySerial con `rfc2217://` y `socket://` en CI (Linux, Windows y los dos macOS). socat (`pty` ↔ `tcp`) en CI de Linux y macOS | CI verde en las cuatro plataformas. La matriz manual del §10.6 hecha una vez y anotada con versión y fecha |
+| **D6 · Interoperabilidad** ◐ | `verif/serie/interop.py`: pySerial con `rfc2217://` y `socket://` en CI (Linux, Windows y los dos macOS). socat (`pty` ↔ `tcp`) en CI de Linux y macOS | CI verde en las cuatro plataformas. La matriz manual del §10.6 hecha una vez y anotada con versión y fecha. **Lo automático, escrito y en verde en Linux el 30-09-2026** (§10.8), a falta de verlo en el CI de las cuatro; la matriz manual, a medias: necesita Windows y un escritorio |
 | **D7 · Recetas y placas** | `doc/puente_serie.md` con los montajes del §7.4 actualizados, un apartado en `doc/ejecutables.md`, y la placa `placas/nucleo_f446re_vcp.xml` (**aparte**, para no tocar `test446`) | Un alumno sin experiencia sigue la receta de su plataforma y ve el `printf` de `vcp_demo` |
 | **D8 · Modo cliente** (opcional) | `tcp-cliente:HOST:PUERTO` y `rfc2217-cliente:…`, con reintento, para ser2tcp, tio y `rfc2217_server.py` | Eco contra `rfc2217_server.py` de pySerial sobre un pty de socat, en CI de Linux |
 
@@ -769,17 +769,17 @@ Lo automático corre en CI; lo manual necesita un driver o una interfaz gráfica
 y se hace a mano antes de cada versión publicada, anotando en `doc/todo.md` la
 versión de la herramienta y la fecha.
 
-| Cliente | Modo | Plataforma | Cómo se prueba | Qué se comprueba |
-| :--- | :--- | :--- | :--- | :--- |
-| pySerial `rfc2217://` | RFC 2217 | las cuatro | **CI** | Negociación, baudios, formato, RTS/DTR, break, purge, eco |
-| pySerial `socket://` | crudo | las cuatro | **CI** | Eco con `0xFF` y `0x00` |
-| socat `pty` ↔ `tcp` | crudo | Linux, macOS | **CI** | Eco a través de un pty |
-| socat `pty` ↔ `tcp` + `picocom` | crudo | Linux, macOS | manual | Receta del §7.4 tal cual |
-| `com2tcp-rfc2217` + com0com + Tera Term | RFC 2217 | Windows | manual | Cambiar la velocidad en Tera Term → basura en el MCU; volver a la buena → texto limpio |
-| HW VSP3 Single + PuTTY | RFC 2217 y crudo | Windows 10 y 11 x64 | manual | Instalación sin modo de prueba; reconexión al reiniciar `mcu-sim` |
-| HHD Free Com Port Redirector | RFC 2217 | Windows 11 | manual (si se aclara la licencia) | Ídem |
-| ttynvt | RFC 2217 | Linux | manual | `/dev/ttyNVT0` con `stty` cambiando la velocidad |
-| CoolTerm (TCP), PuTTY *Raw* | crudo | las tres | manual | El camino recomendado para la mayoría (§7.6) |
+| Cliente | Modo | Plataforma | Cómo se prueba | Qué se comprueba | Estado |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| pySerial `rfc2217://` | RFC 2217 | las cuatro | **CI** (`make interop`, I1-I7) | Negociación, eco binario, baudios y paridad **con efecto en la USART**, líneas de módem, RTS/DTR, break, purge, control de flujo, reapertura y sustitución, línea fija en el XML | Linux 30-09-2026 (pySerial 3.5); resto, en el CI de D6 |
+| pySerial `socket://` | crudo | las cuatro | **CI** (I8) | Eco, los 255 valores | ídem |
+| socat `pty` ↔ `tcp` | crudo | Linux, macOS | **CI** (I9) | Eco y los 255 valores a través de un pty abierto como puerto serie | Linux 30-09-2026 (socat 1.8.0.0); macOS, en el CI |
+| socat `pty` ↔ `tcp` + `picocom` | crudo | Linux, macOS | manual | Receta del §7.4 tal cual | **Linux 30-09-2026** (socat 1.8.0.0, picocom 3.1): eco de `Hola picocom`. macOS, pendiente |
+| `com2tcp-rfc2217` + com0com + Tera Term | RFC 2217 | Windows | manual | Cambiar la velocidad en Tera Term → basura en el MCU; volver a la buena → texto limpio | pendiente |
+| HW VSP3 Single + PuTTY | RFC 2217 y crudo | Windows 10 y 11 x64 | manual | Instalación sin modo de prueba; reconexión al reiniciar `mcu-sim` | pendiente |
+| HHD Free Com Port Redirector | RFC 2217 | Windows 11 | manual (si se aclara la licencia) | Ídem | pendiente |
+| ttynvt | RFC 2217 | Linux | manual | `/dev/ttyNVT0` con `stty` cambiando la velocidad | pendiente (necesita CUSE) |
+| CoolTerm (TCP), PuTTY *Raw* | crudo | las tres | manual | El camino recomendado para la mayoría (§7.6) | pendiente |
 
 ### 10.7 Riesgos específicos
 
@@ -1286,6 +1286,65 @@ cuando se llena la cola hacia el anfitrión: se cuenta en `descartados()`. La
 firma no lleva versión, porque el proyecto no tiene número de versión. Un break
 que manda el MCU va como LINESTATE bit 4, pero ningún banco lo provoca:
 `vcp_demo` no manda breaks.
+
+---
+
+#### D6 · Interoperabilidad — 30-09-2026, rama `puente-uart`
+
+**Qué se ha hecho:**
+
+| Fichero | Qué |
+| :--- | :--- |
+| `src/verif/serie/interop.py` | Arranca el **`mcu-sim` de verdad** —el ejecutable, con `placas/vcp_rfc2217.xml` y `vcp_demo`, `--tiempo-real` y `--serie`— en un puerto libre, y le conecta pySerial y socat. **30 comprobaciones**, grupos I1 a I9. Sin SystemC ni compilar nada: solo Python 3 y pySerial |
+| `src/Makefile.mcu-sim` | `make interop` (construye `mcu-sim` si hace falta) |
+| `.github/workflows/suites.yml` | Un paso de interoperabilidad en las cuatro plataformas: las dos Ubuntu (`python3-serial` y `socat` de apt, con `make interop`), los dos macOS (socat de Homebrew, pySerial con pip, detrás de construir `mcu-sim`) y Windows (el Python del runner en PowerShell contra el `.exe` autónomo, sin socat) |
+
+**Lo que se comprueba**, siempre por lo que vería el alumno:
+
+* **I1-I6, `rfc2217://`:** el eco, los 255 valores y un `CR NUL` (la sesión
+  acaba en BINARY con el cliente de verdad); a **9600 desde pySerial** el
+  firmware no devuelve nada y a 115200 vuelve el eco; en **8E1** una `A`
+  (paridad 0, que la USART toma por una parada mala) no vuelve y una `C`
+  (paridad 1) sí; CTS, DSR y DCD se leen activas; RTS, DTR, un break y las dos
+  purgas no rompen la línea; una ráfaga de 40 durante una pausa del firmware
+  **se pierde sin control de flujo** (vuelve 1) y **vuelve entera con
+  `rtscts=True`**; cerrar y reabrir funciona, y un segundo terminal sustituye
+  al primero.
+* **I7, la línea fijada en el XML (D-14),** con dos placas que el script escribe
+  al vuelo: pySerial abre con los valores del XML, y al pedir 9600 **lanza
+  `ValueError: remote rejected value for option 'baudrate'`**: el puente
+  contesta con los baudios que hay y pySerial no se deja engañar.
+* **I8, `socket://`** contra el modo en crudo: eco y los 255 valores.
+* **I9, socat** `pty` ↔ `tcp` (la receta del §7.4), con el pty abierto por
+  pySerial como un puerto serie más: eco y los 255 valores.
+
+**Lo que ha enseñado, y va a la receta de la D7.** Con la línea fijada en el
+XML **y `flujo="rtscts"`**, pySerial **no abre** si no se le pide `rtscts=True`:
+al abrir manda «sin control de flujo», el puente contesta con el que hay (3) y
+pySerial lo toma por un rechazo. Es coherente con D-14 —el terminal no puede
+cambiar lo que la placa fija— pero el mensaje (`remote rejected value for option
+'control'`) no lo va a entender un alumno. I7 lo deja comprobado en las dos
+direcciones, y la receta tendrá que decirlo. `vcp_tcp.xml`, que lleva ese
+flujo, es para el modo en crudo, donde no pasa.
+
+**Cómo se ha comprobado que puede fallar:** con `baudios="115200"` en vez de
+`host` en la placa, la sesión de I1-I6 se corta en el cambio a 9600 con esa
+misma excepción (ahora recogida como fallo, y el resto de grupos sigue). Y el
+control de flujo se ha medido en las dos direcciones antes de escribir I5:
+tres veces 1 de 40 sin él, tres veces 40 de 40 con él.
+
+**La matriz manual (§10.6).** Hecha aquí, en Linux: la receta del §7.4 tal cual,
+`socat pty,link=…,raw,echo=0 tcp:localhost:PUERTO` y `picocom -b 115200` sobre
+el enlace, con eco (socat 1.8.0.0, picocom 3.1). **Lo demás necesita Windows o
+un escritorio y queda PENDIENTE A MANO:** `com2tcp-rfc2217` + com0com + Tera
+Term, HW VSP3 + PuTTY, HHD (si se aclara la licencia), CoolTerm y PuTTY *Raw*,
+socat + picocom en macOS, y ttynvt (necesita CUSE, que este entorno no tiene).
+La D4 ya había mandado aquí la captura de `com2tcp-rfc2217`.
+
+**Y el riesgo 3 del §10.7** (`FLOWCONTROL-SUSPEND` hacia el cliente cuando se
+llena la cola hacia el MCU) **no se ha hecho, y no hace falta**: cuando la cola
+está llena el canal deja de leer el socket, y TCP para al cliente sin perder
+nada (D3). Ningún cliente de la matriz automática lo echa de menos.
 
 ---
 

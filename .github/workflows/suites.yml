@@ -126,10 +126,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: SystemC desde el paquete de Ubuntu
+        # python3-serial y socat son para la interoperabilidad del puente UART
+        # (el ultimo paso): pySerial de la distribucion, que es la 3.5 en las
+        # dos Ubuntu, y socat, que es la receta del 7.4 del analisis.
         run: |
           sudo apt-get update
-          sudo apt-get install -y libsystemc-dev
-          dpkg -l libsystemc-dev | tail -1
+          sudo apt-get install -y libsystemc-dev python3-serial socat
+          dpkg -l libsystemc-dev python3-serial socat | tail -3
 
       - name: Las suites (las tres de siempre y testserie)
         env:
@@ -169,6 +172,17 @@ jobs:
             exit 1
           fi
           cd .. && sh ci/comprueba_invariante.sh testserie src/build/testserie_ruido.log
+
+      # -----------------------------------------------------------------
+      # EL PUENTE UART CONTRA CLIENTES DE VERDAD (fase D6). El `mcu-sim`
+      # ejecutable, con placas/vcp_rfc2217.xml y vcp_demo, contra el cliente
+      # rfc2217:// y socket:// de pySerial y contra un pty de socat. Aqui no
+      # hay invariante: corre con --tiempo-real, como lo corre el alumno, y lo
+      # que se comprueba no depende de la velocidad de la maquina.
+      # -----------------------------------------------------------------
+      - name: Interoperabilidad del puente UART (pySerial y socat)
+        working-directory: src
+        run: make -f Makefile.mcu-sim interop
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -323,9 +337,16 @@ jobs:
         # -son de GNU- y ci/pasa_suites.sh los necesita para ponerle
         # presupuesto a cada suite y para que el log salga en orden. Llegan
         # como `gtimeout` y `gstdbuf`, que es lo que el script busca.
+        #
+        # socat y pySerial son para la interoperabilidad del puente UART. El
+        # Python de los runners de macOS es de Homebrew, que rechaza `pip
+        # install` sin --break-system-packages (PEP 668).
         run: |
-          brew install systemc coreutils
-          brew list --versions systemc coreutils
+          brew install systemc coreutils socat
+          brew list --versions systemc coreutils socat
+          python3 -m pip install --break-system-packages pyserial ||
+            python3 -m pip install --user pyserial
+          python3 -c "import serial; print('pySerial', serial.VERSION)"
 
       # `make plataforma` es el primer paso que compilacion.md manda dar
       # cuando algo no cuadra. Que lo de el CI vale por dos: comprueba la
@@ -379,6 +400,10 @@ jobs:
           otool -L build/mcu-sim
           ./build/mcu-sim --help > /dev/null
           echo "  [OK  ] el ejecutable arranca"
+
+      - name: Interoperabilidad del puente UART (pySerial y socat)
+        working-directory: src
+        run: python3 verif/serie/interop.py
 
       - name: Empaquetar
         # `tar`, no zip: el zip de upload-artifact PIERDE EL BIT DE
@@ -484,6 +509,17 @@ jobs:
             exit 1
           fi
           echo "  [OK  ] ninguna DLL de MinGW en las dependencias"
+
+      # Con el Python DEL RUNNER, no el de MSYS2: el alumno de Windows ejecuta
+      # el .exe desde cmd o PowerShell, no desde un shell de MSYS2, y el .exe
+      # es autonomo (el paso de arriba lo acaba de comprobar). Sin socat, que
+      # en Windows no hace un COM: eso es com0com, y va a la matriz manual.
+      - name: Interoperabilidad del puente UART (pySerial)
+        shell: pwsh
+        working-directory: src
+        run: |
+          python -m pip install pyserial
+          python verif/serie/interop.py
 
       - uses: actions/upload-artifact@v4
         if: always()

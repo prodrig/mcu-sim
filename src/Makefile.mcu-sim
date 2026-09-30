@@ -24,6 +24,7 @@
 #   make red                      # la capa de red, que NO necesita SystemC
 #   make serie                    # el destino y el formato de un PuenteSerie, tampoco
 #   make rfc2217                  # el codec de Telnet y RFC 2217, tampoco
+#   make interop                  # el puente UART contra pySerial y socat (Python)
 #   make vectores                 # los vectores del CRYP/HASH, sin SystemC ni compilar
 #   make asan407                  # la suite del F407 con ASan + UBSan (Linux y macOS)
 #   make asan446                  # y la del F446
@@ -196,7 +197,7 @@ ASAN446 := build/asan446$(EXE)
 ASAN417 := build/asan417$(EXE)
 ASANSERIE := build/asanserie$(EXE)
 
-.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 run clean plataforma vectores hash cryp
+.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 interop run clean plataforma vectores hash cryp
 
 all: $(MCUSIM)
 
@@ -339,6 +340,16 @@ $(RFC2217P): verif/prueba_rfc2217.cpp common/telnet2217.h common/red.h
 
 rfc2217: $(RFC2217P)
 	./$(RFC2217P)
+
+# LA INTEROPERABILIDAD DEL PUENTE UART (fase D6 de doc/analisis_puente_serie.md
+# §10): el `mcu-sim` de verdad, con `placas/vcp_rfc2217.xml` y `vcp_demo`,
+# contra el cliente `rfc2217://` y `socket://` de pySerial y contra un pty de
+# socat si esta. Necesita Python 3 y pySerial; no toca ningun invariante.
+#
+#   make interop
+PYTHON ?= python3
+interop: $(MCUSIM)
+	$(PYTHON) verif/serie/interop.py
 
 # EL CAMPO DE MINAS DEL PREPROCESADOR DE WINDOWS. Prueba de COMPILACION, no de
 # ejecucion: define a mano las macros que Windows trae -R_OK, min, max, ERROR,
