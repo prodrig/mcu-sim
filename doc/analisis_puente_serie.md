@@ -787,7 +787,8 @@ versión de la herramienta y la fecha.
 | HW VSP3 Single + PuTTY | RFC 2217 y crudo | Windows 10 y 11 x64 | manual | Instalación sin modo de prueba; reconexión al reiniciar `mcu-sim` | pendiente (**M5**) |
 | HHD Free Com Port Redirector | RFC 2217 | Windows 11 | manual (si se aclara la licencia) | Ídem | pendiente, licencia antes (**M7**) |
 | ttynvt | RFC 2217 | Linux | manual | `/dev/ttyNVT0` con `stty` cambiando la velocidad | pendiente, necesita CUSE (**M4**) |
-| CoolTerm (TCP), PuTTY *Raw* | crudo | las tres | manual | El camino recomendado para la mayoría (§7.6) | pendiente (**M1**, **M2**) |
+| CoolTerm (TCP) | crudo | las tres | manual | El camino recomendado para la mayoría (§7.6) | **Windows 10 Pro 22H2 64 bits, 30-09-2026: M1 completa, pasos 1 a 7 (el 7, opcional, en modo RFC 2217, incluido), todos bien** (CoolTerm Win Intel64 v2.4.0, 05/19/2025): eco sin duplicar, texto largo entero, reconexión, reinicio de `mcu-sim` con CoolTerm conectado. macOS y Linux, pendientes (**M1**) |
+| PuTTY *Raw* | crudo | Windows (Linux opcional) | manual | Ídem | pendiente (**M2**) |
 
 ### 10.7 Riesgos específicos
 

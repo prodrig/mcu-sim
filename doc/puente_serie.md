@@ -143,7 +143,9 @@ Arranca `mcu-sim` en crudo:
 ```
 
 **CoolTerm** (Windows, macOS y Linux; gratuito, <https://freeware.the-meiers.org/>).
-Es la opción recomendada para la mayoría:
+Es la opción recomendada para la mayoría, y está **comprobada en Windows 10 Pro
+22H2 de 64 bits con CoolTerm 2.4.0** (eco, reconexión y reinicio del simulador;
+también contra el modo RFC 2217):
 
 1. *Connection → Options…*: *Port* **TCP Connection**, *Mode* **Client**, *IP
    Address* `127.0.0.1`, *Port* `3355`.
