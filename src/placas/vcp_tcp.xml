@@ -8,19 +8,21 @@
      puerto TCP en un puerto serie del sistema [doc/analisis_puente_serie.md
      §7].
 
-         ./build/mcu-sim placas/vcp_tcp.xml verif/fw/vcp_demo/vcp_demo.bin --tiempo-real
+         ./build/mcu-sim placas/vcp_tcp.xml verif/fw/vcp_demo/vcp_demo.bin --tiempo-real --espera-terminal
 
-     No termina sola: como con --gdb, se sale con Ctrl-C. Y sin --tiempo-real
-     el terminal ve el ritmo de la simulacion, no el de la placa.
+     No termina sola: como con --gdb, se sale con Ctrl-C. Sin --tiempo-real
+     el terminal ve el ritmo de la simulacion, no el de la placa; sin
+     --espera-terminal el saludo sale antes de que haya nadie, y se pierde.
+     La receta completa, por sistema: doc/puente_serie.md.
 
      AL OTRO LADO, de mas sencillo a mas completo:
 
        - para mirar y teclear, sin instalar nada raro:
-             nc localhost 3355                (Linux, macOS)
-             PuTTY, tipo de conexion «Raw», localhost, 3355   (Windows)
-             CoolTerm, conexion TCP, localhost:3355           (los tres)
+             nc 127.0.0.1 3355                (Linux, macOS)
+             PuTTY, tipo de conexion «Raw», 127.0.0.1, 3355   (Windows)
+             CoolTerm, conexion TCP, 127.0.0.1:3355           (los tres)
        - un puerto serie de verdad en Linux o macOS:
-             socat pty,link=$HOME/vcp,raw,echo=0 tcp:localhost:3355
+             socat pty,link=$HOME/vcp,raw,echo=0,wait-slave tcp:127.0.0.1:3355
              picocom -b 115200 ~/vcp
        - un COM en Windows: com0com + hub4com, o HW VSP3 Single
 

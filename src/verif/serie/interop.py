@@ -81,10 +81,10 @@ class Simulador:
     """Un mcu-sim con la placa vcp_rfc2217.xml y vcp_demo, en un puerto."""
 
     def __init__(self, sim, modo, puerto, tiempo_real, log,
-                 placa="placas/vcp_rfc2217.xml"):
+                 placa="placas/vcp_rfc2217.xml", extra=()):
         self.puerto = puerto
         args = [sim, placa, "verif/fw/vcp_demo/vcp_demo.bin",
-                "--serie", "VCP=%s:%d" % (modo, puerto)]
+                "--serie", "VCP=%s:%d" % (modo, puerto)] + list(extra)
         if tiempo_real:
             args.append("--tiempo-real")
         self.log = open(log, "w")
@@ -343,6 +343,87 @@ def crudo(sim, tiempo_real, dir_log, con_socat):
         s.para()
 
 
+SALUDO = b"vcp_demo listo\r\n"
+
+
+def abre_cuando_escuche(url, seg=30.0, **kw):
+    """Abre `url` en cuanto el puente escuche, SIN conexión de prueba: con
+    --espera-terminal, una conexión de prueba ya contaría como el terminal."""
+    t0 = time.time()
+    while True:
+        try:
+            return serial.serial_for_url(url, **kw)
+        except (serial.SerialException, OSError):
+            if time.time() - t0 > seg:
+                raise
+            time.sleep(0.1)
+
+
+def espera_terminal(sim, tiempo_real, dir_log, con_socat):
+    # --espera-terminal (fase D7): el MCU no arranca hasta que el terminal
+    # esta conectado y ha terminado de configurar el puerto, asi que el saludo
+    # de vcp_demo -lo primero que imprime- tiene que llegar. Sin la opcion se
+    # pierde (D-6), que es lo que se ve en I1-I9. Y de paso la Nucleo-F446RE
+    # con su VCP, con el mismo firmware: el RCC, el GPIOA y la USART2 del F446
+    # estan donde en el F407.
+    casos = [("rfc2217", "placas/nucleo_f446re_vcp.xml", "rfc2217://127.0.0.1:%d",
+              "Nucleo-F446RE, rfc2217://"),
+             ("tcp", "placas/vcp_rfc2217.xml", "socket://127.0.0.1:%d",
+              "F407, socket://")]
+    for modo, placa, url, nombre in casos:
+        grupo("I10 --espera-terminal: el saludo llega (%s)" % nombre)
+        puerto = puerto_libre()
+        s = Simulador(sim, modo, puerto, tiempo_real,
+                      os.path.join(dir_log, "interop_espera_%s.log" % modo),
+                      placa, ["--espera-terminal"])
+        try:
+            p = abre_cuando_escuche(url % puerto, baudrate=115200, timeout=0.5)
+            check(lee(p, len(SALUDO)) == SALUDO,
+                  "lo primero que llega es el saludo: " + repr(SALUDO))
+            check(eco(p, b"eco\r\n") == b"eco\r\n", "y despues, el eco")
+            p.close()
+        except Exception as e:
+            check(False, "excepcion: %s: %s" % (type(e).__name__, e))
+        finally:
+            s.para()
+    if not con_socat:
+        return
+    # socat con `wait-slave`: no se conecta al puente hasta que alguien abre el
+    # pty. Sin eso se conectaria al arrancar, el MCU saludaria a un pty que no
+    # ha abierto nadie, y el saludo se perderia. Es la receta de
+    # doc/puente_serie.md.
+    grupo("I11 --espera-terminal con socat wait-slave: el saludo llega por el pty")
+    puerto = puerto_libre()
+    s = Simulador(sim, "tcp", puerto, tiempo_real,
+                  os.path.join(dir_log, "interop_espera_socat.log"),
+                  "placas/vcp_rfc2217.xml", ["--espera-terminal"])
+    d = tempfile.mkdtemp(prefix="vcp")
+    enlace = os.path.join(d, "vcp")
+    so = None
+    try:
+        time.sleep(1.0)                          # que el puente escuche
+        so = subprocess.Popen(
+            ["socat", "pty,link=%s,raw,echo=0,wait-slave" % enlace,
+             "tcp:127.0.0.1:%d" % puerto],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        t0 = time.time()
+        while not os.path.exists(enlace) and time.time() - t0 < 10:
+            time.sleep(0.05)
+        time.sleep(1.0)                          # el alumno tarda en abrir picocom
+        p = serial.Serial(enlace, 115200, timeout=0.5)
+        check(lee(p, len(SALUDO)) == SALUDO, "el saludo llega por el pty")
+        check(eco(p, b"eco\r\n") == b"eco\r\n", "y despues, el eco")
+        p.close()
+    except Exception as e:
+        check(False, "excepcion: %s: %s" % (type(e).__name__, e))
+    finally:
+        if so:
+            so.terminate()
+            so.wait()
+        shutil.rmtree(d, ignore_errors=True)
+        s.para()
+
+
 def main():
     a = argparse.ArgumentParser(description="El puente UART contra clientes de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -364,6 +445,7 @@ def main():
     rfc2217(o.sim, tr, dir_log)
     fijos(o.sim, tr, dir_log)
     crudo(o.sim, tr, dir_log, con_socat)
+    espera_terminal(o.sim, tr, dir_log, con_socat)
     print("\n=====================================================")
     print("TOTAL INTEROP : %d comprobaciones OK, %d fallos" % (ok, fallos))
     print("=====================================================")

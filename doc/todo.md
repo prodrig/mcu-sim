@@ -48,7 +48,7 @@ redactar esta revisión, no solo leído en un informe.
 - **Y un puente UART hacia el ordenador** (**P-14**): una USART del MCU hasta
   un puerto TCP con RFC 2217, y de ahí al puerto serie que ponga una
   herramienta externa. Plan de nueve fases en `doc/analisis_puente_serie.md`;
-  de la D0 a la D6 están hechas en la rama `puente-uart`.
+  de la D0 a la D7 están hechas en la rama `puente-uart`.
 - **Cincuenta y una funciones "bits sin máquina"**: registros que se guardan, se
   enmascaran y se leen correctamente, pero cuya lógica no se ejecuta. Casi todas
   corresponden a caminos que ningún firmware corriente usa, y casi todas están
@@ -295,7 +295,7 @@ en Linux.
 
 **Fase:** posterior a F7. **Analizado y planificado en
 `doc/analisis_puente_serie.md`** (§10, arquitectura D con RFC 2217). **En
-marcha desde 2026-09-29 en la rama `puente-uart`; FASES D0 A D6 EJECUTADAS (la D6, salvo su matriz manual).**
+marcha desde 2026-09-29 en la rama `puente-uart`; FASES D0 A D7 EJECUTADAS (la D6, salvo su matriz manual).**
 
 Lo que hace un ST-LINK/V2-1 en una Nucleo: una pieza de placa, `PuenteSerie`,
 colgada de los pines de una USART, que lleva sus bytes a un puerto TCP de esta
@@ -315,7 +315,7 @@ como en la placa.
 | e | ~~El códec Telnet + RFC 2217~~ **HECHO**: `common/telnet2217.h` (decodificador, codificador y la política del servidor), `make rfc2217` con 64 comprobaciones, contra las RFC y contra **dos sesiones de verdad grabadas**: pySerial contra pySerial, y pySerial contra este códec, que se reproduce byte a byte. Compila para Windows con MinGW sin avisos | D4 |
 | f | ~~RFC 2217 en la pieza~~ **HECHO**: `CanalRfc2217` sobre `CanalTcp` y el códec de la D4; la pieza es la `LineaSerie` que decide lo que pide el terminal. `baudios="host"` entrega al terminal baudios, formato y flujo (**D-14**); break sostenido → `LBD`; DTR y RTS en los pines; LINESTATE y MODEMSTATE con máscaras; PURGE; SUSPEND/RESUME; `placas/vcp_rfc2217.xml`. `testserie` pasa a 189 y `400677589564 ps`, las otras tres intactas. Y `miniterm` de pySerial contra `mcu-sim`, a mano: eco, 9600, vuelta, CTS/DSR/CD, DTR y break | D5 |
 | g | ~~Interoperabilidad automática~~ **HECHA** (en verde en Linux; el CI dirá macOS y Windows): `verif/serie/interop.py` y `make interop`, el `mcu-sim` de verdad contra pySerial (`rfc2217://`, `socket://`) y un pty de socat, 30 comprobaciones, en el CI de las cuatro plataformas (socat solo en Linux y macOS). **Pendiente a mano: la matriz manual de Windows y escritorio** (§10.6 del análisis; el guion, prueba a prueba, M1 a M8, detrás del registro de la D6). Y un aviso para la D7: con la línea fija y `flujo="rtscts"`, pySerial no abre sin `rtscts=True` | D6 |
-| h | Recetas por plataforma (`doc/puente_serie.md`) y `placas/nucleo_f446re_vcp.xml` | D7 |
+| h | ~~Recetas y placas~~ **HECHO**: `doc/puente_serie.md` (la receta del alumno, por sistema y por síntoma), §6 de `doc/ejecutables.md`, `placas/nucleo_f446re_vcp.xml`, `--espera-terminal` para que el saludo del firmware no se pierda (D-15) y `ejemplos/` en los paquetes (D-16). Comprobado en Linux y con pySerial y socat en el CI (`make interop`, 36); las recetas de Windows con `COM`, pendientes de la matriz manual | D7 |
 | i | Modo cliente, opcional | D8 |
 
 **Lo que la D2 deja sin probar, dicho:** ~~`set_dtr()` y el terminal `dtr` no

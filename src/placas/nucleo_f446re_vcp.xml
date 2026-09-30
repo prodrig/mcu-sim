@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     NUCLEO-F446RE con el puerto COM virtual del ST-LINK (P-14, fase D7)
+
+     La placa de nucleo_f446re.xml -LD2 en PA5, B1 en PC13- mas lo que en una
+     Nucleo de verdad llega al PC por el mismo cable USB que la programa: el
+     ST-LINK/V2-1 tiene un UART propio cableado a la USART2 del MCU, en PA2
+     (USART2_TX) y PA3 (USART2_RX), por los puentes de soldadura SB13 y SB14.
+     Es lo que en Windows aparece como «STMicroelectronics STLink Virtual COM
+     Port», y es donde acaba el printf de un proyecto de STM32CubeIDE que
+     redirige a huart2.
+
+     Va APARTE de nucleo_f446re.xml a proposito: aquella placa la usa test446,
+     y una pieza mas en la simulacion movería su invariante.
+
+     Lo que el ST-LINK NO tiene, y por eso aqui tampoco: RTS, CTS ni DTR. Su
+     VCP solo lleva TX y RX. Los baudios los pone el terminal (baudios="host"),
+     como hace el de verdad.
+
+         ./build/mcu-sim placas/nucleo_f446re_vcp.xml verif/fw/vcp_demo/vcp_demo.bin --tiempo-real --espera-terminal
+
+     vcp_demo esta compilado para el F407, pero solo toca el RCC, el GPIOA y
+     la USART2, que en el F446 estan en las mismas direcciones y funcionan
+     igual: vale para comprobar el montaje. Y al otro lado, lo que diga
+     doc/puente_serie.md para tu sistema.
+     ========================================================================= -->
+<placa nombre="nucleo-f446re-vcp">
+  <mcu tipo="STM32F446RE" id="u0"/>
+
+  <componente tipo="Led" id="LD2" a_vss="si" vf="2.0" r="510">
+    <pin nombre="anodo" nodo="PA5"/>
+  </componente>
+
+  <componente tipo="Button" id="B1" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="PC13"/>
+  </componente>
+
+  <!-- El VCP del ST-LINK: sus nombres son los del adaptador (su rx lee el
+       TX del MCU). -->
+  <componente tipo="PuenteSerie" id="VCP" host="rfc2217:3355"
+              baudios="host" formato="8N1" muestra="si">
+    <pin nombre="rx" nodo="PA2"/>   <!-- USART2_TX -->
+    <pin nombre="tx" nodo="PA3"/>   <!-- USART2_RX -->
+  </componente>
+</placa>

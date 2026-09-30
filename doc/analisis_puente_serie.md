@@ -488,6 +488,11 @@ En todos los casos `mcu-sim` se lanza igual. La pieza escucha en
 ./build/mcu-sim placa.xml fw.bin --tiempo-real
 ```
 
+> **Actualizado en D7:** las recetas para el alumno, comprobadas y al día,
+> están en `doc/puente_serie.md`. Lo que sigue es la versión del análisis. Dos
+> cambios de fondo: socat lleva `wait-slave` y se conecta a `127.0.0.1`, y
+> `mcu-sim` se lanza con `--espera-terminal` (D-15).
+
 **Linux**
 
 ```
@@ -677,6 +682,8 @@ RFC 2217 pasa de S4 a justo después de S1.
 | D-13 | ¿Cuándo pide el servidor BINARY? | **Pasivo hasta que el cliente negocia algo; en ese momento pide BINARY en los dos sentidos, una vez** | Afina D-2 y D-8. La captura de pySerial enseña que su cliente no ofrece BINARY por su cuenta: lo acepta cuando se lo piden. Sin pedirlo, la sesión se quedaría en NVT y un NUL detrás de un CR se perdería. Pedirlo tras la primera negociación no rompe la pasividad: el cliente ya ha demostrado que habla Telnet. *(Decidido en D4.)* |
 | D-12 | ¿Dónde van las pruebas puras (sin simulación)? | En **programas aparte sin SystemC** (`make serie`, `make rfc2217`), en el trabajo rápido del CI | No tocan las cifras de `verif/invariantes.txt`, ni siquiera el número de comprobaciones: T130 sí lo movió al vivir dentro de `test407`. *(Decidido en D0.)* |
 | D-14 | ¿Qué gobierna `baudios="host"`? | **La configuración entera de la línea: baudios, formato y control de flujo.** Con unos baudios fijos, el XML manda en las tres y el terminal recibe los valores del XML (con un aviso, una vez). DTR, RTS y el break los mueve **siempre** el terminal | El cliente de pySerial manda `SET-CONTROL 1` (sin control de flujo) cada vez que abre el puerto: si el control de flujo fuera siempre del terminal, un `flujo="rtscts"` del XML duraría hasta que se conectase alguien. DTR, RTS y break no son configuración, son señales. *(Decidido en D5.)* |
+| D-15 | ¿Cómo se ve lo que el firmware imprime al arrancar? | **`--espera-terminal`**: con el tiempo simulado en cero, `mcu-sim` no da corriente al MCU hasta que cada puente por red tiene su terminal **y ese terminal lleva 300 ms sin mandar nada** (con RFC 2217, además, con la negociación terminada si la empezó; como mucho 2 s) | Sin ello el saludo sale cuando no hay nadie y se descarta (D-6). No basta con «conectado»: pySerial, al abrir, configura el puerto y **purga lo recibido** al final, y lo que el MCU mandase en medio se perdería igual; medido. Es lo que en la placa se hace abriendo el terminal y pulsando RESET. Con socat hace falta `wait-slave`, o socat se conecta antes de que nadie abra el pty. *(Decidido en D7.)* |
+| D-16 | ¿Llevan los paquetes con qué probar el puerto serie? | **Sí: `ejemplos/`** con `nucleo_f446re_vcp.xml`, `vcp_rfc2217.xml` y `vcp_demo.bin` (unos 4 KB) | Sin una placa con la pieza y un firmware que imprima, la receta no se puede seguir con el paquete solo, y el alumno no tiene cómo distinguir «mi firmware no imprime» de «mi montaje está mal». Es la única excepción a «los paquetes no traen firmwares de ejemplo» (`doc/ejecutables.md` §7). *(Decidido en D7.)* |
 
 ### 10.3 Componentes
 
@@ -757,7 +764,7 @@ una nota en `doc/chat.md`.
 | **D4 · Códec RFC 2217** ✅ | `common/telnet2217.h`: negociación (`WILL`/`DO` 44, BINARY, SGA), subnegociaciones, escape de `IAC` en datos y dentro de `SB`, regla `CR NUL` sin BINARY. `make rfc2217` sin SystemC | **HECHO el 29-09-2026** (§10.8). La captura de `com2tcp-rfc2217` necesita Windows y com0com: pasa a la matriz manual de D6 |
 | **D5 · RFC 2217 en la pieza** ✅ | `CanalRfc2217`; `baudios="host"`; la tabla del §10.4 completa; notificaciones LINESTATE/MODEMSTATE con máscaras | `verif/cliente_2217.h` cambia la velocidad a mitad de sesión y se comprueba el cambio **entre tramas** (D-4); desajuste de baudios provocado **desde el host**; BREAK ON/OFF → `LBD`; PURGE; SUSPEND/RESUME; la firma. **HECHO el 30-09-2026** (§10.8) |
 | **D6 · Interoperabilidad** ◐ | `verif/serie/interop.py`: pySerial con `rfc2217://` y `socket://` en CI (Linux, Windows y los dos macOS). socat (`pty` ↔ `tcp`) en CI de Linux y macOS | CI verde en las cuatro plataformas. La matriz manual del §10.6 hecha una vez y anotada con versión y fecha. **Lo automático, escrito y en verde en Linux el 30-09-2026** (§10.8), a falta de verlo en el CI de las cuatro; la matriz manual, a medias: necesita Windows y un escritorio |
-| **D7 · Recetas y placas** | `doc/puente_serie.md` con los montajes del §7.4 actualizados, un apartado en `doc/ejecutables.md`, y la placa `placas/nucleo_f446re_vcp.xml` (**aparte**, para no tocar `test446`) | Un alumno sin experiencia sigue la receta de su plataforma y ve el `printf` de `vcp_demo` |
+| **D7 · Recetas y placas** ✅ | `doc/puente_serie.md` con los montajes del §7.4 actualizados, un apartado en `doc/ejecutables.md`, y la placa `placas/nucleo_f446re_vcp.xml` (**aparte**, para no tocar `test446`) | Un alumno sin experiencia sigue la receta de su plataforma y ve el `printf` de `vcp_demo`. **HECHO el 30-09-2026** (§10.8), con `--espera-terminal` (D-15) y `ejemplos/` en los paquetes (D-16); comprobado en Linux, y automáticamente con pySerial y socat en el CI |
 | **D8 · Modo cliente** (opcional) | `tcp-cliente:HOST:PUERTO` y `rfc2217-cliente:…`, con reintento, para ser2tcp, tio y `rfc2217_server.py` | Eco contra `rfc2217_server.py` de pySerial sobre un pty de socat, en CI de Linux |
 
 Dependencias: D1 → D2 → D3 → D5, y D4 en paralelo con D2-D3. D6 necesita D5.
@@ -1366,10 +1373,14 @@ versionado) y `src/placas/vcp_rfc2217.xml`: USART2 del F407 a 115200 8N1, puente
 Lo que hace el firmware, y es lo único que hay que saber para leer los
 resultados:
 
-* al arrancar manda `vcp_demo listo\r\n`. **Casi siempre se pierde**: sale a
-  los pocos milisegundos, cuando todavía no hay nadie conectado, y el puente
-  descarta lo que no tiene a quién dar (D-6). Se ve en la consola de
-  `mcu-sim`, no en el terminal;
+* al arrancar manda `vcp_demo listo\r\n`. **Sin `--espera-terminal` casi
+  siempre se pierde**: sale a los pocos milisegundos, cuando todavía no hay
+  nadie conectado, y el puente descarta lo que no tiene a quién dar (D-6).
+  Entonces solo se ve en la consola de `mcu-sim`. **Con `--espera-terminal`**
+  (D7, D-15) el MCU no arranca hasta que el terminal está conectado, y el
+  saludo es lo primero que aparece en él: comprobar eso también es parte de
+  cada prueba, sobre todo con los redirectores, que se conectan antes que el
+  terminal;
 * **devuelve cada byte que recibe sin error**, tal cual, sin añadir ni quitar
   finales de línea. Los que llegan con error de trama, de ruido o de paridad
   **no** los devuelve: por eso un desajuste de baudios se ve como «no vuelve
@@ -1499,8 +1510,9 @@ Linux, lo mismo con `putty -raw -P 3355 127.0.0.1` (paquete `putty`), opcional.
 
 ##### M3 · socat + picocom en macOS (D-b sin driver) — macOS, los dos
 
-**Para qué:** la receta del §7.4 en macOS. En Linux está hecha (arriba); el
-CI ya prueba socat en macOS con pySerial, pero no con un terminal.
+**Para qué:** la receta de `doc/puente_serie.md` §4.1 en macOS. En Linux está
+hecha; el CI ya prueba socat en macOS con pySerial (I9 e I11), pero no con un
+terminal.
 
 **Programas:** `brew install socat picocom` (Homebrew).
 
@@ -1508,8 +1520,11 @@ CI ya prueba socat en macOS con pySerial, pero no con un terminal.
 
 1. Terminal 1, desde `src`: `mcu-sim` en **modo crudo**
    (`./build/mcu-sim placas/vcp_rfc2217.xml verif/fw/vcp_demo/vcp_demo.bin --tiempo-real --serie VCP=tcp:3355`).
-2. Terminal 2: `socat -d -d pty,link=$HOME/vcp,raw,echo=0 tcp:127.0.0.1:3355`.
-   Tiene que decir `PTY is /dev/ttys00N` y `starting data transfer loop`. **Usar
+2. Terminal 2: `socat -d -d pty,link=$HOME/vcp,raw,echo=0,wait-slave tcp:127.0.0.1:3355`
+   (la receta de `doc/puente_serie.md` §4.1). Tiene que decir `PTY is
+   /dev/ttys00N`, y `starting data transfer loop` **solo cuando** picocom abra
+   el puerto: es `wait-slave`. Si en el terminal 1 se añadió
+   `--espera-terminal`, el saludo tiene que salir en picocom. **Usar
    `127.0.0.1`**: el puente solo escucha en IPv4, y según la herramienta y el
    sistema `localhost` puede resolverse antes a `::1`. Si con `localhost`
    funciona igual, anotarlo: las recetas lo usan.
@@ -1766,6 +1781,60 @@ es condición para cerrar la D6.
 | M6 | com0com + hub4com + Tera Term | Windows 10 y 11 | RFC 2217 | driver | `COM21` ↔ `CNCB0` |
 | M7 | HHD + PuTTY | Windows 11 | RFC 2217 | driver, **licencia antes** | el que asigne |
 | M8 | captura de un redirector | cualquiera | RFC 2217 | — | — |
+
+---
+
+#### D7 · Recetas y placas — 30-09-2026, rama `puente-uart`
+
+**Qué se ha hecho:**
+
+| Fichero | Qué |
+| :--- | :--- |
+| `doc/puente_serie.md` | **La receta para el alumno**: qué es, cómo arrancar con el ejemplo y con su firmware (el `.bin` de CubeIDE, el `printf` por `huart2`), cómo elegir terminal según lo que quiera (en crudo, RFC 2217 o un puerto del sistema), cada sistema por separado, una tabla de problemas por síntoma y lo que conviene saber. Cada receta dice si está **comprobada** o no, y las que no remiten a su prueba manual (M4-M6) |
+| `doc/ejecutables.md` | §6 nuevo, «Ver el `printf` de tu firmware»; el antiguo §6 pasa a §7 y dice que `ejemplos/` sí va |
+| `src/placas/nucleo_f446re_vcp.xml` | La Nucleo-F446RE (LD2, B1) **con el VCP del ST-LINK** en PA2/PA3, sin RTS, CTS ni DTR (el ST-LINK no los tiene), `baudios="host"`. **Aparte** de `nucleo_f446re.xml`, que usa `test446` |
+| `src/top/sim_main.cpp` | `--espera-terminal` (D-15). Y la ayuda de `--serie` ya no dice «hoy solo existe memoria» |
+| `src/verif/serie/interop.py` | I10 (el saludo llega con `--espera-terminal`: la Nucleo-F446RE por `rfc2217://`, el F407 por `socket://`) e I11 (lo mismo por socat con `wait-slave` y el pty abierto con pySerial). **36 comprobaciones** |
+| `.github/workflows/suites.yml` | `ejemplos/` en los paquetes de Linux, macOS y Windows (D-16) |
+| `src/placas/vcp_rfc2217.xml`, `vcp_tcp.xml` | Sus cabeceras con `--espera-terminal`, `wait-slave` y `127.0.0.1` |
+
+**El criterio de cierre obligó a dos decisiones.** «Ve el `printf` de
+`vcp_demo`» no se cumplía: el saludo sale a los pocos milisegundos de simular
+y, sin nadie conectado, el puente lo tira (D-6), como en una placa a la que se
+le abre el terminal tarde. De ahí **D-15**, `--espera-terminal`. La primera
+versión arrancaba el MCU en cuanto había conexión, y **pySerial seguía sin ver
+el saludo**: al abrir configura el puerto orden a orden y termina **purgando lo
+recibido**, y el saludo llegaba justo antes de la purga. Por eso la espera es a
+que el terminal lleve 300 ms callado. Y con socat, lo mismo por otro lado: socat
+se conecta al arrancar, el MCU saludaba a un pty que no había abierto nadie, y
+picocom no lo veía. `wait-slave` (socat no se conecta hasta que alguien abre el
+pty) lo arregla, y va en la receta. Y **D-16**: sin placa ni firmware en el
+paquete, la receta no se podía seguir sin clonar el repositorio.
+
+**`vcp_demo` vale para la Nucleo-F446RE** sin recompilarlo: solo toca el RCC
+(HSI a 16 MHz), el GPIOA y la USART2, que en el F446 están donde en el F407.
+Saluda y hace eco en el modelo del F446; no se ha versionado un `vcp_demo446`
+porque no aportaría nada.
+
+**Comprobado:**
+
+* `make interop`: 36 de 36. **I10 e I11 fallan (3 comprobaciones) si se quita
+  `--espera-terminal`**, que es lo que tienen que demostrar.
+* La receta de Linux (`doc/puente_serie.md` §4.1) tal cual, con socat 1.8.0.0 y
+  picocom 3.1: el saludo y el eco en picocom; al cerrar picocom, socat termina;
+  relanzado, el eco sigue (el saludo, que salió una vez, no vuelve).
+* El paquete, simulado: el ejecutable con `ejemplos/` al lado arranca la
+  Nucleo con `vcp_demo` desde esa carpeta, con las órdenes de la receta.
+* `--valida` de las cuatro placas con puente (`vcp_memoria`, `vcp_tcp`, `vcp_rfc2217`, `nucleo_f446re_vcp`): sin un aviso.
+* Ninguna suite se mueve: `--espera-terminal` es de `sim_main.cpp`, que no
+  entra en ningún banco.
+
+**Lo que no se ha comprobado, y la receta lo dice:** las recetas de Windows con
+`COM` (HW VSP3, com0com: pruebas M5 y M6), ttynvt (M4), CoolTerm y PuTTY (M1,
+M2) y socat + picocom en macOS (M3). `miniterm` no se ha usado a mano (necesita
+una consola), pero es el cliente de pySerial que el CI prueba en las cuatro
+plataformas. El criterio «un alumno sin experiencia sigue la receta» lo tiene
+que confirmar alguien que no la haya escrito.
 
 ---
 

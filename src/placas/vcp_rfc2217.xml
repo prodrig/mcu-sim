@@ -10,17 +10,19 @@
      firmware, la USART levanta sus errores y el terminal ve basura, como en la
      placa.
 
-         ./build/mcu-sim placas/vcp_rfc2217.xml verif/fw/vcp_demo/vcp_demo.bin --tiempo-real
+         ./build/mcu-sim placas/vcp_rfc2217.xml verif/fw/vcp_demo/vcp_demo.bin --tiempo-real --espera-terminal
 
-     No termina sola: como con --gdb, se sale con Ctrl-C.
+     No termina sola: como con --gdb, se sale con Ctrl-C. Con
+     --espera-terminal el MCU no arranca hasta que el terminal se conecta, y
+     asi se ve el saludo. La receta completa, por sistema: doc/puente_serie.md.
 
      AL OTRO LADO, un cliente RFC 2217:
 
        - Python, con pySerial:
-             python3 -m serial.tools.miniterm rfc2217://localhost:3355 115200
+             python3 -m serial.tools.miniterm rfc2217://127.0.0.1:3355 115200
        - un puerto serie de verdad en Linux o macOS: socat NO habla RFC 2217;
-         para eso esta host="tcp:3355" (vcp_tcp.xml). Con RFC 2217, ttynvt
-         (Linux) o el redirector que se prefiera
+         para eso esta el modo en crudo (--serie VCP=tcp:3355). Con RFC 2217,
+         ttynvt (Linux)
        - un COM en Windows: HW VSP3 (con «Telnet/RFC 2217» marcado) o
          com0com + com2tcp-rfc2217
 

@@ -131,6 +131,10 @@ static std::string familias_como_texto() {
 static std::string g_placa, g_img, g_nombre = "placa";
 static double      g_ms      = 100.0;
 static bool        g_solo_valida = false;
+// `--espera-terminal` (P-14, fase D7): no arrancar el MCU hasta que haya un
+// terminal en cada puente serie por red. Sin esto, lo primero que imprime un
+// firmware -el saludo- sale cuando todavia no hay nadie y se descarta (D-6).
+static bool        g_espera_terminal = false;
 static bool        g_ondas = false;
 static bool        g_traza_gdb = false;
 // Factor de tiempo real: 0 = a toda velocidad (lo de siempre);
@@ -509,8 +513,75 @@ SC_MODULE(Sim) {
             std::this_thread::sleep_for(std::chrono::duration<double>(debe - lleva));
     }
 
+    // -----------------------------------------------------------------------
+    // `--espera-terminal`: con el tiempo simulado en CERO, antes de dar
+    // corriente al MCU, espera en tiempo de pared a que cada puente serie por
+    // red tenga su terminal. Es lo que en una Nucleo se hace abriendo el
+    // terminal y pulsando RESET: sin ello, lo que el firmware imprime al
+    // arrancar sale cuando todavia no hay nadie, y se descarta (D-6).
+    //
+    // Y no basta con que se conecte: un terminal, al abrir, CONFIGURA -
+    // negocia Telnet, manda baudios, formato, lineas, y el de pySerial acaba
+    // PURGANDO lo recibido-. Lo que el MCU mandase en medio se perderia igual,
+    // o saldria antes de BINARY con la regla del NVT. Asi que se espera a que
+    // el cliente lleve 300 ms callado (con RFC 2217, ademas, con la
+    // negociacion terminada si la empezo, y como mucho dos segundos). Mientras
+    // tanto no corre ningun proceso de SystemC -comparten un hilo-, asi que
+    // el sondeo del canal, que en marcha hace la pieza, es cosa de aqui.
+    // -----------------------------------------------------------------------
+    void espera_terminales() {
+        std::vector<PuenteSerie*> red;
+        for (const serie::Pieza& p : puentes)
+            if (PuenteSerie* ps = placa.como<PuenteSerie>(p.id))
+                if (ps->por_red()) red.push_back(ps);
+        if (red.empty()) {
+            std::fprintf(stderr, "  [serie] --espera-terminal: esta placa no tiene "
+                         "puentes serie por red; no hay nada que esperar\n");
+            return;
+        }
+        for (PuenteSerie* ps : red)
+            std::printf("esperando a un terminal en %s (Ctrl-C para salir)\n",
+                        ps->canal().describir().c_str());
+        std::fflush(stdout);
+        using reloj = std::chrono::steady_clock;
+        const auto segundos = [](reloj::time_point t) {
+            return std::chrono::duration<double>(reloj::now() - t).count();
+        };
+        const std::size_t n = red.size();
+        std::vector<reloj::time_point> desde(n), ultimo(n);
+        std::vector<uint64_t> bytes(n, 0);
+        std::vector<bool> tenia(n, false);
+        for (;;) {
+            bool todos = true;
+            for (std::size_t i = 0; i < n; ++i) {
+                CanalTcp* c = red[i]->tcp();
+                c->sondear();
+                const bool hay = c->conectado();
+                if (hay && !tenia[i]) { desde[i] = ultimo[i] = reloj::now(); bytes[i] = 0; }
+                tenia[i] = hay;
+                if (!hay) { todos = false; continue; }
+                if (c->recibidos_conexion() != bytes[i]) {
+                    bytes[i] = c->recibidos_conexion();
+                    ultimo[i] = reloj::now();
+                }
+                bool listo = segundos(ultimo[i]) > 0.3;
+                if (CanalRfc2217* r = red[i]->rfc2217()) {
+                    const auto& ng = r->negociador();
+                    if (ng.despierto() && !(ng.com_port() && ng.binario_salida()))
+                        listo = false;
+                }
+                todos = todos && (listo || segundos(desde[i]) > 2.0);
+            }
+            if (todos) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        std::printf("terminal conectado: arranca el MCU\n");
+        std::fflush(stdout);
+    }
+
     void run() {
         if (g_solo_valida) { sc_stop(); return; }
+        if (g_espera_terminal) espera_terminales();
         // La onda cuadrada de los relojes internos se apaga por omision. No es
         // una simplificacion del modelo: es un interruptor que ya existia. Con
         // ella encendida, los flancos de HCLK son el noventa y tantos por
@@ -640,6 +711,7 @@ int sc_main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--valida") g_solo_valida = true;
+        else if (a == "--espera-terminal") g_espera_terminal = true;
         else if (a == "--ondas") g_ondas = true;
         else if (a == "--traza-gdb") g_traza_gdb = true;
         else if (a == "--mcu" && i + 1 < argc) g_tipo_mcu = mayus(argv[++i]);
@@ -762,8 +834,11 @@ int sc_main(int argc, char** argv) {
                 "                                pared (=0.5 a mitad de velocidad)\n"
                 "     sim placa.xml --serie ID=DESTINO  a donde da el PuenteSerie ID:\n"
                 "                                memoria, tcp:PUERTO o rfc2217:PUERTO\n"
-                "                                (manda sobre su host= del XML; hoy\n"
-                "                                solo existe memoria)\n"
+                "                                (manda sobre su host= del XML)\n"
+                "     sim placa.xml --espera-terminal  no arranca el MCU hasta que\n"
+                "                                haya un terminal en cada puente\n"
+                "                                serie por red: asi se ve el saludo\n"
+                "                                (doc/puente_serie.md)\n"
                 "     sim placa.xml --mcu TIPO   el MCU implicito, cuando el XML no\n"
                 "                                declara ninguno (por omision %s)\n"
                 "     sim placa.xml --ms=2       tiempo simulado (global: hay un\n"

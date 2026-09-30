@@ -944,9 +944,12 @@ es el CTS del terminal, en `NOTIFY-MODEMSTATE`; DSR y DCD, siempre activas.
 
 Desde C++: `envia(texto)`, `recibido()`, `set_baudios()`, `set_formato()`,
 `envia_break()`, `set_break()`, `set_rts()`, `set_dtr()`, `rfc2217()` y los
-contadores. Ejemplos completos en `placas/vcp_memoria.xml`, `placas/vcp_tcp.xml`
-y `placas/vcp_rfc2217.xml`; los dos últimos explican qué poner al otro lado del
-puerto en cada sistema.
+contadores. Ejemplos completos en `placas/vcp_memoria.xml`, `placas/vcp_tcp.xml`,
+`placas/vcp_rfc2217.xml` y `placas/nucleo_f446re_vcp.xml` (la Nucleo-F446RE con
+el VCP del ST-LINK). **La receta para ver el `printf` en tu ordenador, por
+sistema, está en `doc/puente_serie.md`**; con `--espera-terminal`, `mcu-sim` no
+arranca el MCU hasta que el terminal está conectado, y así no se pierde lo que
+el firmware imprime al arrancar.
 
 ---
 
