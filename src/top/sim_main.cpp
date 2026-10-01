@@ -798,7 +798,8 @@ SC_MODULE(Sim) {
 //
 // El contenido de T_ARRANCA -ritmo, factor, ventana- se lee pero todavia no se
 // usa: es la fase 6. La ventana es la de la linea de ordenes, como sin `--gui`.
-// T_SUSCRIBE y T_ORDENES tambien se leen y se ignoran: fases 4 y 5.
+// Lo que llegue antes de T_ARRANCA -la ultima T_SUSCRIBE y todos los
+// T_ORDENES- se aplica antes de `sc_start()` (fases 4 y 5).
 // ---------------------------------------------------------------------------
 static std::string texto_hola(const Sim& s, int argc, char** argv) {
     std::string mcus, fws, args;
@@ -844,7 +845,7 @@ static int saluda_gui(Sim& s, stm32::gui::ClienteGui& cli,
     g_cliente = &cli;
 
     // El catalogo, sobre las piezas ya montadas. La frontera se activa con el
-    // MISMO, para que los indices que la GUI va a usar en las fases 4 y 5
+    // MISMO, para que los indices que la GUI usa en las suscripciones y en las ordenes
     // sean los suyos. Activarla no cuesta nada mientras no haya suscripciones
     // ni ordenes: sus dos procesos siguen esperando un evento.
     const stm32::gui::Catalogo cat(ExtPartBase::inventario());
@@ -871,6 +872,11 @@ static int saluda_gui(Sim& s, stm32::gui::ClienteGui& cli,
             canal = cli.entrega();
             s.enlace.activa(canal.get(), cli.emisor(), cli.lector());
             if (cli.hay_suscripcion()) s.enlace.suscripcion_inicial(cli.suscripcion());
+            // Y lo mismo las ordenes que llegaron antes de arrancar: su primera
+            // orden es un instante ABSOLUTO, y encoladas antes de sc_start()
+            // se aplican al picosegundo en todas las ejecuciones.
+            for (const std::string& o : cli.ordenes_previas())
+                s.enlace.ordenes(o, false);
             g_enlace  = &s.enlace;
             g_cliente = nullptr;
             return -1;

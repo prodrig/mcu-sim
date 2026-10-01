@@ -1,17 +1,19 @@
 // =============================================================================
 // enlace_gui.h — La conexión con mcu-sim-gui, con la simulación en marcha
 //
-// Fase 4 del plan de dos procesos (`mcu-sim-gui/doc/plan_dos_procesos.md`):
-// todo el sentido modelo -> pantalla. Un `SC_THREAD` que despierta cada 100 µs
-// de tiempo simulado —el mismo patrón que los dos servidores de GDB
-// (`common/gdb_rsp.h`)— y en cada vuelta:
+// Fases 4 y 5 del plan de dos procesos (`mcu-sim-gui/doc/plan_dos_procesos.md`):
+// el sentido modelo -> pantalla entero, y las órdenes en el otro. Un
+// `SC_THREAD` que despierta cada 100 µs de tiempo simulado —el mismo patrón que
+// los dos servidores de GDB (`common/gdb_rsp.h`)— y en cada vuelta:
 //
 //   1. lee lo que haya mandado la ventana: T_SUSCRIBE se aplica a la frontera,
-//      T_PING se contesta con T_PONG, y lo de las fases 5 y 6 (órdenes y
-//      control) se lee entero y se cuenta;
+//      T_ORDENES se encola en ella (relativo a AHORA, que es cuando el modelo
+//      «la saca de la cola», `doc/protocolo.md` §5), T_PING se contesta con
+//      T_PONG, y el control de la fase 6 se lee entero y se cuenta;
 //   2. pasa al búfer de salida los AVISOS pendientes —los de SC_REPORT, que
-//      este módulo desvía mientras está activo— y las INSTANTÁNEAS que haya
-//      tomado el muestreador de la fase 1;
+//      este módulo desvía mientras está activo—, los ECOS de las órdenes que
+//      haya aplicado la frontera (T_ORDEN_HECHA, con el instante real), y las
+//      INSTANTÁNEAS que haya tomado el muestreador de la fase 1;
 //   3. detrás de cada tanda de instantáneas, un T_ESTADO con los dos relojes;
 //      y si en 250 ms de reloj de pared no ha salido ninguna, uno suelto. Es lo
 //      que contesta a «¿se ha colgado?» cuando la respuesta es no;
@@ -27,7 +29,25 @@
 //     llega a MAX_AVISOS se manda T_FIN con M_ERROR, se cierra la conexión y
 //     SE SIGUE SIMULANDO, como cuando la ventana se va en marcha. Perder un
 //     aviso es peor que perder la conexión: un aviso perdido se parece mucho a
-//     un modelo que funciona.
+//     un modelo que funciona;
+//   * los ecos de las órdenes, tampoco: son lo único que dice CUÁNDO se aplicó
+//     de verdad una orden, y es lo que se graba para repetir una sesión. Se
+//     tratan como los avisos, con el mismo máximo en su cola (la de la
+//     frontera). Avisos y ecos salen mezclados por su instante simulado; a
+//     igual instante, primero el eco: el aviso suele ser su consecuencia.
+//
+// LAS ÓRDENES, en tres reglas (`doc/protocolo.md` §5):
+//
+//   * un T_ORDENES que no mide un múltiplo de 16 bytes, o que no trae ninguna,
+//     no se aplica NI A MEDIAS: un T_AVISO dice por qué;
+//   * cada orden se valida al aplicarla —pieza, mando, rango— y su eco lleva
+//     el resultado. Las que se salen de rango se recortan, se aplican y,
+//     además del eco con RES_RANGO, generan un T_AVISO que dice qué se pidió
+//     y qué se aplicó: el silencio es lo que convierte un error de la GUI en
+//     una tarde mirando el modelo;
+//   * las que lleguen ANTES de T_ARRANCA las encola `sim` con `ordenes(...,
+//     false)` antes de `sc_start()`: instantes absolutos, reproducibles al
+//     picosegundo.
 //
 // LA TRAMPA DEL INVARIANTE, la misma que en la frontera: este módulo se
 // construye siempre —la elaboración de SystemC es estática— y hasta que alguien
@@ -35,8 +55,9 @@
 // manejador de SC_REPORT es el de siempre. Sin `--gui` no existe. `test407`
 // lleva uno construido y sin activar, y su invariante es la prueba.
 //
-// Lo que NO hace: aplicar órdenes ni controlar la simulación (fases 5 y 6), ni
-// saber de sockets: habla con un `CanalGui` (`common/gui_mensajes.h`).
+// Lo que NO hace: controlar la simulación (fase 6), ni aplicar las órdenes él
+// mismo —eso es el aplicador de la frontera—, ni saber de sockets: habla con
+// un `CanalGui` (`common/gui_mensajes.h`).
 // =============================================================================
 #ifndef STM32_PARTS_ENLACE_GUI_H
 #define STM32_PARTS_ENLACE_GUI_H
@@ -113,6 +134,26 @@ SC_MODULE(EnlaceGui) {
     // `sc_start()`, y por eso la secuencia de instantáneas es reproducible.
     void suscripcion_inicial(const std::string& cuerpo) { aplica_suscripcion(cuerpo); }
 
+    // Un T_ORDENES. `en_marcha` = false para los que llegaron antes de
+    // T_ARRANCA (su primera orden es un instante absoluto); true para los que
+    // lee el propio enlace (relativa al instante actual). Devuelve si se
+    // encoló; si no, ya ha salido un T_AVISO diciendo por qué.
+    bool ordenes(const std::string& cuerpo, bool en_marcha) {
+        std::vector<mcusim::proto::Orden> v;
+        if (!lee_ordenes(cuerpo, v)) {
+            encola_aviso(mcusim::proto::N_AVISO, "mcu-sim/gui",
+                         "T_ORDENES de " + std::to_string(cuerpo.size()) +
+                         " bytes: no es un numero entero de ordenes de " +
+                         std::to_string(sizeof(mcusim::proto::Orden)) +
+                         " bytes; no se aplica ninguna");
+            return false;
+        }
+        if (!fr_.encola(v, en_marcha)) return false;
+        ++n_msj_ordenes_;
+        n_ordenes_ += v.size();
+        return true;
+    }
+
     // Un aviso del propio mcu-sim, no de SC_REPORT.
     void avisa(uint32_t nivel, const std::string& origen, const std::string& texto) {
         if (conectado_) encola_aviso(nivel, origen, texto);
@@ -141,6 +182,9 @@ SC_MODULE(EnlaceGui) {
     uint64_t estados() const { return n_estados_; }
     uint64_t ignorados() const { return n_ignorados_; }
     uint64_t suscripciones() const { return n_subs_; }
+    uint64_t mensajes_ordenes() const { return n_msj_ordenes_; }   // T_ORDENES aceptados
+    uint64_t ordenes() const { return n_ordenes_; }                // órdenes que traían
+    uint64_t ecos() const { return n_ecos_; }                      // T_ORDEN_HECHA mandados
     std::size_t pendientes_salida() const { return sal_.size(); }
     std::size_t avisos_en_cola() const { return avisos_.size(); }
     // Por qué se cerró la conexión, si se cerró: vacío si sigue abierta.
@@ -179,6 +223,9 @@ private:
         escribe();
         if (!conectado_) return;
         const bool hubo = mueve_a_salida(false);
+        // Los ecos esperan en la cola de la frontera; con la ventana sin leer,
+        // la misma regla que los avisos.
+        if (fr_.hechas.size() >= max_avisos_) { desborda("ecos de ordenes"); return; }
         if (hubo || reloj_() - ultimo_estado_ >= LATIDO_S)
             pon_estado(mcusim::proto::F_CORRIENDO);
         escribe();
@@ -204,8 +251,9 @@ private:
             }
             switch (m.tipo) {
                 case T_SUSCRIBE: aplica_suscripcion(m.texto()); break;
+                case T_ORDENES:  ordenes(m.texto(), true); break;
                 case T_PING:     em_.vacio(sal_, T_PONG); break;
-                default:         ++n_ignorados_; break;   // fases 5 y 6, y lo desconocido
+                default:         ++n_ignorados_; break;   // fase 6, y lo desconocido
             }
         }
     }
@@ -235,15 +283,34 @@ private:
         ++n_subs_;
     }
 
-    // Avisos e instantáneas al búfer de salida. `todo`: sin mirar el tope, que
-    // es lo que se hace al terminar. Devuelve si salió alguna instantánea.
+    // Avisos, ecos e instantáneas al búfer de salida. `todo`: sin mirar el
+    // tope, que es lo que se hace al terminar. Devuelve si salió alguna
+    // instantánea.
     bool mueve_a_salida(bool todo) {
         using namespace mcusim::proto;
-        while (!avisos_.empty() && (todo || sal_.size() < tope_)) {
-            const Aviso& a = avisos_.front();
-            em_.mensaje(sal_, T_AVISO, cuerpo_aviso(a.nivel, a.origen, a.texto, a.t));
-            avisos_.pop_front();
-            ++n_avisos_;
+        for (;;) {
+            if (!todo && sal_.size() >= tope_) break;
+            const bool hay_a = !avisos_.empty(), hay_e = !fr_.hechas.empty();
+            if (!hay_a && !hay_e) break;
+            // Por instante; a igual instante, primero el eco.
+            if (hay_e && (!hay_a || fr_.hechas.front().t_sim_ns <= avisos_.front().t)) {
+                const OrdenHecha h = fr_.hechas.front();
+                fr_.hechas.pop_front();
+                em_.pod(sal_, T_ORDEN_HECHA, h);
+                ++n_ecos_;
+                // El aviso del recorte va justo detrás de su eco, sin pasar por
+                // la cola: no tiene sentido el uno sin el otro.
+                if (h.resultado == RES_RANGO) {
+                    em_.mensaje(sal_, T_AVISO,
+                                cuerpo_aviso(N_AVISO, "mcu-sim/gui", texto_rango(h), h.t_sim_ns));
+                    ++n_avisos_;
+                }
+            } else {
+                const Aviso& a = avisos_.front();
+                em_.mensaje(sal_, T_AVISO, cuerpo_aviso(a.nivel, a.origen, a.texto, a.t));
+                avisos_.pop_front();
+                ++n_avisos_;
+            }
         }
         bool hubo = false;
         while (!fr_.instantaneas.empty() && (todo || sal_.size() < tope_)) {
@@ -257,6 +324,32 @@ private:
             hubo = true;
         }
         return hubo;
+    }
+
+    // «orden fuera de rango para B1.pulsar en t = 1000000000 ns: lo pedido
+    // pasa del maximo; se aplica 1 (rango 0 a 1)». El valor pedido no viaja en
+    // el eco —el eco dice lo que se APLICÓ—, pero de qué lado se salió sí se
+    // sabe: si se aplicó el máximo, se pidió más; si no, menos o un NaN.
+    std::string texto_rango(const mcusim::proto::OrdenHecha& h) const {
+        const ExtPartBase* p = fr_.catalogo().pieza(h.pieza);
+        std::string nombre = "pieza " + std::to_string(h.pieza) + ", mando " +
+                             std::to_string(h.mando);
+        std::string lado = "se sale del rango", rango;
+        if (p && h.mando < p->n_mandos()) {
+            const Mando m = p->mando(h.mando);
+            nombre = p->pieza() + "." + m.nombre;
+            rango  = " (rango " + num(m.min) + " a " + num(m.max) + ")";
+            lado   = (h.valor == m.max && m.max != m.min) ? "pasa del maximo"
+                                                          : "no llega al minimo o no es un numero";
+        }
+        return "orden fuera de rango para " + nombre + " en t = " +
+               std::to_string(h.t_sim_ns) + " ns: lo pedido " + lado +
+               "; se aplica " + num(h.valor) + rango;
+    }
+    static std::string num(float v) {
+        char b[32];
+        std::snprintf(b, sizeof b, "%g", double(v));
+        return b;
     }
 
     void pon_estado(uint32_t fase) {
@@ -291,24 +384,27 @@ private:
     // pierde la conexión. T_FIN con M_ERROR va DELANTE de lo que no ha salido,
     // y se intenta escribir una vez; luego se cierra. El código es 0 porque el
     // proceso sigue: la simulación continúa hasta su ventana.
-    void desborda() {
+    void desborda(const char* que = "avisos") {
         using namespace mcusim::proto;
         std::string fin;
         em_.pod(fin, T_FIN, Fin{M_ERROR, 0, ahora_ns()});
         sal_.insert(0, fin);
         escribe();
         pierde("la ventana no lee y se han acumulado " + std::to_string(max_avisos_) +
-               " avisos sin mandar; antes que tirar uno se cierra la conexion");
+               " " + que + " sin mandar; antes que tirar uno se cierra la conexion");
     }
 
     // Se acabó la conexión. La simulación sigue: sin nadie mirando, se deja de
-    // muestrear, que no lo va a leer nadie.
+    // muestrear, que no lo va a leer nadie. Las órdenes ya encoladas SÍ se
+    // siguen aplicando —se aceptaron, y el modelo hace lo que se le dijo—,
+    // pero sus ecos ya no van a ninguna parte.
     void pierde(const std::string& por) {
         if (!conectado_) return;
         cierre_ = por;
         std::fprintf(stderr, "gui: %s; se sigue simulando\n", por.c_str());
         cierra_conexion();
         fr_.suscribe(0, {});
+        fr_.hechas.clear();
     }
 
     // Sin conexión, el manejador de SC_REPORT vuelve a ser el de antes: lo
@@ -371,7 +467,8 @@ private:
     std::deque<Aviso>         avisos_;
     std::string               cierre_;
     uint64_t                  n_inst_ = 0, n_avisos_ = 0, n_estados_ = 0,
-                              n_ignorados_ = 0, n_subs_ = 0;
+                              n_ignorados_ = 0, n_subs_ = 0,
+                              n_msj_ordenes_ = 0, n_ordenes_ = 0, n_ecos_ = 0;
     sc_core::sc_report_handler_proc anterior_ = nullptr;
     sc_core::sc_event         ev_activa_;
 };

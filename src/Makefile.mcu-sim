@@ -26,6 +26,7 @@
 #   make gui-proto                # el marco del protocolo con mcu-sim-gui, tampoco
 #   make gui-saludo               # el saludo con mcu-sim-gui, contra el sim de verdad (Python)
 #   make gui-marcha               # y con la simulacion en marcha: instantaneas y avisos (Python)
+#   make gui-ordenes              # y las ordenes: el ejemplo del enunciado y sus ecos (Python)
 #   make serie                    # el destino y el formato de un PuenteSerie, tampoco
 #   make rfc2217                  # el codec de Telnet y RFC 2217, tampoco
 #   make interop                  # el puente UART contra pySerial y socat (Python)
@@ -203,7 +204,7 @@ ASAN446 := build/asan446$(EXE)
 ASAN417 := build/asan417$(EXE)
 ASANSERIE := build/asanserie$(EXE)
 
-.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto gui-saludo gui-marcha interop run clean plataforma vectores hash cryp
+.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes interop run clean plataforma vectores hash cryp
 
 all: $(MCUSIM)
 
@@ -405,6 +406,14 @@ gui-saludo: $(MCUSIM)
 # sigue si la ventana se va. Unos segundos: usa --tiempo-real en dos grupos.
 gui-marcha: $(MCUSIM)
 	$(PYTHON) verif/gui/marcha.py
+
+# LAS ORDENES (P-12, fase 5): la misma ventana en Python mandando ordenes al
+# pulsador B1 de placas/discovery_min.xml. El ejemplo de doc/protocolo.md §5
+# antes de arrancar -cuatro ecos en exactamente 1,00 / 1,50 / 4,00 / 4,22 s,
+# reproducibles-, la validacion (pieza, mando, rango con aviso, delta 0,
+# malformadas) y las relativas en marcha, con --tiempo-real.
+gui-ordenes: $(MCUSIM)
+	$(PYTHON) verif/gui/ordenes.py
 
 # EL CAMPO DE MINAS DEL PREPROCESADOR DE WINDOWS. Prueba de COMPILACION, no de
 # ejecucion: define a mano las macros que Windows trae -R_OK, min, max, ERROR,

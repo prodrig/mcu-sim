@@ -648,6 +648,8 @@ void p4_saludo() {
             manda_gui(c, e, T_SUSCRIBE, bytes(CabSuscribe{1000000u, 0u, 0u, 0u}));
             manda_gui(c, e, T_SUSCRIBE, gui::cuerpo_suscripcion(2000000ull, {3, 5}));
             manda_gui(c, e, T_ORDENES, bytes(Orden{1, 0, 0, 1.f}));
+            manda_gui(c, e, T_PAUSA);
+            manda_gui(c, e, T_ORDENES, gui::cuerpo_ordenes({{5, 2, 1, 0.5f}, {0, 2, 1, 0.f}}));
             manda_gui(c, e, 0x8077, "un tipo que esta version no conoce");
             manda_gui(c, e, T_PING);
             for (Copia& x : recibe_gui(c, L, 1)) vio.push_back(x);   // T_PONG
@@ -668,8 +670,14 @@ void p4_saludo() {
                   m.suscripcion() == gui::cuerpo_suscripcion(2000000ull, {3, 5}),
                   "de dos T_SUSCRIBE antes de arrancar se guarda el ultimo, entero: "
                   "sim lo aplica antes de sc_start (fase 4)");
+        comprueba(m.ordenes_previas().size() == 2 &&
+                  m.ordenes_previas()[0] == bytes(Orden{1, 0, 0, 1.f}) &&
+                  m.ordenes_previas()[1] ==
+                      gui::cuerpo_ordenes({{5, 2, 1, 0.5f}, {0, 2, 1, 0.f}}),
+                  "los dos T_ORDENES de antes de arrancar se guardan TODOS, en orden "
+                  "y enteros: sim los encola antes de sc_start (fase 5)");
         comprueba(m.ignorados() == 1,
-                  "T_ORDENES se lee y se ignora (es de la fase 5), y el desconocido "
+                  "T_PAUSA se lee y se ignora (es de la fase 6), y el desconocido "
                   "se salta sin contarlo");
         m.fin(M_VENTANA, 0, 123456789ull);
         g.hilo.join();
@@ -831,6 +839,21 @@ void p4_saludo() {
               ClienteGui::valor_entero("protocolo=x\n", "protocolo") == -1 &&
               ClienteGui::valor_entero("", "protocolo") == -1,
               "clave=valor: la clave exacta, con o sin \\r, y nada que no sea un numero");
+
+    // --- El cuerpo de T_ORDENES (fase 5) -------------------------------------
+    {
+        const std::vector<Orden> v{{1000000000ull, 3, 0, 1.f}, {500000000ull, 3, 0, 0.f}};
+        std::vector<Orden> w;
+        const std::string c = gui::cuerpo_ordenes(v);
+        comprueba(c.size() == 32 && gui::lee_ordenes(c, w) && w.size() == 2 &&
+                  w[0].t_sim_ns == 1000000000ull && w[0].pieza == 3 && w[1].valor == 0.f &&
+                  w[1].t_sim_ns == 500000000ull,
+                  "T_ORDENES: dos ordenes son 32 bytes y vuelven a ser las mismas");
+        comprueba(!gui::lee_ordenes("", w) && w.empty() &&
+                  !gui::lee_ordenes(c.substr(0, 31), w) && w.empty() &&
+                  !gui::lee_ordenes(c + "x", w),
+                  "un T_ORDENES vacio o que no es multiplo de 16 no se lee ni a medias");
+    }
 }
 
 // ===========================================================================

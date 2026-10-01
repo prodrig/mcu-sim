@@ -44,7 +44,7 @@ redactar esta revisión, no solo leído en un informe.
   puntos que dependen de ella.
 - **Y un proyecto entero que empieza**: `mcu-sim-gui`, la contraparte gráfica,
   **en dos procesos** (**P-12**). Repositorio aparte, plan por fases escrito y
-  protocolo especificado; de código, todavía nada.
+  protocolo especificado; de las nueve fases, las seis primeras hechas.
 - **Y un puente UART hacia el ordenador** (**P-14**): una USART del MCU hasta
   un puerto TCP con RFC 2217, y de ahí al puerto serie que ponga una
   herramienta externa. Plan de nueve fases en `doc/analisis_puente_serie.md`,
@@ -184,7 +184,7 @@ en todo el árbol.)*
 
 ### P-12 — La contraparte gráfica: `mcu-sim-gui`, en dos procesos
 **Fase:** posterior a F7. **Analizado en `doc/analisis_gui.md`; plan escrito,
-repositorio creado, FASES 0 A 4 EJECUTADAS** — `--gui host:puerto` se
+repositorio creado, FASES 0 A 5 EJECUTADAS** — `--gui host:puerto` se
 reconoce, con T130 detrás (43 comprobaciones puras); la frontera dentro del
 modelo existe: observables y mandos en las piezas, el catálogo, el
 muestreador y el aplicador, probados en un banco propio, `testgui`; el
@@ -193,8 +193,10 @@ los dos repositorios— y `conecta`/`escucha` con host en `common/red.h`, con
 `make gui-proto` sin SystemC; **`sim --gui` se conecta de verdad**: manda la
 placa y el catálogo y no simula hasta que la ventana diga «arranca»; y **con
 la simulación en marcha la ventana ve el modelo**: instantáneas, avisos y los
-dos relojes. El invariante del F407, intacto las cinco veces; desde la
-segunda, también su recuento.
+dos relojes; y **la ventana toca el modelo**: órdenes a los mandos de las
+piezas, antes de arrancar o en marcha, con un eco por orden en el instante
+real. El invariante del F407, intacto las seis veces; desde la segunda,
+también su recuento.
 
 `doc/analisis_gui.md` comparaba tres escenarios y recomendaba el **2** —un solo
 ejecutable Qt con la simulación en su propio hilo—. **La decisión tomada es la
@@ -221,8 +223,9 @@ aquí:
 | d | ~~`conecta(host, puerto)` y `escucha(host, puerto)` en `common/red.h`, **al lado** de las de bucle local y sin sustituirlas~~ **HECHO en la fase 2**, con IPv4 e IPv6 (los corchetes de `--gui [::1]` se quitan allí), un plazo de 5 s por dirección en `conecta` y `puerto_local()` para escuchar en el puerto 0. Las de GDB no se han tocado. Con ellas, **`common/proto_io.h`**: el emisor y el lector del marco, que comprueban magia, versión, longitud y sentido y saltan lo desconocido; es **el mismo fichero** que lee la GUI, y `make gui-proto` exige que las dos copias —y las de `protocolo.h`— sean idénticas byte a byte (**R-6** del plan, cerrado). `make gui-proto`: 40 comprobaciones sin SystemC, con dos hilos y un socket de verdad; en el trabajo rápido del CI, y en macOS y Windows junto a `make red` | 2 |
 | e | ~~El saludo antes de `sc_start()`, y `--valida --gui`~~ **HECHO en la fase 3**: `common/gui_cliente.h` (`ClienteGui`, sin SystemC) y `saluda_gui()` en `sim_main.cpp`, entre construir la placa y `sc_start()`. `T_PLACA` es `Netlist::volcar_xml`, la placa declarada; `T_CATALOGO`, el `Catalogo` de la fase 1, que activa la frontera con los mismos índices. La espera de `T_ARRANCA` no tiene plazo ni gasta CPU; contesta `T_PING`, acepta `T_PARA` (termina sin simular) e ignora `T_SUSCRIBE` y `T_ORDENES` hasta las fases 4 y 5. **`--valida --gui`**: placa, catálogo y `T_FIN`, sin `T_LISTO` y sin esperar. **Errores** —nadie escuchando, ninguna versión común, sin respuesta a `T_HOLA` en 10 s, la GUI cerrando antes de arrancar—: código 2 y dicho. Al acabar la ventana, `T_FIN` con el instante real; `muere()` manda `T_FIN` con `M_ERROR`. **Y un fallo de la fase 1 destapado aquí**: las piezas que no son `sc_module` salían en el catálogo como `Crystal_1` o `Button_3` y en la placa como `X2` o `B1`, así que la ventana no podía casarlas; ahora `Netlist::construye` les pone el id del XML (`ExtPartBase::pon_id`). Pruebas: `make gui-proto` P4 (18 comprobaciones, el saludo contra una GUI falsa) y **`make gui-saludo`**, el `sim` de verdad con `discovery_min.xml` contra una ventana en Python con su propia implementación del marco (22): que espera **sin CPU y sin avanzar un picosegundo**, y que con `--gui` simula exactamente lo mismo, deltas incluidos | 3 |
 | f | ~~Los avisos de `SC_REPORT` desviados al socket~~ **HECHO en la fase 4**, y con ellos todo el sentido modelo → pantalla: **`parts/enlace_gui.h`**, un `SC_THREAD` que atiende la conexión cada 100 µs simulados (como el GDB) y no habla con un socket sino con un **canal** (`common/gui_mensajes.h`): en `sim` es el socket, en `testgui` un búfer en memoria que se atasca a voluntad. Lee `T_SUSCRIBE` y `T_PING`; manda avisos, instantáneas con un `T_ESTADO` detrás de cada tanda, y un `T_ESTADO` suelto cada 250 ms de pared si no ha salido ninguno. **Contrapresión**: la salida no pasa de 256 kB, las instantáneas que no caben se tiran y se cuentan en `perdidas`, y los avisos no se tiran nunca: con 1000 sin mandar, `T_FIN` con `M_ERROR`, la conexión se cierra **y la simulación sigue**. **Los avisos** son lo que la consola enseña —lo silenciado sigue silenciado— menos el «Simulation stopped by user» del núcleo; los **de placa** (`[elec]`, `[serie]`) salen en el saludo, entre `T_CATALOGO` y `T_LISTO`. La **suscripción previa a `T_ARRANCA`** se aplica antes de `sc_start()`, y la secuencia de instantáneas se repite al picosegundo. Sin `--gui` no cambia nada: `test407` lleva un `EnlaceGui` construido y sin activar, y su línea de `invariantes.txt` no se ha movido. Con `--gui` hay más deltas —el sondeo es un proceso que despierta— y el mismo modelo: mismos LEDs, mismo instante final. Pruebas: `testgui` G9–G12 (87 → **114**, `70550000000 ps`; seis mutaciones del enlace, las seis caen) y **`make gui-marcha`** (24), el `sim` de verdad con el blinky: **seis flancos separados 100 ms** en las instantáneas, la misma secuencia dos veces, los avisos de placa, la conversación en marcha y que si la ventana se va, `sim` sigue. **Y un fallo de `--tiempo-real` destapado aquí**: con una ventana finita se simulaba entera de golpe y luego se dormía; ahora va en rodajas de 1 ms, y el freno se mide contra un ancla, sin acumular el retraso de cada `sleep` (un 10 % antes) | 4 |
-| g | `--argumentos`: que el programa vuelque su lista de opciones, para que el diálogo de lanzamiento de la GUI no envejezca | 7 |
-| h | `--sesion fichero.xml`: reproducir una sesión grabada **sin GUI**, que es lo que devuelve el determinismo que la interactividad quita | 8 |
+| g | ~~Las órdenes: `T_ORDENES` y `T_ORDEN_HECHA`~~ **HECHO en la fase 5**: el enlace lee `T_ORDENES` y lo encola en la frontera —relativo al instante en que lo lee—, y vacía hacia la ventana un **`T_ORDEN_HECHA` por orden**, con el instante real y el resultado; **nunca se tira uno**: van como los avisos, con el mismo máximo, porque son lo único que dice cuándo se aplicó de verdad una orden. Los `T_ORDENES` que llegan **antes de `T_ARRANCA`** los guarda `ClienteGui`, todos y en orden, y `sim` los encola antes de `sc_start()`: instantes absolutos, reproducibles al nanosegundo. Validación sin silencios: pieza o mando que no existen, su eco con `RES_PIEZA`/`RES_MANDO`; fuera de rango, se recorta, se aplica y **detrás del eco un `T_AVISO`** que dice qué pieza y mando, de qué lado se salió, qué se aplicó y el rango; un `T_ORDENES` que no es un múltiplo de 16 bytes, un `T_AVISO` y ninguna aplicada. Pruebas: `testgui` G13 (114 → **126**, `75300000000 ps`; cinco mutaciones del enlace, las cinco caen), `gui-proto` P4 (61 → 64) y **`make gui-ordenes`** (23): **el ejemplo del enunciado** sobre B1 de `discovery_min.xml`, con los cuatro ecos en **exactamente 1,00 / 1,50 / 4,00 / 4,22 s**, `pulsado` en las instantáneas justo en esos intervalos, la misma secuencia dos veces, la validación y las órdenes en marcha | 5 |
+| h | `--argumentos`: que el programa vuelque su lista de opciones, para que el diálogo de lanzamiento de la GUI no envejezca | 7 |
+| i | `--sesion fichero.xml`: reproducir una sesión grabada **sin GUI**, que es lo que devuelve el determinismo que la interactividad quita | 8 |
 
 **El riesgo que hay que vigilar, y tiene su mitigación escrita:** los dos
 `SC_THREAD` de la frontera se construyen siempre —la elaboración de SystemC es

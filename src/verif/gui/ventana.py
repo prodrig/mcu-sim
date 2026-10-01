@@ -1,11 +1,12 @@
 # =============================================================================
 # ventana.py — Una ventana de mcu-sim-gui mínima, en Python, para las pruebas
 #
-# Lo que comparten `saludo.py` (fase 3) y `marcha.py` (fase 4): el marco del
-# protocolo escrito OTRA VEZ a partir de `doc/protocolo.md`, sin compartir nada
-# con `proto_io.h` —que es el mismo fichero en los dos extremos de verdad, así
-# que un error en él no lo cazaría ninguno de los dos—, una ventana que escucha
-# y saluda, y el contador de comprobaciones.
+# Lo que comparten `saludo.py` (fase 3), `marcha.py` (fase 4) y `ordenes.py`
+# (fase 5): el marco del protocolo escrito OTRA VEZ a partir de
+# `doc/protocolo.md`, sin compartir nada con `proto_io.h` —que es el mismo
+# fichero en los dos extremos de verdad, así que un error en él no lo cazaría
+# ninguno de los dos—, una ventana que escucha y saluda, y el contador de
+# comprobaciones.
 # =============================================================================
 import os
 import socket
@@ -40,7 +41,7 @@ MAGIA = 0x3147534D
 CAB = struct.Struct("<IHHII")          # magia, version, tipo, longitud, secuencia
 
 T_HOLA, T_PLACA, T_CATALOGO, T_LISTO = 0x0001, 0x0002, 0x0003, 0x0004
-T_INSTANTANEA, T_AVISO, T_ESTADO = 0x0010, 0x0011, 0x0012
+T_INSTANTANEA, T_AVISO, T_ESTADO, T_ORDEN_HECHA = 0x0010, 0x0011, 0x0012, 0x0013
 T_PONG, T_FIN = 0x0014, 0x001F
 T_VERSION, T_SUSCRIBE, T_ARRANCA, T_ORDENES, T_PARA, T_PING = (
     0x8000, 0x8001, 0x8002, 0x8006, 0x8007, 0x8008)
@@ -48,6 +49,7 @@ M_VENTANA, M_PARA, M_ERROR = 0, 1, 2
 N_INFO, N_AVISO, N_ERROR, N_FATAL = 0, 1, 2, 3
 F_CORRIENDO, F_TERMINADA = 1, 3
 RIT_LIBRE = 1
+RES_OK, RES_PIEZA, RES_MANDO, RES_RANGO, RES_TARDE = 0, 1, 2, 3, 4
 
 
 class Ventana:
@@ -203,6 +205,18 @@ def estado(cuerpo):
     """(fase, t_sim_ns, t_pared_s, deltas)"""
     fase, _, t, pared, deltas = struct.unpack("<IIQdQ", cuerpo)
     return fase, t, pared, deltas
+
+
+# --- Los cuerpos de la fase 5 ---------------------------------------------------
+def ordenes(v, lista):
+    """Un T_ORDENES con [(t_sim_ns, pieza, mando, valor), ...] (doc/protocolo.md §5)."""
+    v.manda(T_ORDENES, b"".join(struct.pack("<QHHf", t, p, m, x) for t, p, m, x in lista))
+
+
+def hecha(cuerpo):
+    """(t_sim_ns, pieza, mando, valor, resultado)"""
+    t, p, m, x, r, _ = struct.unpack("<QHHfII", cuerpo)
+    return t, p, m, x, r
 
 
 def resumen(nombre):

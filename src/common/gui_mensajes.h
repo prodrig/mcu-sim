@@ -10,8 +10,8 @@
 //     `SC_THREAD` que atiende la conexión en marcha (`parts/enlace_gui.h`)— se
 //     prueba entero, contrapresión incluida, sin un solo socket y de forma
 //     determinista. Es la misma idea que el canal en memoria del puente serie;
-//   * los cuerpos de T_AVISO y T_SUSCRIBE, que hay que escribir o leer en más
-//     de un sitio.
+//   * los cuerpos de T_AVISO, T_SUSCRIBE y T_ORDENES, que hay que escribir o
+//     leer en más de un sitio.
 //
 // No va en `proto_io.h` porque aquel fichero es el mismo en los dos
 // repositorios, y esto solo lo usa el lado del modelo.
@@ -76,6 +76,24 @@ inline std::string cuerpo_suscripcion(uint64_t periodo_ns, const std::vector<uin
     std::string s(reinterpret_cast<const char*>(&c), sizeof c);
     for (uint16_t id : ids) s.append(reinterpret_cast<const char*>(&id), 2);
     return s;
+}
+
+// ---------------------------------------------------------------------------
+// T_ORDENES: una o más `Orden` de 16 bytes, sin cabecera. false si está vacío
+// o no es un múltiplo de 16: un mensaje así no se aplica ni a medias.
+// ---------------------------------------------------------------------------
+inline bool lee_ordenes(const std::string& cuerpo, std::vector<mcusim::proto::Orden>& v) {
+    const std::size_t n = sizeof(mcusim::proto::Orden);
+    v.clear();
+    if (cuerpo.empty() || cuerpo.size() % n != 0) return false;
+    v.resize(cuerpo.size() / n);
+    std::memcpy(v.data(), cuerpo.data(), cuerpo.size());
+    return true;
+}
+
+inline std::string cuerpo_ordenes(const std::vector<mcusim::proto::Orden>& v) {
+    return std::string(reinterpret_cast<const char*>(v.data()),
+                       v.size() * sizeof(mcusim::proto::Orden));
 }
 
 } // namespace gui

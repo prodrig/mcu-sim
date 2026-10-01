@@ -133,8 +133,9 @@ def s3_arranca(sim):
             return
         saludo_hasta_listo(v)
         # Una suscripcion (fase 4) y una orden (fase 5): ninguna de las dos
-        # puede cambiar lo que hace el modelo. La orden, en esta fase, ni se
-        # aplica; la suscripcion solo lee.
+        # puede cambiar lo que hace el modelo. La suscripcion solo lee; la
+        # orden, desde la fase 5, SI se aplica -pulsa B1, la pieza 6, en
+        # t = 1 ms-, pero el blinky no mira PA0, asi que los LEDs no cambian.
         v.manda(T_SUSCRIBE, struct.pack("<IIII", 1000000, 0, 1, 0) + struct.pack("<H", 2))
         v.manda(T_ORDENES, struct.pack("<QHHf", 1000000, 6, 0, 1.0))
         v.manda(T_ARRANCA, struct.pack("<IfQ", RIT_LIBRE, 1.0, 0))

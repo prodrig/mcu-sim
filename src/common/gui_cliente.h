@@ -16,7 +16,7 @@
 //      |---------- T_PLACA ----------->|   la placa declarada, en XML
 //      |-------- T_CATALOGO ---------->|   observables y mandos
 //      |---------- T_LISTO ----------->|   construido y esperando
-//      |<--- (T_SUSCRIBE, T_ORDENES) --|   se leen y, en esta fase, se ignoran
+//      |<--- (T_SUSCRIBE, T_ORDENES) --|   se guardan para antes de sc_start()
 //      |<-------- T_ARRANCA -----------|   ¡ahora!
 //
 // Mientras espera `T_ARRANCA` contesta `T_PING` con `T_PONG`, y un `T_PARA`
@@ -35,6 +35,11 @@
 //   * el último T_SUSCRIBE que llegue antes de T_ARRANCA se GUARDA
 //     (`suscripcion()`), para que `sim` lo aplique antes de `sc_start()`. Es lo
 //     que hace reproducible la secuencia de instantáneas.
+//
+// Y desde la fase 5, TODOS los T_ORDENES que lleguen antes de T_ARRANCA se
+// guardan, en el orden en que llegan (`ordenes_previas()`): su primera orden
+// lleva un instante ABSOLUTO (`doc/protocolo.md` §5), y `sim` los encola en la
+// frontera antes de `sc_start()`. Es la secuencia reproducible al picosegundo.
 //
 // Y con T_ARRANCA, `entrega()` le pasa la conexión al enlace que la atiende
 // en marcha (`parts/enlace_gui.h`), con el emisor y el lector tal y como
@@ -173,9 +178,14 @@ public:
                     suscripcion_ = m.cuerpo;
                     hay_suscripcion_ = true;
                     break;
+                case T_ORDENES:
+                    // Todos, en orden: no se reemplazan como la suscripción.
+                    // Se validan al encolarlos, que es donde se puede avisar.
+                    ordenes_previas_.push_back(m.cuerpo);
+                    break;
                 default:
-                    // T_ORDENES y el control: son de las fases 5 y 6. Se leen
-                    // enteros y se cuentan; no se pierde la sincronía.
+                    // El control (T_PAUSA, T_SIGUE, T_PASO) es de la fase 6.
+                    // Se lee entero y se cuenta; no se pierde la sincronía.
                     ++ignorados_;
                     break;
             }
@@ -198,6 +208,7 @@ public:
     unsigned           ignorados() const { return ignorados_; }
     bool               hay_suscripcion() const { return hay_suscripcion_; }
     const std::string& suscripcion() const { return suscripcion_; }
+    const std::vector<std::string>& ordenes_previas() const { return ordenes_previas_; }
     const mcusim::proto::Emisor& emisor() const { return em_; }
     const mcusim::proto::Lector& lector() const { return lec_; }
 
@@ -305,6 +316,7 @@ private:
     std::vector<std::string> avisos_placa_;
     std::string            suscripcion_;
     bool                   hay_suscripcion_ = false;
+    std::vector<std::string> ordenes_previas_;
 };
 
 // ---------------------------------------------------------------------------

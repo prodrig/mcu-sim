@@ -951,7 +951,7 @@ sistema, está en `doc/puente_serie.md`**; con `--espera-terminal`, `mcu-sim` no
 arranca el MCU hasta que el terminal está conectado, y así no se pierde lo que
 el firmware imprime al arrancar.
 
-### 4.10 Lo que `mcu-sim-gui` podrá ver y tocar
+### 4.10 Lo que `mcu-sim-gui` puede ver y tocar
 
 Desde la fase 1 del plan de `mcu-sim-gui` (P-12), una pieza puede **declarar**
 qué deja ver —sus *observables*— y qué se le puede hacer —sus *mandos*—. La
@@ -970,6 +970,13 @@ Hoy lo declaran tres:
 
 `Crystal` no publica la frecuencia por lo mismo que no la lleva como atributo:
 la del HSE es un dato del árbol de reloj y vive en el RCC.
+
+Desde la fase 5 los mandos se **accionan** desde la ventana: una orden dice
+pieza, mando y valor, y llega a `acciona()` en su instante simulado. El rango
+de cada mando es el que la pieza declara; una orden que se sale se recorta a él
+y se aplica, y el modelo lo avisa (`doc/protocolo.md` §5 en `mcu-sim-gui`).
+Para la pieza no hay diferencia entre eso y que el programa de pruebas llame al
+método de siempre: `acciona(pulsar, 1)` hace lo mismo que `press()`.
 
 Las otras diecinueve no declaran nada todavía, y no les hace falta para
 compilar: los seis métodos de `ExtPartBase` tienen valores por omisión. Las
@@ -991,7 +998,9 @@ existe—; simplemente no ha hecho falta todavía.
 
 **Nada de lo que ocurre durante la simulación está en el XML.** Pulsar un botón,
 encender un oscilador, enviar una trama CAN o inyectar una trama Ethernet son
-acciones, no descripción, y viven en el programa que conduce la simulación.
+acciones, no descripción, y viven en el programa que conduce la simulación
+—o, con `--gui`, en la ventana, que las manda como órdenes a los mandos que
+cada pieza declara (§4.10)—.
 
 **El MCU no se describe.** Variante, encapsulado y rasgos de los periféricos
 siguen fijados en C++. El fichero describe lo que está fuera del chip.

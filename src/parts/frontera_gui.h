@@ -23,9 +23,9 @@
 //                eco, con el instante REAL en que se aplicó y el resultado
 //                (`doc/protocolo.md` §5).
 //
-// Las dos colas de salida son lo que la fase 4 (instantáneas) y la fase 5
-// (ecos de órdenes) vaciarán hacia el socket. Hasta entonces las vacía quien
-// las quiera mirar: el banco `testgui`.
+// Las dos colas de salida —instantáneas y ecos de órdenes— las vacía hacia la
+// ventana el enlace (`enlace_gui.h`, fases 4 y 5); en el banco `testgui`, las
+// de la frontera de G0 a G8 las vacía el propio banco.
 //
 // LA TRAMPA DEL INVARIANTE, Y CÓMO SE SORTEA. La elaboración de SystemC es
 // estática: estos dos procesos se construyen siempre, haya `--gui` o no, y un
@@ -239,8 +239,8 @@ SC_MODULE(FronteraGui) {
     // RELATIVO al instante en que se saca de la cola si la simulación ya
     // corre; las siguientes, el tiempo transcurrido desde la anterior. Aquí se
     // convierten todas a instantes absolutos en el momento de encolarlas, que
-    // es el «sacarla de la cola» del protocolo: en la fase 5, el proceso que
-    // lea el socket llamará a esto en el instante en que la lea.
+    // es el «sacarla de la cola» del protocolo: el enlace (`enlace_gui.h`)
+    // llama a esto en el instante en que lee el mensaje del socket.
     //
     // Varias órdenes en el MISMO instante se aplican en el orden en que
     // llegaron, también entre mensajes distintos.
@@ -258,7 +258,7 @@ SC_MODULE(FronteraGui) {
     }
     std::size_t ordenes_pendientes() const { return pendientes_.size(); }
 
-    // --- Lo que sale: lo que la fase 4 y la 5 vaciarán hacia el socket -------
+    // --- Lo que sale: lo que el enlace vacía hacia el socket ----------------
     std::deque<Instantanea>               instantaneas;
     std::deque<mcusim::proto::OrdenHecha> hechas;
     // Contadores de por vida, para quien quiera saber si esto se ha movido.

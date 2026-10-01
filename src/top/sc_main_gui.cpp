@@ -56,6 +56,18 @@
 //   G11 la ventana se va: el enlace lo ve, deja de muestrear y suelta SC_REPORT;
 //   G12 terminar: lo pendiente sale, luego un T_ESTADO final y T_FIN.
 //
+// Y desde la fase 5, LAS ÓRDENES POR EL CANAL, con el mismo canal en memoria:
+//
+//   G13 un T_ORDENES en marcha es relativo a la vuelta que lo lee, y sus ecos
+//       salen a medida que se aplican, con el instante real; las que no se
+//       pueden aplicar dejan su eco, las de fuera de rango además un T_AVISO
+//       detrás; un T_ORDENES malformado no se aplica ni a medias; con el canal
+//       atascado los ecos esperan sin perderse, y cuando son demasiados se
+//       cierra la conexión, y las órdenes ya aceptadas se siguen aplicando.
+//
+// La secuencia de antes de arrancar es G2, a nivel de la frontera; por el
+// socket de verdad y con `sim`, `make gui-ordenes` (`verif/gui/ordenes.py`).
+//
 //   make testgui
 // =============================================================================
 #include <systemc>
@@ -144,10 +156,13 @@ SC_MODULE(TbGui) {
         }
         void cierra() override { cerrado_aqui = true; }
     };
-    gui::FronteraGui fr9{"fr9", 4}, fr11{"fr11"}, fr12{"fr12"};
+    gui::FronteraGui fr9{"fr9", 4}, fr11{"fr11"}, fr12{"fr12"}, fr13{"fr13"};
     gui::EnlaceGui   en9{"en9", fr9, 200, 5}, en11{"en11", fr11}, en12{"en12", fr12};
+    // El de G13: el mismo tope de 200 bytes, que son cinco ecos, y veinte en
+    // la cola como mucho.
+    gui::EnlaceGui   en13{"en13", fr13, 200, 20};
     gui::EnlaceGui   en_quieto{"en_quieto", fr_quieta};
-    CanalMemoria     c9, c11, c12;
+    CanalMemoria     c9, c11, c12, c13;
     double           pared_ = 1000.0;           // el reloj de pared, a mano
 
     // Los indices, que se fijan al activar
@@ -400,14 +415,13 @@ private:
         // --- T_PING, y lo que es de otras fases ---------------------------
         a_modelo(c9, E, T_SUSCRIBE, gui::cuerpo_suscripcion(0, {}));
         a_modelo(c9, E, T_PING);
-        a_modelo(c9, E, T_ORDENES, bytes(Orden{0, i_btn, 0, 1.f}));
         a_modelo(c9, E, T_PAUSA);
         wait(150, SC_US);
         v = lee_canal(c9, L);
         check(v.size() == 1 && v[0].tipo == T_PONG,
               "T_PING: T_PONG en la siguiente vuelta");
-        check(en9.ignorados() == 2 && !btn.pressed(),
-              "T_ORDENES y T_PAUSA se leen y se ignoran: son de las fases 5 y 6");
+        check(en9.ignorados() == 1,
+              "T_PAUSA se lee y se ignora: es de la fase 6");
 
         // --- El latido -------------------------------------------------------
         wait(1, SC_MS);
@@ -583,6 +597,158 @@ private:
               "y T_FIN, con el instante, y el canal cerrado");
         check(!en_quieto.activo() && en_quieto.instantaneas() == 0 && en_quieto.estados() == 0,
               "y el enlace que nunca se activo no ha hecho nada en todo el banco");
+    }
+
+    // -------------------------------------------------------------------
+    // G13 — Las ordenes por el canal (fase 5)
+    // -------------------------------------------------------------------
+    static std::vector<Visto> solo(const std::vector<Visto>& v, uint16_t a, uint16_t b) {
+        std::vector<Visto> w;
+        for (const Visto& x : v) if (x.tipo == a || x.tipo == b) w.push_back(x);
+        return w;
+    }
+    static std::string texto_aviso(const Visto& x) { return x.cuerpo.substr(sizeof(CabAviso)); }
+
+    void g13_ordenes() {
+        grupo("G13 Las ordenes por el canal: ecos, rango, malformadas y atasco");
+        const gui::Catalogo cat(ExtPartBase::inventario());
+        fr13.activa(cat);
+        const uint16_t i_nc = uint16_t(cat.indice_de(&btn_nc));
+        en13.activa(&c13, Emisor(), Lector(Origen::Pantalla), reloj());
+        // Activado en marcha: la primera vuelta es AHORA, y las demas cada
+        // 100 us desde aqui. Asi se sabe en que instante lee cada mensaje.
+        const uint64_t t_a = ahora();
+        Lector L(Origen::Modelo);
+        Emisor E;
+
+        // --- En marcha: relativo a la vuelta que lo lee, y a medida ---------
+        wait(50, SC_US);
+        a_modelo(c13, E, T_ORDENES, gui::cuerpo_ordenes({ {1 * MS,   i_nc, 0, 1.f},
+                                                         {500 * US, i_nc, 0, 0.f},
+                                                         {0,        i_nc, 0, 1.f},
+                                                         {0,        i_nc, 0, 0.f} }));
+        const uint64_t t_l = t_a + 100 * US;     // la vuelta que lo lee
+        hasta(t_l + 1 * MS + 50 * US);
+        std::vector<Visto> v = solo(lee_canal(c13, L), T_ORDEN_HECHA, T_AVISO);
+        {
+            const OrdenHecha h = v.empty() ? OrdenHecha{} : pod<OrdenHecha>(v[0].cuerpo);
+            check(v.size() == 1 && v[0].tipo == T_ORDEN_HECHA && h.t_sim_ns == t_l + 1 * MS &&
+                  h.pieza == i_nc && h.mando == 0 && h.valor == 1.f && h.resultado == RES_OK &&
+                  btn_nc.valor_observable(0) == 1.f,
+                  "la primera, 1 ms despues de la vuelta que leyo el mensaje, y su eco "
+                  "sale en cuanto se aplica, con el instante real: no espera a las demas");
+        }
+        hasta(t_l + 1500 * US + 150 * US);
+        v = solo(lee_canal(c13, L), T_ORDEN_HECHA, T_AVISO);
+        {
+            bool bien = v.size() == 3;
+            const float esp[3] = {0.f, 1.f, 0.f};
+            for (std::size_t k = 0; bien && k < 3; ++k) {
+                const OrdenHecha h = pod<OrdenHecha>(v[k].cuerpo);
+                bien = v[k].tipo == T_ORDEN_HECHA && h.t_sim_ns == t_l + 1500 * US &&
+                       h.valor == esp[k] && h.resultado == RES_OK;
+            }
+            check(bien, "las otras tres, 0,5 ms despues y las tres en el MISMO instante "
+                        "(delta 0), en el orden del mensaje: suelta, pulsa, suelta");
+        }
+        check(en13.mensajes_ordenes() == 1 && en13.ordenes() == 4 && en13.ecos() == 4 &&
+              !btn_nc.pressed(),
+              "un mensaje, cuatro ordenes, cuatro ecos, y el pulsador acaba suelto");
+
+        // --- Las que no se pueden aplicar, y las de fuera de rango ---------
+        a_modelo(c13, E, T_ORDENES, gui::cuerpo_ordenes({ {0, 999,   0, 1.f},
+                                                         {0, i_led, 0, 1.f},
+                                                         {0, i_nc,  0, 7.f},
+                                                         {0, i_nc,  0, -3.f} }));
+        // Cuatro vueltas: el tope de 200 bytes deja salir los ecos y los
+        // avisos en dos tandas, y lo que aqui se mira es el orden.
+        wait(400, SC_US);
+        v = solo(lee_canal(c13, L), T_ORDEN_HECHA, T_AVISO);
+        {
+            const uint16_t esp_t[6] = {T_ORDEN_HECHA, T_ORDEN_HECHA, T_ORDEN_HECHA,
+                                       T_AVISO, T_ORDEN_HECHA, T_AVISO};
+            bool forma = v.size() == 6;
+            for (std::size_t k = 0; forma && k < 6; ++k) forma = v[k].tipo == esp_t[k];
+            check(forma, "cuatro ecos, y detras de cada uno de los de fuera de rango, "
+                         "su T_AVISO");
+            if (forma) {
+                const OrdenHecha a = pod<OrdenHecha>(v[0].cuerpo), b = pod<OrdenHecha>(v[1].cuerpo),
+                                 c = pod<OrdenHecha>(v[2].cuerpo), d = pod<OrdenHecha>(v[4].cuerpo);
+                check(a.resultado == RES_PIEZA && a.pieza == 999 && b.resultado == RES_MANDO,
+                      "una pieza que no existe: RES_PIEZA; un mando que no existe: "
+                      "RES_MANDO. Ninguna se calla");
+                check(c.resultado == RES_RANGO && c.valor == 1.f &&
+                      d.resultado == RES_RANGO && d.valor == 0.f,
+                      "un 7 se recorta a 1 y un -3 a 0, con RES_RANGO");
+                const std::string a1 = texto_aviso(v[3]), a2 = texto_aviso(v[5]);
+                const CabAviso ca = pod<CabAviso>(v[3].cuerpo);
+                check(ca.nivel == N_AVISO && ca.t_sim_ns == c.t_sim_ns &&
+                      a1.find(btn_nc.pieza() + ".pulsar") != std::string::npos &&
+                      a1.find("pasa del maximo") != std::string::npos &&
+                      a1.find("se aplica 1 (rango 0 a 1)") != std::string::npos &&
+                      a2.find("no llega al minimo") != std::string::npos,
+                      "y el aviso dice la pieza y el mando, de que lado se salio, lo que "
+                      "se aplico y el rango: \"" + a1.substr(11) + "\"");
+            }
+        }
+
+        // --- Malformados: no se aplican ni a medias --------------------------
+        {
+            const uint64_t aplicadas = fr13.aplicadas();
+            a_modelo(c13, E, T_ORDENES, std::string(20, 'x'));
+            a_modelo(c13, E, T_ORDENES, "");
+            wait(200, SC_US);
+            v = solo(lee_canal(c13, L), T_ORDEN_HECHA, T_AVISO);
+            check(v.size() == 2 && v[0].tipo == T_AVISO && v[1].tipo == T_AVISO &&
+                  texto_aviso(v[0]).find("20 bytes") != std::string::npos &&
+                  texto_aviso(v[1]).find("no se aplica ninguna") != std::string::npos &&
+                  fr13.aplicadas() == aplicadas && en13.mensajes_ordenes() == 2,
+                  "un T_ORDENES de 20 bytes y uno vacio: un T_AVISO cada uno, y ninguna "
+                  "orden aplicada");
+        }
+
+        // --- Con el canal atascado los ecos esperan ---------------------------
+        {
+            c13.acepta = 0;
+            std::vector<Orden> doce;
+            for (int k = 0; k < 12; ++k) doce.push_back({0, i_nc, 0, float((k + 1) % 2)});
+            a_modelo(c13, E, T_ORDENES, gui::cuerpo_ordenes(doce));
+            wait(300, SC_US);
+            SC_REPORT_WARNING("prueba/gui", "detras de las ordenes");
+            wait(300, SC_US);
+            check(en13.conectado() && en13.pendientes_salida() >= 200 && !fr13.hechas.empty(),
+                  "con el canal atascado, la salida al tope y " +
+                  std::to_string(fr13.hechas.size()) + " ecos esperando en la frontera");
+            c13.acepta = -1;
+            wait(500, SC_US);                   // cinco vueltas: 200 bytes por vuelta
+            v = solo(lee_canal(c13, L), T_ORDEN_HECHA, T_AVISO);
+            bool bien = v.size() == 13;
+            for (std::size_t k = 0; bien && k < 12; ++k)
+                bien = v[k].tipo == T_ORDEN_HECHA &&
+                       pod<OrdenHecha>(v[k].cuerpo).valor == float((k + 1) % 2);
+            check(bien && v[12].tipo == T_AVISO &&
+                  texto_aviso(v[12]).find("detras de las ordenes") != std::string::npos,
+                  "al volver a leer llegan los doce ecos, en su orden, y DESPUES el aviso "
+                  "que se produjo despues: no se pierde ninguno");
+        }
+
+        // --- Demasiados ecos sin leer ----------------------------------------
+        {
+            c13.acepta = 0;
+            std::vector<Orden> muchas(30, Orden{0, i_nc, 0, 0.f});
+            muchas.push_back({1 * MS, i_nc, 0, 1.f});
+            a_modelo(c13, E, T_ORDENES, gui::cuerpo_ordenes(muchas));
+            wait(300, SC_US);
+            check(!en13.conectado() && c13.cerrado_aqui &&
+                  en13.cierre().find("ecos de ordenes") != std::string::npos,
+                  "con veinte ecos esperando se cierra la conexion, como con los avisos, "
+                  "y dice por que");
+            wait(1, SC_MS);
+            check(btn_nc.pressed(),
+                  "y la orden ya aceptada se aplica igual en su instante: el modelo hace "
+                  "lo que se le dijo, aunque ya no mire nadie");
+            btn_nc.acciona(0, 0.f);
+        }
     }
 
     void run() {
@@ -798,6 +964,7 @@ private:
         g10_contrapresion();
         g11_se_va();
         g12_termina();
+        g13_ordenes();
 
         check(fr_quieta.tomadas() == 0 && fr_quieta.instantaneas.empty() &&
               fr_quieta.hechas.empty() && fr_quieta.aplicadas() == 0,
