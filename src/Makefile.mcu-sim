@@ -19,6 +19,7 @@
 #   make test446                  # la del F446, que es OTRO ejecutable
 #   make test417                  # la del acelerador criptografico del F415/F417
 #   make testserie                # la del puente UART (P-14), OTRO ejecutable
+#   make testgui                  # la de la frontera con mcu-sim-gui (P-12), OTRO mas
 #   make hash                     # los vectores de MD5/SHA-1, sin SystemC
 #   make cryp                     # los de AES/DES/TDES, tampoco
 #   make red                      # la capa de red, que NO necesita SystemC
@@ -186,6 +187,7 @@ MCUSIM  := build/mcu-sim$(EXE)
 TEST446 := build/test446$(EXE)
 TEST417 := build/test417$(EXE)
 TESTSERIE := build/testserie$(EXE)
+TESTGUI   := build/testgui$(EXE)
 HASHV   := build/prueba_hash$(EXE)
 CRYPV   := build/prueba_cryp$(EXE)
 BENCH  := build/bench$(EXE)
@@ -197,7 +199,7 @@ ASAN446 := build/asan446$(EXE)
 ASAN417 := build/asan417$(EXE)
 ASANSERIE := build/asanserie$(EXE)
 
-.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 interop run clean plataforma vectores hash cryp
+.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 interop run clean plataforma vectores hash cryp
 
 all: $(MCUSIM)
 
@@ -288,6 +290,22 @@ testserie-build: $(TESTSERIE)
 
 testserie: $(TESTSERIE)
 	./$(TESTSERIE)
+
+# EL BANCO DE LA FRONTERA CON mcu-sim-gui (P-12, fase 1 de su plan de dos
+# procesos). QUINTO ejecutable, por la razon de siempre: el muestreador y el
+# aplicador hacen cosas en el tiempo, y probarlas dentro del banco del F407
+# moveria su invariante. Alli se queda construida y SIN ACTIVAR, que es como
+# esta en `sim` sin `--gui`, y su invariante es la prueba de que no cuesta nada.
+# Este tiene el suyo en verif/invariantes.txt.
+#   make testgui
+$(TESTGUI): top/sc_main_gui.cpp $(HDRS)
+	@mkdir -p build
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_gui.cpp $(LDFLAGS) $(LDLIBS)
+
+testgui-build: $(TESTGUI)
+
+testgui: $(TESTGUI)
+	./$(TESTGUI)
 
 # Los VECTORES de MD5 y SHA-1 contra el nucleo aritmetico. NO necesita SystemC:
 # `periph/hash_algo.h` es aritmetica pura, y los 23 casos con su procedencia

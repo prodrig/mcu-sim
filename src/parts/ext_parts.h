@@ -96,6 +96,17 @@ public:
     // Desoldar el cristal es exactamente detach(): el interruptor común de la
     // librería y el que ya tenía esta pieza son la misma operación.
     void set_enabled(bool on) override { if (on) attach(); else detach(); }
+
+    // Lo que deja ver: si HAY cristal. No la frecuencia, por lo mismo que no
+    // la lleva como atributo (véase su ficha en parts/netlist_parts.h): la del
+    // HSE es un dato del árbol de reloj y vive en el RCC. El plan de dos
+    // procesos pedía `frecuencia`; publicar una que la pieza no tiene sería
+    // inventarla, y la GUI no debe enseñar nada que el modelo no sepa.
+    unsigned   n_observables() const override { return 1; }
+    Observable observable(unsigned) const override {
+        return {"presente", "", 0.f, 1.f, true};
+    }
+    float valor_observable(unsigned) const override { return present_ ? 1.f : 0.f; }
 private:
     double vdd_, r_;
     bool   present_ = false;
@@ -191,6 +202,20 @@ SC_MODULE(Led), public ExtPart {
     }
     bool   on()      const { return on_; }
     double current() const { return std::fabs(double(pin_current())); }
+
+    // Lo que deja ver: si luce y cuánta corriente lleva. Sugiere lo primero;
+    // lo segundo es para quien quiera ver por qué un LED azul colgado de 3,3 V
+    // no luce. La escala de 0 a 25 mA es el máximo por pin que vigila el pad
+    // [IR, §3.2; pins/pad.h]: más que eso no se le puede pedir a un pin.
+    unsigned   n_observables() const override { return 2; }
+    Observable observable(unsigned i) const override {
+        if (i == 0) return {"encendido", "",   0.f, 1.f,  true};
+        return             {"corriente", "mA", 0.f, 25.f, false};
+    }
+    float valor_observable(unsigned i) const override {
+        if (i == 0) return on_ ? 1.f : 0.f;
+        return float(current() * 1000.0);
+    }
 private:
     void run() {
         hiz();
@@ -265,6 +290,21 @@ public:
         if (!on) down_ = false;
         aplica();
     }
+
+    // Lo que deja ver y lo que se le puede hacer. `pulsado` es el DEDO
+    // -pressed()-, no el contacto: en un NC son opuestos, y lo que la
+    // pantalla pinta es el botón hundido o no. El mando `pulsar` es
+    // exactamente press()/release(): 1 pulsa, 0 suelta, y lo que no sea ni
+    // uno ni otro se decide por la mitad. Sobre un pulsador desoldado pasa lo
+    // mismo que con press(): el dedo baja, pero no hay contacto que cerrar.
+    unsigned   n_observables() const override { return 1; }
+    Observable observable(unsigned) const override {
+        return {"pulsado", "", 0.f, 1.f, true};
+    }
+    float    valor_observable(unsigned) const override { return down_ ? 1.f : 0.f; }
+    unsigned n_mandos() const override { return 1; }
+    Mando    mando(unsigned) const override { return {"pulsar", Mando::Boton, 0.f, 1.f}; }
+    void     acciona(unsigned, float v) override { if (v >= 0.5f) press(); else release(); }
 private:
     void aplica() {
         if (cerrado()) drive(float(v_), float(r_));

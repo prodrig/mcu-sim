@@ -60,9 +60,10 @@ P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
 
 **Hay TRES bancos de familia, y son tres ejecutables distintos a propósito**:
 montar un segundo chip dentro de una simulación mueve su tiempo simulado, así
-que cada familia corre la suya. **Y un cuarto, `testserie`**, el del puente
-UART (P-14), que también va aparte para que `test407` no se entere de que
-existe.
+que cada familia corre la suya. **Y dos más**, que van aparte por la misma
+razón —lo que prueban, dentro de `test407`, movería su invariante—:
+`testserie`, el del puente UART (P-14), y `testgui`, el de la frontera con
+`mcu-sim-gui` (P-12).
 
 | Orden | Qué ejecuta | Comprobaciones | Tiempo simulado |
 | :--- | :--- | ---: | ---: |
@@ -70,6 +71,7 @@ existe.
 | `make test446` | La del F446RE y sus ocho referencias | **204** | `1033367277932 ps` |
 | `make test417` | La del acelerador criptográfico del F415/F417 | **165** | `718988288 ps` |
 | `make testserie` | La del puente UART: `PuenteSerie`, un F407 con `vcp_demo` y clientes TCP y RFC 2217 de verdad | **189** | `400677589564 ps` |
+| `make testgui` | La de la frontera con `mcu-sim-gui`: lo que cada pieza deja ver y tocar, el catálogo, el muestreador y el aplicador, sobre una placa mínima sin chip | **87** | `26500000000 ps` |
 
 **En una máquina nueva no hace falta nada más**: los diecinueve firmwares que
 las suites cargan en la Flash **están versionados** (37 KB), así que `make
@@ -149,6 +151,7 @@ make -f Makefile.mcu-sim cryp         # los de AES/DES/TDES, tampoco
 make -f Makefile.mcu-sim serie        # el destino y el formato de un puente UART (P-14), tampoco
 make -f Makefile.mcu-sim rfc2217      # el codec de Telnet y RFC 2217 del puente, tampoco
 make -f Makefile.mcu-sim testserie    # el banco del puente UART, que es OTRO ejecutable
+make -f Makefile.mcu-sim testgui      # el de la frontera con mcu-sim-gui, OTRO mas
 make -f Makefile.mcu-sim asan407      # la misma suite con ASan + UBSan
 make -f Makefile.mcu-sim vectores     # los vectores del CRYP/HASH, sin SystemC
 make -f Makefile.mcu-sim run IMG=fw.bin # carga una imagen y simula
@@ -287,7 +290,7 @@ validar una plataforma nueva antes de pelearse con la biblioteca.
 
 | Plataforma | Estado | Comprobado |
 | :--- | :--- | :--- |
-| Linux, g++ 13 | **verificado** | 2118/2118 comprobaciones, 204/204 del F446 y 165/165 del F417, `make red` 13/13, ASan + UBSan limpio en las tres suites (`make asan407`, `make asan446`, `make asan417`), las seis placas validan sin un aviso |
+| Linux, g++ 13 | **verificado** | 2118/2118 comprobaciones, 204/204 del F446, 165/165 del F417, 189/189 de `testserie` y 87/87 de `testgui`, `make red` 13/13, ASan + UBSan limpio en las tres suites (`make asan407`, `make asan446`, `make asan417`), las seis placas validan sin un aviso |
 | Linux, clang | **verificado** | mismo resultado y mismo tiempo simulado al picosegundo |
 | Windows, MSYS2 / MinGW-w64 | **verificado** | **Los tres invariantes son los mismos que en Linux, al picosegundo**: 2118/2118 con `resto` en `2240553274213 ps` (huella `0x644FCE21`; antes de T-23, `2336217899213 ps` de total, igual que en Linux), 204/204 en `1033367277932 ps` y 165/165 en `718988288 ps`. Antes el del F407 salía 2 ms por debajo, y era el binario y nada más (**T-22**). Para que el ejecutable corra FUERA de MSYS2 hace falta el `-static` del Makefile: `doc/compilacion.md` §5.6 |
 | macOS, clang | **la rama específica compila** | Se fuerza la combinación de macOS —sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`— y compila con g++ y con clang; **falta probarlo en un Mac** |

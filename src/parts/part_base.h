@@ -69,6 +69,48 @@ struct Terminal {
 };
 
 // ---------------------------------------------------------------------------
+// LO QUE UNA PIEZA DEJA VER Y TOCAR desde fuera del modelo (mcu-sim-gui, plan
+// de dos procesos, fase 1).
+//
+// Un OBSERVABLE es una magnitud que la pieza publica por su cuenta: el estado
+// de un LED, la corriente que lo atraviesa, si un pulsador está pulsado. Un
+// MANDO es algo que se le puede hacer: pulsar el pulsador. Lo que NO es ni lo
+// uno ni lo otro es la tensión de un pin cualquiera o un registro del MCU: la
+// pantalla ve lo que cada pieza DECLARA, y nada más (`doc/analisis_gui.md`
+// §2.3). Por eso esto vive en la pieza y no en un mapa aparte: un mapa aparte
+// se queda viejo el día que alguien añade una pieza y no se acuerda de él.
+//
+// Las cadenas son literales con la vida del programa: el catálogo las copia a
+// un XML y no guarda punteros a nada que se pueda ir.
+//
+// `min` y `max` son la ESCALA que la pieza sugiere para pintarlo; iguales
+// quieren decir «sin escala». En un mando, en cambio, son el RANGO VÁLIDO: un
+// valor de fuera se recorta y se avisa (`RES_RANGO`).
+//
+// `interesante` es lo que la pieza sugiere pintar, no una orden: un LED sugiere
+// `encendido` y no `corriente`. Quien decide es la pantalla.
+// ---------------------------------------------------------------------------
+struct Observable {
+    const char* nombre;      // "encendido", "corriente", "pulsado"
+    const char* unidad;      // "", "mA"
+    float       min, max;    // escala para pintar; iguales = sin escala
+    bool        interesante; // lo que la pieza SUGIERE pintar
+};
+struct Mando {
+    const char* nombre;      // "pulsar"
+    enum Tipo { Boton, Interruptor, Continuo } tipo;
+    float       min, max;    // rango VÁLIDO del valor
+};
+inline const char* nombre_tipo_mando(Mando::Tipo t) {
+    switch (t) {
+        case Mando::Boton:       return "boton";
+        case Mando::Interruptor: return "interruptor";
+        case Mando::Continuo:    return "continuo";
+    }
+    return "?";
+}
+
+// ---------------------------------------------------------------------------
 // Base de toda pieza externa. No es un sc_module: hay piezas que lo son
 // (necesitan procesos) y piezas que no (una resistencia no tiene proceso), y
 // obligar a las segundas a serlo solo añadiría objetos a la jerarquía.
@@ -120,6 +162,32 @@ public:
         ev_conex_.notify(sc_core::SC_ZERO_TIME);
     }
     const sc_core::sc_event& evento_conexion() const { return ev_conex_; }
+
+    // --- Observables y mandos (véase `Observable` y `Mando` arriba) --------
+    // Con estos valores por omisión una pieza no declara nada, y por eso las
+    // que no los sobrescriben compilan sin tocarlas: la fase 1 del plan de
+    // dos procesos implementa tres (`Led`, `Button`, `Crystal`) y deja las
+    // demás como estaban.
+    //
+    // Contrato, que es el que el catálogo y el aplicador dan por supuesto:
+    //
+    //   * n_observables() y n_mandos() son CONSTANTES para una instancia: no
+    //     dependen del estado ni de si la pieza está soldada;
+    //   * observable(i) y mando(i) solo se llaman con i < n_...();
+    //   * valor_observable(i) es una CONSULTA: no mueve nada del modelo, no
+    //     espera y no gasta tiempo simulado. Se puede llamar desde cualquier
+    //     proceso y desde fuera de la simulación;
+    //   * acciona(i, v) recibe un valor ya recortado a [min, max] del mando.
+    //     Es la ÚNICA puerta por la que la pantalla cambia el modelo, y hace
+    //     exactamente lo mismo que el método que ya tuviera la pieza
+    //     (`Button::press()`, por ejemplo): no hay un segundo camino que se
+    //     pueda separar del primero.
+    virtual unsigned   n_observables() const { return 0; }
+    virtual Observable observable(unsigned) const { return {"", "", 0.f, 0.f, false}; }
+    virtual float      valor_observable(unsigned) const { return 0.f; }
+    virtual unsigned   n_mandos() const { return 0; }
+    virtual Mando      mando(unsigned) const { return {"", Mando::Boton, 0.f, 0.f}; }
+    virtual void       acciona(unsigned, float) {}
 
     // --- Inventario y volcado del netlist -----------------------------------
     static const std::vector<ExtPartBase*>& inventario() { return inventario_mut(); }

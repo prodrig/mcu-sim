@@ -84,3 +84,10 @@ test417                165           718988288        total
 # Y desde la D5, el mismo con TESTSERIE_RUIDO=1, que imita un loopback lento
 # (el de los macOS del CI, que destaparon dos esperas mal sincronizadas).
 testserie              189        400677589564        total
+# La frontera con mcu-sim-gui (P-12, fase 1 de su plan de dos procesos): el
+# muestreador y el aplicador sobre una placa minima sin chip, y lo que no gasta
+# tiempo (lo que declara cada pieza, el catalogo, la validacion). El tiempo es
+# la suma de las esperas del propio banco, y por eso es redondo: 26,5 ms. La
+# otra mitad de la prueba de esta fase es la linea de test407, que NO cambio:
+# tiene dentro una frontera construida y sin activar, como `sim` sin `--gui`.
+testgui                 87        26500000000        total

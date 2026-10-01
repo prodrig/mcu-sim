@@ -79,6 +79,7 @@
 #include "../parts/ext_parts.h"
 #include "../parts/netlist_parts.h"
 #include "../parts/netlist_xml.h"
+#include "../parts/frontera_gui.h"  // la frontera con mcu-sim-gui, construida e inactiva
 #include "../verif/decoder_vectors.h"
 #include "../verif/gdb_stub.h"
 #include "../core/gdb_stub_dap.h"
@@ -217,6 +218,17 @@ SC_MODULE(F1Tb) {
     Rpull     pd_nc{n_btn_nc, 0.0, 100e3};
     Button    btn_na{n_btn_na, 10.0, 3.3, false};   // normalmente ABIERTO
     Button    btn_nc{n_btn_nc, 10.0, 3.3, true};    // normalmente CERRADO
+
+    // --- La frontera con mcu-sim-gui (fase 1 de su plan), SIN ACTIVAR -------
+    // Se construye aqui porque en `sim` se construye siempre, haya `--gui` o
+    // no, y lo que este banco tiene que demostrar es justo eso: que dos
+    // procesos que esperan sobre un evento que nadie notifica no cuestan nada.
+    // La prueba NO es una comprobacion: es que la linea de este banco en
+    // `verif/invariantes.txt` no cambie, ni en picosegundos ni en recuento.
+    // Todo lo demas -lo que declara cada pieza, el catalogo, el muestreador y
+    // el aplicador- esta en `testgui`, por la decision D-12 del puente UART:
+    // lo que no necesita este banco no mueve sus cifras.
+    stm32::gui::FronteraGui frontera{"frontera"};
     // Oscilador externo para el modo bypass del HSE. Los sc_module deben
     // construirse durante la elaboración, así que se crea aquí parado.
     ExtClock* osc_ext = nullptr;

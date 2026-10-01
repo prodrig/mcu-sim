@@ -184,8 +184,12 @@ en todo el árbol.)*
 
 ### P-12 — La contraparte gráfica: `mcu-sim-gui`, en dos procesos
 **Fase:** posterior a F7. **Analizado en `doc/analisis_gui.md`; plan escrito,
-repositorio creado y FASE 0 EJECUTADA** — `--gui host:puerto` se reconoce, con
-T130 detrás (43 comprobaciones puras) y el invariante intacto.
+repositorio creado, FASE 0 y FASE 1 EJECUTADAS** — `--gui host:puerto` se
+reconoce, con T130 detrás (43 comprobaciones puras); y la frontera dentro del
+modelo existe, todavía sin socket: observables y mandos en las piezas, el
+catálogo, el muestreador y el aplicador, probados en un banco propio,
+`testgui`. El invariante del F407, intacto las dos veces; la segunda, también
+su recuento.
 
 `doc/analisis_gui.md` comparaba tres escenarios y recomendaba el **2** —un solo
 ejecutable Qt con la simulación en su propio hilo—. **La decisión tomada es la
@@ -197,7 +201,7 @@ arranque, no hay puerto ocupado y no hay cortafuegos.
 
 El proyecto vive en un repositorio aparte, `mcu-sim-gui`, a propósito: `mcu-sim`
 tiene que seguir clonándose y compilándose **sin Qt** en cualquier máquina, que
-es lo que hace que sus 2 074 comprobaciones valgan en todas partes. Allí están
+es lo que hace que sus suites valgan en todas partes. Allí están
 el plan por fases (`doc/plan_dos_procesos.md`, nueve fases) y la especificación
 del protocolo (`doc/protocolo.md`).
 
@@ -207,8 +211,8 @@ aquí:
 | | Qué | Fase del plan |
 | :--- | :--- | :--- |
 | a | ~~`--gui host:puerto`, con `localhost:3344` por omisión~~ **HECHO en la fase 0**, con las seis formas, sus siete errores y el aviso cuando el host no es la propia máquina. **Sin el argumento, nada cambia**: 2117/203/164 y `2336217899213 ps` | 0 |
-| b | `Observable` / `Mando` en `ExtPartBase`, y las tres primeras piezas que los declaran (`Led`, `Button`, `Crystal`) | 1 |
-| c | La instantánea y la cola de órdenes: los dos `SC_THREAD` de la frontera | 1 |
+| b | ~~`Observable` / `Mando` en `ExtPartBase`, y las tres primeras piezas que los declaran (`Led`, `Button`, `Crystal`)~~ **HECHO en la fase 1**: seis métodos virtuales con valores por omisión, así que las otras diecinueve piezas compilan sin tocarlas. `Led` declara `encendido` y `corriente` (mA); `Button`, `pulsado` y el mando `pulsar`; y `Crystal`, **`presente` y no `frecuencia`**, que es lo que pedía el plan: la pieza no lleva frecuencia a propósito (lo dice su ficha), y publicar una sería inventarla. El catálogo (`parts/frontera_gui.h`) numera los observables con un `id_obs` plano y escribe el XML de `T_CATALOGO`. Las comprobaciones que no gastan tiempo **no** van en `test407`, aunque el plan lo decía: por **D-12** del puente UART, lo que no necesita ese banco no mueve sus cifras. Están en el grupo G0 de `testgui` | 1 |
+| c | ~~La instantánea y la cola de órdenes: los dos `SC_THREAD` de la frontera~~ **HECHO en la fase 1**: `FronteraGui`, construida siempre —en `sim` y en el banco del F407— y **sin activar**, con sus dos procesos esperando un evento que nadie notifica. La prueba es que `sim` da la misma salida y los mismos deltas con y sin ella, y que la línea del F407 en `invariantes.txt` **no ha cambiado**: 2118 y `resto` en `2240553274213 ps`. Lo que hacen en el tiempo —muestras en la rejilla del periodo, órdenes con deltas, `RES_TARDE`, el atasco que tira y cuenta— está en **`testgui`**, un quinto banco (87 comprobaciones, `26500000000 ps`), porque probarlo en `test407` movería su invariante. Una decisión que el protocolo no decía y ahora dice: **las órdenes de un instante van antes que la muestra de ese instante**, con un delta de espera en el muestreador; sin él, la muestra se adelantaba a la orden (comprobado quitándolo) | 1 |
 | d | `conecta(host, puerto)` y `escucha(host, puerto)` en `common/red.h`, **al lado** de las de bucle local y sin sustituirlas | 2 |
 | e | El saludo antes de `sc_start()`, y `--valida --gui` | 3 |
 | f | Los avisos de `SC_REPORT` desviados al socket | 4 |

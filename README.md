@@ -71,13 +71,14 @@ No hace falta compilador cruzado de ARM: los firmwares que usan las pruebas
 
 ## Cómo se sabe que funciona
 
-Cuatro bancos de pruebas, que se ejecutan en cada cambio y en cuatro plataformas:
+Cinco bancos de pruebas, que se ejecutan en cada cambio y en cuatro plataformas:
 
 ```
 make test407    # 2118 comprobaciones    2337219149213 ps   (resto: 2240553274213 ps)
 make test446    #  204                   1033367277932 ps
 make test417    #  165                    718988288 ps
 make testserie  #  189                   400677589564 ps
+make testgui    #   87                    26500000000 ps
 ```
 
 **La cifra que importa es la segunda.** Un cambio puede dejar las 2 118
@@ -151,7 +152,7 @@ asunto del commit, que sí es el mismo.
 
 Siete fases cerradas más dos planes de familia. **Verificado en las cuatro
 plataformas** —Linux, Windows, macOS Apple Silicon y macOS Intel— por la
-integración continua, que en cada empujón pasa las cuatro suites **y comprueba
+integración continua, que en cada empujón pasa las cinco suites **y comprueba
 que el tiempo simulado no se mueva un picosegundo**.
 
 Con un detalle que salió gratis: esas mismas cifras se obtienen con **dos

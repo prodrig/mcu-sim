@@ -951,6 +951,31 @@ sistema, está en `doc/puente_serie.md`**; con `--espera-terminal`, `mcu-sim` no
 arranca el MCU hasta que el terminal está conectado, y así no se pierde lo que
 el firmware imprime al arrancar.
 
+### 4.10 Lo que `mcu-sim-gui` podrá ver y tocar
+
+Desde la fase 1 del plan de `mcu-sim-gui` (P-12), una pieza puede **declarar**
+qué deja ver —sus *observables*— y qué se le puede hacer —sus *mandos*—. La
+pantalla no ve nada más: ni la tensión de un pin cualquiera ni un registro del
+MCU. Lo declara la propia pieza, en `parts/ext_parts.h`, y el catálogo que la
+GUI recibirá se construye recorriendo el inventario, así que una pieza que
+empiece a declarar algo aparece sola.
+
+Hoy lo declaran tres:
+
+| Pieza | Observables | Mandos |
+| :--- | :--- | :--- |
+| `Led` | `encendido` (0/1, el que sugiere pintar) y `corriente` (mA, de 0 a 25) | — |
+| `Button` | `pulsado` (0/1): el **dedo**, no el contacto, que en un NC es lo contrario | `pulsar` (botón, 0 suelta, 1 pulsa) |
+| `Crystal` | `presente` (0/1): si está soldado | — |
+
+`Crystal` no publica la frecuencia por lo mismo que no la lleva como atributo:
+la del HSE es un dato del árbol de reloj y vive en el RCC.
+
+Las otras diecinueve no declaran nada todavía, y no les hace falta para
+compilar: los seis métodos de `ExtPartBase` tienen valores por omisión. Las
+piezas que el enunciado de la GUI necesita y no existen —`PwmMeter`, `Servo`,
+`Encoder`, `StepperDriver`, `DcMotor`— están en `doc/analisis_gui.md` §8.
+
 ---
 
 ## 5. Lo que el fichero todavía no puede hacer

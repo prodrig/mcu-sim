@@ -93,6 +93,7 @@
 #include "../verif/gdb_stub.h"
 #include "../parts/netlist_parts.h"
 #include "../parts/netlist_xml.h"
+#include "../parts/frontera_gui.h"
 #include "../soc/stm32f4_mcu.h"
 #include "../soc/stm32f446.h"
 
@@ -226,6 +227,14 @@ SC_MODULE(Sim) {
     unsigned     n_avisos = 0;
     bool         hay_stub = false;
     bool         hay_puente_red = false;   // un PuenteSerie por TCP (D3)
+
+    // La frontera con `mcu-sim-gui` (fase 1 de su plan): el muestreador y el
+    // aplicador. Se construye SIEMPRE, porque la elaboracion de SystemC es
+    // estatica y no se puede decidir despues; y mientras nadie la active sus
+    // dos procesos esperan sobre un evento que nadie notifica, asi que sin
+    // `--gui` este programa simula exactamente lo mismo que antes. La activara
+    // el saludo de la fase 3, con el catalogo de las piezas ya montadas.
+    stm32::gui::FronteraGui frontera{"frontera"};
 
     SC_CTOR(Sim) {
         // --- 1. Leer. No construye nada: devuelve datos ---------------------
@@ -907,7 +916,8 @@ int sc_main(int argc, char** argv) {
     // tiene que ser exactamente el programa de siempre mas una linea impresa.
     if (g_gui_pedida) {
         std::printf("gui: hablaria con mcu-sim-gui en %s "
-                    "(protocolo v%u) -- fase 0: todavia no se conecta\n",
+                    "(protocolo v%u) -- todavia no se conecta: el socket es la "
+                    "fase 3\n",
                     stm32::gui::como_texto(g_gui).c_str(),
                     unsigned(mcusim::proto::VERSION_PROTO));
         if (!stm32::gui::es_bucle_local(g_gui.host))
