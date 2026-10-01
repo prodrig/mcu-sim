@@ -396,12 +396,6 @@ jobs:
         working-directory: src
         run: make -f Makefile.mcu-sim red gui-proto CXX=clang++
 
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: salidas-macos-${{ matrix.os }}
-          path: src/build/*.log
-
       # -----------------------------------------------------------------
       # EL EJECUTABLE DE macOS SE QUEDA ENLAZADO A LA SystemC DE HOMEBREW,
       # a proposito y por decision tomada.
@@ -432,6 +426,16 @@ jobs:
       - name: Interoperabilidad del puente UART (pySerial y socat)
         working-directory: src
         run: python3 verif/serie/interop.py
+
+      # DESPUES de la interoperabilidad, no antes: sus `interop_*.log` -la
+      # consola de cada mcu-sim que arranca- tambien estan en src/build/, y
+      # cuando I9 fallo en este trabajo el 2026-10-01 la subida ya se habia
+      # hecho y se perdieron. En Linux y Windows este paso ya iba detras.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: salidas-macos-${{ matrix.os }}
+          path: src/build/*.log
 
       - name: Empaquetar
         # `tar`, no zip: el zip de upload-artifact PIERDE EL BIT DE
