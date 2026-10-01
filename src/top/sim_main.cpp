@@ -67,10 +67,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <map>
+#include <sstream>
 #include <string>
 #include <vector>
 #include "../common/asan_opciones.h"
 #include "../common/gui_destino.h"
+#include "../common/gui_cliente.h"
 #include "../common/serie_destino.h"
 #include "soc_f4.h"
 #include "../verif/image_loader.h"
@@ -87,6 +89,14 @@
 // ESTA A PROPOSITO SIN RELLENAR EN EL PARCHE QUE LO INTRODUJO: ponerle un
 // nombre a la titularidad de otro no es cosa de quien escribe el codigo.
 // ---------------------------------------------------------------------------
+// La version que `mcu-sim` dice de si mismo en el saludo con la GUI (T_HOLA,
+// clave `mcu_sim`). Es informativa: lo que decide si los dos se entienden es
+// la version del PROTOCOLO, no esta. Quien empaqueta puede fijarla al
+// compilar (-DVERSION_MCU_SIM=\"0.2.0\").
+#ifndef VERSION_MCU_SIM
+#define VERSION_MCU_SIM "desarrollo"
+#endif
+
 #ifndef TITULAR_COPYRIGHT
 #define TITULAR_COPYRIGHT "Francisco Rodríguez Ballester (prodrig@disca.upv.es)"
 #endif
@@ -152,10 +162,11 @@ static std::string g_gdb_modo;          // "pines" o "dap"
 static unsigned    g_gdb_puerto = 0;
 static bool        g_puerto_dado = false;
 
-// --- La ventana (`mcu-sim-gui`), fase 0 ------------------------------------
-// De momento SOLO se reconoce el argumento y se dice a donde apuntaria. El
-// socket es la fase 3 del plan; hasta entonces `--gui` no cambia nada de lo que
-// el programa hace, que es justo lo que la fase 0 tiene que demostrar.
+// --- La ventana (`mcu-sim-gui`) ---------------------------------------------
+// `--gui host:puerto` dice donde esta la ventana. Desde la fase 3 del plan,
+// `sim` se conecta a ella despues de montar la placa, le manda la placa y el
+// catalogo, y NO EMPIEZA a simular hasta que la ventana diga «arranca»
+// (`saluda_gui`, mas abajo). Sin el argumento, nada de esto existe.
 static bool          g_gui_pedida = false;
 static stm32::gui::Destino g_gui;
 
@@ -178,8 +189,19 @@ struct McuMontado {
     GdbStub*      stub = nullptr;       // solo en modo "pines" y con puerto
 };
 
+// La conexion con la ventana, si hay `--gui` y el saludo ha empezado. Es
+// global por `muere()`: un modelo que se rinde con la GUI escuchando se lo
+// dice con un T_FIN antes de irse, en vez de dejarla mirando un socket que se
+// cierra sin explicacion.
+static stm32::gui::ClienteGui* g_cliente = nullptr;
+
+static uint64_t ahora_ns() {
+    return uint64_t(sc_time_stamp().value() / sc_time(1, SC_NS).value());
+}
+
 static void muere(const std::string& msg) {
     std::fprintf(stderr, "%s\n", msg.c_str());
+    if (g_cliente) g_cliente->fin(mcusim::proto::M_ERROR, 2, ahora_ns());
     std::exit(2);
 }
 
@@ -232,8 +254,8 @@ SC_MODULE(Sim) {
     // aplicador. Se construye SIEMPRE, porque la elaboracion de SystemC es
     // estatica y no se puede decidir despues; y mientras nadie la active sus
     // dos procesos esperan sobre un evento que nadie notifica, asi que sin
-    // `--gui` este programa simula exactamente lo mismo que antes. La activara
-    // el saludo de la fase 3, con el catalogo de las piezas ya montadas.
+    // `--gui` este programa simula exactamente lo mismo que antes. La activa
+    // el saludo (`saluda_gui`), con el catalogo de las piezas ya montadas.
     stm32::gui::FronteraGui frontera{"frontera"};
 
     SC_CTOR(Sim) {
@@ -711,6 +733,104 @@ SC_MODULE(Sim) {
     }
 };
 
+// ---------------------------------------------------------------------------
+// EL SALUDO CON LA VENTANA (fase 3 del plan de mcu-sim-gui)
+//
+// Va DESPUES de construir la placa -T_PLACA y T_CATALOGO hablan de piezas que
+// tienen que existir- y ANTES de `sc_start()`, que es lo que hace verdadero el
+// «la simulacion no empieza hasta que la GUI lo diga»: no es que empiece y se
+// quede quieta, es que el nucleo de SystemC todavia no ha dado un paso. La
+// espera de T_ARRANCA es un `select` que duerme, asi que no gasta CPU, y no
+// tiene plazo.
+//
+// Devuelve -1 si hay que simular, o el codigo de salida si no. Con `--valida`
+// tambien devuelve -1: se manda la placa, se termina con T_FIN y se deja que
+// `run()` haga lo de siempre con `--valida`, que es parar sin simular.
+//
+// El contenido de T_ARRANCA -ritmo, factor, ventana- se lee pero todavia no se
+// usa: es la fase 6. La ventana es la de la linea de ordenes, como sin `--gui`.
+// T_SUSCRIBE y T_ORDENES tambien se leen y se ignoran: fases 4 y 5.
+// ---------------------------------------------------------------------------
+static std::string texto_hola(const Sim& s, int argc, char** argv) {
+    std::string mcus, fws, args;
+    for (const McuMontado& m : s.mcus) {
+        if (!mcus.empty()) mcus += ",";
+        mcus += m.decl.tipo;
+        if (!m.decl.firmware.empty()) {
+            if (!fws.empty()) fws += ",";
+            fws += m.decl.firmware;
+        }
+    }
+    for (int i = 1; i < argc; ++i) {
+        if (i > 1) args += " ";
+        args += argv[i];
+    }
+#if defined(_WIN32)
+    const unsigned long pid = (unsigned long)::GetCurrentProcessId();
+#else
+    const unsigned long pid = (unsigned long)::getpid();
+#endif
+    return "protocolo_max=" + std::to_string(mcusim::proto::VERSION_PROTO) + "\n" +
+           "mcu_sim=" + VERSION_MCU_SIM + "\n" +
+           "pid=" + std::to_string(pid) + "\n" +
+           "placa=" + g_placa + "\n" +
+           "mcu=" + mcus + "\n" +
+           "firmware=" + fws + "\n" +
+           "argumentos=" + args + "\n" +
+           "modo=" + (g_solo_valida ? "valida" : "simula") + "\n";
+}
+
+static int saluda_gui(Sim& s, stm32::gui::ClienteGui& cli, int argc, char** argv) {
+    using stm32::gui::ClienteGui;
+    std::printf("gui: conectando con mcu-sim-gui en %s (protocolo v%u)\n",
+                stm32::gui::como_texto(g_gui).c_str(),
+                unsigned(mcusim::proto::VERSION_PROTO));
+    std::fflush(stdout);
+    if (!cli.conecta(g_gui)) {
+        std::fprintf(stderr, "gui: %s\n", cli.error().c_str());
+        return 2;
+    }
+    g_cliente = &cli;
+
+    // El catalogo, sobre las piezas ya montadas. La frontera se activa con el
+    // MISMO, para que los indices que la GUI va a usar en las fases 4 y 5
+    // sean los suyos. Activarla no cuesta nada mientras no haya suscripciones
+    // ni ordenes: sus dos procesos siguen esperando un evento.
+    const stm32::gui::Catalogo cat(ExtPartBase::inventario());
+    s.frontera.activa(cat);
+    std::ostringstream placa;
+    s.placa.volcar_xml(placa, g_nombre.c_str());
+
+    if (!g_solo_valida) {
+        std::printf("gui: conectado; la simulacion espera a que la ventana diga "
+                    "'arranca'\n");
+        std::fflush(stdout);
+    }
+    mcusim::proto::Arranca arr{};
+    switch (cli.saluda(texto_hola(s, argc, argv), placa.str(), cat.xml(),
+                       g_solo_valida, arr)) {
+        case ClienteGui::Desenlace::Arranca:
+            std::printf("gui: la ventana dice 'arranca'\n");
+            std::fflush(stdout);
+            return -1;
+        case ClienteGui::Desenlace::Valida:
+            cli.fin(mcusim::proto::M_VENTANA, 0, 0);
+            g_cliente = nullptr;
+            return -1;
+        case ClienteGui::Desenlace::Para:
+            std::printf("gui: la ventana pidio parar antes de arrancar; no se "
+                        "simula nada\n");
+            cli.fin(mcusim::proto::M_PARA, 0, 0);
+            g_cliente = nullptr;
+            return 0;
+        case ClienteGui::Desenlace::Error:
+        default:
+            std::fprintf(stderr, "gui: %s\n", cli.error().c_str());
+            g_cliente = nullptr;
+            return 2;
+    }
+}
+
 int sc_main(int argc, char** argv) {
     sc_report_handler::set_actions("rcc",   SC_WARNING, SC_DO_NOTHING);
     sc_report_handler::set_actions("flash", SC_WARNING, SC_DO_NOTHING);
@@ -837,8 +957,12 @@ int sc_main(int argc, char** argv) {
                 "     sim placa.xml --port=3333  puerto TCP del stub\n"
                 "     sim placa.xml --traza-gdb  imprime cada paquete RSP recibido\n"
                 "     sim placa.xml --gui[=host:puerto]  habla con mcu-sim-gui\n"
-                "                                (por omision localhost:%u; sin\n"
-                "                                el argumento nada cambia)\n"
+                "                                (por omision localhost:%u): le\n"
+                "                                manda la placa y no simula hasta\n"
+                "                                que la ventana diga 'arranca'.\n"
+                "                                Con --valida, solo le manda la\n"
+                "                                placa. Sin la GUI escuchando, sale\n"
+                "                                con codigo 2\n"
                 "     sim placa.xml --tiempo-real  frena la simulacion al reloj de\n"
                 "                                pared (=0.5 a mitad de velocidad)\n"
                 "     sim placa.xml --serie ID=DESTINO  a donde da el PuenteSerie ID:\n"
@@ -910,16 +1034,11 @@ int sc_main(int argc, char** argv) {
     if (libres.size() > 1) g_img = libres[1];
     if (libres.size() > 2) g_ms  = std::atof(libres[2].c_str());
 
-    // --- La ventana, fase 0 -------------------------------------------------
-    // Se dice a donde apuntaria y se avisa si no es la propia maquina. Todavia
-    // no se abre nada: el socket es la fase 3 del plan, y hasta entonces esto
-    // tiene que ser exactamente el programa de siempre mas una linea impresa.
+    // --- La ventana ----------------------------------------------------------
+    // Se avisa ANTES de conectarse si no es la propia maquina: el enlace no
+    // esta autenticado. Se permite -hace falta para una GUI en otra maquina-,
+    // pero no en silencio (doc/protocolo.md §1).
     if (g_gui_pedida) {
-        std::printf("gui: hablaria con mcu-sim-gui en %s "
-                    "(protocolo v%u) -- todavia no se conecta: el socket es la "
-                    "fase 3\n",
-                    stm32::gui::como_texto(g_gui).c_str(),
-                    unsigned(mcusim::proto::VERSION_PROTO));
         if (!stm32::gui::es_bucle_local(g_gui.host))
             std::fprintf(stderr,
                 "AVISO: '%s' no es la propia maquina. Este enlace NO esta\n"
@@ -930,6 +1049,17 @@ int sc_main(int argc, char** argv) {
     }
 
     Sim s("sim");
+    stm32::gui::ClienteGui cliente;
+    if (g_gui_pedida) {
+        const int r = saluda_gui(s, cliente, argc, argv);
+        if (r >= 0) return r;
+    }
     sc_start();
+    // Se acabo la ventana: se le dice a la GUI, con el instante en que se
+    // acabo. Si la GUI ya no esta, no pasa nada (`ClienteGui::fin`).
+    if (g_cliente) {
+        g_cliente->fin(mcusim::proto::M_VENTANA, 0, ahora_ns());
+        g_cliente = nullptr;
+    }
     return 0;
 }

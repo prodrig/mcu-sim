@@ -24,6 +24,7 @@
 #   make cryp                     # los de AES/DES/TDES, tampoco
 #   make red                      # la capa de red, que NO necesita SystemC
 #   make gui-proto                # el marco del protocolo con mcu-sim-gui, tampoco
+#   make gui-saludo               # el saludo con mcu-sim-gui, contra el sim de verdad (Python)
 #   make serie                    # el destino y el formato de un PuenteSerie, tampoco
 #   make rfc2217                  # el codec de Telnet y RFC 2217, tampoco
 #   make interop                  # el puente UART contra pySerial y socat (Python)
@@ -201,7 +202,7 @@ ASAN446 := build/asan446$(EXE)
 ASAN417 := build/asan417$(EXE)
 ASANSERIE := build/asanserie$(EXE)
 
-.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto interop run clean plataforma vectores hash cryp
+.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto gui-saludo interop run clean plataforma vectores hash cryp
 
 all: $(MCUSIM)
 
@@ -386,6 +387,15 @@ gui-proto: $(GUIPROTO)
 PYTHON ?= python3
 interop: $(MCUSIM)
 	$(PYTHON) verif/serie/interop.py
+
+# EL SALUDO CON mcu-sim-gui (P-12, fase 3 de su plan): el `mcu-sim` de verdad,
+# con placas/discovery_min.xml y blinky, contra una ventana hecha en Python con
+# su PROPIA implementacion del marco -no comparte proto_io.h, a proposito-.
+# Que espera sin CPU y sin tiempo simulado hasta T_ARRANCA, que con el simula
+# lo mismo que sin --gui, --valida --gui y los errores. Solo Python 3, sin
+# modulos; con psutil mide tambien la CPU fuera de Linux.
+gui-saludo: $(MCUSIM)
+	$(PYTHON) verif/gui/saludo.py
 
 # EL CAMPO DE MINAS DEL PREPROCESADOR DE WINDOWS. Prueba de COMPILACION, no de
 # ejecucion: define a mano las macros que Windows trae -R_OK, min, max, ERROR,

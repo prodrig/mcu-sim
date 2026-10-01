@@ -17,6 +17,9 @@
 //       llega en muchos `recv`, un mensaje partido en dos `recv` a la fuerza,
 //       dos mensajes en un solo `recv`, un tipo desconocido en mitad, y un
 //       navegador apuntando al puerto. Y `conecta`/`escucha` con host;
+//   P4  el saludo del lado del modelo (fase 3): `gui::ClienteGui` contra una
+//       GUI falsa en otro hilo. El camino bueno, `T_PARA`, `--valida`, el
+//       `T_PING` mientras espera, y cada forma en que una GUI puede fallar.
 //   P3  que las copias de `protocolo.h` y `proto_io.h` que lleva
 //       `mcu-sim-gui` sean idénticas byte a byte a las de aquí (el riesgo R-6
 //       del plan). Busca el otro repositorio al lado de este, o donde diga
@@ -31,6 +34,7 @@
 // =============================================================================
 #include "../common/red.h"
 #include "../common/proto_io.h"
+#include "../common/gui_cliente.h"
 
 #include <algorithm>
 #include <atomic>
@@ -38,6 +42,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -577,6 +582,220 @@ void p2_socket() {
     }
 }
 
+
+// ===========================================================================
+// P4 — El saludo, del lado del modelo
+// ===========================================================================
+
+// Una GUI falsa: escucha en un puerto libre y, en otro hilo, acepta y sigue
+// el `guion`. Mientras, el hilo principal hace de modelo con un ClienteGui.
+struct GuiFalsa {
+    red::socket_t srv = red::invalido();
+    unsigned      puerto = 0;
+    std::thread   hilo;
+    template <class F> explicit GuiFalsa(F guion) {
+        srv = red::escucha("127.0.0.1", 0);
+        puerto = red::puerto_local(srv);
+        hilo = std::thread([this, guion] {
+            red::socket_t c = red::invalido();
+            for (int i = 0; i < 500 && !red::valido(c); ++i) {
+                c = red::acepta(srv);
+                if (!red::valido(c)) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            if (!red::valido(c)) return;
+            Lector  L(Origen::Modelo);
+            Emisor  e;
+            guion(c, L, e);
+            red::cerrar(c);
+        });
+    }
+    ~GuiFalsa() { if (hilo.joinable()) hilo.join(); red::cerrar(srv); }
+    gui::Destino destino() const {
+        gui::Destino d;
+        d.valido = true; d.host = "127.0.0.1"; d.puerto = uint16_t(puerto);
+        return d;
+    }
+};
+
+// Lo que la GUI falsa manda y recibe, en una línea.
+void manda_gui(red::socket_t c, Emisor& e, uint16_t tipo, const std::string& cuerpo = "") {
+    std::string s;
+    e.mensaje(s, tipo, cuerpo);
+    manda(c, s);
+}
+std::vector<Copia> recibe_gui(red::socket_t c, Lector& L, std::size_t n, int ms = 3000) {
+    return lee(c, L, n, ms).msjs;
+}
+
+const std::string HOLA = "protocolo_max=1\nmcu_sim=prueba\n";
+const std::string PLACA = "<placa nombre=\"p\">\n</placa>\n";
+const std::string CATALOGO = "<catalogo>\n</catalogo>\n";
+
+void p4_saludo() {
+    grupo("P4 El saludo, del lado del modelo");
+    using gui::ClienteGui;
+    using D = ClienteGui::Desenlace;
+
+    // --- El camino bueno, con todo lo que puede llegar mientras se espera ---
+    {
+        std::vector<Copia> vio, final;
+        bool vio_cierre = false;
+        GuiFalsa g([&](red::socket_t c, Lector& L, Emisor& e) {
+            vio = recibe_gui(c, L, 1);                         // T_HOLA
+            manda_gui(c, e, T_VERSION, "protocolo=1\ngui=prueba\n");
+            L.fija_version(1); e.fija_version(1);
+            for (Copia& x : recibe_gui(c, L, 3)) vio.push_back(x);   // PLACA, CATALOGO, LISTO
+            manda_gui(c, e, T_SUSCRIBE, bytes(CabSuscribe{1000000u, 0u, 0u, 0u}));
+            manda_gui(c, e, 0x8077, "un tipo que esta version no conoce");
+            manda_gui(c, e, T_PING);
+            for (Copia& x : recibe_gui(c, L, 1)) vio.push_back(x);   // T_PONG
+            manda_gui(c, e, T_ARRANCA, bytes(Arranca{RIT_LIBRE, 1.f, 5000000ull}));
+            final = recibe_gui(c, L, 1);                       // T_FIN
+            Lectura r = lee(c, L, 1, 2000);
+            vio_cierre = r.cerrado;
+        });
+        ClienteGui m;
+        Arranca arr{};
+        const bool con = m.conecta(g.destino());
+        const D d = m.saluda(HOLA, PLACA, CATALOGO, false, arr);
+        comprueba(con && d == D::Arranca, "conecta, saluda y llega a T_ARRANCA");
+        comprueba(arr.ritmo == RIT_LIBRE && arr.ventana_ns == 5000000ull,
+                  "con el cuerpo de T_ARRANCA intacto");
+        comprueba(m.version() == 1, "con la version que eligio la GUI");
+        comprueba(m.ignorados() == 1,
+                  "T_SUSCRIBE se lee entero y se ignora (es de la fase 4), y el "
+                  "desconocido se salta sin contarlo");
+        m.fin(M_VENTANA, 0, 123456789ull);
+        g.hilo.join();
+        comprueba(vio.size() == 5 && vio[0].tipo == T_HOLA && vio[0].cuerpo == HOLA &&
+                  vio[1].tipo == T_PLACA && vio[1].cuerpo == PLACA &&
+                  vio[2].tipo == T_CATALOGO && vio[2].cuerpo == CATALOGO &&
+                  vio[3].tipo == T_LISTO && vio[4].tipo == T_PONG,
+                  "la GUI ve T_HOLA, T_PLACA, T_CATALOGO, T_LISTO y, al T_PING, T_PONG");
+        Fin f{};
+        comprueba(final.size() == 1 && final[0].tipo == T_FIN &&
+                  final[0].cuerpo.size() == sizeof f &&
+                  (std::memcpy(&f, final[0].cuerpo.data(), sizeof f), true) &&
+                  f.motivo == M_VENTANA && f.t_sim_ns == 123456789ull && vio_cierre,
+                  "y al final un T_FIN con su motivo y su instante, y el cierre");
+    }
+
+    // --- T_PARA antes de arrancar --------------------------------------------
+    {
+        GuiFalsa g([&](red::socket_t c, Lector& L, Emisor& e) {
+            recibe_gui(c, L, 1);
+            manda_gui(c, e, T_VERSION, "protocolo=1\n");
+            L.fija_version(1); e.fija_version(1);
+            recibe_gui(c, L, 3);
+            manda_gui(c, e, T_PARA);
+            recibe_gui(c, L, 1);
+        });
+        ClienteGui m;
+        Arranca arr{};
+        m.conecta(g.destino());
+        comprueba(m.saluda(HOLA, PLACA, CATALOGO, false, arr) == D::Para,
+                  "un T_PARA antes de arrancar termina el saludo sin simular");
+        m.fin(M_PARA, 0, 0);
+    }
+
+    // --- --valida: placa y catálogo, sin T_LISTO y sin esperar ---------------
+    {
+        std::vector<Copia> vio;
+        GuiFalsa g([&](red::socket_t c, Lector& L, Emisor& e) {
+            recibe_gui(c, L, 1);
+            manda_gui(c, e, T_VERSION, "protocolo=1\n");
+            L.fija_version(1); e.fija_version(1);
+            vio = recibe_gui(c, L, 3);
+        });
+        ClienteGui m;
+        Arranca arr{};
+        m.conecta(g.destino());
+        const D d = m.saluda(HOLA, PLACA, CATALOGO, true, arr);
+        m.fin(M_VENTANA, 0, 0);
+        g.hilo.join();
+        comprueba(d == D::Valida && vio.size() == 3 && vio[0].tipo == T_PLACA &&
+                  vio[1].tipo == T_CATALOGO && vio[2].tipo == T_FIN,
+                  "con --valida: T_PLACA, T_CATALOGO y T_FIN, sin T_LISTO ni espera");
+    }
+
+    // --- Las formas de fallar -----------------------------------------------
+    struct Caso { const char* que; std::function<void(red::socket_t, Lector&, Emisor&)> guion;
+                  const char* dice; int plazo; };
+    const Caso casos[] = {
+        { "la GUI no habla ninguna version: protocolo=0",
+          [](red::socket_t c, Lector& L, Emisor& e) {
+              recibe_gui(c, L, 1); manda_gui(c, e, T_VERSION, "protocolo=0\n");
+              std::this_thread::sleep_for(std::chrono::milliseconds(100)); },
+          "ninguna version", 3000 },
+        { "la GUI elige una version que no se le ofrecio",
+          [](red::socket_t c, Lector& L, Emisor& e) {
+              recibe_gui(c, L, 1); manda_gui(c, e, T_VERSION, "protocolo=2\n");
+              std::this_thread::sleep_for(std::chrono::milliseconds(100)); },
+          "version 2", 3000 },
+        { "la GUI contesta sin decir version",
+          [](red::socket_t c, Lector& L, Emisor& e) {
+              recibe_gui(c, L, 1); manda_gui(c, e, T_VERSION, "gui=muda\n");
+              std::this_thread::sleep_for(std::chrono::milliseconds(100)); },
+          "protocolo=N", 3000 },
+        { "la GUI no contesta a T_HOLA: se acaba el plazo",
+          [](red::socket_t c, Lector& L, Emisor&) {
+              recibe_gui(c, L, 1);
+              std::this_thread::sleep_for(std::chrono::milliseconds(600)); },
+          "no contesto", 300 },
+        { "lo primero que manda la GUI no es T_VERSION",
+          [](red::socket_t c, Lector& L, Emisor& e) {
+              recibe_gui(c, L, 1); manda_gui(c, e, T_PING);
+              std::this_thread::sleep_for(std::chrono::milliseconds(100)); },
+          "T_VERSION", 3000 },
+        { "la GUI cierra antes de arrancar",
+          [](red::socket_t c, Lector& L, Emisor& e) {
+              recibe_gui(c, L, 1); manda_gui(c, e, T_VERSION, "protocolo=1\n");
+              L.fija_version(1); recibe_gui(c, L, 3); },
+          "cerro", 3000 },
+        { "la GUI manda algo que no es el protocolo",
+          [](red::socket_t c, Lector& L, Emisor&) {
+              recibe_gui(c, L, 1); manda(c, "HTTP/1.1 400 Bad Request\r\n\r\n");
+              std::this_thread::sleep_for(std::chrono::milliseconds(100)); },
+          "no es el protocolo", 3000 },
+        { "T_ARRANCA con un cuerpo que no mide lo que debe",
+          [](red::socket_t c, Lector& L, Emisor& e) {
+              recibe_gui(c, L, 1); manda_gui(c, e, T_VERSION, "protocolo=1\n");
+              L.fija_version(1); e.fija_version(1); recibe_gui(c, L, 3);
+              manda_gui(c, e, T_ARRANCA, "corto");
+              std::this_thread::sleep_for(std::chrono::milliseconds(100)); },
+          "T_ARRANCA", 3000 },
+    };
+    for (const Caso& k : casos) {
+        GuiFalsa g(k.guion);
+        ClienteGui m;
+        Arranca arr{};
+        m.conecta(g.destino());
+        const D d = m.saluda(HOLA, PLACA, CATALOGO, false, arr, k.plazo);
+        comprueba(d == D::Error && m.error().find(k.dice) != std::string::npos,
+                  std::string(k.que) + ": error, y lo dice (\"" + m.error() + "\")");
+    }
+
+    // --- Sin nadie escuchando ------------------------------------------------
+    {
+        red::socket_t s = red::escucha("127.0.0.1", 0);
+        const unsigned p = red::puerto_local(s);
+        red::cerrar(s);                              // y ya no hay nadie
+        gui::Destino d;
+        d.valido = true; d.host = "127.0.0.1"; d.puerto = uint16_t(p);
+        ClienteGui m;
+        comprueba(!m.conecta(d) && m.error().find("no hay nadie escuchando") != std::string::npos,
+                  "sin GUI escuchando, conecta() falla y lo dice");
+    }
+
+    // --- El cuerpo de texto de T_VERSION -------------------------------------
+    comprueba(ClienteGui::valor_entero("gui=0.1\nprotocolo=1\n", "protocolo") == 1 &&
+              ClienteGui::valor_entero("protocolo=12\r\n", "protocolo") == 12 &&
+              ClienteGui::valor_entero("protocolo_max=3\n", "protocolo") == -1 &&
+              ClienteGui::valor_entero("protocolo=x\n", "protocolo") == -1 &&
+              ClienteGui::valor_entero("", "protocolo") == -1,
+              "clave=valor: la clave exacta, con o sin \\r, y nada que no sea un numero");
+}
+
 // ===========================================================================
 // P3 — Las copias compartidas con mcu-sim-gui (R-6)
 // ===========================================================================
@@ -623,6 +842,7 @@ int main(int argc, char** argv) {
     if (!red::arranca()) { std::printf("no arranca la pila de red\n"); return 1; }
     p1_marco();
     p2_socket();
+    p4_saludo();
     p3_copias(gui, dada);
     std::printf("RESULTADO %u ok, %u fallos\n", g_ok, g_mal);
     return g_mal ? 1 : 0;

@@ -151,6 +151,7 @@ make -f Makefile.mcu-sim cryp         # los de AES/DES/TDES, tampoco
 make -f Makefile.mcu-sim serie        # el destino y el formato de un puente UART (P-14), tampoco
 make -f Makefile.mcu-sim rfc2217      # el codec de Telnet y RFC 2217 del puente, tampoco
 make -f Makefile.mcu-sim gui-proto    # el transporte con mcu-sim-gui, tampoco
+make -f Makefile.mcu-sim gui-saludo   # el saludo con mcu-sim-gui, con el sim de verdad (Python)
 make -f Makefile.mcu-sim testserie    # el banco del puente UART, que es OTRO ejecutable
 make -f Makefile.mcu-sim testgui      # el de la frontera con mcu-sim-gui, OTRO mas
 make -f Makefile.mcu-sim asan407      # la misma suite con ASan + UBSan

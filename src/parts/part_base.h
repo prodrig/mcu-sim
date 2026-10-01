@@ -138,6 +138,13 @@ public:
     // --- Identidad ----------------------------------------------------------
     const std::string& tipo()  const { return tipo_; }
     const std::string& pieza() const { return pieza_; }
+    // El identificador que le dio la PLACA. Lo pone el netlist al construir la
+    // pieza desde el XML (`Netlist::construye`), porque una pieza que no es
+    // sc_module no recibe nombre en el constructor y se quedaba con el
+    // numerado -`Crystal_1`- mientras el XML la llamaba `X2`. Nadie lo notaba
+    // hasta que hubo dos cosas que casar: el XML de la placa y el catálogo de
+    // observables que recibe mcu-sim-gui (fase 3 de su plan).
+    void pon_id(const std::string& id) { if (!id.empty()) pieza_ = id; }
 
     // --- Terminales ---------------------------------------------------------
     const std::vector<Terminal>& terminales() const { return term_; }

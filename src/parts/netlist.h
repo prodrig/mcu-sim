@@ -464,6 +464,7 @@ public:
             if (i.pieza || !i.crea) continue;
             i.pieza = i.crea(i, nodos, *this);
             if (!i.pieza) continue;
+            i.pieza->pon_id(i.id);       // el nombre de la placa, no `Crystal_1`
             piezas_.push_back(i.pieza);
             i.pieza->set_enabled(i.conectada);
             ++n;
