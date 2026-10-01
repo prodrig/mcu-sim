@@ -27,6 +27,7 @@
 #   make gui-saludo               # el saludo con mcu-sim-gui, contra el sim de verdad (Python)
 #   make gui-marcha               # y con la simulacion en marcha: instantaneas y avisos (Python)
 #   make gui-ordenes              # y las ordenes: el ejemplo del enunciado y sus ecos (Python)
+#   make gui-control              # y el control: pausa, paso, parar y el ritmo (Python)
 #   make serie                    # el destino y el formato de un PuenteSerie, tampoco
 #   make rfc2217                  # el codec de Telnet y RFC 2217, tampoco
 #   make interop                  # el puente UART contra pySerial y socat (Python)
@@ -204,7 +205,7 @@ ASAN446 := build/asan446$(EXE)
 ASAN417 := build/asan417$(EXE)
 ASANSERIE := build/asanserie$(EXE)
 
-.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes interop run clean plataforma vectores hash cryp
+.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control interop run clean plataforma vectores hash cryp
 
 all: $(MCUSIM)
 
@@ -414,6 +415,13 @@ gui-marcha: $(MCUSIM)
 # malformadas) y las relativas en marcha, con --tiempo-real.
 gui-ordenes: $(MCUSIM)
 	$(PYTHON) verif/gui/ordenes.py
+
+# EL CONTROL (P-12, fase 6): pausar -el tiempo no avanza, el modelo sigue
+# contestando a T_PING y no gasta CPU-, seguir, parar; a demanda, con pasos
+# exactos y lo mismo que de un tiron; la ventana de tiempo de T_ARRANCA y la
+# que no tiene fin. Unos segundos: el primer grupo va a tiempo real.
+gui-control: $(MCUSIM)
+	$(PYTHON) verif/gui/control.py
 
 # EL CAMPO DE MINAS DEL PREPROCESADOR DE WINDOWS. Prueba de COMPILACION, no de
 # ejecucion: define a mano las macros que Windows trae -R_OK, min, max, ERROR,

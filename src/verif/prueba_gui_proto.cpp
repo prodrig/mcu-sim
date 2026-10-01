@@ -677,8 +677,8 @@ void p4_saludo() {
                   "los dos T_ORDENES de antes de arrancar se guardan TODOS, en orden "
                   "y enteros: sim los encola antes de sc_start (fase 5)");
         comprueba(m.ignorados() == 1,
-                  "T_PAUSA se lee y se ignora (es de la fase 6), y el desconocido "
-                  "se salta sin contarlo");
+                  "T_PAUSA antes de arrancar no quiere decir nada -no hay nada que "
+                  "pausar-: se lee y se ignora; y el desconocido se salta sin contarlo");
         m.fin(M_VENTANA, 0, 123456789ull);
         g.hilo.join();
         comprueba(vio.size() == 5 && vio[0].tipo == T_HOLA && vio[0].cuerpo == HOLA &&

@@ -18,8 +18,8 @@
 #       suscripción mandada antes de arrancar es reproducible al picosegundo;
 #   M3  los avisos de placa: una placa con un conflicto eléctrico los manda como
 #       T_AVISO entre T_CATALOGO y T_LISTO, con y sin --valida;
-#   M4  en marcha, con --tiempo-real para que dé tiempo: el latido de T_ESTADO
-#       sin suscripción, una suscripción nueva que empieza a dar muestras, un
+#   M4  en marcha, a tiempo real (RIT_REAL) para que dé tiempo: el latido de
+#       T_ESTADO sin suscripción, una suscripción nueva que empieza a dar muestras, un
 #       T_PING con su T_PONG, una suscripción a un observable que no existe
 #       (T_AVISO, y la anterior sigue), y una vacía que las apaga;
 #   M5  la ventana se va en marcha: mcu-sim lo dice y sigue simulando hasta el
@@ -45,7 +45,7 @@ import time
 import xml.etree.ElementTree as ET
 
 import ventana
-from ventana import (Ventana, check, grupo, arranca, termina, saludo_hasta_listo, fin,
+from ventana import (Ventana, arranque, RIT_REAL, check, grupo, arranca, termina, saludo_hasta_listo, fin,
                      suscribe, instantanea, aviso, estado,
                      T_INSTANTANEA, T_AVISO, T_ESTADO, T_PONG, T_FIN, T_ARRANCA, T_PING,
                      M_VENTANA, RIT_LIBRE, N_AVISO, F_CORRIENDO, F_TERMINADA)
@@ -64,9 +64,6 @@ def ids_de(cat, pieza, *nombres):
             return [por_nombre[n] for n in nombres]
     return None
 
-
-def arranque(v, seg=120):
-    v.manda(T_ARRANCA, struct.pack("<IfQ", RIT_LIBRE, 1.0, 0))
 
 
 def hasta_fin(v, seg=120):
@@ -214,12 +211,12 @@ def m4_en_marcha(sim):
     grupo("M4 En marcha: latido, suscripciones, T_PING")
     v = Ventana()
     # 3 s simulados a tiempo real: tiempo de pared para hablar con el
-    p = arranca(sim, [PLACA, FW, "3000", "--tiempo-real"], v.puerto)
+    p = arranca(sim, [PLACA, FW, "3000"], v.puerto)
     try:
         v.acepta()
         _, _, cat, _ = saludo_hasta_listo(v)
         ids = ids_de(cat, "LD4", "encendido")
-        arranque(v)
+        arranque(v, RIT_REAL)
         t, c = v.recibe(seg=5)
         e = estado(c) if t == T_ESTADO else None
         check(e is not None and e[0] == F_CORRIENDO,
@@ -273,8 +270,7 @@ def m4_en_marcha(sim):
             if t == T_INSTANTANEA:
                 llegan += 1
         check(llegan == 0, "y una suscripcion vacia las apaga")
-        v.manda(ventana.T_PARA)      # en marcha es de la fase 6: se ignora
-        p.kill()
+        p.kill()                     # parar en marcha es de control.py (fase 6)
     finally:
         if p.poll() is None:
             p.kill()
@@ -284,12 +280,12 @@ def m4_en_marcha(sim):
 def m5_se_va(sim):
     grupo("M5 La ventana se va en marcha: mcu-sim sigue")
     v = Ventana()
-    p = arranca(sim, [PLACA, FW, "1500", "--tiempo-real"], v.puerto)
+    p = arranca(sim, [PLACA, FW, "1500"], v.puerto)
     try:
         v.acepta()
         _, _, cat, _ = saludo_hasta_listo(v)
         suscribe(v, 10000000, ids_de(cat, "LD4", "encendido"))
-        arranque(v)
+        arranque(v, RIT_REAL)
         t, _ = v.recibe(seg=5)
         while t not in (T_INSTANTANEA, None):
             t, _ = v.recibe(seg=5)

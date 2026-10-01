@@ -138,7 +138,7 @@ def s3_arranca(sim):
         # t = 1 ms-, pero el blinky no mira PA0, asi que los LEDs no cambian.
         v.manda(T_SUSCRIBE, struct.pack("<IIII", 1000000, 0, 1, 0) + struct.pack("<H", 2))
         v.manda(T_ORDENES, struct.pack("<QHHf", 1000000, 6, 0, 1.0))
-        v.manda(T_ARRANCA, struct.pack("<IfQ", RIT_LIBRE, 1.0, 0))
+        v.manda(T_ARRANCA, struct.pack("<IfQ", RIT_LIBRE, 1.0, 0))   # la ventana de la linea de ordenes
         # Desde la fase 4 llegan instantaneas y estados antes de T_FIN
         t, cuerpo = v.recibe(seg=120)
         while t is not None and t != T_FIN:

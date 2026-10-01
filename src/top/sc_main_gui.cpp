@@ -68,12 +68,25 @@
 // La secuencia de antes de arrancar es G2, a nivel de la frontera; por el
 // socket de verdad y con `sim`, `make gui-ordenes` (`verif/gui/ordenes.py`).
 //
+// Y desde la fase 6, EL CONTROL:
+//
+//   G14 la pausa: mientras dura, el tiempo simulado no se mueve ni un delta y
+//       ningún otro proceso corre —este banco tampoco—, pero el enlace sigue
+//       contestando, y manda su latido; T_SIGUE la quita. A demanda: T_SIGUE
+//       no vale, cada T_PASO para en su instante EXACTO aunque no caiga en la
+//       rejilla del sondeo, dos seguidos se suman y uno de cero no se mueve; y
+//       si la ventana se va en pausa, la pausa se quita.
+//
+// Lo que aquí no se puede probar es T_PARA: `sc_stop()` pararía el banco. Eso
+// y todo lo demás con el `sim` de verdad, en `make gui-control`.
+//
 //   make testgui
 // =============================================================================
 #include <systemc>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -140,6 +153,16 @@ SC_MODULE(TbGui) {
         long acepta = -1;               // bytes por llamada; -1 sin límite; 0 atascado
         bool cerrado_aqui = false;      // lo cerró el enlace
         bool cerrado_alli = false;      // lo cerró la ventana
+        // Fase 6: en pausa, el enlace espera en el canal SIN que corra ningún
+        // otro proceso, este banco incluido. Así que lo que la ventana haga
+        // durante la pausa lo hace este guion, que corre en cada espera. Con
+        // un tope: un guion que no saque de la pausa colgaría el banco.
+        std::function<void()> guion;
+        int esperas = 0;
+        void espera_lectura(int) override {
+            if (++esperas > 1000) { cerrado_alli = true; return; }
+            if (guion) guion();
+        }
         long recibe(char* b, std::size_t n) override {
             if (cerrado_alli || cerrado_aqui) return 0;
             if (a_modelo.empty()) return -1;
@@ -161,8 +184,10 @@ SC_MODULE(TbGui) {
     // El de G13: el mismo tope de 200 bytes, que son cinco ecos, y veinte en
     // la cola como mucho.
     gui::EnlaceGui   en13{"en13", fr13, 200, 20};
+    gui::FronteraGui fr14{"fr14"};
+    gui::EnlaceGui   en14{"en14", fr14};
     gui::EnlaceGui   en_quieto{"en_quieto", fr_quieta};
-    CanalMemoria     c9, c11, c12, c13;
+    CanalMemoria     c9, c11, c12, c13, c14;
     double           pared_ = 1000.0;           // el reloj de pared, a mano
 
     // Los indices, que se fijan al activar
@@ -412,16 +437,16 @@ private:
                   "(el reloj falso no se ha movido: 0 s) y los deltas");
         }
 
-        // --- T_PING, y lo que es de otras fases ---------------------------
+        // --- T_PING, y un tipo desconocido -------------------------------------
         a_modelo(c9, E, T_SUSCRIBE, gui::cuerpo_suscripcion(0, {}));
         a_modelo(c9, E, T_PING);
-        a_modelo(c9, E, T_PAUSA);
+        a_modelo(c9, E, 0x8077, "un tipo que esta version no conoce");
         wait(150, SC_US);
         v = lee_canal(c9, L);
         check(v.size() == 1 && v[0].tipo == T_PONG,
               "T_PING: T_PONG en la siguiente vuelta");
         check(en9.ignorados() == 1,
-              "T_PAUSA se lee y se ignora: es de la fase 6");
+              "un tipo que esta version no conoce se salta entero, y se cuenta");
 
         // --- El latido -------------------------------------------------------
         wait(1, SC_MS);
@@ -751,6 +776,110 @@ private:
         }
     }
 
+    // -------------------------------------------------------------------
+    // G14 — El control (fase 6)
+    // -------------------------------------------------------------------
+    void g14_control() {
+        grupo("G14 El control: la pausa, y los pasos a demanda");
+        const gui::Catalogo cat(ExtPartBase::inventario());
+        fr14.activa(cat);
+        int reanclas = 0;
+        en14.al_seguir([&] { ++reanclas; });
+        en14.activa(&c14, Emisor(), Lector(Origen::Pantalla), reloj());
+        const uint64_t t_a = ahora();            // las vueltas, en t_a + k x 100 us
+        Lector L(Origen::Modelo);
+        Emisor E;
+        std::vector<uint64_t> ts, ds;
+        int k = 0;
+
+        // --- La pausa --------------------------------------------------------
+        c14.guion = [&] {
+            ts.push_back(ahora());
+            ds.push_back(uint64_t(sc_delta_count()));
+            switch (k++) {
+                case 0: a_modelo(c14, E, T_PING); break;
+                case 1: pared_ += 0.3; break;          // pasa el tiempo de pared
+                case 2: a_modelo(c14, E, T_SIGUE); break;
+                default: break;
+            }
+        };
+        wait(50, SC_US);
+        a_modelo(c14, E, T_PAUSA);
+        const uint64_t t_p = t_a + 100 * US;    // la vuelta que lo lee
+        wait(100, SC_US);                       // y este banco, ¿cuando despierta?
+        const uint64_t t_despierta = ahora();
+        std::vector<Visto> v = lee_canal(c14, L);
+        check(ts.size() == 3 && ts[0] == t_p && ts[1] == t_p && ts[2] == t_p &&
+              ds[0] == ds[1] && ds[1] == ds[2],
+              "en pausa, en las tres esperas del enlace el tiempo simulado es el mismo "
+              "y los deltas tambien: no se mueve nada");
+        check(t_despierta == t_p + 50 * US && en14.pausas() == 1 && !en14.pausado(),
+              "este banco, que esperaba 100 us, no corre hasta que llega T_SIGUE: el "
+              "modelo entero estaba quieto");
+        {
+            bool bien = v.size() == 4 && v[0].tipo == T_ESTADO && v[1].tipo == T_PONG &&
+                        v[2].tipo == T_ESTADO && v[3].tipo == T_ESTADO;
+            if (bien) {
+                const Estado a = pod<Estado>(v[0].cuerpo), b = pod<Estado>(v[2].cuerpo),
+                             c = pod<Estado>(v[3].cuerpo);
+                bien = a.fase == F_PAUSADA && a.t_sim_ns == t_p &&
+                       b.fase == F_PAUSADA && b.t_sim_ns == t_p &&
+                       std::fabs(b.t_pared_s - a.t_pared_s - 0.3) < 1e-9 &&
+                       c.fase == F_CORRIENDO && c.t_sim_ns == t_p;
+            }
+            check(bien, "y la ventana ve: T_ESTADO PAUSADA, el T_PONG de su T_PING, el "
+                        "latido de pausa a los 0,3 s de pared -mismo instante simulado-, "
+                        "y al seguir, T_ESTADO CORRIENDO");
+        }
+        check(reanclas == 1, "al salir de la pausa se avisa a quien lleve el freno");
+
+        // --- A demanda -------------------------------------------------------
+        en14.ritmo(RIT_DEMANDA);                // a la pausa en la siguiente vuelta
+        const uint64_t t_d = (ahora() - t_a) / (100 * US) * (100 * US) + t_a + 100 * US;
+        ts.clear();
+        k = 0;
+        c14.guion = [&] {
+            ts.push_back(ahora());
+            switch (k++) {
+                case 0: a_modelo(c14, E, T_SIGUE); break;              // no vale
+                case 1: a_modelo(c14, E, T_PASO, bytes(Paso{250 * US})); break;
+                case 2: a_modelo(c14, E, T_PASO, bytes(Paso{30 * US}));
+                        a_modelo(c14, E, T_PASO, bytes(Paso{20 * US})); break;
+                case 3: a_modelo(c14, E, T_PASO, bytes(Paso{0})); break;
+                case 4: c14.cerrado_alli = true; break;              // la ventana se va
+                default: break;
+            }
+        };
+        wait(1, SC_MS);
+        v = lee_canal(c14, L);
+        check(ts.size() == 5 && ts[0] == t_d && ts[1] == t_d,
+              "con RIT_DEMANDA, a la pausa en la siguiente vuelta; T_SIGUE no la quita");
+        check(ts.size() == 5 && ts[2] == t_d + 250 * US,
+              "T_PASO de 250 us: a la pausa otra vez en EXACTAMENTE t + 250 us, aunque "
+              "el sondeo va de 100 en 100");
+        check(ts.size() == 5 && ts[3] == t_d + 300 * US && ts[4] == t_d + 300 * US,
+              "dos pasos seguidos, de 30 y 20 us, se suman: t + 300; y uno de cero no "
+              "se mueve");
+        {
+            bool aviso = false;
+            std::vector<uint64_t> pausadas;
+            for (const Visto& x : v) {
+                if (x.tipo == T_AVISO)
+                    aviso = aviso || x.cuerpo.find("T_SIGUE con ritmo a demanda") != std::string::npos;
+                if (x.tipo == T_ESTADO && pod<Estado>(x.cuerpo).fase == F_PAUSADA)
+                    pausadas.push_back(pod<Estado>(x.cuerpo).t_sim_ns);
+            }
+            check(aviso, "T_SIGUE a demanda: un T_AVISO lo dice");
+            check(std::find(pausadas.begin(), pausadas.end(), t_d + 250 * US) != pausadas.end() &&
+                  std::count(pausadas.begin(), pausadas.end(), t_d + 300 * US) >= 2,
+                  "cada parada dice PAUSADA con su instante, y el paso de cero tambien");
+        }
+        check(en14.pasos() == 4 && !en14.conectado() && !en14.pausado() &&
+              en14.cierre().find("cerro la conexion") != std::string::npos,
+              "la ventana se va en pausa: se quita la pausa y la simulacion sigue -este "
+              "banco ha despertado-");
+    }
+
     void run() {
         g0_sin_tiempo();
 
@@ -965,6 +1094,7 @@ private:
         g11_se_va();
         g12_termina();
         g13_ordenes();
+        g14_control();
 
         check(fr_quieta.tomadas() == 0 && fr_quieta.instantaneas.empty() &&
               fr_quieta.hechas.empty() && fr_quieta.aplicadas() == 0,

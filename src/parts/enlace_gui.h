@@ -1,15 +1,15 @@
 // =============================================================================
 // enlace_gui.h — La conexión con mcu-sim-gui, con la simulación en marcha
 //
-// Fases 4 y 5 del plan de dos procesos (`mcu-sim-gui/doc/plan_dos_procesos.md`):
-// el sentido modelo -> pantalla entero, y las órdenes en el otro. Un
+// Fases 4, 5 y 6 del plan de dos procesos (`mcu-sim-gui/doc/plan_dos_procesos.md`):
+// el sentido modelo -> pantalla entero, las órdenes y el control. Un
 // `SC_THREAD` que despierta cada 100 µs de tiempo simulado —el mismo patrón que
 // los dos servidores de GDB (`common/gdb_rsp.h`)— y en cada vuelta:
 //
 //   1. lee lo que haya mandado la ventana: T_SUSCRIBE se aplica a la frontera,
 //      T_ORDENES se encola en ella (relativo a AHORA, que es cuando el modelo
 //      «la saca de la cola», `doc/protocolo.md` §5), T_PING se contesta con
-//      T_PONG, y el control de la fase 6 se lee entero y se cuenta;
+//      T_PONG, y T_PAUSA, T_SIGUE, T_PASO y T_PARA controlan la simulación;
 //   2. pasa al búfer de salida los AVISOS pendientes —los de SC_REPORT, que
 //      este módulo desvía mientras está activo—, los ECOS de las órdenes que
 //      haya aplicado la frontera (T_ORDEN_HECHA, con el instante real), y las
@@ -49,15 +49,42 @@
 //     false)` antes de `sc_start()`: instantes absolutos, reproducibles al
 //     picosegundo.
 //
+// EL CONTROL (fase 6), y la trampa que tenía, que es la de `doc/protocolo.md`
+// §4.2: este proceso solo corre si el tiempo simulado avanza, así que una
+// pausa que dejase de avanzarlo dejaría al modelo SORDO, sin oír el T_SIGUE.
+// La salida es que todos los procesos de SystemC comparten UN hilo del sistema:
+// mientras este proceso no llame a `wait()`, no corre ningún otro y el tiempo
+// simulado no se mueve. Así que la pausa es un bucle EN TIEMPO DE PARED dentro
+// del propio proceso: duerme en el canal hasta que llega algo (sin gastar
+// CPU), contesta T_PING, acepta suscripciones y órdenes, manda un T_ESTADO
+// con F_PAUSADA cada 250 ms, y vuelve cuando llega T_SIGUE. El modelo, entre
+// tanto, está exactamente donde estaba: ni un picosegundo, ni un delta.
+//
+//   * T_PAUSA: a la pausa en la vuelta que lo lee. Si ya lo está, nada;
+//   * T_SIGUE: sale de la pausa. Con RIT_DEMANDA no: allí solo se avanza con
+//     T_PASO, y un T_AVISO lo dice;
+//   * T_PASO: solo con RIT_DEMANDA (con otro ritmo, T_AVISO y se ignora, como
+//     dice el protocolo). Avanza `ns` y vuelve a la pausa EXACTAMENTE en
+//     t + ns: el proceso acorta su última espera para despertar justo ahí.
+//     Uno que llegue con otro paso en curso se suma al final de aquel;
+//   * T_PARA: `sc_stop()`, que es definitivo. Quien llamó a `sc_start()` ve
+//     `parada()` y termina con T_FIN de motivo M_PARA.
+//
+// Si la ventana se va con la simulación en pausa, la pausa se quita y se
+// sigue simulando hasta la ventana de tiempo —nadie va a decir «sigue»—. Y si
+// la ventana de tiempo es indefinida (`para_al_perderse`), se para: ya no
+// queda nadie que pueda pararla.
+//
 // LA TRAMPA DEL INVARIANTE, la misma que en la frontera: este módulo se
 // construye siempre —la elaboración de SystemC es estática— y hasta que alguien
 // llama a `activa()` su proceso espera un evento que nadie notifica, y el
 // manejador de SC_REPORT es el de siempre. Sin `--gui` no existe. `test407`
 // lleva uno construido y sin activar, y su invariante es la prueba.
 //
-// Lo que NO hace: controlar la simulación (fase 6), ni aplicar las órdenes él
-// mismo —eso es el aplicador de la frontera—, ni saber de sockets: habla con
-// un `CanalGui` (`common/gui_mensajes.h`).
+// Lo que NO hace: el ritmo —el freno de tiempo real es de quien conduce la
+// simulación (`sim_main.cpp`); aquí solo se sabe si es RIT_DEMANDA—, ni aplicar
+// las órdenes él mismo —eso es el aplicador de la frontera—, ni saber de
+// sockets: habla con un `CanalGui` (`common/gui_mensajes.h`).
 // =============================================================================
 #ifndef STM32_PARTS_ENLACE_GUI_H
 #define STM32_PARTS_ENLACE_GUI_H
@@ -90,6 +117,10 @@ SC_MODULE(EnlaceGui) {
     static constexpr double SONDEO_US = 100.0;
     // Un T_ESTADO suelto si en este tiempo de PARED no ha salido ninguno.
     static constexpr double LATIDO_S = 0.25;
+    // En pausa, lo más que se duerme de una vez esperando a la ventana. Es la
+    // resolución del latido en pausa, no la latencia: un mensaje despierta
+    // la espera en cuanto llega.
+    static constexpr int ESPERA_PAUSA_MS = 50;
 
     using Reloj = std::function<double()>;     // segundos de pared, monótonos
 
@@ -129,6 +160,28 @@ SC_MODULE(EnlaceGui) {
     }
     bool activo() const { return activo_; }
     bool conectado() const { return conectado_; }
+
+    // --- El control (fase 6) --------------------------------------------------
+    // El ritmo de T_ARRANCA. Lo único que le importa al enlace es si es
+    // RIT_DEMANDA: entonces empieza EN PAUSA, y solo T_PASO lo hace avanzar.
+    // Se llama antes de `sc_start()`.
+    void ritmo(uint32_t r) {
+        ritmo_ = r;
+        if (r == mcusim::proto::RIT_DEMANDA) pausado_ = true;
+    }
+    uint32_t ritmo() const { return ritmo_; }
+    // Con una ventana de tiempo indefinida, perder la conexión para la
+    // simulación: sin ventana no queda nadie que pueda pararla.
+    void para_al_perderse(bool si) { para_al_perderse_ = si; }
+    // Lo que se hace al salir de una pausa, ANTES de que el tiempo vuelva a
+    // correr. `sim` lo usa para echar el ancla del freno de tiempo real: si no,
+    // el freno cree que va con retraso y corre para recuperarlo.
+    void al_seguir(std::function<void()> f) { al_seguir_ = std::move(f); }
+    bool pausado() const { return pausado_; }
+    // true si la simulación se paró por un T_PARA de la ventana.
+    bool parada() const { return parada_; }
+    uint64_t pausas() const { return n_pausas_; }
+    uint64_t pasos() const { return n_pasos_; }
 
     // La suscripción que llegó ANTES de T_ARRANCA. Se aplica antes de
     // `sc_start()`, y por eso la secuencia de instantáneas es reproducible.
@@ -205,13 +258,63 @@ private:
     // --- El proceso -------------------------------------------------------------
     void atiende() {
         if (!activo_) wait(ev_activa_);      // sin --gui: aquí se queda para siempre
-        const sc_core::sc_time paso(SONDEO_US, sc_core::SC_US);
         while (conectado_) {
+            // Un paso que llega a su final: a la pausa, justo aquí
+            if (hay_objetivo_ && ahora_ns() >= objetivo_) {
+                hay_objetivo_ = false;
+                pausado_ = true;
+            }
             vuelta();
+            if (parar_) { detiene(); return; }
             if (!conectado_) break;
-            wait(paso);
+            if (pausado_) {
+                en_pausa();
+                if (parar_) { detiene(); return; }
+                if (!conectado_) break;
+            }
+            wait(siguiente());
         }
         // Sin ventana el proceso termina: no vuelve a despertar nunca.
+    }
+
+    // La próxima vuelta: dentro de SONDEO_US, o antes si ahí acaba un paso.
+    sc_core::sc_time siguiente() const {
+        const uint64_t sondeo = uint64_t(SONDEO_US * 1000.0);
+        if (hay_objetivo_) {
+            const uint64_t ahora = ahora_ns();
+            if (objetivo_ > ahora && objetivo_ - ahora < sondeo)
+                return sc_core::sc_time(double(objetivo_ - ahora), sc_core::SC_NS);
+        }
+        return sc_core::sc_time(double(sondeo), sc_core::SC_NS);
+    }
+
+    // LA PAUSA: un bucle de reloj de pared, con todo el modelo quieto porque
+    // este proceso no cede el hilo. Véase la cabecera.
+    void en_pausa() {
+        using namespace mcusim::proto;
+        ++n_pausas_;
+        pon_estado(F_PAUSADA);
+        escribe();
+        while (conectado_ && pausado_ && !parar_) {
+            canal_->espera_lectura(ESPERA_PAUSA_MS);
+            lee();
+            if (!conectado_ || parar_) break;
+            escribe();
+            mueve_a_salida(false);
+            if (!pausado_ || cambio_ || reloj_() - ultimo_estado_ >= LATIDO_S)
+                pon_estado(pausado_ ? F_PAUSADA : F_CORRIENDO);
+            cambio_ = false;
+            escribe();
+        }
+        if (al_seguir_) al_seguir_();
+    }
+
+    // T_PARA: definitivo. Lo que queda por mandar lo manda `termina()`, que
+    // llama quien hizo `sc_start()` al ver `parada()`.
+    void detiene() {
+        parada_ = true;
+        pausado_ = false;
+        sc_core::sc_stop();
     }
 
     void vuelta() {
@@ -226,8 +329,10 @@ private:
         // Los ecos esperan en la cola de la frontera; con la ventana sin leer,
         // la misma regla que los avisos.
         if (fr_.hechas.size() >= max_avisos_) { desborda("ecos de ordenes"); return; }
-        if (hubo || reloj_() - ultimo_estado_ >= LATIDO_S)
+        // En pausa el T_ESTADO lo pone `en_pausa()`, con su fase
+        if (!pausado_ && (hubo || cambio_ || reloj_() - ultimo_estado_ >= LATIDO_S))
             pon_estado(mcusim::proto::F_CORRIENDO);
+        cambio_ = false;
         escribe();
     }
 
@@ -253,9 +358,46 @@ private:
                 case T_SUSCRIBE: aplica_suscripcion(m.texto()); break;
                 case T_ORDENES:  ordenes(m.texto(), true); break;
                 case T_PING:     em_.vacio(sal_, T_PONG); break;
-                default:         ++n_ignorados_; break;   // fase 6, y lo desconocido
+                case T_PAUSA:
+                    // Una pausa cancela el paso en curso: se queda donde está
+                    hay_objetivo_ = false;
+                    pausado_ = true;
+                    break;
+                case T_SIGUE:
+                    if (ritmo_ == RIT_DEMANDA)
+                        encola_aviso(N_AVISO, "mcu-sim/gui",
+                                     "T_SIGUE con ritmo a demanda: aqui solo se avanza "
+                                     "con T_PASO; se ignora");
+                    else if (pausado_) { pausado_ = false; cambio_ = true; }
+                    break;
+                case T_PASO:     paso(m); break;
+                case T_PARA:     parar_ = true; break;
+                default:         ++n_ignorados_; break;   // lo desconocido
             }
+            if (parar_) return;      // lo que venga detrás de T_PARA ya no cuenta
         }
+    }
+
+    void paso(const mcusim::proto::Mensaje& m) {
+        using namespace mcusim::proto;
+        Paso p{};
+        if (ritmo_ != RIT_DEMANDA) {
+            encola_aviso(N_AVISO, "mcu-sim/gui",
+                         "T_PASO solo tiene sentido con ritmo a demanda; se ignora");
+            return;
+        }
+        if (!m.como(p)) {
+            encola_aviso(N_AVISO, "mcu-sim/gui",
+                         "T_PASO de " + std::to_string(m.longitud) + " bytes; son " +
+                         std::to_string(sizeof p) + ": se ignora");
+            return;
+        }
+        ++n_pasos_;
+        if (p.ns == 0) { cambio_ = true; return; }   // nada que avanzar
+        // Detrás del paso en curso, si lo hay; si no, desde ahora
+        objetivo_ = (hay_objetivo_ ? objetivo_ : ahora_ns()) + p.ns;
+        hay_objetivo_ = true;
+        pausado_ = false;
     }
 
     void aplica_suscripcion(const std::string& cuerpo) {
@@ -405,6 +547,15 @@ private:
         cierra_conexion();
         fr_.suscribe(0, {});
         fr_.hechas.clear();
+        // Nadie va a decir «sigue»: fuera la pausa y el paso
+        pausado_ = false;
+        hay_objetivo_ = false;
+        // Y con una ventana de tiempo indefinida, nadie va a poder pararla
+        if (para_al_perderse_ && sc_core::sc_get_status() == sc_core::SC_RUNNING) {
+            std::fprintf(stderr, "gui: sin ventana de tiempo y sin ventana que mire, "
+                                 "no queda quien la pare: se para\n");
+            sc_core::sc_stop();
+        }
     }
 
     // Sin conexión, el manejador de SC_REPORT vuelve a ser el de antes: lo
@@ -466,6 +617,12 @@ private:
     std::string               sal_;
     std::deque<Aviso>         avisos_;
     std::string               cierre_;
+    uint32_t                  ritmo_ = mcusim::proto::RIT_LIBRE;
+    bool                      pausado_ = false, parar_ = false, parada_ = false,
+                              cambio_ = false, hay_objetivo_ = false,
+                              para_al_perderse_ = false;
+    uint64_t                  objetivo_ = 0, n_pausas_ = 0, n_pasos_ = 0;
+    std::function<void()>     al_seguir_;
     uint64_t                  n_inst_ = 0, n_avisos_ = 0, n_estados_ = 0,
                               n_ignorados_ = 0, n_subs_ = 0,
                               n_msj_ordenes_ = 0, n_ordenes_ = 0, n_ecos_ = 0;

@@ -184,8 +184,10 @@ public:
                     ordenes_previas_.push_back(m.cuerpo);
                     break;
                 default:
-                    // El control (T_PAUSA, T_SIGUE, T_PASO) es de la fase 6.
-                    // Se lee entero y se cuenta; no se pierde la sincronía.
+                    // T_PAUSA, T_SIGUE y T_PASO antes de arrancar no quieren
+                    // decir nada: no hay simulación que pausar. Para arrancar
+                    // en pausa está RIT_DEMANDA. Se leen enteros y se cuentan;
+                    // no se pierde la sincronía.
                     ++ignorados_;
                     break;
             }
@@ -341,6 +343,9 @@ public:
     }
     void espera_escritura(int ms) override {
         if (red::valido(s_)) red::detalle::espera_escribible(s_, ms);
+    }
+    void espera_lectura(int ms) override {
+        if (red::valido(s_)) red::espera_legible(s_, ms);
     }
     void cierra() override { red::cerrar(s_); }
 private:

@@ -143,6 +143,11 @@ static std::string familias_como_texto() {
 
 static std::string g_placa, g_img, g_nombre = "placa";
 static double      g_ms      = 100.0;
+// Si la ventana de tiempo se dio en la linea de ordenes. Con `--gui` importa:
+// si no se dio, y la ventana tampoco la pone en T_ARRANCA, la simulacion no
+// tiene fin y se para desde la ventana (fase 6).
+static bool        g_ms_dado = false;
+static bool        g_sin_fin = false;
 static bool        g_solo_valida = false;
 // `--espera-terminal` (P-14, fase D7): no arrancar el MCU hasta que haya un
 // terminal en cada puente serie por red. Sin esto, lo primero que imprime un
@@ -729,7 +734,11 @@ SC_MODULE(Sim) {
             for (;;) espera(sc_time(1, SC_MS));
         }
 
-        const auto h0 = std::chrono::steady_clock::now();
+        h0_ = std::chrono::steady_clock::now();
+        t0_ = sc_time_stamp();
+        // Sin ventana de tiempo (con --gui, cuando nadie la dio): hasta que la
+        // ventana diga T_PARA, en rodajas de 1 ms como el bucle de GDB.
+        if (g_sin_fin) for (;;) espera(sc_time(1, SC_MS));
         // CON --tiempo-real, EN RODAJAS DE 1 ms, como el bucle de arriba. Una
         // sola espera de toda la ventana simulaba los segundos de golpe, en
         // centesimas, y DESPUES dormia lo que faltaba: el total cuadraba con el
@@ -747,10 +756,22 @@ SC_MODULE(Sim) {
         } else {
             espera(sc_time(g_ms, SC_MS));
         }
+        informe();
+        sc_stop();
+    }
+
+    // Lo que se dice al acabar: cuanto se ha simulado y como acaba lo que se ve
+    // desde fuera. Lo llama `run()` al agotar la ventana y, desde la fase 6 de
+    // mcu-sim-gui, `sc_main` cuando la ventana dice T_PARA en marcha.
+    std::chrono::steady_clock::time_point h0_ = std::chrono::steady_clock::now();
+    sc_time t0_ = SC_ZERO_TIME;
+
+    void informe() {
         const double seg =
-            std::chrono::duration<double>(std::chrono::steady_clock::now() - h0).count();
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - h0_).count();
         std::printf("simulados %.3f ms en %.3f s de anfitrion (%llu deltas)\n",
-                    g_ms, seg, (unsigned long long)sc_delta_count());
+                    (sc_time_stamp() - t0_).to_seconds() * 1e3, seg,
+                    (unsigned long long)sc_delta_count());
         // Y lo que se ve desde fuera. Un LED es el instrumento de medida mas
         // antiguo de este oficio, asi que se dice como acabo cada uno: su
         // tension de pin y la corriente que le pasa, en float, como el modelo
@@ -778,8 +799,11 @@ SC_MODULE(Sim) {
                             (unsigned long long)ps->errores_paridad(),
                             (unsigned long long)ps->bytes_hacia_mcu());
             }
-        sc_stop();
     }
+
+    // El freno de tiempo real se echa el ancla de nuevo: lo usa el enlace al
+    // salir de una pausa, para que el freno no crea que va con retraso.
+    void reancla() { anclado_ = false; }
 };
 
 // ---------------------------------------------------------------------------
@@ -796,11 +820,61 @@ SC_MODULE(Sim) {
 // tambien devuelve -1: se manda la placa, se termina con T_FIN y se deja que
 // `run()` haga lo de siempre con `--valida`, que es parar sin simular.
 //
-// El contenido de T_ARRANCA -ritmo, factor, ventana- se lee pero todavia no se
-// usa: es la fase 6. La ventana es la de la linea de ordenes, como sin `--gui`.
+// El contenido de T_ARRANCA -ritmo, factor, ventana- se aplica desde la fase 6
+// (`aplica_arranca`, mas abajo).
 // Lo que llegue antes de T_ARRANCA -la ultima T_SUSCRIBE y todos los
 // T_ORDENES- se aplica antes de `sc_start()` (fases 4 y 5).
 // ---------------------------------------------------------------------------
+// EL CONTENIDO DE T_ARRANCA (fase 6): el ritmo y la ventana de tiempo.
+//
+//   * RIT_REAL con su factor es `--tiempo-real=F`; RIT_LIBRE, sin freno; y
+//     RIT_DEMANDA, sin freno y EN PAUSA desde t = 0: solo avanza con T_PASO.
+//     Con `--gui` el ritmo lo dice la ventana, que es quien lo esta mirando;
+//     el `--tiempo-real` de la linea de ordenes deja de mandar, y se dice;
+//   * `ventana_ns` > 0 es la ventana de tiempo; 0 es la de mcu-sim: la de su
+//     linea de ordenes o, si no se dio ninguna, SIN FIN, hasta que la ventana
+//     diga T_PARA. Antes de la fase 6 no habia T_PARA en marcha y por eso
+//     habia que tener siempre un final.
+static const char* nombre_ritmo(uint32_t r) {
+    switch (r) {
+        case mcusim::proto::RIT_REAL:    return "tiempo real";
+        case mcusim::proto::RIT_LIBRE:   return "libre";
+        case mcusim::proto::RIT_DEMANDA: return "a demanda";
+    }
+    return "?";
+}
+
+static void aplica_arranca(Sim& s, const mcusim::proto::Arranca& a) {
+    using namespace mcusim::proto;
+    const double antes = g_tiempo_real;
+    uint32_t ritmo = a.ritmo;
+    if (ritmo > RIT_DEMANDA) {
+        std::printf("gui: ritmo %u desconocido; se usa tiempo real\n", unsigned(ritmo));
+        ritmo = RIT_REAL;
+    }
+    if (ritmo == RIT_REAL) {
+        // Un factor que no es un numero positivo no frena nada con sentido
+        g_tiempo_real = (a.factor > 0.0f && a.factor < 1e6f) ? double(a.factor) : 1.0;
+    } else {
+        g_tiempo_real = 0.0;
+    }
+    s.enlace.ritmo(ritmo);
+    s.enlace.al_seguir([&s] { s.reancla(); });
+    if (a.ventana_ns > 0) {
+        g_ms = double(a.ventana_ns) / 1e6;
+    } else if (!g_ms_dado) {
+        g_sin_fin = true;
+        s.enlace.para_al_perderse(true);
+    }
+    std::printf("gui: ritmo %s", nombre_ritmo(ritmo));
+    if (ritmo == RIT_REAL) std::printf(" (x%g)", g_tiempo_real);
+    if (g_sin_fin) std::printf(", sin fin: hasta que la ventana diga parar\n");
+    else           std::printf(", ventana de %.3f ms\n", g_ms);
+    if (antes > 0.0 && g_tiempo_real != antes)
+        std::printf("gui: el ritmo lo dice la ventana; --tiempo-real no se aplica\n");
+    std::fflush(stdout);
+}
+
 static std::string texto_hola(const Sim& s, int argc, char** argv) {
     std::string mcus, fws, args;
     for (const McuMontado& m : s.mcus) {
@@ -871,6 +945,7 @@ static int saluda_gui(Sim& s, stm32::gui::ClienteGui& cli,
             // picosegundo de una ejecucion a otra.
             canal = cli.entrega();
             s.enlace.activa(canal.get(), cli.emisor(), cli.lector());
+            aplica_arranca(s, arr);
             if (cli.hay_suscripcion()) s.enlace.suscripcion_inicial(cli.suscripcion());
             // Y lo mismo las ordenes que llegaron antes de arrancar: su primera
             // orden es un instante ABSOLUTO, y encoladas antes de sc_start()
@@ -919,7 +994,7 @@ int sc_main(int argc, char** argv) {
         // muchos chips que haya. Como argumento posicional va detrás del
         // firmware, y con varios MCUs el firmware ya no se pone ahí; de ahí
         // esta forma con nombre, que es la única utilizable entonces.
-        else if (a.rfind("--ms=", 0) == 0) g_ms = std::atof(a.c_str() + 5);
+        else if (a.rfind("--ms=", 0) == 0) { g_ms = std::atof(a.c_str() + 5); g_ms_dado = true; }
         else if (a == "--gdb")     g_gdb_modo = "pines";
         else if (a == "--gdb-dap") g_gdb_modo = "dap";
         else if (a.rfind("--port=", 0) == 0) {
@@ -1027,6 +1102,9 @@ int sc_main(int argc, char** argv) {
                 "                                (por omision localhost:%u): le\n"
                 "                                manda la placa y no simula hasta\n"
                 "                                que la ventana diga 'arranca'.\n"
+                "                                El ritmo, la pausa y parar los\n"
+                "                                lleva la ventana; sin [ms] en la\n"
+                "                                linea de ordenes no hay fin.\n"
                 "                                Con --valida, solo le manda la\n"
                 "                                placa. Sin la GUI escuchando, sale\n"
                 "                                con codigo 2\n"
@@ -1099,7 +1177,7 @@ int sc_main(int argc, char** argv) {
     }
     g_placa = libres[0];
     if (libres.size() > 1) g_img = libres[1];
-    if (libres.size() > 2) g_ms  = std::atof(libres[2].c_str());
+    if (libres.size() > 2) { g_ms = std::atof(libres[2].c_str()); g_ms_dado = true; }
 
     // --- La ventana ----------------------------------------------------------
     // Se avisa ANTES de conectarse si no es la propia maquina: el enlace no
@@ -1125,8 +1203,21 @@ int sc_main(int argc, char** argv) {
     sc_start();
     // Se acabo la ventana: se le dice a la GUI, con lo que quedara pendiente
     // -avisos, instantaneas, un T_ESTADO final- y el instante en que se acabo.
-    // Si la GUI ya no esta, no pasa nada.
-    if (g_enlace) {
+    // Si la GUI ya no esta, no pasa nada. Desde la fase 6, tambien puede ser
+    // que la ventana dijera T_PARA en marcha: entonces el resumen no lo ha
+    // dicho `run()`, y el motivo es M_PARA.
+    if (g_enlace && g_enlace->parada()) {
+        std::printf("gui: la ventana pidio parar en t = %.3f ms\n",
+                    sc_time_stamp().to_seconds() * 1e3);
+        s.informe();
+        g_enlace->termina(mcusim::proto::M_PARA, 0);
+        g_enlace = nullptr;
+    } else if (g_enlace && g_sin_fin) {
+        // Sin fin solo se acaba asi: la ventana se fue y el enlace paro
+        s.informe();
+        g_enlace->termina(mcusim::proto::M_VENTANA, 0);
+        g_enlace = nullptr;
+    } else if (g_enlace) {
         g_enlace->termina(mcusim::proto::M_VENTANA, 0);
         g_enlace = nullptr;
     } else if (g_cliente) {

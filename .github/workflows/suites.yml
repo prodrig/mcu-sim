@@ -211,9 +211,9 @@ jobs:
         working-directory: src
         run: make -f Makefile.mcu-sim interop
 
-      - name: El saludo, la marcha y las ordenes con mcu-sim-gui, contra el mcu-sim de verdad
+      - name: El saludo, la marcha, las ordenes y el control con mcu-sim-gui, contra el mcu-sim de verdad
         working-directory: src
-        run: make -f Makefile.mcu-sim gui-saludo gui-marcha gui-ordenes
+        run: make -f Makefile.mcu-sim gui-saludo gui-marcha gui-ordenes gui-control
 
       - uses: actions/upload-artifact@v6
         if: always()
@@ -444,7 +444,7 @@ jobs:
         working-directory: src
         run: python3 verif/serie/interop.py
 
-      - name: El saludo, la marcha y las ordenes con mcu-sim-gui, contra el mcu-sim de verdad
+      - name: El saludo, la marcha, las ordenes y el control con mcu-sim-gui, contra el mcu-sim de verdad
         # psutil para medir la CPU de mcu-sim mientras espera: en Linux basta
         # /proc, aqui no.
         working-directory: src
@@ -454,6 +454,7 @@ jobs:
           python3 verif/gui/saludo.py
           python3 verif/gui/marcha.py
           python3 verif/gui/ordenes.py
+          python3 verif/gui/control.py
 
       # DESPUES de la interoperabilidad, no antes: sus `interop_*.log` -la
       # consola de cada mcu-sim que arranca- tambien estan en src/build/, y
@@ -587,7 +588,7 @@ jobs:
           python -m pip install pyserial
           python verif/serie/interop.py
 
-      - name: El saludo, la marcha y las ordenes con mcu-sim-gui, contra el mcu-sim de verdad
+      - name: El saludo, la marcha, las ordenes y el control con mcu-sim-gui, contra el mcu-sim de verdad
         shell: pwsh
         working-directory: src
         run: |
@@ -595,6 +596,7 @@ jobs:
           python verif/gui/saludo.py
           python verif/gui/marcha.py
           python verif/gui/ordenes.py
+          python verif/gui/control.py
 
       - uses: actions/upload-artifact@v6
         if: always()

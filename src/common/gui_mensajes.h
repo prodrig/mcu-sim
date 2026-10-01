@@ -19,9 +19,11 @@
 #ifndef STM32_COMMON_GUI_MENSAJES_H
 #define STM32_COMMON_GUI_MENSAJES_H
 
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
 #include "protocolo.h"
 
@@ -41,6 +43,12 @@ public:
     // Espera, como mucho `ms`, a poder escribir. Solo se usa al TERMINAR, fuera
     // de la simulación, para vaciar lo pendiente. Por omisión no espera.
     virtual void espera_escritura(int ms) { (void)ms; }
+    // Espera, como mucho `ms`, a que haya algo que leer. La usa el enlace EN
+    // PAUSA (fase 6), que es un bucle de reloj de pared: así no gira en vacío.
+    // Por omisión duerme `ms`.
+    virtual void espera_lectura(int ms) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+    }
     virtual void cierra() = 0;
 };
 

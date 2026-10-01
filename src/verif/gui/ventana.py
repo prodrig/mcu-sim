@@ -45,10 +45,12 @@ T_INSTANTANEA, T_AVISO, T_ESTADO, T_ORDEN_HECHA = 0x0010, 0x0011, 0x0012, 0x0013
 T_PONG, T_FIN = 0x0014, 0x001F
 T_VERSION, T_SUSCRIBE, T_ARRANCA, T_ORDENES, T_PARA, T_PING = (
     0x8000, 0x8001, 0x8002, 0x8006, 0x8007, 0x8008)
+T_PAUSA, T_SIGUE, T_PASO = 0x8003, 0x8004, 0x8005
 M_VENTANA, M_PARA, M_ERROR = 0, 1, 2
 N_INFO, N_AVISO, N_ERROR, N_FATAL = 0, 1, 2, 3
 F_CORRIENDO, F_TERMINADA = 1, 3
-RIT_LIBRE = 1
+RIT_REAL, RIT_LIBRE, RIT_DEMANDA = 0, 1, 2
+F_ESPERANDO, F_PAUSADA = 0, 2
 RES_OK, RES_PIEZA, RES_MANDO, RES_RANGO, RES_TARDE = 0, 1, 2, 3, 4
 
 
@@ -217,6 +219,17 @@ def hecha(cuerpo):
     """(t_sim_ns, pieza, mando, valor, resultado)"""
     t, p, m, x, r, _ = struct.unpack("<QHHfII", cuerpo)
     return t, p, m, x, r
+
+
+# --- T_ARRANCA, y el control de la fase 6 ---------------------------------------
+def arranque(v, ritmo=RIT_LIBRE, factor=1.0, ventana_ns=0):
+    """T_ARRANCA. ventana_ns = 0 es la de mcu-sim: la de su linea de ordenes, o
+    sin fin si no se le dio ninguna."""
+    v.manda(T_ARRANCA, struct.pack("<IfQ", ritmo, factor, ventana_ns))
+
+
+def paso(v, ns):
+    v.manda(T_PASO, struct.pack("<Q", ns))
 
 
 def resumen(nombre):

@@ -222,7 +222,8 @@ enum Ritmo : uint32_t {
 struct Arranca {
     uint32_t ritmo;        // Ritmo
     float    factor;       // solo con RIT_REAL: 1.0 = tiempo real, 0.5 = la mitad
-    uint64_t ventana_ns;   // 0 = indefinida (como hoy con --gdb)
+    uint64_t ventana_ns;   // 0 = la de mcu-sim: la de su línea de órdenes, o sin
+                           // fin si no se le dio ninguna (se para con T_PARA)
 };
 static_assert(sizeof(Arranca) == 16, "Arranca son 16 bytes");
 

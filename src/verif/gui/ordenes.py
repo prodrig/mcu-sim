@@ -22,8 +22,8 @@
 #       órdenes en el mismo instante, en el orden del mensaje) y un T_ORDENES
 #       malformado (un T_AVISO, y no se aplica ninguna). En varios mensajes
 #       antes de arrancar: la primera orden de cada uno es absoluta;
-#   O4  en marcha, con --tiempo-real para que dé tiempo: la primera orden es
-#       relativa al instante en que el modelo la lee, que no se sabe de
+#   O4  en marcha, a tiempo real (RIT_REAL) para que dé tiempo: la primera
+#       orden es relativa al instante en que el modelo la lee, que no se sabe de
 #       antemano —eso es lo que la hace irrepetible—, pero las siguientes
 #       guardan sus deltas exactos.
 #
@@ -40,7 +40,7 @@ import time
 import xml.etree.ElementTree as ET
 
 import ventana
-from ventana import (Ventana, check, grupo, arranca, termina, saludo_hasta_listo, fin,
+from ventana import (Ventana, arranque, RIT_REAL, check, grupo, arranca, termina, saludo_hasta_listo, fin,
                      suscribe, instantanea, aviso, ordenes, hecha,
                      T_INSTANTANEA, T_AVISO, T_ESTADO, T_ORDEN_HECHA, T_FIN, T_ARRANCA,
                      M_VENTANA, RIT_LIBRE, N_AVISO,
@@ -65,9 +65,6 @@ def pieza_de(cat, pid):
 def n_piezas(cat):
     return len(list(ET.fromstring(cat).iter("pieza")))
 
-
-def arranque(v):
-    v.manda(T_ARRANCA, struct.pack("<IfQ", RIT_LIBRE, 1.0, 0))
 
 
 def hasta_fin(v, seg=120):
@@ -244,14 +241,14 @@ def o3_validacion(sim):
 def o4_en_marcha(sim):
     grupo("O4 En marcha: relativas al instante en que se leen")
     v = Ventana()
-    p = arranca(sim, [PLACA, FW, "3000", "--tiempo-real"], v.puerto)
+    p = arranca(sim, [PLACA, FW, "3000"], v.puerto)
     try:
         v.acepta()
         _, _, cat, _ = saludo_hasta_listo(v)
         b1, mandos, obs = pieza_de(cat, "B1")
         pulsar = mandos["pulsar"]
         suscribe(v, 10 * MS, [obs["pulsado"]])
-        arranque(v)
+        arranque(v, RIT_REAL)
         visto = 0                                # el ultimo instante del modelo que se ha visto
         fin_espera = time.time() + 5
         while visto < 200 * MS and time.time() < fin_espera:

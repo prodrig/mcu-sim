@@ -97,4 +97,7 @@ testserie              189        400677589564        total
 # real, rango con aviso, malformadas, atasco-: 114 -> 126, y 70,55 -> 75,3 ms.
 # En G9 el T_ORDENES que se ignoraba ya no se manda: ahora se aplicaria. G0 a
 # G12 no cambian de tiempo.
-testgui                126        75300000000        total
+# Fase 6 (2026-10-01): G14, la pausa y los pasos a demanda por el canal: 126
+# -> 136, y 75,3 -> 76,45 ms. En G9 el T_PAUSA que se ignoraba ahora pararia
+# el enlace: lo sustituye un tipo desconocido. Lo demas no cambia de tiempo.
+testgui                136        76450000000        total
