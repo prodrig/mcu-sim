@@ -22,7 +22,7 @@ simulador es **`mcu-sim-gui`**, un programa Qt 6 en su propio repositorio, y la
 forma elegida de conectarlos es la de **dos procesos**: `mcu-sim` gana un
 argumento, `--gui host:puerto`, que le dice dónde está la ventana, y **sin ese
 argumento se comporta exactamente como hoy**. Ni una cabecera de Qt entra aquí:
-lo que hace que estas 2 074 comprobaciones valgan en cualquier máquina es que
+lo que hace que estas comprobaciones valgan en cualquier máquina es que
 este árbol sea C++17 y `<systemc>` y nada más. El análisis previo está en
 `doc/analisis_gui.md`, lo que le toca crecer a este lado en el punto **P-12** de
 `doc/todo.md`, y el plan por fases y el protocolo en el otro repositorio.
@@ -58,15 +58,18 @@ P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
 | **F7** (ETH) | Ethernet 10/100: MII/RMII en los pines, MDIO, descriptores, filtrado, MMC y PTP | **completada** |
 | F7 (resto) | afinado AT | pendiente |
 
-**Hay TRES bancos, y son tres ejecutables distintos a propósito**: montar un
-segundo chip dentro de una simulación mueve su tiempo simulado, así que cada
-familia corre la suya.
+**Hay TRES bancos de familia, y son tres ejecutables distintos a propósito**:
+montar un segundo chip dentro de una simulación mueve su tiempo simulado, así
+que cada familia corre la suya. **Y un cuarto, `testserie`**, el del puente
+UART (P-14), que también va aparte para que `test407` no se entere de que
+existe.
 
 | Orden | Qué ejecuta | Comprobaciones | Tiempo simulado |
 | :--- | :--- | ---: | ---: |
-| `make test407` | La suite acumulada de las siete fases, sobre el F407VG | **2118** | `2336217899213 ps` |
+| `make test407` | La suite acumulada de las siete fases, sobre el F407VG | **2118** | `2337219149213 ps` (`resto`: **`2240553274213 ps`**) |
 | `make test446` | La del F446RE y sus ocho referencias | **204** | `1033367277932 ps` |
 | `make test417` | La del acelerador criptográfico del F415/F417 | **165** | `718988288 ps` |
+| `make testserie` | La del puente UART: `PuenteSerie`, un F407 con `vcp_demo` y clientes TCP y RFC 2217 de verdad | **189** | `400677589564 ps` |
 
 **En una máquina nueva no hace falta nada más**: los diecinueve firmwares que
 las suites cargan en la Flash **están versionados** (37 KB), así que `make
@@ -85,11 +88,21 @@ servidores GDB) + 426 de F7 (116 de bajo consumo, 61 del DCMI, 54 del FSMC,
 todas pasan, en unos 23 s. Verificado con SystemC 2.3.4 / g++ 13 / C++17
 y arm-none-eabi-gcc 13.2.
 
-**El tiempo simulado del F407 es un invariante del proyecto**, no una
-curiosidad: vale `2336217899213 ps` al picosegundo desde la fase 7, once
-planes después sigue valiendo lo mismo, y desde que los firmwares se versionan
-vale **lo mismo en Linux y en Windows**. Si un cambio lo mueve, ha cambiado el
-comportamiento de algo, aunque las 2118 sigan pasando.
+**El tiempo simulado de cada banco es un invariante del proyecto**, no una
+curiosidad. Las cifras de la tabla están escritas una sola vez, en
+`verif/invariantes.txt`, y `ci/comprueba_invariante.sh` las contrasta al
+picosegundo en las cuatro plataformas de la integración continua. Si un cambio
+mueve una, ha cambiado el comportamiento de algo, aunque todas las
+comprobaciones sigan pasando.
+
+Del F407 se contrasta el **`resto`** y no el total. El total lleva dentro lo que
+tardan T96 y T97 en hablar con un GDB de verdad por un socket de verdad, y eso
+depende de la máquina (**T-16**); `resto` es el total sin esos dos grupos. El
+invariante del F407 valió `2336217899213 ps` de total desde la fase 7 hasta el
+2026-09-23, cuando se movió **a propósito** y por única vez: al corregir que el
+IWDG reseteaba un tick antes de su plazo (**T-23**), `resto` pasó de
+`2239552024213` a `2240553274213 ps`, 1,00125 ms más. Las otras suites no se
+movieron.
 
 **Con una precondición que costó una segunda máquina descubrir**: vale siempre
 que los **firmwares sean los mismos binarios**. Mientras los `.bin` no se
@@ -276,7 +289,7 @@ validar una plataforma nueva antes de pelearse con la biblioteca.
 | :--- | :--- | :--- |
 | Linux, g++ 13 | **verificado** | 2118/2118 comprobaciones, 204/204 del F446 y 165/165 del F417, `make red` 13/13, ASan + UBSan limpio en las tres suites (`make asan407`, `make asan446`, `make asan417`), las seis placas validan sin un aviso |
 | Linux, clang | **verificado** | mismo resultado y mismo tiempo simulado al picosegundo |
-| Windows, MSYS2 / MinGW-w64 | **verificado** | **Los tres invariantes son los mismos que en Linux, al picosegundo**: 2118/2118 en `2336217899213 ps` (huella `0x644FCE21`), 204/204 en `1033367277932 ps` y 165/165 en `718988288 ps`. Antes el del F407 salía 2 ms por debajo, y era el binario y nada más (**T-22**). Para que el ejecutable corra FUERA de MSYS2 hace falta el `-static` del Makefile: `doc/compilacion.md` §5.6 |
+| Windows, MSYS2 / MinGW-w64 | **verificado** | **Los tres invariantes son los mismos que en Linux, al picosegundo**: 2118/2118 con `resto` en `2240553274213 ps` (huella `0x644FCE21`; antes de T-23, `2336217899213 ps` de total, igual que en Linux), 204/204 en `1033367277932 ps` y 165/165 en `718988288 ps`. Antes el del F407 salía 2 ms por debajo, y era el binario y nada más (**T-22**). Para que el ejecutable corra FUERA de MSYS2 hace falta el `-static` del Makefile: `doc/compilacion.md` §5.6 |
 | macOS, clang | **la rama específica compila** | Se fuerza la combinación de macOS —sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`— y compila con g++ y con clang; **falta probarlo en un Mac** |
 
 Lo que en Windows y macOS **no** está verificado es lo mismo en los dos casos:

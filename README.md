@@ -71,20 +71,24 @@ No hace falta compilador cruzado de ARM: los firmwares que usan las pruebas
 
 ## Cómo se sabe que funciona
 
-Tres bancos de pruebas, que se ejecutan en cada cambio y en cuatro plataformas:
+Cuatro bancos de pruebas, que se ejecutan en cada cambio y en cuatro plataformas:
 
 ```
-make test407    # 2118 comprobaciones    2336217899213 ps
+make test407    # 2118 comprobaciones    2337219149213 ps   (resto: 2240553274213 ps)
 make test446    #  204                   1033367277932 ps
 make test417    #  165                    718988288 ps
+make testserie  #  189                   400677589564 ps
 ```
 
 **La cifra que importa es la segunda.** Un cambio puede dejar las 2 118
 comprobaciones en verde y haber cambiado el comportamiento del modelo; lo que
-lo delata es que el reloj simulado se mueva. El del F407 lleva valiendo lo
-mismo **al picosegundo** desde hace once planes de trabajo, y vale lo mismo en
-Linux y en Windows. Por eso la integración continua lo trata como un fallo y no
-como un aviso.
+lo delata es que el reloj simulado se mueva. Las cifras están escritas una sola
+vez, en `src/verif/invariantes.txt`, y la integración continua las contrasta
+**al picosegundo** en las cuatro plataformas: si no coinciden, es un fallo y no
+un aviso. Del F407 se contrasta el **`resto`**, el total menos lo que tarda un
+GDB de verdad en contestar por un socket, que depende de la máquina (T-16). Ese
+invariante solo se ha movido una vez desde la fase 7, y fue a propósito: al
+corregir un tick de más del IWDG (T-23).
 
 ---
 
@@ -147,8 +151,8 @@ asunto del commit, que sí es el mismo.
 
 Siete fases cerradas más dos planes de familia. **Verificado en las cuatro
 plataformas** —Linux, Windows, macOS Apple Silicon y macOS Intel— por la
-integración continua, que en cada empujón comprueba las 2 118 comprobaciones
-**y que el tiempo simulado no se mueva al picosegundo**.
+integración continua, que en cada empujón pasa las cuatro suites **y comprueba
+que el tiempo simulado no se mueva un picosegundo**.
 
 Con un detalle que salió gratis: esas mismas cifras se obtienen con **dos
 versiones de SystemC** —la 2.3.4 en Linux y Windows, la 3.0.2 de Homebrew en
