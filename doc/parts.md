@@ -1,6 +1,6 @@
 # Catálogo de componentes externos
 
-Referencia de las **21 piezas** que la factoría de `src/parts/` sabe construir:
+Referencia de las **22 piezas** que la factoría de `src/parts/` sabe construir:
 qué terminales tiene cada una, qué parámetros admite, qué hace cada parámetro y
 qué queda fuera del fichero.
 
@@ -1046,8 +1046,8 @@ $ ./build/mcu-sim placas/led_azul_5v.xml verif/fw/blinky/blinky.bin 205
   LED LD_AZUL en PD12: apagado  (3.30 V, 0.00 mA)
 ```
 
-Y la placa entera del banco de pruebas —43 componentes de 20 de los 21 tipos,
-todos menos `Rpull`— se saca
+Y la placa entera del banco de pruebas —43 componentes de 20 de los 22 tipos,
+todos menos `Rpull` y `PuenteSerie`, que tiene su propio banco (`testserie`)— se saca
 del propio modelo, que es la mejor referencia de formato que hay:
 
 ```

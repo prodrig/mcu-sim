@@ -63,7 +63,7 @@ escenario 1 es el único que funciona y no hay camino desde ahí.
 | **Lo que no es problema** | El rendimiento. El modelo va **entre 11 y 200 veces más rápido que el tiempo real** (§3.1), y trocear `sc_start()` no cuesta absolutamente nada: los mismos deltas y el mismo tiempo (§3.2) |
 | **Lo que sí lo es** | Que va **demasiado** rápido. Sin freno, un servo cruzaría su recorrido en una centésima de segundo. Hay que decidir una política de ritmo (§3.4) |
 | **La restricción dura** | El núcleo de SystemC **no es reentrante ni seguro entre hilos**. Un solo hilo del sistema operativo puede estar dentro, y desde fuera solo se puede llamar a `async_request_update()` (§4) |
-| **Lo que de verdad cuesta** | No la GUI: **las piezas que no existen**. No hay servo, ni medidor de PWM, ni motor paso a paso, ni motor de continua, ni encoder en el catálogo de 21 componentes (§8) |
+| **Lo que de verdad cuesta** | No la GUI: **las piezas que no existen**. No hay servo, ni medidor de PWM, ni motor paso a paso, ni motor de continua, ni encoder en el catálogo de 21 componentes (§8; hoy son 22, con `PuenteSerie`, y ninguna de esas) |
 | **El riesgo que nadie ve venir** | La interactividad **destruye la reproducibilidad**, que es el activo principal de este proyecto. Tiene arreglo barato y además da un tipo de prueba nuevo (§9) |
 
 **Recomendación:** escenario **2** (un proceso Qt, la simulación en su propio
@@ -567,6 +567,11 @@ Led Button Crystal Rpull Driver SignalLink ExtClock I2cWire I2cEeprom
 I2cExtMaster SwoReceiver SdCard CameraSensor ExtSram ExtNand UsbHostRig
 UsbDeviceRig EthPhy CanWire CanTransceiver CanNode
 ```
+
+> **Al día (2026-10-01): son 22.** La nueva es `PuenteSerie`, el puente de una
+> USART hasta el ordenador (P-14, `doc/analisis_puente_serie.md`). No cambia
+> nada de lo que sigue: de las que el enunciado quiere ver, siguen existiendo
+> solo los LEDs y los botones. El catálogo vivo es `doc/parts.md`.
 
 De lo que el enunciado quiere ver en pantalla, **solo los LEDs y los botones
 existen**. No hay servo, ni medidor de PWM, ni etapa de potencia, ni motor paso a

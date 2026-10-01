@@ -531,7 +531,7 @@ puede significar algo con un MCU.
 
 `<componente>`, `<pin>` y `<ref>` no se tocan. Un componente externo sigue sin
 saber a qué MCU va conectado, y no tiene por qué saberlo: se conecta a un nodo y
-punto. Esa indiferencia es la que hace que el catálogo entero de 21 piezas valga
+punto. Esa indiferencia es la que hace que el catálogo entero de piezas —21 al escribir esto, 22 hoy con `PuenteSerie`— valga
 para dos MCUs sin una línea nueva.
 
 ---
