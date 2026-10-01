@@ -646,6 +646,8 @@ void p4_saludo() {
             L.fija_version(1); e.fija_version(1);
             for (Copia& x : recibe_gui(c, L, 3)) vio.push_back(x);   // PLACA, CATALOGO, LISTO
             manda_gui(c, e, T_SUSCRIBE, bytes(CabSuscribe{1000000u, 0u, 0u, 0u}));
+            manda_gui(c, e, T_SUSCRIBE, gui::cuerpo_suscripcion(2000000ull, {3, 5}));
+            manda_gui(c, e, T_ORDENES, bytes(Orden{1, 0, 0, 1.f}));
             manda_gui(c, e, 0x8077, "un tipo que esta version no conoce");
             manda_gui(c, e, T_PING);
             for (Copia& x : recibe_gui(c, L, 1)) vio.push_back(x);   // T_PONG
@@ -662,9 +664,13 @@ void p4_saludo() {
         comprueba(arr.ritmo == RIT_LIBRE && arr.ventana_ns == 5000000ull,
                   "con el cuerpo de T_ARRANCA intacto");
         comprueba(m.version() == 1, "con la version que eligio la GUI");
+        comprueba(m.hay_suscripcion() &&
+                  m.suscripcion() == gui::cuerpo_suscripcion(2000000ull, {3, 5}),
+                  "de dos T_SUSCRIBE antes de arrancar se guarda el ultimo, entero: "
+                  "sim lo aplica antes de sc_start (fase 4)");
         comprueba(m.ignorados() == 1,
-                  "T_SUSCRIBE se lee entero y se ignora (es de la fase 4), y el "
-                  "desconocido se salta sin contarlo");
+                  "T_ORDENES se lee y se ignora (es de la fase 5), y el desconocido "
+                  "se salta sin contarlo");
         m.fin(M_VENTANA, 0, 123456789ull);
         g.hilo.join();
         comprueba(vio.size() == 5 && vio[0].tipo == T_HOLA && vio[0].cuerpo == HOLA &&
@@ -716,6 +722,37 @@ void p4_saludo() {
         comprueba(d == D::Valida && vio.size() == 3 && vio[0].tipo == T_PLACA &&
                   vio[1].tipo == T_CATALOGO && vio[2].tipo == T_FIN,
                   "con --valida: T_PLACA, T_CATALOGO y T_FIN, sin T_LISTO ni espera");
+    }
+
+    // --- Los avisos de placa, entre T_CATALOGO y T_LISTO (fase 4) ------------
+    {
+        std::vector<Copia> vio;
+        GuiFalsa g([&](red::socket_t c, Lector& L, Emisor& e) {
+            recibe_gui(c, L, 1);
+            manda_gui(c, e, T_VERSION, "protocolo=1\n");
+            L.fija_version(1); e.fija_version(1);
+            vio = recibe_gui(c, L, 5);
+            manda_gui(c, e, T_PARA);
+            recibe_gui(c, L, 1);
+        });
+        ClienteGui m;
+        Arranca arr{};
+        m.avisos_de_placa({"nodo X: conducen a la vez A.a y B.a", "otro"});
+        m.conecta(g.destino());
+        const D d = m.saluda(HOLA, PLACA, CATALOGO, false, arr);
+        m.fin(M_PARA, 0, 0);
+        g.hilo.join();
+        CabAviso ca{};
+        const bool forma = vio.size() == 5 && vio[2].cuerpo.size() >= sizeof ca &&
+                           (std::memcpy(&ca, vio[2].cuerpo.data(), sizeof ca), true);
+        comprueba(d == D::Para && vio.size() == 5 && vio[0].tipo == T_PLACA &&
+                  vio[1].tipo == T_CATALOGO && vio[2].tipo == T_AVISO &&
+                  vio[3].tipo == T_AVISO && vio[4].tipo == T_LISTO,
+                  "los avisos de placa van como T_AVISO entre T_CATALOGO y T_LISTO");
+        comprueba(forma && ca.nivel == N_AVISO && ca.origen_len == 5 && ca.t_sim_ns == 0 &&
+                  vio[2].cuerpo.substr(sizeof ca) ==
+                      "placanodo X: conducen a la vez A.a y B.a",
+                  "con nivel aviso, origen 'placa', t = 0 y el texto entero");
     }
 
     // --- Las formas de fallar -----------------------------------------------

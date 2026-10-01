@@ -90,4 +90,7 @@ testserie              189        400677589564        total
 # la suma de las esperas del propio banco, y por eso es redondo: 26,5 ms. La
 # otra mitad de la prueba de esta fase es la linea de test407, que NO cambio:
 # tiene dentro una frontera construida y sin activar, como `sim` sin `--gui`.
-testgui                 87        26500000000        total
+# Fase 4 (2026-10-01): G9 a G12, el enlace que atiende la conexion en marcha,
+# contra un canal en memoria: 87 -> 114, y 26,5 -> 70,55 ms, que son las
+# esperas de esos grupos. G0 a G8 no cambian.
+testgui                114        70550000000        total

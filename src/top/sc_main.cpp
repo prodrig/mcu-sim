@@ -80,6 +80,7 @@
 #include "../parts/netlist_parts.h"
 #include "../parts/netlist_xml.h"
 #include "../parts/frontera_gui.h"  // la frontera con mcu-sim-gui, construida e inactiva
+#include "../parts/enlace_gui.h"    // y el enlace en marcha, igual
 #include "../verif/decoder_vectors.h"
 #include "../verif/gdb_stub.h"
 #include "../core/gdb_stub_dap.h"
@@ -229,6 +230,9 @@ SC_MODULE(F1Tb) {
     // el aplicador- esta en `testgui`, por la decision D-12 del puente UART:
     // lo que no necesita este banco no mueve sus cifras.
     stm32::gui::FronteraGui frontera{"frontera"};
+    // Y el enlace de la fase 4, igual: construido, sin activar y sin tocar el
+    // manejador de SC_REPORT. Su proceso espera un evento que nadie notifica.
+    stm32::gui::EnlaceGui   enlace{"enlace", frontera};
     // Oscilador externo para el modo bypass del HSE. Los sc_module deben
     // construirse durante la elaboración, así que se crea aquí parado.
     ExtClock* osc_ext = nullptr;

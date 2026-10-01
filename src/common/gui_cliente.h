@@ -27,8 +27,18 @@
 // Con `--valida` el saludo se corta tras el catálogo, sin `T_LISTO`: la GUI
 // recibe la placa para enseñarla y el modelo termina sin esperar a nadie.
 //
-// Lo que NO hace: nada en marcha. Instantáneas, avisos, órdenes y control son
-// de las fases 4 a 6; aquí solo se deja el socket abierto y el `T_FIN` final.
+// Desde la fase 4, dos cosas más:
+//
+//   * los AVISOS DE PLACA —lo que `sim` encuentra al validar lo eléctrico y los
+//     puentes serie— van como T_AVISO entre T_CATALOGO y T_LISTO: antes de que
+//     nadie pulse «arranca», que es cuando todavía ahorran tiempo;
+//   * el último T_SUSCRIBE que llegue antes de T_ARRANCA se GUARDA
+//     (`suscripcion()`), para que `sim` lo aplique antes de `sc_start()`. Es lo
+//     que hace reproducible la secuencia de instantáneas.
+//
+// Y con T_ARRANCA, `entrega()` le pasa la conexión al enlace que la atiende
+// en marcha (`parts/enlace_gui.h`), con el emisor y el lector tal y como
+// quedaron: la versión negociada, la secuencia, y lo que hubiera llegado ya.
 // =============================================================================
 #ifndef STM32_COMMON_GUI_CLIENTE_H
 #define STM32_COMMON_GUI_CLIENTE_H
@@ -37,10 +47,13 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <string>
+#include <vector>
 #include "red.h"
 #include "proto_io.h"
 #include "gui_destino.h"
+#include "gui_mensajes.h"
 
 namespace stm32 {
 namespace gui {
@@ -76,6 +89,9 @@ public:
         return true;
     }
     bool conectado() const { return red::valido(s_); }
+
+    // Lo que se manda como T_AVISO durante el saludo, uno por línea.
+    void avisos_de_placa(std::vector<std::string> v) { avisos_placa_ = std::move(v); }
 
     // El saludo entero. `hola` es el cuerpo de T_HOLA (líneas clave=valor);
     // `placa` y `catalogo`, los dos XML. Con `solo_valida` se para tras el
@@ -123,6 +139,8 @@ public:
         sal.clear();
         em_.mensaje(sal, T_PLACA, placa);
         em_.mensaje(sal, T_CATALOGO, catalogo);
+        for (const std::string& a : avisos_placa_)
+            em_.mensaje(sal, T_AVISO, cuerpo_aviso(N_AVISO, "placa", a, 0));
         if (!solo_valida) em_.vacio(sal, T_LISTO);
         if (!manda(sal)) return falla("la GUI cerro la conexion durante el saludo");
         if (solo_valida) return Desenlace::Valida;
@@ -149,9 +167,15 @@ public:
                     if (!manda(sal)) return falla("la GUI cerro la conexion");
                     break;
                 }
+                case T_SUSCRIBE:
+                    // Reemplaza a la anterior, como en marcha. Se aplica antes
+                    // de sc_start(), al volver de aquí.
+                    suscripcion_ = m.cuerpo;
+                    hay_suscripcion_ = true;
+                    break;
                 default:
-                    // T_SUSCRIBE, T_ORDENES y el control: son de las fases 4 a 6.
-                    // Se leen enteros y se cuentan; no se pierde la sincronía.
+                    // T_ORDENES y el control: son de las fases 5 y 6. Se leen
+                    // enteros y se cuentan; no se pierde la sincronía.
                     ++ignorados_;
                     break;
             }
@@ -172,6 +196,14 @@ public:
     const std::string& error() const { return error_; }
     uint16_t           version() const { return version_; }
     unsigned           ignorados() const { return ignorados_; }
+    bool               hay_suscripcion() const { return hay_suscripcion_; }
+    const std::string& suscripcion() const { return suscripcion_; }
+    const mcusim::proto::Emisor& emisor() const { return em_; }
+    const mcusim::proto::Lector& lector() const { return lec_; }
+
+    // La conexión, para el enlace. El ClienteGui se queda sin ella: desde aquí
+    // la cierra quien la recibe.
+    std::unique_ptr<CanalGui> entrega();
 
     // El valor numérico de `clave=` en un cuerpo de texto de líneas clave=valor,
     // o -1 si no está o no es un número. Público porque también lo usan las
@@ -270,7 +302,44 @@ private:
     std::string            error_;
     uint16_t               version_ = 0;
     unsigned               ignorados_ = 0;
+    std::vector<std::string> avisos_placa_;
+    std::string            suscripcion_;
+    bool                   hay_suscripcion_ = false;
 };
+
+// ---------------------------------------------------------------------------
+// El canal de verdad: el socket de la conexión con la ventana, no bloqueante.
+// ---------------------------------------------------------------------------
+class CanalSocket : public CanalGui {
+public:
+    explicit CanalSocket(red::socket_t s) : s_(s) {}
+    ~CanalSocket() override { red::cerrar(s_); }
+    long recibe(char* b, std::size_t n) override {
+        if (!red::valido(s_)) return 0;
+        const long k = red::recibir(s_, b, n);
+        if (k > 0) return k;
+        if (k == 0) return 0;
+        return red::reintentar() ? -1 : 0;     // un error de verdad es un cierre
+    }
+    long envia(const char* b, std::size_t n) override {
+        if (!red::valido(s_)) return -1;
+        const long k = red::enviar(s_, b, n);
+        if (k >= 0) return k;
+        return red::reintentar() ? 0 : -1;
+    }
+    void espera_escritura(int ms) override {
+        if (red::valido(s_)) red::detalle::espera_escribible(s_, ms);
+    }
+    void cierra() override { red::cerrar(s_); }
+private:
+    red::socket_t s_;
+};
+
+inline std::unique_ptr<CanalGui> ClienteGui::entrega() {
+    std::unique_ptr<CanalGui> c(new CanalSocket(s_));
+    s_ = red::invalido();
+    return c;
+}
 
 } // namespace gui
 } // namespace stm32

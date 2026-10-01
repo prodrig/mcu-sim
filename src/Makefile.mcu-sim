@@ -25,6 +25,7 @@
 #   make red                      # la capa de red, que NO necesita SystemC
 #   make gui-proto                # el marco del protocolo con mcu-sim-gui, tampoco
 #   make gui-saludo               # el saludo con mcu-sim-gui, contra el sim de verdad (Python)
+#   make gui-marcha               # y con la simulacion en marcha: instantaneas y avisos (Python)
 #   make serie                    # el destino y el formato de un PuenteSerie, tampoco
 #   make rfc2217                  # el codec de Telnet y RFC 2217, tampoco
 #   make interop                  # el puente UART contra pySerial y socat (Python)
@@ -202,7 +203,7 @@ ASAN446 := build/asan446$(EXE)
 ASAN417 := build/asan417$(EXE)
 ASANSERIE := build/asanserie$(EXE)
 
-.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto gui-saludo interop run clean plataforma vectores hash cryp
+.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto gui-saludo gui-marcha interop run clean plataforma vectores hash cryp
 
 all: $(MCUSIM)
 
@@ -396,6 +397,14 @@ interop: $(MCUSIM)
 # modulos; con psutil mide tambien la CPU fuera de Linux.
 gui-saludo: $(MCUSIM)
 	$(PYTHON) verif/gui/saludo.py
+
+# CON LA SIMULACION EN MARCHA (P-12, fase 4): la misma ventana en Python, y el
+# blinky de placas/discovery_min.xml parpadeando en las instantaneas con el
+# periodo que programa el firmware. Tambien que la secuencia se repite al
+# picosegundo, los avisos de placa, lo que se habla en marcha y que mcu-sim
+# sigue si la ventana se va. Unos segundos: usa --tiempo-real en dos grupos.
+gui-marcha: $(MCUSIM)
+	$(PYTHON) verif/gui/marcha.py
 
 # EL CAMPO DE MINAS DEL PREPROCESADOR DE WINDOWS. Prueba de COMPILACION, no de
 # ejecucion: define a mano las macros que Windows trae -R_OK, min, max, ERROR,

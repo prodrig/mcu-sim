@@ -67,6 +67,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -104,6 +105,7 @@
 #include "../parts/netlist_parts.h"
 #include "../parts/netlist_xml.h"
 #include "../parts/frontera_gui.h"
+#include "../parts/enlace_gui.h"
 #include "../soc/stm32f4_mcu.h"
 #include "../soc/stm32f446.h"
 
@@ -194,6 +196,8 @@ struct McuMontado {
 // dice con un T_FIN antes de irse, en vez de dejarla mirando un socket que se
 // cierra sin explicacion.
 static stm32::gui::ClienteGui* g_cliente = nullptr;
+// Y con la simulacion en marcha, el enlace que atiende esa conexion (fase 4).
+static stm32::gui::EnlaceGui*  g_enlace  = nullptr;
 
 static uint64_t ahora_ns() {
     return uint64_t(sc_time_stamp().value() / sc_time(1, SC_NS).value());
@@ -201,7 +205,8 @@ static uint64_t ahora_ns() {
 
 static void muere(const std::string& msg) {
     std::fprintf(stderr, "%s\n", msg.c_str());
-    if (g_cliente) g_cliente->fin(mcusim::proto::M_ERROR, 2, ahora_ns());
+    if (g_enlace)       g_enlace->termina(mcusim::proto::M_ERROR, 2);
+    else if (g_cliente) g_cliente->fin(mcusim::proto::M_ERROR, 2, ahora_ns());
     std::exit(2);
 }
 
@@ -257,6 +262,12 @@ SC_MODULE(Sim) {
     // `--gui` este programa simula exactamente lo mismo que antes. La activa
     // el saludo (`saluda_gui`), con el catalogo de las piezas ya montadas.
     stm32::gui::FronteraGui frontera{"frontera"};
+    // Y el enlace que atiende la conexion con la simulacion en marcha (fase
+    // 4): lo mismo, construido siempre y quieto hasta que el saludo lo active.
+    stm32::gui::EnlaceGui   enlace{"enlace", frontera};
+    // Los avisos de la placa -lo electrico y los puentes serie-, para la
+    // ventana: los ve antes de pulsar «arranca», que es cuando ahorran tiempo.
+    std::vector<std::string> avisos_placa;
 
     SC_CTOR(Sim) {
         // --- 1. Leer. No construye nada: devuelve datos ---------------------
@@ -384,6 +395,7 @@ SC_MODULE(Sim) {
         placa.construye(nodos);
         for (const std::string& q : placa.valida_electrica(nodos)) {
             std::fprintf(stderr, "  [elec] %s\n", q.c_str());
+            avisos_placa.push_back(q);
             ++n_avisos;
         }
         // Un conflicto eléctrico NO detiene la simulación: puede ser una
@@ -401,13 +413,17 @@ SC_MODULE(Sim) {
             if (ps->por_red()) hay_puente_red = true;
             std::printf("  serie %s: %s\n", p.id.c_str(), ps->describir().c_str());
         }
-        if (hay_puente_red && g_tiempo_real <= 0.0 && !g_solo_valida)
+        if (hay_puente_red && g_tiempo_real <= 0.0 && !g_solo_valida) {
+            avisos_placa.push_back(
+                "hay un puente serie por TCP y no se ha pedido --tiempo-real: el "
+                "terminal vera el ritmo de la simulacion, no el de la placa");
             std::fprintf(stderr,
                 "  [serie] AVISO: hay un puente serie por TCP y no se ha pedido\n"
                 "          --tiempo-real. El terminal vera el ritmo de la\n"
                 "          simulacion, no el de la placa: un printf por segundo\n"
                 "          puede llegar cien veces por segundo, y el procesador\n"
                 "          va a tope. Con --tiempo-real va como en la placa.\n");
+        }
         for (const McuMontado& m : mcus) {
             if (!m.decl.puerto_gdb && m.decl.firmware.empty() && m.decl.id.empty())
                 continue;                    // el caso de siempre: no dice nada
@@ -531,17 +547,34 @@ SC_MODULE(Sim) {
     // El freno solo frena; si el modelo va MÁS LENTO que el tiempo real, no hay
     // nada que hacer y se sigue sin dormir, sin acumular deuda.
     // -----------------------------------------------------------------------
+    //
+    // El freno se mide contra un ANCLA -un instante de pared y uno simulado-
+    // y no rodaja a rodaja. Medido rodaja a rodaja, lo que cada `sleep_for` se
+    // pasaba se iba sumando: un 10 % de retraso a los pocos segundos con
+    // rodajas de 1 ms. Con el ancla no se suma nada. Y si el modelo va por
+    // DETRAS mas de 50 ms, el ancla se mueve al presente: no se acumula una
+    // deuda que luego se pagaria corriendo sin freno.
+    sc_time  ancla_sim_ = SC_ZERO_TIME;
+    std::chrono::steady_clock::time_point ancla_pared_;
+    bool     anclado_ = false;
+
     void espera(const sc_time& d) {
         if (g_tiempo_real <= 0.0) { wait(d); return; }
-        const auto t0 = std::chrono::steady_clock::now();
-        const double sim0 = sc_time_stamp().to_seconds();
+        if (!anclado_) {
+            ancla_pared_ = std::chrono::steady_clock::now();
+            ancla_sim_   = sc_time_stamp();
+            anclado_     = true;
+        }
         wait(d);
-        const double avance = sc_time_stamp().to_seconds() - sim0;
-        const double debe = avance / g_tiempo_real;      // segundos de pared
-        const double lleva =
-            std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        const double debe = (sc_time_stamp() - ancla_sim_).to_seconds() / g_tiempo_real;
+        const auto   ahora = std::chrono::steady_clock::now();
+        const double lleva = std::chrono::duration<double>(ahora - ancla_pared_).count();
         if (debe > lleva)
             std::this_thread::sleep_for(std::chrono::duration<double>(debe - lleva));
+        else if (lleva - debe > 0.05) {
+            ancla_pared_ = ahora;
+            ancla_sim_   = sc_time_stamp();
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -697,7 +730,23 @@ SC_MODULE(Sim) {
         }
 
         const auto h0 = std::chrono::steady_clock::now();
-        espera(sc_time(g_ms, SC_MS));
+        // CON --tiempo-real, EN RODAJAS DE 1 ms, como el bucle de arriba. Una
+        // sola espera de toda la ventana simulaba los segundos de golpe, en
+        // centesimas, y DESPUES dormia lo que faltaba: el total cuadraba con el
+        // reloj de pared, pero el LED parpadeaba a toda velocidad y luego nada.
+        // En la consola no se notaba -solo se ve como acaba-; con una ventana
+        // mirando (mcu-sim-gui, fase 4) es lo primero que se ve.
+        if (g_tiempo_real > 0.0) {
+            const sc_time rodaja(1, SC_MS);
+            sc_time quedan(g_ms, SC_MS);
+            while (quedan > SC_ZERO_TIME) {
+                const sc_time d = quedan < rodaja ? quedan : rodaja;
+                espera(d);
+                quedan -= d;
+            }
+        } else {
+            espera(sc_time(g_ms, SC_MS));
+        }
         const double seg =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - h0).count();
         std::printf("simulados %.3f ms en %.3f s de anfitrion (%llu deltas)\n",
@@ -780,7 +829,9 @@ static std::string texto_hola(const Sim& s, int argc, char** argv) {
            "modo=" + (g_solo_valida ? "valida" : "simula") + "\n";
 }
 
-static int saluda_gui(Sim& s, stm32::gui::ClienteGui& cli, int argc, char** argv) {
+static int saluda_gui(Sim& s, stm32::gui::ClienteGui& cli,
+                      std::unique_ptr<stm32::gui::CanalGui>& canal,
+                      int argc, char** argv) {
     using stm32::gui::ClienteGui;
     std::printf("gui: conectando con mcu-sim-gui en %s (protocolo v%u)\n",
                 stm32::gui::como_texto(g_gui).c_str(),
@@ -807,11 +858,21 @@ static int saluda_gui(Sim& s, stm32::gui::ClienteGui& cli, int argc, char** argv
         std::fflush(stdout);
     }
     mcusim::proto::Arranca arr{};
+    cli.avisos_de_placa(s.avisos_placa);
     switch (cli.saluda(texto_hola(s, argc, argv), placa.str(), cat.xml(),
                        g_solo_valida, arr)) {
         case ClienteGui::Desenlace::Arranca:
             std::printf("gui: la ventana dice 'arranca'\n");
             std::fflush(stdout);
+            // La conexion pasa al enlace, que la atiende en marcha. La
+            // suscripcion que llego antes de arrancar se aplica AHORA, antes
+            // de sc_start(): por eso la secuencia de instantaneas se repite al
+            // picosegundo de una ejecucion a otra.
+            canal = cli.entrega();
+            s.enlace.activa(canal.get(), cli.emisor(), cli.lector());
+            if (cli.hay_suscripcion()) s.enlace.suscripcion_inicial(cli.suscripcion());
+            g_enlace  = &s.enlace;
+            g_cliente = nullptr;
             return -1;
         case ClienteGui::Desenlace::Valida:
             cli.fin(mcusim::proto::M_VENTANA, 0, 0);
@@ -1050,14 +1111,19 @@ int sc_main(int argc, char** argv) {
 
     Sim s("sim");
     stm32::gui::ClienteGui cliente;
+    std::unique_ptr<stm32::gui::CanalGui> canal;
     if (g_gui_pedida) {
-        const int r = saluda_gui(s, cliente, argc, argv);
+        const int r = saluda_gui(s, cliente, canal, argc, argv);
         if (r >= 0) return r;
     }
     sc_start();
-    // Se acabo la ventana: se le dice a la GUI, con el instante en que se
-    // acabo. Si la GUI ya no esta, no pasa nada (`ClienteGui::fin`).
-    if (g_cliente) {
+    // Se acabo la ventana: se le dice a la GUI, con lo que quedara pendiente
+    // -avisos, instantaneas, un T_ESTADO final- y el instante en que se acabo.
+    // Si la GUI ya no esta, no pasa nada.
+    if (g_enlace) {
+        g_enlace->termina(mcusim::proto::M_VENTANA, 0);
+        g_enlace = nullptr;
+    } else if (g_cliente) {
         g_cliente->fin(mcusim::proto::M_VENTANA, 0, ahora_ns());
         g_cliente = nullptr;
     }

@@ -1,0 +1,212 @@
+# =============================================================================
+# ventana.py — Una ventana de mcu-sim-gui mínima, en Python, para las pruebas
+#
+# Lo que comparten `saludo.py` (fase 3) y `marcha.py` (fase 4): el marco del
+# protocolo escrito OTRA VEZ a partir de `doc/protocolo.md`, sin compartir nada
+# con `proto_io.h` —que es el mismo fichero en los dos extremos de verdad, así
+# que un error en él no lo cazaría ninguno de los dos—, una ventana que escucha
+# y saluda, y el contador de comprobaciones.
+# =============================================================================
+import os
+import socket
+import struct
+import subprocess
+import sys
+import time
+
+ok = 0
+fallos = 0
+
+
+def check(cond, texto):
+    global ok, fallos
+    if cond:
+        ok += 1
+        print("  [OK  ] " + texto)
+    else:
+        fallos += 1
+        print("  [FALLO] " + texto)
+    sys.stdout.flush()
+    return cond
+
+
+def grupo(t):
+    print("--- %s ---" % t)
+    sys.stdout.flush()
+
+
+# --- El marco, desde doc/protocolo.md §2 -------------------------------------
+MAGIA = 0x3147534D
+CAB = struct.Struct("<IHHII")          # magia, version, tipo, longitud, secuencia
+
+T_HOLA, T_PLACA, T_CATALOGO, T_LISTO = 0x0001, 0x0002, 0x0003, 0x0004
+T_INSTANTANEA, T_AVISO, T_ESTADO = 0x0010, 0x0011, 0x0012
+T_PONG, T_FIN = 0x0014, 0x001F
+T_VERSION, T_SUSCRIBE, T_ARRANCA, T_ORDENES, T_PARA, T_PING = (
+    0x8000, 0x8001, 0x8002, 0x8006, 0x8007, 0x8008)
+M_VENTANA, M_PARA, M_ERROR = 0, 1, 2
+N_INFO, N_AVISO, N_ERROR, N_FATAL = 0, 1, 2, 3
+F_CORRIENDO, F_TERMINADA = 1, 3
+RIT_LIBRE = 1
+
+
+class Ventana:
+    """Un extremo de pantalla mínimo, sobre un socket de verdad."""
+
+    def __init__(self):
+        self.srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.srv.bind(("127.0.0.1", 0))
+        self.srv.listen(1)
+        self.puerto = self.srv.getsockname()[1]
+        self.c = None
+        self.buf = b""
+        self.sec = 0
+
+    def acepta(self, seg=20.0):
+        self.srv.settimeout(seg)
+        try:
+            self.c, _ = self.srv.accept()
+            return True
+        except socket.timeout:
+            return False
+
+    def manda(self, tipo, cuerpo=b""):
+        self.c.sendall(CAB.pack(MAGIA, 1, tipo, len(cuerpo), self.sec) + cuerpo)
+        self.sec += 1
+
+    def recibe(self, seg=10.0):
+        """(tipo, cuerpo), o (None, None) si se cierra o se acaba el plazo."""
+        fin = time.time() + seg
+        while True:
+            if len(self.buf) >= CAB.size:
+                magia, ver, tipo, lon, _ = CAB.unpack(self.buf[:CAB.size])
+                if magia != MAGIA or ver != 1:
+                    raise ValueError("cabecera mala: magia %08X version %d" % (magia, ver))
+                if len(self.buf) >= CAB.size + lon:
+                    cuerpo = self.buf[CAB.size:CAB.size + lon]
+                    self.buf = self.buf[CAB.size + lon:]
+                    return tipo, cuerpo
+            quedan = fin - time.time()
+            if quedan <= 0:
+                return None, None
+            self.c.settimeout(quedan)
+            try:
+                d = self.c.recv(65536)
+            except socket.timeout:
+                return None, None
+            except OSError:
+                return None, None
+            if not d:
+                return None, None
+            self.buf += d
+
+    def cierra(self):
+        for s in (self.c, self.srv):
+            if s:
+                try:
+                    s.close()
+                except OSError:
+                    pass
+
+
+def claves(texto):
+    d = {}
+    for linea in texto.decode("utf-8").splitlines():
+        if "=" in linea:
+            k, v = linea.split("=", 1)
+            d[k] = v
+    return d
+
+
+def arranca(sim, args, puerto):
+    return subprocess.Popen([sim] + args + ["--gui", "127.0.0.1:%d" % puerto],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+def termina(p, seg=20.0):
+    try:
+        out, err = p.communicate(timeout=seg)
+        return p.returncode, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
+    except subprocess.TimeoutExpired:
+        p.kill()
+        out, err = p.communicate()
+        return None, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
+
+
+def saludo_hasta_listo(v, valida=False):
+    """El saludo desde la ventana. Devuelve (hola, placa, catalogo, listo)."""
+    t, hola = v.recibe()
+    if t != T_HOLA:
+        return None, None, None, False
+    v.manda(T_VERSION, b"protocolo=1\ngui=saludo.py\n")
+    t1, placa = v.recibe()
+    t2, cat = v.recibe()
+    if t1 != T_PLACA or t2 != T_CATALOGO:
+        return claves(hola), None, None, False
+    # Desde la fase 4, los avisos de placa llegan aqui, entre T_CATALOGO y
+    # T_LISTO. Se guardan en `v.avisos_placa`.
+    v.avisos_placa = []
+    if valida:
+        return claves(hola), placa, cat, False
+    while True:
+        t3, c3 = v.recibe()
+        if t3 != T_AVISO:
+            return claves(hola), placa, cat, t3 == T_LISTO
+        v.avisos_placa.append(aviso(c3))
+
+
+def fin(cuerpo):
+    if cuerpo is None or len(cuerpo) != 16:
+        return None
+    return struct.unpack("<IiQ", cuerpo)       # motivo, codigo, t_sim_ns
+
+
+# --- La CPU de otro proceso --------------------------------------------------
+def cpu_de(pid):
+    """Segundos de CPU gastados por `pid`, o None si no hay manera de saberlo."""
+    try:
+        with open("/proc/%d/stat" % pid) as f:
+            campos = f.read().rsplit(")", 1)[1].split()
+        hz = os.sysconf("SC_CLK_TCK")
+        return (int(campos[11]) + int(campos[12])) / hz      # utime + stime
+    except (OSError, IndexError, ValueError):
+        pass
+    try:
+        import psutil
+        t = psutil.Process(pid).cpu_times()
+        return t.user + t.system
+    except Exception:
+        return None
+
+
+# --- Los cuerpos de la fase 4 ---------------------------------------------------
+def suscribe(v, periodo_ns, ids):
+    v.manda(T_SUSCRIBE, struct.pack("<IIII", periodo_ns & 0xFFFFFFFF, periodo_ns >> 32,
+                                    len(ids), 0) + b"".join(struct.pack("<H", i) for i in ids))
+
+
+def instantanea(cuerpo):
+    """(t_sim_ns, perdidas, [(id, valor), ...])"""
+    t, n, perdidas = struct.unpack("<QII", cuerpo[:16])
+    m = [struct.unpack("<HHf", cuerpo[16 + 8 * k:24 + 8 * k]) for k in range(n)]
+    return t, perdidas, [(i, v) for i, _, v in m]
+
+
+def aviso(cuerpo):
+    """(nivel, t_sim_ns, origen, texto)"""
+    nivel, lon, t = struct.unpack("<IIQ", cuerpo[:16])
+    resto = cuerpo[16:]
+    return nivel, t, resto[:lon].decode("utf-8", "replace"), resto[lon:].decode("utf-8", "replace")
+
+
+def estado(cuerpo):
+    """(fase, t_sim_ns, t_pared_s, deltas)"""
+    fase, _, t, pared, deltas = struct.unpack("<IIQdQ", cuerpo)
+    return fase, t, pared, deltas
+
+
+def resumen(nombre):
+    print("\n=====================================================")
+    print("TOTAL %s : %d comprobaciones OK, %d fallos" % (nombre, ok, fallos))
+    print("=====================================================")
+    return 1 if fallos else 0

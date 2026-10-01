@@ -46,11 +46,13 @@ todas partes— y `verif/invariantes.txt` la otra —el mismo resultado—.
 único del modelo que sabe en qué sistema corre, y en Linux ya se prueba en
 `rapidas`.
 
-`linux`, `macos` y `windows` pasan también `verif/gui/saludo.py`
-(`make gui-saludo`), detrás de la interoperabilidad del puente UART y por el
-mismo motivo: necesita el `mcu-sim` de verdad. Fuera de Linux se instala
-`psutil` para poder medir la CPU de `mcu-sim` mientras espera; en Linux basta
-`/proc`.
+`linux`, `macos` y `windows` pasan también `verif/gui/saludo.py` y
+`verif/gui/marcha.py` (`make gui-saludo gui-marcha`), detrás de la
+interoperabilidad del puente UART y por el mismo motivo: necesitan el `mcu-sim`
+de verdad. Fuera de Linux se instala `psutil` para poder medir la CPU de
+`mcu-sim` mientras espera; en Linux basta `/proc`. `marcha.py` tarda unos
+segundos: dos de sus grupos van con `--tiempo-real`, para tener tiempo de pared
+con que hablar con la simulación en marcha.
 
 `fail-fast: false` en la matriz de macOS: que una arquitectura falle no debe
 ocultar lo que hace la otra.

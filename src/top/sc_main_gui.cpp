@@ -41,10 +41,27 @@
 //       siguiente que entra dice cuántas;
 //   G8  una orden ANTERIOR que llega mientras el aplicador espera a otra.
 //
+// Y desde la fase 4, EL ENLACE (`parts/enlace_gui.h`), el proceso que atiende
+// la conexión con la simulación en marcha, contra un CANAL EN MEMORIA que se
+// puede atascar a voluntad. Sin sockets, así que es tan determinista como lo
+// demás:
+//
+//   G9  instantáneas y T_ESTADO por el canal, T_PING, el latido de pared, los
+//       avisos de SC_REPORT —los que se ven sí, los silenciados no—, y las
+//       suscripciones que no se pueden aplicar;
+//   G10 la contrapresión: con el canal atascado las instantáneas se tiran y se
+//       cuentan, los avisos esperan sin perderse ninguno, y cuando se
+//       acumulan demasiados, T_FIN con M_ERROR y la conexión cerrada, sin que
+//       la simulación se entere;
+//   G11 la ventana se va: el enlace lo ve, deja de muestrear y suelta SC_REPORT;
+//   G12 terminar: lo pendiente sale, luego un T_ESTADO final y T_FIN.
+//
 //   make testgui
 // =============================================================================
 #include <systemc>
+#include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -52,6 +69,7 @@
 #include "../common/analog_net.h"
 #include "../parts/ext_parts.h"
 #include "../parts/frontera_gui.h"
+#include "../parts/enlace_gui.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -100,6 +118,37 @@ SC_MODULE(TbGui) {
     gui::FronteraGui fr{"fr", 4};
     // Y otra que no se activa nunca, que es como esta en `sim` sin `--gui`
     gui::FronteraGui fr_quieta{"fr_quieta"};
+
+    // --- Fase 4: el enlace, por un canal en memoria ------------------------
+    // Uno por grupo, porque cada uno acaba perdiendo su conexión. El de G9 y
+    // G10 con un tope de salida de 200 bytes y 5 avisos como mucho: son los
+    // números que dejan provocar el atasco sin esperar segundos.
+    struct CanalMemoria : gui::CanalGui {
+        std::string a_gui, a_modelo;    // lo que va hacia cada lado
+        long acepta = -1;               // bytes por llamada; -1 sin límite; 0 atascado
+        bool cerrado_aqui = false;      // lo cerró el enlace
+        bool cerrado_alli = false;      // lo cerró la ventana
+        long recibe(char* b, std::size_t n) override {
+            if (cerrado_alli || cerrado_aqui) return 0;
+            if (a_modelo.empty()) return -1;
+            const std::size_t k = std::min(n, a_modelo.size());
+            std::memcpy(b, a_modelo.data(), k);
+            a_modelo.erase(0, k);
+            return long(k);
+        }
+        long envia(const char* b, std::size_t n) override {
+            if (cerrado_alli || cerrado_aqui) return -1;
+            const std::size_t k = acepta < 0 ? n : std::min(n, std::size_t(acepta));
+            a_gui.append(b, k);
+            return long(k);
+        }
+        void cierra() override { cerrado_aqui = true; }
+    };
+    gui::FronteraGui fr9{"fr9", 4}, fr11{"fr11"}, fr12{"fr12"};
+    gui::EnlaceGui   en9{"en9", fr9, 200, 5}, en11{"en11", fr11}, en12{"en12", fr12};
+    gui::EnlaceGui   en_quieto{"en_quieto", fr_quieta};
+    CanalMemoria     c9, c11, c12;
+    double           pared_ = 1000.0;           // el reloj de pared, a mano
 
     // Los indices, que se fijan al activar
     uint16_t i_btn = 0, i_led = 0, i_xt = 0, i_pd = 0;
@@ -270,6 +319,270 @@ private:
               "...y una orden aplicada a mano no encuentra pieza: no tiene catalogo");
 
         check(ahora() == t0, "y todo esto no ha gastado un picosegundo");
+    }
+
+
+    // -------------------------------------------------------------------
+    // La ventana falsa del otro lado del canal: lee con el mismo proto_io.h
+    // -------------------------------------------------------------------
+    struct Visto { uint16_t tipo; std::string cuerpo; };
+    static std::vector<Visto> lee_canal(CanalMemoria& c, Lector& L) {
+        L.mete(c.a_gui.data(), c.a_gui.size());
+        c.a_gui.clear();
+        std::vector<Visto> v;
+        Mensaje m;
+        while (L.saca(m) == Lector::LEC_MENSAJE) v.push_back({m.tipo, m.texto()});
+        return v;
+    }
+    static void a_modelo(CanalMemoria& c, Emisor& e, uint16_t tipo, const std::string& cuerpo = "") {
+        e.mensaje(c.a_modelo, tipo, cuerpo);
+    }
+    template <class T> static std::string bytes(const T& t) {
+        return std::string(reinterpret_cast<const char*>(&t), sizeof t);
+    }
+    template <class T> static T pod(const std::string& c) {
+        T t{};
+        if (c.size() >= sizeof t) std::memcpy(&t, c.data(), sizeof t);
+        return t;
+    }
+    static std::size_t cuenta(const std::vector<Visto>& v, uint16_t tipo) {
+        std::size_t n = 0;
+        for (const Visto& x : v) n += x.tipo == tipo ? 1 : 0;
+        return n;
+    }
+    gui::EnlaceGui::Reloj reloj() { return [this] { return pared_; }; }
+
+    void g9_enlace() {
+        grupo("G9 El enlace: instantaneas, estado, latido y avisos por un canal en memoria");
+        sc_report_handler::set_actions("prueba/gui", SC_WARNING, SC_DISPLAY);
+        sc_report_handler::set_actions("prueba/calla", SC_WARNING, SC_DO_NOTHING);
+        const gui::Catalogo cat(ExtPartBase::inventario());
+        fr9.activa(cat);
+        en9.activa(&c9, Emisor(), Lector(Origen::Pantalla), reloj());
+        Lector L(Origen::Modelo);
+        Emisor E;
+        wait(150, SC_US);
+        std::vector<Visto> v = lee_canal(c9, L);
+        check(en9.activo() && en9.conectado() && v.empty(),
+              "activo y conectado; sin suscripcion y sin que pase el reloj de pared, "
+              "no sale nada");
+
+        // --- Suscripcion por el canal, e instantaneas ---------------------
+        a_modelo(c9, E, T_SUSCRIBE, gui::cuerpo_suscripcion(1 * MS, {o_pul, o_enc}));
+        wait(150, SC_US);                       // la lee en la siguiente vuelta
+        const uint64_t t0 = ahora();
+        hasta((t0 / MS + 3) * MS + 150 * US);   // tres muestras y una vuelta
+        v = lee_canal(c9, L);
+        std::vector<CabInstantanea> cabs;
+        bool cada_una_con_estado = true, valores = true;
+        for (std::size_t k = 0; k < v.size(); ++k)
+            if (v[k].tipo == T_INSTANTANEA) {
+                cabs.push_back(pod<CabInstantanea>(v[k].cuerpo));
+                const Muestra m0 = pod<Muestra>(v[k].cuerpo.substr(sizeof(CabInstantanea)));
+                valores = valores && cabs.back().n == 2 && m0.id == o_pul && m0.valor == 0.f;
+                cada_una_con_estado = cada_una_con_estado && k + 1 < v.size() &&
+                                      v[k + 1].tipo == T_ESTADO;
+            }
+        check(cabs.size() == 3 && cabs[1].t_sim_ns - cabs[0].t_sim_ns == MS &&
+              cabs[2].t_sim_ns - cabs[1].t_sim_ns == MS && cabs[0].perdidas == 0,
+              "T_SUSCRIBE por el canal: tres T_INSTANTANEA, una por milisegundo");
+        check(valores, "con las dos muestras pedidas y sus valores");
+        check(cada_una_con_estado, "y detras de cada una, un T_ESTADO");
+        {
+            const Estado e = pod<Estado>(v.back().cuerpo);
+            check(v.back().tipo == T_ESTADO && e.fase == F_CORRIENDO &&
+                  e.t_sim_ns >= cabs.back().t_sim_ns && e.t_sim_ns <= ahora() &&
+                  e.t_pared_s == 0.0 && e.deltas > 0,
+                  "con la fase, el tiempo simulado, el de pared desde que se activo "
+                  "(el reloj falso no se ha movido: 0 s) y los deltas");
+        }
+
+        // --- T_PING, y lo que es de otras fases ---------------------------
+        a_modelo(c9, E, T_SUSCRIBE, gui::cuerpo_suscripcion(0, {}));
+        a_modelo(c9, E, T_PING);
+        a_modelo(c9, E, T_ORDENES, bytes(Orden{0, i_btn, 0, 1.f}));
+        a_modelo(c9, E, T_PAUSA);
+        wait(150, SC_US);
+        v = lee_canal(c9, L);
+        check(v.size() == 1 && v[0].tipo == T_PONG,
+              "T_PING: T_PONG en la siguiente vuelta");
+        check(en9.ignorados() == 2 && !btn.pressed(),
+              "T_ORDENES y T_PAUSA se leen y se ignoran: son de las fases 5 y 6");
+
+        // --- El latido -------------------------------------------------------
+        wait(1, SC_MS);
+        const bool callado = lee_canal(c9, L).empty();
+        pared_ += 0.3;                          // un tercio de segundo de pared
+        wait(150, SC_US);
+        v = lee_canal(c9, L);
+        check(callado && v.size() == 1 && v[0].tipo == T_ESTADO &&
+              std::fabs(pod<Estado>(v[0].cuerpo).t_pared_s - 0.3) < 1e-9,
+              "sin instantaneas no sale nada... hasta que pasan 250 ms de pared: "
+              "un T_ESTADO suelto, que dice 0,3 s");
+
+        // --- Los avisos de SC_REPORT ---------------------------------------
+        SC_REPORT_WARNING("prueba/gui", "un aviso del modelo");
+        SC_REPORT_WARNING("prueba/calla", "silenciado");
+        SC_REPORT_INFO("/OSCI/SystemC", "como el de sc_stop");
+        const uint64_t t_av = ahora();
+        wait(150, SC_US);
+        v = lee_canal(c9, L);
+        bool bien = v.size() == 1 && v[0].tipo == T_AVISO;
+        const CabAviso ca = bien ? pod<CabAviso>(v[0].cuerpo) : CabAviso{};
+        bien = bien && ca.nivel == N_AVISO && ca.t_sim_ns == t_av &&
+               v[0].cuerpo.substr(sizeof ca) == "prueba/gui" + std::string("un aviso del modelo");
+        check(bien, "un SC_REPORT_WARNING que se ve en la consola llega como T_AVISO: "
+                    "nivel, instante, origen y texto");
+        check(en9.avisos() == 1,
+              "el silenciado (SC_DO_NOTHING) no, y el informativo del nucleo de SystemC "
+              "tampoco");
+
+        // --- Suscripciones que no se pueden aplicar -----------------------
+        a_modelo(c9, E, T_SUSCRIBE, gui::cuerpo_suscripcion(1 * MS, {o_pul, 777}));
+        a_modelo(c9, E, T_SUSCRIBE, "corto");
+        wait(150, SC_US);
+        v = lee_canal(c9, L);
+        bool rechazo = false, malo = false;
+        for (const Visto& x : v) if (x.tipo == T_AVISO) {
+            rechazo = rechazo || x.cuerpo.find("777") != std::string::npos;
+            malo = malo || x.cuerpo.find("no mide") != std::string::npos;
+        }
+        check(rechazo && fr9.suscritos().empty(),
+              "una suscripcion con un observable que no existe: T_AVISO que lo nombra, "
+              "y sigue la anterior (ninguna)");
+        check(malo, "y un T_SUSCRIBE que no mide lo que dice, otro T_AVISO");
+    }
+
+    void g10_contrapresion() {
+        grupo("G10 La contrapresion: instantaneas que se tiran, avisos que no");
+        Lector L(Origen::Modelo);
+        Emisor E;
+        E.fija_version(1);
+        // Las secuencias siguen donde las dejo G9: el lector de la ventana es
+        // nuevo, asi que lo que tenga se descarta leyendo una vez.
+        lee_canal(c9, L);
+        L = Lector(Origen::Modelo);
+        c9.acepta = 0;                          // la ventana deja de leer
+        a_modelo(c9, E, T_SUSCRIBE, gui::cuerpo_suscripcion(1 * MS, {o_enc}));
+        const uint64_t tomadas0 = fr9.tomadas();
+        wait(20, SC_MS);
+        check(en9.pendientes_salida() >= 200 && fr9.instantaneas.size() == 4 &&
+              fr9.perdidas() > 0,
+              "con el canal atascado, la salida llega a su tope (" +
+              std::to_string(en9.pendientes_salida()) + " bytes), la cola de la "
+              "frontera se llena (4) y empiezan a tirarse: " +
+              std::to_string(fr9.perdidas()));
+        SC_REPORT_WARNING("prueba/gui", "uno");
+        SC_REPORT_WARNING("prueba/gui", "dos");
+        SC_REPORT_WARNING("prueba/gui", "tres");
+        wait(1, SC_MS);
+        check(en9.avisos_en_cola() == 3, "tres avisos esperan: no se tira ninguno");
+
+        c9.acepta = -1;                         // vuelve a leer
+        wait(150, SC_US);
+        std::vector<Visto> v = lee_canal(c9, L);
+        std::vector<std::string> avs;
+        std::vector<CabInstantanea> cabs;
+        for (const Visto& x : v) {
+            if (x.tipo == T_AVISO) avs.push_back(x.cuerpo.substr(sizeof(CabAviso) + 10));
+            if (x.tipo == T_INSTANTANEA) cabs.push_back(pod<CabInstantanea>(x.cuerpo));
+        }
+        check(avs == std::vector<std::string>({"uno", "dos", "tres"}),
+              "al volver a leer llegan los tres avisos, en su orden");
+        wait(3, SC_MS);
+        for (const Visto& x : lee_canal(c9, L))
+            if (x.tipo == T_INSTANTANEA) cabs.push_back(pod<CabInstantanea>(x.cuerpo));
+        uint64_t perdidas_dichas = 0;
+        std::size_t con_perdidas = 0;
+        for (const CabInstantanea& c : cabs) {
+            perdidas_dichas += c.perdidas;
+            con_perdidas += c.perdidas ? 1 : 0;
+        }
+        check(con_perdidas == 1 && perdidas_dichas == fr9.perdidas(),
+              "una sola instantanea dice que faltan " + std::to_string(perdidas_dichas) +
+              ", que son exactamente las que se tiraron");
+        check(cabs.size() + perdidas_dichas == fr9.tomadas() - tomadas0,
+              "y las que llegan mas las que faltan son todas las que se tomaron: " +
+              std::to_string(cabs.size()) + " + " + std::to_string(perdidas_dichas));
+
+        // --- Demasiados avisos sin leer --------------------------------------
+        c9.acepta = 0;
+        wait(5, SC_MS);                         // la salida, otra vez al tope
+        for (int k = 0; k < 5; ++k) SC_REPORT_WARNING("prueba/gui", "esperando");
+        const bool cinco = en9.avisos_en_cola() == 5 && en9.conectado();
+        c9.acepta = -1;                         // para ver que T_FIN va delante
+        const uint64_t t_fin = ahora();
+        SC_REPORT_WARNING("prueba/gui", "el sexto");
+        v = lee_canal(c9, L);
+        const Fin f = v.empty() ? Fin{} : pod<Fin>(v[0].cuerpo);
+        check(cinco && !v.empty() && v[0].tipo == T_FIN && f.motivo == M_ERROR &&
+              f.t_sim_ns == t_fin,
+              "con cinco esperando, el sexto aviso cierra la conexion: T_FIN con "
+              "M_ERROR, el primero de lo que sale");
+        check(!en9.conectado() && c9.cerrado_aqui &&
+              en9.cierre().find("avisos") != std::string::npos,
+              "el canal queda cerrado, y el enlace dice por que");
+        const uint64_t t = ahora();
+        wait(2, SC_MS);
+        check(ahora() == t + 2 * MS && fr9.suscritos().empty(),
+              "y la simulacion sigue, sin nadie a quien muestrear");
+    }
+
+    void g11_se_va() {
+        grupo("G11 La ventana se va");
+        const gui::Catalogo cat(ExtPartBase::inventario());
+        fr11.activa(cat);
+        en11.activa(&c11, Emisor(), Lector(Origen::Pantalla), reloj());
+        Emisor E;
+        a_modelo(c11, E, T_SUSCRIBE, gui::cuerpo_suscripcion(1 * MS, {o_enc}));
+        wait(2, SC_MS);
+        const bool daba = fr11.tomadas() > 0 && en11.instantaneas() > 0;
+        c11.cerrado_alli = true;
+        wait(150, SC_US);
+        const uint64_t n = fr11.tomadas();
+        SC_REPORT_WARNING("prueba/gui", "nadie lo lee");
+        wait(3, SC_MS);
+        check(daba && !en11.conectado() &&
+              en11.cierre().find("cerro la conexion") != std::string::npos,
+              "el enlace ve que la ventana se ha ido");
+        check(fr11.tomadas() == n && fr11.suscritos().empty(),
+              "deja de muestrear: no lo va a leer nadie");
+        check(en11.avisos() == 0, "y los avisos vuelven a ser solo de la consola");
+    }
+
+    void g12_termina() {
+        grupo("G12 Terminar: lo pendiente, un T_ESTADO final y T_FIN");
+        const gui::Catalogo cat(ExtPartBase::inventario());
+        fr12.activa(cat);
+        en12.activa(&c12, Emisor(), Lector(Origen::Pantalla), reloj());
+        Lector L(Origen::Modelo);
+        Emisor E;
+        a_modelo(c12, E, T_SUSCRIBE, gui::cuerpo_suscripcion(1 * MS, {o_enc}));
+        wait(1500, SC_US);
+        lee_canal(c12, L);
+        c12.acepta = 0;
+        wait(2, SC_MS);
+        SC_REPORT_WARNING("prueba/gui", "el ultimo");
+        c12.acepta = -1;
+        const uint64_t t = ahora();
+        en12.termina(M_VENTANA, 0);
+        const std::vector<Visto> v = lee_canal(c12, L);
+        const std::size_t n = v.size();
+        bool antes = n >= 2;
+        for (std::size_t k = n >= 2 ? n - 2 : 0; k < n; ++k)
+            antes = antes && v[k].tipo != T_AVISO && v[k].tipo != T_INSTANTANEA;
+        check(n >= 4 && cuenta(v, T_AVISO) == 1 && cuenta(v, T_INSTANTANEA) >= 2 && antes,
+              "termina() vacia todo lo que esperaba -instantaneas y el aviso, en el "
+              "orden en que se produjeron- antes de lo ultimo");
+        check(n >= 2 && v[n - 2].tipo == T_ESTADO &&
+              pod<Estado>(v[n - 2].cuerpo).fase == F_TERMINADA &&
+              pod<Estado>(v[n - 2].cuerpo).t_sim_ns == t,
+              "despues un T_ESTADO con la fase TERMINADA");
+        check(n >= 1 && v[n - 1].tipo == T_FIN && pod<Fin>(v[n - 1].cuerpo).motivo == M_VENTANA &&
+              pod<Fin>(v[n - 1].cuerpo).t_sim_ns == t && c12.cerrado_aqui && !en12.conectado(),
+              "y T_FIN, con el instante, y el canal cerrado");
+        check(!en_quieto.activo() && en_quieto.instantaneas() == 0 && en_quieto.estados() == 0,
+              "y el enlace que nunca se activo no ha hecho nada en todo el banco");
     }
 
     void run() {
@@ -480,6 +793,11 @@ private:
                   "las dos en su instante, y en el orden del tiempo, no en el de llegada");
             check(!btn.pressed() && fr.ordenes_pendientes() == 0, "y no queda ninguna");
         }
+
+        g9_enlace();
+        g10_contrapresion();
+        g11_se_va();
+        g12_termina();
 
         check(fr_quieta.tomadas() == 0 && fr_quieta.instantaneas.empty() &&
               fr_quieta.hechas.empty() && fr_quieta.aplicadas() == 0,

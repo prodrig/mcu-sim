@@ -43,160 +43,11 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
-ok = 0
-fallos = 0
-
-
-def check(cond, texto):
-    global ok, fallos
-    if cond:
-        ok += 1
-        print("  [OK  ] " + texto)
-    else:
-        fallos += 1
-        print("  [FALLO] " + texto)
-    sys.stdout.flush()
-    return cond
-
-
-def grupo(t):
-    print("--- %s ---" % t)
-    sys.stdout.flush()
-
-
-# --- El marco, desde doc/protocolo.md §2 -------------------------------------
-MAGIA = 0x3147534D
-CAB = struct.Struct("<IHHII")          # magia, version, tipo, longitud, secuencia
-
-T_HOLA, T_PLACA, T_CATALOGO, T_LISTO = 0x0001, 0x0002, 0x0003, 0x0004
-T_PONG, T_FIN = 0x0014, 0x001F
-T_VERSION, T_SUSCRIBE, T_ARRANCA, T_ORDENES, T_PARA, T_PING = (
-    0x8000, 0x8001, 0x8002, 0x8006, 0x8007, 0x8008)
-M_VENTANA, M_PARA = 0, 1
-RIT_LIBRE = 1
-
-
-class Ventana:
-    """Un extremo de pantalla mínimo, sobre un socket de verdad."""
-
-    def __init__(self):
-        self.srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.srv.bind(("127.0.0.1", 0))
-        self.srv.listen(1)
-        self.puerto = self.srv.getsockname()[1]
-        self.c = None
-        self.buf = b""
-        self.sec = 0
-
-    def acepta(self, seg=20.0):
-        self.srv.settimeout(seg)
-        try:
-            self.c, _ = self.srv.accept()
-            return True
-        except socket.timeout:
-            return False
-
-    def manda(self, tipo, cuerpo=b""):
-        self.c.sendall(CAB.pack(MAGIA, 1, tipo, len(cuerpo), self.sec) + cuerpo)
-        self.sec += 1
-
-    def recibe(self, seg=10.0):
-        """(tipo, cuerpo), o (None, None) si se cierra o se acaba el plazo."""
-        fin = time.time() + seg
-        while True:
-            if len(self.buf) >= CAB.size:
-                magia, ver, tipo, lon, _ = CAB.unpack(self.buf[:CAB.size])
-                if magia != MAGIA or ver != 1:
-                    raise ValueError("cabecera mala: magia %08X version %d" % (magia, ver))
-                if len(self.buf) >= CAB.size + lon:
-                    cuerpo = self.buf[CAB.size:CAB.size + lon]
-                    self.buf = self.buf[CAB.size + lon:]
-                    return tipo, cuerpo
-            quedan = fin - time.time()
-            if quedan <= 0:
-                return None, None
-            self.c.settimeout(quedan)
-            try:
-                d = self.c.recv(65536)
-            except socket.timeout:
-                return None, None
-            except OSError:
-                return None, None
-            if not d:
-                return None, None
-            self.buf += d
-
-    def cierra(self):
-        for s in (self.c, self.srv):
-            if s:
-                try:
-                    s.close()
-                except OSError:
-                    pass
-
-
-def claves(texto):
-    d = {}
-    for linea in texto.decode("utf-8").splitlines():
-        if "=" in linea:
-            k, v = linea.split("=", 1)
-            d[k] = v
-    return d
-
-
-def arranca(sim, args, puerto):
-    return subprocess.Popen([sim] + args + ["--gui", "127.0.0.1:%d" % puerto],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-
-def termina(p, seg=20.0):
-    try:
-        out, err = p.communicate(timeout=seg)
-        return p.returncode, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
-    except subprocess.TimeoutExpired:
-        p.kill()
-        out, err = p.communicate()
-        return None, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
-
-
-def saludo_hasta_listo(v, valida=False):
-    """El saludo desde la ventana. Devuelve (hola, placa, catalogo, listo)."""
-    t, hola = v.recibe()
-    if t != T_HOLA:
-        return None, None, None, False
-    v.manda(T_VERSION, b"protocolo=1\ngui=saludo.py\n")
-    t1, placa = v.recibe()
-    t2, cat = v.recibe()
-    if t1 != T_PLACA or t2 != T_CATALOGO:
-        return claves(hola), None, None, False
-    if valida:
-        return claves(hola), placa, cat, False
-    t3, _ = v.recibe()
-    return claves(hola), placa, cat, t3 == T_LISTO
-
-
-def fin(cuerpo):
-    if cuerpo is None or len(cuerpo) != 16:
-        return None
-    return struct.unpack("<IiQ", cuerpo)       # motivo, codigo, t_sim_ns
-
-
-# --- La CPU de otro proceso --------------------------------------------------
-def cpu_de(pid):
-    """Segundos de CPU gastados por `pid`, o None si no hay manera de saberlo."""
-    try:
-        with open("/proc/%d/stat" % pid) as f:
-            campos = f.read().rsplit(")", 1)[1].split()
-        hz = os.sysconf("SC_CLK_TCK")
-        return (int(campos[11]) + int(campos[12])) / hz      # utime + stime
-    except (OSError, IndexError, ValueError):
-        pass
-    try:
-        import psutil
-        t = psutil.Process(pid).cpu_times()
-        return t.user + t.system
-    except Exception:
-        return None
+import ventana
+from ventana import (Ventana, check, grupo, claves, arranca, termina, saludo_hasta_listo,
+                     fin, cpu_de, T_HOLA, T_PLACA, T_CATALOGO, T_LISTO, T_PONG, T_FIN,
+                     T_VERSION, T_SUSCRIBE, T_ARRANCA, T_ORDENES, T_PARA, T_PING,
+                     M_VENTANA, M_PARA, RIT_LIBRE)
 
 
 # --- Las pruebas -------------------------------------------------------------
@@ -272,7 +123,7 @@ def s1_s2_espera(sim):
 
 
 def s3_arranca(sim):
-    grupo("S3 Con T_ARRANCA simula su ventana, y la misma simulacion que sin --gui")
+    grupo("S3 Con T_ARRANCA simula su ventana, y el modelo hace lo mismo que sin --gui")
     sin = subprocess.run([sim, PLACA, FW, MS], capture_output=True, text=True, timeout=120)
     v = Ventana()
     p = arranca(sim, [PLACA, FW, MS], v.puerto)
@@ -281,11 +132,16 @@ def s3_arranca(sim):
             check(False, "mcu-sim se conecta")
             return
         saludo_hasta_listo(v)
-        # Lo que la fase 4 y la 5 usaran, mandado ahora: tiene que no cambiar nada
+        # Una suscripcion (fase 4) y una orden (fase 5): ninguna de las dos
+        # puede cambiar lo que hace el modelo. La orden, en esta fase, ni se
+        # aplica; la suscripcion solo lee.
         v.manda(T_SUSCRIBE, struct.pack("<IIII", 1000000, 0, 1, 0) + struct.pack("<H", 2))
         v.manda(T_ORDENES, struct.pack("<QHHf", 1000000, 6, 0, 1.0))
         v.manda(T_ARRANCA, struct.pack("<IfQ", RIT_LIBRE, 1.0, 0))
+        # Desde la fase 4 llegan instantaneas y estados antes de T_FIN
         t, cuerpo = v.recibe(seg=120)
+        while t is not None and t != T_FIN:
+            t, cuerpo = v.recibe(seg=120)
         f = fin(cuerpo)
         # El instante final no es la ventana a secas: antes de ella, `run()`
         # simula el arranque electrico -10 us con todo a cero y 100 us hasta
@@ -302,20 +158,18 @@ def s3_arranca(sim):
               "y termina con codigo 0")
 
         def simulacion(texto):
-            # Lo que dice la simulacion de si misma: los deltas y los LEDs. No
-            # el tiempo de anfitrion, que es de la maquina.
-            r = []
-            for l in texto.splitlines():
-                if l.startswith("simulados"):
-                    r.append(l.split("(")[1])
-                elif l.strip().startswith("LED "):
-                    r.append(l.strip())
-            return r
+            # Lo que el MODELO dice de si mismo: como acaba cada LED, con su
+            # tension y su corriente. Los deltas ya no: desde la fase 4, con
+            # --gui hay un proceso mas -el que atiende la conexion cada 100 us-
+            # que despierta y suma deltas sin tocar nada del modelo. Que el
+            # modelo hace lo mismo lo dicen los LEDs y el instante final de
+            # arriba; que las instantaneas se repiten al picosegundo, `marcha.py`.
+            return [l.strip() for l in texto.splitlines() if l.strip().startswith("LED ")]
         a, b = simulacion(sin.stdout), simulacion(out)
-        check(len(a) == 5 and a == b,
-              "los mismos deltas y los mismos cuatro LEDs que sin --gui: la ventana, "
-              "lo que se suscriba y lo que ordene en esta fase no tocan la "
-              "simulacion (%s)" % (a[0] if a else "?"))
+        check(len(a) == 4 and a == b,
+              "los mismos cuatro LEDs, con la misma tension y la misma corriente, que "
+              "sin --gui: la ventana, lo que se suscriba y lo que ordene no tocan el "
+              "modelo")
     finally:
         if p.poll() is None:
             p.kill()
@@ -397,10 +251,7 @@ def main():
     s3_arranca(sim)
     s4_valida(sim)
     s5_errores(sim)
-    print("\n=====================================================")
-    print("TOTAL SALUDO : %d comprobaciones OK, %d fallos" % (ok, fallos))
-    print("=====================================================")
-    return 1 if fallos else 0
+    return ventana.resumen("SALUDO")
 
 
 if __name__ == "__main__":
