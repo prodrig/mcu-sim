@@ -37,10 +37,14 @@ todas partes— y `verif/invariantes.txt` la otra —el mismo resultado—.
 
 | Trabajo | Máquina | SystemC | Qué añade |
 | :--- | :--- | :--- | :--- |
-| `rapidas` | Ubuntu | no hace falta | `red`, `macros-win`, `hash`, `cryp`, `vectores`. Menos de un minuto; evita encender cuatro máquinas por una errata |
+| `rapidas` | Ubuntu | no hace falta | `red`, `macros-win`, `hash`, `cryp`, `vectores`, `serie`, `rfc2217` y `gui-proto`. Menos de un minuto; evita encender cuatro máquinas por una errata. Es el único que clona **también `mcu-sim-gui`**, para comparar las cabeceras que los dos comparten por copia (`protocolo.h` y `proto_io.h`): se compara con su rama principal, así que un cambio del protocolo se sube **primero allí** |
 | `linux` | `ubuntu-latest` | `apt install libsystemc-dev` | Verifica **la vía que documenta `compilacion.md` §4**. Si el paquete desaparece de Ubuntu, quiero enterarme aquí y no en el portátil de un alumno |
 | `macos` | `macos-26` y `macos-26-intel` | compilada, en caché | **La plataforma que nadie ha ejecutado nunca.** Las dos arquitecturas, porque el `Makefile` tiene una rama para cada una y una rama que nadie ejecuta no está verificada |
 | `windows` | `windows-latest` + MSYS2 | compilada, en caché | Las suites **y** que `mcu-sim.exe` no arrastre ninguna DLL de MinGW, que es lo de §5.6 |
+
+`macos` y `windows` pasan además `make red gui-proto`: la capa de red es lo
+único del modelo que sabe en qué sistema corre, y en Linux ya se prueba en
+`rapidas`.
 
 `fail-fast: false` en la matriz de macOS: que una arquitectura falle no debe
 ocultar lo que hace la otra.

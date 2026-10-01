@@ -23,6 +23,7 @@
 #   make hash                     # los vectores de MD5/SHA-1, sin SystemC
 #   make cryp                     # los de AES/DES/TDES, tampoco
 #   make red                      # la capa de red, que NO necesita SystemC
+#   make gui-proto                # el marco del protocolo con mcu-sim-gui, tampoco
 #   make serie                    # el destino y el formato de un PuenteSerie, tampoco
 #   make rfc2217                  # el codec de Telnet y RFC 2217, tampoco
 #   make interop                  # el puente UART contra pySerial y socat (Python)
@@ -194,12 +195,13 @@ BENCH  := build/bench$(EXE)
 RED    := build/prueba_red$(EXE)
 SERIEP := build/prueba_serie$(EXE)
 RFC2217P := build/prueba_rfc2217$(EXE)
+GUIPROTO := build/prueba_gui_proto$(EXE)
 ASAN407 := build/asan407$(EXE)
 ASAN446 := build/asan446$(EXE)
 ASAN417 := build/asan417$(EXE)
 ASANSERIE := build/asanserie$(EXE)
 
-.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 interop run clean plataforma vectores hash cryp
+.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto interop run clean plataforma vectores hash cryp
 
 all: $(MCUSIM)
 
@@ -358,6 +360,22 @@ $(RFC2217P): verif/prueba_rfc2217.cpp common/telnet2217.h common/red.h
 
 rfc2217: $(RFC2217P)
 	./$(RFC2217P)
+
+# EL TRANSPORTE CON mcu-sim-gui (P-12, fase 2 de su plan de dos procesos): el
+# marco del protocolo -`common/proto_io.h`- y `conecta`/`escucha` con host de
+# `common/red.h`, con dos hilos y un socket de verdad. Sin SystemC, como `red`:
+# no toca ninguna cifra de verif/invariantes.txt. Con GUI_REPO=ruta compara
+# ademas las copias compartidas con las de mcu-sim-gui, byte a byte (R-6); sin
+# ella las busca al lado de este repositorio, y si no estan lo dice y sigue.
+#   make gui-proto
+#   make gui-proto GUI_REPO=../../mcu-sim-gui
+$(GUIPROTO): verif/prueba_gui_proto.cpp common/proto_io.h common/protocolo.h common/red.h
+	@mkdir -p build
+	$(CXX) -std=$(CXXSTD) $(AVISOS) $(DEF_SO) -O2 -I. -o $@ \
+	       verif/prueba_gui_proto.cpp $(LDEXTRA) $(LIBS_SO)
+
+gui-proto: $(GUIPROTO)
+	./$(GUIPROTO) $(if $(GUI_REPO),--gui-repo $(GUI_REPO))
 
 # LA INTEROPERABILIDAD DEL PUENTE UART (fase D6 de doc/analisis_puente_serie.md
 # §10): el `mcu-sim` de verdad, con `placas/vcp_rfc2217.xml` y `vcp_demo`,

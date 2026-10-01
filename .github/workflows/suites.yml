@@ -60,6 +60,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # EL OTRO REPOSITORIO, para comparar las cabeceras que se comparten por
+      # copia (`protocolo.h` y `proto_io.h`, riesgo R-6 del plan de
+      # mcu-sim-gui). Su rama principal: un cambio del protocolo se sube
+      # PRIMERO alli y despues aqui, y si no, esto lo canta. Es publico, asi
+      # que no hace falta ningun token; si deja de serlo, aqui hara falta uno.
+      - uses: actions/checkout@v4
+        with:
+          repository: prodrig/mcu-sim-gui
+          path: mcu-sim-gui
+
       - name: El SEGUNDO motor de los vectores de cifrado
         # `verif/vectores/comprueba_vectores.py` devuelve 1 si algun caso queda
         # confirmado por UN SOLO motor, y hace bien: un vector que solo
@@ -93,6 +103,10 @@ jobs:
       - name: Capa de red, minas de Windows, vectores de CRYP y HASH
         working-directory: src
         run: make -f Makefile.mcu-sim red hash cryp vectores serie rfc2217
+
+      - name: El transporte con mcu-sim-gui, y sus copias identicas
+        working-directory: src
+        run: make -f Makefile.mcu-sim gui-proto GUI_REPO=../mcu-sim-gui
 
   # -------------------------------------------------------------------------
   # Linux con el paquete de la distribucion, que es LA VIA QUE DOCUMENTAMOS en
@@ -139,7 +153,7 @@ jobs:
           SUITES_PRESUPUESTO: 600
         run: sh ci/pasa_suites.sh
 
-      - name: Los invariantes de las cuatro, al picosegundo
+      - name: Los invariantes de las cinco, al picosegundo
         run: |
           for s in test407 test446 test417 testserie testgui; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
@@ -368,11 +382,19 @@ jobs:
           SUITES_PRESUPUESTO: 600
         run: sh ci/pasa_suites.sh CXX=clang++
 
-      - name: Los invariantes de las cuatro, al picosegundo
+      - name: Los invariantes de las cinco, al picosegundo
         run: |
           for s in test407 test446 test417 testserie testgui; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
+
+      # La red y el transporte con mcu-sim-gui en ESTA plataforma: sin SystemC,
+      # segundos. En Linux ya corren en `rapidas`; aqui es donde `common/red.h`
+      # se juega lo que no es de Linux (SO_NOSIGPIPE en macOS, Winsock en
+      # Windows). Sin GUI_REPO: las copias compartidas ya se comparan alli.
+      - name: La red y el transporte, sin SystemC
+        working-directory: src
+        run: make -f Makefile.mcu-sim red gui-proto CXX=clang++
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -495,11 +517,15 @@ jobs:
           sh ci/pasa_suites.sh \
              SYSTEMC_HOME="$(cygpath -u "$GITHUB_WORKSPACE")/systemc"
 
-      - name: Los invariantes de las cuatro, al picosegundo
+      - name: Los invariantes de las cinco, al picosegundo
         run: |
           for s in test407 test446 test417 testserie testgui; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
+
+      - name: La red y el transporte, sin SystemC (Winsock)
+        working-directory: src
+        run: make -f Makefile.mcu-sim red gui-proto
 
       - name: Que el .exe no dependa de ninguna DLL de MinGW
         # El `-static` del Makefile no es un lujo: sin el, el ejecutable
