@@ -28,6 +28,7 @@
 #   make gui-marcha               # y con la simulacion en marcha: instantaneas y avisos (Python)
 #   make gui-ordenes              # y las ordenes: el ejemplo del enunciado y sus ecos (Python)
 #   make gui-control              # y el control: pausa, paso, parar y el ritmo (Python)
+#   make gui-argumentos           # que --argumentos dice lo mismo que --help y que argv (Python)
 #   make serie                    # el destino y el formato de un PuenteSerie, tampoco
 #   make rfc2217                  # el codec de Telnet y RFC 2217, tampoco
 #   make interop                  # el puente UART contra pySerial y socat (Python)
@@ -205,7 +206,7 @@ ASAN446 := build/asan446$(EXE)
 ASAN417 := build/asan417$(EXE)
 ASANSERIE := build/asanserie$(EXE)
 
-.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control interop run clean plataforma vectores hash cryp
+.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos interop run clean plataforma vectores hash cryp
 
 all: $(MCUSIM)
 
@@ -422,6 +423,13 @@ gui-ordenes: $(MCUSIM)
 # que no tiene fin. Unos segundos: el primer grupo va a tiempo real.
 gui-control: $(MCUSIM)
 	$(PYTHON) verif/gui/control.py
+
+# LA LISTA DE OPCIONES (P-12, fase 7): `mcu-sim --argumentos` la vuelca en XML
+# para que mcu-sim-gui construya su dialogo de lanzamiento. Esto vigila que no
+# se separe del bucle que lee argv: lo mismo que --help, y cada opcion la
+# acepta `sim` de verdad. Segundos.
+gui-argumentos: $(MCUSIM)
+	$(PYTHON) verif/gui/argumentos.py
 
 # EL CAMPO DE MINAS DEL PREPROCESADOR DE WINDOWS. Prueba de COMPILACION, no de
 # ejecucion: define a mano las macros que Windows trae -R_OK, min, max, ERROR,

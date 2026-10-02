@@ -155,6 +155,7 @@ make -f Makefile.mcu-sim gui-saludo   # el saludo con mcu-sim-gui, con el sim de
 make -f Makefile.mcu-sim gui-marcha   # y con la simulacion en marcha (Python)
 make -f Makefile.mcu-sim gui-ordenes  # y las ordenes, con sus ecos (Python)
 make -f Makefile.mcu-sim gui-control  # y el control: pausa, paso, parar y ritmo (Python)
+make -f Makefile.mcu-sim gui-argumentos  # que --argumentos dice lo que acepta sim (Python)
 make -f Makefile.mcu-sim testserie    # el banco del puente UART, que es OTRO ejecutable
 make -f Makefile.mcu-sim testgui      # el de la frontera con mcu-sim-gui, OTRO mas
 make -f Makefile.mcu-sim asan407      # la misma suite con ASan + UBSan

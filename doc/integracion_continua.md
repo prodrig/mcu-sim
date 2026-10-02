@@ -47,8 +47,9 @@ todas partes— y `verif/invariantes.txt` la otra —el mismo resultado—.
 `rapidas`.
 
 `linux`, `macos` y `windows` pasan también `verif/gui/saludo.py`,
-`verif/gui/marcha.py`, `verif/gui/ordenes.py` y `verif/gui/control.py` (`make
-gui-saludo gui-marcha gui-ordenes gui-control`), detrás de la
+`verif/gui/marcha.py`, `verif/gui/ordenes.py`, `verif/gui/control.py` y
+`verif/gui/argumentos.py` (`make gui-saludo gui-marcha gui-ordenes gui-control
+gui-argumentos`), detrás de la
 interoperabilidad del puente UART y por el mismo motivo: necesitan el `mcu-sim`
 de verdad. Fuera de Linux se instala `psutil` para poder medir la CPU de
 `mcu-sim` mientras espera; en Linux basta `/proc`. `marcha.py` tarda unos

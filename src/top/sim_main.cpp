@@ -973,6 +973,120 @@ static int saluda_gui(Sim& s, stm32::gui::ClienteGui& cli,
     }
 }
 
+// ---------------------------------------------------------------------------
+// `--argumentos` (fase 7 del plan de mcu-sim-gui): la lista de opciones de este
+// programa, en XML, para que la ventana construya con ella su dialogo de
+// lanzamiento. Es la tercera vez que el proyecto hace que un programa se
+// describa a si mismo -el netlist, `--help COMPONENTE`, y ahora esto- y por la
+// misma razon: si la ventana llevase su propia lista de opciones habria DOS
+// sitios que la saben, y el segundo envejeceria. Asi, una opcion nueva aparece
+// sola en el dialogo.
+//
+// Dentro de este fichero la lista sigue estando dos veces -aqui y en el bucle
+// que lee `argv`-, y eso no se arregla sin reescribir el bucle. Lo que lo
+// vigila es `make gui-argumentos` (`verif/gui/argumentos.py`): toda opcion que
+// cite `--help` tiene que estar aqui, toda la de aqui en `--help`, y cada una,
+// con su valor por omision, la tiene que aceptar este programa.
+//
+// El formato:
+//
+//   <argumentos programa="mcu-sim" version="...">
+//     <posicional nombre="placa" tipo="fichero" filtro="*.xml" obligatorio="si" ayuda="..."/>
+//     <opcion nombre="--ms" forma="valor" tipo="numero" unidad="ms" omision="100" ayuda="..."/>
+//     <opcion nombre="--mcu" forma="valor" tipo="eleccion" omision="STM32F407VG" ayuda="...">
+//       <valor>STM32F405RG</valor> ...
+//     </opcion>
+//   </argumentos>
+//
+// `forma`: `bandera` (--x), `valor` (--x=V), `valor_opcional` (--x o --x=V)
+// o `accion` (--help: hace otra cosa y sale; el dialogo no la ofrece). `tipo`
+// de lo que va detras del igual: numero, entero, texto, eleccion o fichero.
+// `grupo`: las del mismo grupo se excluyen. `repetible="si"`: puede ir varias
+// veces. `con_gui="no"`: con `--gui` no tiene sentido -la pone la ventana, o la
+// decide ella- y el dialogo no la ofrece.
+// ---------------------------------------------------------------------------
+struct OpcionCli {
+    const char* nombre;
+    const char* forma;
+    const char* tipo;        // "" para banderas y acciones
+    const char* omision;
+    const char* unidad;
+    const char* grupo;
+    bool        repetible;
+    bool        con_gui;
+    const char* ejemplo;
+    const char* ayuda;
+};
+
+static const OpcionCli OPCIONES[] = {
+    // Sin omision a proposito: sin --ms son 100 ms, pero con --gui es SIN FIN,
+    // y un dialogo que enseñase «100» mentiria justo en su caso.
+    {"--ms", "valor", "numero", "", "ms", "", false, true, "2000",
+     "tiempo simulado. Es lo mismo que el tercer argumento posicional. Sin el son "
+     "100 ms; con --gui, no hay fin: se para desde la ventana"},
+    {"--mcu", "valor", "eleccion", "", "", "", false, true, "",
+     "el MCU implicito, cuando el XML no declara ninguno"},
+    {"--valida", "bandera", "", "", "", "", false, true, "",
+     "solo comprueba la placa, sin simular"},
+    {"--ondas", "bandera", "", "", "", "", false, true, "",
+     "con la onda cuadrada de los relojes internos"},
+    {"--gdb", "bandera", "", "", "", "gdb", false, true, "",
+     "stub de GDB por los pines SWD"},
+    {"--gdb-dap", "bandera", "", "", "", "gdb", false, true, "",
+     "stub de GDB contra el DAP"},
+    {"--port", "valor", "entero", "3333", "", "", false, true, "3333",
+     "puerto TCP del stub de GDB"},
+    {"--traza-gdb", "bandera", "", "", "", "", false, true, "",
+     "imprime cada paquete RSP que llega al stub"},
+    {"--serie", "valor", "texto", "", "", "", true, true, "VCP=rfc2217:4000",
+     "a donde da el PuenteSerie ID: ID=memoria, tcp:PUERTO, rfc2217:PUERTO, "
+     "tcp-cliente:HOST:PUERTO o rfc2217-cliente:HOST:PUERTO"},
+    {"--espera-terminal", "bandera", "", "", "", "", false, true, "",
+     "no arranca el MCU hasta que haya un terminal en cada puente serie por red"},
+    {"--tiempo-real", "valor_opcional", "numero", "1", "", "", false, false, "0.5",
+     "frena la simulacion al reloj de pared. Con --gui el ritmo lo dice la ventana"},
+    {"--gui", "valor_opcional", "texto", "localhost:3344", "", "", false, false,
+     "localhost:3344", "habla con mcu-sim-gui. Con la ventana, la pone ella"},
+    {"--argumentos", "accion", "", "", "", "", false, false, "",
+     "esta lista de opciones, en XML, para mcu-sim-gui"},
+    {"--help", "accion", "", "", "", "", false, false, "",
+     "la ayuda; con COMPONENTE, la de ese componente"},
+    {"--licencia", "accion", "", "", "", "", false, false, "",
+     "licencia, donde esta el fuente y el software ajeno que lleva"},
+};
+
+static int vuelca_argumentos() {
+    using stm32::xml_escapa;
+    std::string x = "<argumentos programa=\"mcu-sim\" version=\"" +
+                    xml_escapa(VERSION_MCU_SIM) + "\">\n";
+    x += "  <posicional nombre=\"placa\" tipo=\"fichero\" filtro=\"*.xml\" "
+         "obligatorio=\"si\" ayuda=\"la placa: MCUs, nodos y componentes, en XML\"/>\n";
+    x += "  <posicional nombre=\"firmware\" tipo=\"fichero\" filtro=\"*.bin\" "
+         "obligatorio=\"no\" ayuda=\"la imagen binaria que se carga en la Flash; "
+         "sin ella el nucleo se aparca en wfe\"/>\n";
+    for (const OpcionCli& o : OPCIONES) {
+        const bool es_mcu = std::string(o.nombre) == "--mcu";
+        x += std::string("  <opcion nombre=\"") + o.nombre + "\" forma=\"" + o.forma + "\"";
+        if (*o.tipo)     x += std::string(" tipo=\"") + o.tipo + "\"";
+        const std::string om = es_mcu ? std::string(TIPO_MCU) : std::string(o.omision);
+        if (!om.empty()) x += " omision=\"" + xml_escapa(om) + "\"";
+        if (*o.unidad)   x += std::string(" unidad=\"") + o.unidad + "\"";
+        if (*o.grupo)    x += std::string(" grupo=\"") + o.grupo + "\"";
+        if (o.repetible) x += " repetible=\"si\"";
+        if (!o.con_gui)  x += " con_gui=\"no\"";
+        if (*o.ejemplo)  x += " ejemplo=\"" + xml_escapa(o.ejemplo) + "\"";
+        x += " ayuda=\"" + xml_escapa(o.ayuda) + "\"";
+        if (!es_mcu) { x += "/>\n"; continue; }
+        x += ">\n";
+        for (const McuCaps* m : CATALOGO_MCU)
+            x += std::string("    <valor>") + xml_escapa(m->nombre) + "</valor>\n";
+        x += "  </opcion>\n";
+    }
+    x += "</argumentos>\n";
+    std::fputs(x.c_str(), stdout);
+    return 0;
+}
+
 int sc_main(int argc, char** argv) {
     sc_report_handler::set_actions("rcc",   SC_WARNING, SC_DO_NOTHING);
     sc_report_handler::set_actions("flash", SC_WARNING, SC_DO_NOTHING);
@@ -985,6 +1099,7 @@ int sc_main(int argc, char** argv) {
         else if (a == "--espera-terminal") g_espera_terminal = true;
         else if (a == "--ondas") g_ondas = true;
         else if (a == "--traza-gdb") g_traza_gdb = true;
+        else if (a == "--argumentos") return vuelca_argumentos();
         else if (a == "--mcu" && i + 1 < argc) g_tipo_mcu = mayus(argv[++i]);
         else if (a.rfind("--mcu=", 0) == 0)    g_tipo_mcu = mayus(a.substr(6));
         else if (a == "--tiempo-real") g_tiempo_real = 1.0;
@@ -1123,6 +1238,8 @@ int sc_main(int argc, char** argv) {
                 "                                declara ninguno (por omision %s)\n"
                 "     sim placa.xml --ms=2       tiempo simulado (global: hay un\n"
                 "                                solo reloj por muchos chips)\n"
+                "     sim --argumentos           estas opciones en XML, para que\n"
+                "                                mcu-sim-gui construya su dialogo\n"
                 "     sim --help COMPONENTE      que hace ese componente y que\n"
                 "                                atributos admite en el XML\n"
                 "     sim --licencia             licencia de mcu-sim (AGPLv3), donde\n"
@@ -1169,6 +1286,15 @@ int sc_main(int argc, char** argv) {
                     s.c_str());
             }
             return 0;
+        } else if (a.size() > 1 && a[0] == '-') {
+            // Una opcion que no existe NO es un posicional. Antes de la fase 7
+            // de mcu-sim-gui `--no-existe` se tomaba en silencio por el nombre
+            // del firmware -y con la placa declarando el suyo, ni se notaba-;
+            // con un dialogo donde se escriben argumentos a mano, una errata
+            // tiene que decirse. Lo encontro `make gui-argumentos`.
+            std::fprintf(stderr, "opcion desconocida: '%s' (sim --help las "
+                                 "enumera)\n", a.c_str());
+            return 1;
         } else libres.push_back(a);
     }
     if (libres.empty()) {
