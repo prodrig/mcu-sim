@@ -67,7 +67,7 @@ razón —lo que prueban, dentro de `test407`, movería su invariante—:
 
 | Orden | Qué ejecuta | Comprobaciones | Tiempo simulado |
 | :--- | :--- | ---: | ---: |
-| `make test407` | La suite acumulada de las siete fases, sobre el F407VG | **2118** | `2337219149213 ps` (`resto`: **`2240553274213 ps`**) |
+| `make test407` | La suite acumulada de las siete fases, sobre el F407VG | **2128** | `2353793659555 ps` (`resto`: **`2245527784555 ps`**) |
 | `make test446` | La del F446RE y sus ocho referencias | **204** | `1033367277932 ps` |
 | `make test417` | La del acelerador criptográfico del F415/F417 | **165** | `718988288 ps` |
 | `make testserie` | La del puente UART: `PuenteSerie`, un F407 con `vcp_demo` y clientes TCP y RFC 2217 de verdad | **189** | `400677589564 ps` |
@@ -82,11 +82,11 @@ antes de simular nada. `make fw407` y compañía siguen ahí para **regenerarlos
 que es otra cosa y avisa antes: `doc/compilacion.md` §6, y **T-22** para el
 motivo.
 
-Las 2118 del primero salen de: 1 de T00 + 143 de F1 + 12 de F2 + 85 de F3 + 345 de F4
+Las 2128 del primero salen de: 1 de T00 + 143 de F1 + 12 de F2 + 85 de F3 + 345 de F4
 (DMA, UART/USART, TIM y EXTI/SYSCFG) + 678 de F5 (SPI/I2S, I2C, ADC, DAC, RTC y
-perros guardianes, SDIO, CRC/RNG y bxCAN) + 151 de F6 (depuración y los dos
+perros guardianes, SDIO, CRC/RNG y bxCAN) + 156 de F6 (depuración y los dos
 servidores GDB) + 426 de F7 (116 de bajo consumo, 61 del DCMI, 54 del FSMC,
-113 del USB OTG y 82 del Ethernet) + 277 del netlist. Código de salida 0 si
+113 del USB OTG y 82 del Ethernet) + 282 del netlist y las piezas sueltas. Código de salida 0 si
 todas pasan, en unos 23 s. Verificado con SystemC 2.3.4 / g++ 13 / C++17
 y arm-none-eabi-gcc 13.2.
 
@@ -101,10 +101,14 @@ Del F407 se contrasta el **`resto`** y no el total. El total lleva dentro lo que
 tardan T96 y T97 en hablar con un GDB de verdad por un socket de verdad, y eso
 depende de la máquina (**T-16**); `resto` es el total sin esos dos grupos. El
 invariante del F407 valió `2336217899213 ps` de total desde la fase 7 hasta el
-2026-09-23, cuando se movió **a propósito** y por única vez: al corregir que el
+2026-09-23, cuando se movió **a propósito** por primera vez: al corregir que el
 IWDG reseteaba un tick antes de su plazo (**T-23**), `resto` pasó de
 `2239552024213` a `2240553274213 ps`, 1,00125 ms más. Las otras suites no se
-movieron.
+movieron. **La segunda, el 2026-10-02**, no la movió un cambio de
+comportamiento sino una prueba nueva: el arreglo del SysTick que dejaba de
+interrumpir tras reanudar una parada del depurador (**I-53**) da, por sí solo,
+las mismas 2118 y el mismo `resto` al picosegundo; lo que suma es **T131**, la
+prueba que lo vigila, con sus 4,97 ms propios: `resto` en `2245527784555 ps`.
 
 **Con una precondición que costó una segunda máquina descubrir**: vale siempre
 que los **firmwares sean los mismos binarios**. Mientras los `.bin` no se
@@ -296,9 +300,9 @@ validar una plataforma nueva antes de pelearse con la biblioteca.
 
 | Plataforma | Estado | Comprobado |
 | :--- | :--- | :--- |
-| Linux, g++ 13 | **verificado** | 2118/2118 comprobaciones, 204/204 del F446, 165/165 del F417, 189/189 de `testserie` y 136/136 de `testgui`, `make red` 13/13, ASan + UBSan limpio en las tres suites (`make asan407`, `make asan446`, `make asan417`), las seis placas validan sin un aviso |
+| Linux, g++ 13 | **verificado** | 2128/2128 comprobaciones, 204/204 del F446, 165/165 del F417, 189/189 de `testserie` y 136/136 de `testgui`, `make red` 13/13, ASan + UBSan limpio en las tres suites (`make asan407`, `make asan446`, `make asan417`), las seis placas validan sin un aviso |
 | Linux, clang | **verificado** | mismo resultado y mismo tiempo simulado al picosegundo |
-| Windows, MSYS2 / MinGW-w64 | **verificado** | **Los tres invariantes son los mismos que en Linux, al picosegundo**: 2118/2118 con `resto` en `2240553274213 ps` (huella `0x644FCE21`; antes de T-23, `2336217899213 ps` de total, igual que en Linux), 204/204 en `1033367277932 ps` y 165/165 en `718988288 ps`. Antes el del F407 salía 2 ms por debajo, y era el binario y nada más (**T-22**). Para que el ejecutable corra FUERA de MSYS2 hace falta el `-static` del Makefile: `doc/compilacion.md` §5.6 |
+| Windows, MSYS2 / MinGW-w64 | **verificado** | **Los tres invariantes son los mismos que en Linux, al picosegundo**: 2118/2118 con `resto` en `2240553274213 ps` antes de I-53 (huella `0x644FCE21`; antes de T-23, `2336217899213 ps` de total, igual que en Linux), 204/204 en `1033367277932 ps` y 165/165 en `718988288 ps`. Antes el del F407 salía 2 ms por debajo, y era el binario y nada más (**T-22**). Para que el ejecutable corra FUERA de MSYS2 hace falta el `-static` del Makefile: `doc/compilacion.md` §5.6 |
 | macOS, clang | **la rama específica compila** | Se fuerza la combinación de macOS —sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`— y compila con g++ y con clang; **falta probarlo en un Mac** |
 
 Lo que en Windows y macOS **no** está verificado es lo mismo en los dos casos:

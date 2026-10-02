@@ -54,6 +54,14 @@
 #  1,00125 ms mas, y el total a 2337219149213. Las otras dos suites no se
 #  mueven: no ejercen el plazo del perro.)
 #
+# (Y la segunda vez, 2026-10-02, I-53. El arreglo del SysTick que dejaba de
+#  interrumpir al reanudar tras una parada NO mueve nada: con el arreglo
+#  solo, 2118 y 2240553274213 ps, al picosegundo -el F407 nunca rebasaba el
+#  contador con un valor que redondeara mal-. Lo que mueve la linea es la
+#  prueba nueva: T131 -5 comprobaciones- gasta 4974510342 ps propios, y
+#  el resto pasa a 2245527784555. Las otras 5 comprobaciones nuevas, las del
+#  aviso de I-54, van dentro de T96 y solo mueven el total.)
+#
 # O sea que contrastar el total generaba un fallo falso en una plataforma y
 # tapaba el criterio de verdad. Contrastar `resto` no afloja nada: quita del
 # criterio exactamente la parte que el propio proyecto tiene documentada como
@@ -61,11 +69,11 @@
 # total se sigue imprimiendo, y el desglose tambien.
 #
 # El dia que T-16 se arregle -que el stub no gaste tiempo simulado esperando a
-# un socket- esta columna vuelve a `total` y la cifra vuelve a ser
-# 2336217899213 ps.
+# un socket- esta columna vuelve a `total` y la cifra sera la de `resto`
+# mas lo que T96 y T97 gasten sin esperar a nadie.
 
 # suite      comprobaciones   tiempo simulado (ps)   cifra
-test407               2118      2240553274213        resto
+test407               2128      2245527784555        resto
 test446                204      1033367277932        total
 test417                165           718988288        total
 # El banco del puente UART (P-14). Crece con cada fase del plan de
