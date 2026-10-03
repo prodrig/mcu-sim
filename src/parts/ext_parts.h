@@ -295,6 +295,9 @@ public:
           r_(r_closed), v_(v_closed), nc_(nc), rebotes_(rebotes),
           semilla_(semilla) {
         pon_rebote_ms(rebote_ms);
+        // El tope del mando `rebote_ms`: 20 ms, o lo que diga la placa si es
+        // mas. Es fijo para la instancia, como pide el contrato del catalogo.
+        max_rebote_ms_ = rebote_ms > 20.0 ? float(rebote_ms) : 20.f;
         aplica();                 // un NC conduce ya, desde que se construye
     }
     void press()   { mueve(true); }
@@ -330,14 +333,28 @@ public:
     // exactamente press()/release(): 1 pulsa, 0 suelta, y lo que no sea ni
     // uno ni otro se decide por la mitad. Sobre un pulsador desoldado pasa lo
     // mismo que con press(): el dedo baja, pero no hay contacto que cerrar.
+    //
+    // Y `rebote_ms`, continuo, es exactamente pon_rebote_ms(): la duracion
+    // del rebote, de 0 -contacto ideal- a 20 ms, o a lo que diga la placa si
+    // es mas. Vale desde la siguiente vez que se mueva el dedo, asi que se
+    // puede ajustar con la simulacion en marcha y sin tocar el XML.
     unsigned   n_observables() const override { return 1; }
     Observable observable(unsigned) const override {
         return {"pulsado", "", 0.f, 1.f, true};
     }
     float    valor_observable(unsigned) const override { return down_ ? 1.f : 0.f; }
-    unsigned n_mandos() const override { return 1; }
-    Mando    mando(unsigned) const override { return {"pulsar", Mando::Boton, 0.f, 1.f}; }
-    void     acciona(unsigned, float v) override { if (v >= 0.5f) press(); else release(); }
+    unsigned n_mandos() const override { return 2; }
+    Mando    mando(unsigned i) const override {
+        if (i == 1) return {"rebote_ms", Mando::Continuo, 0.f, max_rebote_ms_};
+        return {"pulsar", Mando::Boton, 0.f, 1.f};
+    }
+    float    valor_mando(unsigned i) const override {
+        return i == 1 ? float(rebote_ms()) : (down_ ? 1.f : 0.f);
+    }
+    void     acciona(unsigned i, float v) override {
+        if (i == 1) { pon_rebote_ms(double(v)); return; }
+        if (v >= 0.5f) press(); else release();
+    }
 private:
     void aplica() {
         if (cerrado()) drive(float(v_), float(r_));
@@ -416,6 +433,7 @@ private:
     sc_core::sc_time  t0_;
     sc_core::sc_event ev_;
     bool     proceso_ = false;
+    float    max_rebote_ms_ = 20.f;
 };
 
 // ---------------------------------------------------------------------------

@@ -153,7 +153,8 @@ public:
                 s += "    <mando idx=\"" + std::to_string(k) +
                      "\" nombre=\"" + xml_escapa(m.nombre) +
                      "\" tipo=\"" + nombre_tipo_mando(m.tipo) +
-                     "\" min=\"" + num(m.min) + "\" max=\"" + num(m.max) + "\"/>\n";
+                     "\" min=\"" + num(m.min) + "\" max=\"" + num(m.max) +
+                     "\" valor=\"" + num(p->valor_mando(k)) + "\"/>\n";
             }
             s += "  </pieza>\n";
         }

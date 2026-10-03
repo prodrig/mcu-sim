@@ -114,4 +114,7 @@ testserie              189        400677589564        total
 # Fase 6 (2026-10-01): G14, la pausa y los pasos a demanda por el canal: 126
 # -> 136, y 75,3 -> 76,45 ms. En G9 el T_PAUSA que se ignoraba ahora pararia
 # el enlace: lo sustituye un tipo desconocido. Lo demas no cambia de tiempo.
-testgui                136        76450000000        total
+# 2026-10-03, P-12 k: el pulsador tiene un segundo mando, `rebote_ms`, y cada
+# mando dice en el catalogo lo que vale (`valor`): 136 -> 142 en G1. No gasta
+# tiempo simulado: son consultas.
+testgui                142        76450000000        total

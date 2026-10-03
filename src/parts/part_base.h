@@ -184,6 +184,10 @@ public:
     //   * valor_observable(i) es una CONSULTA: no mueve nada del modelo, no
     //     espera y no gasta tiempo simulado. Se puede llamar desde cualquier
     //     proceso y desde fuera de la simulación;
+    //   * valor_mando(i) es lo que vale el mando AHORA, tambien una consulta:
+    //     el catalogo lo manda para que la pantalla nazca donde esta el
+    //     modelo -un deslizador en su sitio, no en el minimo-. Por omision,
+    //     el minimo, que es lo que vale un boton suelto;
     //   * acciona(i, v) recibe un valor ya recortado a [min, max] del mando.
     //     Es la ÚNICA puerta por la que la pantalla cambia el modelo, y hace
     //     exactamente lo mismo que el método que ya tuviera la pieza
@@ -194,6 +198,7 @@ public:
     virtual float      valor_observable(unsigned) const { return 0.f; }
     virtual unsigned   n_mandos() const { return 0; }
     virtual Mando      mando(unsigned) const { return {"", Mando::Boton, 0.f, 0.f}; }
+    virtual float      valor_mando(unsigned i) const { return mando(i).min; }
     virtual void       acciona(unsigned, float) {}
 
     // --- Inventario y volcado del netlist -----------------------------------

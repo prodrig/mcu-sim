@@ -276,12 +276,19 @@ private:
 
         check_eq(btn.n_observables(), 1, "un Button declara un observable...");
         check(std::string(btn.observable(0).nombre) == "pulsado", "...que es `pulsado`");
-        check_eq(btn.n_mandos(), 1, "y un mando...");
+        check_eq(btn.n_mandos(), 2, "y dos mandos...");
         {
             const Mando m = btn.mando(0);
             check(std::string(m.nombre) == "pulsar" && m.tipo == Mando::Boton &&
                   m.min == 0.f && m.max == 1.f,
-                  "...que es `pulsar`, de tipo boton, de 0 a 1");
+                  "...`pulsar`, de tipo boton, de 0 a 1...");
+            const Mando r = btn.mando(1);
+            check(std::string(r.nombre) == "rebote_ms" && r.tipo == Mando::Continuo &&
+                  r.min == 0.f && r.max == 20.f,
+                  "...y `rebote_ms`, continuo, de 0 a 20 ms");
+            check(btn.valor_mando(0) == 0.f && btn.valor_mando(1) == 0.f,
+                  "y cada uno dice lo que vale ahora: suelto, y sin rebote -construido "
+                  "en C++ sin decirlo-");
         }
 
         check_eq(xtal.n_observables(), 1, "un Crystal declara un observable");
@@ -311,6 +318,11 @@ private:
               "pulsado, `pulsado` vale 1 y el contacto se ABRE: es el dedo, no el contacto");
         btn_nc.acciona(0, 0.f);
         check(btn_nc.cerrado(), "y al soltarlo vuelve a su reposo, conduciendo");
+        btn.acciona(1, 7.5f);
+        check(btn.rebote_ms() == 7.5 && btn.valor_mando(1) == 7.5f,
+              "acciona(rebote_ms, 7,5) es pon_rebote_ms(7,5), y valor_mando lo dice");
+        btn.acciona(1, 0.f);
+        check(btn.rebote_ms() == 0.0, "y con 0 vuelve a ser un contacto ideal");
 
         // --- Validar una orden no la aplica --------------------------------
         {
@@ -343,8 +355,17 @@ private:
                            "interesante=\"no\"/>") != std::string::npos,
                   "un observable sale en el XML con el formato de doc/protocolo.md §3");
             check(xml.find("<mando idx=\"0\" nombre=\"pulsar\" tipo=\"boton\" min=\"0\" "
-                           "max=\"1\"/>") != std::string::npos,
-                  "y un mando tambien");
+                           "max=\"1\" valor=\"0\"/>") != std::string::npos,
+                  "y un mando tambien, con lo que vale ahora");
+            check(xml.find("<mando idx=\"1\" nombre=\"rebote_ms\" tipo=\"continuo\" "
+                           "min=\"0\" max=\"20\" valor=\"0\"/>") != std::string::npos,
+                  "y el del rebote, igual: la pantalla nace donde esta el modelo");
+            {
+                float v = 0.f;
+                Orden o{0, i_btn, 1, 50.f};
+                check(cat.valida(o, v) == RES_RANGO && v == 20.f,
+                      "un rebote de 50 ms por la pantalla: RES_RANGO, y se queda en 20");
+            }
             std::size_t n = 0, p = 0;
             while ((p = xml.find("<observable ", p)) != std::string::npos) { ++n; ++p; }
             check_eq(n, cat.n_observables(), "y hay tantos <observable> como id_obs");

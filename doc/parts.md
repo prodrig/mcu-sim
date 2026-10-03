@@ -472,6 +472,11 @@ que se mide en pulsadores reales (Ganssle, *A Guide to Debouncing*):
   botón hundido, no el contacto, que además cambia mucho más deprisa de lo que
   la ventana muestrea.
 
+Y se puede cambiar **con la simulación en marcha**: el pulsador tiene dos
+mandos, `pulsar` (botón) y **`rebote_ms`** (continuo, de 0 a 20 ms, o hasta lo
+que diga la placa si es más), que vale desde el siguiente movimiento del dedo.
+Desde C++, `pon_rebote_ms()`.
+
 El patrón es pseudoaleatorio pero **reproducible al picosegundo**: un generador
 propio (xorshift64\*) con semilla sacada del id —o de `semilla`— e instantes en
 ns enteros, sin `<random>` ni `double`, cuyas distribuciones cambian de una

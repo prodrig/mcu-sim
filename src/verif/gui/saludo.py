@@ -86,9 +86,18 @@ def s1_s2_espera(sim):
               ["encendido", "corriente"] for i in leds),
               "los cuatro LEDs declaran encendido y corriente")
         check(all(i in piezas and
-                  [m.get("nombre") for m in piezas[i].iter("mando")] == ["pulsar"]
+                  [m.get("nombre") for m in piezas[i].iter("mando")] == ["pulsar", "rebote_ms"]
                   for i, t in comps if t == "Button"),
-              "los pulsadores, el mando pulsar")
+              "los pulsadores, los mandos pulsar y rebote_ms")
+        reb = {i: [m for m in piezas[i].iter("mando") if m.get("nombre") == "rebote_ms"]
+               for i in ("B1", "B2") if i in piezas}
+        check(len(reb) == 2 and all(len(x) == 1 for x in reb.values()) and
+              reb["B1"][0].get("tipo") == "continuo" and reb["B1"][0].get("max") == "20" and
+              reb["B1"][0].get("valor") == "2" and reb["B2"][0].get("valor") == "0" and
+              all(m.get("valor") == "0" for m in piezas["B1"].iter("mando")
+                  if m.get("nombre") == "pulsar"),
+              "y cada mando dice lo que vale: B1 rebota 2 ms -lo de la placa por "
+              "omision-, B2 no -lleva rebote=\"no\"-, y los dos estan sueltos")
         check(all(i in piezas and not list(piezas[i]) for i, t in comps if t == "Rpull"),
               "y las resistencias, nada")
 
