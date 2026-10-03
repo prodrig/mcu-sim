@@ -1199,6 +1199,7 @@ SC_MODULE(F1Tb) {
         t129_factoria_de_mcu();
         t130_argumento_gui();
         t131_systick_tras_parada();
+        t132_rebotes();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -14612,6 +14613,132 @@ SC_MODULE(F1Tb) {
 
         tm_lab.write32(SYST_CSR, 0u);               // se deja apagado
         limpia();
+    }
+
+    // -----------------------------------------------------------------------
+    // T132 — LOS REBOTES DEL PULSADOR
+    //
+    // Un contacto mecanico golpea y rebota antes de quedarse quieto, y un
+    // firmware que cuente flancos sin filtrarlos cuenta varias pulsaciones
+    // donde hubo una. El pulsador de una placa en XML rebota por omision
+    // (`rebote="2"` ms); los del banco, no, porque cuentan flancos exactos
+    // desde mucho antes. Aqui se encienden en los dos pulsadores sueltos de
+    // T124 -los que tienen su nodo y su pull-down propios- y se miran a 1 us.
+    //
+    // Lo que se comprueba es el CONTRATO, no un patron concreto: que el
+    // contacto se mueve en el acto, que rebota un numero impar de veces -acaba
+    // donde el dedo quiere-, que no se pasa de su duracion, que el nodo lo ve,
+    // que el dedo -lo que la pantalla pinta- no rebota, y que sin rebote el
+    // contacto es ideal. El patron concreto lo fija el invariante: es
+    // pseudoaleatorio pero el mismo al picosegundo en todas partes.
+    // -----------------------------------------------------------------------
+    void t132_rebotes() {
+        group("T132 Los rebotes del pulsador");
+        struct Visto { unsigned cambios, flancos_nodo; uint64_t ultimo_ns;
+                       bool dedo_quieto; bool final_cerrado; };
+        // Mira el contacto y el nodo cada microsegundo durante `us`
+        auto mira = [&](Button& b, AnalogNet& n, unsigned us, bool dedo) {
+            Visto v{0, 0, 0, true, false};
+            const sc_time t0 = sc_time_stamp();
+            const uint64_t c0 = b.cambios_contacto();
+            // Cerrado es arriba en los dos: cierran contra 3,3 V con pull-down
+            bool alto = b.cerrado();
+            for (unsigned i = 0; i < us; ++i) {
+                wait(1, SC_US);
+                const bool a = n.voltage() > 1.65;
+                if (a != alto) { ++v.flancos_nodo; alto = a; }
+                if (b.cambios_contacto() != c0 + v.cambios) {
+                    v.cambios = unsigned(b.cambios_contacto() - c0);
+                    v.ultimo_ns = uint64_t((sc_time_stamp() - t0).to_seconds() * 1e9 + 0.5);
+                }
+                if (b.pressed() != dedo) v.dedo_quieto = false;
+            }
+            v.final_cerrado = b.cerrado();
+            return v;
+        };
+
+        // --- 1. Sin rebote: el contacto ideal, que es como era siempre ------
+        btn_na.release(); wait(5, SC_MS);
+        check_eq(unsigned(btn_na.rebote_ms() * 1000), 0u,
+                 "construido en C++ sin decir nada, el pulsador no rebota");
+        uint64_t c0 = btn_na.cambios_contacto();
+        btn_na.press();
+        check(btn_na.cerrado() && btn_na.cambios_contacto() == c0 + 1,
+              "sin rebote, pulsar cierra el contacto UNA vez y en el acto");
+        Visto v = mira(btn_na, n_btn_na, 3000, true);
+        check(v.cambios == 0 && v.flancos_nodo == 0 && v.final_cerrado,
+              "y no se mueve mas");
+        btn_na.release(); wait(5, SC_MS);
+
+        // --- 2. Con rebote, al cerrar ----------------------------------------
+        btn_na.pon_rebote_ms(2.0);
+        check_eq(btn_na.rebotes(), 5u, "por omision, hasta 5 rebotes");
+        c0 = btn_na.cambios_contacto();
+        btn_na.press();
+        check(btn_na.cerrado() && btn_na.cambios_contacto() == c0 + 1,
+              "con rebote, el primer golpe tambien es en el acto");
+        v = mira(btn_na, n_btn_na, 3000, true);
+        std::printf("    al cerrar: %u cambios mas, el ultimo a los %llu ns; el nodo "
+                    "ve %u flancos\n", v.cambios, (unsigned long long)v.ultimo_ns,
+                    v.flancos_nodo);
+        check(v.cambios >= 2 && v.cambios <= 10 && v.cambios % 2 == 0,
+              "y luego rebota: de 1 a 5 veces se separa y vuelve a tocar");
+        check(v.ultimo_ns > 0 && v.ultimo_ns <= 2000000,
+              "todo dentro de los 2 ms de rebote");
+        check(v.final_cerrado, "y se queda CERRADO, que es lo que el dedo quiere");
+        check(v.flancos_nodo >= 2,
+              "el nodo -lo que lee el pin- ve los rebotes: varios flancos donde hubo "
+              "una pulsacion");
+        check(v.dedo_quieto,
+              "el dedo -el observable `pulsado`, lo que pinta la ventana- no rebota");
+
+        // --- 3. Al abrir, la mitad -------------------------------------------
+        btn_na.release();
+        check(!btn_na.cerrado(), "al soltar, el primer golpe abre en el acto");
+        v = mira(btn_na, n_btn_na, 2000, false);
+        std::printf("    al abrir: %u cambios mas, el ultimo a los %llu ns\n",
+                    v.cambios, (unsigned long long)v.ultimo_ns);
+        check(v.cambios >= 2 && v.cambios % 2 == 0 && v.ultimo_ns <= 1000000 &&
+                  !v.final_cerrado,
+              "y rebota en 1 ms, la mitad, y se queda ABIERTO");
+
+        // --- 4. Soltar a media rebote ------------------------------------------
+        btn_na.press();
+        wait(300, SC_US);
+        btn_na.release();
+        v = mira(btn_na, n_btn_na, 2000, false);
+        check(!v.final_cerrado && v.ultimo_ns <= 1000000,
+              "soltar con el rebote de cerrar a medias lo corta: manda el ultimo "
+              "movimiento del dedo, y el contacto acaba abierto");
+
+        // --- 5. Un NC rebota al ABRIRSE cuando se pulsa ------------------------
+        btn_nc.release(); wait(5, SC_MS);
+        btn_nc.pon_rebote_ms(2.0);
+        btn_nc.press();
+        check(!btn_nc.cerrado(), "un NC pulsado abre en el acto");
+        v = mira(btn_nc, n_btn_nc, 3000, true);
+        check(v.cambios >= 2 && v.cambios % 2 == 0 && v.ultimo_ns <= 2000000 &&
+                  !v.final_cerrado && v.flancos_nodo >= 2,
+              "y rebota igual, porque lo que rebota es la lamina, no la logica: acaba "
+              "abierto");
+        btn_nc.release();
+        mira(btn_nc, n_btn_nc, 2000, false);
+        check(btn_nc.cerrado(), "y al soltarlo vuelve a su reposo, cerrado");
+
+        // --- 6. Se apaga, y el banco no rebota ---------------------------------
+        btn_na.pon_rebote_ms(0.0);
+        btn_nc.pon_rebote_ms(0.0);
+        c0 = btn_na.cambios_contacto();
+        btn_na.press(); wait(3, SC_MS); btn_na.release(); wait(3, SC_MS);
+        check(btn_na.cambios_contacto() == c0 + 2,
+              "con rebote 0 otra vez, una pulsacion son dos cambios: cerrar y abrir");
+        {
+            Netlist nl;
+            Instancia& b = pulsador(nl, "b", "PA0");
+            check(b.txt("rebote") == "no",
+                  "pulsador(), con el que se montan los bancos, pone rebote=\"no\": "
+                  "sus flancos se cuentan exactos desde antes de que hubiera rebotes");
+        }
     }
 
     void t129_factoria_de_mcu() {

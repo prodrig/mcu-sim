@@ -30,6 +30,8 @@
 #define STM32_PARTS_EXT_PARTS_H
 
 #include <systemc>
+#include <algorithm>
+#include <cstdint>
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -269,25 +271,56 @@ public:
     // Lo que conduce, entonces, no es "pulsado" sino "pulsado XOR normalmente
     // cerrado". Y un pulsador DESOLDADO no conduce nunca, sea del tipo que sea:
     // si no esta, no hay contacto que cerrar.
+    //
+    // LOS REBOTES. Un contacto mecanico no se cierra de una vez: la lamina
+    // golpea, rebota y vuelve a tocar varias veces antes de quedarse quieta,
+    // y un firmware que cuente flancos sin filtrarlos cuenta varias
+    // pulsaciones donde hubo una. `rebote_ms` es lo que dura eso como mucho al
+    // CERRARSE el contacto que mueve el dedo -al abrirse, la mitad-, y
+    // `rebotes` cuantas veces, como mucho, se separa y vuelve a tocar. Con
+    // `rebote_ms = 0` el contacto cambia de una vez, que es como era siempre
+    // y como lo construye este constructor si no se le dice otra cosa; el
+    // XML, en cambio, pone 2 ms por omision (vease `netlist_parts.h`).
+    //
+    // El patron es pseudoaleatorio pero REPRODUCIBLE AL PICOSEGUNDO: un
+    // generador propio -xorshift64*- con semilla sacada del id de la pieza
+    // (o de `semilla`, si no es cero) e instantes en ns enteros. Nada de
+    // <random> ni de `double`: sus distribuciones cambian de una biblioteca a
+    // otra, y el tiempo simulado es un invariante del proyecto en cuatro
+    // plataformas (I-24, I-41).
     Button(analog_net_if& n, double r_closed = 10.0, double v_closed = 0.0,
-           bool nc = false)
+           bool nc = false, double rebote_ms = 0.0, unsigned rebotes = 5,
+           uint64_t semilla = 0)
         : ExtPart(n, "Button", "button", "pin"),
-          r_(r_closed), v_(v_closed), nc_(nc) {
+          r_(r_closed), v_(v_closed), nc_(nc), rebotes_(rebotes),
+          semilla_(semilla) {
+        pon_rebote_ms(rebote_ms);
         aplica();                 // un NC conduce ya, desde que se construye
     }
-    void press()   { down_ = true;  aplica(); }
-    void release() { down_ = false; aplica(); }
+    void press()   { mueve(true); }
+    void release() { mueve(false); }
     // `pressed()` es lo que hace el DEDO; `cerrado()` es lo que hace el
-    // CONTACTO. En un NC son opuestos, y confundirlos es el error facil.
+    // CONTACTO. En un NC son opuestos, y confundirlos es el error facil. Con
+    // rebotes, ademas, el contacto va por detras del dedo unos milisegundos.
     bool pressed() const { return down_; }
-    bool cerrado() const { return conectada_ && (down_ != nc_); }
+    bool cerrado() const { return conectada_ && (toque_ != nc_); }
     bool normalmente_cerrado() const { return nc_; }
     double v_cerrado() const { return v_; }
+    // El rebote, en ms. 0 es sin rebotes. Lo que valga cuenta desde la
+    // SIGUIENTE vez que cambie el dedo: el rebote en curso sigue como iba.
+    double   rebote_ms() const { return double(rebote_ns_) / 1e6; }
+    void     pon_rebote_ms(double ms) {
+        rebote_ns_ = ms > 0.0 ? uint64_t(ms * 1e6 + 0.5) : 0u;
+    }
+    unsigned rebotes() const { return rebotes_; }
+    // Cuantas veces ha cambiado el CONTACTO desde que se construyo: sin
+    // rebotes, una por cada vez que cambia el dedo; con rebotes, mas.
+    uint64_t cambios_contacto() const { return n_cambios_; }
     // Al desoldar se abre el contacto; al volver a soldar, vuelve a su reposo,
     // que en un NC es conduciendo.
     void set_enabled(bool on) override {
         ExtPartBase::set_enabled(on);
-        if (!on) down_ = false;
+        if (!on) { corta_rebote(); down_ = false; pon_toque(false); }
         aplica();
     }
 
@@ -310,7 +343,79 @@ private:
         if (cerrado()) drive(float(v_), float(r_));
         else           hiz();
     }
+    void pon_toque(bool t) {
+        if (t != toque_) { toque_ = t; ++n_cambios_; }
+    }
+    // El dedo cambia. El contacto toca (o se separa) EN EL ACTO -el primer
+    // golpe-, y si hay rebote, se programa el resto.
+    void mueve(bool abajo) {
+        if (abajo == down_) return;           // pulsar lo pulsado no hace nada
+        down_ = abajo;
+        corta_rebote();
+        pon_toque(abajo);
+        aplica();
+        const uint64_t d = abajo ? rebote_ns_ : rebote_ns_ / 2u;
+        if (d == 0 || rebotes_ == 0 || !conectada_) return;
+        programa_rebote(d);
+    }
+    // xorshift64*: pequeño, conocido y el mismo en todas partes [Vigna, 2014]
+    uint64_t azar() {
+        if (rng_ == 0) {
+            // FNV-1a del id: dos pulsadores de la misma placa no rebotan igual
+            uint64_t h = 0xcbf29ce484222325ull;
+            for (unsigned char c : pieza()) { h ^= c; h *= 0x100000001b3ull; }
+            rng_ = (semilla_ ? semilla_ : h) | 1u;
+        }
+        rng_ ^= rng_ >> 12; rng_ ^= rng_ << 25; rng_ ^= rng_ >> 27;
+        return rng_ * 0x2545F4914F6CDD1Dull;
+    }
+    // k rebotes -de 1 a `rebotes`-, cada uno un separarse y un volver a
+    // tocar: 2k instantes distintos en (0, d] ns, ordenados. El ultimo deja
+    // el contacto donde el dedo quiere.
+    void programa_rebote(uint64_t d) {
+        const unsigned k = 1u + unsigned(azar() % rebotes_);
+        cola_.clear();
+        for (unsigned i = 0; i < 2u * k; ++i) cola_.push_back(1u + azar() % d);
+        std::sort(cola_.begin(), cola_.end());
+        for (size_t i = 1; i < cola_.size(); ++i)          // estrictamente crecientes
+            if (cola_[i] <= cola_[i - 1]) cola_[i] = cola_[i - 1] + 1u;
+        t0_ = sc_core::sc_time_stamp();
+        sig_ = 0;
+        if (!proceso_) {
+            // El proceso nace la primera vez que hace falta: un pulsador sin
+            // rebotes no crea ninguno, y una placa que no rebota se simula
+            // exactamente como antes, delta a delta.
+            sc_core::sc_spawn_options o;
+            o.spawn_method();
+            o.set_sensitivity(&ev_);
+            o.dont_initialize();
+            sc_core::sc_spawn([this] { rebota(); },
+                              sc_core::sc_gen_unique_name("rebote"), &o);
+            proceso_ = true;
+        }
+        ev_.notify(sc_core::sc_time(double(cola_[0]), sc_core::SC_NS));
+    }
+    void rebota() {
+        if (sig_ >= cola_.size()) return;
+        pon_toque(!toque_);
+        aplica();
+        ++sig_;
+        if (sig_ < cola_.size())
+            ev_.notify(t0_ + sc_core::sc_time(double(cola_[sig_]), sc_core::SC_NS) -
+                       sc_core::sc_time_stamp());
+    }
+    void corta_rebote() { ev_.cancel(); cola_.clear(); sig_ = 0; }
+
     double r_, v_; bool nc_ = false, down_ = false;
+    bool     toque_ = false;          // el contacto TOCA (el del dedo, sin el NC)
+    uint64_t rebote_ns_ = 0;
+    unsigned rebotes_ = 5;
+    uint64_t semilla_ = 0, rng_ = 0, n_cambios_ = 0;
+    std::vector<uint64_t> cola_;      // instantes del rebote, desde t0_, en ns
+    size_t   sig_ = 0;
+    sc_core::sc_time  t0_;
+    sc_core::sc_event ev_;
+    bool     proceso_ = false;
 };
 
 // ---------------------------------------------------------------------------

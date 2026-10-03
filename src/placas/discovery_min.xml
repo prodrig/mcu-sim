@@ -91,6 +91,9 @@
        Las dos piezas conducen a la vez con el botón pulsado -eso es el
        divisor, no un cortocircuito-, de ahí `bus="si"`.
        PA0 es además WKUP, así que este mismo botón despierta de Standby.
+       REBOTA, como el de verdad: sin decir nada, `rebote="2"` ms y hasta
+       `rebotes="5"`, así que una EXTI por flanco ve varios flancos por
+       pulsación. Para un contacto ideal, rebote="no".
        =================================================================== -->
   <nodo id="PA0" bus="si"/>
   <componente tipo="Button" id="B1" v_cerrado="3.3" r_cerrado="10">
@@ -104,11 +107,12 @@
        Pulsador negro de RESET, B2, sobre NRST [UM1472 §6.4]
        A masa: pulsarlo resetea. El nivel alto lo da el pull-up interno de
        40 kΩ del propio pad NRST, igual que en el silicio; la tarjeta no lleva
-       pull-up externo, solo el condensador de filtro (que aquí no hace falta
-       porque no hay rebotes que filtrar).
+       pull-up externo, solo el condensador de filtro. Ese condensador no se
+       modela, y lo que hace en la tarjeta -comerse los rebotes del botón-
+       se describe diciendo que B2 no rebota: rebote="no".
        =================================================================== -->
   <nodo id="NRST" bus="si"/>
-  <componente tipo="Button" id="B2" r_cerrado="10">
+  <componente tipo="Button" id="B2" r_cerrado="10" rebote="no">
     <pin nombre="pin" nodo="NRST"/>
   </componente>
 

@@ -411,6 +411,9 @@ real y lo que el modelo reproduce.
 | `r_cerrado` | `10` | Resistencia del contacto cerrado, en ohmios. Pulsado, la pieza gobierna el nodo con `{v_cerrado, r_cerrado}` |
 | `v_cerrado` | `0` | **La tensión a la que lleva el pin al cerrarse.** Cero es el pulsador a masa de siempre; `3.3` es el pulsador a VDD |
 | `normalmente` | `abierto` | El **reposo del contacto**: `abierto` (suelto no conduce, pulsado conduce) o `cerrado` (suelto CONDUCE, y pulsarlo lo ABRE). Cualquier otra palabra es un error, no un `abierto` silencioso |
+| `rebote` | `2` | **Los rebotes del contacto**: lo que tarda como mucho, en ms, en quedarse quieto al cerrarse; al abrirse, la mitad. `0` o `no` es un contacto ideal, que cambia de una vez |
+| `rebotes` | `5` | Cuántas veces, como mucho, se separa y vuelve a tocar en cada rebote: cada vez, de 1 a este número |
+| `semilla` | `0` | La del patrón pseudoaleatorio de los rebotes. `0` la saca del id: dos pulsadores de la misma placa no rebotan igual, y el mismo rebota igual en todas las ejecuciones |
 
 **`normalmente="cerrado"` no es una rareza: es lo que hay en seguridad.** Un
 final de carrera, una seta de emergencia o un detector de puerta se cablean NC a
@@ -452,6 +455,34 @@ firmware parecería roto sin estarlo:
 
 Se acciona desde C++ con `press()` y `release()`. **Un pulsador
 `conectada="no"` no cierra aunque se le pulse.**
+
+**Rebota, como uno de verdad.** Un contacto mecánico golpea y rebota antes de
+quedarse cerrado, y un firmware que cuente flancos de EXTI sin filtrarlos cuenta
+varias pulsaciones donde hubo una — igual que en la placa. Por eso una placa en
+XML rebota **por omisión**, con 2 ms y hasta 5 rebotes, que es el orden de lo
+que se mide en pulsadores reales (Ganssle, *A Guide to Debouncing*):
+
+- el contacto se mueve **en el acto**, con el primer golpe, y luego se separa y
+  vuelve a tocar de 1 a `rebotes` veces, en instantes al azar dentro de
+  `rebote` ms, hasta quedarse donde el dedo quiere;
+- al soltar, igual, en la mitad de tiempo;
+- un movimiento del dedo a media rebote corta el que había: manda el último;
+- en un NC rebota igual, porque lo que rebota es la lámina, no la lógica;
+- el **observable `pulsado` es el dedo**, que no rebota: la ventana pinta el
+  botón hundido, no el contacto, que además cambia mucho más deprisa de lo que
+  la ventana muestrea.
+
+El patrón es pseudoaleatorio pero **reproducible al picosegundo**: un generador
+propio (xorshift64\*) con semilla sacada del id —o de `semilla`— e instantes en
+ns enteros, sin `<random>` ni `double`, cuyas distribuciones cambian de una
+biblioteca a otra. Un pulsador sin rebote no crea ningún proceso: se simula
+exactamente como antes.
+
+**Los bancos de pruebas no rebotan**: `pulsador()`, la función con la que se
+montan desde C++, pone `rebote="no"`, porque cuentan flancos exactos desde mucho
+antes de que hubiera rebotes. Y el botón de RESET de la Discovery tampoco: en la
+tarjeta, el condensador de NRST se come los rebotes, y como ese condensador no
+se modela, B2 lleva `rebote="no"`.
 
 #### `Rpull`
 

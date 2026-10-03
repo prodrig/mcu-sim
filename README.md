@@ -74,7 +74,7 @@ No hace falta compilador cruzado de ARM: los firmwares que usan las pruebas
 Cinco bancos de pruebas, que se ejecutan en cada cambio y en cuatro plataformas:
 
 ```
-make test407    # 2128 comprobaciones    2353793659555 ps   (resto: 2245527784555 ps)
+make test407    # 2146 comprobaciones    2390093659555 ps   (resto: 2281827784555 ps)
 make test446    #  204                   1033367277932 ps
 make test417    #  165                    718988288 ps
 make testserie  #  189                   400677589564 ps

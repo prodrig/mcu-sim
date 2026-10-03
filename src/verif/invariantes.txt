@@ -62,6 +62,12 @@
 #  el resto pasa a 2245527784555. Las otras 5 comprobaciones nuevas, las del
 #  aviso de I-54, van dentro de T96 y solo mueven el total.)
 #
+# (Y la tercera, 2026-10-03: los rebotes del pulsador. Tampoco los mueve el
+#  cambio del modelo -un pulsador sin rebote no crea ningun proceso, y los
+#  del banco se montan sin rebote-: sin T132, 2128 y 2245527784555 ps, al
+#  picosegundo. T132 -18 comprobaciones- gasta 36300000000 ps propios, y el
+#  resto pasa a 2281827784555.)
+#
 # O sea que contrastar el total generaba un fallo falso en una plataforma y
 # tapaba el criterio de verdad. Contrastar `resto` no afloja nada: quita del
 # criterio exactamente la parte que el propio proyecto tiene documentada como
@@ -73,7 +79,7 @@
 # mas lo que T96 y T97 gasten sin esperar a nadie.
 
 # suite      comprobaciones   tiempo simulado (ps)   cifra
-test407               2128      2245527784555        resto
+test407               2146      2281827784555        resto
 test446                204      1033367277932        total
 test417                165           718988288        total
 # El banco del puente UART (P-14). Crece con cada fase del plan de
