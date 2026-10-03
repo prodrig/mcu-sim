@@ -37,14 +37,15 @@ Error message from debugger back end:
 Truncated register 18 in remote 'g' packet
 ```
 
-Y la causa está escrita en el **primer** paquete de la sesión, que `--traza-gdb`
+Y hay una pista en el **primer** paquete de la sesión, que `--traza-gdb`
 enseña:
 
 ```
 qSupported:...;xmlRegisters=i386;error-message+
 ```
 
-`xmlRegisters=i386`. Ese GDB es un depurador de PC. Las cuentas salen justas:
+`xmlRegisters=i386`: ese GDB lleva dentro x86. Que **no lleve ARM** se ve en lo
+que pasa después, y las cuentas salen justas:
 el modelo manda **23 registros de 32 bits = 184 caracteres**, y un GDB de i386
 espera 8 registros de 32 bits, `EIP`, `EFLAGS` y seis de segmento —16 × 8 = 128
 caracteres— y a continuación los de x87, que son de **80 bits**, o sea 20
@@ -55,14 +56,26 @@ No es que el paquete esté mal: es que lo está leyendo quien no debe. Un GDB de
 x86 no entiende `<architecture>arm</architecture>` aunque se lo mandemos, porque
 no lleva ARM dentro.
 
-**El simulador lo dice ahora en cuanto pasa**, sin esperar al fallo:
+**El simulador lo dice en su consola** en cuanto el depurador se va:
 
 ```
-[gdb] AVISO: el depurador conectado dice ser para 'i386', no para ARM.
-[gdb]        Esto es el `gdb` del PC, no arm-none-eabi-gdb. Fallara en el paquete `g`
-[gdb]        con "Truncated register ... in remote 'g' packet".
+[gdb] cliente desconectado
+[gdb] AVISO: el depurador se ha ido justo despues de pedir los registros, y dijo ser para 'i386', no para ARM.
+[gdb]        Casi seguro es el `gdb` del PC, no arm-none-eabi-gdb, y habra fallado con
+[gdb]        "Truncated register ... in remote 'g' packet".
 [gdb]        En el IDE: Debugger > GDB Command, con la RUTA COMPLETA de arm-none-eabi-gdb.
 ```
+
+**Por qué espera a que se vaya y no avisa al leer `xmlRegisters=i386`** (I-54).
+Antes avisaba ahí, y era una falsa alarma para quien depura con
+**`gdb-multiarch`**: GDB no pone en `xmlRegisters=` la arquitectura para la que
+está construido, sino las que registran ese soporte, y en GDB solo lo hace la
+de x86. Así que `arm-none-eabi-gdb` no manda nada, el `gdb` del PC manda
+`i386`... y `gdb-multiarch`, que lleva x86 y ARM, **también** manda `i386`, y
+funciona perfectamente porque sí entiende el `target.xml` de ARM. Lo que los
+distingue es el paquete `g`: el que no es de ARM no lo puede leer, da el error
+y se va; `gdb-multiarch` lo lee y sigue pidiendo memoria. El aviso sale solo en
+el primer caso.
 
 El `arm-none-eabi-gdb` de CubeIDE está dentro de su instalación, por la zona de
 

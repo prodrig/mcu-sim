@@ -153,6 +153,19 @@ REGISTRA_PARTE(Button,
            "configura PA0 como EXTI por flanco de SUBIDA y sin pull interno. "
            "Descrito con un pulsador a masa ese flanco no llegaria nunca y el "
            "firmware pareceria roto sin estarlo.")
+      .atr("rebote", "2",
+           "LOS REBOTES DEL CONTACTO: lo que tarda como mucho, en ms, en "
+           "quedarse quieto al cerrarse -al abrirse, la mitad-. \"0\" o "
+           "\"no\" es un contacto ideal, que cambia de una vez.")
+      .atr("rebotes", "5",
+           "CUANTAS VECES se separa y vuelve a tocar en cada rebote: "
+           "exactamente esas, en instantes al azar dentro de `rebote` ms. Con "
+           "N rebotes, una EXTI por flanco de subida ve N+1 flancos al pulsar. "
+           "De 1 a 1000; para no rebotar, rebote=\"no\".")
+      .atr("semilla", "0",
+           "La del patron pseudoaleatorio de los rebotes. 0 la saca del id, "
+           "asi que dos pulsadores de la misma placa no rebotan igual y el "
+           "mismo rebota igual en todas las ejecuciones.")
       .atr("normalmente", "abierto",
            "El REPOSO DEL CONTACTO: abierto (suelto no conduce, pulsado "
            "conduce) o cerrado (suelto CONDUCE, y pulsarlo lo ABRE). "
@@ -163,6 +176,15 @@ REGISTRA_PARTE(Button,
             "cortado se vea igual que una pulsacion y la maquina pare. "
             "Descrito como NA, el montaje parece funcionar hasta el dia en que "
             "se corta el cable, que es justo el dia que importa.")
+      .nota("LOS REBOTES SON LA REALIDAD, y por eso vienen puestos. Un "
+            "contacto mecanico golpea y rebota antes de quedarse cerrado: "
+            "un firmware que cuente flancos de EXTI sin filtrarlos cuenta "
+            "varias pulsaciones donde hubo una, igual que en la placa. Los "
+            "2 ms por omision son del orden de lo que se mide en pulsadores "
+            "de verdad (Ganssle, \"A Guide to Debouncing\"). El patron es "
+            "pseudoaleatorio pero reproducible al picosegundo: la misma "
+            "pulsacion rebota igual en todas las ejecuciones y en todas las "
+            "plataformas. Para un contacto ideal, rebote=\"no\".")
       .nota("Lo que conduce no es \"pulsado\" sino \"pulsado XOR normalmente "
             "cerrado\":\n"
             "    normalmente    suelto    pulsado    desoldado\n"
@@ -185,8 +207,26 @@ REGISTRA_PARTE(Button,
                  "solo \"abierto\" (por omision) o \"cerrado\"").c_str());
             return nullptr;
         }
+        // `rebote`: un numero de ms, o "no", que es lo mismo que 0
+        const std::string rb = d.txt("rebote", "2");
+        char* fin = nullptr;
+        const double ms = (rb == "no") ? 0.0 : std::strtod(rb.c_str(), &fin);
+        if (rb != "no" && (fin == rb.c_str() || *fin != '\0' || ms < 0.0 || ms > 1000.0)) {
+            SC_REPORT_ERROR("netlist",
+                ("Button '" + d.id + "': rebote=\"" + rb + "\" no vale; es la "
+                 "duracion maxima del rebote en ms -de 0 a 1000-, o \"no\"").c_str());
+            return nullptr;
+        }
+        const double n_reb = d.num("rebotes", 5.0);
+        if (n_reb < 1.0 || n_reb > 1000.0 || n_reb != double(unsigned(n_reb))) {
+            SC_REPORT_ERROR("netlist",
+                ("Button '" + d.id + "': rebotes=\"" + d.txt("rebotes") + "\" no "
+                 "vale; es un entero de 1 a 1000 (para no rebotar, rebote=\"no\")").c_str());
+            return nullptr;
+        }
         return new Button(n[d.nodo_de("pin")], d.num("r_cerrado", 10.0),
-                          d.num("v_cerrado", 0.0), rep == "cerrado");
+                          d.num("v_cerrado", 0.0), rep == "cerrado", ms,
+                          unsigned(n_reb), uint64_t(d.num("semilla", 0.0)));
     });
 
 REGISTRA_PARTE(Crystal,
@@ -908,6 +948,12 @@ inline Instancia& pulsador(Netlist& nl, const char* id, const std::string& nodo,
                            bool normalmente_cerrado = false) {
     Instancia& i = nl.add("Button", id);
     i.pin("pin", nodo).par("r_cerrado", r_cerrado);
+    // Sin rebote, salvo que se diga otra cosa con `.par("rebote", ...)`. Con
+    // esta funcion se montan los BANCOS DE PRUEBAS, que pulsan con un dedo
+    // perfecto y cuentan flancos exactos: llevan contando los mismos desde
+    // mucho antes de que hubiera rebotes, y su tiempo simulado es un
+    // invariante. Una placa escrita en XML, en cambio, rebota por omision.
+    i.par("rebote", "no");
     if (v_cerrado != 0.0) i.par("v_cerrado", v_cerrado);
     if (normalmente_cerrado) i.par("normalmente", "cerrado");
     return i;

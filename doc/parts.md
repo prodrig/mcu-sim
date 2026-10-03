@@ -411,6 +411,9 @@ real y lo que el modelo reproduce.
 | `r_cerrado` | `10` | Resistencia del contacto cerrado, en ohmios. Pulsado, la pieza gobierna el nodo con `{v_cerrado, r_cerrado}` |
 | `v_cerrado` | `0` | **La tensión a la que lleva el pin al cerrarse.** Cero es el pulsador a masa de siempre; `3.3` es el pulsador a VDD |
 | `normalmente` | `abierto` | El **reposo del contacto**: `abierto` (suelto no conduce, pulsado conduce) o `cerrado` (suelto CONDUCE, y pulsarlo lo ABRE). Cualquier otra palabra es un error, no un `abierto` silencioso |
+| `rebote` | `2` | **Los rebotes del contacto**: lo que tarda como mucho, en ms, en quedarse quieto al cerrarse; al abrirse, la mitad. `0` o `no` es un contacto ideal, que cambia de una vez |
+| `rebotes` | `5` | **Cuántas veces** se separa y vuelve a tocar en cada rebote: exactamente esas, en instantes al azar. Con N rebotes, una EXTI por flanco de subida ve N+1 flancos al pulsar. De 1 a 1000; para no rebotar, `rebote="no"` |
+| `semilla` | `0` | La del patrón pseudoaleatorio de los rebotes. `0` la saca del id: dos pulsadores de la misma placa no rebotan igual, y el mismo rebota igual en todas las ejecuciones |
 
 **`normalmente="cerrado"` no es una rareza: es lo que hay en seguridad.** Un
 final de carrera, una seta de emergencia o un detector de puerta se cablean NC a
@@ -452,6 +455,42 @@ firmware parecería roto sin estarlo:
 
 Se acciona desde C++ con `press()` y `release()`. **Un pulsador
 `conectada="no"` no cierra aunque se le pulse.**
+
+**Rebota, como uno de verdad.** Un contacto mecánico golpea y rebota antes de
+quedarse cerrado, y un firmware que cuente flancos de EXTI sin filtrarlos cuenta
+varias pulsaciones donde hubo una — igual que en la placa. Por eso una placa en
+XML rebota **por omisión**, con 2 ms y 5 rebotes, que es el orden de lo
+que se mide en pulsadores reales (Ganssle, *A Guide to Debouncing*):
+
+- el contacto se mueve **en el acto**, con el primer golpe, y luego se separa y
+  vuelve a tocar **exactamente `rebotes` veces**, en instantes al azar dentro
+  de `rebote` ms, hasta quedarse donde el dedo quiere. Exactas y no «como
+  mucho» —que es como fue al principio— porque para enseñar y para depurar lo
+  que sirve es poder decir «con 3 rebotes, la EXTI ve 4 flancos»;
+- al soltar, igual, en la mitad de tiempo;
+- un movimiento del dedo a media rebote corta el que había: manda el último;
+- en un NC rebota igual, porque lo que rebota es la lámina, no la lógica;
+- el **observable `pulsado` es el dedo**, que no rebota: la ventana pinta el
+  botón hundido, no el contacto, que además cambia mucho más deprisa de lo que
+  la ventana muestrea.
+
+Y se puede cambiar **con la simulación en marcha**: el pulsador tiene tres
+mandos, `pulsar` (botón), **`rebote_ms`** (continuo, de 0 a 20 ms, o hasta lo
+que diga la placa si es más) y **`rebotes`** (discreto —un desplegable en la
+ventana—, de 1 a 9, o hasta lo que diga la placa), que valen desde el siguiente
+movimiento del dedo. Desde C++, `pon_rebote_ms()` y `pon_rebotes()`.
+
+El patrón es pseudoaleatorio pero **reproducible al picosegundo**: un generador
+propio (xorshift64\*) con semilla sacada del id —o de `semilla`— e instantes en
+ns enteros, sin `<random>` ni `double`, cuyas distribuciones cambian de una
+biblioteca a otra. Un pulsador sin rebote no crea ningún proceso: se simula
+exactamente como antes.
+
+**Los bancos de pruebas no rebotan**: `pulsador()`, la función con la que se
+montan desde C++, pone `rebote="no"`, porque cuentan flancos exactos desde mucho
+antes de que hubiera rebotes. Y el botón de RESET de la Discovery tampoco: en la
+tarjeta, el condensador de NRST se come los rebotes, y como ese condensador no
+se modela, B2 lleva `rebote="no"`.
 
 #### `Rpull`
 
@@ -951,6 +990,38 @@ sistema, está en `doc/puente_serie.md`**; con `--espera-terminal`, `mcu-sim` no
 arranca el MCU hasta que el terminal está conectado, y así no se pierde lo que
 el firmware imprime al arrancar.
 
+### 4.10 Lo que `mcu-sim-gui` puede ver y tocar
+
+Desde la fase 1 del plan de `mcu-sim-gui` (P-12), una pieza puede **declarar**
+qué deja ver —sus *observables*— y qué se le puede hacer —sus *mandos*—. La
+pantalla no ve nada más: ni la tensión de un pin cualquiera ni un registro del
+MCU. Lo declara la propia pieza, en `parts/ext_parts.h`, y el catálogo que la
+GUI recibirá se construye recorriendo el inventario, así que una pieza que
+empiece a declarar algo aparece sola.
+
+Hoy lo declaran tres:
+
+| Pieza | Observables | Mandos |
+| :--- | :--- | :--- |
+| `Led` | `encendido` (0/1, el que sugiere pintar) y `corriente` (mA, de 0 a 25) | — |
+| `Button` | `pulsado` (0/1): el **dedo**, no el contacto, que en un NC es lo contrario | `pulsar` (botón, 0 suelta, 1 pulsa) |
+| `Crystal` | `presente` (0/1): si está soldado | — |
+
+`Crystal` no publica la frecuencia por lo mismo que no la lleva como atributo:
+la del HSE es un dato del árbol de reloj y vive en el RCC.
+
+Desde la fase 5 los mandos se **accionan** desde la ventana: una orden dice
+pieza, mando y valor, y llega a `acciona()` en su instante simulado. El rango
+de cada mando es el que la pieza declara; una orden que se sale se recorta a él
+y se aplica, y el modelo lo avisa (`doc/protocolo.md` §5 en `mcu-sim-gui`).
+Para la pieza no hay diferencia entre eso y que el programa de pruebas llame al
+método de siempre: `acciona(pulsar, 1)` hace lo mismo que `press()`.
+
+Las otras diecinueve no declaran nada todavía, y no les hace falta para
+compilar: los seis métodos de `ExtPartBase` tienen valores por omisión. Las
+piezas que el enunciado de la GUI necesita y no existen —`PwmMeter`, `Servo`,
+`Encoder`, `StepperDriver`, `DcMotor`— están en `doc/analisis_gui.md` §8.
+
 ---
 
 ## 5. Lo que el fichero todavía no puede hacer
@@ -966,7 +1037,9 @@ existe—; simplemente no ha hecho falta todavía.
 
 **Nada de lo que ocurre durante la simulación está en el XML.** Pulsar un botón,
 encender un oscilador, enviar una trama CAN o inyectar una trama Ethernet son
-acciones, no descripción, y viven en el programa que conduce la simulación.
+acciones, no descripción, y viven en el programa que conduce la simulación
+—o, con `--gui`, en la ventana, que las manda como órdenes a los mandos que
+cada pieza declara (§4.10)—.
 
 **El MCU no se describe.** Variante, encapsulado y rasgos de los periféricos
 siguen fijados en C++. El fichero describe lo que está fuera del chip.

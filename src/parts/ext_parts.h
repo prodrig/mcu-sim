@@ -30,6 +30,8 @@
 #define STM32_PARTS_EXT_PARTS_H
 
 #include <systemc>
+#include <algorithm>
+#include <cstdint>
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -96,6 +98,17 @@ public:
     // Desoldar el cristal es exactamente detach(): el interruptor común de la
     // librería y el que ya tenía esta pieza son la misma operación.
     void set_enabled(bool on) override { if (on) attach(); else detach(); }
+
+    // Lo que deja ver: si HAY cristal. No la frecuencia, por lo mismo que no
+    // la lleva como atributo (véase su ficha en parts/netlist_parts.h): la del
+    // HSE es un dato del árbol de reloj y vive en el RCC. El plan de dos
+    // procesos pedía `frecuencia`; publicar una que la pieza no tiene sería
+    // inventarla, y la GUI no debe enseñar nada que el modelo no sepa.
+    unsigned   n_observables() const override { return 1; }
+    Observable observable(unsigned) const override {
+        return {"presente", "", 0.f, 1.f, true};
+    }
+    float valor_observable(unsigned) const override { return present_ ? 1.f : 0.f; }
 private:
     double vdd_, r_;
     bool   present_ = false;
@@ -191,6 +204,20 @@ SC_MODULE(Led), public ExtPart {
     }
     bool   on()      const { return on_; }
     double current() const { return std::fabs(double(pin_current())); }
+
+    // Lo que deja ver: si luce y cuánta corriente lleva. Sugiere lo primero;
+    // lo segundo es para quien quiera ver por qué un LED azul colgado de 3,3 V
+    // no luce. La escala de 0 a 25 mA es el máximo por pin que vigila el pad
+    // [IR, §3.2; pins/pad.h]: más que eso no se le puede pedir a un pin.
+    unsigned   n_observables() const override { return 2; }
+    Observable observable(unsigned i) const override {
+        if (i == 0) return {"encendido", "",   0.f, 1.f,  true};
+        return             {"corriente", "mA", 0.f, 25.f, false};
+    }
+    float valor_observable(unsigned i) const override {
+        if (i == 0) return on_ ? 1.f : 0.f;
+        return float(current() * 1000.0);
+    }
 private:
     void run() {
         hiz();
@@ -244,33 +271,185 @@ public:
     // Lo que conduce, entonces, no es "pulsado" sino "pulsado XOR normalmente
     // cerrado". Y un pulsador DESOLDADO no conduce nunca, sea del tipo que sea:
     // si no esta, no hay contacto que cerrar.
+    //
+    // LOS REBOTES. Un contacto mecanico no se cierra de una vez: la lamina
+    // golpea, rebota y vuelve a tocar varias veces antes de quedarse quieta,
+    // y un firmware que cuente flancos sin filtrarlos cuenta varias
+    // pulsaciones donde hubo una. `rebote_ms` es lo que dura eso como mucho al
+    // CERRARSE el contacto que mueve el dedo -al abrirse, la mitad-, y
+    // `rebotes` CUANTAS VECES se separa y vuelve a tocar: exactamente esas,
+    // en instantes al azar dentro de la ventana. Exactas y no «como mucho»,
+    // que es lo que fue al principio, porque para enseñar y para depurar lo
+    // que sirve es poder decir «con 3 rebotes, la EXTI ve 4 flancos». Con
+    // `rebote_ms = 0` el contacto cambia de una vez, que es como era siempre
+    // y como lo construye este constructor si no se le dice otra cosa; el
+    // XML, en cambio, pone 2 ms por omision (vease `netlist_parts.h`).
+    //
+    // El patron es pseudoaleatorio pero REPRODUCIBLE AL PICOSEGUNDO: un
+    // generador propio -xorshift64*- con semilla sacada del id de la pieza
+    // (o de `semilla`, si no es cero) e instantes en ns enteros. Nada de
+    // <random> ni de `double`: sus distribuciones cambian de una biblioteca a
+    // otra, y el tiempo simulado es un invariante del proyecto en cuatro
+    // plataformas (I-24, I-41).
     Button(analog_net_if& n, double r_closed = 10.0, double v_closed = 0.0,
-           bool nc = false)
+           bool nc = false, double rebote_ms = 0.0, unsigned rebotes = 5,
+           uint64_t semilla = 0)
         : ExtPart(n, "Button", "button", "pin"),
-          r_(r_closed), v_(v_closed), nc_(nc) {
+          r_(r_closed), v_(v_closed), nc_(nc), rebotes_(rebotes),
+          semilla_(semilla) {
+        pon_rebote_ms(rebote_ms);
+        // El tope del mando `rebote_ms`: 20 ms, o lo que diga la placa si es
+        // mas; y el de `rebotes`, 9 o lo que diga la placa. Fijos para la
+        // instancia, como pide el contrato del catalogo.
+        max_rebote_ms_ = rebote_ms > 20.0 ? float(rebote_ms) : 20.f;
+        max_rebotes_   = rebotes > 9u ? float(rebotes) : 9.f;
         aplica();                 // un NC conduce ya, desde que se construye
     }
-    void press()   { down_ = true;  aplica(); }
-    void release() { down_ = false; aplica(); }
+    void press()   { mueve(true); }
+    void release() { mueve(false); }
     // `pressed()` es lo que hace el DEDO; `cerrado()` es lo que hace el
-    // CONTACTO. En un NC son opuestos, y confundirlos es el error facil.
+    // CONTACTO. En un NC son opuestos, y confundirlos es el error facil. Con
+    // rebotes, ademas, el contacto va por detras del dedo unos milisegundos.
     bool pressed() const { return down_; }
-    bool cerrado() const { return conectada_ && (down_ != nc_); }
+    bool cerrado() const { return conectada_ && (toque_ != nc_); }
     bool normalmente_cerrado() const { return nc_; }
     double v_cerrado() const { return v_; }
+    // El rebote, en ms. 0 es sin rebotes. Lo que valga cuenta desde la
+    // SIGUIENTE vez que cambie el dedo: el rebote en curso sigue como iba.
+    double   rebote_ms() const { return double(rebote_ns_) / 1e6; }
+    void     pon_rebote_ms(double ms) {
+        rebote_ns_ = ms > 0.0 ? uint64_t(ms * 1e6 + 0.5) : 0u;
+    }
+    unsigned rebotes() const { return rebotes_; }
+    // Desde la siguiente vez que se mueva el dedo. 0 no rebota, como un
+    // rebote de 0 ms.
+    void     pon_rebotes(unsigned n) { rebotes_ = n; }
+    // Cuantas veces ha cambiado el CONTACTO desde que se construyo: sin
+    // rebotes, una por cada vez que cambia el dedo; con rebotes, mas.
+    uint64_t cambios_contacto() const { return n_cambios_; }
     // Al desoldar se abre el contacto; al volver a soldar, vuelve a su reposo,
     // que en un NC es conduciendo.
     void set_enabled(bool on) override {
         ExtPartBase::set_enabled(on);
-        if (!on) down_ = false;
+        if (!on) { corta_rebote(); down_ = false; pon_toque(false); }
         aplica();
+    }
+
+    // Lo que deja ver y lo que se le puede hacer. `pulsado` es el DEDO
+    // -pressed()-, no el contacto: en un NC son opuestos, y lo que la
+    // pantalla pinta es el botón hundido o no. El mando `pulsar` es
+    // exactamente press()/release(): 1 pulsa, 0 suelta, y lo que no sea ni
+    // uno ni otro se decide por la mitad. Sobre un pulsador desoldado pasa lo
+    // mismo que con press(): el dedo baja, pero no hay contacto que cerrar.
+    //
+    // Y `rebote_ms`, continuo, es exactamente pon_rebote_ms(): la duracion
+    // del rebote, de 0 -contacto ideal- a 20 ms, o a lo que diga la placa si
+    // es mas. Vale desde la siguiente vez que se mueva el dedo, asi que se
+    // puede ajustar con la simulacion en marcha y sin tocar el XML. Y
+    // `rebotes`, discreto -un desplegable en la pantalla-, es pon_rebotes():
+    // de 1 a 9, o a lo que diga la placa si es mas. Para no rebotar, el
+    // rebote a 0 ms: un desplegable de cuantas veces no necesita un «ninguna».
+    unsigned   n_observables() const override { return 1; }
+    Observable observable(unsigned) const override {
+        return {"pulsado", "", 0.f, 1.f, true};
+    }
+    float    valor_observable(unsigned) const override { return down_ ? 1.f : 0.f; }
+    unsigned n_mandos() const override { return 3; }
+    Mando    mando(unsigned i) const override {
+        if (i == 1) return {"rebote_ms", Mando::Continuo, 0.f, max_rebote_ms_};
+        if (i == 2) return {"rebotes", Mando::Discreto, 1.f, max_rebotes_};
+        return {"pulsar", Mando::Boton, 0.f, 1.f};
+    }
+    float    valor_mando(unsigned i) const override {
+        if (i == 1) return float(rebote_ms());
+        if (i == 2) return float(rebotes_);
+        return down_ ? 1.f : 0.f;
+    }
+    void     acciona(unsigned i, float v) override {
+        if (i == 1) { pon_rebote_ms(double(v)); return; }
+        if (i == 2) { pon_rebotes(unsigned(v + 0.5f)); return; }   // ya en [1, max]
+        if (v >= 0.5f) press(); else release();
     }
 private:
     void aplica() {
         if (cerrado()) drive(float(v_), float(r_));
         else           hiz();
     }
+    void pon_toque(bool t) {
+        if (t != toque_) { toque_ = t; ++n_cambios_; }
+    }
+    // El dedo cambia. El contacto toca (o se separa) EN EL ACTO -el primer
+    // golpe-, y si hay rebote, se programa el resto.
+    void mueve(bool abajo) {
+        if (abajo == down_) return;           // pulsar lo pulsado no hace nada
+        down_ = abajo;
+        corta_rebote();
+        pon_toque(abajo);
+        aplica();
+        const uint64_t d = abajo ? rebote_ns_ : rebote_ns_ / 2u;
+        if (d == 0 || rebotes_ == 0 || !conectada_) return;
+        programa_rebote(d);
+    }
+    // xorshift64*: pequeño, conocido y el mismo en todas partes [Vigna, 2014]
+    uint64_t azar() {
+        if (rng_ == 0) {
+            // FNV-1a del id: dos pulsadores de la misma placa no rebotan igual
+            uint64_t h = 0xcbf29ce484222325ull;
+            for (unsigned char c : pieza()) { h ^= c; h *= 0x100000001b3ull; }
+            rng_ = (semilla_ ? semilla_ : h) | 1u;
+        }
+        rng_ ^= rng_ >> 12; rng_ ^= rng_ << 25; rng_ ^= rng_ >> 27;
+        return rng_ * 0x2545F4914F6CDD1Dull;
+    }
+    // `rebotes` rebotes, cada uno un separarse y un volver a tocar: 2k
+    // instantes distintos en (0, d] ns, ordenados. El ultimo deja el contacto
+    // donde el dedo quiere.
+    void programa_rebote(uint64_t d) {
+        const unsigned k = rebotes_;
+        cola_.clear();
+        for (unsigned i = 0; i < 2u * k; ++i) cola_.push_back(1u + azar() % d);
+        std::sort(cola_.begin(), cola_.end());
+        for (size_t i = 1; i < cola_.size(); ++i)          // estrictamente crecientes
+            if (cola_[i] <= cola_[i - 1]) cola_[i] = cola_[i - 1] + 1u;
+        t0_ = sc_core::sc_time_stamp();
+        sig_ = 0;
+        if (!proceso_) {
+            // El proceso nace la primera vez que hace falta: un pulsador sin
+            // rebotes no crea ninguno, y una placa que no rebota se simula
+            // exactamente como antes, delta a delta.
+            sc_core::sc_spawn_options o;
+            o.spawn_method();
+            o.set_sensitivity(&ev_);
+            o.dont_initialize();
+            sc_core::sc_spawn([this] { rebota(); },
+                              sc_core::sc_gen_unique_name("rebote"), &o);
+            proceso_ = true;
+        }
+        ev_.notify(sc_core::sc_time(double(cola_[0]), sc_core::SC_NS));
+    }
+    void rebota() {
+        if (sig_ >= cola_.size()) return;
+        pon_toque(!toque_);
+        aplica();
+        ++sig_;
+        if (sig_ < cola_.size())
+            ev_.notify(t0_ + sc_core::sc_time(double(cola_[sig_]), sc_core::SC_NS) -
+                       sc_core::sc_time_stamp());
+    }
+    void corta_rebote() { ev_.cancel(); cola_.clear(); sig_ = 0; }
+
     double r_, v_; bool nc_ = false, down_ = false;
+    bool     toque_ = false;          // el contacto TOCA (el del dedo, sin el NC)
+    uint64_t rebote_ns_ = 0;
+    unsigned rebotes_ = 5;
+    uint64_t semilla_ = 0, rng_ = 0, n_cambios_ = 0;
+    std::vector<uint64_t> cola_;      // instantes del rebote, desde t0_, en ns
+    size_t   sig_ = 0;
+    sc_core::sc_time  t0_;
+    sc_core::sc_event ev_;
+    bool     proceso_ = false;
+    float    max_rebote_ms_ = 20.f;
+    float    max_rebotes_ = 9.f;
 };
 
 // ---------------------------------------------------------------------------

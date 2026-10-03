@@ -66,6 +66,25 @@ def check(cond, texto):
     return cond
 
 
+def check_bytes(obtenido, esperado, texto):
+    """Como check(obtenido == esperado), pero si falla dice QUE llego: cuantos
+    bytes, el primero distinto y los de alrededor. Un «[FALLO] los 255 valores»
+    sin mas no distingue un byte comido de una rafaga cortada por el plazo, y
+    las dos cosas tienen arreglos distintos. Paso de verdad en el CI de macOS
+    el 2026-10-01 (I9, por el pty de socat), y aquel log no tenia con que
+    contestar."""
+    if check(obtenido == esperado, texto):
+        return True
+    n = min(len(obtenido), len(esperado))
+    i = next((k for k in range(n) if obtenido[k] != esperado[k]), n)
+    print("          llegaron %d de %d bytes; el primero distinto, en la posicion %d"
+          % (len(obtenido), len(esperado), i))
+    print("          esperado alli: %s" % esperado[max(0, i - 4):i + 8].hex(" "))
+    print("          llego alli:    %s" % obtenido[max(0, i - 4):i + 8].hex(" "))
+    sys.stdout.flush()
+    return False
+
+
 def grupo(nombre):
     print("--- %s ---" % nombre)
     sys.stdout.flush()
@@ -158,8 +177,8 @@ def rfc2217(sim, tiempo_real, dir_log):
         check(p.is_open, "el cliente abre " + url + " (negocia COM-PORT)")
         p.reset_input_buffer()
         check(eco(p, b"Hola\r\n") == b"Hola\r\n", "eco a 115200")
-        check(eco(p, TODOS) == TODOS,
-              "los 255 valores de byte, 0xFF y 0x00 incluidos, van y vuelven")
+        check_bytes(eco(p, TODOS), TODOS,
+                    "los 255 valores de byte, 0xFF y 0x00 incluidos, van y vuelven")
         check(eco(p, b"\r\x00\r\n") == b"\r\x00\r\n",
               "un NUL detras de un CR no se pierde: la sesion es BINARY")
 
@@ -311,7 +330,7 @@ def crudo(sim, tiempo_real, dir_log, con_socat):
             return
         p = serial.serial_for_url("socket://127.0.0.1:%d" % puerto, timeout=0.5)
         check(eco(p, b"Hola\r\n") == b"Hola\r\n", "eco")
-        check(eco(p, TODOS) == TODOS, "los 255 valores de byte, sin escapar nada")
+        check_bytes(eco(p, TODOS), TODOS, "los 255 valores de byte, sin escapar nada")
         p.close()
 
         if not con_socat:
@@ -334,7 +353,7 @@ def crudo(sim, tiempo_real, dir_log, con_socat):
             p.reset_input_buffer()
             check(eco(p, b"por el pty\r\n") == b"por el pty\r\n",
                   "eco a traves del pty, abierto como un puerto serie")
-            check(eco(p, TODOS) == TODOS, "los 255 valores de byte, tambien por el pty")
+            check_bytes(eco(p, TODOS), TODOS, "los 255 valores de byte, tambien por el pty")
             p.close()
         finally:
             so.terminate()

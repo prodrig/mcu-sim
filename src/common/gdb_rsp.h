@@ -91,6 +91,8 @@ public:
     bool     conectado() const  { return red::valido(cli_); }
     unsigned puerto() const     { return puerto_; }
     unsigned paquetes() const   { return n_paq_; }
+    // Las veces que se ha avisado de que el depurador no era de ARM.
+    unsigned avisos_arquitectura() const { return n_avisos_arq_; }
     unsigned flash_palabras() const { return n_flash_; }
     unsigned accesos() const    { return n_acc_; }
     const std::string& ultimo() const { return ultimo_; }
@@ -386,6 +388,7 @@ private:
         // borrar, y en una Flash eso solo puede APAGAR bits: el programa
         // quedaria corrupto de una forma preciosa de depurar.
         for (bool& b : sector_borrado_) b = false;
+        arq_dudosa_.clear(); g_lo_ultimo_ = false;
         std::printf("[%s] cliente conectado\n", etiqueta_); std::fflush(stdout);
         if (!enganchado_) enganchar();
         if (halt_al_conectar_) { parar(); }
@@ -393,6 +396,22 @@ private:
     void desconectar() {
         red::cerrar(cli_);
         std::printf("[%s] cliente desconectado\n", etiqueta_); std::fflush(stdout);
+        // Se ha ido JUSTO DESPUES de recibir los registros, y no era de ARM:
+        // eso es "Truncated register ... in remote 'g' packet" (vease cmd_q).
+        if (!arq_dudosa_.empty() && g_lo_ultimo_) {
+            ++n_avisos_arq_;
+            std::printf("[%s] AVISO: el depurador se ha ido justo despues de pedir los "
+                        "registros, y dijo ser para '%s', no para ARM.\n"
+                        "[%s]        Casi seguro es el `gdb` del PC, no "
+                        "arm-none-eabi-gdb, y habra fallado con\n"
+                        "[%s]        \"Truncated register ... in remote 'g' packet\".\n"
+                        "[%s]        En el IDE: Debugger > GDB Command, con "
+                        "la RUTA COMPLETA de arm-none-eabi-gdb.\n",
+                        etiqueta_, arq_dudosa_.c_str(),
+                        etiqueta_, etiqueta_, etiqueta_);
+            std::fflush(stdout);
+        }
+        arq_dudosa_.clear(); g_lo_ultimo_ = false;
     }
     void tx(const char* d, size_t n) {
         if (!red::valido(cli_)) return;
@@ -478,6 +497,13 @@ private:
             if (!sin_ack_) tx("+", 1);
             ++n_paq_;
             if (verboso_) std::printf("[%s] <- %s\n", etiqueta_, cuerpo.c_str());
+            // Si pide algo DESPUES de los registros es que los ha entendido:
+            // fuera la sospecha. Si el ultimo paquete de la sesion es la `g`,
+            // `desconectar()` avisa.
+            if (!arq_dudosa_.empty()) {
+                if (cuerpo == "g") g_lo_ultimo_ = true;
+                else if (g_lo_ultimo_) { arq_dudosa_.clear(); g_lo_ultimo_ = false; }
+            }
             atender(cuerpo);
         }
     }
@@ -713,35 +739,39 @@ private:
 
     void cmd_q(const std::string& p) {
         if (p.rfind("qSupported", 0) == 0) {
-            // GDB anuncia aqui PARA QUE ARQUITECTURA esta construido, en
-            // `xmlRegisters=`. Si no es ARM, lo que hay al otro lado no es un
-            // depurador de Cortex-M sino el `gdb` del PC, y la sesion morira
-            // unos paquetes despues con un mensaje que no se parece en nada a
-            // la causa: "Truncated register 18 in remote 'g' packet" —porque un
-            // GDB de i386 espera 8 registros de 32 bits, EIP, EFLAGS, seis de
-            // segmento y luego los de x87, de OCHENTA bits cada uno, y nuestro
-            // paquete `g` son 23 palabras de 32—. Costo horas la primera vez;
-            // dicho aqui, cuesta cero.
+            // `xmlRegisters=` dice para que arquitecturas sabe GDB leer una
+            // descripcion de registros en XML. Si no sale `arm`, puede que lo
+            // que hay al otro lado sea el `gdb` del PC y no un depurador de
+            // Cortex-M, y entonces la sesion morira unos paquetes despues con un
+            // mensaje que no se parece en nada a la causa: "Truncated register
+            // 18 in remote 'g' packet" —porque un GDB de i386 espera 8 registros
+            // de 32 bits, EIP, EFLAGS, seis de segmento y luego los de x87, de
+            // OCHENTA bits cada uno, y nuestro paquete `g` son 23 palabras de
+            // 32—. Costo horas la primera vez; dicho aqui, cuesta cero.
+            //
+            // PERO NO BASTA CON LEERLO, y por eso aqui no se avisa todavia. Lo
+            // que GDB pone ahi no es «para que estoy construido»: es la lista de
+            // arquitecturas que registran ese soporte, y en GDB solo lo hace la
+            // de x86. Un `arm-none-eabi-gdb` no manda nada —no lleva x86—, el
+            // `gdb` del PC manda `i386`, y `gdb-multiarch`, que lleva las dos,
+            // TAMBIEN manda `i386`... y funciona perfectamente, porque si
+            // entiende el `target.xml` de ARM. Avisar aqui era una falsa alarma
+            // para todo el que depura con `gdb-multiarch` (I-54).
+            //
+            // Lo que de verdad distingue a los dos es lo que pasa con el paquete
+            // `g`: el que no es de ARM no puede leerlo, da el error y se va; el
+            // otro sigue pidiendo cosas. Asi que aqui solo se toma nota, y avisa
+            // `desconectar()` si la `g` resulta ser lo ultimo que se pidio.
             const size_t xr = p.find("xmlRegisters=");
             const size_t fxr = (xr == std::string::npos)
                              ? std::string::npos : p.find(';', xr);
             const std::string arqs = (xr == std::string::npos)
                                    ? std::string()
                                    : p.substr(xr + 13, fxr - xr - 13);
-            if (xr != std::string::npos &&
-                arqs.find("arm") == std::string::npos) {
-                std::printf("[%s] AVISO: el depurador conectado dice ser para "
-                            "'%s', no para ARM.\n"
-                            "[%s]        Esto es el `gdb` del PC, no "
-                            "arm-none-eabi-gdb. Fallara en el paquete `g`\n"
-                            "[%s]        con \"Truncated register ... in remote "
-                            "'g' packet\".\n"
-                            "[%s]        En el IDE: Debugger > GDB Command, con "
-                            "la RUTA COMPLETA de arm-none-eabi-gdb.\n",
-                            etiqueta_, arqs.c_str(),
-                            etiqueta_, etiqueta_, etiqueta_);
-                std::fflush(stdout);
-            }
+            arq_dudosa_ = (xr != std::string::npos &&
+                           arqs.find("arm") == std::string::npos) ? arqs
+                                                                  : std::string();
+            g_lo_ultimo_ = false;
             responder("PacketSize=1000;qXfer:features:read+;QStartNoAckMode+;"
                       "swbreak+;hwbreak+;vContSupported+");
             return;
@@ -892,6 +922,10 @@ private:
     bool     anunciado_ = false;
     bool     halt_al_conectar_ = true, activo_ = true;
     unsigned n_paq_ = 0, n_flash_ = 0, n_acc_ = 0, espera_ = 0;
+    // Lo que dijo `xmlRegisters=` si no era ARM, y si lo ultimo pedido fue `g`
+    std::string arq_dudosa_;
+    bool        g_lo_ultimo_ = false;
+    unsigned    n_avisos_arq_ = 0;
     unsigned vueltas_vigilancia_ = 8;
     sc_core::sc_time poll_{100, sc_core::SC_US};
     sc_core::sc_event ev_;

@@ -27,6 +27,19 @@ on:
   pull_request:
   workflow_dispatch:
 
+# LAS ACCIONES, EN Node.js 24. Las versiones de abajo son la PRIMERA de
+# cada una que corre con Node.js 24 (`runs.using: node24` en su action.yml),
+# no la ultima: es el salto mas corto, y en las cuatro el unico cambio de esa
+# version mayor es el entorno. Comprobado el 2026-10-01 en el action.yml de
+# cada etiqueta:
+#
+#   actions/checkout           v4 -> v5
+#   actions/upload-artifact    v4 -> v6   (la v5 aun era node20)
+#   actions/download-artifact  v4 -> v7   (la v5 y la v6 aun eran node20)
+#   actions/cache              v4 -> v5
+#   msys2/setup-msys2          v2         (ya era node24)
+#
+# Piden un runner 2.327.1 o posterior, que los de GitHub ya tienen.
 permissions:
   contents: read            # el job `publica` se lo sube a write, y solo el
 
@@ -58,7 +71,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+
+      # EL OTRO REPOSITORIO, para comparar las cabeceras que se comparten por
+      # copia (`protocolo.h` y `proto_io.h`, riesgo R-6 del plan de
+      # mcu-sim-gui). Su rama principal: un cambio del protocolo se sube
+      # PRIMERO alli y despues aqui, y si no, esto lo canta. Es publico, asi
+      # que no hace falta ningun token; si deja de serlo, aqui hara falta uno.
+      - uses: actions/checkout@v5
+        with:
+          repository: prodrig/mcu-sim-gui
+          path: mcu-sim-gui
 
       - name: El SEGUNDO motor de los vectores de cifrado
         # `verif/vectores/comprueba_vectores.py` devuelve 1 si algun caso queda
@@ -94,6 +117,10 @@ jobs:
         working-directory: src
         run: make -f Makefile.mcu-sim red hash cryp vectores serie rfc2217
 
+      - name: El transporte con mcu-sim-gui, y sus copias identicas
+        working-directory: src
+        run: make -f Makefile.mcu-sim gui-proto GUI_REPO=../mcu-sim-gui
+
   # -------------------------------------------------------------------------
   # Linux con el paquete de la distribucion, que es LA VIA QUE DOCUMENTAMOS en
   # doc/compilacion.md 4. Si algun dia desaparece de Ubuntu, quiero que falle
@@ -123,7 +150,7 @@ jobs:
       matrix:
         os: [ubuntu-22.04, ubuntu-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: SystemC desde el paquete de Ubuntu
         # python3-serial y socat son para la interoperabilidad del puente UART
@@ -134,14 +161,14 @@ jobs:
           sudo apt-get install -y libsystemc-dev python3-serial socat
           dpkg -l libsystemc-dev python3-serial socat | tail -3
 
-      - name: Las suites (las tres de siempre y testserie)
+      - name: Las suites (las tres de siempre, testserie y testgui)
         env:
           SUITES_PRESUPUESTO: 600
         run: sh ci/pasa_suites.sh
 
-      - name: Los invariantes de las cuatro, al picosegundo
+      - name: Los invariantes de las cinco, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie; do
+          for s in test407 test446 test417 testserie testgui; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -184,7 +211,11 @@ jobs:
         working-directory: src
         run: make -f Makefile.mcu-sim interop
 
-      - uses: actions/upload-artifact@v4
+      - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos)
+        working-directory: src
+        run: make -f Makefile.mcu-sim gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos
+
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: salidas-linux-${{ matrix.os }}
@@ -219,11 +250,11 @@ jobs:
     needs: rapidas
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Cache de SystemC estatica
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ github.workspace }}/systemc
           key: systemc-${{ env.SYSTEMC_VER }}-cxx17-ubuntu2204-estatica-v1
@@ -286,7 +317,7 @@ jobs:
           tar czf mcu-sim-linux-x86_64.tar.gz -C paquete .
           tar tzvf mcu-sim-linux-x86_64.tar.gz
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: mcu-sim-linux-x86_64
           path: mcu-sim-linux-x86_64.tar.gz
@@ -313,7 +344,7 @@ jobs:
             arq: Intel
             etiqueta: x86_64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # ---------------------------------------------------------------------
       # SystemC DE HOMEBREW, no compilada aqui. Es LA VIA QUE DOCUMENTA
@@ -363,22 +394,24 @@ jobs:
 
       # SIN pasar SYSTEMC_HOME, a proposito: aqui se ejerce la deteccion
       # automatica, que es la que se encuentra un alumno.
-      - name: Las suites (las tres de siempre y testserie)
+      - name: Las suites (las tres de siempre, testserie y testgui)
         env:
           SUITES_PRESUPUESTO: 600
         run: sh ci/pasa_suites.sh CXX=clang++
 
-      - name: Los invariantes de las cuatro, al picosegundo
+      - name: Los invariantes de las cinco, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie; do
+          for s in test407 test446 test417 testserie testgui; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: salidas-macos-${{ matrix.os }}
-          path: src/build/*.log
+      # La red y el transporte con mcu-sim-gui en ESTA plataforma: sin SystemC,
+      # segundos. En Linux ya corren en `rapidas`; aqui es donde `common/red.h`
+      # se juega lo que no es de Linux (SO_NOSIGPIPE en macOS, Winsock en
+      # Windows). Sin GUI_REPO: las copias compartidas ya se comparan alli.
+      - name: La red y el transporte, sin SystemC
+        working-directory: src
+        run: make -f Makefile.mcu-sim red gui-proto CXX=clang++
 
       # -----------------------------------------------------------------
       # EL EJECUTABLE DE macOS SE QUEDA ENLAZADO A LA SystemC DE HOMEBREW,
@@ -411,6 +444,29 @@ jobs:
         working-directory: src
         run: python3 verif/serie/interop.py
 
+      - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos)
+        # psutil para medir la CPU de mcu-sim mientras espera: en Linux basta
+        # /proc, aqui no.
+        working-directory: src
+        run: |
+          python3 -m pip install --break-system-packages psutil ||
+            python3 -m pip install --user psutil
+          python3 verif/gui/saludo.py
+          python3 verif/gui/marcha.py
+          python3 verif/gui/ordenes.py
+          python3 verif/gui/control.py
+          python3 verif/gui/argumentos.py
+
+      # DESPUES de la interoperabilidad, no antes: sus `interop_*.log` -la
+      # consola de cada mcu-sim que arranca- tambien estan en src/build/, y
+      # cuando I9 fallo en este trabajo el 2026-10-01 la subida ya se habia
+      # hecho y se perdieron. En Linux y Windows este paso ya iba detras.
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: salidas-macos-${{ matrix.os }}
+          path: src/build/*.log
+
       - name: Empaquetar
         # `tar`, no zip: el zip de upload-artifact PIERDE EL BIT DE
         # EJECUCION. Y el `tar` conserva de paso la ausencia de cuarentena,
@@ -425,7 +481,7 @@ jobs:
           tar czf mcu-sim-macos-${{ matrix.etiqueta }}.tar.gz -C paquete .
           tar tzvf mcu-sim-macos-${{ matrix.etiqueta }}.tar.gz
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: mcu-sim-macos-${{ matrix.etiqueta }}
           path: mcu-sim-macos-${{ matrix.etiqueta }}.tar.gz
@@ -447,7 +503,7 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -458,7 +514,7 @@ jobs:
 
       - name: Cache de SystemC
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ github.workspace }}/systemc
           key: systemc-${{ env.SYSTEMC_VER }}-cxx17-mingw64-qt-v3
@@ -488,18 +544,22 @@ jobs:
           sh ci/construye_systemc.sh "$(cygpath -u "$GITHUB_WORKSPACE")/systemc" \
               -G Ninja -DCMAKE_ASM_FLAGS="-x assembler-with-cpp"
 
-      - name: Las suites (las tres de siempre y testserie)
+      - name: Las suites (las tres de siempre, testserie y testgui)
         env:
           SUITES_PRESUPUESTO: 900      # aqui SystemC se compila antes: mas margen
         run: |
           sh ci/pasa_suites.sh \
              SYSTEMC_HOME="$(cygpath -u "$GITHUB_WORKSPACE")/systemc"
 
-      - name: Los invariantes de las cuatro, al picosegundo
+      - name: Los invariantes de las cinco, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie; do
+          for s in test407 test446 test417 testserie testgui; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
+
+      - name: La red y el transporte, sin SystemC (Winsock)
+        working-directory: src
+        run: make -f Makefile.mcu-sim red gui-proto
 
       - name: Que el .exe no dependa de ninguna DLL de MinGW
         # El `-static` del Makefile no es un lujo: sin el, el ejecutable
@@ -529,7 +589,18 @@ jobs:
           python -m pip install pyserial
           python verif/serie/interop.py
 
-      - uses: actions/upload-artifact@v4
+      - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos)
+        shell: pwsh
+        working-directory: src
+        run: |
+          python -m pip install psutil
+          python verif/gui/saludo.py
+          python verif/gui/marcha.py
+          python verif/gui/ordenes.py
+          python verif/gui/control.py
+          python verif/gui/argumentos.py
+
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: salidas-windows
@@ -556,7 +627,7 @@ jobs:
           cd paquete && zip -r ../mcu-sim-windows-x86_64.zip . && cd ..
           unzip -l mcu-sim-windows-x86_64.zip
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: mcu-sim-windows-x86_64
           path: mcu-sim-windows-x86_64.zip
@@ -578,9 +649,9 @@ jobs:
     permissions:
       contents: write         # solo aqui, y solo para crear la Release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           pattern: mcu-sim-*
           path: paquetes

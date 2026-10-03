@@ -79,6 +79,8 @@
 #include "../parts/ext_parts.h"
 #include "../parts/netlist_parts.h"
 #include "../parts/netlist_xml.h"
+#include "../parts/frontera_gui.h"  // la frontera con mcu-sim-gui, construida e inactiva
+#include "../parts/enlace_gui.h"    // y el enlace en marcha, igual
 #include "../verif/decoder_vectors.h"
 #include "../verif/gdb_stub.h"
 #include "../core/gdb_stub_dap.h"
@@ -217,6 +219,20 @@ SC_MODULE(F1Tb) {
     Rpull     pd_nc{n_btn_nc, 0.0, 100e3};
     Button    btn_na{n_btn_na, 10.0, 3.3, false};   // normalmente ABIERTO
     Button    btn_nc{n_btn_nc, 10.0, 3.3, true};    // normalmente CERRADO
+
+    // --- La frontera con mcu-sim-gui (fase 1 de su plan), SIN ACTIVAR -------
+    // Se construye aqui porque en `sim` se construye siempre, haya `--gui` o
+    // no, y lo que este banco tiene que demostrar es justo eso: que dos
+    // procesos que esperan sobre un evento que nadie notifica no cuestan nada.
+    // La prueba NO es una comprobacion: es que la linea de este banco en
+    // `verif/invariantes.txt` no cambie, ni en picosegundos ni en recuento.
+    // Todo lo demas -lo que declara cada pieza, el catalogo, el muestreador y
+    // el aplicador- esta en `testgui`, por la decision D-12 del puente UART:
+    // lo que no necesita este banco no mueve sus cifras.
+    stm32::gui::FronteraGui frontera{"frontera"};
+    // Y el enlace de la fase 4, igual: construido, sin activar y sin tocar el
+    // manejador de SC_REPORT. Su proceso espera un evento que nadie notifica.
+    stm32::gui::EnlaceGui   enlace{"enlace", frontera};
     // Oscilador externo para el modo bypass del HSE. Los sc_module deben
     // construirse durante la elaboración, así que se crea aquí parado.
     ExtClock* osc_ext = nullptr;
@@ -1182,6 +1198,8 @@ SC_MODULE(F1Tb) {
         t128_familia_f405_f407();
         t129_factoria_de_mcu();
         t130_argumento_gui();
+        t131_systick_tras_parada();
+        t132_rebotes();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -10400,6 +10418,33 @@ SC_MODULE(F1Tb) {
         std::printf("    el stub atendio %u paquetes en la sesion\n", gdb->paquetes());
         check(gdb->paquetes() > 30u, "toda la sesion fue por el socket y por dos pines");
         gdb_cli_.desconectar();
+        wait(1, SC_MS);
+        check_eq(gdb->avisos_arquitectura(), 0u,
+                 "un GDB que dice ser de ARM no levanta ningun aviso");
+
+        // --- ¿Es el `gdb` del PC? (I-54) --------------------------------------
+        // `gdb-multiarch` anuncia `xmlRegisters=i386` igual que el `gdb` del
+        // PC, pero entiende el `target.xml` de ARM y sigue: no hay que avisar.
+        // El del PC no puede leer la `g`, falla y se va: ese si.
+        auto sesion = [&](bool sigue) {
+            check(gdb_cli_.conectar(gdb->puerto()), "otro cliente se conecta");
+            wait(1, SC_MS);
+            gdb_cli_.pedir("qSupported:multiprocess+;swbreak+;hwbreak+;"
+                           "xmlRegisters=i386");
+            gdb_cli_.pedir("g");
+            if (sigue) {                       // gdb-multiarch: lee y se despide
+                gdb_cli_.pedir("m8000000,4");
+                gdb_cli_.pedir("D");
+            }                                  // el del PC: "Truncated register"
+            gdb_cli_.desconectar();
+            wait(1, SC_MS);
+        };
+        sesion(true);
+        check_eq(gdb->avisos_arquitectura(), 0u,
+                 "gdb-multiarch dice i386, lee los registros y sigue: sin aviso");
+        sesion(false);
+        check_eq(gdb->avisos_arquitectura(), 1u,
+                 "el gdb del PC dice i386 y se va tras la g: ESE es el aviso");
         gdb->set_enabled(false);
         wait(1, SC_MS);
     }
@@ -14432,6 +14477,275 @@ SC_MODULE(F1Tb) {
         check(sizeof(mcusim::proto::Orden)    == 16, "una Orden son 16 bytes");
         check(sizeof(mcusim::proto::Muestra)  ==  8, "una Muestra son 8 bytes");
         check(mcusim::proto::MAGIA == 0x3147534Du,   "la magia es 'MSG1'");
+    }
+
+    // -----------------------------------------------------------------------
+    // T131 — EL SYSTICK, DESPUES DE UNA PARADA DEL DEPURADOR (I-53)
+    //
+    // El fallo: con un punto de ruptura en `HAL_GPIO_TogglePin` y «Resume»,
+    // la mitad de las veces el programa se quedaba PARA SIEMPRE dentro de
+    // `HAL_Delay`: el SysTick no volvia a interrumpir.
+    //
+    // Por que. Al reanudar, el contador vuelve a contar desde el valor que
+    // tenia al parar, `c`, que es cualquiera. El cruce por cero se calcula como
+    // un instante -`t_base_ + c/f`- redondeado al picosegundo, y a 168 MHz un
+    // tick son 5952,38 ps: segun `c`, el redondeo cae hasta medio picosegundo
+    // ANTES del tick de verdad. Ahi faltaba un tick, se esperaba 1 ps, y en la
+    // vuelta siguiente el contador ya valia cero... y eso se tomaba por «ya se
+    // recargo», sin disparar. Cada periodo cae en el mismo sitio, asi que no
+    // disparaba nunca mas. Mas o menos la mitad de los `c` posibles lo hacen.
+    //
+    // Antes de esto el contador solo se rebasaba con `c` igual a cero o a
+    // RVR+1 -al programarlo, que es lo que hace todo el mundo- y esos dos
+    // valores redondean bien: por eso no se habia visto nunca. Lo que lo
+    // destapa es PARAR, y tambien reescribir CTRL a medio contar, que es lo
+    // que hacen `HAL_SuspendTick()` y `HAL_ResumeTick()`. Se prueban las dos.
+    //
+    // Se hace sobre el SCS suelto del banco de laboratorio (T127): la senal
+    // `parado` se mueve a mano, sin nucleo y sin sonda, en instantes elegidos
+    // para que `c` recorra muchos valores distintos.
+    // -----------------------------------------------------------------------
+    void t131_systick_tras_parada() {
+        group("T131 El SysTick despues de parar y reanudar (I-53)");
+        const uint32_t SYST_CSR = 0xE000E010u, SYST_RVR = 0xE000E014u,
+                       SYST_CVR = 0xE000E018u, ICSR = 0xE000ED04u;
+        const uint32_t PENDSTSET = 1u << 26, PENDSTCLR = 1u << 25;
+        // 168 MHz, como el F407 a toda marcha, y un periodo de 10 us para que
+        // la prueba no cueste: el redondeo depende de `c`, no del periodo.
+        s_lab_hz.write(168e6);
+        s_lab_par.write(false);
+        s_lab_rst.write(true);
+        wait(SC_ZERO_TIME);
+        const sc_time PERIODO(10, SC_US);
+        tm_lab.write32(SYST_RVR, 1679u);
+        tm_lab.write32(SYST_CVR, 0u);
+        tm_lab.write32(SYST_CSR, 7u);               // CLKSOURCE, TICKINT, ENABLE
+        auto pendiente = [&]() {
+            uint32_t v = 0;
+            tm_lab.read32(ICSR, v);
+            return (v & PENDSTSET) != 0;
+        };
+        auto limpia = [&]() { tm_lab.write32(ICSR, PENDSTCLR); };
+        wait(PERIODO * 1.5);
+        check(pendiente(), "programado y en marcha, el SysTick interrumpe");
+
+        // --- 1. Parar y reanudar con 48 valores distintos de `c` ------------
+        // La parada cae a 0, 211, 422... ticks de un cero: 211 y 1680 son
+        // primos entre si, asi que `c` no repite, y el tiempo parado varia
+        // para que la reanudacion tampoco caiga siempre en la misma fase.
+        unsigned malas = 0, sin_contar = 0;
+        std::vector<uint32_t> cs_malas;
+        for (unsigned j = 0; j < 48; ++j) {
+            wait(sc_time(211.0 * j / 168e6, SC_SEC) + sc_time(37 * j + 1, SC_PS));
+            s_lab_par.write(true);                  // el depurador para
+            wait(SC_ZERO_TIME);
+            uint32_t c = 0;
+            tm_lab.read32(SYST_CVR, c);
+            wait(sc_time(3, SC_US) + sc_time(613 * j, SC_PS));
+            uint32_t c2 = 0;
+            tm_lab.read32(SYST_CVR, c2);
+            if (c2 != c) ++sin_contar;
+            s_lab_par.write(false);                 // y reanuda
+            wait(SC_ZERO_TIME);
+            limpia();
+            // Le quedan `c` ticks, menos de un periodo: con dos sobra
+            wait(PERIODO * 2);
+            if (!pendiente()) { ++malas; if (cs_malas.size() < 4) cs_malas.push_back(c); }
+            limpia();
+        }
+        check_eq(sin_contar, 0u,
+                 "parado, el contador no se mueve (ARMv7-M C1.6.1)");
+        if (malas)
+            std::printf("    sin interrupcion tras reanudar con c = %u %u %u %u...\n",
+                        cs_malas.size() > 0 ? cs_malas[0] : 0,
+                        cs_malas.size() > 1 ? cs_malas[1] : 0,
+                        cs_malas.size() > 2 ? cs_malas[2] : 0,
+                        cs_malas.size() > 3 ? cs_malas[3] : 0);
+        check_eq(malas, 0u,
+                 "tras 48 paradas, con 48 valores del contador distintos, el "
+                 "SysTick vuelve a interrumpir SIEMPRE");
+
+        // --- 2. Y el cruce cae donde tiene que caer -------------------------
+        // Una parada mas, y se mide: con `c` ticks por delante, la
+        // interrupcion llega a los c/168 MHz, ni un tick antes ni uno despues.
+        wait(sc_time(1000.0 / 168e6, SC_SEC));
+        s_lab_par.write(true);
+        wait(SC_ZERO_TIME);
+        uint32_t c = 0;
+        tm_lab.read32(SYST_CVR, c);
+        wait(5, SC_US);
+        s_lab_par.write(false);
+        wait(SC_ZERO_TIME);
+        const sc_time t_r = sc_time_stamp();        // aqui vuelve a contar
+        limpia();
+        // Los accesos del banco gastan su latencia: se espera a instantes
+        // absolutos, medio tick antes y medio despues de los c ticks.
+        const sc_time medio(0.5 / 168e6, SC_SEC);
+        wait(t_r + sc_time(double(c) / 168e6, SC_SEC) - medio - sc_time_stamp());
+        const bool pronto = pendiente();
+        wait(t_r + sc_time(double(c) / 168e6, SC_SEC) + medio - sc_time_stamp());
+        const bool a_tiempo = pendiente();
+        std::printf("    reanudado con c = %u: medio tick antes %s, medio despues %s\n",
+                    c, pronto ? "ya" : "todavia no", a_tiempo ? "si" : "tampoco");
+        check(!pronto && a_tiempo,
+              "la interrupcion llega a los c ticks de reanudar: el tiempo "
+              "parado no cuenta");
+        limpia();
+
+        // --- 3. Sin depurador: reescribir CTRL a medio contar ---------------
+        // HAL_SuspendTick() quita TICKINT y HAL_ResumeTick() lo vuelve a poner:
+        // dos escrituras de CTRL, cada una rebasa el contador con el `c` que
+        // tenga. Es el mismo camino, sin ningun depurador cerca.
+        malas = 0;
+        for (unsigned j = 0; j < 48; ++j) {
+            wait(sc_time(211.0 * j / 168e6, SC_SEC) + sc_time(53 * j + 1, SC_PS));
+            tm_lab.write32(SYST_CSR, 5u);           // HAL_SuspendTick()
+            wait(sc_time(1, SC_US));
+            tm_lab.write32(SYST_CSR, 7u);           // HAL_ResumeTick()
+            limpia();
+            wait(PERIODO * 2);
+            if (!pendiente()) ++malas;
+            limpia();
+        }
+        check_eq(malas, 0u,
+                 "suspender y reanudar el tick 48 veces a medio contar no lo "
+                 "deja mudo");
+
+        tm_lab.write32(SYST_CSR, 0u);               // se deja apagado
+        limpia();
+    }
+
+    // -----------------------------------------------------------------------
+    // T132 — LOS REBOTES DEL PULSADOR
+    //
+    // Un contacto mecanico golpea y rebota antes de quedarse quieto, y un
+    // firmware que cuente flancos sin filtrarlos cuenta varias pulsaciones
+    // donde hubo una. El pulsador de una placa en XML rebota por omision
+    // (`rebote="2"` ms); los del banco, no, porque cuentan flancos exactos
+    // desde mucho antes. Aqui se encienden en los dos pulsadores sueltos de
+    // T124 -los que tienen su nodo y su pull-down propios- y se miran a 1 us.
+    //
+    // Lo que se comprueba es el CONTRATO, no un patron concreto: que el
+    // contacto se mueve en el acto, que rebota un numero impar de veces -acaba
+    // donde el dedo quiere-, que no se pasa de su duracion, que el nodo lo ve,
+    // que el dedo -lo que la pantalla pinta- no rebota, y que sin rebote el
+    // contacto es ideal. El patron concreto lo fija el invariante: es
+    // pseudoaleatorio pero el mismo al picosegundo en todas partes.
+    // -----------------------------------------------------------------------
+    void t132_rebotes() {
+        group("T132 Los rebotes del pulsador");
+        struct Visto { unsigned cambios, flancos_nodo; uint64_t ultimo_ns;
+                       bool dedo_quieto; bool final_cerrado; };
+        // Mira el contacto y el nodo cada microsegundo durante `us`
+        auto mira = [&](Button& b, AnalogNet& n, unsigned us, bool dedo) {
+            Visto v{0, 0, 0, true, false};
+            const sc_time t0 = sc_time_stamp();
+            const uint64_t c0 = b.cambios_contacto();
+            // Cerrado es arriba en los dos: cierran contra 3,3 V con pull-down
+            bool alto = b.cerrado();
+            for (unsigned i = 0; i < us; ++i) {
+                wait(1, SC_US);
+                const bool a = n.voltage() > 1.65;
+                if (a != alto) { ++v.flancos_nodo; alto = a; }
+                if (b.cambios_contacto() != c0 + v.cambios) {
+                    v.cambios = unsigned(b.cambios_contacto() - c0);
+                    v.ultimo_ns = uint64_t((sc_time_stamp() - t0).to_seconds() * 1e9 + 0.5);
+                }
+                if (b.pressed() != dedo) v.dedo_quieto = false;
+            }
+            v.final_cerrado = b.cerrado();
+            return v;
+        };
+
+        // --- 1. Sin rebote: el contacto ideal, que es como era siempre ------
+        btn_na.release(); wait(5, SC_MS);
+        check_eq(unsigned(btn_na.rebote_ms() * 1000), 0u,
+                 "construido en C++ sin decir nada, el pulsador no rebota");
+        uint64_t c0 = btn_na.cambios_contacto();
+        btn_na.press();
+        check(btn_na.cerrado() && btn_na.cambios_contacto() == c0 + 1,
+              "sin rebote, pulsar cierra el contacto UNA vez y en el acto");
+        Visto v = mira(btn_na, n_btn_na, 3000, true);
+        check(v.cambios == 0 && v.flancos_nodo == 0 && v.final_cerrado,
+              "y no se mueve mas");
+        btn_na.release(); wait(5, SC_MS);
+
+        // --- 2. Con rebote, al cerrar ----------------------------------------
+        btn_na.pon_rebote_ms(2.0);
+        check_eq(btn_na.rebotes(), 5u, "por omision, 5 rebotes");
+        // Tres, para que se vea que el numero es EXACTO: el mando `rebotes`
+        // de la pantalla es esto mismo
+        btn_na.pon_rebotes(3);
+        c0 = btn_na.cambios_contacto();
+        btn_na.press();
+        check(btn_na.cerrado() && btn_na.cambios_contacto() == c0 + 1,
+              "con rebote, el primer golpe tambien es en el acto");
+        v = mira(btn_na, n_btn_na, 3000, true);
+        std::printf("    al cerrar: %u cambios mas, el ultimo a los %llu ns; el nodo "
+                    "ve %u flancos\n", v.cambios, (unsigned long long)v.ultimo_ns,
+                    v.flancos_nodo);
+        check(v.cambios == 6 && v.flancos_nodo == 6,
+              "y luego rebota EXACTAMENTE 3 veces: se separa y vuelve a tocar, seis "
+              "cambios del contacto, seis flancos en el nodo -tres subidas mas que "
+              "la del primer golpe, cuatro en total: lo que contaria una EXTI-");
+        check(v.ultimo_ns > 0 && v.ultimo_ns <= 2000000,
+              "todo dentro de los 2 ms de rebote");
+        check(v.final_cerrado, "y se queda CERRADO, que es lo que el dedo quiere");
+        check(v.flancos_nodo >= 2,
+              "el nodo -lo que lee el pin- ve los rebotes: varios flancos donde hubo "
+              "una pulsacion");
+        check(v.dedo_quieto,
+              "el dedo -el observable `pulsado`, lo que pinta la ventana- no rebota");
+
+        // --- 3. Al abrir, la mitad -------------------------------------------
+        btn_na.release();
+        check(!btn_na.cerrado(), "al soltar, el primer golpe abre en el acto");
+        v = mira(btn_na, n_btn_na, 2000, false);
+        std::printf("    al abrir: %u cambios mas, el ultimo a los %llu ns\n",
+                    v.cambios, (unsigned long long)v.ultimo_ns);
+        check(v.cambios == 6 && v.ultimo_ns <= 1000000 && !v.final_cerrado,
+              "y rebota otras 3 veces, en 1 ms -la mitad-, y se queda ABIERTO");
+
+        // --- 4. Soltar a media rebote ------------------------------------------
+        btn_na.press();
+        wait(300, SC_US);
+        btn_na.release();
+        v = mira(btn_na, n_btn_na, 2000, false);
+        check(!v.final_cerrado && v.ultimo_ns <= 1000000,
+              "soltar con el rebote de cerrar a medias lo corta: manda el ultimo "
+              "movimiento del dedo, y el contacto acaba abierto");
+
+        // --- 5. Un NC rebota al ABRIRSE cuando se pulsa ------------------------
+        btn_nc.release(); wait(5, SC_MS);
+        btn_nc.pon_rebote_ms(2.0);
+        btn_nc.pon_rebotes(1);
+        btn_nc.press();
+        check(!btn_nc.cerrado(), "un NC pulsado abre en el acto");
+        v = mira(btn_nc, n_btn_nc, 3000, true);
+        check(v.cambios == 2 && v.ultimo_ns <= 2000000 && !v.final_cerrado &&
+                  v.flancos_nodo == 2,
+              "y rebota igual -una vez, la que se le ha pedido-, porque lo que rebota "
+              "es la lamina, no la logica: acaba abierto");
+        btn_nc.release();
+        mira(btn_nc, n_btn_nc, 2000, false);
+        check(btn_nc.cerrado(), "y al soltarlo vuelve a su reposo, cerrado");
+
+        // --- 6. Se apaga, y el banco no rebota ---------------------------------
+        btn_na.pon_rebote_ms(0.0);
+        btn_nc.pon_rebote_ms(0.0);
+        btn_na.pon_rebotes(5);
+        btn_nc.pon_rebotes(5);
+        c0 = btn_na.cambios_contacto();
+        btn_na.press(); wait(3, SC_MS); btn_na.release(); wait(3, SC_MS);
+        check(btn_na.cambios_contacto() == c0 + 2,
+              "con rebote 0 otra vez, una pulsacion son dos cambios: cerrar y abrir");
+        {
+            Netlist nl;
+            Instancia& b = pulsador(nl, "b", "PA0");
+            check(b.txt("rebote") == "no",
+                  "pulsador(), con el que se montan los bancos, pone rebote=\"no\": "
+                  "sus flancos se cuentan exactos desde antes de que hubiera rebotes");
+        }
     }
 
     void t129_factoria_de_mcu() {

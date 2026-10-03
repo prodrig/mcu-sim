@@ -12,7 +12,7 @@ Que las suites pasen lo comprueba cualquiera. Lo que se comprueba aquí es que
 **el tiempo simulado no se mueva**, al picosegundo:
 
 ```
-test407   2118 comprobaciones   2336217899213 ps
+test407   2146 comprobaciones   2281827784555 ps   (resto: sin T96 ni T97)
 test446    204                  1033367277932 ps
 test417    165                   718988288 ps
 ```
@@ -37,10 +37,27 @@ todas partes— y `verif/invariantes.txt` la otra —el mismo resultado—.
 
 | Trabajo | Máquina | SystemC | Qué añade |
 | :--- | :--- | :--- | :--- |
-| `rapidas` | Ubuntu | no hace falta | `red`, `macros-win`, `hash`, `cryp`, `vectores`. Menos de un minuto; evita encender cuatro máquinas por una errata |
+| `rapidas` | Ubuntu | no hace falta | `red`, `macros-win`, `hash`, `cryp`, `vectores`, `serie`, `rfc2217` y `gui-proto`. Menos de un minuto; evita encender cuatro máquinas por una errata. Es el único que clona **también `mcu-sim-gui`**, para comparar las cabeceras que los dos comparten por copia (`protocolo.h` y `proto_io.h`): se compara con su rama principal, así que un cambio del protocolo se sube **primero allí** |
 | `linux` | `ubuntu-latest` | `apt install libsystemc-dev` | Verifica **la vía que documenta `compilacion.md` §4**. Si el paquete desaparece de Ubuntu, quiero enterarme aquí y no en el portátil de un alumno |
 | `macos` | `macos-26` y `macos-26-intel` | compilada, en caché | **La plataforma que nadie ha ejecutado nunca.** Las dos arquitecturas, porque el `Makefile` tiene una rama para cada una y una rama que nadie ejecuta no está verificada |
 | `windows` | `windows-latest` + MSYS2 | compilada, en caché | Las suites **y** que `mcu-sim.exe` no arrastre ninguna DLL de MinGW, que es lo de §5.6 |
+
+`macos` y `windows` pasan además `make red gui-proto`: la capa de red es lo
+único del modelo que sabe en qué sistema corre, y en Linux ya se prueba en
+`rapidas`.
+
+`linux`, `macos` y `windows` pasan también `verif/gui/saludo.py`,
+`verif/gui/marcha.py`, `verif/gui/ordenes.py`, `verif/gui/control.py` y
+`verif/gui/argumentos.py` (`make gui-saludo gui-marcha gui-ordenes gui-control
+gui-argumentos`), detrás de la
+interoperabilidad del puente UART y por el mismo motivo: necesitan el `mcu-sim`
+de verdad. Fuera de Linux se instala `psutil` para poder medir la CPU de
+`mcu-sim` mientras espera; en Linux basta `/proc`. `marcha.py` tarda unos
+segundos: dos de sus grupos van con `--tiempo-real`, para tener tiempo de pared
+con que hablar con la simulación en marcha. `ordenes.py`, uno: solo su último
+grupo, el de las órdenes en marcha, va a tiempo real. `control.py`, unos
+diez: su primer grupo pausa la simulación más de un segundo, a propósito, y
+mide que en ese rato `mcu-sim` no gasta CPU (con `psutil` fuera de Linux).
 
 `fail-fast: false` en la matriz de macOS: que una arquitectura falle no debe
 ocultar lo que hace la otra.

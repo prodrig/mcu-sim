@@ -84,7 +84,7 @@
   <componente tipo="Led" id="led_pd12" a_vss="si" r="330" vdd="3.3" vf="2">
     <pin nombre="anodo" nodo="PD12"/>
   </componente>
-  <componente tipo="Button" id="btn_pa0" r_cerrado="10">
+  <componente tipo="Button" id="btn_pa0" r_cerrado="10" rebote="no">
     <pin nombre="pin" nodo="PA0"/>
   </componente>
   <componente tipo="ExtClock" id="osc_ext" hz="0">
