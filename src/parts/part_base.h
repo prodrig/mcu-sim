@@ -96,9 +96,14 @@ struct Observable {
     float       min, max;    // escala para pintar; iguales = sin escala
     bool        interesante; // lo que la pieza SUGIERE pintar
 };
+// Los tipos dicen a la pantalla QUÉ CONTROL poner, sin que sepa de qué pieza
+// es: un botón (el máximo mientras está hundido), una casilla (máximo o
+// mínimo), un deslizador (cualquier valor del rango) o, para `Discreto`, una
+// lista con los ENTEROS del rango -un desplegable-. Un valor de un mando
+// discreto que no sea entero lo redondea la pieza.
 struct Mando {
     const char* nombre;      // "pulsar"
-    enum Tipo { Boton, Interruptor, Continuo } tipo;
+    enum Tipo { Boton, Interruptor, Continuo, Discreto } tipo;
     float       min, max;    // rango VÁLIDO del valor
 };
 inline const char* nombre_tipo_mando(Mando::Tipo t) {
@@ -106,6 +111,7 @@ inline const char* nombre_tipo_mando(Mando::Tipo t) {
         case Mando::Boton:       return "boton";
         case Mando::Interruptor: return "interruptor";
         case Mando::Continuo:    return "continuo";
+        case Mando::Discreto:    return "discreto";
     }
     return "?";
 }

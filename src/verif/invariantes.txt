@@ -116,5 +116,6 @@ testserie              189        400677589564        total
 # el enlace: lo sustituye un tipo desconocido. Lo demas no cambia de tiempo.
 # 2026-10-03, P-12 k: el pulsador tiene un segundo mando, `rebote_ms`, y cada
 # mando dice en el catalogo lo que vale (`valor`): 136 -> 142 en G1. No gasta
-# tiempo simulado: son consultas.
-testgui                142        76450000000        total
+# tiempo simulado: son consultas. Y el mismo dia, el tercero, `rebotes`, de un
+# tipo nuevo, `discreto`: 142 -> 145. Tampoco gasta tiempo.
+testgui                145        76450000000        total

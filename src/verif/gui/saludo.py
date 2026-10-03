@@ -86,11 +86,16 @@ def s1_s2_espera(sim):
               ["encendido", "corriente"] for i in leds),
               "los cuatro LEDs declaran encendido y corriente")
         check(all(i in piezas and
-                  [m.get("nombre") for m in piezas[i].iter("mando")] == ["pulsar", "rebote_ms"]
+                  [m.get("nombre") for m in piezas[i].iter("mando")] == ["pulsar", "rebote_ms", "rebotes"]
                   for i, t in comps if t == "Button"),
-              "los pulsadores, los mandos pulsar y rebote_ms")
+              "los pulsadores, los mandos pulsar, rebote_ms y rebotes")
         reb = {i: [m for m in piezas[i].iter("mando") if m.get("nombre") == "rebote_ms"]
                for i in ("B1", "B2") if i in piezas}
+        cuantos = [m for m in piezas["B1"].iter("mando") if m.get("nombre") == "rebotes"]
+        check(len(cuantos) == 1 and cuantos[0].get("tipo") == "discreto" and
+              cuantos[0].get("min") == "1" and cuantos[0].get("max") == "9" and
+              cuantos[0].get("valor") == "5",
+              "y B1 dice cuantas veces rebota: un `discreto` de 1 a 9, que vale 5")
         check(len(reb) == 2 and all(len(x) == 1 for x in reb.values()) and
               reb["B1"][0].get("tipo") == "continuo" and reb["B1"][0].get("max") == "20" and
               reb["B1"][0].get("valor") == "2" and reb["B2"][0].get("valor") == "0" and

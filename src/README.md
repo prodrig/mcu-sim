@@ -71,7 +71,7 @@ razón —lo que prueban, dentro de `test407`, movería su invariante—:
 | `make test446` | La del F446RE y sus ocho referencias | **204** | `1033367277932 ps` |
 | `make test417` | La del acelerador criptográfico del F415/F417 | **165** | `718988288 ps` |
 | `make testserie` | La del puente UART: `PuenteSerie`, un F407 con `vcp_demo` y clientes TCP y RFC 2217 de verdad | **189** | `400677589564 ps` |
-| `make testgui` | La de la frontera con `mcu-sim-gui`: lo que cada pieza deja ver y tocar, el catálogo, el muestreador, el aplicador y el enlace que atiende la conexión en marcha —instantáneas, avisos, órdenes con sus ecos, la pausa y los pasos—, sobre una placa mínima sin chip | **142** | `76450000000 ps` |
+| `make testgui` | La de la frontera con `mcu-sim-gui`: lo que cada pieza deja ver y tocar, el catálogo, el muestreador, el aplicador y el enlace que atiende la conexión en marcha —instantáneas, avisos, órdenes con sus ecos, la pausa y los pasos—, sobre una placa mínima sin chip | **145** | `76450000000 ps` |
 
 **En una máquina nueva no hace falta nada más**: los diecinueve firmwares que
 las suites cargan en la Flash **están versionados** (37 KB), así que `make
@@ -304,7 +304,7 @@ validar una plataforma nueva antes de pelearse con la biblioteca.
 
 | Plataforma | Estado | Comprobado |
 | :--- | :--- | :--- |
-| Linux, g++ 13 | **verificado** | 2146/2146 comprobaciones, 204/204 del F446, 165/165 del F417, 189/189 de `testserie` y 142/142 de `testgui`, `make red` 13/13, ASan + UBSan limpio en las tres suites (`make asan407`, `make asan446`, `make asan417`), las seis placas validan sin un aviso |
+| Linux, g++ 13 | **verificado** | 2146/2146 comprobaciones, 204/204 del F446, 165/165 del F417, 189/189 de `testserie` y 145/145 de `testgui`, `make red` 13/13, ASan + UBSan limpio en las tres suites (`make asan407`, `make asan446`, `make asan417`), las seis placas validan sin un aviso |
 | Linux, clang | **verificado** | mismo resultado y mismo tiempo simulado al picosegundo |
 | Windows, MSYS2 / MinGW-w64 | **verificado** | **Los tres invariantes son los mismos que en Linux, al picosegundo**: 2118/2118 con `resto` en `2240553274213 ps` antes de I-53 (huella `0x644FCE21`; antes de T-23, `2336217899213 ps` de total, igual que en Linux), 204/204 en `1033367277932 ps` y 165/165 en `718988288 ps`. Antes el del F407 salía 2 ms por debajo, y era el binario y nada más (**T-22**). Para que el ejecutable corra FUERA de MSYS2 hace falta el `-static` del Makefile: `doc/compilacion.md` §5.6 |
 | macOS, clang | **la rama específica compila** | Se fuerza la combinación de macOS —sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`— y compila con g++ y con clang; **falta probarlo en un Mac** |

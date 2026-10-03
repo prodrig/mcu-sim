@@ -276,7 +276,7 @@ private:
 
         check_eq(btn.n_observables(), 1, "un Button declara un observable...");
         check(std::string(btn.observable(0).nombre) == "pulsado", "...que es `pulsado`");
-        check_eq(btn.n_mandos(), 2, "y dos mandos...");
+        check_eq(btn.n_mandos(), 3, "y tres mandos...");
         {
             const Mando m = btn.mando(0);
             check(std::string(m.nombre) == "pulsar" && m.tipo == Mando::Boton &&
@@ -286,6 +286,10 @@ private:
             check(std::string(r.nombre) == "rebote_ms" && r.tipo == Mando::Continuo &&
                   r.min == 0.f && r.max == 20.f,
                   "...y `rebote_ms`, continuo, de 0 a 20 ms");
+            const Mando n = btn.mando(2);
+            check(std::string(n.nombre) == "rebotes" && n.tipo == Mando::Discreto &&
+                  n.min == 1.f && n.max == 9.f && btn.valor_mando(2) == 5.f,
+                  "...y `rebotes`, discreto -un desplegable-, de 1 a 9, que vale 5");
             check(btn.valor_mando(0) == 0.f && btn.valor_mando(1) == 0.f,
                   "y cada uno dice lo que vale ahora: suelto, y sin rebote -construido "
                   "en C++ sin decirlo-");
@@ -323,6 +327,10 @@ private:
               "acciona(rebote_ms, 7,5) es pon_rebote_ms(7,5), y valor_mando lo dice");
         btn.acciona(1, 0.f);
         check(btn.rebote_ms() == 0.0, "y con 0 vuelve a ser un contacto ideal");
+        btn.acciona(2, 3.4f);
+        check(btn.rebotes() == 3u && btn.valor_mando(2) == 3.f,
+              "acciona(rebotes, 3,4) es pon_rebotes(3): un discreto se redondea");
+        btn.acciona(2, 5.f);
 
         // --- Validar una orden no la aplica --------------------------------
         {
@@ -360,6 +368,9 @@ private:
             check(xml.find("<mando idx=\"1\" nombre=\"rebote_ms\" tipo=\"continuo\" "
                            "min=\"0\" max=\"20\" valor=\"0\"/>") != std::string::npos,
                   "y el del rebote, igual: la pantalla nace donde esta el modelo");
+            check(xml.find("<mando idx=\"2\" nombre=\"rebotes\" tipo=\"discreto\" "
+                           "min=\"1\" max=\"9\" valor=\"5\"/>") != std::string::npos,
+                  "y el de cuantos rebotes, con su tipo nuevo: `discreto`");
             {
                 float v = 0.f;
                 Orden o{0, i_btn, 1, 50.f};

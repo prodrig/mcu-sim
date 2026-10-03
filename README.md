@@ -78,7 +78,7 @@ make test407    # 2146 comprobaciones    2390093659555 ps   (resto: 228182778455
 make test446    #  204                   1033367277932 ps
 make test417    #  165                    718988288 ps
 make testserie  #  189                   400677589564 ps
-make testgui    #  142                    76450000000 ps
+make testgui    #  145                    76450000000 ps
 ```
 
 **La cifra que importa es la segunda.** Un cambio puede dejar las 2 118

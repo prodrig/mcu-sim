@@ -158,8 +158,10 @@ REGISTRA_PARTE(Button,
            "quedarse quieto al cerrarse -al abrirse, la mitad-. \"0\" o "
            "\"no\" es un contacto ideal, que cambia de una vez.")
       .atr("rebotes", "5",
-           "Cuantas veces, como mucho, se separa y vuelve a tocar en cada "
-           "rebote. Cada vez es de 1 a este numero.")
+           "CUANTAS VECES se separa y vuelve a tocar en cada rebote: "
+           "exactamente esas, en instantes al azar dentro de `rebote` ms. Con "
+           "N rebotes, una EXTI por flanco de subida ve N+1 flancos al pulsar. "
+           "De 1 a 1000; para no rebotar, rebote=\"no\".")
       .atr("semilla", "0",
            "La del patron pseudoaleatorio de los rebotes. 0 la saca del id, "
            "asi que dos pulsadores de la misma placa no rebotan igual y el "
@@ -216,10 +218,10 @@ REGISTRA_PARTE(Button,
             return nullptr;
         }
         const double n_reb = d.num("rebotes", 5.0);
-        if (n_reb < 0.0 || n_reb > 1000.0) {
+        if (n_reb < 1.0 || n_reb > 1000.0 || n_reb != double(unsigned(n_reb))) {
             SC_REPORT_ERROR("netlist",
                 ("Button '" + d.id + "': rebotes=\"" + d.txt("rebotes") + "\" no "
-                 "vale; de 0 a 1000").c_str());
+                 "vale; es un entero de 1 a 1000 (para no rebotar, rebote=\"no\")").c_str());
             return nullptr;
         }
         return new Button(n[d.nodo_de("pin")], d.num("r_cerrado", 10.0),

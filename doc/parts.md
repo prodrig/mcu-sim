@@ -412,7 +412,7 @@ real y lo que el modelo reproduce.
 | `v_cerrado` | `0` | **La tensión a la que lleva el pin al cerrarse.** Cero es el pulsador a masa de siempre; `3.3` es el pulsador a VDD |
 | `normalmente` | `abierto` | El **reposo del contacto**: `abierto` (suelto no conduce, pulsado conduce) o `cerrado` (suelto CONDUCE, y pulsarlo lo ABRE). Cualquier otra palabra es un error, no un `abierto` silencioso |
 | `rebote` | `2` | **Los rebotes del contacto**: lo que tarda como mucho, en ms, en quedarse quieto al cerrarse; al abrirse, la mitad. `0` o `no` es un contacto ideal, que cambia de una vez |
-| `rebotes` | `5` | Cuántas veces, como mucho, se separa y vuelve a tocar en cada rebote: cada vez, de 1 a este número |
+| `rebotes` | `5` | **Cuántas veces** se separa y vuelve a tocar en cada rebote: exactamente esas, en instantes al azar. Con N rebotes, una EXTI por flanco de subida ve N+1 flancos al pulsar. De 1 a 1000; para no rebotar, `rebote="no"` |
 | `semilla` | `0` | La del patrón pseudoaleatorio de los rebotes. `0` la saca del id: dos pulsadores de la misma placa no rebotan igual, y el mismo rebota igual en todas las ejecuciones |
 
 **`normalmente="cerrado"` no es una rareza: es lo que hay en seguridad.** Un
@@ -459,12 +459,14 @@ Se acciona desde C++ con `press()` y `release()`. **Un pulsador
 **Rebota, como uno de verdad.** Un contacto mecánico golpea y rebota antes de
 quedarse cerrado, y un firmware que cuente flancos de EXTI sin filtrarlos cuenta
 varias pulsaciones donde hubo una — igual que en la placa. Por eso una placa en
-XML rebota **por omisión**, con 2 ms y hasta 5 rebotes, que es el orden de lo
+XML rebota **por omisión**, con 2 ms y 5 rebotes, que es el orden de lo
 que se mide en pulsadores reales (Ganssle, *A Guide to Debouncing*):
 
 - el contacto se mueve **en el acto**, con el primer golpe, y luego se separa y
-  vuelve a tocar de 1 a `rebotes` veces, en instantes al azar dentro de
-  `rebote` ms, hasta quedarse donde el dedo quiere;
+  vuelve a tocar **exactamente `rebotes` veces**, en instantes al azar dentro
+  de `rebote` ms, hasta quedarse donde el dedo quiere. Exactas y no «como
+  mucho» —que es como fue al principio— porque para enseñar y para depurar lo
+  que sirve es poder decir «con 3 rebotes, la EXTI ve 4 flancos»;
 - al soltar, igual, en la mitad de tiempo;
 - un movimiento del dedo a media rebote corta el que había: manda el último;
 - en un NC rebota igual, porque lo que rebota es la lámina, no la lógica;
@@ -472,10 +474,11 @@ que se mide en pulsadores reales (Ganssle, *A Guide to Debouncing*):
   botón hundido, no el contacto, que además cambia mucho más deprisa de lo que
   la ventana muestrea.
 
-Y se puede cambiar **con la simulación en marcha**: el pulsador tiene dos
-mandos, `pulsar` (botón) y **`rebote_ms`** (continuo, de 0 a 20 ms, o hasta lo
-que diga la placa si es más), que vale desde el siguiente movimiento del dedo.
-Desde C++, `pon_rebote_ms()`.
+Y se puede cambiar **con la simulación en marcha**: el pulsador tiene tres
+mandos, `pulsar` (botón), **`rebote_ms`** (continuo, de 0 a 20 ms, o hasta lo
+que diga la placa si es más) y **`rebotes`** (discreto —un desplegable en la
+ventana—, de 1 a 9, o hasta lo que diga la placa), que valen desde el siguiente
+movimiento del dedo. Desde C++, `pon_rebote_ms()` y `pon_rebotes()`.
 
 El patrón es pseudoaleatorio pero **reproducible al picosegundo**: un generador
 propio (xorshift64\*) con semilla sacada del id —o de `semilla`— e instantes en

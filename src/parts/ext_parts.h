@@ -277,7 +277,10 @@ public:
     // y un firmware que cuente flancos sin filtrarlos cuenta varias
     // pulsaciones donde hubo una. `rebote_ms` es lo que dura eso como mucho al
     // CERRARSE el contacto que mueve el dedo -al abrirse, la mitad-, y
-    // `rebotes` cuantas veces, como mucho, se separa y vuelve a tocar. Con
+    // `rebotes` CUANTAS VECES se separa y vuelve a tocar: exactamente esas,
+    // en instantes al azar dentro de la ventana. Exactas y no «como mucho»,
+    // que es lo que fue al principio, porque para enseñar y para depurar lo
+    // que sirve es poder decir «con 3 rebotes, la EXTI ve 4 flancos». Con
     // `rebote_ms = 0` el contacto cambia de una vez, que es como era siempre
     // y como lo construye este constructor si no se le dice otra cosa; el
     // XML, en cambio, pone 2 ms por omision (vease `netlist_parts.h`).
@@ -296,8 +299,10 @@ public:
           semilla_(semilla) {
         pon_rebote_ms(rebote_ms);
         // El tope del mando `rebote_ms`: 20 ms, o lo que diga la placa si es
-        // mas. Es fijo para la instancia, como pide el contrato del catalogo.
+        // mas; y el de `rebotes`, 9 o lo que diga la placa. Fijos para la
+        // instancia, como pide el contrato del catalogo.
         max_rebote_ms_ = rebote_ms > 20.0 ? float(rebote_ms) : 20.f;
+        max_rebotes_   = rebotes > 9u ? float(rebotes) : 9.f;
         aplica();                 // un NC conduce ya, desde que se construye
     }
     void press()   { mueve(true); }
@@ -316,6 +321,9 @@ public:
         rebote_ns_ = ms > 0.0 ? uint64_t(ms * 1e6 + 0.5) : 0u;
     }
     unsigned rebotes() const { return rebotes_; }
+    // Desde la siguiente vez que se mueva el dedo. 0 no rebota, como un
+    // rebote de 0 ms.
+    void     pon_rebotes(unsigned n) { rebotes_ = n; }
     // Cuantas veces ha cambiado el CONTACTO desde que se construyo: sin
     // rebotes, una por cada vez que cambia el dedo; con rebotes, mas.
     uint64_t cambios_contacto() const { return n_cambios_; }
@@ -337,22 +345,29 @@ public:
     // Y `rebote_ms`, continuo, es exactamente pon_rebote_ms(): la duracion
     // del rebote, de 0 -contacto ideal- a 20 ms, o a lo que diga la placa si
     // es mas. Vale desde la siguiente vez que se mueva el dedo, asi que se
-    // puede ajustar con la simulacion en marcha y sin tocar el XML.
+    // puede ajustar con la simulacion en marcha y sin tocar el XML. Y
+    // `rebotes`, discreto -un desplegable en la pantalla-, es pon_rebotes():
+    // de 1 a 9, o a lo que diga la placa si es mas. Para no rebotar, el
+    // rebote a 0 ms: un desplegable de cuantas veces no necesita un «ninguna».
     unsigned   n_observables() const override { return 1; }
     Observable observable(unsigned) const override {
         return {"pulsado", "", 0.f, 1.f, true};
     }
     float    valor_observable(unsigned) const override { return down_ ? 1.f : 0.f; }
-    unsigned n_mandos() const override { return 2; }
+    unsigned n_mandos() const override { return 3; }
     Mando    mando(unsigned i) const override {
         if (i == 1) return {"rebote_ms", Mando::Continuo, 0.f, max_rebote_ms_};
+        if (i == 2) return {"rebotes", Mando::Discreto, 1.f, max_rebotes_};
         return {"pulsar", Mando::Boton, 0.f, 1.f};
     }
     float    valor_mando(unsigned i) const override {
-        return i == 1 ? float(rebote_ms()) : (down_ ? 1.f : 0.f);
+        if (i == 1) return float(rebote_ms());
+        if (i == 2) return float(rebotes_);
+        return down_ ? 1.f : 0.f;
     }
     void     acciona(unsigned i, float v) override {
         if (i == 1) { pon_rebote_ms(double(v)); return; }
+        if (i == 2) { pon_rebotes(unsigned(v + 0.5f)); return; }   // ya en [1, max]
         if (v >= 0.5f) press(); else release();
     }
 private:
@@ -386,11 +401,11 @@ private:
         rng_ ^= rng_ >> 12; rng_ ^= rng_ << 25; rng_ ^= rng_ >> 27;
         return rng_ * 0x2545F4914F6CDD1Dull;
     }
-    // k rebotes -de 1 a `rebotes`-, cada uno un separarse y un volver a
-    // tocar: 2k instantes distintos en (0, d] ns, ordenados. El ultimo deja
-    // el contacto donde el dedo quiere.
+    // `rebotes` rebotes, cada uno un separarse y un volver a tocar: 2k
+    // instantes distintos en (0, d] ns, ordenados. El ultimo deja el contacto
+    // donde el dedo quiere.
     void programa_rebote(uint64_t d) {
-        const unsigned k = 1u + unsigned(azar() % rebotes_);
+        const unsigned k = rebotes_;
         cola_.clear();
         for (unsigned i = 0; i < 2u * k; ++i) cola_.push_back(1u + azar() % d);
         std::sort(cola_.begin(), cola_.end());
@@ -434,6 +449,7 @@ private:
     sc_core::sc_event ev_;
     bool     proceso_ = false;
     float    max_rebote_ms_ = 20.f;
+    float    max_rebotes_ = 9.f;
 };
 
 // ---------------------------------------------------------------------------

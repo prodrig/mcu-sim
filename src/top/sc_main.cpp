@@ -14672,7 +14672,10 @@ SC_MODULE(F1Tb) {
 
         // --- 2. Con rebote, al cerrar ----------------------------------------
         btn_na.pon_rebote_ms(2.0);
-        check_eq(btn_na.rebotes(), 5u, "por omision, hasta 5 rebotes");
+        check_eq(btn_na.rebotes(), 5u, "por omision, 5 rebotes");
+        // Tres, para que se vea que el numero es EXACTO: el mando `rebotes`
+        // de la pantalla es esto mismo
+        btn_na.pon_rebotes(3);
         c0 = btn_na.cambios_contacto();
         btn_na.press();
         check(btn_na.cerrado() && btn_na.cambios_contacto() == c0 + 1,
@@ -14681,8 +14684,10 @@ SC_MODULE(F1Tb) {
         std::printf("    al cerrar: %u cambios mas, el ultimo a los %llu ns; el nodo "
                     "ve %u flancos\n", v.cambios, (unsigned long long)v.ultimo_ns,
                     v.flancos_nodo);
-        check(v.cambios >= 2 && v.cambios <= 10 && v.cambios % 2 == 0,
-              "y luego rebota: de 1 a 5 veces se separa y vuelve a tocar");
+        check(v.cambios == 6 && v.flancos_nodo == 6,
+              "y luego rebota EXACTAMENTE 3 veces: se separa y vuelve a tocar, seis "
+              "cambios del contacto, seis flancos en el nodo -tres subidas mas que "
+              "la del primer golpe, cuatro en total: lo que contaria una EXTI-");
         check(v.ultimo_ns > 0 && v.ultimo_ns <= 2000000,
               "todo dentro de los 2 ms de rebote");
         check(v.final_cerrado, "y se queda CERRADO, que es lo que el dedo quiere");
@@ -14698,9 +14703,8 @@ SC_MODULE(F1Tb) {
         v = mira(btn_na, n_btn_na, 2000, false);
         std::printf("    al abrir: %u cambios mas, el ultimo a los %llu ns\n",
                     v.cambios, (unsigned long long)v.ultimo_ns);
-        check(v.cambios >= 2 && v.cambios % 2 == 0 && v.ultimo_ns <= 1000000 &&
-                  !v.final_cerrado,
-              "y rebota en 1 ms, la mitad, y se queda ABIERTO");
+        check(v.cambios == 6 && v.ultimo_ns <= 1000000 && !v.final_cerrado,
+              "y rebota otras 3 veces, en 1 ms -la mitad-, y se queda ABIERTO");
 
         // --- 4. Soltar a media rebote ------------------------------------------
         btn_na.press();
@@ -14714,13 +14718,14 @@ SC_MODULE(F1Tb) {
         // --- 5. Un NC rebota al ABRIRSE cuando se pulsa ------------------------
         btn_nc.release(); wait(5, SC_MS);
         btn_nc.pon_rebote_ms(2.0);
+        btn_nc.pon_rebotes(1);
         btn_nc.press();
         check(!btn_nc.cerrado(), "un NC pulsado abre en el acto");
         v = mira(btn_nc, n_btn_nc, 3000, true);
-        check(v.cambios >= 2 && v.cambios % 2 == 0 && v.ultimo_ns <= 2000000 &&
-                  !v.final_cerrado && v.flancos_nodo >= 2,
-              "y rebota igual, porque lo que rebota es la lamina, no la logica: acaba "
-              "abierto");
+        check(v.cambios == 2 && v.ultimo_ns <= 2000000 && !v.final_cerrado &&
+                  v.flancos_nodo == 2,
+              "y rebota igual -una vez, la que se le ha pedido-, porque lo que rebota "
+              "es la lamina, no la logica: acaba abierto");
         btn_nc.release();
         mira(btn_nc, n_btn_nc, 2000, false);
         check(btn_nc.cerrado(), "y al soltarlo vuelve a su reposo, cerrado");
@@ -14728,6 +14733,8 @@ SC_MODULE(F1Tb) {
         // --- 6. Se apaga, y el banco no rebota ---------------------------------
         btn_na.pon_rebote_ms(0.0);
         btn_nc.pon_rebote_ms(0.0);
+        btn_na.pon_rebotes(5);
+        btn_nc.pon_rebotes(5);
         c0 = btn_na.cambios_contacto();
         btn_na.press(); wait(3, SC_MS); btn_na.release(); wait(3, SC_MS);
         check(btn_na.cambios_contacto() == c0 + 2,
