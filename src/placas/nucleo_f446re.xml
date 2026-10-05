@@ -44,10 +44,10 @@
        que un <sistema> acopla (placas/nucleo_y_shield.xml). Una fila cada
        uno, numerados del 1 al N como en la serigrafia.
 
-       La alimentacion (+3V3, +5V, VIN, IOREF, AREF) y las masas se quedan
-       AL AIRE a proposito: en este modelo cada pieza resuelve su tension por
-       dentro (`vdd`, `a_vss`), y un shield que necesite un rail de verdad
-       lleva su propia Fuente. Lo que si va soldado es el RESET, a NRST.
+       Tambien van soldados a su pad del chip el RESET (NRST), el +3V3 y el
+       IOREF (VDD) y las masas (VSS): un shield que tome el +3V3 lo toma del
+       VDD de la Nucleo, y uno que pulse su RESET resetea el chip. +5V, VIN y
+       AREF se quedan al aire, porque el modelo no tiene esos rieles.
        =================================================================== -->
   <!-- CN5: D8..D15. El 7 es GND y el 8 AREF -->
   <componente tipo="Conector" id="CN5" filas="1" columnas="10">
@@ -57,13 +57,18 @@
     <pin nombre="4" nodo="PA7"/>    <!-- D11 -->
     <pin nombre="5" nodo="PA6"/>    <!-- D12 -->
     <pin nombre="6" nodo="PA5"/>    <!-- D13, el de LD2 -->
+    <pin nombre="7" nodo="VSS"/>    <!-- GND -->
     <pin nombre="9" nodo="PB9"/>    <!-- D14 / SDA -->
     <pin nombre="10" nodo="PB8"/>   <!-- D15 / SCL -->
   </componente>
   <!-- CN6: alimentacion. 1 NC, 2 IOREF, 3 RESET, 4 +3V3, 5 +5V, 6 y 7 GND,
        8 VIN -->
   <componente tipo="Conector" id="CN6" filas="1" columnas="8">
-    <pin nombre="3" nodo="NRST"/>
+    <pin nombre="2" nodo="VDD"/>    <!-- IOREF -->
+    <pin nombre="3" nodo="NRST"/>   <!-- RESET -->
+    <pin nombre="4" nodo="VDD"/>    <!-- +3V3 -->
+    <pin nombre="6" nodo="VSS"/>    <!-- GND -->
+    <pin nombre="7" nodo="VSS"/>    <!-- GND -->
   </componente>
   <!-- CN8: A0..A5 -->
   <componente tipo="Conector" id="CN8" filas="1" columnas="6">

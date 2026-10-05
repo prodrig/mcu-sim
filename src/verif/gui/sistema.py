@@ -25,7 +25,9 @@
 #       mismo pin en las tres placas, y sus errores;
 #   C8  lo que T_PLACA cuenta de cada placa para poder DIBUJAR el sistema:
 #       sus piezas, sus chips, sus conectores con su forma, y que placas une
-#       cada acople y cada hilo.
+#       cada acople y cada hilo;
+#   C9  VDD, VSS, NRST y BOOT0 entre chips: un reset sujeto en una placa
+#       para tambien el chip de la otra si sus NRST estan unidos.
 #
 #   make -f Makefile.mcu-sim gui-sistema
 #   python3 verif/gui/sistema.py [--sim build/mcu-sim]
@@ -94,9 +96,9 @@ def nodo_de_led(out, id_):
 def c1_conector(sim, cp):
     grupo("C1 Un conector en una placa")
     rc, out, err = corre(sim, ["placas/nucleo_f446re.xml", "--valida"])
-    check(rc == 0 and "0 avisos" in out and "163 nodos" in out,
+    check(rc == 0 and "0 avisos" in out and "158 nodos" in out,
           "la Nucleo con sus cuatro conectores Arduino valida sin un aviso: 154 nodos del "
-          "chip y 9 pines de conector al aire (la alimentacion), ninguno flotante")
+          "chip y 4 pines de conector al aire (+5V, VIN, AREF y un NC), ninguno flotante")
     placa = cp.escribe("c1.xml", """<placa nombre="c1">
   <mcu tipo="STM32F407VG" id="u0"/>
   <componente tipo="Conector" id="CN1" filas="1" columnas="4">
@@ -151,6 +153,9 @@ def c2_nucleo_y_shield(sim):
           estados[350][:2] == ("apagado", "apagado") and estados[250][2] == "N/u0.PA5",
           "el blinky enciende y apaga A LA VEZ el LD2 de la Nucleo y el LED del shield: el "
           "D13 del shield es N/u0.PA5 (%s)" % estados)
+    check(led(out, "S/LD_PWR") == "encendido" and nodo_de_led(out, "S/LD_PWR") == "N/u0.VDD",
+          "y el LED de alimentacion del shield luce con el VDD de la Nucleo: su J6.4 es el "
+          "+3V3, soldado a N/u0.VDD")
 
 
 # ---------------------------------------------------------------------------
@@ -266,9 +271,10 @@ def c5_t_placa(sim):
     j5 = comps.get("S/J5")
     check(j5 is not None and len(j5.findall("pin")) == 10 and
           j5.findall("pin")[5].get("nodo") == "N/u0.PA5" and
-          j5.findall("pin")[6].get("nodo") == "N/CN5.7",
-          "los conectores, ya resueltos: J5.6 es N/u0.PA5, y J5.7 -GND, al aire en las dos- "
-          "N/CN5.7")
+          j5.findall("pin")[6].get("nodo") == "N/u0.VSS" and
+          j5.findall("pin")[7].get("nodo") == "N/CN5.8",
+          "los conectores, ya resueltos: J5.6 es N/u0.PA5, J5.7 -GND- la masa del chip, "
+          "N/u0.VSS, y J5.8 -AREF, al aire en las dos- N/CN5.8")
     check([(a.get("a"), a.get("b")) for a in r.findall("acopla")] ==
           [("N/CN5", "S/J5"), ("N/CN6", "S/J6"), ("N/CN8", "S/J8"), ("N/CN9", "S/J9")],
           "y al final los cuatro <acopla>, para que la ventana sepa que se enchufo con que")
@@ -448,6 +454,69 @@ def c8_dibujable(sim):
           "version de los sistemas")
 
 
+# ---------------------------------------------------------------------------
+# C9
+# ---------------------------------------------------------------------------
+SIS_RESET = """<sistema nombre="reset">
+  <placa id="A" nombre="a">
+    <mcu tipo="STM32F407VG" id="u0"/>
+    <nodo id="PH0"/>
+    <componente tipo="Crystal" id="X" vdd="3.3"><pin nombre="osc_in" nodo="PH0"/></componente>
+    <componente tipo="Led" id="L" a_vss="si"><pin nombre="anodo" nodo="PD12"/></componente>
+    <componente tipo="Button" id="R" normalmente="cerrado" rebote="no">
+      <pin nombre="pin" nodo="NRST"/>
+    </componente>
+  </placa>
+  <placa id="B" nombre="b">
+    <mcu tipo="STM32F407VG" id="u0"/>
+    <nodo id="PH0"/>
+    <componente tipo="Crystal" id="X" vdd="3.3"><pin nombre="osc_in" nodo="PH0"/></componente>
+    <componente tipo="Led" id="L" a_vss="si"><pin nombre="anodo" nodo="PD12"/></componente>
+    <componente tipo="Conector" id="J" filas="1" columnas="2">
+      <pin nombre="1" nodo="VSS"/><pin nombre="2" nodo="BOOT0"/>
+    </componente>
+  </placa>
+  %s
+  <mcu ref="A/u0" firmware="verif/fw/blinky/blinky.bin"/>
+  <mcu ref="B/u0" firmware="verif/fw/blinky/blinky.bin"/>
+</sistema>
+"""
+
+
+def c9_alimentacion(sim, cp):
+    grupo("C9 VDD, masa, NRST y BOOT0 entre chips")
+    f = cp.escribe("reset0.xml", SIS_RESET % "")
+    rc, out, err = corre(sim, [f, "--ms=250"])
+    check(rc == 0 and led(out, "A/L") == "apagado" and led(out, "B/L") == "encendido" and
+          "308 nodos" in out,
+          "sin unir nada, el pulsador NC de A sujeta el reset de A, y B arranca y "
+          "enciende su LED")
+    f = cp.escribe("reset1.xml", SIS_RESET % '<hilo a="A/NRST" b="B/NRST"/>')
+    rc, out, err = corre(sim, [f, "--ms=250"])
+    check(rc == 0 and led(out, "A/L") == "apagado" and led(out, "B/L") == "apagado" and
+          "307 nodos" in out and "0 avisos" in out,
+          "con los NRST unidos por un hilo, el reset de A para tambien a B: un nodo menos, "
+          "y ni un aviso")
+    f = cp.escribe("reset2.xml", SIS_RESET % (
+        '<hilo a="A/VDD" b="B/VDD"/><hilo a="A/VSS" b="B/J.1"/>'
+        '<hilo a="A/BOOT0" b="B/J.2"/>'))
+    rc, out, err = corre(sim, [f, "--ms=250"])
+    check(rc == 0 and led(out, "B/L") == "encendido" and "305 nodos" in out and
+          "0 avisos" in out,
+          "VDD, VSS -por un pin de conector- y BOOT0 de los dos chips unidos: tres nodos "
+          "menos, y B arranca igual")
+    f = cp.escribe("une_nrst.xml", """<placa nombre="dos">
+  <mcu tipo="STM32F407VG" id="u0"/><mcu tipo="STM32F407VG" id="u1"/>
+  <nodo id="rst" une="u0.NRST u1.NRST"/>
+  <componente tipo="Button" id="R" rebote="no"><pin nombre="pin" nodo="rst"/></componente>
+</placa>
+""")
+    rc, out, err = corre(sim, [f, "--valida"])
+    check(rc == 0 and "0 avisos" in out,
+          "y en una sola placa, un <nodo une> con los NRST de dos chips y un pulsador de "
+          "reset para los dos")
+
+
 def main():
     a = argparse.ArgumentParser(description="conectores y sistemas de placas")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -467,6 +536,7 @@ def main():
         c6_errores(sim, cp)
         c7_pila(sim, cp)
         c8_dibujable(sim)
+        c9_alimentacion(sim, cp)
     finally:
         cp.borra()
     return ventana.resumen("SISTEMA")

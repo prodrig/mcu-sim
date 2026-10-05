@@ -396,13 +396,16 @@ que hable TCP, como CoolTerm o PuTTY en modo *Raw*.
   acople de varios conectores, como en PC/104; `placas/pila_pc104.xml`.
 * **Cada placa, descrita para poder dibujarla** (§14): en `T_PLACA`, sus
   piezas, chips y conectores con su forma, y en cada acople e hilo, qué placas
-  une. Añadido a la versión 2, sin subirla. `make gui-sistema` llega a 56.
+  une. Añadido a la versión 2, sin subirla. `make gui-sistema` llega a 61.
 
-**Lo que queda**, cada cosa con su motivo en el §12 del análisis: unir VDD,
-VSS, NRST o BOOT0 de dos chips (`Cableado` solo ata pads de puerto);
-alimentación de verdad entre placas; un sistema dentro de otro; cambiar
-parámetros de piezas desde el montaje; el módulo ST67W611M1 de la
-X-NUCLEO-67W61M1; y dibujar el sistema en la ventana, para lo que harán falta
+* **VDD, masa, NRST y BOOT0** (§15): los diez pads de alimentación y arranque
+  de un chip se unen como los de puerto, entre chips y entre placas.
+  `PowerPads` recibe el `Cableado` (`une_alim`). La Nucleo suelda a su chip el
+  RESET, el +3V3, el IOREF y las masas de sus conectores Arduino.
+
+**Lo que queda**, cada cosa con su motivo en el §12 del análisis: alimentación
+de verdad entre placas; un sistema dentro de otro; cambiar parámetros de piezas
+desde el montaje; y dibujar el sistema en la ventana, para lo que harán falta
 además el tamaño de cada placa y dónde va cada conector.
 ---
 

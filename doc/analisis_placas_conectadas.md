@@ -2,8 +2,9 @@
 
 *Análisis del 2026-10-05, y lo que se decidió e hizo a partir de él (P-15 en
 `doc/todo.md`). Ampliado el mismo día con las pilas —un conector que une
-varias placas, como en PC/104— y con lo que `mcu-sim` cuenta a la ventana de
-cada placa (§13 y §14).*
+varias placas, como en PC/104—, con lo que `mcu-sim` cuenta a la ventana de
+cada placa (§13 y §14) y con la unión de los pads de alimentación y arranque
+entre chips y entre placas (§15).*
 
 ## 1. La pregunta
 
@@ -59,9 +60,9 @@ tocan.
   de 2×20 ([UM1724](https://www.farnell.com/datasheets/1948962.pdf)).
 * Consecuencias para el diseño: hace falta `filas="1"`, y **dos placas se unen
   por varios pares de conectores**, no por uno.
-* **El módulo Wi‑Fi (ST67W611M1) no está modelado.** Sin un modelo de su
-  esclavo SPI, esa placa concreta sería solo pistas. Los conectores son la
-  fontanería; el módulo es otro trabajo, bastante mayor.
+
+La X-NUCLEO-67W61M1 sirve aquí solo como ejemplo de cómo se enchufan dos
+placas; lo que lleva encima queda fuera de este análisis.
 
 ## 4. Estrategia 1: el conector
 
@@ -80,10 +81,10 @@ Encaja bien como pieza, con matices:
   `espejo` y unir pin a pin.
 * **Validación**: mismo número de pines, cada conector acoplado una sola vez,
   no consigo mismo, que el otro extremo sea un conector.
-* **Un límite real**: `une` solo sabe unir **pads de puerto**. `Cableado::une`
-  no cubre VDD, VSS ni NRST, y el conector Arduino lleva NRST. Unir el NRST de
-  una placa con un nodo de otra que no tiene chip funciona (es un alias); unir
-  los NRST de dos chips, todavía no.
+* **Un límite que hubo que quitar**: `une` solo sabía unir **pads de
+  puerto**, y el conector Arduino lleva NRST, VDD y masa. Unir los NRST o las
+  masas de dos chips necesitó que `PowerPads` aceptara nodos de la placa
+  (§15).
 * **Las masas son en gran parte simbólicas**: cada pieza resuelve su masa por
   dentro (`a_vss`, `vdd`), así que unir GND entre placas es casi siempre
   documental. Solo pesa con `Fuente`/`Gnd` en los dos lados, y entonces salta
@@ -194,7 +195,7 @@ lanza `mcu-sim`.
    | :--- | :--- |
    | ninguno | el `<nodo>` declarado, o el primer pin de conector; nodo externo |
    | uno | ese pad (`A/u0.PA5`): todo lo demás pasa a llamarse así |
-   | dos o más | un nodo compartido, como un `<nodo une>`; solo de pads de puerto |
+   | dos o más | un nodo compartido, como un `<nodo une>`: de pads de puerto o de alimentación y arranque (§15) |
 
    Reescribe las patillas de todas las piezas, los externos, los de bus y los
    compartidos. **Sin conectores, hilos ni acoples no hace nada**: las placas
@@ -234,14 +235,15 @@ acoples. Una pieza con muchas patillas —un conector— las pliega.
 
 ## 11. Cómo se comprueba
 
-* **`make gui-sistema`** (`verif/gui/sistema.py`, 56 comprobaciones) contra el
+* **`make gui-sistema`** (`verif/gui/sistema.py`, 61 comprobaciones) contra el
   `mcu-sim` de verdad: un conector en una placa; `placas/nucleo_y_shield.xml`
   con el blinky de la Nucleo encendiendo **a la vez** su LD2 y el LED del
   shield, que está en otra placa; el espejo en 2×3 y en 1×4, y un hilo
   cruzado; dos Nucleo con un MCU cada una y la UART cruzada; `T_PLACA` en las
   versiones 1 y 2; doce errores de sistema, cada uno con lo que hay que
   hacer; la pila `placas/pila_pc104.xml` y sus seis errores; y lo que
-  `T_PLACA` cuenta de cada placa (§14).
+  `T_PLACA` cuenta de cada placa (§14); y los NRST, VDD, VSS y BOOT0 de dos
+  chips unidos (§15).
 * **`make gui-proto`**: la versión que no se ofreció es ahora la 3.
 * **T-suites**: la comprobación de la versión del protocolo dice 2; ningún
   invariante se mueve.
@@ -249,16 +251,12 @@ acoples. Una pieza con muchas patillas —un conector— las pliega.
 
 ## 12. Lo que queda
 
-* **Unir VDD, VSS, NRST o BOOT0 de dos chips**: necesita que `Cableado` sepa
-  atar los pads de alimentación, no solo los de puerto.
 * **Alimentación real entre placas**: hoy un rail que cruza un conector es un
   alias; una placa que alimente a otra necesita `Fuente` en una y cargas en la
   otra, y las piezas siguen resolviendo su `vdd` por dentro.
 * **Un sistema dentro de otro**, y **cambiar parámetros de las piezas desde
   el montaje** (puentes de soldadura, jumpers): el formato lo admite sin
   romper nada; no ha hecho falta todavía.
-* **El módulo ST67W611M1**, para que la X-NUCLEO-67W61M1 haga algo más que
-  pasar pines.
 * **Dibujar el sistema** en la ventana. La información ya llega (§14) y la
   ventana ya la tiene en su modelo; falta el dibujo. Y para un dibujo fiel
   harán falta datos que hoy no hay: el tamaño de cada placa y dónde está cada
@@ -331,3 +329,52 @@ suyo, y un **grafo de placas**: una arista por cada par de placas vecinas en
 un acople, en el orden de la pila, y una por cada hilo entre placas—; hoy lo
 usa para que el recuadro de cada placa diga a cuáles está unida y por dónde,
 y cada conector de una pila nombre a los demás.
+
+## 15. VDD, masa, NRST y BOOT0 entre chips y entre placas
+
+Los diez pads de alimentación y arranque de un chip —`VDD`, `VSS`, `VDDA`,
+`VSSA`, `VREF+`, `VBAT`, `VCAP1`, `VCAP2`, `NRST` y `BOOT0`— se pueden unir
+ahora igual que los de puerto: con un `<hilo>`, con un pin de conector
+acoplado, o con un `<nodo une>`. La masa del chip es `VSS`: un pin `GND` de un
+conector se suelda a `VSS`.
+
+```xml
+<!-- Un reset de placa que resetea los dos chips -->
+<hilo a="A/NRST" b="B/NRST"/>
+<!-- En la Nucleo: el +3V3 y las masas de los conectores Arduino -->
+<componente tipo="Conector" id="CN6" filas="1" columnas="8">
+  <pin nombre="3" nodo="NRST"/>  <pin nombre="4" nodo="VDD"/>
+  <pin nombre="6" nodo="VSS"/>   <pin nombre="7" nodo="VSS"/>
+</componente>
+```
+
+**Cómo.** Lo mismo que hizo falta para los pads de puerto: los nodos de esos
+pads son de `PowerPads` y se crean al construir el chip, y no se pueden
+cambiar después. Ahora `PowerPads` recibe el `Cableado` —`une_alim("NRST",
+n)`— y, para cada pad que la placa une, usa el nodo de la placa en vez del
+suyo. Los suyos se siguen creando siempre, así que un chip sin uniones se
+construye exactamente igual que antes y **ningún invariante se mueve**.
+
+**Qué pasa eléctricamente**, que es lo que se quería:
+
+* **NRST compartido**: los dos pull-ups internos de 40 kΩ quedan en
+  paralelo, y cualquiera que lo lleve a masa —un pulsador, el watchdog de uno
+  de los chips— resetea a los dos, como en una placa real;
+* **VDD o VSS compartidos**: las dos alimentaciones que `mcu-sim` pone en
+  cada chip quedan en paralelo, y la carga de los dos chips cae sobre el
+  mismo nodo;
+* **BOOT0 compartido**: los dos arrancan del mismo sitio;
+* **un pin de alimentación de un conector**: el `+3V3` de la Nucleo es su VDD,
+  así que un LED del shield colgado de ese pin luce con la alimentación de la
+  Nucleo.
+
+La Nucleo lleva ahora soldados a su chip el RESET, el `+3V3`, el `IOREF` y
+las masas de sus conectores Arduino; `+5V`, `VIN` y `AREF` siguen al aire,
+porque el modelo no tiene esos rieles. El shield de ejemplo lleva un LED de
+alimentación en su `+3V3`.
+
+**Cómo se comprueba**: `make gui-sistema` monta dos chips con el NRST unido
+por un hilo y un pulsador normalmente cerrado en una de las placas: el reset
+sujeto en una para también a la otra, y sin el hilo la otra arranca. También
+el VDD, el VSS y el BOOT0 de dos chips unidos, el LED de alimentación del
+shield, y una masa de conector unida a `VSS`.

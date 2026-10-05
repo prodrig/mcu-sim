@@ -11,6 +11,8 @@
          LD_D13  en D13 (J5.6), con el anodo al pin: luce con el pin alto
          LD_D7   en D7  (J9.8), igual
          SW_D2   pulsador en D2 (J9.3) a 3,3 V
+         LD_PWR  LED de alimentacion en el +3V3 (J6.4): luce con la
+                 alimentacion de la placa de abajo
 
      Sola, la placa no hace nada -no lleva chip, y sus LEDs cuelgan de pines
      al aire-; se valida igual:
@@ -35,6 +37,10 @@
   </componente>
   <componente tipo="Led" id="LD_D7" a_vss="si" vf="1.8" r="330">
     <pin nombre="anodo" nodo="J9.8"/>
+  </componente>
+  <!-- El +3V3 llega de la placa de abajo por J6.4 -->
+  <componente tipo="Led" id="LD_PWR" a_vss="si" vf="2.0" r="1000">
+    <pin nombre="anodo" nodo="J6.4"/>
   </componente>
   <componente tipo="Button" id="SW_D2" v_cerrado="3.3" r_cerrado="10" rebote="no">
     <pin nombre="pin" nodo="J9.3"/>

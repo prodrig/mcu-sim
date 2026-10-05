@@ -632,26 +632,30 @@ public:
         std::string a;
         if (!alim_desde_nombre(s, pref, a)) return std::string();
         alim = true;
-        if (sin_mcu_) {
-            err = "'" + s + "' es una patilla de MCU, y la placa no lleva ninguno";
-            return std::string();
-        }
+        err = resuelve_alim(s, id, a);
+        return err.empty() ? id + ":" + a : std::string();
+    }
+    // `VDD` o `u0.NRST` -> a qué MCU y qué pad de alimentación. Las mismas
+    // reglas que `resuelve_pad`. Devuelve "" si vale, o el problema.
+    std::string resuelve_alim(const std::string& s, std::string& id_mcu,
+                              std::string& alim) const {
+        std::string pref;
+        if (!alim_desde_nombre(s, pref, alim))
+            return "'" + s + "' no es un pad de alimentacion ni de arranque del MCU";
+        if (sin_mcu_)
+            return "'" + s + "' es una patilla de MCU, y la placa no lleva ninguno";
         if (pref.empty()) {
-            if (n_mcus_efectivos() > 1) {
-                err = "'" + s + "' es ambiguo, hay " + std::to_string(mcus_.size()) +
-                      " MCUs. Escribe " + lista_cualificada(s);
-                return std::string();
-            }
-            id = mcus_.empty() ? std::string() : mcus_.front().id;
+            if (n_mcus_efectivos() > 1)
+                return "'" + s + "' es ambiguo, hay " + std::to_string(mcus_.size()) +
+                       " MCUs. Escribe " + lista_cualificada(s);
+            id_mcu = mcus_.empty() ? std::string() : mcus_.front().id;
         } else {
-            if (!mcu(pref)) {
-                err = "'" + s + "': no hay ningun MCU llamado '" + pref +
-                      "'. La placa declara: " + lista_mcus();
-                return std::string();
-            }
-            id = pref;
+            if (!mcu(pref))
+                return "'" + s + "': no hay ningun MCU llamado '" + pref +
+                       "'. La placa declara: " + lista_mcus();
+            id_mcu = pref;
         }
-        return id + ":" + a;
+        return std::string();
     }
 
     // --- RESOLVER: de conectores, hilos y acoples a nodos -------------------
@@ -662,9 +666,9 @@ public:
     //   ningún pad      el nombre declarado (`vcc`), o el del primer pin de
     //                   conector; el netlist lo crea como nodo externo
     //   un pad          ese pad: todo lo demás pasa a llamarse `PA5`
-    //   dos o más pads  un nodo compartido, igual que un `<nodo une>`; solo
-    //                   de pads de PUERTO, porque los de alimentación y NRST
-    //                   no se pueden atar a un nodo de la placa (todavía)
+    //   dos o más pads  un nodo compartido, igual que un `<nodo une>`: de
+    //                   puerto o de alimentación y arranque (VDD, VSS,
+    //                   NRST, BOOT0...), que `PowerPads` ata con une_alim
     //
     // Reescribe las patillas de todas las piezas, los nodos externos, los de
     // bus y los compartidos. Un pin de conector al aire se queda con su
@@ -854,14 +858,14 @@ public:
             const std::vector<std::string>& c = clases[r];
             std::vector<std::string> pads;
             std::set<std::string> claves;
-            bool hay_alim = false, mal = false;
+            bool mal = false;
             for (const std::string& n : c) {
                 bool al = false;
                 std::string e;
                 const std::string k = clave_pad(n, al, e);
                 if (!e.empty()) { err.push_back("nodo " + n + ": " + e); mal = true; continue; }
                 if (k.empty()) continue;
-                if (claves.insert(k).second) { pads.push_back(n); hay_alim = hay_alim || al; }
+                if (claves.insert(k).second) pads.push_back(n);
             }
             if (mal) continue;
             std::string rep;
@@ -880,17 +884,9 @@ public:
                             (pasada == 1 && !es_pin) || pasada == 2) { rep = n; break; }
                     }
                 if (rep.empty()) rep = "une:" + pads[0];
-                if (pads.size() >= 2) {
-                    if (hay_alim) {
-                        std::string l;
-                        for (const std::string& p : pads) l += (l.empty() ? "" : ", ") + p;
-                        err.push_back("nodo " + rep + ": une " + l + ", y de los pads de "
-                                      "un MCU solo se pueden unir los de puerto (PA0..PK15); "
-                                      "VDD, VSS, NRST, BOOT0 y los demas, todavia no");
-                        continue;
-                    }
-                    nuevas_uniones[rep] = pads;
-                }
+                // Pads de puerto o de alimentación, da igual: todos van al
+                // mismo nodo compartido (Cableado::une y une_alim).
+                if (pads.size() >= 2) nuevas_uniones[rep] = pads;
                 nuevos_externos.push_back(rep);
             }
             for (const std::string& n : c) rep_de[n] = rep;
@@ -1019,15 +1015,17 @@ public:
                 err.push_back("nodo " + u.first + ": une necesita al menos dos "
                               "pads; con uno solo el nodo ya es del pad");
             for (const std::string& s : u.second) {
-                std::string id_mcu;
-                unsigned p = 0, i = 0;
-                const std::string e = resuelve_pad(s, id_mcu, p, i);
-                if (!e.empty()) { err.push_back("nodo " + u.first + ": " + e); continue; }
                 // La clave es el pad FÍSICO, no como esté escrito: con un solo
                 // MCU llamado u0, `PB9` y `u0.PB9` son el mismo pad y ponerlos
-                // en dos puentes distintos tiene que seguir siendo un error.
-                const std::string clave =
-                    id_mcu + ":" + std::to_string(p * N_PORT_PINS + i);
+                // en dos puentes distintos tiene que seguir siendo un error. Un
+                // pad de alimentación o de arranque (`u0.NRST`) vale igual.
+                bool al = false;
+                std::string e;
+                const std::string clave = clave_pad(s, al, e);
+                if (clave.empty() && e.empty())
+                    e = "'" + s + "' no es un pad del MCU (se esperaba algo como "
+                        "PD12, u0.PD12 o u0.NRST)";
+                if (!e.empty()) { err.push_back("nodo " + u.first + ": " + e); continue; }
                 const auto it = pad_de.find(clave);
                 if (it == pad_de.end())      pad_de[clave] = u.first;
                 else if (it->second == u.first)
@@ -1451,12 +1449,16 @@ inline std::string cableado_desde_netlist(const Netlist& nl, NodeMap& nodos,
             return "nodo " + u.first + ": une necesita al menos dos pads";
         analog_net_if& n = nodos.externo(u.first);
         for (const std::string& s : u.second) {
-            std::string id_mcu;
+            std::string id_mcu, alim;
             unsigned p = 0, i = 0;
-            const std::string e = nl.resuelve_pad(s, id_mcu, p, i);
-            if (!e.empty()) return "nodo " + u.first + ": " + e;
-            const std::string clave =
-                id_mcu + ":" + std::to_string(p * N_PORT_PINS + i);
+            // Un pad de alimentación o de arranque va a `une_alim`
+            const bool es_alim = nl.resuelve_alim(s, id_mcu, alim).empty();
+            if (!es_alim) {
+                const std::string e = nl.resuelve_pad(s, id_mcu, p, i);
+                if (!e.empty()) return "nodo " + u.first + ": " + e;
+            }
+            const std::string clave = id_mcu + ":" +
+                (es_alim ? alim : std::to_string(p * N_PORT_PINS + i));
             const auto it = pad_de.find(clave);
             if (it != pad_de.end())
                 return it->second == u.first
@@ -1464,7 +1466,8 @@ inline std::string cableado_desde_netlist(const Netlist& nl, NodeMap& nodos,
                      : "el pad " + s + " esta en dos nodos a la vez: " +
                        it->second + " y " + u.first;
             pad_de[clave] = u.first;
-            cabs[id_mcu].une(p, i, n);
+            if (es_alim) cabs[id_mcu].une_alim(alim, n);
+            else         cabs[id_mcu].une(p, i, n);
         }
     }
     return std::string();

@@ -635,10 +635,14 @@ conector.
 vuelta: en un 2×N el 1 cae sobre el 2; con una sola fila, el 1 cae sobre el
 último. Para eso hace falta saber dónde está cada pin.
 
-**Dos límites.** Un id de conector no puede ser algo como `P1`, porque `P1.1`
-sería el pad `PB1`. Y de los pads de un chip solo se pueden unir a otro chip
-los de puerto: el NRST de una placa se puede llevar a una placa sin MCU, pero
-no unir con el NRST de otro chip, todavía.
+**Un límite.** Un id de conector no puede ser algo como `P1`, porque `P1.1`
+sería el pad `PB1`.
+
+**Alimentación, masa, reset y arranque también pasan.** Un pin se puede
+soldar a `VDD`, `VSS` (la masa del chip), `NRST`, `BOOT0` o cualquiera de los
+diez pads de alimentación y arranque, y llevarlos así a otra placa o unirlos
+con los de otro chip: con el NRST compartido, un reset de una placa resetea a
+las dos.
 
 #### `Rpull`
 
