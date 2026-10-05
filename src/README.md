@@ -552,6 +552,25 @@ sesiones de GDB a la vez, una por chip y cada una en su puerto. `placas/dos_mcu.
 es esa placa —dos F407 hablando por I2C—; la comparación entre los dos modos de
 depuración y el resto está en `doc/multi_mcu.md`, §5.
 
+**Varias placas enchufadas.** Un fichero `<sistema>` nombra placas —de su
+fichero o escritas dentro— y dice cómo se enchufan: `<acopla>` dos `Conector`
+pin a pin (o en espejo, cara a cara) y `<hilo>` dos nodos sueltos. Las placas
+no cambian: el fichero de una Nucleo es el mismo que se simula sola. Todo lo
+de la placa `A` se llama `A/...` (`A/LD2`, `A/u0.PA5`), y dentro de su fichero
+`PA5` sigue siendo el pin de SU chip:
+
+```
+./build/mcu-sim placas/nucleo_y_shield.xml --ms=400
+sistema 'nucleo-y-shield': 2 placas: N (nucleo-f446re), S (shield-leds)
+  [acopla] N/CN5 con S/J5
+  ...
+  LED N/LD2 en N/u0.PA5: encendido  (3.02 V, 2.00 mA)
+  LED S/LD_D13 en N/u0.PA5: encendido  (3.02 V, 3.09 mA)
+```
+
+El formato está en `doc/parts.md` §2.5, y el porqué en
+`doc/analisis_placas_conectadas.md`.
+
 **Puentes entre pines.** Dos pines pueden ser el MISMO punto eléctrico, no dos
 puntos parecidos:
 
@@ -577,6 +596,9 @@ Algunas de las de `placas/`:
 | `led_azul_5v.xml` | Un LED azul de 3,0 V colgado de 5 V con el cátodo al pin |
 | `banco.xml` | La placa entera de la suite: 43 componentes de 20 tipos |
 | `dos_mcu.xml` | Dos STM32F407 hablando por I2C, cada uno con su puerto de GDB |
+| `nucleo_f446re.xml` | La **NUCLEO-F446RE**: LD2, B1 y sus cuatro conectores Arduino (CN5, CN6, CN8, CN9) |
+| `shield_leds.xml` | Un shield Arduino de prueba, **sin MCU**: dos LEDs y un pulsador en sus conectores J5..J9 |
+| `nucleo_y_shield.xml` | **Un `<sistema>`**: la Nucleo con el shield enchufado; el blinky enciende a la vez el LD2 de una placa y el LED de la otra |
 | `fuente_y_masa.xml` | **Sin MCU**: una `Fuente` de 3,3 V y una `Gnd`, cada una con su límite de corriente, LEDs y dos pulsadores que las cortocircuitan para ver la sobrecorriente en `mcu-sim-gui` |
 
 `banco.xml` está **generado** por el propio modelo y versionado a propósito. Se

@@ -64,7 +64,7 @@ def s1_s2_espera(sim):
         if not check(v.acepta(), "mcu-sim se conecta a la ventana"):
             return
         hola, placa, cat, listo = saludo_hasta_listo(v)
-        check(hola is not None and hola.get("protocolo_max") == "1" and
+        check(hola is not None and hola.get("protocolo_max") == "2" and
               hola.get("placa") == PLACA and hola.get("modo") == "simula" and
               hola.get("mcu") == "STM32F407VG" and hola.get("firmware") == FW and
               hola.get("pid") == str(p.pid),

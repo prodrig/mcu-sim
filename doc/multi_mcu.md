@@ -115,6 +115,12 @@ migración.
 > placas de `placas/` lo declaran, y sin ninguno la placa va sin chip
 > (`src/README.md`, «Varios MCUs»). Lo que cuesta es una línea por placa:
 > `<mcu tipo="STM32F407VG" id="u0"/>`.
+>
+> **Y después:** con varias placas en un `<sistema>`
+> (`doc/analisis_placas_conectadas.md`), el prefijo gana un nivel con una
+> barra: el `u0` de la placa `A` es `A/u0` y su pin `A/u0.PA5`. Dentro del
+> fichero de cada placa la regla de esta tabla sigue igual, y `PA5` es el del
+> chip de ESA placa.
 
 El error del tercer caso merece ser bueno, porque será el más frecuente:
 

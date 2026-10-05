@@ -37,4 +37,52 @@
   <componente tipo="Button" id="B1" v_cerrado="0" r_cerrado="10">
     <pin nombre="pin" nodo="PC13"/>
   </componente>
+
+  <!-- ===================================================================
+       Los cuatro conectores ARDUINO UNO V3 [UM1724, conectores Arduino de
+       las Nucleo-64]: por ahi se enchufa un shield o una X-NUCLEO, y es lo
+       que un <sistema> acopla (placas/nucleo_y_shield.xml). Una fila cada
+       uno, numerados del 1 al N como en la serigrafia.
+
+       La alimentacion (+3V3, +5V, VIN, IOREF, AREF) y las masas se quedan
+       AL AIRE a proposito: en este modelo cada pieza resuelve su tension por
+       dentro (`vdd`, `a_vss`), y un shield que necesite un rail de verdad
+       lleva su propia Fuente. Lo que si va soldado es el RESET, a NRST.
+       =================================================================== -->
+  <!-- CN5: D8..D15. El 7 es GND y el 8 AREF -->
+  <componente tipo="Conector" id="CN5" filas="1" columnas="10">
+    <pin nombre="1" nodo="PA9"/>    <!-- D8 -->
+    <pin nombre="2" nodo="PC7"/>    <!-- D9 -->
+    <pin nombre="3" nodo="PB6"/>    <!-- D10 -->
+    <pin nombre="4" nodo="PA7"/>    <!-- D11 -->
+    <pin nombre="5" nodo="PA6"/>    <!-- D12 -->
+    <pin nombre="6" nodo="PA5"/>    <!-- D13, el de LD2 -->
+    <pin nombre="9" nodo="PB9"/>    <!-- D14 / SDA -->
+    <pin nombre="10" nodo="PB8"/>   <!-- D15 / SCL -->
+  </componente>
+  <!-- CN6: alimentacion. 1 NC, 2 IOREF, 3 RESET, 4 +3V3, 5 +5V, 6 y 7 GND,
+       8 VIN -->
+  <componente tipo="Conector" id="CN6" filas="1" columnas="8">
+    <pin nombre="3" nodo="NRST"/>
+  </componente>
+  <!-- CN8: A0..A5 -->
+  <componente tipo="Conector" id="CN8" filas="1" columnas="6">
+    <pin nombre="1" nodo="PA0"/>    <!-- A0 -->
+    <pin nombre="2" nodo="PA1"/>    <!-- A1 -->
+    <pin nombre="3" nodo="PA4"/>    <!-- A2 -->
+    <pin nombre="4" nodo="PB0"/>    <!-- A3 -->
+    <pin nombre="5" nodo="PC1"/>    <!-- A4 -->
+    <pin nombre="6" nodo="PC0"/>    <!-- A5 -->
+  </componente>
+  <!-- CN9: D0..D7 -->
+  <componente tipo="Conector" id="CN9" filas="1" columnas="8">
+    <pin nombre="1" nodo="PA3"/>    <!-- D0, USART2_RX -->
+    <pin nombre="2" nodo="PA2"/>    <!-- D1, USART2_TX -->
+    <pin nombre="3" nodo="PA10"/>   <!-- D2 -->
+    <pin nombre="4" nodo="PB3"/>    <!-- D3 -->
+    <pin nombre="5" nodo="PB5"/>    <!-- D4 -->
+    <pin nombre="6" nodo="PB4"/>    <!-- D5 -->
+    <pin nombre="7" nodo="PB10"/>   <!-- D6 -->
+    <pin nombre="8" nodo="PA8"/>    <!-- D7 -->
+  </componente>
 </placa>

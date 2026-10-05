@@ -1,6 +1,6 @@
 # Catálogo de componentes externos
 
-Referencia de las **24 piezas** que la factoría de `src/parts/` sabe construir:
+Referencia de las **25 piezas** que la factoría de `src/parts/` sabe construir:
 qué terminales tiene cada una, qué parámetros admite, qué hace cada parámetro y
 qué queda fuera del fichero.
 
@@ -271,6 +271,41 @@ select, dos periféricos que se disputan un pin— sin borrarlo del netlist.
 No es una comodidad, es una necesidad: **la elaboración de SystemC es estática**
 y no se puede crear una pieza con la simulación en marcha, así que lo que no
 está montado se construye igual y nace desconectado.
+
+### 2.5 Varias placas enchufadas: `<sistema>`
+
+Una Nucleo con un shield encima, o dos placas unidas por un cable, son un
+**sistema**: un fichero que nombra las placas y dice cómo se enchufan. Las
+placas no cambian —el fichero de una Nucleo es el mismo que se simula sola—,
+y lo que las une se dice en el sistema, que es donde se sabe.
+
+```xml
+<sistema nombre="nucleo-y-shield">
+  <placa id="N" fichero="nucleo_f446re.xml"/>
+  <placa id="S" fichero="shield_leds.xml"/>
+  <acopla a="N/CN5" b="S/J5"/>
+  <acopla a="N/CN9" b="S/J9"/>
+  <mcu ref="N/u0" firmware="verif/fw/blinky446/blinky446.bin"/>
+</sistema>
+```
+
+| Elemento | Qué dice |
+| :--- | :--- |
+| `<placa id="A" fichero="x.xml"/>` | Una placa, de su fichero (relativo a la carpeta del sistema) |
+| `<placa id="A" nombre="..."> ... </placa>` | O escrita dentro, con lo mismo que una `<placa>` suelta |
+| `<acopla a="A/CN9" b="B/J9" [espejo="si"]/>` | Dos `Conector` (§4.1) enchufados: el pin *k* de uno con el *k* del otro; en espejo, con el que le cae enfrente |
+| `<hilo a="A/CN9.2" b="B/PA3"/>` | Dos nodos cualesquiera, unidos: un cable, un cruce TX↔RX |
+| `<mcu ref="A/u0" firmware= depuracion= puerto_gdb=/>` | Lo que el montaje decide de un chip de una placa, sin tocar su fichero |
+
+**Todo lo de la placa `A` se llama `A/...`**: `A/LD2`, `A/u0`, `A/vcc`, el
+pin de conector `A/CN9.2`. Dentro del fichero de la placa se escribe como
+siempre, y **`PA5` es el pin del chip de ESA placa** (`A/u0.PA5`) aunque el
+sistema lleve varios. La barra no puede aparecer en un nombre de la placa.
+
+Lo demás funciona igual: con un solo MCU en todo el sistema, el firmware de la
+línea de órdenes, `--gdb` y `--mcu` valen y mandan; con varios, cada chip lleva
+lo suyo, aquí en `<mcu ref>`. `placas/nucleo_y_shield.xml` es el ejemplo, y el
+porqué de cada decisión está en `doc/analisis_placas_conectadas.md`.
 
 ---
 
@@ -559,6 +594,49 @@ tuvo que limitar.
 
 Desde C++, `corriente()` en amperios, `sobrecorriente()` y `episodios()`, las
 veces que ha entrado en limitación.
+
+#### `Conector`
+
+Una tira de **filas × columnas** pines, numerados del 1 al N. **No conduce ni
+escucha**: dice que esos nodos salen de la placa. Su pin *k* se llama `ID.k`
+(`CN9.2`), se suelda a un nodo de la placa con `<pin nombre="k">`, y uno sin
+soldar es un nodo propio, al aire, del que se puede colgar otra pieza. Dos
+conectores se enchufan en un `<sistema>` (§2.5).
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `1` … `N` | los que se usen | Cada pin, por su número, al nodo al que va soldado |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `columnas` | *(obligatorio)* | Cuántos pines tiene cada fila |
+| `filas` | `1` | Cuántas filas: 2 en un IDC, en un morpho o en la cabecera de una Raspberry Pi |
+| `numeracion` | `zigzag` | `zigzag`: el 1 y el 2 enfrentados, impares en una fila y pares en la otra. `filas`: la primera fila entera, del 1 a `columnas`, y luego la siguiente |
+
+```xml
+<!-- El CN9 de una Nucleo-64: D0..D7 -->
+<componente tipo="Conector" id="CN9" filas="1" columnas="8">
+  <pin nombre="1" nodo="PA3"/>    <!-- D0 -->
+  <pin nombre="2" nodo="PA2"/>    <!-- D1 -->
+</componente>
+<!-- Un LED colgado directamente del pin 8 -->
+<componente tipo="Led" id="LD7" a_vss="si"><pin nombre="anodo" nodo="CN9.8"/></componente>
+```
+
+**Un pin soldado a un pad ES ese pad**: el LED de un shield en `J5.6`, con
+`J5` enchufado al `CN5` de la Nucleo y `CN5.6` soldado a `PA5`, cuelga de
+`PA5`, y así lo dicen los mensajes y el informe. **Un pin al aire no es un
+nodo flotante que avisar**: casi ningún montaje usa todos los pines de un
+conector.
+
+**La numeración solo importa en espejo.** Dos placas cara a cara se dan la
+vuelta: en un 2×N el 1 cae sobre el 2; con una sola fila, el 1 cae sobre el
+último. Para eso hace falta saber dónde está cada pin.
+
+**Dos límites.** Un id de conector no puede ser algo como `P1`, porque `P1.1`
+sería el pad `PB1`. Y de los pads de un chip solo se pueden unir a otro chip
+los de puerto: el NRST de una placa se puede llevar a una placa sin MCU, pero
+no unir con el NRST de otro chip, todavía.
 
 #### `Rpull`
 
@@ -1188,8 +1266,8 @@ $ ./build/mcu-sim placas/led_azul_5v.xml verif/fw/blinky/blinky.bin 205
   LED LD_AZUL en PD12: apagado  (3.30 V, 0.00 mA)
 ```
 
-Y la placa entera del banco de pruebas —43 componentes de 20 de los 24 tipos,
-todos menos `Rpull`, `Fuente`, `Gnd` y `PuenteSerie`, que tiene su propio banco (`testserie`)— se saca
+Y la placa entera del banco de pruebas —43 componentes de 20 de los 25 tipos,
+todos menos `Rpull`, `Fuente`, `Gnd`, `Conector` y `PuenteSerie`, que tiene su propio banco (`testserie`)— se saca
 del propio modelo, que es la mejor referencia de formato que hay:
 
 ```

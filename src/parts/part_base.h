@@ -70,6 +70,11 @@ struct Terminal {
     // y varias cargas no es un cortocircuito sino un raíl, y la validación
     // eléctrica lo distingue por esto; dos fuentes en el mismo nodo, sí lo son.
     bool             riel = false;
+    // true: es una patilla de CONECTOR. No conduce ni escucha: solo dice que
+    // ahí hay un hilo que sale de la placa. Un pin de conector al aire no es un
+    // nodo flotante que avisar -es lo normal: casi ningún montaje usa los 38
+    // pines de un morpho-, y la validación eléctrica lo sabe por esto.
+    bool             paso = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -267,6 +272,11 @@ protected:
     // Igual, pero admite nullptr: una patilla que este encapsulado no saca.
     void add_ref_opt(const std::string& nombre, analog_net_if* n) {
         if (n) add_ref(nombre, *n);
+    }
+
+    // Marca una patilla como pin de conector (vease Terminal::paso)
+    void marca_paso(const std::string& nombre) {
+        if (Terminal* t = busca(nombre)) t->paso = true;
     }
 
     // Marca una patilla como salida de una fuente (vease Terminal::riel)

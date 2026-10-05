@@ -329,6 +329,43 @@ REGISTRA_PARTE(Gnd,
         return new Gnd(d.id.c_str(), n[d.nodo_de("pin")], d.num("r", 0.1), lim);
     });
 
+REGISTRA_PARTE(Conector,
+    Ayuda("Un conector de filas x columnas pines, numerados del 1 al N. No "
+          "conduce ni escucha: dice que esos nodos salen de la placa. Su pin "
+          "k se llama `ID.k` (`CN7.17`) y se suelda a un nodo con <pin "
+          "nombre=\"k\">; uno sin soldar es un nodo propio, al aire.")
+      .ejemplo("<componente tipo=\"Conector\" id=\"CN9\" filas=\"1\" "
+               "columnas=\"8\">\n"
+               "  <pin nombre=\"1\" nodo=\"PA3\"/>   <!-- D0 -->\n"
+               "  <pin nombre=\"2\" nodo=\"PA2\"/>   <!-- D1 -->\n"
+               "</componente>")
+      .pin("1..N", "los que se usen",
+           "Cada pin, por su numero, al nodo de la placa al que va soldado.")
+      .atr("columnas", "(obligatorio)", "Cuantos pines tiene cada fila.")
+      .atr("filas", "1", "Cuantas filas: 2 en un IDC o en un morpho.")
+      .atr("numeracion", "zigzag",
+           "zigzag: el 1 y el 2 enfrentados, impares en una fila y pares en "
+           "la otra (IDC, Raspberry Pi, morpho). filas: la primera fila "
+           "entera, del 1 a columnas, y luego la siguiente.")
+      .nota("Dos conectores se ENCHUFAN en un <sistema> con <acopla a=\"A/CN9\" "
+            "b=\"B/J1\"/>: el pin k de uno queda unido al k del otro, o en "
+            "espejo -espejo=\"si\", dos placas cara a cara- al que le cae "
+            "enfrente. Un cable que cruza pines es <hilo a=\"..\" b=\"..\"/>.")
+      .nota("Un pin al aire no es un nodo flotante que avisar: es lo normal.")
+      .cpp("filas(), columnas(), n_pines() y zigzag()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        GeomConector g;
+        const std::string e = Netlist::geometria(d, g);
+        if (!e.empty()) {
+            SC_REPORT_ERROR("netlist", ("Conector '" + d.id + "': " + e).c_str());
+            return nullptr;
+        }
+        std::vector<std::pair<std::string, analog_net_if*>> pines;
+        for (const Conexion& c : d.pines)
+            pines.emplace_back(c.pin, n.existe(c.nodo) ? &n[c.nodo] : nullptr);
+        return new Conector(g.filas, g.columnas, g.zigzag, pines);
+    });
+
 REGISTRA_PARTE(Rpull,
     Ayuda("Una rama resistiva entre el nodo y una tension fija. Es el "
           "equivalente Thevenin {v, r} y nada mas, asi que sirve para el "

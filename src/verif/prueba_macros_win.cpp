@@ -64,7 +64,7 @@
 
 // Una comprobación de que lo de arriba no es decorativo: si `VERSION` se
 // hubiera quedado como nombre de constante, esta línea no compilaría.
-static_assert(mcusim::proto::VERSION_PROTO == 1, "la version del protocolo es 1");
+static_assert(mcusim::proto::VERSION_PROTO == 2, "la version del protocolo es 2");
 static_assert(sizeof(mcusim::proto::Orden) == 16, "una Orden son 16 bytes");
 static_assert(mcusim::proto::RES_OK == 0, "RES_OK sigue siendo cero");
 static_assert(mcusim::proto::Lector::LEC_ERROR == 2, "el estado de error no es la macro ERROR");

@@ -211,9 +211,9 @@ jobs:
         working-directory: src
         run: make -f Makefile.mcu-sim interop
 
-      - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU)
+      - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas)
         working-directory: src
-        run: make -f Makefile.mcu-sim gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu
+        run: make -f Makefile.mcu-sim gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema
 
       - uses: actions/upload-artifact@v6
         if: always()
@@ -444,7 +444,7 @@ jobs:
         working-directory: src
         run: python3 verif/serie/interop.py
 
-      - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU)
+      - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas)
         # psutil para medir la CPU de mcu-sim mientras espera: en Linux basta
         # /proc, aqui no.
         working-directory: src
@@ -457,6 +457,7 @@ jobs:
           python3 verif/gui/control.py
           python3 verif/gui/argumentos.py
           python3 verif/gui/sin_mcu.py
+          python3 verif/gui/sistema.py
 
       # DESPUES de la interoperabilidad, no antes: sus `interop_*.log` -la
       # consola de cada mcu-sim que arranca- tambien estan en src/build/, y
@@ -590,7 +591,7 @@ jobs:
           python -m pip install pyserial
           python verif/serie/interop.py
 
-      - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU)
+      - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas)
         shell: pwsh
         working-directory: src
         run: |
@@ -601,6 +602,7 @@ jobs:
           python verif/gui/control.py
           python verif/gui/argumentos.py
           python verif/gui/sin_mcu.py
+          python verif/gui/sistema.py
 
       - uses: actions/upload-artifact@v6
         if: always()

@@ -774,9 +774,9 @@ void p4_saludo() {
           "ninguna version", 3000 },
         { "la GUI elige una version que no se le ofrecio",
           [](red::socket_t c, Lector& L, Emisor& e) {
-              recibe_gui(c, L, 1); manda_gui(c, e, T_VERSION, "protocolo=2\n");
+              recibe_gui(c, L, 1); manda_gui(c, e, T_VERSION, "protocolo=3\n");
               std::this_thread::sleep_for(std::chrono::milliseconds(100)); },
-          "version 2", 3000 },
+          "version 3", 3000 },
         { "la GUI contesta sin decir version",
           [](red::socket_t c, Lector& L, Emisor& e) {
               recibe_gui(c, L, 1); manda_gui(c, e, T_VERSION, "gui=muda\n");

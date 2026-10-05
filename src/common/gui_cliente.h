@@ -95,6 +95,10 @@ public:
     }
     bool conectado() const { return red::valido(s_); }
 
+    // La placa para una ventana que solo hable la versión 1 del protocolo:
+    // sin la raíz <sistema>. Vacía, se le manda la misma que a las demás.
+    void placa_para_v1(std::string x) { placa_v1_ = std::move(x); }
+
     // Lo que se manda como T_AVISO durante el saludo, uno por línea.
     void avisos_de_placa(std::vector<std::string> v) { avisos_placa_ = std::move(v); }
 
@@ -142,7 +146,7 @@ public:
 
         // --- La placa y el catálogo ----------------------------------------
         sal.clear();
-        em_.mensaje(sal, T_PLACA, placa);
+        em_.mensaje(sal, T_PLACA, version_ < 2 && !placa_v1_.empty() ? placa_v1_ : placa);
         em_.mensaje(sal, T_CATALOGO, catalogo);
         for (const std::string& a : avisos_placa_)
             em_.mensaje(sal, T_AVISO, cuerpo_aviso(N_AVISO, "placa", a, 0));
@@ -314,6 +318,7 @@ private:
     mcusim::proto::Lector  lec_{mcusim::proto::Origen::Pantalla};
     std::string            error_;
     uint16_t               version_ = 0;
+    std::string            placa_v1_;
     unsigned               ignorados_ = 0;
     std::vector<std::string> avisos_placa_;
     std::string            suscripcion_;

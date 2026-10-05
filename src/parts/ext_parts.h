@@ -303,6 +303,40 @@ public:
 };
 
 // ---------------------------------------------------------------------------
+// CONECTOR: filas x columnas pines, numerados del 1 al N, y nada más.
+//
+// Eléctricamente NO ES NADA: ni conduce ni escucha. Lo que hace un conector
+// -que el pin 17 de una placa y el 17 de la otra sean el mismo punto- lo
+// resuelve el netlist ANTES de construir (`Netlist::resuelve_alias`), uniendo
+// nodos, y aquí solo queda la pieza para que la placa la nombre, la vuelque y
+// la ventana la vea. Sus patillas se marcan `paso` para que un pin al aire,
+// que es lo normal, no se cuente como un nodo flotante.
+//
+// La geometría -filas, columnas y cómo se numeran- solo importa al acoplar
+// en espejo (`<acopla espejo="si">`), y la guarda la pieza para decirlo.
+// ---------------------------------------------------------------------------
+class Conector : public ExtPartBase {
+public:
+    Conector(unsigned filas, unsigned columnas, bool zigzag,
+             const std::vector<std::pair<std::string, analog_net_if*>>& pines)
+        : ExtPartBase("Conector", nullptr), filas_(filas), columnas_(columnas),
+          zigzag_(zigzag) {
+        for (const auto& p : pines) {
+            if (!p.second) continue;
+            add_ref(p.first, *p.second);
+            marca_paso(p.first);
+        }
+    }
+    unsigned filas() const    { return filas_; }
+    unsigned columnas() const { return columnas_; }
+    unsigned n_pines() const  { return filas_ * columnas_; }
+    bool     zigzag() const   { return zigzag_; }
+private:
+    unsigned filas_, columnas_;
+    bool     zigzag_;
+};
+
+// ---------------------------------------------------------------------------
 // LED con resistencia en serie. Con to_vss = true el LED se enciende cuando el
 // pin está alto (ánodo al pin); con to_vss = false el ánodo va a VDD y el LED
 // se enciende cuando el pin baja, que es el montaje habitual en las placas de

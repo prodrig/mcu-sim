@@ -30,6 +30,7 @@
 #   make gui-control              # y el control: pausa, paso, parar y el ritmo (Python)
 #   make gui-argumentos           # que --argumentos dice lo mismo que --help y que argv (Python)
 #   make gui-sin-mcu              # una placa sin MCU, y Fuente y Gnd con su limite (Python)
+#   make gui-sistema              # conectores, y varias placas enchufadas: <sistema> (Python)
 #   make serie                    # el destino y el formato de un PuenteSerie, tampoco
 #   make rfc2217                  # el codec de Telnet y RFC 2217, tampoco
 #   make interop                  # el puente UART contra pySerial y socat (Python)
@@ -207,7 +208,7 @@ ASAN446 := build/asan446$(EXE)
 ASAN417 := build/asan417$(EXE)
 ASANSERIE := build/asanserie$(EXE)
 
-.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu interop run clean plataforma vectores hash cryp
+.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop run clean plataforma vectores hash cryp
 
 all: $(MCUSIM)
 
@@ -440,6 +441,14 @@ gui-argumentos: $(MCUSIM)
 # <mcu>. Segundos; no toca ningun invariante.
 gui-sin-mcu: $(MCUSIM)
 	$(PYTHON) verif/gui/sin_mcu.py
+
+# VARIAS PLACAS ENCHUFADAS (P-15): la pieza Conector, y un <sistema> que junta
+# placas -de su fichero o escritas dentro- con <acopla> y <hilo>. La Nucleo
+# con un shield sin MCU (placas/nucleo_y_shield.xml), el espejo, dos chips en
+# dos placas, T_PLACA en las versiones 1 y 2 del protocolo y los errores.
+# Segundos; no toca ningun invariante.
+gui-sistema: $(MCUSIM)
+	$(PYTHON) verif/gui/sistema.py
 
 # EL CAMPO DE MINAS DEL PREPROCESADOR DE WINDOWS. Prueba de COMPILACION, no de
 # ejecucion: define a mano las macros que Windows trae -R_OK, min, max, ERROR,

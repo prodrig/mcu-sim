@@ -79,7 +79,13 @@ inline constexpr uint32_t MAGIA = 0x3147534Du;
 // docena de sistemas de construcción definen como macro. Sube cuando cambia el
 // significado o la disposición de algo que ya existía; NO sube por añadir un
 // tipo de mensaje nuevo, porque para eso está el salto por longitud.
-inline constexpr uint16_t VERSION_PROTO = 1;
+//
+//   1  la primera.
+//   2  (2026-10) T_PLACA puede traer un <sistema> -varias placas, con los
+//      nombres cualificados `A/LD2` y sus <placa id=...> delante- en vez de
+//      una <placa>. Con una ventana que solo habla la 1, `mcu-sim` le manda
+//      el mismo contenido con la raíz <placa> de siempre. Lo demás, igual.
+inline constexpr uint16_t VERSION_PROTO = 2;
 
 // El puerto por omisión. Vecino del 3333 de los dos servidores de GDB, para que
 // los puertos del proyecto se recuerden juntos, y fuera del rango bien
@@ -117,7 +123,7 @@ static_assert(sizeof(Cabecera) == 16, "la cabecera son 16 bytes exactos");
 enum Tipo : uint16_t {
     // --- Saludo, antes de que la simulación exista -------------------------
     T_HOLA        = 0x0001,  // quién soy y qué versión hablo
-    T_PLACA       = 0x0002,  // el XML de `--netlist`, tal cual, UTF-8
+    T_PLACA       = 0x0002,  // la placa (o, desde la v2, el sistema) en XML, UTF-8
     T_CATALOGO    = 0x0003,  // observables y mandos de cada pieza
     T_LISTO       = 0x0004,  // elaborado y ESPERANDO. `sc_start()` no se ha llamado
 

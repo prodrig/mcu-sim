@@ -373,6 +373,31 @@ es físico exige un driver, y ninguna herramienta gratuita lo evita (§7.1 del
 análisis). Para ver lo que imprime el firmware no hace falta: basta un terminal
 que hable TCP, como CoolTerm o PuTTY en modo *Raw*.
 
+
+### P-15 — Varias placas enchufadas: `Conector` y `<sistema>`
+
+**Analizado y decidido en `doc/analisis_placas_conectadas.md`. HECHO el
+2026-10-05**, la primera parte:
+
+* **La pieza `Conector`**: filas × columnas pines, `numeracion` zigzag o por
+  filas; no conduce, y sus pines al aire no se avisan como flotantes. Un pin
+  soldado a un nodo ES ese nodo (`Netlist::resuelve_alias`, unión-búsqueda
+  antes de construir, como `une`).
+* **El fichero `<sistema>`**: placas de su fichero o escritas dentro,
+  `<acopla>` (con `espejo`), `<hilo>` y `<mcu ref>`. Todo cualificado con `/`
+  (`A/LD2`, `A/u0.PA5`); leer aplana, y del lector en adelante nadie sabe que
+  hay placas.
+* **`T_PLACA` en la versión 2 del protocolo**: un `<sistema>` aplanado; a una
+  ventana de la 1, lo mismo con la raíz `<placa>`. `mcu-sim-gui` agrupa por
+  placa (su plan §19).
+* La NUCLEO-F446RE lleva sus conectores Arduino, y `placas/nucleo_y_shield.xml`
+  la enchufa a un shield sin MCU. **`make gui-sistema`** (42) lo vigila.
+
+**Lo que queda**, cada cosa con su motivo en el §12 del análisis: unir VDD,
+VSS, NRST o BOOT0 de dos chips (`Cableado` solo ata pads de puerto);
+alimentación de verdad entre placas; un sistema dentro de otro; cambiar
+parámetros de piezas desde el montaje; el módulo ST67W611M1 de la
+X-NUCLEO-67W61M1; y dibujar los acoples en la ventana.
 ---
 
 ## 3. Funciones no modeladas — "bits sin máquina" (F)
@@ -711,16 +736,16 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 
 | Categoría | Puntos |
 | :--- | ---: |
-| **P** — Pendientes de plan | 14 *(una cerrada: P-14, con la matriz manual a medias)* |
+| **P** — Pendientes de plan | 15 *(una cerrada: P-14, con la matriz manual a medias; P-15, hecha su primera parte)* |
 | **F** — Funciones no modeladas | 51 |
 | **T** — Temporización y física | 23 |
 | **D** — Datos sin fuente | 14 |
 | **X** — Discrepancias, silencios de [IR] y erratas de ST | 14 |
 | **V** — Huecos de verificación | 11 |
 | **I** — Deuda de instrumentación y proyecto | 50 *(treinta cerradas: I-11, I-12, I-15, I-16, I-17, I-20, I-22, I-25, I-28, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38, I-39, I-40, I-41, I-42, I-43, I-44, I-45, I-46, I-47, I-48, I-53 e I-54)* |
-| **Total** | **177** |
+| **Total** | **178** |
 
-De los 177, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 178, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.

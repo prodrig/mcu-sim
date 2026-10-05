@@ -277,13 +277,19 @@ SC_MODULE(Sim) {
 
     SC_CTOR(Sim) {
         // --- 1. Leer. No construye nada: devuelve datos ---------------------
-        const std::string e = netlist_desde_fichero(placa, g_placa, &g_nombre);
+        const std::string e = placa_o_sistema_desde_fichero(placa, g_placa, &g_nombre);
         if (!e.empty()) muere("error de netlist: " + e);
 
         // --- 2. La lista de MCUs, y la línea de órdenes encima ---------------
         std::vector<DeclMcu> decls = placa.mcus();
         if (!g_tipo_mcu.empty()) {
-            if (decls.empty()) {             // ninguno declarado: el de --mcu
+            if (decls.empty() && placa.es_sistema()) {
+                // En un sistema no hay a qué placa ponérselo: el chip se
+                // declara en la placa que lo lleva.
+                muere("en un <sistema>, --mcu no pone un MCU: ninguna placa declara "
+                      "uno, y no se sabe en cual iria. Declaralo en la placa que lo "
+                      "lleva, con <mcu tipo=\"" + g_tipo_mcu + "\" id=\"u0\"/>");
+            } else if (decls.empty()) {      // ninguno declarado: el de --mcu
                 DeclMcu m;
                 m.tipo = g_tipo_mcu;         // id vacío -> nodos con nombre desnudo
                 decls.push_back(m);
@@ -343,6 +349,19 @@ SC_MODULE(Sim) {
                             caps_de[k]->enc.n_gpio);
         }
 
+        // --- 2 bis. Conectores, acoples e hilos: qué nodos son el mismo ------
+        // Antes de los MCUs por lo mismo que `une`: un pin de conector unido a
+        // otro pad de otro chip hace que esos dos pads compartan nodo, y eso
+        // se decide antes de atar un solo `sc_port`. Sin conectores ni hilos
+        // no hace nada.
+        {
+            const std::vector<std::string> ea = placa.resuelve_alias();
+            for (const std::string& q : ea) std::fprintf(stderr, "  [decl] %s\n", q.c_str());
+            if (!ea.empty())
+                muere(g_placa + ": " + std::to_string(ea.size()) +
+                      " problemas con conectores e hilos; no se monta");
+        }
+
         // --- 3. Los nodos COMPARTIDOS, antes de los MCUs --------------------
         // Si la placa no declara ninguno -que es lo normal- los cableados salen
         // vacíos y cada chip se construye exactamente igual que siempre.
@@ -386,7 +405,9 @@ SC_MODULE(Sim) {
             // desnudo cuando solo hay uno: es lo que hace que las placas
             // escritas hasta hoy sigan valiendo sin migrarlas.
             m.mcu->registra_nodos(d.id, nodos);
-            if (decls.size() == 1 && !d.id.empty())
+            // En un <sistema> no: allí no hay nombres desnudos, todo es
+            // `A/u0.PA5`, y el desnudo solo podría confundir.
+            if (decls.size() == 1 && !d.id.empty() && !placa.es_sistema())
                 m.mcu->registra_nodos(std::string(), nodos);
             // El stub de PINES se cuelga por fuera de PA14/PA13, como un
             // ST-LINK. El de DAP lo ha creado ya el propio núcleo.
@@ -430,13 +451,26 @@ SC_MODULE(Sim) {
         // Un conflicto eléctrico NO detiene la simulación: puede ser una
         // decisión deliberada -un pin compartido entre dos montajes- y el que
         // manda es quien escribe la placa. Pero se dice, y se dice antes.
+        if (placa.es_sistema()) {
+            std::string l;
+            for (const PlacaDeSistema& p : placa.placas())
+                l += (l.empty() ? "" : ", ") + p.id + " (" + p.nombre + ")";
+            std::printf("sistema '%s': %u placas: %s\n", g_nombre.c_str(),
+                        unsigned(placa.placas().size()), l.c_str());
+            for (const Netlist::Acople& a : placa.acoples())
+                std::printf("  [acopla] %s con %s%s\n", a.a.c_str(), a.b.c_str(),
+                            a.espejo ? ", en espejo" : "");
+        }
+        // En un sistema, el nombre ya se ha dicho arriba: aquí van los totales
+        const std::string cab = placa.es_sistema() ? std::string("  en total")
+                                                   : "placa '" + g_nombre + "'";
         if (mcus.empty())
-            std::printf("placa '%s': SIN MCU, %u componentes, %u nodos, %u avisos\n",
-                        g_nombre.c_str(), unsigned(placa.instancias().size()),
+            std::printf("%s: SIN MCU, %u componentes, %u nodos, %u avisos\n",
+                        cab.c_str(), unsigned(placa.instancias().size()),
                         nodos.n_nodos(), n_avisos);
         else
-            std::printf("placa '%s': %u MCU(s), %u componentes, %u nodos, %u avisos\n",
-                        g_nombre.c_str(), unsigned(mcus.size()),
+            std::printf("%s: %u MCU(s), %u componentes, %u nodos, %u avisos\n",
+                        cab.c_str(), unsigned(mcus.size()),
                         unsigned(placa.instancias().size()), nodos.n_nodos(), n_avisos);
         // Sin MCU, sin ventana y sin --valida, simular es ver pasar el tiempo
         // sin que nada lo mueva: se dice, por si era un <mcu> olvidado que el
@@ -558,13 +592,10 @@ SC_MODULE(Sim) {
         std::string pref;
         unsigned p = 0, i = 0;
         if (pad_desde_nombre(nodo, pref, p, i)) return true;
-        std::string n = mayus(nodo);
-        const size_t punto = n.find('.');
-        if (punto != std::string::npos) n = n.substr(punto + 1);
-        static const char* const ALIM[] = {"VDD", "VSS", "VDDA", "VSSA", "VREF+",
-                                           "VBAT", "VCAP1", "VCAP2", "NRST", "BOOT0"};
-        for (const char* a : ALIM) if (n == a) return true;
-        return false;
+        // Con mayúsculas exactas, como los registra el MCU: `vdd` es un hilo
+        // de la placa y no la patilla del chip.
+        std::string a;
+        return alim_desde_nombre(nodo, pref, a);
     }
     void comprueba_sin_mcu() {
         std::vector<std::string> pins;
@@ -606,6 +637,12 @@ SC_MODULE(Sim) {
             if (!global) return;
             std::string ids;
             for (const DeclMcu& m : decls) { if (!ids.empty()) ids += ", "; ids += m.id; }
+            if (placa.es_sistema())
+                muere("el sistema lleva " + std::to_string(decls.size()) + " MCUs (" +
+                      ids + "), asi que un firmware o un puerto sueltos en la linea "
+                      "de ordenes no dicen a cual.\nDilo en el <sistema>, uno por "
+                      "chip: <mcu ref=\"" + decls.front().id + "\" firmware=\"...\" "
+                      "depuracion=\"pines|dap\" puerto_gdb=\"...\"/>");
             muere("la placa lleva " + std::to_string(decls.size()) + " MCUs (" +
                   ids + "), asi que un firmware o un puerto sueltos en la linea "
                   "de ordenes no dicen a cual.\nPonlo en cada <mcu>: "
@@ -1030,8 +1067,14 @@ static int saluda_gui(Sim& s, stm32::gui::ClienteGui& cli,
     // ni ordenes: sus dos procesos siguen esperando un evento.
     const stm32::gui::Catalogo cat(ExtPartBase::inventario());
     s.frontera.activa(cat);
-    std::ostringstream placa;
+    std::ostringstream placa, placa_v1;
     s.placa.volcar_xml(placa, g_nombre.c_str());
+    // Un <sistema>, a una ventana de la versión 1 del protocolo: lo mismo con
+    // la raíz <placa>, que es lo único que sabe leer (doc/protocolo.md §3).
+    if (s.placa.es_sistema()) {
+        s.placa.volcar_xml(placa_v1, g_nombre.c_str(), false);
+        cli.placa_para_v1(placa_v1.str());
+    }
 
     if (!g_solo_valida) {
         std::printf("gui: conectado; la simulacion espera a que la ventana diga "
@@ -1167,7 +1210,8 @@ static int vuelca_argumentos() {
     std::string x = "<argumentos programa=\"mcu-sim\" version=\"" +
                     xml_escapa(VERSION_MCU_SIM) + "\">\n";
     x += "  <posicional nombre=\"placa\" tipo=\"fichero\" filtro=\"*.xml\" "
-         "obligatorio=\"si\" ayuda=\"la placa: MCUs, nodos y componentes, en XML\"/>\n";
+         "obligatorio=\"si\" ayuda=\"la placa -MCUs, nodos y componentes- o el sistema "
+         "de placas enchufadas, en XML\"/>\n";
     x += "  <posicional nombre=\"firmware\" tipo=\"fichero\" filtro=\"*.bin\" "
          "obligatorio=\"no\" ayuda=\"la imagen binaria que se carga en la Flash; "
          "sin ella el nucleo se aparca en wfe\"/>\n";
@@ -1362,6 +1406,11 @@ int sc_main(int argc, char** argv) {
                 "sale al acabar la ventana de --ms.\n"
                 "\n"
                 "La placa se describe en XML: MCUs, nodos, componentes y conexiones.\n"
+                "Varias placas enchufadas entre si son un <sistema>: cada <placa>\n"
+                "con su id -de su fichero o escrita dentro-, y lo que las une con\n"
+                "<acopla a=\"A/CN9\" b=\"B/J9\"/> (dos Conector, pin a pin, o en\n"
+                "espejo) y <hilo a=\"A/CN9.2\" b=\"B/J9.1\"/>. Todo lo de la placa\n"
+                "A se nombra A/...: A/LD2, A/u0.PA5. Vease doc/parts.md, 2.5.\n"
                 "\n"
                 "Con un solo MCU (de <mcu> o de --mcu) estos argumentos valen y\n"
                 "mandan sobre lo que diga el XML. Con dos o mas, cada chip lleva lo\n"

@@ -65,6 +65,9 @@ class Ventana:
         self.c = None
         self.buf = b""
         self.sec = 0
+        # La version EN USO: la 1 -la del saludo- hasta que T_VERSION elige
+        # otra (saludo_hasta_listo). Desde ahi, la llevan las cabeceras.
+        self.version = 1
 
     def acepta(self, seg=20.0):
         self.srv.settimeout(seg)
@@ -75,7 +78,7 @@ class Ventana:
             return False
 
     def manda(self, tipo, cuerpo=b""):
-        self.c.sendall(CAB.pack(MAGIA, 1, tipo, len(cuerpo), self.sec) + cuerpo)
+        self.c.sendall(CAB.pack(MAGIA, self.version, tipo, len(cuerpo), self.sec) + cuerpo)
         self.sec += 1
 
     def recibe(self, seg=10.0):
@@ -84,7 +87,7 @@ class Ventana:
         while True:
             if len(self.buf) >= CAB.size:
                 magia, ver, tipo, lon, _ = CAB.unpack(self.buf[:CAB.size])
-                if magia != MAGIA or ver != 1:
+                if magia != MAGIA or ver not in (1, self.version):
                     raise ValueError("cabecera mala: magia %08X version %d" % (magia, ver))
                 if len(self.buf) >= CAB.size + lon:
                     cuerpo = self.buf[CAB.size:CAB.size + lon]
@@ -137,12 +140,15 @@ def termina(p, seg=20.0):
         return None, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
 
 
-def saludo_hasta_listo(v, valida=False):
-    """El saludo desde la ventana. Devuelve (hola, placa, catalogo, listo)."""
+def saludo_hasta_listo(v, valida=False, version=1):
+    """El saludo desde la ventana. Devuelve (hola, placa, catalogo, listo).
+    `version` es la del protocolo que elige: la 2 recibe un <sistema> en
+    T_PLACA si lo es, la 1 lo recibe con la raiz <placa> de siempre."""
     t, hola = v.recibe()
     if t != T_HOLA:
         return None, None, None, False
-    v.manda(T_VERSION, b"protocolo=1\ngui=saludo.py\n")
+    v.manda(T_VERSION, ("protocolo=%d\ngui=saludo.py\n" % version).encode())
+    v.version = version
     t1, placa = v.recibe()
     t2, cat = v.recibe()
     if t1 != T_PLACA or t2 != T_CATALOGO:
