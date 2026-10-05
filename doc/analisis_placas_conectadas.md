@@ -1,7 +1,9 @@
 # Varias placas enchufadas entre sí: conectores y `<sistema>`
 
 *Análisis del 2026-10-05, y lo que se decidió e hizo a partir de él (P-15 en
-`doc/todo.md`).*
+`doc/todo.md`). Ampliado el mismo día con las pilas —un conector que une
+varias placas, como en PC/104— y con lo que `mcu-sim` cuenta a la ventana de
+cada placa (§13 y §14).*
 
 ## 1. La pregunta
 
@@ -164,6 +166,11 @@ placa suelta sin MCU.
 (filas, columnas y numeración) y se da la vuelta a las filas —o, si solo hay
 una, a las columnas: el 1 cae sobre el último—.
 
+**`<acopla conectores="A/J1 B/J1 C/J1"/>`**: una **pila**, dos o más
+conectores con el pin *k* de todos unido (§13). En espejo no: tres placas no
+pueden estar cara a cara. Un conector va en un acople solo, de dos o de
+muchos.
+
 **`<hilo a b>`**: dos nodos cualesquiera, cada uno `placa/nombre` con las
 reglas de la tabla: `A/CN9.2`, `B/PA2`, `A/vcc`. Tienen que existir.
 
@@ -227,13 +234,14 @@ acoples. Una pieza con muchas patillas —un conector— las pliega.
 
 ## 11. Cómo se comprueba
 
-* **`make gui-sistema`** (`verif/gui/sistema.py`, 42 comprobaciones) contra el
+* **`make gui-sistema`** (`verif/gui/sistema.py`, 56 comprobaciones) contra el
   `mcu-sim` de verdad: un conector en una placa; `placas/nucleo_y_shield.xml`
   con el blinky de la Nucleo encendiendo **a la vez** su LD2 y el LED del
   shield, que está en otra placa; el espejo en 2×3 y en 1×4, y un hilo
   cruzado; dos Nucleo con un MCU cada una y la UART cruzada; `T_PLACA` en las
-  versiones 1 y 2; y doce errores de sistema, cada uno con lo que hay que
-  hacer.
+  versiones 1 y 2; doce errores de sistema, cada uno con lo que hay que
+  hacer; la pila `placas/pila_pc104.xml` y sus seis errores; y lo que
+  `T_PLACA` cuenta de cada placa (§14).
 * **`make gui-proto`**: la versión que no se ofreció es ahora la 3.
 * **T-suites**: la comprobación de la versión del protocolo dice 2; ningún
   invariante se mueve.
@@ -251,4 +259,75 @@ acoples. Una pieza con muchas patillas —un conector— las pliega.
   romper nada; no ha hecho falta todavía.
 * **El módulo ST67W611M1**, para que la X-NUCLEO-67W61M1 haga algo más que
   pasar pines.
-* **Dibujar los acoples** en la ventana, no solo listarlos.
+* **Dibujar el sistema** en la ventana. La información ya llega (§14) y la
+  ventana ya la tiene en su modelo; falta el dibujo. Y para un dibujo fiel
+  harán falta datos que hoy no hay: el tamaño de cada placa y dónde está cada
+  conector en ella.
+
+## 13. Pilas: un conector que une varias placas
+
+En una pila **PC/104** cada placa lleva el conector de bus **pasante**: los
+pines atraviesan la placa y la siguiente se enchufa encima con el mismo
+conector, así que el pin *k* es el mismo hilo en todas. Lo mismo hacen las
+cabeceras apilables de Arduino.
+
+**Cómo se dice.** Un solo `<acopla>` con todos los conectores de la pila:
+
+```xml
+<sistema nombre="pila-pc104">
+  <placa id="CPU" fichero="pc104_cpu.xml"/>
+  <placa id="L1"  fichero="pc104_leds.xml"/>
+  <placa id="L2"  fichero="pc104_leds.xml"/>
+  <acopla conectores="CPU/J1 L1/J1 L2/J1"/>
+</sistema>
+```
+
+**Por qué no una cadena de acoples de dos** (`CPU/J1-L1/J1` y `L1/J1-L2/J1`).
+Eléctricamente sería lo mismo, pero obliga a dejar que un conector esté en
+dos acoples, y entonces el error más frecuente —un conector enchufado dos
+veces por una errata— deja de poder detectarse. Con la pila en un acople, la
+regla «un conector, un acople» se mantiene y el error dice cómo escribir la
+pila. Además, el acople de la pila conserva el **orden**, que es el de abajo
+arriba y el que hace falta para dibujarla.
+
+**Qué se comprueba**: al menos dos conectores, ninguno repetido, todos del
+mismo número de pines, ninguno en otro acople, y nada de espejo con más de
+dos. `placas/pila_pc104.xml` es el ejemplo: un módulo CPU con un F407 y dos
+módulos de LEDs —el mismo fichero dos veces—; el blinky enciende a la vez el
+LD1 de los dos módulos. Los módulos declaran `bus="si"` en los pines con LED:
+con dos iguales en la pila, dos LEDs conducen el mismo pin a propósito.
+
+**Lo que no es PC/104 de verdad**: la forma del J1 (2×32, en zigzag) sí; la
+asignación de señales del bus ISA, no. En el ejemplo cada pin es lo que dice
+su placa.
+
+## 14. Lo que la ventana sabe de cada placa
+
+Para que algún día `mcu-sim-gui` pueda **dibujar** el sistema —un rectángulo
+por placa, sus conectores, líneas entre ellos—, `T_PLACA` describe cada placa
+entera, sin que la ventana tenga que deducir nada de los prefijos:
+
+```xml
+<placa id="CPU" nombre="pc104-cpu" fichero="pc104_cpu.xml" piezas="2">
+  <mcu ref="CPU/u0" tipo="STM32F407VG"/>
+  <conector ref="CPU/J1" filas="2" columnas="32" numeracion="zigzag" acople="0"/>
+</placa>
+...
+<acopla n="0" conectores="CPU/J1 L1/J1 L2/J1" placas="CPU L1 L2"/>
+<hilo a="CPU/u0.PA2" b="L2/J9.1" placas="CPU L2"/>
+```
+
+* **cada placa**: cuántas piezas lleva, sus chips con su tipo, y sus
+  conectores con su forma y el acople en que están (sin `acople`, al aire);
+* **cada acople**: su número, sus conectores **en orden** y la placa de cada
+  uno. Con dos lleva además `a=` y `b=`, como en la primera versión de los
+  sistemas, para que una ventana de entonces lo siga leyendo;
+* **cada hilo**: las dos placas que une.
+
+Todo es **añadido** a la versión 2 del protocolo, que ya llevaba el
+`<sistema>`: una ventana que no lo conoce lo ignora, y por eso no sube de
+versión. En `mcu-sim-gui` (plan §20) esto llena su modelo —cada placa con lo
+suyo, y un **grafo de placas**: una arista por cada par de placas vecinas en
+un acople, en el orden de la pila, y una por cada hilo entre placas—; hoy lo
+usa para que el recuadro de cada placa diga a cuáles está unida y por dónde,
+y cada conector de una pila nombre a los demás.

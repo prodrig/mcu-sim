@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UN MODULO DE LEDS CON FORMA PC/104, sin MCU
+
+     Dos LEDs colgados de los pines 1 y 2 de su J1, que es pasante: en una
+     pila, el pin 1 de todos los modulos es el mismo hilo. Por eso esos dos
+     nodos se declaran BUS: con dos modulos iguales en la pila, dos LEDs
+     conducen el mismo pin, y es a proposito.
+
+     placas/pila_pc104.xml lo apila dos veces sobre un modulo CPU.
+     ========================================================================= -->
+<placa nombre="pc104-leds">
+  <componente tipo="Conector" id="J1" filas="2" columnas="32"/>
+  <nodo id="J1.1" bus="si"/>
+  <nodo id="J1.2" bus="si"/>
+  <componente tipo="Led" id="LD1" a_vss="si" vf="2.0" r="680">
+    <pin nombre="anodo" nodo="J1.1"/>
+  </componente>
+  <componente tipo="Led" id="LD2" a_vss="si" vf="2.0" r="680">
+    <pin nombre="anodo" nodo="J1.2"/>
+  </componente>
+</placa>

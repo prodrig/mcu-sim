@@ -294,6 +294,7 @@ y lo que las une se dice en el sistema, que es donde se sabe.
 | `<placa id="A" fichero="x.xml"/>` | Una placa, de su fichero (relativo a la carpeta del sistema) |
 | `<placa id="A" nombre="..."> ... </placa>` | O escrita dentro, con lo mismo que una `<placa>` suelta |
 | `<acopla a="A/CN9" b="B/J9" [espejo="si"]/>` | Dos `Conector` (§4.1) enchufados: el pin *k* de uno con el *k* del otro; en espejo, con el que le cae enfrente |
+| `<acopla conectores="A/J1 B/J1 C/J1"/>` | Una **pila** (PC/104, cabeceras apilables): el pin *k* es el mismo en todos. Un conector va en un acople solo |
 | `<hilo a="A/CN9.2" b="B/PA3"/>` | Dos nodos cualesquiera, unidos: un cable, un cruce TX↔RX |
 | `<mcu ref="A/u0" firmware= depuracion= puerto_gdb=/>` | Lo que el montaje decide de un chip de una placa, sin tocar su fichero |
 
@@ -304,7 +305,8 @@ sistema lleve varios. La barra no puede aparecer en un nombre de la placa.
 
 Lo demás funciona igual: con un solo MCU en todo el sistema, el firmware de la
 línea de órdenes, `--gdb` y `--mcu` valen y mandan; con varios, cada chip lleva
-lo suyo, aquí en `<mcu ref>`. `placas/nucleo_y_shield.xml` es el ejemplo, y el
+lo suyo, aquí en `<mcu ref>`. `placas/nucleo_y_shield.xml` y
+`placas/pila_pc104.xml` son los ejemplos, y el
 porqué de cada decisión está en `doc/analisis_placas_conectadas.md`.
 
 ---

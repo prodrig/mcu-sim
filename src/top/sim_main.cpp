@@ -458,8 +458,9 @@ SC_MODULE(Sim) {
             std::printf("sistema '%s': %u placas: %s\n", g_nombre.c_str(),
                         unsigned(placa.placas().size()), l.c_str());
             for (const Netlist::Acople& a : placa.acoples())
-                std::printf("  [acopla] %s con %s%s\n", a.a.c_str(), a.b.c_str(),
-                            a.espejo ? ", en espejo" : "");
+                std::printf("  [acopla] %s%s\n", a.texto().c_str(),
+                            a.espejo ? ", en espejo"
+                                     : (a.conectores.size() > 2 ? ", en pila" : ""));
         }
         // En un sistema, el nombre ya se ha dicho arriba: aquí van los totales
         const std::string cab = placa.es_sistema() ? std::string("  en total")

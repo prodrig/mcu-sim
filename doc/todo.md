@@ -391,13 +391,19 @@ que hable TCP, como CoolTerm o PuTTY en modo *Raw*.
   ventana de la 1, lo mismo con la raíz `<placa>`. `mcu-sim-gui` agrupa por
   placa (su plan §19).
 * La NUCLEO-F446RE lleva sus conectores Arduino, y `placas/nucleo_y_shield.xml`
-  la enchufa a un shield sin MCU. **`make gui-sistema`** (42) lo vigila.
+  la enchufa a un shield sin MCU. **`make gui-sistema`** lo vigila.
+* **Pilas** (§13 del análisis): `<acopla conectores="A/J1 B/J1 C/J1"/>`, un
+  acople de varios conectores, como en PC/104; `placas/pila_pc104.xml`.
+* **Cada placa, descrita para poder dibujarla** (§14): en `T_PLACA`, sus
+  piezas, chips y conectores con su forma, y en cada acople e hilo, qué placas
+  une. Añadido a la versión 2, sin subirla. `make gui-sistema` llega a 56.
 
 **Lo que queda**, cada cosa con su motivo en el §12 del análisis: unir VDD,
 VSS, NRST o BOOT0 de dos chips (`Cableado` solo ata pads de puerto);
 alimentación de verdad entre placas; un sistema dentro de otro; cambiar
 parámetros de piezas desde el montaje; el módulo ST67W611M1 de la
-X-NUCLEO-67W61M1; y dibujar los acoples en la ventana.
+X-NUCLEO-67W61M1; y dibujar el sistema en la ventana, para lo que harán falta
+además el tamaño de cada placa y dónde va cada conector.
 ---
 
 ## 3. Funciones no modeladas — "bits sin máquina" (F)

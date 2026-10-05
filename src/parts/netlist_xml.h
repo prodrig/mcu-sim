@@ -402,19 +402,45 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
     for (const XmlNodo& h : raiz.hijos) {
         if (h.nombre == "placa") continue;
         if (h.nombre == "acopla") {
+            // Dos conectores con a= y b=, o los que sean -una pila PC/104- con
+            // conectores="A/J1 B/J1 C/J1". Las dos formas no a la vez.
             for (const auto& a : h.attrs)
-                if (a.first != "a" && a.first != "b" && a.first != "espejo")
+                if (a.first != "a" && a.first != "b" && a.first != "espejo" &&
+                    a.first != "conectores")
                     return donde(h) + "<acopla>: atributo desconocido: " + a.first;
-            if (!h.tiene("a") || !h.tiene("b"))
-                return donde(h) + "<acopla> necesita a= y b=, los dos conectores";
+            const bool lista = h.tiene("conectores");
+            if (lista && (h.tiene("a") || h.tiene("b")))
+                return donde(h) + "<acopla>: o a= y b=, o conectores=; las dos cosas no";
+            if (!lista && (!h.tiene("a") || !h.tiene("b")))
+                return donde(h) + "<acopla> necesita a= y b=, los dos conectores, o "
+                       "conectores=\"A/J1 B/J1 C/J1\" para una pila";
             const std::string es = h.attr_o("espejo", "no");
             if (es != "si" && es != "no")
                 return donde(h) + "<acopla>: espejo debe ser si o no";
-            std::string pa, ra, pb, rb;
-            std::string e = parte(h.attr_o("a"), pa, ra);
-            if (e.empty()) e = parte(h.attr_o("b"), pb, rb);
-            if (!e.empty()) return donde(h) + "<acopla>: " + e;
-            nl.acopla(pa + "/" + ra, pb + "/" + rb, es == "si");
+            std::vector<std::string> nombres;
+            if (lista) {
+                const std::string l = h.attr_o("conectores");
+                std::string t;
+                for (size_t k = 0; k <= l.size(); ++k) {
+                    const char c = k == l.size() ? ' ' : l[k];
+                    if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ',') {
+                        if (!t.empty()) { nombres.push_back(t); t.clear(); }
+                    } else t.push_back(c);
+                }
+                if (nombres.size() < 2)
+                    return donde(h) + "<acopla conectores=...>: hacen falta al menos dos, "
+                           "separados por espacios";
+            } else {
+                nombres = {h.attr_o("a"), h.attr_o("b")};
+            }
+            std::vector<std::string> q;
+            for (const std::string& n : nombres) {
+                std::string pl, rs;
+                const std::string e = parte(n, pl, rs);
+                if (!e.empty()) return donde(h) + "<acopla>: " + e;
+                q.push_back(pl + "/" + rs);
+            }
+            nl.acopla(q, es == "si");
         } else if (h.nombre == "hilo") {
             for (const auto& a : h.attrs)
                 if (a.first != "a" && a.first != "b")

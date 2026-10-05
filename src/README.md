@@ -554,7 +554,8 @@ depuración y el resto está en `doc/multi_mcu.md`, §5.
 
 **Varias placas enchufadas.** Un fichero `<sistema>` nombra placas —de su
 fichero o escritas dentro— y dice cómo se enchufan: `<acopla>` dos `Conector`
-pin a pin (o en espejo, cara a cara) y `<hilo>` dos nodos sueltos. Las placas
+pin a pin (o en espejo, cara a cara), o varios en pila como en PC/104, y
+`<hilo>` dos nodos sueltos. Las placas
 no cambian: el fichero de una Nucleo es el mismo que se simula sola. Todo lo
 de la placa `A` se llama `A/...` (`A/LD2`, `A/u0.PA5`), y dentro de su fichero
 `PA5` sigue siendo el pin de SU chip:
@@ -599,6 +600,7 @@ Algunas de las de `placas/`:
 | `nucleo_f446re.xml` | La **NUCLEO-F446RE**: LD2, B1 y sus cuatro conectores Arduino (CN5, CN6, CN8, CN9) |
 | `shield_leds.xml` | Un shield Arduino de prueba, **sin MCU**: dos LEDs y un pulsador en sus conectores J5..J9 |
 | `nucleo_y_shield.xml` | **Un `<sistema>`**: la Nucleo con el shield enchufado; el blinky enciende a la vez el LD2 de una placa y el LED de la otra |
+| `pila_pc104.xml` | **Una pila PC/104**: un módulo CPU (`pc104_cpu.xml`) y dos de LEDs (`pc104_leds.xml`, el mismo fichero dos veces) con un solo `<acopla>` de tres conectores |
 | `fuente_y_masa.xml` | **Sin MCU**: una `Fuente` de 3,3 V y una `Gnd`, cada una con su límite de corriente, LEDs y dos pulsadores que las cortocircuitan para ver la sobrecorriente en `mcu-sim-gui` |
 
 `banco.xml` está **generado** por el propio modelo y versionado a propósito. Se

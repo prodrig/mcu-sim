@@ -20,7 +20,12 @@
 #       pad a pad entre chips, y la linea de ordenes, que ya no dice a cual;
 #   C5  T_PLACA en la version 2 del protocolo -un <sistema>, con sus placas
 #       y sus acoples- y en la 1 -lo mismo con la raiz <placa>-;
-#   C6  los errores del sistema, cada uno con lo que hay que hacer.
+#   C6  los errores del sistema, cada uno con lo que hay que hacer;
+#   C7  una PILA (placas/pila_pc104.xml): un acople de tres conectores, el
+#       mismo pin en las tres placas, y sus errores;
+#   C8  lo que T_PLACA cuenta de cada placa para poder DIBUJAR el sistema:
+#       sus piezas, sus chips, sus conectores con su forma, y que placas une
+#       cada acople y cada hilo.
 #
 #   make -f Makefile.mcu-sim gui-sistema
 #   python3 verif/gui/sistema.py [--sim build/mcu-sim]
@@ -307,7 +312,7 @@ def c6_errores(sim, cp):
          "conectores de 10 y de 8 pines"),
         ('<placa id="A" fichero="shield.xml"/><placa id="B" fichero="shield.xml"/>'
          '<placa id="C" fichero="shield.xml"/>'
-         '<acopla a="A/J5" b="B/J5"/><acopla a="A/J5" b="C/J5"/>', "ya esta acoplado",
+         '<acopla a="A/J5" b="B/J5"/><acopla a="A/J5" b="C/J5"/>', "ya esta en otro acople",
          "un conector enchufado a dos"),
         ('<placa id="A" fichero="shield.xml"/><placa id="B" fichero="shield.xml"/>'
          '<acopla a="A/J5" b="X/J5"/>', "no hay ninguna placa 'X'",
@@ -343,6 +348,106 @@ def c6_errores(sim, cp):
           "--mcu en un sistema sin chips: no se sabe en que placa iria")
 
 
+# ---------------------------------------------------------------------------
+# C7
+# ---------------------------------------------------------------------------
+def c7_pila(sim, cp):
+    grupo("C7 Una pila PC/104: un acople de tres")
+    rc, out, err = corre(sim, ["placas/pila_pc104.xml", "--valida"])
+    check(rc == 0 and "[acopla] CPU/J1, L1/J1 y L2/J1, en pila" in out and
+          "0 avisos" in out,
+          "la pila valida: un acople de tres conectores, y ni un aviso")
+    est = {}
+    for ms in (150, 250):
+        rc, out, err = corre(sim, ["placas/pila_pc104.xml", "--ms=%d" % ms])
+        est[ms] = (led(out, "L1/LD1"), led(out, "L2/LD1"), nodo_de_led(out, "L2/LD1"))
+    check(est[150][:2] == ("apagado", "apagado") and est[250][:2] == ("encendido", "encendido")
+          and est[250][2] == "CPU/u0.PD12",
+          "el pin 1 es el mismo hilo en las tres placas: el blinky de la CPU enciende y "
+          "apaga a la vez el LD1 de los dos modulos, que son el mismo fichero (%s)" % est)
+    cp.escribe("cpu.xml", open(os.path.join(SRC, "placas", "pc104_cpu.xml"),
+                               encoding="utf-8").read())
+    cp.escribe("leds.xml", open(os.path.join(SRC, "placas", "pc104_leds.xml"),
+                                encoding="utf-8").read())
+    cp.escribe("corto.xml", '<placa nombre="corto"><componente tipo="Conector" id="J1" '
+                            'filas="2" columnas="20"/></placa>')
+    placas = ('<placa id="A" fichero="cpu.xml"/><placa id="B" fichero="leds.xml"/>'
+              '<placa id="C" fichero="leds.xml"/><placa id="D" fichero="corto.xml"/>')
+    casos = [
+        ('<acopla conectores="A/J1 B/J1 C/J1" espejo="si"/>', "dos y solo dos",
+         "una pila en espejo"),
+        ('<acopla conectores="A/J1 B/J1 D/J1"/>', "no tienen los mismos pines",
+         "un conector de 40 en una pila de 64"),
+        ('<acopla conectores="A/J1"/>', "al menos dos", "una pila de uno"),
+        ('<acopla conectores="A/J1 B/J1 A/J1"/>', "aparece dos veces",
+         "el mismo conector dos veces en la pila"),
+        ('<acopla a="A/J1" b="B/J1" conectores="A/J1 B/J1"/>', "las dos cosas no",
+         "a= y b= junto con conectores="),
+        ('<acopla a="A/J1" b="B/J1"/><acopla a="B/J1" b="C/J1"/>', "pila PC/104",
+         "la pila hecha de acoples de dos: el error dice como escribirla"),
+    ]
+    for cuerpo, dice, que in casos:
+        f = cp.escribe("mal_pila.xml", '<sistema nombre="mal">%s%s</sistema>' % (placas, cuerpo))
+        rc, out, err = corre(sim, [f, "--valida"])
+        check(rc != 0 and dice in (out + err), "%s: error que lo dice%s"
+              % (que, "" if dice in (out + err) else " (dijo: %s)" % (err.strip()[-160:])))
+
+
+# ---------------------------------------------------------------------------
+# C8
+# ---------------------------------------------------------------------------
+def c8_dibujable(sim):
+    grupo("C8 Lo que T_PLACA cuenta de cada placa, para poder dibujarla")
+    v = Ventana()
+    p = arranca(sim, ["placas/pila_pc104.xml", "--valida"], v.puerto)
+    try:
+        v.acepta()
+        _, placa, _, _ = saludo_hasta_listo(v, valida=True, version=2)
+        termina(p)
+    finally:
+        if p.poll() is None:
+            p.kill()
+        v.cierra()
+    if not check(placa is not None, "saludo en la version 2"):
+        return
+    r = ET.fromstring(placa)
+    pls = {x.get("id"): x for x in r.findall("placa")}
+    check(list(pls) == ["CPU", "L1", "L2"] and pls["CPU"].get("piezas") == "2" and
+          pls["L1"].get("piezas") == "3" and pls["L1"].get("fichero") == "pc104_leds.xml",
+          "una <placa> por placa, en orden, con cuantas piezas lleva cada una")
+    m = pls["CPU"].findall("mcu")
+    check(len(m) == 1 and m[0].get("ref") == "CPU/u0" and m[0].get("tipo") == "STM32F407VG" and
+          not pls["L1"].findall("mcu"),
+          "con sus chips: la CPU lleva CPU/u0, un STM32F407VG; los modulos, ninguno")
+    cs = [(c.get("ref"), c.get("filas"), c.get("columnas"), c.get("numeracion"),
+           c.get("acople")) for p_ in pls.values() for c in p_.findall("conector")]
+    check(cs == [("CPU/J1", "2", "32", "zigzag", "0"), ("L1/J1", "2", "32", "zigzag", "0"),
+                 ("L2/J1", "2", "32", "zigzag", "0")],
+          "y sus conectores con su forma -2x32, en zigzag- y el acople en el que estan")
+    a = r.findall("acopla")
+    check(len(a) == 1 and a[0].get("n") == "0" and
+          a[0].get("conectores") == "CPU/J1 L1/J1 L2/J1" and
+          a[0].get("placas") == "CPU L1 L2" and a[0].get("a") is None,
+          "el acople dice sus tres conectores y las tres placas que une; sin a= ni b=, "
+          "que solo tienen sentido con dos")
+    v = Ventana()
+    p = arranca(sim, ["placas/nucleo_y_shield.xml", "--valida"], v.puerto)
+    try:
+        v.acepta()
+        _, placa, _, _ = saludo_hasta_listo(v, valida=True, version=2)
+        termina(p)
+    finally:
+        if p.poll() is None:
+            p.kill()
+        v.cierra()
+    r = ET.fromstring(placa) if placa else None
+    a = r.findall("acopla") if r is not None else []
+    check(len(a) == 4 and a[0].get("a") == "N/CN5" and a[0].get("b") == "S/J5" and
+          a[0].get("conectores") == "N/CN5 S/J5" and a[0].get("placas") == "N S",
+          "uno de dos lleva ademas a= y b=, como lo lee una ventana de la primera "
+          "version de los sistemas")
+
+
 def main():
     a = argparse.ArgumentParser(description="conectores y sistemas de placas")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -360,6 +465,8 @@ def main():
         c4_dos_mcus(sim, cp)
         c5_t_placa(sim)
         c6_errores(sim, cp)
+        c7_pila(sim, cp)
+        c8_dibujable(sim)
     finally:
         cp.borra()
     return ventana.resumen("SISTEMA")

@@ -554,13 +554,32 @@ public:
     // DECLARACIÓN: no construyen nada hasta que `resuelve_alias()` los
     // convierte en nodos, y eso tiene que pasar antes de construir el MCU por
     // lo mismo que `une` [cableado_desde_netlist].
-    struct Acople { std::string a, b; bool espejo = false; };
+    //
+    // Un acople puede juntar MÁS DE DOS conectores: es una PILA, como la de
+    // PC/104, donde cada placa lleva un conector pasante y el pin k es el mismo
+    // en todas. En espejo solo dos: tres placas no pueden estar cara a cara.
+    struct Acople {
+        std::vector<std::string> conectores;   // dos o más: "A/J1", "B/J1"...
+        bool espejo = false;
+        // "A/J1 con B/J1", o "A/J1, B/J1 y C/J1", para los mensajes
+        std::string texto() const {
+            if (conectores.size() == 2) return conectores[0] + " con " + conectores[1];
+            std::string t;
+            for (size_t k = 0; k < conectores.size(); ++k)
+                t += (k ? (k + 1 == conectores.size() ? " y " : ", ") : "") + conectores[k];
+            return t;
+        }
+    };
     Netlist& hilo(const std::string& a, const std::string& b) {
         hilos_.emplace_back(nombre_canonico_pad(a), nombre_canonico_pad(b));
         return *this;
     }
     Netlist& acopla(const std::string& a, const std::string& b, bool espejo) {
-        acoples_.push_back(Acople{a, b, espejo});
+        acoples_.push_back(Acople{{a, b}, espejo});
+        return *this;
+    }
+    Netlist& acopla(const std::vector<std::string>& conectores, bool espejo = false) {
+        acoples_.push_back(Acople{conectores, espejo});
         return *this;
     }
     const std::vector<std::pair<std::string, std::string>>& hilos() const { return hilos_; }
@@ -703,48 +722,68 @@ public:
             i.pines = todos;
         }
 
-        // 2. Los acoples: pin a pin, o en espejo
-        std::map<std::string, std::string> acoplado;   // conector -> con quien
+        // 2. Los acoples: pin a pin, en espejo, o una pila de varios
+        std::map<std::string, std::string> acoplado;   // conector -> su acople
         for (const Acople& a : acoples_) {
-            const std::string que = "acopla " + a.a + " con " + a.b + ": ";
+            const std::string que = "acopla " + a.texto() + ": ";
+            const std::vector<std::string>& cs = a.conectores;
             bool bien = true;
-            for (const std::string* x : {&a.a, &a.b}) {
-                if (conectores.count(*x)) continue;
-                const Instancia* i = busca(*x);
-                err.push_back(que + (i ? "'" + *x + "' es un " + i->tipo +
-                                         ", no un Conector"
-                                       : "no hay ningun conector llamado '" + *x + "'"));
+            if (cs.size() < 2) {
+                err.push_back(que + "hacen falta al menos dos conectores");
+                continue;
+            }
+            if (a.espejo && cs.size() != 2) {
+                err.push_back(que + "en espejo, dos y solo dos: tres placas no pueden "
+                              "estar cara a cara");
+                continue;
+            }
+            std::set<std::string> vistos;
+            for (const std::string& x : cs) {
+                if (!vistos.insert(x).second) {
+                    err.push_back(que + x + " aparece dos veces: un conector no se "
+                                  "acopla consigo mismo");
+                    bien = false;
+                    continue;
+                }
+                if (conectores.count(x)) continue;
+                const Instancia* i = busca(x);
+                err.push_back(que + (i ? "'" + x + "' es un " + i->tipo + ", no un Conector"
+                                       : "no hay ningun conector llamado '" + x + "'"));
                 bien = false;
             }
             if (!bien) continue;
-            if (a.a == a.b) { err.push_back(que + "un conector no se acopla consigo mismo"); continue; }
-            for (const std::string* x : {&a.a, &a.b}) {
-                const auto it = acoplado.find(*x);
+            for (const std::string& x : cs) {
+                const auto it = acoplado.find(x);
                 if (it != acoplado.end()) {
-                    err.push_back(que + *x + " ya esta acoplado con " + it->second +
-                                  ": un conector se enchufa a uno solo");
+                    err.push_back(que + x + " ya esta en otro acople (" + it->second +
+                                  "). Para enchufar varias placas a la vez, como en una "
+                                  "pila PC/104, van todas en el mismo <acopla "
+                                  "conectores=\"...\">");
                     bien = false;
                 }
             }
             if (!bien) continue;
-            const GeomConector& ga = conectores[a.a];
-            const GeomConector& gb = conectores[a.b];
-            if (ga.n() != gb.n()) {
-                err.push_back(que + "no tienen los mismos pines (" + std::to_string(ga.n()) +
-                              " y " + std::to_string(gb.n()) + ")");
-                continue;
+            const GeomConector& g0 = conectores[cs[0]];
+            for (size_t k = 1; k < cs.size() && bien; ++k) {
+                const GeomConector& gk = conectores[cs[k]];
+                if (gk.n() != g0.n()) {
+                    err.push_back(que + "no tienen los mismos pines (" + cs[0] + " tiene " +
+                                  std::to_string(g0.n()) + " y " + cs[k] + " " +
+                                  std::to_string(gk.n()) + ")");
+                    bien = false;
+                } else if (a.espejo && (gk.filas != g0.filas || gk.columnas != g0.columnas ||
+                                        gk.zigzag != g0.zigzag)) {
+                    err.push_back(que + "en espejo hace falta la misma forma en los dos "
+                                  "(filas, columnas y numeracion)");
+                    bien = false;
+                }
             }
-            if (a.espejo && (ga.filas != gb.filas || ga.columnas != gb.columnas ||
-                             ga.zigzag != gb.zigzag)) {
-                err.push_back(que + "en espejo hace falta la misma forma en los dos "
-                              "(filas, columnas y numeracion)");
-                continue;
-            }
-            acoplado[a.a] = a.b;
-            acoplado[a.b] = a.a;
-            for (unsigned k = 1; k <= ga.n(); ++k)
-                pares.emplace_back(a.a + "." + std::to_string(k),
-                                   a.b + "." + std::to_string(a.espejo ? ga.espejo(k) : k));
+            if (!bien) continue;
+            for (const std::string& x : cs) acoplado[x] = a.texto();
+            for (size_t c = 1; c < cs.size(); ++c)
+                for (unsigned k = 1; k <= g0.n(); ++k)
+                    pares.emplace_back(cs[0] + "." + std::to_string(k),
+                                       cs[c] + "." + std::to_string(a.espejo ? g0.espejo(k) : k));
         }
 
         // 3. Los hilos: los dos extremos tienen que ser nodos de verdad
@@ -1236,6 +1275,19 @@ public:
     // desde la versión 2 del protocolo. Con `como_sistema` a false sale lo
     // mismo con la raíz de siempre, <placa>, y sin lo que solo tiene un
     // sistema: es lo que se manda a una ventana de la versión 1.
+    //
+    // CADA PLACA SE DESCRIBE ENTERA en su <placa id>, para que quien lo lea
+    // pueda DIBUJAR el sistema sin deducir nada de los prefijos: cuántas
+    // piezas lleva, sus chips y sus conectores con su forma, y en cada acople
+    // e hilo, qué placas une. Nada de eso cambia la simulación; es la
+    // descripción del montaje.
+    std::string placa_de(const std::string& id) const {
+        const size_t b = id.find('/');
+        if (b == std::string::npos) return std::string();
+        const std::string p = id.substr(0, b);
+        for (const PlacaDeSistema& x : placas_) if (x.id == p) return p;
+        return std::string();
+    }
     void volcar_xml(std::ostream& os, const char* nombre_placa = "placa",
                     bool como_sistema = true) const {
         const bool sis = como_sistema && es_sistema();
@@ -1243,10 +1295,29 @@ public:
            << xml_escapa(nombre_placa) << "\">\n";
         if (sis)
             for (const PlacaDeSistema& p : placas_) {
+                unsigned n = 0;
+                for (const Instancia& i : inst_) n += placa_de(i.id) == p.id ? 1u : 0u;
                 os << "  <placa id=\"" << xml_escapa(p.id) << "\" nombre=\""
                    << xml_escapa(p.nombre) << "\"";
                 if (!p.fichero.empty()) os << " fichero=\"" << xml_escapa(p.fichero) << "\"";
-                os << "/>\n";
+                os << " piezas=\"" << n << "\">\n";
+                for (const DeclMcu& m : mcus_)
+                    if (placa_de(m.id) == p.id)
+                        os << "    <mcu ref=\"" << xml_escapa(m.id) << "\" tipo=\""
+                           << xml_escapa(m.tipo) << "\"/>\n";
+                for (const Instancia& i : inst_) {
+                    if (i.tipo != "Conector" || placa_de(i.id) != p.id) continue;
+                    GeomConector g;
+                    if (!geometria(i, g).empty()) continue;
+                    os << "    <conector ref=\"" << xml_escapa(i.id) << "\" filas=\""
+                       << g.filas << "\" columnas=\"" << g.columnas << "\" numeracion=\""
+                       << (g.zigzag ? "zigzag" : "filas") << "\"";
+                    for (size_t k = 0; k < acoples_.size(); ++k)
+                        for (const std::string& c : acoples_[k].conectores)
+                            if (c == i.id) os << " acople=\"" << k << "\"";
+                    os << "/>\n";
+                }
+                os << "  </placa>\n";
             }
         // Los MCUs primero: son quienes aportan los nodos, y el lector los
         // necesita antes de poder resolver un solo nombre de pin.
@@ -1295,12 +1366,27 @@ public:
             os << "  </componente>\n";
         }
         if (sis) {
-            for (const Acople& a : acoples_)
-                os << "  <acopla a=\"" << xml_escapa(a.a) << "\" b=\"" << xml_escapa(a.b)
-                   << "\"" << (a.espejo ? " espejo=\"si\"" : "") << "/>\n";
+            // Un acople, con sus conectores y las placas que une. Con dos,
+            // además a= y b=, que es como lo lee una ventana de la primera
+            // versión de los sistemas.
+            for (size_t k = 0; k < acoples_.size(); ++k) {
+                const Acople& a = acoples_[k];
+                std::string cs, ps;
+                for (const std::string& c : a.conectores) {
+                    cs += (cs.empty() ? "" : " ") + c;
+                    ps += (ps.empty() ? "" : " ") + placa_de(c);
+                }
+                os << "  <acopla n=\"" << k << "\" conectores=\"" << xml_escapa(cs)
+                   << "\" placas=\"" << xml_escapa(ps) << "\"";
+                if (a.conectores.size() == 2)
+                    os << " a=\"" << xml_escapa(a.conectores[0]) << "\" b=\""
+                       << xml_escapa(a.conectores[1]) << "\"";
+                os << (a.espejo ? " espejo=\"si\"" : "") << "/>\n";
+            }
             for (const auto& h : hilos_)
                 os << "  <hilo a=\"" << xml_escapa(h.first) << "\" b=\""
-                   << xml_escapa(h.second) << "\"/>\n";
+                   << xml_escapa(h.second) << "\" placas=\""
+                   << xml_escapa(placa_de(h.first) + " " + placa_de(h.second)) << "\"/>\n";
         }
         os << (sis ? "</sistema>\n" : "</placa>\n");
     }

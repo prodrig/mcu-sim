@@ -445,7 +445,8 @@ gui-sin-mcu: $(MCUSIM)
 # VARIAS PLACAS ENCHUFADAS (P-15): la pieza Conector, y un <sistema> que junta
 # placas -de su fichero o escritas dentro- con <acopla> y <hilo>. La Nucleo
 # con un shield sin MCU (placas/nucleo_y_shield.xml), el espejo, dos chips en
-# dos placas, T_PLACA en las versiones 1 y 2 del protocolo y los errores.
+# dos placas, T_PLACA en las versiones 1 y 2 del protocolo y los errores. Y una
+# pila PC/104 (placas/pila_pc104.xml), y lo que T_PLACA cuenta de cada placa.
 # Segundos; no toca ningun invariante.
 gui-sistema: $(MCUSIM)
 	$(PYTHON) verif/gui/sistema.py

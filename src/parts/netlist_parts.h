@@ -351,6 +351,9 @@ REGISTRA_PARTE(Conector,
             "b=\"B/J1\"/>: el pin k de uno queda unido al k del otro, o en "
             "espejo -espejo=\"si\", dos placas cara a cara- al que le cae "
             "enfrente. Un cable que cruza pines es <hilo a=\"..\" b=\"..\"/>.")
+      .nota("Una PILA -PC/104, cabeceras apilables: el conector atraviesa la "
+            "placa y el pin k es el mismo en todas- es un solo acople con todos: "
+            "<acopla conectores=\"A/J1 B/J1 C/J1\"/>.")
       .nota("Un pin al aire no es un nodo flotante que avisar: es lo normal.")
       .cpp("filas(), columnas(), n_pines() y zigzag()."),
     [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
