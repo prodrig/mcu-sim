@@ -1,6 +1,6 @@
 # Catálogo de componentes externos
 
-Referencia de las **22 piezas** que la factoría de `src/parts/` sabe construir:
+Referencia de las **24 piezas** que la factoría de `src/parts/` sabe construir:
 qué terminales tiene cada una, qué parámetros admite, qué hace cada parámetro y
 qué queda fuera del fichero.
 
@@ -56,9 +56,7 @@ De ahí salen tres cosas que conviene tener presentes al escribir una placa:
 
 ### 2.0 Los MCUs: `<mcu>`
 
-Una placa puede no decir nada —y entonces lleva un STM32F407VG con los nodos de
-nombre desnudo, que es como han sido todas hasta ahora— o declarar los chips que
-lleva:
+Una placa declara los chips que lleva:
 
 ```xml
 <mcu tipo="STM32F407VG" id="u0" firmware="maestro.bin" depuracion="dap"   puerto_gdb="3333"/>
@@ -67,11 +65,17 @@ lleva:
 
 | Atributo | Omisión | Efecto |
 | :--- | :--- | :--- |
-| `tipo` | *(obligatorio)* | El modelo. Se saben construir **los veintiún miembros de la familia F405/F407/F415/F417**: `STM32F405RG`, `STM32F405OG`, `STM32F405VG`, `STM32F405ZG`, `STM32F405OE`, `STM32F407VE`, `STM32F407VG`, `STM32F407ZE`, `STM32F407ZG`, `STM32F407IE`, `STM32F407IG`, `STM32F415RG`, `STM32F415OG`, `STM32F415VG`, `STM32F415ZG`, `STM32F417VE`, `STM32F417VG`, `STM32F417ZE`, `STM32F417ZG`, `STM32F417IE` y `STM32F417IG` — los diez últimos son los que llevan el acelerador criptográfico. `sim --help` los lista, y `--mcu TIPO` fija el del chip implícito. Lo que los distingue está en `doc/reutilizacion.md` §9 |
+| `tipo` | *(obligatorio)* | El modelo. Se saben construir **los veintiún miembros de la familia F405/F407/F415/F417**: `STM32F405RG`, `STM32F405OG`, `STM32F405VG`, `STM32F405ZG`, `STM32F405OE`, `STM32F407VE`, `STM32F407VG`, `STM32F407ZE`, `STM32F407ZG`, `STM32F407IE`, `STM32F407IG`, `STM32F415RG`, `STM32F415OG`, `STM32F415VG`, `STM32F415ZG`, `STM32F417VE`, `STM32F417VG`, `STM32F417ZE`, `STM32F417ZG`, `STM32F417IE` y `STM32F417IG` — los diez últimos son los que llevan el acelerador criptográfico. `sim --help` los lista, y `--mcu TIPO` manda sobre él. Lo que los distingue está en `doc/reutilizacion.md` §9 |
 | `id` | *(obligatorio)* | El prefijo de sus nodos (`u0.PD12`) y su nombre en la jerarquía de SystemC |
 | `firmware` | ninguno | La imagen que se le carga en la Flash. **Una por chip** |
 | `depuracion` | `pines` | `pines`: expone SWCLK/SWDIO y el stub se cuelga por fuera, como un ST-LINK. `dap`: reserva los cinco pines de depuración y el stub habla con el núcleo por llamada de función |
 | `puerto_gdb` | `0` | Puerto TCP de su stub. **0 = no se abre ninguno** |
+
+**El MCU no se supone.** Si la placa no declara ninguno, lo pone `--mcu TIPO`
+en la línea de órdenes —un chip sin id, con los nodos de nombre desnudo—; si
+declara uno y además se pasa `--mcu`, **gana `--mcu`**: sustituye el tipo del
+`<mcu>` y lo dice. Y si no hay ni lo uno ni lo otro, **la placa va sin MCU**
+(§2.1 dice qué cambia entonces en los nodos).
 
 **Un `<mcu>` no lleva hijos.** Sus 144 pads existen sin declararlos: un
 `<pin>` dentro de un `<mcu>` se rechaza.
@@ -80,13 +84,14 @@ lleva:
 
 | MCUs declarados | Nombres de nodo válidos |
 | :--- | :--- |
-| ninguno | Solo el desnudo: `PD12` |
+| ninguno, con `--mcu` | Solo el desnudo: `PD12` |
+| ninguno, sin `--mcu` | Ninguno: **la placa no lleva MCU** y `PD12` es un error |
 | uno | Los dos: `PD12` y `u0.PD12`, y designan el mismo pad |
 | dos o más | Solo el cualificado. `PD12` a secas es un error que dice cuáles son los candidatos |
 
 Con dos o más chips, **cada uno lleva lo suyo en el XML**: un firmware o un
 puerto sueltos en la línea de órdenes ya no dicen a cuál, y se rechazan. Con uno
-solo —declarado o implícito— los argumentos de siempre valen y mandan sobre el
+solo —de `<mcu>` o de `--mcu`— los argumentos de siempre valen y mandan sobre el
 fichero. Los detalles están en `doc/multi_mcu.md`, §5.
 
 ### 2.1 Los nodos
@@ -114,6 +119,11 @@ esquemático: `PA0`…`PI15`, `VDD`, `VSS`, `VDDA`, `VSSA`, `VREF+`, `VBAT`,
 `VCAP1`, `VCAP2`, `NRST`, `BOOT0`. Declararlos con `<nodo id="PA5"/>` es
 opcional y solo sirve para documentar. **Los externos sí**: sin
 `externo="si"` el nodo no existe y la validación lo rechaza.
+
+**En una placa sin MCU** no hay pads: todo nodo es de la placa, así que cada
+`<nodo>` es externo sin tener que escribir `externo="si"`. Un nodo con nombre de
+pin —`PD12`, `VDD`, `u0.PA0`— se rechaza con la pista de declarar el chip,
+porque casi siempre es un `<mcu>` que falta. `placas/fuente_y_masa.xml` es una.
 
 **`bus="si"` no cambia nada eléctrico**; solo calla el aviso de conducción
 simultánea. Úsese cuando varias piezas conducen ese nodo por diseño —un bus de
@@ -491,6 +501,64 @@ montan desde C++, pone `rebote="no"`, porque cuentan flancos exactos desde mucho
 antes de que hubiera rebotes. Y el botón de RESET de la Discovery tampoco: en la
 tarjeta, el condensador de NRST se come los rebotes, y como ese condensador no
 se modela, B2 lleva `rebote="no"`.
+
+#### `Fuente` y `Gnd`
+
+Una **tensión fija en un nodo**, con un límite de corriente opcional. `Fuente`
+pone `v` voltios (3,3 si no se dice) y `Gnd` pone 0 V: son la misma pieza —un
+equivalente Thevenin `{v, r}` con `r` mínima— y solo cambian la tensión y el
+sentido en que cuentan la corriente: la de una `Fuente` es la que **entrega** al
+nodo; la de una `Gnd`, la que **recibe** de él. Son lo que hace falta para montar
+una placa sin MCU —un raíl, una masa— y lo que deja ver en la ventana cuánto
+tira lo que cuelga de ellas.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `pin` | obligatorio | El nodo que sostiene |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `v` | `3.3` | Solo `Fuente`: la tensión, en voltios |
+| `limite_ma` | `no` | **El límite de corriente**, en mA, o `no` para ninguno |
+| `r` | `0.1` | La resistencia interna, en ohmios. 0,1 Ω es lo menos que admite un nodo: una fuente casi ideal |
+
+**El límite se comporta como el de una fuente de laboratorio.** Por debajo,
+tensión constante. Si la carga pide más, la pieza pasa a **corriente
+constante**: entrega exactamente el límite y deja caer la tensión —o, en una
+`Gnd`, deja subir el nodo—. Al entrar en limitación pone su observable
+`sobrecorriente` a 1 y lo avisa una vez por el informe de SystemC (un `T_AVISO`
+en la ventana); al salir, vuelve sola a tensión constante. El cálculo no itera a
+ciegas: lee el resto del nodo como otro Thevenin `{Vx, Rx}` y se pone la
+resistencia que deja la corriente en el límite, `|v − Vx| / I_lim − Rx`.
+
+**Un nodo con una fuente y varias cargas es un raíl, no un cortocircuito**: la
+validación eléctrica no cuenta la fuente como otra pieza conduciendo, así que no
+hace falta `bus="si"`. Dos fuentes —o una fuente y una masa— en el mismo nodo, en
+cambio, se pelean por él, y se avisa.
+
+```xml
+<placa nombre="rail-limitado">
+  <nodo id="vcc"/>
+  <componente tipo="Fuente" id="F1" v="3.3" limite_ma="20">
+    <pin nombre="pin" nodo="vcc"/>
+  </componente>
+  <componente tipo="Led" id="LD1" a_vss="si" vf="2.0" r="330">
+    <pin nombre="anodo" nodo="vcc"/>
+  </componente>
+  <componente tipo="Button" id="CORTO" v_cerrado="0" r_cerrado="1" rebote="no">
+    <pin nombre="pin" nodo="vcc"/>
+  </componente>
+</placa>
+```
+
+Suelto, F1 entrega los 3,9 mA del LED. Con `CORTO` pulsado la carga pediría
+3,3 A: F1 da sus **20 mA justos**, el nodo cae a unos 20 mV, el LED se apaga y
+`sobrecorriente` se pone a 1. Al soltarlo, todo vuelve. Al final de la
+simulación, `mcu-sim` dice por consola cuánto entregó cada una y cuántas veces
+tuvo que limitar.
+
+Desde C++, `corriente()` en amperios, `sobrecorriente()` y `episodios()`, las
+veces que ha entrado en limitación.
 
 #### `Rpull`
 
@@ -999,13 +1067,14 @@ MCU. Lo declara la propia pieza, en `parts/ext_parts.h`, y el catálogo que la
 GUI recibirá se construye recorriendo el inventario, así que una pieza que
 empiece a declarar algo aparece sola.
 
-Hoy lo declaran tres:
+Lo declaran estas:
 
 | Pieza | Observables | Mandos |
 | :--- | :--- | :--- |
 | `Led` | `encendido` (0/1, el que sugiere pintar) y `corriente` (mA, de 0 a 25) | — |
 | `Button` | `pulsado` (0/1): el **dedo**, no el contacto, que en un NC es lo contrario | `pulsar` (botón, 0 suelta, 1 pulsa) |
 | `Crystal` | `presente` (0/1): si está soldado | — |
+| `Fuente`, `Gnd` | `corriente` (mA, la que entrega o recibe; la escala es ± el límite, o ±100 sin él) y `sobrecorriente` (0/1, **una alarma**: el catálogo la marca con `alarma="si"` y la ventana la pinta en rojo) | — |
 
 `Crystal` no publica la frecuencia por lo mismo que no la lleva como atributo:
 la del HSE es un dato del árbol de reloj y vive en el RCC.
@@ -1017,7 +1086,7 @@ y se aplica, y el modelo lo avisa (`doc/protocolo.md` §5 en `mcu-sim-gui`).
 Para la pieza no hay diferencia entre eso y que el programa de pruebas llame al
 método de siempre: `acciona(pulsar, 1)` hace lo mismo que `press()`.
 
-Las otras diecinueve no declaran nada todavía, y no les hace falta para
+Las demás no declaran nada todavía, y no les hace falta para
 compilar: los seis métodos de `ExtPartBase` tienen valores por omisión. Las
 piezas que el enunciado de la GUI necesita y no existen —`PwmMeter`, `Servo`,
 `Encoder`, `StepperDriver`, `DcMotor`— están en `doc/analisis_gui.md` §8.
@@ -1052,7 +1121,7 @@ mira, y cualquier otro que aparezca en el `<componente>` sobra.
 **Un tipo mal escrito sí** (§3.1), y desde que existen las fichas el mensaje
 distingue el caso frecuente: si lo único que falla son las mayúsculas, lo dice
 —`tipo desconocido 'led'. Se escribe 'Led': el tipo distingue mayúsculas`— en
-lugar de limitarse a enumerar los veintiuno.
+lugar de limitarse a enumerarlos todos.
 
 ---
 
@@ -1119,11 +1188,14 @@ $ ./build/mcu-sim placas/led_azul_5v.xml verif/fw/blinky/blinky.bin 205
   LED LD_AZUL en PD12: apagado  (3.30 V, 0.00 mA)
 ```
 
-Y la placa entera del banco de pruebas —43 componentes de 20 de los 22 tipos,
-todos menos `Rpull` y `PuenteSerie`, que tiene su propio banco (`testserie`)— se saca
+Y la placa entera del banco de pruebas —43 componentes de 20 de los 24 tipos,
+todos menos `Rpull`, `Fuente`, `Gnd` y `PuenteSerie`, que tiene su propio banco (`testserie`)— se saca
 del propio modelo, que es la mejor referencia de formato que hay:
 
 ```
 ./build/test407 --netlist > placas/banco.xml
-./build/mcu-sim placas/banco.xml --valida
+./build/mcu-sim placas/banco.xml --mcu STM32F407VG --valida
 ```
+
+El `--mcu` hace falta porque `banco.xml` no declara `<mcu>`: el chip del banco lo
+construye el código C++, no el XML, y `mcu-sim` ya no supone ninguno.

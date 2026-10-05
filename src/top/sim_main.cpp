@@ -22,11 +22,17 @@
 //
 // Y la regla que hace que nada de esto rompa lo anterior:
 //
-//   ningún <mcu>   un STM32F407VG implícito y nodos con nombre desnudo
-//                  (`PD12`). Es el comportamiento de siempre;
+//   ningún <mcu>   con `--mcu TIPO`, un MCU de ese tipo y nodos con nombre
+//                  desnudo (`PD12`). SIN `--mcu`, LA PLACA NO LLEVA MCU: solo
+//                  sus piezas, todo nodo es de la placa, y un nodo con nombre
+//                  de pin (`PD12`, `NRST`, `VDD`...) es un error que dice qué
+//                  falta, porque casi siempre es un <mcu> olvidado. Hasta el
+//                  2026-10-05 sin decir nada se montaba un STM32F407VG; ahora
+//                  el MCU se declara siempre;
 //   un <mcu>       valen los dos nombres, `PD12` y `u0.PD12`, y los argumentos
 //                  de la línea de órdenes siguen sirviendo: manda la línea de
-//                  órdenes sobre lo que diga el XML;
+//                  órdenes sobre lo que diga el XML, también `--mcu` sobre su
+//                  tipo;
 //   dos o más      solo con prefijo, y cada MCU lleva LO SUYO en el XML. Un
 //                  firmware o un puerto sueltos en la línea de órdenes ya no
 //                  designan a nadie, así que se rechazan nombrando los MCUs:
@@ -112,11 +118,6 @@
 using namespace sc_core;
 using namespace stm32;
 
-// El MCU que se monta cuando nadie dice otra cosa: el de la STM32F4-Discovery,
-// que es la tarjeta con la que trabaja el alumno. Los otros diez miembros de la
-// familia salen del catálogo de `top/mcu_caps.h`.
-static const char* TIPO_MCU = MCU_STM32F407VG.nombre;
-
 // Los tipos de MCU que este ejecutable sabe CONSTRUIR: los once miembros de la
 // familia F405/F407, que salen del catálogo de `top/mcu_caps.h` y no de una
 // lista escrita aquí. Un miembro nuevo aparece en `--mcu`, en `--help` y en el
@@ -159,11 +160,11 @@ static bool        g_traza_gdb = false;
 // 1 = un segundo simulado por segundo de reloj de pared; 0,5 = a la
 // mitad, para poder mirar lo que pasa.
 static double      g_tiempo_real = 0.0;
-// El tipo del MCU IMPLICITO: el que se monta cuando el XML no declara ningun
-// <mcu>. Se cambia con `--mcu`. NO pisa lo que diga el XML: una placa que
-// declara sus chips ya ha dicho cuales son, y la linea de ordenes no tiene por
-// que saberlo mejor.
-static std::string g_tipo_mcu = TIPO_MCU;
+// `--mcu TIPO`. Vacio, no se ha dicho. NO HAY MCU POR OMISION: sin <mcu> en el
+// XML y sin esto, la placa va sin MCU. Con un <mcu> en el XML, MANDA SOBRE SU
+// TIPO -como el firmware o el puerto de la linea de ordenes mandan sobre los
+// suyos-; con varios, no dice a cual y es un error.
+static std::string g_tipo_mcu;
 // Depuración pedida por la línea de órdenes. `g_gdb_modo` vacío = no se pidió.
 static std::string g_gdb_modo;          // "pines" o "dap"
 static unsigned    g_gdb_puerto = 0;
@@ -281,10 +282,33 @@ SC_MODULE(Sim) {
 
         // --- 2. La lista de MCUs, y la línea de órdenes encima ---------------
         std::vector<DeclMcu> decls = placa.mcus();
-        if (decls.empty()) {                 // ninguno declarado: uno implícito
-            DeclMcu m;
-            m.tipo = g_tipo_mcu;             // id vacío -> nodos con nombre desnudo
-            decls.push_back(m);
+        if (!g_tipo_mcu.empty()) {
+            if (decls.empty()) {             // ninguno declarado: el de --mcu
+                DeclMcu m;
+                m.tipo = g_tipo_mcu;         // id vacío -> nodos con nombre desnudo
+                decls.push_back(m);
+            } else if (decls.size() == 1) {  // --mcu manda sobre su tipo
+                // Se vacia la salida: si la placa no cabe en el chip nuevo, el
+                // error sale por stderr y tiene que leerse DESPUES de esto.
+                if (mayus(decls[0].tipo) != g_tipo_mcu) {
+                    std::printf("  [mcu] %s: --mcu %s sustituye al %s que declara "
+                                "la placa\n", decls[0].id.c_str(), g_tipo_mcu.c_str(),
+                                decls[0].tipo.c_str());
+                    std::fflush(stdout);
+                }
+                decls[0].tipo = g_tipo_mcu;
+                placa.cambia_tipo_mcu(decls[0].id, g_tipo_mcu);
+            } else {
+                std::string ids;
+                for (const DeclMcu& m : decls) { if (!ids.empty()) ids += ", "; ids += m.id; }
+                muere("la placa lleva " + std::to_string(decls.size()) + " MCUs (" + ids +
+                      "), asi que --mcu no dice a cual cambiar de tipo.\n"
+                      "Cambialo en su <mcu tipo=\"...\">");
+            }
+        }
+        if (decls.empty()) {
+            placa.pon_sin_mcu();
+            comprueba_sin_mcu();
         }
         aplica_linea_de_ordenes(decls);
         // Cada chip se resuelve contra el catálogo, y de ahí sale su descriptor
@@ -298,7 +322,7 @@ SC_MODULE(Sim) {
             m.tipo = mayus(m.tipo);
             caps_de[k] = mcu_por_nombre(m.tipo);
             if (!caps_de[k])
-                muere("mcu " + (m.id.empty() ? std::string("(implicito)") : m.id) +
+                muere("mcu " + (m.id.empty() ? std::string("(el de --mcu)") : m.id) +
                       ": no se sabe construir un '" + m.tipo + "'.\n"
                       "Los tipos que este programa modela son:\n  " +
                       tipos_como_texto() + "\n"
@@ -406,9 +430,20 @@ SC_MODULE(Sim) {
         // Un conflicto eléctrico NO detiene la simulación: puede ser una
         // decisión deliberada -un pin compartido entre dos montajes- y el que
         // manda es quien escribe la placa. Pero se dice, y se dice antes.
-        std::printf("placa '%s': %u MCU(s), %u componentes, %u nodos, %u avisos\n",
-                    g_nombre.c_str(), unsigned(mcus.size()),
-                    unsigned(placa.instancias().size()), nodos.n_nodos(), n_avisos);
+        if (mcus.empty())
+            std::printf("placa '%s': SIN MCU, %u componentes, %u nodos, %u avisos\n",
+                        g_nombre.c_str(), unsigned(placa.instancias().size()),
+                        nodos.n_nodos(), n_avisos);
+        else
+            std::printf("placa '%s': %u MCU(s), %u componentes, %u nodos, %u avisos\n",
+                        g_nombre.c_str(), unsigned(mcus.size()),
+                        unsigned(placa.instancias().size()), nodos.n_nodos(), n_avisos);
+        // Sin MCU, sin ventana y sin --valida, simular es ver pasar el tiempo
+        // sin que nada lo mueva: se dice, por si era un <mcu> olvidado que el
+        // nombre de los nodos no ha delatado.
+        if (mcus.empty() && !g_gui_pedida && !g_solo_valida)
+            std::printf("  [aviso] sin MCU y sin --gui, nadie toca las piezas: esto "
+                        "solo tiene sentido con --gui o con --valida\n");
         for (const serie::Pieza& p : puentes) {
             const PuenteSerie* ps = placa.como<PuenteSerie>(p.id);
             if (!ps) continue;
@@ -510,7 +545,62 @@ SC_MODULE(Sim) {
     //   con 2 o más     un argumento global ya no designa a nadie. Se rechaza
     //                   nombrando los MCUs, en vez de elegir uno por su cuenta.
     // -----------------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    // UNA PLACA SIN MCU. Es legitima -un pulsador, una fuente y un LED; validar
+    // una placa antes de tener firmware; probar la ventana sin chip-, pero
+    // tambien es lo que sale de olvidarse el <mcu>, y entonces `<nodo id=PD12>`
+    // seria un cable suelto en silencio. Lo que lo distingue es el nombre: sin
+    // MCU no hay pines, asi que un nodo que se llama como un pin es un error
+    // que dice que falta. Y lo que solo tiene sentido con un MCU -un firmware,
+    // un stub de GDB, sus relojes- tambien.
+    // -----------------------------------------------------------------------
+    static bool parece_pin_de_mcu(const std::string& nodo) {
+        std::string pref;
+        unsigned p = 0, i = 0;
+        if (pad_desde_nombre(nodo, pref, p, i)) return true;
+        std::string n = mayus(nodo);
+        const size_t punto = n.find('.');
+        if (punto != std::string::npos) n = n.substr(punto + 1);
+        static const char* const ALIM[] = {"VDD", "VSS", "VDDA", "VSSA", "VREF+",
+                                           "VBAT", "VCAP1", "VCAP2", "NRST", "BOOT0"};
+        for (const char* a : ALIM) if (n == a) return true;
+        return false;
+    }
+    void comprueba_sin_mcu() {
+        std::vector<std::string> pins;
+        auto mira = [&](const std::string& nodo) {
+            if (!parece_pin_de_mcu(nodo)) return;
+            for (const std::string& q : pins) if (q == nodo) return;
+            pins.push_back(nodo);
+        };
+        for (const std::string& n : placa.externos()) mira(n);
+        for (const Instancia& i : placa.instancias())
+            for (const Conexion& c : i.pines) mira(c.nodo);
+        if (!pins.empty()) {
+            std::string l;
+            for (const std::string& q : pins) { if (!l.empty()) l += ", "; l += q; }
+            muere("la placa no lleva MCU -ni <mcu> en el XML ni --mcu-, y usa "
+                  "nodos con nombre de pin de MCU: " + l + ".\n"
+                  "Si la placa lleva un MCU, declaralo:\n"
+                  "  <mcu tipo=\"STM32F407VG\" id=\"u0\"/>     (en el XML)\n"
+                  "  --mcu STM32F407VG                     (en la linea de ordenes)\n"
+                  "Si de verdad no lleva ninguno, esos nodos son cables de la "
+                  "placa: dales otro nombre.");
+        }
+        auto no = [](const std::string& que) {
+            muere("la placa no lleva MCU -ni <mcu> en el XML ni --mcu-, asi que " + que +
+                  " no tiene sentido. Si lleva uno, declaralo: <mcu tipo=\"...\" "
+                  "id=\"u0\"/> en el XML, o --mcu TIPO");
+        };
+        if (!g_img.empty())        no("un firmware (" + g_img + ") no tiene donde cargarse y");
+        if (!g_gdb_modo.empty())   no("un stub de GDB (--gdb, --gdb-dap)");
+        if (g_puerto_dado)         no("--port");
+        if (g_traza_gdb)           no("--traza-gdb");
+        if (g_ondas)               no("--ondas, que son los relojes del MCU,");
+    }
+
     void aplica_linea_de_ordenes(std::vector<DeclMcu>& decls) {
+        if (decls.empty()) return;           // sin MCU: ya lo ha mirado comprueba_sin_mcu
         const bool global = !g_img.empty() || !g_gdb_modo.empty() || g_puerto_dado;
         if (decls.size() > 1) {
             if (!global) return;
@@ -787,6 +877,22 @@ SC_MODULE(Sim) {
                         nd.c_str(), l->on() ? "encendido" : "apagado",
                         double(l->pin_voltage()), l->current() * 1e3);
         }
+        // Las fuentes y las masas: cuanto entregan -o reciben- y si han tenido
+        // que limitar. Es lo que se mira en una placa sin MCU.
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Fuente" && i.tipo != "Gnd") continue;
+            const FuenteTension* f = placa.como<FuenteTension>(i.id);
+            if (!f) continue;
+            char lim[48] = "sin limite";
+            if (f->limite_ma() > 0.0)
+                std::snprintf(lim, sizeof lim, "limite %.3g mA", f->limite_ma());
+            std::printf("  %s %s en %s: %.2f mA (%s)%s", i.tipo.c_str(), i.id.c_str(),
+                        i.nodo_de("pin").c_str(), f->corriente() * 1e3, lim,
+                        f->sobrecorriente() ? "  SOBRECORRIENTE" : "");
+            if (f->episodios())
+                std::printf(", %u episodio(s) de sobrecorriente", f->episodios());
+            std::printf("\n");
+        }
         // Y lo que los puentes serie tengan a medias, que tambien se ve desde
         // fuera: es la basura de unos baudios equivocados.
         for (const serie::Pieza& p : puentes)
@@ -993,7 +1099,7 @@ static int saluda_gui(Sim& s, stm32::gui::ClienteGui& cli,
 //   <argumentos programa="mcu-sim" version="...">
 //     <posicional nombre="placa" tipo="fichero" filtro="*.xml" obligatorio="si" ayuda="..."/>
 //     <opcion nombre="--ms" forma="valor" tipo="numero" unidad="ms" omision="100" ayuda="..."/>
-//     <opcion nombre="--mcu" forma="valor" tipo="eleccion" omision="STM32F407VG" ayuda="...">
+//     <opcion nombre="--mcu" forma="valor" tipo="eleccion" ayuda="...">
 //       <valor>STM32F405RG</valor> ...
 //     </opcion>
 //   </argumentos>
@@ -1024,8 +1130,9 @@ static const OpcionCli OPCIONES[] = {
     {"--ms", "valor", "numero", "", "ms", "", false, true, "2000",
      "tiempo simulado. Es lo mismo que el tercer argumento posicional. Sin el son "
      "100 ms; con --gui, no hay fin: se para desde la ventana"},
-    {"--mcu", "valor", "eleccion", "", "", "", false, true, "",
-     "el MCU implicito, cuando el XML no declara ninguno"},
+    {"--mcu", "valor", "eleccion", "", "", "", false, true, "STM32F407VG",
+     "el MCU de la placa: si el XML no declara ninguno, lo pone; si declara uno, "
+     "manda sobre su tipo. Sin <mcu> ni --mcu, la placa va sin MCU"},
     {"--valida", "bandera", "", "", "", "", false, true, "",
      "solo comprueba la placa, sin simular"},
     {"--ondas", "bandera", "", "", "", "", false, true, "",
@@ -1068,7 +1175,7 @@ static int vuelca_argumentos() {
         const bool es_mcu = std::string(o.nombre) == "--mcu";
         x += std::string("  <opcion nombre=\"") + o.nombre + "\" forma=\"" + o.forma + "\"";
         if (*o.tipo)     x += std::string(" tipo=\"") + o.tipo + "\"";
-        const std::string om = es_mcu ? std::string(TIPO_MCU) : std::string(o.omision);
+        const std::string om = o.omision;
         if (!om.empty()) x += " omision=\"" + xml_escapa(om) + "\"";
         if (*o.unidad)   x += std::string(" unidad=\"") + o.unidad + "\"";
         if (*o.grupo)    x += std::string(" grupo=\"") + o.grupo + "\"";
@@ -1234,8 +1341,10 @@ int sc_main(int argc, char** argv) {
                 "                                haya un terminal en cada puente\n"
                 "                                serie por red: asi se ve el saludo\n"
                 "                                (doc/puente_serie.md)\n"
-                "     sim placa.xml --mcu TIPO   el MCU implicito, cuando el XML no\n"
-                "                                declara ninguno (por omision %s)\n"
+                "     sim placa.xml --mcu TIPO   el MCU de la placa: lo pone si el XML\n"
+                "                                no declara ninguno y manda sobre el\n"
+                "                                tipo si declara uno. Sin <mcu> ni\n"
+                "                                --mcu la placa va sin MCU\n"
                 "     sim placa.xml --ms=2       tiempo simulado (global: hay un\n"
                 "                                solo reloj por muchos chips)\n"
                 "     sim --argumentos           estas opciones en XML, para que\n"
@@ -1254,7 +1363,7 @@ int sc_main(int argc, char** argv) {
                 "\n"
                 "La placa se describe en XML: MCUs, nodos, componentes y conexiones.\n"
                 "\n"
-                "Con un solo MCU -declarado o implicito- estos argumentos valen y\n"
+                "Con un solo MCU (de <mcu> o de --mcu) estos argumentos valen y\n"
                 "mandan sobre lo que diga el XML. Con dos o mas, cada chip lleva lo\n"
                 "suyo en su <mcu ... firmware= depuracion= puerto_gdb=> y un\n"
                 "argumento global se rechaza, porque ya no dice a cual.\n"
@@ -1267,7 +1376,7 @@ int sc_main(int argc, char** argv) {
                 "LED y que atributos admite. El catalogo completo, con tablas y\n"
                 "ejemplos, esta en doc/parts.md.\n",
                 unsigned(mcusim::proto::PUERTO_OMISION),
-                TIPO_MCU, tipos_como_texto().c_str(),
+                tipos_como_texto().c_str(),
                 Fabrica::tipos_como_texto().c_str());
             // Si alguna pieza se ha registrado sin explicarse, que se sepa
             // aquí y no el día que alguien la busque. No debería pasar -la

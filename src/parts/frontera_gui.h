@@ -146,7 +146,8 @@ public:
                      "\" nombre=\"" + xml_escapa(o.nombre) +
                      "\" unidad=\"" + xml_escapa(o.unidad) +
                      "\" min=\"" + num(o.min) + "\" max=\"" + num(o.max) +
-                     "\" interesante=\"" + (o.interesante ? "si" : "no") + "\"/>\n";
+                     "\" interesante=\"" + (o.interesante ? "si" : "no") + "\"" +
+                     (o.alarma ? " alarma=\"si\"" : "") + "/>\n";
             }
             for (unsigned k = 0; k < p->n_mandos(); ++k) {
                 const Mando m = p->mando(k);

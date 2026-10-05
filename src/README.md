@@ -352,7 +352,7 @@ make mcu-sim
 ./build/mcu-sim placa.xml --valida              # solo comprueba la placa
 ./build/mcu-sim placa.xml --gdb --port=3333     # stub de GDB por los pines SWD
 ./build/mcu-sim placa.xml --gdb-dap             # o el stub interno contra el DAP
-./build/mcu-sim placa.xml --mcu TIPO            # el MCU implicito (STM32F407VG)
+./build/mcu-sim placa.xml --mcu TIPO            # el MCU, si la placa no lo dice
 ./build/mcu-sim --help                          # y los tipos que sabe construir
 ```
 
@@ -516,25 +516,34 @@ firmware, su modo de depuración y su puerto de GDB:
 <mcu tipo="STM32F407VG" id="u1" depuracion="pines" puerto_gdb="3334"/>
 ```
 
-Sin ningún `<mcu>` la placa lleva un STM32F407VG implícito y los nodos se llaman
-`PD12`, que es como han sido todas hasta ahora. **`--mcu TIPO` cambia el tipo de
-ese implícito** —`--mcu stm32f407vg`, en mayúsculas o minúsculas— y **no pisa lo
-que diga el XML**: una placa que declara sus chips ya ha dicho cuáles son, y la
-línea de órdenes no tiene por qué saberlo mejor.
+**El MCU no se supone: se declara.** Con un `<mcu tipo="STM32F407VG" id="u0"/>`
+en el XML, o con `--mcu TIPO` en la línea de órdenes —en mayúsculas o
+minúsculas—. Si están **los dos, gana `--mcu`**, que sustituye el tipo del
+`<mcu>` y lo dice (`[mcu] u0: --mcu STM32F417VG sustituye al STM32F407VG que
+declara la placa`): es la manera de probar la misma placa con otro chip sin
+tocar el fichero. Con dos o más `<mcu>`, `--mcu` no dice a cuál cambiar y es
+un error.
 
 Con un tipo que el programa no modele, el error lo dice y lista los que hay:
 
 ```
-mcu (implicito): no se sabe construir un 'STM32F446RE'.
-Los tipos que este programa modela son: STM32F407VG.
-Un MCU distinto no es un parametro: es otro modelo, con su mapa de memoria,
-sus perifericos y su encapsulado.
+mcu u0: no se sabe construir un 'STM32F103C8'.
+Los tipos que este programa modela son:
+  STM32F405RG, ..., STM32F446ZE
+Un MCU de OTRA FAMILIA no es un parametro: es otro modelo, con su arbol de reloj y sus perifericos.
 ```
 
-Que es la situación de hoy: **el único MCU modelado es el STM32F407VG**. La
-opción existe para que el día que haya un segundo no haya que cambiar la interfaz
-—y para que entre tanto el fallo sea claro en vez de silencioso—. Con uno declarado valen los dos
-nombres, `PD12` y `u0.PD12`. **Con dos o más solo vale el cualificado**, y cada
+**Sin `<mcu>` ni `--mcu`, la placa va sin MCU.** Es lo que se quiere para
+montar un circuito que solo es electricidad —una `Fuente`, una `Gnd`, LEDs y
+pulsadores; `placas/fuente_y_masa.xml` es el ejemplo— y mirarlo en
+`mcu-sim-gui`. Sin chip no hay pines implícitos: cada nodo se declara con
+`<nodo id="..."/>` (y todos son externos sin decirlo), y un nodo llamado como
+un pin de MCU —`PD12`, `VDD`, `u0.PA0`— es un error que da la pista de
+declarar el chip, porque casi siempre es un `<mcu>` olvidado. Tampoco tienen
+sentido, y se rechazan diciendo por qué, un firmware, `--gdb`, `--gdb-dap`,
+`--port`, `--traza-gdb` ni `--ondas`.
+
+Con un solo MCU valen los dos nombres, `PD12` y `u0.PD12`. **Con dos o más solo vale el cualificado**, y cada
 chip lleva lo suyo en el XML: un firmware o un puerto sueltos en la línea de
 órdenes ya no dicen a cuál y se rechazan nombrando los MCUs.
 
@@ -560,7 +569,7 @@ haya que soldar y despegar entre pruebas está `SignalLink`. El banco lleva el
 puente PB9–PD3 y lo comprueba T122; la comparación entre las dos formas está en
 `doc/multi_mcu.md`, §4.5.
 
-En `placas/` hay cuatro:
+Algunas de las de `placas/`:
 
 | Fichero | Qué es |
 | :--- | :--- |
@@ -568,6 +577,7 @@ En `placas/` hay cuatro:
 | `led_azul_5v.xml` | Un LED azul de 3,0 V colgado de 5 V con el cátodo al pin |
 | `banco.xml` | La placa entera de la suite: 43 componentes de 20 tipos |
 | `dos_mcu.xml` | Dos STM32F407 hablando por I2C, cada uno con su puerto de GDB |
+| `fuente_y_masa.xml` | **Sin MCU**: una `Fuente` de 3,3 V y una `Gnd`, cada una con su límite de corriente, LEDs y dos pulsadores que las cortocircuitan para ver la sobrecorriente en `mcu-sim-gui` |
 
 `banco.xml` está **generado** por el propio modelo y versionado a propósito. Se
 regenera con
@@ -576,7 +586,14 @@ regenera con
 ./build/test407 --netlist > placas/banco.xml
 ```
 
-y como el volcado es determinista, `git diff --exit-code placas/banco.xml`
+No declara `<mcu>` —el chip del banco lo construye el código, no el XML—, así
+que para montarla con `mcu-sim` hay que decírselo:
+
+```
+./build/mcu-sim placas/banco.xml --mcu STM32F407VG --valida
+```
+
+Y como el volcado es determinista, `git diff --exit-code placas/banco.xml`
 después de regenerarlo dice si la placa del banco ha cambiado sin querer. Es la
 única forma de ver ese cambio: en `sc_main.cpp` está repartido por el bloque de
 elaboración, y aquí sale en una línea de diff.

@@ -176,6 +176,133 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// FUENTES: una tensión fija en un nodo, con límite de corriente opcional.
+//
+// `Fuente` pone `v` voltios (3,3 por omisión) y `Gnd` pone 0: las dos son la
+// MISMA pieza -un equivalente Thevenin {v, r} con r pequeña, 0,1 ohm, que es
+// lo menos que admite el nodo- y solo cambian la tensión y el sentido en que
+// se lee la corriente: la de una Fuente es la que ENTREGA al nodo, la de una
+// Gnd la que RECIBE de él. Son lo que hace falta para montar un circuito sin
+// MCU -un raíl de 3,3 V, una masa- y lo que deja medir cuánto tira la placa.
+//
+// EL LÍMITE DE CORRIENTE se comporta como el de una fuente de laboratorio: por
+// debajo, tensión constante; si la carga pide más, la fuente pasa a CORRIENTE
+// CONSTANTE -entrega exactamente el límite y deja caer la tensión- y lo dice:
+// el observable `sobrecorriente` se pone a 1 y sale un aviso, que la ventana
+// recibe como T_AVISO. Sin límite (0, o "no" en el XML) es una fuente ideal.
+//
+// Cómo se limita, sin iterar a ciegas: el nodo resuelve por superposición de
+// equivalentes Thevenin (common/analog_net.h), así que todo lo que NO es esta
+// fuente es otro Thevenin {Vx, Rx} que se puede leer -Vx con
+// voltage_excluding(), Rx de la conductancia total menos la propia-. Con eso,
+// la corriente que pediría la carga es |v - Vx| / (r + Rx), y la resistencia
+// que la deja exactamente en el límite es |v - Vx| / I_lim - Rx. Es exacto para
+// lo lineal; lo que no lo es -un LED que se enciende o se apaga- cambia el
+// nodo, y la fuente se vuelve a ajustar en la siguiente vuelta.
+// ---------------------------------------------------------------------------
+SC_MODULE(FuenteTension), public ExtPart {
+    FuenteTension(sc_core::sc_module_name nm, analog_net_if& n, const char* tipo,
+                  double v, double r, double limite_ma, bool masa)
+        : sc_core::sc_module(nm), ExtPart(n, tipo, masa ? "gnd" : "fuente", "pin", nm),
+          v_(v), r0_(r < 0.1 ? 0.1 : r), lim_(limite_ma > 0.0 ? limite_ma / 1000.0 : 0.0),
+          masa_(masa) {
+        marca_riel("pin");
+        r_ = r0_;
+        drive(float(v_), float(r_));
+        // Sin límite no hace falta vigilar nada: la corriente se calcula al
+        // preguntarla. Con límite, un proceso que reajusta cuando el nodo cambia.
+        SC_HAS_PROCESS(FuenteTension);
+        if (lim_ > 0.0) SC_THREAD(vigila);
+    }
+    double v() const         { return v_; }
+    double limite_ma() const { return lim_ * 1000.0; }
+    bool   sobrecorriente() const { return sobre_; }
+    // Las veces que ha entrado en sobrecorriente desde que se construyó
+    unsigned episodios() const { return episodios_; }
+    // La corriente, en A: la que entrega una Fuente; la que recibe una Gnd
+    double corriente() const {
+        const double i = double(pin_current());          // >0: entra al nodo
+        return masa_ ? -i : i;
+    }
+    void set_enabled(bool on) override {
+        ExtPartBase::set_enabled(on);
+        if (on) { r_ = r0_; drive(float(v_), float(r_)); } else { hiz(); sobre_ = false; }
+    }
+
+    unsigned   n_observables() const override { return 2; }
+    Observable observable(unsigned i) const override {
+        const float esc = lim_ > 0.0 ? float(lim_ * 1000.0) : 100.f;
+        if (i == 0) return {"corriente", "mA", -esc, esc, true};
+        return {"sobrecorriente", "", 0.f, 1.f, true, true};
+    }
+    float valor_observable(unsigned i) const override {
+        if (i == 0) return conectada_ ? float(corriente() * 1000.0) : 0.f;
+        return sobre_ ? 1.f : 0.f;
+    }
+
+private:
+    void vigila() {
+        for (;;) {
+            wait(net_->value_changed_event() | evento_conexion());
+            if (conectada_) ajusta();
+        }
+    }
+    void ajusta() {
+        // Lo que hay en el nodo sin esta fuente: su Thevenin {vx, rx}. La
+        // conductancia total es la de la ultima resolucion, que incluye la
+        // propia con la r que se aplico: se descuenta con el MISMO float que
+        // vio el nodo, o la resta no da cero cuando no hay nadie mas.
+        bool solo = false;
+        const double vx = double(net_->voltage_excluding(id_, solo));
+        const double gx = net_->conductance() - 1.0 / double(float(r_));
+        double r_nueva = r0_;
+        bool sobre = false;
+        if (!solo && gx > G_FLOAT) {
+            const double rx = 1.0 / gx;
+            const double dv = std::fabs(v_ - vx);
+            if (dv / (r0_ + rx) > lim_) {                 // pide mas del limite
+                r_nueva = std::max(r0_, dv / lim_ - rx);
+                sobre = true;
+            }
+        }
+        if (sobre && !sobre_) {
+            ++episodios_;
+            char b[200];
+            std::snprintf(b, sizeof b, "%s: sobrecorriente; la carga pide mas de "
+                          "%.3g mA y la %s se limita a ellos", pieza().c_str(),
+                          lim_ * 1000.0, masa_ ? "masa" : "fuente");
+            SC_REPORT_WARNING(masa_ ? "/mcu-sim/gnd" : "/mcu-sim/fuente", b);
+        }
+        sobre_ = sobre;
+        // Solo se toca el nodo si la r cambia de verdad: cada drive() es otra
+        // resolucion y otro evento, y sin este umbral se reajustaria en bucle.
+        if (std::fabs(r_nueva - r_) > 1e-6 * r_) {
+            r_ = r_nueva;
+            drive(float(v_), float(r_));
+        }
+    }
+    double   v_, r0_, lim_;
+    bool     masa_;
+    double   r_ = 0.1;
+    bool     sobre_ = false;
+    unsigned episodios_ = 0;
+};
+
+class Fuente : public FuenteTension {
+public:
+    Fuente(sc_core::sc_module_name nm, analog_net_if& n, double v = 3.3,
+           double r = 0.1, double limite_ma = 0.0)
+        : FuenteTension(nm, n, "Fuente", v, r, limite_ma, false) {}
+};
+
+class Gnd : public FuenteTension {
+public:
+    Gnd(sc_core::sc_module_name nm, analog_net_if& n, double r = 0.1,
+        double limite_ma = 0.0)
+        : FuenteTension(nm, n, "Gnd", 0.0, r, limite_ma, true) {}
+};
+
+// ---------------------------------------------------------------------------
 // LED con resistencia en serie. Con to_vss = true el LED se enciende cuando el
 // pin está alto (ánodo al pin); con to_vss = false el ánodo va a VDD y el LED
 // se enciende cuando el pin baja, que es el montaje habitual en las placas de

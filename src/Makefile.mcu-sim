@@ -29,6 +29,7 @@
 #   make gui-ordenes              # y las ordenes: el ejemplo del enunciado y sus ecos (Python)
 #   make gui-control              # y el control: pausa, paso, parar y el ritmo (Python)
 #   make gui-argumentos           # que --argumentos dice lo mismo que --help y que argv (Python)
+#   make gui-sin-mcu              # una placa sin MCU, y Fuente y Gnd con su limite (Python)
 #   make serie                    # el destino y el formato de un PuenteSerie, tampoco
 #   make rfc2217                  # el codec de Telnet y RFC 2217, tampoco
 #   make interop                  # el puente UART contra pySerial y socat (Python)
@@ -206,7 +207,7 @@ ASAN446 := build/asan446$(EXE)
 ASAN417 := build/asan417$(EXE)
 ASANSERIE := build/asanserie$(EXE)
 
-.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos interop run clean plataforma vectores hash cryp
+.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu interop run clean plataforma vectores hash cryp
 
 all: $(MCUSIM)
 
@@ -430,6 +431,15 @@ gui-control: $(MCUSIM)
 # acepta `sim` de verdad. Segundos.
 gui-argumentos: $(MCUSIM)
 	$(PYTHON) verif/gui/argumentos.py
+
+# UNA PLACA SIN MCU: placas/fuente_y_masa.xml, que no declara chip ninguno,
+# contra la misma ventana en Python. Las dos piezas que la hacen util -Fuente
+# y Gnd- con su limite de corriente: la corriente que se ve, la sobrecorriente
+# como alarma y su T_AVISO, y la vuelta al soltar el corto. Tambien lo que sin
+# MCU se rechaza -firmware, --gdb, un nodo PD12- y que --mcu manda sobre un
+# <mcu>. Segundos; no toca ningun invariante.
+gui-sin-mcu: $(MCUSIM)
+	$(PYTHON) verif/gui/sin_mcu.py
 
 # EL CAMPO DE MINAS DEL PREPROCESADOR DE WINDOWS. Prueba de COMPILACION, no de
 # ejecucion: define a mano las macros que Windows trae -R_OK, min, max, ERROR,

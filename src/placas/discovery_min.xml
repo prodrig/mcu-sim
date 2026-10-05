@@ -29,6 +29,9 @@
         tarda de verdad un cuarzo de 32 kHz.
      ========================================================================= -->
 <placa nombre="discovery">
+  <!-- El chip, dicho aqui y no supuesto: sin <mcu> (ni --mcu) la placa iria
+       sin MCU. `--mcu OTRO` manda sobre este tipo sin tocar el fichero. -->
+  <mcu tipo="STM32F407VG" id="u0"/>
 
   <!-- ===================================================================
        Relojes [UM1472 §6.9]

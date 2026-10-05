@@ -15095,12 +15095,14 @@ SC_MODULE(F1Tb) {
             return false;
         };
 
-        // --- 1. Ninguno declarado: uno implicito, como siempre ---------------
+        // --- 1. Ninguno declarado: el del banco ------------------------------
+        // En C++ la placa sin <mcu> es la del chip que el banco construye a
+        // mano. `mcu-sim` no: alli, sin <mcu> ni --mcu, la placa va SIN MCU
+        // (pon_sin_mcu, y lo prueba `make gui-sin-mcu`).
         check_eq(placa.n_mcus_efectivos(), 1u,
-                 "una placa sin <mcu> lleva un STM32F407VG implicito");
+                 "en C++, una placa sin <mcu> lleva el MCU que construye el banco");
         check(placa.mcus().empty(),
-              "y no declara ninguno: es lo que hace que las placas de antes "
-              "sigan valiendo sin migrarlas");
+              "y no declara ninguno: el chip lo pone el codigo, no el XML");
 
         // --- 2. El elemento <mcu> se lee entero ------------------------------
         {

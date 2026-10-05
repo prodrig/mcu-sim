@@ -108,6 +108,7 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
                 a.first != "une")
                 return donde(h) + "<nodo id=\"" + id + "\">: atributo desconocido: " +
                        a.first;
+        nl.nodo_declarado(id);
         if (ex == "si") nl.nodo_externo(id);
         if (bs == "si") nl.nodo_bus(id);
         // `une` es la lista de pads que SON este nodo, separados por espacios.

@@ -175,7 +175,9 @@ def m3_placa(sim):
                     '</placa>\n')
         for valida in (False, True):
             v = Ventana()
-            p = arranca(sim, [placa, "10"] + (["--valida"] if valida else []), v.puerto)
+            # Una placa SIN MCU -no declara ninguno-: 10 ms van con --ms=, porque
+            # un segundo posicional seria un firmware y sin chip se rechaza.
+            p = arranca(sim, [placa, "--ms=10"] + (["--valida"] if valida else []), v.puerto)
             try:
                 v.acepta()
                 _, pl, cat, listo = saludo_hasta_listo(v, valida=valida)

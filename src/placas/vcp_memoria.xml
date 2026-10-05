@@ -26,6 +26,9 @@
      mientras este alto. vcp_demo tiene RTS por hardware (CR3.RTSE).
      ========================================================================= -->
 <placa nombre="vcp-memoria">
+  <!-- El chip, dicho aqui y no supuesto: sin <mcu> (ni --mcu) la placa iria
+       sin MCU. `--mcu OTRO` manda sobre este tipo sin tocar el fichero. -->
+  <mcu tipo="STM32F407VG" id="u0"/>
   <componente tipo="PuenteSerie" id="VCP" host="memoria"
               baudios="115200" formato="8N1" flujo="rtscts" muestra="si"
               guion="hola desde el guion\r\n">

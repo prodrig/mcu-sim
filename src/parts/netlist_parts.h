@@ -254,6 +254,81 @@ REGISTRA_PARTE(Crystal,
         return new Crystal(n[d.nodo_de("osc_in")], d.num("vdd", 3.3));
     });
 
+// El limite de una Fuente o una Gnd: mA, o "no" (lo mismo que 0, sin limite).
+// Devuelve -1 si no se entiende.
+inline double limite_ma_de(const Instancia& d) {
+    const std::string t = d.txt("limite_ma", "no");
+    if (t == "no") return 0.0;
+    char* fin = nullptr;
+    const double v = std::strtod(t.c_str(), &fin);
+    if (fin == t.c_str() || *fin != '\0' || v < 0.0) return -1.0;
+    return v;
+}
+
+REGISTRA_PARTE(Fuente,
+    Ayuda("Una fuente de tension: pone `v` voltios en su nodo, con un limite de "
+          "corriente opcional. Es el rail de 3,3 V de una placa sin MCU, o el "
+          "de 5 V de un periferico, y deja ver cuanta corriente entrega.")
+      .ejemplo("<nodo id=\"vcc\"/>\n"
+               "<componente tipo=\"Fuente\" id=\"F1\" v=\"3.3\" limite_ma=\"20\">\n"
+               "  <pin nombre=\"pin\" nodo=\"vcc\"/>\n"
+               "</componente>")
+      .pin("pin", "obligatorio", "El nodo que sostiene.")
+      .atr("v", "3.3", "La tension, en voltios.")
+      .atr("limite_ma", "no",
+           "EL LIMITE DE CORRIENTE, en mA, o \"no\" para ninguno. Como en una "
+           "fuente de laboratorio: si la carga pide mas, la fuente entrega "
+           "exactamente el limite, deja caer la tension, pone su observable "
+           "`sobrecorriente` a 1 y lo avisa.")
+      .atr("r", "0.1", "La resistencia interna, en ohmios: 0,1 es lo menos que "
+           "admite un nodo, o sea una fuente casi ideal.")
+      .nota("Lo que deja ver: `corriente`, en mA, la que ENTREGA (negativa si "
+            "otra cosa la empuja hacia atras), y `sobrecorriente`, que la "
+            "ventana pinta como alarma.")
+      .nota("Un nodo con una fuente y varias cargas es un RAIL, no un "
+            "cortocircuito: la validacion electrica no lo cuenta como dos piezas "
+            "conduciendo. Dos fuentes (o fuente y masa) en el mismo nodo, si, y se "
+            "avisa: se pelean por el.")
+      .cpp("corriente() en A, sobrecorriente() y episodios(), las veces que ha "
+           "entrado en limitacion."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        const double lim = limite_ma_de(d);
+        if (lim < 0.0) {
+            SC_REPORT_ERROR("netlist", ("Fuente '" + d.id + "': limite_ma=\"" +
+                d.txt("limite_ma") + "\" no vale; mA, o \"no\"").c_str());
+            return nullptr;
+        }
+        return new Fuente(d.id.c_str(), n[d.nodo_de("pin")], d.num("v", 3.3),
+                          d.num("r", 0.1), lim);
+    });
+
+REGISTRA_PARTE(Gnd,
+    Ayuda("La masa: pone 0 V en su nodo, con un limite de corriente opcional. "
+          "Es la referencia de una placa sin MCU y deja ver cuanta corriente "
+          "vuelve por ella.")
+      .ejemplo("<nodo id=\"masa\"/>\n"
+               "<componente tipo=\"Gnd\" id=\"G1\" limite_ma=\"50\">\n"
+               "  <pin nombre=\"pin\" nodo=\"masa\"/>\n"
+               "</componente>")
+      .pin("pin", "obligatorio", "El nodo que lleva a 0 V.")
+      .atr("limite_ma", "no",
+           "EL LIMITE DE CORRIENTE, en mA, o \"no\" para ninguno. Si lo que "
+           "entra por ella pasa del limite, solo deja pasar el limite, el nodo "
+           "sube, `sobrecorriente` se pone a 1 y lo avisa.")
+      .atr("r", "0.1", "La resistencia interna, en ohmios.")
+      .nota("Lo que deja ver: `corriente`, en mA, la que RECIBE del nodo, y "
+            "`sobrecorriente`, que la ventana pinta como alarma. Es la misma "
+            "pieza que Fuente con v=0, leida desde el otro lado."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        const double lim = limite_ma_de(d);
+        if (lim < 0.0) {
+            SC_REPORT_ERROR("netlist", ("Gnd '" + d.id + "': limite_ma=\"" +
+                d.txt("limite_ma") + "\" no vale; mA, o \"no\"").c_str());
+            return nullptr;
+        }
+        return new Gnd(d.id.c_str(), n[d.nodo_de("pin")], d.num("r", 0.1), lim);
+    });
+
 REGISTRA_PARTE(Rpull,
     Ayuda("Una rama resistiva entre el nodo y una tension fija. Es el "
           "equivalente Thevenin {v, r} y nada mas, asi que sirve para el "

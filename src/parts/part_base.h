@@ -66,6 +66,10 @@ struct Terminal {
     std::string      nodo;        // nombre del nodo: "PA5", "vdd", "can_bus"
     std::vector<int> ids;         // drivers de esta pieza sobre ese nodo
     bool             pasivo = false;   // true: solo escucha, no conduce
+    // true: es la salida de una FUENTE (Fuente, Gnd). Un nodo con una fuente
+    // y varias cargas no es un cortocircuito sino un raíl, y la validación
+    // eléctrica lo distingue por esto; dos fuentes en el mismo nodo, sí lo son.
+    bool             riel = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -89,12 +93,18 @@ struct Terminal {
 //
 // `interesante` es lo que la pieza sugiere pintar, no una orden: un LED sugiere
 // `encendido` y no `corriente`. Quien decide es la pantalla.
+//
+// `alarma` dice que el observable, de 0 a 1, es un AVISO: cuando vale 1 algo va
+// mal -la sobrecorriente de una fuente- y la pantalla debe hacerlo notar, no
+// pintarlo como un LED más. Va al catálogo como `alarma="si"` solo cuando es
+// cierto, así que los observables de siempre salen exactamente igual.
 // ---------------------------------------------------------------------------
 struct Observable {
     const char* nombre;      // "encendido", "corriente", "pulsado"
     const char* unidad;      // "", "mA"
     float       min, max;    // escala para pintar; iguales = sin escala
     bool        interesante; // lo que la pieza SUGIERE pintar
+    bool        alarma = false;  // 0/1 que, a 1, es un aviso
 };
 // Los tipos dicen a la pantalla QUÉ CONTROL poner, sin que sepa de qué pieza
 // es: un botón (el máximo mientras está hundido), una casilla (máximo o
@@ -257,6 +267,11 @@ protected:
     // Igual, pero admite nullptr: una patilla que este encapsulado no saca.
     void add_ref_opt(const std::string& nombre, analog_net_if* n) {
         if (n) add_ref(nombre, *n);
+    }
+
+    // Marca una patilla como salida de una fuente (vease Terminal::riel)
+    void marca_riel(const std::string& nombre) {
+        if (Terminal* t = busca(nombre)) t->riel = true;
     }
 
     // Alta impedancia en todos los drivers de la pieza.

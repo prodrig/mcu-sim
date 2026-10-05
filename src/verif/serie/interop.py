@@ -262,6 +262,7 @@ def rfc2217(sim, tiempo_real, dir_log):
 
 PLACA_FIJA = """<?xml version="1.0" encoding="UTF-8"?>
 <placa nombre="vcp-fija">
+  <mcu tipo="STM32F407VG" id="u0"/>
   <componente tipo="PuenteSerie" id="VCP" host="rfc2217:3355"
               baudios="115200" formato="8N1" flujo="%s" muestra="si">
     <pin nombre="rx"  nodo="PA2"/>

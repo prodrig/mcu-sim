@@ -352,15 +352,40 @@ public:
         for (const DeclMcu& m : mcus_) if (m.id == id) return &m;
         return nullptr;
     }
-    // Cuántos hay DE VERDAD: ninguno declarado es uno implícito.
+    // Cuántos hay DE VERDAD: ninguno declarado es uno implícito -el de
+    // `--mcu`-, salvo que la placa vaya SIN MCU, que entonces son cero.
     unsigned n_mcus_efectivos() const {
+        if (sin_mcu_) return 0u;
         return mcus_.empty() ? 1u : unsigned(mcus_.size());
+    }
+    // Una placa SIN MCU: ni <mcu> ni `--mcu`. No hay pads; todo nodo es de la
+    // placa, y un nombre de pad es un error (vease `sim_main.cpp`). Por eso
+    // cada <nodo> declarado pasa a ser externo sin tener que decirlo: no hay
+    // nada mas que pueda ser, y exigir `externo="si"` en todos seria ruido.
+    void pon_sin_mcu(bool s = true) {
+        sin_mcu_ = s;
+        if (s) for (const std::string& n : declarados_) nodo_externo(n);
+    }
+    bool sin_mcu() const { return sin_mcu_; }
+    // `--mcu` manda sobre el tipo de un <mcu> declarado: se cambia aquí para
+    // que la placa que se vuelca -a la ventana, en T_PLACA- diga lo mismo que
+    // lo que se monta.
+    void cambia_tipo_mcu(const std::string& id, const std::string& tipo) {
+        for (DeclMcu& m : mcus_) if (m.id == id) m.tipo = tipo;
     }
 
     // --- Declaración --------------------------------------------------------
     // Un nodo que NO es un pin del MCU y que, por tanto, hay que crear: el hilo
     // de un bus, el nudo entre dos componentes externos. Es el `<nodo id="..."/>`
     // del XML. Los pines no hace falta declararlos: ya existen.
+    // Todo <nodo> que aparece en el XML, externo o no. Con MCU solo es
+    // documentacion; sin MCU, es la lista de nodos de la placa.
+    Netlist& nodo_declarado(const std::string& nom) {
+        const std::string nombre = nombre_canonico_pad(nom);
+        for (const std::string& n : declarados_) if (n == nombre) return *this;
+        declarados_.push_back(nombre);
+        return *this;
+    }
     Netlist& nodo_externo(const std::string& nom) {
         const std::string nombre = nombre_canonico_pad(nom);
         for (const std::string& n : externos_) if (n == nombre) return *this;
@@ -640,7 +665,7 @@ public:
     std::vector<std::string> valida_electrica(const NodeMap& nodos) const {
         std::vector<std::string> err;
         // nodo -> piezas conectadas que conducen, y total de piezas colgadas
-        std::map<std::string, std::vector<std::string>> activos;
+        std::map<std::string, std::vector<std::string>> activos, rieles;
         std::map<std::string, unsigned> colgados;
         for (const Instancia& i : inst_) {
             if (!i.pieza) continue;
@@ -649,10 +674,26 @@ public:
                 if (t.pasivo || t.ids.empty()) continue;
                 if (!i.pieza->conectada()) continue;    // desoldada: no cuenta
                 activos[t.nodo].push_back(i.id + "." + t.nombre);
+                if (t.riel) rieles[t.nodo].push_back(i.id + "." + t.nombre);
             }
+        }
+        // UN RAÍL NO ES UN CORTOCIRCUITO. Un nodo con una fuente (Fuente, Gnd)
+        // y lo que cuelga de ella -LEDs, resistencias, pulsadores- es lo
+        // normal: la fuente lo sostiene y los demás tiran de ella. Dos fuentes
+        // en el mismo nodo, en cambio, se pelean aunque sea un bus.
+        for (const auto& kv : rieles) {
+            if (kv.second.size() < 2) continue;
+            std::string quien;
+            for (const std::string& q : kv.second) {
+                if (!quien.empty()) quien += " y ";
+                quien += q;
+            }
+            err.push_back("nodo " + kv.first + ": dos fuentes a la vez, " + quien +
+                          ". Una fuente sostiene un nodo; dos se pelean por el");
         }
         for (const auto& kv : activos) {
             if (kv.second.size() < 2 || es_bus_efectivo(kv.first)) continue;
+            if (rieles.count(kv.first)) continue;       // un raíl con sus cargas
             std::string quien;
             for (const std::string& q : kv.second) {
                 if (!quien.empty()) quien += " y ";
@@ -698,6 +739,9 @@ public:
         if (!pad_desde_nombre(s, pref, port, pin))
             return "'" + s + "' no es un pad del MCU (se esperaba algo como "
                    "PD12 o u0.PD12)";
+        if (sin_mcu_)
+            return "'" + s + "' es un pin de MCU, y la placa no lleva ninguno: "
+                   "declara <mcu tipo=\"...\" id=\"u0\"/> o pasa --mcu";
         if (pref.empty()) {
             if (n_mcus_efectivos() > 1)
                 return "'" + s + "' es ambiguo, hay " +
@@ -721,6 +765,7 @@ public:
         return std::string();
     }
     std::string lista_mcus() const {
+        if (sin_mcu_) return "(ninguno: la placa no lleva MCU)";
         if (mcus_.empty()) return "(ninguno; hay uno implicito)";
         std::string s;
         for (const DeclMcu& m : mcus_) { if (!s.empty()) s += ", "; s += m.id; }
@@ -807,12 +852,14 @@ private:
     // garantiza sin números mágicos.
     std::list<Instancia>       inst_;
     std::vector<std::string>   externos_;
+    std::vector<std::string>   declarados_;
     std::vector<std::string>   buses_;
     // nodo compartido -> los pads que LO SON. Mapa y no lista porque lo
     // recorren el volcado y el cableado, y los dos tienen que salir en el mismo
     // orden en dos ejecuciones distintas.
     std::map<std::string, std::vector<std::string>> uniones_;
     std::vector<DeclMcu>       mcus_;
+    bool                       sin_mcu_ = false;
     const Encapsulado*         enc_implicito_ = &ENC_LQFP100;
     std::vector<ExtPartBase*>  piezas_;
 };

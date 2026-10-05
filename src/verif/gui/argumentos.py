@@ -87,9 +87,10 @@ def main():
     mcu = [x for x in ops if x.get("nombre") == "--mcu"]
     valores = [v.text for v in mcu[0].iter("valor")] if mcu else []
     check(mcu and mcu[0].get("tipo") == "eleccion" and "STM32F407VG" in valores and
-          mcu[0].get("omision") in valores,
-          "--mcu es una eleccion entre los %d MCUs del catalogo, y su omision esta "
-          "entre ellos" % len(valores))
+          mcu[0].get("omision") is None and mcu[0].get("ejemplo") in valores,
+          "--mcu es una eleccion entre los %d MCUs del catalogo, SIN omision -sin "
+          "<mcu> ni --mcu la placa va sin MCU- y con un ejemplo que esta entre ellos"
+          % len(valores))
     gdb = [x.get("nombre") for x in ops if x.get("grupo") == "gdb"]
     check(gdb == ["--gdb", "--gdb-dap"], "--gdb y --gdb-dap, en el mismo grupo: se excluyen")
     no_gui = sorted(x.get("nombre") for x in ops
