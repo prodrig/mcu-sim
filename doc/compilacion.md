@@ -89,12 +89,22 @@ make -f Makefile.mcu-sim B=/c/build/mcu-sim mcu-sim
 make -f Makefile.mcu-sim B=/c/build/mcu-sim test407 gui-sistema
 ```
 
-Se sigue lanzando **desde `src/`**: las placas y los firmwares están allí, con
-rutas relativas. Las pruebas de Python reciben el ejecutable con `--sim`, y
-dejan sus registros junto a él. La ruta no puede llevar espacios (`make` no
+Las pruebas se siguen lanzando **desde `src/`**. Las de Python reciben el
+ejecutable con `--sim`, y dejan sus registros junto a él. Y **`make mcu-sim`
+copia a la carpeta de compilación lo que hace falta para usarlo desde allí**,
+con el mismo árbol que en `src/`: las placas y sus dibujos (`placas/*.xml`,
+`placas/*.svg`) y los firmwares (`verif/fw/…/*.bin`, con las licencias de lo
+que llevan dentro). Solo lo que ha cambiado; `make datos` hace solo eso. Es lo
+mismo que llevan los paquetes del CI:
+
+```bash
+cd /c/build/mcu-sim
+./mcu-sim.exe placas/nucleo_y_shield.xml --ms=500
+```
+ La ruta no puede llevar espacios (`make` no
 los soporta), y sirve igual escrita `C:/build/mcu-sim`. En la configuración
-de `mcu-sim-gui`, el ejecutable pasa a ser `C:/build/mcu-sim/mcu-sim.exe` y
-el directorio de trabajo sigue siendo `src/`. Y la carpeta de compilación es
+de `mcu-sim-gui`, el ejecutable pasa a ser `C:/build/mcu-sim/mcu-sim.exe`, y
+el directorio de trabajo puede ser `C:/build/mcu-sim` o seguir siendo `src/`. Y la carpeta de compilación es
 la que hay que excluir en el antivirus (véase el README de `mcu-sim-gui`).
 
 **`EXTRA` y `EXTRA_LD` existen por un motivo concreto**: el Makefile construye

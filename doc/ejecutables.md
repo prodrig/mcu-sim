@@ -169,8 +169,8 @@ por sistema, está en **`doc/puente_serie.md`**. Para comprobar que todo
 funciona, con lo que trae el paquete:
 
 ```bash
-./mcu-sim ejemplos/nucleo_f446re_vcp.xml ejemplos/vcp_demo.bin --tiempo-real --espera-terminal
-# Windows: mcu-sim.exe ejemplos\nucleo_f446re_vcp.xml ejemplos\vcp_demo.bin --tiempo-real --espera-terminal
+./mcu-sim placas/nucleo_f446re_vcp.xml verif/fw/vcp_demo/vcp_demo.bin --tiempo-real --espera-terminal
+# Windows: mcu-sim.exe placas\nucleo_f446re_vcp.xml verif\fw\vcp_demo\vcp_demo.bin --tiempo-real --espera-terminal
 ```
 
 Se queda esperando a un terminal en `127.0.0.1:3355`. El más sencillo, en los
@@ -189,15 +189,25 @@ abre ese puerto. Se puede cancelar: solo escucha en tu propia máquina
 
 - **Las suites de verificación** (`test407`, `test446`, `test417`). Se construyen
   desde el código; el CI las ejecuta en cada cambio y su resultado es público.
-- **Los firmwares de ejemplo**, salvo `ejemplos/vcp_demo.bin`, que está para
-  comprobar el puerto serie (§6). El uso previsto es que compiles el tuyo en
+- **El código de los firmwares de ejemplo**: los `.bin` sí van (abajo); sus
+  fuentes, en el repositorio. El uso previsto es que compiles el tuyo en
   STM32CubeIDE y lo cargues aquí, que es para lo que existe el proyecto.
 - **La interfaz gráfica**, que vive en el repositorio `mcu-sim-gui` y se conecta
   a este programa por un socket.
 - **Los manuales de ST.** No son nuestros; `doc/fuentes.md` dice cuáles son, en
   qué revisión y de dónde se bajan.
 
-Lo que sí traen, además del ejecutable: la carpeta `ejemplos/` del §6, el
-`README.md`, el `TERCEROS.md` con las licencias del software ajeno, y —en
-Windows y Linux, donde SystemC va dentro del binario— la licencia y el aviso de
-atribución de SystemC.
+Lo que sí traen, además del ejecutable, **con el mismo árbol que el
+repositorio** —que es como las placas nombran sus firmwares y sus dibujos—:
+
+- `placas/`: todas las placas de ejemplo (`.xml`) y sus dibujos para
+  `mcu-sim-gui` (`.svg`). `./mcu-sim placas/nucleo_y_shield.xml` funciona tal
+  cual, desde la carpeta del paquete;
+- `verif/fw/`: los firmwares de ejemplo y de las suites (`.bin`), con las
+  licencias de lo que va compilado dentro (CMSIS y CoreMark, en sus carpetas);
+- el `README.md`, el `TERCEROS.md` con las licencias del software ajeno, y —en
+  Windows y Linux, donde SystemC va dentro del binario— la licencia y el aviso
+  de atribución de SystemC.
+
+Hasta el 2026-10-06 solo traían una carpeta `ejemplos/` con lo del puerto
+serie (§6); ahora eso está en `placas/` y `verif/fw/vcp_demo/`.

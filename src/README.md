@@ -283,8 +283,9 @@ primero que hay que mirar cuando la compilación falla en una máquina nueva.
 de `src/`, que es la que usan todos los ejemplos de este fichero. Con el
 repositorio en una carpeta sincronizada conviene llevarlo fuera —`make
 B=/c/build/mcu-sim mcu-sim`, y entonces el ejecutable es
-`/c/build/mcu-sim/mcu-sim.exe`—; se sigue lanzando desde `src/`
-(`doc/compilacion.md` §2).
+`/c/build/mcu-sim/mcu-sim.exe`—. `make mcu-sim` copia allí las placas, sus
+dibujos y los firmwares con el mismo árbol que aquí, así que se puede usar
+desde esa carpeta igual que desde `src/` (`doc/compilacion.md` §2).
 
 **Todo el modelo es C++17 y `<systemc>` salvo un fichero.** La única parte que
 sabe en qué sistema operativo corre es `common/red.h`, que traduce entre los

@@ -294,9 +294,14 @@ jobs:
           echo "  [OK  ] el ejecutable arranca"
 
       - name: Empaquetar
-        # `ejemplos/` (P-14, fase D7): las dos placas con el puerto serie del
-        # MCU y el firmware `vcp_demo`, para que doc/puente_serie.md se pueda
-        # seguir con el paquete y sin el repositorio. Van en los TRES paquetes.
+        # Las PLACAS, sus DIBUJOS y los FIRMWARES, con el mismo arbol que en
+        # src/ -placas/, verif/fw/...-, que es como las placas los nombran:
+        # lo copia `make datos`, lo mismo que se lleva a una carpeta de
+        # compilacion con B=. Asi el paquete se usa como el repositorio
+        # (`./mcu-sim placas/nucleo_y_shield.xml`), y doc/puente_serie.md se
+        # sigue sin el. Sustituye a la carpeta `ejemplos/` de P-14 (D-16), que
+        # solo traia lo del puerto serie. Van en los TRES paquetes, con las
+        # licencias de lo que va compilado dentro de los firmwares.
         #
         # `tar`, NO el zip de upload-artifact: el zip PIERDE EL BIT DE
         # EJECUCION y el alumno se encuentra un «Permission denied» que no
@@ -307,11 +312,13 @@ jobs:
         # distribuir «in Source OR OBJECT form». Los deja ahi
         # ci/construye_systemc.sh.
         run: |
-          mkdir -p paquete/ejemplos
+          mkdir -p paquete
           cp src/build/mcu-sim paquete/
           cp README.md TERCEROS.md LICENSE paquete/
-          cp src/placas/nucleo_f446re_vcp.xml src/placas/vcp_rfc2217.xml \
-             src/verif/fw/vcp_demo/vcp_demo.bin paquete/ejemplos/
+          make -C src -f Makefile.mcu-sim B="$PWD/paquete" datos
+          ( cd paquete && ./mcu-sim placas/nucleo_y_shield.xml --ms=10 ) > prueba_paquete.log 2>&1 ||
+            { cat prueba_paquete.log; exit 1; }
+          echo "  [OK  ] el paquete trae las placas, sus dibujos y los firmwares, y se usa desde su carpeta"
           cp "$GITHUB_WORKSPACE/systemc/LICENSE" paquete/LICENSE-SystemC.txt
           cp "$GITHUB_WORKSPACE/systemc/NOTICE"  paquete/NOTICE-SystemC.txt
           tar czf mcu-sim-linux-x86_64.tar.gz -C paquete .
@@ -475,11 +482,13 @@ jobs:
         # que es cosa del navegador del alumno y no nuestra: como quitarla
         # esta en doc/ejecutables.md.
         run: |
-          mkdir -p paquete/ejemplos
+          mkdir -p paquete
           cp src/build/mcu-sim paquete/
           cp README.md TERCEROS.md LICENSE paquete/
-          cp src/placas/nucleo_f446re_vcp.xml src/placas/vcp_rfc2217.xml \
-             src/verif/fw/vcp_demo/vcp_demo.bin paquete/ejemplos/
+          make -C src -f Makefile.mcu-sim B="$PWD/paquete" datos
+          ( cd paquete && ./mcu-sim placas/nucleo_y_shield.xml --ms=10 ) > prueba_paquete.log 2>&1 ||
+            { cat prueba_paquete.log; exit 1; }
+          echo "  [OK  ] el paquete trae las placas, sus dibujos y los firmwares, y se usa desde su carpeta"
           tar czf mcu-sim-macos-${{ matrix.etiqueta }}.tar.gz -C paquete .
           tar tzvf mcu-sim-macos-${{ matrix.etiqueta }}.tar.gz
 
@@ -621,11 +630,13 @@ jobs:
         run: |
           ./src/build/mcu-sim.exe --help > /dev/null
           echo "  [OK  ] el ejecutable arranca"
-          mkdir -p paquete/ejemplos
+          mkdir -p paquete
           cp src/build/mcu-sim.exe paquete/
           cp README.md TERCEROS.md LICENSE paquete/
-          cp src/placas/nucleo_f446re_vcp.xml src/placas/vcp_rfc2217.xml \
-             src/verif/fw/vcp_demo/vcp_demo.bin paquete/ejemplos/
+          make -C src -f Makefile.mcu-sim B="$PWD/paquete" datos
+          ( cd paquete && ./mcu-sim.exe placas/nucleo_y_shield.xml --ms=10 ) > prueba_paquete.log 2>&1 ||
+            { cat prueba_paquete.log; exit 1; }
+          echo "  [OK  ] el paquete trae las placas, sus dibujos y los firmwares, y se usa desde su carpeta"
           cp "$(cygpath -u "$GITHUB_WORKSPACE")/systemc/LICENSE" paquete/LICENSE-SystemC.txt
           cp "$(cygpath -u "$GITHUB_WORKSPACE")/systemc/NOTICE"  paquete/NOTICE-SystemC.txt
           cd paquete && zip -r ../mcu-sim-windows-x86_64.zip . && cd ..

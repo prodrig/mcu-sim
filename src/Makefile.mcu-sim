@@ -70,9 +70,12 @@
 #                   make B=/c/build/mcu-sim mcu-sim          (MSYS2 o Git Bash)
 #                   make B=$$HOME/build/mcu-sim test407      (Linux, macOS)
 #
-#                 Sin espacios en la ruta: make no los soporta. Las placas y
-#                 los firmwares se siguen leyendo de src/, que es desde donde
-#                 se lanza todo.
+#                 Sin espacios en la ruta: make no los soporta. Las pruebas
+#                 se siguen lanzando desde src/. Y `make mcu-sim` copia a
+#                 $(B), con su arbol, lo que hace falta para usarlo desde alli:
+#                 las placas (placas/*.xml y sus dibujos .svg) y los firmwares
+#                 (verif/fw/.../*.bin, con sus licencias). Solo eso: `make
+#                 datos`.
 #
 # Y dos ganchos para añadir cosas SIN tocar este fichero, que es lo que hace
 # falta cuando la biblioteca de SystemC de una máquina concreta se construyó con
@@ -239,7 +242,7 @@ ASAN446 := $(B)/asan446$(EXE)
 ASAN417 := $(B)/asan417$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop run clean plataforma vectores hash cryp
+.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -276,7 +279,25 @@ $(MCUSIM): top/sim_main.cpp $(HDRS)
 	@mkdir -p $(B)
 	$(CXX) $(CXXFLAGS) -o $@ top/sim_main.cpp $(LDFLAGS) $(LDLIBS)
 
-mcu-sim: $(MCUSIM)
+mcu-sim: $(MCUSIM) datos
+
+# LO QUE HACE FALTA PARA USAR EL EJECUTABLE DESDE $(B), y no solo desde src/:
+# las placas con sus dibujos y los firmwares, con el MISMO ARBOL que en src/
+# -placas/nucleo_y_shield.xml, verif/fw/blinky446/blinky446.bin- porque las
+# placas los nombran asi, relativos a donde se lanza. Con las licencias de lo
+# que va compilado dentro de los firmwares (CMSIS, CoreMark): copiarlos es
+# redistribuirlos. Solo se copia lo que ha cambiado. Con el B de siempre
+# acaba en src/build/, que git no ve. Es lo mismo que llevan los paquetes del
+# CI.
+#   make datos B=/c/build/mcu-sim
+DATOS := $(wildcard placas/*.xml placas/*.svg) \
+         $(wildcard verif/fw/*.bin verif/fw/*/*.bin) \
+         $(wildcard verif/fw/*/LICENSE*)
+DATOS_B := $(addprefix $(B)/,$(DATOS))
+datos: $(DATOS_B)
+$(DATOS_B): $(B)/%: %
+	@mkdir -p $(dir $@)
+	cp -p $< $@
 
 # La SUITE DEL F446, que es un banco APARTE y no unas pruebas mas dentro de
 # `sc_main.cpp`. El motivo esta escrito en la cabecera de su fichero y merece
