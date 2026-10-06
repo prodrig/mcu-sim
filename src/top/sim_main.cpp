@@ -986,6 +986,22 @@ SC_MODULE(Sim) {
             if (i.tipo != "Led") continue;
             const Led* l = placa.como<Led>(i.id);
             if (!l) continue;
+            // Con las dos patillas, entre que nodos esta y la tension entre
+            // ellos, que es la que lo hace lucir; o que un extremo esta al aire
+            if (l->dos_patillas()) {
+                char medida[64];
+                if (l->al_aire())
+                    std::snprintf(medida, sizeof medida, "un extremo al aire");
+                else {
+                    const double v = std::fabs(l->tension()) < 0.005 ? 0.0 : l->tension();
+                    std::snprintf(medida, sizeof medida, "%.2f V, %.2f mA", v,
+                                  l->current() * 1e3);
+                }
+                std::printf("  LED %s entre %s y %s: %s  (%s)\n", i.id.c_str(),
+                            i.nodo_de("anodo").c_str(), i.nodo_de("catodo").c_str(),
+                            l->on() ? "encendido" : "apagado", medida);
+                continue;
+            }
             // La patilla del pin se llama `anodo` o `catodo` segun el montaje.
             const std::string& nd = i.nodo_de("anodo").empty()
                                   ? i.nodo_de("catodo") : i.nodo_de("anodo");

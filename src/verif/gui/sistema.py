@@ -33,6 +33,9 @@
 #       fichero en T_ILUSTRACION, con sus placas; y lo que falla, que es un
 #       aviso -un fichero que no esta, uno que no es SVG, uno enorme- o un
 #       error -una tabla que nombra una pieza que no hay-.
+#   C11 la barra de 8 LEDs (placas/barra8_*.xml): LEDs con LAS DOS PATILLAS a
+#       la vista y el comun saliendo por el conector, a una fuente, a masa,
+#       al aire o al pin de otra placa (placas/barra8_en_nucleo.xml).
 #
 #   make -f Makefile.mcu-sim gui-sistema
 #   python3 verif/gui/sistema.py [--sim build/mcu-sim]
@@ -82,8 +85,18 @@ class Carpeta:
 def led(out, id_):
     """'encendido', 'apagado' o None, del informe final de un LED."""
     for l in out.splitlines():
-        if l.strip().startswith("LED %s en " % id_):
+        l = l.strip()
+        if l.startswith("LED %s en " % id_) or l.startswith("LED %s entre " % id_):
             return "encendido" if ": encendido" in l else "apagado"
+    return None
+
+
+def medida(out, id_):
+    """Lo que va entre parentesis en el informe de un LED: '3.30 V, 0.75 mA'"""
+    for l in out.splitlines():
+        l = l.strip()
+        if l.startswith("LED %s " % id_) and "(" in l:
+            return l[l.rindex("(") + 1:l.rindex(")")]
     return None
 
 
@@ -635,6 +648,126 @@ def c10_dibujos(sim, cp):
         check(rc != 0 and que in err, "%s: \"%s\"" % (texto, que))
 
 
+# ---------------------------------------------------------------------------
+# C11
+# ---------------------------------------------------------------------------
+# La barra, con una placa de pruebas sin MCU enfrente, acoplada a su J1: lo
+# que se pone en cada pin lo dicen las piezas de P
+SIS_BARRA = """<sistema nombre="banco-barra">
+  <placa id="B" fichero="%s"/>
+  <placa id="P">
+    <componente tipo="Conector" id="J" filas="1" columnas="9"/>
+    %s
+  </placa>
+  <acopla a="B/J1" b="P/J"/>
+</sistema>
+"""
+
+
+def fuente(pin, v=3.3):
+    return ('<componente tipo="Fuente" id="F%d" v="%g"><pin nombre="pin" nodo="J.%d"/>'
+            '</componente>' % (pin, v, pin))
+
+
+def masa(pin):
+    return '<componente tipo="Gnd" id="G%d"><pin nombre="pin" nodo="J.%d"/></componente>' % (
+        pin, pin)
+
+
+def c11_barra(sim, cp):
+    grupo("C11 Una barra de 8 LEDs con el comun en el conector")
+    bien = True
+    for comun in ("anodo", "catodo"):
+        for col in ("rojo", "azul"):
+            rc, out, err = corre(sim, ["placas/barra8_%s_comun_%s.xml" % (comun, col),
+                                       "--valida"])
+            bien = bien and rc == 0 and \
+                "SIN MCU, 9 componentes, 9 nodos, 0 avisos" in out and \
+                ("dibujo: barra8_%s.svg" % col) in out
+    check(bien, "las cuatro barras -anodo o catodo comun, roja o azul- validan sin un aviso: "
+          "el conector y ocho LEDs, nueve nodos, y el dibujo de su color")
+
+    def banco(barra, piezas):
+        f = cp.escribe("banco.xml", SIS_BARRA % (os.path.join(SRC, "placas", barra),
+                                                 "\n    ".join(piezas)))
+        return corre(sim, [f, "--ms=1"])
+
+    rc, out, err = banco("barra8_anodo_comun_rojo.xml",
+                         [fuente(9), masa(1), fuente(2), masa(3)])
+    check(rc == 0 and led(out, "B/D1") == "encendido" and
+          medida(out, "B/D1") == "3.30 V, 0.75 mA" and led(out, "B/D3") == "encendido",
+          "anodo comun a 3,3 V: el LED con su pin a masa luce, con (3,3 - 1,8) / 2 kohm = "
+          "0,75 mA: \"%s\"" % medida(out, "B/D1"))
+    check(led(out, "B/D2") == "apagado" and medida(out, "B/D2") == "0.00 V, 0.00 mA",
+          "el que tiene su pin tambien a 3,3 V no: no hay tension entre sus patillas")
+    check(led(out, "B/D4") == "apagado" and medida(out, "B/D4") == "un extremo al aire" and
+          "LED B/D1 entre B/J1.9 y B/J1.1" in out,
+          "ni el de un pin al aire, y se dice; el informe dice entre que nodos esta cada uno")
+    rc, out, err = banco("barra8_anodo_comun_rojo.xml", [masa(1), masa(3)])
+    check(rc == 0 and all(led(out, "B/D%d" % k) == "apagado" for k in range(1, 9)) and
+          medida(out, "B/D1") == "un extremo al aire",
+          "con el comun al aire no luce ninguno: no va por dentro ni a VDD ni a masa")
+    rc, out, err = banco("barra8_catodo_comun_azul.xml",
+                         [masa(9), fuente(1), fuente(3, 5.0), masa(2)])
+    check(rc == 0 and medida(out, "B/D1") == "3.30 V, 0.15 mA" and
+          medida(out, "B/D3") == "5.00 V, 1.00 mA" and led(out, "B/D2") == "apagado",
+          "catodo comun a masa, azul: con 3,3 V en su pin pasan 0,15 mA y con 5 V, 1 mA; "
+          "el de un pin a masa no luce")
+    rc, out, err = banco("barra8_catodo_comun_azul.xml", [fuente(9), masa(1)])
+    check(rc == 0 and led(out, "B/D1") == "apagado" and
+          medida(out, "B/D1") == "-3.30 V, 0.00 mA",
+          "y al reves -el comun alto y el pin a masa- es un diodo en inversa, y no conduce")
+
+    f = cp.escribe("led_mal.xml", """<placa nombre="mal">
+  <nodo id="a" externo="si"/><nodo id="k" externo="si"/>
+  <componente tipo="Fuente" id="F"><pin nombre="pin" nodo="a"/></componente>
+  <componente tipo="Led" id="L" a_vss="no">
+    <pin nombre="anodo" nodo="a"/><pin nombre="catodo" nodo="k"/>
+  </componente>
+</placa>
+""")
+    rc, out, err = corre(sim, [f, "--valida"])
+    todo = out + err                     # SystemC lo dice por la salida estandar
+    check(rc != 0 and "L: con 'anodo' y 'catodo' en sus nodos" in todo and "'a_vss'" in todo,
+          "con las dos patillas, a_vss no tiene sentido, y escribirlo es un error que lo dice")
+
+    rc, out, err = corre(sim, ["placas/barra8_en_nucleo.xml", "--valida"])
+    check(rc == 0 and "1 MCU(s), 16 componentes, 158 nodos, 0 avisos" in out and
+          "dibujo B: barra8_rojo.svg" in out,
+          "placas/barra8_en_nucleo.xml: la barra cableada a la Nucleo con nueve hilos, el "
+          "comun a D10; ni un aviso")
+
+    def encendidos(out):
+        return [k for k in range(1, 9) if led(out, "B/D%d" % k) == "encendido"]
+
+    def corre_ms(fichero, lista):
+        vistos = []
+        for ms in lista:
+            rc, out, err = corre(sim, [fichero, "--ms=%d" % ms])
+            vistos.append(encendidos(out) if rc == 0 else None)
+        return vistos
+
+    vistos = corre_ms("placas/barra8_en_nucleo.xml", (25, 75, 375, 425, 475))
+    check(vistos == [[1], [2], [8], [], []],
+          "con el anodo comun en un pin a 1, la luz corre de D1 a D8 cada 50 ms; y con el "
+          "pin a 0, la barra se apaga entera: %s" % vistos)
+    rc, out, err = corre(sim, ["placas/barra8_en_nucleo.xml", "--ms=75"])
+    check("LED B/D2 entre N/u0.PB6 y N/u0.PA9: encendido" in out,
+          "el comun es el PB6 de la Nucleo y el D2, su PA9: los hilos unen los nodos de las "
+          "dos placas")
+    with open(os.path.join(SRC, "placas", "barra8_en_nucleo.xml"), encoding="utf-8") as fx:
+        sis = fx.read()
+    for de, a in (("nucleo_f446re.xml", "nucleo_f446re.xml"),
+                  ("barra8_anodo_comun_rojo.xml", "barra8_catodo_comun_azul.xml")):
+        sis = sis.replace('fichero="%s"' % de,
+                          'fichero="%s"' % os.path.join(SRC, "placas", a))
+    vistos = corre_ms(cp.escribe("barra_catodo.xml", sis), (75, 425, 475, 775))
+    check(vistos == [[], [1], [2], [8]],
+          "con la de catodo comun, el mismo firmware: apagada mientras el comun esta a 1, "
+          "y la luz corre cuando pasa a 0: %s" % vistos)
+
+
+# ---------------------------------------------------------------------------
 def main():
     a = argparse.ArgumentParser(description="conectores y sistemas de placas")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -656,6 +789,7 @@ def main():
         c8_dibujable(sim)
         c9_alimentacion(sim, cp)
         c10_dibujos(sim, cp)
+        c11_barra(sim, cp)
     finally:
         cp.borra()
     return ventana.resumen("SISTEMA")

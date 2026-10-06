@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  BARRA DE 8 LEDS AZULS con su conector de 9 pines, dibujada a mano: una
+  aproximacion, no una foto. Es el dibujo de placas/barra8_anodo_comun_azul.xml
+  y de placas/barra8_catodo_comun_azul.xml, que lo nombran con ilustracion=:
+  las dos barras azuls son iguales por fuera, y lo que cambia -que patilla
+  es la comun- no se ve.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -22,86 x 14,13 mm,
+  nueve pines a 2,54 mm: una unidad es 0,1 mm- y cada pieza viva con el id de
+  su pieza en el XML: los LEDs D1 a D8 y el conector J1, con cada pin dibujado
+  (J1.1 a J1.9) para que los hilos de un sistema lleguen a su pin. Las
+  resistencias de 2 kohm son decorado: en la placa van dentro de cada LED (r).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 228.6 141.3" width="22.86mm" height="14.13mm">
+  <rect x="1" y="1" width="226.6" height="139.3" rx="6" fill="#1e5631" stroke="#123b20" stroke-width="2"/>
+  <text x="114.3" y="13" font-family="Arial" font-size="8" font-weight="bold" fill="#e8f5e9" text-anchor="middle">8 LED BAR</text>
+  <rect x="7.7" y="62" width="10" height="16" fill="#d5d8dc" stroke="#7f8c8d" stroke-width="0.8"/>
+  <rect x="7.7" y="62" width="10" height="3" fill="#7f8c8d"/>
+  <rect x="7.7" y="75" width="10" height="3" fill="#7f8c8d"/>
+  <text x="12.7" y="88" font-family="Arial" font-size="5" fill="#e8f5e9" text-anchor="middle">R1</text>
+  <rect id="D1" x="4.7" y="22" width="16" height="26" rx="2" fill="#2471a3" stroke="#154360" stroke-width="1.2"/>
+  <text x="12.7" y="56" font-family="Arial" font-size="6" fill="#e8f5e9" text-anchor="middle">D1</text>
+  <rect x="33.1" y="62" width="10" height="16" fill="#d5d8dc" stroke="#7f8c8d" stroke-width="0.8"/>
+  <rect x="33.1" y="62" width="10" height="3" fill="#7f8c8d"/>
+  <rect x="33.1" y="75" width="10" height="3" fill="#7f8c8d"/>
+  <text x="38.1" y="88" font-family="Arial" font-size="5" fill="#e8f5e9" text-anchor="middle">R2</text>
+  <rect id="D2" x="30.1" y="22" width="16" height="26" rx="2" fill="#2471a3" stroke="#154360" stroke-width="1.2"/>
+  <text x="38.1" y="56" font-family="Arial" font-size="6" fill="#e8f5e9" text-anchor="middle">D2</text>
+  <rect x="58.5" y="62" width="10" height="16" fill="#d5d8dc" stroke="#7f8c8d" stroke-width="0.8"/>
+  <rect x="58.5" y="62" width="10" height="3" fill="#7f8c8d"/>
+  <rect x="58.5" y="75" width="10" height="3" fill="#7f8c8d"/>
+  <text x="63.5" y="88" font-family="Arial" font-size="5" fill="#e8f5e9" text-anchor="middle">R3</text>
+  <rect id="D3" x="55.5" y="22" width="16" height="26" rx="2" fill="#2471a3" stroke="#154360" stroke-width="1.2"/>
+  <text x="63.5" y="56" font-family="Arial" font-size="6" fill="#e8f5e9" text-anchor="middle">D3</text>
+  <rect x="83.9" y="62" width="10" height="16" fill="#d5d8dc" stroke="#7f8c8d" stroke-width="0.8"/>
+  <rect x="83.9" y="62" width="10" height="3" fill="#7f8c8d"/>
+  <rect x="83.9" y="75" width="10" height="3" fill="#7f8c8d"/>
+  <text x="88.9" y="88" font-family="Arial" font-size="5" fill="#e8f5e9" text-anchor="middle">R4</text>
+  <rect id="D4" x="80.9" y="22" width="16" height="26" rx="2" fill="#2471a3" stroke="#154360" stroke-width="1.2"/>
+  <text x="88.9" y="56" font-family="Arial" font-size="6" fill="#e8f5e9" text-anchor="middle">D4</text>
+  <rect x="109.3" y="62" width="10" height="16" fill="#d5d8dc" stroke="#7f8c8d" stroke-width="0.8"/>
+  <rect x="109.3" y="62" width="10" height="3" fill="#7f8c8d"/>
+  <rect x="109.3" y="75" width="10" height="3" fill="#7f8c8d"/>
+  <text x="114.3" y="88" font-family="Arial" font-size="5" fill="#e8f5e9" text-anchor="middle">R5</text>
+  <rect id="D5" x="106.3" y="22" width="16" height="26" rx="2" fill="#2471a3" stroke="#154360" stroke-width="1.2"/>
+  <text x="114.3" y="56" font-family="Arial" font-size="6" fill="#e8f5e9" text-anchor="middle">D5</text>
+  <rect x="134.7" y="62" width="10" height="16" fill="#d5d8dc" stroke="#7f8c8d" stroke-width="0.8"/>
+  <rect x="134.7" y="62" width="10" height="3" fill="#7f8c8d"/>
+  <rect x="134.7" y="75" width="10" height="3" fill="#7f8c8d"/>
+  <text x="139.7" y="88" font-family="Arial" font-size="5" fill="#e8f5e9" text-anchor="middle">R6</text>
+  <rect id="D6" x="131.7" y="22" width="16" height="26" rx="2" fill="#2471a3" stroke="#154360" stroke-width="1.2"/>
+  <text x="139.7" y="56" font-family="Arial" font-size="6" fill="#e8f5e9" text-anchor="middle">D6</text>
+  <rect x="160.1" y="62" width="10" height="16" fill="#d5d8dc" stroke="#7f8c8d" stroke-width="0.8"/>
+  <rect x="160.1" y="62" width="10" height="3" fill="#7f8c8d"/>
+  <rect x="160.1" y="75" width="10" height="3" fill="#7f8c8d"/>
+  <text x="165.1" y="88" font-family="Arial" font-size="5" fill="#e8f5e9" text-anchor="middle">R7</text>
+  <rect id="D7" x="157.1" y="22" width="16" height="26" rx="2" fill="#2471a3" stroke="#154360" stroke-width="1.2"/>
+  <text x="165.1" y="56" font-family="Arial" font-size="6" fill="#e8f5e9" text-anchor="middle">D7</text>
+  <rect x="185.5" y="62" width="10" height="16" fill="#d5d8dc" stroke="#7f8c8d" stroke-width="0.8"/>
+  <rect x="185.5" y="62" width="10" height="3" fill="#7f8c8d"/>
+  <rect x="185.5" y="75" width="10" height="3" fill="#7f8c8d"/>
+  <text x="190.5" y="88" font-family="Arial" font-size="5" fill="#e8f5e9" text-anchor="middle">R8</text>
+  <rect id="D8" x="182.5" y="22" width="16" height="26" rx="2" fill="#2471a3" stroke="#154360" stroke-width="1.2"/>
+  <text x="190.5" y="56" font-family="Arial" font-size="6" fill="#e8f5e9" text-anchor="middle">D8</text>
+  <text x="216.0" y="56" font-family="Arial" font-size="6" font-weight="bold" fill="#e8f5e9" text-anchor="middle">COM</text>
+  <text x="216.0" y="35" font-family="Arial" font-size="5" fill="#e8f5e9" text-anchor="middle">2K</text>
+  <g id="J1">
+    <rect x="1" y="100" width="226.6" height="25.4" fill="#1a252f" stroke="#2c3e50" stroke-width="1"/>
+    <rect id="J1.1" x="9.5" y="109.5" width="6.4" height="6.4" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.6"/>
+    <rect id="J1.2" x="34.9" y="109.5" width="6.4" height="6.4" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.6"/>
+    <rect id="J1.3" x="60.3" y="109.5" width="6.4" height="6.4" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.6"/>
+    <rect id="J1.4" x="85.7" y="109.5" width="6.4" height="6.4" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.6"/>
+    <rect id="J1.5" x="111.1" y="109.5" width="6.4" height="6.4" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.6"/>
+    <rect id="J1.6" x="136.5" y="109.5" width="6.4" height="6.4" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.6"/>
+    <rect id="J1.7" x="161.9" y="109.5" width="6.4" height="6.4" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.6"/>
+    <rect id="J1.8" x="187.3" y="109.5" width="6.4" height="6.4" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.6"/>
+    <rect id="J1.9" x="212.7" y="109.5" width="6.4" height="6.4" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.6"/>
+  </g>
+  <text x="12.7" y="136" font-family="Arial" font-size="7" fill="#e8f5e9" text-anchor="middle">1</text>
+  <text x="38.1" y="136" font-family="Arial" font-size="7" fill="#e8f5e9" text-anchor="middle">2</text>
+  <text x="63.5" y="136" font-family="Arial" font-size="7" fill="#e8f5e9" text-anchor="middle">3</text>
+  <text x="88.9" y="136" font-family="Arial" font-size="7" fill="#e8f5e9" text-anchor="middle">4</text>
+  <text x="114.3" y="136" font-family="Arial" font-size="7" fill="#e8f5e9" text-anchor="middle">5</text>
+  <text x="139.7" y="136" font-family="Arial" font-size="7" fill="#e8f5e9" text-anchor="middle">6</text>
+  <text x="165.1" y="136" font-family="Arial" font-size="7" fill="#e8f5e9" text-anchor="middle">7</text>
+  <text x="190.5" y="136" font-family="Arial" font-size="7" fill="#e8f5e9" text-anchor="middle">8</text>
+  <text x="215.9" y="136" font-family="Arial" font-size="7" fill="#e8f5e9" text-anchor="middle">C</text>
+</svg>

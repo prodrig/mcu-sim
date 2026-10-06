@@ -345,6 +345,33 @@ private:
 // El diodo no es lineal: mientras la tensión aplicada no supera Vf no conduce.
 // Se modela con dos estados —conduciendo (equivalente Thevenin {Vf, R}) o en
 // corte (alta impedancia)— reevaluados cada vez que cambia la tensión del pin.
+//
+// CON LAS DOS PATILLAS A LA VISTA (el segundo constructor), ninguno de los
+// dos extremos va por dentro a masa ni a VDD: el ánodo va a un nodo y el
+// cátodo a otro, y lo que haya en cada uno lo dice la placa. Es lo que hace
+// falta en una barra de LEDs de ánodo o cátodo común, cuyo común sale por un
+// pin del conector y puede acabar en VDD, en masa o en el pin de otra placa.
+//
+// Cómo se resuelve una rama entre DOS nodos con un canal que resuelve cada
+// nodo por separado (common/analog_net.h): todo lo que no es este LED es, en
+// cada nodo, un Thevenin {V0, R0} que se puede leer -V0 con
+// voltage_excluding(), R0 de la conductancia total menos la propia, como hace
+// FuenteTension-. Con eso la rama es un circuito de una malla:
+//
+//     I = (Va0 - Vk0 - vf) / (Ra0 + r + Rk0)      si sale positiva; si no, corte
+//     Va = Va0 - I·Ra0,   Vk = Vk0 + I·Rk0
+//
+// y se le pone a cada nodo el Thevenin de la rama visto desde él: {Vk + vf, r}
+// en el ánodo y {Va - vf, r} en el cátodo. Con esos dos, cada nodo, resuelto
+// por su cuenta, da exactamente Va y Vk, así que la siguiente vuelta sale
+// igual y no se itera a ciegas. Lo que no es lineal -otro LED que se enciende
+// en el mismo común- cambia un nodo, y la rama se vuelve a calcular.
+//
+// Un extremo que nadie más sujeta -el común de la barra al aire- deja la rama
+// en corte: no hay por dónde cerrar el circuito. Y por la misma razón un nodo
+// al que SOLO llegan LEDs -el común de una barra unido al de otra y a nada
+// más- se queda a oscuras aunque en la placa real luciera: cada LED ve el
+// común flotando sin los demás, y ninguno empieza.
 // ---------------------------------------------------------------------------
 SC_MODULE(Led), public ExtPart {
     // `vdd` es la tensión del OTRO extremo de la rama, la que no toca el pin.
@@ -363,8 +390,39 @@ SC_MODULE(Led), public ExtPart {
         SC_HAS_PROCESS(Led);
         SC_THREAD(run);
     }
+    // Las DOS PATILLAS A LA VISTA: el ánodo en un nodo y el cátodo en otro,
+    // sin nada por dentro a masa ni a VDD. Luce cuando Va - Vk supera vf, y
+    // `r` es la resistencia en serie, la que fija la corriente.
+    Led(sc_core::sc_module_name nm, analog_net_if& anodo, analog_net_if& catodo,
+        double vf, double r_series)
+        : sc_core::sc_module(nm), ExtPart(anodo, "Led", "led", "anodo", nm),
+          to_vss_(true), vf_(vf), r_(r_series), vdd_(0.0), nk_(&catodo) {
+        idk_ = add_pin("catodo", catodo, "led");
+        SC_HAS_PROCESS(Led);
+        SC_THREAD(run);
+    }
+    ~Led() override { if (nk_ && idk_ >= 0) nk_->set_hiz(idk_); }
+
     bool   on()      const { return on_; }
     double current() const { return std::fabs(double(pin_current())); }
+    // true: las dos patillas a la vista (el segundo constructor)
+    bool   dos_patillas() const { return nk_ != nullptr; }
+    // La tensión que se ve: la del pin, o con las dos patillas, la del ánodo
+    // menos la del cátodo, que es la que hace lucir al LED
+    double tension() const {
+        return nk_ ? double(net_->voltage()) - double(nk_->voltage())
+                   : double(pin_voltage());
+    }
+    // Con las dos patillas, un extremo que nadie más sujeta: el común de la
+    // barra sin conectar. Su tensión no está definida, y `tension()` no dice
+    // nada útil
+    bool al_aire() const {
+        if (!nk_) return false;
+        bool fa = false, fk = false;
+        net_->voltage_excluding(id_, fa);
+        nk_->voltage_excluding(idk_, fk);
+        return fa || fk;
+    }
 
     // Lo que deja ver: si luce y cuánta corriente lleva. Sugiere lo primero;
     // lo segundo es para quien quiera ver por qué un LED azul colgado de 3,3 V
@@ -389,7 +447,8 @@ private:
             // una resistencia de pull, con el pin en entrada-. Ahi el LED
             // luciria de verdad y este modelo se quedaba a oscuras porque nadie
             // le habia avisado de nada.
-            if (!conectada_) { hiz(); on_ = false; }
+            if (!conectada_) { hiz(); if (nk_) hiz_k(); on_ = false; }
+            else if (nk_) rama();
             else {
                 const double v = net_->voltage();
                 // Conducción: pin -> LED -> R -> VSS, o VDD -> LED -> R -> pin
@@ -398,11 +457,44 @@ private:
                 else      hiz();
                 on_ = cond;
             }
-            wait(net_->value_changed_event() | evento_conexion());
+            if (nk_) wait(net_->value_changed_event() | nk_->value_changed_event() |
+                          evento_conexion());
+            else     wait(net_->value_changed_event() | evento_conexion());
         }
     }
+    // La rama entre los dos nodos (véase la cabecera). La conductancia total
+    // de cada nodo es la de su última resolución, que incluye la de este LED
+    // con la r que se le aplicó: se descuenta con el MISMO float que vio el
+    // nodo, o la resta no da cero cuando no hay nadie más.
+    void rama() {
+        bool solo_a = false, solo_k = false;
+        const double va0 = double(net_->voltage_excluding(id_, solo_a));
+        const double vk0 = double(nk_->voltage_excluding(idk_, solo_k));
+        const double ga  = net_->conductance() - 1.0 / double(ra_);
+        const double gk  = nk_->conductance() - 1.0 / double(rk_);
+        if (solo_a || solo_k || ga <= G_FLOAT || gk <= G_FLOAT) {
+            hiz(); hiz_k(); on_ = false;
+            return;
+        }
+        const double rag = 1.0 / ga, rkg = 1.0 / gk;
+        const double i = (va0 - vk0 - vf_) / (rag + r_ + rkg);
+        if (i <= 0.0) { hiz(); hiz_k(); on_ = false; return; }
+        const double va = va0 - i * rag, vk = vk0 + i * rkg;
+        ra_ = rk_ = std::max(0.1f, float(r_));
+        drive(float(vk + vf_), ra_);
+        nk_->set_drive(idk_, float(va - vf_), rk_);
+        on_ = true;
+    }
+    void hiz()   { ExtPart::hiz(); ra_ = R_HIZ; }
+    void hiz_k() { nk_->set_hiz(idk_); rk_ = R_HIZ; }
+
     bool to_vss_; double vf_, r_, vdd_;
     bool on_ = false;
+    // Con las dos patillas: el nodo del cátodo, su driver y la r aplicada en
+    // cada lado -la que el nodo tiene contada en su conductancia-
+    analog_net_if* nk_ = nullptr;
+    int   idk_ = -1;
+    float ra_ = R_HIZ, rk_ = R_HIZ;
 };
 
 // ---------------------------------------------------------------------------

@@ -75,12 +75,14 @@ REGISTRA_PARTE(Led,
       .ejemplo("<componente tipo=\"Led\" id=\"LD4\" a_vss=\"si\" vf=\"2.0\" r=\"680\">\n"
                "  <pin nombre=\"anodo\" nodo=\"PD12\"/>\n"
                "</componente>")
-      .pin("anodo o catodo", "uno de los dos",
-           "La patilla que va soldada al pin. Son EL MISMO TERMINAL CON DOS "
-           "NOMBRES: el que se escriba no cambia la fisica -eso lo decide "
+      .pin("anodo o catodo", "uno de los dos, o los dos",
+           "Con UNO, la patilla que va soldada al pin, y el otro extremo va "
+           "por dentro a masa o a vdd, segun a_vss. Son EL MISMO TERMINAL CON "
+           "DOS NOMBRES: el que se escriba no cambia la fisica -eso lo decide "
            "a_vss-, pero permite que el fichero diga la verdad. Con a_vss=si "
-           "lo que toca el pin es el anodo; con a_vss=no, el catodo. Declarar "
-           "los dos es un error.")
+           "lo que toca el pin es el anodo; con a_vss=no, el catodo. Con LOS "
+           "DOS, el LED tiene las dos patillas a la vista: el anodo en un "
+           "nodo, el catodo en otro, y nada por dentro (vease la nota).")
       .atr("a_vss", "si",
            "El montaje. si: anodo al pin y catodo a masa, LUCE CON EL PIN "
            "ALTO, y conduce cuando V > vf. no: anodo a vdd y catodo al pin, "
@@ -107,8 +109,21 @@ REGISTRA_PARTE(Led,
             "presenta 5 V en el pin, y en una placa real ese pin si se iria "
             "cerca de los 5 V -por encima del maximo de un pad que no sea "
             "tolerante-. El modelo no avisa de eso.")
+      .nota("LAS DOS PATILLAS A LA VISTA. Con <pin nombre=\"anodo\"> y "
+            "<pin nombre=\"catodo\"> a la vez, ningun extremo va por dentro a "
+            "masa ni a VDD: luce cuando la tension del anodo menos la del "
+            "catodo supera vf, con r en serie. Es el LED de una barra de anodo "
+            "o catodo comun, cuyo comun sale por un pin del conector y puede "
+            "ir a VDD, a masa o al pin de otra placa "
+            "(placas/barra8_*.xml). a_vss y vdd no tienen sentido ahi, y "
+            "escribirlos es un error. Un extremo que nadie mas sujeta -el "
+            "comun al aire- deja el LED apagado: no hay por donde cerrar el "
+            "circuito.")
       .cpp("on() dice si luce y current() la corriente; `sim` los imprime al "
-           "terminar: \"LED LD4 en PD12: encendido (3.11 V, 3.38 mA)\"."),
+           "terminar: \"LED LD4 en PD12: encendido (3.11 V, 3.38 mA)\", o "
+           "con las dos patillas \"LED D1 entre J1.9 y J1.1: ...\" -anodo y "
+           "catodo-, con la tension entre los dos (tension()). dos_patillas() "
+           "dice cual de los dos montajes es."),
     [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
         // La patilla que va al pin se puede llamar `anodo` o `catodo`, segun el
         // montaje. Es un nombre, no un cambio de fisica -eso lo decide
@@ -117,10 +132,19 @@ REGISTRA_PARTE(Led,
         const bool tiene_a = !d.nodo_de("anodo").empty();
         const bool tiene_c = !d.nodo_de("catodo").empty();
         if (tiene_a && tiene_c) {
-            SC_REPORT_ERROR("netlist",
-                (d.id + ": un LED tiene UNA patilla en el pin; estan declaradas "
-                 "'anodo' y 'catodo'").c_str());
-            return nullptr;
+            // Las dos patillas a la vista: el otro extremo ya no va por
+            // dentro a ningun sitio, asi que a_vss y vdd no dicen nada, y
+            // escribirlos es creer que si
+            for (const char* sobra : {"a_vss", "vdd"})
+                if (d.params.count(sobra)) {
+                    SC_REPORT_ERROR("netlist",
+                        (d.id + ": con 'anodo' y 'catodo' en sus nodos, el LED no "
+                         "va por dentro a masa ni a vdd, y '" + sobra +
+                         "' no se usa; quitalo").c_str());
+                    return nullptr;
+                }
+            return new Led(d.id.c_str(), n[d.nodo_de("anodo")], n[d.nodo_de("catodo")],
+                           d.num("vf", 2.0), d.num("r", 330.0));
         }
         const char* term = tiene_c ? "catodo" : "anodo";
         return new Led(d.id.c_str(), n[d.nodo_de(term)], d.si("a_vss", true),

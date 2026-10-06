@@ -609,6 +609,8 @@ Algunas de las de `placas/`:
 | `shield_leds.xml` | Un shield Arduino de prueba, **sin MCU**: dos LEDs y un pulsador en sus conectores J5..J9 |
 | `nucleo_y_shield.xml` | **Un `<sistema>`**: la Nucleo con el shield enchufado; el blinky enciende a la vez el LD2 de una placa y el LED de la otra |
 | `pila_pc104.xml` | **Una pila PC/104**: un módulo CPU (`pc104_cpu.xml`) y dos de LEDs (`pc104_leds.xml`, el mismo fichero dos veces) con un solo `<acopla>` de tres conectores |
+| `barra8_anodo_comun_rojo.xml` y las otras tres `barra8_*` | **Una barra de 8 LEDs**, como los módulos DM41A08: ánodo o cátodo común, roja o azul, cada LED con su resistencia de 2 kΩ y un conector de 9 pines (D1..D8 y el común en J1.9). **El común no va por dentro a ningún sitio**: cada LED lleva las dos patillas a la vista (`doc/parts.md`, `Led`). Con su dibujo, `barra8_rojo.svg` o `barra8_azul.svg` |
+| `barra8_en_nucleo.xml` | **Un `<sistema>`**: la barra de ánodo común cableada a la Nucleo con nueve hilos —D1..D8 a D9..D2, el común al pin D10—, y `verif/fw/barra8_demo`, una luz que corre con el común a 1 (se ve en una barra de ánodo común) y luego a 0 (en una de cátodo común) |
 | `fuente_y_masa.xml` | **Sin MCU**: una `Fuente` de 3,3 V y una `Gnd`, cada una con su límite de corriente, LEDs y dos pulsadores que las cortocircuitan para ver la sobrecorriente en `mcu-sim-gui` |
 
 `banco.xml` está **generado** por el propio modelo y versionado a propósito. Se

@@ -445,7 +445,7 @@ que cambia la tensión del pin.
 
 | Terminal | | |
 | :--- | :--- | :--- |
-| `anodo` *o* `catodo` | uno de los dos | La patilla que va soldada al pin. Son **el mismo terminal con dos nombres**: el que se escriba no cambia la física —eso lo decide `a_vss`—, pero permite que el fichero diga la verdad. Con `a_vss="si"` lo que toca el pin es el ánodo; con `a_vss="no"`, el cátodo. Declarar los dos es un error |
+| `anodo` *o* `catodo` | uno de los dos, **o los dos** | Con uno, la patilla que va soldada al pin, y el otro extremo va por dentro a masa o a `vdd`. Son **el mismo terminal con dos nombres**: el que se escriba no cambia la física —eso lo decide `a_vss`—, pero permite que el fichero diga la verdad. Con `a_vss="si"` lo que toca el pin es el ánodo; con `a_vss="no"`, el cátodo. Con **los dos**, el LED tiene las dos patillas a la vista (abajo) |
 
 | Parámetro | Omisión | Efecto |
 | :--- | :--- | :--- |
@@ -476,6 +476,46 @@ corriente, y por eso la resistencia baja de 330 a 220 Ω.
 > En una placa real, con ese pin configurado como entrada y sin nada que lo
 > sujete, el nodo se iría cerca de los 5 V — por encima del máximo absoluto de un
 > pad que no sea tolerante a 5 V. El modelo no avisará de eso; hay que saberlo.
+
+**Las dos patillas a la vista.** Con `<pin nombre="anodo">` **y**
+`<pin nombre="catodo">`, ningún extremo va por dentro a masa ni a VDD: el
+ánodo está en un nodo, el cátodo en otro, y lo que haya en cada uno lo dice la
+placa. Luce cuando la tensión del ánodo menos la del cátodo supera `vf`, con
+`r` en serie. Es el LED de una **barra de ánodo o cátodo común**, cuyo común
+sale por un pin del conector y puede acabar en VDD, en masa o en el pin de otra
+placa:
+
+```xml
+<nodo id="J1.9" bus="si"/>                      <!-- el comun: 8 LEDs a la vez -->
+<componente tipo="Led" id="D1" vf="1.8" r="2000">
+  <pin nombre="anodo"  nodo="J1.9"/>            <!-- anodo comun -->
+  <pin nombre="catodo" nodo="J1.1"/>
+</componente>
+```
+
+`a_vss` y `vdd` no tienen sentido ahí, y escribirlos es un error que lo dice.
+Cómo se resuelve una rama entre dos nodos con un canal que resuelve cada nodo
+por separado: lo que no es el LED es, en cada nodo, un Thevenin `{V0, R0}`
+—`voltage_excluding()` y la conductancia sin la propia, como hace `Fuente`—, y
+la rama es un circuito de una malla, `I = (Va0 − Vk0 − vf) / (Ra0 + r + Rk0)`.
+A cada nodo se le pone el Thevenin de la rama visto desde él —`{Vk + vf, r}` en
+el ánodo, `{Va − vf, r}` en el cátodo—, y cada uno, resuelto por su cuenta, da
+exactamente `Va` y `Vk`.
+
+Dos cosas que conviene saber:
+
+* **un extremo que nadie más sujeta deja el LED apagado**: con el común al
+  aire no hay por dónde cerrar el circuito, como en la placa. `sim` lo dice
+  al terminar: `LED D4 entre J1.9 y J1.4: apagado (un extremo al aire)`;
+* **un nodo al que solo llegan LEDs** —el común de una barra unido al de otra
+  y a nada más— se queda a oscuras aunque en la placa real luciera: cada LED
+  ve el común flotando sin los demás, y ninguno empieza.
+
+El informe final dice entre qué nodos está cada uno y la tensión entre sus
+patillas: `LED B/D2 entre N/u0.PB6 y N/u0.PA9: encendido (3.22 V, 0.71 mA)`.
+`placas/barra8_*.xml` son las cuatro barras de ocho LEDs —ánodo o cátodo
+común, rojas o azules— y `placas/barra8_en_nucleo.xml`, una cableada a la
+Nucleo con el común en un pin.
 
 El estado se consulta desde C++ con `on()` y `current()`, y `sim` lo imprime al
 terminar:

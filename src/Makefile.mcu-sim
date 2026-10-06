@@ -748,6 +748,9 @@ FW407 := verif/fw verif/fw/coremark verif/fw/blinky verif/fw/dma_demo \
 FW446 := verif/fw/blinky446 verif/fw/clk446_demo
 FW417 := verif/fw/crypto_demo
 FWSERIE := verif/fw/vcp_demo
+# Los de las placas de ejemplo que no usa ninguna suite de C++: el de
+# placas/barra8_en_nucleo.xml, que vigila `make gui-sistema`
+FWPLACAS := verif/fw/barra8_demo
 
 # Todos los que hay, para `cleanfw`. Se calculan buscando Makefiles en vez de
 # escribir otra lista: asi un firmware nuevo se borra sin tocar esto.
@@ -780,7 +783,7 @@ define AVISA_VERSIONADOS
 	@echo ""
 endef
 
-.PHONY: fw fw407 fw446 fw417 fwserie cleanfw test407fw test446fw test417fw testseriefw
+.PHONY: fw fw407 fw446 fw417 fwserie fwplacas cleanfw test407fw test446fw test417fw testseriefw
 
 fw407:
 	$(AVISA_VERSIONADOS)
@@ -814,8 +817,16 @@ fwserie:
 	 done
 	@echo "  [fw] el firmware de la suite del puente UART, listo"
 
-# Los cuatro juegos, sin simular nada.
-fw: fw407 fw446 fw417 fwserie
+fwplacas:
+	$(AVISA_VERSIONADOS)
+	$(COMPRUEBA_CROSS)
+	@for d in $(FWPLACAS); do \
+	   echo "  [fw] $$d"; $(MAKE) --no-print-directory -C $$d || exit 1; \
+	 done
+	@echo "  [fw] los $(words $(FWPLACAS)) firmwares de las placas de ejemplo, listos"
+
+# Los cinco juegos, sin simular nada.
+fw: fw407 fw446 fw417 fwserie fwplacas
 
 # Y las suites con sus firmwares delante. En una maquina nueva ya NO hacen
 # falta: `make test407` a secas funciona, porque los .bin vienen en el
