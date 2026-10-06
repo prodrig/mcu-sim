@@ -397,6 +397,28 @@ de enlazado, y el mensaje de SystemC dice cuál es.
 
 ---
 
+### 5.10 «Cannot create temporary file in C:\windows\: Permission denied», o `make plataforma` dice `linux` en MINGW64
+
+Las dos cosas a la vez, y en una terminal MINGW64 que parece normal: es un
+**entorno recortado**. Al shell no le han llegado las variables de Windows
+`OS`, `TMP` y `TEMP`:
+
+* sin `OS=Windows_NT`, el Makefile no sabía que estaba en Windows y decidía
+  `linux`. Ahora también lo reconoce por `uname -s` (`MINGW64_NT-…`,
+  `MSYS_NT-…`, `CYGWIN_NT-…`);
+* sin `TMP` ni `TEMP`, el `g++` de MinGW intenta dejar sus ficheros
+  intermedios en `C:\Windows`, y no puede. Ahora el Makefile pone `/tmp` y lo
+  dice con un aviso.
+
+`make plataforma` enseña las tres cosas (`ANFITRION`, `OS`, `TMP` y `TEMP`).
+Merece la pena averiguar por qué faltan —`env | grep -E '^(OS|TMP|TEMP)='`—,
+porque otros programas también las esperan: suele ser el acceso directo o el
+terminal con el que se abre el shell. Mientras tanto, a mano:
+
+```bash
+export TMP=/tmp TEMP=/tmp
+```
+
 ## 6. Los firmwares de las suites, y el compilador de ARM
 
 Veinte grupos de las tres suites cargan un `.bin` **de verdad** en la Flash del

@@ -100,18 +100,23 @@
 B ?= build
 
 # --- 1. La plataforma --------------------------------------------------------
-# En Windows, tanto cmd.exe como el `make` de MSYS2 definen la variable de
-# entorno OS. Fuera de ahí se pregunta a uname. Y en los dos casos, lo que
-# ponga el usuario en la línea de órdenes manda (`?=`).
+# En Windows, cmd.exe y los shells de MSYS2 y Git Bash heredan la variable de
+# entorno OS=Windows_NT. Fuera de ahí se pregunta a uname. Y en los dos
+# casos, lo que ponga el usuario en la línea de órdenes manda (`?=`).
+#
+# OS NO SIEMPRE ESTÁ: un shell de MSYS2 abierto con un entorno recortado -se
+# vio el 2026-10-06, en una máquina de verdad- no la tiene, y el Makefile
+# decidía «linux» y compilaba para Linux con el compilador de MinGW. Por eso
+# uname también reconoce Windows: MINGW64_NT-10.0-..., MSYS_NT-..., CYGWIN_NT-...
+ANFITRION := $(shell uname -s 2>/dev/null)
 ifeq ($(OS),Windows_NT)
   PLATAFORMA ?= windows
+else ifneq ($(filter MINGW% MSYS% CYGWIN%,$(ANFITRION)),)
+  PLATAFORMA ?= windows
+else ifeq ($(ANFITRION),Darwin)
+  PLATAFORMA ?= macos
 else
-  ANFITRION := $(shell uname -s)
-  ifeq ($(ANFITRION),Darwin)
-    PLATAFORMA ?= macos
-  else
-    PLATAFORMA ?= linux
-  endif
+  PLATAFORMA ?= linux
 endif
 
 CXXSTD ?= c++17
@@ -153,6 +158,16 @@ ifeq ($(PLATAFORMA),windows)
                   $(SYSTEMC_HOME)/lib64
   RPATH        :=
   BORRA        := rm -rf $(B)
+  # El g++ de MinGW deja sus ficheros intermedios donde digan TMP o TEMP, y si
+  # no hay ninguna de las dos, en C:\Windows, donde no puede escribir:
+  #   «Cannot create temporary file in C:\windows\: Permission denied»
+  # Es el mismo entorno recortado de arriba. Sin ellas, el /tmp de MSYS2, que
+  # siempre existe; el shell se lo traduce al compilador a una ruta de Windows.
+  ifeq ($(strip $(TMP)$(TEMP)),)
+    export TMP  := /tmp
+    export TEMP := /tmp
+    $(info aviso: sin TMP ni TEMP en el entorno; el compilador usara /tmp)
+  endif
 else ifeq ($(PLATAFORMA),macos)
   # Homebrew en Apple Silicon vive en /opt/homebrew; en Intel, en /usr/local.
   SYSTEMC_HOME ?= $(shell test -d /opt/homebrew/include/sysc && \
@@ -239,6 +254,8 @@ plataforma:
 	@echo "LDLIBS       = $(LDLIBS)"
 	@echo "LIBDIRS      = $(LIBDIRS)"
 	@echo "B            = $(B)"
+	@echo "ANFITRION    = $(ANFITRION)   (uname -s; OS = '$(OS)')"
+	@echo "TMP          = '$(TMP)'   TEMP = '$(TEMP)'"
 
 $(TEST407): top/sc_main.cpp $(HDRS)
 	@mkdir -p $(B)
