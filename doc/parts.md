@@ -129,6 +129,10 @@ porque casi siempre es un `<mcu>` que falta. `placas/fuente_y_masa.xml` es una.
 simultánea. Úsese cuando varias piezas conducen ese nodo por diseño —un bus de
 colector abierto, un cable en Y— o cuando un pin se comparte a propósito entre
 dos montajes. Si no se declara y hay dos conductores, `--valida` lo dice.
+Los conductores se cuentan **por hilo, no por nombre**: en un sistema, el
+`NRST` de una placa y el de otra se llaman igual y son dos hilos distintos —el
+RESET de cada Nucleo es solo suyo—, y no se mezclan; si un acople o un `une`
+los junta, entonces sí son uno y cuentan juntos.
 
 **Los pads que este encapsulado no saca son un error.** Y *este* encapsulado
 depende del chip: el LQFP100 del `F407VG` tiene los puertos A–E más `PH0`/`PH1`;
@@ -345,7 +349,15 @@ La consola dice el de cada placa: `dibujo: nucleo_f446re.svg (5 kB)`, o en un
 sistema `dibujo N: …` y `dibujo S: ninguno`. Cómo se dibuja un SVG para que la
 ventana lo entienda —SVG 1.2 Tiny, tamaño en milímetros, un id por pieza viva—
 está en `mcu-sim-gui`, `doc/analisis-uso-ilustraciones.md` §11; y
-`placas/nucleo_f446re.svg` es el ejemplo.
+`placas/nucleo_f446re.svg` y `placas/discovery_min.svg` son los ejemplos.
+
+**Lo que se toca en el dibujo es una pieza del XML.** Un elemento del SVG solo
+es un mando si hay una pieza con su id: el RESET negro de la Nucleo no se
+podía pulsar mientras la placa no tenía su `B2` —un `Button` en `NRST`, a
+masa—, por mucho que estuviera dibujado. Con él, pulsarlo en la ventana tiene
+el MCU en reset mientras se mantiene —el LED, apagado— y al soltarlo arranca
+desde la flash, como en la tarjeta. La Discovery ya tenía su `B2`; le faltaba
+un dibujo donde tocarlo.
 
 ---
 
@@ -573,9 +585,9 @@ exactamente como antes.
 
 **Los bancos de pruebas no rebotan**: `pulsador()`, la función con la que se
 montan desde C++, pone `rebote="no"`, porque cuentan flancos exactos desde mucho
-antes de que hubiera rebotes. Y el botón de RESET de la Discovery tampoco: en la
-tarjeta, el condensador de NRST se come los rebotes, y como ese condensador no
-se modela, B2 lleva `rebote="no"`.
+antes de que hubiera rebotes. Y el botón de RESET de la Discovery y el de la
+Nucleo tampoco: en las dos tarjetas, el condensador de NRST se come los
+rebotes, y como ese condensador no se modela, su B2 lleva `rebote="no"`.
 
 #### `Fuente` y `Gnd`
 

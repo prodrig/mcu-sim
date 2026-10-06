@@ -601,11 +601,11 @@ Algunas de las de `placas/`:
 
 | Fichero | Qué es |
 | :--- | :--- |
-| `discovery_min.xml` | La **STM32F4DISCOVERY** entera: HSE de 8 MHz, LSE **declarado y desoldado** (como el zócalo vacío de la tarjeta), los cuatro LEDs, el pulsador azul (a VDD) y el negro de reset (a NRST), BOOT0/BOOT1 y los pines de depuración |
+| `discovery_min.xml` | La **STM32F4DISCOVERY** entera: HSE de 8 MHz, LSE **declarado y desoldado** (como el zócalo vacío de la tarjeta), los cuatro LEDs, el pulsador azul (a VDD) y el negro de reset (a NRST), BOOT0/BOOT1 y los pines de depuración. Con su **dibujo**, `discovery_min.svg`, donde los dos pulsadores se tocan: el negro resetea el MCU mientras se mantiene, y al soltarlo arranca otra vez |
 | `led_azul_5v.xml` | Un LED azul de 3,0 V colgado de 5 V con el cátodo al pin |
 | `banco.xml` | La placa entera de la suite: 43 componentes de 20 tipos |
 | `dos_mcu.xml` | Dos STM32F407 hablando por I2C, cada uno con su puerto de GDB |
-| `nucleo_f446re.xml` | La **NUCLEO-F446RE**: LD2, B1 y sus cuatro conectores Arduino (CN5, CN6, CN8, CN9). Con su **dibujo**, `nucleo_f446re.svg`, que `mcu-sim-gui` enseña sin que nadie diga nada porque se llama como ella (`doc/parts.md` §2.6) |
+| `nucleo_f446re.xml` | La **NUCLEO-F446RE**: LD2, B1 (USER), **B2 (RESET, en NRST)** y sus cuatro conectores Arduino (CN5, CN6, CN8, CN9). Con su **dibujo**, `nucleo_f446re.svg`, que `mcu-sim-gui` enseña sin que nadie diga nada porque se llama como ella (`doc/parts.md` §2.6) |
 | `shield_leds.xml` | Un shield Arduino de prueba, **sin MCU**: dos LEDs y un pulsador en sus conectores J5..J9 |
 | `nucleo_y_shield.xml` | **Un `<sistema>`**: la Nucleo con el shield enchufado; el blinky enciende a la vez el LD2 de una placa y el LED de la otra |
 | `pila_pc104.xml` | **Una pila PC/104**: un módulo CPU (`pc104_cpu.xml`) y dos de LEDs (`pc104_leds.xml`, el mismo fichero dos veces) con un solo `<acopla>` de tres conectores |

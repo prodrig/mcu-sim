@@ -8,6 +8,8 @@
          LD2   LED verde de usuario, en PA5, a masa por 510 ohmios
          B1    pulsador azul, en PC13, a MASA, con el pull-up INTERNO del MCU
                sujetandolo arriba (la placa no lleva resistencia ahi)
+         B2    pulsador negro de RESET, en NRST, a masa: pulsarlo resetea el
+               chip, y mientras esta pulsado el chip sigue en reset
 
      Dos cosas que no estan y conviene saber por que:
 
@@ -36,6 +38,19 @@
        indeterminado, que es exactamente lo que pasa en la placa real. -->
   <componente tipo="Button" id="B1" v_cerrado="0" r_cerrado="10">
     <pin nombre="pin" nodo="PC13"/>
+  </componente>
+
+  <!-- B2: el RESET negro, sobre NRST y a masa [UM1724, botones]. Igual que
+       el de la Discovery: el nivel alto lo da el pull-up interno del pad
+       NRST, y el condensador de filtro de la placa -que no se modela- se
+       come los rebotes, de ahi rebote="no". Pulsado, el chip queda en reset;
+       al soltarlo arranca otra vez desde la Flash, como en la mano. NRST
+       tiene dos que tiran de el -el pad y el boton- y por eso bus="si". Es
+       el mismo nodo que el RESET de CN6.3: un shield que lo pulse hace lo
+       mismo. -->
+  <nodo id="NRST" bus="si"/>
+  <componente tipo="Button" id="B2" r_cerrado="10" rebote="no">
+    <pin nombre="pin" nodo="NRST"/>
   </componente>
 
   <!-- ===================================================================

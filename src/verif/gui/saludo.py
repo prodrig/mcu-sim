@@ -201,11 +201,17 @@ def s4_valida(sim):
             return
         hola, placa, cat, _ = saludo_hasta_listo(v, valida=True)
         check(hola is not None and hola.get("modo") == "valida", "T_HOLA dice modo=valida")
+        # Entre el catalogo y T_FIN, el dibujo de la placa (T_ILUSTRACION): la
+        # Discovery tiene el suyo, placas/discovery_min.svg
+        dibujos = 0
         t, cuerpo = v.recibe()
+        while t == ventana.T_ILUSTRACION:
+            dibujos += 1
+            t, cuerpo = v.recibe()
         f = fin(cuerpo)
         check(placa is not None and cat is not None and t == T_FIN and f is not None and
-              f[2] == 0,
-              "T_PLACA, T_CATALOGO y T_FIN, sin T_LISTO y sin esperar a nadie")
+              f[2] == 0 and dibujos == 1,
+              "T_PLACA, T_CATALOGO, su dibujo y T_FIN, sin T_LISTO y sin esperar a nadie")
         rc, out, err = termina(p)
         check(rc == 0, "y termina con codigo 0")
     finally:

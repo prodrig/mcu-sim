@@ -1154,60 +1154,86 @@ public:
     // se comprueba es lo que la PLACA impone.
     std::vector<std::string> valida_electrica(const NodeMap& nodos) const {
         std::vector<std::string> err;
-        // nodo -> piezas conectadas que conducen, y total de piezas colgadas
-        std::map<std::string, std::vector<std::string>> activos, rieles;
-        std::map<std::string, unsigned> colgados;
+        // nodo -> piezas conectadas que conducen, y total de piezas colgadas.
+        //
+        // EL NODO ES EL HILO, NO SU NOMBRE. Se agrupa por el AnalogNet al que
+        // va cada terminal, y el nombre solo se usa para decirlo. Agrupando por
+        // nombre, dos chips con su pulsador de RESET -dos Nucleo en un
+        // sistema- daban «nodo nrst: conducen a la vez A/B2.pin y B/B2.pin»:
+        // los pads de alimentacion de los dos se llaman `nrst` por dentro,
+        // pero son dos nodos que no se tocan.
+        struct Clave {
+            const void* net;
+            std::string nombre;
+            bool operator<(const Clave& o) const {
+                return net != o.net ? net < o.net : nombre < o.nombre;
+            }
+        };
+        std::map<Clave, std::vector<std::string>> activos_c, rieles_c;
+        std::map<Clave, unsigned> colgados_c;
         for (const Instancia& i : inst_) {
             if (!i.pieza) continue;
             for (const Terminal& t : i.pieza->terminales()) {
                 if (t.paso) continue;                   // un pin de conector
-                ++colgados[t.nodo];
+                const Clave k{t.net, t.net ? std::string() : t.nodo};
+                ++colgados_c[k];
                 if (t.pasivo || t.ids.empty()) continue;
                 if (!i.pieza->conectada()) continue;    // desoldada: no cuenta
-                activos[t.nodo].push_back(i.id + "." + t.nombre);
-                if (t.riel) rieles[t.nodo].push_back(i.id + "." + t.nombre);
+                activos_c[k].push_back(i.id + "." + t.nombre);
+                if (t.riel) rieles_c[k].push_back(i.id + "." + t.nombre);
             }
         }
+        // De vuelta a nombres, para decirlo: el de cualquiera de sus terminales.
+        // Dos hilos con el mismo nombre se quedan separados.
+        std::map<const void*, std::string> nombre_de_net;
+        for (const Instancia& i : inst_)
+            if (i.pieza)
+                for (const Terminal& t : i.pieza->terminales())
+                    if (t.net && !nombre_de_net.count(t.net)) nombre_de_net[t.net] = t.nodo;
+        auto nombre = [&](const Clave& k) {
+            return k.net ? nombre_de_net[k.net] : k.nombre;
+        };
         // UN RAÍL NO ES UN CORTOCIRCUITO. Un nodo con una fuente (Fuente, Gnd)
         // y lo que cuelga de ella -LEDs, resistencias, pulsadores- es lo
         // normal: la fuente lo sostiene y los demás tiran de ella. Dos fuentes
         // en el mismo nodo, en cambio, se pelean aunque sea un bus.
-        for (const auto& kv : rieles) {
+        for (const auto& kv : rieles_c) {
             if (kv.second.size() < 2) continue;
             std::string quien;
             for (const std::string& q : kv.second) {
                 if (!quien.empty()) quien += " y ";
                 quien += q;
             }
-            err.push_back("nodo " + kv.first + ": dos fuentes a la vez, " + quien +
+            err.push_back("nodo " + nombre(kv.first) + ": dos fuentes a la vez, " + quien +
                           ". Una fuente sostiene un nodo; dos se pelean por el");
         }
-        for (const auto& kv : activos) {
-            if (kv.second.size() < 2 || es_bus_efectivo(kv.first)) continue;
-            if (rieles.count(kv.first)) continue;       // un raíl con sus cargas
+        for (const auto& kv : activos_c) {
+            if (kv.second.size() < 2 || es_bus_efectivo(nombre(kv.first))) continue;
+            if (rieles_c.count(kv.first)) continue;     // un raíl con sus cargas
             std::string quien;
             for (const std::string& q : kv.second) {
                 if (!quien.empty()) quien += " y ";
                 quien += q;
             }
-            err.push_back("nodo " + kv.first + ": conducen a la vez " + quien +
+            err.push_back("nodo " + nombre(kv.first) + ": conducen a la vez " + quien +
                           ". Si es un bus, declaralo con nodo_bus()");
         }
-        for (const auto& kv : colgados) {
-            if (activos.count(kv.first)) continue;
+        for (const auto& kv : colgados_c) {
+            if (activos_c.count(kv.first)) continue;
+            const std::string nom = nombre(kv.first);
             // Un PIN no puede quedar flotante por culpa de la placa: al otro
             // lado esta el pad del MCU, que conduce o no segun lo que mande el
             // firmware. Que ninguna pieza externa lo gobierne es lo normal en
             // una entrada. El aviso solo tiene sentido en los nodos que no son
             // pines: ahi no hay nadie mas, y si nadie conduce, nadie conduce.
-            const Nodo* nd = nodos.busca(kv.first);
+            const Nodo* nd = nodos.busca(nom);
             if (nd && nd->es_pin) continue;
             // Un nodo COMPARTIDO tampoco puede quedar flotante por culpa de la
             // placa: es un pad -o dos-, y quien conduce ahi lo decide el
             // firmware. Se registra con su nombre de placa y no como pin, asi
             // que hay que reconocerlo por la declaracion.
-            if (union_de(kv.first)) continue;
-            err.push_back("nodo " + kv.first + ": " + std::to_string(kv.second) +
+            if (union_de(nom)) continue;
+            err.push_back("nodo " + nom + ": " + std::to_string(kv.second) +
                           " terminal(es) colgados y ninguno conduce; su tension "
                           "no esta definida");
         }

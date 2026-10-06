@@ -7,8 +7,8 @@
   Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
   1.2 Tiny, geometria como atributo, tamano en milimetros -la placa mide
   70 x 82,5 mm: 500 x 620 unidades, a 0,14 mm la unidad- y cada pieza viva con
-  el id de su pieza en el XML: LD2, B1 y los conectores CN5, CN6, CN8 y CN9.
-  Lo demas -el boton RESET, los LED PWR y COM, los conectores morpho- es
+  el id de su pieza en el XML: LD2, B1, el RESET B2 y los conectores CN5,
+  CN6, CN8 y CN9. Lo demas -los LED PWR y COM, los conectores morpho- es
   decorado: la placa no los declara.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 700" width="84mm" height="98mm">
@@ -66,13 +66,13 @@
     <text x="280" y="450" font-family="Arial" font-size="9" fill="#bdc3c7" text-anchor="middle">RET6</text>
   </g>
 
-  <!-- Botones USER (azul, B1) y RESET (negro, decorado) -->
+  <!-- Botones USER (azul, B1) y RESET (negro, B2) -->
   <g id="B1">
     <rect x="180" y="195" width="45" height="45" rx="4" class="btn-base" />
     <circle cx="202" cy="217" r="16" class="btn-blue" />
     <text x="202" y="255" class="text-sub">USER</text>
   </g>
-  <g>
+  <g id="B2">
     <rect x="310" y="195" width="45" height="45" rx="4" class="btn-base" />
     <circle cx="332" cy="217" r="16" class="btn-black" />
     <text x="332" y="255" class="text-sub">RESET</text>

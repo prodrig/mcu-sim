@@ -26,6 +26,11 @@
 #       orden es relativa al instante en que el modelo la lee, que no se sabe de
 #       antemano —eso es lo que la hace irrepetible—, pero las siguientes
 #       guardan sus deltas exactos.
+#   O5  EL BOTON DE RESET, como en la placa: B2 de `placas/discovery_min.xml`
+#       y de `placas/nucleo_f446re.xml`, sobre NRST. Pulsado, el chip se queda
+#       en reset -el LED del blinky se apaga al momento, y sigue apagado- y al soltarlo
+#       arranca otra vez desde la Flash: el blinky empieza de nuevo, con su
+#       primer flanco a la misma distancia del arranque que la primera vez.
 #
 #   make -f Makefile.mcu-sim gui-ordenes
 #   python3 verif/gui/ordenes.py [--sim build/mcu-sim]
@@ -290,6 +295,67 @@ def o4_en_marcha(sim):
           "ve la ultima" % (t0 / S, (t0 + 80 * MS) / S))
 
 
+# ---------------------------------------------------------------------------
+# O5
+# ---------------------------------------------------------------------------
+def flancos_con_reset(sim, placa, fw, led, pulsa_ms, suelta_ms, total_ms=900):
+    """Los flancos del LED [(ms, valor)] con B2 pulsado de `pulsa_ms` a
+    `suelta_ms`, o sin tocarlo si pulsa_ms es None."""
+    v = Ventana()
+    p = arranca(sim, [placa, fw, str(total_ms)], v.puerto)
+    try:
+        if not v.acepta():
+            return None
+        _, _, cat, listo = saludo_hasta_listo(v)
+        b2, mandos, _ = pieza_de(cat, "B2")
+        _, _, obs = pieza_de(cat, led)
+        if b2 is None or not listo:
+            return None
+        suscribe(v, 10 * MS, [obs["encendido"]])
+        if pulsa_ms is not None:
+            ordenes(v, [(pulsa_ms * MS, b2, mandos["pulsar"], 1.0),
+                        ((suelta_ms - pulsa_ms) * MS, b2, mandos["pulsar"], 0.0)])
+        arranque(v)
+        r, _ = hasta_fin(v)
+        termina(p)
+    finally:
+        if p.poll() is None:
+            p.kill()
+        v.cierra()
+    out, prev = [], None
+    for t, (ts, _, m) in [(t, x) for t, x in r if t == T_INSTANTANEA]:
+        if m[0][1] != prev:
+            out.append((ts // MS, m[0][1]))
+            prev = m[0][1]
+    return out
+
+
+def o5_reset(sim):
+    grupo("O5 El boton de RESET (B2): el chip se queda en reset y arranca al soltarlo")
+    for placa, fw, led in (("placas/discovery_min.xml", FW, "LD4"),
+                           ("placas/nucleo_f446re.xml", "verif/fw/blinky446/blinky446.bin",
+                            "LD2")):
+        libre = flancos_con_reset(sim, placa, fw, led, None, None)
+        # Se pulsa con el LED ENCENDIDO -de 210 a 310 ms-, para que se vea
+        # apagarse en cuanto el chip entra en reset
+        con = flancos_con_reset(sim, placa, fw, led, 250, 550)
+        if not check(libre and con, "%s: dos ejecuciones" % placa):
+            continue
+        primero = libre[0][0]              # del arranque al primer flanco
+        durante = [x for x in con if 250 <= x[0] <= 550]
+        despues = [x for x in con if x[0] > 550]
+        check(con[:3] == libre[:3] and durante and all(val == 0.0 for _, val in durante) and
+              durante[0][0] <= 260,
+              "%s: hasta pulsar, lo mismo que sin tocarlo; pulsado, el LED apagado: el "
+              "chip esta en reset (%s)" % (placa, con))
+        check(despues and despues[0][1] == 1.0 and
+              abs(despues[0][0] - (550 + primero)) <= 10 and
+              [b - a for (a, _), (b, _) in zip(despues, despues[1:])] ==
+              [b - a for (a, _), (b, _) in zip(libre, libre[1:])][:len(despues) - 1],
+              "%s: al soltarlo arranca otra vez: el primer flanco a %d ms del arranque, "
+              "como la primera vez, y el mismo parpadeo" % (placa, primero))
+
+
 def main():
     a = argparse.ArgumentParser(description="las ordenes de mcu-sim-gui, contra el mcu-sim de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -302,6 +368,7 @@ def main():
     o1_o2(sim)
     o3_validacion(sim)
     o4_en_marcha(sim)
+    o5_reset(sim)
     return ventana.resumen("ORDENES")
 
 
