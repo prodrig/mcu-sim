@@ -15,6 +15,7 @@
 //      |<-------- T_VERSION -----------|   la que elige la GUI
 //      |---------- T_PLACA ----------->|   la placa declarada, en XML
 //      |-------- T_CATALOGO ---------->|   observables y mandos
+//      |------ T_ILUSTRACION ... ----->|   el dibujo de cada placa, si lo hay
 //      |---------- T_LISTO ----------->|   construido y esperando
 //      |<--- (T_SUSCRIBE, T_ORDENES) --|   se guardan para antes de sc_start()
 //      |<-------- T_ARRANCA -----------|   ¡ahora!
@@ -101,6 +102,8 @@ public:
 
     // Lo que se manda como T_AVISO durante el saludo, uno por línea.
     void avisos_de_placa(std::vector<std::string> v) { avisos_placa_ = std::move(v); }
+    // Los cuerpos de T_ILUSTRACION, uno por dibujo: van tras el catálogo
+    void ilustraciones(std::vector<std::string> v) { ilustraciones_ = std::move(v); }
 
     // El saludo entero. `hola` es el cuerpo de T_HOLA (líneas clave=valor);
     // `placa` y `catalogo`, los dos XML. Con `solo_valida` se para tras el
@@ -148,6 +151,7 @@ public:
         sal.clear();
         em_.mensaje(sal, T_PLACA, version_ < 2 && !placa_v1_.empty() ? placa_v1_ : placa);
         em_.mensaje(sal, T_CATALOGO, catalogo);
+        for (const std::string& i : ilustraciones_) em_.mensaje(sal, T_ILUSTRACION, i);
         for (const std::string& a : avisos_placa_)
             em_.mensaje(sal, T_AVISO, cuerpo_aviso(N_AVISO, "placa", a, 0));
         if (!solo_valida) em_.vacio(sal, T_LISTO);
@@ -321,6 +325,7 @@ private:
     std::string            placa_v1_;
     unsigned               ignorados_ = 0;
     std::vector<std::string> avisos_placa_;
+    std::vector<std::string> ilustraciones_;
     std::string            suscripcion_;
     bool                   hay_suscripcion_ = false;
     std::vector<std::string> ordenes_previas_;

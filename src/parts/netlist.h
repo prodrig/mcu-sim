@@ -285,8 +285,25 @@ struct DeclMcu {
 // UNA PLACA DE UN <sistema>: su id -el prefijo de todo lo suyo, `A/LD2`-, su
 // nombre y, si no va escrita dentro, el fichero del que salió.
 // ---------------------------------------------------------------------------
+// EL DIBUJO DE UNA PLACA (doc/analisis-uso-ilustraciones.md). La placa dice
+// cuál es -`ilustracion="x.svg"`, relativo a su fichero- o, si no lo dice, es
+// el SVG que se llame como ella y esté a su lado. Y, si el dibujo no se quiere
+// tocar, una TABLA DE ENLACES: qué elemento del SVG es cada pieza. Aquí no se
+// lee el SVG: eso es de la ventana; aquí solo se sabe dónde está y se manda.
+struct EnlaceIlustracion {
+    std::string pieza;        // el nombre en SU placa: "LD2", nunca "N/LD2"
+    std::string elemento;     // el id en el SVG
+    std::string efecto;       // "", "brillo", "hundido" o "ninguno"
+};
+struct Ilustracion {
+    std::string declarada;    // lo que dice el XML, tal cual; vacío si no dice
+    std::string ruta;         // dónde se busca, ya resuelta; vacía si en ningún sitio
+    std::vector<EnlaceIlustracion> enlaces;
+};
+
 struct PlacaDeSistema {
     std::string id, nombre, fichero;
+    Ilustracion ilustracion;
 };
 
 // ---------------------------------------------------------------------------
@@ -442,6 +459,10 @@ public:
     // sistema. Solo lo usan el volcado y los mensajes: lo demás ve un netlist
     // plano con los nombres ya cualificados (`A/LD2`).
     void pon_placas(std::vector<PlacaDeSistema> v) { placas_ = std::move(v); }
+    // El dibujo de una placa suelta; en un sistema, el de cada placa va en
+    // su PlacaDeSistema
+    void pon_ilustracion(Ilustracion i) { ilustracion_ = std::move(i); }
+    const Ilustracion& ilustracion() const { return ilustracion_; }
     const std::vector<PlacaDeSistema>& placas() const { return placas_; }
     bool es_sistema() const { return !placas_.empty(); }
     // Cuántos hay DE VERDAD: ninguno declarado es uno implícito -el de
@@ -1289,8 +1310,27 @@ public:
     void volcar_xml(std::ostream& os, const char* nombre_placa = "placa",
                     bool como_sistema = true) const {
         const bool sis = como_sistema && es_sistema();
-        os << (sis ? "<sistema" : "<placa") << " nombre=\""
-           << xml_escapa(nombre_placa) << "\">\n";
+        // El dibujo, como se escribe en la placa: `ilustracion="x.svg"` si lo
+        // declara, y la tabla de enlaces si la tiene. Solo lo DECLARADO: el
+        // fichero que se encuentra sin decirlo no es de la placa, y el volcado
+        // de una placa se vuelve a leer como placa.
+        auto tabla = [&](const Ilustracion& il, const char* sangria) {
+            if (il.enlaces.empty()) return;
+            os << sangria << "<ilustracion>\n";
+            for (const EnlaceIlustracion& e : il.enlaces) {
+                os << sangria << "  <enlace pieza=\"" << xml_escapa(e.pieza)
+                   << "\" elemento=\"" << xml_escapa(e.elemento) << "\"";
+                if (!e.efecto.empty()) os << " efecto=\"" << xml_escapa(e.efecto) << "\"";
+                os << "/>\n";
+            }
+            os << sangria << "</ilustracion>\n";
+        };
+        os << (sis ? "<sistema" : "<placa") << " nombre=\"" << xml_escapa(nombre_placa)
+           << "\"";
+        if (!es_sistema() && !ilustracion_.declarada.empty())
+            os << " ilustracion=\"" << xml_escapa(ilustracion_.declarada) << "\"";
+        os << ">\n";
+        if (!es_sistema()) tabla(ilustracion_, "  ");
         if (sis)
             for (const PlacaDeSistema& p : placas_) {
                 unsigned n = 0;
@@ -1298,7 +1338,10 @@ public:
                 os << "  <placa id=\"" << xml_escapa(p.id) << "\" nombre=\""
                    << xml_escapa(p.nombre) << "\"";
                 if (!p.fichero.empty()) os << " fichero=\"" << xml_escapa(p.fichero) << "\"";
+                if (!p.ilustracion.declarada.empty())
+                    os << " ilustracion=\"" << xml_escapa(p.ilustracion.declarada) << "\"";
                 os << " piezas=\"" << n << "\">\n";
+                tabla(p.ilustracion, "    ");
                 for (const DeclMcu& m : mcus_)
                     if (placa_de(m.id) == p.id)
                         os << "    <mcu ref=\"" << xml_escapa(m.id) << "\" tipo=\""
@@ -1409,6 +1452,7 @@ private:
     std::vector<Acople>        acoples_;
     std::map<std::string, std::string> alias_;
     std::vector<PlacaDeSistema> placas_;
+    Ilustracion ilustracion_;
     bool                       sin_mcu_ = false;
     const Encapsulado*         enc_implicito_ = &ENC_LQFP100;
     std::vector<ExtPartBase*>  piezas_;

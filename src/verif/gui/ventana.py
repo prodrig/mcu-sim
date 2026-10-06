@@ -41,6 +41,7 @@ MAGIA = 0x3147534D
 CAB = struct.Struct("<IHHII")          # magia, version, tipo, longitud, secuencia
 
 T_HOLA, T_PLACA, T_CATALOGO, T_LISTO = 0x0001, 0x0002, 0x0003, 0x0004
+T_ILUSTRACION = 0x0005
 T_INSTANTANEA, T_AVISO, T_ESTADO, T_ORDEN_HECHA = 0x0010, 0x0011, 0x0012, 0x0013
 T_PONG, T_FIN = 0x0014, 0x001F
 T_VERSION, T_SUSCRIBE, T_ARRANCA, T_ORDENES, T_PARA, T_PING = (
@@ -154,15 +155,41 @@ def saludo_hasta_listo(v, valida=False, version=1):
     if t1 != T_PLACA or t2 != T_CATALOGO:
         return claves(hola), None, None, False
     # Desde la fase 4, los avisos de placa llegan aqui, entre T_CATALOGO y
-    # T_LISTO. Se guardan en `v.avisos_placa`.
+    # T_LISTO. Se guardan en `v.avisos_placa`. Y antes que ellos, desde las
+    # ilustraciones, los dibujos de las placas: en `v.ilustraciones`, como
+    # (cabeceras, svg) -véase `ilustracion()`-.
     v.avisos_placa = []
+    v.ilustraciones = []
     if valida:
         return claves(hola), placa, cat, False
     while True:
         t3, c3 = v.recibe()
+        if t3 == T_ILUSTRACION:
+            v.ilustraciones.append(ilustracion(c3))
+            continue
         if t3 != T_AVISO:
             return claves(hola), placa, cat, t3 == T_LISTO
         v.avisos_placa.append(aviso(c3))
+
+
+def ilustracion(cuerpo):
+    """Un T_ILUSTRACION: (cabeceras, svg). Las cabeceras hasta la primera
+    linea en blanco, como en T_HOLA; detras, el SVG tal cual."""
+    cab, _, svg = cuerpo.partition(b"\n\n")
+    return claves(cab), svg
+
+
+def resto_del_saludo(v, seg=10.0):
+    """Con --valida, lo que llega tras el catalogo hasta T_FIN: los dibujos y
+    los avisos, en `v.ilustraciones` y `v.avisos_placa`."""
+    while True:
+        t, c = v.recibe(seg)
+        if t is None or t == T_FIN:
+            return t == T_FIN
+        if t == T_ILUSTRACION:
+            v.ilustraciones.append(ilustracion(c))
+        elif t == T_AVISO:
+            v.avisos_placa.append(aviso(c))
 
 
 def fin(cuerpo):

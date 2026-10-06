@@ -28,6 +28,11 @@
 #       cada acople y cada hilo;
 #   C9  VDD, VSS, NRST y BOOT0 entre chips: un reset sujeto en una placa
 #       para tambien el chip de la otra si sus NRST estan unidos.
+#   C10 el DIBUJO de cada placa: el SVG que se llama como ella o el que dice
+#       `ilustracion=`, la tabla de enlaces, el que pone el montaje; uno por
+#       fichero en T_ILUSTRACION, con sus placas; y lo que falla, que es un
+#       aviso -un fichero que no esta, uno que no es SVG, uno enorme- o un
+#       error -una tabla que nombra una pieza que no hay-.
 #
 #   make -f Makefile.mcu-sim gui-sistema
 #   python3 verif/gui/sistema.py [--sim build/mcu-sim]
@@ -44,8 +49,8 @@ import xml.etree.ElementTree as ET
 
 import ventana
 from ventana import (Ventana, arranque, check, grupo, arranca, termina, saludo_hasta_listo,
-                     fin, suscribe, instantanea, aviso, T_INSTANTANEA, T_AVISO, T_FIN,
-                     M_VENTANA)
+                     fin, suscribe, instantanea, aviso, resto_del_saludo, T_INSTANTANEA,
+                     T_AVISO, T_FIN, M_VENTANA)
 
 MS = 1000000
 SRC = os.getcwd()
@@ -517,6 +522,119 @@ def c9_alimentacion(sim, cp):
           "reset para los dos")
 
 
+# ---------------------------------------------------------------------------
+# C10
+# ---------------------------------------------------------------------------
+def saludo_con_dibujos(sim, args, version=2):
+    """(rc, salida, placa, ilustraciones, avisos) de un --valida con ventana"""
+    v = Ventana()
+    p = arranca(sim, args + ["--valida"], v.puerto)
+    try:
+        if not v.acepta():
+            return None, "", None, [], []
+        _, placa, _, _ = saludo_hasta_listo(v, valida=True, version=version)
+        resto_del_saludo(v)
+        rc, out, err = termina(p)
+        return rc, out + err, placa, v.ilustraciones, v.avisos_placa
+    finally:
+        if p.poll() is None:
+            p.kill()
+        v.cierra()
+
+
+MODULO = """<placa nombre="modulo"%s>
+  %s
+  <nodo id="a"/>
+  <componente tipo="Led" id="LD" a_vss="si"><pin nombre="anodo" nodo="a"/></componente>
+  <componente tipo="Fuente" id="F" v="3.3"><pin nombre="pin" nodo="a"/></componente>
+</placa>
+"""
+SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle id="%s" cx="5" cy="5" r="2"/></svg>'
+
+
+def c10_dibujos(sim, cp):
+    grupo("C10 El dibujo de cada placa: T_ILUSTRACION")
+    rc, out, placa, il, av = saludo_con_dibujos(sim, ["placas/nucleo_y_shield.xml"])
+    check(rc == 0 and len(il) == 1 and il[0][0].get("placas") == "N" and
+          il[0][0].get("fichero") == "nucleo_f446re.svg" and b'id="LD2"' in il[0][1] and
+          il[0][1].lstrip().startswith(b"<?xml"),
+          "la Nucleo del sistema lleva su dibujo sin decirlo -se llama como ella-: un "
+          "T_ILUSTRACION, para la placa N, con el SVG tal cual")
+    check("dibujo N: nucleo_f446re.svg (5 kB)" in out and "dibujo S: ninguno" in out,
+          "y la consola dice el de cada placa: N el suyo, S ninguno")
+    r = ET.fromstring(placa) if placa else None
+    check(r is not None and all(x.get("ilustracion") is None for x in r.findall("placa")),
+          "en T_PLACA, nada: el dibujo que se encuentra sin decirlo no es de la placa")
+    rc, out, placa, il, av = saludo_con_dibujos(sim, ["placas/nucleo_f446re.xml"], 1)
+    check(rc == 0 and len(il) == 1 and il[0][0].get("placas") == "" and
+          "dibujo: nucleo_f446re.svg" in out,
+          "una placa suelta, tambien en la version 1: placas= vacio quiere decir ella")
+    rc, out, placa, il, av = saludo_con_dibujos(sim, ["placas/pila_pc104.xml"])
+    check(rc == 0 and il == [] and "dibujo CPU: ninguno" in out,
+          "sin dibujos, ningun T_ILUSTRACION")
+
+    cp.escribe("dib.svg", SVG % "led")
+    cp.escribe("otro.svg", SVG % "LD")
+    cp.escribe("mod.xml", MODULO % (' ilustracion="dib.svg"',
+                                    '<ilustracion><enlace pieza="LD" elemento="led" '
+                                    'efecto="brillo"/></ilustracion>'))
+    f = cp.escribe("pila.xml", """<sistema nombre="dos-modulos">
+  <placa id="M1" fichero="mod.xml"/>
+  <placa id="M2" fichero="mod.xml"/>
+  <placa id="M3" fichero="mod.xml" ilustracion="otro.svg"/>
+</sistema>
+""")
+    rc, out, placa, il, av = saludo_con_dibujos(sim, [f])
+    pl = {i[0].get("fichero"): i[0].get("placas") for i in il}
+    check(rc == 0 and len(il) == 2 and pl == {"dib.svg": "M1 M2", "otro.svg": "M3"},
+          "uno por FICHERO, con las placas que lo usan: dib.svg para M1 y M2, una vez; y "
+          "otro.svg para M3, que es el que pone el montaje")
+    check("dibujo M2: dib.svg, el mismo que M1" in out, "y la consola lo dice")
+    r = ET.fromstring(placa) if placa else None
+    pls = {x.get("id"): x for x in r.findall("placa")} if r is not None else {}
+    e1 = pls["M1"].findall("ilustracion/enlace") if "M1" in pls else []
+    check(pls.get("M1") is not None and pls["M1"].get("ilustracion") == "dib.svg" and
+          [(e.get("pieza"), e.get("elemento"), e.get("efecto")) for e in e1] ==
+          [("LD", "led", "brillo")],
+          "T_PLACA dice el dibujo declarado de cada placa y su tabla de enlaces, con el "
+          "nombre de la pieza en SU placa")
+    check(pls.get("M3") is not None and pls["M3"].get("ilustracion") == "otro.svg" and
+          not pls["M3"].findall("ilustracion"),
+          "el del montaje manda, y sin la tabla de la placa, que era de su dibujo")
+    rc, out, placa, il, av = saludo_con_dibujos(sim, [cp.d + "/mod.xml"], 1)
+    r = ET.fromstring(placa) if placa else None
+    check(r is not None and r.get("ilustracion") == "dib.svg" and
+          [e.get("elemento") for e in r.findall("ilustracion/enlace")] == ["led"],
+          "una placa suelta: en su raiz, como se escribe en el fichero")
+
+    # Lo que falla: avisos, y la simulacion sigue
+    cp.escribe("falta.xml", MODULO % (' ilustracion="no_esta.svg"', ""))
+    cp.escribe("texto.svg", "esto no es un dibujo\n")
+    cp.escribe("texto.xml", MODULO % (' ilustracion="texto.svg"', ""))
+    cp.escribe("gordo.svg", "<svg>" + " " * (2 * 1024 * 1024) + "</svg>")
+    cp.escribe("gordo.xml", MODULO % (' ilustracion="gordo.svg"', ""))
+    for fich, que, texto in (("falta.xml", "no se encuentra su dibujo", "un fichero que no esta"),
+                             ("texto.xml", "no parece un SVG", "uno que no es SVG"),
+                             ("gordo.xml", "y el maximo es 2048", "uno de mas de 2 MiB")):
+        rc, out, placa, il, av = saludo_con_dibujos(sim, [os.path.join(cp.d, fich)])
+        check(rc == 0 and il == [] and any(que in a[3] for a in av) and "[dibujo]" in out,
+              "%s: un aviso -en la consola y a la ventana- y no se manda" % texto)
+    # Y los errores de la placa: no se monta
+    for txt, que, texto in (
+            (MODULO % (' ilustarcion="x.svg"', ""), "atributo desconocido: ilustarcion",
+             "un atributo de la raiz mal escrito ya no se ignora"),
+            (MODULO % ("", '<ilustracion><enlace pieza="LD9" elemento="x"/></ilustracion>'),
+             "no tiene ninguna pieza 'LD9'", "una tabla que nombra una pieza que no hay"),
+            (MODULO % ("", '<ilustracion><enlace pieza="LD" elemento="x" efecto="luz"/>'
+                       '</ilustracion>'), "efecto 'luz' desconocido", "un efecto que no existe"),
+            (MODULO % ("", '<ilustracion><enlace pieza="LD" elemento="x"/>'
+                       '<enlace pieza="LD" elemento="y"/></ilustracion>'),
+             "ya esta en la tabla", "una pieza dos veces")):
+        f = cp.escribe("mal.xml", txt)
+        rc, out, err = corre(sim, [f, "--valida"])
+        check(rc != 0 and que in err, "%s: \"%s\"" % (texto, que))
+
+
 def main():
     a = argparse.ArgumentParser(description="conectores y sistemas de placas")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -537,6 +655,7 @@ def main():
         c7_pila(sim, cp)
         c8_dibujable(sim)
         c9_alimentacion(sim, cp)
+        c10_dibujos(sim, cp)
     finally:
         cp.borra()
     return ventana.resumen("SISTEMA")

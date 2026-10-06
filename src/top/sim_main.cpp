@@ -72,6 +72,7 @@
 #include <thread>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -274,6 +275,16 @@ SC_MODULE(Sim) {
     // Los avisos de la placa -lo electrico y los puentes serie-, para la
     // ventana: los ve antes de pulsar «arranca», que es cuando ahorran tiempo.
     std::vector<std::string> avisos_placa;
+    // Los dibujos de las placas, leídos, para mandárselos a la ventana: uno
+    // por FICHERO, con las placas que lo usan (doc/analisis-uso-ilustraciones.md)
+    struct DibujoLeido {
+        std::vector<std::string> placas;   // ids en el sistema; "" en una placa suelta
+        std::string ruta, svg;
+    };
+    std::vector<DibujoLeido> dibujos;
+    // Un dibujo de placa es un dibujo, no una foto en alta resolucion: mucho
+    // menos que los 8 MiB que deja pasar el protocolo
+    static constexpr size_t DIBUJO_MAX = 2u * 1024u * 1024u;
 
     SC_CTOR(Sim) {
         // --- 1. Leer. No construye nada: devuelve datos ---------------------
@@ -473,6 +484,7 @@ SC_MODULE(Sim) {
             std::printf("%s: %u MCU(s), %u componentes, %u nodos, %u avisos\n",
                         cab.c_str(), unsigned(mcus.size()),
                         unsigned(placa.instancias().size()), nodos.n_nodos(), n_avisos);
+        lee_dibujos();
         // Sin MCU, sin ventana y sin --valida, simular es ver pasar el tiempo
         // sin que nada lo mueva: se dice, por si era un <mcu> olvidado que el
         // nombre de los nodos no ha delatado.
@@ -531,6 +543,72 @@ SC_MODULE(Sim) {
     // pusiera encima no podria abrirlo.
     // -----------------------------------------------------------------------
     std::vector<serie::Pieza> puentes;
+
+    // EL DIBUJO DE CADA PLACA. Aquí no se interpreta: se busca, se mira por
+    // encima -que exista, que parezca un SVG, que no sea enorme- y se guarda
+    // para mandarlo. Lo que falla es un AVISO: una placa sin dibujo funciona
+    // igual, y la ventana dibuja una genérica. Que no esté el que se llama
+    // como la placa no es ni un aviso: es lo normal.
+    void lee_dibujos() {
+        const bool sis = placa.es_sistema();
+        auto aviso = [&](const std::string& t) {
+            std::fprintf(stderr, "  [dibujo] %s\n", t.c_str());
+            avisos_placa.push_back(t);
+        };
+        auto base = [](const std::string& r) {
+            const size_t b = r.find_last_of("/\\");
+            return b == std::string::npos ? r : r.substr(b + 1);
+        };
+        auto mira = [&](const std::string& id, const Ilustracion& il) {
+            const std::string quien = sis ? "dibujo " + id : std::string("dibujo");
+            if (il.ruta.empty()) {
+                if (sis) std::printf("  %s: ninguno\n", quien.c_str());
+                return;
+            }
+            for (DibujoLeido& d : dibujos)
+                if (d.ruta == il.ruta) {
+                    std::printf("  %s: %s, el mismo que %s\n", quien.c_str(),
+                                base(il.ruta).c_str(), d.placas[0].c_str());
+                    d.placas.push_back(id);
+                    return;
+                }
+            std::ifstream f(il.ruta, std::ios::binary);
+            if (!f) {
+                if (!il.declarada.empty())
+                    aviso((sis ? "placa " + id + ": " : std::string()) +
+                          "no se encuentra su dibujo " + il.ruta);
+                else if (sis)
+                    std::printf("  %s: ninguno\n", quien.c_str());
+                return;
+            }
+            std::string svg((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            if (svg.size() > DIBUJO_MAX) {
+                aviso((sis ? "placa " + id + ": " : std::string()) + "el dibujo " + il.ruta +
+                      " pesa " + std::to_string(svg.size() / 1024) + " kB, y el maximo es " +
+                      std::to_string(DIBUJO_MAX / 1024) + ": no se manda");
+                return;
+            }
+            size_t k = 0;
+            if (svg.compare(0, 3, "\xEF\xBB\xBF") == 0) k = 3;      // la marca UTF-8
+            while (k < svg.size() && (svg[k] == ' ' || svg[k] == '\t' || svg[k] == '\r' ||
+                                      svg[k] == '\n'))
+                ++k;
+            const std::string ini = svg.substr(k, 9);
+            if (ini.compare(0, 4, "<svg") != 0 && ini.compare(0, 5, "<?xml") != 0 &&
+                ini.compare(0, 4, "<!--") != 0 && ini.compare(0, 9, "<!DOCTYPE") != 0) {
+                aviso((sis ? "placa " + id + ": " : std::string()) + il.ruta +
+                      " no parece un SVG (no empieza por <svg ni por <?xml): no se manda");
+                return;
+            }
+            std::printf("  %s: %s (%u kB)\n", quien.c_str(), base(il.ruta).c_str(),
+                        unsigned((svg.size() + 1023) / 1024));
+            dibujos.push_back({{id}, il.ruta, std::move(svg)});
+        };
+        if (sis)
+            for (const PlacaDeSistema& p : placa.placas()) mira(p.id, p.ilustracion);
+        else
+            mira(std::string(), placa.ilustracion());
+    }
 
     void resuelve_puentes_serie() {
         std::vector<serie::Pieza> decl;
@@ -1084,6 +1162,17 @@ static int saluda_gui(Sim& s, stm32::gui::ClienteGui& cli,
     }
     mcusim::proto::Arranca arr{};
     cli.avisos_de_placa(s.avisos_placa);
+    // Los dibujos: las cabeceras hasta la línea en blanco, y el SVG tal cual
+    std::vector<std::string> ilus;
+    for (const Sim::DibujoLeido& d : s.dibujos) {
+        std::string pl;
+        for (const std::string& p : d.placas) pl += (pl.empty() ? "" : " ") + p;
+        const size_t b = d.ruta.find_last_of("/\\");
+        ilus.push_back("placas=" + pl + "\nfichero=" +
+                       (b == std::string::npos ? d.ruta : d.ruta.substr(b + 1)) + "\n\n" +
+                       d.svg);
+    }
+    cli.ilustraciones(std::move(ilus));
     switch (cli.saluda(texto_hola(s, argc, argv), placa.str(), cat.xml(),
                        g_solo_valida, arr)) {
         case ClienteGui::Desenlace::Arranca:

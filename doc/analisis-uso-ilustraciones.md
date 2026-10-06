@@ -1,5 +1,11 @@
 # Ilustraciones SVG de las placas: lo que cambia en `mcu-sim`
 
+> **Estado (2026-10-06): HECHO** lo de este repositorio, con lo decidido: se
+> busca el SVG por el nombre del XML; tamaño máximo de 2 MiB; **B2 y LD3 no
+> se han añadido** a la Nucleo —su botón RESET y su LED PWR quedan como
+> decorado del dibujo—. Lo que hay está en `doc/parts.md` §2.6, y lo comprueba
+> el grupo C10 de `make gui-sistema`.
+
 *Análisis del 2026-10-06. El análisis completo —cómo se pinta, cómo se
 localizan las piezas en el dibujo, los efectos, los mandos, varias placas— está
 en `mcu-sim-gui`, `doc/analisis-uso-ilustraciones.md`. Aquí solo lo que toca a

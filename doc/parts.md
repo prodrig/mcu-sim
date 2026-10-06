@@ -309,6 +309,44 @@ lo suyo, aquí en `<mcu ref>`. `placas/nucleo_y_shield.xml` y
 `placas/pila_pc104.xml` son los ejemplos, y el
 porqué de cada decisión está en `doc/analisis_placas_conectadas.md`.
 
+### 2.6 El dibujo de la placa: `ilustracion`
+
+`mcu-sim-gui` enseña cada placa con un **dibujo SVG** —una aproximación
+dibujada a mano, no una foto—, con los LEDs que se encienden y los botones que
+se pulsan sobre él. El dibujo **viaja con la placa**: `mcu-sim` lo busca, y se
+lo manda a la ventana en el saludo (`T_ILUSTRACION`), que puede estar en otra
+máquina y no ver estos ficheros.
+
+```xml
+<placa nombre="nucleo-f446re" ilustracion="nucleo_f446re.svg">
+  <ilustracion>
+    <enlace pieza="LD2" elemento="led-verde" efecto="brillo"/>
+  </ilustracion>
+  ...
+</placa>
+```
+
+| Qué | Cómo |
+| :--- | :--- |
+| `ilustracion="x.svg"` en la `<placa>` | El dibujo, relativo al fichero de la placa |
+| Sin `ilustracion=` | El SVG que **se llame como la placa**, a su lado: `nucleo_f446re.xml` → `nucleo_f446re.svg`. Si no está, no pasa nada |
+| `<placa id="N" fichero="..." ilustracion="y.svg"/>` en un `<sistema>` | El montaje cambia el dibujo de esa placa (relativo al sistema); la tabla de la placa, que era de SU dibujo, no se usa |
+| `<ilustracion><enlace pieza= elemento= [efecto=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido` o `ninguno` |
+
+**Lo que se comprueba aquí** —el SVG lo lee la ventana—: un dibujo
+**declarado** que no está, uno que no empieza por `<svg` ni por `<?xml`, o uno
+de más de **2 MiB**, son un **aviso** y no se mandan: la placa funciona igual.
+Una `pieza` de la tabla que la placa no tiene, un `efecto` que no existe o una
+pieza dos veces son **errores** de la placa, como cualquier referencia rota. Y
+desde aquí la raíz `<placa>` **rechaza los atributos que no conoce** (antes los
+ignoraba, y un `ilustarcion=` habría pasado sin que nadie lo viera).
+
+La consola dice el de cada placa: `dibujo: nucleo_f446re.svg (5 kB)`, o en un
+sistema `dibujo N: …` y `dibujo S: ninguno`. Cómo se dibuja un SVG para que la
+ventana lo entienda —SVG 1.2 Tiny, tamaño en milímetros, un id por pieza viva—
+está en `mcu-sim-gui`, `doc/analisis-uso-ilustraciones.md` §11; y
+`placas/nucleo_f446re.svg` es el ejemplo.
+
 ---
 
 ## 3. Parámetros comunes

@@ -22,6 +22,15 @@
 //     </componente>
 //   </placa>
 //
+// Y el DIBUJO de la placa, para la ventana: `ilustracion="x.svg"` en la raíz
+// -relativo al fichero de la placa; sin él, el SVG que se llame como ella- y,
+// si hace falta, la tabla de enlaces (doc/parts.md §2.6):
+//
+//   <placa nombre="nucleo-f446re" ilustracion="nucleo_f446re.svg">
+//     <ilustracion>
+//       <enlace pieza="LD2" elemento="led-verde" efecto="brillo"/>
+//     </ilustracion>
+//
 // `une` es el único atributo que cambia algo del MCU y no solo de la placa: los
 // pads que nombra dejan de crear su propio AnalogNet. Por eso hay que leer el
 // fichero ANTES de construir el MCU (véase cableado_desde_netlist en netlist.h);
@@ -107,9 +116,13 @@ inline std::string cualifica(const ContextoPlaca& cx, const std::string& n,
 
 // Rellena `nl` a partir del árbol ya analizado. Devuelve "" si todo bien, o el
 // primer problema con su línea. `cx` dice si la placa es una de un <sistema>.
+// En `ilus`, si se pide, lo que la placa dice de su dibujo: el fichero tal
+// como lo escribe y la tabla de enlaces. La ruta la resuelve quien sabe dónde
+// está la placa.
 inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
                                      std::string* nombre_placa = nullptr,
-                                     ContextoPlaca cx = ContextoPlaca()) {
+                                     ContextoPlaca cx = ContextoPlaca(),
+                                     Ilustracion* ilus = nullptr) {
     char pos[48];
     auto donde = [&](const XmlNodo& n) {
         std::snprintf(pos, sizeof pos, "linea %u: ", n.linea);
@@ -119,6 +132,17 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
         return donde(raiz) + "el elemento raiz es <" + raiz.nombre +
                ">, se esperaba <placa> o <sistema>";
     if (nombre_placa) *nombre_placa = raiz.attr_o("nombre", "placa");
+    // Los atributos de la raíz: hasta el dibujo se aceptaba cualquiera y se
+    // ignoraba en silencio, que es justo lo que hace que una errata no se vea
+    for (const auto& a : raiz.attrs)
+        if (a.first != "nombre" && a.first != "ilustracion" &&
+            !(cx.en_sistema() && a.first == "id"))
+            return donde(raiz) + "<placa>: atributo desconocido: " + a.first +
+                   " (lo que va aqui: nombre e ilustracion)";
+    Ilustracion il;
+    il.declarada = raiz.attr_o("ilustracion", "");
+    if (raiz.tiene("ilustracion") && il.declarada.empty())
+        return donde(raiz) + "<placa>: ilustracion vacia";
     std::string eq;
     // El nombre local de algo de la placa: un id (no lleva barra) ...
     auto id_de = [&](const std::string& id) -> std::string {
@@ -219,7 +243,7 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
     // Segunda pasada: los componentes, EN ORDEN. El orden del fichero es el
     // orden de construccion, y de eso depende que una referencia funcione.
     for (const XmlNodo& h : raiz.hijos) {
-        if (h.nombre == "nodo" || h.nombre == "mcu") continue;
+        if (h.nombre == "nodo" || h.nombre == "mcu" || h.nombre == "ilustracion") continue;
         if (h.nombre != "componente")
             return donde(h) + "elemento desconocido dentro de <placa>: <" +
                    h.nombre + ">";
@@ -259,7 +283,61 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
             }
         }
     }
+
+    // Tercera pasada: la tabla de enlaces del dibujo, con las piezas ya
+    // declaradas. Una pieza que no existe es un error de la placa, como
+    // cualquier otra referencia rota.
+    bool hay_tabla = false;
+    for (const XmlNodo& h : raiz.hijos) {
+        if (h.nombre != "ilustracion") continue;
+        if (hay_tabla) return donde(h) + "<ilustracion> repetida: una tabla por placa";
+        hay_tabla = true;
+        if (!h.attrs.empty())
+            return donde(h) + "<ilustracion> no lleva atributos: el fichero se dice en "
+                   "<placa ilustracion=\"...\">";
+        for (const XmlNodo& e : h.hijos) {
+            if (e.nombre != "enlace")
+                return donde(e) + "dentro de <ilustracion> solo va <enlace>, no <" +
+                       e.nombre + ">";
+            for (const auto& a : e.attrs)
+                if (a.first != "pieza" && a.first != "elemento" && a.first != "efecto")
+                    return donde(e) + "<enlace>: atributo desconocido: " + a.first;
+            if (!e.tiene("pieza") || !e.tiene("elemento"))
+                return donde(e) + "<enlace> necesita pieza= y elemento=";
+            EnlaceIlustracion en;
+            en.pieza = e.attr_o("pieza");
+            en.elemento = e.attr_o("elemento");
+            en.efecto = e.attr_o("efecto", "");
+            if (!en.efecto.empty() && en.efecto != "brillo" && en.efecto != "hundido" &&
+                en.efecto != "ninguno")
+                return donde(e) + "<enlace pieza=\"" + en.pieza + "\">: efecto '" +
+                       en.efecto + "' desconocido (brillo, hundido o ninguno)";
+            const std::string q = id_de(en.pieza);
+            if (!eq.empty()) return donde(e) + "<enlace>: " + eq;
+            if (!nl.busca(q))
+                return donde(e) + "<enlace>: la placa no tiene ninguna pieza '" + en.pieza +
+                       "'";
+            for (const EnlaceIlustracion& o : il.enlaces)
+                if (o.pieza == en.pieza)
+                    return donde(e) + "<enlace>: la pieza '" + en.pieza +
+                           "' ya esta en la tabla";
+            il.enlaces.push_back(en);
+        }
+    }
+    if (ilus) *ilus = il;
     return std::string();
+}
+
+// Dónde está un fichero que una placa nombra: relativo a su carpeta, salvo
+// que sea absoluto
+inline std::string junto_a(const std::string& carpeta, const std::string& f);
+// El SVG que se llama como la placa: `placas/nucleo.xml` -> `placas/nucleo.svg`
+inline std::string svg_hermano(const std::string& ruta_xml) {
+    std::string r = ruta_xml;
+    const size_t b = r.find_last_of("/\\");
+    const size_t p = r.rfind('.');
+    if (p != std::string::npos && (b == std::string::npos || p > b)) r.erase(p);
+    return r + ".svg";
 }
 
 // Lee un fichero entero. El error, si lo hay, ya lleva fichero y línea.
@@ -267,15 +345,26 @@ inline std::string netlist_desde_fichero(Netlist& nl, const std::string& ruta,
                                          std::string* nombre_placa = nullptr) {
     XmlLector lx;
     if (!lx.parse_fichero(ruta)) return lx.error();
-    const std::string e = netlist_desde_xml(nl, lx.raiz(), nombre_placa);
-    return e.empty() ? e : ruta + ": " + e;
+    Ilustracion il;
+    const std::string e = netlist_desde_xml(nl, lx.raiz(), nombre_placa, ContextoPlaca(), &il);
+    if (!e.empty()) return ruta + ": " + e;
+    std::string carpeta;
+    const size_t b = ruta.find_last_of("/\\");
+    if (b != std::string::npos) carpeta = ruta.substr(0, b + 1);
+    il.ruta = il.declarada.empty() ? svg_hermano(ruta) : junto_a(carpeta, il.declarada);
+    nl.pon_ilustracion(il);
+    return std::string();
 }
 
 inline std::string netlist_desde_texto(Netlist& nl, const std::string& texto,
                                        std::string* nombre_placa = nullptr) {
     XmlLector lx;
     if (!lx.parse(texto)) return lx.error();
-    return netlist_desde_xml(nl, lx.raiz(), nombre_placa);
+    Ilustracion il;
+    const std::string e = netlist_desde_xml(nl, lx.raiz(), nombre_placa, ContextoPlaca(), &il);
+    il.ruta = il.declarada;              // sin fichero, respecto a donde se esté
+    nl.pon_ilustracion(il);
+    return e;
 }
 
 // ---------------------------------------------------------------------------
@@ -319,6 +408,9 @@ inline bool ruta_absoluta(const std::string& r) {
     return !r.empty() && (r[0] == '/' || r[0] == '\\' ||
                           (r.size() > 1 && r[1] == ':'));
 }
+inline std::string junto_a(const std::string& carpeta, const std::string& f) {
+    return ruta_absoluta(f) ? f : carpeta + f;
+}
 
 inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
                                      const std::string& carpeta,
@@ -354,7 +446,7 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
                 return donde(h) + "<placa id=\"" + id + "\">: o fichero=, o la placa "
                        "escrita dentro; las dos cosas no";
             for (const auto& a : h.attrs)
-                if (a.first != "id" && a.first != "fichero")
+                if (a.first != "id" && a.first != "fichero" && a.first != "ilustracion")
                     return donde(h) + "<placa id=\"" + id + "\" fichero=...>: atributo "
                            "desconocido: " + a.first + " (lo de la placa va en su fichero)";
             ps.fichero = h.attr_o("fichero");
@@ -368,13 +460,31 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
                        "y un sistema dentro de otro todavia no se puede";
             for (const XmlNodo& m : lx.raiz().hijos)
                 if (m.nombre == "mcu" && m.tiene("id")) cx.mcus.push_back(m.attr_o("id"));
-            e = netlist_desde_xml(nl, lx.raiz(), &ps.nombre, cx);
+            e = netlist_desde_xml(nl, lx.raiz(), &ps.nombre, cx, &ps.ilustracion);
             if (!e.empty()) return "placa " + id + " (" + ruta + "): " + e;
+            // El dibujo: el que diga el MONTAJE para esta placa -y entonces la
+            // tabla de la placa, que es de SU dibujo, no vale-; si no, el que
+            // diga la placa, junto a ella; si tampoco, el que se llame como ella
+            Ilustracion& il = ps.ilustracion;
+            if (h.tiene("ilustracion")) {
+                il.declarada = h.attr_o("ilustracion");
+                if (il.declarada.empty())
+                    return donde(h) + "<placa id=\"" + id + "\">: ilustracion vacia";
+                il.ruta = junto_a(carpeta, il.declarada);
+                il.enlaces.clear();
+            } else if (!il.declarada.empty()) {
+                il.ruta = junto_a(carpeta_de(ruta), il.declarada);
+            } else {
+                il.ruta = svg_hermano(ruta);
+            }
         } else {
             for (const XmlNodo& m : h.hijos)
                 if (m.nombre == "mcu" && m.tiene("id")) cx.mcus.push_back(m.attr_o("id"));
-            e = netlist_desde_xml(nl, h, &ps.nombre, cx);
+            e = netlist_desde_xml(nl, h, &ps.nombre, cx, &ps.ilustracion);
             if (!e.empty()) return "placa " + id + ": " + e;
+            // Escrita aquí, su dibujo es relativo al sistema, y solo si lo dice
+            if (!ps.ilustracion.declarada.empty())
+                ps.ilustracion.ruta = junto_a(carpeta, ps.ilustracion.declarada);
             if (!h.tiene("nombre")) ps.nombre = id;
         }
         contexto[id] = cx;
@@ -491,10 +601,16 @@ inline std::string placa_o_sistema_desde_fichero(Netlist& nl, const std::string&
                                                  std::string* nombre = nullptr) {
     XmlLector lx;
     if (!lx.parse_fichero(ruta)) return lx.error();
-    const std::string e = lx.raiz().nombre == "sistema"
-        ? sistema_desde_xml(nl, lx.raiz(), carpeta_de(ruta), nombre)
-        : netlist_desde_xml(nl, lx.raiz(), nombre);
-    return e.empty() ? e : ruta + ": " + e;
+    if (lx.raiz().nombre == "sistema") {
+        const std::string e = sistema_desde_xml(nl, lx.raiz(), carpeta_de(ruta), nombre);
+        return e.empty() ? e : ruta + ": " + e;
+    }
+    Ilustracion il;
+    const std::string e = netlist_desde_xml(nl, lx.raiz(), nombre, ContextoPlaca(), &il);
+    if (!e.empty()) return ruta + ": " + e;
+    il.ruta = il.declarada.empty() ? svg_hermano(ruta) : junto_a(carpeta_de(ruta), il.declarada);
+    nl.pon_ilustracion(il);
+    return std::string();
 }
 
 } // namespace stm32

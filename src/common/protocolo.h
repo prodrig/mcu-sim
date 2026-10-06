@@ -126,6 +126,7 @@ enum Tipo : uint16_t {
     T_PLACA       = 0x0002,  // la placa (o, desde la v2, el sistema) en XML, UTF-8
     T_CATALOGO    = 0x0003,  // observables y mandos de cada pieza
     T_LISTO       = 0x0004,  // elaborado y ESPERANDO. `sc_start()` no se ha llamado
+    T_ILUSTRACION = 0x0005,  // el dibujo SVG de una o varias placas (véase abajo)
 
     // --- En marcha ---------------------------------------------------------
     T_INSTANTANEA = 0x0010,  // t_sim_ns + n muestras de los observables suscritos
@@ -282,6 +283,16 @@ static_assert(sizeof(Fin) == 16, "Fin son 16 bytes");
 // T_HOLA y T_VERSION llevan texto: véase `doc/protocolo.md` §3. Son los dos
 // únicos mensajes cuyo cuerpo es texto estructurado y no POD, a propósito: son
 // los que tienen que poder crecer sin romper a nadie.
+//
+// T_ILUSTRACION (2026-10, sin subir la versión: una ventana que no lo conoce
+// lo salta) lleva el dibujo SVG de una o varias placas, uno por FICHERO, entre
+// T_CATALOGO y T_LISTO: las cabeceras al estilo de T_HOLA hasta la primera
+// línea en blanco, y detrás el SVG tal cual:
+//
+//   placas=L1 L2              los ids de las placas que lo usan; en una placa
+//   fichero=pc104_leds.svg    suelta, `placas=` vacío
+//
+//   <svg xmlns=...>...</svg>
 
 } // namespace proto
 } // namespace mcusim
