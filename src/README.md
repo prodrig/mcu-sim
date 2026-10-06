@@ -279,6 +279,13 @@ Las tres variables que deciden todo son `PLATAFORMA` (`linux` | `macos` |
 `windows`), `SYSTEMC_HOME` y `CXX`. `make plataforma` las imprime, y es lo
 primero que hay que mirar cuando la compilación falla en una máquina nueva.
 
+**Dónde se compila** lo decide una cuarta, `B`: por omisión `build/`, dentro
+de `src/`, que es la que usan todos los ejemplos de este fichero. Con el
+repositorio en una carpeta sincronizada conviene llevarlo fuera —`make
+B=/c/build/mcu-sim mcu-sim`, y entonces el ejecutable es
+`/c/build/mcu-sim/mcu-sim.exe`—; se sigue lanzando desde `src/`
+(`doc/compilacion.md` §2).
+
 **Todo el modelo es C++17 y `<systemc>` salvo un fichero.** La única parte que
 sabe en qué sistema operativo corre es `common/red.h`, que traduce entre los
 sockets de Berkeley y Winsock: el descriptor es `int` y −1 en POSIX pero un

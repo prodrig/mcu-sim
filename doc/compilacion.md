@@ -69,11 +69,33 @@ línea de órdenes —que gana siempre— o desde el entorno.
 | `CXXSTD` | El estándar de C++. **Tiene que ser el mismo con el que se compiló SystemC** (§5.1) | `make CXXSTD=c++14` |
 | `EXTRA` | Opciones **adicionales** al compilar | `make EXTRA=-DSC_WIN_DLL` |
 | `EXTRA_LD` | Opciones **adicionales** al enlazar | `make EXTRA_LD=-Wl,-t` |
+| `B` | **Dónde** se compila: los ejecutables y los registros de las pruebas. Por omisión `build`, dentro de `src/` | `make B=/c/build/mcu-sim` |
 
 ```bash
 make SYSTEMC_HOME=/opt/systemc              # una vez
 export SYSTEMC_HOME=/opt/systemc; make      # para toda la sesión
 ```
+
+**Compilar fuera del repositorio**, con `B`. Si el repositorio vive en una
+carpeta sincronizada —Dropbox, OneDrive—, compilar dentro hace que el cliente
+suba cada ejecutable recién hecho, y que a veces lo bloquee mientras el
+enlazador escribe. Con `B` todo lo generado va a otra carpeta, y el
+repositorio no se toca:
+
+```bash
+cd /c/users/.../repos/mcu-sim/src
+make -f Makefile.mcu-sim B=/c/build/mcu-sim mcu-sim
+/c/build/mcu-sim/mcu-sim.exe placas/nucleo_f446re.xml --valida
+make -f Makefile.mcu-sim B=/c/build/mcu-sim test407 gui-sistema
+```
+
+Se sigue lanzando **desde `src/`**: las placas y los firmwares están allí, con
+rutas relativas. Las pruebas de Python reciben el ejecutable con `--sim`, y
+dejan sus registros junto a él. La ruta no puede llevar espacios (`make` no
+los soporta), y sirve igual escrita `C:/build/mcu-sim`. En la configuración
+de `mcu-sim-gui`, el ejecutable pasa a ser `C:/build/mcu-sim/mcu-sim.exe` y
+el directorio de trabajo sigue siendo `src/`. Y la carpeta de compilación es
+la que hay que excluir en el antivirus (véase el README de `mcu-sim-gui`).
 
 **`EXTRA` y `EXTRA_LD` existen por un motivo concreto**: el Makefile construye
 `CXXFLAGS` con `+=`, y una asignación en la línea de órdenes **sustituye** el
@@ -87,7 +109,7 @@ make plataforma
 ```
 
 Imprime qué ha decidido: `PLATAFORMA`, `CXX`, `CXXSTD`, `SYSTEMC_HOME`, `EXE`,
-`LDLIBS` y `LIBDIRS`. Antes de investigar nada, mira ahí.
+`LDLIBS`, `LIBDIRS` y `B`. Antes de investigar nada, mira ahí.
 
 ### Los otros objetivos
 

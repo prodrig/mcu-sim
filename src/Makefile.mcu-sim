@@ -62,6 +62,17 @@
 #   CXXSTD        el estándar de C++; TIENE que ser el mismo con el que se
 #                 compiló la biblioteca de SystemC, o el enlazado falla con un
 #                 `undefined reference to sc_api_version_...` (véase abajo)
+#   B             DÓNDE se compila: los ejecutables y lo que dejan las pruebas
+#                 de Python. Por omisión `build`, dentro de src/; puede ser
+#                 una carpeta fuera del repositorio -una sincronizada con
+#                 Dropbox o OneDrive no es buen sitio para miles de escrituras-:
+#
+#                   make B=/c/build/mcu-sim mcu-sim          (MSYS2 o Git Bash)
+#                   make B=$$HOME/build/mcu-sim test407      (Linux, macOS)
+#
+#                 Sin espacios en la ruta: make no los soporta. Las placas y
+#                 los firmwares se siguen leyendo de src/, que es desde donde
+#                 se lanza todo.
 #
 # Y dos ganchos para añadir cosas SIN tocar este fichero, que es lo que hace
 # falta cuando la biblioteca de SystemC de una máquina concreta se construyó con
@@ -82,6 +93,11 @@
 #
 # y comparar las dos cadenas. Si dice `cxx201402L`, compila con CXXSTD=c++14.
 # =============================================================================
+
+# --- 0. Dónde se compila -----------------------------------------------------
+# Todo lo que se genera va a $(B). Tiene que estar antes que la plataforma,
+# porque `BORRA` se fija allí con `:=`.
+B ?= build
 
 # --- 1. La plataforma --------------------------------------------------------
 # En Windows, tanto cmd.exe como el `make` de MSYS2 definen la variable de
@@ -136,7 +152,7 @@ ifeq ($(PLATAFORMA),windows)
   LIBDIRS      := $(SYSTEMC_HOME)/lib $(SYSTEMC_HOME)/lib-mingw64 \
                   $(SYSTEMC_HOME)/lib64
   RPATH        :=
-  BORRA        := rm -rf build
+  BORRA        := rm -rf $(B)
 else ifeq ($(PLATAFORMA),macos)
   # Homebrew en Apple Silicon vive en /opt/homebrew; en Intel, en /usr/local.
   SYSTEMC_HOME ?= $(shell test -d /opt/homebrew/include/sysc && \
@@ -148,7 +164,7 @@ else ifeq ($(PLATAFORMA),macos)
   LIBDIRS      := $(SYSTEMC_HOME)/lib $(SYSTEMC_HOME)/lib-macosx64 \
                   $(SYSTEMC_HOME)/lib-macosarm64
   RPATH        := $(foreach d,$(LIBDIRS),-Wl,-rpath,$(d))
-  BORRA        := rm -rf build
+  BORRA        := rm -rf $(B)
 else
   SYSTEMC_HOME ?= /usr
   EXE          :=
@@ -158,7 +174,7 @@ else
   LIBDIRS      := $(SYSTEMC_HOME)/lib $(SYSTEMC_HOME)/lib-linux64 \
                   $(SYSTEMC_HOME)/lib64 $(SYSTEMC_HOME)/lib/x86_64-linux-gnu
   RPATH        := $(foreach d,$(LIBDIRS),-Wl,-rpath,$(d))
-  BORRA        := rm -rf build
+  BORRA        := rm -rf $(B)
 endif
 
 # --- 3. Lo que NO cambia -----------------------------------------------------
@@ -190,23 +206,23 @@ LDLIBS   += -lsystemc $(LIBS_SO) $(EXTRA_LD)
 HDRS := $(wildcard common/*.h pins/*.h parts/*.h bus/*.h mem/*.h rcc/*.h core/*.h \
                    periph/*.h soc/*.h verif/*.h top/*.h)
 
-TEST407 := build/test407$(EXE)
-MCUSIM  := build/mcu-sim$(EXE)
-TEST446 := build/test446$(EXE)
-TEST417 := build/test417$(EXE)
-TESTSERIE := build/testserie$(EXE)
-TESTGUI   := build/testgui$(EXE)
-HASHV   := build/prueba_hash$(EXE)
-CRYPV   := build/prueba_cryp$(EXE)
-BENCH  := build/bench$(EXE)
-RED    := build/prueba_red$(EXE)
-SERIEP := build/prueba_serie$(EXE)
-RFC2217P := build/prueba_rfc2217$(EXE)
-GUIPROTO := build/prueba_gui_proto$(EXE)
-ASAN407 := build/asan407$(EXE)
-ASAN446 := build/asan446$(EXE)
-ASAN417 := build/asan417$(EXE)
-ASANSERIE := build/asanserie$(EXE)
+TEST407 := $(B)/test407$(EXE)
+MCUSIM  := $(B)/mcu-sim$(EXE)
+TEST446 := $(B)/test446$(EXE)
+TEST417 := $(B)/test417$(EXE)
+TESTSERIE := $(B)/testserie$(EXE)
+TESTGUI   := $(B)/testgui$(EXE)
+HASHV   := $(B)/prueba_hash$(EXE)
+CRYPV   := $(B)/prueba_cryp$(EXE)
+BENCH  := $(B)/bench$(EXE)
+RED    := $(B)/prueba_red$(EXE)
+SERIEP := $(B)/prueba_serie$(EXE)
+RFC2217P := $(B)/prueba_rfc2217$(EXE)
+GUIPROTO := $(B)/prueba_gui_proto$(EXE)
+ASAN407 := $(B)/asan407$(EXE)
+ASAN446 := $(B)/asan446$(EXE)
+ASAN417 := $(B)/asan417$(EXE)
+ASANSERIE := $(B)/asanserie$(EXE)
 
 .PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop run clean plataforma vectores hash cryp
 
@@ -222,15 +238,17 @@ plataforma:
 	@echo "EXE          = '$(EXE)'"
 	@echo "LDLIBS       = $(LDLIBS)"
 	@echo "LIBDIRS      = $(LIBDIRS)"
+	@echo "B            = $(B)"
 
 $(TEST407): top/sc_main.cpp $(HDRS)
-	@mkdir -p build
+	@mkdir -p $(B)
 	$(CXX) $(CXXFLAGS) -o $@ top/sc_main.cpp $(LDFLAGS) $(LDLIBS)
 
 # Banco de MEDIDA del coste de simulación (no verifica: mide)
 #   make bench && ./build/bench [imagen.bin] [ms_simulados] [reset]
+#   (con B=otra/carpeta, los ejecutables están allí: otra/carpeta/bench)
 $(BENCH): top/bench_main.cpp $(HDRS)
-	@mkdir -p build
+	@mkdir -p $(B)
 	$(CXX) $(CXXFLAGS) -o $@ top/bench_main.cpp $(LDFLAGS) $(LDLIBS)
 
 bench: $(BENCH)
@@ -238,7 +256,7 @@ bench: $(BENCH)
 # El modelo con la PLACA EN UN FICHERO (paso 3 de parts/)
 #   make mcu-sim && ./build/mcu-sim placa.xml [firmware.bin] [ms]
 $(MCUSIM): top/sim_main.cpp $(HDRS)
-	@mkdir -p build
+	@mkdir -p $(B)
 	$(CXX) $(CXXFLAGS) -o $@ top/sim_main.cpp $(LDFLAGS) $(LDLIBS)
 
 mcu-sim: $(MCUSIM)
@@ -250,14 +268,14 @@ mcu-sim: $(MCUSIM)
 # simulacion son una placa de dos chips.
 #   make test446
 $(TEST446): top/sc_main_f446.cpp $(HDRS)
-	@mkdir -p build
+	@mkdir -p $(B)
 	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_f446.cpp $(LDFLAGS) $(LDLIBS)
 
 # Construir sin ejecutar, por si se quiere compilar y lanzar a mano.
 test446-build: $(TEST446)
 
 test446: $(TEST446)
-	./$(TEST446)
+	$(TEST446)
 
 # --- La capa de red, que es la única parte no portable -----------------------
 # No necesita SystemC, así que se compila y se ejecuta en cualquier sitio, y se
@@ -267,7 +285,7 @@ test446: $(TEST446)
 #
 # Es la prueba que hay que pasar antes de dar por buena una plataforma nueva.
 $(RED): verif/prueba_red.cpp common/red.h
-	@mkdir -p build
+	@mkdir -p $(B)
 	$(CXX) -std=$(CXXSTD) $(AVISOS) $(DEF_SO) -O2 -I. -o $@ \
 	       verif/prueba_red.cpp $(LDEXTRA) $(LIBS_SO)
 
@@ -278,13 +296,13 @@ $(RED): verif/prueba_red.cpp common/red.h
 # interrupciones y el contexto-; la aritmetica se prueba aparte con `make hash`.
 #   make test417
 $(TEST417): top/sc_main_f417.cpp $(HDRS)
-	@mkdir -p build
+	@mkdir -p $(B)
 	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_f417.cpp $(LDFLAGS) $(LDLIBS)
 
 test417-build: $(TEST417)
 
 test417: $(TEST417)
-	./$(TEST417)
+	$(TEST417)
 
 # EL BANCO DEL PUENTE UART (P-14, doc/analisis_puente_serie.md §10). CUARTO
 # ejecutable, por la razon de siempre: sus piezas dentro del banco del F407
@@ -292,13 +310,13 @@ test417: $(TEST417)
 # cada fase: en D1 prueba el motor UART suelto; en D2, la pieza con un F407.
 #   make testserie
 $(TESTSERIE): top/sc_main_serie.cpp $(HDRS)
-	@mkdir -p build
+	@mkdir -p $(B)
 	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_serie.cpp $(LDFLAGS) $(LDLIBS)
 
 testserie-build: $(TESTSERIE)
 
 testserie: $(TESTSERIE)
-	./$(TESTSERIE)
+	$(TESTSERIE)
 
 # EL BANCO DE LA FRONTERA CON mcu-sim-gui (P-12, fase 1 de su plan de dos
 # procesos). QUINTO ejecutable, por la razon de siempre: el muestreador y el
@@ -308,13 +326,13 @@ testserie: $(TESTSERIE)
 # Este tiene el suyo en verif/invariantes.txt.
 #   make testgui
 $(TESTGUI): top/sc_main_gui.cpp $(HDRS)
-	@mkdir -p build
+	@mkdir -p $(B)
 	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_gui.cpp $(LDFLAGS) $(LDLIBS)
 
 testgui-build: $(TESTGUI)
 
 testgui: $(TESTGUI)
-	./$(TESTGUI)
+	$(TESTGUI)
 
 # Los VECTORES de MD5 y SHA-1 contra el nucleo aritmetico. NO necesita SystemC:
 # `periph/hash_algo.h` es aritmetica pura, y los 23 casos con su procedencia
@@ -322,25 +340,25 @@ testgui: $(TESTGUI)
 #   make hash            # los rapidos
 #   make hash V=--lentos # tambien el del millon de letras
 $(HASHV): verif/prueba_hash.cpp periph/hash_algo.h
-	@mkdir -p build
+	@mkdir -p $(B)
 	$(CXX) -std=$(CXXSTD) $(AVISOS) -O2 -I. -o $@ verif/prueba_hash.cpp
 
 hash: $(HASHV)
-	./$(HASHV) $(V)
+	$(HASHV) $(V)
 
 # Y los de AES, DES y TDES contra el suyo. Pasa los 16 casos de `cryp.vec` en
 # las DOS direcciones: cifrar la entrada tiene que dar la salida, y descifrar la
 # salida tiene que devolver la entrada.
 #   make cryp
 $(CRYPV): verif/prueba_cryp.cpp periph/cryp_algo.h
-	@mkdir -p build
+	@mkdir -p $(B)
 	$(CXX) -std=$(CXXSTD) $(AVISOS) -O2 -I. -o $@ verif/prueba_cryp.cpp
 
 cryp: $(CRYPV)
-	./$(CRYPV) $(V)
+	$(CRYPV) $(V)
 
 red: $(RED) macros-win
-	./$(RED)
+	$(RED)
 
 # EL DESTINO DE UN PUENTE SERIE (fase D0 de doc/analisis_puente_serie.md §10):
 # el parseo de `host=` y de `--serie ID=DESTINO`, y los choques de puertos. Es
@@ -348,11 +366,11 @@ red: $(RED) macros-win
 # verif/invariantes.txt: va con `red` y `hash` en el trabajo rapido del CI.
 #   make serie
 $(SERIEP): verif/prueba_serie.cpp common/serie_destino.h common/formato_uart.h
-	@mkdir -p build
+	@mkdir -p $(B)
 	$(CXX) -std=$(CXXSTD) $(AVISOS) -O2 -I. -o $@ verif/prueba_serie.cpp
 
 serie: $(SERIEP)
-	./$(SERIEP)
+	$(SERIEP)
 
 # EL CODEC DE TELNET Y RFC 2217 (fase D4 de P-14): contra el texto de las RFC y
 # contra una sesion de verdad de pySerial (verif/vectores/rfc2217_pyserial.vec).
@@ -361,12 +379,12 @@ serie: $(SERIEP)
 # para clientes de verdad; por eso lleva las mismas opciones que `red`.
 #   make rfc2217
 $(RFC2217P): verif/prueba_rfc2217.cpp common/telnet2217.h common/red.h
-	@mkdir -p build
+	@mkdir -p $(B)
 	$(CXX) -std=$(CXXSTD) $(AVISOS) $(DEF_SO) -O2 -I. -o $@ \
 	       verif/prueba_rfc2217.cpp $(LDEXTRA) $(LIBS_SO)
 
 rfc2217: $(RFC2217P)
-	./$(RFC2217P)
+	$(RFC2217P)
 
 # EL TRANSPORTE CON mcu-sim-gui (P-12, fase 2 de su plan de dos procesos): el
 # marco del protocolo -`common/proto_io.h`- y `conecta`/`escucha` con host de
@@ -377,12 +395,12 @@ rfc2217: $(RFC2217P)
 #   make gui-proto
 #   make gui-proto GUI_REPO=../../mcu-sim-gui
 $(GUIPROTO): verif/prueba_gui_proto.cpp common/proto_io.h common/protocolo.h common/red.h
-	@mkdir -p build
+	@mkdir -p $(B)
 	$(CXX) -std=$(CXXSTD) $(AVISOS) $(DEF_SO) -O2 -I. -o $@ \
 	       verif/prueba_gui_proto.cpp $(LDEXTRA) $(LIBS_SO)
 
 gui-proto: $(GUIPROTO)
-	./$(GUIPROTO) $(if $(GUI_REPO),--gui-repo $(GUI_REPO))
+	$(GUIPROTO) $(if $(GUI_REPO),--gui-repo $(GUI_REPO))
 
 # LA INTEROPERABILIDAD DEL PUENTE UART (fase D6 de doc/analisis_puente_serie.md
 # §10): el `mcu-sim` de verdad, con `placas/vcp_rfc2217.xml` y `vcp_demo`,
@@ -392,7 +410,7 @@ gui-proto: $(GUIPROTO)
 #   make interop
 PYTHON ?= python3
 interop: $(MCUSIM)
-	$(PYTHON) verif/serie/interop.py
+	$(PYTHON) verif/serie/interop.py --sim $(MCUSIM)
 
 # EL SALUDO CON mcu-sim-gui (P-12, fase 3 de su plan): el `mcu-sim` de verdad,
 # con placas/discovery_min.xml y blinky, contra una ventana hecha en Python con
@@ -401,7 +419,7 @@ interop: $(MCUSIM)
 # lo mismo que sin --gui, --valida --gui y los errores. Solo Python 3, sin
 # modulos; con psutil mide tambien la CPU fuera de Linux.
 gui-saludo: $(MCUSIM)
-	$(PYTHON) verif/gui/saludo.py
+	$(PYTHON) verif/gui/saludo.py --sim $(MCUSIM)
 
 # CON LA SIMULACION EN MARCHA (P-12, fase 4): la misma ventana en Python, y el
 # blinky de placas/discovery_min.xml parpadeando en las instantaneas con el
@@ -409,7 +427,7 @@ gui-saludo: $(MCUSIM)
 # picosegundo, los avisos de placa, lo que se habla en marcha y que mcu-sim
 # sigue si la ventana se va. Unos segundos: usa --tiempo-real en dos grupos.
 gui-marcha: $(MCUSIM)
-	$(PYTHON) verif/gui/marcha.py
+	$(PYTHON) verif/gui/marcha.py --sim $(MCUSIM)
 
 # LAS ORDENES (P-12, fase 5): la misma ventana en Python mandando ordenes al
 # pulsador B1 de placas/discovery_min.xml. El ejemplo de doc/protocolo.md §5
@@ -417,21 +435,21 @@ gui-marcha: $(MCUSIM)
 # reproducibles-, la validacion (pieza, mando, rango con aviso, delta 0,
 # malformadas) y las relativas en marcha, con --tiempo-real.
 gui-ordenes: $(MCUSIM)
-	$(PYTHON) verif/gui/ordenes.py
+	$(PYTHON) verif/gui/ordenes.py --sim $(MCUSIM)
 
 # EL CONTROL (P-12, fase 6): pausar -el tiempo no avanza, el modelo sigue
 # contestando a T_PING y no gasta CPU-, seguir, parar; a demanda, con pasos
 # exactos y lo mismo que de un tiron; la ventana de tiempo de T_ARRANCA y la
 # que no tiene fin. Unos segundos: el primer grupo va a tiempo real.
 gui-control: $(MCUSIM)
-	$(PYTHON) verif/gui/control.py
+	$(PYTHON) verif/gui/control.py --sim $(MCUSIM)
 
 # LA LISTA DE OPCIONES (P-12, fase 7): `mcu-sim --argumentos` la vuelca en XML
 # para que mcu-sim-gui construya su dialogo de lanzamiento. Esto vigila que no
 # se separe del bucle que lee argv: lo mismo que --help, y cada opcion la
 # acepta `sim` de verdad. Segundos.
 gui-argumentos: $(MCUSIM)
-	$(PYTHON) verif/gui/argumentos.py
+	$(PYTHON) verif/gui/argumentos.py --sim $(MCUSIM)
 
 # UNA PLACA SIN MCU: placas/fuente_y_masa.xml, que no declara chip ninguno,
 # contra la misma ventana en Python. Las dos piezas que la hacen util -Fuente
@@ -440,7 +458,7 @@ gui-argumentos: $(MCUSIM)
 # MCU se rechaza -firmware, --gdb, un nodo PD12- y que --mcu manda sobre un
 # <mcu>. Segundos; no toca ningun invariante.
 gui-sin-mcu: $(MCUSIM)
-	$(PYTHON) verif/gui/sin_mcu.py
+	$(PYTHON) verif/gui/sin_mcu.py --sim $(MCUSIM)
 
 # VARIAS PLACAS ENCHUFADAS (P-15): la pieza Conector, y un <sistema> que junta
 # placas -de su fichero o escritas dentro- con <acopla> y <hilo>. La Nucleo
@@ -449,7 +467,7 @@ gui-sin-mcu: $(MCUSIM)
 # pila PC/104 (placas/pila_pc104.xml), y lo que T_PLACA cuenta de cada placa.
 # Segundos; no toca ningun invariante.
 gui-sistema: $(MCUSIM)
-	$(PYTHON) verif/gui/sistema.py
+	$(PYTHON) verif/gui/sistema.py --sim $(MCUSIM)
 
 # EL CAMPO DE MINAS DEL PREPROCESADOR DE WINDOWS. Prueba de COMPILACION, no de
 # ejecucion: define a mano las macros que Windows trae -R_OK, min, max, ERROR,
@@ -492,7 +510,7 @@ ASANFLAGS := -std=$(CXXSTD) $(AVISOS) $(DEFS) $(DEF_SO) -g -O1 \
              $(INC_SYSTEMC) -I. $(EXTRA)
 
 $(ASAN407): top/sc_main.cpp $(HDRS)
-	@mkdir -p build
+	@mkdir -p $(B)
 	$(CXX) $(ASANFLAGS) -o $@ top/sc_main.cpp $(LDFLAGS) $(LDLIBS)
 
 ifeq ($(PLATAFORMA),windows)
@@ -500,14 +518,14 @@ asan407:
 	@echo "MinGW no trae AddressSanitizer: 'make asan407' solo va en Linux y macOS."
 else
 asan407: $(ASAN407)
-	./$(ASAN407)
+	$(ASAN407)
 endif
 
 # Lo mismo para la suite del F446. Va aparte porque es otro ejecutable, por la
 # misma razón que `test446`: dos chips en una simulación son una placa de dos
 # chips [top/sc_main_f446.cpp].
 $(ASAN446): top/sc_main_f446.cpp $(HDRS)
-	@mkdir -p build
+	@mkdir -p $(B)
 	$(CXX) $(ASANFLAGS) -o $@ top/sc_main_f446.cpp $(LDFLAGS) $(LDLIBS)
 
 ifeq ($(PLATAFORMA),windows)
@@ -515,12 +533,12 @@ asan446:
 	@echo "MinGW no trae AddressSanitizer: 'make asan446' solo va en Linux y macOS."
 else
 asan446: $(ASAN446)
-	./$(ASAN446)
+	$(ASAN446)
 endif
 
 # Y para el del acelerador criptográfico, que es el tercero.
 $(ASAN417): top/sc_main_f417.cpp $(HDRS)
-	@mkdir -p build
+	@mkdir -p $(B)
 	$(CXX) $(ASANFLAGS) -o $@ top/sc_main_f417.cpp $(LDFLAGS) $(LDLIBS)
 
 ifeq ($(PLATAFORMA),windows)
@@ -528,12 +546,12 @@ asan417:
 	@echo "MinGW no trae AddressSanitizer: 'make asan417' solo va en Linux y macOS."
 else
 asan417: $(ASAN417)
-	./$(ASAN417)
+	$(ASAN417)
 endif
 
 # Y para el del puente UART, que es el cuarto.
 $(ASANSERIE): top/sc_main_serie.cpp $(HDRS)
-	@mkdir -p build
+	@mkdir -p $(B)
 	$(CXX) $(ASANFLAGS) -o $@ top/sc_main_serie.cpp $(LDFLAGS) $(LDLIBS)
 
 ifeq ($(PLATAFORMA),windows)
@@ -541,7 +559,7 @@ asanserie:
 	@echo "MinGW no trae AddressSanitizer: 'make asanserie' solo va en Linux y macOS."
 else
 asanserie: $(ASANSERIE)
-	./$(ASANSERIE)
+	$(ASANSERIE)
 endif
 
 # Suite de verificación (autocomprobable: código de salida 0/1)
@@ -551,13 +569,13 @@ endif
 # directorio fallan diecisiete comprobaciones que no tienen nada que ver con lo
 # que se estuviera mirando.
 test407: $(TEST407)
-	./$(TEST407)
+	$(TEST407)
 
 # Alias histórico de la fase F0
 smoke: test407
 
 run: $(TEST407)
-	./$(TEST407) $(IMG)
+	$(TEST407) $(IMG)
 
 # =============================================================================
 # LOS FIRMWARES DE LAS SUITES
