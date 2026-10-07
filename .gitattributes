@@ -23,3 +23,11 @@
 *.bin   binary
 *.hex   binary
 *.elf   binary
+
+# Los guiones de shell y los Makefiles, SIEMPRE con LF, en el repositorio y
+# al sacarlos. Un `ci/construye_systemc.sh` guardado con CRLF desde Windows
+# rompio el CI en Linux: `sh` leia `set -eu\r` y paraba con «set: Illegal
+# option -». Con `eol=lf`, git los normaliza al guardarlos aunque el editor
+# ponga CRLF, y los saca con LF en cualquier sistema.
+*.sh            text eol=lf
+Makefile*       text eol=lf

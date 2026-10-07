@@ -13,6 +13,7 @@ import socket
 import struct
 import subprocess
 import sys
+import threading
 import time
 
 ok = 0
@@ -127,18 +128,34 @@ def claves(texto):
 
 
 def arranca(sim, args, puerto):
-    return subprocess.Popen([sim] + args + ["--gui", "127.0.0.1:%d" % puerto],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    """Lanza mcu-sim contra esta ventana. Su salida se VACIA mientras corre,
+    en dos hilos: si nadie la lee, un mcu-sim que escribe mas de lo que cabe
+    en la tuberia se para en el printf antes de conectarse, y la prueba espera
+    a una conexion que no llega. En Windows la tuberia es de 4 KiB, y dos
+    Nucleo con sus avisos [ojo] ya no caben (en Linux, 64 KiB)."""
+    p = subprocess.Popen([sim] + args + ["--gui", "127.0.0.1:%d" % puerto],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p.recogido = ([], [])
+    p.lectores = []
+    for flujo, dest in ((p.stdout, p.recogido[0]), (p.stderr, p.recogido[1])):
+        h = threading.Thread(target=lambda f=flujo, d=dest: d.append(f.read()), daemon=True)
+        h.start()
+        p.lectores.append(h)
+    return p
 
 
 def termina(p, seg=20.0):
     try:
-        out, err = p.communicate(timeout=seg)
-        return p.returncode, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
+        p.wait(timeout=seg)
+        rc = p.returncode
     except subprocess.TimeoutExpired:
         p.kill()
-        out, err = p.communicate()
-        return None, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
+        p.wait()
+        rc = None
+    for h in p.lectores:
+        h.join()
+    out, err = (b"".join(x) for x in p.recogido)
+    return rc, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
 
 
 def saludo_hasta_listo(v, valida=False, version=1):
