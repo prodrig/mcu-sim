@@ -94,11 +94,25 @@ inline bool alim_desde_nombre(const std::string& s, std::string& mcu,
 // Solo importa al acoplar EN ESPEJO -dos placas cara a cara-, que da la
 // vuelta a las filas (el 1 cae sobre el 2 en un 2xN) o, si solo hay una, a
 // las columnas (el 1 cae sobre el último).
+//
+// LOS NOMBRES DE LOS PINES (`nombres="COM D1 D2 ..."`), si los tiene: el del
+// pin k, o vacío si ese pin se sigue llamando por su número. Un pin con
+// nombre es `ID.nombre` -`P1.COM`- y SOLO así: `P1.1` sería el pad PB1. El
+// número sigue mandando en la geometría -el 1 es el de la izquierda, y al
+// acoplar el 1 va con el 1-, y el nombre es como se le llama.
 // ---------------------------------------------------------------------------
 struct GeomConector {
     unsigned filas = 1, columnas = 0;
     bool     zigzag = true;
+    std::vector<std::string> nombres;     // vacío: todos por número
     unsigned n() const { return filas * columnas; }
+    // Cómo se llama el pin k: su nombre, o su número
+    std::string pin_k(unsigned k) const {
+        return k >= 1 && k <= nombres.size() && !nombres[k - 1].empty()
+                   ? nombres[k - 1] : std::to_string(k);
+    }
+    // El nodo del pin k del conector `id`: `CN7.17` o `P1.COM`
+    std::string nodo(const std::string& id, unsigned k) const { return id + "." + pin_k(k); }
     void fila_col(unsigned k, unsigned& f, unsigned& c) const {
         if (zigzag) { f = (k - 1) % filas;    c = (k - 1) / filas; }
         else        { f = (k - 1) / columnas; c = (k - 1) % columnas; }
@@ -634,6 +648,30 @@ public:
         if (nu != "zigzag" && nu != "filas")
             return "numeracion=\"" + nu + "\" no vale: zigzag o filas";
         g.filas = f; g.columnas = c; g.zigzag = (nu == "zigzag");
+        // Los nombres: uno por pin, en orden, y `-` para el que no lo lleva
+        g.nombres.clear();
+        if (i.params.count("nombres")) {
+            std::istringstream is(i.txt("nombres"));
+            std::string t;
+            std::set<std::string> vistos;
+            while (is >> t) {
+                if (t == "-") { g.nombres.push_back(std::string()); continue; }
+                bool bien = (t[0] >= 'A' && t[0] <= 'Z') || (t[0] >= 'a' && t[0] <= 'z');
+                for (char ch : t)
+                    bien = bien && ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
+                                    (ch >= '0' && ch <= '9') || ch == '_');
+                if (!bien)
+                    return "nombres: '" + t + "' no vale: una letra y luego letras, "
+                           "cifras o '_' (y '-' para un pin sin nombre)";
+                if (!vistos.insert(t).second)
+                    return "nombres: '" + t + "' esta dos veces";
+                g.nombres.push_back(t);
+            }
+            if (g.nombres.size() != g.n())
+                return "nombres: hay " + std::to_string(g.nombres.size()) + " y el "
+                       "conector tiene " + std::to_string(g.n()) + " pines; uno por pin, "
+                       "y '-' para el que no lo lleva";
+        }
         return std::string();
     }
 
@@ -708,26 +746,52 @@ public:
             GeomConector g;
             const std::string e = geometria(i, g);
             if (!e.empty()) { err.push_back(i.id + ": " + e); continue; }
+            const unsigned n = g.n();
             {
-                std::string pr;
+                // Que ningun pin se llame como un pad o una patilla de
+                // alimentacion: `P1.1` es PB1, y `P1.VDD` el VDD de un MCU P1.
+                // Se mira cada uno, por su numero o por su nombre.
+                std::string pr, al, malo;
                 unsigned pp = 0, qq = 0;
-                if (pad_desde_nombre(i.id + ".1", pr, pp, qq)) {
-                    err.push_back(i.id + ": un conector no puede llamarse asi: '" +
-                                  i.id + ".1' seria el nombre de un pad (" +
-                                  nombre_canonico_pad(i.id + ".1") + ")");
+                for (unsigned k = 1; k <= n && malo.empty(); ++k) {
+                    const std::string nm = g.nodo(i.id, k);
+                    if (pad_desde_nombre(nm, pr, pp, qq))
+                        malo = "'" + nm + "' seria el nombre de un pad (" +
+                               nombre_canonico_pad(nm) + ")";
+                    else if (alim_desde_nombre(nm, pr, al))
+                        malo = "'" + nm + "' seria la patilla " + al + " de un MCU '" +
+                               pr + "'";
+                }
+                if (!malo.empty()) {
+                    err.push_back(i.id + ": un conector no puede llamarse asi: " + malo +
+                                  (g.nombres.empty() ? std::string()
+                                                     : ". Cambia el id o ese nombre"));
                     continue;
                 }
             }
-            const unsigned n = g.n();
+            // Un pin se suelda por su numero o, si lo tiene, por su nombre
+            std::map<std::string, unsigned> por_nombre;
+            for (unsigned k = 1; k <= n; ++k)
+                if (g.pin_k(k) != std::to_string(k)) por_nombre[g.pin_k(k)] = k;
             std::map<unsigned, std::string> dado;
             bool mal = false;
             for (const Conexion& c : i.pines) {
                 unsigned k = 0;
-                if (!entero_estricto(c.pin, k) || k < 1 || k > n) {
-                    err.push_back(i.id + ": el pin '" + c.pin + "' no existe; los "
-                                  "de este conector van del 1 al " + std::to_string(n));
+                const auto pn = por_nombre.find(c.pin);
+                if (pn != por_nombre.end()) k = pn->second;
+                else if (!entero_estricto(c.pin, k) || k < 1 || k > n) {
+                    std::string cuales = "los de este conector van del 1 al " +
+                                         std::to_string(n);
+                    if (!por_nombre.empty()) {
+                        cuales += ", o por su nombre:";
+                        for (unsigned j = 1; j <= n; ++j)
+                            if (g.pin_k(j) != std::to_string(j)) cuales += " " + g.pin_k(j);
+                    }
+                    err.push_back(i.id + ": el pin '" + c.pin + "' no existe; " + cuales);
                     mal = true;
-                } else if (dado.count(k)) {
+                    continue;
+                }
+                if (dado.count(k)) {
                     err.push_back(i.id + ": el pin " + c.pin + " aparece dos veces");
                     mal = true;
                 } else {
@@ -738,11 +802,11 @@ public:
             conectores[i.id] = g;
             std::vector<Conexion> todos;
             for (unsigned k = 1; k <= n; ++k) {
-                const std::string nm = i.id + "." + std::to_string(k);
+                const std::string nm = g.nodo(i.id, k);
                 pines_conector.insert(nm);
                 const auto it = dado.find(k);
                 if (it != dado.end() && it->second != nm) pares.emplace_back(nm, it->second);
-                todos.push_back(Conexion{std::to_string(k), nm});
+                todos.push_back(Conexion{g.pin_k(k), nm});
             }
             i.pines = todos;
         }
@@ -807,8 +871,8 @@ public:
             for (const std::string& x : cs) acoplado[x] = a.texto();
             for (size_t c = 1; c < cs.size(); ++c)
                 for (unsigned k = 1; k <= g0.n(); ++k)
-                    pares.emplace_back(cs[0] + "." + std::to_string(k),
-                                       cs[c] + "." + std::to_string(a.espejo ? g0.espejo(k) : k));
+                    pares.emplace_back(g0.nodo(cs[0], k),
+                                       conectores[cs[c]].nodo(cs[c], a.espejo ? g0.espejo(k) : k));
         }
 
         // 3. Los hilos: los dos extremos tienen que ser nodos de verdad
@@ -1193,6 +1257,14 @@ public:
         auto nombre = [&](const Clave& k) {
             return k.net ? nombre_de_net[k.net] : k.nombre;
         };
+        // Y los hilos que son bus, por su hilo tambien: un bus declarado en
+        // una placa -el comun de una barra, `P1.COM`- que un <hilo> lleva a
+        // VDD queda dentro del nodo del pad, que por dentro se llama `vdd`, y
+        // por el nombre no se encontraba.
+        std::set<const void*> nets_bus;
+        for (const std::string& b : buses_)
+            if (const Nodo* nd = nodos.busca(b))
+                if (nd->net) nets_bus.insert(nd->net);
         // UN RAÍL NO ES UN CORTOCIRCUITO. Un nodo con una fuente (Fuente, Gnd)
         // y lo que cuelga de ella -LEDs, resistencias, pulsadores- es lo
         // normal: la fuente lo sostiene y los demás tiran de ella. Dos fuentes
@@ -1208,7 +1280,9 @@ public:
                           ". Una fuente sostiene un nodo; dos se pelean por el");
         }
         for (const auto& kv : activos_c) {
-            if (kv.second.size() < 2 || es_bus_efectivo(nombre(kv.first))) continue;
+            if (kv.second.size() < 2 || es_bus_efectivo(nombre(kv.first)) ||
+                (kv.first.net && nets_bus.count(kv.first.net)))
+                continue;
             if (rieles_c.count(kv.first)) continue;     // un raíl con sus cargas
             std::string quien;
             for (const std::string& q : kv.second) {
@@ -1379,6 +1453,13 @@ public:
                     os << "    <conector ref=\"" << xml_escapa(i.id) << "\" filas=\""
                        << g.filas << "\" columnas=\"" << g.columnas << "\" numeracion=\""
                        << (g.zigzag ? "zigzag" : "filas") << "\"";
+                    if (!g.nombres.empty()) {
+                        os << " nombres=\"";
+                        for (unsigned k = 1; k <= g.n(); ++k)
+                            os << (k > 1 ? " " : "")
+                               << (g.nombres[k - 1].empty() ? "-" : g.nombres[k - 1]);
+                        os << "\"";
+                    }
                     for (size_t k = 0; k < acoples_.size(); ++k)
                         for (const std::string& c : acoples_[k].conectores)
                             if (c == i.id) os << " acople=\"" << k << "\"";

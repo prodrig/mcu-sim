@@ -749,8 +749,9 @@ FW446 := verif/fw/blinky446 verif/fw/clk446_demo
 FW417 := verif/fw/crypto_demo
 FWSERIE := verif/fw/vcp_demo
 # Los de las placas de ejemplo que no usa ninguna suite de C++: el de
-# placas/barra8_en_nucleo.xml, que vigila `make gui-sistema`
-FWPLACAS := verif/fw/barra8_demo
+# placas/barra8_en_nucleo.xml y el de placas/nucleo_f446re_barra8ac_azul.xml,
+# que vigila `make gui-sistema`
+FWPLACAS := verif/fw/barra8_demo verif/fw/barra8_morpho
 
 # Todos los que hay, para `cleanfw`. Se calculan buscando Makefiles en vez de
 # escribir otra lista: asi un firmware nuevo se borra sin tocar esto.

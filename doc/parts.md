@@ -345,7 +345,7 @@ pieza dos veces son **errores** de la placa, como cualquier referencia rota. Y
 desde aquí la raíz `<placa>` **rechaza los atributos que no conoce** (antes los
 ignoraba, y un `ilustarcion=` habría pasado sin que nadie lo viera).
 
-La consola dice el de cada placa: `dibujo: nucleo_f446re.svg (5 kB)`, o en un
+La consola dice el de cada placa: `dibujo: nucleo_f446re.svg (49 kB)`, o en un
 sistema `dibujo N: …` y `dibujo S: ninguno`. Cómo se dibuja un SVG para que la
 ventana lo entienda —SVG 1.2 Tiny, tamaño en milímetros, un id por pieza viva—
 está en `mcu-sim-gui`, `doc/analisis-uso-ilustraciones.md` §11; y
@@ -486,10 +486,10 @@ sale por un pin del conector y puede acabar en VDD, en masa o en el pin de otra
 placa:
 
 ```xml
-<nodo id="J1.9" bus="si"/>                      <!-- el comun: 8 LEDs a la vez -->
+<nodo id="P1.COM" bus="si"/>                    <!-- el comun: 8 LEDs a la vez -->
 <componente tipo="Led" id="D1" vf="1.8" r="2000">
-  <pin nombre="anodo"  nodo="J1.9"/>            <!-- anodo comun -->
-  <pin nombre="catodo" nodo="J1.1"/>
+  <pin nombre="anodo"  nodo="P1.COM"/>          <!-- anodo comun -->
+  <pin nombre="catodo" nodo="P1.D1"/>
 </componente>
 ```
 
@@ -506,7 +506,7 @@ Dos cosas que conviene saber:
 
 * **un extremo que nadie más sujeta deja el LED apagado**: con el común al
   aire no hay por dónde cerrar el circuito, como en la placa. `sim` lo dice
-  al terminar: `LED D4 entre J1.9 y J1.4: apagado (un extremo al aire)`;
+  al terminar: `LED D4 entre P1.COM y P1.D4: apagado (un extremo al aire)`;
 * **un nodo al que solo llegan LEDs** —el común de una barra unido al de otra
   y a nada más— se queda a oscuras aunque en la placa real luciera: cada LED
   ve el común flotando sin los demás, y ninguno empieza.
@@ -514,8 +514,9 @@ Dos cosas que conviene saber:
 El informe final dice entre qué nodos está cada uno y la tensión entre sus
 patillas: `LED B/D2 entre N/u0.PB6 y N/u0.PA9: encendido (3.22 V, 0.71 mA)`.
 `placas/barra8_*.xml` son las cuatro barras de ocho LEDs —ánodo o cátodo
-común, rojas o azules— y `placas/barra8_en_nucleo.xml`, una cableada a la
-Nucleo con el común en un pin.
+común, rojas o azules—; `placas/barra8_en_nucleo.xml`, una cableada a la
+Nucleo con el común en un pin; y `placas/nucleo_f446re_barra8ac_azul.xml`,
+la azul de ánodo común por los morpho, con el común a VDD.
 
 El estado se consulta desde C++ con `on()` y `current()`, y `sim` lo imprime al
 terminar:
@@ -691,19 +692,21 @@ veces que ha entrado en limitación.
 
 Una tira de **filas × columnas** pines, numerados del 1 al N. **No conduce ni
 escucha**: dice que esos nodos salen de la placa. Su pin *k* se llama `ID.k`
-(`CN9.2`), se suelda a un nodo de la placa con `<pin nombre="k">`, y uno sin
-soldar es un nodo propio, al aire, del que se puede colgar otra pieza. Dos
-conectores se enchufan en un `<sistema>` (§2.5).
+(`CN9.2`) —o por su nombre, si lo tiene: `P1.COM`—, se suelda a un nodo de la
+placa con `<pin nombre="k">`, y uno sin soldar es un nodo propio, al aire, del
+que se puede colgar otra pieza. Dos conectores se enchufan en un `<sistema>`
+(§2.5).
 
 | Terminal | | |
 | :--- | :--- | :--- |
-| `1` … `N` | los que se usen | Cada pin, por su número, al nodo al que va soldado |
+| `1` … `N` | los que se usen | Cada pin, por su número —o por su nombre, si lo tiene—, al nodo al que va soldado |
 
 | Parámetro | Omisión | Efecto |
 | :--- | :--- | :--- |
 | `columnas` | *(obligatorio)* | Cuántos pines tiene cada fila |
 | `filas` | `1` | Cuántas filas: 2 en un IDC, en un morpho o en la cabecera de una Raspberry Pi |
 | `numeracion` | `zigzag` | `zigzag`: el 1 y el 2 enfrentados, impares en una fila y pares en la otra. `filas`: la primera fila entera, del 1 a `columnas`, y luego la siguiente |
+| `nombres` | *(ninguno)* | **Los nombres de los pines**, uno por pin y en orden, separados por espacios; `-` para uno que se sigue llamando por su número (abajo) |
 
 ```xml
 <!-- El CN9 de una Nucleo-64: D0..D7 -->
@@ -725,8 +728,26 @@ conector.
 vuelta: en un 2×N el 1 cae sobre el 2; con una sola fila, el 1 cae sobre el
 último. Para eso hace falta saber dónde está cada pin.
 
-**Un límite.** Un id de conector no puede ser algo como `P1`, porque `P1.1`
-sería el pad `PB1`.
+**Los pines con nombre.** Con `nombres="COM D1 D2 D3 D4 D5 D6 D7 D8"`, el
+pin 1 se llama `P1.COM`, el 2 `P1.D1`, y así: es el nombre que se ve en la
+serigrafía, el que se escribe en un `<hilo>` (`B/P1.D3`) y el que sale en los
+mensajes. **Un pin con nombre se llama solo por su nombre**: `P1.1` no es el
+pin 1 de `P1`, sino el pad `PB1`, como en cualquier otra parte. El número sigue
+mandando en la forma —el 1 es el primero, y al acoplar el 1 va con el 1, tenga
+nombre o no— y `T_PLACA` lleva los nombres en su `<conector nombres="...">`.
+Un nombre empieza por letra, sigue con letras, cifras o `_`, no se repite, y
+no puede hacer de `ID.nombre` un pad (`X.PA0`) ni una patilla de alimentación
+(`X.VDD`); con `-` el pin se queda con su número.
+
+```xml
+<!-- El P1 de una barra de 8 LEDs: el comun a la izquierda, y D1..D8 -->
+<componente tipo="Conector" id="P1" filas="1" columnas="9"
+            nombres="COM D1 D2 D3 D4 D5 D6 D7 D8"/>
+```
+
+**Un límite.** Un id de conector con pines **por número** no puede ser algo
+como `P1`, porque `P1.1` sería el pad `PB1`. Con todos sus pines con nombre,
+sí: `P1.COM` no es ningún pad.
 
 **Alimentación, masa, reset y arranque también pasan.** Un pin se puede
 soldar a `VDD`, `VSS` (la masa del chip), `NRST`, `BOOT0` o cualquiera de los

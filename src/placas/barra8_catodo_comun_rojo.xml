@@ -3,19 +3,21 @@
      BARRA DE 8 LEDS ROJOS DE CATODO COMUN, con resistencias de 2 kohm
 
      Como los modulos DM41A08 de 3-24 V: ocho LEDs en fila, cada uno con su
-     resistencia limitadora de 2 kohm, y un conector de 9 pines a 2,54 mm:
+     resistencia limitadora de 2 kohm, y un conector de 9 pines a 2,54 mm,
+     P1, con el nombre de cada pin serigrafiado al lado, de izquierda a
+     derecha:
 
-         J1.1 .. J1.8   los LEDs D1 a D8, a traves de su resistencia
-         J1.9           el catodo COMUN de los ocho
+         P1.COM         el catodo COMUN de los ocho (pin 1)
+         P1.D1 .. D8    los LEDs D1 a D8, a traves de su resistencia (2 a 9)
 
-     (El orden de los pines del modulo de verdad no lo dice su ficha; si el
-     tuyo pone el comun en el pin 1, se cambia aqui.)
+     Los pines tienen NOMBRE (`nombres=` del Conector), y por el se llaman:
+     P1.COM, P1.D1... `P1.1` no es un pin de la barra, sino el pad PB1.
 
-     EL COMUN NO VA POR DENTRO A NINGUN SITIO: sale por J1.9 y lo conecta
+     EL COMUN NO VA POR DENTRO A NINGUN SITIO: sale por P1.COM y lo conecta
      quien monta la barra -a VDD, a masa o al pin de otra placa-. Para eso
      cada LED lleva LAS DOS PATILLAS A LA VISTA, el anodo y el catodo en sus
      nodos, sin a_vss ni vdd (`./build/mcu-sim --help Led`). Se usa con
-     el comun (J1.9) a un nivel BAJO -masa o un pin a 0- y cada LED
+     el comun (P1.COM) a un nivel BAJO -masa o un pin a 0- y cada LED
      luce con SU pin ALTO. Con el comun al aire no luce ninguno: no hay
      por donde cerrar el circuito.
 
@@ -27,43 +29,47 @@
      Sola, la placa no hace nada -no lleva chip-; se valida igual:
 
          ./build/mcu-sim placas/barra8_catodo_comun_rojo.xml --valida
+
+     Conectada con hilos a una Nucleo, con el comun en un pin, es
+     placas/barra8_en_nucleo.xml cambiando el fichero de la barra.
      ========================================================================= -->
 <placa nombre="barra8-catodo-comun-rojo" ilustracion="barra8_rojo.svg">
-  <componente tipo="Conector" id="J1" filas="1" columnas="9"/>
+  <componente tipo="Conector" id="P1" filas="1" columnas="9"
+              nombres="COM D1 D2 D3 D4 D5 D6 D7 D8"/>
 
   <!-- El comun: los ocho LEDs lo conducen a la vez, y es a proposito -->
-  <nodo id="J1.9" bus="si"/>
+  <nodo id="P1.COM" bus="si"/>
 
   <componente tipo="Led" id="D1" vf="1.8" r="2000">
-    <pin nombre="anodo" nodo="J1.1"/>
-    <pin nombre="catodo" nodo="J1.9"/>
+    <pin nombre="anodo" nodo="P1.D1"/>
+    <pin nombre="catodo" nodo="P1.COM"/>
   </componente>
   <componente tipo="Led" id="D2" vf="1.8" r="2000">
-    <pin nombre="anodo" nodo="J1.2"/>
-    <pin nombre="catodo" nodo="J1.9"/>
+    <pin nombre="anodo" nodo="P1.D2"/>
+    <pin nombre="catodo" nodo="P1.COM"/>
   </componente>
   <componente tipo="Led" id="D3" vf="1.8" r="2000">
-    <pin nombre="anodo" nodo="J1.3"/>
-    <pin nombre="catodo" nodo="J1.9"/>
+    <pin nombre="anodo" nodo="P1.D3"/>
+    <pin nombre="catodo" nodo="P1.COM"/>
   </componente>
   <componente tipo="Led" id="D4" vf="1.8" r="2000">
-    <pin nombre="anodo" nodo="J1.4"/>
-    <pin nombre="catodo" nodo="J1.9"/>
+    <pin nombre="anodo" nodo="P1.D4"/>
+    <pin nombre="catodo" nodo="P1.COM"/>
   </componente>
   <componente tipo="Led" id="D5" vf="1.8" r="2000">
-    <pin nombre="anodo" nodo="J1.5"/>
-    <pin nombre="catodo" nodo="J1.9"/>
+    <pin nombre="anodo" nodo="P1.D5"/>
+    <pin nombre="catodo" nodo="P1.COM"/>
   </componente>
   <componente tipo="Led" id="D6" vf="1.8" r="2000">
-    <pin nombre="anodo" nodo="J1.6"/>
-    <pin nombre="catodo" nodo="J1.9"/>
+    <pin nombre="anodo" nodo="P1.D6"/>
+    <pin nombre="catodo" nodo="P1.COM"/>
   </componente>
   <componente tipo="Led" id="D7" vf="1.8" r="2000">
-    <pin nombre="anodo" nodo="J1.7"/>
-    <pin nombre="catodo" nodo="J1.9"/>
+    <pin nombre="anodo" nodo="P1.D7"/>
+    <pin nombre="catodo" nodo="P1.COM"/>
   </componente>
   <componente tipo="Led" id="D8" vf="1.8" r="2000">
-    <pin nombre="anodo" nodo="J1.8"/>
-    <pin nombre="catodo" nodo="J1.9"/>
+    <pin nombre="anodo" nodo="P1.D8"/>
+    <pin nombre="catodo" nodo="P1.COM"/>
   </componente>
 </placa>

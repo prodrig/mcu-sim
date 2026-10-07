@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UN SISTEMA: una NUCLEO-F446RE y una barra de 8 LEDs AZULES de ANODO
+     COMUN, unidas con hilos por los conectores MORPHO
+
+     La barra es placas/barra8_anodo_comun_azul.xml. Sus LEDs van a ocho pines
+     del chip -los cuatro bajos del puerto C y los cuatro altos del B-, y su
+     comun, P1.COM, a VDD por CN7.5:
+
+         barra    P1.D1   P1.D2   P1.D3   P1.D4   P1.D5    P1.D6    P1.D7    P1.D8    P1.COM
+         Nucleo   CN7.38  CN7.36  CN7.35  CN7.37  CN10.16  CN10.30  CN10.28  CN10.26  CN7.5
+         chip     PC0     PC1     PC2     PC3     PB12     PB13     PB14     PB15     VDD
+
+     Con el anodo comun a VDD, cada LED luce con SU pin a cero. Y, azul con
+     3,3 V, luce poco: vf = 3,0, asi que por cada uno pasan unos 0,15 mA.
+
+     El firmware, verif/fw/barra8_morpho, hace correr una luz de D1 a D8, un
+     LED cada 50 ms.
+
+         ./build/mcu-sim placas/nucleo_f446re_barra8ac_azul.xml --valida
+         ./build/mcu-sim placas/nucleo_f446re_barra8ac_azul.xml --ms=500
+     ========================================================================= -->
+<sistema nombre="nucleo-f446re-barra8ac-azul">
+  <placa id="N" fichero="nucleo_f446re.xml"/>
+  <placa id="B" fichero="barra8_anodo_comun_azul.xml"/>
+
+  <hilo a="B/P1.D1"  b="N/CN7.38"/>    <!-- PC0 -->
+  <hilo a="B/P1.D2"  b="N/CN7.36"/>    <!-- PC1 -->
+  <hilo a="B/P1.D3"  b="N/CN7.35"/>    <!-- PC2 -->
+  <hilo a="B/P1.D4"  b="N/CN7.37"/>    <!-- PC3 -->
+  <hilo a="B/P1.D5"  b="N/CN10.16"/>   <!-- PB12 -->
+  <hilo a="B/P1.D6"  b="N/CN10.30"/>   <!-- PB13 -->
+  <hilo a="B/P1.D7"  b="N/CN10.28"/>   <!-- PB14 -->
+  <hilo a="B/P1.D8"  b="N/CN10.26"/>   <!-- PB15 -->
+  <hilo a="B/P1.COM" b="N/CN7.5"/>     <!-- el anodo comun, a VDD -->
+
+  <mcu ref="N/u0" firmware="verif/fw/barra8_morpho/barra8_morpho.bin"/>
+</sistema>

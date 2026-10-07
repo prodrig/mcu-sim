@@ -10,6 +10,9 @@
                sujetandolo arriba (la placa no lleva resistencia ahi)
          B2    pulsador negro de RESET, en NRST, a masa: pulsarlo resetea el
                chip, y mientras esta pulsado el chip sigue en reset
+         CN5, CN6, CN8 y CN9   los cuatro conectores Arduino
+         CN7 y CN10            los dos morpho, a izquierda y derecha, con
+                               todos los pines del chip
 
      Dos cosas que no estan y conviene saber por que:
 
@@ -104,5 +107,95 @@
     <pin nombre="6" nodo="PB4"/>    <!-- D5 -->
     <pin nombre="7" nodo="PB10"/>   <!-- D6 -->
     <pin nombre="8" nodo="PA8"/>    <!-- D7 -->
+  </componente>
+
+  <!-- ===================================================================
+       Los dos conectores ST MORPHO [UM1724, tabla del conector ST morpho
+       de la NUCLEO-F446RE; contrastada con Zephyr,
+       boards/st/nucleo_f446re/st_morpho_connector.dtsi]: dos tiras de 2x19
+       a los lados de la placa, CN7 a la izquierda y CN10 a la derecha, con
+       TODOS los pines del chip. Se numeran en zigzag: los impares en la
+       fila de fuera y los pares en la de dentro.
+
+       Cada pin va soldado a su pad, como en la placa: varios coinciden con
+       un Arduino (CN10.11 es PA5, el mismo nodo que CN5.6 y que LD2), y es
+       el mismo hilo. Las alimentaciones, como en los Arduino: VDD, IOREF y
+       +3V3 a VDD, GND a VSS, RESET a NRST, BOOT0, VBAT, y en CN10 AVDD a
+       VDDA y AGND a VSSA. Los que el modelo no tiene se quedan al aire:
+         CN7:  6 E5V, 9 NC, 10 NC, 11 NC, 18 +5V, 24 VIN, 26 NC
+         CN10: 8 U5V, 10 NC, 18 NC, 36 NC, 38 NC
+       (CN10.18 es PB11 en otras Nucleo-64; el F446RE no lo saca en el
+       LQFP64). CN7.36 y CN7.38 son PC1 y PC0 con los puentes de fabrica
+       (SB56 y SB51 cerrados), los mismos que A4 y A5.
+       =================================================================== -->
+  <!-- CN7: el morpho de la IZQUIERDA -->
+  <componente tipo="Conector" id="CN7" filas="2" columnas="19">
+    <pin nombre="1" nodo="PC10"/>
+    <pin nombre="2" nodo="PC11"/>
+    <pin nombre="3" nodo="PC12"/>
+    <pin nombre="4" nodo="PD2"/>
+    <pin nombre="5" nodo="VDD"/>
+    <pin nombre="7" nodo="BOOT0"/>
+    <pin nombre="8" nodo="VSS"/>      <!-- GND -->
+    <pin nombre="12" nodo="VDD"/>     <!-- IOREF -->
+    <pin nombre="13" nodo="PA13"/>
+    <pin nombre="14" nodo="NRST"/>    <!-- RESET -->
+    <pin nombre="15" nodo="PA14"/>
+    <pin nombre="16" nodo="VDD"/>     <!-- +3V3 -->
+    <pin nombre="17" nodo="PA15"/>
+    <pin nombre="19" nodo="VSS"/>     <!-- GND -->
+    <pin nombre="20" nodo="VSS"/>     <!-- GND -->
+    <pin nombre="21" nodo="PB7"/>
+    <pin nombre="22" nodo="VSS"/>     <!-- GND -->
+    <pin nombre="23" nodo="PC13"/>
+    <pin nombre="25" nodo="PC14"/>
+    <pin nombre="27" nodo="PC15"/>
+    <pin nombre="28" nodo="PA0"/>
+    <pin nombre="29" nodo="PH0"/>
+    <pin nombre="30" nodo="PA1"/>
+    <pin nombre="31" nodo="PH1"/>
+    <pin nombre="32" nodo="PA4"/>
+    <pin nombre="33" nodo="VBAT"/>
+    <pin nombre="34" nodo="PB0"/>
+    <pin nombre="35" nodo="PC2"/>
+    <pin nombre="36" nodo="PC1"/>
+    <pin nombre="37" nodo="PC3"/>
+    <pin nombre="38" nodo="PC0"/>
+  </componente>
+  <!-- CN10: el morpho de la DERECHA -->
+  <componente tipo="Conector" id="CN10" filas="2" columnas="19">
+    <pin nombre="1" nodo="PC9"/>
+    <pin nombre="2" nodo="PC8"/>
+    <pin nombre="3" nodo="PB8"/>
+    <pin nombre="4" nodo="PC6"/>
+    <pin nombre="5" nodo="PB9"/>
+    <pin nombre="6" nodo="PC5"/>
+    <pin nombre="7" nodo="VDDA"/>     <!-- AVDD -->
+    <pin nombre="9" nodo="VSS"/>      <!-- GND -->
+    <pin nombre="11" nodo="PA5"/>
+    <pin nombre="12" nodo="PA12"/>
+    <pin nombre="13" nodo="PA6"/>
+    <pin nombre="14" nodo="PA11"/>
+    <pin nombre="15" nodo="PA7"/>
+    <pin nombre="16" nodo="PB12"/>
+    <pin nombre="17" nodo="PB6"/>
+    <pin nombre="19" nodo="PC7"/>
+    <pin nombre="20" nodo="VSS"/>     <!-- GND -->
+    <pin nombre="21" nodo="PA9"/>
+    <pin nombre="22" nodo="PB2"/>
+    <pin nombre="23" nodo="PA8"/>
+    <pin nombre="24" nodo="PB1"/>
+    <pin nombre="25" nodo="PB10"/>
+    <pin nombre="26" nodo="PB15"/>
+    <pin nombre="27" nodo="PB4"/>
+    <pin nombre="28" nodo="PB14"/>
+    <pin nombre="29" nodo="PB5"/>
+    <pin nombre="30" nodo="PB13"/>
+    <pin nombre="31" nodo="PB3"/>
+    <pin nombre="32" nodo="VSSA"/>    <!-- AGND -->
+    <pin nombre="33" nodo="PA10"/>
+    <pin nombre="34" nodo="PC4"/>
+    <pin nombre="35" nodo="PA2"/>
+    <pin nombre="37" nodo="PA3"/>
   </componente>
 </placa>

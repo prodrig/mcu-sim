@@ -36,6 +36,9 @@
 #   C11 la barra de 8 LEDs (placas/barra8_*.xml): LEDs con LAS DOS PATILLAS a
 #       la vista y el comun saliendo por el conector, a una fuente, a masa,
 #       al aire o al pin de otra placa (placas/barra8_en_nucleo.xml).
+#   C12 los pines de conector con NOMBRE (`nombres="COM D1 ..."`) y sus
+#       errores; los morpho CN7 y CN10 de la Nucleo, cada pin a su pad; y
+#       placas/nucleo_f446re_barra8ac_azul.xml, la barra azul por los morpho.
 #
 #   make -f Makefile.mcu-sim gui-sistema
 #   python3 verif/gui/sistema.py [--sim build/mcu-sim]
@@ -114,9 +117,10 @@ def nodo_de_led(out, id_):
 def c1_conector(sim, cp):
     grupo("C1 Un conector en una placa")
     rc, out, err = corre(sim, ["placas/nucleo_f446re.xml", "--valida"])
-    check(rc == 0 and "0 avisos" in out and "158 nodos" in out,
-          "la Nucleo con sus cuatro conectores Arduino valida sin un aviso: 154 nodos del "
-          "chip y 4 pines de conector al aire (+5V, VIN, AREF y un NC), ninguno flotante")
+    check(rc == 0 and "9 componentes, 170 nodos, 0 avisos" in out,
+          "la Nucleo con sus cuatro conectores Arduino y sus dos morpho valida sin un aviso: "
+          "154 nodos del chip y 16 pines de conector al aire -4 de los Arduino (+5V, VIN, "
+          "AREF y un NC) y 12 de los morpho (E5V, +5V, VIN, U5V y los NC)-, ninguno flotante")
     placa = cp.escribe("c1.xml", """<placa nombre="c1">
   <mcu tipo="STM32F407VG" id="u0"/>
   <componente tipo="Conector" id="CN1" filas="1" columnas="4">
@@ -573,7 +577,7 @@ def c10_dibujos(sim, cp):
           il[0][1].lstrip().startswith(b"<?xml"),
           "la Nucleo del sistema lleva su dibujo sin decirlo -se llama como ella-: un "
           "T_ILUSTRACION, para la placa N, con el SVG tal cual")
-    check("dibujo N: nucleo_f446re.svg (5 kB)" in out and "dibujo S: ninguno" in out,
+    check("dibujo N: nucleo_f446re.svg (49 kB)" in out and "dibujo S: ninguno" in out,
           "y la consola dice el de cada placa: N el suyo, S ninguno")
     r = ET.fromstring(placa) if placa else None
     check(r is not None and all(x.get("ilustracion") is None for x in r.findall("placa")),
@@ -651,17 +655,24 @@ def c10_dibujos(sim, cp):
 # ---------------------------------------------------------------------------
 # C11
 # ---------------------------------------------------------------------------
-# La barra, con una placa de pruebas sin MCU enfrente, acoplada a su J1: lo
-# que se pone en cada pin lo dicen las piezas de P
+# La barra, con una placa de pruebas sin MCU enfrente, acoplada a su P1 -de
+# nueve pines, por numero: el 1 de J cae en P1.COM y el k+1 en P1.Dk-: lo que
+# se pone en cada pin lo dicen las piezas de P
 SIS_BARRA = """<sistema nombre="banco-barra">
   <placa id="B" fichero="%s"/>
   <placa id="P">
     <componente tipo="Conector" id="J" filas="1" columnas="9"/>
     %s
   </placa>
-  <acopla a="B/J1" b="P/J"/>
+  <acopla a="B/P1" b="P/J"/>
 </sistema>
 """
+COM = 1                         # el pin de J que cae en P1.COM
+
+
+def D(k):
+    """El pin de J que cae en P1.Dk"""
+    return k + 1
 
 
 def fuente(pin, v=3.3):
@@ -693,7 +704,7 @@ def c11_barra(sim, cp):
         return corre(sim, [f, "--ms=1"])
 
     rc, out, err = banco("barra8_anodo_comun_rojo.xml",
-                         [fuente(9), masa(1), fuente(2), masa(3)])
+                         [fuente(COM), masa(D(1)), fuente(D(2)), masa(D(3))])
     check(rc == 0 and led(out, "B/D1") == "encendido" and
           medida(out, "B/D1") == "3.30 V, 0.75 mA" and led(out, "B/D3") == "encendido",
           "anodo comun a 3,3 V: el LED con su pin a masa luce, con (3,3 - 1,8) / 2 kohm = "
@@ -701,19 +712,19 @@ def c11_barra(sim, cp):
     check(led(out, "B/D2") == "apagado" and medida(out, "B/D2") == "0.00 V, 0.00 mA",
           "el que tiene su pin tambien a 3,3 V no: no hay tension entre sus patillas")
     check(led(out, "B/D4") == "apagado" and medida(out, "B/D4") == "un extremo al aire" and
-          "LED B/D1 entre B/J1.9 y B/J1.1" in out,
+          "LED B/D1 entre B/P1.COM y B/P1.D1" in out,
           "ni el de un pin al aire, y se dice; el informe dice entre que nodos esta cada uno")
-    rc, out, err = banco("barra8_anodo_comun_rojo.xml", [masa(1), masa(3)])
+    rc, out, err = banco("barra8_anodo_comun_rojo.xml", [masa(D(1)), masa(D(3))])
     check(rc == 0 and all(led(out, "B/D%d" % k) == "apagado" for k in range(1, 9)) and
           medida(out, "B/D1") == "un extremo al aire",
           "con el comun al aire no luce ninguno: no va por dentro ni a VDD ni a masa")
     rc, out, err = banco("barra8_catodo_comun_azul.xml",
-                         [masa(9), fuente(1), fuente(3, 5.0), masa(2)])
+                         [masa(COM), fuente(D(1)), fuente(D(3), 5.0), masa(D(2))])
     check(rc == 0 and medida(out, "B/D1") == "3.30 V, 0.15 mA" and
           medida(out, "B/D3") == "5.00 V, 1.00 mA" and led(out, "B/D2") == "apagado",
           "catodo comun a masa, azul: con 3,3 V en su pin pasan 0,15 mA y con 5 V, 1 mA; "
           "el de un pin a masa no luce")
-    rc, out, err = banco("barra8_catodo_comun_azul.xml", [fuente(9), masa(1)])
+    rc, out, err = banco("barra8_catodo_comun_azul.xml", [fuente(COM), masa(D(1))])
     check(rc == 0 and led(out, "B/D1") == "apagado" and
           medida(out, "B/D1") == "-3.30 V, 0.00 mA",
           "y al reves -el comun alto y el pin a masa- es un diodo en inversa, y no conduce")
@@ -732,7 +743,7 @@ def c11_barra(sim, cp):
           "con las dos patillas, a_vss no tiene sentido, y escribirlo es un error que lo dice")
 
     rc, out, err = corre(sim, ["placas/barra8_en_nucleo.xml", "--valida"])
-    check(rc == 0 and "1 MCU(s), 16 componentes, 158 nodos, 0 avisos" in out and
+    check(rc == 0 and "1 MCU(s), 18 componentes, 170 nodos, 0 avisos" in out and
           "dibujo B: barra8_rojo.svg" in out,
           "placas/barra8_en_nucleo.xml: la barra cableada a la Nucleo con nueve hilos, el "
           "comun a D10; ni un aviso")
@@ -768,6 +779,142 @@ def c11_barra(sim, cp):
 
 
 # ---------------------------------------------------------------------------
+# C12
+# ---------------------------------------------------------------------------
+def c12_nombres_y_morpho(sim, cp):
+    grupo("C12 Pines de conector con nombre, y los morpho de la Nucleo")
+    f = cp.escribe("nombres.xml", """<placa nombre="nombres">
+  <mcu tipo="STM32F407VG" id="u0"/>
+  <componente tipo="Conector" id="P1" filas="1" columnas="4" nombres="COM D1 D2 D3">
+    <pin nombre="COM" nodo="PD12"/>
+  </componente>
+  <componente tipo="Conector" id="J" filas="1" columnas="3" nombres="- X -">
+    <pin nombre="3" nodo="PD13"/>
+  </componente>
+  <componente tipo="Fuente" id="F"><pin nombre="pin" nodo="P1.D1"/></componente>
+  <componente tipo="Led" id="LC" a_vss="si"><pin nombre="anodo" nodo="P1.COM"/></componente>
+  <componente tipo="Led" id="L1" a_vss="si"><pin nombre="anodo" nodo="P1.D1"/></componente>
+  <componente tipo="Led" id="LJ" a_vss="si"><pin nombre="anodo" nodo="J.3"/></componente>
+  <componente tipo="Led" id="LX" a_vss="si"><pin nombre="anodo" nodo="J.X"/></componente>
+  <componente tipo="Led" id="LB" a_vss="si"><pin nombre="anodo" nodo="P1.1"/></componente>
+</placa>
+""")
+    rc, out, err = corre(sim, [f, "--ms=1"])
+    check(rc == 0 and nodo_de_led(out, "LC") == "PD12",
+          "nombres=\"COM D1 D2 D3\": el pin 1 se suelda por su nombre (COM, a PD12), y un "
+          "LED en P1.COM esta en PD12")
+    check(nodo_de_led(out, "LJ") == "PD13" and nodo_de_led(out, "LX") == "J.X",
+          "con nombres=\"- X -\", el 3 se sigue llamando por su numero (J.3, a PD13) y el "
+          "2 por su nombre (J.X)")
+    check(nodo_de_led(out, "L1") == "P1.D1" and led(out, "L1") == "encendido",
+          "uno al aire se llama por su nombre, P1.D1, y es un nodo propio: la Fuente lo "
+          "enciende")
+    check(nodo_de_led(out, "LB") == "PB1",
+          "y P1.1 NO es el pin 1 de P1, que se llama COM: es el pad PB1, como siempre")
+
+    malas = [
+        ('nombres="A B C"', "hay 3 y el conector tiene 4", "tres nombres para cuatro pines"),
+        ('nombres="A B A C"', "'A' esta dos veces", "un nombre repetido"),
+        ('nombres="A 2B C D"', "'2B' no vale", "un nombre que empieza por cifra"),
+        ('nombres="A VDD C D"', "seria la patilla VDD de un MCU 'X'",
+         "un nombre que haria de X.VDD la alimentacion de un chip"),
+        ('nombres="A PA0 C D"', "seria el nombre de un pad",
+         "uno que haria de X.PA0 un pad de un chip X"),
+    ]
+    f = cp.escribe("mal.xml", '<placa nombre="m"><mcu tipo="STM32F407VG" id="u0"/>'
+                   '<componente tipo="Conector" id="P1" columnas="3" nombres="A - C"/></placa>')
+    rc, out, err = corre(sim, [f, "--valida"])
+    check(rc != 0 and "'P1.2' seria el nombre de un pad (PB2)" in err,
+          "un P1 con un pin sin nombre: P1.2 seria PB2, y se dice")
+    for atr, dice, que in malas:
+        f = cp.escribe("mal.xml", '<placa nombre="m"><mcu tipo="STM32F407VG" id="u0"/>'
+                       '<componente tipo="Conector" id="X" columnas="4" %s/></placa>' % atr)
+        rc, out, err = corre(sim, [f, "--valida"])
+        check(rc != 0 and dice in err, "%s: error que lo dice" % que)
+    f = cp.escribe("mal.xml", '<placa nombre="m"><mcu tipo="STM32F407VG" id="u0"/>'
+                   '<componente tipo="Conector" id="X" columnas="2" nombres="A B">'
+                   '<pin nombre="Z" nodo="PA1"/></componente></placa>')
+    rc, out, err = corre(sim, [f, "--valida"])
+    check(rc != 0 and "el pin 'Z' no existe" in err and "o por su nombre: A B" in err,
+          "un pin que no es ni un numero ni un nombre: el error dice cuales hay")
+
+    # Los morpho: cada pin a su pad, y los de alimentacion a la suya
+    nucleo = os.path.join(SRC, "placas", "nucleo_f446re.xml")
+    f = cp.escribe("morpho.xml", """<sistema nombre="morpho">
+  <placa id="N" fichero="%s"/>
+  <placa id="P">
+    <componente tipo="Conector" id="J" filas="1" columnas="6"/>
+    <componente tipo="Led" id="L1" a_vss="si"><pin nombre="anodo" nodo="J.1"/></componente>
+    <componente tipo="Led" id="L2" a_vss="si"><pin nombre="anodo" nodo="J.2"/></componente>
+    <componente tipo="Led" id="L3" a_vss="si"><pin nombre="anodo" nodo="J.3"/></componente>
+    <componente tipo="Led" id="L4" a_vss="si"><pin nombre="anodo" nodo="J.4"/></componente>
+    <componente tipo="Led" id="L5" a_vss="si"><pin nombre="anodo" nodo="J.5"/></componente>
+    <componente tipo="Led" id="L6" a_vss="si"><pin nombre="anodo" nodo="J.6"/></componente>
+  </placa>
+  <hilo a="P/J.1" b="N/CN7.5"/>
+  <hilo a="P/J.2" b="N/CN7.38"/>
+  <hilo a="P/J.3" b="N/CN10.16"/>
+  <hilo a="P/J.4" b="N/CN10.11"/>
+  <hilo a="P/J.5" b="N/CN7.14"/>
+  <hilo a="P/J.6" b="N/CN10.32"/>
+</sistema>
+""" % nucleo)
+    rc, out, err = corre(sim, [f, "--ms=1"])
+    nodos = [nodo_de_led(out, "P/L%d" % k) for k in range(1, 7)]
+    check(rc == 0 and nodos == ["N/u0.VDD", "N/u0.PC0", "N/u0.PB12", "N/u0.PA5",
+                                "N/u0.NRST", "N/u0.VSSA"] and led(out, "P/L1") == "encendido",
+          "los morpho van a los pines de la tarjeta: CN7.5 es VDD -y un LED ahi luce-, "
+          "CN7.38 PC0, CN10.16 PB12, CN10.11 PA5 -el D13-, CN7.14 el RESET y CN10.32 "
+          "AGND: %s" % nodos)
+
+    # El sistema de ejemplo: la barra azul por los morpho, el comun a VDD
+    ej = "placas/nucleo_f446re_barra8ac_azul.xml"
+    rc, out, err = corre(sim, [ej, "--valida"])
+    check(rc == 0 and "2 placas: N (nucleo-f446re), B (barra8-anodo-comun-azul)" in out and
+          "1 MCU(s), 18 componentes, 170 nodos, 0 avisos" in out,
+          "%s: la Nucleo y la barra de anodo comun azul, nueve hilos, ni un aviso -el comun "
+          "es bus aunque el hilo lo lleve a VDD-" % ej)
+    rc, out, err = corre(sim, [ej, "--ms=75"])
+    pines = []
+    for k in range(1, 9):
+        for l in out.splitlines():
+            l = l.strip()
+            if l.startswith("LED B/D%d entre " % k):
+                pines.append(l.split(" entre ")[1].split(":")[0])
+    check(pines == ["N/u0.VDD y N/u0.P%s" % p for p in
+                    ("C0", "C1", "C2", "C3", "B12", "B13", "B14", "B15")],
+          "P1.D1..D8 en PC0..PC3 y PB12..PB15, y P1.COM en VDD, por CN7 y CN10")
+    vistos = []
+    for ms in (25, 75, 225, 375, 425):
+        rc, out, err = corre(sim, [ej, "--ms=%d" % ms])
+        vistos.append([k for k in range(1, 9) if led(out, "B/D%d" % k) == "encendido"])
+    check(vistos == [[1], [2], [5], [8], [1]] and medida(out, "B/D1") == "3.29 V, 0.15 mA",
+          "y el firmware hace correr la luz, un LED cada 50 ms, cada uno con su pin a cero; "
+          "azul con 3,3 V, 0,15 mA: %s" % vistos)
+
+    v = Ventana()
+    p = arranca(sim, [ej, "--valida"], v.puerto)
+    try:
+        v.acepta()
+        _, placa, _, _ = saludo_hasta_listo(v, valida=True, version=2)
+        termina(p)
+    finally:
+        if p.poll() is None:
+            p.kill()
+        v.cierra()
+    if not check(placa is not None, "saludo en la version 2"):
+        return
+    r = ET.fromstring(placa)
+    cs = {c.get("ref"): c for pl in r.findall("placa") for c in pl.findall("conector")}
+    check(sorted(cs) == ["B/P1", "N/CN10", "N/CN5", "N/CN6", "N/CN7", "N/CN8", "N/CN9"] and
+          cs["N/CN7"].get("filas") == "2" and cs["N/CN7"].get("columnas") == "19" and
+          cs["B/P1"].get("nombres") == "COM D1 D2 D3 D4 D5 D6 D7 D8" and
+          cs["N/CN7"].get("nombres") is None,
+          "T_PLACA cuenta los seis conectores de la Nucleo -los morpho, de 2x19- y el P1 de "
+          "la barra con los nombres de sus pines")
+
+
+# ---------------------------------------------------------------------------
 def main():
     a = argparse.ArgumentParser(description="conectores y sistemas de placas")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -790,6 +937,7 @@ def main():
         c9_alimentacion(sim, cp)
         c10_dibujos(sim, cp)
         c11_barra(sim, cp)
+        c12_nombres_y_morpho(sim, cp)
     finally:
         cp.borra()
     return ventana.resumen("SISTEMA")

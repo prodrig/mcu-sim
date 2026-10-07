@@ -364,13 +364,22 @@ REGISTRA_PARTE(Conector,
                "  <pin nombre=\"2\" nodo=\"PA2\"/>   <!-- D1 -->\n"
                "</componente>")
       .pin("1..N", "los que se usen",
-           "Cada pin, por su numero, al nodo de la placa al que va soldado.")
+           "Cada pin, por su numero -o por su nombre, si lo tiene-, al nodo de "
+           "la placa al que va soldado.")
       .atr("columnas", "(obligatorio)", "Cuantos pines tiene cada fila.")
       .atr("filas", "1", "Cuantas filas: 2 en un IDC o en un morpho.")
       .atr("numeracion", "zigzag",
            "zigzag: el 1 y el 2 enfrentados, impares en una fila y pares en "
            "la otra (IDC, Raspberry Pi, morpho). filas: la primera fila "
            "entera, del 1 a columnas, y luego la siguiente.")
+      .atr("nombres", "(ninguno)",
+           "LOS NOMBRES DE LOS PINES, uno por pin y en orden, separados por "
+           "espacios; '-' para uno que se sigue llamando por su numero. Con "
+           "nombres=\"COM D1 D2\", el pin 1 es `P1.COM` y SOLO asi -`P1.1` "
+           "seria el pad PB1-. El numero sigue mandando en la forma: el 1 es "
+           "el primero, y al acoplar el 1 va con el 1. Un nombre empieza por "
+           "letra, y no puede hacer de `ID.nombre` un pad ni una patilla de "
+           "alimentacion (`P1.VDD`).")
       .nota("Dos conectores se ENCHUFAN en un <sistema> con <acopla a=\"A/CN9\" "
             "b=\"B/J1\"/>: el pin k de uno queda unido al k del otro, o en "
             "espejo -espejo=\"si\", dos placas cara a cara- al que le cae "
