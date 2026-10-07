@@ -47,6 +47,11 @@
 #       Nucleo en un sistema que no se pisan el puerto, el puerto en el
 #       dibujo junto al ST-LINK, y la barra del sistema de los morpho con el
 #       FT232RL en la USART1.
+#   C15 el GIRO del dibujo de una placa (`giro=`, en la placa o en su <placa
+#       id> del sistema): la pantalla TFT montada a 90 y a 180 grados, cada
+#       una con su dibujo girado -viewBox, tamano y un grupo que lo gira, con
+#       los ids de siempre-; un giro que no vale; y un dibujo sin viewBox, que
+#       no se puede girar y se manda como esta.
 #
 #   make -f Makefile.mcu-sim gui-sistema
 #   python3 verif/gui/sistema.py [--sim build/mcu-sim]
@@ -1094,6 +1099,56 @@ def c14_vcp(sim, cp):
 
 
 # ---------------------------------------------------------------------------
+def c15_giro(sim, cp):
+    grupo("C15 El giro del dibujo: la pantalla montada a 90 y a 180 grados")
+    tft = os.path.join(SRC, "placas", "tft_128x160.xml")
+    sis = cp.escribe("giros.xml", """<sistema nombre="giros">
+  <placa id="A" fichero="%s" giro="90"/>
+  <placa id="B" fichero="%s" giro="180"/>
+  <placa id="C" fichero="%s"/>
+</sistema>
+""" % (tft, tft, tft))
+    rc, out, placa, il, av = saludo_con_dibujos(sim, [sis])
+    check(rc == 0 and "dibujo A: tft_128x160.svg (6 kB, girado 90)" in out and
+          "dibujo B: tft_128x160.svg (6 kB, girado 180)" in out and
+          "dibujo C: tft_128x160.svg (6 kB)" in out,
+          "el mismo dibujo en tres placas, girado 90, 180 y sin girar: tres dibujos, y la "
+          "consola dice el giro")
+    por = {x[0].get("placas"): x[1].decode("utf-8") for x in il}
+    a, b, c = por.get("A", ""), por.get("B", ""), por.get("C", "")
+    check(len(il) == 3 and 'viewBox="0 0 350 596" width="35mm" height="59.6mm"' in a and
+          '<g transform="translate(350 0) rotate(90)">' in a and a.rstrip().endswith("</g>\n</svg>"),
+          "a 90 grados: el viewBox y el tamano, de pie -35 x 59,6 mm-, y todo dentro de un "
+          "grupo que lo gira un cuarto de vuelta a la derecha")
+    check('viewBox="0 0 596 350" width="59.6mm" height="35mm"' in b and
+          '<g transform="translate(596 350) rotate(180)">' in b,
+          "a 180: el mismo tamano, y media vuelta")
+    check(all('id="TFT"' in x and 'id="P1.VCC"' in x and 'id="P1.LED"' in x for x in (a, b, c))
+          and "<g transform" not in c,
+          "los ids, los de siempre en los tres: la ventana encuentra cada pieza donde ha "
+          "quedado; y el de C, tal cual")
+    mal = cp.escribe("giro_mal.xml", '<sistema nombre="m"><placa id="A" fichero="%s" '
+                     'giro="45"/></sistema>' % tft)
+    rc, out, err = corre(sim, [mal, "--valida"])
+    check(rc != 0 and 'giro="45" no vale: es 0, 90, 180 o 270' in out + err,
+          "giro=\"45\" es un error: un dibujo se gira de cuarto en cuarto de vuelta")
+    # En la propia placa, y un dibujo sin viewBox
+    cp.escribe("con_vb.svg", SVG % "LD")
+    con = cp.escribe("con_vb.xml", MODULO % (' ilustracion="con_vb.svg" giro="270"', ""))
+    rc, out, placa, il, av = saludo_con_dibujos(sim, [con])
+    svg = il[0][1].decode("utf-8") if il else ""
+    check(rc == 0 and "girado 270" in out and 'viewBox="0 0 10 10"' in svg and
+          '<g transform="translate(0 10) rotate(270)">' in svg,
+          "giro= tambien en la propia placa: 270 grados, tres cuartos de vuelta")
+    cp.escribe("sin_vb.svg", '<svg xmlns="http://www.w3.org/2000/svg" width="10mm" '
+               'height="10mm"><circle id="LD" cx="5" cy="5" r="2"/></svg>')
+    sin = cp.escribe("sin_vb.xml", MODULO % (' ilustracion="sin_vb.svg" giro="90"', ""))
+    rc, out, placa, il, av = saludo_con_dibujos(sim, [sin])
+    check(rc == 0 and "no se puede girar (la raiz <svg> no tiene viewBox): se manda como esta"
+          in out and il and b"<g transform" not in il[0][1],
+          "un dibujo sin viewBox no se puede girar: se dice, y se manda como esta")
+
+
 def main():
     a = argparse.ArgumentParser(description="conectores y sistemas de placas")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -1119,6 +1174,7 @@ def main():
         c12_nombres_y_morpho(sim, cp)
         c13_ftdi(sim, cp)
         c14_vcp(sim, cp)
+        c15_giro(sim, cp)
     finally:
         cp.borra()
     return ventana.resumen("SISTEMA")

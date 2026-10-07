@@ -35,6 +35,16 @@
 
      Cableada a una Nucleo, con un firmware que dibuja, es
      placas/nucleo_f446re_tft.xml.
+
+     EN OTRA POSTURA: el dibujo es el del modulo apaisado, con el conector a
+     la derecha. Montada de otra manera, giro= en el sistema -o en esta
+     <placa>- lo gira en el sentido de las agujas del reloj, y la imagen de
+     la pantalla gira con el: giro="90", de pie con el conector abajo;
+     giro="180", apaisada con el conector a la izquierda; giro="270", de pie
+     con el conector arriba. Para ver derecho lo que se dibuja, MADCTL 0x60,
+     0x00, 0xA0 y 0xC0 (doc/parts.md, Tft128x160):
+
+         <placa id="T" fichero="tft_128x160.xml" giro="90"/>
      ========================================================================= -->
 <placa nombre="tft-128x160">
   <!-- El conector de ocho pines, vertical, con VCC arriba -->

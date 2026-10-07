@@ -328,6 +328,9 @@ struct Ilustracion {
     std::string declarada;    // lo que dice el XML, tal cual; vacío si no dice
     std::string ruta;         // dónde se busca, ya resuelta; vacía si en ningún sitio
     std::vector<EnlaceIlustracion> enlaces;
+    // Cuánto se gira el dibujo antes de mandarlo, en grados en el sentido de
+    // las agujas del reloj: 0, 90, 180 o 270 (`giro=`, common/svg_variantes.h)
+    int giro = 0;
 };
 
 struct PlacaDeSistema {
@@ -1516,6 +1519,8 @@ public:
            << "\"";
         if (!es_sistema() && !ilustracion_.declarada.empty())
             os << " ilustracion=\"" << xml_escapa(ilustracion_.declarada) << "\"";
+        if (!es_sistema() && ilustracion_.giro)
+            os << " giro=\"" << ilustracion_.giro << "\"";
         os << ">\n";
         if (!es_sistema()) tabla(ilustracion_, "  ");
         if (sis)
@@ -1527,6 +1532,7 @@ public:
                 if (!p.fichero.empty()) os << " fichero=\"" << xml_escapa(p.fichero) << "\"";
                 if (!p.ilustracion.declarada.empty())
                     os << " ilustracion=\"" << xml_escapa(p.ilustracion.declarada) << "\"";
+                if (p.ilustracion.giro) os << " giro=\"" << p.ilustracion.giro << "\"";
                 os << " piezas=\"" << n << "\">\n";
                 tabla(p.ilustracion, "    ");
                 for (const DeclMcu& m : mcus_)

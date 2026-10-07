@@ -283,6 +283,7 @@ SC_MODULE(Sim) {
         std::string ruta, svg;
         std::map<std::string, std::string> variantes;   // las de sus piezas
         std::map<std::string, std::string> rotulos;     // y lo que dicen sus textos
+        int giro = 0;                                   // y cuánto se gira
     };
     std::vector<DibujoLeido> dibujos;
     // Un dibujo de placa es un dibujo, no una foto en alta resolucion: mucho
@@ -605,7 +606,8 @@ SC_MODULE(Sim) {
             // otras -dos adaptadores con el jumper distinto- es otro
             const std::map<std::string, std::string> var = variantes(id), rot = rotulos(id);
             for (DibujoLeido& d : dibujos)
-                if (d.ruta == il.ruta && d.variantes == var && d.rotulos == rot) {
+                if (d.ruta == il.ruta && d.variantes == var && d.rotulos == rot &&
+                    d.giro == il.giro) {
                     std::printf("  %s: %s, el mismo que %s\n", quien.c_str(),
                                 base(il.ruta).c_str(), d.placas[0].c_str());
                     d.placas.push_back(id);
@@ -641,10 +643,18 @@ SC_MODULE(Sim) {
             }
             std::string con;
             for (const auto& kv : var) con += ", " + kv.first + " " + kv.second;
+            if (il.giro) con += ", girado " + std::to_string(il.giro);
             std::printf("  %s: %s (%u kB%s)\n", quien.c_str(), base(il.ruta).c_str(),
                         unsigned((svg.size() + 1023) / 1024), con.c_str());
             svg = pon_rotulos(quita_variantes(svg, var), rot);
-            dibujos.push_back({{id}, il.ruta, std::move(svg), var, rot});
+            if (il.giro) {
+                std::string e;
+                svg = gira_svg(svg, il.giro, &e);
+                if (!e.empty())
+                    aviso((sis ? "placa " + id + ": " : std::string()) + "el dibujo " +
+                          il.ruta + " no se puede girar (" + e + "): se manda como esta");
+            }
+            dibujos.push_back({{id}, il.ruta, std::move(svg), var, rot, il.giro});
         };
         if (sis)
             for (const PlacaDeSistema& p : placa.placas()) mira(p.id, p.ilustracion);

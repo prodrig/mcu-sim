@@ -335,6 +335,7 @@ máquina y no ver estos ficheros.
 | `ilustracion="x.svg"` en la `<placa>` | El dibujo, relativo al fichero de la placa |
 | Sin `ilustracion=` | El SVG que **se llame como la placa**, a su lado: `nucleo_f446re.xml` → `nucleo_f446re.svg`. Si no está, no pasa nada |
 | `<placa id="N" fichero="..." ilustracion="y.svg"/>` en un `<sistema>` | El montaje cambia el dibujo de esa placa (relativo al sistema); la tabla de la placa, que era de SU dibujo, no se usa |
+| `giro="90"` en la `<placa>`, o en su `<placa id>` de un `<sistema>` | El dibujo, **girado** 90, 180 o 270 grados en el sentido de las agujas del reloj: como está montada la placa. El del sistema manda sobre el de la placa. Ver abajo |
 | `<ilustracion><enlace pieza= elemento= [efecto=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido`, `giro`, `pantalla` o `ninguno` |
 
 **Lo que se comprueba aquí** —el SVG lo lee la ventana—: un dibujo
@@ -377,6 +378,26 @@ izquierda: la fila de arriba de la imagen queda a la izquierda, y su columna
 izquierda, abajo. `placas/tft_128x160.svg` lleva el vidrio apaisado, con el
 conector a la derecha; un firmware que quiera verlo derecho en esa postura
 pone MADCTL = 0x60.
+
+**El giro: la misma placa, montada de otra manera.** Una placa no siempre va
+derecha: la pantalla TFT puede ir de pie, con el conector abajo, o del revés,
+con el conector a la izquierda. En vez de un dibujo por postura, `giro=` gira
+el que hay: `mcu-sim` cambia el viewBox y el tamaño de la raíz y mete todo lo
+de dentro en un `<g transform="...">` (`gira_svg` en
+`common/svg_variantes.h`). Los ids no cambian, la ventana encuentra cada pieza
+donde ha quedado, y lo que va encima de una pieza —el brillo de un LED, la
+imagen de una pantalla— gira con ella. La serigrafía también gira, como en la
+placa de verdad. La consola lo dice: `dibujo T: tft_128x160.svg (6 kB, girado
+90)`. Hace falta que la raíz del SVG tenga viewBox; si no, se avisa y se manda
+como está. Un giro que no sea 0, 90, 180 o 270 es un error de la placa.
+
+```xml
+<sistema nombre="nucleo-y-tft-de-pie">
+  <placa id="N" fichero="nucleo_f446re.xml"/>
+  <placa id="T" fichero="tft_128x160.xml" giro="90"/>   <!-- el conector abajo -->
+  ...
+</sistema>
+```
 
 **Las variantes: lo que depende de cómo está montada la placa.** El puente de
 un `Jumper` no cambia con la simulación, pero sí de una placa a otra, y el
@@ -1482,6 +1503,17 @@ Deja ver `encendida` (si enseña su memoria), `luz` (mA) y la imagen
 `TFT T/TFT: ensena su memoria; 16 bits por pixel, MADCTL 0x60; 180 ordenes,
 30816 pixeles; luz 26.2 mA`, y si se perdió alguna orden. Desde C++,
 `mostrando()`, `color_en(x, y)` —el color que se ve— y `memoria(col, fila)`.
+
+**La postura y MADCTL.** La imagen gira con la placa, así que lo que
+enseña la pantalla derecho depende de cómo esté montada y de MADCTL, como en
+la de verdad:
+
+| `giro=` | Cómo queda | MADCTL para verlo derecho |
+| :--- | :--- | :--- |
+| 0 | apaisada, conector a la derecha | `0x60` (MV, MX) |
+| 90 | de pie, conector abajo | `0x00` |
+| 180 | apaisada, conector a la izquierda | `0xA0` (MV, MY) |
+| 270 | de pie, conector arriba | `0xC0` (MX, MY) |
 
 `placas/tft_128x160.xml` es el módulo, con el conector de 8 pines `P1` a la
 derecha: VCC, GND, CS, RESET, AD —serigrafiado `A/D`; la barra separa en un

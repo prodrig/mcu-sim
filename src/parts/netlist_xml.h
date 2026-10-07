@@ -77,6 +77,17 @@ struct ContextoPlaca {
     bool en_sistema() const { return !id.empty(); }
 };
 
+// `giro="90"`: el dibujo de la placa, girado al mandarlo, en grados en el
+// sentido de las agujas del reloj. "" si vale.
+inline std::string lee_giro(const std::string& t, int& giro) {
+    if (t == "0" || t == "90" || t == "180" || t == "270") {
+        giro = std::stoi(t);
+        return std::string();
+    }
+    return "giro=\"" + t + "\" no vale: es 0, 90, 180 o 270 (grados, en el sentido de las "
+           "agujas del reloj)";
+}
+
 // Un nombre de la placa, cualificado. "" en `err` si todo bien.
 inline std::string cualifica(const ContextoPlaca& cx, const std::string& n,
                              std::string& err) {
@@ -135,14 +146,18 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
     // Los atributos de la raíz: hasta el dibujo se aceptaba cualquiera y se
     // ignoraba en silencio, que es justo lo que hace que una errata no se vea
     for (const auto& a : raiz.attrs)
-        if (a.first != "nombre" && a.first != "ilustracion" &&
+        if (a.first != "nombre" && a.first != "ilustracion" && a.first != "giro" &&
             !(cx.en_sistema() && a.first == "id"))
             return donde(raiz) + "<placa>: atributo desconocido: " + a.first +
-                   " (lo que va aqui: nombre e ilustracion)";
+                   " (lo que va aqui: nombre, ilustracion y giro)";
     Ilustracion il;
     il.declarada = raiz.attr_o("ilustracion", "");
     if (raiz.tiene("ilustracion") && il.declarada.empty())
         return donde(raiz) + "<placa>: ilustracion vacia";
+    if (raiz.tiene("giro")) {
+        const std::string e = lee_giro(raiz.attr_o("giro"), il.giro);
+        if (!e.empty()) return donde(raiz) + "<placa>: " + e;
+    }
     std::string eq;
     // El nombre local de algo de la placa: un id (no lleva barra) ...
     auto id_de = [&](const std::string& id) -> std::string {
@@ -446,7 +461,8 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
                 return donde(h) + "<placa id=\"" + id + "\">: o fichero=, o la placa "
                        "escrita dentro; las dos cosas no";
             for (const auto& a : h.attrs)
-                if (a.first != "id" && a.first != "fichero" && a.first != "ilustracion")
+                if (a.first != "id" && a.first != "fichero" && a.first != "ilustracion" &&
+                    a.first != "giro")
                     return donde(h) + "<placa id=\"" + id + "\" fichero=...>: atributo "
                            "desconocido: " + a.first + " (lo de la placa va en su fichero)";
             ps.fichero = h.attr_o("fichero");
@@ -476,6 +492,11 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
                 il.ruta = junto_a(carpeta_de(ruta), il.declarada);
             } else {
                 il.ruta = svg_hermano(ruta);
+            }
+            // Y el giro: el del MONTAJE, si lo dice, manda sobre el de la placa
+            if (h.tiene("giro")) {
+                const std::string eg = lee_giro(h.attr_o("giro"), il.giro);
+                if (!eg.empty()) return donde(h) + "<placa id=\"" + id + "\">: " + eg;
             }
         } else {
             for (const XmlNodo& m : h.hijos)

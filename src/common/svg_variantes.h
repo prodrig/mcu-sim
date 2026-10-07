@@ -15,6 +15,13 @@
 // con el texto que le toca (`pon_rotulos`); lo que lleva escrito es lo que se
 // ve si nadie lo cambia.
 //
+// Y EL GIRO: el mismo dibujo, girado un cuarto, media o tres cuartos de
+// vuelta en el sentido de las agujas del reloj, como se haya montado la placa
+// -`giro="90"` en ella o en su <placa id> de un sistema-. `gira_svg` cambia
+// el viewBox y el tamaño de la raíz y mete todo lo de dentro en un <g> con la
+// transformación. Los ids no cambian, y la ventana encuentra cada pieza
+// donde ha quedado: para ella es un SVG con un grupo más.
+//
 // Se hace sobre el TEXTO, sin rehacer el XML, para que el dibujo llegue tal
 // cual lo escribió su autor -comentarios, espacios, el orden de los atributos-
 // salvo lo quitado: se busca cada `id="PIEZA@valor"`, se retrocede hasta el `<`
@@ -24,6 +31,7 @@
 #ifndef STM32_COMMON_SVG_VARIANTES_H
 #define STM32_COMMON_SVG_VARIANTES_H
 
+#include <cstdio>
 #include <map>
 #include <string>
 
@@ -180,6 +188,93 @@ inline std::string pon_rotulos(const std::string& svg,
         }
     }
     return s;
+}
+
+// El dibujo girado `grados` (90, 180 o 270) en el sentido de las agujas del
+// reloj. Hace falta que la raíz <svg> tenga viewBox: es lo que se gira. Con
+// 0 grados, el mismo; si no se puede, el mismo y en `error` por qué.
+inline std::string gira_svg(const std::string& svg, int grados, std::string* error = nullptr) {
+    using namespace detalle_svg;
+    if (error) error->clear();
+    if (grados % 360 == 0) return svg;
+    auto falla = [&](const char* por) {
+        if (error) *error = por;
+        return svg;
+    };
+    if (grados != 90 && grados != 180 && grados != 270)
+        return falla("el giro es de 90, 180 o 270 grados");
+    // La raíz: el primer <svg fuera de los comentarios
+    size_t p = 0, ini = std::string::npos;
+    while (p < svg.size()) {
+        const size_t lt = svg.find('<', p);
+        if (lt == std::string::npos) break;
+        if (svg.compare(lt, 4, "<!--") == 0) {
+            const size_t f = svg.find("-->", lt + 4);
+            if (f == std::string::npos) break;
+            p = f + 3;
+            continue;
+        }
+        if (es_etiqueta(svg, lt + 1, "svg")) { ini = lt; break; }
+        p = lt + 1;
+    }
+    if (ini == std::string::npos) return falla("no tiene raiz <svg>");
+    const size_t g = fin_etiqueta(svg, ini + 4);
+    const size_t cierre = svg.rfind("</svg>");
+    if (g == std::string::npos || cierre == std::string::npos || cierre < g)
+        return falla("la raiz <svg> no se cierra");
+    std::string tag = svg.substr(ini, g - ini);      // sin el '>'
+    // El valor de un atributo de la etiqueta, y dónde está
+    auto atributo = [&](const char* n, size_t& a, size_t& b) {
+        const std::string k = std::string(" ") + n + "=";
+        size_t i = tag.find(k);
+        if (i == std::string::npos) {
+            const std::string k2 = std::string("\n") + n + "=";
+            i = tag.find(k2);
+        }
+        if (i == std::string::npos) return false;
+        a = i + k.size();
+        if (a >= tag.size() || (tag[a] != '"' && tag[a] != '\'')) return false;
+        b = tag.find(tag[a], a + 1);
+        if (b == std::string::npos) return false;
+        ++a;
+        return true;
+    };
+    size_t va, vb;
+    if (!atributo("viewBox", va, vb)) return falla("la raiz <svg> no tiene viewBox");
+    double x0 = 0, y0 = 0, w = 0, h = 0;
+    {
+        std::string v = tag.substr(va, vb - va);
+        for (char& c : v) if (c == ',') c = ' ';
+        if (std::sscanf(v.c_str(), "%lf %lf %lf %lf", &x0, &y0, &w, &h) != 4 || w <= 0 || h <= 0)
+            return falla("el viewBox no son cuatro numeros");
+    }
+    auto num = [](double d) {
+        char b[32];
+        std::snprintf(b, sizeof b, "%g", d);
+        return std::string(b);
+    };
+    const bool cuarto = grados != 180;
+    const double nw = cuarto ? h : w, nh = cuarto ? w : h;
+    tag.replace(va, vb - va, "0 0 " + num(nw) + " " + num(nh));
+    // El tamaño: ancho y alto se cambian el uno por el otro
+    if (cuarto) {
+        size_t wa, wb, ha, hb;
+        const bool hay_w = atributo("width", wa, wb), hay_h = atributo("height", ha, hb);
+        if (hay_w && hay_h) {
+            const std::string sw = tag.substr(wa, wb - wa), sh = tag.substr(ha, hb - ha);
+            // El que va detrás primero, para no mover al otro
+            if (wa > ha) { tag.replace(wa, wb - wa, sh); tag.replace(ha, hb - ha, sw); }
+            else         { tag.replace(ha, hb - ha, sw); tag.replace(wa, wb - wa, sh); }
+        }
+    }
+    // Lo de dentro: (x, y) del dibujo -> girado, en el nuevo viewBox
+    std::string tr;
+    if (grados == 90)       tr = "translate(" + num(h) + " 0) rotate(90)";
+    else if (grados == 180) tr = "translate(" + num(w) + " " + num(h) + ") rotate(180)";
+    else                    tr = "translate(0 " + num(w) + ") rotate(270)";
+    if (x0 != 0 || y0 != 0) tr += " translate(" + num(-x0) + " " + num(-y0) + ")";
+    return svg.substr(0, ini) + tag + ">\n<g transform=\"" + tr + "\">" +
+           svg.substr(g + 1, cierre - g - 1) + "</g>\n" + svg.substr(cierre);
 }
 
 } // namespace stm32
