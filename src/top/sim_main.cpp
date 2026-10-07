@@ -1074,6 +1074,28 @@ SC_MODULE(Sim) {
                 std::printf(", %u episodio(s) de sobrecorriente", f->episodios());
             std::printf("\n");
         }
+        // Las pantallas: que ensenan y como lo tienen puesto. Lo que se ve de
+        // verdad lo pinta la ventana; aqui, lo que hay que saber si no se ve
+        // nada -dormida, apagada, sin luz-.
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Tft128x160") continue;
+            const Tft128x160* t = placa.como<Tft128x160>(i.id);
+            if (!t) continue;
+            const char* estado = !t->alimentada() ? "sin tension"
+                               : t->en_reset()    ? "en reset (blanca)"
+                               : t->dormida()     ? "dormida (blanca)"
+                               : !t->encendida()  ? "apagada con DISPOFF (blanca)"
+                                                  : "ensena su memoria";
+            std::printf("  TFT %s: %s; %u bits por pixel, MADCTL 0x%02X; %llu ordenes, "
+                        "%llu pixeles; luz %.1f mA%s\n", i.id.c_str(), estado,
+                        t->bits_por_pixel(), unsigned(t->madctl()),
+                        (unsigned long long)t->ordenes(), (unsigned long long)t->pixeles(),
+                        t->luz_ma(), t->luz_ma() < 0.05 ? " (a oscuras: negra)" : "");
+            if (t->ordenes_perdidas())
+                std::printf("  TFT %s: %llu ordenes perdidas por llegar antes de 5 ms tras "
+                            "el reset\n", i.id.c_str(),
+                            (unsigned long long)t->ordenes_perdidas());
+        }
         // Y lo que los puentes serie tengan a medias, que tambien se ve desde
         // fuera: es la basura de unos baudios equivocados.
         for (const serie::Pieza& p : puentes)

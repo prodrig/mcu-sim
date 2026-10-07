@@ -16,7 +16,9 @@
 //                instantánea en una cola acotada. Si la cola está llena la
 //                instantánea se TIRA y se cuenta en `perdidas` de la siguiente:
 //                son muestras, la siguiente dice lo mismo y mejor
-//                (`doc/protocolo.md` §4.1).
+//                (`doc/protocolo.md` §4.1). Y de las IMÁGENES suscritas -la
+//                pantalla de un TFT-, en el mismo instante, la que haya
+//                cambiado desde la última que salió, a su propia cola.
 //
 //   aplicador    un SC_THREAD que saca órdenes de una cola, espera a su
 //                instante y llama a `acciona()` de la pieza. Cada orden deja su
@@ -46,6 +48,7 @@
 
 #include <systemc>
 #include <cstdint>
+#include <cmath>
 #include <cstdio>
 #include <deque>
 #include <map>
@@ -85,6 +88,18 @@ public:
             }
             n += p->n_observables();
         }
+        // Las imágenes, DETRÁS de todos los observables: así los id_obs de
+        // siempre no se mueven por que una pieza enseñe una pantalla
+        primera_img_.reserve(piezas_.size());
+        unsigned m = 0;
+        for (unsigned k = 0; k < piezas_.size(); ++k) {
+            primera_img_.push_back(m);
+            for (unsigned i = 0; i < piezas_[k]->n_imagenes(); ++i) {
+                img_pieza_.push_back(k);
+                img_idx_.push_back(i);
+            }
+            m += piezas_[k]->n_imagenes();
+        }
     }
 
     unsigned     n_piezas() const { return unsigned(piezas_.size()); }
@@ -108,6 +123,21 @@ public:
     float valor(uint16_t id) const {
         return piezas_[obs_pieza_[id]]->valor_observable(obs_idx_[id]);
     }
+
+    // --- Imágenes, con su id_obs detrás de los observables ------------------
+    unsigned n_imagenes() const { return unsigned(img_pieza_.size()); }
+    // -1 si la pieza o la imagen no existen.
+    int id_imagen(unsigned pieza, unsigned img) const {
+        if (pieza >= piezas_.size() || img >= piezas_[pieza]->n_imagenes()) return -1;
+        return int(n_observables() + primera_img_[pieza] + img);
+    }
+    bool es_imagen(uint16_t id) const {
+        return id >= n_observables() && id < n_observables() + n_imagenes();
+    }
+    // Lo que se puede pedir en una suscripción: un observable o una imagen
+    bool existe_id(uint16_t id) const { return existe_obs(id) || es_imagen(id); }
+    unsigned pieza_de_imagen(uint16_t id) const { return img_pieza_[id - n_observables()]; }
+    unsigned indice_de_imagen(uint16_t id) const { return img_idx_[id - n_observables()]; }
 
     // --- Validación de una orden -------------------------------------------
     // Dice qué pasaría si se aplicase, SIN aplicarla. `valor` sale recortado
@@ -137,7 +167,10 @@ public:
             const ExtPartBase* p = piezas_[i];
             s += "  <pieza idx=\"" + std::to_string(i) + "\" id=\"" +
                  xml_escapa(p->pieza()) + "\" tipo=\"" + xml_escapa(p->tipo()) + "\"";
-            if (p->n_observables() == 0 && p->n_mandos() == 0) { s += "/>\n"; continue; }
+            if (p->n_observables() == 0 && p->n_mandos() == 0 && p->n_imagenes() == 0) {
+                s += "/>\n";
+                continue;
+            }
             s += ">\n";
             for (unsigned k = 0; k < p->n_observables(); ++k) {
                 const Observable o = p->observable(k);
@@ -157,6 +190,15 @@ public:
                      "\" min=\"" + num(m.min) + "\" max=\"" + num(m.max) +
                      "\" valor=\"" + num(p->valor_mando(k)) + "\"/>\n";
             }
+            for (unsigned k = 0; k < p->n_imagenes(); ++k) {
+                const Imagen im = p->imagen(k);
+                s += "    <imagen idx=\"" + std::to_string(k) +
+                     "\" id_obs=\"" + std::to_string(id_imagen(i, k)) +
+                     "\" nombre=\"" + xml_escapa(im.nombre) +
+                     "\" ancho=\"" + std::to_string(im.ancho) +
+                     "\" alto=\"" + std::to_string(im.alto) +
+                     "\" formato=\"rgb888\"/>\n";
+            }
             s += "  </pieza>\n";
         }
         s += "</catalogo>\n";
@@ -174,12 +216,20 @@ private:
     std::vector<ExtPartBase*> piezas_;
     std::vector<unsigned>     primer_obs_;           // por pieza
     std::vector<unsigned>     obs_pieza_, obs_idx_;  // por id_obs
+    std::vector<unsigned>     primera_img_;          // por pieza
+    std::vector<unsigned>     img_pieza_, img_idx_;  // por imagen
 };
 
 // Una instantánea ya tomada: la cabecera del mensaje y sus muestras.
 struct Instantanea {
     mcusim::proto::CabInstantanea         cab;
     std::vector<mcusim::proto::Muestra>   muestras;
+};
+
+// Una imagen ya tomada: la cabecera de T_IMAGEN y sus píxeles.
+struct ImagenTomada {
+    mcusim::proto::CabImagen cab;
+    std::string              pix;
 };
 
 // ---------------------------------------------------------------------------
@@ -190,6 +240,9 @@ SC_MODULE(FronteraGui) {
     // por segundo son dos segundos de pantalla atascada: más que eso ya no es
     // un atasco, es una pantalla que no está leyendo.
     static constexpr std::size_t CAPACIDAD_OMISION = 128;
+    // Las imágenes pesan decenas de kB: con dos esperando, la siguiente no se
+    // toma -se tomará la que haya en la muestra de después-.
+    static constexpr std::size_t CAPACIDAD_IMAGENES = 2;
 
     explicit FronteraGui(sc_core::sc_module_name nm,
                          std::size_t capacidad = CAPACIDAD_OMISION)
@@ -223,11 +276,24 @@ SC_MODULE(FronteraGui) {
     // suscripción muestrean en los mismos instantes aunque la suscripción
     // llegue en momentos distintos, y una instantánea se puede comparar con la
     // de otra ejecución sin más cuenta.
+    //
+    // Un id puede ser una IMAGEN: no va en la instantánea, sino en su propio
+    // T_IMAGEN cuando cambia, y la primera vez tras suscribirse siempre.
     bool suscribe(uint64_t periodo_ns, const std::vector<uint16_t>& ids) {
         if (!activa_) return false;
-        for (uint16_t id : ids) if (!cat_.existe_obs(id)) return false;
+        for (uint16_t id : ids) if (!cat_.existe_id(id)) return false;
         periodo_ns_  = periodo_ns;
         subs_        = ids;
+        subs_obs_.clear();
+        subs_img_.clear();
+        for (uint16_t id : ids) {
+            if (cat_.existe_obs(id)) { subs_obs_.push_back(id); continue; }
+            EstadoImagen e;
+            e.id = id;
+            e.luz_prev = luz_de(id);
+            e.t_prev = ahora_ns();
+            subs_img_.push_back(e);
+        }
         cambio_subs_ = true;
         notifica(ev_subs_);
         return true;
@@ -262,11 +328,14 @@ SC_MODULE(FronteraGui) {
 
     // --- Lo que sale: lo que el enlace vacía hacia el socket ----------------
     std::deque<Instantanea>               instantaneas;
+    std::deque<ImagenTomada>              imagenes;
     std::deque<mcusim::proto::OrdenHecha> hechas;
     // Contadores de por vida, para quien quiera saber si esto se ha movido.
     uint64_t tomadas()  const { return tomadas_; }
     uint64_t perdidas() const { return perdidas_total_; }
     uint64_t aplicadas() const { return aplicadas_; }
+    uint64_t imagenes_tomadas() const { return img_tomadas_; }
+    uint64_t imagenes_aplazadas() const { return img_aplazadas_; }
 
     // Aplica UNA orden ya, en el instante actual, y devuelve su eco. Es lo
     // que hace el aplicador al llegar el instante de cada una, y es pública
@@ -333,12 +402,13 @@ private:
     }
 
     void toma(uint64_t t) {
+        toma_imagenes(t);
         Instantanea in;
         in.cab.t_sim_ns = t;
-        in.cab.n        = uint32_t(subs_.size());
+        in.cab.n        = uint32_t(subs_obs_.size());
         in.cab.perdidas = perdidas_pend_;
-        in.muestras.reserve(subs_.size());
-        for (uint16_t id : subs_) {
+        in.muestras.reserve(subs_obs_.size());
+        for (uint16_t id : subs_obs_) {
             mcusim::proto::Muestra m{};
             m.id    = id;
             m.valor = cat_.valor(id);
@@ -352,6 +422,40 @@ private:
         }
         perdidas_pend_ = 0;
         instantaneas.push_back(std::move(in));
+    }
+
+    // Las imágenes suscritas que han cambiado desde la última que salió: su
+    // contenido o su luz. La luz es la MEDIA desde la muestra anterior.
+    void toma_imagenes(uint64_t t) {
+        for (EstadoImagen& e : subs_img_) {
+            const ExtPartBase* p = cat_.pieza(cat_.pieza_de_imagen(e.id));
+            const unsigned k = cat_.indice_de_imagen(e.id);
+            const double luz = p->luz_acumulada(k);
+            float brillo = p->brillo_imagen(k);
+            if (t > e.t_prev) brillo = float((luz - e.luz_prev) / (double(t - e.t_prev) * 1e-9));
+            brillo = brillo < 0.f ? 0.f : brillo > 1.f ? 1.f : brillo;
+            e.luz_prev = luz;
+            e.t_prev = t;
+            const uint64_t v = p->version_imagen(k);
+            const bool cambio = !e.enviada || v != e.version ||
+                                std::fabs(brillo - e.brillo) > 1.f / 512.f;
+            if (!cambio) continue;
+            if (imagenes.size() >= CAPACIDAD_IMAGENES) { ++img_aplazadas_; continue; }
+            const Imagen im = p->imagen(k);
+            ImagenTomada it;
+            it.cab = mcusim::proto::CabImagen{t, e.id, mcusim::proto::FMT_RGB888,
+                                              im.ancho, im.alto, brillo, 0u};
+            p->pinta_imagen(k, it.pix);
+            it.pix.resize(std::size_t(im.ancho) * im.alto * 3u, '\0');
+            imagenes.push_back(std::move(it));
+            e.enviada = true;
+            e.version = v;
+            e.brillo = brillo;
+            ++img_tomadas_;
+        }
+    }
+    double luz_de(uint16_t id) const {
+        return cat_.pieza(cat_.pieza_de_imagen(id))->luz_acumulada(cat_.indice_de_imagen(id));
     }
 
     void aplicador() {
@@ -378,6 +482,19 @@ private:
 
     uint64_t              periodo_ns_ = 0;
     std::vector<uint16_t> subs_;
+    // Lo suscrito, separado: los observables, en su orden, y las imágenes,
+    // con lo que salió de cada una la última vez
+    struct EstadoImagen {
+        uint16_t id = 0;
+        bool     enviada = false;
+        uint64_t version = 0;
+        float    brillo = 0.f;
+        double   luz_prev = 0.0;
+        uint64_t t_prev = 0;
+    };
+    std::vector<uint16_t>     subs_obs_;
+    std::vector<EstadoImagen> subs_img_;
+    uint64_t                  img_tomadas_ = 0, img_aplazadas_ = 0;
     bool                  cambio_subs_ = false;
     uint32_t              perdidas_pend_ = 0;
     uint64_t              tomadas_ = 0, perdidas_total_ = 0, aplicadas_ = 0;

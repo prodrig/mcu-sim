@@ -134,6 +134,7 @@ enum Tipo : uint16_t {
     T_ESTADO      = 0x0012,  // corriendo/pausado/terminado + los dos relojes
     T_ORDEN_HECHA = 0x0013,  // eco de una orden con el instante REAL en que se aplicó
     T_PONG        = 0x0014,
+    T_IMAGEN      = 0x0015,  // lo que enseña una pantalla: una imagen entera (véase abajo)
     T_FIN         = 0x001F,  // se acabó: motivo y código de salida
 
     // --- De la pantalla al modelo ------------------------------------------
@@ -174,6 +175,35 @@ struct CabInstantanea {
     uint32_t perdidas;     // instantáneas descartadas desde la anterior (véase abajo)
 };
 static_assert(sizeof(CabInstantanea) == 16, "CabInstantanea son 16 bytes");
+
+// T_IMAGEN (2026-10, sin subir la versión: una ventana que no lo conoce lo
+// salta, y no lo recibe nunca, porque no se suscribe a imágenes que no sabe
+// pedir): lo que ENSEÑA una pieza con pantalla -un TFT-, entero. Cabecera y
+// detrás `ancho` x `alto` píxeles en `formato`, por filas, de arriba abajo.
+//
+// Las imágenes que una pieza declara van en T_CATALOGO como <imagen>, con un
+// `id_obs` del mismo espacio que los observables -detrás de todos ellos, así
+// que los de siempre no cambian-, y se piden en T_SUSCRIBE como cualquier
+// observable. No van en T_INSTANTANEA: el muestreador, en cada instante de
+// la rejilla, manda un T_IMAGEN de cada imagen suscrita SOLO SI HA CAMBIADO
+// desde la última -su contenido o su brillo-, y siempre la primera vez. Si la
+// salida está atascada no se toma: la siguiente muestra mandará la que haya.
+//
+// `brillo` es la luz con que se ve, de 0 (apagada: negro) a 1: la
+// retroiluminación, media desde la imagen anterior -una retroiluminación con
+// PWM se ve con la luz media, como la ve el ojo-. Los píxeles van sin él.
+enum FormatoImagen : uint16_t {
+    FMT_RGB888 = 1         // tres bytes por píxel: rojo, verde, azul
+};
+struct CabImagen {
+    uint64_t t_sim_ns;
+    uint16_t id;           // el id_obs de la imagen, el del catálogo
+    uint16_t formato;      // FormatoImagen
+    uint16_t ancho, alto;  // en píxeles
+    float    brillo;       // 0..1
+    uint32_t relleno;      // a cero
+};
+static_assert(sizeof(CabImagen) == 24, "CabImagen son 24 bytes");
 
 // Lo que la pantalla manda: tocar un mando de una pieza.
 //

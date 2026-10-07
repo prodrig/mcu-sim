@@ -32,6 +32,7 @@
 #include "part_factory.h"
 #include "ext_parts.h"
 #include "puente_serie.h"
+#include "tft_st7735.h"
 
 namespace stm32 {
 
@@ -548,6 +549,78 @@ REGISTRA_PARTE(Encoder,
         return new Encoder(d.id.c_str(), n[d.nodo_de("a")], n[d.nodo_de("b")],
                            n[d.nodo_de("c")], unsigned(pasos), d.num("r_cerrado", 1.0),
                            desfase, clic);
+    });
+
+REGISTRA_PARTE(Tft128x160,
+    Ayuda("Una pantalla TFT de 1,8 pulgadas y 128x160 pixeles con su controlador "
+          "ST7735S, por SPI de CUATRO hilos: el modulo rojo de ocho pines, con su "
+          "regulador de 3,3 V y su retroiluminacion. Lo que se ve es lo que "
+          "ensenaria la pantalla de verdad: BLANCA mientras el chip no tiene "
+          "tension, esta en reset, dormido o con la pantalla apagada -el cristal es "
+          "de los normalmente blancos-; ruido al encenderla sin borrar la memoria; "
+          "y la imagen, con MADCTL, desplazamiento, modo parcial, ocho colores e "
+          "inversion. Todo con la LUZ del pin LED: sin ella, negro. Las ordenes "
+          "del sistema estan todas, tambien las de lectura, que contestan por SDA; "
+          "las del panel (B1h-FCh) se aceptan y no cambian nada de lo que se ve.")
+      .ejemplo("<componente tipo=\"Tft128x160\" id=\"TFT\">\n"
+               "  <pin nombre=\"vcc\"   nodo=\"P1.VCC\"/>\n"
+               "  <pin nombre=\"gnd\"   nodo=\"P1.GND\"/>\n"
+               "  <pin nombre=\"cs\"    nodo=\"P1.CS\"/>\n"
+               "  <pin nombre=\"reset\" nodo=\"P1.RESET\"/>\n"
+               "  <pin nombre=\"ad\"    nodo=\"P1.AD\"/>\n"
+               "  <pin nombre=\"sda\"   nodo=\"P1.SDA\"/>\n"
+               "  <pin nombre=\"sck\"   nodo=\"P1.SCK\"/>\n"
+               "  <pin nombre=\"led\"   nodo=\"P1.LED\"/>\n"
+               "</componente>")
+      .pin("vcc", "obligatorio", "La alimentacion del modulo, de 3,3 a 5 V: va al "
+           "regulador de 3,3 V del chip. Con menos de 2,65 V el chip no arranca.")
+      .pin("gnd", "obligatorio", "La masa.")
+      .pin("cs", "obligatorio", "CSX, la seleccion: con ella alta no atiende.")
+      .pin("reset", "obligatorio", "RESX: un pulso bajo de mas de 5 us reinicia el chip, "
+           "que no atiende ordenes hasta 5 ms despues.")
+      .pin("ad", "obligatorio", "D/CX, el A0: bajo, el byte es una orden; alto, un dato.")
+      .pin("sda", "obligatorio", "SDA, el dato: lo toma en el flanco de subida de SCK, y "
+           "lo pone el chip al contestar una lectura.")
+      .pin("sck", "obligatorio", "SCL, el reloj.")
+      .pin("led", "obligatorio", "La retroiluminacion: el anodo de los LEDs, con su "
+           "resistencia en la placa. A 3,3 V da la luz entera.")
+      .atr("memoria", "128x160",
+           "Como direcciona la memoria el ST7735S: 128x160 (GM = 11, la imagen empieza "
+           "en la columna 0 y la fila 0) o 132x162 (GM = 00, el de algunos modulos: "
+           "lo visible empieza en la columna 2 y la fila 1).")
+      .atr("panel", "rgb",
+           "El orden de los filtros de color del panel, rgb o bgr. Con uno bgr el rojo "
+           "y el azul salen cambiados si el firmware no pone el bit RGB de MADCTL.")
+      .atr("vf_luz", "2.9", "La tension de los LEDs de la retroiluminacion, en V.")
+      .atr("r_luz", "15", "Su resistencia en la placa, en ohmios.")
+      .nota("Deja ver `encendida` (si ensena la memoria), `luz` (mA de la "
+            "retroiluminacion) y una IMAGEN, `pantalla`, de 128x160: lo que se ve, que "
+            "la ventana pinta encima del dibujo de la pieza. Avisa, una vez cada cosa, "
+            "de lo que en la pantalla de verdad saldria mal: ordenes en los 5 ms tras "
+            "el reset (se pierden), las esperas de 120 ms de SLPOUT, SLPIN y SWRESET, "
+            "un reloj mas rapido que 66 ns de ciclo (150 al leer) y 5 V en sus "
+            "entradas, que son de 3,3 V.")
+      .cpp("mostrando(), dormida(), encendida(), alimentada(), madctl(), "
+           "bits_por_pixel(), ordenes(), pixeles(), luz_ma(); color_en(x, y), el color "
+           "que se ve, y memoria(col, fila), lo que hay en la memoria."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        const std::string mem = d.txt("memoria").empty() ? "128x160" : d.txt("memoria");
+        const std::string pan = d.txt("panel").empty() ? "rgb" : d.txt("panel");
+        if (mem != "128x160" && mem != "132x162") {
+            SC_REPORT_ERROR("netlist", ("Tft128x160 '" + d.id + "': memoria=\"" + mem +
+                                        "\" no vale; es 128x160 o 132x162").c_str());
+            return nullptr;
+        }
+        if (pan != "rgb" && pan != "bgr") {
+            SC_REPORT_ERROR("netlist", ("Tft128x160 '" + d.id + "': panel=\"" + pan +
+                                        "\" no vale; es rgb o bgr").c_str());
+            return nullptr;
+        }
+        return new Tft128x160(d.id.c_str(), n[d.nodo_de("vcc")], n[d.nodo_de("gnd")],
+                              n[d.nodo_de("cs")], n[d.nodo_de("reset")], n[d.nodo_de("ad")],
+                              n[d.nodo_de("sda")], n[d.nodo_de("sck")], n[d.nodo_de("led")],
+                              mem == "132x162", pan == "bgr", d.num("vf_luz", 2.9),
+                              d.num("r_luz", 15.0));
     });
 
 REGISTRA_PARTE(Driver,

@@ -309,9 +309,9 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
             en.elemento = e.attr_o("elemento");
             en.efecto = e.attr_o("efecto", "");
             if (!en.efecto.empty() && en.efecto != "brillo" && en.efecto != "hundido" &&
-                en.efecto != "giro" && en.efecto != "ninguno")
+                en.efecto != "giro" && en.efecto != "pantalla" && en.efecto != "ninguno")
                 return donde(e) + "<enlace pieza=\"" + en.pieza + "\">: efecto '" +
-                       en.efecto + "' desconocido (brillo, hundido, giro o ninguno)";
+                       en.efecto + "' desconocido (brillo, hundido, giro, pantalla o ninguno)";
             const std::string q = id_de(en.pieza);
             if (!eq.empty()) return donde(e) + "<enlace>: " + eq;
             if (!nl.busca(q))

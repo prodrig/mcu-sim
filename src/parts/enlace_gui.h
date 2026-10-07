@@ -231,6 +231,7 @@ SC_MODULE(EnlaceGui) {
 
     // --- Lo que ha pasado, para las pruebas y para quien quiera saberlo --------
     uint64_t instantaneas() const { return n_inst_; }
+    uint64_t imagenes() const { return n_img_; }                   // T_IMAGEN mandados
     uint64_t avisos() const { return n_avisos_; }
     uint64_t estados() const { return n_estados_; }
     uint64_t ignorados() const { return n_ignorados_; }
@@ -412,7 +413,7 @@ private:
         if (!fr_.suscribe(periodo, ids)) {
             std::string malos;
             for (uint16_t id : ids)
-                if (!fr_.catalogo().existe_obs(id)) {
+                if (!fr_.catalogo().existe_id(id)) {
                     if (!malos.empty()) malos += ", ";
                     malos += std::to_string(id);
                 }
@@ -463,6 +464,17 @@ private:
             em_.mensaje(sal_, T_INSTANTANEA, c);
             fr_.instantaneas.pop_front();
             ++n_inst_;
+            hubo = true;
+        }
+        // Las imágenes, detrás: con la salida atascada esperan en su cola, y
+        // el muestreador deja de tomar mientras haya dos esperando
+        while (!fr_.imagenes.empty() && (todo || sal_.size() < tope_)) {
+            const ImagenTomada& im = fr_.imagenes.front();
+            std::string c(reinterpret_cast<const char*>(&im.cab), sizeof im.cab);
+            c += im.pix;
+            em_.mensaje(sal_, T_IMAGEN, c);
+            fr_.imagenes.pop_front();
+            ++n_img_;
             hubo = true;
         }
         return hubo;
@@ -623,7 +635,7 @@ private:
                               para_al_perderse_ = false;
     uint64_t                  objetivo_ = 0, n_pausas_ = 0, n_pasos_ = 0;
     std::function<void()>     al_seguir_;
-    uint64_t                  n_inst_ = 0, n_avisos_ = 0, n_estados_ = 0,
+    uint64_t                  n_inst_ = 0, n_img_ = 0, n_avisos_ = 0, n_estados_ = 0,
                               n_ignorados_ = 0, n_subs_ = 0,
                               n_msj_ordenes_ = 0, n_ordenes_ = 0, n_ecos_ = 0;
     sc_core::sc_report_handler_proc anterior_ = nullptr;

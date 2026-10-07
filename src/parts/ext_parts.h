@@ -555,6 +555,27 @@ public:
         a_->set_drive(id_a_, float(vb), ra_);
         b_->set_drive(id_b_, float(va), rb_);
     }
+    // Un DIODO con su resistencia en serie, de a (ánodo) a b (cátodo): conduce
+    // solo si Va - Vb pasa de `vf`, y entonces la rama es la de arriba con una
+    // fuente de `vf` dentro -como el Led con las dos patillas-. Con un extremo
+    // al aire no conduce. Devuelve si conduce.
+    bool resuelve_diodo(bool posible, double vf, double r) {
+        if (!posible) { suelta(); return false; }
+        bool solo_a = false, solo_b = false;
+        const double va0 = double(a_->voltage_excluding(id_a_, solo_a));
+        const double vb0 = double(b_->voltage_excluding(id_b_, solo_b));
+        const double ga  = a_->conductance() - 1.0 / double(ra_);
+        const double gb  = b_->conductance() - 1.0 / double(rb_);
+        if (solo_a || solo_b || ga <= G_FLOAT || gb <= G_FLOAT) { suelta(); return false; }
+        const double rag = 1.0 / ga, rbg = 1.0 / gb;
+        const double i = (va0 - vb0 - vf) / (rag + r + rbg);
+        if (i <= 0.0) { suelta(); return false; }
+        const double va = va0 - i * rag, vb = vb0 + i * rbg;
+        ra_ = rb_ = std::max(0.1f, float(r));
+        a_->set_drive(id_a_, float(vb + vf), ra_);
+        b_->set_drive(id_b_, float(va - vf), rb_);
+        return true;
+    }
     void suelta() {
         a_->set_hiz(id_a_); ra_ = R_HIZ;
         b_->set_hiz(id_b_); rb_ = R_HIZ;

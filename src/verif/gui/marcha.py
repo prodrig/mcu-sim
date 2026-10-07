@@ -23,7 +23,20 @@
 #       T_PING con su T_PONG, una suscripción a un observable que no existe
 #       (T_AVISO, y la anterior sigue), y una vacía que las apaga;
 #   M5  la ventana se va en marcha: mcu-sim lo dice y sigue simulando hasta el
-#       final de su ventana, y termina con código 0.
+#       final de su ventana, y termina con código 0;
+#   M6  LA PANTALLA de `placas/nucleo_f446re_tft.xml`, una TFT de 128x160 con
+#       su ST7735S que dibuja `verif/fw/tft_demo`: la imagen está en el
+#       catálogo, detrás de todos los observables, y se pide en la misma
+#       suscripción; llega en T_IMAGEN solo cuando cambia; blanca mientras el
+#       chip duerme, con ruido al encenderla, y al final el dibujo, píxel a
+#       píxel donde debe estar; el firmware lee su identificación por SDA; y
+#       sin la retroiluminación, o sin alimentación, lo que se vería;
+#   M7  y el CHIP, cosa a cosa, con `verif/fw/tft_prueba` en el mismo montaje:
+#       MADCTL (MX, MY y MV), 18 y 12 bits por píxel, INVON, IDMON, el modo
+#       parcial, el desplazamiento vertical, DISPOFF, SLPIN y SLPOUT, cada uno
+#       en su imagen; las lecturas por SDA -RDDPM, RDDMADCTL, RDDCOLMOD,
+#       RDDIM, RDID1-3, RDDST y RAMRD-; y las órdenes que se pierden por
+#       llegar antes de 5 ms tras el reset.
 #
 # La contrapresión —instantáneas que se tiran, avisos que no— no se puede
 # provocar con fiabilidad desde aquí: el sistema operativo amortigua megas.
@@ -48,7 +61,7 @@ import ventana
 from ventana import (Ventana, arranque, RIT_REAL, check, grupo, arranca, termina, saludo_hasta_listo, fin,
                      suscribe, instantanea, aviso, estado,
                      T_INSTANTANEA, T_AVISO, T_ESTADO, T_PONG, T_FIN, T_ARRANCA, T_PING,
-                     M_VENTANA, RIT_LIBRE, N_AVISO, F_CORRIENDO, F_TERMINADA)
+                     M_VENTANA, RIT_LIBRE, N_AVISO, F_CORRIENDO, F_TERMINADA, T_IMAGEN, imagen)
 
 PLACA = "placas/discovery_min.xml"
 FW = "verif/fw/blinky/blinky.bin"
@@ -302,6 +315,211 @@ def m5_se_va(sim):
             p.kill()
 
 
+# ---------------------------------------------------------------------------
+# M6
+# ---------------------------------------------------------------------------
+TFT = "placas/nucleo_f446re_tft.xml"
+
+
+def pantalla(sim, sistema, ms=600, periodo_ms=50):
+    """Las imágenes y las muestras de `encendida` de T/TFT: (cat, imagenes,
+    instantaneas, rc, out)."""
+    v = Ventana()
+    p = arranca(sim, [sistema, "--ms=%d" % ms, "--serie", "N/VCP=memoria"], v.puerto)
+    try:
+        if not v.acepta():
+            return None
+        _, _, cat, listo = saludo_hasta_listo(v, version=2)
+        pz = [x for x in ET.fromstring(cat).iter("pieza") if x.get("id") == "T/TFT"]
+        if not pz or not listo:
+            return None
+        enc = [int(o.get("id_obs")) for o in pz[0].iter("observable")
+               if o.get("nombre") == "encendida"]
+        img = [int(i.get("id_obs")) for i in pz[0].iter("imagen")]
+        suscribe(v, periodo_ms * 1000000, enc + img)
+        arranque(v)
+        ims, inst = [], []
+        while True:
+            t, c = v.recibe(seg=120)
+            if t is None or t == T_FIN:
+                break
+            if t == T_IMAGEN:
+                ims.append(imagen(c))
+            elif t == T_INSTANTANEA:
+                inst.append(instantanea(c))
+        rc, out, err = termina(p)
+        return cat, ims, inst, rc, out
+    finally:
+        if p.poll() is None:
+            p.kill()
+        v.cierra()
+
+
+def pixel(im, x, y):
+    """El color del punto (x, y) de la pantalla EN SU POSTURA APAISADA -la del
+    dibujo, con MADCTL = 0x60-, que en la imagen de 128x160 es la fila x y la
+    columna 127 - y."""
+    k = (x * 128 + (127 - y)) * 3
+    return tuple(im[6][k:k + 3])
+
+
+def m6_pantalla(sim, cp):
+    grupo("M6 La pantalla TFT: la imagen, cuando cambia, y lo que enseña")
+    r = subprocess.run([sim, "placas/tft_128x160.xml", "--valida"], stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, timeout=60)
+    out = r.stdout.decode("utf-8", "replace")
+    check(r.returncode == 0 and "SIN MCU, 2 componentes, 8 nodos, 0 avisos" in out and
+          "dibujo: tft_128x160.svg" in out,
+          "placas/tft_128x160.xml se valida sin avisos: sus entradas las pone quien la "
+          "conecte; y lleva su dibujo")
+    res = pantalla(sim, TFT)
+    if not check(res is not None, "%s corre con la ventana" % TFT):
+        return
+    cat, ims, inst, rc, out = res
+    raiz = ET.fromstring(cat)
+    n_obs = len(list(raiz.iter("observable")))
+    imgs = [(p.get("id"), i.attrib) for p in raiz.iter("pieza") for i in p.iter("imagen")]
+    check(len(imgs) == 1 and imgs[0][0] == "T/TFT" and imgs[0][1].get("nombre") == "pantalla" and
+          imgs[0][1].get("ancho") == "128" and imgs[0][1].get("alto") == "160" and
+          imgs[0][1].get("formato") == "rgb888" and int(imgs[0][1].get("id_obs")) == n_obs,
+          "el catalogo trae la imagen de la pantalla, 128x160 en RGB888, con el id_obs "
+          "detras de los %d observables: %s" % (n_obs, imgs))
+    ts = [x[0] // 1000000 for x in ims]
+    check(rc == 0 and len(ims) >= 4 and all(t % 50 == 0 for t in ts) and len(ims) < 12 and
+          all(len(x[6]) == 128 * 160 * 3 and x[3:5] == (128, 160) for x in ims),
+          "las imagenes llegan en la rejilla de 50 ms, y SOLO cuando cambian: %d de 12 "
+          "(en %s ms)" % (len(ims), ts))
+    blanca = ims[0][6] == b"\xff" * (128 * 160 * 3)
+    check(ts[0] == 50 and blanca and abs(ims[0][5] - 1.0) < 1e-3,
+          "la primera, a los 50 ms: BLANCA, con la luz entera -la media de los 50 ms: %.4f, "
+          "que la placa tarda unos us en dar tension-. El chip duerme tras el reset y el "
+          "cristal es de los normalmente blancos" % ims[0][5])
+    ruido = [x for x in ims if len(set(x[6][k:k + 3] for k in range(0, len(x[6]), 3))) > 2000]
+    check(len(ruido) >= 1,
+          "al encenderla (DISPON) antes de borrarla, RUIDO: lo que tenga la memoria al dar "
+          "tension")
+    ult = ims[-1]
+    barras = [(255, 255, 255), (255, 255, 0), (0, 255, 255), (0, 255, 0), (255, 0, 255),
+              (255, 0, 0), (0, 0, 255), (0, 0, 0)]
+    vistas = [pixel(ult, 20 * k + 10, 50) for k in range(8)]
+    check(vistas == barras,
+          "al final, las ocho barras de color donde las pinta el firmware, en la postura "
+          "apaisada (MADCTL 0x60): %s" % vistas)
+    check(pixel(ult, 150, 120) == (0, 24, 65) and pixel(ult, 0, 0) == (0, 24, 65),
+          "el fondo, el azul RGB565 (0, 24, 64) del firmware, en 6 bits por color y de vuelta "
+          "a 8: (0, 24, 65)")
+    titulo = sum(1 for x in range(8, 92) for y in range(6, 20) if pixel(ult, x, y) == (255, 255, 255))
+    check(titulo > 150, "y el titulo MCU-SIM en blanco arriba: %d pixeles" % titulo)
+    enc = [m[0][1] for _, _, m in inst]
+    check(enc and enc[0] == 0.0 and enc[-1] == 1.0,
+          "`encendida` empieza a 0 -dormida- y acaba a 1")
+    check("[N/VCP] tft_demo: ST7735S ID 7C89F0" in out,
+          "el firmware lee la identificacion del chip, RDDID, por SDA moviendo los pines a "
+          "mano: 7C89F0")
+    check("TFT T/TFT: ensena su memoria; 16 bits por pixel, MADCTL 0x60" in out and
+          "luz 26.2 mA" in out,
+          "y al acabar, mcu-sim lo dice: ensena su memoria, 16 bits por pixel, MADCTL 0x60, "
+          "y la luz")
+
+    # Sin retroiluminación, y sin alimentación
+    with open(TFT, encoding="utf-8") as f:
+        sis = f.read().replace('fichero="nucleo_f446re.xml"',
+                               'fichero="%s"' % os.path.abspath("placas/nucleo_f446re.xml"))
+        sis = sis.replace('fichero="tft_128x160.xml"',
+                          'fichero="%s"' % os.path.abspath("placas/tft_128x160.xml"))
+        sis = sis.replace('verif/fw/tft_demo/tft_demo.bin',
+                          os.path.abspath("verif/fw/tft_demo/tft_demo.bin"))
+    sin_luz = cp("sin_luz.xml", sis.replace('<hilo a="T/P1.LED"   b="N/CN6.2"/>', ''))
+    res = pantalla(sim, sin_luz, ms=400)
+    if check(res is not None, "sin el hilo de LED corre igual"):
+        _, ims, _, rc, out = res
+        check(ims and all(x[5] == 0.0 for x in ims) and
+              "luz 0.0 mA (a oscuras: negra)" in out,
+              "y sin retroiluminacion la luz de todas las imagenes es 0 -se veria negra-, "
+              "y mcu-sim lo dice")
+    sin_vcc = cp("sin_vcc.xml", sis.replace('<hilo a="T/P1.VCC"   b="N/CN6.4"/>', ''))
+    res = pantalla(sim, sin_vcc, ms=400)
+    if check(res is not None, "sin el hilo de VCC corre igual"):
+        _, ims, _, rc, out = res
+        check(len(ims) == 1 and ims[0][6] == b"\xff" * (128 * 160 * 3) and
+              "TFT T/TFT: sin tension" in out and "ST7735S ID 000000" in out,
+              "y sin alimentacion: el chip no contesta (ID 000000) y se ve BLANCA con la "
+              "luz -el cristal sin tension deja pasar la luz-, una sola imagen")
+
+
+def m7_chip(sim, cp):
+    grupo("M7 El ST7735S, cosa a cosa: MADCTL, formatos, modos, lecturas y el reset")
+    with open(TFT, encoding="utf-8") as f:
+        sis = f.read()
+    for de in ("nucleo_f446re.xml", "tft_128x160.xml"):
+        sis = sis.replace('fichero="%s"' % de,
+                          'fichero="%s"' % os.path.abspath(os.path.join("placas", de)))
+    sis = sis.replace("verif/fw/tft_demo/tft_demo.bin",
+                      os.path.abspath("verif/fw/tft_prueba/tft_prueba.bin"))
+    res = pantalla(sim, cp("prueba.xml", sis), ms=1600, periodo_ms=10)
+    if not check(res is not None and res[3] == 0, "tft_prueba corre 1600 ms con la ventana"):
+        return
+    _, ims, _, rc, out = res
+
+    def en(t_ms):
+        """La imagen que se ve en t_ms: la última que llegó antes"""
+        r = [x for x in ims if x[0] <= t_ms * 1000000]
+        return r[-1] if r else None
+
+    def c(im, x, y):          # la imagen como es: x columna (0-127), y fila (0-159)
+        k = (y * 128 + x) * 3
+        return tuple(im[6][k:k + 3])
+    R, G, B, Y = (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0)
+    M, C, N, W = (255, 0, 255), (0, 255, 255), (0, 0, 0), (255, 255, 255)
+    i = en(490)
+    check(i and [c(i, 5, 5), c(i, 122, 5), c(i, 5, 155), c(i, 5, 50), c(i, 64, 80)] ==
+          [R, G, B, Y, N],
+          "MADCTL: el mismo bloque en la esquina logica (0, 0) cae arriba a la izquierda "
+          "(00h), arriba a la derecha (MX), abajo a la izquierda (MY), y con MV las columnas "
+          "40..59 son las FILAS 40..59")
+    i = en(590)
+    check(i and [c(i, 55, 55), c(i, 75, 55)] == [M, C],
+          "COLMOD 18 bits -un byte por color- y 12 bits -dos pixeles en tres bytes-: "
+          "magenta y cian")
+    i = en(690)
+    check(i and [c(i, 5, 5), c(i, 64, 80), c(i, 55, 55)] == [C, W, G],
+          "INVON: todo invertido -el rojo, cian; el negro, blanco; el magenta, verde-")
+    i = en(790)
+    check(i and [c(i, 105, 105), c(i, 5, 5), c(i, 75, 55)] == [R, R, C],
+          "IDMON, ocho colores: el naranja (200, 100, 30) se ve ROJO -solo el bit alto de "
+          "cada color-, y los colores puros, igual")
+    i = en(890)
+    check(i and [c(i, 5, 5), c(i, 5, 50), c(i, 64, 30), c(i, 64, 20), c(i, 64, 39),
+                 c(i, 64, 40)] == [W, W, N, N, N, W],
+          "el modo parcial, filas 20 a 39: dentro, la memoria; fuera, blanco")
+    i = en(990)
+    check(i and [c(i, 5, 0), c(i, 5, 145), c(i, 5, 150), c(i, 5, 159)] == [N, B, R, R],
+          "el desplazamiento, VSCSAD 10: la linea 0 del panel ensena la fila 10, y la "
+          "roja de arriba aparece abajo, en la 150")
+    blanca = b"\xff" * (128 * 160 * 3)
+    i, j = en(1090), en(1190)
+    check(i and j and i[6] == blanca and j[6] == blanca,
+          "DISPOFF, y despues SLPIN: blanca las dos veces")
+    i = en(1290)
+    check(i and [c(i, 5, 5), c(i, 122, 5), c(i, 105, 105)] == [R, G, (207, 101, 24)],
+          "SLPOUT: otra vez la memoria, como estaba -el naranja ya sin los ocho colores: "
+          "(200, 100, 30) en RGB565, y de 6 bits a 8, (207, 101, 24)-")
+    check("tft_prueba: 0A=9C 0B=00 0C=05 0D=00 DA=7C DB=89 DC=F0 09=80530400 2E=FC0000" in out,
+          "las lecturas por SDA: RDDPM 9C (despierta, normal, encendida), MADCTL 00, COLMOD "
+          "05, RDDIM 00, los tres ID 7C 89 F0, RDDST 80530400 y el pixel (0, 0) con RAMRD, "
+          "rojo en 18 bits: FC 00 00")
+    check("pad: corriente" not in out,
+          "sin peleas en SDA: el firmware la suelta antes de la bajada del ultimo bit de la "
+          "orden, cuando el chip empieza a contestar")
+    i = en(1590)
+    check(i and i[6] == blanca and
+          "orden 0x11 a los 0.0" in out and "y la orden se pierde" in out and
+          "TFT T/TFT: 2 ordenes perdidas por llegar antes de 5 ms tras el reset" in out and
+          "TFT T/TFT: dormida (blanca)" in out,
+          "un RESET y SLPOUT y DISPON sin esperar los 5 ms: el chip no los oye, lo dice, y "
+          "sigue dormido: blanca")
+
+
 def main():
     a = argparse.ArgumentParser(description="mcu-sim-gui en marcha, contra el mcu-sim de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -315,6 +533,17 @@ def main():
     m3_placa(sim)
     m4_en_marcha(sim)
     m5_se_va(sim)
+    tmp = tempfile.mkdtemp(prefix="marcha_")
+    try:
+        def cp(nombre, texto):
+            ruta = os.path.join(tmp, nombre)
+            with open(ruta, "w", encoding="utf-8") as f:
+                f.write(texto)
+            return ruta
+        m6_pantalla(sim, cp)
+        m7_chip(sim, cp)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
     return ventana.resumen("MARCHA")
 
 

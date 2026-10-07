@@ -322,7 +322,7 @@ struct DeclMcu {
 struct EnlaceIlustracion {
     std::string pieza;        // el nombre en SU placa: "LD2", nunca "N/LD2"
     std::string elemento;     // el id en el SVG
-    std::string efecto;       // "", "brillo", "hundido", "giro" o "ninguno"
+    std::string efecto;       // "", "brillo", "hundido", "giro", "pantalla" o "ninguno"
 };
 struct Ilustracion {
     std::string declarada;    // lo que dice el XML, tal cual; vacío si no dice
@@ -1306,10 +1306,14 @@ public:
         };
         std::map<Clave, std::vector<std::string>> activos_c, rieles_c;
         std::map<Clave, unsigned> colgados_c;
+        std::set<Clave> con_conector;
         for (const Instancia& i : inst_) {
             if (!i.pieza) continue;
             for (const Terminal& t : i.pieza->terminales()) {
-                if (t.paso) continue;                   // un pin de conector
+                if (t.paso) {                           // un pin de conector
+                    con_conector.insert(Clave{t.net, t.net ? std::string() : t.nodo});
+                    continue;
+                }
                 const Clave k{t.net, t.net ? std::string() : t.nodo};
                 ++colgados_c[k];
                 if (t.pasivo || t.ids.empty()) continue;
@@ -1355,6 +1359,14 @@ public:
                 (kv.first.net && nets_bus.count(kv.first.net)))
                 continue;
             if (rieles_c.count(kv.first)) continue;     // un raíl con sus cargas
+            // Dos patillas de UNA pieza en el mismo hilo no se pelean: es la
+            // pieza la que decide cómo se reparten -la pantalla con su VCC y
+            // su LED a los 3,3 V-
+            {
+                std::set<std::string> piezas;
+                for (const std::string& q : kv.second) piezas.insert(q.substr(0, q.rfind('.')));
+                if (piezas.size() < 2) continue;
+            }
             std::string quien;
             for (const std::string& q : kv.second) {
                 if (!quien.empty()) quien += " y ";
@@ -1378,6 +1390,10 @@ public:
             // firmware. Se registra con su nombre de placa y no como pin, asi
             // que hay que reconocerlo por la declaracion.
             if (union_de(nom)) continue;
+            // Ni una ENTRADA que sale por un conector de una placa suelta: la
+            // gobierna quien la conecte -el CS de una pantalla-. En un
+            // sistema sí se avisa: ahí se sabe que nadie la ha conectado.
+            if (placas_.empty() && con_conector.count(kv.first)) continue;
             err.push_back("nodo " + nom + ": " + std::to_string(kv.second) +
                           " terminal(es) colgados y ninguno conduce; su tension "
                           "no esta definida");

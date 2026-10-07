@@ -65,7 +65,7 @@ inline bool es_conocido(uint16_t t) {
     switch (t) {
         case T_HOLA: case T_PLACA: case T_CATALOGO: case T_LISTO: case T_ILUSTRACION:
         case T_INSTANTANEA: case T_AVISO: case T_ESTADO: case T_ORDEN_HECHA:
-        case T_PONG: case T_FIN:
+        case T_PONG: case T_IMAGEN: case T_FIN:
         case T_VERSION: case T_SUSCRIBE: case T_ARRANCA: case T_PAUSA:
         case T_SIGUE: case T_PASO: case T_ORDENES: case T_PARA: case T_PING:
             return true;

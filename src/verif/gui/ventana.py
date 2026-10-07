@@ -45,6 +45,7 @@ T_HOLA, T_PLACA, T_CATALOGO, T_LISTO = 0x0001, 0x0002, 0x0003, 0x0004
 T_ILUSTRACION = 0x0005
 T_INSTANTANEA, T_AVISO, T_ESTADO, T_ORDEN_HECHA = 0x0010, 0x0011, 0x0012, 0x0013
 T_PONG, T_FIN = 0x0014, 0x001F
+T_IMAGEN = 0x0015
 T_VERSION, T_SUSCRIBE, T_ARRANCA, T_ORDENES, T_PARA, T_PING = (
     0x8000, 0x8001, 0x8002, 0x8006, 0x8007, 0x8008)
 T_PAUSA, T_SIGUE, T_PASO = 0x8003, 0x8004, 0x8005
@@ -244,6 +245,12 @@ def instantanea(cuerpo):
     t, n, perdidas = struct.unpack("<QII", cuerpo[:16])
     m = [struct.unpack("<HHf", cuerpo[16 + 8 * k:24 + 8 * k]) for k in range(n)]
     return t, perdidas, [(i, v) for i, _, v in m]
+
+
+def imagen(cuerpo):
+    """Un T_IMAGEN: (t_sim_ns, id_obs, formato, ancho, alto, brillo, pixeles)"""
+    t, i, fmt, an, al, br, _ = struct.unpack("<QHHHHfI", cuerpo[:24])
+    return t, i, fmt, an, al, br, cuerpo[24:]
 
 
 def aviso(cuerpo):

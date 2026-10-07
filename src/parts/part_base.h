@@ -43,6 +43,7 @@
 
 #include <systemc>
 #include <algorithm>
+#include <cstdint>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -130,6 +131,16 @@ inline const char* nombre_tipo_mando(Mando::Tipo t) {
     }
     return "?";
 }
+
+// LO QUE UNA PIEZA ENSEÑA: una IMAGEN entera -la pantalla de un TFT-, que no
+// cabe en un número. La declara como un observable, y el catálogo le da un
+// `id_obs` del mismo espacio, detrás de todos los observables; la pantalla la
+// pide en la misma suscripción, y le llega en su propio mensaje, T_IMAGEN,
+// solo cuando cambia (`doc/protocolo.md` §4.1, en mcu-sim-gui).
+struct Imagen {
+    const char* nombre;      // "pantalla"
+    uint16_t    ancho, alto; // en píxeles, como la ve quien la mira
+};
 
 // ---------------------------------------------------------------------------
 // Base de toda pieza externa. No es un sc_module: hay piezas que lo son
@@ -221,6 +232,25 @@ public:
     virtual Mando      mando(unsigned) const { return {"", Mando::Boton, 0.f, 0.f}; }
     virtual float      valor_mando(unsigned i) const { return mando(i).min; }
     virtual void       acciona(unsigned, float) {}
+
+    // --- Imágenes (véase `Imagen` arriba) ----------------------------------
+    // El mismo contrato de consulta pura que los observables, y además:
+    //
+    //   * version_imagen(i) cambia cada vez que cambia lo que pinta
+    //     pinta_imagen(i): es lo que el muestreador mira para no mandar dos
+    //     veces la misma imagen. No tiene que contar de uno en uno;
+    //   * pinta_imagen(i, rgb) deja en `rgb` ancho x alto píxeles RGB888, por
+    //     filas, de arriba abajo: lo que se ve, SIN la luz;
+    //   * la luz va aparte, de 0 a 1: brillo_imagen(i) es la de ahora, y
+    //     luz_acumulada(i) su integral en el tiempo simulado, en segundos,
+    //     desde el principio. Con ella el muestreador saca la luz MEDIA entre
+    //     dos muestras, que es la que ve el ojo cuando la luz va con PWM.
+    virtual unsigned n_imagenes() const { return 0; }
+    virtual Imagen   imagen(unsigned) const { return {"", 0, 0}; }
+    virtual uint64_t version_imagen(unsigned) const { return 0; }
+    virtual void     pinta_imagen(unsigned, std::string& rgb) const { rgb.clear(); }
+    virtual float    brillo_imagen(unsigned) const { return 1.f; }
+    virtual double   luz_acumulada(unsigned) const { return 0.0; }
 
     // --- Inventario y volcado del netlist -----------------------------------
     static const std::vector<ExtPartBase*>& inventario() { return inventario_mut(); }

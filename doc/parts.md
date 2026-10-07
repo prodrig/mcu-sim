@@ -335,7 +335,7 @@ máquina y no ver estos ficheros.
 | `ilustracion="x.svg"` en la `<placa>` | El dibujo, relativo al fichero de la placa |
 | Sin `ilustracion=` | El SVG que **se llame como la placa**, a su lado: `nucleo_f446re.xml` → `nucleo_f446re.svg`. Si no está, no pasa nada |
 | `<placa id="N" fichero="..." ilustracion="y.svg"/>` en un `<sistema>` | El montaje cambia el dibujo de esa placa (relativo al sistema); la tabla de la placa, que era de SU dibujo, no se usa |
-| `<ilustracion><enlace pieza= elemento= [efecto=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido`, `giro` o `ninguno` |
+| `<ilustracion><enlace pieza= elemento= [efecto=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido`, `giro`, `pantalla` o `ninguno` |
 
 **Lo que se comprueba aquí** —el SVG lo lee la ventana—: un dibujo
 **declarado** que no está, uno que no empieza por `<svg` ni por `<?xml`, o uno
@@ -368,6 +368,15 @@ elemento es un círculo centrado en él con todo lo demás dentro. Encima, la ta
 del pulsador, `SW1`, con `hundido`: el clic en la tapa la aprieta, y la rueda
 del ratón **atraviesa** la tapa —un botón no tiene nada que girar— y gira el
 encoder.
+
+**Lo que se ve en una pantalla: el efecto `pantalla`.** Es el de omisión de
+una pieza que enseña una IMAGEN —el `Tft128x160`—: la ventana pinta la imagen
+encima de su elemento, llenando su caja, con su luz. Si el elemento es
+apaisado y la imagen no —o al revés—, la pone girada un cuarto de vuelta a la
+izquierda: la fila de arriba de la imagen queda a la izquierda, y su columna
+izquierda, abajo. `placas/tft_128x160.svg` lleva el vidrio apaisado, con el
+conector a la derecha; un firmware que quiera verlo derecho en esa postura
+pone MADCTL = 0x60.
 
 **Las variantes: lo que depende de cómo está montada la placa.** El puente de
 un `Jumper` no cambia con la simulación, pero sí de una placa a otra, y el
@@ -1394,7 +1403,94 @@ sistema, está en `doc/puente_serie.md`**; con `--espera-terminal`, `mcu-sim` no
 arranca el MCU hasta que el terminal está conectado, y así no se pierde lo que
 el firmware imprime al arrancar.
 
-### 4.10 Lo que `mcu-sim-gui` puede ver y tocar
+### 4.10 La pantalla TFT
+
+#### `Tft128x160`
+
+Una pantalla TFT de 1,8 pulgadas y **128x160** píxeles con su controlador
+**ST7735S**, por **SPI de cuatro hilos**: el módulo rojo de ocho pines, con su
+regulador de 3,3 V y su retroiluminación [ST7735S, Sitronix, v1.1]. Está en
+`parts/tft_st7735.h`.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `vcc` | obligatorio | La alimentación del módulo, de 3,3 a 5 V: va al regulador, que da los 3,3 V del chip. Con menos de 2,65 V el chip no arranca. Consume unos 3 mA |
+| `gnd` | obligatorio | La masa |
+| `cs` | obligatorio | CSX, la selección: con ella alta la interfaz no atiende y se reinicia |
+| `reset` | obligatorio | RESX: un pulso bajo de más de 5 µs reinicia el chip, que no atiende órdenes hasta 5 ms después |
+| `ad` | obligatorio | D/CX —A0, DC o RS en otros módulos—: bajo, el byte es una orden; alto, un dato |
+| `sda` | obligatorio | SDA, el dato. Lo toma en el flanco de subida de SCK, y lo pone el chip al contestar una lectura |
+| `sck` | obligatorio | SCL, el reloj |
+| `led` | obligatorio | La retroiluminación: el ánodo de los LEDs blancos, con su resistencia en la placa. A 3,3 V, unos 26 mA y la luz entera |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `memoria` | `128x160` | Cómo direcciona la memoria el ST7735S: `128x160` (GM = 11: lo visible empieza en la columna 0 y la fila 0) o `132x162` (GM = 00, el de algunos módulos: lo visible empieza en la columna 2 y la fila 1) |
+| `panel` | `rgb` | El orden de los filtros de color del panel, `rgb` o `bgr`. Con uno `bgr` el rojo y el azul salen cambiados si el firmware no pone el bit RGB de MADCTL |
+| `vf_luz` | `2.9` | La tensión de los LEDs de la retroiluminación, en V |
+| `r_luz` | `15` | Su resistencia en la placa, en ohmios |
+
+**Lo que se ve es lo que enseñaría la pantalla de verdad**, y se lo manda a
+la ventana como una IMAGEN de 128x160 (§4.11):
+
+* el chip sin tensión, en reset, dormido —SLPIN, el estado tras arrancar— o
+  con la pantalla apagada —DISPOFF—: **blanca**. El cristal es de los
+  normalmente blancos: sin tensión deja pasar la luz. Es la pantalla blanca
+  que enseña un módulo que nadie ha iniciado;
+* despierto y encendido, **su memoria**, con la geometría de MADCTL (MX, MY,
+  MV), el desplazamiento vertical (SCRLAR, VSCSAD), el modo parcial (PTLAR,
+  PTLON: fuera del área, blanco), los ocho colores (IDMON: el bit alto de cada
+  color), la inversión (INVON) y el orden RGB/BGR del panel contra el bit RGB
+  de MADCTL;
+* la memoria, al dar tensión, tiene lo que tenga: **ruido**. Un firmware que
+  la enciende sin borrarla enseña colores al azar —siempre los mismos—;
+* y todo con la **luz** del pin LED: sin ella, negra. La luz va aparte de los
+  píxeles y es la media entre dos imágenes: con PWM en LED se ve la luz media.
+
+**La interfaz** es la de la hoja [§9.4]: con CSX bajo, cada subida de SCL
+toma un bit de SDA, el más alto primero, y en la octava también D/CX. Un CSX
+que sube a medio byte lo tira [§9.5]; uno que sube entre bytes es una pausa
+[§9.6]. Los formatos de COLMOD —12, 16 y 18 bits por píxel— pasan por la tabla
+de color (RGBSET); mientras nadie la escriba, por la expansión natural de cada
+formato —la hoja dice que al arrancar es aleatoria, pero los módulos de verdad
+pintan bien en 16 bits sin tocarla—. **Las órdenes del sistema están todas**,
+también las de lectura —RDDID, RDDST, RDDPM, RDDMADCTL, RDDCOLMOD, RDDIM,
+RDDSM, RDDSDR, RDID1-3 y RAMRD—, que contestan por SDA poniendo cada bit en la
+bajada de SCL; las de 24 y 32 bits y RAMRD, con un ciclo de reloj vacío
+delante [figura 20]. El ID es 7C 89 F0. Las del panel (B1h-FCh: marco,
+potencia, VCOM, gamma) se aceptan con sus parámetros y no cambian nada de lo
+que se ve.
+
+**Lo que se dice en vez de callar**, un aviso por cosa:
+
+| Qué | Lo que hace el modelo |
+| :--- | :--- |
+| Una orden antes de 5 ms tras soltar RESET [§9.17, nota 7] | La pierde, como el chip, que está cargando sus registros |
+| Una orden antes de los 120 ms de SLPOUT, SLPIN o SWRESET; SLPOUT antes de 120 ms tras el reset | La aplica, pero la hoja no lo garantiza |
+| Un reloj más rápido que la hoja: 66 ns de ciclo al escribir, 150 al leer [§8.4] | Lo atiende igual |
+| Más de VDDI + 0,3 V en una entrada: 5 V en un chip de 3,3 V [§7.1] | Lo atiende igual; este módulo no lleva adaptadores de nivel |
+| Una orden que el ST7735S no tiene, o un COLMOD que no existe | La ignora |
+| TFA + VSA + BFA distinto de las líneas de la memoria [10.1.26] | Desplaza igual; la hoja dice que la imagen no está definida |
+
+**Lo que no se modela**: la gamma y los ajustes de potencia —se aceptan—, la
+salida TE —este módulo no la saca—, el tiempo de refresco del cristal —lo
+escrito se ve en cuanto está escrito— y el autodiagnóstico de SLPOUT (RDDSDR
+lee 0).
+
+Deja ver `encendida` (si enseña su memoria), `luz` (mA) y la imagen
+`pantalla`. Al terminar, `sim` dice cómo ha quedado:
+`TFT T/TFT: ensena su memoria; 16 bits por pixel, MADCTL 0x60; 180 ordenes,
+30816 pixeles; luz 26.2 mA`, y si se perdió alguna orden. Desde C++,
+`mostrando()`, `color_en(x, y)` —el color que se ve— y `memoria(col, fila)`.
+
+`placas/tft_128x160.xml` es el módulo, con el conector de 8 pines `P1` a la
+derecha: VCC, GND, CS, RESET, AD —serigrafiado `A/D`; la barra separa en un
+sistema la placa del nombre—, SDA, SCK y LED. Y
+`placas/nucleo_f446re_tft.xml`, el módulo cableado a los conectores Arduino de
+la Nucleo, con `verif/fw/tft_demo`: lee el ID por SDA, la despierta y dibuja
+—el título, ocho barras de color y un cuadrado que va y viene—.
+
+### 4.11 Lo que `mcu-sim-gui` puede ver y tocar
 
 Desde la fase 1 del plan de `mcu-sim-gui` (P-12), una pieza puede **declarar**
 qué deja ver —sus *observables*— y qué se le puede hacer —sus *mandos*—. La
@@ -1412,6 +1508,18 @@ Lo declaran estas:
 | `Crystal` | `presente` (0/1): si está soldado | — |
 | `Fuente`, `Gnd` | `corriente` (mA, la que entrega o recibe; la escala es ± el límite, o ±100 sin él) y `sobrecorriente` (0/1, **una alarma**: el catálogo la marca con `alarma="si"` y la ventana la pinta en rojo) | — |
 | `Encoder` | `posicion` (de 0 a `pasos − 1`, la que sugiere pintar), `cuenta`, `contacto_a` y `contacto_b` (0/1) | `girar` (discreto, la cuenta de clics, de −30000 a 30000) |
+| `Tft128x160` | `encendida` (0/1, la que sugiere pintar) y `luz` (mA, de 0 a 40); y la IMAGEN `pantalla`, de 128x160 | — |
+
+**Una pieza puede enseñar además una IMAGEN entera** —la pantalla de un
+TFT—, que no cabe en un número (`Imagen` en `parts/part_base.h`). El catálogo
+la declara como `<imagen>`, con un `id_obs` del mismo espacio que los
+observables pero detrás de todos ellos —así los de siempre no se mueven—, y
+la ventana la pide en la misma suscripción. No va en las instantáneas: en
+cada instante de la rejilla, si ha cambiado —su contenido o su luz— desde la
+última que salió, sale en su propio mensaje, `T_IMAGEN`, con los píxeles en
+RGB888 y la luz aparte (`doc/protocolo.md` §4.1 en `mcu-sim-gui`). Con dos
+esperando a una ventana que no lee, la siguiente no se toma: la muestra de
+después mandará la que haya.
 
 `Crystal` no publica la frecuencia por lo mismo que no la lleva como atributo:
 la del HSE es un dato del árbol de reloj y vive en el RCC.
@@ -1446,7 +1554,7 @@ existe—; simplemente no ha hecho falta todavía.
 encender un oscilador, enviar una trama CAN o inyectar una trama Ethernet son
 acciones, no descripción, y viven en el programa que conduce la simulación
 —o, con `--gui`, en la ventana, que las manda como órdenes a los mandos que
-cada pieza declara (§4.10)—.
+cada pieza declara (§4.11)—.
 
 **El MCU no se describe.** Variante, encapsulado y rasgos de los periféricos
 siguen fijados en C++. El fichero describe lo que está fuera del chip.
@@ -1526,8 +1634,8 @@ $ ./build/mcu-sim placas/led_azul_5v.xml verif/fw/blinky/blinky.bin 205
   LED LD_AZUL en PD12: apagado  (3.30 V, 0.00 mA)
 ```
 
-Y la placa entera del banco de pruebas —43 componentes de 20 de los 28 tipos,
-todos menos `Rpull`, `Resistencia`, `Encoder`, `Fuente`, `Gnd`, `Conector`, `Jumper` y `PuenteSerie`, que tiene su propio banco (`testserie`)— se saca
+Y la placa entera del banco de pruebas —43 componentes de 20 de los 29 tipos,
+todos menos `Rpull`, `Resistencia`, `Encoder`, `Tft128x160`, `Fuente`, `Gnd`, `Conector`, `Jumper` y `PuenteSerie`, que tiene su propio banco (`testserie`)— se saca
 del propio modelo, que es la mejor referencia de formato que hay:
 
 ```
