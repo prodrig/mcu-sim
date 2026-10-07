@@ -82,6 +82,7 @@
 #include "../common/gui_destino.h"
 #include "../common/gui_cliente.h"
 #include "../common/serie_destino.h"
+#include "../common/svg_variantes.h"
 #include "soc_f4.h"
 #include "../verif/image_loader.h"
 
@@ -280,6 +281,7 @@ SC_MODULE(Sim) {
     struct DibujoLeido {
         std::vector<std::string> placas;   // ids en el sistema; "" en una placa suelta
         std::string ruta, svg;
+        std::map<std::string, std::string> variantes;   // las de sus piezas
     };
     std::vector<DibujoLeido> dibujos;
     // Un dibujo de placa es un dibujo, no una foto en alta resolucion: mucho
@@ -559,14 +561,29 @@ SC_MODULE(Sim) {
             const size_t b = r.find_last_of("/\\");
             return b == std::string::npos ? r : r.substr(b + 1);
         };
+        // Las variantes de las piezas de una placa -el puente de un Jumper-,
+        // por su id en ella: lo que su dibujo tiene que enseñar
+        auto variantes = [&](const std::string& id) {
+            std::map<std::string, std::string> v;
+            for (const Instancia& i : placa.instancias()) {
+                const std::string x = Netlist::variante(i);
+                if (x.empty()) continue;
+                if (!sis) v[i.id] = x;
+                else if (placa.placa_de(i.id) == id) v[i.id.substr(id.size() + 1)] = x;
+            }
+            return v;
+        };
         auto mira = [&](const std::string& id, const Ilustracion& il) {
             const std::string quien = sis ? "dibujo " + id : std::string("dibujo");
             if (il.ruta.empty()) {
                 if (sis) std::printf("  %s: ninguno\n", quien.c_str());
                 return;
             }
+            // El mismo fichero con las mismas variantes es el mismo dibujo; con
+            // otras -dos adaptadores con el jumper distinto- es otro
+            const std::map<std::string, std::string> var = variantes(id);
             for (DibujoLeido& d : dibujos)
-                if (d.ruta == il.ruta) {
+                if (d.ruta == il.ruta && d.variantes == var) {
                     std::printf("  %s: %s, el mismo que %s\n", quien.c_str(),
                                 base(il.ruta).c_str(), d.placas[0].c_str());
                     d.placas.push_back(id);
@@ -600,9 +617,12 @@ SC_MODULE(Sim) {
                       " no parece un SVG (no empieza por <svg ni por <?xml): no se manda");
                 return;
             }
-            std::printf("  %s: %s (%u kB)\n", quien.c_str(), base(il.ruta).c_str(),
-                        unsigned((svg.size() + 1023) / 1024));
-            dibujos.push_back({{id}, il.ruta, std::move(svg)});
+            std::string con;
+            for (const auto& kv : var) con += ", " + kv.first + " " + kv.second;
+            std::printf("  %s: %s (%u kB%s)\n", quien.c_str(), base(il.ruta).c_str(),
+                        unsigned((svg.size() + 1023) / 1024), con.c_str());
+            svg = quita_variantes(svg, var);
+            dibujos.push_back({{id}, il.ruta, std::move(svg), var});
         };
         if (sis)
             for (const PlacaDeSistema& p : placa.placas()) mira(p.id, p.ilustracion);

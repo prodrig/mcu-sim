@@ -359,6 +359,18 @@ el MCU en reset mientras se mantiene —el LED, apagado— y al soltarlo arranca
 desde la flash, como en la tarjeta. La Discovery ya tenía su `B2`; le faltaba
 un dibujo donde tocarlo.
 
+**Las variantes: lo que depende de cómo está montada la placa.** El puente de
+un `Jumper` no cambia con la simulación, pero sí de una placa a otra, y el
+dibujo tiene que enseñarlo donde está. El SVG lleva **todas** las posiciones,
+cada una con un id `PIEZA@valor` —`JP1@5V-VCC`, `JP1@VCC-3.3V`—, y `mcu-sim`,
+antes de mandarlo, deja solo la de la placa y quita las demás con todo lo que
+llevan dentro (`common/svg_variantes.h`). La ventana recibe un SVG normal y no
+sabe nada de esto. La consola lo dice: `dibujo: ftdi_ft232rl.svg (10 kB, JP1
+5V-VCC)`. Dos placas con el mismo dibujo y el jumper distinto reciben dos
+dibujos. Un detalle de autor: la ventana pinta cada pieza con lo que lleva
+**dentro**, así que las variantes de `JP1` van dentro del elemento `JP1`; fuera,
+quedarían debajo de él.
+
 ---
 
 ## 3. Parámetros comunes
@@ -754,6 +766,34 @@ soldar a `VDD`, `VSS` (la masa del chip), `NRST`, `BOOT0` o cualquiera de los
 diez pads de alimentación y arranque, y llevarlos así a otra placa o unirlos
 con los de otro chip: con el NRST compartido, un reset de una placa resetea a
 las dos.
+
+#### `Jumper`
+
+Un **jumper**: una tira de pines como un `Conector` —con su forma, sus números
+y sus nombres—, y un **puente** puesto, la pieza de plástico que une dos pines
+vecinos. Los dos son el mismo nodo, como si un `<hilo>` los uniera dentro de la
+placa, y eso se resuelve antes de construir: el puente no se mueve con la
+simulación en marcha.
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `puente` | *(obligatorio)* | **Los dos pines que une**, por nombre o por número: `"5V VCC"`. Tienen que ser vecinos —uno al lado del otro en la misma fila o columna—. `"no"`: sin puente |
+| `columnas`, `filas`, `numeracion`, `nombres` | como en `Conector` | La forma de la tira y los nombres de sus pines |
+
+```xml
+<!-- El jumper de un adaptador FT232RL: 5V arriba, VCC en medio, 3.3V abajo -->
+<nodo id="VCC"/>
+<componente tipo="Jumper" id="JP1" filas="3" columnas="1"
+            nombres="5V VCC 3.3V" puente="5V VCC">
+  <pin nombre="VCC" nodo="VCC"/>
+</componente>
+```
+
+Son errores un `puente=` que falta, que no son dos pines, un pin que el jumper
+no tiene, un pin consigo mismo y dos pines que no están uno al lado del otro.
+En el dibujo, el puente es una **variante** (§2.6): `JP1@5V-VCC` —los dos pines
+por orden de pin, con un guion— y `mcu-sim` manda la que dice `puente=`.
+`placas/ftdi_ft232rl.xml` es el ejemplo.
 
 #### `Rpull`
 
@@ -1222,6 +1262,7 @@ ve basura y levanta FE/NF**, como en la placa.
 | `cts` | opcional | Lee el RTS del MCU. Pasivo. Imprescindible con `flujo="rtscts"` |
 | `rts` | opcional | Gobierna el CTS del MCU: bajo = puede mandar |
 | `dtr` | opcional | Alta en reposo, baja si el anfitrión activa DTR (por RFC 2217) |
+| `vccio` | opcional | **La alimentación de sus patillas**, como el VCCIO de un FT232R: si está, el nivel alto de `tx`, `rts` y `dtr` y el umbral de `rx` y `cts` son los de ese nodo, y lo siguen si cambia; y sus entradas, `rx` y `cts`, llevan el pull-up de 200 kΩ a VCCIO del chip. Sin ella, 3,3 V y entradas sin pull-up |
 
 Hace falta al menos `rx` o `tx`. Los nombres son los del **adaptador**, como
 vienen serigrafiados en uno de verdad: su `rx` va al TX del MCU.

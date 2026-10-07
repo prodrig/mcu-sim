@@ -317,9 +317,12 @@ public:
 // ---------------------------------------------------------------------------
 class Conector : public ExtPartBase {
 public:
+    // `tipo` es "Conector" o "Jumper": un jumper es un conector con un puente
+    // puesto, y el puente lo resuelve el netlist, como los acoples
     Conector(unsigned filas, unsigned columnas, bool zigzag,
-             const std::vector<std::pair<std::string, analog_net_if*>>& pines)
-        : ExtPartBase("Conector", nullptr), filas_(filas), columnas_(columnas),
+             const std::vector<std::pair<std::string, analog_net_if*>>& pines,
+             const char* tipo = "Conector")
+        : ExtPartBase(tipo, nullptr), filas_(filas), columnas_(columnas),
           zigzag_(zigzag) {
         for (const auto& p : pines) {
             if (!p.second) continue;

@@ -378,8 +378,9 @@ REGISTRA_PARTE(Conector,
            "nombres=\"COM D1 D2\", el pin 1 es `P1.COM` y SOLO asi -`P1.1` "
            "seria el pad PB1-. El numero sigue mandando en la forma: el 1 es "
            "el primero, y al acoplar el 1 va con el 1. Un nombre empieza por "
-           "letra, y no puede hacer de `ID.nombre` un pad ni una patilla de "
-           "alimentacion (`P1.VDD`).")
+           "letra -letras, cifras, '_', '.' y '+': `COM`, `5V`, `3.3V`-, y no "
+           "puede hacer de `ID.nombre` un pad ni una patilla de alimentacion "
+           "(`P1.VDD`).")
       .nota("Dos conectores se ENCHUFAN en un <sistema> con <acopla a=\"A/CN9\" "
             "b=\"B/J1\"/>: el pin k de uno queda unido al k del otro, o en "
             "espejo -espejo=\"si\", dos placas cara a cara- al que le cae "
@@ -400,6 +401,48 @@ REGISTRA_PARTE(Conector,
         for (const Conexion& c : d.pines)
             pines.emplace_back(c.pin, n.existe(c.nodo) ? &n[c.nodo] : nullptr);
         return new Conector(g.filas, g.columnas, g.zigzag, pines);
+    });
+
+REGISTRA_PARTE(Jumper,
+    Ayuda("Un jumper: una tira de pines como un Conector -con su forma, sus "
+          "numeros y sus nombres- y un PUENTE puesto, la pieza de plastico que "
+          "une dos pines vecinos. Los dos son el mismo nodo, como si un hilo los "
+          "uniera dentro de la placa. Es lo que elige, por ejemplo, la tension "
+          "de un adaptador USB-serie: 5V o 3.3V a VCC.")
+      .ejemplo("<componente tipo=\"Jumper\" id=\"JP1\" filas=\"3\" columnas=\"1\"\n"
+               "            nombres=\"5V VCC 3.3V\" puente=\"5V VCC\">\n"
+               "  <pin nombre=\"VCC\" nodo=\"VCC\"/>\n"
+               "</componente>")
+      .pin("1..N o su nombre", "los que se usen",
+           "Como en un Conector: cada pin, por su numero o su nombre, al nodo "
+           "al que va soldado; uno sin soldar es `ID.nombre`, al aire.")
+      .atr("puente", "(obligatorio)",
+           "LOS DOS PINES QUE UNE EL PUENTE, por nombre o por numero: "
+           "\"5V VCC\". Tienen que ser vecinos -uno al lado del otro en la "
+           "misma fila o en la misma columna-, que es donde cabe el puente. "
+           "\"no\": el jumper sin puente, y cada pin por su lado.")
+      .atr("columnas, filas, numeracion, nombres", "como en Conector",
+           "La forma de la tira y los nombres de sus pines.")
+      .nota("EL DIBUJO ENSEÑA EL PUENTE QUE HAY. Un elemento del SVG con id "
+            "`JP1@5V-VCC` -el id del jumper, una arroba y los dos pines unidos "
+            "por orden de pin, con un guion- es como se ve el puente en esa "
+            "posicion, y `JP1@no` como se ve sin puente. mcu-sim manda a la "
+            "ventana el dibujo con el de la posicion que dice puente= y sin los "
+            "demas: cambiar el jumper en el XML cambia el dibujo.")
+      .nota("El puente no se mueve con la simulacion en marcha: une dos nodos "
+            "antes de construir, como un <hilo>.")
+      .cpp("filas(), columnas(), n_pines() y zigzag(), como un Conector."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        GeomConector g;
+        const std::string e = Netlist::geometria(d, g);
+        if (!e.empty()) {
+            SC_REPORT_ERROR("netlist", ("Jumper '" + d.id + "': " + e).c_str());
+            return nullptr;
+        }
+        std::vector<std::pair<std::string, analog_net_if*>> pines;
+        for (const Conexion& c : d.pines)
+            pines.emplace_back(c.pin, n.existe(c.nodo) ? &n[c.nodo] : nullptr);
+        return new Conector(g.filas, g.columnas, g.zigzag, pines, "Jumper");
     });
 
 REGISTRA_PARTE(Rpull,
@@ -652,6 +695,12 @@ REGISTRA_PARTE(PuenteSerie,
            "Gobierna el CTS del MCU: bajo = puede mandar.")
       .pin("dtr", "opcional",
            "Alta en reposo; baja si el anfitrion activa DTR (RFC 2217).")
+      .pin("vccio", "opcional",
+           "La alimentacion de sus patillas, como el VCCIO de un FT232R: si "
+           "esta, el nivel alto de tx, rts y dtr y el umbral de rx y cts son "
+           "los de este nodo, y lo siguen si cambia; y rx y cts llevan el "
+           "pull-up de 200 kohm a VCCIO del chip. Sin ella, 3,3 V y sin "
+           "pull-ups.")
       .atr("host", "rfc2217:3355",
            "A donde van los bytes: memoria, tcp:PUERTO (en crudo) o "
            "rfc2217:PUERTO (Telnet con la opcion 44: el terminal puede cambiar "
@@ -709,7 +758,7 @@ REGISTRA_PARTE(PuenteSerie,
             return s.empty() ? nullptr : &n[s];
         };
         return new PuenteSerie(d.id.c_str(), nodo("rx"), nodo("tx"), nodo("cts"),
-                               nodo("rts"), nodo("dtr"), c);
+                               nodo("rts"), nodo("dtr"), c, nodo("vccio"));
     });
 
 REGISTRA_PARTE(SdCard,

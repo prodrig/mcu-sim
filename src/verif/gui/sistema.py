@@ -39,6 +39,9 @@
 #   C12 los pines de conector con NOMBRE (`nombres="COM D1 ..."`) y sus
 #       errores; los morpho CN7 y CN10 de la Nucleo, cada pin a su pad; y
 #       placas/nucleo_f446re_barra8ac_azul.xml, la barra azul por los morpho.
+#   C13 placas/ftdi_ft232rl.xml, el adaptador USB-serie: el Jumper que elige
+#       VCC -5 V o 3,3 V-, el VCCIO del puente UART que lo sigue, sus errores,
+#       el dibujo con el puente donde esta, y una Nucleo hablando por el.
 #
 #   make -f Makefile.mcu-sim gui-sistema
 #   python3 verif/gui/sistema.py [--sim build/mcu-sim]
@@ -815,7 +818,8 @@ def c12_nombres_y_morpho(sim, cp):
     malas = [
         ('nombres="A B C"', "hay 3 y el conector tiene 4", "tres nombres para cuatro pines"),
         ('nombres="A B A C"', "'A' esta dos veces", "un nombre repetido"),
-        ('nombres="A 2B C D"', "'2B' no vale", "un nombre que empieza por cifra"),
+        ('nombres="A 7 C D"', "'7' no vale", "un nombre que es un numero"),
+        ('nombres="A B$ C D"', "'B$' no vale", "un nombre con un caracter que no vale"),
         ('nombres="A VDD C D"', "seria la patilla VDD de un MCU 'X'",
          "un nombre que haria de X.VDD la alimentacion de un chip"),
         ('nombres="A PA0 C D"', "seria el nombre de un pad",
@@ -915,6 +919,107 @@ def c12_nombres_y_morpho(sim, cp):
 
 
 # ---------------------------------------------------------------------------
+# C13
+# ---------------------------------------------------------------------------
+def ftdi(cp, puente="5V VCC", nombre="ftdi.xml"):
+    """placas/ftdi_ft232rl.xml con el puente que se pida y el puente UART en
+    memoria, tecleando "eco": una copia en la carpeta de la prueba, con su
+    dibujo al lado"""
+    with open(os.path.join(SRC, "placas", "ftdi_ft232rl.xml"), encoding="utf-8") as f:
+        x = f.read()
+    x = x.replace('puente="5V VCC"', 'puente="%s"' % puente)
+    x = x.replace('host="rfc2217:3356"', 'host="memoria" guion="eco\\r\\n" guion_ms="20"')
+    x = x.replace('baudios="host"', 'baudios="115200"')
+    shutil.copy(os.path.join(SRC, "placas", "ftdi_ft232rl.svg"),
+                os.path.join(cp.d, nombre[:-4] + ".svg"))
+    return cp.escribe(nombre, x)
+
+
+# Un banco sin MCU: lo que hay en VCC, en TX y en DTR, con un LED de
+# 100 kohm en cada uno, que mide sin cargar
+SIS_FTDI = """<sistema nombre="banco-ftdi">
+  <placa id="F" fichero="%s"/>
+  <placa id="M">
+    <componente tipo="Conector" id="J" filas="1" columnas="3"/>
+    <componente tipo="Led" id="VCC" a_vss="si" r="100000"><pin nombre="anodo" nodo="J.1"/></componente>
+    <componente tipo="Led" id="TX" a_vss="si" r="100000"><pin nombre="anodo" nodo="J.2"/></componente>
+    <componente tipo="Led" id="DTR" a_vss="si" r="100000"><pin nombre="anodo" nodo="J.3"/></componente>
+  </placa>
+  <hilo a="F/P1.VCC" b="M/J.1"/>
+  <hilo a="F/P1.TX" b="M/J.2"/>
+  <hilo a="F/P1.DTR" b="M/J.3"/>
+</sistema>
+"""
+
+
+def c13_ftdi(sim, cp):
+    grupo("C13 El adaptador USB-serie FT232RL, y su jumper de 5V o 3.3V")
+    rc, out, err = corre(sim, ["placas/ftdi_ft232rl.xml", "--valida"])
+    check(rc == 0 and "placa 'ftdi-ft232rl': SIN MCU, 6 componentes, 7 nodos, 0 avisos" in out
+          and "dibujo: ftdi_ft232rl.svg (" in out and "JP1 5V-VCC)" in out and
+          "serie U1: RFC 2217 en localhost:3356" in out,
+          "placas/ftdi_ft232rl.xml valida sin un aviso -sus entradas RX y CTS llevan el "
+          "pull-up a VCCIO-, con su dibujo y el puente que dice el jumper, y el puente UART "
+          "en el 3356")
+
+    medidas = {}
+    for puente in ("5V VCC", "VCC 3.3V", "no"):
+        f = cp.escribe("banco_ftdi.xml", SIS_FTDI % ftdi(cp, puente))
+        rc, out, err = corre(sim, [f, "--ms=2"])
+        medidas[puente] = [medida(out, "M/%s" % x) for x in ("VCC", "TX", "DTR")] \
+            if rc == 0 else None
+    check(medidas["5V VCC"] == ["5.00 V, 0.03 mA"] * 3,
+          "puente en 5V-VCC: VCC a 5 V, y TX y DTR en reposo tambien, que VCC es el VCCIO "
+          "del FT232RL: %s" % medidas["5V VCC"])
+    check(medidas["VCC 3.3V"] == ["3.30 V, 0.01 mA"] * 3,
+          "en VCC-3.3V, todo a 3,3 V: %s" % medidas["VCC 3.3V"])
+    check(medidas["no"] is not None and medidas["no"][0] == "0.00 V, 0.00 mA",
+          "y sin puente, VCC al aire: %s" % medidas["no"])
+
+    for puente, dice, que in (("5V 3.3V", "no estan uno al lado del otro",
+                               "un puente entre dos pines que no son vecinos"),
+                              ("5V GND", "'GND' no es ningun pin del jumper",
+                               "un pin que el jumper no tiene"),
+                              ("VCC VCC", "un pin no se une consigo mismo", "un pin consigo"),
+                              ("5V", "dos pines", "un pin solo")):
+        rc, out, err = corre(sim, [ftdi(cp, puente), "--valida"])
+        check(rc != 0 and dice in out + err, "%s: error que lo dice" % que)
+    f = cp.escribe("sin_puente.xml", '<placa nombre="j"><componente tipo="Jumper" id="J" '
+                   'columnas="2"/></placa>')
+    rc, out, err = corre(sim, [f, "--valida"])
+    check(rc != 0 and "falta puente=" in out + err,
+          "un Jumper sin puente= es un error: hay que decir como esta puesto")
+
+    # El dibujo: de las dos posiciones del puente, la que dice puente=
+    vistos = []
+    for puente in ("5V VCC", "VCC 3.3V", "no"):
+        rc, out, placa, il, av = saludo_con_dibujos(sim, [ftdi(cp, puente)])
+        svg = il[0][1] if rc == 0 and len(il) == 1 else b""
+        vistos.append((b'id="JP1@5V-VCC"' in svg, b'id="JP1@VCC-3.3V"' in svg,
+                       b'id="JP1.VCC"' in svg and b'id="U1"' in svg))
+    check(vistos == [(True, False, True), (False, True, True), (False, False, True)],
+          "la ventana recibe el dibujo con el puente donde esta -5V-VCC, VCC-3.3V o "
+          "ninguno- y sin la otra posicion; lo demas, entero: %s" % vistos)
+
+    # Con una Nucleo: el MCU habla por el adaptador
+    nucleo = os.path.join(SRC, "placas", "nucleo_f446re.xml")
+    f = cp.escribe("nucleo_ftdi.xml", """<sistema nombre="nucleo-ftdi">
+  <placa id="N" fichero="%s"/>
+  <placa id="F" fichero="%s"/>
+  <hilo a="F/P1.RX" b="N/CN9.2"/>
+  <hilo a="F/P1.TX" b="N/CN9.1"/>
+  <hilo a="F/P1.GND" b="N/CN6.6"/>
+  <mcu ref="N/u0" firmware="verif/fw/vcp_demo/vcp_demo.bin"/>
+</sistema>
+""" % (nucleo, ftdi(cp, "VCC 3.3V")))
+    rc, out, err = corre(sim, [f, "--ms=60"])
+    check(rc == 0 and "[F/U1] vcp_demo listo" in out and "[F/U1] eco" in out and
+          "5 hacia el MCU" in out,
+          "una Nucleo con el adaptador en D0/D1 y la masa: vcp_demo saluda por el, y el "
+          "\"eco\" que teclea el adaptador vuelve")
+
+
+# ---------------------------------------------------------------------------
 def main():
     a = argparse.ArgumentParser(description="conectores y sistemas de placas")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -938,6 +1043,7 @@ def main():
         c10_dibujos(sim, cp)
         c11_barra(sim, cp)
         c12_nombres_y_morpho(sim, cp)
+        c13_ftdi(sim, cp)
     finally:
         cp.borra()
     return ventana.resumen("SISTEMA")

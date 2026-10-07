@@ -100,11 +100,26 @@ inline bool alim_desde_nombre(const std::string& s, std::string& mcu,
 // nombre es `ID.nombre` -`P1.COM`- y SOLO así: `P1.1` sería el pad PB1. El
 // número sigue mandando en la geometría -el 1 es el de la izquierda, y al
 // acoplar el 1 va con el 1-, y el nombre es como se le llama.
+//
+// UN JUMPER es un conector con un puente puesto (`puente="5V VCC"`): dos pines
+// vecinos que la pieza de plástico une. Son el mismo nodo, como si un <hilo>
+// los uniera dentro de la placa; `puente_a` y `puente_b` dicen cuáles (0 si
+// no tiene puente).
 // ---------------------------------------------------------------------------
+inline bool es_conector(const std::string& tipo) {
+    return tipo == "Conector" || tipo == "Jumper";
+}
+
 struct GeomConector {
     unsigned filas = 1, columnas = 0;
     bool     zigzag = true;
     std::vector<std::string> nombres;     // vacío: todos por número
+    unsigned puente_a = 0, puente_b = 0;  // un Jumper: los dos pines unidos
+    // El puente de un Jumper escrito como lo lleva el dibujo: `5V-VCC`, por
+    // orden de pin; `no` sin puente (vease Netlist::variante)
+    std::string puente() const {
+        return puente_a ? pin_k(puente_a) + "-" + pin_k(puente_b) : std::string("no");
+    }
     unsigned n() const { return filas * columnas; }
     // Cómo se llama el pin k: su nombre, o su número
     std::string pin_k(unsigned k) const {
@@ -623,7 +638,7 @@ public:
     // `resuelve_alias()` no toca la placa: las de siempre salen idénticas.
     bool hay_alias() const {
         if (!hilos_.empty() || !acoples_.empty()) return true;
-        for (const Instancia& i : inst_) if (i.tipo == "Conector") return true;
+        for (const Instancia& i : inst_) if (es_conector(i.tipo)) return true;
         return false;
     }
     // El nombre con el que quedó un nodo tras resolver: el de su clase.
@@ -656,13 +671,19 @@ public:
             std::set<std::string> vistos;
             while (is >> t) {
                 if (t == "-") { g.nombres.push_back(std::string()); continue; }
-                bool bien = (t[0] >= 'A' && t[0] <= 'Z') || (t[0] >= 'a' && t[0] <= 'z');
-                for (char ch : t)
-                    bien = bien && ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
-                                    (ch >= '0' && ch <= '9') || ch == '_');
-                if (!bien)
-                    return "nombres: '" + t + "' no vale: una letra y luego letras, "
-                           "cifras o '_' (y '-' para un pin sin nombre)";
+                // Letras, cifras, '_', '.' y '+', con al menos una letra -un
+                // numero solo seria otro pin- y sin un '.' en los extremos:
+                // `COM`, `D1`, `5V`, `3.3V`, `+3V3`
+                bool bien = t.front() != '.' && t.back() != '.', letra = false;
+                for (char ch : t) {
+                    const bool l = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
+                    letra = letra || l;
+                    bien = bien && (l || (ch >= '0' && ch <= '9') || ch == '_' || ch == '.' ||
+                                    ch == '+');
+                }
+                if (!bien || !letra)
+                    return "nombres: '" + t + "' no vale: letras, cifras, '_', '.' o '+', "
+                           "con al menos una letra (y '-' para un pin sin nombre)";
                 if (!vistos.insert(t).second)
                     return "nombres: '" + t + "' esta dos veces";
                 g.nombres.push_back(t);
@@ -672,7 +693,55 @@ public:
                        "conector tiene " + std::to_string(g.n()) + " pines; uno por pin, "
                        "y '-' para el que no lo lleva";
         }
+        // El puente de un Jumper: dos pines vecinos, por nombre o por número,
+        // o "no". Es obligatorio: un jumper sin decir como esta puesto es la
+        // mitad de la placa sin decir
+        g.puente_a = g.puente_b = 0;
+        if (i.tipo == "Jumper") {
+            if (!i.params.count("puente"))
+                return "falta puente=\"A B\": los dos pines que une el puente (o "
+                       "puente=\"no\" si no lleva)";
+            const std::string pt = i.txt("puente");
+            if (pt != "no") {
+                std::istringstream is(pt);
+                std::vector<std::string> ps;
+                std::string t;
+                while (is >> t) ps.push_back(t);
+                if (ps.size() != 2)
+                    return "puente=\"" + pt + "\" no vale: dos pines, \"A B\", o \"no\"";
+                unsigned k[2] = {0, 0};
+                for (int j = 0; j < 2; ++j) {
+                    for (unsigned q = 1; q <= g.n() && !k[j]; ++q)
+                        if (g.pin_k(q) == ps[j]) k[j] = q;
+                    if (!k[j])
+                        return "puente: '" + ps[j] + "' no es ningun pin del jumper";
+                }
+                if (k[0] == k[1]) return "puente: un pin no se une consigo mismo";
+                unsigned f0 = 0, c0 = 0, f1 = 0, c1 = 0;
+                g.fila_col(k[0], f0, c0);
+                g.fila_col(k[1], f1, c1);
+                const bool vecinos = (f0 == f1 && (c0 + 1 == c1 || c1 + 1 == c0)) ||
+                                     (c0 == c1 && (f0 + 1 == f1 || f1 + 1 == f0));
+                if (!vecinos)
+                    return "puente: " + ps[0] + " y " + ps[1] + " no estan uno al lado "
+                           "del otro, y un puente solo une dos pines vecinos";
+                g.puente_a = std::min(k[0], k[1]);
+                g.puente_b = std::max(k[0], k[1]);
+            }
+        }
         return std::string();
+    }
+
+    // LA VARIANTE de una pieza: lo que su dibujo tiene que enseñar segun como
+    // esta montada. Hoy solo la tiene un Jumper -su puente, `5V-VCC` o `no`-,
+    // y la usa quien manda el dibujo a la ventana: de los elementos
+    // `ID@valor` del SVG deja solo el de la variante (svg_variantes.h).
+    // Vacia: la pieza no tiene variantes.
+    static std::string variante(const Instancia& i) {
+        if (i.tipo != "Jumper") return std::string();
+        GeomConector g;
+        if (!geometria(i, g).empty()) return std::string();
+        return g.puente();
     }
 
     // EL PAD FÍSICO detrás de un nombre: "u0:37" para un pad de puerto,
@@ -742,7 +811,7 @@ public:
 
         // 1. Cada conector: sus N pines, con su nodo o al aire
         for (Instancia& i : inst_) {
-            if (i.tipo != "Conector") continue;
+            if (!es_conector(i.tipo)) continue;
             GeomConector g;
             const std::string e = geometria(i, g);
             if (!e.empty()) { err.push_back(i.id + ": " + e); continue; }
@@ -808,6 +877,8 @@ public:
                 if (it != dado.end() && it->second != nm) pares.emplace_back(nm, it->second);
                 todos.push_back(Conexion{g.pin_k(k), nm});
             }
+            // El puente de un Jumper: sus dos pines, el mismo nodo
+            if (g.puente_a) pares.emplace_back(g.nodo(i.id, g.puente_a), g.nodo(i.id, g.puente_b));
             i.pines = todos;
         }
 
@@ -1447,7 +1518,7 @@ public:
                         os << "    <mcu ref=\"" << xml_escapa(m.id) << "\" tipo=\""
                            << xml_escapa(m.tipo) << "\"/>\n";
                 for (const Instancia& i : inst_) {
-                    if (i.tipo != "Conector" || placa_de(i.id) != p.id) continue;
+                    if (!es_conector(i.tipo) || placa_de(i.id) != p.id) continue;
                     GeomConector g;
                     if (!geometria(i, g).empty()) continue;
                     os << "    <conector ref=\"" << xml_escapa(i.id) << "\" filas=\""
