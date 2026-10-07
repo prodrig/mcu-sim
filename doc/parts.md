@@ -335,7 +335,7 @@ máquina y no ver estos ficheros.
 | `ilustracion="x.svg"` en la `<placa>` | El dibujo, relativo al fichero de la placa |
 | Sin `ilustracion=` | El SVG que **se llame como la placa**, a su lado: `nucleo_f446re.xml` → `nucleo_f446re.svg`. Si no está, no pasa nada |
 | `<placa id="N" fichero="..." ilustracion="y.svg"/>` en un `<sistema>` | El montaje cambia el dibujo de esa placa (relativo al sistema); la tabla de la placa, que era de SU dibujo, no se usa |
-| `<ilustracion><enlace pieza= elemento= [efecto=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido` o `ninguno` |
+| `<ilustracion><enlace pieza= elemento= [efecto=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido`, `giro` o `ninguno` |
 
 **Lo que se comprueba aquí** —el SVG lo lee la ventana—: un dibujo
 **declarado** que no está, uno que no empieza por `<svg` ni por `<?xml`, o uno
@@ -358,6 +358,16 @@ masa—, por mucho que estuviera dibujado. Con él, pulsarlo en la ventana tiene
 el MCU en reset mientras se mantiene —el LED, apagado— y al soltarlo arranca
 desde la flash, como en la tarjeta. La Discovery ya tenía su `B2`; le faltaba
 un dibujo donde tocarlo.
+
+**Lo que gira: el efecto `giro`.** Solo lo pone la tabla de enlaces. El
+elemento gira sobre el centro de su caja con el primer numérico que la pieza
+sugiere, tomado como posiciones enteras de `min` a `max` —una vuelta son
+`max - min + 1`—. Es el anillo del mando de `placas/ky040.svg`, que sigue a la
+`posicion` del `Encoder`: 12° por clic. Para que gire sobre el eje, el
+elemento es un círculo centrado en él con todo lo demás dentro. Encima, la tapa
+del pulsador, `SW1`, con `hundido`: el clic en la tapa la aprieta, y la rueda
+del ratón **atraviesa** la tapa —un botón no tiene nada que girar— y gira el
+encoder.
 
 **Las variantes: lo que depende de cómo está montada la placa.** El puente de
 un `Jumper` no cambia con la simulación, pero sí de una placa a otra, y el
@@ -859,6 +869,86 @@ y 0,60 mA** por el LED, que luce débil porque un pull-up de 4,7 kΩ no da para
 más. Con `v="3.3"` bajan a 2,09 V y 0,26 mA; con `v="1.8"`, por debajo de la Vf,
 el LED no conduce y el nodo se queda en 1,80 V.
 
+#### `Resistencia`
+
+Una resistencia **entre dos nodos**. A diferencia de `Rpull`, el otro extremo
+no es una tensión fija sino un nodo del circuito: el pull-up que cuelga de la
+VCC de un conector, la que ponga quien alimenta el módulo —5 V, 3,3 V o nada—.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `a` | obligatorio | Un extremo |
+| `b` | obligatorio | El otro |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `r` | `10000` | El valor de la resistencia, en ohmios |
+
+Se resuelve como el `Led` con las dos patillas a la vista: en cada nodo, lo que
+no es la resistencia es un Thevenin, y la rama entre los dos se calcula exacta
+(`RamaDosNodos` en `parts/ext_parts.h`). **Con un extremo al aire** no lleva
+corriente, y ese extremo se queda a la tensión del otro: el pin que solo tiene
+su pull-up lee la VCC. Con los dos al aire, no hace nada. `corriente()` es la
+que va de `a` a `b`.
+
+```xml
+<componente tipo="Resistencia" id="R2" r="10000">
+  <pin nombre="a" nodo="P1.VCC"/>
+  <pin nombre="b" nodo="P1.CLK"/>
+</componente>
+```
+
+#### `Encoder`
+
+Un **encoder rotativo mecánico**, como el del módulo KY-040: un eje con
+`pasos` posiciones por vuelta —los clics que se notan al girarlo— y **dos
+contactos**, uno entre `a` y `c` y otro entre `b` y `c`. Según su hoja de
+datos:
+
+* en cada posición los dos están igual: **abiertos en las pares, cerrados en
+  las impares**;
+* cada clic los cambia los dos, pero **no a la vez**: girando a la derecha
+  —en el sentido de las agujas del reloj— cambia primero `a`; a la izquierda,
+  primero `b`. Es lo que dice hacia dónde se gira.
+
+Con `c` a masa y `a` y `b` con su pull-up, `a` y `b` dan un **código Gray** de
+dos bits, un cambio por cada medio clic:
+
+| Girando | `a` `b` |
+| :--- | :--- |
+| a la derecha | 11 → 01 → 00 → 10 → 11 … |
+| a la izquierda | 11 → 10 → 00 → 01 → 11 … |
+
+Los pull-ups no son del encoder: los pone la placa.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `a` | obligatorio | El contacto A, el que va delante girando a la derecha |
+| `b` | obligatorio | El contacto B, el que va delante girando a la izquierda |
+| `c` | obligatorio | El común de los dos |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `pasos` | `30` | Las posiciones —los clics— de una vuelta, de 1 a 1000 |
+| `r_cerrado` | `1` | La resistencia de un contacto cerrado, en ohmios |
+| `desfase_ms` | `1` | Lo que tarda el segundo contacto en seguir al primero dentro de un clic. Tiene que ser menor que `clic_ms` |
+| `clic_ms` | `5` | Lo que se tarda de un clic al siguiente cuando se pide girar varios de una vez |
+
+**El mando es `girar`**: la **cuenta** de clics, sin vueltas —sube hacia la
+derecha y baja hacia la izquierda—, de −30000 a 30000. Pedir otra cuenta gira
+el eje hasta ella, un clic detrás de otro. Deja ver `posicion` —la cuenta
+dentro de la vuelta, de 0 a `pasos − 1`: −1 es la 29—, `cuenta`, `contacto_a`
+y `contacto_b`. Desde C++, `gira(clics)` y `gira_a(cuenta)`.
+
+Cada contacto es una rama de dos nodos, como una `Resistencia` de `r_cerrado`
+que se abre y se cierra; el común `c` lleva las dos.
+
+`placas/ky040.xml` es el módulo entero: el encoder con `c` en `P1.GND`, los
+pull-ups de 10 kΩ de `CLK` y `DT` a `P1.VCC` (dos `Resistencia`) y el pulsador
+del eje, un `Button` normalmente abierto a 0 V en `P1.SW`, **sin pull-up**,
+como en la mayoría de los módulos. Su dibujo, `placas/ky040.svg`, tiene en el
+centro el mando que gira (§2.6).
+
 #### `Driver`
 
 Salida digital externa genérica: otro chip de la placa gobernando ese pin.
@@ -1321,6 +1411,7 @@ Lo declaran estas:
 | `Button` | `pulsado` (0/1): el **dedo**, no el contacto, que en un NC es lo contrario | `pulsar` (botón, 0 suelta, 1 pulsa) |
 | `Crystal` | `presente` (0/1): si está soldado | — |
 | `Fuente`, `Gnd` | `corriente` (mA, la que entrega o recibe; la escala es ± el límite, o ±100 sin él) y `sobrecorriente` (0/1, **una alarma**: el catálogo la marca con `alarma="si"` y la ventana la pinta en rojo) | — |
+| `Encoder` | `posicion` (de 0 a `pasos − 1`, la que sugiere pintar), `cuenta`, `contacto_a` y `contacto_b` (0/1) | `girar` (discreto, la cuenta de clics, de −30000 a 30000) |
 
 `Crystal` no publica la frecuencia por lo mismo que no la lleva como atributo:
 la del HSE es un dato del árbol de reloj y vive en el RCC.
@@ -1335,7 +1426,8 @@ método de siempre: `acciona(pulsar, 1)` hace lo mismo que `press()`.
 Las demás no declaran nada todavía, y no les hace falta para
 compilar: los seis métodos de `ExtPartBase` tienen valores por omisión. Las
 piezas que el enunciado de la GUI necesita y no existen —`PwmMeter`, `Servo`,
-`Encoder`, `StepperDriver`, `DcMotor`— están en `doc/analisis_gui.md` §8.
+`StepperDriver`, `DcMotor`— están en `doc/analisis_gui.md` §8; el `Encoder` ya
+está (§4.1).
 
 ---
 
@@ -1434,8 +1526,8 @@ $ ./build/mcu-sim placas/led_azul_5v.xml verif/fw/blinky/blinky.bin 205
   LED LD_AZUL en PD12: apagado  (3.30 V, 0.00 mA)
 ```
 
-Y la placa entera del banco de pruebas —43 componentes de 20 de los 25 tipos,
-todos menos `Rpull`, `Fuente`, `Gnd`, `Conector` y `PuenteSerie`, que tiene su propio banco (`testserie`)— se saca
+Y la placa entera del banco de pruebas —43 componentes de 20 de los 28 tipos,
+todos menos `Rpull`, `Resistencia`, `Encoder`, `Fuente`, `Gnd`, `Conector`, `Jumper` y `PuenteSerie`, que tiene su propio banco (`testserie`)— se saca
 del propio modelo, que es la mejor referencia de formato que hay:
 
 ```

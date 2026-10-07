@@ -147,7 +147,7 @@ Con eso, las piezas de hoy dirían:
 | `Servo` *(no existe)* | `angulo` (grados), `pulso` (µs) | `carga` (continuo) |
 | `PwmMeter` *(no existe)* | `periodo` (µs), `ciclo` (%) | — |
 | `Stepper` *(no existe)* | `pasos`, `angulo`, `rpm` | `final_de_carrera` |
-| `Encoder` *(no existe)* | `cuenta` | `angulo` (continuo) |
+| `Encoder` *(ya existe: `doc/parts.md` §4.1)* | `posicion`, `cuenta`, `contacto_a`, `contacto_b` | `girar` (discreto, la cuenta de clics) |
 
 **Y aquí está el beneficio que justifica el diseño:** la GUI puede **enumerar la
 placa sin conocer ni un tipo de C++**. El netlist ya publica tipo, identificador

@@ -475,6 +475,81 @@ REGISTRA_PARTE(Rpull,
         return new Rpull(n[d.nodo_de("a")], d.num("v", 3.3), d.num("r", 10e3));
     });
 
+REGISTRA_PARTE(Resistencia,
+    Ayuda("Una resistencia entre DOS NODOS, a y b. A diferencia de Rpull, el "
+          "otro extremo no es una tension fija sino un nodo del circuito: el "
+          "pull-up que cuelga de la VCC de un conector, la que ponga quien "
+          "alimenta el modulo. La corriente va hacia donde diga la tension. "
+          "Con un extremo al aire no lleva corriente y ese extremo se queda a "
+          "la tension del otro -el pin que solo tiene su pull-up lee la VCC-; "
+          "con los dos al aire no hace nada.")
+      .ejemplo("<componente tipo=\"Resistencia\" id=\"R2\" r=\"10000\">\n"
+               "  <pin nombre=\"a\" nodo=\"P1.VCC\"/>\n"
+               "  <pin nombre=\"b\" nodo=\"P1.CLK\"/>\n"
+               "</componente>")
+      .pin("a", "obligatorio", "Un extremo.")
+      .pin("b", "obligatorio", "El otro.")
+      .atr("r", "10000", "El valor de la resistencia, en ohmios.")
+      .cpp("r() y corriente(), la que va de a a b, en A."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        return new Resistencia(d.id.c_str(), n[d.nodo_de("a")], n[d.nodo_de("b")],
+                               d.num("r", 10e3));
+    });
+
+REGISTRA_PARTE(Encoder,
+    Ayuda("Encoder rotativo MECANICO, como el del modulo KY-040: un eje con "
+          "`pasos` posiciones por vuelta -los clics que se notan al girarlo- "
+          "y dos contactos, uno entre a y c y otro entre b y c. En cada "
+          "posicion los dos estan igual, abiertos en las pares y cerrados en "
+          "las impares; cada clic los cambia los dos, pero no a la vez: "
+          "girando en el sentido de las agujas del reloj cambia primero a, y "
+          "en el contrario primero b. Con c a masa y a y b con su pull-up, a "
+          "y b dan un codigo Gray de dos bits -11, 01, 00, 10 hacia un lado, "
+          "al reves hacia el otro-. Los pull-ups no son del encoder: los pone "
+          "la placa.")
+      .ejemplo("<componente tipo=\"Encoder\" id=\"ENC\" pasos=\"30\">\n"
+               "  <pin nombre=\"a\" nodo=\"P1.CLK\"/>\n"
+               "  <pin nombre=\"b\" nodo=\"P1.DT\"/>\n"
+               "  <pin nombre=\"c\" nodo=\"P1.GND\"/>\n"
+               "</componente>")
+      .pin("a", "obligatorio", "El contacto A, el que va delante girando a la derecha.")
+      .pin("b", "obligatorio", "El contacto B, el que va delante girando a la izquierda.")
+      .pin("c", "obligatorio", "El comun de los dos contactos.")
+      .atr("pasos", "30", "Las posiciones -los clics- de una vuelta.")
+      .atr("r_cerrado", "1", "La resistencia de un contacto cerrado, en ohmios.")
+      .atr("desfase_ms", "1",
+           "Lo que tarda el segundo contacto en seguir al primero dentro de un "
+           "clic, en ms. Es lo que deja ver el sentido; tiene que ser menor "
+           "que clic_ms.")
+      .atr("clic_ms", "5",
+           "Lo que se tarda de un clic al siguiente cuando se le pide girar "
+           "varios de una vez, en ms.")
+      .nota("El MANDO es `girar`, la CUENTA de clics sin vueltas -sube hacia la "
+            "derecha y baja hacia la izquierda-, entre -30000 y 30000. Pedir "
+            "otra cuenta gira el eje hasta ella, un clic detras de otro. Lo que "
+            "deja ver: `posicion` -la cuenta en la vuelta, de 0 a pasos-1-, "
+            "`cuenta`, `contacto_a` y `contacto_b`. En una ilustracion, el "
+            "efecto `giro` hace girar el dibujo de la pieza con la posicion.")
+      .cpp("gira(clics) gira n clics -negativos, a la izquierda-, gira_a(cuenta) "
+           "hasta una cuenta; cuenta(), posicion(), cerrado_a() y cerrado_b()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        const double pasos = d.num("pasos", 30.0);
+        const double desfase = d.num("desfase_ms", 1.0), clic = d.num("clic_ms", 5.0);
+        if (pasos < 1.0 || pasos != std::floor(pasos) || pasos > 1000.0) {
+            SC_REPORT_ERROR("netlist", ("Encoder '" + d.id + "': pasos=\"" + d.txt("pasos") +
+                                        "\" no vale; es un entero de 1 a 1000").c_str());
+            return nullptr;
+        }
+        if (desfase <= 0.0 || clic <= desfase) {
+            SC_REPORT_ERROR("netlist", ("Encoder '" + d.id + "': desfase_ms tiene que ser "
+                                        "positivo y menor que clic_ms").c_str());
+            return nullptr;
+        }
+        return new Encoder(d.id.c_str(), n[d.nodo_de("a")], n[d.nodo_de("b")],
+                           n[d.nodo_de("c")], unsigned(pasos), d.num("r_cerrado", 1.0),
+                           desfase, clic);
+    });
+
 REGISTRA_PARTE(Driver,
     Ayuda("Salida digital externa generica: otro chip de la placa gobernando "
           "ese pin. NACE EN ALTA IMPEDANCIA y solo conduce cuando se le manda "

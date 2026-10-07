@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MODULO KY-040, ENCODER ROTATIVO CON PULSADOR, dibujado a mano: una
+  aproximacion, no una foto. Es el dibujo de placas/ky040.xml, que lo
+  encuentra solo porque se llama como ella.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: la placa mide 30 x 20 mm, y a la izquierda asoman los pines
+  acodados- y cada pieza con el id de su pieza en el XML: el conector P1, con
+  cada pin por su nombre (P1.CLK ... P1.GND) -cada uno, su patilla acodada y
+  su cuadrado: un hilo engancha en la punta de la patilla-; las resistencias
+  R2 y R3; y EL MANDO del centro, que son dos piezas, una encima de otra:
+
+    ENC   el anillo moleteado, con su marca. Gira con el encoder (el efecto
+          `giro` de la tabla de enlaces): la marca apunta arriba en la
+          posicion 0, y avanza 12 grados por clic, a la derecha. Es un
+          circulo centrado en el eje, con todo dentro: el centro de su caja es
+          el eje, y gira sobre el.
+    SW1   la tapa del centro: el pulsador, que se hunde al apretarlo.
+
+  La rueda del raton sobre el mando gira el encoder; un clic en la tapa lo
+  aprieta.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 335 200" width="33.5mm" height="20mm">
+  <rect x="30" y="1" width="300" height="198" rx="6" fill="#0d2350" stroke="#06122b" stroke-width="2"/>
+  <g id="P1">
+    <rect x="43.0" y="36.5" width="26" height="127.0" rx="2" fill="#1c1c1c" stroke="#000000" stroke-width="1"/>
+    <g id="P1.CLK">
+      <rect x="0" y="46.2" width="43.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+      <rect x="51.0" y="44.2" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    </g>
+    <g id="P1.DT">
+      <rect x="0" y="71.6" width="43.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+      <rect x="51.0" y="69.6" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    </g>
+    <g id="P1.SW">
+      <rect x="0" y="97.0" width="43.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+      <rect x="51.0" y="95.0" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    </g>
+    <g id="P1.VCC">
+      <rect x="0" y="122.4" width="43.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+      <rect x="51.0" y="120.4" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    </g>
+    <g id="P1.GND">
+      <rect x="0" y="147.8" width="43.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+      <rect x="51.0" y="145.8" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    </g>
+  </g>
+  <text x="74.0" y="52.7" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5">CLK</text>
+  <text x="74.0" y="78.1" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5">DT</text>
+  <text x="74.0" y="103.5" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5">SW</text>
+  <text x="74.0" y="130.7" font-family="Arial" font-size="15" font-weight="bold" fill="#f5f5f5">+</text>
+  <text x="74.0" y="154.3" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5">GND</text>
+  <rect x="138.0" y="38.0" width="124" height="124" rx="4" fill="#a7adb4" stroke="#6b7178" stroke-width="1.5"/>
+  <circle cx="148.0" cy="48.0" r="4" fill="#80868d"/>
+  <circle cx="148.0" cy="152.0" r="4" fill="#80868d"/>
+  <circle cx="252.0" cy="48.0" r="4" fill="#80868d"/>
+  <circle cx="252.0" cy="152.0" r="4" fill="#80868d"/>
+  <g id="ENC">
+    <circle cx="200" cy="100.0" r="78" fill="#2b2b2b" stroke="#111111" stroke-width="1.5"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(0 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(10 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(20 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(30 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(40 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(50 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(60 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(70 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(80 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(90 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(100 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(110 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(120 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(130 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(140 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(150 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(160 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(170 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(180 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(190 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(200 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(210 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(220 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(230 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(240 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(250 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(260 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(270 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(280 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(290 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(300 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(310 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(320 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(330 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(340 200 100.0)"/>
+    <rect x="198.0" y="24.0" width="4" height="9" fill="#151515" transform="rotate(350 200 100.0)"/>
+    <circle cx="200" cy="100.0" r="64" fill="#3a3a3a" stroke="#1e1e1e" stroke-width="1"/>
+    <rect x="197.0" y="36.0" width="6" height="21.0" rx="2" fill="#f5f5f5"/>
+  </g>
+  <g id="SW1">
+    <circle cx="200" cy="100.0" r="40" fill="#8e959c" stroke="#555b61" stroke-width="1.5"/>
+    <circle cx="200" cy="100.0" r="32" fill="#b4bbc2"/>
+    <circle cx="190.0" cy="90.0" r="9" fill="#d9dee3"/>
+  </g>
+  <g id="R2">
+    <rect x="294" y="84.0" width="8" height="32" fill="#1a1a1a"/>
+    <rect x="294" y="84.0" width="8" height="6" fill="#c8c8c8"/>
+    <rect x="294" y="110.0" width="8" height="6" fill="#c8c8c8"/>
+  </g>
+  <text x="298" y="78.0" font-family="Arial" font-size="8" fill="#f5f5f5" text-anchor="middle">R2</text>
+  <g id="R3">
+    <rect x="312" y="84.0" width="8" height="32" fill="#1a1a1a"/>
+    <rect x="312" y="84.0" width="8" height="6" fill="#c8c8c8"/>
+    <rect x="312" y="110.0" width="8" height="6" fill="#c8c8c8"/>
+  </g>
+  <text x="316" y="78.0" font-family="Arial" font-size="8" fill="#f5f5f5" text-anchor="middle">R3</text>
+  <text x="318" y="188" font-family="Arial" font-size="11" font-weight="bold" fill="#f5f5f5" text-anchor="end">KY-040</text>
+</svg>

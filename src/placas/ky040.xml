@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     MODULO KY-040: ENCODER ROTATIVO CON PULSADOR, sin MCU
+
+     Un encoder mecanico de 30 clics por vuelta con salida en codigo Gray, y
+     un pulsador que se cierra al apretar el eje. El conector de 5 pines,
+     acodado, a la izquierda de la placa; de arriba abajo:
+
+         P1.CLK   el contacto A del encoder (con su pull-up R2)
+         P1.DT    el contacto B del encoder (con su pull-up R3)
+         P1.SW    el pulsador, normalmente abierto, a masa al apretarlo
+         P1.VCC   la alimentacion de los pull-ups: 5 V o 3,3 V, la que ponga
+                  quien monta el modulo (serigrafiado `+`)
+         P1.GND   la masa: el comun del encoder
+
+     EL ENCODER, ENC: dos contactos, A-C y B-C, con C a masa. En cada clic
+     los dos estan igual -abiertos o cerrados- y al pasar al siguiente
+     cambian los dos, primero A girando a la derecha y primero B girando a
+     la izquierda. Con los pull-ups de 10 kohm a VCC, CLK y DT dan el codigo
+     Gray de dos bits (`./build/mcu-sim --help Encoder`):
+
+         a la derecha     CLK DT = 11 -> 01 -> 00 -> 10 -> 11 ...
+         a la izquierda   CLK DT = 11 -> 10 -> 00 -> 01 -> 11 ...
+
+     Un contacto cerrado es un BAJO. Para saber el sentido basta mirar DT en
+     el flanco de bajada de CLK: alto, a la derecha; bajo, a la izquierda.
+
+     EL PULSADOR, SW1: normalmente abierto, entre SW y masa. Como en la
+     mayoria de los modulos, sin pull-up en la placa -el hueco de R1 viene
+     vacio-: el nivel de reposo lo da el pull-up interno del MCU o uno de
+     fuera. Apretado, SW va a 0 V.
+
+     LOS MANDOS: `girar` en ENC -la cuenta de clics- y `pulsar` en SW1. En
+     la ilustracion, el mando del centro hace las dos cosas: la rueda gira
+     el encoder un clic por paso, y un clic en la caperuza aprieta el eje.
+
+     Sola, la placa no hace nada -no lleva chip-; se valida igual:
+
+         ./build/mcu-sim placas/ky040.xml --valida
+     ========================================================================= -->
+<placa nombre="ky040">
+  <!-- El conector de cinco pines, vertical, con CLK arriba -->
+  <componente tipo="Conector" id="P1" filas="5" columnas="1"
+              nombres="CLK DT SW VCC GND"/>
+
+  <!-- CLK, DT y VCC los conducen varios a la vez -el contacto, su pull-up y
+       el pin del MCU-, y es a proposito; GND, los dos contactos -->
+  <nodo id="P1.CLK" bus="si"/>
+  <nodo id="P1.DT" bus="si"/>
+  <nodo id="P1.VCC" bus="si"/>
+  <nodo id="P1.GND" bus="si"/>
+
+  <!-- El encoder, con el comun a masa -->
+  <componente tipo="Encoder" id="ENC" pasos="30">
+    <pin nombre="a" nodo="P1.CLK"/>
+    <pin nombre="b" nodo="P1.DT"/>
+    <pin nombre="c" nodo="P1.GND"/>
+  </componente>
+
+  <!-- Los pull-ups de CLK y DT, a la VCC del conector -->
+  <componente tipo="Resistencia" id="R2" r="10000">
+    <pin nombre="a" nodo="P1.VCC"/>
+    <pin nombre="b" nodo="P1.CLK"/>
+  </componente>
+  <componente tipo="Resistencia" id="R3" r="10000">
+    <pin nombre="a" nodo="P1.VCC"/>
+    <pin nombre="b" nodo="P1.DT"/>
+  </componente>
+
+  <!-- El pulsador del eje: normalmente abierto, a 0 V al apretarlo -->
+  <componente tipo="Button" id="SW1" v_cerrado="0">
+    <pin nombre="pin" nodo="P1.SW"/>
+  </componente>
+
+  <!-- En el dibujo, el anillo del mando gira con el encoder, y la caperuza
+       del centro se hunde con el pulsador -->
+  <ilustracion>
+    <enlace pieza="ENC" elemento="ENC" efecto="giro"/>
+    <enlace pieza="SW1" elemento="SW1" efecto="hundido"/>
+  </ilustracion>
+</placa>

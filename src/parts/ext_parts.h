@@ -501,6 +501,223 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// UNA RAMA RESISTIVA ENTRE DOS NODOS: lo que hay entre las dos patillas de una
+// resistencia o de un contacto cerrado. El canal resuelve cada nodo por
+// separado (common/analog_net.h), así que la rama se resuelve como la del Led
+// con las dos patillas a la vista: lo que no es la rama es, en cada nodo, un
+// Thevenin {V0, R0} -voltage_excluding() y la conductancia sin la propia-, y
+//
+//     I = (Va0 - Vb0) / (Ra0 + r + Rb0),   Va = Va0 - I·Ra0,   Vb = Vb0 + I·Rb0
+//
+// A cada nodo se le pone el Thevenin de la rama visto desde él -{Vb, r} en a,
+// {Va, r} en b-, y cada uno, resuelto por su cuenta, da exactamente Va y Vb.
+// Sin dirección: la corriente va hacia donde diga la tensión. Un extremo que
+// nadie más sujeta no lleva corriente y se queda a la tensión del otro -un pin
+// con solo su pull-up lee la VCC-; con los dos al aire, la rama no hace nada.
+//
+// No es una pieza: la usan las que tienen ramas (Resistencia, Encoder), que la
+// vuelven a resolver cada vez que cambia uno de sus dos nodos.
+// ---------------------------------------------------------------------------
+class RamaDosNodos {
+public:
+    RamaDosNodos(analog_net_if& a, int id_a, analog_net_if& b, int id_b)
+        : a_(&a), b_(&b), id_a_(id_a), id_b_(id_b) {}
+
+    // Cerrada con `r` ohmios, o abierta con cerrada = false
+    void resuelve(bool cerrada, double r) {
+        if (!cerrada) { suelta(); return; }
+        bool solo_a = false, solo_b = false;
+        const double va0 = double(a_->voltage_excluding(id_a_, solo_a));
+        const double vb0 = double(b_->voltage_excluding(id_b_, solo_b));
+        const double ga  = a_->conductance() - 1.0 / double(ra_);
+        const double gb  = b_->conductance() - 1.0 / double(rb_);
+        const bool flota_a = solo_a || ga <= G_FLOAT, flota_b = solo_b || gb <= G_FLOAT;
+        if (flota_a && flota_b) { suelta(); return; }
+        if (flota_a || flota_b) {
+            // Un extremo al aire: no hay corriente, y ese extremo se queda a la
+            // tensión del otro a través de la rama -el pin que solo tiene su
+            // pull-up lee la VCC-. El que sí está sujeto no ve nada.
+            analog_net_if* libre = flota_a ? a_ : b_;
+            const int   id_libre = flota_a ? id_a_ : id_b_;
+            const double v_otro  = flota_a ? vb0 : va0;
+            const double r_otro  = 1.0 / (flota_a ? gb : ga);
+            float& r_libre = flota_a ? ra_ : rb_;
+            if (flota_a) { b_->set_hiz(id_b_); rb_ = R_HIZ; }
+            else         { a_->set_hiz(id_a_); ra_ = R_HIZ; }
+            r_libre = std::max(0.1f, float(r + r_otro));
+            libre->set_drive(id_libre, float(v_otro), r_libre);
+            return;
+        }
+        const double rag = 1.0 / ga, rbg = 1.0 / gb;
+        const double i = (va0 - vb0) / (rag + r + rbg);
+        const double va = va0 - i * rag, vb = vb0 + i * rbg;
+        ra_ = rb_ = std::max(0.1f, float(r));
+        a_->set_drive(id_a_, float(vb), ra_);
+        b_->set_drive(id_b_, float(va), rb_);
+    }
+    void suelta() {
+        a_->set_hiz(id_a_); ra_ = R_HIZ;
+        b_->set_hiz(id_b_); rb_ = R_HIZ;
+    }
+    // La corriente que va de a a b, en A (positiva si entra por a)
+    double corriente() const { return -double(a_->current(id_a_)); }
+
+private:
+    analog_net_if *a_, *b_;
+    int   id_a_, id_b_;
+    float ra_ = R_HIZ, rb_ = R_HIZ;   // la r aplicada en cada lado (la que cuenta el nodo)
+};
+
+// ---------------------------------------------------------------------------
+// RESISTENCIA entre dos nodos, a y b. La de un pull-up que cuelga de la VCC de
+// un conector -la que ponga quien alimenta el módulo-, y no de una tensión
+// fija como Rpull.
+// ---------------------------------------------------------------------------
+SC_MODULE(Resistencia), public ExtPartBase {
+    Resistencia(sc_core::sc_module_name nm, analog_net_if& a, analog_net_if& b, double r)
+        : sc_core::sc_module(nm), ExtPartBase("Resistencia", nm),
+          a_(&a), b_(&b), r_(r < 0.1 ? 0.1 : r),
+          rama_(a, add_pin("a", a, "r"), b, add_pin("b", b, "r")) {
+        SC_HAS_PROCESS(Resistencia);
+        SC_THREAD(run);
+    }
+    ~Resistencia() override { rama_.suelta(); }
+    double r() const { return r_; }
+    double corriente() const { return rama_.corriente(); }
+private:
+    void run() {
+        for (;;) {
+            rama_.resuelve(conectada_, r_);
+            wait(a_->value_changed_event() | b_->value_changed_event() | evento_conexion());
+        }
+    }
+    analog_net_if *a_, *b_;
+    double r_;
+    RamaDosNodos rama_;
+};
+
+// ---------------------------------------------------------------------------
+// ENCODER ROTATIVO MECÁNICO, como el del módulo KY-040: un eje con `pasos`
+// posiciones por vuelta -los «clics» que se notan al girarlo- y DOS CONTACTOS,
+// uno entre A y C y otro entre B y C [KY-040, «Rotary Encoder Basics»]:
+//
+//   * en cada posición los dos están igual: abiertos en las pares, cerrados en
+//     las impares;
+//   * cada clic los cambia los dos, pero no a la vez: girando en el sentido
+//     de las agujas del reloj cambia PRIMERO A, y en el contrario, primero B.
+//     Es lo que dice hacia dónde se gira;
+//
+// así que, con C a masa y A y B con su pull-up, A y B dan un código Gray de
+// dos bits -11, 01, 00, 10, 11... hacia un lado; al revés hacia el otro-, un
+// cambio por medio clic. Cada contacto es una rama (RamaDosNodos) de
+// `r_cerrado` ohmios, o abierta.
+//
+// EL MANDO es `girar`: la CUENTA de clics, sin vueltas -sube hacia un lado y
+// baja hacia el otro-. Pedirle otra cuenta gira el eje hasta ella, un clic
+// detrás de otro, cada `clic_ms`, con `desfase_ms` entre el contacto que va
+// delante y el otro. Lo que deja ver: `posicion` (la cuenta en la vuelta, de 0
+// a pasos-1), `cuenta` y si cada contacto está cerrado.
+// ---------------------------------------------------------------------------
+SC_MODULE(Encoder), public ExtPartBase {
+    static constexpr float CUENTA_MAX = 30000.f;   // el tope del mando, ±
+
+    Encoder(sc_core::sc_module_name nm, analog_net_if& a, analog_net_if& b, analog_net_if& c,
+            unsigned pasos = 30, double r_cerrado = 1.0, double desfase_ms = 1.0,
+            double clic_ms = 5.0)
+        : sc_core::sc_module(nm), ExtPartBase("Encoder", nm),
+          a_(&a), b_(&b), c_(&c), pasos_(pasos ? pasos : 1), r_(r_cerrado),
+          desfase_(desfase_ms, sc_core::SC_MS), clic_(clic_ms, sc_core::SC_MS) {
+        const int ia = add_pin("a", a, "enc");
+        const int ib = add_pin("b", b, "enc");
+        const int ica = add_pin("c", c, "enc");
+        const int icb = add_drv("c", "enc");
+        rama_a_.reset(new RamaDosNodos(a, ia, c, ica));
+        rama_b_.reset(new RamaDosNodos(b, ib, c, icb));
+        SC_HAS_PROCESS(Encoder);
+        SC_THREAD(electrica);
+        SC_THREAD(mecanica);
+    }
+    ~Encoder() override { rama_a_->suelta(); rama_b_->suelta(); }
+
+    // --- Desde C++ y desde la ventana: girar hasta una cuenta, o n clics ---
+    void gira_a(long cuenta) {
+        objetivo_ = std::max(-long(CUENTA_MAX), std::min(long(CUENTA_MAX), cuenta));
+        ev_objetivo_.notify(sc_core::SC_ZERO_TIME);
+    }
+    void gira(long clics) { gira_a(objetivo_ + clics); }
+    long     cuenta()   const { return cuenta_; }
+    unsigned pasos()    const { return pasos_; }
+    unsigned posicion() const {
+        const long p = cuenta_ % long(pasos_);
+        return unsigned(p < 0 ? p + long(pasos_) : p);
+    }
+    bool cerrado_a() const { return ca_; }
+    bool cerrado_b() const { return cb_; }
+
+    unsigned   n_observables() const override { return 4; }
+    Observable observable(unsigned i) const override {
+        switch (i) {
+            case 0:  return {"posicion", "", 0.f, float(pasos_ - 1), true};
+            case 1:  return {"cuenta", "", -CUENTA_MAX, CUENTA_MAX, false};
+            case 2:  return {"contacto_a", "", 0.f, 1.f, false};
+            default: return {"contacto_b", "", 0.f, 1.f, false};
+        }
+    }
+    float valor_observable(unsigned i) const override {
+        switch (i) {
+            case 0:  return float(posicion());
+            case 1:  return float(cuenta_);
+            case 2:  return ca_ ? 1.f : 0.f;
+            default: return cb_ ? 1.f : 0.f;
+        }
+    }
+    unsigned n_mandos() const override { return 1; }
+    Mando    mando(unsigned) const override {
+        return {"girar", Mando::Discreto, -CUENTA_MAX, CUENTA_MAX};
+    }
+    float valor_mando(unsigned) const override { return float(objetivo_); }
+    void  acciona(unsigned, float v) override { gira_a(std::lround(v)); }
+
+private:
+    // Lo eléctrico: las dos ramas, cada vez que algo cambia en sus nodos o en
+    // sus contactos
+    void electrica() {
+        for (;;) {
+            rama_a_->resuelve(conectada_ && ca_, r_);
+            rama_b_->resuelve(conectada_ && cb_, r_);
+            wait(a_->value_changed_event() | b_->value_changed_event() |
+                 c_->value_changed_event() | ev_contactos_ | evento_conexion());
+        }
+    }
+    // Lo mecánico: el eje, clic a clic hasta la cuenta pedida
+    void mecanica() {
+        for (;;) {
+            while (cuenta_ == objetivo_) wait(ev_objetivo_);
+            const int sentido = objetivo_ > cuenta_ ? 1 : -1;
+            const bool cerrar = (cuenta_ + sentido) % 2 != 0;   // impares: cerrados
+            bool& primero = sentido > 0 ? ca_ : cb_;
+            bool& segundo = sentido > 0 ? cb_ : ca_;
+            primero = cerrar;
+            ev_contactos_.notify(sc_core::SC_ZERO_TIME);
+            wait(desfase_);
+            segundo = cerrar;
+            ev_contactos_.notify(sc_core::SC_ZERO_TIME);
+            cuenta_ += sentido;
+            if (cuenta_ != objetivo_) wait(clic_);
+        }
+    }
+
+    analog_net_if *a_, *b_, *c_;
+    unsigned pasos_;
+    double r_;
+    sc_core::sc_time desfase_, clic_;
+    std::unique_ptr<RamaDosNodos> rama_a_, rama_b_;
+    long cuenta_ = 0, objetivo_ = 0;
+    bool ca_ = false, cb_ = false;
+    sc_core::sc_event ev_objetivo_, ev_contactos_;
+};
+
+// ---------------------------------------------------------------------------
 // Pulsador a VSS. Sin pulsar deja el pin abierto (el MCU debe aportar su
 // pull-up interno o habrá un nivel indeterminado); pulsado lo lleva a 0 V.
 // ---------------------------------------------------------------------------

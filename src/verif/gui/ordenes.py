@@ -31,6 +31,13 @@
 #       en reset -el LED del blinky se apaga al momento, y sigue apagado- y al soltarlo
 #       arranca otra vez desde la Flash: el blinky empieza de nuevo, con su
 #       primer flanco a la misma distancia del arranque que la primera vez.
+#   O6  EL KY-040 (`placas/ky040.xml`): su encoder y su pulsador, con un banco
+#       de pruebas por hilos -3,3 V en VCC, masa, un pull-up en SW y un LED que
+#       luce con cada línea a cero-. Un clic a la derecha baja CLK y, 1 ms
+#       después, DT; la vuelta entera es el código Gray de dos bits -un solo
+#       cambio cada vez-, primero CLK a la derecha y primero DT a la izquierda;
+#       en cada clic las dos líneas iguales; `posicion` da la vuelta -de 0 a
+#       29 por la izquierda-; y apretar el eje baja SW.
 #
 #   make -f Makefile.mcu-sim gui-ordenes
 #   python3 verif/gui/ordenes.py [--sim build/mcu-sim]
@@ -39,8 +46,11 @@
 # =============================================================================
 import argparse
 import os
+import shutil
 import struct
 import sys
+import subprocess
+import tempfile
 import time
 import xml.etree.ElementTree as ET
 
@@ -356,6 +366,149 @@ def o5_reset(sim):
               "como la primera vez, y el mismo parpadeo" % (placa, primero))
 
 
+# ---------------------------------------------------------------------------
+# O6
+# ---------------------------------------------------------------------------
+# El banco del KY-040: lo que pondria quien lo monta -la VCC, la masa y un
+# pull-up en SW, que el modulo no lleva- y un LED en cada linea, con el anodo
+# por dentro a 3,3 V: luce cuando la linea esta a cero. Con 1 Mohm de serie no
+# carga nada.
+BANCO_KY040 = """<placa nombre="banco-ky040">
+  <componente tipo="Conector" id="J" filas="5" columnas="1" nombres="CLK DT SW VCC GND"/>
+  <nodo id="J.CLK" bus="si"/>
+  <nodo id="J.DT" bus="si"/>
+  <nodo id="J.SW" bus="si"/>
+  <componente tipo="Fuente" id="V33" v="3.3"><pin nombre="pin" nodo="J.VCC"/></componente>
+  <componente tipo="Gnd" id="MASA"><pin nombre="pin" nodo="J.GND"/></componente>
+  <componente tipo="Rpull" id="RSW" v="3.3" r="10000"><pin nombre="a" nodo="J.SW"/></componente>
+  <componente tipo="Led" id="LCLK" a_vss="no" vdd="3.3" vf="1.0" r="1000000">
+    <pin nombre="catodo" nodo="J.CLK"/></componente>
+  <componente tipo="Led" id="LDT" a_vss="no" vdd="3.3" vf="1.0" r="1000000">
+    <pin nombre="catodo" nodo="J.DT"/></componente>
+  <componente tipo="Led" id="LSW" a_vss="no" vdd="3.3" vf="1.0" r="1000000">
+    <pin nombre="catodo" nodo="J.SW"/></componente>
+</placa>
+"""
+SISTEMA_KY040 = """<sistema nombre="prueba-ky040">
+  <placa id="K" fichero="%s"/>
+  <placa id="T" fichero="banco_ky040.xml"/>
+  <hilo a="K/P1.CLK" b="T/J.CLK"/>
+  <hilo a="K/P1.DT"  b="T/J.DT"/>
+  <hilo a="K/P1.SW"  b="T/J.SW"/>
+  <hilo a="K/P1.VCC" b="T/J.VCC"/>
+  <hilo a="K/P1.GND" b="T/J.GND"/>
+</sistema>
+"""
+
+
+def ky040_con_ordenes(sim, sis, lista, total_ms=150):
+    """Las muestras del KY-040, cada 0,5 ms: [(ms, CLK, DT, SW, posicion,
+    contacto_a, contacto_b)], con los NIVELES de las lineas (1 alto, 0 bajo),
+    tras las `lista` de (ms, pieza, mando, valor) absolutos."""
+    v = Ventana()
+    p = arranca(sim, [sis, "--ms=%d" % total_ms], v.puerto)
+    try:
+        if not v.acepta():
+            return None
+        _, _, cat, listo = saludo_hasta_listo(v)
+        enc, me, oe = pieza_de(cat, "K/ENC")
+        sw, ms_, _ = pieza_de(cat, "K/SW1")
+        lineas = [pieza_de(cat, "T/" + x)[2].get("encendido") for x in ("LCLK", "LDT", "LSW")]
+        if enc is None or sw is None or None in lineas or not listo:
+            return None
+        ids = lineas + [oe["posicion"], oe["contacto_a"], oe["contacto_b"]]
+        suscribe(v, MS // 2, ids)
+        mando = {"girar": (enc, me["girar"]), "pulsar": (sw, ms_["pulsar"])}
+        t, ords = 0, []
+        for ms, que, val in lista:
+            ords.append((ms * MS - t, mando[que][0], mando[que][1], float(val)))
+            t = ms * MS
+        ordenes(v, ords)
+        arranque(v)
+        r, _ = hasta_fin(v)
+        termina(p)
+    finally:
+        if p.poll() is None:
+            p.kill()
+        v.cierra()
+    out = []
+    for ts, _, m in de(r, T_INSTANTANEA):
+        x = dict(m)
+        out.append((ts / MS,) + tuple(1 - int(x[i]) for i in lineas) +
+                   tuple(int(x[i]) for i in ids[3:]))
+    return out
+
+
+def o6_ky040(sim):
+    grupo("O6 El KY-040: el encoder en codigo Gray, y el pulsador del eje")
+    r = subprocess.run([sim, "placas/ky040.xml", "--valida"], stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, timeout=60)
+    out = r.stdout.decode("utf-8", "replace")
+    check(r.returncode == 0 and "placa 'ky040': SIN MCU, 5 componentes, 5 nodos, 0 avisos" in out,
+          "placas/ky040.xml se valida: el conector, el encoder, sus dos pull-ups y el "
+          "pulsador, sin un aviso")
+    tmp = tempfile.mkdtemp(prefix="ky040_")
+    try:
+        with open(os.path.join(tmp, "banco_ky040.xml"), "w", encoding="utf-8") as f:
+            f.write(BANCO_KY040)
+        sis = os.path.join(tmp, "sistema.xml")
+        with open(sis, "w", encoding="utf-8") as f:
+            f.write(SISTEMA_KY040 % os.path.abspath("placas/ky040.xml"))
+        r = subprocess.run([sim, sis, "--valida"], stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, timeout=60)
+        out = r.stdout.decode("utf-8", "replace")
+        check(r.returncode == 0 and "SIN MCU, 12 componentes, 5 nodos, 0 avisos" in out and
+              "dibujo K: ky040.svg" in out,
+              "con su banco por hilos, tambien; y lleva su dibujo")
+        # Un clic a la derecha; dos mas; cuatro a la izquierda -pasando por el
+        # 0, hasta la -1, que es la 29-; y el eje apretado de 120 a 130 ms
+        m = ky040_con_ordenes(sim, sis, [(10, "girar", 1), (20, "girar", 3), (40, "girar", -1),
+                                         (120, "pulsar", 1), (130, "pulsar", 0)])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    if not check(m and len(m) == 300, "el sistema con el banco corre 150 ms, con una muestra "
+                 "cada 0,5 ms"):
+        return
+    en = {x[0]: x[1:] for x in m}
+
+    def en_t(ms):
+        return en[ms]
+    check(all(en_t(t)[:3] == (1, 1, 1) for t in (0.5, 5.0, 9.5)),
+          "en reposo, CLK, DT y SW altos: los pull-ups de la placa -R2 y R3, colgados de la "
+          "VCC del conector- y el del banco")
+    check(en_t(10.5)[:2] == (0, 1) and en_t(11.5)[:2] == (0, 0) and en_t(11.5)[3] == 1,
+          "un clic a la derecha: CLK baja primero, y DT 1 ms despues; la posicion, 1 "
+          "(%s, %s)" % (en_t(10.5), en_t(11.5)))
+    # La secuencia de estados de (CLK, DT), sin repetidos
+    seq = []
+    for x in m:
+        if not seq or seq[-1] != x[1:3]:
+            seq.append(x[1:3])
+    gray = all(abs(a[0] - b[0]) + abs(a[1] - b[1]) == 1 for a, b in zip(seq, seq[1:]))
+    check(gray and len(seq) == 15,
+          "toda la vuelta en codigo Gray: catorce cambios, y en cada uno cambia UNA linea "
+          "(%s)" % " ".join("%d%d" % s for s in seq))
+    # Tres clics a la derecha, de 11 a 00, y cuatro a la izquierda, de 00 a 00
+    der = [(1, 1), (0, 1), (0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]
+    izq = [(0, 1), (1, 1), (1, 0), (0, 0), (0, 1), (1, 1), (1, 0), (0, 0)]
+    check(seq[:7] == der and seq[7:] == izq,
+          "a la derecha, CLK DT = 11, 01, 00, 10, 11... -CLK va delante-; a la izquierda, "
+          "al reves: 00, 01, 11, 10, 00... -DT va delante-")
+    clics = [en_t(t) for t in (9.5, 15.0, 25.0, 30.0, 35.0, 45.0, 50.0, 55.0, 60.0, 70.0)]
+    check(all(c[0] == c[1] and c[0] == (0 if c[3] % 2 else 1) for c in clics),
+          "en cada clic, las dos lineas iguales: altas en las posiciones pares, bajas en "
+          "las impares")
+    check([en_t(t)[3] for t in (15.0, 30.0, 45.0, 50.0, 55.0, 60.0, 70.0)] ==
+          [1, 3, 2, 1, 0, 29, 29],
+          "la posicion: 1, 3, y a la izquierda 2, 1, 0 y 29 -da la vuelta-")
+    check(all(en_t(t)[4:] == ((1, 1) if en_t(t)[3] % 2 else (0, 0))
+              for t in (15.0, 30.0, 45.0, 70.0)),
+          "y los contactos que deja ver el encoder, cerrados en las impares")
+    check(en_t(119.5)[2] == 1 and all(en_t(t)[2] == 0 for t in (120.5, 125.0, 129.5)) and
+          en_t(140.0)[2] == 1 and all(en_t(t)[:2] == en_t(119.5)[:2] for t in (120.5, 140.0)),
+          "apretar el eje baja SW, y soltarlo lo sube -con su rebote-, sin tocar CLK ni DT")
+
+
 def main():
     a = argparse.ArgumentParser(description="las ordenes de mcu-sim-gui, contra el mcu-sim de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -369,6 +522,7 @@ def main():
     o3_validacion(sim)
     o4_en_marcha(sim)
     o5_reset(sim)
+    o6_ky040(sim)
     return ventana.resumen("ORDENES")
 
 

@@ -322,7 +322,7 @@ struct DeclMcu {
 struct EnlaceIlustracion {
     std::string pieza;        // el nombre en SU placa: "LD2", nunca "N/LD2"
     std::string elemento;     // el id en el SVG
-    std::string efecto;       // "", "brillo", "hundido" o "ninguno"
+    std::string efecto;       // "", "brillo", "hundido", "giro" o "ninguno"
 };
 struct Ilustracion {
     std::string declarada;    // lo que dice el XML, tal cual; vacío si no dice
