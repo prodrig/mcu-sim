@@ -201,8 +201,9 @@ Lo que sí traen, además del ejecutable, **con el mismo árbol que el
 repositorio** —que es como las placas nombran sus firmwares y sus dibujos—:
 
 - `placas/`: todas las placas de ejemplo (`.xml`) y sus dibujos para
-  `mcu-sim-gui` (`.svg`). `./mcu-sim placas/nucleo_y_shield.xml` funciona tal
-  cual, desde la carpeta del paquete;
+  `mcu-sim-gui` (`.svg`). `./mcu-sim placas/nucleo_y_shield.xml --ms=400`
+  funciona tal cual, desde la carpeta del paquete (sin los ms, la Nucleo
+  espera al terminal de su VCP: Ctrl-C);
 - `verif/fw/`: los firmwares de ejemplo y de las suites (`.bin`), con las
   licencias de lo que va compilado dentro (CMSIS y CoreMark, en sus carpetas);
 - el `README.md`, el `TERCEROS.md` con las licencias del software ajeno, y —en

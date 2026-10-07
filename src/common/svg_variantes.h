@@ -9,6 +9,12 @@
 // demás fuera, con todo lo que llevan dentro. La ventana recibe un SVG normal y
 // no sabe nada de esto (Netlist::variante dice la de cada pieza).
 //
+// Y LOS RÓTULOS: un texto del dibujo que dice algo que solo se sabe al lanzar
+// -el puerto de un puente serie, que la línea de órdenes puede cambiar-. Un
+// elemento con id `PIEZA#campo` -`VCP#destino`- y solo texto dentro se queda
+// con el texto que le toca (`pon_rotulos`); lo que lleva escrito es lo que se
+// ve si nadie lo cambia.
+//
 // Se hace sobre el TEXTO, sin rehacer el XML, para que el dibujo llegue tal
 // cual lo escribió su autor -comentarios, espacios, el orden de los atributos-
 // salvo lo quitado: se busca cada `id="PIEZA@valor"`, se retrocede hasta el `<`
@@ -133,6 +139,45 @@ inline std::string quita_variantes(const std::string& svg,
         s.erase(ini, fin2 - ini);
         if (quitadas) ++*quitadas;
         p = ini;
+    }
+    return s;
+}
+
+// Pone el texto de los rótulos: `texto_de` va del id del elemento
+// (`VCP#destino`) a lo que tiene que decir. Solo en un elemento sin otros
+// dentro -un <text> con su texto-; uno con hijos se deja como está.
+inline std::string pon_rotulos(const std::string& svg,
+                               const std::map<std::string, std::string>& texto_de) {
+    using namespace detalle_svg;
+    std::string s = svg;
+    for (const auto& kv : texto_de) {
+        for (const char q : {'"', '\''}) {
+            const std::string aguja = std::string("id=") + q + kv.first + q;
+            const size_t a = s.find(aguja);
+            if (a == std::string::npos) continue;
+            const size_t lt = s.rfind('<', a);
+            if (lt == std::string::npos) break;
+            size_t p = lt + 1;
+            while (p < s.size() && s[p] != ' ' && s[p] != '>' && s[p] != '/' &&
+                   s[p] != '\t' && s[p] != '\n' && s[p] != '\r')
+                ++p;
+            const size_t g = fin_etiqueta(s, p);
+            if (g == std::string::npos || s[g - 1] == '/') break;
+            const size_t fin = fin_elemento(s, lt);
+            if (fin == std::string::npos) break;
+            const size_t cierre = s.rfind("</", fin);
+            if (cierre == std::string::npos || cierre <= g) break;
+            if (s.find('<', g + 1) != cierre) break;            // tiene hijos
+            std::string t;
+            for (char c : kv.second) {
+                if (c == '&') t += "&amp;";
+                else if (c == '<') t += "&lt;";
+                else if (c == '>') t += "&gt;";
+                else t += c;
+            }
+            s.replace(g + 1, cierre - g - 1, t);
+            break;
+        }
     }
     return s;
 }

@@ -37,6 +37,7 @@ arrancar y **devuelve cada byte que recibe**:
 | Fichero | Qué es |
 | :--- | :--- |
 | `placas/nucleo_f446re_vcp.xml` | Una Nucleo-F446RE con el VCP del ST-LINK en PA2/PA3. **Empieza por esta** |
+| `placas/nucleo_f446re.xml` | La Nucleo-F446RE de siempre, que también lleva ya el VCP del ST-LINK, el mismo, con sus LEDs, sus pulsadores y sus conectores |
 | `placas/vcp_rfc2217.xml` | Un F407 con el puente en la USART2, más RTS/CTS y DTR |
 | `verif/fw/vcp_demo/vcp_demo.bin` | El firmware de prueba (vale para las dos placas) |
 

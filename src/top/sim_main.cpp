@@ -282,6 +282,7 @@ SC_MODULE(Sim) {
         std::vector<std::string> placas;   // ids en el sistema; "" en una placa suelta
         std::string ruta, svg;
         std::map<std::string, std::string> variantes;   // las de sus piezas
+        std::map<std::string, std::string> rotulos;     // y lo que dicen sus textos
     };
     std::vector<DibujoLeido> dibujos;
     // Un dibujo de placa es un dibujo, no una foto en alta resolucion: mucho
@@ -502,7 +503,9 @@ SC_MODULE(Sim) {
             if (ps->por_red()) hay_puente_red = true;
             std::printf("  serie %s: %s\n", p.id.c_str(), ps->describir().c_str());
         }
-        if (hay_puente_red && g_tiempo_real <= 0.0 && !g_solo_valida) {
+        // Con los ms dichos la simulacion acaba igual (abajo), y el ritmo del
+        // terminal da lo mismo: el aviso es para quien se queda mirando
+        if (hay_puente_red && g_tiempo_real <= 0.0 && !g_solo_valida && !g_ms_dado) {
             avisos_placa.push_back(
                 "hay un puente serie por TCP y no se ha pedido --tiempo-real: el "
                 "terminal vera el ritmo de la simulacion, no el de la placa");
@@ -573,6 +576,25 @@ SC_MODULE(Sim) {
             }
             return v;
         };
+        // Y sus rótulos: lo que dice el dibujo de cada puente serie, con el
+        // destino que ha quedado -el del XML, o el de --serie-
+        auto rotulos = [&](const std::string& id) {
+            std::map<std::string, std::string> r;
+            for (const Instancia& i : placa.instancias()) {
+                if (i.tipo != "PuenteSerie") continue;
+                std::string local = i.id;
+                if (sis) {
+                    if (placa.placa_de(i.id) != id) continue;
+                    local = i.id.substr(id.size() + 1);
+                }
+                const auto h = i.params.find("host");
+                const serie::Destino d = h == i.params.end() ? serie::por_omision()
+                                                             : serie::parsea(h->second);
+                r[local + "#destino"] = serie::describe(d);
+                r[local + "#host"] = serie::como_texto(d);
+            }
+            return r;
+        };
         auto mira = [&](const std::string& id, const Ilustracion& il) {
             const std::string quien = sis ? "dibujo " + id : std::string("dibujo");
             if (il.ruta.empty()) {
@@ -581,9 +603,9 @@ SC_MODULE(Sim) {
             }
             // El mismo fichero con las mismas variantes es el mismo dibujo; con
             // otras -dos adaptadores con el jumper distinto- es otro
-            const std::map<std::string, std::string> var = variantes(id);
+            const std::map<std::string, std::string> var = variantes(id), rot = rotulos(id);
             for (DibujoLeido& d : dibujos)
-                if (d.ruta == il.ruta && d.variantes == var) {
+                if (d.ruta == il.ruta && d.variantes == var && d.rotulos == rot) {
                     std::printf("  %s: %s, el mismo que %s\n", quien.c_str(),
                                 base(il.ruta).c_str(), d.placas[0].c_str());
                     d.placas.push_back(id);
@@ -621,8 +643,8 @@ SC_MODULE(Sim) {
             for (const auto& kv : var) con += ", " + kv.first + " " + kv.second;
             std::printf("  %s: %s (%u kB%s)\n", quien.c_str(), base(il.ruta).c_str(),
                         unsigned((svg.size() + 1023) / 1024), con.c_str());
-            svg = quita_variantes(svg, var);
-            dibujos.push_back({{id}, il.ruta, std::move(svg), var});
+            svg = pon_rotulos(quita_variantes(svg, var), rot);
+            dibujos.push_back({{id}, il.ruta, std::move(svg), var, rot});
         };
         if (sis)
             for (const PlacaDeSistema& p : placa.placas()) mira(p.id, p.ilustracion);
@@ -665,6 +687,7 @@ SC_MODULE(Sim) {
         if (!err.empty())
             muere(g_placa + ": " + std::to_string(err.size()) +
                   " problemas con los puentes serie; no se monta");
+        for (const std::string& q : r.notas) std::printf("  [serie] %s\n", q.c_str());
         puentes = r.piezas;
     }
 
@@ -942,8 +965,14 @@ SC_MODULE(Sim) {
         }
         // Con un stub de GDB o con un puente serie por TCP hay alguien al otro
         // lado de un puerto, y la simulacion no puede terminar por su cuenta:
-        // se sale con Ctrl-C.
-        if (hay_stub || hay_puente_red) {
+        // se sale con Ctrl-C. SALVO un puente serie con los ms DICHOS -`--ms=`
+        // o el tercer argumento-: quien los da quiere que acabe, y la placa
+        // que lleva un VCP de serie, como la Nucleo, se sigue pudiendo
+        // simular un rato y mirar como acaba. El puente escucha mientras tanto.
+        if (hay_puente_red && !hay_stub && g_ms_dado) {
+            std::printf("  [serie] los puentes por red escuchan; la simulacion "
+                        "acaba a los %g ms que se han pedido\n", g_ms);
+        } else if (hay_stub || hay_puente_red) {
             std::printf("esperando a %s; la simulacion no se detiene sola "
                         "(Ctrl-C para salir)\n",
                         hay_stub && hay_puente_red ? "GDB y a los puentes serie"

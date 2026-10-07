@@ -17,7 +17,14 @@
   morado. Los morpho se numeran en zigzag: los impares en la columna de la
   izquierda y los pares en la de la derecha, con el 1 arriba; sus rotulos van
   fuera de la placa, el de cada columna en la suya. Lo demas -los LED PWR y
-  COM, el ST-LINK- es decorado.
+  COM- es decorado.
+
+  EL ST-LINK ES EL VCP, el puente UART de la USART2 (PA2 y PA3), que sale por
+  el mismo USB que la depuracion: el dibujo lo une al USB y al chip, y al lado
+  dice como se llega a el. Ese texto es un ROTULO, `VCP#destino`: mcu-sim
+  pone ahi el destino de verdad del puente al mandar el dibujo -el del XML, o
+  el que se ponga al lanzar-, y el que lleva escrito es el del XML
+  (src/common/svg_variantes.h).
 
   Los pines estan a 2,54 mm, y los Arduino a la altura de su pin del morpho:
   CN6.4 (+3V3) junto a CN7.16, CN8.1 (A0) junto a CN7.28, CN5.6 (D13) junto a
@@ -31,8 +38,21 @@
   <circle cx="635.0" cy="848" r="16" fill="#ffffff" stroke="#2c3e50" stroke-width="2"/>
   <rect x="515.0" y="15" width="120" height="60" rx="6" fill="#95a5a6" stroke="#7f8c8d" stroke-width="2"/>
   <line x1="225" y1="270" x2="925" y2="270" stroke="#7f8c8d" stroke-width="2" stroke-dasharray="8 6"/>
-  <rect x="535.0" y="140" width="80" height="80" rx="3" fill="#2c3e50"/>
-  <text x="575.0" y="185" font-family="Arial" font-size="13" fill="#ffffff" text-anchor="middle">ST-LINK</text>
+  <line x1="575.0" y1="75" x2="575.0" y2="140" stroke="#7f8c8d" stroke-width="10"/>
+  <line x1="575.0" y1="220" x2="575.0" y2="533" stroke="#d68910" stroke-width="5" stroke-dasharray="12 8"/>
+  <text x="585.0" y="485" font-family="Arial" font-size="14" font-weight="bold" fill="#b9770e">USART2</text>
+  <text x="585.0" y="502" font-family="Arial" font-size="12" fill="#b9770e">PA2, PA3</text>
+  <g id="VCP">
+    <rect x="535.0" y="140" width="80" height="80" rx="3" fill="#2c3e50"/>
+    <text x="575.0" y="185" font-family="Arial" font-size="13" fill="#ffffff" text-anchor="middle">ST-LINK</text>
+  </g>
+  <rect x="265" y="133" width="248.0" height="114" rx="6" fill="#fef9e7" stroke="#d68910" stroke-width="2"/>
+  <line x1="513.0" y1="180" x2="533.0" y2="180" stroke="#d68910" stroke-width="3"/>
+  <text x="277" y="155" font-family="Arial" font-size="14" font-weight="bold" fill="#7e5109">VCP: la USART2 por el USB</text>
+  <text x="277" y="175" font-family="Arial" font-size="12" fill="#7e5109">PA2 (TX) y PA3 (RX), en el ordenador</text>
+  <text x="277" y="191" font-family="Arial" font-size="12" fill="#7e5109">un puerto serie:</text>
+  <text id="VCP#destino" x="277" y="213" font-family="Arial" font-size="14" font-weight="bold" fill="#1b2631">RFC 2217 en localhost:3355</text>
+  <text x="277" y="235" font-family="Arial" font-size="12" fill="#7e5109">el mismo cable que la depuracion</text>
   <circle cx="685.0" cy="165" r="9" fill="#e74c3c" stroke="#7f8c8d" stroke-width="1.5"/>
   <text x="685.0" y="145" font-family="Arial" font-size="13" fill="#7f8c8d" text-anchor="middle">PWR</text>
   <circle cx="735.0" cy="165" r="9" fill="#2ecc71" stroke="#7f8c8d" stroke-width="1.5"/>
@@ -419,12 +439,12 @@
     <rect id="CN9.7" x="810.8" y="671.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
     <rect id="CN9.8" x="810.8" y="646.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
   </g>
-  <rect x="732.1" y="822.2" width="68" height="20" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
-  <text x="766.1" y="837.2" font-family="Arial" font-size="14" font-weight="bold" fill="#1b2631" text-anchor="middle">PA3</text>
+  <rect x="732.1" y="822.2" width="68" height="20" rx="3" fill="#d5d8dc" stroke="#ffffff" stroke-width="1"/>
+  <text x="766.1" y="837.2" font-family="Arial" font-size="14" font-weight="bold" fill="#7f8c8d" text-anchor="middle">NC</text>
   <rect x="660.1" y="822.2" width="68" height="20" rx="3" fill="#7d3c98" stroke="#ffffff" stroke-width="1"/>
   <text x="694.1" y="837.2" font-family="Arial" font-size="14" font-weight="bold" fill="#ffffff" text-anchor="middle">D0</text>
-  <rect x="732.1" y="796.8" width="68" height="20" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
-  <text x="766.1" y="811.8" font-family="Arial" font-size="14" font-weight="bold" fill="#1b2631" text-anchor="middle">PA2</text>
+  <rect x="732.1" y="796.8" width="68" height="20" rx="3" fill="#d5d8dc" stroke="#ffffff" stroke-width="1"/>
+  <text x="766.1" y="811.8" font-family="Arial" font-size="14" font-weight="bold" fill="#7f8c8d" text-anchor="middle">NC</text>
   <rect x="660.1" y="796.8" width="68" height="20" rx="3" fill="#7d3c98" stroke="#ffffff" stroke-width="1"/>
   <text x="694.1" y="811.8" font-family="Arial" font-size="14" font-weight="bold" fill="#ffffff" text-anchor="middle">D1</text>
   <rect x="732.1" y="771.4" width="68" height="20" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>

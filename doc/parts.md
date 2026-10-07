@@ -371,6 +371,16 @@ dibujos. Un detalle de autor: la ventana pinta cada pieza con lo que lleva
 **dentro**, así que las variantes de `JP1` van dentro del elemento `JP1`; fuera,
 quedarían debajo de él.
 
+**Los rótulos: lo que solo se sabe al lanzar.** Un texto del dibujo con id
+`PIEZA#campo` y nada más dentro se queda con el texto que le toca antes de
+mandarlo, y lo que lleva escrito es lo que se ve si nadie lo cambia. Hoy los
+tiene un `PuenteSerie`: `VCP#destino` es su destino contado a una persona
+—`RFC 2217 en localhost:3355`— y `VCP#host`, como se escribe —`rfc2217:3355`—,
+los dos ya con lo que diga `--serie` y con el puerto al que se haya corrido.
+`placas/nucleo_f446re.svg` lo pone junto al ST-LINK: es el VCP, la USART2 por
+el mismo USB que la depuración. Dos placas con el mismo dibujo y rótulos
+distintos reciben dos dibujos.
+
 ---
 
 ## 3. Parámetros comunes
@@ -1269,7 +1279,7 @@ vienen serigrafiados en uno de verdad: su `rx` va al TX del MCU.
 
 | Atributo | Por omisión | |
 | :--- | :--- | :--- |
-| `host` | `rfc2217:3355` | `memoria`, `tcp:PUERTO` (en crudo) o `rfc2217:PUERTO` (Telnet con la opción 44: el terminal puede fijar la línea, mover DTR y RTS y mandar breaks), escuchando siempre en `localhost`. O **conectándose** a un servidor que ya escucha: `tcp-cliente:HOST:PUERTO` o `rfc2217-cliente:HOST:PUERTO` (este configura el puerto remoto con la línea del puente), reintentando cada segundo. `--serie ID=DESTINO` lo cambia sin tocar el XML. Con cualquier destino de red, la simulación no termina sola (como con `--gdb`) y conviene `--tiempo-real` |
+| `host` | `rfc2217:3355` | `memoria`, `tcp:PUERTO` (en crudo) o `rfc2217:PUERTO` (Telnet con la opción 44: el terminal puede fijar la línea, mover DTR y RTS y mandar breaks), escuchando siempre en `localhost`. O **conectándose** a un servidor que ya escucha: `tcp-cliente:HOST:PUERTO` o `rfc2217-cliente:HOST:PUERTO` (este configura el puerto remoto con la línea del puente), reintentando cada segundo. `--serie ID=DESTINO` lo cambia sin tocar el XML —en un sistema, con la placa delante: `--serie N/VCP=memoria`—. Con cualquier destino de red, la simulación no termina sola (como con `--gdb`) y conviene `--tiempo-real`; **salvo con los ms dichos** (`--ms=` o el tercer argumento), que acaba a su hora con el puente escuchando mientras tanto. Dos puentes que piden **el mismo puerto en sus ficheros** —dos Nucleo en un sistema— no chocan: el segundo se corre al siguiente libre, y se dice; con `--serie`, en cambio, es un error |
 | `baudios` | `115200` | Un entero entre 50 y 10 500 000, o `host`: los fija el terminal por RFC 2217, **y con ellos el formato y el control de flujo**. Con un número, el XML manda: lo que pida el terminal se le contesta con lo que hay, y se avisa una vez |
 | `formato` | `8N1` | Bits de datos **sin contar la paridad** (5..9), paridad `N`/`E`/`O`/`M`/`S` y parada `1`, `1.5` o `2` |
 | `flujo` | `no` | `rtscts`: no manda mientras el RTS del MCU esté alto |
@@ -1288,8 +1298,8 @@ es el CTS del terminal, en `NOTIFY-MODEMSTATE`; DSR y DCD, siempre activas.
 Desde C++: `envia(texto)`, `recibido()`, `set_baudios()`, `set_formato()`,
 `envia_break()`, `set_break()`, `set_rts()`, `set_dtr()`, `rfc2217()` y los
 contadores. Ejemplos completos en `placas/vcp_memoria.xml`, `placas/vcp_tcp.xml`,
-`placas/vcp_rfc2217.xml` y `placas/nucleo_f446re_vcp.xml` (la Nucleo-F446RE con
-el VCP del ST-LINK). **La receta para ver el `printf` en tu ordenador, por
+`placas/vcp_rfc2217.xml`, `placas/nucleo_f446re_vcp.xml` (la Nucleo-F446RE con
+el VCP del ST-LINK) y `placas/nucleo_f446re.xml`, que lo lleva también. **La receta para ver el `printf` en tu ordenador, por
 sistema, está en `doc/puente_serie.md`**; con `--espera-terminal`, `mcu-sim` no
 arranca el MCU hasta que el terminal está conectado, y así no se pierde lo que
 el firmware imprime al arrancar.

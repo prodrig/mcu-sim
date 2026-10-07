@@ -41,7 +41,12 @@
 #       placas/nucleo_f446re_barra8ac_azul.xml, la barra azul por los morpho.
 #   C13 placas/ftdi_ft232rl.xml, el adaptador USB-serie: el Jumper que elige
 #       VCC -5 V o 3,3 V-, el VCCIO del puente UART que lo sigue, sus errores,
-#       el dibujo con el puente donde esta, y una Nucleo hablando por el.
+#       y el dibujo con el puente donde esta.
+#   C14 el VCP del ST-LINK de la Nucleo (un PuenteSerie en la USART2): por
+#       RFC 2217 en el 3355, una simulacion con los ms dichos que acaba, dos
+#       Nucleo en un sistema que no se pisan el puerto, el puerto en el
+#       dibujo junto al ST-LINK, y la barra del sistema de los morpho con el
+#       FT232RL en la USART1.
 #
 #   make -f Makefile.mcu-sim gui-sistema
 #   python3 verif/gui/sistema.py [--sim build/mcu-sim]
@@ -50,6 +55,7 @@
 # =============================================================================
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -120,10 +126,11 @@ def nodo_de_led(out, id_):
 def c1_conector(sim, cp):
     grupo("C1 Un conector en una placa")
     rc, out, err = corre(sim, ["placas/nucleo_f446re.xml", "--valida"])
-    check(rc == 0 and "9 componentes, 170 nodos, 0 avisos" in out,
+    check(rc == 0 and "10 componentes, 172 nodos, 0 avisos" in out,
           "la Nucleo con sus cuatro conectores Arduino y sus dos morpho valida sin un aviso: "
-          "154 nodos del chip y 16 pines de conector al aire -4 de los Arduino (+5V, VIN, "
-          "AREF y un NC) y 12 de los morpho (E5V, +5V, VIN, U5V y los NC)-, ninguno flotante")
+          "154 nodos del chip y 18 pines de conector al aire -6 de los Arduino (+5V, VIN, "
+          "AREF, un NC, y D0 y D1, que son del VCP) y 12 de los morpho (E5V, +5V, VIN, U5V "
+          "y los NC)-, ninguno flotante")
     placa = cp.escribe("c1.xml", """<placa nombre="c1">
   <mcu tipo="STM32F407VG" id="u0"/>
   <componente tipo="Conector" id="CN1" filas="1" columnas="4">
@@ -580,7 +587,7 @@ def c10_dibujos(sim, cp):
           il[0][1].lstrip().startswith(b"<?xml"),
           "la Nucleo del sistema lleva su dibujo sin decirlo -se llama como ella-: un "
           "T_ILUSTRACION, para la placa N, con el SVG tal cual")
-    check("dibujo N: nucleo_f446re.svg (49 kB)" in out and "dibujo S: ninguno" in out,
+    check("dibujo N: nucleo_f446re.svg (51 kB)" in out and "dibujo S: ninguno" in out,
           "y la consola dice el de cada placa: N el suyo, S ninguno")
     r = ET.fromstring(placa) if placa else None
     check(r is not None and all(x.get("ilustracion") is None for x in r.findall("placa")),
@@ -746,7 +753,7 @@ def c11_barra(sim, cp):
           "con las dos patillas, a_vss no tiene sentido, y escribirlo es un error que lo dice")
 
     rc, out, err = corre(sim, ["placas/barra8_en_nucleo.xml", "--valida"])
-    check(rc == 0 and "1 MCU(s), 18 componentes, 170 nodos, 0 avisos" in out and
+    check(rc == 0 and "1 MCU(s), 19 componentes, 172 nodos, 0 avisos" in out and
           "dibujo B: barra8_rojo.svg" in out,
           "placas/barra8_en_nucleo.xml: la barra cableada a la Nucleo con nueve hilos, el "
           "comun a D10; ni un aviso")
@@ -874,8 +881,8 @@ def c12_nombres_y_morpho(sim, cp):
     # El sistema de ejemplo: la barra azul por los morpho, el comun a VDD
     ej = "placas/nucleo_f446re_barra8ac_azul.xml"
     rc, out, err = corre(sim, [ej, "--valida"])
-    check(rc == 0 and "2 placas: N (nucleo-f446re), B (barra8-anodo-comun-azul)" in out and
-          "1 MCU(s), 18 componentes, 170 nodos, 0 avisos" in out,
+    check(rc == 0 and "3 placas: N (nucleo-f446re), B (barra8-anodo-comun-azul)" in out and
+          "1 MCU(s), 25 componentes, 176 nodos, 0 avisos" in out,
           "%s: la Nucleo y la barra de anodo comun azul, nueve hilos, ni un aviso -el comun "
           "es bus aunque el hilo lo lleve a VDD-" % ej)
     rc, out, err = corre(sim, [ej, "--ms=75"])
@@ -910,12 +917,13 @@ def c12_nombres_y_morpho(sim, cp):
         return
     r = ET.fromstring(placa)
     cs = {c.get("ref"): c for pl in r.findall("placa") for c in pl.findall("conector")}
-    check(sorted(cs) == ["B/P1", "N/CN10", "N/CN5", "N/CN6", "N/CN7", "N/CN8", "N/CN9"] and
+    check(sorted(cs) == ["B/P1", "F/JP1", "F/P1", "N/CN10", "N/CN5", "N/CN6", "N/CN7",
+                         "N/CN8", "N/CN9"] and
           cs["N/CN7"].get("filas") == "2" and cs["N/CN7"].get("columnas") == "19" and
           cs["B/P1"].get("nombres") == "COM D1 D2 D3 D4 D5 D6 D7 D8" and
           cs["N/CN7"].get("nombres") is None,
-          "T_PLACA cuenta los seis conectores de la Nucleo -los morpho, de 2x19- y el P1 de "
-          "la barra con los nombres de sus pines")
+          "T_PLACA cuenta los seis conectores de la Nucleo -los morpho, de 2x19-, el P1 de "
+          "la barra con los nombres de sus pines y los dos del FT232RL, P1 y JP1")
 
 
 # ---------------------------------------------------------------------------
@@ -1001,22 +1009,85 @@ def c13_ftdi(sim, cp):
           "la ventana recibe el dibujo con el puente donde esta -5V-VCC, VCC-3.3V o "
           "ninguno- y sin la otra posicion; lo demas, entero: %s" % vistos)
 
-    # Con una Nucleo: el MCU habla por el adaptador
+
+# ---------------------------------------------------------------------------
+# C14
+# ---------------------------------------------------------------------------
+def destino_dibujado(svg):
+    """El texto del rotulo VCP#destino de un dibujo, o None"""
+    m = re.search(rb'id="VCP#destino"[^>]*>([^<]*)<', svg)
+    return m.group(1).decode() if m else None
+
+
+def c14_vcp(sim, cp):
+    grupo("C14 El VCP del ST-LINK de la Nucleo, y la barra con el FT232RL")
+    rc, out, err = corre(sim, ["placas/nucleo_f446re.xml", "--valida"])
+    check(rc == 0 and "10 componentes, 172 nodos, 0 avisos" in out and
+          "serie VCP: RFC 2217 en localhost:3355" in out,
+          "la Nucleo lleva el VCP de su ST-LINK: un puente UART en la USART2, por RFC 2217 en "
+          "el 3355; D0 y D1 se quedan al aire, que PA3 y PA2 son del VCP")
+    rc, out, err = corre(sim, ["placas/nucleo_f446re.xml", "verif/fw/blinky446/blinky446.bin",
+                               "50"], seg=30)
+    check(rc == 0 and "la simulacion acaba a los 50 ms que se han pedido" in out and
+          "simulados 50.000 ms" in out,
+          "con el VCP escuchando y los ms dichos, la simulacion acaba a su hora")
+    rc, out, err = corre(sim, ["placas/nucleo_f446re.xml", "verif/fw/vcp_demo/vcp_demo.bin",
+                               "--ms=30", "--serie", "VCP=memoria"])
+    check(rc == 0 and "serie VCP: en memoria (sin red)" in out and
+          "[VCP] vcp_demo listo" in out,
+          "y con --serie VCP=memoria, lo que manda la USART2 sale por la consola")
+
     nucleo = os.path.join(SRC, "placas", "nucleo_f446re.xml")
-    f = cp.escribe("nucleo_ftdi.xml", """<sistema nombre="nucleo-ftdi">
-  <placa id="N" fichero="%s"/>
-  <placa id="F" fichero="%s"/>
-  <hilo a="F/P1.RX" b="N/CN9.2"/>
-  <hilo a="F/P1.TX" b="N/CN9.1"/>
-  <hilo a="F/P1.GND" b="N/CN6.6"/>
-  <mcu ref="N/u0" firmware="verif/fw/vcp_demo/vcp_demo.bin"/>
+    dos = cp.escribe("dos_vcp.xml", """<sistema nombre="dos">
+  <placa id="A" fichero="%s"/>
+  <placa id="B" fichero="%s"/>
 </sistema>
-""" % (nucleo, ftdi(cp, "VCC 3.3V")))
-    rc, out, err = corre(sim, [f, "--ms=60"])
-    check(rc == 0 and "[F/U1] vcp_demo listo" in out and "[F/U1] eco" in out and
-          "5 hacia el MCU" in out,
-          "una Nucleo con el adaptador en D0/D1 y la masa: vcp_demo saluda por el, y el "
-          "\"eco\" que teclea el adaptador vuelve")
+""" % (nucleo, nucleo))
+    rc, out, err = corre(sim, [dos, "--valida"])
+    check(rc == 0 and "[serie] B/VCP: el puerto 3355 es tambien el de A/VCP en su fichero; "
+          "escucha en el 3356" in out and "serie B/VCP: RFC 2217 en localhost:3356" in out,
+          "dos Nucleo en un sistema: el VCP de la segunda se corre al 3356, y se dice")
+    rc, out, placa, il, av = saludo_con_dibujos(sim, [dos])
+    textos = sorted((x[0].get("placas"), destino_dibujado(x[1])) for x in il)
+    check(rc == 0 and textos == [("A", "RFC 2217 en localhost:3355"),
+                                 ("B", "RFC 2217 en localhost:3356")],
+          "y cada una recibe SU dibujo, con su puerto junto al ST-LINK: %s" % textos)
+    rc, out, placa, il, av = saludo_con_dibujos(sim, ["placas/nucleo_f446re.xml", "--serie",
+                                                      "VCP=tcp:4321"])
+    check(rc == 0 and len(il) == 1 and destino_dibujado(il[0][1]) ==
+          "TCP en crudo en localhost:4321" and b'id="VCP"' in il[0][1],
+          "el dibujo dice el destino que ha quedado, aunque lo cambie --serie: \"%s\"" %
+          (destino_dibujado(il[0][1]) if il else None))
+
+    # El sistema de la barra, con el FT232RL en la USART1
+    ej = "placas/nucleo_f446re_barra8ac_azul.xml"
+    rc, out, err = corre(sim, [ej, "--valida"])
+    check(rc == 0 and "3 placas: N (nucleo-f446re), B (barra8-anodo-comun-azul), "
+          "F (ftdi-ft232rl)" in out and "1 MCU(s), 25 componentes, 176 nodos, 0 avisos" in out
+          and "serie N/VCP: RFC 2217 en localhost:3355" in out and
+          "serie F/U1: RFC 2217 en localhost:3356" in out,
+          "%s lleva el FT232RL, y dos puertos serie: el VCP en el 3355 y el adaptador en el "
+          "3356" % ej)
+    with open(os.path.join(SRC, ej), encoding="utf-8") as fx:
+        sis = fx.read()
+    for de, a in (("nucleo_f446re.xml", nucleo),
+                  ("barra8_anodo_comun_azul.xml",
+                   os.path.join(SRC, "placas", "barra8_anodo_comun_azul.xml")),
+                  ("ftdi_ft232rl.xml", ftdi(cp))):
+        sis = sis.replace('fichero="%s"' % de, 'fichero="%s"' % a)
+    rc, out, err = corre(sim, [cp.escribe("barra_ftdi.xml", sis), "--ms=60",
+                               "--serie", "N/VCP=memoria"])
+    check(rc == 0 and "[N/VCP] barra8_morpho: VCP del ST-LINK (USART2)" in out and
+          "[F/U1] barra8_morpho: FT232RL (USART1)" in out and "[F/U1] D1" in out and
+          "[F/U1] D2" in out,
+          "el firmware saluda por los dos -la USART2 por el VCP, la USART1 por el FT232RL- y "
+          "por el adaptador dice que LED se enciende")
+    check("[F/U1] eco" in out and "serie F/U1: " in out and "5 hacia el MCU" in out,
+          "y lo que teclea el adaptador vuelve por la USART1: el eco")
+    rc, out, placa, il, av = saludo_con_dibujos(sim, [ej])
+    fs = sorted(x[0].get("fichero") for x in il)
+    check(rc == 0 and fs == ["barra8_azul.svg", "ftdi_ft232rl.svg", "nucleo_f446re.svg"],
+          "y la ventana recibe los tres dibujos: %s" % fs)
 
 
 # ---------------------------------------------------------------------------
@@ -1044,6 +1115,7 @@ def main():
         c11_barra(sim, cp)
         c12_nombres_y_morpho(sim, cp)
         c13_ftdi(sim, cp)
+        c14_vcp(sim, cp)
     finally:
         cp.borra()
     return ventana.resumen("SISTEMA")
