@@ -587,8 +587,11 @@ def c10_dibujos(sim, cp):
           il[0][1].lstrip().startswith(b"<?xml"),
           "la Nucleo del sistema lleva su dibujo sin decirlo -se llama como ella-: un "
           "T_ILUSTRACION, para la placa N, con el SVG tal cual")
-    check("dibujo N: nucleo_f446re.svg (51 kB)" in out and "dibujo S: ninguno" in out,
-          "y la consola dice el de cada placa: N el suyo, S ninguno")
+    # Los kB, los del fichero tal como esta en ESTA maquina: en Windows, con
+    # core.autocrlf, el SVG sale con CRLF y pesa un 2 % mas
+    kb = (os.path.getsize(os.path.join(SRC, "placas", "nucleo_f446re.svg")) + 1023) // 1024
+    check(("dibujo N: nucleo_f446re.svg (%d kB)" % kb) in out and "dibujo S: ninguno" in out,
+          "y la consola dice el de cada placa: N el suyo (%d kB), S ninguno" % kb)
     r = ET.fromstring(placa) if placa else None
     check(r is not None and all(x.get("ilustracion") is None for x in r.findall("placa")),
           "en T_PLACA, nada: el dibujo que se encuentra sin decirlo no es de la placa")
