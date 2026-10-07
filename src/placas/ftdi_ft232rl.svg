@@ -8,9 +8,10 @@
   1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
   0,1 mm: la placa mide 36 x 18 mm, y a la izquierda asoman los pines
   acodados- y cada pieza con el id de su pieza en el XML: el conector P1, con
-  cada pin por su nombre (P1.DTR ... P1.GND); el jumper JP1, con los suyos
-  (JP1.5V, JP1.VCC, JP1.3.3V); el FT232RL, U1; y el USB, USB_5V, que es de
-  donde salen los 5 V.
+  cada pin por su nombre (P1.DTR ... P1.GND) -cada uno, su patilla acodada y
+  su cuadrado: un hilo engancha en la punta de la patilla-; el jumper JP1,
+  con los suyos (JP1.5V, JP1.VCC, JP1.3.3V); el FT232RL, U1; y el USB,
+  USB_5V, que es de donde salen los 5 V.
 
   EL PUENTE DEL JUMPER esta dibujado en sus dos posiciones, como VARIANTES
   de JP1: `JP1@5V-VCC` y `JP1@VCC-3.3V`. mcu-sim deja solo la que dice el
@@ -48,19 +49,31 @@
   <circle cx="307.4" cy="167" r="7" fill="#c9c9c9" stroke="#8a8a8a" stroke-width="1.5"/>
   <circle cx="307.4" cy="167" r="3.5" fill="#4a0508"/>
   <g id="P1">
-    <rect x="0" y="23.5" width="41.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
-    <rect x="0" y="48.9" width="41.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
-    <rect x="0" y="74.3" width="41.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
-    <rect x="0" y="99.7" width="41.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
-    <rect x="0" y="125.1" width="41.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
-    <rect x="0" y="150.5" width="41.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
     <rect x="34.0" y="13.8" width="26" height="152.4" rx="2" fill="#1c1c1c" stroke="#000000" stroke-width="1"/>
-    <rect id="P1.DTR" x="42.0" y="21.5" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
-    <rect id="P1.RX" x="42.0" y="46.9" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
-    <rect id="P1.TX" x="42.0" y="72.3" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
-    <rect id="P1.VCC" x="42.0" y="97.7" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
-    <rect id="P1.CTS" x="42.0" y="123.1" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
-    <rect id="P1.GND" x="42.0" y="148.5" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    <g id="P1.DTR">
+      <rect x="0" y="23.5" width="34.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+      <rect x="42.0" y="21.5" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    </g>
+    <g id="P1.RX">
+      <rect x="0" y="48.9" width="34.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+      <rect x="42.0" y="46.9" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    </g>
+    <g id="P1.TX">
+      <rect x="0" y="74.3" width="34.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+      <rect x="42.0" y="72.3" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    </g>
+    <g id="P1.VCC">
+      <rect x="0" y="99.7" width="34.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+      <rect x="42.0" y="97.7" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    </g>
+    <g id="P1.CTS">
+      <rect x="0" y="125.1" width="34.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+      <rect x="42.0" y="123.1" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    </g>
+    <g id="P1.GND">
+      <rect x="0" y="150.5" width="34.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+      <rect x="42.0" y="148.5" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    </g>
   </g>
   <text x="65.0" y="30.0" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5">DTR</text>
   <text x="65.0" y="55.4" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5">RX</text>
