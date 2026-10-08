@@ -33,6 +33,7 @@
 #include "ext_parts.h"
 #include "puente_serie.h"
 #include "tft_st7735.h"
+#include "servo.h"
 
 namespace stm32 {
 
@@ -621,6 +622,164 @@ REGISTRA_PARTE(Tft128x160,
                               n[d.nodo_de("sda")], n[d.nodo_de("sck")], n[d.nodo_de("led")],
                               mem == "132x162", pan == "bgr", d.num("vf_luz", 2.9),
                               d.num("r_luz", 15.0));
+    });
+
+REGISTRA_PARTE(Servo,
+    Ayuda("Un SERVO de modelismo, como el SG90: un motor con reductora que lleva "
+          "su eje al angulo que pide la ANCHURA del pulso de la senal PWM, que "
+          "llega cada `periodo_ms`. `pulso_min_ms` es `angulo_min` y "
+          "`pulso_max_ms` es `angulo_max`, en linea recta; fuera de ese rango se "
+          "queda en el extremo, y lo dice. Va hacia el angulo a su VELOCIDAD, que "
+          "depende de la tension de VCC, y tiene banda muerta. Es una carga de "
+          "verdad sobre VCC: poco quieto, mas moviendose y mucho bloqueado. Y al "
+          "arrancar el eje esta DONDE SE QUEDO, en un angulo cualquiera del rango, "
+          "como el de verdad: el primer pulso lo lleva a su sitio. De giro "
+          "continuo (`continuo=\"si\"`) el pulso es una velocidad: el del centro "
+          "lo para.")
+      .ejemplo("<componente tipo=\"Servo\" id=\"SERVO\" velocidad=\"0.12@5\" aspa=\"cuatro\">\n"
+               "  <pin nombre=\"vcc\" nodo=\"P1.VCC\"/>\n"
+               "  <pin nombre=\"gnd\" nodo=\"P1.GND\"/>\n"
+               "  <pin nombre=\"pwm\" nodo=\"P1.PWM\"/>\n"
+               "</componente>")
+      .pin("vcc", "obligatorio", "La alimentacion, de `v_min` a `v_max`.")
+      .pin("gnd", "obligatorio", "La masa.")
+      .pin("pwm", "obligatorio", "La senal: alta de alta impedancia, con umbrales de "
+           "1,6 V al subir y 0,8 V al bajar; vale con 3,3 V.")
+      .atr("periodo_ms", "20", "El periodo que espera de la senal, en ms. Uno que "
+           "llegue a menos de la mitad o a mas del doble se avisa.")
+      .atr("angulo_min", "-90", "El angulo del pulso mas corto, en grados.")
+      .atr("angulo_max", "90", "El del pulso mas largo. Positivo es en el sentido de "
+           "las agujas del reloj, mirando el eje desde arriba.")
+      .atr("pulso_min_ms", "1", "La anchura del pulso de `angulo_min`, en ms.")
+      .atr("pulso_max_ms", "2", "La del de `angulo_max`.")
+      .atr("continuo", "no", "si: de giro continuo. El pulso es la velocidad y el "
+           "sentido; el rango de angulos no cuenta.")
+      .atr("velocidad", "0.12@4.8",
+           "Lo que tarda en girar 60 grados a cada tension: `s@V`, separados por "
+           "blancos -`0.12@4.8 0.10@6`-. Entre dos, en linea recta; con uno solo, "
+           "la velocidad es proporcional a la tension.")
+      .atr("v_min", "4", "Por debajo, en V, el motor no puede con la reductora.")
+      .atr("v_max", "7.2", "Lo que aguanta, en V: por encima, lo avisa.")
+      .atr("banda_muerta_us", "10", "Un cambio de pulso menor, en us, no lo mueve.")
+      .atr("sin_senal", "suelta", "Que hace si deja de llegar senal -tres periodos sin "
+           "pulso-: suelta, el analogico, que deja el motor; mantiene, el digital, "
+           "que sigue yendo al ultimo angulo.")
+      .atr("i_reposo_ma", "6", "Lo que gasta quieto, en mA, a 5 V.")
+      .atr("i_marcha_ma", "150", "Lo que gasta moviendose.")
+      .atr("i_bloqueo_ma", "650", "Lo que gasta con el eje sujeto y queriendo moverse.")
+      .atr("posicion_inicial", "aleatoria", "Donde esta el eje al arrancar: aleatoria, "
+           "en cualquier punto del rango, o un angulo en grados.")
+      .atr("semilla", "0", "Fija la posicion aleatoria: con la misma semilla, el mismo "
+           "angulo. 0, distinta cada vez.")
+      .atr("aspa", "dos", "El aspa que lleva en el eje, para el dibujo: una, dos (a "
+           "180 grados), cuatro (dos largas y dos cortas, en cruz), seis o disco. Una de "
+           "las palas lleva una marca para seguirla con la vista.")
+      .atr("color", "azul", "El color del cuerpo en el dibujo: azul o negro.")
+      .nota("El dibujo de la pieza elige su cuerpo y su aspa con las variantes "
+            "`ID.cuerpo@azul|negro` y `ID.aspa@una|dos|cuatro|seis|disco`, y la "
+            "ventana gira el elemento de la pieza con el angulo (el efecto "
+            "`angulo`). Deja ver `angulo` (grados), `pulso` (us), `corriente` (mA) y "
+            "`rpm`; el MANDO `bloquear` sujeta el eje con la mano. Avisa, una vez "
+            "cada cosa, de pulsos fuera de rango o que no lo son, de un periodo que "
+            "no es el suyo, de la sobretension y de cuando se queda sin senal.")
+      .cpp("angulo(), objetivo(), inicial(), pulso_us(), periodo_ms(), moviendose(), "
+           "con_senal(), tension(), corriente_ma(), rpm(), pulsos(); bloquea(si)."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Servo '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        // Un numero, todo el texto
+        auto numero = [](const std::string& t, double& v) {
+            if (t.empty()) return false;
+            char* fin = nullptr;
+            v = std::strtod(t.c_str(), &fin);
+            return fin && *fin == '\0' && std::isfinite(v);
+        };
+        auto lee = [&](const char* clave, double omision, double& v) {
+            const std::string t = d.txt(clave);
+            if (t.empty()) { v = omision; return true; }
+            return numero(t, v);
+        };
+        ConfigServo c;
+        const char* claves[] = {"periodo_ms", "angulo_min", "angulo_max", "pulso_min_ms",
+                                "pulso_max_ms", "v_min", "v_max", "banda_muerta_us",
+                                "i_reposo_ma", "i_marcha_ma", "i_bloqueo_ma"};
+        double* destinos[] = {&c.periodo_ms, &c.angulo_min, &c.angulo_max, &c.pulso_min_ms,
+                              &c.pulso_max_ms, &c.v_min, &c.v_max, &c.banda_muerta_us,
+                              &c.i_reposo_ma, &c.i_marcha_ma, &c.i_bloqueo_ma};
+        for (unsigned k = 0; k < sizeof claves / sizeof *claves; ++k)
+            if (!lee(claves[k], *destinos[k], *destinos[k]))
+                return mal(std::string(claves[k]) + "=\"" + d.txt(claves[k]) +
+                           "\" no es un numero");
+        const std::string cont = d.txt("continuo", "no");
+        if (cont != "si" && cont != "no") return mal("continuo es si o no");
+        c.continuo = cont == "si";
+        if (c.periodo_ms < 2.0 || c.periodo_ms > 100.0)
+            return mal("periodo_ms tiene que estar entre 2 y 100");
+        if (!c.continuo && c.angulo_max <= c.angulo_min)
+            return mal("angulo_max tiene que ser mayor que angulo_min");
+        if (!c.continuo && c.angulo_max - c.angulo_min > 360.0)
+            return mal("el rango de angulos pasa de una vuelta; para girar sin fin, "
+                       "continuo=\"si\"");
+        if (c.pulso_min_ms < 0.3 || c.pulso_max_ms > 3.0 || c.pulso_max_ms <= c.pulso_min_ms)
+            return mal("los pulsos van de 0.3 a 3 ms, y pulso_max_ms mayor que pulso_min_ms");
+        if (c.pulso_max_ms >= c.periodo_ms)
+            return mal("pulso_max_ms tiene que ser menor que periodo_ms");
+        if (c.v_min <= 0.0 || c.v_max <= c.v_min)
+            return mal("v_min tiene que ser positivo y menor que v_max");
+        if (c.banda_muerta_us < 0.0 || c.banda_muerta_us > 200.0)
+            return mal("banda_muerta_us va de 0 a 200");
+        if (c.i_reposo_ma < 0.0 || c.i_marcha_ma <= 0.0 || c.i_bloqueo_ma <= 0.0)
+            return mal("las corrientes tienen que ser positivas");
+        // La velocidad: pares s@V
+        const std::string vel = d.txt("velocidad", "0.12@4.8");
+        c.velocidad.clear();
+        {
+            std::string pal;
+            std::istringstream is(vel);
+            while (is >> pal) {
+                const size_t a = pal.find('@');
+                double s = 0, v = 0;
+                if (a == std::string::npos || !numero(pal.substr(0, a), s) ||
+                    !numero(pal.substr(a + 1), v) || s <= 0.0 || v <= 0.0)
+                    return mal("velocidad=\"" + vel + "\": cada punto es s@V, los segundos "
+                               "por 60 grados a esa tension, los dos positivos (0.12@4.8)");
+                c.velocidad.push_back({v, s});
+            }
+        }
+        if (c.velocidad.empty()) return mal("velocidad vacia; es s@V, como 0.12@4.8");
+        std::sort(c.velocidad.begin(), c.velocidad.end());
+        for (size_t k = 1; k < c.velocidad.size(); ++k)
+            if (c.velocidad[k].first == c.velocidad[k - 1].first)
+                return mal("velocidad=\"" + vel + "\" da dos veces la misma tension");
+        const std::string ss = d.txt("sin_senal", "suelta");
+        if (ss != "suelta" && ss != "mantiene") return mal("sin_senal es suelta o mantiene");
+        c.mantiene = ss == "mantiene";
+        const std::string pi = d.txt("posicion_inicial", "aleatoria");
+        if (pi == "aleatoria") {
+            c.inicial_aleatoria = true;
+        } else {
+            c.inicial_aleatoria = false;
+            if (!numero(pi, c.posicion_inicial))
+                return mal("posicion_inicial es aleatoria o un angulo en grados");
+            if (!c.continuo && (c.posicion_inicial < c.angulo_min ||
+                                c.posicion_inicial > c.angulo_max))
+                return mal("posicion_inicial=\"" + pi + "\" esta fuera del rango de angulos");
+        }
+        double sem = 0;
+        if (!lee("semilla", 0.0, sem) || sem < 0 || sem > 4294967295.0 ||
+            sem != std::floor(sem))
+            return mal("semilla es un entero de 0 a 4294967295");
+        c.semilla = uint32_t(sem);
+        const std::string aspa = d.txt("aspa", "dos"), color = d.txt("color", "azul");
+        if (aspa != "una" && aspa != "dos" && aspa != "cuatro" && aspa != "seis" &&
+            aspa != "disco")
+            return mal("aspa=\"" + aspa + "\" no vale; es una, dos, cuatro, seis o disco");
+        if (color != "azul" && color != "negro")
+            return mal("color=\"" + color + "\" no vale; es azul o negro");
+        return new Servo(d.id.c_str(), n[d.nodo_de("vcc")], n[d.nodo_de("gnd")],
+                         n[d.nodo_de("pwm")], c);
     });
 
 REGISTRA_PARTE(Driver,

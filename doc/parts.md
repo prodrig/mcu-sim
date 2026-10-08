@@ -336,7 +336,7 @@ máquina y no ver estos ficheros.
 | Sin `ilustracion=` | El SVG que **se llame como la placa**, a su lado: `nucleo_f446re.xml` → `nucleo_f446re.svg`. Si no está, no pasa nada |
 | `<placa id="N" fichero="..." ilustracion="y.svg"/>` en un `<sistema>` | El montaje cambia el dibujo de esa placa (relativo al sistema); la tabla de la placa, que era de SU dibujo, no se usa |
 | `giro="90"` en la `<placa>`, o en su `<placa id>` de un `<sistema>` | El dibujo, **girado** 90, 180 o 270 grados en el sentido de las agujas del reloj: como está montada la placa. El del sistema manda sobre el de la placa. Ver abajo |
-| `<ilustracion><enlace pieza= elemento= [efecto=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido`, `giro`, `pantalla` o `ninguno` |
+| `<ilustracion><enlace pieza= elemento= [efecto=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido`, `giro`, `pantalla`, `angulo` o `ninguno` |
 
 **Lo que se comprueba aquí** —el SVG lo lee la ventana—: un dibujo
 **declarado** que no está, uno que no empieza por `<svg` ni por `<?xml`, o uno
@@ -369,6 +369,16 @@ elemento es un círculo centrado en él con todo lo demás dentro. Encima, la ta
 del pulsador, `SW1`, con `hundido`: el clic en la tapa la aprieta, y la rueda
 del ratón **atraviesa** la tapa —un botón no tiene nada que girar— y gira el
 encoder.
+
+**Lo que gira un ángulo: el efecto `angulo`.** Es el de omisión de una pieza
+que sugiere un numérico **en grados** —unidad `°`—, y lo puede pedir también
+la tabla. El elemento gira sobre el centro de su caja tantos grados como diga
+ese numérico, a la derecha los positivos, sin vueltas ni posiciones: es el
+aspa del `Servo` (§4.11), que en `placas/servo_sg90.svg` está dibujada en el
+0 con la pala de la marca hacia arriba. Ese numérico no lleva etiqueta: ya lo
+dice el giro. Como con `giro`, para que gire sobre el eje el elemento lleva
+dentro un círculo centrado en él —sin pintar, `fill="none"`— que alcanza más
+que todo lo demás.
 
 **Lo que se ve en una pantalla: el efecto `pantalla`.** Es el de omisión de
 una pieza que enseña una IMAGEN —el `Tft128x160`—: la ventana pinta la imagen
@@ -410,6 +420,13 @@ sabe nada de esto. La consola lo dice: `dibujo: ftdi_ft232rl.svg (10 kB, JP1
 dibujos. Un detalle de autor: la ventana pinta cada pieza con lo que lleva
 **dentro**, así que las variantes de `JP1` van dentro del elemento `JP1`; fuera,
 quedarían debajo de él.
+
+Una pieza puede tener **varias** variantes, cada una con un nombre detrás del
+id: las del `Servo` son `SERVO.cuerpo@azul` y `SERVO.cuerpo@negro` —su
+`color`— y `SERVO.aspa@una` … `SERVO.aspa@disco` —su `aspa`—. Las del aspa van
+dentro del elemento `SERVO`, que es lo que gira; las del cuerpo, fuera, debajo.
+La consola las dice todas: `dibujo S: servo_sg90.svg (16 kB, SERVO.aspa
+cuatro, SERVO.cuerpo azul)`.
 
 **Los rótulos: lo que solo se sabe al lanzar.** Un texto del dibujo con id
 `PIEZA#campo` y nada más dentro se queda con el texto que le toca antes de
@@ -749,6 +766,14 @@ tuvo que limitar.
 
 Desde C++, `corriente()` en amperios, `sobrecorriente()` y `episodios()`, las
 veces que ha entrado en limitación.
+
+**El +5V de la Nucleo es una.** `placas/nucleo_f446re.xml` lleva la `Fuente`
+`USB`: los 5 V del cable del ST-LINK, que pasan por su interruptor de potencia
+—corta a unos 500 mA, `limite_ma="500"`— y salen como `+5V` (CN6.5 y CN7.18)
+y `U5V` (CN10.8). Es de donde toma su tensión un módulo de 5 V, como el servo
+de `placas/nucleo_f446re_servo.xml`. En el dibujo es el conector USB de
+arriba: deja ver lo que entrega, y se rodea de rojo al limitar —un servo
+bloqueado pide 650 mA—. VIN y E5V, que son entradas, siguen al aire.
 
 #### `Conector`
 
@@ -1452,7 +1477,7 @@ regulador de 3,3 V y su retroiluminación [ST7735S, Sitronix, v1.1]. Está en
 | `r_luz` | `15` | Su resistencia en la placa, en ohmios |
 
 **Lo que se ve es lo que enseñaría la pantalla de verdad**, y se lo manda a
-la ventana como una IMAGEN de 128x160 (§4.11):
+la ventana como una IMAGEN de 128x160 (§4.12):
 
 * el chip sin tensión, en reset, dormido —SLPIN, el estado tras arrancar— o
   con la pantalla apagada —DISPOFF—: **blanca**. El cristal es de los
@@ -1522,7 +1547,77 @@ sistema la placa del nombre—, SDA, SCK y LED. Y
 la Nucleo, con `verif/fw/tft_demo`: lee el ID por SDA, la despierta y dibuja
 —el título, ocho barras de color y un cuadrado que va y viene—.
 
-### 4.11 Lo que `mcu-sim-gui` puede ver y tocar
+### 4.11 El servo
+
+#### `Servo`
+
+Un **servo de modelismo**, como el SG90: un motor con su reductora y, dentro,
+un potenciómetro y un circuito que lleva el eje al ángulo que pide la
+**anchura del pulso** de la señal, que llega cada ~20 ms [SG90, TowerPro;
+Handson Technology, «SG90 Micro Servo»]. Está en `parts/servo.h`.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `vcc` | obligatorio | La alimentación del motor y del circuito, de `v_min` a `v_max` |
+| `gnd` | obligatorio | La masa |
+| `pwm` | obligatorio | La señal. Entrada de alta impedancia con umbrales de 1,6 V al subir y 0,8 V al bajar: vale con los 3,3 V de un STM32 |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `periodo_ms` | `20` | El periodo que espera de la señal, de 2 a 100 ms. Uno medido de menos de la mitad o más del doble se avisa |
+| `angulo_min`, `angulo_max` | `-90`, `90` | Los ángulos de los dos extremos, en grados. Positivo es en el sentido de las agujas del reloj, mirando el eje desde arriba |
+| `pulso_min_ms`, `pulso_max_ms` | `1`, `2` | Las anchuras de pulso de `angulo_min` y de `angulo_max`, entre 0,3 y 3 ms. En medio, en línea recta |
+| `continuo` | `no` | `si`: de **giro continuo**. El pulso ya no es una posición sino una velocidad: el del centro del rango lo para, `pulso_max_ms` lo lleva a toda velocidad a la derecha y `pulso_min_ms` a la izquierda. El ángulo da vueltas, de 0 a 360 |
+| `velocidad` | `0.12@4.8` | Lo que tarda en girar 60 grados a cada tensión: pares `s@V` separados por blancos —`0.12@4.8 0.10@6`—. Entre dos, en línea recta; fuera, el más cercano; con uno solo, la velocidad es proporcional a la tensión |
+| `v_min`, `v_max` | `4`, `7.2` | Por debajo de `v_min` el motor no puede con la reductora y no se mueve; por encima de `v_max`, se avisa |
+| `banda_muerta_us` | `10` | Un cambio de pulso menor no lo mueve, de 0 a 200 µs |
+| `sin_senal` | `suelta` | Qué hace si deja de llegar señal —tres periodos sin pulso—: `suelta`, el analógico, deja el motor y se queda donde esté; `mantiene`, el digital, sigue hacia el último ángulo |
+| `i_reposo_ma`, `i_marcha_ma`, `i_bloqueo_ma` | `6`, `150`, `650` | Lo que gasta quieto, moviéndose y con el eje sujeto, en mA a 5 V |
+| `posicion_inicial` | `aleatoria` | Dónde está el eje al arrancar: `aleatoria`, en cualquier punto del rango —redondeado a la décima de grado—, o un ángulo |
+| `semilla` | `0` | Fija la posición aleatoria: con la misma semilla, el mismo ángulo, también en otro sistema operativo. `0`, distinta cada vez |
+| `aspa` | `dos` | El aspa del eje, para el dibujo: `una`, `dos` —a 180°—, `cuatro` —dos largas y dos cortas, en cruz—, `seis` o `disco`. Una de las palas lleva una marca roja para seguirla con la vista |
+| `color` | `azul` | El color del cuerpo en el dibujo: `azul` o `negro` |
+
+**Lo que hace, como el de verdad:**
+
+* mide la anchura de cada pulso y la lleva a un ángulo. Un pulso fuera del
+  rango —más allá de la banda muerta— lleva al **extremo**, donde están los
+  topes de la reductora, y se avisa; uno fuera de lo que el circuito reconoce
+  como pulso, 0,3 a 3 ms, se **ignora**, y se avisa;
+* va hacia el ángulo pedido a su **velocidad**, que depende de la **tensión**
+  que tiene en VCC en cada momento: una fuente floja que se hunde lo hace ir
+  más despacio, y por debajo de `v_min` lo para;
+* es una **carga de verdad** sobre VCC —una rama de dos nodos con la
+  resistencia que da su corriente a 5 V—: poco quieto, más moviéndose y mucho
+  bloqueado. Por eso un servo se alimenta de un rail de 5 V que lo aguante, no
+  de un pin;
+* sin señal, el analógico suelta y el digital mantiene;
+* y al arrancar el eje está **donde se quedó**: el primer pulso lo lleva a su
+  sitio, y se le ve llegar.
+
+El eje no se simula paso a paso: su ángulo es una recta en el tiempo entre
+dos cambios —un pulso nuevo, la llegada, la tensión, la señal que se pierde—,
+y el proceso del motor solo despierta en ellos.
+
+Deja ver `angulo` (grados, el que sugiere pintar: la ventana gira el aspa con
+él, el efecto `angulo`), `pulso` (µs), `corriente` (mA) y `rpm`. El **mando**
+es `bloquear`, un interruptor: la mano que sujeta el eje. Avisa, una vez cada
+cosa, de los pulsos fuera de rango o que no lo son, de un periodo que no es el
+suyo, de la sobretensión y de cuando se queda sin señal. Al terminar, `sim`
+dice cómo ha quedado: `SERVO S/SERVO: +0.0 grados (objetivo +0.0), pulso 1500
+us cada 20.0 ms; quieto; 5.00 V, 6 mA; empezo en -17.4 grados`. Desde C++,
+`angulo()`, `objetivo()`, `inicial()`, `pulso_us()`, `moviendose()`,
+`con_senal()`, `tension()`, `corriente_ma()`, `rpm()` y `bloquea(si)`.
+
+`placas/servo_sg90.xml` es una placa con el SG90 a 5 V —de −90 a +90 grados
+con pulsos de 1 a 2 ms cada 20 ms, `velocidad="0.12@5"`, aspa de cuatro palas
+y cuerpo azul— y su conector de tres pines acodado debajo: `VCC`, `GND` y
+`PWM`. En el dibujo, junto a cada pin, el color de su hilo en el cable del
+servo. Y `placas/nucleo_f446re_servo.xml` la cablea a una Nucleo —el `PWM` a
+D5, PB4, el TIM3; el `VCC` a su `+5V`— con un KY-040 que lo mueve 5 grados por
+clic y la pantalla TFT de pie, con `verif/fw/servo_demo`.
+
+### 4.12 Lo que `mcu-sim-gui` puede ver y tocar
 
 Desde la fase 1 del plan de `mcu-sim-gui` (P-12), una pieza puede **declarar**
 qué deja ver —sus *observables*— y qué se le puede hacer —sus *mandos*—. La
@@ -1541,6 +1636,7 @@ Lo declaran estas:
 | `Fuente`, `Gnd` | `corriente` (mA, la que entrega o recibe; la escala es ± el límite, o ±100 sin él) y `sobrecorriente` (0/1, **una alarma**: el catálogo la marca con `alarma="si"` y la ventana la pinta en rojo) | — |
 | `Encoder` | `posicion` (de 0 a `pasos − 1`, la que sugiere pintar), `cuenta`, `contacto_a` y `contacto_b` (0/1) | `girar` (discreto, la cuenta de clics, de −30000 a 30000) |
 | `Tft128x160` | `encendida` (0/1, la que sugiere pintar) y `luz` (mA, de 0 a 40); y la IMAGEN `pantalla`, de 128x160 | — |
+| `Servo` | `angulo` (°, de `angulo_min` a `angulo_max` o de 0 a 360, el que sugiere pintar), `pulso` (µs), `corriente` (mA) y `rpm` | `bloquear` (interruptor: sujeta el eje) |
 
 **Una pieza puede enseñar además una IMAGEN entera** —la pantalla de un
 TFT—, que no cabe en un número (`Imagen` en `parts/part_base.h`). El catálogo
@@ -1565,9 +1661,9 @@ método de siempre: `acciona(pulsar, 1)` hace lo mismo que `press()`.
 
 Las demás no declaran nada todavía, y no les hace falta para
 compilar: los seis métodos de `ExtPartBase` tienen valores por omisión. Las
-piezas que el enunciado de la GUI necesita y no existen —`PwmMeter`, `Servo`,
-`StepperDriver`, `DcMotor`— están en `doc/analisis_gui.md` §8; el `Encoder` ya
-está (§4.1).
+piezas que el enunciado de la GUI necesita y no existen —`PwmMeter`,
+`StepperDriver`, `DcMotor`— están en `doc/analisis_gui.md` §8; el `Encoder`
+(§4.1) y el `Servo` (§4.11) ya están.
 
 ---
 
@@ -1586,7 +1682,7 @@ existe—; simplemente no ha hecho falta todavía.
 encender un oscilador, enviar una trama CAN o inyectar una trama Ethernet son
 acciones, no descripción, y viven en el programa que conduce la simulación
 —o, con `--gui`, en la ventana, que las manda como órdenes a los mandos que
-cada pieza declara (§4.11)—.
+cada pieza declara (§4.12)—.
 
 **El MCU no se describe.** Variante, encapsulado y rasgos de los periféricos
 siguen fijados en C++. El fichero describe lo que está fuera del chip.
@@ -1666,8 +1762,8 @@ $ ./build/mcu-sim placas/led_azul_5v.xml verif/fw/blinky/blinky.bin 205
   LED LD_AZUL en PD12: apagado  (3.30 V, 0.00 mA)
 ```
 
-Y la placa entera del banco de pruebas —43 componentes de 20 de los 29 tipos,
-todos menos `Rpull`, `Resistencia`, `Encoder`, `Tft128x160`, `Fuente`, `Gnd`, `Conector`, `Jumper` y `PuenteSerie`, que tiene su propio banco (`testserie`)— se saca
+Y la placa entera del banco de pruebas —43 componentes de 20 de los 30 tipos,
+todos menos `Rpull`, `Resistencia`, `Encoder`, `Tft128x160`, `Servo`, `Fuente`, `Gnd`, `Conector`, `Jumper` y `PuenteSerie`, que tiene su propio banco (`testserie`)— se saca
 del propio modelo, que es la mejor referencia de formato que hay:
 
 ```

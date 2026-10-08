@@ -322,7 +322,7 @@ struct DeclMcu {
 struct EnlaceIlustracion {
     std::string pieza;        // el nombre en SU placa: "LD2", nunca "N/LD2"
     std::string elemento;     // el id en el SVG
-    std::string efecto;       // "", "brillo", "hundido", "giro", "pantalla" o "ninguno"
+    std::string efecto;       // "", "brillo", "hundido", "giro", "pantalla", "angulo" o "ninguno"
 };
 struct Ilustracion {
     std::string declarada;    // lo que dice el XML, tal cual; vacío si no dice
@@ -745,6 +745,21 @@ public:
         GeomConector g;
         if (!geometria(i, g).empty()) return std::string();
         return g.puente();
+    }
+    // TODAS las de una pieza, cada una con lo que va detras de su id en el
+    // dibujo: la de un Jumper va sin nada (`JP1@5V-VCC`); un Servo tiene dos,
+    // el color de su cuerpo (`SERVO.cuerpo@azul`) y su aspa
+    // (`SERVO.aspa@cuatro`).
+    static std::vector<std::pair<std::string, std::string>> variantes(const Instancia& i) {
+        std::vector<std::pair<std::string, std::string>> v;
+        if (i.tipo == "Servo") {
+            v.push_back({".cuerpo", i.txt("color", "azul")});
+            v.push_back({".aspa", i.txt("aspa", "dos")});
+            return v;
+        }
+        const std::string x = variante(i);
+        if (!x.empty()) v.push_back({std::string(), x});
+        return v;
     }
 
     // EL PAD FÍSICO detrás de un nombre: "u0:37" para un pad de puerto,

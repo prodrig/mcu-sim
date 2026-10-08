@@ -750,9 +750,12 @@ FW417 := verif/fw/crypto_demo
 FWSERIE := verif/fw/vcp_demo
 # Los de las placas de ejemplo que no usa ninguna suite de C++: el de
 # placas/barra8_en_nucleo.xml y el de placas/nucleo_f446re_barra8ac_azul.xml,
-# que vigila `make gui-sistema`; y los de la pantalla TFT, el de
-# placas/nucleo_f446re_tft.xml y su prueba, que vigila `make gui-marcha`
-FWPLACAS := verif/fw/barra8_demo verif/fw/barra8_morpho verif/fw/tft_demo verif/fw/tft_prueba
+# que vigila `make gui-sistema`; los de la pantalla TFT, el de
+# placas/nucleo_f446re_tft.xml y su prueba, que vigila `make gui-marcha`; y los
+# del servo, el de placas/nucleo_f446re_servo.xml, que vigila `make
+# gui-ordenes`, y su prueba, que vigila `make gui-marcha`
+FWPLACAS := verif/fw/barra8_demo verif/fw/barra8_morpho verif/fw/tft_demo verif/fw/tft_prueba \
+            verif/fw/servo_demo verif/fw/servo_prueba
 
 # Todos los que hay, para `cleanfw`. Se calculan buscando Makefiles en vez de
 # escribir otra lista: asi un firmware nuevo se borra sin tocar esto.

@@ -565,15 +565,17 @@ SC_MODULE(Sim) {
             const size_t b = r.find_last_of("/\\");
             return b == std::string::npos ? r : r.substr(b + 1);
         };
-        // Las variantes de las piezas de una placa -el puente de un Jumper-,
+        // Las variantes de las piezas de una placa -el puente de un Jumper, el
+        // color y el aspa de un Servo-,
         // por su id en ella: lo que su dibujo tiene que enseñar
         auto variantes = [&](const std::string& id) {
             std::map<std::string, std::string> v;
             for (const Instancia& i : placa.instancias()) {
-                const std::string x = Netlist::variante(i);
-                if (x.empty()) continue;
-                if (!sis) v[i.id] = x;
-                else if (placa.placa_de(i.id) == id) v[i.id.substr(id.size() + 1)] = x;
+                for (const auto& x : Netlist::variantes(i)) {
+                    if (!sis) v[i.id + x.first] = x.second;
+                    else if (placa.placa_de(i.id) == id)
+                        v[i.id.substr(id.size() + 1) + x.first] = x.second;
+                }
             }
             return v;
         };
@@ -1105,6 +1107,25 @@ SC_MODULE(Sim) {
                 std::printf("  TFT %s: %llu ordenes perdidas por llegar antes de 5 ms tras "
                             "el reset\n", i.id.c_str(),
                             (unsigned long long)t->ordenes_perdidas());
+        }
+        // Los servos: donde ha quedado el eje, hacia donde iba, la senal que le
+        // llega y donde empezo -que, aleatorio, cambia de una vez a otra-
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Servo") continue;
+            const Servo* s = placa.como<Servo>(i.id);
+            if (!s) continue;
+            const char* estado = s->bloqueado()  ? "bloqueado"
+                               : s->moviendose() ? "moviendose"
+                               : "quieto";
+            char senal[96];
+            if (!s->pulsos())
+                std::snprintf(senal, sizeof senal, "sin un pulso");
+            else
+                std::snprintf(senal, sizeof senal, "pulso %.0f us cada %.1f ms%s", s->pulso_us(),
+                              s->periodo_ms(), s->con_senal() ? "" : " (ya sin senal)");
+            std::printf("  SERVO %s: %+.1f grados (objetivo %+.1f), %s; %s; %.2f V, %.0f mA; "
+                        "empezo en %+.1f grados\n", i.id.c_str(), s->angulo(), s->objetivo(),
+                        senal, estado, s->tension(), s->corriente_ma(), s->inicial());
         }
         // Y lo que los puentes serie tengan a medias, que tambien se ve desde
         // fuera: es la basura de unos baudios equivocados.

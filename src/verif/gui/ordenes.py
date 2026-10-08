@@ -38,6 +38,14 @@
 #       cambio cada vez-, primero CLK a la derecha y primero DT a la izquierda;
 #       en cada clic las dos líneas iguales; `posicion` da la vuelta -de 0 a
 #       29 por la izquierda-; y apretar el eje baja SW.
+#   O7  EL SERVO CON SU ENCODER (`placas/nucleo_f446re_servo.xml`): la Nucleo,
+#       el servo, el KY-040 y la pantalla de pie, con `verif/fw/servo_demo`.
+#       El servo empieza en un ángulo al azar -otro en cada simulación- y el
+#       firmware lo lleva al centro; girar el encoder lo mueve 5 grados por
+#       clic, hasta el tope; apretar el eje lo centra; y sujetarlo -el mando
+#       `bloquear`- lo para donde esté, gasta lo de un servo bloqueado -más
+#       de lo que da el USB de la Nucleo, que lo avisa- y al soltarlo sigue.
+#       La pantalla, con MADCTL 0x00, enseña la aguja donde debe.
 #
 #   make -f Makefile.mcu-sim gui-ordenes
 #   python3 verif/gui/ordenes.py [--sim build/mcu-sim]
@@ -56,7 +64,7 @@ import xml.etree.ElementTree as ET
 
 import ventana
 from ventana import (Ventana, arranque, RIT_REAL, check, grupo, arranca, termina, saludo_hasta_listo, fin,
-                     suscribe, instantanea, aviso, ordenes, hecha,
+                     suscribe, instantanea, aviso, ordenes, hecha, imagen, T_IMAGEN,
                      T_INSTANTANEA, T_AVISO, T_ESTADO, T_ORDEN_HECHA, T_FIN, T_ARRANCA,
                      M_VENTANA, RIT_LIBRE, N_AVISO,
                      RES_OK, RES_PIEZA, RES_MANDO, RES_RANGO)
@@ -509,6 +517,122 @@ def o6_ky040(sim):
           "apretar el eje baja SW, y soltarlo lo sube -con su rebote-, sin tocar CLK ni DT")
 
 
+# ---------------------------------------------------------------------------
+# O7
+# ---------------------------------------------------------------------------
+SERVO = "placas/nucleo_f446re_servo.xml"
+
+
+def o7_servo(sim):
+    grupo("O7 El servo con su encoder y su pantalla: girar, centrar y sujetar el eje")
+    r = subprocess.run([sim, SERVO, "--valida"], stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, timeout=60)
+    out = r.stdout.decode("utf-8", "replace")
+    check(r.returncode == 0 and "4 placas: N (nucleo-f446re), S (servo-sg90), K (ky040), "
+          "T (tft-128x160)" in out and "1 MCU(s), 20 componentes, 170 nodos, 0 avisos" in out and
+          "dibujo T: tft_128x160.svg (6 kB, girado 90)" in out,
+          "%s se valida sin avisos: la Nucleo, el servo, el encoder y la pantalla, de pie" % SERVO)
+    # Donde empieza: al azar, otro cada vez
+    inis = []
+    for _ in range(3):
+        r = subprocess.run([sim, SERVO, "--ms=1", "--serie", "N/VCP=memoria"],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+        o = r.stdout.decode("utf-8", "replace")
+        k = o.find("empezo en ")
+        if k >= 0:
+            inis.append(float(o[k + 10:].split()[0]))
+    check(len(inis) == 3 and all(-90 <= x <= 90 for x in inis) and len(set(inis)) >= 2,
+          "el eje empieza DONDE SE QUEDO: un angulo al azar entre -90 y +90, otro en cada "
+          "simulacion (%s)" % inis)
+
+    v = Ventana()
+    p = arranca(sim, [SERVO, "--ms=1400", "--serie", "N/VCP=memoria"], v.puerto)
+    try:
+        if not check(v.acepta(), "con la ventana"):
+            return
+        _, _, cat, listo = saludo_hasta_listo(v, version=2)
+        enc, me, _ = pieza_de(cat, "K/ENC")
+        sw, ms_, _ = pieza_de(cat, "K/SW1")
+        sv, msv, osv = pieza_de(cat, "S/SERVO")
+        _, _, ousb = pieza_de(cat, "N/USB")
+        img = [int(i.get("id_obs")) for pz in ET.fromstring(cat).iter("pieza")
+               if pz.get("id") == "T/TFT" for i in pz.iter("imagen")]
+        if not check(listo and None not in (enc, sw, sv) and len(img) == 1 and
+                     "bloquear" in msv and "corriente" in ousb,
+                     "en el catalogo, el encoder, su pulsador, el servo con `bloquear`, el USB "
+                     "de la Nucleo y la imagen de la pantalla"):
+            return
+        ids = [osv["angulo"], osv["pulso"], osv["corriente"], ousb["corriente"],
+               ousb["sobrecorriente"]]
+        suscribe(v, MS, ids + img)
+        lista = [(400, enc, me["girar"], 3), (600, enc, me["girar"], -2),
+                 (800, sw, ms_["pulsar"], 1), (850, sw, ms_["pulsar"], 0),
+                 (900, enc, me["girar"], 30),
+                 (1000, sv, msv["bloquear"], 1), (1100, sv, msv["bloquear"], 0)]
+        t, ords = 0, []
+        for ms, pz_, m, val in lista:
+            ords.append((ms * MS - t, pz_, m, float(val)))
+            t = ms * MS
+        ordenes(v, ords)
+        arranque(v)
+        inst, ims = [], []
+        while True:
+            tt, c = v.recibe(seg=120)
+            if tt is None or tt == T_FIN:
+                break
+            if tt == T_INSTANTANEA:
+                inst.append(instantanea(c))
+            elif tt == T_IMAGEN:
+                ims.append(imagen(c))
+        rc, out, err = termina(p)
+    finally:
+        if p.poll() is None:
+            p.kill()
+        v.cierra()
+    if not check(rc == 0 and len(inst) == 1400, "corre 1400 ms con una muestra cada ms"):
+        return
+    en = {}
+    for ts, _, m in inst:
+        x = dict(m)
+        en[round(ts / MS)] = tuple(x[i] for i in ids)
+
+    def ang(ms):
+        return en[ms][0]
+    ini = ang(1)
+    check(("empezo en %+.1f grados" % ini) in out and abs(ang(390)) < 1e-4 and
+          "[N/VCP] servo_demo: angulo 0, pulso 1500 us" in out,
+          "al arrancar, el servo esta en %.1f grados, y el firmware lo lleva al centro" % ini)
+
+    def grados(us):
+        return (us - 1000) * 0.18 - 90
+    check(abs(ang(590) - grados(1583)) < 1e-3 and abs(en[590][1] - 1583) < 1 and
+          "angulo +15, pulso 1583 us" in out,
+          "tres clics a la derecha: +15 grados, un pulso de 1583 us (%.2f grados)" % ang(590))
+    check(abs(ang(790) - grados(1445)) < 1e-3 and "angulo -10, pulso 1445 us" in out,
+          "cinco a la izquierda, hasta la cuenta -2: -10 grados (%.2f)" % ang(790))
+    check(abs(ang(890)) < 1e-4 and out.count("servo_demo: angulo 0, pulso 1500 us") >= 2,
+          "apretar el eje lo lleva al centro")
+    bloq = ang(1001)
+    check(0 < bloq < 90 and all(ang(t) == bloq for t in range(1001, 1100, 10)) and
+          en[1050][2] > 400 and en[1050][4] == 1 and en[990][2] < 200,
+          "veintisiete clics a la derecha lo mandan al tope, +90; sujeto a los 1000 ms, se "
+          "queda en %.1f grados y pide lo de un servo bloqueado: el USB de la Nucleo se "
+          "limita a sus 500 mA (%.0f mA) y lo avisa" % (bloq, en[1050][2]))
+    check(abs(ang(1390) - 90) < 1e-4 and en[1390][4] == 0 and en[1390][2] < 10 and
+          "angulo +90, pulso 2000 us" in out and "N/USB: sobrecorriente" in out,
+          "al soltarlo sigue hasta +90, y vuelve a gastar lo de quieto")
+    ult = ims[-1] if ims else None
+
+    def px(x, y):
+        k = (y * 128 + x) * 3
+        return tuple(ult[6][k:k + 3])
+    naranja = ult and px(94, 100)
+    check(ult is not None and naranja[0] > 240 and 120 < naranja[1] < 140 and naranja[2] < 10 and
+          px(64, 70) == (0, 24, 65) and px(64, 4) == (0, 24, 65),
+          "la pantalla, de pie con MADCTL 0x00: la aguja naranja apunta a la derecha, a +90 "
+          "(%s), y donde estuvo en el 0 ya solo hay fondo" % (naranja,))
+
+
 def main():
     a = argparse.ArgumentParser(description="las ordenes de mcu-sim-gui, contra el mcu-sim de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -523,6 +647,7 @@ def main():
     o4_en_marcha(sim)
     o5_reset(sim)
     o6_ky040(sim)
+    o7_servo(sim)
     return ventana.resumen("ORDENES")
 
 

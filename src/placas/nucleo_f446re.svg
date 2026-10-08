@@ -19,6 +19,10 @@
   fuera de la placa, el de cada columna en la suya. Lo demas -los LED PWR y
   COM- es decorado.
 
+  EL USB, arriba, es la Fuente USB del XML: los 5 V del cable, que salen a
+  los conectores como +5V y U5V. Lo que gasta un shield de 5 V se ve en su
+  corriente, y pasar de los 500 mA del ST-LINK lo rodea de rojo.
+
   EL ST-LINK ES EL VCP, el puente UART de la USART2 (PA2 y PA3), que sale por
   el mismo USB que la depuracion: el dibujo lo une al USB y al chip, y al lado
   dice como se llega a el. Ese texto es un ROTULO, `VCP#destino`: mcu-sim
@@ -36,7 +40,9 @@
   <circle cx="830" cy="105" r="16" fill="#ffffff" stroke="#2c3e50" stroke-width="2"/>
   <circle cx="515.0" cy="848" r="16" fill="#ffffff" stroke="#2c3e50" stroke-width="2"/>
   <circle cx="635.0" cy="848" r="16" fill="#ffffff" stroke="#2c3e50" stroke-width="2"/>
-  <rect x="515.0" y="15" width="120" height="60" rx="6" fill="#95a5a6" stroke="#7f8c8d" stroke-width="2"/>
+  <g id="USB">
+    <rect x="515.0" y="15" width="120" height="60" rx="6" fill="#95a5a6" stroke="#7f8c8d" stroke-width="2"/>
+  </g>
   <line x1="225" y1="270" x2="925" y2="270" stroke="#7f8c8d" stroke-width="2" stroke-dasharray="8 6"/>
   <line x1="575.0" y1="75" x2="575.0" y2="140" stroke="#7f8c8d" stroke-width="10"/>
   <line x1="575.0" y1="220" x2="575.0" y2="533" stroke="#d68910" stroke-width="5" stroke-dasharray="12 8"/>

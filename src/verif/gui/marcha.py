@@ -37,6 +37,14 @@
 #       en su imagen; las lecturas por SDA -RDDPM, RDDMADCTL, RDDCOLMOD,
 #       RDDIM, RDID1-3, RDDST y RAMRD-; y las órdenes que se pierden por
 #       llegar antes de 5 ms tras el reset.
+#   M8  EL SERVO (`placas/servo_sg90.xml` y la pieza Servo), con
+#       `verif/fw/servo_prueba` en una Nucleo y cuatro servos en la misma señal
+#       y en su +5V: dos iguales con la misma `semilla` -empiezan en el mismo
+#       ángulo, el mismo en todas partes-, uno con dos puntos de velocidad y
+#       `sin_senal="mantiene"`, y uno de giro continuo. Que van adonde pide el
+#       pulso a la velocidad de su tensión; la banda muerta; el tope con un
+#       pulso fuera de rango; que el analógico suelta sin señal y el digital
+#       no; que un pulso de 200 us no lo es; lo que gastan; y los avisos.
 #
 # La contrapresión —instantáneas que se tiran, avisos que no— no se puede
 # provocar con fiabilidad desde aquí: el sistema operativo amortigua megas.
@@ -520,6 +528,153 @@ def m7_chip(sim, cp):
           "sigue dormido: blanca")
 
 
+# ---------------------------------------------------------------------------
+# M8
+# ---------------------------------------------------------------------------
+# Cuatro servos en la misma senal, la del TIM3 de servo_prueba, y en el +5V de
+# la Nucleo. 100 mA cada uno moviendose: los cuatro a la vez caben en los
+# 500 mA del USB.
+BANCO_SERVOS = """<placa nombre="banco-servos">
+  <componente tipo="Conector" id="J" filas="3" columnas="1" nombres="VCC GND PWM"/>
+  <nodo id="J.VCC" bus="si"/>
+  <nodo id="J.GND" bus="si"/>
+  <nodo id="J.PWM" bus="si"/>
+  <componente tipo="Servo" id="S1" velocidad="0.12@5" semilla="7" i_marcha_ma="100">
+    <pin nombre="vcc" nodo="J.VCC"/><pin nombre="gnd" nodo="J.GND"/><pin nombre="pwm" nodo="J.PWM"/>
+  </componente>
+  <componente tipo="Servo" id="S2" velocidad="0.12@5" semilla="7" i_marcha_ma="100">
+    <pin nombre="vcc" nodo="J.VCC"/><pin nombre="gnd" nodo="J.GND"/><pin nombre="pwm" nodo="J.PWM"/>
+  </componente>
+  <componente tipo="Servo" id="S3" velocidad="0.12@4.8 0.10@6" sin_senal="mantiene"
+              posicion_inicial="-45" i_marcha_ma="100">
+    <pin nombre="vcc" nodo="J.VCC"/><pin nombre="gnd" nodo="J.GND"/><pin nombre="pwm" nodo="J.PWM"/>
+  </componente>
+  <componente tipo="Servo" id="S4" continuo="si" velocidad="0.12@5" i_marcha_ma="100">
+    <pin nombre="vcc" nodo="J.VCC"/><pin nombre="gnd" nodo="J.GND"/><pin nombre="pwm" nodo="J.PWM"/>
+  </componente>
+</placa>
+"""
+SISTEMA_SERVOS = """<sistema nombre="prueba-servo">
+  <placa id="N" fichero="%s"/>
+  <placa id="B" fichero="banco_servos.xml"/>
+  <hilo a="B/J.PWM" b="N/CN9.6"/>
+  <hilo a="B/J.VCC" b="N/CN6.5"/>
+  <hilo a="B/J.GND" b="N/CN6.7"/>
+  <mcu ref="N/u0" firmware="%s"/>
+</sistema>
+"""
+
+
+def m8_servo(sim, cp):
+    grupo("M8 El servo: adonde va, a que velocidad, y lo que hace sin senal")
+    r = subprocess.run([sim, "placas/servo_sg90.xml", "--valida"], stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, timeout=60)
+    out = r.stdout.decode("utf-8", "replace")
+    check(r.returncode == 0 and "placa 'servo-sg90': SIN MCU, 2 componentes, 3 nodos, 0 avisos"
+          in out and "dibujo: servo_sg90.svg (16 kB, SERVO.aspa cuatro, SERVO.cuerpo azul)" in out,
+          "placas/servo_sg90.xml se valida sin avisos, y su dibujo lleva las variantes de su "
+          "servo: el aspa de cuatro palas y el cuerpo azul")
+    cp("banco_servos.xml", BANCO_SERVOS)
+    sis = cp("servos.xml", SISTEMA_SERVOS % (
+        os.path.abspath("placas/nucleo_f446re.xml"),
+        os.path.abspath("verif/fw/servo_prueba/servo_prueba.bin")))
+    v = Ventana()
+    p = arranca(sim, [sis, "--ms=2100", "--serie", "N/VCP=memoria"], v.puerto)
+    try:
+        if not check(v.acepta(), "el sistema de los cuatro servos se conecta"):
+            return
+        _, _, cat, listo = saludo_hasta_listo(v, version=2)
+        pz = {x.get("id"): x for x in ET.fromstring(cat).iter("pieza")}
+        s1 = pz.get("B/S1")
+        obs = [(o.get("nombre"), o.get("unidad"), o.get("min"), o.get("max"), o.get("interesante"))
+               for o in s1.iter("observable")] if s1 is not None else []
+        mandos = [m.get("nombre") for m in s1.iter("mando")] if s1 is not None else []
+        check(listo and obs[:1] == [("angulo", "°", "-90", "90", "si")] and
+              [o[0] for o in obs] == ["angulo", "pulso", "corriente", "rpm"] and
+              mandos == ["bloquear"],
+              "en el catalogo, el servo deja ver `angulo` en grados, de -90 a 90 -el que "
+              "sugiere-, `pulso`, `corriente` y `rpm`, y su mando es `bloquear`: %s %s"
+              % (obs, mandos))
+        ids = {}
+        for s in ("S1", "S2", "S3", "S4"):
+            for o in pz["B/" + s].iter("observable"):
+                ids[(s, o.get("nombre"))] = int(o.get("id_obs"))
+        orden_ids = sorted(ids.values())
+        suscribe(v, 1000000, orden_ids)
+        arranque(v)
+        inst, avs, _, _ = hasta_fin(v)
+        rc, out, err = termina(p)
+    finally:
+        if p.poll() is None:
+            p.kill()
+        v.cierra()
+    if not check(rc == 0 and len(inst) == 2100, "corre 2100 ms, con una muestra cada ms"):
+        return
+    de_id = {i: k for k, i in ids.items()}
+    en = {}
+    for t, _, m in inst:
+        en[round(t / 1000000)] = {de_id[i]: x for i, x in m}
+
+    def a(s, ms, que="angulo"):
+        return en[ms][(s, que)]
+    ini = a("S1", 1)
+    check(-90 <= ini <= 90 and a("S2", 1) == ini and abs(a("S3", 1) + 45) < 1e-4 and
+          a("S4", 1) == 0 and ("empezo en %+.1f grados" % ini) in out,
+          "al arrancar, cada uno DONDE SE QUEDO: S1 y S2, con la misma semilla, en el mismo "
+          "angulo al azar (%.1f); S3 en sus -45 de posicion_inicial; S4, de giro continuo, en "
+          "el 0" % ini)
+    check(all(abs(a(s, 290)) < 1e-4 for s in ("S1", "S2", "S3")) and a("S4", 290) == a("S4", 1),
+          "el primer pulso, de 1500 us, los lleva al centro; el de giro continuo, parado")
+
+    def vel(s, t0, t1):
+        return (a(s, t1) - a(s, t0)) * 1000.0 / (t1 - t0)
+    v1, v3 = vel("S1", 320, 380), vel("S3", 320, 380)
+    check(490 <= v1 <= 500 and 505 <= v3 <= 515,
+          "con 2000 us, hacia +90 a la VELOCIDAD DE SU TENSION -algo menos de 5 V con lo que "
+          "gastan los cuatro-: S1, con 0.12@5, a %.1f grados/s (60 / 0,12 · V / 5); S3, entre "
+          "0.12@4.8 y 0.10@6, a %.1f" % (v1, v3))
+    llega = next((t for t in range(300, 600) if a("S1", t) >= 90 - 1e-4), None)
+    check(llega is not None and 480 <= llega <= 490 and a("S1", 590) == a("S1", 500),
+          "S1 llega a +90 a los %s ms -el pulso de 300 ms acaba a los 302, y 90 grados son "
+          "unos 181 ms- y se queda" % llega)
+    check(abs(a("S1", 890)) < 1e-4 and abs(a("S1", 990)) < 1e-4 and
+          abs(a("S1", 1090) - 3.6) < 1e-3,
+          "BANDA MUERTA: 1505 us no lo mueven (%.2f); 1520 si, a +3,6 grados (%.3f)"
+          % (a("S1", 990), a("S1", 1090)))
+    check(abs(a("S1", 1390) - 90) < 1e-4 and abs(a("S1", 1390, "pulso") - 2500) < 1 and
+          "B/S1: un pulso de 2500 us, fuera del rango de 1000 a 2000 us: el servo se queda en "
+          "el extremo" in out,
+          "un pulso de 2500 us, fuera del rango: al TOPE, +90, y lo avisa")
+    quieto = a("S1", 1510)
+    check(20 < quieto < 60 and all(a("S1", t) == quieto for t in range(1510, 1701, 10)) and
+          a("S1", 1750) < quieto - 20 and
+          "B/S1: sin senal en el PWM: el servo analogico suelta el motor" in out,
+          "SIN SENAL a los 1460 ms: el analogico, que iba hacia -90, suelta el motor a los "
+          "60 ms del ultimo pulso y se queda donde esta (%.1f) hasta que vuelve, a los "
+          "1700" % quieto)
+    check(a("S3", 1510) > a("S3", 1600) > a("S3", 1690) and abs(a("S3", 1800) + 90) < 1e-4 and
+          "B/S3: sin senal en el PWM: el servo digital mantiene el ultimo angulo" in out,
+          "el digital, S3, sigue sin senal hasta los -90 que se le habian pedido")
+    check("B/S1: un pulso de 200 us: el servo solo reconoce pulsos de 300 a 3000 us, y lo "
+          "ignora" in out and "la senal llega cada" not in out,
+          "un pulso de 200 us no es un pulso: se ignora, y se avisa; y el periodo se mide "
+          "de nuevo cuando vuelve la senal, sin avisos")
+    check(abs(a("S1", 400, "corriente") - 100) < 3 and abs(a("S1", 800, "corriente") - 6) < 0.5,
+          "lo que gasta: %.1f mA moviendose y %.2f quieto"
+          % (a("S1", 400, "corriente"), a("S1", 800, "corriente")))
+    r4 = a("S4", 450, "rpm")
+    d4 = (a("S4", 450) - a("S4", 400)) % 360
+    check(81 <= r4 <= 84 and abs(d4 - r4 * 6 * 0.05) < 0.5 and a("S4", 800, "rpm") == 0 and
+          a("S4", 1050, "rpm") > 0 and 0 <= min(x[("S4", "angulo")] for x in en.values()) and
+          max(x[("S4", "angulo")] for x in en.values()) < 360,
+          "el de GIRO CONTINUO: 2000 us, a toda velocidad a la derecha (%.1f rpm); 1500, "
+          "parado; 1520, despacio; y el angulo da vueltas de 0 a 360" % r4)
+    check("SERVO B/S3: -90.0 grados (objetivo -90.0)" in out and
+          "Fuente N/USB en N/U5V" in out and "SOBRECORRIENTE" not in out,
+          "el resumen de la consola dice donde ha quedado cada uno, y el USB de la Nucleo "
+          "los alimenta sin pasar de sus 500 mA")
+
+
 def main():
     a = argparse.ArgumentParser(description="mcu-sim-gui en marcha, contra el mcu-sim de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -542,6 +697,7 @@ def main():
             return ruta
         m6_pantalla(sim, cp)
         m7_chip(sim, cp)
+        m8_servo(sim, cp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return ventana.resumen("MARCHA")

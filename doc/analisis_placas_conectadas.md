@@ -371,7 +371,9 @@ construye exactamente igual que antes y **ningún invariante se mueve**.
 La Nucleo lleva ahora soldados a su chip el RESET, el `+3V3`, el `IOREF` y
 las masas de sus conectores Arduino; `+5V`, `VIN` y `AREF` siguen al aire,
 porque el modelo no tiene esos rieles. El shield de ejemplo lleva un LED de
-alimentación en su `+3V3`.
+alimentación en su `+3V3`. (Después llegó el `+5V`: una `Fuente` de 5 V con
+el límite de 500 mA del USB del ST-LINK, para alimentar un servo; `VIN` y
+`AREF` siguen al aire. Véase `doc/parts.md`, `Fuente` y `Gnd`.)
 
 **Cómo se comprueba**: `make gui-sistema` monta dos chips con el NRST unido
 por un hilo y un pulsador normalmente cerrado en una de las placas: el reset

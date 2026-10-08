@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UNA NUCLEO-F446RE CON UN SERVO, UN ENCODER Y UNA PANTALLA
+
+     Tres modulos cableados a los conectores Arduino de la Nucleo, y
+     verif/fw/servo_demo, que mueve el servo con el encoder y lo ensena en
+     la pantalla:
+
+         servo      PWM    VCC    GND
+         Nucleo     D5     +5V    GND
+         conector   CN9.6  CN6.5  CN6.7
+         chip       PB4    (USB)  VSS
+
+         encoder    CLK    DT     SW     VCC     GND
+         Nucleo     D2     D3     D4     +3V3    GND
+         conector   CN9.3  CN9.4  CN9.5  CN7.16  CN7.20
+         chip       PA10   PB3    PB5    VDD     VSS
+
+         pantalla   SCK   SDA   CS    A/D   RESET  VCC    LED    GND
+         Nucleo     D13   D11   D10   D9    D8     +3V3   IOREF  GND
+         conector   CN5.6 CN5.4 CN5.3 CN5.2 CN5.1  CN6.4  CN6.2  CN6.6
+         chip       PA5   PA7   PB6   PC7   PA9    VDD    VDD    VSS
+
+     EL SERVO (placas/servo_sg90.xml) va al +5V de la Nucleo, el del USB:
+     150 mA moviendose no los da un pin. Su senal es el TIM3 en PB4, un pulso
+     cada 20 ms de 1 a 2 ms. Al arrancar, el eje esta en un angulo
+     cualquiera -cada vez uno-, y el firmware lo lleva al centro: se le ve
+     llegar.
+
+     EL ENCODER (placas/ky040.xml), a 3,3 V del morpho: cada clic son 5
+     grados, a la derecha los positivos, de -90 a +90; apretar el eje lleva
+     el servo al centro. En la ventana, la rueda del raton sobre el mando lo
+     gira.
+
+     LA PANTALLA (placas/tft_128x160.xml), DE PIE con el conector abajo:
+     giro="90", y el firmware pone MADCTL 0x00 para verla derecha. Ensena un
+     cuadrante con una aguja que apunta adonde se ha pedido, el angulo y el
+     pulso. Por el VCP, una linea con cada cambio.
+
+         ./build/mcu-sim placas/nucleo_f446re_servo.xml --ms=800 --serie N/VCP=memoria
+
+     y con la ventana, mcu-sim-gui, para verlo y mover el encoder.
+     ========================================================================= -->
+<sistema nombre="nucleo-f446re-servo">
+  <placa id="N" fichero="nucleo_f446re.xml"/>
+  <placa id="S" fichero="servo_sg90.xml"/>
+  <placa id="K" fichero="ky040.xml"/>
+  <placa id="T" fichero="tft_128x160.xml" giro="90"/>
+
+  <!-- El servo -->
+  <hilo a="S/P1.PWM"   b="N/CN9.6"/>    <!-- D5,  PB4: TIM3_CH1 -->
+  <hilo a="S/P1.VCC"   b="N/CN6.5"/>    <!-- +5V, el del USB -->
+  <hilo a="S/P1.GND"   b="N/CN6.7"/>    <!-- GND -->
+
+  <!-- El encoder -->
+  <hilo a="K/P1.CLK"   b="N/CN9.3"/>    <!-- D2,  PA10 -->
+  <hilo a="K/P1.DT"    b="N/CN9.4"/>    <!-- D3,  PB3 -->
+  <hilo a="K/P1.SW"    b="N/CN9.5"/>    <!-- D4,  PB5 -->
+  <hilo a="K/P1.VCC"   b="N/CN7.16"/>   <!-- +3V3 del morpho -->
+  <hilo a="K/P1.GND"   b="N/CN7.20"/>   <!-- GND del morpho -->
+
+  <!-- La pantalla -->
+  <hilo a="T/P1.SCK"   b="N/CN5.6"/>    <!-- D13, PA5: SPI1_SCK -->
+  <hilo a="T/P1.SDA"   b="N/CN5.4"/>    <!-- D11, PA7: SPI1_MOSI -->
+  <hilo a="T/P1.CS"    b="N/CN5.3"/>    <!-- D10, PB6 -->
+  <hilo a="T/P1.AD"    b="N/CN5.2"/>    <!-- D9,  PC7 -->
+  <hilo a="T/P1.RESET" b="N/CN5.1"/>    <!-- D8,  PA9 -->
+  <hilo a="T/P1.VCC"   b="N/CN6.4"/>    <!-- +3V3 -->
+  <hilo a="T/P1.LED"   b="N/CN6.2"/>    <!-- IOREF, tambien 3,3 V -->
+  <hilo a="T/P1.GND"   b="N/CN6.6"/>    <!-- GND -->
+
+  <mcu ref="N/u0" firmware="verif/fw/servo_demo/servo_demo.bin"/>
+</sistema>
