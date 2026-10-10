@@ -56,6 +56,8 @@
 #       id>, el lienzo en el sistema -o escala y lienzo en la raiz de una
 #       placa suelta- y las <ruta> de las lineas en tramos rectos; la consola
 #       y T_PLACA las cuentan, y lo que no vale es un error que dice por que.
+#   C17 visible="no" en un <componente>: va en T_PLACA, tambien en un sistema,
+#       la simulacion no cambia, y otro valor es un error.
 #
 #   make -f Makefile.mcu-sim gui-sistema
 #   python3 verif/gui/sistema.py [--sim build/mcu-sim]
@@ -1250,6 +1252,46 @@ def c16_disposicion(sim, cp):
           "que no son numeros, y una ruta repetida (%s)" % bien)
 
 
+# ---------------------------------------------------------------------------
+# C17
+# ---------------------------------------------------------------------------
+MODULO_OCULTO = """<placa nombre="modulo">
+  <nodo id="a"/>
+  <componente tipo="Led" id="LD" a_vss="si"><pin nombre="anodo" nodo="a"/></componente>
+  <componente tipo="Fuente" id="F" v="3.3"%s><pin nombre="pin" nodo="a"/></componente>
+</placa>
+"""
+
+
+def c17_visible(sim, cp):
+    grupo("C17 visible=\"no\": una pieza que no interesa ver en la ventana")
+    f = cp.escribe("oculto.xml", MODULO_OCULTO % ' visible="no"')
+    rc, out, placa, il, av = saludo_con_dibujos(sim, [f])
+    t = placa.decode("utf-8") if placa else ""
+    check(rc == 0 and '<componente tipo="Fuente" id="F" v="3.3" visible="no">' in t and
+          '<componente tipo="Led" id="LD" a_vss="si">' in t and "0 avisos" in out,
+          "T_PLACA lo lleva en la pieza que lo dice, y solo en ella; la placa se monta "
+          "igual y sin avisos")
+    rc2, out2, err2 = corre(sim, [cp.escribe("visible_si.xml", MODULO_OCULTO % ' visible="si"'),
+                                  "--valida"])
+    rc3, out3, err3 = corre(sim, [cp.escribe("oculto_sin.xml", MODULO_OCULTO % ""), "--valida"])
+    check(rc2 == 0 and rc3 == 0 and out2.replace("visible_si", "x") ==
+          out3.replace("oculto_sin", "x"),
+          "visible=\"si\" es lo de siempre; y para la simulacion da igual: misma salida")
+    sis = cp.escribe("sis_oculto.xml",
+                     '<sistema nombre="s"><placa id="A" fichero="oculto.xml"/>'
+                     '<placa id="B" fichero="oculto_sin.xml"/></sistema>')
+    rc, out, placa, il, av = saludo_con_dibujos(sim, [sis])
+    t = placa.decode("utf-8") if placa else ""
+    check(rc == 0 and 'id="A/F" v="3.3" visible="no">' in t and
+          'id="B/F" v="3.3">' in t,
+          "en un sistema, va con la pieza de la placa que lo dice")
+    rc, out, err = corre(sim, [cp.escribe("visible_mal.xml", MODULO_OCULTO % ' visible="tal"'),
+                               "--valida"])
+    check(rc != 0 and "F: visible debe ser si o no" in out + err,
+          "visible=\"tal\" es un error, como conectada: solo si o no")
+
+
 def main():
     a = argparse.ArgumentParser(description="conectores y sistemas de placas")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -1277,6 +1319,7 @@ def main():
         c14_vcp(sim, cp)
         c15_giro(sim, cp)
         c16_disposicion(sim, cp)
+        c17_visible(sim, cp)
     finally:
         cp.borra()
     return ventana.resumen("SISTEMA")

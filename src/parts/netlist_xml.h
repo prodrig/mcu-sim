@@ -36,8 +36,12 @@
 // fichero ANTES de construir el MCU (véase cableado_desde_netlist en netlist.h);
 // leer no construye, y esa es justo la propiedad que lo hace posible.
 //
-// Todo atributo de <componente> que no sea `tipo`, `id` o `conectada` es un
-// PARÁMETRO de la pieza, tal cual, sin lista blanca. Es deliberado: la factoría
+// `visible="no"` en un <componente> es solo para la ventana: una pieza que no
+// interesa ver en la ilustración. Va en T_PLACA y la simulación no lo mira.
+//
+// Todo atributo de <componente> que no sea `tipo`, `id`, `conectada` o
+// `visible` es un PARÁMETRO de la pieza, tal cual, sin lista blanca. Es
+// deliberado: la factoría
 // ya decide qué parámetros mira y con qué valor por omisión, y duplicar esa
 // lista aquí solo daría dos sitios donde equivocarse.
 //
@@ -354,6 +358,12 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
                 if (a.second != "si" && a.second != "no")
                     return donde(h) + id + ": conectada debe ser si o no";
                 if (a.second == "no") in.desconectada();
+                continue;
+            }
+            if (a.first == "visible") {
+                if (a.second != "si" && a.second != "no")
+                    return donde(h) + id + ": visible debe ser si o no";
+                if (a.second == "no") in.oculta();
                 continue;
             }
             in.par(a.first.c_str(), a.second);      // cualquier otro: parametro

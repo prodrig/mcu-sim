@@ -438,6 +438,27 @@ los dos ya con lo que diga `--serie` y con el puerto al que se haya corrido.
 el mismo USB que la depuración. Dos placas con el mismo dibujo y rótulos
 distintos reciben dos dibujos.
 
+**Lo que no interesa ver: `visible="no"`.** La ventana enseña en la
+ilustración todas las piezas que dejan ver o tocar algo. Las que el dibujo no
+trae no se pierden: van a una **bandeja**, «sin dibujar», al lado de la placa,
+con sus medidores de siempre. Pero a veces son piezas que no interesan —la
+`Fuente` que hace de regulador interno del FT232RL, la `Gnd` de un módulo— y
+la bandeja solo ocupa sitio. `visible="no"` en su `<componente>` lo dice:
+
+```xml
+<componente tipo="Fuente" id="REG_3V3" v="3.3" limite_ma="50" visible="no">
+  <pin nombre="pin" nodo="JP1.3.3V"/>
+</componente>
+```
+
+La pieza no va a la bandeja ni al dibujo que la ventana genera para una placa
+sin SVG, y el informe de la placa la cuenta aparte, como «oculta». Lo que el
+SVG dibuje se queda: el dibujo es de quien lo hace. El **panel** las sigue
+enseñando todas, también sus alarmas. Para la simulación no cambia nada: va
+en `T_PLACA` con la pieza —también en un sistema— y nadie más lo mira. Sin el
+atributo, todo es como siempre, bandeja incluida. Solo `si` o `no`; otra cosa
+es un error.
+
 **La disposición en la ventana: dónde va cada placa.** En la ilustración de
 `mcu-sim-gui`, las placas de un sistema se ponen en fila si nadie dice otra
 cosa, y en el modo *Edición* se mueven, se giran, se escalan, se cambia el
@@ -495,6 +516,7 @@ protocolo sin subirla: una ventana que no lo conoce no lo lee.
 | `tipo` | sí | El nombre de clase que la factoría busca. Distingue mayúsculas: `Led`, no `LED`. Un tipo que no conoce se rechaza con la lista de los que sí |
 | `id` | sí | Identificador único de instancia. Es el nombre por el que otros componentes lo referencian, y el que sale en los avisos de validación |
 | `conectada` | no (`si`) | `no` = se construye desoldada (§2.4) |
+| `visible` | no (`si`) | `no` = la ventana no la enseña en la ilustración (§2.6). La simulación no lo mira |
 
 ### 3.2 `vdd` — la tensión de la lógica de la pieza
 
@@ -539,11 +561,12 @@ malos: la placa se monta sin quejarse y el cristal oscila a 8 Hz. Escríbase
 
 **Los booleanos** se escriben `si` o `no`. En los parámetros de pieza también se
 aceptan `1` y `true`, y cualquier otra cosa cuenta como falso. En `conectada`,
-`externo` y `bus` el lector es estricto: solo `si` o `no`, y otra cosa es un
+`visible`, `externo` y `bus` el lector es estricto: solo `si` o `no`, y otra cosa es un
 error con su línea.
 
 **Un parámetro que la pieza no mira se ignora en silencio.** Todo atributo de
-`<componente>` que no sea `tipo`, `id` o `conectada` se guarda como parámetro,
+`<componente>` que no sea `tipo`, `id`, `conectada` o `visible` se guarda como
+parámetro,
 sin lista blanca, y cada pieza consulta los suyos. La consecuencia es que
 `vff="2.0"` no da error: se guarda, no lo lee nadie y el LED usa 2.0 V porque es
 su valor por omisión. Al escribir una placa conviene comparar con la tabla del

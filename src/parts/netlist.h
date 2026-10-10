@@ -382,6 +382,9 @@ struct Instancia {
     // saber que el referido se construye ANTES que quien lo refiere.
     std::map<std::string, std::string> refs;
     bool conectada = true;
+    // Para la ventana nada más: `visible="no"` es una pieza que no interesa
+    // ver en la ilustración. La simulación no lo mira
+    bool visible = true;
 
     // El creador. En el paso 3 lo pondrá una factoría a partir de `tipo`; aquí
     // lo pone, tipado, quien declara la instancia.
@@ -411,6 +414,7 @@ struct Instancia {
         return *this;
     }
     Instancia& desconectada() { conectada = false; return *this; }
+    Instancia& oculta() { visible = false; return *this; }
 
     // --- Consulta -----------------------------------------------------------
     const std::string& nodo_de(const std::string& p) const {
@@ -1663,6 +1667,7 @@ public:
             for (const auto& p : i.params)
                 os << " " << p.first << "=\"" << xml_escapa(p.second) << "\"";
             if (!i.conectada) os << " conectada=\"no\"";
+            if (!i.visible) os << " visible=\"no\"";
             os << ">\n";
             for (const Conexion& c : i.pines)
                 os << "    <pin nombre=\"" << c.pin << "\" nodo=\"" << c.nodo
