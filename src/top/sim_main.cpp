@@ -22,11 +22,17 @@
 //
 // Y la regla que hace que nada de esto rompa lo anterior:
 //
-//   ningún <mcu>   un STM32F407VG implícito y nodos con nombre desnudo
-//                  (`PD12`). Es el comportamiento de siempre;
+//   ningún <mcu>   con `--mcu TIPO`, un MCU de ese tipo y nodos con nombre
+//                  desnudo (`PD12`). SIN `--mcu`, LA PLACA NO LLEVA MCU: solo
+//                  sus piezas, todo nodo es de la placa, y un nodo con nombre
+//                  de pin (`PD12`, `NRST`, `VDD`...) es un error que dice qué
+//                  falta, porque casi siempre es un <mcu> olvidado. Hasta el
+//                  2026-10-05 sin decir nada se montaba un STM32F407VG; ahora
+//                  el MCU se declara siempre;
 //   un <mcu>       valen los dos nombres, `PD12` y `u0.PD12`, y los argumentos
 //                  de la línea de órdenes siguen sirviendo: manda la línea de
-//                  órdenes sobre lo que diga el XML;
+//                  órdenes sobre lo que diga el XML, también `--mcu` sobre su
+//                  tipo;
 //   dos o más      solo con prefijo, y cada MCU lleva LO SUYO en el XML. Un
 //                  firmware o un puerto sueltos en la línea de órdenes ya no
 //                  designan a nadie, así que se rechazan nombrando los MCUs:
@@ -66,14 +72,24 @@
 #include <thread>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <map>
+#include <memory>
+#include <sstream>
+#include <set>
 #include <string>
 #include <vector>
 #include "../common/asan_opciones.h"
 #include "../common/gui_destino.h"
+#include "../common/gui_cliente.h"
 #include "../common/serie_destino.h"
+#include "../common/svg_variantes.h"
 #include "soc_f4.h"
 #include "../verif/image_loader.h"
+#if defined(_WIN32)
+#include <windows.h>
+#include <timeapi.h>          // timeBeginPeriod: -lwinmm
+#endif
 
 // ---------------------------------------------------------------------------
 // EL TITULAR DEL COPYRIGHT, EN UN SOLO SITIO.
@@ -87,22 +103,27 @@
 // ESTA A PROPOSITO SIN RELLENAR EN EL PARCHE QUE LO INTRODUJO: ponerle un
 // nombre a la titularidad de otro no es cosa de quien escribe el codigo.
 // ---------------------------------------------------------------------------
+// La version que `mcu-sim` dice de si mismo en el saludo con la GUI (T_HOLA,
+// clave `mcu_sim`). Es informativa: lo que decide si los dos se entienden es
+// la version del PROTOCOLO, no esta. Quien empaqueta puede fijarla al
+// compilar (-DVERSION_MCU_SIM=\"0.2.0\").
+#ifndef VERSION_MCU_SIM
+#define VERSION_MCU_SIM "desarrollo"
+#endif
+
 #ifndef TITULAR_COPYRIGHT
 #define TITULAR_COPYRIGHT "Francisco Rodríguez Ballester (prodrig@disca.upv.es)"
 #endif
 #include "../verif/gdb_stub.h"
 #include "../parts/netlist_parts.h"
 #include "../parts/netlist_xml.h"
+#include "../parts/frontera_gui.h"
+#include "../parts/enlace_gui.h"
 #include "../soc/stm32f4_mcu.h"
 #include "../soc/stm32f446.h"
 
 using namespace sc_core;
 using namespace stm32;
-
-// El MCU que se monta cuando nadie dice otra cosa: el de la STM32F4-Discovery,
-// que es la tarjeta con la que trabaja el alumno. Los otros diez miembros de la
-// familia salen del catálogo de `top/mcu_caps.h`.
-static const char* TIPO_MCU = MCU_STM32F407VG.nombre;
 
 // Los tipos de MCU que este ejecutable sabe CONSTRUIR: los once miembros de la
 // familia F405/F407, que salen del catálogo de `top/mcu_caps.h` y no de una
@@ -130,6 +151,11 @@ static std::string familias_como_texto() {
 
 static std::string g_placa, g_img, g_nombre = "placa";
 static double      g_ms      = 100.0;
+// Si la ventana de tiempo se dio en la linea de ordenes. Con `--gui` importa:
+// si no se dio, y la ventana tampoco la pone en T_ARRANCA, la simulacion no
+// tiene fin y se para desde la ventana (fase 6).
+static bool        g_ms_dado = false;
+static bool        g_sin_fin = false;
 static bool        g_solo_valida = false;
 // `--espera-terminal` (P-14, fase D7): no arrancar el MCU hasta que haya un
 // terminal en cada puente serie por red. Sin esto, lo primero que imprime un
@@ -141,20 +167,30 @@ static bool        g_traza_gdb = false;
 // 1 = un segundo simulado por segundo de reloj de pared; 0,5 = a la
 // mitad, para poder mirar lo que pasa.
 static double      g_tiempo_real = 0.0;
-// El tipo del MCU IMPLICITO: el que se monta cuando el XML no declara ningun
-// <mcu>. Se cambia con `--mcu`. NO pisa lo que diga el XML: una placa que
-// declara sus chips ya ha dicho cuales son, y la linea de ordenes no tiene por
-// que saberlo mejor.
-static std::string g_tipo_mcu = TIPO_MCU;
+// `--mcu TIPO`. Vacio, no se ha dicho. NO HAY MCU POR OMISION: sin <mcu> en el
+// XML y sin esto, la placa va sin MCU. Con un <mcu> en el XML, MANDA SOBRE SU
+// TIPO -como el firmware o el puerto de la linea de ordenes mandan sobre los
+// suyos-; con varios, no dice a cual y es un error.
+static std::string g_tipo_mcu;
 // Depuración pedida por la línea de órdenes. `g_gdb_modo` vacío = no se pidió.
 static std::string g_gdb_modo;          // "pines" o "dap"
+// `--firmware ID=FICHERO` y `--sin-firmware[=ID]`: el firmware de CADA chip,
+// o ninguno, por la linea de ordenes, tambien con varios MCUs. Mandan sobre
+// el firmware= de su <mcu>. Lo pide el dialogo de lanzamiento de mcu-sim-gui
+// (su plan §42), que tiene una fila por chip.
+static std::vector<std::pair<std::string, std::string>> g_firmwares;   // id, fichero
+static std::vector<std::string> g_sin_firmware;                        // ids
+static bool        g_sin_firmware_todos = false;
+// `--mcus`: la lista de los MCUs de la placa, en XML, y nada mas
+static bool        g_lista_mcus = false;
 static unsigned    g_gdb_puerto = 0;
 static bool        g_puerto_dado = false;
 
-// --- La ventana (`mcu-sim-gui`), fase 0 ------------------------------------
-// De momento SOLO se reconoce el argumento y se dice a donde apuntaria. El
-// socket es la fase 3 del plan; hasta entonces `--gui` no cambia nada de lo que
-// el programa hace, que es justo lo que la fase 0 tiene que demostrar.
+// --- La ventana (`mcu-sim-gui`) ---------------------------------------------
+// `--gui host:puerto` dice donde esta la ventana. Desde la fase 3 del plan,
+// `sim` se conecta a ella despues de montar la placa, le manda la placa y el
+// catalogo, y NO EMPIEZA a simular hasta que la ventana diga «arranca»
+// (`saluda_gui`, mas abajo). Sin el argumento, nada de esto existe.
 static bool          g_gui_pedida = false;
 static stm32::gui::Destino g_gui;
 
@@ -177,8 +213,22 @@ struct McuMontado {
     GdbStub*      stub = nullptr;       // solo en modo "pines" y con puerto
 };
 
+// La conexion con la ventana, si hay `--gui` y el saludo ha empezado. Es
+// global por `muere()`: un modelo que se rinde con la GUI escuchando se lo
+// dice con un T_FIN antes de irse, en vez de dejarla mirando un socket que se
+// cierra sin explicacion.
+static stm32::gui::ClienteGui* g_cliente = nullptr;
+// Y con la simulacion en marcha, el enlace que atiende esa conexion (fase 4).
+static stm32::gui::EnlaceGui*  g_enlace  = nullptr;
+
+static uint64_t ahora_ns() {
+    return uint64_t(sc_time_stamp().value() / sc_time(1, SC_NS).value());
+}
+
 static void muere(const std::string& msg) {
     std::fprintf(stderr, "%s\n", msg.c_str());
+    if (g_enlace)       g_enlace->termina(mcusim::proto::M_ERROR, 2);
+    else if (g_cliente) g_cliente->fin(mcusim::proto::M_ERROR, 2, ahora_ns());
     std::exit(2);
 }
 
@@ -227,17 +277,73 @@ SC_MODULE(Sim) {
     bool         hay_stub = false;
     bool         hay_puente_red = false;   // un PuenteSerie por TCP (D3)
 
+    // La frontera con `mcu-sim-gui` (fase 1 de su plan): el muestreador y el
+    // aplicador. Se construye SIEMPRE, porque la elaboracion de SystemC es
+    // estatica y no se puede decidir despues; y mientras nadie la active sus
+    // dos procesos esperan sobre un evento que nadie notifica, asi que sin
+    // `--gui` este programa simula exactamente lo mismo que antes. La activa
+    // el saludo (`saluda_gui`), con el catalogo de las piezas ya montadas.
+    stm32::gui::FronteraGui frontera{"frontera"};
+    // Y el enlace que atiende la conexion con la simulacion en marcha (fase
+    // 4): lo mismo, construido siempre y quieto hasta que el saludo lo active.
+    stm32::gui::EnlaceGui   enlace{"enlace", frontera};
+    // Los avisos de la placa -lo electrico y los puentes serie-, para la
+    // ventana: los ve antes de pulsar «arranca», que es cuando ahorran tiempo.
+    std::vector<std::string> avisos_placa;
+    // Los dibujos de las placas, leídos, para mandárselos a la ventana: uno
+    // por FICHERO, con las placas que lo usan (doc/analisis-uso-ilustraciones.md)
+    struct DibujoLeido {
+        std::vector<std::string> placas;   // ids en el sistema; "" en una placa suelta
+        std::string ruta, svg;
+        std::map<std::string, std::string> variantes;   // las de sus piezas
+        std::map<std::string, std::string> rotulos;     // y lo que dicen sus textos
+        int giro = 0;                                   // y cuánto se gira
+    };
+    std::vector<DibujoLeido> dibujos;
+    // Un dibujo de placa es un dibujo, no una foto en alta resolucion: mucho
+    // menos que los 8 MiB que deja pasar el protocolo
+    static constexpr size_t DIBUJO_MAX = 2u * 1024u * 1024u;
+
     SC_CTOR(Sim) {
         // --- 1. Leer. No construye nada: devuelve datos ---------------------
-        const std::string e = netlist_desde_fichero(placa, g_placa, &g_nombre);
+        const std::string e = placa_o_sistema_desde_fichero(placa, g_placa, &g_nombre);
         if (!e.empty()) muere("error de netlist: " + e);
 
         // --- 2. La lista de MCUs, y la línea de órdenes encima ---------------
         std::vector<DeclMcu> decls = placa.mcus();
-        if (decls.empty()) {                 // ninguno declarado: uno implícito
-            DeclMcu m;
-            m.tipo = g_tipo_mcu;             // id vacío -> nodos con nombre desnudo
-            decls.push_back(m);
+        if (!g_tipo_mcu.empty()) {
+            if (decls.empty() && placa.es_sistema()) {
+                // En un sistema no hay a qué placa ponérselo: el chip se
+                // declara en la placa que lo lleva.
+                muere("en un <sistema>, --mcu no pone un MCU: ninguna placa declara "
+                      "uno, y no se sabe en cual iria. Declaralo en la placa que lo "
+                      "lleva, con <mcu tipo=\"" + g_tipo_mcu + "\" id=\"u0\"/>");
+            } else if (decls.empty()) {      // ninguno declarado: el de --mcu
+                DeclMcu m;
+                m.tipo = g_tipo_mcu;         // id vacío -> nodos con nombre desnudo
+                decls.push_back(m);
+            } else if (decls.size() == 1) {  // --mcu manda sobre su tipo
+                // Se vacia la salida: si la placa no cabe en el chip nuevo, el
+                // error sale por stderr y tiene que leerse DESPUES de esto.
+                if (mayus(decls[0].tipo) != g_tipo_mcu) {
+                    std::printf("  [mcu] %s: --mcu %s sustituye al %s que declara "
+                                "la placa\n", decls[0].id.c_str(), g_tipo_mcu.c_str(),
+                                decls[0].tipo.c_str());
+                    std::fflush(stdout);
+                }
+                decls[0].tipo = g_tipo_mcu;
+                placa.cambia_tipo_mcu(decls[0].id, g_tipo_mcu);
+            } else {
+                std::string ids;
+                for (const DeclMcu& m : decls) { if (!ids.empty()) ids += ", "; ids += m.id; }
+                muere("la placa lleva " + std::to_string(decls.size()) + " MCUs (" + ids +
+                      "), asi que --mcu no dice a cual cambiar de tipo.\n"
+                      "Cambialo en su <mcu tipo=\"...\">");
+            }
+        }
+        if (decls.empty()) {
+            placa.pon_sin_mcu();
+            comprueba_sin_mcu();
         }
         aplica_linea_de_ordenes(decls);
         // Cada chip se resuelve contra el catálogo, y de ahí sale su descriptor
@@ -251,7 +357,7 @@ SC_MODULE(Sim) {
             m.tipo = mayus(m.tipo);
             caps_de[k] = mcu_por_nombre(m.tipo);
             if (!caps_de[k])
-                muere("mcu " + (m.id.empty() ? std::string("(implicito)") : m.id) +
+                muere("mcu " + (m.id.empty() ? std::string("(el de --mcu)") : m.id) +
                       ": no se sabe construir un '" + m.tipo + "'.\n"
                       "Los tipos que este programa modela son:\n  " +
                       tipos_como_texto() + "\n"
@@ -270,6 +376,19 @@ SC_MODULE(Sim) {
                             "(%u E/S) y NO esta contrastado bola a bola\n",
                             caps_de[k]->nombre, caps_de[k]->enc.nombre,
                             caps_de[k]->enc.n_gpio);
+        }
+
+        // --- 2 bis. Conectores, acoples e hilos: qué nodos son el mismo ------
+        // Antes de los MCUs por lo mismo que `une`: un pin de conector unido a
+        // otro pad de otro chip hace que esos dos pads compartan nodo, y eso
+        // se decide antes de atar un solo `sc_port`. Sin conectores ni hilos
+        // no hace nada.
+        {
+            const std::vector<std::string> ea = placa.resuelve_alias();
+            for (const std::string& q : ea) std::fprintf(stderr, "  [decl] %s\n", q.c_str());
+            if (!ea.empty())
+                muere(g_placa + ": " + std::to_string(ea.size()) +
+                      " problemas con conectores e hilos; no se monta");
         }
 
         // --- 3. Los nodos COMPARTIDOS, antes de los MCUs --------------------
@@ -315,7 +434,9 @@ SC_MODULE(Sim) {
             // desnudo cuando solo hay uno: es lo que hace que las placas
             // escritas hasta hoy sigan valiendo sin migrarlas.
             m.mcu->registra_nodos(d.id, nodos);
-            if (decls.size() == 1 && !d.id.empty())
+            // En un <sistema> no: allí no hay nombres desnudos, todo es
+            // `A/u0.PA5`, y el desnudo solo podría confundir.
+            if (decls.size() == 1 && !d.id.empty() && !placa.es_sistema())
                 m.mcu->registra_nodos(std::string(), nodos);
             // El stub de PINES se cuelga por fuera de PA14/PA13, como un
             // ST-LINK. El de DAP lo ha creado ya el propio núcleo.
@@ -353,14 +474,41 @@ SC_MODULE(Sim) {
         placa.construye(nodos);
         for (const std::string& q : placa.valida_electrica(nodos)) {
             std::fprintf(stderr, "  [elec] %s\n", q.c_str());
+            avisos_placa.push_back(q);
             ++n_avisos;
         }
         // Un conflicto eléctrico NO detiene la simulación: puede ser una
         // decisión deliberada -un pin compartido entre dos montajes- y el que
         // manda es quien escribe la placa. Pero se dice, y se dice antes.
-        std::printf("placa '%s': %u MCU(s), %u componentes, %u nodos, %u avisos\n",
-                    g_nombre.c_str(), unsigned(mcus.size()),
-                    unsigned(placa.instancias().size()), nodos.n_nodos(), n_avisos);
+        if (placa.es_sistema()) {
+            std::string l;
+            for (const PlacaDeSistema& p : placa.placas())
+                l += (l.empty() ? "" : ", ") + p.id + " (" + p.nombre + ")";
+            std::printf("sistema '%s': %u placas: %s\n", g_nombre.c_str(),
+                        unsigned(placa.placas().size()), l.c_str());
+            for (const Netlist::Acople& a : placa.acoples())
+                std::printf("  [acopla] %s%s\n", a.texto().c_str(),
+                            a.espejo ? ", en espejo"
+                                     : (a.conectores.size() > 2 ? ", en pila" : ""));
+        }
+        // En un sistema, el nombre ya se ha dicho arriba: aquí van los totales
+        const std::string cab = placa.es_sistema() ? std::string("  en total")
+                                                   : "placa '" + g_nombre + "'";
+        if (mcus.empty())
+            std::printf("%s: SIN MCU, %u componentes, %u nodos, %u avisos\n",
+                        cab.c_str(), unsigned(placa.instancias().size()),
+                        nodos.n_nodos(), n_avisos);
+        else
+            std::printf("%s: %u MCU(s), %u componentes, %u nodos, %u avisos\n",
+                        cab.c_str(), unsigned(mcus.size()),
+                        unsigned(placa.instancias().size()), nodos.n_nodos(), n_avisos);
+        lee_dibujos();
+        // Sin MCU, sin ventana y sin --valida, simular es ver pasar el tiempo
+        // sin que nada lo mueva: se dice, por si era un <mcu> olvidado que el
+        // nombre de los nodos no ha delatado.
+        if (mcus.empty() && !g_gui_pedida && !g_solo_valida)
+            std::printf("  [aviso] sin MCU y sin --gui, nadie toca las piezas: esto "
+                        "solo tiene sentido con --gui o con --valida\n");
         for (const serie::Pieza& p : puentes) {
             const PuenteSerie* ps = placa.como<PuenteSerie>(p.id);
             if (!ps) continue;
@@ -370,13 +518,19 @@ SC_MODULE(Sim) {
             if (ps->por_red()) hay_puente_red = true;
             std::printf("  serie %s: %s\n", p.id.c_str(), ps->describir().c_str());
         }
-        if (hay_puente_red && g_tiempo_real <= 0.0 && !g_solo_valida)
+        // Con los ms dichos la simulacion acaba igual (abajo), y el ritmo del
+        // terminal da lo mismo: el aviso es para quien se queda mirando
+        if (hay_puente_red && g_tiempo_real <= 0.0 && !g_solo_valida && !g_ms_dado) {
+            avisos_placa.push_back(
+                "hay un puente serie por TCP y no se ha pedido --tiempo-real: el "
+                "terminal vera el ritmo de la simulacion, no el de la placa");
             std::fprintf(stderr,
                 "  [serie] AVISO: hay un puente serie por TCP y no se ha pedido\n"
                 "          --tiempo-real. El terminal vera el ritmo de la\n"
                 "          simulacion, no el de la placa: un printf por segundo\n"
                 "          puede llegar cien veces por segundo, y el procesador\n"
                 "          va a tope. Con --tiempo-real va como en la placa.\n");
+        }
         for (const McuMontado& m : mcus) {
             if (!m.decl.puerto_gdb && m.decl.firmware.empty() && m.decl.id.empty())
                 continue;                    // el caso de siempre: no dice nada
@@ -409,6 +563,150 @@ SC_MODULE(Sim) {
     // pusiera encima no podria abrirlo.
     // -----------------------------------------------------------------------
     std::vector<serie::Pieza> puentes;
+
+    // EL DIBUJO DE CADA PLACA. Aquí no se interpreta: se busca, se mira por
+    // encima -que exista, que parezca un SVG, que no sea enorme- y se guarda
+    // para mandarlo. Lo que falla es un AVISO: una placa sin dibujo funciona
+    // igual, y la ventana dibuja una genérica. Que no esté el que se llama
+    // como la placa no es ni un aviso: es lo normal.
+    void lee_dibujos() {
+        const bool sis = placa.es_sistema();
+        auto aviso = [&](const std::string& t) {
+            std::fprintf(stderr, "  [dibujo] %s\n", t.c_str());
+            avisos_placa.push_back(t);
+        };
+        auto base = [](const std::string& r) {
+            const size_t b = r.find_last_of("/\\");
+            return b == std::string::npos ? r : r.substr(b + 1);
+        };
+        // Las variantes de las piezas de una placa -el puente de un Jumper, el
+        // color y el aspa de un Servo-,
+        // por su id en ella: lo que su dibujo tiene que enseñar
+        auto variantes = [&](const std::string& id) {
+            std::map<std::string, std::string> v;
+            for (const Instancia& i : placa.instancias()) {
+                for (const auto& x : Netlist::variantes(i)) {
+                    if (!sis) v[i.id + x.first] = x.second;
+                    else if (placa.placa_de(i.id) == id)
+                        v[i.id.substr(id.size() + 1) + x.first] = x.second;
+                }
+            }
+            return v;
+        };
+        // Y sus rótulos: lo que dice el dibujo de cada puente serie, con el
+        // destino que ha quedado -el del XML, o el de --serie-
+        auto rotulos = [&](const std::string& id) {
+            std::map<std::string, std::string> r;
+            for (const Instancia& i : placa.instancias()) {
+                if (i.tipo != "PuenteSerie") continue;
+                std::string local = i.id;
+                if (sis) {
+                    if (placa.placa_de(i.id) != id) continue;
+                    local = i.id.substr(id.size() + 1);
+                }
+                const auto h = i.params.find("host");
+                const serie::Destino d = h == i.params.end() ? serie::por_omision()
+                                                             : serie::parsea(h->second);
+                r[local + "#destino"] = serie::describe(d);
+                r[local + "#host"] = serie::como_texto(d);
+            }
+            return r;
+        };
+        auto mira = [&](const std::string& id, const Ilustracion& il) {
+            const std::string quien = sis ? "dibujo " + id : std::string("dibujo");
+            if (il.ruta.empty()) {
+                if (sis) std::printf("  %s: ninguno\n", quien.c_str());
+                return;
+            }
+            // El mismo fichero con las mismas variantes es el mismo dibujo; con
+            // otras -dos adaptadores con el jumper distinto- es otro
+            const std::map<std::string, std::string> var = variantes(id), rot = rotulos(id);
+            for (DibujoLeido& d : dibujos)
+                if (d.ruta == il.ruta && d.variantes == var && d.rotulos == rot &&
+                    d.giro == il.giro) {
+                    std::printf("  %s: %s, el mismo que %s\n", quien.c_str(),
+                                base(il.ruta).c_str(), d.placas[0].c_str());
+                    d.placas.push_back(id);
+                    return;
+                }
+            std::ifstream f(il.ruta, std::ios::binary);
+            if (!f) {
+                if (!il.declarada.empty())
+                    aviso((sis ? "placa " + id + ": " : std::string()) +
+                          "no se encuentra su dibujo " + il.ruta);
+                else if (sis)
+                    std::printf("  %s: ninguno\n", quien.c_str());
+                return;
+            }
+            std::string svg((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            if (svg.size() > DIBUJO_MAX) {
+                aviso((sis ? "placa " + id + ": " : std::string()) + "el dibujo " + il.ruta +
+                      " pesa " + std::to_string(svg.size() / 1024) + " kB, y el maximo es " +
+                      std::to_string(DIBUJO_MAX / 1024) + ": no se manda");
+                return;
+            }
+            size_t k = 0;
+            if (svg.compare(0, 3, "\xEF\xBB\xBF") == 0) k = 3;      // la marca UTF-8
+            while (k < svg.size() && (svg[k] == ' ' || svg[k] == '\t' || svg[k] == '\r' ||
+                                      svg[k] == '\n'))
+                ++k;
+            const std::string ini = svg.substr(k, 9);
+            if (ini.compare(0, 4, "<svg") != 0 && ini.compare(0, 5, "<?xml") != 0 &&
+                ini.compare(0, 4, "<!--") != 0 && ini.compare(0, 9, "<!DOCTYPE") != 0) {
+                aviso((sis ? "placa " + id + ": " : std::string()) + il.ruta +
+                      " no parece un SVG (no empieza por <svg ni por <?xml): no se manda");
+                return;
+            }
+            std::string con;
+            for (const auto& kv : var) con += ", " + kv.first + " " + kv.second;
+            if (il.giro) con += ", girado " + std::to_string(il.giro);
+            std::printf("  %s: %s (%u kB%s)\n", quien.c_str(), base(il.ruta).c_str(),
+                        unsigned((svg.size() + 1023) / 1024), con.c_str());
+            svg = pon_rotulos(quita_variantes(svg, var), rot);
+            if (il.giro) {
+                std::string e;
+                svg = gira_svg(svg, il.giro, &e);
+                if (!e.empty())
+                    aviso((sis ? "placa " + id + ": " : std::string()) + "el dibujo " +
+                          il.ruta + " no se puede girar (" + e + "): se manda como esta");
+            }
+            dibujos.push_back({{id}, il.ruta, std::move(svg), var, rot, il.giro});
+        };
+        if (sis)
+            for (const PlacaDeSistema& p : placa.placas()) mira(p.id, p.ilustracion);
+        else
+            mira(std::string(), placa.ilustracion());
+        // La disposición para la ventana (plan §38 de mcu-sim-gui), si la hay:
+        // aquí no se usa, pero se dice que se ha leído
+        {
+            auto num = [](double v) {
+                char b[32];
+                std::snprintf(b, sizeof b, "%g", v);
+                return std::string(b);
+            };
+            std::vector<std::string> l;
+            if (placa.lienzo().fijo)
+                l.push_back("lienzo " + num(placa.lienzo().ancho) + " x " +
+                            num(placa.lienzo().alto) + " mm");
+            auto una = [&](const std::string& id, const Ilustracion& il) {
+                std::string t;
+                if (il.colocada) t += " en (" + num(il.x_mm) + ", " + num(il.y_mm) + ") mm";
+                if (il.escala != 1.0) t += " al " + num(il.escala * 100) + " %";
+                if (!t.empty()) l.push_back((id.empty() ? std::string("la placa") : id) + t);
+            };
+            if (sis)
+                for (const PlacaDeSistema& p : placa.placas()) una(p.id, p.ilustracion);
+            else
+                una(std::string(), placa.ilustracion());
+            if (!placa.rutas().empty())
+                l.push_back(std::to_string(placa.rutas().size()) + " linea(s) en tramos rectos");
+            if (!l.empty()) {
+                std::string t;
+                for (const std::string& x : l) t += (t.empty() ? "" : "; ") + x;
+                std::printf("  ventana: %s\n", t.c_str());
+            }
+        }
+    }
 
     void resuelve_puentes_serie() {
         std::vector<serie::Pieza> decl;
@@ -445,6 +743,7 @@ SC_MODULE(Sim) {
         if (!err.empty())
             muere(g_placa + ": " + std::to_string(err.size()) +
                   " problemas con los puentes serie; no se monta");
+        for (const std::string& q : r.notas) std::printf("  [serie] %s\n", q.c_str());
         puentes = r.piezas;
     }
 
@@ -458,19 +757,119 @@ SC_MODULE(Sim) {
     //   con 2 o más     un argumento global ya no designa a nadie. Se rechaza
     //                   nombrando los MCUs, en vez de elegir uno por su cuenta.
     // -----------------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    // UNA PLACA SIN MCU. Es legitima -un pulsador, una fuente y un LED; validar
+    // una placa antes de tener firmware; probar la ventana sin chip-, pero
+    // tambien es lo que sale de olvidarse el <mcu>, y entonces `<nodo id=PD12>`
+    // seria un cable suelto en silencio. Lo que lo distingue es el nombre: sin
+    // MCU no hay pines, asi que un nodo que se llama como un pin es un error
+    // que dice que falta. Y lo que solo tiene sentido con un MCU -un firmware,
+    // un stub de GDB, sus relojes- tambien.
+    // -----------------------------------------------------------------------
+    static bool parece_pin_de_mcu(const std::string& nodo) {
+        std::string pref;
+        unsigned p = 0, i = 0;
+        if (pad_desde_nombre(nodo, pref, p, i)) return true;
+        // Con mayúsculas exactas, como los registra el MCU: `vdd` es un hilo
+        // de la placa y no la patilla del chip.
+        std::string a;
+        return alim_desde_nombre(nodo, pref, a);
+    }
+    void comprueba_sin_mcu() {
+        std::vector<std::string> pins;
+        auto mira = [&](const std::string& nodo) {
+            if (!parece_pin_de_mcu(nodo)) return;
+            for (const std::string& q : pins) if (q == nodo) return;
+            pins.push_back(nodo);
+        };
+        for (const std::string& n : placa.externos()) mira(n);
+        for (const Instancia& i : placa.instancias())
+            for (const Conexion& c : i.pines) mira(c.nodo);
+        if (!pins.empty()) {
+            std::string l;
+            for (const std::string& q : pins) { if (!l.empty()) l += ", "; l += q; }
+            muere("la placa no lleva MCU -ni <mcu> en el XML ni --mcu-, y usa "
+                  "nodos con nombre de pin de MCU: " + l + ".\n"
+                  "Si la placa lleva un MCU, declaralo:\n"
+                  "  <mcu tipo=\"STM32F407VG\" id=\"u0\"/>     (en el XML)\n"
+                  "  --mcu STM32F407VG                     (en la linea de ordenes)\n"
+                  "Si de verdad no lleva ninguno, esos nodos son cables de la "
+                  "placa: dales otro nombre.");
+        }
+        auto no = [](const std::string& que) {
+            muere("la placa no lleva MCU -ni <mcu> en el XML ni --mcu-, asi que " + que +
+                  " no tiene sentido. Si lleva uno, declaralo: <mcu tipo=\"...\" "
+                  "id=\"u0\"/> en el XML, o --mcu TIPO");
+        };
+        if (!g_img.empty())        no("un firmware (" + g_img + ") no tiene donde cargarse y");
+        if (!g_firmwares.empty())  no("--firmware");
+        if (!g_sin_firmware.empty() || g_sin_firmware_todos) no("--sin-firmware");
+        if (!g_gdb_modo.empty())   no("un stub de GDB (--gdb, --gdb-dap)");
+        if (g_puerto_dado)         no("--port");
+        if (g_traza_gdb)           no("--traza-gdb");
+        if (g_ondas)               no("--ondas, que son los relojes del MCU,");
+    }
+
+    // `--firmware ID=FICHERO` y `--sin-firmware[=ID]`, chip a chip y con
+    // cualquier numero de chips. Sin ID, --sin-firmware es para todos; un
+    // --firmware con su ID manda sobre eso. Un ID que no esta, o el mismo chip
+    // dos veces, es un error que dice cuales hay.
+    void aplica_firmwares(std::vector<DeclMcu>& decls) {
+        if (g_firmwares.empty() && g_sin_firmware.empty() && !g_sin_firmware_todos) return;
+        std::string ids;
+        for (const DeclMcu& m : decls) {
+            if (!ids.empty()) ids += ", ";
+            ids += m.id.empty() ? std::string("(sin id)") : m.id;
+        }
+        auto busca = [&](const std::string& op, const std::string& id) -> DeclMcu& {
+            for (DeclMcu& m : decls)
+                if (m.id == id) return m;
+            muere(op + " " + id + ": no hay ningun MCU con ese id. Los que hay: " + ids);
+            return decls.front();            // no se llega
+        };
+        std::set<std::string> dichos;
+        auto una_vez = [&](const std::string& op, const std::string& id) {
+            if (!dichos.insert(id).second)
+                muere(op + " " + id + ": el firmware de ese MCU se dice dos veces");
+        };
+        if (g_sin_firmware_todos)
+            for (DeclMcu& m : decls) m.firmware.clear();
+        for (const std::string& id : g_sin_firmware) {
+            una_vez("--sin-firmware", id);
+            busca("--sin-firmware", id).firmware.clear();
+        }
+        for (const auto& f : g_firmwares) {
+            una_vez("--firmware", f.first);
+            busca("--firmware", f.first).firmware = f.second;
+        }
+    }
+
     void aplica_linea_de_ordenes(std::vector<DeclMcu>& decls) {
+        if (decls.empty()) return;           // sin MCU: ya lo ha mirado comprueba_sin_mcu
+        aplica_firmwares(decls);
         const bool global = !g_img.empty() || !g_gdb_modo.empty() || g_puerto_dado;
         if (decls.size() > 1) {
             if (!global) return;
             std::string ids;
             for (const DeclMcu& m : decls) { if (!ids.empty()) ids += ", "; ids += m.id; }
+            if (placa.es_sistema())
+                muere("el sistema lleva " + std::to_string(decls.size()) + " MCUs (" +
+                      ids + "), asi que un firmware o un puerto sueltos en la linea "
+                      "de ordenes no dicen a cual.\nDilo en el <sistema>, uno por "
+                      "chip: <mcu ref=\"" + decls.front().id + "\" firmware=\"...\" "
+                      "depuracion=\"pines|dap\" puerto_gdb=\"...\"/>");
             muere("la placa lleva " + std::to_string(decls.size()) + " MCUs (" +
                   ids + "), asi que un firmware o un puerto sueltos en la linea "
                   "de ordenes no dicen a cual.\nPonlo en cada <mcu>: "
                   "firmware=\"...\" depuracion=\"pines|dap\" puerto_gdb=\"...\"");
         }
         DeclMcu& m = decls.front();
-        if (!g_img.empty()) m.firmware = g_img;
+        if (!g_img.empty()) {
+            if (g_sin_firmware_todos || !g_firmwares.empty() || !g_sin_firmware.empty())
+                muere("el firmware " + g_img + " de la linea de ordenes y --firmware o "
+                      "--sin-firmware a la vez: dilo de una sola manera");
+            m.firmware = g_img;
+        }
         if (!g_gdb_modo.empty()) {
             m.depuracion = g_gdb_modo;
             if (!m.puerto_gdb) m.puerto_gdb = 3333;      // el de siempre
@@ -500,17 +899,34 @@ SC_MODULE(Sim) {
     // El freno solo frena; si el modelo va MÁS LENTO que el tiempo real, no hay
     // nada que hacer y se sigue sin dormir, sin acumular deuda.
     // -----------------------------------------------------------------------
+    //
+    // El freno se mide contra un ANCLA -un instante de pared y uno simulado-
+    // y no rodaja a rodaja. Medido rodaja a rodaja, lo que cada `sleep_for` se
+    // pasaba se iba sumando: un 10 % de retraso a los pocos segundos con
+    // rodajas de 1 ms. Con el ancla no se suma nada. Y si el modelo va por
+    // DETRAS mas de 50 ms, el ancla se mueve al presente: no se acumula una
+    // deuda que luego se pagaria corriendo sin freno.
+    sc_time  ancla_sim_ = SC_ZERO_TIME;
+    std::chrono::steady_clock::time_point ancla_pared_;
+    bool     anclado_ = false;
+
     void espera(const sc_time& d) {
         if (g_tiempo_real <= 0.0) { wait(d); return; }
-        const auto t0 = std::chrono::steady_clock::now();
-        const double sim0 = sc_time_stamp().to_seconds();
+        if (!anclado_) {
+            ancla_pared_ = std::chrono::steady_clock::now();
+            ancla_sim_   = sc_time_stamp();
+            anclado_     = true;
+        }
         wait(d);
-        const double avance = sc_time_stamp().to_seconds() - sim0;
-        const double debe = avance / g_tiempo_real;      // segundos de pared
-        const double lleva =
-            std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        const double debe = (sc_time_stamp() - ancla_sim_).to_seconds() / g_tiempo_real;
+        const auto   ahora = std::chrono::steady_clock::now();
+        const double lleva = std::chrono::duration<double>(ahora - ancla_pared_).count();
         if (debe > lleva)
             std::this_thread::sleep_for(std::chrono::duration<double>(debe - lleva));
+        else if (lleva - debe > 0.05) {
+            ancla_pared_ = ahora;
+            ancla_sim_   = sc_time_stamp();
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -647,8 +1063,14 @@ SC_MODULE(Sim) {
         }
         // Con un stub de GDB o con un puente serie por TCP hay alguien al otro
         // lado de un puerto, y la simulacion no puede terminar por su cuenta:
-        // se sale con Ctrl-C.
-        if (hay_stub || hay_puente_red) {
+        // se sale con Ctrl-C. SALVO un puente serie con los ms DICHOS -`--ms=`
+        // o el tercer argumento-: quien los da quiere que acabe, y la placa
+        // que lleva un VCP de serie, como la Nucleo, se sigue pudiendo
+        // simular un rato y mirar como acaba. El puente escucha mientras tanto.
+        if (hay_puente_red && !hay_stub && g_ms_dado) {
+            std::printf("  [serie] los puentes por red escuchan; la simulacion "
+                        "acaba a los %g ms que se han pedido\n", g_ms);
+        } else if (hay_stub || hay_puente_red) {
             std::printf("esperando a %s; la simulacion no se detiene sola "
                         "(Ctrl-C para salir)\n",
                         hay_stub && hay_puente_red ? "GDB y a los puentes serie"
@@ -665,12 +1087,44 @@ SC_MODULE(Sim) {
             for (;;) espera(sc_time(1, SC_MS));
         }
 
-        const auto h0 = std::chrono::steady_clock::now();
-        espera(sc_time(g_ms, SC_MS));
+        h0_ = std::chrono::steady_clock::now();
+        t0_ = sc_time_stamp();
+        // Sin ventana de tiempo (con --gui, cuando nadie la dio): hasta que la
+        // ventana diga T_PARA, en rodajas de 1 ms como el bucle de GDB.
+        if (g_sin_fin) for (;;) espera(sc_time(1, SC_MS));
+        // CON --tiempo-real, EN RODAJAS DE 1 ms, como el bucle de arriba. Una
+        // sola espera de toda la ventana simulaba los segundos de golpe, en
+        // centesimas, y DESPUES dormia lo que faltaba: el total cuadraba con el
+        // reloj de pared, pero el LED parpadeaba a toda velocidad y luego nada.
+        // En la consola no se notaba -solo se ve como acaba-; con una ventana
+        // mirando (mcu-sim-gui, fase 4) es lo primero que se ve.
+        if (g_tiempo_real > 0.0) {
+            const sc_time rodaja(1, SC_MS);
+            sc_time quedan(g_ms, SC_MS);
+            while (quedan > SC_ZERO_TIME) {
+                const sc_time d = quedan < rodaja ? quedan : rodaja;
+                espera(d);
+                quedan -= d;
+            }
+        } else {
+            espera(sc_time(g_ms, SC_MS));
+        }
+        informe();
+        sc_stop();
+    }
+
+    // Lo que se dice al acabar: cuanto se ha simulado y como acaba lo que se ve
+    // desde fuera. Lo llama `run()` al agotar la ventana y, desde la fase 6 de
+    // mcu-sim-gui, `sc_main` cuando la ventana dice T_PARA en marcha.
+    std::chrono::steady_clock::time_point h0_ = std::chrono::steady_clock::now();
+    sc_time t0_ = SC_ZERO_TIME;
+
+    void informe() {
         const double seg =
-            std::chrono::duration<double>(std::chrono::steady_clock::now() - h0).count();
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - h0_).count();
         std::printf("simulados %.3f ms en %.3f s de anfitrion (%llu deltas)\n",
-                    g_ms, seg, (unsigned long long)sc_delta_count());
+                    (sc_time_stamp() - t0_).to_seconds() * 1e3, seg,
+                    (unsigned long long)sc_delta_count());
         // Y lo que se ve desde fuera. Un LED es el instrumento de medida mas
         // antiguo de este oficio, asi que se dice como acabo cada uno: su
         // tension de pin y la corriente que le pasa, en float, como el modelo
@@ -679,12 +1133,85 @@ SC_MODULE(Sim) {
             if (i.tipo != "Led") continue;
             const Led* l = placa.como<Led>(i.id);
             if (!l) continue;
+            // Con las dos patillas, entre que nodos esta y la tension entre
+            // ellos, que es la que lo hace lucir; o que un extremo esta al aire
+            if (l->dos_patillas()) {
+                char medida[64];
+                if (l->al_aire())
+                    std::snprintf(medida, sizeof medida, "un extremo al aire");
+                else {
+                    const double v = std::fabs(l->tension()) < 0.005 ? 0.0 : l->tension();
+                    std::snprintf(medida, sizeof medida, "%.2f V, %.2f mA", v,
+                                  l->current() * 1e3);
+                }
+                std::printf("  LED %s entre %s y %s: %s  (%s)\n", i.id.c_str(),
+                            i.nodo_de("anodo").c_str(), i.nodo_de("catodo").c_str(),
+                            l->on() ? "encendido" : "apagado", medida);
+                continue;
+            }
             // La patilla del pin se llama `anodo` o `catodo` segun el montaje.
             const std::string& nd = i.nodo_de("anodo").empty()
                                   ? i.nodo_de("catodo") : i.nodo_de("anodo");
             std::printf("  LED %s en %s: %s  (%.2f V, %.2f mA)\n", i.id.c_str(),
                         nd.c_str(), l->on() ? "encendido" : "apagado",
                         double(l->pin_voltage()), l->current() * 1e3);
+        }
+        // Las fuentes y las masas: cuanto entregan -o reciben- y si han tenido
+        // que limitar. Es lo que se mira en una placa sin MCU.
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Fuente" && i.tipo != "Gnd") continue;
+            const FuenteTension* f = placa.como<FuenteTension>(i.id);
+            if (!f) continue;
+            char lim[48] = "sin limite";
+            if (f->limite_ma() > 0.0)
+                std::snprintf(lim, sizeof lim, "limite %.3g mA", f->limite_ma());
+            std::printf("  %s %s en %s: %.2f mA (%s)%s", i.tipo.c_str(), i.id.c_str(),
+                        i.nodo_de("pin").c_str(), f->corriente() * 1e3, lim,
+                        f->sobrecorriente() ? "  SOBRECORRIENTE" : "");
+            if (f->episodios())
+                std::printf(", %u episodio(s) de sobrecorriente", f->episodios());
+            std::printf("\n");
+        }
+        // Las pantallas: que ensenan y como lo tienen puesto. Lo que se ve de
+        // verdad lo pinta la ventana; aqui, lo que hay que saber si no se ve
+        // nada -dormida, apagada, sin luz-.
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Tft128x160") continue;
+            const Tft128x160* t = placa.como<Tft128x160>(i.id);
+            if (!t) continue;
+            const char* estado = !t->alimentada() ? "sin tension"
+                               : t->en_reset()    ? "en reset (blanca)"
+                               : t->dormida()     ? "dormida (blanca)"
+                               : !t->encendida()  ? "apagada con DISPOFF (blanca)"
+                                                  : "ensena su memoria";
+            std::printf("  TFT %s: %s; %u bits por pixel, MADCTL 0x%02X; %llu ordenes, "
+                        "%llu pixeles; luz %.1f mA%s\n", i.id.c_str(), estado,
+                        t->bits_por_pixel(), unsigned(t->madctl()),
+                        (unsigned long long)t->ordenes(), (unsigned long long)t->pixeles(),
+                        t->luz_ma(), t->luz_ma() < 0.05 ? " (a oscuras: negra)" : "");
+            if (t->ordenes_perdidas())
+                std::printf("  TFT %s: %llu ordenes perdidas por llegar antes de 5 ms tras "
+                            "el reset\n", i.id.c_str(),
+                            (unsigned long long)t->ordenes_perdidas());
+        }
+        // Los servos: donde ha quedado el eje, hacia donde iba, la senal que le
+        // llega y donde empezo -que, aleatorio, cambia de una vez a otra-
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Servo") continue;
+            const Servo* s = placa.como<Servo>(i.id);
+            if (!s) continue;
+            const char* estado = s->bloqueado()  ? "bloqueado"
+                               : s->moviendose() ? "moviendose"
+                               : "quieto";
+            char senal[96];
+            if (!s->pulsos())
+                std::snprintf(senal, sizeof senal, "sin un pulso");
+            else
+                std::snprintf(senal, sizeof senal, "pulso %.0f us cada %.1f ms%s", s->pulso_us(),
+                              s->periodo_ms(), s->con_senal() ? "" : " (ya sin senal)");
+            std::printf("  SERVO %s: %+.1f grados (objetivo %+.1f), %s; %s; %.2f V, %.0f mA; "
+                        "empezo en %+.1f grados\n", i.id.c_str(), s->angulo(), s->objetivo(),
+                        senal, estado, s->tension(), s->corriente_ma(), s->inicial());
         }
         // Y lo que los puentes serie tengan a medias, que tambien se ve desde
         // fuera: es la basura de unos baudios equivocados.
@@ -698,9 +1225,356 @@ SC_MODULE(Sim) {
                             (unsigned long long)ps->errores_paridad(),
                             (unsigned long long)ps->bytes_hacia_mcu());
             }
-        sc_stop();
     }
+
+    // El freno de tiempo real se echa el ancla de nuevo: lo usa el enlace al
+    // salir de una pausa, para que el freno no crea que va con retraso.
+    void reancla() { anclado_ = false; }
 };
+
+// ---------------------------------------------------------------------------
+// EL SALUDO CON LA VENTANA (fase 3 del plan de mcu-sim-gui)
+//
+// Va DESPUES de construir la placa -T_PLACA y T_CATALOGO hablan de piezas que
+// tienen que existir- y ANTES de `sc_start()`, que es lo que hace verdadero el
+// «la simulacion no empieza hasta que la GUI lo diga»: no es que empiece y se
+// quede quieta, es que el nucleo de SystemC todavia no ha dado un paso. La
+// espera de T_ARRANCA es un `select` que duerme, asi que no gasta CPU, y no
+// tiene plazo.
+//
+// Devuelve -1 si hay que simular, o el codigo de salida si no. Con `--valida`
+// tambien devuelve -1: se manda la placa, se termina con T_FIN y se deja que
+// `run()` haga lo de siempre con `--valida`, que es parar sin simular.
+//
+// El contenido de T_ARRANCA -ritmo, factor, ventana- se aplica desde la fase 6
+// (`aplica_arranca`, mas abajo).
+// Lo que llegue antes de T_ARRANCA -la ultima T_SUSCRIBE y todos los
+// T_ORDENES- se aplica antes de `sc_start()` (fases 4 y 5).
+// ---------------------------------------------------------------------------
+// EL CONTENIDO DE T_ARRANCA (fase 6): el ritmo y la ventana de tiempo.
+//
+//   * RIT_REAL con su factor es `--tiempo-real=F`; RIT_LIBRE, sin freno; y
+//     RIT_DEMANDA, sin freno y EN PAUSA desde t = 0: solo avanza con T_PASO.
+//     Con `--gui` el ritmo lo dice la ventana, que es quien lo esta mirando;
+//     el `--tiempo-real` de la linea de ordenes deja de mandar, y se dice;
+//   * `ventana_ns` > 0 es la ventana de tiempo; 0 es la de mcu-sim: la de su
+//     linea de ordenes o, si no se dio ninguna, SIN FIN, hasta que la ventana
+//     diga T_PARA. Antes de la fase 6 no habia T_PARA en marcha y por eso
+//     habia que tener siempre un final.
+static const char* nombre_ritmo(uint32_t r) {
+    switch (r) {
+        case mcusim::proto::RIT_REAL:    return "tiempo real";
+        case mcusim::proto::RIT_LIBRE:   return "libre";
+        case mcusim::proto::RIT_DEMANDA: return "a demanda";
+    }
+    return "?";
+}
+
+static void aplica_arranca(Sim& s, const mcusim::proto::Arranca& a) {
+    using namespace mcusim::proto;
+    const double antes = g_tiempo_real;
+    uint32_t ritmo = a.ritmo;
+    if (ritmo > RIT_DEMANDA) {
+        std::printf("gui: ritmo %u desconocido; se usa tiempo real\n", unsigned(ritmo));
+        ritmo = RIT_REAL;
+    }
+    if (ritmo == RIT_REAL) {
+        // Un factor que no es un numero positivo no frena nada con sentido
+        g_tiempo_real = (a.factor > 0.0f && a.factor < 1e6f) ? double(a.factor) : 1.0;
+    } else {
+        g_tiempo_real = 0.0;
+    }
+    s.enlace.ritmo(ritmo);
+    s.enlace.al_seguir([&s] { s.reancla(); });
+    if (a.ventana_ns > 0) {
+        g_ms = double(a.ventana_ns) / 1e6;
+    } else if (!g_ms_dado) {
+        g_sin_fin = true;
+        s.enlace.para_al_perderse(true);
+    }
+    std::printf("gui: ritmo %s", nombre_ritmo(ritmo));
+    if (ritmo == RIT_REAL) std::printf(" (x%g)", g_tiempo_real);
+    if (g_sin_fin) std::printf(", sin fin: hasta que la ventana diga parar\n");
+    else           std::printf(", ventana de %.3f ms\n", g_ms);
+    if (antes > 0.0 && g_tiempo_real != antes)
+        std::printf("gui: el ritmo lo dice la ventana; --tiempo-real no se aplica\n");
+    std::fflush(stdout);
+}
+
+static std::string texto_hola(const Sim& s, int argc, char** argv) {
+    std::string mcus, fws, args;
+    for (const McuMontado& m : s.mcus) {
+        if (!mcus.empty()) mcus += ",";
+        mcus += m.decl.tipo;
+        if (!m.decl.firmware.empty()) {
+            if (!fws.empty()) fws += ",";
+            fws += m.decl.firmware;
+        }
+    }
+    for (int i = 1; i < argc; ++i) {
+        if (i > 1) args += " ";
+        args += argv[i];
+    }
+#if defined(_WIN32)
+    const unsigned long pid = (unsigned long)::GetCurrentProcessId();
+#else
+    const unsigned long pid = (unsigned long)::getpid();
+#endif
+    return "protocolo_max=" + std::to_string(mcusim::proto::VERSION_PROTO) + "\n" +
+           "mcu_sim=" + VERSION_MCU_SIM + "\n" +
+           "pid=" + std::to_string(pid) + "\n" +
+           "placa=" + g_placa + "\n" +
+           "mcu=" + mcus + "\n" +
+           "firmware=" + fws + "\n" +
+           "argumentos=" + args + "\n" +
+           "modo=" + (g_solo_valida ? "valida" : "simula") + "\n";
+}
+
+static int saluda_gui(Sim& s, stm32::gui::ClienteGui& cli,
+                      std::unique_ptr<stm32::gui::CanalGui>& canal,
+                      int argc, char** argv) {
+    using stm32::gui::ClienteGui;
+    std::printf("gui: conectando con mcu-sim-gui en %s (protocolo v%u)\n",
+                stm32::gui::como_texto(g_gui).c_str(),
+                unsigned(mcusim::proto::VERSION_PROTO));
+    std::fflush(stdout);
+    if (!cli.conecta(g_gui)) {
+        std::fprintf(stderr, "gui: %s\n", cli.error().c_str());
+        return 2;
+    }
+    g_cliente = &cli;
+
+    // El catalogo, sobre las piezas ya montadas. La frontera se activa con el
+    // MISMO, para que los indices que la GUI usa en las suscripciones y en las ordenes
+    // sean los suyos. Activarla no cuesta nada mientras no haya suscripciones
+    // ni ordenes: sus dos procesos siguen esperando un evento.
+    const stm32::gui::Catalogo cat(ExtPartBase::inventario());
+    s.frontera.activa(cat);
+    std::ostringstream placa, placa_v1;
+    s.placa.volcar_xml(placa, g_nombre.c_str());
+    // Un <sistema>, a una ventana de la versión 1 del protocolo: lo mismo con
+    // la raíz <placa>, que es lo único que sabe leer (doc/protocolo.md §3).
+    if (s.placa.es_sistema()) {
+        s.placa.volcar_xml(placa_v1, g_nombre.c_str(), false);
+        cli.placa_para_v1(placa_v1.str());
+    }
+
+    if (!g_solo_valida) {
+        std::printf("gui: conectado; la simulacion espera a que la ventana diga "
+                    "'arranca'\n");
+        std::fflush(stdout);
+    }
+    mcusim::proto::Arranca arr{};
+    cli.avisos_de_placa(s.avisos_placa);
+    // Los dibujos: las cabeceras hasta la línea en blanco, y el SVG tal cual
+    std::vector<std::string> ilus;
+    for (const Sim::DibujoLeido& d : s.dibujos) {
+        std::string pl;
+        for (const std::string& p : d.placas) pl += (pl.empty() ? "" : " ") + p;
+        const size_t b = d.ruta.find_last_of("/\\");
+        ilus.push_back("placas=" + pl + "\nfichero=" +
+                       (b == std::string::npos ? d.ruta : d.ruta.substr(b + 1)) + "\n\n" +
+                       d.svg);
+    }
+    cli.ilustraciones(std::move(ilus));
+    switch (cli.saluda(texto_hola(s, argc, argv), placa.str(), cat.xml(),
+                       g_solo_valida, arr)) {
+        case ClienteGui::Desenlace::Arranca:
+            std::printf("gui: la ventana dice 'arranca'\n");
+            std::fflush(stdout);
+            // La conexion pasa al enlace, que la atiende en marcha. La
+            // suscripcion que llego antes de arrancar se aplica AHORA, antes
+            // de sc_start(): por eso la secuencia de instantaneas se repite al
+            // picosegundo de una ejecucion a otra.
+            canal = cli.entrega();
+            s.enlace.activa(canal.get(), cli.emisor(), cli.lector());
+            aplica_arranca(s, arr);
+            if (cli.hay_suscripcion()) s.enlace.suscripcion_inicial(cli.suscripcion());
+            // Y lo mismo las ordenes que llegaron antes de arrancar: su primera
+            // orden es un instante ABSOLUTO, y encoladas antes de sc_start()
+            // se aplican al picosegundo en todas las ejecuciones.
+            for (const std::string& o : cli.ordenes_previas())
+                s.enlace.ordenes(o, false);
+            g_enlace  = &s.enlace;
+            g_cliente = nullptr;
+            return -1;
+        case ClienteGui::Desenlace::Valida:
+            cli.fin(mcusim::proto::M_VENTANA, 0, 0);
+            g_cliente = nullptr;
+            return -1;
+        case ClienteGui::Desenlace::Para:
+            std::printf("gui: la ventana pidio parar antes de arrancar; no se "
+                        "simula nada\n");
+            cli.fin(mcusim::proto::M_PARA, 0, 0);
+            g_cliente = nullptr;
+            return 0;
+        case ClienteGui::Desenlace::Error:
+        default:
+            std::fprintf(stderr, "gui: %s\n", cli.error().c_str());
+            g_cliente = nullptr;
+            return 2;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `--argumentos` (fase 7 del plan de mcu-sim-gui): la lista de opciones de este
+// programa, en XML, para que la ventana construya con ella su dialogo de
+// lanzamiento. Es la tercera vez que el proyecto hace que un programa se
+// describa a si mismo -el netlist, `--help COMPONENTE`, y ahora esto- y por la
+// misma razon: si la ventana llevase su propia lista de opciones habria DOS
+// sitios que la saben, y el segundo envejeceria. Asi, una opcion nueva aparece
+// sola en el dialogo.
+//
+// Dentro de este fichero la lista sigue estando dos veces -aqui y en el bucle
+// que lee `argv`-, y eso no se arregla sin reescribir el bucle. Lo que lo
+// vigila es `make gui-argumentos` (`verif/gui/argumentos.py`): toda opcion que
+// cite `--help` tiene que estar aqui, toda la de aqui en `--help`, y cada una,
+// con su valor por omision, la tiene que aceptar este programa.
+//
+// El formato:
+//
+//   <argumentos programa="mcu-sim" version="...">
+//     <posicional nombre="placa" tipo="fichero" filtro="*.xml" obligatorio="si" ayuda="..."/>
+//     <opcion nombre="--ms" forma="valor" tipo="numero" unidad="ms" omision="100" ayuda="..."/>
+//     <opcion nombre="--mcu" forma="valor" tipo="eleccion" ayuda="...">
+//       <valor>STM32F405RG</valor> ...
+//     </opcion>
+//   </argumentos>
+//
+// `forma`: `bandera` (--x), `valor` (--x=V), `valor_opcional` (--x o --x=V)
+// o `accion` (--help: hace otra cosa y sale; el dialogo no la ofrece). `tipo`
+// de lo que va detras del igual: numero, entero, texto, eleccion o fichero.
+// `grupo`: las del mismo grupo se excluyen. `repetible="si"`: puede ir varias
+// veces. `con_gui="no"`: con `--gui` no tiene sentido -la pone la ventana, o la
+// decide ella- y el dialogo no la ofrece.
+// ---------------------------------------------------------------------------
+struct OpcionCli {
+    const char* nombre;
+    const char* forma;
+    const char* tipo;        // "" para banderas y acciones
+    const char* omision;
+    const char* unidad;
+    const char* grupo;
+    bool        repetible;
+    bool        con_gui;
+    const char* ejemplo;
+    const char* ayuda;
+};
+
+static const OpcionCli OPCIONES[] = {
+    // Sin omision a proposito: sin --ms son 100 ms, pero con --gui es SIN FIN,
+    // y un dialogo que enseñase «100» mentiria justo en su caso.
+    {"--ms", "valor", "numero", "", "ms", "", false, true, "2000",
+     "tiempo simulado. Es lo mismo que el tercer argumento posicional. Sin el son "
+     "100 ms; con --gui, no hay fin: se para desde la ventana"},
+    {"--mcu", "valor", "eleccion", "", "", "", false, true, "STM32F407VG",
+     "el MCU de la placa: si el XML no declara ninguno, lo pone; si declara uno, "
+     "manda sobre su tipo. Sin <mcu> ni --mcu, la placa va sin MCU"},
+    {"--valida", "bandera", "", "", "", "", false, true, "",
+     "solo comprueba la placa, sin simular"},
+    {"--ondas", "bandera", "", "", "", "", false, true, "",
+     "con la onda cuadrada de los relojes internos"},
+    {"--gdb", "bandera", "", "", "", "gdb", false, true, "",
+     "stub de GDB por los pines SWD"},
+    {"--gdb-dap", "bandera", "", "", "", "gdb", false, true, "",
+     "stub de GDB contra el DAP"},
+    {"--port", "valor", "entero", "3333", "", "", false, true, "3333",
+     "puerto TCP del stub de GDB"},
+    {"--traza-gdb", "bandera", "", "", "", "", false, true, "",
+     "imprime cada paquete RSP que llega al stub"},
+    {"--firmware", "valor", "texto", "", "", "", true, true, "u0=mi_programa.bin",
+     "el firmware del MCU ID, como ID=FICHERO (u0, o N/u0 en un sistema), tambien "
+     "con varios MCUs. Manda sobre el firmware= de su <mcu>"},
+    {"--sin-firmware", "valor_opcional", "texto", "", "", "", true, true, "u0",
+     "ese MCU -sin ID, todos- sin firmware, aunque el XML diga uno: el nucleo se "
+     "aparca en wfe"},
+    {"--mcus", "accion", "", "", "", "", false, false, "",
+     "la lista de los MCUs de la placa en XML -id, tipo y firmware-, para mcu-sim-gui"},
+    {"--serie", "valor", "texto", "", "", "", true, true, "VCP=rfc2217:4000",
+     "a donde da el PuenteSerie ID: ID=memoria, tcp:PUERTO, rfc2217:PUERTO, "
+     "tcp-cliente:HOST:PUERTO o rfc2217-cliente:HOST:PUERTO"},
+    {"--espera-terminal", "bandera", "", "", "", "", false, true, "",
+     "no arranca el MCU hasta que haya un terminal en cada puente serie por red"},
+    {"--tiempo-real", "valor_opcional", "numero", "1", "", "", false, false, "0.5",
+     "frena la simulacion al reloj de pared. Con --gui el ritmo lo dice la ventana"},
+    {"--gui", "valor_opcional", "texto", "localhost:3344", "", "", false, false,
+     "localhost:3344", "habla con mcu-sim-gui. Con la ventana, la pone ella"},
+    {"--argumentos", "accion", "", "", "", "", false, false, "",
+     "esta lista de opciones, en XML, para mcu-sim-gui"},
+    {"--help", "accion", "", "", "", "", false, false, "",
+     "la ayuda; con COMPONENTE, la de ese componente"},
+    {"--licencia", "accion", "", "", "", "", false, false, "",
+     "licencia, donde esta el fuente y el software ajeno que lleva"},
+};
+
+static int vuelca_argumentos() {
+    using stm32::xml_escapa;
+    std::string x = "<argumentos programa=\"mcu-sim\" version=\"" +
+                    xml_escapa(VERSION_MCU_SIM) + "\">\n";
+    x += "  <posicional nombre=\"placa\" tipo=\"fichero\" filtro=\"*.xml\" "
+         "obligatorio=\"si\" ayuda=\"la placa -MCUs, nodos y componentes- o el sistema "
+         "de placas enchufadas, en XML\"/>\n";
+    x += "  <posicional nombre=\"firmware\" tipo=\"fichero\" filtro=\"*.bin\" "
+         "obligatorio=\"no\" ayuda=\"la imagen binaria que se carga en la Flash; "
+         "sin ella el nucleo se aparca en wfe\"/>\n";
+    for (const OpcionCli& o : OPCIONES) {
+        const bool es_mcu = std::string(o.nombre) == "--mcu";
+        x += std::string("  <opcion nombre=\"") + o.nombre + "\" forma=\"" + o.forma + "\"";
+        if (*o.tipo)     x += std::string(" tipo=\"") + o.tipo + "\"";
+        const std::string om = o.omision;
+        if (!om.empty()) x += " omision=\"" + xml_escapa(om) + "\"";
+        if (*o.unidad)   x += std::string(" unidad=\"") + o.unidad + "\"";
+        if (*o.grupo)    x += std::string(" grupo=\"") + o.grupo + "\"";
+        if (o.repetible) x += " repetible=\"si\"";
+        if (!o.con_gui)  x += " con_gui=\"no\"";
+        if (*o.ejemplo)  x += " ejemplo=\"" + xml_escapa(o.ejemplo) + "\"";
+        x += " ayuda=\"" + xml_escapa(o.ayuda) + "\"";
+        if (!es_mcu) { x += "/>\n"; continue; }
+        x += ">\n";
+        for (const McuCaps* m : CATALOGO_MCU)
+            x += std::string("    <valor>") + xml_escapa(m->nombre) + "</valor>\n";
+        x += "  </opcion>\n";
+    }
+    x += "</argumentos>\n";
+    std::fputs(x.c_str(), stdout);
+    return 0;
+}
+
+// `--mcus`: los MCUs de la placa o del sistema, como los declara el XML -con
+// --mcu encima, como al montarla-, para que el dialogo de lanzamiento de
+// mcu-sim-gui ponga una fila por chip con su firmware (su plan §42). Lee y no
+// construye nada:
+//
+//   <mcus placa="placas/x.xml">
+//     <mcu id="N/u0" tipo="STM32F446RE" firmware="verif/fw/x/x.bin"/>
+//   </mcus>
+//
+// Un id vacio es el chip que pone --mcu en una placa sin <mcu>.
+static int lista_mcus() {
+    using stm32::xml_escapa;
+    Netlist placa;
+    std::string nombre;
+    const std::string e = placa_o_sistema_desde_fichero(placa, g_placa, &nombre);
+    if (!e.empty()) {
+        std::fprintf(stderr, "error de netlist: %s\n", e.c_str());
+        return 1;
+    }
+    std::vector<DeclMcu> decls = placa.mcus();
+    if (!g_tipo_mcu.empty() && decls.empty() && !placa.es_sistema()) {
+        DeclMcu m;
+        m.tipo = g_tipo_mcu;
+        decls.push_back(m);
+    } else if (!g_tipo_mcu.empty() && decls.size() == 1) {
+        decls[0].tipo = g_tipo_mcu;
+    }
+    std::string x = "<mcus placa=\"" + xml_escapa(g_placa) + "\">\n";
+    for (const DeclMcu& m : decls)
+        x += "  <mcu id=\"" + xml_escapa(m.id) + "\" tipo=\"" + xml_escapa(mayus(m.tipo)) +
+             "\" firmware=\"" + xml_escapa(m.firmware) + "\"/>\n";
+    x += "</mcus>\n";
+    std::fputs(x.c_str(), stdout);
+    return 0;
+}
 
 int sc_main(int argc, char** argv) {
     sc_report_handler::set_actions("rcc",   SC_WARNING, SC_DO_NOTHING);
@@ -714,6 +1588,34 @@ int sc_main(int argc, char** argv) {
         else if (a == "--espera-terminal") g_espera_terminal = true;
         else if (a == "--ondas") g_ondas = true;
         else if (a == "--traza-gdb") g_traza_gdb = true;
+        else if (a == "--argumentos") return vuelca_argumentos();
+        else if (a == "--mcus") g_lista_mcus = true;
+        // `--firmware ID=FICHERO`, `--firmware=ID=FICHERO`; el id es el del
+        // <mcu> -`u0`, o `N/u0` en un sistema- y lo demas, el fichero
+        else if (a == "--firmware" || a.rfind("--firmware=", 0) == 0) {
+            std::string v;
+            if (a.rfind("--firmware=", 0) == 0) v = a.substr(11);
+            else if (i + 1 < argc && argv[i + 1][0] != '-') v = argv[++i];
+            const size_t igual = v.find('=');
+            if (igual == std::string::npos || igual == 0 || igual + 1 == v.size()) {
+                std::fprintf(stderr, "--firmware: hace falta ID=FICHERO, como en "
+                             "--firmware N/u0=mi_programa.bin\n");
+                return 1;
+            }
+            g_firmwares.emplace_back(v.substr(0, igual), v.substr(igual + 1));
+        }
+        // `--sin-firmware`, todos los chips; `--sin-firmware=ID`, ese. Solo con
+        // igual: detras puede ir la placa, que no es un id
+        else if (a == "--sin-firmware") g_sin_firmware_todos = true;
+        else if (a.rfind("--sin-firmware=", 0) == 0) {
+            const std::string id = a.substr(15);
+            if (id.empty()) {
+                std::fprintf(stderr, "--sin-firmware=: falta el id del MCU; sin "
+                             "igual es para todos\n");
+                return 1;
+            }
+            g_sin_firmware.push_back(id);
+        }
         else if (a == "--mcu" && i + 1 < argc) g_tipo_mcu = mayus(argv[++i]);
         else if (a.rfind("--mcu=", 0) == 0)    g_tipo_mcu = mayus(a.substr(6));
         else if (a == "--tiempo-real") g_tiempo_real = 1.0;
@@ -723,7 +1625,7 @@ int sc_main(int argc, char** argv) {
         // muchos chips que haya. Como argumento posicional va detrás del
         // firmware, y con varios MCUs el firmware ya no se pone ahí; de ahí
         // esta forma con nombre, que es la única utilizable entonces.
-        else if (a.rfind("--ms=", 0) == 0) g_ms = std::atof(a.c_str() + 5);
+        else if (a.rfind("--ms=", 0) == 0) { g_ms = std::atof(a.c_str() + 5); g_ms_dado = true; }
         else if (a == "--gdb")     g_gdb_modo = "pines";
         else if (a == "--gdb-dap") g_gdb_modo = "dap";
         else if (a.rfind("--port=", 0) == 0) {
@@ -828,8 +1730,15 @@ int sc_main(int argc, char** argv) {
                 "     sim placa.xml --port=3333  puerto TCP del stub\n"
                 "     sim placa.xml --traza-gdb  imprime cada paquete RSP recibido\n"
                 "     sim placa.xml --gui[=host:puerto]  habla con mcu-sim-gui\n"
-                "                                (por omision localhost:%u; sin\n"
-                "                                el argumento nada cambia)\n"
+                "                                (por omision localhost:%u): le\n"
+                "                                manda la placa y no simula hasta\n"
+                "                                que la ventana diga 'arranca'.\n"
+                "                                El ritmo, la pausa y parar los\n"
+                "                                lleva la ventana; sin [ms] en la\n"
+                "                                linea de ordenes no hay fin.\n"
+                "                                Con --valida, solo le manda la\n"
+                "                                placa. Sin la GUI escuchando, sale\n"
+                "                                con codigo 2\n"
                 "     sim placa.xml --tiempo-real  frena la simulacion al reloj de\n"
                 "                                pared (=0.5 a mitad de velocidad)\n"
                 "     sim placa.xml --serie ID=DESTINO  a donde da el PuenteSerie ID:\n"
@@ -841,10 +1750,23 @@ int sc_main(int argc, char** argv) {
                 "                                haya un terminal en cada puente\n"
                 "                                serie por red: asi se ve el saludo\n"
                 "                                (doc/puente_serie.md)\n"
-                "     sim placa.xml --mcu TIPO   el MCU implicito, cuando el XML no\n"
-                "                                declara ninguno (por omision %s)\n"
+                "     sim placa.xml --mcu TIPO   el MCU de la placa: lo pone si el XML\n"
+                "                                no declara ninguno y manda sobre el\n"
+                "                                tipo si declara uno. Sin <mcu> ni\n"
+                "                                --mcu la placa va sin MCU\n"
+                "     sim placa.xml --firmware ID=FICHERO  el firmware del MCU ID\n"
+                "                                (u0, o N/u0 en un sistema), tambien\n"
+                "                                con varios MCUs; manda sobre su\n"
+                "                                firmware= del XML. Una vez por chip\n"
+                "     sim placa.xml --sin-firmware[=ID]  ese MCU -sin ID, todos- sin\n"
+                "                                firmware, aunque el XML diga uno: el\n"
+                "                                nucleo se aparca en wfe\n"
+                "     sim placa.xml --mcus       la lista de sus MCUs en XML -id, tipo\n"
+                "                                y firmware-, para mcu-sim-gui\n"
                 "     sim placa.xml --ms=2       tiempo simulado (global: hay un\n"
                 "                                solo reloj por muchos chips)\n"
+                "     sim --argumentos           estas opciones en XML, para que\n"
+                "                                mcu-sim-gui construya su dialogo\n"
                 "     sim --help COMPONENTE      que hace ese componente y que\n"
                 "                                atributos admite en el XML\n"
                 "     sim --licencia             licencia de mcu-sim (AGPLv3), donde\n"
@@ -858,11 +1780,17 @@ int sc_main(int argc, char** argv) {
                 "sale al acabar la ventana de --ms.\n"
                 "\n"
                 "La placa se describe en XML: MCUs, nodos, componentes y conexiones.\n"
+                "Varias placas enchufadas entre si son un <sistema>: cada <placa>\n"
+                "con su id -de su fichero o escrita dentro-, y lo que las une con\n"
+                "<acopla a=\"A/CN9\" b=\"B/J9\"/> (dos Conector, pin a pin, o en\n"
+                "espejo) y <hilo a=\"A/CN9.2\" b=\"B/J9.1\"/>. Todo lo de la placa\n"
+                "A se nombra A/...: A/LD2, A/u0.PA5. Vease doc/parts.md, 2.5.\n"
                 "\n"
-                "Con un solo MCU -declarado o implicito- estos argumentos valen y\n"
+                "Con un solo MCU (de <mcu> o de --mcu) estos argumentos valen y\n"
                 "mandan sobre lo que diga el XML. Con dos o mas, cada chip lleva lo\n"
                 "suyo en su <mcu ... firmware= depuracion= puerto_gdb=> y un\n"
-                "argumento global se rechaza, porque ya no dice a cual.\n"
+                "argumento global se rechaza, porque ya no dice a cual; el firmware\n"
+                "se puede cambiar chip a chip con --firmware y --sin-firmware.\n"
                 "\n"
                 "Los MCUs que se saben construir son:\n  %s\n"
                 "\n"
@@ -872,7 +1800,7 @@ int sc_main(int argc, char** argv) {
                 "LED y que atributos admite. El catalogo completo, con tablas y\n"
                 "ejemplos, esta en doc/parts.md.\n",
                 unsigned(mcusim::proto::PUERTO_OMISION),
-                TIPO_MCU, tipos_como_texto().c_str(),
+                tipos_como_texto().c_str(),
                 Fabrica::tipos_como_texto().c_str());
             // Si alguna pieza se ha registrado sin explicarse, que se sepa
             // aquí y no el día que alguien la busque. No debería pasar -la
@@ -891,6 +1819,15 @@ int sc_main(int argc, char** argv) {
                     s.c_str());
             }
             return 0;
+        } else if (a.size() > 1 && a[0] == '-') {
+            // Una opcion que no existe NO es un posicional. Antes de la fase 7
+            // de mcu-sim-gui `--no-existe` se tomaba en silencio por el nombre
+            // del firmware -y con la placa declarando el suyo, ni se notaba-;
+            // con un dialogo donde se escriben argumentos a mano, una errata
+            // tiene que decirse. Lo encontro `make gui-argumentos`.
+            std::fprintf(stderr, "opcion desconocida: '%s' (sim --help las "
+                                 "enumera)\n", a.c_str());
+            return 1;
         } else libres.push_back(a);
     }
     if (libres.empty()) {
@@ -898,18 +1835,15 @@ int sc_main(int argc, char** argv) {
         return 1;
     }
     g_placa = libres[0];
+    if (g_lista_mcus) return lista_mcus();
     if (libres.size() > 1) g_img = libres[1];
-    if (libres.size() > 2) g_ms  = std::atof(libres[2].c_str());
+    if (libres.size() > 2) { g_ms = std::atof(libres[2].c_str()); g_ms_dado = true; }
 
-    // --- La ventana, fase 0 -------------------------------------------------
-    // Se dice a donde apuntaria y se avisa si no es la propia maquina. Todavia
-    // no se abre nada: el socket es la fase 3 del plan, y hasta entonces esto
-    // tiene que ser exactamente el programa de siempre mas una linea impresa.
+    // --- La ventana ----------------------------------------------------------
+    // Se avisa ANTES de conectarse si no es la propia maquina: el enlace no
+    // esta autenticado. Se permite -hace falta para una GUI en otra maquina-,
+    // pero no en silencio (doc/protocolo.md §1).
     if (g_gui_pedida) {
-        std::printf("gui: hablaria con mcu-sim-gui en %s "
-                    "(protocolo v%u) -- fase 0: todavia no se conecta\n",
-                    stm32::gui::como_texto(g_gui).c_str(),
-                    unsigned(mcusim::proto::VERSION_PROTO));
         if (!stm32::gui::es_bucle_local(g_gui.host))
             std::fprintf(stderr,
                 "AVISO: '%s' no es la propia maquina. Este enlace NO esta\n"
@@ -919,7 +1853,47 @@ int sc_main(int argc, char** argv) {
                 "       mismo.\n", g_gui.host.c_str());
     }
 
+    // EL RELOJ DE WINDOWS, A 1 ms. Sin pedirlo, Windows no despierta a un
+    // proceso dormido antes de su tic, unos 15,6 ms, y el freno de tiempo real
+    // duerme en rodajas de 1 ms (`espera`): cada `sleep_for` se pasaba de
+    // largo hasta quince veces. El ritmo medio lo salvaba el ancla, pero cada
+    // paquete de GDB -que el stub atiende entre rodaja y rodaja- esperaba esos
+    // 15 ms, y un IDE que refresca sus vistas con cien paquetes por paso
+    // tardaba segundos en cada uno. Solo con freno -o con la ventana, que
+    // pone el ritmo-; el sistema lo devuelve al acabar el proceso.
+#if defined(_WIN32)
+    if (g_tiempo_real > 0.0 || g_gui_pedida) ::timeBeginPeriod(1);
+#endif
     Sim s("sim");
+    stm32::gui::ClienteGui cliente;
+    std::unique_ptr<stm32::gui::CanalGui> canal;
+    if (g_gui_pedida) {
+        const int r = saluda_gui(s, cliente, canal, argc, argv);
+        if (r >= 0) return r;
+    }
     sc_start();
+    // Se acabo la ventana: se le dice a la GUI, con lo que quedara pendiente
+    // -avisos, instantaneas, un T_ESTADO final- y el instante en que se acabo.
+    // Si la GUI ya no esta, no pasa nada. Desde la fase 6, tambien puede ser
+    // que la ventana dijera T_PARA en marcha: entonces el resumen no lo ha
+    // dicho `run()`, y el motivo es M_PARA.
+    if (g_enlace && g_enlace->parada()) {
+        std::printf("gui: la ventana pidio parar en t = %.3f ms\n",
+                    sc_time_stamp().to_seconds() * 1e3);
+        s.informe();
+        g_enlace->termina(mcusim::proto::M_PARA, 0);
+        g_enlace = nullptr;
+    } else if (g_enlace && g_sin_fin) {
+        // Sin fin solo se acaba asi: la ventana se fue y el enlace paro
+        s.informe();
+        g_enlace->termina(mcusim::proto::M_VENTANA, 0);
+        g_enlace = nullptr;
+    } else if (g_enlace) {
+        g_enlace->termina(mcusim::proto::M_VENTANA, 0);
+        g_enlace = nullptr;
+    } else if (g_cliente) {
+        g_cliente->fin(mcusim::proto::M_VENTANA, 0, ahora_ns());
+        g_cliente = nullptr;
+    }
     return 0;
 }

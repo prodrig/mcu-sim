@@ -76,12 +76,20 @@ SC_MODULE(PuenteSerie), public ExtPartBase, public LineaSerie {
         double         r_out        = 50.0;
     };
 
+    // `vccio`, si está, es la alimentación de sus patillas -el VCCIO de un
+    // FT232R-: el nivel alto de lo que gobierna y el umbral de lo que lee son
+    // los de ese nodo, y lo siguen si cambia. Sin ella, `c.vdd`.
     PuenteSerie(sc_core::sc_module_name nm, analog_net_if* rx, analog_net_if* tx,
                 analog_net_if* cts, analog_net_if* rts, analog_net_if* dtr,
-                const Config& c)
+                const Config& c, analog_net_if* vccio = nullptr)
         : sc_core::sc_module(nm), ExtPartBase("PuenteSerie", nm), cfg_(c) {
+        // Con vccio, sus entradas -rx y cts- llevan el pull-up de 200 kohm a
+        // VCCIO del FT232R [DS FT232R, nota a la tabla de patillas]: una
+        // entrada al aire no flota, se queda alta
+        if (rx && vccio) { id_pu_rx_ = add_pin("rx", *rx, "vcp_pullup"); rx_pu_ = rx; }
+        if (cts && vccio) { id_pu_cts_ = add_pin("cts", *cts, "vcp_pullup"); cts_pu_ = cts; }
         if (rx) {
-            add_ref("rx", *rx);
+            if (!vccio) add_ref("rx", *rx);
             rx_.reset(new ReceptorUart(*rx, c.baudios, c.vdd));
             rx_->set_formato(c.formato);
         }
@@ -90,9 +98,10 @@ SC_MODULE(PuenteSerie), public ExtPartBase, public LineaSerie {
             tx_.reset(new EmisorUart(*tx, id, c.baudios, c.vdd, c.r_out));
             tx_->set_formato(c.formato);
         }
-        if (cts) { add_ref("cts", *cts); cts_ = cts; }
+        if (cts) { if (!vccio) add_ref("cts", *cts); cts_ = cts; }
         if (rts) { id_rts_ = add_pin("rts", *rts, "vcp_rts"); rts_ = rts; }
         if (dtr) { id_dtr_ = add_pin("dtr", *dtr, "vcp_dtr"); dtr_ = dtr; }
+        if (vccio) { add_ref("vccio", *vccio); vccio_ = vccio; }
         // El canal, según el destino.
         switch (c.destino.modo) {
         case serie::Modo::rfc2217:
@@ -130,6 +139,9 @@ SC_MODULE(PuenteSerie), public ExtPartBase, public LineaSerie {
         SC_THREAD(hilo_guion);
         SC_THREAD(hilo_canal);
         SC_THREAD(hilo_modem);
+        // Solo con vccio: sin ella no hay nada que seguir, y un proceso de
+        // mas en las placas de siempre moveria su tiempo de anfitrion
+        if (vccio_) SC_THREAD(hilo_vccio);
     }
 
     // ¿El canal está listo? Si no, `error_canal()` dice por qué, y `sim` no
@@ -289,6 +301,12 @@ private:
         if (tx_) tx_->reposo();
         conduce_rts();
         conduce_dtr();
+        conduce_pullups();
+    }
+    void conduce_pullups() {
+        if (!conectada_) return;
+        if (rx_pu_)  rx_pu_->set_drive(id_pu_rx_, float(cfg_.vdd), float(R_PULLUP));
+        if (cts_pu_) cts_pu_->set_drive(id_pu_cts_, float(cfg_.vdd), float(R_PULLUP));
     }
     void conduce_rts() {
         if (rts_ && conectada_)
@@ -397,6 +415,24 @@ private:
     // ---- Las líneas de módem, hacia el terminal (D5) ------------------------
     // Solo con RFC 2217 y con `cts`: cada vez que el MCU mueve su RTS, el canal
     // mira si el CTS que ve el anfitrión ha cambiado y, si sí, se lo dice.
+    // ---- La alimentación de las patillas (vccio) ------------------------
+    void hilo_vccio() {
+        bool primera = true;
+        for (;;) {
+            const double v = vccio_->floating() ? 0.0 : double(vccio_->voltage());
+            if (v != cfg_.vdd || primera) {
+                primera = false;
+                cfg_.vdd = v;
+                if (rx_) rx_->set_vdd(v);
+                if (tx_ && conectada_) tx_->set_vdd(v);
+                conduce_rts();
+                conduce_dtr();
+                conduce_pullups();
+            }
+            wait(vccio_->value_changed_event());
+        }
+    }
+
     void hilo_modem() {
         if (!rfc_ || !cts_) return;
         for (;;) {
@@ -455,6 +491,12 @@ private:
     CanalRfc2217*                 rfc_ = nullptr;
     std::string                   error_canal_;
     analog_net_if* cts_ = nullptr;
+    analog_net_if* vccio_ = nullptr;
+    // Los pull-ups de las entradas, con vccio
+    static constexpr double R_PULLUP = 200e3;
+    analog_net_if* rx_pu_ = nullptr;
+    analog_net_if* cts_pu_ = nullptr;
+    int id_pu_rx_ = -1, id_pu_cts_ = -1;
     analog_net_if* rts_ = nullptr;
     analog_net_if* dtr_ = nullptr;
     int  id_rts_ = -1, id_dtr_ = -1;

@@ -29,6 +29,9 @@
      El puerto se cambia sin tocar el fichero: --serie VCP=tcp:4000.
      ========================================================================= -->
 <placa nombre="vcp-tcp">
+  <!-- El chip, dicho aqui y no supuesto: sin <mcu> (ni --mcu) la placa iria
+       sin MCU. `--mcu OTRO` manda sobre este tipo sin tocar el fichero. -->
+  <mcu tipo="STM32F407VG" id="u0"/>
   <componente tipo="PuenteSerie" id="VCP" host="tcp:3355"
               baudios="115200" formato="8N1" flujo="rtscts" muestra="si">
     <pin nombre="rx"  nodo="PA2"/>   <!-- USART2_TX -->

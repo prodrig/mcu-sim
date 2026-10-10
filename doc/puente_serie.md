@@ -29,29 +29,31 @@ basura y levanta sus errores, igual que en el laboratorio.
 
 ### 2.1 Con el ejemplo, para comprobar el montaje
 
-Los paquetes de `mcu-sim` (`doc/ejecutables.md`) traen una carpeta
-`ejemplos/` con dos placas y un firmware de prueba, `vcp_demo.bin`, que saluda
-al arrancar y **devuelve cada byte que recibe**:
+Los paquetes de `mcu-sim` (`doc/ejecutables.md`) traen las placas en
+`placas/` y los firmwares en `verif/fw/`, como el repositorio. Para esto hacen
+falta dos placas y un firmware de prueba, `vcp_demo.bin`, que saluda al
+arrancar y **devuelve cada byte que recibe**:
 
 | Fichero | Qué es |
 | :--- | :--- |
-| `ejemplos/nucleo_f446re_vcp.xml` | Una Nucleo-F446RE con el VCP del ST-LINK en PA2/PA3. **Empieza por esta** |
-| `ejemplos/vcp_rfc2217.xml` | Un F407 con el puente en la USART2, más RTS/CTS y DTR |
-| `ejemplos/vcp_demo.bin` | El firmware de prueba (vale para las dos placas) |
+| `placas/nucleo_f446re_vcp.xml` | Una Nucleo-F446RE con el VCP del ST-LINK en PA2/PA3. **Empieza por esta** |
+| `placas/nucleo_f446re.xml` | La Nucleo-F446RE de siempre, que también lleva ya el VCP del ST-LINK, el mismo, con sus LEDs, sus pulsadores y sus conectores |
+| `placas/vcp_rfc2217.xml` | Un F407 con el puente en la USART2, más RTS/CTS y DTR |
+| `verif/fw/vcp_demo/vcp_demo.bin` | El firmware de prueba (vale para las dos placas) |
 
 Desde la carpeta donde descomprimiste el paquete:
 
 ```bash
 # Linux y macOS
-./mcu-sim ejemplos/nucleo_f446re_vcp.xml ejemplos/vcp_demo.bin --tiempo-real --espera-terminal
+./mcu-sim placas/nucleo_f446re_vcp.xml verif/fw/vcp_demo/vcp_demo.bin --tiempo-real --espera-terminal
 
 # Windows (cmd o PowerShell)
-mcu-sim.exe ejemplos\nucleo_f446re_vcp.xml ejemplos\vcp_demo.bin --tiempo-real --espera-terminal
+mcu-sim.exe placas\nucleo_f446re_vcp.xml verif\fw\vcp_demo\vcp_demo.bin --tiempo-real --espera-terminal
 ```
 
-(Si trabajas con el repositorio, las mismas placas están en `src/placas/` y el
-firmware en `src/verif/fw/vcp_demo/`; se lanza desde `src` con
-`./build/mcu-sim`.)
+(Si trabajas con el repositorio, es lo mismo desde `src/`, con
+`./build/mcu-sim`; o desde la carpeta de compilación, si compilas con `B=`,
+que lleva las mismas carpetas.)
 
 Tiene que decir:
 
@@ -90,7 +92,7 @@ está del lado del terminal.
 Igual, cambiando el `.bin`:
 
 ```bash
-./mcu-sim ejemplos/nucleo_f446re_vcp.xml MiProyecto.bin --tiempo-real --espera-terminal
+./mcu-sim placas/nucleo_f446re_vcp.xml MiProyecto.bin --tiempo-real --espera-terminal
 ```
 
 * **El `.bin`**: en STM32CubeIDE, *Project → Properties → C/C++ Build →
@@ -139,7 +141,7 @@ sin editarla.
 Arranca `mcu-sim` en crudo:
 
 ```bash
-./mcu-sim ejemplos/nucleo_f446re_vcp.xml ejemplos/vcp_demo.bin --tiempo-real --espera-terminal --serie VCP=tcp:3355
+./mcu-sim placas/nucleo_f446re_vcp.xml verif/fw/vcp_demo/vcp_demo.bin --tiempo-real --espera-terminal --serie VCP=tcp:3355
 ```
 
 **CoolTerm** (Windows, macOS y Linux; gratuito, <https://freeware.the-meiers.org/>).
@@ -213,7 +215,7 @@ herramienta de una asignatura.
 1. `mcu-sim` **en crudo** y con `--espera-terminal`:
 
    ```bash
-   ./mcu-sim ejemplos/nucleo_f446re_vcp.xml ejemplos/vcp_demo.bin --tiempo-real --espera-terminal --serie VCP=tcp:3355
+   ./mcu-sim placas/nucleo_f446re_vcp.xml verif/fw/vcp_demo/vcp_demo.bin --tiempo-real --espera-terminal --serie VCP=tcp:3355
    ```
 
 2. En otra ventana, el puerto:

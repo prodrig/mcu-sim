@@ -56,6 +56,14 @@ class AnalogNet : public sc_core::sc_prim_channel, public analog_net_if {
 public:
     explicit AnalogNet(const char* nm) : sc_core::sc_prim_channel(nm) {}
 
+    // El nombre de ESQUEMÁTICO, cuando no se puede usar como nombre de
+    // SystemC: el pin 17 de un conector se llama `CN7.17`, y el punto es el
+    // separador de jerarquía (SystemC lo cambiaría por `_` con un aviso). Quien
+    // crea el nodo -el `NodeMap` de la placa- lo crea con el nombre saneado y
+    // apunta aquí el de verdad, que es el que se vuelca y el que se lee en los
+    // mensajes. Vacío: el nombre es el de SystemC.
+    std::string nombre_esq;
+
     int register_driver(const char* /*name*/) override {
         drv_.push_back(AnalogDrive{});
         return static_cast<int>(drv_.size()) - 1;

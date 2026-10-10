@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     BARRA DE 8 LEDS AZULES DE ANODO COMUN, con resistencias de 2 kohm
+
+     Como los modulos DM41A08 de 3-24 V: ocho LEDs en fila, cada uno con su
+     resistencia limitadora de 2 kohm, y un conector de 9 pines a 2,54 mm,
+     P1, con el nombre de cada pin serigrafiado al lado, de izquierda a
+     derecha:
+
+         P1.COM         el anodo COMUN de los ocho (pin 1)
+         P1.D1 .. D8    los LEDs D1 a D8, a traves de su resistencia (2 a 9)
+
+     Los pines tienen NOMBRE (`nombres=` del Conector), y por el se llaman:
+     P1.COM, P1.D1... `P1.1` no es un pin de la barra, sino el pad PB1.
+
+     EL COMUN NO VA POR DENTRO A NINGUN SITIO: sale por P1.COM y lo conecta
+     quien monta la barra -a VDD, a masa o al pin de otra placa-. Para eso
+     cada LED lleva LAS DOS PATILLAS A LA VISTA, el anodo y el catodo en sus
+     nodos, sin a_vss ni vdd (`./build/mcu-sim --help Led`). Se usa con
+     el comun (P1.COM) a un nivel ALTO -VDD, 5 V o un pin a 1- y cada
+     LED luce con SU pin BAJO. Con el comun al aire no luce ninguno: no hay
+     por donde cerrar el circuito.
+
+     LA RESISTENCIA DE 2 kohm es la `r` de cada LED: la pieza Led es el diodo
+     con su resistencia en serie. Va en el catodo de cada LED, el lado del
+     pin, como en el modulo; electricamente da igual en que lado vaya.
+     vf = 3.0 (azul).
+
+     UN LED AZUL CON 3,3 V: vf = 3,0, asi que con el comun a 3,3 V y el pin a
+     0 quedan 0,3 V para la resistencia, unos 0,15 mA: luce, pero poco, como en
+     la barra de verdad. Con el comun a 5 V pasan 1 mA. Lo que el modelo NO
+     dice es que, con el comun a 5 V y un LED en corte, el pin del MCU no se va
+     a 5 V: un LED apagado es alta impedancia (`./build/mcu-sim --help Led`).
+
+     Sola, la placa no hace nada -no lleva chip-; se valida igual:
+
+         ./build/mcu-sim placas/barra8_anodo_comun_azul.xml --valida
+
+     Conectada con hilos a los morpho de una Nucleo, con el comun a VDD, es
+     placas/nucleo_f446re_barra8ac_azul.xml.
+     ========================================================================= -->
+<placa nombre="barra8-anodo-comun-azul" ilustracion="barra8_azul.svg">
+  <componente tipo="Conector" id="P1" filas="1" columnas="9"
+              nombres="COM D1 D2 D3 D4 D5 D6 D7 D8"/>
+
+  <!-- El comun: los ocho LEDs lo conducen a la vez, y es a proposito -->
+  <nodo id="P1.COM" bus="si"/>
+
+  <componente tipo="Led" id="D1" vf="3.0" r="2000">
+    <pin nombre="anodo" nodo="P1.COM"/>
+    <pin nombre="catodo" nodo="P1.D1"/>
+  </componente>
+  <componente tipo="Led" id="D2" vf="3.0" r="2000">
+    <pin nombre="anodo" nodo="P1.COM"/>
+    <pin nombre="catodo" nodo="P1.D2"/>
+  </componente>
+  <componente tipo="Led" id="D3" vf="3.0" r="2000">
+    <pin nombre="anodo" nodo="P1.COM"/>
+    <pin nombre="catodo" nodo="P1.D3"/>
+  </componente>
+  <componente tipo="Led" id="D4" vf="3.0" r="2000">
+    <pin nombre="anodo" nodo="P1.COM"/>
+    <pin nombre="catodo" nodo="P1.D4"/>
+  </componente>
+  <componente tipo="Led" id="D5" vf="3.0" r="2000">
+    <pin nombre="anodo" nodo="P1.COM"/>
+    <pin nombre="catodo" nodo="P1.D5"/>
+  </componente>
+  <componente tipo="Led" id="D6" vf="3.0" r="2000">
+    <pin nombre="anodo" nodo="P1.COM"/>
+    <pin nombre="catodo" nodo="P1.D6"/>
+  </componente>
+  <componente tipo="Led" id="D7" vf="3.0" r="2000">
+    <pin nombre="anodo" nodo="P1.COM"/>
+    <pin nombre="catodo" nodo="P1.D7"/>
+  </componente>
+  <componente tipo="Led" id="D8" vf="3.0" r="2000">
+    <pin nombre="anodo" nodo="P1.COM"/>
+    <pin nombre="catodo" nodo="P1.D8"/>
+  </componente>
+</placa>

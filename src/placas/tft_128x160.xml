@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     PANTALLA TFT DE 1,8" Y 128x160 CON SU ST7735S, por SPI de cuatro hilos,
+     sin MCU
+
+     El modulo rojo de ocho pines (sin el zocalo de tarjeta SD de algunos):
+     el vidrio en el centro y, a la derecha, el conector de 8 pines acodados.
+     De arriba abajo:
+
+         P1.VCC     la alimentacion del modulo, 3,3 a 5 V: va al regulador
+                    de 3,3 V del chip
+         P1.GND     la masa
+         P1.CS      CSX, la seleccion del chip: baja mientras se le habla
+         P1.RESET   RESX: un pulso bajo reinicia el chip
+         P1.AD      D/CX, serigrafiado A/D (en otros modulos A0, DC o RS):
+                    bajo, el byte es una orden; alto, un dato. Se llama AD y
+                    no A/D porque la barra separa, en un sistema, la placa del
+                    nombre (N/CN7.5)
+         P1.SDA     el dato (MOSI), que el chip tambien pone al contestar
+         P1.SCK     el reloj
+         P1.LED     la retroiluminacion: a 3,3 V, la luz entera
+
+     EL CHIP, TFT: un Tft128x160 (`./build/mcu-sim --help Tft128x160`). Lo
+     que se ve es lo que ensenaria la pantalla de verdad: blanca hasta que el
+     firmware la despierta (SLPOUT) y la enciende (DISPON); despues, su
+     memoria -ruido, si nadie la borra-; y negra sin luz en LED. En la
+     ventana, la imagen se pinta sobre el vidrio del dibujo.
+
+     Los pines del modulo son de 3,3 V: este no lleva adaptadores de nivel, y
+     5 V en CS, SDA o SCK se avisan.
+
+     Sola, la placa no hace nada -no lleva chip-; se valida igual:
+
+         ./build/mcu-sim placas/tft_128x160.xml --valida
+
+     Cableada a una Nucleo, con un firmware que dibuja, es
+     placas/nucleo_f446re_tft.xml.
+
+     EN OTRA POSTURA: el dibujo es el del modulo apaisado, con el conector a
+     la derecha. Montada de otra manera, giro= en el sistema -o en esta
+     <placa>- lo gira en el sentido de las agujas del reloj, y la imagen de
+     la pantalla gira con el: giro="90", de pie con el conector abajo;
+     giro="180", apaisada con el conector a la izquierda; giro="270", de pie
+     con el conector arriba. Para ver derecho lo que se dibuja, MADCTL 0x60,
+     0x00, 0xA0 y 0xC0 (doc/parts.md, Tft128x160):
+
+         <placa id="T" fichero="tft_128x160.xml" giro="90"/>
+     ========================================================================= -->
+<placa nombre="tft-128x160">
+  <!-- El conector de ocho pines, vertical, con VCC arriba -->
+  <componente tipo="Conector" id="P1" filas="8" columnas="1"
+              nombres="VCC GND CS RESET AD SDA SCK LED"/>
+
+  <!-- La masa la usan el chip y la retroiluminacion -->
+  <nodo id="P1.GND" bus="si"/>
+
+  <componente tipo="Tft128x160" id="TFT">
+    <pin nombre="vcc"   nodo="P1.VCC"/>
+    <pin nombre="gnd"   nodo="P1.GND"/>
+    <pin nombre="cs"    nodo="P1.CS"/>
+    <pin nombre="reset" nodo="P1.RESET"/>
+    <pin nombre="ad"    nodo="P1.AD"/>
+    <pin nombre="sda"   nodo="P1.SDA"/>
+    <pin nombre="sck"   nodo="P1.SCK"/>
+    <pin nombre="led"   nodo="P1.LED"/>
+  </componente>
+</placa>

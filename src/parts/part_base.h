@@ -43,6 +43,7 @@
 
 #include <systemc>
 #include <algorithm>
+#include <cstdint>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -66,6 +67,79 @@ struct Terminal {
     std::string      nodo;        // nombre del nodo: "PA5", "vdd", "can_bus"
     std::vector<int> ids;         // drivers de esta pieza sobre ese nodo
     bool             pasivo = false;   // true: solo escucha, no conduce
+    // true: es la salida de una FUENTE (Fuente, Gnd). Un nodo con una fuente
+    // y varias cargas no es un cortocircuito sino un raíl, y la validación
+    // eléctrica lo distingue por esto; dos fuentes en el mismo nodo, sí lo son.
+    bool             riel = false;
+    // true: es una patilla de CONECTOR. No conduce ni escucha: solo dice que
+    // ahí hay un hilo que sale de la placa. Un pin de conector al aire no es un
+    // nodo flotante que avisar -es lo normal: casi ningún montaje usa los 38
+    // pines de un morpho-, y la validación eléctrica lo sabe por esto.
+    bool             paso = false;
+};
+
+// ---------------------------------------------------------------------------
+// LO QUE UNA PIEZA DEJA VER Y TOCAR desde fuera del modelo (mcu-sim-gui, plan
+// de dos procesos, fase 1).
+//
+// Un OBSERVABLE es una magnitud que la pieza publica por su cuenta: el estado
+// de un LED, la corriente que lo atraviesa, si un pulsador está pulsado. Un
+// MANDO es algo que se le puede hacer: pulsar el pulsador. Lo que NO es ni lo
+// uno ni lo otro es la tensión de un pin cualquiera o un registro del MCU: la
+// pantalla ve lo que cada pieza DECLARA, y nada más (`doc/analisis_gui.md`
+// §2.3). Por eso esto vive en la pieza y no en un mapa aparte: un mapa aparte
+// se queda viejo el día que alguien añade una pieza y no se acuerda de él.
+//
+// Las cadenas son literales con la vida del programa: el catálogo las copia a
+// un XML y no guarda punteros a nada que se pueda ir.
+//
+// `min` y `max` son la ESCALA que la pieza sugiere para pintarlo; iguales
+// quieren decir «sin escala». En un mando, en cambio, son el RANGO VÁLIDO: un
+// valor de fuera se recorta y se avisa (`RES_RANGO`).
+//
+// `interesante` es lo que la pieza sugiere pintar, no una orden: un LED sugiere
+// `encendido` y no `corriente`. Quien decide es la pantalla.
+//
+// `alarma` dice que el observable, de 0 a 1, es un AVISO: cuando vale 1 algo va
+// mal -la sobrecorriente de una fuente- y la pantalla debe hacerlo notar, no
+// pintarlo como un LED más. Va al catálogo como `alarma="si"` solo cuando es
+// cierto, así que los observables de siempre salen exactamente igual.
+// ---------------------------------------------------------------------------
+struct Observable {
+    const char* nombre;      // "encendido", "corriente", "pulsado"
+    const char* unidad;      // "", "mA"
+    float       min, max;    // escala para pintar; iguales = sin escala
+    bool        interesante; // lo que la pieza SUGIERE pintar
+    bool        alarma = false;  // 0/1 que, a 1, es un aviso
+};
+// Los tipos dicen a la pantalla QUÉ CONTROL poner, sin que sepa de qué pieza
+// es: un botón (el máximo mientras está hundido), una casilla (máximo o
+// mínimo), un deslizador (cualquier valor del rango) o, para `Discreto`, una
+// lista con los ENTEROS del rango -un desplegable-. Un valor de un mando
+// discreto que no sea entero lo redondea la pieza.
+struct Mando {
+    const char* nombre;      // "pulsar"
+    enum Tipo { Boton, Interruptor, Continuo, Discreto } tipo;
+    float       min, max;    // rango VÁLIDO del valor
+};
+inline const char* nombre_tipo_mando(Mando::Tipo t) {
+    switch (t) {
+        case Mando::Boton:       return "boton";
+        case Mando::Interruptor: return "interruptor";
+        case Mando::Continuo:    return "continuo";
+        case Mando::Discreto:    return "discreto";
+    }
+    return "?";
+}
+
+// LO QUE UNA PIEZA ENSEÑA: una IMAGEN entera -la pantalla de un TFT-, que no
+// cabe en un número. La declara como un observable, y el catálogo le da un
+// `id_obs` del mismo espacio, detrás de todos los observables; la pantalla la
+// pide en la misma suscripción, y le llega en su propio mensaje, T_IMAGEN,
+// solo cuando cambia (`doc/protocolo.md` §4.1, en mcu-sim-gui).
+struct Imagen {
+    const char* nombre;      // "pantalla"
+    uint16_t    ancho, alto; // en píxeles, como la ve quien la mira
 };
 
 // ---------------------------------------------------------------------------
@@ -96,6 +170,13 @@ public:
     // --- Identidad ----------------------------------------------------------
     const std::string& tipo()  const { return tipo_; }
     const std::string& pieza() const { return pieza_; }
+    // El identificador que le dio la PLACA. Lo pone el netlist al construir la
+    // pieza desde el XML (`Netlist::construye`), porque una pieza que no es
+    // sc_module no recibe nombre en el constructor y se quedaba con el
+    // numerado -`Crystal_1`- mientras el XML la llamaba `X2`. Nadie lo notaba
+    // hasta que hubo dos cosas que casar: el XML de la placa y el catálogo de
+    // observables que recibe mcu-sim-gui (fase 3 de su plan).
+    void pon_id(const std::string& id) { if (!id.empty()) pieza_ = id; }
 
     // --- Terminales ---------------------------------------------------------
     const std::vector<Terminal>& terminales() const { return term_; }
@@ -120,6 +201,56 @@ public:
         ev_conex_.notify(sc_core::SC_ZERO_TIME);
     }
     const sc_core::sc_event& evento_conexion() const { return ev_conex_; }
+
+    // --- Observables y mandos (véase `Observable` y `Mando` arriba) --------
+    // Con estos valores por omisión una pieza no declara nada, y por eso las
+    // que no los sobrescriben compilan sin tocarlas: la fase 1 del plan de
+    // dos procesos implementa tres (`Led`, `Button`, `Crystal`) y deja las
+    // demás como estaban.
+    //
+    // Contrato, que es el que el catálogo y el aplicador dan por supuesto:
+    //
+    //   * n_observables() y n_mandos() son CONSTANTES para una instancia: no
+    //     dependen del estado ni de si la pieza está soldada;
+    //   * observable(i) y mando(i) solo se llaman con i < n_...();
+    //   * valor_observable(i) es una CONSULTA: no mueve nada del modelo, no
+    //     espera y no gasta tiempo simulado. Se puede llamar desde cualquier
+    //     proceso y desde fuera de la simulación;
+    //   * valor_mando(i) es lo que vale el mando AHORA, tambien una consulta:
+    //     el catalogo lo manda para que la pantalla nazca donde esta el
+    //     modelo -un deslizador en su sitio, no en el minimo-. Por omision,
+    //     el minimo, que es lo que vale un boton suelto;
+    //   * acciona(i, v) recibe un valor ya recortado a [min, max] del mando.
+    //     Es la ÚNICA puerta por la que la pantalla cambia el modelo, y hace
+    //     exactamente lo mismo que el método que ya tuviera la pieza
+    //     (`Button::press()`, por ejemplo): no hay un segundo camino que se
+    //     pueda separar del primero.
+    virtual unsigned   n_observables() const { return 0; }
+    virtual Observable observable(unsigned) const { return {"", "", 0.f, 0.f, false}; }
+    virtual float      valor_observable(unsigned) const { return 0.f; }
+    virtual unsigned   n_mandos() const { return 0; }
+    virtual Mando      mando(unsigned) const { return {"", Mando::Boton, 0.f, 0.f}; }
+    virtual float      valor_mando(unsigned i) const { return mando(i).min; }
+    virtual void       acciona(unsigned, float) {}
+
+    // --- Imágenes (véase `Imagen` arriba) ----------------------------------
+    // El mismo contrato de consulta pura que los observables, y además:
+    //
+    //   * version_imagen(i) cambia cada vez que cambia lo que pinta
+    //     pinta_imagen(i): es lo que el muestreador mira para no mandar dos
+    //     veces la misma imagen. No tiene que contar de uno en uno;
+    //   * pinta_imagen(i, rgb) deja en `rgb` ancho x alto píxeles RGB888, por
+    //     filas, de arriba abajo: lo que se ve, SIN la luz;
+    //   * la luz va aparte, de 0 a 1: brillo_imagen(i) es la de ahora, y
+    //     luz_acumulada(i) su integral en el tiempo simulado, en segundos,
+    //     desde el principio. Con ella el muestreador saca la luz MEDIA entre
+    //     dos muestras, que es la que ve el ojo cuando la luz va con PWM.
+    virtual unsigned n_imagenes() const { return 0; }
+    virtual Imagen   imagen(unsigned) const { return {"", 0, 0}; }
+    virtual uint64_t version_imagen(unsigned) const { return 0; }
+    virtual void     pinta_imagen(unsigned, std::string& rgb) const { rgb.clear(); }
+    virtual float    brillo_imagen(unsigned) const { return 1.f; }
+    virtual double   luz_acumulada(unsigned) const { return 0.0; }
 
     // --- Inventario y volcado del netlist -----------------------------------
     static const std::vector<ExtPartBase*>& inventario() { return inventario_mut(); }
@@ -171,6 +302,16 @@ protected:
     // Igual, pero admite nullptr: una patilla que este encapsulado no saca.
     void add_ref_opt(const std::string& nombre, analog_net_if* n) {
         if (n) add_ref(nombre, *n);
+    }
+
+    // Marca una patilla como pin de conector (vease Terminal::paso)
+    void marca_paso(const std::string& nombre) {
+        if (Terminal* t = busca(nombre)) t->paso = true;
+    }
+
+    // Marca una patilla como salida de una fuente (vease Terminal::riel)
+    void marca_riel(const std::string& nombre) {
+        if (Terminal* t = busca(nombre)) t->riel = true;
     }
 
     // Alta impedancia en todos los drivers de la pieza.

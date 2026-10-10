@@ -5,10 +5,11 @@
 // tiene `main` ni imprime nada. Si compila, pasa.
 //
 // QUÉ PROTEGE. Las cabeceras que este proyecto comparte con `mcu-sim-gui`
-// —`common/protocolo.h` y `common/gui_destino.h`— tienen que compilar en
-// Windows, y allí el preprocesador llega antes que el compilador con una
-// colección de macros de nombre corto y genérico. **Un `namespace` no protege
-// de una macro**: el preprocesador no sabe qué es un espacio de nombres.
+// —`common/protocolo.h`, `common/proto_io.h` y `common/gui_destino.h`— tienen
+// que compilar en Windows, y allí el preprocesador llega antes que el
+// compilador con una colección de macros de nombre corto y genérico. **Un
+// `namespace` no protege de una macro**: el preprocesador no sabe qué es un
+// espacio de nombres.
 //
 // Pasó de verdad, y por eso existe este fichero. Un enumerador llamado `R_OK`
 // compilaba en Linux sin un aviso y reventaba en MSYS2, porque `<systemc>`
@@ -57,11 +58,13 @@
 
 // Y ahora las cabeceras compartidas, que tienen que sobrevivir a todo eso.
 #include "../common/protocolo.h"
+#include "../common/proto_io.h"
 #include "../common/gui_destino.h"
 #include "../common/huella_fw.h"
 
 // Una comprobación de que lo de arriba no es decorativo: si `VERSION` se
 // hubiera quedado como nombre de constante, esta línea no compilaría.
-static_assert(mcusim::proto::VERSION_PROTO == 1, "la version del protocolo es 1");
+static_assert(mcusim::proto::VERSION_PROTO == 2, "la version del protocolo es 2");
 static_assert(sizeof(mcusim::proto::Orden) == 16, "una Orden son 16 bytes");
 static_assert(mcusim::proto::RES_OK == 0, "RES_OK sigue siendo cero");
+static_assert(mcusim::proto::Lector::LEC_ERROR == 2, "el estado de error no es la macro ERROR");

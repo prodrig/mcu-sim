@@ -62,6 +62,100 @@ namespace stm32 {
 // pin del MCU importa saber si el encapsulado lo saca, porque conectar algo a
 // un pad no bonded es un error de placa y no de modelo.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// LOS NODOS DE ALIMENTACIÓN Y ARRANQUE de un MCU por su nombre: `VDD`,
+// `u0.NRST`, `A/u0.BOOT0`. Son los diez que `NodeMap::registra_mcu()` da de
+// alta además de los pads de puerto. Distingue mayúsculas, como el resto de
+// nombres de nodo: `vdd` es un hilo de la placa, no la patilla del chip.
+// ---------------------------------------------------------------------------
+inline bool alim_desde_nombre(const std::string& s, std::string& mcu,
+                              std::string& alim) {
+    static const char* const ALIM[] = {"VDD", "VSS", "VDDA", "VSSA", "VREF+",
+                                       "VBAT", "VCAP1", "VCAP2", "NRST", "BOOT0"};
+    const size_t p = s.rfind('.');
+    const std::string n = p == std::string::npos ? s : s.substr(p + 1);
+    for (const char* a : ALIM)
+        if (n == a) {
+            if (p != std::string::npos && p == 0) return false;
+            mcu  = p == std::string::npos ? std::string() : s.substr(0, p);
+            alim = n;
+            return true;
+        }
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// LA GEOMETRÍA DE UN CONECTOR: filas x columnas, y cómo se numeran.
+//
+//   zigzag  el 1 y el 2 enfrentados, impares en una fila y pares en la otra:
+//           un IDC, una cabecera de Raspberry Pi, un morpho de las Nucleo
+//   filas   la primera fila entera (1..columnas), luego la segunda
+//
+// Solo importa al acoplar EN ESPEJO -dos placas cara a cara-, que da la
+// vuelta a las filas (el 1 cae sobre el 2 en un 2xN) o, si solo hay una, a
+// las columnas (el 1 cae sobre el último).
+//
+// LOS NOMBRES DE LOS PINES (`nombres="COM D1 D2 ..."`), si los tiene: el del
+// pin k, o vacío si ese pin se sigue llamando por su número. Un pin con
+// nombre es `ID.nombre` -`P1.COM`- y SOLO así: `P1.1` sería el pad PB1. El
+// número sigue mandando en la geometría -el 1 es el de la izquierda, y al
+// acoplar el 1 va con el 1-, y el nombre es como se le llama.
+//
+// UN JUMPER es un conector con un puente puesto (`puente="5V VCC"`): dos pines
+// vecinos que la pieza de plástico une. Son el mismo nodo, como si un <hilo>
+// los uniera dentro de la placa; `puente_a` y `puente_b` dicen cuáles (0 si
+// no tiene puente).
+// ---------------------------------------------------------------------------
+inline bool es_conector(const std::string& tipo) {
+    return tipo == "Conector" || tipo == "Jumper";
+}
+
+struct GeomConector {
+    unsigned filas = 1, columnas = 0;
+    bool     zigzag = true;
+    std::vector<std::string> nombres;     // vacío: todos por número
+    unsigned puente_a = 0, puente_b = 0;  // un Jumper: los dos pines unidos
+    // El puente de un Jumper escrito como lo lleva el dibujo: `5V-VCC`, por
+    // orden de pin; `no` sin puente (vease Netlist::variante)
+    std::string puente() const {
+        return puente_a ? pin_k(puente_a) + "-" + pin_k(puente_b) : std::string("no");
+    }
+    unsigned n() const { return filas * columnas; }
+    // Cómo se llama el pin k: su nombre, o su número
+    std::string pin_k(unsigned k) const {
+        return k >= 1 && k <= nombres.size() && !nombres[k - 1].empty()
+                   ? nombres[k - 1] : std::to_string(k);
+    }
+    // El nodo del pin k del conector `id`: `CN7.17` o `P1.COM`
+    std::string nodo(const std::string& id, unsigned k) const { return id + "." + pin_k(k); }
+    void fila_col(unsigned k, unsigned& f, unsigned& c) const {
+        if (zigzag) { f = (k - 1) % filas;    c = (k - 1) / filas; }
+        else        { f = (k - 1) / columnas; c = (k - 1) % columnas; }
+    }
+    unsigned pin(unsigned f, unsigned c) const {
+        return zigzag ? c * filas + f + 1 : f * columnas + c + 1;
+    }
+    unsigned espejo(unsigned k) const {
+        unsigned f = 0, c = 0;
+        fila_col(k, f, c);
+        if (filas >= 2) f = filas - 1 - f;
+        else            c = columnas - 1 - c;
+        return pin(f, c);
+    }
+};
+
+// Un entero sin signo escrito entero: "17" sí, "17a", "-1" o "" no.
+inline bool entero_estricto(const std::string& s, unsigned& v) {
+    if (s.empty() || s.size() > 6) return false;
+    unsigned long x = 0;
+    for (char c : s) {
+        if (c < '0' || c > '9') return false;
+        x = x * 10 + unsigned(c - '0');
+    }
+    v = unsigned(x);
+    return true;
+}
+
 struct Nodo {
     std::string    nombre;
     analog_net_if* net = nullptr;
@@ -147,7 +241,12 @@ public:
         const std::string nombre = nombre_canonico_pad(nom);
         auto it = m_.find(nombre);
         if (it != m_.end()) return *it->second.net;
-        propios_.emplace_back(new AnalogNet(nombre.c_str()));
+        // El punto es el separador de jerarquía de SystemC: `CN7.17` se crea
+        // como `CN7_17` y se apunta su nombre de verdad (AnalogNet::nombre_esq)
+        std::string sc = nombre;
+        for (char& c : sc) if (c == '.') c = '_';
+        propios_.emplace_back(new AnalogNet(sc.c_str()));
+        if (sc != nombre) propios_.back()->nombre_esq = nombre;
         registra(nombre, *propios_.back(), false, true);
         return *propios_.back();
     }
@@ -212,6 +311,54 @@ struct DeclMcu {
 };
 
 // ---------------------------------------------------------------------------
+// UNA PLACA DE UN <sistema>: su id -el prefijo de todo lo suyo, `A/LD2`-, su
+// nombre y, si no va escrita dentro, el fichero del que salió.
+// ---------------------------------------------------------------------------
+// EL DIBUJO DE UNA PLACA (doc/analisis-uso-ilustraciones.md). La placa dice
+// cuál es -`ilustracion="x.svg"`, relativo a su fichero- o, si no lo dice, es
+// el SVG que se llame como ella y esté a su lado. Y, si el dibujo no se quiere
+// tocar, una TABLA DE ENLACES: qué elemento del SVG es cada pieza. Aquí no se
+// lee el SVG: eso es de la ventana; aquí solo se sabe dónde está y se manda.
+struct EnlaceIlustracion {
+    std::string pieza;        // el nombre en SU placa: "LD2", nunca "N/LD2"
+    std::string elemento;     // el id en el SVG
+    std::string efecto;       // "", "brillo", "hundido", "giro", "pantalla", "angulo" o "ninguno"
+};
+struct Ilustracion {
+    std::string declarada;    // lo que dice el XML, tal cual; vacío si no dice
+    std::string ruta;         // dónde se busca, ya resuelta; vacía si en ningún sitio
+    std::vector<EnlaceIlustracion> enlaces;
+    // Cuánto se gira el dibujo antes de mandarlo, en grados en el sentido de
+    // las agujas del reloj: 0, 90, 180 o 270 (`giro=`, common/svg_variantes.h)
+    int giro = 0;
+    // LA DISPOSICIÓN en la ventana (mcu-sim-gui, plan §38): dónde va la placa
+    // -la esquina de arriba a la izquierda de su caja, ya girada, en mm-, si
+    // se dice, y a qué escala de su tamaño real. `mcu-sim` no los usa: los
+    // lee, los valida y los manda en T_PLACA
+    bool   colocada = false;
+    double x_mm = 0, y_mm = 0;
+    double escala = 1.0;
+};
+
+// El lienzo de la ventana, en mm, si es fijo (`lienzo="x y ancho alto"`); y
+// una línea entre placas enrutada en tramos horizontales y verticales
+// (`<ruta linea= eje= codos=>`). Como la disposición: solo para la ventana.
+struct LienzoVentana {
+    bool   fijo = false;
+    double x = 0, y = 0, ancho = 0, alto = 0;
+};
+struct RutaLinea {
+    std::string linea;                 // "hilo A/P1.TX B/u0.PA3", "acople A/J1 B/J1"
+    bool        horizontal = true;     // el primer tramo, el que sale del primero
+    std::vector<double> codos;         // mm, alternando x e y
+};
+
+struct PlacaDeSistema {
+    std::string id, nombre, fichero;
+    Ilustracion ilustracion;
+};
+
+// ---------------------------------------------------------------------------
 // Una CONEXIÓN y una INSTANCIA.
 // ---------------------------------------------------------------------------
 struct Conexion {
@@ -235,6 +382,9 @@ struct Instancia {
     // saber que el referido se construye ANTES que quien lo refiere.
     std::map<std::string, std::string> refs;
     bool conectada = true;
+    // Para la ventana nada más: `visible="no"` es una pieza que no interesa
+    // ver en la ilustración. La simulación no lo mira
+    bool visible = true;
 
     // El creador. En el paso 3 lo pondrá una factoría a partir de `tipo`; aquí
     // lo pone, tipado, quien declara la instancia.
@@ -264,6 +414,7 @@ struct Instancia {
         return *this;
     }
     Instancia& desconectada() { conectada = false; return *this; }
+    Instancia& oculta() { visible = false; return *this; }
 
     // --- Consulta -----------------------------------------------------------
     const std::string& nodo_de(const std::string& p) const {
@@ -352,15 +503,73 @@ public:
         for (const DeclMcu& m : mcus_) if (m.id == id) return &m;
         return nullptr;
     }
-    // Cuántos hay DE VERDAD: ninguno declarado es uno implícito.
+    // Para que el <sistema> diga el firmware o el puerto de un chip de una
+    // placa sin tocar el fichero de la placa (<mcu ref="A/u0" firmware=...>).
+    DeclMcu* mcu_mut(const std::string& id) {
+        for (DeclMcu& m : mcus_) if (m.id == id) return &m;
+        return nullptr;
+    }
+
+    // --- Las placas de un <sistema> -----------------------------------------
+    // Vacío en una placa suelta, que es la forma de saber si esto es un
+    // sistema. Solo lo usan el volcado y los mensajes: lo demás ve un netlist
+    // plano con los nombres ya cualificados (`A/LD2`).
+    void pon_placas(std::vector<PlacaDeSistema> v) { placas_ = std::move(v); }
+    // El dibujo de una placa suelta; en un sistema, el de cada placa va en
+    // su PlacaDeSistema
+    void pon_ilustracion(Ilustracion i) { ilustracion_ = std::move(i); }
+    // Plan §38 de mcu-sim-gui: el lienzo y las rutas de las líneas
+    void pon_lienzo(const LienzoVentana& l) { lienzo_ = l; }
+    const LienzoVentana& lienzo() const { return lienzo_; }
+    void pon_rutas(std::vector<RutaLinea> r) { rutas_ = std::move(r); }
+    const std::vector<RutaLinea>& rutas() const { return rutas_; }
+    // Las líneas que la ventana dibuja, como las nombra: un acople de dos o
+    // más conectores es una línea por cada par de vecinos, y cada hilo, una
+    std::vector<std::string> claves_lineas() const {
+        std::vector<std::string> l;
+        for (const Acople& a : acoples_)
+            for (size_t k = 0; k + 1 < a.conectores.size(); ++k)
+                l.push_back("acople " + a.conectores[k] + " " + a.conectores[k + 1]);
+        for (const auto& h : hilos_) l.push_back("hilo " + h.first + " " + h.second);
+        return l;
+    }
+    const Ilustracion& ilustracion() const { return ilustracion_; }
+    const std::vector<PlacaDeSistema>& placas() const { return placas_; }
+    bool es_sistema() const { return !placas_.empty(); }
+    // Cuántos hay DE VERDAD: ninguno declarado es uno implícito -el de
+    // `--mcu`-, salvo que la placa vaya SIN MCU, que entonces son cero.
     unsigned n_mcus_efectivos() const {
+        if (sin_mcu_) return 0u;
         return mcus_.empty() ? 1u : unsigned(mcus_.size());
+    }
+    // Una placa SIN MCU: ni <mcu> ni `--mcu`. No hay pads; todo nodo es de la
+    // placa, y un nombre de pad es un error (vease `sim_main.cpp`). Por eso
+    // cada <nodo> declarado pasa a ser externo sin tener que decirlo: no hay
+    // nada mas que pueda ser, y exigir `externo="si"` en todos seria ruido.
+    void pon_sin_mcu(bool s = true) {
+        sin_mcu_ = s;
+        if (s) for (const std::string& n : declarados_) nodo_externo(n);
+    }
+    bool sin_mcu() const { return sin_mcu_; }
+    // `--mcu` manda sobre el tipo de un <mcu> declarado: se cambia aquí para
+    // que la placa que se vuelca -a la ventana, en T_PLACA- diga lo mismo que
+    // lo que se monta.
+    void cambia_tipo_mcu(const std::string& id, const std::string& tipo) {
+        for (DeclMcu& m : mcus_) if (m.id == id) m.tipo = tipo;
     }
 
     // --- Declaración --------------------------------------------------------
     // Un nodo que NO es un pin del MCU y que, por tanto, hay que crear: el hilo
     // de un bus, el nudo entre dos componentes externos. Es el `<nodo id="..."/>`
     // del XML. Los pines no hace falta declararlos: ya existen.
+    // Todo <nodo> que aparece en el XML, externo o no. Con MCU solo es
+    // documentacion; sin MCU, es la lista de nodos de la placa.
+    Netlist& nodo_declarado(const std::string& nom) {
+        const std::string nombre = nombre_canonico_pad(nom);
+        for (const std::string& n : declarados_) if (n == nombre) return *this;
+        declarados_.push_back(nombre);
+        return *this;
+    }
     Netlist& nodo_externo(const std::string& nom) {
         const std::string nombre = nombre_canonico_pad(nom);
         for (const std::string& n : externos_) if (n == nombre) return *this;
@@ -428,6 +637,502 @@ public:
     }
     const std::vector<std::string>& externos() const { return externos_; }
 
+    // --- NODOS QUE SON EL MISMO -------------------------------------------
+    // Un HILO dice que dos nombres de nodo son el mismo punto eléctrico: el pin
+    // 3 de un conector y el 5 del de enfrente cuando un cable los cruza, o dos
+    // pads de dos placas. Un ACOPLE es la versión al por mayor: dos conectores
+    // del mismo número de pines enchufados, el pin k de uno sobre el k del
+    // otro -o, en espejo, sobre el que le cae enfrente-. Los dos son
+    // DECLARACIÓN: no construyen nada hasta que `resuelve_alias()` los
+    // convierte en nodos, y eso tiene que pasar antes de construir el MCU por
+    // lo mismo que `une` [cableado_desde_netlist].
+    //
+    // Un acople puede juntar MÁS DE DOS conectores: es una PILA, como la de
+    // PC/104, donde cada placa lleva un conector pasante y el pin k es el mismo
+    // en todas. En espejo solo dos: tres placas no pueden estar cara a cara.
+    struct Acople {
+        std::vector<std::string> conectores;   // dos o más: "A/J1", "B/J1"...
+        bool espejo = false;
+        // "A/J1 con B/J1", o "A/J1, B/J1 y C/J1", para los mensajes
+        std::string texto() const {
+            if (conectores.size() == 2) return conectores[0] + " con " + conectores[1];
+            std::string t;
+            for (size_t k = 0; k < conectores.size(); ++k)
+                t += (k ? (k + 1 == conectores.size() ? " y " : ", ") : "") + conectores[k];
+            return t;
+        }
+    };
+    Netlist& hilo(const std::string& a, const std::string& b) {
+        hilos_.emplace_back(nombre_canonico_pad(a), nombre_canonico_pad(b));
+        return *this;
+    }
+    Netlist& acopla(const std::string& a, const std::string& b, bool espejo) {
+        acoples_.push_back(Acople{{a, b}, espejo});
+        return *this;
+    }
+    Netlist& acopla(const std::vector<std::string>& conectores, bool espejo = false) {
+        acoples_.push_back(Acople{conectores, espejo});
+        return *this;
+    }
+    const std::vector<std::pair<std::string, std::string>>& hilos() const { return hilos_; }
+    const std::vector<Acople>& acoples() const { return acoples_; }
+    // ¿Hay algo que resolver? Sin conectores, hilos ni acoples, nada cambia, y
+    // `resuelve_alias()` no toca la placa: las de siempre salen idénticas.
+    bool hay_alias() const {
+        if (!hilos_.empty() || !acoples_.empty()) return true;
+        for (const Instancia& i : inst_) if (es_conector(i.tipo)) return true;
+        return false;
+    }
+    // El nombre con el que quedó un nodo tras resolver: el de su clase.
+    std::string canonico(const std::string& nom) const {
+        const std::string n = nombre_canonico_pad(nom);
+        const auto it = alias_.find(n);
+        return it == alias_.end() ? n : it->second;
+    }
+
+    // La geometría de un conector declarado, o "" y el problema.
+    static std::string geometria(const Instancia& i, GeomConector& g) {
+        unsigned f = 1, c = 0;
+        const std::string tf = i.txt("filas", "1"), tc = i.txt("columnas");
+        if (!entero_estricto(tf, f) || f < 1)
+            return "filas=\"" + tf + "\" no vale: un entero, 1 o mas";
+        if (tc.empty()) return "falta columnas=\"N\"";
+        if (!entero_estricto(tc, c) || c < 1)
+            return "columnas=\"" + tc + "\" no vale: un entero, 1 o mas";
+        if (f * c > 1000)
+            return std::to_string(f * c) + " pines son demasiados (el tope es 1000)";
+        const std::string nu = i.txt("numeracion", "zigzag");
+        if (nu != "zigzag" && nu != "filas")
+            return "numeracion=\"" + nu + "\" no vale: zigzag o filas";
+        g.filas = f; g.columnas = c; g.zigzag = (nu == "zigzag");
+        // Los nombres: uno por pin, en orden, y `-` para el que no lo lleva
+        g.nombres.clear();
+        if (i.params.count("nombres")) {
+            std::istringstream is(i.txt("nombres"));
+            std::string t;
+            std::set<std::string> vistos;
+            while (is >> t) {
+                if (t == "-") { g.nombres.push_back(std::string()); continue; }
+                // Letras, cifras, '_', '.' y '+', con al menos una letra -un
+                // numero solo seria otro pin- y sin un '.' en los extremos:
+                // `COM`, `D1`, `5V`, `3.3V`, `+3V3`
+                bool bien = t.front() != '.' && t.back() != '.', letra = false;
+                for (char ch : t) {
+                    const bool l = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
+                    letra = letra || l;
+                    bien = bien && (l || (ch >= '0' && ch <= '9') || ch == '_' || ch == '.' ||
+                                    ch == '+');
+                }
+                if (!bien || !letra)
+                    return "nombres: '" + t + "' no vale: letras, cifras, '_', '.' o '+', "
+                           "con al menos una letra (y '-' para un pin sin nombre)";
+                if (!vistos.insert(t).second)
+                    return "nombres: '" + t + "' esta dos veces";
+                g.nombres.push_back(t);
+            }
+            if (g.nombres.size() != g.n())
+                return "nombres: hay " + std::to_string(g.nombres.size()) + " y el "
+                       "conector tiene " + std::to_string(g.n()) + " pines; uno por pin, "
+                       "y '-' para el que no lo lleva";
+        }
+        // El puente de un Jumper: dos pines vecinos, por nombre o por número,
+        // o "no". Es obligatorio: un jumper sin decir como esta puesto es la
+        // mitad de la placa sin decir
+        g.puente_a = g.puente_b = 0;
+        if (i.tipo == "Jumper") {
+            if (!i.params.count("puente"))
+                return "falta puente=\"A B\": los dos pines que une el puente (o "
+                       "puente=\"no\" si no lleva)";
+            const std::string pt = i.txt("puente");
+            if (pt != "no") {
+                std::istringstream is(pt);
+                std::vector<std::string> ps;
+                std::string t;
+                while (is >> t) ps.push_back(t);
+                if (ps.size() != 2)
+                    return "puente=\"" + pt + "\" no vale: dos pines, \"A B\", o \"no\"";
+                unsigned k[2] = {0, 0};
+                for (int j = 0; j < 2; ++j) {
+                    for (unsigned q = 1; q <= g.n() && !k[j]; ++q)
+                        if (g.pin_k(q) == ps[j]) k[j] = q;
+                    if (!k[j])
+                        return "puente: '" + ps[j] + "' no es ningun pin del jumper";
+                }
+                if (k[0] == k[1]) return "puente: un pin no se une consigo mismo";
+                unsigned f0 = 0, c0 = 0, f1 = 0, c1 = 0;
+                g.fila_col(k[0], f0, c0);
+                g.fila_col(k[1], f1, c1);
+                const bool vecinos = (f0 == f1 && (c0 + 1 == c1 || c1 + 1 == c0)) ||
+                                     (c0 == c1 && (f0 + 1 == f1 || f1 + 1 == f0));
+                if (!vecinos)
+                    return "puente: " + ps[0] + " y " + ps[1] + " no estan uno al lado "
+                           "del otro, y un puente solo une dos pines vecinos";
+                g.puente_a = std::min(k[0], k[1]);
+                g.puente_b = std::max(k[0], k[1]);
+            }
+        }
+        return std::string();
+    }
+
+    // LA VARIANTE de una pieza: lo que su dibujo tiene que enseñar segun como
+    // esta montada. Hoy solo la tiene un Jumper -su puente, `5V-VCC` o `no`-,
+    // y la usa quien manda el dibujo a la ventana: de los elementos
+    // `ID@valor` del SVG deja solo el de la variante (svg_variantes.h).
+    // Vacia: la pieza no tiene variantes.
+    static std::string variante(const Instancia& i) {
+        if (i.tipo != "Jumper") return std::string();
+        GeomConector g;
+        if (!geometria(i, g).empty()) return std::string();
+        return g.puente();
+    }
+    // TODAS las de una pieza, cada una con lo que va detras de su id en el
+    // dibujo: la de un Jumper va sin nada (`JP1@5V-VCC`); un Servo tiene dos,
+    // el color de su cuerpo (`SERVO.cuerpo@azul`) y su aspa
+    // (`SERVO.aspa@cuatro`).
+    static std::vector<std::pair<std::string, std::string>> variantes(const Instancia& i) {
+        std::vector<std::pair<std::string, std::string>> v;
+        if (i.tipo == "Servo") {
+            v.push_back({".cuerpo", i.txt("color", "azul")});
+            v.push_back({".aspa", i.txt("aspa", "dos")});
+            return v;
+        }
+        const std::string x = variante(i);
+        if (!x.empty()) v.push_back({std::string(), x});
+        return v;
+    }
+
+    // EL PAD FÍSICO detrás de un nombre: "u0:37" para un pad de puerto,
+    // "u0:VDD" para uno de alimentación, "" si no es un pad. Dos nombres de un
+    // mismo pad -`PA5` y `u0.PA5` con un solo MCU- dan la misma clave, que es
+    // lo que hace falta para no unir un pad consigo mismo.
+    std::string clave_pad(const std::string& s, bool& alim, std::string& err) const {
+        std::string pref, id;
+        unsigned p = 0, i = 0;
+        alim = false;
+        if (pad_desde_nombre(s, pref, p, i)) {
+            err = resuelve_pad(s, id, p, i);
+            return err.empty() ? id + ":" + std::to_string(p * N_PORT_PINS + i)
+                               : std::string();
+        }
+        std::string a;
+        if (!alim_desde_nombre(s, pref, a)) return std::string();
+        alim = true;
+        err = resuelve_alim(s, id, a);
+        return err.empty() ? id + ":" + a : std::string();
+    }
+    // `VDD` o `u0.NRST` -> a qué MCU y qué pad de alimentación. Las mismas
+    // reglas que `resuelve_pad`. Devuelve "" si vale, o el problema.
+    std::string resuelve_alim(const std::string& s, std::string& id_mcu,
+                              std::string& alim) const {
+        std::string pref;
+        if (!alim_desde_nombre(s, pref, alim))
+            return "'" + s + "' no es un pad de alimentacion ni de arranque del MCU";
+        if (sin_mcu_)
+            return "'" + s + "' es una patilla de MCU, y la placa no lleva ninguno";
+        if (pref.empty()) {
+            if (n_mcus_efectivos() > 1)
+                return "'" + s + "' es ambiguo, hay " + std::to_string(mcus_.size()) +
+                       " MCUs. Escribe " + lista_cualificada(s);
+            id_mcu = mcus_.empty() ? std::string() : mcus_.front().id;
+        } else {
+            if (!mcu(pref))
+                return "'" + s + "': no hay ningun MCU llamado '" + pref +
+                       "'. La placa declara: " + lista_mcus();
+            id_mcu = pref;
+        }
+        return std::string();
+    }
+
+    // --- RESOLVER: de conectores, hilos y acoples a nodos -------------------
+    // Junta en CLASES los nombres que son el mismo punto -cada pin de conector
+    // con el nodo al que va soldado, cada pin con el de enfrente, cada hilo-
+    // y deja la placa escrita con UN nombre por clase:
+    //
+    //   ningún pad      el nombre declarado (`vcc`), o el del primer pin de
+    //                   conector; el netlist lo crea como nodo externo
+    //   un pad          ese pad: todo lo demás pasa a llamarse `PA5`
+    //   dos o más pads  un nodo compartido, igual que un `<nodo une>`: de
+    //                   puerto o de alimentación y arranque (VDD, VSS,
+    //                   NRST, BOOT0...), que `PowerPads` ata con une_alim
+    //
+    // Reescribe las patillas de todas las piezas, los nodos externos, los de
+    // bus y los compartidos. Un pin de conector al aire se queda con su
+    // nombre, `CN7.17`, y es un nodo externo más. Devuelve los problemas;
+    // vacío si todo bien. Sin conectores, hilos ni acoples no hace NADA.
+    std::vector<std::string> resuelve_alias() {
+        std::vector<std::string> err;
+        if (!hay_alias()) return err;
+        std::vector<std::pair<std::string, std::string>> pares;
+        std::map<std::string, GeomConector> conectores;
+        std::set<std::string> pines_conector;
+
+        // 1. Cada conector: sus N pines, con su nodo o al aire
+        for (Instancia& i : inst_) {
+            if (!es_conector(i.tipo)) continue;
+            GeomConector g;
+            const std::string e = geometria(i, g);
+            if (!e.empty()) { err.push_back(i.id + ": " + e); continue; }
+            const unsigned n = g.n();
+            {
+                // Que ningun pin se llame como un pad o una patilla de
+                // alimentacion: `P1.1` es PB1, y `P1.VDD` el VDD de un MCU P1.
+                // Se mira cada uno, por su numero o por su nombre.
+                std::string pr, al, malo;
+                unsigned pp = 0, qq = 0;
+                for (unsigned k = 1; k <= n && malo.empty(); ++k) {
+                    const std::string nm = g.nodo(i.id, k);
+                    if (pad_desde_nombre(nm, pr, pp, qq))
+                        malo = "'" + nm + "' seria el nombre de un pad (" +
+                               nombre_canonico_pad(nm) + ")";
+                    else if (alim_desde_nombre(nm, pr, al))
+                        malo = "'" + nm + "' seria la patilla " + al + " de un MCU '" +
+                               pr + "'";
+                }
+                if (!malo.empty()) {
+                    err.push_back(i.id + ": un conector no puede llamarse asi: " + malo +
+                                  (g.nombres.empty() ? std::string()
+                                                     : ". Cambia el id o ese nombre"));
+                    continue;
+                }
+            }
+            // Un pin se suelda por su numero o, si lo tiene, por su nombre
+            std::map<std::string, unsigned> por_nombre;
+            for (unsigned k = 1; k <= n; ++k)
+                if (g.pin_k(k) != std::to_string(k)) por_nombre[g.pin_k(k)] = k;
+            std::map<unsigned, std::string> dado;
+            bool mal = false;
+            for (const Conexion& c : i.pines) {
+                unsigned k = 0;
+                const auto pn = por_nombre.find(c.pin);
+                if (pn != por_nombre.end()) k = pn->second;
+                else if (!entero_estricto(c.pin, k) || k < 1 || k > n) {
+                    std::string cuales = "los de este conector van del 1 al " +
+                                         std::to_string(n);
+                    if (!por_nombre.empty()) {
+                        cuales += ", o por su nombre:";
+                        for (unsigned j = 1; j <= n; ++j)
+                            if (g.pin_k(j) != std::to_string(j)) cuales += " " + g.pin_k(j);
+                    }
+                    err.push_back(i.id + ": el pin '" + c.pin + "' no existe; " + cuales);
+                    mal = true;
+                    continue;
+                }
+                if (dado.count(k)) {
+                    err.push_back(i.id + ": el pin " + c.pin + " aparece dos veces");
+                    mal = true;
+                } else {
+                    dado[k] = c.nodo;
+                }
+            }
+            if (mal) continue;
+            conectores[i.id] = g;
+            std::vector<Conexion> todos;
+            for (unsigned k = 1; k <= n; ++k) {
+                const std::string nm = g.nodo(i.id, k);
+                pines_conector.insert(nm);
+                const auto it = dado.find(k);
+                if (it != dado.end() && it->second != nm) pares.emplace_back(nm, it->second);
+                todos.push_back(Conexion{g.pin_k(k), nm});
+            }
+            // El puente de un Jumper: sus dos pines, el mismo nodo
+            if (g.puente_a) pares.emplace_back(g.nodo(i.id, g.puente_a), g.nodo(i.id, g.puente_b));
+            i.pines = todos;
+        }
+
+        // 2. Los acoples: pin a pin, en espejo, o una pila de varios
+        std::map<std::string, std::string> acoplado;   // conector -> su acople
+        for (const Acople& a : acoples_) {
+            const std::string que = "acopla " + a.texto() + ": ";
+            const std::vector<std::string>& cs = a.conectores;
+            bool bien = true;
+            if (cs.size() < 2) {
+                err.push_back(que + "hacen falta al menos dos conectores");
+                continue;
+            }
+            if (a.espejo && cs.size() != 2) {
+                err.push_back(que + "en espejo, dos y solo dos: tres placas no pueden "
+                              "estar cara a cara");
+                continue;
+            }
+            std::set<std::string> vistos;
+            for (const std::string& x : cs) {
+                if (!vistos.insert(x).second) {
+                    err.push_back(que + x + " aparece dos veces: un conector no se "
+                                  "acopla consigo mismo");
+                    bien = false;
+                    continue;
+                }
+                if (conectores.count(x)) continue;
+                const Instancia* i = busca(x);
+                err.push_back(que + (i ? "'" + x + "' es un " + i->tipo + ", no un Conector"
+                                       : "no hay ningun conector llamado '" + x + "'"));
+                bien = false;
+            }
+            if (!bien) continue;
+            for (const std::string& x : cs) {
+                const auto it = acoplado.find(x);
+                if (it != acoplado.end()) {
+                    err.push_back(que + x + " ya esta en otro acople (" + it->second +
+                                  "). Para enchufar varias placas a la vez, como en una "
+                                  "pila PC/104, van todas en el mismo <acopla "
+                                  "conectores=\"...\">");
+                    bien = false;
+                }
+            }
+            if (!bien) continue;
+            const GeomConector& g0 = conectores[cs[0]];
+            for (size_t k = 1; k < cs.size() && bien; ++k) {
+                const GeomConector& gk = conectores[cs[k]];
+                if (gk.n() != g0.n()) {
+                    err.push_back(que + "no tienen los mismos pines (" + cs[0] + " tiene " +
+                                  std::to_string(g0.n()) + " y " + cs[k] + " " +
+                                  std::to_string(gk.n()) + ")");
+                    bien = false;
+                } else if (a.espejo && (gk.filas != g0.filas || gk.columnas != g0.columnas ||
+                                        gk.zigzag != g0.zigzag)) {
+                    err.push_back(que + "en espejo hace falta la misma forma en los dos "
+                                  "(filas, columnas y numeracion)");
+                    bien = false;
+                }
+            }
+            if (!bien) continue;
+            for (const std::string& x : cs) acoplado[x] = a.texto();
+            for (size_t c = 1; c < cs.size(); ++c)
+                for (unsigned k = 1; k <= g0.n(); ++k)
+                    pares.emplace_back(g0.nodo(cs[0], k),
+                                       conectores[cs[c]].nodo(cs[c], a.espejo ? g0.espejo(k) : k));
+        }
+
+        // 3. Los hilos: los dos extremos tienen que ser nodos de verdad
+        std::set<std::string> conocidos(pines_conector.begin(), pines_conector.end());
+        for (const std::string& n : declarados_) conocidos.insert(n);
+        for (const std::string& n : externos_)   conocidos.insert(n);
+        for (const auto& u : uniones_)           conocidos.insert(u.first);
+        for (const Instancia& i : inst_)
+            for (const Conexion& c : i.pines) conocidos.insert(c.nodo);
+        for (const auto& h : hilos_) {
+            bool bien = true;
+            for (const std::string* x : {&h.first, &h.second}) {
+                bool al = false;
+                std::string e;
+                const std::string k = clave_pad(*x, al, e);
+                if (!e.empty()) { err.push_back("hilo " + h.first + " - " + h.second + ": " + e); bien = false; }
+                else if (k.empty() && !conocidos.count(*x)) {
+                    err.push_back("hilo " + h.first + " - " + h.second + ": '" + *x +
+                                  "' no es ningun nodo: ni un pin de MCU, ni un pin de "
+                                  "conector, ni un nodo declarado o usado por una pieza");
+                    bien = false;
+                }
+            }
+            if (bien && h.first == h.second)
+                err.push_back("hilo " + h.first + " - " + h.second + ": un hilo de un "
+                              "nodo a si mismo no une nada");
+            else if (bien) pares.push_back(h);
+        }
+
+        // 4. Los nodos compartidos de siempre entran en el mismo juego
+        for (const auto& u : uniones_)
+            for (const std::string& p : u.second) pares.emplace_back(u.first, p);
+        if (!err.empty()) return err;
+
+        // 5. Las clases: unión-búsqueda sobre los nombres
+        std::map<std::string, std::string> padre;
+        std::vector<std::string> orden;
+        std::function<std::string(const std::string&)> raiz = [&](const std::string& x) {
+            std::string r = x;
+            while (padre[r] != r) r = padre[r];
+            std::string y = x;
+            while (padre[y] != r) { const std::string z = padre[y]; padre[y] = r; y = z; }
+            return r;
+        };
+        auto alta = [&](const std::string& x) {
+            if (padre.count(x)) return;
+            padre[x] = x;
+            orden.push_back(x);
+        };
+        for (const auto& pr : pares) {
+            alta(pr.first);
+            alta(pr.second);
+            const std::string ra = raiz(pr.first), rb = raiz(pr.second);
+            if (ra != rb) padre[rb] = ra;
+        }
+        std::map<std::string, std::vector<std::string>> clases;
+        std::vector<std::string> orden_clases;
+        for (const std::string& n : orden) {
+            const std::string r = raiz(n);
+            if (!clases.count(r)) orden_clases.push_back(r);
+            clases[r].push_back(n);
+        }
+        const std::set<std::string> declarados(declarados_.begin(), declarados_.end());
+        std::map<std::string, std::string> rep_de;
+        std::map<std::string, std::vector<std::string>> nuevas_uniones;
+        std::vector<std::string> nuevos_externos;
+        for (const std::string& r : orden_clases) {
+            const std::vector<std::string>& c = clases[r];
+            std::vector<std::string> pads;
+            std::set<std::string> claves;
+            bool mal = false;
+            for (const std::string& n : c) {
+                bool al = false;
+                std::string e;
+                const std::string k = clave_pad(n, al, e);
+                if (!e.empty()) { err.push_back("nodo " + n + ": " + e); mal = true; continue; }
+                if (k.empty()) continue;
+                if (claves.insert(k).second) pads.push_back(n);
+            }
+            if (mal) continue;
+            std::string rep;
+            if (pads.size() == 1) {
+                rep = pads[0];
+            } else {
+                // Un nombre de la placa: primero uno declarado, luego cualquier
+                // otro que no sea un pin de conector, y si no, el primer pin.
+                for (int pasada = 0; pasada < 3 && rep.empty(); ++pasada)
+                    for (const std::string& n : c) {
+                        bool al = false;
+                        std::string e;
+                        if (!clave_pad(n, al, e).empty()) continue;
+                        const bool es_pin = pines_conector.count(n) != 0;
+                        if ((pasada == 0 && declarados.count(n) && !es_pin) ||
+                            (pasada == 1 && !es_pin) || pasada == 2) { rep = n; break; }
+                    }
+                if (rep.empty()) rep = "une:" + pads[0];
+                // Pads de puerto o de alimentación, da igual: todos van al
+                // mismo nodo compartido (Cableado::une y une_alim).
+                if (pads.size() >= 2) nuevas_uniones[rep] = pads;
+                nuevos_externos.push_back(rep);
+            }
+            for (const std::string& n : c) rep_de[n] = rep;
+        }
+        if (!err.empty()) return err;
+
+        // 6. Reescribir la placa con un nombre por clase
+        auto rp = [&](const std::string& n) {
+            const auto it = rep_de.find(n);
+            return it == rep_de.end() ? n : it->second;
+        };
+        for (Instancia& i : inst_)
+            for (Conexion& c : i.pines) c.nodo = rp(c.nodo);
+        std::vector<std::string> ex;
+        auto mete = [](std::vector<std::string>& v, const std::string& x) {
+            for (const std::string& y : v) if (y == x) return;
+            v.push_back(x);
+        };
+        for (const std::string& e : externos_) if (!rep_de.count(e)) mete(ex, e);
+        for (const std::string& e : nuevos_externos) mete(ex, e);
+        for (const std::string& n : pines_conector) if (!rep_de.count(n)) mete(ex, n);
+        externos_ = ex;
+        std::vector<std::string> v;
+        for (const std::string& d : declarados_) mete(v, rp(d));
+        declarados_ = v;
+        v.clear();
+        for (const std::string& b : buses_) mete(v, rp(b));
+        buses_ = v;
+        uniones_ = nuevas_uniones;
+        alias_ = rep_de;
+        return err;
+    }
+
     // El creador lo pone la FACTORÍA a partir del nombre del tipo. Da igual
     // que la instancia venga de un ayudante tipado o de un fichero XML: por
     // aquí pasan las dos, y las dos salen sabiendo construirse. Si el tipo no
@@ -464,6 +1169,7 @@ public:
             if (i.pieza || !i.crea) continue;
             i.pieza = i.crea(i, nodos, *this);
             if (!i.pieza) continue;
+            i.pieza->pon_id(i.id);       // el nombre de la placa, no `Crystal_1`
             piezas_.push_back(i.pieza);
             i.pieza->set_enabled(i.conectada);
             ++n;
@@ -522,15 +1228,17 @@ public:
                 err.push_back("nodo " + u.first + ": une necesita al menos dos "
                               "pads; con uno solo el nodo ya es del pad");
             for (const std::string& s : u.second) {
-                std::string id_mcu;
-                unsigned p = 0, i = 0;
-                const std::string e = resuelve_pad(s, id_mcu, p, i);
-                if (!e.empty()) { err.push_back("nodo " + u.first + ": " + e); continue; }
                 // La clave es el pad FÍSICO, no como esté escrito: con un solo
                 // MCU llamado u0, `PB9` y `u0.PB9` son el mismo pad y ponerlos
-                // en dos puentes distintos tiene que seguir siendo un error.
-                const std::string clave =
-                    id_mcu + ":" + std::to_string(p * N_PORT_PINS + i);
+                // en dos puentes distintos tiene que seguir siendo un error. Un
+                // pad de alimentación o de arranque (`u0.NRST`) vale igual.
+                bool al = false;
+                std::string e;
+                const std::string clave = clave_pad(s, al, e);
+                if (clave.empty() && e.empty())
+                    e = "'" + s + "' no es un pad del MCU (se esperaba algo como "
+                        "PD12, u0.PD12 o u0.NRST)";
+                if (!e.empty()) { err.push_back("nodo " + u.first + ": " + e); continue; }
                 const auto it = pad_de.find(clave);
                 if (it == pad_de.end())      pad_de[clave] = u.first;
                 else if (it->second == u.first)
@@ -638,43 +1346,112 @@ public:
     // se comprueba es lo que la PLACA impone.
     std::vector<std::string> valida_electrica(const NodeMap& nodos) const {
         std::vector<std::string> err;
-        // nodo -> piezas conectadas que conducen, y total de piezas colgadas
-        std::map<std::string, std::vector<std::string>> activos;
-        std::map<std::string, unsigned> colgados;
+        // nodo -> piezas conectadas que conducen, y total de piezas colgadas.
+        //
+        // EL NODO ES EL HILO, NO SU NOMBRE. Se agrupa por el AnalogNet al que
+        // va cada terminal, y el nombre solo se usa para decirlo. Agrupando por
+        // nombre, dos chips con su pulsador de RESET -dos Nucleo en un
+        // sistema- daban «nodo nrst: conducen a la vez A/B2.pin y B/B2.pin»:
+        // los pads de alimentacion de los dos se llaman `nrst` por dentro,
+        // pero son dos nodos que no se tocan.
+        struct Clave {
+            const void* net;
+            std::string nombre;
+            bool operator<(const Clave& o) const {
+                return net != o.net ? net < o.net : nombre < o.nombre;
+            }
+        };
+        std::map<Clave, std::vector<std::string>> activos_c, rieles_c;
+        std::map<Clave, unsigned> colgados_c;
+        std::set<Clave> con_conector;
         for (const Instancia& i : inst_) {
             if (!i.pieza) continue;
             for (const Terminal& t : i.pieza->terminales()) {
-                ++colgados[t.nodo];
+                if (t.paso) {                           // un pin de conector
+                    con_conector.insert(Clave{t.net, t.net ? std::string() : t.nodo});
+                    continue;
+                }
+                const Clave k{t.net, t.net ? std::string() : t.nodo};
+                ++colgados_c[k];
                 if (t.pasivo || t.ids.empty()) continue;
                 if (!i.pieza->conectada()) continue;    // desoldada: no cuenta
-                activos[t.nodo].push_back(i.id + "." + t.nombre);
+                activos_c[k].push_back(i.id + "." + t.nombre);
+                if (t.riel) rieles_c[k].push_back(i.id + "." + t.nombre);
             }
         }
-        for (const auto& kv : activos) {
-            if (kv.second.size() < 2 || es_bus_efectivo(kv.first)) continue;
+        // De vuelta a nombres, para decirlo: el de cualquiera de sus terminales.
+        // Dos hilos con el mismo nombre se quedan separados.
+        std::map<const void*, std::string> nombre_de_net;
+        for (const Instancia& i : inst_)
+            if (i.pieza)
+                for (const Terminal& t : i.pieza->terminales())
+                    if (t.net && !nombre_de_net.count(t.net)) nombre_de_net[t.net] = t.nodo;
+        auto nombre = [&](const Clave& k) {
+            return k.net ? nombre_de_net[k.net] : k.nombre;
+        };
+        // Y los hilos que son bus, por su hilo tambien: un bus declarado en
+        // una placa -el comun de una barra, `P1.COM`- que un <hilo> lleva a
+        // VDD queda dentro del nodo del pad, que por dentro se llama `vdd`, y
+        // por el nombre no se encontraba.
+        std::set<const void*> nets_bus;
+        for (const std::string& b : buses_)
+            if (const Nodo* nd = nodos.busca(b))
+                if (nd->net) nets_bus.insert(nd->net);
+        // UN RAÍL NO ES UN CORTOCIRCUITO. Un nodo con una fuente (Fuente, Gnd)
+        // y lo que cuelga de ella -LEDs, resistencias, pulsadores- es lo
+        // normal: la fuente lo sostiene y los demás tiran de ella. Dos fuentes
+        // en el mismo nodo, en cambio, se pelean aunque sea un bus.
+        for (const auto& kv : rieles_c) {
+            if (kv.second.size() < 2) continue;
             std::string quien;
             for (const std::string& q : kv.second) {
                 if (!quien.empty()) quien += " y ";
                 quien += q;
             }
-            err.push_back("nodo " + kv.first + ": conducen a la vez " + quien +
+            err.push_back("nodo " + nombre(kv.first) + ": dos fuentes a la vez, " + quien +
+                          ". Una fuente sostiene un nodo; dos se pelean por el");
+        }
+        for (const auto& kv : activos_c) {
+            if (kv.second.size() < 2 || es_bus_efectivo(nombre(kv.first)) ||
+                (kv.first.net && nets_bus.count(kv.first.net)))
+                continue;
+            if (rieles_c.count(kv.first)) continue;     // un raíl con sus cargas
+            // Dos patillas de UNA pieza en el mismo hilo no se pelean: es la
+            // pieza la que decide cómo se reparten -la pantalla con su VCC y
+            // su LED a los 3,3 V-
+            {
+                std::set<std::string> piezas;
+                for (const std::string& q : kv.second) piezas.insert(q.substr(0, q.rfind('.')));
+                if (piezas.size() < 2) continue;
+            }
+            std::string quien;
+            for (const std::string& q : kv.second) {
+                if (!quien.empty()) quien += " y ";
+                quien += q;
+            }
+            err.push_back("nodo " + nombre(kv.first) + ": conducen a la vez " + quien +
                           ". Si es un bus, declaralo con nodo_bus()");
         }
-        for (const auto& kv : colgados) {
-            if (activos.count(kv.first)) continue;
+        for (const auto& kv : colgados_c) {
+            if (activos_c.count(kv.first)) continue;
+            const std::string nom = nombre(kv.first);
             // Un PIN no puede quedar flotante por culpa de la placa: al otro
             // lado esta el pad del MCU, que conduce o no segun lo que mande el
             // firmware. Que ninguna pieza externa lo gobierne es lo normal en
             // una entrada. El aviso solo tiene sentido en los nodos que no son
             // pines: ahi no hay nadie mas, y si nadie conduce, nadie conduce.
-            const Nodo* nd = nodos.busca(kv.first);
+            const Nodo* nd = nodos.busca(nom);
             if (nd && nd->es_pin) continue;
             // Un nodo COMPARTIDO tampoco puede quedar flotante por culpa de la
             // placa: es un pad -o dos-, y quien conduce ahi lo decide el
             // firmware. Se registra con su nombre de placa y no como pin, asi
             // que hay que reconocerlo por la declaracion.
-            if (union_de(kv.first)) continue;
-            err.push_back("nodo " + kv.first + ": " + std::to_string(kv.second) +
+            if (union_de(nom)) continue;
+            // Ni una ENTRADA que sale por un conector de una placa suelta: la
+            // gobierna quien la conecte -el CS de una pantalla-. En un
+            // sistema sí se avisa: ahí se sabe que nadie la ha conectado.
+            if (placas_.empty() && con_conector.count(kv.first)) continue;
+            err.push_back("nodo " + nom + ": " + std::to_string(kv.second) +
                           " terminal(es) colgados y ninguno conduce; su tension "
                           "no esta definida");
         }
@@ -697,6 +1474,9 @@ public:
         if (!pad_desde_nombre(s, pref, port, pin))
             return "'" + s + "' no es un pad del MCU (se esperaba algo como "
                    "PD12 o u0.PD12)";
+        if (sin_mcu_)
+            return "'" + s + "' es un pin de MCU, y la placa no lleva ninguno: "
+                   "declara <mcu tipo=\"...\" id=\"u0\"/> o pasa --mcu";
         if (pref.empty()) {
             if (n_mcus_efectivos() > 1)
                 return "'" + s + "' es ambiguo, hay " +
@@ -720,6 +1500,7 @@ public:
         return std::string();
     }
     std::string lista_mcus() const {
+        if (sin_mcu_) return "(ninguno: la placa no lleva MCU)";
         if (mcus_.empty()) return "(ninguno; hay uno implicito)";
         std::string s;
         for (const DeclMcu& m : mcus_) { if (!s.empty()) s += ", "; s += m.id; }
@@ -748,8 +1529,107 @@ public:
     // Escribe la DECLARACIÓN, no el modelo: esto es lo que un día leerá el
     // paso 3, y por eso lleva los nodos y los parámetros, que el volcado del
     // inventario (ExtPartBase::volcar_netlist) no puede conocer.
-    void volcar_xml(std::ostream& os, const char* nombre_placa = "placa") const {
-        os << "<placa nombre=\"" << xml_escapa(nombre_placa) << "\">\n";
+    //
+    // Un <sistema> se vuelca APLANADO: el sistema con sus placas, y detrás todo
+    // lo de todas con sus nombres cualificados (`A/LD2`, `A/u0.PA5`) y los
+    // conectores ya resueltos -cada pin con el nodo que le tocó-. Los acoples
+    // y los hilos salen al final, para que quien lo lea sepa qué se enchufó
+    // con qué; ya están aplicados. Es lo que recibe mcu-sim-gui en T_PLACA
+    // desde la versión 2 del protocolo. Con `como_sistema` a false sale lo
+    // mismo con la raíz de siempre, <placa>, y sin lo que solo tiene un
+    // sistema: es lo que se manda a una ventana de la versión 1.
+    //
+    // CADA PLACA SE DESCRIBE ENTERA en su <placa id>, para que quien lo lea
+    // pueda DIBUJAR el sistema sin deducir nada de los prefijos: cuántas
+    // piezas lleva, sus chips y sus conectores con su forma, y en cada acople
+    // e hilo, qué placas une. Nada de eso cambia la simulación; es la
+    // descripción del montaje.
+    std::string placa_de(const std::string& id) const {
+        const size_t b = id.find('/');
+        if (b == std::string::npos) return std::string();
+        const std::string p = id.substr(0, b);
+        for (const PlacaDeSistema& x : placas_) if (x.id == p) return p;
+        return std::string();
+    }
+    void volcar_xml(std::ostream& os, const char* nombre_placa = "placa",
+                    bool como_sistema = true) const {
+        const bool sis = como_sistema && es_sistema();
+        // El dibujo, como se escribe en la placa: `ilustracion="x.svg"` si lo
+        // declara, y la tabla de enlaces si la tiene. Solo lo DECLARADO: el
+        // fichero que se encuentra sin decirlo no es de la placa, y el volcado
+        // de una placa se vuelve a leer como placa.
+        auto tabla = [&](const Ilustracion& il, const char* sangria) {
+            if (il.enlaces.empty()) return;
+            os << sangria << "<ilustracion>\n";
+            for (const EnlaceIlustracion& e : il.enlaces) {
+                os << sangria << "  <enlace pieza=\"" << xml_escapa(e.pieza)
+                   << "\" elemento=\"" << xml_escapa(e.elemento) << "\"";
+                if (!e.efecto.empty()) os << " efecto=\"" << xml_escapa(e.efecto) << "\"";
+                os << "/>\n";
+            }
+            os << sangria << "</ilustracion>\n";
+        };
+        os << (sis ? "<sistema" : "<placa") << " nombre=\"" << xml_escapa(nombre_placa)
+           << "\"";
+        if (!es_sistema() && !ilustracion_.declarada.empty())
+            os << " ilustracion=\"" << xml_escapa(ilustracion_.declarada) << "\"";
+        if (!es_sistema() && ilustracion_.giro)
+            os << " giro=\"" << ilustracion_.giro << "\"";
+        // La disposición de la ventana (plan §38 de mcu-sim-gui)
+        auto num = [](double v) {
+            char b[32];
+            std::snprintf(b, sizeof b, "%.10g", v);
+            return std::string(b);
+        };
+        if (!es_sistema() && ilustracion_.escala != 1.0)
+            os << " escala=\"" << num(ilustracion_.escala) << "\"";
+        if (lienzo_.fijo)
+            os << " lienzo=\"" << num(lienzo_.x) << " " << num(lienzo_.y) << " "
+               << num(lienzo_.ancho) << " " << num(lienzo_.alto) << "\"";
+        os << ">\n";
+        if (!es_sistema()) tabla(ilustracion_, "  ");
+        if (sis)
+            for (const PlacaDeSistema& p : placas_) {
+                unsigned n = 0;
+                for (const Instancia& i : inst_) n += placa_de(i.id) == p.id ? 1u : 0u;
+                os << "  <placa id=\"" << xml_escapa(p.id) << "\" nombre=\""
+                   << xml_escapa(p.nombre) << "\"";
+                if (!p.fichero.empty()) os << " fichero=\"" << xml_escapa(p.fichero) << "\"";
+                if (!p.ilustracion.declarada.empty())
+                    os << " ilustracion=\"" << xml_escapa(p.ilustracion.declarada) << "\"";
+                if (p.ilustracion.giro) os << " giro=\"" << p.ilustracion.giro << "\"";
+                if (p.ilustracion.colocada)
+                    os << " x=\"" << num(p.ilustracion.x_mm) << "\" y=\"" << num(p.ilustracion.y_mm)
+                       << "\"";
+                if (p.ilustracion.escala != 1.0)
+                    os << " escala=\"" << num(p.ilustracion.escala) << "\"";
+                os << " piezas=\"" << n << "\">\n";
+                tabla(p.ilustracion, "    ");
+                for (const DeclMcu& m : mcus_)
+                    if (placa_de(m.id) == p.id)
+                        os << "    <mcu ref=\"" << xml_escapa(m.id) << "\" tipo=\""
+                           << xml_escapa(m.tipo) << "\"/>\n";
+                for (const Instancia& i : inst_) {
+                    if (!es_conector(i.tipo) || placa_de(i.id) != p.id) continue;
+                    GeomConector g;
+                    if (!geometria(i, g).empty()) continue;
+                    os << "    <conector ref=\"" << xml_escapa(i.id) << "\" filas=\""
+                       << g.filas << "\" columnas=\"" << g.columnas << "\" numeracion=\""
+                       << (g.zigzag ? "zigzag" : "filas") << "\"";
+                    if (!g.nombres.empty()) {
+                        os << " nombres=\"";
+                        for (unsigned k = 1; k <= g.n(); ++k)
+                            os << (k > 1 ? " " : "")
+                               << (g.nombres[k - 1].empty() ? "-" : g.nombres[k - 1]);
+                        os << "\"";
+                    }
+                    for (size_t k = 0; k < acoples_.size(); ++k)
+                        for (const std::string& c : acoples_[k].conectores)
+                            if (c == i.id) os << " acople=\"" << k << "\"";
+                    os << "/>\n";
+                }
+                os << "  </placa>\n";
+            }
         // Los MCUs primero: son quienes aportan los nodos, y el lector los
         // necesita antes de poder resolver un solo nombre de pin.
         for (const DeclMcu& m : mcus_) {
@@ -787,6 +1667,7 @@ public:
             for (const auto& p : i.params)
                 os << " " << p.first << "=\"" << xml_escapa(p.second) << "\"";
             if (!i.conectada) os << " conectada=\"no\"";
+            if (!i.visible) os << " visible=\"no\"";
             os << ">\n";
             for (const Conexion& c : i.pines)
                 os << "    <pin nombre=\"" << c.pin << "\" nodo=\"" << c.nodo
@@ -796,7 +1677,36 @@ public:
                    << r.second << "\"/>\n";
             os << "  </componente>\n";
         }
-        os << "</placa>\n";
+        if (sis) {
+            // Un acople, con sus conectores y las placas que une. Con dos,
+            // además a= y b=, que es como lo lee una ventana de la primera
+            // versión de los sistemas.
+            for (size_t k = 0; k < acoples_.size(); ++k) {
+                const Acople& a = acoples_[k];
+                std::string cs, ps;
+                for (const std::string& c : a.conectores) {
+                    cs += (cs.empty() ? "" : " ") + c;
+                    ps += (ps.empty() ? "" : " ") + placa_de(c);
+                }
+                os << "  <acopla n=\"" << k << "\" conectores=\"" << xml_escapa(cs)
+                   << "\" placas=\"" << xml_escapa(ps) << "\"";
+                if (a.conectores.size() == 2)
+                    os << " a=\"" << xml_escapa(a.conectores[0]) << "\" b=\""
+                       << xml_escapa(a.conectores[1]) << "\"";
+                os << (a.espejo ? " espejo=\"si\"" : "") << "/>\n";
+            }
+            for (const auto& h : hilos_)
+                os << "  <hilo a=\"" << xml_escapa(h.first) << "\" b=\""
+                   << xml_escapa(h.second) << "\" placas=\""
+                   << xml_escapa(placa_de(h.first) + " " + placa_de(h.second)) << "\"/>\n";
+            for (const RutaLinea& r : rutas_) {
+                os << "  <ruta linea=\"" << xml_escapa(r.linea) << "\" eje=\""
+                   << (r.horizontal ? "h" : "v") << "\" codos=\"";
+                for (size_t k = 0; k < r.codos.size(); ++k) os << (k ? " " : "") << num(r.codos[k]);
+                os << "\"/>\n";
+            }
+        }
+        os << (sis ? "</sistema>\n" : "</placa>\n");
     }
 
 private:
@@ -806,12 +1716,23 @@ private:
     // garantiza sin números mágicos.
     std::list<Instancia>       inst_;
     std::vector<std::string>   externos_;
+    std::vector<std::string>   declarados_;
     std::vector<std::string>   buses_;
     // nodo compartido -> los pads que LO SON. Mapa y no lista porque lo
     // recorren el volcado y el cableado, y los dos tienen que salir en el mismo
     // orden en dos ejecuciones distintas.
     std::map<std::string, std::vector<std::string>> uniones_;
     std::vector<DeclMcu>       mcus_;
+    // Lo que `resuelve_alias()` une: hilos y acoples, y lo que deja, el nombre
+    // que le tocó a cada nodo.
+    std::vector<std::pair<std::string, std::string>> hilos_;
+    std::vector<Acople>        acoples_;
+    std::map<std::string, std::string> alias_;
+    std::vector<PlacaDeSistema> placas_;
+    Ilustracion ilustracion_;
+    LienzoVentana lienzo_;
+    std::vector<RutaLinea> rutas_;
+    bool                       sin_mcu_ = false;
     const Encapsulado*         enc_implicito_ = &ENC_LQFP100;
     std::vector<ExtPartBase*>  piezas_;
 };
@@ -851,12 +1772,16 @@ inline std::string cableado_desde_netlist(const Netlist& nl, NodeMap& nodos,
             return "nodo " + u.first + ": une necesita al menos dos pads";
         analog_net_if& n = nodos.externo(u.first);
         for (const std::string& s : u.second) {
-            std::string id_mcu;
+            std::string id_mcu, alim;
             unsigned p = 0, i = 0;
-            const std::string e = nl.resuelve_pad(s, id_mcu, p, i);
-            if (!e.empty()) return "nodo " + u.first + ": " + e;
-            const std::string clave =
-                id_mcu + ":" + std::to_string(p * N_PORT_PINS + i);
+            // Un pad de alimentación o de arranque va a `une_alim`
+            const bool es_alim = nl.resuelve_alim(s, id_mcu, alim).empty();
+            if (!es_alim) {
+                const std::string e = nl.resuelve_pad(s, id_mcu, p, i);
+                if (!e.empty()) return "nodo " + u.first + ": " + e;
+            }
+            const std::string clave = id_mcu + ":" +
+                (es_alim ? alim : std::to_string(p * N_PORT_PINS + i));
             const auto it = pad_de.find(clave);
             if (it != pad_de.end())
                 return it->second == u.first
@@ -864,7 +1789,8 @@ inline std::string cableado_desde_netlist(const Netlist& nl, NodeMap& nodos,
                      : "el pad " + s + " esta en dos nodos a la vez: " +
                        it->second + " y " + u.first;
             pad_de[clave] = u.first;
-            cabs[id_mcu].une(p, i, n);
+            if (es_alim) cabs[id_mcu].une_alim(alim, n);
+            else         cabs[id_mcu].une(p, i, n);
         }
     }
     return std::string();

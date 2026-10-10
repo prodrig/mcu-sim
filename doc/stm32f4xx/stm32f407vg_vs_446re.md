@@ -945,11 +945,16 @@ comprobaciones nuevas en T128. El efecto se ve enseguida:
 
 ```
 $ ./build/mcu-sim placas/discovery_min.xml --mcu STM32F405OE --valida
+  [mcu] u0: --mcu STM32F405OE sustituye al STM32F407VG que declara la placa
   [decl] LD3.anodo: el pad PD13 no sale al encapsulado WLCSP90
 ```
 
 La placa Discovery **no cabe en un WLCSP90**, porque le falta el pin del LED
 naranja. Con el mapa anterior eso habría pasado en silencio.
+
+> **Después:** `discovery_min.xml` declara ya su `<mcu tipo="STM32F407VG"
+> id="u0"/>` —el MCU no se supone—, y cuando hay `<mcu>` y `--mcu` a la vez gana
+> `--mcu`, que lo dice en la primera línea. La orden sigue enseñando lo mismo.
 
 ---
 

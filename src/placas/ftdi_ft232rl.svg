@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ADAPTADOR USB-SERIE CON FT232RL, dibujado a mano: una aproximacion, no una
+  foto. Es el dibujo de placas/ftdi_ft232rl.xml, que lo encuentra solo porque
+  se llama como ella.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: la placa mide 36 x 18 mm, y a la izquierda asoman los pines
+  acodados- y cada pieza con el id de su pieza en el XML: el conector P1, con
+  cada pin por su nombre (P1.DTR ... P1.GND) -cada uno, su patilla acodada y
+  su cuadrado: un hilo engancha en la punta de la patilla-; el jumper JP1,
+  con los suyos (JP1.5V, JP1.VCC, JP1.3.3V); el FT232RL, U1; y el USB,
+  USB_5V, que es de donde salen los 5 V.
+
+  EL PUENTE DEL JUMPER esta dibujado en sus dos posiciones, como VARIANTES
+  de JP1: `JP1@5V-VCC` y `JP1@VCC-3.3V`. mcu-sim deja solo la que dice el
+  puente= de la placa antes de mandar el dibujo a la ventana
+  (src/common/svg_variantes.h); con puente="no" no queda ninguna.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 390 180" width="39mm" height="18mm">
+  <rect x="25" y="1" width="360" height="178" rx="6" fill="#7a0e14" stroke="#4a0508" stroke-width="2"/>
+  <circle cx="155.0" cy="13" r="7" fill="#c9c9c9" stroke="#8a8a8a" stroke-width="1.5"/>
+  <circle cx="155.0" cy="13" r="3.5" fill="#4a0508"/>
+  <circle cx="155.0" cy="167" r="7" fill="#c9c9c9" stroke="#8a8a8a" stroke-width="1.5"/>
+  <circle cx="155.0" cy="167" r="3.5" fill="#4a0508"/>
+  <circle cx="180.4" cy="13" r="7" fill="#c9c9c9" stroke="#8a8a8a" stroke-width="1.5"/>
+  <circle cx="180.4" cy="13" r="3.5" fill="#4a0508"/>
+  <circle cx="180.4" cy="167" r="7" fill="#c9c9c9" stroke="#8a8a8a" stroke-width="1.5"/>
+  <circle cx="180.4" cy="167" r="3.5" fill="#4a0508"/>
+  <circle cx="205.8" cy="13" r="7" fill="#c9c9c9" stroke="#8a8a8a" stroke-width="1.5"/>
+  <circle cx="205.8" cy="13" r="3.5" fill="#4a0508"/>
+  <circle cx="205.8" cy="167" r="7" fill="#c9c9c9" stroke="#8a8a8a" stroke-width="1.5"/>
+  <circle cx="205.8" cy="167" r="3.5" fill="#4a0508"/>
+  <circle cx="231.2" cy="13" r="7" fill="#c9c9c9" stroke="#8a8a8a" stroke-width="1.5"/>
+  <circle cx="231.2" cy="13" r="3.5" fill="#4a0508"/>
+  <circle cx="231.2" cy="167" r="7" fill="#c9c9c9" stroke="#8a8a8a" stroke-width="1.5"/>
+  <circle cx="231.2" cy="167" r="3.5" fill="#4a0508"/>
+  <circle cx="256.6" cy="13" r="7" fill="#c9c9c9" stroke="#8a8a8a" stroke-width="1.5"/>
+  <circle cx="256.6" cy="13" r="3.5" fill="#4a0508"/>
+  <circle cx="256.6" cy="167" r="7" fill="#c9c9c9" stroke="#8a8a8a" stroke-width="1.5"/>
+  <circle cx="256.6" cy="167" r="3.5" fill="#4a0508"/>
+  <circle cx="282.0" cy="13" r="7" fill="#c9c9c9" stroke="#8a8a8a" stroke-width="1.5"/>
+  <circle cx="282.0" cy="13" r="3.5" fill="#4a0508"/>
+  <circle cx="282.0" cy="167" r="7" fill="#c9c9c9" stroke="#8a8a8a" stroke-width="1.5"/>
+  <circle cx="282.0" cy="167" r="3.5" fill="#4a0508"/>
+  <circle cx="307.4" cy="13" r="7" fill="#c9c9c9" stroke="#8a8a8a" stroke-width="1.5"/>
+  <circle cx="307.4" cy="13" r="3.5" fill="#4a0508"/>
+  <circle cx="307.4" cy="167" r="7" fill="#c9c9c9" stroke="#8a8a8a" stroke-width="1.5"/>
+  <circle cx="307.4" cy="167" r="3.5" fill="#4a0508"/>
+  <g id="P1">
+    <rect x="34.0" y="13.8" width="26" height="152.4" rx="2" fill="#1c1c1c" stroke="#000000" stroke-width="1"/>
+    <g id="P1.DTR">
+      <rect x="0" y="23.5" width="34.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+      <rect x="42.0" y="21.5" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    </g>
+    <g id="P1.RX">
+      <rect x="0" y="48.9" width="34.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+      <rect x="42.0" y="46.9" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    </g>
+    <g id="P1.TX">
+      <rect x="0" y="74.3" width="34.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+      <rect x="42.0" y="72.3" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    </g>
+    <g id="P1.VCC">
+      <rect x="0" y="99.7" width="34.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+      <rect x="42.0" y="97.7" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    </g>
+    <g id="P1.CTS">
+      <rect x="0" y="125.1" width="34.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+      <rect x="42.0" y="123.1" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    </g>
+    <g id="P1.GND">
+      <rect x="0" y="150.5" width="34.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+      <rect x="42.0" y="148.5" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    </g>
+  </g>
+  <text x="65.0" y="30.0" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5">DTR</text>
+  <text x="65.0" y="55.4" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5">RX</text>
+  <text x="65.0" y="80.8" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5">TX</text>
+  <text x="65.0" y="106.2" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5">VCC</text>
+  <text x="65.0" y="131.6" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5">CTS</text>
+  <text x="65.0" y="157.0" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5">GND</text>
+  <g id="JP1">
+    <rect x="104.0" y="51.9" width="26" height="76.2" rx="2" fill="#1c1c1c" stroke="#000000" stroke-width="1"/>
+    <rect id="JP1.5V" x="112.0" y="59.6" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    <rect id="JP1.VCC" x="112.0" y="85.0" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    <rect id="JP1.3.3V" x="112.0" y="110.4" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+    <g id="JP1@5V-VCC">
+      <rect x="106.0" y="53.6" width="22" height="47.4" rx="3" fill="#0a0a0a" fill-opacity="0.45" stroke="#e8e8e8" stroke-width="2"/>
+      <rect x="114.5" y="64.6" width="5" height="25.4" fill="#e0e0e0"/>
+    </g>
+    <g id="JP1@VCC-3.3V">
+      <rect x="106.0" y="79.0" width="22" height="47.4" rx="3" fill="#0a0a0a" fill-opacity="0.45" stroke="#e8e8e8" stroke-width="2"/>
+      <rect x="114.5" y="90.0" width="5" height="25.4" fill="#e0e0e0"/>
+    </g>
+  </g>
+  <text x="135.0" y="68.1" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5">5V</text>
+  <text x="135.0" y="93.5" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5">VCC</text>
+  <text x="135.0" y="118.9" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5">3.3V</text>
+  <rect x="168.5" y="41" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="168.5" y="125" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="177.6" y="41" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="177.6" y="125" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="186.7" y="41" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="186.7" y="125" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="195.7" y="41" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="195.7" y="125" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="204.8" y="41" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="204.8" y="125" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="213.9" y="41" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="213.9" y="125" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="223.0" y="41" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="223.0" y="125" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="232.0" y="41" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="232.0" y="125" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="241.1" y="41" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="241.1" y="125" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="250.2" y="41" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="250.2" y="125" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="259.3" y="41" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="259.3" y="125" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="268.3" y="41" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="268.3" y="125" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="277.4" y="41" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="277.4" y="125" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="286.5" y="41" width="5" height="14" fill="#c0c0c0"/>
+  <rect x="286.5" y="125" width="5" height="14" fill="#c0c0c0"/>
+  <g id="U1">
+    <rect x="165" y="55" width="130" height="70" rx="3" fill="#1e1e1e" stroke="#000000" stroke-width="1"/>
+    <circle cx="175" cy="115" r="3.5" fill="#3a3a3a"/>
+    <text x="230.0" y="83" font-family="Arial" font-size="15" font-style="italic" font-weight="bold" fill="#8c8c8c" text-anchor="middle">FTDI</text>
+    <text x="230.0" y="107" font-family="Arial" font-size="17" font-weight="bold" fill="#f1c40f" text-anchor="middle">FT232RL</text>
+  </g>
+  <rect x="310" y="22" width="10" height="7" fill="#e8e8e8" stroke="#9a9a9a" stroke-width="0.6"/>
+  <text x="315" y="40" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">TX</text>
+  <rect x="332" y="22" width="10" height="7" fill="#e8e8e8" stroke="#9a9a9a" stroke-width="0.6"/>
+  <text x="337" y="40" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">RX</text>
+  <g id="USB_5V">
+    <rect x="323" y="50.0" width="67" height="80" rx="3" fill="#bdbdbd" stroke="#7a7a7a" stroke-width="1.5"/>
+    <rect x="335" y="64.0" width="50" height="52" rx="2" fill="#5a5a5a"/>
+    <rect x="343" y="78.0" width="34" height="24" fill="#2a2a2a"/>
+  </g>
+</svg>

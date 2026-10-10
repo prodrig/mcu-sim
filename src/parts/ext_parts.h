@@ -30,6 +30,8 @@
 #define STM32_PARTS_EXT_PARTS_H
 
 #include <systemc>
+#include <algorithm>
+#include <cstdint>
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -96,6 +98,17 @@ public:
     // Desoldar el cristal es exactamente detach(): el interruptor común de la
     // librería y el que ya tenía esta pieza son la misma operación.
     void set_enabled(bool on) override { if (on) attach(); else detach(); }
+
+    // Lo que deja ver: si HAY cristal. No la frecuencia, por lo mismo que no
+    // la lleva como atributo (véase su ficha en parts/netlist_parts.h): la del
+    // HSE es un dato del árbol de reloj y vive en el RCC. El plan de dos
+    // procesos pedía `frecuencia`; publicar una que la pieza no tiene sería
+    // inventarla, y la GUI no debe enseñar nada que el modelo no sepa.
+    unsigned   n_observables() const override { return 1; }
+    Observable observable(unsigned) const override {
+        return {"presente", "", 0.f, 1.f, true};
+    }
+    float valor_observable(unsigned) const override { return present_ ? 1.f : 0.f; }
 private:
     double vdd_, r_;
     bool   present_ = false;
@@ -163,6 +176,170 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// FUENTES: una tensión fija en un nodo, con límite de corriente opcional.
+//
+// `Fuente` pone `v` voltios (3,3 por omisión) y `Gnd` pone 0: las dos son la
+// MISMA pieza -un equivalente Thevenin {v, r} con r pequeña, 0,1 ohm, que es
+// lo menos que admite el nodo- y solo cambian la tensión y el sentido en que
+// se lee la corriente: la de una Fuente es la que ENTREGA al nodo, la de una
+// Gnd la que RECIBE de él. Son lo que hace falta para montar un circuito sin
+// MCU -un raíl de 3,3 V, una masa- y lo que deja medir cuánto tira la placa.
+//
+// EL LÍMITE DE CORRIENTE se comporta como el de una fuente de laboratorio: por
+// debajo, tensión constante; si la carga pide más, la fuente pasa a CORRIENTE
+// CONSTANTE -entrega exactamente el límite y deja caer la tensión- y lo dice:
+// el observable `sobrecorriente` se pone a 1 y sale un aviso, que la ventana
+// recibe como T_AVISO. Sin límite (0, o "no" en el XML) es una fuente ideal.
+//
+// Cómo se limita, sin iterar a ciegas: el nodo resuelve por superposición de
+// equivalentes Thevenin (common/analog_net.h), así que todo lo que NO es esta
+// fuente es otro Thevenin {Vx, Rx} que se puede leer -Vx con
+// voltage_excluding(), Rx de la conductancia total menos la propia-. Con eso,
+// la corriente que pediría la carga es |v - Vx| / (r + Rx), y la resistencia
+// que la deja exactamente en el límite es |v - Vx| / I_lim - Rx. Es exacto para
+// lo lineal; lo que no lo es -un LED que se enciende o se apaga- cambia el
+// nodo, y la fuente se vuelve a ajustar en la siguiente vuelta.
+// ---------------------------------------------------------------------------
+SC_MODULE(FuenteTension), public ExtPart {
+    FuenteTension(sc_core::sc_module_name nm, analog_net_if& n, const char* tipo,
+                  double v, double r, double limite_ma, bool masa)
+        : sc_core::sc_module(nm), ExtPart(n, tipo, masa ? "gnd" : "fuente", "pin", nm),
+          v_(v), r0_(r < 0.1 ? 0.1 : r), lim_(limite_ma > 0.0 ? limite_ma / 1000.0 : 0.0),
+          masa_(masa) {
+        marca_riel("pin");
+        r_ = r0_;
+        drive(float(v_), float(r_));
+        // Sin límite no hace falta vigilar nada: la corriente se calcula al
+        // preguntarla. Con límite, un proceso que reajusta cuando el nodo cambia.
+        SC_HAS_PROCESS(FuenteTension);
+        if (lim_ > 0.0) SC_THREAD(vigila);
+    }
+    double v() const         { return v_; }
+    double limite_ma() const { return lim_ * 1000.0; }
+    bool   sobrecorriente() const { return sobre_; }
+    // Las veces que ha entrado en sobrecorriente desde que se construyó
+    unsigned episodios() const { return episodios_; }
+    // La corriente, en A: la que entrega una Fuente; la que recibe una Gnd
+    double corriente() const {
+        const double i = double(pin_current());          // >0: entra al nodo
+        return masa_ ? -i : i;
+    }
+    void set_enabled(bool on) override {
+        ExtPartBase::set_enabled(on);
+        if (on) { r_ = r0_; drive(float(v_), float(r_)); } else { hiz(); sobre_ = false; }
+    }
+
+    unsigned   n_observables() const override { return 2; }
+    Observable observable(unsigned i) const override {
+        const float esc = lim_ > 0.0 ? float(lim_ * 1000.0) : 100.f;
+        if (i == 0) return {"corriente", "mA", -esc, esc, true};
+        return {"sobrecorriente", "", 0.f, 1.f, true, true};
+    }
+    float valor_observable(unsigned i) const override {
+        if (i == 0) return conectada_ ? float(corriente() * 1000.0) : 0.f;
+        return sobre_ ? 1.f : 0.f;
+    }
+
+private:
+    void vigila() {
+        for (;;) {
+            wait(net_->value_changed_event() | evento_conexion());
+            if (conectada_) ajusta();
+        }
+    }
+    void ajusta() {
+        // Lo que hay en el nodo sin esta fuente: su Thevenin {vx, rx}. La
+        // conductancia total es la de la ultima resolucion, que incluye la
+        // propia con la r que se aplico: se descuenta con el MISMO float que
+        // vio el nodo, o la resta no da cero cuando no hay nadie mas.
+        bool solo = false;
+        const double vx = double(net_->voltage_excluding(id_, solo));
+        const double gx = net_->conductance() - 1.0 / double(float(r_));
+        double r_nueva = r0_;
+        bool sobre = false;
+        if (!solo && gx > G_FLOAT) {
+            const double rx = 1.0 / gx;
+            const double dv = std::fabs(v_ - vx);
+            if (dv / (r0_ + rx) > lim_) {                 // pide mas del limite
+                r_nueva = std::max(r0_, dv / lim_ - rx);
+                sobre = true;
+            }
+        }
+        if (sobre && !sobre_) {
+            ++episodios_;
+            char b[200];
+            std::snprintf(b, sizeof b, "%s: sobrecorriente; la carga pide mas de "
+                          "%.3g mA y la %s se limita a ellos", pieza().c_str(),
+                          lim_ * 1000.0, masa_ ? "masa" : "fuente");
+            SC_REPORT_WARNING(masa_ ? "/mcu-sim/gnd" : "/mcu-sim/fuente", b);
+        }
+        sobre_ = sobre;
+        // Solo se toca el nodo si la r cambia de verdad: cada drive() es otra
+        // resolucion y otro evento, y sin este umbral se reajustaria en bucle.
+        if (std::fabs(r_nueva - r_) > 1e-6 * r_) {
+            r_ = r_nueva;
+            drive(float(v_), float(r_));
+        }
+    }
+    double   v_, r0_, lim_;
+    bool     masa_;
+    double   r_ = 0.1;
+    bool     sobre_ = false;
+    unsigned episodios_ = 0;
+};
+
+class Fuente : public FuenteTension {
+public:
+    Fuente(sc_core::sc_module_name nm, analog_net_if& n, double v = 3.3,
+           double r = 0.1, double limite_ma = 0.0)
+        : FuenteTension(nm, n, "Fuente", v, r, limite_ma, false) {}
+};
+
+class Gnd : public FuenteTension {
+public:
+    Gnd(sc_core::sc_module_name nm, analog_net_if& n, double r = 0.1,
+        double limite_ma = 0.0)
+        : FuenteTension(nm, n, "Gnd", 0.0, r, limite_ma, true) {}
+};
+
+// ---------------------------------------------------------------------------
+// CONECTOR: filas x columnas pines, numerados del 1 al N, y nada más.
+//
+// Eléctricamente NO ES NADA: ni conduce ni escucha. Lo que hace un conector
+// -que el pin 17 de una placa y el 17 de la otra sean el mismo punto- lo
+// resuelve el netlist ANTES de construir (`Netlist::resuelve_alias`), uniendo
+// nodos, y aquí solo queda la pieza para que la placa la nombre, la vuelque y
+// la ventana la vea. Sus patillas se marcan `paso` para que un pin al aire,
+// que es lo normal, no se cuente como un nodo flotante.
+//
+// La geometría -filas, columnas y cómo se numeran- solo importa al acoplar
+// en espejo (`<acopla espejo="si">`), y la guarda la pieza para decirlo.
+// ---------------------------------------------------------------------------
+class Conector : public ExtPartBase {
+public:
+    // `tipo` es "Conector" o "Jumper": un jumper es un conector con un puente
+    // puesto, y el puente lo resuelve el netlist, como los acoples
+    Conector(unsigned filas, unsigned columnas, bool zigzag,
+             const std::vector<std::pair<std::string, analog_net_if*>>& pines,
+             const char* tipo = "Conector")
+        : ExtPartBase(tipo, nullptr), filas_(filas), columnas_(columnas),
+          zigzag_(zigzag) {
+        for (const auto& p : pines) {
+            if (!p.second) continue;
+            add_ref(p.first, *p.second);
+            marca_paso(p.first);
+        }
+    }
+    unsigned filas() const    { return filas_; }
+    unsigned columnas() const { return columnas_; }
+    unsigned n_pines() const  { return filas_ * columnas_; }
+    bool     zigzag() const   { return zigzag_; }
+private:
+    unsigned filas_, columnas_;
+    bool     zigzag_;
+};
+
+// ---------------------------------------------------------------------------
 // LED con resistencia en serie. Con to_vss = true el LED se enciende cuando el
 // pin está alto (ánodo al pin); con to_vss = false el ánodo va a VDD y el LED
 // se enciende cuando el pin baja, que es el montaje habitual en las placas de
@@ -171,6 +348,33 @@ private:
 // El diodo no es lineal: mientras la tensión aplicada no supera Vf no conduce.
 // Se modela con dos estados —conduciendo (equivalente Thevenin {Vf, R}) o en
 // corte (alta impedancia)— reevaluados cada vez que cambia la tensión del pin.
+//
+// CON LAS DOS PATILLAS A LA VISTA (el segundo constructor), ninguno de los
+// dos extremos va por dentro a masa ni a VDD: el ánodo va a un nodo y el
+// cátodo a otro, y lo que haya en cada uno lo dice la placa. Es lo que hace
+// falta en una barra de LEDs de ánodo o cátodo común, cuyo común sale por un
+// pin del conector y puede acabar en VDD, en masa o en el pin de otra placa.
+//
+// Cómo se resuelve una rama entre DOS nodos con un canal que resuelve cada
+// nodo por separado (common/analog_net.h): todo lo que no es este LED es, en
+// cada nodo, un Thevenin {V0, R0} que se puede leer -V0 con
+// voltage_excluding(), R0 de la conductancia total menos la propia, como hace
+// FuenteTension-. Con eso la rama es un circuito de una malla:
+//
+//     I = (Va0 - Vk0 - vf) / (Ra0 + r + Rk0)      si sale positiva; si no, corte
+//     Va = Va0 - I·Ra0,   Vk = Vk0 + I·Rk0
+//
+// y se le pone a cada nodo el Thevenin de la rama visto desde él: {Vk + vf, r}
+// en el ánodo y {Va - vf, r} en el cátodo. Con esos dos, cada nodo, resuelto
+// por su cuenta, da exactamente Va y Vk, así que la siguiente vuelta sale
+// igual y no se itera a ciegas. Lo que no es lineal -otro LED que se enciende
+// en el mismo común- cambia un nodo, y la rama se vuelve a calcular.
+//
+// Un extremo que nadie más sujeta -el común de la barra al aire- deja la rama
+// en corte: no hay por dónde cerrar el circuito. Y por la misma razón un nodo
+// al que SOLO llegan LEDs -el común de una barra unido al de otra y a nada
+// más- se queda a oscuras aunque en la placa real luciera: cada LED ve el
+// común flotando sin los demás, y ninguno empieza.
 // ---------------------------------------------------------------------------
 SC_MODULE(Led), public ExtPart {
     // `vdd` es la tensión del OTRO extremo de la rama, la que no toca el pin.
@@ -189,8 +393,53 @@ SC_MODULE(Led), public ExtPart {
         SC_HAS_PROCESS(Led);
         SC_THREAD(run);
     }
+    // Las DOS PATILLAS A LA VISTA: el ánodo en un nodo y el cátodo en otro,
+    // sin nada por dentro a masa ni a VDD. Luce cuando Va - Vk supera vf, y
+    // `r` es la resistencia en serie, la que fija la corriente.
+    Led(sc_core::sc_module_name nm, analog_net_if& anodo, analog_net_if& catodo,
+        double vf, double r_series)
+        : sc_core::sc_module(nm), ExtPart(anodo, "Led", "led", "anodo", nm),
+          to_vss_(true), vf_(vf), r_(r_series), vdd_(0.0), nk_(&catodo) {
+        idk_ = add_pin("catodo", catodo, "led");
+        SC_HAS_PROCESS(Led);
+        SC_THREAD(run);
+    }
+    ~Led() override { if (nk_ && idk_ >= 0) nk_->set_hiz(idk_); }
+
     bool   on()      const { return on_; }
     double current() const { return std::fabs(double(pin_current())); }
+    // true: las dos patillas a la vista (el segundo constructor)
+    bool   dos_patillas() const { return nk_ != nullptr; }
+    // La tensión que se ve: la del pin, o con las dos patillas, la del ánodo
+    // menos la del cátodo, que es la que hace lucir al LED
+    double tension() const {
+        return nk_ ? double(net_->voltage()) - double(nk_->voltage())
+                   : double(pin_voltage());
+    }
+    // Con las dos patillas, un extremo que nadie más sujeta: el común de la
+    // barra sin conectar. Su tensión no está definida, y `tension()` no dice
+    // nada útil
+    bool al_aire() const {
+        if (!nk_) return false;
+        bool fa = false, fk = false;
+        net_->voltage_excluding(id_, fa);
+        nk_->voltage_excluding(idk_, fk);
+        return fa || fk;
+    }
+
+    // Lo que deja ver: si luce y cuánta corriente lleva. Sugiere lo primero;
+    // lo segundo es para quien quiera ver por qué un LED azul colgado de 3,3 V
+    // no luce. La escala de 0 a 25 mA es el máximo por pin que vigila el pad
+    // [IR, §3.2; pins/pad.h]: más que eso no se le puede pedir a un pin.
+    unsigned   n_observables() const override { return 2; }
+    Observable observable(unsigned i) const override {
+        if (i == 0) return {"encendido", "",   0.f, 1.f,  true};
+        return             {"corriente", "mA", 0.f, 25.f, false};
+    }
+    float valor_observable(unsigned i) const override {
+        if (i == 0) return on_ ? 1.f : 0.f;
+        return float(current() * 1000.0);
+    }
 private:
     void run() {
         hiz();
@@ -201,7 +450,8 @@ private:
             // una resistencia de pull, con el pin en entrada-. Ahi el LED
             // luciria de verdad y este modelo se quedaba a oscuras porque nadie
             // le habia avisado de nada.
-            if (!conectada_) { hiz(); on_ = false; }
+            if (!conectada_) { hiz(); if (nk_) hiz_k(); on_ = false; }
+            else if (nk_) rama();
             else {
                 const double v = net_->voltage();
                 // Conducción: pin -> LED -> R -> VSS, o VDD -> LED -> R -> pin
@@ -210,11 +460,282 @@ private:
                 else      hiz();
                 on_ = cond;
             }
-            wait(net_->value_changed_event() | evento_conexion());
+            if (nk_) wait(net_->value_changed_event() | nk_->value_changed_event() |
+                          evento_conexion());
+            else     wait(net_->value_changed_event() | evento_conexion());
         }
     }
+    // La rama entre los dos nodos (véase la cabecera). La conductancia total
+    // de cada nodo es la de su última resolución, que incluye la de este LED
+    // con la r que se le aplicó: se descuenta con el MISMO float que vio el
+    // nodo, o la resta no da cero cuando no hay nadie más.
+    void rama() {
+        bool solo_a = false, solo_k = false;
+        const double va0 = double(net_->voltage_excluding(id_, solo_a));
+        const double vk0 = double(nk_->voltage_excluding(idk_, solo_k));
+        const double ga  = net_->conductance() - 1.0 / double(ra_);
+        const double gk  = nk_->conductance() - 1.0 / double(rk_);
+        if (solo_a || solo_k || ga <= G_FLOAT || gk <= G_FLOAT) {
+            hiz(); hiz_k(); on_ = false;
+            return;
+        }
+        const double rag = 1.0 / ga, rkg = 1.0 / gk;
+        const double i = (va0 - vk0 - vf_) / (rag + r_ + rkg);
+        if (i <= 0.0) { hiz(); hiz_k(); on_ = false; return; }
+        const double va = va0 - i * rag, vk = vk0 + i * rkg;
+        ra_ = rk_ = std::max(0.1f, float(r_));
+        drive(float(vk + vf_), ra_);
+        nk_->set_drive(idk_, float(va - vf_), rk_);
+        on_ = true;
+    }
+    void hiz()   { ExtPart::hiz(); ra_ = R_HIZ; }
+    void hiz_k() { nk_->set_hiz(idk_); rk_ = R_HIZ; }
+
     bool to_vss_; double vf_, r_, vdd_;
     bool on_ = false;
+    // Con las dos patillas: el nodo del cátodo, su driver y la r aplicada en
+    // cada lado -la que el nodo tiene contada en su conductancia-
+    analog_net_if* nk_ = nullptr;
+    int   idk_ = -1;
+    float ra_ = R_HIZ, rk_ = R_HIZ;
+};
+
+// ---------------------------------------------------------------------------
+// UNA RAMA RESISTIVA ENTRE DOS NODOS: lo que hay entre las dos patillas de una
+// resistencia o de un contacto cerrado. El canal resuelve cada nodo por
+// separado (common/analog_net.h), así que la rama se resuelve como la del Led
+// con las dos patillas a la vista: lo que no es la rama es, en cada nodo, un
+// Thevenin {V0, R0} -voltage_excluding() y la conductancia sin la propia-, y
+//
+//     I = (Va0 - Vb0) / (Ra0 + r + Rb0),   Va = Va0 - I·Ra0,   Vb = Vb0 + I·Rb0
+//
+// A cada nodo se le pone el Thevenin de la rama visto desde él -{Vb, r} en a,
+// {Va, r} en b-, y cada uno, resuelto por su cuenta, da exactamente Va y Vb.
+// Sin dirección: la corriente va hacia donde diga la tensión. Un extremo que
+// nadie más sujeta no lleva corriente y se queda a la tensión del otro -un pin
+// con solo su pull-up lee la VCC-; con los dos al aire, la rama no hace nada.
+//
+// No es una pieza: la usan las que tienen ramas (Resistencia, Encoder), que la
+// vuelven a resolver cada vez que cambia uno de sus dos nodos.
+// ---------------------------------------------------------------------------
+class RamaDosNodos {
+public:
+    RamaDosNodos(analog_net_if& a, int id_a, analog_net_if& b, int id_b)
+        : a_(&a), b_(&b), id_a_(id_a), id_b_(id_b) {}
+
+    // Cerrada con `r` ohmios, o abierta con cerrada = false
+    void resuelve(bool cerrada, double r) {
+        if (!cerrada) { suelta(); return; }
+        bool solo_a = false, solo_b = false;
+        const double va0 = double(a_->voltage_excluding(id_a_, solo_a));
+        const double vb0 = double(b_->voltage_excluding(id_b_, solo_b));
+        const double ga  = a_->conductance() - 1.0 / double(ra_);
+        const double gb  = b_->conductance() - 1.0 / double(rb_);
+        const bool flota_a = solo_a || ga <= G_FLOAT, flota_b = solo_b || gb <= G_FLOAT;
+        if (flota_a && flota_b) { suelta(); return; }
+        if (flota_a || flota_b) {
+            // Un extremo al aire: no hay corriente, y ese extremo se queda a la
+            // tensión del otro a través de la rama -el pin que solo tiene su
+            // pull-up lee la VCC-. El que sí está sujeto no ve nada.
+            analog_net_if* libre = flota_a ? a_ : b_;
+            const int   id_libre = flota_a ? id_a_ : id_b_;
+            const double v_otro  = flota_a ? vb0 : va0;
+            const double r_otro  = 1.0 / (flota_a ? gb : ga);
+            float& r_libre = flota_a ? ra_ : rb_;
+            if (flota_a) { b_->set_hiz(id_b_); rb_ = R_HIZ; }
+            else         { a_->set_hiz(id_a_); ra_ = R_HIZ; }
+            r_libre = std::max(0.1f, float(r + r_otro));
+            libre->set_drive(id_libre, float(v_otro), r_libre);
+            return;
+        }
+        const double rag = 1.0 / ga, rbg = 1.0 / gb;
+        const double i = (va0 - vb0) / (rag + r + rbg);
+        const double va = va0 - i * rag, vb = vb0 + i * rbg;
+        ra_ = rb_ = std::max(0.1f, float(r));
+        a_->set_drive(id_a_, float(vb), ra_);
+        b_->set_drive(id_b_, float(va), rb_);
+    }
+    // Un DIODO con su resistencia en serie, de a (ánodo) a b (cátodo): conduce
+    // solo si Va - Vb pasa de `vf`, y entonces la rama es la de arriba con una
+    // fuente de `vf` dentro -como el Led con las dos patillas-. Con un extremo
+    // al aire no conduce. Devuelve si conduce.
+    bool resuelve_diodo(bool posible, double vf, double r) {
+        if (!posible) { suelta(); return false; }
+        bool solo_a = false, solo_b = false;
+        const double va0 = double(a_->voltage_excluding(id_a_, solo_a));
+        const double vb0 = double(b_->voltage_excluding(id_b_, solo_b));
+        const double ga  = a_->conductance() - 1.0 / double(ra_);
+        const double gb  = b_->conductance() - 1.0 / double(rb_);
+        if (solo_a || solo_b || ga <= G_FLOAT || gb <= G_FLOAT) { suelta(); return false; }
+        const double rag = 1.0 / ga, rbg = 1.0 / gb;
+        const double i = (va0 - vb0 - vf) / (rag + r + rbg);
+        if (i <= 0.0) { suelta(); return false; }
+        const double va = va0 - i * rag, vb = vb0 + i * rbg;
+        ra_ = rb_ = std::max(0.1f, float(r));
+        a_->set_drive(id_a_, float(vb + vf), ra_);
+        b_->set_drive(id_b_, float(va - vf), rb_);
+        return true;
+    }
+    void suelta() {
+        a_->set_hiz(id_a_); ra_ = R_HIZ;
+        b_->set_hiz(id_b_); rb_ = R_HIZ;
+    }
+    // La corriente que va de a a b, en A (positiva si entra por a)
+    double corriente() const { return -double(a_->current(id_a_)); }
+
+private:
+    analog_net_if *a_, *b_;
+    int   id_a_, id_b_;
+    float ra_ = R_HIZ, rb_ = R_HIZ;   // la r aplicada en cada lado (la que cuenta el nodo)
+};
+
+// ---------------------------------------------------------------------------
+// RESISTENCIA entre dos nodos, a y b. La de un pull-up que cuelga de la VCC de
+// un conector -la que ponga quien alimenta el módulo-, y no de una tensión
+// fija como Rpull.
+// ---------------------------------------------------------------------------
+SC_MODULE(Resistencia), public ExtPartBase {
+    Resistencia(sc_core::sc_module_name nm, analog_net_if& a, analog_net_if& b, double r)
+        : sc_core::sc_module(nm), ExtPartBase("Resistencia", nm),
+          a_(&a), b_(&b), r_(r < 0.1 ? 0.1 : r),
+          rama_(a, add_pin("a", a, "r"), b, add_pin("b", b, "r")) {
+        SC_HAS_PROCESS(Resistencia);
+        SC_THREAD(run);
+    }
+    ~Resistencia() override { rama_.suelta(); }
+    double r() const { return r_; }
+    double corriente() const { return rama_.corriente(); }
+private:
+    void run() {
+        for (;;) {
+            rama_.resuelve(conectada_, r_);
+            wait(a_->value_changed_event() | b_->value_changed_event() | evento_conexion());
+        }
+    }
+    analog_net_if *a_, *b_;
+    double r_;
+    RamaDosNodos rama_;
+};
+
+// ---------------------------------------------------------------------------
+// ENCODER ROTATIVO MECÁNICO, como el del módulo KY-040: un eje con `pasos`
+// posiciones por vuelta -los «clics» que se notan al girarlo- y DOS CONTACTOS,
+// uno entre A y C y otro entre B y C [KY-040, «Rotary Encoder Basics»]:
+//
+//   * en cada posición los dos están igual: abiertos en las pares, cerrados en
+//     las impares;
+//   * cada clic los cambia los dos, pero no a la vez: girando en el sentido
+//     de las agujas del reloj cambia PRIMERO A, y en el contrario, primero B.
+//     Es lo que dice hacia dónde se gira;
+//
+// así que, con C a masa y A y B con su pull-up, A y B dan un código Gray de
+// dos bits -11, 01, 00, 10, 11... hacia un lado; al revés hacia el otro-, un
+// cambio por medio clic. Cada contacto es una rama (RamaDosNodos) de
+// `r_cerrado` ohmios, o abierta.
+//
+// EL MANDO es `girar`: la CUENTA de clics, sin vueltas -sube hacia un lado y
+// baja hacia el otro-. Pedirle otra cuenta gira el eje hasta ella, un clic
+// detrás de otro, cada `clic_ms`, con `desfase_ms` entre el contacto que va
+// delante y el otro. Lo que deja ver: `posicion` (la cuenta en la vuelta, de 0
+// a pasos-1), `cuenta` y si cada contacto está cerrado.
+// ---------------------------------------------------------------------------
+SC_MODULE(Encoder), public ExtPartBase {
+    static constexpr float CUENTA_MAX = 30000.f;   // el tope del mando, ±
+
+    Encoder(sc_core::sc_module_name nm, analog_net_if& a, analog_net_if& b, analog_net_if& c,
+            unsigned pasos = 30, double r_cerrado = 1.0, double desfase_ms = 1.0,
+            double clic_ms = 5.0)
+        : sc_core::sc_module(nm), ExtPartBase("Encoder", nm),
+          a_(&a), b_(&b), c_(&c), pasos_(pasos ? pasos : 1), r_(r_cerrado),
+          desfase_(desfase_ms, sc_core::SC_MS), clic_(clic_ms, sc_core::SC_MS) {
+        const int ia = add_pin("a", a, "enc");
+        const int ib = add_pin("b", b, "enc");
+        const int ica = add_pin("c", c, "enc");
+        const int icb = add_drv("c", "enc");
+        rama_a_.reset(new RamaDosNodos(a, ia, c, ica));
+        rama_b_.reset(new RamaDosNodos(b, ib, c, icb));
+        SC_HAS_PROCESS(Encoder);
+        SC_THREAD(electrica);
+        SC_THREAD(mecanica);
+    }
+    ~Encoder() override { rama_a_->suelta(); rama_b_->suelta(); }
+
+    // --- Desde C++ y desde la ventana: girar hasta una cuenta, o n clics ---
+    void gira_a(long cuenta) {
+        objetivo_ = std::max(-long(CUENTA_MAX), std::min(long(CUENTA_MAX), cuenta));
+        ev_objetivo_.notify(sc_core::SC_ZERO_TIME);
+    }
+    void gira(long clics) { gira_a(objetivo_ + clics); }
+    long     cuenta()   const { return cuenta_; }
+    unsigned pasos()    const { return pasos_; }
+    unsigned posicion() const {
+        const long p = cuenta_ % long(pasos_);
+        return unsigned(p < 0 ? p + long(pasos_) : p);
+    }
+    bool cerrado_a() const { return ca_; }
+    bool cerrado_b() const { return cb_; }
+
+    unsigned   n_observables() const override { return 4; }
+    Observable observable(unsigned i) const override {
+        switch (i) {
+            case 0:  return {"posicion", "", 0.f, float(pasos_ - 1), true};
+            case 1:  return {"cuenta", "", -CUENTA_MAX, CUENTA_MAX, false};
+            case 2:  return {"contacto_a", "", 0.f, 1.f, false};
+            default: return {"contacto_b", "", 0.f, 1.f, false};
+        }
+    }
+    float valor_observable(unsigned i) const override {
+        switch (i) {
+            case 0:  return float(posicion());
+            case 1:  return float(cuenta_);
+            case 2:  return ca_ ? 1.f : 0.f;
+            default: return cb_ ? 1.f : 0.f;
+        }
+    }
+    unsigned n_mandos() const override { return 1; }
+    Mando    mando(unsigned) const override {
+        return {"girar", Mando::Discreto, -CUENTA_MAX, CUENTA_MAX};
+    }
+    float valor_mando(unsigned) const override { return float(objetivo_); }
+    void  acciona(unsigned, float v) override { gira_a(std::lround(v)); }
+
+private:
+    // Lo eléctrico: las dos ramas, cada vez que algo cambia en sus nodos o en
+    // sus contactos
+    void electrica() {
+        for (;;) {
+            rama_a_->resuelve(conectada_ && ca_, r_);
+            rama_b_->resuelve(conectada_ && cb_, r_);
+            wait(a_->value_changed_event() | b_->value_changed_event() |
+                 c_->value_changed_event() | ev_contactos_ | evento_conexion());
+        }
+    }
+    // Lo mecánico: el eje, clic a clic hasta la cuenta pedida
+    void mecanica() {
+        for (;;) {
+            while (cuenta_ == objetivo_) wait(ev_objetivo_);
+            const int sentido = objetivo_ > cuenta_ ? 1 : -1;
+            const bool cerrar = (cuenta_ + sentido) % 2 != 0;   // impares: cerrados
+            bool& primero = sentido > 0 ? ca_ : cb_;
+            bool& segundo = sentido > 0 ? cb_ : ca_;
+            primero = cerrar;
+            ev_contactos_.notify(sc_core::SC_ZERO_TIME);
+            wait(desfase_);
+            segundo = cerrar;
+            ev_contactos_.notify(sc_core::SC_ZERO_TIME);
+            cuenta_ += sentido;
+            if (cuenta_ != objetivo_) wait(clic_);
+        }
+    }
+
+    analog_net_if *a_, *b_, *c_;
+    unsigned pasos_;
+    double r_;
+    sc_core::sc_time desfase_, clic_;
+    std::unique_ptr<RamaDosNodos> rama_a_, rama_b_;
+    long cuenta_ = 0, objetivo_ = 0;
+    bool ca_ = false, cb_ = false;
+    sc_core::sc_event ev_objetivo_, ev_contactos_;
 };
 
 // ---------------------------------------------------------------------------
@@ -244,33 +765,185 @@ public:
     // Lo que conduce, entonces, no es "pulsado" sino "pulsado XOR normalmente
     // cerrado". Y un pulsador DESOLDADO no conduce nunca, sea del tipo que sea:
     // si no esta, no hay contacto que cerrar.
+    //
+    // LOS REBOTES. Un contacto mecanico no se cierra de una vez: la lamina
+    // golpea, rebota y vuelve a tocar varias veces antes de quedarse quieta,
+    // y un firmware que cuente flancos sin filtrarlos cuenta varias
+    // pulsaciones donde hubo una. `rebote_ms` es lo que dura eso como mucho al
+    // CERRARSE el contacto que mueve el dedo -al abrirse, la mitad-, y
+    // `rebotes` CUANTAS VECES se separa y vuelve a tocar: exactamente esas,
+    // en instantes al azar dentro de la ventana. Exactas y no «como mucho»,
+    // que es lo que fue al principio, porque para enseñar y para depurar lo
+    // que sirve es poder decir «con 3 rebotes, la EXTI ve 4 flancos». Con
+    // `rebote_ms = 0` el contacto cambia de una vez, que es como era siempre
+    // y como lo construye este constructor si no se le dice otra cosa; el
+    // XML, en cambio, pone 2 ms por omision (vease `netlist_parts.h`).
+    //
+    // El patron es pseudoaleatorio pero REPRODUCIBLE AL PICOSEGUNDO: un
+    // generador propio -xorshift64*- con semilla sacada del id de la pieza
+    // (o de `semilla`, si no es cero) e instantes en ns enteros. Nada de
+    // <random> ni de `double`: sus distribuciones cambian de una biblioteca a
+    // otra, y el tiempo simulado es un invariante del proyecto en cuatro
+    // plataformas (I-24, I-41).
     Button(analog_net_if& n, double r_closed = 10.0, double v_closed = 0.0,
-           bool nc = false)
+           bool nc = false, double rebote_ms = 0.0, unsigned rebotes = 5,
+           uint64_t semilla = 0)
         : ExtPart(n, "Button", "button", "pin"),
-          r_(r_closed), v_(v_closed), nc_(nc) {
+          r_(r_closed), v_(v_closed), nc_(nc), rebotes_(rebotes),
+          semilla_(semilla) {
+        pon_rebote_ms(rebote_ms);
+        // El tope del mando `rebote_ms`: 20 ms, o lo que diga la placa si es
+        // mas; y el de `rebotes`, 9 o lo que diga la placa. Fijos para la
+        // instancia, como pide el contrato del catalogo.
+        max_rebote_ms_ = rebote_ms > 20.0 ? float(rebote_ms) : 20.f;
+        max_rebotes_   = rebotes > 9u ? float(rebotes) : 9.f;
         aplica();                 // un NC conduce ya, desde que se construye
     }
-    void press()   { down_ = true;  aplica(); }
-    void release() { down_ = false; aplica(); }
+    void press()   { mueve(true); }
+    void release() { mueve(false); }
     // `pressed()` es lo que hace el DEDO; `cerrado()` es lo que hace el
-    // CONTACTO. En un NC son opuestos, y confundirlos es el error facil.
+    // CONTACTO. En un NC son opuestos, y confundirlos es el error facil. Con
+    // rebotes, ademas, el contacto va por detras del dedo unos milisegundos.
     bool pressed() const { return down_; }
-    bool cerrado() const { return conectada_ && (down_ != nc_); }
+    bool cerrado() const { return conectada_ && (toque_ != nc_); }
     bool normalmente_cerrado() const { return nc_; }
     double v_cerrado() const { return v_; }
+    // El rebote, en ms. 0 es sin rebotes. Lo que valga cuenta desde la
+    // SIGUIENTE vez que cambie el dedo: el rebote en curso sigue como iba.
+    double   rebote_ms() const { return double(rebote_ns_) / 1e6; }
+    void     pon_rebote_ms(double ms) {
+        rebote_ns_ = ms > 0.0 ? uint64_t(ms * 1e6 + 0.5) : 0u;
+    }
+    unsigned rebotes() const { return rebotes_; }
+    // Desde la siguiente vez que se mueva el dedo. 0 no rebota, como un
+    // rebote de 0 ms.
+    void     pon_rebotes(unsigned n) { rebotes_ = n; }
+    // Cuantas veces ha cambiado el CONTACTO desde que se construyo: sin
+    // rebotes, una por cada vez que cambia el dedo; con rebotes, mas.
+    uint64_t cambios_contacto() const { return n_cambios_; }
     // Al desoldar se abre el contacto; al volver a soldar, vuelve a su reposo,
     // que en un NC es conduciendo.
     void set_enabled(bool on) override {
         ExtPartBase::set_enabled(on);
-        if (!on) down_ = false;
+        if (!on) { corta_rebote(); down_ = false; pon_toque(false); }
         aplica();
+    }
+
+    // Lo que deja ver y lo que se le puede hacer. `pulsado` es el DEDO
+    // -pressed()-, no el contacto: en un NC son opuestos, y lo que la
+    // pantalla pinta es el botón hundido o no. El mando `pulsar` es
+    // exactamente press()/release(): 1 pulsa, 0 suelta, y lo que no sea ni
+    // uno ni otro se decide por la mitad. Sobre un pulsador desoldado pasa lo
+    // mismo que con press(): el dedo baja, pero no hay contacto que cerrar.
+    //
+    // Y `rebote_ms`, continuo, es exactamente pon_rebote_ms(): la duracion
+    // del rebote, de 0 -contacto ideal- a 20 ms, o a lo que diga la placa si
+    // es mas. Vale desde la siguiente vez que se mueva el dedo, asi que se
+    // puede ajustar con la simulacion en marcha y sin tocar el XML. Y
+    // `rebotes`, discreto -un desplegable en la pantalla-, es pon_rebotes():
+    // de 1 a 9, o a lo que diga la placa si es mas. Para no rebotar, el
+    // rebote a 0 ms: un desplegable de cuantas veces no necesita un «ninguna».
+    unsigned   n_observables() const override { return 1; }
+    Observable observable(unsigned) const override {
+        return {"pulsado", "", 0.f, 1.f, true};
+    }
+    float    valor_observable(unsigned) const override { return down_ ? 1.f : 0.f; }
+    unsigned n_mandos() const override { return 3; }
+    Mando    mando(unsigned i) const override {
+        if (i == 1) return {"rebote_ms", Mando::Continuo, 0.f, max_rebote_ms_};
+        if (i == 2) return {"rebotes", Mando::Discreto, 1.f, max_rebotes_};
+        return {"pulsar", Mando::Boton, 0.f, 1.f};
+    }
+    float    valor_mando(unsigned i) const override {
+        if (i == 1) return float(rebote_ms());
+        if (i == 2) return float(rebotes_);
+        return down_ ? 1.f : 0.f;
+    }
+    void     acciona(unsigned i, float v) override {
+        if (i == 1) { pon_rebote_ms(double(v)); return; }
+        if (i == 2) { pon_rebotes(unsigned(v + 0.5f)); return; }   // ya en [1, max]
+        if (v >= 0.5f) press(); else release();
     }
 private:
     void aplica() {
         if (cerrado()) drive(float(v_), float(r_));
         else           hiz();
     }
+    void pon_toque(bool t) {
+        if (t != toque_) { toque_ = t; ++n_cambios_; }
+    }
+    // El dedo cambia. El contacto toca (o se separa) EN EL ACTO -el primer
+    // golpe-, y si hay rebote, se programa el resto.
+    void mueve(bool abajo) {
+        if (abajo == down_) return;           // pulsar lo pulsado no hace nada
+        down_ = abajo;
+        corta_rebote();
+        pon_toque(abajo);
+        aplica();
+        const uint64_t d = abajo ? rebote_ns_ : rebote_ns_ / 2u;
+        if (d == 0 || rebotes_ == 0 || !conectada_) return;
+        programa_rebote(d);
+    }
+    // xorshift64*: pequeño, conocido y el mismo en todas partes [Vigna, 2014]
+    uint64_t azar() {
+        if (rng_ == 0) {
+            // FNV-1a del id: dos pulsadores de la misma placa no rebotan igual
+            uint64_t h = 0xcbf29ce484222325ull;
+            for (unsigned char c : pieza()) { h ^= c; h *= 0x100000001b3ull; }
+            rng_ = (semilla_ ? semilla_ : h) | 1u;
+        }
+        rng_ ^= rng_ >> 12; rng_ ^= rng_ << 25; rng_ ^= rng_ >> 27;
+        return rng_ * 0x2545F4914F6CDD1Dull;
+    }
+    // `rebotes` rebotes, cada uno un separarse y un volver a tocar: 2k
+    // instantes distintos en (0, d] ns, ordenados. El ultimo deja el contacto
+    // donde el dedo quiere.
+    void programa_rebote(uint64_t d) {
+        const unsigned k = rebotes_;
+        cola_.clear();
+        for (unsigned i = 0; i < 2u * k; ++i) cola_.push_back(1u + azar() % d);
+        std::sort(cola_.begin(), cola_.end());
+        for (size_t i = 1; i < cola_.size(); ++i)          // estrictamente crecientes
+            if (cola_[i] <= cola_[i - 1]) cola_[i] = cola_[i - 1] + 1u;
+        t0_ = sc_core::sc_time_stamp();
+        sig_ = 0;
+        if (!proceso_) {
+            // El proceso nace la primera vez que hace falta: un pulsador sin
+            // rebotes no crea ninguno, y una placa que no rebota se simula
+            // exactamente como antes, delta a delta.
+            sc_core::sc_spawn_options o;
+            o.spawn_method();
+            o.set_sensitivity(&ev_);
+            o.dont_initialize();
+            sc_core::sc_spawn([this] { rebota(); },
+                              sc_core::sc_gen_unique_name("rebote"), &o);
+            proceso_ = true;
+        }
+        ev_.notify(sc_core::sc_time(double(cola_[0]), sc_core::SC_NS));
+    }
+    void rebota() {
+        if (sig_ >= cola_.size()) return;
+        pon_toque(!toque_);
+        aplica();
+        ++sig_;
+        if (sig_ < cola_.size())
+            ev_.notify(t0_ + sc_core::sc_time(double(cola_[sig_]), sc_core::SC_NS) -
+                       sc_core::sc_time_stamp());
+    }
+    void corta_rebote() { ev_.cancel(); cola_.clear(); sig_ = 0; }
+
     double r_, v_; bool nc_ = false, down_ = false;
+    bool     toque_ = false;          // el contacto TOCA (el del dedo, sin el NC)
+    uint64_t rebote_ns_ = 0;
+    unsigned rebotes_ = 5;
+    uint64_t semilla_ = 0, rng_ = 0, n_cambios_ = 0;
+    std::vector<uint64_t> cola_;      // instantes del rebote, desde t0_, en ns
+    size_t   sig_ = 0;
+    sc_core::sc_time  t0_;
+    sc_core::sc_event ev_;
+    bool     proceso_ = false;
+    float    max_rebote_ms_ = 20.f;
+    float    max_rebotes_ = 9.f;
 };
 
 // ---------------------------------------------------------------------------

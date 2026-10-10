@@ -1,6 +1,6 @@
 # Catálogo de componentes externos
 
-Referencia de las **22 piezas** que la factoría de `src/parts/` sabe construir:
+Referencia de las **25 piezas** que la factoría de `src/parts/` sabe construir:
 qué terminales tiene cada una, qué parámetros admite, qué hace cada parámetro y
 qué queda fuera del fichero.
 
@@ -56,9 +56,7 @@ De ahí salen tres cosas que conviene tener presentes al escribir una placa:
 
 ### 2.0 Los MCUs: `<mcu>`
 
-Una placa puede no decir nada —y entonces lleva un STM32F407VG con los nodos de
-nombre desnudo, que es como han sido todas hasta ahora— o declarar los chips que
-lleva:
+Una placa declara los chips que lleva:
 
 ```xml
 <mcu tipo="STM32F407VG" id="u0" firmware="maestro.bin" depuracion="dap"   puerto_gdb="3333"/>
@@ -67,11 +65,17 @@ lleva:
 
 | Atributo | Omisión | Efecto |
 | :--- | :--- | :--- |
-| `tipo` | *(obligatorio)* | El modelo. Se saben construir **los veintiún miembros de la familia F405/F407/F415/F417**: `STM32F405RG`, `STM32F405OG`, `STM32F405VG`, `STM32F405ZG`, `STM32F405OE`, `STM32F407VE`, `STM32F407VG`, `STM32F407ZE`, `STM32F407ZG`, `STM32F407IE`, `STM32F407IG`, `STM32F415RG`, `STM32F415OG`, `STM32F415VG`, `STM32F415ZG`, `STM32F417VE`, `STM32F417VG`, `STM32F417ZE`, `STM32F417ZG`, `STM32F417IE` y `STM32F417IG` — los diez últimos son los que llevan el acelerador criptográfico. `sim --help` los lista, y `--mcu TIPO` fija el del chip implícito. Lo que los distingue está en `doc/reutilizacion.md` §9 |
+| `tipo` | *(obligatorio)* | El modelo. Se saben construir **los veintiún miembros de la familia F405/F407/F415/F417**: `STM32F405RG`, `STM32F405OG`, `STM32F405VG`, `STM32F405ZG`, `STM32F405OE`, `STM32F407VE`, `STM32F407VG`, `STM32F407ZE`, `STM32F407ZG`, `STM32F407IE`, `STM32F407IG`, `STM32F415RG`, `STM32F415OG`, `STM32F415VG`, `STM32F415ZG`, `STM32F417VE`, `STM32F417VG`, `STM32F417ZE`, `STM32F417ZG`, `STM32F417IE` y `STM32F417IG` — los diez últimos son los que llevan el acelerador criptográfico. `sim --help` los lista, y `--mcu TIPO` manda sobre él. Lo que los distingue está en `doc/reutilizacion.md` §9 |
 | `id` | *(obligatorio)* | El prefijo de sus nodos (`u0.PD12`) y su nombre en la jerarquía de SystemC |
 | `firmware` | ninguno | La imagen que se le carga en la Flash. **Una por chip** |
 | `depuracion` | `pines` | `pines`: expone SWCLK/SWDIO y el stub se cuelga por fuera, como un ST-LINK. `dap`: reserva los cinco pines de depuración y el stub habla con el núcleo por llamada de función |
 | `puerto_gdb` | `0` | Puerto TCP de su stub. **0 = no se abre ninguno** |
+
+**El MCU no se supone.** Si la placa no declara ninguno, lo pone `--mcu TIPO`
+en la línea de órdenes —un chip sin id, con los nodos de nombre desnudo—; si
+declara uno y además se pasa `--mcu`, **gana `--mcu`**: sustituye el tipo del
+`<mcu>` y lo dice. Y si no hay ni lo uno ni lo otro, **la placa va sin MCU**
+(§2.1 dice qué cambia entonces en los nodos).
 
 **Un `<mcu>` no lleva hijos.** Sus 144 pads existen sin declararlos: un
 `<pin>` dentro de un `<mcu>` se rechaza.
@@ -80,14 +84,25 @@ lleva:
 
 | MCUs declarados | Nombres de nodo válidos |
 | :--- | :--- |
-| ninguno | Solo el desnudo: `PD12` |
+| ninguno, con `--mcu` | Solo el desnudo: `PD12` |
+| ninguno, sin `--mcu` | Ninguno: **la placa no lleva MCU** y `PD12` es un error |
 | uno | Los dos: `PD12` y `u0.PD12`, y designan el mismo pad |
 | dos o más | Solo el cualificado. `PD12` a secas es un error que dice cuáles son los candidatos |
 
 Con dos o más chips, **cada uno lleva lo suyo en el XML**: un firmware o un
 puerto sueltos en la línea de órdenes ya no dicen a cuál, y se rechazan. Con uno
-solo —declarado o implícito— los argumentos de siempre valen y mandan sobre el
+solo —de `<mcu>` o de `--mcu`— los argumentos de siempre valen y mandan sobre el
 fichero. Los detalles están en `doc/multi_mcu.md`, §5.
+
+**El firmware, chip a chip, desde la línea de órdenes.** Con cualquier número de
+chips, `--firmware ID=FICHERO` le da el suyo a uno —`--firmware N/u0=x.bin`, con
+el id del sistema— y manda sobre su `firmware=`; `--sin-firmware=ID` lo deja sin
+ninguno aunque el XML lo diga, y `--sin-firmware` a secas, a todos. Sin
+firmware, el núcleo se aparca en `wfe`. Un id que no está, el mismo chip dos
+veces o todo esto junto al firmware posicional son errores que dicen por qué. Y
+`mcu-sim placa.xml --mcus` lista los chips —id, tipo y firmware del XML— en XML:
+es lo que usa el diálogo de lanzamiento de `mcu-sim-gui` para poner una fila de
+firmware por chip, con su casilla «sin firmware» (su plan §42).
 
 ### 2.1 Los nodos
 
@@ -115,10 +130,19 @@ esquemático: `PA0`…`PI15`, `VDD`, `VSS`, `VDDA`, `VSSA`, `VREF+`, `VBAT`,
 opcional y solo sirve para documentar. **Los externos sí**: sin
 `externo="si"` el nodo no existe y la validación lo rechaza.
 
+**En una placa sin MCU** no hay pads: todo nodo es de la placa, así que cada
+`<nodo>` es externo sin tener que escribir `externo="si"`. Un nodo con nombre de
+pin —`PD12`, `VDD`, `u0.PA0`— se rechaza con la pista de declarar el chip,
+porque casi siempre es un `<mcu>` que falta. `placas/fuente_y_masa.xml` es una.
+
 **`bus="si"` no cambia nada eléctrico**; solo calla el aviso de conducción
 simultánea. Úsese cuando varias piezas conducen ese nodo por diseño —un bus de
 colector abierto, un cable en Y— o cuando un pin se comparte a propósito entre
 dos montajes. Si no se declara y hay dos conductores, `--valida` lo dice.
+Los conductores se cuentan **por hilo, no por nombre**: en un sistema, el
+`NRST` de una placa y el de otra se llaman igual y son dos hilos distintos —el
+RESET de cada Nucleo es solo suyo—, y no se mezclan; si un acople o un `une`
+los junta, entonces sí son uno y cuentan juntos.
 
 **Los pads que este encapsulado no saca son un error.** Y *este* encapsulado
 depende del chip: el LQFP100 del `F407VG` tiene los puertos A–E más `PH0`/`PH1`;
@@ -262,6 +286,235 @@ No es una comodidad, es una necesidad: **la elaboración de SystemC es estática
 y no se puede crear una pieza con la simulación en marcha, así que lo que no
 está montado se construye igual y nace desconectado.
 
+### 2.5 Varias placas enchufadas: `<sistema>`
+
+Una Nucleo con un shield encima, o dos placas unidas por un cable, son un
+**sistema**: un fichero que nombra las placas y dice cómo se enchufan. Las
+placas no cambian —el fichero de una Nucleo es el mismo que se simula sola—,
+y lo que las une se dice en el sistema, que es donde se sabe.
+
+```xml
+<sistema nombre="nucleo-y-shield">
+  <placa id="N" fichero="nucleo_f446re.xml"/>
+  <placa id="S" fichero="shield_leds.xml"/>
+  <acopla a="N/CN5" b="S/J5"/>
+  <acopla a="N/CN9" b="S/J9"/>
+  <mcu ref="N/u0" firmware="verif/fw/blinky446/blinky446.bin"/>
+</sistema>
+```
+
+| Elemento | Qué dice |
+| :--- | :--- |
+| `<placa id="A" fichero="x.xml"/>` | Una placa, de su fichero (relativo a la carpeta del sistema) |
+| `<placa id="A" nombre="..."> ... </placa>` | O escrita dentro, con lo mismo que una `<placa>` suelta |
+| `<acopla a="A/CN9" b="B/J9" [espejo="si"]/>` | Dos `Conector` (§4.1) enchufados: el pin *k* de uno con el *k* del otro; en espejo, con el que le cae enfrente |
+| `<acopla conectores="A/J1 B/J1 C/J1"/>` | Una **pila** (PC/104, cabeceras apilables): el pin *k* es el mismo en todos. Un conector va en un acople solo |
+| `<hilo a="A/CN9.2" b="B/PA3"/>` | Dos nodos cualesquiera, unidos: un cable, un cruce TX↔RX |
+| `<mcu ref="A/u0" firmware= depuracion= puerto_gdb=/>` | Lo que el montaje decide de un chip de una placa, sin tocar su fichero |
+
+**Todo lo de la placa `A` se llama `A/...`**: `A/LD2`, `A/u0`, `A/vcc`, el
+pin de conector `A/CN9.2`. Dentro del fichero de la placa se escribe como
+siempre, y **`PA5` es el pin del chip de ESA placa** (`A/u0.PA5`) aunque el
+sistema lleve varios. La barra no puede aparecer en un nombre de la placa.
+
+Lo demás funciona igual: con un solo MCU en todo el sistema, el firmware de la
+línea de órdenes, `--gdb` y `--mcu` valen y mandan; con varios, cada chip lleva
+lo suyo, aquí en `<mcu ref>`. `placas/nucleo_y_shield.xml` y
+`placas/pila_pc104.xml` son los ejemplos, y el
+porqué de cada decisión está en `doc/analisis_placas_conectadas.md`.
+
+### 2.6 El dibujo de la placa: `ilustracion`
+
+`mcu-sim-gui` enseña cada placa con un **dibujo SVG** —una aproximación
+dibujada a mano, no una foto—, con los LEDs que se encienden y los botones que
+se pulsan sobre él. El dibujo **viaja con la placa**: `mcu-sim` lo busca, y se
+lo manda a la ventana en el saludo (`T_ILUSTRACION`), que puede estar en otra
+máquina y no ver estos ficheros.
+
+```xml
+<placa nombre="nucleo-f446re" ilustracion="nucleo_f446re.svg">
+  <ilustracion>
+    <enlace pieza="LD2" elemento="led-verde" efecto="brillo"/>
+  </ilustracion>
+  ...
+</placa>
+```
+
+| Qué | Cómo |
+| :--- | :--- |
+| `ilustracion="x.svg"` en la `<placa>` | El dibujo, relativo al fichero de la placa |
+| Sin `ilustracion=` | El SVG que **se llame como la placa**, a su lado: `nucleo_f446re.xml` → `nucleo_f446re.svg`. Si no está, no pasa nada |
+| `<placa id="N" fichero="..." ilustracion="y.svg"/>` en un `<sistema>` | El montaje cambia el dibujo de esa placa (relativo al sistema); la tabla de la placa, que era de SU dibujo, no se usa |
+| `giro="90"` en la `<placa>`, o en su `<placa id>` de un `<sistema>` | El dibujo, **girado** 90, 180 o 270 grados en el sentido de las agujas del reloj: como está montada la placa. El del sistema manda sobre el de la placa. Ver abajo |
+| `<ilustracion><enlace pieza= elemento= [efecto=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido`, `giro`, `pantalla`, `angulo` o `ninguno` |
+
+**Lo que se comprueba aquí** —el SVG lo lee la ventana—: un dibujo
+**declarado** que no está, uno que no empieza por `<svg` ni por `<?xml`, o uno
+de más de **2 MiB**, son un **aviso** y no se mandan: la placa funciona igual.
+Una `pieza` de la tabla que la placa no tiene, un `efecto` que no existe o una
+pieza dos veces son **errores** de la placa, como cualquier referencia rota. Y
+desde aquí la raíz `<placa>` **rechaza los atributos que no conoce** (antes los
+ignoraba, y un `ilustarcion=` habría pasado sin que nadie lo viera).
+
+La consola dice el de cada placa: `dibujo: nucleo_f446re.svg (49 kB)`, o en un
+sistema `dibujo N: …` y `dibujo S: ninguno`. Cómo se dibuja un SVG para que la
+ventana lo entienda —SVG 1.2 Tiny, tamaño en milímetros, un id por pieza viva—
+está en `mcu-sim-gui`, `doc/analisis-uso-ilustraciones.md` §11; y
+`placas/nucleo_f446re.svg` y `placas/discovery_min.svg` son los ejemplos.
+
+**Lo que se toca en el dibujo es una pieza del XML.** Un elemento del SVG solo
+es un mando si hay una pieza con su id: el RESET negro de la Nucleo no se
+podía pulsar mientras la placa no tenía su `B2` —un `Button` en `NRST`, a
+masa—, por mucho que estuviera dibujado. Con él, pulsarlo en la ventana tiene
+el MCU en reset mientras se mantiene —el LED, apagado— y al soltarlo arranca
+desde la flash, como en la tarjeta. La Discovery ya tenía su `B2`; le faltaba
+un dibujo donde tocarlo.
+
+**Lo que gira: el efecto `giro`.** Solo lo pone la tabla de enlaces. El
+elemento gira sobre el centro de su caja con el primer numérico que la pieza
+sugiere, tomado como posiciones enteras de `min` a `max` —una vuelta son
+`max - min + 1`—. Es el anillo del mando de `placas/ky040.svg`, que sigue a la
+`posicion` del `Encoder`: 12° por clic. Para que gire sobre el eje, el
+elemento es un círculo centrado en él con todo lo demás dentro. Encima, la tapa
+del pulsador, `SW1`, con `hundido`: el clic en la tapa la aprieta, y la rueda
+del ratón **atraviesa** la tapa —un botón no tiene nada que girar— y gira el
+encoder.
+
+**Lo que gira un ángulo: el efecto `angulo`.** Es el de omisión de una pieza
+que sugiere un numérico **en grados** —unidad `°`—, y lo puede pedir también
+la tabla. El elemento gira sobre el centro de su caja tantos grados como diga
+ese numérico, a la derecha los positivos, sin vueltas ni posiciones: es el
+aspa del `Servo` (§4.11), que en `placas/servo_sg90.svg` está dibujada en el
+0 con la pala de la marca hacia arriba. Ese numérico no lleva etiqueta: ya lo
+dice el giro. Como con `giro`, para que gire sobre el eje el elemento lleva
+dentro un círculo centrado en él —sin pintar, `fill="none"`— que alcanza más
+que todo lo demás.
+
+**Lo que se ve en una pantalla: el efecto `pantalla`.** Es el de omisión de
+una pieza que enseña una IMAGEN —el `Tft128x160`—: la ventana pinta la imagen
+encima de su elemento, llenando su caja, con su luz. Si el elemento es
+apaisado y la imagen no —o al revés—, la pone girada un cuarto de vuelta a la
+izquierda: la fila de arriba de la imagen queda a la izquierda, y su columna
+izquierda, abajo. `placas/tft_128x160.svg` lleva el vidrio apaisado, con el
+conector a la derecha; un firmware que quiera verlo derecho en esa postura
+pone MADCTL = 0x60.
+
+**El giro: la misma placa, montada de otra manera.** Una placa no siempre va
+derecha: la pantalla TFT puede ir de pie, con el conector abajo, o del revés,
+con el conector a la izquierda. En vez de un dibujo por postura, `giro=` gira
+el que hay: `mcu-sim` cambia el viewBox y el tamaño de la raíz y mete todo lo
+de dentro en un `<g transform="...">` (`gira_svg` en
+`common/svg_variantes.h`). Los ids no cambian, la ventana encuentra cada pieza
+donde ha quedado, y lo que va encima de una pieza —el brillo de un LED, la
+imagen de una pantalla— gira con ella. La serigrafía también gira, como en la
+placa de verdad. La consola lo dice: `dibujo T: tft_128x160.svg (6 kB, girado
+90)`. Hace falta que la raíz del SVG tenga viewBox; si no, se avisa y se manda
+como está. Un giro que no sea 0, 90, 180 o 270 es un error de la placa.
+
+```xml
+<sistema nombre="nucleo-y-tft-de-pie">
+  <placa id="N" fichero="nucleo_f446re.xml"/>
+  <placa id="T" fichero="tft_128x160.xml" giro="90"/>   <!-- el conector abajo -->
+  ...
+</sistema>
+```
+
+**Las variantes: lo que depende de cómo está montada la placa.** El puente de
+un `Jumper` no cambia con la simulación, pero sí de una placa a otra, y el
+dibujo tiene que enseñarlo donde está. El SVG lleva **todas** las posiciones,
+cada una con un id `PIEZA@valor` —`JP1@5V-VCC`, `JP1@VCC-3.3V`—, y `mcu-sim`,
+antes de mandarlo, deja solo la de la placa y quita las demás con todo lo que
+llevan dentro (`common/svg_variantes.h`). La ventana recibe un SVG normal y no
+sabe nada de esto. La consola lo dice: `dibujo: ftdi_ft232rl.svg (10 kB, JP1
+5V-VCC)`. Dos placas con el mismo dibujo y el jumper distinto reciben dos
+dibujos. Un detalle de autor: la ventana pinta cada pieza con lo que lleva
+**dentro**, así que las variantes de `JP1` van dentro del elemento `JP1`; fuera,
+quedarían debajo de él.
+
+Una pieza puede tener **varias** variantes, cada una con un nombre detrás del
+id: las del `Servo` son `SERVO.cuerpo@azul` y `SERVO.cuerpo@negro` —su
+`color`— y `SERVO.aspa@una` … `SERVO.aspa@disco` —su `aspa`—. Las del aspa van
+dentro del elemento `SERVO`, que es lo que gira; las del cuerpo, fuera, debajo.
+La consola las dice todas: `dibujo S: servo_sg90.svg (16 kB, SERVO.aspa
+cuatro, SERVO.cuerpo azul)`.
+
+**Los rótulos: lo que solo se sabe al lanzar.** Un texto del dibujo con id
+`PIEZA#campo` y nada más dentro se queda con el texto que le toca antes de
+mandarlo, y lo que lleva escrito es lo que se ve si nadie lo cambia. Hoy los
+tiene un `PuenteSerie`: `VCP#destino` es su destino contado a una persona
+—`RFC 2217 en localhost:3355`— y `VCP#host`, como se escribe —`rfc2217:3355`—,
+los dos ya con lo que diga `--serie` y con el puerto al que se haya corrido.
+`placas/nucleo_f446re.svg` lo pone junto al ST-LINK: es el VCP, la USART2 por
+el mismo USB que la depuración. Dos placas con el mismo dibujo y rótulos
+distintos reciben dos dibujos.
+
+**Lo que no interesa ver: `visible="no"`.** La ventana enseña en la
+ilustración todas las piezas que dejan ver o tocar algo. Las que el dibujo no
+trae no se pierden: van a una **bandeja**, «sin dibujar», al lado de la placa,
+con sus medidores de siempre. Pero a veces son piezas que no interesan —la
+`Fuente` que hace de regulador interno del FT232RL, la `Gnd` de un módulo— y
+la bandeja solo ocupa sitio. `visible="no"` en su `<componente>` lo dice:
+
+```xml
+<componente tipo="Fuente" id="REG_3V3" v="3.3" limite_ma="50" visible="no">
+  <pin nombre="pin" nodo="JP1.3.3V"/>
+</componente>
+```
+
+La pieza no va a la bandeja ni al dibujo que la ventana genera para una placa
+sin SVG, y el informe de la placa la cuenta aparte, como «oculta». Lo que el
+SVG dibuje se queda: el dibujo es de quien lo hace. El **panel** las sigue
+enseñando todas, también sus alarmas. Para la simulación no cambia nada: va
+en `T_PLACA` con la pieza —también en un sistema— y nadie más lo mira. Sin el
+atributo, todo es como siempre, bandeja incluida. Solo `si` o `no`; otra cosa
+es un error.
+
+**La disposición en la ventana: dónde va cada placa.** En la ilustración de
+`mcu-sim-gui`, las placas de un sistema se ponen en fila si nadie dice otra
+cosa, y en el modo *Edición* se mueven, se giran, se escalan, se cambia el
+lienzo y las líneas se llevan en tramos rectos. Eso se puede guardar en el
+propio XML —a mano, o con «Guardar en el XML» de la ventana—, y entonces viaja
+con el sistema: `mcu-sim` lo lee, lo comprueba y lo manda en `T_PLACA`. Para la
+simulación no significa nada: no cambia ni un nodo.
+
+```xml
+<sistema nombre="nucleo-f446re-servo" lienzo="-10 -10 330 200">
+  <placa id="N" fichero="nucleo_f446re.xml" x="0" y="0"/>
+  <placa id="S" fichero="servo_sg90.xml" x="140" y="0" escala="1.5"/>
+  <placa id="T" fichero="tft_128x160.xml" giro="90" x="200" y="2"/>
+  <hilo a="S/P1.PWM" b="N/CN9.6"/>
+  ...
+  <ruta linea="hilo S/P1.PWM N/CN9.6" eje="v" codos="40 12.5"/>
+</sistema>
+```
+
+| Qué | Dónde | Cómo |
+| :--- | :--- | :--- |
+| `x="..." y="..."` | En la `<placa id>` de un `<sistema>` —de fichero o escrita dentro— | La esquina de arriba a la izquierda del dibujo de la placa, ya girado, en mm. Van juntos. Una placa sin ellos la coloca la ventana |
+| `escala="..."` | En la `<placa id>`, o en la raíz de una placa suelta | El tamaño del dibujo, de **0.25 a 4**; 1 es el de siempre |
+| `lienzo="x y ancho alto"` | En el `<sistema>`, o en la raíz de una placa suelta | Lo que se ve de la ilustración, en mm. Sin él, el que haga falta para que quepa todo |
+| `<ruta linea="..." eje="h\|v" codos="..."/>` | Dentro del `<sistema>` | Una **línea en tramos rectos**. `linea` es `hilo A/P1.X B/CN9.6` —sus dos extremos, como en el `<hilo>`— o `acople A/J1 B/J1`; `eje`, el del primer tramo (`h` si no se dice); `codos`, en mm, dónde gira: una x y una y alternadas, empezando por la del eje. Los dos últimos tramos los pone la ventana |
+
+El `giro=` es el de siempre: el dibujo ya llega girado. La ventana manda sobre
+el XML: lo que se haya colocado a mano y guardado en su configuración se ve
+antes que esto, y su «Restablecer» vuelve a lo que dice el XML.
+
+**Lo que no vale es un error del fichero**, que dice por qué: `x=` e `y=` en
+la raíz de una placa —«son la posición de la placa en la ventana, y solo se
+dicen en su `<placa id>` de un sistema»—; uno sin el otro; algo que no es un
+número; una `escala` fuera de 0.25 a 4; un `lienzo` sin cuatro números o sin
+tamaño; y una `<ruta>` de una línea que no hay —el error dice las que hay—,
+repetida, con un `eje` que no es `h` ni `v` o con unos `codos` que no son
+números.
+
+La consola lo cuenta después de los dibujos, si hay algo que contar:
+`ventana: lienzo 330 x 200 mm; N en (0, 0) mm; S en (140, 0) mm al 150 %; T en
+(200, 2) mm; 1 linea(s) en tramos rectos`. Y `T_PLACA` lo lleva como lo dice el
+fichero —`x`, `y` y `escala` en cada `<placa id>`, `lienzo` en la raíz y las
+`<ruta>` detrás de los acoples y los hilos—, añadido a la versión 2 del
+protocolo sin subirla: una ventana que no lo conoce no lo lee.
+`placas/nucleo_f446re_servo.xml` lo usa.
+
 ---
 
 ## 3. Parámetros comunes
@@ -273,6 +526,7 @@ está montado se construye igual y nace desconectado.
 | `tipo` | sí | El nombre de clase que la factoría busca. Distingue mayúsculas: `Led`, no `LED`. Un tipo que no conoce se rechaza con la lista de los que sí |
 | `id` | sí | Identificador único de instancia. Es el nombre por el que otros componentes lo referencian, y el que sale en los avisos de validación |
 | `conectada` | no (`si`) | `no` = se construye desoldada (§2.4) |
+| `visible` | no (`si`) | `no` = la ventana no la enseña en la ilustración (§2.6). La simulación no lo mira |
 
 ### 3.2 `vdd` — la tensión de la lógica de la pieza
 
@@ -317,11 +571,12 @@ malos: la placa se monta sin quejarse y el cristal oscila a 8 Hz. Escríbase
 
 **Los booleanos** se escriben `si` o `no`. En los parámetros de pieza también se
 aceptan `1` y `true`, y cualquier otra cosa cuenta como falso. En `conectada`,
-`externo` y `bus` el lector es estricto: solo `si` o `no`, y otra cosa es un
+`visible`, `externo` y `bus` el lector es estricto: solo `si` o `no`, y otra cosa es un
 error con su línea.
 
 **Un parámetro que la pieza no mira se ignora en silencio.** Todo atributo de
-`<componente>` que no sea `tipo`, `id` o `conectada` se guarda como parámetro,
+`<componente>` que no sea `tipo`, `id`, `conectada` o `visible` se guarda como
+parámetro,
 sin lista blanca, y cada pieza consulta los suyos. La consecuencia es que
 `vff="2.0"` no da error: se guarda, no lo lee nadie y el LED usa 2.0 V porque es
 su valor por omisión. Al escribir una placa conviene comparar con la tabla del
@@ -348,7 +603,7 @@ que cambia la tensión del pin.
 
 | Terminal | | |
 | :--- | :--- | :--- |
-| `anodo` *o* `catodo` | uno de los dos | La patilla que va soldada al pin. Son **el mismo terminal con dos nombres**: el que se escriba no cambia la física —eso lo decide `a_vss`—, pero permite que el fichero diga la verdad. Con `a_vss="si"` lo que toca el pin es el ánodo; con `a_vss="no"`, el cátodo. Declarar los dos es un error |
+| `anodo` *o* `catodo` | uno de los dos, **o los dos** | Con uno, la patilla que va soldada al pin, y el otro extremo va por dentro a masa o a `vdd`. Son **el mismo terminal con dos nombres**: el que se escriba no cambia la física —eso lo decide `a_vss`—, pero permite que el fichero diga la verdad. Con `a_vss="si"` lo que toca el pin es el ánodo; con `a_vss="no"`, el cátodo. Con **los dos**, el LED tiene las dos patillas a la vista (abajo) |
 
 | Parámetro | Omisión | Efecto |
 | :--- | :--- | :--- |
@@ -379,6 +634,47 @@ corriente, y por eso la resistencia baja de 330 a 220 Ω.
 > En una placa real, con ese pin configurado como entrada y sin nada que lo
 > sujete, el nodo se iría cerca de los 5 V — por encima del máximo absoluto de un
 > pad que no sea tolerante a 5 V. El modelo no avisará de eso; hay que saberlo.
+
+**Las dos patillas a la vista.** Con `<pin nombre="anodo">` **y**
+`<pin nombre="catodo">`, ningún extremo va por dentro a masa ni a VDD: el
+ánodo está en un nodo, el cátodo en otro, y lo que haya en cada uno lo dice la
+placa. Luce cuando la tensión del ánodo menos la del cátodo supera `vf`, con
+`r` en serie. Es el LED de una **barra de ánodo o cátodo común**, cuyo común
+sale por un pin del conector y puede acabar en VDD, en masa o en el pin de otra
+placa:
+
+```xml
+<nodo id="P1.COM" bus="si"/>                    <!-- el comun: 8 LEDs a la vez -->
+<componente tipo="Led" id="D1" vf="1.8" r="2000">
+  <pin nombre="anodo"  nodo="P1.COM"/>          <!-- anodo comun -->
+  <pin nombre="catodo" nodo="P1.D1"/>
+</componente>
+```
+
+`a_vss` y `vdd` no tienen sentido ahí, y escribirlos es un error que lo dice.
+Cómo se resuelve una rama entre dos nodos con un canal que resuelve cada nodo
+por separado: lo que no es el LED es, en cada nodo, un Thevenin `{V0, R0}`
+—`voltage_excluding()` y la conductancia sin la propia, como hace `Fuente`—, y
+la rama es un circuito de una malla, `I = (Va0 − Vk0 − vf) / (Ra0 + r + Rk0)`.
+A cada nodo se le pone el Thevenin de la rama visto desde él —`{Vk + vf, r}` en
+el ánodo, `{Va − vf, r}` en el cátodo—, y cada uno, resuelto por su cuenta, da
+exactamente `Va` y `Vk`.
+
+Dos cosas que conviene saber:
+
+* **un extremo que nadie más sujeta deja el LED apagado**: con el común al
+  aire no hay por dónde cerrar el circuito, como en la placa. `sim` lo dice
+  al terminar: `LED D4 entre P1.COM y P1.D4: apagado (un extremo al aire)`;
+* **un nodo al que solo llegan LEDs** —el común de una barra unido al de otra
+  y a nada más— se queda a oscuras aunque en la placa real luciera: cada LED
+  ve el común flotando sin los demás, y ninguno empieza.
+
+El informe final dice entre qué nodos está cada uno y la tensión entre sus
+patillas: `LED B/D2 entre N/u0.PB6 y N/u0.PA9: encendido (3.22 V, 0.71 mA)`.
+`placas/barra8_*.xml` son las cuatro barras de ocho LEDs —ánodo o cátodo
+común, rojas o azules—; `placas/barra8_en_nucleo.xml`, una cableada a la
+Nucleo con el común en un pin; y `placas/nucleo_f446re_barra8ac_azul.xml`,
+la azul de ánodo común por los morpho, con el común a VDD.
 
 El estado se consulta desde C++ con `on()` y `current()`, y `sim` lo imprime al
 terminar:
@@ -411,6 +707,9 @@ real y lo que el modelo reproduce.
 | `r_cerrado` | `10` | Resistencia del contacto cerrado, en ohmios. Pulsado, la pieza gobierna el nodo con `{v_cerrado, r_cerrado}` |
 | `v_cerrado` | `0` | **La tensión a la que lleva el pin al cerrarse.** Cero es el pulsador a masa de siempre; `3.3` es el pulsador a VDD |
 | `normalmente` | `abierto` | El **reposo del contacto**: `abierto` (suelto no conduce, pulsado conduce) o `cerrado` (suelto CONDUCE, y pulsarlo lo ABRE). Cualquier otra palabra es un error, no un `abierto` silencioso |
+| `rebote` | `2` | **Los rebotes del contacto**: lo que tarda como mucho, en ms, en quedarse quieto al cerrarse; al abrirse, la mitad. `0` o `no` es un contacto ideal, que cambia de una vez |
+| `rebotes` | `5` | **Cuántas veces** se separa y vuelve a tocar en cada rebote: exactamente esas, en instantes al azar. Con N rebotes, una EXTI por flanco de subida ve N+1 flancos al pulsar. De 1 a 1000; para no rebotar, `rebote="no"` |
+| `semilla` | `0` | La del patrón pseudoaleatorio de los rebotes. `0` la saca del id: dos pulsadores de la misma placa no rebotan igual, y el mismo rebota igual en todas las ejecuciones |
 
 **`normalmente="cerrado"` no es una rareza: es lo que hay en seguridad.** Un
 final de carrera, una seta de emergencia o un detector de puerta se cablean NC a
@@ -452,6 +751,203 @@ firmware parecería roto sin estarlo:
 
 Se acciona desde C++ con `press()` y `release()`. **Un pulsador
 `conectada="no"` no cierra aunque se le pulse.**
+
+**Rebota, como uno de verdad.** Un contacto mecánico golpea y rebota antes de
+quedarse cerrado, y un firmware que cuente flancos de EXTI sin filtrarlos cuenta
+varias pulsaciones donde hubo una — igual que en la placa. Por eso una placa en
+XML rebota **por omisión**, con 2 ms y 5 rebotes, que es el orden de lo
+que se mide en pulsadores reales (Ganssle, *A Guide to Debouncing*):
+
+- el contacto se mueve **en el acto**, con el primer golpe, y luego se separa y
+  vuelve a tocar **exactamente `rebotes` veces**, en instantes al azar dentro
+  de `rebote` ms, hasta quedarse donde el dedo quiere. Exactas y no «como
+  mucho» —que es como fue al principio— porque para enseñar y para depurar lo
+  que sirve es poder decir «con 3 rebotes, la EXTI ve 4 flancos»;
+- al soltar, igual, en la mitad de tiempo;
+- un movimiento del dedo a media rebote corta el que había: manda el último;
+- en un NC rebota igual, porque lo que rebota es la lámina, no la lógica;
+- el **observable `pulsado` es el dedo**, que no rebota: la ventana pinta el
+  botón hundido, no el contacto, que además cambia mucho más deprisa de lo que
+  la ventana muestrea.
+
+Y se puede cambiar **con la simulación en marcha**: el pulsador tiene tres
+mandos, `pulsar` (botón), **`rebote_ms`** (continuo, de 0 a 20 ms, o hasta lo
+que diga la placa si es más) y **`rebotes`** (discreto —un desplegable en la
+ventana—, de 1 a 9, o hasta lo que diga la placa), que valen desde el siguiente
+movimiento del dedo. Desde C++, `pon_rebote_ms()` y `pon_rebotes()`.
+
+El patrón es pseudoaleatorio pero **reproducible al picosegundo**: un generador
+propio (xorshift64\*) con semilla sacada del id —o de `semilla`— e instantes en
+ns enteros, sin `<random>` ni `double`, cuyas distribuciones cambian de una
+biblioteca a otra. Un pulsador sin rebote no crea ningún proceso: se simula
+exactamente como antes.
+
+**Los bancos de pruebas no rebotan**: `pulsador()`, la función con la que se
+montan desde C++, pone `rebote="no"`, porque cuentan flancos exactos desde mucho
+antes de que hubiera rebotes. Y el botón de RESET de la Discovery y el de la
+Nucleo tampoco: en las dos tarjetas, el condensador de NRST se come los
+rebotes, y como ese condensador no se modela, su B2 lleva `rebote="no"`.
+
+#### `Fuente` y `Gnd`
+
+Una **tensión fija en un nodo**, con un límite de corriente opcional. `Fuente`
+pone `v` voltios (3,3 si no se dice) y `Gnd` pone 0 V: son la misma pieza —un
+equivalente Thevenin `{v, r}` con `r` mínima— y solo cambian la tensión y el
+sentido en que cuentan la corriente: la de una `Fuente` es la que **entrega** al
+nodo; la de una `Gnd`, la que **recibe** de él. Son lo que hace falta para montar
+una placa sin MCU —un raíl, una masa— y lo que deja ver en la ventana cuánto
+tira lo que cuelga de ellas.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `pin` | obligatorio | El nodo que sostiene |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `v` | `3.3` | Solo `Fuente`: la tensión, en voltios |
+| `limite_ma` | `no` | **El límite de corriente**, en mA, o `no` para ninguno |
+| `r` | `0.1` | La resistencia interna, en ohmios. 0,1 Ω es lo menos que admite un nodo: una fuente casi ideal |
+
+**El límite se comporta como el de una fuente de laboratorio.** Por debajo,
+tensión constante. Si la carga pide más, la pieza pasa a **corriente
+constante**: entrega exactamente el límite y deja caer la tensión —o, en una
+`Gnd`, deja subir el nodo—. Al entrar en limitación pone su observable
+`sobrecorriente` a 1 y lo avisa una vez por el informe de SystemC (un `T_AVISO`
+en la ventana); al salir, vuelve sola a tensión constante. El cálculo no itera a
+ciegas: lee el resto del nodo como otro Thevenin `{Vx, Rx}` y se pone la
+resistencia que deja la corriente en el límite, `|v − Vx| / I_lim − Rx`.
+
+**Un nodo con una fuente y varias cargas es un raíl, no un cortocircuito**: la
+validación eléctrica no cuenta la fuente como otra pieza conduciendo, así que no
+hace falta `bus="si"`. Dos fuentes —o una fuente y una masa— en el mismo nodo, en
+cambio, se pelean por él, y se avisa.
+
+```xml
+<placa nombre="rail-limitado">
+  <nodo id="vcc"/>
+  <componente tipo="Fuente" id="F1" v="3.3" limite_ma="20">
+    <pin nombre="pin" nodo="vcc"/>
+  </componente>
+  <componente tipo="Led" id="LD1" a_vss="si" vf="2.0" r="330">
+    <pin nombre="anodo" nodo="vcc"/>
+  </componente>
+  <componente tipo="Button" id="CORTO" v_cerrado="0" r_cerrado="1" rebote="no">
+    <pin nombre="pin" nodo="vcc"/>
+  </componente>
+</placa>
+```
+
+Suelto, F1 entrega los 3,9 mA del LED. Con `CORTO` pulsado la carga pediría
+3,3 A: F1 da sus **20 mA justos**, el nodo cae a unos 20 mV, el LED se apaga y
+`sobrecorriente` se pone a 1. Al soltarlo, todo vuelve. Al final de la
+simulación, `mcu-sim` dice por consola cuánto entregó cada una y cuántas veces
+tuvo que limitar.
+
+Desde C++, `corriente()` en amperios, `sobrecorriente()` y `episodios()`, las
+veces que ha entrado en limitación.
+
+**El +5V de la Nucleo es una.** `placas/nucleo_f446re.xml` lleva la `Fuente`
+`USB`: los 5 V del cable del ST-LINK, que pasan por su interruptor de potencia
+—corta a unos 500 mA, `limite_ma="500"`— y salen como `+5V` (CN6.5 y CN7.18)
+y `U5V` (CN10.8). Es de donde toma su tensión un módulo de 5 V, como el servo
+de `placas/nucleo_f446re_servo.xml`. En el dibujo es el conector USB de
+arriba: deja ver lo que entrega, y se rodea de rojo al limitar —un servo
+bloqueado pide 650 mA—. VIN y E5V, que son entradas, siguen al aire.
+
+#### `Conector`
+
+Una tira de **filas × columnas** pines, numerados del 1 al N. **No conduce ni
+escucha**: dice que esos nodos salen de la placa. Su pin *k* se llama `ID.k`
+(`CN9.2`) —o por su nombre, si lo tiene: `P1.COM`—, se suelda a un nodo de la
+placa con `<pin nombre="k">`, y uno sin soldar es un nodo propio, al aire, del
+que se puede colgar otra pieza. Dos conectores se enchufan en un `<sistema>`
+(§2.5).
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `1` … `N` | los que se usen | Cada pin, por su número —o por su nombre, si lo tiene—, al nodo al que va soldado |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `columnas` | *(obligatorio)* | Cuántos pines tiene cada fila |
+| `filas` | `1` | Cuántas filas: 2 en un IDC, en un morpho o en la cabecera de una Raspberry Pi |
+| `numeracion` | `zigzag` | `zigzag`: el 1 y el 2 enfrentados, impares en una fila y pares en la otra. `filas`: la primera fila entera, del 1 a `columnas`, y luego la siguiente |
+| `nombres` | *(ninguno)* | **Los nombres de los pines**, uno por pin y en orden, separados por espacios; `-` para uno que se sigue llamando por su número (abajo) |
+
+```xml
+<!-- El CN9 de una Nucleo-64: D0..D7 -->
+<componente tipo="Conector" id="CN9" filas="1" columnas="8">
+  <pin nombre="1" nodo="PA3"/>    <!-- D0 -->
+  <pin nombre="2" nodo="PA2"/>    <!-- D1 -->
+</componente>
+<!-- Un LED colgado directamente del pin 8 -->
+<componente tipo="Led" id="LD7" a_vss="si"><pin nombre="anodo" nodo="CN9.8"/></componente>
+```
+
+**Un pin soldado a un pad ES ese pad**: el LED de un shield en `J5.6`, con
+`J5` enchufado al `CN5` de la Nucleo y `CN5.6` soldado a `PA5`, cuelga de
+`PA5`, y así lo dicen los mensajes y el informe. **Un pin al aire no es un
+nodo flotante que avisar**: casi ningún montaje usa todos los pines de un
+conector.
+
+**La numeración solo importa en espejo.** Dos placas cara a cara se dan la
+vuelta: en un 2×N el 1 cae sobre el 2; con una sola fila, el 1 cae sobre el
+último. Para eso hace falta saber dónde está cada pin.
+
+**Los pines con nombre.** Con `nombres="COM D1 D2 D3 D4 D5 D6 D7 D8"`, el
+pin 1 se llama `P1.COM`, el 2 `P1.D1`, y así: es el nombre que se ve en la
+serigrafía, el que se escribe en un `<hilo>` (`B/P1.D3`) y el que sale en los
+mensajes. **Un pin con nombre se llama solo por su nombre**: `P1.1` no es el
+pin 1 de `P1`, sino el pad `PB1`, como en cualquier otra parte. El número sigue
+mandando en la forma —el 1 es el primero, y al acoplar el 1 va con el 1, tenga
+nombre o no— y `T_PLACA` lleva los nombres en su `<conector nombres="...">`.
+Un nombre empieza por letra, sigue con letras, cifras o `_`, no se repite, y
+no puede hacer de `ID.nombre` un pad (`X.PA0`) ni una patilla de alimentación
+(`X.VDD`); con `-` el pin se queda con su número.
+
+```xml
+<!-- El P1 de una barra de 8 LEDs: el comun a la izquierda, y D1..D8 -->
+<componente tipo="Conector" id="P1" filas="1" columnas="9"
+            nombres="COM D1 D2 D3 D4 D5 D6 D7 D8"/>
+```
+
+**Un límite.** Un id de conector con pines **por número** no puede ser algo
+como `P1`, porque `P1.1` sería el pad `PB1`. Con todos sus pines con nombre,
+sí: `P1.COM` no es ningún pad.
+
+**Alimentación, masa, reset y arranque también pasan.** Un pin se puede
+soldar a `VDD`, `VSS` (la masa del chip), `NRST`, `BOOT0` o cualquiera de los
+diez pads de alimentación y arranque, y llevarlos así a otra placa o unirlos
+con los de otro chip: con el NRST compartido, un reset de una placa resetea a
+las dos.
+
+#### `Jumper`
+
+Un **jumper**: una tira de pines como un `Conector` —con su forma, sus números
+y sus nombres—, y un **puente** puesto, la pieza de plástico que une dos pines
+vecinos. Los dos son el mismo nodo, como si un `<hilo>` los uniera dentro de la
+placa, y eso se resuelve antes de construir: el puente no se mueve con la
+simulación en marcha.
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `puente` | *(obligatorio)* | **Los dos pines que une**, por nombre o por número: `"5V VCC"`. Tienen que ser vecinos —uno al lado del otro en la misma fila o columna—. `"no"`: sin puente |
+| `columnas`, `filas`, `numeracion`, `nombres` | como en `Conector` | La forma de la tira y los nombres de sus pines |
+
+```xml
+<!-- El jumper de un adaptador FT232RL: 5V arriba, VCC en medio, 3.3V abajo -->
+<nodo id="VCC"/>
+<componente tipo="Jumper" id="JP1" filas="3" columnas="1"
+            nombres="5V VCC 3.3V" puente="5V VCC">
+  <pin nombre="VCC" nodo="VCC"/>
+</componente>
+```
+
+Son errores un `puente=` que falta, que no son dos pines, un pin que el jumper
+no tiene, un pin consigo mismo y dos pines que no están uno al lado del otro.
+En el dibujo, el puente es una **variante** (§2.6): `JP1@5V-VCC` —los dos pines
+por orden de pin, con un guion— y `mcu-sim` manda la que dice `puente=`.
+`placas/ftdi_ft232rl.xml` es el ejemplo.
 
 #### `Rpull`
 
@@ -506,6 +1002,86 @@ Con el pin en entrada, el nodo lo resuelve la superposición de los dos: **2,20 
 y 0,60 mA** por el LED, que luce débil porque un pull-up de 4,7 kΩ no da para
 más. Con `v="3.3"` bajan a 2,09 V y 0,26 mA; con `v="1.8"`, por debajo de la Vf,
 el LED no conduce y el nodo se queda en 1,80 V.
+
+#### `Resistencia`
+
+Una resistencia **entre dos nodos**. A diferencia de `Rpull`, el otro extremo
+no es una tensión fija sino un nodo del circuito: el pull-up que cuelga de la
+VCC de un conector, la que ponga quien alimenta el módulo —5 V, 3,3 V o nada—.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `a` | obligatorio | Un extremo |
+| `b` | obligatorio | El otro |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `r` | `10000` | El valor de la resistencia, en ohmios |
+
+Se resuelve como el `Led` con las dos patillas a la vista: en cada nodo, lo que
+no es la resistencia es un Thevenin, y la rama entre los dos se calcula exacta
+(`RamaDosNodos` en `parts/ext_parts.h`). **Con un extremo al aire** no lleva
+corriente, y ese extremo se queda a la tensión del otro: el pin que solo tiene
+su pull-up lee la VCC. Con los dos al aire, no hace nada. `corriente()` es la
+que va de `a` a `b`.
+
+```xml
+<componente tipo="Resistencia" id="R2" r="10000">
+  <pin nombre="a" nodo="P1.VCC"/>
+  <pin nombre="b" nodo="P1.CLK"/>
+</componente>
+```
+
+#### `Encoder`
+
+Un **encoder rotativo mecánico**, como el del módulo KY-040: un eje con
+`pasos` posiciones por vuelta —los clics que se notan al girarlo— y **dos
+contactos**, uno entre `a` y `c` y otro entre `b` y `c`. Según su hoja de
+datos:
+
+* en cada posición los dos están igual: **abiertos en las pares, cerrados en
+  las impares**;
+* cada clic los cambia los dos, pero **no a la vez**: girando a la derecha
+  —en el sentido de las agujas del reloj— cambia primero `a`; a la izquierda,
+  primero `b`. Es lo que dice hacia dónde se gira.
+
+Con `c` a masa y `a` y `b` con su pull-up, `a` y `b` dan un **código Gray** de
+dos bits, un cambio por cada medio clic:
+
+| Girando | `a` `b` |
+| :--- | :--- |
+| a la derecha | 11 → 01 → 00 → 10 → 11 … |
+| a la izquierda | 11 → 10 → 00 → 01 → 11 … |
+
+Los pull-ups no son del encoder: los pone la placa.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `a` | obligatorio | El contacto A, el que va delante girando a la derecha |
+| `b` | obligatorio | El contacto B, el que va delante girando a la izquierda |
+| `c` | obligatorio | El común de los dos |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `pasos` | `30` | Las posiciones —los clics— de una vuelta, de 1 a 1000 |
+| `r_cerrado` | `1` | La resistencia de un contacto cerrado, en ohmios |
+| `desfase_ms` | `1` | Lo que tarda el segundo contacto en seguir al primero dentro de un clic. Tiene que ser menor que `clic_ms` |
+| `clic_ms` | `5` | Lo que se tarda de un clic al siguiente cuando se pide girar varios de una vez |
+
+**El mando es `girar`**: la **cuenta** de clics, sin vueltas —sube hacia la
+derecha y baja hacia la izquierda—, de −30000 a 30000. Pedir otra cuenta gira
+el eje hasta ella, un clic detrás de otro. Deja ver `posicion` —la cuenta
+dentro de la vuelta, de 0 a `pasos − 1`: −1 es la 29—, `cuenta`, `contacto_a`
+y `contacto_b`. Desde C++, `gira(clics)` y `gira_a(cuenta)`.
+
+Cada contacto es una rama de dos nodos, como una `Resistencia` de `r_cerrado`
+que se abre y se cierra; el común `c` lleva las dos.
+
+`placas/ky040.xml` es el módulo entero: el encoder con `c` en `P1.GND`, los
+pull-ups de 10 kΩ de `CLK` y `DT` a `P1.VCC` (dos `Resistencia`) y el pulsador
+del eje, un `Button` normalmente abierto a 0 V en `P1.SW`, **sin pull-up**,
+como en la mayoría de los módulos. Su dibujo, `placas/ky040.svg`, tiene en el
+centro el mando que gira (§2.6).
 
 #### `Driver`
 
@@ -920,13 +1496,14 @@ ve basura y levanta FE/NF**, como en la placa.
 | `cts` | opcional | Lee el RTS del MCU. Pasivo. Imprescindible con `flujo="rtscts"` |
 | `rts` | opcional | Gobierna el CTS del MCU: bajo = puede mandar |
 | `dtr` | opcional | Alta en reposo, baja si el anfitrión activa DTR (por RFC 2217) |
+| `vccio` | opcional | **La alimentación de sus patillas**, como el VCCIO de un FT232R: si está, el nivel alto de `tx`, `rts` y `dtr` y el umbral de `rx` y `cts` son los de ese nodo, y lo siguen si cambia; y sus entradas, `rx` y `cts`, llevan el pull-up de 200 kΩ a VCCIO del chip. Sin ella, 3,3 V y entradas sin pull-up |
 
 Hace falta al menos `rx` o `tx`. Los nombres son los del **adaptador**, como
 vienen serigrafiados en uno de verdad: su `rx` va al TX del MCU.
 
 | Atributo | Por omisión | |
 | :--- | :--- | :--- |
-| `host` | `rfc2217:3355` | `memoria`, `tcp:PUERTO` (en crudo) o `rfc2217:PUERTO` (Telnet con la opción 44: el terminal puede fijar la línea, mover DTR y RTS y mandar breaks), escuchando siempre en `localhost`. O **conectándose** a un servidor que ya escucha: `tcp-cliente:HOST:PUERTO` o `rfc2217-cliente:HOST:PUERTO` (este configura el puerto remoto con la línea del puente), reintentando cada segundo. `--serie ID=DESTINO` lo cambia sin tocar el XML. Con cualquier destino de red, la simulación no termina sola (como con `--gdb`) y conviene `--tiempo-real` |
+| `host` | `rfc2217:3355` | `memoria`, `tcp:PUERTO` (en crudo) o `rfc2217:PUERTO` (Telnet con la opción 44: el terminal puede fijar la línea, mover DTR y RTS y mandar breaks), escuchando siempre en `localhost`. O **conectándose** a un servidor que ya escucha: `tcp-cliente:HOST:PUERTO` o `rfc2217-cliente:HOST:PUERTO` (este configura el puerto remoto con la línea del puente), reintentando cada segundo. `--serie ID=DESTINO` lo cambia sin tocar el XML —en un sistema, con la placa delante: `--serie N/VCP=memoria`—. Con cualquier destino de red, la simulación no termina sola (como con `--gdb`) y conviene `--tiempo-real`; **salvo con los ms dichos** (`--ms=` o el tercer argumento), que acaba a su hora con el puente escuchando mientras tanto. Dos puentes que piden **el mismo puerto en sus ficheros** —dos Nucleo en un sistema— no chocan: el segundo se corre al siguiente libre, y se dice; con `--serie`, en cambio, es un error |
 | `baudios` | `115200` | Un entero entre 50 y 10 500 000, o `host`: los fija el terminal por RFC 2217, **y con ellos el formato y el control de flujo**. Con un número, el XML manda: lo que pida el terminal se le contesta con lo que hay, y se avisa una vez |
 | `formato` | `8N1` | Bits de datos **sin contar la paridad** (5..9), paridad `N`/`E`/`O`/`M`/`S` y parada `1`, `1.5` o `2` |
 | `flujo` | `no` | `rtscts`: no manda mientras el RTS del MCU esté alto |
@@ -945,11 +1522,227 @@ es el CTS del terminal, en `NOTIFY-MODEMSTATE`; DSR y DCD, siempre activas.
 Desde C++: `envia(texto)`, `recibido()`, `set_baudios()`, `set_formato()`,
 `envia_break()`, `set_break()`, `set_rts()`, `set_dtr()`, `rfc2217()` y los
 contadores. Ejemplos completos en `placas/vcp_memoria.xml`, `placas/vcp_tcp.xml`,
-`placas/vcp_rfc2217.xml` y `placas/nucleo_f446re_vcp.xml` (la Nucleo-F446RE con
-el VCP del ST-LINK). **La receta para ver el `printf` en tu ordenador, por
+`placas/vcp_rfc2217.xml`, `placas/nucleo_f446re_vcp.xml` (la Nucleo-F446RE con
+el VCP del ST-LINK) y `placas/nucleo_f446re.xml`, que lo lleva también. **La receta para ver el `printf` en tu ordenador, por
 sistema, está en `doc/puente_serie.md`**; con `--espera-terminal`, `mcu-sim` no
 arranca el MCU hasta que el terminal está conectado, y así no se pierde lo que
 el firmware imprime al arrancar.
+
+### 4.10 La pantalla TFT
+
+#### `Tft128x160`
+
+Una pantalla TFT de 1,8 pulgadas y **128x160** píxeles con su controlador
+**ST7735S**, por **SPI de cuatro hilos**: el módulo rojo de ocho pines, con su
+regulador de 3,3 V y su retroiluminación [ST7735S, Sitronix, v1.1]. Está en
+`parts/tft_st7735.h`.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `vcc` | obligatorio | La alimentación del módulo, de 3,3 a 5 V: va al regulador, que da los 3,3 V del chip. Con menos de 2,65 V el chip no arranca. Consume unos 3 mA |
+| `gnd` | obligatorio | La masa |
+| `cs` | obligatorio | CSX, la selección: con ella alta la interfaz no atiende y se reinicia |
+| `reset` | obligatorio | RESX: un pulso bajo de más de 5 µs reinicia el chip, que no atiende órdenes hasta 5 ms después |
+| `ad` | obligatorio | D/CX —A0, DC o RS en otros módulos—: bajo, el byte es una orden; alto, un dato |
+| `sda` | obligatorio | SDA, el dato. Lo toma en el flanco de subida de SCK, y lo pone el chip al contestar una lectura |
+| `sck` | obligatorio | SCL, el reloj |
+| `led` | obligatorio | La retroiluminación: el ánodo de los LEDs blancos, con su resistencia en la placa. A 3,3 V, unos 26 mA y la luz entera |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `memoria` | `128x160` | Cómo direcciona la memoria el ST7735S: `128x160` (GM = 11: lo visible empieza en la columna 0 y la fila 0) o `132x162` (GM = 00, el de algunos módulos: lo visible empieza en la columna 2 y la fila 1) |
+| `panel` | `rgb` | El orden de los filtros de color del panel, `rgb` o `bgr`. Con uno `bgr` el rojo y el azul salen cambiados si el firmware no pone el bit RGB de MADCTL |
+| `vf_luz` | `2.9` | La tensión de los LEDs de la retroiluminación, en V |
+| `r_luz` | `15` | Su resistencia en la placa, en ohmios |
+
+**Lo que se ve es lo que enseñaría la pantalla de verdad**, y se lo manda a
+la ventana como una IMAGEN de 128x160 (§4.12):
+
+* el chip sin tensión, en reset, dormido —SLPIN, el estado tras arrancar— o
+  con la pantalla apagada —DISPOFF—: **blanca**. El cristal es de los
+  normalmente blancos: sin tensión deja pasar la luz. Es la pantalla blanca
+  que enseña un módulo que nadie ha iniciado;
+* despierto y encendido, **su memoria**, con la geometría de MADCTL (MX, MY,
+  MV), el desplazamiento vertical (SCRLAR, VSCSAD), el modo parcial (PTLAR,
+  PTLON: fuera del área, blanco), los ocho colores (IDMON: el bit alto de cada
+  color), la inversión (INVON) y el orden RGB/BGR del panel contra el bit RGB
+  de MADCTL;
+* la memoria, al dar tensión, tiene lo que tenga: **ruido**. Un firmware que
+  la enciende sin borrarla enseña colores al azar —siempre los mismos—;
+* y todo con la **luz** del pin LED: sin ella, negra. La luz va aparte de los
+  píxeles y es la media entre dos imágenes: con PWM en LED se ve la luz media.
+
+**La interfaz** es la de la hoja [§9.4]: con CSX bajo, cada subida de SCL
+toma un bit de SDA, el más alto primero, y en la octava también D/CX. Un CSX
+que sube a medio byte lo tira [§9.5]; uno que sube entre bytes es una pausa
+[§9.6]. Los formatos de COLMOD —12, 16 y 18 bits por píxel— pasan por la tabla
+de color (RGBSET); mientras nadie la escriba, por la expansión natural de cada
+formato —la hoja dice que al arrancar es aleatoria, pero los módulos de verdad
+pintan bien en 16 bits sin tocarla—. **Las órdenes del sistema están todas**,
+también las de lectura —RDDID, RDDST, RDDPM, RDDMADCTL, RDDCOLMOD, RDDIM,
+RDDSM, RDDSDR, RDID1-3 y RAMRD—, que contestan por SDA poniendo cada bit en la
+bajada de SCL; las de 24 y 32 bits y RAMRD, con un ciclo de reloj vacío
+delante [figura 20]. El ID es 7C 89 F0. Las del panel (B1h-FCh: marco,
+potencia, VCOM, gamma) se aceptan con sus parámetros y no cambian nada de lo
+que se ve.
+
+**Lo que se dice en vez de callar**, un aviso por cosa:
+
+| Qué | Lo que hace el modelo |
+| :--- | :--- |
+| Una orden antes de 5 ms tras soltar RESET [§9.17, nota 7] | La pierde, como el chip, que está cargando sus registros |
+| Una orden antes de los 120 ms de SLPOUT, SLPIN o SWRESET; SLPOUT antes de 120 ms tras el reset | La aplica, pero la hoja no lo garantiza |
+| Un reloj más rápido que la hoja: 66 ns de ciclo al escribir, 150 al leer [§8.4] | Lo atiende igual |
+| Más de VDDI + 0,3 V en una entrada: 5 V en un chip de 3,3 V [§7.1] | Lo atiende igual; este módulo no lleva adaptadores de nivel |
+| Una orden que el ST7735S no tiene, o un COLMOD que no existe | La ignora |
+| TFA + VSA + BFA distinto de las líneas de la memoria [10.1.26] | Desplaza igual; la hoja dice que la imagen no está definida |
+
+**Lo que no se modela**: la gamma y los ajustes de potencia —se aceptan—, la
+salida TE —este módulo no la saca—, el tiempo de refresco del cristal —lo
+escrito se ve en cuanto está escrito— y el autodiagnóstico de SLPOUT (RDDSDR
+lee 0).
+
+Deja ver `encendida` (si enseña su memoria), `luz` (mA) y la imagen
+`pantalla`. Al terminar, `sim` dice cómo ha quedado:
+`TFT T/TFT: ensena su memoria; 16 bits por pixel, MADCTL 0x60; 180 ordenes,
+30816 pixeles; luz 26.2 mA`, y si se perdió alguna orden. Desde C++,
+`mostrando()`, `color_en(x, y)` —el color que se ve— y `memoria(col, fila)`.
+
+**La postura y MADCTL.** La imagen gira con la placa, así que lo que
+enseña la pantalla derecho depende de cómo esté montada y de MADCTL, como en
+la de verdad:
+
+| `giro=` | Cómo queda | MADCTL para verlo derecho |
+| :--- | :--- | :--- |
+| 0 | apaisada, conector a la derecha | `0x60` (MV, MX) |
+| 90 | de pie, conector abajo | `0x00` |
+| 180 | apaisada, conector a la izquierda | `0xA0` (MV, MY) |
+| 270 | de pie, conector arriba | `0xC0` (MX, MY) |
+
+`placas/tft_128x160.xml` es el módulo, con el conector de 8 pines `P1` a la
+derecha: VCC, GND, CS, RESET, AD —serigrafiado `A/D`; la barra separa en un
+sistema la placa del nombre—, SDA, SCK y LED. Y
+`placas/nucleo_f446re_tft.xml`, el módulo cableado a los conectores Arduino de
+la Nucleo, con `verif/fw/tft_demo`: lee el ID por SDA, la despierta y dibuja
+—el título, ocho barras de color y un cuadrado que va y viene—.
+
+### 4.11 El servo
+
+#### `Servo`
+
+Un **servo de modelismo**, como el SG90: un motor con su reductora y, dentro,
+un potenciómetro y un circuito que lleva el eje al ángulo que pide la
+**anchura del pulso** de la señal, que llega cada ~20 ms [SG90, TowerPro;
+Handson Technology, «SG90 Micro Servo»]. Está en `parts/servo.h`.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `vcc` | obligatorio | La alimentación del motor y del circuito, de `v_min` a `v_max` |
+| `gnd` | obligatorio | La masa |
+| `pwm` | obligatorio | La señal. Entrada de alta impedancia con umbrales de 1,6 V al subir y 0,8 V al bajar: vale con los 3,3 V de un STM32 |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `periodo_ms` | `20` | El periodo que espera de la señal, de 2 a 100 ms. Uno medido de menos de la mitad o más del doble se avisa |
+| `angulo_min`, `angulo_max` | `-90`, `90` | Los ángulos de los dos extremos, en grados. Positivo es en el sentido de las agujas del reloj, mirando el eje desde arriba |
+| `pulso_min_ms`, `pulso_max_ms` | `1`, `2` | Las anchuras de pulso de `angulo_min` y de `angulo_max`, entre 0,3 y 3 ms. En medio, en línea recta |
+| `continuo` | `no` | `si`: de **giro continuo**. El pulso ya no es una posición sino una velocidad: el del centro del rango lo para, `pulso_max_ms` lo lleva a toda velocidad a la derecha y `pulso_min_ms` a la izquierda. El ángulo da vueltas, de 0 a 360 |
+| `velocidad` | `0.12@4.8` | Lo que tarda en girar 60 grados a cada tensión: pares `s@V` separados por blancos —`0.12@4.8 0.10@6`—. Entre dos, en línea recta; fuera, el más cercano; con uno solo, la velocidad es proporcional a la tensión |
+| `v_min`, `v_max` | `4`, `7.2` | Por debajo de `v_min` el motor no puede con la reductora y no se mueve; por encima de `v_max`, se avisa |
+| `banda_muerta_us` | `10` | Un cambio de pulso menor no lo mueve, de 0 a 200 µs |
+| `sin_senal` | `suelta` | Qué hace si deja de llegar señal —tres periodos sin pulso—: `suelta`, el analógico, deja el motor y se queda donde esté; `mantiene`, el digital, sigue hacia el último ángulo |
+| `i_reposo_ma`, `i_marcha_ma`, `i_bloqueo_ma` | `6`, `150`, `650` | Lo que gasta quieto, moviéndose y con el eje sujeto, en mA a 5 V |
+| `posicion_inicial` | `aleatoria` | Dónde está el eje al arrancar: `aleatoria`, en cualquier punto del rango —redondeado a la décima de grado—, o un ángulo |
+| `semilla` | `0` | Fija la posición aleatoria: con la misma semilla, el mismo ángulo, también en otro sistema operativo. `0`, distinta cada vez |
+| `aspa` | `dos` | El aspa del eje, para el dibujo: `una`, `dos` —a 180°—, `cuatro` —dos largas y dos cortas, en cruz—, `seis` o `disco`. Una de las palas lleva una marca roja para seguirla con la vista |
+| `color` | `azul` | El color del cuerpo en el dibujo: `azul` o `negro` |
+
+**Lo que hace, como el de verdad:**
+
+* mide la anchura de cada pulso y la lleva a un ángulo. Un pulso fuera del
+  rango —más allá de la banda muerta— lleva al **extremo**, donde están los
+  topes de la reductora, y se avisa; uno fuera de lo que el circuito reconoce
+  como pulso, 0,3 a 3 ms, se **ignora**, y se avisa;
+* va hacia el ángulo pedido a su **velocidad**, que depende de la **tensión**
+  que tiene en VCC en cada momento: una fuente floja que se hunde lo hace ir
+  más despacio, y por debajo de `v_min` lo para;
+* es una **carga de verdad** sobre VCC —una rama de dos nodos con la
+  resistencia que da su corriente a 5 V—: poco quieto, más moviéndose y mucho
+  bloqueado. Por eso un servo se alimenta de un rail de 5 V que lo aguante, no
+  de un pin;
+* sin señal, el analógico suelta y el digital mantiene;
+* y al arrancar el eje está **donde se quedó**: el primer pulso lo lleva a su
+  sitio, y se le ve llegar.
+
+El eje no se simula paso a paso: su ángulo es una recta en el tiempo entre
+dos cambios —un pulso nuevo, la llegada, la tensión, la señal que se pierde—,
+y el proceso del motor solo despierta en ellos.
+
+Deja ver `angulo` (grados, el que sugiere pintar: la ventana gira el aspa con
+él, el efecto `angulo`), `pulso` (µs), `corriente` (mA) y `rpm`. El **mando**
+es `bloquear`, un interruptor: la mano que sujeta el eje. Avisa, una vez cada
+cosa, de los pulsos fuera de rango o que no lo son, de un periodo que no es el
+suyo, de la sobretensión y de cuando se queda sin señal. Al terminar, `sim`
+dice cómo ha quedado: `SERVO S/SERVO: +0.0 grados (objetivo +0.0), pulso 1500
+us cada 20.0 ms; quieto; 5.00 V, 6 mA; empezo en -17.4 grados`. Desde C++,
+`angulo()`, `objetivo()`, `inicial()`, `pulso_us()`, `moviendose()`,
+`con_senal()`, `tension()`, `corriente_ma()`, `rpm()` y `bloquea(si)`.
+
+`placas/servo_sg90.xml` es una placa con el SG90 a 5 V —de −90 a +90 grados
+con pulsos de 1 a 2 ms cada 20 ms, `velocidad="0.12@5"`, aspa de cuatro palas
+y cuerpo azul— y su conector de tres pines acodado debajo: `VCC`, `GND` y
+`PWM`. En el dibujo, junto a cada pin, el color de su hilo en el cable del
+servo. Y `placas/nucleo_f446re_servo.xml` la cablea a una Nucleo —el `PWM` a
+D5, PB4, el TIM3; el `VCC` a su `+5V`— con un KY-040 que lo mueve 5 grados por
+clic y la pantalla TFT de pie, con `verif/fw/servo_demo`.
+
+### 4.12 Lo que `mcu-sim-gui` puede ver y tocar
+
+Desde la fase 1 del plan de `mcu-sim-gui` (P-12), una pieza puede **declarar**
+qué deja ver —sus *observables*— y qué se le puede hacer —sus *mandos*—. La
+pantalla no ve nada más: ni la tensión de un pin cualquiera ni un registro del
+MCU. Lo declara la propia pieza, en `parts/ext_parts.h`, y el catálogo que la
+GUI recibirá se construye recorriendo el inventario, así que una pieza que
+empiece a declarar algo aparece sola.
+
+Lo declaran estas:
+
+| Pieza | Observables | Mandos |
+| :--- | :--- | :--- |
+| `Led` | `encendido` (0/1, el que sugiere pintar) y `corriente` (mA, de 0 a 25) | — |
+| `Button` | `pulsado` (0/1): el **dedo**, no el contacto, que en un NC es lo contrario | `pulsar` (botón, 0 suelta, 1 pulsa) |
+| `Crystal` | `presente` (0/1): si está soldado | — |
+| `Fuente`, `Gnd` | `corriente` (mA, la que entrega o recibe; la escala es ± el límite, o ±100 sin él) y `sobrecorriente` (0/1, **una alarma**: el catálogo la marca con `alarma="si"` y la ventana la pinta en rojo) | — |
+| `Encoder` | `posicion` (de 0 a `pasos − 1`, la que sugiere pintar), `cuenta`, `contacto_a` y `contacto_b` (0/1) | `girar` (discreto, la cuenta de clics, de −30000 a 30000) |
+| `Tft128x160` | `encendida` (0/1, la que sugiere pintar) y `luz` (mA, de 0 a 40); y la IMAGEN `pantalla`, de 128x160 | — |
+| `Servo` | `angulo` (°, de `angulo_min` a `angulo_max` o de 0 a 360, el que sugiere pintar), `pulso` (µs), `corriente` (mA) y `rpm` | `bloquear` (interruptor: sujeta el eje) |
+
+**Una pieza puede enseñar además una IMAGEN entera** —la pantalla de un
+TFT—, que no cabe en un número (`Imagen` en `parts/part_base.h`). El catálogo
+la declara como `<imagen>`, con un `id_obs` del mismo espacio que los
+observables pero detrás de todos ellos —así los de siempre no se mueven—, y
+la ventana la pide en la misma suscripción. No va en las instantáneas: en
+cada instante de la rejilla, si ha cambiado —su contenido o su luz— desde la
+última que salió, sale en su propio mensaje, `T_IMAGEN`, con los píxeles en
+RGB888 y la luz aparte (`doc/protocolo.md` §4.1 en `mcu-sim-gui`). Con dos
+esperando a una ventana que no lee, la siguiente no se toma: la muestra de
+después mandará la que haya.
+
+`Crystal` no publica la frecuencia por lo mismo que no la lleva como atributo:
+la del HSE es un dato del árbol de reloj y vive en el RCC.
+
+Desde la fase 5 los mandos se **accionan** desde la ventana: una orden dice
+pieza, mando y valor, y llega a `acciona()` en su instante simulado. El rango
+de cada mando es el que la pieza declara; una orden que se sale se recorta a él
+y se aplica, y el modelo lo avisa (`doc/protocolo.md` §5 en `mcu-sim-gui`).
+Para la pieza no hay diferencia entre eso y que el programa de pruebas llame al
+método de siempre: `acciona(pulsar, 1)` hace lo mismo que `press()`.
+
+Las demás no declaran nada todavía, y no les hace falta para
+compilar: los seis métodos de `ExtPartBase` tienen valores por omisión. Las
+piezas que el enunciado de la GUI necesita y no existen —`PwmMeter`,
+`StepperDriver`, `DcMotor`— están en `doc/analisis_gui.md` §8; el `Encoder`
+(§4.1) y el `Servo` (§4.11) ya están.
 
 ---
 
@@ -966,7 +1759,9 @@ existe—; simplemente no ha hecho falta todavía.
 
 **Nada de lo que ocurre durante la simulación está en el XML.** Pulsar un botón,
 encender un oscilador, enviar una trama CAN o inyectar una trama Ethernet son
-acciones, no descripción, y viven en el programa que conduce la simulación.
+acciones, no descripción, y viven en el programa que conduce la simulación
+—o, con `--gui`, en la ventana, que las manda como órdenes a los mandos que
+cada pieza declara (§4.12)—.
 
 **El MCU no se describe.** Variante, encapsulado y rasgos de los periféricos
 siguen fijados en C++. El fichero describe lo que está fuera del chip.
@@ -979,7 +1774,7 @@ mira, y cualquier otro que aparezca en el `<componente>` sobra.
 **Un tipo mal escrito sí** (§3.1), y desde que existen las fichas el mensaje
 distingue el caso frecuente: si lo único que falla son las mayúsculas, lo dice
 —`tipo desconocido 'led'. Se escribe 'Led': el tipo distingue mayúsculas`— en
-lugar de limitarse a enumerar los veintiuno.
+lugar de limitarse a enumerarlos todos.
 
 ---
 
@@ -1046,11 +1841,14 @@ $ ./build/mcu-sim placas/led_azul_5v.xml verif/fw/blinky/blinky.bin 205
   LED LD_AZUL en PD12: apagado  (3.30 V, 0.00 mA)
 ```
 
-Y la placa entera del banco de pruebas —43 componentes de 20 de los 22 tipos,
-todos menos `Rpull` y `PuenteSerie`, que tiene su propio banco (`testserie`)— se saca
+Y la placa entera del banco de pruebas —43 componentes de 20 de los 30 tipos,
+todos menos `Rpull`, `Resistencia`, `Encoder`, `Tft128x160`, `Servo`, `Fuente`, `Gnd`, `Conector`, `Jumper` y `PuenteSerie`, que tiene su propio banco (`testserie`)— se saca
 del propio modelo, que es la mejor referencia de formato que hay:
 
 ```
 ./build/test407 --netlist > placas/banco.xml
-./build/mcu-sim placas/banco.xml --valida
+./build/mcu-sim placas/banco.xml --mcu STM32F407VG --valida
 ```
+
+El `--mcu` hace falta porque `banco.xml` no declara `<mcu>`: el chip del banco lo
+construye el código C++, no el XML, y `mcu-sim` ya no supone ninguno.

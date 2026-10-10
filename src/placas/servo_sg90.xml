@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     PLACA CON UN SERVO SG90, sin MCU
+
+     Un micro servo de modelismo como el SG90 [TowerPro; Handson Technology,
+     «SG90 Micro Servo»], visto desde arriba, con un aspa de cuatro palas en
+     el eje. Debajo, el conector de 3 pines, acodado, a la izquierda de la
+     placa; de arriba abajo:
+
+         P1.VCC   la alimentacion del servo: 5 V (de 4 a 7,2 V)
+         P1.GND   la masa
+         P1.PWM   la senal: un pulso cada 20 ms. Su anchura es el angulo:
+                  1 ms, -90 grados; 1,5 ms, el centro; 2 ms, +90 grados.
+                  Vale con 3,3 V, como la de un STM32
+
+     EL SERVO, SERVO (`./build/mcu-sim --help Servo`): va hacia el angulo que
+     pide el pulso a 0,12 s cada 60 grados con 5 V -mas despacio si la
+     tension se hunde-. Al arrancar, el eje esta donde se quedo la ultima
+     vez: en un angulo cualquiera entre -90 y +90, distinto en cada
+     simulacion. El primer pulso lo lleva a su sitio, y se le ve llegar. Si
+     deja de llegar senal, suelta el motor y se queda donde esta. Gasta 6 mA
+     quieto, 150 mA moviendose y 650 mA si se le sujeta el eje -el mando
+     `bloquear`-: un servo se alimenta de un rail de 5 V que aguante eso, no
+     de un pin del MCU.
+
+     EN LA VENTANA: el aspa gira con el angulo, a la derecha los positivos;
+     la pala de la marca roja apunta arriba en el 0. El color del cuerpo y el
+     aspa son parametros del servo -color="negro", aspa="dos"...-, y el
+     dibujo lleva todas las variantes: se ensena la que toca.
+
+     Sola, la placa no hace nada -no lleva chip-; se valida igual:
+
+         ./build/mcu-sim placas/servo_sg90.xml --valida
+
+     Cableada a una Nucleo, con una pantalla y un encoder que lo mueven, es
+     placas/nucleo_f446re_servo.xml.
+     ========================================================================= -->
+<placa nombre="servo-sg90">
+  <!-- El conector de tres pines, vertical, con VCC arriba -->
+  <componente tipo="Conector" id="P1" filas="3" columnas="1"
+              nombres="VCC GND PWM"/>
+
+  <!-- El servo: el SG90 a 5 V, de -90 a +90 grados con pulsos de 1 a 2 ms
+       cada 20 ms, a 0,12 s por cada 60 grados; aspa de cuatro palas y cuerpo
+       azul -->
+  <componente tipo="Servo" id="SERVO" periodo_ms="20"
+              angulo_min="-90" angulo_max="90"
+              pulso_min_ms="1" pulso_max_ms="2"
+              velocidad="0.12@5" aspa="cuatro" color="azul">
+    <pin nombre="vcc" nodo="P1.VCC"/>
+    <pin nombre="gnd" nodo="P1.GND"/>
+    <pin nombre="pwm" nodo="P1.PWM"/>
+  </componente>
+</placa>

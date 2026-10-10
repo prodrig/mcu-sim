@@ -37,14 +37,15 @@ Error message from debugger back end:
 Truncated register 18 in remote 'g' packet
 ```
 
-Y la causa está escrita en el **primer** paquete de la sesión, que `--traza-gdb`
+Y hay una pista en el **primer** paquete de la sesión, que `--traza-gdb`
 enseña:
 
 ```
 qSupported:...;xmlRegisters=i386;error-message+
 ```
 
-`xmlRegisters=i386`. Ese GDB es un depurador de PC. Las cuentas salen justas:
+`xmlRegisters=i386`: ese GDB lleva dentro x86. Que **no lleve ARM** se ve en lo
+que pasa después, y las cuentas salen justas:
 el modelo manda **23 registros de 32 bits = 184 caracteres**, y un GDB de i386
 espera 8 registros de 32 bits, `EIP`, `EFLAGS` y seis de segmento —16 × 8 = 128
 caracteres— y a continuación los de x87, que son de **80 bits**, o sea 20
@@ -55,14 +56,26 @@ No es que el paquete esté mal: es que lo está leyendo quien no debe. Un GDB de
 x86 no entiende `<architecture>arm</architecture>` aunque se lo mandemos, porque
 no lleva ARM dentro.
 
-**El simulador lo dice ahora en cuanto pasa**, sin esperar al fallo:
+**El simulador lo dice en su consola** en cuanto el depurador se va:
 
 ```
-[gdb] AVISO: el depurador conectado dice ser para 'i386', no para ARM.
-[gdb]        Esto es el `gdb` del PC, no arm-none-eabi-gdb. Fallara en el paquete `g`
-[gdb]        con "Truncated register ... in remote 'g' packet".
+[gdb] cliente desconectado
+[gdb] AVISO: el depurador se ha ido justo despues de pedir los registros, y dijo ser para 'i386', no para ARM.
+[gdb]        Casi seguro es el `gdb` del PC, no arm-none-eabi-gdb, y habra fallado con
+[gdb]        "Truncated register ... in remote 'g' packet".
 [gdb]        En el IDE: Debugger > GDB Command, con la RUTA COMPLETA de arm-none-eabi-gdb.
 ```
+
+**Por qué espera a que se vaya y no avisa al leer `xmlRegisters=i386`** (I-54).
+Antes avisaba ahí, y era una falsa alarma para quien depura con
+**`gdb-multiarch`**: GDB no pone en `xmlRegisters=` la arquitectura para la que
+está construido, sino las que registran ese soporte, y en GDB solo lo hace la
+de x86. Así que `arm-none-eabi-gdb` no manda nada, el `gdb` del PC manda
+`i386`... y `gdb-multiarch`, que lleva x86 y ARM, **también** manda `i386`, y
+funciona perfectamente porque sí entiende el `target.xml` de ARM. Lo que los
+distingue es el paquete `g`: el que no es de ARM no lo puede leer, da el error
+y se va; `gdb-multiarch` lo lee y sigue pidiendo memoria. El aviso sale solo en
+el primer caso.
 
 El `arm-none-eabi-gdb` de CubeIDE está dentro de su instalación, por la zona de
 
@@ -159,6 +172,75 @@ reanudar había una interrupción esperando siempre. Dos arreglos:
   la CPU al esperar baja de **99,6 % a 5,3 %**. **Para trabajar con el IDE,
   ponlo**: sin freno, un LED que parpadea a 1 Hz parpadea doscientas veces por
   segundo y no hay nada que mirar.
+
+## El quinto: «Suspend operation timeout», y un paso a paso muy lento
+
+Síntoma: se lanza el programa sin puntos de ruptura —se para en `main`, se le
+da a *Resume*— y el botón de pausa no hace nada: a los pocos segundos el IDE
+dice **«Suspend operation timeout»**. Lo encontró un proyecto de prácticas
+cuyo `main` es un bucle que consulta `HAL_GetTick()` sin parar.
+
+**Era del stub, y ya está corregido.** La pausa del IDE llega al stub como un
+Ctrl-C (el byte `0x03`), y el stub paraba el núcleo enseguida, pero contestaba
+mal dos veces:
+
+* con **`T05`**, SIGTRAP —lo de un punto de ruptura o un paso—, y no con
+  **`T02`**, SIGINT, que es lo que GDB espera tras interrumpir;
+* y con **`swbreak:`**, porque la causa de la parada se leía de `DFSR`, cuyos
+  bits se quedan puestos hasta que alguien escribe un 1 encima, y el stub no
+  lo borraba nunca. El punto de ruptura de `main` que pone el propio IDE al
+  arrancar dejaba el bit de BKPT puesto para toda la sesión: «sin puntos de
+  ruptura» no lo era.
+
+GDB recibía «SIGTRAP de un punto de ruptura» en una dirección donde no tenía
+ninguno, lo tomaba por uno ya quitado y **reanudaba sin decírselo al IDE**, que
+se quedaba esperando una parada que no llegaba. Ahora `GdbRsp` borra `DFSR` al
+reanudar y al dar un paso (`borrar_causa`), y al Ctrl-C contesta `T02`.
+
+Medido con GDB por MI, como lo usa el IDE, con el `.elf` de ese proyecto en
+`placas/nucleo_f446re.xml --gdb --tiempo-real`:
+
+| Stub | Pausa (`-exec-interrupt`) | `-exec-next` después |
+| :--- | :--- | :--- |
+| antes | ninguna parada en 10 s | nunca: el programa seguía corriendo |
+| ahora | parado por SIGINT en 0,05 s | 0,06 a 0,15 s |
+
+`make test407` lo vigila en T96: un paso después de un punto de ruptura ya no
+dice `swbreak`, y un Ctrl-C con el objetivo en un bucle contesta `T02`.
+
+**Un *step over* que no acaba nunca no es lentitud: es GDB.** En ese mismo
+proyecto, `cfEvaluate();` dentro de `while (1)` compila a dos instrucciones,
+la llamada y el salto de vuelta, y **las dos son de la misma línea**:
+
+```
+Line 100 of "../Core/Src/main.c" starts at address 0x80008e4 <main+28> and ends at 0x80008ea.
+   0x80008e4 <main+28>:  bl   0x800063c <cfEvaluate>
+   0x80008e8 <main+32>:  b.n  0x80008e4 <main+28>
+```
+
+*Step over* en esa línea es «sigue hasta salir de la línea 100», y del bucle no
+se sale: GDB entra en `cfEvaluate`, pone un punto de ruptura a la vuelta,
+continúa, vuelve a la línea 100 y vuelta a empezar, para siempre. Con una
+placa de verdad pasa exactamente lo mismo; el IDE lo enseña como «corriendo».
+Para avanzar desde ahí: *step into* (F5) para entrar en `cfEvaluate`, o un
+punto de ruptura donde se quiera parar y *Resume*. Y la pausa, que antes
+fallaba justo en este caso, ahora lo para.
+
+**La lentitud del paso a paso**, en Windows, tenía otra causa. El stub atiende
+a GDB entre rodaja y rodaja de 1 ms de la simulación, y con `--tiempo-real`
+cada rodaja acaba durmiendo; Windows, si nadie le pide más, no despierta a un
+proceso antes de su tic de unos **15,6 ms**. Así, cada paquete de GDB esperaba
+hasta 15 ms, y el IDE, que tras cada paso refresca registros, variables, pila,
+desensamblado y la vista de los periféricos, manda cien o más. Ahora
+`mcu-sim`, con `--tiempo-real` o con la ventana, pide a Windows un reloj de
+1 ms (`timeBeginPeriod`). Si aun así va despacio:
+
+* **`--gdb-dap`** en vez de `--gdb`: el stub habla con el núcleo directamente,
+  sin pasar cada lectura por SWD bit a bit —con `--gdb` una lectura de todos
+  los registros son unas cincuenta transacciones SWD, y con `--tiempo-real`
+  cuestan su tiempo de verdad—;
+* cerrar la vista *SFRs* y las *Live Expressions* mientras se da paso a paso;
+* y `--traza-gdb`, para ver cuántos paquetes cuesta cada paso.
 
 ## Se para en `Reset_Handler` y no en `main`
 

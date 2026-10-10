@@ -33,14 +33,37 @@
 #include <systemc>
 #include <cmath>
 #include "../common/analog_net.h"
+#include "pin_mux.h"            // Cableado
 
 namespace stm32 {
 
 SC_MODULE(PowerPads) {
-    // Nodos de encapsulado (el testbench externo se registra como driver)
-    AnalogNet vdd{"vdd"}, vss{"vss"}, vdda{"vdda"}, vssa{"vssa"};
-    AnalogNet vref_p{"vref_p"}, vbat{"vbat"}, vcap1{"vcap1"}, vcap2{"vcap2"};
-    AnalogNet nrst{"nrst"}, boot0{"boot0"};
+private:
+    // Los nodos PROPIOS. Se crean siempre -la elaboración de SystemC es
+    // estática, y así el modelo de siempre se construye exactamente igual-,
+    // pero un pad que la placa une a otro sitio (véase `Cableado::une_alim`)
+    // usa el nodo de la placa y el suyo se queda sin nadie.
+    AnalogNet vdd_{"vdd"}, vss_{"vss"}, vdda_{"vdda"}, vssa_{"vssa"};
+    AnalogNet vref_p_{"vref_p"}, vbat_{"vbat"}, vcap1_{"vcap1"}, vcap2_{"vcap2"};
+    AnalogNet nrst_{"nrst"}, boot0_{"boot0"};
+    static analog_net_if& elige(const Cableado* cab, const char* nombre, AnalogNet& propio) {
+        analog_net_if* n = cab ? cab->busca_alim(nombre) : nullptr;
+        return n ? *n : propio;
+    }
+
+public:
+    // Nodos de encapsulado (el testbench externo se registra como driver). Son
+    // los propios, o los de la placa si el cableado los une.
+    analog_net_if& vdd;
+    analog_net_if& vss;
+    analog_net_if& vdda;
+    analog_net_if& vssa;
+    analog_net_if& vref_p;
+    analog_net_if& vbat;
+    analog_net_if& vcap1;
+    analog_net_if& vcap2;
+    analog_net_if& nrst;
+    analog_net_if& boot0;
 
     // Salidas digitales hacia RCC/PWR
     sc_core::sc_out<bool>   por_ok{"por_ok"};       // alimentación suficiente
@@ -69,7 +92,14 @@ SC_MODULE(PowerPads) {
     double v_dd_min   = 1.80, v_dd_max = 3.60;     // rango de operación
     double v_bat_min  = 1.65, v_bat_max = 3.60;
 
-    SC_CTOR(PowerPads) {
+    SC_HAS_PROCESS(PowerPads);
+    explicit PowerPads(sc_core::sc_module_name nm, const Cableado* cab = nullptr)
+        : sc_core::sc_module(nm),
+          vdd(elige(cab, "VDD", vdd_)), vss(elige(cab, "VSS", vss_)),
+          vdda(elige(cab, "VDDA", vdda_)), vssa(elige(cab, "VSSA", vssa_)),
+          vref_p(elige(cab, "VREF+", vref_p_)), vbat(elige(cab, "VBAT", vbat_)),
+          vcap1(elige(cab, "VCAP1", vcap1_)), vcap2(elige(cab, "VCAP2", vcap2_)),
+          nrst(elige(cab, "NRST", nrst_)), boot0(elige(cab, "BOOT0", boot0_)) {
         SC_THREAD(monitor_proc);
         SC_METHOD(nrst_drive_proc);
         sensitive << drive_nrst_low;
@@ -166,7 +196,7 @@ private:
                  vdd.value_changed_event() | vbat.value_changed_event());
         }
     }
-    static void aplica_carga(AnalogNet& n, int id, double i) {
+    static void aplica_carga(analog_net_if& n, int id, double i) {
         if (i <= 0.0) { n.set_hiz(id); return; }
         bool solo = false;
         const double voc = n.voltage_excluding(id, solo);

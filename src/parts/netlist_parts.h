@@ -32,6 +32,8 @@
 #include "part_factory.h"
 #include "ext_parts.h"
 #include "puente_serie.h"
+#include "tft_st7735.h"
+#include "servo.h"
 
 namespace stm32 {
 
@@ -75,12 +77,14 @@ REGISTRA_PARTE(Led,
       .ejemplo("<componente tipo=\"Led\" id=\"LD4\" a_vss=\"si\" vf=\"2.0\" r=\"680\">\n"
                "  <pin nombre=\"anodo\" nodo=\"PD12\"/>\n"
                "</componente>")
-      .pin("anodo o catodo", "uno de los dos",
-           "La patilla que va soldada al pin. Son EL MISMO TERMINAL CON DOS "
-           "NOMBRES: el que se escriba no cambia la fisica -eso lo decide "
+      .pin("anodo o catodo", "uno de los dos, o los dos",
+           "Con UNO, la patilla que va soldada al pin, y el otro extremo va "
+           "por dentro a masa o a vdd, segun a_vss. Son EL MISMO TERMINAL CON "
+           "DOS NOMBRES: el que se escriba no cambia la fisica -eso lo decide "
            "a_vss-, pero permite que el fichero diga la verdad. Con a_vss=si "
-           "lo que toca el pin es el anodo; con a_vss=no, el catodo. Declarar "
-           "los dos es un error.")
+           "lo que toca el pin es el anodo; con a_vss=no, el catodo. Con LOS "
+           "DOS, el LED tiene las dos patillas a la vista: el anodo en un "
+           "nodo, el catodo en otro, y nada por dentro (vease la nota).")
       .atr("a_vss", "si",
            "El montaje. si: anodo al pin y catodo a masa, LUCE CON EL PIN "
            "ALTO, y conduce cuando V > vf. no: anodo a vdd y catodo al pin, "
@@ -107,8 +111,21 @@ REGISTRA_PARTE(Led,
             "presenta 5 V en el pin, y en una placa real ese pin si se iria "
             "cerca de los 5 V -por encima del maximo de un pad que no sea "
             "tolerante-. El modelo no avisa de eso.")
+      .nota("LAS DOS PATILLAS A LA VISTA. Con <pin nombre=\"anodo\"> y "
+            "<pin nombre=\"catodo\"> a la vez, ningun extremo va por dentro a "
+            "masa ni a VDD: luce cuando la tension del anodo menos la del "
+            "catodo supera vf, con r en serie. Es el LED de una barra de anodo "
+            "o catodo comun, cuyo comun sale por un pin del conector y puede "
+            "ir a VDD, a masa o al pin de otra placa "
+            "(placas/barra8_*.xml). a_vss y vdd no tienen sentido ahi, y "
+            "escribirlos es un error. Un extremo que nadie mas sujeta -el "
+            "comun al aire- deja el LED apagado: no hay por donde cerrar el "
+            "circuito.")
       .cpp("on() dice si luce y current() la corriente; `sim` los imprime al "
-           "terminar: \"LED LD4 en PD12: encendido (3.11 V, 3.38 mA)\"."),
+           "terminar: \"LED LD4 en PD12: encendido (3.11 V, 3.38 mA)\", o "
+           "con las dos patillas \"LED D1 entre J1.9 y J1.1: ...\" -anodo y "
+           "catodo-, con la tension entre los dos (tension()). dos_patillas() "
+           "dice cual de los dos montajes es."),
     [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
         // La patilla que va al pin se puede llamar `anodo` o `catodo`, segun el
         // montaje. Es un nombre, no un cambio de fisica -eso lo decide
@@ -117,10 +134,19 @@ REGISTRA_PARTE(Led,
         const bool tiene_a = !d.nodo_de("anodo").empty();
         const bool tiene_c = !d.nodo_de("catodo").empty();
         if (tiene_a && tiene_c) {
-            SC_REPORT_ERROR("netlist",
-                (d.id + ": un LED tiene UNA patilla en el pin; estan declaradas "
-                 "'anodo' y 'catodo'").c_str());
-            return nullptr;
+            // Las dos patillas a la vista: el otro extremo ya no va por
+            // dentro a ningun sitio, asi que a_vss y vdd no dicen nada, y
+            // escribirlos es creer que si
+            for (const char* sobra : {"a_vss", "vdd"})
+                if (d.params.count(sobra)) {
+                    SC_REPORT_ERROR("netlist",
+                        (d.id + ": con 'anodo' y 'catodo' en sus nodos, el LED no "
+                         "va por dentro a masa ni a vdd, y '" + sobra +
+                         "' no se usa; quitalo").c_str());
+                    return nullptr;
+                }
+            return new Led(d.id.c_str(), n[d.nodo_de("anodo")], n[d.nodo_de("catodo")],
+                           d.num("vf", 2.0), d.num("r", 330.0));
         }
         const char* term = tiene_c ? "catodo" : "anodo";
         return new Led(d.id.c_str(), n[d.nodo_de(term)], d.si("a_vss", true),
@@ -153,6 +179,19 @@ REGISTRA_PARTE(Button,
            "configura PA0 como EXTI por flanco de SUBIDA y sin pull interno. "
            "Descrito con un pulsador a masa ese flanco no llegaria nunca y el "
            "firmware pareceria roto sin estarlo.")
+      .atr("rebote", "2",
+           "LOS REBOTES DEL CONTACTO: lo que tarda como mucho, en ms, en "
+           "quedarse quieto al cerrarse -al abrirse, la mitad-. \"0\" o "
+           "\"no\" es un contacto ideal, que cambia de una vez.")
+      .atr("rebotes", "5",
+           "CUANTAS VECES se separa y vuelve a tocar en cada rebote: "
+           "exactamente esas, en instantes al azar dentro de `rebote` ms. Con "
+           "N rebotes, una EXTI por flanco de subida ve N+1 flancos al pulsar. "
+           "De 1 a 1000; para no rebotar, rebote=\"no\".")
+      .atr("semilla", "0",
+           "La del patron pseudoaleatorio de los rebotes. 0 la saca del id, "
+           "asi que dos pulsadores de la misma placa no rebotan igual y el "
+           "mismo rebota igual en todas las ejecuciones.")
       .atr("normalmente", "abierto",
            "El REPOSO DEL CONTACTO: abierto (suelto no conduce, pulsado "
            "conduce) o cerrado (suelto CONDUCE, y pulsarlo lo ABRE). "
@@ -163,6 +202,15 @@ REGISTRA_PARTE(Button,
             "cortado se vea igual que una pulsacion y la maquina pare. "
             "Descrito como NA, el montaje parece funcionar hasta el dia en que "
             "se corta el cable, que es justo el dia que importa.")
+      .nota("LOS REBOTES SON LA REALIDAD, y por eso vienen puestos. Un "
+            "contacto mecanico golpea y rebota antes de quedarse cerrado: "
+            "un firmware que cuente flancos de EXTI sin filtrarlos cuenta "
+            "varias pulsaciones donde hubo una, igual que en la placa. Los "
+            "2 ms por omision son del orden de lo que se mide en pulsadores "
+            "de verdad (Ganssle, \"A Guide to Debouncing\"). El patron es "
+            "pseudoaleatorio pero reproducible al picosegundo: la misma "
+            "pulsacion rebota igual en todas las ejecuciones y en todas las "
+            "plataformas. Para un contacto ideal, rebote=\"no\".")
       .nota("Lo que conduce no es \"pulsado\" sino \"pulsado XOR normalmente "
             "cerrado\":\n"
             "    normalmente    suelto    pulsado    desoldado\n"
@@ -185,8 +233,26 @@ REGISTRA_PARTE(Button,
                  "solo \"abierto\" (por omision) o \"cerrado\"").c_str());
             return nullptr;
         }
+        // `rebote`: un numero de ms, o "no", que es lo mismo que 0
+        const std::string rb = d.txt("rebote", "2");
+        char* fin = nullptr;
+        const double ms = (rb == "no") ? 0.0 : std::strtod(rb.c_str(), &fin);
+        if (rb != "no" && (fin == rb.c_str() || *fin != '\0' || ms < 0.0 || ms > 1000.0)) {
+            SC_REPORT_ERROR("netlist",
+                ("Button '" + d.id + "': rebote=\"" + rb + "\" no vale; es la "
+                 "duracion maxima del rebote en ms -de 0 a 1000-, o \"no\"").c_str());
+            return nullptr;
+        }
+        const double n_reb = d.num("rebotes", 5.0);
+        if (n_reb < 1.0 || n_reb > 1000.0 || n_reb != double(unsigned(n_reb))) {
+            SC_REPORT_ERROR("netlist",
+                ("Button '" + d.id + "': rebotes=\"" + d.txt("rebotes") + "\" no "
+                 "vale; es un entero de 1 a 1000 (para no rebotar, rebote=\"no\")").c_str());
+            return nullptr;
+        }
         return new Button(n[d.nodo_de("pin")], d.num("r_cerrado", 10.0),
-                          d.num("v_cerrado", 0.0), rep == "cerrado");
+                          d.num("v_cerrado", 0.0), rep == "cerrado", ms,
+                          unsigned(n_reb), uint64_t(d.num("semilla", 0.0)));
     });
 
 REGISTRA_PARTE(Crystal,
@@ -212,6 +278,173 @@ REGISTRA_PARTE(Crystal,
             "que va es un ExtClock y HSEBYP en el RCC, no un Crystal."),
     [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
         return new Crystal(n[d.nodo_de("osc_in")], d.num("vdd", 3.3));
+    });
+
+// El limite de una Fuente o una Gnd: mA, o "no" (lo mismo que 0, sin limite).
+// Devuelve -1 si no se entiende.
+inline double limite_ma_de(const Instancia& d) {
+    const std::string t = d.txt("limite_ma", "no");
+    if (t == "no") return 0.0;
+    char* fin = nullptr;
+    const double v = std::strtod(t.c_str(), &fin);
+    if (fin == t.c_str() || *fin != '\0' || v < 0.0) return -1.0;
+    return v;
+}
+
+REGISTRA_PARTE(Fuente,
+    Ayuda("Una fuente de tension: pone `v` voltios en su nodo, con un limite de "
+          "corriente opcional. Es el rail de 3,3 V de una placa sin MCU, o el "
+          "de 5 V de un periferico, y deja ver cuanta corriente entrega.")
+      .ejemplo("<nodo id=\"vcc\"/>\n"
+               "<componente tipo=\"Fuente\" id=\"F1\" v=\"3.3\" limite_ma=\"20\">\n"
+               "  <pin nombre=\"pin\" nodo=\"vcc\"/>\n"
+               "</componente>")
+      .pin("pin", "obligatorio", "El nodo que sostiene.")
+      .atr("v", "3.3", "La tension, en voltios.")
+      .atr("limite_ma", "no",
+           "EL LIMITE DE CORRIENTE, en mA, o \"no\" para ninguno. Como en una "
+           "fuente de laboratorio: si la carga pide mas, la fuente entrega "
+           "exactamente el limite, deja caer la tension, pone su observable "
+           "`sobrecorriente` a 1 y lo avisa.")
+      .atr("r", "0.1", "La resistencia interna, en ohmios: 0,1 es lo menos que "
+           "admite un nodo, o sea una fuente casi ideal.")
+      .nota("Lo que deja ver: `corriente`, en mA, la que ENTREGA (negativa si "
+            "otra cosa la empuja hacia atras), y `sobrecorriente`, que la "
+            "ventana pinta como alarma.")
+      .nota("Un nodo con una fuente y varias cargas es un RAIL, no un "
+            "cortocircuito: la validacion electrica no lo cuenta como dos piezas "
+            "conduciendo. Dos fuentes (o fuente y masa) en el mismo nodo, si, y se "
+            "avisa: se pelean por el.")
+      .cpp("corriente() en A, sobrecorriente() y episodios(), las veces que ha "
+           "entrado en limitacion."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        const double lim = limite_ma_de(d);
+        if (lim < 0.0) {
+            SC_REPORT_ERROR("netlist", ("Fuente '" + d.id + "': limite_ma=\"" +
+                d.txt("limite_ma") + "\" no vale; mA, o \"no\"").c_str());
+            return nullptr;
+        }
+        return new Fuente(d.id.c_str(), n[d.nodo_de("pin")], d.num("v", 3.3),
+                          d.num("r", 0.1), lim);
+    });
+
+REGISTRA_PARTE(Gnd,
+    Ayuda("La masa: pone 0 V en su nodo, con un limite de corriente opcional. "
+          "Es la referencia de una placa sin MCU y deja ver cuanta corriente "
+          "vuelve por ella.")
+      .ejemplo("<nodo id=\"masa\"/>\n"
+               "<componente tipo=\"Gnd\" id=\"G1\" limite_ma=\"50\">\n"
+               "  <pin nombre=\"pin\" nodo=\"masa\"/>\n"
+               "</componente>")
+      .pin("pin", "obligatorio", "El nodo que lleva a 0 V.")
+      .atr("limite_ma", "no",
+           "EL LIMITE DE CORRIENTE, en mA, o \"no\" para ninguno. Si lo que "
+           "entra por ella pasa del limite, solo deja pasar el limite, el nodo "
+           "sube, `sobrecorriente` se pone a 1 y lo avisa.")
+      .atr("r", "0.1", "La resistencia interna, en ohmios.")
+      .nota("Lo que deja ver: `corriente`, en mA, la que RECIBE del nodo, y "
+            "`sobrecorriente`, que la ventana pinta como alarma. Es la misma "
+            "pieza que Fuente con v=0, leida desde el otro lado."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        const double lim = limite_ma_de(d);
+        if (lim < 0.0) {
+            SC_REPORT_ERROR("netlist", ("Gnd '" + d.id + "': limite_ma=\"" +
+                d.txt("limite_ma") + "\" no vale; mA, o \"no\"").c_str());
+            return nullptr;
+        }
+        return new Gnd(d.id.c_str(), n[d.nodo_de("pin")], d.num("r", 0.1), lim);
+    });
+
+REGISTRA_PARTE(Conector,
+    Ayuda("Un conector de filas x columnas pines, numerados del 1 al N. No "
+          "conduce ni escucha: dice que esos nodos salen de la placa. Su pin "
+          "k se llama `ID.k` (`CN7.17`) y se suelda a un nodo con <pin "
+          "nombre=\"k\">; uno sin soldar es un nodo propio, al aire.")
+      .ejemplo("<componente tipo=\"Conector\" id=\"CN9\" filas=\"1\" "
+               "columnas=\"8\">\n"
+               "  <pin nombre=\"1\" nodo=\"PA3\"/>   <!-- D0 -->\n"
+               "  <pin nombre=\"2\" nodo=\"PA2\"/>   <!-- D1 -->\n"
+               "</componente>")
+      .pin("1..N", "los que se usen",
+           "Cada pin, por su numero -o por su nombre, si lo tiene-, al nodo de "
+           "la placa al que va soldado.")
+      .atr("columnas", "(obligatorio)", "Cuantos pines tiene cada fila.")
+      .atr("filas", "1", "Cuantas filas: 2 en un IDC o en un morpho.")
+      .atr("numeracion", "zigzag",
+           "zigzag: el 1 y el 2 enfrentados, impares en una fila y pares en "
+           "la otra (IDC, Raspberry Pi, morpho). filas: la primera fila "
+           "entera, del 1 a columnas, y luego la siguiente.")
+      .atr("nombres", "(ninguno)",
+           "LOS NOMBRES DE LOS PINES, uno por pin y en orden, separados por "
+           "espacios; '-' para uno que se sigue llamando por su numero. Con "
+           "nombres=\"COM D1 D2\", el pin 1 es `P1.COM` y SOLO asi -`P1.1` "
+           "seria el pad PB1-. El numero sigue mandando en la forma: el 1 es "
+           "el primero, y al acoplar el 1 va con el 1. Un nombre empieza por "
+           "letra -letras, cifras, '_', '.' y '+': `COM`, `5V`, `3.3V`-, y no "
+           "puede hacer de `ID.nombre` un pad ni una patilla de alimentacion "
+           "(`P1.VDD`).")
+      .nota("Dos conectores se ENCHUFAN en un <sistema> con <acopla a=\"A/CN9\" "
+            "b=\"B/J1\"/>: el pin k de uno queda unido al k del otro, o en "
+            "espejo -espejo=\"si\", dos placas cara a cara- al que le cae "
+            "enfrente. Un cable que cruza pines es <hilo a=\"..\" b=\"..\"/>.")
+      .nota("Una PILA -PC/104, cabeceras apilables: el conector atraviesa la "
+            "placa y el pin k es el mismo en todas- es un solo acople con todos: "
+            "<acopla conectores=\"A/J1 B/J1 C/J1\"/>.")
+      .nota("Un pin al aire no es un nodo flotante que avisar: es lo normal.")
+      .cpp("filas(), columnas(), n_pines() y zigzag()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        GeomConector g;
+        const std::string e = Netlist::geometria(d, g);
+        if (!e.empty()) {
+            SC_REPORT_ERROR("netlist", ("Conector '" + d.id + "': " + e).c_str());
+            return nullptr;
+        }
+        std::vector<std::pair<std::string, analog_net_if*>> pines;
+        for (const Conexion& c : d.pines)
+            pines.emplace_back(c.pin, n.existe(c.nodo) ? &n[c.nodo] : nullptr);
+        return new Conector(g.filas, g.columnas, g.zigzag, pines);
+    });
+
+REGISTRA_PARTE(Jumper,
+    Ayuda("Un jumper: una tira de pines como un Conector -con su forma, sus "
+          "numeros y sus nombres- y un PUENTE puesto, la pieza de plastico que "
+          "une dos pines vecinos. Los dos son el mismo nodo, como si un hilo los "
+          "uniera dentro de la placa. Es lo que elige, por ejemplo, la tension "
+          "de un adaptador USB-serie: 5V o 3.3V a VCC.")
+      .ejemplo("<componente tipo=\"Jumper\" id=\"JP1\" filas=\"3\" columnas=\"1\"\n"
+               "            nombres=\"5V VCC 3.3V\" puente=\"5V VCC\">\n"
+               "  <pin nombre=\"VCC\" nodo=\"VCC\"/>\n"
+               "</componente>")
+      .pin("1..N o su nombre", "los que se usen",
+           "Como en un Conector: cada pin, por su numero o su nombre, al nodo "
+           "al que va soldado; uno sin soldar es `ID.nombre`, al aire.")
+      .atr("puente", "(obligatorio)",
+           "LOS DOS PINES QUE UNE EL PUENTE, por nombre o por numero: "
+           "\"5V VCC\". Tienen que ser vecinos -uno al lado del otro en la "
+           "misma fila o en la misma columna-, que es donde cabe el puente. "
+           "\"no\": el jumper sin puente, y cada pin por su lado.")
+      .atr("columnas, filas, numeracion, nombres", "como en Conector",
+           "La forma de la tira y los nombres de sus pines.")
+      .nota("EL DIBUJO ENSEÑA EL PUENTE QUE HAY. Un elemento del SVG con id "
+            "`JP1@5V-VCC` -el id del jumper, una arroba y los dos pines unidos "
+            "por orden de pin, con un guion- es como se ve el puente en esa "
+            "posicion, y `JP1@no` como se ve sin puente. mcu-sim manda a la "
+            "ventana el dibujo con el de la posicion que dice puente= y sin los "
+            "demas: cambiar el jumper en el XML cambia el dibujo.")
+      .nota("El puente no se mueve con la simulacion en marcha: une dos nodos "
+            "antes de construir, como un <hilo>.")
+      .cpp("filas(), columnas(), n_pines() y zigzag(), como un Conector."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        GeomConector g;
+        const std::string e = Netlist::geometria(d, g);
+        if (!e.empty()) {
+            SC_REPORT_ERROR("netlist", ("Jumper '" + d.id + "': " + e).c_str());
+            return nullptr;
+        }
+        std::vector<std::pair<std::string, analog_net_if*>> pines;
+        for (const Conexion& c : d.pines)
+            pines.emplace_back(c.pin, n.existe(c.nodo) ? &n[c.nodo] : nullptr);
+        return new Conector(g.filas, g.columnas, g.zigzag, pines, "Jumper");
     });
 
 REGISTRA_PARTE(Rpull,
@@ -242,6 +475,311 @@ REGISTRA_PARTE(Rpull,
         // para un pull-up a un rail de 5 V, 1,8 para polarizar una entrada, 0
         // para un pull-down.
         return new Rpull(n[d.nodo_de("a")], d.num("v", 3.3), d.num("r", 10e3));
+    });
+
+REGISTRA_PARTE(Resistencia,
+    Ayuda("Una resistencia entre DOS NODOS, a y b. A diferencia de Rpull, el "
+          "otro extremo no es una tension fija sino un nodo del circuito: el "
+          "pull-up que cuelga de la VCC de un conector, la que ponga quien "
+          "alimenta el modulo. La corriente va hacia donde diga la tension. "
+          "Con un extremo al aire no lleva corriente y ese extremo se queda a "
+          "la tension del otro -el pin que solo tiene su pull-up lee la VCC-; "
+          "con los dos al aire no hace nada.")
+      .ejemplo("<componente tipo=\"Resistencia\" id=\"R2\" r=\"10000\">\n"
+               "  <pin nombre=\"a\" nodo=\"P1.VCC\"/>\n"
+               "  <pin nombre=\"b\" nodo=\"P1.CLK\"/>\n"
+               "</componente>")
+      .pin("a", "obligatorio", "Un extremo.")
+      .pin("b", "obligatorio", "El otro.")
+      .atr("r", "10000", "El valor de la resistencia, en ohmios.")
+      .cpp("r() y corriente(), la que va de a a b, en A."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        return new Resistencia(d.id.c_str(), n[d.nodo_de("a")], n[d.nodo_de("b")],
+                               d.num("r", 10e3));
+    });
+
+REGISTRA_PARTE(Encoder,
+    Ayuda("Encoder rotativo MECANICO, como el del modulo KY-040: un eje con "
+          "`pasos` posiciones por vuelta -los clics que se notan al girarlo- "
+          "y dos contactos, uno entre a y c y otro entre b y c. En cada "
+          "posicion los dos estan igual, abiertos en las pares y cerrados en "
+          "las impares; cada clic los cambia los dos, pero no a la vez: "
+          "girando en el sentido de las agujas del reloj cambia primero a, y "
+          "en el contrario primero b. Con c a masa y a y b con su pull-up, a "
+          "y b dan un codigo Gray de dos bits -11, 01, 00, 10 hacia un lado, "
+          "al reves hacia el otro-. Los pull-ups no son del encoder: los pone "
+          "la placa.")
+      .ejemplo("<componente tipo=\"Encoder\" id=\"ENC\" pasos=\"30\">\n"
+               "  <pin nombre=\"a\" nodo=\"P1.CLK\"/>\n"
+               "  <pin nombre=\"b\" nodo=\"P1.DT\"/>\n"
+               "  <pin nombre=\"c\" nodo=\"P1.GND\"/>\n"
+               "</componente>")
+      .pin("a", "obligatorio", "El contacto A, el que va delante girando a la derecha.")
+      .pin("b", "obligatorio", "El contacto B, el que va delante girando a la izquierda.")
+      .pin("c", "obligatorio", "El comun de los dos contactos.")
+      .atr("pasos", "30", "Las posiciones -los clics- de una vuelta.")
+      .atr("r_cerrado", "1", "La resistencia de un contacto cerrado, en ohmios.")
+      .atr("desfase_ms", "1",
+           "Lo que tarda el segundo contacto en seguir al primero dentro de un "
+           "clic, en ms. Es lo que deja ver el sentido; tiene que ser menor "
+           "que clic_ms.")
+      .atr("clic_ms", "5",
+           "Lo que se tarda de un clic al siguiente cuando se le pide girar "
+           "varios de una vez, en ms.")
+      .nota("El MANDO es `girar`, la CUENTA de clics sin vueltas -sube hacia la "
+            "derecha y baja hacia la izquierda-, entre -30000 y 30000. Pedir "
+            "otra cuenta gira el eje hasta ella, un clic detras de otro. Lo que "
+            "deja ver: `posicion` -la cuenta en la vuelta, de 0 a pasos-1-, "
+            "`cuenta`, `contacto_a` y `contacto_b`. En una ilustracion, el "
+            "efecto `giro` hace girar el dibujo de la pieza con la posicion.")
+      .cpp("gira(clics) gira n clics -negativos, a la izquierda-, gira_a(cuenta) "
+           "hasta una cuenta; cuenta(), posicion(), cerrado_a() y cerrado_b()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        const double pasos = d.num("pasos", 30.0);
+        const double desfase = d.num("desfase_ms", 1.0), clic = d.num("clic_ms", 5.0);
+        if (pasos < 1.0 || pasos != std::floor(pasos) || pasos > 1000.0) {
+            SC_REPORT_ERROR("netlist", ("Encoder '" + d.id + "': pasos=\"" + d.txt("pasos") +
+                                        "\" no vale; es un entero de 1 a 1000").c_str());
+            return nullptr;
+        }
+        if (desfase <= 0.0 || clic <= desfase) {
+            SC_REPORT_ERROR("netlist", ("Encoder '" + d.id + "': desfase_ms tiene que ser "
+                                        "positivo y menor que clic_ms").c_str());
+            return nullptr;
+        }
+        return new Encoder(d.id.c_str(), n[d.nodo_de("a")], n[d.nodo_de("b")],
+                           n[d.nodo_de("c")], unsigned(pasos), d.num("r_cerrado", 1.0),
+                           desfase, clic);
+    });
+
+REGISTRA_PARTE(Tft128x160,
+    Ayuda("Una pantalla TFT de 1,8 pulgadas y 128x160 pixeles con su controlador "
+          "ST7735S, por SPI de CUATRO hilos: el modulo rojo de ocho pines, con su "
+          "regulador de 3,3 V y su retroiluminacion. Lo que se ve es lo que "
+          "ensenaria la pantalla de verdad: BLANCA mientras el chip no tiene "
+          "tension, esta en reset, dormido o con la pantalla apagada -el cristal es "
+          "de los normalmente blancos-; ruido al encenderla sin borrar la memoria; "
+          "y la imagen, con MADCTL, desplazamiento, modo parcial, ocho colores e "
+          "inversion. Todo con la LUZ del pin LED: sin ella, negro. Las ordenes "
+          "del sistema estan todas, tambien las de lectura, que contestan por SDA; "
+          "las del panel (B1h-FCh) se aceptan y no cambian nada de lo que se ve.")
+      .ejemplo("<componente tipo=\"Tft128x160\" id=\"TFT\">\n"
+               "  <pin nombre=\"vcc\"   nodo=\"P1.VCC\"/>\n"
+               "  <pin nombre=\"gnd\"   nodo=\"P1.GND\"/>\n"
+               "  <pin nombre=\"cs\"    nodo=\"P1.CS\"/>\n"
+               "  <pin nombre=\"reset\" nodo=\"P1.RESET\"/>\n"
+               "  <pin nombre=\"ad\"    nodo=\"P1.AD\"/>\n"
+               "  <pin nombre=\"sda\"   nodo=\"P1.SDA\"/>\n"
+               "  <pin nombre=\"sck\"   nodo=\"P1.SCK\"/>\n"
+               "  <pin nombre=\"led\"   nodo=\"P1.LED\"/>\n"
+               "</componente>")
+      .pin("vcc", "obligatorio", "La alimentacion del modulo, de 3,3 a 5 V: va al "
+           "regulador de 3,3 V del chip. Con menos de 2,65 V el chip no arranca.")
+      .pin("gnd", "obligatorio", "La masa.")
+      .pin("cs", "obligatorio", "CSX, la seleccion: con ella alta no atiende.")
+      .pin("reset", "obligatorio", "RESX: un pulso bajo de mas de 5 us reinicia el chip, "
+           "que no atiende ordenes hasta 5 ms despues.")
+      .pin("ad", "obligatorio", "D/CX, el A0: bajo, el byte es una orden; alto, un dato.")
+      .pin("sda", "obligatorio", "SDA, el dato: lo toma en el flanco de subida de SCK, y "
+           "lo pone el chip al contestar una lectura.")
+      .pin("sck", "obligatorio", "SCL, el reloj.")
+      .pin("led", "obligatorio", "La retroiluminacion: el anodo de los LEDs, con su "
+           "resistencia en la placa. A 3,3 V da la luz entera.")
+      .atr("memoria", "128x160",
+           "Como direcciona la memoria el ST7735S: 128x160 (GM = 11, la imagen empieza "
+           "en la columna 0 y la fila 0) o 132x162 (GM = 00, el de algunos modulos: "
+           "lo visible empieza en la columna 2 y la fila 1).")
+      .atr("panel", "rgb",
+           "El orden de los filtros de color del panel, rgb o bgr. Con uno bgr el rojo "
+           "y el azul salen cambiados si el firmware no pone el bit RGB de MADCTL.")
+      .atr("vf_luz", "2.9", "La tension de los LEDs de la retroiluminacion, en V.")
+      .atr("r_luz", "15", "Su resistencia en la placa, en ohmios.")
+      .nota("Deja ver `encendida` (si ensena la memoria), `luz` (mA de la "
+            "retroiluminacion) y una IMAGEN, `pantalla`, de 128x160: lo que se ve, que "
+            "la ventana pinta encima del dibujo de la pieza. Avisa, una vez cada cosa, "
+            "de lo que en la pantalla de verdad saldria mal: ordenes en los 5 ms tras "
+            "el reset (se pierden), las esperas de 120 ms de SLPOUT, SLPIN y SWRESET, "
+            "un reloj mas rapido que 66 ns de ciclo (150 al leer) y 5 V en sus "
+            "entradas, que son de 3,3 V.")
+      .cpp("mostrando(), dormida(), encendida(), alimentada(), madctl(), "
+           "bits_por_pixel(), ordenes(), pixeles(), luz_ma(); color_en(x, y), el color "
+           "que se ve, y memoria(col, fila), lo que hay en la memoria."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        const std::string mem = d.txt("memoria").empty() ? "128x160" : d.txt("memoria");
+        const std::string pan = d.txt("panel").empty() ? "rgb" : d.txt("panel");
+        if (mem != "128x160" && mem != "132x162") {
+            SC_REPORT_ERROR("netlist", ("Tft128x160 '" + d.id + "': memoria=\"" + mem +
+                                        "\" no vale; es 128x160 o 132x162").c_str());
+            return nullptr;
+        }
+        if (pan != "rgb" && pan != "bgr") {
+            SC_REPORT_ERROR("netlist", ("Tft128x160 '" + d.id + "': panel=\"" + pan +
+                                        "\" no vale; es rgb o bgr").c_str());
+            return nullptr;
+        }
+        return new Tft128x160(d.id.c_str(), n[d.nodo_de("vcc")], n[d.nodo_de("gnd")],
+                              n[d.nodo_de("cs")], n[d.nodo_de("reset")], n[d.nodo_de("ad")],
+                              n[d.nodo_de("sda")], n[d.nodo_de("sck")], n[d.nodo_de("led")],
+                              mem == "132x162", pan == "bgr", d.num("vf_luz", 2.9),
+                              d.num("r_luz", 15.0));
+    });
+
+REGISTRA_PARTE(Servo,
+    Ayuda("Un SERVO de modelismo, como el SG90: un motor con reductora que lleva "
+          "su eje al angulo que pide la ANCHURA del pulso de la senal PWM, que "
+          "llega cada `periodo_ms`. `pulso_min_ms` es `angulo_min` y "
+          "`pulso_max_ms` es `angulo_max`, en linea recta; fuera de ese rango se "
+          "queda en el extremo, y lo dice. Va hacia el angulo a su VELOCIDAD, que "
+          "depende de la tension de VCC, y tiene banda muerta. Es una carga de "
+          "verdad sobre VCC: poco quieto, mas moviendose y mucho bloqueado. Y al "
+          "arrancar el eje esta DONDE SE QUEDO, en un angulo cualquiera del rango, "
+          "como el de verdad: el primer pulso lo lleva a su sitio. De giro "
+          "continuo (`continuo=\"si\"`) el pulso es una velocidad: el del centro "
+          "lo para.")
+      .ejemplo("<componente tipo=\"Servo\" id=\"SERVO\" velocidad=\"0.12@5\" aspa=\"cuatro\">\n"
+               "  <pin nombre=\"vcc\" nodo=\"P1.VCC\"/>\n"
+               "  <pin nombre=\"gnd\" nodo=\"P1.GND\"/>\n"
+               "  <pin nombre=\"pwm\" nodo=\"P1.PWM\"/>\n"
+               "</componente>")
+      .pin("vcc", "obligatorio", "La alimentacion, de `v_min` a `v_max`.")
+      .pin("gnd", "obligatorio", "La masa.")
+      .pin("pwm", "obligatorio", "La senal: alta de alta impedancia, con umbrales de "
+           "1,6 V al subir y 0,8 V al bajar; vale con 3,3 V.")
+      .atr("periodo_ms", "20", "El periodo que espera de la senal, en ms. Uno que "
+           "llegue a menos de la mitad o a mas del doble se avisa.")
+      .atr("angulo_min", "-90", "El angulo del pulso mas corto, en grados.")
+      .atr("angulo_max", "90", "El del pulso mas largo. Positivo es en el sentido de "
+           "las agujas del reloj, mirando el eje desde arriba.")
+      .atr("pulso_min_ms", "1", "La anchura del pulso de `angulo_min`, en ms.")
+      .atr("pulso_max_ms", "2", "La del de `angulo_max`.")
+      .atr("continuo", "no", "si: de giro continuo. El pulso es la velocidad y el "
+           "sentido; el rango de angulos no cuenta.")
+      .atr("velocidad", "0.12@4.8",
+           "Lo que tarda en girar 60 grados a cada tension: `s@V`, separados por "
+           "blancos -`0.12@4.8 0.10@6`-. Entre dos, en linea recta; con uno solo, "
+           "la velocidad es proporcional a la tension.")
+      .atr("v_min", "4", "Por debajo, en V, el motor no puede con la reductora.")
+      .atr("v_max", "7.2", "Lo que aguanta, en V: por encima, lo avisa.")
+      .atr("banda_muerta_us", "10", "Un cambio de pulso menor, en us, no lo mueve.")
+      .atr("sin_senal", "suelta", "Que hace si deja de llegar senal -tres periodos sin "
+           "pulso-: suelta, el analogico, que deja el motor; mantiene, el digital, "
+           "que sigue yendo al ultimo angulo.")
+      .atr("i_reposo_ma", "6", "Lo que gasta quieto, en mA, a 5 V.")
+      .atr("i_marcha_ma", "150", "Lo que gasta moviendose.")
+      .atr("i_bloqueo_ma", "650", "Lo que gasta con el eje sujeto y queriendo moverse.")
+      .atr("posicion_inicial", "aleatoria", "Donde esta el eje al arrancar: aleatoria, "
+           "en cualquier punto del rango, o un angulo en grados.")
+      .atr("semilla", "0", "Fija la posicion aleatoria: con la misma semilla, el mismo "
+           "angulo. 0, distinta cada vez.")
+      .atr("aspa", "dos", "El aspa que lleva en el eje, para el dibujo: una, dos (a "
+           "180 grados), cuatro (dos largas y dos cortas, en cruz), seis o disco. Una de "
+           "las palas lleva una marca para seguirla con la vista.")
+      .atr("color", "azul", "El color del cuerpo en el dibujo: azul o negro.")
+      .nota("El dibujo de la pieza elige su cuerpo y su aspa con las variantes "
+            "`ID.cuerpo@azul|negro` y `ID.aspa@una|dos|cuatro|seis|disco`, y la "
+            "ventana gira el elemento de la pieza con el angulo (el efecto "
+            "`angulo`). Deja ver `angulo` (grados), `pulso` (us), `corriente` (mA) y "
+            "`rpm`; el MANDO `bloquear` sujeta el eje con la mano. Avisa, una vez "
+            "cada cosa, de pulsos fuera de rango o que no lo son, de un periodo que "
+            "no es el suyo, de la sobretension y de cuando se queda sin senal.")
+      .cpp("angulo(), objetivo(), inicial(), pulso_us(), periodo_ms(), moviendose(), "
+           "con_senal(), tension(), corriente_ma(), rpm(), pulsos(); bloquea(si)."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Servo '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        // Un numero, todo el texto
+        auto numero = [](const std::string& t, double& v) {
+            if (t.empty()) return false;
+            char* fin = nullptr;
+            v = std::strtod(t.c_str(), &fin);
+            return fin && *fin == '\0' && std::isfinite(v);
+        };
+        auto lee = [&](const char* clave, double omision, double& v) {
+            const std::string t = d.txt(clave);
+            if (t.empty()) { v = omision; return true; }
+            return numero(t, v);
+        };
+        ConfigServo c;
+        const char* claves[] = {"periodo_ms", "angulo_min", "angulo_max", "pulso_min_ms",
+                                "pulso_max_ms", "v_min", "v_max", "banda_muerta_us",
+                                "i_reposo_ma", "i_marcha_ma", "i_bloqueo_ma"};
+        double* destinos[] = {&c.periodo_ms, &c.angulo_min, &c.angulo_max, &c.pulso_min_ms,
+                              &c.pulso_max_ms, &c.v_min, &c.v_max, &c.banda_muerta_us,
+                              &c.i_reposo_ma, &c.i_marcha_ma, &c.i_bloqueo_ma};
+        for (unsigned k = 0; k < sizeof claves / sizeof *claves; ++k)
+            if (!lee(claves[k], *destinos[k], *destinos[k]))
+                return mal(std::string(claves[k]) + "=\"" + d.txt(claves[k]) +
+                           "\" no es un numero");
+        const std::string cont = d.txt("continuo", "no");
+        if (cont != "si" && cont != "no") return mal("continuo es si o no");
+        c.continuo = cont == "si";
+        if (c.periodo_ms < 2.0 || c.periodo_ms > 100.0)
+            return mal("periodo_ms tiene que estar entre 2 y 100");
+        if (!c.continuo && c.angulo_max <= c.angulo_min)
+            return mal("angulo_max tiene que ser mayor que angulo_min");
+        if (!c.continuo && c.angulo_max - c.angulo_min > 360.0)
+            return mal("el rango de angulos pasa de una vuelta; para girar sin fin, "
+                       "continuo=\"si\"");
+        if (c.pulso_min_ms < 0.3 || c.pulso_max_ms > 3.0 || c.pulso_max_ms <= c.pulso_min_ms)
+            return mal("los pulsos van de 0.3 a 3 ms, y pulso_max_ms mayor que pulso_min_ms");
+        if (c.pulso_max_ms >= c.periodo_ms)
+            return mal("pulso_max_ms tiene que ser menor que periodo_ms");
+        if (c.v_min <= 0.0 || c.v_max <= c.v_min)
+            return mal("v_min tiene que ser positivo y menor que v_max");
+        if (c.banda_muerta_us < 0.0 || c.banda_muerta_us > 200.0)
+            return mal("banda_muerta_us va de 0 a 200");
+        if (c.i_reposo_ma < 0.0 || c.i_marcha_ma <= 0.0 || c.i_bloqueo_ma <= 0.0)
+            return mal("las corrientes tienen que ser positivas");
+        // La velocidad: pares s@V
+        const std::string vel = d.txt("velocidad", "0.12@4.8");
+        c.velocidad.clear();
+        {
+            std::string pal;
+            std::istringstream is(vel);
+            while (is >> pal) {
+                const size_t a = pal.find('@');
+                double s = 0, v = 0;
+                if (a == std::string::npos || !numero(pal.substr(0, a), s) ||
+                    !numero(pal.substr(a + 1), v) || s <= 0.0 || v <= 0.0)
+                    return mal("velocidad=\"" + vel + "\": cada punto es s@V, los segundos "
+                               "por 60 grados a esa tension, los dos positivos (0.12@4.8)");
+                c.velocidad.push_back({v, s});
+            }
+        }
+        if (c.velocidad.empty()) return mal("velocidad vacia; es s@V, como 0.12@4.8");
+        std::sort(c.velocidad.begin(), c.velocidad.end());
+        for (size_t k = 1; k < c.velocidad.size(); ++k)
+            if (c.velocidad[k].first == c.velocidad[k - 1].first)
+                return mal("velocidad=\"" + vel + "\" da dos veces la misma tension");
+        const std::string ss = d.txt("sin_senal", "suelta");
+        if (ss != "suelta" && ss != "mantiene") return mal("sin_senal es suelta o mantiene");
+        c.mantiene = ss == "mantiene";
+        const std::string pi = d.txt("posicion_inicial", "aleatoria");
+        if (pi == "aleatoria") {
+            c.inicial_aleatoria = true;
+        } else {
+            c.inicial_aleatoria = false;
+            if (!numero(pi, c.posicion_inicial))
+                return mal("posicion_inicial es aleatoria o un angulo en grados");
+            if (!c.continuo && (c.posicion_inicial < c.angulo_min ||
+                                c.posicion_inicial > c.angulo_max))
+                return mal("posicion_inicial=\"" + pi + "\" esta fuera del rango de angulos");
+        }
+        double sem = 0;
+        if (!lee("semilla", 0.0, sem) || sem < 0 || sem > 4294967295.0 ||
+            sem != std::floor(sem))
+            return mal("semilla es un entero de 0 a 4294967295");
+        c.semilla = uint32_t(sem);
+        const std::string aspa = d.txt("aspa", "dos"), color = d.txt("color", "azul");
+        if (aspa != "una" && aspa != "dos" && aspa != "cuatro" && aspa != "seis" &&
+            aspa != "disco")
+            return mal("aspa=\"" + aspa + "\" no vale; es una, dos, cuatro, seis o disco");
+        if (color != "azul" && color != "negro")
+            return mal("color=\"" + color + "\" no vale; es azul o negro");
+        return new Servo(d.id.c_str(), n[d.nodo_de("vcc")], n[d.nodo_de("gnd")],
+                         n[d.nodo_de("pwm")], c);
     });
 
 REGISTRA_PARTE(Driver,
@@ -464,6 +1002,12 @@ REGISTRA_PARTE(PuenteSerie,
            "Gobierna el CTS del MCU: bajo = puede mandar.")
       .pin("dtr", "opcional",
            "Alta en reposo; baja si el anfitrion activa DTR (RFC 2217).")
+      .pin("vccio", "opcional",
+           "La alimentacion de sus patillas, como el VCCIO de un FT232R: si "
+           "esta, el nivel alto de tx, rts y dtr y el umbral de rx y cts son "
+           "los de este nodo, y lo siguen si cambia; y rx y cts llevan el "
+           "pull-up de 200 kohm a VCCIO del chip. Sin ella, 3,3 V y sin "
+           "pull-ups.")
       .atr("host", "rfc2217:3355",
            "A donde van los bytes: memoria, tcp:PUERTO (en crudo) o "
            "rfc2217:PUERTO (Telnet con la opcion 44: el terminal puede cambiar "
@@ -521,7 +1065,7 @@ REGISTRA_PARTE(PuenteSerie,
             return s.empty() ? nullptr : &n[s];
         };
         return new PuenteSerie(d.id.c_str(), nodo("rx"), nodo("tx"), nodo("cts"),
-                               nodo("rts"), nodo("dtr"), c);
+                               nodo("rts"), nodo("dtr"), c, nodo("vccio"));
     });
 
 REGISTRA_PARTE(SdCard,
@@ -908,6 +1452,12 @@ inline Instancia& pulsador(Netlist& nl, const char* id, const std::string& nodo,
                            bool normalmente_cerrado = false) {
     Instancia& i = nl.add("Button", id);
     i.pin("pin", nodo).par("r_cerrado", r_cerrado);
+    // Sin rebote, salvo que se diga otra cosa con `.par("rebote", ...)`. Con
+    // esta funcion se montan los BANCOS DE PRUEBAS, que pulsan con un dedo
+    // perfecto y cuentan flancos exactos: llevan contando los mismos desde
+    // mucho antes de que hubiera rebotes, y su tiempo simulado es un
+    // invariante. Una placa escrita en XML, en cambio, rebota por omision.
+    i.par("rebote", "no");
     if (v_cerrado != 0.0) i.par("v_cerrado", v_cerrado);
     if (normalmente_cerrado) i.par("normalmente", "cerrado");
     return i;

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UN SHIELD ARDUINO DE PRUEBA: dos LEDs y un pulsador, sin MCU
+
+     No es una placa comercial: es la mas sencilla que se puede enchufar a
+     una Nucleo-64 por sus conectores Arduino y que se vea que funciona. Sus
+     cuatro conectores se llaman como los de la Nucleo (J5, J6, J8 y J9 frente
+     a CN5, CN6, CN8 y CN9) y tienen los mismos pines, porque son los que se
+     enchufan encima.
+
+         LD_D13  en D13 (J5.6), con el anodo al pin: luce con el pin alto
+         LD_D7   en D7  (J9.8), igual
+         SW_D2   pulsador en D2 (J9.3) a 3,3 V
+         LD_PWR  LED de alimentacion en el +3V3 (J6.4): luce con la
+                 alimentacion de la placa de abajo
+
+     Sola, la placa no hace nada -no lleva chip, y sus LEDs cuelgan de pines
+     al aire-; se valida igual:
+
+         ./build/mcu-sim placas/shield_leds.xml --valida
+
+     Enchufada a una Nucleo, es placas/nucleo_y_shield.xml.
+     ========================================================================= -->
+<placa nombre="shield-leds">
+  <componente tipo="Conector" id="J5" filas="1" columnas="10"/>   <!-- D8..D15 -->
+  <componente tipo="Conector" id="J6" filas="1" columnas="8"/>    <!-- potencia -->
+  <componente tipo="Conector" id="J8" filas="1" columnas="6"/>    <!-- A0..A5 -->
+  <componente tipo="Conector" id="J9" filas="1" columnas="8"/>    <!-- D0..D7 -->
+
+  <!-- D13 lleva YA un LED en la Nucleo (LD2): con este, dos piezas conducen
+       el mismo pin, y es a proposito. Se dice aqui, que es donde se sabe -->
+  <nodo id="J5.6" bus="si"/>
+
+  <!-- Los pines de un conector se usan como cualquier nodo: J5.6 es D13 -->
+  <componente tipo="Led" id="LD_D13" a_vss="si" vf="2.0" r="330">
+    <pin nombre="anodo" nodo="J5.6"/>
+  </componente>
+  <componente tipo="Led" id="LD_D7" a_vss="si" vf="1.8" r="330">
+    <pin nombre="anodo" nodo="J9.8"/>
+  </componente>
+  <!-- El +3V3 llega de la placa de abajo por J6.4 -->
+  <componente tipo="Led" id="LD_PWR" a_vss="si" vf="2.0" r="1000">
+    <pin nombre="anodo" nodo="J6.4"/>
+  </componente>
+  <componente tipo="Button" id="SW_D2" v_cerrado="3.3" r_cerrado="10" rebote="no">
+    <pin nombre="pin" nodo="J9.3"/>
+  </componente>
+</placa>

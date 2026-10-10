@@ -60,16 +60,18 @@ P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
 
 **Hay TRES bancos de familia, y son tres ejecutables distintos a propósito**:
 montar un segundo chip dentro de una simulación mueve su tiempo simulado, así
-que cada familia corre la suya. **Y un cuarto, `testserie`**, el del puente
-UART (P-14), que también va aparte para que `test407` no se entere de que
-existe.
+que cada familia corre la suya. **Y dos más**, que van aparte por la misma
+razón —lo que prueban, dentro de `test407`, movería su invariante—:
+`testserie`, el del puente UART (P-14), y `testgui`, el de la frontera con
+`mcu-sim-gui` (P-12).
 
 | Orden | Qué ejecuta | Comprobaciones | Tiempo simulado |
 | :--- | :--- | ---: | ---: |
-| `make test407` | La suite acumulada de las siete fases, sobre el F407VG | **2118** | `2337219149213 ps` (`resto`: **`2240553274213 ps`**) |
+| `make test407` | La suite acumulada de las siete fases, sobre el F407VG | **2149** | `2396293659555 ps` (`resto`: **`2281827784555 ps`**) |
 | `make test446` | La del F446RE y sus ocho referencias | **204** | `1033367277932 ps` |
 | `make test417` | La del acelerador criptográfico del F415/F417 | **165** | `718988288 ps` |
 | `make testserie` | La del puente UART: `PuenteSerie`, un F407 con `vcp_demo` y clientes TCP y RFC 2217 de verdad | **189** | `400677589564 ps` |
+| `make testgui` | La de la frontera con `mcu-sim-gui`: lo que cada pieza deja ver y tocar, el catálogo, el muestreador, el aplicador y el enlace que atiende la conexión en marcha —instantáneas, avisos, órdenes con sus ecos, la pausa y los pasos—, sobre una placa mínima sin chip | **145** | `76450000000 ps` |
 
 **En una máquina nueva no hace falta nada más**: los diecinueve firmwares que
 las suites cargan en la Flash **están versionados** (37 KB), así que `make
@@ -80,11 +82,11 @@ antes de simular nada. `make fw407` y compañía siguen ahí para **regenerarlos
 que es otra cosa y avisa antes: `doc/compilacion.md` §6, y **T-22** para el
 motivo.
 
-Las 2118 del primero salen de: 1 de T00 + 143 de F1 + 12 de F2 + 85 de F3 + 345 de F4
+Las 2149 del primero salen de: 1 de T00 + 143 de F1 + 12 de F2 + 85 de F3 + 345 de F4
 (DMA, UART/USART, TIM y EXTI/SYSCFG) + 678 de F5 (SPI/I2S, I2C, ADC, DAC, RTC y
-perros guardianes, SDIO, CRC/RNG y bxCAN) + 151 de F6 (depuración y los dos
+perros guardianes, SDIO, CRC/RNG y bxCAN) + 159 de F6 (depuración y los dos
 servidores GDB) + 426 de F7 (116 de bajo consumo, 61 del DCMI, 54 del FSMC,
-113 del USB OTG y 82 del Ethernet) + 277 del netlist. Código de salida 0 si
+113 del USB OTG y 82 del Ethernet) + 300 del netlist y las piezas sueltas. Código de salida 0 si
 todas pasan, en unos 23 s. Verificado con SystemC 2.3.4 / g++ 13 / C++17
 y arm-none-eabi-gcc 13.2.
 
@@ -99,10 +101,18 @@ Del F407 se contrasta el **`resto`** y no el total. El total lleva dentro lo que
 tardan T96 y T97 en hablar con un GDB de verdad por un socket de verdad, y eso
 depende de la máquina (**T-16**); `resto` es el total sin esos dos grupos. El
 invariante del F407 valió `2336217899213 ps` de total desde la fase 7 hasta el
-2026-09-23, cuando se movió **a propósito** y por única vez: al corregir que el
+2026-09-23, cuando se movió **a propósito** por primera vez: al corregir que el
 IWDG reseteaba un tick antes de su plazo (**T-23**), `resto` pasó de
 `2239552024213` a `2240553274213 ps`, 1,00125 ms más. Las otras suites no se
-movieron.
+movieron. **La segunda, el 2026-10-02**, no la movió un cambio de
+comportamiento sino una prueba nueva: el arreglo del SysTick que dejaba de
+interrumpir tras reanudar una parada del depurador (**I-53**) da, por sí solo,
+las mismas 2118 y el mismo `resto` al picosegundo; lo que suma es **T131**, la
+prueba que lo vigila, con sus 4,97 ms propios: `resto` en `2245527784555 ps`.
+**La tercera, el 2026-10-03**, igual: los rebotes del pulsador no mueven nada
+—un pulsador sin rebote no crea ningún proceso, y los del banco se montan sin
+rebote—, y lo que suma es **T132**, su prueba, con 36,3 ms propios: `resto` en
+`2281827784555 ps`.
 
 **Con una precondición que costó una segunda máquina descubrir**: vale siempre
 que los **firmwares sean los mismos binarios**. Mientras los `.bin` no se
@@ -148,7 +158,14 @@ make -f Makefile.mcu-sim hash         # los vectores de MD5/SHA-1, sin SystemC
 make -f Makefile.mcu-sim cryp         # los de AES/DES/TDES, tampoco
 make -f Makefile.mcu-sim serie        # el destino y el formato de un puente UART (P-14), tampoco
 make -f Makefile.mcu-sim rfc2217      # el codec de Telnet y RFC 2217 del puente, tampoco
+make -f Makefile.mcu-sim gui-proto    # el transporte con mcu-sim-gui, tampoco
+make -f Makefile.mcu-sim gui-saludo   # el saludo con mcu-sim-gui, con el sim de verdad (Python)
+make -f Makefile.mcu-sim gui-marcha   # y con la simulacion en marcha (Python)
+make -f Makefile.mcu-sim gui-ordenes  # y las ordenes, con sus ecos (Python)
+make -f Makefile.mcu-sim gui-control  # y el control: pausa, paso, parar y ritmo (Python)
+make -f Makefile.mcu-sim gui-argumentos  # que --argumentos dice lo que acepta sim (Python)
 make -f Makefile.mcu-sim testserie    # el banco del puente UART, que es OTRO ejecutable
+make -f Makefile.mcu-sim testgui      # el de la frontera con mcu-sim-gui, OTRO mas
 make -f Makefile.mcu-sim asan407      # la misma suite con ASan + UBSan
 make -f Makefile.mcu-sim vectores     # los vectores del CRYP/HASH, sin SystemC
 make -f Makefile.mcu-sim run IMG=fw.bin # carga una imagen y simula
@@ -262,6 +279,14 @@ Las tres variables que deciden todo son `PLATAFORMA` (`linux` | `macos` |
 `windows`), `SYSTEMC_HOME` y `CXX`. `make plataforma` las imprime, y es lo
 primero que hay que mirar cuando la compilación falla en una máquina nueva.
 
+**Dónde se compila** lo decide una cuarta, `B`: por omisión `build/`, dentro
+de `src/`, que es la que usan todos los ejemplos de este fichero. Con el
+repositorio en una carpeta sincronizada conviene llevarlo fuera —`make
+B=/c/build/mcu-sim mcu-sim`, y entonces el ejecutable es
+`/c/build/mcu-sim/mcu-sim.exe`—. `make mcu-sim` copia allí las placas, sus
+dibujos y los firmwares con el mismo árbol que aquí, así que se puede usar
+desde esa carpeta igual que desde `src/` (`doc/compilacion.md` §2).
+
 **Todo el modelo es C++17 y `<systemc>` salvo un fichero.** La única parte que
 sabe en qué sistema operativo corre es `common/red.h`, que traduce entre los
 sockets de Berkeley y Winsock: el descriptor es `int` y −1 en POSIX pero un
@@ -287,9 +312,9 @@ validar una plataforma nueva antes de pelearse con la biblioteca.
 
 | Plataforma | Estado | Comprobado |
 | :--- | :--- | :--- |
-| Linux, g++ 13 | **verificado** | 2118/2118 comprobaciones, 204/204 del F446 y 165/165 del F417, `make red` 13/13, ASan + UBSan limpio en las tres suites (`make asan407`, `make asan446`, `make asan417`), las seis placas validan sin un aviso |
+| Linux, g++ 13 | **verificado** | 2149/2149 comprobaciones, 204/204 del F446, 165/165 del F417, 189/189 de `testserie` y 145/145 de `testgui`, `make red` 13/13, ASan + UBSan limpio en las tres suites (`make asan407`, `make asan446`, `make asan417`), las seis placas validan sin un aviso |
 | Linux, clang | **verificado** | mismo resultado y mismo tiempo simulado al picosegundo |
-| Windows, MSYS2 / MinGW-w64 | **verificado** | **Los tres invariantes son los mismos que en Linux, al picosegundo**: 2118/2118 con `resto` en `2240553274213 ps` (huella `0x644FCE21`; antes de T-23, `2336217899213 ps` de total, igual que en Linux), 204/204 en `1033367277932 ps` y 165/165 en `718988288 ps`. Antes el del F407 salía 2 ms por debajo, y era el binario y nada más (**T-22**). Para que el ejecutable corra FUERA de MSYS2 hace falta el `-static` del Makefile: `doc/compilacion.md` §5.6 |
+| Windows, MSYS2 / MinGW-w64 | **verificado** | **Los tres invariantes son los mismos que en Linux, al picosegundo**: 2118/2118 con `resto` en `2240553274213 ps` antes de I-53 (huella `0x644FCE21`; antes de T-23, `2336217899213 ps` de total, igual que en Linux), 204/204 en `1033367277932 ps` y 165/165 en `718988288 ps`. Antes el del F407 salía 2 ms por debajo, y era el binario y nada más (**T-22**). Para que el ejecutable corra FUERA de MSYS2 hace falta el `-static` del Makefile: `doc/compilacion.md` §5.6 |
 | macOS, clang | **la rama específica compila** | Se fuerza la combinación de macOS —sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`— y compila con g++ y con clang; **falta probarlo en un Mac** |
 
 Lo que en Windows y macOS **no** está verificado es lo mismo en los dos casos:
@@ -335,7 +360,10 @@ make mcu-sim
 ./build/mcu-sim placa.xml --valida              # solo comprueba la placa
 ./build/mcu-sim placa.xml --gdb --port=3333     # stub de GDB por los pines SWD
 ./build/mcu-sim placa.xml --gdb-dap             # o el stub interno contra el DAP
-./build/mcu-sim placa.xml --mcu TIPO            # el MCU implicito (STM32F407VG)
+./build/mcu-sim placa.xml --mcu TIPO            # el MCU, si la placa no lo dice
+./build/mcu-sim sistema.xml --firmware N/u0=x.bin  # el firmware de ese chip
+./build/mcu-sim sistema.xml --sin-firmware      # ninguno, aunque el XML lo diga
+./build/mcu-sim sistema.xml --mcus              # sus MCUs, en XML
 ./build/mcu-sim --help                          # y los tipos que sabe construir
 ```
 
@@ -499,25 +527,34 @@ firmware, su modo de depuración y su puerto de GDB:
 <mcu tipo="STM32F407VG" id="u1" depuracion="pines" puerto_gdb="3334"/>
 ```
 
-Sin ningún `<mcu>` la placa lleva un STM32F407VG implícito y los nodos se llaman
-`PD12`, que es como han sido todas hasta ahora. **`--mcu TIPO` cambia el tipo de
-ese implícito** —`--mcu stm32f407vg`, en mayúsculas o minúsculas— y **no pisa lo
-que diga el XML**: una placa que declara sus chips ya ha dicho cuáles son, y la
-línea de órdenes no tiene por qué saberlo mejor.
+**El MCU no se supone: se declara.** Con un `<mcu tipo="STM32F407VG" id="u0"/>`
+en el XML, o con `--mcu TIPO` en la línea de órdenes —en mayúsculas o
+minúsculas—. Si están **los dos, gana `--mcu`**, que sustituye el tipo del
+`<mcu>` y lo dice (`[mcu] u0: --mcu STM32F417VG sustituye al STM32F407VG que
+declara la placa`): es la manera de probar la misma placa con otro chip sin
+tocar el fichero. Con dos o más `<mcu>`, `--mcu` no dice a cuál cambiar y es
+un error.
 
 Con un tipo que el programa no modele, el error lo dice y lista los que hay:
 
 ```
-mcu (implicito): no se sabe construir un 'STM32F446RE'.
-Los tipos que este programa modela son: STM32F407VG.
-Un MCU distinto no es un parametro: es otro modelo, con su mapa de memoria,
-sus perifericos y su encapsulado.
+mcu u0: no se sabe construir un 'STM32F103C8'.
+Los tipos que este programa modela son:
+  STM32F405RG, ..., STM32F446ZE
+Un MCU de OTRA FAMILIA no es un parametro: es otro modelo, con su arbol de reloj y sus perifericos.
 ```
 
-Que es la situación de hoy: **el único MCU modelado es el STM32F407VG**. La
-opción existe para que el día que haya un segundo no haya que cambiar la interfaz
-—y para que entre tanto el fallo sea claro en vez de silencioso—. Con uno declarado valen los dos
-nombres, `PD12` y `u0.PD12`. **Con dos o más solo vale el cualificado**, y cada
+**Sin `<mcu>` ni `--mcu`, la placa va sin MCU.** Es lo que se quiere para
+montar un circuito que solo es electricidad —una `Fuente`, una `Gnd`, LEDs y
+pulsadores; `placas/fuente_y_masa.xml` es el ejemplo— y mirarlo en
+`mcu-sim-gui`. Sin chip no hay pines implícitos: cada nodo se declara con
+`<nodo id="..."/>` (y todos son externos sin decirlo), y un nodo llamado como
+un pin de MCU —`PD12`, `VDD`, `u0.PA0`— es un error que da la pista de
+declarar el chip, porque casi siempre es un `<mcu>` olvidado. Tampoco tienen
+sentido, y se rechazan diciendo por qué, un firmware, `--gdb`, `--gdb-dap`,
+`--port`, `--traza-gdb` ni `--ondas`.
+
+Con un solo MCU valen los dos nombres, `PD12` y `u0.PD12`. **Con dos o más solo vale el cualificado**, y cada
 chip lleva lo suyo en el XML: un firmware o un puerto sueltos en la línea de
 órdenes ya no dicen a cuál y se rechazan nombrando los MCUs.
 
@@ -525,6 +562,26 @@ Con algún stub escuchando, `sim` no se detiene solo: se pueden abrir dos
 sesiones de GDB a la vez, una por chip y cada una en su puerto. `placas/dos_mcu.xml`
 es esa placa —dos F407 hablando por I2C—; la comparación entre los dos modos de
 depuración y el resto está en `doc/multi_mcu.md`, §5.
+
+**Varias placas enchufadas.** Un fichero `<sistema>` nombra placas —de su
+fichero o escritas dentro— y dice cómo se enchufan: `<acopla>` dos `Conector`
+pin a pin (o en espejo, cara a cara), o varios en pila como en PC/104, y
+`<hilo>` dos nodos sueltos. Las placas
+no cambian: el fichero de una Nucleo es el mismo que se simula sola. Todo lo
+de la placa `A` se llama `A/...` (`A/LD2`, `A/u0.PA5`), y dentro de su fichero
+`PA5` sigue siendo el pin de SU chip:
+
+```
+./build/mcu-sim placas/nucleo_y_shield.xml --ms=400
+sistema 'nucleo-y-shield': 2 placas: N (nucleo-f446re), S (shield-leds)
+  [acopla] N/CN5 con S/J5
+  ...
+  LED N/LD2 en N/u0.PA5: encendido  (3.02 V, 2.00 mA)
+  LED S/LD_D13 en N/u0.PA5: encendido  (3.02 V, 3.09 mA)
+```
+
+El formato está en `doc/parts.md` §2.5, y el porqué en
+`doc/analisis_placas_conectadas.md`.
 
 **Puentes entre pines.** Dos pines pueden ser el MISMO punto eléctrico, no dos
 puntos parecidos:
@@ -543,14 +600,28 @@ haya que soldar y despegar entre pruebas está `SignalLink`. El banco lleva el
 puente PB9–PD3 y lo comprueba T122; la comparación entre las dos formas está en
 `doc/multi_mcu.md`, §4.5.
 
-En `placas/` hay cuatro:
+Algunas de las de `placas/`:
 
 | Fichero | Qué es |
 | :--- | :--- |
-| `discovery_min.xml` | La **STM32F4DISCOVERY** entera: HSE de 8 MHz, LSE **declarado y desoldado** (como el zócalo vacío de la tarjeta), los cuatro LEDs, el pulsador azul (a VDD) y el negro de reset (a NRST), BOOT0/BOOT1 y los pines de depuración |
+| `discovery_min.xml` | La **STM32F4DISCOVERY** entera: HSE de 8 MHz, LSE **declarado y desoldado** (como el zócalo vacío de la tarjeta), los cuatro LEDs, el pulsador azul (a VDD) y el negro de reset (a NRST), BOOT0/BOOT1 y los pines de depuración. Con su **dibujo**, `discovery_min.svg`, donde los dos pulsadores se tocan: el negro resetea el MCU mientras se mantiene, y al soltarlo arranca otra vez |
 | `led_azul_5v.xml` | Un LED azul de 3,0 V colgado de 5 V con el cátodo al pin |
 | `banco.xml` | La placa entera de la suite: 43 componentes de 20 tipos |
 | `dos_mcu.xml` | Dos STM32F407 hablando por I2C, cada uno con su puerto de GDB |
+| `nucleo_f446re.xml` | La **NUCLEO-F446RE**: LD2, B1 (USER), **B2 (RESET, en NRST)**, el **VCP del ST-LINK** —un `PuenteSerie` en la USART2 (PA2 y PA3) por RFC 2217 en el 3355; D0 y D1 se quedan al aire, como con los puentes de fábrica—, sus cuatro conectores Arduino (CN5, CN6, CN8, CN9) y sus dos **morpho**, CN7 a la izquierda y CN10 a la derecha, con cada pin en el pad de la tarjeta, y el **+5V del USB** —una `Fuente` de 5 V con los 500 mA del ST-LINK, en CN6.5, CN7.18 y CN10.8—. Con su **dibujo**, `nucleo_f446re.svg`, que `mcu-sim-gui` enseña sin que nadie diga nada porque se llama como ella (`doc/parts.md` §2.6): cada pin de los seis conectores con su rótulo, como en los pinouts de ST |
+| `shield_leds.xml` | Un shield Arduino de prueba, **sin MCU**: dos LEDs y un pulsador en sus conectores J5..J9 |
+| `nucleo_y_shield.xml` | **Un `<sistema>`**: la Nucleo con el shield enchufado; el blinky enciende a la vez el LD2 de una placa y el LED de la otra |
+| `pila_pc104.xml` | **Una pila PC/104**: un módulo CPU (`pc104_cpu.xml`) y dos de LEDs (`pc104_leds.xml`, el mismo fichero dos veces) con un solo `<acopla>` de tres conectores |
+| `barra8_anodo_comun_rojo.xml` y las otras tres `barra8_*` | **Una barra de 8 LEDs**, como los módulos DM41A08: ánodo o cátodo común, roja o azul, cada LED con su resistencia de 2 kΩ y un conector de 9 pines, `P1`, con **nombre** en cada pin: el común, `P1.COM`, a la izquierda, y `P1.D1`..`P1.D8`. **El común no va por dentro a ningún sitio**: cada LED lleva las dos patillas a la vista (`doc/parts.md`, `Led`). Con su dibujo, `barra8_rojo.svg` o `barra8_azul.svg` |
+| `barra8_en_nucleo.xml` | **Un `<sistema>`**: la barra de ánodo común cableada a la Nucleo con nueve hilos —D1..D8 a D9..D2, el común al pin D10—, y `verif/fw/barra8_demo`, una luz que corre con el común a 1 (se ve en una barra de ánodo común) y luego a 0 (en una de cátodo común) |
+| `nucleo_f446re_barra8ac_azul.xml` | **Un `<sistema>`**: la barra azul de ánodo común cableada a los **morpho** de la Nucleo —`P1.D1`..`P1.D8` a PC0..PC3 y PB12..PB15 por CN7 y CN10, `P1.COM` a VDD por CN7.5— y el **FT232RL** en la USART1 (RX, TX y GND a CN10.21, CN10.33 y CN10.20), y `verif/fw/barra8_morpho`, una luz que corre con cada pin a cero y que habla por los dos puertos serie: el VCP (3355) y el adaptador (3356) |
+| `ftdi_ft232rl.xml` | **Un adaptador USB-serie FT232RL, sin MCU**: el conector de 6 pines `P1` (DTR, RX, TX, VCC, CTS, GND), el **jumper** `JP1` (5V, VCC, 3.3V) que elige la tensión de VCC con su `puente=`, y un `PuenteSerie` cuyas patillas siguen a VCC (`vccio`). Con su dibujo, `ftdi_ft232rl.svg`, que enseña el puente donde está |
+| `ky040.xml` | **Un módulo KY-040, sin MCU**: un `Encoder` de 30 clics por vuelta en código Gray y su pulsador del eje, con el conector acodado de 5 pines `P1` (CLK, DT, SW, VCC —serigrafiado `+`— y GND), los pull-ups de 10 kΩ de CLK y DT a VCC (dos `Resistencia`) y SW sin pull-up, como en el módulo. Con su dibujo, `ky040.svg`, con un mando en el centro que gira el encoder con la rueda del ratón y lo aprieta con un clic |
+| `tft_128x160.xml` | **Una pantalla TFT de 1,8" y 128x160 con su ST7735S, sin MCU**: un `Tft128x160` por SPI de cuatro hilos y su conector acodado de 8 pines `P1` a la derecha (VCC, GND, CS, RESET, AD —serigrafiado `A/D`—, SDA, SCK y LED). Lo que se ve es lo que enseñaría la de verdad: blanca hasta que la despiertan, ruido al encenderla sin borrarla, su memoria con MADCTL, desplazamiento, modo parcial, ocho colores e inversión, y negra sin luz. Con su dibujo, `tft_128x160.svg`, sobre cuyo vidrio la ventana pinta la imagen; montada en otra postura, `giro="90"`, `"180"` o `"270"` en el sistema gira el dibujo y la imagen con él |
+| `nucleo_f446re_tft.xml` | **Un `<sistema>`**: la pantalla cableada con ocho hilos a los conectores Arduino de la Nucleo —SCK y SDA al SPI1 (D13, D11), CS, A/D y RESET a D10, D9 y D8, VCC y LED a 3,3 V— y `verif/fw/tft_demo`, que lee su ID por SDA (7C89F0, por el VCP), la despierta y dibuja: el título, ocho barras de color y un cuadrado que va y viene. `verif/fw/tft_prueba` prueba el chip cosa a cosa con el mismo cableado (`make gui-marcha` M7) |
+| `servo_sg90.xml` | **Un servo SG90 sin MCU**: un `Servo` a 5 V, de −90 a +90 grados con pulsos de 1 a 2 ms cada 20 ms y 0,12 s por cada 60 grados, con su conector acodado de 3 pines `P1` debajo (VCC, GND y PWM). Al arrancar, el eje está en un ángulo al azar, como el de verdad. Con su dibujo, `servo_sg90.svg`: el cuerpo azul o negro y el aspa —una, dos, cuatro o seis palas, o un disco, con una marca roja— son variantes que elige el servo, y el aspa gira con el ángulo |
+| `nucleo_f446re_servo.xml` | **Un `<sistema>`**: la Nucleo con el servo —su señal en D5, PB4, el TIM3; su VCC en el `+5V`—, un KY-040 en D2, D3 y D4 y la pantalla TFT de pie (`giro="90"`), con `verif/fw/servo_demo`: cada clic del encoder mueve el servo 5 grados, apretar el eje lo centra, y la pantalla —MADCTL 0x00— enseña un cuadrante con la aguja, el ángulo y el pulso. `verif/fw/servo_prueba` prueba el servo con una secuencia de pulsos (`make gui-marcha` M8). Cada placa lleva su sitio en la ventana, `x=` e `y=` en su `<placa id>` (`doc/parts.md` §2.6) |
+| `fuente_y_masa.xml` | **Sin MCU**: una `Fuente` de 3,3 V y una `Gnd`, cada una con su límite de corriente, LEDs y dos pulsadores que las cortocircuitan para ver la sobrecorriente en `mcu-sim-gui` |
 
 `banco.xml` está **generado** por el propio modelo y versionado a propósito. Se
 regenera con
@@ -559,7 +630,14 @@ regenera con
 ./build/test407 --netlist > placas/banco.xml
 ```
 
-y como el volcado es determinista, `git diff --exit-code placas/banco.xml`
+No declara `<mcu>` —el chip del banco lo construye el código, no el XML—, así
+que para montarla con `mcu-sim` hay que decírselo:
+
+```
+./build/mcu-sim placas/banco.xml --mcu STM32F407VG --valida
+```
+
+Y como el volcado es determinista, `git diff --exit-code placas/banco.xml`
 después de regenerarlo dice si la placa del banco ha cambiado sin querer. Es la
 única forma de ver ese cambio: en `sc_main.cpp` está repartido por el bloque de
 elaboración, y aquí sale en una línea de diff.

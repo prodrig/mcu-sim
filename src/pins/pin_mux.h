@@ -67,6 +67,12 @@ constexpr unsigned N_PORT_PINS  = 16;
 // placa sin puentes es cero.
 // [doc/multi_mcu.md, §4.3 y §4.5]
 // ---------------------------------------------------------------------------
+//
+// Y LO MISMO PARA LOS PADS DE ALIMENTACIÓN Y ARRANQUE -VDD, VSS, NRST,
+// BOOT0...-, que son de `PowerPads` y no del mux: `une_alim("NRST", n)` hace
+// que el NRST del chip sea el nodo `n` de la placa, compartido con el de otro
+// chip o con un pin de conector. Es lo que permite que un reset de placa
+// resetee los dos chips, o que dos placas compartan masa.
 class Cableado {
 public:
     void une(unsigned port, unsigned pin, analog_net_if& n) {
@@ -76,12 +82,19 @@ public:
         const auto it = m_.find(clave(port, pin));
         return it == m_.end() ? nullptr : it->second;
     }
-    bool     vacio() const { return m_.empty(); }
-    unsigned size()  const { return unsigned(m_.size()); }
+    // `nombre` es el del pad tal y como lo registra el chip: "VDD", "NRST"...
+    void une_alim(const std::string& nombre, analog_net_if& n) { alim_[nombre] = &n; }
+    analog_net_if* busca_alim(const std::string& nombre) const {
+        const auto it = alim_.find(nombre);
+        return it == alim_.end() ? nullptr : it->second;
+    }
+    bool     vacio() const { return m_.empty() && alim_.empty(); }
+    unsigned size()  const { return unsigned(m_.size() + alim_.size()); }
 
 private:
     static unsigned clave(unsigned p, unsigned i) { return p * N_PORT_PINS + i; }
     std::map<unsigned, analog_net_if*> m_;
+    std::map<std::string, analog_net_if*> alim_;
 };
 
 // -----------------------------------------------------------------------------

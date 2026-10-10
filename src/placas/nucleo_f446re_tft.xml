@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UNA NUCLEO-F446RE CON LA PANTALLA TFT DE 1,8" (ST7735S)
+
+     La pantalla de placas/tft_128x160.xml cableada con ocho hilos a los
+     conectores Arduino de la Nucleo, y verif/fw/tft_demo, que la inicia y
+     dibuja en ella:
+
+         pantalla   SCK   SDA   CS    A/D   RESET  VCC    LED    GND
+         Nucleo     D13   D11   D10   D9    D8     +3V3   IOREF  GND
+         conector   CN5.6 CN5.4 CN5.3 CN5.2 CN5.1  CN6.4  CN6.2  CN6.6
+         chip       PA5   PA7   PB6   PC7   PA9    VDD    VDD    VSS
+
+     SCK y SDA son el SPI1; D13 es tambien el LED verde de la Nucleo, LD2,
+     que parpadea con el reloj. La retroiluminacion va a los 3,3 V (IOREF):
+     un pin del chip no daria su corriente.
+
+     Lo que se ve: la pantalla BLANCA hasta que el firmware la despierta y la
+     enciende; un instante de ruido, que es lo que tiene la memoria al dar
+     tension; y el dibujo -"MCU-SIM", ocho barras de color, la
+     identificacion que ha leido del chip- con un cuadrado que va y viene.
+     Por el VCP, el firmware dice el ID que ha leido: 7C89F0.
+
+         ./build/mcu-sim placas/nucleo_f446re_tft.xml --ms=600 --serie N/VCP=memoria
+
+     y con la ventana, mcu-sim-gui, para verla.
+     ========================================================================= -->
+<sistema nombre="nucleo-f446re-tft">
+  <placa id="N" fichero="nucleo_f446re.xml"/>
+  <placa id="T" fichero="tft_128x160.xml"/>
+
+  <hilo a="T/P1.SCK"   b="N/CN5.6"/>    <!-- D13, PA5: SPI1_SCK -->
+  <hilo a="T/P1.SDA"   b="N/CN5.4"/>    <!-- D11, PA7: SPI1_MOSI -->
+  <hilo a="T/P1.CS"    b="N/CN5.3"/>    <!-- D10, PB6 -->
+  <hilo a="T/P1.AD"    b="N/CN5.2"/>    <!-- D9,  PC7 -->
+  <hilo a="T/P1.RESET" b="N/CN5.1"/>    <!-- D8,  PA9 -->
+  <hilo a="T/P1.VCC"   b="N/CN6.4"/>    <!-- +3V3 -->
+  <hilo a="T/P1.LED"   b="N/CN6.2"/>    <!-- IOREF, tambien 3,3 V -->
+  <hilo a="T/P1.GND"   b="N/CN6.6"/>    <!-- GND -->
+
+  <mcu ref="N/u0" firmware="verif/fw/tft_demo/tft_demo.bin"/>
+</sistema>

@@ -329,10 +329,15 @@ El efecto de tenerlo bien se ve en una línea:
 
 ```
 $ ./build/mcu-sim placas/discovery_min.xml --mcu STM32F405OE --valida
+  [mcu] u0: --mcu STM32F405OE sustituye al STM32F407VG que declara la placa
   [decl] LD3.anodo: el pad PD13 no sale al encapsulado WLCSP90
 ```
 
 La Discovery **no cabe en un WLCSP90**: le falta el pin del LED naranja.
+
+> **Después:** `discovery_min.xml` declara ya su `<mcu tipo="STM32F407VG"
+> id="u0"/>` —el MCU no se supone—, y cuando hay `<mcu>` y `--mcu` a la vez gana
+> `--mcu`, que lo dice en la primera línea. La orden sigue enseñando lo mismo.
 
 ### 9.5 Lo que sigue sin distinguirse entre miembros
 

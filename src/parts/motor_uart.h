@@ -67,6 +67,8 @@ public:
     double bitrate() const { return 1.0 / tb_; }
     void set_formato(const FormatoUart& f) { f_ = f; }
     const FormatoUart& formato() const { return f_; }
+    // La alimentación del receptor, si cambia: el umbral va con ella
+    void set_vdd(double v) { vdd_ = v; }
 
     // Nivel lógico de la línea. UN solo umbral, a VDD/2, y sin histéresis: es
     // el comparador que tenía `SwoReceiver`, y cambiarlo cambiaría en qué
@@ -151,7 +153,13 @@ public:
     // La línea en reposo: alta. Es lo primero que hay que hacer, o el
     // receptor del otro lado ve un nodo sin gobierno.
     void reposo() { nivel(true); }
-    void suelta() { net_->set_hiz(id_); }
+    void suelta() { net_->set_hiz(id_); conduce_ = false; }
+    // La alimentación del emisor, si cambia (el VCCIO de un FT232R): el
+    // nivel alto va con ella, y el que está puesto se vuelve a poner ya
+    void set_vdd(double v) {
+        vdd_ = v;
+        if (conduce_) nivel(alto_);
+    }
     // La línea a cero y ahí se queda, hasta `reposo()`: el break que el
     // anfitrión enciende y apaga con SET-CONTROL 5 y 6 (fase D5).
     void a_cero() { nivel(false); }
@@ -207,11 +215,16 @@ public:
     uint64_t breaks() const { return n_breaks_; }
 
 private:
-    void nivel(bool alto) { net_->set_drive(id_, alto ? float(vdd_) : 0.0f, float(r_)); }
+    void nivel(bool alto) {
+        alto_ = alto;
+        conduce_ = true;
+        net_->set_drive(id_, alto ? float(vdd_) : 0.0f, float(r_));
+    }
 
     analog_net_if* net_;
     int         id_;
     double      tb_, vdd_, r_;
+    bool        alto_ = true, conduce_ = false;   // lo que está puesto
     FormatoUart f_{};
     uint64_t    n_tramas_ = 0, n_breaks_ = 0;
 };

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UN SISTEMA: una NUCLEO-F446RE, una barra de 8 LEDs AZULES de ANODO
+     COMUN y un adaptador USB-serie FT232RL, unidos con hilos por los
+     conectores MORPHO
+
+     La barra es placas/barra8_anodo_comun_azul.xml. Sus LEDs van a ocho pines
+     del chip -los cuatro bajos del puerto C y los cuatro altos del B-, y su
+     comun, P1.COM, a VDD por CN7.5:
+
+         barra    P1.D1   P1.D2   P1.D3   P1.D4   P1.D5    P1.D6    P1.D7    P1.D8    P1.COM
+         Nucleo   CN7.38  CN7.36  CN7.35  CN7.37  CN10.16  CN10.30  CN10.28  CN10.26  CN7.5
+         chip     PC0     PC1     PC2     PC3     PB12     PB13     PB14     PB15     VDD
+
+     Con el anodo comun a VDD, cada LED luce con SU pin a cero. Y, azul con
+     3,3 V, luce poco: vf = 3,0, asi que por cada uno pasan unos 0,15 mA.
+
+     EL ADAPTADOR, placas/ftdi_ft232rl.xml, en la USART1 del MCU, y solo con
+     tres hilos -su VCC se queda sin conectar: la Nucleo va por su USB-:
+
+         adaptador   F/P1.RX    F/P1.TX    F/P1.GND
+         Nucleo      CN10.21    CN10.33    CN10.20
+         chip        PA9        PA10       masa
+                     USART1_TX  USART1_RX
+
+     Y la USART2 sale por el VCP del ST-LINK de la Nucleo (N/VCP), por el
+     mismo USB que la depuracion. Dos puertos serie, dos terminales:
+
+         N/VCP   RFC 2217 en el 3355   la USART2: saluda y hace eco
+         F/U1    RFC 2217 en el 3356   la USART1: saluda, dice que LED se
+                                       enciende en cada paso y hace eco
+
+     El firmware, verif/fw/barra8_morpho, hace correr una luz de D1 a D8, un
+     LED cada 50 ms, y habla por los dos.
+
+         ./build/mcu-sim placas/nucleo_f446re_barra8ac_azul.xml --valida
+         ./build/mcu-sim placas/nucleo_f446re_barra8ac_azul.xml --tiempo-real
+
+     Con los dos puentes escuchando no acaba sola: Ctrl-C. Para verlo todo
+     en la consola, sin red y acabando a su hora:
+
+         ./build/mcu-sim placas/nucleo_f446re_barra8ac_azul.xml --ms=500 \
+             --serie N/VCP=memoria --serie F/U1=memoria
+     ========================================================================= -->
+<sistema nombre="nucleo-f446re-barra8ac-azul">
+  <placa id="N" fichero="nucleo_f446re.xml"/>
+  <placa id="B" fichero="barra8_anodo_comun_azul.xml"/>
+  <placa id="F" fichero="ftdi_ft232rl.xml"/>
+
+  <hilo a="B/P1.D1"  b="N/CN7.38"/>    <!-- PC0 -->
+  <hilo a="B/P1.D2"  b="N/CN7.36"/>    <!-- PC1 -->
+  <hilo a="B/P1.D3"  b="N/CN7.35"/>    <!-- PC2 -->
+  <hilo a="B/P1.D4"  b="N/CN7.37"/>    <!-- PC3 -->
+  <hilo a="B/P1.D5"  b="N/CN10.16"/>   <!-- PB12 -->
+  <hilo a="B/P1.D6"  b="N/CN10.30"/>   <!-- PB13 -->
+  <hilo a="B/P1.D7"  b="N/CN10.28"/>   <!-- PB14 -->
+  <hilo a="B/P1.D8"  b="N/CN10.26"/>   <!-- PB15 -->
+  <hilo a="B/P1.COM" b="N/CN7.5"/>     <!-- el anodo comun, a VDD -->
+
+  <hilo a="F/P1.RX"  b="N/CN10.21"/>   <!-- PA9,  USART1_TX -->
+  <hilo a="F/P1.TX"  b="N/CN10.33"/>   <!-- PA10, USART1_RX -->
+  <hilo a="F/P1.GND" b="N/CN10.20"/>   <!-- masa -->
+
+  <mcu ref="N/u0" firmware="verif/fw/barra8_morpho/barra8_morpho.bin"/>
+</sistema>

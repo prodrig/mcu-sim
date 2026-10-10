@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     ADAPTADOR USB-SERIE CON FT232RL, de los de seis pines y jumper de 5 V o
+     3,3 V, sin MCU
+
+     De izquierda a derecha: el conector de 6 pines, el jumper que elige la
+     tension, el FT232RL y el USB. El conector, de arriba abajo:
+
+         P1.DTR   el DTR del adaptador: alto en reposo, bajo si el terminal
+                  lo activa (con RFC 2217); en un Arduino, el reset
+         P1.RX    lo que RECIBE el adaptador: va al TX del MCU
+         P1.TX    lo que MANDA el adaptador: va al RX del MCU
+         P1.VCC   la tension que elige el jumper, 5 V o 3,3 V
+         P1.CTS   el CTS del adaptador: con control de flujo, no manda
+                  mientras este alto; va al RTS del MCU
+         P1.GND   la masa
+
+     Los nombres son los de la serigrafia, y son los del ADAPTADOR: su RX se
+     une al TX del MCU, y su TX al RX.
+
+     EL JUMPER JP1, de arriba abajo 5V, VCC y 3.3V, decide la tension de VCC
+     con su parametro puente=:
+
+         puente="5V VCC"     VCC = 5,0 V, los del USB (hasta 500 mA)
+         puente="VCC 3.3V"   VCC = 3,3 V, los del regulador del FT232RL, su
+                             3V3OUT (hasta 50 mA)
+         puente="no"         sin puente: VCC al aire
+
+     Como en el modulo, VCC es tambien la alimentacion de las patillas del
+     FT232RL (su VCCIO): con el puente en 5V, TX y DTR suben a 5 V; en
+     3.3V, a 3,3 V. El dibujo enseña el puente donde dice puente=.
+
+     EL PUENTE UART, U1: los bytes van a un terminal por RFC 2217 en el puerto
+     3356 -el 3355 es el del ST-LINK de la Nucleo-, y los baudios, el formato
+     y el control de flujo los pone el terminal, como en el FT232RL de
+     verdad. Se cambia sin tocar el fichero: --serie U1=memoria, o en un
+     sistema --serie F/U1=tcp:4000 (doc/puente_serie.md).
+
+     Sola, la placa no hace nada -no lleva chip-; se valida igual:
+
+         ./build/mcu-sim placas/ftdi_ft232rl.xml --valida
+     ========================================================================= -->
+<placa nombre="ftdi-ft232rl">
+  <!-- El conector de seis pines, vertical, con el 1 (DTR) arriba -->
+  <componente tipo="Conector" id="P1" filas="6" columnas="1"
+              nombres="DTR RX TX VCC CTS GND">
+    <pin nombre="VCC" nodo="VCC"/>
+    <pin nombre="GND" nodo="GND"/>
+  </componente>
+
+  <!-- El jumper, vertical, con 5V arriba: su pin del centro es VCC -->
+  <nodo id="VCC"/>
+  <componente tipo="Jumper" id="JP1" filas="3" columnas="1"
+              nombres="5V VCC 3.3V" puente="5V VCC">
+    <pin nombre="VCC" nodo="VCC"/>
+  </componente>
+
+  <!-- Lo que llega a cada extremo del jumper: los 5 V del USB y los 3,3 V
+       del regulador del FT232RL (3V3OUT), cada uno con lo que da -->
+  <componente tipo="Fuente" id="USB_5V" v="5.0" limite_ma="500">
+    <pin nombre="pin" nodo="JP1.5V"/>
+  </componente>
+  <componente tipo="Fuente" id="REG_3V3" v="3.3" limite_ma="50">
+    <pin nombre="pin" nodo="JP1.3.3V"/>
+  </componente>
+  <nodo id="GND"/>
+  <componente tipo="Gnd" id="MASA">
+    <pin nombre="pin" nodo="GND"/>
+  </componente>
+
+  <!-- El FT232RL: un puente UART con las patillas del conector, alimentadas
+       por VCC -->
+  <componente tipo="PuenteSerie" id="U1" host="rfc2217:3356"
+              baudios="host" formato="8N1" muestra="si">
+    <pin nombre="rx"    nodo="P1.RX"/>
+    <pin nombre="tx"    nodo="P1.TX"/>
+    <pin nombre="cts"   nodo="P1.CTS"/>
+    <pin nombre="dtr"   nodo="P1.DTR"/>
+    <pin nombre="vccio" nodo="VCC"/>
+  </componente>
+</placa>

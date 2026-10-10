@@ -8,6 +8,14 @@
          LD2   LED verde de usuario, en PA5, a masa por 510 ohmios
          B1    pulsador azul, en PC13, a MASA, con el pull-up INTERNO del MCU
                sujetandolo arriba (la placa no lleva resistencia ahi)
+         B2    pulsador negro de RESET, en NRST, a masa: pulsarlo resetea el
+               chip, y mientras esta pulsado el chip sigue en reset
+         VCP   el puerto COM virtual del ST-LINK: la USART2 (PA2 y PA3) por
+               el MISMO USB que la depuracion. Aqui, un puente UART por
+               RFC 2217 en el puerto 3355 (abajo)
+         CN5, CN6, CN8 y CN9   los cuatro conectores Arduino
+         CN7 y CN10            los dos morpho, a izquierda y derecha, con
+                               todos los pines del chip
 
      Dos cosas que no estan y conviene saber por que:
 
@@ -22,6 +30,11 @@
 
          ./build/mcu-sim placas/nucleo_f446re.xml --valida
          ./build/mcu-sim placas/nucleo_f446re.xml verif/fw/blinky446/blinky446.bin 400
+
+     Con el VCP escuchando, una simulacion SIN los ms dichos no acaba sola
+     -espera al terminal, como con --gdb; Ctrl-C para salir-; con ellos
+     (400 arriba, o --ms=) acaba a su hora. Y el VCP se cambia sin tocar el
+     fichero: --serie VCP=memoria lo saca por la consola, sin red.
 -->
 <placa nombre="nucleo-f446re">
   <mcu tipo="STM32F446RE" id="u0"/>
@@ -36,5 +49,193 @@
        indeterminado, que es exactamente lo que pasa en la placa real. -->
   <componente tipo="Button" id="B1" v_cerrado="0" r_cerrado="10">
     <pin nombre="pin" nodo="PC13"/>
+  </componente>
+
+  <!-- B2: el RESET negro, sobre NRST y a masa [UM1724, botones]. Igual que
+       el de la Discovery: el nivel alto lo da el pull-up interno del pad
+       NRST, y el condensador de filtro de la placa -que no se modela- se
+       come los rebotes, de ahi rebote="no". Pulsado, el chip queda en reset;
+       al soltarlo arranca otra vez desde la Flash, como en la mano. NRST
+       tiene dos que tiran de el -el pad y el boton- y por eso bus="si". Es
+       el mismo nodo que el RESET de CN6.3: un shield que lo pulse hace lo
+       mismo. -->
+  <nodo id="NRST" bus="si"/>
+  <componente tipo="Button" id="B2" r_cerrado="10" rebote="no">
+    <pin nombre="pin" nodo="NRST"/>
+  </componente>
+
+  <!-- VCP: el puerto COM virtual del ST-LINK [UM1724, "USART
+       communication"]. Con los puentes de fabrica (SB13 y SB14 cerrados),
+       la USART2 del chip -PA2 su TX, PA3 su RX- va al ST-LINK, y el ST-LINK
+       la saca por el MISMO cable USB que la depuracion: en el ordenador es
+       un puerto serie. Aqui es un puente UART por RFC 2217 en el 3355, con
+       los baudios y el formato que ponga el terminal (doc/puente_serie.md).
+       Los nombres de sus patillas son los del adaptador: su rx lee el TX
+       del MCU. Sin RTS ni CTS: el VCP del ST-LINK no los tiene. -->
+  <componente tipo="PuenteSerie" id="VCP" host="rfc2217:3355"
+              baudios="host" formato="8N1" muestra="si">
+    <pin nombre="rx" nodo="PA2"/>   <!-- USART2_TX -->
+    <pin nombre="tx" nodo="PA3"/>   <!-- USART2_RX -->
+  </componente>
+
+  <!-- 5V: el USB del ST-LINK [UM1724, "Power supply"]. Con el puente de
+       fabrica JP5 en U5V, la placa se alimenta del cable USB: sus 5 V pasan
+       por el interruptor de potencia U2 del ST-LINK, que corta a unos
+       500 mA, y salen a los conectores como +5V (CN6.5, CN7.18) y U5V
+       (CN10.8). Es de donde toma su tension un shield de 5 V -un servo, un
+       modulo de rele-. El regulador de 3,3 V que cuelga de ellos no se
+       modela: el VDD del chip es su propia fuente. -->
+  <nodo id="U5V"/>
+  <componente tipo="Fuente" id="USB" v="5" limite_ma="500">
+    <pin nombre="pin" nodo="U5V"/>
+  </componente>
+
+  <!-- ===================================================================
+       Los cuatro conectores ARDUINO UNO V3 [UM1724, conectores Arduino de
+       las Nucleo-64]: por ahi se enchufa un shield o una X-NUCLEO, y es lo
+       que un <sistema> acopla (placas/nucleo_y_shield.xml). Una fila cada
+       uno, numerados del 1 al N como en la serigrafia.
+
+       Tambien van soldados a su pad del chip el RESET (NRST), el +3V3 y el
+       IOREF (VDD) y las masas (VSS): un shield que tome el +3V3 lo toma del
+       VDD de la Nucleo, y uno que pulse su RESET resetea el chip. El +5V es
+       el del USB (U5V, arriba). VIN y AREF se quedan al aire, porque el
+       modelo no tiene esos rieles; D0 y D1, porque son del VCP (CN9, abajo).
+       =================================================================== -->
+  <!-- CN5: D8..D15. El 7 es GND y el 8 AREF -->
+  <componente tipo="Conector" id="CN5" filas="1" columnas="10">
+    <pin nombre="1" nodo="PA9"/>    <!-- D8 -->
+    <pin nombre="2" nodo="PC7"/>    <!-- D9 -->
+    <pin nombre="3" nodo="PB6"/>    <!-- D10 -->
+    <pin nombre="4" nodo="PA7"/>    <!-- D11 -->
+    <pin nombre="5" nodo="PA6"/>    <!-- D12 -->
+    <pin nombre="6" nodo="PA5"/>    <!-- D13, el de LD2 -->
+    <pin nombre="7" nodo="VSS"/>    <!-- GND -->
+    <pin nombre="9" nodo="PB9"/>    <!-- D14 / SDA -->
+    <pin nombre="10" nodo="PB8"/>   <!-- D15 / SCL -->
+  </componente>
+  <!-- CN6: alimentacion. 1 NC, 2 IOREF, 3 RESET, 4 +3V3, 5 +5V, 6 y 7 GND,
+       8 VIN -->
+  <componente tipo="Conector" id="CN6" filas="1" columnas="8">
+    <pin nombre="2" nodo="VDD"/>    <!-- IOREF -->
+    <pin nombre="3" nodo="NRST"/>   <!-- RESET -->
+    <pin nombre="4" nodo="VDD"/>    <!-- +3V3 -->
+    <pin nombre="5" nodo="U5V"/>    <!-- +5V -->
+    <pin nombre="6" nodo="VSS"/>    <!-- GND -->
+    <pin nombre="7" nodo="VSS"/>    <!-- GND -->
+  </componente>
+  <!-- CN8: A0..A5 -->
+  <componente tipo="Conector" id="CN8" filas="1" columnas="6">
+    <pin nombre="1" nodo="PA0"/>    <!-- A0 -->
+    <pin nombre="2" nodo="PA1"/>    <!-- A1 -->
+    <pin nombre="3" nodo="PA4"/>    <!-- A2 -->
+    <pin nombre="4" nodo="PB0"/>    <!-- A3 -->
+    <pin nombre="5" nodo="PC1"/>    <!-- A4 -->
+    <pin nombre="6" nodo="PC0"/>    <!-- A5 -->
+  </componente>
+  <!-- CN9: D0..D7. D0 y D1 se quedan AL AIRE: PA3 y PA2 son del VCP del
+       ST-LINK, y con los puentes de fabrica (SB62 y SB63 abiertos) no llegan
+       al Arduino [UM1724, "USART communication"]. Por el morpho, CN10.37 y
+       CN10.35, si: es el mismo hilo que el VCP. -->
+  <componente tipo="Conector" id="CN9" filas="1" columnas="8">
+    <pin nombre="3" nodo="PA10"/>   <!-- D2 -->
+    <pin nombre="4" nodo="PB3"/>    <!-- D3 -->
+    <pin nombre="5" nodo="PB5"/>    <!-- D4 -->
+    <pin nombre="6" nodo="PB4"/>    <!-- D5 -->
+    <pin nombre="7" nodo="PB10"/>   <!-- D6 -->
+    <pin nombre="8" nodo="PA8"/>    <!-- D7 -->
+  </componente>
+
+  <!-- ===================================================================
+       Los dos conectores ST MORPHO [UM1724, tabla del conector ST morpho
+       de la NUCLEO-F446RE; contrastada con Zephyr,
+       boards/st/nucleo_f446re/st_morpho_connector.dtsi]: dos tiras de 2x19
+       a los lados de la placa, CN7 a la izquierda y CN10 a la derecha, con
+       TODOS los pines del chip. Se numeran en zigzag: los impares en la
+       fila de fuera y los pares en la de dentro.
+
+       Cada pin va soldado a su pad, como en la placa: varios coinciden con
+       un Arduino (CN10.11 es PA5, el mismo nodo que CN5.6 y que LD2), y es
+       el mismo hilo. Las alimentaciones, como en los Arduino: VDD, IOREF y
+       +3V3 a VDD, GND a VSS, RESET a NRST, BOOT0, VBAT, y en CN10 AVDD a
+       VDDA y AGND a VSSA; +5V y U5V, al 5 V del USB. Los que el modelo no
+       tiene se quedan al aire:
+         CN7:  6 E5V, 9 NC, 10 NC, 11 NC, 24 VIN, 26 NC
+         CN10: 10 NC, 18 NC, 36 NC, 38 NC
+       (CN10.18 es PB11 en otras Nucleo-64; el F446RE no lo saca en el
+       LQFP64). CN7.36 y CN7.38 son PC1 y PC0 con los puentes de fabrica
+       (SB56 y SB51 cerrados), los mismos que A4 y A5.
+       =================================================================== -->
+  <!-- CN7: el morpho de la IZQUIERDA -->
+  <componente tipo="Conector" id="CN7" filas="2" columnas="19">
+    <pin nombre="1" nodo="PC10"/>
+    <pin nombre="2" nodo="PC11"/>
+    <pin nombre="3" nodo="PC12"/>
+    <pin nombre="4" nodo="PD2"/>
+    <pin nombre="5" nodo="VDD"/>
+    <pin nombre="7" nodo="BOOT0"/>
+    <pin nombre="8" nodo="VSS"/>      <!-- GND -->
+    <pin nombre="12" nodo="VDD"/>     <!-- IOREF -->
+    <pin nombre="13" nodo="PA13"/>
+    <pin nombre="14" nodo="NRST"/>    <!-- RESET -->
+    <pin nombre="15" nodo="PA14"/>
+    <pin nombre="16" nodo="VDD"/>     <!-- +3V3 -->
+    <pin nombre="17" nodo="PA15"/>
+    <pin nombre="18" nodo="U5V"/>     <!-- +5V -->
+    <pin nombre="19" nodo="VSS"/>     <!-- GND -->
+    <pin nombre="20" nodo="VSS"/>     <!-- GND -->
+    <pin nombre="21" nodo="PB7"/>
+    <pin nombre="22" nodo="VSS"/>     <!-- GND -->
+    <pin nombre="23" nodo="PC13"/>
+    <pin nombre="25" nodo="PC14"/>
+    <pin nombre="27" nodo="PC15"/>
+    <pin nombre="28" nodo="PA0"/>
+    <pin nombre="29" nodo="PH0"/>
+    <pin nombre="30" nodo="PA1"/>
+    <pin nombre="31" nodo="PH1"/>
+    <pin nombre="32" nodo="PA4"/>
+    <pin nombre="33" nodo="VBAT"/>
+    <pin nombre="34" nodo="PB0"/>
+    <pin nombre="35" nodo="PC2"/>
+    <pin nombre="36" nodo="PC1"/>
+    <pin nombre="37" nodo="PC3"/>
+    <pin nombre="38" nodo="PC0"/>
+  </componente>
+  <!-- CN10: el morpho de la DERECHA -->
+  <componente tipo="Conector" id="CN10" filas="2" columnas="19">
+    <pin nombre="1" nodo="PC9"/>
+    <pin nombre="2" nodo="PC8"/>
+    <pin nombre="3" nodo="PB8"/>
+    <pin nombre="4" nodo="PC6"/>
+    <pin nombre="5" nodo="PB9"/>
+    <pin nombre="6" nodo="PC5"/>
+    <pin nombre="7" nodo="VDDA"/>     <!-- AVDD -->
+    <pin nombre="8" nodo="U5V"/>      <!-- U5V -->
+    <pin nombre="9" nodo="VSS"/>      <!-- GND -->
+    <pin nombre="11" nodo="PA5"/>
+    <pin nombre="12" nodo="PA12"/>
+    <pin nombre="13" nodo="PA6"/>
+    <pin nombre="14" nodo="PA11"/>
+    <pin nombre="15" nodo="PA7"/>
+    <pin nombre="16" nodo="PB12"/>
+    <pin nombre="17" nodo="PB6"/>
+    <pin nombre="19" nodo="PC7"/>
+    <pin nombre="20" nodo="VSS"/>     <!-- GND -->
+    <pin nombre="21" nodo="PA9"/>
+    <pin nombre="22" nodo="PB2"/>
+    <pin nombre="23" nodo="PA8"/>
+    <pin nombre="24" nodo="PB1"/>
+    <pin nombre="25" nodo="PB10"/>
+    <pin nombre="26" nodo="PB15"/>
+    <pin nombre="27" nodo="PB4"/>
+    <pin nombre="28" nodo="PB14"/>
+    <pin nombre="29" nodo="PB5"/>
+    <pin nombre="30" nodo="PB13"/>
+    <pin nombre="31" nodo="PB3"/>
+    <pin nombre="32" nodo="VSSA"/>    <!-- AGND -->
+    <pin nombre="33" nodo="PA10"/>
+    <pin nombre="34" nodo="PC4"/>
+    <pin nombre="35" nodo="PA2"/>
+    <pin nombre="37" nodo="PA3"/>
   </componente>
 </placa>

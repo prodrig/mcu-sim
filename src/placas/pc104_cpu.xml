@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UN MODULO CPU CON FORMA PC/104: un STM32F407VG y el conector de bus
+
+     No es una placa comercial. Toma de PC/104 lo que interesa aqui: el
+     conector J1 de 64 pines (2 filas x 32, numerado en zigzag) PASANTE, que
+     atraviesa la placa para que otra se apile encima con el mismo conector.
+     La asignacion de senales del bus ISA de PC/104 no se reproduce: en este
+     ejemplo los cuatro primeros pines llevan los cuatro LEDs de la Discovery
+     -PD12..PD15- y el resto queda al aire.
+
+     Lleva tambien el cristal de 8 MHz del HSE, que el blinky necesita. Sola se
+     valida y se simula; apilada con dos modulos de LEDs es
+     placas/pila_pc104.xml.
+     ========================================================================= -->
+<placa nombre="pc104-cpu">
+  <mcu tipo="STM32F407VG" id="u0"/>
+
+  <!-- El cristal de 8 MHz del HSE, como en la Discovery: el blinky lo usa -->
+  <nodo id="PH0"/>
+  <componente tipo="Crystal" id="X1" vdd="3.3">
+    <pin nombre="osc_in" nodo="PH0"/>
+  </componente>
+
+  <componente tipo="Conector" id="J1" filas="2" columnas="32">
+    <pin nombre="1" nodo="PD12"/>
+    <pin nombre="2" nodo="PD13"/>
+    <pin nombre="3" nodo="PD14"/>
+    <pin nombre="4" nodo="PD15"/>
+  </componente>
+</placa>

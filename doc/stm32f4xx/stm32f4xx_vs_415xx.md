@@ -1457,7 +1457,10 @@ con el otro chip:
 ```
 
 La placa cabe en los dos —los pines son los mismos— y lo que cambia está en el
-mapa de memoria: en el F407 esas dos ventanas no las decodifica nadie. Y el
+mapa de memoria: en el F407 esas dos ventanas no las decodifica nadie. La
+segunda orden funciona porque **con `<mcu>` y `--mcu` a la vez gana `--mcu`**:
+sustituye el tipo que declara la placa y lo dice
+(`[mcu] u0: --mcu STM32F407VG sustituye al STM32F417VG que declara la placa`). Y el
 blinky de siempre funciona sin tocar nada:
 
 ```
