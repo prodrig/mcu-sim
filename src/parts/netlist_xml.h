@@ -48,7 +48,10 @@
 #ifndef STM32_PARTS_NETLIST_XML_H
 #define STM32_PARTS_NETLIST_XML_H
 
+#include <algorithm>
+#include <cmath>
 #include <map>
+#include <sstream>
 #include <string>
 #include "netlist.h"
 #include "xml_min.h"
@@ -86,6 +89,64 @@ inline std::string lee_giro(const std::string& t, int& giro) {
     }
     return "giro=\"" + t + "\" no vale: es 0, 90, 180 o 270 (grados, en el sentido de las "
            "agujas del reloj)";
+}
+
+// LA DISPOSICIÓN DE LA VENTANA (plan §38 de mcu-sim-gui): números separados
+// por blancos, todos de verdad -"12", "-3.5"-. false si alguno no lo es.
+inline bool lee_numeros(const std::string& t, std::vector<double>& v) {
+    v.clear();
+    std::string pal;
+    std::istringstream is(t);
+    while (is >> pal) {
+        char* fin = nullptr;
+        const double x = std::strtod(pal.c_str(), &fin);
+        if (!fin || *fin != '\0' || !std::isfinite(x)) return false;
+        v.push_back(x);
+    }
+    return true;
+}
+
+// `x`, `y` y `escala` de una placa: dónde la pone la ventana y a qué escala.
+// `posicion`: si aquí se puede decir dónde va -en un sistema sí; en una placa
+// suelta, no-. "" si vale.
+inline std::string lee_colocacion(const XmlNodo& h, Ilustracion& il, bool posicion) {
+    std::vector<double> v;
+    if (h.tiene("x") || h.tiene("y")) {
+        if (!posicion)
+            return "x= e y= son la posicion de la placa en la ventana, y solo se dicen en "
+                   "su <placa id> de un sistema";
+        if (!h.tiene("x") || !h.tiene("y"))
+            return "x= e y= van juntos: la esquina de arriba a la izquierda, en mm";
+        std::vector<double> y;
+        if (!lee_numeros(h.attr_o("x"), v) || v.size() != 1 ||
+            !lee_numeros(h.attr_o("y"), y) || y.size() != 1)
+            return "x=\"" + h.attr_o("x") + "\" y=\"" + h.attr_o("y") + "\": son dos numeros, "
+                   "en mm";
+        il.colocada = true;
+        il.x_mm = v[0];
+        il.y_mm = y[0];
+    }
+    if (h.tiene("escala")) {
+        if (!lee_numeros(h.attr_o("escala"), v) || v.size() != 1 || v[0] < 0.25 || v[0] > 4)
+            return "escala=\"" + h.attr_o("escala") + "\" no vale: es un numero de 0.25 a 4, "
+                   "sobre el tamano real";
+        il.escala = v[0];
+    }
+    return std::string();
+}
+
+// `lienzo="x y ancho alto"`, en mm. "" si vale.
+inline std::string lee_lienzo(const std::string& t, LienzoVentana& l) {
+    std::vector<double> v;
+    if (!lee_numeros(t, v) || v.size() != 4 || v[2] <= 0 || v[3] <= 0)
+        return "lienzo=\"" + t + "\" no vale: son cuatro numeros en mm, x y ancho alto, con el "
+               "ancho y el alto positivos";
+    l.fijo = true;
+    l.x = v[0];
+    l.y = v[1];
+    l.ancho = v[2];
+    l.alto = v[3];
+    return std::string();
 }
 
 // Un nombre de la placa, cualificado. "" en `err` si todo bien.
@@ -145,11 +206,15 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
     if (nombre_placa) *nombre_placa = raiz.attr_o("nombre", "placa");
     // Los atributos de la raíz: hasta el dibujo se aceptaba cualquiera y se
     // ignoraba en silencio, que es justo lo que hace que una errata no se vea
+    // Una placa escrita DENTRO de un sistema dice ahí también dónde va en la
+    // ventana; una de un fichero, en su <placa id> del sistema
+    const bool dentro = cx.en_sistema() && raiz.tiene("id");
     for (const auto& a : raiz.attrs)
         if (a.first != "nombre" && a.first != "ilustracion" && a.first != "giro" &&
-            !(cx.en_sistema() && a.first == "id"))
+            a.first != "escala" && a.first != "lienzo" && a.first != "x" && a.first != "y" &&
+            !(dentro && a.first == "id"))
             return donde(raiz) + "<placa>: atributo desconocido: " + a.first +
-                   " (lo que va aqui: nombre, ilustracion y giro)";
+                   " (lo que va aqui: nombre, ilustracion, giro, escala y lienzo)";
     Ilustracion il;
     il.declarada = raiz.attr_o("ilustracion", "");
     if (raiz.tiene("ilustracion") && il.declarada.empty())
@@ -157,6 +222,20 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
     if (raiz.tiene("giro")) {
         const std::string e = lee_giro(raiz.attr_o("giro"), il.giro);
         if (!e.empty()) return donde(raiz) + "<placa>: " + e;
+    }
+    {
+        const std::string e = lee_colocacion(raiz, il, dentro);
+        if (!e.empty()) return donde(raiz) + "<placa>: " + e;
+    }
+    // El lienzo es de lo que se enseña entero: una placa suelta o el sistema.
+    // El de una placa leída desde un sistema no cuenta -manda el del sistema-
+    if (raiz.tiene("lienzo")) {
+        if (dentro)
+            return donde(raiz) + "<placa id>: el lienzo es del <sistema>, no de una placa";
+        LienzoVentana l;
+        const std::string e = lee_lienzo(raiz.attr_o("lienzo"), l);
+        if (!e.empty()) return donde(raiz) + "<placa>: " + e;
+        if (!cx.en_sistema()) nl.pon_lienzo(l);
     }
     std::string eq;
     // El nombre local de algo de la placa: un id (no lleva barra) ...
@@ -439,8 +518,14 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
     };
     if (nombre) *nombre = raiz.attr_o("nombre", "sistema");
     for (const auto& a : raiz.attrs)
-        if (a.first != "nombre")
+        if (a.first != "nombre" && a.first != "lienzo")
             return donde(raiz) + "<sistema>: atributo desconocido: " + a.first;
+    if (raiz.tiene("lienzo")) {
+        LienzoVentana l;
+        const std::string e = lee_lienzo(raiz.attr_o("lienzo"), l);
+        if (!e.empty()) return donde(raiz) + "<sistema>: " + e;
+        nl.pon_lienzo(l);
+    }
     std::vector<PlacaDeSistema> placas;
     std::map<std::string, ContextoPlaca> contexto;
 
@@ -464,7 +549,8 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
                        "escrita dentro; las dos cosas no";
             for (const auto& a : h.attrs)
                 if (a.first != "id" && a.first != "fichero" && a.first != "ilustracion" &&
-                    a.first != "giro")
+                    a.first != "giro" && a.first != "x" && a.first != "y" &&
+                    a.first != "escala")
                     return donde(h) + "<placa id=\"" + id + "\" fichero=...>: atributo "
                            "desconocido: " + a.first + " (lo de la placa va en su fichero)";
             ps.fichero = h.attr_o("fichero");
@@ -500,6 +586,10 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
                 const std::string eg = lee_giro(h.attr_o("giro"), il.giro);
                 if (!eg.empty()) return donde(h) + "<placa id=\"" + id + "\">: " + eg;
             }
+            // Y dónde va en la ventana, y a qué escala: del montaje también
+            il.colocada = false;
+            const std::string ec = lee_colocacion(h, il, true);
+            if (!ec.empty()) return donde(h) + "<placa id=\"" + id + "\">: " + ec;
         } else {
             for (const XmlNodo& m : h.hijos)
                 if (m.nombre == "mcu" && m.tiene("id")) cx.mcus.push_back(m.attr_o("id"));
@@ -532,8 +622,35 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
             return "'" + s + "': una sola barra, entre la placa y el nombre";
         return std::string();
     };
+    std::vector<RutaLinea> rutas;
+    std::vector<unsigned> lineas_ruta;
     for (const XmlNodo& h : raiz.hijos) {
         if (h.nombre == "placa") continue;
+        if (h.nombre == "ruta") {
+            // Plan §38 de mcu-sim-gui: una línea enrutada en tramos rectos
+            for (const auto& a : h.attrs)
+                if (a.first != "linea" && a.first != "eje" && a.first != "codos")
+                    return donde(h) + "<ruta>: atributo desconocido: " + a.first;
+            RutaLinea r;
+            r.linea = h.attr_o("linea");
+            if (r.linea.empty())
+                return donde(h) + "<ruta> necesita linea=, como la nombra la ventana: \"hilo "
+                       "A/P1.TX B/u0.PA3\" o \"acople A/J1 B/J1\"";
+            const std::string eje = h.attr_o("eje", "h");
+            if (eje != "h" && eje != "v")
+                return donde(h) + "<ruta>: eje=\"" + eje + "\" no vale: h o v, el del primer "
+                       "tramo";
+            r.horizontal = eje == "h";
+            if (!lee_numeros(h.attr_o("codos"), r.codos))
+                return donde(h) + "<ruta>: codos=\"" + h.attr_o("codos") + "\": son numeros en "
+                       "mm, separados por blancos";
+            for (const RutaLinea& o : rutas)
+                if (o.linea == r.linea)
+                    return donde(h) + "<ruta linea=\"" + r.linea + "\">: repetida";
+            rutas.push_back(r);
+            lineas_ruta.push_back(h.linea);
+            continue;
+        }
         if (h.nombre == "acopla") {
             // Dos conectores con a= y b=, o los que sean -una pila PC/104- con
             // conectores="A/J1 B/J1 C/J1". Las dos formas no a la vez.
@@ -612,9 +729,20 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
             }
         } else {
             return donde(h) + "elemento desconocido dentro de <sistema>: <" + h.nombre +
-                   ">. Lo que va aqui: <placa>, <acopla>, <hilo> y <mcu ref>";
+                   ">. Lo que va aqui: <placa>, <acopla>, <hilo>, <mcu ref> y <ruta>";
         }
     }
+    // Las rutas, de líneas que hay: ya están todos los acoples y los hilos
+    const std::vector<std::string> lineas = nl.claves_lineas();
+    for (size_t k = 0; k < rutas.size(); ++k)
+        if (std::find(lineas.begin(), lineas.end(), rutas[k].linea) == lineas.end()) {
+            std::string l;
+            for (const std::string& x : lineas) l += (l.empty() ? "" : "; ") + x;
+            std::snprintf(pos, sizeof pos, "linea %u: ", lineas_ruta[k]);
+            return std::string(pos) + "<ruta linea=\"" + rutas[k].linea + "\">: no hay esa "
+                   "linea. Las que hay: " + (l.empty() ? std::string("ninguna") : l);
+        }
+    nl.pon_rutas(rutas);
     nl.pon_placas(placas);
     return std::string();
 }

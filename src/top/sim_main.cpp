@@ -662,6 +662,36 @@ SC_MODULE(Sim) {
             for (const PlacaDeSistema& p : placa.placas()) mira(p.id, p.ilustracion);
         else
             mira(std::string(), placa.ilustracion());
+        // La disposición para la ventana (plan §38 de mcu-sim-gui), si la hay:
+        // aquí no se usa, pero se dice que se ha leído
+        {
+            auto num = [](double v) {
+                char b[32];
+                std::snprintf(b, sizeof b, "%g", v);
+                return std::string(b);
+            };
+            std::vector<std::string> l;
+            if (placa.lienzo().fijo)
+                l.push_back("lienzo " + num(placa.lienzo().ancho) + " x " +
+                            num(placa.lienzo().alto) + " mm");
+            auto una = [&](const std::string& id, const Ilustracion& il) {
+                std::string t;
+                if (il.colocada) t += " en (" + num(il.x_mm) + ", " + num(il.y_mm) + ") mm";
+                if (il.escala != 1.0) t += " al " + num(il.escala * 100) + " %";
+                if (!t.empty()) l.push_back((id.empty() ? std::string("la placa") : id) + t);
+            };
+            if (sis)
+                for (const PlacaDeSistema& p : placa.placas()) una(p.id, p.ilustracion);
+            else
+                una(std::string(), placa.ilustracion());
+            if (!placa.rutas().empty())
+                l.push_back(std::to_string(placa.rutas().size()) + " linea(s) en tramos rectos");
+            if (!l.empty()) {
+                std::string t;
+                for (const std::string& x : l) t += (t.empty() ? "" : "; ") + x;
+                std::printf("  ventana: %s\n", t.c_str());
+            }
+        }
     }
 
     void resuelve_puentes_serie() {

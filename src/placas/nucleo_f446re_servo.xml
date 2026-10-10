@@ -39,13 +39,19 @@
 
          ./build/mcu-sim placas/nucleo_f446re_servo.xml --ms=800 --serie N/VCP=memoria
 
+     EN LA VENTANA, cada placa en su sitio: x= e y= en cada <placa id>, en
+     mm, la esquina de arriba a la izquierda de su dibujo -la Nucleo en el
+     origen, el servo y el encoder a su derecha, uno encima del otro, y la
+     pantalla al lado-. Lo escribio el boton «Guardar en el XML» de la
+     ventana de mcu-sim-gui; sin ellos, las placas se ponen en fila.
+
      y con la ventana, mcu-sim-gui, para verlo y mover el encoder.
      ========================================================================= -->
 <sistema nombre="nucleo-f446re-servo">
-  <placa id="N" fichero="nucleo_f446re.xml"/>
-  <placa id="S" fichero="servo_sg90.xml"/>
-  <placa id="K" fichero="ky040.xml"/>
-  <placa id="T" fichero="tft_128x160.xml" giro="90"/>
+  <placa id="N" fichero="nucleo_f446re.xml" x="0" y="0"/>
+  <placa id="S" fichero="servo_sg90.xml" x="140" y="0"/>
+  <placa id="K" fichero="ky040.xml" x="140" y="58"/>
+  <placa id="T" fichero="tft_128x160.xml" giro="90" x="200" y="2"/>
 
   <!-- El servo -->
   <hilo a="S/P1.PWM"   b="N/CN9.6"/>    <!-- D5,  PB4: TIM3_CH1 -->

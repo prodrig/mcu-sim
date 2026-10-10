@@ -438,6 +438,52 @@ los dos ya con lo que diga `--serie` y con el puerto al que se haya corrido.
 el mismo USB que la depuración. Dos placas con el mismo dibujo y rótulos
 distintos reciben dos dibujos.
 
+**La disposición en la ventana: dónde va cada placa.** En la ilustración de
+`mcu-sim-gui`, las placas de un sistema se ponen en fila si nadie dice otra
+cosa, y en el modo *Edición* se mueven, se giran, se escalan, se cambia el
+lienzo y las líneas se llevan en tramos rectos. Eso se puede guardar en el
+propio XML —a mano, o con «Guardar en el XML» de la ventana—, y entonces viaja
+con el sistema: `mcu-sim` lo lee, lo comprueba y lo manda en `T_PLACA`. Para la
+simulación no significa nada: no cambia ni un nodo.
+
+```xml
+<sistema nombre="nucleo-f446re-servo" lienzo="-10 -10 330 200">
+  <placa id="N" fichero="nucleo_f446re.xml" x="0" y="0"/>
+  <placa id="S" fichero="servo_sg90.xml" x="140" y="0" escala="1.5"/>
+  <placa id="T" fichero="tft_128x160.xml" giro="90" x="200" y="2"/>
+  <hilo a="S/P1.PWM" b="N/CN9.6"/>
+  ...
+  <ruta linea="hilo S/P1.PWM N/CN9.6" eje="v" codos="40 12.5"/>
+</sistema>
+```
+
+| Qué | Dónde | Cómo |
+| :--- | :--- | :--- |
+| `x="..." y="..."` | En la `<placa id>` de un `<sistema>` —de fichero o escrita dentro— | La esquina de arriba a la izquierda del dibujo de la placa, ya girado, en mm. Van juntos. Una placa sin ellos la coloca la ventana |
+| `escala="..."` | En la `<placa id>`, o en la raíz de una placa suelta | El tamaño del dibujo, de **0.25 a 4**; 1 es el de siempre |
+| `lienzo="x y ancho alto"` | En el `<sistema>`, o en la raíz de una placa suelta | Lo que se ve de la ilustración, en mm. Sin él, el que haga falta para que quepa todo |
+| `<ruta linea="..." eje="h\|v" codos="..."/>` | Dentro del `<sistema>` | Una **línea en tramos rectos**. `linea` es `hilo A/P1.X B/CN9.6` —sus dos extremos, como en el `<hilo>`— o `acople A/J1 B/J1`; `eje`, el del primer tramo (`h` si no se dice); `codos`, en mm, dónde gira: una x y una y alternadas, empezando por la del eje. Los dos últimos tramos los pone la ventana |
+
+El `giro=` es el de siempre: el dibujo ya llega girado. La ventana manda sobre
+el XML: lo que se haya colocado a mano y guardado en su configuración se ve
+antes que esto, y su «Restablecer» vuelve a lo que dice el XML.
+
+**Lo que no vale es un error del fichero**, que dice por qué: `x=` e `y=` en
+la raíz de una placa —«son la posición de la placa en la ventana, y solo se
+dicen en su `<placa id>` de un sistema»—; uno sin el otro; algo que no es un
+número; una `escala` fuera de 0.25 a 4; un `lienzo` sin cuatro números o sin
+tamaño; y una `<ruta>` de una línea que no hay —el error dice las que hay—,
+repetida, con un `eje` que no es `h` ni `v` o con unos `codos` que no son
+números.
+
+La consola lo cuenta después de los dibujos, si hay algo que contar:
+`ventana: lienzo 330 x 200 mm; N en (0, 0) mm; S en (140, 0) mm al 150 %; T en
+(200, 2) mm; 1 linea(s) en tramos rectos`. Y `T_PLACA` lo lleva como lo dice el
+fichero —`x`, `y` y `escala` en cada `<placa id>`, `lienzo` en la raíz y las
+`<ruta>` detrás de los acoples y los hilos—, añadido a la versión 2 del
+protocolo sin subirla: una ventana que no lo conoce no lo lee.
+`placas/nucleo_f446re_servo.xml` lo usa.
+
 ---
 
 ## 3. Parámetros comunes

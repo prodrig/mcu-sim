@@ -331,6 +331,26 @@ struct Ilustracion {
     // Cuánto se gira el dibujo antes de mandarlo, en grados en el sentido de
     // las agujas del reloj: 0, 90, 180 o 270 (`giro=`, common/svg_variantes.h)
     int giro = 0;
+    // LA DISPOSICIÓN en la ventana (mcu-sim-gui, plan §38): dónde va la placa
+    // -la esquina de arriba a la izquierda de su caja, ya girada, en mm-, si
+    // se dice, y a qué escala de su tamaño real. `mcu-sim` no los usa: los
+    // lee, los valida y los manda en T_PLACA
+    bool   colocada = false;
+    double x_mm = 0, y_mm = 0;
+    double escala = 1.0;
+};
+
+// El lienzo de la ventana, en mm, si es fijo (`lienzo="x y ancho alto"`); y
+// una línea entre placas enrutada en tramos horizontales y verticales
+// (`<ruta linea= eje= codos=>`). Como la disposición: solo para la ventana.
+struct LienzoVentana {
+    bool   fijo = false;
+    double x = 0, y = 0, ancho = 0, alto = 0;
+};
+struct RutaLinea {
+    std::string linea;                 // "hilo A/P1.TX B/u0.PA3", "acople A/J1 B/J1"
+    bool        horizontal = true;     // el primer tramo, el que sale del primero
+    std::vector<double> codos;         // mm, alternando x e y
 };
 
 struct PlacaDeSistema {
@@ -494,6 +514,21 @@ public:
     // El dibujo de una placa suelta; en un sistema, el de cada placa va en
     // su PlacaDeSistema
     void pon_ilustracion(Ilustracion i) { ilustracion_ = std::move(i); }
+    // Plan §38 de mcu-sim-gui: el lienzo y las rutas de las líneas
+    void pon_lienzo(const LienzoVentana& l) { lienzo_ = l; }
+    const LienzoVentana& lienzo() const { return lienzo_; }
+    void pon_rutas(std::vector<RutaLinea> r) { rutas_ = std::move(r); }
+    const std::vector<RutaLinea>& rutas() const { return rutas_; }
+    // Las líneas que la ventana dibuja, como las nombra: un acople de dos o
+    // más conectores es una línea por cada par de vecinos, y cada hilo, una
+    std::vector<std::string> claves_lineas() const {
+        std::vector<std::string> l;
+        for (const Acople& a : acoples_)
+            for (size_t k = 0; k + 1 < a.conectores.size(); ++k)
+                l.push_back("acople " + a.conectores[k] + " " + a.conectores[k + 1]);
+        for (const auto& h : hilos_) l.push_back("hilo " + h.first + " " + h.second);
+        return l;
+    }
     const Ilustracion& ilustracion() const { return ilustracion_; }
     const std::vector<PlacaDeSistema>& placas() const { return placas_; }
     bool es_sistema() const { return !placas_.empty(); }
@@ -1536,6 +1571,17 @@ public:
             os << " ilustracion=\"" << xml_escapa(ilustracion_.declarada) << "\"";
         if (!es_sistema() && ilustracion_.giro)
             os << " giro=\"" << ilustracion_.giro << "\"";
+        // La disposición de la ventana (plan §38 de mcu-sim-gui)
+        auto num = [](double v) {
+            char b[32];
+            std::snprintf(b, sizeof b, "%.10g", v);
+            return std::string(b);
+        };
+        if (!es_sistema() && ilustracion_.escala != 1.0)
+            os << " escala=\"" << num(ilustracion_.escala) << "\"";
+        if (lienzo_.fijo)
+            os << " lienzo=\"" << num(lienzo_.x) << " " << num(lienzo_.y) << " "
+               << num(lienzo_.ancho) << " " << num(lienzo_.alto) << "\"";
         os << ">\n";
         if (!es_sistema()) tabla(ilustracion_, "  ");
         if (sis)
@@ -1548,6 +1594,11 @@ public:
                 if (!p.ilustracion.declarada.empty())
                     os << " ilustracion=\"" << xml_escapa(p.ilustracion.declarada) << "\"";
                 if (p.ilustracion.giro) os << " giro=\"" << p.ilustracion.giro << "\"";
+                if (p.ilustracion.colocada)
+                    os << " x=\"" << num(p.ilustracion.x_mm) << "\" y=\"" << num(p.ilustracion.y_mm)
+                       << "\"";
+                if (p.ilustracion.escala != 1.0)
+                    os << " escala=\"" << num(p.ilustracion.escala) << "\"";
                 os << " piezas=\"" << n << "\">\n";
                 tabla(p.ilustracion, "    ");
                 for (const DeclMcu& m : mcus_)
@@ -1643,6 +1694,12 @@ public:
                 os << "  <hilo a=\"" << xml_escapa(h.first) << "\" b=\""
                    << xml_escapa(h.second) << "\" placas=\""
                    << xml_escapa(placa_de(h.first) + " " + placa_de(h.second)) << "\"/>\n";
+            for (const RutaLinea& r : rutas_) {
+                os << "  <ruta linea=\"" << xml_escapa(r.linea) << "\" eje=\""
+                   << (r.horizontal ? "h" : "v") << "\" codos=\"";
+                for (size_t k = 0; k < r.codos.size(); ++k) os << (k ? " " : "") << num(r.codos[k]);
+                os << "\"/>\n";
+            }
         }
         os << (sis ? "</sistema>\n" : "</placa>\n");
     }
@@ -1668,6 +1725,8 @@ private:
     std::map<std::string, std::string> alias_;
     std::vector<PlacaDeSistema> placas_;
     Ilustracion ilustracion_;
+    LienzoVentana lienzo_;
+    std::vector<RutaLinea> rutas_;
     bool                       sin_mcu_ = false;
     const Encapsulado*         enc_implicito_ = &ENC_LQFP100;
     std::vector<ExtPartBase*>  piezas_;

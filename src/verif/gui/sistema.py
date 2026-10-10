@@ -52,6 +52,10 @@
 #       una con su dibujo girado -viewBox, tamano y un grupo que lo gira, con
 #       los ids de siempre-; un giro que no vale; y un dibujo sin viewBox, que
 #       no se puede girar y se manda como esta.
+#   C16 la DISPOSICION de la ventana en el XML: x, y y escala en cada <placa
+#       id>, el lienzo en el sistema -o escala y lienzo en la raiz de una
+#       placa suelta- y las <ruta> de las lineas en tramos rectos; la consola
+#       y T_PLACA las cuentan, y lo que no vale es un error que dice por que.
 #
 #   make -f Makefile.mcu-sim gui-sistema
 #   python3 verif/gui/sistema.py [--sim build/mcu-sim]
@@ -1149,6 +1153,103 @@ def c15_giro(sim, cp):
           "un dibujo sin viewBox no se puede girar: se dice, y se manda como esta")
 
 
+# ---------------------------------------------------------------------------
+# C16
+# ---------------------------------------------------------------------------
+MODULO_J = """<placa nombre="modulo"%s>
+  <componente tipo="Conector" id="J" filas="1" columnas="2"/>
+  <componente tipo="Led" id="LD" a_vss="si"><pin nombre="anodo" nodo="J.1"/></componente>
+</placa>
+"""
+SISTEMA_DISP = """<sistema nombre="disp" lienzo="-20 -10 300 200">
+  <!-- Lo que es para la ventana: donde va cada placa, a que escala, y las
+       lineas en tramos rectos -->
+  <placa id="A" fichero="m.xml" x="10" y="-5.5" escala="1.5" giro="90"/>
+  <placa id="B" fichero="m.xml"/>
+  <placa id="C" nombre="dentro" x="200" y="0" escala="0.5">
+    <componente tipo="Conector" id="K" filas="1" columnas="2"/>
+  </placa>
+  <acopla a="A/J" b="C/K"/>
+  <hilo a="A/J.2" b="B/J.1"/>
+  <ruta linea="hilo A/J.2 B/J.1" eje="v" codos="40 12.5"/>
+  <ruta linea="acople A/J C/K" codos="100"/>
+</sistema>
+"""
+
+
+def c16_disposicion(sim, cp):
+    grupo("C16 La disposicion de la ventana en el XML: posicion, escala, lienzo y rutas")
+    cp.escribe("m.xml", MODULO_J % "")
+    sis = cp.escribe("disp.xml", SISTEMA_DISP)
+    rc, out, placa, il, av = saludo_con_dibujos(sim, [sis])
+    t = placa.decode("utf-8") if placa else ""
+    check(rc == 0 and "SIN MCU, 5 componentes, 3 nodos, 0 avisos" in out and
+          "ventana: lienzo 300 x 200 mm; A en (10, -5.5) mm al 150 %; C en (200, 0) mm al "
+          "50 %; 2 linea(s) en tramos rectos" in out,
+          "un sistema con su disposicion se monta igual, sin avisos, y la consola dice lo "
+          "que ha leido para la ventana")
+    check('<sistema nombre="disp" lienzo="-20 -10 300 200">' in t and
+          '<placa id="A" nombre="modulo" fichero="m.xml" giro="90" x="10" y="-5.5" '
+          'escala="1.5" piezas="2">' in t and
+          '<placa id="B" nombre="modulo" fichero="m.xml" piezas="2">' in t and
+          '<placa id="C" nombre="dentro" x="200" y="0" escala="0.5" piezas="1">' in t,
+          "T_PLACA lo cuenta: el lienzo en el <sistema>, y en cada <placa id> su sitio y su "
+          "escala -nada en la que no los dice-, tambien en una placa escrita dentro")
+    check('<ruta linea="hilo A/J.2 B/J.1" eje="v" codos="40 12.5"/>' in t and
+          '<ruta linea="acople A/J C/K" eje="h" codos="100"/>' in t and
+          t.index("<ruta") > t.index("<hilo"),
+          "y las rutas, detras de los acoples y los hilos, con el eje -h si no se dice- y "
+          "los codos en mm")
+    # Una placa suelta: su escala y su lienzo, en la raiz
+    suelta = cp.escribe("suelta.xml", MODULO_J % ' escala="2" lienzo="0 0 50 40"')
+    rc, out, placa, il, av = saludo_con_dibujos(sim, [suelta])
+    t = placa.decode("utf-8") if placa else ""
+    check(rc == 0 and '<placa nombre="modulo" escala="2" lienzo="0 0 50 40">' in t and
+          "ventana: lienzo 50 x 40 mm; la placa al 200 %" in out,
+          "una placa suelta lleva en su raiz la escala y el lienzo, y T_PLACA los cuenta")
+    # Lo que no vale
+    malos = [
+        (MODULO_J % ' x="3" y="4"', None,
+         "x= e y= son la posicion de la placa en la ventana, y solo se dicen en su <placa id> "
+         "de un sistema"),
+        (None, '<placa id="A" fichero="m.xml" x="3"/>',
+         "x= e y= van juntos"),
+        (None, '<placa id="A" fichero="m.xml" x="3" y="tres"/>',
+         'x="3" y="tres": son dos numeros, en mm'),
+        (None, '<placa id="A" fichero="m.xml" escala="5"/>',
+         'escala="5" no vale: es un numero de 0.25 a 4'),
+        (MODULO_J % ' lienzo="0 0 -5 10"', None,
+         'lienzo="0 0 -5 10" no vale: son cuatro numeros en mm'),
+        (None, '<placa id="A" fichero="m.xml"/><ruta linea="hilo A/J.1 A/J.2" codos="1"/>',
+         '<ruta linea="hilo A/J.1 A/J.2">: no hay esa linea. Las que hay: ninguna'),
+        (None, '<placa id="A" fichero="m.xml"/><placa id="B" fichero="m.xml"/>'
+               '<hilo a="A/J.2" b="B/J.1"/><ruta linea="hilo A/J.2 B/J.1" eje="d"/>',
+         'eje="d" no vale: h o v'),
+        (None, '<placa id="A" fichero="m.xml"/><placa id="B" fichero="m.xml"/>'
+               '<hilo a="A/J.2" b="B/J.1"/><ruta linea="hilo A/J.2 B/J.1" codos="1 x"/>',
+         'codos="1 x": son numeros en mm'),
+        (None, '<placa id="A" fichero="m.xml"/><placa id="B" fichero="m.xml"/>'
+               '<hilo a="A/J.2" b="B/J.1"/><ruta linea="hilo A/J.2 B/J.1" codos="1"/>'
+               '<ruta linea="hilo A/J.2 B/J.1" codos="2"/>',
+         '<ruta linea="hilo A/J.2 B/J.1">: repetida'),
+    ]
+    bien = []
+    for k, (modulo, dentro, frase) in enumerate(malos):
+        cp.escribe("m.xml", MODULO_J % "" if modulo is None else modulo)
+        if dentro is None:
+            f = cp.escribe("malo%d.xml" % k, modulo)
+        else:
+            f = cp.escribe("malo%d.xml" % k, '<sistema nombre="m">%s</sistema>' % dentro)
+        rc, out, err = corre(sim, [f, "--valida"])
+        bien.append(rc != 0 and frase in out + err)
+    cp.escribe("m.xml", MODULO_J % "")
+    check(all(bien),
+          "y lo que no vale es un error que dice por que: una posicion en una placa suelta, "
+          "x sin y, un numero que no lo es, una escala fuera de 0.25 a 4, un lienzo sin "
+          "tamano, una ruta de una linea que no hay, un eje que no es h ni v, unos codos "
+          "que no son numeros, y una ruta repetida (%s)" % bien)
+
+
 def main():
     a = argparse.ArgumentParser(description="conectores y sistemas de placas")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -1175,6 +1276,7 @@ def main():
         c13_ftdi(sim, cp)
         c14_vcp(sim, cp)
         c15_giro(sim, cp)
+        c16_disposicion(sim, cp)
     finally:
         cp.borra()
     return ventana.resumen("SISTEMA")
