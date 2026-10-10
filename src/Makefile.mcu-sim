@@ -135,8 +135,9 @@ ifeq ($(PLATAFORMA),windows)
   # /mingw64; si se compila a mano, en C:/systemc o similar.
   SYSTEMC_HOME ?= /mingw64
   EXE          := .exe
-  # Los sockets son Winsock, no Berkeley (véase common/red.h).
-  LIBS_SO      := -lws2_32
+  # Los sockets son Winsock, no Berkeley (véase common/red.h); y winmm, por
+  # timeBeginPeriod, el reloj de 1 ms del freno de tiempo real (sim_main.cpp).
+  LIBS_SO      := -lws2_32 -lwinmm
   # MinGW usa por omisión el printf de msvcrt, que NO entiende %llu ni %zu. El
   # modelo los usa 28 veces; sin esto, las cifras salen mal en silencio.
   DEF_SO       := -D__USE_MINGW_ANSI_STDIO=1

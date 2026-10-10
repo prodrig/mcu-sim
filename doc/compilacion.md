@@ -32,7 +32,7 @@ tocar el `Makefile`, y qué hacer cuando falla. La segunda mitad está ordenada 
 ```bash
 cd src
 make                    # el simulador: build/mcu-sim
-make test407            # construye y ejecuta la suite del F407: 2146 comprobaciones
+make test407            # construye y ejecuta la suite del F407: 2149 comprobaciones
 make test446            # y la del F446: 204 comprobaciones
 make test417            # el acelerador criptografico del F415/F417: 165
 
@@ -597,7 +597,7 @@ arranca, y eso no lo arregla el guarda.
 
 ```bash
 make red        # 13 comprobaciones de la capa de red, sin SystemC
-make test407    # 2146 comprobaciones
+make test407    # 2149 comprobaciones
 make test446    # 204
 make test417    # 165
 ```
@@ -605,8 +605,8 @@ make test417    # 165
 Y el criterio que de verdad vale, más allá de que pasen: al final de `make test407`,
 
 ```
-TOTAL     : 2146 comprobaciones OK, 0 fallos
-Tiempo simulado: 2390093659555 ps
+TOTAL     : 2149 comprobaciones OK, 0 fallos
+Tiempo simulado: 2396293659555 ps
 ```
 
 Los otros dos bancos tienen su propio invariante —`1033367277932 ps` el del
@@ -674,7 +674,7 @@ haber variado.)*
 
 | Plataforma | Estado |
 | :--- | :--- |
-| Linux, g++ 13 | **Verificado**: 2146/2146, 204/204, 165/165, `make red` 13/13, ASan limpio en los tres |
+| Linux, g++ 13 | **Verificado**: 2149/2149, 204/204, 165/165, `make red` 13/13, ASan limpio en los tres |
 | Linux, clang | **Verificado** con el codigo anterior a versionar los firmwares: 2117/2117, mismo tiempo simulado al picosegundo. Falta repetirlo; no se espera nada distinto, pero no se ha hecho |
 | **Windows, MSYS2 / MinGW-w64** | **VERIFICADO POR COMPLETO, y los TRES invariantes coinciden con los de Linux al picosegundo.** Con los firmwares versionados: **2118/2118** en `2336217899213 ps` (huella `0x644FCE21`), **204/204** en `1033367277932 ps` y **165/165** en `718988288 ps`. Antes, con los firmwares de cada sitio, el del F407 salia `2334217899213 ps`: los 2 ms eran el binario y nada mas (**T-22**) |
 | Windows, cruzado desde Linux | **Compila y enlaza** (`make red PLATAFORMA=windows CXX=x86_64-w64-mingw32-g++`, PE32+ sin avisos). Ojo: el cruzado de Debian usa hilos **win32** y el de MSYS2 **posix**, así que no reproduce el caso de §5.6 |

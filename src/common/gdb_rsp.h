@@ -186,7 +186,17 @@ protected:
     void parar()  { escribir(R_DHCSR, LLAVE | 0x3u); }
     // Al reanudar se QUITA C_MASKINTS: el programa tiene que volver a recibir
     // sus interrupciones, o un `continue` no se parecería en nada a la realidad.
-    void seguir() { escribir(R_DHCSR, LLAVE | 0x1u); }
+    //
+    // Y antes, al reanudar y al dar un paso, se BORRA DFSR. Sus bits se quedan
+    // puestos hasta que alguien escribe un 1 encima [IR, §13.4], y la causa de
+    // la proxima parada se lee de ahi: sin borrarlo, el BKPT del punto de
+    // ruptura de `main` que pone el IDE al arrancar se quedaba para toda la
+    // sesion, y cada parada -un paso, un Ctrl-C- se anunciaba como «swbreak».
+    // GDB, que en esa direccion no tiene ningun punto de ruptura, la toma por
+    // uno ya quitado y REANUDA sin decir nada: el «Suspend operation timeout»
+    // de STM32CubeIDE.
+    void borrar_causa() { escribir(R_DFSR, 0x1Fu); }
+    void seguir() { borrar_causa(); escribir(R_DHCSR, LLAVE | 0x1u); }
     // C_STEP (0x4) + C_MASKINTS (0x8) + C_DEBUGEN (0x1). El enmascaramiento es
     // lo que distingue un paso a paso usable de uno inservible: sin el, cada
     // paso se come la interrupcion pendiente y el depurador aterriza en el
@@ -194,7 +204,7 @@ protected:
     // late a 1 kHz—, asi que "paso sobre esta linea" se convierte en "entra en
     // SysTick_Handler" una y otra vez. Cualquier sonda pone los dos bits
     // juntos, y por eso el IDE ofrece esto como opcion.
-    void paso()   { escribir(R_DHCSR, LLAVE | 0xDu); }
+    void paso()   { borrar_causa(); escribir(R_DHCSR, LLAVE | 0xDu); }
 
     unsigned puerto_;
     const char* etiqueta_;
@@ -476,12 +486,17 @@ private:
     void procesar_rx() {
         for (;;) {
             if (rx_.empty()) return;
-            // Ctrl-C fuera de paquete: PARAR. Es como GDB interrumpe.
+            // Ctrl-C fuera de paquete: PARAR. Es como GDB interrumpe, y la
+            // respuesta es SIGINT -T02-, no SIGTRAP: es lo que GDB espera para
+            // dar por hecha la interrupcion. Si el objetivo se habia parado
+            // solo en ese mismo momento -un punto de ruptura que aun no se
+            // habia dicho-, se dice eso, que es lo que paso.
             if (rx_[0] == '\x03') {
                 rx_.erase(0, 1);
-                parar();
+                const bool solo = corriendo_ && parado();
+                if (!solo) parar();
                 corriendo_ = false;
-                responder(parada());
+                responder(parada(solo ? 5 : 2));
                 continue;
             }
             if (rx_[0] == '+' || rx_[0] == '-') { rx_.erase(0, 1); continue; }
@@ -508,13 +523,16 @@ private:
         }
     }
 
-    // El aviso de parada que GDB espera: la señal y, de propina, unos cuantos
-    // registros para que no tenga que pedirlos.
-    std::string parada() {
+    // El aviso de parada que GDB espera: la señal -5, SIGTRAP: un punto de
+    // ruptura, un paso; 2, SIGINT: un Ctrl-C- y, de propina, unos cuantos
+    // registros para que no tenga que pedirlos. La causa sale de DFSR, que se
+    // borra al reanudar (`borrar_causa`): solo dice lo de esta parada.
+    std::string parada(unsigned senal = 5) {
         const uint32_t dfsr = leer_o(R_DFSR);
-        std::string s = "T05";
-        if (dfsr & 2u) s += "swbreak:;";
-        else if (dfsr & 4u) s += "watch:;";
+        std::string s = "T0";
+        s.push_back(hexd(senal & 0xFu));
+        if (senal == 5 && (dfsr & 2u)) s += "swbreak:;";
+        else if (senal == 5 && (dfsr & 4u)) s += "watch:;";
         s += "0d:" + hex32(reg_gdb(13)) + ";";        // sp
         s += "0f:" + hex32(reg_gdb(15)) + ";";        // pc
         s += "thread:1;";

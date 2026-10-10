@@ -10375,6 +10375,26 @@ SC_MODULE(F1Tb) {
         std::snprintf(zq, sizeof zq, "z1,%x,2", DBG_PROG + 6);
         check(gdb_cli_.pedir(zq) == "OK", "y lo quita cuando GDB se lo pide");
 
+        // --- Lo que dice cada parada despues de un punto de ruptura -------------------
+        // DFSR guarda sus bits hasta que se borran: si el stub no lo borra al
+        // reanudar, el BKPT de arriba se queda, y toda parada posterior sale
+        // como «swbreak». GDB la toma por un punto de ruptura ya quitado y
+        // reanuda sin decir nada: el «Suspend operation timeout» de CubeIDE.
+        const std::string sp = gdb_cli_.pedir("s");
+        check(sp.rfind("T05", 0) == 0 && sp.find("swbreak") == std::string::npos,
+              "un paso despues del punto de ruptura es un T05 sin swbreak: DFSR se borra al "
+              "reanudar, y cada parada dice solo lo suyo");
+        gdb_cli_.enviar("c");                              // hasta el `b .` del final
+        const std::string nada = gdb_cli_.recibir(sc_time(2, SC_MS));
+        gdb_cli_.crudo("\x03");                           // el Ctrl-C de GDB, fuera de paquete
+        const std::string ci = gdb_cli_.recibir(sc_time(20, SC_MS));
+        std::printf("    Ctrl-C con el objetivo en un bucle: %s\n", ci.c_str());
+        check(nada.empty() && ci.rfind("T02", 0) == 0 && ci.find("swbreak") == std::string::npos,
+              "con el objetivo en un bucle, un Ctrl-C lo para y contesta SIGINT (T02), sin "
+              "swbreak: es lo que GDB espera para dar por hecha la pausa de un IDE");
+        check_eq(le32(gdb_cli_.pedir("g"), 15), uint32_t(DBG_PROG + 10),
+                 "parado en el bucle, donde estaba");
+
         // --- Un watchpoint -----------------------------------------------------------
         check(gdb_cli_.pedir("Z2,20000200,4") == "OK",
               "y un watchpoint de escritura (Z2) sobre el DWT");

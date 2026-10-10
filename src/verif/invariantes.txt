@@ -79,7 +79,7 @@
 # mas lo que T96 y T97 gasten sin esperar a nadie.
 
 # suite      comprobaciones   tiempo simulado (ps)   cifra
-test407               2146      2281827784555        resto
+test407               2149      2281827784555        resto
 test446                204      1033367277932        total
 test417                165           718988288        total
 # El banco del puente UART (P-14). Crece con cada fase del plan de

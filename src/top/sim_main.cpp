@@ -86,6 +86,10 @@
 #include "../common/svg_variantes.h"
 #include "soc_f4.h"
 #include "../verif/image_loader.h"
+#if defined(_WIN32)
+#include <windows.h>
+#include <timeapi.h>          // timeBeginPeriod: -lwinmm
+#endif
 
 // ---------------------------------------------------------------------------
 // EL TITULAR DEL COPYRIGHT, EN UN SOLO SITIO.
@@ -1849,6 +1853,17 @@ int sc_main(int argc, char** argv) {
                 "       mismo.\n", g_gui.host.c_str());
     }
 
+    // EL RELOJ DE WINDOWS, A 1 ms. Sin pedirlo, Windows no despierta a un
+    // proceso dormido antes de su tic, unos 15,6 ms, y el freno de tiempo real
+    // duerme en rodajas de 1 ms (`espera`): cada `sleep_for` se pasaba de
+    // largo hasta quince veces. El ritmo medio lo salvaba el ancla, pero cada
+    // paquete de GDB -que el stub atiende entre rodaja y rodaja- esperaba esos
+    // 15 ms, y un IDE que refresca sus vistas con cien paquetes por paso
+    // tardaba segundos en cada uno. Solo con freno -o con la ventana, que
+    // pone el ritmo-; el sistema lo devuelve al acabar el proceso.
+#if defined(_WIN32)
+    if (g_tiempo_real > 0.0 || g_gui_pedida) ::timeBeginPeriod(1);
+#endif
     Sim s("sim");
     stm32::gui::ClienteGui cliente;
     std::unique_ptr<stm32::gui::CanalGui> canal;
