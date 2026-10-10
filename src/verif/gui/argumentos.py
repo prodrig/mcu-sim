@@ -17,6 +17,10 @@
 #   A3  cada opción del volcado —con su valor por omisión, o con su ejemplo— la
 #       acepta `mcu-sim` de verdad: con `--valida`, sobre `discovery_min.xml`,
 #       sale con 0 y no se queja. Y una que no existe, no.
+#   A4  el firmware chip a chip (plan §42 de `mcu-sim-gui`): `--mcus` lista los
+#       MCUs de una placa o de un sistema, y `--firmware ID=FICHERO` y
+#       `--sin-firmware[=ID]` cambian el de cada uno, tambien con dos; lo que
+#       no vale es un error que dice por que.
 #
 #   make -f Makefile.mcu-sim gui-argumentos
 #   python3 verif/gui/argumentos.py [--sim build/mcu-sim]
@@ -138,6 +142,62 @@ def main():
     rc, out, err = corre(sim, [PLACA, "--valida", "--no-existe"])
     check(rc != 0,
           "y una que no existe no se acepta en silencio (codigo %s)" % rc)
+
+    grupo("A4 El firmware de cada MCU: --mcus, --firmware y --sin-firmware")
+    rc, out, err = corre(sim, ["placas/nucleo_f446re_servo.xml", "--mcus"])
+    lista = out[out.find("<mcus"):out.find("</mcus>") + len("</mcus>")]
+    try:
+        m = ET.fromstring(lista).findall("mcu")
+    except ET.ParseError:
+        m = []
+    check(rc == 0 and len(m) == 1 and m[0].get("id") == "N/u0" and
+          m[0].get("tipo") == "STM32F446RE" and
+          m[0].get("firmware") == "verif/fw/servo_demo/servo_demo.bin",
+          "--mcus de un sistema: su chip, con el id del sistema, el tipo y el firmware "
+          "del XML")
+    rc, out, err = corre(sim, ["placas/dos_mcu.xml", "--mcus"])
+    lista = out[out.find("<mcus"):out.find("</mcus>") + len("</mcus>")]
+    try:
+        m = [x.get("id") for x in ET.fromstring(lista).findall("mcu")]
+    except ET.ParseError:
+        m = []
+    rc2, out2, _ = corre(sim, ["placas/fuente_y_masa.xml", "--mcus"])
+    check(rc == 0 and m == ["u0", "u1"] and rc2 == 0 and "<mcus" in out2 and
+          "<mcu " not in out2,
+          "de una placa con dos, los dos; de una sin ninguno, la lista vacia")
+    rc, out, err = corre(sim, ["placas/dos_mcu.xml", "--valida",
+                               "--firmware", "u1=b.bin", "--firmware=u0=a.bin"])
+    check(rc == 0 and "mcu u0: a.bin" in out and "mcu u1: b.bin" in out,
+          "con dos MCUs, cada uno con el suyo: --firmware ID=FICHERO, con o sin igual")
+    rc, out, err = corre(sim, ["placas/nucleo_f446re_servo.xml", "--valida", "--sin-firmware"])
+    rc2, out2, _ = corre(sim, ["placas/dos_mcu.xml", "--valida", "--sin-firmware",
+                               "--firmware=u1=b.bin"])
+    check(rc == 0 and "mcu N/u0: sin firmware" in out and rc2 == 0 and
+          "mcu u0: sin firmware" in out2 and "mcu u1: b.bin" in out2,
+          "--sin-firmware deja sin firmware al que lo traia del XML; sin id, a todos, "
+          "y un --firmware con su id manda sobre eso")
+    rc, out, err = corre(sim, ["placas/nucleo_f446re_servo.xml", "--valida",
+                               "--sin-firmware=N/u0"])
+    check(rc == 0 and "mcu N/u0: sin firmware" in out,
+          "--sin-firmware=ID, solo ese")
+    malos = [
+        (["placas/dos_mcu.xml", "--firmware=u7=a.bin"],
+         "--firmware u7: no hay ningun MCU con ese id. Los que hay: u0, u1"),
+        (["placas/dos_mcu.xml", "--firmware=u0=a.bin", "--sin-firmware=u0"],
+         "se dice dos veces"),
+        (["placas/dos_mcu.xml", "--firmware=u0"], "hace falta ID=FICHERO"),
+        (["placas/discovery_min.xml", "x.bin", "--firmware=u0=a.bin"],
+         "dilo de una sola manera"),
+        (["placas/fuente_y_masa.xml", "--sin-firmware"], "--sin-firmware no tiene sentido"),
+    ]
+    bien = []
+    for args, frase in malos:
+        rc, out, err = corre(sim, args + ["--valida"])
+        bien.append(rc != 0 and frase in out + err)
+    check(all(bien),
+          "y lo que no vale se dice: un id que no esta -con los que hay-, el mismo chip "
+          "dos veces, sin fichero, junto al firmware posicional, y en una placa sin MCU "
+          "(%s)" % bien)
     return ventana.resumen("ARGUMENTOS")
 
 

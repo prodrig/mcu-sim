@@ -361,6 +361,9 @@ make mcu-sim
 ./build/mcu-sim placa.xml --gdb --port=3333     # stub de GDB por los pines SWD
 ./build/mcu-sim placa.xml --gdb-dap             # o el stub interno contra el DAP
 ./build/mcu-sim placa.xml --mcu TIPO            # el MCU, si la placa no lo dice
+./build/mcu-sim sistema.xml --firmware N/u0=x.bin  # el firmware de ese chip
+./build/mcu-sim sistema.xml --sin-firmware      # ninguno, aunque el XML lo diga
+./build/mcu-sim sistema.xml --mcus              # sus MCUs, en XML
 ./build/mcu-sim --help                          # y los tipos que sabe construir
 ```
 

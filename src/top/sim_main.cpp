@@ -76,6 +76,7 @@
 #include <map>
 #include <memory>
 #include <sstream>
+#include <set>
 #include <string>
 #include <vector>
 #include "../common/asan_opciones.h"
@@ -169,6 +170,15 @@ static double      g_tiempo_real = 0.0;
 static std::string g_tipo_mcu;
 // Depuración pedida por la línea de órdenes. `g_gdb_modo` vacío = no se pidió.
 static std::string g_gdb_modo;          // "pines" o "dap"
+// `--firmware ID=FICHERO` y `--sin-firmware[=ID]`: el firmware de CADA chip,
+// o ninguno, por la linea de ordenes, tambien con varios MCUs. Mandan sobre
+// el firmware= de su <mcu>. Lo pide el dialogo de lanzamiento de mcu-sim-gui
+// (su plan §42), que tiene una fila por chip.
+static std::vector<std::pair<std::string, std::string>> g_firmwares;   // id, fichero
+static std::vector<std::string> g_sin_firmware;                        // ids
+static bool        g_sin_firmware_todos = false;
+// `--mcus`: la lista de los MCUs de la placa, en XML, y nada mas
+static bool        g_lista_mcus = false;
 static unsigned    g_gdb_puerto = 0;
 static bool        g_puerto_dado = false;
 
@@ -788,14 +798,51 @@ SC_MODULE(Sim) {
                   "id=\"u0\"/> en el XML, o --mcu TIPO");
         };
         if (!g_img.empty())        no("un firmware (" + g_img + ") no tiene donde cargarse y");
+        if (!g_firmwares.empty())  no("--firmware");
+        if (!g_sin_firmware.empty() || g_sin_firmware_todos) no("--sin-firmware");
         if (!g_gdb_modo.empty())   no("un stub de GDB (--gdb, --gdb-dap)");
         if (g_puerto_dado)         no("--port");
         if (g_traza_gdb)           no("--traza-gdb");
         if (g_ondas)               no("--ondas, que son los relojes del MCU,");
     }
 
+    // `--firmware ID=FICHERO` y `--sin-firmware[=ID]`, chip a chip y con
+    // cualquier numero de chips. Sin ID, --sin-firmware es para todos; un
+    // --firmware con su ID manda sobre eso. Un ID que no esta, o el mismo chip
+    // dos veces, es un error que dice cuales hay.
+    void aplica_firmwares(std::vector<DeclMcu>& decls) {
+        if (g_firmwares.empty() && g_sin_firmware.empty() && !g_sin_firmware_todos) return;
+        std::string ids;
+        for (const DeclMcu& m : decls) {
+            if (!ids.empty()) ids += ", ";
+            ids += m.id.empty() ? std::string("(sin id)") : m.id;
+        }
+        auto busca = [&](const std::string& op, const std::string& id) -> DeclMcu& {
+            for (DeclMcu& m : decls)
+                if (m.id == id) return m;
+            muere(op + " " + id + ": no hay ningun MCU con ese id. Los que hay: " + ids);
+            return decls.front();            // no se llega
+        };
+        std::set<std::string> dichos;
+        auto una_vez = [&](const std::string& op, const std::string& id) {
+            if (!dichos.insert(id).second)
+                muere(op + " " + id + ": el firmware de ese MCU se dice dos veces");
+        };
+        if (g_sin_firmware_todos)
+            for (DeclMcu& m : decls) m.firmware.clear();
+        for (const std::string& id : g_sin_firmware) {
+            una_vez("--sin-firmware", id);
+            busca("--sin-firmware", id).firmware.clear();
+        }
+        for (const auto& f : g_firmwares) {
+            una_vez("--firmware", f.first);
+            busca("--firmware", f.first).firmware = f.second;
+        }
+    }
+
     void aplica_linea_de_ordenes(std::vector<DeclMcu>& decls) {
         if (decls.empty()) return;           // sin MCU: ya lo ha mirado comprueba_sin_mcu
+        aplica_firmwares(decls);
         const bool global = !g_img.empty() || !g_gdb_modo.empty() || g_puerto_dado;
         if (decls.size() > 1) {
             if (!global) return;
@@ -813,7 +860,12 @@ SC_MODULE(Sim) {
                   "firmware=\"...\" depuracion=\"pines|dap\" puerto_gdb=\"...\"");
         }
         DeclMcu& m = decls.front();
-        if (!g_img.empty()) m.firmware = g_img;
+        if (!g_img.empty()) {
+            if (g_sin_firmware_todos || !g_firmwares.empty() || !g_sin_firmware.empty())
+                muere("el firmware " + g_img + " de la linea de ordenes y --firmware o "
+                      "--sin-firmware a la vez: dilo de una sola manera");
+            m.firmware = g_img;
+        }
         if (!g_gdb_modo.empty()) {
             m.depuracion = g_gdb_modo;
             if (!m.puerto_gdb) m.puerto_gdb = 3333;      // el de siempre
@@ -1426,6 +1478,14 @@ static const OpcionCli OPCIONES[] = {
      "puerto TCP del stub de GDB"},
     {"--traza-gdb", "bandera", "", "", "", "", false, true, "",
      "imprime cada paquete RSP que llega al stub"},
+    {"--firmware", "valor", "texto", "", "", "", true, true, "u0=mi_programa.bin",
+     "el firmware del MCU ID, como ID=FICHERO (u0, o N/u0 en un sistema), tambien "
+     "con varios MCUs. Manda sobre el firmware= de su <mcu>"},
+    {"--sin-firmware", "valor_opcional", "texto", "", "", "", true, true, "u0",
+     "ese MCU -sin ID, todos- sin firmware, aunque el XML diga uno: el nucleo se "
+     "aparca en wfe"},
+    {"--mcus", "accion", "", "", "", "", false, false, "",
+     "la lista de los MCUs de la placa en XML -id, tipo y firmware-, para mcu-sim-gui"},
     {"--serie", "valor", "texto", "", "", "", true, true, "VCP=rfc2217:4000",
      "a donde da el PuenteSerie ID: ID=memoria, tcp:PUERTO, rfc2217:PUERTO, "
      "tcp-cliente:HOST:PUERTO o rfc2217-cliente:HOST:PUERTO"},
@@ -1476,6 +1536,42 @@ static int vuelca_argumentos() {
     return 0;
 }
 
+// `--mcus`: los MCUs de la placa o del sistema, como los declara el XML -con
+// --mcu encima, como al montarla-, para que el dialogo de lanzamiento de
+// mcu-sim-gui ponga una fila por chip con su firmware (su plan §42). Lee y no
+// construye nada:
+//
+//   <mcus placa="placas/x.xml">
+//     <mcu id="N/u0" tipo="STM32F446RE" firmware="verif/fw/x/x.bin"/>
+//   </mcus>
+//
+// Un id vacio es el chip que pone --mcu en una placa sin <mcu>.
+static int lista_mcus() {
+    using stm32::xml_escapa;
+    Netlist placa;
+    std::string nombre;
+    const std::string e = placa_o_sistema_desde_fichero(placa, g_placa, &nombre);
+    if (!e.empty()) {
+        std::fprintf(stderr, "error de netlist: %s\n", e.c_str());
+        return 1;
+    }
+    std::vector<DeclMcu> decls = placa.mcus();
+    if (!g_tipo_mcu.empty() && decls.empty() && !placa.es_sistema()) {
+        DeclMcu m;
+        m.tipo = g_tipo_mcu;
+        decls.push_back(m);
+    } else if (!g_tipo_mcu.empty() && decls.size() == 1) {
+        decls[0].tipo = g_tipo_mcu;
+    }
+    std::string x = "<mcus placa=\"" + xml_escapa(g_placa) + "\">\n";
+    for (const DeclMcu& m : decls)
+        x += "  <mcu id=\"" + xml_escapa(m.id) + "\" tipo=\"" + xml_escapa(mayus(m.tipo)) +
+             "\" firmware=\"" + xml_escapa(m.firmware) + "\"/>\n";
+    x += "</mcus>\n";
+    std::fputs(x.c_str(), stdout);
+    return 0;
+}
+
 int sc_main(int argc, char** argv) {
     sc_report_handler::set_actions("rcc",   SC_WARNING, SC_DO_NOTHING);
     sc_report_handler::set_actions("flash", SC_WARNING, SC_DO_NOTHING);
@@ -1489,6 +1585,33 @@ int sc_main(int argc, char** argv) {
         else if (a == "--ondas") g_ondas = true;
         else if (a == "--traza-gdb") g_traza_gdb = true;
         else if (a == "--argumentos") return vuelca_argumentos();
+        else if (a == "--mcus") g_lista_mcus = true;
+        // `--firmware ID=FICHERO`, `--firmware=ID=FICHERO`; el id es el del
+        // <mcu> -`u0`, o `N/u0` en un sistema- y lo demas, el fichero
+        else if (a == "--firmware" || a.rfind("--firmware=", 0) == 0) {
+            std::string v;
+            if (a.rfind("--firmware=", 0) == 0) v = a.substr(11);
+            else if (i + 1 < argc && argv[i + 1][0] != '-') v = argv[++i];
+            const size_t igual = v.find('=');
+            if (igual == std::string::npos || igual == 0 || igual + 1 == v.size()) {
+                std::fprintf(stderr, "--firmware: hace falta ID=FICHERO, como en "
+                             "--firmware N/u0=mi_programa.bin\n");
+                return 1;
+            }
+            g_firmwares.emplace_back(v.substr(0, igual), v.substr(igual + 1));
+        }
+        // `--sin-firmware`, todos los chips; `--sin-firmware=ID`, ese. Solo con
+        // igual: detras puede ir la placa, que no es un id
+        else if (a == "--sin-firmware") g_sin_firmware_todos = true;
+        else if (a.rfind("--sin-firmware=", 0) == 0) {
+            const std::string id = a.substr(15);
+            if (id.empty()) {
+                std::fprintf(stderr, "--sin-firmware=: falta el id del MCU; sin "
+                             "igual es para todos\n");
+                return 1;
+            }
+            g_sin_firmware.push_back(id);
+        }
         else if (a == "--mcu" && i + 1 < argc) g_tipo_mcu = mayus(argv[++i]);
         else if (a.rfind("--mcu=", 0) == 0)    g_tipo_mcu = mayus(a.substr(6));
         else if (a == "--tiempo-real") g_tiempo_real = 1.0;
@@ -1627,6 +1750,15 @@ int sc_main(int argc, char** argv) {
                 "                                no declara ninguno y manda sobre el\n"
                 "                                tipo si declara uno. Sin <mcu> ni\n"
                 "                                --mcu la placa va sin MCU\n"
+                "     sim placa.xml --firmware ID=FICHERO  el firmware del MCU ID\n"
+                "                                (u0, o N/u0 en un sistema), tambien\n"
+                "                                con varios MCUs; manda sobre su\n"
+                "                                firmware= del XML. Una vez por chip\n"
+                "     sim placa.xml --sin-firmware[=ID]  ese MCU -sin ID, todos- sin\n"
+                "                                firmware, aunque el XML diga uno: el\n"
+                "                                nucleo se aparca en wfe\n"
+                "     sim placa.xml --mcus       la lista de sus MCUs en XML -id, tipo\n"
+                "                                y firmware-, para mcu-sim-gui\n"
                 "     sim placa.xml --ms=2       tiempo simulado (global: hay un\n"
                 "                                solo reloj por muchos chips)\n"
                 "     sim --argumentos           estas opciones en XML, para que\n"
@@ -1653,7 +1785,8 @@ int sc_main(int argc, char** argv) {
                 "Con un solo MCU (de <mcu> o de --mcu) estos argumentos valen y\n"
                 "mandan sobre lo que diga el XML. Con dos o mas, cada chip lleva lo\n"
                 "suyo en su <mcu ... firmware= depuracion= puerto_gdb=> y un\n"
-                "argumento global se rechaza, porque ya no dice a cual.\n"
+                "argumento global se rechaza, porque ya no dice a cual; el firmware\n"
+                "se puede cambiar chip a chip con --firmware y --sin-firmware.\n"
                 "\n"
                 "Los MCUs que se saben construir son:\n  %s\n"
                 "\n"
@@ -1698,6 +1831,7 @@ int sc_main(int argc, char** argv) {
         return 1;
     }
     g_placa = libres[0];
+    if (g_lista_mcus) return lista_mcus();
     if (libres.size() > 1) g_img = libres[1];
     if (libres.size() > 2) { g_ms = std::atof(libres[2].c_str()); g_ms_dado = true; }
 

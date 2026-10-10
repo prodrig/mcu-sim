@@ -94,6 +94,16 @@ puerto sueltos en la línea de órdenes ya no dicen a cuál, y se rechazan. Con 
 solo —de `<mcu>` o de `--mcu`— los argumentos de siempre valen y mandan sobre el
 fichero. Los detalles están en `doc/multi_mcu.md`, §5.
 
+**El firmware, chip a chip, desde la línea de órdenes.** Con cualquier número de
+chips, `--firmware ID=FICHERO` le da el suyo a uno —`--firmware N/u0=x.bin`, con
+el id del sistema— y manda sobre su `firmware=`; `--sin-firmware=ID` lo deja sin
+ninguno aunque el XML lo diga, y `--sin-firmware` a secas, a todos. Sin
+firmware, el núcleo se aparca en `wfe`. Un id que no está, el mismo chip dos
+veces o todo esto junto al firmware posicional son errores que dicen por qué. Y
+`mcu-sim placa.xml --mcus` lista los chips —id, tipo y firmware del XML— en XML:
+es lo que usa el diálogo de lanzamiento de `mcu-sim-gui` para poner una fila de
+firmware por chip, con su casilla «sin firmware» (su plan §42).
+
 ### 2.1 Los nodos
 
 ```xml
