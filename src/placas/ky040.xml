@@ -40,7 +40,7 @@
      ========================================================================= -->
 <placa nombre="ky040">
   <!-- El conector de cinco pines, vertical, con CLK arriba -->
-  <componente tipo="Conector" id="P1" filas="5" columnas="1"
+  <componente tipo="Conector" id="P1" filas="5" columnas="1" acodado="si"
               nombres="CLK DT SW VCC GND"/>
 
   <!-- CLK, DT y VCC los conducen varios a la vez -el contacto, su pull-up y

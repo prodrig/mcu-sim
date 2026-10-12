@@ -871,6 +871,7 @@ que se puede colgar otra pieza. Dos conectores se enchufan en un `<sistema>`
 | :--- | :--- | :--- |
 | `columnas` | *(obligatorio)* | Cuántos pines tiene cada fila |
 | `filas` | `1` | Cuántas filas: 2 en un IDC, en un morpho o en la cabecera de una Raspberry Pi |
+| `acodado` | `no` | `si`: los pines salen **de lado**, por el borde de la placa —una tira acodada, como la del KY-040, la pantalla TFT, el servo o el FT232RL—; `no`: hacia arriba, como los de la Nucleo. Solo cambia el dibujo de `mcu-sim-gui`: un hilo llega al **borde** de un pin acodado y al **centro** de uno derecho, con un círculo. Va en su `<conector>` de `T_PLACA`. Otro valor es un error |
 | `numeracion` | `zigzag` | `zigzag`: el 1 y el 2 enfrentados, impares en una fila y pares en la otra. `filas`: la primera fila entera, del 1 a `columnas`, y luego la siguiente |
 | `nombres` | *(ninguno)* | **Los nombres de los pines**, uno por pin y en orden, separados por espacios; `-` para uno que se sigue llamando por su número (abajo) |
 
@@ -932,7 +933,7 @@ simulación en marcha.
 | Parámetro | Omisión | Efecto |
 | :--- | :--- | :--- |
 | `puente` | *(obligatorio)* | **Los dos pines que une**, por nombre o por número: `"5V VCC"`. Tienen que ser vecinos —uno al lado del otro en la misma fila o columna—. `"no"`: sin puente |
-| `columnas`, `filas`, `numeracion`, `nombres` | como en `Conector` | La forma de la tira y los nombres de sus pines |
+| `columnas`, `filas`, `numeracion`, `nombres`, `acodado` | como en `Conector` | La forma de la tira, los nombres de sus pines y hacia dónde salen |
 
 ```xml
 <!-- El jumper de un adaptador FT232RL: 5V arriba, VCC en medio, 3.3V abajo -->

@@ -370,6 +370,11 @@ REGISTRA_PARTE(Conector,
            "la placa al que va soldado.")
       .atr("columnas", "(obligatorio)", "Cuantos pines tiene cada fila.")
       .atr("filas", "1", "Cuantas filas: 2 en un IDC o en un morpho.")
+      .atr("acodado", "no",
+           "si: los pines salen de lado, por el borde de la placa -una tira "
+           "acodada, como la de un KY-040-; no: hacia arriba. Solo cambia el "
+           "dibujo de la ventana: un hilo llega al borde de un pin acodado, y "
+           "al centro de uno derecho, con un circulo.")
       .atr("numeracion", "zigzag",
            "zigzag: el 1 y el 2 enfrentados, impares en una fila y pares en "
            "la otra (IDC, Raspberry Pi, morpho). filas: la primera fila "
@@ -423,7 +428,7 @@ REGISTRA_PARTE(Jumper,
            "\"5V VCC\". Tienen que ser vecinos -uno al lado del otro en la "
            "misma fila o en la misma columna-, que es donde cabe el puente. "
            "\"no\": el jumper sin puente, y cada pin por su lado.")
-      .atr("columnas, filas, numeracion, nombres", "como en Conector",
+      .atr("columnas, filas, numeracion, nombres, acodado", "como en Conector",
            "La forma de la tira y los nombres de sus pines.")
       .nota("EL DIBUJO ENSEÑA EL PUENTE QUE HAY. Un elemento del SVG con id "
             "`JP1@5V-VCC` -el id del jumper, una arroba y los dos pines unidos "

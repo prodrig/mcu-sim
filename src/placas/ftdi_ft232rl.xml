@@ -42,7 +42,7 @@
      ========================================================================= -->
 <placa nombre="ftdi-ft232rl">
   <!-- El conector de seis pines, vertical, con el 1 (DTR) arriba -->
-  <componente tipo="Conector" id="P1" filas="6" columnas="1"
+  <componente tipo="Conector" id="P1" filas="6" columnas="1" acodado="si"
               nombres="DTR RX TX VCC CTS GND">
     <pin nombre="VCC" nodo="VCC"/>
     <pin nombre="GND" nodo="GND"/>

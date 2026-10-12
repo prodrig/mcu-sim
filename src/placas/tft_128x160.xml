@@ -48,7 +48,7 @@
      ========================================================================= -->
 <placa nombre="tft-128x160">
   <!-- El conector de ocho pines, vertical, con VCC arriba -->
-  <componente tipo="Conector" id="P1" filas="8" columnas="1"
+  <componente tipo="Conector" id="P1" filas="8" columnas="1" acodado="si"
               nombres="VCC GND CS RESET AD SDA SCK LED"/>
 
   <!-- La masa la usan el chip y la retroiluminacion -->

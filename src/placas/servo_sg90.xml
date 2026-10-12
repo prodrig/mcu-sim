@@ -37,7 +37,7 @@
      ========================================================================= -->
 <placa nombre="servo-sg90">
   <!-- El conector de tres pines, vertical, con VCC arriba -->
-  <componente tipo="Conector" id="P1" filas="3" columnas="1"
+  <componente tipo="Conector" id="P1" filas="3" columnas="1" acodado="si"
               nombres="VCC GND PWM"/>
 
   <!-- El servo: el SG90 a 5 V, de -90 a +90 grados con pulsos de 1 a 2 ms

@@ -115,6 +115,10 @@ struct GeomConector {
     bool     zigzag = true;
     std::vector<std::string> nombres;     // vacío: todos por número
     unsigned puente_a = 0, puente_b = 0;  // un Jumper: los dos pines unidos
+    // `acodado="si"`: los pines salen de lado, por el borde de la placa, y no
+    // hacia arriba. Para la ventana nada mas: un hilo llega al borde de un pin
+    // acodado y al centro de uno derecho, que es donde se ve el cable
+    bool     acodado = false;
     // El puente de un Jumper escrito como lo lleva el dibujo: `5V-VCC`, por
     // orden de pin; `no` sin puente (vease Netlist::variante)
     std::string puente() const {
@@ -705,6 +709,10 @@ public:
         if (nu != "zigzag" && nu != "filas")
             return "numeracion=\"" + nu + "\" no vale: zigzag o filas";
         g.filas = f; g.columnas = c; g.zigzag = (nu == "zigzag");
+        const std::string ac = i.txt("acodado", "no");
+        if (ac != "si" && ac != "no")
+            return "acodado=\"" + ac + "\" no vale: si o no";
+        g.acodado = (ac == "si");
         // Los nombres: uno por pin, en orden, y `-` para el que no lo lleva
         g.nombres.clear();
         if (i.params.count("nombres")) {
@@ -1616,6 +1624,7 @@ public:
                     os << "    <conector ref=\"" << xml_escapa(i.id) << "\" filas=\""
                        << g.filas << "\" columnas=\"" << g.columnas << "\" numeracion=\""
                        << (g.zigzag ? "zigzag" : "filas") << "\"";
+                    if (g.acodado) os << " acodado=\"si\"";
                     if (!g.nombres.empty()) {
                         os << " nombres=\"";
                         for (unsigned k = 1; k <= g.n(); ++k)

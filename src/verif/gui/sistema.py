@@ -58,6 +58,8 @@
 #       y T_PLACA las cuentan, y lo que no vale es un error que dice por que.
 #   C17 visible="no" en un <componente>: va en T_PLACA, tambien en un sistema,
 #       la simulacion no cambia, y otro valor es un error.
+#   C18 acodado="si" en un Conector: va en su <conector> de T_PLACA, el
+#       derecho no dice nada, y otro valor es un error.
 #
 #   make -f Makefile.mcu-sim gui-sistema
 #   python3 verif/gui/sistema.py [--sim build/mcu-sim]
@@ -1292,6 +1294,41 @@ def c17_visible(sim, cp):
           "visible=\"tal\" es un error, como conectada: solo si o no")
 
 
+# ---------------------------------------------------------------------------
+# C18
+# ---------------------------------------------------------------------------
+MODULO_ACODADO = """<placa nombre="modulo">
+  <componente tipo="Conector" id="J" filas="2" columnas="1"%s/>
+  <componente tipo="Led" id="LD" a_vss="si"><pin nombre="anodo" nodo="J.1"/></componente>
+</placa>
+"""
+
+
+def c18_acodado(sim, cp):
+    grupo("C18 Un conector acodado: los pines salen de lado (acodado=\"si\")")
+    cp.escribe("acodado.xml", MODULO_ACODADO % ' acodado="si"')
+    cp.escribe("derecho.xml", MODULO_ACODADO % "")
+    sis = cp.escribe("sis_acodado.xml",
+                     '<sistema nombre="s"><placa id="A" fichero="acodado.xml"/>'
+                     '<placa id="B" fichero="derecho.xml"/>'
+                     '<hilo a="A/J.2" b="B/J.2"/></sistema>')
+    rc, out, placa, il, av = saludo_con_dibujos(sim, [sis])
+    t = placa.decode("utf-8") if placa else ""
+    check(rc == 0 and '<conector ref="A/J" filas="2" columnas="1" numeracion="zigzag" '
+          'acodado="si"' in t and
+          '<conector ref="B/J" filas="2" columnas="1" numeracion="zigzag"/>' in t,
+          "T_PLACA dice que el conector de A es acodado, y del de B, derecho, no dice "
+          "nada: es lo de siempre")
+    rc, out, err = corre(sim, [cp.escribe("acodado_mal.xml", MODULO_ACODADO % ' acodado="tal"'),
+                               "--valida"])
+    check(rc != 0 and 'acodado="tal" no vale: si o no' in out + err,
+          "acodado=\"tal\" es un error del conector: si o no")
+    rc, out, err = corre(sim, ["placas/nucleo_f446re_servo.xml", "--valida"])
+    check(rc == 0 and "0 avisos" in out,
+          "el sistema del servo, con los conectores acodados de sus tres modulos, se "
+          "monta igual")
+
+
 def main():
     a = argparse.ArgumentParser(description="conectores y sistemas de placas")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -1320,6 +1357,7 @@ def main():
         c15_giro(sim, cp)
         c16_disposicion(sim, cp)
         c17_visible(sim, cp)
+        c18_acodado(sim, cp)
     finally:
         cp.borra()
     return ventana.resumen("SISTEMA")
