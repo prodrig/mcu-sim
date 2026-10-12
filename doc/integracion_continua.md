@@ -492,3 +492,27 @@ commit en vez de duplicarla. No demuestra que la contención fuera la causa de
 
 Lo que **no** se ha hecho es subir el `timeout-minutes`. Un límite que se
 afloja cada vez que molesta ya no comprueba nada.
+
+## 8. La versión de una Release: la dice la etiqueta
+
+Con `v0.1.0`, el `mcu-sim` que se repartía decía de sí mismo
+**«desarrollo»** —en el saludo con `mcu-sim-gui` (`T_HOLA`) y en
+`--argumentos`—, porque nadie le pasaba `-DVERSION_MCU_SIM` al compilar. Desde
+`v0.2.0` la saca el `Makefile.mcu-sim` **de la etiqueta**: GitHub pone
+`GITHUB_REF_TYPE=tag` y `GITHUB_REF_NAME=v0.2.0` en el entorno de cada paso, y
+con eso `VERSION_MCU_SIM` vale `0.2.0` en todos los `make` del trabajo, sin
+tocar el workflow. En una rama, o a mano, sigue siendo «desarrollo», salvo que
+se diga: `make -f Makefile.mcu-sim mcu-sim VERSION_MCU_SIM=0.2.0`.
+
+**Y cómo se publica**, con lo de §7 aprendido:
+
+```bash
+cd mcu-sim                       # LA copia publicada: `git remote -v` lo dice
+git checkout main && git pull --ff-only
+git status                       # limpio, y en origin/main
+git tag -a v0.2.0 -m "mcu-sim 0.2.0"
+git push origin v0.2.0
+```
+
+`mcu-sim-gui` lleva la misma etiqueta a la vez: los dos se publican juntos y
+el número dice que van juntos.

@@ -203,6 +203,18 @@ AVISOS   := -Wall -Wextra -Wno-unused-parameter
 # que tiene que venir de aqui. Es la via oficial; la alternativa seria incluir
 # una cabecera interna de SystemC, y esa es la que cambia entre versiones.
 DEFS     := -DSC_INCLUDE_DYNAMIC_PROCESSES
+# LA VERSION que `mcu-sim` dice de si mismo (T_HOLA y `--argumentos`;
+# `top/sim_main.cpp`). Sin decirla, «desarrollo». Se fija con
+# `make ... VERSION_MCU_SIM=0.2.0`, y la integracion continua la saca SOLA de
+# la etiqueta que se construye -`v0.2.0` da `0.2.0`-: GitHub pone
+# GITHUB_REF_TYPE y GITHUB_REF_NAME en el entorno de cada paso, asi que vale
+# para todos los `make` del trabajo, tambien los de las suites.
+ifeq ($(GITHUB_REF_TYPE),tag)
+  VERSION_MCU_SIM ?= $(patsubst v%,%,$(GITHUB_REF_NAME))
+endif
+ifneq ($(VERSION_MCU_SIM),)
+  DEFS += -DVERSION_MCU_SIM=\"$(VERSION_MCU_SIM)\"
+endif
 # `-isystem` y no `-I` para SystemC: le dice al compilador que esas cabeceras no
 # son nuestras y deja de avisar de lo que pasa dentro de ellas. Con GCC 16 sobre
 # SystemC 2.3.4 salen decenas de avisos de -Woverloaded-virtual en los sockets de
