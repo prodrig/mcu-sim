@@ -81,16 +81,23 @@ inline std::string segmento_desde_el_final(const std::string& s, unsigned k) {
 //   u1.pinmux.net_A5    ->  u1.PA5       (dos o más)
 //   tb.n_can            ->  n_can        (un nodo que no es un pad)
 //   dut.pwr_pads.vdd    ->  vdd
+//   CN7.17 (nombre_esq) ->  CN7.17       (un nodo cuyo nombre lleva punto)
+//   A/u0.pinmux.net_A5  ->  A/u0.PA5     (un MCU de una placa de un <sistema>)
 inline std::string nombre_nodo(const analog_net_if& n) {
+    if (const AnalogNet* a = dynamic_cast<const AnalogNet*>(&n))
+        if (!a->nombre_esq.empty()) return a->nombre_esq;
     const sc_core::sc_object* o = dynamic_cast<const sc_core::sc_object*>(&n);
     if (!o) return "?";
     const std::string full = o->name();
     const std::string hoja = segmento_desde_el_final(full, 0);
     if (hoja.rfind("net_", 0) != 0) return hoja;   // no es un pad: su nombre basta
     const std::string pad = "P" + hoja.substr(4);
-    if (n_mcus() <= 1) return pad;                 // sin ambigüedad posible
     // El MCU es el abuelo del nodo: <mcu>.pinmux.net_A5
     const std::string mcu = segmento_desde_el_final(full, 2);
+    // El de una placa de un <sistema> (`A/u0`) se nombra SIEMPRE entero: en un
+    // sistema no hay nombres desnudos, ni siquiera con un solo chip.
+    if (mcu.find('/') != std::string::npos) return mcu + "." + pad;
+    if (n_mcus() <= 1) return pad;                 // sin ambigüedad posible
     return mcu.empty() ? pad : mcu + "." + pad;
 }
 

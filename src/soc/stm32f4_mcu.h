@@ -54,10 +54,17 @@ public:
     AdaptadorF4(const char* nm, DebugCaps dbg, const Cableado& cab,
                 const McuCaps& c)
         : dut_(new Chip(nm, dbg, cab, c)), caps_(c) {
-        // Los cuatro drivers con los que `sim` hace de fuente de alimentación.
-        // Se registran aquí, en la elaboración, porque un `AnalogNet` no admite
+        // Los drivers con los que `sim` hace de fuente de alimentación. Se
+        // registran aquí, en la elaboración, porque un `AnalogNet` no admite
         // altas con la simulación en marcha.
+        //
+        // VSS TAMBIÉN: la masa de la placa a 0 V, sujeta. Hasta que hubo una
+        // pieza que se alimenta ENTRE dos nodos -la pantalla TFT, con su VCC
+        // y su GND a los pines de la Nucleo- nadie lo echó de menos: las demás
+        // tienen su masa por dentro. Sin sujetar, el GND de esa pieza se iba
+        // a donde lo llevara ella misma, y no había tensión entre sus patas.
         d_vdd_  = dut_->pwr_pads.vdd.register_driver("sim_vdd");
+        d_vss_  = dut_->pwr_pads.vss.register_driver("sim_vss");
         d_vdda_ = dut_->pwr_pads.vdda.register_driver("sim_vdda");
         d_nrst_ = dut_->pwr_pads.nrst.register_driver("sim_nrst");
         d_bt0_  = dut_->pwr_pads.boot0.register_driver("sim_boot0");
@@ -87,6 +94,7 @@ public:
         if (encendido) {
             dut_->pwr_pads.vdd.set_drive(d_vdd_,  3.3f, 0.1f);
             dut_->pwr_pads.vdda.set_drive(d_vdda_, 3.3f, 0.1f);
+            dut_->pwr_pads.vss.set_drive(d_vss_, 0.0f, 0.1f);
         } else {
             dut_->pwr_pads.vdd.set_drive(d_vdd_,  0.0f, 1.0f);
             dut_->pwr_pads.vdda.set_drive(d_vdda_, 0.0f, 1.0f);
@@ -129,7 +137,7 @@ public:
 private:
     Chip*   dut_;
     McuCaps caps_;
-    int d_vdd_ = -1, d_vdda_ = -1, d_nrst_ = -1, d_bt0_ = -1;
+    int d_vdd_ = -1, d_vdda_ = -1, d_vss_ = -1, d_nrst_ = -1, d_bt0_ = -1;
 };
 
 // El die desnudo es lo que montan los once del F405/407.

@@ -2,9 +2,10 @@
 # ===========================================================================
 # ci/pasa_suites.sh [opciones extra de make...]
 #
-# Ejecuta las suites -las tres de siempre y, desde la fase D1 del puente UART
-# (P-14), `testserie`-. Existe por un fallo del 2026-09-28 que costo la
-# unica cosa que no se puede reconstruir: LA EVIDENCIA.
+# Ejecuta las suites -las tres de siempre; desde la fase D1 del puente UART
+# (P-14), `testserie`; y desde la fase 1 de mcu-sim-gui (P-12), `testgui`-.
+# Existe por un fallo del 2026-09-28 que costo la unica cosa que no se puede
+# reconstruir: LA EVIDENCIA.
 #
 # Aquel dia macOS Intel se paso de los 30 minutos del trabajo, GitHub lo mato,
 # y con el se llevo por delante los pasos que faltaban -incluido el
@@ -66,10 +67,10 @@ fi
 mkdir -p build
 fallos=0
 
-# `testserie` va la ULTIMA a proposito: es la mas nueva y la mas barata (unos
-# segundos), y si algun dia se colgara no deberia llevarse por delante el log
-# de las tres que tienen historia.
-for s in test407 test446 test417 testserie; do
+# `testserie` y `testgui` van las ULTIMAS a proposito: son las mas nuevas y
+# las mas baratas (segundos), y si algun dia se colgaran no deberian llevarse
+# por delante el log de las tres que tienen historia.
+for s in test407 test446 test417 testserie testgui; do
     echo "  [suites] $s (presupuesto ${presupuesto}s)"
 
     # El `echo $?` dentro del subshell es como se recoge el estado a traves de

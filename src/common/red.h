@@ -3,9 +3,10 @@
 //
 // Todo lo demás de `src/` es C++17 y `<systemc>`: se compila igual en Linux, en
 // Windows y en macOS sin una sola directiva de preprocesador. Lo que no es
-// portable son los sockets TCP, y los sockets están en un solo sitio del
+// portable son los sockets TCP, y los sockets están en pocos sitios del
 // modelo: los dos servidores de GDB (`common/gdb_rsp.h`) y el cliente de RSP
-// con el que la suite se prueba a sí misma (`verif/gdb_client.h`).
+// con el que la suite se prueba a sí misma (`verif/gdb_client.h`), el puente
+// serie (`parts/canal_host.h`) y el transporte con `mcu-sim-gui`.
 //
 // Este fichero recoge esa diferencia entera para que aquellos dos no tengan que
 // enterarse. Berkeley y Winsock se parecen lo bastante como para que la
@@ -56,6 +57,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace stm32 {
 namespace red {
@@ -302,6 +304,143 @@ inline int estado_conexion(socket_t s) {
         err != 0) return -1;
     sin_nagle(s);
     return 1;
+}
+
+// ---------------------------------------------------------------------------
+// Y los dos montajes CON HOST, para `mcu-sim-gui` (P-12, fase 2 de su plan).
+//
+// Van AL LADO de `escucha_local` y `conecta_local`, no en su lugar, y es a
+// propósito: los servidores de GDB siguen usando las locales, porque un
+// depurador con acceso total a la memoria del objetivo no tiene por qué ser
+// accesible desde la red. Que la ventana pueda estar en otra máquina es una
+// decisión distinta, tomada para la GUI y solo para ella, y tiene que verse en
+// el código como una llamada distinta, no heredarse cambiando una función que
+// usan los dos. Quien conecta a un host que no es de bucle local además lo
+// avisa por la salida de error (`common/gui_destino.h`, `es_bucle_local`).
+//
+// A diferencia del resto del fichero, estas dos hablan IPv4 E IPv6:
+// `--gui [::1]:3344` es una forma que el argumento ya acepta, y el host se
+// resuelve con `getaddrinfo` sin fijar la familia. Los corchetes del IPv6 se
+// quitan aquí; vienen de la línea de órdenes, no son parte de la dirección.
+// ---------------------------------------------------------------------------
+namespace detalle {
+// "[::1]" -> "::1". Lo demás, tal cual.
+inline std::string sin_corchetes(const char* host) {
+    std::string h = host ? host : "";
+    if (h.size() >= 2 && h.front() == '[' && h.back() == ']') h = h.substr(1, h.size() - 2);
+    return h;
+}
+// Espera, como mucho `ms` milisegundos, a que el socket se pueda escribir o
+// tenga una excepción. Lo que hace falta para terminar un `connect` no
+// bloqueante con un plazo.
+inline int espera_escribible(socket_t s, int ms) {
+    fd_set esc, exc;
+    FD_ZERO(&esc);
+    FD_ZERO(&exc);
+    FD_SET(s, &esc);
+    FD_SET(s, &exc);
+    timeval t{ ms / 1000, (ms % 1000) * 1000 };
+#if defined(_WIN32)
+    return ::select(0, nullptr, &esc, &exc, &t);
+#else
+    return ::select(s + 1, nullptr, &esc, &exc, &t);
+#endif
+}
+} // namespace detalle
+
+// Escucha en `host:puerto`. Con el puerto 0 el sistema elige uno libre, y
+// `puerto_local()` dice cuál: es lo que permite a las pruebas no pisarse con
+// nada que haya en la máquina. El socket sale no bloqueante, como el de
+// `escucha_local`, y se acepta con el mismo `acepta()`.
+inline socket_t escucha(const char* host, unsigned puerto) {
+    if (!arranca()) return invalido();
+    const std::string h = detalle::sin_corchetes(host);
+    addrinfo pista{};
+    pista.ai_family   = AF_UNSPEC;
+    pista.ai_socktype = SOCK_STREAM;
+    pista.ai_flags    = AI_PASSIVE;
+    addrinfo* r = nullptr;
+    if (::getaddrinfo(h.c_str(), std::to_string(puerto).c_str(), &pista, &r) != 0 || !r)
+        return invalido();
+    socket_t s = invalido();
+    for (addrinfo* a = r; a && !valido(s); a = a->ai_next) {
+        s = ::socket(a->ai_family, a->ai_socktype, a->ai_protocol);
+        if (!valido(s)) continue;
+        reusar_direccion(s);
+        sin_sigpipe(s);
+        if (::bind(s, a->ai_addr, socklen_t(a->ai_addrlen)) != 0 ||
+            ::listen(s, 1) != 0 || !no_bloqueante(s))
+            cerrar(s);
+    }
+    ::freeaddrinfo(r);
+    return s;
+}
+
+// El puerto en el que de verdad escucha un socket, o 0 si no se puede saber.
+inline unsigned puerto_local(socket_t s) {
+    sockaddr_storage a{};
+    socklen_t l = sizeof a;
+    if (::getsockname(s, reinterpret_cast<sockaddr*>(&a), &l) != 0) return 0;
+    if (a.ss_family == AF_INET)
+        return ntohs(reinterpret_cast<const sockaddr_in*>(&a)->sin_port);
+    if (a.ss_family == AF_INET6)
+        return ntohs(reinterpret_cast<const sockaddr_in6*>(&a)->sin6_port);
+    return 0;
+}
+
+// Se conecta a `host:puerto` y devuelve el socket ya NO BLOQUEANTE, sin Nagle
+// y sin SIGPIPE, o invalido() si no hay nadie. Prueba las direcciones del host
+// en el orden en que las da el sistema -`localhost` suele ser primero ::1 y
+// luego 127.0.0.1-, y cada una con un plazo de `plazo_ms`: un `connect`
+// bloqueante contra una máquina que no contesta puede tardar minutos en
+// rendirse, y quien lo llama, `mcu-sim` antes de arrancar, no debe quedarse
+// colgado tanto. Contra el bucle local el rechazo es inmediato.
+inline socket_t conecta(const char* host, unsigned puerto, int plazo_ms = 5000) {
+    if (!arranca()) return invalido();
+    const std::string h = detalle::sin_corchetes(host);
+    addrinfo pista{};
+    pista.ai_family   = AF_UNSPEC;
+    pista.ai_socktype = SOCK_STREAM;
+    addrinfo* r = nullptr;
+    if (::getaddrinfo(h.c_str(), std::to_string(puerto).c_str(), &pista, &r) != 0 || !r)
+        return invalido();
+    socket_t s = invalido();
+    for (addrinfo* a = r; a && !valido(s); a = a->ai_next) {
+        s = ::socket(a->ai_family, a->ai_socktype, a->ai_protocol);
+        if (!valido(s)) continue;
+        sin_sigpipe(s);
+        if (!no_bloqueante(s)) { cerrar(s); continue; }
+        if (::connect(s, a->ai_addr, socklen_t(a->ai_addrlen)) == 0) break;
+#if defined(_WIN32)
+        const bool en_curso = ::WSAGetLastError() == WSAEWOULDBLOCK;
+#else
+        const bool en_curso = errno == EINPROGRESS || errno == EINTR;
+#endif
+        if (!en_curso || detalle::espera_escribible(s, plazo_ms) <= 0) { cerrar(s); continue; }
+        int err = 0;
+        socklen_t l = sizeof err;
+        if (::getsockopt(s, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&err), &l) != 0 ||
+            err != 0) { cerrar(s); continue; }
+    }
+    ::freeaddrinfo(r);
+    if (valido(s)) sin_nagle(s);
+    return s;
+}
+
+// Espera, como mucho `ms` milisegundos, a que haya algo que leer (o el cierre
+// del otro extremo, que también se lee). true si lo hay. Es lo que necesita
+// quien lee un socket no bloqueante sin girar en vacío: el saludo de la fase 3
+// y las pruebas.
+inline bool espera_legible(socket_t s, int ms) {
+    fd_set lec;
+    FD_ZERO(&lec);
+    FD_SET(s, &lec);
+    timeval t{ ms / 1000, (ms % 1000) * 1000 };
+#if defined(_WIN32)
+    return ::select(0, &lec, nullptr, nullptr, &t) > 0;
+#else
+    return ::select(s + 1, &lec, nullptr, nullptr, &t) > 0;
+#endif
 }
 
 } // namespace red

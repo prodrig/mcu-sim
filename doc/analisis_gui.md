@@ -144,10 +144,10 @@ Con eso, las piezas de hoy dirían:
 | `Led` | `encendido` (0/1), `corriente` (mA) | — |
 | `Button` | `pulsado` (0/1) | `pulsar` (botón) |
 | `Crystal` | `frecuencia` (Hz) | — |
-| `Servo` *(no existe)* | `angulo` (grados), `pulso` (µs) | `carga` (continuo) |
+| `Servo` *(ya existe: `doc/parts.md` §4.11)* | `angulo` (grados), `pulso` (µs), `corriente` (mA), `rpm` | `bloquear` (interruptor: sujeta el eje) |
 | `PwmMeter` *(no existe)* | `periodo` (µs), `ciclo` (%) | — |
 | `Stepper` *(no existe)* | `pasos`, `angulo`, `rpm` | `final_de_carrera` |
-| `Encoder` *(no existe)* | `cuenta` | `angulo` (continuo) |
+| `Encoder` *(ya existe: `doc/parts.md` §4.1)* | `posicion`, `cuenta`, `contacto_a`, `contacto_b` | `girar` (discreto, la cuenta de clics) |
 
 **Y aquí está el beneficio que justifica el diseño:** la GUI puede **enumerar la
 placa sin conocer ni un tipo de C++**. El netlist ya publica tipo, identificador
@@ -580,7 +580,7 @@ paso, ni motor de continua, ni encoder incremental.
 | Pieza | Qué tendría que hacer | Tamaño |
 | :--- | :--- | :--- |
 | `PwmMeter` | Cronometrar flancos de un pin y publicar periodo y ciclo. Sin estado eléctrico propio: es un observador pasivo, como el `origen` de un `SignalLink` | pequeño |
-| `Servo` | Decodificar la anchura del pulso a un ángulo, con velocidad máxima de giro para que el movimiento sea creíble | pequeño |
+| `Servo` *(hecho, `doc/parts.md` §4.11)* | Decodificar la anchura del pulso a un ángulo, con velocidad máxima de giro para que el movimiento sea creíble | pequeño |
 | `Encoder` | Generar dos canales en cuadratura a partir de una posición que se mueve desde fuera. Es la primera pieza cuyo **mando** manda de verdad | medio |
 | `StepperDriver` | Cuatro o dos pines de paso y dirección, contar pasos, publicar ángulo. Con micropaso, si hace falta | medio |
 | `DcMotor` + puente en H | Tensión media a partir del ciclo de trabajo, y de ahí una velocidad. Aquí empieza a haber física de verdad, y hay que decidir cuánta se quiere | **el grande** |

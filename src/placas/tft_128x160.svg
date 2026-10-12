@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PANTALLA TFT DE 1,8" (128x160, ST7735S), dibujada a mano: una aproximacion,
+  no una foto. Es el dibujo de placas/tft_128x160.xml, que lo encuentra solo
+  porque se llama como ella.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: la placa mide 56 x 35 mm, y a la derecha asoman los pines
+  acodados- y cada pieza con el id de su pieza en el XML: el conector P1, con
+  cada pin por su nombre (P1.VCC ... P1.LED) -cada uno, su cuadrado y su
+  patilla acodada: un hilo engancha en la punta-; y la pantalla, TFT.
+
+  TFT es la ZONA ACTIVA del vidrio, 35 x 28 mm: la ventana pinta encima lo que
+  ensena la pantalla (el efecto `pantalla`). La imagen de un ST7735S es de 128
+  de ancho y 160 de alto; en un elemento apaisado como este la ventana la pone
+  girada un cuarto de vuelta a la izquierda: la fila 0 de la pantalla queda a
+  la IZQUIERDA y la 159 junto al conector, por donde sale el cable plano del
+  vidrio, y la columna 0 abajo. Para verla derecha en esta postura, el
+  firmware pone MADCTL = 0x60 (MV y MX).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 596 350" width="59.6mm" height="35mm">
+  <rect x="1" y="1" width="558" height="348" rx="8" fill="#c8161d" stroke="#7d0a0e" stroke-width="2"/>
+  <circle cx="22" cy="22" r="16" fill="#e3c27a" stroke="#a8873f" stroke-width="2"/>
+  <circle cx="22" cy="22" r="10" fill="#4d0407"/>
+  <circle cx="22" cy="328" r="16" fill="#e3c27a" stroke="#a8873f" stroke-width="2"/>
+  <circle cx="22" cy="328" r="10" fill="#4d0407"/>
+  <circle cx="530" cy="22" r="16" fill="#e3c27a" stroke="#a8873f" stroke-width="2"/>
+  <circle cx="530" cy="22" r="10" fill="#4d0407"/>
+  <circle cx="530" cy="328" r="16" fill="#e3c27a" stroke="#a8873f" stroke-width="2"/>
+  <circle cx="530" cy="328" r="10" fill="#4d0407"/>
+  <rect x="456" y="105.0" width="16" height="140" fill="#c9852a" stroke="#8a5a17" stroke-width="1"/>
+  <rect x="40" y="6" width="422" height="338" rx="4" fill="#15171a" stroke="#000000" stroke-width="1.5"/>
+  <rect x="422" y="75" width="28" height="200" rx="2" fill="#24272c"/>
+  <rect id="TFT" x="66" y="35" width="350" height="280" fill="#2a3036" stroke="#0b0c0e" stroke-width="1"/>
+  <path d="M 76 43 L 176 43 L 106 155 L 76 155 Z" fill="#ffffff" fill-opacity="0.05"/>
+  <g id="P1">
+    <rect x="520.0" y="73.4" width="26" height="203.2" rx="2" fill="#1c1c1c" stroke="#000000" stroke-width="1"/>
+    <g id="P1.VCC">
+      <rect x="528.0" y="81.1" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+      <rect x="546.0" y="83.1" width="46.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+    </g>
+    <g id="P1.GND">
+      <rect x="528.0" y="106.5" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+      <rect x="546.0" y="108.5" width="46.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+    </g>
+    <g id="P1.CS">
+      <rect x="528.0" y="131.9" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+      <rect x="546.0" y="133.9" width="46.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+    </g>
+    <g id="P1.RESET">
+      <rect x="528.0" y="157.3" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+      <rect x="546.0" y="159.3" width="46.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+    </g>
+    <g id="P1.AD">
+      <rect x="528.0" y="182.7" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+      <rect x="546.0" y="184.7" width="46.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+    </g>
+    <g id="P1.SDA">
+      <rect x="528.0" y="208.1" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+      <rect x="546.0" y="210.1" width="46.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+    </g>
+    <g id="P1.SCK">
+      <rect x="528.0" y="233.5" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+      <rect x="546.0" y="235.5" width="46.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+    </g>
+    <g id="P1.LED">
+      <rect x="528.0" y="258.9" width="10" height="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+      <rect x="546.0" y="260.9" width="46.0" height="6" fill="#c0c0c0" stroke="#7f7f7f" stroke-width="0.8"/>
+    </g>
+  </g>
+  <text x="515.0" y="89.6" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="end">VCC</text>
+  <text x="515.0" y="115.0" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="end">GND</text>
+  <text x="515.0" y="140.4" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="end">CS</text>
+  <text x="515.0" y="165.8" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="end">RESET</text>
+  <text x="515.0" y="191.2" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="end">A/D</text>
+  <text x="515.0" y="216.6" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="end">SDA</text>
+  <text x="515.0" y="242.0" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="end">SCK</text>
+  <text x="515.0" y="267.4" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="end">LED</text>
+</svg>

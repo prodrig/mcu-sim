@@ -264,14 +264,18 @@ struct Asignacion {
 };
 
 // Los caracteres de un identificador de componente. No se valida contra la
-// placa aquí -eso es `resuelve`-: solo que la cadena pueda ser uno.
+// placa aquí -eso es `resuelve`-: solo que la cadena pueda ser uno. En un
+// <sistema>, el de la pieza lleva delante su placa y una barra, `N/VCP`: una
+// barra, y no al principio ni al final.
 inline bool id_valido(const std::string& id) {
-    if (id.empty()) return false;
+    if (id.empty() || id.front() == '/' || id.back() == '/') return false;
+    unsigned barras = 0;
     for (char c : id) {
         const unsigned char u = static_cast<unsigned char>(c);
+        if (c == '/') { ++barras; continue; }
         if (!(std::isalnum(u) || c == '_' || c == '-' || c == '.')) return false;
     }
-    return true;
+    return barras <= 1;
 }
 
 inline Asignacion parsea_asignacion(const std::string& s) {
@@ -313,6 +317,7 @@ struct Ocupado {
 struct Resultado {
     std::vector<Pieza>       piezas;   // con la línea de órdenes aplicada
     std::vector<std::string> errores;  // vacío si todo cuadra
+    std::vector<std::string> notas;    // lo que se ha decidido sin preguntar
 };
 
 // Aplica `--serie` sobre lo que declara la placa y comprueba que el resultado
@@ -326,7 +331,9 @@ struct Resultado {
 //   * un destino inválido en el XML;
 //   * dos puentes en el mismo puerto, o un puente en el puerto de un GDB o de
 //     la GUI. Esto es lo que de verdad ahorra tiempo: sin ello el segundo en
-//     abrir falla en marcha, y el mensaje sale donde nadie mira.
+//     abrir falla en marcha, y el mensaje sale donde nadie mira. SALVO dos que
+//     lo piden en su fichero, sin `--serie`: dos placas iguales en un sistema.
+//     Ahí el segundo se corre al siguiente puerto libre, y va a `notas`.
 inline Resultado resuelve(const std::vector<Pieza>& placa,
                           const std::vector<Asignacion>& args,
                           const std::vector<Ocupado>& ocupados) {
@@ -338,6 +345,7 @@ inline Resultado resuelve(const std::vector<Pieza>& placa,
             r.errores.push_back(p.id + ": host=" + p.destino.error);
 
     std::vector<std::string> vistos;
+    std::vector<bool> dado(r.piezas.size(), false);   // por --serie
     for (const Asignacion& a : args) {
         if (!a.valido) { r.errores.push_back("--serie " + a.error); continue; }
         bool repetido = false;
@@ -349,7 +357,8 @@ inline Resultado resuelve(const std::vector<Pieza>& placa,
         vistos.push_back(a.id);
 
         Pieza* dst = nullptr;
-        for (Pieza& p : r.piezas) if (p.id == a.id) dst = &p;
+        for (size_t k = 0; k < r.piezas.size(); ++k)
+            if (r.piezas[k].id == a.id) { dst = &r.piezas[k]; dado[k] = true; }
         if (dst) { dst->destino = a.destino; continue; }
 
         if (placa.empty()) {
@@ -370,6 +379,38 @@ inline Resultado resuelve(const std::vector<Pieza>& placa,
         else
             r.errores.push_back("--serie " + a.id + ": no hay ningun "
                                 "PuenteSerie con ese id; los que hay son: " + lista);
+    }
+
+    // DOS PLACAS IGUALES EN UN SISTEMA -dos Nucleo, cada una con el VCP de su
+    // ST-LINK en el 3355- piden el mismo puerto sin que nadie lo haya
+    // decidido: lo dicen sus ficheros. Ahí el segundo se corre al siguiente
+    // libre, y se dice. Lo que pide la línea de órdenes, en cambio, es una
+    // decisión, y si choca es un error, como siempre.
+    const size_t n = r.piezas.size();
+    auto escucha = [&](size_t k) {
+        return r.piezas[k].destino.valido && usa_puerto(r.piezas[k].destino.modo);
+    };
+    for (size_t j = 0; j < n; ++j) {
+        if (dado[j] || !escucha(j)) continue;
+        Pieza& q = r.piezas[j];
+        size_t choca = n;
+        for (size_t i = 0; i < j && choca == n; ++i)
+            if (!dado[i] && escucha(i) && r.piezas[i].destino.puerto == q.destino.puerto)
+                choca = i;
+        if (choca == n) continue;
+        auto libre = [&](unsigned x) {
+            for (size_t k = 0; k < n; ++k)
+                if (k != j && escucha(k) && r.piezas[k].destino.puerto == x) return false;
+            for (const Ocupado& o : ocupados) if (o.puerto == x) return false;
+            return true;
+        };
+        unsigned p = q.destino.puerto;
+        do ++p; while (p <= 65535u && !libre(p));
+        if (p > 65535u) continue;                  // que lo diga el error de abajo
+        r.notas.push_back(q.id + ": el puerto " + std::to_string(q.destino.puerto) +
+                          " es tambien el de " + r.piezas[choca].id +
+                          " en su fichero; escucha en el " + std::to_string(p));
+        q.destino.puerto = p;
     }
 
     // Los puertos, una vez aplicado todo.

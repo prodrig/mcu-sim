@@ -31,6 +31,9 @@
      --serie VCP=rfc2217:4000.
      ========================================================================= -->
 <placa nombre="vcp-rfc2217">
+  <!-- El chip, dicho aqui y no supuesto: sin <mcu> (ni --mcu) la placa iria
+       sin MCU. `--mcu OTRO` manda sobre este tipo sin tocar el fichero. -->
+  <mcu tipo="STM32F407VG" id="u0"/>
   <componente tipo="PuenteSerie" id="VCP" host="rfc2217:3355"
               baudios="host" formato="8N1" muestra="si">
     <pin nombre="rx"  nodo="PA2"/>   <!-- USART2_TX -->

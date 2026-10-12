@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UN SISTEMA: una NUCLEO-F446RE y una barra de 8 LEDs, unidas con hilos
+
+     La barra es placas/barra8_anodo_comun_rojo.xml, cableada como en el
+     ejemplo de los modulos DM41A08: sus LEDs D1..D8 a los pines Arduino
+     D9..D2, y su COMUN -P1.COM- NO va a VDD ni a masa, sino a OTRO PIN, el
+     D10. Asi es el firmware el que decide si la barra recibe tension.
+
+         barra    P1.COM  P1.D1  P1.D2  P1.D3  P1.D4  P1.D5  P1.D6  P1.D7  P1.D8
+         Nucleo   CN5.3   CN5.2  CN5.1  CN9.8  CN9.7  CN9.6  CN9.5  CN9.4  CN9.3
+                  D10     D9     D8     D7     D6     D5     D4     D3     D2
+
+     El firmware, verif/fw/barra8_demo, hace correr una luz dos veces: con el
+     comun alto y un pin bajo -la luz se ve en una barra de anodo comun- y con
+     el comun bajo y un pin alto -se ve en una de catodo comun-. Por eso vale
+     para las cuatro barras: cambiando el fichero de B por
+     barra8_catodo_comun_azul.xml, la luz corre en la otra vuelta.
+
+         ./build/mcu-sim placas/barra8_en_nucleo.xml --valida
+         ./build/mcu-sim placas/barra8_en_nucleo.xml --ms=500
+     ========================================================================= -->
+<sistema nombre="barra8-en-nucleo">
+  <placa id="N" fichero="nucleo_f446re.xml"/>
+  <placa id="B" fichero="barra8_anodo_comun_rojo.xml"/>
+
+  <hilo a="B/P1.COM" b="N/CN5.3"/>  <!-- el comun: D10 -->
+  <hilo a="B/P1.D1" b="N/CN5.2"/>   <!-- D1: D9 -->
+  <hilo a="B/P1.D2" b="N/CN5.1"/>   <!-- D2: D8 -->
+  <hilo a="B/P1.D3" b="N/CN9.8"/>   <!-- D3: D7 -->
+  <hilo a="B/P1.D4" b="N/CN9.7"/>   <!-- D4: D6 -->
+  <hilo a="B/P1.D5" b="N/CN9.6"/>   <!-- D5: D5 -->
+  <hilo a="B/P1.D6" b="N/CN9.5"/>   <!-- D6: D4 -->
+  <hilo a="B/P1.D7" b="N/CN9.4"/>   <!-- D7: D3 -->
+  <hilo a="B/P1.D8" b="N/CN9.3"/>   <!-- D8: D2 -->
+
+  <mcu ref="N/u0" firmware="verif/fw/barra8_demo/barra8_demo.bin"/>
+</sistema>

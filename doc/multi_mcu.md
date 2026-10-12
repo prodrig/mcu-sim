@@ -98,7 +98,8 @@ punto.
 
 | MCUs en el fichero | Cómo se nombran los pines |
 | :--- | :--- |
-| Ninguno declarado | Un STM32F407VG implícito, nombres desnudos: `PD12`. **Es el comportamiento de hoy** |
+| Ninguno declarado, con `--mcu TIPO` | Ese chip, implícito y sin id, nombres desnudos: `PD12` |
+| Ninguno declarado y sin `--mcu` | **Placa sin MCU**: no hay pines; un nodo llamado `PD12` es un error que pide declarar el chip |
 | Uno, `<mcu id="u0"/>` | Valen los dos: `PD12` y `u0.PD12` |
 | Dos o más | **Solo con prefijo.** `PD12` a secas es un error que nombra la ambigüedad |
 
@@ -106,6 +107,20 @@ Con esa regla, las tres placas de `placas/` siguen funcionando sin tocarlas, la
 comprobación de ida y vuelta por XML sigue pasando y `banco.xml` no cambia. La
 compatibilidad no es cortesía: es lo que permite hacer el cambio sin una
 migración.
+
+> **Después:** el primer caso dejó de ser «un STM32F407VG implícito». Que el
+> programa supusiera un chip hacía que una placa sin `<mcu>` funcionara con el
+> F407 aunque fuese para otro, y no dejaba montar una placa sin MCU. Ahora el
+> MCU se declara —`<mcu>` o `--mcu`, y si están los dos gana `--mcu`—, las
+> placas de `placas/` lo declaran, y sin ninguno la placa va sin chip
+> (`src/README.md`, «Varios MCUs»). Lo que cuesta es una línea por placa:
+> `<mcu tipo="STM32F407VG" id="u0"/>`.
+>
+> **Y después:** con varias placas en un `<sistema>`
+> (`doc/analisis_placas_conectadas.md`), el prefijo gana un nivel con una
+> barra: el `u0` de la placa `A` es `A/u0` y su pin `A/u0.PA5`. Dentro del
+> fichero de cada placa la regla de esta tabla sigue igual, y `PA5` es el del
+> chip de ESA placa.
 
 El error del tercer caso merece ser bueno, porque será el más frecuente:
 

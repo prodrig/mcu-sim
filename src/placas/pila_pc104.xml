@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UNA PILA PC/104: un modulo CPU y dos de LEDs, apilados
+
+     Cada modulo lleva un J1 pasante, asi que el pin k es el MISMO hilo en las
+     tres placas: un solo <acopla> con los tres conectores. No son dos acoples
+     de dos -la CPU con la primera, la primera con la segunda-, porque un
+     conector va en un acople solo; la pila entera es un acople.
+
+     El modulo de LEDs es el mismo fichero dos veces, con ids distintos: L1 y
+     L2. El blinky de la CPU conmuta PD12, que sale por J1.1: el LD1 de los
+     dos modulos parpadea con el, a la vez.
+
+         ./build/mcu-sim placas/pila_pc104.xml --valida
+         ./build/mcu-sim placas/pila_pc104.xml --ms=300
+     ========================================================================= -->
+<sistema nombre="pila-pc104">
+  <placa id="CPU" fichero="pc104_cpu.xml"/>
+  <placa id="L1"  fichero="pc104_leds.xml"/>
+  <placa id="L2"  fichero="pc104_leds.xml"/>
+
+  <acopla conectores="CPU/J1 L1/J1 L2/J1"/>
+
+  <mcu ref="CPU/u0" firmware="verif/fw/blinky/blinky.bin"/>
+</sistema>

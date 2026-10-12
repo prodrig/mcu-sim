@@ -317,14 +317,33 @@ private:
                 // cierran el bucle.
                 //
                 // Un picosegundo de espera lo hace IMPOSIBLE por construccion:
-                // el tiempo avanza, la cuenta cambia, y la siguiente vuelta
-                // decide de verdad. Cuando si se ha esperado, esto no se
-                // ejecuta y el comportamiento es el de siempre -ahi el
-                // `continue` significa «me han reprogramado», y el que
-                // reprograma ya movio la base-.
-                if (!ha_esperado)
-                    wait(sc_core::sc_time(1, sc_core::SC_PS), resched_ev_);
-                continue;
+                // el tiempo avanza y la cuenta cambia.
+                //
+                // Y DESPUES DE ESE PICOSEGUNDO SE DECIDE AQUI, NO EN LA VUELTA
+                // SIGUIENTE (I-53). Esto no es solo cosa de la 3.0.2: el cruce
+                // es `t_base_ + meta/f` redondeado al picosegundo, y un tick a
+                // 168 MHz son 5952,38 ps, asi que segun lo que valga `meta` el
+                // redondeo cae hasta medio picosegundo ANTES del tick de verdad.
+                // Se despierta, falta un tick, la vuelta siguiente da `c = 1`
+                // con el cruce en este mismo instante, y se llega aqui. Antes se
+                // hacia `continue` tras el picosegundo, y en esa vuelta el
+                // contador ya valia CERO, que el calculo de arriba toma por «ya
+                // recargado»: esperaba otro periodo entero SIN DISPARAR. Como
+                // cada periodo es un multiplo exacto de RVR+1 ticks, el
+                // redondeo caia igual la vez siguiente, y la siguiente: el
+                // SysTick no volvia a interrumpir nunca. Pasa en cuanto la base
+                // se rebasa con un contador a medias -al reanudar una parada del
+                // depurador, o al reescribir CTRL, que es lo que hacen
+                // `HAL_SuspendTick()`/`HAL_ResumeTick()`-, para mas o menos la
+                // mitad de los valores. Lo vigila T131.
+                //
+                // Cuando si se ha esperado, el `continue` significa «me han
+                // reprogramado» -el que reprograma ya movio la base- o «el
+                // redondeo me desperto un pelo antes», y la vuelta siguiente
+                // acaba aqui.
+                if (ha_esperado) continue;
+                wait(sc_core::sc_time(1, sc_core::SC_PS), resched_ev_);
+                if (!enabled() || parado.read() || elapsed_ticks_brutos() < meta) continue;
             }
             csr_ |= (1u << 16);                   // COUNTFLAG
             if (tickint()) {                      // pulso hacia el NVIC

@@ -92,7 +92,7 @@ SC_MODULE(SocF4) {
 
     // =========================== Subcomponentes =============================
     PinMux    pinmux;
-    PowerPads pwr_pads{"pwr_pads"};
+    PowerPads pwr_pads;           // con el cableado: sus pads pueden ser de la placa
     Rcc       rcc;
     // El núcleo, con sus rasgos de depuración: pines expuestos (por omisión) o
     // reservados con el stub interno enganchado al DAP. Véase core/cortex_m4f.h
@@ -310,6 +310,7 @@ SC_MODULE(SocF4) {
                          const Cableado& cab = Cableado(),
                          McuCaps caps = MCU_STM32F407VG)
         : sc_core::sc_module(nm), mcu(caps), pinmux("pinmux", cab, caps.enc),
+          pwr_pads("pwr_pads", &cab),
           rcc("rcc", caps.reloj, caps.arbol, caps.perif.bloques_rcc()),
           core("core", dbg, caps.nucleo, caps.memoria.ram),
           matrix("matrix", caps.memoria.ram, caps.perif.fsmc, caps.conn,

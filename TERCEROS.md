@@ -62,11 +62,13 @@ permisivas —**Zope Public License 2.1** para winpthreads y las de MinGW-w64 pa
 el resto—. Su aviso es el que acompaña a la distribución de MSYS2 con la que se
 construye.
 
-## 4. Lo que está en el repositorio pero **no** en el ejecutable
+## 4. Lo que va en los firmwares, no en el ejecutable
 
-Esto no viaja en los paquetes; está en el árbol de fuentes, con su licencia
-propia al lado, y se compila dentro de los **firmwares** de las suites, no del
-simulador.
+Esto está en el árbol de fuentes, con su licencia propia al lado, y se compila
+dentro de los **firmwares** de ejemplo y de las suites, no del simulador. Los
+firmwares (`.bin`) **sí viajan en los paquetes** desde el 2026-10-06, en
+`verif/fw/` como en el repositorio, y por eso van con ellos estas licencias, en
+las mismas carpetas: es lo que piden al redistribuir en forma objeto.
 
 | Qué | Dónde | Licencia |
 | :--- | :--- | :--- |

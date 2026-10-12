@@ -32,7 +32,7 @@ tocar el `Makefile`, y qué hacer cuando falla. La segunda mitad está ordenada 
 ```bash
 cd src
 make                    # el simulador: build/mcu-sim
-make test407            # construye y ejecuta la suite del F407: 2118 comprobaciones
+make test407            # construye y ejecuta la suite del F407: 2149 comprobaciones
 make test446            # y la del F446: 204 comprobaciones
 make test417            # el acelerador criptografico del F415/F417: 165
 
@@ -69,11 +69,43 @@ línea de órdenes —que gana siempre— o desde el entorno.
 | `CXXSTD` | El estándar de C++. **Tiene que ser el mismo con el que se compiló SystemC** (§5.1) | `make CXXSTD=c++14` |
 | `EXTRA` | Opciones **adicionales** al compilar | `make EXTRA=-DSC_WIN_DLL` |
 | `EXTRA_LD` | Opciones **adicionales** al enlazar | `make EXTRA_LD=-Wl,-t` |
+| `B` | **Dónde** se compila: los ejecutables y los registros de las pruebas. Por omisión `build`, dentro de `src/` | `make B=/c/build/mcu-sim` |
 
 ```bash
 make SYSTEMC_HOME=/opt/systemc              # una vez
 export SYSTEMC_HOME=/opt/systemc; make      # para toda la sesión
 ```
+
+**Compilar fuera del repositorio**, con `B`. Si el repositorio vive en una
+carpeta sincronizada —Dropbox, OneDrive—, compilar dentro hace que el cliente
+suba cada ejecutable recién hecho, y que a veces lo bloquee mientras el
+enlazador escribe. Con `B` todo lo generado va a otra carpeta, y el
+repositorio no se toca:
+
+```bash
+cd /c/users/.../repos/mcu-sim/src
+make -f Makefile.mcu-sim B=/c/build/mcu-sim mcu-sim
+/c/build/mcu-sim/mcu-sim.exe placas/nucleo_f446re.xml --valida
+make -f Makefile.mcu-sim B=/c/build/mcu-sim test407 gui-sistema
+```
+
+Las pruebas se siguen lanzando **desde `src/`**. Las de Python reciben el
+ejecutable con `--sim`, y dejan sus registros junto a él. Y **`make mcu-sim`
+copia a la carpeta de compilación lo que hace falta para usarlo desde allí**,
+con el mismo árbol que en `src/`: las placas y sus dibujos (`placas/*.xml`,
+`placas/*.svg`) y los firmwares (`verif/fw/…/*.bin`, con las licencias de lo
+que llevan dentro). Solo lo que ha cambiado; `make datos` hace solo eso. Es lo
+mismo que llevan los paquetes del CI:
+
+```bash
+cd /c/build/mcu-sim
+./mcu-sim.exe placas/nucleo_y_shield.xml --ms=500
+```
+ La ruta no puede llevar espacios (`make` no
+los soporta), y sirve igual escrita `C:/build/mcu-sim`. En la configuración
+de `mcu-sim-gui`, el ejecutable pasa a ser `C:/build/mcu-sim/mcu-sim.exe`, y
+el directorio de trabajo puede ser `C:/build/mcu-sim` o seguir siendo `src/`. Y la carpeta de compilación es
+la que hay que excluir en el antivirus (véase el README de `mcu-sim-gui`).
 
 **`EXTRA` y `EXTRA_LD` existen por un motivo concreto**: el Makefile construye
 `CXXFLAGS` con `+=`, y una asignación en la línea de órdenes **sustituye** el
@@ -87,7 +119,7 @@ make plataforma
 ```
 
 Imprime qué ha decidido: `PLATAFORMA`, `CXX`, `CXXSTD`, `SYSTEMC_HOME`, `EXE`,
-`LDLIBS` y `LIBDIRS`. Antes de investigar nada, mira ahí.
+`LDLIBS`, `LIBDIRS` y `B`. Antes de investigar nada, mira ahí.
 
 ### Los otros objetivos
 
@@ -375,6 +407,28 @@ de enlazado, y el mensaje de SystemC dice cuál es.
 
 ---
 
+### 5.10 «Cannot create temporary file in C:\windows\: Permission denied», o `make plataforma` dice `linux` en MINGW64
+
+Las dos cosas a la vez, y en una terminal MINGW64 que parece normal: es un
+**entorno recortado**. Al shell no le han llegado las variables de Windows
+`OS`, `TMP` y `TEMP`:
+
+* sin `OS=Windows_NT`, el Makefile no sabía que estaba en Windows y decidía
+  `linux`. Ahora también lo reconoce por `uname -s` (`MINGW64_NT-…`,
+  `MSYS_NT-…`, `CYGWIN_NT-…`);
+* sin `TMP` ni `TEMP`, el `g++` de MinGW intenta dejar sus ficheros
+  intermedios en `C:\Windows`, y no puede. Ahora el Makefile pone `/tmp` y lo
+  dice con un aviso.
+
+`make plataforma` enseña las tres cosas (`ANFITRION`, `OS`, `TMP` y `TEMP`).
+Merece la pena averiguar por qué faltan —`env | grep -E '^(OS|TMP|TEMP)='`—,
+porque otros programas también las esperan: suele ser el acceso directo o el
+terminal con el que se abre el shell. Mientras tanto, a mano:
+
+```bash
+export TMP=/tmp TEMP=/tmp
+```
+
 ## 6. Los firmwares de las suites, y el compilador de ARM
 
 Veinte grupos de las tres suites cargan un `.bin` **de verdad** en la Flash del
@@ -543,7 +597,7 @@ arranca, y eso no lo arregla el guarda.
 
 ```bash
 make red        # 13 comprobaciones de la capa de red, sin SystemC
-make test407    # 2118 comprobaciones
+make test407    # 2149 comprobaciones
 make test446    # 204
 make test417    # 165
 ```
@@ -551,8 +605,8 @@ make test417    # 165
 Y el criterio que de verdad vale, más allá de que pasen: al final de `make test407`,
 
 ```
-TOTAL     : 2118 comprobaciones OK, 0 fallos
-Tiempo simulado: 2336217899213 ps
+TOTAL     : 2149 comprobaciones OK, 0 fallos
+Tiempo simulado: 2396293659555 ps
 ```
 
 Los otros dos bancos tienen su propio invariante —`1033367277932 ps` el del
@@ -561,11 +615,22 @@ F446 y `718988288 ps` el del F417— y valen para lo mismo.
 Y debajo, desde que la suite corrió en una segunda máquina, **tres líneas más**:
 
 ```
-  de los cuales T96+T97 (socket de GDB): 96665875 ns
-  el resto                             : 2239552024213 ps
+  de los cuales T96+T97 (socket de GDB): 108265875 ns
+  el resto                             : 2281827784555 ps
   huella de coremark.bin               : 0x644FCE21
   (la que debe ser esta en verif/fw/huellas.txt, y T00 lo comprueba: T-22)
 ```
+
+El total cambia de una máquina a otra —lleva dentro lo que T96 y T97 esperan
+al socket de GDB, **T-16**—; lo que se contrasta es **`resto`**. Y `resto` solo
+se ha movido tres veces, las tres a propósito y con su motivo en
+`src/verif/invariantes.txt`: de `2239552024213` a `2240553274213 ps` al
+corregir el tick de más del IWDG (**T-23**, 2026-09-23), y de ahí a
+`2245527784555 ps` al añadir **T131** (**I-53**, 2026-10-02), la prueba del
+SysTick que dejaba de interrumpir al reanudar una parada del depurador —el
+arreglo en sí no movía nada: los 4,97 ms son de la prueba—, y de ahí a
+`2281827784555 ps` al añadir **T132** (2026-10-03), la de los rebotes del
+pulsador, que tampoco mueven nada por sí solos: los 36,3 ms son de la prueba.
 
 **La precondición para comparar dos máquinas no era la que parecía.** Mientras
 los `.bin` no se versionaron, se compilaban en cada sitio con el compilador
@@ -609,7 +674,7 @@ haber variado.)*
 
 | Plataforma | Estado |
 | :--- | :--- |
-| Linux, g++ 13 | **Verificado**: 2118/2118, 204/204, 165/165, `make red` 13/13, ASan limpio en los tres |
+| Linux, g++ 13 | **Verificado**: 2149/2149, 204/204, 165/165, `make red` 13/13, ASan limpio en los tres |
 | Linux, clang | **Verificado** con el codigo anterior a versionar los firmwares: 2117/2117, mismo tiempo simulado al picosegundo. Falta repetirlo; no se espera nada distinto, pero no se ha hecho |
 | **Windows, MSYS2 / MinGW-w64** | **VERIFICADO POR COMPLETO, y los TRES invariantes coinciden con los de Linux al picosegundo.** Con los firmwares versionados: **2118/2118** en `2336217899213 ps` (huella `0x644FCE21`), **204/204** en `1033367277932 ps` y **165/165** en `718988288 ps`. Antes, con los firmwares de cada sitio, el del F407 salia `2334217899213 ps`: los 2 ms eran el binario y nada mas (**T-22**) |
 | Windows, cruzado desde Linux | **Compila y enlaza** (`make red PLATAFORMA=windows CXX=x86_64-w64-mingw32-g++`, PE32+ sin avisos). Ojo: el cruzado de Debian usa hilos **win32** y el de MSYS2 **posix**, así que no reproduce el caso de §5.6 |

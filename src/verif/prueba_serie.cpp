@@ -145,6 +145,14 @@ int main() {
                   "un id con punto, guion y cifras es un id");
     }
     {
+        const Asignacion a = parsea_asignacion("N/VCP=memoria");
+        const Asignacion b = parsea_asignacion("N/x/VCP=memoria");
+        const Asignacion c = parsea_asignacion("/VCP=memoria");
+        comprueba(a.valido && a.id == "N/VCP" && !b.valido && !c.valido,
+                  "en un sistema, la placa y una barra delante: N/VCP; dos barras, o una "
+                  "al principio, no");
+    }
+    {
         const Asignacion a = parsea_asignacion("VCP");
         comprueba(!a.valido && a.error.find("falta '='") != std::string::npos,
                   "sin '=' se rechaza, y el error enseña la forma");
@@ -218,9 +226,27 @@ int main() {
     {
         // tcp y rfc2217 en el mismo número también chocan: es el mismo puerto.
         const std::vector<Pieza> p = { { "A", parsea("tcp:4000") },
-                                       { "B", parsea("rfc2217:4000") } };
-        comprueba(!resuelve(p, {}, nada).errores.empty(),
+                                       { "B", parsea("rfc2217:4001") } };
+        comprueba(!resuelve(p, { parsea_asignacion("B=rfc2217:4000") }, nada).errores.empty(),
                   "tcp y rfc2217 en el mismo numero chocan igual");
+    }
+    {
+        // Dos placas iguales en un sistema: el mismo puerto LO DICEN SUS
+        // FICHEROS, y nadie lo ha decidido. El segundo se corre al siguiente
+        // libre -saltando el que ya tiene otro y el de un GDB- y se dice.
+        const std::vector<Pieza> p = { { "A/VCP", parsea("rfc2217:3355") },
+                                       { "B/VCP", parsea("rfc2217:3355") },
+                                       { "F/U1",  parsea("rfc2217:3356") } };
+        const std::vector<Ocupado> gdb = { { 3357, "el GDB de A/u0" } };
+        const Resultado r = resuelve(p, {}, gdb);
+        comprueba(r.errores.empty() && r.piezas[0].destino.puerto == 3355 &&
+                  r.piezas[1].destino.puerto == 3358 && r.piezas[2].destino.puerto == 3356 &&
+                  r.notas.size() == 1 &&
+                  r.notas[0] == "B/VCP: el puerto 3355 es tambien el de A/VCP en su "
+                                "fichero; escucha en el 3358",
+                  "dos puentes que piden el mismo puerto en su fichero: el segundo se "
+                  "corre al siguiente libre (ni el 3356 de F/U1 ni el 3357 del GDB), "
+                  "y se dice");
     }
     {
         const std::vector<Pieza> p = { { "A", parsea("memoria") },

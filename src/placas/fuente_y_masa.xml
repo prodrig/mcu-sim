@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UNA PLACA SIN MCU: una fuente, una masa y lo que cuelga de ellas
+
+     No hay ni <mcu> ni hace falta --mcu: la placa va sin chip, y entonces no
+     hay pines implicitos (cada nodo se declara) ni firmware, ni --gdb, ni
+     --ondas. Lo que queda es el modelo electrico y la ventana, que es donde se
+     ve: arranquese con mcu-sim-gui, o desde la consola con
+
+         ./build/mcu-sim placas/fuente_y_masa.xml --gui
+
+     DOS RAILES, CADA UNO CON SU LIMITE DE CORRIENTE
+     ---------------------------------------------------------------------
+     * `vcc`, de la fuente F1 (3,3 V, 20 mA). De ella cuelgan dos LEDs, unos
+       4 mA cada uno. El pulsador CORTO la cortocircuita a masa por 1 ohmio:
+       mientras se pulsa, la carga pide 3,3 A, F1 entrega sus 20 mA justos,
+       la tension se hunde, los LEDs se apagan y el observable
+       `sobrecorriente` de F1 se pone a 1 -la ventana lo pinta en rojo-. Al
+       soltarlo todo vuelve a su sitio.
+
+     * `retorno`, la masa G1 (10 mA). El LED LD3 va de 3,3 V a ella: su
+       corriente VUELVE por G1, y G1 la cuenta. El pulsador SUBE pone 3,3 V en
+       `retorno` por 1 ohmio; G1 no deja pasar mas de 10 mA, el nodo sube, LD3
+       se apaga y la masa avisa de sobrecorriente.
+
+     Un nodo con una fuente y cargas es un RAIL, no dos piezas conduciendo a la
+     vez, asi que no hace falta `bus="si"`. Dos fuentes en un nodo, en cambio,
+     se pelean por el, y la validacion lo avisa.
+     ========================================================================= -->
+<placa nombre="fuente-y-masa">
+
+  <!-- ===================================================================
+       vcc: 3,3 V con 20 mA de limite
+       =================================================================== -->
+  <nodo id="vcc"/>
+  <componente tipo="Fuente" id="F1" v="3.3" limite_ma="20">
+    <pin nombre="pin" nodo="vcc"/>
+  </componente>
+
+  <componente tipo="Led" id="LD1" a_vss="si" vf="2.0" r="330">
+    <pin nombre="anodo" nodo="vcc"/>
+  </componente>
+  <componente tipo="Led" id="LD2" a_vss="si" vf="1.8" r="330">
+    <pin nombre="anodo" nodo="vcc"/>
+  </componente>
+
+  <!-- El cortocircuito, a mano. Sin rebotes: aqui no los mira nadie. -->
+  <componente tipo="Button" id="CORTO" v_cerrado="0" r_cerrado="1" rebote="no">
+    <pin nombre="pin" nodo="vcc"/>
+  </componente>
+
+  <!-- ===================================================================
+       retorno: una masa con 10 mA de limite
+       =================================================================== -->
+  <nodo id="retorno"/>
+  <componente tipo="Gnd" id="G1" limite_ma="10">
+    <pin nombre="pin" nodo="retorno"/>
+  </componente>
+
+  <componente tipo="Led" id="LD3" a_vss="no" vdd="3.3" vf="2.0" r="330">
+    <pin nombre="catodo" nodo="retorno"/>
+  </componente>
+
+  <componente tipo="Button" id="SUBE" v_cerrado="3.3" r_cerrado="1" rebote="no">
+    <pin nombre="pin" nodo="retorno"/>
+  </componente>
+
+</placa>

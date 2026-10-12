@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UN SISTEMA: una NUCLEO-F446RE con el shield de placas/shield_leds.xml
+     enchufado encima
+
+     Ninguna de las dos placas sabe de la otra: la Nucleo es el mismo fichero
+     que se simula sola, y el shield tambien. Lo que las une se dice aqui, que
+     es donde se sabe: los cuatro conectores Arduino, pin a pin.
+
+     Todo lo de cada placa se nombra con su id delante y una barra: el LED de
+     la Nucleo es N/LD2, el del shield S/LD_D13, el chip N/u0 y su PA5
+     N/u0.PA5. Como el D13 del shield cae sobre el PA5 de la Nucleo, el blinky
+     enciende y apaga a la vez LD2 y LD_D13.
+
+         ./build/mcu-sim placas/nucleo_y_shield.xml --valida
+         ./build/mcu-sim placas/nucleo_y_shield.xml --ms=400
+     ========================================================================= -->
+<sistema nombre="nucleo-y-shield">
+  <placa id="N" fichero="nucleo_f446re.xml"/>
+  <placa id="S" fichero="shield_leds.xml"/>
+
+  <acopla a="N/CN5" b="S/J5"/>
+  <acopla a="N/CN6" b="S/J6"/>
+  <acopla a="N/CN8" b="S/J8"/>
+  <acopla a="N/CN9" b="S/J9"/>
+
+  <!-- El programa lo decide el montaje, no la placa -->
+  <mcu ref="N/u0" firmware="verif/fw/blinky446/blinky446.bin"/>
+</sistema>

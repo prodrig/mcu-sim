@@ -6,6 +6,9 @@
        ./build/mcu-sim placas/led_azul_5v.xml verif/fw/blinky/blinky.bin 200
        LED LD_AZUL en PD12: encendido  (0.40 V, 7.27 mA)                -->
 <placa nombre="led-azul-5v">
+  <!-- El chip, dicho aqui y no supuesto: sin <mcu> (ni --mcu) la placa iria
+       sin MCU. `--mcu OTRO` manda sobre este tipo sin tocar el fichero. -->
+  <mcu tipo="STM32F407VG" id="u0"/>
   <nodo id="PH0"/>
   <nodo id="PD12"/>
 

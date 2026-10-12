@@ -54,6 +54,20 @@
 #  1,00125 ms mas, y el total a 2337219149213. Las otras dos suites no se
 #  mueven: no ejercen el plazo del perro.)
 #
+# (Y la segunda vez, 2026-10-02, I-53. El arreglo del SysTick que dejaba de
+#  interrumpir al reanudar tras una parada NO mueve nada: con el arreglo
+#  solo, 2118 y 2240553274213 ps, al picosegundo -el F407 nunca rebasaba el
+#  contador con un valor que redondeara mal-. Lo que mueve la linea es la
+#  prueba nueva: T131 -5 comprobaciones- gasta 4974510342 ps propios, y
+#  el resto pasa a 2245527784555. Las otras 5 comprobaciones nuevas, las del
+#  aviso de I-54, van dentro de T96 y solo mueven el total.)
+#
+# (Y la tercera, 2026-10-03: los rebotes del pulsador. Tampoco los mueve el
+#  cambio del modelo -un pulsador sin rebote no crea ningun proceso, y los
+#  del banco se montan sin rebote-: sin T132, 2128 y 2245527784555 ps, al
+#  picosegundo. T132 -18 comprobaciones- gasta 36300000000 ps propios, y el
+#  resto pasa a 2281827784555.)
+#
 # O sea que contrastar el total generaba un fallo falso en una plataforma y
 # tapaba el criterio de verdad. Contrastar `resto` no afloja nada: quita del
 # criterio exactamente la parte que el propio proyecto tiene documentada como
@@ -61,11 +75,11 @@
 # total se sigue imprimiendo, y el desglose tambien.
 #
 # El dia que T-16 se arregle -que el stub no gaste tiempo simulado esperando a
-# un socket- esta columna vuelve a `total` y la cifra vuelve a ser
-# 2336217899213 ps.
+# un socket- esta columna vuelve a `total` y la cifra sera la de `resto`
+# mas lo que T96 y T97 gasten sin esperar a nadie.
 
 # suite      comprobaciones   tiempo simulado (ps)   cifra
-test407               2118      2240553274213        resto
+test407               2149      2281827784555        resto
 test446                204      1033367277932        total
 test417                165           718988288        total
 # El banco del puente UART (P-14). Crece con cada fase del plan de
@@ -84,3 +98,24 @@ test417                165           718988288        total
 # Y desde la D5, el mismo con TESTSERIE_RUIDO=1, que imita un loopback lento
 # (el de los macOS del CI, que destaparon dos esperas mal sincronizadas).
 testserie              189        400677589564        total
+# La frontera con mcu-sim-gui (P-12, fase 1 de su plan de dos procesos): el
+# muestreador y el aplicador sobre una placa minima sin chip, y lo que no gasta
+# tiempo (lo que declara cada pieza, el catalogo, la validacion). El tiempo es
+# la suma de las esperas del propio banco, y por eso es redondo: 26,5 ms. La
+# otra mitad de la prueba de esta fase es la linea de test407, que NO cambio:
+# tiene dentro una frontera construida y sin activar, como `sim` sin `--gui`.
+# Fase 4 (2026-10-01): G9 a G12, el enlace que atiende la conexion en marcha,
+# contra un canal en memoria: 87 -> 114, y 26,5 -> 70,55 ms, que son las
+# esperas de esos grupos. G0 a G8 no cambian.
+# Fase 5 (2026-10-01): G13, las ordenes por el canal -ecos con su instante
+# real, rango con aviso, malformadas, atasco-: 114 -> 126, y 70,55 -> 75,3 ms.
+# En G9 el T_ORDENES que se ignoraba ya no se manda: ahora se aplicaria. G0 a
+# G12 no cambian de tiempo.
+# Fase 6 (2026-10-01): G14, la pausa y los pasos a demanda por el canal: 126
+# -> 136, y 75,3 -> 76,45 ms. En G9 el T_PAUSA que se ignoraba ahora pararia
+# el enlace: lo sustituye un tipo desconocido. Lo demas no cambia de tiempo.
+# 2026-10-03, P-12 k: el pulsador tiene un segundo mando, `rebote_ms`, y cada
+# mando dice en el catalogo lo que vale (`valor`): 136 -> 142 en G1. No gasta
+# tiempo simulado: son consultas. Y el mismo dia, el tercero, `rebotes`, de un
+# tipo nuevo, `discreto`: 142 -> 145. Tampoco gasta tiempo.
+testgui                145        76450000000        total
