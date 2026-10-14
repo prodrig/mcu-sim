@@ -69,8 +69,9 @@ fallos=0
 
 # `testserie` y `testgui` van las ULTIMAS a proposito: son las mas nuevas y
 # las mas baratas (segundos), y si algun dia se colgaran no deberian llevarse
-# por delante el log de las tres que tienen historia.
-for s in test407 test446 test417 testserie testgui; do
+# por delante el log de las tres que tienen historia. `testp4`, el del
+# MSP432P401R (doc/analisis_msp432.md, T1), detras de todas por lo mismo.
+for s in test407 test446 test417 testserie testgui testp4; do
     echo "  [suites] $s (presupuesto ${presupuesto}s)"
 
     # El `echo $?` dentro del subshell es como se recoge el estado a traves de

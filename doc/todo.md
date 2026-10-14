@@ -50,6 +50,11 @@ redactar esta revisión, no solo leído en un informe.
   herramienta externa. Plan de nueve fases en `doc/analisis_puente_serie.md`,
   **las nueve hechas y P-14 cerrado** el 30-09-2026, con la matriz de pruebas
   manuales a medias, aceptada así.
+- **Y un fabricante nuevo** (**P-16**): los MSP432 de Texas Instruments, con
+  el mismo núcleo Cortex-M4F. Plan de nueve fases en
+  `doc/analisis_msp432.md`; **hechas T0 y T1**: la generalización que quita
+  lo que era de ST dentro de lo que es de ARM, sin mover un picosegundo, y el
+  MSP432P401R con su banco, `make testp4`.
 - **Cincuenta y una funciones "bits sin máquina"**: registros que se guardan, se
   enmascaran y se leen correctamente, pero cuya lógica no se ejecuta. Casi todas
   corresponden a caminos que ningún firmware corriente usa, y casi todas están
@@ -421,6 +426,55 @@ que hable TCP, como CoolTerm o PuTTY en modo *Raw*.
 de verdad entre placas; un sistema dentro de otro; cambiar parámetros de piezas
 desde el montaje; y dibujar el sistema en la ventana, para lo que harán falta
 además el tamaño de cada placa y dónde va cada conector.
+### P-16 — Los MSP432 de Texas Instruments: P4 y E4
+
+**Analizado en `doc/analisis_msp432.md`, con un plan de nueve fases (T0-T8).
+HECHAS T0 y T1 el 2026-10-14**, en la rama `msp432`:
+
+* **T0, la generalización neutral.** Ningún invariante se movió ni un
+  picosegundo. El núcleo sabe quién lo integró (`IntegracionNucleo`: el alias
+  de 0x0 y la ventana del PPB del fabricante); los nombres de pin los
+  interpreta el chip (`pins/nomenclatura.h`: `P1.0` es PB0 en un STM32 y el
+  primer pin de un MSP432, y T125 no se toca); `mcu_if` ya no exige un
+  `McuCaps` (`soc/mcu_desc.h`, catálogo común); el `load` de GDB pide la
+  secuencia de Flash al chip (`programador_nv_if`); y el cargador lee ELF
+  (el `.out` de CCS) y TI-TXT.
+* **T1, el MSP432P401R.** El mismo `CortexM4F` con 41 IRQ y 3 bits de
+  prioridad, sin alias y con RSTCTL/SYSCTL en el PPB; Flash principal y de
+  información con un TLV sintético; SRAM con su alias de código; CS (DCO,
+  REFO, VLO, MODOSC, SYSOSC y los dos cristales de la placa), PCM, FLCTL de
+  lectura con estados de espera, WDT_A encendido de fábrica, los cuatro tipos
+  de reset, DIO con P1..P10/PJ sobre pads eléctricos e interrupciones en
+  P1..P6, PMAP, las patillas SWD dedicadas, y un vigilante que avisa si MCLK
+  pasa del tope del VCORE o de los estados de espera. `placas/msp_exp432p401r.xml`.
+  El banco es `make testp4`: **96 comprobaciones, `254192855661 ps`**, con
+  `asanp4` limpio. Una placa con un P4 y un F407 se monta y corre.
+
+**Lo que queda**, con su fase: T2 (programar la Flash y el `load` de GDB),
+T3 (periféricos de aula), T4 (la ROM de DriverLib), T5 (OpenOCD y BSL),
+T6-T7 (el MSP432E401Y) y T8 (el resto de la familia). Y lo que T1 deja
+dicho, con la letra con la que lo cita el código:
+
+| | Qué | Por qué |
+| :--- | :--- | :--- |
+| **a** | Programar y borrar la Flash por el FLCTL; el `load` de GDB | T2. Una escritura en la Flash se IGNORA y avisa una vez; el stub de GDB contesta error con su motivo (`ProgramadorP4Pendiente`) |
+| **b** | La ROM de DriverLib en 0x0200_0000 | T4. Hoy da error de bus y avisa: un firmware con `MAP_`/`ROM_` no corre |
+| **c** | Estados de espera de la Flash por VCORE | **Discrepancia resuelta**: el `system_msp432p401r.c` del port de mbed dice «BANK0 VCORE1 max is 16 MHz» por estado; SLAA668A (2017, posterior) da 24/48 MHz con 0/1 en VCORE1. Se sigue a SLAA668A |
+| **d** | HWREV = 0x43 ('C') en el TLV | [1F] Sin segunda fuente a mano |
+| **e** | Valores de reset del FLCTL (POWER_STAT, WEPROT) y los búferes de lectura | [1F] TRM. Los búferes se modelan como una línea de 128 bits por banco y tipo, sin el *prefetch* del silicio |
+| **f** | El TLV es SINTÉTICO | Estructura de `TLV_Type` [H] y etiquetas de `sysctl.h` [SDK 3.40]; calibraciones elegidas (FCAL = 400, K = 1/632) y suma de comprobación a 0. `limitaciones()` lo dice |
+| **g** | CS: valores de reset, arranque de los cristales, conmutación | [1F] TRM para los valores de reset. LFXT arranca en 5 ms y HFXT en 0,5 ms (modelo: el de 32 kHz tarda cientos de ms en el silicio). Sin contador de faltas (CTL3), sin pin DCOR (DCORES usa la calibración ER del TLV), sin tiempos de conmutación, sin efecto de CLKEN y sin la IRQ del CS |
+| **h** | PCM: reglas de transición, tiempos, bajo consumo | Las reglas salen del ejemplo de SLAA668A y de que TI pide ir por pasos; la lista completa del TRM no está contrastada. 20 µs (tensión) y 10 µs (regulador) de PMR_BUSY, de modelo. LPM3/LPM4/LPMx.5 no se modelan; sin la IRQ del PCM |
+| **i** | WDT_A: 0x6904 de reset; qué reinicia un reset blando | [1F] TRM. El modelo no reinicia el WDT_A en un reset blando |
+| **j** | Qué fuente es qué bit de HARDRESET/SOFTRESET_STAT | [1F] tabla de SLAS826; DriverLib no las nombra. LOCKUP no está conectado |
+| **k** | DIO: RPULL 30 kΩ, 50/12 Ω de salida, alta corriente en P2.0-P2.3; PMAP | [1F] datasheet. Escribir IES no levanta IFG (sí en el MSP430). Los valores por omisión del PMAP no están: llegan con los periféricos (T3). Un pin en función de periférico se queda en alta impedancia y avisa |
+| **l** | Reset: pull-up de RSTn (47 kΩ), pulso de 20 µs, código de arranque | [1F] el pull-up. El pulso es el mínimo del RCC de los STM32 y por la misma razón (el cuanto de 1 µs de la CPU; con 1 µs se perdían los resets que pide la propia CPU). El código de arranque de TI no se ejecuta: ni buzón, ni BSL, ni bloqueo de JTAG |
+| **m** | SRAM_BANKEN | Se guarda (habilitar el banco n habilita los de debajo) pero no apaga ningún banco |
+
+Y una que no es del P4 sino del núcleo compartido: el SysTick con
+`CLKSOURCE = 0` cuenta FCLK/8, que es la integración de ST; la referencia
+externa del P4 no está contrastada.
+
 ---
 
 ## 3. Funciones no modeladas — "bits sin máquina" (F)

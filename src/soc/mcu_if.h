@@ -47,6 +47,7 @@ namespace stm32 {
 
 class NodeMap;
 class Cableado;   // pins/pin_mux.h
+class programador_nv_if;   // common/gdb_rsp.h
 
 class mcu_if {
 public:
@@ -94,6 +95,10 @@ public:
     // dice si existe; encenderlo cuando no lo hay no es un error, es un no-op.
     virtual bool tiene_gdb_interno() const = 0;
     virtual void gdb_interno(bool activo, bool traza) = 0;
+    // La secuencia con la que un stub de GDB programa la Flash de este chip
+    // (T0). nullptr: la de omisión, la del STM32F405/407. La usa el stub de
+    // PINES, que `sim` construye por fuera del chip; el interno ya la tiene.
+    virtual programador_nv_if* programador() { return nullptr; }
 
     // --- 6. Lo que este modelo TODAVIA no hace ------------------------------
     //

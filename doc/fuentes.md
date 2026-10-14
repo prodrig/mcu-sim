@@ -119,6 +119,24 @@ de método sigue en pie y hay que seguir comparando dentro de una misma versión
 pero esta vez la mezcla **no causó daño**, y eso ahora está **medido** en vez de
 supuesto.
 
+## 2 bis. Las del MSP432 (P-16), y la etiqueta con la que las cita el código
+
+El código del MSP432P4 (`soc/msp432p4/`, `periph/msp432p4/`) cita así; lo que
+solo tiene una fuente lleva **[1F]** y su subpunto de P-16 en `doc/todo.md`.
+
+| Etiqueta | Qué | Dónde |
+| :--- | :--- | :--- |
+| `[H]` | `msp432p401r.h`, la cabecera CMSIS de TI (2017-12-06, versión 3230 de la cabecera) | **Versionada**, `src/verif/fw/msp432p4/ti/`. Tomada del port de mbed de Andreas Terstegge (`github.com/Terstegge/mbed-os-MSP432`), que la incluye sin tocar |
+| `[SA]` | SLAA668A, «Getting Started with MSP432P4xx» (TI, marzo 2017): VCORE y estados de espera, tabla 2 | `ti.com/lit/an/slaa668a` |
+| `[SYS]` | `system_msp432p401r.c` (del mismo port; derivado del de TI): VLO, REFO, MODOSC, SYSOSC y la fórmula del DCO | No versionado |
+| `[OO]` | OpenOCD, `src/flash/nor/msp432.c` (GPL-2.0, solo como referencia: no se copia código) | `openocd.org/doc/doxygen/html/msp432_8c_source.html` |
+| — | DriverLib del SDK SimpleLink MSP432P4 3.40: `rom.h` (`ROM_APITABLE`), `sysctl.h` (etiquetas del TLV), `reset.h` | `software-dl.ti.com/simplelink/esd/simplelink_msp432_sdk/3.40.00.05/docs/` |
+
+**Pendientes de bajar a `doc/refs/`, sin versionar:** SLAU356 (TRM del
+MSP432P4), SLAS826 (datasheet del P401R), SLAU622 (BSL), SLAU723 (TRM del
+E4). La red de este entorno pide permiso para `ti.com` y no se pudo leer el
+datasheet completo: de ahí buena parte de los **[1F]**.
+
 ## 3. Lo que se ha citado y NO está aquí
 
 | Etiqueta | Documento | Por qué falta | De dónde se baja |

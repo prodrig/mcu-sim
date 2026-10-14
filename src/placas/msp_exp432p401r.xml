@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MSP-EXP432P401R: la LaunchPad roja de Texas Instruments (fase T1 del MSP432)
+
+     Lo que lleva la placa aparte del chip y que el modelo ya sabe hacer:
+
+         LED1  rojo, en P1.0, a masa por su resistencia
+         LED2  RGB: rojo en P2.0, verde en P2.1 y azul en P2.2. Son pines de
+               ALTA CORRIENTE: con P2DS a 1 dan unos 20 mA
+         S1    pulsador en P1.1, a MASA. La placa no lleva resistencia: el
+               nivel alto lo da el pull-up interno (P1REN = 1 con P1OUT = 1)
+         S2    pulsador en P1.4, igual
+         S3    RESET, en RSTN: el nivel alto lo da el pull-up de la patilla
+         Y1    cristal de 32 768 Hz en PJ.0/PJ.1 (LFXT)
+         Y2    cristal de 48 MHz en PJ.2/PJ.3 (HFXT)
+
+     Lo que NO esta todavia:
+
+       * el XDS110-ET, la sonda de la placa. Aqui se depura con el stub de GDB
+         (depuracion="dap") o con la sonda SWD por SWCLKTCK/SWDIOTMS
+         (depuracion="pines"), igual que en los STM32;
+       * su puerto serie de vuelta (backchannel UART), que va a la eUSCI_A0 en
+         P1.2/P1.3: la eUSCI llega en T3, y con ella el PuenteSerie;
+       * los conectores BoosterPack (J1-J4).
+
+         ./build/mcu-sim placas/msp_exp432p401r.xml --valida
+         ./build/mcu-sim placas/msp_exp432p401r.xml verif/fw/msp432p4/blinky/blinky.out 600
+-->
+<placa nombre="msp-exp432p401r">
+  <mcu tipo="MSP432P401R" id="u0"/>
+
+  <componente tipo="Led" id="LED1" a_vss="si" vf="2.0" r="470">
+    <pin nombre="anodo" nodo="P1.0"/>
+  </componente>
+  <componente tipo="Led" id="LED2_R" a_vss="si" vf="2.0" r="220">
+    <pin nombre="anodo" nodo="P2.0"/>
+  </componente>
+  <componente tipo="Led" id="LED2_G" a_vss="si" vf="2.2" r="220">
+    <pin nombre="anodo" nodo="P2.1"/>
+  </componente>
+  <componente tipo="Led" id="LED2_B" a_vss="si" vf="2.8" r="220">
+    <pin nombre="anodo" nodo="P2.2"/>
+  </componente>
+
+  <componente tipo="Button" id="S1" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="P1.1"/>
+  </componente>
+  <componente tipo="Button" id="S2" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="P1.4"/>
+  </componente>
+
+  <!-- RESET: RSTN tiene dos que tiran de el, el pull-up de la patilla y el
+       boton, y por eso bus="si". -->
+  <nodo id="RSTN" bus="si"/>
+  <componente tipo="Button" id="S3" r_cerrado="10" rebote="no">
+    <pin nombre="pin" nodo="RSTN"/>
+  </componente>
+
+  <componente tipo="Crystal" id="Y1" vdd="3.3">
+    <pin nombre="osc_in" nodo="PJ.0"/>
+  </componente>
+  <componente tipo="Crystal" id="Y2" vdd="3.3">
+    <pin nombre="osc_in" nodo="PJ.3"/>
+  </componente>
+</placa>

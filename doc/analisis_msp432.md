@@ -18,6 +18,19 @@ estructura. La diferencia de fondo entre los dos casos explica casi todo lo que
 sigue: **en el ESP32 cambia la arquitectura, y aquí solo cambia el
 fabricante.**
 
+> **Estado (2026-10-14, rama `msp432`): hechas T0 y T1.** Ningún invariante
+> de las cinco suites se movió al hacer T0. El MSP432P401R arranca, cambia de
+> reloj, avisa de lo que el silicio no avisa, resetea por sus cuatro caminos y
+> corre CoreMark; su banco es `make testp4` (96 comprobaciones,
+> `254192855661 ps`). Lo que T1 deja pendiente, con su letra, está en **P-16**
+> de `doc/todo.md`.
+>
+> Dos cosas aprendidas al hacerlo, que el plan no decía: el pulso de reset
+> tiene que durar más que el cuanto de la CPU (20 µs, como el RCC de los
+> STM32), o los resets que pide el propio firmware se pierden; y el `.out` de
+> CCS es un ELF con la ruta absoluta de quien compila en su DWARF, así que su
+> huella solo es estable con `-ffile-prefix-map`.
+
 ---
 
 ## 0. Resumen

@@ -10,6 +10,7 @@ veintinueve referencias** montables:
 | **STM32F405 / F407** | once, del LQFP64 al UFBGA176 | `src/top/soc_f4.h` + su descriptor |
 | **STM32F415 / F417** | diez, las mismas **con el acelerador criptográfico** | el mismo netlist, otro descriptor |
 | **STM32F446** | ocho, del WLCSP81 al UFBGA144 | `src/soc/stm32f446.h` + su descriptor |
+| **MSP432P401R** (Texas Instruments) | una, el LQFP100 de la LaunchPad | `src/soc/msp432p4/` — fase T1 de `doc/analisis_msp432.md` |
 
 Que las diez del F415/F417 sean «el mismo netlist con otro descriptor» es
 exactamente lo que el proyecto quería poder decir: un chip nuevo de una familia
@@ -71,6 +72,7 @@ razón —lo que prueban, dentro de `test407`, movería su invariante—:
 | `make test446` | La del F446RE y sus ocho referencias | **204** | `1033367277932 ps` |
 | `make test417` | La del acelerador criptográfico del F415/F417 | **165** | `718988288 ps` |
 | `make testserie` | La del puente UART: `PuenteSerie`, un F407 con `vcp_demo` y clientes TCP y RFC 2217 de verdad | **189** | `400677589564 ps` |
+| `make testp4` | La del MSP432P401R (P-16, fases T0 y T1): las pruebas de T0 -nombres de pin por chip, catalogo comun, ELF/TI-TXT/HEX, integracion del nucleo- y el chip con `p4_demo` cargado como ELF y CoreMark | **96** | `254192855661 ps` |
 | `make testgui` | La de la frontera con `mcu-sim-gui`: lo que cada pieza deja ver y tocar, el catálogo, el muestreador, el aplicador y el enlace que atiende la conexión en marcha —instantáneas, avisos, órdenes con sus ecos, la pausa y los pasos—, sobre una placa mínima sin chip | **145** | `76450000000 ps` |
 
 **En una máquina nueva no hace falta nada más**: los diecinueve firmwares que
@@ -166,6 +168,8 @@ make -f Makefile.mcu-sim gui-control  # y el control: pausa, paso, parar y ritmo
 make -f Makefile.mcu-sim gui-argumentos  # que --argumentos dice lo que acepta sim (Python)
 make -f Makefile.mcu-sim testserie    # el banco del puente UART, que es OTRO ejecutable
 make -f Makefile.mcu-sim testgui      # el de la frontera con mcu-sim-gui, OTRO mas
+make -f Makefile.mcu-sim testp4       # el del MSP432P401R, y las pruebas de T0
+make -f Makefile.mcu-sim asanp4       # el mismo con ASan + UBSan
 make -f Makefile.mcu-sim asan407      # la misma suite con ASan + UBSan
 make -f Makefile.mcu-sim vectores     # los vectores del CRYP/HASH, sin SystemC
 make -f Makefile.mcu-sim run IMG=fw.bin # carga una imagen y simula

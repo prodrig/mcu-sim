@@ -176,5 +176,65 @@ inline std::string lee_titxt(const std::string& ruta, std::vector<TrozoFw>& t) {
     return std::string();
 }
 
+// Intel HEX, para los chips que no son un STM32 (el STM32 lo lee su propia
+// Flash, `FlashIf::load_ihex_file`, y así sigue). Registros 00 (datos), 01
+// (fin), 02 (segmento), 04 (dirección alta); 03 y 05 se aceptan y se ignoran.
+inline std::string lee_ihex(const std::string& ruta, std::vector<TrozoFw>& t) {
+    using namespace detalle_fw;
+    t.clear();
+    std::vector<uint8_t> f;
+    if (!lee_todo(ruta, f)) return "no se puede leer " + ruta;
+    const std::string s(f.begin(), f.end());
+    uint32_t alta = 0;
+    unsigned linea = 0;
+    size_t i = 0;
+    bool fin = false;
+    while (i < s.size() && !fin) {
+        size_t e = s.find('\n', i);
+        if (e == std::string::npos) e = s.size();
+        std::string l = s.substr(i, e - i);
+        i = e + 1;
+        ++linea;
+        while (!l.empty() && (l.back() == '\r' || l.back() == ' ')) l.pop_back();
+        if (l.empty()) continue;
+        const std::string donde = ruta + ":" + std::to_string(linea) + ": ";
+        if (l[0] != ':' || l.size() < 11 || (l.size() % 2) == 0)
+            return donde + "no es un registro Intel HEX";
+        std::vector<uint8_t> b;
+        for (size_t k = 1; k + 1 < l.size(); k += 2) {
+            const int h = hexval(l[k]), lo = hexval(l[k + 1]);
+            if (h < 0 || lo < 0) return donde + "cifra hexadecimal mala";
+            b.push_back(uint8_t(h * 16 + lo));
+        }
+        uint8_t suma = 0;
+        for (uint8_t x : b) suma = uint8_t(suma + x);
+        if (suma != 0) return donde + "suma de comprobacion mala";
+        const unsigned n = b[0];
+        if (b.size() != n + 5u) return donde + "longitud del registro mala";
+        const uint32_t dir = (uint32_t(b[1]) << 8) | b[2];
+        switch (b[3]) {
+            case 0x00: {
+                const uint32_t a = alta + dir;
+                if (!t.empty() && t.back().dir + t.back().datos.size() == a)
+                    t.back().datos.insert(t.back().datos.end(), b.begin() + 4, b.begin() + 4 + n);
+                else {
+                    TrozoFw tr;
+                    tr.dir = a;
+                    tr.datos.assign(b.begin() + 4, b.begin() + 4 + n);
+                    t.push_back(std::move(tr));
+                }
+                break;
+            }
+            case 0x01: fin = true; break;
+            case 0x02: alta = ((uint32_t(b[4]) << 8) | b[5]) << 4;  break;
+            case 0x04: alta = ((uint32_t(b[4]) << 8) | b[5]) << 16; break;
+            case 0x03: case 0x05: break;
+            default: return donde + "tipo de registro desconocido";
+        }
+    }
+    if (t.empty()) return ruta + ": el fichero Intel HEX no tiene datos";
+    return std::string();
+}
+
 } // namespace stm32
 #endif // STM32_COMMON_IMAGEN_FW_H

@@ -74,6 +74,7 @@ las mismas carpetas: es lo que piden al redistribuir en forma objeto.
 | :--- | :--- | :--- |
 | Cabeceras CMSIS-Core y de dispositivo de ST (`stm32f4xx.h` y familia) | `src/verif/fw/cmsis/` | `LICENSE-CMSIS-Core.md` y `LICENSE-cmsis_device_f4.md`, en la misma carpeta |
 | CoreMark (EEMBC) | `src/verif/fw/coremark/` | `LICENSE.md`, en la misma carpeta |
+| Cabeceras de dispositivo de Texas Instruments (`msp432p401r.h`, `msp_compatibility.h`) | `src/verif/fw/msp432p4/ti/` | BSD de tres cláusulas: `LICENSE-TI.md`, en la misma carpeta. Compatible con la AGPLv3 en esta dirección, como el Apache-2.0 de ST |
 
 De CoreMark hay que saber una cosa más: **sus reglas prohíben publicar una
 puntuación como «CoreMark» sin seguir su procedimiento de comunicación**. Aquí
@@ -82,7 +83,7 @@ tiempo simulado sea comparable entre máquinas (T-22 en `doc/todo.md`), y la
 cifra que el proyecto vigila es el reloj del simulador, no una marca de
 rendimiento del silicio.
 
-## 5. Los manuales de ST y de ARM
+## 5. Los manuales de ST, de TI y de ARM
 
 No están en el repositorio, y no por tamaño. Están en `doc/refs/`, excluida por
 `.gitignore`, junto con los informes técnicos internos que se escribieron

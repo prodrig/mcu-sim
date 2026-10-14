@@ -121,6 +121,7 @@
 #include "../parts/enlace_gui.h"
 #include "../soc/stm32f4_mcu.h"
 #include "../soc/stm32f446.h"
+#include "../soc/msp432p4/msp432p4_mcu.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -456,6 +457,8 @@ SC_MODULE(Sim) {
                           "depuracion=\"pines\" no tiene de donde colgarse");
                 m.stub = new GdbStub(snm.c_str(), *swclk, *swdio,
                                      d.puerto_gdb, 2e6);
+                // Y la secuencia de Flash de ESE chip (nullptr: la del F407).
+                m.stub->pon_programador(m.mcu->programador());
                 m.stub->set_enabled(false);      // se abre al arrancar, no aquí
             }
             if (d.puerto_gdb) hay_stub = true;
