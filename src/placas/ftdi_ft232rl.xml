@@ -63,8 +63,8 @@
   <componente tipo="Fuente" id="REG_3V3" v="3.3" limite_ma="50" visible="no">
     <pin nombre="pin" nodo="JP1.3.3V"/>
   </componente>
-  <nodo id="GND" visible="no"/>
-  <componente tipo="Gnd" id="MASA">
+  <nodo id="GND"/>
+  <componente tipo="Gnd" id="MASA" visible="no">
     <pin nombre="pin" nodo="GND"/>
   </componente>
 
