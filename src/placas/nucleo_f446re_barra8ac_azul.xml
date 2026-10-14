@@ -43,9 +43,9 @@
              --serie N/VCP=memoria --serie F/U1=memoria
      ========================================================================= -->
 <sistema nombre="nucleo-f446re-barra8ac-azul">
-  <placa id="N" fichero="nucleo_f446re.xml"/>
-  <placa id="B" fichero="barra8_anodo_comun_azul.xml"/>
-  <placa id="F" fichero="ftdi_ft232rl.xml"/>
+  <placa id="N" fichero="nucleo_f446re.xml" x="0" y="0"/>
+  <placa id="B" fichero="barra8_anodo_comun_azul.xml" x="123" y="32" escala="2" giro="90"/>
+  <placa id="F" fichero="ftdi_ft232rl.xml" x="120" y="9" escala="1.25"/>
 
   <hilo a="B/P1.D1"  b="N/CN7.38"/>    <!-- PC0 -->
   <hilo a="B/P1.D2"  b="N/CN7.36"/>    <!-- PC1 -->
@@ -62,7 +62,9 @@
   <hilo a="F/P1.GND" b="N/CN10.20"/>   <!-- masa -->
 
   <!-- En la ventana, cada hilo en tramos rectos (doc/parts.md 2.6) -->
-  <ruta linea="hilo B/P1.COM N/CN7.5" eje="h" codos="48"/>
+
+  <mcu ref="N/u0" firmware="verif/fw/barra8_morpho/barra8_morpho.bin"/>
+  <ruta linea="hilo B/P1.COM N/CN7.5" eje="h" codos="21"/>
   <ruta linea="hilo B/P1.D1 N/CN7.38" eje="h" codos="39"/>
   <ruta linea="hilo B/P1.D2 N/CN7.36" eje="h" codos="43"/>
   <ruta linea="hilo B/P1.D3 N/CN7.35" eje="h" codos="20"/>
@@ -71,9 +73,7 @@
   <ruta linea="hilo B/P1.D6 N/CN10.30" eje="h" codos="110"/>
   <ruta linea="hilo B/P1.D7 N/CN10.28" eje="h" codos="107"/>
   <ruta linea="hilo B/P1.D8 N/CN10.26" eje="h" codos="113"/>
-  <ruta linea="hilo F/P1.GND N/CN10.20" eje="h" codos="105"/>
-  <ruta linea="hilo F/P1.RX N/CN10.21" eje="v" codos="15 115 63"/>
-  <ruta linea="hilo F/P1.TX N/CN10.33" eje="v" codos="19 117 78"/>
-
-  <mcu ref="N/u0" firmware="verif/fw/barra8_morpho/barra8_morpho.bin"/>
+  <ruta linea="hilo F/P1.GND N/CN10.20" eje="h" codos="78"/>
+  <ruta linea="hilo F/P1.RX N/CN10.21" eje="v" codos="15 110 63"/>
+  <ruta linea="hilo F/P1.TX N/CN10.33" eje="v" codos="19 118 78"/>
 </sistema>

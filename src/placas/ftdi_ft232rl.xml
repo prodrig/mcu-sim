@@ -57,10 +57,10 @@
 
   <!-- Lo que llega a cada extremo del jumper: los 5 V del USB y los 3,3 V
        del regulador del FT232RL (3V3OUT), cada uno con lo que da -->
-  <componente tipo="Fuente" id="USB_5V" v="5.0" limite_ma="500">
+  <componente tipo="Fuente" id="USB_5V" v="5.0" limite_ma="500" visible="no">
     <pin nombre="pin" nodo="JP1.5V"/>
   </componente>
-  <componente tipo="Fuente" id="REG_3V3" v="3.3" limite_ma="50">
+  <componente tipo="Fuente" id="REG_3V3" v="3.3" limite_ma="50" visible="no">
     <pin nombre="pin" nodo="JP1.3.3V"/>
   </componente>
   <nodo id="GND"/>
