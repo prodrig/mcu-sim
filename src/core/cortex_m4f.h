@@ -47,6 +47,50 @@ struct DebugCaps {
 inline constexpr DebugCaps DBG_PINES  { DebugAttach::Pines,   0    };
 inline constexpr DebugCaps DBG_INTERNO{ DebugAttach::Interno, 3333 };
 
+// =============================================================================
+// La INTEGRACIÓN del núcleo: lo que decide el fabricante y no es de ARM
+//
+// `CoreCaps` dice cómo es el núcleo -cuántas IRQ, cuántos bits de prioridad-.
+// Esto dice otra cosa: qué ha puesto el FABRICANTE alrededor de él, en dos
+// sitios que hasta T0 estaban escritos como si todo Cortex-M fuera de ST
+// [doc/analisis_msp432.md, §1.2 y §3.2]:
+//
+//   * EL ALIAS DE ARRANQUE. En un STM32 la dirección 0x0 es un ESPEJO que
+//     BOOT0/SYSCFG_MEMRMP apuntan a la Flash (0x0800_0000), a la System Memory
+//     o a la SRAM. En un MSP432 la Flash ESTÁ en 0x0, y no hay espejo: aplicar
+//     el del STM32 mandaría la búsqueda del vector de reset a 0x0800_0000.
+//
+//   * LA VENTANA DEL PPB QUE ES DEL CHIP. El PPB (0xE000_0000-0xE00F_FFFF) es
+//     de ARM, pero ARMv7-M deja un hueco para el fabricante. ST pone ahí su
+//     DBGMCU (0xE004_2000), y este modelo lo atiende dentro de `DebugSys`. TI
+//     pone ahí registros DEL CHIP: RSTCTL en 0xE004_2000 -el mismo sitio- y
+//     SYSCTL en 0xE004_3000, que es de donde OpenOCD lee el tamaño de la
+//     Flash. Esa ventana la atiende el SoC, a través de `ppb_fabricante_if`.
+//
+// El valor por omisión es el de ST, y con él el núcleo hace EXACTAMENTE lo de
+// siempre: el alias se aplica y la ventana está vacía. Es la condición de T0:
+// ninguna suite mueve un picosegundo.
+// =============================================================================
+class ppb_fabricante_if {
+public:
+    virtual ~ppb_fabricante_if() = default;
+    // Un acceso a la ventana del PPB que el fabricante reservó para el chip.
+    // Lo atiende el SoC como lo haría su bus de periféricos.
+    virtual void b_transport_ppb(tlm::tlm_generic_payload& gp,
+                                 sc_core::sc_time& t) = 0;
+};
+
+struct IntegracionNucleo {
+    bool     alias_arranque;   // ¿0x0 es un espejo (ST) o la propia Flash (TI)?
+    uint32_t ppb_fab_base;     // [base, fin) del PPB que atiende el SoC
+    uint32_t ppb_fab_fin;      // base == fin: no hay ventana (ST)
+    bool en_ppb_fab(uint64_t a) const {
+        return a >= ppb_fab_base && a < ppb_fab_fin;
+    }
+};
+// ST: el espejo de BOOT0 y el DBGMCU dentro de `DebugSys`.
+inline constexpr IntegracionNucleo INTEGRACION_ST{ true, 0, 0 };
+
 SC_MODULE(CortexM4F) {
     // --- Puertos de bus hacia el sistema (los conecta el top) ---------------
     tlm_utils::simple_initiator_socket<CortexM4F> icode{"icode"};   // matriz M0
@@ -90,15 +134,22 @@ SC_MODULE(CortexM4F) {
     // Es lo que hace que este mismo modulo sirva para otro chip del mismo
     // nucleo sin tocar una linea. [core/core_caps.h]
     const CoreCaps nucleo;
+    // Lo que el fabricante puso alrededor: el alias de 0x0 y la ventana del
+    // PPB que es del chip. Por omisión, ST. [IntegracionNucleo, arriba]
+    const IntegracionNucleo integracion;
+    // Quién atiende esa ventana. Lo pone el SoC tras construir el núcleo; un
+    // acceso a la ventana sin nadie que la atienda es un error de bus.
+    ppb_fabricante_if* ppb_fab = nullptr;
 
     // `ram` solo se usa para UNA cosa: saber donde esta la CCM, que es la unica
     // memoria que cuelga del nucleo y no de la matriz. Un chip sin ella -el
     // F446- pasa un mapa con tamano cero y el camino directo desaparece.
     explicit CortexM4F(sc_core::sc_module_name nm, DebugCaps c = DBG_PINES,
                        CoreCaps n = CORE_STM32F407VG,
-                       MapaRam ram = RAM_STM32F407VG)
+                       MapaRam ram = RAM_STM32F407VG,
+                       IntegracionNucleo ig = INTEGRACION_ST)
         : sc_core::sc_module(nm), irq_in("irq_in", n.n_irq), scs("scs", n),
-          caps(c), nucleo(n) {
+          caps(c), nucleo(n), integracion(ig) {
         ccm_base_ = ram.ccm_base;
         ccm_size_ = ram.ccm_size;
         // Sin SC_HAS_PROCESS: este módulo no declara ningún proceso propio -sus
@@ -233,6 +284,11 @@ private:
         if (is_ccm(a))       { ccm->b_transport(gp, t); return; }
         if (is_ppb(a)) {
             if (is_scs(a))   scs_isk_->b_transport(gp, t);
+            else if (integracion.en_ppb_fab(a)) {
+                // La parte del PPB que es del chip (TI: RSTCTL, SYSCTL)
+                if (ppb_fab) ppb_fab->b_transport_ppb(gp, t);
+                else gp.set_response_status(tlm::TLM_ADDRESS_ERROR_RESPONSE);
+            }
             else             dbg_isk_->b_transport(gp, t);
             return;
         }
@@ -242,6 +298,9 @@ private:
 
     // Aplica el alias de 0x0000 0000 (BOOT/SYSCFG_MEMRMP) [IR, §2.3, §12.21.2].
     uint64_t remap(uint64_t a) const {
+        // Sin espejo (TI): la Flash está en 0x0 y la dirección es la que es.
+        // `boot_mode` sigue atado -la elaboración es estática- pero no se lee.
+        if (!integracion.alias_arranque) return a;
         return (a < 0x00100000ull) ? apply_boot_alias(uint32_t(a), boot_mode.read())
                                    : a;
     }

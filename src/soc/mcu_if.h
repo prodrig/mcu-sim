@@ -41,7 +41,7 @@
 #include <vector>
 #include "../common/analog_net.h"
 #include "../core/cortex_m4f.h"   // DebugCaps
-#include "../top/mcu_caps.h"
+#include "mcu_desc.h"
 
 namespace stm32 {
 
@@ -52,8 +52,11 @@ class mcu_if {
 public:
     virtual ~mcu_if() = default;
 
-    // Qué chip es. De aquí salen su encapsulado, su memoria y sus topes.
-    virtual const McuCaps& caps() const = 0;
+    // Qué chip es: su nombre, su familia y su encapsulado. Lo demás -memoria,
+    // reloj, periféricos- es del descriptor de SU familia, y lo sabe él.
+    // (Hasta T0 era `const McuCaps& caps()`, el descriptor de los STM32F4; un
+    // adaptador de ST lo sigue ofreciendo, en `McuF4`.)
+    virtual const McuDesc& desc() const = 0;
 
     // --- 1. Los nodos -------------------------------------------------------
     // `prefijo` vacío deja los nombres desnudos (`PD12`), que es lo que hace
@@ -62,6 +65,12 @@ public:
 
     // --- 2. El nodo de un pad ----------------------------------------------
     virtual analog_net_if& nodo_analogico(unsigned puerto, unsigned pin) = 0;
+    // Los dos por donde se engancha una sonda SWD de fuera: SWCLK y SWDIO. En
+    // un STM32 son PA14 y PA13, pads de puerto con la función AF0; en un
+    // MSP432P4 son patillas DEDICADAS, que no son de ningún puerto. Por eso
+    // los dice el chip y no `sim` (T0). nullptr: este chip no los saca.
+    virtual analog_net_if* nodo_swclk() { return &nodo_analogico(0, 14); }
+    virtual analog_net_if* nodo_swdio() { return &nodo_analogico(0, 13); }
 
     // --- 3. La alimentación -------------------------------------------------
     // El orden importa y es el de la placa real: primero todo a cero con NRST
@@ -115,7 +124,7 @@ public:
     // nombre de instancia, rasgos de depuración, cableado de nodos compartidos
     // y el descriptor del chip.
     using Creador = std::function<mcu_if*(const char* nm, DebugCaps,
-                                          const Cableado&, const McuCaps&)>;
+                                          const Cableado&, const McuDesc&)>;
 
     static void registra(const std::string& familia, Creador c) {
         mapa()[familia] = std::move(c);
@@ -132,10 +141,10 @@ public:
     // Construye el chip que pide el descriptor, o devuelve nullptr si su
     // familia no está registrada. NUNCA construye otra cosa en su lugar: eso
     // sería montar un F407 donde el usuario escribió un F446.
-    static mcu_if* crea(const McuCaps& caps, const char* nm, DebugCaps dbg,
+    static mcu_if* crea(const McuDesc& d, const char* nm, DebugCaps dbg,
                         const Cableado& cab) {
-        const Creador* c = busca(caps.familia);
-        return c ? (*c)(nm, dbg, cab, caps) : nullptr;
+        const Creador* c = busca(d.familia);
+        return c ? (*c)(nm, dbg, cab, d) : nullptr;
     }
 
     static std::vector<std::string> familias() {
@@ -154,8 +163,9 @@ private:
 // Auto-registro, en el ámbito de fichero:
 //
 //   REGISTRA_MCU(STM32F4, [](const char* nm, DebugCaps d, const Cableado& c,
-//                            const McuCaps& caps) -> mcu_if* {
-//       return new AdaptadorStm32F4(nm, d, c, caps);
+//                            const McuDesc& desc) -> mcu_if* {
+//       return new AdaptadorStm32F4(nm, d, c,
+//                                   *static_cast<const McuCaps*>(desc.propio));
 //   });
 //
 // El argumento es el nombre de la FAMILIA, sin comillas.

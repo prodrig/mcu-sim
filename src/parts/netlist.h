@@ -81,6 +81,15 @@ inline bool alim_desde_nombre(const std::string& s, std::string& mcu,
             alim = n;
             return true;
         }
+    // Y los de un chip con nomenclatura propia (T0): `DVCC`, `RSTN` en un
+    // MSP432P4. Solo con el contexto activo; sin él, lo de siempre.
+    const ContextoNomenclatura& c = ContextoNomenclatura::g();
+    if (!c.activo()) return false;
+    if (p == 0) return false;
+    const std::string pre = p == std::string::npos ? std::string() : s.substr(0, p);
+    if (const Nomenclatura* nm = c.para(pre))
+        for (const char* const* a = nm->alim; a && *a; ++a)
+            if (n == *a) { mcu = pre; alim = n; return true; }
     return false;
 }
 

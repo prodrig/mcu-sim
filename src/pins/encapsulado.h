@@ -33,9 +33,15 @@
 
 namespace stm32 {
 
-// Los nueve puertos del silicio, A..I. No depende del encapsulado: es lo que
-// hay dentro del chip, y el encapsulado decide cuánto de ello se ve.
-constexpr unsigned N_PUERTOS_SILICIO = 9;
+// Los puertos del silicio. No depende del encapsulado: es lo que hay dentro del
+// chip, y el encapsulado decide cuánto de ello se ve. En un STM32F4 son nueve,
+// A..I, y las entradas de más valen NINGUNO en todos sus encapsulados.
+//
+// Desde T0 son ONCE porque el MSP432P4 tiene once: P1..P10 y PJ, que su
+// nomenclatura numera 0..10 [pins/nomenclatura.h]. Es una tabla de máscaras y
+// no un recurso del modelo: crecer de 9 a 11 no construye ni un pad más en un
+// STM32, cuyo `PinMux` sigue dimensionado con N_GPIO_PORTS.
+constexpr unsigned N_PUERTOS_SILICIO = 11;
 
 struct Encapsulado {
     const char* nombre;        // "LQFP100", "UFBGA176"...

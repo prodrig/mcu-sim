@@ -190,6 +190,39 @@ inline std::string cualifica(const ContextoPlaca& cx, const std::string& n,
     return std::string();
 }
 
+// ---------------------------------------------------------------------------
+// CON QUÉ NOMENCLATURA SE LEEN LOS NOMBRES DE ESTA PLACA (T0)
+//
+// Los nombres se canonizan al leerlos, y para eso hay que saber de qué chip es
+// cada uno: `P1.0` es PB0 en un STM32 y el primer pin del primer puerto en un
+// MSP432. Se decide aquí, ANTES de leer un solo nodo, con los <mcu> de la placa
+// y el `--mcu` de la línea de órdenes, que manda sobre el tipo de una placa con
+// uno o ningún chip. Si todos los chips siguen la regla de ST el contexto queda
+// inactivo y la lectura es la de siempre. [pins/nomenclatura.h]
+// ---------------------------------------------------------------------------
+inline void fija_nomenclatura_placa(const XmlNodo& raiz, const ContextoPlaca& cx) {
+    ContextoNomenclatura& c = ContextoNomenclatura::g();
+    if (!cx.en_sistema()) c.limpia();        // el sistema limpia una vez, al entrar
+    std::vector<std::pair<std::string, std::string>> mcus;   // id, tipo
+    for (const XmlNodo& h : raiz.hijos)
+        if (h.nombre == "mcu") mcus.emplace_back(h.attr_o("id"), h.attr_o("tipo"));
+    const std::string& om = c.tipo_por_omision();
+    if (!om.empty() && mcus.size() <= 1 && !cx.en_sistema()) {
+        if (mcus.empty()) mcus.emplace_back(std::string(), om);
+        else              mcus[0].second = om;
+    }
+    const Nomenclatura* desnudo = nullptr;
+    for (const auto& m : mcus) {
+        const Nomenclatura* n = c.de_tipo(m.second);
+        if (!m.first.empty()) {
+            c.fija(m.first, n);
+            if (cx.en_sistema()) c.fija(cx.id + "/" + m.first, n);
+        }
+        if (mcus.size() == 1) desnudo = n;
+    }
+    c.fija_desnudo(desnudo);
+}
+
 // Rellena `nl` a partir del árbol ya analizado. Devuelve "" si todo bien, o el
 // primer problema con su línea. `cx` dice si la placa es una de un <sistema>.
 // En `ilus`, si se pide, lo que la placa dice de su dibujo: el fichero tal
@@ -207,6 +240,7 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
     if (raiz.nombre != "placa")
         return donde(raiz) + "el elemento raiz es <" + raiz.nombre +
                ">, se esperaba <placa> o <sistema>";
+    fija_nomenclatura_placa(raiz, cx);
     if (nombre_placa) *nombre_placa = raiz.attr_o("nombre", "placa");
     // Los atributos de la raíz: hasta el dibujo se aceptaba cualquiera y se
     // ignoraba en silencio, que es justo lo que hace que una errata no se vea
@@ -527,6 +561,9 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
         return std::string(pos);
     };
     if (nombre) *nombre = raiz.attr_o("nombre", "sistema");
+    // Las nomenclaturas de las placas se van sumando, una por placa, con su
+    // prefijo cualificado (`A/u0`). Se empieza de cero aquí. [T0]
+    ContextoNomenclatura::g().limpia();
     for (const auto& a : raiz.attrs)
         if (a.first != "nombre" && a.first != "lienzo")
             return donde(raiz) + "<sistema>: atributo desconocido: " + a.first;

@@ -133,7 +133,9 @@ static std::string mayus(std::string s) {
     for (char& c : s) if (c >= 'a' && c <= 'z') c = char(c - 'a' + 'A');
     return s;
 }
-static std::string tipos_como_texto() { return mcus_como_texto(); }
+// Desde T0, el catalogo COMUN: los STM32 de `top/mcu_caps.h` y los de las
+// familias que se dan de alta solas (`soc/mcu_desc.h`).
+static std::string tipos_como_texto() { return CatalogoMcu::como_texto(); }
 
 // Y las FAMILIAS que este ejecutable sabe construir, que es otra cosa: el
 // catálogo dice qué chips existen, y la factoría dice de cuáles hay modelo.
@@ -306,6 +308,9 @@ SC_MODULE(Sim) {
 
     SC_CTOR(Sim) {
         // --- 1. Leer. No construye nada: devuelve datos ---------------------
+        // `--mcu` decide tambien como se leen los nombres de pin de la placa
+        // (T0): `P1.0` es PB0 en un STM32 y el primer pin de un MSP432P4.
+        ContextoNomenclatura::g().pon_tipo_por_omision(g_tipo_mcu);
         const std::string e = placa_o_sistema_desde_fichero(placa, g_placa, &g_nombre);
         if (!e.empty()) muere("error de netlist: " + e);
 
@@ -351,11 +356,11 @@ SC_MODULE(Sim) {
         // tipo que no está NO se sustituye por otro — se rechaza diciendo
         // cuáles hay, porque montar un F407 donde el usuario escribió otra cosa
         // sería la clase de mentira que este modelo no se permite.
-        std::vector<const McuCaps*> caps_de(decls.size(), nullptr);
+        std::vector<const McuDesc*> caps_de(decls.size(), nullptr);
         for (size_t k = 0; k < decls.size(); ++k) {
             DeclMcu& m = decls[k];
             m.tipo = mayus(m.tipo);
-            caps_de[k] = mcu_por_nombre(m.tipo);
+            caps_de[k] = CatalogoMcu::busca(m.tipo);
             if (!caps_de[k])
                 muere("mcu " + (m.id.empty() ? std::string("(el de --mcu)") : m.id) +
                       ": no se sabe construir un '" + m.tipo + "'.\n"
@@ -363,19 +368,19 @@ SC_MODULE(Sim) {
                       tipos_como_texto() + "\n"
                       "Un MCU de OTRA FAMILIA no es un parametro: es otro modelo, "
                       "con su arbol de reloj y sus perifericos.");
-            m.enc = &caps_de[k]->enc;
+            m.enc = caps_de[k]->enc;
             // Y el encapsulado tambien al netlist, que es quien valida los pads
             // ANTES de que los MCU existan.
             if (m.id.empty()) placa.fija_encapsulado_implicito(m.enc);
             else              placa.fija_encapsulado(m.id, m.enc);
             // El WLCSP90 lleva su reparto de bolas sin contrastar, y eso se
             // dice en voz alta en vez de esconderse en un comentario.
-            if (!caps_de[k]->enc.verificado)
+            if (!caps_de[k]->enc->verificado)
                 std::printf("  [aviso] %s: el reparto de pads del %s es una "
                             "reconstruccion a partir del recuento del datasheet "
                             "(%u E/S) y NO esta contrastado bola a bola\n",
-                            caps_de[k]->nombre, caps_de[k]->enc.nombre,
-                            caps_de[k]->enc.n_gpio);
+                            caps_de[k]->nombre, caps_de[k]->enc->nombre,
+                            caps_de[k]->enc->n_gpio);
         }
 
         // --- 2 bis. Conectores, acoples e hilos: qué nodos son el mismo ------
@@ -413,7 +418,7 @@ SC_MODULE(Sim) {
                 caps.puerto = d.puerto_gdb;      // 0: reserva los pines, no escucha
             }
             const std::string nm = d.id.empty() ? std::string("dut") : d.id;
-            const McuCaps* mc = caps_de[size_t(&d - &decls[0])];
+            const McuDesc* mc = caps_de[size_t(&d - &decls[0])];
             // AQUI es donde una cadena se convierte en un objeto. La factoria
             // despacha por FAMILIA -los once miembros del F405/407 son la misma
             // clase con distintos descriptores- y devuelve nullptr si esa
@@ -442,9 +447,14 @@ SC_MODULE(Sim) {
             // ST-LINK. El de DAP lo ha creado ya el propio núcleo.
             if (d.depuracion == "pines" && d.puerto_gdb) {
                 const std::string snm = "gdb_" + (d.id.empty() ? "dut" : d.id);
-                m.stub = new GdbStub(snm.c_str(),
-                                     m.mcu->nodo_analogico(0, 14),  // PA14 SWCLK
-                                     m.mcu->nodo_analogico(0, 13),  // PA13 SWDIO
+                // SWCLK y SWDIO los dice el chip: PA14/PA13 en un STM32, las
+                // patillas dedicadas en un MSP432P4 (T0).
+                analog_net_if* swclk = m.mcu->nodo_swclk();
+                analog_net_if* swdio = m.mcu->nodo_swdio();
+                if (!swclk || !swdio)
+                    muere("mcu " + nm + ": este chip no saca SWCLK/SWDIO, y "
+                          "depuracion=\"pines\" no tiene de donde colgarse");
+                m.stub = new GdbStub(snm.c_str(), *swclk, *swdio,
                                      d.puerto_gdb, 2e6);
                 m.stub->set_enabled(false);      // se abre al arrancar, no aquí
             }
@@ -1531,8 +1541,8 @@ static int vuelca_argumentos() {
         x += " ayuda=\"" + xml_escapa(o.ayuda) + "\"";
         if (!es_mcu) { x += "/>\n"; continue; }
         x += ">\n";
-        for (const McuCaps* m : CATALOGO_MCU)
-            x += std::string("    <valor>") + xml_escapa(m->nombre) + "</valor>\n";
+        for (const McuDesc& m : CatalogoMcu::todos())
+            x += std::string("    <valor>") + xml_escapa(m.nombre) + "</valor>\n";
         x += "  </opcion>\n";
     }
     x += "</argumentos>\n";
@@ -1554,6 +1564,7 @@ static int lista_mcus() {
     using stm32::xml_escapa;
     Netlist placa;
     std::string nombre;
+    ContextoNomenclatura::g().pon_tipo_por_omision(g_tipo_mcu);
     const std::string e = placa_o_sistema_desde_fichero(placa, g_placa, &nombre);
     if (!e.empty()) {
         std::fprintf(stderr, "error de netlist: %s\n", e.c_str());

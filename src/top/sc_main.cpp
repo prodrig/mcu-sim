@@ -14797,7 +14797,7 @@ SC_MODULE(F1Tb) {
             McuCaps ajeno = MCU_STM32F407VG;
             ajeno.familia = "STM32F746";   // una familia que no se modela
             Cableado sin_puentes;
-            check(FabricaMcu::crea(ajeno, "fantasma", DBG_PINES, sin_puentes)
+            check(FabricaMcu::crea(desc_de(ajeno), "fantasma", DBG_PINES, sin_puentes)
                       == nullptr,
                   "un descriptor de familia desconocida devuelve nullptr, y no "
                   "un chip de otra familia con el nombre cambiado");

@@ -17,6 +17,7 @@
 #include <cstring>
 #include <string>
 #include "../top/soc_f4.h"
+#include "../common/imagen_fw.h"
 
 namespace stm32 {
 
@@ -59,8 +60,10 @@ public:
     }
 
     // Carga un fichero. Si termina en .hex o .ihex se interpreta como Intel HEX
-    // (las direcciones vienen en el propio fichero y 'base' se ignora); en otro
-    // caso se trata como binario crudo cargado a partir de 'base'.
+    // (las direcciones vienen en el propio fichero y 'base' se ignora); si es
+    // un ELF (.elf, .out, .axf o con su número mágico) o un TI-TXT (.txt),
+    // también trae sus direcciones [common/imagen_fw.h]; en otro caso se trata
+    // como binario crudo cargado a partir de 'base'.
     // Devuelve el nº de bytes cargados, o -1 en caso de error.
     long load_file(const char* path, uint32_t base = addr::FLASH_BASE) {
         const std::string p(path);
@@ -68,6 +71,25 @@ public:
                          (p.compare(p.size() - 4, 4, ".hex") == 0 ||
                           p.compare(p.size() - 5, 5, ".ihex") == 0);
         if (hex) return dut_.flash.load_ihex_file(path);
+        // ELF y TI-TXT (T0): traen sus direcciones, como el HEX. Cada trozo va
+        // a donde diga -Flash, SRAM- y uno que no cae en ninguna es un error.
+        const FormatoFw fmt = formato_fw(p);
+        if (fmt == FormatoFw::Elf || fmt == FormatoFw::TiTxt) {
+            std::vector<TrozoFw> t;
+            const std::string e = fmt == FormatoFw::Elf ? lee_elf(p, t) : lee_titxt(p, t);
+            if (!e.empty()) { std::fprintf(stderr, "  [fw] %s\n", e.c_str()); return -1; }
+            long total = 0;
+            for (const TrozoFw& x : t) {
+                if (!load_bytes(x.dir, x.datos.data(), x.datos.size())) {
+                    std::fprintf(stderr, "  [fw] %s: el trozo de 0x%08X (%u bytes) no "
+                                 "cae en ninguna memoria de este chip\n", path,
+                                 x.dir, unsigned(x.datos.size()));
+                    return -1;
+                }
+                total += long(x.datos.size());
+            }
+            return total;
+        }
 
         std::FILE* f = std::fopen(path, "rb");
         if (!f) return -1;

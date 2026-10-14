@@ -41,6 +41,7 @@
 #include "af_types.h"
 #include "pad.h"
 #include "encapsulado.h"
+#include "nomenclatura.h"
 
 namespace stm32 {
 
@@ -181,8 +182,11 @@ inline bool pad_sin_punto(const std::string& t, unsigned& port, unsigned& pin) {
 
 } // namespace detalle_pad
 
-inline bool pad_desde_nombre(const std::string& s, std::string& mcu,
-                             unsigned& port, unsigned& pin) {
+// LA REGLA DE ST, la de siempre. Desde T0 tiene nombre propio porque ya no es
+// la unica: la usan los STM32 y, mientras ningun chip de la placa tenga
+// nomenclatura propia, es lo que hace `pad_desde_nombre` sin mas.
+inline bool pad_desde_nombre_st(const std::string& s, std::string& mcu,
+                                unsigned& port, unsigned& pin) {
     using namespace detalle_pad;
     const size_t p = s.rfind('.');
 
@@ -224,13 +228,83 @@ inline bool pad_desde_nombre(const std::string& s, std::string& mcu,
 // id="P3.12"/>` y quien conecta `nodo="PD.12"` acaban en la MISMA clave, y los
 // volcados hablan siempre con una sola voz. Canonizar a la ENTRADA y no en cada
 // comparacion es lo que evita tener que acordarse en veinte sitios.
-inline std::string nombre_canonico_pad(const std::string& s) {
+inline std::string nombre_canonico_pad_st(const std::string& s) {
     std::string mcu;
     unsigned port = 0, pin = 0;
-    if (!pad_desde_nombre(s, mcu, port, pin)) return s;
+    if (!pad_desde_nombre_st(s, mcu, port, pin)) return s;
     char b[8];
     std::snprintf(b, sizeof b, "P%c%u", char('A' + port), pin);
     return mcu.empty() ? std::string(b) : mcu + "." + b;
+}
+
+// -----------------------------------------------------------------------------
+// LOS NOMBRES CON NOMENCLATURA POR CHIP (T0) [pins/nomenclatura.h]
+//
+// Con el contexto INACTIVO -ningun chip de la placa tiene nomenclatura propia-
+// las dos funciones publicas son literalmente las de ST de aqui arriba. Con el
+// contexto activo, cada nombre se interpreta con la nomenclatura de SU chip:
+//
+//   1. sin prefijo, con la de los nombres desnudos (la del unico chip, o la de
+//      `--mcu`); si no hay, con la de ST;
+//   2. con prefijo, probando cada punto de izquierda a derecha como separador
+//      MCU/pad: el primero cuyo prefijo y resto cuadran es el bueno. `u0.P1.0`
+//      se parte en `u0` + `P1.0`, y `A/u0.PJ.4` en `A/u0` + `PJ.4`.
+// -----------------------------------------------------------------------------
+namespace detalle_pad {
+// Devuelve la nomenclatura con la que se ha leido (nullptr = la de ST).
+inline bool pad_con_contexto(const std::string& s, std::string& mcu,
+                             unsigned& port, unsigned& pin,
+                             const Nomenclatura*& usada) {
+    const ContextoNomenclatura& c = ContextoNomenclatura::g();
+    usada = nullptr;
+    if (const Nomenclatura* n = c.para(std::string())) {
+        if (n->pad(s, port, pin)) { mcu.clear(); usada = n; return true; }
+    } else {
+        std::string m;
+        if (pad_desde_nombre_st(s, m, port, pin) && m.empty()) {
+            mcu.clear();
+            return true;
+        }
+    }
+    for (size_t p = s.find('.'); p != std::string::npos; p = s.find('.', p + 1)) {
+        if (p == 0 || p + 1 >= s.size()) return false;
+        const std::string pre = s.substr(0, p), loc = s.substr(p + 1);
+        if (const Nomenclatura* n = c.para(pre)) {
+            if (n->pad(loc, port, pin)) { mcu = pre; usada = n; return true; }
+        } else {
+            std::string m;
+            if (pad_desde_nombre_st(loc, m, port, pin) && m.empty()) {
+                mcu = pre;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+} // namespace detalle_pad
+
+inline bool pad_desde_nombre(const std::string& s, std::string& mcu,
+                             unsigned& port, unsigned& pin) {
+    if (!ContextoNomenclatura::g().activo())
+        return pad_desde_nombre_st(s, mcu, port, pin);
+    const Nomenclatura* n = nullptr;
+    return detalle_pad::pad_con_contexto(s, mcu, port, pin, n);
+}
+
+inline std::string nombre_canonico_pad(const std::string& s) {
+    if (!ContextoNomenclatura::g().activo()) return nombre_canonico_pad_st(s);
+    std::string mcu;
+    unsigned port = 0, pin = 0;
+    const Nomenclatura* n = nullptr;
+    if (!detalle_pad::pad_con_contexto(s, mcu, port, pin, n)) return s;
+    std::string b;
+    if (n) b = n->canonico(port, pin);
+    else {
+        char t[8];
+        std::snprintf(t, sizeof t, "P%c%u", char('A' + port), pin);
+        b = t;
+    }
+    return mcu.empty() ? b : mcu + "." + b;
 }
 
 // La misma, para quien no admite prefijo de MCU: "PD12" si, "u0.PD12" no.

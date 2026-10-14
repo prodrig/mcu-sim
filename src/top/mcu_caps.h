@@ -41,6 +41,7 @@
 #include "../pins/encapsulado.h"
 #include "../bus/conectividad.h"
 #include "../rcc/reloj_caps.h"
+#include "../soc/mcu_desc.h"
 
 namespace stm32 {
 
@@ -536,6 +537,22 @@ inline std::string mcus_como_texto() {
     }
     return s;
 }
+
+// ---------------------------------------------------------------------------
+// EL CATÁLOGO COMÚN (T0). `sim` ya no busca en `CATALOGO_MCU` sino en
+// `CatalogoMcu`, que admite chips de otras familias con su propio descriptor
+// [soc/mcu_desc.h]. Los veintinueve de aquí se dan de alta en él, en el mismo
+// orden, con este `McuCaps` como descriptor propio.
+// ---------------------------------------------------------------------------
+inline McuDesc desc_de(const McuCaps& m) {
+    return McuDesc{ m.nombre, m.familia, &m.enc, &m };
+}
+struct RegistroCatalogoSt {
+    RegistroCatalogoSt() {
+        for (const McuCaps* m : CATALOGO_MCU) CatalogoMcu::registra(desc_de(*m));
+    }
+};
+inline const RegistroCatalogoSt g_registro_catalogo_st{};
 
 } // namespace stm32
 #endif // STM32_TOP_MCU_CAPS_H
