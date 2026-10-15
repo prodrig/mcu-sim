@@ -131,4 +131,9 @@ testgui                145        76450000000        total
 # aqui hay socket de GDB dentro, y el criterio pasa a ser `resto`, como en
 # test407. El resto crece 77,5 ms: las esperas de P18 (47 ms, casi todo el
 # borrado masivo) y de P19 (30 ms).
-testp4                 148        331699188968        resto
+# Fase T3, E1 (2026-10-15): P22 a P27 -la eUSCI_A en UART con el backchannel
+# de la LaunchPad (un PuenteSerie en P1.2/P1.3), los formatos y errores, el
+# break, UCLISTEN y el IV, los modos multiprocesador y el PMAP-: 148 -> 184.
+# Antes de T3 la sonda suelta el nucleo que P21 deja parado. P0 a P21 no
+# cambian de tiempo: el ruteo de funciones del DIO no mueve nada.
+testp4                184        351130188968        resto

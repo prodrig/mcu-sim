@@ -12,18 +12,19 @@
          S3    RESET, en RSTN: el nivel alto lo da el pull-up de la patilla
          Y1    cristal de 32 768 Hz en PJ.0/PJ.1 (LFXT)
          Y2    cristal de 48 MHz en PJ.2/PJ.3 (HFXT)
+         BCL   el puerto serie de vuelta del XDS110 (backchannel UART): la
+               eUSCI_A0 en P1.2/P1.3 hasta el PC, por RFC 2217 en el 3356
+               (T3). En Windows es el «XDS110 Class Application/User UART»
 
      Lo que NO esta todavia:
 
        * el XDS110-ET, la sonda de la placa. Aqui se depura con el stub de GDB
          (depuracion="dap") o con la sonda SWD por SWCLKTCK/SWDIOTMS
          (depuracion="pines"), igual que en los STM32;
-       * su puerto serie de vuelta (backchannel UART), que va a la eUSCI_A0 en
-         P1.2/P1.3: la eUSCI llega en T3, y con ella el PuenteSerie;
        * los conectores BoosterPack (J1-J4).
 
          ./build/mcu-sim placas/msp_exp432p401r.xml --valida
-         ./build/mcu-sim placas/msp_exp432p401r.xml verif/fw/msp432p4/blinky/blinky.out 600
+         ./build/mcu-sim placas/msp_exp432p401r.xml verif/fw/msp432p4/p4_demo/p4_demo.out --ms=600
 -->
 <placa nombre="msp-exp432p401r">
   <mcu tipo="MSP432P401R" id="u0"/>
@@ -53,6 +54,16 @@
   <nodo id="RSTN" bus="si"/>
   <componente tipo="Button" id="S3" r_cerrado="10" rebote="no">
     <pin nombre="pin" nodo="RSTN"/>
+  </componente>
+
+  <!-- El backchannel del XDS110 [SLAU597, esquematico: P1.2_BCLUART_RXD y
+       P1.3_BCLUART_TXD]. Los nombres de las patillas son los del adaptador:
+       su rx lee el TX del MCU. Los baudios los pone el terminal, como en la
+       placa: el XDS110 sigue lo que pida el PC. -->
+  <componente tipo="PuenteSerie" id="BCL" host="rfc2217:3356"
+              baudios="host" formato="8N1" muestra="si">
+    <pin nombre="rx" nodo="P1.3"/>   <!-- UCA0TXD -->
+    <pin nombre="tx" nodo="P1.2"/>   <!-- UCA0RXD -->
   </componente>
 
   <componente tipo="Crystal" id="Y1" vdd="3.3">

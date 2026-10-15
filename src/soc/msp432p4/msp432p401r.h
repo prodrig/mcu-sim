@@ -56,6 +56,7 @@
 #include "../../periph/msp432p4/wdt_a.h"
 #include "../../periph/msp432p4/sysctl.h"
 #include "../../periph/msp432p4/dio.h"
+#include "../../periph/msp432p4/eusci.h"
 #include "p4_programador.h"
 
 namespace stm32 {
@@ -127,6 +128,14 @@ public:
     SysctlP4 sysctl;
     DioP4    dio;
     PmapP4   pmap{"pmap"};
+
+    // --- Comunicaciones (T3) ---------------------------------------------------
+    EusciP4  uca0{"eusci_a0", p4::EUSCI_A0_B, false}, uca1{"eusci_a1", p4::EUSCI_A1_B, false},
+             uca2{"eusci_a2", p4::EUSCI_A2_B, false}, uca3{"eusci_a3", p4::EUSCI_A3_B, false};
+    EusciP4  ucb0{"eusci_b0", p4::EUSCI_B0_B, true},  ucb1{"eusci_b1", p4::EUSCI_B1_B, true},
+             ucb2{"eusci_b2", p4::EUSCI_B2_B, true},  ucb3{"eusci_b3", p4::EUSCI_B3_B, true};
+    EusciP4* uca(unsigned n) { EusciP4* a[4] = {&uca0, &uca1, &uca2, &uca3}; return a[n & 3u]; }
+    EusciP4* ucb(unsigned n) { EusciP4* b[4] = {&ucb0, &ucb1, &ucb2, &ucb3}; return b[n & 3u]; }
 
     // --- Los relojes que reparte el CS ----------------------------------------
     ClockGen g_mclk{"g_mclk"}, g_hsmclk{"g_hsmclk"}, g_smclk{"g_smclk"},
@@ -332,20 +341,13 @@ private:
         };
         engancha(flctl); engancha(cs); engancha(pcm); engancha(wdt);
         engancha(dio);   engancha(pmap);
+        for (unsigned n = 0; n < 4; ++n) { engancha(*uca(n)); engancha(*ucb(n)); }
         struct D { const char* n; uint32_t b, s; const char* q; };
         static const D lista[] = {
             {"timer_a0", p4::TIMER_A0_B, 0x400, "Timer_A0"},
             {"timer_a1", p4::TIMER_A1_B, 0x400, "Timer_A1"},
             {"timer_a2", p4::TIMER_A2_B, 0x400, "Timer_A2"},
             {"timer_a3", p4::TIMER_A3_B, 0x400, "Timer_A3"},
-            {"eusci_a0", p4::EUSCI_A0_B, 0x400, "eUSCI_A0"},
-            {"eusci_a1", p4::EUSCI_A1_B, 0x400, "eUSCI_A1"},
-            {"eusci_a2", p4::EUSCI_A2_B, 0x400, "eUSCI_A2"},
-            {"eusci_a3", p4::EUSCI_A3_B, 0x400, "eUSCI_A3"},
-            {"eusci_b0", p4::EUSCI_B0_B, 0x400, "eUSCI_B0"},
-            {"eusci_b1", p4::EUSCI_B1_B, 0x400, "eUSCI_B1"},
-            {"eusci_b2", p4::EUSCI_B2_B, 0x400, "eUSCI_B2"},
-            {"eusci_b3", p4::EUSCI_B3_B, 0x400, "eUSCI_B3"},
             {"ref_a",    p4::REF_A_B,    0x400, "REF_A"},
             {"comp_e0",  p4::COMP_E0_B,  0x400, "COMP_E0"},
             {"comp_e1",  p4::COMP_E1_B,  0x400, "COMP_E1"},
@@ -391,6 +393,8 @@ private:
         pcm.al_cambiar = [this] { revisa_topes(); };
         flctl.al_cambiar = [this] { revisa_topes(); };
         dio.al_cambiar_cristales = [this](bool lf, bool hf) { cs.pines_cristal(lf, hf); };
+        dio.pmap = &pmap;
+        pmap.al_cambiar = [this] { dio.mapa_cambiado(); };
         for (unsigned i = 0; i < DioP4::N_INT; ++i)
             dio.irq[i](s_irq_[p4::IRQ_PORT1 + i]);
         wdt.irq(s_irq_[p4::IRQ_WDT_A]);
@@ -411,8 +415,64 @@ private:
         };
         sysctl.pide_reset = [this](ResetP4 r) { pide(r, -1); };
         sysctl.al_cambiar_perihalt = [this] { wdt.recalcula(); };
+        conecta_comunicaciones();
     }
     static float flota(uint32_t u) { float f; std::memcpy(&f, &u, 4); return f; }
+
+    // Las eUSCI: su reloj, su interrupción y sus patillas [1F: datasheet,
+    // tablas de pines; segunda fuente, las definiciones de TI-Drivers
+    // (UARTMSP432.h, SPIMSP432DMA.h, I2CMSP432.h); P-16 p]
+    void conecta_comunicaciones() {
+        auto brclk = [this](unsigned ssel) {
+            return ssel == 0 ? 0.0 : ssel == 1 ? cs.f_aclk() : cs.f_smclk();
+        };
+        for (unsigned n = 0; n < 4; ++n) {
+            uca(n)->f_brclk = brclk; ucb(n)->f_brclk = brclk;
+            uca(n)->irq(s_irq_[p4::IRQ_EUSCIA0 + n]);
+            ucb(n)->irq(s_irq_[p4::IRQ_EUSCIB0 + n]);
+        }
+        // (puerto 0 = P1, pin, función, eUSCI, patilla)
+        auto fija = [this](unsigned p, unsigned i, unsigned fn, EusciP4& u, char q) {
+            dio.conecta_funcion(p, i, fn, q == 's' ? u.fn_simo() : q == 'o' ? u.fn_somi()
+                                        : q == 'c' ? u.fn_clk() : u.fn_ste());
+        };
+        // UCA0 en P1.0-P1.3, UCB0 en P1.4-P1.7: el backchannel de la
+        // LaunchPad y el SPI/I2C de los BoosterPack
+        fija(0, 0, 1, uca0, 'e'); fija(0, 1, 1, uca0, 'c');
+        fija(0, 2, 1, uca0, 'o'); fija(0, 3, 1, uca0, 's');
+        fija(0, 4, 1, ucb0, 'e'); fija(0, 5, 1, ucb0, 'c');
+        fija(0, 6, 1, ucb0, 's'); fija(0, 7, 1, ucb0, 'o');
+        // UCB1 en P6.2-P6.5 (el I2C de la BOOSTXL-EDUMKII, P6.4/P6.5)
+        fija(5, 2, 1, ucb1, 'e'); fija(5, 3, 1, ucb1, 'c');
+        fija(5, 4, 1, ucb1, 's'); fija(5, 5, 1, ucb1, 'o');
+        // UCA3 en P9.4-P9.7
+        fija(8, 4, 1, uca3, 'e'); fija(8, 5, 1, uca3, 'c');
+        fija(8, 6, 1, uca3, 'o'); fija(8, 7, 1, uca3, 's');
+        // UCB3 en P10.0-P10.3 y P8.0/P8.1 (primarias), y en P6.6/P6.7 (secundaria)
+        fija(9, 0, 1, ucb3, 'e'); fija(9, 1, 1, ucb3, 'c');
+        fija(9, 2, 1, ucb3, 's'); fija(9, 3, 1, ucb3, 'o');
+        fija(7, 0, 1, ucb3, 'e'); fija(7, 1, 1, ucb3, 'c');
+        fija(5, 6, 2, ucb3, 's'); fija(5, 7, 2, ucb3, 'o');
+        // Las mapeables [H: PMAP_*]
+        dio.conecta_mapeable(PmapP4::PM_UCA0CLK, uca0.fn_clk());
+        dio.conecta_mapeable(PmapP4::PM_UCA0RXD, uca0.fn_somi());
+        dio.conecta_mapeable(PmapP4::PM_UCA0TXD, uca0.fn_simo());
+        dio.conecta_mapeable(PmapP4::PM_UCB0CLK, ucb0.fn_clk());
+        dio.conecta_mapeable(PmapP4::PM_UCB0SDA, ucb0.fn_simo());
+        dio.conecta_mapeable(PmapP4::PM_UCB0SCL, ucb0.fn_somi());
+        dio.conecta_mapeable(PmapP4::PM_UCA1STE, uca1.fn_ste());
+        dio.conecta_mapeable(PmapP4::PM_UCA1CLK, uca1.fn_clk());
+        dio.conecta_mapeable(PmapP4::PM_UCA1RXD, uca1.fn_somi());
+        dio.conecta_mapeable(PmapP4::PM_UCA1TXD, uca1.fn_simo());
+        dio.conecta_mapeable(PmapP4::PM_UCA2STE, uca2.fn_ste());
+        dio.conecta_mapeable(PmapP4::PM_UCA2CLK, uca2.fn_clk());
+        dio.conecta_mapeable(PmapP4::PM_UCA2RXD, uca2.fn_somi());
+        dio.conecta_mapeable(PmapP4::PM_UCA2TXD, uca2.fn_simo());
+        dio.conecta_mapeable(PmapP4::PM_UCB2STE, ucb2.fn_ste());
+        dio.conecta_mapeable(PmapP4::PM_UCB2CLK, ucb2.fn_clk());
+        dio.conecta_mapeable(PmapP4::PM_UCB2SDA, ucb2.fn_simo());
+        dio.conecta_mapeable(PmapP4::PM_UCB2SCL, ucb2.fn_somi());
+    }
 
     // --- El bus ---------------------------------------------------------------
     void enruta(tlm::tlm_generic_payload& gp, sc_core::sc_time& t) {
@@ -458,6 +518,7 @@ private:
         g_smclk.set_freq(cs.f_smclk());
         g_aclk.set_freq(cs.f_aclk());
         wdt.recalcula();
+        for (unsigned n = 0; n < 4; ++n) { uca(n)->recalcula(); ucb(n)->recalcula(); }
         revisa_topes();
     }
     void revisa_topes() {

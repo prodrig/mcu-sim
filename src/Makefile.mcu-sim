@@ -793,7 +793,7 @@ FW446 := verif/fw/blinky446 verif/fw/clk446_demo
 FW417 := verif/fw/crypto_demo
 FWSERIE := verif/fw/vcp_demo
 # Los del MSP432P401R: con la cabecera de TI y el mismo compilador.
-FWP4 := verif/fw/msp432p4/p4_demo verif/fw/msp432p4/coremark
+FWP4 := verif/fw/msp432p4/p4_demo verif/fw/msp432p4/coremark verif/fw/msp432p4/p4_t3
 # Los de las placas de ejemplo que no usa ninguna suite de C++: el de
 # placas/barra8_en_nucleo.xml y el de placas/nucleo_f446re_barra8ac_azul.xml,
 # que vigila `make gui-sistema`; los de la pantalla TFT, el de

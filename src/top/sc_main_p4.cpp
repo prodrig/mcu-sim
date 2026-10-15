@@ -29,6 +29,7 @@
 // =============================================================================
 #include <systemc>
 #include <cstdio>
+#include <cstdlib>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -40,6 +41,7 @@
 #include "../soc/msp432p4/msp432p4_mcu.h"
 #include "../parts/netlist_xml.h"
 #include "../parts/ext_parts.h"
+#include "../parts/puente_serie.h"
 #include "../verif/bus_test_master.h"
 #include "../verif/swd_port.h"
 #include "../verif/gdb_stub.h"
@@ -70,6 +72,7 @@ static bool check_eq(uint64_t got, uint64_t exp, const char* q) {
 static const char* const FW_DEMO = "verif/fw/msp432p4/p4_demo/p4_demo.out";
 static const char* const FW_DEMO_BIN = "verif/fw/msp432p4/p4_demo/p4_demo.bin";
 static const char* const FW_CM   = "verif/fw/msp432p4/coremark/coremark_p4.bin";
+static const char* const FW_T3   = "verif/fw/msp432p4/p4_t3/p4_t3.out";
 
 // El buzón del firmware [verif/fw/msp432p4/p4_demo/main.c, buzon_t]
 enum : uint32_t {
@@ -98,6 +101,10 @@ SC_MODULE(TbP4) {
     GdbStubDap* gdb_d = nullptr;
     GdbClient   cli;
     static constexpr unsigned PUERTO_PINES = 3431, PUERTO_DAP = 3432;
+    // T3: el backchannel de la LaunchPad (el XDS110 en P1.2/P1.3) y otro
+    // puente en P2.2/P2.3 para el PMAP. Desoldados hasta sus grupos.
+    PuenteSerie* bcl  = nullptr;
+    PuenteSerie* bcl2 = nullptr;
 
     SC_CTOR(TbP4)
         : mcu("dut", DBG_PINES, Cableado(), *CatalogoMcu::busca("MSP432P401R")),
@@ -114,11 +121,26 @@ SC_MODULE(TbP4) {
         gdb_d = new GdbStubDap("gdb_d", dut.core.debug, PUERTO_DAP);
         gdb_d->set_enabled(false);
         gdb_d->pon_programador(&ProgramadorP4::el());
+        PuenteSerie::Config cb;
+        cb.destino = serie::parsea("memoria");
+        bcl = new PuenteSerie("bcl", &dut.dio.nodo_de(0, 3), &dut.dio.nodo_de(0, 2),
+                              nullptr, nullptr, nullptr, cb);
+        bcl->set_enabled(false);
+        bcl2 = new PuenteSerie("bcl2", &dut.dio.nodo_de(1, 3), &dut.dio.nodo_de(1, 2),
+                               nullptr, nullptr, nullptr, cb);
+        bcl2->set_enabled(false);
         SC_THREAD(run);
     }
     ~TbP4() override {
         delete sonda; delete y1; delete y2; delete s1; delete gdb_p; delete gdb_d;
+        delete bcl; delete bcl2;
     }
+
+    // --- T3 [top/sc_main_p4_t3.h] ------------------------------------------
+    uint32_t r3(unsigned i) { return dut.sram.peek32(0x10 + 4 * i); }
+    void arranca3(uint32_t modo);
+    bool espera3(uint32_t estado, double ms);
+    void t3_uart();
 
     // --- Utilidades -----------------------------------------------------------
     uint32_t buzon(uint32_t off) { return dut.sram.peek32(off); }
@@ -437,7 +459,8 @@ SC_MODULE(TbP4) {
         check_eq(buzon(B_CS_SIN_LLAVE), 0x00010000,
                  "sin la llave, escribir CS->CTL0 no hace nada: sigue en 3 MHz");
         check(dut.cs.escrituras_sin_llave() > sl0, "y el modelo lo ha contado");
-        check_eq(buzon(B_PMAP), 0, "sin la llave del PMAP, P2MAP no cambia");
+        check_eq(buzon(B_PMAP), 7, "sin la llave del PMAP, P2MAP no cambia: sigue con su valor "
+                 "de reset, PM_UCA1STE (7)");
         check_eq(buzon(B_ALIAS), 0xCAFE432F,
                  "lo escrito en 0x2000_8000 se lee en 0x0100_8000: la SRAM tiene su "
                  "alias en la region de codigo");
@@ -875,6 +898,20 @@ SC_MODULE(TbP4) {
     }
 
     void run() {
+        // TESTP4_SOLO=t3: solo los grupos de T3, para trabajar en ellos. No
+        // vale para el invariante (la cifra es otra), y lo dice.
+        if (const char* solo = std::getenv("TESTP4_SOLO")) {
+            if (std::string(solo) == "t3") {
+                std::printf("  [TESTP4_SOLO=t3] solo los grupos de T3: el tiempo NO es el "
+                            "del invariante\n");
+                mcu.alimenta(true);
+                t3_uart();
+                std::printf("\nTOTAL P4 (solo T3): %u comprobaciones OK, %u fallos\n",
+                            g_ok, g_fallos);
+                sc_stop();
+                return;
+            }
+        }
         firmwares();
         t0_nombres();
         t0_catalogo();
@@ -894,6 +931,7 @@ SC_MODULE(TbP4) {
         t2_flctl();
         t2_autoprograma();
         t2_gdb();
+        t3_uart();
         std::printf("\n=====================================================\n");
         std::printf("TOTAL P4 : %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         std::printf("=====================================================\n");
@@ -902,6 +940,8 @@ SC_MODULE(TbP4) {
 
     double t3_ = 0.0;
 };
+
+#include "sc_main_p4_t3.h"
 
 int sc_main(int, char*[]) {
     sc_report_handler::set_actions(SC_WARNING, SC_DO_NOTHING);
