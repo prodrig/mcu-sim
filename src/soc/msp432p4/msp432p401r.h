@@ -59,6 +59,8 @@
 #include "../../periph/msp432p4/eusci.h"
 #include "../../periph/msp432p4/timer_a.h"
 #include "../../periph/msp432p4/timer32.h"
+#include "../../periph/msp432p4/ref_a.h"
+#include "../../periph/msp432p4/adc14.h"
 #include "p4_programador.h"
 
 namespace stm32 {
@@ -145,6 +147,10 @@ public:
     Timer32P4 t32{"timer32"};
     TimerAP4* ta(unsigned n) { TimerAP4* a[4] = {&ta0, &ta1, &ta2, &ta3}; return a[n & 3u]; }
 
+    // --- Analógicos (T3) ----------------------------------------------------------
+    RefAP4   ref{"ref_a"};
+    Adc14P4  adc{"adc14"};
+
     // --- Los relojes que reparte el CS ----------------------------------------
     ClockGen g_mclk{"g_mclk"}, g_hsmclk{"g_hsmclk"}, g_smclk{"g_smclk"},
              g_aclk{"g_aclk"};
@@ -181,6 +187,11 @@ public:
         SC_METHOD(sysresetreq_proc); sensitive << s_sysresetreq_; dont_initialize();
         SC_METHOD(swdio_proc); sensitive << s_swdio_o_ << s_swdio_oe_;
         SC_METHOD(halt_proc); sensitive << core.debug.halted; dont_initialize();
+        // Los disparos del ADC14: las salidas OUT1/OUT2 de los Timer_A
+        SC_METHOD(disparos_adc_proc);
+        sensitive << ta0.out[1] << ta0.out[2] << ta1.out[1] << ta1.out[2]
+                  << ta2.out[1] << ta2.out[2] << ta3.out[1];
+        dont_initialize();
     }
     ~Msp432P4() override {
         for (BloqueDeclarado* b : declarados) delete b;
@@ -220,8 +231,12 @@ public:
             "da error de bus al llamarla (T4)",
             "el TLV es SINTETICO: identidad P401R rev. C y calibraciones tipicas, "
             "no las de una pieza concreta",
-            "Timer_A, eUSCI, ADC14, COMP_E, REF_A, RTC_C, AES256, CRC32, DMA, "
-            "Timer32 y CAPTIO estan DECLARADOS y no modelados (T3)",
+            "COMP_E, RTC_C, AES256, CRC32, DMA y CAPTIO estan DECLARADOS y no "
+            "modelados (T3)",
+            "el ADC14 es un convertidor ideal (sin ruido, sin error de ganancia ni "
+            "de offset, sin carga del muestreo sobre el nodo); el sensor de "
+            "temperatura es lineal (685 mV a 0 C, 1,9 mV/C) y el TLV lleva SUS "
+            "calibraciones",
             "los modos de bajo consumo LPM3/LPM4/LPMx.5 no se modelan: un WFI "
             "duerme el nucleo con los relojes en marcha (LPM0)",
             "el SysTick con CLKSOURCE = 0 cuenta MCLK/8, como en los STM32; la "
@@ -351,9 +366,9 @@ private:
         engancha(dio);   engancha(pmap);
         for (unsigned n = 0; n < 4; ++n) { engancha(*uca(n)); engancha(*ucb(n)); engancha(*ta(n)); }
         engancha(t32);
+        engancha(ref); engancha(adc);
         struct D { const char* n; uint32_t b, s; const char* q; };
         static const D lista[] = {
-            {"ref_a",    p4::REF_A_B,    0x400, "REF_A"},
             {"comp_e0",  p4::COMP_E0_B,  0x400, "COMP_E0"},
             {"comp_e1",  p4::COMP_E1_B,  0x400, "COMP_E1"},
             {"aes256",   p4::AES256_B,   0x400, "AES256"},
@@ -363,7 +378,6 @@ private:
             {"captio1",  p4::CAPTIO1_B,  0x400, "CAPTIO1"},
             {"dma",      p4::DMA_B,      0x1000, "uDMA"},
             {"pss",      p4::PSS_B,      0x400, "PSS"},
-            {"adc14",    p4::ADC14_B,    0x400, "ADC14"},
         };
         for (const D& d : lista) {
             BloqueDeclarado* b = new BloqueDeclarado(d.n, d.b, d.s, d.q,
@@ -421,6 +435,65 @@ private:
         sysctl.al_cambiar_perihalt = [this] { wdt.recalcula(); };
         conecta_comunicaciones();
         conecta_temporizadores();
+        conecta_analogicos();
+    }
+
+    // Los canales del ADC14 [2F: ADCMSP432.h, ADCMSP432_Px_y_An; función
+    // terciaria] y las referencias externas VeREF+ (P5.6) y VeREF- (P5.7)
+    static constexpr uint8_t CANAL_ADC[24][2] = {
+        {4, 5}, {4, 4}, {4, 3}, {4, 2}, {4, 1}, {4, 0},                 // A0-A5:   P5.5-P5.0
+        {3, 7}, {3, 6}, {3, 5}, {3, 4}, {3, 3}, {3, 2}, {3, 1}, {3, 0}, // A6-A13:  P4.7-P4.0
+        {5, 1}, {5, 0},                                                 // A14-A15: P6.1, P6.0
+        {8, 1}, {8, 0},                                                 // A16-A17: P9.1, P9.0
+        {7, 7}, {7, 6}, {7, 5}, {7, 4}, {7, 3}, {7, 2},                 // A18-A23: P8.7-P8.2
+    };
+    void conecta_analogicos() {
+        for (unsigned c = 0; c < 24; ++c) {
+            FuncionP4 f; f.analogica = true; f.nombre = "A";
+            dio.conecta_funcion(CANAL_ADC[c][0], CANAL_ADC[c][1], 3, f);
+        }
+        for (unsigned i = 6; i < 8; ++i) {
+            FuncionP4 f; f.analogica = true; f.nombre = "VREF";
+            dio.conecta_funcion(4, i, 3, f);
+        }
+        adc.irq(s_irq_[p4::IRQ_ADC14]);
+        adc.ref = &ref;
+        adc.v_avcc = [this] { return double(avcc->voltage()); };
+        adc.v_avss = [this] { return double(avss->voltage()); };
+        adc.v_canal = [this](unsigned c) {
+            return c < 24 ? double(dio.nodo_de(CANAL_ADC[c][0], CANAL_ADC[c][1]).voltage()) : 0.0;
+        };
+        adc.es_analogico = [this](unsigned c) {
+            return c >= 24 || dio.funcion(CANAL_ADC[c][0], CANAL_ADC[c][1]) == 3;
+        };
+        adc.v_eref_mas   = [this] { return double(dio.nodo_de(4, 6).voltage()); };
+        adc.v_eref_menos = [this] { return double(dio.nodo_de(4, 7).voltage()); };
+        adc.f_reloj = [this](unsigned s) {
+            switch (s) {
+                case 0:  return p4::HZ_MODOSC;
+                case 1:  return p4::HZ_SYSOSC;
+                case 2:  return cs.f_aclk();
+                case 3:  return cs.f_mclk();
+                case 4:  return cs.f_smclk();
+                case 5:  return cs.f_hsmclk();
+                default: return 0.0;
+            }
+        };
+        // VREF+ por el pin, con REFOUT = 1 y P5.6 en función analógica
+        d_vref_ = dio.nodo_de(4, 6).register_driver("vref_out");
+        dio.nodo_de(4, 6).set_hiz(d_vref_);
+        ref.al_cambiar = [this] {
+            if (ref.sale_por_pin() && dio.funcion(4, 6) == 3)
+                dio.nodo_de(4, 6).set_drive(d_vref_, float(ref.vref()), 1.0f);
+            else dio.nodo_de(4, 6).set_hiz(d_vref_);
+        };
+    }
+    int d_vref_ = -1;
+    void disparos_adc_proc() {
+        adc.disparo(1, ta0.out[1].read()); adc.disparo(2, ta0.out[2].read());
+        adc.disparo(3, ta1.out[1].read()); adc.disparo(4, ta1.out[2].read());
+        adc.disparo(5, ta2.out[1].read()); adc.disparo(6, ta2.out[2].read());
+        adc.disparo(7, ta3.out[1].read());
     }
     static float flota(uint32_t u) { float f; std::memcpy(&f, &u, 4); return f; }
 

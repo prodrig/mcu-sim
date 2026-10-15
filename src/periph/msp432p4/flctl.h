@@ -50,6 +50,7 @@
 #ifndef STM32_PERIPH_MSP432P4_FLCTL_H
 #define STM32_PERIPH_MSP432P4_FLCTL_H
 
+#include <cmath>
 #include <cstring>
 #include <functional>
 #include <vector>
@@ -95,7 +96,11 @@ inline std::vector<uint32_t> tlv_sintetico(uint32_t device_id, uint32_t hwrev) {
     t.push_back(5); t.push_back(24);                 // ADC14
     t.push_back(0x00008000u); t.push_back(0);        // ganancia 1,0 y offset 0
     for (int i = 0; i < 16; ++i) t.push_back(0);
-    for (int i = 0; i < 6; ++i) t.push_back(0);      // sensor de temperatura
+    // El sensor de temperatura a 30 y 85 C, en cuentas de 14 bits con las
+    // referencias de 1,2, 1,45 y 2,5 V: lo que mediría el ADC14 del modelo
+    for (double vr : {1.2, 1.45, 2.5})
+        for (double tc : {30.0, 85.0})
+            t.push_back(uint32_t(std::floor(16384.0 * p4::v_sensor_temp(tc) / vr)));
     t.push_back(8); t.push_back(3);                  // REF
     t.push_back(0); t.push_back(0); t.push_back(0);
     t.push_back(4); t.push_back(2);                  // FLASHCTL

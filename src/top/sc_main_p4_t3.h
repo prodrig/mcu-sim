@@ -17,10 +17,10 @@
 #define STM32_TOP_SC_MAIN_P4_T3_H
 
 // Deja el chip en reset, carga p4_t3, borra el buzón y lo suelta
-inline void TbP4::arranca3(uint32_t modo) {
+inline void TbP4::arranca3(uint32_t modo, const char* fw) {
     mcu.reset_pin(true);
     wait(20, SC_US);
-    mcu.carga_firmware(FW_T3);
+    mcu.carga_firmware(fw);
     uint8_t ceros[0x200] = {};
     dut.sram.load(ceros, sizeof ceros, 0);
     dut.sram.poke32(0x00, modo);

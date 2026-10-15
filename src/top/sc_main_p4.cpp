@@ -75,6 +75,7 @@ static const char* const FW_DEMO = "verif/fw/msp432p4/p4_demo/p4_demo.out";
 static const char* const FW_DEMO_BIN = "verif/fw/msp432p4/p4_demo/p4_demo.bin";
 static const char* const FW_CM   = "verif/fw/msp432p4/coremark/coremark_p4.bin";
 static const char* const FW_T3   = "verif/fw/msp432p4/p4_t3/p4_t3.out";
+static const char* const FW_T3B  = "verif/fw/msp432p4/p4_t3b/p4_t3b.out";
 
 // El buzón del firmware [verif/fw/msp432p4/p4_demo/main.c, buzon_t]
 enum : uint32_t {
@@ -120,6 +121,8 @@ SC_MODULE(TbP4) {
     // UCB1 (P6.4, P6.5), con sus pull-ups; SPI: la ST7735 en UCB0 (P1.5 CLK,
     // P1.6 SIMO, CS P5.0, RS P3.7, RST P5.7, luz P2.6) y tres pistas entre
     // UCA3 (P9.5-P9.7) y UCB3 (P10.1-P10.3). Todo desoldado hasta su grupo
+    // Analógicos: una fuente de tensión ajustable en A0..A3 (P5.5-P5.2)
+    Driver* v_an[4] = {nullptr, nullptr, nullptr, nullptr};
     I2cEeprom* eeprom = nullptr;
     I2cWire *pu_sda0 = nullptr, *pu_scl0 = nullptr, *pu_sda1 = nullptr, *pu_scl1 = nullptr;
     I2cExtMaster* i2c_ext = nullptr;
@@ -185,6 +188,10 @@ SC_MODULE(TbP4) {
         pista_simo = new SignalLink("pista_simo", dut.dio.nodo_de(8, 7), dut.dio.nodo_de(9, 2));
         pista_somi = new SignalLink("pista_somi", dut.dio.nodo_de(9, 3), dut.dio.nodo_de(8, 6));
         for (SignalLink* q : {pista_clk, pista_simo, pista_somi}) q->set_enabled(false);
+        for (unsigned k = 0; k < 4; ++k) {
+            v_an[k] = new Driver(dut.dio.nodo_de(4, 5 - k), 3.3, 10.0);
+            v_an[k]->release();
+        }
         SC_THREAD(run);
     }
     ~TbP4() override {
@@ -194,15 +201,17 @@ SC_MODULE(TbP4) {
         delete eeprom; delete pu_sda0; delete pu_scl0; delete i2c_ext; delete pu_sda1;
         delete pu_scl1; delete tft; delete tft_3v3; delete tft_masa; delete tft_vcc;
         delete tft_gnd; delete pista_clk; delete pista_simo; delete pista_somi;
+        for (Driver* d : v_an) delete d;
     }
 
     // --- T3 [top/sc_main_p4_t3.h] ------------------------------------------
     uint32_t r3(unsigned i) { return dut.sram.peek32(0x10 + 4 * i); }
-    void arranca3(uint32_t modo);
+    void arranca3(uint32_t modo, const char* fw = FW_T3);
     bool espera3(uint32_t estado, double ms);
     void t3_uart();
     void t3_timers();
     void t3_i2c_spi();
+    void t3_adc();
     // Mide en un pin el periodo y la fraccion en alto, sobre `n` ciclos
     bool pwm(unsigned p, unsigned i, double& periodo_s, double& alto, unsigned n = 4,
              double max_ms = 50);
@@ -966,6 +975,16 @@ SC_MODULE(TbP4) {
         // TESTP4_SOLO=t3: solo los grupos de T3, para trabajar en ellos. No
         // vale para el invariante (la cifra es otra), y lo dice.
         if (const char* solo = std::getenv("TESTP4_SOLO")) {
+            if (std::string(solo) == "t3b") {
+                std::printf("  [TESTP4_SOLO=t3b] solo los grupos de p4_t3b: el tiempo NO "
+                            "es el del invariante\n");
+                mcu.alimenta(true);
+                t3_adc();
+                std::printf("\nTOTAL P4 (solo T3b): %u comprobaciones OK, %u fallos\n",
+                            g_ok, g_fallos);
+                sc_stop();
+                return;
+            }
             if (std::string(solo) == "t3") {
                 std::printf("  [TESTP4_SOLO=t3] solo los grupos de T3: el tiempo NO es el "
                             "del invariante\n");
@@ -973,6 +992,7 @@ SC_MODULE(TbP4) {
                 t3_uart();
                 t3_timers();
                 t3_i2c_spi();
+                t3_adc();
                 std::printf("\nTOTAL P4 (solo T3): %u comprobaciones OK, %u fallos\n",
                             g_ok, g_fallos);
                 sc_stop();
@@ -1001,6 +1021,7 @@ SC_MODULE(TbP4) {
         t3_uart();
         t3_timers();
         t3_i2c_spi();
+        t3_adc();
         std::printf("\n=====================================================\n");
         std::printf("TOTAL P4 : %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         std::printf("=====================================================\n");
@@ -1011,6 +1032,7 @@ SC_MODULE(TbP4) {
 };
 
 #include "sc_main_p4_t3.h"
+#include "sc_main_p4_t3b.h"
 
 int sc_main(int, char*[]) {
     sc_report_handler::set_actions(SC_WARNING, SC_DO_NOTHING);

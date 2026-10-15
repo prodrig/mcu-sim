@@ -100,6 +100,10 @@ constexpr double HZ_REFO_L  = 32768.0;
 constexpr double HZ_REFO_H  = 128000.0;
 constexpr double HZ_MODOSC  = 25.0e6;
 constexpr double HZ_SYSOSC  = 5.0e6;
+// El sensor de temperatura: lineal, 685 mV a 0 C y 1,9 mV/C [1F, datasheet
+// SLAS826, de memoria: P-16 s]. El TLV sintético lleva SUS calibraciones.
+constexpr double V_SENSOR_0C = 0.685, TC_SENSOR = 0.0019;
+inline double v_sensor_temp(double t) { return V_SENSOR_0C + TC_SENSOR * t; }
 // El centro del DCO: 1,5 MHz << DCORSEL [SYS: SystemCoreClockUpdate].
 constexpr double HZ_DCO_BASE = 1.5e6;
 

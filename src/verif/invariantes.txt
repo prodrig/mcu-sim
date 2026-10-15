@@ -147,4 +147,10 @@ testgui                145        76450000000        total
 # desplaza en la Flash, y las esperas de 20 us del banco caen en otro sitio.
 # Comprobado: con el modelo de la eUSCI anterior y el firmware nuevo, la
 # misma cifra.
-testp4                239       1196565722176        resto
+# Fase T3, E4: P40 a P44 -el ADC14 (resoluciones, formato con signo,
+# diferencial, secuencias con MSC, disparo por TA0.1, comparador de ventana,
+# desbordamiento e IV) y REF_A (asentamiento, el sensor de temperatura con la
+# calibracion del TLV, BATMAP y VREF+ por el pin)-: 239 -> 264. Con su propio
+# firmware, p4_t3b, para no mover el codigo de p4_t3: P0 a P39 no cambian, y
+# el resto crece justo los 13,2 ms de P40-P44.
+testp4                264       1209765722176        resto
