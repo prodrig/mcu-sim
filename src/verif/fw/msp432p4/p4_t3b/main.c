@@ -24,6 +24,17 @@
  *    43  ping-pong en el canal 7 con el ADC disparado por TA0.1 a 1 kHz: el
  *        firmware rearma cada mitad en DMA_INT1
  *
+ *   50-53  CRC32, AES256, RTC_C y COMP_E
+ *    50  CRC-CCITT y CRC32 de "123456789", por DI y por DIRB; y una palabra de
+ *        32 bits igual que cuatro bytes
+ *    51  AES-128 y AES-256 con los vectores de la FIPS-197, por la secuencia
+ *        de DriverLib: cifrar, generar la clave de descifrado y descifrar
+ *    52  RTC_C en BCD con BCLK = REFO: de las 23:59:58 a medianoche, con
+ *        RTCRDY, el evento de medianoche, la alarma de las 00:00 y RT0PS a
+ *        128 Hz; durmiendo en WFI entre interrupciones
+ *    53  COMP_E0: C0.2 (P7.7) contra la escalera de VCC con histeresis
+ *        (16/32 y 20/32), por interrupcion; y C0OUT por P7.1
+ *
  * El buzon: modo, arranques, estado, senal (la escribe el banco) y r[].
  * ===========================================================================*/
 #ifndef NO_MSP_CLASSIC_DEFINES
@@ -381,6 +392,181 @@ static void m43_pingpong(void) {
     for (;;) { }
 }
 
+/* --- CRC32 ------------------------------------------------------------------- */
+
+static const uint8_t m50_txt[9] = { '1', '2', '3', '4', '5', '6', '7', '8', '9' };
+static void m50_crc(void) {
+    CRC32->INIRES16 = 0xFFFF;
+    for (int i = 0; i < 9; ++i) *(volatile uint8_t*)&CRC32->DIRB16 = m50_txt[i];
+    buzon.r[0] = CRC32->INIRES16;                 /* CRC-CCITT (MSB primero) */
+    CRC32->INIRES16 = 0xFFFF;
+    for (int i = 0; i < 9; ++i) *(volatile uint8_t*)&CRC32->DI16 = m50_txt[i];
+    buzon.r[1] = CRC32->RESR16;                   /* reflejado, sin XOR final */
+    CRC32->INIRES32_HI = 0xFFFF; CRC32->INIRES32_LO = 0xFFFF;
+    for (int i = 0; i < 9; ++i) *(volatile uint8_t*)&CRC32->DI32 = m50_txt[i];
+    buzon.r[2] = ~(((uint32_t)CRC32->RESR32_HI << 16) | CRC32->RESR32_LO);
+    /* Ocho bytes de uno en uno, y como dos palabras de 32 bits (dos medias) */
+    CRC32->INIRES32_HI = 0xFFFF; CRC32->INIRES32_LO = 0xFFFF;
+    for (int i = 0; i < 8; ++i) *(volatile uint8_t*)&CRC32->DI32 = m50_txt[i];
+    buzon.r[3] = ((uint32_t)CRC32->INIRES32_HI << 16) | CRC32->INIRES32_LO;
+    CRC32->INIRES32_HI = 0xFFFF; CRC32->INIRES32_LO = 0xFFFF;
+    for (int i = 0; i < 8; i += 4) {
+        const uint32_t w = (uint32_t)m50_txt[i] | ((uint32_t)m50_txt[i + 1] << 8) |
+                           ((uint32_t)m50_txt[i + 2] << 16) | ((uint32_t)m50_txt[i + 3] << 24);
+        CRC32->DI32 = (uint16_t)w;
+        CRC32->DI32 = (uint16_t)(w >> 16);
+    }
+    buzon.r[4] = ((uint32_t)CRC32->INIRES32_HI << 16) | CRC32->INIRES32_LO;
+    buzon.estado = 1;
+    for (;;) { }
+}
+
+/* --- AES256 ------------------------------------------------------------------ */
+
+static volatile uint32_t aes_irq = 0;
+void AES256_IRQHandler(void) { AES256->CTL0 &= ~AES256_CTL0_RDYIFG; aes_irq++; }
+static void aes_clave(const uint8_t* k, int n, uint16_t kl) {
+    AES256->CTL0 = (AES256->CTL0 & ~AES256_CTL0_KL_MASK) | kl;
+    for (int i = 0; i < n; i += 2) AES256->KEY = (uint16_t)(k[i] | (k[i + 1] << 8));
+    while (!(AES256->STAT & AES256_STAT_KEYWR)) { }
+}
+static uint32_t aes_bloque(const uint8_t* in, uint8_t* out) {
+    for (int i = 0; i < 16; i += 2) AES256->DIN = (uint16_t)(in[i] | (in[i + 1] << 8));
+    AES256->STAT |= AES256_STAT_KEYWR;
+    uint32_t n = 0;
+    while (AES256->STAT & AES256_STAT_BUSY) ++n;
+    for (int i = 0; i < 16; i += 2) {
+        const uint16_t v = AES256->DOUT;
+        out[i] = (uint8_t)v; out[i + 1] = (uint8_t)(v >> 8);
+    }
+    return n;
+}
+static void m51_aes(void) {
+    uint8_t k[32], pt[16], ct[16], dt[16];
+    for (int i = 0; i < 32; ++i) k[i] = (uint8_t)i;
+    for (int i = 0; i < 16; ++i) pt[i] = (uint8_t)(0x11 * i);
+    AES256->CTL0 = AES256_CTL0_SWRST;
+    AES256->CTL0 = AES256_CTL0_RDYIE;
+    NVIC->ISER[0] = 1u << AES256_IRQn;
+    /* AES-128: cifrar */
+    AES256->CTL0 &= ~AES256_CTL0_OP_MASK;
+    aes_clave(k, 16, AES256_CTL0_KL__128BIT);
+    buzon.r[0] = aes_bloque(pt, ct);
+    for (int i = 0; i < 16; ++i) buzon.buf[i] = ct[i];
+    /* Generar la clave de descifrado (OP = 2) y descifrar con ella (OP = 3) */
+    AES256->CTL0 = (AES256->CTL0 & ~AES256_CTL0_OP_MASK) | AES256_CTL0_OP_2;
+    for (int i = 0; i < 16; i += 2) AES256->KEY = (uint16_t)(k[i] | (k[i + 1] << 8));
+    uint32_t n = 0;
+    while (AES256->STAT & AES256_STAT_BUSY) ++n;
+    buzon.r[1] = n;
+    AES256->CTL0 |= AES256_CTL0_OP_3;
+    aes_bloque(ct, dt);
+    for (int i = 0; i < 16; ++i) buzon.buf[16 + i] = dt[i];
+    /* Cifrar con OP = 0 sin volver a cargar la clave: el registro tiene la de
+       descifrado, y sale otra cosa */
+    AES256->CTL0 &= ~AES256_CTL0_OP_MASK;
+    aes_bloque(pt, dt);
+    buzon.r[2] = (dt[0] == ct[0] && dt[1] == ct[1] && dt[15] == ct[15]);
+    /* AES-256 */
+    aes_clave(k, 32, AES256_CTL0_KL__256BIT);
+    buzon.r[3] = aes_bloque(pt, ct);
+    for (int i = 0; i < 16; ++i) buzon.buf[32 + i] = ct[i];
+    /* Escribir DIN con BUSY levanta ERRFG */
+    for (int i = 0; i < 16; i += 2) AES256->DIN = 0;
+    AES256->DIN = 0x1234;
+    buzon.r[4] = AES256->CTL0 & AES256_CTL0_ERRFG;
+    while (AES256->STAT & AES256_STAT_BUSY) { }
+    buzon.r[5] = aes_irq;
+    buzon.estado = 1;
+    for (;;) { }
+}
+
+/* --- RTC_C ------------------------------------------------------------------- */
+
+static volatile uint32_t rtc_rdy = 0, rtc_tev = 0, rtc_al = 0, rtc_ps0 = 0;
+void RTC_C_IRQHandler(void) {
+    switch (RTC_C->IV) {
+    case 0x04:
+        if (rtc_rdy < 4) {
+            buzon.r[4 + 3 * rtc_rdy] = RTC_C->TIM0;
+            buzon.r[5 + 3 * rtc_rdy] = RTC_C->TIM1;
+            buzon.r[6 + 3 * rtc_rdy] = RTC_C->DATE;
+        }
+        rtc_rdy++;
+        break;
+    case 0x06: rtc_tev++; break;
+    case 0x08: rtc_al++; break;
+    case 0x0A: rtc_ps0++; break;
+    default: break;
+    }
+}
+static void m52_rtc(void) {
+    CS->KEY = CS_KEY_VAL;
+    CS->CTL1 |= CS_CTL1_SELB;                    /* BCLK = REFO, 32 768 Hz */
+    CS->KEY = 0;
+    RTC_C->CTL0 = RTC_C_KEY;                     /* abierto */
+    RTC_C->CTL13 = RTC_C_CTL13_HOLD | RTC_C_CTL13_BCD | RTC_C_CTL13_TEV_2;  /* medianoche */
+    RTC_C->TIM0 = (0x59 << 8) | 0x58;            /* 23:59:58, jueves */
+    RTC_C->TIM1 = (4 << 8) | 0x23;
+    RTC_C->DATE = (0x10 << 8) | 0x15;            /* 15 de octubre */
+    RTC_C->YEAR = 0x2026;
+    RTC_C->AMINHR = (uint16_t)((RTC_C_AMINHR_HOURAE | 0x0000) | RTC_C_AMINHR_MINAE);  /* 00:00 */
+    RTC_C->ADOWDAY = 0;
+    RTC_C->PS0CTL = RTC_C_PS0CTL_RT0IP_7 | RTC_C_PS0CTL_RT0PSIE;   /* 32768/256 */
+    RTC_C->CTL0 = RTC_C_KEY | RTC_C_CTL0_RDYIE | RTC_C_CTL0_TEVIE | RTC_C_CTL0_AIE;
+    RTC_C->CTL13 &= ~RTC_C_CTL13_HOLD;
+    RTC_C->CTL0 = (RTC_C->CTL0 & 0xFF) | 0x0000; /* cerrado */
+    buzon.r[0] = RTC_C->CTL0 >> 8;               /* 0x96 */
+    /* Cerrado, CTL13 no se deja tocar */
+    RTC_C->CTL13 |= RTC_C_CTL13_HOLD;
+    buzon.r[1] = RTC_C->CTL13 & RTC_C_CTL13_HOLD;
+    /* Los conversores */
+    RTC_C->BIN2BCD = 1234;
+    buzon.r[2] = RTC_C->BIN2BCD;
+    RTC_C->BCD2BIN = 0x0987;
+    buzon.r[3] = RTC_C->BCD2BIN;
+    NVIC->ISER[0] = 1u << RTC_C_IRQn;
+    buzon.estado = 1;
+    while (rtc_rdy < 3) __WFI();
+    buzon.r[16] = rtc_tev;
+    buzon.r[17] = rtc_al;
+    buzon.r[18] = rtc_ps0;
+    buzon.r[19] = RTC_C->YEAR;
+    buzon.estado = 2;
+    for (;;) __WFI();
+}
+
+/* --- COMP_E ------------------------------------------------------------------ */
+
+static volatile uint32_t ce_sube = 0, ce_baja = 0;
+void COMP_E0_IRQHandler(void) {
+    switch (COMP_E0->IV) {
+    case 0x02: ce_sube++; break;
+    case 0x04: ce_baja++; break;
+    default: break;
+    }
+}
+static void m53_comp(void) {
+    P7->SEL0 |= BIT7; P7->SEL1 |= BIT7;          /* C0.2 */
+    P7->SEL0 |= BIT1; P7->DIR |= BIT1;           /* C0OUT, por el PMAP de reset */
+    COMP_E0->CTL0 = COMP_E_CTL0_IPEN | 2;        /* V+ = C0.2 */
+    COMP_E0->CTL2 = COMP_E_CTL2_RSEL | COMP_E_CTL2_RS_1 | (19 << 8) | 15;   /* V- = escalera */
+    COMP_E0->CTL3 = 1u << 2;
+    COMP_E0->CTL1 = COMP_E_CTL1_ON | COMP_E_CTL1_PWRMD_1;
+    COMP_E0->INT = COMP_E_INT_IE | COMP_E_INT_IIE;
+    NVIC->ISER[0] = 1u << COMP_E0_IRQn;
+    buzon.estado = 1;
+    for (uint32_t k = 0; k < 5; ++k) {
+        espera_senal(k + 1);
+        for (volatile int i = 0; i < 50; ++i) { }
+        buzon.r[3 * k] = COMP_E0->CTL1 & COMP_E_CTL1_OUT;
+        buzon.r[3 * k + 1] = ce_sube;
+        buzon.r[3 * k + 2] = ce_baja;
+        buzon.estado = k + 2;
+    }
+    for (;;) { }
+}
+
 int main(void) {
     para_perro();
     buzon.arranques++;
@@ -394,6 +580,10 @@ int main(void) {
     case 41: m41_uart(); break;
     case 42: m42_adc(); break;
     case 43: m43_pingpong(); break;
+    case 50: m50_crc(); break;
+    case 51: m51_aes(); break;
+    case 52: m52_rtc(); break;
+    case 53: m53_comp(); break;
     default: break;
     }
     for (;;) { }

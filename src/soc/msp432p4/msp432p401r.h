@@ -62,6 +62,10 @@
 #include "../../periph/msp432p4/ref_a.h"
 #include "../../periph/msp432p4/adc14.h"
 #include "../../periph/msp432p4/udma.h"
+#include "../../periph/msp432p4/crc32.h"
+#include "../../periph/msp432p4/aes256.h"
+#include "../../periph/msp432p4/rtc_c.h"
+#include "../../periph/msp432p4/comp_e.h"
 #include "p4_programador.h"
 
 namespace stm32 {
@@ -155,6 +159,12 @@ public:
     // --- DMA (T3) --------------------------------------------------------------
     UdmaP4   udma{"udma"};
 
+    // --- Y el resto (T3) ---------------------------------------------------------
+    Crc32P4  crc{"crc32"};
+    Aes256P4 aes{"aes256"};
+    RtcCP4   rtc{"rtc_c"};
+    CompEP4  ce0{"comp_e0", p4::COMP_E0_B}, ce1{"comp_e1", p4::COMP_E1_B};
+
     // --- Los relojes que reparte el CS ----------------------------------------
     ClockGen g_mclk{"g_mclk"}, g_hsmclk{"g_hsmclk"}, g_smclk{"g_smclk"},
              g_aclk{"g_aclk"};
@@ -191,6 +201,11 @@ public:
         SC_METHOD(sysresetreq_proc); sensitive << s_sysresetreq_; dont_initialize();
         SC_METHOD(swdio_proc); sensitive << s_swdio_o_ << s_swdio_oe_;
         SC_METHOD(halt_proc); sensitive << core.debug.halted; dont_initialize();
+        SC_METHOD(comparadores_proc);
+        for (unsigned k = 0; k < 2; ++k)
+            for (unsigned c = 0; c < 8; ++c)
+                sensitive << dio.nodo_de(CANAL_CE[k][c][0], CANAL_CE[k][c][1]).value_changed_event();
+        dont_initialize();
         // Los disparos del ADC14: las salidas OUT1/OUT2 de los Timer_A
         SC_METHOD(disparos_adc_proc);
         sensitive << ta0.out[1] << ta0.out[2] << ta1.out[1] << ta1.out[2]
@@ -235,8 +250,10 @@ public:
             "da error de bus al llamarla (T4)",
             "el TLV es SINTETICO: identidad P401R rev. C y calibraciones tipicas, "
             "no las de una pieza concreta",
-            "COMP_E, RTC_C, AES256, CRC32 y CAPTIO estan DECLARADOS y no "
-            "modelados (T3)",
+            "CAPTIO y PSS estan DECLARADOS y no modelados",
+            "RTC_C sin calibracion (OCAL, TCMP) y con RTCRDY siempre a 1; AES256 "
+            "bloque a bloque, sin los modos de cifrado con DMA; COMP_E sin los "
+            "canales internos ni la salida hacia los Timer_A",
             "la uDMA no hace scatter-gather, y los Timer_A, el AES y el pin "
             "externo no le piden transferencias",
             "el ADC14 es un convertidor ideal (sin ruido, sin error de ganancia ni "
@@ -378,13 +395,9 @@ private:
         for (unsigned n = 0; n < 4; ++n) { engancha(*uca(n)); engancha(*ucb(n)); engancha(*ta(n)); }
         engancha(t32);
         engancha(ref); engancha(adc); engancha(udma);
+        engancha(crc); engancha(aes); engancha(rtc); engancha(ce0); engancha(ce1);
         struct D { const char* n; uint32_t b, s; const char* q; };
         static const D lista[] = {
-            {"comp_e0",  p4::COMP_E0_B,  0x400, "COMP_E0"},
-            {"comp_e1",  p4::COMP_E1_B,  0x400, "COMP_E1"},
-            {"aes256",   p4::AES256_B,   0x400, "AES256"},
-            {"crc32",    p4::CRC32_B,    0x400, "CRC32"},
-            {"rtc_c",    p4::RTC_C_B,    0x400, "RTC_C"},
             {"captio0",  p4::CAPTIO0_B,  0x400, "CAPTIO0"},
             {"captio1",  p4::CAPTIO1_B,  0x400, "CAPTIO1"},
             {"pss",      p4::PSS_B,      0x400, "PSS"},
@@ -447,7 +460,38 @@ private:
         conecta_temporizadores();
         conecta_analogicos();
         conecta_dma();
+        conecta_resto();
     }
+
+    // CRC32, AES256, RTC_C y los dos COMP_E
+    static constexpr uint8_t CANAL_CE[2][8][2] = {
+        {{7, 1}, {7, 0}, {6, 7}, {6, 6}, {6, 5}, {6, 4}, {9, 5}, {9, 4}},   // C0.0-C0.7
+        {{5, 7}, {5, 6}, {5, 5}, {5, 4}, {5, 3}, {5, 2}, {4, 7}, {4, 6}},   // C1.0-C1.7
+    };
+    void conecta_resto() {
+        aes.irq(s_irq_[p4::IRQ_AES256]);
+        rtc.irq(s_irq_[p4::IRQ_RTC_C]);
+        rtc.f_bclk = [this] { return cs.f_bclk(); };
+        CompEP4* ce[2] = {&ce0, &ce1};
+        for (unsigned k = 0; k < 2; ++k) {
+            ce[k]->irq(s_irq_[k ? p4::IRQ_COMP_E1 : p4::IRQ_COMP_E0]);
+            ce[k]->ref = &ref;
+            ce[k]->bit_ref = 2u << k;
+            ce[k]->v_cc = [this] { return double(avcc->voltage()) - double(avss->voltage()); };
+            ce[k]->v_canal = [this, k](unsigned c) {
+                return c < 8 ? double(dio.nodo_de(CANAL_CE[k][c][0], CANAL_CE[k][c][1]).voltage()) -
+                               double(avss->voltage()) : 0.0;
+            };
+            for (unsigned c = 0; c < 8; ++c) {
+                const unsigned p = CANAL_CE[k][c][0], i = CANAL_CE[k][c][1];
+                if (dio.funcion_de(p, i, 3)) continue;           // P5.6/P5.7: ya son VREF
+                FuncionP4 f; f.analogica = true; f.nombre = "C";
+                dio.conecta_funcion(p, i, 3, f);
+            }
+        }
+    }
+    // Las tensiones de los canales de los comparadores, cuando cambian
+    void comparadores_proc() { ce0.recalcula(); ce1.recalcula(); }
 
     // Las fuentes de petición de cada canal [2F: DriverLib dma.h, DMA_CHn_*]:
     // 1 la eUSCI_A, 2 la eUSCI_B con su flag 0; 3-5 los flags 1-3 de las B
@@ -512,6 +556,7 @@ private:
         d_vref_ = dio.nodo_de(4, 6).register_driver("vref_out");
         dio.nodo_de(4, 6).set_hiz(d_vref_);
         ref.al_cambiar = [this] {
+            ce0.recalcula(); ce1.recalcula();
             if (ref.sale_por_pin() && dio.funcion(4, 6) == 3)
                 dio.nodo_de(4, 6).set_drive(d_vref_, float(ref.vref()), 1.0f);
             else dio.nodo_de(4, 6).set_hiz(d_vref_);
@@ -546,8 +591,11 @@ private:
             dio.conecta_mapeable(PmapP4::PM_TA0CCR0A + k, ta0.fn_ta(k));
         for (unsigned k = 1; k < 5; ++k)
             dio.conecta_mapeable(PmapP4::PM_TA1CCR1A + k - 1, ta1.fn_ta(k));
-        dio.conecta_mapeable(PmapP4::PM_TA0CLK, ta0.fn_taclk());
-        dio.conecta_mapeable(PmapP4::PM_TA1CLK, ta1.fn_taclk());
+        // El mismo valor del PMAP es TAxCLK con PxDIR = 0 y CxOUT con PxDIR = 1
+        FuncionP4 c0 = ta0.fn_taclk(); c0.out = &ce0.salida; c0.nombre = "TA0CLK/C0OUT";
+        FuncionP4 c1 = ta1.fn_taclk(); c1.out = &ce1.salida; c1.nombre = "TA1CLK/C1OUT";
+        dio.conecta_mapeable(PmapP4::PM_TA0CLK, c0);
+        dio.conecta_mapeable(PmapP4::PM_TA1CLK, c1);
         // Fijos: TA1.0 (P8.0, secundaria), TA2 en P5.6/P5.7/P6.6/P6.7 y TA2.0
         // en P8.1 (secundaria), TA2CLK en P4.2 (con DIR = 0), TA3 en P10.4,
         // P10.5, P8.2, P9.2, P9.3 y TA3CLK en P8.3
@@ -669,6 +717,7 @@ private:
             uca(n)->recalcula(); ucb(n)->recalcula(); ta(n)->recalcula();
         }
         t32.recalcula();
+        rtc.recalcula();
         revisa_topes();
     }
     void revisa_topes() {

@@ -155,6 +155,12 @@ testgui                145        76450000000        total
 # el resto crece justo los 13,2 ms de P40-P44.
 # Fase T3, E5: P45 a P48 -la uDMA: memoria a memoria en automatico, la UCA0
 # por dos canales, el ADC14 al canal 7, ping-pong, DMA_INT0..1 y DMA_ERR-:
-# 264 -> 280. El resto crece justo los 24,56 ms de P45-P48: P0 a P44 no
-# cambian, tampoco P40-P44, aunque p4_t3b ha crecido.
-testp4                280       1234325722176        resto
+# 264 -> 280. El resto crece 24,56 ms: 21,16 de P45-P48 y 3,4 de P40-P44,
+# que tardan 680 us mas cada uno porque p4_t3b ha crecido y su arranque de C
+# borra un .bss mayor (medido grupo a grupo contra la entrega anterior).
+# P0 a P39 no cambian.
+# Fase T3, E6: P49 a P52 -CRC32 (CCITT y el de Ethernet), AES256 con los
+# vectores de la FIPS-197, RTC_C de las 23:59:58 a medianoche con eventos,
+# alarma y preescalador, y COMP_E0 con histeresis-: 280 -> 306. Tres
+# segundos simulados de RTC: el resto crece 3005,41 ms, todo de P49-P52.
+testp4                306       4239735722176        resto

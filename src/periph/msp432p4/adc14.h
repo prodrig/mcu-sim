@@ -129,8 +129,11 @@ protected:
         irq_ev_.notify(sc_core::SC_ZERO_TIME);
         ev_.notify(sc_core::SC_ZERO_TIME);
     }
+    bool repulso_ = false;           // véase RtcCP4::irq_proc
     void irq_proc() {
-        irq.write((ifg0_ & ier0_) || (ifg1_ & ier1_ & 0x7Eu));
+        const bool q = (ifg0_ & ier0_) || (ifg1_ & ier1_ & 0x7Eu);
+        if (repulso_ && q) { repulso_ = false; irq.write(false); irq_ev_.notify(sc_core::SC_ZERO_TIME); }
+        else { repulso_ = false; irq.write(q); }
         dma_req.write(ifg0_ != 0);
     }
     void cambia_irq() { irq_ev_.notify(sc_core::SC_ZERO_TIME); }
@@ -363,16 +366,16 @@ protected:
         static const uint32_t r1[5] = {I_OV, I_TOV, I_HI, I_LO, I_IN};
         for (unsigned k = 0; k < 5; ++k)
             if (ifg1_ & ier1_ & r1[k]) {
-                if (!dbg_) { ifg1_ &= ~r1[k]; cambia_irq(); }
+                if (!dbg_) { ifg1_ &= ~r1[k]; repulso_ = true; cambia_irq(); }
                 return 2u * (k + 1u);
             }
         for (unsigned n = 0; n < 32; ++n)
             if (ifg0_ & ier0_ & (1u << n)) {
-                if (!dbg_) { ifg0_ &= ~(1u << n); cambia_irq(); }
+                if (!dbg_) { ifg0_ &= ~(1u << n); repulso_ = true; cambia_irq(); }
                 return 0x0Cu + 2u * n;
             }
         if (ifg1_ & ier1_ & I_RDY) {
-            if (!dbg_) { ifg1_ &= ~I_RDY; cambia_irq(); }
+            if (!dbg_) { ifg1_ &= ~I_RDY; repulso_ = true; cambia_irq(); }
             return 0x4Cu;
         }
         return 0;

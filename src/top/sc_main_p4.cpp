@@ -123,6 +123,7 @@ SC_MODULE(TbP4) {
     // UCA3 (P9.5-P9.7) y UCB3 (P10.1-P10.3). Todo desoldado hasta su grupo
     // Analógicos: una fuente de tensión ajustable en A0..A3 (P5.5-P5.2)
     Driver* v_an[4] = {nullptr, nullptr, nullptr, nullptr};
+    Driver* v_ce = nullptr;                     // C0.2 (P7.7), para el COMP_E0
     I2cEeprom* eeprom = nullptr;
     I2cWire *pu_sda0 = nullptr, *pu_scl0 = nullptr, *pu_sda1 = nullptr, *pu_scl1 = nullptr;
     I2cExtMaster* i2c_ext = nullptr;
@@ -192,6 +193,8 @@ SC_MODULE(TbP4) {
             v_an[k] = new Driver(dut.dio.nodo_de(4, 5 - k), 3.3, 10.0);
             v_an[k]->release();
         }
+        v_ce = new Driver(dut.dio.nodo_de(6, 7), 3.3, 10.0);
+        v_ce->release();
         SC_THREAD(run);
     }
     ~TbP4() override {
@@ -202,6 +205,7 @@ SC_MODULE(TbP4) {
         delete pu_scl1; delete tft; delete tft_3v3; delete tft_masa; delete tft_vcc;
         delete tft_gnd; delete pista_clk; delete pista_simo; delete pista_somi;
         for (Driver* d : v_an) delete d;
+        delete v_ce;
     }
 
     // --- T3 [top/sc_main_p4_t3.h] ------------------------------------------
@@ -213,6 +217,7 @@ SC_MODULE(TbP4) {
     void t3_i2c_spi();
     void t3_adc();
     void t3_dma();
+    void t3_resto();
     // Mide en un pin el periodo y la fraccion en alto, sobre `n` ciclos
     bool pwm(unsigned p, unsigned i, double& periodo_s, double& alto, unsigned n = 4,
              double max_ms = 50);
@@ -982,6 +987,7 @@ SC_MODULE(TbP4) {
                 mcu.alimenta(true);
                 t3_adc();
                 t3_dma();
+                t3_resto();
                 std::printf("\nTOTAL P4 (solo T3b): %u comprobaciones OK, %u fallos\n",
                             g_ok, g_fallos);
                 sc_stop();
@@ -996,6 +1002,7 @@ SC_MODULE(TbP4) {
                 t3_i2c_spi();
                 t3_adc();
                 t3_dma();
+                t3_resto();
                 std::printf("\nTOTAL P4 (solo T3): %u comprobaciones OK, %u fallos\n",
                             g_ok, g_fallos);
                 sc_stop();
@@ -1026,6 +1033,7 @@ SC_MODULE(TbP4) {
         t3_i2c_spi();
         t3_adc();
         t3_dma();
+        t3_resto();
         std::printf("\n=====================================================\n");
         std::printf("TOTAL P4 : %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         std::printf("=====================================================\n");

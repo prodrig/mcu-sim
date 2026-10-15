@@ -165,4 +165,87 @@ inline void TbP4::t3_dma() {
     v_an[0]->release();
 }
 
+// =============================================================================
+// P49-P52  CRC32, AES256, RTC_C y COMP_E
+// =============================================================================
+inline void TbP4::t3_resto() {
+    grupo("P49 CRC32: CRC-CCITT y CRC32 de \"123456789\", por DI y por DIRB");
+    arranca3(50, FW_T3B);
+    check(espera3(1, 5), "el firmware hace sus cinco firmas");
+    std::printf("    CCITT 0x%04X; reflejado 0x%04X; CRC32 0x%08X; 8 bytes 0x%08X / 0x%08X\n",
+                r3(0), r3(1), r3(2), r3(3), r3(4));
+    check(r3(0) == 0x29B1u, "por DIRB16 con semilla 0xFFFF: el CRC-CCITT de la norma, 0x29B1");
+    check(r3(1) == 0x6F91u, "por DI16, leido en RESR16: el reflejado (X.25 sin el XOR final)");
+    check(r3(2) == 0xCBF43926u, "por DI32, ~RESR32: el CRC32 de Ethernet y zlib, 0xCBF43926");
+    check(r3(3) == r3(4), "dos medias palabras dan lo mismo que cuatro bytes, el bajo primero");
+
+    grupo("P50 AES256: los vectores de la FIPS-197, por la secuencia de DriverLib");
+    arranca3(51, FW_T3B);
+    check(espera3(1, 5), "el firmware cifra, descifra y vuelve a cifrar");
+    static const uint8_t c128[16] = {0x69, 0xc4, 0xe0, 0xd8, 0x6a, 0x7b, 0x04, 0x30,
+                                     0xd8, 0xcd, 0xb7, 0x80, 0x70, 0xb4, 0xc5, 0x5a};
+    static const uint8_t c256[16] = {0x8e, 0xa2, 0xb7, 0xca, 0x51, 0x67, 0x45, 0xbf,
+                                     0xea, 0xfc, 0x49, 0x90, 0x4b, 0x49, 0x60, 0x89};
+    bool ok128 = true, okd = true, ok256 = true;
+    for (unsigned i = 0; i < 16; ++i) {
+        const uint32_t w0 = dut.sram.peek32(0x100 + (i & ~3u));
+        const uint32_t w1 = dut.sram.peek32(0x110 + (i & ~3u));
+        const uint32_t w2 = dut.sram.peek32(0x120 + (i & ~3u));
+        if (uint8_t(w0 >> (8 * (i & 3u))) != c128[i]) ok128 = false;
+        if (uint8_t(w1 >> (8 * (i & 3u))) != uint8_t(0x11 * i)) okd = false;
+        if (uint8_t(w2 >> (8 * (i & 3u))) != c256[i]) ok256 = false;
+    }
+    std::printf("    vueltas con BUSY: %u cifrando, %u generando la clave, %u con 256 bits; "
+                "ERRFG 0x%X; %u interrupciones\n", r3(0), r3(1), r3(3), r3(4), r3(5));
+    check(ok128, "AES-128 (FIPS-197 C.1): 69c4e0d8...70b4c55a");
+    check(okd, "OP = 2 genera la clave de descifrado y OP = 3 descifra: vuelve el texto");
+    check(r3(2) == 0, "y cifrar con OP = 0 sin recargar la clave usa la de descifrado: otra cosa");
+    check(ok256, "AES-256 (FIPS-197 C.3): 8ea2b7ca...4b496089");
+    check(r3(0) > 0 && r3(3) > r3(0) && r3(1) > 0,
+          "BUSY dura: mas con 256 bits que con 128, y tambien al generar la clave");
+    check(r3(4) != 0, "escribir DIN con el AES ocupado levanta ERRFG");
+    check(r3(5) >= 4, "RDYIFG con RDYIE: una interrupcion por bloque");
+
+    grupo("P51 RTC_C en BCD: de las 23:59:58 a la medianoche, con eventos y alarma");
+    arranca3(52, FW_T3B);
+    check(espera3(1, 5), "el firmware pone la hora y se duerme");
+    std::printf("    clave 0x%02X; HOLD con la clave cerrada %u; BIN2BCD(1234) 0x%04X; "
+                "BCD2BIN(0x0987) %u\n", r3(0), r3(1), r3(2), r3(3));
+    check(r3(0) == 0x96 && r3(1) == 0, "cerrado (RTCKEY se lee 0x96), CTL13 no cambia");
+    check(r3(2) == 0x1234 && r3(3) == 987, "los conversores BIN2BCD y BCD2BIN");
+    check(espera3(2, 3200), "tres segundos despues, tres RTCRDY");
+    std::printf("    TIM0/TIM1/DATE: %04X %04X %04X | %04X %04X %04X | %04X %04X %04X; "
+                "TEV %u, alarma %u, RT0PS %u, ano %04X\n",
+                r3(4), r3(5), r3(6), r3(7), r3(8), r3(9), r3(10), r3(11), r3(12),
+                r3(16), r3(17), r3(18), r3(19));
+    check(r3(4) == 0x5959 && r3(5) == 0x0423 && r3(6) == 0x1015,
+          "un segundo: 23:59:59 del jueves 15");
+    check(r3(7) == 0x0000 && r3(8) == 0x0500 && r3(9) == 0x1016,
+          "dos: medianoche, viernes 16, en BCD");
+    check(r3(16) == 1 && r3(17) == 1, "a medianoche, el evento (RTCTEV = 2) y la alarma de las 00:00");
+    check(r3(18) >= 380 && r3(18) <= 400, "RT0PS cada 256 tics de BCLK: 128 por segundo");
+    check(r3(19) == 0x2026, "y el ano no se mueve");
+
+    grupo("P52 COMP_E0: C0.2 contra la escalera de VCC, con histeresis");
+    v_ce->set_volts(1.0, 10.0);
+    arranca3(53, FW_T3B);
+    check(espera3(1, 5), "el comparador arranca");
+    const double vs[5] = {1.0, 1.8, 2.2, 1.8, 1.5};
+    bool pin_ok = true;
+    for (uint32_t k = 0; k < 5; ++k) {
+        v_ce->set_volts(vs[k], 10.0);
+        wait(10, SC_US);
+        if (dut.dio.nivel(6, 1) != (k == 2 || k == 3)) pin_ok = false;
+        dut.sram.poke32(0x0C, k + 1);
+        espera3(k + 2, 5);
+    }
+    std::printf("    OUT: %u %u %u %u %u; subidas %u, bajadas %u; umbral ahora %.3f V\n",
+                r3(0), r3(3), r3(6), r3(9), r3(12), r3(13), r3(14), dut.ce0.umbral());
+    check(r3(0) == 0 && r3(3) == 0 && r3(6) == 1 && r3(9) == 1 && r3(12) == 0,
+          "sube al pasar de 20/32 de VCC y baja al bajar de 16/32: la histeresis de REF1 y REF0");
+    check(r3(13) == 1 && r3(14) == 1, "CEIFG en la subida y CEIIFG en la bajada, por CEIV");
+    check(pin_ok, "y C0OUT sale por P7.1");
+    v_ce->release();
+}
+
 #endif // STM32_TOP_SC_MAIN_P4_T3B_H
