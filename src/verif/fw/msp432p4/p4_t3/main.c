@@ -17,6 +17,19 @@
  *     7  el PMAP: la UCA1 en sus pines de reset (P2.2/P2.3) y luego la UCA2
  *        mapeada en P2.3
  *
+ *   10-15  Timer_A y Timer32
+ *    10  PWM en modo ascendente: TA0.1 y TA0.2 (P2.4 y P2.5, por el PMAP de
+ *        reset) a 1 kHz, 25 % y 50 %; y las interrupciones TA0_0 y TA0_N
+ *    11  modo continuo con dos bases de tiempo: TA1.1 y TA1.2 (P7.7 y P7.6)
+ *        conmutando cada 1000 y 3000 tics, CCRn += paso en la interrupcion
+ *    12  modo ascendente/descendente: PWM centrado en TA2.1 (P5.6)
+ *    13  captura: TA3.1 en P10.5, los dos flancos, y COV; y la captura por
+ *        programa (CCIS entre GND y VCC)
+ *    14  Timer32: periodico, de un disparo, libre y BGLOAD
+ *    15  TA1 con su reloj externo, TA1CLK en P7.2, e ID/IDEX
+ *    16  un servo en TA0.2 (P2.5, el J2.19 de la BOOSTXL-EDUMKII): 50 Hz,
+ *        1,5 ms y luego 2,0 ms, durmiendo entre medias
+ *
  * El buzon: modo, arranques, estado y un vector de resultados r[] cuyo
  * significado depende del modo (lo dice cada modo).
  * ===========================================================================*/
@@ -270,6 +283,188 @@ static void m7_pmap(void) {
     for (;;) { }
 }
 
+/* --- Timer_A y Timer32 ------------------------------------------------------- */
+static volatile uint32_t n_ta0_0 = 0, n_ta0_n = 0, n_taifg = 0;
+void TA0_0_IRQHandler(void) {
+    TIMER_A0->CCTL[0] &= ~TIMER_A_CCTLN_CCIFG;   /* en el MSP432 no se borra solo */
+    n_ta0_0++;
+}
+void TA0_N_IRQHandler(void) {
+    switch (TIMER_A0->IV) {
+    case 0x0E: n_taifg++; break;
+    default: n_ta0_n++; break;
+    }
+}
+static void m10_pwm(void) {
+    /* P2.4 y P2.5: TA0.1 y TA0.2 por el PMAP de reset, salidas con DIR = 1 */
+    P2->DIR |= BIT4 | BIT5;
+    P2->SEL0 |= BIT4 | BIT5;
+    P2->SEL1 &= ~(BIT4 | BIT5);
+    TIMER_A0->CCR[0] = 2999;                     /* 3 MHz / 3000 = 1 kHz */
+    TIMER_A0->CCR[1] = 749;
+    TIMER_A0->CCR[2] = 1499;
+    TIMER_A0->CCTL[1] = TIMER_A_CCTLN_OUTMOD_7;
+    TIMER_A0->CCTL[2] = TIMER_A_CCTLN_OUTMOD_7;
+    TIMER_A0->CCTL[0] = TIMER_A_CCTLN_CCIE;
+    TIMER_A0->CTL = TIMER_A_CTL_SSEL__SMCLK | TIMER_A_CTL_MC__UP | TIMER_A_CTL_CLR |
+                    TIMER_A_CTL_IE;
+    NVIC->ISER[0] = (1u << TA0_0_IRQn) | (1u << TA0_N_IRQn);
+    buzon.estado = 1;
+    while (n_ta0_0 < 10) { }
+    buzon.r[0] = n_ta0_0;
+    buzon.r[1] = n_taifg;
+    buzon.r[2] = n_ta0_n;
+    buzon.estado = 2;
+    for (;;) { }
+}
+
+static volatile uint32_t m11_n1 = 0, m11_n2 = 0;
+void TA1_N_IRQHandler(void) {
+    switch (TIMER_A1->IV) {
+    case 0x02: TIMER_A1->CCR[1] += 1000; m11_n1++; break;
+    case 0x04: TIMER_A1->CCR[2] += 3000; m11_n2++; break;
+    default: break;
+    }
+}
+static void m11_continuo(void) {
+    P7->DIR |= BIT6 | BIT7;                      /* P7.7 = TA1.1, P7.6 = TA1.2 */
+    P7->SEL0 |= BIT6 | BIT7;
+    TIMER_A1->CCR[1] = 1000;
+    TIMER_A1->CCR[2] = 3000;
+    TIMER_A1->CCTL[1] = TIMER_A_CCTLN_OUTMOD_4 | TIMER_A_CCTLN_CCIE;
+    TIMER_A1->CCTL[2] = TIMER_A_CCTLN_OUTMOD_4 | TIMER_A_CCTLN_CCIE;
+    TIMER_A1->CTL = TIMER_A_CTL_SSEL__SMCLK | TIMER_A_CTL_MC__CONTINUOUS | TIMER_A_CTL_CLR;
+    NVIC->ISER[0] = 1u << TA1_N_IRQn;
+    buzon.estado = 1;
+    while (m11_n1 < 60) { }
+    buzon.r[0] = m11_n1;
+    buzon.r[1] = m11_n2;
+    buzon.estado = 2;
+    for (;;) { }
+}
+
+static void m12_updown(void) {
+    P5->DIR |= BIT6;                             /* P5.6 = TA2.1 */
+    P5->SEL0 |= BIT6;
+    TIMER_A2->CCR[0] = 1000;
+    TIMER_A2->CCR[1] = 250;
+    TIMER_A2->CCTL[1] = TIMER_A_CCTLN_OUTMOD_2;  /* conmuta en CCR1, a 0 en CCR0 */
+    TIMER_A2->CTL = TIMER_A_CTL_SSEL__SMCLK | TIMER_A_CTL_MC__UPDOWN | TIMER_A_CTL_CLR;
+    buzon.estado = 1;
+    /* Que TAIFG llega al pasar por cero */
+    while (!(TIMER_A2->CTL & TIMER_A_CTL_IFG)) { }
+    buzon.r[0] = TIMER_A2->R;
+    for (;;) { }
+}
+
+static void m13_captura(void) {
+    P10->DIR &= ~BIT5;                           /* P10.5 = TA3.1, entrada CCI1A */
+    P10->SEL0 |= BIT5;
+    TIMER_A3->CCTL[1] = TIMER_A_CCTLN_CAP | TIMER_A_CCTLN_CM__BOTH | TIMER_A_CCTLN_SCS |
+                        TIMER_A_CCTLN_CCIS__CCIA;
+    TIMER_A3->CTL = TIMER_A_CTL_SSEL__SMCLK | TIMER_A_CTL_MC__CONTINUOUS | TIMER_A_CTL_CLR;
+    buzon.estado = 1;
+    uint16_t c[5];
+    for (int k = 0; k < 5; ++k) {
+        while (!(TIMER_A3->CCTL[1] & TIMER_A_CCTLN_CCIFG)) { }
+        c[k] = TIMER_A3->CCR[1];
+        TIMER_A3->CCTL[1] &= ~TIMER_A_CCTLN_CCIFG;
+    }
+    for (int k = 0; k < 4; ++k) buzon.r[k] = (uint16_t)(c[k + 1] - c[k]);
+    /* Sin borrar CCIFG, dos capturas mas: COV */
+    while (!(TIMER_A3->CCTL[1] & TIMER_A_CCTLN_CCIFG)) { }
+    uint16_t a = TIMER_A3->CCR[1];
+    while (TIMER_A3->CCR[1] == a) { }
+    buzon.r[4] = TIMER_A3->CCTL[1] & TIMER_A_CCTLN_COV;
+    /* La captura por programa: CCIS de GND a VCC es un flanco de subida */
+    TIMER_A3->CCTL[2] = TIMER_A_CCTLN_CAP | TIMER_A_CCTLN_CM__RISING | TIMER_A_CCTLN_CCIS__GND;
+    uint16_t antes = TIMER_A3->R;
+    TIMER_A3->CCTL[2] ^= TIMER_A_CCTLN_CCIS0;    /* GND -> VCC */
+    uint16_t cap = TIMER_A3->CCR[2];
+    buzon.r[5] = TIMER_A3->CCTL[2] & TIMER_A_CCTLN_CCIFG;
+    buzon.r[6] = (uint16_t)(cap - antes);
+    buzon.r[7] = TIMER_A3->CCTL[2] & TIMER_A_CCTLN_CCI;   /* VCC: 1 */
+    buzon.estado = 2;
+    for (;;) { }
+}
+
+static volatile uint32_t n_t32_1 = 0, n_t32_2 = 0, n_t32_c = 0;
+void T32_INT1_IRQHandler(void) { TIMER32_1->INTCLR = 1; n_t32_1++; }
+void T32_INT2_IRQHandler(void) { TIMER32_2->INTCLR = 1; n_t32_2++; }
+void T32_INTC_IRQHandler(void) { n_t32_c++; }
+static void m14_timer32(void) {
+    buzon.r[0] = TIMER32_1->CONTROL;             /* el de reset: IE */
+    /* T32_1: periodico, 32 bits, /1: LOAD = 29999 -> 10 ms a 3 MHz */
+    TIMER32_1->LOAD = 29999;
+    TIMER32_1->CONTROL = TIMER32_CONTROL_SIZE | TIMER32_CONTROL_MODE | TIMER32_CONTROL_IE |
+                         TIMER32_CONTROL_ENABLE;
+    /* T32_2: de un disparo, /16, 16 bits: 3749 -> 20 ms */
+    TIMER32_2->LOAD = 3749;
+    TIMER32_2->CONTROL = TIMER32_CONTROL_ONESHOT | TIMER32_CONTROL_PRESCALE_1 |
+                         TIMER32_CONTROL_IE | TIMER32_CONTROL_ENABLE;
+    NVIC->ISER[0] = (1u << T32_INT1_IRQn) | (1u << T32_INT2_IRQn);
+    buzon.estado = 1;
+    /* (la CPU ve los contadores avanzar a saltos de su cuanto, 1 us: entre
+     * las dos lecturas tiene que pasar mas que eso) */
+    uint32_t v0 = TIMER32_1->VALUE;
+    for (volatile int k = 0; k < 20; ++k) { }
+    uint32_t v1 = TIMER32_1->VALUE;
+    buzon.r[1] = (v0 > v1);                      /* cuenta hacia abajo */
+    buzon.r[9] = v0; buzon.r[10] = v1;
+    while (n_t32_1 < 5) { }
+    buzon.r[2] = n_t32_1;
+    buzon.r[3] = n_t32_2;                        /* el de un disparo: una vez */
+    buzon.r[4] = TIMER32_2->VALUE;               /* y se queda en cero */
+    /* BGLOAD: la recarga cambia sin tocar la cuenta en curso */
+    TIMER32_1->BGLOAD = 59999;
+    uint32_t a = n_t32_1;
+    while (n_t32_1 < a + 3) { }
+    buzon.r[5] = TIMER32_1->LOAD;
+    /* Libre, 16 bits: al pasar por cero da la vuelta a 0xFFFF */
+    TIMER32_2->CONTROL = 0;
+    TIMER32_2->LOAD = 100;
+    TIMER32_2->CONTROL = TIMER32_CONTROL_ENABLE;  /* libre, 16 bits, sin IE */
+    while (!TIMER32_2->RIS) { }
+    buzon.r[6] = TIMER32_2->VALUE;
+    buzon.r[7] = TIMER32_2->MIS;                 /* sin IE: 0 */
+    NVIC->ISER[0] = 1u << T32_INTC_IRQn;
+    TIMER32_2->CONTROL |= TIMER32_CONTROL_IE;     /* la combinada */
+    while (n_t32_c == 0) { }
+    buzon.r[8] = n_t32_c;
+    buzon.estado = 2;
+    for (;;) { }
+}
+
+static void m15_taclk(void) {
+    P7->DIR &= ~BIT2;                            /* P7.2: TA1CLK con DIR = 0 */
+    P7->SEL0 |= BIT2;
+    TIMER_A1->EX0 = TIMER_A_EX0_IDEX__5;
+    TIMER_A1->CTL = TIMER_A_CTL_SSEL__TACLK | TIMER_A_CTL_ID__2 |
+                    TIMER_A_CTL_MC__CONTINUOUS | TIMER_A_CTL_CLR;
+    buzon.estado = 1;
+    espera_senal(1);
+    buzon.r[0] = TIMER_A1->R;
+    buzon.estado = 2;
+    for (;;) { }
+}
+
+static void m16_servo(void) {
+    P2->DIR |= BIT5;                             /* P2.5 = TA0.2 */
+    P2->SEL0 |= BIT5;
+    TIMER_A0->CCR[0] = 15000 - 1;                /* 3 MHz / 4 = 750 kHz: 20 ms */
+    TIMER_A0->CCR[2] = 1125 - 1;                 /* 1,5 ms */
+    TIMER_A0->CCTL[2] = TIMER_A_CCTLN_OUTMOD_7;
+    TIMER_A0->CCTL[0] = TIMER_A_CCTLN_CCIE;      /* despierta cada periodo */
+    TIMER_A0->CTL = TIMER_A_CTL_SSEL__SMCLK | TIMER_A_CTL_ID__4 | TIMER_A_CTL_MC__UP |
+                    TIMER_A_CTL_CLR;
+    NVIC->ISER[0] = 1u << TA0_0_IRQn;
+    buzon.estado = 1;
+    while (buzon.senal != 1) { __WFI(); }
+    TIMER_A0->CCR[2] = 1500 - 1;                 /* 2,0 ms */
+    buzon.estado = 2;
+    for (;;) { __WFI(); }
+}
+
 int main(void) {
     para_perro();
     buzon.arranques++;
@@ -281,6 +476,13 @@ int main(void) {
     case 5: mp(EUSCI_A_CTLW0_MODE_2); break;
     case 6: mp(EUSCI_A_CTLW0_MODE_1); break;
     case 7: m7_pmap(); break;
+    case 10: m10_pwm(); break;
+    case 11: m11_continuo(); break;
+    case 12: m12_updown(); break;
+    case 13: m13_captura(); break;
+    case 14: m14_timer32(); break;
+    case 15: m15_taclk(); break;
+    case 16: m16_servo(); break;
     default: break;
     }
     for (;;) { }

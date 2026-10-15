@@ -136,4 +136,7 @@ testgui                145        76450000000        total
 # break, UCLISTEN y el IV, los modos multiprocesador y el PMAP-: 148 -> 184.
 # Antes de T3 la sonda suelta el nucleo que P21 deja parado. P0 a P21 no
 # cambian de tiempo: el ruteo de funciones del DIO no mueve nada.
-testp4                184        351130188968        resto
+# Fase T3, E2: P28 a P34 -Timer_A en sus tres modos con PWM, captura y reloj
+# externo; el Timer32; y un servo SG90 en TA0.2-: 184 -> 218. El resto crece
+# sobre todo por P34, que mira el eje 600 ms.
+testp4                218       1181097722208        resto

@@ -42,6 +42,7 @@
 #include "../parts/netlist_xml.h"
 #include "../parts/ext_parts.h"
 #include "../parts/puente_serie.h"
+#include "../parts/servo.h"
 #include "../verif/bus_test_master.h"
 #include "../verif/swd_port.h"
 #include "../verif/gdb_stub.h"
@@ -105,6 +106,15 @@ SC_MODULE(TbP4) {
     // puente en P2.2/P2.3 para el PMAP. Desoldados hasta sus grupos.
     PuenteSerie* bcl  = nullptr;
     PuenteSerie* bcl2 = nullptr;
+    // Relojes de prueba para la captura (P10.5) y TA1CLK (P7.2), parados
+    ExtClock* reloj_cap = nullptr;
+    ExtClock* reloj_ta1 = nullptr;
+    // Un SG90 en P2.5 (TA0.2), con sus 5 V; desenchufado hasta su grupo
+    AnalogNet* servo_vcc = nullptr;
+    AnalogNet* servo_gnd = nullptr;
+    Fuente* servo_5v = nullptr;
+    Gnd*    servo_masa = nullptr;
+    Servo*  servo = nullptr;
 
     SC_CTOR(TbP4)
         : mcu("dut", DBG_PINES, Cableado(), *CatalogoMcu::busca("MSP432P401R")),
@@ -129,11 +139,23 @@ SC_MODULE(TbP4) {
         bcl2 = new PuenteSerie("bcl2", &dut.dio.nodo_de(1, 3), &dut.dio.nodo_de(1, 2),
                                nullptr, nullptr, nullptr, cb);
         bcl2->set_enabled(false);
+        reloj_cap = new ExtClock("reloj_cap", dut.dio.nodo_de(9, 5), 0.0);
+        reloj_ta1 = new ExtClock("reloj_ta1", dut.dio.nodo_de(6, 2), 0.0);
+        servo_vcc = new AnalogNet("servo_vcc");
+        servo_gnd = new AnalogNet("servo_gnd");
+        servo_5v = new Fuente("servo_5v", *servo_vcc, 5.0);
+        servo_masa = new Gnd("servo_masa", *servo_gnd);
+        ConfigServo cs;
+        cs.inicial_aleatoria = false;
+        cs.posicion_inicial = -60.0;
+        servo = new Servo("servo", *servo_vcc, *servo_gnd, dut.dio.nodo_de(1, 5), cs);
+        servo->set_enabled(false);
         SC_THREAD(run);
     }
     ~TbP4() override {
         delete sonda; delete y1; delete y2; delete s1; delete gdb_p; delete gdb_d;
-        delete bcl; delete bcl2;
+        delete bcl; delete bcl2; delete reloj_cap; delete reloj_ta1;
+        delete servo; delete servo_5v; delete servo_masa; delete servo_vcc; delete servo_gnd;
     }
 
     // --- T3 [top/sc_main_p4_t3.h] ------------------------------------------
@@ -141,6 +163,10 @@ SC_MODULE(TbP4) {
     void arranca3(uint32_t modo);
     bool espera3(uint32_t estado, double ms);
     void t3_uart();
+    void t3_timers();
+    // Mide en un pin el periodo y la fraccion en alto, sobre `n` ciclos
+    bool pwm(unsigned p, unsigned i, double& periodo_s, double& alto, unsigned n = 4,
+             double max_ms = 50);
 
     // --- Utilidades -----------------------------------------------------------
     uint32_t buzon(uint32_t off) { return dut.sram.peek32(off); }
@@ -906,6 +932,7 @@ SC_MODULE(TbP4) {
                             "del invariante\n");
                 mcu.alimenta(true);
                 t3_uart();
+                t3_timers();
                 std::printf("\nTOTAL P4 (solo T3): %u comprobaciones OK, %u fallos\n",
                             g_ok, g_fallos);
                 sc_stop();
@@ -932,6 +959,7 @@ SC_MODULE(TbP4) {
         t2_autoprograma();
         t2_gdb();
         t3_uart();
+        t3_timers();
         std::printf("\n=====================================================\n");
         std::printf("TOTAL P4 : %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         std::printf("=====================================================\n");

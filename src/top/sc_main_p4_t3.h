@@ -8,6 +8,8 @@
 //   P22-P27  eUSCI_A en UART: el backchannel con un PuenteSerie, los formatos,
 //            los errores, el break, UCLISTEN y el IV, los modos
 //            multiprocesador y el PMAP
+//   P28-P34  Timer_A (PWM, modo continuo, ascendente/descendente, captura,
+//            reloj externo, un servo) y Timer32
 // =============================================================================
 #ifndef STM32_TOP_SC_MAIN_P4_T3_H
 #define STM32_TOP_SC_MAIN_P4_T3_H
@@ -159,6 +161,145 @@ inline void TbP4::t3_uart() {
     check(r3(0) == PmapP4::PM_UCA2TXD && r3(1) == 1 && r3(2) == PmapP4::PM_UCA2TXD,
           "cerrado sin PMAPRECFG, el PMAP ya no cambia aunque se ponga la llave");
     bcl2->set_enabled(false);
+}
+
+// Periodo y fraccion en alto de lo que hay en un pin, midiendo `n` ciclos
+inline bool TbP4::pwm(unsigned p, unsigned i, double& per, double& alto, unsigned n,
+                      double max_ms) {
+    analog_net_if& nd = dut.dio.nodo_de(p, i);
+    const sc_time lim = sc_time_stamp() + sc_time(max_ms, SC_MS);
+    auto nivel = [&] { return nd.voltage() > 1.65f; };
+    // Sincroniza con un flanco de subida
+    bool ant = nivel();
+    sc_time t_sube = SC_ZERO_TIME, t_baja = SC_ZERO_TIME, t0 = SC_ZERO_TIME;
+    unsigned subidas = 0;
+    double sum_alto = 0.0;
+    while (sc_time_stamp() < lim && subidas <= n) {
+        wait(lim - sc_time_stamp(), nd.value_changed_event());
+        const bool v = nivel();
+        if (v && !ant) {
+            if (subidas == 0) t0 = sc_time_stamp();
+            else sum_alto += (t_baja - t_sube).to_seconds();
+            t_sube = sc_time_stamp();
+            ++subidas;
+        } else if (!v && ant) {
+            t_baja = sc_time_stamp();
+        }
+        ant = v;
+    }
+    if (subidas < 2) { per = 0; alto = 0; return false; }
+    per = (t_sube - t0).to_seconds() / double(subidas - 1);
+    alto = sum_alto / double(subidas - 1) / per;
+    return true;
+}
+
+// =============================================================================
+// P28-P33  Timer_A y Timer32
+// =============================================================================
+inline void TbP4::t3_timers() {
+    using T = TimerAP4;
+    char t[200];
+    double per = 0, alto = 0;
+
+    grupo("P28 Timer_A0 en modo ascendente: PWM en TA0.1 y TA0.2, por el PMAP de reset");
+    arranca3(10);
+    check(espera3(1, 5), "el firmware configura TA0: SMCLK = 3 MHz, CCR0 = 2999, modo 7");
+    pwm(1, 4, per, alto);
+    std::printf("    P2.4 (TA0.1): periodo %.4f ms, en alto %.3f %%\n", per * 1e3, alto * 100);
+    check(std::fabs(per - 1e-3) < 1e-7, "el periodo es (CCR0 + 1) tics: 1,0000 ms");
+    check(std::fabs(alto - 0.25) < 1e-4,
+          "con CCR1 = 749 en reset/set, el pin esta alto (CCR1 + 1) / (CCR0 + 1): 25 %");
+    pwm(1, 5, per, alto);
+    std::printf("    P2.5 (TA0.2): periodo %.4f ms, en alto %.3f %%\n", per * 1e3, alto * 100);
+    check(std::fabs(alto - 0.50) < 1e-4, "y TA0.2 con CCR2 = 1499, el 50 %");
+    check(espera3(2, 20), "diez interrupciones de CCR0 por TA0_0...");
+    check(r3(0) == 10 && r3(1) >= 9 && r3(1) <= 10 && r3(2) == 0,
+          "...y TAIFG por TA0_N con el IV a 0x0E, una por periodo");
+    std::snprintf(t, sizeof t, "TAR sigue dentro del periodo (%u <= 2999)", unsigned(dut.ta0.tar()));
+    check(dut.ta0.tar() <= 2999, t);
+
+    grupo("P29 Timer_A1 en modo continuo: dos bases de tiempo con CCRn += paso");
+    arranca3(11);
+    check(espera3(1, 5), "TA1 en continuo, con CCR1 y CCR2 en modo 4 (toggle)");
+    pwm(6, 7, per, alto);
+    std::printf("    P7.7 (TA1.1): periodo %.4f ms\n", per * 1e3);
+    check(std::fabs(per - 2000.0 / 3e6) < 1e-8,
+          "TA1.1 conmuta cada 1000 tics: un periodo de 2000 tics, 0,6667 ms");
+    pwm(6, 6, per, alto);
+    std::printf("    P7.6 (TA1.2): periodo %.4f ms\n", per * 1e3);
+    check(std::fabs(per - 6000.0 / 3e6) < 1e-8, "y TA1.2 cada 3000: 2,0000 ms");
+    check(espera3(2, 40) && r3(0) == 60 && (r3(1) == 20 || r3(1) == 19),
+          "por el IV, tres de CCR1 por cada una de CCR2");
+
+    grupo("P30 Timer_A2 ascendente/descendente: PWM centrado");
+    arranca3(12);
+    check(espera3(1, 5), "TA2 con CCR0 = 1000 y CCR1 = 250 en modo 2 (toggle/reset)");
+    wait(2, SC_MS);                               // el primer periodo es transitorio
+    pwm(4, 6, per, alto);
+    std::printf("    P5.6 (TA2.1): periodo %.4f ms, en alto %.3f %%\n", per * 1e3, alto * 100);
+    check(std::fabs(per - 2000.0 / 3e6) < 1e-8, "el periodo es 2 x CCR0 tics: 0,6667 ms");
+    check(std::fabs(alto - 0.25) < 1e-4, "y el pulso, 2 x CCR1 tics centrados en el cero: 25 %");
+    std::printf("    TAR al ver TAIFG: %u\n", r3(0));
+    check(r3(0) <= 40, "TAIFG llega al pasar por cero, bajando: TAR acaba de empezar a subir");
+
+    grupo("P31 Timer_A3: captura de los dos flancos, COV y captura por programa");
+    reloj_cap->set_freq(1000.0);
+    arranca3(13);
+    check(espera3(2, 20), "cinco capturas de un reloj de 1 kHz en P10.5 (CCI1A)");
+    std::printf("    diferencias: %u %u %u %u tics\n", r3(0), r3(1), r3(2), r3(3));
+    check(r3(0) >= 1499 && r3(0) <= 1501 && r3(1) >= 1499 && r3(1) <= 1501 &&
+          r3(2) >= 1499 && r3(2) <= 1501,
+          "medio periodo entre capturas: 1500 tics de 3 MHz");
+    check(r3(4) == T::CC_COV, "una captura sin atender la anterior levanta COV");
+    std::printf("    captura por programa: CCIFG=%u, %u tics despues de leer TAR, CCI=%u\n",
+                r3(5), r3(6), r3(7));
+    check(r3(5) == T::CC_IFG && r3(6) <= 20 && r3(7) == T::CC_CCI,
+          "CCIS de GND a VCC captura TAR al momento, y CCI lee VCC");
+    reloj_cap->stop();
+
+    grupo("P32 Timer32: periodico, de un disparo, libre, BGLOAD e INTC");
+    arranca3(14);
+    check(espera3(1, 5) && r3(0) == Timer32P4::IE, "CONTROL sale del reset con IE (0x20)");
+    check(espera3(2, 200), "cinco vencimientos del periodico...");
+    std::printf("    VALUE leido dos veces: %u y luego %u\n", r3(9), r3(10));
+    check(r3(1) == 1, "VALUE cuenta hacia abajo");
+    std::printf("    T32_1: %llu vencimientos; T32_2 (un disparo): %u\n",
+                (unsigned long long)dut.t32.vencimientos(0), r3(3));
+    check(r3(2) == 5 && r3(3) == 1 && r3(4) == 0,
+          "...a 10 ms cada uno; el de un disparo vence una vez (20 ms) y se queda en 0");
+    check(r3(5) == 59999, "BGLOAD cambia la recarga sin tocar la cuenta en curso");
+    check(r3(6) >= 0xFF00 && r3(6) <= 0xFFFF && r3(7) == 0,
+          "en libre y 16 bits da la vuelta a 0xFFFF, y sin IE no hay MIS");
+    check(r3(8) >= 1, "T32_INTC llega con la de cualquiera de los dos");
+
+    grupo("P33 Timer_A1 con TA1CLK externo en P7.2, y los divisores ID e IDEX");
+    reloj_ta1->set_freq(100000.0);
+    arranca3(15);
+    check(espera3(1, 5), "TA1 con TASSEL = TAxCLK, ID = /2 e IDEX = /5");
+    wait(10, SC_MS);
+    dut.sram.poke32(0x0C, 1);
+    check(espera3(2, 5), "el firmware lee TAR");
+    std::printf("    TAR tras ~10 ms de 100 kHz /10: %u\n", r3(0));
+    check(r3(0) >= 99 && r3(0) <= 102, "cuenta los flancos del pin entre diez: unas 100");
+    reloj_ta1->stop();
+
+    grupo("P34 Un servo SG90 en TA0.2 (P2.5): 50 Hz, y el eje va donde dice el pulso");
+    servo->set_enabled(true);
+    arranca3(16);
+    check(espera3(1, 5), "TA0 a 50 Hz (SMCLK / 4, CCR0 = 14999) con 1,5 ms en CCR2");
+    pwm(1, 5, per, alto, 3, 100);
+    std::printf("    P2.5: periodo %.3f ms, pulso %.4f ms\n", per * 1e3, alto * per * 1e3);
+    check(std::fabs(per - 20e-3) < 1e-6 && std::fabs(alto * per - 1.5e-3) < 2e-6,
+          "20 ms de periodo y 1,5 ms de pulso");
+    wait(300, SC_MS);
+    std::printf("    el eje: %.1f grados\n", servo->angulo());
+    check(std::fabs(servo->angulo()) < 1.0, "con 1,5 ms el eje va al centro, desde -60");
+    dut.sram.poke32(0x0C, 1);
+    check(espera3(2, 50), "el firmware pasa a 2,0 ms (despierta con TA0_0)");
+    wait(300, SC_MS);
+    std::printf("    el eje: %.1f grados\n", servo->angulo());
+    check(std::fabs(servo->angulo() - 90.0) < 1.0, "y con 2,0 ms, a +90");
+    servo->set_enabled(false);
 }
 
 #endif // STM32_TOP_SC_MAIN_P4_T3_H

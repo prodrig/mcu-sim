@@ -57,6 +57,8 @@
 #include "../../periph/msp432p4/sysctl.h"
 #include "../../periph/msp432p4/dio.h"
 #include "../../periph/msp432p4/eusci.h"
+#include "../../periph/msp432p4/timer_a.h"
+#include "../../periph/msp432p4/timer32.h"
 #include "p4_programador.h"
 
 namespace stm32 {
@@ -136,6 +138,12 @@ public:
              ucb2{"eusci_b2", p4::EUSCI_B2_B, true},  ucb3{"eusci_b3", p4::EUSCI_B3_B, true};
     EusciP4* uca(unsigned n) { EusciP4* a[4] = {&uca0, &uca1, &uca2, &uca3}; return a[n & 3u]; }
     EusciP4* ucb(unsigned n) { EusciP4* b[4] = {&ucb0, &ucb1, &ucb2, &ucb3}; return b[n & 3u]; }
+
+    // --- Temporizadores (T3) ---------------------------------------------------
+    TimerAP4  ta0{"timer_a0", p4::TIMER_A0_B}, ta1{"timer_a1", p4::TIMER_A1_B},
+              ta2{"timer_a2", p4::TIMER_A2_B}, ta3{"timer_a3", p4::TIMER_A3_B};
+    Timer32P4 t32{"timer32"};
+    TimerAP4* ta(unsigned n) { TimerAP4* a[4] = {&ta0, &ta1, &ta2, &ta3}; return a[n & 3u]; }
 
     // --- Los relojes que reparte el CS ----------------------------------------
     ClockGen g_mclk{"g_mclk"}, g_hsmclk{"g_hsmclk"}, g_smclk{"g_smclk"},
@@ -341,13 +349,10 @@ private:
         };
         engancha(flctl); engancha(cs); engancha(pcm); engancha(wdt);
         engancha(dio);   engancha(pmap);
-        for (unsigned n = 0; n < 4; ++n) { engancha(*uca(n)); engancha(*ucb(n)); }
+        for (unsigned n = 0; n < 4; ++n) { engancha(*uca(n)); engancha(*ucb(n)); engancha(*ta(n)); }
+        engancha(t32);
         struct D { const char* n; uint32_t b, s; const char* q; };
         static const D lista[] = {
-            {"timer_a0", p4::TIMER_A0_B, 0x400, "Timer_A0"},
-            {"timer_a1", p4::TIMER_A1_B, 0x400, "Timer_A1"},
-            {"timer_a2", p4::TIMER_A2_B, 0x400, "Timer_A2"},
-            {"timer_a3", p4::TIMER_A3_B, 0x400, "Timer_A3"},
             {"ref_a",    p4::REF_A_B,    0x400, "REF_A"},
             {"comp_e0",  p4::COMP_E0_B,  0x400, "COMP_E0"},
             {"comp_e1",  p4::COMP_E1_B,  0x400, "COMP_E1"},
@@ -356,7 +361,6 @@ private:
             {"rtc_c",    p4::RTC_C_B,    0x400, "RTC_C"},
             {"captio0",  p4::CAPTIO0_B,  0x400, "CAPTIO0"},
             {"captio1",  p4::CAPTIO1_B,  0x400, "CAPTIO1"},
-            {"timer32",  p4::TIMER32_B,  0x400, "Timer32"},
             {"dma",      p4::DMA_B,      0x1000, "uDMA"},
             {"pss",      p4::PSS_B,      0x400, "PSS"},
             {"adc14",    p4::ADC14_B,    0x400, "ADC14"},
@@ -416,8 +420,49 @@ private:
         sysctl.pide_reset = [this](ResetP4 r) { pide(r, -1); };
         sysctl.al_cambiar_perihalt = [this] { wdt.recalcula(); };
         conecta_comunicaciones();
+        conecta_temporizadores();
     }
     static float flota(uint32_t u) { float f; std::memcpy(&f, &u, 4); return f; }
+
+    // Los Timer_A y el Timer32 [1F: datasheet, tablas de pines; segunda fuente,
+    // PWMTimerMSP432.h y CaptureMSP432.h de TI-Drivers; P-16 p]
+    void conecta_temporizadores() {
+        auto fuente = [this](unsigned s) {
+            return s == 1 ? cs.f_aclk() : s == 2 ? cs.f_smclk() : 0.0;
+        };
+        for (unsigned n = 0; n < 4; ++n) {
+            ta(n)->f_fuente = fuente;
+            ta(n)->irq0(s_irq_[p4::IRQ_TA0_0 + 2 * n]);
+            ta(n)->irqn(s_irq_[p4::IRQ_TA0_N + 2 * n]);
+        }
+        t32.f_mclk = [this] { return cs.f_mclk(); };
+        t32.irq1(s_irq_[p4::IRQ_T32_INT1]);
+        t32.irq2(s_irq_[p4::IRQ_T32_INT2]);
+        t32.irqc(s_irq_[p4::IRQ_T32_INTC]);
+        // Mapeables: TA0.0-TA0.4 y TA1.1-TA1.4; TA0CLK y TA1CLK con DIR = 0
+        for (unsigned k = 0; k < 5; ++k)
+            dio.conecta_mapeable(PmapP4::PM_TA0CCR0A + k, ta0.fn_ta(k));
+        for (unsigned k = 1; k < 5; ++k)
+            dio.conecta_mapeable(PmapP4::PM_TA1CCR1A + k - 1, ta1.fn_ta(k));
+        dio.conecta_mapeable(PmapP4::PM_TA0CLK, ta0.fn_taclk());
+        dio.conecta_mapeable(PmapP4::PM_TA1CLK, ta1.fn_taclk());
+        // Fijos: TA1.0 (P8.0, secundaria), TA2 en P5.6/P5.7/P6.6/P6.7 y TA2.0
+        // en P8.1 (secundaria), TA2CLK en P4.2 (con DIR = 0), TA3 en P10.4,
+        // P10.5, P8.2, P9.2, P9.3 y TA3CLK en P8.3
+        dio.conecta_funcion(7, 0, 2, ta1.fn_ta(0));
+        dio.conecta_funcion(4, 6, 1, ta2.fn_ta(1));
+        dio.conecta_funcion(4, 7, 1, ta2.fn_ta(2));
+        dio.conecta_funcion(5, 6, 1, ta2.fn_ta(3));
+        dio.conecta_funcion(5, 7, 1, ta2.fn_ta(4));
+        dio.conecta_funcion(7, 1, 2, ta2.fn_ta(0));
+        dio.conecta_funcion(3, 2, 1, ta2.fn_taclk());
+        dio.conecta_funcion(9, 4, 1, ta3.fn_ta(0));
+        dio.conecta_funcion(9, 5, 1, ta3.fn_ta(1));
+        dio.conecta_funcion(7, 2, 1, ta3.fn_ta(2));
+        dio.conecta_funcion(8, 2, 1, ta3.fn_ta(3));
+        dio.conecta_funcion(8, 3, 1, ta3.fn_ta(4));
+        dio.conecta_funcion(7, 3, 1, ta3.fn_taclk());
+    }
 
     // Las eUSCI: su reloj, su interrupción y sus patillas [1F: datasheet,
     // tablas de pines; segunda fuente, las definiciones de TI-Drivers
@@ -518,7 +563,10 @@ private:
         g_smclk.set_freq(cs.f_smclk());
         g_aclk.set_freq(cs.f_aclk());
         wdt.recalcula();
-        for (unsigned n = 0; n < 4; ++n) { uca(n)->recalcula(); ucb(n)->recalcula(); }
+        for (unsigned n = 0; n < 4; ++n) {
+            uca(n)->recalcula(); ucb(n)->recalcula(); ta(n)->recalcula();
+        }
+        t32.recalcula();
         revisa_topes();
     }
     void revisa_topes() {
