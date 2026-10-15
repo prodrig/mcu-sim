@@ -190,11 +190,12 @@ abre ese puerto. Se puede cancelar: solo escucha en tu propia máquina
 - **Las suites de verificación** (`test407`, `test446`, `test417`). Se construyen
   desde el código; el CI las ejecuta en cada cambio y su resultado es público.
 - **El código de los firmwares de ejemplo**: los `.bin` sí van (abajo); sus
-  fuentes, en el repositorio. El uso previsto es que compiles el tuyo en
-  STM32CubeIDE y lo cargues aquí, que es para lo que existe el proyecto.
+  fuentes, en el repositorio. El uso previsto es que compiles el tuyo en el
+  IDE de tu microcontrolador —STM32CubeIDE, Code Composer Studio— y lo
+  cargues aquí, que es para lo que existe el proyecto.
 - **La interfaz gráfica**, que vive en el repositorio `mcu-sim-gui` y se conecta
   a este programa por un socket.
-- **Los manuales de ST.** No son nuestros; `doc/fuentes.md` dice cuáles son, en
+- **Los manuales de los fabricantes** (ST, TI). No son nuestros; `doc/fuentes.md` dice cuáles son, en
   qué revisión y de dónde se bajan.
 
 Lo que sí traen, además del ejecutable, **con el mismo árbol que el

@@ -1,24 +1,25 @@
 # mcu-sim
 
-**Un microcontrolador STM32F4 que no existe, y se comporta como si existiera.**
+**Un microcontrolador que no existe, y se comporta como si existiera.**
 
 [![suites](https://github.com/prodrig/mcu-sim/actions/workflows/suites.yml/badge.svg)](https://github.com/prodrig/mcu-sim/actions/workflows/suites.yml)
 
-`mcu-sim` es un modelo en **SystemC 2.3.4** de varios microcontroladores de la
-familia STM32F4. Ejecuta el **binario de verdad** —el `.bin` que sale de
-STM32CubeIDE, sin recompilar ni adaptar nada— sobre un núcleo Cortex-M4F
-simulado instrucción a instrucción, con sus periféricos y con sus pines.
+`mcu-sim` es un modelo en **SystemC 2.3.4** de varios microcontroladores con
+núcleo Cortex-M4F. Ejecuta el **binario de verdad** —el que sale del IDE del
+fabricante, STM32CubeIDE o Code Composer Studio, sin recompilar ni adaptar
+nada— sobre ese núcleo simulado instrucción a instrucción, con sus periféricos
+y con sus pines.
 
 Está hecho para una situación concreta: **un alumno que no tiene la placa
-delante**. Desarrolla en STM32CubeIDE como siempre, y en vez de programar una
-NUCLEO, lanza su firmware contra este programa y observa lo mismo que
+delante**. Desarrolla en su IDE como siempre, y en vez de programar la placa,
+lanza su firmware contra este programa y observa lo mismo que
 observaría con un osciloscopio y un depurador.
 
 ---
 
 ## Qué modela
 
-**Tres piezas**, con sus diferencias reales, no una sola con interruptores:
+**Cuatro piezas**, con sus diferencias reales, no una sola con interruptores:
 
 | | Referencia | De qué va |
 | :--- | :--- | :--- |
@@ -41,7 +42,7 @@ completas desde un fichero XML.
 
 **Se depura como una placa.** Hay servidor GDB, por la sonda soldada a los
 pines o contra el DAP interno, así que `arm-none-eabi-gdb` se conecta igual que
-a un ST-LINK.
+a la sonda de la placa.
 
 ---
 

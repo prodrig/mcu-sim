@@ -1,9 +1,10 @@
-# mcu-sim — modelo SystemC de microcontroladores STM32
+# mcu-sim — modelo SystemC de microcontroladores
 
-Un simulador didáctico, pensado para quien desarrolla en STM32CubeIDE y no tiene
-la tarjeta delante: se compila el firmware igual que para el chip y se ejecuta
-contra este modelo igual que contra una placa. Hoy hay **dos familias y
-veintinueve referencias** montables:
+Un simulador didáctico, pensado para quien desarrolla en el IDE de su
+microcontrolador —STM32CubeIDE, Code Composer Studio— y no tiene la tarjeta
+delante: se compila el firmware igual que para el chip y se ejecuta contra este
+modelo igual que contra una placa. Hoy hay **tres familias, de dos fabricantes,
+y treinta referencias** montables:
 
 | Familia | Referencias | Dónde está |
 | :--- | :--- | :--- |

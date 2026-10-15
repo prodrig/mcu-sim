@@ -1,4 +1,4 @@
-**mcu-sim** — simulador SystemC de microcontroladores STM32 (F407 / F417 / F446).
+**mcu-sim** — simulador SystemC de microcontroladores (STM32F407 / F417 / F446, MSP432P401R).
 
 Estos ejecutables los ha construido la integración continua a partir del commit
 etiquetado, y **cada uno se publica solo si en su plataforma pasaron las tres
