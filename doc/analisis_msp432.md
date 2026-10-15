@@ -49,6 +49,32 @@ fabricante.**
 > DriverLib de verdad. `make testp4`: 356 comprobaciones, `resto`
 > `4941243771818 ps`; `make p4-edumkii`. Lo que queda dicho está en P-16
 > (letras p-x) de `doc/todo.md`.
+>
+> **2026-10-15: hecha T4.** La ROM sustituta R1 (DriverLib entera, 424
+> casillas en 28 tablas generadas de `rom.h` y verificadas por el
+> preprocesador) va dentro del simulador; `--rom` elige R1, `ninguna` (R3) o
+> la de TI de un fichero (R2: un volcado de 32 KB o el ELF que trae CCS), y
+> `--tlv` carga el TLV de una placa. Cuatro ejemplos del SDK **sin modificar**
+> que usan `MAP_` y la demo blinky de FreeRTOS para la LaunchPad funcionan con
+> R1. `make testp4`: 380 comprobaciones, `resto` `18893170139423 ps`.
+>
+> Lo que el plan no sabía: **la ROM de TI no hace falta volcarla de una
+> placa.** CCS instala, para depurar dentro de ella, la imagen con símbolos
+> (`ccs_base/emulation/gel/images/msp432p401r/revC/msp432_driverlib_rom_image.out`).
+> Contra ella, el riesgo 4 de §9 queda cerrado por un camino independiente:
+> las 424 casillas de `rom.h` llevan a la función del mismo nombre en la ROM
+> de TI (`make -C verif/fw/msp432p4/rom_r1 contrasta ROM_TI=...`). Y la
+> diferencia de tiempo R1/R2 que pedía el cierre, con `make p4-rom-ti`:
+>
+> | Firmware | Hasta encender P1.0, R1 | R2 (TI) | R1 − R2 | Instrucciones R1 / R2 |
+> | :--- | ---: | ---: | ---: | ---: |
+> | `systick_interrupt_gpio_blink` | 500,486050 ms | 500,489050 ms | −3,0 µs | 775 / 780 |
+> | `cs_dco_frequency_tune` | 500,328709 ms | 500,311369 ms | +17,3 µs | 905 / 899 |
+> | `freertos_blinky` | 1017,838716 ms | 1017,841049 ms | −2,3 µs | 22 905 / 22 905 |
+>
+> Los dos `CS_setDCOFrequency` (gcc e IAR) llegan al mismo DCOTUNE, 584: la
+> diferencia es de cálculo, no de frecuencia. Lo que queda dicho está en P-16
+> (letras b, f, y, z y aa) de `doc/todo.md`.
 
 ---
 
@@ -530,7 +556,7 @@ con el `rom.h` del SDK de E4).
 | Opción | Qué es | Veredicto |
 | :--- | :--- | :--- |
 | **R1. ROM sustituta construida** | Compilar la DriverLib del SDK (BSD-3) con `arm-none-eabi-gcc`, colocar en `ROM_APITABLE` **las mismas tablas, en el mismo orden que `rom.h`**, y enlazarlo todo en la ventana de la ROM | **La recomendada por omisión.** Se puede **versionar**, porque BSD-3 es compatible con AGPLv3, igual que CMSIS. Con ella funcionan sin cambios los ejemplos que usan `MAP_`. Diverge del silicio en el **número de instrucciones**, y por eso en los tiempos, y eso queda escrito en `doc/todo.md` |
-| R2. ROM de verdad, volcada | `--rom rom_p4.bin`, volcada de una LaunchPad con OpenOCD (`dump_image rom.bin 0x02000000 0x8000`) o con UniFlash | **Opcional.** Es de TI y **no se versiona**: misma política que los PDF de ST (`doc/fuentes.md` §0). Sirve para medir la divergencia de R1 |
+| R2. ROM de verdad, volcada | `--rom rom_p4.bin`, volcada de una LaunchPad con OpenOCD (`dump_image rom.bin 0x02000000 0x8000`) o con UniFlash; **o, sin placa, `--rom msp432_driverlib_rom_image.out`, la imagen con símbolos que instala CCS** (T4) | **Opcional.** Es de TI y **no se versiona**: misma política que los PDF de ST (`doc/fuentes.md` §0). Sirve para medir la divergencia de R1 |
 | R3. Sin ROM | La ventana devuelve error de bus | Para los firmwares *bare-metal* de las suites que no usan `MAP_`/`ROM_` |
 
 El **cargador en ROM del E4** no forma parte de la DriverLib. Para D4 hay dos
@@ -696,6 +722,8 @@ y F5. Los ejemplos de DriverLib correspondientes (`uart_pc_echo`,
 
 ### T4 · La ROM del P4
 
+> **Hecha el 2026-10-15.** Véase la nota de estado al principio.
+
 **Qué:** R1 (ROM sustituta construida y versionada, con su huella) y R2
 (`--rom`), y el TLV por fichero.
 
@@ -806,7 +834,10 @@ arquitectura.
 4. **El orden de las tablas de la ROM sustituta.** Un desplazamiento mal en una
    tabla llama a otra función sin avisar. Mitigación: generar las tablas **a
    partir de `rom.h`** con un guion, nunca a mano, y una prueba que llame a cada
-   entrada y compruebe su efecto.
+   entrada y compruebe su efecto. **Cerrado en T4** por dos caminos: el
+   preprocesador expande cada `ROM_xxx` y la casilla tiene que llevar a la
+   función de ese nombre en la R1 (lo comprueba el Makefile), y las mismas 424
+   casillas llevan a la función de ese nombre en la ROM de TI que trae CCS.
 5. **El TLV sintético.** Con valores típicos, el DCO sale a la frecuencia
    nominal exacta. Una placa real no, y quien compare tiempos lo notará. Se
    documenta en `doc/todo.md`.

@@ -104,6 +104,17 @@ veces o todo esto junto al firmware posicional son errores que dicen por qué. Y
 es lo que usa el diálogo de lanzamiento de `mcu-sim-gui` para poner una fila de
 firmware por chip, con su casilla «sin firmware» (su plan §42).
 
+**La ROM y el TLV de un MSP432P4** (T4 del MSP432). Su `<mcu>` admite
+`rom="..."` y `tlv="..."`, y la línea de órdenes `--rom [ID=]VALOR` y `--tlv
+[ID=]FICHERO`, que mandan sobre el XML. La ROM de DriverLib es `r1` por
+omisión —la sustituta, que va dentro del simulador—, `ninguna`, o la de TI de
+un fichero: un volcado de los 32 KB de 0x0200_0000 o la imagen con símbolos
+que instala CCS (`msp432_driverlib_rom_image.out`). El TLV es el sintético
+por omisión, o los 4 KB de 0x0020_1000 volcados de una placa; con él, el DCO
+del modelo sigue las calibraciones de esa pieza. Sin ID se aplica a todos los
+chips que los tienen; un chip que no los tiene, con ID o en su XML, es un
+error.
+
 ### 2.1 Los nodos
 
 ```xml

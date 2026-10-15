@@ -131,6 +131,7 @@ solo tiene una fuente lleva **[1F]** y su subpunto de P-16 en `doc/todo.md`.
 | `[SYS]` | `system_msp432p401r.c` (del mismo port; derivado del de TI): VLO, REFO, MODOSC, SYSOSC y la fórmula del DCO | No versionado |
 | `[OO]` | OpenOCD, `src/flash/nor/msp432.c` (GPL-2.0, solo como referencia: no se copia código) | `openocd.org/doc/doxygen/html/msp432_8c_source.html` |
 | — | DriverLib del SDK SimpleLink MSP432P4 3.40: `rom.h` (`ROM_APITABLE`), `sysctl.h` (etiquetas del TLV), `reset.h` | `software-dl.ti.com/simplelink/esd/simplelink_msp432_sdk/3.40.00.05/docs/` |
+| `[ROM]` | La imagen de la ROM de DriverLib del P401R rev. C, con símbolos, que instala CCS para depurar dentro de ella (`ccs_base/emulation/gel/images/msp432p401r/revC/msp432_driverlib_rom_image.out`). Segunda opinión de las tablas de la R1 y la R2 de `--rom` (T4) | **No versionada**: es de TI. Se usó la copia que lleva el TICloudAgent del port de mbed de Terstegge (`1d1bf66`) |
 
 **Pendientes de bajar a `doc/refs/`, sin versionar:** SLAU356 (TRM del
 MSP432P4), SLAS826 (datasheet del P401R), SLAU622 (BSL), SLAU723 (TRM del

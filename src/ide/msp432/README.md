@@ -104,3 +104,16 @@ El puerto serie de vuelta del XDS110 (backchannel UART, la UCA0 en
 P1.2/P1.3) sí está desde T3: en la LaunchPad es el `PuenteSerie` BCL, por RFC
 2217 en `localhost:3356`, donde un terminal (o `--serie BCL=...`) lo recoge
 mientras se depura.
+
+**La ROM de DriverLib** está desde T4: los proyectos que llaman a `MAP_xxx()`
+—todos los ejemplos del SDK— saltan por `ROM_APITABLE` a la ROM sustituta
+(R1), sin tocar nada. Para entrar en ella paso a paso con sus fuentes, se le
+dan a GDB los símbolos de la R1, que están en el repositorio:
+
+```
+(gdb) add-symbol-file src/verif/fw/msp432p4/rom_r1/rom_r1.out
+```
+
+Si se arranca el simulador con `--rom .../msp432_driverlib_rom_image.out` (la
+ROM de TI que instala CCS), los símbolos son los de ese mismo fichero, como en
+CCS con la placa (*Run > Load > Add Symbols*).

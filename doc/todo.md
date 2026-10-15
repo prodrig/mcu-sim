@@ -52,9 +52,11 @@ redactar esta revisión, no solo leído en un informe.
   manuales a medias, aceptada así.
 - **Y un fabricante nuevo** (**P-16**): los MSP432 de Texas Instruments, con
   el mismo núcleo Cortex-M4F. Plan de nueve fases en
-  `doc/analisis_msp432.md`; **hechas T0 y T1**: la generalización que quita
-  lo que era de ST dentro de lo que es de ARM, sin mover un picosegundo, y el
-  MSP432P401R con su banco, `make testp4`.
+  `doc/analisis_msp432.md`; **hechas T0 a T4**: la generalización que quita
+  lo que era de ST dentro de lo que es de ARM, sin mover un picosegundo; el
+  MSP432P401R con su banco, `make testp4`; la descarga y la depuración; los
+  periféricos de aula con la BOOSTXL-EDUMKII; y la ROM de DriverLib, con la
+  que los ejemplos del SDK que usan `MAP_` corren sin tocarlos.
 - **Cincuenta y una funciones "bits sin máquina"**: registros que se guardan, se
   enmascaran y se leen correctamente, pero cuya lógica no se ejecuta. Casi todas
   corresponden a caminos que ningún firmware corriente usa, y casi todas están
@@ -519,19 +521,48 @@ un LOAD escrito parado; y la uDMA no entendía el fin de búfer que escribe
 DriverLib (el último byte). El último lo encontró DriverLib: es para lo que
 está.
 
+**HECHA T4 el 2026-10-15**, en la misma rama (P62-P67: 356 -> 380, resto
+`18893170139423 ps`):
+
+* **La ROM sustituta R1** (`verif/fw/msp432p4/rom_r1`): DriverLib entera,
+  compilada con gcc, con `ROM_APITABLE` en 0x0200_0800 y sus 28 tablas
+  **generadas** de `rom.h` (`gen_tablas.py`) y **verificadas** por otro camino
+  (`verifica_tablas.py`: el preprocesador expande cada `ROM_xxx` y la casilla
+  tiene que llevar a la función de ese nombre). Va dentro del simulador
+  (`soc/msp432p4/rom_r1.inc`), con su huella.
+* **`--rom` y `--tlv`** en `sim` y como atributos `rom=`/`tlv=` del `<mcu>`:
+  `r1` (por omisión), `ninguna` (R3, lo de T1-T3), o la ROM de TI de un
+  fichero (R2: un volcado de 32 KB o el ELF de CCS); y el TLV de una placa
+  (4 KB de 0x0020_1000, recorrido por etiquetas como `SysCtl_getTLVInfo`), o
+  `sintetico`. El DCO del modelo sigue la calibración del TLV cargado.
+* **El cierre**: cuatro ejemplos del SDK **sin modificar** que usan `MAP_`
+  (`verif/fw/msp432p4/sdk_ejemplos`: SysTick, `CS_setDCOFrequency`, Timer32
+  con S1 y el eco UART a 9600), la demo blinky de FreeRTOS para la LaunchPad
+  con *tickless idle* (`verif/fw/msp432p4/freertos_blinky`, sin modificar,
+  núcleo V11.3.1), y la comparación con la ROM de TI fuera de la suite, porque
+  esa imagen no se versiona: `make p4-rom-ti ROM_TI=...` (las cifras, en
+  `doc/analisis_msp432.md`).
+* **Un fallo del modelo**, de la eUSCI en UART: si el emisor va exactamente a
+  la misma velocidad (9600 con BRF = 2 y BRS = 0 contra el `PuenteSerie`), el
+  arranque del carácter siguiente baja en el mismo instante en que el
+  receptor acaba la parada, y no lo veía: se enganchaba al primer flanco de
+  bajada del dato. Ahora, si la parada fue buena y la línea ya está baja,
+  ese es el arranque, contado desde su flanco. Ningún grupo anterior lo
+  pisaba: P0-P61 no se mueven.
+
 **Lo que queda**, con su fase:
-T4 (la ROM de DriverLib), T5 (OpenOCD y BSL), T6-T7 (el MSP432E401Y) y T8 (el
-resto de la familia). CAPTIO y PSS siguen declarados. Y lo que T1-T3 dejan
-dicho, con la letra con la que lo cita el código:
+T5 (OpenOCD y BSL), T6-T7 (el MSP432E401Y) y T8 (el resto de la familia).
+CAPTIO y PSS siguen declarados. Y lo que T1-T4 dejan dicho, con la letra con
+la que lo cita el código:
 
 | | Qué | Por qué |
 | :--- | :--- | :--- |
 | **a** | ~~Programar y borrar la Flash por el FLCTL; el `load` de GDB~~ | **Resuelto en T2.** Sin `PRG_CTLSTAT.ENABLE` una escritura sigue ignorándose y avisando una vez, como en el chip |
-| **b** | La ROM de DriverLib en 0x0200_0000 | T4. Hoy da error de bus y avisa: un firmware con `MAP_`/`ROM_` no corre |
+| **b** | ~~La ROM de DriverLib en 0x0200_0000~~ | **Resuelto en T4**: la R1 por omisión. Lo que queda de ella, en **y** |
 | **c** | Estados de espera de la Flash por VCORE | **Discrepancia resuelta**: el `system_msp432p401r.c` del port de mbed dice «BANK0 VCORE1 max is 16 MHz» por estado; SLAA668A (2017, posterior) da 24/48 MHz con 0/1 en VCORE1. Se sigue a SLAA668A |
 | **d** | HWREV = 0x43 ('C') en el TLV | [1F] Sin segunda fuente a mano |
 | **e** | Valores de reset del FLCTL (POWER_STAT, WEPROT) y los búferes de lectura | [1F] TRM. Los búferes se modelan como una línea de 128 bits por banco y tipo, sin el *prefetch* del silicio |
-| **f** | El TLV es SINTÉTICO | Estructura de `TLV_Type` [H] y etiquetas de `sysctl.h` [SDK 3.40]; calibraciones elegidas (FCAL = 400, K = 1/632) y suma de comprobación a 0. `limitaciones()` lo dice |
+| **f** | El TLV es SINTÉTICO | Estructura de `TLV_Type` [H] y etiquetas de `sysctl.h` [SDK 3.40]; calibraciones elegidas (FCAL = 400, K = 1/632) y suma de comprobación a 0. `limitaciones()` lo dice. Desde T4, `--tlv` carga el de una placa; el modelo lee las calibraciones del DCO en las posiciones fijas de `TLV_Type`, no buscando la etiqueta, y no comprueba la suma |
 | **g** | CS: valores de reset, arranque de los cristales, conmutación | [1F] TRM para los valores de reset. LFXT arranca en 5 ms y HFXT en 0,5 ms (modelo: el de 32 kHz tarda cientos de ms en el silicio). Sin contador de faltas (CTL3), sin pin DCOR (DCORES usa la calibración ER del TLV), sin tiempos de conmutación, sin efecto de CLKEN y sin la IRQ del CS |
 | **h** | PCM: reglas de transición, tiempos, bajo consumo | Las reglas salen del ejemplo de SLAA668A y de que TI pide ir por pasos; la lista completa del TRM no está contrastada. 20 µs (tensión) y 10 µs (regulador) de PMR_BUSY, de modelo. LPM3/LPM4/LPMx.5 no se modelan; sin la IRQ del PCM |
 | **i** | WDT_A: 0x6904 de reset; qué reinicia un reset blando | [1F] TRM. El modelo no reinicia el WDT_A en un reset blando |
@@ -549,6 +580,9 @@ dicho, con la letra con la que lo cita el código:
 | **v** | RTC_C | RTCRDY siempre a 1; la calibración (OCAL, TCMP, CALF, RTCCLK) se guarda y no hace nada; RTCOFIFG no sube. IV en el orden OF, RDY, TEV, A, RT0PS, RT1PS [1F] |
 | **w** | COMP_E | Sin los canales internos 8-15, sin SHORT, todos los modos de consumo responden igual, y la salida no llega a las capturas de los Timer_A. Retardo, el del filtro (450-3600 ns) o ninguno |
 | **x** | El consumo | Cifras de modelo con el orden de magnitud del datasheet: 40 µA + 100/115 µA/MHz (LDO) u 80/95 (DC-DC) en activo, el 40 % en LPM0, 0,66 µA en LPM3, 0,5 en LPM4, 0,63 en LPM3.5 y 25 nA en LPM4.5. Ni los periféricos ni las transiciones gastan. La SRAM se conserva entera en LPM3.5 (en el chip, el banco 0) |
+| **y** | La ROM R1 | Mismas funciones en las mismas casillas que la de TI; **otras instrucciones** (gcc -Os frente a IAR): unos microsegundos de diferencia en los ejemplos medidos. `ROM_VERSION` vale 1, no el de TI. Se lee sin estados de espera [sintético: SLAS826 no da los de la ROM]. Las 12 casillas que la ROM de TI llena y `rom.h` no declara para el P401R (cinco de I2C, cuatro de RTC_C, `SPI_initMaster`, `SysCtl_getNMISourceStatus`, `Timer_A_setOutputForOutputModeOutBitValue`) son en R1 un `BKPT`: `MAP_` no llega a ellas. **`rom.h` y `rom_map.h` son las de Energia (`msp432r-core` 0faf18b), con la nota antigua «TI Information - Selective Disclosure» en la cabecera**; TI publica el mismo fichero con licencia BSD-3 en el SDK 3.40 (comparado por muestras y, entero, por sus 424 casillas contra la ROM). Conviene sustituirlas por las del SDK 3.40: el Makefile de `rom_r1` vuelve a generar y verificar las tablas |
+| **z** | PxIES tras el reset | El TRM lo da por indefinido; el modelo lo deja a 0 (flanco de subida). `timer32_periodic_mode_led_toggle`, que no lo escribe, enciende el LED al **soltar** S1; en una placa puede ser al pulsar |
+| **aa** | El ejemplo con RTOS | El cierre pedía uno «del SDK con FreeRTOS o TI-RTOS». Los del SDK van con TI-Drivers y SysConfig; se usa la demo de FreeRTOS para la MSP432 LaunchPad (repositorio de FreeRTOS, MIT), que es la que usa DriverLib con `MAP_` |
 | **o** | Verificación previa y modos de lectura | `VER_PRE`/`AUTO_PRE` se guardan y no hacen nada; los modos de lectura de margen (`RDCTL.RD_MODE`), `RDBRST` y los marcadores de borrado (`BMRK`) no se modelan. Tampoco el límite de pulsos del TLV (`FLASHCTL`): se programa siempre a la primera |
 
 Y una que no es del P4 sino del núcleo compartido: el SysTick con
