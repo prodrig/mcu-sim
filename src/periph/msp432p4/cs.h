@@ -86,13 +86,32 @@ public:
     }
 
     // --- Lo que el SoC lee ----------------------------------------------------
-    double f_mclk()   const { return div(f_fuente(sel(0)),  (ctl1_ >> 16) & 7u); }
-    double f_hsmclk() const { return div(f_fuente(sel(4)),  (ctl1_ >> 20) & 7u); }
-    double f_smclk()  const { return div(f_fuente(sel(4)),  (ctl1_ >> 28) & 7u); }
-    double f_aclk()   const { return div(f_fuente_lf(sel(8)), (ctl1_ >> 24) & 7u); }
+    // Con el chip en LPM3/LPM4 (`dormido_ = 1`) MCLK, HSMCLK y SMCLK están
+    // parados, y ACLK y BCLK solo les llegan al RTC_C y al WDT_A, que son los
+    // únicos módulos que funcionan en LPM3 en el MSP432 (no como en el MSP430:
+    // un Timer_A en ACLK se para) [TRM 7.4; 1F]; en LPM3.5 (`2`), lo mismo; en
+    // LPM4.5 (`3`), nada (T3). `f_mclk_nucleo()` es la del reloj del núcleo,
+    // que el núcleo dormido no usa y que sigue puesta para que despierte;
+    // `f_aclk_rtc_wdt()`, la de ACLK para esos dos.
+    double f_mclk()   const { return dormido_ ? 0.0 : f_mclk_nucleo(); }
+    double f_mclk_nucleo() const { return div(f_fuente(sel(0)),  (ctl1_ >> 16) & 7u); }
+    double f_hsmclk() const { return dormido_ ? 0.0 : div(f_fuente(sel(4)),  (ctl1_ >> 20) & 7u); }
+    double f_smclk()  const { return dormido_ ? 0.0 : div(f_fuente(sel(4)),  (ctl1_ >> 28) & 7u); }
+    double f_aclk()   const { return dormido_ ? 0.0 : f_aclk_rtc_wdt(); }
+    double f_aclk_rtc_wdt() const {
+        return dormido_ >= 3 ? 0.0 : div(f_fuente_lf(sel(8)), (ctl1_ >> 24) & 7u);
+    }
     double f_bclk()   const {
+        if (dormido_ >= 3) return 0.0;
         return ((ctl1_ >> 12) & 1u) ? f_refo() : f_fuente_lf(LFXT);
     }
+    bool osc_modulo_on() const { return dormido_ == 0; }      // MODOSC y SYSOSC
+    void duerme(unsigned nivel) {
+        if (nivel == dormido_) return;
+        dormido_ = nivel;
+        avisa();
+    }
+    unsigned dormido() const { return dormido_; }
     double f_vlo()    const { return p4::HZ_VLO; }
     double f_dco()    const {
         const unsigned rsel = (ctl0_ >> 16) & 7u;
@@ -114,6 +133,7 @@ public:
     bool bloqueado() const { return key_ != KEY_VAL; }
 
 protected:
+    unsigned dormido_ = 0;
     uint32_t key_ = 0, ctl0_ = 0, ctl1_ = 0, ctl2_ = 0, ctl3_ = 0, clken_ = 0,
              ie_ = 0, ifg_ = 0, ercal0_ = 0, ercal1_ = 0;
     sc_core::sc_signal<bool>   s_lf_rdy_{"s_lf_rdy"}, s_lf_clk_{"s_lf_clk"},

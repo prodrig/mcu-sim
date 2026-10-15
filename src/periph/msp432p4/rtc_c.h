@@ -60,6 +60,7 @@ public:
     void recalcula() { al_dia(); ev_.notify(sc_core::SC_ZERO_TIME); }
 
     // --- Lo que mira el banco ----------------------------------------------------
+    bool en_marcha() const { return !(ctl13_ & HOLD); }
     unsigned segundo() const { return seg_; }
     unsigned minuto() const { return min_; }
     unsigned hora() const { return hora_; }

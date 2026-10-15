@@ -267,6 +267,21 @@ public:
     uint8_t out(unsigned p) const { return out_[p]; }
     uint8_t dir(unsigned p) const { return dir_[p]; }
     unsigned avisos_funcion() const { return n_func_; }
+    // LPMx.5 (T3): con las E/S congeladas los pads se quedan como están aunque
+    // cambien los registros; al descongelar se vuelven a aplicar
+    void congela(bool si) {
+        if (si == congelado_) return;
+        congelado_ = si;
+        if (!si) aplica_ev_.notify(sc_core::SC_ZERO_TIME);
+    }
+    bool congelado() const { return congelado_; }
+    // Los IFG de los puertos, para conservarlos a través del reset de salida
+    // de LPMx.5 (el que despertó al chip sigue puesto)
+    std::array<uint8_t, NP> ifgs() const { std::array<uint8_t, NP> r{}; for (unsigned p = 0; p < NP; ++p) r[p] = ifg_[p]; return r; }
+    void restaura_ifgs(const std::array<uint8_t, NP>& r) {
+        for (unsigned p = 0; p < N_INT; ++p) ifg_[p] |= r[p];
+        pub_ev_.notify(sc_core::SC_ZERO_TIME);
+    }
     // La función que tiene el pin ahora: 0 GPIO, 1-3 de periférico
     unsigned funcion(unsigned p, unsigned i) const {
         const uint8_t m = uint8_t(1u << i);
@@ -317,7 +332,7 @@ protected:
             sel0_[NP] = {}, sel1_[NP] = {}, ies_[NP] = {}, ie_[NP] = {},
             ifg_[NP] = {}, ultimo_[NP] = {};
     bool repulso_[N_INT] = {};
-    bool avisado_func_ = false;
+    bool avisado_func_ = false, congelado_ = false;
     unsigned n_func_ = 0;
     sc_core::sc_event aplica_ev_, pub_ev_;
     std::map<unsigned, FuncionP4> fijas_;
@@ -369,6 +384,7 @@ protected:
 
     // Lo que tiene que hacer el pad, desde los registros y el módulo.
     void aplica_pin(unsigned p, unsigned i) {
+        if (congelado_) return;
         const uint8_t m = uint8_t(1u << i);
         PadDrive d;
         const unsigned func = funcion(p, i);

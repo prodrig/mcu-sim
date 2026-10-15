@@ -248,4 +248,95 @@ inline void TbP4::t3_resto() {
     v_ce->release();
 }
 
+// =============================================================================
+// P53-P55  Los modos de bajo consumo y el consumo
+// =============================================================================
+inline void TbP4::t3_lpm() {
+    auto ua = [this] { return dut.idd_medida() * 1e6; };
+
+    grupo("P53 Activo, LPM0, LPM3 y LPM4: que se para y cuanto consume");
+    arranca3(60, FW_T3B);
+    check(espera3(1, 5), "el firmware arranca, activo a 3 MHz");
+    wait(100, SC_US);
+    const double i_act = ua();
+    dut.sram.poke32(0x0C, 1);
+    check(espera3(2, 5), "y se duerme en LPM0");
+    wait(5, SC_MS);
+    const unsigned m0 = dut.modo_lpm();
+    const double i_lpm0 = ua();
+    check(espera3(3, 40), "tras tres despertares, a LPM3");
+    wait(5, SC_MS);
+    const unsigned m3 = dut.modo_lpm();
+    const double i_lpm3 = ua();
+    const double smclk_lpm3 = dut.cs.f_smclk(), aclk_lpm3 = dut.cs.f_aclk_rtc_wdt(),
+                 bclk_lpm3 = dut.cs.f_bclk();
+    check(espera3(4, 60), "tras otros tres, a LPM4");
+    wait(1, SC_MS);
+    const unsigned m4 = dut.modo_lpm();
+    const double i_lpm4 = ua();
+    s1->press();
+    check(espera3(5, 5), "S1 lo despierta de LPM4");
+    s1->release();
+    std::printf("    IDD: activo %.1f uA, LPM0 %.1f uA, LPM3 %.3f uA, LPM4 %.3f uA "
+                "(modos %u %u %u); en LPM3 SMCLK %.0f Hz y ACLK (RTC/WDT) %.0f Hz; el Timer32 "
+                "avanzo %u tics en 30 ms de LPM3\n", i_act, i_lpm0, i_lpm3, i_lpm4,
+                m0, m3, m4, smclk_lpm3, aclk_lpm3, r3(0));
+    check(std::fabs(i_act - 340.0) < 5.0, "activo en LDO/VCORE0 a 3 MHz: 40 + 100 uA/MHz");
+    check(m0 == 1 && std::fabs(i_lpm0 - 136.0) < 5.0, "WFI sin SLEEPDEEP es LPM0: el 40 %");
+    check(m3 == 3 && std::fabs(i_lpm3 - 0.66) < 0.05, "con SLEEPDEEP y LPMR = 0, LPM3: 0,66 uA");
+    check(smclk_lpm3 == 0.0 && aclk_lpm3 > 30000.0 && bclk_lpm3 > 30000.0,
+          "en LPM3 SMCLK se para, y ACLK y BCLK siguen para el RTC y el perro");
+    std::printf("    en LPM3: TA1 (ACLK) avanzo %u tics; %u despertares del RTC\n", r3(3), r3(1));
+    check(r3(1) == 3 && r3(0) < 3000 && r3(3) < 10,
+          "el RTC despierta al chip; el Timer32 (MCLK) y TA1 (ACLK) apenas avanzan: en "
+          "LPM3 solo funcionan el RTC y el perro");
+    check(m4 == 4 && std::fabs(i_lpm4 - 0.5) < 0.05,
+          "sin RTC ni perro, el mismo LPM3 es LPM4: 0,5 uA");
+
+    grupo("P54 LPM3.5: el RTC despierta al chip con un POR, y las E/S esperan a LOCKLPM5");
+    arranca3(61, FW_T3B);
+    check(espera3(1, 5), "el firmware deja P1.0 a 1, arma el RTC y se duerme");
+    wait(2, SC_MS);
+    const unsigned m35 = dut.modo_lpm();
+    const double i35 = ua();
+    const bool p10_dormido = dut.dio.nivel(0, 0);
+    const unsigned resets0 = dut.salidas_lpm5();
+    check(espera3(10, 20), "el preescalador del RTC lo despierta");
+    const bool p10_cerrojo = dut.dio.nivel(0, 0);
+    std::printf("    LPM3.5: modo %u, %.3f uA, P1.0 %d; al salir: PCMRESET_STAT %u, "
+                "LOCKLPM5 %u, RT0PSIFG %u, arranques %u, P1.0 %d\n", m35, i35, p10_dormido,
+                r3(10), r3(11), r3(13), r3(14), p10_cerrojo);
+    check(m35 == 35 && std::fabs(i35 - 0.63) < 0.05 && p10_dormido,
+          "en LPM3.5: 0,63 uA y P1.0 sigue a 1 con el nucleo apagado");
+    check(dut.salidas_lpm5() == resets0 + 1 && r3(10) == 1 && r3(11) == 1,
+          "sale por un POR: RSTCTL_PCMRESET_STAT = LPM35 y LOCKLPM5 = 1");
+    check(r3(14) == 2 && r3(13) != 0,
+          "la SRAM se conserva (arranques = 2) y el RTC tambien (RT0PSIFG sigue puesto)");
+    check(p10_cerrojo, "con LOCKLPM5, P1.0 sigue a 1 aunque los registros del puerto ya son los de reset");
+    dut.sram.poke32(0x0C, 10);
+    check(espera3(11, 5), "el firmware rehace la configuracion y suelta el cerrojo");
+    wait(10, SC_US);
+    check(!dut.dio.nivel(0, 0) && r3(15) == 0,
+          "y entonces P1.0 baja, la nueva; PCMRESET_CLR borra la causa");
+
+    grupo("P55 LPM4.5: 25 nA, y S1 lo despierta; la SRAM se pierde");
+    arranca3(62, FW_T3B);
+    check(espera3(1, 5), "el firmware arma P1.1 y se duerme");
+    wait(1, SC_MS);
+    const unsigned m45 = dut.modo_lpm();
+    const double i45 = dut.idd_medida() * 1e9;
+    s1->press();
+    check(espera3(10, 10), "S1 lo despierta");
+    s1->release();
+    std::printf("    LPM4.5: modo %u, %.1f nA; al salir: PCMRESET_STAT %u, LOCKLPM5 %u, "
+                "P1IFG 0x%02X, arranques %u, modo en el buzon %u\n", m45, i45, r3(10), r3(11),
+                r3(12), r3(14), buzon(0x00));
+    check(m45 == 45 && std::fabs(i45 - 25.0) < 3.0, "en LPM4.5: 25 nA");
+    check(r3(10) == 2 && r3(11) == 1, "RSTCTL_PCMRESET_STAT = LPM45 y LOCKLPM5 = 1");
+    check(r3(12) & 0x02u, "el IFG de P1.1 dice quien desperto al chip");
+    check(r3(14) == 1 && buzon(0x00) == 0, "la SRAM se ha perdido: el buzon vuelve a empezar");
+    dut.sram.poke32(0x0C, 10);
+    check(espera3(11, 5), "y el firmware suelta el cerrojo");
+}
+
 #endif // STM32_TOP_SC_MAIN_P4_T3B_H

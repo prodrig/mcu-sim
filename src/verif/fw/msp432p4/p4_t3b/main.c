@@ -35,6 +35,16 @@
  *    53  COMP_E0: C0.2 (P7.7) contra la escalera de VCC con histeresis
  *        (16/32 y 20/32), por interrupcion; y C0OUT por P7.1
  *
+ *   60-62  Los modos de bajo consumo
+ *    60  activo; LPM0 con TA1 en ACLK despertando cada 10 ms; LPM3 con el
+ *        RTC despertando a 64 Hz (TA1 en ACLK y el Timer32 en MCLK, parados);
+ *        y LPM4 hasta que se pulsa S1
+ *    61  LPM3.5 despertando por el preescalador del RTC: sale por un POR con
+ *        RSTCTL_PCMRESET_STAT, la SRAM y el RTC conservados y P1.0 congelado
+ *        hasta borrar LOCKLPM5
+ *    62  LPM4.5 despertando por S1 (P1.1): la SRAM se pierde y el IFG de P1.1
+ *        dice quien desperto
+ *
  * El buzon: modo, arranques, estado, senal (la escribe el banco) y r[].
  * ===========================================================================*/
 #ifndef NO_MSP_CLASSIC_DEFINES
@@ -484,6 +494,7 @@ static void m51_aes(void) {
 /* --- RTC_C ------------------------------------------------------------------- */
 
 static volatile uint32_t rtc_rdy = 0, rtc_tev = 0, rtc_al = 0, rtc_ps0 = 0;
+static volatile uint32_t rtc_n = 0;
 void RTC_C_IRQHandler(void) {
     switch (RTC_C->IV) {
     case 0x04:
@@ -497,6 +508,7 @@ void RTC_C_IRQHandler(void) {
     case 0x06: rtc_tev++; break;
     case 0x08: rtc_al++; break;
     case 0x0A: rtc_ps0++; break;
+    case 0x0C: rtc_n++; break;
     default: break;
     }
 }
@@ -567,9 +579,112 @@ static void m53_comp(void) {
     for (;;) { }
 }
 
+/* --- Bajo consumo ------------------------------------------------------------- */
+
+static void pcm_lpmr(uint32_t lpmr) {
+    const uint32_t amr = (PCM->CTL0 & PCM_CTL0_CPM_MASK) >> PCM_CTL0_CPM_OFS;
+    PCM->CTL0 = PCM_CTL0_KEY_VAL | lpmr | amr;
+}
+static volatile uint32_t ta1_n = 0, p1_n = 0;
+void TA1_0_IRQHandler(void) { TIMER_A1->CCTL[0] &= ~TIMER_A_CCTLN_CCIFG; ta1_n++; }
+void PORT1_IRQHandler(void) { (void)P1->IV; p1_n++; }
+static void m60_lpm(void) {
+    buzon.estado = 1;                            /* activo, a 3 MHz */
+    espera_senal(1);
+    /* TA1 en ACLK (REFO, 32 768 Hz): una interrupcion cada 10 ms */
+    TIMER_A1->CCR[0] = 327;
+    TIMER_A1->CCTL[0] = TIMER_A_CCTLN_CCIE;
+    TIMER_A1->CTL = TIMER_A_CTL_SSEL__ACLK | TIMER_A_CTL_MC__CONTINUOUS | TIMER_A_CTL_CLR;
+    TIMER_A1->CTL = TIMER_A_CTL_SSEL__ACLK | TIMER_A_CTL_MC__UP | TIMER_A_CTL_CLR;
+    NVIC->ISER[0] = 1u << TA1_0_IRQn;
+    SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;          /* LPM0 */
+    buzon.estado = 2;
+    while (ta1_n < 3) __WFI();
+    /* LPM3: SLEEPDEEP con LPMR = 0. Solo el RTC y el perro funcionan: TA1,
+       en ACLK, se para (sin su interrupcion, se mira su contador); y el
+       Timer32, en MCLK, tambien. Despierta el preescalador del RTC */
+    TIMER_A1->CCTL[0] = 0;
+    TIMER_A1->CTL = TIMER_A_CTL_SSEL__ACLK | TIMER_A_CTL_MC__CONTINUOUS;
+    CS->KEY = CS_KEY_VAL; CS->CTL1 |= CS_CTL1_SELB; CS->KEY = 0;   /* BCLK = REFO */
+    RTC_C->CTL0 = RTC_C_KEY;
+    RTC_C->CTL13 &= ~RTC_C_CTL13_HOLD;
+    RTC_C->CTL0 = 0;
+    RTC_C->PS1CTL = RTC_C_PS1CTL_RT1IP_0 | RTC_C_PS1CTL_RT1PSIE;  /* 64 Hz */
+    NVIC->ISER[0] = 1u << RTC_C_IRQn;
+    t32_libre();
+    const uint32_t t0 = t32();
+    const uint16_t a0 = TIMER_A1->R;
+    pcm_lpmr(PCM_CTL0_LPMR__LPM3);
+    SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+    buzon.estado = 3;
+    while (rtc_n < 3) __WFI();
+    buzon.r[0] = t0 - t32();
+    buzon.r[1] = rtc_n;
+    buzon.r[3] = (uint16_t)(TIMER_A1->R - a0);
+    /* LPM4: sin RTC ni perro; despierta S1 */
+    RTC_C->PS1CTL = 0;
+    RTC_C->CTL0 = RTC_C_KEY; RTC_C->CTL13 |= RTC_C_CTL13_HOLD; RTC_C->CTL0 = 0;
+    TIMER_A1->CTL = 0;
+    P1->DIR &= ~BIT1; P1->REN |= BIT1; P1->OUT |= BIT1;
+    P1->IES |= BIT1; P1->IFG = 0; P1->IE |= BIT1;
+    NVIC->ISER[1] = 1u << (PORT1_IRQn - 32);
+    buzon.estado = 4;
+    while (!p1_n) __WFI();
+    SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;
+    buzon.r[2] = p1_n;
+    buzon.estado = 5;
+    for (;;) { }
+}
+
+/* LPM3.5: P1.0 a 1, el RTC con RT0PS cada 256 tics, y a dormir */
+static void m61_lpm35(void) {
+    P1->DIR |= BIT0; P1->OUT |= BIT0;
+    CS->KEY = CS_KEY_VAL; CS->CTL1 |= CS_CTL1_SELB; CS->KEY = 0;   /* BCLK = REFO */
+    RTC_C->CTL0 = RTC_C_KEY;
+    RTC_C->CTL13 &= ~RTC_C_CTL13_HOLD;
+    RTC_C->CTL0 = 0;
+    RTC_C->PS0CTL = RTC_C_PS0CTL_RT0IP_7 | RTC_C_PS0CTL_RT0PSIE;  /* 7,8 ms */
+    buzon.r[0] = RTC_C->TIM0;
+    pcm_lpmr(PCM_CTL0_LPMR__LPM35);
+    SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+    buzon.estado = 1;
+    __WFI();
+    for (;;) { }                                 /* no se llega: se sale por un POR */
+}
+/* Lo primero tras salir de LPMx.5 */
+static void despierta_lpm5(uint32_t stat) {
+    buzon.r[10] = stat;
+    buzon.r[11] = PCM->CTL1 & PCM_CTL1_LOCKLPM5;
+    buzon.r[12] = P1->IFG;
+    buzon.r[13] = RTC_C->PS0CTL & RTC_C_PS0CTL_RT0PSIFG;
+    buzon.r[14] = buzon.arranques;
+    buzon.estado = 10;
+    espera_senal(10);
+    /* Rehacer la configuracion de las E/S y soltar el cerrojo */
+    P1->OUT &= ~BIT0; P1->DIR |= BIT0;
+    PCM->CTL1 = PCM_CTL1_KEY_VAL;                /* LOCKLPM5 = 0 */
+    RSTCTL->PCMRESET_CLR = RSTCTL_PCMRESET_CLR_CLR;
+    buzon.r[15] = RSTCTL->PCMRESET_STAT;
+    buzon.estado = 11;
+    for (;;) { }
+}
+static void m62_lpm45(void) {
+    P1->DIR &= ~BIT1; P1->REN |= BIT1; P1->OUT |= BIT1;
+    P1->IES |= BIT1; P1->IFG = 0; P1->IE |= BIT1;
+    pcm_lpmr(PCM_CTL0_LPMR__LPM45);
+    SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+    buzon.estado = 1;
+    __WFI();
+    for (;;) { }
+}
+
 int main(void) {
     para_perro();
     buzon.arranques++;
+    {
+        const uint32_t st = RSTCTL->PCMRESET_STAT;
+        if (st & (RSTCTL_PCMRESET_STAT_LPM35 | RSTCTL_PCMRESET_STAT_LPM45)) despierta_lpm5(st);
+    }
     switch (buzon.modo) {
     case 30: m30_simple(); break;
     case 31: m31_secuencia(); break;
@@ -584,6 +699,9 @@ int main(void) {
     case 51: m51_aes(); break;
     case 52: m52_rtc(); break;
     case 53: m53_comp(); break;
+    case 60: m60_lpm(); break;
+    case 61: m61_lpm35(); break;
+    case 62: m62_lpm45(); break;
     default: break;
     }
     for (;;) { }

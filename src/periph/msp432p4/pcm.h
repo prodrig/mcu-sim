@@ -19,9 +19,9 @@
 //
 // Las reglas de las tres primeras salen del ejemplo de SA y del aviso de TI de
 // que las transiciones se hacen por pasos; la lista completa del TRM no se ha
-// contrastado todavía [P-16 h]. Los modos de bajo consumo (LPM0/3/4 y los x.5)
-// se guardan pero no se modelan: un WFI duerme el núcleo con los relojes en
-// marcha, que es LPM0. `limitaciones()` lo dice.
+// contrastado todavía [P-16 h]. Los modos de bajo consumo los hace el SoC
+// (T3): con SLEEPDEEP, LPMR elige entre LPM3/LPM4 y LPM3.5/LPM4.5, y al salir
+// de los x.5 este PCM levanta LOCKLPM5.
 // =============================================================================
 #ifndef STM32_PERIPH_MSP432P4_PCM_H
 #define STM32_PERIPH_MSP432P4_PCM_H
@@ -60,6 +60,13 @@ public:
     unsigned vcore() const { return cpm_ & 1u; }
     bool     ocupado() const { return busy_; }
     unsigned rechazadas() const { return n_rechazos_; }
+    // LPMR: 0 LPM3 (o LPM4), 0xA LPM3.5, 0xC LPM4.5 (con SLEEPDEEP) [H]
+    unsigned lpmr() const { return lpmr_; }
+    // PCM_CTL1.LOCKLPM5: las E/S congeladas al salir de LPMx.5, hasta que el
+    // firmware lo borre (T3)
+    bool bloqueo_lpm5() const { return (ctl1_ & 1u) != 0; }
+    void pon_bloqueo_lpm5() { ctl1_ |= 1u; if (al_cambiar_bloqueo) al_cambiar_bloqueo(); }
+    std::function<void()> al_cambiar_bloqueo;
     unsigned sin_llave() const { return n_sin_llave_; }
 
 protected:
@@ -123,7 +130,14 @@ protected:
                 // [H: PCM_CTL0_KEY_VAL = 0x695A0000]. Escribir solo la mitad
                 // baja tampoco: la llave no va.
                 if ((be & 0xCu) != 0xCu || (v >> 16) != KEY) { ++n_sin_llave_; return; }
-                if (off == R_CTL1) { ctl1_ = v & 0x7u; return; }
+                if (off == R_CTL1) {
+                    // LOCKLPM5 y LOCKBKUP solo se pueden BORRAR [TRM: PCMCTL1]
+                    const unsigned antes = ctl1_;
+                    ctl1_ = (ctl1_ & ~0x4u & (v | ~0x3u)) | (v & 0x4u);
+                    ctl1_ &= 0x7u;
+                    if ((antes ^ ctl1_) & 1u) { if (al_cambiar_bloqueo) al_cambiar_bloqueo(); }
+                    return;
+                }
                 if (busy_) return;                          // en plena transición
                 lpmr_ = (v >> 4) & 0xFu;
                 const unsigned a = v & 0xFu;

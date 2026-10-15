@@ -76,6 +76,7 @@ public:
     void anota_blando(int src) { if (src >= 0) soft_stat_ |= 1u << src; }
     void anota_pin()           { pin_stat_ = 1; }
     void anota_reboot()        { reboot_stat_ = 1; }
+    void anota_pcm(unsigned b) { pcm_stat_ |= b; }     // 1 LPM3.5, 2 LPM4.5
 
     // El tipo de reset que pide el perro, según SYSCTL_WDTRESET_CTL.
     bool wdt_duro(bool por_violacion) const {

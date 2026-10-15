@@ -201,6 +201,8 @@ public:
         SC_METHOD(sysresetreq_proc); sensitive << s_sysresetreq_; dont_initialize();
         SC_METHOD(swdio_proc); sensitive << s_swdio_o_ << s_swdio_oe_;
         SC_METHOD(halt_proc); sensitive << core.debug.halted; dont_initialize();
+        SC_METHOD(sueno_proc); sensitive << s_sleeping_ << s_sleepdeep_; dont_initialize();
+        SC_THREAD(carga_proc);
         SC_METHOD(comparadores_proc);
         for (unsigned k = 0; k < 2; ++k)
             for (unsigned c = 0; c < 8; ++c)
@@ -221,6 +223,14 @@ public:
     void b_transport_ppb(tlm::tlm_generic_payload& gp, sc_core::sc_time& t) override {
         sysctl.b_transport(gp, t);
     }
+
+    // --- El bajo consumo (T3) ----------------------------------------------------
+    // El modo: 0 activo, 1 LPM0, 3 LPM3, 4 LPM4, 35 LPM3.5, 45 LPM4.5
+    unsigned modo_lpm() const { return modo_lpm_; }
+    unsigned salidas_lpm5() const { return n_lpm5_; }
+    // La corriente que pide el chip por DVCC, y la que pasa de verdad por ella
+    double idd_modelo() const;
+    double idd_medida() const { return d_idd_ >= 0 ? -double(dvcc->current(d_idd_)) : 0.0; }
 
     // --- Lo que mira el banco y el adaptador -----------------------------------
     double f_mclk() const   { return cs.f_mclk(); }
@@ -260,8 +270,9 @@ public:
             "de offset, sin carga del muestreo sobre el nodo); el sensor de "
             "temperatura es lineal (685 mV a 0 C, 1,9 mV/C) y el TLV lleva SUS "
             "calibraciones",
-            "los modos de bajo consumo LPM3/LPM4/LPMx.5 no se modelan: un WFI "
-            "duerme el nucleo con los relojes en marcha (LPM0)",
+            "los modos de bajo consumo paran relojes (LPM3/4), apagan el nucleo y "
+            "congelan las E/S (LPMx.5), y el consumo es un modelo de cifras "
+            "tipicas: ni la corriente de cada periferico ni las transiciones",
             "el SysTick con CLKSOURCE = 0 cuenta MCLK/8, como en los STM32; la "
             "referencia externa del P4 no esta contrastada",
             "el codigo de arranque de TI no se ejecuta: el nucleo sale del reset "
@@ -274,7 +285,9 @@ private:
                                 s_smclk_{"s_smclk"}, s_aclk_{"s_aclk"};
     sc_core::sc_signal<double>  s_mclk_hz_{"s_mclk_hz"}, s_hsmclk_hz_{"s_hsmclk_hz"},
                                 s_smclk_hz_{"s_smclk_hz"}, s_aclk_hz_{"s_aclk_hz"};
-    sc_core::sc_signal<bool>    s_rst_core_{"s_rst_core"}, s_rst_perif_{"s_rst_perif"};
+    sc_core::sc_signal<bool>    s_rst_core_{"s_rst_core"}, s_rst_perif_{"s_rst_perif"},
+                                s_rst_rtc_{"s_rst_rtc"};
+    void perif_(bool v) { s_rst_perif_.write(v); s_rst_rtc_.write(v); }
     sc_core::sc_signal<bool>    s_uno_{"s_uno"}, s_cero_{"s_cero"};
     sc_core::sc_vector<sc_core::sc_signal<bool>> s_irq_;
     sc_core::sc_signal<bool>    s_nmi_{"s_nmi"}, s_sysresetreq_{"s_sysresetreq"},
@@ -395,7 +408,10 @@ private:
         for (unsigned n = 0; n < 4; ++n) { engancha(*uca(n)); engancha(*ucb(n)); engancha(*ta(n)); }
         engancha(t32);
         engancha(ref); engancha(adc); engancha(udma);
-        engancha(crc); engancha(aes); engancha(rtc); engancha(ce0); engancha(ce1);
+        engancha(crc); engancha(aes); engancha(ce0); engancha(ce1);
+        // El RTC_C tiene su propio reset: el de salida de LPM3.5 no le toca
+        perif.add_slave("s_rtc_c", rtc.base(), rtc.size())->bind(rtc.tsk);
+        rtc.clk(s_mclk_); rtc.clk_hz(s_mclk_hz_); rtc.rst_n(s_rst_rtc_); rtc.clk_en(s_uno_);
         struct D { const char* n; uint32_t b, s; const char* q; };
         static const D lista[] = {
             {"captio0",  p4::CAPTIO0_B,  0x400, "CAPTIO0"},
@@ -429,9 +445,10 @@ private:
         cs.fcal_er5  = flash.peek32(p4::TLV_B + 28 * 4);
         cs.k_er04 = flota(flash.peek32(p4::TLV_B + 33 * 4));
         cs.k_er5  = flota(flash.peek32(p4::TLV_B + 34 * 4));
-        cs.al_cambiar = [this] { relojes(); };
-        pcm.f_mclk = [this] { return cs.f_mclk(); };
-        pcm.al_cambiar = [this] { revisa_topes(); };
+        cs.al_cambiar = [this] { relojes(); idd_ev_.notify(sc_core::SC_ZERO_TIME); };
+        pcm.f_mclk = [this] { return cs.f_mclk_nucleo(); };
+        pcm.al_cambiar_bloqueo = [this] { dio.congela(pcm.bloqueo_lpm5()); };
+        pcm.al_cambiar = [this] { revisa_topes(); idd_ev_.notify(sc_core::SC_ZERO_TIME); };
         flctl.al_cambiar = [this] { revisa_topes(); };
         dio.al_cambiar_cristales = [this](bool lf, bool hf) { cs.pines_cristal(lf, hf); };
         dio.pmap = &pmap;
@@ -443,7 +460,7 @@ private:
         wdt.f_fuente = [this](unsigned s) {
             switch (s) {
                 case 0:  return cs.f_smclk();
-                case 1:  return cs.f_aclk();
+                case 1:  return cs.f_aclk_rtc_wdt();
                 case 2:  return cs.f_vlo();
                 default: return cs.f_bclk();
             }
@@ -543,8 +560,8 @@ private:
         adc.v_eref_menos = [this] { return double(dio.nodo_de(4, 7).voltage()); };
         adc.f_reloj = [this](unsigned s) {
             switch (s) {
-                case 0:  return p4::HZ_MODOSC;
-                case 1:  return p4::HZ_SYSOSC;
+                case 0:  return cs.osc_modulo_on() ? p4::HZ_MODOSC : 0.0;
+                case 1:  return cs.osc_modulo_on() ? p4::HZ_SYSOSC : 0.0;
                 case 2:  return cs.f_aclk();
                 case 3:  return cs.f_mclk();
                 case 4:  return cs.f_smclk();
@@ -563,6 +580,56 @@ private:
         };
     }
     int d_vref_ = -1;
+
+    // --- El bajo consumo -----------------------------------------------------------
+    unsigned modo_lpm_ = 0, n_lpm5_ = 0;
+    bool lpm5_pedido_ = false, lpm5_es45_ = false;
+    int d_idd_ = -1;
+    sc_core::sc_event idd_ev_;
+    // Con SLEEPDEEP, LPMR decide; sin él, LPM0. LPM4 es LPM3 con el RTC y el
+    // perro parados [TRM 7.4]
+    void sueno_proc() {
+        if (lpm5_pedido_ || modo_lpm_ == 35 || modo_lpm_ == 45) return;
+        unsigned m = 0;
+        if (s_sleeping_.read()) {
+            if (!s_sleepdeep_.read()) m = 1;
+            else {
+                const unsigned r = pcm.lpmr();
+                if (r == 0xA || r == 0xC) {
+                    lpm5_pedido_ = true; lpm5_es45_ = (r == 0xC);
+                    modo_lpm_ = lpm5_es45_ ? 45 : 35;
+                    cs.duerme(lpm5_es45_ ? 3 : 2);
+                    dio.congela(true);
+                    ev_reset_.notify(sc_core::SC_ZERO_TIME);
+                    idd_ev_.notify(sc_core::SC_ZERO_TIME);
+                    return;
+                }
+                m = (rtc.en_marcha() || wdt.en_marcha()) ? 3 : 4;
+            }
+        }
+        if (m == modo_lpm_) return;
+        modo_lpm_ = m;
+        cs.duerme(m >= 3 ? 1 : 0);
+        idd_ev_.notify(sc_core::SC_ZERO_TIME);
+    }
+    // La carga sobre DVCC: la resistencia que, a la tensión del nodo, pide la
+    // corriente del modelo (el mismo truco que PowerPads en los STM32)
+    void carga_proc() {
+        d_idd_ = dvcc->register_driver("idd_mcu");
+        dvcc->set_hiz(d_idd_);
+        for (;;) {
+            const double i = idd_modelo();
+            bool solo = false;
+            const double voc = dvcc->voltage_excluding(d_idd_, solo);
+            if (i <= 0.0 || solo || voc < 0.05) dvcc->set_hiz(d_idd_);
+            else {
+                double v = dvcc->voltage(); if (v < 0.05) v = voc;
+                double r = v / i; if (r < 0.1) r = 0.1;
+                dvcc->set_drive(d_idd_, 0.0f, float(r));
+            }
+            wait(idd_ev_ | dvcc->value_changed_event() | s_rst_core_.value_changed_event());
+        }
+    }
     void disparos_adc_proc() {
         adc.disparo(1, ta0.out[1].read()); adc.disparo(2, ta0.out[2].read());
         adc.disparo(3, ta1.out[1].read()); adc.disparo(4, ta1.out[2].read());
@@ -708,7 +775,7 @@ private:
 
     // --- Relojes y topes --------------------------------------------------------
     void relojes() {
-        g_mclk.set_freq(cs.f_mclk());
+        g_mclk.set_freq(cs.f_mclk_nucleo());
         g_hsmclk.set_freq(cs.f_hsmclk());
         g_smclk.set_freq(cs.f_smclk());
         g_aclk.set_freq(cs.f_aclk());
@@ -766,6 +833,45 @@ private:
         c.pupd = 2;                  // SWCLK con pull-down
         s_drv_swclk_.write(c);
     }
+    // LPM3.5/LPM4.5: el núcleo apagado (en reset) hasta que lo despierte una
+    // interrupción de puerto (o el RTC, en LPM3.5); salir es un POR con la
+    // causa en RSTCTL_PCMRESET_STAT, las E/S congeladas (LOCKLPM5) y el IFG
+    // del pin que despertó. En LPM4.5 la SRAM se pierde; en LPM3.5 el RTC sigue
+    // y la SRAM se conserva (el banco 0 en el chip: aquí, toda) [TRM 7.6]
+    void lpm5() {
+        const sc_core::sc_time PULSO(20, sc_core::SC_US);
+        const bool es45 = lpm5_es45_;
+        lpm5_pedido_ = false;
+        s_rst_core_.write(false);
+        for (;;) {
+            sc_core::sc_event_or_list l;
+            l |= dvcc->value_changed_event(); l |= rstn->value_changed_event();
+            for (unsigned i = 0; i < DioP4::N_INT; ++i) l |= s_irq_[p4::IRQ_PORT1 + i].posedge_event();
+            if (!es45) l |= s_irq_[p4::IRQ_RTC_C].posedge_event();
+            bool despierta = false;
+            for (unsigned i = 0; i < DioP4::N_INT; ++i) despierta |= s_irq_[p4::IRQ_PORT1 + i].read();
+            if (!es45) despierta |= s_irq_[p4::IRQ_RTC_C].read();
+            if (despierta || !alimentado() || pin_en_reset()) break;
+            wait(l);
+        }
+        const auto ifg = dio.ifgs();
+        if (es45) {
+            std::vector<uint8_t> ceros(sram.size(), 0);
+            sram.load(ceros.data(), unsigned(ceros.size()), 0);
+        }
+        sysctl.por();
+        sysctl.anota_pcm(es45 ? 2u : 1u);
+        s_rst_perif_.write(false);
+        if (es45) s_rst_rtc_.write(false);
+        cs.duerme(0);
+        ++n_resets_; ++n_lpm5_;
+        wait(PULSO);
+        dio.restaura_ifgs(ifg);
+        pcm.pon_bloqueo_lpm5();
+        modo_lpm_ = 0;
+        idd_ev_.notify(sc_core::SC_ZERO_TIME);
+        if (alimentado() && !pin_en_reset()) { perif_(true); s_rst_core_.write(true); }
+    }
     bool alimentado() const { return dvcc->voltage() - dvss->voltage() > 1.62f; }
     bool pin_en_reset() const { return rstn->voltage() - dvss->voltage() < 0.3f * 3.3f; }
 
@@ -780,14 +886,14 @@ private:
         // su cuanto sin que lo viera. Con 1 us pasaba exactamente eso.
         // [modelo; la duración del silicio no está contrastada: P-16 l]
         const sc_core::sc_time PULSO(20, sc_core::SC_US);
-        s_rst_core_.write(false); s_rst_perif_.write(false);
+        s_rst_core_.write(false); perif_(false);
         bool estaba = false;                 // ¿estaba en marcha?
         bool por = true;
         for (;;) {
             const bool ok = alimentado() && !pin_en_reset();
             if (!ok) {
                 if (estaba) {
-                    s_rst_core_.write(false); s_rst_perif_.write(false);
+                    s_rst_core_.write(false); perif_(false);
                     estaba = false;
                 }
                 if (!alimentado()) por = true;
@@ -803,12 +909,13 @@ private:
                 ++n_resets_;
                 wait(PULSO);
                 if (!(alimentado() && !pin_en_reset())) continue;
-                s_rst_perif_.write(true); s_rst_core_.write(true);
+                perif_(true); s_rst_core_.write(true);
                 estaba = true;
                 continue;
             }
             wait(dvcc->value_changed_event() | rstn->value_changed_event() |
                  dvss->value_changed_event() | ev_reset_);
+            if (lpm5_pedido_) { lpm5(); continue; }
             if (!hay_pedido_) continue;
             const ResetP4 r = pedido_;
             const int src = src_pedido_;
@@ -818,11 +925,11 @@ private:
                 case ResetP4::Por:
                 case ResetP4::Reboot:
                     sysctl.reboot(); sysctl.anota_reboot();
-                    s_rst_core_.write(false); s_rst_perif_.write(false);
+                    s_rst_core_.write(false); perif_(false);
                     break;
                 case ResetP4::Duro:
                     sysctl.anota_duro(src);
-                    s_rst_core_.write(false); s_rst_perif_.write(false);
+                    s_rst_core_.write(false); perif_(false);
                     break;
                 case ResetP4::Blando:
                     sysctl.anota_blando(src);
@@ -830,11 +937,37 @@ private:
                     break;
             }
             wait(PULSO);
-            s_rst_perif_.write(true); s_rst_core_.write(true);
+            perif_(true); s_rst_core_.write(true);
         }
     }
 
 };
+
+// El consumo por DVCC [modelo: el orden de magnitud de las cifras del
+// datasheet, sin contrastar una a una; P-16 x]. En activo, una parte fija y
+// otra por MHz de MCLK según el regulador y el VCORE; en LPM0, el 40 % de lo
+// activo; LPM3 con el RTC 0,66 µA, LPM4 0,5 µA, LPM3.5 0,63 µA, LPM4.5 25 nA.
+inline double Msp432P4::idd_modelo() const {
+    switch (modo_lpm_) {
+        case 45: return 25e-9;
+        case 35: return 0.63e-6;
+        case 4:  return 0.5e-6;
+        case 3:  return 0.66e-6;
+        default: break;
+    }
+    if (en_reset()) return 0.0;
+    const double mhz = cs.f_mclk_nucleo() / 1e6;
+    double ua_mhz;
+    switch (pcm.cpm()) {
+        case 0:  ua_mhz = 100.0; break;          // LDO, VCORE0
+        case 1:  ua_mhz = 115.0; break;          // LDO, VCORE1
+        case 4:  ua_mhz = 80.0;  break;          // DC-DC, VCORE0
+        case 5:  ua_mhz = 95.0;  break;          // DC-DC, VCORE1
+        default: ua_mhz = 70.0;  break;          // baja frecuencia
+    }
+    const double activo = (40.0 + ua_mhz * mhz) * 1e-6;
+    return modo_lpm_ == 1 ? 0.4 * activo : activo;
+}
 
 } // namespace stm32
 #endif // STM32_SOC_MSP432P4_MSP432P401R_H

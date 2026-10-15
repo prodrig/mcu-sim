@@ -55,6 +55,7 @@ public:
 
     uint16_t ctl() const { return ctl_; }
     bool     parado() const { return (ctl_ & 0x80u) != 0; }
+    bool     en_marcha() const { return !parado(); }
     unsigned vencimientos() const { return n_venc_; }
     unsigned violaciones() const { return n_viol_; }
     // Lo que el SoC llama cuando cambia un reloj o la congelación.

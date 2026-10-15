@@ -163,4 +163,9 @@ testgui                145        76450000000        total
 # vectores de la FIPS-197, RTC_C de las 23:59:58 a medianoche con eventos,
 # alarma y preescalador, y COMP_E0 con histeresis-: 280 -> 306. Tres
 # segundos simulados de RTC: el resto crece 3005,41 ms, todo de P49-P52.
-testp4                306       4239735722176        resto
+# Fase T3, E7: P53 a P55 -los modos de bajo consumo: LPM0, LPM3 (solo el RTC
+# y el perro funcionan), LPM4, LPM3.5 y LPM4.5 con su salida por POR, el
+# cerrojo LOCKLPM5 y el consumo por DVCC-: 306 -> 332. El resto crece
+# 90,93 ms: 90,81 de P53-P55 y 0,12 de P40-P52 (p4_t3b mira al arrancar si
+# viene de un LPMx.5). P0 a P39 no cambian.
+testp4                332       4330665722176        resto
