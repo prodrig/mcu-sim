@@ -77,6 +77,7 @@ static const char* const FW_DEMO_BIN = "verif/fw/msp432p4/p4_demo/p4_demo.bin";
 static const char* const FW_CM   = "verif/fw/msp432p4/coremark/coremark_p4.bin";
 static const char* const FW_T3   = "verif/fw/msp432p4/p4_t3/p4_t3.out";
 static const char* const FW_T3B  = "verif/fw/msp432p4/p4_t3b/p4_t3b.out";
+static const char* const FW_DL   = "verif/fw/msp432p4/driverlib_t3/driverlib_t3.out";
 
 // El buzón del firmware [verif/fw/msp432p4/p4_demo/main.c, buzon_t]
 enum : uint32_t {
@@ -235,6 +236,7 @@ SC_MODULE(TbP4) {
     void t3_resto();
     void t3_lpm();
     void t3_edumkii();
+    void t3_driverlib();
     // Mide en un pin el periodo y la fraccion en alto, sobre `n` ciclos
     bool pwm(unsigned p, unsigned i, double& periodo_s, double& alto, unsigned n = 4,
              double max_ms = 50);
@@ -1007,6 +1009,7 @@ SC_MODULE(TbP4) {
                 t3_resto();
                 t3_lpm();
                 t3_edumkii();
+                t3_driverlib();
                 std::printf("\nTOTAL P4 (solo T3b): %u comprobaciones OK, %u fallos\n",
                             g_ok, g_fallos);
                 sc_stop();
@@ -1024,6 +1027,7 @@ SC_MODULE(TbP4) {
                 t3_resto();
                 t3_lpm();
                 t3_edumkii();
+                t3_driverlib();
                 std::printf("\nTOTAL P4 (solo T3): %u comprobaciones OK, %u fallos\n",
                             g_ok, g_fallos);
                 sc_stop();
@@ -1057,6 +1061,7 @@ SC_MODULE(TbP4) {
         t3_resto();
         t3_lpm();
         t3_edumkii();
+        t3_driverlib();
         std::printf("\n=====================================================\n");
         std::printf("TOTAL P4 : %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         std::printf("=====================================================\n");

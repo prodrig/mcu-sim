@@ -75,6 +75,7 @@ las mismas carpetas: es lo que piden al redistribuir en forma objeto.
 | Cabeceras CMSIS-Core y de dispositivo de ST (`stm32f4xx.h` y familia) | `src/verif/fw/cmsis/` | `LICENSE-CMSIS-Core.md` y `LICENSE-cmsis_device_f4.md`, en la misma carpeta |
 | CoreMark (EEMBC) | `src/verif/fw/coremark/` | `LICENSE.md`, en la misma carpeta |
 | Cabeceras de dispositivo de Texas Instruments (`msp432p401r.h`, `msp_compatibility.h`) | `src/verif/fw/msp432p4/ti/` | BSD de tres cláusulas: `LICENSE-TI.md`, en la misma carpeta. Compatible con la AGPLv3 en esta dirección, como el Apache-2.0 de ST |
+| DriverLib de Texas Instruments (doce módulos) y las cabeceras de su SDK | `src/verif/fw/msp432p4/sdk/` | BSD de tres cláusulas: `LICENSE-TI.md`, en esa carpeta. Va compilada dentro de `driverlib_t3`, el firmware que prueba el modelo con las llamadas de los ejemplos de TI |
 
 De CoreMark hay que saber una cosa más: **sus reglas prohíben publicar una
 puntuación como «CoreMark» sin seguir su procedimiento de comunicación**. Aquí

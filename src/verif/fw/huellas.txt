@@ -78,3 +78,5 @@ p4  msp432p4/p4_t3b/p4_t3b.out          48896  0xA8047114
 p4  msp432p4/p4_t3b/p4_t3b.bin           5672  0x458017F6
 p4  msp432p4/edumkii_demo/edumkii_demo.out  22932  0x9D3C022A
 p4  msp432p4/edumkii_demo/edumkii_demo.bin   2228  0xC2580758
+p4  msp432p4/driverlib_t3/driverlib_t3.out  24660  0xED4AB730
+p4  msp432p4/driverlib_t3/driverlib_t3.bin   5228  0x1582C35A

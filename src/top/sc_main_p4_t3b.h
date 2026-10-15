@@ -384,4 +384,55 @@ inline void TbP4::t3_edumkii() {
     buz->set_enabled(false); joy_x->set_enabled(false);
 }
 
+// =============================================================================
+// P58-P61  Los ejemplos de DriverLib, con DriverLib de TI de verdad
+// =============================================================================
+inline void TbP4::t3_driverlib() {
+    grupo("P58 DriverLib uart_pc_echo: UART_initModule con la tabla de la guia, y eco");
+    bcl->set_baudios(115200);
+    bcl->set_formato(FormatoUart{});
+    bcl->borra_recibido();
+    bcl->set_enabled(true);
+    arranca3(1, FW_DL);
+    check(espera3(1, 10), "CS_setDCOCenteredFrequency(12 MHz) y la UART en marcha");
+    bcl->envia("Hola, DriverLib");
+    wait(3, SC_MS);
+    std::printf("    SMCLK segun CS_getSMCLK(): %u Hz; eco: \"%s\"\n", r3(1), bcl->recibido().c_str());
+    check(r3(1) == 12000000u, "CS_getSMCLK() lee del CS del modelo los 12 MHz");
+    check(bcl->recibido() == "Hola, DriverLib" && r3(0) == 15,
+          "el eco por UART_getEnabledInterruptStatus/receiveData/transmitData");
+    check(bcl->errores_trama() == 0, "sin errores de trama: los baudios cuadran");
+    bcl->set_enabled(false);
+
+    grupo("P59 DriverLib timer_a_pwm: Timer_A_generatePWM en TA0.1 (P2.4)");
+    arranca3(2, FW_DL);
+    check(espera3(1, 5), "el PWM arranca");
+    double per = 0, alto = 0;
+    const bool hay = pwm(1, 4, per, alto);
+    std::printf("    P2.4: %.1f Hz, %.1f %% en alto\n", hay ? 1.0 / per : 0.0, 100.0 * alto);
+    check(hay && std::fabs(1.0 / per - 1000.0) < 1.0 && std::fabs(alto - 0.25) < 0.005,
+          "1 kHz al 25 %: periodo 3000 y ciclo 750 con SMCLK = 3 MHz");
+
+    grupo("P60 DriverLib adc14_single_conversion: A0 a 48 MHz con VCORE1");
+    const unsigned av_v = dut.avisos_vcore(), av_f = dut.avisos_flash();
+    v_an[0]->set_volts(1.0, 10.0);
+    arranca3(3, FW_DL);
+    check(espera3(2, 20), "ocho conversiones por ADC14_toggleConversionTrigger");
+    bool igual = true;
+    for (unsigned i = 0; i < 8; ++i)
+        if (r3(1 + i) != uint32_t(std::floor(16384.0 * double(1.0f) / 3.3))) igual = false;
+    std::printf("    MCLK %u Hz; %u %u ... %u\n", r3(10), r3(1), r3(2), r3(8));
+    check(r3(10) == 48000000u && dut.avisos_vcore() == av_v && dut.avisos_flash() == av_f,
+          "a 48 MHz, y PCM_setCoreVoltageLevel y FlashCtl_setWaitState en orden: sin avisos");
+    check(igual, "y cada resultado, el de 1,0 V en 14 bits");
+    v_an[0]->release();
+
+    grupo("P61 DriverLib dma: memoria a memoria en automatico, con DMA_INT1");
+    arranca3(4, FW_DL);
+    check(espera3(1, 5), "la transferencia acaba y DMA_INT1 llega");
+    std::printf("    %u palabras bien; canal %s; modo %u\n", r3(0), r3(1) ? "activo" : "apagado", r3(2));
+    check(r3(0) == 64 && r3(1) == 0, "las 64 palabras, y el canal apagado al acabar");
+    check(r3(2) == 0, "DMA_getChannelMode: la estructura queda parada (UDMA_MODE_STOP)");
+}
+
 #endif // STM32_TOP_SC_MAIN_P4_T3B_H

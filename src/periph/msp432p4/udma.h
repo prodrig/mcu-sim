@@ -213,11 +213,16 @@ protected:
             bool ok = true;
             for (unsigned j = 0; j < tanda && ok; ++j) {
                 const unsigned queda = resto - j - 1u;          // los que faltan tras este
-                const uint32_t sa = sinc == 3 ? src_fin : src_fin - (queda << sinc);
-                const uint32_t da = dinc == 3 ? dst_fin : dst_fin - (queda << dinc);
+                // El fin puede ser el ÚLTIMO BYTE del búfer, no el principio
+                // del último dato: es lo que escribe DriverLib (inicio +
+                // bytes - 1), igual que TivaWare. En el bus de AHB los bits
+                // bajos de una transferencia de 16 o 32 bits no cuentan.
+                const unsigned dnb = 1u << (dsz > 2 ? 2 : dsz);
+                const uint32_t sa = (sinc == 3 ? src_fin : src_fin - (queda << sinc)) & ~(nb - 1u);
+                const uint32_t da = (dinc == 3 ? dst_fin : dst_fin - (queda << dinc)) & ~(dnb - 1u);
                 uint8_t b[4] = {};
                 ok = acceso(false, sa, b, nb, t);
-                if (ok) ok = acceso(true, da, b, 1u << (dsz > 2 ? 2 : dsz), t);
+                if (ok) ok = acceso(true, da, b, dnb, t);
                 if (ok) ++n_trans_;
             }
             if (!ok) { error_bus(c); wait(t + cycles(1)); continue; }

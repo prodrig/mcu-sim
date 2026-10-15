@@ -176,4 +176,8 @@ testgui                145        76450000000        total
 #     SIZE = 1, y los dos retardos de 120 ms del firmware de la pantalla
 #     duraban 5,31 ms cada uno (0x15F900 & 0xFFFF tics a 12 MHz);
 #   y -0,04 ms de P40-P52, que p4_t3b ha vuelto a crecer.
-testp4                344       4926665722176        resto
+# Fase T3, E9: P58-P61 -los ejemplos de DriverLib (uart_pc_echo,
+# timer_a_pwm, adc14_single_conversion y dma) con DriverLib de TI compilada
+# de sus fuentes, en driverlib_t3-: 344 -> 356. El resto crece 14,58 ms, los
+# de P58-P61: P0-P57 no cambian (P58 empieza donde acababa P57).
+testp4                356       4941243771818        resto
