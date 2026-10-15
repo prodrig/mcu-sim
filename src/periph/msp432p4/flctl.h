@@ -50,8 +50,11 @@
 #ifndef STM32_PERIPH_MSP432P4_FLCTL_H
 #define STM32_PERIPH_MSP432P4_FLCTL_H
 
+#include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
+#include <string>
 #include <functional>
 #include <vector>
 #include <tlm_utils/simple_target_socket.h>
@@ -148,8 +151,15 @@ public:
         : sc_core::sc_module(nm), main_(main_size, 0xFF), info_(p4::INFO_SIZE, 0xFF) {
         tsk.register_b_transport(this, &FlashP4::bt);
         tsk.register_transport_dbg(this, &FlashP4::dbg);
-        const std::vector<uint32_t> t = tlv_sintetico(device_id, hwrev);
-        std::memcpy(info_.data() + (p4::TLV_B - p4::INFO_B), t.data(), t.size() * 4);
+        device_id_ = device_id; hwrev_ = hwrev;
+        pon_tlv_sintetico();
+    }
+    // El TLV sintetico, el de omision; tambien deshace un carga_tlv().
+    void pon_tlv_sintetico() {
+        uint8_t* p = info_.data() + (p4::TLV_B - p4::INFO_B);
+        std::fill(p, p + 0x1000, uint8_t(0xFF));
+        const std::vector<uint32_t> t = tlv_sintetico(device_id_, hwrev_);
+        std::memcpy(p, t.data(), t.size() * 4);
     }
 
     uint32_t main_size() const { return uint32_t(main_.size()); }
@@ -184,12 +194,49 @@ public:
         }
         return v;
     }
+    // El TLV de una placa concreta (T4): el sector de 0x0020_1000 volcado de
+    // ella, en binario y de hasta 4 KB, en lugar del sintetico. Lo que falte
+    // hasta los 4 KB queda borrado (0xFF). Se recorre como lo recorre
+    // SysCtl_getTLVInfo: detras de la suma, etiqueta, longitud y datos, desde
+    // DEVINFO (11) hasta la de fin, 0x0BD0E11D. Si la cadena se sale del
+    // fichero no es un TLV, y DriverLib lo recorreria hasta salirse.
+    // Devuelve el error, o "" si va bien.
+    std::string carga_tlv(const std::string& ruta) {
+        std::FILE* f = std::fopen(ruta.c_str(), "rb");
+        if (!f) return "no se puede leer " + ruta;
+        std::vector<uint8_t> d;
+        int c;
+        while ((c = std::fgetc(f)) != EOF && d.size() <= 0x1000u) d.push_back(uint8_t(c));
+        std::fclose(f);
+        if (d.size() > 0x1000u)
+            return ruta + ": mas de 4 KB; el TLV es el sector 0x0020_1000-0x0020_1FFF";
+        const size_t n = d.size() / 4;
+        auto w = [&](size_t i) { uint32_t v; std::memcpy(&v, d.data() + 4 * i, 4); return v; };
+        if (n < 3 || w(1) != 11u)
+            return ruta + ": no empieza por la etiqueta DEVINFO (11) detras de la suma; "
+                          "no parece un volcado de 0x0020_1000";
+        bool fin = false;
+        for (size_t i = 1; i < n && !fin;) {
+            if (w(i) == 0x0BD0E11Du) { fin = true; break; }
+            if (i + 1 >= n) break;
+            i += 2 + size_t(w(i + 1));
+        }
+        if (!fin)
+            return ruta + ": la cadena de etiquetas no llega a la de fin del TLV "
+                          "(0x0BD0E11D); no parece un volcado de 0x0020_1000";
+        uint8_t* p = info_.data() + (p4::TLV_B - p4::INFO_B);
+        std::fill(p, p + 0x1000, uint8_t(0xFF));
+        std::memcpy(p, d.data(), d.size());
+        return "";
+    }
+
     // Estadística: estados de espera pagados y esperas por banco ocupado.
     uint64_t esperas_pagadas() const { return n_esperas_; }
     uint64_t lecturas_detenidas() const { return n_detenidas_; }
 
 private:
     std::vector<uint8_t> main_, info_;
+    uint32_t device_id_ = 0, hwrev_ = 0;
     uint64_t n_esperas_ = 0, n_detenidas_ = 0;
     // La última línea de 128 bits leída por cada banco y tipo de acceso.
     uint32_t linea_[2][2] = {{~0u, ~0u}, {~0u, ~0u}};

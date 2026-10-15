@@ -184,6 +184,11 @@ static std::string g_gdb_modo;          // "pines" o "dap"
 static std::vector<std::pair<std::string, std::string>> g_firmwares;   // id, fichero
 static std::vector<std::string> g_sin_firmware;                        // ids
 static bool        g_sin_firmware_todos = false;
+// `--rom [ID=]VALOR` y `--tlv [ID=]FICHERO` (T4 del MSP432): la ROM de
+// DriverLib y el TLV de los chips que los tienen. Con ID, de ese chip, y
+// manda sobre el rom=/tlv= de su <mcu>; sin ID, de todos los que los tienen
+// -y es un error que no lo tenga ninguno-.
+static std::vector<std::pair<std::string, std::string>> g_roms, g_tlvs;   // id ("" = todos), valor
 // `--mcus`: la lista de los MCUs de la placa, en XML, y nada mas
 static bool        g_lista_mcus = false;
 static unsigned    g_gdb_puerto = 0;
@@ -214,6 +219,9 @@ struct McuMontado {
     // permite que `tipo=` despache de verdad en vez de comprobarse.
     mcu_if*       mcu  = nullptr;
     GdbStub*      stub = nullptr;       // solo en modo "pines" y con puerto
+    // Las limitaciones que se dijeron al montar: si `--rom`/`--tlv` las
+    // cambian, se dicen las nuevas (T4 del MSP432)
+    std::vector<std::string> ojo;
 };
 
 // La conexion con la ventana, si hay `--gui` y el saludo ha empezado. Es
@@ -434,7 +442,8 @@ SC_MODULE(Sim) {
             // Y lo que el modelo sabe de si mismo y todavia no hace. Se dice
             // al montar, no al final: quien lee esto tiene que saberlo ANTES
             // de fiarse de lo que vea.
-            for (const std::string& q : m.mcu->limitaciones())
+            m.ojo = m.mcu->limitaciones();
+            for (const std::string& q : m.ojo)
                 std::fprintf(stderr, "  [ojo] %s: %s\n", nm.c_str(), q.c_str());
             // Los nodos, con el prefijo del chip. Y además con el nombre
             // desnudo cuando solo hay uno: es lo que hace que las placas
@@ -817,6 +826,8 @@ SC_MODULE(Sim) {
         if (!g_img.empty())        no("un firmware (" + g_img + ") no tiene donde cargarse y");
         if (!g_firmwares.empty())  no("--firmware");
         if (!g_sin_firmware.empty() || g_sin_firmware_todos) no("--sin-firmware");
+        if (!g_roms.empty())       no("--rom");
+        if (!g_tlvs.empty())       no("--tlv");
         if (!g_gdb_modo.empty())   no("un stub de GDB (--gdb, --gdb-dap)");
         if (g_puerto_dado)         no("--port");
         if (g_traza_gdb)           no("--traza-gdb");
@@ -856,10 +867,30 @@ SC_MODULE(Sim) {
             busca("--firmware", f.first).firmware = f.second;
         }
     }
+    // `--rom ID=VALOR` y `--tlv ID=FICHERO`: al <mcu> de ese id, encima de lo
+    // que diga el XML. Los que van sin id se aplican al montar, a todos.
+    void aplica_rom_tlv(std::vector<DeclMcu>& decls) {
+        auto aplica = [&](const char* op, const std::vector<std::pair<std::string, std::string>>& v,
+                          std::string DeclMcu::*campo) {
+            std::set<std::string> dichos;
+            for (const auto& x : v) {
+                if (x.first.empty()) continue;
+                if (!dichos.insert(x.first).second)
+                    muere(std::string(op) + " " + x.first + ": se dice dos veces");
+                bool hay = false;
+                for (DeclMcu& m : decls)
+                    if (m.id == x.first) { m.*campo = x.second; hay = true; }
+                if (!hay) muere(std::string(op) + " " + x.first + ": no hay ningun MCU con ese id");
+            }
+        };
+        aplica("--rom", g_roms, &DeclMcu::rom);
+        aplica("--tlv", g_tlvs, &DeclMcu::tlv);
+    }
 
     void aplica_linea_de_ordenes(std::vector<DeclMcu>& decls) {
         if (decls.empty()) return;           // sin MCU: ya lo ha mirado comprueba_sin_mcu
         aplica_firmwares(decls);
+        aplica_rom_tlv(decls);
         const bool global = !g_img.empty() || !g_gdb_modo.empty() || g_puerto_dado;
         if (decls.size() > 1) {
             if (!global) return;
@@ -1023,6 +1054,40 @@ SC_MODULE(Sim) {
             m.mcu->alimenta(false);      // todo a cero, con NRST abajo
         }
         wait(10, SC_US);
+
+        // La ROM y el TLV de los chips que los tienen (T4), antes del
+        // firmware: lo que dice su <mcu> o `--rom/--tlv ID=`, y si no, lo que
+        // vaya sin id en la linea de ordenes. Sin id, un chip que no lo tiene
+        // se salta; con id, o en el XML, es un error.
+        for (const char* clave : {"rom", "tlv"}) {
+            const bool es_rom = clave[0] == 'r';
+            std::string todos;
+            for (const auto& x : es_rom ? g_roms : g_tlvs)
+                if (x.first.empty()) todos = x.second;
+            unsigned aceptan = 0;
+            for (McuMontado& m : mcus) {
+                const std::string& propio = es_rom ? m.decl.rom : m.decl.tlv;
+                const std::string v = !propio.empty() ? propio : todos;
+                if (v.empty()) continue;
+                if (propio.empty() && !m.mcu->admite_opcion(clave)) continue;  // sin id: no lo tiene
+                const std::string e = m.mcu->opcion(clave, v);
+                const char* quien = m.decl.id.empty() ? "(el mcu)" : m.decl.id.c_str();
+                if (!e.empty()) muere(std::string(clave) + " de " + quien + ": " + e);
+                ++aceptan;
+                std::printf("%s de %s: %s\n", clave, quien,
+                            m.mcu->describe_opcion(clave).c_str());
+            }
+            if (!todos.empty() && aceptan == 0)
+                muere(std::string("--") + clave + " " + todos + ": ninguno de los MCUs de "
+                      "la placa tiene " + clave + " que se pueda cambiar (es del MSP432P4)");
+        }
+        // Lo que la ROM o el TLV nuevos cambian de lo que se dijo al montar
+        for (McuMontado& m : mcus) {
+            const std::string nm = m.decl.id.empty() ? std::string("dut") : m.decl.id;
+            for (const std::string& q : m.mcu->limitaciones())
+                if (std::find(m.ojo.begin(), m.ojo.end(), q) == m.ojo.end())
+                    std::fprintf(stderr, "  [ojo] %s: %s\n", nm.c_str(), q.c_str());
+        }
 
         for (McuMontado& m : mcus) {
             const char* quien = m.decl.id.empty() ? "" : m.decl.id.c_str();
@@ -1501,6 +1566,13 @@ static const OpcionCli OPCIONES[] = {
     {"--sin-firmware", "valor_opcional", "texto", "", "", "", true, true, "u0",
      "ese MCU -sin ID, todos- sin firmware, aunque el XML diga uno: el nucleo se "
      "aparca en wfe"},
+    {"--rom", "valor", "texto", "", "", "", true, true, "u0=ninguna",
+     "la ROM de DriverLib del MSP432P4, como [ID=]VALOR: r1 (la sustituta, por "
+     "omision), ninguna, o la de TI de un fichero: un volcado de 0x0200_0000 o el "
+     "ELF de CCS (msp432_driverlib_rom_image.out). Sin ID, de todos los que la tienen"},
+    {"--tlv", "valor", "texto", "", "", "", true, true, "u0=tlv.bin",
+     "el TLV de una placa MSP432P4, como [ID=]FICHERO: los 4 KB de 0x0020_1000 "
+     "volcados. Sin ID, de todos los que lo tienen"},
     {"--mcus", "accion", "", "", "", "", false, false, "",
      "la lista de los MCUs de la placa en XML -id, tipo y firmware-, para mcu-sim-gui"},
     {"--serie", "valor", "texto", "", "", "", true, true, "VCP=rfc2217:4000",
@@ -1617,6 +1689,31 @@ int sc_main(int argc, char** argv) {
                 return 1;
             }
             g_firmwares.emplace_back(v.substr(0, igual), v.substr(igual + 1));
+        }
+        // `--rom [ID=]VALOR` y `--tlv [ID=]FICHERO`, con o sin igual detras
+        // de la opcion. Lo que va antes del primer igual es un id si no lleva
+        // ni '.', ni '\', ni ':' -un fichero o una ruta de Windows si los
+        // llevan; `N/u0`, el id de un sistema, no-. Que exista se mira luego.
+        else if (a == "--rom" || a.rfind("--rom=", 0) == 0 ||
+                 a == "--tlv" || a.rfind("--tlv=", 0) == 0) {
+            const bool es_rom = a.compare(2, 3, "rom") == 0;
+            std::string v;
+            if (a.size() > 5 && a[5] == '=') v = a.substr(6);
+            else if (i + 1 < argc && argv[i + 1][0] != '-') v = argv[++i];
+            if (v.empty()) {
+                std::fprintf(stderr, "%s: hace falta [ID=]%s, como en %s u0=%s\n",
+                             es_rom ? "--rom" : "--tlv", es_rom ? "VALOR" : "FICHERO",
+                             es_rom ? "--rom" : "--tlv", es_rom ? "ninguna" : "tlv.bin");
+                return 1;
+            }
+            std::string id;
+            const size_t igual = v.find('=');
+            if (igual != std::string::npos && igual > 0 &&
+                v.find_first_of(".\\:", 0) > igual) {
+                id = v.substr(0, igual);
+                v = v.substr(igual + 1);
+            }
+            (es_rom ? g_roms : g_tlvs).emplace_back(id, v);
         }
         // `--sin-firmware`, todos los chips; `--sin-firmware=ID`, ese. Solo con
         // igual: detras puede ir la placa, que no es un id
@@ -1775,6 +1872,14 @@ int sc_main(int argc, char** argv) {
                 "     sim placa.xml --sin-firmware[=ID]  ese MCU -sin ID, todos- sin\n"
                 "                                firmware, aunque el XML diga uno: el\n"
                 "                                nucleo se aparca en wfe\n"
+                "     sim placa.xml --rom [ID=]VALOR  la ROM de DriverLib de un\n"
+                "                                MSP432P4: r1 (la sustituta, por\n"
+                "                                omision), ninguna, o la de TI: un\n"
+                "                                volcado de 0x0200_0000 (32 KB) o el\n"
+                "                                ELF de CCS. Sin ID, de todos\n"
+                "     sim placa.xml --tlv [ID=]FICHERO  el TLV de una placa MSP432P4\n"
+                "                                (los 4 KB de 0x0020_1000): el DCO\n"
+                "                                sigue sus calibraciones\n"
                 "     sim placa.xml --mcus       la lista de sus MCUs en XML -id, tipo\n"
                 "                                y firmware-, para mcu-sim-gui\n"
                 "     sim placa.xml --ms=2       tiempo simulado (global: hay un\n"

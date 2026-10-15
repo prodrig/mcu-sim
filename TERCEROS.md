@@ -75,7 +75,9 @@ las mismas carpetas: es lo que piden al redistribuir en forma objeto.
 | Cabeceras CMSIS-Core y de dispositivo de ST (`stm32f4xx.h` y familia) | `src/verif/fw/cmsis/` | `LICENSE-CMSIS-Core.md` y `LICENSE-cmsis_device_f4.md`, en la misma carpeta |
 | CoreMark (EEMBC) | `src/verif/fw/coremark/` | `LICENSE.md`, en la misma carpeta |
 | Cabeceras de dispositivo de Texas Instruments (`msp432p401r.h`, `msp_compatibility.h`) | `src/verif/fw/msp432p4/ti/` | BSD de tres cláusulas: `LICENSE-TI.md`, en la misma carpeta. Compatible con la AGPLv3 en esta dirección, como el Apache-2.0 de ST |
-| DriverLib de Texas Instruments (doce módulos) y las cabeceras de su SDK | `src/verif/fw/msp432p4/sdk/` | BSD de tres cláusulas: `LICENSE-TI.md`, en esa carpeta. Va compilada dentro de `driverlib_t3`, el firmware que prueba el modelo con las llamadas de los ejemplos de TI |
+| DriverLib de Texas Instruments (entera, desde T4) y las cabeceras de su SDK | `src/verif/fw/msp432p4/sdk/` | BSD de tres cláusulas: `LICENSE-TI.md`, en esa carpeta, **salvo `rom.h` y `rom_map.h`**, que en esta copia llevan la nota antigua «TI Information - Selective Disclosure» (vease `LICENSE-TI.md`). Va compilada dentro de `driverlib_t3`, de los ejemplos del SDK y de la **ROM sustituta**, `rom_r1.bin`, que el simulador lleva dentro (`src/soc/msp432p4/rom_r1.inc`): es la única pieza de terceros que va en el ejecutable y no solo en un firmware |
+| Ejemplos de DriverLib del SDK SimpleLink MSP432P4, con su arranque, su `system_msp432p401r.c` y su guion de enlazado para GCC | `src/verif/fw/msp432p4/sdk_ejemplos/` | BSD de tres cláusulas, en la cabecera de cada fichero; procedencia en `LEEME.md`, en esa carpeta |
+| FreeRTOS: el núcleo V11.3.1 y la demo para la MSP432 LaunchPad | `src/verif/fw/msp432p4/freertos_blinky/` | MIT: `kernel/LICENSE.md` y la cabecera de cada fichero; procedencia en `LEEME.md`, en esa carpeta |
 
 De CoreMark hay que saber una cosa más: **sus reglas prohíben publicar una
 puntuación como «CoreMark» sin seguir su procedimiento de comunicación**. Aquí

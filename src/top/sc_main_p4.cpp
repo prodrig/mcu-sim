@@ -237,6 +237,14 @@ SC_MODULE(TbP4) {
     void t3_lpm();
     void t3_edumkii();
     void t3_driverlib();
+    // --- T4 [top/sc_main_p4_t4.h] ------------------------------------------
+    void t4_rom();
+    void t4_sdk();
+    void t4_r2_r3();
+    void t4_freertos();
+    void t4_rom_ti(const char* ruta);
+    sc_time primer_cambio(sc_time t0, double max_ms);
+    double ancho_alto(double max_ms);
     // Mide en un pin el periodo y la fraccion en alto, sobre `n` ciclos
     bool pwm(unsigned p, unsigned i, double& periodo_s, double& alto, unsigned n = 4,
              double max_ms = 50);
@@ -680,11 +688,15 @@ SC_MODULE(TbP4) {
     void t1_rom() {
         grupo("P17 Lo que no esta, lo dice");
         uint32_t v = 0;
+        // Desde T4 la ROM esta (R1). Sin ella -R3, `--rom ninguna`- la ventana
+        // da error de bus y lo dice, como en T1-T3.
+        dut.rom.pon_ninguna();
         const unsigned n0 = dut.rom.accesos();
         check(tm.read32(p4::ROM_B + 0x800, v) == tlm::TLM_ADDRESS_ERROR_RESPONSE &&
               dut.rom.accesos() == n0 + 1,
-              "la ROM de DriverLib (ROM_APITABLE, 0x0200_0800) da error de bus: no "
-              "esta, y no se finge (T4)");
+              "con --rom ninguna (R3), la ROM de DriverLib (ROM_APITABLE, "
+              "0x0200_0800) da error de bus: no esta, y no se finge");
+        dut.rom.pon_r1();
         check(tm.read32(p4::ADC14_B, v) == tlm::TLM_OK_RESPONSE && v == 0,
               "el ADC14 esta DECLARADO: contesta cero (T3)");
         check(mcu.limitaciones().size() >= 6, "y limitaciones() lo enumera al montar");
@@ -1000,6 +1012,34 @@ SC_MODULE(TbP4) {
         // TESTP4_SOLO=t3: solo los grupos de T3, para trabajar en ellos. No
         // vale para el invariante (la cifra es otra), y lo dice.
         if (const char* solo = std::getenv("TESTP4_SOLO")) {
+            // TESTP4_SOLO=rom_ti P4_ROM_TI=<fichero>: R1 frente a la ROM de TI,
+            // que no se versiona y por eso no esta en la suite (T4)
+            if (std::string(solo) == "rom_ti") {
+                const char* ruta = std::getenv("P4_ROM_TI");
+                mcu.alimenta(true);
+                if (!ruta || !*ruta)
+                    check(false, "TESTP4_SOLO=rom_ti necesita P4_ROM_TI=<la ROM de TI>: "
+                                 "un volcado de 32 KB o msp432_driverlib_rom_image.out de CCS");
+                else
+                    t4_rom_ti(ruta);
+                std::printf("\nTOTAL P4 (R1 frente a la de TI): %u comprobaciones OK, %u fallos\n",
+                            g_ok, g_fallos);
+                sc_stop();
+                return;
+            }
+            if (std::string(solo) == "t4") {
+                std::printf("  [TESTP4_SOLO=t4] solo los grupos de T4: el tiempo NO es el "
+                            "del invariante\n");
+                mcu.alimenta(true);
+                t4_rom();
+                t4_sdk();
+                t4_r2_r3();
+                t4_freertos();
+                std::printf("\nTOTAL P4 (solo T4): %u comprobaciones OK, %u fallos\n",
+                            g_ok, g_fallos);
+                sc_stop();
+                return;
+            }
             if (std::string(solo) == "t3b") {
                 std::printf("  [TESTP4_SOLO=t3b] solo los grupos de p4_t3b: el tiempo NO "
                             "es el del invariante\n");
@@ -1062,6 +1102,10 @@ SC_MODULE(TbP4) {
         t3_lpm();
         t3_edumkii();
         t3_driverlib();
+        t4_rom();
+        t4_sdk();
+        t4_r2_r3();
+        t4_freertos();
         std::printf("\n=====================================================\n");
         std::printf("TOTAL P4 : %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         std::printf("=====================================================\n");
@@ -1073,6 +1117,7 @@ SC_MODULE(TbP4) {
 
 #include "sc_main_p4_t3.h"
 #include "sc_main_p4_t3b.h"
+#include "sc_main_p4_t4.h"
 
 int sc_main(int, char*[]) {
     sc_report_handler::set_actions(SC_WARNING, SC_DO_NOTHING);

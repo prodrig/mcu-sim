@@ -15,7 +15,7 @@
 //
 //   memoria     Flash principal (256 KB, 0x0) e información (16 KB, 0x20_0000,
 //               con el TLV), SRAM de 64 KB en 0x2000_0000 y su alias de
-//               código en 0x0100_0000; la ROM de DriverLib, AUSENTE en T1 (R3)
+//               código en 0x0100_0000; la ROM de DriverLib (T4: R1, R2 o R3)
 //   reloj       CS: DCO, REFO, VLO, MODOSC, SYSOSC y los dos cristales
 //   energía     PCM: los seis modos activos y sus transiciones
 //   Flash       FLCTL: estados de espera y búferes (programar: T2)
@@ -67,6 +67,7 @@
 #include "../../periph/msp432p4/rtc_c.h"
 #include "../../periph/msp432p4/comp_e.h"
 #include "p4_programador.h"
+#include "rom_p4.h"
 
 namespace stm32 {
 
@@ -77,30 +78,6 @@ inline constexpr IntegracionNucleo INTEGRACION_MSP432P4{
 // Sin CCM: un mapa de RAM con la CCM a cero. La SRAM la gestiona el SoC.
 inline constexpr MapaRam RAM_MSP432P4{
     p4::SRAM_B, 0x00010000u, 0, 0, 0, 0, 0, 0
-};
-
-// -----------------------------------------------------------------------------
-// La ventana de la ROM, AUSENTE en T1 (opción R3 de §6.1): cualquier acceso es
-// un error de bus, y la primera vez se dice por qué. La ROM sustituta
-// construida con DriverLib llega en T4.
-// -----------------------------------------------------------------------------
-class RomAusenteP4 : public sc_core::sc_module {
-public:
-    tlm_utils::simple_target_socket<RomAusenteP4> tsk{"tsk"};
-    explicit RomAusenteP4(sc_core::sc_module_name nm) : sc_core::sc_module(nm) {
-        tsk.register_b_transport(this, &RomAusenteP4::bt);
-    }
-    unsigned accesos() const { return n_; }
-private:
-    unsigned n_ = 0;
-    void bt(tlm::tlm_generic_payload& gp, sc_core::sc_time&) {
-        if (n_++ == 0)
-            SC_REPORT_WARNING("msp432p4/rom",
-                "acceso a la ROM de DriverLib (0x0200_0000), que este modelo NO "
-                "lleva todavia (T4). Un firmware que usa MAP_/ROM_ salta aqui: "
-                "compilalo sin ROM o espera a la ROM sustituta");
-        gp.set_response_status(tlm::TLM_ADDRESS_ERROR_RESPONSE);
-    }
 };
 
 // Un destino que no debería recibir nunca nada: la CCM que el MSP432 no tiene.
@@ -127,7 +104,7 @@ public:
     FlctlP4      flctl{"flctl"};
     FlashP4      flash;
     Sram         sram;
-    RomAusenteP4 rom{"rom"};
+    RomP4        rom{"rom"};
     SinDestinoP4 sin_ccm{"sin_ccm"};
 
     // --- Sistema ---------------------------------------------------------------
@@ -251,15 +228,22 @@ public:
         }
         return false;
     }
+    // --- La ROM y el TLV (T4) ----------------------------------------------------
+    // El TLV de una placa concreta: los 4 KB de 0x0020_1000 volcados de ella.
+    // Sustituye al sintetico, y el DCO del modelo pasa a seguir SUS
+    // calibraciones, como en esa placa. Devuelve el error, o "".
+    std::string carga_tlv(const std::string& ruta) {
+        const std::string e = flash.carga_tlv(ruta);
+        if (e.empty()) { tlv_ = ruta; aplica_tlv(); relojes(); }
+        return e;
+    }
+    void pon_tlv_sintetico() { flash.pon_tlv_sintetico(); tlv_.clear(); aplica_tlv(); relojes(); }
+    const std::string& tlv() const { return tlv_; }
     std::vector<std::string> limitaciones() const {
-        return {
+        std::vector<std::string> l = {
             "la Flash se programa y se borra por el FLCTL y con `load` de GDB (T2), "
             "pero con tiempos de modelo, sin verificacion previa (VER_PRE, AUTO_PRE) "
             "y sin modos de lectura de margen",
-            "la ROM de DriverLib (0x0200_0000) no esta: un firmware con MAP_/ROM_ "
-            "da error de bus al llamarla (T4)",
-            "el TLV es SINTETICO: identidad P401R rev. C y calibraciones tipicas, "
-            "no las de una pieza concreta",
             "CAPTIO y PSS estan DECLARADOS y no modelados",
             "RTC_C sin calibracion (OCAL, TCMP) y con RTCRDY siempre a 1; AES256 "
             "bloque a bloque, sin los modos de cifrado con DMA; COMP_E sin los "
@@ -278,6 +262,26 @@ public:
             "el codigo de arranque de TI no se ejecuta: el nucleo sale del reset "
             "directamente al vector de 0x0 (sin buzon, sin BSL, sin bloqueo JTAG)",
         };
+        switch (rom.origen()) {
+            case RomP4::Origen::R1:
+                l.push_back("la ROM es la SUSTITUTA (R1, --rom la cambia): DriverLib "
+                            "compilada con gcc en las casillas de rom.h. MAP_/ROM_ "
+                            "funcionan; el numero de instrucciones, y con el el tiempo, "
+                            "no es el de la ROM de TI");
+                break;
+            case RomP4::Origen::Volcado:
+                l.push_back("la ROM es la de TI (R2), de " + rom.ruta() +
+                            ": se ejecuta tal cual, sin comprobar que sea de un P401R");
+                break;
+            default:
+                l.push_back("sin ROM (R3, --rom ninguna): un firmware con MAP_/ROM_ da "
+                            "error de bus al llamarla");
+        }
+        if (tlv_.empty())
+            l.push_back("el TLV es SINTETICO: identidad P401R rev. C y calibraciones "
+                        "tipicas, no las de una pieza concreta (--tlv carga el de una "
+                        "placa)");
+        return l;
     }
 
 private:
@@ -308,6 +312,7 @@ private:
     tlm_utils::simple_initiator_socket<Msp432P4> a_flash_{"a_flash"}, a_sram_{"a_sram"},
                                                  a_rom_{"a_rom"}, a_perif_{"a_perif"};
     std::vector<AnalogNet*> propias_;
+    std::string tlv_;
     int d_rstn_pull_ = -1;
     sc_core::sc_event ev_reset_;
     ResetP4 pedido_ = ResetP4::Duro;
@@ -433,10 +438,9 @@ private:
         s_uno_.write(true);
     }
 
-    void conecta_sistema() {
-        cs.lfxt.xtal_in = dio.nodo[p4::PUERTO_J][0];       // LFXIN  = PJ.0
-        cs.hfxt.xtal_in = dio.nodo[p4::PUERTO_J][3];       // HFXIN  = PJ.3
-        // La calibración del DCO, del TLV que lleva la Flash
+    // La calibración del DCO, del TLV que lleva la Flash: el sintetico o el de
+    // una placa. Las posiciones son las de TLV_Type [H], que son fijas.
+    void aplica_tlv() {
         cs.fcal_ir04 = flash.peek32(p4::TLV_B + 19 * 4);
         cs.fcal_ir5  = flash.peek32(p4::TLV_B + 20 * 4);
         cs.k_ir04 = flota(flash.peek32(p4::TLV_B + 25 * 4));
@@ -445,6 +449,11 @@ private:
         cs.fcal_er5  = flash.peek32(p4::TLV_B + 28 * 4);
         cs.k_er04 = flota(flash.peek32(p4::TLV_B + 33 * 4));
         cs.k_er5  = flota(flash.peek32(p4::TLV_B + 34 * 4));
+    }
+    void conecta_sistema() {
+        cs.lfxt.xtal_in = dio.nodo[p4::PUERTO_J][0];       // LFXIN  = PJ.0
+        cs.hfxt.xtal_in = dio.nodo[p4::PUERTO_J][3];       // HFXIN  = PJ.3
+        aplica_tlv();
         cs.al_cambiar = [this] { relojes(); idd_ev_.notify(sc_core::SC_ZERO_TIME); };
         pcm.f_mclk = [this] { return cs.f_mclk_nucleo(); };
         pcm.al_cambiar_bloqueo = [this] { dio.congela(pcm.bloqueo_lpm5()); };
@@ -767,6 +776,7 @@ private:
             gp.set_address(a);
             return n;
         }
+        if (a >= p4::ROM_B && a < p4::ROM_B + p4::ROM_SIZE) return a_rom_->transport_dbg(gp);
         if (a >= p4::SRAM_B && a < p4::SRAM_B + sram.size()) return a_sram_->transport_dbg(gp);
         if (a >= p4::PERIPH_B && a < p4::PERIPH_B + p4::PERIPH_SIZE) return a_perif_->transport_dbg(gp);
         if (a >= p4::RSTCTL_B && a < p4::PPB_FAB_FIN) return sysctl.transport_dbg(gp);

@@ -180,4 +180,11 @@ testgui                145        76450000000        total
 # timer_a_pwm, adc14_single_conversion y dma) con DriverLib de TI compilada
 # de sus fuentes, en driverlib_t3-: 344 -> 356. El resto crece 14,58 ms, los
 # de P58-P61: P0-P57 no cambian (P58 empieza donde acababa P57).
-testp4                356       4941243771818        resto
+# Fase T4: P62-P67 -la ROM de DriverLib: la R1 por dentro, cuatro ejemplos
+# del SDK sin modificar que usan MAP_ (con el TLV de otra pieza por --tlv en
+# P64), R3 y R2 de fichero, y la demo blinky de FreeRTOS con tickless idle-:
+# 356 -> 380. El resto crece 13951,93 ms, todos de P62-P67: los ejemplos
+# esperan al LED, que va a 1 Hz. P0-P61 no cambian, tampoco con el arreglo
+# del receptor de la eUSCI en modo UART (el arranque que baja en el mismo
+# instante en que acaba la parada anterior): ningun grupo anterior lo pisaba.
+testp4                380      18893170139423        resto

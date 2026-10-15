@@ -80,3 +80,14 @@ p4  msp432p4/edumkii_demo/edumkii_demo.out  22932  0x9D3C022A
 p4  msp432p4/edumkii_demo/edumkii_demo.bin   2228  0xC2580758
 p4  msp432p4/driverlib_t3/driverlib_t3.out  24660  0xED4AB730
 p4  msp432p4/driverlib_t3/driverlib_t3.bin   5228  0x1582C35A
+p4  msp432p4/rom_r1/rom_r1.bin          32768  0x0C4E1A7D
+p4  msp432p4/sdk_ejemplos/systick_interrupt_gpio_blink/systick_interrupt_gpio_blink.out  94760  0xE9B2A081
+p4  msp432p4/sdk_ejemplos/systick_interrupt_gpio_blink/systick_interrupt_gpio_blink.bin   3884  0x1CCF888C
+p4  msp432p4/sdk_ejemplos/cs_dco_frequency_tune/cs_dco_frequency_tune.out  94732  0x05C319D4
+p4  msp432p4/sdk_ejemplos/cs_dco_frequency_tune/cs_dco_frequency_tune.bin   3916  0xA8D783B7
+p4  msp432p4/sdk_ejemplos/timer32_periodic_mode_led_toggle/timer32_periodic_mode_led_toggle.out  95136  0xB4671A57
+p4  msp432p4/sdk_ejemplos/timer32_periodic_mode_led_toggle/timer32_periodic_mode_led_toggle.bin   4152  0x71F7DAB0
+p4  msp432p4/sdk_ejemplos/uart_pc_echo_12mhz_brclk/uart_pc_echo_12mhz_brclk.out  95760  0x86179559
+p4  msp432p4/sdk_ejemplos/uart_pc_echo_12mhz_brclk/uart_pc_echo_12mhz_brclk.bin   4056  0x486BB6DF
+p4  msp432p4/freertos_blinky/freertos_blinky.out 250248  0xB4E1864E
+p4  msp432p4/freertos_blinky/freertos_blinky.bin  17384  0x974D2B14

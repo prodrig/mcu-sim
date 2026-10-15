@@ -305,6 +305,8 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
             if (a.first == "tipo" || a.first == "id") continue;
             if      (a.first == "firmware")   m.firmware   = a.second;
             else if (a.first == "depuracion") m.depuracion = a.second;
+            else if (a.first == "rom")        m.rom        = a.second;
+            else if (a.first == "tlv")        m.tlv        = a.second;
             else if (a.first == "puerto_gdb") {
                 const long v = std::atol(a.second.c_str());
                 if (v < 0 || v > 65535)
@@ -764,6 +766,8 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
                 if (a.first == "ref") continue;
                 if      (a.first == "firmware")   m->firmware   = a.second;
                 else if (a.first == "depuracion") m->depuracion = a.second;
+                else if (a.first == "rom")        m->rom        = a.second;
+                else if (a.first == "tlv")        m->tlv        = a.second;
                 else if (a.first == "puerto_gdb") {
                     const long v = std::atol(a.second.c_str());
                     if (v < 0 || v > 65535)

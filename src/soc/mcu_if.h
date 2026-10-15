@@ -110,6 +110,24 @@ public:
     // Es el mismo recurso que `Encapsulado::verificado`: preferimos un aviso
     // repetido a un alumno desarrollando contra algo que no esta.
     virtual std::vector<std::string> limitaciones() const { return {}; }
+
+    // --- 7. Lo que solo tienen algunos chips (T4) ---------------------------
+    //
+    // Opciones de montaje que no son de todos: la ROM del MSP432P4 (`rom`:
+    // "r1", "ninguna" o el fichero de un volcado) y su TLV (`tlv`: un
+    // fichero). Se aplican antes de cargar el firmware. Devuelve "" si se
+    // aplica, o por que no; un chip que no la tiene lo dice aqui.
+    virtual bool admite_opcion(const std::string& clave) const { (void)clave; return false; }
+    virtual std::string opcion(const std::string& clave, const std::string& valor) {
+        (void)valor;
+        return std::string("el ") + desc().nombre + " no tiene " + clave +
+               " que se pueda cambiar";
+    }
+    // Una linea que describe lo que se aplico, para imprimirla al montar.
+    virtual std::string describe_opcion(const std::string& clave) const {
+        (void)clave;
+        return "";
+    }
 };
 
 // ---------------------------------------------------------------------------

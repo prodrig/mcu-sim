@@ -126,6 +126,36 @@ public:
     }
     void set_ondas_reloj(bool on) override { chip_->set_ondas(on); }
     programador_nv_if* programador() override { return &ProgramadorP4::el(); }
+    // La ROM de DriverLib y el TLV (T4)
+    bool admite_opcion(const std::string& clave) const override {
+        return clave == "rom" || clave == "tlv";
+    }
+    std::string opcion(const std::string& clave, const std::string& valor) override {
+        if (clave == "rom") {
+            if (valor == "r1" || valor == "R1") { chip_->rom.pon_r1(); return ""; }
+            if (valor == "ninguna" || valor == "r3" || valor == "R3") {
+                chip_->rom.pon_ninguna(); return "";
+            }
+            return chip_->rom.pon_volcado(valor);
+        }
+        if (clave == "tlv") {
+            if (valor == "sintetico") { chip_->pon_tlv_sintetico(); return ""; }
+            return chip_->carga_tlv(valor);
+        }
+        return mcu_if::opcion(clave, valor);
+    }
+    std::string describe_opcion(const std::string& clave) const override {
+        char h[16];
+        if (clave == "rom") {
+            std::snprintf(h, sizeof h, "0x%08X", unsigned(chip_->rom.huella()));
+            std::string d = chip_->rom.nombre_origen();
+            if (!chip_->rom.ruta().empty()) d += ", " + chip_->rom.ruta();
+            if (chip_->rom.origen() != RomP4::Origen::Ninguna) d += std::string(", huella ") + h;
+            return d;
+        }
+        if (clave == "tlv") return chip_->tlv().empty() ? "sintetico" : chip_->tlv();
+        return "";
+    }
     bool tiene_gdb_interno() const override { return chip_->core.gdb != nullptr; }
     void gdb_interno(bool activo, bool traza) override {
         if (!chip_->core.gdb) return;

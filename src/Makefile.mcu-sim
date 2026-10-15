@@ -236,7 +236,7 @@ LDLIBS   += -lsystemc $(LIBS_SO) $(EXTRA_LD)
 
 HDRS := $(wildcard common/*.h pins/*.h parts/*.h bus/*.h mem/*.h rcc/*.h core/*.h \
                    periph/*.h soc/*.h verif/*.h top/*.h \
-                   periph/msp432p4/*.h soc/msp432p4/*.h)
+                   periph/msp432p4/*.h soc/msp432p4/*.h soc/msp432p4/*.inc)
 
 TEST407 := $(B)/test407$(EXE)
 MCUSIM  := $(B)/mcu-sim$(EXE)
@@ -258,7 +258,7 @@ ASAN417 := $(B)/asan417$(EXE)
 ASANP4  := $(B)/asanp4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop run clean plataforma vectores hash cryp datos
+.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -554,6 +554,15 @@ p4-edumkii: $(MCUSIM)
 	    && echo "  [OK  ] p4-edumkii: el backchannel, el ADC14, los dos sensores I2C y la pantalla" \
 	    || { echo "  [FALLO] p4-edumkii: vease $(B)/p4-edumkii.log"; exit 1; }
 
+# T4: la ROM sustituta (R1) frente a la de TI (R2), que no se versiona: los
+# mismos ejemplos con las dos, y lo que tarda cada uno hasta encender P1.0.
+#   make -f Makefile.mcu-sim p4-rom-ti ROM_TI=.../msp432_driverlib_rom_image.out
+# Tambien vale un volcado binario de los 32 KB de 0x0200_0000.
+p4-rom-ti: $(TESTP4)
+	@test -n "$(ROM_TI)" || { echo "p4-rom-ti: falta ROM_TI=<la ROM de TI: el .out de CCS o un volcado>"; exit 2; }
+	TESTP4_SOLO=rom_ti P4_ROM_TI="$(ROM_TI)" $(TESTP4)
+	$(MAKE) --no-print-directory -C verif/fw/msp432p4/rom_r1 contrasta ROM_TI="$(abspath $(ROM_TI))"
+
 # EL CAMPO DE MINAS DEL PREPROCESADOR DE WINDOWS. Prueba de COMPILACION, no de
 # ejecucion: define a mano las macros que Windows trae -R_OK, min, max, ERROR,
 # VERSION...- e incluye las dos cabeceras que este proyecto comparte con
@@ -810,7 +819,8 @@ FW417 := verif/fw/crypto_demo
 FWSERIE := verif/fw/vcp_demo
 # Los del MSP432P401R: con la cabecera de TI y el mismo compilador.
 FWP4 := verif/fw/msp432p4/p4_demo verif/fw/msp432p4/coremark verif/fw/msp432p4/p4_t3 \
-        verif/fw/msp432p4/p4_t3b verif/fw/msp432p4/edumkii_demo verif/fw/msp432p4/driverlib_t3
+        verif/fw/msp432p4/p4_t3b verif/fw/msp432p4/edumkii_demo verif/fw/msp432p4/driverlib_t3 \
+        verif/fw/msp432p4/rom_r1 verif/fw/msp432p4/sdk_ejemplos verif/fw/msp432p4/freertos_blinky
 # Los de las placas de ejemplo que no usa ninguna suite de C++: el de
 # placas/barra8_en_nucleo.xml y el de placas/nucleo_f446re_barra8ac_azul.xml,
 # que vigila `make gui-sistema`; los de la pantalla TFT, el de
