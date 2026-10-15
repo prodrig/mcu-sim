@@ -111,6 +111,7 @@ public:
         SC_THREAD(spi_proc);
         SC_THREAD(i2c_proc);
         SC_METHOD(i2c_bus_proc); sensitive << simo_in << somi_in; dont_initialize();
+        SC_METHOD(bajada_rx_proc); sensitive << somi_in << tx_interno_; dont_initialize();
         SC_METHOD(suelta_scl_proc); sensitive << suelta_scl_ev_; dont_initialize();
         SC_METHOD(pub_proc);   sensitive << pub_ev_;
         SC_METHOD(reset_proc); sensitive << rst_n;
@@ -157,6 +158,9 @@ protected:
     bool o_simo_ = true, o_simo_oe_ = false, o_somi_ = true, o_somi_oe_ = false,
          o_clk_ = false, o_clk_oe_ = false, o_ste_ = true, o_ste_oe_ = false;
     sc_core::sc_signal<bool> tx_interno_{"tx_interno"};   // UCLISTEN
+    // Cuando bajo por ultima vez la linea de recepcion: el arranque que llega
+    // mientras se acaba de recibir la parada anterior [uart_rx_proc]
+    sc_core::sc_time bajada_rx_{sc_core::SC_ZERO_TIME};
     sc_core::sc_event pub_ev_, ev_;
     uint64_t n_tx_ = 0, n_rx_ = 0, n_spi_ = 0, n_i2c_ = 0;
     // I2C
@@ -545,19 +549,36 @@ protected:
         return listen() ? tx_interno_.value_changed_event() : somi_in.value_changed_event();
     }
 
+    void bajada_rx_proc() { if (!linea_rx()) bajada_rx_ = sc_core::sc_time_stamp(); }
+
     void uart_rx_proc() {
+        // El silicio vigila el arranque siguiente en cuanto ha muestreado la
+        // parada, no al acabar de transmitirse. Si el emisor va a la misma
+        // velocidad exacta, su arranque baja en el MISMO instante en que aqui
+        // se acaba de esperar el medio bit de parada, y un wait() en ese
+        // momento ya no lo ve: se engancharia al primer flanco de bajada del
+        // dato. Por eso, si la parada fue buena y la linea ya esta baja al
+        // acabar, ese es el arranque del caracter siguiente, desde su flanco.
+        bool arranque_ya = false;
         for (;;) {
             const double f = brclk();
-            if (!uart() || en_reset() || f <= 0.0) { wait(ev_ | flanco_rx()); continue; }
-            if (!linea_rx()) {
-                // Línea baja (break en curso o arranque a medias): esperar a que suba
-                wait(flanco_rx() | ev_);
+            if (!uart() || en_reset() || f <= 0.0) {
+                arranque_ya = false;
+                wait(ev_ | flanco_rx());
                 continue;
             }
-            wait(flanco_rx() | ev_);
-            if (linea_rx() || !uart() || en_reset()) continue;
+            if (!arranque_ya) {
+                if (!linea_rx()) {
+                    // Línea baja (break en curso o arranque a medias): esperar a que suba
+                    wait(flanco_rx() | ev_);
+                    continue;
+                }
+                wait(flanco_rx() | ev_);
+                if (linea_rx() || !uart() || en_reset()) continue;
+            }
+            arranque_ya = false;
             // Flanco de bajada: el bit de arranque
-            const sc_core::sc_time t0 = sc_core::sc_time_stamp();
+            const sc_core::sc_time t0 = linea_rx() ? sc_core::sc_time_stamp() : bajada_rx_;
             const double fr = brclk();
             if (fr <= 0.0) continue;
             // Línea ociosa: diez bits o más de reposo antes de este carácter
@@ -567,8 +588,9 @@ protected:
             ifg_ |= STTIFG;
             actualiza_irq();
             rx_ocupado_ = true;
-            // Centro del de arranque
-            wait(t_bit(0, fr) / 2.0);
+            // Centro del de arranque, contado desde su flanco
+            const sc_core::sc_time ya = sc_core::sc_time_stamp() - t0;
+            if (t_bit(0, fr) / 2.0 > ya) wait(t_bit(0, fr) / 2.0 - ya);
             if (linea_rx()) { rx_ocupado_ = false; continue; }       // falso arranque
             const unsigned n = bits_datos();
             const bool msb = (ctlw0_ & MSB) != 0;
@@ -589,6 +611,7 @@ protected:
             wait(resto);
             fin_rx_ = sc_core::sc_time_stamp();
             rx_ocupado_ = false;
+            arranque_ya = b.back() && !linea_rx() && bajada_rx_ + resto >= fin_rx_;
             uint16_t dato = 0;
             unsigned unos = 0;
             for (unsigned i = 0; i < n; ++i) {
