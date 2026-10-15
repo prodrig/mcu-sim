@@ -110,4 +110,59 @@ inline void TbP4::t3_adc() {
     suelta();
 }
 
+// =============================================================================
+// P45-P48  uDMA
+// =============================================================================
+inline void TbP4::t3_dma() {
+    grupo("P45 uDMA: memoria a memoria en automatico, DMA_INT0 y un error de bus");
+    const uint64_t n0 = dut.udma.transferencias();
+    arranca3(40, FW_T3B);
+    check(espera3(1, 5), "el firmware llega al final");
+    std::printf("    %u palabras bien; INT0_SRCFLG 0x%02X; control 0x%04X; ENA %u; "
+                "errores %u; %llu transferencias\n", r3(0), r3(1), r3(2), r3(3), r3(4),
+                (unsigned long long)(dut.udma.transferencias() - n0));
+    check(r3(0) == 64, "las 64 palabras copiadas: una peticion basta en modo automatico");
+    check(r3(1) == (1u << 3), "al acabar, el canal 3 levanta su bit de INT0_SRCFLG");
+    check(r3(2) == 0 && r3(3) == 0,
+          "y la DMA deja en la tabla cycle_ctrl = 0 y n_minus_1 = 0, y apaga el canal");
+    check(r3(4) == 1 && r3(5) == 0, "con la tabla donde no hay memoria: DMA_ERR, y el canal se apaga");
+
+    grupo("P46 uDMA con la UCA0: TX por el canal 0 y RX por el 1, en UCLISTEN");
+    arranca3(41, FW_T3B);
+    check(espera3(1, 5), "los 32 caracteres dan la vuelta");
+    std::printf("    %u bien; INT0_SRCFLG 0x%02X; ENA %u\n", r3(0), r3(1), r3(2));
+    check(r3(0) == 32, "lo recibido por DMA es lo enviado por DMA");
+    check(r3(1) == 1u, "el canal 0 acaba por INT0; el 1, mapeado a DMA_INT1, no deja flag");
+    check(r3(2) == 0, "y los dos canales acaban apagados");
+
+    grupo("P47 uDMA con el ADC14: 16 resultados de MEM0 al canal 7");
+    v_an[0]->set_volts(1.0, 10.0);
+    arranca3(42, FW_T3B);
+    check(espera3(1, 5), "el canal 7 acaba");
+    bool igual = true;
+    const uint32_t esperado = uint32_t(std::floor(4096.0 * double(1.0f) / 3.3));
+    for (unsigned i = 0; i < 16; ++i) if (r3(i) != esperado) igual = false;
+    std::printf("    %u %u ... %u (esperado %u); INT0_SRCFLG 0x%02X\n", r3(0), r3(1), r3(15),
+                esperado, r3(16));
+    check(igual, "cada lectura de MEM0 por la DMA es una conversion: las 16, el codigo de 1,0 V");
+    check(r3(16) == 0x80u, "y el fin del canal 7, en INT0_SRCFLG");
+
+    grupo("P48 uDMA en ping-pong con el ADC14 disparado por TA0.1");
+    arranca3(43, FW_T3B);
+    check(espera3(1, 5), "el firmware arma la DMA, el ADC y el temporizador");
+    wait(9, SC_MS);
+    v_an[0]->set_volts(2.0, 10.0);
+    wait(8, SC_MS);
+    std::printf("    %u mitades; la 1.a %u %u %u %u (de %u); la 4.a %u (de %u)\n", r3(0),
+                r3(1), r3(2), r3(3), r3(4), r3(30), r3(13), r3(33));
+    const uint32_t c1 = uint32_t(std::floor(4096.0 * double(1.0f) / 3.3));
+    const uint32_t c2 = uint32_t(std::floor(4096.0 * double(2.0f) / 3.3));
+    check(r3(0) == 4, "16 ms a 1 kHz son cuatro mitades de cuatro muestras");
+    check(r3(30) == 0 && r3(31) == 1 && r3(32) == 0 && r3(33) == 1,
+          "primaria, alternativa, primaria, alternativa: la DMA cambia sola de estructura");
+    check(r3(1) == c1 && r3(4) == c1 && r3(13) == c2 && r3(16) == c2,
+          "y cada mitad trae las muestras de su momento");
+    v_an[0]->release();
+}
+
 #endif // STM32_TOP_SC_MAIN_P4_T3B_H

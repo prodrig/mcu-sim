@@ -212,6 +212,7 @@ SC_MODULE(TbP4) {
     void t3_timers();
     void t3_i2c_spi();
     void t3_adc();
+    void t3_dma();
     // Mide en un pin el periodo y la fraccion en alto, sobre `n` ciclos
     bool pwm(unsigned p, unsigned i, double& periodo_s, double& alto, unsigned n = 4,
              double max_ms = 50);
@@ -980,6 +981,7 @@ SC_MODULE(TbP4) {
                             "es el del invariante\n");
                 mcu.alimenta(true);
                 t3_adc();
+                t3_dma();
                 std::printf("\nTOTAL P4 (solo T3b): %u comprobaciones OK, %u fallos\n",
                             g_ok, g_fallos);
                 sc_stop();
@@ -993,6 +995,7 @@ SC_MODULE(TbP4) {
                 t3_timers();
                 t3_i2c_spi();
                 t3_adc();
+                t3_dma();
                 std::printf("\nTOTAL P4 (solo T3): %u comprobaciones OK, %u fallos\n",
                             g_ok, g_fallos);
                 sc_stop();
@@ -1022,6 +1025,7 @@ SC_MODULE(TbP4) {
         t3_timers();
         t3_i2c_spi();
         t3_adc();
+        t3_dma();
         std::printf("\n=====================================================\n");
         std::printf("TOTAL P4 : %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         std::printf("=====================================================\n");

@@ -61,6 +61,7 @@
 #include "../../periph/msp432p4/timer32.h"
 #include "../../periph/msp432p4/ref_a.h"
 #include "../../periph/msp432p4/adc14.h"
+#include "../../periph/msp432p4/udma.h"
 #include "p4_programador.h"
 
 namespace stm32 {
@@ -151,6 +152,9 @@ public:
     RefAP4   ref{"ref_a"};
     Adc14P4  adc{"adc14"};
 
+    // --- DMA (T3) --------------------------------------------------------------
+    UdmaP4   udma{"udma"};
+
     // --- Los relojes que reparte el CS ----------------------------------------
     ClockGen g_mclk{"g_mclk"}, g_hsmclk{"g_hsmclk"}, g_smclk{"g_smclk"},
              g_aclk{"g_aclk"};
@@ -231,8 +235,10 @@ public:
             "da error de bus al llamarla (T4)",
             "el TLV es SINTETICO: identidad P401R rev. C y calibraciones tipicas, "
             "no las de una pieza concreta",
-            "COMP_E, RTC_C, AES256, CRC32, DMA y CAPTIO estan DECLARADOS y no "
+            "COMP_E, RTC_C, AES256, CRC32 y CAPTIO estan DECLARADOS y no "
             "modelados (T3)",
+            "la uDMA no hace scatter-gather, y los Timer_A, el AES y el pin "
+            "externo no le piden transferencias",
             "el ADC14 es un convertidor ideal (sin ruido, sin error de ganancia ni "
             "de offset, sin carga del muestreo sobre el nodo); el sensor de "
             "temperatura es lineal (685 mV a 0 C, 1,9 mV/C) y el TLV lleva SUS "
@@ -267,7 +273,8 @@ private:
     sc_core::sc_signal<bool>    s_swclk_ok_{"s_swclk_ok"}, s_swclk_oor_{"s_swclk_oor"},
                                 s_swdio_ok_{"s_swdio_ok"}, s_swdio_oor_{"s_swdio_oor"};
 
-    tlm_utils::simple_target_socket<Msp432P4> t_i_{"t_i"}, t_d_{"t_d"}, t_s_{"t_s"};
+    tlm_utils::simple_target_socket<Msp432P4> t_i_{"t_i"}, t_d_{"t_d"}, t_s_{"t_s"},
+                                              t_dma_{"t_dma"};
     tlm_utils::simple_initiator_socket<Msp432P4> a_flash_{"a_flash"}, a_sram_{"a_sram"},
                                                  a_rom_{"a_rom"}, a_perif_{"a_perif"};
     std::vector<AnalogNet*> propias_;
@@ -344,6 +351,10 @@ private:
         t_d_.register_b_transport(this, &Msp432P4::bt_d);
         t_s_.register_b_transport(this, &Msp432P4::bt_d);
         from_tb.register_b_transport(this, &Msp432P4::bt_d);
+        // La uDMA es otro maestro del bus, como el S-bus del núcleo
+        t_dma_.register_b_transport(this, &Msp432P4::bt_d);
+        t_dma_.register_transport_dbg(this, &Msp432P4::dbg);
+        udma.mst.bind(t_dma_);
         for (auto* s : {&t_i_, &t_d_, &t_s_})
             s->register_transport_dbg(this, &Msp432P4::dbg);
         from_tb.register_transport_dbg(this, &Msp432P4::dbg);
@@ -366,7 +377,7 @@ private:
         engancha(dio);   engancha(pmap);
         for (unsigned n = 0; n < 4; ++n) { engancha(*uca(n)); engancha(*ucb(n)); engancha(*ta(n)); }
         engancha(t32);
-        engancha(ref); engancha(adc);
+        engancha(ref); engancha(adc); engancha(udma);
         struct D { const char* n; uint32_t b, s; const char* q; };
         static const D lista[] = {
             {"comp_e0",  p4::COMP_E0_B,  0x400, "COMP_E0"},
@@ -376,7 +387,6 @@ private:
             {"rtc_c",    p4::RTC_C_B,    0x400, "RTC_C"},
             {"captio0",  p4::CAPTIO0_B,  0x400, "CAPTIO0"},
             {"captio1",  p4::CAPTIO1_B,  0x400, "CAPTIO1"},
-            {"dma",      p4::DMA_B,      0x1000, "uDMA"},
             {"pss",      p4::PSS_B,      0x400, "PSS"},
         };
         for (const D& d : lista) {
@@ -436,6 +446,25 @@ private:
         conecta_comunicaciones();
         conecta_temporizadores();
         conecta_analogicos();
+        conecta_dma();
+    }
+
+    // Las fuentes de petición de cada canal [2F: DriverLib dma.h, DMA_CHn_*]:
+    // 1 la eUSCI_A, 2 la eUSCI_B con su flag 0; 3-5 los flags 1-3 de las B
+    // (direcciones propias de I2C), 6 Timer_A y 7 AES o el pin: sin conectar
+    void conecta_dma() {
+        for (unsigned n = 0; n < 4; ++n) {
+            udma.conecta_fuente(2 * n,      1, &uca(n)->dma_tx);
+            udma.conecta_fuente(2 * n + 1,  1, &uca(n)->dma_rx);
+            udma.conecta_fuente(2 * n,      2, &ucb(n)->dma_tx);
+            udma.conecta_fuente(2 * n + 1,  2, &ucb(n)->dma_rx);
+        }
+        udma.conecta_fuente(7, 7, &adc.dma_req);
+        udma.irq_int[0](s_irq_[p4::IRQ_DMA_INT0]);
+        udma.irq_int[1](s_irq_[p4::IRQ_DMA_INT1]);
+        udma.irq_int[2](s_irq_[p4::IRQ_DMA_INT2]);
+        udma.irq_int[3](s_irq_[p4::IRQ_DMA_INT3]);
+        udma.irq_err(s_irq_[p4::IRQ_DMA_ERR]);
     }
 
     // Los canales del ADC14 [2F: ADCMSP432.h, ADCMSP432_Px_y_An; función
