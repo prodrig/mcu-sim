@@ -168,4 +168,12 @@ testgui                145        76450000000        total
 # cerrojo LOCKLPM5 y el consumo por DVCC-: 306 -> 332. El resto crece
 # 90,93 ms: 90,81 de P53-P55 y 0,12 de P40-P52 (p4_t3b mira al arrancar si
 # viene de un LPMx.5). P0 a P39 no cambian.
-testp4                332       4330665722176        resto
+# Fase T3, E8: P56-P57 -el OPT3001 y el TMP006 por la UCB1, el zumbador y
+# el joystick de la BOOSTXL-EDUMKII-: 332 -> 344. El resto crece 596 ms:
+#   366,66 ms de P56-P57;
+#   229,38 ms de P38, por un arreglo del Timer32: LOAD escrito con el
+#     temporizador parado se truncaba a 16 bits aunque luego se pusiera
+#     SIZE = 1, y los dos retardos de 120 ms del firmware de la pantalla
+#     duraban 5,31 ms cada uno (0x15F900 & 0xFFFF tics a 12 MHz);
+#   y -0,04 ms de P40-P52, que p4_t3b ha vuelto a crecer.
+testp4                344       4926665722176        resto

@@ -44,6 +44,7 @@
 #include "../parts/puente_serie.h"
 #include "../parts/servo.h"
 #include "../parts/tft_st7735.h"
+#include "../parts/boosterpack.h"
 #include "../verif/bus_test_master.h"
 #include "../verif/swd_port.h"
 #include "../verif/gdb_stub.h"
@@ -124,6 +125,12 @@ SC_MODULE(TbP4) {
     // Analógicos: una fuente de tensión ajustable en A0..A3 (P5.5-P5.2)
     Driver* v_an[4] = {nullptr, nullptr, nullptr, nullptr};
     Driver* v_ce = nullptr;                     // C0.2 (P7.7), para el COMP_E0
+    // Las piezas de la BOOSTXL-EDUMKII: los dos sensores en la UCB1 (con los
+    // pull-ups de P37), el zumbador en P2.7 y el eje X del joystick en P6.0
+    Opt3001* opt = nullptr;
+    Tmp006*  tmp = nullptr;
+    Zumbador* buz = nullptr;
+    FuenteAjustable* joy_x = nullptr;
     I2cEeprom* eeprom = nullptr;
     I2cWire *pu_sda0 = nullptr, *pu_scl0 = nullptr, *pu_sda1 = nullptr, *pu_scl1 = nullptr;
     I2cExtMaster* i2c_ext = nullptr;
@@ -195,6 +202,14 @@ SC_MODULE(TbP4) {
         }
         v_ce = new Driver(dut.dio.nodo_de(6, 7), 3.3, 10.0);
         v_ce->release();
+        opt = new Opt3001("opt3001", dut.dio.nodo_de(5, 5), dut.dio.nodo_de(5, 4),
+                          &dut.dio.nodo_de(3, 6), 0x44, 250.0);
+        tmp = new Tmp006("tmp006", dut.dio.nodo_de(5, 5), dut.dio.nodo_de(5, 4),
+                         &dut.dio.nodo_de(2, 6), 0x40, 30.5, 40.0);
+        buz = new Zumbador("buz", dut.dio.nodo_de(1, 7));
+        joy_x = new FuenteAjustable(dut.dio.nodo_de(5, 0), 2.5, 0.0, 3.3, 100.0, "joy_x");
+        for (ExtPartBase* q : std::initializer_list<ExtPartBase*>{opt, tmp, buz, joy_x})
+            q->set_enabled(false);
         SC_THREAD(run);
     }
     ~TbP4() override {
@@ -205,7 +220,7 @@ SC_MODULE(TbP4) {
         delete pu_scl1; delete tft; delete tft_3v3; delete tft_masa; delete tft_vcc;
         delete tft_gnd; delete pista_clk; delete pista_simo; delete pista_somi;
         for (Driver* d : v_an) delete d;
-        delete v_ce;
+        delete v_ce; delete opt; delete tmp; delete buz; delete joy_x;
     }
 
     // --- T3 [top/sc_main_p4_t3.h] ------------------------------------------
@@ -219,6 +234,7 @@ SC_MODULE(TbP4) {
     void t3_dma();
     void t3_resto();
     void t3_lpm();
+    void t3_edumkii();
     // Mide en un pin el periodo y la fraccion en alto, sobre `n` ciclos
     bool pwm(unsigned p, unsigned i, double& periodo_s, double& alto, unsigned n = 4,
              double max_ms = 50);
@@ -990,6 +1006,7 @@ SC_MODULE(TbP4) {
                 t3_dma();
                 t3_resto();
                 t3_lpm();
+                t3_edumkii();
                 std::printf("\nTOTAL P4 (solo T3b): %u comprobaciones OK, %u fallos\n",
                             g_ok, g_fallos);
                 sc_stop();
@@ -1006,6 +1023,7 @@ SC_MODULE(TbP4) {
                 t3_dma();
                 t3_resto();
                 t3_lpm();
+                t3_edumkii();
                 std::printf("\nTOTAL P4 (solo T3): %u comprobaciones OK, %u fallos\n",
                             g_ok, g_fallos);
                 sc_stop();
@@ -1038,6 +1056,7 @@ SC_MODULE(TbP4) {
         t3_dma();
         t3_resto();
         t3_lpm();
+        t3_edumkii();
         std::printf("\n=====================================================\n");
         std::printf("TOTAL P4 : %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         std::printf("=====================================================\n");

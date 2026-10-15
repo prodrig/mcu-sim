@@ -72,4 +72,58 @@
   <componente tipo="Crystal" id="Y2" vdd="3.3">
     <pin nombre="osc_in" nodo="PJ.3"/>
   </componente>
+
+  <!-- ===================================================================
+       Los conectores BOOSTERPACK [SLAU597, «BoosterPack Pinout»; segunda
+       fuente: los A0-A15 de pins_energia.h de Energia, que dan el mismo
+       pin]. Numerados como en la serigrafia: J1 1-10, J2 11-20, J3 21-30 y
+       J4 31-40. El 3V3 es DVCC y las masas DVSS; el 5V se queda al aire.
+       =================================================================== -->
+  <componente tipo="Conector" id="J1" filas="1" columnas="10">
+    <pin nombre="1" nodo="DVCC"/>   <!-- 3V3 -->
+    <pin nombre="2" nodo="P6.0"/>   <!-- A15 -->
+    <pin nombre="3" nodo="P3.2"/>   <!-- UCA2RXD -->
+    <pin nombre="4" nodo="P3.3"/>   <!-- UCA2TXD -->
+    <pin nombre="5" nodo="P4.1"/>
+    <pin nombre="6" nodo="P4.3"/>   <!-- A10 -->
+    <pin nombre="7" nodo="P1.5"/>   <!-- UCB0CLK -->
+    <pin nombre="8" nodo="P4.6"/>
+    <pin nombre="9" nodo="P6.5"/>   <!-- UCB1SCL -->
+    <pin nombre="10" nodo="P6.4"/>  <!-- UCB1SDA -->
+  </componente>
+  <componente tipo="Conector" id="J2" filas="1" columnas="10">
+    <pin nombre="1" nodo="P3.6"/>   <!-- 11 -->
+    <pin nombre="2" nodo="P5.2"/>   <!-- 12, A3 -->
+    <pin nombre="3" nodo="P5.0"/>   <!-- 13, A5 -->
+    <pin nombre="4" nodo="P1.7"/>   <!-- 14, UCB0SOMI -->
+    <pin nombre="5" nodo="P1.6"/>   <!-- 15, UCB0SIMO -->
+    <pin nombre="6" nodo="RSTN"/>   <!-- 16, RST -->
+    <pin nombre="7" nodo="P5.7"/>   <!-- 17 -->
+    <pin nombre="8" nodo="P3.0"/>   <!-- 18 -->
+    <pin nombre="9" nodo="P2.5"/>   <!-- 19, TA0.2 -->
+    <pin nombre="10" nodo="DVSS"/>  <!-- 20, GND -->
+  </componente>
+  <componente tipo="Conector" id="J3" filas="1" columnas="10">
+    <pin nombre="2" nodo="DVSS"/>   <!-- 22, GND (el 21 es el 5V) -->
+    <pin nombre="3" nodo="P6.1"/>   <!-- 23, A14 -->
+    <pin nombre="4" nodo="P4.0"/>   <!-- 24, A13 -->
+    <pin nombre="5" nodo="P4.2"/>   <!-- 25, A11 -->
+    <pin nombre="6" nodo="P4.4"/>   <!-- 26, A9 -->
+    <pin nombre="7" nodo="P4.5"/>   <!-- 27, A8 -->
+    <pin nombre="8" nodo="P4.7"/>   <!-- 28, A6 -->
+    <pin nombre="9" nodo="P5.4"/>   <!-- 29, A1 -->
+    <pin nombre="10" nodo="P5.5"/>  <!-- 30, A0 -->
+  </componente>
+  <componente tipo="Conector" id="J4" filas="1" columnas="10">
+    <pin nombre="1" nodo="P3.7"/>   <!-- 31 -->
+    <pin nombre="2" nodo="P3.5"/>   <!-- 32 -->
+    <pin nombre="3" nodo="P5.1"/>   <!-- 33 -->
+    <pin nombre="4" nodo="P2.3"/>   <!-- 34 -->
+    <pin nombre="5" nodo="P6.7"/>   <!-- 35 -->
+    <pin nombre="6" nodo="P6.6"/>   <!-- 36 -->
+    <pin nombre="7" nodo="P5.6"/>   <!-- 37 -->
+    <pin nombre="8" nodo="P2.4"/>   <!-- 38, TA0.1 -->
+    <pin nombre="9" nodo="P2.6"/>   <!-- 39, TA0.3 -->
+    <pin nombre="10" nodo="P2.7"/>  <!-- 40, TA0.4 -->
+  </componente>
 </placa>

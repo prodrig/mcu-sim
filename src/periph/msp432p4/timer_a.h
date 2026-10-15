@@ -294,7 +294,12 @@ protected:
             if (!d) { wait(ev_); continue; }
             const sc_core::sc_time t = t_tic(d);
             const sc_core::sc_time ahora = sc_core::sc_time_stamp();
+            // El tic cae en ps redondeados: con 12 MHz un periodo es 83 333,3 ps,
+            // y el instante calculado puede quedar justo por debajo de lo que
+            // tics_hasta() cuenta como un tic entero. Un ps más y ya está;
+            // sin esto el hilo giraba sin avanzar el tiempo.
             if (t > ahora) wait(t - ahora, ev_);
+            else wait(sc_core::sc_time(1, sc_core::SC_PS), ev_);
         }
     }
 

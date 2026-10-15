@@ -258,7 +258,7 @@ ASAN417 := $(B)/asan417$(EXE)
 ASANP4  := $(B)/asanp4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop run clean plataforma vectores hash cryp datos
+.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -538,6 +538,22 @@ gui-sin-mcu: $(MCUSIM)
 gui-sistema: $(MCUSIM)
 	$(PYTHON) verif/gui/sistema.py --sim $(MCUSIM)
 
+# LA BOOSTXL-EDUMKII SOBRE LA MSP-EXP432P401R (T3 del MSP432): el sistema de
+# placas/msp_exp432p401r_edumkii.xml con verif/fw/msp432p4/edumkii_demo, 400
+# ms, mirando lo que dice por el backchannel -el joystick y el acelerometro
+# por el ADC14, la luz del OPT3001 y la temperatura del TMP006 por I2C- y lo
+# que ha recibido la pantalla por SPI. Lo que no comprueba testp4, que monta
+# las piezas a mano: que las dos placas se acoplan por J1-J4 pin a pin.
+#   make p4-edumkii
+p4-edumkii: $(MCUSIM)
+	@$(MCUSIM) placas/msp_exp432p401r_edumkii.xml --ms=400 --serie L/BCL=memoria \
+	    > $(B)/p4-edumkii.log 2>&1 || { cat $(B)/p4-edumkii.log; exit 1; }
+	@grep -q "joy=2048,2048 acc_z=2867 lux=300.00 t=25.00 s1=0 s2=0" $(B)/p4-edumkii.log \
+	    && grep -q "10 ordenes, 20480 pixeles" $(B)/p4-edumkii.log \
+	    && ! grep -q "Warning" $(B)/p4-edumkii.log \
+	    && echo "  [OK  ] p4-edumkii: el backchannel, el ADC14, los dos sensores I2C y la pantalla" \
+	    || { echo "  [FALLO] p4-edumkii: vease $(B)/p4-edumkii.log"; exit 1; }
+
 # EL CAMPO DE MINAS DEL PREPROCESADOR DE WINDOWS. Prueba de COMPILACION, no de
 # ejecucion: define a mano las macros que Windows trae -R_OK, min, max, ERROR,
 # VERSION...- e incluye las dos cabeceras que este proyecto comparte con
@@ -794,7 +810,7 @@ FW417 := verif/fw/crypto_demo
 FWSERIE := verif/fw/vcp_demo
 # Los del MSP432P401R: con la cabecera de TI y el mismo compilador.
 FWP4 := verif/fw/msp432p4/p4_demo verif/fw/msp432p4/coremark verif/fw/msp432p4/p4_t3 \
-        verif/fw/msp432p4/p4_t3b
+        verif/fw/msp432p4/p4_t3b verif/fw/msp432p4/edumkii_demo
 # Los de las placas de ejemplo que no usa ninguna suite de C++: el de
 # placas/barra8_en_nucleo.xml y el de placas/nucleo_f446re_barra8ac_azul.xml,
 # que vigila `make gui-sistema`; los de la pantalla TFT, el de

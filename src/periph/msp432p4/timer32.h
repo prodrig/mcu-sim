@@ -170,9 +170,14 @@ protected:
         al_dia(t);
         switch (off & 0x1Fu) {
             case 0x00:                                  // LOAD: carga ya
+                // El contador recibe LOS 32 BITS, también con SIZE = 0: el
+                // tamaño se aplica al contar (y al escribir CONTROL con SIZE =
+                // 0). Truncar aquí hacía que LOAD escrito con CONTROL = 0 y
+                // luego SIZE = 1 -lo que hace un retardo con el temporizador
+                // parado- contara solo los 16 bits bajos. [ARM DDI 0271, Load]
                 t.load = (t.load & ~m) | (v & m);
                 t.bgload = t.load;
-                t.cuenta = t.load & tope(t);
+                t.cuenta = (t.control & ENABLE) ? (t.load & tope(t)) : t.load;
                 t.parado_en_cero = false;
                 t.t_ref = sc_core::sc_time_stamp();
                 break;

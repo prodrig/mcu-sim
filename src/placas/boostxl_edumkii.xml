@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     BOOSTXL-EDUMKII: la BoosterPack educativa de Texas Instruments, sin MCU
+
+     Se enchufa encima de una LaunchPad por sus cuatro conectores, J1-J4, que
+     se llaman y se numeran como los de la LaunchPad. Lo que lleva, por pin
+     [SLAU599, «Pin Map»; T3 del MSP432]:
+
+         JOY_X, JOY_Y   el joystick: J1.2 (A15 en la MSP-EXP432P401R) y J3.26
+                        (A9); JOY_SEL, su pulsador, en J1.5
+         ACC_X/Y/Z      el acelerometro analogico: J3.23, J3.24 y J3.25
+                        (A14, A13, A11), 1,65 V con 0 g y 0,66 V/g; en reposo,
+                        Z marca 1 g
+         MIC            el microfono, en reposo a 1,65 V: J1.6 (A10)
+         S1, S2         dos pulsadores a masa: J4.33 y J4.32. La placa no
+                        lleva pull-up: el del pin (PxREN)
+         LED_R/G/B      el LED RGB: J4.39, J4.38 y J4.37 (TA0.3, TA0.1 y TA2.1
+                        en la LaunchPad), anodos al pin
+         BUZ            el zumbador, tras su transistor: J4.40 (TA0.4)
+         LCD            la pantalla, un ST7735 por SPI: SCK J1.7, SDA J2.15,
+                        CS J2.13, D/CX J4.31, RESET J2.17; su luz va a J4.39,
+                        con el rojo del RGB. El vidrio es de 128x128: aqui es
+                        un Tft128x160 y las 32 filas de abajo no se usan
+         OPT3001        luz ambiental, I2C en 0x44: SCL J1.9, SDA J1.10, INT
+                        J1.8
+         TMP006         temperatura por infrarrojos, I2C en 0x40, en el mismo
+                        bus; DRDY en J2.11
+         R_SCL, R_SDA   los pull-ups del I2C, de 10 kohm a 3V3
+
+     Sola no hace nada; se valida igual:
+
+         ./build/mcu-sim placas/boostxl_edumkii.xml --valida
+
+     Enchufada a la LaunchPad, es placas/msp_exp432p401r_edumkii.xml.
+     ========================================================================= -->
+<placa nombre="boostxl-edumkii">
+  <componente tipo="Conector" id="J1" filas="1" columnas="10"/>
+  <componente tipo="Conector" id="J2" filas="1" columnas="10"/>
+  <componente tipo="Conector" id="J3" filas="1" columnas="10"/>
+  <componente tipo="Conector" id="J4" filas="1" columnas="10"/>
+
+  <!-- El bus I2C y la masa tienen varios conductores; J4.39, la luz y el rojo -->
+  <nodo id="J1.9" bus="si"/>
+  <nodo id="J1.10" bus="si"/>
+  <nodo id="J2.10" bus="si"/>
+  <nodo id="J4.9" bus="si"/>
+  <nodo id="J1.1" bus="si"/>
+
+  <!-- El joystick y su pulsador -->
+  <componente tipo="FuenteAjustable" id="JOY_X" v="1.65">
+    <pin nombre="pin" nodo="J1.2"/>
+  </componente>
+  <componente tipo="FuenteAjustable" id="JOY_Y" v="1.65">
+    <pin nombre="pin" nodo="J3.6"/>
+  </componente>
+  <componente tipo="Button" id="JOY_SEL" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="J1.5"/>
+  </componente>
+
+  <!-- El acelerometro, en reposo y plano -->
+  <componente tipo="FuenteAjustable" id="ACC_X" v="1.65" vmin="0.33" vmax="2.97">
+    <pin nombre="pin" nodo="J3.3"/>
+  </componente>
+  <componente tipo="FuenteAjustable" id="ACC_Y" v="1.65" vmin="0.33" vmax="2.97">
+    <pin nombre="pin" nodo="J3.4"/>
+  </componente>
+  <componente tipo="FuenteAjustable" id="ACC_Z" v="2.31" vmin="0.33" vmax="2.97">
+    <pin nombre="pin" nodo="J3.5"/>
+  </componente>
+
+  <!-- El microfono, en silencio -->
+  <componente tipo="FuenteAjustable" id="MIC" v="1.65">
+    <pin nombre="pin" nodo="J1.6"/>
+  </componente>
+
+  <!-- Los dos pulsadores -->
+  <componente tipo="Button" id="S1" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="J4.3"/>
+  </componente>
+  <componente tipo="Button" id="S2" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="J4.2"/>
+  </componente>
+
+  <!-- El LED RGB -->
+  <componente tipo="Led" id="LED_R" a_vss="si" vf="2.0" r="470">
+    <pin nombre="anodo" nodo="J4.9"/>
+  </componente>
+  <componente tipo="Led" id="LED_G" a_vss="si" vf="2.2" r="470">
+    <pin nombre="anodo" nodo="J4.8"/>
+  </componente>
+  <componente tipo="Led" id="LED_B" a_vss="si" vf="2.8" r="470">
+    <pin nombre="anodo" nodo="J4.7"/>
+  </componente>
+
+  <!-- El zumbador -->
+  <componente tipo="Zumbador" id="BUZ">
+    <pin nombre="pin" nodo="J4.10"/>
+  </componente>
+
+  <!-- La pantalla -->
+  <componente tipo="Tft128x160" id="LCD">
+    <pin nombre="vcc"   nodo="J1.1"/>
+    <pin nombre="gnd"   nodo="J2.10"/>
+    <pin nombre="cs"    nodo="J2.3"/>
+    <pin nombre="reset" nodo="J2.7"/>
+    <pin nombre="ad"    nodo="J4.1"/>
+    <pin nombre="sda"   nodo="J2.5"/>
+    <pin nombre="sck"   nodo="J1.7"/>
+    <pin nombre="led"   nodo="J4.9"/>
+  </componente>
+
+  <!-- Los dos sensores I2C y sus pull-ups -->
+  <componente tipo="Opt3001" id="OPT3001" dir="0x44" lux="300">
+    <pin nombre="scl" nodo="J1.9"/>
+    <pin nombre="sda" nodo="J1.10"/>
+    <pin nombre="int" nodo="J1.8"/>
+  </componente>
+  <componente tipo="Tmp006" id="TMP006" dir="0x40">
+    <pin nombre="scl"  nodo="J1.9"/>
+    <pin nombre="sda"  nodo="J1.10"/>
+    <pin nombre="drdy" nodo="J2.1"/>
+  </componente>
+  <componente tipo="Rpull" id="R_SCL" v="3.3" r="10000">
+    <pin nombre="a" nodo="J1.9"/>
+  </componente>
+  <componente tipo="Rpull" id="R_SDA" v="3.3" r="10000">
+    <pin nombre="a" nodo="J1.10"/>
+  </componente>
+</placa>

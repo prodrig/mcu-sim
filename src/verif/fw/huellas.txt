@@ -74,5 +74,7 @@ p4  msp432p4/p4_demo/p4_demo.bin           1900  0x47F716E7
 p4  msp432p4/coremark/coremark_p4.bin     14380  0xAB765043
 p4  msp432p4/p4_t3/p4_t3.out            35568  0xBA6CC780
 p4  msp432p4/p4_t3/p4_t3.bin             4528  0x43547D00
-p4  msp432p4/p4_t3b/p4_t3b.out          44896  0x2B5E3EAB
-p4  msp432p4/p4_t3b/p4_t3b.bin           5004  0x8AC86D14
+p4  msp432p4/p4_t3b/p4_t3b.out          48896  0xA8047114
+p4  msp432p4/p4_t3b/p4_t3b.bin           5672  0x458017F6
+p4  msp432p4/edumkii_demo/edumkii_demo.out  22932  0x9D3C022A
+p4  msp432p4/edumkii_demo/edumkii_demo.bin   2228  0xC2580758

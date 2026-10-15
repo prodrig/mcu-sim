@@ -339,4 +339,49 @@ inline void TbP4::t3_lpm() {
     check(espera3(11, 5), "y el firmware suelta el cerrojo");
 }
 
+// =============================================================================
+// P56-P57  Las piezas de la BOOSTXL-EDUMKII
+// =============================================================================
+inline void TbP4::t3_edumkii() {
+    grupo("P56 OPT3001 y TMP006 por la UCB1: identificadores, conversiones y DRDY");
+    // DRDY es de drenador abierto: el nivel alto lo da el pull-up del pin (P3.6)
+    for (ExtPartBase* q : std::initializer_list<ExtPartBase*>{opt, tmp, pu_sda1, pu_scl1})
+        q->set_enabled(true);
+    arranca3(70, FW_T3B);
+    check(espera3(1, 600), "el firmware lee los dos sensores");
+    std::printf("    OPT3001: 0x%04X 0x%04X, CONFIG 0x%04X, RESULT 0x%04X = %.2f lx "
+                "(%u vueltas esperando CRF); TMP006: 0x%04X 0x%04X, DRDY %u -> %u, "
+                "VOBJ 0x%04X, TAMB 0x%04X\n", r3(0), r3(1), r3(2), r3(3), r3(4) / 100.0,
+                r3(5), r3(6), r3(7), r3(8), r3(11), r3(9), r3(10));
+    check(r3(0) == 0x5449 && r3(1) == 0x3001 && r3(2) == 0xC810,
+          "OPT3001: fabricante TI (0x5449), dispositivo 0x3001, CONFIG de reset 0xC810");
+    check(std::fabs(r3(4) / 100.0 - 250.0) <= 0.32 && (r3(3) >> 12) == 3,
+          "250 lx con escala automatica: exponente 3 y 0,08 lx por cuenta");
+    check(r3(5) > 0, "y CRF tarda los 100 ms de la conversion");
+    check(r3(6) == 0x5449 && r3(7) == 0x0067, "TMP006: fabricante TI y dispositivo 0x0067");
+    check(r3(10) == uint32_t(uint16_t(int16_t(std::lround(30.5 * 32.0) << 2))),
+          "TAMBIENT: 30,5 C del chip, en 1/32 C por cuenta");
+    const double v = Tmp006::v_sensor(40.0, 30.5) / 156.25e-9;
+    check(int16_t(r3(9)) == int16_t(std::lround(v)), "VOBJECT: la termopila mirando un objeto a 40 C");
+    check(r3(8) == 1 && r3(11) == 1, "DRDY baja al terminar y vuelve a subir al leer el resultado");
+    for (ExtPartBase* q : std::initializer_list<ExtPartBase*>{opt, tmp, pu_sda1, pu_scl1})
+        q->set_enabled(false);
+
+    grupo("P57 El zumbador en TA0.4 y el joystick en A15");
+    buz->set_enabled(true); joy_x->set_enabled(true);
+    joy_x->pon_tension(2.5);
+    arranca3(71, FW_T3B);
+    check(espera3(1, 5), "el firmware arranca el PWM y lee el joystick");
+    wait(5, SC_MS);
+    std::printf("    zumbador: %s a %.1f Hz; joystick X: %u\n", buz->sonando() ? "suena" : "calla",
+                buz->frecuencia(), r3(0));
+    check(buz->sonando() && std::fabs(buz->frecuencia() - 2000.0) < 1.0,
+          "el zumbador suena a 2 kHz");
+    check(r3(0) == uint32_t(std::floor(4096.0 * double(2.5f) / 3.3)), "el eje X, 2,5 V");
+    arranca3(0, FW_T3B);
+    wait(5, SC_MS);
+    check(!buz->sonando(), "y sin PWM se calla");
+    buz->set_enabled(false); joy_x->set_enabled(false);
+}
+
 #endif // STM32_TOP_SC_MAIN_P4_T3B_H

@@ -211,6 +211,12 @@ jobs:
         working-directory: src
         run: make -f Makefile.mcu-sim interop
 
+      # La BOOSTXL-EDUMKII enchufada a la MSP-EXP432P401R (T3 del MSP432): el
+      # sistema de dos placas con su firmware, mirando lo que sale.
+      - name: La BOOSTXL-EDUMKII sobre la LaunchPad del MSP432P401R
+        working-directory: src
+        run: make -f Makefile.mcu-sim p4-edumkii
+
       - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas)
         working-directory: src
         run: make -f Makefile.mcu-sim gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema

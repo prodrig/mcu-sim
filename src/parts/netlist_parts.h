@@ -33,6 +33,7 @@
 #include "ext_parts.h"
 #include "puente_serie.h"
 #include "tft_st7735.h"
+#include "boosterpack.h"
 #include "servo.h"
 
 namespace stm32 {
@@ -906,6 +907,82 @@ REGISTRA_PARTE(I2cEeprom,
     [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
         return new I2cEeprom(d.id.c_str(), n[d.nodo_de("scl")], n[d.nodo_de("sda")],
                              uint8_t(d.num("dir", 0x50)));
+    });
+
+REGISTRA_PARTE(FuenteAjustable,
+    Ayuda("Una tension que se mueve con un mando: el cursor de un "
+          "potenciometro visto como su equivalente de Thevenin. Los ejes de un "
+          "joystick, los de un acelerometro analogico, un microfono en "
+          "reposo.")
+      .ejemplo("<componente tipo=\"FuenteAjustable\" id=\"JOY_X\" v=\"1.65\">\n"
+               "  <pin nombre=\"pin\" nodo=\"P6.0\"/>\n"
+               "</componente>")
+      .pin("pin", "obligatorio", "El nodo al que da la tension.")
+      .atr("v", "1.65", "La tension de partida, en voltios.")
+      .atr("vmin", "0", "El minimo del mando.")
+      .atr("vmax", "3.3", "El maximo del mando.")
+      .atr("r", "100", "Su resistencia de salida, en ohmios.")
+      .cpp("pon_tension(v)."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        return new FuenteAjustable(n[d.nodo_de("pin")], d.num("v", 1.65), d.num("vmin", 0.0),
+                                   d.num("vmax", 3.3), d.num("r", 100.0), d.id.c_str());
+    });
+
+REGISTRA_PARTE(Zumbador,
+    Ayuda("Un zumbador magnetico tras su transistor: para el pin es una carga a "
+          "masa, y escucha el PWM que le llega. Dice si suena y a que "
+          "frecuencia (el periodo entre dos flancos de subida).")
+      .ejemplo("<componente tipo=\"Zumbador\" id=\"BUZ\">\n"
+               "  <pin nombre=\"pin\" nodo=\"P2.7\"/>\n"
+               "</componente>")
+      .pin("pin", "obligatorio", "La senal que lo mueve.")
+      .atr("r_carga", "1000", "La carga que ve el pin, en ohmios.")
+      .cpp("sonando() y frecuencia()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        return new Zumbador(d.id.c_str(), n[d.nodo_de("pin")], d.num("r_carga", 1000.0));
+    });
+
+REGISTRA_PARTE(Opt3001,
+    Ayuda("El sensor de luz ambiental OPT3001 de TI, por I2C: el resultado en "
+          "lux con exponente y mantisa, la escala automatica, conversiones de "
+          "100 u 800 ms, una vez o continuas, y los limites con su patilla INT. "
+          "Habla el protocolo de verdad sobre los nodos.")
+      .ejemplo("<componente tipo=\"Opt3001\" id=\"U3\" dir=\"0x44\" lux=\"300\">\n"
+               "  <pin nombre=\"scl\" nodo=\"P6.5\"/>\n"
+               "  <pin nombre=\"sda\" nodo=\"P6.4\"/>\n"
+               "  <pin nombre=\"int\" nodo=\"P4.6\"/>\n"
+               "</componente>")
+      .pin("scl", "obligatorio", "El reloj del bus.")
+      .pin("sda", "obligatorio", "Los datos del bus.")
+      .pin("int", "opcional", "La interrupcion, de drenador abierto.")
+      .atr("dir", "0x44", "Direccion de 7 bits (0x44-0x47 segun ADDR).")
+      .atr("lux", "300", "La luz de partida; tiene mando."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        analog_net_if* intn = d.nodo_de("int").empty() ? nullptr : &n[d.nodo_de("int")];
+        return new Opt3001(d.id.c_str(), n[d.nodo_de("scl")], n[d.nodo_de("sda")], intn,
+                           uint8_t(d.num("dir", 0x44)), d.num("lux", 300.0));
+    });
+
+REGISTRA_PARTE(Tmp006,
+    Ayuda("El termometro de infrarrojos TMP006 de TI, por I2C: la tension de la "
+          "termopila y la temperatura del chip, con su configuracion, su "
+          "ritmo de conversion y la patilla DRDY.")
+      .ejemplo("<componente tipo=\"Tmp006\" id=\"U4\" dir=\"0x40\">\n"
+               "  <pin nombre=\"scl\" nodo=\"P6.5\"/>\n"
+               "  <pin nombre=\"sda\" nodo=\"P6.4\"/>\n"
+               "  <pin nombre=\"drdy\" nodo=\"P3.6\"/>\n"
+               "</componente>")
+      .pin("scl", "obligatorio", "El reloj del bus.")
+      .pin("sda", "obligatorio", "Los datos del bus.")
+      .pin("drdy", "opcional", "Dato listo, activa baja, de drenador abierto.")
+      .atr("dir", "0x40", "Direccion de 7 bits.")
+      .atr("t_chip", "25", "La temperatura del chip, en C; tiene mando.")
+      .atr("t_objeto", "25", "La del objeto que mira, en C; tiene mando."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        analog_net_if* dr = d.nodo_de("drdy").empty() ? nullptr : &n[d.nodo_de("drdy")];
+        return new Tmp006(d.id.c_str(), n[d.nodo_de("scl")], n[d.nodo_de("sda")], dr,
+                          uint8_t(d.num("dir", 0x40)), d.num("t_chip", 25.0),
+                          d.num("t_objeto", 25.0));
     });
 
 REGISTRA_PARTE(I2cExtMaster,

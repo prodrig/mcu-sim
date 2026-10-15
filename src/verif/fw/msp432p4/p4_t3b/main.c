@@ -45,6 +45,11 @@
  *    62  LPM4.5 despertando por S1 (P1.1): la SRAM se pierde y el IFG de P1.1
  *        dice quien desperto
  *
+ *   70-71  Las piezas de la BOOSTXL-EDUMKII
+ *    70  OPT3001 (0x44) y TMP006 (0x40) por la UCB1 (P6.4/P6.5): sus
+ *        identificadores, una conversion de cada uno y la patilla DRDY
+ *    71  el zumbador en TA0.4 (P2.7) a 2 kHz y el eje X del joystick (A15)
+ *
  * El buzon: modo, arranques, estado, senal (la escribe el banco) y r[].
  * ===========================================================================*/
 #ifndef NO_MSP_CLASSIC_DEFINES
@@ -678,6 +683,91 @@ static void m62_lpm45(void) {
     for (;;) { }
 }
 
+/* --- BOOSTXL-EDUMKII ---------------------------------------------------------- */
+
+static void ucb1_init(void) {
+    P6->SEL0 |= BIT4 | BIT5;                     /* UCB1SDA, UCB1SCL */
+    EUSCI_B1->CTLW0 = EUSCI_B_CTLW0_SWRST;
+    EUSCI_B1->CTLW0 = EUSCI_B_CTLW0_SWRST | EUSCI_B_CTLW0_MODE_3 | EUSCI_B_CTLW0_MST |
+                      EUSCI_B_CTLW0_SYNC | EUSCI_B_CTLW0_SSEL__SMCLK;
+    EUSCI_B1->BRW = 30;                          /* 100 kHz */
+    EUSCI_B1->CTLW0 &= ~EUSCI_B_CTLW0_SWRST;
+}
+static void i2c_reg_esc(uint8_t a, uint8_t r, uint16_t v) {
+    EUSCI_B_Type* b = EUSCI_B1;
+    b->I2CSA = a;
+    b->IFG = 0;
+    b->CTLW0 |= EUSCI_B_CTLW0_TR | EUSCI_B_CTLW0_TXSTT;
+    const uint8_t d[3] = { r, (uint8_t)(v >> 8), (uint8_t)v };
+    for (int i = 0; i < 3; ++i) {
+        while (!(b->IFG & EUSCI_B_IFG_TXIFG0)) { }
+        b->TXBUF = d[i];
+    }
+    while (!(b->IFG & EUSCI_B_IFG_TXIFG0)) { }
+    b->CTLW0 |= EUSCI_B_CTLW0_TXSTP;
+    while (b->CTLW0 & EUSCI_B_CTLW0_TXSTP) { }
+}
+static uint16_t i2c_reg_lee(uint8_t a, uint8_t r) {
+    EUSCI_B_Type* b = EUSCI_B1;
+    b->I2CSA = a;
+    b->IFG = 0;
+    b->CTLW0 |= EUSCI_B_CTLW0_TR | EUSCI_B_CTLW0_TXSTT;
+    while (!(b->IFG & EUSCI_B_IFG_TXIFG0)) { }
+    b->TXBUF = r;
+    while (b->CTLW0 & EUSCI_B_CTLW0_TXSTT) { }
+    while (!(b->IFG & EUSCI_B_IFG_TXIFG0)) { }
+    b->CTLW0 &= ~EUSCI_B_CTLW0_TR;
+    b->CTLW0 |= EUSCI_B_CTLW0_TXSTT;
+    while (b->CTLW0 & EUSCI_B_CTLW0_TXSTT) { }
+    while (!(b->IFG & EUSCI_B_IFG_RXIFG0)) { }
+    const uint8_t hi = (uint8_t)b->RXBUF;
+    b->CTLW0 |= EUSCI_B_CTLW0_TXSTP;
+    while (!(b->IFG & EUSCI_B_IFG_RXIFG0)) { }
+    const uint8_t lo = (uint8_t)b->RXBUF;
+    while (b->CTLW0 & EUSCI_B_CTLW0_TXSTP) { }
+    return (uint16_t)((hi << 8) | lo);
+}
+static void m70_sensores(void) {
+    P3->DIR &= ~BIT6; P3->REN |= BIT6; P3->OUT |= BIT6;   /* DRDY: pull-up */
+    ucb1_init();
+    buzon.r[0] = i2c_reg_lee(0x44, 0x7E);
+    buzon.r[1] = i2c_reg_lee(0x44, 0x7F);
+    buzon.r[2] = i2c_reg_lee(0x44, 0x01);        /* 0xC810 */
+    i2c_reg_esc(0x44, 0x01, 0xC610);             /* auto, 100 ms, continuo, L */
+    uint32_t n = 0;
+    while (!(i2c_reg_lee(0x44, 0x01) & 0x0080)) ++n;    /* CRF */
+    const uint16_t res = i2c_reg_lee(0x44, 0x00);
+    buzon.r[3] = res;
+    buzon.r[4] = (uint32_t)(1u << (res >> 12)) * (res & 0xFFF);   /* centilux */
+    buzon.r[5] = n;
+    buzon.r[6] = i2c_reg_lee(0x40, 0xFE);
+    buzon.r[7] = i2c_reg_lee(0x40, 0xFF);
+    i2c_reg_esc(0x40, 0x02, 0x7100);             /* continuo, 4/s, DRDY */
+    (void)i2c_reg_lee(0x40, 0x00);               /* lo que hubiera de antes */
+    buzon.r[8] = (P3->IN & BIT6) != 0;           /* DRDY alta: nada listo */
+    while (P3->IN & BIT6) { }                    /* DRDY baja: hay dato */
+    buzon.r[9] = i2c_reg_lee(0x40, 0x00);
+    buzon.r[10] = i2c_reg_lee(0x40, 0x01);
+    buzon.r[11] = (P3->IN & BIT6) != 0;          /* leerlo la sube */
+    buzon.estado = 1;
+    for (;;) { }
+}
+static void m71_zumbador(void) {
+    /* TA0.4 en P2.7 (PMAP de reset), 2 kHz al 50 % con SMCLK = 3 MHz */
+    P2->SEL0 |= BIT7; P2->DIR |= BIT7;
+    TIMER_A0->CCR[0] = 1499;
+    TIMER_A0->CCR[4] = 750;
+    TIMER_A0->CCTL[4] = TIMER_A_CCTLN_OUTMOD_7;
+    TIMER_A0->CTL = TIMER_A_CTL_SSEL__SMCLK | TIMER_A_CTL_MC__UP | TIMER_A_CTL_CLR;
+    /* El eje X del joystick, A15 en P6.0 */
+    P6->SEL0 |= BIT0; P6->SEL1 |= BIT0;
+    adc_base(ADC14_CTL1_RES__12BIT);
+    ADC14->MCTL[0] = ADC14_MCTLN_INCH_15;
+    buzon.r[0] = convierte();
+    buzon.estado = 1;
+    for (;;) { }
+}
+
 int main(void) {
     para_perro();
     buzon.arranques++;
@@ -702,6 +792,8 @@ int main(void) {
     case 60: m60_lpm(); break;
     case 61: m61_lpm35(); break;
     case 62: m62_lpm45(); break;
+    case 70: m70_sensores(); break;
+    case 71: m71_zumbador(); break;
     default: break;
     }
     for (;;) { }
