@@ -38,9 +38,29 @@
 // MSB/LSB. En maestro, STE es salida con UCSTEM = 1 (se activa mientras hay
 // transferencia) y entrada de conflicto con UCSTEM = 0.
 //
+// I2C MAESTRO Y ESCLAVO (solo la B), a nivel de bit sobre los pines de
+// drenador abierto, con estiramiento del reloj en los dos sentidos:
+//
+//   maestro    UCTXSTT manda START y la dirección (TXIFG0 ya con el START, y
+//              UCTXSTT se borra al acabar la dirección); NACKIFG si nadie
+//              contesta; datos mientras haya TXBUF, y si no, SCL retenida;
+//              UCTXSTP para tras el byte en curso (en recepción, con NACK);
+//              START repetido con UCTXSTT; TBCNT con UCASTP y BCNTIFG; y
+//              pérdida de arbitraje (ALIFG, que suelta UCMST)
+//   esclavo    las cuatro direcciones propias (UCOAEN, UCGCEN para la llamada
+//              general, ADDMASK), ADDRX, STTIFG y STPIFG, RXIFGn/TXIFGn de la
+//              dirección que toca, UCTXNACK, y SCL retenida mientras RXBUF no
+//              se lee o TXBUF no se escribe
+//
+// La secuencia es la que esperan las funciones de DriverLib (i2c.c), que son
+// la segunda fuente de cada detalle: I2C_masterSendSingleByte espera TXSTT a
+// cero y TXIFG0, escribe TXBUF, espera TXIFG0 y pone TXSTP;
+// I2C_masterReceiveSingleByte pone TXSTT y TXSTP juntos.
+//
 // LO QUE NO ESTÁ: la detección automática de baudios (UCMODE = 3 en la A) e
 // IrDA (UCAxIRCTL): se guardan y avisan una vez. El filtro de glitches
-// (UCGLIT) no filtra nada. [P-16 q]
+// (UCGLIT) no filtra nada. En I2C, las direcciones de 10 bits (UCSLA10,
+// UCA10), el tiempo límite de SCL baja (UCCLTO) y UCSWACK. [P-16 q]
 // =============================================================================
 #ifndef STM32_PERIPH_MSP432P4_EUSCI_H
 #define STM32_PERIPH_MSP432P4_EUSCI_H
@@ -89,6 +109,9 @@ public:
         SC_THREAD(uart_tx_proc);
         SC_THREAD(uart_rx_proc);
         SC_THREAD(spi_proc);
+        SC_THREAD(i2c_proc);
+        SC_METHOD(i2c_bus_proc); sensitive << simo_in << somi_in; dont_initialize();
+        SC_METHOD(suelta_scl_proc); sensitive << suelta_scl_ev_; dont_initialize();
         SC_METHOD(pub_proc);   sensitive << pub_ev_;
         SC_METHOD(reset_proc); sensitive << rst_n;
         valores_de_reset();
@@ -111,6 +134,8 @@ public:
     uint64_t tramas_tx() const { return n_tx_; }
     uint64_t tramas_rx() const { return n_rx_; }
     uint64_t bytes_spi() const { return n_spi_; }
+    uint64_t bytes_i2c() const { return n_i2c_; }
+    bool     bus_ocupado() const { return bbusy_; }
     unsigned avisos() const { return n_avisos_; }
 
 protected:
@@ -133,7 +158,18 @@ protected:
          o_clk_ = false, o_clk_oe_ = false, o_ste_ = true, o_ste_oe_ = false;
     sc_core::sc_signal<bool> tx_interno_{"tx_interno"};   // UCLISTEN
     sc_core::sc_event pub_ev_, ev_;
-    uint64_t n_tx_ = 0, n_rx_ = 0, n_spi_ = 0;
+    uint64_t n_tx_ = 0, n_rx_ = 0, n_spi_ = 0, n_i2c_ = 0;
+    // I2C
+    bool bbusy_ = false, en_bus_ = false, gc_ = false;
+    unsigned bcnt_ = 0;
+    bool b_scl_ = true, b_sda_ = true;           // lo último que vio el monitor
+    enum class Esc { LIBRE, DIR, ACK_DIR_PEND, ACK_DIR, RX, RX_ESPERA, ACK_RX,
+                     TX, TX_ACK, TX_ESPERA, IGNORA };
+    Esc esc_ = Esc::LIBRE;
+    unsigned e_bit_ = 0, e_idx_ = 0;
+    uint8_t e_sh_ = 0;
+    bool e_rx_lleno_ = false;
+    bool e_dirigido_ = false;       // la transacción en curso es con nosotros
     unsigned n_avisos_ = 0;
     bool avisado_ab_ = false, avisado_ir_ = false, avisado_i2c_ = false, avisado_uclk_ = false;
 
@@ -208,6 +244,11 @@ protected:
         o_simo_oe_ = o_somi_oe_ = o_clk_oe_ = o_ste_oe_ = false;
         o_clk_ = (ctlw0_ & CKPL) != 0 && spi();
         if (uart()) { o_simo_oe_ = true; }
+        else if (i2c()) {
+            // Drenador abierto: el «out» es siempre 0 y oe dice si se tira
+            o_simo_ = false; o_somi_ = false;
+            o_simo_oe_ = false; o_somi_oe_ = false;
+        }
         else if (spi()) {
             const bool mst = (ctlw0_ & MST) != 0;
             if (mst) {
@@ -278,6 +319,9 @@ protected:
     }
 
     uint16_t statw_lee() const {
+        if (i2c())
+            return uint16_t(((bcnt_ & 0xFFu) << 8) | (bbusy_ ? 0x10u : 0u) |
+                            (gc_ ? 0x20u : 0u) | (!somi_in.read() ? 0x40u : 0u));
         uint16_t v = statw_;
         if (tx_ocupado_ || rx_ocupado_ || txlleno_) v |= ST_BUSY; else v &= uint16_t(~ST_BUSY);
         return v;
@@ -295,10 +339,12 @@ protected:
             case R_RXBUF: {
                 const uint16_t v = rxbuf_;
                 if (!dbg) {
-                    ifg_ &= uint16_t(~RXIFG);
+                    ifg_ &= uint16_t(~(RXIFG | 0x0100u | 0x0400u | 0x1000u));
                     statw_ &= uint16_t(~(ST_RXERR | ST_BRK | ST_PE | ST_OE | ST_FE |
                                          (uart() ? ST_ADDR_IDLE : 0)));
                     borrado();
+                    if (i2c()) despierta();              // un maestro o esclavo retenido
+                    if (esc_ == Esc::RX_ESPERA) esclavo_sigue();
                 }
                 return v;
             }
@@ -367,6 +413,7 @@ protected:
         ctlw0_ = v;
         if (estaba && !en_reset()) fin_rx_ = sc_core::sc_time_stamp();
         if (!estaba && en_reset()) {
+            en_bus_ = false; esc_ = Esc::LIBRE; bcnt_ = 0;
             // UCSWRST = 1: lo que se está transmitiendo o recibiendo se pierde,
             // las banderas se borran y TXIFG se pone [TRM 24.3.1; P-16 q]
             ifg_ = es_b_ ? uint16_t(TXIFG) : uint16_t(TXIFG);
@@ -379,11 +426,13 @@ protected:
             SC_REPORT_WARNING("msp432p4/eusci", "UART con deteccion automatica de baudios "
                 "(UCMODE = 3): no se modela; se usan los baudios de UCAxBRW");
         }
-        if (i2c() && !avisado_i2c_) {
-            avisado_i2c_ = true; ++n_avisos_;
-            SC_REPORT_WARNING("msp432p4/eusci", "I2C (UCMODE = 3): todavia no se modela");
-        }
-        lineas_en_reposo();
+        // Las patillas vuelven a reposo solo al entrar en reset, en reset o al
+        // salir de él. Con el módulo en marcha, UCTXSTP, UCTXSTT, UCTR o
+        // UCTXBRK llegan EN MITAD de un byte (es lo normal: DriverLib pone
+        // TXSTP mientras sale el último), y reponer las líneas ahí soltaba SDA
+        // a medio bit: el último byte de cada escritura llegaba con el primer
+        // bit a 1.
+        if (estaba || en_reset()) lineas_en_reposo();
         actualiza_irq();
         despierta();
     }
@@ -391,9 +440,10 @@ protected:
         txbuf_ = v;
         if (en_reset()) return;
         txlleno_ = true;
-        ifg_ &= uint16_t(~(TXIFG | TXCPTIFG));
+        ifg_ &= uint16_t(~(TXIFG | TXCPTIFG | (i2c() ? 0x2A00u : 0u)));
         borrado();
         despierta();
+        if (esc_ == Esc::TX_ESPERA) esclavo_sigue();
     }
 
     // =========================================================================
@@ -579,6 +629,345 @@ protected:
             }
             ifg_ |= RXIFG;
             actualiza_irq();
+        }
+    }
+
+
+    // =========================================================================
+    // I2C (eUSCI_B)
+    // =========================================================================
+public:
+    enum : uint16_t {
+        TR = 0x0010, TXACK = 0x0020, TXNACK = 0x0008, TXSTP = 0x0004, TXSTT = 0x0002,
+        I_RX0 = 0x0001, I_TX0 = 0x0002, I_STT = 0x0004, I_STP = 0x0008, I_AL = 0x0010,
+        I_NACK = 0x0020, I_BCNT = 0x0040
+    };
+protected:
+    // Las líneas: drenador abierto, tirar o soltar
+    void sda_(bool v) { o_simo_ = false; o_simo_oe_ = !v; publica(); }
+    void scl_(bool v) { o_somi_ = false; o_somi_oe_ = !v; publica(); }
+    bool sda_lee() const { return simo_in.read(); }
+    bool scl_lee() const { return somi_in.read(); }
+    unsigned astp() const { return (ctlw1_ >> 2) & 3u; }
+    bool vivo_maestro() const { return i2c() && !en_reset() && (ctlw0_ & MST); }
+
+    // El monitor del bus: START y STOP los vea quien los vea (UCBBUSY), y el
+    // esclavo entero, por flancos
+    void i2c_bus_proc() {
+        const bool c = scl_lee(), d = sda_lee();
+        const bool cp = b_scl_, dp = b_sda_;
+        b_scl_ = c; b_sda_ = d;
+        if (!i2c() || en_reset()) { bbusy_ = false; return; }
+        if (c && cp && dp && !d) {                      // START
+            bbusy_ = true;
+            if (!(ctlw0_ & MST)) { esc_ = Esc::DIR; e_bit_ = 0; e_sh_ = 0; sda_(true); }
+            return;
+        }
+        if (c && cp && !dp && d) {                      // STOP
+            bbusy_ = false;
+            // STPIFG si la transacción era con nosotros, también cuando el
+            // maestro acabó leyendo con un NACK (que nos deja en IGNORA)
+            if (!(ctlw0_ & MST) && e_dirigido_) { ifg_ |= I_STP; actualiza_irq(); }
+            e_dirigido_ = false;
+            if (!(ctlw0_ & MST)) { esc_ = Esc::LIBRE; sda_(true); scl_(true); }
+            return;
+        }
+        if (ctlw0_ & MST) return;
+        if (c && !cp) esclavo_sube(d);
+        else if (!c && cp) esclavo_baja();
+    }
+
+    // --- Esclavo -----------------------------------------------------------------
+    int coincide(unsigned a7) {
+        for (unsigned k = 0; k < 4; ++k) {
+            const uint16_t oa = oa_[k];
+            if (!(oa & 0x0400u)) continue;               // UCOAEN
+            const unsigned m = (k == 0) ? (addmask_ & 0x7Fu) : 0x7Fu;
+            if (((oa & 0x7Fu) & m) == (a7 & m)) return int(k);
+        }
+        if (a7 == 0 && (oa_[0] & 0x8000u)) return 0;     // llamada general (UCGCEN)
+        return -1;
+    }
+    uint16_t bit_rx(unsigned k) const { return k == 0 ? 0x0001u : uint16_t(0x0100u << (2 * (k - 1))); }
+    uint16_t bit_tx(unsigned k) const { return k == 0 ? 0x0002u : uint16_t(0x0200u << (2 * (k - 1))); }
+
+    void esclavo_sube(bool d) {
+        switch (esc_) {
+            case Esc::DIR: {
+                e_sh_ = uint8_t((e_sh_ << 1) | (d ? 1u : 0u));
+                if (++e_bit_ < 8) return;
+                const unsigned a7 = e_sh_ >> 1;
+                const int k = coincide(a7);
+                if (k < 0) { esc_ = Esc::IGNORA; return; }
+                e_dirigido_ = true;
+                e_idx_ = unsigned(k);
+                gc_ = a7 == 0;
+                addrx_ = uint16_t(a7);
+                if (e_sh_ & 1u) ctlw0_ |= TR; else ctlw0_ &= uint16_t(~TR);
+                ifg_ |= I_STT;
+                actualiza_irq();
+                esc_ = Esc::ACK_DIR_PEND;
+                return;
+            }
+            case Esc::RX:
+                e_sh_ = uint8_t((e_sh_ << 1) | (d ? 1u : 0u));
+                ++e_bit_;
+                return;
+            case Esc::TX_ACK:
+                // El maestro reconoce (0) o no (1) el byte que le hemos dado
+                esc_ = d ? Esc::IGNORA : Esc::TX;
+                if (!d) { e_bit_ = 0; }
+                return;
+            default: return;
+        }
+    }
+    void esclavo_baja() {
+        switch (esc_) {
+            case Esc::ACK_DIR_PEND:
+                sda_(false);                                // ACK de la dirección
+                esc_ = Esc::ACK_DIR;
+                return;
+            case Esc::ACK_DIR:
+                sda_(true);
+                if (ctlw0_ & TR) esclavo_pide_dato();
+                else { esc_ = Esc::RX; e_bit_ = 0; e_sh_ = 0; }
+                return;
+            case Esc::RX:
+                if (e_bit_ < 8) return;
+                // El byte, completo: RXBUF libre o SCL retenida hasta que se lea
+                if (ifg_ & (I_RX0 | 0x0100u | 0x0400u | 0x1000u)) {
+                    scl_(false); esc_ = Esc::RX_ESPERA; return;
+                }
+                esclavo_entrega();
+                return;
+            case Esc::ACK_RX:
+                sda_(true);
+                esc_ = Esc::RX; e_bit_ = 0; e_sh_ = 0;
+                return;
+            case Esc::TX:
+                if (e_bit_ == 0) { esclavo_pide_dato(); return; }
+                if (e_bit_ < 8) { sda_((e_tx_ >> (7 - e_bit_)) & 1u); ++e_bit_; }
+                else { sda_(true); esc_ = Esc::TX_ACK; }
+                return;
+            default: return;
+        }
+    }
+    uint8_t e_tx_ = 0;
+    // Un dato para el maestro: si no hay, TXIFGn y SCL retenida
+    void esclavo_pide_dato() {
+        if (!txlleno_) {
+            ifg_ |= bit_tx(e_idx_);
+            actualiza_irq();
+            scl_(false);
+            esc_ = Esc::TX_ESPERA;
+            return;
+        }
+        e_tx_ = uint8_t(txbuf_);
+        txlleno_ = false;
+        ifg_ |= bit_tx(e_idx_);                          // libre para el siguiente
+        actualiza_irq();
+        e_bit_ = 0;
+        sda_((e_tx_ >> 7) & 1u);
+        e_bit_ = 1;
+        esc_ = Esc::TX;
+        ++n_i2c_;
+    }
+    void esclavo_entrega() {
+        rxbuf_ = e_sh_;
+        ifg_ |= bit_rx(e_idx_);
+        actualiza_irq();
+        ++n_i2c_;
+        if (ctlw0_ & TXNACK) { ctlw0_ &= uint16_t(~TXNACK); sda_(true); }
+        else sda_(false);
+        esc_ = Esc::ACK_RX;
+    }
+    // Lo que el firmware ha hecho mientras SCL estaba retenida
+    // SDA se pone YA y SCL se suelta un poco después: el tiempo de
+    // establecimiento del dato. Soltar las dos a la vez hacía que el maestro
+    // viera SDA cambiar con SCL alta, que es un START o un STOP.
+    void esclavo_sigue() {
+        if (esc_ == Esc::TX_ESPERA && txlleno_) {
+            esclavo_pide_dato();
+            suelta_scl_ev_.notify(t_setup());
+        } else if (esc_ == Esc::RX_ESPERA && !(ifg_ & (I_RX0 | 0x0100u | 0x0400u | 0x1000u))) {
+            esclavo_entrega();
+            suelta_scl_ev_.notify(t_setup());
+        }
+    }
+    static sc_core::sc_time t_setup() { return sc_core::sc_time(250, sc_core::SC_NS); }
+    sc_core::sc_event suelta_scl_ev_;
+    void suelta_scl_proc() {
+        if (i2c() && !en_reset() && !(ctlw0_ & MST)) scl_(true);
+    }
+
+    // --- Maestro -------------------------------------------------------------------
+    sc_core::sc_time cuarto() const {
+        const unsigned br = brw_ ? brw_ : 1u;
+        return sc_core::sc_time(double(br) * 1e12 / brclk() / 4.0, sc_core::SC_PS);
+    }
+    // Suelta SCL y espera a que suba de verdad (un esclavo puede retenerla)
+    bool sube_scl() {
+        scl_(true);
+        while (!scl_lee()) {
+            wait(somi_in.value_changed_event() | ev_);
+            if (!vivo_maestro()) return false;
+        }
+        return true;
+    }
+    // Un bit con SCL baja al entrar y al salir. Devuelve lo que se leyó en SDA
+    // con SCL alta, o false si se ha perdido el arbitraje.
+    bool bit_(bool v, bool& leido, bool arbitra) {
+        const sc_core::sc_time q = cuarto();
+        wait(q);
+        sda_(v);
+        wait(q);
+        if (!sube_scl()) return false;
+        wait(q);
+        leido = sda_lee();
+        if (arbitra && v && !leido) {                   // otro maestro tira de SDA
+            ifg_ |= I_AL;
+            ctlw0_ &= uint16_t(~(MST | TXSTT));
+            en_bus_ = false;
+            sda_(true); scl_(true);
+            actualiza_irq();
+            return false;
+        }
+        wait(q);
+        scl_(false);
+        return true;
+    }
+    bool envia_byte(uint8_t b, bool& ack) {
+        bool l = false;
+        for (unsigned i = 0; i < 8; ++i)
+            if (!bit_((b >> (7 - i)) & 1u, l, true)) return false;
+        if (!bit_(true, l, false)) return false;          // el ACK, del esclavo
+        ack = !l;
+        return true;
+    }
+    void genera_stop() {
+        const sc_core::sc_time q = cuarto();
+        wait(q);
+        sda_(false);
+        wait(q);
+        sube_scl();
+        wait(2 * q);
+        sda_(true);
+        wait(2 * q);
+        ctlw0_ &= uint16_t(~TXSTP);
+        en_bus_ = false;
+        ifg_ |= I_STP;
+        actualiza_irq();
+    }
+    // Retenido tras un NACK: hasta que el firmware pida STOP o START
+    bool espera_orden() {
+        while (!(ctlw0_ & (TXSTP | TXSTT))) {
+            wait(ev_);
+            if (!vivo_maestro()) return false;
+        }
+        if (ctlw0_ & TXSTP) genera_stop();
+        return true;
+    }
+    void i2c_proc() {
+        for (;;) {
+            if (!vivo_maestro() || !(ctlw0_ & TXSTT) || brclk() <= 0.0) {
+                if (vivo_maestro() && (ctlw0_ & TXSTT)) aviso_uclk(brclk());
+                if (vivo_maestro() && en_bus_ && (ctlw0_ & TXSTP) && !(ctlw0_ & TXSTT)) {
+                    genera_stop();
+                    continue;
+                }
+                wait(ev_);
+                continue;
+            }
+            maestro();
+        }
+    }
+    void maestro() {
+        const sc_core::sc_time q = cuarto();
+        if (!en_bus_) {
+            // Bus libre, o esperar a que lo esté
+            while (bbusy_) { wait(simo_in.value_changed_event() | ev_); if (!vivo_maestro()) return; }
+            sda_(false);                                  // START: SDA baja con SCL alta
+            wait(2 * q);
+            scl_(false);
+        } else {
+            // START repetido: SDA arriba, SCL arriba, SDA abajo
+            wait(q);
+            sda_(true);
+            wait(q);
+            if (!sube_scl()) return;
+            wait(q);
+            sda_(false);
+            wait(q);
+            scl_(false);
+        }
+        en_bus_ = true;
+        bcnt_ = 0;
+        const bool tr = (ctlw0_ & TR) != 0;
+        if (tr) { ifg_ |= I_TX0; actualiza_irq(); }
+        bool ack = false;
+        if (!envia_byte(uint8_t(((i2csa_ & 0x7Fu) << 1) | (tr ? 0u : 1u)), ack)) return;
+        ctlw0_ &= uint16_t(~TXSTT);
+        if (!ack) {
+            ifg_ |= I_NACK;
+            actualiza_irq();
+            espera_orden();
+            return;
+        }
+        if (tr) maestro_tx(); else maestro_rx();
+    }
+    void maestro_tx() {
+        for (;;) {
+            while (!txlleno_) {
+                if (ctlw0_ & TXSTP) { genera_stop(); return; }
+                if (ctlw0_ & TXSTT) return;               // START repetido
+                wait(ev_);
+                if (!vivo_maestro()) return;
+            }
+            const uint8_t d = uint8_t(txbuf_);
+            txlleno_ = false;
+            ifg_ |= I_TX0;
+            actualiza_irq();
+            bool ack = false;
+            if (!envia_byte(d, ack)) return;
+            ++n_i2c_;
+            ++bcnt_;
+            if (astp() && bcnt_ == tbcnt_) {
+                ifg_ |= I_BCNT; actualiza_irq();
+                if (astp() == 2) { genera_stop(); return; }
+            }
+            if (!ack) { ifg_ |= I_NACK; actualiza_irq(); espera_orden(); return; }
+            if (ctlw0_ & TXSTP) { genera_stop(); return; }
+            if (ctlw0_ & TXSTT) return;
+        }
+    }
+    void maestro_rx() {
+        for (;;) {
+            uint8_t v = 0;
+            bool l = false;
+            for (unsigned i = 0; i < 8; ++i) {
+                // Con el byte anterior sin leer, SCL se retiene antes del último bit
+                if (i == 7)
+                    while ((ifg_ & I_RX0) && !(ctlw0_ & (TXSTP | TXSTT))) {
+                        wait(ev_);
+                        if (!vivo_maestro()) return;
+                    }
+                if (!bit_(true, l, false)) return;
+                v = uint8_t((v << 1) | (l ? 1u : 0u));
+            }
+            const bool ultimo = (ctlw0_ & (TXSTP | TXSTT)) ||
+                                (astp() == 2 && bcnt_ + 1u == tbcnt_);
+            rxbuf_ = v;
+            ifg_ |= I_RX0;
+            ++bcnt_;
+            ++n_i2c_;
+            if (astp() && bcnt_ == tbcnt_) ifg_ |= I_BCNT;
+            actualiza_irq();
+            if (!bit_(ultimo, l, false)) return;           // ACK, o NACK el último
+            if (ultimo) {
+                if ((ctlw0_ & TXSTT) && !(ctlw0_ & TXSTP)) return;   // START repetido
+                genera_stop();
+                return;
+            }
         }
     }
 

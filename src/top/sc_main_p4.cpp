@@ -43,6 +43,7 @@
 #include "../parts/ext_parts.h"
 #include "../parts/puente_serie.h"
 #include "../parts/servo.h"
+#include "../parts/tft_st7735.h"
 #include "../verif/bus_test_master.h"
 #include "../verif/swd_port.h"
 #include "../verif/gdb_stub.h"
@@ -115,6 +116,18 @@ SC_MODULE(TbP4) {
     Fuente* servo_5v = nullptr;
     Gnd*    servo_masa = nullptr;
     Servo*  servo = nullptr;
+    // I2C: una 24Cxx en UCB0 (P1.6 SDA, P1.7 SCL) y un maestro externo en
+    // UCB1 (P6.4, P6.5), con sus pull-ups; SPI: la ST7735 en UCB0 (P1.5 CLK,
+    // P1.6 SIMO, CS P5.0, RS P3.7, RST P5.7, luz P2.6) y tres pistas entre
+    // UCA3 (P9.5-P9.7) y UCB3 (P10.1-P10.3). Todo desoldado hasta su grupo
+    I2cEeprom* eeprom = nullptr;
+    I2cWire *pu_sda0 = nullptr, *pu_scl0 = nullptr, *pu_sda1 = nullptr, *pu_scl1 = nullptr;
+    I2cExtMaster* i2c_ext = nullptr;
+    AnalogNet *tft_vcc = nullptr, *tft_gnd = nullptr;
+    Fuente* tft_3v3 = nullptr;
+    Gnd*    tft_masa = nullptr;
+    Tft128x160* tft = nullptr;
+    SignalLink *pista_clk = nullptr, *pista_simo = nullptr, *pista_somi = nullptr;
 
     SC_CTOR(TbP4)
         : mcu("dut", DBG_PINES, Cableado(), *CatalogoMcu::busca("MSP432P401R")),
@@ -150,12 +163,37 @@ SC_MODULE(TbP4) {
         cs.posicion_inicial = -60.0;
         servo = new Servo("servo", *servo_vcc, *servo_gnd, dut.dio.nodo_de(1, 5), cs);
         servo->set_enabled(false);
+        eeprom = new I2cEeprom("eeprom", dut.dio.nodo_de(0, 7), dut.dio.nodo_de(0, 6), 0x50);
+        pu_sda0 = new I2cWire("pu_sda0", {&dut.dio.nodo_de(0, 6)});
+        pu_scl0 = new I2cWire("pu_scl0", {&dut.dio.nodo_de(0, 7)});
+        i2c_ext = new I2cExtMaster("i2c_ext", dut.dio.nodo_de(5, 5), dut.dio.nodo_de(5, 4), 100e3);
+        pu_sda1 = new I2cWire("pu_sda1", {&dut.dio.nodo_de(5, 4)});
+        pu_scl1 = new I2cWire("pu_scl1", {&dut.dio.nodo_de(5, 5)});
+        for (ExtPartBase* q : std::initializer_list<ExtPartBase*>{eeprom, pu_sda0, pu_scl0,
+                                                                   i2c_ext, pu_sda1, pu_scl1})
+            q->set_enabled(false);
+        tft_vcc = new AnalogNet("tft_vcc");
+        tft_gnd = new AnalogNet("tft_gnd");
+        tft_3v3 = new Fuente("tft_3v3", *tft_vcc, 3.3);
+        tft_masa = new Gnd("tft_masa", *tft_gnd);
+        tft = new Tft128x160("tft", *tft_vcc, *tft_gnd, dut.dio.nodo_de(4, 0),
+                             dut.dio.nodo_de(4, 7), dut.dio.nodo_de(2, 7),
+                             dut.dio.nodo_de(0, 6), dut.dio.nodo_de(0, 5),
+                             dut.dio.nodo_de(1, 6));
+        tft->set_enabled(false);
+        pista_clk  = new SignalLink("pista_clk",  dut.dio.nodo_de(8, 5), dut.dio.nodo_de(9, 1));
+        pista_simo = new SignalLink("pista_simo", dut.dio.nodo_de(8, 7), dut.dio.nodo_de(9, 2));
+        pista_somi = new SignalLink("pista_somi", dut.dio.nodo_de(9, 3), dut.dio.nodo_de(8, 6));
+        for (SignalLink* q : {pista_clk, pista_simo, pista_somi}) q->set_enabled(false);
         SC_THREAD(run);
     }
     ~TbP4() override {
         delete sonda; delete y1; delete y2; delete s1; delete gdb_p; delete gdb_d;
         delete bcl; delete bcl2; delete reloj_cap; delete reloj_ta1;
         delete servo; delete servo_5v; delete servo_masa; delete servo_vcc; delete servo_gnd;
+        delete eeprom; delete pu_sda0; delete pu_scl0; delete i2c_ext; delete pu_sda1;
+        delete pu_scl1; delete tft; delete tft_3v3; delete tft_masa; delete tft_vcc;
+        delete tft_gnd; delete pista_clk; delete pista_simo; delete pista_somi;
     }
 
     // --- T3 [top/sc_main_p4_t3.h] ------------------------------------------
@@ -164,6 +202,7 @@ SC_MODULE(TbP4) {
     bool espera3(uint32_t estado, double ms);
     void t3_uart();
     void t3_timers();
+    void t3_i2c_spi();
     // Mide en un pin el periodo y la fraccion en alto, sobre `n` ciclos
     bool pwm(unsigned p, unsigned i, double& periodo_s, double& alto, unsigned n = 4,
              double max_ms = 50);
@@ -933,6 +972,7 @@ SC_MODULE(TbP4) {
                 mcu.alimenta(true);
                 t3_uart();
                 t3_timers();
+                t3_i2c_spi();
                 std::printf("\nTOTAL P4 (solo T3): %u comprobaciones OK, %u fallos\n",
                             g_ok, g_fallos);
                 sc_stop();
@@ -960,6 +1000,7 @@ SC_MODULE(TbP4) {
         t2_gdb();
         t3_uart();
         t3_timers();
+        t3_i2c_spi();
         std::printf("\n=====================================================\n");
         std::printf("TOTAL P4 : %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         std::printf("=====================================================\n");

@@ -10,6 +10,8 @@
 //            multiprocesador y el PMAP
 //   P28-P34  Timer_A (PWM, modo continuo, ascendente/descendente, captura,
 //            reloj externo, un servo) y Timer32
+//   P35-P39  eUSCI_B en I2C (maestro contra una 24Cxx, esclavo contra un
+//            maestro externo, TBCNT) y SPI (la ST7735, y dos eUSCI entre si)
 // =============================================================================
 #ifndef STM32_TOP_SC_MAIN_P4_T3_H
 #define STM32_TOP_SC_MAIN_P4_T3_H
@@ -300,6 +302,84 @@ inline void TbP4::t3_timers() {
     std::printf("    el eje: %.1f grados\n", servo->angulo());
     check(std::fabs(servo->angulo() - 90.0) < 1.0, "y con 2,0 ms, a +90");
     servo->set_enabled(false);
+}
+
+// =============================================================================
+// P35-P39  eUSCI_B en I2C y SPI
+// =============================================================================
+inline void TbP4::t3_i2c_spi() {
+    grupo("P35 I2C maestro en UCB0 contra una 24Cxx: escribir, leer con START repetido, NACK");
+    for (ExtPartBase* q : std::initializer_list<ExtPartBase*>{eeprom, pu_sda0, pu_scl0})
+        q->set_enabled(true);
+    arranca3(20);
+    check(espera3(1, 20), "la transaccion termina");
+    check(r3(0) == 0 && eeprom->peek(0x10) == 0x11 && eeprom->peek(0x11) == 0x22 &&
+          eeprom->peek(0x12) == 0x33,
+          "puntero 0x10 y tres datos: la EEPROM los tiene");
+    check(r3(1) != 0, "el STOP levanta STPIFG");
+    check(r3(2) == 0x11 && r3(3) == 0x22 && r3(4) == 0x33,
+          "y se leen de vuelta con un START repetido y NACK en el ultimo");
+    check(r3(5) == uint32_t(-1), "en 0x51 no contesta nadie: NACKIFG");
+    check(r3(6) == 0, "y despues del STOP el bus queda libre (UCBBUSY a cero)");
+    std::printf("    bytes por el bus: %llu\n", (unsigned long long)dut.ucb0.bytes_i2c());
+
+    grupo("P36 I2C con UCASTP = 2: el STOP lo pone TBCNT");
+    arranca3(22);
+    check(espera3(1, 20), "cuatro bytes leidos sin tocar UCTXSTP");
+    check(r3(0) == 0xA0 && r3(1) == 0xA1 && r3(2) == 0xA2 && r3(3) == 0xA3,
+          "los cuatro primeros de la EEPROM, desde el puntero 0");
+    check(r3(4) == (EusciP4::I_BCNT | EusciP4::I_STP) && r3(5) == 4,
+          "BCNTIFG y STPIFG, con UCBCNT = 4");
+    for (ExtPartBase* q : std::initializer_list<ExtPartBase*>{eeprom, pu_sda0, pu_scl0})
+        q->set_enabled(false);
+
+    grupo("P37 I2C esclavo en UCB1 (0x48) contra un maestro externo");
+    for (ExtPartBase* q : std::initializer_list<ExtPartBase*>{i2c_ext, pu_sda1, pu_scl1})
+        q->set_enabled(true);
+    arranca3(21);
+    check(espera3(1, 5), "UCB1 esclava, con interrupcion");
+    const uint8_t dat[2] = {0xA1, 0xB2};
+    i2c_ext->request_write(0x48, dat, 2);
+    for (int k = 0; k < 100 && !i2c_ext->done(); ++k) wait(100, SC_US);
+    check(i2c_ext->done() && i2c_ext->addr_acked(), "el maestro escribe dos bytes y la esclava contesta");
+    i2c_ext->request_read(0x48, 2);
+    for (int k = 0; k < 100 && !i2c_ext->done(); ++k) wait(100, SC_US);
+    check(i2c_ext->done() && i2c_ext->rx(0) == 0x5A && i2c_ext->rx(1) == 0x5B,
+          "y lee dos: los que pone el firmware en TXBUF al ver TXIFG0");
+    check(espera3(2, 5), "el firmware cuenta los dos STOP");
+    check(r3(0) == 2 && r3(1) == 0xA1 && r3(2) == 0xB2, "RXIFG0 por cada byte, con los datos");
+    check(r3(4) == 2 && r3(5) == 2 && r3(6) == 0x48,
+          "STTIFG con cada direccion propia, STPIFG con cada STOP, y ADDRX = 0x48");
+    for (ExtPartBase* q : std::initializer_list<ExtPartBase*>{i2c_ext, pu_sda1, pu_scl1})
+        q->set_enabled(false);
+
+    grupo("P38 SPI maestro en UCB0 contra la ST7735 de la BOOSTXL-EDUMKII");
+    tft->set_enabled(true);
+    arranca3(23);
+    check(espera3(1, 400), "el firmware despierta la pantalla y pinta dos rectangulos");
+    std::printf("    pantalla: %s, %llu ordenes, %llu pixeles\n",
+                tft->encendida() ? "encendida" : "apagada",
+                (unsigned long long)tft->ordenes(), (unsigned long long)tft->pixeles());
+    check(tft->encendida(), "SLPOUT y DISPON llegan: la pantalla ensena su memoria");
+    // RGB565 a 24 bits repitiendo los bits altos: 0xF800 es 0xFF0000
+    check(tft->color_en(15, 25) == 0xFF0000u && tft->color_en(42, 52) == 0x00FF00u,
+          "el rojo y el verde, donde los manda el firmware");
+    check(tft->color_en(5, 5) != 0xFF0000u && tft->color_en(9, 25) != 0xFF0000u &&
+          tft->color_en(26, 25) != 0xFF0000u, "y fuera de ellos no: los bordes son los pedidos");
+    tft->set_enabled(false);
+
+    grupo("P39 SPI entre dos eUSCI: UCA3 maestra, UCB3 esclava, los cuatro modos");
+    for (SignalLink* q : {pista_clk, pista_simo, pista_somi}) q->set_enabled(true);
+    arranca3(24);
+    check(espera3(1, 20), "cuatro intercambios de un byte");
+    bool ok = true;
+    for (unsigned m = 0; m < 4; ++m) {
+        std::printf("    CKPH:CKPL = %u%u: el maestro recibe 0x%02X, la esclava 0x%02X\n",
+                    (m >> 1) & 1u, m & 1u, r3(2 * m), r3(2 * m + 1));
+        if (r3(2 * m) != 0xC0u + m || r3(2 * m + 1) != 0x30u + m) ok = false;
+    }
+    check(ok, "en los cuatro modos cada una recibe lo que la otra tenia en TXBUF");
+    for (SignalLink* q : {pista_clk, pista_simo, pista_somi}) q->set_enabled(false);
 }
 
 #endif // STM32_TOP_SC_MAIN_P4_T3_H

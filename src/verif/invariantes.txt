@@ -139,4 +139,12 @@ testgui                145        76450000000        total
 # Fase T3, E2: P28 a P34 -Timer_A en sus tres modos con PWM, captura y reloj
 # externo; el Timer32; y un servo SG90 en TA0.2-: 184 -> 218. El resto crece
 # sobre todo por P34, que mira el eje 600 ms.
-testp4                218       1181097722208        resto
+# Fase T3, E3: P35 a P39 -la eUSCI_B en I2C, maestro contra una 24Cxx (con
+# START repetido, NACK y el STOP automatico de TBCNT) y esclava contra un
+# maestro externo; y SPI contra la ST7735 y entre dos eUSCI en los cuatro
+# modos-: 218 -> 239. P0 a P34 se mueven 448 us (1181097722208 ->
+# 1181545722176 hasta P34): p4_t3 crece con los modos nuevos, su codigo se
+# desplaza en la Flash, y las esperas de 20 us del banco caen en otro sitio.
+# Comprobado: con el modelo de la eUSCI anterior y el firmware nuevo, la
+# misma cifra.
+testp4                239       1196565722176        resto

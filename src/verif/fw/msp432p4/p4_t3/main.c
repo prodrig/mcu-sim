@@ -30,6 +30,19 @@
  *    16  un servo en TA0.2 (P2.5, el J2.19 de la BOOSTXL-EDUMKII): 50 Hz,
  *        1,5 ms y luego 2,0 ms, durmiendo entre medias
  *
+ *   20-24  eUSCI_B en I2C y SPI
+ *    20  I2C maestro en UCB0 (P1.6 SDA, P1.7 SCL) a 100 kHz contra una
+ *        24Cxx en 0x50: escritura, lectura con START repetido, y un NACK
+ *    21  I2C esclavo en UCB1 (P6.4/P6.5) con la direccion 0x48, por
+ *        interrupcion y UCB1IV, contra un maestro externo
+ *    22  I2C maestro leyendo con UCASTP = 2 y TBCNT: el STOP lo pone el
+ *        contador
+ *    23  SPI maestro en UCB0 (P1.5 CLK, P1.6 SIMO) contra la pantalla
+ *        ST7735, como la de la BOOSTXL-EDUMKII (CS en P5.0, RS en P3.7,
+ *        RST en P5.7)
+ *    24  SPI entre dos eUSCI: UCA3 maestra (P9.5-P9.7) y UCB3 esclava
+ *        (P10.1-P10.3), en los cuatro modos de CKPH/CKPL
+ *
  * El buzon: modo, arranques, estado y un vector de resultados r[] cuyo
  * significado depende del modo (lo dice cada modo).
  * ===========================================================================*/
@@ -465,6 +478,207 @@ static void m16_servo(void) {
     for (;;) { __WFI(); }
 }
 
+/* --- eUSCI_B: I2C y SPI --------------------------------------------------------- */
+static void i2c_maestro_init(EUSCI_B_Type* b, uint16_t brw, uint16_t ctlw1, uint16_t tbcnt) {
+    b->CTLW0 = EUSCI_B_CTLW0_SWRST;
+    b->CTLW0 = EUSCI_B_CTLW0_SWRST | EUSCI_B_CTLW0_MODE_3 | EUSCI_B_CTLW0_MST |
+               EUSCI_B_CTLW0_SYNC | EUSCI_B_CTLW0_SSEL__SMCLK;
+    b->CTLW1 = ctlw1;
+    b->TBCNT = tbcnt;
+    b->BRW = brw;
+    b->CTLW0 &= ~EUSCI_B_CTLW0_SWRST;
+}
+/* La secuencia de I2C_masterSendMultiByte* de DriverLib, a mano */
+static int i2c_escribe(EUSCI_B_Type* b, uint8_t a, const uint8_t* d, int n) {
+    b->I2CSA = a;
+    b->IFG = 0;
+    b->CTLW0 |= EUSCI_B_CTLW0_TR | EUSCI_B_CTLW0_TXSTT;
+    while (b->CTLW0 & EUSCI_B_CTLW0_TXSTT) { }
+    if (b->IFG & EUSCI_B_IFG_NACKIFG) {
+        b->CTLW0 |= EUSCI_B_CTLW0_TXSTP;
+        while (b->CTLW0 & EUSCI_B_CTLW0_TXSTP) { }
+        return -1;
+    }
+    for (int i = 0; i < n; ++i) {
+        while (!(b->IFG & EUSCI_B_IFG_TXIFG0)) { }
+        b->TXBUF = d[i];
+    }
+    while (!(b->IFG & EUSCI_B_IFG_TXIFG0)) { }
+    b->CTLW0 |= EUSCI_B_CTLW0_TXSTP;
+    while (b->CTLW0 & EUSCI_B_CTLW0_TXSTP) { }
+    return 0;
+}
+/* Un byte (el puntero) y START repetido para leer n */
+static int i2c_lee(EUSCI_B_Type* b, uint8_t a, uint8_t ptr, uint8_t* d, int n) {
+    b->I2CSA = a;
+    b->IFG = 0;
+    b->CTLW0 |= EUSCI_B_CTLW0_TR | EUSCI_B_CTLW0_TXSTT;
+    while (!(b->IFG & EUSCI_B_IFG_TXIFG0)) { }
+    b->TXBUF = ptr;
+    while (b->CTLW0 & EUSCI_B_CTLW0_TXSTT) { }
+    while (!(b->IFG & EUSCI_B_IFG_TXIFG0)) { }   /* el puntero ya sale */
+    b->CTLW0 &= ~EUSCI_B_CTLW0_TR;
+    b->CTLW0 |= EUSCI_B_CTLW0_TXSTT;              /* START repetido, leyendo */
+    while (b->CTLW0 & EUSCI_B_CTLW0_TXSTT) { }
+    for (int i = 0; i < n; ++i) {
+        if (i == n - 1) b->CTLW0 |= EUSCI_B_CTLW0_TXSTP;
+        while (!(b->IFG & EUSCI_B_IFG_RXIFG0)) { }
+        d[i] = (uint8_t)b->RXBUF;
+    }
+    while (b->CTLW0 & EUSCI_B_CTLW0_TXSTP) { }
+    return 0;
+}
+static void m20_i2c(void) {
+    P1->SEL0 |= BIT6 | BIT7;                     /* UCB0SDA, UCB0SCL */
+    i2c_maestro_init(EUSCI_B0, 30, 0, 0);        /* 3 MHz / 30 = 100 kHz */
+    static const uint8_t esc[4] = { 0x10, 0x11, 0x22, 0x33 };   /* puntero y datos */
+    buzon.r[0] = (uint32_t)i2c_escribe(EUSCI_B0, 0x50, esc, 4);
+    buzon.r[1] = EUSCI_B0->IFG & EUSCI_B_IFG_STPIFG;
+    uint8_t l[3] = {0, 0, 0};
+    i2c_lee(EUSCI_B0, 0x50, 0x10, l, 3);
+    buzon.r[2] = l[0]; buzon.r[3] = l[1]; buzon.r[4] = l[2];
+    /* Un NACK: no hay nadie en 0x51 */
+    buzon.r[5] = (uint32_t)i2c_escribe(EUSCI_B0, 0x51, esc, 1);
+    buzon.r[6] = EUSCI_B0->STATW & EUSCI_B_STATW_BBUSY;
+    buzon.estado = 1;
+    for (;;) { }
+}
+
+static volatile uint32_t m21_rx[8], m21_nrx = 0, m21_ntx = 0, m21_nstt = 0, m21_nstp = 0;
+void EUSCIB1_IRQHandler(void) {
+    switch (EUSCI_B1->IV) {
+    case 0x06: m21_nstt++; break;                          /* STTIFG */
+    case 0x08: m21_nstp++; break;                          /* STPIFG */
+    case 0x16: m21_rx[m21_nrx++ & 7] = EUSCI_B1->RXBUF; break;   /* RXIFG0 */
+    case 0x18: EUSCI_B1->TXBUF = 0x5A + (m21_ntx++ & 7); break;  /* TXIFG0 */
+    default: break;
+    }
+}
+static void m21_esclavo(void) {
+    P6->SEL0 |= BIT4 | BIT5;                     /* UCB1SDA, UCB1SCL */
+    EUSCI_B1->CTLW0 = EUSCI_B_CTLW0_SWRST;
+    EUSCI_B1->CTLW0 = EUSCI_B_CTLW0_SWRST | EUSCI_B_CTLW0_MODE_3 | EUSCI_B_CTLW0_SYNC;
+    EUSCI_B1->I2COA0 = 0x48 | EUSCI_B_I2COA0_OAEN;
+    EUSCI_B1->CTLW0 &= ~EUSCI_B_CTLW0_SWRST;
+    EUSCI_B1->IFG = 0;
+    EUSCI_B1->IE = EUSCI_B_IE_RXIE0 | EUSCI_B_IE_TXIE0 | EUSCI_B_IE_STTIE | EUSCI_B_IE_STPIE;
+    NVIC->ISER[0] = 1u << EUSCIB1_IRQn;
+    buzon.estado = 1;
+    while (m21_nstp < 2) { }
+    buzon.r[0] = m21_nrx;
+    buzon.r[1] = m21_rx[0];
+    buzon.r[2] = m21_rx[1];
+    buzon.r[3] = m21_ntx;
+    buzon.r[4] = m21_nstt;
+    buzon.r[5] = m21_nstp;
+    buzon.r[6] = EUSCI_B1->ADDRX;
+    buzon.estado = 2;
+    for (;;) { }
+}
+
+static void m22_tbcnt(void) {
+    P1->SEL0 |= BIT6 | BIT7;
+    i2c_maestro_init(EUSCI_B0, 30, EUSCI_B_CTLW1_ASTP_2, 4);
+    EUSCI_B0->I2CSA = 0x50;
+    /* El puntero, a mano y con STOP */
+    static const uint8_t p[1] = { 0x00 };
+    i2c_escribe(EUSCI_B0, 0x50, p, 1);
+    EUSCI_B0->IFG = 0;
+    EUSCI_B0->CTLW0 &= ~EUSCI_B_CTLW0_TR;
+    EUSCI_B0->CTLW0 |= EUSCI_B_CTLW0_TXSTT;
+    for (int i = 0; i < 4; ++i) {
+        while (!(EUSCI_B0->IFG & EUSCI_B_IFG_RXIFG0)) { }
+        buzon.r[i] = EUSCI_B0->RXBUF;
+    }
+    while (!(EUSCI_B0->IFG & EUSCI_B_IFG_STPIFG)) { }
+    buzon.r[4] = EUSCI_B0->IFG & (EUSCI_B_IFG_BCNTIFG | EUSCI_B_IFG_STPIFG);
+    buzon.r[5] = (EUSCI_B0->STATW >> 8) & 0xFF;     /* UCBCNT */
+    buzon.estado = 1;
+    for (;;) { }
+}
+
+/* La pantalla: CS en P5.0, RS (D/CX) en P3.7, RST en P5.7, la luz en P2.6 */
+static void espera_us(uint32_t us) {               /* con el Timer32_2 a MCLK = 12 MHz */
+    TIMER32_2->CONTROL = 0;
+    TIMER32_2->LOAD = us * 12u;
+    TIMER32_2->INTCLR = 1;
+    TIMER32_2->CONTROL = TIMER32_CONTROL_SIZE | TIMER32_CONTROL_ONESHOT | TIMER32_CONTROL_ENABLE;
+    while (!TIMER32_2->RIS) { }
+}
+static void spi_b0(uint8_t v) {
+    while (!(EUSCI_B0->IFG & EUSCI_B_IFG_TXIFG)) { }
+    EUSCI_B0->TXBUF = v;
+}
+static void spi_b0_fin(void) { while (EUSCI_B0->STATW & EUSCI_B_STATW_SPI_BUSY) { } }
+static void tft_orden(uint8_t c) {
+    spi_b0_fin();
+    P3->OUT &= ~BIT7;                            /* orden */
+    P5->OUT &= ~BIT0;                            /* CS */
+    spi_b0(c);
+    spi_b0_fin();
+    P3->OUT |= BIT7;                             /* lo que sigue, datos */
+}
+static void tft_fin(void) { spi_b0_fin(); P5->OUT |= BIT0; }
+static void tft_rect(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t c) {
+    tft_orden(0x2A); spi_b0(0); spi_b0(x); spi_b0(0); spi_b0((uint8_t)(x + w - 1));
+    tft_orden(0x2B); spi_b0(0); spi_b0(y); spi_b0(0); spi_b0((uint8_t)(y + h - 1));
+    tft_orden(0x2C);
+    for (uint32_t n = (uint32_t)w * h; n > 0; --n) { spi_b0((uint8_t)(c >> 8)); spi_b0((uint8_t)c); }
+    tft_fin();
+}
+static void m23_tft(void) {
+    dco(CS_CTL0_DCORSEL_3);                      /* 12 MHz */
+    P5->OUT |= BIT0 | BIT7; P5->DIR |= BIT0 | BIT7;
+    P3->OUT |= BIT7;        P3->DIR |= BIT7;
+    P2->OUT |= BIT6;        P2->DIR |= BIT6;     /* la luz */
+    P1->SEL0 |= BIT5 | BIT6;                     /* UCB0CLK, UCB0SIMO */
+    EUSCI_B0->CTLW0 = EUSCI_B_CTLW0_SWRST;
+    EUSCI_B0->CTLW0 = EUSCI_B_CTLW0_SWRST | EUSCI_B_CTLW0_CKPH | EUSCI_B_CTLW0_MSB |
+                      EUSCI_B_CTLW0_MST | EUSCI_B_CTLW0_SYNC | EUSCI_B_CTLW0_SSEL__SMCLK;
+    EUSCI_B0->BRW = 2;                           /* 6 MHz */
+    EUSCI_B0->CTLW0 &= ~EUSCI_B_CTLW0_SWRST;
+    P5->OUT &= ~BIT7; espera_us(20); P5->OUT |= BIT7;   /* reset */
+    espera_us(120000);
+    tft_orden(0x11); tft_fin();                  /* SLPOUT */
+    espera_us(120000);
+    tft_orden(0x3A); spi_b0(0x05); tft_fin();    /* COLMOD: 16 bits */
+    tft_orden(0x36); spi_b0(0x00); tft_fin();    /* MADCTL */
+    tft_orden(0x29); tft_fin();                  /* DISPON */
+    tft_rect(10, 20, 16, 8, 0xF800);             /* rojo */
+    tft_rect(40, 50, 8, 8, 0x07E0);              /* verde */
+    buzon.estado = 1;
+    for (;;) { }
+}
+
+static void m24_spi(void) {
+    dco(CS_CTL0_DCORSEL_3);
+    P9->SEL0 |= BIT5 | BIT6 | BIT7;              /* UCA3CLK, UCA3SOMI, UCA3SIMO */
+    P10->SEL0 |= BIT1 | BIT2 | BIT3;             /* UCB3CLK, UCB3SIMO, UCB3SOMI */
+    static const uint16_t modos[4] = { 0, EUSCI_A_CTLW0_CKPL, EUSCI_A_CTLW0_CKPH,
+                                       EUSCI_A_CTLW0_CKPH | EUSCI_A_CTLW0_CKPL };
+    for (int m = 0; m < 4; ++m) {
+        /* La esclava, en reset mientras la maestra cambia de polaridad: si
+           no, el cambio de nivel de reposo de CLK es un flanco para ella y
+           se adelanta un bit. Lo mismo pasaria en la placa. */
+        EUSCI_B3->CTLW0 = EUSCI_B_CTLW0_SWRST;
+        EUSCI_A3->CTLW0 = EUSCI_A_CTLW0_SWRST;
+        EUSCI_A3->CTLW0 = EUSCI_A_CTLW0_SWRST | modos[m] | EUSCI_A_CTLW0_MSB |
+                          EUSCI_A_CTLW0_MST | EUSCI_A_CTLW0_SYNC | EUSCI_A_CTLW0_SSEL__SMCLK;
+        EUSCI_A3->BRW = 12;                      /* 1 MHz */
+        EUSCI_A3->CTLW0 &= ~EUSCI_A_CTLW0_SWRST;
+        EUSCI_B3->CTLW0 = EUSCI_B_CTLW0_SWRST | modos[m] | EUSCI_B_CTLW0_MSB | EUSCI_B_CTLW0_SYNC;
+        EUSCI_B3->CTLW0 &= ~EUSCI_B_CTLW0_SWRST;
+        EUSCI_B3->TXBUF = (uint8_t)(0xC0 + m);   /* lo que contesta la esclava */
+        EUSCI_A3->TXBUF = (uint8_t)(0x30 + m);
+        while (!(EUSCI_A3->IFG & EUSCI_A_IFG_RXIFG)) { }
+        while (!(EUSCI_B3->IFG & EUSCI_B_IFG_RXIFG)) { }
+        buzon.r[2 * m] = EUSCI_A3->RXBUF;        /* lo de la esclava */
+        buzon.r[2 * m + 1] = EUSCI_B3->RXBUF;    /* lo del maestro */
+    }
+    buzon.estado = 1;
+    for (;;) { }
+}
+
 int main(void) {
     para_perro();
     buzon.arranques++;
@@ -483,6 +697,11 @@ int main(void) {
     case 14: m14_timer32(); break;
     case 15: m15_taclk(); break;
     case 16: m16_servo(); break;
+    case 20: m20_i2c(); break;
+    case 21: m21_esclavo(); break;
+    case 22: m22_tbcnt(); break;
+    case 23: m23_tft(); break;
+    case 24: m24_spi(); break;
     default: break;
     }
     for (;;) { }
