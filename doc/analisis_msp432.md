@@ -40,6 +40,15 @@ fabricante.**
 > `gdb-multiarch` por consola y por MI pero **no dentro de los IDE**. Y un
 > arreglo del stub común: `monitor reset halt` soltaba el núcleo tras el
 > *vector catch*.
+>
+> **2026-10-15: hecha T3**, en nueve entregas: las funciones de periférico en
+> los pines y el PMAP; la eUSCI en UART, SPI e I2C; Timer_A y Timer32; ADC14 y
+> REF_A con el sensor de temperatura; la uDMA; CRC32, AES256, RTC_C y COMP_E;
+> los modos de bajo consumo y el consumo; la BOOSTXL-EDUMKII con cuatro
+> piezas nuevas y su sistema de dos placas; y los ejemplos de DriverLib con
+> DriverLib de verdad. `make testp4`: 356 comprobaciones, `resto`
+> `4941243771818 ps`; `make p4-edumkii`. Lo que queda dicho está en P-16
+> (letras p-x) de `doc/todo.md`.
 
 ---
 

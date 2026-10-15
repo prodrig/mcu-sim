@@ -98,5 +98,9 @@ los paquetes, y es lo primero que hay que mirar.
 
 Lo que falta, aparte: el mapa de memoria (`qXfer:memory-map:read`, I-29), así
 que GDB carga con paquetes `M`/`X` en vez de `vFlashWrite` —funciona igual,
-porque el stub reconoce el rango de la Flash—; y el puerto serie de vuelta del
-XDS110 (backchannel UART), que llega con la eUSCI en T3.
+porque el stub reconoce el rango de la Flash—.
+
+El puerto serie de vuelta del XDS110 (backchannel UART, la UCA0 en
+P1.2/P1.3) sí está desde T3: en la LaunchPad es el `PuenteSerie` BCL, por RFC
+2217 en `localhost:3356`, donde un terminal (o `--serie BCL=...`) lo recoge
+mientras se depura.

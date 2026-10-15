@@ -1557,7 +1557,7 @@ regulador de 3,3 V y su retroiluminación [ST7735S, Sitronix, v1.1]. Está en
 | `r_luz` | `15` | Su resistencia en la placa, en ohmios |
 
 **Lo que se ve es lo que enseñaría la pantalla de verdad**, y se lo manda a
-la ventana como una IMAGEN de 128x160 (§4.12):
+la ventana como una IMAGEN de 128x160 (§4.13):
 
 * el chip sin tensión, en reset, dormido —SLPIN, el estado tras arrancar— o
   con la pantalla apagada —DISPOFF—: **blanca**. El cristal es de los
@@ -1697,7 +1697,80 @@ servo. Y `placas/nucleo_f446re_servo.xml` la cablea a una Nucleo —el `PWM` a
 D5, PB4, el TIM3; el `VCC` a su `+5V`— con un KY-040 que lo mueve 5 grados por
 clic y la pantalla TFT de pie, con `verif/fw/servo_demo`.
 
-### 4.12 Lo que `mcu-sim-gui` puede ver y tocar
+### 4.12 Las piezas de la BOOSTXL-EDUMKII
+
+Las cuatro que trajo la placa educativa de TI (fase T3 del MSP432,
+`parts/boosterpack.h`). La placa entera es `placas/boostxl_edumkii.xml`, y
+enchufada a la LaunchPad, `placas/msp_exp432p401r_edumkii.xml`.
+
+#### `FuenteAjustable`
+
+Una tensión que se mueve con un mando: el cursor de un potenciómetro como su
+equivalente de Thevenin. Los ejes de un joystick o de un acelerómetro
+analógico, un micrófono en reposo.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `pin` | obligatorio | El nodo al que da la tensión |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `v` | `1.65` | La tensión de partida, en V |
+| `vmin`, `vmax` | `0`, `3.3` | El rango del mando |
+| `r` | `100` | Su resistencia de salida, en Ω |
+
+Mando `tension` (continuo); desde C++, `pon_tension(v)`.
+
+#### `Zumbador`
+
+Un zumbador magnético tras su transistor: para el pin es una carga a masa, y
+escucha el PWM que le llega. Observables `sonando` y `frecuencia` (el periodo
+entre dos flancos de subida; deja de sonar si pasan tres periodos sin flanco).
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `pin` | obligatorio | La señal que lo mueve |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `r_carga` | `1000` | La carga que ve el pin, en Ω |
+
+#### `Opt3001`
+
+El sensor de luz ambiental de TI por I2C, bit a bit sobre los nodos: RESULT
+con exponente y mantisa (0,01·2^E·M lx), CONFIG con la escala automática,
+conversiones de 100 u 800 ms, una vez o continuas, CRF, los límites con FH/FL
+y la patilla INT de drenador abierto; los identificadores 0x5449 y 0x3001.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `scl`, `sda` | obligatorios | El bus |
+| `int` | opcional | La interrupción |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `dir` | `0x44` | Dirección de 7 bits |
+| `lux` | `300` | La luz de partida; tiene mando |
+
+#### `Tmp006`
+
+El termómetro de infrarrojos de TI por I2C: VOBJECT (la termopila, 156,25 nV
+por cuenta), TAMBIENT (1/32 °C), CONFIG con el modo, el ritmo de conversión y
+DRDY, y su patilla; los identificadores 0x5449 y 0x0067. La tensión de la
+termopila es S0·(Tobj⁴ − Tchip⁴), con S0 = 6,4·10⁻¹⁴ y sin los términos de
+segundo orden.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `scl`, `sda` | obligatorios | El bus |
+| `drdy` | opcional | Dato listo, activa baja |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `dir` | `0x40` | Dirección de 7 bits |
+| `t_chip`, `t_objeto` | `25`, `25` | Las temperaturas, en °C; tienen mando |
+
+### 4.13 Lo que `mcu-sim-gui` puede ver y tocar
 
 Desde la fase 1 del plan de `mcu-sim-gui` (P-12), una pieza puede **declarar**
 qué deja ver —sus *observables*— y qué se le puede hacer —sus *mandos*—. La
@@ -1762,7 +1835,7 @@ existe—; simplemente no ha hecho falta todavía.
 encender un oscilador, enviar una trama CAN o inyectar una trama Ethernet son
 acciones, no descripción, y viven en el programa que conduce la simulación
 —o, con `--gui`, en la ventana, que las manda como órdenes a los mandos que
-cada pieza declara (§4.12)—.
+cada pieza declara (§4.13)—.
 
 **El MCU no se describe.** Variante, encapsulado y rasgos de los periféricos
 siguen fijados en C++. El fichero describe lo que está fuera del chip.

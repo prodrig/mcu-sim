@@ -73,7 +73,7 @@ razón —lo que prueban, dentro de `test407`, movería su invariante—:
 | `make test446` | La del F446RE y sus ocho referencias | **204** | `1033367277932 ps` |
 | `make test417` | La del acelerador criptográfico del F415/F417 | **165** | `718988288 ps` |
 | `make testserie` | La del puente UART: `PuenteSerie`, un F407 con `vcp_demo` y clientes TCP y RFC 2217 de verdad | **189** | `400677589564 ps` |
-| `make testp4` | La del MSP432P401R (P-16, fases T0 a T2): las pruebas de T0 -nombres de pin por chip, catalogo comun, ELF/TI-TXT/HEX, integracion del nucleo-, el chip con `p4_demo` cargado como ELF y CoreMark, y T2: el FLCTL desde el bus, un firmware que reprograma su Flash y una sesion de GDB entera por los pines y por el DAP | **148** | `553539188968 ps` (`resto`: **`331699188968 ps`**) |
+| `make testp4` | La del MSP432P401R (P-16, fases T0 a T3): las pruebas de T0 -nombres de pin por chip, catalogo comun, ELF/TI-TXT/HEX, integracion del nucleo-, el chip con `p4_demo` cargado como ELF y CoreMark; T2: el FLCTL, un firmware que reprograma su Flash y una sesion de GDB por los pines y por el DAP; y T3: todos los perifericos, el bajo consumo, las piezas de la BOOSTXL-EDUMKII y los ejemplos de DriverLib | **356** | `5163083771818 ps` (`resto`: **`4941243771818 ps`**) |
 | `make testgui` | La de la frontera con `mcu-sim-gui`: lo que cada pieza deja ver y tocar, el catálogo, el muestreador, el aplicador y el enlace que atiende la conexión en marcha —instantáneas, avisos, órdenes con sus ecos, la pausa y los pasos—, sobre una placa mínima sin chip | **145** | `76450000000 ps` |
 
 **En una máquina nueva no hace falta nada más**: los diecinueve firmwares que
@@ -170,6 +170,7 @@ make -f Makefile.mcu-sim gui-argumentos  # que --argumentos dice lo que acepta s
 make -f Makefile.mcu-sim testserie    # el banco del puente UART, que es OTRO ejecutable
 make -f Makefile.mcu-sim testgui      # el de la frontera con mcu-sim-gui, OTRO mas
 make -f Makefile.mcu-sim testp4       # el del MSP432P401R, y las pruebas de T0
+make -f Makefile.mcu-sim p4-edumkii   # la LaunchPad con la BOOSTXL-EDUMKII, de punta a punta
 make -f Makefile.mcu-sim asanp4       # el mismo con ASan + UBSan
 make -f Makefile.mcu-sim asan407      # la misma suite con ASan + UBSan
 make -f Makefile.mcu-sim vectores     # los vectores del CRYP/HASH, sin SystemC

@@ -388,7 +388,7 @@ private:
             const long vi = std::lround(std::max(-32768.0, std::min(32767.0, v)));
             vobj_ = uint16_t(int16_t(vi));
             const long ti = std::lround(t_chip_ * 32.0);
-            tamb_ = uint16_t(int16_t(ti << 2));
+            tamb_ = uint16_t(int16_t(ti * 4));             // ti puede ser negativo
             ++n_conv_;
             cfg_ |= 0x0080u;
             pinta();

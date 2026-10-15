@@ -480,9 +480,48 @@ HECHAS T0 y T1 el 2026-10-14**, en la rama `msp432`:
   símbolos del ELF, P21 GDB por G2 y G1), y su invariante pasa a la columna
   `resto`: **`331699188968 ps`**. `asanp4` limpio.
 
+**HECHA T3 el 2026-10-15**, en nueve entregas, cada una con su commit y su
+grupo de comprobaciones en `make testp4` (P22-P61: 148 -> 356, resto
+`4941243771818 ps`):
+
+1. **Las funciones de periférico en los pines** (SEL1:SEL0, las que gobierna
+   el módulo, las de PxDIR y las analógicas; el PMAP con su tabla de reset)
+   y **la eUSCI_A en UART** a nivel de bit, con el backchannel de la
+   LaunchPad como `PuenteSerie`.
+2. **Timer_A** (los tres modos, los ocho de salida, captura, TAxCLK, ID/IDEX)
+   y **Timer32**; un servo SG90 en TA0.2.
+3. **La eUSCI_B en I2C** (maestro y esclavo, con estiramiento, START
+   repetido, TBCNT) **y SPI** (A y B, los cuatro modos), contra una 24Cxx y la
+   ST7735.
+4. **ADC14 y REF_A**: resoluciones, formato con signo, diferencial,
+   secuencias, MSC, disparo por Timer_A, ventana; el sensor de temperatura
+   con la calibración del TLV.
+5. **La uDMA** (PL230 con el multiplexor de TI): básico, automático y
+   ping-pong, con la eUSCI y el ADC14.
+6. **CRC32, AES256, RTC_C y COMP_E**.
+7. **Los modos de bajo consumo** (LPM0, LPM3, LPM4, LPM3.5, LPM4.5, con su
+   salida por POR y LOCKLPM5) y **el consumo por DVCC**.
+8. **La BOOSTXL-EDUMKII**: cuatro piezas nuevas (`FuenteAjustable`,
+   `Zumbador`, `Opt3001`, `Tmp006`), los conectores BoosterPack de la
+   LaunchPad, la placa y el sistema `placas/msp_exp432p401r_edumkii.xml` con
+   su firmware; `make p4-edumkii`, en el CI.
+9. **Los ejemplos de DriverLib** (uart_pc_echo, timer_a_pwm,
+   adc14_single_conversion, dma) con DriverLib de TI compilada de sus
+   fuentes (`verif/fw/msp432p4/sdk`).
+
+Por el camino, siete fallos del modelo que solo se ven usándolo: escribir
+CTL0 con la eUSCI en marcha soltaba SDA a medio bit; la esclava I2C soltaba
+SCL a la vez que cambiaba SDA (el maestro veía un STOP); la esclava no
+contaba el STOP tras un NACK; el ADC14, el RTC_C y el COMP_E no volvían a
+subir la interrupción con otro flag pendiente; el Timer_A giraba sin avanzar
+el tiempo con el tic redondeado a ps (12 MHz); el Timer32 truncaba a 16 bits
+un LOAD escrito parado; y la uDMA no entendía el fin de búfer que escribe
+DriverLib (el último byte). El último lo encontró DriverLib: es para lo que
+está.
+
 **Lo que queda**, con su fase:
-T3 (periféricos de aula), T4 (la ROM de DriverLib), T5 (OpenOCD y BSL),
-T6-T7 (el MSP432E401Y) y T8 (el resto de la familia). Y lo que T1 deja
+T4 (la ROM de DriverLib), T5 (OpenOCD y BSL), T6-T7 (el MSP432E401Y) y T8 (el
+resto de la familia). CAPTIO y PSS siguen declarados. Y lo que T1-T3 dejan
 dicho, con la letra con la que lo cita el código:
 
 | | Qué | Por qué |
@@ -501,6 +540,15 @@ dicho, con la letra con la que lo cita el código:
 | **l** | Reset: pull-up de RSTn (47 kΩ), pulso de 20 µs, código de arranque | [1F] el pull-up. El pulso es el mínimo del RCC de los STM32 y por la misma razón (el cuanto de 1 µs de la CPU; con 1 µs se perdían los resets que pide la propia CPU). El código de arranque de TI no se ejecuta: ni buzón, ni BSL, ni bloqueo de JTAG |
 | **m** | SRAM_BANKEN | Se guarda (habilitar el banco n habilita los de debajo) pero no apaga ningún banco |
 | **n** | Tiempos del FLCTL | De modelo: 30 µs por palabra o por línea de ráfaga, 5 ms por sector, 40 ms el masivo. El orden de magnitud es el del datasheet; los valores exactos dependen de los pulsos y no están contrastados. Un sector protegido «se borra» en el acto: STATUS 3 sin tocar nada |
+| **p** | Las tablas de pines | [1F] datasheet (SLAS826 §6.12) para las funciones fijas y la tabla «Default Mapping» del PMAP; segunda fuente, las definiciones de TI-Drivers (`*MSP432.h`) y Energía. Los conectores BoosterPack de la LaunchPad, de SLAU597 y de los A0-A15 de Energía |
+| **q** | eUSCI | El orden en que se aplica el patrón UCBRSx a los bits de un carácter es [1F]; los valores, de la tabla de la guía y de Tock. No están: detección automática de baudios, IrDA, el filtro de glitches, I2C de 10 bits, UCCLTO y UCSWACK (se guardan y avisan) |
+| **r** | Timer_A y Timer32 | CCIFG de CCR0 no se borra solo al atender la interrupción (en el MSP430 sí) [1F]. Las entradas CCInB internas e INCLK leen 0. El Timer32 es el SP804 de ARM |
+| **s** | ADC14, REF_A y el sensor de temperatura | Convertidor ideal: sin ruido, sin error de ganancia ni de offset, sin carga del muestreo sobre el nodo. PWRMD y REFBURST no cambian nada; RDYIFG no sube; los CHxMAP no llevan a ningún canal. El sensor es lineal, 685 mV a 0 °C y 1,9 mV/°C (de memoria del datasheet, sin segunda fuente), y el TLV sintético lleva SUS calibraciones. REF_A asienta en 40 µs (modelo); GENOT/BGOT avisan |
+| **t** | uDMA | Sin scatter-gather (cycle_ctrl 4-7: error y aviso), sin distinguir peticiones simples de ráfaga, sin USEBURST ni prot. Los Timer_A, el AES y el pin externo no piden transferencias |
+| **u** | AES256 | Bloque a bloque: los modos de cifrado con DMA (CMEN, CBC/OFB/CFB, BLKCNT) avisan. Los ciclos de 192 y 256 bits son [1F] |
+| **v** | RTC_C | RTCRDY siempre a 1; la calibración (OCAL, TCMP, CALF, RTCCLK) se guarda y no hace nada; RTCOFIFG no sube. IV en el orden OF, RDY, TEV, A, RT0PS, RT1PS [1F] |
+| **w** | COMP_E | Sin los canales internos 8-15, sin SHORT, todos los modos de consumo responden igual, y la salida no llega a las capturas de los Timer_A. Retardo, el del filtro (450-3600 ns) o ninguno |
+| **x** | El consumo | Cifras de modelo con el orden de magnitud del datasheet: 40 µA + 100/115 µA/MHz (LDO) u 80/95 (DC-DC) en activo, el 40 % en LPM0, 0,66 µA en LPM3, 0,5 en LPM4, 0,63 en LPM3.5 y 25 nA en LPM4.5. Ni los periféricos ni las transiciones gastan. La SRAM se conserva entera en LPM3.5 (en el chip, el banco 0) |
 | **o** | Verificación previa y modos de lectura | `VER_PRE`/`AUTO_PRE` se guardan y no hacen nada; los modos de lectura de margen (`RDCTL.RD_MODE`), `RDBRST` y los marcadores de borrado (`BMRK`) no se modelan. Tampoco el límite de pulsos del TLV (`FLASHCTL`): se programa siempre a la primera |
 
 Y una que no es del P4 sino del núcleo compartido: el SysTick con

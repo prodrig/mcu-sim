@@ -20,8 +20,10 @@
 
        * el XDS110-ET, la sonda de la placa. Aqui se depura con el stub de GDB
          (depuracion="dap") o con la sonda SWD por SWCLKTCK/SWDIOTMS
-         (depuracion="pines"), igual que en los STM32;
-       * los conectores BoosterPack (J1-J4).
+         (depuracion="pines"), igual que en los STM32.
+
+     Los conectores BoosterPack, J1-J4, estan al final: por ellos se enchufa
+     la BOOSTXL-EDUMKII (placas/msp_exp432p401r_edumkii.xml).
 
          ./build/mcu-sim placas/msp_exp432p401r.xml --valida
          ./build/mcu-sim placas/msp_exp432p401r.xml verif/fw/msp432p4/p4_demo/p4_demo.out --ms=600

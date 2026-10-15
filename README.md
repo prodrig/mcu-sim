@@ -26,7 +26,7 @@ observaría con un osciloscopio y un depurador.
 | **F407VG** | LQFP100, 168 MHz | La pieza principal. Es la que tiene la suite grande |
 | **F446RE** | NUCLEO-F446RE | La prueba cruzada: lo que el F446 **no** lleva y decodifica distinto |
 | **F415 / F417** | — | El acelerador criptográfico (AES, DES, HASH) |
-| **MSP432P401R** | MSP-EXP432P401R | **Otro fabricante**, el mismo núcleo: Texas Instruments. En construcción (`doc/analisis_msp432.md`, fases T0 a T2 hechas: arranca, se programa y se depura) |
+| **MSP432P401R** | MSP-EXP432P401R | **Otro fabricante**, el mismo núcleo: Texas Instruments. En construcción (`doc/analisis_msp432.md`, fases T0 a T3 hechas: arranca, se programa, se depura y tiene sus periféricos; con la BOOSTXL-EDUMKII) |
 
 **El núcleo** ejecuta Thumb-2 de verdad, con FPU, excepciones, NVIC, MPU y
 lockup. **Los periféricos** —RCC, DMA, temporizadores, USART, SPI/I²S, I²C,
@@ -79,7 +79,7 @@ Cinco bancos de pruebas, que se ejecutan en cada cambio y en cuatro plataformas:
 make test407    # 2149 comprobaciones    2396293659555 ps   (resto: 2281827784555 ps)
 make test446    #  204                   1033367277932 ps
 make test417    #  165                    718988288 ps
-make testp4     #  148                 553539188968 ps   (resto: 331699188968 ps; MSP432P401R)
+make testp4     #  356                5163083771818 ps   (resto: 4941243771818 ps; MSP432P401R)
 make testserie  #  189                   400677589564 ps
 make testgui    #  145                    76450000000 ps
 ```

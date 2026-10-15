@@ -247,7 +247,7 @@ protected:
         if (code > long(full) - 1) code = long(full) - 1;
         if (ctl1_ & DF) {                       // con signo, alineado a la izquierda
             const long s = code - long(full / 2);
-            return uint32_t(uint16_t(int16_t(s << (16 - bits))));
+            return uint32_t(uint16_t(int16_t(s * (1L << (16 - bits)))));   // sin desplazar un negativo
         }
         return uint32_t(code);
     }
