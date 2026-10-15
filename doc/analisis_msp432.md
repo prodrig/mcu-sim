@@ -30,6 +30,16 @@ fabricante.**
 > STM32), o los resets que pide el propio firmware se pierden; y el `.out` de
 > CCS es un ELF con la ruta absoluta de quien compila en su DWARF, así que su
 > huella solo es estable con `-ffile-prefix-map`.
+>
+> **2026-10-15: hecha T2.** El FLCTL entero (protección, programación inmediata
+> y en ráfaga, borrado de sector y masivo, read-while-write entre bancos), su
+> `programador_nv_if` para el `load` de GDB, `SYSCTL_PERIHALT_CTL`, y la misma
+> sesión de GDB por `depuracion="dap"` y por `"pines"` con los mismos
+> resultados. `make testp4`: 148 comprobaciones, `resto` `331699188968 ps`.
+> Las configuraciones de CCS y VS Code están en `src/ide/msp432/`, probadas con
+> `gdb-multiarch` por consola y por MI pero **no dentro de los IDE**. Y un
+> arreglo del stub común: `monitor reset halt` soltaba el núcleo tras el
+> *vector catch*.
 
 ---
 
@@ -477,10 +487,10 @@ bit a bit.
 
 | IDE | Cómo | Estado |
 | :--- | :--- | :--- |
-| **CCS (Eclipse, hasta 12.x)** | Lanzamiento **GDB Hardware Debugging** de CDT, contra `localhost:3333`, con el `arm-none-eabi-gdb` que CCS instala con el compilador GCC. Es el equivalente exacto de `cubeide/simulador.launch` | Hay que escribir el `.launch` y probarlo. Con el compilador de TI (`.out` de TI CGT), GDB lee bien el ELF, pero la información de depuración DWARF de TI CGT puede dar sorpresas: probar las dos cadenas |
+| **CCS (Eclipse, hasta 12.x)** | Lanzamiento **GDB Hardware Debugging** de CDT, contra `localhost:3333`, con el `arm-none-eabi-gdb` que CCS instala con el compilador GCC. Es el equivalente exacto de `cubeide/simulador.launch` | **Escrito en T2** (`src/ide/msp432/ccs/`), probado con `gdb-multiarch` por MI, no dentro de CCS. Con el compilador de TI (`.out` de TI CGT), GDB lee bien el ELF, pero la información de depuración DWARF de TI CGT puede dar sorpresas: probar las dos cadenas |
 | **CCS 20+ (Theia)** | Hay que comprobar si admite un servidor GDB remoto genérico | Abierto (§9) |
 | **CCS, depurador nativo** | Necesita un XDS110 | **No**, salvo con D5 + emulación del protocolo XDS |
-| **VS Code + Cortex-Debug** | `"servertype": "external"`, `"gdbTarget": "localhost:3333"`, y el SVD del chip (TI publica los SVD de los dos en los CMSIS packs) | Directo |
+| **VS Code + Cortex-Debug** | `"servertype": "external"`, `"gdbTarget": "localhost:3333"`, y el SVD del chip (TI publica los SVD de los dos en los CMSIS packs) | **Escrito en T2** (`src/ide/msp432/vscode/launch.json`, también con `cppdbg`), sin probar dentro de VS Code |
 | **Keil / IAR** | CMSIS-DAP | Solo con D5 |
 | **Energia** (Arduino para MSP432) | Sube con DSLite | Proyecto parado; no se prioriza |
 

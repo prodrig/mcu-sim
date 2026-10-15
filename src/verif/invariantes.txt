@@ -125,4 +125,10 @@ testgui                145        76450000000        total
 # firmware p4_demo cargado como ELF en sus nueve modos y CoreMark a 3 MHz. El
 # tiempo es el de las esperas del banco mas lo que tarda CoreMark en acabar,
 # sondeado cada 2 ms. Contrasta `total`: no hay socket de GDB dentro.
-testp4                  96        254192855661        total
+# Fase T2 (2026-10-15): P18 a P21 -el FLCTL desde el bus, el firmware que se
+# reprograma (modo 9 de p4_demo), los simbolos del ELF y una
+# sesion de GDB entera por los pines (G2) y por el DAP (G1)-: 96 -> 148. Desde
+# aqui hay socket de GDB dentro, y el criterio pasa a ser `resto`, como en
+# test407. El resto crece 77,5 ms: las esperas de P18 (47 ms, casi todo el
+# borrado masivo) y de P19 (30 ms).
+testp4                 148        331699188968        resto

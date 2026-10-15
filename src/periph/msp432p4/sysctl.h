@@ -46,6 +46,9 @@ public:
 
     // El SoC ejecuta los resets; esto solo los pide y los anota.
     std::function<void(ResetP4)> pide_reset;
+    // Cambió SYSCTL_PERIHALT_CTL: quien se congela con el núcleo parado tiene
+    // que volver a mirarlo (T2: el perro, de momento).
+    std::function<void()> al_cambiar_perihalt;
 
     SysctlP4(uint32_t sram_size, uint32_t flash_size)
         : sram_size_(sram_size), flash_size_(flash_size) { por(); }
@@ -194,7 +197,9 @@ private:
                     return;
                 case 0x04: nmi_      = mz(nmi_) & 0x0000000Fu;  return;
                 case 0x08: wdtreset_ = mz(wdtreset_) & 0x3u;    return;
-                case 0x0C: perihalt_ = mz(perihalt_) & 0xFFFFu; return;
+                case 0x0C: perihalt_ = mz(perihalt_) & 0xFFFFu;
+                           if (al_cambiar_perihalt) al_cambiar_perihalt();
+                           return;
                 // Los bancos se habilitan de abajo arriba: habilitar el n
                 // habilita todos los de debajo. El banco 0 no se apaga.
                 case 0x14: {

@@ -1,5 +1,5 @@
 // =============================================================================
-// sc_main_p4.cpp — LA SUITE DEL MSP432P401R (fases T0 y T1)
+// sc_main_p4.cpp — LA SUITE DEL MSP432P401R (fases T0, T1 y T2)
 //
 // Un banco aparte, por la misma razón que los del F446 y el F417: un chip más
 // dentro de otra simulación movería su invariante. Y es, además, el sitio de
@@ -13,6 +13,17 @@
 //   P5-P16 T1: el chip, con el firmware p4_demo compilado con la cabecera de
 //        TI y cargado COMO ELF -el `.out` de CCS-
 //   P17  CoreMark, sobre el núcleo de siempre con la integración de TI
+//   P18-P21 T2: el FLCTL desde el bus, un firmware que reprograma su propia
+//        Flash, y GDB de verdad -por la sonda de los pines (G2) y por el DAP
+//        (G1)- con `load`, `monitor reset halt`, puntos de ruptura, un
+//        watchpoint, un paso y el perro congelado mientras el núcleo está
+//        parado
+//
+// EL TIEMPO SIMULADO DE P21 NO ES REPRODUCIBLE entre máquinas, por lo mismo
+// que el de T96/T97 en test407 (T-16): mientras espera la respuesta de un
+// socket, el stub gasta tiempo simulado en pasos de 100 µs. Por eso el banco
+// imprime también «el resto», el total sin P21, y eso es lo que contrasta
+// `verif/invariantes.txt`.
 //
 //   make testp4   (o: make -f Makefile.mcu-sim testp4-build && ./build/testp4)
 // =============================================================================
@@ -31,11 +42,16 @@
 #include "../parts/ext_parts.h"
 #include "../verif/bus_test_master.h"
 #include "../verif/swd_port.h"
+#include "../verif/gdb_stub.h"
+#include "../verif/gdb_client.h"
+#include "../core/gdb_stub_dap.h"
 
 using namespace sc_core;
 using namespace stm32;
 
 static unsigned g_ok = 0, g_fallos = 0;
+// Lo que gastan los grupos que hablan por un socket con un GDB (P21)
+static sc_core::sc_time g_t_gdb = sc_core::SC_ZERO_TIME;
 static void grupo(const char* t) { std::printf("\n--- %s ---\n", t); }
 static bool check(bool c, const char* q) {
     if (c) { ++g_ok;  std::printf("  [OK  ] %s\n", q); }
@@ -62,7 +78,8 @@ enum : uint32_t {
     B_FLASH = 0x20, B_SRAM = 0x24, B_CS_SIN_LLAVE = 0x28, B_CS_KEY = 0x2C,
     B_PCM_IFG = 0x30, B_PCM_CTL0 = 0x34, B_PULSACIONES = 0x38, B_IV = 0x3C,
     B_WDT = 0x40, B_PMAP = 0x44, B_TLV_FIN = 0x48, B_ALIAS = 0x4C,
-    B_P1DIR = 0x50, B_REBOOT = 0x54, B_TAM = 0x58
+    B_P1DIR = 0x50, B_REBOOT = 0x54, B_M9_B1 = 0x58, B_M9_B0 = 0x5C,
+    B_M9_RES = 0x60, B_M9_IFG = 0x64, B_TAM = 0x68
 };
 
 SC_MODULE(TbP4) {
@@ -73,6 +90,14 @@ SC_MODULE(TbP4) {
     Crystal* y1 = nullptr;     // 32 768 Hz en PJ.0
     Crystal* y2 = nullptr;     // 48 MHz en PJ.3
     Button*  s1 = nullptr;     // P1.1, a masa
+    // Los dos servidores de GDB (T2): el de la sonda soldada a SWCLKTCK y
+    // SWDIOTMS, como un XDS110, y el que habla con el DAP por dentro. Los
+    // construye el banco, como hace test407 con los del F407; los dos con el
+    // programador de la Flash del P4.
+    GdbStub*    gdb_p = nullptr;
+    GdbStubDap* gdb_d = nullptr;
+    GdbClient   cli;
+    static constexpr unsigned PUERTO_PINES = 3431, PUERTO_DAP = 3432;
 
     SC_CTOR(TbP4)
         : mcu("dut", DBG_PINES, Cableado(), *CatalogoMcu::busca("MSP432P401R")),
@@ -83,9 +108,17 @@ SC_MODULE(TbP4) {
         s1 = new Button(dut.dio.nodo_de(0, 1));
         s1->release();
         sonda = new SwdProbe(*dut.swclk_net, *dut.swdio_net, 2e6);
+        gdb_p = new GdbStub("gdb_p", *dut.swclk_net, *dut.swdio_net, PUERTO_PINES, 2e6);
+        gdb_p->set_enabled(false);
+        gdb_p->pon_programador(&ProgramadorP4::el());
+        gdb_d = new GdbStubDap("gdb_d", dut.core.debug, PUERTO_DAP);
+        gdb_d->set_enabled(false);
+        gdb_d->pon_programador(&ProgramadorP4::el());
         SC_THREAD(run);
     }
-    ~TbP4() override { delete sonda; delete y1; delete y2; delete s1; }
+    ~TbP4() override {
+        delete sonda; delete y1; delete y2; delete s1; delete gdb_p; delete gdb_d;
+    }
 
     // --- Utilidades -----------------------------------------------------------
     uint32_t buzon(uint32_t off) { return dut.sram.peek32(off); }
@@ -535,6 +568,312 @@ SC_MODULE(TbP4) {
         check(mcu.limitaciones().size() >= 6, "y limitaciones() lo enumera al montar");
     }
 
+
+    // =======================================================================
+    // T2
+    // =======================================================================
+    uint32_t rd(uint32_t a) { uint32_t v = 0; tm.read32(a, v); return v; }
+    void     wr(uint32_t a, uint32_t v) { tm.write32(a, v); }
+    uint32_t F(uint32_t off) { return p4::FLCTL_B + off; }
+    // Lo que tarda un acceso del maestro de pruebas
+    sc_time lee_cuanto(uint32_t a) {
+        unsigned char b[4];
+        sc_time t = SC_ZERO_TIME;
+        tm.access(false, a, b, 4, &t);
+        return t;
+    }
+
+    void t2_flctl() {
+        grupo("P18 El FLCTL desde el bus: proteccion, borrado y programacion (T2)");
+        arranca(99);                                 // aparcado, el perro parado
+        wait(1, SC_MS);
+        check(rd(F(FlctlP4::R_BANK0_MAIN_WEPROT)) == 0xFFFFFFFFu &&
+              rd(F(FlctlP4::R_BANK1_MAIN_WEPROT)) == 0xFFFFFFFFu &&
+              rd(F(FlctlP4::R_BANK0_INFO_WEPROT)) == 3u && rd(F(FlctlP4::R_BANK1_INFO_WEPROT)) == 3u,
+              "al salir del reset toda la Flash esta protegida");
+        wr(F(FlctlP4::R_BANK0_INFO_WEPROT), 0);
+        check_eq(rd(F(FlctlP4::R_BANK0_INFO_WEPROT)), 2u,
+                 "el sector 1 de la informacion -el TLV- no se desprotege: es de TI");
+        wr(F(FlctlP4::R_BANK0_INFO_WEPROT), 3);
+        check_eq(rd(F(FlctlP4::R_POWER_STAT)) & 7u, 4u, "POWER_STAT.PSTAT = 4: activa");
+
+        // Escribir sin ENABLE no programa
+        const unsigned ign = dut.flctl.escrituras_ignoradas();
+        wr(0x34000u, 0);
+        check(rd(0x34000u) == 0xFFFFFFFFu && dut.flctl.escrituras_ignoradas() == ign + 1,
+              "sin PRG_CTLSTAT.ENABLE, escribir en la Flash no programa nada");
+
+        // Borrar un sector del banco 1, y lo que tarda
+        for (uint32_t a = 0x34000u; a < 0x34010u; ++a) dut.flash.poke_byte(a, 0x5A);
+        wr(F(FlctlP4::R_ERASE_SECTADDR), 0x34000u);
+        wr(F(FlctlP4::R_ERASE_CTLSTAT), FlctlP4::ERASE_START);
+        check_eq(rd(F(FlctlP4::R_ERASE_CTLSTAT)) & 0x3F0000u, 0x30000u,
+                 "un sector PROTEGIDO no se borra, pero la operacion acaba igual (STATUS 3)");
+        check_eq(rd(0x34000u), 0x5A5A5A5Au, "y el contenido sigue ahi");
+        wr(F(FlctlP4::R_ERASE_CTLSTAT), FlctlP4::ERASE_CLR_STAT);
+        wr(F(FlctlP4::R_BANK1_MAIN_WEPROT), ~(1u << 20));      // 0x34000: banco 1, sector 20
+        wr(F(FlctlP4::R_CLRIFG), 0xFFFFFFFFu);
+        wr(F(FlctlP4::R_ERASE_CTLSTAT), FlctlP4::ERASE_START);
+        check_eq((rd(F(FlctlP4::R_ERASE_CTLSTAT)) >> 16) & 3u, 2u, "desprotegido: STATUS 2, en curso");
+        const sc_time t_otro = lee_cuanto(0x00000100u);
+        const sc_time t_mismo = lee_cuanto(0x34000u);
+        std::printf("    leer el banco 0 durante el borrado: %s; el banco 1: %s\n",
+                    t_otro.to_string().c_str(), t_mismo.to_string().c_str());
+        check(t_otro < sc_time(1, SC_US),
+              "leer el OTRO banco mientras se borra no espera: read-while-write");
+        check(t_mismo > sc_time(4, SC_MS) && t_mismo <= sc_time(5, SC_MS),
+              "leer el MISMO banco espera a que acabe el borrado (5 ms de modelo)");
+        check(rd(0x34000u) == 0xFFFFFFFFu && ((rd(F(FlctlP4::R_ERASE_CTLSTAT)) >> 16) & 3u) == 3u &&
+              (rd(F(FlctlP4::R_IFG)) & FlctlP4::IFG_ERASE),
+              "y queda borrado: 0xFF, STATUS 3 e IFG.ERASE");
+        wr(F(FlctlP4::R_ERASE_CTLSTAT), FlctlP4::ERASE_CLR_STAT);
+        check_eq(rd(F(FlctlP4::R_ERASE_CTLSTAT)) & 0x70000u, 0u, "CLR_STAT lo deja en reposo");
+
+        // Programacion inmediata: solo baja bits
+        wr(F(FlctlP4::R_PRG_CTLSTAT), FlctlP4::PRG_ENABLE | FlctlP4::PRG_VER_PST);
+        wr(0x34000u, 0x0F0F00FFu);
+        wr(0x34000u, 0xFF00F0F0u);
+        check_eq(rd(0x34000u), 0x0F0000F0u,
+                 "programar dos veces la misma palabra da el AND: solo se bajan bits");
+        check(rd(F(FlctlP4::R_IFG)) & FlctlP4::IFG_AVPST,
+              "y con VER_PST, la segunda levanta AVPST: no quedo lo pedido");
+        // El sector protegido
+        wr(F(FlctlP4::R_CLRIFG), 0xFFFFFFFFu);
+        wr(0x35000u, 0);
+        check(rd(0x35000u) == 0xFFFFFFFFu && (rd(F(FlctlP4::R_IFG)) & FlctlP4::IFG_PRG_ERR),
+              "en un sector protegido no se programa: PRG_ERR");
+        // Palabra completa: hasta los 16 bytes no se programa nada
+        wr(F(FlctlP4::R_PRG_CTLSTAT), FlctlP4::PRG_ENABLE | FlctlP4::PRG_MODE);
+        wr(0x34010u, 0x11111111u); wr(0x34014u, 0x22222222u); wr(0x34018u, 0x33333333u);
+        const uint32_t a_medias = rd(0x34010u);
+        wr(0x3401Cu, 0x44444444u);
+        check(a_medias == 0xFFFFFFFFu && rd(0x34010u) == 0x11111111u && rd(0x3401Cu) == 0x44444444u,
+              "en modo de palabra completa se junta la linea de 128 bits y se programa entera");
+        wr(F(FlctlP4::R_PRG_CTLSTAT), 0);
+        // Rafaga: desalineada, fuera de rango y buena
+        for (unsigned i = 0; i < 16; ++i) wr(F(FlctlP4::R_PRGBRST_DATA) + 4 * i, 0xC0DE0000u + i);
+        wr(F(FlctlP4::R_PRGBRST_STARTADDR), 0x34028u);
+        wr(F(FlctlP4::R_PRGBRST_CTLSTAT), FlctlP4::BRST_START | (1u << 3));
+        check(rd(F(FlctlP4::R_PRGBRST_CTLSTAT)) & FlctlP4::BRST_ADDR_ERR,
+              "una rafaga que no empieza en 16 bytes da ADDR_ERR");
+        wr(F(FlctlP4::R_PRGBRST_CTLSTAT), FlctlP4::BRST_CLR_STAT);
+        wr(F(FlctlP4::R_PRGBRST_STARTADDR), 0x34040u);
+        wr(F(FlctlP4::R_PRGBRST_CTLSTAT), FlctlP4::BRST_START | (4u << 3));
+        unsigned vistos = 0, ultimo = 99;
+        for (unsigned k = 0; k < 40; ++k) {
+            const unsigned st = (rd(F(FlctlP4::R_PRGBRST_CTLSTAT)) >> 16) & 7u;
+            if (st != ultimo) { ++vistos; ultimo = st; }
+            if (st == 7) break;
+            wait(5, SC_US);
+        }
+        check(ultimo == 7 && vistos >= 4,
+              "una rafaga de cuatro lineas pasa por BURST_STATUS 2..5 y acaba en 7");
+        check(rd(0x34040u) == 0xC0DE0000u && rd(0x3407Cu) == 0xC0DE000Fu,
+              "y deja las 16 palabras de PRGBRST_DATA en la Flash");
+        wr(F(FlctlP4::R_PRGBRST_CTLSTAT), FlctlP4::BRST_CLR_STAT);
+
+        // Borrado masivo: lo no protegido, de las dos memorias, menos el TLV
+        for (uint32_t a = 0x36000u; a < 0x36004u; ++a) dut.flash.poke_byte(a, 0);
+        for (uint32_t a = 0x37000u; a < 0x37004u; ++a) dut.flash.poke_byte(a, 0);
+        wr(F(FlctlP4::R_BANK1_MAIN_WEPROT), ~(1u << 22));      // solo 0x36000
+        wr(F(FlctlP4::R_BANK0_MAIN_WEPROT), 0xFFFFFFFFu);
+        wr(F(FlctlP4::R_CLRIFG), 0xFFFFFFFFu);
+        wr(F(FlctlP4::R_IE), FlctlP4::IFG_ERASE);
+        wr(F(FlctlP4::R_ERASE_CTLSTAT), FlctlP4::ERASE_START | FlctlP4::ERASE_MODE_MASA);
+        wait(41, SC_MS);
+        check(rd(0x36000u) == 0xFFFFFFFFu && rd(0x37000u) == 0 &&
+              rd(p4::TLV_B + 0x148u) == 0x0BD0E11Du && rd(0x100u) != 0xFFFFFFFFu,
+              "el borrado masivo borra lo desprotegido y respeta lo protegido, el TLV y "
+              "el firmware");
+        // Con IE.ERASE, la linea FLCTL_IRQn llega al NVIC: se mira su ISPR por SWD
+        sonda->conectar_swd();
+        uint32_t ispr = 0;
+        sonda->mem_read32(0xE000E200u, ispr);
+        sonda->desconectar();
+        check(ispr & (1u << p4::IRQ_FLCTL), "y con IE.ERASE, FLCTL_IRQn queda pendiente en el NVIC");
+        wr(F(FlctlP4::R_IE), 0);
+        wr(F(FlctlP4::R_ERASE_CTLSTAT), FlctlP4::ERASE_CLR_STAT);
+        wr(F(FlctlP4::R_BANK1_MAIN_WEPROT), 0xFFFFFFFFu);
+    }
+
+    void t2_autoprograma() {
+        grupo("P19 Un firmware que reprograma su propia Flash (modo 9)");
+        arranca(9);
+        wait(30, SC_MS);
+        const uint32_t r = buzon(B_M9_RES);
+        std::printf("    resultado 0x%03X; vueltas del bucle de espera: %u borrando el banco 1, "
+                    "%u borrando el 0\n", r, buzon(B_M9_B1), buzon(B_M9_B0));
+        check_eq(buzon(B_ESTADO), 1, "el firmware llega al final");
+        check(r & 0x3u, "borra un sector del banco 1 y lo lee todo a 0xFF");
+        check(buzon(B_M9_B1) > 1000 && buzon(B_M9_B0) <= 2,
+              "mientras borra el banco 1 la CPU da miles de vueltas desde el 0; borrando "
+              "el 0, ninguna: la busqueda de instrucciones espera");
+        check(r & (1u << 2), "programa palabra a palabra, con IFG.PRG y sin AVPST");
+        check(r & (1u << 3), "programa dos lineas en rafaga, con IFG.PRGB");
+        check(r & (1u << 4), "un sector protegido no se programa: PRG_ERR");
+        check(r & (1u << 5), "un 0 no vuelve a 1 sin borrar: AVPST, y el dato no cambia");
+        check(r & (1u << 6), "el TLV no se borra: ADDR_ERR, y sigue intacto");
+        check(r & (1u << 7), "una rafaga desalineada da ADDR_ERR y no programa nada");
+        check(r & (1u << 8), "sin ENABLE, escribir en la Flash no programa nada");
+        check(dut.flash.peek32(0x30000u) == 0x11111111u && dut.flash.peek32(0x3005Cu) == 0xA5000007u,
+              "y lo programado esta en la Flash, visto desde fuera");
+    }
+
+    // --- GDB --------------------------------------------------------------
+    static std::string hex_le(uint32_t v) {
+        char b[9];
+        std::snprintf(b, sizeof b, "%02x%02x%02x%02x", v & 0xFF, (v >> 8) & 0xFF,
+                      (v >> 16) & 0xFF, v >> 24);
+        return b;
+    }
+    static std::string hex(const std::string& s) {
+        std::string h; char b[3];
+        for (unsigned char c : s) { std::snprintf(b, sizeof b, "%02x", c); h += b; }
+        return h;
+    }
+    static uint32_t de_hex_le(const std::string& s) {
+        uint32_t v = 0;
+        for (unsigned i = 0; i < 4 && 2 * i + 1 < s.size(); ++i)
+            v |= uint32_t(std::stoul(s.substr(2 * i, 2), nullptr, 16)) << (8 * i);
+        return v;
+    }
+    uint32_t pc() { return de_hex_le(cli.pedir("p0f")); }
+    std::string espera_parada(double ms = 100) {
+        return cli.recibir(sc_time(ms, SC_MS));
+    }
+
+    struct ResGdb {
+        bool conecta = false, carga = false, lectura = false, congelado = false,
+             sin_congelar = false, wp = false, bp = false, paso = false;
+        uint32_t pc_reset = 0, pc_bp = 0, pc_paso = 0;
+    };
+
+    ResGdb sesion_gdb(unsigned puerto, uint32_t reset_handler, uint32_t parpadea,
+                      uint32_t dir_arranques) {
+        ResGdb r;
+        // En la Flash hay OTRA cosa: CoreMark. El `load` tiene que borrar.
+        arranca(0, FW_CM);
+        wait(2, SC_MS);
+        if (!cli.conectar(puerto)) return r;
+        wait(2, SC_MS);
+        cli.pedir("qSupported:swbreak+;hwbreak+;xmlRegisters=arm");
+        r.conecta = cli.pedir("QStartNoAckMode") == "OK" &&
+                    cli.pedir("?").rfind("T05", 0) == 0;
+        // load, como lo hace GDB sin mapa de memoria: paquetes M
+        std::vector<uint8_t> img;
+        {
+            std::ifstream f(FW_DEMO_BIN, std::ios::binary);
+            img.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+        }
+        bool ok = !img.empty();
+        char cab[64];
+        for (size_t o = 0; ok && o < img.size(); o += 256) {
+            const size_t n = std::min<size_t>(256, img.size() - o);
+            std::snprintf(cab, sizeof cab, "M%zx,%zx:", o, n);
+            std::string pq = cab;
+            for (size_t i = 0; i < n; ++i) { char b[3]; std::snprintf(b, 3, "%02x", img[o + i]); pq += b; }
+            ok = cli.pedir(pq, sc_time(200, SC_MS)) == "OK";
+        }
+        r.carga = ok;
+        std::string leido;
+        for (size_t o = 0; o < img.size(); o += 256) {
+            std::snprintf(cab, sizeof cab, "m%zx,%zx", o, std::min<size_t>(256, img.size() - o));
+            leido += cli.pedir(cab, sc_time(100, SC_MS));
+        }
+        std::string esperado;
+        for (uint8_t c : img) { char b[3]; std::snprintf(b, 3, "%02x", c); esperado += b; }
+        r.lectura = leido == esperado;
+        // El buzon: modo 0 y ningun arranque
+        cli.pedir("M20000000,8:0000000000000000");
+        // monitor reset halt
+        cli.pedir("qRcmd," + hex("reset halt"), sc_time(50, SC_MS));
+        r.pc_reset = pc();
+        // El perro, congelado con el nucleo parado (SYSCTL_PERIHALT_CTL.HALT_WDT)
+        const unsigned r0 = dut.resets();
+        wait(30, SC_MS);
+        r.congelado = dut.resets() == r0 && buzon(B_ARRANQUES) == 0;
+        // ...y sin congelar: el perro resetea el chip aunque este parado
+        cli.pedir("Me004300c,4:00000000");
+        wait(15, SC_MS);
+        r.sin_congelar = dut.resets() > r0;
+        cli.pedir("Me004300c,4:00400000");
+        cli.pedir("qRcmd," + hex("reset halt"), sc_time(50, SC_MS));
+        // Un watchpoint: la primera escritura de main es buzon.arranques++
+        char z[64];
+        std::snprintf(z, sizeof z, "Z2,%x,4", dir_arranques);
+        const bool zw = cli.pedir(z) == "OK";
+        cli.enviar("vCont;c");
+        const std::string pw = espera_parada();
+        r.wp = zw && pw.find("watch") != std::string::npos && buzon(B_ARRANQUES) == 1;
+        std::snprintf(z, sizeof z, "z2,%x,4", dir_arranques);
+        cli.pedir(z);
+        // Un punto de ruptura en parpadea
+        std::snprintf(z, sizeof z, "Z0,%x,2", parpadea);
+        const bool zb = cli.pedir(z) == "OK";
+        cli.enviar("vCont;c");
+        const std::string pb = espera_parada();
+        r.pc_bp = pc();
+        r.bp = zb && pb.find("swbreak") != std::string::npos && r.pc_bp == parpadea;
+        std::snprintf(z, sizeof z, "z0,%x,2", parpadea);
+        cli.pedir(z);
+        // Un paso
+        cli.enviar("vCont;s");
+        const std::string ps = espera_parada();
+        r.pc_paso = pc();
+        r.paso = ps.rfind("T05", 0) == 0 && r.pc_paso != parpadea &&
+                 r.pc_paso > parpadea && r.pc_paso < parpadea + 8;
+        cli.pedir("D");
+        cli.desconectar();
+        wait(1, SC_MS);
+        return r;
+    }
+
+    void informa(const char* via, const ResGdb& r, uint32_t rh, uint32_t pp) {
+        std::string q;
+        auto c = [&](bool v, const std::string& t) { check(v, (std::string(via) + ": " + t).c_str()); };
+        c(r.conecta, "GDB se conecta, negocia y encuentra el nucleo parado");
+        c(r.carga, "`load` de p4_demo.bin con paquetes M sobre CoreMark: el stub borra y "
+                   "programa la Flash por el FLCTL");
+        c(r.lectura, "y lo leido de vuelta es el .bin, byte a byte");
+        c(r.pc_reset == rh, "`monitor reset halt` para en la primera instruccion, Reset_Handler");
+        c(r.congelado, "con el nucleo parado el perro no corre (PERIHALT_CTL.HALT_WDT)");
+        c(r.sin_congelar, "y con HALT_WDT a cero, el perro resetea el chip aunque este parado");
+        c(r.wp, "un watchpoint en buzon.arranques para el nucleo en la primera escritura");
+        c(r.bp, "un punto de ruptura en parpadea() para el nucleo alli");
+        c(r.paso, "y un paso avanza una instruccion");
+        (void)pp;
+    }
+
+    void t2_gdb() {
+        uint32_t rh = 0, pp = 0, arr = 0;
+        const bool sim = simbolo_elf(FW_DEMO, "Reset_Handler", rh) &&
+                         simbolo_elf(FW_DEMO, "parpadea", pp) &&
+                         simbolo_elf(FW_DEMO, "buzon", arr);
+        grupo("P20 Los simbolos del firmware, del ELF");
+        check(sim && rh == 0xE4 && arr == 0x20000000u,
+              "Reset_Handler en 0xE4 y buzon en 0x2000_0000, leidos de la tabla de simbolos");
+        arr += B_ARRANQUES;
+
+        const sc_time t0 = sc_time_stamp();
+        grupo("P21 GDB por la sonda de los pines (G2) y por el DAP (G1)");
+        sonda->desconectar();
+        gdb_p->set_enabled(true);
+        wait(1, SC_MS);
+        const ResGdb rp = sesion_gdb(PUERTO_PINES, rh, pp, arr);
+        gdb_p->set_enabled(false);
+        gdb_p->soltar_pines();
+        informa("G2 (pines)", rp, rh, pp);
+        gdb_d->set_enabled(true);
+        wait(1, SC_MS);
+        const ResGdb rd_ = sesion_gdb(PUERTO_DAP, rh, pp, arr);
+        gdb_d->set_enabled(false);
+        informa("G1 (DAP)", rd_, rh, pp);
+        check(rp.pc_reset == rd_.pc_reset && rp.pc_bp == rd_.pc_bp && rp.pc_paso == rd_.pc_paso,
+              "los dos caminos dan lo mismo: el mismo depurador, otro cable");
+        check(ProgramadorP4::el().fallos() == 0, "y el programador no ha fallado ni una vez");
+        g_t_gdb += sc_time_stamp() - t0;
+    }
+
     void run() {
         firmwares();
         t0_nombres();
@@ -552,6 +891,9 @@ SC_MODULE(TbP4) {
         t1_swd();
         t1_rom();
         t1_coremark();
+        t2_flctl();
+        t2_autoprograma();
+        t2_gdb();
         std::printf("\n=====================================================\n");
         std::printf("TOTAL P4 : %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         std::printf("=====================================================\n");
@@ -566,5 +908,11 @@ int sc_main(int, char*[]) {
     TbP4 tb("tb");
     sc_start();
     std::printf("\nTiempo simulado: %s\n", sc_time_stamp().to_string().c_str());
+    // Lo que se puede comparar entre maquinas: el total sin P21 (T-16)
+    if (g_t_gdb != SC_ZERO_TIME)
+        std::printf("  de los cuales P21 (socket de GDB)     : %s\n"
+                    "  el resto                             : %s\n",
+                    g_t_gdb.to_string().c_str(),
+                    (sc_time_stamp() - g_t_gdb).to_string().c_str());
     return g_fallos ? 1 : 0;
 }

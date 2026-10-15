@@ -823,9 +823,17 @@ protected:
         escribir(R_DEMCR, leer_o(R_DEMCR) | 1u);      // VC_CORERESET
         escribir(R_AIRCR, 0x05FA0004u);
         sc_core::wait(sc_core::sc_time(500, sc_core::SC_US));
-        enganchar();                                  // el DP se resetea con el chip
-        escribir(R_DEMCR, leer_o(R_DEMCR) & ~1u);
-        parar();
+        // El DP se resetea con el chip: hay que volver a engancharse. Pero SIN
+        // `enganchar()`, que escribe DHCSR = LLAVE | C_DEBUGEN -sin C_HALT- y
+        // SUELTA el núcleo que la captura de vector acaba de parar en la
+        // primera instrucción. Hasta T2 del MSP432 se hacía así, y el núcleo
+        // corría hasta el `parar()` de abajo: `monitor reset halt` dejaba el
+        // PC unas instrucciones más allá del manejador de reset (0x080001DE
+        // en el blinky del F407, con el manejador en 0x08000188).
+        enganchado_ = dap_enganchar();
+        escribir(R_DHCSR, LLAVE | 0x3u);              // C_DEBUGEN | C_HALT
+        escribir(R_DEMCR, 1u << 24);                  // TRCENA, sin VC_CORERESET
+        escribir(B_FPB + 0x00, 3u);                   // FP_CTRL: KEY | ENABLE
         corriendo_ = false;
     }
 

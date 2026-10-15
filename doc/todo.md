@@ -450,14 +450,44 @@ HECHAS T0 y T1 el 2026-10-14**, en la rama `msp432`:
   El banco es `make testp4`: **96 comprobaciones, `254192855661 ps`**, con
   `asanp4` limpio. Una placa con un P4 y un F407 se monta y corre.
 
-**Lo que queda**, con su fase: T2 (programar la Flash y el `load` de GDB),
+**HECHA T2 el 2026-10-15**, en la misma rama:
+
+* **El FLCTL entero.** Protección por sector (`BANKx_MAIN/INFO_WEPROT`, todo
+  protegido al salir del reset y el TLV imposible de desproteger);
+  programación inmediata, de palabra completa (la línea de 128 bits) y en
+  ráfaga de hasta cuatro líneas, con `BURST_STATUS` que pasa por 2..5 y acaba
+  en 7; borrado de sector y masivo; `ADDR_ERR`, `PRG_ERR`, `AVPST` con
+  `VER_PST`/`AUTO_PST`; la IRQ al NVIC; y el **read-while-write**: leer el
+  banco que se está programando o borrando espera, leer el otro no.
+* **`ProgramadorP4`**, el `programador_nv_if` del P4: lo que hace el algoritmo
+  de Flash de TI para OpenOCD, por el DAP. El `load` de GDB borra y programa;
+  un `load` que pise el TLV falla diciéndolo.
+* **`SYSCTL_PERIHALT_CTL`**: con `HALT_WDT` (el valor de reset) el perro se para
+  con el núcleo; sin él, resetea aunque el depurador lo tenga parado.
+* **Depuración por los dos caminos** (`depuracion="dap"` y `"pines"`): la misma
+  sesión de GDB —`load` sobre CoreMark, lectura de vuelta, `monitor reset
+  halt`, watchpoint, punto de ruptura y paso— da los mismos resultados.
+* **De paso, un arreglo del stub común**: `monitor reset halt` soltaba el
+  núcleo tras el *vector catch* (`enganchar()` escribía `DHCSR` sin `C_HALT`)
+  y el PC aparecía unas instrucciones más allá; en el F407 paraba en
+  `0x080001DE` en vez de en `Reset_Handler`. Ninguna suite usaba
+  `monitor reset`: ningún invariante se mueve por esto.
+* **Configuraciones de IDE** en `ide/msp432/`: CCS (`.launch` de CDT) y VS Code
+  (Cortex-Debug y `cppdbg`). Probadas con `gdb-multiarch` por consola y por
+  MI, **no dentro de los IDE**.
+* El banco: `make testp4` sube a **148 comprobaciones** (P18 el FLCTL desde el
+  bus, P19 un firmware que reprograma su Flash —modo 9 de `p4_demo`—, P20 los
+  símbolos del ELF, P21 GDB por G2 y G1), y su invariante pasa a la columna
+  `resto`: **`331699188968 ps`**. `asanp4` limpio.
+
+**Lo que queda**, con su fase:
 T3 (periféricos de aula), T4 (la ROM de DriverLib), T5 (OpenOCD y BSL),
 T6-T7 (el MSP432E401Y) y T8 (el resto de la familia). Y lo que T1 deja
 dicho, con la letra con la que lo cita el código:
 
 | | Qué | Por qué |
 | :--- | :--- | :--- |
-| **a** | Programar y borrar la Flash por el FLCTL; el `load` de GDB | T2. Una escritura en la Flash se IGNORA y avisa una vez; el stub de GDB contesta error con su motivo (`ProgramadorP4Pendiente`) |
+| **a** | ~~Programar y borrar la Flash por el FLCTL; el `load` de GDB~~ | **Resuelto en T2.** Sin `PRG_CTLSTAT.ENABLE` una escritura sigue ignorándose y avisando una vez, como en el chip |
 | **b** | La ROM de DriverLib en 0x0200_0000 | T4. Hoy da error de bus y avisa: un firmware con `MAP_`/`ROM_` no corre |
 | **c** | Estados de espera de la Flash por VCORE | **Discrepancia resuelta**: el `system_msp432p401r.c` del port de mbed dice «BANK0 VCORE1 max is 16 MHz» por estado; SLAA668A (2017, posterior) da 24/48 MHz con 0/1 en VCORE1. Se sigue a SLAA668A |
 | **d** | HWREV = 0x43 ('C') en el TLV | [1F] Sin segunda fuente a mano |
@@ -470,6 +500,8 @@ dicho, con la letra con la que lo cita el código:
 | **k** | DIO: RPULL 30 kΩ, 50/12 Ω de salida, alta corriente en P2.0-P2.3; PMAP | [1F] datasheet. Escribir IES no levanta IFG (sí en el MSP430). Los valores por omisión del PMAP no están: llegan con los periféricos (T3). Un pin en función de periférico se queda en alta impedancia y avisa |
 | **l** | Reset: pull-up de RSTn (47 kΩ), pulso de 20 µs, código de arranque | [1F] el pull-up. El pulso es el mínimo del RCC de los STM32 y por la misma razón (el cuanto de 1 µs de la CPU; con 1 µs se perdían los resets que pide la propia CPU). El código de arranque de TI no se ejecuta: ni buzón, ni BSL, ni bloqueo de JTAG |
 | **m** | SRAM_BANKEN | Se guarda (habilitar el banco n habilita los de debajo) pero no apaga ningún banco |
+| **n** | Tiempos del FLCTL | De modelo: 30 µs por palabra o por línea de ráfaga, 5 ms por sector, 40 ms el masivo. El orden de magnitud es el del datasheet; los valores exactos dependen de los pulsos y no están contrastados. Un sector protegido «se borra» en el acto: STATUS 3 sin tocar nada |
+| **o** | Verificación previa y modos de lectura | `VER_PRE`/`AUTO_PRE` se guardan y no hacen nada; los modos de lectura de margen (`RDCTL.RD_MODE`), `RDBRST` y los marcadores de borrado (`BMRK`) no se modelan. Tampoco el límite de pulsos del TLV (`FLASHCTL`): se programa siempre a la primera |
 
 Y una que no es del P4 sino del núcleo compartido: el SysTick con
 `CLKSOURCE = 0` cuenta FCLK/8, que es la integración de ST; la referencia

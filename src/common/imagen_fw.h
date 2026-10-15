@@ -128,6 +128,40 @@ inline std::string lee_elf(const std::string& ruta, std::vector<TrozoFw>& t) {
     return std::string();
 }
 
+// El valor de un símbolo de un ELF32 (su tabla .symtab), sin el bit Thumb.
+// false si no está. Lo usan los bancos para poner puntos de ruptura donde
+// diga el firmware, en vez de escribir direcciones a mano que se desfasan en
+// cuanto se recompila.
+inline bool simbolo_elf(const std::string& ruta, const std::string& nombre,
+                        uint32_t& valor) {
+    using namespace detalle_fw;
+    std::vector<uint8_t> f;
+    if (!lee_todo(ruta, f) || f.size() < 52 || f[0] != 0x7F || f[4] != 1) return false;
+    const uint32_t shoff = le32(&f[32]);
+    const uint16_t shentsize = le16(&f[46]), shnum = le16(&f[48]);
+    if (shentsize < 40 || uint64_t(shoff) + uint64_t(shnum) * shentsize > f.size())
+        return false;
+    for (unsigned k = 0; k < shnum; ++k) {
+        const uint8_t* sh = &f[shoff + size_t(k) * shentsize];
+        if (le32(sh + 4) != 2) continue;                    // SHT_SYMTAB
+        const uint32_t off = le32(sh + 16), size = le32(sh + 20),
+                       link = le32(sh + 24), ent = le32(sh + 36);
+        if (link >= shnum || ent < 16) return false;
+        const uint8_t* st = &f[shoff + size_t(link) * shentsize];
+        const uint32_t soff = le32(st + 16), ssize = le32(st + 20);
+        if (uint64_t(off) + size > f.size() || uint64_t(soff) + ssize > f.size())
+            return false;
+        for (uint32_t s = 0; s + ent <= size; s += ent) {
+            const uint8_t* e = &f[off + s];
+            const uint32_t n = le32(e);
+            if (n >= ssize) continue;
+            const char* nm = reinterpret_cast<const char*>(&f[soff + n]);
+            if (nombre == nm) { valor = le32(e + 4) & ~1u; return true; }
+        }
+    }
+    return false;
+}
+
 // TI-TXT. "" si todo bien.
 inline std::string lee_titxt(const std::string& ruta, std::vector<TrozoFw>& t) {
     using namespace detalle_fw;

@@ -19,6 +19,11 @@
  *   6  violacion de la contrasena del perro
  *   7  reset blando por RSTCTL: los perifericos NO se reinician
  *   8  reset duro por RSTCTL: los perifericos SI
+ *   9  (T2) se reprograma la Flash: borra un sector del banco 1 y otro del
+ *      banco 0 -contando cuanto avanza la CPU mientras tanto-, programa
+ *      palabra a palabra y en rafaga, y prueba los cinco errores: sector
+ *      protegido, un 0 que se quiere volver 1, el TLV, una rafaga
+ *      desalineada y una escritura sin ENABLE
  * ===========================================================================*/
 #ifndef NO_MSP_CLASSIC_DEFINES
 #define NO_MSP_CLASSIC_DEFINES
@@ -51,6 +56,10 @@ typedef struct {
     volatile uint32_t sram_alias;        /* 0x4C                              */
     volatile uint32_t p1dir;             /* 0x50                              */
     volatile uint32_t reboot_stat;       /* 0x54                              */
+    volatile uint32_t m9_vueltas_b1;     /* 0x58 vueltas mientras borra el 1  */
+    volatile uint32_t m9_vueltas_b0;     /* 0x5C vueltas mientras borra el 0  */
+    volatile uint32_t m9_res;            /* 0x60 un bit por prueba superada   */
+    volatile uint32_t m9_ifg;            /* 0x64 FLCTL->IFG al acabar         */
 } buzon_t;
 
 buzon_t buzon __attribute__((section(".mailbox")));
@@ -90,6 +99,101 @@ static void parpadea(void) {
         P2->OUT = (P2->OUT & ~(BIT0 | BIT1 | BIT2)) | (++c & 7u);
         espera(300);
     }
+}
+
+/* --- Modo 9: la Flash, con los registros del FLCTL y nada mas -------------- */
+#define B1_SECTOR   0x00030000u     /* banco 1, sector 16                     */
+#define B1_PROTEG   0x00031000u     /* banco 1, sector 17: se deja protegido  */
+#define B0_SECTOR   0x00010000u     /* banco 0, sector 16: lejos del codigo   */
+
+static uint32_t borra(uint32_t addr, uint32_t tipo) {
+    uint32_t n = 0;
+    FLCTL->ERASE_CTLSTAT = FLCTL_ERASE_CTLSTAT_CLR_STAT;
+    FLCTL->ERASE_SECTADDR = addr;
+    FLCTL->ERASE_CTLSTAT = FLCTL_ERASE_CTLSTAT_START | tipo;
+    while ((FLCTL->ERASE_CTLSTAT & FLCTL_ERASE_CTLSTAT_STATUS_MASK) !=
+           FLCTL_ERASE_CTLSTAT_STATUS_3)
+        n++;
+    return n;
+}
+
+static void autoprograma(void) {
+    volatile uint32_t* const b1 = (volatile uint32_t*)B1_SECTOR;
+    uint32_t res = 0;
+    FLCTL->CLRIFG = 0xFFFFFFFFu;
+    FLCTL->BANK1_MAIN_WEPROT &= ~(1u << 16);
+    FLCTL->BANK0_MAIN_WEPROT &= ~(1u << 16);
+
+    /* 1. Borrar en el OTRO banco: la CPU sigue corriendo desde el 0 */
+    buzon.m9_vueltas_b1 = borra(B1_SECTOR, FLCTL_ERASE_CTLSTAT_TYPE_0);
+    if (FLCTL->ERASE_CTLSTAT & FLCTL_ERASE_CTLSTAT_STATUS_3) res |= 1u << 0;
+    uint32_t todo = 0xFFFFFFFFu;
+    for (int i = 0; i < 1024; ++i) todo &= b1[i];
+    if (todo == 0xFFFFFFFFu) res |= 1u << 1;
+    /* ...y en el MISMO banco: la CPU se queda parada hasta que acaba */
+    buzon.m9_vueltas_b0 = borra(B0_SECTOR, FLCTL_ERASE_CTLSTAT_TYPE_0);
+    FLCTL->ERASE_CTLSTAT = FLCTL_ERASE_CTLSTAT_CLR_STAT;
+
+    /* 2. Programar palabra a palabra, con verificacion despues */
+    FLCTL->PRG_CTLSTAT = FLCTL_PRG_CTLSTAT_ENABLE | FLCTL_PRG_CTLSTAT_VER_PST;
+    static const uint32_t datos[4] = {0x11111111u, 0x22222222u, 0x33333333u, 0x44444444u};
+    for (int i = 0; i < 4; ++i) b1[i] = datos[i];
+    while (FLCTL->PRG_CTLSTAT & FLCTL_PRG_CTLSTAT_STATUS_MASK) { }
+    if (b1[0] == datos[0] && b1[3] == datos[3] && (FLCTL->IFG & FLCTL_IFG_PRG) &&
+        !(FLCTL->IFG & FLCTL_IFG_AVPST))
+        res |= 1u << 2;
+
+    /* 3. En rafaga: dos lineas de 128 bits en 0x3_0040 */
+    volatile uint32_t* const dat = &FLCTL->PRGBRST_DATA0_0;
+    for (int i = 0; i < 8; ++i) dat[i] = 0xA5000000u | (uint32_t)i;
+    FLCTL->PRGBRST_CTLSTAT = FLCTL_PRGBRST_CTLSTAT_CLR_STAT;
+    FLCTL->PRGBRST_STARTADDR = B1_SECTOR + 0x40u;
+    FLCTL->PRGBRST_CTLSTAT = FLCTL_PRGBRST_CTLSTAT_START | FLCTL_PRGBRST_CTLSTAT_LEN_2 |
+                             FLCTL_PRGBRST_CTLSTAT_TYPE_0;
+    while ((FLCTL->PRGBRST_CTLSTAT & FLCTL_PRGBRST_CTLSTAT_BURST_STATUS_MASK) !=
+           FLCTL_PRGBRST_CTLSTAT_BURST_STATUS_7) { }
+    FLCTL->PRGBRST_CTLSTAT = FLCTL_PRGBRST_CTLSTAT_CLR_STAT;
+    if (b1[16] == 0xA5000000u && b1[23] == 0xA5000007u && (FLCTL->IFG & FLCTL_IFG_PRGB))
+        res |= 1u << 3;
+
+    /* 4. Un sector protegido no se programa: PRG_ERR */
+    FLCTL->CLRIFG = 0xFFFFFFFFu;
+    *(volatile uint32_t*)B1_PROTEG = 0x12345678u;
+    while (FLCTL->PRG_CTLSTAT & FLCTL_PRG_CTLSTAT_STATUS_MASK) { }
+    if ((FLCTL->IFG & FLCTL_IFG_PRG_ERR) && *(volatile uint32_t*)B1_PROTEG == 0xFFFFFFFFu)
+        res |= 1u << 4;
+
+    /* 5. Un 0 no vuelve a 1 sin borrar: AVPST */
+    FLCTL->CLRIFG = 0xFFFFFFFFu;
+    b1[0] = 0xFFFFFFFFu;
+    while (FLCTL->PRG_CTLSTAT & FLCTL_PRG_CTLSTAT_STATUS_MASK) { }
+    if ((FLCTL->IFG & FLCTL_IFG_AVPST) && b1[0] == datos[0]) res |= 1u << 5;
+
+    /* 6. El TLV no se borra: ADDR_ERR */
+    FLCTL->ERASE_CTLSTAT = FLCTL_ERASE_CTLSTAT_CLR_STAT;
+    FLCTL->ERASE_SECTADDR = 0x00201000u;
+    FLCTL->ERASE_CTLSTAT = FLCTL_ERASE_CTLSTAT_START | FLCTL_ERASE_CTLSTAT_TYPE_1;
+    if ((FLCTL->ERASE_CTLSTAT & FLCTL_ERASE_CTLSTAT_ADDR_ERR) && TLV->TLV_END == 0x0BD0E11Du)
+        res |= 1u << 6;
+    FLCTL->ERASE_CTLSTAT = FLCTL_ERASE_CTLSTAT_CLR_STAT;
+
+    /* 7. Una rafaga desalineada: ADDR_ERR, y no se programa nada */
+    FLCTL->PRGBRST_STARTADDR = B1_SECTOR + 0x84u;
+    FLCTL->PRGBRST_CTLSTAT = FLCTL_PRGBRST_CTLSTAT_START | FLCTL_PRGBRST_CTLSTAT_LEN_2 |
+                             FLCTL_PRGBRST_CTLSTAT_TYPE_0;
+    if ((FLCTL->PRGBRST_CTLSTAT & FLCTL_PRGBRST_CTLSTAT_ADDR_ERR) && b1[33] == 0xFFFFFFFFu)
+        res |= 1u << 7;
+    FLCTL->PRGBRST_CTLSTAT = FLCTL_PRGBRST_CTLSTAT_CLR_STAT;
+
+    /* 8. Sin ENABLE, escribir en la Flash no programa nada */
+    FLCTL->PRG_CTLSTAT = 0;
+    b1[40] = 0;
+    if (b1[40] == 0xFFFFFFFFu) res |= 1u << 8;
+
+    FLCTL->BANK1_MAIN_WEPROT |= 1u << 16;
+    FLCTL->BANK0_MAIN_WEPROT |= 1u << 16;
+    buzon.m9_ifg = FLCTL->IFG;
+    buzon.m9_res = res;
 }
 
 void PORT1_IRQHandler(void) {
@@ -204,6 +308,12 @@ int main(void) {
             for (;;) { }
         }
         buzon.p1dir = P1->DIR;
+        buzon.estado = 1;
+        for (;;) { }
+
+    case 9:
+        para_perro();
+        autoprograma();
         buzon.estado = 1;
         for (;;) { }
 

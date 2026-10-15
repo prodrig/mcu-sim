@@ -56,7 +56,7 @@
 #include "../../periph/msp432p4/wdt_a.h"
 #include "../../periph/msp432p4/sysctl.h"
 #include "../../periph/msp432p4/dio.h"
-#include "../../common/gdb_rsp.h"
+#include "p4_programador.h"
 
 namespace stm32 {
 
@@ -103,34 +103,6 @@ public:
 private:
     void bt(tlm::tlm_generic_payload& gp, sc_core::sc_time&) {
         gp.set_response_status(tlm::TLM_ADDRESS_ERROR_RESPONSE);
-    }
-};
-
-// El programador de la Flash para el `load` de GDB, que llega en T2: de
-// momento reconoce la Flash y se niega, diciéndolo.
-class ProgramadorP4Pendiente : public programador_nv_if {
-public:
-    static ProgramadorP4Pendiente& el() { static ProgramadorP4Pendiente p; return p; }
-    const char* nombre() const override { return "MSP432P4 (pendiente: T2)"; }
-    int sector_de(uint32_t a) const override {
-        return (a < 0x00040000u) ? int(a / 0x1000u) : -1;
-    }
-    uint32_t tam_sector(int) const override { return 0x1000u; }
-    unsigned n_sectores() const override { return 64; }
-    bool borrar(acceso_nv_if&, uint32_t, uint32_t) override { return avisa(); }
-    bool programar(acceso_nv_if&, uint32_t, const uint8_t*, unsigned,
-                   unsigned&) override { return avisa(); }
-    void terminar(acceso_nv_if&) override {}
-private:
-    bool avisado_ = false;
-    bool avisa() {
-        if (!avisado_) {
-            avisado_ = true;
-            SC_REPORT_WARNING("msp432p4/gdb",
-                "el stub de GDB todavia no sabe programar la Flash del MSP432P4 "
-                "(T2): carga el firmware al arrancar `mcu-sim placa.xml fw.out`");
-        }
-        return false;
     }
 };
 
@@ -224,8 +196,9 @@ public:
     }
     std::vector<std::string> limitaciones() const {
         return {
-            "MSP432P4 (fase T1): la Flash se lee, pero programarla y borrarla -por "
-            "el FLCTL o con `load` de GDB- llega en T2",
+            "la Flash se programa y se borra por el FLCTL y con `load` de GDB (T2), "
+            "pero con tiempos de modelo, sin verificacion previa (VER_PRE, AUTO_PRE) "
+            "y sin modos de lectura de margen",
             "la ROM de DriverLib (0x0200_0000) no esta: un firmware con MAP_/ROM_ "
             "da error de bus al llamarla (T4)",
             "el TLV es SINTETICO: identidad P401R rev. C y calibraciones tipicas, "
@@ -330,7 +303,8 @@ private:
         s_njtrst_.write(true);
         // El `load` de GDB todavía no sabe programar esta Flash (T2): que lo
         // diga, en vez de escribir las llaves del F407 donde no hay nada.
-        if (core.gdb) core.gdb->pon_programador(&ProgramadorP4Pendiente::el());
+        // Y el `load` de GDB programa esta Flash con su FLCTL (T2).
+        if (core.gdb) core.gdb->pon_programador(&ProgramadorP4::el());
     }
 
     void conecta_bus() {
@@ -346,6 +320,7 @@ private:
         a_rom_.bind(rom.tsk);
         a_perif_.bind(perif.tsk);
         flash.flctl = &flctl;
+        flctl.mem = &flash;
         flash.mclk_hz(s_mclk_hz_);
         sram.hclk(s_mclk_); sram.rst_n(s_rst_perif_);
         // Los periféricos
@@ -419,6 +394,7 @@ private:
         for (unsigned i = 0; i < DioP4::N_INT; ++i)
             dio.irq[i](s_irq_[p4::IRQ_PORT1 + i]);
         wdt.irq(s_irq_[p4::IRQ_WDT_A]);
+        flctl.irq(s_irq_[p4::IRQ_FLCTL]);
         wdt.f_fuente = [this](unsigned s) {
             switch (s) {
                 case 0:  return cs.f_smclk();
@@ -434,6 +410,7 @@ private:
                  int(viol ? SysctlP4::SRC_WDT_VIOLA : SysctlP4::SRC_WDT_VENCE));
         };
         sysctl.pide_reset = [this](ResetP4 r) { pide(r, -1); };
+        sysctl.al_cambiar_perihalt = [this] { wdt.recalcula(); };
     }
     static float flota(uint32_t u) { float f; std::memcpy(&f, &u, 4); return f; }
 

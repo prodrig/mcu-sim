@@ -125,7 +125,7 @@ public:
         w32(p4::FLASH_B + 0x100u, 0xE7FDBF20u);
     }
     void set_ondas_reloj(bool on) override { chip_->set_ondas(on); }
-    programador_nv_if* programador() override { return &ProgramadorP4Pendiente::el(); }
+    programador_nv_if* programador() override { return &ProgramadorP4::el(); }
     bool tiene_gdb_interno() const override { return chip_->core.gdb != nullptr; }
     void gdb_interno(bool activo, bool traza) override {
         if (!chip_->core.gdb) return;
