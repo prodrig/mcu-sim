@@ -333,6 +333,18 @@ SC_MODULE(DebugSys), public core_debug_if {
     }
     void dbg_reset() override {
         dhcsr_ |= S_RESET_ST_SHADOW;                   // bandera pegajosa
+        // Un reset LOCAL saca al nucleo del estado de depuracion: C_HALT y
+        // C_STEP se borran -C_DEBUGEN y C_MASKINTS se quedan: la logica de
+        // depuracion no se resetea- y solo VC_CORERESET lo vuelve a parar.
+        // Es en lo que se apoya el `reset run` de OpenOCD: tras un algoritmo
+        // de Flash el nucleo esta sobre el BKPT final, OpenOCD no reescribe
+        // el PC -los registros restaurados los descarta el reset-, borra
+        // C_HALT y pide SYSRESETREQ; en ese hueco el nucleo vuelve a ejecutar
+        // el BKPT y se para. Si el reset no lo soltara, `program ... reset`
+        // dejaria el firmware nuevo parado en Reset_Handler (T5 del MSP432).
+        dhcsr_ &= ~(C_HALT | C_STEP);
+        paso_ = false;
+        actualiza_halt();
         if (demcr_ & 1u) {                             // VC_CORERESET
             dfsr_local_ |= DFSR_VCATCH;
             dhcsr_ |= C_HALT | C_DEBUGEN;
@@ -818,12 +830,25 @@ private:
     unsigned sw_n_ = 0;                    // flancos de subida dentro del paquete
     unsigned sw_unos_ = 0;                 // racha de unos: reset de linea
     uint16_t sw_switch_ = 0;               // registro de la secuencia 0xE79E
+    // Bits desde que acabo el ultimo reset de linea (el cero que lo corta es
+    // el primero); 0: no viene de uno. La secuencia JTAG->SWD solo vale
+    // justo detras de un reset de linea.
+    unsigned sw_tras_lr_ = 0;
     bool     sw_modo_swd_ = true;
     // Tras cada paquete hace falta ver al menos un ciclo de REPOSO (linea a
     // cero) antes de admitir el bit de arranque del siguiente. Sin esto, el
     // uno que deja el pull-up durante el turnaround se tomaria por un arranque
     // y toda la sesion se desincronizaria.
     bool     sw_espera_idle_ = true;
+    // ...SALVO justo detras de un paquete que acabo bien: ADIv5 deja al
+    // anfitrion empezar el siguiente sin reposo, y OpenOCD lo hace. Tras una
+    // LECTURA el primer flanco de subida es el del turnaround, con la linea
+    // suelta (el uno del pull-up): ese se salta; el siguiente ya es el
+    // anfitrion. Tras un ACK que no es OK se sigue exigiendo el reposo:
+    // OpenOCD da reloj a la fase de datos con la linea suelta, y esos unos no
+    // son un arranque. (T5 del MSP432: la sonda remote_bitbang.)
+    bool     sw_tras_paquete_ = false;
+    unsigned sw_salta_ = 0;
     uint8_t  sw_req_ = 0;
     uint32_t sw_dato_ = 0;
     uint8_t  sw_ack_ = 1;                  // OK
@@ -861,24 +886,37 @@ private:
     void swd_subida() {
         const bool b = swdio_in.read();
         // Reset de linea: cincuenta o mas unos seguidos.
+        if (sw_tras_lr_ && sw_tras_lr_ < 100) ++sw_tras_lr_;
         if (b) { if (sw_unos_ < 100) ++sw_unos_; }
-        else   { if (sw_unos_ >= 50) { sw_st_ = SW_IDLE; sw_n_ = 0; sw_espera_idle_ = false; }
+        else   { if (sw_unos_ >= 50) { sw_st_ = SW_IDLE; sw_n_ = 0; sw_espera_idle_ = false;
+                                       sw_salta_ = 0; sw_tras_paquete_ = false;
+                                       sw_tras_lr_ = 1; }
                  sw_unos_ = 0; }
         // La secuencia de conmutacion JTAG->SWD es la palabra 0xE79E enviada
-        // entre dos resets de linea [IR, §13.2].
+        // entre dos resets de linea [IR, §13.2]: sus 16 bits tienen que ser
+        // los PRIMEROS tras un reset de linea. Reconocida en cualquier sitio,
+        // un dato que los contenga -0xFF3CF7FF, en una escritura de OpenOCD
+        // a la SRAM, los lleva- reiniciaba la maquina SWD a mitad del
+        // paquete y la palabra se perdia sin error (T5 del MSP432).
         sw_switch_ = uint16_t((sw_switch_ >> 1) | (b ? 0x8000u : 0u));
-        if (sw_switch_ == 0xE79Eu) {
+        if (sw_switch_ == 0xE79Eu && sw_tras_lr_ == 16) {
             sw_modo_swd_ = true; sw_st_ = SW_IDLE; sw_n_ = 0; sw_espera_idle_ = true;
+            sw_salta_ = 0; sw_tras_paquete_ = false;
         }
 
         switch (sw_st_) {
-            case SW_IDLE:
+            case SW_IDLE: {
+                if (sw_salta_) { --sw_salta_; return; }
+                const bool tras = sw_tras_paquete_;
+                sw_tras_paquete_ = false;
                 if (!b) { sw_espera_idle_ = false; return; }
-                // El bit de arranque de un paquete es un uno tras el reposo.
-                if (!sw_espera_idle_ && sw_unos_ == 1) {
+                // El bit de arranque de un paquete es un uno tras el reposo,
+                // o el primero detras de un paquete que acabo bien.
+                if (!sw_espera_idle_ && (sw_unos_ == 1 || tras)) {
                     sw_st_ = SW_REQ; sw_n_ = 1; sw_req_ = 1;
                 }
                 return;
+            }
             case SW_REQ:
                 ++sw_n_;
                 sw_req_ = uint8_t(sw_req_ | (b ? (1u << (sw_n_ - 1)) : 0u));
@@ -896,8 +934,10 @@ private:
                 if (sw_n_ >= 14 && sw_n_ <= 45) {
                     if (b) sw_dato_ |= 1u << (sw_n_ - 14);
                 } else if (sw_n_ == 46) {
-                    if (paridad(sw_dato_) == b) ejecuta_escritura();
-                    sw_st_ = SW_IDLE; sw_n_ = 0; sw_espera_idle_ = true;
+                    const bool bien = paridad(sw_dato_) == b;
+                    if (bien) ejecuta_escritura();
+                    sw_st_ = SW_IDLE; sw_n_ = 0;
+                    sw_espera_idle_ = !bien; sw_tras_paquete_ = bien;
                 }
                 return;
         }
@@ -929,7 +969,12 @@ private:
                 // r = 13..44: datos; r = 45: paridad; r = 46: turnaround.
                 if (r >= 13 && r <= 44) drive(((sw_dato_ >> (r - 13)) & 1u) != 0);
                 else if (r == 45) drive(paridad(sw_dato_));
-                else { suelta(); sw_st_ = SW_IDLE; sw_n_ = 0; sw_espera_idle_ = true; }
+                else {
+                    // r = 46, el turnaround: se salta, y el siguiente puede
+                    // ser ya el arranque del paquete que venga
+                    suelta(); sw_st_ = SW_IDLE; sw_n_ = 0;
+                    sw_espera_idle_ = false; sw_salta_ = 1; sw_tras_paquete_ = true;
+                }
                 return;
             default:
                 suelta();
@@ -1013,6 +1058,31 @@ private:
         return r;
     }
 
+    // Un acceso del AP con el TAMAÑO de CSW (byte, media palabra o palabra),
+    // con el dato en su carril de bytes, como en el bus AHB [ADIv5, §7.2.2].
+    // Las sondas propias hacen siempre palabras; OpenOCD usa bytes y medias
+    // palabras para los bordes de un búfer que no está alineado (T5).
+    tlm::tlm_response_status ap_dato(bool write, uint32_t a, uint32_t& v) {
+        const unsigned tam = ap_csw_ & 7u;
+        if (tam >= 2u) return ap_nb(write, a, v);
+        const unsigned n = tam == 0u ? 1u : 2u;
+        const unsigned carril = a & (tam == 0u ? 3u : 2u);
+        unsigned char b[2] = {0, 0};
+        if (write) for (unsigned i = 0; i < n; ++i) b[i] = uint8_t(v >> (8 * (carril + i)));
+        sc_core::sc_time t = sc_core::SC_ZERO_TIME;
+        const auto r = ap_access_nb(write, a, b, n, t);
+        ap_libre_ = sc_core::sc_time_stamp() + t;
+        if (!write) {
+            v = 0;
+            for (unsigned i = 0; i < n; ++i) v |= uint32_t(b[i]) << (8 * (carril + i));
+        }
+        return r;
+    }
+    // BD0..BD3 (0x10..0x1C): la palabra n del bloque de 16 bytes alineado
+    // que señala TAR, sin tocar TAR. OpenOCD los usa para DHCSR, DCRSR y
+    // DCRDR, que están juntos (T5).
+    uint32_t dir_banco(uint32_t reg) const { return (ap_tar_ & ~0xFu) | (reg & 0xCu); }
+
     uint32_t ejecuta_lectura() {
         if (!sw_ap_) {
             switch (sw_addr_) {
@@ -1045,10 +1115,17 @@ private:
             case 0x04: v = ap_tar_; break;
             case 0x0C: {
                 uint32_t d = 0;
-                const auto r = ap_nb(false, ap_tar_, d);
+                const auto r = ap_dato(false, ap_tar_, d);
                 if (r != tlm::TLM_OK_RESPONSE) dp_ctrl_ |= ST_STICKYERR;
                 v = d;
                 incrementa_tar();
+                break;
+            }
+            case 0x10: case 0x14: case 0x18: case 0x1C: {
+                uint32_t d = 0;
+                const auto r = ap_dato(false, dir_banco(reg), d);
+                if (r != tlm::TLM_OK_RESPONSE) dp_ctrl_ |= ST_STICKYERR;
+                v = d;
                 break;
             }
             case 0xF8: v = AP_BASE; break;             // ROM table base
@@ -1087,13 +1164,26 @@ private:
         const uint32_t reg = (dp_select_ & 0xF0u) | sw_addr_;
         if ((dp_select_ >> 24) != 0) return;       // APSEL: no hay mas APs
         switch (reg) {
-            case 0x00: ap_csw_ = (ap_csw_ & 0xFFFFFF00u) | (sw_dato_ & 0xFFu); return;
+            case 0x00: {
+                // AddrInc = 10 (empaquetado) no está: se queda en 00, y así
+                // lo ve quien lo pruebe leyendo CSW de vuelta (OpenOCD)
+                uint32_t c = sw_dato_ & 0xFFu;
+                if (((c >> 4) & 3u) == 2u) c &= ~0x30u;
+                ap_csw_ = (ap_csw_ & 0xFFFFFF00u) | c;
+                return;
+            }
             case 0x04: ap_tar_ = sw_dato_; return;
             case 0x0C: {
                 uint32_t d = sw_dato_;
-                const auto r = ap_nb(true, ap_tar_, d);
+                const auto r = ap_dato(true, ap_tar_, d);
                 if (r != tlm::TLM_OK_RESPONSE) dp_ctrl_ |= ST_STICKYERR;
                 incrementa_tar();
+                return;
+            }
+            case 0x10: case 0x14: case 0x18: case 0x1C: {
+                uint32_t d = sw_dato_;
+                const auto r = ap_dato(true, dir_banco(reg), d);
+                if (r != tlm::TLM_OK_RESPONSE) dp_ctrl_ |= ST_STICKYERR;
                 return;
             }
             default:   return;
@@ -1104,13 +1194,18 @@ private:
     // cruza la frontera de 1 KiB, asi que una sonda tiene que reescribir TAR en
     // cada una. Es de las cosas que mas quebraderos de cabeza dan al escribir
     // un programador desde cero.
+    // El auto-incremento solo toca los 12 bits de abajo de TAR: en el AHB-AP
+    // del Cortex-M3/M4 el bloque es de 4 KiB, y al llegar al final da la vuelta
+    // dentro de él [ARM IHI 0031C, §7.2.2; es lo que supone OpenOCD,
+    // CORTEX_M_F_TAR_AUTOINCR_BLOCK_4K]. ADIv5 solo garantiza 1 KiB, y por eso
+    // las sondas propias reescriben TAR cada 1 KiB; con 1 KiB aquí, la carga de
+    // OpenOCD apilaba en la última palabra todo lo que pasaba de la frontera
+    // (T5 del MSP432).
     void incrementa_tar() {
         const unsigned inc = (ap_csw_ >> 4) & 3u;
         if (inc != 1) return;
         const uint32_t paso = 1u << (ap_csw_ & 3u);
-        const uint32_t sig = ap_tar_ + paso;
-        if ((sig & ~0x3FFu) != (ap_tar_ & ~0x3FFu)) return;   // frontera de 1 KiB
-        ap_tar_ = sig;
+        ap_tar_ = (ap_tar_ & ~0xFFFu) | ((ap_tar_ + paso) & 0xFFFu);
     }
 
 public:

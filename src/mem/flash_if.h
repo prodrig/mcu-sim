@@ -226,6 +226,26 @@ private:
         return nullptr;
     }
 
+    // LA FIRMA ELECTRÓNICA, 0x1FFF 7A10-0x1FFF 7A2F, de solo lectura: el
+    // identificador único de 96 bits (UID, en 0x1FFF 7A10) y el tamaño de la
+    // Flash en KiB (F_SIZE, 16 bits en 0x1FFF 7A22) [IR, §39.1-39.2]. OpenOCD
+    // lee F_SIZE para saber cuántos sectores tiene (stm32f2x.c; T5 del
+    // MSP432). El UID es SINTÉTICO, el mismo en todas las piezas; F_SIZE sale
+    // del mapa de esta Flash.
+    static constexpr uint32_t FIRMA_BASE = 0x1FFF7A10u, FIRMA_SIZE = 0x20u;
+    bool firma(uint32_t a, uint8_t& v) const {
+        if (a < FIRMA_BASE || a >= FIRMA_BASE + FIRMA_SIZE) return false;
+        static const uint8_t uid[12] = {0x41, 0x00, 0x28, 0x00, 0x0A, 0x51, 0x36, 0x34,
+                                        0x39, 0x33, 0x35, 0x31};     // [sintético]
+        const uint32_t o = a - FIRMA_BASE;
+        const uint32_t kib = mapa.size / 1024u;
+        if (o < 12) v = uid[o];
+        else if (o == 0x12) v = uint8_t(kib);
+        else if (o == 0x13) v = uint8_t(kib >> 8);
+        else v = 0xFF;
+        return true;
+    }
+
     void reset_regs() {
         acr_ = 0x00000000; sr_ = 0; cr_ = 0x80000000;
         key_state_ = optkey_state_ = 0; key_error_ = false;
@@ -289,8 +309,9 @@ private:
         uint8_t* d = gp.get_data_ptr();
         for (unsigned i = 0; i < len; ++i) {
             const uint8_t* p = locate(uint32_t(a + i));
-            if (!p) {                              // hueco reservado del Code
-                gp.set_response_status(tlm::TLM_ADDRESS_ERROR_RESPONSE);
+            if (!p) {
+                if (firma(uint32_t(a + i), d[i])) continue;
+                gp.set_response_status(tlm::TLM_ADDRESS_ERROR_RESPONSE);  // hueco reservado del Code
                 return false;
             }
             d[i] = *p;
@@ -345,7 +366,10 @@ private:
         unsigned n = 0;
         for (unsigned i = 0; i < len; ++i) {
             uint8_t* p = locate(uint32_t(a + i));
-            if (!p) break;
+            if (!p) {
+                if (gp.is_read() && firma(uint32_t(a + i), d[i])) { ++n; continue; }
+                break;
+            }
             if (gp.is_read()) d[i] = *p; else *p = d[i];
             ++n;
         }

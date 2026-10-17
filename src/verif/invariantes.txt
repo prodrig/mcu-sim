@@ -187,4 +187,9 @@ testgui                145        76450000000        total
 # esperan al LED, que va a 1 Hz. P0-P61 no cambian, tampoco con el arreglo
 # del receptor de la eUSCI en modo UART (el arranque que baja en el mismo
 # instante en que acaba la parada anterior): ningun grupo anterior lo pisaba.
+# Fase T5: ningun grupo nuevo (la prueba de OpenOCD es `make openocd`, sin
+# invariante: su tiempo sigue al reloj de pared). Los arreglos del DAP y del
+# nucleo no mueven nada. P21 cambia una comprobacion de sitio -el reset del
+# perro con el nucleo parado lo pone en marcha, y se vuelve a poner el buzon
+# a cero- y el total crece 0,6 ms, todos dentro de P21: el resto, igual.
 testp4                380      18893170139423        resto

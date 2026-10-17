@@ -43,9 +43,19 @@
 //
 // LO QUE NO HACE: la verificación ANTES de programar (VER_PRE, AUTO_PRE) se
 // guarda pero no se ejecuta; los modos de lectura de margen y de
-// verificación (RD_MODE) se aceptan y leen lo mismo que el normal; la
-// lectura en ráfaga (RDBRST) y el contador de rendimiento (BMRK) guardan sus
-// registros y no hacen nada. [P-16 e, o]
+// verificación (RD_MODE) se aceptan y leen lo mismo que el normal; el
+// contador de rendimiento (BMRK) guarda sus registros y no hace nada; y la
+// lectura en ráfaga (RDBRST) compara con 0x00 o 0xFF (DATA_CMP), no con los
+// registros de prueba (TEST_EN). [P-16 e, o]
+//
+// LA LECTURA EN RÁFAGA (T5): DriverLib verifica cada borrado y cada
+// programación con ella (FlashCtl_verifyMemory), así que sin ella el
+// algoritmo de Flash de TI que usa OpenOCD -que llama a la ROM- se quedaba
+// esperando BRST_STAT = 3 para siempre. Compara LEN bytes desde STARTADDR
+// (de la principal o de la información, MEM_TYPE) palabra a palabra; cuenta
+// los fallos en FAILCNT, apunta el primero en FAILADDR y sube CMP_ERR;
+// STOP_FAIL para en el primero. Tarda t_rdbrst_128 por línea de 128 bits
+// [modelo], con BRST_STAT = 2 mientras tanto, y acaba con IFG.RDBRST.
 // =============================================================================
 #ifndef STM32_PERIPH_MSP432P4_FLCTL_H
 #define STM32_PERIPH_MSP432P4_FLCTL_H
@@ -341,6 +351,7 @@ public:
     sc_core::sc_time t_rafaga_128{30, sc_core::SC_US};
     sc_core::sc_time t_sector{5, sc_core::SC_MS};
     sc_core::sc_time t_masivo{40, sc_core::SC_MS};
+    sc_core::sc_time t_rdbrst_128{40, sc_core::SC_NS};   // [modelo]
 
     sc_core::sc_out<bool> irq{"irq"};            // FLCTL_IRQn
 
@@ -386,6 +397,7 @@ public:
     unsigned palabras_programadas() const { return n_palabras_; }
     unsigned sectores_borrados()    const { return n_sectores_; }
     uint32_t ifg() const { return regs_[R_IFG / 4]; }
+    unsigned rafagas_de_lectura() const { return n_rdbrst_; }
 
 protected:
     uint32_t rdctl_[2] = {0, 0};
@@ -393,6 +405,10 @@ protected:
     uint32_t prg_ = 0;                  // PRG_CTLSTAT, la parte que se escribe
     uint32_t brst_cfg_ = 0, brst_st_ = 0;   // PRGBRST_CTLSTAT: config y estado
     uint32_t erase_cfg_ = 0, erase_st_ = 0; // ERASE_CTLSTAT: config y estado
+    // RDBRST_CTLSTAT: config, estado (bits 19-16) y cuándo acaba
+    uint32_t rdbrst_cfg_ = 0, rdbrst_st_ = 0;
+    sc_core::sc_time rdbrst_fin_{sc_core::SC_ZERO_TIME};
+    unsigned n_rdbrst_ = 0;
     // El búfer del modo de palabra completa
     uint8_t  linea_buf_[16] = {};
     uint16_t linea_llena_ = 0;
@@ -418,6 +434,7 @@ protected:
         for (uint32_t& r : regs_) r = 0;
         rdctl_[0] = rdctl_[1] = 0;
         prg_ = brst_cfg_ = brst_st_ = erase_cfg_ = erase_st_ = 0;
+        rdbrst_cfg_ = rdbrst_st_ = 0; rdbrst_fin_ = sc_core::SC_ZERO_TIME;
         linea_llena_ = 0; linea_dir_ = ~0u;
         op_ = OpEnCurso();
         // Todo protegido contra escritura y borrado al salir del reset: hay
@@ -518,6 +535,7 @@ protected:
     }
 
     // --- Las tres operaciones --------------------------------------------------
+    void inicia_lectura_rafaga();
     void inicia_borrado() {
         const sc_core::sc_time ahora = sc_core::sc_time_stamp();
         const unsigned tipo = (erase_cfg_ >> 2) & 3u;
@@ -623,6 +641,9 @@ protected:
                 return v;
             }
             case R_PRGBRST_CTLSTAT: return brst_cfg_ | estado_rafaga(ahora);
+            case R_RDBRST_CTLSTAT:
+                if (rdbrst_st_ && ahora < rdbrst_fin_) return rdbrst_cfg_ | (2u << 16);
+                return rdbrst_cfg_ | rdbrst_st_;
             case R_ERASE_CTLSTAT: {
                 uint32_t st = erase_st_;
                 if (op_.activa && (op_.tipo == Op::Sector || op_.tipo == Op::Masivo) &&
@@ -669,6 +690,13 @@ protected:
             case R_ERASE_SECTADDR:
                 regs_[off / 4] = mezcla(regs_[off / 4]) & 0x003FFFFFu;
                 return;
+            case R_RDBRST_CTLSTAT: {
+                const uint32_t w = v & m;
+                if (w & (1u << 23)) rdbrst_st_ = 0;           // CLR_STAT
+                rdbrst_cfg_ = mezcla(rdbrst_cfg_) & 0x5Eu;    // MEM_TYPE, STOP_FAIL, DATA_CMP, TEST_EN
+                if (w & 1u) inicia_lectura_rafaga();
+                return;
+            }
             case R_PRGBRST_STARTADDR:
                 regs_[off / 4] = mezcla(regs_[off / 4]) & 0x003FFFFFu;
                 return;
@@ -693,6 +721,38 @@ protected:
         }
     }
 };
+
+// La lectura en ráfaga: la comparación se hace entera al empezar (la memoria
+// no cambia mientras: el controlador no hace otra cosa), y el estado dice
+// «en curso» hasta que pasa su tiempo.
+inline void FlctlP4::inicia_lectura_rafaga() {
+    ++n_rdbrst_;
+    const sc_core::sc_time ahora = sc_core::sc_time_stamp();
+    const bool info = ((rdbrst_cfg_ >> 1) & 3u) == 1u;
+    const uint32_t base = info ? p4::INFO_B : 0u;
+    const uint32_t ini = regs_[R_RDBRST_STARTADDR / 4] & 0x003FFFF0u;
+    const uint32_t len = regs_[R_RDBRST_LEN / 4] & 0x003FFFF0u;
+    const uint32_t patron = (rdbrst_cfg_ & (1u << 4)) ? 0xFFFFFFFFu : 0u;
+    const bool para = (rdbrst_cfg_ & (1u << 3)) != 0;
+    uint32_t fallos = regs_[R_RDBRST_FAILCNT / 4] & 0x1FFFFu;
+    uint32_t st = 3u << 16;
+    uint32_t hechos = 0;
+    for (uint32_t o = 0; o < len; o += 4) {
+        const uint32_t a = base + ini + o;
+        if (!mem->es_flash(a) || !mem->es_flash(a + 3)) { st |= 1u << 19; break; }   // ADDR_ERR
+        hechos = o + 4;
+        if (mem->peek32(a) != patron) {
+            if (!(st & (1u << 18))) regs_[R_RDBRST_FAILADDR / 4] = ini + o;
+            st |= 1u << 18;                                             // CMP_ERR
+            ++fallos;
+            if (para) break;
+        }
+    }
+    regs_[R_RDBRST_FAILCNT / 4] = fallos & 0x1FFFFu;
+    rdbrst_st_ = st;
+    rdbrst_fin_ = ahora + t_rdbrst_128 * double((hechos + 15u) / 16u);
+    pon_ifg(IFG_RDBRST);
+}
 
 // Una escritura del bus en la Flash. Sin ENABLE no programa nada -y se dice
 // una vez-; con él, programa la palabra o la junta en la línea de 128 bits.

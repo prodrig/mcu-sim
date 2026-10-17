@@ -926,12 +926,16 @@ SC_MODULE(TbP4) {
         const unsigned r0 = dut.resets();
         wait(30, SC_MS);
         r.congelado = dut.resets() == r0 && buzon(B_ARRANQUES) == 0;
-        // ...y sin congelar: el perro resetea el chip aunque este parado
+        // ...y sin congelar: el perro resetea el chip aunque este parado, y
+        // el reset SACA al nucleo de la parada (sin VC_CORERESET arranca: es
+        // por lo que los depuradores necesitan la captura de vector para
+        // parar tras un reset; T5): el firmware vuelve a contar un arranque
         cli.pedir("Me004300c,4:00000000");
         wait(15, SC_MS);
-        r.sin_congelar = dut.resets() > r0;
+        r.sin_congelar = dut.resets() > r0 && buzon(B_ARRANQUES) >= 1;
         cli.pedir("Me004300c,4:00400000");
         cli.pedir("qRcmd," + hex("reset halt"), sc_time(50, SC_MS));
+        cli.pedir("M20000000,8:0000000000000000");      // el buzon, otra vez a cero
         // Un watchpoint: la primera escritura de main es buzon.arranques++
         char z[64];
         std::snprintf(z, sizeof z, "Z2,%x,4", dir_arranques);
@@ -971,7 +975,8 @@ SC_MODULE(TbP4) {
         c(r.lectura, "y lo leido de vuelta es el .bin, byte a byte");
         c(r.pc_reset == rh, "`monitor reset halt` para en la primera instruccion, Reset_Handler");
         c(r.congelado, "con el nucleo parado el perro no corre (PERIHALT_CTL.HALT_WDT)");
-        c(r.sin_congelar, "y con HALT_WDT a cero, el perro resetea el chip aunque este parado");
+        c(r.sin_congelar, "y con HALT_WDT a cero, el perro resetea el chip aunque este parado, "
+                          "y el reset lo pone en marcha");
         c(r.wp, "un watchpoint en buzon.arranques para el nucleo en la primera escritura");
         c(r.bp, "un punto de ruptura en parpadea() para el nucleo alli");
         c(r.paso, "y un paso avanza una instruccion");

@@ -510,7 +510,15 @@ inline void Cpu::exec_proc() {
                     sync();
                     continue;
                 }
-                wait(ev_parada_);
+                // La condicion se RE-COMPRUEBA justo antes de bloquear, como en
+                // el sueño: sync() avanza el tiempo, y si en ese avance la
+                // parada se ha levantado -halt_req se publica un delta despues
+                // de que el DAP la quite; tras un SYSRESETREQ, el nucleo sale
+                // de do_reset con la señal todavia a uno-, su suceso ya ha
+                // pasado y wait() no lo veria nunca: el nucleo se quedaba
+                // parado en Reset_Handler sin C_HALT (T5 del MSP432: el `reset
+                // run` de OpenOCD en el F407).
+                if (dbg_halt_req.read() || (dbg && dbg->dbg_halt_now())) wait(ev_parada_);
                 if (dbg_halt_req.read() || (dbg && dbg->dbg_halt_now())) continue;
                 if (o_halted_) { o_halted_ = false; publish(); }
                 continue;
