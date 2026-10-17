@@ -1,0 +1,408 @@
+// =============================================================================
+// sc_main_e4.cpp — LA SUITE DEL MSP432E401Y (fase T6)
+//
+// Un banco aparte, como el del P4: un chip más dentro de otra simulación
+// movería su invariante. [doc/analisis_msp432.md, §8 T6]
+//
+//   E0      las imágenes de firmware son las versionadas
+//   E1-E3   sin tiempo simulado: nombres de pin, catálogo, la integración
+//   E4-E13  el chip con e4_demo (cargado como ELF): PIOSC, 120 MHz por las
+//           dos fuentes del PLL, los avisos de MEMTIM0 y del PLL, un
+//           periférico sin reloj, el pulsador, el perro, SYSRESETREQ, el dato
+//           enmascarado, LOCK/CR y DEN
+//   E14     CoreMark
+//
+//   make teste4   (o: make -f Makefile.mcu-sim teste4-build && ./build/teste4)
+// =============================================================================
+#include <systemc>
+#include <cstdio>
+#include <cstdlib>
+#include <cmath>
+#include <cstring>
+#include <string>
+#include "../common/asan_opciones.h"
+#include "../common/huella_fw.h"
+#include "../common/imagen_fw.h"
+#include "../soc/stm32f4_mcu.h"
+#include "../soc/msp432e4/msp432e4_mcu.h"
+#include "../parts/netlist_xml.h"
+#include "../parts/ext_parts.h"
+#include "../verif/bus_test_master.h"
+#include "../verif/swd_port.h"
+
+using namespace sc_core;
+using namespace stm32;
+
+static unsigned g_ok = 0, g_fallos = 0;
+static sc_core::sc_time g_t_gdb = sc_core::SC_ZERO_TIME;
+static void grupo(const char* t) { std::printf("\n--- %s ---\n", t); }
+static bool check(bool c, const char* q) {
+    if (c) { ++g_ok;  std::printf("  [OK  ] %s\n", q); }
+    else   { ++g_fallos; std::printf("  [FALLO] %s\n", q); }
+    return c;
+}
+static bool check_eq(uint64_t got, uint64_t exp, const char* q) {
+    const bool c = (got == exp);
+    if (c) std::printf("  [OK  ] %s\n", q);
+    else   std::printf("  [FALLO] %s (obtenido 0x%llX, esperado 0x%llX)\n", q,
+                       (unsigned long long)got, (unsigned long long)exp);
+    if (c) ++g_ok; else ++g_fallos;
+    return c;
+}
+
+static const char* const FW_DEMO = "verif/fw/msp432e4/e4_demo/e4_demo.out";
+static const char* const FW_CM   = "verif/fw/msp432e4/coremark/coremark_e4.bin";
+
+// El buzón de e4_demo [verif/fw/msp432e4/e4_demo/main.c, buzon_t]
+enum : uint32_t {
+    B_MODO = 0x00, B_ARRANQUES = 0x04, B_ESTADO = 0x08, B_RESC = 0x0C,
+    B_DID0 = 0x10, B_DID1 = 0x14, B_FLASHPP = 0x18, B_SSIZE = 0x1C,
+    B_RSCLKCFG = 0x20, B_MEMTIM0 = 0x24, B_PLLSTAT = 0x28, B_FAULTS = 0x2C,
+    B_BFAR = 0x30, B_CFSR = 0x34, B_PULSACIONES = 0x38, B_RIS = 0x3C,
+    B_M7_DATO = 0x40, B_M7_CR = 0x44, B_M7_AFSEL = 0x48, B_M7_LOCK = 0x4C,
+    B_PR_TRAS_RCGC = 0x50, B_VUELTAS = 0x58, B_TAM = 0x60
+};
+
+SC_MODULE(TbE4) {
+    McuE4 mcu;
+    Msp432E4& dut;
+    BusTestMaster tm{"tm"};
+    Crystal* y1 = nullptr;     // 25 MHz en OSC0
+    Button*  sw1 = nullptr;    // USR_SW1, PJ0 a masa
+    Button*  sw2 = nullptr;    // USR_SW2, PJ1 a masa
+
+    SC_CTOR(TbE4)
+        : mcu("dut", DBG_PINES, Cableado(), *CatalogoMcu::busca("MSP432E401Y")),
+          dut(mcu.chip()) {
+        tm.isk.bind(dut.from_tb);
+        y1 = new Crystal(*dut.osc0);
+        sw1 = new Button(dut.gpio.nodo_de(e4::PJ, 0));
+        sw2 = new Button(dut.gpio.nodo_de(e4::PJ, 1));
+        sw1->release(); sw2->release();
+        SC_THREAD(run);
+    }
+    ~TbE4() override { delete y1; delete sw1; delete sw2; }
+
+    // --- Utilidades -----------------------------------------------------------
+    uint32_t buzon(uint32_t off) { return dut.sram.peek32(off); }
+    void arranca(uint32_t modo, const char* fw = FW_DEMO) {
+        mcu.reset_pin(true);
+        wait(20, SC_US);
+        if (fw) mcu.carga_firmware(fw);
+        uint8_t ceros[B_TAM] = {};
+        dut.sram.load(ceros, sizeof ceros, 0);
+        dut.sram.poke32(B_MODO, modo);
+        mcu.reset_pin(false);
+    }
+    bool espera_estado(uint32_t e, double ms) {
+        const sc_time lim = sc_time_stamp() + sc_time(ms, SC_MS);
+        while (sc_time_stamp() < lim) {
+            if (buzon(B_ESTADO) == e) return true;
+            wait(50, SC_US);
+        }
+        return buzon(B_ESTADO) == e;
+    }
+    double periodo(unsigned p, unsigned i, unsigned n = 4, double max_ms = 50) {
+        const sc_time t_lim = sc_time_stamp() + sc_time(max_ms, SC_MS);
+        sc_time primero = SC_ZERO_TIME, ultimo = SC_ZERO_TIME;
+        unsigned flancos = 0;
+        bool ant = dut.gpio.nodo_de(p, i).voltage() > 1.65f;
+        while (sc_time_stamp() < t_lim && flancos <= n) {
+            wait(t_lim - sc_time_stamp(), dut.gpio.nodo_de(p, i).value_changed_event());
+            const bool v = dut.gpio.nodo_de(p, i).voltage() > 1.65f;
+            if (v && !ant) {
+                if (flancos == 0) primero = sc_time_stamp();
+                ultimo = sc_time_stamp();
+                ++flancos;
+            }
+            ant = v;
+        }
+        if (flancos < 2) return 0.0;
+        return (ultimo - primero).to_seconds() / double(flancos - 1);
+    }
+
+    // =======================================================================
+    void firmwares() {
+        grupo("E0 Imagenes de firmware [verif/fw/huellas.txt]");
+        const huella_fw::Veredicto v =
+            huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "e4");
+        std::printf("         %d imagenes: %s\n", v.comprobadas, v.detalle.c_str());
+        check(v.ok(), "las imagenes de la suite del MSP432E4 son las versionadas");
+    }
+
+    // Sin tiempo simulado
+    void nombres() {
+        grupo("E1 Nombres de pin del E4: PA0..PQ7, sin I ni O");
+        unsigned p = 99, i = 99;
+        check(e4::pad_e4("PA0", p, i) && p == 0 && i == 0, "PA0 es el primer pin");
+        check(e4::pad_e4("PJ1", p, i) && p == e4::PJ && i == 1,
+              "PJ1 es el puerto J, el noveno: no hay I");
+        check(e4::pad_e4("PN0", p, i) && p == e4::PN && i == 0 &&
+              e4::pad_e4("PQ4", p, i) && p == e4::PQ && i == 4,
+              "PN0 (el LED D2) y PQ4: no hay O");
+        check(e4::pad_e4("PN.1", p, i) && p == e4::PN && i == 1 &&
+              e4::pad_e4("PF_4", p, i) && p == e4::PF && i == 4,
+              "PN.1 y PF_4 son alias de PN1 y PF4");
+        check(!e4::pad_e4("PI0", p, i) && !e4::pad_e4("PO0", p, i) &&
+              !e4::pad_e4("PA8", p, i) && !e4::pad_e4("PR0", p, i) &&
+              !e4::pad_e4("P1.0", p, i),
+              "y PI0, PO0, PA8, PR0 (del E411Y) y P1.0 no son pines del E401Y");
+        check(e4::canonico_e4(e4::PQ, 3) == "PQ3" && e4::canonico_e4(e4::PJ, 0) == "PJ0",
+              "la forma canonica es la del datasheet");
+        ContextoNomenclatura& c = ContextoNomenclatura::g();
+        c.limpia();
+        std::string m;
+        check(pad_desde_nombre("PJ0", m, p, i) == false || p != e4::PJ,
+              "SIN chip de TI en la placa, PJ0 no es del E4: la regla de ST manda");
+        c.fija("u0", &NOM_MSP432E4);
+        check(pad_desde_nombre("u0.PN1", m, p, i) && m == "u0" && p == e4::PN && i == 1,
+              "u0.PN1, con un E4 en u0: el decimotercer puerto");
+        check(pad_desde_nombre("u1.PD12", m, p, i) && m == "u1" && p == 3 && i == 12,
+              "y en la misma placa u1.PD12 sigue siendo de un STM32");
+        c.limpia();
+        Netlist nl;
+        const std::string e = netlist_desde_texto(nl,
+            "<placa nombre='mixta'>"
+            "<mcu tipo='MSP432E401Y' id='u0'/><mcu tipo='STM32F407VG' id='u1'/>"
+            "<componente tipo='Led' id='L1' a_vss='si'><pin nombre='anodo' nodo='u0.PN.0'/></componente>"
+            "<componente tipo='Led' id='L2' a_vss='si'><pin nombre='anodo' nodo='u1.P3.12'/></componente>"
+            "</placa>");
+        bool l1 = false, l2 = false;
+        for (const Instancia& in : nl.instancias())
+            for (const Conexion& cx : in.pines) {
+                if (cx.nodo == "u0.PN0") l1 = true;
+                if (cx.nodo == "u1.PD12") l2 = true;
+            }
+        check(e.empty() && l1 && l2,
+              "un XML con un MSP432E401Y y un STM32F407VG: u0.PN.0 queda PN0 y u1.P3.12 "
+              "queda PD12");
+        ContextoNomenclatura::g().limpia();
+    }
+
+    void catalogo() {
+        grupo("E2 El catalogo, la factoria y el encapsulado");
+        const McuDesc* d = CatalogoMcu::busca("msp432e401y");
+        check(d && std::string(d->familia) == "MSP432E4" && d->enc->n_gpio == 90,
+              "MSP432E401Y esta en el catalogo, de la familia MSP432E4, con 90 E/S");
+        check(d && d->enc->coherente(), "y su TQFP128 cuadra: 90 pads marcados");
+        check(FabricaMcu::conoce("MSP432E4") && FabricaMcu::conoce("STM32F4"),
+              "la factoria sabe construir las dos familias");
+        check(!ENC_E4_TQFP128.bonded(e4::PB, 6) && ENC_E4_TQFP128.bonded(e4::PA, 6) &&
+              !ENC_E4_TQFP128.bonded(e4::PJ, 2) && ENC_E4_TQFP128.bonded(e4::PQ, 4),
+              "PB6 y PJ2 no salen; PA6 y PQ4 si");
+        check(mcu.nodo_swclk() == &dut.gpio.nodo_de(e4::PC, 0) &&
+              mcu.nodo_swdio() == &dut.gpio.nodo_de(e4::PC, 1),
+              "SWCLK y SWDIO son PC0 y PC1: pines de puerto, como PA14/PA13 en un STM32");
+    }
+
+    void integracion() {
+        grupo("E3 La integracion del nucleo");
+        check(!INTEGRACION_MSP432E4.alias_arranque &&
+              !INTEGRACION_MSP432E4.en_ppb_fab(0xE0042000u),
+              "sin alias de fabricante en 0x0 y sin ventana en el PPB: lo de TI esta "
+              "en el bus de perifericos");
+        check(dut.core.nucleo.n_irq == 111 && dut.core.nucleo.prio_bits == 3,
+              "111 lineas (GPIOA..I2C9) y 3 bits de prioridad");
+        check(e4::fws_minimo(16e6) == 0 && e4::fws_minimo(40e6) == 1 &&
+              e4::fws_minimo(120e6) == 5,
+              "la tabla de MEMTIM0 es la de DriverLib: 0 hasta 16 MHz, 5 a 120");
+    }
+
+    // =======================================================================
+    double t16_ = 0;
+    void parpadeo() {
+        grupo("E4 Arranca desde 0x0 con PIOSC y parpadea (modo 0)");
+        mcu.alimenta(true);
+        arranca(0);
+        check(espera_estado(100, 5), "el firmware llega al bucle de parpadeo");
+        check_eq(buzon(B_ARRANQUES), 1, "una sola vez: los perros del E4 arrancan apagados");
+        check(std::fabs(dut.f_sys() - 16e6) < 1, "SYSCLK = 16 MHz, de PIOSC");
+        check_eq(buzon(B_RESC), SysctlE4::RESC_POR, "RESC = POR al encender");
+        check_eq(buzon(B_DID0), e4::DID0_E401Y, "DID0 = 0x180C0002, el que espera OpenOCD");
+        check_eq(buzon(B_DID1), e4::DID1_E401Y, "DID1 = 0x102DC06E");
+        check_eq(buzon(B_FLASHPP) & 0xFFFF, 0x1FF, "FLASHPP: 1 MB");
+        check_eq((buzon(B_FLASHPP) >> 16) & 7, 4, "y sectores de 16 KB");
+        check_eq(buzon(B_SSIZE), 0x3FF, "SSIZE: 256 KB de SRAM");
+        t16_ = periodo(e4::PN, 0);
+        std::printf("    periodo de PN0 a 16 MHz: %.3f ms\n", t16_ * 1e3);
+        check(t16_ > 0, "PN0 (D2) conmuta");
+        check(periodo(e4::PN, 1) > 0 && periodo(e4::PF, 4) > 0 && periodo(e4::PF, 0) > 0,
+              "y PN1 (D1), PF4 (D3) y PF0 (D4) tambien: los cuatro LED, por el dato "
+              "enmascarado");
+        check(dut.avisos_flash() == 0 && dut.avisos_sin_reloj() == 0,
+              "sin avisos: el firmware da reloj a N y F y espera a PRGPIO");
+    }
+
+    void a120() {
+        grupo("E5 120 MHz desde el cristal de 25 MHz, en el orden de TI (modo 1)");
+        const unsigned af0 = dut.avisos_flash(), ap0 = dut.sysctl.avisos_pll();
+        arranca(1);
+        check(espera_estado(100, 10), "llega a parpadear");
+        check(std::fabs(dut.f_sys() - 120e6) < 1, "SYSCLK = 120 MHz: 25 · 96 / (2 · 5) / 2");
+        check(dut.sysctl.mosc.is_ready() && dut.sysctl.pll_enganchado(),
+              "con el MOSC en marcha y el PLL enganchado");
+        check_eq(dut.sysctl.fws(), 5, "MEMTIM0.FWS = 5 en vigor");
+        check(buzon(B_RSCLKCFG) & (1u << 28), "RSCLKCFG.USEPLL");
+        check(dut.avisos_flash() == af0 && dut.sysctl.avisos_pll() == ap0,
+              "en el orden de TI no hay ningun aviso");
+        const double t120 = periodo(e4::PN, 0);
+        std::printf("    periodo de PN0 a 120 MHz: %.3f ms (%.2f veces mas rapido)\n",
+                    t120 * 1e3, t120 > 0 ? t16_ / t120 : 0.0);
+        check(t120 > 0 && t16_ / t120 > 3.0 && t16_ / t120 < 7.5 + 1e-6,
+              "el mismo bucle va hasta 7,5 veces mas deprisa: lo que da el reloj, menos "
+              "los cinco estados de espera de las lineas que no estan en la prebusqueda");
+        check(dut.flash.esperas_pagadas() > 0, "y los estados de espera se pagan");
+    }
+
+    void a120_mal() {
+        grupo("E6 La secuencia MALA (modo 2): USEPLL sin LOCK y MEMTIM0 sin MEMTIMU");
+        const unsigned af0 = dut.avisos_flash(), ap0 = dut.sysctl.avisos_pll();
+        arranca(2);
+        check(espera_estado(100, 10), "y al corregirla, llega a parpadear");
+        check(dut.sysctl.avisos_pll() == ap0 + 1,
+              "USEPLL con el PLL sin enganchar: el modelo avisa, una vez");
+        check(dut.avisos_flash() == af0 + 1,
+              "120 MHz con FWS = 0 en vigor (MEMTIM0 escrito, sin MEMTIMU): tambien");
+        check_eq(dut.sysctl.fws(), 5, "y al final, FWS = 5");
+    }
+
+    void a120_piosc() {
+        grupo("E7 120 MHz desde PIOSC, sin cristal (modo 8)");
+        y1->set_enabled(false);
+        arranca(8);
+        check(espera_estado(100, 10), "llega a parpadear sin el cristal de la placa");
+        check(std::fabs(dut.f_sys() - 120e6) < 1, "SYSCLK = 120 MHz: 16 · 30 / (2 · 1) / 2");
+        check(!dut.sysctl.mosc.is_ready(), "con el MOSC parado");
+        y1->set_enabled(true);
+    }
+
+    void sin_reloj() {
+        grupo("E8 Un periferico sin reloj (modo 3): error de bus, y dicho");
+        const unsigned n0 = dut.avisos_sin_reloj();
+        arranca(3);
+        check(espera_estado(100, 10), "el firmware se recupera del fallo y parpadea");
+        check(buzon(B_FAULTS) >= 1, "leer GPION sin RCGCGPIO da un BusFault");
+        check_eq(buzon(B_BFAR), e4::base_gpio(e4::PN) + 0x400, "BFAR = GPION->DIR");
+        check(buzon(B_CFSR) & (1u << 15), "con BFARVALID");
+        check(dut.avisos_sin_reloj() > n0, "y el modelo lo cuenta y lo dice");
+        check_eq(buzon(B_PR_TRAS_RCGC) & (1u << 12), 0,
+                 "PRGPIO.R12 no sube en el mismo instante que RCGCGPIO.R12");
+    }
+
+    void pulsador() {
+        grupo("E9 USR_SW1 (PJ0) por interrupcion de flanco de bajada (modo 4)");
+        arranca(4);
+        check(espera_estado(40, 5), "el firmware espera en WFI");
+        check(dut.gpio.nodo_de(e4::PJ, 0).voltage() > 3.0f, "PJ0 en alto por su pull-up");
+        for (int k = 0; k < 3; ++k) {
+            sw1->press(); wait(200, SC_US); sw1->release(); wait(200, SC_US);
+        }
+        check_eq(buzon(B_PULSACIONES), 3, "tres pulsaciones, tres interrupciones GPIOJ");
+        check_eq(buzon(B_RIS) & 1u, 1, "con RIS.0 puesto al entrar, y borrado con ICR");
+        sw2->press(); wait(200, SC_US); sw2->release(); wait(200, SC_US);
+        check_eq(buzon(B_PULSACIONES), 3, "USR_SW2 (PJ1) no esta en IM: no interrumpe");
+    }
+
+    void perro() {
+        grupo("E10 El perro WDT0 con RESEN, sin alimentar (modo 5)");
+        const unsigned r0 = dut.resets();
+        arranca(5);
+        check(espera_estado(100, 10), "tras el reset del perro, el firmware parpadea");
+        check_eq(buzon(B_ARRANQUES), 2, "dos arranques: el segundo vencimiento resetea");
+        check(buzon(B_RESC) & SysctlE4::RESC_WDT0, "y RESC dice por que: WDT0");
+        check(dut.resets() == r0 + 2, "un reset del pin y otro del perro");
+        check(!dut.wdt0.en_marcha(), "y el reset lo deja apagado");
+    }
+
+    void sysresetreq() {
+        grupo("E11 SYSRESETREQ (modo 6)");
+        arranca(6);
+        check(espera_estado(61, 5), "el firmware se resetea a si mismo y vuelve");
+        check(buzon(B_RESC) & SysctlE4::RESC_SW, "RESC dice SW");
+        check(!(buzon(B_RESC) & SysctlE4::RESC_POR), "y no POR: no se ha cortado la corriente");
+    }
+
+    void gpio_tiva() {
+        grupo("E12 El GPIO de Tiva (modo 7): dato enmascarado, LOCK/CR y DEN");
+        const unsigned d0 = dut.gpio.avisos_den();
+        arranca(7);
+        check(espera_estado(70, 5), "el firmware llega al final");
+        check_eq(buzon(B_M7_DATO) & 0xFF, 0x02,
+                 "escribir 0xFF en base + (0x02 << 2) solo cambia PN1");
+        check_eq((buzon(B_M7_DATO) >> 8) & 0xFF, 0x00,
+                 "y leer en base + (0x01 << 2) solo ve PN0");
+        check_eq(buzon(B_M7_CR) & 0xFF, 0x7F, "GPIOD->CR = 0x7F: PD7 protegido");
+        check_eq(buzon(B_M7_AFSEL) & 0xFF, 0x00, "sin abrir, AFSEL.7 no cambia");
+        check_eq((buzon(B_M7_AFSEL) >> 8) & 0xFF, 0x80, "con LOCK y CR abiertos, si");
+        check_eq(buzon(B_M7_LOCK), 0x010001,
+                 "LOCK se lee 1 cerrado, 0 abierto, y 1 al volver a cerrarlo");
+        check((buzon(B_M7_CR) >> 8) == 0x7F, "y CR vuelve a 0x7F");
+        check(dut.gpio.avisos_den() == d0 + 1,
+              "PF0 de salida sin DEN: el modelo avisa una vez");
+        check(dut.gpio.nodo_de(e4::PF, 0).voltage() < 0.5f, "y el pin no se mueve");
+    }
+
+    void coremark() {
+        grupo("E13 CoreMark sobre el MSP432E401Y");
+        mcu.reset_pin(true);
+        wait(20, SC_US);
+        check(mcu.carga_firmware(FW_CM), "coremark_e4.bin cargado en 0x0");
+        uint8_t ceros[16] = {};
+        dut.sram.load(ceros, sizeof ceros, 0);
+        const uint64_t i0 = dut.core.cpu.inst_count;
+        mcu.reset_pin(false);
+        const sc_time t0 = sc_time_stamp();
+        bool fin = false;
+        while (sc_time_stamp() - t0 < sc_time(4000, SC_MS)) {
+            wait(2, SC_MS);
+            if (dut.sram.peek32(0) == 1u) { fin = true; break; }
+        }
+        check(fin, "CoreMark termina");
+        const uint32_t magic = dut.sram.peek32(4), len = dut.sram.peek32(8);
+        std::string s;
+        if (magic == 0x434F4E53u && len < 4096)
+            for (uint32_t k = 0; k < len; ++k) s += char(dut.sram.peek32(12 + (k & ~3u)) >> (8 * (k & 3u)));
+        const bool crc_ok =
+            s.find("seedcrc          : 0xe9f5") != std::string::npos &&
+            s.find("[0]crclist       : 0xe714") != std::string::npos &&
+            s.find("[0]crcmatrix     : 0x1fd7") != std::string::npos &&
+            s.find("[0]crcstate      : 0x8e3a") != std::string::npos;
+        check(crc_ok, "y valida su resultado: los CRC son los canonicos del 2K run");
+        std::printf("    %llu instrucciones en %.3f s simulados\n",
+                    (unsigned long long)(dut.core.cpu.inst_count - i0),
+                    (sc_time_stamp() - t0).to_seconds());
+    }
+
+    void run() {
+        firmwares();
+        nombres();
+        catalogo();
+        integracion();
+        parpadeo();
+        a120();
+        a120_mal();
+        a120_piosc();
+        sin_reloj();
+        pulsador();
+        perro();
+        sysresetreq();
+        gpio_tiva();
+        coremark();
+        std::printf("\nTOTAL E4: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
+        sc_stop();
+    }
+};
+
+int sc_main(int, char*[]) {
+    sc_report_handler::set_actions(SC_WARNING,
+        std::getenv("TESTE4_AVISOS") ? SC_DISPLAY : SC_DO_NOTHING);
+    TbE4 tb("tb");
+    sc_start();
+    std::printf("\nTiempo simulado: %s\n", sc_time_stamp().to_string().c_str());
+    if (g_t_gdb != SC_ZERO_TIME)
+        std::printf("  de los cuales E (socket de GDB)      : %s\n"
+                    "  el resto                             : %s\n",
+                    g_t_gdb.to_string().c_str(),
+                    (sc_time_stamp() - g_t_gdb).to_string().c_str());
+    return g_fallos ? 1 : 0;
+}

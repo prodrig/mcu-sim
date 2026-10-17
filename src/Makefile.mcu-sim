@@ -236,7 +236,8 @@ LDLIBS   += -lsystemc $(LIBS_SO) $(EXTRA_LD)
 
 HDRS := $(wildcard common/*.h pins/*.h parts/*.h bus/*.h mem/*.h rcc/*.h core/*.h \
                    periph/*.h soc/*.h verif/*.h top/*.h \
-                   periph/msp432p4/*.h soc/msp432p4/*.h soc/msp432p4/*.inc)
+                   periph/msp432p4/*.h soc/msp432p4/*.h soc/msp432p4/*.inc \
+                   periph/msp432e4/*.h soc/msp432e4/*.h soc/msp432e4/*.inc)
 
 TEST407 := $(B)/test407$(EXE)
 MCUSIM  := $(B)/mcu-sim$(EXE)
@@ -245,6 +246,7 @@ TEST417 := $(B)/test417$(EXE)
 TESTSERIE := $(B)/testserie$(EXE)
 TESTGUI   := $(B)/testgui$(EXE)
 TESTP4    := $(B)/testp4$(EXE)
+TESTE4    := $(B)/teste4$(EXE)
 HASHV   := $(B)/prueba_hash$(EXE)
 CRYPV   := $(B)/prueba_cryp$(EXE)
 BENCH  := $(B)/bench$(EXE)
@@ -256,9 +258,10 @@ ASAN407 := $(B)/asan407$(EXE)
 ASAN446 := $(B)/asan446$(EXE)
 ASAN417 := $(B)/asan417$(EXE)
 ASANP4  := $(B)/asanp4$(EXE)
+ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop run clean plataforma vectores hash cryp datos
+.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -345,6 +348,18 @@ testp4-build: $(TESTP4)
 
 testp4: $(TESTP4)
 	$(TESTP4)
+
+# EL BANCO DEL MSP432E401Y (fase T6 de doc/analisis_msp432.md): el segundo
+# MSP432, otro ejecutable por lo mismo que el del P4.
+#   make teste4
+$(TESTE4): top/sc_main_e4.cpp $(HDRS)
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_e4.cpp $(LDFLAGS) $(LDLIBS)
+
+teste4-build: $(TESTE4)
+
+teste4: $(TESTE4)
+	$(TESTE4)
 
 # --- La capa de red, que es la única parte no portable -----------------------
 # No necesita SystemC, así que se compila y se ejecuta en cualquier sitio, y se
@@ -654,6 +669,19 @@ asanp4: $(ASANP4)
 	$(ASANP4)
 endif
 
+# Y para el del MSP432E401Y.
+$(ASANE4): top/sc_main_e4.cpp $(HDRS)
+	@mkdir -p $(B)
+	$(CXX) $(ASANFLAGS) -o $@ top/sc_main_e4.cpp $(LDFLAGS) $(LDLIBS)
+
+ifeq ($(PLATAFORMA),windows)
+asane4:
+	@echo "MinGW no trae AddressSanitizer: 'make asane4' solo va en Linux y macOS."
+else
+asane4: $(ASANE4)
+	$(ASANE4)
+endif
+
 # Y para el del acelerador criptográfico, que es el tercero.
 $(ASAN417): top/sc_main_f417.cpp $(HDRS)
 	@mkdir -p $(B)
@@ -832,6 +860,8 @@ FWSERIE := verif/fw/vcp_demo
 FWP4 := verif/fw/msp432p4/p4_demo verif/fw/msp432p4/coremark verif/fw/msp432p4/p4_t3 \
         verif/fw/msp432p4/p4_t3b verif/fw/msp432p4/edumkii_demo verif/fw/msp432p4/driverlib_t3 \
         verif/fw/msp432p4/rom_r1 verif/fw/msp432p4/sdk_ejemplos verif/fw/msp432p4/freertos_blinky
+# Los del MSP432E401Y (T6): con la cabecera y DriverLib de TI para el E4.
+FWE4 := verif/fw/msp432e4/e4_demo verif/fw/msp432e4/coremark
 # Los de las placas de ejemplo que no usa ninguna suite de C++: el de
 # placas/barra8_en_nucleo.xml y el de placas/nucleo_f446re_barra8ac_azul.xml,
 # que vigila `make gui-sistema`; los de la pantalla TFT, el de
@@ -844,7 +874,8 @@ FWPLACAS := verif/fw/barra8_demo verif/fw/barra8_morpho verif/fw/tft_demo verif/
 # Todos los que hay, para `cleanfw`. Se calculan buscando Makefiles en vez de
 # escribir otra lista: asi un firmware nuevo se borra sin tocar esto.
 FW_TODOS := $(sort $(patsubst %/Makefile,%,$(wildcard verif/fw/Makefile verif/fw/*/Makefile \
-                                                         verif/fw/msp432p4/*/Makefile)))
+                                                         verif/fw/msp432p4/*/Makefile \
+                                                         verif/fw/msp432e4/*/Makefile)))
 
 # Un aviso util en vez de veinte errores de «command not found». No aborta: hay
 # quien tiene el compilador en un sitio raro y sabe lo que hace.
@@ -923,8 +954,16 @@ fwp4:
 	 done
 	@echo "  [fw] los $(words $(FWP4)) firmwares de la suite del MSP432P401R, listos"
 
-# Los seis juegos, sin simular nada.
-fw: fw407 fw446 fw417 fwserie fwplacas fwp4
+fwe4:
+	$(AVISA_VERSIONADOS)
+	$(COMPRUEBA_CROSS)
+	@for d in $(FWE4); do \
+	   echo "  [fw] $$d"; $(MAKE) --no-print-directory -C $$d || exit 1; \
+	 done
+	@echo "  [fw] los $(words $(FWE4)) firmwares de la suite del MSP432E401Y, listos"
+
+# Los siete juegos, sin simular nada.
+fw: fw407 fw446 fw417 fwserie fwplacas fwp4 fwe4
 
 # Y las suites con sus firmwares delante. En una maquina nueva ya NO hacen
 # falta: `make test407` a secas funciona, porque los .bin vienen en el
@@ -945,6 +984,8 @@ testseriefw: fwserie
 
 testp4fw: fwp4
 	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) testp4
+teste4fw: fwe4
+	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) teste4
 
 # Borra los .bin, .elf, .o y .map de TODOS los firmwares, sean de la suite que
 # sean. Util para comprobar que la cadena cruzada funciona de cero.

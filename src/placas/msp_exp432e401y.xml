@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MSP-EXP432E401Y: la LaunchPad de Ethernet de Texas Instruments (fase T6)
+
+     Lo que lleva la placa aparte del chip y que el modelo ya sabe hacer
+     [Energia, variants/MSP_EXP432E401Y; SLAU748, la guia de la placa]:
+
+         D1    LED verde en PN1
+         D2    LED verde en PN0
+         D3    LED verde en PF4
+         D4    LED verde en PF0
+         USR_SW1  pulsador en PJ0, a MASA, sin resistencia: el nivel alto lo da
+                  el pull-up interno (GPIOPUR)
+         USR_SW2  pulsador en PJ1, igual
+         RESET pulsador en RST, que lleva su pull-up dentro
+         Y1    cristal de 25 MHz en OSC0/OSC1 (MOSC)
+         Y3    cristal de 32 768 Hz en XOSC0/XOSC1 (hibernacion)
+         BCL   el puerto serie de vuelta del XDS110: la UART0 en PA0/PA1 hasta
+               el PC, por RFC 2217 en el 3357. La UART llega en la entrega 3 de
+               T6: hasta entonces el puente esta, pero no le llega nada
+
+     Lo que NO esta todavia: el XDS110 (se depura con depuracion="dap" o
+     "pines", por PC0/PC1 como un STM32), el conector RJ45 y el PHY (T7), el
+     USB (T7) y los conectores BoosterPack.
+
+         ./build/mcu-sim placas/msp_exp432e401y.xml --valida
+         ./build/mcu-sim placas/msp_exp432e401y.xml verif/fw/msp432e4/e4_demo/e4_demo.out --ms=50
+-->
+<placa nombre="msp-exp432e401y">
+  <mcu tipo="MSP432E401Y" id="u0"/>
+
+  <componente tipo="Led" id="D1" a_vss="si" vf="2.2" r="330">
+    <pin nombre="anodo" nodo="PN1"/>
+  </componente>
+  <componente tipo="Led" id="D2" a_vss="si" vf="2.2" r="330">
+    <pin nombre="anodo" nodo="PN0"/>
+  </componente>
+  <componente tipo="Led" id="D3" a_vss="si" vf="2.2" r="330">
+    <pin nombre="anodo" nodo="PF4"/>
+  </componente>
+  <componente tipo="Led" id="D4" a_vss="si" vf="2.2" r="330">
+    <pin nombre="anodo" nodo="PF0"/>
+  </componente>
+
+  <componente tipo="Button" id="USR_SW1" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="PJ0"/>
+  </componente>
+  <componente tipo="Button" id="USR_SW2" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="PJ1"/>
+  </componente>
+
+  <!-- RESET: RST tiene dos que tiran de el, el pull-up de la patilla y el
+       boton, y por eso bus="si". -->
+  <nodo id="RST" bus="si"/>
+  <componente tipo="Button" id="RESET" r_cerrado="10" rebote="no">
+    <pin nombre="pin" nodo="RST"/>
+  </componente>
+
+  <componente tipo="Crystal" id="Y1" vdd="3.3">
+    <pin nombre="osc_in" nodo="OSC0"/>
+  </componente>
+  <componente tipo="Crystal" id="Y3" vdd="3.3">
+    <pin nombre="osc_in" nodo="XOSC0"/>
+  </componente>
+
+  <!-- El backchannel del XDS110: U0RX en PA0 y U0TX en PA1 [Energia, Board.h:
+       UART0 en PA0/PA1]. Su rx lee el TX del MCU. -->
+  <componente tipo="PuenteSerie" id="BCL" host="rfc2217:3357"
+              baudios="host" formato="8N1" muestra="si">
+    <pin nombre="rx" nodo="PA1"/>   <!-- U0TX -->
+    <pin nombre="tx" nodo="PA0"/>   <!-- U0RX -->
+  </componente>
+</placa>

@@ -41,7 +41,10 @@ namespace stm32 {
 // nomenclatura numera 0..10 [pins/nomenclatura.h]. Es una tabla de máscaras y
 // no un recurso del modelo: crecer de 9 a 11 no construye ni un pad más en un
 // STM32, cuyo `PinMux` sigue dimensionado con N_GPIO_PORTS.
-constexpr unsigned N_PUERTOS_SILICIO = 11;
+//
+// Desde T6, DIECIOCHO: el MSP432E4 tiene los puertos A..T sin I ni O (quince
+// en el E401Y, dieciocho en el E411Y), que su nomenclatura numera 0..17.
+constexpr unsigned N_PUERTOS_SILICIO = 18;
 
 struct Encapsulado {
     const char* nombre;        // "LQFP100", "UFBGA176"...

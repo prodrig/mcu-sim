@@ -126,6 +126,7 @@
 #include "../soc/stm32f4_mcu.h"
 #include "../soc/stm32f446.h"
 #include "../soc/msp432p4/msp432p4_mcu.h"
+#include "../soc/msp432e4/msp432e4_mcu.h"
 
 using namespace sc_core;
 using namespace stm32;
