@@ -258,7 +258,7 @@ ASAN417 := $(B)/asan417$(EXE)
 ASANP4  := $(B)/asanp4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop run clean plataforma vectores hash cryp datos
+.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -553,6 +553,17 @@ p4-edumkii: $(MCUSIM)
 	    && ! grep -q "Warning" $(B)/p4-edumkii.log \
 	    && echo "  [OK  ] p4-edumkii: el backchannel, el ADC14, los dos sensores I2C y la pantalla" \
 	    || { echo "  [FALLO] p4-edumkii: vease $(B)/p4-edumkii.log"; exit 1; }
+
+# T5: OpenOCD DE VERDAD contra el modelo, por los pines, con la sonda
+# remote_bitbang (--openocd): `program ... verify reset` en el MSP432P401R
+# con target/ti/msp432.cfg y en el F407 con target/stm32f4x.cfg, sin
+# tocarlos, y GDB por OpenOCD con los hilos de FreeRTOS. Hace falta un
+# OpenOCD de git (ci/construye_openocd.sh): con la 0.12.0 de las
+# distribuciones la prueba se OMITE y lo dice, salvo con OPENOCD_OBLIGATORIO=1.
+#   make -f Makefile.mcu-sim openocd OPENOCD=/ruta/a/bin/openocd
+OPENOCD ?= openocd
+openocd: $(MCUSIM)
+	OPENOCD="$(OPENOCD)" python3 verif/openocd/programa.py --sim $(MCUSIM)
 
 # T4: la ROM sustituta (R1) frente a la de TI (R2), que no se versiona: los
 # mismos ejemplos con las dos, y lo que tarda cada uno hasta encender P1.0.

@@ -20,6 +20,9 @@
 //   <mcu tipo="STM32F407VG" id="u1" firmware="esclavo.bin"
 //        depuracion="pines" puerto_gdb="3334"/>
 //
+// o `depuracion="openocd"`, con el puerto de remote_bitbang en puerto_gdb: una
+// sonda SWD para que OpenOCD hable con los pines (verif/sonda_openocd.h).
+//
 // Y la regla que hace que nada de esto rompa lo anterior:
 //
 //   ningún <mcu>   con `--mcu TIPO`, un MCU de ese tipo y nodos con nombre
@@ -115,6 +118,7 @@
 #define TITULAR_COPYRIGHT "Francisco Rodríguez Ballester (prodrig@disca.upv.es)"
 #endif
 #include "../verif/gdb_stub.h"
+#include "../verif/sonda_openocd.h"
 #include "../parts/netlist_parts.h"
 #include "../parts/netlist_xml.h"
 #include "../parts/frontera_gui.h"
@@ -176,7 +180,7 @@ static double      g_tiempo_real = 0.0;
 // suyos-; con varios, no dice a cual y es un error.
 static std::string g_tipo_mcu;
 // Depuración pedida por la línea de órdenes. `g_gdb_modo` vacío = no se pidió.
-static std::string g_gdb_modo;          // "pines" o "dap"
+static std::string g_gdb_modo;          // "pines", "dap" u "openocd"
 // `--firmware ID=FICHERO` y `--sin-firmware[=ID]`: el firmware de CADA chip,
 // o ninguno, por la linea de ordenes, tambien con varios MCUs. Mandan sobre
 // el firmware= de su <mcu>. Lo pide el dialogo de lanzamiento de mcu-sim-gui
@@ -219,6 +223,7 @@ struct McuMontado {
     // permite que `tipo=` despache de verdad en vez de comprobarse.
     mcu_if*       mcu  = nullptr;
     GdbStub*      stub = nullptr;       // solo en modo "pines" y con puerto
+    SondaOpenOcd* ocd  = nullptr;       // solo en modo "openocd" y con puerto
     // Las limitaciones que se dijeron al montar: si `--rom`/`--tlv` las
     // cambian, se dicen las nuevas (T4 del MSP432)
     std::vector<std::string> ojo;
@@ -470,6 +475,19 @@ SC_MODULE(Sim) {
                 m.stub->pon_programador(m.mcu->programador());
                 m.stub->set_enabled(false);      // se abre al arrancar, no aquí
             }
+            // La sonda de OpenOCD se cuelga de los mismos pines, y su SRST es
+            // el NRST del chip, como en una sonda de verdad (T5 del MSP432)
+            if (d.depuracion == "openocd" && d.puerto_gdb) {
+                const std::string snm = "ocd_" + (d.id.empty() ? "dut" : d.id);
+                analog_net_if* swclk = m.mcu->nodo_swclk();
+                analog_net_if* swdio = m.mcu->nodo_swdio();
+                if (!swclk || !swdio)
+                    muere("mcu " + nm + ": este chip no saca SWCLK/SWDIO, y "
+                          "depuracion=\"openocd\" no tiene de donde colgarse");
+                mcu_if* chip = m.mcu;
+                m.ocd = new SondaOpenOcd(snm.c_str(), *swclk, *swdio, d.puerto_gdb,
+                                         [chip](bool v) { chip->reset_pin(v); });
+            }
             if (d.puerto_gdb) hay_stub = true;
             // Los cuatro drivers de alimentacion los registra el adaptador en
             // su constructor: son suyos, no de aqui.
@@ -561,8 +579,12 @@ SC_MODULE(Sim) {
             linea += ": ";
             linea += m.decl.firmware.empty() ? "sin firmware" : m.decl.firmware;
             if (m.decl.puerto_gdb) {
-                linea += ", gdb por " + m.decl.depuracion + " en el puerto " +
-                         std::to_string(m.decl.puerto_gdb);
+                if (m.decl.depuracion == "openocd")
+                    linea += ", sonda remote_bitbang para OpenOCD en el puerto " +
+                             std::to_string(m.decl.puerto_gdb);
+                else
+                    linea += ", gdb por " + m.decl.depuracion + " en el puerto " +
+                             std::to_string(m.decl.puerto_gdb);
             }
             std::printf("%s\n", linea.c_str());
         }
@@ -916,7 +938,9 @@ SC_MODULE(Sim) {
         }
         if (!g_gdb_modo.empty()) {
             m.depuracion = g_gdb_modo;
-            if (!m.puerto_gdb) m.puerto_gdb = 3333;      // el de siempre
+            // el de siempre; el de OpenOCD, otro, porque OpenOCD abre el 3333
+            // para su propio GDB
+            if (!m.puerto_gdb) m.puerto_gdb = g_gdb_modo == "openocd" ? 3335 : 3333;
         }
         if (g_puerto_dado) {
             m.puerto_gdb = g_gdb_puerto;
@@ -1131,7 +1155,10 @@ SC_MODULE(Sim) {
                 // ultimo paquete antes del "cliente desconectado" es el que no
                 // le gusto. La capacidad ya existia en el stub (set_verbose);
                 // lo que faltaba era poder pedirla desde fuera.
-                if (m.stub) {                                   // modo pines
+                if (m.ocd) {                                    // modo openocd
+                    m.ocd->set_verbose(g_traza_gdb);
+                    m.ocd->set_enabled(true);
+                } else if (m.stub) {                            // modo pines
                     m.stub->set_verbose(g_traza_gdb);
                     m.stub->set_enabled(true);
                 } else if (m.mcu->tiene_gdb_interno()) {       // modo dap
@@ -1152,7 +1179,7 @@ SC_MODULE(Sim) {
             std::printf("esperando a %s; la simulacion no se detiene sola "
                         "(Ctrl-C para salir)\n",
                         hay_stub && hay_puente_red ? "GDB y a los puentes serie"
-                        : hay_stub ? "GDB" : "los puentes serie");
+                        : hay_stub ? "GDB (u OpenOCD)" : "los puentes serie");
             // Y se vacia el buffer, que aqui no es manía. Este printf es el
             // ULTIMO antes de un bucle infinito: redirigida la salida a un
             // fichero deja de ser linea a linea y pasa a bloques, y como de
@@ -1556,8 +1583,11 @@ static const OpcionCli OPCIONES[] = {
      "stub de GDB por los pines SWD"},
     {"--gdb-dap", "bandera", "", "", "", "gdb", false, true, "",
      "stub de GDB contra el DAP"},
+    {"--openocd", "bandera", "", "", "", "gdb", false, true, "",
+     "sonda SWD para OpenOCD (remote_bitbang) en los pines; puerto 3335 si no se "
+     "dice --port"},
     {"--port", "valor", "entero", "3333", "", "", false, true, "3333",
-     "puerto TCP del stub de GDB"},
+     "puerto TCP del stub de GDB, o de la sonda de OpenOCD"},
     {"--traza-gdb", "bandera", "", "", "", "", false, true, "",
      "imprime cada paquete RSP que llega al stub"},
     {"--firmware", "valor", "texto", "", "", "", true, true, "u0=mi_programa.bin",
@@ -1739,6 +1769,7 @@ int sc_main(int argc, char** argv) {
         else if (a.rfind("--ms=", 0) == 0) { g_ms = std::atof(a.c_str() + 5); g_ms_dado = true; }
         else if (a == "--gdb")     g_gdb_modo = "pines";
         else if (a == "--gdb-dap") g_gdb_modo = "dap";
+        else if (a == "--openocd") g_gdb_modo = "openocd";
         else if (a.rfind("--port=", 0) == 0) {
             g_gdb_puerto = unsigned(std::atoi(a.c_str() + 7));
             g_puerto_dado = true;
@@ -1838,6 +1869,8 @@ int sc_main(int argc, char** argv) {
                 "     sim placa.xml --ondas      con la onda cuadrada de los relojes\n"
                 "     sim placa.xml --gdb        stub de GDB por los pines SWD\n"
                 "     sim placa.xml --gdb-dap    stub de GDB contra el DAP\n"
+                "     sim placa.xml --openocd    sonda SWD para OpenOCD por\n"
+                "                                remote_bitbang (puerto 3335)\n"
                 "     sim placa.xml --port=3333  puerto TCP del stub\n"
                 "     sim placa.xml --traza-gdb  imprime cada paquete RSP recibido\n"
                 "     sim placa.xml --gui[=host:puerto]  habla con mcu-sim-gui\n"

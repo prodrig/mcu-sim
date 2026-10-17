@@ -314,6 +314,11 @@ struct DeclMcu {
     //   "dap"             el núcleo RESERVA los cinco pines de depuración y
     //                     crea dentro un stub que habla con el DAP por llamada
     //                     de función. Es el modo rápido.
+    //   "openocd"         como "pines", pero lo que se cuelga por fuera no es
+    //                     un stub de GDB sino una sonda `remote_bitbang`:
+    //                     OpenOCD genera el SWD bit a bit y habla él con GDB
+    //                     (verif/sonda_openocd.h; T5 del MSP432). El puerto es
+    //                     el de remote_bitbang.
     std::string depuracion = "pines";
     unsigned    puerto_gdb = 0;    // 0: no se abre ningún puerto TCP
     // Lo que solo tienen algunos chips (T4 del MSP432): `rom` es la ROM de
@@ -1225,9 +1230,10 @@ public:
                     err.push_back("mcu " + m.id + ": identificador repetido");
                 if (m.tipo.empty())
                     err.push_back("mcu " + m.id + ": sin tipo");
-                if (m.depuracion != "pines" && m.depuracion != "dap")
-                    err.push_back("mcu " + m.id + ": depuracion debe ser 'pines' "
-                                  "o 'dap', no '" + m.depuracion + "'");
+                if (m.depuracion != "pines" && m.depuracion != "dap" &&
+                    m.depuracion != "openocd")
+                    err.push_back("mcu " + m.id + ": depuracion debe ser 'pines', "
+                                  "'dap' u 'openocd', no '" + m.depuracion + "'");
                 // Dos stubs en el mismo puerto TCP no es un aviso: es que el
                 // segundo no llega a escuchar y el fallo aparece más tarde,
                 // como un GDB que se conecta al chip equivocado.

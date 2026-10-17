@@ -96,7 +96,8 @@ def main():
           "<mcu> ni --mcu la placa va sin MCU- y con un ejemplo que esta entre ellos"
           % len(valores))
     gdb = [x.get("nombre") for x in ops if x.get("grupo") == "gdb"]
-    check(gdb == ["--gdb", "--gdb-dap"], "--gdb y --gdb-dap, en el mismo grupo: se excluyen")
+    check(gdb == ["--gdb", "--gdb-dap", "--openocd"],
+          "--gdb, --gdb-dap y --openocd, en el mismo grupo: se excluyen")
     no_gui = sorted(x.get("nombre") for x in ops
                     if x.get("con_gui") == "no" and x.get("forma") != "accion")
     check(no_gui == ["--gui", "--tiempo-real"],

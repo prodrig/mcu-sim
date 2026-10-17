@@ -221,6 +221,31 @@ jobs:
         working-directory: src
         run: make -f Makefile.mcu-sim gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema
 
+      # OpenOCD DE VERDAD contra el modelo, por los pines (T5 del MSP432): de
+      # git, porque la 0.12.0 del paquete no tiene SWD en remote_bitbang. Se
+      # construye una vez por revision y se guarda en la cache. Aqui es
+      # OBLIGATORIA: sin un OpenOCD que sirva, falla en vez de omitirse.
+      - name: Cache de OpenOCD (git, con SWD en remote_bitbang)
+        id: cache-openocd
+        uses: actions/cache@v5
+        with:
+          path: ${{ github.workspace }}/openocd
+          key: openocd-${{ matrix.os }}-2075427d1585dc1bc17f75a51df91a1b20b4ad4b
+
+      - name: Construir OpenOCD si no estaba en la cache
+        if: steps.cache-openocd.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get install -y autoconf automake libtool pkg-config texinfo libjim-dev
+          sh ci/construye_openocd.sh "$GITHUB_WORKSPACE/openocd"
+
+      - name: OpenOCD programa el MSP432P401R y el F407, y GDB ve FreeRTOS
+        working-directory: src
+        env:
+          OPENOCD_OBLIGATORIO: 1
+        run: |
+          sudo apt-get install -y libjim-dev gdb-multiarch
+          make -f Makefile.mcu-sim openocd OPENOCD="$GITHUB_WORKSPACE/openocd/bin/openocd"
+
       - uses: actions/upload-artifact@v6
         if: always()
         with:

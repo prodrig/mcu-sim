@@ -431,6 +431,19 @@ inline socket_t conecta(const char* host, unsigned puerto, int plazo_ms = 5000) 
 // del otro extremo, que también se lee). true si lo hay. Es lo que necesita
 // quien lee un socket no bloqueante sin girar en vacío: el saludo de la fase 3
 // y las pruebas.
+// Lo mismo en microsegundos: para quien no puede permitirse esperar un
+// milisegundo entero entre paquetes (la sonda de OpenOCD, T5 del MSP432).
+inline bool espera_legible_us(socket_t s, long us) {
+    fd_set lec;
+    FD_ZERO(&lec);
+    FD_SET(s, &lec);
+    timeval t{ long(us / 1000000), long(us % 1000000) };
+#if defined(_WIN32)
+    return ::select(0, &lec, nullptr, nullptr, &t) > 0;
+#else
+    return ::select(s + 1, &lec, nullptr, nullptr, &t) > 0;
+#endif
+}
 inline bool espera_legible(socket_t s, int ms) {
     fd_set lec;
     FD_ZERO(&lec);
