@@ -168,6 +168,8 @@ public:
         return b < 512 && !((fmpre_[b / 32] >> (b % 32)) & 1u);
     }
     unsigned operaciones() const { return n_ops_; }
+    // Lo que marca otro: el fin de una operación de la EEPROM (ERIS)
+    void marca(uint32_t ris) { fcris_ |= ris; irq_ev_.notify(sc_core::SC_ZERO_TIME); }
     unsigned rechazadas() const { return n_rech_; }
     // Escribir la Flash por el bus no programa nada: error de bus [1F]
     void escritura_directa() {

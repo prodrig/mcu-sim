@@ -11,6 +11,13 @@
 //           periférico sin reloj, el pulsador, el perro, SYSRESETREQ, el dato
 //           enmascarado, LOCK/CR y DEN
 //   E14     CoreMark
+//   E15-E18 (entrega 2) la Flash y la EEPROM desde el firmware, con DriverLib,
+//           y GDB de verdad por la sonda de los pines (G2, por PC0/PC1) y por
+//           el DAP (G1), con `load` (D2)
+//
+// EL TIEMPO SIMULADO DE E18 NO ES REPRODUCIBLE entre máquinas, como el de P21
+// en testp4: el banco imprime «el resto», el total sin él, y eso es lo que
+// contrasta `verif/invariantes.txt`.
 //
 //   make teste4   (o: make -f Makefile.mcu-sim teste4-build && ./build/teste4)
 // =============================================================================
@@ -29,6 +36,11 @@
 #include "../parts/ext_parts.h"
 #include "../verif/bus_test_master.h"
 #include "../verif/swd_port.h"
+#include "../verif/gdb_stub.h"
+#include "../verif/gdb_client.h"
+#include "../core/gdb_stub_dap.h"
+#include <fstream>
+#include <vector>
 
 using namespace sc_core;
 using namespace stm32;
@@ -52,6 +64,8 @@ static bool check_eq(uint64_t got, uint64_t exp, const char* q) {
 
 static const char* const FW_DEMO = "verif/fw/msp432e4/e4_demo/e4_demo.out";
 static const char* const FW_CM   = "verif/fw/msp432e4/coremark/coremark_e4.bin";
+static const char* const FW_DEMO_BIN = "verif/fw/msp432e4/e4_demo/e4_demo.bin";
+static const char* const FW_NV   = "verif/fw/msp432e4/e4_nv/e4_nv.out";
 
 // El buzón de e4_demo [verif/fw/msp432e4/e4_demo/main.c, buzon_t]
 enum : uint32_t {
@@ -70,6 +84,12 @@ SC_MODULE(TbE4) {
     Crystal* y1 = nullptr;     // 25 MHz en OSC0
     Button*  sw1 = nullptr;    // USR_SW1, PJ0 a masa
     Button*  sw2 = nullptr;    // USR_SW2, PJ1 a masa
+    // Los dos servidores de GDB: el de la sonda soldada a PC0/PC1 (como el
+    // XDS110 de la placa) y el que habla con el DAP por dentro
+    GdbStub*    gdb_p = nullptr;
+    GdbStubDap* gdb_d = nullptr;
+    GdbClient   cli;
+    static constexpr unsigned PUERTO_PINES = 3441, PUERTO_DAP = 3442;
 
     SC_CTOR(TbE4)
         : mcu("dut", DBG_PINES, Cableado(), *CatalogoMcu::busca("MSP432E401Y")),
@@ -79,9 +99,15 @@ SC_MODULE(TbE4) {
         sw1 = new Button(dut.gpio.nodo_de(e4::PJ, 0));
         sw2 = new Button(dut.gpio.nodo_de(e4::PJ, 1));
         sw1->release(); sw2->release();
+        gdb_p = new GdbStub("gdb_p", *mcu.nodo_swclk(), *mcu.nodo_swdio(), PUERTO_PINES, 2e6);
+        gdb_p->set_enabled(false);
+        gdb_p->pon_programador(&ProgramadorE4::el());
+        gdb_d = new GdbStubDap("gdb_d", dut.core.debug, PUERTO_DAP);
+        gdb_d->set_enabled(false);
+        gdb_d->pon_programador(&ProgramadorE4::el());
         SC_THREAD(run);
     }
-    ~TbE4() override { delete y1; delete sw1; delete sw2; }
+    ~TbE4() override { delete y1; delete sw1; delete sw2; delete gdb_p; delete gdb_d; }
 
     // --- Utilidades -----------------------------------------------------------
     uint32_t buzon(uint32_t off) { return dut.sram.peek32(off); }
@@ -373,6 +399,174 @@ SC_MODULE(TbE4) {
                     (sc_time_stamp() - t0).to_seconds());
     }
 
+    // =======================================================================
+    // Entrega 2: la Flash, la EEPROM y GDB
+    // =======================================================================
+    void flash_firmware() {
+        grupo("E15 Un firmware que reprograma su propia Flash con DriverLib (e4_nv, modo 0)");
+        arranca(0, FW_NV);
+        check(espera_estado(100, 60), "el firmware llega al final");
+        const uint32_t r = buzon(0x0C);
+        std::printf("    resultado 0x%02X; %u vueltas mientras borra; FCRIS = 0x%X\n", r,
+                    buzon(0x10), buzon(0x14));
+        check(r & 1u, "FMC.ERASE borra un sector de 16 KB y lo lee todo a 0xFF");
+        check(buzon(0x10) <= 2,
+              "y mientras borra la CPU no da ni una vuelta: el bucle esta en la Flash");
+        check(r & 2u, "FlashProgram de 64 palabras, con el bufer de escritura (FWBn, FMC2)");
+        check(r & 4u, "FlashProgram de una palabra suelta, fuera de alineacion de fila");
+        check(r & 8u, "un 0 no vuelve a 1 sin borrar: INVDRIS, y queda el AND");
+        check(r & 16u, "FlashProtectSet(solo lectura) y FlashErase da -1, con ARIS");
+        check(r & 32u, "y FlashProgram tampoco programa");
+        check(r & 64u, "escribir la Flash como si fuera RAM es un error de bus");
+        check(dut.flash.peek32(0x80000u) == 0xA5000000u && dut.flash.peek32(0x800FCu) == 0xA500003Fu,
+              "y lo programado esta en la Flash, visto desde fuera");
+    }
+
+    void eeprom_firmware() {
+        grupo("E16 La EEPROM con DriverLib, y despues de un reset (e4_nv, modo 1)");
+        arranca(1, FW_NV);
+        check(espera_estado(100, 60), "el firmware se resetea y llega al final");
+        check_eq(buzon(B_ARRANQUES), 2, "dos arranques: el segundo, tras SYSRESETREQ");
+        const uint32_t r = buzon(0x0C);
+        check(r & 1u, "EEPROMInit da EEPROM_INIT_OK, despues de SREEPROM");
+        check(r & 2u, "EESIZE: 6144 bytes en 96 bloques");
+        check(r & 8u, "lo escrito en el primer arranque se lee en el segundo: no es volatil");
+        check(dut.eeprom.palabra(0x40 / 4) == 0xEE000000u && dut.eeprom.palabra(0x40 / 4 + 7) == 0xEE000707u,
+              "y esta en la EEPROM, visto desde fuera");
+        check(dut.eeprom.palabra(5 * 16) == 0xFFFFFFFFu,
+              "un bloque de solo lectura (EEPROM_PROT_RO_LNA_URO) no se escribe: NOPERM");
+    }
+
+    // --- GDB --------------------------------------------------------------
+    static std::string hex(const std::string& s) {
+        std::string h; char b[3];
+        for (unsigned char c : s) { std::snprintf(b, sizeof b, "%02x", c); h += b; }
+        return h;
+    }
+    static uint32_t de_hex_le(const std::string& s) {
+        uint32_t v = 0;
+        for (unsigned i = 0; i < 4 && 2 * i + 1 < s.size(); ++i)
+            v |= uint32_t(std::stoul(s.substr(2 * i, 2), nullptr, 16)) << (8 * i);
+        return v;
+    }
+    uint32_t pc() { return de_hex_le(cli.pedir("p0f")); }
+    std::string espera_parada(double ms = 100) { return cli.recibir(sc_time(ms, SC_MS)); }
+
+    struct ResGdb {
+        bool conecta = false, carga = false, lectura = false, wp = false, bp = false,
+             paso = false, corre = false;
+        uint32_t pc_reset = 0, pc_bp = 0, pc_paso = 0;
+    };
+
+    ResGdb sesion_gdb(unsigned puerto, uint32_t parpadea, uint32_t dir_arranques) {
+        ResGdb r;
+        // En la Flash hay OTRA cosa: CoreMark. El `load` tiene que borrar.
+        arranca(0, FW_CM);
+        wait(2, SC_MS);
+        if (!cli.conectar(puerto)) return r;
+        wait(2, SC_MS);
+        cli.pedir("qSupported:swbreak+;hwbreak+;xmlRegisters=arm");
+        r.conecta = cli.pedir("QStartNoAckMode") == "OK" &&
+                    cli.pedir("?").rfind("T05", 0) == 0;
+        std::vector<uint8_t> img;
+        {
+            std::ifstream f(FW_DEMO_BIN, std::ios::binary);
+            img.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+        }
+        bool ok = !img.empty();
+        char cab[64];
+        for (size_t o = 0; ok && o < img.size(); o += 256) {
+            const size_t n = std::min<size_t>(256, img.size() - o);
+            std::snprintf(cab, sizeof cab, "M%zx,%zx:", o, n);
+            std::string pq = cab;
+            for (size_t i = 0; i < n; ++i) { char b[3]; std::snprintf(b, 3, "%02x", img[o + i]); pq += b; }
+            ok = cli.pedir(pq, sc_time(200, SC_MS)) == "OK";
+        }
+        r.carga = ok;
+        std::string leido;
+        for (size_t o = 0; o < img.size(); o += 256) {
+            std::snprintf(cab, sizeof cab, "m%zx,%zx", o, std::min<size_t>(256, img.size() - o));
+            leido += cli.pedir(cab, sc_time(100, SC_MS));
+        }
+        std::string esperado;
+        for (uint8_t c : img) { char b[3]; std::snprintf(b, 3, "%02x", c); esperado += b; }
+        r.lectura = leido == esperado;
+        cli.pedir("M20000000,8:0000000000000000");          // el buzon: modo 0
+        cli.pedir("qRcmd," + hex("reset halt"), sc_time(50, SC_MS));
+        r.pc_reset = pc();
+        char z[64];
+        std::snprintf(z, sizeof z, "Z2,%x,4", dir_arranques);
+        const bool zw = cli.pedir(z) == "OK";
+        cli.enviar("vCont;c");
+        const std::string pw = espera_parada();
+        r.wp = zw && pw.find("watch") != std::string::npos && buzon(B_ARRANQUES) == 1;
+        std::snprintf(z, sizeof z, "z2,%x,4", dir_arranques);
+        cli.pedir(z);
+        std::snprintf(z, sizeof z, "Z0,%x,2", parpadea);
+        const bool zb = cli.pedir(z) == "OK";
+        cli.enviar("vCont;c");
+        const std::string pb = espera_parada();
+        r.pc_bp = pc();
+        r.bp = zb && pb.find("swbreak") != std::string::npos && r.pc_bp == parpadea;
+        std::snprintf(z, sizeof z, "z0,%x,2", parpadea);
+        cli.pedir(z);
+        cli.enviar("vCont;s");
+        const std::string ps = espera_parada();
+        r.pc_paso = pc();
+        r.paso = ps.rfind("T05", 0) == 0 && r.pc_paso > parpadea && r.pc_paso < parpadea + 8;
+        // Y que siga: continuar, mirar los LED, interrumpir y soltar
+        cli.enviar("vCont;c");
+        wait(1, SC_MS);
+        r.corre = buzon(B_ESTADO) == 100 && periodo(e4::PN, 0) > 0;
+        cli.crudo("\x03");
+        espera_parada();
+        cli.pedir("D");
+        cli.desconectar();
+        wait(1, SC_MS);
+        return r;
+    }
+
+    void informa(const char* via, const ResGdb& r, uint32_t rh) {
+        auto c = [&](bool v, const std::string& t) { check(v, (std::string(via) + ": " + t).c_str()); };
+        c(r.conecta, "GDB se conecta, negocia y encuentra el nucleo parado");
+        c(r.carga, "`load` de e4_demo.bin con paquetes M sobre CoreMark: el stub borra y "
+                   "programa la Flash por FLASH_CTRL (D2)");
+        c(r.lectura, "y lo leido de vuelta es el .bin, byte a byte");
+        c(r.pc_reset == rh, "`monitor reset halt` para en la primera instruccion, Reset_Handler");
+        c(r.wp, "un watchpoint en buzon.arranques para el nucleo en la primera escritura");
+        c(r.bp, "un punto de ruptura en parpadea() para el nucleo alli");
+        c(r.paso, "un paso avanza una instruccion");
+        c(r.corre, "y al soltarlo, el firmware cargado parpadea");
+    }
+
+    void gdb() {
+        uint32_t rh = 0, pp = 0, arr = 0;
+        const bool sim = simbolo_elf(FW_DEMO, "Reset_Handler", rh) &&
+                         simbolo_elf(FW_DEMO, "parpadea", pp) &&
+                         simbolo_elf(FW_DEMO, "buzon", arr);
+        grupo("E17 Los simbolos de e4_demo, del ELF");
+        check(sim && arr == 0x20000000u && rh >= 4u * 127u && rh < 0x1000,
+              "Reset_Handler detras de la tabla de 127 vectores, y buzon en 0x2000_0000");
+        arr += B_ARRANQUES;
+        const sc_time t0 = sc_time_stamp();
+        grupo("E18 GDB por la sonda de los pines (G2, PC0/PC1) y por el DAP (G1)");
+        gdb_p->set_enabled(true);
+        wait(1, SC_MS);
+        const ResGdb rp = sesion_gdb(PUERTO_PINES, pp, arr);
+        gdb_p->set_enabled(false);
+        gdb_p->soltar_pines();
+        informa("G2 (pines)", rp, rh);
+        gdb_d->set_enabled(true);
+        wait(1, SC_MS);
+        const ResGdb rd_ = sesion_gdb(PUERTO_DAP, pp, arr);
+        gdb_d->set_enabled(false);
+        informa("G1 (DAP)", rd_, rh);
+        check(rp.pc_reset == rd_.pc_reset && rp.pc_bp == rd_.pc_bp && rp.pc_paso == rd_.pc_paso,
+              "los dos caminos dan lo mismo: el mismo depurador, otro cable");
+        check(ProgramadorE4::el().fallos() == 0, "y el programador no ha fallado ni una vez");
+        g_t_gdb += sc_time_stamp() - t0;
+    }
+
     void run() {
         firmwares();
         nombres();
@@ -388,6 +582,9 @@ SC_MODULE(TbE4) {
         sysresetreq();
         gpio_tiva();
         coremark();
+        flash_firmware();
+        eeprom_firmware();
+        gdb();
         std::printf("\nTOTAL E4: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

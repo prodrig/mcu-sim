@@ -119,6 +119,7 @@ public:
         w32(e4::FLASH_B + 0x100u, 0xE7FDBF20u);
     }
     void set_ondas_reloj(bool on) override { chip_->set_ondas(on); }
+    programador_nv_if* programador() override { return &ProgramadorE4::el(); }
     bool admite_opcion(const std::string& clave) const override { return clave == "rom"; }
     std::string opcion(const std::string& clave, const std::string& valor) override {
         if (clave == "rom") {

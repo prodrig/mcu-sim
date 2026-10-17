@@ -45,6 +45,8 @@
 #include "../../periph/msp432e4/gpio.h"
 #include "../../periph/msp432e4/flash.h"
 #include "../../periph/msp432e4/watchdog.h"
+#include "../../periph/msp432e4/eeprom.h"
+#include "e4_programador.h"
 
 namespace stm32 {
 
@@ -80,6 +82,7 @@ public:
     SysctlE4   sysctl;
     GpioE4     gpio;
     WatchdogE4 wdt0{"wdt0", e4::WDT0_B, false}, wdt1{"wdt1", e4::WDT1_B, true};
+    EepromE4   eeprom;
 
     ClockGen g_sys{"g_sys"};
     AhbDecoder perif{"perif"};
@@ -100,6 +103,7 @@ public:
           sram("sram", e4::SRAM_B, caps.sram_size),
           sysctl("sysctl", caps.did0, caps.did1),
           gpio("gpio", caps.enc, cab),
+          eeprom("eeprom", caps.eeprom_size),
           s_irq_("s_irq", e4::N_IRQ) {
         SC_HAS_PROCESS(Msp432E4);
         crea_patillas(cab);
@@ -135,8 +139,8 @@ public:
     }
     std::vector<std::string> limitaciones() const {
         std::vector<std::string> l = {
-            "UART, SSI, I2C, GPTM, ADC, uDMA, EEPROM e Hibernation estan DECLARADOS "
-            "(T6, entregas 2 y 3); CAN, USB, EMAC, PWM, QEI, EPI, comparadores y el "
+            "UART, SSI, I2C, GPTM, ADC, uDMA e Hibernation estan DECLARADOS "
+            "(T6, entrega 3); CAN, USB, EMAC, PWM, QEI, EPI, comparadores y el "
             "CCM (CRC, AES, DES, SHA/MD5), para T7",
             "los modos de sueno no paran relojes: WFI duerme el nucleo y nada mas "
             "(SCGC/DCGC y DSCLKCFG se guardan pero no cuentan)",
@@ -144,6 +148,10 @@ public:
             "E4 es PIOSC/4",
             "SRGPIO no resetea un puerto suelto; los SRx de las demas clases si",
             "los perros con INTTYPE = 1 (NMI) no la piden: dan la interrupcion normal",
+            "la Flash y la EEPROM se programan con tiempos de modelo (30 us por palabra, "
+            "15 ms por sector, 100 us por palabra de EEPROM), sin errores de "
+            "verificacion (PROGRIS, ERRIS) ni reintentos (EESUPP); la EEPROM, sin "
+            "contrasenas (EEPASS) ni bloques ocultos (EEHIDE) que cuenten",
         };
         switch (rom.origen()) {
             case RomE4::Origen::Volcado:
@@ -261,6 +269,9 @@ private:
         core.debug.dbg_lp(s_dbg_lp_);
         for (unsigned i = 0; i < FZ_COUNT; ++i) core.debug.freeze[i](s_freeze_[i]);
         s_njtrst_.write(true);
+        // El `load` de GDB programa esta Flash con su controlador
+        ProgramadorE4::el().flash_size = mcu.flash_size;
+        if (core.gdb) core.gdb->pon_programador(&ProgramadorE4::el());
         // SWD/JTAG por PC0-PC3, función 1, que es como salen del reset
         FuncionE4 clk; clk.in = &s_swclk_; clk.idle_in = false; clk.nombre = "SWCLK";
         FuncionE4 dio; dio.in = &s_swdio_i_; dio.out = &s_swdio_o_; dio.oe = &s_swdio_oe_;
@@ -298,8 +309,8 @@ private:
         engancha(gpio, SysctlE4::C_GPIO, 0);      // el reloj de cada puerto: perif_de
         engancha(wdt0, SysctlE4::C_WD, 0);
         engancha(wdt1, SysctlE4::C_WD, 1);
+        engancha(eeprom, SysctlE4::C_EEPROM, 0);
         using S = SysctlE4;
-        const char* const E2 = "Llega en la entrega 2 de T6 (doc/analisis_msp432.md).";
         const char* const E3 = "Llega en la entrega 3 de T6 (doc/analisis_msp432.md).";
         const char* const T7 = "Llega en la fase T7 del plan de doc/analisis_msp432.md.";
         static const char* const NU[8] = {"uart0", "uart1", "uart2", "uart3", "uart4", "uart5", "uart6", "uart7"};
@@ -319,7 +330,6 @@ private:
         declara("adc1", e4::ADC1_B, 0x1000, S::C_ADC, 1, E3);
         declara("udma", e4::UDMA_B, 0x1000, S::C_DMA, 0, E3);
         declara("hib", e4::HIB_B, 0x1000, S::C_HIB, 0, E3);
-        declara("eeprom", e4::EEPROM_B, 0x1000, S::C_EEPROM, 0, E2);
         declara("pwm0", e4::PWM0_B, 0x1000, S::C_PWM, 0, T7);
         declara("qei0", e4::QEI0_B, 0x1000, S::C_QEI, 0, T7);
         declara("comp", e4::COMP_B, 0x1000, S::C_ACMP, 0, T7);
@@ -342,6 +352,7 @@ private:
         sysctl.al_cambiar_periferico = [this] { rst_perif_ev_.notify(sc_core::SC_ZERO_TIME); };
         sysctl.irq(s_irq_[e4::IRQ_SYSCTL]);
         flashc.irq(s_irq_[e4::IRQ_FLASH]);
+        eeprom.al_terminar = [this] { flashc.marca(FlashCtrlE4::RIS_ERIS); };
         for (unsigned k = 0; k < GpioE4::N_IRQ; ++k) {
             const unsigned linea = k < e4::N_PUERTOS ? e4::irq_gpio(k)
                                  : (k < e4::N_PUERTOS + 7 ? e4::IRQ_GPIOP0 + 1 + (k - e4::N_PUERTOS)
