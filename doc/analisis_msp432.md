@@ -75,6 +75,34 @@ fabricante.**
 > Los dos `CS_setDCOFrequency` (gcc e IAR) llegan al mismo DCOTUNE, 584: la
 > diferencia es de cálculo, no de frecuencia. Lo que queda dicho está en P-16
 > (letras b, f, y, z y aa) de `doc/todo.md`.
+>
+> **2026-10-17: hecha T5, salvo el BSL.** La sonda `SondaOpenOcd`
+> (`verif/sonda_openocd.h`) atiende el protocolo `remote_bitbang` de OpenOCD
+> en los pines SWD (`--openocd`, o `depuracion="openocd"`). OpenOCD sin
+> modificar programa y verifica el MSP432P401R con `target/ti/msp432.cfg`
+> -su algoritmo de Flash corre en el núcleo simulado y llama a la ROM R1- y el
+> F407 con `target/stm32f4x.cfg`, y el firmware nuevo arranca en los dos; y
+> GDB, por el servidor de OpenOCD, ve las tareas de FreeRTOS (D3 y G3). La
+> prueba es `make openocd` (`verif/openocd/programa.py`, 12 comprobaciones),
+> en el CI con un OpenOCD de git: **la 0.12.0, la última publicada, no tiene
+> SWD en `remote_bitbang`** (llegó en diciembre de 2023;
+> `ci/construye_openocd.sh` construye una revisión fija).
+>
+> OpenOCD encontró seis fallos del modelo que nuestras sondas no pisaban: el
+> DAP reconocía la secuencia JTAG→SWD (`0xE79E`) dentro de cualquier dato
+> -una escritura de `0xFF3CF7FF` reiniciaba el SWD a media palabra y la
+> perdía sin error-; exigía reposo entre paquetes; no tenía accesos de byte
+> y media palabra en el AHB-AP ni BD0-BD3; TAR dejaba de avanzar en la
+> frontera de 1 KiB en vez de dar la vuelta en la de 4 KiB; un reset local
+> no sacaba al núcleo de la parada; y el núcleo podía quedarse esperando una
+> parada que ya se había levantado al salir de un SYSRESETREQ. Y dos cosas que
+> faltaban: la lectura en ráfaga del FLCTL, con la que DriverLib verifica, y
+> la firma electrónica del F407 (F_SIZE), que OpenOCD lee.
+>
+> **El BSL (D4) queda fuera**: el riesgo 1 de §9 se ha cumplido. TI no
+> publica la imagen del BSL del P4; el código de un BSL a medida
+> (`MSPBSL_CustomBSL432`) y BSL Scripter solo se bajan de ti.com, que este
+> entorno no alcanza. Lo que queda, en P-16 (letras bb-ee) de `doc/todo.md`.
 
 ---
 
@@ -427,6 +455,10 @@ openocd -c "adapter driver remote_bitbang" -c "remote_bitbang host localhost" \
 *(La ruta del `.cfg` depende de la versión de OpenOCD; en las antiguas era
 `target/ti_msp432.cfg`. Hay que fijar la versión mínima en `doc/fuentes.md`.)*
 
+*(T5: la versión mínima es un OpenOCD de git posterior al 2024-04-07, porque
+el SWD de `remote_bitbang` no está en ninguna versión publicada; véase
+`doc/fuentes.md`.)*
+
 El precio es el de la sonda SWD de hoy: cada bit es un flanco y cada flanco un
 suceso, del orden de ×390 frente al stub interno (T97). Esta pieza **sirve tal
 cual al STM32**, que gana OpenOCD sin ST-LINK.
@@ -736,6 +768,9 @@ y F5. Los ejemplos de DriverLib correspondientes (`uart_pc_echo`,
 **Tamaño:** pequeño-medio. El riesgo está en el orden de las tablas.
 
 ### T5 · OpenOCD y BSL (D3, G3 y D4 del P4)
+
+> **Hecha el 2026-10-17, salvo el BSL**, que no se ha podido conseguir.
+> Véase la nota de estado al principio.
 
 **Qué:** la pieza `SondaOpenOcd` por `remote_bitbang` (SWD), las recetas, y el
 BSL por UART si se consigue la imagen (§9).

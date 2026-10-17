@@ -73,7 +73,7 @@ razón —lo que prueban, dentro de `test407`, movería su invariante—:
 | `make test446` | La del F446RE y sus ocho referencias | **204** | `1033367277932 ps` |
 | `make test417` | La del acelerador criptográfico del F415/F417 | **165** | `718988288 ps` |
 | `make testserie` | La del puente UART: `PuenteSerie`, un F407 con `vcp_demo` y clientes TCP y RFC 2217 de verdad | **189** | `400677589564 ps` |
-| `make testp4` | La del MSP432P401R (P-16, fases T0 a T4): las pruebas de T0 -nombres de pin por chip, catalogo comun, ELF/TI-TXT/HEX, integracion del nucleo-, el chip con `p4_demo` cargado como ELF y CoreMark; T2: el FLCTL, un firmware que reprograma su Flash y una sesion de GDB por los pines y por el DAP; T3: todos los perifericos, el bajo consumo, las piezas de la BOOSTXL-EDUMKII y los ejemplos de DriverLib; y T4: la ROM de DriverLib, ejemplos del SDK sin modificar que usan `MAP_`, el TLV de fichero y FreeRTOS | **380** | `19115010139423 ps` (`resto`: **`18893170139423 ps`**) |
+| `make testp4` | La del MSP432P401R (P-16, fases T0 a T4): las pruebas de T0 -nombres de pin por chip, catalogo comun, ELF/TI-TXT/HEX, integracion del nucleo-, el chip con `p4_demo` cargado como ELF y CoreMark; T2: el FLCTL, un firmware que reprograma su Flash y una sesion de GDB por los pines y por el DAP; T3: todos los perifericos, el bajo consumo, las piezas de la BOOSTXL-EDUMKII y los ejemplos de DriverLib; y T4: la ROM de DriverLib, ejemplos del SDK sin modificar que usan `MAP_`, el TLV de fichero y FreeRTOS | **380** | `19115610139423 ps` (`resto`: **`18893170139423 ps`**) |
 | `make testgui` | La de la frontera con `mcu-sim-gui`: lo que cada pieza deja ver y tocar, el catálogo, el muestreador, el aplicador y el enlace que atiende la conexión en marcha —instantáneas, avisos, órdenes con sus ecos, la pausa y los pasos—, sobre una placa mínima sin chip | **145** | `76450000000 ps` |
 
 **En una máquina nueva no hace falta nada más**: los diecinueve firmwares que
@@ -170,6 +170,7 @@ make -f Makefile.mcu-sim gui-argumentos  # que --argumentos dice lo que acepta s
 make -f Makefile.mcu-sim testserie    # el banco del puente UART, que es OTRO ejecutable
 make -f Makefile.mcu-sim testgui      # el de la frontera con mcu-sim-gui, OTRO mas
 make -f Makefile.mcu-sim testp4       # el del MSP432P401R, y las pruebas de T0
+make -f Makefile.mcu-sim openocd OPENOCD=...  # OpenOCD de git programa y depura el P4 y el F407 por sus pines (Python)
 make -f Makefile.mcu-sim p4-edumkii   # la LaunchPad con la BOOSTXL-EDUMKII, de punta a punta
 make -f Makefile.mcu-sim asanp4       # el mismo con ASan + UBSan
 make -f Makefile.mcu-sim asan407      # la misma suite con ASan + UBSan
@@ -366,6 +367,7 @@ make mcu-sim
 ./build/mcu-sim placa.xml --valida              # solo comprueba la placa
 ./build/mcu-sim placa.xml --gdb --port=3333     # stub de GDB por los pines SWD
 ./build/mcu-sim placa.xml --gdb-dap             # o el stub interno contra el DAP
+./build/mcu-sim placa.xml --openocd             # o una sonda remote_bitbang para OpenOCD (3335)
 ./build/mcu-sim placa.xml --mcu TIPO            # el MCU, si la placa no lo dice
 ./build/mcu-sim sistema.xml --firmware N/u0=x.bin  # el firmware de ese chip
 ./build/mcu-sim sistema.xml --sin-firmware      # ninguno, aunque el XML lo diga

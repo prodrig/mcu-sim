@@ -117,3 +117,31 @@ dan a GDB los símbolos de la R1, que están en el repositorio:
 Si se arranca el simulador con `--rom .../msp432_driverlib_rom_image.out` (la
 ROM de TI que instala CCS), los símbolos son los de ese mismo fichero, como en
 CCS con la placa (*Run > Load > Add Symbols*).
+
+## OpenOCD por los pines (T5)
+
+La tercera forma de colgarse del chip: el simulador hace de **adaptador
+`remote_bitbang`** y es OpenOCD el que genera el SWD bit a bit, con sus
+propios controladores. Sirve para programar como en una placa y para
+depurar con el soporte de RTOS de OpenOCD (los hilos de FreeRTOS en GDB).
+
+```
+./build/mcu-sim placas/msp_exp432p401r.xml --openocd --tiempo-real
+#   [openocd] remote_bitbang escuchando en localhost:3335
+
+openocd -c "adapter driver remote_bitbang" -c "remote_bitbang host localhost" \
+        -c "remote_bitbang port 3335" -c "transport select swd" \
+        -f target/ti/msp432.cfg \
+        -c "program Debug/blinky.out verify reset exit"
+```
+
+Para depurar, sin el `program`: OpenOCD abre su servidor de GDB en el
+**3333**, y los IDE de arriba se conectan a él igual que al simulador (con
+`-c "msp432.cpu configure -rtos FreeRTOS"` antes de `init`, GDB ve las
+tareas). Con un STM32 es lo mismo con `-f target/stm32f4x.cfg`.
+
+**Hace falta un OpenOCD de git**: la 0.12.0, la última publicada y la que
+traen las distribuciones, no tiene SWD en `remote_bitbang` y contesta «only
+one transport option; autoselect 'jtag'». `ci/construye_openocd.sh` construye
+la revisión con la que se probó. El SWD por socket es lento —unos 1,5 KiB/s
+programando—, porque cada bit leído es un viaje por TCP.

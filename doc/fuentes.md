@@ -130,6 +130,7 @@ solo tiene una fuente lleva **[1F]** y su subpunto de P-16 en `doc/todo.md`.
 | `[SA]` | SLAA668A, «Getting Started with MSP432P4xx» (TI, marzo 2017): VCORE y estados de espera, tabla 2 | `ti.com/lit/an/slaa668a` |
 | `[SYS]` | `system_msp432p401r.c` (del mismo port; derivado del de TI): VLO, REFO, MODOSC, SYSOSC y la fórmula del DCO | No versionado |
 | `[OO]` | OpenOCD, `src/flash/nor/msp432.c` (GPL-2.0, solo como referencia: no se copia código) | `openocd.org/doc/doxygen/html/msp432_8c_source.html` |
+| — | **OpenOCD como herramienta de prueba (T5)**: hace falta uno de git posterior al 2024-04-07 (`79b51fe`, las órdenes de espera Z/z), porque el SWD de `remote_bitbang` (`0f70c6c`, 2023-12-03) no está en ninguna versión publicada: la 0.12.0 es de enero de 2023. Probado con `2075427` (master, 2026-10-13), la que fija `ci/construye_openocd.sh`. No se copia nada de él | `github.com/openocd-org/openocd` |
 | — | DriverLib del SDK SimpleLink MSP432P4 3.40: `rom.h` (`ROM_APITABLE`), `sysctl.h` (etiquetas del TLV), `reset.h` | `software-dl.ti.com/simplelink/esd/simplelink_msp432_sdk/3.40.00.05/docs/` |
 | `[ROM]` | La imagen de la ROM de DriverLib del P401R rev. C, con símbolos, que instala CCS para depurar dentro de ella (`ccs_base/emulation/gel/images/msp432p401r/revC/msp432_driverlib_rom_image.out`). Segunda opinión de las tablas de la R1 y la R2 de `--rom` (T4) | **No versionada**: es de TI. Se usó la copia que lleva el TICloudAgent del port de mbed de Terstegge (`1d1bf66`) |
 

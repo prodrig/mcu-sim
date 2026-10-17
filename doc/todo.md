@@ -55,8 +55,10 @@ redactar esta revisión, no solo leído en un informe.
   `doc/analisis_msp432.md`; **hechas T0 a T4**: la generalización que quita
   lo que era de ST dentro de lo que es de ARM, sin mover un picosegundo; el
   MSP432P401R con su banco, `make testp4`; la descarga y la depuración; los
-  periféricos de aula con la BOOSTXL-EDUMKII; y la ROM de DriverLib, con la
-  que los ejemplos del SDK que usan `MAP_` corren sin tocarlos.
+  periféricos de aula con la BOOSTXL-EDUMKII; la ROM de DriverLib, con la
+  que los ejemplos del SDK que usan `MAP_` corren sin tocarlos; y **T5**:
+  OpenOCD de verdad programa y depura el modelo por sus pines, el MSP432 y
+  el F407 (el BSL, no).
 - **Cincuenta y una funciones "bits sin máquina"**: registros que se guardan, se
   enmascaran y se leen correctamente, pero cuya lógica no se ejecuta. Casi todas
   corresponden a caminos que ningún firmware corriente usa, y casi todas están
@@ -550,10 +552,49 @@ está.
   ese es el arranque, contado desde su flanco. Ningún grupo anterior lo
   pisaba: P0-P61 no se mueven.
 
+**HECHA T5 el 2026-10-17, salvo el BSL (D4)**, en la misma rama:
+
+* **La sonda de OpenOCD** (`verif/sonda_openocd.h`): el protocolo
+  `remote_bitbang` en SWCLK, SWDIO y NRST, como un adaptador que OpenOCD
+  maneja bit a bit. En `sim`, `--openocd` (puerto 3335, porque OpenOCD abre
+  el 3333 para su GDB) o `depuracion="openocd"` en el `<mcu>`. Sirve igual al
+  STM32.
+* **El cierre**, en `make openocd` (`verif/openocd/programa.py`, 12
+  comprobaciones, en el CI): `program ... verify reset` con
+  `target/ti/msp432.cfg` y con `target/stm32f4x.cfg` **sin tocarlos**, y el
+  firmware nuevo arranca; GDB por OpenOCD ve las tareas de FreeRTOS (G3); y
+  la sonda dice que es SWD si se le habla en JTAG. Hace falta un OpenOCD de
+  git (`ci/construye_openocd.sh`): sin él la prueba se omite diciéndolo.
+* **Seis fallos del modelo**, todos del núcleo y el DAP compartidos, que solo
+  se ven con un depurador que no es nuestro:
+  1. la secuencia JTAG→SWD (`0xE79E`) se reconocía en cualquier punto del
+     flujo de bits: un dato que la llevara (`0xFF3CF7FF`) reiniciaba el SWD a
+     media escritura y la palabra se perdía con ACK OK. Ahora solo vale justo
+     detrás de un reset de línea, como dice ADIv5;
+  2. el DAP exigía reposo entre dos paquetes; OpenOCD no lo deja;
+  3. el AHB-AP solo hacía palabras: faltaban los accesos de byte y media
+     palabra (CSW.Size) y BD0-BD3;
+  4. TAR dejaba de avanzar en la frontera de 1 KiB; en el AHB-AP del Cortex-M
+     da la vuelta en la de 4 KiB, que es lo que supone OpenOCD;
+  5. un reset local no sacaba al núcleo de la parada: `program ... reset`
+     dejaba el firmware nuevo parado en `Reset_Handler`, porque OpenOCD suelta
+     el núcleo sobre el BKPT del último algoritmo y resetea. Ahora el reset
+     borra C_HALT y solo VC_CORERESET vuelve a parar (es por lo que los
+     depuradores necesitan la captura de vector);
+  6. el núcleo comprobaba la parada antes de `sync()` y esperaba después: si
+     en ese avance se levantaba -tras un SYSRESETREQ, en el F407-, no se
+     enteraba nunca.
+* **Dos cosas que faltaban**: la lectura en ráfaga del FLCTL (RDBRST), con la
+  que DriverLib verifica cada borrado y cada programación; y la firma
+  electrónica del F407 (UID y F_SIZE), que OpenOCD lee para contar sectores.
+* Ningún invariante se mueve: los grupos de las suites no pisaban nada de
+  esto. P21 de `testp4` cambia una comprobación de sitio (el reset del perro
+  con el núcleo parado ahora lo pone en marcha), sin cambiar la cuenta.
+
 **Lo que queda**, con su fase:
-T5 (OpenOCD y BSL), T6-T7 (el MSP432E401Y) y T8 (el resto de la familia).
-CAPTIO y PSS siguen declarados. Y lo que T1-T4 dejan dicho, con la letra con
-la que lo cita el código:
+el BSL del P4 (D4 de T5), T6-T7 (el MSP432E401Y) y T8 (el resto de la
+familia). CAPTIO y PSS siguen declarados. Y lo que T1-T5 dejan dicho, con la
+letra con la que lo cita el código:
 
 | | Qué | Por qué |
 | :--- | :--- | :--- |
@@ -582,6 +623,10 @@ la que lo cita el código:
 | **x** | El consumo | Cifras de modelo con el orden de magnitud del datasheet: 40 µA + 100/115 µA/MHz (LDO) u 80/95 (DC-DC) en activo, el 40 % en LPM0, 0,66 µA en LPM3, 0,5 en LPM4, 0,63 en LPM3.5 y 25 nA en LPM4.5. Ni los periféricos ni las transiciones gastan. La SRAM se conserva entera en LPM3.5 (en el chip, el banco 0) |
 | **y** | La ROM R1 | Mismas funciones en las mismas casillas que la de TI; **otras instrucciones** (gcc -Os frente a IAR): unos microsegundos de diferencia en los ejemplos medidos. `ROM_VERSION` vale 1, no el de TI. Se lee sin estados de espera [sintético: SLAS826 no da los de la ROM]. Las 12 casillas que la ROM de TI llena y `rom.h` no declara para el P401R (cinco de I2C, cuatro de RTC_C, `SPI_initMaster`, `SysCtl_getNMISourceStatus`, `Timer_A_setOutputForOutputModeOutBitValue`) son en R1 un `BKPT`: `MAP_` no llega a ellas. **`rom.h` y `rom_map.h` son las de Energia (`msp432r-core` 0faf18b), con la nota antigua «TI Information - Selective Disclosure» en la cabecera**; TI publica el mismo fichero con licencia BSD-3 en el SDK 3.40 (comparado por muestras y, entero, por sus 424 casillas contra la ROM). Conviene sustituirlas por las del SDK 3.40: el Makefile de `rom_r1` vuelve a generar y verificar las tablas |
 | **z** | PxIES tras el reset | El TRM lo da por indefinido; el modelo lo deja a 0 (flanco de subida). `timer32_periodic_mode_led_toggle`, que no lo escribe, enciende el LED al **soltar** S1; en una placa puede ser al pulsar |
+| **bb** | El BSL del P4 (D4) | No está. TI no publica la imagen que va de fábrica en la información; el código de un BSL a medida (`MSPBSL_CustomBSL432`, SLAU622) y BSL Scripter se bajan de ti.com, que desde aquí no se alcanza. Con ellos, falta además el código de arranque de TI (§6.2), que hoy no se ejecuta |
+| **cc** | El tiempo con OpenOCD | La sonda deja correr el tiempo simulado lo que pasa en el reloj de pared entre dos órdenes de OpenOCD (como una placa mientras la sonda habla despacio). Por eso una sesión de OpenOCD **no es reproducible al picosegundo** y `make openocd` no tiene invariante: comprueba resultados, no tiempos |
+| **dd** | `adapter speed` con `remote_bitbang` | `target/stm32f4x.cfg` cambia la velocidad del adaptador en sus eventos de reset, y `remote_bitbang` no tiene velocidades: OpenOCD dice «Translation from khz to adapter speed not implemented» y sigue. Es de OpenOCD, no del modelo, y no se puede evitar sin tocar el `.cfg` |
+| **ee** | La firma electrónica del F407 | El UID de 96 bits es SINTÉTICO, el mismo en todas las piezas; F_SIZE sale del tamaño de la Flash del modelo |
 | **aa** | El ejemplo con RTOS | El cierre pedía uno «del SDK con FreeRTOS o TI-RTOS». Los del SDK van con TI-Drivers y SysConfig; se usa la demo de FreeRTOS para la MSP432 LaunchPad (repositorio de FreeRTOS, MIT), que es la que usa DriverLib con `MAP_` |
 | **o** | Verificación previa y modos de lectura | `VER_PRE`/`AUTO_PRE` se guardan y no hacen nada; los modos de lectura de margen (`RDCTL.RD_MODE`), `RDBRST` y los marcadores de borrado (`BMRK`) no se modelan. Tampoco el límite de pulsos del TLV (`FLASHCTL`): se programa siempre a la primera |
 

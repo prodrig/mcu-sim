@@ -68,7 +68,7 @@ Una placa declara los chips que lleva:
 | `tipo` | *(obligatorio)* | El modelo. Se saben construir **los veintiún miembros de la familia F405/F407/F415/F417**: `STM32F405RG`, `STM32F405OG`, `STM32F405VG`, `STM32F405ZG`, `STM32F405OE`, `STM32F407VE`, `STM32F407VG`, `STM32F407ZE`, `STM32F407ZG`, `STM32F407IE`, `STM32F407IG`, `STM32F415RG`, `STM32F415OG`, `STM32F415VG`, `STM32F415ZG`, `STM32F417VE`, `STM32F417VG`, `STM32F417ZE`, `STM32F417ZG`, `STM32F417IE` y `STM32F417IG` — los diez últimos son los que llevan el acelerador criptográfico. `sim --help` los lista, y `--mcu TIPO` manda sobre él. Lo que los distingue está en `doc/reutilizacion.md` §9 |
 | `id` | *(obligatorio)* | El prefijo de sus nodos (`u0.PD12`) y su nombre en la jerarquía de SystemC |
 | `firmware` | ninguno | La imagen que se le carga en la Flash. **Una por chip** |
-| `depuracion` | `pines` | `pines`: expone SWCLK/SWDIO y el stub se cuelga por fuera, como un ST-LINK. `dap`: reserva los cinco pines de depuración y el stub habla con el núcleo por llamada de función |
+| `depuracion` | `pines` | `pines`: expone SWCLK/SWDIO y el stub se cuelga por fuera, como un ST-LINK. `dap`: reserva los cinco pines de depuración y el stub habla con el núcleo por llamada de función. `openocd`: como `pines`, pero lo que se cuelga es una sonda `remote_bitbang` para que OpenOCD genere el SWD; `puerto_gdb` es entonces el de esa sonda (T5 del MSP432) |
 | `puerto_gdb` | `0` | Puerto TCP de su stub. **0 = no se abre ninguno** |
 
 **El MCU no se supone.** Si la placa no declara ninguno, lo pone `--mcu TIPO`
