@@ -131,11 +131,19 @@ inline void Cpu::exec_32_ldstm(uint32_t hw1, uint32_t hw2) {
                 else   { if (!mem_write(a, 4, reg.r[i], true)) return; }
                 a += 4;
             }
+        // La escritura de la base va ANTES de cargar el PC: si lo que llega es
+        // un EXC_RETURN, el retorno de excepción desapila desde la pila YA
+        // actualizada (LDMIA.W SP!, {..., PC} al salir de un manejador). Al
+        // revés, el SP del manejador pisaba el que deja el desapilado y la
+        // pila del hilo quedaba 32 bytes más abajo en cada interrupción.
+        uint32_t v_pc = 0;
+        const bool carga_pc = L && ((list >> 15) & 1u);
         if ((list >> 15) & 1u) {
-            if (L) { uint32_t v = 0; if (!mem_read(a, 4, v, true)) return; load_write_pc(v); cycles_ += 2; }
+            if (L) { if (!mem_read(a, 4, v_pc, true)) return; }
             else   { if (!mem_write(a, 4, reg.r[15], true)) return; }
         }
         if (W && !(L && ((list >> rn) & 1u))) set_reg(rn, wb);
+        if (carga_pc) { load_write_pc(v_pc); cycles_ += 2; }
         return;
     }
 
@@ -517,7 +525,12 @@ inline void Cpu::exec_32_ldst(uint32_t hw1, uint32_t hw2) {
         uint32_t v = 0;
         if (!mem_read(addr, size, v)) return;
         if (Sx) v = sign_extend(v, 8u * size);
-        if (rt == 15) { load_write_pc(v); cycles_ = 4; }
+        if (rt == 15) {
+            // Igual que en LDM: LDR PC, [SP], #4 escribe la base antes del
+            // posible retorno de excepción
+            if (wb) { set_reg(rn, off_addr); wb = false; }
+            load_write_pc(v); cycles_ = 4;
+        }
         else set_reg(rt, v);
     } else {
         if (!mem_write(addr, size, rd_(rt))) return;

@@ -415,7 +415,15 @@ protected:
             v = uint16_t((ctlw0_ & ~vivos) | (v & vivos));
         }
         ctlw0_ = v;
-        if (estaba && !en_reset()) fin_rx_ = sc_core::sc_time_stamp();
+        if (estaba && !en_reset()) {
+            fin_rx_ = sc_core::sc_time_stamp();
+            // Un esclavo I2C no tiene TXIFG0 hasta que lo direccionan como
+            // transmisor: el TXIFG que deja UCSWRST es el de UART/SPI. Si se
+            // quedara, quien habilita UCTXIE0 al configurar el esclavo -el BSL
+            // de TI- veria una peticion de datos sin que nadie la haya hecho
+            // [TRM 24.3.5.1; el BSL de TI lo necesita así: P-16 q]
+            if (i2c() && !(ctlw0_ & MST)) { ifg_ = uint16_t(ifg_ & ~I_TX0); actualiza_irq(); }
+        }
         if (!estaba && en_reset()) {
             en_bus_ = false; esc_ = Esc::LIBRE; bcnt_ = 0;
             // UCSWRST = 1: lo que se está transmitiendo o recibiendo se pierde,
