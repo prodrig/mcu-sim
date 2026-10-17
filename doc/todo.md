@@ -58,7 +58,8 @@ redactar esta revisión, no solo leído en un informe.
   periféricos de aula con la BOOSTXL-EDUMKII; la ROM de DriverLib, con la
   que los ejemplos del SDK que usan `MAP_` corren sin tocarlos; y **T5**:
   OpenOCD de verdad programa y depura el modelo por sus pines, el MSP432 y
-  el F407 (el BSL, no).
+  el F407 (el BSL, no). **Y T6 (P-17)**: la segunda familia, el
+  MSP432E401Y, con su placa, su ROM y su cargador serie, `make teste4`.
 - **Cincuenta y una funciones "bits sin máquina"**: registros que se guardan, se
   enmascaran y se leen correctamente, pero cuya lógica no se ejecuta. Casi todas
   corresponden a caminos que ningún firmware corriente usa, y casi todas están
@@ -592,8 +593,8 @@ está.
   con el núcleo parado ahora lo pone en marcha), sin cambiar la cuenta.
 
 **Lo que queda**, con su fase:
-el BSL del P4 (D4 de T5), T6-T7 (el MSP432E401Y) y T8 (el resto de la
-familia). CAPTIO y PSS siguen declarados. Y lo que T1-T5 dejan dicho, con la
+el BSL del P4 (D4 de T5), T7 (la conectividad del MSP432E401Y; T6, el chip,
+está hecha y lo suyo va en **P-17**) y T8 (el resto de la familia). CAPTIO y PSS siguen declarados. Y lo que T1-T5 dejan dicho, con la
 letra con la que lo cita el código:
 
 | | Qué | Por qué |
@@ -633,6 +634,60 @@ letra con la que lo cita el código:
 Y una que no es del P4 sino del núcleo compartido: el SysTick con
 `CLKSOURCE = 0` cuenta FCLK/8, que es la integración de ST; la referencia
 externa del P4 no está contrastada.
+
+### P-17 — El MSP432E401Y (T6 de `doc/analisis_msp432.md`)
+
+**HECHA T6 el 2026-10-17**, en la rama `msp432`, en cuatro entregas con su
+commit. Es la segunda familia de TI: el mismo `CortexM4F` (111 IRQ, 3 bits
+de prioridad) con todo lo demás de Tiva.
+
+* **El chip** (`soc/msp432e4/`, `periph/msp432e4/`): 1 MB de Flash en 0x0 con
+  los estados de espera de `MEMTIM0` y la prebúsqueda, 256 KB de SRAM, 6 KB
+  de EEPROM, la ROM en 0x0100_0000; SYSCTL con PIOSC, MOSC (el cristal de
+  25 MHz de la placa), PLL, `RSCLKCFG` y `MEMTIM0` (que solo cuenta con
+  `MEMTIMU`), `RCGC`/`SR`/`PR` con el retardo de «periférico listo» y el
+  error de bus de tocar uno sin reloj, dicho una vez; RESC con sus causas;
+  GPIO A-Q (sin I ni O) con el dato enmascarado, `DEN` (avisa si se escribe
+  una salida sin él), `LOCK`/`CR`, interrupciones por pin en P y Q y las
+  funciones de `pin_map.h`; los dos perros; el controlador de Flash con su
+  `programador_nv_if` (el `load` de GDB) y COMT; la EEPROM; ocho UART, cuatro
+  SSI, diez I²C, ocho GPTM, dos ADC, la uDMA de 32 canales y la hibernación
+  con su RTC (el chip se apaga y despierta con la alarma o con WAKE).
+* **La ROM R1** (`verif/fw/msp432e4/rom_r1`): DriverLib del E4 compilada en
+  las 858 casillas de `rom.h` (85 al hueco, las que no tienen fuente BSD) y un
+  **cargador serie propio** con el protocolo de las herramientas de TI. Con la
+  Flash en blanco o con `BOOTCFG` pidiéndolo por un pin, el chip arranca en
+  él; `ROM_UpdateUART` entra sin medir baudios. `mcu-sim` sin firmware deja
+  la Flash del E4 en blanco, y `verif/serie/sflash_e4.py` (o el `sflash` de
+  TivaWare por un redirector COM–RFC 2217) lo programa por el *backchannel*.
+* **La placa** `placas/msp_exp432e401y.xml`: los cuatro LED, los dos
+  pulsadores, RESET, los dos cristales y el *backchannel* en el 3357.
+* **El banco**, `make teste4`: **203 comprobaciones, `resto`
+  `3683870847978 ps`**, con `asane4` limpio. *Blinky* en los cuatro LED,
+  120 MHz por las dos fuentes del PLL con el aviso de `MEMTIM0` y del PLL,
+  CoreMark, la Flash y la EEPROM con DriverLib, GDB por los pines (G2) y por
+  el DAP (G1) con `load` (D2), los periféricos con DriverLib (`e4_t3`), la
+  ROM y su cargador (`e4_rom` con `MAP_`). Y `make sflash-e4`, de punta a
+  punta contra el `mcu-sim` de verdad, en el CI.
+
+Lo que queda dicho, con la letra con la que lo cita el código:
+
+| | Qué | Por qué |
+| :--- | :--- | :--- |
+| **a** | GPIO y pines | **El §2 del análisis se equivocaba**: `msp432e401y.h` y DriverLib del E4 solo nombran la apertura AHB de los puertos, no la APB de otros Tiva, `0x4005_8000 + 0x1000·n`, y el modelo solo tiene esa. Son quince puertos, A-Q sin I ni O (R, S y T son del E411Y), y los protegidos por `LOCK`/`CR` son PC0-PC3 y PD7 (PE7 no sale en el E401Y). El reparto de pines por puerto es el del TM4C1294NCPDT, el mismo silicio; PA6 y PQ4 [1F]. *Pull-up* y *pull-down* de 20 kΩ y sin tolerancia a 5 V [1F]; las fuerzas de 2/4/8/12 mA, de modelo |
+| **b** | La ROM y el arranque | La ventana de 256 KB y el alias por `RMCTL.BA` (la ROM en 0x0 mientras se arranca en ella, y el cargador lo borra antes de saltar) son [1F], de los Tiva. La R1: mismas funciones en las mismas casillas, **otras instrucciones**; `ROM_VERSION` vale 1; se lee sin estados de espera; las 85 casillas de SMBus, SPI Flash y `Update{I2C,SSI,USB,EMAC}` son un `BKPT`. Su cargador solo escucha por la UART0 (PA0/PA1) —no por SSI0, I2C0, USB ni Ethernet—, no comprueba el CRC de la imagen, y mide los baudios sondeando PA0: con PIOSC, hasta 115 200 está probado y por encima de ~460 800 el bucle puede perder flancos. Escrito desde la descripción del protocolo (SPMU301), sin el `boot_loader` de TivaWare, cuya licencia no casa con la AGPLv3. No hay volcado de la ROM de un E4 de verdad con el que comparar (la R2 está, sin probar contra una) |
+| **c** | LFIOSC | 33 kHz típicos [1F, de memoria del datasheet]; DriverLib cuenta 30 kHz nominales |
+| **d** | «Periférico listo» | 3 ciclos de SYSCLK entre `RCGC` y `PR` [1F: la nota de los datasheets de Tiva] |
+| **e** | MOSC y PLL | Arranque del cristal en 1 ms y enganche del PLL en 100 µs: de modelo. `MOSCCTL` sale del reset con `NOXTAL` y `PWRDN` [1F] |
+| **f** | La prebúsqueda | Dos búferes de una línea de 256 bits, instrucciones y datos: se paga `FWS` al cambiar de línea [1F]. `FPFOFF` la apaga |
+| **g** | Tiempos y protección de la Flash y la EEPROM | De modelo: 30 µs por palabra, 15 ms por sector y por el borrado total, 100 µs por palabra de EEPROM. Sin errores de verificación (`PROGRIS`, `ERRIS`) ni reintentos (`EESUPP`); `EEPASS` y `EEHIDE` no cuentan. Protección de 2 KB por bit [1F]. **`FlashProtectSet` de DriverLib del E4 elige el registro con `(bloque / 32) % 4`**, que es de los Tiva de 256 KB: por encima de 256 KB protege el bloque equivocado. Es de DriverLib, no del modelo, y `e4_nv` lo esquiva |
+| **h** | RST y WAKE | Los dos con *pull-up* interno [1F]; 50 kΩ de modelo |
+| **i** | Periféricos | UART sin IrDA, tarjeta, 9 bits ni líneas de módem; SSI e I²C solo maestros (SPI de Freescale; sin *quick command* ni `MCLKOCNT`); GPTM sin modo RTC, sin las interrupciones del PWM ni `TnWOT`/`TnSNAPS`/`TCACT`; ADC ideal, sin comparadores digitales, promediado ni DMA, `GSYNC` no sincroniza; la uDMA sin *scatter-gather* y, cuando acaba un canal de software, un **pulso** en la línea UDMA (la cabecera del E4 no tiene `CHIS`) [1F]; la hibernación sin calendario, manipulación, retención de GPIO ni la espera de `WRC`, y la causa de despertar en `RESC.HIB` [1F]. Los modos de sueño no paran relojes (`SCGC`/`DCGC`/`DSCLKCFG` se guardan); el SysTick con `CLKSOURCE = 0` cuenta SYSCLK/8, como en los STM32, y en el E4 es PIOSC/4; `SRGPIO` no resetea un puerto suelto; un perro con `INTTYPE = 1` da la interrupción normal, no el NMI |
+| **j** | Las tablas de AES de la ROM | `ROM_pvAESTable` es la dirección de la casilla 7 de `ROM_SOFTWARETABLE`, donde la ROM de TI guarda datos; en la R1 esa casilla es el hueco |
+| **k** | Lo de T7 | CAN, USB, EMAC + PHY, PWM, QEI, EPI, los comparadores y el CCM (CRC, AES, DES, SHA/MD5) están **declarados**: el registro no hace nada y `--limitaciones` lo dice |
+| **l** | `sflash` de TI | El protocolo se ha probado con el banco y con `sflash_e4.py` (pySerial, RFC 2217). El `sflash` de TivaWare, LM Flash Programmer y UniFlash no se han probado: no se alcanzan desde aquí. Con un redirector COM–RFC 2217 en Windows deberían valer, y van a la matriz manual del puente |
+| **m** | `SysCtlDelay` desde la ROM | TI cuenta 3 ciclos por vuelta; el núcleo del modelo cobra el salto tomado con 2 de rellenado y da 4. Es del núcleo compartido (T-tiempos), no del E4 |
+| **n** | OpenOCD contra el E4 | No se ha probado (D3/G3 del E4 no eran de T6). El E4 se depura con el stub interno por los pines o por el DAP |
 
 ---
 
@@ -972,16 +1027,16 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 
 | Categoría | Puntos |
 | :--- | ---: |
-| **P** — Pendientes de plan | 15 *(una cerrada: P-14, con la matriz manual a medias; P-15, hecha su primera parte)* |
+| **P** — Pendientes de plan | 17 *(una cerrada: P-14, con la matriz manual a medias; P-15, hecha su primera parte)* |
 | **F** — Funciones no modeladas | 51 |
 | **T** — Temporización y física | 23 |
 | **D** — Datos sin fuente | 14 |
 | **X** — Discrepancias, silencios de [IR] y erratas de ST | 14 |
 | **V** — Huecos de verificación | 11 |
 | **I** — Deuda de instrumentación y proyecto | 50 *(treinta cerradas: I-11, I-12, I-15, I-16, I-17, I-20, I-22, I-25, I-28, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38, I-39, I-40, I-41, I-42, I-43, I-44, I-45, I-46, I-47, I-48, I-53 e I-54)* |
-| **Total** | **178** |
+| **Total** | **180** |
 
-De los 178, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 180, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.
@@ -993,3 +1048,7 @@ en el informe que la originó.
 > identificador más alto, no las filas que hay: **I-18 e I-19 no existen**, así
 > que son 47 puntos y no 49, y la lista de cerradas nombraba un I-18 inexistente.
 > Ahora el total **es la suma de la columna**: 12 + 51 + 22 + 14 + 14 + 11 + 47.
+>
+> **Y una tercera (2026-10-17, al dar de alta P-17).** P-16 se añadió sin
+> contarla: la fila de la **P** decía 15 con dieciséis puntos escritos. Ahora
+> son 17 (P-01 a P-17) y el total, 180.

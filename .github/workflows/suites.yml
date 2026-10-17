@@ -161,14 +161,14 @@ jobs:
           sudo apt-get install -y libsystemc-dev python3-serial socat
           dpkg -l libsystemc-dev python3-serial socat | tail -3
 
-      - name: Las suites (las tres de siempre, testserie, testgui y testp4)
+      - name: Las suites (las tres de siempre, testserie, testgui, testp4 y teste4)
         env:
           SUITES_PRESUPUESTO: 600
         run: sh ci/pasa_suites.sh
 
-      - name: Los invariantes de las seis, al picosegundo
+      - name: Los invariantes de las siete, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie testgui testp4; do
+          for s in test407 test446 test417 testserie testgui testp4 teste4; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -210,6 +210,13 @@ jobs:
       - name: Interoperabilidad del puente UART (pySerial y socat)
         working-directory: src
         run: make -f Makefile.mcu-sim interop
+
+      # El cargador serie de la ROM R1 del MSP432E401Y (T6): el mcu-sim de
+      # verdad sin firmware, y sflash_e4.py por RFC 2217 programa e4_t3,
+      # lo arranca y espera su saludo. Sin invariante, como la de arriba.
+      - name: sflash contra el cargador de la ROM del MSP432E401Y
+        working-directory: src
+        run: make -f Makefile.mcu-sim sflash-e4
 
       # La BOOSTXL-EDUMKII enchufada a la MSP-EXP432P401R (T3 del MSP432): el
       # sistema de dos placas con su firmware, mirando lo que sale.
@@ -432,14 +439,14 @@ jobs:
 
       # SIN pasar SYSTEMC_HOME, a proposito: aqui se ejerce la deteccion
       # automatica, que es la que se encuentra un alumno.
-      - name: Las suites (las tres de siempre, testserie, testgui y testp4)
+      - name: Las suites (las tres de siempre, testserie, testgui, testp4 y teste4)
         env:
           SUITES_PRESUPUESTO: 600
         run: sh ci/pasa_suites.sh CXX=clang++
 
-      - name: Los invariantes de las seis, al picosegundo
+      - name: Los invariantes de las siete, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie testgui testp4; do
+          for s in test407 test446 test417 testserie testgui testp4 teste4; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -481,6 +488,10 @@ jobs:
       - name: Interoperabilidad del puente UART (pySerial y socat)
         working-directory: src
         run: python3 verif/serie/interop.py
+
+      - name: sflash contra el cargador de la ROM del MSP432E401Y
+        working-directory: src
+        run: python3 verif/serie/sflash_e4.py --prueba
 
       - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas)
         # psutil para medir la CPU de mcu-sim mientras espera: en Linux basta
@@ -586,16 +597,16 @@ jobs:
           sh ci/construye_systemc.sh "$(cygpath -u "$GITHUB_WORKSPACE")/systemc" \
               -G Ninja -DCMAKE_ASM_FLAGS="-x assembler-with-cpp"
 
-      - name: Las suites (las tres de siempre, testserie, testgui y testp4)
+      - name: Las suites (las tres de siempre, testserie, testgui, testp4 y teste4)
         env:
           SUITES_PRESUPUESTO: 900      # aqui SystemC se compila antes: mas margen
         run: |
           sh ci/pasa_suites.sh \
              SYSTEMC_HOME="$(cygpath -u "$GITHUB_WORKSPACE")/systemc"
 
-      - name: Los invariantes de las seis, al picosegundo
+      - name: Los invariantes de las siete, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie testgui testp4; do
+          for s in test407 test446 test417 testserie testgui testp4 teste4; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -630,6 +641,11 @@ jobs:
         run: |
           python -m pip install pyserial
           python verif/serie/interop.py
+
+      - name: sflash contra el cargador de la ROM del MSP432E401Y
+        shell: pwsh
+        working-directory: src
+        run: python verif/serie/sflash_e4.py --prueba
 
       - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas)
         shell: pwsh

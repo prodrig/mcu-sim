@@ -193,3 +193,14 @@ testgui                145        76450000000        total
 # perro con el nucleo parado lo pone en marcha, y se vuelve a poner el buzon
 # a cero- y el total crece 0,6 ms, todos dentro de P21: el resto, igual.
 testp4                380      18893170139423        resto
+
+# teste4, la suite del MSP432E401Y (doc/analisis_msp432.md, T6). Contrasta
+# `resto` por la misma razon que testp4: E18 habla con un GDB de verdad por
+# un socket de verdad, por los pines (G2) y por el DAP (G1), y su tiempo
+# depende del anfitrion; el banco lo imprime aparte y lo quita.
+# Fase T6, entregas 1-3: E0-E24 -arranque, relojes, avisos, CoreMark, la
+# Flash y la EEPROM con DriverLib, GDB y los perifericos de e4_t3-: 154.
+# Entrega 4: E25-E29 -la ROM R1 y su cargador serie (con la Flash en blanco,
+# por ROM_UpdateUART y por BOOTCFG), MAP_ en e4_rom, y --rom ninguna-: 203.
+# El resto crece 497,78 ms, todos de E25-E29: E0-E24 no cambian.
+teste4                203      3683870847978         resto

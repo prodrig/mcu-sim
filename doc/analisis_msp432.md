@@ -103,6 +103,25 @@ fabricante.**
 > publica la imagen del BSL del P4; el código de un BSL a medida
 > (`MSPBSL_CustomBSL432`) y BSL Scripter solo se bajan de ti.com, que este
 > entorno no alcanza. Lo que queda, en P-16 (letras bb-ee) de `doc/todo.md`.
+>
+> **2026-10-17: hecha T6, el MSP432E401Y**, en cuatro entregas. El chip
+> (SYSCTL con PLL y `MEMTIM0`, GPIO A-Q, Flash con su controlador y su
+> `programador_nv_if`, EEPROM, perros, UART, SSI, I²C, GPTM, ADC, uDMA e
+> hibernación con RTC), la placa `msp_exp432e401y.xml`, y la ROM: la R1 con
+> DriverLib del E4 en las 858 casillas de `rom.h` y un **cargador serie
+> propio**, porque el del SDK no lo es: el `boot_loader` de TivaWare lleva
+> la licencia de TivaWare, que no casa con la AGPLv3, y el SDK del E4 no
+> trae otro. El cierre: *blinky* en PN0/PN1/PF0/PF4, 120 MHz con el aviso de
+> `MEMTIM0`, CoreMark, G1/G2 y D2, y **`sflash` por el redirector**: sin
+> firmware la Flash queda en blanco, el chip arranca el cargador, y
+> `verif/serie/sflash_e4.py` -o el `sflash` de TI por un redirector COM a
+> RFC 2217- programa por el *backchannel* (`make sflash-e4`). `make teste4`:
+> 203 comprobaciones, `resto` `3683870847978 ps`.
+>
+> Dos cosas de este documento estaban mal y se corrigen en §2: los puertos
+> del E4 **no tienen apertura APB** en la cabecera ni en DriverLib del E4,
+> que solo nombran la AHB (la APB es de otros Tiva) y son A-Q, no A-T (R-T son del E411Y); y el NVIC tiene
+> 111 líneas. Lo que T6 deja dicho está en **P-17** de `doc/todo.md`.
 
 ---
 
@@ -241,7 +260,7 @@ regla del proyecto (§6.3).
 | | STM32F407VG | **MSP432P401R** | **MSP432E401Y** |
 | :--- | :--- | :--- | :--- |
 | **Núcleo** | Cortex-M4F, 168 MHz | Cortex-M4F, **48 MHz** | Cortex-M4F, **120 MHz** |
-| **NVIC** | 82 líneas, 4 bits | Hasta `PORT6_IRQn`, **3 bits** | ≈ 114 líneas, **3 bits** |
+| **NVIC** | 82 líneas, 4 bits | Hasta `PORT6_IRQn`, **3 bits** | **111 líneas** (hasta `I2C9`), **3 bits** |
 | **MPU / FPU** | 8 regiones / FPv4-SP | 8 / FPv4-SP | 8 / FPv4-SP |
 | **Flash** | 1 MB en `0x0800_0000`, alias en `0x0` | **256 KB en `0x0000_0000`**, dos bancos (lectura mientras se escribe), sectores de 4 KB; **Flash de información** de 16 KB en `0x0020_0000` con el **TLV** y el **BSL** | **1 MB en `0x0000_0000`**, cuatro bancos con *prefetch*, sectores de 16 KB; **EEPROM de 6 KB** con su propio controlador |
 | **SRAM** | 112 + 16 + 64 (CCM) KB | 64 KB en `0x2000_0000`, **con alias de código en `0x0100_0000`**, en bancos que se apagan y se retienen por separado | 256 KB en `0x2000_0000` |
@@ -250,7 +269,7 @@ regla del proyecto (§6.3).
 | **Identificación** | `DBGMCU_IDCODE` | **TLV** (`0x0020_100C`, ID y revisión) | `DID0`/`DID1` (`0x400F_E000`) |
 | **Reloj** | RCC: HSI/HSE/PLL | **CS**: DCO (1,5-48 MHz, ajustado con la calibración del TLV), HFXT, LFXT, VLO, REFO, MODOSC y SYSOSC → MCLK, HSMCLK, SMCLK, ACLK y BCLK; con llave `0x695A` | **SYSCTL** de Tiva: PIOSC de 16 MHz, MOSC, PLL (VCO de 480 MHz), `RSCLKCFG`, y **`MEMTIM0`** para los tiempos de Flash y EEPROM |
 | **Energía** | PWR, Stop/Standby | **PCM** (`AM_LDO_VCORE0/1`, `AM_DCDC`, LPM0/3/4/3.5/4.5) + **PSS**. Para pasar de 24 MHz hace falta VCORE1 **y** los estados de espera del FLCTL | Sleep/Deep-sleep + **Hibernation** (con RTC y VBAT) |
-| **Pines** | Puertos A-I de 16, AF0-15 | **P1-P10 y PJ, de 8 bits**, accesibles a pares de 16 (PA = P1:P2). `PxSEL0/PxSEL1`, `PxREN` + `PxOUT` para elegir *pull-up* o *pull-down*, `PxDS` con alta corriente en algunos pines, interrupción con `PxIV` en P1-P6, y **PMAP** (mapeo de funciones) en P2, P3 y P7 | Puertos **A-T, de 8 bits**. **`GPIODATA` enmascarado por los bits [9:2] de la dirección**, `AFSEL` + `PCTL` (4 bits por pin), **`DEN`** (sin él el pin no es digital), fuerza de 2/4/8/12 mA, y **`LOCK`/`CR`** para los pines protegidos (PC0-3, PD7, PE7). Cada puerto tiene una apertura AHB y otra APB |
+| **Pines** | Puertos A-I de 16, AF0-15 | **P1-P10 y PJ, de 8 bits**, accesibles a pares de 16 (PA = P1:P2). `PxSEL0/PxSEL1`, `PxREN` + `PxOUT` para elegir *pull-up* o *pull-down*, `PxDS` con alta corriente en algunos pines, interrupción con `PxIV` en P1-P6, y **PMAP** (mapeo de funciones) en P2, P3 y P7 | Puertos **A-Q (sin I ni O), de 8 bits** (R-T son del E411Y). **`GPIODATA` enmascarado por los bits [9:2] de la dirección**, `AFSEL` + `PCTL` (4 bits por pin), **`DEN`** (sin él el pin no es digital), fuerza de 2/4/8/12 mA, y **`LOCK`/`CR`** para los pines protegidos (PC0-3 y PD7). **Solo la apertura AHB** (`0x4005_8000`): es la única que nombran la cabecera y DriverLib del E4; la APB es de otros Tiva *(corregido en T6)* |
 | **Periféricos** | ST | eUSCI_A ×4 (UART/SPI/IrDA), eUSCI_B ×4 (SPI/I²C), Timer_A ×4, **Timer32** (doble temporizador de ARM), ADC14 (14 bits, 1 Msps), COMP_E ×2, REF_A, RTC_C, WDT_A, **µDMA PL230** (8 canales), AES256, CRC32 | UART ×8, QSSI ×4, I²C ×10, GPTM ×8 (16/32), PWM, QEI, ADC ×2 (12 bits, secuenciadores), comparadores, **µDMA PL230** (32 canales), **CAN ×2 (C_CAN)**, **USB OTG (Mentor)**, **Ethernet MAC + PHY**, EPI, AES/DES/SHA-MD5, CRC, EEPROM y Hibernation; LCD en el E411Y |
 | **Depuración** | SWJ-DP, DBGMCU | JTAG de 4 hilos y SWD + SWO. Pines dedicados `SWCLKTCK` y `SWDIOTMS`; `PJ.4`/`PJ.5` = TDI/TDO-SWO. Bloqueo de JTAG/SWD y zonas IP protegidas | JTAG/SWD en **PC0-PC3**. Desbloqueo por la secuencia de *debug port unlock* |
 | **Placa típica** | Discovery, Nucleo | **MSP-EXP432P401R** (XDS110-ET a bordo, consola por el *backchannel* en P1.2/P1.3) | **MSP-EXP432E401Y** (XDS110 a bordo, consola por UART0 en PA0/PA1, RJ45) |
@@ -582,8 +601,9 @@ esa macro elige la versión en ROM (`ROM_xxx`) cuando existe para el objetivo
 de tablas**: `ROM_APITABLE = 0x0200_0800`, la entrada 0 es la versión y las
 siguientes apuntan a la tabla de cada módulo (`ROM_ADC14TABLE[0]` es
 `ADC14_enableModule`…). En el E4 la idea es la misma, con la ROM en
-`0x0100_0000` (en TivaWare, la tabla está en `0x0100_0010`; hay que contrastarlo
-con el `rom.h` del SDK de E4).
+`0x0100_0000` y la tabla en `0x0100_0010`, detrás de los cuatro primeros
+vectores del cargador (contrastado en T6 con el `rom.h` del SDK del E4: 34
+tablas, 858 casillas).
 
 | Opción | Qué es | Veredicto |
 | :--- | :--- | :--- |
@@ -591,10 +611,13 @@ con el `rom.h` del SDK de E4).
 | R2. ROM de verdad, volcada | `--rom rom_p4.bin`, volcada de una LaunchPad con OpenOCD (`dump_image rom.bin 0x02000000 0x8000`) o con UniFlash; **o, sin placa, `--rom msp432_driverlib_rom_image.out`, la imagen con símbolos que instala CCS** (T4) | **Opcional.** Es de TI y **no se versiona**: misma política que los PDF de ST (`doc/fuentes.md` §0). Sirve para medir la divergencia de R1 |
 | R3. Sin ROM | La ventana devuelve error de bus | Para los firmwares *bare-metal* de las suites que no usan `MAP_`/`ROM_` |
 
-El **cargador en ROM del E4** no forma parte de la DriverLib. Para D4 hay dos
-caminos: compilar el cargador que trae el SDK (BSD) y colocarlo en la ventana
-de la ROM, o implementarlo «de alto nivel» en C++. El primero es más fiel y se
-puede versionar.
+El **cargador en ROM del E4** no forma parte de la DriverLib. Para D4 había
+dos caminos: compilar el cargador del SDK y colocarlo en la ventana de la ROM,
+o implementarlo «de alto nivel» en C++. **En T6 no fue ninguno de los dos**:
+el SDK del E4 no trae cargador, y el `boot_loader` de TivaWare no es BSD (su
+licencia no casa con la AGPLv3). Se escribió uno propio, en C, desde la
+descripción del protocolo (SPMU301), que corre en el núcleo simulado desde la
+ventana de la ROM como lo haría el de TI.
 
 ### 6.2 El arranque
 
@@ -873,6 +896,9 @@ arquitectura.
    preprocesador expande cada `ROM_xxx` y la casilla tiene que llevar a la
    función de ese nombre en la R1 (lo comprueba el Makefile), y las mismas 424
    casillas llevan a la función de ese nombre en la ROM de TI que trae CCS.
+   **En el E4 (T6)**, el primer camino: las 858 casillas de su `rom.h`, 773 a
+   su función y 85 al hueco. No hay imagen de la ROM de TI del E4 con la que
+   hacer el segundo.
 5. **El TLV sintético.** Con valores típicos, el DCO sale a la frecuencia
    nominal exacta. Una placa real no, y quien compare tiempos lo notará. Se
    documenta en `doc/todo.md`.
@@ -918,7 +944,8 @@ arquitectura.
   (TRM del E4), datasheets del E401Y/E411Y, SLAU622 (BSL del P4) y la guía de
   usuario de las dos LaunchPads.
 * **Sin verificar todavía con dos fuentes**, y marcados así en el texto: el
-  `n_irq` exacto de cada chip, la dirección de la tabla de ROM del E4, la
-  referencia del SysTick en el P4, si la EMAC del E4 es la IP de Synopsys, las
+  `n_irq` exacto de cada chip *(el del E4, 111, contrastado en T6 con la
+  cabecera y la tabla de vectores del SDK)*, la dirección de la tabla de ROM
+  del E4 *(0x0100_0010, contrastada en T6)*, la referencia del SysTick en el P4, si la EMAC del E4 es la IP de Synopsys, las
   interfaces exactas del cargador en ROM del E4 y la compatibilidad de CCS 20
   con un GDB remoto.

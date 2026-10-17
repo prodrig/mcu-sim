@@ -134,6 +134,18 @@ solo tiene una fuente lleva **[1F]** y su subpunto de P-16 en `doc/todo.md`.
 | — | DriverLib del SDK SimpleLink MSP432P4 3.40: `rom.h` (`ROM_APITABLE`), `sysctl.h` (etiquetas del TLV), `reset.h` | `software-dl.ti.com/simplelink/esd/simplelink_msp432_sdk/3.40.00.05/docs/` |
 | `[ROM]` | La imagen de la ROM de DriverLib del P401R rev. C, con símbolos, que instala CCS para depurar dentro de ella (`ccs_base/emulation/gel/images/msp432p401r/revC/msp432_driverlib_rom_image.out`). Segunda opinión de las tablas de la R1 y la R2 de `--rom` (T4) | **No versionada**: es de TI. Se usó la copia que lleva el TICloudAgent del port de mbed de Terstegge (`1d1bf66`) |
 
+El del MSP432E4 (`soc/msp432e4/`, `periph/msp432e4/`, T6) cita además así; lo
+que solo tiene una fuente lleva **[1F]** y su subpunto de **P-17**:
+
+| Etiqueta | Qué | Dónde |
+| :--- | :--- | :--- |
+| `[H]` | `msp432e401y.h`, la cabecera CMSIS del E4, y los `hw_*.h` de DriverLib | **Versionadas**, `src/verif/fw/msp432e4/sdk/`: el SDK SimpleLink MSP432E4 que lleva `msp432e-core` de Energia (`be5c1c2`), BSD-3 |
+| `[DL]` | DriverLib del E4: `sysctl.c` (PIOSC, la tabla de `MEMTIM0`, `SysCtlClockFreqSet`), `flash.c`, `eeprom.c`, `gpio.c`, `pin_map.h` (las funciones de cada pin), `rom.h` y `rom_map.h` (las 34 tablas de la ROM en `0x0100_0010`) | La misma copia, versionada |
+| `[EN]` | Energia, `variants/MSP_EXP432E401Y`: los LED, los pulsadores y la UART0 de la LaunchPad | `github.com/energia/msp432e-core` |
+| `[OO]` | OpenOCD: `DID0`/`DID1` del E401Y y el algoritmo de Flash del E4 (`contrib/loaders/flash/msp432`), como segunda opinión del controlador. No se copia código | `github.com/openocd-org/openocd` |
+| `[SPMU301]` | «TivaWare Boot Loader User's Guide»: el protocolo serie del cargador (paquetes, ACK/NAK, órdenes y estados), que el cargador de la ROM R1 implementa **sin** copiar el `boot_loader` de TivaWare | `ti.com/lit/ug/spmu301` (no versionado) |
+| `[DS]` | Datasheet del MSP432E401Y (SLASEN5): 120 MHz, 90 E/S en el TQFP de 128, la ROM | `ti.com/lit/ds/slasen5` (no versionado; de ahí, de memoria, buena parte de los **[1F]**) |
+
 **Pendientes de bajar a `doc/refs/`, sin versionar:** SLAU356 (TRM del
 MSP432P4), SLAS826 (datasheet del P401R), SLAU622 (BSL), SLAU723 (TRM del
 E4). La red de este entorno pide permiso para `ti.com` y no se pudo leer el

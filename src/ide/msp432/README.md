@@ -145,3 +145,31 @@ traen las distribuciones, no tiene SWD en `remote_bitbang` y contesta «only
 one transport option; autoselect 'jtag'». `ci/construye_openocd.sh` construye
 la revisión con la que se probó. El SWD por socket es lento —unos 1,5 KiB/s
 programando—, porque cada bit leído es un viaje por TCP.
+
+## El MSP432E401Y (T6)
+
+Lo mismo vale para el E4, con su placa y su firmware:
+
+```
+./build/mcu-sim placas/msp_exp432e401y.xml --gdb-dap --tiempo-real
+```
+
+En las configuraciones, el programa es el `.out` del proyecto del E4 y el
+dispositivo, `MSP432E401Y`; el resto no cambia. `--gdb` cuelga la sonda de
+**PC0/PC1** (SWCLK/SWDIO), que salen del reset en su función JTAG/SWD:
+quitarles `AFSEL` con `LOCK`/`CR` abiertos deja la placa sin depurador, como
+la de verdad. El `load` de GDB borra y programa por el controlador de Flash
+del E4 (sectores de 16 KB); el grupo E18 de `teste4` hace la misma sesión por
+los dos caminos (G1 y G2).
+
+Y sin depurador: con la placa **sin firmware** la Flash queda en blanco y el
+chip arranca el cargador serie de su ROM, al que se le habla por el
+*backchannel* (el 3357, RFC 2217):
+
+```
+./build/mcu-sim placas/msp_exp432e401y.xml --sin-firmware
+python3 verif/serie/sflash_e4.py rfc2217://localhost:3357 mi_programa.bin -r 0
+```
+
+o, en Windows, con un redirector de COM a RFC 2217, `sflash -c N -p 0 -r 0
+mi_programa.bin` de TivaWare. OpenOCD contra el E4 no está probado (P-17 n).

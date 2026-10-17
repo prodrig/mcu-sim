@@ -2,9 +2,9 @@
 // gpio.h — Los puertos del MSP432E4 (T6)
 //
 // Quince puertos de ocho pines, A..Q sin I ni O, cada uno con 4 KB en el AHB a
-// partir de 0x4005_8000 [H; hw_gpio.h]. En el E4 no hay apertura APB: eso era
-// de los TM4C123 (el análisis de §2 lo decía mal; P-17 a). Los registros son
-// los de Tiva:
+// partir de 0x4005_8000 [H; hw_gpio.h]. La cabecera y DriverLib del E4 solo
+// nombran esa apertura; la APB de otros Tiva no está (el análisis de §2 decía
+// que había las dos; P-17 a). Los registros son los de Tiva:
 //
 //   DATA    0x000-0x3FC. EL DATO ESTÁ ENMASCARADO POR LA DIRECCIÓN: los bits
 //           [9:2] de la dirección dicen qué pines toca la lectura o la
