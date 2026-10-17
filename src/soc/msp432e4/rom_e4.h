@@ -6,8 +6,9 @@
 // primeros vectores del cargador. La ventana tiene, como en el P4, tres
 // contenidos posibles:
 //
-//   R1  la ROM SUSTITUTA (T6, entrega 4): DriverLib del E4 compilada en las
+//   R1  la ROM SUSTITUTA, la de omision: DriverLib del E4 compilada en las
 //       casillas de rom.h y un cargador serie propio
+//       (verif/fw/msp432e4/rom_r1). Va DENTRO del simulador -rom_r1.inc-
 //   R2  la de TI, de un fichero (`--rom FICHERO`): un volcado de la ventana o
 //       un ELF con segmentos en ella
 //   R3  sin ROM (`--rom ninguna`): cualquier acceso es un error de bus
@@ -35,6 +36,19 @@
 #include "../msp432p4/rom_p4.h"     // fnv1a
 
 namespace stm32 {
+
+namespace rom_r1_e4 {
+// La imagen de la ROM R1 del E4: sus primeras palabras (el resto de la
+// ventana es 0xFF). La genera el Makefile de verif/fw/msp432e4/rom_r1 a
+// partir de rom_r1.bin; su huella, la de los 256 KB, esta en
+// verif/fw/huellas.txt y la comprueba el primer grupo de teste4.
+inline const uint32_t IMAGEN[] = {
+#include "rom_r1.inc"
+};
+static_assert(sizeof(IMAGEN) == 4u * ROM_R1_E4_PALABRAS, "rom_r1.inc mal generado");
+static_assert(sizeof(IMAGEN) <= e4::ROM_SIZE, "la ROM R1 no cabe en la ventana");
+inline constexpr uint32_t FNV = ROM_R1_E4_FNV;
+} // namespace rom_r1_e4
 
 class RomE4 : public sc_core::sc_module {
 public:
@@ -164,9 +178,12 @@ private:
     }
 };
 
-// La R1 llega en la entrega 4 de T6. Hasta entonces el chip sale sin ROM.
-inline bool RomE4::hay_r1() const { return false; }
-inline void RomE4::pon_r1() { pon_ninguna(); }
+inline bool RomE4::hay_r1() const { return true; }
+inline void RomE4::pon_r1() {
+    std::fill(img_.begin(), img_.end(), uint8_t(0xFF));
+    std::memcpy(img_.data(), rom_r1_e4::IMAGEN, sizeof(rom_r1_e4::IMAGEN));
+    origen_ = Origen::R1; ruta_.clear();
+}
 
 } // namespace stm32
 #endif // STM32_SOC_MSP432E4_ROM_E4_H

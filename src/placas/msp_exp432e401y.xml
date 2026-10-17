@@ -25,6 +25,13 @@
          ./build/mcu-sim placas/msp_exp432e401y.xml --valida
          ./build/mcu-sim placas/msp_exp432e401y.xml verif/fw/msp432e4/e4_demo/e4_demo.out --ms=50
          ./build/mcu-sim placas/msp_exp432e401y.xml verif/fw/msp432e4/e4_t3/e4_t3.out --ms=20 --serie BCL=memoria
+
+     SIN firmware la Flash queda en blanco y el chip arranca el cargador
+     serie de la ROM, como uno nuevo: se programa por el backchannel con
+     sflash (TivaWare, por un redirector COM - RFC 2217) o con el de aqui:
+
+         ./build/mcu-sim placas/msp_exp432e401y.xml --sin-firmware
+         python3 verif/serie/sflash_e4.py rfc2217://localhost:3357 verif/fw/msp432e4/e4_t3/e4_t3.bin -r 0
 -->
 <placa nombre="msp-exp432e401y">
   <mcu tipo="MSP432E401Y" id="u0"/>

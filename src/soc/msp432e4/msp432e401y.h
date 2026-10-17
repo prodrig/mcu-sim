@@ -197,7 +197,12 @@ public:
                 l.push_back("sin ROM (R3): ni cargador serie ni DriverLib en ROM; con la "
                             "Flash en blanco el chip no arranca nada");
                 break;
-            default: break;
+            default:
+                l.push_back("la ROM es la R1 (sustituta): DriverLib compilada en las casillas "
+                            "de rom.h, salvo SMBus, SPI Flash y Update{I2C,SSI,USB,EMAC}, que "
+                            "se paran en un BKPT; su cargador solo escucha por la UART0 "
+                            "(PA0/PA1), sin SSI0, I2C0, USB ni Ethernet, y no comprueba CRC");
+                break;
         }
         return l;
     }

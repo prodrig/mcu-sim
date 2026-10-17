@@ -373,7 +373,7 @@ protected:
             case R_DMAEV: dmaev_ = v; break;
             case R_ADCEV: adcev_ = v; break;
             case R_CC: for (unsigned m = 0; m < 2; ++m) ancla(m); cc_ = v & 1u;
-                       for (unsigned m = 0; m < 2; ++m) h_[m].tick_s = tick(m); recalcula(); break;
+                       { for (unsigned m = 0; m < 2; ++m) h_[m].tick_s = tick(m); } recalcula(); break;
             default: break;
         }
     }

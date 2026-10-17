@@ -16,6 +16,10 @@
 //           flancos), I2C0 con una 24C02, SSI2 en bucle por los pines, ADC0
 //           (por el procesador, el sensor de temperatura y disparado por un
 //           GPTM), la uDMA y la hibernación con el RTC
+//   E25-E29 (entrega 4) la ROM R1: su imagen y sus tablas, el cargador serie
+//           con la Flash en blanco (el banco hace de sflash por el
+//           backchannel), un firmware con MAP_ (e4_rom) y ROM_UpdateUART, sin
+//           ROM (--rom ninguna) y el cargador pedido por un pin (BOOTCFG)
 //   E15-E18 (entrega 2) la Flash y la EEPROM desde el firmware, con DriverLib,
 //           y GDB de verdad por la sonda de los pines (G2, por PC0/PC1) y por
 //           el DAP (G1), con `load` (D2)
@@ -73,6 +77,7 @@ static const char* const FW_CM   = "verif/fw/msp432e4/coremark/coremark_e4.bin";
 static const char* const FW_DEMO_BIN = "verif/fw/msp432e4/e4_demo/e4_demo.bin";
 static const char* const FW_NV   = "verif/fw/msp432e4/e4_nv/e4_nv.out";
 static const char* const FW_T3   = "verif/fw/msp432e4/e4_t3/e4_t3.out";
+static const char* const FW_ROM  = "verif/fw/msp432e4/e4_rom/e4_rom.out";
 
 // El buzón de e4_demo [verif/fw/msp432e4/e4_demo/main.c, buzon_t]
 enum : uint32_t {
@@ -754,6 +759,248 @@ SC_MODULE(TbE4) {
         check(r3(5) & 1u, "con RTCALT0 en RIS: la causa de despertar");
     }
 
+
+    // =======================================================================
+    // Entrega 4: la ROM R1 y su cargador serie. El banco hace de sflash: habla
+    // el protocolo de las herramientas de TI por el backchannel (bcl, en
+    // memoria), byte a byte, con esperas en tiempo simulado.
+    size_t pos_ = 0;                              // lo ya leido de bcl->recibido()
+    bool lee_byte(uint8_t& b, double ms = 50) {
+        const sc_time lim = sc_time_stamp() + sc_time(ms, SC_MS);
+        while (bcl->recibido().size() <= pos_) {
+            if (sc_time_stamp() >= lim) return false;
+            wait(20, SC_US);
+        }
+        b = uint8_t(bcl->recibido()[pos_++]);
+        return true;
+    }
+    // ACK (0xCC) o NAK (0x33) del cargador, saltando los ceros; 0 si no llega
+    uint8_t respuesta(double ms = 50) {
+        uint8_t b = 0;
+        do { if (!lee_byte(b, ms)) return 0; } while (b == 0);
+        return b;
+    }
+    uint8_t paquete(const std::string& d, bool suma_mal = false) {
+        uint8_t s = 0;
+        for (char c : d) s = uint8_t(s + uint8_t(c));
+        if (suma_mal) s = uint8_t(s + 1);
+        std::string p;
+        p += char(d.size() + 2); p += char(s); p += d;
+        bcl->envia(p);
+        return respuesta();
+    }
+    static std::string be32(uint32_t v) {
+        std::string r;
+        for (int i = 3; i >= 0; --i) r += char((v >> (8 * i)) & 0xFF);
+        return r;
+    }
+    // GET_STATUS: el estado, o -1 si algo del paquete de vuelta no cuadra
+    int estado_cargador() {
+        if (paquete(std::string(1, '\x23')) != 0xCC) return -1;
+        uint8_t n = 0, s = 0, e = 0;
+        do { if (!lee_byte(n)) return -1; } while (n == 0);
+        if (n != 3 || !lee_byte(s) || !lee_byte(e) || s != e) return -1;
+        bcl->envia(std::string("\x00\xCC", 2));
+        return e;
+    }
+    // Lo que hace `sflash -c ... fichero.bin`: DOWNLOAD, SEND_DATA a trozos con
+    // GET_STATUS detras de cada uno. Devuelve "" o lo que fallo.
+    std::string descarga(const std::vector<uint8_t>& img, uint32_t dir, unsigned trozo = 64) {
+        if (paquete(std::string(1, '\x21') + be32(dir) + be32(uint32_t(img.size()))) != 0xCC)
+            return "DOWNLOAD sin ACK";
+        int e = estado_cargador();
+        if (e != 0x40) return "DOWNLOAD: estado " + std::to_string(e);
+        for (size_t i = 0; i < img.size(); i += trozo) {
+            const size_t n = std::min<size_t>(trozo, img.size() - i);
+            if (paquete(std::string(1, '\x24') +
+                        std::string(reinterpret_cast<const char*>(img.data() + i), n)) != 0xCC)
+                return "SEND_DATA sin ACK en " + std::to_string(i);
+            e = estado_cargador();
+            if (e != 0x40) return "SEND_DATA: estado " + std::to_string(e) + " en " + std::to_string(i);
+        }
+        return "";
+    }
+    static std::vector<uint8_t> lee_bin(const char* ruta) {
+        std::vector<uint8_t> d;
+        std::ifstream f(ruta, std::ios::binary);
+        d.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+        return d;
+    }
+    bool flash_es(const std::vector<uint8_t>& img, uint32_t dir) {
+        for (size_t i = 0; i < img.size(); ++i)
+            if (uint8_t(dut.flash.peek32(uint32_t(dir + i) & ~3u) >> (8 * ((dir + i) & 3u))) != img[i])
+                return false;
+        return true;
+    }
+    void abre_bcl() {
+        bcl->set_baudios(115200);
+        bcl->set_formato(FormatoUart{});
+        bcl->borra_recibido();
+        pos_ = 0;
+        bcl->set_enabled(true);
+    }
+
+    void rom_r1() {
+        grupo("E25 La ROM R1: DriverLib en las casillas de rom.h y el cargador");
+        check(dut.rom.origen() == RomE4::Origen::R1, "el chip sale con la ROM R1, sin --rom");
+        check_eq(dut.rom.huella(), rom_r1_e4::FNV,
+                 "la imagen es la de rom_r1.inc (y su huella, la de verif/fw/huellas.txt)");
+        check_eq(dut.rom.peek32(e4::ROM_B), 0x20004000u, "vector 0 de la ROM: la pila del cargador");
+        const uint32_t reset = dut.rom.peek32(e4::ROM_B + 4);
+        check((reset & 1u) && reset > e4::ROM_B && reset < e4::ROM_B + e4::ROM_SIZE,
+              "vector 1: el cargador, en la ROM y en Thumb");
+        check_eq(dut.rom.peek32(e4::ROM_APITABLE), 1, "ROM_APITABLE[0], la version de la R1: 1");
+        const uint32_t uart_t = dut.rom.peek32(e4::ROM_APITABLE + 4);
+        const uint32_t upd = dut.rom.peek32(uart_t + 4 * 21);
+        check(uart_t > e4::ROM_B && (upd & 1u) && upd > e4::ROM_B && upd < e4::ROM_B + e4::ROM_SIZE &&
+              upd != dut.rom.peek32(uart_t + 4 * 20),
+              "ROM_UARTTABLE[21] es UpdateUART, el cargador sin autobaudios");
+        bool desc = false;
+        for (const std::string& l : dut.limitaciones()) if (l.find("R1") != std::string::npos) desc = true;
+        check(desc, "y las limitaciones de la R1 se dicen (--limitaciones)");
+    }
+
+    void cargador() {
+        grupo("E26 Flash en blanco: el chip arranca en el cargador de la ROM (sflash por el banco)");
+        mcu.reset_pin(true);
+        wait(20, SC_US);
+        dut.flash.borra_todo();
+        const uint64_t i0 = dut.rom.instrucciones();
+        mcu.reset_pin(false);
+        wait(1, SC_MS);
+        check(dut.arranco_en_rom(), "con la palabra de 0x4 a 0xFFFFFFFF, RMCTL.BA = 1: la ROM en 0x0");
+        check(dut.rom.instrucciones() > i0 && dut.core.cpu.pc() >= e4::ROM_B &&
+              dut.core.cpu.pc() < e4::ROM_B + e4::ROM_SIZE,
+              "y el nucleo ejecuta el cargador, en la ROM");
+        abre_bcl();
+        bcl->envia(std::string("\x55\x55", 2));
+        check_eq(respuesta(), 0xCC, "dos 0x55 a 115200: el cargador mide los baudios y contesta ACK");
+        check_eq(paquete(std::string(1, '\x20')), 0xCC, "PING: ACK");
+        check_eq(estado_cargador(), 0x40, "GET_STATUS: SUCCESS (0x40)");
+        check_eq(paquete(std::string(1, '\x20'), true), 0x33, "un paquete con la suma mal: NAK (0x33)");
+        check_eq(paquete(std::string(1, '\x21') + be32(0x00100000u) + be32(4)), 0xCC,
+                 "DOWNLOAD fuera de la Flash: se acepta el paquete...");
+        check_eq(estado_cargador(), 0x43, "...pero el estado es INVALID_ADR (0x43)");
+        check_eq(paquete(std::string(1, '\x7E')), 0xCC, "una orden que no existe...");
+        check_eq(estado_cargador(), 0x41, "...da UNKNOWN_CMD (0x41)");
+        const std::vector<uint8_t> img = lee_bin(FW_DEMO_BIN);
+        const sc_time t0 = sc_time_stamp();
+        const std::string e = descarga(img, 0);
+        std::printf("    %zu bytes de e4_demo.bin en %.1f ms simulados\n", img.size(),
+                    (sc_time_stamp() - t0).to_seconds() * 1e3);
+        check(img.size() > 1000 && e.empty(), e.empty() ? "e4_demo.bin entero, a trozos de 64 bytes, "
+              "todos con SUCCESS" : e.c_str());
+        check(flash_es(img, 0), "y la Flash tiene lo descargado, byte a byte");
+        uint8_t ceros[B_TAM] = {};
+        dut.sram.load(ceros, sizeof ceros, 0);                    // modo 0 en el buzon
+        check_eq(paquete(std::string(1, '\x22') + be32(0)), 0xCC, "RUN 0x0: ACK");
+        check(espera_estado(100, 5), "y salta a la aplicacion: e4_demo llega a parpadear");
+        check(!dut.arranco_en_rom(), "con RMCTL.BA borrado: la Flash vuelve a 0x0");
+        check(periodo(e4::PN, 0) > 0, "PN0 (D2) parpadea");
+        check(bcl->errores_trama() == 0, "sin errores de trama en el puente");
+        bcl->set_enabled(false);
+        // Otra vez en el cargador, por un reset con la Flash buena: ya no
+        mcu.reset_pin(true);
+        wait(20, SC_US);
+        dut.sram.load(ceros, sizeof ceros, 0);
+        mcu.reset_pin(false);
+        check(espera_estado(100, 5) && !dut.arranco_en_rom(),
+              "tras un reset, con la Flash programada, arranca la aplicacion directamente");
+    }
+
+    void rom_map() {
+        grupo("E27 Un firmware con MAP_ (e4_rom): DriverLib desde la ROM, y ROM_UpdateUART");
+        abre_bcl();
+        arranca(0, FW_ROM);
+        check(espera_estado(100, 20), "e4_rom llega al final: todo lo de DriverLib, por la ROM");
+        wait(1, SC_MS);                                           // lo que queda en la FIFO
+        check_eq(buzon(0x0C), 1, "ROM_VERSION, la de la R1");
+        check_eq(buzon(0x10), 120000000u, "SysCtlClockFreqSet (de DriverLib) devuelve 120 MHz");
+        check(std::fabs(dut.f_sys() - 120e6) < 1, "y SYSCLK es 120 MHz");
+        check(bcl->recibido() == "ROM R1\r\n",
+              "el saludo sale por la UART0, configurada con ROM_UARTConfigSetExpClk");
+        const double p = periodo(e4::PN, 0, 4, 20);
+        std::printf("    periodo de PN0: %.3f ms (ROM_SysCtlDelay(f/3000) por medio periodo)\n", p * 1e3);
+        // TI cuenta 3 ciclos por vuelta de SysCtlDelay; el nucleo del modelo
+        // cobra el salto tomado con 2 de rellenado (1 + P, P = 2): 4 ciclos
+        check(p > 1.9e-3 && p < 2.8e-3,
+              "PN0 parpadea a 2-2,7 ms: ROM_GPIOPinWrite y ROM_SysCtlDelay (3 o 4 ciclos por vuelta)");
+        const uint64_t i0 = dut.rom.instrucciones();
+        wait(1, SC_MS);
+        check(dut.rom.instrucciones() > i0, "y el nucleo ejecuta en la ROM (SysCtlDelay)");
+        // Modo 1: ROM_UpdateUART con la UART0 ya a 115200: sin autobaudios
+        abre_bcl();
+        arranca(1, FW_ROM);
+        check(espera_estado(10, 20), "modo 1: la aplicacion llama a ROM_UpdateUART");
+        wait(1, SC_MS);
+        while (pos_ < bcl->recibido().size()) ++pos_;              // el saludo
+        check_eq(paquete(std::string(1, '\x20')), 0xCC, "y el cargador contesta al PING sin autobaudios");
+        const std::vector<uint8_t> img = lee_bin(FW_DEMO_BIN);
+        const std::string e = descarga(img, 0, 252);
+        check(e.empty(), e.empty() ? "reprograma la Flash con e4_demo.bin, a 120 MHz, a trozos de 252" : e.c_str());
+        check(flash_es(img, 0), "y la Flash tiene e4_demo");
+        uint8_t ceros[B_TAM] = {};
+        dut.sram.load(ceros, sizeof ceros, 0);
+        const unsigned arr = buzon(B_ARRANQUES);
+        check_eq(paquete(std::string(1, '\x25')), 0xCC, "RESET: ACK...");
+        check(espera_estado(100, 10) && arr == 0, "...y reset del sistema: arranca e4_demo");
+        check(buzon(B_RESC) & SysctlE4::RESC_SW, "con RESC = SW (SYSRESETREQ)");
+        bcl->set_enabled(false);
+    }
+
+    void sin_rom() {
+        grupo("E28 Sin ROM (--rom ninguna): ni cargador ni DriverLib en ROM");
+        check(mcu.opcion("rom", "ninguna").empty(), "--rom ninguna");
+        const uint64_t i0 = dut.rom.instrucciones();
+        mcu.reset_pin(true);
+        wait(20, SC_US);
+        dut.flash.borra_todo();
+        mcu.reset_pin(false);
+        wait(1, SC_MS);
+        check(!dut.arranco_en_rom(), "con la Flash en blanco no hay alias: BA = 0");
+        check(dut.rom.instrucciones() == i0 && dut.core.cpu.pc() >= 0xF0000000u,
+              "y el nucleo no ejecuta nada: su vector de reset es 0xFFFFFFFF");
+        const unsigned f0 = dut.rom.fallos();
+        arranca(0, FW_ROM);
+        wait(2, SC_MS);
+        check(dut.rom.fallos() > f0 && buzon(B_ESTADO) == 0 && buzon(B_ARRANQUES) == 1,
+              "e4_rom: el primer ROM_ es un error de bus, y no pasa de ahi");
+        check(mcu.opcion("rom", "r1").empty() && dut.rom.origen() == RomE4::Origen::R1,
+              "--rom r1 la devuelve");
+    }
+
+    void bootcfg() {
+        grupo("E29 BOOTCFG: el cargador por un pin (PE3 a nivel bajo)");
+        arranca(0, FW_DEMO);
+        check(espera_estado(100, 5), "e4_demo arranca de la Flash");
+        // BOOTCFG: EN, PORT = E (4), PIN = 3, POL = 0, KEY; y COMT para fijarlo
+        const uint32_t v = 0x7FFF0000u | (4u << 13) | (3u << 10) | (1u << 8) | (1u << 4) | 0xEu;
+        tm.write32(0x400FE1D0u, v);
+        tm.write32(0x400FD000u, 0x75100000u);                     // FMA
+        tm.write32(0x400FD008u, (0xA442u << 16) | (1u << 3));    // FMC: WRKEY | COMT
+        wait(1, SC_MS);
+        check_eq(dut.flashc.bootcfg(), v, "BOOTCFG fijado con COMT (NW = 0)");
+        v_ain0->set(false);
+        abre_bcl();
+        mcu.reset_pin(true);
+        wait(20, SC_US);
+        mcu.reset_pin(false);
+        wait(1, SC_MS);
+        check(dut.arranco_en_rom(), "con PE3 a 0 y la Flash buena, arranca en la ROM");
+        bcl->envia(std::string("\x55\x55", 2));
+        check_eq(respuesta(), 0xCC, "y el cargador contesta");
+        bcl->set_enabled(false);
+        v_ain0->set(true);
+        uint8_t ceros[B_TAM] = {};
+        mcu.reset_pin(true);
+        wait(20, SC_US);
+        dut.sram.load(ceros, sizeof ceros, 0);
+        mcu.reset_pin(false);
+        check(espera_estado(100, 5) && !dut.arranco_en_rom(),
+              "con PE3 a 1, arranca la aplicacion");
+        v_ain0->release();
+    }
+
     void run() {
         // TESTE4_SOLO=t3: solo los grupos de la entrega 3, para trabajar en ellos.
         // No vale para el invariante (la cifra es otra).
@@ -767,6 +1014,7 @@ SC_MODULE(TbE4) {
             if (q == "t3" || q == "adc") t3_adc();
             if (q == "t3" || q == "udma") t3_udma();
             if (q == "t3" || q == "hib") t3_hib();
+            if (q == "rom") { rom_r1(); cargador(); rom_map(); sin_rom(); bootcfg(); }
             std::printf("\nTOTAL E4 (solo %s): %u comprobaciones OK, %u fallos\n", solo, g_ok, g_fallos);
             sc_stop();
             return;
@@ -794,6 +1042,11 @@ SC_MODULE(TbE4) {
         t3_adc();
         t3_udma();
         t3_hib();
+        rom_r1();
+        cargador();
+        rom_map();
+        sin_rom();
+        bootcfg();
         std::printf("\nTOTAL E4: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

@@ -1104,7 +1104,7 @@ SC_MODULE(Sim) {
             }
             if (!todos.empty() && aceptan == 0)
                 muere(std::string("--") + clave + " " + todos + ": ninguno de los MCUs de "
-                      "la placa tiene " + clave + " que se pueda cambiar (es del MSP432P4)");
+                      "la placa tiene " + clave + " que se pueda cambiar (es de los MSP432)");
         }
         // Lo que la ROM o el TLV nuevos cambian de lo que se dijo al montar
         for (McuMontado& m : mcus) {
@@ -1125,9 +1125,8 @@ SC_MODULE(Sim) {
                 std::printf("firmware%s%s: %s\n",
                             *quien ? " de " : "", quien, m.decl.firmware.c_str());
             } else {
-                m.mcu->aparca_en_wfe();
-                std::printf("sin firmware%s%s: el nucleo se aparca en wfe\n",
-                            *quien ? " en " : "", quien);
+                const std::string que = m.mcu->sin_firmware();
+                std::printf("sin firmware%s%s: %s\n", *quien ? " en " : "", quien, que.c_str());
             }
         }
 
@@ -1596,11 +1595,12 @@ static const OpcionCli OPCIONES[] = {
      "con varios MCUs. Manda sobre el firmware= de su <mcu>"},
     {"--sin-firmware", "valor_opcional", "texto", "", "", "", true, true, "u0",
      "ese MCU -sin ID, todos- sin firmware, aunque el XML diga uno: el nucleo se "
-     "aparca en wfe"},
+     "aparca en wfe (un MSP432E4 con ROM arranca en blanco su cargador serie)"},
     {"--rom", "valor", "texto", "", "", "", true, true, "u0=ninguna",
-     "la ROM de DriverLib del MSP432P4, como [ID=]VALOR: r1 (la sustituta, por "
-     "omision), ninguna, o la de TI de un fichero: un volcado de 0x0200_0000 o el "
-     "ELF de CCS (msp432_driverlib_rom_image.out). Sin ID, de todos los que la tienen"},
+     "la ROM de DriverLib de un MSP432P4 o un MSP432E4, como [ID=]VALOR: r1 (la "
+     "sustituta, por omision), ninguna, o la de TI de un fichero: un volcado de la "
+     "ventana (0x0200_0000 en el P4, 0x0100_0000 en el E4) o un ELF. Sin ID, de "
+     "todos los que la tienen"},
     {"--tlv", "valor", "texto", "", "", "", true, true, "u0=tlv.bin",
      "el TLV de una placa MSP432P4, como [ID=]FICHERO: los 4 KB de 0x0020_1000 "
      "volcados. Sin ID, de todos los que lo tienen"},
@@ -1905,12 +1905,15 @@ int sc_main(int argc, char** argv) {
                 "                                firmware= del XML. Una vez por chip\n"
                 "     sim placa.xml --sin-firmware[=ID]  ese MCU -sin ID, todos- sin\n"
                 "                                firmware, aunque el XML diga uno: el\n"
-                "                                nucleo se aparca en wfe\n"
+                "                                nucleo se aparca en wfe (un MSP432E4\n"
+                "                                con ROM: Flash en blanco, y arranca\n"
+                "                                el cargador serie de la ROM)\n"
                 "     sim placa.xml --rom [ID=]VALOR  la ROM de DriverLib de un\n"
-                "                                MSP432P4: r1 (la sustituta, por\n"
+                "                                MSP432P4 o E4: r1 (la sustituta, por\n"
                 "                                omision), ninguna, o la de TI: un\n"
-                "                                volcado de 0x0200_0000 (32 KB) o el\n"
-                "                                ELF de CCS. Sin ID, de todos\n"
+                "                                volcado de la ventana (0x0200_0000\n"
+                "                                en el P4, 0x0100_0000 en el E4) o un\n"
+                "                                ELF. Sin ID, de todos\n"
                 "     sim placa.xml --tlv [ID=]FICHERO  el TLV de una placa MSP432P4\n"
                 "                                (los 4 KB de 0x0020_1000): el DCO\n"
                 "                                sigue sus calibraciones\n"

@@ -93,10 +93,13 @@ p4  msp432p4/freertos_blinky/freertos_blinky.out 250248  0xB4E1864E
 p4  msp432p4/freertos_blinky/freertos_blinky.bin  17384  0x974D2B14
 
 # MSP432E401Y (T6)
-e4  msp432e4/e4_demo/e4_demo.out          29068  0xC7730AF9
+e4  msp432e4/e4_demo/e4_demo.out          29068  0x1BF48A88
 e4  msp432e4/e4_demo/e4_demo.bin           2024  0xFD887357
 e4  msp432e4/coremark/coremark_e4.bin     14648  0xE25B7F14
 e4  msp432e4/e4_nv/e4_nv.out              21616  0xCEFA85AA
 e4  msp432e4/e4_nv/e4_nv.bin               2308  0xBE661E1D
 e4  msp432e4/e4_t3/e4_t3.out              37124  0x6EDED918
 e4  msp432e4/e4_t3/e4_t3.bin               7112  0x499228C7
+e4  msp432e4/e4_rom/e4_rom.out            14436  0x865E5687
+e4  msp432e4/e4_rom/e4_rom.bin             2216  0xF5D3C2A5
+e4  msp432e4/rom_r1/rom_r1.bin           262144  0x45C33038

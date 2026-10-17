@@ -119,6 +119,14 @@ public:
         w32(e4::FLASH_B + 4, (e4::FLASH_B + 0x100u) | 1u);
         w32(e4::FLASH_B + 0x100u, 0xE7FDBF20u);
     }
+    // Sin firmware y con ROM, la Flash se queda en blanco: el chip arranca el
+    // cargador serie de la ROM, como uno recien salido de fabrica, y se le
+    // puede programar por el backchannel (sflash, verif/serie/sflash_e4.py)
+    std::string sin_firmware() override {
+        if (!chip_->rom.presente()) { aparca_en_wfe(); return "el nucleo se aparca en wfe"; }
+        return "la Flash queda en blanco, como en un chip nuevo: arranca el cargador "
+               "serie de la ROM (UART0 en PA0/PA1, a los baudios que diga el PC)";
+    }
     void set_ondas_reloj(bool on) override { chip_->set_ondas(on); }
     programador_nv_if* programador() override { return &ProgramadorE4::el(); }
     bool admite_opcion(const std::string& clave) const override { return clave == "rom"; }

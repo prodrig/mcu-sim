@@ -34,6 +34,7 @@
 #   make serie                    # el destino y el formato de un PuenteSerie, tampoco
 #   make rfc2217                  # el codec de Telnet y RFC 2217, tampoco
 #   make interop                  # el puente UART contra pySerial y socat (Python)
+#   make sflash-e4                # el cargador de la ROM del E4 por RFC 2217 (Python)
 #   make vectores                 # los vectores del CRYP/HASH, sin SystemC ni compilar
 #   make asan407                  # la suite del F407 con ASan + UBSan (Linux y macOS)
 #   make asan446                  # y la del F446
@@ -261,7 +262,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop run clean plataforma vectores hash cryp datos
+.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -495,6 +496,15 @@ gui-proto: $(GUIPROTO)
 PYTHON ?= python3
 interop: $(MCUSIM)
 	$(PYTHON) verif/serie/interop.py --sim $(MCUSIM)
+
+# EL CARGADOR SERIE DE LA ROM DEL MSP432E4 (T6): el `mcu-sim` de verdad, con
+# placas/msp_exp432e401y.xml y SIN firmware (la Flash en blanco arranca el
+# cargador de la ROM R1), y sflash_e4.py por RFC 2217 programando e4_t3.bin,
+# arrancandolo y esperando su saludo. Python 3 y pySerial; sin invariante.
+#
+#   make sflash-e4
+sflash-e4: $(MCUSIM)
+	$(PYTHON) verif/serie/sflash_e4.py --prueba --sim $(MCUSIM)
 
 # EL SALUDO CON mcu-sim-gui (P-12, fase 3 de su plan): el `mcu-sim` de verdad,
 # con placas/discovery_min.xml y blinky, contra una ventana hecha en Python con
@@ -862,7 +872,7 @@ FWP4 := verif/fw/msp432p4/p4_demo verif/fw/msp432p4/coremark verif/fw/msp432p4/p
         verif/fw/msp432p4/rom_r1 verif/fw/msp432p4/sdk_ejemplos verif/fw/msp432p4/freertos_blinky
 # Los del MSP432E401Y (T6): con la cabecera y DriverLib de TI para el E4.
 FWE4 := verif/fw/msp432e4/e4_demo verif/fw/msp432e4/coremark verif/fw/msp432e4/e4_nv \
-        verif/fw/msp432e4/e4_t3
+        verif/fw/msp432e4/e4_t3 verif/fw/msp432e4/e4_rom verif/fw/msp432e4/rom_r1
 # Los de las placas de ejemplo que no usa ninguna suite de C++: el de
 # placas/barra8_en_nucleo.xml y el de placas/nucleo_f446re_barra8ac_azul.xml,
 # que vigila `make gui-sistema`; los de la pantalla TFT, el de

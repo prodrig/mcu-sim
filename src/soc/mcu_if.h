@@ -88,6 +88,10 @@ public:
     // reset valido y un `wfe` en bucle. Quien sabe donde va eso es el chip -su
     // Flash y su SRAM-, no `sim`, y por eso esta aqui.
     virtual void aparca_en_wfe() = 0;
+    // Lo que hace `sim` sin firmware: aparcar, salvo que el chip tenga algo
+    // mejor que hacer en blanco (el MSP432E4 con ROM arranca su cargador
+    // serie, como un chip nuevo). Devuelve lo que se le dice al usuario.
+    virtual std::string sin_firmware() { aparca_en_wfe(); return "el nucleo se aparca en wfe"; }
 
     // --- 5. Trazas ----------------------------------------------------------
     virtual void set_ondas_reloj(bool on) = 0;
