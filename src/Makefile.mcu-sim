@@ -861,7 +861,8 @@ FWP4 := verif/fw/msp432p4/p4_demo verif/fw/msp432p4/coremark verif/fw/msp432p4/p
         verif/fw/msp432p4/p4_t3b verif/fw/msp432p4/edumkii_demo verif/fw/msp432p4/driverlib_t3 \
         verif/fw/msp432p4/rom_r1 verif/fw/msp432p4/sdk_ejemplos verif/fw/msp432p4/freertos_blinky
 # Los del MSP432E401Y (T6): con la cabecera y DriverLib de TI para el E4.
-FWE4 := verif/fw/msp432e4/e4_demo verif/fw/msp432e4/coremark verif/fw/msp432e4/e4_nv
+FWE4 := verif/fw/msp432e4/e4_demo verif/fw/msp432e4/coremark verif/fw/msp432e4/e4_nv \
+        verif/fw/msp432e4/e4_t3
 # Los de las placas de ejemplo que no usa ninguna suite de C++: el de
 # placas/barra8_en_nucleo.xml y el de placas/nucleo_f446re_barra8ac_azul.xml,
 # que vigila `make gui-sistema`; los de la pantalla TFT, el de

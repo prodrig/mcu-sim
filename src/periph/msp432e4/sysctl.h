@@ -21,8 +21,8 @@
 //
 // LA FRECUENCIA [DL: _SysCtlFrequencyGet, y la fórmula del datasheet]:
 //
-//   fVCO = fIN · (MINT + MFRAC/1024) / ((Q+1)·(N+1))       fIN = PIOSC o MOSC
-//   SYSCLK = fVCO / (PSYSDIV+1)   con USEPLL
+//   fVCO = fIN · (MINT + MFRAC/1024) / (N+1)                fIN = PIOSC o MOSC
+//   SYSCLK = fVCO / (Q+1) / (PSYSDIV+1)   con USEPLL
 //   SYSCLK = fOSC / (OSYSDIV+1)   sin él                  fOSC = OSCSRC
 //
 // DriverLib pone el divisor del sistema en Q y deja PSYSDIV = 1: con 25 MHz,
@@ -82,7 +82,7 @@ public:
     // Los bits de RESC [H]
     static constexpr uint32_t RESC_EXT = 1u << 0, RESC_POR = 1u << 1,
         RESC_BOR = 1u << 2, RESC_WDT0 = 1u << 3, RESC_SW = 1u << 4,
-        RESC_WDT1 = 1u << 5, RESC_HIB = 1u << 6, RESC_HSSR = 1u << 12,
+        RESC_WDT1 = 1u << 5, RESC_HIB = 1u << 6 /* [DL: SYSCTL_CAUSE_HIB] */, RESC_HSSR = 1u << 12,
         RESC_MOSCFAIL = 1u << 16;
     static constexpr uint32_t RIS_PLLL = 1u << 6, RIS_MOSCPUP = 1u << 8;
     // El enganche del PLL [modelo: P-17 e]
@@ -132,16 +132,19 @@ public:
     double f_pll_in() const {
         return ((rsclkcfg_ >> 24) & 0xFu) == 3 ? mosc.out_hz() : f_piosc();
     }
+    // El VCO (480 MHz con el cristal de 25 y M = 96, N = 4), y lo que sale del
+    // PLL tras Q, que es lo que divide PSYSDIV
     double f_vco() const {
         const double m = double(pllfreq0_ & 0x3FFu) + double((pllfreq0_ >> 10) & 0x3FFu) / 1024.0;
-        const double q = double(((pllfreq1_ >> 8) & 0x1Fu) + 1u);
         const double n = double((pllfreq1_ & 0x1Fu) + 1u);
-        return f_pll_in() * m / (q * n);
+        return f_pll_in() * m / n;
     }
+    double f_pll() const { return f_vco() / double(((pllfreq1_ >> 8) & 0x1Fu) + 1u); }
+    bool pll_encendido() const { return (pllfreq0_ >> 23) & 1u; }
     bool pll_enganchado() const { return lock_; }
     double f_sys() const {
         if ((rsclkcfg_ & (1u << 28)) && lock_)
-            return f_vco() / double((rsclkcfg_ & 0x3FFu) + 1u);
+            return f_pll() / double((rsclkcfg_ & 0x3FFu) + 1u);
         return f_osc() / double(((rsclkcfg_ >> 10) & 0x3FFu) + 1u);
     }
     // ALTCLK: la otra fuente de la UART, el SSI y el ADC (PIOSC por omisión)

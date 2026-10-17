@@ -11,6 +11,11 @@
 //           periférico sin reloj, el pulsador, el perro, SYSRESETREQ, el dato
 //           enmascarado, LOCK/CR y DEN
 //   E14     CoreMark
+//   E19-E24 (entrega 3) los periféricos con DriverLib (e4_t3): UART0 por el
+//           backchannel, GPTM (periódico, PWM, captura de tiempo y de
+//           flancos), I2C0 con una 24C02, SSI2 en bucle por los pines, ADC0
+//           (por el procesador, el sensor de temperatura y disparado por un
+//           GPTM), la uDMA y la hibernación con el RTC
 //   E15-E18 (entrega 2) la Flash y la EEPROM desde el firmware, con DriverLib,
 //           y GDB de verdad por la sonda de los pines (G2, por PC0/PC1) y por
 //           el DAP (G1), con `load` (D2)
@@ -36,6 +41,7 @@
 #include "../parts/ext_parts.h"
 #include "../verif/bus_test_master.h"
 #include "../verif/swd_port.h"
+#include "../parts/puente_serie.h"
 #include "../verif/gdb_stub.h"
 #include "../verif/gdb_client.h"
 #include "../core/gdb_stub_dap.h"
@@ -66,6 +72,7 @@ static const char* const FW_DEMO = "verif/fw/msp432e4/e4_demo/e4_demo.out";
 static const char* const FW_CM   = "verif/fw/msp432e4/coremark/coremark_e4.bin";
 static const char* const FW_DEMO_BIN = "verif/fw/msp432e4/e4_demo/e4_demo.bin";
 static const char* const FW_NV   = "verif/fw/msp432e4/e4_nv/e4_nv.out";
+static const char* const FW_T3   = "verif/fw/msp432e4/e4_t3/e4_t3.out";
 
 // El buzón de e4_demo [verif/fw/msp432e4/e4_demo/main.c, buzon_t]
 enum : uint32_t {
@@ -82,6 +89,7 @@ SC_MODULE(TbE4) {
     Msp432E4& dut;
     BusTestMaster tm{"tm"};
     Crystal* y1 = nullptr;     // 25 MHz en OSC0
+    Crystal* y3 = nullptr;     // 32 768 Hz en XOSC0
     Button*  sw1 = nullptr;    // USR_SW1, PJ0 a masa
     Button*  sw2 = nullptr;    // USR_SW2, PJ1 a masa
     // Los dos servidores de GDB: el de la sonda soldada a PC0/PC1 (como el
@@ -90,12 +98,24 @@ SC_MODULE(TbE4) {
     GdbStubDap* gdb_d = nullptr;
     GdbClient   cli;
     static constexpr unsigned PUERTO_PINES = 3441, PUERTO_DAP = 3442;
+    // Entrega 3: el backchannel (UART0 en PA0/PA1), relojes de prueba en PA6
+    // (captura de tiempo) y PM4 (de flancos), una 24C02 en I2C0 (PB2/PB3) con
+    // sus pull-ups, una pista de XDAT0 a XDAT1 del SSI2 (PD1 -> PD0), y dos
+    // tensiones en AIN0 (PE3) y AIN1 (PE2). Todo desoldado hasta su grupo
+    PuenteSerie* bcl = nullptr;
+    ExtClock* reloj_cap = nullptr;
+    ExtClock* reloj_cnt = nullptr;
+    I2cEeprom* eeprom = nullptr;
+    I2cWire *pu_scl = nullptr, *pu_sda = nullptr;
+    SignalLink* pista_ssi = nullptr;
+    Driver *v_ain0 = nullptr, *v_ain1 = nullptr;
 
     SC_CTOR(TbE4)
         : mcu("dut", DBG_PINES, Cableado(), *CatalogoMcu::busca("MSP432E401Y")),
           dut(mcu.chip()) {
         tm.isk.bind(dut.from_tb);
         y1 = new Crystal(*dut.osc0);
+        y3 = new Crystal(*dut.xosc0);
         sw1 = new Button(dut.gpio.nodo_de(e4::PJ, 0));
         sw2 = new Button(dut.gpio.nodo_de(e4::PJ, 1));
         sw1->release(); sw2->release();
@@ -105,9 +125,29 @@ SC_MODULE(TbE4) {
         gdb_d = new GdbStubDap("gdb_d", dut.core.debug, PUERTO_DAP);
         gdb_d->set_enabled(false);
         gdb_d->pon_programador(&ProgramadorE4::el());
+        PuenteSerie::Config cb;
+        cb.destino = serie::parsea("memoria");
+        bcl = new PuenteSerie("bcl", &dut.gpio.nodo_de(e4::PA, 1), &dut.gpio.nodo_de(e4::PA, 0),
+                              nullptr, nullptr, nullptr, cb);
+        bcl->set_enabled(false);
+        reloj_cap = new ExtClock("reloj_cap", dut.gpio.nodo_de(e4::PA, 6), 0.0);
+        reloj_cnt = new ExtClock("reloj_cnt", dut.gpio.nodo_de(e4::PM, 4), 0.0);
+        eeprom = new I2cEeprom("eeprom", dut.gpio.nodo_de(e4::PB, 2), dut.gpio.nodo_de(e4::PB, 3), 0x50);
+        pu_scl = new I2cWire("pu_scl", {&dut.gpio.nodo_de(e4::PB, 2)});
+        pu_sda = new I2cWire("pu_sda", {&dut.gpio.nodo_de(e4::PB, 3)});
+        pista_ssi = new SignalLink("pista_ssi", dut.gpio.nodo_de(e4::PD, 1), dut.gpio.nodo_de(e4::PD, 0));
+        for (ExtPartBase* q : std::initializer_list<ExtPartBase*>{eeprom, pu_scl, pu_sda, pista_ssi})
+            q->set_enabled(false);
+        v_ain0 = new Driver(dut.gpio.nodo_de(e4::PE, 3), 3.3, 10.0);
+        v_ain1 = new Driver(dut.gpio.nodo_de(e4::PE, 2), 3.3, 10.0);
+        v_ain0->release(); v_ain1->release();
         SC_THREAD(run);
     }
-    ~TbE4() override { delete y1; delete sw1; delete sw2; delete gdb_p; delete gdb_d; }
+    ~TbE4() override {
+        delete y1; delete y3; delete sw1; delete sw2; delete gdb_p; delete gdb_d;
+        delete bcl; delete reloj_cap; delete reloj_cnt; delete eeprom; delete pu_scl;
+        delete pu_sda; delete pista_ssi; delete v_ain0; delete v_ain1;
+    }
 
     // --- Utilidades -----------------------------------------------------------
     uint32_t buzon(uint32_t off) { return dut.sram.peek32(off); }
@@ -567,7 +607,170 @@ SC_MODULE(TbE4) {
         g_t_gdb += sc_time_stamp() - t0;
     }
 
+    // =======================================================================
+    // Entrega 3: los periféricos, con DriverLib (e4_t3)
+    // =======================================================================
+    uint32_t r3(unsigned i) { return buzon(0x10 + 4 * i); }
+    // Mide en un pin el periodo y la fraccion en alto, sobre n ciclos
+    bool pwm(unsigned p, unsigned i, double& periodo_s, double& alto, unsigned n = 4, double max_ms = 20) {
+        analog_net_if& nd = dut.gpio.nodo_de(p, i);
+        const sc_time lim = sc_time_stamp() + sc_time(max_ms, SC_MS);
+        bool ant = nd.voltage() > 1.65f;
+        sc_time sube0 = SC_ZERO_TIME, ult_sube = SC_ZERO_TIME, baja = SC_ZERO_TIME;
+        unsigned subidas = 0;
+        double t_alto = 0;
+        while (sc_time_stamp() < lim && subidas <= n) {
+            wait(lim - sc_time_stamp(), nd.value_changed_event());
+            const bool v = nd.voltage() > 1.65f;
+            if (v && !ant) {
+                if (subidas == 0) sube0 = sc_time_stamp();
+                ult_sube = sc_time_stamp();
+                ++subidas;
+            } else if (!v && ant && subidas > 0 && subidas <= n) {
+                baja = sc_time_stamp();
+                t_alto += (baja - ult_sube).to_seconds();
+            }
+            ant = v;
+        }
+        if (subidas < 2) return false;
+        periodo_s = (ult_sube - sube0).to_seconds() / double(subidas - 1);
+        alto = t_alto / double(subidas - 1) / periodo_s;
+        return true;
+    }
+
+    void t3_uart() {
+        grupo("E19 UART0 por el backchannel (PA0/PA1) a 115200, con DriverLib (e4_t3, modo 0)");
+        bcl->set_baudios(115200);
+        bcl->set_formato(FormatoUart{});
+        bcl->borra_recibido();
+        bcl->set_enabled(true);
+        arranca(0, FW_T3);
+        check(espera_estado(100, 20), "SysCtlClockFreqSet, GPIOPinConfigure y UARTConfigSetExpClk");
+        check_eq(buzon(0x0C), 120000000, "SysCtlClockFreqSet devuelve 120 MHz");
+        wait(3, SC_MS);
+        check(bcl->recibido() == "Hola desde el MSP432E4\r\n",
+              "el PuenteSerie en PA1 recibe el saludo entero, a 115200 8N1");
+        const double b = dut.uart0.baudios();
+        std::printf("    baudios: %.1f (IBRD = 65, FBRD = 7 a 120 MHz)\n", b);
+        check(std::fabs(b - 115200.0) / 115200.0 < 0.001, "IBRD/FBRD dan 115200 a menos del 0,1 %");
+        bcl->envia("eco");
+        wait(2, SC_MS);
+        check(bcl->recibido() == "Hola desde el MSP432E4\r\nECO",
+              "el eco por interrupcion vuelve en mayusculas");
+        check(r3(2) == 3 && r3(0) >= 1 && r3(1) >= 1,
+              "tres caracteres, por la interrupcion de tiempo de espera (RT): la FIFO no llega "
+              "al nivel de RX");
+        check(bcl->errores_trama() == 0, "sin errores en el puente");
+        bcl->set_enabled(false);
+    }
+
+    void t3_timers() {
+        grupo("E20 GPTM: periodico, PWM, captura de tiempo y de flancos (e4_t3, modo 1)");
+        reloj_cap->set_freq(1000.0);
+        reloj_cnt->set_freq(10000.0);
+        arranca(1, FW_T3);
+        check(espera_estado(10, 20), "los cuatro temporizadores en marcha");
+        const sc_time t0 = sc_time_stamp();
+        check(espera_estado(100, 30), "TIMER0 de 32 bits vence 20 veces");
+        const double ms = (sc_time_stamp() - t0).to_seconds() * 1e3;
+        std::printf("    20 vencimientos de TIMER0 en %.3f ms\n", ms);
+        check(ms > 18.5 && ms < 20.5, "uno por milisegundo: TimerLoadSet(f/1000 - 1)");
+        double per = 0, alto = 0;
+        const bool hay = pwm(e4::PA, 4, per, alto);
+        std::printf("    PWM en PA4: %.3f us, %.1f %% en alto\n", per * 1e6, alto * 100);
+        check(hay && std::fabs(per - 100e-6) < 0.2e-6, "TIMER2A en PWM: 10 kHz en PA4 (T2CCP0)");
+        check(hay && std::fabs(alto - 0.25) < 0.01, "y el 25 % en alto: de ILR a MATCHR");
+        check(r3(2) >= 3, "TIMER3A captura los flancos de subida de PA6");
+        const uint32_t d = (r3(3) - r3(4)) & 0xFFFFFFu;
+        std::printf("    capturas: 0x%06X, 0x%06X: %u ciclos entre flancos\n", r3(3), r3(4), d);
+        check(d >= 119990 && d <= 120010, "entre dos flancos de 1 kHz caben 120 000 ciclos de 120 MHz "
+                                         "(24 bits, contando hacia abajo)");
+        check(r3(6) >= 1, "TIMER4A cuenta 10 flancos de PM4 y casa: CAMRIS");
+        check_eq(r3(7), 0, "y al casar se para (TAEN a 0)");
+        reloj_cap->set_freq(0.0);
+        reloj_cnt->set_freq(0.0);
+    }
+
+    void t3_i2c_spi() {
+        grupo("E21 I2C0 con una 24C02, y SSI2 en bucle por los pines (e4_t3, modo 2)");
+        for (ExtPartBase* q : std::initializer_list<ExtPartBase*>{eeprom, pu_scl, pu_sda, pista_ssi})
+            q->set_enabled(true);
+        arranca(2, FW_T3);
+        check(espera_estado(100, 30), "el firmware llega al final");
+        check_eq(r3(0), 0, "4 bytes a la 24C02 sin error (I2CMasterErr = 0)");
+        check(eeprom->peek(0x10) == 0x11 && eeprom->peek(0x13) == 0x44,
+              "y estan en la EEPROM, desde 0x10");
+        check_eq(r3(1), 0x44332211u, "se leen de vuelta con START repetido y rafaga");
+        check(r3(2) & 0x4u, "un esclavo que no esta: I2C_MASTER_ERR_ADDR_ACK");
+        check_eq(r3(3), 0xFF003CA5u, "el SSI2 a 1 MHz en modo 0 recibe lo que manda, por la pista");
+        check(std::fabs(dut.ssi2.hz() - 1e6) < 1, "y SSInClk va a 1 MHz: 120 / (2 · 60)");
+        for (ExtPartBase* q : std::initializer_list<ExtPartBase*>{eeprom, pu_scl, pu_sda, pista_ssi})
+            q->set_enabled(false);
+    }
+
+    void t3_adc() {
+        grupo("E22 ADC0: AIN0, el sensor de temperatura y AIN1 disparado por TIMER1 (e4_t3, modo 3)");
+        v_ain0->set_volts(1.0, 10.0);
+        v_ain1->set_volts(2.0, 10.0);
+        arranca(3, FW_T3);
+        check(espera_estado(100, 30), "el firmware llega al final");
+        std::printf("    AIN0 = %u, TS = %u (%.1f C), AIN1 = %u %u %u %u\n", r3(0), r3(1),
+                    r3(2) / 10.0, r3(4), r3(5), r3(6), r3(7));
+        check(r3(0) >= 1239 && r3(0) <= 1241, "1,0 V en AIN0 (PE3) con 3,3 V de referencia: 1241");
+        check(r3(2) >= 245 && r3(2) <= 255, "el sensor de temperatura da 25 C con la formula del datasheet");
+        check(r3(4) >= 2481 && r3(4) <= 2483 && r3(7) >= 2481 && r3(7) <= 2483,
+              "2,0 V en AIN1 (PE2), cuatro veces, disparado por el vencimiento de TIMER1");
+        v_ain0->release(); v_ain1->release();
+    }
+
+    void t3_udma() {
+        grupo("E23 La uDMA: memoria a memoria y el TX de la UART0 (e4_t3, modo 4)");
+        bcl->set_baudios(115200);
+        bcl->borra_recibido();
+        bcl->set_enabled(true);
+        arranca(4, FW_T3);
+        check(espera_estado(100, 30), "el firmware llega al final");
+        check(r3(0) >= 1, "el canal 30 (software) en modo automatico acaba con la linea UDMA");
+        check_eq(r3(1), 256, "y copia las 256 palabras");
+        check_eq(r3(2), 1, "el canal 9 (UART0 TX) se apaga al acabar");
+        wait(3, SC_MS);
+        check(bcl->recibido() == "uDMA a la UART0\r\n", "y la UART0 lo saca entero: lo ha escrito la uDMA");
+        check(dut.udma.transferencias() >= 256 + 17, "la uDMA ha hecho las 273 transferencias");
+        bcl->set_enabled(false);
+    }
+
+    void t3_hib() {
+        grupo("E24 La hibernacion: el RTC, su alarma, y despertar de hibernar (e4_t3, modo 5)");
+        const unsigned h0 = dut.hibernaciones();
+        arranca(5, FW_T3);
+        check(espera_estado(100, 4000), "el firmware hiberna, despierta y llega al final");
+        std::printf("    estado %u; r = %u %u %u %u %u %u %u; RTC %u s\n", buzon(B_ESTADO), r3(0), r3(1),
+                    r3(2), r3(3), r3(4), r3(5), r3(6), dut.hib.segundos());
+        check(r3(0) >= 1 || r3(6) == 1, "la alarma del RTC (RTCALT0) interrumpe a los 2 s");
+        check(dut.hibernaciones() == h0 + 1, "HibernateRequest apaga el chip");
+        check_eq(r3(6), 1, "y despierta con la alarma, con RESC = HIB");
+        check_eq(r3(3), 0x5EED, "lo guardado en la memoria del modulo sobrevive");
+        check(r3(4) >= 103, "y el RTC ha seguido contando mientras");
+        check(r3(5) & 1u, "con RTCALT0 en RIS: la causa de despertar");
+    }
+
     void run() {
+        // TESTE4_SOLO=t3: solo los grupos de la entrega 3, para trabajar en ellos.
+        // No vale para el invariante (la cifra es otra).
+        if (const char* solo = std::getenv("TESTE4_SOLO")) {
+            std::printf("  [TESTE4_SOLO=%s] el tiempo NO es el del invariante\n", solo);
+            mcu.alimenta(true);
+            const std::string q = solo;
+            if (q == "t3" || q == "uart") t3_uart();
+            if (q == "t3" || q == "timers") t3_timers();
+            if (q == "t3" || q == "i2c") t3_i2c_spi();
+            if (q == "t3" || q == "adc") t3_adc();
+            if (q == "t3" || q == "udma") t3_udma();
+            if (q == "t3" || q == "hib") t3_hib();
+            std::printf("\nTOTAL E4 (solo %s): %u comprobaciones OK, %u fallos\n", solo, g_ok, g_fallos);
+            sc_stop();
+            return;
+        }
         firmwares();
         nombres();
         catalogo();
@@ -585,6 +788,12 @@ SC_MODULE(TbE4) {
         flash_firmware();
         eeprom_firmware();
         gdb();
+        t3_uart();
+        t3_timers();
+        t3_i2c_spi();
+        t3_adc();
+        t3_udma();
+        t3_hib();
         std::printf("\nTOTAL E4: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

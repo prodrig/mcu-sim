@@ -58,6 +58,7 @@ public:
         n.registra(pre + "VBAT", *chip_->vbat);   n.registra(pre + "RST", *chip_->rst);
         n.registra(pre + "OSC0", *chip_->osc0);   n.registra(pre + "OSC1", *chip_->osc1);
         n.registra(pre + "XOSC0", *chip_->xosc0); n.registra(pre + "XOSC1", *chip_->xosc1);
+        n.registra(pre + "WAKE", *chip_->wake);   n.registra(pre + "HIB", *chip_->hibn);
     }
     analog_net_if& nodo_analogico(unsigned puerto, unsigned pin) override {
         return chip_->gpio.nodo_de(puerto, pin);

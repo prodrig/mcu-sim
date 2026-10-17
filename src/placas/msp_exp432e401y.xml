@@ -15,8 +15,8 @@
          Y1    cristal de 25 MHz en OSC0/OSC1 (MOSC)
          Y3    cristal de 32 768 Hz en XOSC0/XOSC1 (hibernacion)
          BCL   el puerto serie de vuelta del XDS110: la UART0 en PA0/PA1 hasta
-               el PC, por RFC 2217 en el 3357. La UART llega en la entrega 3 de
-               T6: hasta entonces el puente esta, pero no le llega nada
+               el PC, por RFC 2217 en el 3357. En Windows es el «XDS110 Class
+               Application/User UART»
 
      Lo que NO esta todavia: el XDS110 (se depura con depuracion="dap" o
      "pines", por PC0/PC1 como un STM32), el conector RJ45 y el PHY (T7), el
@@ -24,6 +24,7 @@
 
          ./build/mcu-sim placas/msp_exp432e401y.xml --valida
          ./build/mcu-sim placas/msp_exp432e401y.xml verif/fw/msp432e4/e4_demo/e4_demo.out --ms=50
+         ./build/mcu-sim placas/msp_exp432e401y.xml verif/fw/msp432e4/e4_t3/e4_t3.out --ms=20 --serie BCL=memoria
 -->
 <placa nombre="msp-exp432e401y">
   <mcu tipo="MSP432E401Y" id="u0"/>

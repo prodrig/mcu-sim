@@ -46,6 +46,13 @@
 #include "../../periph/msp432e4/flash.h"
 #include "../../periph/msp432e4/watchdog.h"
 #include "../../periph/msp432e4/eeprom.h"
+#include "../../periph/msp432e4/uart.h"
+#include "../../periph/msp432e4/gptm.h"
+#include "../../periph/msp432e4/i2c.h"
+#include "../../periph/msp432e4/ssi.h"
+#include "../../periph/msp432e4/adc.h"
+#include "../../periph/msp432e4/udma.h"
+#include "../../periph/msp432e4/hib.h"
 #include "e4_programador.h"
 
 namespace stm32 {
@@ -84,12 +91,36 @@ public:
     WatchdogE4 wdt0{"wdt0", e4::WDT0_B, false}, wdt1{"wdt1", e4::WDT1_B, true};
     EepromE4   eeprom;
 
+    // --- Comunicaciones, temporizadores y analógicos (entrega 3) ---------------
+    UartE4  uart0{"uart0", e4::UART0_B + 0x0000u}, uart1{"uart1", e4::UART0_B + 0x1000u},
+            uart2{"uart2", e4::UART0_B + 0x2000u}, uart3{"uart3", e4::UART0_B + 0x3000u},
+            uart4{"uart4", e4::UART0_B + 0x4000u}, uart5{"uart5", e4::UART0_B + 0x5000u},
+            uart6{"uart6", e4::UART0_B + 0x6000u}, uart7{"uart7", e4::UART0_B + 0x7000u};
+    SsiE4   ssi0{"ssi0", e4::SSI0_B + 0x0000u}, ssi1{"ssi1", e4::SSI0_B + 0x1000u},
+            ssi2{"ssi2", e4::SSI0_B + 0x2000u}, ssi3{"ssi3", e4::SSI0_B + 0x3000u};
+    I2cE4   i2c0{"i2c0", e4::I2C0_B + 0x0000u}, i2c1{"i2c1", e4::I2C0_B + 0x1000u},
+            i2c2{"i2c2", e4::I2C0_B + 0x2000u}, i2c3{"i2c3", e4::I2C0_B + 0x3000u},
+            i2c4{"i2c4", e4::I2C4_B + 0x0000u}, i2c5{"i2c5", e4::I2C4_B + 0x1000u},
+            i2c6{"i2c6", e4::I2C4_B + 0x2000u}, i2c7{"i2c7", e4::I2C4_B + 0x3000u},
+            i2c8{"i2c8", e4::I2C8_B}, i2c9{"i2c9", e4::I2C9_B};
+    GptmE4  timer0{"timer0", e4::TIMER0_B + 0x0000u}, timer1{"timer1", e4::TIMER0_B + 0x1000u},
+            timer2{"timer2", e4::TIMER0_B + 0x2000u}, timer3{"timer3", e4::TIMER0_B + 0x3000u},
+            timer4{"timer4", e4::TIMER0_B + 0x4000u}, timer5{"timer5", e4::TIMER0_B + 0x5000u},
+            timer6{"timer6", e4::TIMER6_B}, timer7{"timer7", e4::TIMER7_B};
+    AdcE4   adc0{"adc0", e4::ADC0_B}, adc1{"adc1", e4::ADC1_B};
+    UdmaE4  udma{"udma"};
+    HibE4   hib{"hib"};
+    UartE4* uart(unsigned n) { UartE4* u[8] = {&uart0, &uart1, &uart2, &uart3, &uart4, &uart5, &uart6, &uart7}; return u[n & 7u]; }
+    SsiE4*  ssi(unsigned n) { SsiE4* u[4] = {&ssi0, &ssi1, &ssi2, &ssi3}; return u[n & 3u]; }
+    I2cE4*  i2c(unsigned n) { I2cE4* u[10] = {&i2c0, &i2c1, &i2c2, &i2c3, &i2c4, &i2c5, &i2c6, &i2c7, &i2c8, &i2c9}; return u[n < 10 ? n : 0]; }
+    GptmE4* timer(unsigned n) { GptmE4* u[8] = {&timer0, &timer1, &timer2, &timer3, &timer4, &timer5, &timer6, &timer7}; return u[n & 7u]; }
+
     ClockGen g_sys{"g_sys"};
     AhbDecoder perif{"perif"};
     std::vector<BloqueDeclarado*> declarados;
 
     // --- Las patillas que no son de puerto -------------------------------------
-    AnalogNet *vdd, *gnd, *vdda, *gnda, *vbat, *rst, *osc0, *osc1, *xosc0, *xosc1;
+    AnalogNet *vdd, *gnd, *vdda, *gnda, *vbat, *rst, *osc0, *osc1, *xosc0, *xosc1, *wake, *hibn;
 
     tlm_utils::simple_target_socket_optional<Msp432E4> from_tb{"from_tb"};
 
@@ -127,6 +158,7 @@ public:
     unsigned avisos_reloj() const { return n_av_reloj_; }
     unsigned avisos_sin_reloj() const { return n_sin_reloj_; }
     unsigned resets() const { return n_resets_; }
+    unsigned hibernaciones() const { return n_hib_; }
     bool en_reset() const { return !s_rst_core_.read(); }
     bool arranco_en_rom() const { return flashc.rmctl_ba; }
     void set_ondas(bool on) { g_sys.set_waveform(on); }
@@ -139,9 +171,13 @@ public:
     }
     std::vector<std::string> limitaciones() const {
         std::vector<std::string> l = {
-            "UART, SSI, I2C, GPTM, ADC, uDMA e Hibernation estan DECLARADOS "
-            "(T6, entrega 3); CAN, USB, EMAC, PWM, QEI, EPI, comparadores y el "
-            "CCM (CRC, AES, DES, SHA/MD5), para T7",
+            "CAN, USB, EMAC, PWM, QEI, EPI, comparadores y el CCM (CRC, AES, DES, "
+            "SHA/MD5) estan DECLARADOS: son de T7",
+            "las UART sin IrDA, tarjeta, 9 bits ni lineas de modem; los SSI y los I2C, "
+            "solo como maestros (SPI de Freescale); los GPTM sin RTC, sin las "
+            "interrupciones del PWM ni TnWOT/TnSNAPS/TCACT; el ADC ideal, sin "
+            "comparadores digitales, promediado ni DMA; la uDMA sin scatter-gather; "
+            "la hibernacion sin calendario ni deteccion de manipulacion",
             "los modos de sueno no paran relojes: WFI duerme el nucleo y nada mas "
             "(SCGC/DCGC y DSCLKCFG se guardan pero no cuentan)",
             "el SysTick con CLKSOURCE = 0 cuenta SYSCLK/8, como en los STM32; en el "
@@ -184,7 +220,9 @@ private:
     sc_core::sc_signal<bool>   s_freeze_[FZ_COUNT];
     sc_core::sc_vector<sc_core::sc_signal<bool>> s_gpio_irq_{"s_gpio_irq", GpioE4::N_IRQ};
 
-    tlm_utils::simple_target_socket<Msp432E4> t_i_{"t_i"}, t_d_{"t_d"}, t_s_{"t_s"};
+    tlm_utils::simple_target_socket<Msp432E4> t_i_{"t_i"}, t_d_{"t_d"}, t_s_{"t_s"},
+                                              t_dma_{"t_dma"};
+    sc_core::sc_signal<bool> s_rst_hib_{"s_rst_hib"};
     tlm_utils::simple_initiator_socket<Msp432E4> a_flash_{"a_flash"}, a_sram_{"a_sram"},
                                                  a_rom_{"a_rom"}, a_perif_{"a_perif"};
     std::vector<AnalogNet*> propias_;
@@ -224,7 +262,7 @@ private:
     }
     void rst_perif_proc() {
         for (Perif& p : perifs_)
-            p.rst->write(s_rst_perif_.read() && !sysctl.en_reset_sw(p.clase, p.bit));
+            if (p.rst) p.rst->write(s_rst_perif_.read() && !sysctl.en_reset_sw(p.clase, p.bit));
     }
 
     // --- Construcción -------------------------------------------------------
@@ -236,13 +274,19 @@ private:
         propias_.push_back(a);
         return a;
     }
-    int d_rst_pull_ = -1;
+    int d_rst_pull_ = -1, d_wake_pull_ = -1;
+    bool hibernar_ = false;
+    unsigned n_hib_ = 0;
     void crea_patillas(const Cableado& cab) {
         vdd = patilla(cab, "VDD");   gnd = patilla(cab, "GND");
         vdda = patilla(cab, "VDDA"); gnda = patilla(cab, "GNDA");
         vbat = patilla(cab, "VBAT"); rst = patilla(cab, "RST");
         osc0 = patilla(cab, "OSC0"); osc1 = patilla(cab, "OSC1");
         xosc0 = patilla(cab, "XOSC0"); xosc1 = patilla(cab, "XOSC1");
+        wake = patilla(cab, "WAKE");   hibn = patilla(cab, "HIB");
+        // WAKE con su pull-up dentro, como RST [1F: P-17 h]
+        d_wake_pull_ = wake->register_driver("pullup_wake");
+        wake->set_drive(d_wake_pull_, 3.3f, 50e3f);
         // RST con su pull-up dentro [1F: P-17 h]
         d_rst_pull_ = rst->register_driver("pullup_rst");
         rst->set_drive(d_rst_pull_, 3.3f, 50e3f);
@@ -311,25 +355,18 @@ private:
         engancha(wdt1, SysctlE4::C_WD, 1);
         engancha(eeprom, SysctlE4::C_EEPROM, 0);
         using S = SysctlE4;
-        const char* const E3 = "Llega en la entrega 3 de T6 (doc/analisis_msp432.md).";
         const char* const T7 = "Llega en la fase T7 del plan de doc/analisis_msp432.md.";
-        static const char* const NU[8] = {"uart0", "uart1", "uart2", "uart3", "uart4", "uart5", "uart6", "uart7"};
-        static const char* const NS[4] = {"ssi0", "ssi1", "ssi2", "ssi3"};
-        static const char* const NT[8] = {"timer0", "timer1", "timer2", "timer3", "timer4", "timer5", "timer6", "timer7"};
-        static const char* const NI[10] = {"i2c0", "i2c1", "i2c2", "i2c3", "i2c4", "i2c5", "i2c6", "i2c7", "i2c8", "i2c9"};
-        for (unsigned n = 0; n < 8; ++n) declara(NU[n], e4::UART0_B + 0x1000u * n, 0x1000, S::C_UART, n, E3);
-        for (unsigned n = 0; n < 4; ++n) declara(NS[n], e4::SSI0_B + 0x1000u * n, 0x1000, S::C_SSI, n, E3);
-        for (unsigned n = 0; n < 6; ++n) declara(NT[n], e4::TIMER0_B + 0x1000u * n, 0x1000, S::C_TIMER, n, E3);
-        declara(NT[6], e4::TIMER6_B, 0x1000, S::C_TIMER, 6, E3);
-        declara(NT[7], e4::TIMER7_B, 0x1000, S::C_TIMER, 7, E3);
-        for (unsigned n = 0; n < 4; ++n) declara(NI[n], e4::I2C0_B + 0x1000u * n, 0x1000, S::C_I2C, n, E3);
-        for (unsigned n = 4; n < 8; ++n) declara(NI[n], e4::I2C4_B + 0x1000u * (n - 4), 0x1000, S::C_I2C, n, E3);
-        declara(NI[8], e4::I2C8_B, 0x1000, S::C_I2C, 8, E3);
-        declara(NI[9], e4::I2C9_B, 0x1000, S::C_I2C, 9, E3);
-        declara("adc0", e4::ADC0_B, 0x1000, S::C_ADC, 0, E3);
-        declara("adc1", e4::ADC1_B, 0x1000, S::C_ADC, 1, E3);
-        declara("udma", e4::UDMA_B, 0x1000, S::C_DMA, 0, E3);
-        declara("hib", e4::HIB_B, 0x1000, S::C_HIB, 0, E3);
+        for (unsigned n = 0; n < 8; ++n) engancha(*uart(n), S::C_UART, n);
+        for (unsigned n = 0; n < 4; ++n) engancha(*ssi(n), S::C_SSI, n);
+        for (unsigned n = 0; n < 10; ++n) engancha(*i2c(n), S::C_I2C, n);
+        for (unsigned n = 0; n < 8; ++n) engancha(*timer(n), S::C_TIMER, n);
+        engancha(adc0, S::C_ADC, 0);
+        engancha(adc1, S::C_ADC, 1);
+        engancha(udma, S::C_DMA, 0);
+        // La hibernación: su reloj es RCGCHIB, pero su reset es el de VBAT
+        perif.add_slave("s_hib", hib.base(), hib.size())->bind(hib.tsk);
+        hib.clk(s_sys_); hib.clk_hz(s_sys_hz_); hib.clk_en(s_uno_); hib.rst_n(s_rst_hib_);
+        perifs_.push_back({"hib", hib.base(), hib.size(), S::C_HIB, 0, nullptr, false});
         declara("pwm0", e4::PWM0_B, 0x1000, S::C_PWM, 0, T7);
         declara("qei0", e4::QEI0_B, 0x1000, S::C_QEI, 0, T7);
         declara("comp", e4::COMP_B, 0x1000, S::C_ACMP, 0, T7);
@@ -338,6 +375,10 @@ private:
         declara("usb0", e4::USB0_B, 0x1000, S::C_USB, 0, T7);
         declara("epi0", e4::EPI0_B, 0x1000, S::C_EPI, 0, T7);
         declara("emac0", e4::EMAC0_B, 0x1000, S::C_EMAC, 0, T7);
+        // La uDMA es otro maestro del bus
+        t_dma_.register_b_transport(this, &Msp432E4::bt);
+        t_dma_.register_transport_dbg(this, &Msp432E4::dbg);
+        udma.mst.bind(t_dma_);
         BloqueDeclarado* sx = new BloqueDeclarado("sysexc", e4::SYSEXC_B, 0x1000, "SYSEXC", T7);
         engancha_sin_reloj(*sx);
         declarados.push_back(sx);
@@ -368,6 +409,103 @@ private:
         wdt1.f_reloj = [this] { return sysctl.f_piosc(); };
         wdt0.pide_reset = [this] { pide(SysctlE4::RESC_WDT0); };
         wdt1.pide_reset = [this] { pide(SysctlE4::RESC_WDT1); };
+        conecta_perifericos();
+    }
+
+    // --- Los periféricos de la entrega 3 --------------------------------------
+    struct PinFn { uint8_t p, i, pctl; const char* n; };
+    static const PinFn* tabla_pines(size_t& n) {
+        static const PinFn t[] = {
+#include "e4_pines.inc"
+        };
+        n = sizeof t / sizeof t[0];
+        return t;
+    }
+    // Los canales del ADC [TI-Drivers, Board_init.c de la LaunchPad]
+    static constexpr uint8_t AIN[20][2] = {
+        {e4::PE, 3}, {e4::PE, 2}, {e4::PE, 1}, {e4::PE, 0}, {e4::PD, 7}, {e4::PD, 6},
+        {e4::PD, 5}, {e4::PD, 4}, {e4::PE, 5}, {e4::PE, 4}, {e4::PB, 4}, {e4::PB, 5},
+        {e4::PD, 3}, {e4::PD, 2}, {e4::PD, 1}, {e4::PD, 0}, {e4::PK, 0}, {e4::PK, 1},
+        {e4::PK, 2}, {e4::PK, 3}};
+    void conecta_perifericos() {
+        auto reloj_cs = [this](unsigned cs) { return cs == 5 ? sysctl.f_alt() : sysctl.f_sys(); };
+        static const unsigned IRQ_UART[8] = {e4::IRQ_UART0, e4::IRQ_UART1, e4::IRQ_UART2, e4::IRQ_UART3,
+                                             e4::IRQ_UART4, e4::IRQ_UART5, e4::IRQ_UART6, e4::IRQ_UART7};
+        static const unsigned IRQ_SSI[4] = {e4::IRQ_SSI0, e4::IRQ_SSI1, e4::IRQ_SSI2, e4::IRQ_SSI3};
+        static const unsigned IRQ_I2C[10] = {e4::IRQ_I2C0, e4::IRQ_I2C1, e4::IRQ_I2C2, e4::IRQ_I2C3,
+                                             e4::IRQ_I2C4, e4::IRQ_I2C5, e4::IRQ_I2C6, e4::IRQ_I2C7,
+                                             e4::IRQ_I2C8, e4::IRQ_I2C9};
+        static const unsigned IRQ_TA[8] = {e4::IRQ_TIMER0A, e4::IRQ_TIMER1A, e4::IRQ_TIMER2A, e4::IRQ_TIMER3A,
+                                           e4::IRQ_TIMER4A, e4::IRQ_TIMER5A, e4::IRQ_TIMER6A, e4::IRQ_TIMER7A};
+        for (unsigned n = 0; n < 8; ++n) {
+            uart(n)->irq(s_irq_[IRQ_UART[n]]);
+            uart(n)->f_reloj = reloj_cs;
+            timer(n)->irq_a(s_irq_[IRQ_TA[n]]);
+            timer(n)->irq_b(s_irq_[IRQ_TA[n] + 1]);
+            timer(n)->f_reloj = [this](bool alt) { return alt ? sysctl.f_alt() : sysctl.f_sys(); };
+            timer(n)->dispara_adc = [this] { adc0.disparo_temporizador(); adc1.disparo_temporizador(); };
+        }
+        for (unsigned n = 0; n < 4; ++n) { ssi(n)->irq(s_irq_[IRQ_SSI[n]]); ssi(n)->f_reloj = reloj_cs; }
+        for (unsigned n = 0; n < 10; ++n) i2c(n)->irq(s_irq_[IRQ_I2C[n]]);
+        // Los pines, de la tabla de pin_map.h
+        size_t np = 0;
+        const PinFn* t = tabla_pines(np);
+        for (size_t k = 0; k < np; ++k) {
+            const std::string f = t[k].n;
+            unsigned u = 0;
+            FuncionE4 fn;
+            if (std::sscanf(f.c_str(), "U%uRX", &u) == 1 && f.size() == 4 && f[2] == 'R') fn = uart(u)->fn_rx();
+            else if (std::sscanf(f.c_str(), "U%uTX", &u) == 1 && f.size() == 4 && f[2] == 'T') fn = uart(u)->fn_tx();
+            else if (f.rfind("I2C", 0) == 0) {
+                u = unsigned(f[3] - '0');
+                fn = f.find("SCL") != std::string::npos ? i2c(u)->fn_scl() : i2c(u)->fn_sda();
+            } else if (f.rfind("SSI", 0) == 0) {
+                u = unsigned(f[3] - '0');
+                const std::string q = f.substr(4);
+                fn = q == "CLK" ? ssi(u)->fn_clk() : q == "FSS" ? ssi(u)->fn_fss()
+                   : q == "XDAT0" ? ssi(u)->fn_dat0() : ssi(u)->fn_dat1();
+            } else if (f[0] == 'T' && f.find("CCP") == 2) {
+                u = unsigned(f[1] - '0');
+                fn = timer(u)->fn_ccp(unsigned(f[5] - '0'));
+            } else continue;
+            gpio.conecta_funcion(t[k].p, t[k].i, t[k].pctl, fn);
+        }
+        // El ADC: los canales son los nodos de los pines, en modo analógico
+        for (unsigned c = 0; c < 20; ++c) gpio.conecta_analogica(AIN[c][0], AIN[c][1], "AIN");
+        for (AdcE4* a : {&adc0, &adc1}) {
+            a->v_canal = [this](unsigned c) {
+                return c < 20 ? double(gpio.nodo_de(AIN[c][0], AIN[c][1]).voltage()) - double(gnda->voltage()) : 0.0;
+            };
+            a->es_analogico = [this](unsigned c) { return c < 20 && gpio.es_analogico(AIN[c][0], AIN[c][1]); };
+            a->v_ref = [this] { return double(vdda->voltage()) - double(gnda->voltage()); };
+            a->f_reloj = [this](unsigned cs) {
+                if (cs == 1) return sysctl.f_alt();
+                return sysctl.pll_encendido() && sysctl.pll_enganchado() ? sysctl.f_vco() : sysctl.f_piosc();
+            };
+        }
+        for (unsigned s = 0; s < 4; ++s) {
+            adc0.irq[s](s_irq_[e4::IRQ_ADC0SS0 + s]);
+            adc1.irq[s](s_irq_[e4::IRQ_ADC1SS0 + s]);
+        }
+        // La uDMA: las fuentes de la codificación 0 de CHMAP [DL: UDMA_CHn_*]
+        udma.irq(s_irq_[e4::IRQ_UDMA]);
+        udma.irq_err(s_irq_[e4::IRQ_UDMAERR]);
+        udma.conecta_fuente(8, 0, &uart0.dma_rx, [this] { uart0.dma_hecho(false); });
+        udma.conecta_fuente(9, 0, &uart0.dma_tx, [this] { uart0.dma_hecho(true); });
+        udma.conecta_fuente(8, 1, &uart1.dma_rx, [this] { uart1.dma_hecho(false); });
+        udma.conecta_fuente(9, 1, &uart1.dma_tx, [this] { uart1.dma_hecho(true); });
+        udma.conecta_fuente(0, 1, &uart2.dma_rx, [this] { uart2.dma_hecho(false); });
+        udma.conecta_fuente(1, 1, &uart2.dma_tx, [this] { uart2.dma_hecho(true); });
+        udma.conecta_fuente(10, 0, &ssi0.dma_rx, [this] { ssi0.dma_hecho(false); });
+        udma.conecta_fuente(11, 0, &ssi0.dma_tx, [this] { ssi0.dma_hecho(true); });
+        udma.conecta_fuente(10, 1, &ssi1.dma_rx, [this] { ssi1.dma_hecho(false); });
+        udma.conecta_fuente(11, 1, &ssi1.dma_tx, [this] { ssi1.dma_hecho(true); });
+        // La hibernación
+        hib.irq(s_irq_[e4::IRQ_HIB]);
+        hib.osc.xtal_in = xosc0;
+        hib.pide_hibernar = [this] { hibernar_ = true; ev_reset_.notify(sc_core::SC_ZERO_TIME); };
+        hib.al_cambiar = [this] { if (((sysctl.rsclkcfg() >> 20) & 0xFu) == 4u) relojes(); };
+        sysctl.f_rtc = [this] { return hib.f_rtc(); };
     }
     sc_core::sc_signal<bool> s_wdt_irq_[2];
     void wdt_irq_proc() { s_irq_[e4::IRQ_WATCHDOG].write(s_wdt_irq_[0].read() || s_wdt_irq_[1].read()); }
@@ -458,6 +596,7 @@ private:
     void relojes() {
         g_sys.set_freq(sysctl.f_sys());
         wdt0.recalcula(); wdt1.recalcula();
+        for (unsigned n = 0; n < 8; ++n) { uart(n)->recalcula(); timer(n)->recalcula(); }
         revisa_topes();
     }
     void revisa_topes() {
@@ -522,6 +661,7 @@ private:
                 continue;
             }
             if (!estaba) {
+                if (por) s_rst_hib_.write(false);      // el primer encendido: también VBAT
                 sysctl.anota_reset(por ? SysctlE4::RESC_POR : SysctlE4::RESC_EXT);
                 por = false;
                 causa_pedida_ = 0;
@@ -534,6 +674,7 @@ private:
             }
             wait(vdd->value_changed_event() | rst->value_changed_event() |
                  gnd->value_changed_event() | ev_reset_);
+            if (hibernar_) { hiberna(); continue; }
             if (!causa_pedida_) continue;
             const uint32_t c = causa_pedida_;
             causa_pedida_ = 0;
@@ -546,7 +687,31 @@ private:
     }
     // Sale del reset: los periféricos primero (vuelven a su valor de reset),
     // luego la decisión de arranque y, un delta después, el núcleo
+    // La hibernación: todo apagado salvo el módulo HIB, hasta la alarma del
+    // RTC o hasta que WAKE baje; la SRAM se pierde, y se arranca como de un
+    // encendido con la causa en RESC.HIB [1F: P-17 i]
+    void hiberna() {
+        hibernar_ = false;
+        ++n_hib_;
+        s_rst_core_.write(false); s_rst_perif_.write(false);
+        for (;;) {
+            sc_core::sc_event_or_list l;
+            l |= vdd->value_changed_event(); l |= rst->value_changed_event();
+            l |= hib.alarma(); l |= wake->value_changed_event();
+            if (!alimentado() || pin_en_reset()) break;
+            if (hib.despierta_pin() && wake->voltage() < 0.3f * 3.3f) { hib.marca_externa(); break; }
+            wait(l);
+            if (hib.despierta_rtc() && hib.alarma().triggered()) break;
+        }
+        std::vector<uint8_t> ceros(sram.size(), 0);
+        sram.load(ceros.data(), unsigned(ceros.size()), 0);
+        sysctl.anota_reset(SysctlE4::RESC_HIB);
+        ++n_resets_;
+        wait(sc_core::sc_time(20, sc_core::SC_US));
+        if (alimentado() && !pin_en_reset()) suelta();
+    }
     void suelta() {
+        s_rst_hib_.write(true);
         s_rst_perif_.write(true);
         wait(sc_core::SC_ZERO_TIME);
         wait(sc_core::SC_ZERO_TIME);

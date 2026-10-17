@@ -98,3 +98,5 @@ e4  msp432e4/e4_demo/e4_demo.bin           2024  0xFD887357
 e4  msp432e4/coremark/coremark_e4.bin     14648  0xE25B7F14
 e4  msp432e4/e4_nv/e4_nv.out              21616  0xCEFA85AA
 e4  msp432e4/e4_nv/e4_nv.bin               2308  0xBE661E1D
+e4  msp432e4/e4_t3/e4_t3.out              37124  0x6EDED918
+e4  msp432e4/e4_t3/e4_t3.bin               7112  0x499228C7
