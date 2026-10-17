@@ -35,6 +35,7 @@
 #   make rfc2217                  # el codec de Telnet y RFC 2217, tampoco
 #   make interop                  # el puente UART contra pySerial y socat (Python)
 #   make sflash-e4                # el cargador de la ROM del E4 por RFC 2217 (Python)
+#   make bsl-p4                   # el BSL del P4 por RFC 2217, y BSL Scripter si esta (Python)
 #   make vectores                 # los vectores del CRYP/HASH, sin SystemC ni compilar
 #   make asan407                  # la suite del F407 con ASan + UBSan (Linux y macOS)
 #   make asan446                  # y la del F446
@@ -262,7 +263,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 run clean plataforma vectores hash cryp datos
+.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 bsl-p4 run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -505,6 +506,16 @@ interop: $(MCUSIM)
 #   make sflash-e4
 sflash-e4: $(MCUSIM)
 	$(PYTHON) verif/serie/sflash_e4.py --prueba --sim $(MCUSIM)
+
+# EL BSL DEL MSP432P4 (T5, D4): el `mcu-sim` de verdad con
+# placas/msp_exp432p401r.xml y SIN firmware (la Flash en blanco entra en el
+# BSL B1), y bsl_p4.py por RFC 2217 programando el ejemplo de eco de TI,
+# arrancandolo y comprobando el eco. Con BSL_SCRIPTER=<bsl-scripter-linux-64>
+# pasa ademas el guion de ejemplo de BSL Scripter de TI por un pty de socat.
+#
+#   make bsl-p4
+bsl-p4: $(MCUSIM)
+	$(PYTHON) verif/serie/bsl_p4.py --prueba --sim $(MCUSIM)
 
 # EL SALUDO CON mcu-sim-gui (P-12, fase 3 de su plan): el `mcu-sim` de verdad,
 # con placas/discovery_min.xml y blinky, contra una ventana hecha en Python con
@@ -869,7 +880,8 @@ FWSERIE := verif/fw/vcp_demo
 # Los del MSP432P401R: con la cabecera de TI y el mismo compilador.
 FWP4 := verif/fw/msp432p4/p4_demo verif/fw/msp432p4/coremark verif/fw/msp432p4/p4_t3 \
         verif/fw/msp432p4/p4_t3b verif/fw/msp432p4/edumkii_demo verif/fw/msp432p4/driverlib_t3 \
-        verif/fw/msp432p4/rom_r1 verif/fw/msp432p4/sdk_ejemplos verif/fw/msp432p4/freertos_blinky
+        verif/fw/msp432p4/rom_r1 verif/fw/msp432p4/sdk_ejemplos verif/fw/msp432p4/freertos_blinky \
+        verif/fw/msp432p4/bsl_b1 verif/fw/msp432p4/p4_bsl
 # Los del MSP432E401Y (T6): con la cabecera y DriverLib de TI para el E4.
 FWE4 := verif/fw/msp432e4/e4_demo verif/fw/msp432e4/coremark verif/fw/msp432e4/e4_nv \
         verif/fw/msp432e4/e4_t3 verif/fw/msp432e4/e4_rom verif/fw/msp432e4/rom_r1

@@ -27,6 +27,14 @@
 
          ./build/mcu-sim placas/msp_exp432p401r.xml --valida
          ./build/mcu-sim placas/msp_exp432p401r.xml verif/fw/msp432p4/p4_demo/p4_demo.out --ms=600
+
+     SIN firmware la Flash queda en blanco y el codigo de arranque entra en el
+     BSL (T5, D4: el B1, o el de TI con --bsl), como en un chip nuevo. Se
+     programa por el backchannel a 9600 8E1, con BSL Scripter de TI (por un
+     redirector COM - RFC 2217) o con el de aqui:
+
+         ./build/mcu-sim placas/msp_exp432p401r.xml --sin-firmware
+         python3 verif/serie/bsl_p4.py rfc2217://localhost:3356 programa.txt
 -->
 <placa nombre="msp-exp432p401r">
   <mcu tipo="MSP432P401R" id="u0"/>

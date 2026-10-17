@@ -124,11 +124,21 @@ public:
         w32(p4::FLASH_B + 4, (p4::FLASH_B + 0x100u) | 1u);
         w32(p4::FLASH_B + 0x100u, 0xE7FDBF20u);
     }
+    // Sin firmware y con BSL, la Flash se queda en blanco: el código de
+    // arranque entra en el BSL, como en un chip recién salido de fábrica, y se
+    // le puede programar por el backchannel (BSL Scripter, verif/serie/bsl_p4.py)
+    std::string sin_firmware() override {
+        if (chip_->origen_bsl() == Msp432P4::OrigenBsl::Ninguno) {
+            aparca_en_wfe(); return "el nucleo se aparca en wfe";
+        }
+        return "la Flash queda en blanco, como en un chip nuevo: el codigo de arranque "
+               "entra en el BSL (UART en P1.2/P1.3, 9600 8E1)";
+    }
     void set_ondas_reloj(bool on) override { chip_->set_ondas(on); }
     programador_nv_if* programador() override { return &ProgramadorP4::el(); }
     // La ROM de DriverLib y el TLV (T4)
     bool admite_opcion(const std::string& clave) const override {
-        return clave == "rom" || clave == "tlv";
+        return clave == "rom" || clave == "tlv" || clave == "bsl";
     }
     std::string opcion(const std::string& clave, const std::string& valor) override {
         if (clave == "rom") {
@@ -137,6 +147,14 @@ public:
                 chip_->rom.pon_ninguna(); return "";
             }
             return chip_->rom.pon_volcado(valor);
+        }
+        if (clave == "bsl") {
+            if (valor == "b1" || valor == "B1") {
+                if (!chip_->hay_bsl_b1()) return "este simulador no lleva el BSL B1";
+                chip_->pon_bsl_b1(); return "";
+            }
+            if (valor == "ninguno" || valor == "b3" || valor == "B3") { chip_->pon_bsl_ninguno(); return ""; }
+            return chip_->pon_bsl_fichero(valor);
         }
         if (clave == "tlv") {
             if (valor == "sintetico") { chip_->pon_tlv_sintetico(); return ""; }
@@ -154,6 +172,15 @@ public:
             return d;
         }
         if (clave == "tlv") return chip_->tlv().empty() ? "sintetico" : chip_->tlv();
+        if (clave == "bsl") {
+            std::string d = chip_->nombre_bsl();
+            if (!chip_->ruta_bsl().empty()) d += ", " + chip_->ruta_bsl();
+            if (chip_->origen_bsl() != Msp432P4::OrigenBsl::Ninguno) {
+                std::snprintf(h, sizeof h, "0x%08X", unsigned(chip_->huella_bsl()));
+                d += std::string(", huella ") + h;
+            }
+            return d;
+        }
         return "";
     }
     bool tiene_gdb_interno() const override { return chip_->core.gdb != nullptr; }

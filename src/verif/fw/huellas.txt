@@ -91,6 +91,9 @@ p4  msp432p4/sdk_ejemplos/uart_pc_echo_12mhz_brclk/uart_pc_echo_12mhz_brclk.out 
 p4  msp432p4/sdk_ejemplos/uart_pc_echo_12mhz_brclk/uart_pc_echo_12mhz_brclk.bin   4056  0x486BB6DF
 p4  msp432p4/freertos_blinky/freertos_blinky.out 250248  0xB4E1864E
 p4  msp432p4/freertos_blinky/freertos_blinky.bin  17384  0x974D2B14
+p4  msp432p4/bsl_b1/bsl_b1.bin             8192  0xAD4D07DE
+p4  msp432p4/p4_bsl/p4_bsl.out             8360  0x64F0DC34
+p4  msp432p4/p4_bsl/p4_bsl.bin              384  0xB8F73760
 
 # MSP432E401Y (T6)
 e4  msp432e4/e4_demo/e4_demo.out          29068  0x1BF48A88

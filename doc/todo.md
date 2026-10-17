@@ -58,7 +58,8 @@ redactar esta revisión, no solo leído en un informe.
   periféricos de aula con la BOOSTXL-EDUMKII; la ROM de DriverLib, con la
   que los ejemplos del SDK que usan `MAP_` corren sin tocarlos; y **T5**:
   OpenOCD de verdad programa y depura el modelo por sus pines, el MSP432 y
-  el F407 (el BSL, no). **Y T6 (P-17)**: la segunda familia, el
+  el F407; y el BSL del P4, con uno propio y probado contra el de TI y
+  contra BSL Scripter. **Y T6 (P-17)**: la segunda familia, el
   MSP432E401Y, con su placa, su ROM y su cargador serie, `make teste4`.
 - **Cincuenta y una funciones "bits sin máquina"**: registros que se guardan, se
   enmascaran y se leen correctamente, pero cuya lógica no se ejecuta. Casi todas
@@ -553,7 +554,7 @@ está.
   ese es el arranque, contado desde su flanco. Ningún grupo anterior lo
   pisaba: P0-P61 no se mueven.
 
-**HECHA T5 el 2026-10-17, salvo el BSL (D4)**, en la misma rama:
+**HECHA T5 el 2026-10-17**, en la misma rama; el BSL (D4), el 2026-10-18:
 
 * **La sonda de OpenOCD** (`verif/sonda_openocd.h`): el protocolo
   `remote_bitbang` en SWCLK, SWDIO y NRST, como un adaptador que OpenOCD
@@ -592,9 +593,45 @@ está.
   esto. P21 de `testp4` cambia una comprobación de sitio (el reset del perro
   con el núcleo parado ahora lo pone en marcha), sin cambiar la cuenta.
 
+**HECHO EL BSL (D4) el 2026-10-18**, con el paquete MSP432BSL de TI
+(`MSP432BSL_1_01_00_00`: el código del BSL a medida y su imagen) y BSL
+Scripter 3.4 (código y ejecutables) en `doc/refs/`, sin versionar:
+
+* **El código de arranque de TI, de alto nivel** (`soc/msp432p4/bsl_p4.h`):
+  con la palabra de 0x4 en blanco, el núcleo sale del reset en la función de
+  entrada del BSL (la palabra de 0x0020_2000) con r0 = 0xFC48FFFF, por un
+  gancho nuevo del núcleo, `Cpu::arranque_fab` (vacío en los STM32). El TLV
+  sintético lleva ya la configuración del BSL (etiqueta 15: UART en la
+  eUSCI_A0 por P1.2/P1.3, SPI en la B0, I2C en la B1).
+* **Tres BSL, como las ROM**: `--bsl b1` (por omisión), `ninguno` o un
+  fichero. **B1** es propio (`verif/fw/msp432p4/bsl_b1`, AGPLv3, escrito
+  desde la descripción del protocolo): UART a 9600-115200 8E1 con los
+  baudios medidos de la sincronía, contraseña, borrado masivo y de sector,
+  escritura en la Flash y la SRAM, CRC, lectura, versión, LOAD_PC,
+  REBOOT_RESET y CHANGE_BAUD_RATE; duerme en WFI entre byte y byte. **B2**
+  es el de TI (`BSL432_MSP432P401.txt`), que no se versiona: su «TI Text
+  File License» solo permite usarlo con dispositivos de TI.
+* **Probado contra lo de TI**: el BSL de TI corre en el modelo
+  (`TESTP4_SOLO=bsl_ti P4_BSL_TI=...`, 15 comprobaciones: la misma sesión que
+  P68); y BSL Scripter de TI, sin modificar, programa el B1 por un pty de
+  socat con su guion de ejemplo (`script_P4xx_uart.txt`: sincronía,
+  contraseña, borrado, Blink_LED, versión, lectura de 16 KB y reboot), y lo
+  leído es lo escrito (`BSL_SCRIPTER=... make bsl-p4`). Su modo E4xx UART
+  programa también el E4 por el cargador de la R1 (P-17 l).
+* **Dos fallos del modelo que solo destapó el BSL de TI**: (1) en el núcleo,
+  un `LDMIA.W SP!, {..., PC}` -o `LDR PC, [SP], #4`- que cargaba un
+  EXC_RETURN escribía la base DESPUÉS del retorno de excepción y pisaba el
+  desapilado: la pila del hilo quedaba 32 bytes más abajo en cada
+  interrupción, y de ahí un HardFault. Ninguna suite lo pisaba (ningún
+  invariante se mueve); (2) la eUSCI_B en I2C esclavo salía de UCSWRST con
+  TXIFG0, y el BSL de TI, que configura las tres interfaces y se queda con
+  la primera que pide algo, elegía el I2C.
+* `testp4` suma P68 y P69: **406 comprobaciones, `resto`
+  `22456139139423 ps`**; P0-P67 no cambian. Y `make bsl-p4`, en el CI.
+
 **Lo que queda**, con su fase:
-el BSL del P4 (D4 de T5), T7 (la conectividad del MSP432E401Y; T6, el chip,
-está hecha y lo suyo va en **P-17**) y T8 (el resto de la familia). CAPTIO y PSS siguen declarados. Y lo que T1-T5 dejan dicho, con la
+T7 (la conectividad del MSP432E401Y; T6, el chip, está hecha y lo suyo va en
+**P-17**) y T8 (el resto de la familia). CAPTIO y PSS siguen declarados. Y lo que T1-T5 dejan dicho, con la
 letra con la que lo cita el código:
 
 | | Qué | Por qué |
@@ -624,7 +661,9 @@ letra con la que lo cita el código:
 | **x** | El consumo | Cifras de modelo con el orden de magnitud del datasheet: 40 µA + 100/115 µA/MHz (LDO) u 80/95 (DC-DC) en activo, el 40 % en LPM0, 0,66 µA en LPM3, 0,5 en LPM4, 0,63 en LPM3.5 y 25 nA en LPM4.5. Ni los periféricos ni las transiciones gastan. La SRAM se conserva entera en LPM3.5 (en el chip, el banco 0) |
 | **y** | La ROM R1 | Mismas funciones en las mismas casillas que la de TI; **otras instrucciones** (gcc -Os frente a IAR): unos microsegundos de diferencia en los ejemplos medidos. `ROM_VERSION` vale 1, no el de TI. Se lee sin estados de espera [sintético: SLAS826 no da los de la ROM]. Las 12 casillas que la ROM de TI llena y `rom.h` no declara para el P401R (cinco de I2C, cuatro de RTC_C, `SPI_initMaster`, `SysCtl_getNMISourceStatus`, `Timer_A_setOutputForOutputModeOutBitValue`) son en R1 un `BKPT`: `MAP_` no llega a ellas. **`rom.h` y `rom_map.h` son las de Energia (`msp432r-core` 0faf18b), con la nota antigua «TI Information - Selective Disclosure» en la cabecera**; TI publica el mismo fichero con licencia BSD-3 en el SDK 3.40 (comparado por muestras y, entero, por sus 424 casillas contra la ROM). Conviene sustituirlas por las del SDK 3.40: el Makefile de `rom_r1` vuelve a generar y verificar las tablas |
 | **z** | PxIES tras el reset | El TRM lo da por indefinido; el modelo lo deja a 0 (flanco de subida). `timer32_periodic_mode_led_toggle`, que no lo escribe, enciende el LED al **soltar** S1; en una placa puede ser al pulsar |
-| **bb** | El BSL del P4 (D4) | No está. TI no publica la imagen que va de fábrica en la información; el código de un BSL a medida (`MSPBSL_CustomBSL432`, SLAU622) y BSL Scripter se bajan de ti.com, que desde aquí no se alcanza. Con ellos, falta además el código de arranque de TI (§6.2), que hoy no se ejecuta |
+| **bb** | El BSL del P4 (D4) | **Hecho** (ver arriba). Lo que no está: del código de arranque, el buzón de la Flash (0x0020_0000: FACTORY_RESET, la configuración del BSL), la invocación por un pin, el bloqueo de JTAG y las zonas IP; los parámetros que pasa al BSL (0xFC48FFFF) son los de los ejemplos de TI para entrar desde una aplicación [1F]. Del B1: SPI e I2C, el tiempo límite que lo apaga en LPM4.5, FACTORY_RESET y escribir en la Flash de información |
+| **ff** | El BSL de TI y BSL Scripter | El BSL de TI se queda esperando en un bucle con el núcleo a 24 MHz: el simulador lo corre a ~0,3 veces el tiempo real, y BSL Scripter espera cada respuesta solo 1 s. Contra el B2 BSL Scripter no llega a tiempo; contra el B1 (que duerme) sí. `bsl_p4.py` espera lo que haga falta con los dos |
+| **gg** | La configuración del BSL en el TLV | Los pines de cada interfaz (etiqueta 15) son los del datasheet, de memoria; los bits reservados van a 0 [1F] |
 | **cc** | El tiempo con OpenOCD | La sonda deja correr el tiempo simulado lo que pasa en el reloj de pared entre dos órdenes de OpenOCD (como una placa mientras la sonda habla despacio). Por eso una sesión de OpenOCD **no es reproducible al picosegundo** y `make openocd` no tiene invariante: comprueba resultados, no tiempos |
 | **dd** | `adapter speed` con `remote_bitbang` | `target/stm32f4x.cfg` cambia la velocidad del adaptador en sus eventos de reset, y `remote_bitbang` no tiene velocidades: OpenOCD dice «Translation from khz to adapter speed not implemented» y sigue. Es de OpenOCD, no del modelo, y no se puede evitar sin tocar el `.cfg` |
 | **ee** | La firma electrónica del F407 | El UID de 96 bits es SINTÉTICO, el mismo en todas las piezas; F_SIZE sale del tamaño de la Flash del modelo |
@@ -685,7 +724,7 @@ Lo que queda dicho, con la letra con la que lo cita el código:
 | **i** | Periféricos | UART sin IrDA, tarjeta, 9 bits ni líneas de módem; SSI e I²C solo maestros (SPI de Freescale; sin *quick command* ni `MCLKOCNT`); GPTM sin modo RTC, sin las interrupciones del PWM ni `TnWOT`/`TnSNAPS`/`TCACT`; ADC ideal, sin comparadores digitales, promediado ni DMA, `GSYNC` no sincroniza; la uDMA sin *scatter-gather* y, cuando acaba un canal de software, un **pulso** en la línea UDMA (la cabecera del E4 no tiene `CHIS`) [1F]; la hibernación sin calendario, manipulación, retención de GPIO ni la espera de `WRC`, y la causa de despertar en `RESC.HIB` [1F]. Los modos de sueño no paran relojes (`SCGC`/`DCGC`/`DSCLKCFG` se guardan); el SysTick con `CLKSOURCE = 0` cuenta SYSCLK/8, como en los STM32, y en el E4 es PIOSC/4; `SRGPIO` no resetea un puerto suelto; un perro con `INTTYPE = 1` da la interrupción normal, no el NMI |
 | **j** | Las tablas de AES de la ROM | `ROM_pvAESTable` es la dirección de la casilla 7 de `ROM_SOFTWARETABLE`, donde la ROM de TI guarda datos; en la R1 esa casilla es el hueco |
 | **k** | Lo de T7 | CAN, USB, EMAC + PHY, PWM, QEI, EPI, los comparadores y el CCM (CRC, AES, DES, SHA/MD5) están **declarados**: el registro no hace nada y `--limitaciones` lo dice |
-| **l** | `sflash` de TI | El protocolo se ha probado con el banco y con `sflash_e4.py` (pySerial, RFC 2217). El `sflash` de TivaWare, LM Flash Programmer y UniFlash no se han probado: no se alcanzan desde aquí. Con un redirector COM–RFC 2217 en Windows deberían valer, y van a la matriz manual del puente |
+| **l** | `sflash` de TI | El protocolo se ha probado con el banco, con `sflash_e4.py` (pySerial, RFC 2217) y con **BSL Scripter 3.4 de TI** en su modo `E4xx UART` (por un pty de socat, con su guion de ejemplo: el cargador de la R1 le contesta y programa lo que manda). `sflash` de TivaWare, LM Flash Programmer y UniFlash no se han probado: no se alcanzan desde aquí |
 | **m** | `SysCtlDelay` desde la ROM | TI cuenta 3 ciclos por vuelta; el núcleo del modelo cobra el salto tomado con 2 de rellenado y da 4. Es del núcleo compartido (T-tiempos), no del E4 |
 | **n** | OpenOCD contra el E4 | No se ha probado (D3/G3 del E4 no eran de T6). El E4 se depura con el stub interno por los pines o por el DAP |
 

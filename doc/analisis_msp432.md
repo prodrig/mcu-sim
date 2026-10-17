@@ -104,6 +104,19 @@ fabricante.**
 > (`MSPBSL_CustomBSL432`) y BSL Scripter solo se bajan de ti.com, que este
 > entorno no alcanza. Lo que queda, en P-16 (letras bb-ee) de `doc/todo.md`.
 >
+> **2026-10-18: hecho el BSL (D4), y con él T5 entera.** Con el paquete
+> MSP432BSL de TI y BSL Scripter en `doc/refs/` (sin versionar): el código de
+> arranque de TI entra en el BSL con la Flash en blanco (de alto nivel, por un
+> gancho del núcleo); el BSL por omisión es uno propio, el **B1**, con el
+> protocolo de TI por el backchannel, porque la «TI Text File License» del
+> BSL de TI no deja versionarlo ni usarlo fuera de un chip de TI; y el de TI
+> se carga con `--bsl FICHERO`. El de TI corre en el modelo -tras arreglar
+> dos fallos que solo él pisaba: el retorno de excepción por
+> `LDMIA.W SP!, {…, PC}` y el TXIFG0 de un esclavo I2C- y BSL Scripter, sin
+> tocarlo, programa el B1 con su guion de ejemplo. `make testp4`: 406
+> comprobaciones, `resto` `22456139139423 ps`; `make bsl-p4`. Lo que queda,
+> en P-16 (bb, ff y gg).
+>
 > **2026-10-17: hecha T6, el MSP432E401Y**, en cuatro entregas. El chip
 > (SYSCTL con PLL y `MEMTIM0`, GPIO A-Q, Flash con su controlador y su
 > `programador_nv_if`, EEPROM, perros, UART, SSI, I²C, GPTM, ADC, uDMA e
@@ -883,7 +896,9 @@ arquitectura.
 1. **La imagen del BSL del P4.** Viene programada de fábrica en la Flash de
    información. Hay que averiguar si TI la distribuye (y con qué licencia) o
    si solo se puede volcar de una placa. Sin ella, D4 en el P4 se queda en «el
-   arranque entra en el BSL y espera».
+   arranque entra en el BSL y espera». **Resuelto en T5**: TI la distribuye
+   en el paquete MSP432BSL, con una licencia que no deja versionarla; el
+   simulador lleva un BSL propio (B1) y carga el de TI de fichero.
 2. **CCS 20 (Theia) y GDB remoto.** Si no admite un servidor GDB genérico, el
    camino desde CCS es la versión 12.x o VS Code. Hay que comprobarlo antes de
    prometer nada en clase.

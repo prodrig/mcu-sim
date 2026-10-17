@@ -193,7 +193,7 @@ static bool        g_sin_firmware_todos = false;
 // DriverLib y el TLV de los chips que los tienen. Con ID, de ese chip, y
 // manda sobre el rom=/tlv= de su <mcu>; sin ID, de todos los que los tienen
 // -y es un error que no lo tenga ninguno-.
-static std::vector<std::pair<std::string, std::string>> g_roms, g_tlvs;   // id ("" = todos), valor
+static std::vector<std::pair<std::string, std::string>> g_roms, g_tlvs, g_bsls;   // id ("" = todos), valor
 // `--mcus`: la lista de los MCUs de la placa, en XML, y nada mas
 static bool        g_lista_mcus = false;
 static unsigned    g_gdb_puerto = 0;
@@ -851,6 +851,7 @@ SC_MODULE(Sim) {
         if (!g_sin_firmware.empty() || g_sin_firmware_todos) no("--sin-firmware");
         if (!g_roms.empty())       no("--rom");
         if (!g_tlvs.empty())       no("--tlv");
+        if (!g_bsls.empty())       no("--bsl");
         if (!g_gdb_modo.empty())   no("un stub de GDB (--gdb, --gdb-dap)");
         if (g_puerto_dado)         no("--port");
         if (g_traza_gdb)           no("--traza-gdb");
@@ -908,6 +909,7 @@ SC_MODULE(Sim) {
         };
         aplica("--rom", g_roms, &DeclMcu::rom);
         aplica("--tlv", g_tlvs, &DeclMcu::tlv);
+        aplica("--bsl", g_bsls, &DeclMcu::bsl);
     }
 
     void aplica_linea_de_ordenes(std::vector<DeclMcu>& decls) {
@@ -1084,14 +1086,15 @@ SC_MODULE(Sim) {
         // firmware: lo que dice su <mcu> o `--rom/--tlv ID=`, y si no, lo que
         // vaya sin id en la linea de ordenes. Sin id, un chip que no lo tiene
         // se salta; con id, o en el XML, es un error.
-        for (const char* clave : {"rom", "tlv"}) {
-            const bool es_rom = clave[0] == 'r';
+        for (const char* clave : {"rom", "tlv", "bsl"}) {
+            const char c = clave[0];
+            auto& lista = c == 'r' ? g_roms : c == 't' ? g_tlvs : g_bsls;
             std::string todos;
-            for (const auto& x : es_rom ? g_roms : g_tlvs)
+            for (const auto& x : lista)
                 if (x.first.empty()) todos = x.second;
             unsigned aceptan = 0;
             for (McuMontado& m : mcus) {
-                const std::string& propio = es_rom ? m.decl.rom : m.decl.tlv;
+                const std::string& propio = c == 'r' ? m.decl.rom : c == 't' ? m.decl.tlv : m.decl.bsl;
                 const std::string v = !propio.empty() ? propio : todos;
                 if (v.empty()) continue;
                 if (propio.empty() && !m.mcu->admite_opcion(clave)) continue;  // sin id: no lo tiene
@@ -1601,6 +1604,11 @@ static const OpcionCli OPCIONES[] = {
      "sustituta, por omision), ninguna, o la de TI de un fichero: un volcado de la "
      "ventana (0x0200_0000 en el P4, 0x0100_0000 en el E4) o un ELF. Sin ID, de "
      "todos los que la tienen"},
+    {"--bsl", "valor", "texto", "", "", "", true, true, "u0=ninguno",
+     "el BSL de un MSP432P4, como [ID=]VALOR: b1 (el sustituto, por omision), "
+     "ninguno, o el de TI de un fichero: el BSL432_MSP432P401.txt (o .out) del "
+     "paquete MSP432BSL. Con la Flash en blanco el chip arranca en el. Sin ID, de "
+     "todos los que lo tienen"},
     {"--tlv", "valor", "texto", "", "", "", true, true, "u0=tlv.bin",
      "el TLV de una placa MSP432P4, como [ID=]FICHERO: los 4 KB de 0x0020_1000 "
      "volcados. Sin ID, de todos los que lo tienen"},
@@ -1726,15 +1734,18 @@ int sc_main(int argc, char** argv) {
         // ni '.', ni '\', ni ':' -un fichero o una ruta de Windows si los
         // llevan; `N/u0`, el id de un sistema, no-. Que exista se mira luego.
         else if (a == "--rom" || a.rfind("--rom=", 0) == 0 ||
-                 a == "--tlv" || a.rfind("--tlv=", 0) == 0) {
-            const bool es_rom = a.compare(2, 3, "rom") == 0;
+                 a == "--tlv" || a.rfind("--tlv=", 0) == 0 ||
+                 a == "--bsl" || a.rfind("--bsl=", 0) == 0) {
+            const char c = a[2];
+            const bool es_rom = c == 'r';
+            const char* op = c == 'r' ? "--rom" : c == 't' ? "--tlv" : "--bsl";
             std::string v;
             if (a.size() > 5 && a[5] == '=') v = a.substr(6);
             else if (i + 1 < argc && argv[i + 1][0] != '-') v = argv[++i];
             if (v.empty()) {
                 std::fprintf(stderr, "%s: hace falta [ID=]%s, como en %s u0=%s\n",
-                             es_rom ? "--rom" : "--tlv", es_rom ? "VALOR" : "FICHERO",
-                             es_rom ? "--rom" : "--tlv", es_rom ? "ninguna" : "tlv.bin");
+                             op, es_rom ? "VALOR" : c == 'b' ? "VALOR" : "FICHERO",
+                             op, es_rom ? "ninguna" : c == 'b' ? "ninguno" : "tlv.bin");
                 return 1;
             }
             std::string id;
@@ -1744,7 +1755,7 @@ int sc_main(int argc, char** argv) {
                 id = v.substr(0, igual);
                 v = v.substr(igual + 1);
             }
-            (es_rom ? g_roms : g_tlvs).emplace_back(id, v);
+            (c == 'r' ? g_roms : c == 't' ? g_tlvs : g_bsls).emplace_back(id, v);
         }
         // `--sin-firmware`, todos los chips; `--sin-firmware=ID`, ese. Solo con
         // igual: detras puede ir la placa, que no es un id
@@ -1914,6 +1925,11 @@ int sc_main(int argc, char** argv) {
                 "                                volcado de la ventana (0x0200_0000\n"
                 "                                en el P4, 0x0100_0000 en el E4) o un\n"
                 "                                ELF. Sin ID, de todos\n"
+                "     sim placa.xml --bsl [ID=]VALOR  el BSL de un MSP432P4: b1 (el\n"
+                "                                sustituto, por omision), ninguno, o\n"
+                "                                el de TI (BSL432_MSP432P401.txt u\n"
+                "                                .out). Con la Flash en blanco el\n"
+                "                                chip arranca en el. Sin ID, de todos\n"
                 "     sim placa.xml --tlv [ID=]FICHERO  el TLV de una placa MSP432P4\n"
                 "                                (los 4 KB de 0x0020_1000): el DCO\n"
                 "                                sigue sus calibraciones\n"

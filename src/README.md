@@ -73,7 +73,7 @@ razón —lo que prueban, dentro de `test407`, movería su invariante—:
 | `make test446` | La del F446RE y sus ocho referencias | **204** | `1033367277932 ps` |
 | `make test417` | La del acelerador criptográfico del F415/F417 | **165** | `718988288 ps` |
 | `make testserie` | La del puente UART: `PuenteSerie`, un F407 con `vcp_demo` y clientes TCP y RFC 2217 de verdad | **189** | `400677589564 ps` |
-| `make testp4` | La del MSP432P401R (P-16, fases T0 a T4): las pruebas de T0 -nombres de pin por chip, catalogo comun, ELF/TI-TXT/HEX, integracion del nucleo-, el chip con `p4_demo` cargado como ELF y CoreMark; T2: el FLCTL, un firmware que reprograma su Flash y una sesion de GDB por los pines y por el DAP; T3: todos los perifericos, el bajo consumo, las piezas de la BOOSTXL-EDUMKII y los ejemplos de DriverLib; y T4: la ROM de DriverLib, ejemplos del SDK sin modificar que usan `MAP_`, el TLV de fichero y FreeRTOS | **380** | `19115610139423 ps` (`resto`: **`18893170139423 ps`**) |
+| `make testp4` | La del MSP432P401R (P-16, fases T0 a T5): las pruebas de T0 -nombres de pin por chip, catalogo comun, ELF/TI-TXT/HEX, integracion del nucleo-, el chip con `p4_demo` cargado como ELF y CoreMark; T2: el FLCTL, un firmware que reprograma su Flash y una sesion de GDB por los pines y por el DAP; T3: todos los perifericos, el bajo consumo, las piezas de la BOOSTXL-EDUMKII y los ejemplos de DriverLib; T4: la ROM de DriverLib, ejemplos del SDK sin modificar que usan `MAP_`, el TLV de fichero y FreeRTOS; y T5: el BSL con la Flash en blanco y desde una aplicacion | **406** | `22678579139423 ps` (`resto`: **`22456139139423 ps`**) |
 | `make teste4` | La del MSP432E401Y (P-17, fase T6): el chip con `e4_demo` (PIOSC, 120 MHz por las dos fuentes del PLL y los avisos de `MEMTIM0`, el GPIO de Tiva, los perros, CoreMark), la Flash y la EEPROM con DriverLib, GDB por los pines y por el DAP con `load`, los periféricos con DriverLib (`e4_t3`) y la ROM R1 con su cargador serie (`e4_rom` con `MAP_`, la Flash en blanco, `ROM_UpdateUART`, `BOOTCFG`) | **203** | `3881378197978 ps` (`resto`: **`3683870847978 ps`**) |
 | `make testgui` | La de la frontera con `mcu-sim-gui`: lo que cada pieza deja ver y tocar, el catálogo, el muestreador, el aplicador y el enlace que atiende la conexión en marcha —instantáneas, avisos, órdenes con sus ecos, la pausa y los pasos—, sobre una placa mínima sin chip | **145** | `76450000000 ps` |
 
@@ -173,6 +173,7 @@ make -f Makefile.mcu-sim testgui      # el de la frontera con mcu-sim-gui, OTRO 
 make -f Makefile.mcu-sim testp4       # el del MSP432P401R, y las pruebas de T0
 make -f Makefile.mcu-sim teste4       # el del MSP432E401Y (T6)
 make -f Makefile.mcu-sim sflash-e4    # sflash por RFC 2217 contra el cargador de la ROM del E4 (Python)
+make -f Makefile.mcu-sim bsl-p4       # el BSL del P4 por RFC 2217; BSL Scripter si BSL_SCRIPTER=... (Python)
 make -f Makefile.mcu-sim asane4       # teste4 con ASan + UBSan
 make -f Makefile.mcu-sim openocd OPENOCD=...  # OpenOCD de git programa y depura el P4 y el F407 por sus pines (Python)
 make -f Makefile.mcu-sim p4-edumkii   # la LaunchPad con la BOOSTXL-EDUMKII, de punta a punta

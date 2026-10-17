@@ -218,6 +218,13 @@ jobs:
         working-directory: src
         run: make -f Makefile.mcu-sim sflash-e4
 
+      # El BSL del MSP432P401R (T5, D4): sin firmware, el codigo de arranque
+      # entra en el BSL B1, y bsl_p4.py programa por RFC 2217 el ejemplo de eco
+      # de TI y comprueba el eco. BSL Scripter de TI no esta en el CI.
+      - name: El BSL del MSP432P401R por el backchannel
+        working-directory: src
+        run: make -f Makefile.mcu-sim bsl-p4
+
       # La BOOSTXL-EDUMKII enchufada a la MSP-EXP432P401R (T3 del MSP432): el
       # sistema de dos placas con su firmware, mirando lo que sale.
       - name: La BOOSTXL-EDUMKII sobre la LaunchPad del MSP432P401R
@@ -493,6 +500,10 @@ jobs:
         working-directory: src
         run: python3 verif/serie/sflash_e4.py --prueba
 
+      - name: El BSL del MSP432P401R por el backchannel
+        working-directory: src
+        run: python3 verif/serie/bsl_p4.py --prueba
+
       - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas)
         # psutil para medir la CPU de mcu-sim mientras espera: en Linux basta
         # /proc, aqui no.
@@ -646,6 +657,11 @@ jobs:
         shell: pwsh
         working-directory: src
         run: python verif/serie/sflash_e4.py --prueba
+
+      - name: El BSL del MSP432P401R por el backchannel
+        shell: pwsh
+        working-directory: src
+        run: python verif/serie/bsl_p4.py --prueba
 
       - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas)
         shell: pwsh

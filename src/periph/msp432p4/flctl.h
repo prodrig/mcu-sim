@@ -121,8 +121,18 @@ inline std::vector<uint32_t> tlv_sintetico(uint32_t device_id, uint32_t hwrev) {
     t.push_back(13); t.push_back(4);                 // RANDNUM
     t.push_back(0x5EED0001u); t.push_back(0x5EED0002u);
     t.push_back(0x5EED0003u); t.push_back(0x5EED0004u);
-    t.push_back(15); t.push_back(4);                 // BSL
-    for (int i = 0; i < 4; ++i) t.push_back(0xFFFFFFFFu);
+    // BSL: la interfaz de cada protocolo y sus pines, como los lee el BSL de
+    // TI [BSL432_device_file.h y BSL432_PI_configureInterfaces, MSP432BSL
+    // 1.01]. UART en la eUSCI_A0 por P1.2 (RXD) y P1.3 (TXD); SPI en la
+    // eUSCI_B0 por P1.4-P1.7; I2C en la eUSCI_B1 por P6.5 (SCL) y P6.4 (SDA);
+    // todos en la función primaria (PSEL0). [sintético: los pines son los del
+    // datasheet para el BSL, de memoria; el valor de los bits reservados no
+    // se conoce y van a 0: P-16 f]
+    t.push_back(15); t.push_back(4);
+    t.push_back(0x00819080u);                        // BSL_PER_IF_SEL
+    t.push_back(0x000301A0u);                        // BSL_PORTCNF_UART
+    t.push_back(0x000F9770u);                        // BSL_PORTCNF_SPI
+    t.push_back(0x00030255u);                        // BSL_PORTCNF_I2C
     t.push_back(0x0BD0E11Du);                        // TLV_END
     return t;
 }

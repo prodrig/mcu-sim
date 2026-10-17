@@ -18,6 +18,8 @@
 //        (G1)- con `load`, `monitor reset halt`, puntos de ruptura, un
 //        watchpoint, un paso y el perro congelado mientras el núcleo está
 //        parado
+//   P22-P67 T3 y T4: los periféricos y la ROM [sc_main_p4_t3.h, _t3b.h, _t4.h]
+//   P68-P69 T5, D4: el BSL [sc_main_p4_t5.h]
 //
 // EL TIEMPO SIMULADO DE P21 NO ES REPRODUCIBLE entre máquinas, por lo mismo
 // que el de T96/T97 en test407 (T-16): mientras espera la respuesta de un
@@ -243,6 +245,16 @@ SC_MODULE(TbP4) {
     void t4_r2_r3();
     void t4_freertos();
     void t4_rom_ti(const char* ruta);
+    // T5, D4: el BSL [sc_main_p4_t5.h]
+    size_t bpos_ = 0;
+    bool b_lee(uint8_t& b, double ms);
+    int b_paquete(const std::vector<uint8_t>& d, std::vector<uint8_t>* resp, double ms = 200);
+    bool b_sincroniza();
+    bool espera_estado(uint32_t e, double ms);
+    void t5_bsl_b1();
+    void t5_bsl_app();
+    void t5_bsl_ti(const char* ruta);
+    void t5_bsl_sesion(const char* que, bool ti);
     sc_time primer_cambio(sc_time t0, double max_ms);
     double ancho_alto(double max_ms);
     // Mide en un pin el periodo y la fraccion en alto, sobre `n` ciclos
@@ -1032,6 +1044,32 @@ SC_MODULE(TbP4) {
                 sc_stop();
                 return;
             }
+            // TESTP4_SOLO=bsl_ti P4_BSL_TI=<fichero>: el BSL de TI, que no se
+            // versiona (T5, D4)
+            if (std::string(solo) == "bsl_ti") {
+                const char* ruta = std::getenv("P4_BSL_TI");
+                mcu.alimenta(true);
+                if (!ruta || !*ruta)
+                    check(false, "TESTP4_SOLO=bsl_ti necesita P4_BSL_TI=<el BSL de TI>: "
+                                 "BSL432_MSP432P401.txt (o .out) del paquete MSP432BSL");
+                else
+                    t5_bsl_ti(ruta);
+                std::printf("\nTOTAL P4 (el BSL de TI): %u comprobaciones OK, %u fallos\n",
+                            g_ok, g_fallos);
+                sc_stop();
+                return;
+            }
+            if (std::string(solo) == "bsl") {
+                std::printf("  [TESTP4_SOLO=bsl] solo los grupos del BSL: el tiempo NO es el "
+                            "del invariante\n");
+                mcu.alimenta(true);
+                t5_bsl_b1();
+                t5_bsl_app();
+                std::printf("\nTOTAL P4 (solo el BSL): %u comprobaciones OK, %u fallos\n",
+                            g_ok, g_fallos);
+                sc_stop();
+                return;
+            }
             if (std::string(solo) == "t4") {
                 std::printf("  [TESTP4_SOLO=t4] solo los grupos de T4: el tiempo NO es el "
                             "del invariante\n");
@@ -1111,6 +1149,8 @@ SC_MODULE(TbP4) {
         t4_sdk();
         t4_r2_r3();
         t4_freertos();
+        t5_bsl_b1();
+        t5_bsl_app();
         std::printf("\n=====================================================\n");
         std::printf("TOTAL P4 : %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         std::printf("=====================================================\n");
@@ -1123,6 +1163,7 @@ SC_MODULE(TbP4) {
 #include "sc_main_p4_t3.h"
 #include "sc_main_p4_t3b.h"
 #include "sc_main_p4_t4.h"
+#include "sc_main_p4_t5.h"
 
 int sc_main(int, char*[]) {
     sc_report_handler::set_actions(SC_WARNING, SC_DO_NOTHING);

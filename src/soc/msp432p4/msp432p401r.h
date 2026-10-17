@@ -68,6 +68,7 @@
 #include "../../periph/msp432p4/comp_e.h"
 #include "p4_programador.h"
 #include "rom_p4.h"
+#include "bsl_p4.h"
 
 namespace stm32 {
 
@@ -174,6 +175,17 @@ public:
         conecta_nucleo();
         conecta_bus();
         conecta_sistema();
+        pon_bsl_b1();
+        // El código de arranque de TI, de alto nivel: con la Flash en blanco
+        // y BSL, el núcleo sale del reset en su entrada [bsl_p4.h]
+        core.cpu.arranque_fab = [this](uint32_t& sp, uint32_t& pc, uint32_t& r0) {
+            if (!arranca_bsl()) return false;
+            sp = p4::SRAM_B + mcu.sram_size;
+            pc = flash.peek32(p4::BSL_B);
+            r0 = p4::BSL_PARAMS;
+            ++n_bsl_;
+            return true;
+        };
         SC_THREAD(reset_proc);
         SC_METHOD(sysresetreq_proc); sensitive << s_sysresetreq_; dont_initialize();
         SC_METHOD(swdio_proc); sensitive << s_swdio_o_ << s_swdio_oe_;
@@ -239,6 +251,52 @@ public:
     }
     void pon_tlv_sintetico() { flash.pon_tlv_sintetico(); tlv_.clear(); aplica_tlv(); relojes(); }
     const std::string& tlv() const { return tlv_; }
+
+    // --- El BSL y el código de arranque de TI (T5, D4) [bsl_p4.h] ---------------
+    enum class OrigenBsl { B1, Fichero, Ninguno };
+    bool hay_bsl_b1() const { return bsl_b1::HAY; }
+    void pon_bsl_b1() {
+        std::vector<uint8_t> s(p4::BSL_SIZE, 0xFF);
+        if (bsl_b1::HAY) std::memcpy(s.data(), bsl_b1::IMAGEN, sizeof(bsl_b1::IMAGEN));
+        pon_sector_bsl(s);
+        bsl_ = bsl_b1::HAY ? OrigenBsl::B1 : OrigenBsl::Ninguno; bsl_ruta_.clear();
+    }
+    void pon_bsl_ninguno() {
+        pon_sector_bsl(std::vector<uint8_t>(p4::BSL_SIZE, 0xFF));
+        bsl_ = OrigenBsl::Ninguno; bsl_ruta_.clear();
+    }
+    std::string pon_bsl_fichero(const std::string& ruta) {
+        std::vector<uint8_t> s;
+        const std::string e = bsl_de_fichero(ruta, s);
+        if (!e.empty()) return e;
+        pon_sector_bsl(s);
+        bsl_ = OrigenBsl::Fichero; bsl_ruta_ = ruta;
+        return "";
+    }
+    OrigenBsl origen_bsl() const { return bsl_; }
+    const std::string& ruta_bsl() const { return bsl_ruta_; }
+    uint32_t huella_bsl() const {
+        std::vector<uint8_t> d(p4::BSL_SIZE);
+        for (uint32_t i = 0; i < p4::BSL_SIZE; ++i)
+            d[i] = uint8_t(flash.peek32((p4::BSL_B + i) & ~3u) >> (8 * (i & 3u)));
+        return fnv1a(d.data(), d.size());
+    }
+    const char* nombre_bsl() const {
+        switch (bsl_) {
+            case OrigenBsl::B1:      return "B1 (sustituto: el protocolo de TI por la UART del backchannel)";
+            case OrigenBsl::Fichero: return "B2 (el de TI, de fichero)";
+            default:                 return "B3 (sin BSL)";
+        }
+    }
+    // Las veces que el código de arranque ha entrado en el BSL
+    unsigned entradas_bsl() const { return n_bsl_; }
+    // ¿Arranca el BSL? Con la palabra de 0x4 en blanco y una entrada de BSL
+    // que apunte dentro de su sector, en Thumb
+    bool arranca_bsl() const {
+        if (flash.peek32(4) != 0xFFFFFFFFu) return false;
+        const uint32_t e = flash.peek32(p4::BSL_B);
+        return (e & 1u) && e >= p4::BSL_B && e < p4::BSL_B + p4::BSL_SIZE;
+    }
     std::vector<std::string> limitaciones() const {
         std::vector<std::string> l = {
             "la Flash se programa y se borra por el FLCTL y con `load` de GDB (T2), "
@@ -259,8 +317,9 @@ public:
             "tipicas: ni la corriente de cada periferico ni las transiciones",
             "el SysTick con CLKSOURCE = 0 cuenta MCLK/8, como en los STM32; la "
             "referencia externa del P4 no esta contrastada",
-            "el codigo de arranque de TI no se ejecuta: el nucleo sale del reset "
-            "directamente al vector de 0x0 (sin buzon, sin BSL, sin bloqueo JTAG)",
+            "el codigo de arranque de TI es de alto nivel: con la Flash en blanco "
+            "entra en el BSL (si lo hay); el buzon de la Flash, la invocacion del "
+            "BSL por un pin, el bloqueo de JTAG y las zonas IP no estan",
         };
         switch (rom.origen()) {
             case RomP4::Origen::R1:
@@ -313,6 +372,12 @@ private:
                                                  a_rom_{"a_rom"}, a_perif_{"a_perif"};
     std::vector<AnalogNet*> propias_;
     std::string tlv_;
+    OrigenBsl bsl_ = OrigenBsl::Ninguno;
+    std::string bsl_ruta_;
+    unsigned n_bsl_ = 0;
+    void pon_sector_bsl(const std::vector<uint8_t>& s) {
+        for (uint32_t i = 0; i < p4::BSL_SIZE; ++i) flash.poke_byte(p4::BSL_B + i, s[i]);
+    }
     int d_rstn_pull_ = -1;
     sc_core::sc_event ev_reset_;
     ResetP4 pedido_ = ResetP4::Duro;

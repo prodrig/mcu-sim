@@ -134,6 +134,15 @@ solo tiene una fuente lleva **[1F]** y su subpunto de P-16 en `doc/todo.md`.
 | — | DriverLib del SDK SimpleLink MSP432P4 3.40: `rom.h` (`ROM_APITABLE`), `sysctl.h` (etiquetas del TLV), `reset.h` | `software-dl.ti.com/simplelink/esd/simplelink_msp432_sdk/3.40.00.05/docs/` |
 | `[ROM]` | La imagen de la ROM de DriverLib del P401R rev. C, con símbolos, que instala CCS para depurar dentro de ella (`ccs_base/emulation/gel/images/msp432p401r/revC/msp432_driverlib_rom_image.out`). Segunda opinión de las tablas de la R1 y la R2 de `--rom` (T4) | **No versionada**: es de TI. Se usó la copia que lleva el TICloudAgent del port de mbed de Terstegge (`1d1bf66`) |
 
+El BSL del P4 (T5, D4: `soc/msp432p4/bsl_p4.h`, `verif/fw/msp432p4/bsl_b1`)
+tiene dos fuentes, en `doc/refs/` y **sin versionar**: el paquete
+**MSP432BSL_1_01_00_00** de TI (el código del BSL a medida, «TI Text File
+License», y su imagen; de ahí el sector de 0x0020_2000, la palabra de entrada,
+la versión de 0x0020_2010, los parámetros de r0 y la etiqueta 15 del TLV) y
+**BSL Scripter 3.4** (código BSD y ejecutables: el lado del PC del protocolo,
+y la herramienta con la que se prueba). Del primero no se copia código: el B1
+está escrito desde la descripción del protocolo.
+
 El del MSP432E4 (`soc/msp432e4/`, `periph/msp432e4/`, T6) cita además así; lo
 que solo tiene una fuente lleva **[1F]** y su subpunto de **P-17**:
 

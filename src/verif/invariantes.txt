@@ -192,7 +192,14 @@ testgui                145        76450000000        total
 # nucleo no mueven nada. P21 cambia una comprobacion de sitio -el reset del
 # perro con el nucleo parado lo pone en marcha, y se vuelve a poner el buzon
 # a cero- y el total crece 0,6 ms, todos dentro de P21: el resto, igual.
-testp4                380      18893170139423        resto
+# Fase T5, el BSL (D4): P68-P69 -el BSL B1 con la Flash en blanco (la sesion
+# de BSL Scripter por el banco) y una aplicacion que entra en el BSL (p4_bsl)-:
+# 380 -> 406. El resto crece 3562,969 ms, todos de P68-P69: P68 empieza en
+# 18893170139423 ps sin P21, el resto de antes. Los dos arreglos que pidio el
+# BSL de TI (el retorno de excepcion por LDM con escritura de la base y el
+# TXIFG0 de la eUSCI_B en I2C esclavo) no mueven nada: ni P0-P67 ni ninguna
+# de las otras seis suites.
+testp4                406      22456139139423        resto
 
 # teste4, la suite del MSP432E401Y (doc/analisis_msp432.md, T6). Contrasta
 # `resto` por la misma razon que testp4: E18 habla con un GDB de verdad por
