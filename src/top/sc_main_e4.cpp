@@ -81,6 +81,8 @@ static const char* const FW_T3   = "verif/fw/msp432e4/e4_t3/e4_t3.out";
 static const char* const FW_ROM  = "verif/fw/msp432e4/e4_rom/e4_rom.out";
 static const char* const FW_T7   = "verif/fw/msp432e4/e4_t7/e4_t7.out";
 static const char* const FW_ETH  = "verif/fw/msp432e4/e4_eth/e4_eth.out";
+static const char* const FW_BOOTP = "verif/fw/msp432e4/e4_bootp/e4_bootp.out";
+static const char* const BIN_ETH = "verif/fw/msp432e4/e4_eth/e4_eth.bin";
 
 // El otro extremo del cable del PHY interno, en el banco: lo que manda el MCU
 // se encola, y lo que se le manda entra por EphyE4::de_cable
@@ -1451,6 +1453,109 @@ SC_MODULE(TbE4) {
         dut.emac.phy.conecta_cable(nullptr);
     }
 
+    // =======================================================================
+    // E34: el cargador por Ethernet de la ROM R1 (ROM_UpdateEMAC): BOOTP y
+    // TFTP contra un servidor en el banco, que sirve e4_eth.bin
+    std::vector<uint8_t> udp_a(const std::vector<uint8_t>& mac, const uint8_t ip[4], uint16_t sp, uint16_t dp,
+                               const std::vector<uint8_t>& d) {
+        std::vector<uint8_t> u = {uint8_t(sp >> 8), uint8_t(sp), uint8_t(dp >> 8), uint8_t(dp),
+                                  uint8_t((8 + d.size()) >> 8), uint8_t(8 + d.size()), 0, 0};
+        u.insert(u.end(), d.begin(), d.end());
+        std::vector<uint8_t> h = {0x45, 0, uint8_t((20 + u.size()) >> 8), uint8_t(20 + u.size()), 0, 1, 0, 0,
+                                  64, 17, 0, 0, 192, 168, 127, 1, ip[0], ip[1], ip[2], ip[3]};
+        const uint16_t k = uint16_t(~suma16(h.data(), 20));
+        h[10] = uint8_t(k >> 8); h[11] = uint8_t(k);
+        // La suma de UDP, con la pseudocabecera
+        uint32_t ps = suma16(&h[12], 8) + 17 + uint32_t(u.size());
+        const uint16_t ku = uint16_t(~suma16(u.data(), u.size(), ps));
+        u[6] = uint8_t(ku >> 8); u[7] = uint8_t(ku);
+        h.insert(h.end(), u.begin(), u.end());
+        return eth(mac, 0x0800, h);
+    }
+    void t7_bootp() {
+        grupo("E34 El cargador por Ethernet de la ROM R1: ROM_UpdateEMAC, BOOTP y TFTP (e4_bootp)");
+        std::vector<uint8_t> img;
+        if (FILE* f = std::fopen(BIN_ETH, "rb")) {
+            int c; while ((c = std::fgetc(f)) != EOF) img.push_back(uint8_t(c));
+            std::fclose(f);
+        }
+        cable.rx.clear();
+        dut.emac.phy.conecta_cable(&cable);
+        arranca(0, FW_BOOTP);
+        check(espera_estado(50, 20), "la aplicacion llama a ROM_UpdateEMAC(120 MHz)");
+        static const uint8_t IP[4] = {192, 168, 127, 2};
+        unsigned peticiones = 0, bloques = 0, mal = 0;
+        std::vector<uint8_t> mac, t;
+        std::string fichero;
+        uint16_t puerto = 0;
+        bool hecho = false;
+        const sc_time lim = sc_time_stamp() + sc_time(2000, SC_MS);
+        while (!hecho && sc_time_stamp() < lim) {
+            if (!espera_eth(t, 17, double((lim - sc_time_stamp()).to_seconds() * 1e3))) break;
+            const uint16_t dp = uint16_t((t[36] << 8) | t[37]), sp = uint16_t((t[34] << 8) | t[35]);
+            const uint8_t* d = &t[42];
+            if (dp == 67 && d[0] == 1) {                         // BOOTREQUEST
+                ++peticiones;
+                mac.assign(t.begin() + 6, t.begin() + 12);
+                std::vector<uint8_t> r(300, 0);
+                r[0] = 2; r[1] = 1; r[2] = 6;
+                std::copy(d + 4, d + 8, r.begin() + 4);          // xid
+                std::copy(IP, IP + 4, r.begin() + 16);           // yiaddr
+                r[20] = 192; r[21] = 168; r[22] = 127; r[23] = 1;   // siaddr
+                std::copy(d + 28, d + 34, r.begin() + 28);       // chaddr
+                const std::string f = "e4_eth.bin";
+                std::copy(f.begin(), f.end(), r.begin() + 108);
+                r[236] = 99; r[237] = 130; r[238] = 83; r[239] = 99; r[240] = 255;
+                dut.emac.phy.de_cable(udp_a(mac, IP, 67, 68, r));
+            } else if (dp == 69 && d[1] == 1) {                  // RRQ
+                fichero = std::string(reinterpret_cast<const char*>(d + 2));
+                puerto = sp;
+                bloques = 0;
+                std::vector<uint8_t> b = {0, 3, 0, 1};
+                b.insert(b.end(), img.begin(), img.begin() + long(std::min<size_t>(512, img.size())));
+                dut.emac.phy.de_cable(udp_a(mac, IP, 40069, puerto, b));
+            } else if (dp == 40069 && d[1] == 4) {               // ACK
+                const unsigned n = unsigned((d[2] << 8) | d[3]);
+                ++bloques;
+                if (size_t(n) * 512 > img.size()) { hecho = true; break; }
+                const size_t a = size_t(n) * 512, z = std::min(img.size(), a + 512);
+                std::vector<uint8_t> b = {0, 3, uint8_t((n + 1) >> 8), uint8_t(n + 1)};
+                b.insert(b.end(), img.begin() + long(a), img.begin() + long(z));
+                dut.emac.phy.de_cable(udp_a(mac, IP, 40069, puerto, b));
+            } else {
+                ++mal;
+            }
+        }
+        std::printf("    %u peticiones BOOTP, %u bloques asentidos de %zu bytes, %u paquetes raros\n",
+                    peticiones, bloques, img.size(), mal);
+        check(peticiones >= 1 && mac == std::vector<uint8_t>({0x02, 0, 0, 0xE4, 0, 0}),
+              "BOOTREQUEST por difusion, con la MAC por omision (USER0/USER1 en blanco)");
+        check(fichero == "e4_eth.bin", "TFTP: pide por RRQ el fichero que dijo el BOOTP, en modo octet");
+        check(hecho && bloques == img.size() / 512 + 1, "y asiente cada bloque de 512, el ultimo corto incluido");
+        bool igual = !img.empty();
+        for (size_t i = 0; igual && i + 4 <= img.size(); i += 4) {
+            const uint32_t w = uint32_t(img[i]) | (uint32_t(img[i + 1]) << 8) | (uint32_t(img[i + 2]) << 16) |
+                               (uint32_t(img[i + 3]) << 24);
+            if (dut.flash.peek32(uint32_t(i)) != w) igual = false;
+        }
+        check(igual, "la Flash desde 0x0 es e4_eth.bin, byte a byte");
+        // Reset del sistema, y lo grabado arranca
+        uint8_t ceros[B_TAM] = {};
+        dut.sram.load(ceros, sizeof ceros, 0);
+        check(espera_estado(100, 600), "tras el reset arranca e4_eth: lwIP con el enlace arriba");
+        std::vector<uint8_t> arp = {0, 1, 8, 0, 6, 4, 0, 1, 0x02, 0, 0, 0, 0, 0xFE, 192, 168, 127, 1,
+                                    0, 0, 0, 0, 0, 0, 192, 168, 127, 2};
+        dut.emac.phy.de_cable(eth(std::vector<uint8_t>(6, 0xFF), 0x0806, arp));
+        bool arp_ok = false;
+        const sc_time lim2 = sc_time_stamp() + sc_time(20, SC_MS);
+        while (!arp_ok && sc_time_stamp() < lim2 && espera_eth(t, -1, 20))
+            arp_ok = t.size() >= 42 && t[12] == 8 && t[13] == 6 && t[21] == 2 &&
+                     std::vector<uint8_t>(t.begin() + 22, t.begin() + 28) ==
+                         std::vector<uint8_t>({0x02, 0, 0, 0xE4, 0, 1});
+        check(arp_ok, "y contesta al ARP con la MAC de e4_eth");
+        dut.emac.phy.conecta_cable(nullptr);
+    }
+
     void run() {
         // TESTE4_SOLO=t3: solo los grupos de la entrega 3, para trabajar en ellos.
         // No vale para el invariante (la cifra es otra).
@@ -1467,7 +1572,7 @@ SC_MODULE(TbE4) {
             if (q == "rom") { rom_r1(); cargador(); rom_map(); sin_rom(); bootcfg(); }
             if (q == "t7" || q == "ccm") t7_ccm();
             if (q == "t7" || q == "can") { t7_can(); t7_dos_e4(); }
-            if (q == "t7" || q == "eth") t7_eth();
+            if (q == "t7" || q == "eth") { t7_eth(); t7_bootp(); }
             std::printf("\nTOTAL E4 (solo %s): %u comprobaciones OK, %u fallos\n", solo, g_ok, g_fallos);
             sc_stop();
             return;
@@ -1504,6 +1609,7 @@ SC_MODULE(TbE4) {
         t7_can();
         t7_dos_e4();
         t7_eth();
+        t7_bootp();
         std::printf("\nTOTAL E4: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

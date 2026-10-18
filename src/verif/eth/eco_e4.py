@@ -21,6 +21,11 @@
 #   python3 eco_e4.py PUERTO              contra un mcu-sim que ya escucha
 #   python3 eco_e4.py --prueba [--sim B]  arranca build/mcu-sim con la placa
 #                                         y e4_eth, y hace lo mismo
+#   python3 eco_e4.py --prueba --bootp    arranca con e4_bootp, que llama a
+#                                         ROM_UpdateEMAC: aqui se contesta al
+#                                         BOOTP y se sirve e4_eth.bin por TFTP,
+#                                         y despues, lo mismo de arriba con lo
+#                                         que se ha grabado
 # =============================================================================
 import argparse
 import os
@@ -140,8 +145,10 @@ def tcp(c, sport, dport, seq, ack, flags, datos=b"", ventana=8192):
     return c.ip(6, h + datos)
 
 
-def conversa(puerto, check):
+def conversa(puerto, check, imagen=None):
     c = Cable(puerto)
+    if imagen is not None and not bootp_tftp(c, imagen, check):
+        return
     # --- ARP --------------------------------------------------------------
     pide = struct.pack(">HHBBH", 1, 0x0800, 6, 4, 1) + MI_MAC + MI_IP + b"\0" * 6 + SU_IP
     respuesta = None
@@ -227,6 +234,61 @@ def conversa(puerto, check):
     check(fin_visto, "y el cierre: FIN de los dos lados")
 
 
+def bootp_tftp(c, imagen, check):
+    """El servidor BOOTP (RFC 951) y TFTP (RFC 1350) del cargador de la ROM."""
+    fin = time.time() + 60
+    mac = None
+    hecho = False
+    bloques = 0
+    puerto = 0
+    tid = 40069
+    while time.time() < fin and not hecho:
+        t = c.recibe(fin - time.time())
+        if t is None:
+            break
+        if t[12:14] != b"\x08\x00" or t[23] != 17:
+            continue
+        sp, dp = struct.unpack(">HH", t[34:38])
+        d = t[42:]
+        if dp == 67 and d[0] == 1:
+            mac = t[6:12]
+            c.su_mac = mac
+            r = bytearray(300)
+            r[0:3] = b"\x02\x01\x06"
+            r[4:8] = d[4:8]
+            r[16:20] = SU_IP
+            r[20:24] = MI_IP
+            r[28:34] = d[28:34]
+            r[108:108 + 10] = b"e4_eth.bin"
+            r[236:241] = bytes([99, 130, 83, 99, 255])
+            c.manda(udp(c, 67, 68, bytes(r)))
+        elif dp == 69 and d[1] == 1:
+            nombre = d[2:].split(b"\0")[0]
+            check(nombre == b"e4_eth.bin", "TFTP: el cargador pide %s" % nombre.decode())
+            puerto = sp
+            c.manda(udp(c, tid, puerto, b"\x00\x03\x00\x01" + imagen[:512]))
+        elif dp == tid and d[1] == 4:
+            n = struct.unpack(">H", d[2:4])[0]
+            bloques += 1
+            if n * 512 > len(imagen):
+                hecho = True
+                break
+            c.manda(udp(c, tid, puerto, struct.pack(">HH", 3, n + 1) + imagen[n * 512:(n + 1) * 512]))
+    check(mac == bytes.fromhex("020000e40000"),
+          "BOOTP: la peticion llega por difusion, con la MAC por omision del cargador, %s"
+          % (mac.hex(":") if mac else "-"))
+    check(hecho, "TFTP: %d bloques de 512 de e4_eth.bin, asentidos, el ultimo corto incluido" % bloques)
+    c.su_mac = None
+    return hecho
+
+
+def udp(c, sp, dp, datos):
+    u = struct.pack(">HHHH", sp, dp, 8 + len(datos), 0) + datos
+    pseudo = suma(MI_IP + SU_IP + struct.pack(">BBH", 0, 17, len(u)))
+    u = u[:6] + struct.pack(">H", chk(u, pseudo)) + u[8:]
+    return c.ip(17, u)
+
+
 def puerto_libre():
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
@@ -241,6 +303,7 @@ def main():
     ap.add_argument("--prueba", action="store_true")
     ap.add_argument("--sim", default=os.path.join("build", "mcu-sim" + (".exe" if os.name == "nt" else "")))
     ap.add_argument("--pcap", default=None)
+    ap.add_argument("--bootp", action="store_true")
     a = ap.parse_args()
     fallos = 0
 
@@ -251,20 +314,24 @@ def main():
             fallos += 1
         return cond
 
-    print("--- el eco de lwIP (e4_eth) por el puente Ethernet, con el protocolo de QEMU ---")
+    if a.bootp:
+        print("--- ROM_UpdateEMAC: BOOTP y TFTP de e4_eth por el puente Ethernet, y su eco ---")
+    else:
+        print("--- el eco de lwIP (e4_eth) por el puente Ethernet, con el protocolo de QEMU ---")
+    imagen = open("verif/fw/msp432e4/e4_eth/e4_eth.bin", "rb").read() if a.bootp else None
     if not a.prueba:
         if not a.puerto:
             ap.error("falta el PUERTO (o --prueba)")
-        conversa(a.puerto, check)
+        conversa(a.puerto, check, imagen)
     else:
         puerto = puerto_libre()
         destino = "qemu:%d" % puerto + (",pcap=%s" % a.pcap if a.pcap else "")
         log = tempfile.NamedTemporaryFile("w", suffix=".log", delete=False)
-        args = [a.sim, "placas/msp_exp432e401y.xml", "verif/fw/msp432e4/e4_eth/e4_eth.out",
-                "--eth", destino, "--tiempo-real"]
+        fw = "verif/fw/msp432e4/%s.out" % ("e4_bootp/e4_bootp" if a.bootp else "e4_eth/e4_eth")
+        args = [a.sim, "placas/msp_exp432e401y.xml", fw, "--eth", destino, "--tiempo-real"]
         p = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT)
         try:
-            conversa(puerto, check)
+            conversa(puerto, check, imagen)
         except OSError as e:
             check(False, "conexion con el simulador: %s" % e)
         finally:

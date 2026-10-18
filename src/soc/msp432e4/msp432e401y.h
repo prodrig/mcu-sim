@@ -213,9 +213,10 @@ public:
                 break;
             default:
                 l.push_back("la ROM es la R1 (sustituta): DriverLib compilada en las casillas "
-                            "de rom.h, salvo SMBus, SPI Flash y Update{I2C,SSI,USB,EMAC}, que "
-                            "se paran en un BKPT; su cargador solo escucha por la UART0 "
-                            "(PA0/PA1), sin SSI0, I2C0, USB ni Ethernet, y no comprueba CRC");
+                            "de rom.h, salvo SMBus, SPI Flash y Update{I2C,SSI,USB}, que "
+                            "se paran en un BKPT; su cargador de arranque solo escucha por la "
+                            "UART0 (PA0/PA1), sin SSI0, I2C0, USB ni Ethernet, y no comprueba "
+                            "CRC; ROM_UpdateEMAC es un cargador BOOTP/TFTP propio, sin DHCP");
                 break;
         }
         return l;

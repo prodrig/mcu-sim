@@ -10,7 +10,7 @@
 # vera un firmware compilado para el E401Y, saca de la expansion la tabla y la
 # casilla, y mira en el ELF ya enlazado a que simbolo apunta. Tiene que ser la
 # funcion del mismo nombre sin el ROM_, o rom_hueco si DriverLib no la tiene
-# (SMBus, SPI Flash y las Update* que no son UART). Ni una mal, y las cuentas
+# (SMBus, SPI Flash y las Update* que no son UART ni EMAC). Ni una mal, y las cuentas
 # tienen que dar las de esta version de rom.h: si cambia, se revisa a mano.
 #
 # Es la prueba que pide el riesgo 4 de §9 de doc/analisis_msp432.md.
@@ -23,7 +23,8 @@ import sys
 BASE = 0x01000000
 APITABLE = 0x01000010
 ESPERADAS = 858          # casillas de funcion en rom.h
-HUECOS = 85              # de ellas, sin fuente que se pueda compilar aqui
+HUECOS = 84              # de ellas, sin fuente que se pueda compilar aqui (UpdateEMAC
+                         # ya no lo es: es el cargador por Ethernet propio, T7)
 
 
 def main():

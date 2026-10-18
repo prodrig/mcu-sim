@@ -48,6 +48,7 @@ def main():
     tablas, entradas = lee(sys.argv[1])
     hay = set(l.strip() for l in open(sys.argv[2]) if l.strip())
     hay.add('UpdateUART')
+    hay.add('UpdateEMAC')                 # el cargador por Ethernet propio (T7)
     orden = sorted(tablas.items(), key=lambda kv: kv[1])
     tam = {}
     for (tabla, i) in entradas:

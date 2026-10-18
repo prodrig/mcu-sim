@@ -223,4 +223,8 @@ testp4                406      22456139139423        resto
 # en E0: 250. El resto crece 114,26 ms, todos de E33: E0-E32 no se mueven con
 # el EMAC montado (ni test407 con el MAC del F407 partido en mapa y frontera
 # de tramas).
-teste4                250      3808490368757         resto
+# Y E34 -el cargador por Ethernet de la ROM R1 (ROM_UpdateEMAC: BOOTP y
+# TFTP, que graba e4_eth.bin y lo arranca)- con las huellas de la ROM nueva y
+# de e4_bootp: 257. El resto crece 377,87 ms, todos de E34: E0-E33 iguales con
+# la ROM nueva.
+teste4                257      4186361220852         resto

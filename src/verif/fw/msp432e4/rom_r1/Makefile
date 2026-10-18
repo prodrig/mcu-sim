@@ -42,7 +42,7 @@ LDFLAGS:= -T rom_r1.ld -nostdlib -nostartfiles -Wl,--gc-sections \
           -Wl,-Map=rom_r1.map -Wl,--no-warn-rwx-segments
 
 DLOBJS := $(addsuffix .o,$(MODULOS))
-OBJS   := cabecera.o cargador.o tablas.o $(DLOBJS)
+OBJS   := cabecera.o cargador.o cargador_eth.o tablas.o $(DLOBJS)
 INC    := ../../../../soc/msp432e4/rom_r1.inc
 
 all: rom_r1.out rom_r1.bin $(INC)

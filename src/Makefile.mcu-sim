@@ -523,10 +523,13 @@ bsl-p4: $(MCUSIM)
 # puente en qemu:PUERTO con --tiempo-real, y eco_e4.py haciendo de ordenador
 # en 192.168.127.1 con su propia pila: ARP, ping, eco UDP y eco TCP, con las
 # sumas de comprobacion que pone el EMAC. Deja la captura en build/eth_e4.pcap.
+# Y otra vez con e4_bootp, que llama a ROM_UpdateEMAC: eco_e4.py contesta al
+# BOOTP, sirve e4_eth.bin por TFTP, y hace lo mismo con lo que se ha grabado.
 #
 #   make eth-e4
 eth-e4: $(MCUSIM)
 	$(PYTHON) verif/eth/eco_e4.py --prueba --sim $(MCUSIM) --pcap $(B)/eth_e4.pcap
+	$(PYTHON) verif/eth/eco_e4.py --prueba --bootp --sim $(MCUSIM)
 
 # EL SALUDO CON mcu-sim-gui (P-12, fase 3 de su plan): el `mcu-sim` de verdad,
 # con placas/discovery_min.xml y blinky, contra una ventana hecha en Python con
@@ -897,7 +900,7 @@ FWP4 := verif/fw/msp432p4/p4_demo verif/fw/msp432p4/coremark verif/fw/msp432p4/p
 # Los del MSP432E401Y (T6): con la cabecera y DriverLib de TI para el E4.
 FWE4 := verif/fw/msp432e4/e4_demo verif/fw/msp432e4/coremark verif/fw/msp432e4/e4_nv \
         verif/fw/msp432e4/e4_t3 verif/fw/msp432e4/e4_rom verif/fw/msp432e4/rom_r1 \
-        verif/fw/msp432e4/e4_t7 verif/fw/msp432e4/e4_eth
+        verif/fw/msp432e4/e4_t7 verif/fw/msp432e4/e4_eth verif/fw/msp432e4/e4_bootp
 # Los de las placas de ejemplo que no usa ninguna suite de C++: el de
 # placas/barra8_en_nucleo.xml y el de placas/nucleo_f446re_barra8ac_azul.xml,
 # que vigila `make gui-sistema`; los de la pantalla TFT, el de
