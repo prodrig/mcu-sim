@@ -108,5 +108,5 @@ e4  msp432e4/e4_rom/e4_rom.bin             2216  0xF5D3C2A5
 e4  msp432e4/rom_r1/rom_r1.bin           262144  0x45C33038
 
 # MSP432E401Y (T7)
-e4  msp432e4/e4_t7/e4_t7.out              22800  0xFBA01CD8
-e4  msp432e4/e4_t7/e4_t7.bin               3996  0x7D33D3C6
+e4  msp432e4/e4_t7/e4_t7.out              37468  0x3B445123
+e4  msp432e4/e4_t7/e4_t7.bin               7484  0xE4F1C7B5

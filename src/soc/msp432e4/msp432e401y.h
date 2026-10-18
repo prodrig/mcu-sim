@@ -54,6 +54,7 @@
 #include "../../periph/msp432e4/udma.h"
 #include "../../periph/msp432e4/hib.h"
 #include "../../periph/msp432e4/ccm.h"
+#include "../../periph/msp432e4/ccan.h"
 #include "e4_programador.h"
 
 namespace stm32 {
@@ -112,6 +113,8 @@ public:
     UdmaE4  udma{"udma"};
     HibE4   hib{"hib"};
     CcmE4   ccm{"ccm"};
+    CCanE4  can0{"can0", e4::CAN0_B}, can1{"can1", e4::CAN1_B};
+    CCanE4* can(unsigned n) { return n ? &can1 : &can0; }
     UartE4* uart(unsigned n) { UartE4* u[8] = {&uart0, &uart1, &uart2, &uart3, &uart4, &uart5, &uart6, &uart7}; return u[n & 7u]; }
     SsiE4*  ssi(unsigned n) { SsiE4* u[4] = {&ssi0, &ssi1, &ssi2, &ssi3}; return u[n & 3u]; }
     I2cE4*  i2c(unsigned n) { I2cE4* u[10] = {&i2c0, &i2c1, &i2c2, &i2c3, &i2c4, &i2c5, &i2c6, &i2c7, &i2c8, &i2c9}; return u[n < 10 ? n : 0]; }
@@ -173,7 +176,10 @@ public:
     }
     std::vector<std::string> limitaciones() const {
         std::vector<std::string> l = {
-            "CAN, USB, EMAC, PWM, QEI, EPI y comparadores estan DECLARADOS: son de T7",
+            "USB, EMAC, PWM, QEI, EPI y comparadores estan DECLARADOS: son de T7",
+            "los C_CAN copian entre las interfaces y los objetos en el acto (BUSY no "
+            "se ve), salen de bus-off al quitar INIT sin esperar 128 x 11 bits, y no "
+            "tienen modo basico (CANTST.BASIC) ni control directo de CANTX",
             "el CCM calcula cada bloque en el acto; sin uDMA ni AES en CCM, CBC-MAC, "
             "XTS, f8 ni f9",
             "las UART sin IrDA, tarjeta, 9 bits ni lineas de modem; los SSI y los I2C, "
@@ -372,6 +378,8 @@ private:
         engancha(adc1, S::C_ADC, 1);
         engancha(udma, S::C_DMA, 0);
         engancha(ccm, S::C_CCM, 0);
+        engancha(can0, S::C_CAN, 0);
+        engancha(can1, S::C_CAN, 1);
         // La hibernación: su reloj es RCGCHIB, pero su reset es el de VBAT
         perif.add_slave("s_hib", hib.base(), hib.size())->bind(hib.tsk);
         hib.clk(s_sys_); hib.clk_hz(s_sys_hz_); hib.clk_en(s_uno_); hib.rst_n(s_rst_hib_);
@@ -379,8 +387,6 @@ private:
         declara("pwm0", e4::PWM0_B, 0x1000, S::C_PWM, 0, T7);
         declara("qei0", e4::QEI0_B, 0x1000, S::C_QEI, 0, T7);
         declara("comp", e4::COMP_B, 0x1000, S::C_ACMP, 0, T7);
-        declara("can0", e4::CAN0_B, 0x1000, S::C_CAN, 0, T7);
-        declara("can1", e4::CAN1_B, 0x1000, S::C_CAN, 1, T7);
         declara("usb0", e4::USB0_B, 0x1000, S::C_USB, 0, T7);
         declara("epi0", e4::EPI0_B, 0x1000, S::C_EPI, 0, T7);
         declara("emac0", e4::EMAC0_B, 0x1000, S::C_EMAC, 0, T7);
@@ -473,6 +479,11 @@ private:
                 const std::string q = f.substr(4);
                 fn = q == "CLK" ? ssi(u)->fn_clk() : q == "FSS" ? ssi(u)->fn_fss()
                    : q == "XDAT0" ? ssi(u)->fn_dat0() : ssi(u)->fn_dat1();
+            } else if (f.rfind("CAN", 0) == 0) {
+                u = unsigned(f[3] - '0');
+                fn.nombre = t[k].n;
+                if (f.substr(4) == "TX") { fn.out = &can(u)->tx_out; fn.oe = &can(u)->tx_oe; }
+                else { fn.in = &can(u)->rx_in; fn.idle_in = true; }
             } else if (f[0] == 'T' && f.find("CCP") == 2) {
                 u = unsigned(f[1] - '0');
                 fn = timer(u)->fn_ccp(unsigned(f[5] - '0'));
@@ -509,6 +520,9 @@ private:
         udma.conecta_fuente(11, 0, &ssi0.dma_tx, [this] { ssi0.dma_hecho(true); });
         udma.conecta_fuente(10, 1, &ssi1.dma_rx, [this] { ssi1.dma_hecho(false); });
         udma.conecta_fuente(11, 1, &ssi1.dma_tx, [this] { ssi1.dma_hecho(true); });
+        // Los dos C_CAN; sin congelacion por el depurador
+        can0.irq(s_irq_[e4::IRQ_CAN0]); can1.irq(s_irq_[e4::IRQ_CAN1]);
+        can0.freeze(s_cero_); can1.freeze(s_cero_);
         // La hibernación
         hib.irq(s_irq_[e4::IRQ_HIB]);
         hib.osc.xtal_in = xosc0;
@@ -517,6 +531,7 @@ private:
         sysctl.f_rtc = [this] { return hib.f_rtc(); };
     }
     sc_core::sc_signal<bool> s_wdt_irq_[2];
+    sc_core::sc_signal<bool> s_cero_{"s_cero"};
     void wdt_irq_proc() { s_irq_[e4::IRQ_WATCHDOG].write(s_wdt_irq_[0].read() || s_wdt_irq_[1].read()); }
     void end_of_elaboration() override {
         sc_core::sc_spawn_options o;

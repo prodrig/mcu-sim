@@ -1,5 +1,5 @@
 # =============================================================================
-# Makefile — e4_t7, el CCM del MSP432E401Y (CRC, SHA/MD5, AES y DES) con DriverLib (T7)
+# Makefile — e4_t7, los perifericos de la T7 del MSP432E401Y con DriverLib (CCM, CAN...)
 #
 # DriverLib del E4 (../sdk, BSD-3) compilada de sus fuentes: solo los modulos
 # que hacen falta. Mismo compilador; -ffile-prefix-map por la huella (T-22).
@@ -19,14 +19,17 @@ CFLAGS := -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard \
 LDFLAGS:= -T ../msp432e401y.ld -nostdlib -nostartfiles -Wl,--gc-sections \
           -Wl,-Map=e4_t7.map -Wl,--no-warn-rwx-segments
 
-OBJS := startup.o main.o sysctl.o aes.o des.o shamd5.o crc.o interrupt.o cpu.o
+OBJS := startup.o main.o can_e4.o sysctl.o aes.o des.o shamd5.o crc.o can.o gpio.o interrupt.o cpu.o
 
 all: e4_t7.out e4_t7.bin
 
 startup.o: ../startup_e4.s
 	$(CC) $(CFLAGS) -x assembler-with-cpp -c -o $@ $<
 
-main.o: main.c
+main.o: main.c buzon.h
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+can_e4.o: can_e4.c buzon.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 %.o: $(DL)/%.c

@@ -214,4 +214,8 @@ testp4                406      22456139139423        resto
 # pasa por el chip los vectores de cryp.vec, hash.vec, cryp2.vec, sha2.vec y
 # crc.vec-, y la huella de e4_t7 en E0: 213. El resto crece 2,915 ms, todos
 # de E30: E0-E29 no cambian.
-teste4                213      3686785847978         resto
+# Entrega 2: E31 -CAN0 y CAN1 en el mismo hilo- y E32 -dos chips por CAN-:
+# 235. E30 cambia en -65 us porque e4_t7 gana los modos de CAN (otro binario,
+# otro paso por el bucle de ordenes); E0-E29 no se mueven, tampoco con el
+# NVIC que vuelve a poner pendiente una linea que sigue alta (P-17 r).
+teste4                235      3694230847978         resto

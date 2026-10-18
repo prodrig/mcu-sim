@@ -116,10 +116,23 @@ SC_MODULE(TbE4) {
     I2cWire *pu_scl = nullptr, *pu_sda = nullptr;
     SignalLink* pista_ssi = nullptr;
     Driver *v_ain0 = nullptr, *v_ain1 = nullptr;
+    // T7, entrega 2: un bus CAN con su terminador, un transceptor en CAN0
+    // (PA1/PA0) y otro en CAN1 (PB1/PB0), y un nodo externo que escucha
+    CanWire* bus_can = nullptr;
+    CanTransceiver *xcvr0 = nullptr, *xcvr1 = nullptr;
+    CanNode* espia = nullptr;
+    // E32: OTRO MSP432E401Y en la misma placa, con su cristal y su
+    // transceptor en su CAN0 (PA1/PA0). Sin alimentar hasta su grupo
+    McuE4 mcu2;
+    Msp432E4& dut2;
+    Crystal* y2 = nullptr;
+    CanTransceiver* xcvr_b = nullptr;
 
     SC_CTOR(TbE4)
         : mcu("dut", DBG_PINES, Cableado(), *CatalogoMcu::busca("MSP432E401Y")),
-          dut(mcu.chip()) {
+          dut(mcu.chip()),
+          mcu2("dut2", DBG_PINES, Cableado(), *CatalogoMcu::busca("MSP432E401Y")),
+          dut2(mcu2.chip()) {
         tm.isk.bind(dut.from_tb);
         y1 = new Crystal(*dut.osc0);
         y3 = new Crystal(*dut.xosc0);
@@ -148,12 +161,20 @@ SC_MODULE(TbE4) {
         v_ain0 = new Driver(dut.gpio.nodo_de(e4::PE, 3), 3.3, 10.0);
         v_ain1 = new Driver(dut.gpio.nodo_de(e4::PE, 2), 3.3, 10.0);
         v_ain0->release(); v_ain1->release();
+        bus_can = new CanWire(3.3, 60.0, "bus_can");
+        xcvr0 = new CanTransceiver("xcvr0", dut.gpio.nodo_de(e4::PA, 1), dut.gpio.nodo_de(e4::PA, 0), *bus_can);
+        xcvr1 = new CanTransceiver("xcvr1", dut.gpio.nodo_de(e4::PB, 1), dut.gpio.nodo_de(e4::PB, 0), *bus_can);
+        espia = new CanNode("espia", *bus_can, 500e3);
+        espia->set_enabled(false);
+        y2 = new Crystal(*dut2.osc0);
+        xcvr_b = new CanTransceiver("xcvr_b", dut2.gpio.nodo_de(e4::PA, 1), dut2.gpio.nodo_de(e4::PA, 0), *bus_can);
         SC_THREAD(run);
     }
     ~TbE4() override {
         delete y1; delete y3; delete sw1; delete sw2; delete gdb_p; delete gdb_d;
         delete bcl; delete reloj_cap; delete reloj_cnt; delete eeprom; delete pu_scl;
         delete pu_sda; delete pista_ssi; delete v_ain0; delete v_ain1;
+        delete xcvr0; delete xcvr1; delete espia; delete y2; delete xcvr_b; delete bus_can;
     }
 
     // --- Utilidades -----------------------------------------------------------
@@ -1188,6 +1209,81 @@ SC_MODULE(TbE4) {
         mcu.reset_pin(false);
     }
 
+    // =======================================================================
+    // T7, entrega 2: los dos C_CAN en el mismo bus (e4_t7, modo 1)
+    uint32_t sal(unsigned i) { return buzon(C_SAL + 4 * i); }
+    // e4_t7 con su buzon entero a cero: los resultados de un grupo no se
+    // mezclan con los del anterior
+    void arranca_t7(uint32_t modo) {
+        arranca(modo, FW_T7);
+        std::vector<uint8_t> ceros(C_FIN - B_TAM, 0);
+        dut.sram.load(ceros.data(), ceros.size(), B_TAM);
+    }
+    void t7_can() {
+        grupo("E31 CAN0 y CAN1 en el mismo hilo, con DriverLib: filtros, FIFO, extendido y remota (e4_t7, modo 1)");
+        xcvr0->set_enabled(true); xcvr1->set_enabled(true);
+        espia->flush(); espia->set_enabled(true);
+        const uint64_t tx1 = dut.can1.frames_tx();
+        arranca_t7(1);
+        const bool fin = espera_estado(100, 40);
+        std::printf("    estado %u, %u marcos guardados; el espia ha visto %u\n", buzon(B_ESTADO), sal(7),
+                    espia->received());
+        check(fin, "las cinco pruebas acaban (estado 100)");
+        check(sal(0) == 500000 && sal(1) == 500000, "CANBitRateSet da 500 kbit/s con 120 MHz en los dos");
+        std::printf("    tiempo de bit: %.3f us\n", dut.can0.bit_time() * 1e6);
+        check(std::fabs(dut.can0.bit_time() - 2e-6) < 1e-12 && std::fabs(dut.can1.bit_time() - 2e-6) < 1e-12,
+              "y el tiempo de bit es 2 us: CANBIT y CANBRPE de verdad");
+        auto marco = [&](unsigned k, uint32_t id, unsigned obj, unsigned len, uint32_t d0, uint32_t d1) {
+            const uint32_t f = sal(9 + 4 * k);
+            return sal(8 + 4 * k) == id && (f >> 24) == obj && ((f >> 16) & 0xFFu) == len &&
+                   sal(10 + 4 * k) == d0 && sal(11 + 4 * k) == d1;
+        };
+        check(sal(7) == 6, "seis marcos guardados en objetos");
+        check(marco(0, 0x123, 1, 8, 0x44332211u, 0x88776655u), "0x123 llega al objeto 1 de CAN1 con sus ocho bytes");
+        check(marco(1, 0x201, 2, 1, 0xA1, 0) && marco(2, 0x202, 3, 2, 0xB2B1, 0) && marco(3, 0x203, 4, 3, 0xC3C2C1, 0),
+              "0x201, 0x202 y 0x203 llenan la FIFO 2-3-4 en orden (mascara 0x7F0, EOB en el 4)");
+        check(marco(4, 0x1ABCDE05, 5, 4, 0xEFBEADDEu, 0) && (sal(9 + 16) & 0x4u),
+              "0x1ABCDE05, extendido, al objeto 5 por su filtro de 29 bits");
+        check(marco(5, 0x300, 10, 8, 0x4F4D4552u, 0x21214154u),
+              "una remota de 0x300: CAN1 contesta solo (RMTEN) y el dato vuelve al objeto 10 de CAN0");
+        check_eq(dut.can1.frames_tx() - tx1, 1, "CAN1 transmite una vez: la respuesta a la remota");
+        check_eq(sal(2), 5, "CAN0: una interrupcion por cada objeto de transmision con TXIE");
+        check(sal(4) >= 6 && (sal(5) & 0x10u), "CAN1: interrupciones de estado con RXOK (CANStatusGet las borra)");
+        check_eq(buzon(0x30), 0, "0x7FF no casa con ningun objeto: ningun NEWDAT en CAN1");
+        check_eq(espia->received(), 8, "el nodo externo ve los ocho marcos del hilo, la remota y su respuesta incluidas");
+        check_eq(sal(6), 0, "CANERR de CAN0 a cero: ningun error en el hilo");
+        check_eq(dut.can0.avisos() + dut.can1.avisos(), 0, "sin avisos de los C_CAN");
+        xcvr0->set_enabled(false); xcvr1->set_enabled(false); espia->set_enabled(false);
+    }
+
+    // E32: dos chips en la misma placa, cada uno con su firmware y su CAN0
+    void t7_dos_e4() {
+        grupo("E32 Dos MSP432E401Y en la misma placa, hablando por CAN (e4_t7, modos 2 y 3)");
+        xcvr0->set_enabled(true); xcvr_b->set_enabled(true);
+        espia->flush(); espia->set_enabled(true);
+        mcu2.alimenta(true);
+        mcu2.reset_pin(true);
+        wait(20, SC_US);
+        check(mcu2.carga_firmware(FW_T7), "el segundo chip carga e4_t7 en su Flash");
+        uint8_t ceros[B_TAM] = {};
+        dut2.sram.load(ceros, sizeof ceros, 0);
+        dut2.sram.poke32(B_MODO, 3);
+        mcu2.reset_pin(false);
+        wait(2, SC_MS);
+        arranca_t7(2);
+        const bool fin = espera_estado(100, 40);
+        std::printf("    nodo A: %u de 5 respuestas buenas; nodo B: %u marcos devueltos; el espia ve %u\n",
+                    buzon(0x30), dut2.sram.peek32(0x30), espia->received());
+        check(fin, "el nodo A acaba sus cinco idas y vueltas");
+        check_eq(buzon(0x30), 5, "las cinco respuestas llegan con el primer byte mas uno");
+        check_eq(dut2.sram.peek32(0x30), 5, "el nodo B ha devuelto cinco marcos");
+        check_eq(espia->received(), 10, "en el hilo, diez marcos: cinco de cada chip");
+        check(sal(8) == 0x180 && (sal(9) >> 24) == 2, "el nodo A los recibe en su objeto 2, con identificador 0x180");
+        check(dut.can0.tec() == 0 && dut2.can0.tec() == 0, "sin errores de transmision en ninguno");
+        mcu2.alimenta(false);
+        xcvr0->set_enabled(false); xcvr_b->set_enabled(false); espia->set_enabled(false);
+    }
+
     void run() {
         // TESTE4_SOLO=t3: solo los grupos de la entrega 3, para trabajar en ellos.
         // No vale para el invariante (la cifra es otra).
@@ -1203,6 +1299,7 @@ SC_MODULE(TbE4) {
             if (q == "t3" || q == "hib") t3_hib();
             if (q == "rom") { rom_r1(); cargador(); rom_map(); sin_rom(); bootcfg(); }
             if (q == "t7" || q == "ccm") t7_ccm();
+            if (q == "t7" || q == "can") { t7_can(); t7_dos_e4(); }
             std::printf("\nTOTAL E4 (solo %s): %u comprobaciones OK, %u fallos\n", solo, g_ok, g_fallos);
             sc_stop();
             return;
@@ -1236,6 +1333,8 @@ SC_MODULE(TbE4) {
         sin_rom();
         bootcfg();
         t7_ccm();
+        t7_can();
+        t7_dos_e4();
         std::printf("\nTOTAL E4: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

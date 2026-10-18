@@ -509,6 +509,7 @@ public:
         dont_initialize();
         SC_METHOD(reset_proc);  sensitive << rst_n;   dont_initialize();
         SC_METHOD(publish_proc); sensitive << pub_ev_; dont_initialize();
+        SC_METHOD(revisa_proc); sensitive << revisa_ev_; dont_initialize();
         systick.tick_irq(s_tick_);
         reset_state();
     }
@@ -587,6 +588,19 @@ public:
     void return_exception(int e) override {
         if (e <= 0 || e >= int(caps.n_excepciones())) return;
         active_[e] = false;
+        // Las interrupciones son de NIVEL: si la linea sigue alta al volver
+        // del manejador, la interrupcion queda pendiente otra vez [ARMv7-M ARM,
+        // B3.4.1]. Es lo que hace falta con una fuente que tiene varias causas
+        // y el manejador solo atiende una por entrada (el C_CAN del MSP432E4).
+        // La linea se mira DESPUES, un picosegundo mas tarde: el manejador
+        // acaba de escribir el registro que la baja, y la senal no baja hasta
+        // que el nucleo suelta su cuanto y el periferico la publica, que son
+        // uno o varios deltas. Mirarla aqui, o en el delta siguiente, veria el
+        // nivel de antes y entraria dos veces [modelo: P-17 r].
+        if (e >= int(EXC_IRQ0) && unsigned(e - EXC_IRQ0) < caps.n_irq) {
+            revisar_.push_back(unsigned(e - EXC_IRQ0));
+            revisa_ev_.notify(sc_core::sc_time(1, sc_core::SC_PS));
+        }
         sync_shcsr_from_state();
         publish();
     }
@@ -691,6 +705,18 @@ private:
     bool o_sysreset_ = false, o_sleepdeep_ = false;
     sc_core::sc_event pub_ev_;
     sc_core::sc_event pend_ev_;      // "puede haber algo pendiente": despierta al nucleo
+    // Las lineas que hay que volver a mirar tras volver de su manejador
+    std::vector<unsigned> revisar_;
+    sc_core::sc_event revisa_ev_;
+    void revisa_proc() {
+        bool hay = false;
+        for (unsigned i : revisar_) {
+            const unsigned e = EXC_IRQ0 + i;
+            if (irq_in[i].read() && !active_[e] && !pending_[e]) { pending_[e] = true; hay = true; }
+        }
+        revisar_.clear();
+        if (hay) { sync_shcsr_from_state(); publish(); pend_ev_.notify(sc_core::SC_ZERO_TIME); }
+    }
 
     void publish() { pub_ev_.notify(sc_core::SC_ZERO_TIME); }
     void publish_proc() {
@@ -699,6 +725,7 @@ private:
     }
 
     void reset_state() {
+        revisar_.clear();
         for (unsigned i = 0; i < caps.n_excepciones(); ++i) { pending_[i] = active_[i] = false; }
         for (unsigned i = 0; i < caps.n_irq; ++i) { enabled_[i] = false; ipr_[i] = 0; }
         shpr_[0] = shpr_[1] = shpr_[2] = 0;

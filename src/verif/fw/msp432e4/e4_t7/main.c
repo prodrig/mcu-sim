@@ -1,7 +1,15 @@
 /* ===========================================================================
- * e4_t7 — El CCM del MSP432E401Y con DriverLib de TI (fase T7, entrega 1):
- * CRC, SHA/MD5 (con SHA-224/256 y HMAC), AES y DES
+ * e4_t7 — Los perifericos de la T7 del MSP432E401Y con DriverLib de TI
  *
+ *   modo 0  el CCM (entrega 1): CRC, SHA/MD5 (con SHA-224/256 y HMAC), AES y
+ *           DES, como servidor de vectores (lo de abajo)
+ *   modo 1  los dos C_CAN (entrega 2) en el mismo bus: CAN0 manda y CAN1
+ *           recibe, con filtros, una FIFO, un extendido y una remota
+ *   modo 2  CAN entre DOS E4: el nodo A (CAN0, PA0/PA1) manda y espera eco
+ *   modo 3  el nodo B (CAN0) devuelve cada marco con otro identificador
+ *           (can_e4.c)
+ *
+ * MODO 0
  * Un servidor de vectores: el banco escribe un caso en el buzon (la orden, la
  * clave, el IV, los datos) y sube `orden`; el firmware lo hace con las
  * funciones de DriverLib, como lo haria una aplicacion, deja el resultado en
@@ -33,29 +41,7 @@
 #include "ti/devices/msp432e4/driverlib/inc/hw_ccm.h"
 #include "ti/devices/msp432e4/driverlib/types.h"
 
-typedef struct {
-    volatile uint32_t modo;          /* 0x00 */
-    volatile uint32_t arranques;     /* 0x04 */
-    volatile uint32_t estado;        /* 0x08  100: listo para ordenes */
-    volatile uint32_t sysclk;        /* 0x0C */
-    volatile uint32_t orden;         /* 0x10  la sube el banco */
-    volatile uint32_t hecho;         /* 0x14  el firmware la iguala al acabar */
-    volatile uint32_t op;            /* 0x18 */
-    volatile uint32_t cfg;           /* 0x1C  CTRL de AES/DES, MODE de SHA, CRCCTRL */
-    volatile uint32_t nclave;        /* 0x20  bytes */
-    volatile uint32_t nent;          /* 0x24  bytes */
-    volatile uint32_t naad;          /* 0x28  bytes */
-    volatile uint32_t res;           /* 0x2C  el CRC */
-    volatile uint32_t r[4];          /* 0x30  para lo que haga falta */
-    uint32_t clave[64];              /* 0x40  hasta 256 bytes */
-    uint32_t iv[4];                  /* 0x140 */
-    uint32_t tag[4];                 /* 0x150 */
-    uint32_t ivsal[4];               /* 0x160 */
-    uint32_t pp[16];                 /* 0x170 la clave HMAC procesada */
-    uint32_t aad[32];                /* 0x1B0 */
-    uint32_t ent[256];               /* 0x230 hasta 1 KB */
-    uint32_t sal[256];               /* 0x630 */
-} buzon_t;
+#include "buzon.h"
 
 buzon_t buzon __attribute__((section(".mailbox")));
 
@@ -65,7 +51,9 @@ static uint32_t k64[16];
 static void pon_ceros(uint32_t *d, uint32_t n) { while (n--) *d++ = 0; }
 static void copia(uint32_t *d, const uint32_t *s, uint32_t n) { while (n--) *d++ = *s++; }
 
-static void habilita(uint32_t p) {
+uint32_t g_clk;
+
+void habilita(uint32_t p) {
     SysCtlPeripheralEnable(p);
     while (!SysCtlPeripheralReady(p)) { }
 }
@@ -180,8 +168,11 @@ static void ejecuta(void) {
 
 int main(void) {
     buzon.arranques++;
-    buzon.sysclk = SysCtlClockFreqSet(SYSCTL_XTAL_25MHZ | SYSCTL_OSC_MAIN | SYSCTL_USE_PLL |
-                                      SYSCTL_CFG_VCO_480, 120000000);
+    g_clk = SysCtlClockFreqSet(SYSCTL_XTAL_25MHZ | SYSCTL_OSC_MAIN | SYSCTL_USE_PLL |
+                               SYSCTL_CFG_VCO_480, 120000000);
+    buzon.sysclk = g_clk;
+    if (buzon.modo == 1) can_local();
+    if (buzon.modo == 2 || buzon.modo == 3) can_nodo(buzon.modo == 3);
     habilita(SYSCTL_PERIPH_CCM0);
     buzon.estado = 100;
     for (;;) {

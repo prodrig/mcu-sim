@@ -1,11 +1,13 @@
 // GENERADO a partir de pin_map.h de DriverLib (__MSP432E401Y__): NO SE EDITA A MANO.
-// Las funciones de UART, I2C, SSI y GPTM de cada pin: {puerto, pin, PCTL, nombre}.
+// Las funciones de UART, I2C, SSI, GPTM y CAN de cada pin: {puerto, pin, PCTL, nombre}.
 { 0, 0,  1, "U0RX"},  // PA0
 { 0, 0,  2, "I2C9SCL"},  // PA0
 { 0, 0,  3, "T0CCP0"},  // PA0
+{ 0, 0,  7, "CAN0RX"},  // PA0
 { 0, 1,  1, "U0TX"},  // PA1
 { 0, 1,  2, "I2C9SDA"},  // PA1
 { 0, 1,  3, "T0CCP1"},  // PA1
+{ 0, 1,  7, "CAN0TX"},  // PA1
 { 0, 2,  1, "U4RX"},  // PA2
 { 0, 2,  2, "I2C8SCL"},  // PA2
 { 0, 2,  3, "T1CCP0"},  // PA2
@@ -30,9 +32,11 @@
 { 0, 7,  3, "T3CCP1"},  // PA7
 { 1, 0,  1, "U1RX"},  // PB0
 { 1, 0,  2, "I2C5SCL"},  // PB0
+{ 1, 0,  7, "CAN1RX"},  // PB0
 { 1, 0,  3, "T4CCP0"},  // PB0
 { 1, 1,  1, "U1TX"},  // PB1
 { 1, 1,  2, "I2C5SDA"},  // PB1
+{ 1, 1,  7, "CAN1TX"},  // PB1
 { 1, 1,  3, "T4CCP1"},  // PB1
 { 1, 2,  3, "T5CCP0"},  // PB2
 { 1, 2,  2, "I2C0SCL"},  // PB2
