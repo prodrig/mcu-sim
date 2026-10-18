@@ -194,7 +194,7 @@ static bool        g_sin_firmware_todos = false;
 // manda sobre el rom=/tlv= de su <mcu>; sin ID, de todos los que los tienen
 // -y es un error que no lo tenga ninguno-.
 static std::vector<std::pair<std::string, std::string>> g_roms, g_tlvs, g_bsls,
-                                                        g_eths;   // id ("" = todos), valor
+                                                        g_eths, g_usbs;   // id ("" = todos), valor
 // `--mcus`: la lista de los MCUs de la placa, en XML, y nada mas
 static bool        g_lista_mcus = false;
 static unsigned    g_gdb_puerto = 0;
@@ -854,6 +854,7 @@ SC_MODULE(Sim) {
         if (!g_tlvs.empty())       no("--tlv");
         if (!g_bsls.empty())       no("--bsl");
         if (!g_eths.empty())       no("--eth");
+        if (!g_usbs.empty())       no("--usb");
         if (!g_gdb_modo.empty())   no("un stub de GDB (--gdb, --gdb-dap)");
         if (g_puerto_dado)         no("--port");
         if (g_traza_gdb)           no("--traza-gdb");
@@ -913,6 +914,7 @@ SC_MODULE(Sim) {
         aplica("--tlv", g_tlvs, &DeclMcu::tlv);
         aplica("--bsl", g_bsls, &DeclMcu::bsl);
         aplica("--eth", g_eths, &DeclMcu::eth);
+        aplica("--usb", g_usbs, &DeclMcu::usb);
     }
 
     void aplica_linea_de_ordenes(std::vector<DeclMcu>& decls) {
@@ -1089,16 +1091,16 @@ SC_MODULE(Sim) {
         // firmware: lo que dice su <mcu> o `--rom/--tlv ID=`, y si no, lo que
         // vaya sin id en la linea de ordenes. Sin id, un chip que no lo tiene
         // se salta; con id, o en el XML, es un error.
-        for (const char* clave : {"rom", "tlv", "bsl", "eth"}) {
+        for (const char* clave : {"rom", "tlv", "bsl", "eth", "usb"}) {
             const char c = clave[0];
-            auto& lista = c == 'r' ? g_roms : c == 't' ? g_tlvs : c == 'b' ? g_bsls : g_eths;
+            auto& lista = c == 'r' ? g_roms : c == 't' ? g_tlvs : c == 'b' ? g_bsls : c == 'e' ? g_eths : g_usbs;
             std::string todos;
             for (const auto& x : lista)
                 if (x.first.empty()) todos = x.second;
             unsigned aceptan = 0;
             for (McuMontado& m : mcus) {
                 const std::string& propio = c == 'r' ? m.decl.rom : c == 't' ? m.decl.tlv
-                                          : c == 'b' ? m.decl.bsl : m.decl.eth;
+                                          : c == 'b' ? m.decl.bsl : c == 'e' ? m.decl.eth : m.decl.usb;
                 const std::string v = !propio.empty() ? propio : todos;
                 if (v.empty()) continue;
                 if (propio.empty() && !m.mcu->admite_opcion(clave)) continue;  // sin id: no lo tiene
@@ -1114,6 +1116,12 @@ SC_MODULE(Sim) {
                     std::fprintf(stderr, "  [eth] AVISO: el Ethernet de %s va por TCP y no se ha "
                                  "pedido --tiempo-real: los plazos de ARP y TCP del ordenador\n"
                                  "        son de reloj de pared, y la simulacion va a su ritmo\n", quien);
+                // Y uno USB por TCP: como el puente serie, el terminal vera el
+                // ritmo de la simulacion
+                if (c == 'u' && v != "memoria" && g_tiempo_real <= 0.0 && !g_ms_dado)
+                    std::fprintf(stderr, "  [usb] AVISO: el USB de %s va a un terminal por TCP y no se ha "
+                                 "pedido --tiempo-real:\n        el terminal vera el ritmo de la "
+                                 "simulacion, no el de la placa\n", quien);
             }
             if (!todos.empty() && aceptan == 0)
                 muere(std::string("--") + clave + " " + todos + ": ninguno de los MCUs de "
@@ -1624,6 +1632,12 @@ static const OpcionCli OPCIONES[] = {
      "servidor con el protocolo de -netdev stream de QEMU, el de gvproxy y passt) "
      "o qemu-cliente:HOST:PUERTO; con ,pcap=FICHERO guarda lo que pasa. Sin ID, "
      "de todos los que lo tienen"},
+    {"--usb", "valor", "texto", "", "", "", true, true, "u0=rfc2217:3356",
+     "el USB de un MSP432E4 como dispositivo, como [ID=]DESTINO: un PC que enumera "
+     "el CDC-ACM del firmware y lo lleva a un puerto serie del puente serie: "
+     "rfc2217:PUERTO, tcp:PUERTO, rfc2217-cliente:HOST:PUERTO, tcp-cliente:HOST:PUERTO "
+     "o memoria. Los baudios del terminal llegan al firmware en SET_LINE_CODING. "
+     "Sin ID, de todos los que lo tienen"},
     {"--tlv", "valor", "texto", "", "", "", true, true, "u0=tlv.bin",
      "el TLV de una placa MSP432P4, como [ID=]FICHERO: los 4 KB de 0x0020_1000 "
      "volcados. Sin ID, de todos los que lo tienen"},
@@ -1751,17 +1765,19 @@ int sc_main(int argc, char** argv) {
         else if (a == "--rom" || a.rfind("--rom=", 0) == 0 ||
                  a == "--tlv" || a.rfind("--tlv=", 0) == 0 ||
                  a == "--bsl" || a.rfind("--bsl=", 0) == 0 ||
-                 a == "--eth" || a.rfind("--eth=", 0) == 0) {
+                 a == "--eth" || a.rfind("--eth=", 0) == 0 ||
+                 a == "--usb" || a.rfind("--usb=", 0) == 0) {
             const char c = a[2];
             const bool es_rom = c == 'r';
-            const char* op = c == 'r' ? "--rom" : c == 't' ? "--tlv" : c == 'b' ? "--bsl" : "--eth";
+            const char* op = c == 'r' ? "--rom" : c == 't' ? "--tlv" : c == 'b' ? "--bsl" : c == 'e' ? "--eth" : "--usb";
             std::string v;
             if (a.size() > 5 && a[5] == '=') v = a.substr(6);
             else if (i + 1 < argc && argv[i + 1][0] != '-') v = argv[++i];
             if (v.empty()) {
                 std::fprintf(stderr, "%s: hace falta [ID=]%s, como en %s u0=%s\n",
-                             op, es_rom || c == 'b' || c == 'e' ? "VALOR" : "FICHERO",
-                             op, es_rom ? "ninguna" : c == 'b' ? "ninguno" : c == 'e' ? "qemu:5555" : "tlv.bin");
+                             op, es_rom || c == 'b' || c == 'e' ? "VALOR" : c == 'u' ? "DESTINO" : "FICHERO",
+                             op, es_rom ? "ninguna" : c == 'b' ? "ninguno" : c == 'e' ? "qemu:5555"
+                                 : c == 'u' ? "rfc2217:3356" : "tlv.bin");
                 return 1;
             }
             std::string id;
@@ -1771,7 +1787,7 @@ int sc_main(int argc, char** argv) {
                 id = v.substr(0, igual);
                 v = v.substr(igual + 1);
             }
-            (c == 'r' ? g_roms : c == 't' ? g_tlvs : c == 'b' ? g_bsls : g_eths).emplace_back(id, v);
+            (c == 'r' ? g_roms : c == 't' ? g_tlvs : c == 'b' ? g_bsls : c == 'e' ? g_eths : g_usbs).emplace_back(id, v);
         }
         // `--sin-firmware`, todos los chips; `--sin-firmware=ID`, ese. Solo con
         // igual: detras puede ir la placa, que no es un id
@@ -1951,6 +1967,10 @@ int sc_main(int argc, char** argv) {
                 "                                protocolo de QEMU, el de gvproxy) o\n"
                 "                                qemu-cliente:HOST:PUERTO; y\n"
                 "                                ,pcap=FICHERO guarda lo que pasa\n"
+                "     sim placa.xml --usb [ID=]DESTINO  el USB de un MSP432E4 como\n"
+                "                                dispositivo CDC-ACM, hasta un puerto\n"
+                "                                serie: rfc2217:PUERTO, tcp:PUERTO,\n"
+                "                                sus -cliente:HOST:PUERTO o memoria\n"
                 "     sim placa.xml --tlv [ID=]FICHERO  el TLV de una placa MSP432P4\n"
                 "                                (los 4 KB de 0x0020_1000): el DCO\n"
                 "                                sigue sus calibraciones\n"

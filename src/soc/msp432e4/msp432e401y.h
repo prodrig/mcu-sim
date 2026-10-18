@@ -56,6 +56,7 @@
 #include "../../periph/msp432e4/ccm.h"
 #include "../../periph/msp432e4/ccan.h"
 #include "../../periph/msp432e4/emac.h"
+#include "../../periph/msp432e4/usb.h"
 #include "e4_programador.h"
 
 namespace stm32 {
@@ -117,6 +118,7 @@ public:
     CCanE4  can0{"can0", e4::CAN0_B}, can1{"can1", e4::CAN1_B};
     CCanE4* can(unsigned n) { return n ? &can1 : &can0; }
     EmacE4  emac{"emac"};
+    UsbE4   usb{"usb0"};
     UartE4* uart(unsigned n) { UartE4* u[8] = {&uart0, &uart1, &uart2, &uart3, &uart4, &uart5, &uart6, &uart7}; return u[n & 7u]; }
     SsiE4*  ssi(unsigned n) { SsiE4* u[4] = {&ssi0, &ssi1, &ssi2, &ssi3}; return u[n & 3u]; }
     I2cE4*  i2c(unsigned n) { I2cE4* u[10] = {&i2c0, &i2c1, &i2c2, &i2c3, &i2c4, &i2c5, &i2c6, &i2c7, &i2c8, &i2c9}; return u[n < 10 ? n : 0]; }
@@ -178,7 +180,10 @@ public:
     }
     std::vector<std::string> limitaciones() const {
         std::vector<std::string> l = {
-            "USB, PWM, QEI, EPI y comparadores estan DECLARADOS: son de T7",
+            "PWM, QEI, EPI, comparadores y SYSEXC estan DECLARADOS y no modelados",
+            "el USB0 solo es dispositivo de velocidad completa: sin modo anfitrion ni "
+            "OTG, uDMA, isocronos, LPM, suspension ni deteccion de VBUS e ID; los "
+            "paquetes cruzan como paquetes, sin NRZI ni CRC",
             "el EMAC es el del F407 (sin PAUSE, VLAN, semiduplex ni la suma de "
             "comprobacion de ENTRADA); su PHY interno negocia en 1 ms, sin pines MII "
             "ni LED, y el MDIO solo llega a la direccion 0",
@@ -375,7 +380,10 @@ private:
         engancha(wdt1, SysctlE4::C_WD, 1);
         engancha(eeprom, SysctlE4::C_EEPROM, 0);
         using S = SysctlE4;
-        const char* const T7 = "Llega en la fase T7 del plan de doc/analisis_msp432.md.";
+        // Lo que sigue declarado despues de la T7 [P-17 t]: el EPI, como pide el
+        // plan, y PWM, QEI, comparadores y SYSEXC, que el plan no pone en
+        // ninguna fase. El LCD no: es del E411Y (T8), el E401Y no lo tiene
+        const char* const T7 = "No se modela: queda declarado tras la T7 (doc/todo.md, P-17 t).";
         for (unsigned n = 0; n < 8; ++n) engancha(*uart(n), S::C_UART, n);
         for (unsigned n = 0; n < 4; ++n) engancha(*ssi(n), S::C_SSI, n);
         for (unsigned n = 0; n < 10; ++n) engancha(*i2c(n), S::C_I2C, n);
@@ -387,6 +395,7 @@ private:
         engancha(can0, S::C_CAN, 0);
         engancha(can1, S::C_CAN, 1);
         engancha(emac, S::C_EMAC, 0);
+        engancha(usb, S::C_USB, 0);
         // El PHY interno no tiene registros en el bus (se le habla por el MDIO
         // del EMAC), pero si su reloj y su reset: RCGCEPHY y SREPHY
         {
@@ -401,7 +410,6 @@ private:
         declara("pwm0", e4::PWM0_B, 0x1000, S::C_PWM, 0, T7);
         declara("qei0", e4::QEI0_B, 0x1000, S::C_QEI, 0, T7);
         declara("comp", e4::COMP_B, 0x1000, S::C_ACMP, 0, T7);
-        declara("usb0", e4::USB0_B, 0x1000, S::C_USB, 0, T7);
         declara("epi0", e4::EPI0_B, 0x1000, S::C_EPI, 0, T7);
         // La uDMA es otro maestro del bus
         t_dma_.register_b_transport(this, &Msp432E4::bt);
@@ -425,6 +433,7 @@ private:
         sysctl.al_cambiar_periferico = [this] {
             rst_perif_ev_.notify(sc_core::SC_ZERO_TIME);
             emac.reevalua_enlace();          // RCGCEPHY: el PHY con o sin reloj
+            usb.reevalua();                  // RCGCUSB: el 1,5 kOhm de D+
         };
         sysctl.irq(s_irq_[e4::IRQ_SYSCTL]);
         flashc.irq(s_irq_[e4::IRQ_FLASH]);
@@ -548,6 +557,10 @@ private:
         emac.wkup_line(s_emac_wkup_);
         emac.mii_rmii_sel(s_cero_);
         emac.phy.con_reloj = [this] { return sysctl.con_reloj(SysctlE4::C_EPHY, 0); };
+        // El USB: su linea, su reloj, y D+ (PL6) y D- (PL7), que son analogicos
+        usb.irq(s_irq_[e4::IRQ_USB0]);
+        usb.con_reloj = [this] { return sysctl.con_reloj(SysctlE4::C_USB, 0); };
+        usb.conecta_pines(gpio.nodo_de(e4::PL, 6), gpio.nodo_de(e4::PL, 7));
         // La hibernación
         hib.irq(s_irq_[e4::IRQ_HIB]);
         hib.osc.xtal_in = xosc0;

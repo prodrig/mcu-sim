@@ -114,3 +114,5 @@ e4  msp432e4/e4_eth/e4_eth.out           321232  0x593907EE
 e4  msp432e4/e4_eth/e4_eth.bin            30548  0x59E58716
 e4  msp432e4/e4_bootp/e4_bootp.out        13380  0x687866AF
 e4  msp432e4/e4_bootp/e4_bootp.bin         1964  0xDC7269F0
+e4  msp432e4/e4_usb/e4_usb.out            30676  0x1DDB13CD
+e4  msp432e4/e4_usb/e4_usb.bin             4872  0x3A6BC117

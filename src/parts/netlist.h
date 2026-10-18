@@ -328,6 +328,9 @@ struct DeclMcu {
     // El Ethernet de un MSP432E4 (T7): a donde da su PHY interno -memoria,
     // qemu:PUERTO o qemu-cliente:HOST:PUERTO, y ,pcap=FICHERO-. Vacío: nada
     std::string eth;
+    // Su USB como dispositivo (T7): el destino serie del puente de clase
+    // CDC-ACM -rfc2217:PUERTO, tcp:PUERTO, sus clientes o memoria-. Vacío: nada
+    std::string usb;
     // El ENCAPSULADO de este chip, que es lo que decide qué pads salen de
     // verdad. Lo rellena quien resuelve el `tipo` contra el catálogo de MCUs
     // —antes de validar, porque de él depende el error «ese pad no sale»— y por

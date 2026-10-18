@@ -227,4 +227,11 @@ testp4                406      22456139139423        resto
 # TFTP, que graba e4_eth.bin y lo arranca)- con las huellas de la ROM nueva y
 # de e4_bootp: 257. El resto crece 377,87 ms, todos de E34: E0-E33 iguales con
 # la ROM nueva.
-teste4                257      4186361220852         resto
+# Entrega 5: E35 -el USB0 (MUSB) como dispositivo con e4_usb, un CDC-ACM
+# sobre usb.c de DriverLib, enumerado por un PC de banco (UsbHostRig)- y E36
+# -el puente de clase CDC-ACM de parts/puente_usb.h, el de `mcu-sim --usb`,
+# con su canal en memoria-: 296 (la huella de e4_usb entra en la unica
+# comprobacion de E0, que pasa a 18 imagenes). El resto crece 320,893 ms,
+# todos de E35 y E36 (lo mismo que TESTE4_SOLO=usb): E0-E34 iguales con el
+# USB montado y el PC de banco en PL6/PL7.
+teste4                296      4507254220852         resto

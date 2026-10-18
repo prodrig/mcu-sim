@@ -46,6 +46,7 @@
 #include "../verif/bus_test_master.h"
 #include "../verif/swd_port.h"
 #include "../parts/puente_serie.h"
+#include "../parts/puente_usb.h"
 #include "../verif/gdb_stub.h"
 #include "../verif/lee_vec.h"
 #include "../verif/gdb_client.h"
@@ -82,6 +83,7 @@ static const char* const FW_ROM  = "verif/fw/msp432e4/e4_rom/e4_rom.out";
 static const char* const FW_T7   = "verif/fw/msp432e4/e4_t7/e4_t7.out";
 static const char* const FW_ETH  = "verif/fw/msp432e4/e4_eth/e4_eth.out";
 static const char* const FW_BOOTP = "verif/fw/msp432e4/e4_bootp/e4_bootp.out";
+static const char* const FW_USB  = "verif/fw/msp432e4/e4_usb/e4_usb.out";
 static const char* const BIN_ETH = "verif/fw/msp432e4/e4_eth/e4_eth.bin";
 
 // El otro extremo del cable del PHY interno, en el banco: lo que manda el MCU
@@ -159,6 +161,11 @@ SC_MODULE(TbE4) {
     Crystal* y2 = nullptr;
     CanTransceiver* xcvr_b = nullptr;
     CableBanco cable;
+    // T7, entrega 5: un PC en el USB0 (D+ PL6, D- PL7). VBUS e ID van a sus
+    // propios nodos: en la LaunchPad son PB1 y PB0, que aqui son del CAN1
+    AnalogNet usb_vbus{"usb_vbus"}, usb_id{"usb_id"};
+    UsbHostRig* pc_usb = nullptr;
+    PuenteUsbCdc* puente_usb = nullptr;   // E36: se monta en su grupo, como en mcu-sim
 
     SC_CTOR(TbE4)
         : mcu("dut", DBG_PINES, Cableado(), *CatalogoMcu::busca("MSP432E401Y")),
@@ -200,6 +207,8 @@ SC_MODULE(TbE4) {
         espia->set_enabled(false);
         y2 = new Crystal(*dut2.osc0);
         xcvr_b = new CanTransceiver("xcvr_b", dut2.gpio.nodo_de(e4::PA, 1), dut2.gpio.nodo_de(e4::PA, 0), *bus_can);
+        pc_usb = new UsbHostRig("pc_usb", dut.gpio.nodo_de(e4::PL, 7), dut.gpio.nodo_de(e4::PL, 6), usb_vbus, usb_id);
+        pc_usb->conectar_dispositivo(&dut.usb);
         SC_THREAD(run);
     }
     ~TbE4() override {
@@ -207,6 +216,7 @@ SC_MODULE(TbE4) {
         delete bcl; delete reloj_cap; delete reloj_cnt; delete eeprom; delete pu_scl;
         delete pu_sda; delete pista_ssi; delete v_ain0; delete v_ain1;
         delete xcvr0; delete xcvr1; delete espia; delete y2; delete xcvr_b; delete bus_can;
+        delete pc_usb;
     }
 
     // --- Utilidades -----------------------------------------------------------
@@ -1556,6 +1566,194 @@ SC_MODULE(TbE4) {
         dut.emac.phy.conecta_cable(nullptr);
     }
 
+    // T7, entrega 5: el USB como dispositivo CDC-ACM (e4_usb), con un PC
+    // de banco que enumera como lo haria uno de verdad. Los NAK se reintentan
+    // cada 20 us, como un anfitrion que vuelve en la siguiente vuelta
+    uint8_t usb_reintenta(uint8_t pid, uint8_t dir, uint8_t ep, const std::vector<uint8_t>& s,
+                          std::vector<uint8_t>& e, double ms = 5) {
+        const sc_time lim = sc_time_stamp() + sc_time(ms, SC_MS);
+        for (;;) {
+            const uint8_t r = pid == PID_IN ? pc_usb->in(dir, ep, e) : pc_usb->out(dir, ep, s);
+            if (r != PID_NAK || sc_time_stamp() >= lim) return r;
+            wait(20, SC_US);
+        }
+    }
+    static std::vector<uint8_t> setup8(uint8_t tipo, uint8_t pet, uint16_t valor, uint16_t indice, uint16_t largo) {
+        return {tipo, pet, uint8_t(valor), uint8_t(valor >> 8), uint8_t(indice), uint8_t(indice >> 8),
+                uint8_t(largo), uint8_t(largo >> 8)};
+    }
+    // Una transferencia de control de entrada: SETUP, los IN hasta el corto,
+    // y el OUT de cero de la etapa de estado. Devuelve el PID que la acaba
+    uint8_t usb_control_in(uint8_t dir, const std::vector<uint8_t>& s, std::vector<uint8_t>& d) {
+        d.clear();
+        if (pc_usb->setup(dir, s) != PID_ACK) return PID_NADIE;
+        const unsigned largo = unsigned(s[6] | (s[7] << 8));
+        std::vector<uint8_t> p;
+        for (;;) {
+            const uint8_t r = usb_reintenta(PID_IN, dir, 0, {}, p);
+            if (r != PID_ACK) return r;
+            d.insert(d.end(), p.begin(), p.end());
+            if (p.size() < 64 || d.size() >= largo) break;
+        }
+        std::vector<uint8_t> e;
+        return usb_reintenta(PID_OUT, dir, 0, {}, e);
+    }
+    // Y una de salida: SETUP, los datos (si hay) y el IN de cero del estado
+    uint8_t usb_control_out(uint8_t dir, const std::vector<uint8_t>& s, const std::vector<uint8_t>& d = {}) {
+        if (pc_usb->setup(dir, s) != PID_ACK) return PID_NADIE;
+        std::vector<uint8_t> e;
+        if (!d.empty()) {
+            const uint8_t r = usb_reintenta(PID_OUT, dir, 0, d, e);
+            if (r != PID_ACK) return r;
+        }
+        const uint8_t r = usb_reintenta(PID_IN, dir, 0, {}, e);
+        return r == PID_ACK && !e.empty() ? uint8_t(PID_NADIE) : r;
+    }
+    void t7_usb() {
+        grupo("E35 El USB del E4 como dispositivo: enumeracion CDC-ACM y eco por bulk (e4_usb)");
+        pc_usb->set_vbus(true);
+        pc_usb->conectar(true);
+        analog_net_if& dp = dut.gpio.nodo_de(e4::PL, 6);
+        analog_net_if& dm = dut.gpio.nodo_de(e4::PL, 7);
+        arranca(0, FW_USB);
+        check(espera_estado(10, 50), "e4_usb arranca y pone SOFTCONN (USBDevConnect)");
+        wait(10, SC_US);
+        check(dp.voltage() > 2.7f && dm.voltage() < 0.3f,
+              "el PC ve el 1,5 kOhm en D+ contra sus 15 kOhm: velocidad completa");
+        std::printf("    D+ %.2f V, D- %.2f V\n", double(dp.voltage()), double(dm.voltage()));
+        std::vector<uint8_t> d, e;
+        pc_usb->reset_bus();
+        pc_usb->sofs(2);
+        check(dut.usb.resets() == 1 && buzon(0x10) == 1, "el SE0 de 10 ms es un reset de bus: IS.RESET y su interrupcion");
+        check(usb_control_in(0, setup8(0x80, 6, 0x0100, 0, 64), d) == PID_ACK && d.size() == 18,
+              "GET_DESCRIPTOR de dispositivo en la direccion 0: los 18 bytes");
+        check(d.size() == 18 && d[0] == 18 && d[1] == 1 && d[4] == 2 && d[8] == 0x09 && d[9] == 0x12 &&
+              d[10] == 0x01 && d[11] == 0x00, "clase CDC, VID 1209 y PID 0001");
+        check(usb_control_out(0, setup8(0x00, 5, 7, 0, 0)) == PID_ACK, "SET_ADDRESS 7, con su etapa de estado");
+        pc_usb->sofs(2);                                        // el tiempo de recuperacion
+        check(dut.usb.direccion() == 7 && buzon(0x14) == 7 && buzon(B_ESTADO) == 20,
+              "FADDR = 7 tras el estado, como manda el protocolo");
+        check(pc_usb->in(0, 0, e) == PID_NADIE, "en la direccion 0 ya no contesta nadie");
+        check(usb_control_in(7, setup8(0x80, 6, 0x0200, 0, 9), d) == PID_ACK && d.size() == 9 && d[2] == 67,
+              "GET_DESCRIPTOR de configuracion (9 bytes): wTotalLength 67");
+        check(usb_control_in(7, setup8(0x80, 6, 0x0200, 0, 255), d) == PID_ACK && d.size() == 67 && d[9 + 5] == 2 &&
+              d[9 + 6] == 2, "y entera: 67 bytes en dos paquetes (64 + 3), interfaz CDC/ACM");
+        check(usb_control_in(7, setup8(0x80, 6, 0x0300, 0, 255), d) == PID_ACK &&
+              d == std::vector<uint8_t>({4, 3, 0x09, 0x04}), "la cadena 0: ingles de EE. UU.");
+        std::string prod;
+        if (usb_control_in(7, setup8(0x80, 6, 0x0302, 0x0409, 255), d) == PID_ACK)
+            for (size_t i = 2; i + 1 < d.size(); i += 2) prod += char(d[i]);
+        check(prod == "MSP432E401Y CDC de prueba", "la cadena 2, el producto, en UTF-16LE");
+        check(usb_control_out(7, setup8(0x00, 9, 1, 0, 0)) == PID_ACK && buzon(B_ESTADO) == 100,
+              "SET_CONFIGURATION 1: EP1 de bulk y EP2 de interrupcion configurados");
+        check(usb_control_in(7, setup8(0x80, 8, 0, 0, 1), d) == PID_ACK && d == std::vector<uint8_t>({1}),
+              "GET_CONFIGURATION: 1");
+        // La clase: 230400 8E2 y DTR+RTS
+        const std::vector<uint8_t> lc = {0x00, 0x84, 0x03, 0x00, 2, 2, 8};
+        check(usb_control_out(7, setup8(0x21, 0x20, 0, 0, 7), lc) == PID_ACK && buzon(0x18) == 230400 &&
+              buzon(0x1C) == 0x020802u, "SET_LINE_CODING con su etapa de datos: 230400 8E2");
+        check(usb_control_in(7, setup8(0xA1, 0x21, 0, 0, 7), d) == PID_ACK && d == lc, "GET_LINE_CODING devuelve lo mismo");
+        check(usb_control_out(7, setup8(0x21, 0x22, 3, 0, 0)) == PID_ACK && buzon(0x20) == 3,
+              "SET_CONTROL_LINE_STATE: DTR y RTS");
+        // Una peticion que no conoce: STALL, y la siguiente SETUP lo arregla
+        const unsigned st0 = pc_usb->stalls();
+        check(usb_control_in(7, setup8(0x80, 6, 0x0F00, 0, 5), d) == PID_STALL && buzon(0x28) == 1 &&
+              pc_usb->stalls() == st0 + 1, "un descriptor que no tiene (BOS): STALL en el EP0");
+        check(usb_control_in(7, setup8(0x80, 0, 0, 0, 2), d) == PID_ACK && d == std::vector<uint8_t>({1, 0}),
+              "y la siguiente SETUP se atiende: GET_STATUS, autoalimentado");
+        // Los datos: el eco en mayusculas
+        check(pc_usb->in(7, 1, e) == PID_NAK, "EP1 IN sin nada que mandar: NAK");
+        const std::string m = "hola, puerto serie por usb";
+        check(usb_reintenta(PID_OUT, 7, 1, std::vector<uint8_t>(m.begin(), m.end()), e) == PID_ACK,
+              "EP1 OUT: 26 bytes");
+        check(usb_reintenta(PID_IN, 7, 1, {}, d) == PID_ACK && std::string(d.begin(), d.end()) ==
+              "HOLA, PUERTO SERIE POR USB", "EP1 IN: vuelven en mayusculas");
+        std::vector<uint8_t> grande(64);
+        for (unsigned i = 0; i < 64; ++i) grande[i] = uint8_t('a' + i % 26);
+        bool todo = true;
+        for (unsigned k = 0; k < 4 && todo; ++k) {
+            todo = usb_reintenta(PID_OUT, 7, 1, grande, e) == PID_ACK &&
+                   usb_reintenta(PID_IN, 7, 1, {}, d) == PID_ACK && d.size() == 64 &&
+                   d[0] == 'A' && d[63] == uint8_t('A' + 63 % 26);
+        }
+        check(todo, "cuatro paquetes llenos de 64 bytes, ida y vuelta");
+        check_eq(buzon(0x24), 26 + 4 * 64, "el firmware cuenta los bytes del eco");
+        check(pc_usb->in(7, 3, e) == PID_NAK, "un endpoint sin configurar no manda nada");
+        // El reset del chip quita el 1,5 kOhm: el PC ve irse al dispositivo
+        mcu.reset_pin(true);
+        wait(20, SC_US);
+        check(dp.voltage() < 0.3f, "en reset, sin SOFTCONN: D+ cae a masa por los 15 kOhm del PC");
+        mcu.reset_pin(false);
+        pc_usb->conectar(false);
+        pc_usb->set_vbus(false);
+        std::printf("    %u transacciones en el USB0; el PC: %u ACK, %u NAK, %u STALL\n", dut.usb.transacciones(),
+                    pc_usb->acks(), pc_usb->naks(), pc_usb->stalls());
+    }
+
+    // T7, entrega 5: el puente de clase (U2). El mismo e4_usb, pero ahora el
+    // PC es el de parts/puente_usb.h, el de `mcu-sim --usb`: enumera solo,
+    // y lleva el CDC a un canal serie en memoria
+    template <class F> bool espera_que(F f, double ms) {
+        const sc_time lim = sc_time_stamp() + sc_time(ms, SC_MS);
+        while (!f() && sc_time_stamp() < lim) wait(100, SC_US);
+        return f();
+    }
+    void t7_puente_usb() {
+        grupo("E36 El puente de clase CDC-ACM: enumera e4_usb y lo lleva a un canal serie (U2)");
+        arranca(0, FW_USB);
+        puente_usb = new PuenteUsbCdc(dut.gpio.nodo_de(e4::PL, 6), dut.gpio.nodo_de(e4::PL, 7), &dut.usb,
+                                      serie::parsea("memoria"));
+        CanalMemoria& m = *puente_usb->memoria();
+        check(puente_usb->error().empty(), "el puente se monta, con su canal en memoria");
+        check(espera_que([&] { return puente_usb->listo(); }, 400), "el puente ve llegar el dispositivo y lo enumera");
+        check(puente_usb->vid() == 0x1209 && puente_usb->pid() == 0x0001 &&
+              puente_usb->producto() == "MSP432E401Y CDC de prueba", "1209:0001, \"MSP432E401Y CDC de prueba\"");
+        check(espera_que([&] { return buzon(0x18) == 115200 && buzon(0x20) == 3; }, 10),
+              "al abrir el puerto: SET_LINE_CODING 115200 8N1 y SET_CONTROL_LINE_STATE con DTR y RTS");
+        check(buzon(B_ESTADO) == 100 && dut.usb.direccion() == 1, "configurado, en la direccion 1");
+        m.empuja("eco por el puente");
+        check(espera_que([&] { return m.recibido() == "ECO POR EL PUENTE"; }, 20),
+              "lo que entra por el canal vuelve en mayusculas");
+        // RFC 2217 -> CDC
+        puente_usb->pide_baudios(9600);
+        puente_usb->pide_paridad(3);
+        puente_usb->pide_parada(2);
+        check(espera_que([&] { return buzon(0x18) == 9600 && buzon(0x1C) == 0x020802u; }, 10),
+              "SET-BAUDRATE 9600, PARITY par y STOPSIZE 2 del terminal: un SET_LINE_CODING 9600 8E2");
+        puente_usb->pide_control(9);
+        check(espera_que([&] { return buzon(0x20) == 2; }, 10), "SET-CONTROL 9 (DTR fuera): SET_CONTROL_LINE_STATE 2");
+        m.borra_recibido();
+        m.empuja("?");
+        check(espera_que([&] { return m.recibido() == "9600 8E2 2\r\n"; }, 20),
+              "y el firmware lo cuenta por el mismo canal: \"9600 8E2 2\"");
+        // Un bloque grande: el flujo por NAK, sin perder nada
+        m.borra_recibido();
+        std::string blq, esp;
+        for (unsigned i = 0; i < 1500; ++i) {
+            const char c = char('a' + i % 26);
+            blq += c; esp += char(c - 32);
+        }
+        const sc_time t0 = sc_time_stamp();
+        m.empuja(blq);
+        const bool todo = espera_que([&] { return m.recibido().size() >= esp.size(); }, 200);
+        check(todo && m.recibido() == esp, "1500 bytes de ida y vuelta, en orden y sin perder ninguno");
+        std::printf("    en %.1f ms simulados; %u paquetes, %u NAK\n", (sc_time_stamp() - t0).to_seconds() * 1e3,
+                    puente_usb->controlador().paquetes(), puente_usb->controlador().naks());
+        // El chip se reinicia: se va del bus, vuelve y se enumera otra vez
+        mcu.reset_pin(true);
+        wait(50, SC_US);
+        mcu.reset_pin(false);
+        check(espera_que([&] { return puente_usb->enumeraciones() == 2 && puente_usb->listo(); }, 400),
+              "tras un reset del chip el puente lo ve irse y lo vuelve a enumerar");
+        m.borra_recibido();
+        m.empuja("otra vez");
+        check(espera_que([&] { return m.recibido() == "OTRA VEZ"; }, 20) && buzon(0x18) == 9600,
+              "y sigue: con la linea que tenia el terminal (9600)");
+        puente_usb->enchufa(false);
+        wait(10, SC_US);
+        check(!puente_usb->listo(), "desenchufado, el puente suelta el dispositivo");
+    }
+
     void run() {
         // TESTE4_SOLO=t3: solo los grupos de la entrega 3, para trabajar en ellos.
         // No vale para el invariante (la cifra es otra).
@@ -1573,6 +1771,7 @@ SC_MODULE(TbE4) {
             if (q == "t7" || q == "ccm") t7_ccm();
             if (q == "t7" || q == "can") { t7_can(); t7_dos_e4(); }
             if (q == "t7" || q == "eth") { t7_eth(); t7_bootp(); }
+            if (q == "t7" || q == "usb") { t7_usb(); t7_puente_usb(); }
             std::printf("\nTOTAL E4 (solo %s): %u comprobaciones OK, %u fallos\n", solo, g_ok, g_fallos);
             sc_stop();
             return;
@@ -1610,6 +1809,8 @@ SC_MODULE(TbE4) {
         t7_dos_e4();
         t7_eth();
         t7_bootp();
+        t7_usb();
+        t7_puente_usb();
         std::printf("\nTOTAL E4: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

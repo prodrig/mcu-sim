@@ -234,6 +234,13 @@ jobs:
         working-directory: src
         run: make -f Makefile.mcu-sim eth-e4
 
+      # El USB del MSP432E401Y (T7): el mcu-sim de verdad con e4_usb (CDC-ACM)
+      # y el puente de clase en rfc2217:PUERTO y en tcp:PUERTO; cdc_e4.py es el
+      # terminal, con pySerial: el eco y que sus baudios llegan al firmware.
+      - name: El CDC-ACM del MSP432E401Y por el puente USB
+        working-directory: src
+        run: make -f Makefile.mcu-sim usb-e4
+
       # La BOOSTXL-EDUMKII enchufada a la MSP-EXP432P401R (T3 del MSP432): el
       # sistema de dos placas con su firmware, mirando lo que sale.
       - name: La BOOSTXL-EDUMKII sobre la LaunchPad del MSP432P401R
