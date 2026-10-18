@@ -1,0 +1,239 @@
+# =============================================================================
+# sha2.vec — VECTORES DE SHA-224, SHA-256 Y SUS HMAC (el SHA/MD5 del MSP432E4, T7)
+#
+# Van aparte de `hash.vec` porque aquel lo lee entero el banco del F417, que no
+# tiene SHA-2. Misma regla: ningún número con una sola fuente. Los mensajes
+# «abc», el de 56 bytes y el de 112 son los ejemplos del FIPS 180-2 (apéndices
+# B y C de la versión con SHA-224); los HMAC son los casos 1, 2, 3, 4, 6 y 7
+# del RFC 4231 (el 5 trunca la salida, y el SHAMD5 del E4 no trunca). Todos se
+# recalculan con `hashlib`/`hmac` y con `openssl dgst` en `comprueba_vectores.py`.
+#
+# LO QUE EJERCITA, además de lo de `hash.vec` (vacío, 55/56/64 bytes):
+#   * 112 bytes: dos bloques y un resto, por SHAMD5DataProcess.
+#   * HMAC con clave de 131 bytes (casos 6 y 7): más larga que el bloque, así
+#     que el firmware la resume antes con el mismo motor, como pide el RFC 2104.
+#
+# FORMATO: el de `hash.vec`. `algoritmo` es sha224 | sha256 | hmac-sha224 |
+# hmac-sha256.
+# =============================================================================
+
+# --- SHA224 ------------------------------------------------------------
+[caso]
+id        = SHA224-VACIO
+algoritmo = sha224
+mensaje   = 
+salida    = d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f
+texto     = ""
+fuente    = hashlib ; openssl
+nota      = el mensaje vacío: el relleno es un bloque entero
+
+[caso]
+id        = SHA224-ABC
+algoritmo = sha224
+mensaje   = 616263
+salida    = 23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7
+texto     = "abc"
+fuente    = FIPS 180-2 (con el aviso de cambio 1, SHA-224), apéndices B y C ; hashlib ; openssl
+
+[caso]
+id        = SHA224-55
+algoritmo = sha224
+mensaje   = 61616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161
+salida    = fb0bd626a70c28541dfa781bb5cc4d7d7f56622a58f01a0b1ddd646f
+fuente    = hashlib ; openssl
+nota      = 55 bytes: el relleno y la longitud caben en el bloque
+
+[caso]
+id        = SHA224-56
+algoritmo = sha224
+mensaje   = 6162636462636465636465666465666765666768666768696768696a68696a6b696a6b6c6a6b6c6d6b6c6d6e6c6d6e6f6d6e6f706e6f7071
+salida    = 75388b16512776cc5dba5da1fd890150b0c6455cb4f58b1952522525
+texto     = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+fuente    = FIPS 180-2 (con el aviso de cambio 1, SHA-224), apéndices B y C ; hashlib ; openssl
+nota      = 56 bytes: ya no cabe la longitud
+
+[caso]
+id        = SHA224-64
+algoritmo = sha224
+mensaje   = 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+salida    = c37b88a3522dbf7ac30d1c68ea397ac11d4773571aed01ddab73531e
+fuente    = hashlib ; openssl
+nota      = un bloque justo
+
+[caso]
+id        = SHA224-112
+algoritmo = sha224
+mensaje   = 61626364656667686263646566676869636465666768696a6465666768696a6b65666768696a6b6c666768696a6b6c6d6768696a6b6c6d6e68696a6b6c6d6e6f696a6b6c6d6e6f706a6b6c6d6e6f70716b6c6d6e6f7071726c6d6e6f707172736d6e6f70717273746e6f707172737475
+salida    = c97ca9a559850ce97a04a96def6d99a9e0e0e2ab14e6b8df265fc0b3
+fuente    = FIPS 180-2, el mensaje de 896 bits del SHA-512 ; hashlib ; openssl
+nota      = dos bloques y un resto
+
+[caso]
+id        = SHA224-MILLON
+algoritmo = sha224
+mensaje   = 61
+repite    = 1000000
+salida    = 20794655980c91d8bbb4c1ea97618a4bf03f42581948b2ee4ee7ad67
+lento     = si
+fuente    = FIPS 180-2 (con el aviso de cambio 1, SHA-224), apéndices B y C ; hashlib ; openssl
+
+
+# --- SHA256 ------------------------------------------------------------
+[caso]
+id        = SHA256-VACIO
+algoritmo = sha256
+mensaje   = 
+salida    = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+texto     = ""
+fuente    = hashlib ; openssl
+nota      = el mensaje vacío: el relleno es un bloque entero
+
+[caso]
+id        = SHA256-ABC
+algoritmo = sha256
+mensaje   = 616263
+salida    = ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+texto     = "abc"
+fuente    = FIPS 180-2 (con el aviso de cambio 1, SHA-224), apéndices B y C ; hashlib ; openssl
+
+[caso]
+id        = SHA256-55
+algoritmo = sha256
+mensaje   = 61616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161
+salida    = 9f4390f8d30c2dd92ec9f095b65e2b9ae9b0a925a5258e241c9f1e910f734318
+fuente    = hashlib ; openssl
+nota      = 55 bytes: el relleno y la longitud caben en el bloque
+
+[caso]
+id        = SHA256-56
+algoritmo = sha256
+mensaje   = 6162636462636465636465666465666765666768666768696768696a68696a6b696a6b6c6a6b6c6d6b6c6d6e6c6d6e6f6d6e6f706e6f7071
+salida    = 248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1
+texto     = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+fuente    = FIPS 180-2 (con el aviso de cambio 1, SHA-224), apéndices B y C ; hashlib ; openssl
+nota      = 56 bytes: ya no cabe la longitud
+
+[caso]
+id        = SHA256-64
+algoritmo = sha256
+mensaje   = 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+salida    = fdeab9acf3710362bd2658cdc9a29e8f9c757fcf9811603a8c447cd1d9151108
+fuente    = hashlib ; openssl
+nota      = un bloque justo
+
+[caso]
+id        = SHA256-112
+algoritmo = sha256
+mensaje   = 61626364656667686263646566676869636465666768696a6465666768696a6b65666768696a6b6c666768696a6b6c6d6768696a6b6c6d6e68696a6b6c6d6e6f696a6b6c6d6e6f706a6b6c6d6e6f70716b6c6d6e6f7071726c6d6e6f707172736d6e6f70717273746e6f707172737475
+salida    = cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1
+fuente    = FIPS 180-2, el mensaje de 896 bits del SHA-512 ; hashlib ; openssl
+nota      = dos bloques y un resto
+
+[caso]
+id        = SHA256-MILLON
+algoritmo = sha256
+mensaje   = 61
+repite    = 1000000
+salida    = cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0
+lento     = si
+fuente    = FIPS 180-2 (con el aviso de cambio 1, SHA-224), apéndices B y C ; hashlib ; openssl
+
+
+# --- HMAC-SHA224, RFC 4231 --------------------------------------------------
+[caso]
+id        = HMACSHA224-RFC4231-1
+algoritmo = hmac-sha224
+clave     = 0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b
+mensaje   = 4869205468657265
+salida    = 896fb1128abbdf196832107cd49df33f47b4b1169912ba4f53684b22
+fuente    = RFC 4231, caso 1 ; hmac de Python ; openssl
+
+[caso]
+id        = HMACSHA224-RFC4231-2
+algoritmo = hmac-sha224
+clave     = 4a656665
+mensaje   = 7768617420646f2079612077616e7420666f72206e6f7468696e673f
+salida    = a30e01098bc6dbbf45690f3a7e9e6d0f8bbea2a39e6148008fd05e44
+fuente    = RFC 4231, caso 2 ; hmac de Python ; openssl
+
+[caso]
+id        = HMACSHA224-RFC4231-3
+algoritmo = hmac-sha224
+clave     = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+mensaje   = dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+salida    = 7fb3cb3588c6c1f6ffa9694d7d6ad2649365b0c1f65d69d1ec8333ea
+fuente    = RFC 4231, caso 3 ; hmac de Python ; openssl
+
+[caso]
+id        = HMACSHA224-RFC4231-4
+algoritmo = hmac-sha224
+clave     = 0102030405060708090a0b0c0d0e0f10111213141516171819
+mensaje   = cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd
+salida    = 6c11506874013cac6a2abc1bb382627cec6a90d86efc012de7afec5a
+fuente    = RFC 4231, caso 4 ; hmac de Python ; openssl
+
+[caso]
+id        = HMACSHA224-RFC4231-6
+algoritmo = hmac-sha224
+clave     = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+mensaje   = 54657374205573696e67204c6172676572205468616e20426c6f636b2d53697a65204b6579202d2048617368204b6579204669727374
+salida    = 95e9a0db962095adaebe9b2d6f0dbce2d499f112f2d2b7273fa6870e
+fuente    = RFC 4231, caso 6 ; hmac de Python ; openssl
+
+[caso]
+id        = HMACSHA224-RFC4231-7
+algoritmo = hmac-sha224
+clave     = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+mensaje   = 5468697320697320612074657374207573696e672061206c6172676572207468616e20626c6f636b2d73697a65206b657920616e642061206c6172676572207468616e20626c6f636b2d73697a6520646174612e20546865206b6579206e6565647320746f20626520686173686564206265666f7265206265696e6720757365642062792074686520484d414320616c676f726974686d2e
+salida    = 3a854166ac5d9f023f54d517d0b39dbd946770db9c2b95c9f6f565d1
+fuente    = RFC 4231, caso 7 ; hmac de Python ; openssl
+
+
+# --- HMAC-SHA256, RFC 4231 --------------------------------------------------
+[caso]
+id        = HMACSHA256-RFC4231-1
+algoritmo = hmac-sha256
+clave     = 0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b
+mensaje   = 4869205468657265
+salida    = b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7
+fuente    = RFC 4231, caso 1 ; hmac de Python ; openssl
+
+[caso]
+id        = HMACSHA256-RFC4231-2
+algoritmo = hmac-sha256
+clave     = 4a656665
+mensaje   = 7768617420646f2079612077616e7420666f72206e6f7468696e673f
+salida    = 5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843
+fuente    = RFC 4231, caso 2 ; hmac de Python ; openssl
+
+[caso]
+id        = HMACSHA256-RFC4231-3
+algoritmo = hmac-sha256
+clave     = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+mensaje   = dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+salida    = 773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe
+fuente    = RFC 4231, caso 3 ; hmac de Python ; openssl
+
+[caso]
+id        = HMACSHA256-RFC4231-4
+algoritmo = hmac-sha256
+clave     = 0102030405060708090a0b0c0d0e0f10111213141516171819
+mensaje   = cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd
+salida    = 82558a389a443c0ea4cc819899f2083a85f0faa3e578f8077a2e3ff46729665b
+fuente    = RFC 4231, caso 4 ; hmac de Python ; openssl
+
+[caso]
+id        = HMACSHA256-RFC4231-6
+algoritmo = hmac-sha256
+clave     = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+mensaje   = 54657374205573696e67204c6172676572205468616e20426c6f636b2d53697a65204b6579202d2048617368204b6579204669727374
+salida    = 60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54
+fuente    = RFC 4231, caso 6 ; hmac de Python ; openssl
+
+[caso]
+id        = HMACSHA256-RFC4231-7
+algoritmo = hmac-sha256
+clave     = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+mensaje   = 5468697320697320612074657374207573696e672061206c6172676572207468616e20626c6f636b2d73697a65206b657920616e642061206c6172676572207468616e20626c6f636b2d73697a6520646174612e20546865206b6579206e6565647320746f20626520686173686564206265666f7265206265696e6720757365642062792074686520484d414320616c676f726974686d2e
+salida    = 9b09ffa71b942fcb27635fbcd5b0e944bfdc63644f0713938a7f51535c3a35e2
+fuente    = RFC 4231, caso 7 ; hmac de Python ; openssl

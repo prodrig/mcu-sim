@@ -53,6 +53,7 @@
 #include "../../periph/msp432e4/adc.h"
 #include "../../periph/msp432e4/udma.h"
 #include "../../periph/msp432e4/hib.h"
+#include "../../periph/msp432e4/ccm.h"
 #include "e4_programador.h"
 
 namespace stm32 {
@@ -110,6 +111,7 @@ public:
     AdcE4   adc0{"adc0", e4::ADC0_B}, adc1{"adc1", e4::ADC1_B};
     UdmaE4  udma{"udma"};
     HibE4   hib{"hib"};
+    CcmE4   ccm{"ccm"};
     UartE4* uart(unsigned n) { UartE4* u[8] = {&uart0, &uart1, &uart2, &uart3, &uart4, &uart5, &uart6, &uart7}; return u[n & 7u]; }
     SsiE4*  ssi(unsigned n) { SsiE4* u[4] = {&ssi0, &ssi1, &ssi2, &ssi3}; return u[n & 3u]; }
     I2cE4*  i2c(unsigned n) { I2cE4* u[10] = {&i2c0, &i2c1, &i2c2, &i2c3, &i2c4, &i2c5, &i2c6, &i2c7, &i2c8, &i2c9}; return u[n < 10 ? n : 0]; }
@@ -171,8 +173,9 @@ public:
     }
     std::vector<std::string> limitaciones() const {
         std::vector<std::string> l = {
-            "CAN, USB, EMAC, PWM, QEI, EPI, comparadores y el CCM (CRC, AES, DES, "
-            "SHA/MD5) estan DECLARADOS: son de T7",
+            "CAN, USB, EMAC, PWM, QEI, EPI y comparadores estan DECLARADOS: son de T7",
+            "el CCM calcula cada bloque en el acto; sin uDMA ni AES en CCM, CBC-MAC, "
+            "XTS, f8 ni f9",
             "las UART sin IrDA, tarjeta, 9 bits ni lineas de modem; los SSI y los I2C, "
             "solo como maestros (SPI de Freescale); los GPTM sin RTC, sin las "
             "interrupciones del PWM ni TnWOT/TnSNAPS/TCACT; el ADC ideal, sin "
@@ -368,6 +371,7 @@ private:
         engancha(adc0, S::C_ADC, 0);
         engancha(adc1, S::C_ADC, 1);
         engancha(udma, S::C_DMA, 0);
+        engancha(ccm, S::C_CCM, 0);
         // La hibernación: su reloj es RCGCHIB, pero su reset es el de VBAT
         perif.add_slave("s_hib", hib.base(), hib.size())->bind(hib.tsk);
         hib.clk(s_sys_); hib.clk_hz(s_sys_hz_); hib.clk_en(s_uno_); hib.rst_n(s_rst_hib_);
@@ -537,7 +541,7 @@ private:
         }
         if (a >= e4::ROM_B && a < e4::ROM_B + e4::ROM_SIZE) { a_rom_->b_transport(gp, t); return; }
         if (a >= e4::SRAM_B && a < e4::SRAM_B + sram.size()) { a_sram_->b_transport(gp, t); return; }
-        if (a >= e4::PERIPH_B && a < e4::PERIPH_FIN) {
+        if ((a >= e4::PERIPH_B && a < e4::PERIPH_FIN) || (a >= e4::CCM_B && a < e4::CCM_FIN)) {
             if (!puede(a, t)) { gp.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE); return; }
             a_perif_->b_transport(gp, t); return;
         }
@@ -593,7 +597,8 @@ private:
         }
         if (a >= e4::ROM_B && a < e4::ROM_B + e4::ROM_SIZE) return a_rom_->transport_dbg(gp);
         if (a >= e4::SRAM_B && a < e4::SRAM_B + sram.size()) return a_sram_->transport_dbg(gp);
-        if (a >= e4::PERIPH_B && a < e4::PERIPH_FIN) return a_perif_->transport_dbg(gp);
+        if ((a >= e4::PERIPH_B && a < e4::PERIPH_FIN) || (a >= e4::CCM_B && a < e4::CCM_FIN))
+            return a_perif_->transport_dbg(gp);
         return 0;
     }
 

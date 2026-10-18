@@ -91,8 +91,10 @@ jobs:
         # pycryptodome, y los 32 casos de AES, DES y TDES caen a un motor.
         #
         # Esto no es un remiendo para poner el CI en verde: es la dependencia
-        # que la comprobacion necesita para valer lo que dice que vale.
-        run: python3 -m pip install --break-system-packages pycryptodome
+        # que la comprobacion necesita para valer lo que dice que vale. Los del
+        # MSP432E4 (T7) piden dos mas: `cryptography` para GCM (openssl enc no
+        # hace AEAD) y `crccheck` para los CRC.
+        run: python3 -m pip install --break-system-packages pycryptodome cryptography crccheck
 
       - name: La licencia esta puesta, y con nombre
         # Tres cosas que un reparto no puede llevar mal, y las tres pueden

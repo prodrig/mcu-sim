@@ -210,4 +210,8 @@ testp4                406      22456139139423        resto
 # Entrega 4: E25-E29 -la ROM R1 y su cargador serie (con la Flash en blanco,
 # por ROM_UpdateUART y por BOOTCFG), MAP_ en e4_rom, y --rom ninguna-: 203.
 # El resto crece 497,78 ms, todos de E25-E29: E0-E24 no cambian.
-teste4                203      3683870847978         resto
+# Fase T7, entrega 1: E30 -el CCM (CRC, SHA/MD5, AES y DES) con e4_t7, que
+# pasa por el chip los vectores de cryp.vec, hash.vec, cryp2.vec, sha2.vec y
+# crc.vec-, y la huella de e4_t7 en E0: 213. El resto crece 2,915 ms, todos
+# de E30: E0-E29 no cambian.
+teste4                213      3686785847978         resto

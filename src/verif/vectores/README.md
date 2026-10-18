@@ -7,8 +7,18 @@ escriban, traídos antes de escribir una sola línea de modelo.
 ```
 cryp.vec                 16 casos: AES, DES y TDES
 hash.vec                 23 casos: MD5, SHA-1 y HMAC
+cryp2.vec                12 casos: AES-CFB, DES/TDES-CFB y AES-GCM   (MSP432E4, T7)
+sha2.vec                 26 casos: SHA-224, SHA-256 y sus HMAC        (MSP432E4, T7)
+crc.vec                  13 casos: CRC-32, CRC-32C, CRC-16, suma IP   (MSP432E4, T7)
 comprueba_vectores.py    los recalcula todos con dos motores independientes
 ```
+
+Los tres del MSP432E4 van aparte porque `cryp.vec` y `hash.vec` los lee
+enteros el banco del F417, que no tiene esos modos. `teste4` (grupo E30) pasa
+los cinco por el CCM del E4 con DriverLib (`verif/fw/msp432e4/e4_t7`), y
+`make hash` pasa `sha2.vec` por el núcleo de `periph/hash_algo.h`. Los motores
+nuevos: `cryptography` para GCM y `crccheck` para los CRC
+(`pip install pycryptodome cryptography crccheck`).
 
 ```bash
 make -C ../.. vectores          # o, desde aquí:
@@ -17,7 +27,7 @@ python3 comprueba_vectores.py --lentos   # también el del millón de letras
 python3 comprueba_vectores.py --detalle  # una línea por caso
 ```
 
-Hoy: **55 comprobaciones, las 55 confirmadas por dos motores, 0 fallos.**
+Hoy: **111 comprobaciones (108 sin las lentas), todas confirmadas por dos motores, 0 fallos.**
 
 ## Por qué existe esta carpeta
 

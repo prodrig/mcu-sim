@@ -1,0 +1,153 @@
+# =============================================================================
+# cryp2.vec — LOS MODOS QUE TIENE EL AES/DES DEL MSP432E4 Y NO EL CRYP DEL F417
+#
+# CFB de 128 (AES) y de 64 (DES y TDES), y GCM. Van aparte de `cryp.vec`
+# porque aquel lo lee entero el banco del F417. Misma regla de dos fuentes:
+# todo se recalcula en `comprueba_vectores.py` con OpenSSL y con pycryptodome.
+#
+#   * AES-CFB: el apéndice F.3.13, F.3.15 y F.3.17 del NIST SP 800-38A.
+#   * DES-CFB y TDES-CFB: no hay un vector publicado a mano que sirva; se
+#     usan la clave y el IV de DES-CBC y TDES-CBC-192 de `cryp.vec` y la
+#     salida es la de los dos motores.
+#   * AES-GCM: los casos 2, 3, 4, 9, 10, 15 y 16 de McGrew y Viega, «The
+#     Galois/Counter Mode of Operation (GCM)», apéndice B (los que usa el
+#     NIST en el SP 800-38D), con IV de 96 bits. El 4, el 10 y el 16 tienen
+#     AAD de 20 bytes y texto de 60: los dos con el último bloque a medias.
+#     El 1 (todo vacío) no está: con longitud y AAD a cero el E4 no hace
+#     nada que comprobar.
+#
+# FORMATO: el de `cryp.vec`, con dos campos más para GCM:
+#   aad        los datos autenticados, hexadecimal (puede ir vacío)
+#   tag        la etiqueta de 128 bits
+#   iv         en GCM, el IV de 96 bits (el banco forma J0 = IV || 00000001)
+# =============================================================================
+
+# --- AES-CFB128 ------------------------------------------------------------
+
+[caso]
+id        = AES-CFB-128
+algoritmo = aes-cfb
+clave     = 2b7e151628aed2a6abf7158809cf4f3c
+iv        = 000102030405060708090a0b0c0d0e0f
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710
+salida    = 3b3fd92eb72dad20333449f8e83cfb4ac8a64537a0b3a93fcde3cdad9f1ce58b26751f67a3cbb140b1808cf187a4f4dfc04b05357c5d1c0eeac4c66f9ff7f2e6
+fuente    = NIST SP 800-38A, apéndice F.3.13 ; OpenSSL ; pycryptodome
+
+[caso]
+id        = AES-CFB-192
+algoritmo = aes-cfb
+clave     = 8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b
+iv        = 000102030405060708090a0b0c0d0e0f
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710
+salida    = cdc80d6fddf18cab34c25909c99a417467ce7f7f81173621961a2b70171d3d7a2e1e8a1dd59b88b1c8e60fed1efac4c9c05f9f9ca9834fa042ae8fba584b09ff
+fuente    = NIST SP 800-38A, apéndice F.3.15 ; OpenSSL ; pycryptodome
+
+[caso]
+id        = AES-CFB-256
+algoritmo = aes-cfb
+clave     = 603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4
+iv        = 000102030405060708090a0b0c0d0e0f
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e5130c81c46a35ce411e5fbc1191a0a52eff69f2445df4f9b17ad2b417be66c3710
+salida    = dc7e84bfda79164b7ecd8486985d386039ffed143b28b1c832113c6331e5407bdf10132415e54b92a13ed0a8267ae2f975a385741ab9cef82031623d55b1e471
+fuente    = NIST SP 800-38A, apéndice F.3.17 ; OpenSSL ; pycryptodome
+
+# --- DES-CFB64 y TDES-CFB64 ------------------------------------------------
+
+[caso]
+id        = DES-CFB
+algoritmo = des-cfb
+clave     = 0123456789abcdef
+iv        = f69f2445df4f9b17
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e51
+salida    = 4f438776841b230e62e46bead5fed6e63f2f2c53844614b9d82e04309b9246c7
+fuente    = OpenSSL ; pycryptodome (la clave y el IV de DES-CBC)
+
+[caso]
+id        = TDES-CFB-192
+algoritmo = tdes-cfb
+clave     = 0123456789abcdef23456789abcdef01456789abcdef0123
+iv        = f69f2445df4f9b17
+entrada   = 6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e51
+salida    = 078bb74e59ce7ed67666de9cf95eaf3fe9ed6bb460f451528a5f9fe4ed710918
+fuente    = OpenSSL ; pycryptodome (la clave y el IV de TDES-CBC-192)
+
+# --- AES-GCM, McGrew y Viega, apéndice B ----------------------------------
+
+[caso]
+id        = AES-GCM-2
+algoritmo = aes-gcm
+clave     = 00000000000000000000000000000000
+iv        = 000000000000000000000000
+aad       = 
+entrada   = 00000000000000000000000000000000
+salida    = 0388dace60b6a392f328c2b971b2fe78
+tag       = ab6e47d42cec13bdf53a67b21257bddf
+fuente    = McGrew y Viega, The Galois/Counter Mode of Operation, apéndice B, caso 2 ; OpenSSL ; pycryptodome
+nota      = la clave cero: H = E(K, 0) es el primer valor que calcula el motor
+
+[caso]
+id        = AES-GCM-3
+algoritmo = aes-gcm
+clave     = feffe9928665731c6d6a8f9467308308
+iv        = cafebabefacedbaddecaf888
+aad       = 
+entrada   = d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a721c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b391aafd255
+salida    = 42831ec2217774244b7221b784d0d49ce3aa212f2c02a4e035c17e2329aca12e21d514b25466931c7d8f6a5aac84aa051ba30b396a0aac973d58e091473f5985
+tag       = 4d5c2af327cd64a62cf35abd2ba6fab4
+fuente    = McGrew y Viega, The Galois/Counter Mode of Operation, apéndice B, caso 3 ; OpenSSL ; pycryptodome
+
+[caso]
+id        = AES-GCM-4
+algoritmo = aes-gcm
+clave     = feffe9928665731c6d6a8f9467308308
+iv        = cafebabefacedbaddecaf888
+aad       = feedfacedeadbeeffeedfacedeadbeefabaddad2
+entrada   = d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a721c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b39
+salida    = 42831ec2217774244b7221b784d0d49ce3aa212f2c02a4e035c17e2329aca12e21d514b25466931c7d8f6a5aac84aa051ba30b396a0aac973d58e091
+tag       = 5bc94fbc3221a5db94fae95ae7121a47
+fuente    = McGrew y Viega, The Galois/Counter Mode of Operation, apéndice B, caso 4 ; OpenSSL ; pycryptodome
+nota      = AAD de 20 bytes y texto de 60: los dos con el último bloque a medias
+
+[caso]
+id        = AES-GCM-9
+algoritmo = aes-gcm
+clave     = feffe9928665731c6d6a8f9467308308feffe9928665731c
+iv        = cafebabefacedbaddecaf888
+aad       = 
+entrada   = d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a721c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b391aafd255
+salida    = 3980ca0b3c00e841eb06fac4872a2757859e1ceaa6efd984628593b40ca1e19c7d773d00c144c525ac619d18c84a3f4718e2448b2fe324d9ccda2710acade256
+tag       = 9924a7c8587336bfb118024db8674a14
+fuente    = McGrew y Viega, The Galois/Counter Mode of Operation, apéndice B, caso 9 ; OpenSSL ; pycryptodome
+
+[caso]
+id        = AES-GCM-10
+algoritmo = aes-gcm
+clave     = feffe9928665731c6d6a8f9467308308feffe9928665731c
+iv        = cafebabefacedbaddecaf888
+aad       = feedfacedeadbeeffeedfacedeadbeefabaddad2
+entrada   = d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a721c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b39
+salida    = 3980ca0b3c00e841eb06fac4872a2757859e1ceaa6efd984628593b40ca1e19c7d773d00c144c525ac619d18c84a3f4718e2448b2fe324d9ccda2710
+tag       = 2519498e80f1478f37ba55bd6d27618c
+fuente    = McGrew y Viega, The Galois/Counter Mode of Operation, apéndice B, caso 10 ; OpenSSL ; pycryptodome
+
+[caso]
+id        = AES-GCM-15
+algoritmo = aes-gcm
+clave     = feffe9928665731c6d6a8f9467308308feffe9928665731c6d6a8f9467308308
+iv        = cafebabefacedbaddecaf888
+aad       = 
+entrada   = d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a721c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b391aafd255
+salida    = 522dc1f099567d07f47f37a32a84427d643a8cdcbfe5c0c97598a2bd2555d1aa8cb08e48590dbb3da7b08b1056828838c5f61e6393ba7a0abcc9f662898015ad
+tag       = b094dac5d93471bdec1a502270e3cc6c
+fuente    = McGrew y Viega, The Galois/Counter Mode of Operation, apéndice B, caso 15 ; OpenSSL ; pycryptodome
+
+[caso]
+id        = AES-GCM-16
+algoritmo = aes-gcm
+clave     = feffe9928665731c6d6a8f9467308308feffe9928665731c6d6a8f9467308308
+iv        = cafebabefacedbaddecaf888
+aad       = feedfacedeadbeeffeedfacedeadbeefabaddad2
+entrada   = d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a721c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b39
+salida    = 522dc1f099567d07f47f37a32a84427d643a8cdcbfe5c0c97598a2bd2555d1aa8cb08e48590dbb3da7b08b1056828838c5f61e6393ba7a0abcc9f662
+tag       = 76fc6ece0f4e1768cddf8853bb2d551b
+fuente    = McGrew y Viega, The Galois/Counter Mode of Operation, apéndice B, caso 16 ; OpenSSL ; pycryptodome

@@ -47,6 +47,7 @@
 #include "../verif/swd_port.h"
 #include "../parts/puente_serie.h"
 #include "../verif/gdb_stub.h"
+#include "../verif/lee_vec.h"
 #include "../verif/gdb_client.h"
 #include "../core/gdb_stub_dap.h"
 #include <fstream>
@@ -78,6 +79,7 @@ static const char* const FW_DEMO_BIN = "verif/fw/msp432e4/e4_demo/e4_demo.bin";
 static const char* const FW_NV   = "verif/fw/msp432e4/e4_nv/e4_nv.out";
 static const char* const FW_T3   = "verif/fw/msp432e4/e4_t3/e4_t3.out";
 static const char* const FW_ROM  = "verif/fw/msp432e4/e4_rom/e4_rom.out";
+static const char* const FW_T7   = "verif/fw/msp432e4/e4_t7/e4_t7.out";
 
 // El buzón de e4_demo [verif/fw/msp432e4/e4_demo/main.c, buzon_t]
 enum : uint32_t {
@@ -1001,6 +1003,191 @@ SC_MODULE(TbE4) {
         v_ain0->release();
     }
 
+
+    // =======================================================================
+    // T7, entrega 1: el CCM con e4_t7, un servidor de vectores
+    // [verif/fw/msp432e4/e4_t7/main.c, buzon_t]
+    enum : uint32_t {
+        C_ORDEN = 0x10, C_HECHO = 0x14, C_OP = 0x18, C_CFG = 0x1C, C_NCLAVE = 0x20,
+        C_NENT = 0x24, C_NAAD = 0x28, C_RES = 0x2C, C_R0 = 0x30, C_CLAVE = 0x40, C_IV = 0x140,
+        C_TAG = 0x150, C_IVSAL = 0x160, C_AAD = 0x1B0, C_ENT = 0x230, C_SAL = 0x630, C_FIN = 0xA30
+    };
+    uint32_t orden_ = 0;
+    // Un caso: los datos al buzón, la orden, y esperar a que la haga
+    bool ccm_op(uint32_t op, uint32_t cfg, const std::vector<uint8_t>& clave,
+                const std::vector<uint8_t>& iv, const std::vector<uint8_t>& ent,
+                const std::vector<uint8_t>& aad = {}) {
+        std::vector<uint8_t> ceros(C_FIN - C_CLAVE, 0);
+        dut.sram.load(ceros.data(), ceros.size(), C_CLAVE);
+        if (!clave.empty()) dut.sram.load(clave.data(), clave.size(), C_CLAVE);
+        if (!iv.empty()) dut.sram.load(iv.data(), iv.size(), C_IV);
+        if (!aad.empty()) dut.sram.load(aad.data(), aad.size(), C_AAD);
+        if (!ent.empty()) dut.sram.load(ent.data(), ent.size(), C_ENT);
+        dut.sram.poke32(C_OP, op); dut.sram.poke32(C_CFG, cfg);
+        dut.sram.poke32(C_NCLAVE, uint32_t(clave.size()));
+        dut.sram.poke32(C_NENT, uint32_t(ent.size()));
+        dut.sram.poke32(C_NAAD, uint32_t(aad.size()));
+        dut.sram.poke32(C_ORDEN, ++orden_);
+        const sc_time lim = sc_time_stamp() + sc_time(20, SC_MS);
+        while (sc_time_stamp() < lim) {
+            wait(5, SC_US);
+            if (buzon(C_HECHO) == orden_) return true;
+        }
+        return false;
+    }
+    std::vector<uint8_t> sram_bytes(uint32_t off, size_t n) {
+        std::vector<uint8_t> v(n);
+        for (size_t i = 0; i < n; ++i) v[i] = uint8_t(dut.sram.peek32(uint32_t(off + (i & ~size_t(3)))) >> (8 * (i & 3)));
+        return v;
+    }
+    static uint32_t cfg_sha(const std::string& a) {
+        const std::string b = a.rfind("hmac-", 0) == 0 ? a.substr(5) : a;
+        const uint32_t algo = b == "md5" ? 0u : b == "sha1" ? 2u : b == "sha224" ? 4u : 6u;
+        return a == b ? (algo | 0x18u) : algo;
+    }
+    static unsigned tam_sha(const std::string& a) {
+        return a.find("md5") != std::string::npos ? 16 : a.find("sha1") != std::string::npos ? 20
+             : a.find("sha224") != std::string::npos ? 28 : 32;
+    }
+
+    void ccm_hash(unsigned& ok, unsigned& total, unsigned& ok_pp, unsigned& tot_pp,
+                  unsigned& ok_dos, unsigned& tot_dos) {
+        for (const char* f : {"verif/vectores/hash.vec", "verif/vectores/sha2.vec"}) {
+            for (const vec::Caso& c : vec::lee(f)) {
+                if (vec::campo(c, "lento") == "si") continue;
+                const std::string a = vec::campo(c, "algoritmo"), id = vec::campo(c, "id");
+                std::vector<uint8_t> m;
+                const auto u = vec::hex(vec::campo(c, "mensaje"));
+                const std::string rep = vec::campo(c, "repite");
+                for (unsigned r = 0; r < (rep.empty() ? 1u : unsigned(std::stoul(rep))); ++r)
+                    m.insert(m.end(), u.begin(), u.end());
+                const std::string esp = vec::campo(c, "salida");
+                const unsigned n = tam_sha(a);
+                const bool hm = a.rfind("hmac-", 0) == 0;
+                const auto k = vec::hex(vec::campo(c, "clave"));
+                auto prueba = [&](uint32_t op, unsigned& ok_, unsigned& tot_, const char* que) {
+                    ++tot_;
+                    const bool hecho = ccm_op(op, cfg_sha(a), k, {}, m);
+                    const std::string got = vec::a_hex(sram_bytes(C_SAL, n).data(), n);
+                    if (hecho && got == esp) { ++ok_; return; }
+                    std::printf("    FALLO %s (%s): %s\n      esperado %s\n", id.c_str(), que,
+                                hecho ? got.c_str() : "(no acaba)", esp.c_str());
+                };
+                if (!hm) {
+                    prueba(1, ok, total, "SHAMD5DataProcess");
+                    if (m.size() > 64) prueba(4, ok_dos, tot_dos, "en dos trozos");
+                } else {
+                    prueba(2, ok, total, "SHAMD5HMACKeySet");
+                    prueba(3, ok_pp, tot_pp, "SHAMD5HMACPPKeySet");
+                }
+            }
+        }
+    }
+
+    void ccm_cifra(unsigned& ok, unsigned& total, unsigned& ok_gcm, unsigned& tot_gcm, unsigned& iv_ok) {
+        for (const char* f : {"verif/vectores/cryp.vec", "verif/vectores/cryp2.vec"}) {
+            for (const vec::Caso& c : vec::lee(f)) {
+                const std::string a = vec::campo(c, "algoritmo"), id = vec::campo(c, "id");
+                const auto k = vec::hex(vec::campo(c, "clave"));
+                auto iv = vec::hex(vec::campo(c, "iv"));
+                const auto ent = vec::hex(vec::campo(c, "entrada")), sal = vec::hex(vec::campo(c, "salida"));
+                const auto aad = vec::hex(vec::campo(c, "aad"));
+                const bool aes = a.rfind("aes", 0) == 0, gcm = a == "aes-gcm";
+                uint32_t op = 7, modo = 0;
+                if (aes) {
+                    op = gcm ? 6 : 5;
+                    modo = (k.size() == 16 ? 0x8u : k.size() == 24 ? 0x10u : 0x18u);
+                    if (a == "aes-cbc") modo |= 0x20u;
+                    else if (a == "aes-ctr") modo |= 0x40u | 0x180u;
+                    else if (a == "aes-cfb") modo |= 0x400u;
+                    else if (gcm) { modo |= 0x20030040u; iv.insert(iv.end(), {0, 0, 0, 1}); }
+                } else {
+                    if (a.rfind("tdes", 0) == 0) modo |= 0x8u;
+                    if (a.find("cbc") != std::string::npos) modo |= 0x10u;
+                    else if (a.find("cfb") != std::string::npos) modo |= 0x20u;
+                }
+                const std::string tag = vec::campo(c, "tag");
+                for (int dir = 1; dir >= 0; --dir) {
+                    const auto& in = dir ? ent : sal;
+                    const auto& out = dir ? sal : ent;
+                    unsigned& o = gcm ? ok_gcm : ok;
+                    ++(gcm ? tot_gcm : total);
+                    const bool hecho = ccm_op(op, modo | (dir ? 0x4u : 0u), k, iv, in, aad);
+                    const auto got = sram_bytes(C_SAL, out.size());
+                    bool bien = hecho && got == out;
+                    if (gcm) bien = bien && vec::a_hex(sram_bytes(C_TAG, 16).data(), 16) == tag;
+                    if (bien) ++o;
+                    else std::printf("    FALLO %s (%s): %s\n", id.c_str(), dir ? "cifrar" : "descifrar",
+                                     hecho ? vec::a_hex(got.data(), got.size()).c_str() : "(no acaba)");
+                    // En CBC, el IV que queda es el último bloque cifrado
+                    if (hecho && dir && a == "aes-cbc" &&
+                        sram_bytes(C_IVSAL, 16) == std::vector<uint8_t>(sal.end() - 16, sal.end()))
+                        ++iv_ok;
+                }
+            }
+        }
+    }
+
+    void ccm_crc(unsigned& ok, unsigned& total) {
+        for (const vec::Caso& c : vec::lee("verif/vectores/crc.vec")) {
+            const std::string a = vec::campo(c, "algoritmo"), id = vec::campo(c, "id");
+            uint32_t cfg = 0x30u;                         // ENDIAN: B0 primero, el orden de la memoria
+            if (a == "crc32") cfg |= 0x2u | 0x6000u | 0x80u | 0x100u | 0x200u;
+            else if (a == "crc32c") cfg |= 0x3u | 0x6000u | 0x80u | 0x100u | 0x200u;
+            else if (a == "crc16-ccitt") cfg |= 0x1u | 0x6000u;
+            else if (a == "crc16-xmodem") cfg |= 0x1u | 0x4000u;
+            else if (a == "crc16-arc") cfg |= 0x0u | 0x4000u | 0x80u | 0x100u;
+            else if (a == "crc16-umts") cfg |= 0x0u | 0x4000u;
+            else if (a == "inet") cfg |= 0x8u | 0x4000u | 0x200u;
+            ++total;
+            const bool hecho = ccm_op(8, cfg, {}, {}, vec::hex(vec::campo(c, "mensaje")));
+            const std::string esp = vec::campo(c, "salida");
+            char got[12];
+            std::snprintf(got, sizeof got, "%0*x", int(esp.size()), buzon(C_RES));
+            if (hecho && esp == got) ++ok;
+            else std::printf("    FALLO %s: %s, esperado %s\n", id.c_str(), got, esp.c_str());
+        }
+    }
+
+    void t7_ccm() {
+        grupo("E30 El CCM con DriverLib (e4_t7): todos los vectores de verif/vectores por el chip");
+        arranca(0, FW_T7);
+        check(espera_estado(100, 20), "SysCtlPeripheralEnable(SYSCTL_PERIPH_CCM0) y PRCCM");
+        const unsigned av0 = dut.ccm.avisos();
+        unsigned ok = 0, tot = 0, ok_pp = 0, tot_pp = 0, ok_dos = 0, tot_dos = 0;
+        ccm_hash(ok, tot, ok_pp, tot_pp, ok_dos, tot_dos);
+        std::printf("    resumenes y HMAC: %u/%u; HMAC con la clave procesada: %u/%u; "
+                    "en dos trozos: %u/%u\n", ok, tot, ok_pp, tot_pp, ok_dos, tot_dos);
+        check(tot >= 40 && ok == tot, "MD5, SHA-1, SHA-224 y SHA-256 y sus HMAC (hash.vec y sha2.vec), "
+                                     "con SHAMD5DataProcess y SHAMD5HMACProcess");
+        check(tot_pp >= 20 && ok_pp == tot_pp,
+              "HMAC con SHAMD5HMACPPKeyGenerate y SHAMD5HMACPPKeySet: ODIGEST e IDIGEST de ida y vuelta");
+        check(tot_dos >= 4 && ok_dos == tot_dos,
+              "un resumen en dos trozos, con el contexto (IDIGEST y DIGEST_COUNT) guardado y repuesto");
+        unsigned c_ok = 0, c_tot = 0, g_ok = 0, g_tot = 0, iv_ok = 0;
+        ccm_cifra(c_ok, c_tot, g_ok, g_tot, iv_ok);
+        std::printf("    AES/DES: %u/%u; GCM: %u/%u\n", c_ok, c_tot, g_ok, g_tot);
+        check(c_tot >= 40 && c_ok == c_tot,
+              "AES ECB/CBC/CTR/CFB de 128, 192 y 256 bits, DES y TDES ECB/CBC/CFB, en las dos "
+              "direcciones (cryp.vec y cryp2.vec)");
+        check(g_tot >= 14 && g_ok == g_tot,
+              "AES-GCM con AESDataProcessAuth: texto y etiqueta, con AAD y bloques a medias");
+        check_eq(iv_ok, 3, "AESIVRead tras CBC devuelve el ultimo bloque cifrado (para encadenar)");
+        unsigned r_ok = 0, r_tot = 0;
+        ccm_crc(r_ok, r_tot);
+        std::printf("    CRC: %u/%u\n", r_ok, r_tot);
+        check(r_tot >= 13 && r_ok == r_tot,
+              "CRC-32, CRC-32C, cuatro CRC-16 y la suma de Internet (crc.vec), por palabras y bytes");
+        check_eq(dut.ccm.avisos() - av0, 0, "ni un aviso del CCM: todo lo que se usa esta modelado");
+        // Sin RCGCCCM, el CCM da error de bus, como cualquier periferico
+        mcu.reset_pin(true);
+        wait(20, SC_US);
+        uint32_t v = 0;
+        check(tm.read32(0x44036050u, v) != tlm::TLM_OK_RESPONSE,
+              "con RCGCCCM a 0 (tras el reset), AES_CTRL da error de bus");
+        mcu.reset_pin(false);
+    }
+
     void run() {
         // TESTE4_SOLO=t3: solo los grupos de la entrega 3, para trabajar en ellos.
         // No vale para el invariante (la cifra es otra).
@@ -1015,6 +1202,7 @@ SC_MODULE(TbE4) {
             if (q == "t3" || q == "udma") t3_udma();
             if (q == "t3" || q == "hib") t3_hib();
             if (q == "rom") { rom_r1(); cargador(); rom_map(); sin_rom(); bootcfg(); }
+            if (q == "t7" || q == "ccm") t7_ccm();
             std::printf("\nTOTAL E4 (solo %s): %u comprobaciones OK, %u fallos\n", solo, g_ok, g_fallos);
             sc_stop();
             return;
@@ -1047,6 +1235,7 @@ SC_MODULE(TbE4) {
         rom_map();
         sin_rom();
         bootcfg();
+        t7_ccm();
         std::printf("\nTOTAL E4: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

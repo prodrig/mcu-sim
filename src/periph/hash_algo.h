@@ -39,7 +39,7 @@
 
 namespace stm32 {
 
-enum class AlgoHash { Sha1, Md5 };
+enum class AlgoHash { Sha1, Md5, Sha224, Sha256 };
 
 // ---------------------------------------------------------------------------
 // Las dos rondas. Cada una toma un bloque de 512 bits —64 bytes en el orden del
@@ -126,6 +126,67 @@ inline void md5_bloque(uint32_t h[4], const uint8_t b[64]) {
     h[0] += a; h[1] += bb; h[2] += c; h[3] += d;
 }
 
+// --- SHA-224 y SHA-256 [FIPS PUB 180-4] (para el SHA/MD5 del MSP432E4) ------
+// Ocho palabras de estado y sesenta y cuatro rondas, con el bloque en
+// BIG-ENDIAN como SHA-1. Las 64 constantes son los 32 primeros bits de la
+// parte fraccionaria de las raíces cúbicas de los 64 primeros primos; van
+// escritas -calcularlas pide una raíz cúbica exacta a 64 bits que la
+// biblioteca matemática no garantiza- y las protegen los casos de
+// `verif/vectores/sha2.vec` (`make hash`).
+inline void sha256_bloque(uint32_t h[8], const uint8_t b[64]) {
+    static const uint32_t K[64] = {
+        0x428A2F98u,0x71374491u,0xB5C0FBCFu,0xE9B5DBA5u,0x3956C25Bu,0x59F111F1u,0x923F82A4u,0xAB1C5ED5u,
+        0xD807AA98u,0x12835B01u,0x243185BEu,0x550C7DC3u,0x72BE5D74u,0x80DEB1FEu,0x9BDC06A7u,0xC19BF174u,
+        0xE49B69C1u,0xEFBE4786u,0x0FC19DC6u,0x240CA1CCu,0x2DE92C6Fu,0x4A7484AAu,0x5CB0A9DCu,0x76F988DAu,
+        0x983E5152u,0xA831C66Du,0xB00327C8u,0xBF597FC7u,0xC6E00BF3u,0xD5A79147u,0x06CA6351u,0x14292967u,
+        0x27B70A85u,0x2E1B2138u,0x4D2C6DFCu,0x53380D13u,0x650A7354u,0x766A0ABBu,0x81C2C92Eu,0x92722C85u,
+        0xA2BFE8A1u,0xA81A664Bu,0xC24B8B70u,0xC76C51A3u,0xD192E819u,0xD6990624u,0xF40E3585u,0x106AA070u,
+        0x19A4C116u,0x1E376C08u,0x2748774Cu,0x34B0BCB5u,0x391C0CB3u,0x4ED8AA4Au,0x5B9CCA4Fu,0x682E6FF3u,
+        0x748F82EEu,0x78A5636Fu,0x84C87814u,0x8CC70208u,0x90BEFFFAu,0xA4506CEBu,0xBEF9A3F7u,0xC67178F2u };
+    auto rotr = [](uint32_t x, unsigned n) { return uint32_t((x >> n) | (x << (32 - n))); };
+    uint32_t w[64];
+    for (unsigned i = 0; i < 16; ++i)
+        w[i] = (uint32_t(b[4*i]) << 24) | (uint32_t(b[4*i+1]) << 16) |
+               (uint32_t(b[4*i+2]) << 8) | uint32_t(b[4*i+3]);
+    for (unsigned i = 16; i < 64; ++i) {
+        const uint32_t s0 = rotr(w[i-15], 7) ^ rotr(w[i-15], 18) ^ (w[i-15] >> 3);
+        const uint32_t s1 = rotr(w[i-2], 17) ^ rotr(w[i-2], 19) ^ (w[i-2] >> 10);
+        w[i] = w[i-16] + s0 + w[i-7] + s1;
+    }
+    uint32_t a = h[0], bb = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+    for (unsigned i = 0; i < 64; ++i) {
+        const uint32_t S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+        const uint32_t ch = (e & f) ^ (~e & g);
+        const uint32_t t1 = hh + S1 + ch + K[i] + w[i];
+        const uint32_t S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+        const uint32_t mj = (a & bb) ^ (a & c) ^ (bb & c);
+        const uint32_t t2 = S0 + mj;
+        hh = g; g = f; f = e; e = d + t1; d = c; c = bb; bb = a; a = t1 + t2;
+    }
+    h[0] += a; h[1] += bb; h[2] += c; h[3] += d; h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+}
+
+// Los valores iniciales de cada algoritmo [FIPS 180-4, §5.3; RFC 1321]
+inline unsigned palabras_estado(AlgoHash a) {
+    return a == AlgoHash::Md5 ? 4u : a == AlgoHash::Sha1 ? 5u : 8u;
+}
+inline void estado_inicial(AlgoHash a, uint32_t h[8]) {
+    static const uint32_t I1[8] = { 0x67452301u, 0xEFCDAB89u, 0x98BADCFEu, 0x10325476u,
+                                    0xC3D2E1F0u, 0, 0, 0 };
+    static const uint32_t I224[8] = { 0xC1059ED8u, 0x367CD507u, 0x3070DD17u, 0xF70E5939u,
+                                      0xFFC00B31u, 0x68581511u, 0x64F98FA7u, 0xBEFA4FA4u };
+    static const uint32_t I256[8] = { 0x6A09E667u, 0xBB67AE85u, 0x3C6EF372u, 0xA54FF53Au,
+                                      0x510E527Fu, 0x9B05688Cu, 0x1F83D9ABu, 0x5BE0CD19u };
+    const uint32_t* i = a == AlgoHash::Sha224 ? I224 : a == AlgoHash::Sha256 ? I256 : I1;
+    for (unsigned k = 0; k < 8; ++k) h[k] = i[k];
+    if (a == AlgoHash::Md5) h[4] = 0;
+}
+inline void bloque_hash(AlgoHash a, uint32_t h[8], const uint8_t b[64]) {
+    if (a == AlgoHash::Md5) md5_bloque(h, b);
+    else if (a == AlgoHash::Sha1) sha1_bloque(h, b);
+    else sha256_bloque(h, b);
+}
+
 // ---------------------------------------------------------------------------
 // EL ACUMULADOR: mensaje a bits, bloques de 512 y relleno automático
 //
@@ -144,13 +205,7 @@ class Resumen {
 public:
     void inicia(AlgoHash a) {
         algo_ = a;
-        if (a == AlgoHash::Sha1) {
-            h_[0] = 0x67452301u; h_[1] = 0xEFCDAB89u; h_[2] = 0x98BADCFEu;
-            h_[3] = 0x10325476u; h_[4] = 0xC3D2E1F0u;
-        } else {
-            h_[0] = 0x67452301u; h_[1] = 0xEFCDAB89u; h_[2] = 0x98BADCFEu;
-            h_[3] = 0x10325476u; h_[4] = 0u;
-        }
+        estado_inicial(a, h_);
         n_buf_ = 0; total_bits_ = 0; parcial_ = 0; n_parcial_ = 0;
         hay_pend_ = false; pend_ = 0; bloques_ = 0; cerrado_ = false;
     }
@@ -181,11 +236,13 @@ public:
     void termina() { rellena_(); cerrado_ = true; }
 
     // --- Resultado ----------------------------------------------------------
-    unsigned palabras() const { return algo_ == AlgoHash::Sha1 ? 5u : 4u; }
+    unsigned palabras() const {
+        return algo_ == AlgoHash::Sha224 ? 7u : palabras_estado(algo_);
+    }
     // El valor de `HASH_HRx`: big-endian = la secuencia del resumen.
     uint32_t hr(unsigned i) const {
-        if (i >= 5) return 0;
-        if (algo_ == AlgoHash::Sha1) return h_[i];
+        if (i >= palabras()) return 0;
+        if (algo_ != AlgoHash::Md5) return h_[i];
         return __builtin_bswap32(h_[i]);     // MD5 publica en little-endian
     }
     void digest(uint8_t* out) const {
@@ -218,7 +275,7 @@ private:
         if (n_buf_ == 64) { procesa_(); n_buf_ = 0; }
     }
     void procesa_() {
-        if (algo_ == AlgoHash::Sha1) sha1_bloque(h_, buf_); else md5_bloque(h_, buf_);
+        bloque_hash(algo_, h_, buf_);
         ++bloques_;
     }
     void rellena_() {
@@ -231,15 +288,15 @@ private:
         parcial_ = 0; n_parcial_ = 0;
         // Ceros hasta dejar sitio a los ocho bytes de la longitud.
         while (n_buf_ != 56) empuja_byte_(0);
-        // La longitud: big-endian en SHA-1, little-endian en MD5.
+        // La longitud: big-endian en SHA-1 y SHA-2, little-endian en MD5.
         for (unsigned i = 0; i < 8; ++i) {
-            const unsigned desp = (algo_ == AlgoHash::Sha1) ? (56 - 8*i) : (8*i);
+            const unsigned desp = (algo_ != AlgoHash::Md5) ? (56 - 8*i) : (8*i);
             empuja_byte_(uint8_t(L >> desp));
         }
     }
 
     AlgoHash algo_ = AlgoHash::Sha1;
-    uint32_t h_[5] = {0,0,0,0,0};
+    uint32_t h_[8] = {0,0,0,0,0,0,0,0};
     uint8_t  buf_[64] = {0};
     unsigned n_buf_ = 0;
     uint64_t total_bits_ = 0;
@@ -284,7 +341,7 @@ inline void hmac(AlgoHash a, const uint8_t* k, size_t nk,
     }
     Resumen dentro; dentro.inicia(a);
     dentro.bytes(ipad, 64); dentro.bytes(m, nm); dentro.termina();
-    uint8_t d[20]; dentro.digest(d);
+    uint8_t d[32]; dentro.digest(d);
 
     Resumen fuera; fuera.inicia(a);
     fuera.bytes(opad, 64); fuera.bytes(d, dentro.tam_digest()); fuera.termina();

@@ -1,9 +1,10 @@
 // =============================================================================
-// prueba_hash.cpp — los vectores oficiales contra el núcleo de MD5 y SHA-1
+// prueba_hash.cpp — los vectores oficiales contra el núcleo de MD5, SHA-1 y SHA-2
 //
 // NO necesita SystemC: comprueba `periph/hash_algo.h`, que es aritmética pura.
 // Lee `verif/vectores/hash.vec` —los 23 casos que trajo la fase 0, con su
-// procedencia— y los pasa por el núcleo del modelo.
+// procedencia— y `sha2.vec` -SHA-224, SHA-256 y sus HMAC, del SHA/MD5 del
+// MSP432E4 (T7)- y los pasa por el núcleo del modelo.
 //
 // Es la mitad de la verificación de la fase 2. La otra mitad, la del protocolo
 // de registros -`DATATYPE`, `NBLW`, `DCAL`, las cuatro fases del HMAC-, está en
@@ -89,7 +90,10 @@ int main(int argc, char** argv) {
                                   if (std::string(argv[i]) == "--detalle") return true;
                               return false; }();
 
-    const auto casos = lee("verif/vectores/hash.vec");
+    auto casos = lee("verif/vectores/hash.vec");
+    const size_t n_hash = casos.size();
+    const auto sha2 = lee("verif/vectores/sha2.vec");
+    casos.insert(casos.end(), sha2.begin(), sha2.end());
     unsigned ok = 0, fallo = 0, saltado = 0;
 
     for (const Caso& c : casos) {
@@ -101,12 +105,14 @@ int main(int argc, char** argv) {
         for (unsigned r = 0; r < c.repite; ++r)
             m.insert(m.end(), unidad.begin(), unidad.end());
 
-        uint8_t d[20] = {0};
+        uint8_t d[32] = {0};
         unsigned n = 0;
-        const bool es_md5 = c.algoritmo.find("md5") != std::string::npos;
-        const AlgoHash a  = es_md5 ? AlgoHash::Md5 : AlgoHash::Sha1;
+        const std::string base = c.algoritmo.rfind("hmac-", 0) == 0 ? c.algoritmo.substr(5) : c.algoritmo;
+        const AlgoHash a = base == "md5" ? AlgoHash::Md5 : base == "sha1" ? AlgoHash::Sha1
+                         : base == "sha224" ? AlgoHash::Sha224 : AlgoHash::Sha256;
+        Resumen tam; tam.inicia(a);
 
-        if (c.algoritmo == "md5" || c.algoritmo == "sha1") {
+        if (base == c.algoritmo) {
             Resumen r; r.inicia(a);
             r.bytes(m.data(), m.size());
             r.termina();
@@ -114,7 +120,7 @@ int main(int argc, char** argv) {
         } else {
             const auto k = de_hex(c.clave);
             hmac(a, k.data(), k.size(), m.data(), m.size(), d);
-            n = es_md5 ? 16u : 20u;
+            n = tam.tam_digest();
         }
 
         const std::string got = a_hex(d, n);
@@ -130,8 +136,8 @@ int main(int argc, char** argv) {
     }
 
     std::printf("\nRESULTADO %u ok, %u fallos, %u saltados"
-                " (de %zu casos de hash.vec)\n",
-                ok, fallo, saltado, casos.size());
+                " (de %zu casos: %zu de hash.vec y %zu de sha2.vec)\n",
+                ok, fallo, saltado, casos.size(), n_hash, casos.size() - n_hash);
     if (saltado)
         std::printf("Los saltados son los marcados `lento = si`; "
                     "`make hash V=--lentos` los corre tambien.\n");

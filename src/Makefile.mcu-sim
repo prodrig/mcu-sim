@@ -36,7 +36,7 @@
 #   make interop                  # el puente UART contra pySerial y socat (Python)
 #   make sflash-e4                # el cargador de la ROM del E4 por RFC 2217 (Python)
 #   make bsl-p4                   # el BSL del P4 por RFC 2217, y BSL Scripter si esta (Python)
-#   make vectores                 # los vectores del CRYP/HASH, sin SystemC ni compilar
+#   make vectores                 # los vectores del CRYP/HASH y del CCM, sin SystemC ni compilar
 #   make asan407                  # la suite del F407 con ASan + UBSan (Linux y macOS)
 #   make asan446                  # y la del F446
 #   make bench                    # el banco de medida del coste de simulación
@@ -624,10 +624,11 @@ macros-win:
 	        verif/prueba_macros_win.cpp \
 	 && echo "  [OK  ] las cabeceras compartidas sobreviven a las macros de Windows"
 
-# Los VECTORES DE PRUEBA del acelerador criptográfico del F415/F417. No compila
-# nada y no necesita SystemC: vuelve a calcular con dos implementaciones
-# independientes -OpenSSL y, si está, pycryptodome- los 39 casos de
-# `verif/vectores/*.vec` y los compara con lo que dice el fichero. Es la red de
+# Los VECTORES DE PRUEBA de los aceleradores criptográficos del F415/F417 y
+# del CCM del MSP432E4. No compila nada y no necesita SystemC: vuelve a
+# calcular con dos implementaciones independientes -OpenSSL, pycryptodome,
+# cryptography, crccheck, hashlib- los 90 casos de `verif/vectores/*.vec` y
+# los compara con lo que dice el fichero. Es la red de
 # seguridad de un periférico que, mal modelado, NO falla: cifra.
 #   make vectores            # los rápidos
 #   make vectores V=--lentos # también el del millón de letras
@@ -884,7 +885,8 @@ FWP4 := verif/fw/msp432p4/p4_demo verif/fw/msp432p4/coremark verif/fw/msp432p4/p
         verif/fw/msp432p4/bsl_b1 verif/fw/msp432p4/p4_bsl
 # Los del MSP432E401Y (T6): con la cabecera y DriverLib de TI para el E4.
 FWE4 := verif/fw/msp432e4/e4_demo verif/fw/msp432e4/coremark verif/fw/msp432e4/e4_nv \
-        verif/fw/msp432e4/e4_t3 verif/fw/msp432e4/e4_rom verif/fw/msp432e4/rom_r1
+        verif/fw/msp432e4/e4_t3 verif/fw/msp432e4/e4_rom verif/fw/msp432e4/rom_r1 \
+        verif/fw/msp432e4/e4_t7
 # Los de las placas de ejemplo que no usa ninguna suite de C++: el de
 # placas/barra8_en_nucleo.xml y el de placas/nucleo_f446re_barra8ac_azul.xml,
 # que vigila `make gui-sistema`; los de la pantalla TFT, el de
