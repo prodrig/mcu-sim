@@ -428,6 +428,8 @@ REGISTRA_PARTE(Jumper,
            "LOS DOS PINES QUE UNE EL PUENTE, por nombre o por numero: "
            "\"5V VCC\". Tienen que ser vecinos -uno al lado del otro en la "
            "misma fila o en la misma columna-, que es donde cabe el puente. "
+           "Varios, separados por comas -\"1 2, 3 4\"-, en un bloque de 2x2 "
+           "con dos puentes; un pin no puede estar en dos. "
            "\"no\": el jumper sin puente, y cada pin por su lado.")
       .atr("columnas, filas, numeracion, nombres, acodado", "como en Conector",
            "La forma de la tira y los nombres de sus pines.")
@@ -438,7 +440,8 @@ REGISTRA_PARTE(Jumper,
             "ventana el dibujo con el de la posicion que dice puente= y sin los "
             "demas: cambiar el jumper en el XML cambia el dibujo.")
       .nota("El puente no se mueve con la simulacion en marcha: une dos nodos "
-            "antes de construir, como un <hilo>.")
+            "antes de construir, como un <hilo>. Un <sistema> lo puede poner en "
+            "otro sitio sin tocar la placa: <jumper ref=\"E/J5\" puente=\"PWM LCD\"/>.")
       .cpp("filas(), columnas(), n_pines() y zigzag(), como un Conector."),
     [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
         GeomConector g;

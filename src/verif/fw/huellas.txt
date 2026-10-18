@@ -116,3 +116,5 @@ e4  msp432e4/e4_bootp/e4_bootp.out        13380  0x687866AF
 e4  msp432e4/e4_bootp/e4_bootp.bin         1964  0xDC7269F0
 e4  msp432e4/e4_usb/e4_usb.out            30676  0x1DDB13CD
 e4  msp432e4/e4_usb/e4_usb.bin             4872  0x3A6BC117
+e4  msp432e4/e4_edumkii/e4_edumkii.out    31444  0xC232D666
+e4  msp432e4/e4_edumkii/e4_edumkii.bin     5768  0x1DE331BE

@@ -247,6 +247,12 @@ jobs:
         working-directory: src
         run: make -f Makefile.mcu-sim p4-edumkii
 
+      # Y sobre la MSP-EXP432E401Y, en su BoosterPack 1, con la pantalla con
+      # luz: el J5 de la EDUMKII, cambiado por el sistema.
+      - name: La BOOSTXL-EDUMKII sobre la LaunchPad del MSP432E401Y
+        working-directory: src
+        run: make -f Makefile.mcu-sim e4-edumkii
+
       - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas)
         working-directory: src
         run: make -f Makefile.mcu-sim gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema

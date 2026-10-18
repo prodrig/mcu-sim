@@ -16,11 +16,19 @@
          ./build/mcu-sim placas/msp_exp432p401r_edumkii.xml --ms=600 --serie L/BCL=memoria
 
      y con mcu-sim-gui, para mover el joystick, la luz y la temperatura con
-     sus mandos y ver la pantalla.
+     sus mandos. Las dos placas llevan su dibujo (msp_exp432p401r.svg y
+     boostxl_edumkii.svg), una al lado de la otra.
+
+     El J5 de la BoosterPack se queda como sale de fabrica: J4.39 -P2.6, la
+     TA0.3- enciende el ROJO del RGB, que es lo que hace este firmware con S1.
+     La pantalla recibe lo que se le manda, pero sin luz: para verla, el
+     jumper a la retroiluminacion, <jumper ref="E/J5" puente="PWM LCD"/>, y
+     la luz se enciende con S1. Asi se ve en la LaunchPad de Ethernet,
+     placas/msp_exp432e401y_edumkii.xml.
      ========================================================================= -->
 <sistema nombre="msp-exp432p401r-edumkii">
-  <placa id="L" fichero="msp_exp432p401r.xml"/>
-  <placa id="E" fichero="boostxl_edumkii.xml"/>
+  <placa id="L" fichero="msp_exp432p401r.xml" x="0" y="0"/>
+  <placa id="E" fichero="boostxl_edumkii.xml" x="112" y="42"/>
 
   <acopla a="L/J1" b="E/J1"/>
   <acopla a="L/J2" b="E/J2"/>

@@ -3,48 +3,88 @@
      BOOSTXL-EDUMKII: la BoosterPack educativa de Texas Instruments, sin MCU
 
      Se enchufa encima de una LaunchPad por sus cuatro conectores, J1-J4, que
-     se llaman y se numeran como los de la LaunchPad. Lo que lleva, por pin
-     [SLAU599, «Pin Map»; T3 del MSP432]:
+     se llaman y se numeran como los de la LaunchPad: J1 1-10 y J3 21-30 a la
+     izquierda, J4 40-31 y J2 20-11 a la derecha. Lo que lleva, por pin
+     [SLAU599B, §2.1 y los dos esquematicos, rev. 1.1]:
 
-         JOY_X, JOY_Y   el joystick: J1.2 (A15 en la MSP-EXP432P401R) y J3.26
-                        (A9); JOY_SEL, su pulsador, en J1.5
-         ACC_X/Y/Z      el acelerometro analogico: J3.23, J3.24 y J3.25
-                        (A14, A13, A11), 1,65 V con 0 g y 0,66 V/g; en reposo,
+         JOY_X, JOY_Y   el joystick (JS1, dos potenciometros): J1.2 y J3.26.
+                        JOY_SEL, su pulsador, en J1.5 con 10 kohm a 3V3 (R19)
+         ACC_X/Y/Z      el acelerometro analogico KXTC9-2050 (U3): J3.23,
+                        J3.24 y J3.25; 1,65 V con 0 g y 0,66 V/g. En reposo,
                         Z marca 1 g
-         MIC            el microfono, en reposo a 1,65 V: J1.6 (A10)
-         S1, S2         dos pulsadores a masa: J4.33 y J4.32. La placa no
-                        lleva pull-up: el del pin (PxREN)
-         LED_R/G/B      el LED RGB: J4.39, J4.38 y J4.37 (TA0.3, TA0.1 y TA2.1
-                        en la LaunchPad), anodos al pin
-         BUZ            el zumbador, tras su transistor: J4.40 (TA0.4)
-         LCD            la pantalla, un ST7735 por SPI: SCK J1.7, SDA J2.15,
-                        CS J2.13, D/CX J4.31, RESET J2.17; su luz va a J4.39,
-                        con el rojo del RGB. El vidrio es de 128x128: aqui es
-                        un Tft128x160 y las 32 filas de abajo no se usan
-         OPT3001        luz ambiental, I2C en 0x44: SCL J1.9, SDA J1.10, INT
-                        J1.8
-         TMP006         temperatura por infrarrojos, I2C en 0x40, en el mismo
-                        bus; DRDY en J2.11
-         R_SCL, R_SDA   los pull-ups del I2C, de 10 kohm a 3V3
+         MIC            el microfono CMA-4544PF-W con su OPA344 (MIC1, U4),
+                        en reposo a 1,65 V: J1.6
+         S1, S2         dos pulsadores a masa, con 10 kohm a 3V3 (R20, R21):
+                        S1 en J4.33 y S2 en J4.32
+         LED_R/G/B      el LED RGB CLV1A-FKB (D1): azul J4.37, verde J4.38 y
+                        rojo J5.RGB, que es J4.39 con el puente de fabrica.
+                        En la placa cada color lo enciende un MMBT2222A desde
+                        los 5 V (Q1-Q3); aqui, un LED en el pin con la
+                        resistencia de su catodo (510, 470, 470 ohm)
+         J5             el jumper que lleva J4.39 al ROJO del RGB (1-2, como
+                        sale de fabrica) o a la LUZ de la pantalla (2-3). Con
+                        el de fabrica la pantalla esta a oscuras: su luz
+                        cuelga de una base con 100 kohm a masa (R33). Un
+                        sistema que la quiera ver lo cambia con
+                        <jumper ref="E/J5" puente="PWM LCD"/>
+         BUZ            el zumbador CEM-1203 (BUZ1), tras su transistor Q5 y
+                        2,2 kohm: J4.40
+         LCD            la pantalla de Crystalfontz CFAF128128B-0145T (LCD1),
+                        un ST7735 por SPI: SCK J1.7, SDA J2.15, CS J2.13, D/C
+                        J4.31, RESET J2.17; su luz, la de J5. El vidrio es de
+                        128x128: aqui es un Tft128x160 y las 32 filas de abajo
+                        no se usan
+         OPT3001        luz ambiental (U2), I2C en 0x44: SCL J1.9, SDA J1.10,
+                        INT J1.8 con 10 kohm a 3V3 (R6)
+         TMP006         temperatura por infrarrojos (U1), I2C en 0x40, en el
+                        mismo bus; DRDY en J2.11 con 10 kohm (R1). TI dejo de
+                        montarlo en 2017 [SLAU599B, §2.1.3]: aqui esta, como en
+                        las placas que lo llevan
+         R2-R5          los pull-ups del I2C: 10 kohm por sensor en SCL y en
+                        SDA, 5 kohm en total
+         J8             el conector del servo: GND, 5 V y la senal, J2.19
+         GATOR          los dos agujeros de pinza de cocodrilo: G1 en J4.34,
+                        con 22 Mohm a 3V3 (R22), y G2 a masa. Tocar los dos a
+                        la vez baja la linea
+         D5, D3         los LED verdes de alimentacion: 5 V (510 ohm) y 3V3
+                        (470 ohm)
 
      Sola no hace nada; se valida igual:
 
          ./build/mcu-sim placas/boostxl_edumkii.xml --valida
 
-     Enchufada a la LaunchPad, es placas/msp_exp432p401r_edumkii.xml.
+     Enchufada a una LaunchPad: placas/msp_exp432p401r_edumkii.xml y
+     placas/msp_exp432e401y_edumkii.xml.
      ========================================================================= -->
 <placa nombre="boostxl-edumkii">
-  <componente tipo="Conector" id="J1" filas="1" columnas="10"/>
-  <componente tipo="Conector" id="J2" filas="1" columnas="10"/>
-  <componente tipo="Conector" id="J3" filas="1" columnas="10"/>
+  <!-- Los cuatro conectores; las patillas de alimentacion, con su nombre -->
+  <componente tipo="Conector" id="J1" filas="1" columnas="10">
+    <pin nombre="1" nodo="3V3"/>
+  </componente>
+  <componente tipo="Conector" id="J2" filas="1" columnas="10">
+    <pin nombre="10" nodo="GND"/>   <!-- 20 -->
+  </componente>
+  <componente tipo="Conector" id="J3" filas="1" columnas="10">
+    <pin nombre="1" nodo="5V"/>     <!-- 21 -->
+    <pin nombre="2" nodo="GND"/>    <!-- 22 -->
+  </componente>
   <componente tipo="Conector" id="J4" filas="1" columnas="10"/>
 
-  <!-- El bus I2C y la masa tienen varios conductores; J4.39, la luz y el rojo -->
+  <!-- Lo que tiene varios conductores: el bus I2C, las alimentaciones, la
+       linea de J4.39 y la de la pinza -->
   <nodo id="J1.9" bus="si"/>
   <nodo id="J1.10" bus="si"/>
-  <nodo id="J2.10" bus="si"/>
+  <nodo id="GND" bus="si"/>
+  <nodo id="3V3" bus="si"/>
+  <nodo id="5V" bus="si"/>
   <nodo id="J4.9" bus="si"/>
-  <nodo id="J1.1" bus="si"/>
+  <nodo id="J4.4" bus="si"/>
+  <nodo id="J1.5" bus="si"/>
+  <nodo id="J4.2" bus="si"/>
+  <nodo id="J4.3" bus="si"/>
+  <nodo id="J1.8" bus="si"/>
+  <nodo id="J2.1" bus="si"/>
+  <nodo id="J5.LCD" bus="si"/>
 
   <!-- El joystick y su pulsador -->
   <componente tipo="FuenteAjustable" id="JOY_X" v="1.65">
@@ -55,6 +95,9 @@
   </componente>
   <componente tipo="Button" id="JOY_SEL" v_cerrado="0" r_cerrado="10">
     <pin nombre="pin" nodo="J1.5"/>
+  </componente>
+  <componente tipo="Rpull" id="R19" v="3.3" r="10000" visible="no">
+    <pin nombre="a" nodo="J1.5"/>
   </componente>
 
   <!-- El acelerometro, en reposo y plano -->
@@ -73,17 +116,32 @@
     <pin nombre="pin" nodo="J1.6"/>
   </componente>
 
-  <!-- Los dos pulsadores -->
+  <!-- Los dos pulsadores, con sus pull-ups -->
   <componente tipo="Button" id="S1" v_cerrado="0" r_cerrado="10">
     <pin nombre="pin" nodo="J4.3"/>
   </componente>
   <componente tipo="Button" id="S2" v_cerrado="0" r_cerrado="10">
     <pin nombre="pin" nodo="J4.2"/>
   </componente>
+  <componente tipo="Rpull" id="R20" v="3.3" r="10000" visible="no">
+    <pin nombre="a" nodo="J4.3"/>
+  </componente>
+  <componente tipo="Rpull" id="R21" v="3.3" r="10000" visible="no">
+    <pin nombre="a" nodo="J4.2"/>
+  </componente>
+
+  <!-- J5: J4.39 (PWM) al rojo del RGB o a la luz de la pantalla -->
+  <componente tipo="Jumper" id="J5" filas="3" columnas="1"
+              nombres="RGB PWM LCD" puente="RGB PWM">
+    <pin nombre="PWM" nodo="J4.9"/>
+  </componente>
+  <componente tipo="Rpull" id="R33" v="0" r="100000" visible="no">
+    <pin nombre="a" nodo="J5.LCD"/>
+  </componente>
 
   <!-- El LED RGB -->
-  <componente tipo="Led" id="LED_R" a_vss="si" vf="2.0" r="470">
-    <pin nombre="anodo" nodo="J4.9"/>
+  <componente tipo="Led" id="LED_R" a_vss="si" vf="2.0" r="510">
+    <pin nombre="anodo" nodo="J5.RGB"/>
   </componente>
   <componente tipo="Led" id="LED_G" a_vss="si" vf="2.2" r="470">
     <pin nombre="anodo" nodo="J4.8"/>
@@ -92,24 +150,24 @@
     <pin nombre="anodo" nodo="J4.7"/>
   </componente>
 
-  <!-- El zumbador -->
-  <componente tipo="Zumbador" id="BUZ">
+  <!-- El zumbador: lo que ve el pin es la base de Q5, tras 2,2 kohm -->
+  <componente tipo="Zumbador" id="BUZ" r_carga="2900">
     <pin nombre="pin" nodo="J4.10"/>
   </componente>
 
   <!-- La pantalla -->
   <componente tipo="Tft128x160" id="LCD">
-    <pin nombre="vcc"   nodo="J1.1"/>
-    <pin nombre="gnd"   nodo="J2.10"/>
+    <pin nombre="vcc"   nodo="3V3"/>
+    <pin nombre="gnd"   nodo="GND"/>
     <pin nombre="cs"    nodo="J2.3"/>
     <pin nombre="reset" nodo="J2.7"/>
     <pin nombre="ad"    nodo="J4.1"/>
     <pin nombre="sda"   nodo="J2.5"/>
     <pin nombre="sck"   nodo="J1.7"/>
-    <pin nombre="led"   nodo="J4.9"/>
+    <pin nombre="led"   nodo="J5.LCD"/>
   </componente>
 
-  <!-- Los dos sensores I2C y sus pull-ups -->
+  <!-- Los dos sensores I2C, sus pull-ups y los de sus lineas de aviso -->
   <componente tipo="Opt3001" id="OPT3001" dir="0x44" lux="300">
     <pin nombre="scl" nodo="J1.9"/>
     <pin nombre="sda" nodo="J1.10"/>
@@ -120,10 +178,48 @@
     <pin nombre="sda"  nodo="J1.10"/>
     <pin nombre="drdy" nodo="J2.1"/>
   </componente>
-  <componente tipo="Rpull" id="R_SCL" v="3.3" r="10000">
+  <componente tipo="Rpull" id="R3" v="3.3" r="10000" visible="no">
     <pin nombre="a" nodo="J1.9"/>
   </componente>
-  <componente tipo="Rpull" id="R_SDA" v="3.3" r="10000">
+  <componente tipo="Rpull" id="R2" v="3.3" r="10000" visible="no">
     <pin nombre="a" nodo="J1.10"/>
+  </componente>
+  <componente tipo="Rpull" id="R5" v="3.3" r="10000" visible="no">
+    <pin nombre="a" nodo="J1.9"/>
+  </componente>
+  <componente tipo="Rpull" id="R4" v="3.3" r="10000" visible="no">
+    <pin nombre="a" nodo="J1.10"/>
+  </componente>
+  <componente tipo="Rpull" id="R6" v="3.3" r="10000" visible="no">
+    <pin nombre="a" nodo="J1.8"/>
+  </componente>
+  <componente tipo="Rpull" id="R1" v="3.3" r="10000" visible="no">
+    <pin nombre="a" nodo="J2.1"/>
+  </componente>
+
+  <!-- El conector del servo -->
+  <componente tipo="Conector" id="J8" filas="1" columnas="3" nombres="GND PWR SIG">
+    <pin nombre="GND" nodo="GND"/>
+    <pin nombre="PWR" nodo="5V"/>
+    <pin nombre="SIG" nodo="J2.9"/>   <!-- 19 -->
+  </componente>
+
+  <!-- Las pinzas de cocodrilo -->
+  <componente tipo="Conector" id="GATOR" filas="1" columnas="2" nombres="G1 G2">
+    <pin nombre="G1" nodo="J4.4"/>    <!-- 34 -->
+    <pin nombre="G2" nodo="GND"/>
+  </componente>
+  <componente tipo="Rpull" id="R22" v="3.3" r="22000000" visible="no">
+    <pin nombre="a" nodo="J4.4"/>
+  </componente>
+
+  <!-- Los dos LED de alimentacion -->
+  <componente tipo="Led" id="D5" vf="2.0" r="510">
+    <pin nombre="anodo" nodo="5V"/>
+    <pin nombre="catodo" nodo="GND"/>
+  </componente>
+  <componente tipo="Led" id="D3" vf="2.0" r="470">
+    <pin nombre="anodo" nodo="3V3"/>
+    <pin nombre="catodo" nodo="GND"/>
   </componente>
 </placa>

@@ -335,6 +335,7 @@ y lo que las une se dice en el sistema, que es donde se sabe.
 | `<acopla conectores="A/J1 B/J1 C/J1"/>` | Una **pila** (PC/104, cabeceras apilables): el pin *k* es el mismo en todos. Un conector va en un acople solo |
 | `<hilo a="A/CN9.2" b="B/PA3"/>` | Dos nodos cualesquiera, unidos: un cable, un cruce TX↔RX |
 | `<mcu ref="A/u0" firmware= depuracion= puerto_gdb=/>` | Lo que el montaje decide de un chip de una placa, sin tocar su fichero |
+| `<jumper ref="A/JP1" puente="..."/>` | Dónde va el puente de un `Jumper` de una placa en este montaje, sin tocar su fichero (`Jumper`, §4) |
 
 **Todo lo de la placa `A` se llama `A/...`**: `A/LD2`, `A/u0`, `A/vcc`, el
 pin de conector `A/CN9.2`. Dentro del fichero de la placa se escribe como
@@ -956,7 +957,7 @@ simulación en marcha.
 
 | Parámetro | Omisión | Efecto |
 | :--- | :--- | :--- |
-| `puente` | *(obligatorio)* | **Los dos pines que une**, por nombre o por número: `"5V VCC"`. Tienen que ser vecinos —uno al lado del otro en la misma fila o columna—. `"no"`: sin puente |
+| `puente` | *(obligatorio)* | **Los dos pines que une**, por nombre o por número: `"5V VCC"`. Tienen que ser vecinos —uno al lado del otro en la misma fila o columna—. Un bloque que lleva **varios puentes** los dice separados por comas, sin que un pin esté en dos: `"1 2, 3 4"`. `"no"`: sin puente |
 | `columnas`, `filas`, `numeracion`, `nombres`, `acodado` | como en `Conector` | La forma de la tira, los nombres de sus pines y hacia dónde salen |
 
 ```xml
@@ -969,10 +970,18 @@ simulación en marcha.
 ```
 
 Son errores un `puente=` que falta, que no son dos pines, un pin que el jumper
-no tiene, un pin consigo mismo y dos pines que no están uno al lado del otro.
-En el dibujo, el puente es una **variante** (§2.6): `JP1@5V-VCC` —los dos pines
-por orden de pin, con un guion— y `mcu-sim` manda la que dice `puente=`.
-`placas/ftdi_ft232rl.xml` es el ejemplo.
+no tiene, un pin consigo mismo, dos pines que no están uno al lado del otro y
+un pin en dos puentes. En el dibujo, el puente es una **variante** (§2.6):
+`JP1@5V-VCC` —los dos pines por orden de pin, con un guion— y `mcu-sim` manda
+la que dice `puente=`; con varios, unidos por `+` en el orden en que se dicen:
+`JP4@1-2+3-4`. `placas/ftdi_ft232rl.xml` es el ejemplo de uno, y los JP4 y JP5
+de `placas/msp_exp432e401y.xml`, de 2x2 con dos puentes, el de varios.
+
+**Un sistema puede mover el puente** de una de sus placas sin tocar su
+fichero: `<jumper ref="E/J5" puente="PWM LCD"/>` (§2.5). Es como se monta la
+placa en ese sistema: la BOOSTXL-EDUMKII sale de fábrica con su J5 en el rojo
+del RGB, y `placas/msp_exp432e401y_edumkii.xml` lo pasa a la luz de la
+pantalla.
 
 #### `Rpull`
 
@@ -1724,8 +1733,9 @@ clic y la pantalla TFT de pie, con `verif/fw/servo_demo`.
 ### 4.12 Las piezas de la BOOSTXL-EDUMKII
 
 Las cuatro que trajo la placa educativa de TI (fase T3 del MSP432,
-`parts/boosterpack.h`). La placa entera es `placas/boostxl_edumkii.xml`, y
-enchufada a la LaunchPad, `placas/msp_exp432p401r_edumkii.xml`.
+`parts/boosterpack.h`). La placa entera es `placas/boostxl_edumkii.xml`, con
+su dibujo, y enchufada a las LaunchPad, `placas/msp_exp432p401r_edumkii.xml` y
+`placas/msp_exp432e401y_edumkii.xml`.
 
 #### `FuenteAjustable`
 

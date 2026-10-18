@@ -112,8 +112,9 @@ inline bool alim_desde_nombre(const std::string& s, std::string& mcu,
 //
 // UN JUMPER es un conector con un puente puesto (`puente="5V VCC"`): dos pines
 // vecinos que la pieza de plástico une. Son el mismo nodo, como si un <hilo>
-// los uniera dentro de la placa; `puente_a` y `puente_b` dicen cuáles (0 si
-// no tiene puente).
+// los uniera dentro de la placa; `puentes` dice cuáles (vacío si no tiene
+// puente). Un bloque de 2x2 lleva DOS, separados por una coma: `puente="1 2,
+// 3 4"` (el JP4 de la MSP-EXP432E401Y).
 // ---------------------------------------------------------------------------
 inline bool es_conector(const std::string& tipo) {
     return tipo == "Conector" || tipo == "Jumper";
@@ -123,15 +124,19 @@ struct GeomConector {
     unsigned filas = 1, columnas = 0;
     bool     zigzag = true;
     std::vector<std::string> nombres;     // vacío: todos por número
-    unsigned puente_a = 0, puente_b = 0;  // un Jumper: los dos pines unidos
+    std::vector<std::pair<unsigned, unsigned>> puentes;  // un Jumper: cada par unido
     // `acodado="si"`: los pines salen de lado, por el borde de la placa, y no
     // hacia arriba. Para la ventana nada mas: un hilo llega al borde de un pin
     // acodado y al centro de uno derecho, que es donde se ve el cable
     bool     acodado = false;
     // El puente de un Jumper escrito como lo lleva el dibujo: `5V-VCC`, por
-    // orden de pin; `no` sin puente (vease Netlist::variante)
+    // orden de pin; con dos, `1-2+3-4`, por el orden en que se dicen; `no` sin
+    // puente (vease Netlist::variante)
     std::string puente() const {
-        return puente_a ? pin_k(puente_a) + "-" + pin_k(puente_b) : std::string("no");
+        if (puentes.empty()) return "no";
+        std::string r;
+        for (const auto& p : puentes) r += (r.empty() ? "" : "+") + pin_k(p.first) + "-" + pin_k(p.second);
+        return r;
     }
     unsigned n() const { return filas * columnas; }
     // Cómo se llama el pin k: su nombre, o su número
@@ -768,21 +773,36 @@ public:
                        "y '-' para el que no lo lleva";
         }
         // El puente de un Jumper: dos pines vecinos, por nombre o por número,
-        // o "no". Es obligatorio: un jumper sin decir como esta puesto es la
-        // mitad de la placa sin decir
-        g.puente_a = g.puente_b = 0;
+        // o "no"; o varios puentes, separados por comas -"1 2, 3 4"-, que no
+        // compartan pin. Es obligatorio: un jumper sin decir como esta puesto
+        // es la mitad de la placa sin decir
+        g.puentes.clear();
         if (i.tipo == "Jumper") {
             if (!i.params.count("puente"))
                 return "falta puente=\"A B\": los dos pines que une el puente (o "
                        "puente=\"no\" si no lleva)";
-            const std::string pt = i.txt("puente");
-            if (pt != "no") {
+            const std::string todo = i.txt("puente");
+            std::vector<std::string> trozos;
+            {
+                std::string t;
+                for (char ch : todo + ",") {
+                    if (ch == ',') { trozos.push_back(t); t.clear(); }
+                    else t.push_back(ch);
+                }
+            }
+            std::set<unsigned> usados;
+            for (const std::string& pt0 : trozos) {
+                std::string pt = pt0;
+                while (!pt.empty() && pt.front() == ' ') pt.erase(pt.begin());
+                while (!pt.empty() && pt.back() == ' ') pt.pop_back();
+                if (pt == "no" && trozos.size() == 1) break;
                 std::istringstream is(pt);
                 std::vector<std::string> ps;
                 std::string t;
                 while (is >> t) ps.push_back(t);
                 if (ps.size() != 2)
-                    return "puente=\"" + pt + "\" no vale: dos pines, \"A B\", o \"no\"";
+                    return "puente=\"" + todo + "\" no vale: dos pines, \"A B\", varios "
+                           "separados por comas, \"A B, C D\", o \"no\"";
                 unsigned k[2] = {0, 0};
                 for (int j = 0; j < 2; ++j) {
                     for (unsigned q = 1; q <= g.n() && !k[j]; ++q)
@@ -799,8 +819,10 @@ public:
                 if (!vecinos)
                     return "puente: " + ps[0] + " y " + ps[1] + " no estan uno al lado "
                            "del otro, y un puente solo une dos pines vecinos";
-                g.puente_a = std::min(k[0], k[1]);
-                g.puente_b = std::max(k[0], k[1]);
+                for (int j = 0; j < 2; ++j)
+                    if (usados.count(k[j])) return "puente: el pin " + ps[j] + " esta en dos puentes";
+                usados.insert(k[0]); usados.insert(k[1]);
+                g.puentes.emplace_back(std::min(k[0], k[1]), std::max(k[0], k[1]));
             }
         }
         return std::string();
@@ -967,7 +989,7 @@ public:
                 todos.push_back(Conexion{g.pin_k(k), nm});
             }
             // El puente de un Jumper: sus dos pines, el mismo nodo
-            if (g.puente_a) pares.emplace_back(g.nodo(i.id, g.puente_a), g.nodo(i.id, g.puente_b));
+            for (const auto& pz : g.puentes) pares.emplace_back(g.nodo(i.id, pz.first), g.nodo(i.id, pz.second));
             i.pines = todos;
         }
 

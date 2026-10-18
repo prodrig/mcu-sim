@@ -784,9 +784,30 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
                     return donde(h) + "<mcu ref=...>: atributo desconocido: " + a.first +
                            " (el tipo lo dice la placa, o --mcu)";
             }
+        } else if (h.nombre == "jumper") {
+            // Como esta puesto el puente de un Jumper de una placa EN ESTE
+            // MONTAJE, sin tocar su fichero: la EDUMKII lleva su J5 al rojo
+            // del RGB de fabrica, y un sistema que quiere la pantalla con luz
+            // lo pasa a la retroiluminacion
+            for (const auto& a : h.attrs)
+                if (a.first != "ref" && a.first != "puente")
+                    return donde(h) + "<jumper>: atributo desconocido: " + a.first;
+            if (!h.tiene("ref") || !h.tiene("puente"))
+                return donde(h) + "<jumper> necesita ref=\"placa/id\" y puente=\"A B\" (o \"no\")";
+            std::string pl, rs;
+            const std::string ep = parte(h.attr_o("ref"), pl, rs);
+            if (!ep.empty()) return donde(h) + "<jumper>: " + ep;
+            Instancia* ij = nl.busca(pl + "/" + rs);
+            if (!ij || ij->tipo != "Jumper")
+                return donde(h) + "<jumper ref=\"" + h.attr_o("ref") + "\">: la placa " + pl +
+                       " no tiene ningun Jumper que se llame " + rs;
+            ij->params["puente"] = h.attr_o("puente");
+            GeomConector gj;
+            const std::string eg = Netlist::geometria(*ij, gj);
+            if (!eg.empty()) return donde(h) + "<jumper ref=\"" + h.attr_o("ref") + "\">: " + eg;
         } else {
             return donde(h) + "elemento desconocido dentro de <sistema>: <" + h.nombre +
-                   ">. Lo que va aqui: <placa>, <acopla>, <hilo>, <mcu ref> y <ruta>";
+                   ">. Lo que va aqui: <placa>, <acopla>, <hilo>, <mcu ref>, <jumper ref> y <ruta>";
         }
     }
     // Las rutas, de líneas que hay: ya están todos los acoples y los hilos

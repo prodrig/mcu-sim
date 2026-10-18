@@ -168,6 +168,15 @@ Y en la T7 (CCM, C_CAN, EMAC con su PHY, el cargador por Ethernet y el USB):
 | — | USB 2.0 (cap. 7 y 9: la conexión, el reset y las peticiones estándar) y CDC PSTN 1.2 (`SET_LINE_CODING`, `SET_CONTROL_LINE_STATE`, `SEND_BREAK`) | `usb.org`, de memoria; sin versionar |
 | — | RFC 951 (BOOTP) y RFC 1350 (TFTP), para el cargador por Ethernet | `rfc-editor.org`, de memoria |
 
+Las placas (`placas/msp_exp432p401r.xml`, `msp_exp432e401y.xml`,
+`boostxl_edumkii.xml` y sus dibujos) salen de sus guías, **en `doc/refs/` sin
+versionar**: SLAU597F (MSP-EXP432P401R, rev. de marzo de 2018, con los
+esquemáticos de la placa rev. 2.1), SLAU748B (MSP-EXP432E401Y, septiembre de
+2018, esquemáticos rev. 1.1; el fichero se llama «MSP432P401Y» por error) y
+SLAU599B (BOOSTXL-EDUMKII, julio de 2021, esquemáticos rev. 1.1). Lo que el
+dibujo no saca de ellas -las medidas de la P401R y de la EDUMKII- es
+aproximado (P-17 u).
+
 **Pendientes de bajar a `doc/refs/`, sin versionar:** SLAU356 (TRM del
 MSP432P4), SLAS826 (datasheet del P401R), SLAU622 (BSL), SLAU723 (TRM del
 E4). La red de este entorno pide permiso para `ti.com` y no se pudo leer el

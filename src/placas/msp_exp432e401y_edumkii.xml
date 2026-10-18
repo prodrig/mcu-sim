@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UN SISTEMA: la MSP-EXP432E401Y con la BOOSTXL-EDUMKII en su BoosterPack 1
+
+     La LaunchPad de Ethernet tiene dos BoosterPack XL [SLAU748B, §2.1.6]; la
+     EDUMKII va en la 1, la de junto al XDS110: J1-J4 con J1-J4, pin a pin.
+     Todo se nombra con el id de su placa delante: L/u0 es el chip, L/BCL el
+     backchannel, E/LCD la pantalla, E/JOY_X el eje X del joystick.
+
+     EL JUMPER J5 DE LA EDUMKII, en la luz de la pantalla. De fabrica lleva
+     J4.39 al rojo del RGB y la pantalla se queda a oscuras; este montaje lo
+     pasa a la retroiluminacion sin tocar el fichero de la placa (el
+     <jumper> de abajo), y el firmware enciende la luz con PF2. El rojo del
+     RGB se queda sin pin: S1 se ve en la pantalla.
+
+     El firmware, verif/fw/msp432e4/e4_edumkii, es el de la P401R
+     (verif/fw/msp432p4/edumkii_demo) con DriverLib del E4: el joystick, el
+     acelerometro, la luz y la temperatura por el backchannel cada 100 ms, el
+     RGB con S2 y el joystick, y el zumbador con el pulsador del joystick:
+
+         ./build/mcu-sim placas/msp_exp432e401y_edumkii.xml --valida
+         ./build/mcu-sim placas/msp_exp432e401y_edumkii.xml --ms=400 --serie L/BCL=memoria
+
+     En la BoosterPack 2 iria igual con J5-J8 en lugar de J1-J4 (y otro
+     firmware: los pines son otros, tabla 3 de la guia).
+     ========================================================================= -->
+<sistema nombre="msp-exp432e401y-edumkii">
+  <placa id="L" fichero="msp_exp432e401y.xml" x="0" y="0"/>
+  <placa id="E" fichero="boostxl_edumkii.xml" x="112" y="38"/>
+
+  <acopla a="L/J1" b="E/J1"/>
+  <acopla a="L/J2" b="E/J2"/>
+  <acopla a="L/J3" b="E/J3"/>
+  <acopla a="L/J4" b="E/J4"/>
+
+  <jumper ref="E/J5" puente="PWM LCD"/>
+
+  <mcu ref="L/u0" firmware="verif/fw/msp432e4/e4_edumkii/e4_edumkii.out"/>
+</sistema>

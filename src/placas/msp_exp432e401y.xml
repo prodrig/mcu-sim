@@ -1,22 +1,41 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- MSP-EXP432E401Y: la LaunchPad de Ethernet de Texas Instruments (fase T6)
 
-     Lo que lleva la placa aparte del chip y que el modelo ya sabe hacer
-     [Energia, variants/MSP_EXP432E401Y; SLAU748, la guia de la placa]:
+     Lo que lleva la placa aparte del chip [SLAU748B, §2 y los esquematicos
+     de la rev. 1.1; segunda fuente: Energia, variants/MSP_EXP432E401Y]:
 
-         D1    LED verde en PN1
-         D2    LED verde en PN0
-         D3    LED verde en PF4
-         D4    LED verde en PF0
+         D1    LED verde en PN1, a masa por 390 ohm (R33)
+         D2    LED verde en PN0, por 390 ohm (R27)
+         D3    LED verde en PF4, por 390 ohm (R31): el EN0LED1 del Ethernet
+         D4    LED verde en PF0, por 390 ohm (R30): el EN0LED0
          USR_SW1  pulsador en PJ0, a MASA, sin resistencia: el nivel alto lo da
                   el pull-up interno (GPIOPUR)
          USR_SW2  pulsador en PJ1, igual
-         RESET pulsador en RST, que lleva su pull-up dentro
+         RESET pulsador en RST, con 10 kohm a 3V3 (R44)
+         WAKE  pulsador en WAKE, con 1 Mohm (R42): despierta de la hibernacion
          Y1    cristal de 25 MHz en OSC0/OSC1 (MOSC)
          Y3    cristal de 32 768 Hz en XOSC0/XOSC1 (hibernacion)
-         BCL   el puerto serie de vuelta del XDS110: la UART0 en PA0/PA1 hasta
-               el PC, por RFC 2217 en el 3357. En Windows es el «XDS110 Class
-               Application/User UART»
+         USB   los 5 V del cable del XDS110 (DEBUG_VBUS, por J101), que JP1
+               lleva a la placa en su posicion de fabrica, 5V-XDS
+         J101  el bloque de aislamiento del XDS110, como en la P401R: diez
+               puentes, los impares del chip y los pares del XDS110
+         JP4, JP5  los dos de 2x2 que eligen la UART del backchannel
+               [SLAU748B, §2.1.6.4]: de fabrica, en vertical, la UART0
+               (PA0/PA1) va al XDS110 y la UART2 (PD4/PD5) a J5.5/J5.6 de la
+               BoosterPack 2; en horizontal, el CAN0 (PA0/PA1) a la
+               BoosterPack 2 y la UART2 al XDS110. Un sistema lo cambia con
+               <jumper ref="L/JP4" puente="1 3, 2 4"/> (y JP5 igual)
+         BCL   el puerto serie de vuelta del XDS110, del lado del XDS110 de
+               J101, hasta el PC por RFC 2217 en el 3357. En Windows es el
+               «XDS110 Class Application/User UART»
+         J1-J4 la BoosterPack 1, junto al XDS110 [tabla 2]
+         J5-J8 la BoosterPack 2, junto al Ethernet [tabla 3]. R19 y R20, que
+               unirian PA3 y PA2 con J6.15 y J6.14, no van montadas
+         J10   los 98 agujeros del borde para la placa de prototipos
+               [tablas 4 y 5; en la guia, X11]
+         J12   3V3, GND y GND; J13, 5V, GND y GND
+         JP6, JP7  PQ4 y PD6 al interruptor de los 5 V del USB anfitrion: de
+               adorno, el USB anfitrion no esta
 
      El RJ45 y el micro-USB del USB0 (T7) no son piezas: son los puentes del
      MCU, con eth= y usb= en su <mcu> o --eth y --usb en la linea de ordenes.
@@ -27,7 +46,9 @@
          ./build/mcu-sim placas/msp_exp432e401y.xml verif/fw/msp432e4/e4_usb/e4_usb.out --usb rfc2217:3358 --tiempo-real
 
      Lo que NO esta todavia: el XDS110 (se depura con depuracion="dap" o
-     "pines", por PC0/PC1 como un STM32) y los conectores BoosterPack.
+     "pines", por PC0/PC1 como un STM32), el cabezal del BSL y el TPS2052B,
+     el interruptor de los 5 V. El dibujo, msp_exp432e401y.svg, lleva cada
+     pieza y cada pin con su id.
 
          ./build/mcu-sim placas/msp_exp432e401y.xml --valida
          ./build/mcu-sim placas/msp_exp432e401y.xml verif/fw/msp432e4/e4_demo/e4_demo.out --ms=50
@@ -43,16 +64,22 @@
 <placa nombre="msp-exp432e401y">
   <mcu tipo="MSP432E401Y" id="u0"/>
 
-  <componente tipo="Led" id="D1" a_vss="si" vf="2.2" r="330">
+  <!-- Lo que tiene varios conductores -->
+  <nodo id="RST" bus="si"/>
+  <nodo id="WAKE" bus="si"/>
+  <nodo id="5V" bus="si"/>
+  <nodo id="GND" bus="si"/>
+
+  <componente tipo="Led" id="D1" a_vss="si" vf="2.2" r="390">
     <pin nombre="anodo" nodo="PN1"/>
   </componente>
-  <componente tipo="Led" id="D2" a_vss="si" vf="2.2" r="330">
+  <componente tipo="Led" id="D2" a_vss="si" vf="2.2" r="390">
     <pin nombre="anodo" nodo="PN0"/>
   </componente>
-  <componente tipo="Led" id="D3" a_vss="si" vf="2.2" r="330">
+  <componente tipo="Led" id="D3" a_vss="si" vf="2.2" r="390">
     <pin nombre="anodo" nodo="PF4"/>
   </componente>
-  <componente tipo="Led" id="D4" a_vss="si" vf="2.2" r="330">
+  <componente tipo="Led" id="D4" a_vss="si" vf="2.2" r="390">
     <pin nombre="anodo" nodo="PF0"/>
   </componente>
 
@@ -63,11 +90,18 @@
     <pin nombre="pin" nodo="PJ1"/>
   </componente>
 
-  <!-- RESET: RST tiene dos que tiran de el, el pull-up de la patilla y el
-       boton, y por eso bus="si". -->
-  <nodo id="RST" bus="si"/>
+  <!-- RESET y WAKE, con sus resistencias -->
   <componente tipo="Button" id="RESET" r_cerrado="10" rebote="no">
     <pin nombre="pin" nodo="RST"/>
+  </componente>
+  <componente tipo="Rpull" id="R44" v="3.3" r="10000" visible="no">
+    <pin nombre="a" nodo="RST"/>
+  </componente>
+  <componente tipo="Button" id="WAKE_SW" v_cerrado="0" r_cerrado="10" rebote="no">
+    <pin nombre="pin" nodo="WAKE"/>
+  </componente>
+  <componente tipo="Rpull" id="R42" v="3.3" r="1000000" visible="no">
+    <pin nombre="a" nodo="WAKE"/>
   </componente>
 
   <componente tipo="Crystal" id="Y1" vdd="3.3">
@@ -77,11 +111,236 @@
     <pin nombre="osc_in" nodo="XOSC0"/>
   </componente>
 
-  <!-- El backchannel del XDS110: U0RX en PA0 y U0TX en PA1 [Energia, Board.h:
-       UART0 en PA0/PA1]. Su rx lee el TX del MCU. -->
+  <!-- Los 5 V: el USB del XDS110 por J101, y JP1, que elige de donde los
+       toma la placa: 1-2 de una BoosterPack, 3-4 del USB del chip, 5-6 del
+       XDS110 (de fabrica). Los pares son todos VBUS, que el TPS2052B -no
+       modelado- lleva a los 5V de las BoosterPack -->
+  <componente tipo="Fuente" id="USB" v="5" limite_ma="500">
+    <pin nombre="pin" nodo="J101.4"/>
+  </componente>
+  <componente tipo="Jumper" id="JP1" filas="3" columnas="2" puente="5 6">
+    <pin nombre="3" nodo="TARGET_VBUS"/>
+    <pin nombre="5" nodo="DEBUG_VBUS"/>
+    <pin nombre="2" nodo="5V"/>
+    <pin nombre="4" nodo="5V"/>
+    <pin nombre="6" nodo="5V"/>
+  </componente>
+
+  <!-- J101, el bloque de aislamiento [hoja 4] -->
+  <componente tipo="Jumper" id="J101" filas="2" columnas="10"
+              puente="1 2, 3 4, 5 6, 7 8, 9 10, 11 12, 13 14, 15 16, 17 18, 19 20">
+    <pin nombre="1" nodo="GND"/>
+    <pin nombre="3" nodo="DEBUG_VBUS"/>
+    <pin nombre="5" nodo="VDD"/>
+    <pin nombre="7" nodo="TARGET_RXD"/>
+    <pin nombre="9" nodo="TARGET_TXD"/>
+    <pin nombre="11" nodo="RST"/>
+    <pin nombre="13" nodo="PC1"/>    <!-- TMS_SWDIO -->
+    <pin nombre="15" nodo="PC0"/>    <!-- TCK_SWDCLK -->
+    <pin nombre="17" nodo="PC3"/>    <!-- TDO_SWO -->
+    <pin nombre="19" nodo="PC2"/>    <!-- TDI -->
+  </componente>
+
+  <!-- JP4 y JP5 [hoja 1]: 1 el XDS110, 2 la UART0/CAN0, 3 la UART2, 4 la
+       BoosterPack 2. De fabrica, 1-2 y 3-4 -->
+  <componente tipo="Jumper" id="JP4" filas="2" columnas="2" puente="1 2, 3 4">
+    <pin nombre="1" nodo="TARGET_RXD"/>
+    <pin nombre="2" nodo="PA0"/>
+    <pin nombre="3" nodo="PD4"/>
+    <pin nombre="4" nodo="J5.5"/>
+  </componente>
+  <componente tipo="Jumper" id="JP5" filas="2" columnas="2" puente="1 2, 3 4">
+    <pin nombre="1" nodo="TARGET_TXD"/>
+    <pin nombre="2" nodo="PA1"/>
+    <pin nombre="3" nodo="PD5"/>
+    <pin nombre="4" nodo="J5.6"/>
+  </componente>
+
+  <!-- El backchannel del XDS110, del lado del XDS110 de J101. Su rx lee el
+       TX del MCU -->
   <componente tipo="PuenteSerie" id="BCL" host="rfc2217:3357"
               baudios="host" formato="8N1" muestra="si">
-    <pin nombre="rx" nodo="PA1"/>   <!-- U0TX -->
-    <pin nombre="tx" nodo="PA0"/>   <!-- U0RX -->
+    <pin nombre="rx" nodo="J101.10"/>   <!-- XDS_RXD, de TARGET_TXD -->
+    <pin nombre="tx" nodo="J101.8"/>    <!-- XDS_TXD, a TARGET_RXD -->
   </componente>
+
+  <!-- JP6 y JP7: PQ4 y PD6 al TPS2052B -->
+  <componente tipo="Jumper" id="JP6" filas="2" columnas="1" puente="1 2">
+    <pin nombre="1" nodo="PQ4"/>
+  </componente>
+  <componente tipo="Jumper" id="JP7" filas="2" columnas="1" puente="1 2">
+    <pin nombre="1" nodo="PD6"/>
+  </componente>
+
+  <!-- J12 (3V3) y J13 (5V) -->
+  <componente tipo="Conector" id="J12" filas="3" columnas="1" nombres="3V3 GND1 GND2">
+    <pin nombre="3V3" nodo="VDD"/>
+    <pin nombre="GND1" nodo="GND"/>
+    <pin nombre="GND2" nodo="GND"/>
+  </componente>
+  <componente tipo="Conector" id="J13" filas="3" columnas="1" nombres="5V GND1 GND2">
+    <pin nombre="5V" nodo="5V"/>
+    <pin nombre="GND1" nodo="GND"/>
+    <pin nombre="GND2" nodo="GND"/>
+  </componente>
+
+  <!-- ===================================================================
+       Las dos BOOSTERPACK XL. Numeradas como en la serigrafia: J1 1-10 y J3
+       21-30 a la izquierda, J4 40-31 y J2 20-11 a la derecha, de arriba
+       abajo; en la BoosterPack 2, J5, J7, J8 y J6. El pin k de un conector es
+       el (decena + k): J2.1 es el 11, J4.10 el 40.
+
+       Ojo con las tablas 2 y 3 de la guia: numeran J2 y J6 de arriba abajo
+       del 11 al 20, y en la placa el 20 (GND) es el de arriba, como dice la
+       norma y la serigrafia. Aqui va como la serigrafia.
+       =================================================================== -->
+  <componente tipo="Conector" id="J1" filas="1" columnas="10">
+    <pin nombre="1" nodo="VDD"/>    <!-- 3V3 -->
+    <pin nombre="2" nodo="PE4"/>    <!-- AIN9 -->
+    <pin nombre="3" nodo="PC4"/>    <!-- U7Rx -->
+    <pin nombre="4" nodo="PC5"/>    <!-- U7Tx -->
+    <pin nombre="5" nodo="PC6"/>
+    <pin nombre="6" nodo="PE5"/>    <!-- AIN8 -->
+    <pin nombre="7" nodo="PD3"/>    <!-- SSI2Clk -->
+    <pin nombre="8" nodo="PC7"/>
+    <pin nombre="9" nodo="PB2"/>    <!-- I2C0SCL -->
+    <pin nombre="10" nodo="PB3"/>   <!-- I2C0SDA -->
+  </componente>
+  <componente tipo="Conector" id="J3" filas="1" columnas="10">
+    <pin nombre="1" nodo="5V"/>     <!-- 21 -->
+    <pin nombre="2" nodo="GND"/>    <!-- 22 -->
+    <pin nombre="3" nodo="PE0"/>    <!-- 23, AIN3 -->
+    <pin nombre="4" nodo="PE1"/>    <!-- 24, AIN2 -->
+    <pin nombre="5" nodo="PE2"/>    <!-- 25, AIN1 -->
+    <pin nombre="6" nodo="PE3"/>    <!-- 26, AIN0 -->
+    <pin nombre="7" nodo="PD7"/>    <!-- 27, AIN4 -->
+    <pin nombre="8" nodo="PD6"/>    <!-- 28, AIN5 -->
+    <pin nombre="9" nodo="PM4"/>    <!-- 29 -->
+    <pin nombre="10" nodo="PM5"/>   <!-- 30 -->
+  </componente>
+  <componente tipo="Conector" id="J4" filas="1" columnas="10">
+    <pin nombre="1" nodo="PL3"/>    <!-- 31 -->
+    <pin nombre="2" nodo="PL2"/>    <!-- 32 -->
+    <pin nombre="3" nodo="PL1"/>    <!-- 33 -->
+    <pin nombre="4" nodo="PL0"/>    <!-- 34 -->
+    <pin nombre="5" nodo="PL5"/>    <!-- 35, T0CCP1 -->
+    <pin nombre="6" nodo="PL4"/>    <!-- 36, T0CCP0 -->
+    <pin nombre="7" nodo="PG0"/>    <!-- 37, M0PWM4 -->
+    <pin nombre="8" nodo="PF3"/>    <!-- 38, M0PWM3 -->
+    <pin nombre="9" nodo="PF2"/>    <!-- 39, M0PWM2 -->
+    <pin nombre="10" nodo="PF1"/>   <!-- 40, M0PWM1 -->
+  </componente>
+  <componente tipo="Conector" id="J2" filas="1" columnas="10">
+    <pin nombre="1" nodo="PP2"/>    <!-- 11 -->
+    <pin nombre="2" nodo="PN3"/>    <!-- 12 -->
+    <pin nombre="3" nodo="PN2"/>    <!-- 13 -->
+    <pin nombre="4" nodo="PD0"/>    <!-- 14, SSI2XDAT1 (MISO) -->
+    <pin nombre="5" nodo="PD1"/>    <!-- 15, SSI2XDAT0 (MOSI) -->
+    <pin nombre="6" nodo="RST"/>    <!-- 16 -->
+    <pin nombre="7" nodo="PH3"/>    <!-- 17 -->
+    <pin nombre="8" nodo="PH2"/>    <!-- 18 -->
+    <pin nombre="9" nodo="PM3"/>    <!-- 19, T3CCP1 -->
+    <pin nombre="10" nodo="GND"/>   <!-- 20 -->
+  </componente>
+
+  <componente tipo="Conector" id="J5" filas="1" columnas="10">
+    <pin nombre="1" nodo="VDD"/>    <!-- 3V3 -->
+    <pin nombre="2" nodo="PD2"/>    <!-- AIN13 -->
+    <pin nombre="3" nodo="PP0"/>    <!-- U6Rx -->
+    <pin nombre="4" nodo="PP1"/>    <!-- U6Tx -->
+    <!-- 5 y 6: de JP4 y JP5 (PD4/PD5, o PA0/PA1) -->
+    <pin nombre="7" nodo="PQ0"/>    <!-- SSI3Clk -->
+    <pin nombre="8" nodo="PP4"/>
+    <pin nombre="9" nodo="PN5"/>    <!-- I2C2SCL -->
+    <pin nombre="10" nodo="PN4"/>   <!-- I2C2SDA -->
+  </componente>
+  <componente tipo="Conector" id="J7" filas="1" columnas="10">
+    <pin nombre="1" nodo="5V"/>     <!-- 21 -->
+    <pin nombre="2" nodo="GND"/>    <!-- 22 -->
+    <pin nombre="3" nodo="PB4"/>    <!-- 23, AIN10 -->
+    <pin nombre="4" nodo="PB5"/>    <!-- 24, AIN11 -->
+    <pin nombre="5" nodo="PK0"/>    <!-- 25, AIN16 -->
+    <pin nombre="6" nodo="PK1"/>    <!-- 26, AIN17 -->
+    <pin nombre="7" nodo="PK2"/>    <!-- 27, AIN18 -->
+    <pin nombre="8" nodo="PK3"/>    <!-- 28, AIN19 -->
+    <pin nombre="9" nodo="PA4"/>    <!-- 29 -->
+    <pin nombre="10" nodo="PA5"/>   <!-- 30 -->
+  </componente>
+  <componente tipo="Conector" id="J8" filas="1" columnas="10">
+    <pin nombre="1" nodo="PK7"/>    <!-- 31 -->
+    <pin nombre="2" nodo="PK6"/>    <!-- 32 -->
+    <pin nombre="3" nodo="PH1"/>    <!-- 33 -->
+    <pin nombre="4" nodo="PH0"/>    <!-- 34 -->
+    <pin nombre="5" nodo="PM2"/>    <!-- 35, T3CCP0 -->
+    <pin nombre="6" nodo="PM1"/>    <!-- 36, T2CCP1 -->
+    <pin nombre="7" nodo="PM0"/>    <!-- 37, T2CCP0 -->
+    <pin nombre="8" nodo="PK5"/>    <!-- 38, M0PWM7 -->
+    <pin nombre="9" nodo="PK4"/>    <!-- 39, M0PWM6 -->
+    <pin nombre="10" nodo="PG1"/>   <!-- 40, M0PWM5 -->
+  </componente>
+  <componente tipo="Conector" id="J6" filas="1" columnas="10">
+    <pin nombre="1" nodo="PM6"/>    <!-- 11 -->
+    <pin nombre="2" nodo="PQ1"/>    <!-- 12, SSI3Fss -->
+    <pin nombre="3" nodo="PP3"/>    <!-- 13 -->
+    <pin nombre="4" nodo="PQ3"/>    <!-- 14, SSI3XDAT1 (MISO) -->
+    <pin nombre="5" nodo="PQ2"/>    <!-- 15, SSI3XDAT0 (MOSI) -->
+    <pin nombre="6" nodo="RST"/>    <!-- 16 -->
+    <pin nombre="7" nodo="PA7"/>    <!-- 17 -->
+    <pin nombre="8" nodo="PP5"/>    <!-- 18 -->
+    <pin nombre="9" nodo="PM7"/>    <!-- 19, T5CCP1 -->
+    <pin nombre="10" nodo="GND"/>   <!-- 20 -->
+  </componente>
+
+  <!-- J10, los 98 agujeros del borde [tablas 4 y 5]: 2x49, los impares en
+       una columna y los pares en la otra -->
+  <componente tipo="Conector" id="J10" filas="2" columnas="49">
+    <pin nombre="1" nodo="VDD"/>         <pin nombre="2" nodo="5V"/>
+    <pin nombre="3" nodo="GND"/>         <pin nombre="4" nodo="GND"/>
+    <pin nombre="5" nodo="PB4"/>         <pin nombre="6" nodo="PA2"/>
+    <pin nombre="7" nodo="PB5"/>         <pin nombre="8" nodo="PA3"/>
+    <pin nombre="9" nodo="PH0"/>         <pin nombre="10" nodo="PA4"/>
+    <pin nombre="11" nodo="PH1"/>        <pin nombre="12" nodo="PA5"/>
+    <pin nombre="13" nodo="PH2"/>        <pin nombre="14" nodo="PE0"/>
+    <pin nombre="15" nodo="PH3"/>        <pin nombre="16" nodo="PE1"/>
+    <pin nombre="17" nodo="PC7"/>        <pin nombre="18" nodo="PE2"/>
+    <pin nombre="19" nodo="PC6"/>        <pin nombre="20" nodo="PE3"/>
+    <pin nombre="21" nodo="PC5"/>        <pin nombre="22" nodo="PE4"/>
+    <pin nombre="23" nodo="PC4"/>        <pin nombre="24" nodo="PE5"/>
+    <pin nombre="25" nodo="PA6"/>        <pin nombre="26" nodo="PK0"/>
+    <pin nombre="27" nodo="PA7"/>        <pin nombre="28" nodo="PK1"/>
+    <pin nombre="29" nodo="PG1"/>        <pin nombre="30" nodo="PK2"/>
+    <pin nombre="31" nodo="PG0"/>        <pin nombre="32" nodo="PK3"/>
+    <pin nombre="33" nodo="PM3"/>        <!-- 34: VREF+, sin pad en el modelo -->
+    <pin nombre="35" nodo="GND"/>        <pin nombre="36" nodo="GND"/>
+    <pin nombre="37" nodo="PM2"/>        <pin nombre="38" nodo="PD5"/>
+    <pin nombre="39" nodo="PM1"/>        <pin nombre="40" nodo="PD4"/>
+    <pin nombre="41" nodo="PM0"/>        <pin nombre="42" nodo="PD7"/>
+    <pin nombre="43" nodo="PL0"/>        <pin nombre="44" nodo="PD6"/>
+    <pin nombre="45" nodo="PL1"/>        <pin nombre="46" nodo="PD3"/>
+    <pin nombre="47" nodo="PL2"/>        <pin nombre="48" nodo="PD1"/>
+    <pin nombre="49" nodo="PL3"/>        <pin nombre="50" nodo="PD0"/>
+    <pin nombre="51" nodo="PQ0"/>        <pin nombre="52" nodo="PD2"/>
+    <pin nombre="53" nodo="PQ1"/>        <pin nombre="54" nodo="PP0"/>
+    <pin nombre="55" nodo="PQ2"/>        <pin nombre="56" nodo="PP1"/>
+    <pin nombre="57" nodo="PQ3"/>        <pin nombre="58" nodo="PB0"/>
+    <pin nombre="59" nodo="PK7"/>        <pin nombre="60" nodo="PB1"/>
+    <pin nombre="61" nodo="GND"/>        <pin nombre="62" nodo="GND"/>
+    <pin nombre="63" nodo="PK6"/>        <pin nombre="64" nodo="PF4"/>
+    <pin nombre="65" nodo="PL4"/>        <pin nombre="66" nodo="PF0"/>
+    <pin nombre="67" nodo="PB2"/>        <pin nombre="68" nodo="PF1"/>
+    <pin nombre="69" nodo="PB3"/>        <pin nombre="70" nodo="PF2"/>
+    <pin nombre="71" nodo="PP2"/>        <pin nombre="72" nodo="PF3"/>
+    <pin nombre="73" nodo="PP3"/>        <pin nombre="74" nodo="PA0"/>
+    <pin nombre="75" nodo="PK5"/>        <pin nombre="76" nodo="PA1"/>
+    <pin nombre="77" nodo="PK4"/>        <pin nombre="78" nodo="PP4"/>
+    <pin nombre="79" nodo="PL5"/>        <pin nombre="80" nodo="PP5"/>
+    <pin nombre="81" nodo="PN4"/>        <pin nombre="82" nodo="PJ0"/>
+    <pin nombre="83" nodo="PN5"/>        <pin nombre="84" nodo="PJ1"/>
+    <pin nombre="85" nodo="PN0"/>        <pin nombre="86" nodo="PM7"/>
+    <pin nombre="87" nodo="PN1"/>        <pin nombre="88" nodo="PM6"/>
+    <pin nombre="89" nodo="PN2"/>        <pin nombre="90" nodo="PM5"/>
+    <pin nombre="91" nodo="PN3"/>        <pin nombre="92" nodo="PM4"/>
+    <pin nombre="93" nodo="PQ4"/>        <pin nombre="94" nodo="RST"/>
+    <pin nombre="95" nodo="WAKE"/>       <pin nombre="96" nodo="GND"/>
+    <pin nombre="97" nodo="5V"/>         <pin nombre="98" nodo="VDD"/>  </componente>
 </placa>
