@@ -60,7 +60,10 @@ redactar esta revisión, no solo leído en un informe.
   OpenOCD de verdad programa y depura el modelo por sus pines, el MSP432 y
   el F407; y el BSL del P4, con uno propio y probado contra el de TI y
   contra BSL Scripter. **Y T6 (P-17)**: la segunda familia, el
-  MSP432E401Y, con su placa, su ROM y su cargador serie, `make teste4`.
+  MSP432E401Y, con su placa, su ROM y su cargador serie, `make teste4`;
+  y **T7**: su conectividad y su criptografía —CCM, dos C_CAN, EMAC con
+  PHY interno y lwIP por el puente Ethernet, el cargador por Ethernet de la
+  ROM y el USB como CDC-ACM por el puente USB de clase—.
 - **Cincuenta y una funciones "bits sin máquina"**: registros que se guardan, se
   enmascaran y se leen correctamente, pero cuya lógica no se ejecuta. Casi todas
   corresponden a caminos que ningún firmware corriente usa, y casi todas están
@@ -630,8 +633,8 @@ Scripter 3.4 (código y ejecutables) en `doc/refs/`, sin versionar:
   `22456139139423 ps`**; P0-P67 no cambian. Y `make bsl-p4`, en el CI.
 
 **Lo que queda**, con su fase:
-T7 (la conectividad del MSP432E401Y; T6, el chip, está hecha y lo suyo va en
-**P-17**) y T8 (el resto de la familia). CAPTIO y PSS siguen declarados. Y lo que T1-T5 dejan dicho, con la
+T8 (el resto de la familia; T6 y T7, el MSP432E401Y y su conectividad, están
+hechas y lo suyo va en **P-17**). CAPTIO y PSS siguen declarados. Y lo que T1-T5 dejan dicho, con la
 letra con la que lo cita el código:
 
 | | Qué | Por qué |
@@ -678,7 +681,8 @@ externa del P4 no está contrastada.
 
 **HECHA T6 el 2026-10-17**, en la rama `msp432`, en cuatro entregas con su
 commit. Es la segunda familia de TI: el mismo `CortexM4F` (111 IRQ, 3 bits
-de prioridad) con todo lo demás de Tiva.
+de prioridad) con todo lo demás de Tiva. **Y T7 el 2026-10-18**, en seis
+entregas (abajo, «La T7»).
 
 * **El chip** (`soc/msp432e4/`, `periph/msp432e4/`): 1 MB de Flash en 0x0 con
   los estados de espera de `MEMTIM0` y la prebúsqueda, 256 KB de SRAM, 6 KB
@@ -723,10 +727,53 @@ Lo que queda dicho, con la letra con la que lo cita el código:
 | **h** | RST y WAKE | Los dos con *pull-up* interno [1F]; 50 kΩ de modelo |
 | **i** | Periféricos | UART sin IrDA, tarjeta, 9 bits ni líneas de módem; SSI e I²C solo maestros (SPI de Freescale; sin *quick command* ni `MCLKOCNT`); GPTM sin modo RTC, sin las interrupciones del PWM ni `TnWOT`/`TnSNAPS`/`TCACT`; ADC ideal, sin comparadores digitales, promediado ni DMA, `GSYNC` no sincroniza; la uDMA sin *scatter-gather* y, cuando acaba un canal de software, un **pulso** en la línea UDMA (la cabecera del E4 no tiene `CHIS`) [1F]; la hibernación sin calendario, manipulación, retención de GPIO ni la espera de `WRC`, y la causa de despertar en `RESC.HIB` [1F]. Los modos de sueño no paran relojes (`SCGC`/`DCGC`/`DSCLKCFG` se guardan); el SysTick con `CLKSOURCE = 0` cuenta SYSCLK/8, como en los STM32, y en el E4 es PIOSC/4; `SRGPIO` no resetea un puerto suelto; un perro con `INTTYPE = 1` da la interrupción normal, no el NMI |
 | **j** | Las tablas de AES de la ROM | `ROM_pvAESTable` es la dirección de la casilla 7 de `ROM_SOFTWARETABLE`, donde la ROM de TI guarda datos; en la R1 esa casilla es el hueco |
-| **k** | Lo de T7 | CAN, USB, EMAC + PHY, PWM, QEI, EPI, los comparadores y el CCM (CRC, AES, DES, SHA/MD5) están **declarados**: el registro no hace nada y `--limitaciones` lo dice |
+| **k** | ~~Lo de T7~~ | **Resuelto en T7**: el CCM, los C_CAN, el EMAC con su PHY y el USB están modelados (**o**, **p**, **q**, **s**). Lo que sigue declarado, en **t** |
 | **l** | `sflash` de TI | El protocolo se ha probado con el banco, con `sflash_e4.py` (pySerial, RFC 2217) y con **BSL Scripter 3.4 de TI** en su modo `E4xx UART` (por un pty de socat, con su guion de ejemplo: el cargador de la R1 le contesta y programa lo que manda). `sflash` de TivaWare, LM Flash Programmer y UniFlash no se han probado: no se alcanzan desde aquí |
 | **m** | `SysCtlDelay` desde la ROM | TI cuenta 3 ciclos por vuelta; el núcleo del modelo cobra el salto tomado con 2 de rellenado y da 4. Es del núcleo compartido (T-tiempos), no del E4 |
 | **n** | OpenOCD contra el E4 | No se ha probado (D3/G3 del E4 no eran de T6). El E4 se depura con el stub interno por los pines o por el DAP |
+
+#### La T7: conectividad y criptografía
+
+* **Entrega 1, el CCM** (`periph/msp432e4/ccm.h`): CRC (cuatro polinomios y
+  la suma de TCP), SHA/MD5 con SHA-224 y SHA-256 (`hash_algo.h` los gana),
+  HMAC, AES (ECB, CBC, CFB, CTR, ICM y GCM; 128/192/256) y DES/TDES.
+  `e4_t7` es un servidor de vectores: **todos** los de `verif/vectores`
+  (`cryp2.vec`, `sha2.vec`, `crc.vec`, nuevos, comprobados cada uno con dos
+  motores por `comprueba_vectores.py`) pasan por DriverLib y por el chip.
+* **Entrega 2, los C_CAN** (`ccan.h`, sobre `periph/can_motor.h`, el motor
+  que ahora comparten con el bxCAN): CAN0 y CAN1 en el mismo hilo con
+  filtros, FIFOs, extendidos y remotas, y **dos E4 en la misma placa**
+  hablando por el bus CAN que ya había. El NVIC pasa a ser de nivel (**r**).
+* **Entrega 3, el EMAC** (`emac.h`, el `eth_mac.h` del F407 con mapa propio
+  y una frontera de tramas) con el **PHY interno** (`EphyE4`), y el **puente
+  Ethernet** (`parts/puente_ethernet.h`, `mcu-sim --eth` o `eth=`): memoria,
+  `qemu:PUERTO` o `qemu-cliente:HOST:PUERTO` -el protocolo de `-netdev
+  stream` de QEMU, gvproxy y passt- y `,pcap=`. `e4_eth` es lwIP 2.2.1 (BSD-3,
+  en TERCEROS.md) con eco TCP y UDP en el 7; `make eth-e4` lo prueba contra
+  el `mcu-sim` de verdad con `verif/eth/eco_e4.py`, que es otra pila.
+* **Entrega 4, el cargador por Ethernet** de la R1 (`ROM_UpdateEMAC`, BOOTP y
+  TFTP a la Flash, y el reset): 84 casillas al hueco, una menos. `e4_bootp`
+  lo llama; en el banco y por el puente (`make eth-e4`) graba `e4_eth.bin` y
+  arranca lo grabado.
+* **Entrega 5, el USB0** (`usb.h`, el MUSB de Mentor como dispositivo) con
+  `e4_usb`, un CDC-ACM sobre `usb.c` de DriverLib; y **el puente USB de
+  clase** (U2 de `doc/analisis_puente_usb.md`, `parts/puente_usb.h`):
+  `mcu-sim --usb` o `usb=` pone un PC en D+/D- que enumera el CDC y lo lleva
+  a un canal del puente serie (RFC 2217, TCP, sus clientes o memoria). Los
+  baudios, el formato y DTR/RTS del terminal llegan al firmware como
+  `SET_LINE_CODING` y `SET_CONTROL_LINE_STATE`. `make usb-e4`, con pySerial.
+* **Entrega 6**: lo que queda declarado (**t**) y los documentos.
+* `teste4`: **296 comprobaciones, `resto` `4507254220852 ps`** (E30-E36);
+  E0-E29 no se mueven en ninguna entrega. Las otras seis suites, tampoco.
+
+| | Qué | Por qué |
+| :--- | :--- | :--- |
+| **o** | El CCM | Cada bloque está listo en el acto [modelo]. El orden de los bytes de los registros de resumen es el del controlador omap-sham de Linux, la misma IP [1F]. Sin uDMA (`SYSCONFIG`/`DMAIM` se guardan) ni interrupciones (el E401Y no las tiene en el NVIC); los modos de AES CCM, CBC-MAC, XTS, f8 y f9 se guardan y avisan |
+| **p** | Los C_CAN | Copian entre las interfaces y los objetos en el acto (`BUSY` no se ve); salen de bus-off al quitar `INIT` sin los 128 × 11 bits [modelo, como F-29]; el modo básico y el control directo de CANTX (`CANTST.BASIC`/`TX`) se guardan y avisan [Bosch C_CAN User's Manual 1.2] |
+| **q** | El EMAC, su PHY y el cargador | El MAC es el del F407 (sin PAUSE, VLAN, semidúplex ni la suma de ENTRADA). El PHY negocia en 1 ms (en el chip, unos 2 s), sin pines MII ni LED, y el MDIO solo llega a la dirección 0; ID1/ID2 = 0x2000/0xA221 [1F, de memoria del datasheet de la TM4C129]. El puente Ethernet es de capa 2: la red la pone el otro extremo (gvproxy, passt, QEMU u otro mcu-sim). El cargador de la R1: BOOTP sin DHCP, TFTP sin opciones (`blksize`), sin comprobar la imagen, y con la Flash en blanco el arranque solo escucha por la UART0 |
+| **r** | El NVIC, de nivel | Una línea que sigue alta al salir de su manejador vuelve a quedar pendiente [ARMv7-M B3.4.1]; se mira 1 ps después de la salida, cuando el periférico ya ha publicado lo que le escribió el manejador [modelo]. Ningún invariante de los STM32 ni del P4 se mueve |
+| **s** | El USB0 y el puente USB | Solo dispositivo de velocidad completa: sin modo anfitrión ni OTG (SRP/HNP), alta velocidad, ULPI, uDMA del USB, isócronos, LPM, suspensión ni detección de VBUS e ID. Los paquetes cruzan como paquetes, sin NRZI, relleno ni CRC, y sin el conmutador DATA0/DATA1 [T-17]. El puente: solo la clase CDC-ACM (HID y MSC de U2 no), una configuración, sin hubs ni suspensión; las notificaciones del endpoint de interrupción (SERIAL_STATE) no se leen, y las líneas de módem que ve el terminal son fijas (CTS, DSR y DCD con el dispositivo enumerado). U1 (USB/IP) y U3 siguen sin hacer |
+| **t** | Lo que sigue declarado | El EPI (como pide el plan), PWM, QEI, los comparadores y SYSEXC: el registro contesta, no guarda y avisa una vez. El LCD no es del E401Y, sino del E411Y (T8) |
 
 ---
 

@@ -135,6 +135,24 @@ fabricante.**
 > del E4 **no tienen apertura APB** en la cabecera ni en DriverLib del E4,
 > que solo nombran la AHB (la APB es de otros Tiva) y son A-Q, no A-T (R-T son del E411Y); y el NVIC tiene
 > 111 líneas. Lo que T6 deja dicho está en **P-17** de `doc/todo.md`.
+>
+> **2026-10-18: hecha T7, la conectividad y la criptografía del E4**, en seis
+> entregas. La pregunta 6 de §9 se contesta que **sí**: el EMAC es el de
+> Synopsys del F407, y se reaprovecha `eth_mac.h` con su propio mapa y una
+> frontera de tramas hacia un PHY interno (`EphyE4`). Lo hecho: el **CCM**
+> (CRC, SHA/MD5 con SHA-2 y HMAC, AES con GCM, DES/TDES), los dos **C_CAN**
+> (sobre un motor CAN que ahora comparten con el bxCAN), el **EMAC** con su
+> PHY y el **puente Ethernet** (`--eth`, el protocolo de `-netdev stream` de
+> QEMU), el **cargador por Ethernet** de la R1 (`ROM_UpdateEMAC`: BOOTP y
+> TFTP), y el **USB0** (el MUSB de Mentor, como dispositivo) con el **puente
+> USB de clase** (U2 para CDC-ACM: `--usb`, hasta un puerto RFC 2217). EPI,
+> PWM, QEI y comparadores siguen declarados; el LCD es del E411Y. El cierre:
+> todos los vectores de cifrado por el chip (`e4_t7`), CAN entre dos E4 de la
+> misma placa, eco TCP y UDP con lwIP 2.2.1 (`make eth-e4`), BOOTP/TFTP por
+> el puente, y el CDC por USB con pySerial (`make usb-e4`). `make teste4`:
+> 296 comprobaciones, `resto` `4507254220852 ps`; el NVIC pasa a ser de
+> nivel sin mover ningún otro invariante. Lo que T7 deja dicho está en
+> **P-17** (o-t).
 
 ---
 
@@ -856,6 +874,9 @@ CAN entre dos E4 de la misma placa, los vectores de cifrado), y el cargador
 por Ethernet (BOOTP/TFTP) si el puente lo permite.
 
 **Tamaño:** grande; cada bloque es una entrega.
+
+> **Hecha el 2026-10-18**, con todo el cierre, cargador por Ethernet
+> incluido. Véase la nota de estado al principio.
 
 ### T8 · El resto de la familia y lo opcional
 

@@ -155,6 +155,19 @@ que solo tiene una fuente lleva **[1F]** y su subpunto de **P-17**:
 | `[SPMU301]` | «TivaWare Boot Loader User's Guide»: el protocolo serie del cargador (paquetes, ACK/NAK, órdenes y estados), que el cargador de la ROM R1 implementa **sin** copiar el `boot_loader` de TivaWare | `ti.com/lit/ug/spmu301` (no versionado) |
 | `[DS]` | Datasheet del MSP432E401Y (SLASEN5): 120 MHz, 90 E/S en el TQFP de 128, la ROM | `ti.com/lit/ds/slasen5` (no versionado; de ahí, de memoria, buena parte de los **[1F]**) |
 
+Y en la T7 (CCM, C_CAN, EMAC con su PHY, el cargador por Ethernet y el USB):
+
+| Etiqueta | Qué | Dónde |
+| :--- | :--- | :--- |
+| `[H]`, `[DL]` | `hw_ccm.h`, `hw_shamd5.h`, `hw_aes.h`, `hw_des.h`, `hw_can.h`, `hw_emac.h`, `hw_usb.h` y sus `.c` de DriverLib (`crc.c`, `shamd5.c`, `aes.c`, `des.c`, `can.c`, `emac.c`, `usb.c`): mapas, bits y secuencias. Cada bloque se contrasta además con una de las de abajo | La misma copia, versionada |
+| `[TRM]` | SLAU723A, el TRM del MSP432E4: el PHY interno (`EPHY_*`, `EMACPC`), la ventana del USB y del EMAC | Leído en el visor de documentos de `ti.com` (no versionado, no bajado entero) |
+| — | Bosch, «C_CAN User's Manual» rev. 1.2: la prioridad entre objetos, las FIFOs, bus-off e INIT | Segunda fuente de `can.c`; de memoria, sin versionar |
+| — | El controlador `omap-sham` de Linux (`drivers/crypto/omap-sham.c`, la misma IP que el SHA/MD5 del CCM): el orden de los bytes del resumen | `git.kernel.org` (GPL-2.0, solo como referencia: no se copia código) |
+| — | QEMU, `-netdev stream` (y gvproxy, passt): cada trama con su longitud delante en 32 bits big-endian | `qemu.org/docs`, y el código de gvproxy |
+| — | lwIP 2.2.1, versionado en `e4_eth/lwip/` (BSD-3, TERCEROS.md) | `github.com/lwip-tcpip/lwip` |
+| — | USB 2.0 (cap. 7 y 9: la conexión, el reset y las peticiones estándar) y CDC PSTN 1.2 (`SET_LINE_CODING`, `SET_CONTROL_LINE_STATE`, `SEND_BREAK`) | `usb.org`, de memoria; sin versionar |
+| — | RFC 951 (BOOTP) y RFC 1350 (TFTP), para el cargador por Ethernet | `rfc-editor.org`, de memoria |
+
 **Pendientes de bajar a `doc/refs/`, sin versionar:** SLAU356 (TRM del
 MSP432P4), SLAS826 (datasheet del P401R), SLAU622 (BSL), SLAU723 (TRM del
 E4). La red de este entorno pide permiso para `ti.com` y no se pudo leer el

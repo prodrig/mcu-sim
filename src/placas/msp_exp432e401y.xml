@@ -18,9 +18,16 @@
                el PC, por RFC 2217 en el 3357. En Windows es el «XDS110 Class
                Application/User UART»
 
+     El RJ45 y el micro-USB del USB0 (T7) no son piezas: son los puentes del
+     MCU, con eth= y usb= en su <mcu> o --eth y --usb en la linea de ordenes.
+     El PHY interno lleva sus tramas a donde diga --eth, y por el USB0 un PC
+     enumera el CDC-ACM del firmware y lo saca a un puerto serie:
+
+         ./build/mcu-sim placas/msp_exp432e401y.xml verif/fw/msp432e4/e4_eth/e4_eth.out --eth qemu:5555 --tiempo-real
+         ./build/mcu-sim placas/msp_exp432e401y.xml verif/fw/msp432e4/e4_usb/e4_usb.out --usb rfc2217:3358 --tiempo-real
+
      Lo que NO esta todavia: el XDS110 (se depura con depuracion="dap" o
-     "pines", por PC0/PC1 como un STM32), el conector RJ45 y el PHY (T7), el
-     USB (T7) y los conectores BoosterPack.
+     "pines", por PC0/PC1 como un STM32) y los conectores BoosterPack.
 
          ./build/mcu-sim placas/msp_exp432e401y.xml --valida
          ./build/mcu-sim placas/msp_exp432e401y.xml verif/fw/msp432e4/e4_demo/e4_demo.out --ms=50

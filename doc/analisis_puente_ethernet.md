@@ -2,6 +2,17 @@
 
 **Análisis de opciones para `mcu-sim`** · 30-09-2026
 
+> **Estado (2026-10-18): hechas la frontera de tramas (E1) y el puente por
+> TCP (E3, E4)**, con el MSP432E401Y (T7 de `doc/analisis_msp432.md`). El
+> MAC de `eth_mac.h` habla con su PHY por tramas (`eth_phy_if`) con el tiempo
+> de cable calculado; el F407 sigue con su PHY por los pines y no mueve un
+> picosegundo. `parts/puente_ethernet.h` lleva las tramas del PHY interno del
+> E4 a `memoria`, `qemu:PUERTO` o `qemu-cliente:HOST:PUERTO` (el protocolo de
+> `-netdev stream` de QEMU, que hablan gvproxy y passt), con `,pcap=`; se
+> monta con `mcu-sim --eth` o `eth=` en el `<mcu>`, y lo prueba `make eth-e4`
+> con lwIP en el chip y una pila en Python al otro lado. El resto de fases
+> (TAP, slirp propio, el F407 por la frontera de tramas) sigue sin hacer.
+
 La pregunta: qué opciones hay para construir, como se hizo con el puerto serie
 (`doc/analisis_puente_serie.md`, P-14), un elemento **externo al MCU** que
 conecte el Ethernet del chip simulado con la red del ordenador donde corre

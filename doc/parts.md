@@ -115,6 +115,19 @@ del modelo sigue las calibraciones de esa pieza. Sin ID se aplica a todos los
 chips que los tienen; un chip que no los tiene, con ID o en su XML, es un
 error.
 
+**El Ethernet y el USB de un MSP432E4** (T7 del MSP432). No son piezas de la
+placa sino puentes del chip: su `<mcu>` admite `eth="..."` y `usb="..."`, y la
+línea de órdenes `--eth [ID=]DESTINO` y `--usb [ID=]DESTINO`, que mandan sobre
+el XML. `eth` lleva las tramas de su PHY interno a `memoria`, `qemu:PUERTO` o
+`qemu-cliente:HOST:PUERTO` (el protocolo de `-netdev stream` de QEMU, el de
+gvproxy y passt), con `,pcap=FICHERO` detrás si se quieren guardar
+(`parts/puente_ethernet.h`). `usb` pone un PC en D+/D- (PL6/PL7) que enumera
+el CDC-ACM del firmware y lo saca a un puerto del puente serie: los mismos
+destinos que `--serie` (`rfc2217:PUERTO`, `tcp:PUERTO`, sus `-cliente:` y
+`memoria`), con los baudios, el formato y DTR/RTS del terminal convertidos en
+`SET_LINE_CODING` y `SET_CONTROL_LINE_STATE` (`parts/puente_usb.h`). Por TCP
+conviene `--tiempo-real`.
+
 ### 2.1 Los nodos
 
 ```xml
