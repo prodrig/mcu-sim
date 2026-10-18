@@ -218,4 +218,9 @@ testp4                406      22456139139423        resto
 # 235. E30 cambia en -65 us porque e4_t7 gana los modos de CAN (otro binario,
 # otro paso por el bucle de ordenes); E0-E29 no se mueven, tampoco con el
 # NVIC que vuelve a poner pendiente una linea que sigue alta (P-17 r).
-teste4                235      3694230847978         resto
+# Entrega 3: E33 -el EMAC con su PHY interno y lwIP (e4_eth): ARP, ping, eco
+# UDP y TCP con el otro extremo del cable en el banco- y la huella de e4_eth
+# en E0: 250. El resto crece 114,26 ms, todos de E33: E0-E32 no se mueven con
+# el EMAC montado (ni test407 con el MAC del F407 partido en mapa y frontera
+# de tramas).
+teste4                250      3808490368757         resto

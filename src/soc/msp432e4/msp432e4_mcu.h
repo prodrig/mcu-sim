@@ -19,6 +19,8 @@
 #include "msp432e401y.h"
 #include "../../parts/netlist.h"
 #include "../../common/imagen_fw.h"
+#include "../../parts/puente_ethernet.h"
+#include <memory>
 
 namespace stm32 {
 
@@ -33,7 +35,7 @@ public:
         d_gnda_ = chip_->gnda->register_driver("sim_gnda");
         d_rst_ = chip_->rst->register_driver("sim_rst");
     }
-    ~McuE4() override { delete chip_; }
+    ~McuE4() override { puente_eth_.reset(); delete chip_; }
 
     Msp432E4& chip() { return *chip_; }
     const McuDesc& desc() const override { return desc_; }
@@ -129,8 +131,15 @@ public:
     }
     void set_ondas_reloj(bool on) override { chip_->set_ondas(on); }
     programador_nv_if* programador() override { return &ProgramadorE4::el(); }
-    bool admite_opcion(const std::string& clave) const override { return clave == "rom"; }
+    bool admite_opcion(const std::string& clave) const override { return clave == "rom" || clave == "eth"; }
     std::string opcion(const std::string& clave, const std::string& valor) override {
+        if (clave == "eth") {
+            const DestinoEth d = parsea_destino_eth(valor);
+            if (d.tipo == DestinoEth::Tipo::Malo) return d.error;
+            puente_eth_.reset();
+            puente_eth_.reset(new PuenteEthernet(chip_->emac.phy, d));
+            return puente_eth_->error();
+        }
         if (clave == "rom") {
             if (valor == "r1" || valor == "R1") {
                 if (!chip_->rom.hay_r1()) return "este simulador no lleva la ROM R1 del E4";
@@ -144,6 +153,7 @@ public:
         return mcu_if::opcion(clave, valor);
     }
     std::string describe_opcion(const std::string& clave) const override {
+        if (clave == "eth") return puente_eth_ ? puente_eth_->describir() : "";
         if (clave != "rom") return "";
         char h[16];
         std::snprintf(h, sizeof h, "0x%08X", unsigned(chip_->rom.huella()));
@@ -160,6 +170,7 @@ public:
     }
 
 private:
+    std::unique_ptr<PuenteEthernet> puente_eth_;
     Msp432E4* chip_;
     McuDesc   desc_;
     int d_vdd_ = -1, d_gnd_ = -1, d_vdda_ = -1, d_gnda_ = -1, d_rst_ = -1;

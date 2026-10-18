@@ -36,6 +36,7 @@
 #   make interop                  # el puente UART contra pySerial y socat (Python)
 #   make sflash-e4                # el cargador de la ROM del E4 por RFC 2217 (Python)
 #   make bsl-p4                   # el BSL del P4 por RFC 2217, y BSL Scripter si esta (Python)
+#   make eth-e4                   # el eco de lwIP del E4 por el puente Ethernet (Python)
 #   make vectores                 # los vectores del CRYP/HASH y del CCM, sin SystemC ni compilar
 #   make asan407                  # la suite del F407 con ASan + UBSan (Linux y macOS)
 #   make asan446                  # y la del F446
@@ -263,7 +264,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 bsl-p4 run clean plataforma vectores hash cryp datos
+.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 bsl-p4 eth-e4 run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -516,6 +517,16 @@ sflash-e4: $(MCUSIM)
 #   make bsl-p4
 bsl-p4: $(MCUSIM)
 	$(PYTHON) verif/serie/bsl_p4.py --prueba --sim $(MCUSIM)
+
+# EL ETHERNET DEL MSP432E4 (T7): el `mcu-sim` de verdad con
+# placas/msp_exp432e401y.xml y e4_eth (lwIP 2.2.1, eco TCP y UDP en el 7), el
+# puente en qemu:PUERTO con --tiempo-real, y eco_e4.py haciendo de ordenador
+# en 192.168.127.1 con su propia pila: ARP, ping, eco UDP y eco TCP, con las
+# sumas de comprobacion que pone el EMAC. Deja la captura en build/eth_e4.pcap.
+#
+#   make eth-e4
+eth-e4: $(MCUSIM)
+	$(PYTHON) verif/eth/eco_e4.py --prueba --sim $(MCUSIM) --pcap $(B)/eth_e4.pcap
 
 # EL SALUDO CON mcu-sim-gui (P-12, fase 3 de su plan): el `mcu-sim` de verdad,
 # con placas/discovery_min.xml y blinky, contra una ventana hecha en Python con
@@ -886,7 +897,7 @@ FWP4 := verif/fw/msp432p4/p4_demo verif/fw/msp432p4/coremark verif/fw/msp432p4/p
 # Los del MSP432E401Y (T6): con la cabecera y DriverLib de TI para el E4.
 FWE4 := verif/fw/msp432e4/e4_demo verif/fw/msp432e4/coremark verif/fw/msp432e4/e4_nv \
         verif/fw/msp432e4/e4_t3 verif/fw/msp432e4/e4_rom verif/fw/msp432e4/rom_r1 \
-        verif/fw/msp432e4/e4_t7
+        verif/fw/msp432e4/e4_t7 verif/fw/msp432e4/e4_eth
 # Los de las placas de ejemplo que no usa ninguna suite de C++: el de
 # placas/barra8_en_nucleo.xml y el de placas/nucleo_f446re_barra8ac_azul.xml,
 # que vigila `make gui-sistema`; los de la pantalla TFT, el de

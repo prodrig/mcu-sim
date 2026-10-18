@@ -80,6 +80,35 @@ static const char* const FW_NV   = "verif/fw/msp432e4/e4_nv/e4_nv.out";
 static const char* const FW_T3   = "verif/fw/msp432e4/e4_t3/e4_t3.out";
 static const char* const FW_ROM  = "verif/fw/msp432e4/e4_rom/e4_rom.out";
 static const char* const FW_T7   = "verif/fw/msp432e4/e4_t7/e4_t7.out";
+static const char* const FW_ETH  = "verif/fw/msp432e4/e4_eth/e4_eth.out";
+
+// El otro extremo del cable del PHY interno, en el banco: lo que manda el MCU
+// se encola, y lo que se le manda entra por EphyE4::de_cable
+struct CableBanco : public eth_cable_if {
+    std::deque<std::vector<uint8_t>> rx;
+    sc_core::sc_event llega;
+    void trama_del_cable(const std::vector<uint8_t>& t) override { rx.push_back(t); llega.notify(SC_ZERO_TIME); }
+};
+// Las sumas de una trama IPv4 que manda el MCU, comprobadas aqui
+static uint32_t suma16(const uint8_t* d, size_t n, uint32_t s = 0) {
+    for (size_t i = 0; i + 1 < n; i += 2) s += (uint32_t(d[i]) << 8) | d[i + 1];
+    if (n & 1) s += uint32_t(d[n - 1]) << 8;
+    while (s >> 16) s = (s & 0xFFFF) + (s >> 16);
+    return s;
+}
+static bool sumas_bien(const std::vector<uint8_t>& t) {
+    if (t.size() < 34) return false;
+    const size_t ihl = size_t(t[14] & 0xF) * 4, total = (size_t(t[16]) << 8) | t[17];
+    if (14 + total > t.size()) return false;
+    if (suma16(&t[14], ihl) != 0xFFFF) return false;
+    const uint8_t proto = t[23];
+    const uint8_t* c = &t[14 + ihl];
+    const size_t n = total - ihl;
+    if (proto == 1) return suma16(c, n) == 0xFFFF;
+    uint32_t ps = suma16(&t[26], 8);
+    ps += proto; ps += uint32_t(n);
+    return suma16(c, n, ps) == 0xFFFF;
+}
 
 // El buzón de e4_demo [verif/fw/msp432e4/e4_demo/main.c, buzon_t]
 enum : uint32_t {
@@ -127,6 +156,7 @@ SC_MODULE(TbE4) {
     Msp432E4& dut2;
     Crystal* y2 = nullptr;
     CanTransceiver* xcvr_b = nullptr;
+    CableBanco cable;
 
     SC_CTOR(TbE4)
         : mcu("dut", DBG_PINES, Cableado(), *CatalogoMcu::busca("MSP432E401Y")),
@@ -1284,6 +1314,143 @@ SC_MODULE(TbE4) {
         xcvr0->set_enabled(false); xcvr_b->set_enabled(false); espia->set_enabled(false);
     }
 
+    // =======================================================================
+    // T7, entrega 3: el EMAC con su PHY interno y lwIP (e4_eth)
+    std::vector<uint8_t> eth(const std::vector<uint8_t>& dst, uint16_t tipo, const std::vector<uint8_t>& c) {
+        static const uint8_t YO[6] = {0x02, 0, 0, 0, 0, 0xFE};
+        std::vector<uint8_t> t(dst);
+        t.insert(t.end(), YO, YO + 6);
+        t.push_back(uint8_t(tipo >> 8)); t.push_back(uint8_t(tipo));
+        t.insert(t.end(), c.begin(), c.end());
+        return t;
+    }
+    std::vector<uint8_t> ipv4(const std::vector<uint8_t>& dst, uint8_t proto, std::vector<uint8_t> c) {
+        std::vector<uint8_t> h = {0x45, 0, uint8_t((20 + c.size()) >> 8), uint8_t(20 + c.size()), 0x12, 0x34,
+                                  0x40, 0, 64, proto, 0, 0, 192, 168, 127, 1, 192, 168, 127, 2};
+        const uint16_t k = uint16_t(~suma16(h.data(), 20));
+        h[10] = uint8_t(k >> 8); h[11] = uint8_t(k);
+        h.insert(h.end(), c.begin(), c.end());
+        return eth(dst, 0x0800, h);
+    }
+    // Pone la suma de UDP o TCP (pseudo-cabecera de 192.168.127.1 a .2)
+    static void suma_l4(std::vector<uint8_t>& c, uint8_t proto, size_t pos) {
+        static const uint8_t P[8] = {192, 168, 127, 1, 192, 168, 127, 2};
+        uint32_t ps = suma16(P, 8) + proto + uint32_t(c.size());
+        c[pos] = c[pos + 1] = 0;
+        const uint16_t k = uint16_t(~suma16(c.data(), c.size(), ps));
+        c[pos] = uint8_t(k >> 8); c[pos + 1] = uint8_t(k);
+    }
+    std::vector<uint8_t> tcp_seg(const std::vector<uint8_t>& dst, uint32_t seq, uint32_t ack, uint8_t fl,
+                                 const std::string& datos = "") {
+        std::vector<uint8_t> c = {0x9C, 0x42, 0, 7, uint8_t(seq >> 24), uint8_t(seq >> 16), uint8_t(seq >> 8),
+                                  uint8_t(seq), uint8_t(ack >> 24), uint8_t(ack >> 16), uint8_t(ack >> 8),
+                                  uint8_t(ack), 0x50, fl, 0x20, 0x00, 0, 0, 0, 0};
+        c.insert(c.end(), datos.begin(), datos.end());
+        suma_l4(c, 6, 16);
+        return ipv4(dst, 6, c);
+    }
+    // Espera una trama IPv4 del protocolo dado; contesta sola a los ARP del MCU
+    bool espera_eth(std::vector<uint8_t>& t, int proto, double ms) {
+        const sc_time lim = sc_time_stamp() + sc_time(ms, SC_MS);
+        while (sc_time_stamp() < lim) {
+            if (cable.rx.empty()) { wait(lim - sc_time_stamp(), cable.llega); continue; }
+            t = cable.rx.front(); cable.rx.pop_front();
+            if (t.size() >= 42 && t[12] == 8 && t[13] == 6 && t[21] == 1) {      // ARP que pregunta
+                std::vector<uint8_t> r = {0, 1, 8, 0, 6, 4, 0, 2, 0x02, 0, 0, 0, 0, 0xFE, 192, 168, 127, 1};
+                r.insert(r.end(), t.begin() + 22, t.begin() + 32);
+                dut.emac.phy.de_cable(eth(std::vector<uint8_t>(t.begin() + 6, t.begin() + 12), 0x0806, r));
+                continue;
+            }
+            if (proto < 0) return true;
+            if (t.size() >= 34 && t[12] == 8 && t[13] == 0 && t[23] == proto) return true;
+        }
+        return false;
+    }
+    void t7_eth() {
+        grupo("E33 El EMAC con su PHY interno: lwIP, ARP, ping y eco UDP y TCP (e4_eth)");
+        cable.rx.clear();
+        dut.emac.phy.conecta_cable(&cable);
+        arranca(0, FW_ETH);
+        check(espera_estado(100, 400), "lwIP arriba y el enlace del PHY interno, subido");
+        check_eq(buzon(0x28), 0x2000A221u, "EMACPHYRead por el MDIO interno: EPHY_ID1/ID2");
+        check(dut.emac.phy.cien() && dut.emac.phy.duplex(), "autonegociado a 100 Mbit/s en duplex");
+        // ARP
+        const std::vector<uint8_t> DIF(6, 0xFF);
+        std::vector<uint8_t> arp = {0, 1, 8, 0, 6, 4, 0, 1, 0x02, 0, 0, 0, 0, 0xFE, 192, 168, 127, 1,
+                                    0, 0, 0, 0, 0, 0, 192, 168, 127, 2};
+        dut.emac.phy.de_cable(eth(DIF, 0x0806, arp));
+        std::vector<uint8_t> t;
+        bool hay = false;
+        const sc_time lim = sc_time_stamp() + sc_time(20, SC_MS);
+        while (!hay && sc_time_stamp() < lim) {
+            if (!espera_eth(t, -1, 20)) break;
+            hay = t.size() >= 42 && t[12] == 8 && t[13] == 6 && t[21] == 2;
+        }
+        check(hay, "ARP: 192.168.127.2 contesta");
+        const std::vector<uint8_t> mac = hay ? std::vector<uint8_t>(t.begin() + 22, t.begin() + 28)
+                                             : std::vector<uint8_t>(6, 0);
+        check(mac == std::vector<uint8_t>({0x02, 0, 0, 0xE4, 0, 1}), "con su MAC, 02:00:00:e4:00:01");
+        // Ping
+        std::vector<uint8_t> ic = {8, 0, 0, 0, 0x45, 0x34, 0, 1};
+        for (unsigned i = 0; i < 32; ++i) ic.push_back(uint8_t(i));
+        const uint16_t k = uint16_t(~suma16(ic.data(), ic.size()));
+        ic[2] = uint8_t(k >> 8); ic[3] = uint8_t(k);
+        dut.emac.phy.de_cable(ipv4(mac, 1, ic));
+        const bool ping = espera_eth(t, 1, 20) && t[34] == 0 && std::equal(ic.begin() + 8, ic.end(), t.begin() + 42);
+        check(ping, "ping: vuelve con sus 32 bytes");
+        check(ping && sumas_bien(t), "y lwIP deja las sumas a cero: las de IP e ICMP las pone el EMAC (COE)");
+        // UDP: diez seguidos, mas que descriptores de recepcion tiene el firmware
+        unsigned udp_ok = 0, udp_sumas = 0;
+        for (unsigned i = 0; i < 10; ++i) {
+            std::string d = "eco UDP numero " + std::to_string(i);
+            std::vector<uint8_t> u = {0x9C, 0x41, 0, 7, 0, uint8_t(8 + d.size()), 0, 0};
+            u.insert(u.end(), d.begin(), d.end());
+            suma_l4(u, 17, 6);
+            dut.emac.phy.de_cable(ipv4(mac, 17, u));
+            if (espera_eth(t, 17, 20) && std::string(t.begin() + 42, t.begin() + 42 + long(d.size())) == d) {
+                ++udp_ok;
+                if (sumas_bien(t)) ++udp_sumas;
+            }
+        }
+        check_eq(udp_ok, 10, "UDP 7: diez datagramas, diez ecos (el anillo de 8 descriptores da la vuelta)");
+        check_eq(udp_sumas, 10, "con la suma de UDP del EMAC");
+        // TCP
+        dut.emac.phy.de_cable(tcp_seg(mac, 1000, 0, 0x02));
+        const bool sa = espera_eth(t, 6, 20) && (t[47] & 0x12) == 0x12;
+        check(sa, "TCP 7: SYN, y vuelve SYN+ACK");
+        check(sa && sumas_bien(t), "con la suma de TCP del EMAC");
+        uint32_t su = sa ? ((uint32_t(t[38]) << 24) | (uint32_t(t[39]) << 16) | (uint32_t(t[40]) << 8) | t[41]) + 1 : 0;
+        const std::string msg = "Hola, eco TCP por el PHY interno del MSP432E401Y\r\n";
+        dut.emac.phy.de_cable(tcp_seg(mac, 1001, su, 0x10));
+        dut.emac.phy.de_cable(tcp_seg(mac, 1001, su, 0x18, msg));
+        std::string eco;
+        const sc_time lim2 = sc_time_stamp() + sc_time(30, SC_MS);
+        while (eco.size() < msg.size() && sc_time_stamp() < lim2) {
+            if (!espera_eth(t, 6, 30)) break;
+            const size_t doff = size_t(t[46] >> 4) * 4, total = (size_t(t[16]) << 8) | t[17];
+            if (14 + total > 34 + doff) {
+                eco.append(t.begin() + long(34 + doff), t.begin() + long(14 + total));
+                su += uint32_t(total - 20 - doff);
+                dut.emac.phy.de_cable(tcp_seg(mac, 1001 + uint32_t(msg.size()), su, 0x10));
+            }
+        }
+        check(eco == msg, "los datos vuelven por el eco (RFC 862)");
+        dut.emac.phy.de_cable(tcp_seg(mac, 1001 + uint32_t(msg.size()), su, 0x11));
+        bool fin = false;
+        const sc_time lim3 = sc_time_stamp() + sc_time(30, SC_MS);
+        while (!fin && sc_time_stamp() < lim3 && espera_eth(t, 6, 30)) fin = (t[47] & 0x01) != 0;
+        check(fin, "y el cierre: el MCU manda su FIN");
+        // Una trama a otra MAC: el filtro del EMAC no la deja pasar
+        const unsigned desc0 = dut.emac.descartadas();
+        dut.emac.phy.de_cable(ipv4({0x02, 0, 0, 0xE4, 0, 2}, 1, ic));
+        check(!espera_eth(t, 1, 5) && dut.emac.descartadas() == desc0 + 1,
+              "un ping a otra MAC no llega a lwIP: lo tira el filtro de direcciones");
+        check_eq(buzon(0x24), 0, "ningun LWIP_ASSERT");
+        std::printf("    tramas: %u del MCU, %u al MCU; conexiones TCP %u, bytes de eco %u, UDP %u\n",
+                    dut.emac.tramas_tx(), dut.emac.tramas_rx(), buzon(0x10), buzon(0x14), buzon(0x18));
+        dut.emac.phy.conecta_cable(nullptr);
+    }
+
     void run() {
         // TESTE4_SOLO=t3: solo los grupos de la entrega 3, para trabajar en ellos.
         // No vale para el invariante (la cifra es otra).
@@ -1300,6 +1467,7 @@ SC_MODULE(TbE4) {
             if (q == "rom") { rom_r1(); cargador(); rom_map(); sin_rom(); bootcfg(); }
             if (q == "t7" || q == "ccm") t7_ccm();
             if (q == "t7" || q == "can") { t7_can(); t7_dos_e4(); }
+            if (q == "t7" || q == "eth") t7_eth();
             std::printf("\nTOTAL E4 (solo %s): %u comprobaciones OK, %u fallos\n", solo, g_ok, g_fallos);
             sc_stop();
             return;
@@ -1335,6 +1503,7 @@ SC_MODULE(TbE4) {
         t7_ccm();
         t7_can();
         t7_dos_e4();
+        t7_eth();
         std::printf("\nTOTAL E4: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

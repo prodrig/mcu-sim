@@ -227,6 +227,13 @@ jobs:
         working-directory: src
         run: make -f Makefile.mcu-sim bsl-p4
 
+      # El Ethernet del MSP432E401Y (T7): el mcu-sim de verdad con e4_eth (lwIP)
+      # y el puente en qemu:PUERTO; eco_e4.py hace de ordenador con su propia
+      # pila (ARP, ICMP, UDP y TCP) y comprueba los ecos y las sumas del EMAC.
+      - name: El eco de lwIP por el puente Ethernet del MSP432E401Y
+        working-directory: src
+        run: make -f Makefile.mcu-sim eth-e4
+
       # La BOOSTXL-EDUMKII enchufada a la MSP-EXP432P401R (T3 del MSP432): el
       # sistema de dos placas con su firmware, mirando lo que sale.
       - name: La BOOSTXL-EDUMKII sobre la LaunchPad del MSP432P401R
