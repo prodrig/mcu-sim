@@ -780,6 +780,20 @@ Lo que queda dicho, con la letra con la que lo cita el código:
 | **t** | Lo que sigue declarado | El EPI (como pide el plan), PWM, QEI, los comparadores y SYSEXC: el registro contesta, no guarda y avisa una vez. El LCD no es del E401Y, sino del E411Y (T8) |
 | **u** | Las placas y su dibujo | `msp_exp432p401r.xml`, `msp_exp432e401y.xml` y `boostxl_edumkii.xml` están revisadas contra SLAU597F, SLAU748B y SLAU599B (guía y esquemáticos) y llevan su dibujo; los sistemas de las dos LaunchPad con la EDUMKII, `make p4-edumkii` y `make e4-edumkii`. **De modelo**: el RGB y el zumbador de la EDUMKII van por transistores desde los 5 V, y aquí son la carga de su pin (un LED con la resistencia de su cátodo; 2,9 kΩ); la luz de la pantalla, igual; su vidrio es de 128x128 y el `Tft128x160` enseña 160 filas; el TPS2052B de la E401Y (el interruptor de los 5 V) y el XDS110 de las dos no están, y su lado de J101 es de adorno salvo el backchannel y los 5 V; el pad VREF+ del E4 (J10.34) no existe en el modelo. Las medidas de la P401R y de la EDUMKII en los dibujos son aproximadas (la E401Y, 63,5 x 174 mm, de su guía). ~~Un `SysCtlDelay` largo desde la Flash a 120 MHz tarda en el modelo bastante más que 3 ciclos por vuelta~~ **Resuelto (2026-10-19)**: el modelo tenía una sola línea de prebúsqueda de instrucciones y no adelantaba la siguiente, así que un bucle que tocaba dos líneas de 256 bits -por sí mismo o por la búsqueda adelantada del núcleo, que lee la palabra que sigue al salto- pagaba los cinco `FWS` dos veces por vuelta: 14 ciclos en vez de 4. Ahora son cuatro líneas y la siguiente adelantada (**f**), y `make e4-retardo` mide las seis variantes a 4 ciclos. Queda el ciclo de más de **m**. `e4_edumkii` sigue esperando con el TIMER1, que es exacto a cualquier reloj |
 
+### P-18 — El STM32F303 y la STM32F3DISCOVERY
+
+**Analizado en `doc/analisis_stm32f303.md` (2026-10-19), con un plan de diez
+fases (S0-S9). Nada hecho todavía.** Es la primera familia del proyecto con la
+segunda generación de IP de ST: el I²C es el `FMPI2C1` del F446 (`i2c2_v1_1`),
+y bxCAN, DAC, RTC, perros, CRC, EXTI, GPIO y temporizadores se reaprovechan por
+rasgos; RCC, controlador de Flash (el del F1), DMA por canales, USART v2, ADC,
+USB FSDEV, COMP y OPAMP son nuevos, y el SPI tiene la misma estructura con
+otro comportamiento (FIFO, `CR2.DS`, `CRCL` en el bit 11). El sistema de
+pruebas es la STM32F3DISCOVERY, con sus dos revisiones de sensores
+(L3GD20 + LSM303DLHC hasta la D; I3G4250D + LSM303AGR desde la E), su XML y su
+SVG. Lo primero, S0: tener RM0316, DS9118 y UM1570 en `doc/refs/`, que desde
+el entorno de trabajo no se alcanzan.
+
 ---
 
 ## 3. Funciones no modeladas — "bits sin máquina" (F)
