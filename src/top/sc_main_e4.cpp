@@ -33,6 +33,7 @@
 #include <systemc>
 #include <cstdio>
 #include <cstdlib>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <string>
@@ -626,8 +627,24 @@ SC_MODULE(TbE4) {
         r.paso = ps.rfind("T05", 0) == 0 && r.pc_paso > parpadea && r.pc_paso < parpadea + 8;
         // Y que siga: continuar, mirar los LED, interrumpir y soltar
         cli.enviar("vCont;c");
+        // `vCont;c` no tiene respuesta: el núcleo arranca cuando el stub lee
+        // el paquete del socket, y eso pasa en tiempo de PARED. Un milisegundo
+        // simulado fijo bastaba en Linux y no en los runners de macOS, donde
+        // el paquete llegaba después. Se espera a que el núcleo deje de estar
+        // parado, con un plazo de reloj (5 s), y entonces se mira el LED.
+        {
+            const auto t_lim = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (dut.core.debug.is_halted() && std::chrono::steady_clock::now() < t_lim)
+                wait(100, SC_US);
+        }
         wait(1, SC_MS);
-        r.corre = buzon(B_ESTADO) == 100 && periodo(e4::PN, 0) > 0;
+        const bool parado = dut.core.debug.is_halted();
+        const uint32_t estado = buzon(B_ESTADO);
+        const double t_led = periodo(e4::PN, 0);
+        r.corre = !parado && estado == 100 && t_led > 0;
+        if (!r.corre)
+            std::printf("    al soltarlo: nucleo %s, estado %u, periodo de PN0 %.3g s\n",
+                        parado ? "PARADO" : "en marcha", unsigned(estado), t_led);
         cli.crudo("\x03");
         espera_parada();
         cli.pedir("D");
