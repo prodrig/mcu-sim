@@ -1,0 +1,66 @@
+{
+    // Code Composer Studio 20 (Theia) con la extension Cortex-Debug
+    // (marus25.cortex-debug, de Open VSX): un MSP432 depurado con OpenOCD.
+    // CCS 20 solo trae su tipo `ccs-debug`, que va a las sondas de TI por su
+    // debug server; Cortex-Debug anade el tipo `cortex-debug`, que lanza
+    // OpenOCD y le conecta GDB. Paso a paso: doc/analisis_xds110.md §8.3.
+    //
+    // Hay que cambiar las cuatro rutas marcadas con RUTA: el OpenOCD, su .cfg,
+    // el arm-none-eabi-gdb de la toolchain GNU de CCS y el .out del proyecto.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            // El P401R de mcu-sim. El simulador lo arranca la tarea de
+            // tasks.json antes de lanzar OpenOCD.
+            "name": "MSP432P401R · mcu-sim + OpenOCD",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "serverpath": "C:/RUTA/xpack-openocd-0.12.0-7/bin/openocd.exe",
+            "configFiles": [
+                "C:/RUTA/mcu-sim/src/ide/msp432/openocd/mcu-sim_msp432p401r.cfg"
+            ],
+            "gdbPath": "C:/RUTA/ti/ccs2020/ccs/tools/compiler/gcc-arm-none-eabi_RUTA/bin/arm-none-eabi-gdb.exe",
+            "executable": "${workspaceFolder}/Debug/TU_PROYECTO.out",
+            "cwd": "${workspaceFolder}",
+            "device": "MSP432P401R",
+            "runToEntryPoint": "main",
+            "preLaunchTask": "mcu-sim: MSP-EXP432P401R con sonda para OpenOCD",
+            // OpenOCD contesta despacio mientras programa la Flash
+            "preLaunchCommands": ["set remotetimeout 60"]
+        },
+        {
+            // El E401Y de mcu-sim: lo mismo con su .cfg y su tarea
+            "name": "MSP432E401Y · mcu-sim + OpenOCD",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "serverpath": "C:/RUTA/xpack-openocd-0.12.0-7/bin/openocd.exe",
+            "configFiles": [
+                "C:/RUTA/mcu-sim/src/ide/msp432/openocd/mcu-sim_msp432e401y.cfg"
+            ],
+            "gdbPath": "C:/RUTA/ti/ccs2020/ccs/tools/compiler/gcc-arm-none-eabi_RUTA/bin/arm-none-eabi-gdb.exe",
+            "executable": "${workspaceFolder}/Debug/TU_PROYECTO.out",
+            "cwd": "${workspaceFolder}",
+            "device": "MSP432E401Y",
+            "runToEntryPoint": "main",
+            "preLaunchTask": "mcu-sim: MSP-EXP432E401Y con sonda para OpenOCD",
+            "preLaunchCommands": ["set remotetimeout 60"]
+        },
+        {
+            // Una MSP-EXP432P401R de verdad, por su XDS110: el .cfg de la
+            // placa que trae OpenOCD (en la 0.12.0, board/ti_msp432_launchpad.cfg)
+            "name": "MSP432P401R · LaunchPad + OpenOCD",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "serverpath": "C:/RUTA/xpack-openocd-0.12.0-7/bin/openocd.exe",
+            "configFiles": ["board/ti/msp432-launchpad.cfg"],
+            "gdbPath": "C:/RUTA/ti/ccs2020/ccs/tools/compiler/gcc-arm-none-eabi_RUTA/bin/arm-none-eabi-gdb.exe",
+            "executable": "${workspaceFolder}/Debug/TU_PROYECTO.out",
+            "cwd": "${workspaceFolder}",
+            "device": "MSP432P401R",
+            "runToEntryPoint": "main"
+        }
+    ]
+}

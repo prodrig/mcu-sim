@@ -64,6 +64,11 @@ cosas distintas que conviene no mezclar:
   macOS sin instalar nada. **X5 y X6 (USB/IP), solo si un laboratorio pide
   pyOCD, Keil, IAR o el controlador `xds110` de OpenOCD. X7 (CCS nativo y su
   EnergyTrace), no.**
+* **Mientras tanto, CCS puede depurar con OpenOCD** (§8): *GDB Hardware
+  Debugging* en CCS 11 y la extensión Cortex-Debug en CCS 20, contra el
+  `mcu-sim` de hoy o contra una LaunchPad por su XDS110. Los `.cfg` y las
+  configuraciones están en `src/ide/msp432/`, y la sesión de GDB con OpenOCD
+  está probada contra el P401R y el E401Y simulados.
 
 | Fase | Qué da | Código nuevo (aprox.) | Coste | Plataformas | Riesgo |
 | :--- | :--- | ---: | :--- | :--- | :--- |
@@ -489,11 +494,266 @@ que X3 diga algo comprobado.
 
 ---
 
+## 8. La alternativa de hoy: OpenOCD desde CCS 11 y CCS 20
+
+Mientras no haya un XDS110 emulado —y el nativo de CCS no se recomienda
+(§3.4)—, **CCS puede depurar un MSP432 a través de OpenOCD**, que hace de
+servidor de GDB. CCS deja su *debug server* y su `.ccxml` y habla con GDB.
+Sirve igual para dos objetivos, y solo cambia el `.cfg` de OpenOCD:
+
+* **El MSP432 de `mcu-sim`**, con la sonda `remote_bitbang` que ya existe
+  (`--openocd`; T5). Cuando esté X2, el mismo camino con `cmsis-dap tcp`, más
+  rápido.
+* **Una LaunchPad de verdad**, por su XDS110, con el controlador `xds110` de
+  OpenOCD.
+
+Lo que se conserva: puntos de ruptura, paso a paso, variables, pila, memoria,
+desensamblado y registros del núcleo; con Cortex-Debug (CCS 20), además, los
+registros de los periféricos (con el SVD) y los hilos de un RTOS. Lo que se
+pierde frente al depurador nativo: EnergyTrace, las vistas de registros con los
+datos de TI y los ajustes de Flash de CCS.
+
+### 8.1 Lo que hace falta, en las dos versiones
+
+| Pieza | Para `mcu-sim` | Para una LaunchPad |
+| :--- | :--- | :--- |
+| **OpenOCD** | **Con SWD en `remote_bitbang`**: uno de git posterior al 2024-04-07. En Linux, `sh ci/construye_openocd.sh <prefijo>`; en Windows y macOS, **xPack OpenOCD 0.12.0-4 o posterior** (se recomienda la 0.12.0-7, de octubre de 2025, que trae también `cmsis-dap tcp`). **La 0.12.0 publicada no vale**: dice «only one transport option; autoselect 'jtag'» | Cualquiera desde la 0.10; el de xPack sirve. El XDS110 con firmware 2.3.0.11 o posterior (CCS lo actualiza solo al conectar, o `xdsdfu`) |
+| **GDB para ARM** | `arm-none-eabi-gdb` de la toolchain GNU de CCS: `<ccs>/tools/compiler/gcc-arm-none-eabi_<versión>/bin/`. Si no se instaló, se añade desde el gestor de compiladores de CCS, o se usa el de Arm. **El `gdb` del PC no sirve**: no lleva ARM | Igual |
+| **El `.cfg`** | `src/ide/msp432/openocd/mcu-sim_msp432p401r.cfg` o `…_msp432e401y.cfg` | P401R: `board/ti/msp432-launchpad.cfg` (en la 0.12.0, `board/ti_msp432_launchpad.cfg`), que trae OpenOCD. E401Y: `src/ide/msp432/openocd/launchpad_msp432e401y.cfg` |
+| **El objetivo** | `mcu-sim placas/msp_exp432p401r.xml --openocd --tiempo-real`, con o sin firmware: con la Flash en blanco el chip entra en el BSL, y OpenOCD la programa igual | La placa por USB |
+
+Los `.cfg` de `mcu-sim` hacen dos cosas: eligen `remote_bitbang` en
+`localhost:3335` con SWD, y cargan el objetivo que trae OpenOCD sin tocarlo
+(`target/ti/msp432.cfg` para el P4; para el E4, `target/ti/stellaris.cfg`,
+porque OpenOCD lo trata como un TM4C129). El del E4 cambia además el evento
+`reset-start` de `stellaris.cfg`: ese evento pone `adapter speed 500`, que
+`remote_bitbang` no admite, y el reset se queda a medias. El E4 se resetea con
+SYSRESETREQ, que es lo único que necesita.
+
+**Antes de abrir el IDE, la comprobación por consola**, en tres terminales
+(desde `src/` de `mcu-sim`):
+
+```
+./build/mcu-sim placas/msp_exp432p401r.xml --openocd --tiempo-real
+openocd -f ide/msp432/openocd/mcu-sim_msp432p401r.cfg
+arm-none-eabi-gdb -q -ex "target extended-remote localhost:3333" \
+    -ex "set remotetimeout 60" -ex "monitor reset halt" -ex load \
+    -ex "monitor reset halt" -ex "break main" -ex continue Debug/proyecto.out
+```
+
+Lo que tiene que salir, en este orden (es la salida real del 19-10-2026, con
+`p4_demo.out`):
+
+```
+[openocd] remote_bitbang escuchando en localhost:3335              ← mcu-sim
+Info : SWD DPIDR 0x2ba01477                                          ← OpenOCD
+Info : [msp432.cpu] Cortex-M4 r0p1 processor detected
+Info : Listening on port 3333 for gdb connections
+Loading section .isr_vector, size 0xe4 lma 0x0                       ← GDB
+Loading section .text, size 0x688 lma 0xe4
+Transfer rate: 498 bytes/sec, 950 bytes/write.
+Breakpoint 1, main () at main.c:208
+```
+
+Si esto funciona, lo que falle después es del IDE.
+
+### 8.2 CCS 11 (y 12): *GDB Hardware Debugging*
+
+CCS 11 es un Eclipse 2021-03 sin modificar, con CDT. CDT trae un tipo de
+lanzamiento, ***GDB Hardware Debugging***, que conecta GDB a un servidor
+remoto: es el que usa también STM32CubeIDE. En `src/ide/msp432/ccs/` hay uno
+hecho, `openocd_msp432.launch`.
+
+**Paso 1 · Que aparezca el tipo de lanzamiento.** En *Run → Debug
+Configurations…* tiene que estar ***GDB Hardware Debugging*** en la lista de la
+izquierda. Si no está:
+
+1. *Window → Preferences → General → Capabilities*: marcar lo que sea de
+   CDT/GDB (CCS esconde partes de CDT detrás de «capacidades»); *Apply and
+   Close*, y volver a mirar.
+2. Si sigue sin estar, instalarlo: *Help → Install New Software…*, *Work
+   with:* `https://download.eclipse.org/tools/cdt/releases/10.2/` (el CDT de
+   Eclipse 2021-03), desmarcar *Group items by category*, buscar **C/C++ GDB
+   Hardware Debugging**, *Next*, aceptar la licencia y reiniciar CCS.
+
+**Paso 2 · Arrancar `mcu-sim` y OpenOCD desde CCS** (o desde dos terminales,
+como en §8.1; con una LaunchPad, solo OpenOCD). *Run → External Tools →
+External Tools Configurations…*, *Program*, botón *New* (arriba a la
+izquierda):
+
+| Campo | `mcu-sim` | OpenOCD |
+| :--- | :--- | :--- |
+| *Name* | `mcu-sim P401R` | `OpenOCD mcu-sim P401R` |
+| *Main → Location* | `C:\…\mcu-sim\src\build\mcu-sim.exe` | `C:\…\xpack-openocd-0.12.0-7\bin\openocd.exe` |
+| *Main → Working Directory* | `C:\…\mcu-sim\src` | `C:\…\mcu-sim\src` |
+| *Main → Arguments* | `placas/msp_exp432p401r.xml --openocd --tiempo-real` | `-f ide/msp432/openocd/mcu-sim_msp432p401r.cfg` |
+| *Build* | Desmarcar *Build before launch* | Igual |
+| *Common* | Marcar *External Tools* en *Display in favorites menu* | Igual |
+
+*Apply*, y *Run* primero el de `mcu-sim` y después el de OpenOCD. Cada uno abre
+su consola en la vista *Console*: la de `mcu-sim` tiene que decir
+`[openocd] remote_bitbang escuchando en localhost:3335`, y la de OpenOCD,
+`Listening on port 3333 for gdb connections`. Se paran con el cuadrado rojo de
+su consola.
+
+**Paso 3 · La configuración de depuración.** O se importa la hecha (*File →
+Import… → Run/Debug → Launch Configurations*, la carpeta
+`src/ide/msp432/ccs`, marcar `openocd_msp432`), o se crea: *Run → Debug
+Configurations…*, *GDB Hardware Debugging*, *New*. Pestaña por pestaña:
+
+* ***Main***: *Project*, el del programa; *C/C++ Application*,
+  `Debug/<proyecto>.out` (con *Search Project…* se encuentra).
+* ***Debugger***:
+  * *GDB Command*: la **ruta completa** de `arm-none-eabi-gdb.exe` (§8.1);
+  * marcar ***Use remote target***;
+  * *JTAG Device*: ***Generic TCP/IP***;
+  * *Host name or IP address*: `localhost`; *Port number*: `3333`.
+* ***Startup***:
+  * desmarcar *Reset and Delay* y *Halt*: los hace la orden de abajo;
+  * *Initialization Commands*:
+    ```
+    set remotetimeout 60
+    monitor reset halt
+    maintenance flush register-cache
+    ```
+  * marcar ***Load image*** con *Use project binary*, y ***Load symbols*** con
+    *Use project binary*;
+  * *Run Commands*:
+    ```
+    monitor reset halt
+    maintenance flush register-cache
+    ```
+  * marcar ***Set breakpoint at:*** `main` y ***Resume***.
+* ***Common***: si se quiere tener a mano, *Display in favorites menu → Debug*.
+
+*Apply* y ***Debug***. CCS ofrece pasar a la perspectiva *Debug* (la de CDT,
+no la *CCS Debug*): sí. GDB conecta, OpenOCD programa la Flash con su algoritmo
+—en `mcu-sim` va a medio kilobyte por segundo, así que un programa de 30 KB
+tarda un minuto; con X2 bajará mucho— y el programa para en `main`.
+
+**Por qué esas órdenes.** `monitor` pasa la orden a OpenOCD: `reset halt`
+deja el núcleo parado en el vector de reset. GDB no vuelve a leer los
+registros después de un `monitor`; `maintenance flush register-cache` se lo
+fuerza, o la vista de registros enseñaría los de antes del reset. `set
+remotetimeout 60` porque OpenOCD no contesta a GDB mientras ejecuta su
+algoritmo de Flash, y el plazo por omisión (2 s) se queda corto.
+
+**Paso 4 (opcional) · Todo con un botón.** *Run → Debug Configurations… →
+Launch Group → New*, y con *Add…* las tres configuraciones en este orden:
+`mcu-sim P401R` (modo *run*, *Post launch action*: *Wait for console output
+(regexp)* con `remote_bitbang escuchando`), `OpenOCD mcu-sim P401R` (*run*,
+*Wait for console output* con `Listening on port 3333`) y `openocd_msp432`
+(*debug*).
+
+**El E401Y y la LaunchPad**: lo mismo, cambiando `msp_exp432p401r.xml` por
+`msp_exp432e401y.xml` y el `.cfg` (§8.1). Con la placa de verdad no hay
+`mcu-sim` y el `.cfg` de OpenOCD es el de la placa.
+
+### 8.3 CCS 20 (Theia): Cortex-Debug
+
+CCS 20 ya no es Eclipse: es Theia, y no trae *GDB Hardware Debugging*. Su
+`launch.json` solo admite su tipo `ccs-debug`, que va a las sondas de TI. Pero
+**acepta extensiones de VS Code de Open VSX**, y la de depuración de Cortex-M
+de referencia, **Cortex-Debug** (`marus25.cortex-debug`), está allí. Esa
+extensión arranca OpenOCD, le conecta GDB y carga el programa. En
+`src/ide/msp432/ccs20/` están `launch.json` y `tasks.json` hechos.
+
+**Paso 1 · Instalar Cortex-Debug.** El icono de *Extensions* en la barra de
+actividad de la izquierda, buscar `cortex-debug`, el de **marus25**, *Install*.
+Instala también sus dependencias (`mcu-debug`: *debug-tracker-vscode*,
+*memory-view*, *rtos-views*, *peripheral-viewer*). Sin acceso a Internet: bajar
+los `.vsix` de open-vsx.org y, en la vista *Extensions*, el menú `…` →
+*Install from VSIX…*. **TI no la soporta**: su documentación dice que
+`ccs-debug` es el único tipo «soportado»; funciona porque Theia es Theia, pero
+cada versión nueva de CCS hay que comprobarla.
+
+**Paso 2 · Las tareas y los lanzamientos.**
+
+* `tasks.json`: arranca `mcu-sim` en segundo plano y espera a que diga
+  `remote_bitbang escuchando` antes de dejar seguir. Se copia a la carpeta de
+  configuración del proyecto (`.theia/tasks.json`, o `.vscode/tasks.json`,
+  que Theia también lee) y se cambian las dos `RUTA`.
+* `launch.json`: en la vista *Run and Debug*, el engranaje (*Open
+  launch.json*) abre el que CCS usa —el de la carpeta `.theia` del espacio de
+  trabajo—, y se añaden las entradas de `src/ide/msp432/ccs20/launch.json`,
+  cambiando las `RUTA`:
+  * `serverpath`: `openocd.exe`;
+  * `configFiles`: el `.cfg` de §8.1;
+  * `gdbPath`: `arm-none-eabi-gdb.exe`;
+  * `executable`: el `.out` del proyecto.
+
+  Lo que hace cada campo que no es una ruta:
+
+  | Campo | Valor | Por qué |
+  | :--- | :--- | :--- |
+  | `type` / `servertype` | `cortex-debug` / `openocd` | Cortex-Debug lanza OpenOCD con su propio puerto de GDB y lo para al acabar |
+  | `preLaunchTask` | La tarea de `mcu-sim` | Que la sonda esté escuchando antes de que OpenOCD la busque. Con la LaunchPad no hace falta |
+  | `preLaunchCommands` | `set remotetimeout 60` | Lo mismo que en CCS 11 |
+  | `runToEntryPoint` | `main` | Para en `main` después de cargar |
+  | `device` | `MSP432P401R` / `MSP432E401Y` | Informativo; con `svdFile` apuntando al SVD del chip (del paquete CMSIS de TI, `MSP432P4xx_DFP`), la vista de periféricos |
+
+  Las órdenes de reset y carga no hay que darlas: con `servertype: openocd`,
+  Cortex-Debug hace `monitor reset halt`, `load` y otra vez `monitor reset
+  halt`.
+
+**Paso 3 · Depurar.** En *Run and Debug*, elegir «MSP432P401R · mcu-sim +
+OpenOCD» en el desplegable y ▶ (F5). En el panel de abajo aparecen la terminal
+de la tarea (`mcu-sim`), la consola *gdb-server* (OpenOCD) y la *Debug
+Console* (GDB). Al parar en `main`, la barra de depuración, las variables, la
+pila, los *breakpoints* y, con el SVD, *Cortex Peripherals*.
+
+### 8.4 Problemas conocidos
+
+| Síntoma | Causa | Arreglo |
+| :--- | :--- | :--- |
+| OpenOCD: «only one transport option; autoselect 'jtag'» | OpenOCD 0.12.0, sin SWD en `remote_bitbang` | Uno de git o el de xPack (§8.1) |
+| OpenOCD: «Error connecting DP» al arrancar | `mcu-sim` no está escuchando, u otro proceso tiene el 3335 | Arrancar antes `mcu-sim`; `--port` cambia el puerto (y el `.cfg`, igual) |
+| GDB: «Truncated register 18» o «Remote 'g' packet reply is too long» | El `gdb` del PC, no el de ARM | La ruta completa de `arm-none-eabi-gdb` |
+| GDB: «Remote communication error» o tiempo agotado en `load` | El plazo de 2 s de GDB mientras OpenOCD programa | `set remotetimeout 60` |
+| OpenOCD avisa «keep_alive() was not invoked…» | Lo mismo, del lado de OpenOCD | Inofensivo |
+| E401Y: «Unknown did0 class» | El controlador `stellaris` no conoce la clase del MSP432E4 | Inofensivo: programa con el tamaño de DID1 |
+| E401Y: «Execution of event reset-start failed» | `stellaris.cfg` sin el cambio de nuestro `.cfg` | Usar `mcu-sim_msp432e401y.cfg` |
+| GDB: «Invalid state, unable to determine sp alias» | GDB 15 con la descripción de registros de OpenOCD | Inofensivo |
+| La carga es lenta | `remote_bitbang`: un carácter por flanco | Normal hoy; X2 (§3.2) lo acelera sin cambiar nada en CCS, solo el `.cfg` |
+
+### 8.5 Qué está probado
+
+**Probado aquí, el 19-10-2026**, en Linux, con `mcu-sim` (rama `msp432`),
+OpenOCD 2075427 y `gdb-multiarch` 15.1, con los dos `.cfg` de `mcu-sim`. Las
+órdenes son las mismas que mandan los dos IDE: `monitor reset halt`, `load`,
+`compare-sections` (todo «matched»), `break main`, `continue` y `next`.
+
+* **P401R**: con la Flash en blanco y con otro firmware cargado; el ejemplo
+  `systick_interrupt_gpio_blink` del SDK y `p4_demo`, a unos 500-630 B/s.
+* **E401Y**: `e4_demo`, a 526 B/s.
+
+**No probado**:
+
+* dentro de CCS 11 ni de CCS 20: los pasos siguen la documentación de CDT, de
+  Cortex-Debug y de CCS, y la configuración de CubeIDE, que sí se probó en su
+  IDE (`cubeide/README.md`);
+* el xPack en Windows;
+* los `.cfg` de las LaunchPad de verdad.
+
+**Capturas de pantalla: no hay.** Las descargas de TI no se alcanzan desde el
+entorno donde se escribió esto, así que CCS no se pudo instalar allí; y en el
+PC del usuario, un IDE se puede mirar y pulsar pero no escribir en él. Las que
+conviene añadir, en `doc/img/`, al seguir los pasos a mano:
+
+1. `ccs11_external_tools.png`: la configuración de `mcu-sim` en *External Tools*;
+2. `ccs11_debugger.png` y `ccs11_startup.png`: las pestañas *Debugger* y
+   *Startup* de *GDB Hardware Debugging*;
+3. `ccs11_sesion.png`: la sesión parada en `main`;
+4. `ccs20_extension.png`: Cortex-Debug en la vista *Extensions*;
+5. `ccs20_sesion.png`: la sesión, con las tres consolas abajo.
+
+---
+
 ## Fuentes
 
 Consultadas el 19-10-2026.
 
-* Repositorio `mcu-sim` (rama `msp432`, commit `1dbeb8e`):
+* Repositorio `mcu-sim` (rama `msp432`, commit `95f1119`):
   `doc/analisis_msp432.md` (§4.4–4.6, §5, T5 y T8),
   `doc/analisis_puente_usb.md` (U1, §5.1), `verif/sonda_openocd.h`,
   `verif/swd_port.h`, `core/debug.h`, `soc/msp432p4/msp432p401r.h`
@@ -523,5 +783,18 @@ Consultadas el 19-10-2026.
 * [carrotIndustries/energytrace-util](https://github.com/carrotIndustries/energytrace-util)
   (GPL-3.0): el formato de columnas tiempo, corriente, tensión y energía (para
   las sondas MSP430, con `libmsp430`).
+* [TI, CCS 20.1, *User Interface Introduction*](https://software-dl.ti.com/ccs/esd/documents/users_guide_ccs_20.1.0/ccs_ide.html):
+  extensiones de Open VSX desde la vista *Extensions*; y
+  [*Debug Overview*](https://software-dl.ti.com/ccs/esd/documents/users_guide_ccs_20.1.0/ccs_debug-main.html):
+  `launch.json` en la carpeta `.theia`, `ccs-debug` como único tipo soportado.
+* [TI, notas de CCS 11.2](https://software-dl.ti.com/ccs/esd/CCSv11/CCS_11_2_0/exports/CCS_11.2.0_ReleaseNotes.htm):
+  Eclipse y CDT 2021-03 sin modificar.
+* [Cortex-Debug en Open VSX](https://open-vsx.org/extension/marus25/cortex-debug):
+  la extensión y sus dependencias `mcu-debug`.
+* [xPack OpenOCD, versiones](https://github.com/xpack-dev-tools/openocd-xpack/releases):
+  de 0.12.0-4 (agosto de 2024) a 0.12.0-7 (octubre de 2025), construidas
+  desde el master de OpenOCD.
+* OpenOCD 2075427: `board/ti/msp432-launchpad.cfg`, `target/ti/msp432.cfg` y
+  `target/ti/stellaris.cfg` (el evento `reset-start` con `adapter speed 500`).
 * [Directiva 2009/24/CE](https://eur-lex.europa.eu/eli/dir/2009/24/oj),
   art. 6 (descompilación para la interoperabilidad).

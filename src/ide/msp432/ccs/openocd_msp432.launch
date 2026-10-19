@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Configuracion de lanzamiento de Code Composer Studio 11 y 12 (Eclipse):
+     un MSP432 depurado con OpenOCD, sea el de mcu-sim (`mcu-sim placa.xml
+     --openocd` y `openocd -f ide/msp432/openocd/mcu-sim_<chip>.cfg`) o una
+     LaunchPad de verdad por su XDS110 (`openocd -f board/ti/msp432-launchpad.cfg`).
+     Paso a paso, con lo que esta probado y lo que no: doc/analisis_xds110.md §8.
+
+     Es la de simulador_msp432.launch con OpenOCD en lugar del stub: el mismo
+     puerto (3333), y `set remotetimeout 60` porque OpenOCD contesta despacio
+     mientras programa la Flash con su algoritmo. -->
+<launchConfiguration type="org.eclipse.cdt.debug.gdbjtag.launchConfigurationType">
+    <stringAttribute key="org.eclipse.cdt.launch.PROJECT_ATTR" value="TU_PROYECTO"/>
+    <stringAttribute key="org.eclipse.cdt.launch.PROGRAM_NAME" value="Debug/TU_PROYECTO.out"/>
+    <booleanAttribute key="org.eclipse.cdt.launch.PROJECT_BUILD_CONFIG_AUTO_ATTR" value="true"/>
+    <stringAttribute key="org.eclipse.cdt.launch.DEBUGGER_START_MODE" value="run"/>
+
+    <!-- El depurador: el arm-none-eabi-gdb de la toolchain GNU de CCS, con su
+         RUTA COMPLETA (ccs/tools/compiler/gcc-arm-none-eabi_<version>/bin/).
+         El gdb del PC no sirve: no lleva ARM (vease cubeide/README.md). -->
+    <stringAttribute key="org.eclipse.cdt.dsf.gdb.DEBUG_NAME" value="arm-none-eabi-gdb"/>
+    <booleanAttribute key="org.eclipse.cdt.dsf.gdb.NON_STOP" value="false"/>
+    <booleanAttribute key="org.eclipse.cdt.dsf.gdb.UPDATE_THREADLIST_ON_SUSPEND" value="false"/>
+
+    <!-- El objetivo remoto: el servidor de GDB de OpenOCD. -->
+    <stringAttribute key="org.eclipse.cdt.debug.gdbjtag.core.jtagDevice" value="Generic TCP/IP"/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.useRemoteTarget" value="true"/>
+    <stringAttribute key="org.eclipse.cdt.debug.gdbjtag.core.ipAddress" value="localhost"/>
+    <intAttribute key="org.eclipse.cdt.debug.gdbjtag.core.portNumber" value="3333"/>
+
+    <!-- Arranque: el reset y el halt, con `monitor`, que OpenOCD entiende.
+         Las casillas de Eclipse, desmarcadas, para no duplicar. -->
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.doReset" value="false"/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.doHalt" value="false"/>
+    <intAttribute key="org.eclipse.cdt.debug.gdbjtag.core.delay" value="0"/>
+    <stringAttribute key="org.eclipse.cdt.debug.gdbjtag.core.initCommands" value="set remotetimeout 60&#13;&#10;monitor reset halt&#13;&#10;maintenance flush register-cache&#13;&#10;"/>
+
+    <!-- La carga: OpenOCD programa la Flash con su controlador (msp432 en el
+         P4, stellaris en el E4), con el mapa de memoria que le da a GDB. -->
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.loadImage" value="true"/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.useProjBinaryForImage" value="true"/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.useFileForImage" value="false"/>
+    <stringAttribute key="org.eclipse.cdt.debug.gdbjtag.core.imageOffset" value=""/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.loadSymbols" value="true"/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.useProjBinaryForSymbols" value="true"/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.useFileForSymbols" value="false"/>
+    <stringAttribute key="org.eclipse.cdt.debug.gdbjtag.core.symbolsOffset" value=""/>
+
+    <!-- Tras cargar, otra vez al vector de reset, y a parar en main. -->
+    <stringAttribute key="org.eclipse.cdt.debug.gdbjtag.core.runCommands" value="monitor reset halt&#13;&#10;maintenance flush register-cache&#13;&#10;"/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.setResumeAt" value="false"/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.setStopAt" value="true"/>
+    <stringAttribute key="org.eclipse.cdt.debug.gdbjtag.core.stopAt" value="main"/>
+    <booleanAttribute key="org.eclipse.cdt.debug.gdbjtag.core.setResume" value="true"/>
+</launchConfiguration>
