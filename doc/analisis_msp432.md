@@ -548,6 +548,11 @@ hablan el protocolo propio del XDS110. Su descripción pública más completa es
 el controlador `xds110` de OpenOCD, pero emularlo es otro proyecto. Queda como
 pregunta abierta (§9).
 
+> **2026-10-19:** `doc/analisis_xds110.md` estudia el coste de la sonda
+> entera. El OpenOCD fijado trae un *backend* `cmsis-dap tcp`, así que para
+> OpenOCD esta vía ya no depende del puente USB (fase X2 de ese análisis);
+> USB/IP queda para pyOCD, Keil e IAR.
+
 ### 4.7 Resumen de la descarga
 
 | Vía | Herramienta del alumno | Qué ejercita del modelo | Coste | Fase |
