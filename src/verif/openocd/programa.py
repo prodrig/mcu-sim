@@ -202,15 +202,23 @@ def main():
           "OpenOCD programa y verifica uart_demo.bin con el algoritmo de stm32f2x")
     check("flash size = 1024 KiB" in sal and "device id = 0x10016413" in sal,
           "identifica el F407: DBGMCU_IDCODE 0x10016413 y F_SIZE = 1024 KiB")
+    # Se pregunta hasta que acabe, con un plazo de RELOJ y no un numero de
+    # intentos: el firmware espera unos 5 millones de vueltas a una recepcion
+    # que en discovery_min no llega, y el tiempo de pared que eso cuesta va
+    # con la maquina. Diez intentos -unos 3 s en un runner de GitHub, mas de
+    # 10 s aqui- no bastaban alli.
     buzon = []
-    for _ in range(10):
+    t_buzon, intentos = time.time(), 0
+    while time.time() < t_buzon + 90:
+        intentos += 1
         rc2, sal2, _ = corre(ocd_base(a.openocd, p, "target/stm32f4x.cfg") +
                              ["-c", "init", "-c", "sleep 200", "-c", "mdw 0x20000000 6",
                               "-c", "shutdown"], 60)
         buzon = palabras(sal2, 0x20000000)
         if buzon and buzon[0] == 1:
             break
-    print("    buzon de uart_demo: %s" % " ".join("%08x" % v for v in buzon))
+    print("    buzon de uart_demo: %s (%d lecturas, %.1f s)" %
+          (" ".join("%08x" % v for v in buzon), intentos, time.time() - t_buzon))
     check(len(buzon) == 6 and buzon[0] == 1 and buzon[5] == 42000000,
           "el firmware nuevo arranca y acaba: done = 1, PCLK1 = 42 MHz")
     s.fin()

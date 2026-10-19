@@ -83,6 +83,9 @@ SC_MODULE(Pad) {
         SC_METHOD(drive_apply_proc);      // aplica el gobierno tras t_pd
         sensitive << apply_ev_;
         dont_initialize();
+        SC_METHOD(revisa_i_proc);         // el aviso de sobrecorriente, asentado
+        sensitive << revisa_i_ev_;
+        dont_initialize();
     }
 
     void end_of_elaboration() override {
@@ -122,6 +125,13 @@ private:
         else net->set_drive(id_pull_, d.pupd == 1 ? float(vdd) : 0.0f,
                             float(r_pull));
         applied_ = d;
+    }
+
+    void revisa_i_proc() {
+        if (++revisa_i_deltas_ < 2) { revisa_i_ev_.notify(sc_core::SC_ZERO_TIME); return; }
+        revisa_i_pend_ = false;
+        if (std::fabs(double(net->current(id_pad_))) > i_max)
+            SC_REPORT_WARNING("pad", "corriente de pin por encima del maximo");
     }
 
     // -----------------------------------------------------------------------
@@ -178,9 +188,17 @@ private:
 
         // Vigilancia de corriente por pin [IR, §3.2, §2.4]
         const double i = std::fabs(double(net->current(id_pad_)));
+        // El AVISO espera a que el nodo se asiente: un LED que conducía sigue
+        // un ciclo delta como fuente {vf, r} después de que el pin baje, y en
+        // ese delta el pin le saca una corriente que el diodo no dejaría
+        // pasar (con la LED2 de la P401R, 2,9 V sobre 16 ohm). Lo que sigue
+        // por encima dos deltas después es de verdad, y se avisa.
         const bool over = (i > i_max);
-        if (over && !over_i_)
-            SC_REPORT_WARNING("pad", "corriente de pin por encima del maximo");
+        if (over && !over_i_ && !revisa_i_pend_) {
+            revisa_i_pend_ = true;
+            revisa_i_deltas_ = 0;
+            revisa_i_ev_.notify(sc_core::SC_ZERO_TIME);
+        }
         over_i_ = over;
 
         // Modo analógico: buffer de entrada y Schmitt desconectados; el IDR
@@ -215,6 +233,9 @@ private:
     bool level_written_ = false, oor_warned_ = false, over_i_ = false;
     PadDrive pending_{}, applied_{};
     sc_core::sc_event apply_ev_;
+    sc_core::sc_event revisa_i_ev_;
+    bool revisa_i_pend_ = false;
+    int  revisa_i_deltas_ = 0;
 };
 
 } // namespace stm32

@@ -437,7 +437,11 @@ inline bool espera_legible_us(socket_t s, long us) {
     fd_set lec;
     FD_ZERO(&lec);
     FD_SET(s, &lec);
-    timeval t{ long(us / 1000000), long(us % 1000000) };
+    // Cada campo con su tipo: tv_usec es `long` en Linux y en Windows, pero
+    // `int` (suseconds_t) en macOS, y clang no deja estrecharlo en llaves
+    timeval t{};
+    t.tv_sec = decltype(t.tv_sec)(us / 1000000);
+    t.tv_usec = decltype(t.tv_usec)(us % 1000000);
 #if defined(_WIN32)
     return ::select(0, &lec, nullptr, nullptr, &t) > 0;
 #else

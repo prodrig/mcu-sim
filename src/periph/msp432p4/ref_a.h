@@ -5,7 +5,7 @@
 // segunda fuente: DriverLib ref_a.c]:
 //
 //   ON      enciende el generador         VSEL    1,2 / 1,45 / -- / 2,5 V
-//   OUT     saca VREF por VREF+ (P5.6)    TCOFF   apaga el sensor de temperatura
+//   REFOUT     saca VREF por VREF+ (P5.6)    TCOFF   apaga el sensor de temperatura
 //   GENOT, BGOT   disparos de una vez (no se modelan: avisan)
 //   GENACT, BGACT, GENBUSY, BGMODE, GENRDY, BGRDY   de solo lectura
 //
@@ -35,7 +35,7 @@ namespace stm32 {
 class RefAP4 : public Bus16P4 {
 public:
     enum : uint16_t {
-        ON = 0x0001, OUT = 0x0002, TCOFF = 0x0008, VSEL = 0x0030, GENOT = 0x0040,
+        ON = 0x0001, REFOUT = 0x0002, TCOFF = 0x0008, VSEL = 0x0030, GENOT = 0x0040,
         BGOT = 0x0080, GENACT = 0x0100, BGACT = 0x0200, GENBUSY = 0x0400,
         BGMODE = 0x0800, GENRDY = 0x1000, BGRDY = 0x2000
     };
@@ -71,7 +71,7 @@ public:
         }
     }
     bool sensor_on() const { return activa() && !(ctl0_ & TCOFF); }
-    bool sale_por_pin() const { return lista() && (ctl0_ & OUT); }
+    bool sale_por_pin() const { return lista() && (ctl0_ & REFOUT); }
     uint16_t ctl0() { return lee16(0, true); }
 
     static sc_core::sc_time t_asentar() { return sc_core::sc_time(40, sc_core::SC_US); }
@@ -100,7 +100,7 @@ protected:
 
     uint16_t lee16(uint32_t off, bool) override {
         if (off != 0) return 0;
-        uint16_t v = uint16_t(ctl0_ & (ON | OUT | TCOFF | VSEL));
+        uint16_t v = uint16_t(ctl0_ & (ON | REFOUT | TCOFF | VSEL));
         if (activa()) v |= GENACT | BGACT;
         if (ocupada_) v |= GENBUSY;
         if (lista()) v |= GENRDY | BGRDY;
@@ -119,7 +119,7 @@ protected:
         // Con la referencia en uso, VSEL y ON no cambian [TRM 21.2.3]
         if (ocupada_) w = uint16_t((w & ~(ON | VSEL)) | (ctl0_ & (ON | VSEL)));
         const bool cambia_v = ((w ^ ctl0_) & VSEL) != 0;
-        ctl0_ = uint16_t(w & (ON | OUT | TCOFF | VSEL));
+        ctl0_ = uint16_t(w & (ON | REFOUT | TCOFF | VSEL));
         if (cambia_v && activa()) { listo_ = false; listo_ev_.cancel(); }
         actualiza();
     }

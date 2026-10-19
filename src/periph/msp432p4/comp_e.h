@@ -5,7 +5,7 @@
 // DriverLib comp_e.c, que dice cómo se usan REF0 y REF1]:
 //
 //   CTL0   IPSEL/IPEN y IMSEL/IMEN: qué canal va a cada entrada
-//   CTL1   OUT, OUTPOL, F (filtro) con FDLY, IES, SHORT, EX, PWRMD, ON, MRVL/MRVS
+//   CTL1   CEOUT, OUTPOL, F (filtro) con FDLY, IES, SHORT, EX, PWRMD, ON, MRVL/MRVS
 //   CTL2   REF0, REF1 (las tomas de la escalera, 1..32 de 32), RSEL (a qué
 //          entrada va la referencia), RS (sin referencia, VCC por la escalera,
 //          la compartida por la escalera, o la compartida directa), REFL
@@ -48,7 +48,7 @@ public:
 
     enum : uint16_t {
         IPEN = 0x0080, IMEN = 0x8000,
-        OUT = 0x0001, OUTPOL = 0x0002, F = 0x0004, IES = 0x0008, SHORT = 0x0010,
+        CEOUT = 0x0001, OUTPOL = 0x0002, F = 0x0004, IES = 0x0008, SHORT = 0x0010,
         EX = 0x0020, ON = 0x0400, MRVL = 0x0800, MRVS = 0x1000,
         RSEL = 0x0020,
         IFG = 0x0001, IIFG = 0x0002, RDYIFG = 0x0010, IE = 0x0100, IIE = 0x0200, RDYIE = 0x1000
@@ -64,7 +64,7 @@ public:
     }
     // El SoC lo llama cuando cambia la tensión de un canal o la referencia
     void recalcula() { ev_.notify(sc_core::SC_ZERO_TIME); }
-    bool out() const { return (ctl1_ & OUT) != 0; }
+    bool out() const { return (ctl1_ & CEOUT) != 0; }
     double umbral() const { return umbral_; }
 
 protected:
@@ -85,7 +85,7 @@ protected:
         const bool q = (int_ & (int_ >> 8) & (IFG | IIFG | RDYIFG)) != 0;
         if (repulso_ && q) { repulso_ = false; irq.write(false); irq_ev_.notify(sc_core::SC_ZERO_TIME); }
         else { repulso_ = false; irq.write(q); }
-        salida.write((ctl1_ & OUT) != 0);
+        salida.write((ctl1_ & CEOUT) != 0);
     }
     unsigned rs() const { return (ctl2_ >> 6) & 3u; }
     void pide_ref() {
@@ -101,7 +101,7 @@ protected:
     }
     // La referencia, con la toma que toca según la salida
     double v_cref() {
-        const bool usa1 = (ctl1_ & MRVS) ? (ctl1_ & MRVL) != 0 : !(ctl1_ & OUT);
+        const bool usa1 = (ctl1_ & MRVS) ? (ctl1_ & MRVL) != 0 : !(ctl1_ & CEOUT);
         const unsigned tap = usa1 ? ((ctl2_ >> 8) & 0x1Fu) : (ctl2_ & 0x1Fu);
         switch (rs()) {
             case 1: return (v_cc ? v_cc() : 3.3) * double(tap + 1u) / 32.0;
@@ -132,7 +132,7 @@ protected:
         pendiente_ = false;
         const bool antes = out();
         if (nuevo_ == antes) return;
-        if (nuevo_) ctl1_ |= OUT; else ctl1_ &= ~OUT;
+        if (nuevo_) ctl1_ |= CEOUT; else ctl1_ &= ~CEOUT;
         // IES = 0: IFG en el flanco de subida, IIFG en el de bajada; IES = 1, al revés
         const bool sube = nuevo_;
         int_ |= ((sube != ((ctl1_ & IES) != 0)) ? IFG : IIFG);
@@ -171,9 +171,9 @@ protected:
             case 0x00: ctl0_ = uint16_t(mz(ctl0_) & 0x8F8Fu); break;
             case 0x02: {
                 const bool estaba = (ctl1_ & ON) != 0;
-                // OUT es de solo lectura
-                ctl1_ = uint16_t((mz(ctl1_) & 0x1FFEu) | (ctl1_ & OUT));
-                if (!(ctl1_ & ON)) ctl1_ &= ~OUT;
+                // CEOUT es de solo lectura
+                ctl1_ = uint16_t((mz(ctl1_) & 0x1FFEu) | (ctl1_ & CEOUT));
+                if (!(ctl1_ & ON)) ctl1_ &= ~CEOUT;
                 if (!estaba && (ctl1_ & ON)) listo_ev_.notify(sc_core::sc_time(1, sc_core::SC_US));
                 pide_ref();
                 break;
