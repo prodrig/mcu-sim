@@ -5,9 +5,11 @@
      de la rev. 2.1, hojas 1 a 3]:
 
          LED1  rojo, en P1.0, a masa por 470 ohm (R7), tras el jumper JP8
-         LED2  RGB (EVERLIGHT 19-337): rojo en P2.0 por 110 ohm, verde en P2.1
-               por 16 ohm y azul en P2.2 por 24 ohm, tras JP9, JP10 y JP11.
-               Son pines de ALTA CORRIENTE: con P2DS a 1 dan unos 20 mA
+         LED2  RGB (EVERLIGHT 19-337), un RGBLed de catodo comun: rojo en
+               P2.0 por 110 ohm, verde en P2.1 por 16 ohm y azul en P2.2 por
+               24 ohm, tras JP9, JP10 y JP11. Los tres en un encapsulado: la
+               luz se mezcla, y los tres a la vez se ven blancos. Son pines de
+               ALTA CORRIENTE: con P2DS a 1 dan unos 20 mA
          S1    pulsador en P1.1, a MASA. La placa no lleva resistencia: el
                nivel alto lo da el pull-up interno (P1REN = 1 con P1OUT = 1)
          S2    pulsador en P1.4, igual
@@ -67,14 +69,12 @@
   <componente tipo="Led" id="LED1" a_vss="si" vf="2.0" r="470">
     <pin nombre="anodo" nodo="JP8.2"/>
   </componente>
-  <componente tipo="Led" id="LED2_R" a_vss="si" vf="2.0" r="110">
-    <pin nombre="anodo" nodo="JP9.2"/>
-  </componente>
-  <componente tipo="Led" id="LED2_G" a_vss="si" vf="2.9" r="16">
-    <pin nombre="anodo" nodo="JP10.2"/>
-  </componente>
-  <componente tipo="Led" id="LED2_B" a_vss="si" vf="2.9" r="24">
-    <pin nombre="anodo" nodo="JP11.2"/>
+  <!-- LED2, el RGB: un encapsulado con los tres, catodo comun a masa -->
+  <componente tipo="RGBLed" id="LED2" comun="catodo"
+              vf_r="2.0" vf_g="2.9" vf_b="2.9" r_r="110" r_g="16" r_b="24">
+    <pin nombre="r" nodo="JP9.2"/>
+    <pin nombre="g" nodo="JP10.2"/>
+    <pin nombre="b" nodo="JP11.2"/>
   </componente>
 
   <componente tipo="Button" id="S1" v_cerrado="0" r_cerrado="10">

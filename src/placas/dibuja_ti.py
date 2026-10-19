@@ -150,6 +150,17 @@ def boton(s, id, x, y, tam=60, color="#2c3e50"):
     s.cierra()
 
 
+def led_rgb(s, id, x, y, r=14):
+    """Un LED RGB: un encapsulado transparente con los tres chips dentro. El
+    elemento es el encapsulado entero: la ventana pinta encima la mezcla"""
+    s.abre(id)
+    s.rect(x - r * 1.4, y - r * 1.4, r * 2.8, r * 2.8, "#f5f5f5", "#999999", 1, rx=3)
+    s.circ(x, y, r, "#eef2f3", "#9aa5a8", 1.2)
+    for dx, dy, c in ((-0.38, -0.3, "#e74c3c"), (0.38, -0.3, "#2ecc71"), (0, 0.4, "#3498db")):
+        s.rect(x + dx * r - r * 0.17, y + dy * r - r * 0.17, r * 0.34, r * 0.34, c, None)
+    s.cierra()
+
+
 def led(s, id, x, y, color, r=10):
     s.rect(x - r * 1.3, y - r * 0.9, r * 2.6, r * 1.8, "#f5f5f5", "#999999", 1, rx=2)
     s.circ(x, y, r * 0.75, color, "#555555", 1.2, id=id)
@@ -206,7 +217,8 @@ def p401r():
   Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
   1.2 Tiny, geometria como atributo, una unidad es 0,1 mm -la placa mide
   unos 64 x 98 mm, y a los lados quedan los rotulos- y cada pieza viva con el
-  id de su pieza en el XML: LED1, LED2_R/G/B, S1, S2, el RESET S3, los
+  id de su pieza en el XML: LED1, LED2 (el RGB, un RGBLed: la ventana pinta
+  encima la mezcla de sus tres canales), S1, S2, el RESET S3, los
   cristales Y1 e Y2, el USB, el backchannel BCL y los conectores J1-J7, cada
   pin con su id (J1.1 ... J2.10), para que los hilos y los acoples de un
   sistema lleguen a SU pin. Las tiras BoosterPack van como en la
@@ -322,17 +334,17 @@ def p401r():
     s.text(bx + bw - 40, yj - 20, "J7", size=12)
     # Los LED y sus jumpers
     yl = by + 760
-    for k, (jp, ld, col, nom) in enumerate((("JP8", "LED1", "#e74c3c", "LED1"),
-                                            ("JP9", "LED2_R", "#e74c3c", "R"),
-                                            ("JP10", "LED2_G", "#2ecc71", "G"),
-                                            ("JP11", "LED2_B", "#3498db", "B"))):
+    for k, (jp, nom) in enumerate((("JP8", "LED1"), ("JP9", "R"), ("JP10", "G"), ("JP11", "B"))):
         x = cx - 150 + k * 70 + (30 if k else 0)
         jumper(s, jp, [(jp + ".1", x, yl - 12), (jp + ".2", x, yl - 12 + P)],
                {"1-2": [(x, yl - 12, x, yl - 12 + P)]})
         s.text(x, yl - 40, jp, size=10)
-        led(s, ld, x, yl + 58, col, 11)
-        s.text(x, yl + 88, nom if k else "LED1 (rojo)", size=11)
-    s.text(cx + 45, yl + 106, "LED2 (RGB)", size=11)
+        if k:
+            s.text(x + 18, yl + 10, nom, size=10, anchor="start")
+    led(s, "LED1", cx - 150, yl + 58, "#e74c3c", 11)
+    s.text(cx - 150, yl + 88, "LED1 (rojo)", size=11)
+    led_rgb(s, "LED2", cx + 50, yl + 62, 15)
+    s.text(cx + 50, yl + 100, "LED2 (RGB)", size=11)
     # J5, el conector del borde: 2x19, impares arriba
     yj5 = by + bh - 75
     x5 = cx - 9 * P
@@ -367,7 +379,7 @@ def edumkii():
   Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
   1.2 Tiny, una unidad es 0,1 mm -unos 110 x 52 mm- y cada pieza viva con su
   id del XML: JOY_SEL (la palanca, que se aprieta), JOY_X y JOY_Y (las
-  flechas de cada eje), MIC, ACC_X/Y/Z, S1, S2, LED_R/G/B, BUZ, OPT3001,
+  flechas de cada eje), MIC, ACC_X/Y/Z, S1, S2, D1 (el RGB, un RGBLed), BUZ, OPT3001,
   TMP006, D3 y D5 (los de alimentacion), y LCD: la ZONA ACTIVA del vidrio,
   de 128 de ancho por 160 de alto como el Tft128x160 del XML -el de la
   placa es de 128x128, y las 32 filas de abajo no tienen vidrio-. Los
@@ -474,11 +486,8 @@ def edumkii():
         s.text(x - 55, y + 5, pid, size=12, anchor="end")
     # El RGB: los tres colores
     lx, ly = rx0 + 5, by + 300
-    s.rect(lx - 26, ly - 26, 52, 52, "#f8f9f9", "#999", 1.5, rx=4)
-    s.circ(lx - 10, ly - 8, 7, "#e74c3c", "#555", 1, id="LED_R")
-    s.circ(lx + 10, ly - 8, 7, "#2ecc71", "#555", 1, id="LED_G")
-    s.circ(lx, ly + 10, 7, "#3498db", "#555", 1, id="LED_B")
-    s.text(lx, ly + 44, "RGB", size=10)
+    led_rgb(s, "D1", lx, ly, 17)
+    s.text(lx, ly + 44, "RGB (D1)", size=10)
     # El zumbador
     s.abre("BUZ")
     s.circ(rx0 + 10, by + 420, 48, "#1c1c1c", "#000", 2)

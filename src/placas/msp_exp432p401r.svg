@@ -11,7 +11,8 @@
   Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
   1.2 Tiny, geometria como atributo, una unidad es 0,1 mm -la placa mide
   unos 64 x 98 mm, y a los lados quedan los rotulos- y cada pieza viva con el
-  id de su pieza en el XML: LED1, LED2_R/G/B, S1, S2, el RESET S3, los
+  id de su pieza en el XML: LED1, LED2 (el RGB, un RGBLed: la ventana pinta
+  encima la mezcla de sus tres canales), S1, S2, el RESET S3, los
   cristales Y1 e Y2, el USB, el backchannel BCL y los conectores J1-J7, cada
   pin con su id (J1.1 ... J2.10), para que los hilos y los acoples de un
   sistema lleguen a SU pin. Las tiras BoosterPack van como en la
@@ -314,9 +315,6 @@
   </g>
   </g>
   <text x="400.0" y="750.0" font-family="Arial" font-size="10" fill="#ffffff" text-anchor="middle">JP8</text>
-  <rect x="385.7" y="838.1" width="28.6" height="19.8" rx="2" fill="#f5f5f5" stroke="#999999" stroke-width="1"/>
-  <circle id="LED1" cx="400.0" cy="848.0" r="8.2" fill="#e74c3c" stroke="#555555" stroke-width="1.2"/>
-  <text x="400.0" y="878.0" font-family="Arial" font-size="11" fill="#ffffff" text-anchor="middle">LED1 (rojo)</text>
   <g id="JP9">
   <rect x="487.3" y="765.3" width="25.4" height="50.8" fill="#1a1a1a" stroke="#000000" stroke-width="1"/>
   <rect id="JP9.1" x="493.0" y="771.0" width="14.0" height="14.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
@@ -327,9 +325,7 @@
   </g>
   </g>
   <text x="500.0" y="750.0" font-family="Arial" font-size="10" fill="#ffffff" text-anchor="middle">JP9</text>
-  <rect x="485.7" y="838.1" width="28.6" height="19.8" rx="2" fill="#f5f5f5" stroke="#999999" stroke-width="1"/>
-  <circle id="LED2_R" cx="500.0" cy="848.0" r="8.2" fill="#e74c3c" stroke="#555555" stroke-width="1.2"/>
-  <text x="500.0" y="878.0" font-family="Arial" font-size="11" fill="#ffffff" text-anchor="middle">R</text>
+  <text x="518.0" y="800.0" font-family="Arial" font-size="10" fill="#ffffff" text-anchor="start">R</text>
   <g id="JP10">
   <rect x="557.3" y="765.3" width="25.4" height="50.8" fill="#1a1a1a" stroke="#000000" stroke-width="1"/>
   <rect id="JP10.1" x="563.0" y="771.0" width="14.0" height="14.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
@@ -340,9 +336,7 @@
   </g>
   </g>
   <text x="570.0" y="750.0" font-family="Arial" font-size="10" fill="#ffffff" text-anchor="middle">JP10</text>
-  <rect x="555.7" y="838.1" width="28.6" height="19.8" rx="2" fill="#f5f5f5" stroke="#999999" stroke-width="1"/>
-  <circle id="LED2_G" cx="570.0" cy="848.0" r="8.2" fill="#2ecc71" stroke="#555555" stroke-width="1.2"/>
-  <text x="570.0" y="878.0" font-family="Arial" font-size="11" fill="#ffffff" text-anchor="middle">G</text>
+  <text x="588.0" y="800.0" font-family="Arial" font-size="10" fill="#ffffff" text-anchor="start">G</text>
   <g id="JP11">
   <rect x="627.3" y="765.3" width="25.4" height="50.8" fill="#1a1a1a" stroke="#000000" stroke-width="1"/>
   <rect id="JP11.1" x="633.0" y="771.0" width="14.0" height="14.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
@@ -353,10 +347,18 @@
   </g>
   </g>
   <text x="640.0" y="750.0" font-family="Arial" font-size="10" fill="#ffffff" text-anchor="middle">JP11</text>
-  <rect x="625.7" y="838.1" width="28.6" height="19.8" rx="2" fill="#f5f5f5" stroke="#999999" stroke-width="1"/>
-  <circle id="LED2_B" cx="640.0" cy="848.0" r="8.2" fill="#3498db" stroke="#555555" stroke-width="1.2"/>
-  <text x="640.0" y="878.0" font-family="Arial" font-size="11" fill="#ffffff" text-anchor="middle">B</text>
-  <text x="595.0" y="896.0" font-family="Arial" font-size="11" fill="#ffffff" text-anchor="middle">LED2 (RGB)</text>
+  <text x="658.0" y="800.0" font-family="Arial" font-size="10" fill="#ffffff" text-anchor="start">B</text>
+  <rect x="385.7" y="838.1" width="28.6" height="19.8" rx="2" fill="#f5f5f5" stroke="#999999" stroke-width="1"/>
+  <circle id="LED1" cx="400.0" cy="848.0" r="8.2" fill="#e74c3c" stroke="#555555" stroke-width="1.2"/>
+  <text x="400.0" y="878.0" font-family="Arial" font-size="11" fill="#ffffff" text-anchor="middle">LED1 (rojo)</text>
+  <g id="LED2">
+  <rect x="579.0" y="831.0" width="42.0" height="42.0" rx="3" fill="#f5f5f5" stroke="#999999" stroke-width="1"/>
+  <circle cx="600.0" cy="852.0" r="15.0" fill="#eef2f3" stroke="#9aa5a8" stroke-width="1.2"/>
+  <rect x="591.8" y="845.0" width="5.1" height="5.1" fill="#e74c3c"/>
+  <rect x="603.2" y="845.0" width="5.1" height="5.1" fill="#2ecc71"/>
+  <rect x="597.5" y="855.5" width="5.1" height="5.1" fill="#3498db"/>
+  </g>
+  <text x="600.0" y="890.0" font-family="Arial" font-size="11" fill="#ffffff" text-anchor="middle">LED2 (RGB)</text>
   <g id="J5">
   <rect x="308.7" y="922.3" width="482.6" height="50.8" fill="#1a1a1a" stroke="#000" stroke-width="1"/>
   <rect id="J5.1" x="313.4" y="927.0" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>

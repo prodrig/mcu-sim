@@ -16,11 +16,12 @@
                         en reposo a 1,65 V: J1.6
          S1, S2         dos pulsadores a masa, con 10 kohm a 3V3 (R20, R21):
                         S1 en J4.33 y S2 en J4.32
-         LED_R/G/B      el LED RGB CLV1A-FKB (D1): azul J4.37, verde J4.38 y
-                        rojo J5.RGB, que es J4.39 con el puente de fabrica.
-                        En la placa cada color lo enciende un MMBT2222A desde
-                        los 5 V (Q1-Q3); aqui, un LED en el pin con la
-                        resistencia de su catodo (510, 470, 470 ohm)
+         D1             el LED RGB CLV1A-FKB, un RGBLed: azul J4.37, verde
+                        J4.38 y rojo J5.RGB, que es J4.39 con el puente de
+                        fabrica. En la placa cada color lo enciende un
+                        MMBT2222A desde los 5 V (Q1-Q3); aqui cada canal es
+                        la carga que ve el pin, la base de su transistor (4,7
+                        kohm y 0,7 V), y la corriente que dice es esa
          J5             el jumper que lleva J4.39 al ROJO del RGB (1-2, como
                         sale de fabrica) o a la LUZ de la pantalla (2-3). Con
                         el de fabrica la pantalla esta a oscuras: su luz
@@ -139,15 +140,15 @@
     <pin nombre="a" nodo="J5.LCD"/>
   </componente>
 
-  <!-- El LED RGB -->
-  <componente tipo="Led" id="LED_R" a_vss="si" vf="2.0" r="510">
-    <pin nombre="anodo" nodo="J5.RGB"/>
-  </componente>
-  <componente tipo="Led" id="LED_G" a_vss="si" vf="2.2" r="470">
-    <pin nombre="anodo" nodo="J4.8"/>
-  </componente>
-  <componente tipo="Led" id="LED_B" a_vss="si" vf="2.8" r="470">
-    <pin nombre="anodo" nodo="J4.7"/>
+  <!-- El LED RGB, D1: un RGBLed. Lo que ve cada pin es la base de su
+       transistor -4,7 kohm y la union base-emisor, 0,7 V-, que es la carga de
+       verdad del pin; el LED, de anodo comun a 5 V, luce cuando el pin esta
+       alto, y por eso aqui es un catodo comun con la base de cada canal -->
+  <componente tipo="RGBLed" id="D1" comun="catodo"
+              vf_r="0.7" vf_g="0.7" vf_b="0.7" r_r="4700" r_g="4700" r_b="4700">
+    <pin nombre="r" nodo="J5.RGB"/>
+    <pin nombre="g" nodo="J4.8"/>
+    <pin nombre="b" nodo="J4.7"/>
   </componente>
 
   <!-- El zumbador: lo que ve el pin es la base de Q5, tras 2,2 kohm -->

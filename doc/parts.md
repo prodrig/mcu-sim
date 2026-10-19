@@ -716,6 +716,54 @@ Y el montaje clásico, para comparar:
 </componente>
 ```
 
+#### `RGBLed`
+
+**Tres LED —rojo, verde y azul— en un solo encapsulado transparente**, cada uno
+con su resistencia en serie: el LED RGB de la LED2 de la MSP-EXP432P401R o el
+D1 de la BOOSTXL-EDUMKII. Por dentro son tres `Led` (arriba), con todo lo que
+eso supone —no lineales, `{vf, r}` conduciendo y alta impedancia en corte—,
+que comparten una patilla común. Lo que la pieza añade es **verse como una
+sola**: en la ventana los colores encendidos se mezclan en un único halo —rojo
+y verde dan amarillo; los tres, **blanco**— y el informe del final dice el
+color que se ve.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `r`, `g`, `b` | al menos uno | La patilla de cada color, al pin o al nodo que la gobierne. Un color sin patilla no se monta |
+| `comun` | opcional | La patilla común —el cátodo común o el ánodo común— a la vista, en un nodo. Sin ella va por dentro a masa (`comun="catodo"`) o a `vdd` (`comun="anodo"`) |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `comun` | `catodo` | `catodo`: cada color luce con su patilla **alta**. `anodo`: luce con su patilla **baja**, como un `Led` con `a_vss="no"` |
+| `vdd` | `3.3` | La tensión del ánodo común, solo con `comun="anodo"` y la patilla común por dentro. Con la patilla `comun` a la vista es un error: la tensión la pone ese nodo |
+| `vf_r`, `vf_g`, `vf_b` | `2.0`, `3.0`, `3.0` | La tensión directa de cada color |
+| `r_r`, `r_g`, `r_b` | `330` | La resistencia en serie de cada color |
+
+```xml
+<!-- La LED2 de la MSP-EXP432P401R, tras sus puentes JP9 a JP11 -->
+<componente tipo="RGBLed" id="LED2" comun="catodo" vf_r="2.0" vf_g="2.9" vf_b="2.9"
+            r_r="110" r_g="16" r_b="24">
+  <pin nombre="r" nodo="JP9.2"/>
+  <pin nombre="g" nodo="JP10.2"/>
+  <pin nombre="b" nodo="JP11.2"/>
+</componente>
+```
+
+**Observables**, por este orden: `encendido` (0/1, alguno de los tres; va el
+primero para que una ventana que no sepa de canales lo pinte como un `Led`);
+`rojo`, `verde` y `azul` (0/1, los que sugiere pintar); y `corriente_r`,
+`corriente_g` y `corriente_b` (mA, de 0 a 25). Los seis últimos llevan en el
+catálogo **`color="#rrggbb"`**: un 0/1 y una corriente del mismo color forman
+un **canal**, y la ventana suma los canales encendidos, cada uno con su brillo,
+y lleva la suma al tope —por eso rojo + verde + azul es blanco y no gris—. La
+pieza no dice cómo mezclar: la ventana no sabe qué es un `RGBLed`, solo que
+hay canales.
+
+**Dónde va.** Una placa que lleva un LED RGB de verdad —un único encapsulado—
+lo declara con un `RGBLed`, no con tres `Led`. Tres LED de colores sueltos
+—las LD3 a LD6 de la Discovery, los D1 a D4 de la MSP-EXP432E401Y— siguen
+siendo `Led`: no se mezclan, que están separados.
+
 #### `Button`
 
 Pulsador a masa. **Sin pulsar deja el pin abierto**, así que el nivel alto tiene
@@ -1818,6 +1866,7 @@ Lo declaran estas:
 | Pieza | Observables | Mandos |
 | :--- | :--- | :--- |
 | `Led` | `encendido` (0/1, el que sugiere pintar) y `corriente` (mA, de 0 a 25) | — |
+| `RGBLed` | `encendido` (0/1, alguno), `rojo`, `verde` y `azul` (0/1, los que sugiere pintar) y `corriente_r`, `corriente_g` y `corriente_b` (mA, de 0 a 25); los seis con **`color=`**, sus canales | — |
 | `Button` | `pulsado` (0/1): el **dedo**, no el contacto, que en un NC es lo contrario | `pulsar` (botón, 0 suelta, 1 pulsa) |
 | `Crystal` | `presente` (0/1): si está soldado | — |
 | `Fuente`, `Gnd` | `corriente` (mA, la que entrega o recibe; la escala es ± el límite, o ±100 sin él) y `sobrecorriente` (0/1, **una alarma**: el catálogo la marca con `alarma="si"` y la ventana la pinta en rojo) | — |

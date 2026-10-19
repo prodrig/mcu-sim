@@ -501,6 +501,106 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// LED RGB: tres LED -rojo, verde y azul- en UN encapsulado transparente, cada
+// uno con su resistencia, y un común. Eléctricamente son tres `Led` y nada
+// más: cada canal luce o no por su cuenta, con su vf y su r, y lo que no es
+// la pieza no ve ninguna diferencia con tres LED sueltos. Lo que cambia es lo
+// que se VE: en un encapsulado la luz de los tres se mezcla -rojo y verde,
+// amarillo; los tres, blanco-, y eso es cosa de la pantalla, que recibe un
+// observable por canal con su color (`Observable::color`).
+//
+// EL COMÚN:
+//   * catodo: el de casi todos. Sin patilla `comun`, va por dentro a masa y
+//     cada canal luce con su pin ALTO (la LED2 de la MSP-EXP432P401R);
+//   * anodo: sin patilla `comun`, va por dentro a `vdd` y cada canal luce
+//     con su pin BAJO;
+//   * con la patilla `comun` a la vista, ni masa ni vdd por dentro: cada
+//     canal es un LED de dos patillas entre su pin y el común (o entre el
+//     común y su pin, con el ánodo común), como los de una barra.
+//
+// Los tres `Led` son hijos de la pieza: no van al catálogo ni al netlist, y
+// sus patillas son las de ella -`r`, `g`, `b` y `comun`- (ExtPartBase::adopta).
+// Un canal sin pin no existe: el encapsulado tiene la patilla, la placa no la
+// lleva a ningún sitio.
+// ---------------------------------------------------------------------------
+SC_MODULE(RGBLed), public ExtPartBase {
+    enum Comun { Catodo, Anodo };
+    struct Canal { double vf, r; };
+    static const char* nombre_canal(unsigned k) { static const char* n[3] = {"rojo", "verde", "azul"}; return n[k]; }
+    static const char* terminal_canal(unsigned k) { static const char* n[3] = {"r", "g", "b"}; return n[k]; }
+    static const char* color_canal(unsigned k) { static const char* n[3] = {"#ff0000", "#00ff00", "#0000ff"}; return n[k]; }
+
+    // El común por dentro: a masa (Catodo) o a `vdd` (Anodo)
+    RGBLed(sc_core::sc_module_name nm, analog_net_if* r, analog_net_if* g, analog_net_if* b,
+           Comun c, const Canal (&k)[3], double vdd = 3.3)
+        : sc_core::sc_module(nm), ExtPartBase("RGBLed", nm), comun_(c) {
+        analog_net_if* p[3] = {r, g, b};
+        for (unsigned i = 0; i < 3; ++i) {
+            if (!p[i]) continue;
+            const char* t = c == Catodo ? "anodo" : "catodo";
+            led_[i].reset(new Led(terminal_canal(i), *p[i], c == Catodo, k[i].vf, k[i].r, vdd, t));
+            adopta(*led_[i], t, terminal_canal(i));
+            retira(led_[i].get());
+        }
+    }
+    // El común a la vista
+    RGBLed(sc_core::sc_module_name nm, analog_net_if* r, analog_net_if* g, analog_net_if* b,
+           analog_net_if& comun, Comun c, const Canal (&k)[3])
+        : sc_core::sc_module(nm), ExtPartBase("RGBLed", nm), comun_(c), con_comun_(true) {
+        analog_net_if* p[3] = {r, g, b};
+        for (unsigned i = 0; i < 3; ++i) {
+            if (!p[i]) continue;
+            analog_net_if& a = c == Catodo ? *p[i] : comun;
+            analog_net_if& kk = c == Catodo ? comun : *p[i];
+            led_[i].reset(new Led(terminal_canal(i), a, kk, k[i].vf, k[i].r));
+            adopta(*led_[i], c == Catodo ? "anodo" : "catodo", terminal_canal(i));
+            adopta(*led_[i], c == Catodo ? "catodo" : "anodo", "comun");
+            retira(led_[i].get());
+        }
+    }
+
+    void set_enabled(bool on) override {
+        ExtPartBase::set_enabled(on);
+        for (auto& l : led_) if (l) l->set_enabled(on);
+    }
+
+    bool tiene(unsigned k) const { return k < 3 && led_[k] != nullptr; }
+    bool on(unsigned k) const { return tiene(k) && led_[k]->on(); }
+    double current(unsigned k) const { return tiene(k) ? led_[k]->current() : 0.0; }
+    double tension(unsigned k) const { return tiene(k) ? led_[k]->tension() : 0.0; }
+    bool al_aire(unsigned k) const { return tiene(k) && led_[k]->al_aire(); }
+    bool on() const { return on(0) || on(1) || on(2); }
+    bool con_comun() const { return con_comun_; }
+    Comun comun() const { return comun_; }
+    // Lo que se ve, en palabras: la mezcla de los canales encendidos
+    std::string color_visto() const {
+        static const char* n[8] = {"apagado", "rojo", "verde", "amarillo",
+                                   "azul", "magenta", "cian", "blanco"};
+        return n[(on(0) ? 1 : 0) | (on(1) ? 2 : 0) | (on(2) ? 4 : 0)];
+    }
+
+    // Lo que deja ver: si luce alguno -lo que sugiere-, y por canal, si luce
+    // y su corriente, con su color. Un `encendido` primero: una pantalla que
+    // no sepa de canales lo pinta como un LED
+    unsigned   n_observables() const override { return 7; }
+    Observable observable(unsigned i) const override {
+        if (i == 0) return {"encendido", "", 0.f, 1.f, true};
+        if (i <= 3) return {nombre_canal(i - 1), "", 0.f, 1.f, true, false, color_canal(i - 1)};
+        static const char* c[3] = {"corriente_r", "corriente_g", "corriente_b"};
+        return {c[i - 4], "mA", 0.f, 25.f, false, false, color_canal(i - 4)};
+    }
+    float valor_observable(unsigned i) const override {
+        if (i == 0) return on() ? 1.f : 0.f;
+        if (i <= 3) return on(i - 1) ? 1.f : 0.f;
+        return float(current(i - 4) * 1000.0);
+    }
+private:
+    std::unique_ptr<Led> led_[3];
+    Comun comun_;
+    bool con_comun_ = false;
+};
+
+// ---------------------------------------------------------------------------
 // UNA RAMA RESISTIVA ENTRE DOS NODOS: lo que hay entre las dos patillas de una
 // resistencia o de un contacto cerrado. El canal resuelve cada nodo por
 // separado (common/analog_net.h), así que la rama se resuelve como la del Led

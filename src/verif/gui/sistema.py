@@ -65,6 +65,9 @@
 #       un Jumper con VARIOS puentes (los 2x2 JP4/JP5 de la E401Y) y sus
 #       errores; y <jumper ref> en un sistema, que cambia el puente de una
 #       placa sin tocar su fichero -el J5 de la EDUMKII- y el dibujo con el.
+#   C20 el LED RGB: la LED2 de la P401R y el D1 de la EDUMKII son UNA pieza
+#       RGBLed, con sus patillas r/g/b, y el catalogo marca sus canales con
+#       color= para que la ventana los mezcle.
 #
 #   make -f Makefile.mcu-sim gui-sistema
 #   python3 verif/gui/sistema.py [--sim build/mcu-sim]
@@ -1376,11 +1379,11 @@ SIS_JUMPER = """<sistema nombre="j">
 def c19_ti(sim, cp):
     grupo("C19 Las placas de TI con su dibujo, los jumpers de varios puentes y <jumper ref>")
     esperado = {
-        "msp_exp432p401r": ("placa 'msp-exp432p401r': 1 MCU(s), 24 componentes", "J101 1-2+3-4+5-6+7-8+9-10+"
+        "msp_exp432p401r": ("placa 'msp-exp432p401r': 1 MCU(s), 22 componentes", "J101 1-2+3-4+5-6+7-8+9-10+"
                             "11-12+13-14+15-16+17-18+19-20, JP10 1-2, JP11 1-2, JP8 1-2, JP9 1-2)"),
         "msp_exp432e401y": ("placa 'msp-exp432e401y': 1 MCU(s), 31 componentes", "JP1 5-6, JP4 1-2+3-4, "
                             "JP5 1-2+3-4, JP6 1-2, JP7 1-2)"),
-        "boostxl_edumkii": ("placa 'boostxl-edumkii': SIN MCU, 36 componentes", "J5 RGB-PWM)"),
+        "boostxl_edumkii": ("placa 'boostxl-edumkii': SIN MCU, 34 componentes", "J5 RGB-PWM)"),
     }
     for n in PLACAS_TI:
         rc, out, err = corre(sim, ["placas/%s.xml" % n, "--valida"])
@@ -1425,6 +1428,47 @@ def c19_ti(sim, cp):
         check(rc != 0 and dice in out + err, "%s: error que lo dice" % que)
 
 
+def catalogo_de(sim, args):
+    """(T_PLACA, T_CATALOGO) de un --valida con ventana"""
+    v = Ventana()
+    p = arranca(sim, args + ["--valida"], v.puerto)
+    try:
+        if not v.acepta():
+            return None, None
+        _, placa, cat, _ = saludo_hasta_listo(v, valida=True, version=2)
+        resto_del_saludo(v)
+        termina(p)
+        return placa, cat
+    finally:
+        if p.poll() is None:
+            p.kill()
+        v.cierra()
+
+
+def c20_rgb(sim, cp):
+    grupo("C20 El LED RGB: una pieza, tres canales de color")
+    COLORES = [("rojo", "#ff0000"), ("verde", "#00ff00"), ("azul", "#0000ff"),
+               ("corriente_r", "#ff0000"), ("corriente_g", "#00ff00"), ("corriente_b", "#0000ff")]
+    for fichero, id_, nodos in (
+            ("placas/msp_exp432p401r.xml", "LED2", {"r": "P2.0", "g": "P2.1", "b": "P2.2"}),
+            ("placas/msp_exp432p401r_edumkii.xml", "E/D1", None)):
+        placa, cat = catalogo_de(sim, [fichero])
+        if not check(placa is not None and cat is not None, "%s: saludo" % fichero):
+            continue
+        comps = {c.get("id"): c for c in ET.fromstring(placa).findall("componente")}
+        c = comps.get(id_)
+        pines = {x.get("nombre"): x.get("nodo") for x in c.findall("pin")} if c is not None else {}
+        check(c is not None and c.get("tipo") == "RGBLed" and sorted(pines) == ["b", "g", "r"] and
+              (nodos is None or pines == nodos),
+              "%s: %s es un RGBLed con sus patillas r, g y b %s" % (fichero, id_, pines))
+        pz = [x for x in ET.fromstring(cat).iter("pieza") if x.get("id") == id_]
+        obs = [(o.get("nombre"), o.get("color")) for o in pz[0].findall("observable")] if pz else []
+        check(obs == [("encendido", None)] + COLORES,
+              "y el catalogo: encendido, sin color, el primero; y sus seis canales con color= %s" % obs)
+        sueltos = [k for k in comps if re.search(r"LED2_|LED_[RGB]$", k)]
+        check(not sueltos, "y ya no hay tres Led sueltos (%s)" % sueltos)
+
+
 def main():
     a = argparse.ArgumentParser(description="conectores y sistemas de placas")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -1455,6 +1499,7 @@ def main():
         c17_visible(sim, cp)
         c18_acodado(sim, cp)
         c19_ti(sim, cp)
+        c20_rgb(sim, cp)
     finally:
         cp.borra()
     return ventana.resumen("SISTEMA")

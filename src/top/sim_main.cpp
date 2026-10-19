@@ -1282,6 +1282,30 @@ SC_MODULE(Sim) {
                         nd.c_str(), l->on() ? "encendido" : "apagado",
                         double(l->pin_voltage()), l->current() * 1e3);
         }
+        // Los LED RGB: lo que se ve -la mezcla- y cada canal con su pin, como
+        // un LED suelto
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "RGBLed") continue;
+            const RGBLed* l = placa.como<RGBLed>(i.id);
+            if (!l) continue;
+            std::string canales;
+            for (unsigned k = 0; k < 3; ++k) {
+                if (!l->tiene(k)) continue;
+                char c[160];
+                if (l->al_aire(k))
+                    std::snprintf(c, sizeof c, "%s en %s: un extremo al aire", RGBLed::nombre_canal(k),
+                                  i.nodo_de(RGBLed::terminal_canal(k)).c_str());
+                else
+                    std::snprintf(c, sizeof c, "%s en %s: %s, %.2f V, %.2f mA", RGBLed::nombre_canal(k),
+                                  i.nodo_de(RGBLed::terminal_canal(k)).c_str(),
+                                  l->on(k) ? "encendido" : "apagado",
+                                  std::fabs(l->tension(k)) < 0.005 ? 0.0 : l->tension(k),
+                                  l->current(k) * 1e3);
+                canales += (canales.empty() ? "" : "; ") + std::string(c);
+            }
+            std::printf("  LED RGB %s: %s  (%s)\n", i.id.c_str(), l->color_visto().c_str(),
+                        canales.c_str());
+        }
         // Las fuentes y las masas: cuanto entregan -o reciben- y si han tenido
         // que limitar. Es lo que se mira en una placa sin MCU.
         for (const Instancia& i : placa.instancias()) {

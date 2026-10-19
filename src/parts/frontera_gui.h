@@ -180,7 +180,9 @@ public:
                      "\" unidad=\"" + xml_escapa(o.unidad) +
                      "\" min=\"" + num(o.min) + "\" max=\"" + num(o.max) +
                      "\" interesante=\"" + (o.interesante ? "si" : "no") + "\"" +
-                     (o.alarma ? " alarma=\"si\"" : "") + "/>\n";
+                     (o.alarma ? " alarma=\"si\"" : "") +
+                     (o.color ? std::string(" color=\"") + xml_escapa(o.color) + "\"" : std::string()) +
+                     "/>\n";
             }
             for (unsigned k = 0; k < p->n_mandos(); ++k) {
                 const Mando m = p->mando(k);

@@ -155,6 +155,74 @@ REGISTRA_PARTE(Led,
                        term);
     });
 
+REGISTRA_PARTE(RGBLed,
+    Ayuda("LED RGB: tres LED -rojo, verde y azul- en UN encapsulado "
+          "transparente, cada uno con su resistencia, y un comun. Cada canal "
+          "es un Led -luce o no por su cuenta, con su vf y su r- y la luz de "
+          "los tres SE MEZCLA en la pantalla: rojo y verde, amarillo; los "
+          "tres, blanco.")
+      .ejemplo("<componente tipo=\"RGBLed\" id=\"LED2\" comun=\"catodo\"\n"
+               "            vf_r=\"2.0\" vf_g=\"2.9\" vf_b=\"2.9\" r_r=\"110\" r_g=\"16\" r_b=\"24\">\n"
+               "  <pin nombre=\"r\" nodo=\"P2.0\"/>\n"
+               "  <pin nombre=\"g\" nodo=\"P2.1\"/>\n"
+               "  <pin nombre=\"b\" nodo=\"P2.2\"/>\n"
+               "</componente>")
+      .pin("r, g, b", "al menos uno",
+           "El pin de cada canal: rojo, verde y azul, cada uno tras su "
+           "resistencia. Un canal sin pin no se monta.")
+      .pin("comun", "opcional",
+           "El comun a la vista: entonces no va por dentro a masa ni a vdd, y "
+           "cada canal es un LED de dos patillas entre su pin y el comun, como "
+           "los de una barra.")
+      .atr("comun", "catodo",
+           "catodo: el comun es el catodo; sin patilla `comun` va a masa y "
+           "cada canal LUCE CON SU PIN ALTO. anodo: el comun es el anodo; sin "
+           "patilla `comun` va a vdd y cada canal LUCE CON SU PIN BAJO.")
+      .atr("vdd", "3.3",
+           "La tension del anodo comun por dentro. Solo con comun=\"anodo\" y "
+           "sin patilla `comun`.")
+      .atr("vf_r, vf_g, vf_b", "2.0, 3.0, 3.0",
+           "La tension directa de cada canal: el rojo ronda 2,0 y el verde y "
+           "el azul, de InGaN, 3,0.")
+      .atr("r_r, r_g, r_b", "330",
+           "La resistencia en serie de cada canal, en ohmios.")
+      .nota("Observables: `encendido` (alguno luce), y por canal `rojo`, "
+            "`verde` y `azul` (0/1) y `corriente_r/g/b` (mA), cada uno con su "
+            "`color` en el catalogo: la pantalla suma los canales encendidos "
+            "con la intensidad de cada uno.")
+      .cpp("on(k), current(k) y tension(k) por canal (0 rojo, 1 verde, 2 azul), "
+           "on() si luce alguno y color_visto() la mezcla en palabras; `sim` "
+           "la dice al terminar: \"LED RGB LED2: blanco (rojo en P2.0 ...)\"."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        const std::string c = d.txt("comun", "catodo");
+        if (c != "catodo" && c != "anodo") {
+            SC_REPORT_ERROR("netlist", (d.id + ": comun=\"" + c + "\" no vale: catodo o anodo").c_str());
+            return nullptr;
+        }
+        const RGBLed::Comun co = c == "catodo" ? RGBLed::Catodo : RGBLed::Anodo;
+        analog_net_if* p[3] = {nullptr, nullptr, nullptr};
+        const char* t[3] = {"r", "g", "b"};
+        for (int k = 0; k < 3; ++k)
+            if (!d.nodo_de(t[k]).empty()) p[k] = &n[d.nodo_de(t[k])];
+        if (!p[0] && !p[1] && !p[2]) {
+            SC_REPORT_ERROR("netlist", (d.id + ": un RGBLed sin ningun canal: hace falta al "
+                                        "menos uno de <pin nombre=\"r\">, \"g\" o \"b\"").c_str());
+            return nullptr;
+        }
+        const RGBLed::Canal ca[3] = {{d.num("vf_r", 2.0), d.num("r_r", 330.0)},
+                                     {d.num("vf_g", 3.0), d.num("r_g", 330.0)},
+                                     {d.num("vf_b", 3.0), d.num("r_b", 330.0)}};
+        if (!d.nodo_de("comun").empty()) {
+            if (d.params.count("vdd")) {
+                SC_REPORT_ERROR("netlist", (d.id + ": con el comun a la vista no va por dentro a "
+                                            "vdd, y 'vdd' no se usa; quitalo").c_str());
+                return nullptr;
+            }
+            return new RGBLed(d.id.c_str(), p[0], p[1], p[2], n[d.nodo_de("comun")], co, ca);
+        }
+        return new RGBLed(d.id.c_str(), p[0], p[1], p[2], co, ca, d.num("vdd", 3.3));
+    });
+
 REGISTRA_PARTE(Button,
     Ayuda("Pulsador. SIN PULSAR DEJA EL PIN ABIERTO, asi que el nivel de "
           "reposo tiene que darlo alguien: el pull interno del MCU o un Rpull "
