@@ -33,7 +33,9 @@
 #include "ext_parts.h"
 #include "puente_serie.h"
 #include "tft_st7735.h"
+#include "boosterpack.h"
 #include "servo.h"
+#include "xds110.h"
 
 namespace stm32 {
 
@@ -152,6 +154,74 @@ REGISTRA_PARTE(Led,
         return new Led(d.id.c_str(), n[d.nodo_de(term)], d.si("a_vss", true),
                        d.num("vf", 2.0), d.num("r", 330.0), d.num("vdd", 3.3),
                        term);
+    });
+
+REGISTRA_PARTE(RGBLed,
+    Ayuda("LED RGB: tres LED -rojo, verde y azul- en UN encapsulado "
+          "transparente, cada uno con su resistencia, y un comun. Cada canal "
+          "es un Led -luce o no por su cuenta, con su vf y su r- y la luz de "
+          "los tres SE MEZCLA en la pantalla: rojo y verde, amarillo; los "
+          "tres, blanco.")
+      .ejemplo("<componente tipo=\"RGBLed\" id=\"LED2\" comun=\"catodo\"\n"
+               "            vf_r=\"2.0\" vf_g=\"2.9\" vf_b=\"2.9\" r_r=\"110\" r_g=\"16\" r_b=\"24\">\n"
+               "  <pin nombre=\"r\" nodo=\"P2.0\"/>\n"
+               "  <pin nombre=\"g\" nodo=\"P2.1\"/>\n"
+               "  <pin nombre=\"b\" nodo=\"P2.2\"/>\n"
+               "</componente>")
+      .pin("r, g, b", "al menos uno",
+           "El pin de cada canal: rojo, verde y azul, cada uno tras su "
+           "resistencia. Un canal sin pin no se monta.")
+      .pin("comun", "opcional",
+           "El comun a la vista: entonces no va por dentro a masa ni a vdd, y "
+           "cada canal es un LED de dos patillas entre su pin y el comun, como "
+           "los de una barra.")
+      .atr("comun", "catodo",
+           "catodo: el comun es el catodo; sin patilla `comun` va a masa y "
+           "cada canal LUCE CON SU PIN ALTO. anodo: el comun es el anodo; sin "
+           "patilla `comun` va a vdd y cada canal LUCE CON SU PIN BAJO.")
+      .atr("vdd", "3.3",
+           "La tension del anodo comun por dentro. Solo con comun=\"anodo\" y "
+           "sin patilla `comun`.")
+      .atr("vf_r, vf_g, vf_b", "2.0, 3.0, 3.0",
+           "La tension directa de cada canal: el rojo ronda 2,0 y el verde y "
+           "el azul, de InGaN, 3,0.")
+      .atr("r_r, r_g, r_b", "330",
+           "La resistencia en serie de cada canal, en ohmios.")
+      .nota("Observables: `encendido` (alguno luce), y por canal `rojo`, "
+            "`verde` y `azul` (0/1) y `corriente_r/g/b` (mA), cada uno con su "
+            "`color` en el catalogo: la pantalla suma los canales encendidos "
+            "con la intensidad de cada uno.")
+      .cpp("on(k), current(k) y tension(k) por canal (0 rojo, 1 verde, 2 azul), "
+           "on() si luce alguno y color_visto() la mezcla en palabras; `sim` "
+           "la dice al terminar: \"LED RGB LED2: blanco (rojo en P2.0 ...)\"."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        const std::string c = d.txt("comun", "catodo");
+        if (c != "catodo" && c != "anodo") {
+            SC_REPORT_ERROR("netlist", (d.id + ": comun=\"" + c + "\" no vale: catodo o anodo").c_str());
+            return nullptr;
+        }
+        const RGBLed::Comun co = c == "catodo" ? RGBLed::Catodo : RGBLed::Anodo;
+        analog_net_if* p[3] = {nullptr, nullptr, nullptr};
+        const char* t[3] = {"r", "g", "b"};
+        for (int k = 0; k < 3; ++k)
+            if (!d.nodo_de(t[k]).empty()) p[k] = &n[d.nodo_de(t[k])];
+        if (!p[0] && !p[1] && !p[2]) {
+            SC_REPORT_ERROR("netlist", (d.id + ": un RGBLed sin ningun canal: hace falta al "
+                                        "menos uno de <pin nombre=\"r\">, \"g\" o \"b\"").c_str());
+            return nullptr;
+        }
+        const RGBLed::Canal ca[3] = {{d.num("vf_r", 2.0), d.num("r_r", 330.0)},
+                                     {d.num("vf_g", 3.0), d.num("r_g", 330.0)},
+                                     {d.num("vf_b", 3.0), d.num("r_b", 330.0)}};
+        if (!d.nodo_de("comun").empty()) {
+            if (d.params.count("vdd")) {
+                SC_REPORT_ERROR("netlist", (d.id + ": con el comun a la vista no va por dentro a "
+                                            "vdd, y 'vdd' no se usa; quitalo").c_str());
+                return nullptr;
+            }
+            return new RGBLed(d.id.c_str(), p[0], p[1], p[2], n[d.nodo_de("comun")], co, ca);
+        }
+        return new RGBLed(d.id.c_str(), p[0], p[1], p[2], co, ca, d.num("vdd", 3.3));
     });
 
 REGISTRA_PARTE(Button,
@@ -410,6 +480,96 @@ REGISTRA_PARTE(Conector,
         return new Conector(g.filas, g.columnas, g.zigzag, pines);
     });
 
+REGISTRA_PARTE(Xds110,
+    Ayuda("La sonda XDS110 de una LaunchPad MSP432, del lado de la sonda de "
+          "J101: el LDO de 3,3 V que alimenta el lado del objetivo, SWD y "
+          "reset para OpenOCD (--openocd o --cmsis-dap van por ella y no por "
+          "el chip) y la traza SWO a un canal del puente serie. Los puentes de "
+          "J101 hacen lo que hacen en la placa: sin 3V3 el chip no arranca, sin "
+          "TMS/TCK OpenOCD no encuentra el DAP.")
+      .ejemplo("<componente tipo=\"Xds110\" id=\"XDS\" et=\"si\" swo=\"tcp:3358\">\n"
+               "  <pin nombre=\"3v3\"   nodo=\"J101.6\"/>\n"
+               "  <pin nombre=\"rst\"   nodo=\"J101.12\"/>\n"
+               "  <pin nombre=\"swdio\" nodo=\"J101.14\"/>\n"
+               "  <pin nombre=\"swclk\" nodo=\"J101.16\"/>\n"
+               "  <pin nombre=\"swo\"   nodo=\"J101.18\"/>\n"
+               "</componente>")
+      .pin("3v3", "opcional", "La salida del LDO: el pin 3V3 del lado de la sonda de J101.")
+      .pin("rst", "opcional", "RST: el SRST de la sonda, a masa mientras OpenOCD resetea.")
+      .pin("swdio, swclk", "opcional",
+           "TMS_SWDIO y TCK_SWCLK. Hacen falta para colgar la sonda de OpenOCD.")
+      .pin("swo", "opcional", "TDO_SWO: la traza. Hace falta para swo=.")
+      .atr("et", "no", "si: es el XDS110-ET, con EnergyTrace (la medida es de la fase X3).")
+      .atr("v", "3.3", "La tension del LDO.")
+      .atr("limite_ma", "500", "El limite de corriente del LDO, en mA.")
+      .atr("sonda", "no",
+           "openocd (remote_bitbang) o cmsis-dap (CMSIS-DAP por TCP): la sonda "
+           "para OpenOCD, en estos pines. Lo normal es no ponerlo y pedirla con "
+           "--openocd o --cmsis-dap, que la ponen aqui si la placa lleva un Xds110.")
+      .atr("puerto", "3335 o 4441", "El puerto TCP de la sonda.")
+      .atr("swo", "no",
+           "A donde va la traza: tcp:PUERTO, rfc2217:PUERTO, memoria, o los "
+           "clientes, como el host= de un PuenteSerie.")
+      .atr("swo_bitrate", "1000000",
+           "Los bit/s de la traza (NRZ): TIENEN QUE SER LOS QUE PROGRAMA EL "
+           "FIRMWARE en el TPIU, o llega basura.")
+      .atr("swo_formato", "itm",
+           "itm: solo lo escrito en un puerto de estimulo del ITM -el printf de "
+           "ITM_SendChar-; crudo: los bytes de la linea, para un decodificador "
+           "externo (orbuculum, el swo de pyOCD...).")
+      .atr("swo_puerto", "0", "El puerto de estimulo del ITM, con swo_formato=\"itm\".")
+      .nota("Observables: `corriente` (mA, la que entrega el LDO: todo el lado del "
+            "objetivo), `sobrecorriente` (alarma) y `depurando` (hay un OpenOCD "
+            "conectado).")
+      .nota("El backchannel (RXD/TXD de J101) no es de esta pieza: es un "
+            "PuenteSerie aparte.")
+      .cpp("corriente() en A, sobrecorriente(), sonda(), texto_swo() con "
+           "swo=\"memoria\", bytes_swo(), mensajes_itm() y resets()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto nodo = [&](const char* t) -> analog_net_if* {
+            const std::string& s = d.nodo_de(t);
+            return s.empty() ? nullptr : &n[s];
+        };
+        Xds110::Config c;
+        c.et = d.si("et", false);
+        c.v = d.num("v", 3.3);
+        c.limite_ma = d.num("limite_ma", 500.0);
+        c.sonda = d.txt("sonda", "no");
+        if (c.sonda == "no") c.sonda.clear();
+        if (!c.sonda.empty() && c.sonda != "openocd" && c.sonda != "cmsis-dap") {
+            SC_REPORT_ERROR("netlist", (d.id + ": sonda=\"" + c.sonda +
+                                        "\" no vale: openocd, cmsis-dap o no").c_str());
+            return nullptr;
+        }
+        c.puerto = unsigned(d.num("puerto", c.sonda == "openocd" ? 3335.0 : 4441.0));
+        if (!c.sonda.empty() && (!nodo("swdio") || !nodo("swclk"))) {
+            SC_REPORT_ERROR("netlist", (d.id + ": sonda=\"" + c.sonda + "\" necesita las "
+                                        "patillas swdio y swclk").c_str());
+            return nullptr;
+        }
+        const std::string swo = d.txt("swo", "no");
+        if (swo != "no") {
+            if (!nodo("swo")) {
+                SC_REPORT_ERROR("netlist", (d.id + ": swo=\"" + swo + "\" necesita la "
+                                            "patilla swo").c_str());
+                return nullptr;
+            }
+            c.con_swo = true;
+            c.swo = serie::parsea(swo);
+            c.swo_bitrate = d.num("swo_bitrate", 1e6);
+            const std::string f = d.txt("swo_formato", "itm");
+            if (f != "itm" && f != "crudo") {
+                SC_REPORT_ERROR("netlist", (d.id + ": swo_formato=\"" + f + "\" no vale: itm "
+                                            "o crudo").c_str());
+                return nullptr;
+            }
+            c.swo_itm = f == "itm";
+            c.swo_puerto = unsigned(d.num("swo_puerto", 0.0));
+        }
+        return new Xds110(d.id.c_str(), nodo("swdio"), nodo("swclk"), nodo("rst"), nodo("swo"),
+                          nodo("3v3"), c);
+    });
+
 REGISTRA_PARTE(Jumper,
     Ayuda("Un jumper: una tira de pines como un Conector -con su forma, sus "
           "numeros y sus nombres- y un PUENTE puesto, la pieza de plastico que "
@@ -427,6 +587,8 @@ REGISTRA_PARTE(Jumper,
            "LOS DOS PINES QUE UNE EL PUENTE, por nombre o por numero: "
            "\"5V VCC\". Tienen que ser vecinos -uno al lado del otro en la "
            "misma fila o en la misma columna-, que es donde cabe el puente. "
+           "Varios, separados por comas -\"1 2, 3 4\"-, en un bloque de 2x2 "
+           "con dos puentes; un pin no puede estar en dos. "
            "\"no\": el jumper sin puente, y cada pin por su lado.")
       .atr("columnas, filas, numeracion, nombres, acodado", "como en Conector",
            "La forma de la tira y los nombres de sus pines.")
@@ -437,7 +599,8 @@ REGISTRA_PARTE(Jumper,
             "ventana el dibujo con el de la posicion que dice puente= y sin los "
             "demas: cambiar el jumper en el XML cambia el dibujo.")
       .nota("El puente no se mueve con la simulacion en marcha: une dos nodos "
-            "antes de construir, como un <hilo>.")
+            "antes de construir, como un <hilo>. Un <sistema> lo puede poner en "
+            "otro sitio sin tocar la placa: <jumper ref=\"E/J5\" puente=\"PWM LCD\"/>.")
       .cpp("filas(), columnas(), n_pines() y zigzag(), como un Conector."),
     [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
         GeomConector g;
@@ -906,6 +1069,82 @@ REGISTRA_PARTE(I2cEeprom,
     [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
         return new I2cEeprom(d.id.c_str(), n[d.nodo_de("scl")], n[d.nodo_de("sda")],
                              uint8_t(d.num("dir", 0x50)));
+    });
+
+REGISTRA_PARTE(FuenteAjustable,
+    Ayuda("Una tension que se mueve con un mando: el cursor de un "
+          "potenciometro visto como su equivalente de Thevenin. Los ejes de un "
+          "joystick, los de un acelerometro analogico, un microfono en "
+          "reposo.")
+      .ejemplo("<componente tipo=\"FuenteAjustable\" id=\"JOY_X\" v=\"1.65\">\n"
+               "  <pin nombre=\"pin\" nodo=\"P6.0\"/>\n"
+               "</componente>")
+      .pin("pin", "obligatorio", "El nodo al que da la tension.")
+      .atr("v", "1.65", "La tension de partida, en voltios.")
+      .atr("vmin", "0", "El minimo del mando.")
+      .atr("vmax", "3.3", "El maximo del mando.")
+      .atr("r", "100", "Su resistencia de salida, en ohmios.")
+      .cpp("pon_tension(v)."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        return new FuenteAjustable(n[d.nodo_de("pin")], d.num("v", 1.65), d.num("vmin", 0.0),
+                                   d.num("vmax", 3.3), d.num("r", 100.0), d.id.c_str());
+    });
+
+REGISTRA_PARTE(Zumbador,
+    Ayuda("Un zumbador magnetico tras su transistor: para el pin es una carga a "
+          "masa, y escucha el PWM que le llega. Dice si suena y a que "
+          "frecuencia (el periodo entre dos flancos de subida).")
+      .ejemplo("<componente tipo=\"Zumbador\" id=\"BUZ\">\n"
+               "  <pin nombre=\"pin\" nodo=\"P2.7\"/>\n"
+               "</componente>")
+      .pin("pin", "obligatorio", "La senal que lo mueve.")
+      .atr("r_carga", "1000", "La carga que ve el pin, en ohmios.")
+      .cpp("sonando() y frecuencia()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        return new Zumbador(d.id.c_str(), n[d.nodo_de("pin")], d.num("r_carga", 1000.0));
+    });
+
+REGISTRA_PARTE(Opt3001,
+    Ayuda("El sensor de luz ambiental OPT3001 de TI, por I2C: el resultado en "
+          "lux con exponente y mantisa, la escala automatica, conversiones de "
+          "100 u 800 ms, una vez o continuas, y los limites con su patilla INT. "
+          "Habla el protocolo de verdad sobre los nodos.")
+      .ejemplo("<componente tipo=\"Opt3001\" id=\"U3\" dir=\"0x44\" lux=\"300\">\n"
+               "  <pin nombre=\"scl\" nodo=\"P6.5\"/>\n"
+               "  <pin nombre=\"sda\" nodo=\"P6.4\"/>\n"
+               "  <pin nombre=\"int\" nodo=\"P4.6\"/>\n"
+               "</componente>")
+      .pin("scl", "obligatorio", "El reloj del bus.")
+      .pin("sda", "obligatorio", "Los datos del bus.")
+      .pin("int", "opcional", "La interrupcion, de drenador abierto.")
+      .atr("dir", "0x44", "Direccion de 7 bits (0x44-0x47 segun ADDR).")
+      .atr("lux", "300", "La luz de partida; tiene mando."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        analog_net_if* intn = d.nodo_de("int").empty() ? nullptr : &n[d.nodo_de("int")];
+        return new Opt3001(d.id.c_str(), n[d.nodo_de("scl")], n[d.nodo_de("sda")], intn,
+                           uint8_t(d.num("dir", 0x44)), d.num("lux", 300.0));
+    });
+
+REGISTRA_PARTE(Tmp006,
+    Ayuda("El termometro de infrarrojos TMP006 de TI, por I2C: la tension de la "
+          "termopila y la temperatura del chip, con su configuracion, su "
+          "ritmo de conversion y la patilla DRDY.")
+      .ejemplo("<componente tipo=\"Tmp006\" id=\"U4\" dir=\"0x40\">\n"
+               "  <pin nombre=\"scl\" nodo=\"P6.5\"/>\n"
+               "  <pin nombre=\"sda\" nodo=\"P6.4\"/>\n"
+               "  <pin nombre=\"drdy\" nodo=\"P3.6\"/>\n"
+               "</componente>")
+      .pin("scl", "obligatorio", "El reloj del bus.")
+      .pin("sda", "obligatorio", "Los datos del bus.")
+      .pin("drdy", "opcional", "Dato listo, activa baja, de drenador abierto.")
+      .atr("dir", "0x40", "Direccion de 7 bits.")
+      .atr("t_chip", "25", "La temperatura del chip, en C; tiene mando.")
+      .atr("t_objeto", "25", "La del objeto que mira, en C; tiene mando."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        analog_net_if* dr = d.nodo_de("drdy").empty() ? nullptr : &n[d.nodo_de("drdy")];
+        return new Tmp006(d.id.c_str(), n[d.nodo_de("scl")], n[d.nodo_de("sda")], dr,
+                          uint8_t(d.num("dir", 0x40)), d.num("t_chip", 25.0),
+                          d.num("t_objeto", 25.0));
     });
 
 REGISTRA_PARTE(I2cExtMaster,

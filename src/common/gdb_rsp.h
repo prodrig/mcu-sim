@@ -52,7 +52,120 @@ namespace stm32 {
 // -----------------------------------------------------------------------------
 enum class DebugAttach { Pines, Interno };
 
-class GdbRsp {
+// -----------------------------------------------------------------------------
+// EL PROGRAMADOR DE LA MEMORIA NO VOLÁTIL (T0)
+//
+// Hasta T0 la secuencia de programación de la Flash del F407 -FLASH_KEYR,
+// FLASH_CR, sus sectores de 16, 64 y 128 KiB- estaba DENTRO del motor de GDB.
+// Para un chip de otra familia el `load` de GDB habría escrito las llaves de
+// ST en una dirección que no es nada. Ahora el motor pide la secuencia a un
+// programador, y cada chip pone el suyo. [doc/analisis_msp432.md, §4.3]
+//
+// `acceso_nv_if` es lo que el programador ve del objetivo: leer y escribir una
+// palabra por el DAP. Lo implementa el propio motor con sus accesos contados.
+// -----------------------------------------------------------------------------
+class acceso_nv_if {
+public:
+    virtual ~acceso_nv_if() = default;
+    virtual bool nv_leer(uint32_t a, uint32_t& v) = 0;
+    virtual bool nv_escribir(uint32_t a, uint32_t v) = 0;
+    uint32_t nv_leer_o(uint32_t a) { uint32_t v = 0; nv_leer(a, v); return v; }
+};
+
+class programador_nv_if {
+public:
+    virtual ~programador_nv_if() = default;
+    virtual const char* nombre() const = 0;
+    // El sector de una dirección (>= 0), o -1 si no es memoria de este
+    // programador: entonces la escritura va al bus como cualquier otra.
+    virtual int      sector_de(uint32_t a) const = 0;
+    virtual uint32_t tam_sector(int s) const = 0;
+    virtual unsigned n_sectores() const = 0;
+    virtual bool borrar(acceso_nv_if& d, uint32_t addr, uint32_t len) = 0;
+    // `palabras` se incrementa con cada palabra programada.
+    virtual bool programar(acceso_nv_if& d, uint32_t addr, const uint8_t* dat,
+                           unsigned n, unsigned& palabras) = 0;
+    // `vFlashDone`: volver a dejar el controlador como estaba.
+    virtual void terminar(acceso_nv_if& d) = 0;
+};
+
+// La del STM32F405/407 [IR, §5.5-5.9], tal y como estaba dentro de GdbRsp:
+// mismos accesos, mismo orden, mismas esperas. T96 y T97 lo comprueban.
+class ProgramadorF407 : public programador_nv_if {
+public:
+    static ProgramadorF407& el() { static ProgramadorF407 p; return p; }
+    const char* nombre() const override { return "STM32F405/407"; }
+
+    static constexpr uint32_t FLASH_R = 0x40023C00u;
+    static constexpr uint32_t F_ACR = 0x00, F_KEYR = 0x04, F_SR = 0x0C, F_CR = 0x10;
+    // El mapa de sectores del F407: 4 de 16 KiB, 1 de 64 KiB y 7 de 128 KiB.
+    // Un programador lleva siempre su propia descripción del dispositivo; ésta
+    // es la del STM32F405/407.
+    int sector_de(uint32_t a) const override {
+        if (a < 0x08000000u || a >= 0x08100000u) return -1;
+        const uint32_t o = a - 0x08000000u;
+        if (o < 0x10000u) return int(o / 0x4000u);            // 0-3: 16 KiB
+        if (o < 0x20000u) return 4;                           // 4: 64 KiB
+        return 5 + int((o - 0x20000u) / 0x20000u);            // 5-11: 128 KiB
+    }
+    uint32_t tam_sector(int s) const override {
+        return (s < 4) ? 0x4000u : (s == 4) ? 0x10000u : 0x20000u;
+    }
+    unsigned n_sectores() const override { return 12; }
+
+    void espera(acceso_nv_if& d) {
+        for (unsigned i = 0; i < 1000; ++i) {
+            if (!(d.nv_leer_o(FLASH_R + F_SR) & (1u << 16))) return;   // BSY
+            sc_core::wait(sc_core::sc_time(2, sc_core::SC_US));
+        }
+    }
+    void desbloquear(acceso_nv_if& d) {
+        if (!(d.nv_leer_o(FLASH_R + F_CR) & (1u << 31))) return;   // ya desbloqueada
+        d.nv_escribir(FLASH_R + F_KEYR, 0x45670123u);
+        d.nv_escribir(FLASH_R + F_KEYR, 0xCDEF89ABu);
+    }
+    void terminar(acceso_nv_if& d) override {
+        d.nv_escribir(FLASH_R + F_CR, d.nv_leer_o(FLASH_R + F_CR) | (1u << 31));
+    }
+    bool borrar(acceso_nv_if& d, uint32_t addr, uint32_t len) override {
+        desbloquear(d);
+        espera(d);
+        d.nv_escribir(FLASH_R + F_SR, 0xF3u);                 // limpiar banderas
+        uint32_t a = addr;
+        while (a < addr + len) {
+            const int s = sector_de(a);
+            if (s < 0) return false;
+            // PSIZE = 10 (32 bits): exige VDD >= 2,7 V, que es el caso.
+            d.nv_escribir(FLASH_R + F_CR, (1u << 1) | (uint32_t(s) << 3) | (2u << 8));
+            d.nv_escribir(FLASH_R + F_CR,
+                          (1u << 1) | (uint32_t(s) << 3) | (2u << 8) | (1u << 16));
+            espera(d);
+            // Saltar al sector siguiente
+            const uint32_t tam = tam_sector(s);
+            a = (a & ~(tam - 1u)) + tam;
+        }
+        d.nv_escribir(FLASH_R + F_CR, 0);
+        return true;
+    }
+    bool programar(acceso_nv_if& d, uint32_t addr, const uint8_t* dat, unsigned n,
+                   unsigned& palabras) override {
+        desbloquear(d);
+        espera(d);
+        d.nv_escribir(FLASH_R + F_CR, 1u | (2u << 8));        // PG, PSIZE = 32
+        for (unsigned i = 0; i < n; i += 4) {
+            uint32_t w = 0xFFFFFFFFu;
+            for (unsigned k = 0; k < 4 && i + k < n; ++k)
+                w = (w & ~(0xFFu << (8 * k))) | (uint32_t(dat[i + k]) << (8 * k));
+            if (!d.nv_escribir(addr + i, w)) { d.nv_escribir(FLASH_R + F_CR, 0); return false; }
+            ++palabras;
+        }
+        espera(d);
+        d.nv_escribir(FLASH_R + F_CR, 0);
+        return true;
+    }
+};
+
+class GdbRsp : public acceso_nv_if {
 public:
     virtual ~GdbRsp() { cerrar(); }
 
@@ -307,73 +420,34 @@ private:
     }
 
     // =======================================================================
-    // Programación de la Flash [IR, §5.5-5.9]
+    // Programación de la memoria no volátil
     //
-    // Un `load` de GDB sobre 0x0800 0000 NO puede ser una escritura al bus: la
-    // Flash de un STM32 se programa por su controlador. El stub hace la
-    // secuencia entera, exactamente como un ST-LINK.
+    // Un `load` de GDB sobre la Flash NO puede ser una escritura al bus: se
+    // programa por su controlador, y el stub hace la secuencia entera, como
+    // una sonda de verdad. QUÉ secuencia es cosa del chip, y desde T0 la pone
+    // un `programador_nv_if` [arriba]; por omisión, la del STM32F405/407, que
+    // emite exactamente los mismos accesos al DAP que antes de separarla.
     // =======================================================================
-    static constexpr uint32_t FLASH_R = 0x40023C00u;
-    static constexpr uint32_t F_ACR = 0x00, F_KEYR = 0x04, F_SR = 0x0C, F_CR = 0x10;
-    // El mapa de sectores del F407: 4 de 16 KiB, 1 de 64 KiB y 7 de 128 KiB.
-    // Un programador lleva siempre su propia descripción del dispositivo; ésta
-    // es la del STM32F405/407.
-    static int sector_de(uint32_t a) {
-        if (a < 0x08000000u || a >= 0x08100000u) return -1;
-        const uint32_t o = a - 0x08000000u;
-        if (o < 0x10000u) return int(o / 0x4000u);            // 0-3: 16 KiB
-        if (o < 0x20000u) return 4;                           // 4: 64 KiB
-        return 5 + int((o - 0x20000u) / 0x20000u);            // 5-11: 128 KiB
+public:
+    void pon_programador(programador_nv_if* p) {
+        nv_ = p ? p : &ProgramadorF407::el();
+        sector_borrado_.assign(nv_->n_sectores(), false);
     }
-    void flash_espera() {
-        for (unsigned i = 0; i < 1000; ++i) {
-            if (!(leer_o(FLASH_R + F_SR) & (1u << 16))) return;   // BSY
-            sc_core::wait(sc_core::sc_time(2, sc_core::SC_US));
-        }
-    }
-    void flash_desbloquear() {
-        if (!(leer_o(FLASH_R + F_CR) & (1u << 31))) return;   // ya desbloqueada
-        escribir(FLASH_R + F_KEYR, 0x45670123u);
-        escribir(FLASH_R + F_KEYR, 0xCDEF89ABu);
-    }
-    void flash_bloquear() {
-        escribir(FLASH_R + F_CR, leer_o(FLASH_R + F_CR) | (1u << 31));
-    }
+    const programador_nv_if& programador() const { return *nv_; }
+protected:
+    // Lo que el programador usa para hablar con el objetivo: las mismas
+    // lecturas y escrituras, contadas, que el resto del stub.
+    bool nv_leer(uint32_t a, uint32_t& v) override    { return leer(a, v); }
+    bool nv_escribir(uint32_t a, uint32_t v) override { return escribir(a, v); }
+
+    int  sector_de(uint32_t a) const { return nv_->sector_de(a); }
     bool flash_borrar(uint32_t addr, uint32_t len) {
-        flash_desbloquear();
-        flash_espera();
-        escribir(FLASH_R + F_SR, 0xF3u);                      // limpiar banderas
-        uint32_t a = addr;
-        while (a < addr + len) {
-            const int s = sector_de(a);
-            if (s < 0) return false;
-            // PSIZE = 10 (32 bits): exige VDD >= 2,7 V, que es el caso.
-            escribir(FLASH_R + F_CR, (1u << 1) | (uint32_t(s) << 3) | (2u << 8));
-            escribir(FLASH_R + F_CR,
-                     (1u << 1) | (uint32_t(s) << 3) | (2u << 8) | (1u << 16));
-            flash_espera();
-            // Saltar al sector siguiente
-            const uint32_t tam = (s < 4) ? 0x4000u : (s == 4) ? 0x10000u : 0x20000u;
-            a = (a & ~(tam - 1u)) + tam;
-        }
-        escribir(FLASH_R + F_CR, 0);
-        return true;
+        return nv_->borrar(*this, addr, len);
     }
     bool flash_programar(uint32_t addr, const uint8_t* d, unsigned n) {
-        flash_desbloquear();
-        flash_espera();
-        escribir(FLASH_R + F_CR, 1u | (2u << 8));             // PG, PSIZE = 32
-        for (unsigned i = 0; i < n; i += 4) {
-            uint32_t w = 0xFFFFFFFFu;
-            for (unsigned k = 0; k < 4 && i + k < n; ++k)
-                w = (w & ~(0xFFu << (8 * k))) | (uint32_t(d[i + k]) << (8 * k));
-            if (!escribir(addr + i, w)) { escribir(FLASH_R + F_CR, 0); return false; }
-            ++n_flash_;
-        }
-        flash_espera();
-        escribir(FLASH_R + F_CR, 0);
-        return true;
+        return nv_->programar(*this, addr, d, n, n_flash_);
     }
+    void flash_bloquear() { nv_->terminar(*this); }
 
     // =======================================================================
     // El lado del socket
@@ -397,7 +471,7 @@ private:
         // borrar". Sin esto, una segunda carga escribiria sobre lo anterior sin
         // borrar, y en una Flash eso solo puede APAGAR bits: el programa
         // quedaria corrupto de una forma preciosa de depurar.
-        for (bool& b : sector_borrado_) b = false;
+        sector_borrado_.assign(nv_->n_sectores(), false);
         arq_dudosa_.clear(); g_lo_ultimo_ = false;
         std::printf("[%s] cliente conectado\n", etiqueta_); std::fflush(stdout);
         if (!enganchado_) enganchar();
@@ -686,12 +760,12 @@ private:
             const uint32_t dir = a + i;
             const int s = sector_de(dir);
             if (s < 0) return escribir_bus(dir, d + i, n - i);   // se salio
-            if (s < 12 && !sector_borrado_[s]) {
+            if (size_t(s) < sector_borrado_.size() && !sector_borrado_[size_t(s)]) {
                 if (!flash_borrar(dir, 1)) return false;
-                sector_borrado_[s] = true;
+                sector_borrado_[size_t(s)] = true;
             }
             // Lo que quede dentro de ESTE sector, de una vez.
-            const uint32_t tam = (s < 4) ? 0x4000u : (s == 4) ? 0x10000u : 0x20000u;
+            const uint32_t tam = nv_->tam_sector(s);
             const uint32_t fin = ((dir & ~(tam - 1u)) + tam);
             unsigned trozo = n - i;
             if (dir + trozo > fin) trozo = unsigned(fin - dir);
@@ -749,9 +823,17 @@ private:
         escribir(R_DEMCR, leer_o(R_DEMCR) | 1u);      // VC_CORERESET
         escribir(R_AIRCR, 0x05FA0004u);
         sc_core::wait(sc_core::sc_time(500, sc_core::SC_US));
-        enganchar();                                  // el DP se resetea con el chip
-        escribir(R_DEMCR, leer_o(R_DEMCR) & ~1u);
-        parar();
+        // El DP se resetea con el chip: hay que volver a engancharse. Pero SIN
+        // `enganchar()`, que escribe DHCSR = LLAVE | C_DEBUGEN -sin C_HALT- y
+        // SUELTA el núcleo que la captura de vector acaba de parar en la
+        // primera instrucción. Hasta T2 del MSP432 se hacía así, y el núcleo
+        // corría hasta el `parar()` de abajo: `monitor reset halt` dejaba el
+        // PC unas instrucciones más allá del manejador de reset (0x080001DE
+        // en el blinky del F407, con el manejador en 0x08000188).
+        enganchado_ = dap_enganchar();
+        escribir(R_DHCSR, LLAVE | 0x3u);              // C_DEBUGEN | C_HALT
+        escribir(R_DEMCR, 1u << 24);                  // TRCENA, sin VC_CORERESET
+        escribir(B_FPB + 0x00, 3u);                   // FP_CTRL: KEY | ENABLE
         corriendo_ = false;
     }
 
@@ -936,7 +1018,10 @@ private:
     std::string rx_, ultimo_;
     bool     verboso_ = false, sin_ack_ = false, corriendo_ = false;
     // Que sectores se han borrado ya en esta sesion de programacion.
-    bool     sector_borrado_[12] = {};
+    // El programador de la memoria no volátil del chip [T0], y qué sectores
+    // se han borrado ya en esta sesión.
+    programador_nv_if* nv_ = &ProgramadorF407::el();
+    std::vector<bool>  sector_borrado_ = std::vector<bool>(12, false);
     bool     anunciado_ = false;
     bool     halt_al_conectar_ = true, activo_ = true;
     unsigned n_paq_ = 0, n_flash_ = 0, n_acc_ = 0, espera_ = 0;

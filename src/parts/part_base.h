@@ -104,6 +104,12 @@ struct Terminal {
 // mal -la sobrecorriente de una fuente- y la pantalla debe hacerlo notar, no
 // pintarlo como un LED más. Va al catálogo como `alarma="si"` solo cuando es
 // cierto, así que los observables de siempre salen exactamente igual.
+//
+// `color` es el color de la LUZ que dice el observable -"#ff0000"- en una pieza
+// que mezcla varias: los tres de un `RGBLed`. Un 0/1 con color y el numérico
+// con unidad del mismo color son un CANAL, y la pantalla suma los canales
+// encendidos -rojo, verde y azul, blanco-. Va al catálogo como `color="..."`
+// solo si lo tiene, como la alarma.
 // ---------------------------------------------------------------------------
 struct Observable {
     const char* nombre;      // "encendido", "corriente", "pulsado"
@@ -111,6 +117,7 @@ struct Observable {
     float       min, max;    // escala para pintar; iguales = sin escala
     bool        interesante; // lo que la pieza SUGIERE pintar
     bool        alarma = false;  // 0/1 que, a 1, es un aviso
+    const char* color = nullptr; // "#rrggbb": la luz de un canal (RGBLed)
 };
 // Los tipos dicen a la pantalla QUÉ CONTROL poner, sin que sepa de qué pieza
 // es: un botón (el máximo mientras está hundido), una casilla (máximo o
@@ -302,6 +309,31 @@ protected:
     // Igual, pero admite nullptr: una patilla que este encapsulado no saca.
     void add_ref_opt(const std::string& nombre, analog_net_if* n) {
         if (n) add_ref(nombre, *n);
+    }
+
+    // UNA PIEZA HECHA DE PIEZAS: el `RGBLed` son tres `Led`. Las de dentro no
+    // son piezas de la placa -no van al catálogo ni al netlist-, pero sus
+    // drivers sí son de la de fuera: `adopta` le pasa a esta la patilla `suya`
+    // de la hija con el nombre `mio` (si ya la tiene, junta los drivers: el
+    // común de los tres), y `retira` saca a la hija del inventario.
+    void adopta(ExtPartBase& hija, const std::string& suya, const std::string& mio) {
+        for (size_t k = 0; k < hija.term_.size(); ++k) {
+            if (hija.term_[k].nombre != suya) continue;
+            Terminal x = hija.term_[k];
+            hija.term_.erase(hija.term_.begin() + long(k));
+            if (Terminal* m = busca(mio)) {
+                m->ids.insert(m->ids.end(), x.ids.begin(), x.ids.end());
+                m->pasivo = m->pasivo && x.pasivo;
+            } else {
+                x.nombre = mio;
+                term_.push_back(x);
+            }
+            return;
+        }
+    }
+    static void retira(ExtPartBase* hija) {
+        std::vector<ExtPartBase*>& v = inventario_mut();
+        v.erase(std::remove(v.begin(), v.end(), hija), v.end());
     }
 
     // Marca una patilla como pin de conector (vease Terminal::paso)

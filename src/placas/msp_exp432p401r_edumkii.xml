@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UN SISTEMA: la MSP-EXP432P401R con la BOOSTXL-EDUMKII enchufada encima
+
+     Las dos placas son los ficheros de siempre; lo que las une son los cuatro
+     conectores BoosterPack, J1-J4, pin a pin. Todo se nombra con el id de su
+     placa delante: L/u0 es el chip, L/BCL el backchannel, E/OPT3001 el sensor
+     de luz, E/JOY_X el eje X del joystick, E/LCD la pantalla.
+
+     El firmware, verif/fw/msp432p4/edumkii_demo, lee el joystick, el
+     acelerometro, la luz y la temperatura, los manda por el backchannel cada
+     100 ms, enciende el RGB con los pulsadores y hace sonar el zumbador con
+     el del joystick:
+
+         ./build/mcu-sim placas/msp_exp432p401r_edumkii.xml --valida
+         ./build/mcu-sim placas/msp_exp432p401r_edumkii.xml --ms=600 --serie L/BCL=memoria
+
+     y con mcu-sim-gui, para mover el joystick, la luz y la temperatura con
+     sus mandos. Las dos placas llevan su dibujo (msp_exp432p401r.svg y
+     boostxl_edumkii.svg), una al lado de la otra.
+
+     El J5 de la BoosterPack se queda como sale de fabrica: J4.39 -P2.6, la
+     TA0.3- enciende el ROJO del RGB, que es lo que hace este firmware con S1.
+     La pantalla recibe lo que se le manda, pero sin luz: para verla, el
+     jumper a la retroiluminacion, <jumper ref="E/J5" puente="PWM LCD"/>, y
+     la luz se enciende con S1. Asi se ve en la LaunchPad de Ethernet,
+     placas/msp_exp432e401y_edumkii.xml.
+     ========================================================================= -->
+<sistema nombre="msp-exp432p401r-edumkii">
+  <placa id="L" fichero="msp_exp432p401r.xml" x="0" y="0"/>
+  <placa id="E" fichero="boostxl_edumkii.xml" x="112" y="42"/>
+
+  <acopla a="L/J1" b="E/J1"/>
+  <acopla a="L/J2" b="E/J2"/>
+  <acopla a="L/J3" b="E/J3"/>
+  <acopla a="L/J4" b="E/J4"/>
+
+  <mcu ref="L/u0" firmware="verif/fw/msp432p4/edumkii_demo/edumkii_demo.out"/>
+</sistema>

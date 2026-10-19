@@ -29,6 +29,7 @@
 
 #include <systemc>
 #include <cstdio>
+#include <functional>
 #include <tlm>
 #include <tlm_utils/simple_initiator_socket.h>
 #include "../common/ahb_types.h"
@@ -77,6 +78,12 @@ SC_MODULE(Cpu) {
     // Estadísticas y control para el banco de pruebas
     uint64_t inst_count = 0, exc_count = 0;
     bool     halted_on_lockup = false;
+    // El código de arranque del fabricante (el de TI en el MSP432P4): si está
+    // y devuelve true, el núcleo no sale del reset por los vectores de VTOR
+    // sino por donde diga -pila, PC y r0, el argumento de la función a la que
+    // salta-, como si ese código hubiera corrido antes. Sin él (los STM32),
+    // nada cambia.
+    std::function<bool(uint32_t& sp, uint32_t& pc, uint32_t& r0)> arranque_fab;
     // Traza de ejecución (depuración del modelo): imprime las primeras
     // trace_limit instrucciones con su dirección, codificación y registros.
     uint64_t trace_limit = 0, trace_from = 0;
@@ -424,6 +431,19 @@ inline void Cpu::do_reset() {
     // DHCSR.S_RESET_ST y, si esta pedida, la captura de vector de reset.
     if (dbg) dbg->dbg_reset();
 
+    uint32_t sp_f = 0, pc_f = 0, r0_f = 0;
+    if (arranque_fab && arranque_fab(sp_f, pc_f, r0_f)) {
+        aborted_ = false;
+        reg.msp = sp_f & ~3u;
+        reg.r[13] = reg.msp;
+        reg.r[14] = 0xFFFFFFFFu;
+        reg.r[0] = r0_f;
+        reg.set_thumb((pc_f & 1u) != 0);
+        cur_pc_ = pc_f & ~1u;
+        reg.set_ipsr(0);
+        running_ = true;
+        return;
+    }
     // MSP inicial de [VTOR+0] y PC de [VTOR+4] [IR, §7.2.2]
     const uint32_t base = sys->vtor();
     uint32_t msp = 0, rst = 0;
@@ -510,7 +530,15 @@ inline void Cpu::exec_proc() {
                     sync();
                     continue;
                 }
-                wait(ev_parada_);
+                // La condicion se RE-COMPRUEBA justo antes de bloquear, como en
+                // el sueño: sync() avanza el tiempo, y si en ese avance la
+                // parada se ha levantado -halt_req se publica un delta despues
+                // de que el DAP la quite; tras un SYSRESETREQ, el nucleo sale
+                // de do_reset con la señal todavia a uno-, su suceso ya ha
+                // pasado y wait() no lo veria nunca: el nucleo se quedaba
+                // parado en Reset_Handler sin C_HALT (T5 del MSP432: el `reset
+                // run` de OpenOCD en el F407).
+                if (dbg_halt_req.read() || (dbg && dbg->dbg_halt_now())) wait(ev_parada_);
                 if (dbg_halt_req.read() || (dbg && dbg->dbg_halt_now())) continue;
                 if (o_halted_) { o_halted_ = false; publish(); }
                 continue;

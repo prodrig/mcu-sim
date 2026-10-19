@@ -1,0 +1,127 @@
+# =============================================================================
+# crc.vec — VECTORES DEL MOTOR DE CRC DEL MSP432E4 (CCM, T7)
+#
+# Los de comprobación («check») del catálogo de Greg Cook («Catalogue of
+# parametrised CRC algorithms», la columna `check`: el CRC de "123456789") y
+# el ejemplo de la suma de Internet del RFC 1071, §3. Cada uno se recalcula en
+# `comprueba_vectores.py` con `crccheck` y con un CRC bit a bit escrito ahí
+# mismo a partir de los parámetros de Rocksoft (ancho, polinomio, valor
+# inicial, reflexiones, xor final); el CRC-32 también con `zlib`.
+#
+# CÓMO SE HACE CADA UNO EN EL E4 (lo pone el banco en CRCCTRL; véase
+# `periph/msp432e4/ccm.h`):
+#
+#   crc32        P4C11DB7, INIT_1, IBR, OBR, RESINV     (el de Ethernet y zlib)
+#   crc32c       P1EDC6F41, INIT_1, IBR, OBR, RESINV    (Castagnoli, iSCSI)
+#   crc16-ccitt  P1021, INIT_1                          (CRC-16/IBM-3740)
+#   crc16-xmodem P1021, INIT_0
+#   crc16-arc    P8005, INIT_0, IBR, OBR
+#   crc16-umts   P8005, INIT_0                          (CRC-16/BUYPASS)
+#   inet         TCPCHKSUM, INIT_0, RESINV              (RFC 1071)
+#
+# "123456789" son nueve bytes: el firmware pasa dos palabras de 32 bits (con
+# el orden de bytes de la memoria, ENDIAN = B0 primero) y el último byte con
+# SIZE = 8 bits, así que ejercita las dos entradas y el cambio entre ellas.
+#
+# FORMATO. Bloques [caso] como en `hash.vec`:
+#   algoritmo  uno de los de arriba
+#   mensaje    hexadecimal
+#   salida     el resultado, en hexadecimal de 4 u 8 cifras
+# =============================================================================
+
+[caso]
+id        = CRC32-CHECK
+algoritmo = crc32
+mensaje   = 313233343536373839
+salida    = cbf43926
+texto     = "123456789"
+fuente    = catálogo de CRC de Greg Cook, columna check ; crccheck ; CRC bit a bit
+
+[caso]
+id        = CRC32-64
+algoritmo = crc32
+mensaje   = 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+salida    = 100ece8c
+fuente    = crccheck ; CRC bit a bit
+
+[caso]
+id        = CRC32C-CHECK
+algoritmo = crc32c
+mensaje   = 313233343536373839
+salida    = e3069283
+texto     = "123456789"
+fuente    = catálogo de CRC de Greg Cook, columna check ; crccheck ; CRC bit a bit
+
+[caso]
+id        = CRC32C-64
+algoritmo = crc32c
+mensaje   = 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+salida    = fb6d36eb
+fuente    = crccheck ; CRC bit a bit
+
+[caso]
+id        = CRC16-CCITT-CHECK
+algoritmo = crc16-ccitt
+mensaje   = 313233343536373839
+salida    = 29b1
+texto     = "123456789"
+fuente    = catálogo de CRC de Greg Cook, columna check ; crccheck ; CRC bit a bit
+
+[caso]
+id        = CRC16-CCITT-64
+algoritmo = crc16-ccitt
+mensaje   = 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+salida    = fd2f
+fuente    = crccheck ; CRC bit a bit
+
+[caso]
+id        = CRC16-XMODEM-CHECK
+algoritmo = crc16-xmodem
+mensaje   = 313233343536373839
+salida    = 31c3
+texto     = "123456789"
+fuente    = catálogo de CRC de Greg Cook, columna check ; crccheck ; CRC bit a bit
+
+[caso]
+id        = CRC16-XMODEM-64
+algoritmo = crc16-xmodem
+mensaje   = 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+salida    = 2bf5
+fuente    = crccheck ; CRC bit a bit
+
+[caso]
+id        = CRC16-ARC-CHECK
+algoritmo = crc16-arc
+mensaje   = 313233343536373839
+salida    = bb3d
+texto     = "123456789"
+fuente    = catálogo de CRC de Greg Cook, columna check ; crccheck ; CRC bit a bit
+
+[caso]
+id        = CRC16-ARC-64
+algoritmo = crc16-arc
+mensaje   = 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+salida    = 2799
+fuente    = crccheck ; CRC bit a bit
+
+[caso]
+id        = CRC16-UMTS-CHECK
+algoritmo = crc16-umts
+mensaje   = 313233343536373839
+salida    = fee8
+texto     = "123456789"
+fuente    = catálogo de CRC de Greg Cook, columna check ; crccheck ; CRC bit a bit
+
+[caso]
+id        = CRC16-UMTS-64
+algoritmo = crc16-umts
+mensaje   = 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+salida    = 41dd
+fuente    = crccheck ; CRC bit a bit
+
+[caso]
+id        = INET-RFC1071
+algoritmo = inet
+mensaje   = 0001f203f4f5f6f7
+salida    = 220d
+fuente    = RFC 1071, §3 (la suma ddf2 y su complemento) ; suma de 16 bits ; crccheck no la tiene: la segunda es struct

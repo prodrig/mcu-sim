@@ -34,6 +34,7 @@
 #define STM32_SOC_STM32F4_MCU_H
 
 #include "mcu_if.h"
+#include "../top/mcu_caps.h"
 #include "../top/soc_f4.h"
 #include "../parts/netlist.h"
 #include "../verif/image_loader.h"
@@ -46,6 +47,9 @@ namespace stm32 {
 class McuF4 : public mcu_if {
 public:
     virtual SocF4& chip() = 0;
+    // El descriptor de la familia STM32F4, entero. Desde T0 no es de `mcu_if`
+    // -un chip de otra familia no tiene uno de estos- sino de los que lo son.
+    virtual const McuCaps& caps() const = 0;
 };
 
 template <class Chip>
@@ -53,7 +57,7 @@ class AdaptadorF4 : public McuF4 {
 public:
     AdaptadorF4(const char* nm, DebugCaps dbg, const Cableado& cab,
                 const McuCaps& c)
-        : dut_(new Chip(nm, dbg, cab, c)), caps_(c) {
+        : dut_(new Chip(nm, dbg, cab, c)), caps_(c), desc_(desc_de(c)) {
         // Los drivers con los que `sim` hace de fuente de alimentación. Se
         // registran aquí, en la elaboración, porque un `AnalogNet` no admite
         // altas con la simulación en marcha.
@@ -77,6 +81,7 @@ public:
     SocF4& chip() override { return *dut_; }
 
     const McuCaps& caps() const override { return caps_; }
+    const McuDesc& desc() const override { return desc_; }
     std::vector<std::string> limitaciones() const override {
         return dut_->limitaciones();
     }
@@ -137,6 +142,7 @@ public:
 private:
     Chip*   dut_;
     McuCaps caps_;
+    McuDesc desc_;
     int d_vdd_ = -1, d_vdda_ = -1, d_vss_ = -1, d_nrst_ = -1, d_bt0_ = -1;
 };
 
@@ -147,8 +153,8 @@ using Stm32F4Mcu = AdaptadorF4<SocF4>;
 // con distintos descriptores. El F446 es otro `REGISTRA_MCU` con otra clase,
 // y está en `soc/stm32f446.h`.
 REGISTRA_MCU(STM32F4, [](const char* nm, DebugCaps d, const Cableado& c,
-                         const McuCaps& caps) -> mcu_if* {
-    return new Stm32F4Mcu(nm, d, c, caps);
+                         const McuDesc& desc) -> mcu_if* {
+    return new Stm32F4Mcu(nm, d, c, *static_cast<const McuCaps*>(desc.propio));
 });
 
 } // namespace stm32

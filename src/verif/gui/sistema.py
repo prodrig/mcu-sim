@@ -60,6 +60,14 @@
 #       la simulacion no cambia, y otro valor es un error.
 #   C18 acodado="si" en un Conector: va en su <conector> de T_PLACA, el
 #       derecho no dice nada, y otro valor es un error.
+#   C19 las placas de TI -la MSP-EXP432P401R, la MSP-EXP432E401Y y la
+#       BOOSTXL-EDUMKII- con su dibujo, cada pieza visible y cada pin en el;
+#       un Jumper con VARIOS puentes (los 2x2 JP4/JP5 de la E401Y) y sus
+#       errores; y <jumper ref> en un sistema, que cambia el puente de una
+#       placa sin tocar su fichero -el J5 de la EDUMKII- y el dibujo con el.
+#   C20 el LED RGB: la LED2 de la P401R y el D1 de la EDUMKII son UNA pieza
+#       RGBLed, con sus patillas r/g/b, y el catalogo marca sus canales con
+#       color= para que la ventana los mezcle.
 #
 #   make -f Makefile.mcu-sim gui-sistema
 #   python3 verif/gui/sistema.py [--sim build/mcu-sim]
@@ -1329,6 +1337,138 @@ def c18_acodado(sim, cp):
           "monta igual")
 
 
+# ---------------------------------------------------------------------------
+# C19
+# ---------------------------------------------------------------------------
+PLACAS_TI = ("msp_exp432p401r", "msp_exp432e401y", "boostxl_edumkii")
+
+
+def piezas_sin_dibujo(nombre):
+    """Las piezas visibles y los pines de conector del XML que el SVG no tiene.
+    Con expresiones regulares y no con ElementTree: los comentarios de las
+    placas llevan `--valida`, que un analizador estricto rechaza"""
+    with open(os.path.join(SRC, "placas", nombre + ".svg"), encoding="utf-8") as f:
+        ids = set(re.findall(r'id="([^"]+)"', f.read()))
+    with open(os.path.join(SRC, "placas", nombre + ".xml"), encoding="utf-8") as f:
+        x = re.sub(r"<!--.*?-->", "", f.read(), flags=re.S)
+    falta = []
+    for tipo, id_, attrs in re.findall(r'<componente\s+tipo="(\w+)"\s+id="([^"]+)"([^>]*)>', x):
+        if 'visible="no"' in attrs:
+            continue
+        if id_ not in ids:
+            falta.append(id_)
+        if tipo in ("Conector", "Jumper"):
+            fi = re.search(r'filas="(\d+)"', attrs)
+            n = (int(fi.group(1)) if fi else 1) * int(re.search(r'columnas="(\d+)"', attrs).group(1))
+            m = re.search(r'nombres="([^"]+)"', attrs)
+            nombres = m.group(1).split() if m else [str(k) for k in range(1, n + 1)]
+            falta += ["%s.%s" % (id_, q) for q in nombres if "%s.%s" % (id_, q) not in ids]
+    return falta
+
+
+SIS_JUMPER = """<sistema nombre="j">
+  <placa id="A" nombre="a">
+    <componente tipo="Jumper" id="JP4" filas="2" columnas="2" puente="%s"/>
+    <componente tipo="Conector" id="C" filas="1" columnas="1"/>
+  </placa>
+  %s
+</sistema>
+"""
+
+
+def c19_ti(sim, cp):
+    grupo("C19 Las placas de TI con su dibujo, los jumpers de varios puentes y <jumper ref>")
+    esperado = {
+        "msp_exp432p401r": ("placa 'msp-exp432p401r': 1 MCU(s), 23 componentes", "J101 1-2+3-4+5-6+7-8+9-10+"
+                            "11-12+13-14+15-16+17-18+19-20, JP10 1-2, JP11 1-2, JP8 1-2, JP9 1-2)"),
+        "msp_exp432e401y": ("placa 'msp-exp432e401y': 1 MCU(s), 32 componentes", "JP1 5-6, JP4 1-2+3-4, "
+                            "JP5 1-2+3-4, JP6 1-2, JP7 1-2)"),
+        "boostxl_edumkii": ("placa 'boostxl-edumkii': SIN MCU, 34 componentes", "J5 RGB-PWM)"),
+    }
+    for n in PLACAS_TI:
+        rc, out, err = corre(sim, ["placas/%s.xml" % n, "--valida"])
+        cab, dib = esperado[n]
+        check(rc == 0 and cab in out and "0 avisos" in out and ("dibujo: %s.svg (" % n) in out and dib in out,
+              "placas/%s.xml valida sin un aviso, con su dibujo y sus puentes" % n)
+        f = piezas_sin_dibujo(n)
+        check(not f, "%s.svg: cada pieza visible y cada pin de conector, con su id (faltan: %s)" % (n, f))
+
+    # Los dos sistemas: el J5 de la EDUMKII como sale de fabrica, y cambiado
+    rc, out, err = corre(sim, ["placas/msp_exp432p401r_edumkii.xml", "--valida"])
+    check(rc == 0 and "dibujo E: boostxl_edumkii.svg (" in out and "J5 RGB-PWM)" in out and
+          "ventana: L en (0, 0) mm; E en (112, 42) mm" in out and "0 avisos" in out,
+          "placas/msp_exp432p401r_edumkii.xml: las dos placas con su dibujo, donde van, y el J5 de fabrica")
+    rc, out, err = corre(sim, ["placas/msp_exp432e401y_edumkii.xml", "--valida"])
+    check(rc == 0 and "J5 PWM-LCD)" in out and "0 avisos" in out,
+          "placas/msp_exp432e401y_edumkii.xml: el <jumper> del sistema pasa el J5 a la luz de la pantalla")
+    rc, out, placa, il, av = saludo_con_dibujos(sim, ["placas/msp_exp432e401y_edumkii.xml"])
+    edu = [d for (pl, d) in [(x[0].get("placas"), x[1]) for x in il] if pl and "E" in pl.split()]
+    check(len(edu) == 1 and b'id="J5@PWM-LCD"' in edu[0] and b'id="J5@RGB-PWM"' not in edu[0],
+          "y la ventana recibe el dibujo de la EDUMKII con el puente en PWM-LCD, sin el de fabrica")
+
+    # Un Jumper con varios puentes: la posicion de CAN de JP4, y sus errores
+    rc, out, err = corre(sim, [cp.escribe("j1.xml", SIS_JUMPER % ("1 2, 3 4", "")), "--valida"])
+    check(rc == 0 and "3 nodos" in out,
+          "un 2x2 con dos puentes son dos nodos, uno por puente (y el del conector, tres)")
+    rc, out, err = corre(sim, [cp.escribe("j2.xml", SIS_JUMPER % ("1 2, 3 4", '<jumper ref="A/JP4" puente="1 3, 2 4"/>')), "--valida"])
+    check(rc == 0 and "3 nodos" in out, "<jumper ref> lo pone en horizontal, otros dos puentes")
+    for puente, extra, dice, que in (
+            ("1 2, 2 4", "", "el pin 2 esta en dos puentes", "un pin en dos puentes"),
+            ("1 2, 3", "", "varios separados por comas", "un puente de un pin solo"),
+            ("1 4", "", "no estan uno al lado del otro", "dos pines en diagonal"),
+            ("1 2", '<jumper ref="A/JP9" puente="1 2"/>', "no tiene ningun Jumper que se llame JP9",
+             "<jumper> de una pieza que no esta"),
+            ("1 2", '<jumper ref="A/C" puente="1 2"/>', "no tiene ningun Jumper que se llame C",
+             "<jumper> de un conector, que no es un jumper"),
+            ("1 2", '<jumper ref="B/JP4" puente="1 2"/>', "no hay ninguna placa 'B'", "<jumper> de otra placa"),
+            ("1 2", '<jumper ref="A/JP4"/>', "<jumper> necesita ref=", "<jumper> sin puente"),
+            ("1 2", '<jumper ref="A/JP4" puente="1 2" color="rojo"/>', "atributo desconocido: color",
+             "<jumper> con un atributo de mas")):
+        rc, out, err = corre(sim, [cp.escribe("je.xml", SIS_JUMPER % (puente, extra)), "--valida"])
+        check(rc != 0 and dice in out + err, "%s: error que lo dice" % que)
+
+
+def catalogo_de(sim, args):
+    """(T_PLACA, T_CATALOGO) de un --valida con ventana"""
+    v = Ventana()
+    p = arranca(sim, args + ["--valida"], v.puerto)
+    try:
+        if not v.acepta():
+            return None, None
+        _, placa, cat, _ = saludo_hasta_listo(v, valida=True, version=2)
+        resto_del_saludo(v)
+        termina(p)
+        return placa, cat
+    finally:
+        if p.poll() is None:
+            p.kill()
+        v.cierra()
+
+
+def c20_rgb(sim, cp):
+    grupo("C20 El LED RGB: una pieza, tres canales de color")
+    COLORES = [("rojo", "#ff0000"), ("verde", "#00ff00"), ("azul", "#0000ff"),
+               ("corriente_r", "#ff0000"), ("corriente_g", "#00ff00"), ("corriente_b", "#0000ff")]
+    for fichero, id_, nodos in (
+            ("placas/msp_exp432p401r.xml", "LED2", {"r": "P2.0", "g": "P2.1", "b": "P2.2"}),
+            ("placas/msp_exp432p401r_edumkii.xml", "E/D1", None)):
+        placa, cat = catalogo_de(sim, [fichero])
+        if not check(placa is not None and cat is not None, "%s: saludo" % fichero):
+            continue
+        comps = {c.get("id"): c for c in ET.fromstring(placa).findall("componente")}
+        c = comps.get(id_)
+        pines = {x.get("nombre"): x.get("nodo") for x in c.findall("pin")} if c is not None else {}
+        check(c is not None and c.get("tipo") == "RGBLed" and sorted(pines) == ["b", "g", "r"] and
+              (nodos is None or pines == nodos),
+              "%s: %s es un RGBLed con sus patillas r, g y b %s" % (fichero, id_, pines))
+        pz = [x for x in ET.fromstring(cat).iter("pieza") if x.get("id") == id_]
+        obs = [(o.get("nombre"), o.get("color")) for o in pz[0].findall("observable")] if pz else []
+        check(obs == [("encendido", None)] + COLORES,
+              "y el catalogo: encendido, sin color, el primero; y sus seis canales con color= %s" % obs)
+        sueltos = [k for k in comps if re.search(r"LED2_|LED_[RGB]$", k)]
+        check(not sueltos, "y ya no hay tres Led sueltos (%s)" % sueltos)
+
+
 def main():
     a = argparse.ArgumentParser(description="conectores y sistemas de placas")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -1358,6 +1498,8 @@ def main():
         c16_disposicion(sim, cp)
         c17_visible(sim, cp)
         c18_acodado(sim, cp)
+        c19_ti(sim, cp)
+        c20_rgb(sim, cp)
     finally:
         cp.borra()
     return ventana.resumen("SISTEMA")

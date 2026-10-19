@@ -91,8 +91,10 @@ jobs:
         # pycryptodome, y los 32 casos de AES, DES y TDES caen a un motor.
         #
         # Esto no es un remiendo para poner el CI en verde: es la dependencia
-        # que la comprobacion necesita para valer lo que dice que vale.
-        run: python3 -m pip install --break-system-packages pycryptodome
+        # que la comprobacion necesita para valer lo que dice que vale. Los del
+        # MSP432E4 (T7) piden dos mas: `cryptography` para GCM (openssl enc no
+        # hace AEAD) y `crccheck` para los CRC.
+        run: python3 -m pip install --break-system-packages pycryptodome cryptography crccheck
 
       - name: La licencia esta puesta, y con nombre
         # Tres cosas que un reparto no puede llevar mal, y las tres pueden
@@ -161,14 +163,14 @@ jobs:
           sudo apt-get install -y libsystemc-dev python3-serial socat
           dpkg -l libsystemc-dev python3-serial socat | tail -3
 
-      - name: Las suites (las tres de siempre, testserie y testgui)
+      - name: Las suites (las tres de siempre, testserie, testgui, testp4 y teste4)
         env:
           SUITES_PRESUPUESTO: 600
         run: sh ci/pasa_suites.sh
 
-      - name: Los invariantes de las cinco, al picosegundo
+      - name: Los invariantes de las siete, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie testgui; do
+          for s in test407 test446 test417 testserie testgui testp4 teste4; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -211,9 +213,89 @@ jobs:
         working-directory: src
         run: make -f Makefile.mcu-sim interop
 
+      # El cargador serie de la ROM R1 del MSP432E401Y (T6): el mcu-sim de
+      # verdad sin firmware, y sflash_e4.py por RFC 2217 programa e4_t3,
+      # lo arranca y espera su saludo. Sin invariante, como la de arriba.
+      - name: sflash contra el cargador de la ROM del MSP432E401Y
+        working-directory: src
+        run: make -f Makefile.mcu-sim sflash-e4
+
+      # El BSL del MSP432P401R (T5, D4): sin firmware, el codigo de arranque
+      # entra en el BSL B1, y bsl_p4.py programa por RFC 2217 el ejemplo de eco
+      # de TI y comprueba el eco. BSL Scripter de TI no esta en el CI.
+      - name: El BSL del MSP432P401R por el backchannel
+        working-directory: src
+        run: make -f Makefile.mcu-sim bsl-p4
+
+      # El Ethernet del MSP432E401Y (T7): el mcu-sim de verdad con e4_eth (lwIP)
+      # y el puente en qemu:PUERTO; eco_e4.py hace de ordenador con su propia
+      # pila (ARP, ICMP, UDP y TCP) y comprueba los ecos y las sumas del EMAC.
+      - name: El eco de lwIP por el puente Ethernet del MSP432E401Y
+        working-directory: src
+        run: make -f Makefile.mcu-sim eth-e4
+
+      # El USB del MSP432E401Y (T7): el mcu-sim de verdad con e4_usb (CDC-ACM)
+      # y el puente de clase en rfc2217:PUERTO y en tcp:PUERTO; cdc_e4.py es el
+      # terminal, con pySerial: el eco y que sus baudios llegan al firmware.
+      - name: El CDC-ACM del MSP432E401Y por el puente USB
+        working-directory: src
+        run: make -f Makefile.mcu-sim usb-e4
+
+      # La BOOSTXL-EDUMKII enchufada a la MSP-EXP432P401R (T3 del MSP432): el
+      # sistema de dos placas con su firmware, mirando lo que sale.
+      - name: La BOOSTXL-EDUMKII sobre la LaunchPad del MSP432P401R
+        working-directory: src
+        run: make -f Makefile.mcu-sim p4-edumkii
+
+      # Y sobre la MSP-EXP432E401Y, en su BoosterPack 1, con la pantalla con
+      # luz: el J5 de la EDUMKII, cambiado por el sistema.
+      - name: La BOOSTXL-EDUMKII sobre la LaunchPad del MSP432E401Y
+        working-directory: src
+        run: make -f Makefile.mcu-sim e4-edumkii
+
+      # La prebusqueda de la Flash del E4 a 120 MHz: una vuelta de
+      # SysCtlDelay cuesta lo mismo cruce o no una linea de 256 bits.
+      - name: SysCtlDelay y la prebusqueda de la Flash del MSP432E401Y
+        working-directory: src
+        run: make -f Makefile.mcu-sim e4-retardo
+
       - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas)
         working-directory: src
         run: make -f Makefile.mcu-sim gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema
+
+      # OpenOCD DE VERDAD contra el modelo, por los pines (T5 del MSP432): de
+      # git, porque la 0.12.0 del paquete no tiene SWD en remote_bitbang. Se
+      # construye una vez por revision y se guarda en la cache. Aqui es
+      # OBLIGATORIA: sin un OpenOCD que sirva, falla en vez de omitirse.
+      - name: Cache de OpenOCD (git, con SWD en remote_bitbang)
+        id: cache-openocd
+        uses: actions/cache@v5
+        with:
+          path: ${{ github.workspace }}/openocd
+          key: openocd-${{ matrix.os }}-2075427d1585dc1bc17f75a51df91a1b20b4ad4b
+
+      - name: Construir OpenOCD si no estaba en la cache
+        if: steps.cache-openocd.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get install -y autoconf automake libtool pkg-config texinfo libjim-dev
+          sh ci/construye_openocd.sh "$GITHUB_WORKSPACE/openocd"
+
+      - name: OpenOCD programa el MSP432P401R y el F407, y GDB ve FreeRTOS
+        working-directory: src
+        env:
+          OPENOCD_OBLIGATORIO: 1
+        run: |
+          sudo apt-get install -y libjim-dev gdb-multiarch
+          make -f Makefile.mcu-sim openocd OPENOCD="$GITHUB_WORKSPACE/openocd/bin/openocd"
+
+      # X1 y X2 de doc/analisis_xds110.md: la sonda CMSIS-DAP por TCP con el
+      # `cmsis-dap tcp` del mismo OpenOCD, y la sonda XDS110 de las LaunchPad
+      # (el 3V3 por J101, la traza SWO, la sonda por TMS_SWDIO)
+      - name: CMSIS-DAP por TCP y la sonda XDS110 de las LaunchPad
+        working-directory: src
+        env:
+          OPENOCD_OBLIGATORIO: 1
+        run: make -f Makefile.mcu-sim cmsis-dap xds110 OPENOCD="$GITHUB_WORKSPACE/openocd/bin/openocd"
 
       - uses: actions/upload-artifact@v6
         if: always()
@@ -401,14 +483,14 @@ jobs:
 
       # SIN pasar SYSTEMC_HOME, a proposito: aqui se ejerce la deteccion
       # automatica, que es la que se encuentra un alumno.
-      - name: Las suites (las tres de siempre, testserie y testgui)
+      - name: Las suites (las tres de siempre, testserie, testgui, testp4 y teste4)
         env:
           SUITES_PRESUPUESTO: 600
         run: sh ci/pasa_suites.sh CXX=clang++
 
-      - name: Los invariantes de las cinco, al picosegundo
+      - name: Los invariantes de las siete, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie testgui; do
+          for s in test407 test446 test417 testserie testgui testp4 teste4; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -450,6 +532,14 @@ jobs:
       - name: Interoperabilidad del puente UART (pySerial y socat)
         working-directory: src
         run: python3 verif/serie/interop.py
+
+      - name: sflash contra el cargador de la ROM del MSP432E401Y
+        working-directory: src
+        run: python3 verif/serie/sflash_e4.py --prueba
+
+      - name: El BSL del MSP432P401R por el backchannel
+        working-directory: src
+        run: python3 verif/serie/bsl_p4.py --prueba
 
       - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas)
         # psutil para medir la CPU de mcu-sim mientras espera: en Linux basta
@@ -555,16 +645,16 @@ jobs:
           sh ci/construye_systemc.sh "$(cygpath -u "$GITHUB_WORKSPACE")/systemc" \
               -G Ninja -DCMAKE_ASM_FLAGS="-x assembler-with-cpp"
 
-      - name: Las suites (las tres de siempre, testserie y testgui)
+      - name: Las suites (las tres de siempre, testserie, testgui, testp4 y teste4)
         env:
           SUITES_PRESUPUESTO: 900      # aqui SystemC se compila antes: mas margen
         run: |
           sh ci/pasa_suites.sh \
              SYSTEMC_HOME="$(cygpath -u "$GITHUB_WORKSPACE")/systemc"
 
-      - name: Los invariantes de las cinco, al picosegundo
+      - name: Los invariantes de las siete, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie testgui; do
+          for s in test407 test446 test417 testserie testgui testp4 teste4; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -599,6 +689,16 @@ jobs:
         run: |
           python -m pip install pyserial
           python verif/serie/interop.py
+
+      - name: sflash contra el cargador de la ROM del MSP432E401Y
+        shell: pwsh
+        working-directory: src
+        run: python verif/serie/sflash_e4.py --prueba
+
+      - name: El BSL del MSP432P401R por el backchannel
+        shell: pwsh
+        working-directory: src
+        run: python verif/serie/bsl_p4.py --prueba
 
       - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas)
         shell: pwsh

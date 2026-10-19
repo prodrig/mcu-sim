@@ -47,6 +47,15 @@ trace/
 # suites lo comprueban al arrancar. Véase T-22 en doc/todo.md.
 !src/verif/fw/*.bin
 !src/verif/fw/*/*.bin
+# Y los de los firmwares del MSP432P4, que van un nivel mas abajo
+# (verif/fw/msp432p4/p4_demo/, .../coremark/): sin esta linea el banco testp4
+# fallaria en su primer grupo en un arbol recien clonado.
+!src/verif/fw/*/*/*.bin
+!src/verif/fw/*/*/*/*.bin
+# Las tablas de la ROM R1: las genera rom_r1/gen_tablas.py a partir de rom.h
+src/verif/fw/msp432p4/rom_r1/tablas.c
+src/verif/fw/msp432e4/rom_r1/tablas.c
+src/verif/fw/msp432e4/rom_r1/simbolos.txt
 
 # Herramientas de análisis
 *.gcda

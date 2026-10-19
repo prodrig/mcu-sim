@@ -1,0 +1,64 @@
+{
+    // VS Code contra el simulador del MSP432P401R (fase T2).
+    // Copiar a .vscode/launch.json del proyecto y cambiar "executable"/"program".
+    // Antes de depurar, el simulador escuchando (ide/msp432/README.md):
+    //     ./build/mcu-sim placas/msp_exp432p401r.xml --gdb-dap --tiempo-real
+    "version": "0.2.0",
+    "configurations": [
+        {
+            // Con la extension Cortex-Debug (marus25.cortex-debug)
+            "name": "MSP432P401R (simulador, Cortex-Debug)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "external",
+            "gdbTarget": "localhost:3333",
+            "gdbPath": "arm-none-eabi-gdb",
+            "executable": "${workspaceFolder}/Debug/TU_PROYECTO.out",
+            "cwd": "${workspaceFolder}",
+            "device": "MSP432P401R",
+            "runToEntryPoint": "main",
+            // El stub hace el reset y el halt; la carga programa la Flash por
+            // el FLCTL. GDB no relee los registros tras un `monitor`: hay que
+            // decirselo.
+            "overrideLaunchCommands": [
+                "monitor reset halt",
+                "maintenance flush register-cache",
+                "load",
+                "monitor reset halt",
+                "maintenance flush register-cache"
+            ],
+            "overrideResetCommands": [
+                "monitor reset halt",
+                "maintenance flush register-cache"
+            ],
+            "overrideRestartCommands": [
+                "monitor reset halt",
+                "maintenance flush register-cache"
+            ]
+        },
+        {
+            // Sin extensiones de ARM: el depurador de C/C++ de Microsoft
+            // (ms-vscode.cpptools), por MI
+            "name": "MSP432P401R (simulador, cppdbg)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/Debug/TU_PROYECTO.out",
+            "cwd": "${workspaceFolder}",
+            "MIMode": "gdb",
+            "miDebuggerPath": "arm-none-eabi-gdb",
+            "miDebuggerServerAddress": "localhost:3333",
+            "stopAtConnect": true,
+            "setupCommands": [
+                { "text": "set pagination off" }
+            ],
+            "postRemoteConnectCommands": [
+                { "text": "monitor reset halt" },
+                { "text": "maintenance flush register-cache" },
+                { "text": "load" },
+                { "text": "monitor reset halt" },
+                { "text": "maintenance flush register-cache" },
+                { "text": "tbreak main" }
+            ]
+        }
+    ]
+}

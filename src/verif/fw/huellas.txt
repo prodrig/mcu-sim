@@ -67,3 +67,54 @@
 # El banco del puente UART (P-14, fase D2). Compilado con la misma cadena que
 # las demas, que reproduce byte a byte uart_demo.bin (1452 B, 0x63E40E5A).
 serie  vcp_demo/vcp_demo.bin          1096  0x8BAC8D5B
+# Las del MSP432P401R (fase T1). El .out es un ELF, compilado con
+# -ffile-prefix-map para que su huella no dependa de donde se compila.
+p4  msp432p4/p4_demo/p4_demo.out          24072  0x2E005BC4
+p4  msp432p4/p4_demo/p4_demo.bin           1900  0x47F716E7
+p4  msp432p4/coremark/coremark_p4.bin     14380  0xAB765043
+p4  msp432p4/p4_t3/p4_t3.out            35568  0xBA6CC780
+p4  msp432p4/p4_t3/p4_t3.bin             4528  0x43547D00
+p4  msp432p4/p4_t3b/p4_t3b.out          48896  0xA8047114
+p4  msp432p4/p4_t3b/p4_t3b.bin           5672  0x458017F6
+p4  msp432p4/edumkii_demo/edumkii_demo.out  22932  0x9D3C022A
+p4  msp432p4/edumkii_demo/edumkii_demo.bin   2228  0xC2580758
+p4  msp432p4/driverlib_t3/driverlib_t3.out  24692  0xD38926CF
+p4  msp432p4/driverlib_t3/driverlib_t3.bin   5228  0x1582C35A
+p4  msp432p4/rom_r1/rom_r1.bin          32768  0x0C4E1A7D
+p4  msp432p4/sdk_ejemplos/systick_interrupt_gpio_blink/systick_interrupt_gpio_blink.out  94760  0xE9B2A081
+p4  msp432p4/sdk_ejemplos/systick_interrupt_gpio_blink/systick_interrupt_gpio_blink.bin   3884  0x1CCF888C
+p4  msp432p4/sdk_ejemplos/cs_dco_frequency_tune/cs_dco_frequency_tune.out  94732  0x05C319D4
+p4  msp432p4/sdk_ejemplos/cs_dco_frequency_tune/cs_dco_frequency_tune.bin   3916  0xA8D783B7
+p4  msp432p4/sdk_ejemplos/timer32_periodic_mode_led_toggle/timer32_periodic_mode_led_toggle.out  95136  0xB4671A57
+p4  msp432p4/sdk_ejemplos/timer32_periodic_mode_led_toggle/timer32_periodic_mode_led_toggle.bin   4152  0x71F7DAB0
+p4  msp432p4/sdk_ejemplos/uart_pc_echo_12mhz_brclk/uart_pc_echo_12mhz_brclk.out  95760  0x86179559
+p4  msp432p4/sdk_ejemplos/uart_pc_echo_12mhz_brclk/uart_pc_echo_12mhz_brclk.bin   4056  0x486BB6DF
+p4  msp432p4/freertos_blinky/freertos_blinky.out 250248  0xB4E1864E
+p4  msp432p4/freertos_blinky/freertos_blinky.bin  17384  0x974D2B14
+p4  msp432p4/bsl_b1/bsl_b1.bin             8192  0xAD4D07DE
+p4  msp432p4/p4_bsl/p4_bsl.out             8360  0x64F0DC34
+p4  msp432p4/p4_bsl/p4_bsl.bin              384  0xB8F73760
+
+# MSP432E401Y (T6)
+e4  msp432e4/e4_demo/e4_demo.out          29068  0x1BF48A88
+e4  msp432e4/e4_demo/e4_demo.bin           2024  0xFD887357
+e4  msp432e4/coremark/coremark_e4.bin     14648  0xE25B7F14
+e4  msp432e4/e4_nv/e4_nv.out              21616  0xCEFA85AA
+e4  msp432e4/e4_nv/e4_nv.bin               2308  0xBE661E1D
+e4  msp432e4/e4_t3/e4_t3.out              37124  0x6EDED918
+e4  msp432e4/e4_t3/e4_t3.bin               7112  0x499228C7
+e4  msp432e4/e4_rom/e4_rom.out            14436  0x865E5687
+e4  msp432e4/e4_rom/e4_rom.bin             2216  0xF5D3C2A5
+e4  msp432e4/rom_r1/rom_r1.bin           262144  0xBCF73575
+
+# MSP432E401Y (T7)
+e4  msp432e4/e4_t7/e4_t7.out              37500  0x5537F33A
+e4  msp432e4/e4_t7/e4_t7.bin               7504  0x71E45C54
+e4  msp432e4/e4_eth/e4_eth.out           321232  0x593907EE
+e4  msp432e4/e4_eth/e4_eth.bin            30548  0x59E58716
+e4  msp432e4/e4_bootp/e4_bootp.out        13380  0x687866AF
+e4  msp432e4/e4_bootp/e4_bootp.bin         1964  0xDC7269F0
+e4  msp432e4/e4_usb/e4_usb.out            30676  0x1DDB13CD
+e4  msp432e4/e4_usb/e4_usb.bin             4872  0x3A6BC117
+e4  msp432e4/e4_edumkii/e4_edumkii.out    31444  0xC232D666
+e4  msp432e4/e4_edumkii/e4_edumkii.bin     5768  0x1DE331BE

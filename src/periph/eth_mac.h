@@ -148,6 +148,72 @@ inline constexpr EthCaps CAPS_ETH_RMII  = caps_eth_rmii();
 inline constexpr EthCaps CAPS_ETH_BASIC = caps_eth_basic();
 
 // ===========================================================================
+// LA FRONTERA DE TRAMAS (fase E1 de doc/analisis_puente_ethernet.md)
+//
+// Lo que el MAC ve del otro lado cuando el PHY no está en los pines sino que es
+// «de tramas»: el PHY interno del MSP432E4, o un puente con el ordenador. Las
+// tramas van sin preámbulo ni FCS, y el MAC espera el tiempo de cable
+// calculado -preámbulo, trama, FCS y hueco- en vez de sacarlas bit a bit, que
+// es lo que hace que un puente pueda ir en tiempo real. Con nada conectado, el
+// MAC usa los pines, exactamente como antes.
+// ===========================================================================
+class eth_phy_if {
+public:
+    virtual ~eth_phy_if() = default;
+    virtual void trama_del_mac(const std::vector<uint8_t>& t) = 0;   // sin FCS
+    virtual bool enlace() const = 0;                                 // ¿hay cable?
+    virtual double bps() const { return 100e6; }
+};
+
+// Las sumas de comprobación que pone el MAC al transmitir (COE, F-43): la de
+// la cabecera IPv4 y la de TCP, UDP o ICMP, según los dos bits CIC del
+// descriptor [IR, §12.16.2; TI SLAU723A, §20 «Checksum Offload»]:
+//   1  solo la cabecera IP
+//   2  cabecera y carga, SIN la pseudocabecera (el firmware la deja sumada en
+//      el campo, como hace Linux)
+//   3  cabecera y carga, con la pseudocabecera
+// Las tramas fragmentadas y las que no son IPv4 salen como vienen.
+inline uint16_t eth_suma16(const uint8_t* d, size_t n, uint32_t s = 0) {
+    for (size_t i = 0; i + 1 < n; i += 2) s += (uint32_t(d[i]) << 8) | d[i + 1];
+    if (n & 1u) s += uint32_t(d[n - 1]) << 8;
+    while (s >> 16) s = (s & 0xFFFFu) + (s >> 16);
+    return uint16_t(s);
+}
+inline void eth_inserta_sumas(std::vector<uint8_t>& t, unsigned cic) {
+    if (!cic || t.size() < 34) return;
+    size_t ip = 14;
+    uint16_t tipo = uint16_t((t[12] << 8) | t[13]);
+    if (tipo == 0x8100 && t.size() >= 38) { ip = 18; tipo = uint16_t((t[16] << 8) | t[17]); }
+    if (tipo != 0x0800 || (t[ip] >> 4) != 4) return;
+    const size_t ihl = size_t(t[ip] & 0xFu) * 4u;
+    const size_t total = (size_t(t[ip + 2]) << 8) | t[ip + 3];
+    if (ihl < 20 || ip + total > t.size() || total < ihl) return;
+    t[ip + 10] = t[ip + 11] = 0;
+    const uint16_t h = uint16_t(~eth_suma16(&t[ip], ihl));
+    t[ip + 10] = uint8_t(h >> 8); t[ip + 11] = uint8_t(h);
+    if (cic < 2) return;
+    const bool frag = ((t[ip + 6] & 0x3Fu) | t[ip + 7]) != 0;      // MF o desplazamiento
+    if (frag) return;
+    const uint8_t proto = t[ip + 9];
+    const size_t c = proto == 6 ? 16u : proto == 17 ? 6u : proto == 1 ? 2u : 0u;
+    if (!c) return;
+    const size_t pl = ip + ihl, n = total - ihl;
+    if (n < c + 2) return;
+    uint32_t s = 0;
+    if (cic == 3) {
+        t[pl + c] = t[pl + c + 1] = 0;
+        if (proto != 1) {                                         // ICMP no la lleva
+            s += eth_suma16(&t[ip + 12], 8);
+            s += proto;
+            s += uint32_t(n);
+        }
+    }
+    uint16_t r = uint16_t(~eth_suma16(&t[pl], n, s));
+    if (proto == 17 && r == 0) r = 0xFFFFu;                       // UDP: 0 es «sin suma»
+    t[pl + c] = uint8_t(r >> 8); t[pl + c + 1] = uint8_t(r);
+}
+
+// ===========================================================================
 // El controlador
 // ===========================================================================
 class EthBase : public BusSlave {
@@ -180,8 +246,9 @@ public:
     sc_core::sc_signal<bool> col_in{"col_in"};          // MII (PA3)
     sc_core::sc_signal<bool> pps_out{"pps_out"};        // PTP (PB5)
 
-    EthBase(sc_core::sc_module_name nm, const EthCaps& c)
-        : BusSlave(nm, addr::ETH_B, 0x1400), caps(c),
+    EthBase(sc_core::sc_module_name nm, const EthCaps& c, uint32_t base = addr::ETH_B,
+            uint32_t tam = 0x1400)
+        : BusSlave(nm, base, tam), caps(c),
           txd_out("txd_out", 4), rxd_in("rxd_in", 4) {
         maca_.resize(caps.filtros ? caps.filtros : 1);
         reset_regs();
@@ -306,6 +373,17 @@ public:
     const std::vector<uint8_t>& ultima_tx() const { return ult_tx_; }
     uint64_t maestro_accesos() const { return n_ahb_; }
 
+    // ---- La frontera de tramas ---------------------------------------------
+    void conectar_phy(eth_phy_if* p) { phy_tramas_ = p; }
+    eth_phy_if* phy_tramas() const { return phy_tramas_; }
+    // Una trama que llega del PHY de tramas, sin FCS. Hay que llamarla desde un
+    // SC_THREAD: el DMA escribe en memoria como maestro del bus y espera.
+    bool trama_al_mac(const std::vector<uint8_t>& t) {
+        if (!mac_activo() || !(dmaomr_ & OMR_SR) || t.size() < 12) return false;
+        if (macpmtcsr_ & PMT_PD) return false;   // dormido: no se recibe nada
+        return dma_recibe(t, false);
+    }
+
 protected:
     // =======================================================================
     // Estado
@@ -331,6 +409,22 @@ protected:
     std::vector<uint8_t> ult_tx_;
     bool o_irq_ = false, o_wkup_ = false;
     sc_core::sc_event pub_ev_, tx_ev_, rx_ev_, mdio_ev_;
+    eth_phy_if* phy_tramas_ = nullptr;
+
+    // ---- Lo que cambia de un chip a otro con la misma IP ---------------------
+    // El desplazamiento de un registro en el mapa de ESTE chip, traducido al del
+    // F407 (el DMA del MSP432E4 está en 0xC00 y no en 0x1000); ~0u: no existe
+    virtual uint32_t traduce(uint32_t off) const { return off; }
+    virtual uint32_t mask_miiar() const { return MII_MB | MII_MW | MII_CR | MII_MR | MII_PA; }
+    // Un PHY que no está en los pines MDC/MDIO sino dentro del chip: la orden
+    // se hace por llamada, tras el tiempo de una trama MDIO de 64 bits
+    virtual bool mdio_por_dentro() const { return false; }
+    virtual uint16_t mdio_op(bool escr, unsigned pa, unsigned reg, uint16_t dato) {
+        (void)escr; (void)pa; (void)reg; (void)dato; return 0xFFFFu;
+    }
+    // Descriptores de 8 palabras (DMABMR.EDFE/ATDS): el anillo salta 32 bytes
+    unsigned tam_descriptor() const { return (dmabmr_ & BMR_EDFE) ? 32u : 16u; }
+    bool sale_trama(std::vector<uint8_t>& t);
 
     void bt_sin_dma(tlm::tlm_generic_payload& gp, sc_core::sc_time&) {
         gp.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE);
@@ -405,7 +499,7 @@ protected:
         if (ch) return w3;
         if (er) return base;
         const unsigned dsl = (dmabmr_ >> 2) & 0x1Fu;
-        return dir + 16u + 4u * dsl;
+        return dir + tam_descriptor() + 4u * dsl;
     }
 
     // =======================================================================
@@ -505,6 +599,8 @@ inline void EthBase::actualiza_irq() {
 // LECTURA DE REGISTROS
 // ===========================================================================
 inline uint32_t EthBase::reg_read(uint32_t off) {
+    off = traduce(off);
+    if (off == ~0u) return 0;
     if (off >= R_MACA0HR && off < R_MACA0HR + 8u * 4u) {
         const unsigned i = (off - R_MACA0HR) / 8u;
         if (i >= caps.filtros) return 0;            // ese filtro no existe
@@ -587,6 +683,8 @@ inline void EthBase::reg_write(uint32_t off, uint32_t v, uint32_t be) {
         for (unsigned b = 0; b < 4; ++b) if (be & (1u << b)) m |= 0xFFu << (8 * b);
         v = (cur & ~m) | (v & m);
     }
+    off = traduce(off);
+    if (off == ~0u) return;
     if (off >= R_MACA0HR && off < R_MACA0HR + 8u * 4u) {
         const unsigned i = (off - R_MACA0HR) / 8u;
         if (i >= caps.filtros) return;
@@ -605,7 +703,7 @@ inline void EthBase::reg_write(uint32_t off, uint32_t v, uint32_t be) {
         case R_MACHTHR: if (caps.hash) machthr_ = v; return;
         case R_MACHTLR: if (caps.hash) machtlr_ = v; return;
         case R_MACMIIAR:
-            macmiiar_ = v & (MII_MB | MII_MW | MII_CR | MII_MR | MII_PA);
+            macmiiar_ = v & mask_miiar();
             // MB es el "arranca": lo pone el firmware y el hardware lo borra
             // cuando la trama MDIO ha salido por los pines.
             if (v & MII_MB) mdio_ev_.notify(sc_core::SC_ZERO_TIME);
@@ -718,6 +816,16 @@ inline void EthBase::mdio_proc() {
         const double f = domain_hz() > 0.0 ? domain_hz() : 168.0e6;
         const sc_core::sc_time semi(
             0.5e12 * double(div[(macmiiar_ >> 2) & 7u]) / f, sc_core::SC_PS);
+        if (mdio_por_dentro()) {
+            // El PHY interno: la misma trama de 64 ciclos de MDC, sin pines
+            sc_core::wait(semi * 128.0);
+            const uint16_t r = mdio_op((macmiiar_ & MII_MW) != 0, (macmiiar_ >> 11) & 0x1Fu,
+                                       (macmiiar_ >> 6) & 0x1Fu, uint16_t(macmiidr_));
+            if (!(macmiiar_ & MII_MW)) macmiidr_ = r;
+            macmiiar_ &= ~MII_MB;
+            ++n_mdio_;
+            continue;
+        }
 
         uint32_t dato = macmiidr_ & 0xFFFFu;
         uint32_t leido = 0;
@@ -812,6 +920,21 @@ inline bool EthBase::emite_trama(const std::vector<uint8_t>& t) {
     // Hueco entre tramas: 96 tiempos de bit. No es decoracion: sin el, el PHY
     // del otro extremo no distingue una trama de la siguiente.
     for (unsigned i = 0; i < 96u / n; ++i) if (!flanco_tx()) break;
+    return true;
+}
+
+// Por donde sale una trama: por la frontera de tramas si hay un PHY de tramas,
+// con su tiempo de cable calculado; si no, por los pines.
+inline bool EthBase::sale_trama(std::vector<uint8_t>& t) {
+    if (!phy_tramas_) return emite_trama(t);
+    // El relleno hasta 60 bytes lo pone el MAC (salvo DP en el descriptor, que
+    // no se modela): es lo que va por el cable
+    if (t.size() < 60) t.resize(60, 0);
+    // Preambulo y SFD (8), la trama, la FCS (4) y el hueco (12 bytes)
+    const double bits = 8.0 * double(8 + t.size() + 4 + 12);
+    sc_core::wait(sc_core::sc_time(bits / phy_tramas_->bps(), sc_core::SC_SEC));
+    // Sin enlace, la trama se pierde en el cable, como en la placa
+    if (phy_tramas_->enlace()) phy_tramas_->trama_del_mac(t);
     return true;
 }
 
@@ -932,6 +1055,7 @@ inline bool EthBase::dma_transmite() {
     uint32_t d = dma_tdesc_ ? dma_tdesc_ : dmatdlar_;
     std::vector<uint8_t> trama;
     uint32_t d_primero = d;
+    uint32_t w0_primero = 0;
     bool hay = false;
 
     for (unsigned k = 0; k < 32u; ++k) {          // como mucho 32 descriptores
@@ -949,7 +1073,7 @@ inline bool EthBase::dma_transmite() {
         const uint32_t w1 = leer32(d + 4);
         const uint32_t w2 = leer32(d + 8);
         const uint32_t w3 = leer32(d + 12);
-        if (w0 & TD0_FS) { trama.clear(); d_primero = d; }
+        if (w0 & TD0_FS) { trama.clear(); d_primero = d; w0_primero = w0; }
         hay = true;
         const unsigned n1 = w1 & 0x1FFFu;
         if (n1) {
@@ -973,14 +1097,16 @@ inline bool EthBase::dma_transmite() {
         uint32_t r = w0 & ~(TD0_OWN | TD0_ES | TD0_UF | TD0_TTSS);
         if (ultimo && caps.ptp && (w0 & TD0_TTSE) && (ptptscr_ & 1u)) {
             const uint64_t ts = sella_tiempo();
-            escribir32(d + 8, uint32_t(ts));            // TDES0/1 del sello
-            escribir32(d + 12, uint32_t(ts >> 32));
+            // El sello va en TDES2/3, o en TDES6/7 con descriptores de 8 palabras
+            const uint32_t o = (dmabmr_ & BMR_EDFE) ? 24u : 8u;
+            escribir32(d + o, uint32_t(ts));
+            escribir32(d + o + 4u, uint32_t(ts >> 32));
             r |= TD0_TTSS;
         }
         escribir32(d, r);
         // Encadenado o anillo, igual que en recepcion pero con sus bits.
         const bool ch = (w0 & TD0_TCH) != 0, er = (w0 & TD0_TER) != 0;
-        d = ch ? w3 : (er ? dmatdlar_ : d + 16u + 4u * ((dmabmr_ >> 2) & 0x1Fu));
+        d = ch ? w3 : (er ? dmatdlar_ : d + tam_descriptor() + 4u * ((dmabmr_ >> 2) & 0x1Fu));
         if (ultimo) break;
     }
     dma_tdesc_ = d;
@@ -989,7 +1115,9 @@ inline bool EthBase::dma_transmite() {
     // Y ahora, por los pines.
     if (!(maccr_ & CR_TE)) { dmasr_ |= DMA_TUS | DMA_AIS; actualiza_irq(); return false; }
     dmasr_ = (dmasr_ & ~DMA_TPS) | (3u << 20);         // transfiriendo
-    if (!emite_trama(trama)) {
+    // Las sumas de comprobacion, si el descriptor las pide (COE, F-43)
+    if (caps.checksum) eth_inserta_sumas(trama, (w0_primero >> 22) & 3u);
+    if (!sale_trama(trama)) {
         // Sin reloj del PHY no sale nada, y el MAC lo cuenta como vaciado de
         // la FIFO por debajo (underflow): es el sintoma real de un PHY que no
         // ha arrancado.
@@ -1064,7 +1192,7 @@ inline bool EthBase::dma_recibe(const std::vector<uint8_t>& t, bool err_crc) {
         }
         escribir32(d, r);                     // OWN a cero: ya es del firmware
         const bool ch = (w1 & RD1_RCH) != 0, er = (w1 & RD1_RER) != 0;
-        d = ch ? w3 : (er ? dmardlar_ : d + 16u + 4u * ((dmabmr_ >> 2) & 0x1Fu));
+        d = ch ? w3 : (er ? dmardlar_ : d + tam_descriptor() + 4u * ((dmabmr_ >> 2) & 0x1Fu));
         if (ultimo) break;
     }
     dma_rdesc_ = d;

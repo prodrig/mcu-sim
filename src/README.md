@@ -1,15 +1,17 @@
-# mcu-sim — modelo SystemC de microcontroladores STM32
+# mcu-sim — modelo SystemC de microcontroladores
 
-Un simulador didáctico, pensado para quien desarrolla en STM32CubeIDE y no tiene
-la tarjeta delante: se compila el firmware igual que para el chip y se ejecuta
-contra este modelo igual que contra una placa. Hoy hay **dos familias y
-veintinueve referencias** montables:
+Un simulador didáctico, pensado para quien desarrolla en el IDE de su
+microcontrolador —STM32CubeIDE, Code Composer Studio— y no tiene la tarjeta
+delante: se compila el firmware igual que para el chip y se ejecuta contra este
+modelo igual que contra una placa. Hoy hay **tres familias, de dos fabricantes,
+y treinta referencias** montables:
 
 | Familia | Referencias | Dónde está |
 | :--- | :--- | :--- |
 | **STM32F405 / F407** | once, del LQFP64 al UFBGA176 | `src/top/soc_f4.h` + su descriptor |
 | **STM32F415 / F417** | diez, las mismas **con el acelerador criptográfico** | el mismo netlist, otro descriptor |
 | **STM32F446** | ocho, del WLCSP81 al UFBGA144 | `src/soc/stm32f446.h` + su descriptor |
+| **MSP432P401R** (Texas Instruments) | una, el LQFP100 de la LaunchPad | `src/soc/msp432p4/` — fase T1 de `doc/analisis_msp432.md` |
 
 Que las diez del F415/F417 sean «el mismo netlist con otro descriptor» es
 exactamente lo que el proyecto quería poder decir: un chip nuevo de una familia
@@ -71,6 +73,8 @@ razón —lo que prueban, dentro de `test407`, movería su invariante—:
 | `make test446` | La del F446RE y sus ocho referencias | **204** | `1033367277932 ps` |
 | `make test417` | La del acelerador criptográfico del F415/F417 | **165** | `718988288 ps` |
 | `make testserie` | La del puente UART: `PuenteSerie`, un F407 con `vcp_demo` y clientes TCP y RFC 2217 de verdad | **189** | `400677589564 ps` |
+| `make testp4` | La del MSP432P401R (P-16, fases T0 a T5): las pruebas de T0 -nombres de pin por chip, catalogo comun, ELF/TI-TXT/HEX, integracion del nucleo-, el chip con `p4_demo` cargado como ELF y CoreMark; T2: el FLCTL, un firmware que reprograma su Flash y una sesion de GDB por los pines y por el DAP; T3: todos los perifericos, el bajo consumo, las piezas de la BOOSTXL-EDUMKII y los ejemplos de DriverLib; T4: la ROM de DriverLib, ejemplos del SDK sin modificar que usan `MAP_`, el TLV de fichero y FreeRTOS; y T5: el BSL con la Flash en blanco y desde una aplicacion | **406** | `22678579139423 ps` (`resto`: **`22456139139423 ps`**) |
+| `make teste4` | La del MSP432E401Y (P-17, fase T6): el chip con `e4_demo` (PIOSC, 120 MHz por las dos fuentes del PLL y los avisos de `MEMTIM0`, el GPIO de Tiva, los perros, CoreMark), la Flash y la EEPROM con DriverLib, GDB por los pines y por el DAP con `load`, los periféricos con DriverLib (`e4_t3`) y la ROM R1 con su cargador serie (`e4_rom` con `MAP_`, la Flash en blanco, `ROM_UpdateUART`, `BOOTCFG`) | **203** | `3881378197978 ps` (`resto`: **`3683870847978 ps`**) |
 | `make testgui` | La de la frontera con `mcu-sim-gui`: lo que cada pieza deja ver y tocar, el catálogo, el muestreador, el aplicador y el enlace que atiende la conexión en marcha —instantáneas, avisos, órdenes con sus ecos, la pausa y los pasos—, sobre una placa mínima sin chip | **145** | `76450000000 ps` |
 
 **En una máquina nueva no hace falta nada más**: los diecinueve firmwares que
@@ -166,6 +170,14 @@ make -f Makefile.mcu-sim gui-control  # y el control: pausa, paso, parar y ritmo
 make -f Makefile.mcu-sim gui-argumentos  # que --argumentos dice lo que acepta sim (Python)
 make -f Makefile.mcu-sim testserie    # el banco del puente UART, que es OTRO ejecutable
 make -f Makefile.mcu-sim testgui      # el de la frontera con mcu-sim-gui, OTRO mas
+make -f Makefile.mcu-sim testp4       # el del MSP432P401R, y las pruebas de T0
+make -f Makefile.mcu-sim teste4       # el del MSP432E401Y (T6)
+make -f Makefile.mcu-sim sflash-e4    # sflash por RFC 2217 contra el cargador de la ROM del E4 (Python)
+make -f Makefile.mcu-sim bsl-p4       # el BSL del P4 por RFC 2217; BSL Scripter si BSL_SCRIPTER=... (Python)
+make -f Makefile.mcu-sim asane4       # teste4 con ASan + UBSan
+make -f Makefile.mcu-sim openocd OPENOCD=...  # OpenOCD de git programa y depura el P4 y el F407 por sus pines (Python)
+make -f Makefile.mcu-sim p4-edumkii   # la LaunchPad con la BOOSTXL-EDUMKII, de punta a punta
+make -f Makefile.mcu-sim asanp4       # el mismo con ASan + UBSan
 make -f Makefile.mcu-sim asan407      # la misma suite con ASan + UBSan
 make -f Makefile.mcu-sim vectores     # los vectores del CRYP/HASH, sin SystemC
 make -f Makefile.mcu-sim run IMG=fw.bin # carga una imagen y simula
@@ -360,10 +372,14 @@ make mcu-sim
 ./build/mcu-sim placa.xml --valida              # solo comprueba la placa
 ./build/mcu-sim placa.xml --gdb --port=3333     # stub de GDB por los pines SWD
 ./build/mcu-sim placa.xml --gdb-dap             # o el stub interno contra el DAP
+./build/mcu-sim placa.xml --openocd             # o una sonda remote_bitbang para OpenOCD (3335)
 ./build/mcu-sim placa.xml --mcu TIPO            # el MCU, si la placa no lo dice
 ./build/mcu-sim sistema.xml --firmware N/u0=x.bin  # el firmware de ese chip
 ./build/mcu-sim sistema.xml --sin-firmware      # ninguno, aunque el XML lo diga
 ./build/mcu-sim sistema.xml --mcus              # sus MCUs, en XML
+./build/mcu-sim p4.xml --rom ninguna            # MSP432P4: sin ROM de DriverLib (o r1,
+                                                #   o la de TI: un volcado o el .out de CCS)
+./build/mcu-sim p4.xml --tlv tlv.bin            # MSP432P4: el TLV de una placa
 ./build/mcu-sim --help                          # y los tipos que sabe construir
 ```
 
@@ -621,6 +637,10 @@ Algunas de las de `placas/`:
 | `nucleo_f446re_tft.xml` | **Un `<sistema>`**: la pantalla cableada con ocho hilos a los conectores Arduino de la Nucleo —SCK y SDA al SPI1 (D13, D11), CS, A/D y RESET a D10, D9 y D8, VCC y LED a 3,3 V— y `verif/fw/tft_demo`, que lee su ID por SDA (7C89F0, por el VCP), la despierta y dibuja: el título, ocho barras de color y un cuadrado que va y viene. `verif/fw/tft_prueba` prueba el chip cosa a cosa con el mismo cableado (`make gui-marcha` M7) |
 | `servo_sg90.xml` | **Un servo SG90 sin MCU**: un `Servo` a 5 V, de −90 a +90 grados con pulsos de 1 a 2 ms cada 20 ms y 0,12 s por cada 60 grados, con su conector acodado de 3 pines `P1` debajo (VCC, GND y PWM). Al arrancar, el eje está en un ángulo al azar, como el de verdad. Con su dibujo, `servo_sg90.svg`: el cuerpo azul o negro y el aspa —una, dos, cuatro o seis palas, o un disco, con una marca roja— son variantes que elige el servo, y el aspa gira con el ángulo |
 | `nucleo_f446re_servo.xml` | **Un `<sistema>`**: la Nucleo con el servo —su señal en D5, PB4, el TIM3; su VCC en el `+5V`—, un KY-040 en D2, D3 y D4 y la pantalla TFT de pie (`giro="90"`), con `verif/fw/servo_demo`: cada clic del encoder mueve el servo 5 grados, apretar el eje lo centra, y la pantalla —MADCTL 0x00— enseña un cuadrante con la aguja, el ángulo y el pulso. `verif/fw/servo_prueba` prueba el servo con una secuencia de pulsos (`make gui-marcha` M8). Cada placa lleva su sitio en la ventana, `x=` e `y=` en su `<placa id>` (`doc/parts.md` §2.6) |
+| `msp_exp432p401r.xml` | La **MSP-EXP432P401R** [SLAU597F]: LED1 y el RGB tras sus jumpers JP8-JP11, S1, S2 y S3 (RESET), los dos cristales, el **bloque J101** del XDS110 con sus diez puentes, el backchannel en el 3356, las cuatro tiras **BoosterPack** J1-J4, el conector del borde J5 (2x19) y las tiras de 3V3 y 5V. Con su **dibujo**, `msp_exp432p401r.svg` |
+| `msp_exp432e401y.xml` | La **MSP-EXP432E401Y** [SLAU748B]: D1-D4, USR_SW1/2, RESET y WAKE, los dos cristales, J101, **JP1** (de dónde salen los 5 V), **JP4 y JP5** (la UART0 al XDS110 o el CAN0 a la BoosterPack 2), las **dos BoosterPack XL** (J1-J4 y J5-J8), los 98 agujeros de J10 y J12/J13. Con su **dibujo**, `msp_exp432e401y.svg` |
+| `boostxl_edumkii.xml` | La **BOOSTXL-EDUMKII**, sin MCU [SLAU599B]: joystick, acelerómetro, micrófono, pulsadores con sus pull-ups, RGB, zumbador, pantalla, OPT3001 y TMP006, el conector del servo, las pinzas, y el **jumper J5** que lleva J4.39 al rojo del RGB (de fábrica) o a la luz de la pantalla. Con su **dibujo**, `boostxl_edumkii.svg` |
+| `msp_exp432p401r_edumkii.xml` y `msp_exp432e401y_edumkii.xml` | **Dos `<sistema>`**: la EDUMKII en cada LaunchPad por J1-J4, con `edumkii_demo` y `e4_edumkii`; en la del E4, el J5 en la luz de la pantalla con `<jumper ref>` (`make p4-edumkii` y `make e4-edumkii`) |
 | `fuente_y_masa.xml` | **Sin MCU**: una `Fuente` de 3,3 V y una `Gnd`, cada una con su límite de corriente, LEDs y dos pulsadores que las cortocircuitan para ver la sobrecorriente en `mcu-sim-gui` |
 
 `banco.xml` está **generado** por el propio modelo y versionado a propósito. Se

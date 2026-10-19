@@ -147,7 +147,7 @@ terceros ya trae la suya —`verif/fw/cmsis/LICENSE-*.md` y
 `verif/fw/coremark/LICENSE.md`— pero el código del modelo, no.
 
 **Lo que ya está bien y conviene no tocar:** `doc/refs/` está en el
-`.gitignore`. Ahí viven los manuales de ST, que son material con derechos de
+`.gitignore`. Ahí viven los manuales de los fabricantes, que son material con derechos de
 autor y **no se pueden redistribuir**. Al pasar a público eso deja de ser una
 cuestión de tamaño y pasa a ser una cuestión legal. `doc/fuentes.md` —el
 índice, con revisión y URL de cada documento— sí se versiona, que es la forma

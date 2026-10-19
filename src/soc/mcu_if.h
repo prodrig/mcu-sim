@@ -41,19 +41,23 @@
 #include <vector>
 #include "../common/analog_net.h"
 #include "../core/cortex_m4f.h"   // DebugCaps
-#include "../top/mcu_caps.h"
+#include "mcu_desc.h"
 
 namespace stm32 {
 
 class NodeMap;
 class Cableado;   // pins/pin_mux.h
+class programador_nv_if;   // common/gdb_rsp.h
 
 class mcu_if {
 public:
     virtual ~mcu_if() = default;
 
-    // Qué chip es. De aquí salen su encapsulado, su memoria y sus topes.
-    virtual const McuCaps& caps() const = 0;
+    // Qué chip es: su nombre, su familia y su encapsulado. Lo demás -memoria,
+    // reloj, periféricos- es del descriptor de SU familia, y lo sabe él.
+    // (Hasta T0 era `const McuCaps& caps()`, el descriptor de los STM32F4; un
+    // adaptador de ST lo sigue ofreciendo, en `McuF4`.)
+    virtual const McuDesc& desc() const = 0;
 
     // --- 1. Los nodos -------------------------------------------------------
     // `prefijo` vacío deja los nombres desnudos (`PD12`), que es lo que hace
@@ -62,12 +66,24 @@ public:
 
     // --- 2. El nodo de un pad ----------------------------------------------
     virtual analog_net_if& nodo_analogico(unsigned puerto, unsigned pin) = 0;
+    // Los dos por donde se engancha una sonda SWD de fuera: SWCLK y SWDIO. En
+    // un STM32 son PA14 y PA13, pads de puerto con la función AF0; en un
+    // MSP432P4 son patillas DEDICADAS, que no son de ningún puerto. Por eso
+    // los dice el chip y no `sim` (T0). nullptr: este chip no los saca.
+    virtual analog_net_if* nodo_swclk() { return &nodo_analogico(0, 14); }
+    virtual analog_net_if* nodo_swdio() { return &nodo_analogico(0, 13); }
 
     // --- 3. La alimentación -------------------------------------------------
     // El orden importa y es el de la placa real: primero todo a cero con NRST
     // abajo, luego VDD, y solo después se suelta el reset.
     virtual void alimenta(bool encendido) = 0;
     virtual void reset_pin(bool activo) = 0;      // NRST a masa / en alta imp.
+    // La alimentación principal la pone la PLACA -el LDO de la sonda XDS110,
+    // por el puente 3V3 de J101 (doc/analisis_xds110.md, X1)-: el adaptador
+    // deja de sostener ese nodo y solo pone las masas (y la analógica, que
+    // las placas no unen). Sin el puente, el chip se queda sin alimentar.
+    // Por omisión no hace nada: los chips que no lo saben siguen igual.
+    virtual void alimentacion_externa(bool) {}
 
     // --- 4. El firmware -----------------------------------------------------
     // Devuelve false si el fichero no se puede leer o no cabe.
@@ -78,6 +94,10 @@ public:
     // reset valido y un `wfe` en bucle. Quien sabe donde va eso es el chip -su
     // Flash y su SRAM-, no `sim`, y por eso esta aqui.
     virtual void aparca_en_wfe() = 0;
+    // Lo que hace `sim` sin firmware: aparcar, salvo que el chip tenga algo
+    // mejor que hacer en blanco (el MSP432E4 con ROM arranca su cargador
+    // serie, como un chip nuevo). Devuelve lo que se le dice al usuario.
+    virtual std::string sin_firmware() { aparca_en_wfe(); return "el nucleo se aparca en wfe"; }
 
     // --- 5. Trazas ----------------------------------------------------------
     virtual void set_ondas_reloj(bool on) = 0;
@@ -85,6 +105,10 @@ public:
     // dice si existe; encenderlo cuando no lo hay no es un error, es un no-op.
     virtual bool tiene_gdb_interno() const = 0;
     virtual void gdb_interno(bool activo, bool traza) = 0;
+    // La secuencia con la que un stub de GDB programa la Flash de este chip
+    // (T0). nullptr: la de omisión, la del STM32F405/407. La usa el stub de
+    // PINES, que `sim` construye por fuera del chip; el interno ya la tiene.
+    virtual programador_nv_if* programador() { return nullptr; }
 
     // --- 6. Lo que este modelo TODAVIA no hace ------------------------------
     //
@@ -96,6 +120,24 @@ public:
     // Es el mismo recurso que `Encapsulado::verificado`: preferimos un aviso
     // repetido a un alumno desarrollando contra algo que no esta.
     virtual std::vector<std::string> limitaciones() const { return {}; }
+
+    // --- 7. Lo que solo tienen algunos chips (T4) ---------------------------
+    //
+    // Opciones de montaje que no son de todos: la ROM del MSP432P4 (`rom`:
+    // "r1", "ninguna" o el fichero de un volcado) y su TLV (`tlv`: un
+    // fichero). Se aplican antes de cargar el firmware. Devuelve "" si se
+    // aplica, o por que no; un chip que no la tiene lo dice aqui.
+    virtual bool admite_opcion(const std::string& clave) const { (void)clave; return false; }
+    virtual std::string opcion(const std::string& clave, const std::string& valor) {
+        (void)valor;
+        return std::string("el ") + desc().nombre + " no tiene " + clave +
+               " que se pueda cambiar";
+    }
+    // Una linea que describe lo que se aplico, para imprimirla al montar.
+    virtual std::string describe_opcion(const std::string& clave) const {
+        (void)clave;
+        return "";
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -115,7 +157,7 @@ public:
     // nombre de instancia, rasgos de depuración, cableado de nodos compartidos
     // y el descriptor del chip.
     using Creador = std::function<mcu_if*(const char* nm, DebugCaps,
-                                          const Cableado&, const McuCaps&)>;
+                                          const Cableado&, const McuDesc&)>;
 
     static void registra(const std::string& familia, Creador c) {
         mapa()[familia] = std::move(c);
@@ -132,10 +174,10 @@ public:
     // Construye el chip que pide el descriptor, o devuelve nullptr si su
     // familia no está registrada. NUNCA construye otra cosa en su lugar: eso
     // sería montar un F407 donde el usuario escribió un F446.
-    static mcu_if* crea(const McuCaps& caps, const char* nm, DebugCaps dbg,
+    static mcu_if* crea(const McuDesc& d, const char* nm, DebugCaps dbg,
                         const Cableado& cab) {
-        const Creador* c = busca(caps.familia);
-        return c ? (*c)(nm, dbg, cab, caps) : nullptr;
+        const Creador* c = busca(d.familia);
+        return c ? (*c)(nm, dbg, cab, d) : nullptr;
     }
 
     static std::vector<std::string> familias() {
@@ -154,8 +196,9 @@ private:
 // Auto-registro, en el ámbito de fichero:
 //
 //   REGISTRA_MCU(STM32F4, [](const char* nm, DebugCaps d, const Cableado& c,
-//                            const McuCaps& caps) -> mcu_if* {
-//       return new AdaptadorStm32F4(nm, d, c, caps);
+//                            const McuDesc& desc) -> mcu_if* {
+//       return new AdaptadorStm32F4(nm, d, c,
+//                                   *static_cast<const McuCaps*>(desc.propio));
 //   });
 //
 // El argumento es el nombre de la FAMILIA, sin comillas.

@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MSP-EXP432P401R: la LaunchPad roja de Texas Instruments (fase T1 del MSP432)
+
+     Lo que lleva la placa aparte del chip [SLAU597F, §2 y los esquematicos
+     de la rev. 2.1, hojas 1 a 3]:
+
+         LED1  rojo, en P1.0, a masa por 470 ohm (R7), tras el jumper JP8
+         LED2  RGB (EVERLIGHT 19-337), un RGBLed de catodo comun: rojo en
+               P2.0 por 110 ohm, verde en P2.1 por 16 ohm y azul en P2.2 por
+               24 ohm, tras JP9, JP10 y JP11. Los tres en un encapsulado: la
+               luz se mezcla, y los tres a la vez se ven blancos. Son pines de
+               ALTA CORRIENTE: con P2DS a 1 dan unos 20 mA
+         S1    pulsador en P1.1, a MASA. La placa no lleva resistencia: el
+               nivel alto lo da el pull-up interno (P1REN = 1 con P1OUT = 1)
+         S2    pulsador en P1.4, igual
+         S3    RESET, en RSTN, con 47 kohm a 3V3 (R6)
+         Y1    cristal de 32 768 Hz en PJ.0/PJ.1 (LFXT)
+         Y2    cristal de 48 MHz en PJ.2/PJ.3 (HFXT)
+         USB   los 5 V del cable del XDS110, que salen a J3.21, J5 y J7
+         XDS   el XDS110-ET, la sonda de la placa, del lado de la sonda de
+               J101 (doc/analisis_xds110.md, X1): su LDO da los 3,3 V del
+               lado del objetivo, y --openocd o --cmsis-dap van por sus pines
+               TMS/TCK/RST. Con swo= lleva la traza de PJ.5 a un canal
+         J101  el bloque de aislamiento entre el XDS110 y el chip: diez
+               puentes, puestos de fabrica. Hacen lo que en la placa: sin
+               3V3 el chip no arranca, sin TMS o TCK OpenOCD no encuentra el
+               DAP, sin RST no hay SRST, sin RXD o TXD no hay backchannel y
+               sin 5V la placa no tiene sus 5 V
+         BCL   el puerto serie de vuelta del XDS110 (backchannel UART): la
+               eUSCI_A0 en P1.2/P1.3, por J101, hasta el PC por RFC 2217 en
+               el 3356 (T3). En Windows es el «XDS110 Class Application/User
+               UART»
+         J5    el conector del borde, 2x19: los pines que no van a la
+               BoosterPack (P7, P8, P9, P10 y el resto), 5V, 3V3 y GND
+         J6    3V3, GND y GND; J7, 5V, GND y GND
+
+     Se depura con OpenOCD por la sonda (--cmsis-dap o --openocd), o sin
+     ella: con el stub de GDB contra el DAP (--gdb-dap) o por los pines
+     (--gdb). La medida de EnergyTrace es de la fase X3: todavia no esta.
+
+     Los conectores BoosterPack, J1-J4, estan al final: por ellos se enchufa
+     la BOOSTXL-EDUMKII (placas/msp_exp432p401r_edumkii.xml). El dibujo,
+     msp_exp432p401r.svg, lleva cada pieza y cada pin con su id.
+
+         ./build/mcu-sim placas/msp_exp432p401r.xml --valida
+         ./build/mcu-sim placas/msp_exp432p401r.xml verif/fw/msp432p4/p4_demo/p4_demo.out --ms=600
+
+     SIN firmware la Flash queda en blanco y el codigo de arranque entra en el
+     BSL (T5, D4: el B1, o el de TI con --bsl), como en un chip nuevo. Se
+     programa por el backchannel a 9600 8E1, con BSL Scripter de TI (por un
+     redirector COM - RFC 2217) o con el de aqui:
+
+         ./build/mcu-sim placas/msp_exp432p401r.xml --sin-firmware
+         python3 verif/serie/bsl_p4.py rfc2217://localhost:3356 programa.txt
+-->
+<placa nombre="msp-exp432p401r">
+  <mcu tipo="MSP432P401R" id="u0"/>
+
+  <!-- Los LED, cada uno tras su jumper de aislamiento (JP8-JP11) -->
+  <componente tipo="Jumper" id="JP8" filas="2" columnas="1" puente="1 2">
+    <pin nombre="1" nodo="P1.0"/>
+  </componente>
+  <componente tipo="Jumper" id="JP9" filas="2" columnas="1" puente="1 2">
+    <pin nombre="1" nodo="P2.0"/>
+  </componente>
+  <componente tipo="Jumper" id="JP10" filas="2" columnas="1" puente="1 2">
+    <pin nombre="1" nodo="P2.1"/>
+  </componente>
+  <componente tipo="Jumper" id="JP11" filas="2" columnas="1" puente="1 2">
+    <pin nombre="1" nodo="P2.2"/>
+  </componente>
+  <componente tipo="Led" id="LED1" a_vss="si" vf="2.0" r="470">
+    <pin nombre="anodo" nodo="JP8.2"/>
+  </componente>
+  <!-- LED2, el RGB: un encapsulado con los tres, catodo comun a masa -->
+  <componente tipo="RGBLed" id="LED2" comun="catodo"
+              vf_r="2.0" vf_g="2.9" vf_b="2.9" r_r="110" r_g="16" r_b="24">
+    <pin nombre="r" nodo="JP9.2"/>
+    <pin nombre="g" nodo="JP10.2"/>
+    <pin nombre="b" nodo="JP11.2"/>
+  </componente>
+
+  <componente tipo="Button" id="S1" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="P1.1"/>
+  </componente>
+  <componente tipo="Button" id="S2" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="P1.4"/>
+  </componente>
+
+  <!-- RESET: RSTN tiene tres que tiran de el, el pull-up de la patilla, el
+       de la placa (R6) y el boton, y por eso bus="si". -->
+  <nodo id="RSTN" bus="si"/>
+  <componente tipo="Button" id="S3" r_cerrado="10" rebote="no">
+    <pin nombre="pin" nodo="RSTN"/>
+  </componente>
+  <componente tipo="Rpull" id="R6" v="3.3" r="47000" visible="no">
+    <pin nombre="a" nodo="RSTN"/>
+  </componente>
+
+  <!-- Los 5 V del USB del XDS110: pasan por J101 (5V) a la placa -->
+  <nodo id="5V" bus="si"/>
+  <nodo id="DVSS" bus="si"/>
+  <componente tipo="Fuente" id="USB" v="5" limite_ma="500">
+    <pin nombre="pin" nodo="J101.4"/>
+  </componente>
+
+  <!-- J101, el bloque de aislamiento [SLAU597F, §2.3.1, tabla 1, y hoja 3]:
+       los impares son del chip y los pares del XDS110, enfrentados. -->
+  <componente tipo="Jumper" id="J101" filas="2" columnas="10"
+              puente="1 2, 3 4, 5 6, 7 8, 9 10, 11 12, 13 14, 15 16, 17 18, 19 20">
+    <pin nombre="1" nodo="DVSS"/>       <!-- GND -->
+    <pin nombre="3" nodo="5V"/>         <!-- 5V -->
+    <pin nombre="5" nodo="DVCC"/>       <!-- 3V3 -->
+    <pin nombre="7" nodo="P1.2"/>       <!-- RXD << : UCA0RXD -->
+    <pin nombre="9" nodo="P1.3"/>       <!-- TXD >> : UCA0TXD -->
+    <pin nombre="11" nodo="RSTN"/>      <!-- RST -->
+    <pin nombre="13" nodo="SWDIOTMS"/>  <!-- TMS_SWDIO -->
+    <pin nombre="15" nodo="SWCLKTCK"/>  <!-- TCK_SWCLK -->
+    <pin nombre="17" nodo="PJ.5"/>      <!-- TDO_SWO -->
+    <pin nombre="19" nodo="PJ.4"/>      <!-- TDI -->
+  </componente>
+
+  <!-- El XDS110-ET, del lado de la sonda de J101 [SLAU597F §2.3]: el LDO de
+       3,3 V, SWD, RST y SWO. Con swo="tcp:3358" (o --swo tcp:3358) la traza
+       de PJ.5 sale por TCP -->
+  <componente tipo="Xds110" id="XDS" et="si">
+    <pin nombre="3v3"   nodo="J101.6"/>
+    <pin nombre="rst"   nodo="J101.12"/>
+    <pin nombre="swdio" nodo="J101.14"/>
+    <pin nombre="swclk" nodo="J101.16"/>
+    <pin nombre="swo"   nodo="J101.18"/>
+  </componente>
+
+  <!-- El backchannel del XDS110, del lado del XDS110 de J101 [SLAU597,
+       esquematico: P1.2_BCLUART_RXD y P1.3_BCLUART_TXD]. Los nombres de las
+       patillas son los del adaptador: su rx lee el TX del MCU. Los baudios
+       los pone el terminal, como en la placa: el XDS110 sigue lo que pida el
+       PC. -->
+  <componente tipo="PuenteSerie" id="BCL" host="rfc2217:3356"
+              baudios="host" formato="8N1" muestra="si">
+    <pin nombre="rx" nodo="J101.10"/>   <!-- XDSET_RXD, de UCA0TXD -->
+    <pin nombre="tx" nodo="J101.8"/>    <!-- XDSET_TXD, a UCA0RXD -->
+  </componente>
+
+  <componente tipo="Crystal" id="Y1" vdd="3.3">
+    <pin nombre="osc_in" nodo="PJ.0"/>
+  </componente>
+  <componente tipo="Crystal" id="Y2" vdd="3.3">
+    <pin nombre="osc_in" nodo="PJ.3"/>
+  </componente>
+
+  <!-- J6 (3V3) y J7 (5V), las dos tiras de alimentacion -->
+  <componente tipo="Conector" id="J6" filas="3" columnas="1" nombres="3V3 GND1 GND2">
+    <pin nombre="3V3" nodo="DVCC"/>
+    <pin nombre="GND1" nodo="DVSS"/>
+    <pin nombre="GND2" nodo="DVSS"/>
+  </componente>
+  <componente tipo="Conector" id="J7" filas="3" columnas="1" nombres="5V GND1 GND2">
+    <pin nombre="5V" nodo="5V"/>
+    <pin nombre="GND1" nodo="DVSS"/>
+    <pin nombre="GND2" nodo="DVSS"/>
+  </componente>
+
+  <!-- J5, el conector del borde para los pines que no salen a la
+       BoosterPack [hoja 3, «Edge Connector for Unused Pin Access»]: 2x19, los
+       impares en una fila y los pares en la otra -->
+  <componente tipo="Conector" id="J5" filas="2" columnas="19">
+    <pin nombre="1" nodo="P8.6"/>   <pin nombre="2" nodo="P8.5"/>
+    <pin nombre="3" nodo="P8.7"/>   <pin nombre="4" nodo="P9.0"/>
+    <pin nombre="5" nodo="P9.1"/>   <pin nombre="6" nodo="P8.4"/>
+    <pin nombre="7" nodo="P8.3"/>   <pin nombre="8" nodo="P8.2"/>
+    <pin nombre="9" nodo="P5.3"/>   <pin nombre="10" nodo="P9.2"/>
+    <pin nombre="11" nodo="P9.3"/>  <pin nombre="12" nodo="P6.2"/>
+    <pin nombre="13" nodo="P6.3"/>  <pin nombre="14" nodo="P7.3"/>
+    <pin nombre="15" nodo="P7.2"/>  <pin nombre="16" nodo="P7.1"/>
+    <pin nombre="17" nodo="P7.0"/>  <pin nombre="18" nodo="P9.4"/>
+    <pin nombre="19" nodo="P9.5"/>  <pin nombre="20" nodo="P9.6"/>
+    <pin nombre="21" nodo="P9.7"/>  <pin nombre="22" nodo="P8.0"/>
+    <pin nombre="23" nodo="P7.5"/>  <pin nombre="24" nodo="P7.4"/>
+    <pin nombre="25" nodo="P7.7"/>  <pin nombre="26" nodo="P7.6"/>
+    <pin nombre="27" nodo="P10.1"/> <pin nombre="28" nodo="P10.0"/>
+    <pin nombre="29" nodo="P10.3"/> <pin nombre="30" nodo="P10.2"/>
+    <pin nombre="31" nodo="P10.5"/> <pin nombre="32" nodo="P10.4"/>
+    <pin nombre="33" nodo="5V"/>    <pin nombre="34" nodo="5V"/>
+    <pin nombre="35" nodo="DVCC"/>  <pin nombre="36" nodo="DVCC"/>
+    <pin nombre="37" nodo="DVSS"/>  <pin nombre="38" nodo="DVSS"/>
+  </componente>
+
+  <!-- ===================================================================
+       Los conectores BOOSTERPACK [SLAU597, «BoosterPack Pinout»; segunda
+       fuente: los A0-A15 de pins_energia.h de Energia, que dan el mismo
+       pin]. Numerados como en la serigrafia: J1 1-10, J2 11-20, J3 21-30 y
+       J4 31-40. El 3V3 es DVCC, las masas DVSS y el 5V, el del USB.
+       =================================================================== -->
+  <componente tipo="Conector" id="J1" filas="1" columnas="10">
+    <pin nombre="1" nodo="DVCC"/>   <!-- 3V3 -->
+    <pin nombre="2" nodo="P6.0"/>   <!-- A15 -->
+    <pin nombre="3" nodo="P3.2"/>   <!-- UCA2RXD -->
+    <pin nombre="4" nodo="P3.3"/>   <!-- UCA2TXD -->
+    <pin nombre="5" nodo="P4.1"/>
+    <pin nombre="6" nodo="P4.3"/>   <!-- A10 -->
+    <pin nombre="7" nodo="P1.5"/>   <!-- UCB0CLK -->
+    <pin nombre="8" nodo="P4.6"/>
+    <pin nombre="9" nodo="P6.5"/>   <!-- UCB1SCL -->
+    <pin nombre="10" nodo="P6.4"/>  <!-- UCB1SDA -->
+  </componente>
+  <componente tipo="Conector" id="J2" filas="1" columnas="10">
+    <pin nombre="1" nodo="P3.6"/>   <!-- 11 -->
+    <pin nombre="2" nodo="P5.2"/>   <!-- 12, A3 -->
+    <pin nombre="3" nodo="P5.0"/>   <!-- 13, A5 -->
+    <pin nombre="4" nodo="P1.7"/>   <!-- 14, UCB0SOMI -->
+    <pin nombre="5" nodo="P1.6"/>   <!-- 15, UCB0SIMO -->
+    <pin nombre="6" nodo="RSTN"/>   <!-- 16, RST -->
+    <pin nombre="7" nodo="P5.7"/>   <!-- 17 -->
+    <pin nombre="8" nodo="P3.0"/>   <!-- 18 -->
+    <pin nombre="9" nodo="P2.5"/>   <!-- 19, TA0.2 -->
+    <pin nombre="10" nodo="DVSS"/>  <!-- 20, GND -->
+  </componente>
+  <componente tipo="Conector" id="J3" filas="1" columnas="10">
+    <pin nombre="1" nodo="5V"/>     <!-- 21, 5V -->
+    <pin nombre="2" nodo="DVSS"/>   <!-- 22, GND -->
+    <pin nombre="3" nodo="P6.1"/>   <!-- 23, A14 -->
+    <pin nombre="4" nodo="P4.0"/>   <!-- 24, A13 -->
+    <pin nombre="5" nodo="P4.2"/>   <!-- 25, A11 -->
+    <pin nombre="6" nodo="P4.4"/>   <!-- 26, A9 -->
+    <pin nombre="7" nodo="P4.5"/>   <!-- 27, A8 -->
+    <pin nombre="8" nodo="P4.7"/>   <!-- 28, A6 -->
+    <pin nombre="9" nodo="P5.4"/>   <!-- 29, A1 -->
+    <pin nombre="10" nodo="P5.5"/>  <!-- 30, A0 -->
+  </componente>
+  <componente tipo="Conector" id="J4" filas="1" columnas="10">
+    <pin nombre="1" nodo="P3.7"/>   <!-- 31 -->
+    <pin nombre="2" nodo="P3.5"/>   <!-- 32 -->
+    <pin nombre="3" nodo="P5.1"/>   <!-- 33 -->
+    <pin nombre="4" nodo="P2.3"/>   <!-- 34 -->
+    <pin nombre="5" nodo="P6.7"/>   <!-- 35 -->
+    <pin nombre="6" nodo="P6.6"/>   <!-- 36 -->
+    <pin nombre="7" nodo="P5.6"/>   <!-- 37 -->
+    <pin nombre="8" nodo="P2.4"/>   <!-- 38, TA0.1 -->
+    <pin nombre="9" nodo="P2.6"/>   <!-- 39, TA0.3 -->
+    <pin nombre="10" nodo="P2.7"/>  <!-- 40, TA0.4 -->
+  </componente>
+</placa>

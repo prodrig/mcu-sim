@@ -50,6 +50,20 @@ redactar esta revisión, no solo leído en un informe.
   herramienta externa. Plan de nueve fases en `doc/analisis_puente_serie.md`,
   **las nueve hechas y P-14 cerrado** el 30-09-2026, con la matriz de pruebas
   manuales a medias, aceptada así.
+- **Y un fabricante nuevo** (**P-16**): los MSP432 de Texas Instruments, con
+  el mismo núcleo Cortex-M4F. Plan de nueve fases en
+  `doc/analisis_msp432.md`; **hechas T0 a T4**: la generalización que quita
+  lo que era de ST dentro de lo que es de ARM, sin mover un picosegundo; el
+  MSP432P401R con su banco, `make testp4`; la descarga y la depuración; los
+  periféricos de aula con la BOOSTXL-EDUMKII; la ROM de DriverLib, con la
+  que los ejemplos del SDK que usan `MAP_` corren sin tocarlos; y **T5**:
+  OpenOCD de verdad programa y depura el modelo por sus pines, el MSP432 y
+  el F407; y el BSL del P4, con uno propio y probado contra el de TI y
+  contra BSL Scripter. **Y T6 (P-17)**: la segunda familia, el
+  MSP432E401Y, con su placa, su ROM y su cargador serie, `make teste4`;
+  y **T7**: su conectividad y su criptografía —CCM, dos C_CAN, EMAC con
+  PHY interno y lwIP por el puente Ethernet, el cargador por Ethernet de la
+  ROM y el USB como CDC-ACM por el puente USB de clase—.
 - **Cincuenta y una funciones "bits sin máquina"**: registros que se guardan, se
   enmascaran y se leen correctamente, pero cuya lógica no se ejecuta. Casi todas
   corresponden a caminos que ningún firmware corriente usa, y casi todas están
@@ -246,6 +260,8 @@ aquí:
 | x | ~~**El firmware de cada MCU desde la línea de órdenes, o ninguno**~~ **HECHO**, pedido por el uso —lanzar desde la ventana un sistema sin el binario que dice su XML, o con otro por chip—. **`--firmware ID=FICHERO`** (repetible, con o sin igual) da a ese chip el suyo y manda sobre su `firmware=`, también con varios MCUs; **`--sin-firmware=ID`** lo deja sin ninguno —el núcleo se aparca en `wfe`— y **`--sin-firmware`** a secas, a todos, con un `--firmware` por id que manda sobre eso. Errores: un id que no está (con los que hay), el mismo chip dos veces, sin fichero, junto al firmware posicional, y en una placa sin MCU. **`mcu-sim placa.xml --mcus`** lista los chips en XML —id, tipo y firmware del XML, con `--mcu` encima—: con eso el diálogo de lanzamiento de `mcu-sim-gui` pone una fila de firmware por chip con su casilla «sin firmware» (su plan §42). Las tres en `--argumentos` y en `--help`. `make gui-argumentos` A4 (11 → **17**). Ningún invariante se mueve | — |
 | y | ~~**«Suspend operation timeout» en STM32CubeIDE, y un paso a paso muy lento**~~ **HECHO**, pedido por el uso —un proyecto de prácticas cuyo `main` es un bucle sobre `HAL_GetTick()`—. (1) **El stub no borraba `DFSR`** —sus bits se quedan hasta que se escribe un 1—, así que el BKPT del punto de ruptura de `main` que pone el IDE se quedaba para toda la sesión y cada parada salía como `swbreak`; y **al Ctrl-C contestaba `T05`**, no `T02`. GDB tomaba la parada por un punto de ruptura ya quitado y reanudaba sin avisar al IDE. Ahora `GdbRsp` borra `DFSR` al reanudar y al dar un paso (`borrar_causa`) y contesta `T02` al Ctrl-C —o `T05` si el objetivo se había parado solo en ese momento—. Medido con GDB por MI: la pausa, de nunca a 0,05 s. (2) **En Windows, `timeBeginPeriod(1)`** con `--tiempo-real` o con la ventana: sin él, cada rodaja de 1 ms dormía hasta 15,6 ms y cada paquete de GDB los esperaba (`-lwinmm`). (3) Un *step over* en `cfEvaluate();` dentro de `while (1)` no acaba nunca —la llamada y el salto de vuelta son de la misma línea, y GDB sigue hasta salir de ella—: no es el simulador, y pasa igual con una placa. `cubeide/README.md`, «El quinto». `make test407` T96 (2146 → **2149**); el `resto` no se mueve | — |
 | z | ~~**Conectores acodados y derechos, para los hilos de la ventana**~~ **HECHO**, pedido por el uso. **`acodado="si"`** en un `Conector` (o un `Jumper`): los pines salen de lado, por el borde de la placa; por omisión, `no`, hacia arriba. Se comprueba (`si` o `no`), va en el `<conector>` de `T_PLACA` y la simulación no lo mira. `mcu-sim-gui` lleva un hilo al borde de un pin acodado y al centro de uno derecho, con un círculo (su plan §44). Acodados: el `P1` del KY-040, la pantalla TFT, el servo y el FT232RL. `make gui-sistema` C18 (144 → **147**). Ningún invariante se mueve | — |
+| aa | ~~**Un LED RGB: tres colores en un encapsulado, que se mezclan**~~ **HECHO**, pedido por el uso. (1) **`RGBLed`** (`parts/ext_parts.h`): tres `Led` hijos —rojo, verde, azul—, cada uno con su `vf_*` y su `r_*`, con la patilla común por dentro (`comun="catodo"` a masa, `"anodo"` a `vdd`) o a la vista (`<pin nombre="comun">`); `ExtPartBase::adopta` le pasa los terminales de los hijos y `retira` los saca del inventario, que la pieza es una. (2) **`color="#rrggbb"` en el catálogo** (`Observable::color`): un 0/1 y una corriente del mismo color son un canal; la ventana (mcu-sim-gui) suma los encendidos con su brillo y los lleva al tope —los tres, blanco—, pinta de su color el ● del panel y da al piloto generado un encapsulado claro. Sin cambiar la versión del protocolo: una ventana anterior pinta `encendido`, el primero. (3) **Las placas**: revisadas todas; solo dos llevan un LED RGB de verdad, la LED2 de la MSP-EXP432P401R y el D1 de la BOOSTXL-EDUMKII (este, con los transistores de su montaje como carga de cada canal), y su dibujo es ahora un único elemento con la cúpula clara. Los LED de colores sueltos (Discovery, Nucleo, MSP-EXP432E401Y) siguen siendo `Led`. (4) El informe del final dice «LED RGB LED2: cian». Ningún invariante se mueve | — |
+| ab | ~~**La sonda XDS110 de las LaunchPad MSP432, y una sonda CMSIS-DAP por TCP**~~ **HECHO**, X1 y X2 de `doc/analisis_xds110.md`. (1) **`Xds110`** (`parts/xds110.h`), el lado de la sonda de J101 en las dos LaunchPad: su LDO alimenta el chip por el puente 3V3 (`mcu_if::alimentacion_externa`: el adaptador deja DVCC/VDD a la placa; sin el puente, el chip no arranca), `--openocd` y `--cmsis-dap` van por sus pines TMS/TCK/RST, y la traza SWO -PJ.5 en el P401R, que gana TDO/SWO como función primaria; PC3 en el E401Y- sale con `swo=`, `--swo` y `--swo-bitrate` a memoria, TCP o RFC 2217, como texto del ITM o en crudo; `--espera-terminal` también espera a su cliente. La corriente del LDO se mide sin el umbral de 0,1 mV del nodo (`AnalogNet::corriente_exacta`). (2) **`SondaCmsisDap`** (`verif/sonda_cmsis_dap.h`, `--cmsis-dap` o `depuracion="cmsis-dap"`, puerto 4441), para el `cmsis-dap tcp` de OpenOCD en cualquier chip: programa el P401R en 1,0 s (4-6 s con `remote_bitbang`) y el F407 en 1,6 s (16 s); los WAIT se reintentan con espera, o el borrado de un sector del F407 no cabe en los 64 reintentos de OpenOCD. (3) La validación eléctrica reconoce un pad por su nodo, no solo por su nombre. (4) `make xds110` (15) y `make cmsis-dap` (25), en el CI de Linux; firmwares `p4_swo` y `e4_swo`; `.cfg` de CMSIS-DAP y configuraciones de CCS 20 en `ide/msp432/`. Ningún invariante se mueve | — |
 
 **El riesgo que hay que vigilar, y tiene su mitigación escrita:** los dos
 `SC_THREAD` de la frontera se construyen siempre —la elaboración de SystemC es
@@ -421,6 +437,349 @@ que hable TCP, como CoolTerm o PuTTY en modo *Raw*.
 de verdad entre placas; un sistema dentro de otro; cambiar parámetros de piezas
 desde el montaje; y dibujar el sistema en la ventana, para lo que harán falta
 además el tamaño de cada placa y dónde va cada conector.
+### P-16 — Los MSP432 de Texas Instruments: P4 y E4
+
+**Analizado en `doc/analisis_msp432.md`, con un plan de nueve fases (T0-T8).
+HECHAS T0 y T1 el 2026-10-14**, en la rama `msp432`:
+
+* **T0, la generalización neutral.** Ningún invariante se movió ni un
+  picosegundo. El núcleo sabe quién lo integró (`IntegracionNucleo`: el alias
+  de 0x0 y la ventana del PPB del fabricante); los nombres de pin los
+  interpreta el chip (`pins/nomenclatura.h`: `P1.0` es PB0 en un STM32 y el
+  primer pin de un MSP432, y T125 no se toca); `mcu_if` ya no exige un
+  `McuCaps` (`soc/mcu_desc.h`, catálogo común); el `load` de GDB pide la
+  secuencia de Flash al chip (`programador_nv_if`); y el cargador lee ELF
+  (el `.out` de CCS) y TI-TXT.
+* **T1, el MSP432P401R.** El mismo `CortexM4F` con 41 IRQ y 3 bits de
+  prioridad, sin alias y con RSTCTL/SYSCTL en el PPB; Flash principal y de
+  información con un TLV sintético; SRAM con su alias de código; CS (DCO,
+  REFO, VLO, MODOSC, SYSOSC y los dos cristales de la placa), PCM, FLCTL de
+  lectura con estados de espera, WDT_A encendido de fábrica, los cuatro tipos
+  de reset, DIO con P1..P10/PJ sobre pads eléctricos e interrupciones en
+  P1..P6, PMAP, las patillas SWD dedicadas, y un vigilante que avisa si MCLK
+  pasa del tope del VCORE o de los estados de espera. `placas/msp_exp432p401r.xml`.
+  El banco es `make testp4`: **96 comprobaciones, `254192855661 ps`**, con
+  `asanp4` limpio. Una placa con un P4 y un F407 se monta y corre.
+
+**HECHA T2 el 2026-10-15**, en la misma rama:
+
+* **El FLCTL entero.** Protección por sector (`BANKx_MAIN/INFO_WEPROT`, todo
+  protegido al salir del reset y el TLV imposible de desproteger);
+  programación inmediata, de palabra completa (la línea de 128 bits) y en
+  ráfaga de hasta cuatro líneas, con `BURST_STATUS` que pasa por 2..5 y acaba
+  en 7; borrado de sector y masivo; `ADDR_ERR`, `PRG_ERR`, `AVPST` con
+  `VER_PST`/`AUTO_PST`; la IRQ al NVIC; y el **read-while-write**: leer el
+  banco que se está programando o borrando espera, leer el otro no.
+* **`ProgramadorP4`**, el `programador_nv_if` del P4: lo que hace el algoritmo
+  de Flash de TI para OpenOCD, por el DAP. El `load` de GDB borra y programa;
+  un `load` que pise el TLV falla diciéndolo.
+* **`SYSCTL_PERIHALT_CTL`**: con `HALT_WDT` (el valor de reset) el perro se para
+  con el núcleo; sin él, resetea aunque el depurador lo tenga parado.
+* **Depuración por los dos caminos** (`depuracion="dap"` y `"pines"`): la misma
+  sesión de GDB —`load` sobre CoreMark, lectura de vuelta, `monitor reset
+  halt`, watchpoint, punto de ruptura y paso— da los mismos resultados.
+* **De paso, un arreglo del stub común**: `monitor reset halt` soltaba el
+  núcleo tras el *vector catch* (`enganchar()` escribía `DHCSR` sin `C_HALT`)
+  y el PC aparecía unas instrucciones más allá; en el F407 paraba en
+  `0x080001DE` en vez de en `Reset_Handler`. Ninguna suite usaba
+  `monitor reset`: ningún invariante se mueve por esto.
+* **Configuraciones de IDE** en `ide/msp432/`: CCS (`.launch` de CDT) y VS Code
+  (Cortex-Debug y `cppdbg`). Probadas con `gdb-multiarch` por consola y por
+  MI, **no dentro de los IDE**.
+* El banco: `make testp4` sube a **148 comprobaciones** (P18 el FLCTL desde el
+  bus, P19 un firmware que reprograma su Flash —modo 9 de `p4_demo`—, P20 los
+  símbolos del ELF, P21 GDB por G2 y G1), y su invariante pasa a la columna
+  `resto`: **`331699188968 ps`**. `asanp4` limpio.
+
+**HECHA T3 el 2026-10-15**, en nueve entregas, cada una con su commit y su
+grupo de comprobaciones en `make testp4` (P22-P61: 148 -> 356, resto
+`4941243771818 ps`):
+
+1. **Las funciones de periférico en los pines** (SEL1:SEL0, las que gobierna
+   el módulo, las de PxDIR y las analógicas; el PMAP con su tabla de reset)
+   y **la eUSCI_A en UART** a nivel de bit, con el backchannel de la
+   LaunchPad como `PuenteSerie`.
+2. **Timer_A** (los tres modos, los ocho de salida, captura, TAxCLK, ID/IDEX)
+   y **Timer32**; un servo SG90 en TA0.2.
+3. **La eUSCI_B en I2C** (maestro y esclavo, con estiramiento, START
+   repetido, TBCNT) **y SPI** (A y B, los cuatro modos), contra una 24Cxx y la
+   ST7735.
+4. **ADC14 y REF_A**: resoluciones, formato con signo, diferencial,
+   secuencias, MSC, disparo por Timer_A, ventana; el sensor de temperatura
+   con la calibración del TLV.
+5. **La uDMA** (PL230 con el multiplexor de TI): básico, automático y
+   ping-pong, con la eUSCI y el ADC14.
+6. **CRC32, AES256, RTC_C y COMP_E**.
+7. **Los modos de bajo consumo** (LPM0, LPM3, LPM4, LPM3.5, LPM4.5, con su
+   salida por POR y LOCKLPM5) y **el consumo por DVCC**.
+8. **La BOOSTXL-EDUMKII**: cuatro piezas nuevas (`FuenteAjustable`,
+   `Zumbador`, `Opt3001`, `Tmp006`), los conectores BoosterPack de la
+   LaunchPad, la placa y el sistema `placas/msp_exp432p401r_edumkii.xml` con
+   su firmware; `make p4-edumkii`, en el CI.
+9. **Los ejemplos de DriverLib** (uart_pc_echo, timer_a_pwm,
+   adc14_single_conversion, dma) con DriverLib de TI compilada de sus
+   fuentes (`verif/fw/msp432p4/sdk`).
+
+Por el camino, siete fallos del modelo que solo se ven usándolo: escribir
+CTL0 con la eUSCI en marcha soltaba SDA a medio bit; la esclava I2C soltaba
+SCL a la vez que cambiaba SDA (el maestro veía un STOP); la esclava no
+contaba el STOP tras un NACK; el ADC14, el RTC_C y el COMP_E no volvían a
+subir la interrupción con otro flag pendiente; el Timer_A giraba sin avanzar
+el tiempo con el tic redondeado a ps (12 MHz); el Timer32 truncaba a 16 bits
+un LOAD escrito parado; y la uDMA no entendía el fin de búfer que escribe
+DriverLib (el último byte). El último lo encontró DriverLib: es para lo que
+está.
+
+**HECHA T4 el 2026-10-15**, en la misma rama (P62-P67: 356 -> 380, resto
+`18893170139423 ps`):
+
+* **La ROM sustituta R1** (`verif/fw/msp432p4/rom_r1`): DriverLib entera,
+  compilada con gcc, con `ROM_APITABLE` en 0x0200_0800 y sus 28 tablas
+  **generadas** de `rom.h` (`gen_tablas.py`) y **verificadas** por otro camino
+  (`verifica_tablas.py`: el preprocesador expande cada `ROM_xxx` y la casilla
+  tiene que llevar a la función de ese nombre). Va dentro del simulador
+  (`soc/msp432p4/rom_r1.inc`), con su huella.
+* **`--rom` y `--tlv`** en `sim` y como atributos `rom=`/`tlv=` del `<mcu>`:
+  `r1` (por omisión), `ninguna` (R3, lo de T1-T3), o la ROM de TI de un
+  fichero (R2: un volcado de 32 KB o el ELF de CCS); y el TLV de una placa
+  (4 KB de 0x0020_1000, recorrido por etiquetas como `SysCtl_getTLVInfo`), o
+  `sintetico`. El DCO del modelo sigue la calibración del TLV cargado.
+* **El cierre**: cuatro ejemplos del SDK **sin modificar** que usan `MAP_`
+  (`verif/fw/msp432p4/sdk_ejemplos`: SysTick, `CS_setDCOFrequency`, Timer32
+  con S1 y el eco UART a 9600), la demo blinky de FreeRTOS para la LaunchPad
+  con *tickless idle* (`verif/fw/msp432p4/freertos_blinky`, sin modificar,
+  núcleo V11.3.1), y la comparación con la ROM de TI fuera de la suite, porque
+  esa imagen no se versiona: `make p4-rom-ti ROM_TI=...` (las cifras, en
+  `doc/analisis_msp432.md`).
+* **Un fallo del modelo**, de la eUSCI en UART: si el emisor va exactamente a
+  la misma velocidad (9600 con BRF = 2 y BRS = 0 contra el `PuenteSerie`), el
+  arranque del carácter siguiente baja en el mismo instante en que el
+  receptor acaba la parada, y no lo veía: se enganchaba al primer flanco de
+  bajada del dato. Ahora, si la parada fue buena y la línea ya está baja,
+  ese es el arranque, contado desde su flanco. Ningún grupo anterior lo
+  pisaba: P0-P61 no se mueven.
+
+**HECHA T5 el 2026-10-17**, en la misma rama; el BSL (D4), el 2026-10-18:
+
+* **La sonda de OpenOCD** (`verif/sonda_openocd.h`): el protocolo
+  `remote_bitbang` en SWCLK, SWDIO y NRST, como un adaptador que OpenOCD
+  maneja bit a bit. En `sim`, `--openocd` (puerto 3335, porque OpenOCD abre
+  el 3333 para su GDB) o `depuracion="openocd"` en el `<mcu>`. Sirve igual al
+  STM32.
+* **El cierre**, en `make openocd` (`verif/openocd/programa.py`, 12
+  comprobaciones, en el CI): `program ... verify reset` con
+  `target/ti/msp432.cfg` y con `target/stm32f4x.cfg` **sin tocarlos**, y el
+  firmware nuevo arranca; GDB por OpenOCD ve las tareas de FreeRTOS (G3); y
+  la sonda dice que es SWD si se le habla en JTAG. Hace falta un OpenOCD de
+  git (`ci/construye_openocd.sh`): sin él la prueba se omite diciéndolo.
+* **Seis fallos del modelo**, todos del núcleo y el DAP compartidos, que solo
+  se ven con un depurador que no es nuestro:
+  1. la secuencia JTAG→SWD (`0xE79E`) se reconocía en cualquier punto del
+     flujo de bits: un dato que la llevara (`0xFF3CF7FF`) reiniciaba el SWD a
+     media escritura y la palabra se perdía con ACK OK. Ahora solo vale justo
+     detrás de un reset de línea, como dice ADIv5;
+  2. el DAP exigía reposo entre dos paquetes; OpenOCD no lo deja;
+  3. el AHB-AP solo hacía palabras: faltaban los accesos de byte y media
+     palabra (CSW.Size) y BD0-BD3;
+  4. TAR dejaba de avanzar en la frontera de 1 KiB; en el AHB-AP del Cortex-M
+     da la vuelta en la de 4 KiB, que es lo que supone OpenOCD;
+  5. un reset local no sacaba al núcleo de la parada: `program ... reset`
+     dejaba el firmware nuevo parado en `Reset_Handler`, porque OpenOCD suelta
+     el núcleo sobre el BKPT del último algoritmo y resetea. Ahora el reset
+     borra C_HALT y solo VC_CORERESET vuelve a parar (es por lo que los
+     depuradores necesitan la captura de vector);
+  6. el núcleo comprobaba la parada antes de `sync()` y esperaba después: si
+     en ese avance se levantaba -tras un SYSRESETREQ, en el F407-, no se
+     enteraba nunca.
+* **Dos cosas que faltaban**: la lectura en ráfaga del FLCTL (RDBRST), con la
+  que DriverLib verifica cada borrado y cada programación; y la firma
+  electrónica del F407 (UID y F_SIZE), que OpenOCD lee para contar sectores.
+* Ningún invariante se mueve: los grupos de las suites no pisaban nada de
+  esto. P21 de `testp4` cambia una comprobación de sitio (el reset del perro
+  con el núcleo parado ahora lo pone en marcha), sin cambiar la cuenta.
+
+**HECHO EL BSL (D4) el 2026-10-18**, con el paquete MSP432BSL de TI
+(`MSP432BSL_1_01_00_00`: el código del BSL a medida y su imagen) y BSL
+Scripter 3.4 (código y ejecutables) en `doc/refs/`, sin versionar:
+
+* **El código de arranque de TI, de alto nivel** (`soc/msp432p4/bsl_p4.h`):
+  con la palabra de 0x4 en blanco, el núcleo sale del reset en la función de
+  entrada del BSL (la palabra de 0x0020_2000) con r0 = 0xFC48FFFF, por un
+  gancho nuevo del núcleo, `Cpu::arranque_fab` (vacío en los STM32). El TLV
+  sintético lleva ya la configuración del BSL (etiqueta 15: UART en la
+  eUSCI_A0 por P1.2/P1.3, SPI en la B0, I2C en la B1).
+* **Tres BSL, como las ROM**: `--bsl b1` (por omisión), `ninguno` o un
+  fichero. **B1** es propio (`verif/fw/msp432p4/bsl_b1`, AGPLv3, escrito
+  desde la descripción del protocolo): UART a 9600-115200 8E1 con los
+  baudios medidos de la sincronía, contraseña, borrado masivo y de sector,
+  escritura en la Flash y la SRAM, CRC, lectura, versión, LOAD_PC,
+  REBOOT_RESET y CHANGE_BAUD_RATE; duerme en WFI entre byte y byte. **B2**
+  es el de TI (`BSL432_MSP432P401.txt`), que no se versiona: su «TI Text
+  File License» solo permite usarlo con dispositivos de TI.
+* **Probado contra lo de TI**: el BSL de TI corre en el modelo
+  (`TESTP4_SOLO=bsl_ti P4_BSL_TI=...`, 15 comprobaciones: la misma sesión que
+  P68); y BSL Scripter de TI, sin modificar, programa el B1 por un pty de
+  socat con su guion de ejemplo (`script_P4xx_uart.txt`: sincronía,
+  contraseña, borrado, Blink_LED, versión, lectura de 16 KB y reboot), y lo
+  leído es lo escrito (`BSL_SCRIPTER=... make bsl-p4`). Su modo E4xx UART
+  programa también el E4 por el cargador de la R1 (P-17 l).
+* **Dos fallos del modelo que solo destapó el BSL de TI**: (1) en el núcleo,
+  un `LDMIA.W SP!, {..., PC}` -o `LDR PC, [SP], #4`- que cargaba un
+  EXC_RETURN escribía la base DESPUÉS del retorno de excepción y pisaba el
+  desapilado: la pila del hilo quedaba 32 bytes más abajo en cada
+  interrupción, y de ahí un HardFault. Ninguna suite lo pisaba (ningún
+  invariante se mueve); (2) la eUSCI_B en I2C esclavo salía de UCSWRST con
+  TXIFG0, y el BSL de TI, que configura las tres interfaces y se queda con
+  la primera que pide algo, elegía el I2C.
+* `testp4` suma P68 y P69: **406 comprobaciones, `resto`
+  `22456139139423 ps`**; P0-P67 no cambian. Y `make bsl-p4`, en el CI.
+
+**Lo que queda**, con su fase:
+T8 (el resto de la familia; T6 y T7, el MSP432E401Y y su conectividad, están
+hechas y lo suyo va en **P-17**). CAPTIO y PSS siguen declarados. Y lo que T1-T5 dejan dicho, con la
+letra con la que lo cita el código:
+
+| | Qué | Por qué |
+| :--- | :--- | :--- |
+| **a** | ~~Programar y borrar la Flash por el FLCTL; el `load` de GDB~~ | **Resuelto en T2.** Sin `PRG_CTLSTAT.ENABLE` una escritura sigue ignorándose y avisando una vez, como en el chip |
+| **b** | ~~La ROM de DriverLib en 0x0200_0000~~ | **Resuelto en T4**: la R1 por omisión. Lo que queda de ella, en **y** |
+| **c** | Estados de espera de la Flash por VCORE | **Discrepancia resuelta**: el `system_msp432p401r.c` del port de mbed dice «BANK0 VCORE1 max is 16 MHz» por estado; SLAA668A (2017, posterior) da 24/48 MHz con 0/1 en VCORE1. Se sigue a SLAA668A |
+| **d** | HWREV = 0x43 ('C') en el TLV | [1F] Sin segunda fuente a mano |
+| **e** | Valores de reset del FLCTL (POWER_STAT, WEPROT) y los búferes de lectura | [1F] TRM. Los búferes se modelan como una línea de 128 bits por banco y tipo, sin el *prefetch* del silicio |
+| **f** | El TLV es SINTÉTICO | Estructura de `TLV_Type` [H] y etiquetas de `sysctl.h` [SDK 3.40]; calibraciones elegidas (FCAL = 400, K = 1/632) y suma de comprobación a 0. `limitaciones()` lo dice. Desde T4, `--tlv` carga el de una placa; el modelo lee las calibraciones del DCO en las posiciones fijas de `TLV_Type`, no buscando la etiqueta, y no comprueba la suma |
+| **g** | CS: valores de reset, arranque de los cristales, conmutación | [1F] TRM para los valores de reset. LFXT arranca en 5 ms y HFXT en 0,5 ms (modelo: el de 32 kHz tarda cientos de ms en el silicio). Sin contador de faltas (CTL3), sin pin DCOR (DCORES usa la calibración ER del TLV), sin tiempos de conmutación, sin efecto de CLKEN y sin la IRQ del CS |
+| **h** | PCM: reglas de transición, tiempos, bajo consumo | Las reglas salen del ejemplo de SLAA668A y de que TI pide ir por pasos; la lista completa del TRM no está contrastada. 20 µs (tensión) y 10 µs (regulador) de PMR_BUSY, de modelo. LPM3/LPM4/LPMx.5 no se modelan; sin la IRQ del PCM |
+| **i** | WDT_A: 0x6904 de reset; qué reinicia un reset blando | [1F] TRM. El modelo no reinicia el WDT_A en un reset blando |
+| **j** | Qué fuente es qué bit de HARDRESET/SOFTRESET_STAT | [1F] tabla de SLAS826; DriverLib no las nombra. LOCKUP no está conectado |
+| **k** | DIO: RPULL 30 kΩ, 50/12 Ω de salida, alta corriente en P2.0-P2.3; PMAP | [1F] datasheet. Escribir IES no levanta IFG (sí en el MSP430). Los valores por omisión del PMAP no están: llegan con los periféricos (T3). Un pin en función de periférico se queda en alta impedancia y avisa |
+| **l** | Reset: pull-up de RSTn (47 kΩ), pulso de 20 µs, código de arranque | [1F] el pull-up. El pulso es el mínimo del RCC de los STM32 y por la misma razón (el cuanto de 1 µs de la CPU; con 1 µs se perdían los resets que pide la propia CPU). El código de arranque de TI no se ejecuta: ni buzón, ni BSL, ni bloqueo de JTAG |
+| **m** | SRAM_BANKEN | Se guarda (habilitar el banco n habilita los de debajo) pero no apaga ningún banco |
+| **n** | Tiempos del FLCTL | De modelo: 30 µs por palabra o por línea de ráfaga, 5 ms por sector, 40 ms el masivo. El orden de magnitud es el del datasheet; los valores exactos dependen de los pulsos y no están contrastados. Un sector protegido «se borra» en el acto: STATUS 3 sin tocar nada |
+| **p** | Las tablas de pines | [1F] datasheet (SLAS826 §6.12) para las funciones fijas y la tabla «Default Mapping» del PMAP; segunda fuente, las definiciones de TI-Drivers (`*MSP432.h`) y Energía. Los conectores BoosterPack de la LaunchPad, de SLAU597 y de los A0-A15 de Energía |
+| **q** | eUSCI | El orden en que se aplica el patrón UCBRSx a los bits de un carácter es [1F]; los valores, de la tabla de la guía y de Tock. No están: detección automática de baudios, IrDA, el filtro de glitches, I2C de 10 bits, UCCLTO y UCSWACK (se guardan y avisan) |
+| **r** | Timer_A y Timer32 | CCIFG de CCR0 no se borra solo al atender la interrupción (en el MSP430 sí) [1F]. Las entradas CCInB internas e INCLK leen 0. El Timer32 es el SP804 de ARM |
+| **s** | ADC14, REF_A y el sensor de temperatura | Convertidor ideal: sin ruido, sin error de ganancia ni de offset, sin carga del muestreo sobre el nodo. PWRMD y REFBURST no cambian nada; RDYIFG no sube; los CHxMAP no llevan a ningún canal. El sensor es lineal, 685 mV a 0 °C y 1,9 mV/°C (de memoria del datasheet, sin segunda fuente), y el TLV sintético lleva SUS calibraciones. REF_A asienta en 40 µs (modelo); GENOT/BGOT avisan |
+| **t** | uDMA | Sin scatter-gather (cycle_ctrl 4-7: error y aviso), sin distinguir peticiones simples de ráfaga, sin USEBURST ni prot. Los Timer_A, el AES y el pin externo no piden transferencias |
+| **u** | AES256 | Bloque a bloque: los modos de cifrado con DMA (CMEN, CBC/OFB/CFB, BLKCNT) avisan. Los ciclos de 192 y 256 bits son [1F] |
+| **v** | RTC_C | RTCRDY siempre a 1; la calibración (OCAL, TCMP, CALF, RTCCLK) se guarda y no hace nada; RTCOFIFG no sube. IV en el orden OF, RDY, TEV, A, RT0PS, RT1PS [1F] |
+| **w** | COMP_E | Sin los canales internos 8-15, sin SHORT, todos los modos de consumo responden igual, y la salida no llega a las capturas de los Timer_A. Retardo, el del filtro (450-3600 ns) o ninguno |
+| **x** | El consumo | Cifras de modelo con el orden de magnitud del datasheet: 40 µA + 100/115 µA/MHz (LDO) u 80/95 (DC-DC) en activo, el 40 % en LPM0, 0,66 µA en LPM3, 0,5 en LPM4, 0,63 en LPM3.5 y 25 nA en LPM4.5. Ni los periféricos ni las transiciones gastan. La SRAM se conserva entera en LPM3.5 (en el chip, el banco 0) |
+| **y** | La ROM R1 | Mismas funciones en las mismas casillas que la de TI; **otras instrucciones** (gcc -Os frente a IAR): unos microsegundos de diferencia en los ejemplos medidos. `ROM_VERSION` vale 1, no el de TI. Se lee sin estados de espera [sintético: SLAS826 no da los de la ROM]. Las 12 casillas que la ROM de TI llena y `rom.h` no declara para el P401R (cinco de I2C, cuatro de RTC_C, `SPI_initMaster`, `SysCtl_getNMISourceStatus`, `Timer_A_setOutputForOutputModeOutBitValue`) son en R1 un `BKPT`: `MAP_` no llega a ellas. **`rom.h` y `rom_map.h` son las de Energia (`msp432r-core` 0faf18b), con la nota antigua «TI Information - Selective Disclosure» en la cabecera**; TI publica el mismo fichero con licencia BSD-3 en el SDK 3.40 (comparado por muestras y, entero, por sus 424 casillas contra la ROM). Conviene sustituirlas por las del SDK 3.40: el Makefile de `rom_r1` vuelve a generar y verificar las tablas |
+| **z** | PxIES tras el reset | El TRM lo da por indefinido; el modelo lo deja a 0 (flanco de subida). `timer32_periodic_mode_led_toggle`, que no lo escribe, enciende el LED al **soltar** S1; en una placa puede ser al pulsar |
+| **bb** | El BSL del P4 (D4) | **Hecho** (ver arriba). Lo que no está: del código de arranque, el buzón de la Flash (0x0020_0000: FACTORY_RESET, la configuración del BSL), la invocación por un pin, el bloqueo de JTAG y las zonas IP; los parámetros que pasa al BSL (0xFC48FFFF) son los de los ejemplos de TI para entrar desde una aplicación [1F]. Del B1: SPI e I2C, el tiempo límite que lo apaga en LPM4.5, FACTORY_RESET y escribir en la Flash de información |
+| **ff** | El BSL de TI y BSL Scripter | El BSL de TI se queda esperando en un bucle con el núcleo a 24 MHz: el simulador lo corre a ~0,3 veces el tiempo real, y BSL Scripter espera cada respuesta solo 1 s. Contra el B2 BSL Scripter no llega a tiempo; contra el B1 (que duerme) sí. `bsl_p4.py` espera lo que haga falta con los dos |
+| **gg** | La configuración del BSL en el TLV | Los pines de cada interfaz (etiqueta 15) son los del datasheet, de memoria; los bits reservados van a 0 [1F] |
+| **cc** | El tiempo con OpenOCD | La sonda deja correr el tiempo simulado lo que pasa en el reloj de pared entre dos órdenes de OpenOCD (como una placa mientras la sonda habla despacio). Por eso una sesión de OpenOCD **no es reproducible al picosegundo** y `make openocd` no tiene invariante: comprueba resultados, no tiempos |
+| **dd** | `adapter speed` con `remote_bitbang` | `target/stm32f4x.cfg` cambia la velocidad del adaptador en sus eventos de reset, y `remote_bitbang` no tiene velocidades: OpenOCD dice «Translation from khz to adapter speed not implemented» y sigue. Es de OpenOCD, no del modelo, y no se puede evitar sin tocar el `.cfg` |
+| **ee** | La firma electrónica del F407 | El UID de 96 bits es SINTÉTICO, el mismo en todas las piezas; F_SIZE sale del tamaño de la Flash del modelo |
+| **aa** | El ejemplo con RTOS | El cierre pedía uno «del SDK con FreeRTOS o TI-RTOS». Los del SDK van con TI-Drivers y SysConfig; se usa la demo de FreeRTOS para la MSP432 LaunchPad (repositorio de FreeRTOS, MIT), que es la que usa DriverLib con `MAP_` |
+| **o** | Verificación previa y modos de lectura | `VER_PRE`/`AUTO_PRE` se guardan y no hacen nada; los modos de lectura de margen (`RDCTL.RD_MODE`), `RDBRST` y los marcadores de borrado (`BMRK`) no se modelan. Tampoco el límite de pulsos del TLV (`FLASHCTL`): se programa siempre a la primera |
+
+Y una que no es del P4 sino del núcleo compartido: el SysTick con
+`CLKSOURCE = 0` cuenta FCLK/8, que es la integración de ST; la referencia
+externa del P4 no está contrastada.
+
+### P-17 — El MSP432E401Y (T6 de `doc/analisis_msp432.md`)
+
+**HECHA T6 el 2026-10-17**, en la rama `msp432`, en cuatro entregas con su
+commit. Es la segunda familia de TI: el mismo `CortexM4F` (111 IRQ, 3 bits
+de prioridad) con todo lo demás de Tiva. **Y T7 el 2026-10-18**, en seis
+entregas (abajo, «La T7»).
+
+* **El chip** (`soc/msp432e4/`, `periph/msp432e4/`): 1 MB de Flash en 0x0 con
+  los estados de espera de `MEMTIM0` y la prebúsqueda, 256 KB de SRAM, 6 KB
+  de EEPROM, la ROM en 0x0100_0000; SYSCTL con PIOSC, MOSC (el cristal de
+  25 MHz de la placa), PLL, `RSCLKCFG` y `MEMTIM0` (que solo cuenta con
+  `MEMTIMU`), `RCGC`/`SR`/`PR` con el retardo de «periférico listo» y el
+  error de bus de tocar uno sin reloj, dicho una vez; RESC con sus causas;
+  GPIO A-Q (sin I ni O) con el dato enmascarado, `DEN` (avisa si se escribe
+  una salida sin él), `LOCK`/`CR`, interrupciones por pin en P y Q y las
+  funciones de `pin_map.h`; los dos perros; el controlador de Flash con su
+  `programador_nv_if` (el `load` de GDB) y COMT; la EEPROM; ocho UART, cuatro
+  SSI, diez I²C, ocho GPTM, dos ADC, la uDMA de 32 canales y la hibernación
+  con su RTC (el chip se apaga y despierta con la alarma o con WAKE).
+* **La ROM R1** (`verif/fw/msp432e4/rom_r1`): DriverLib del E4 compilada en
+  las 858 casillas de `rom.h` (85 al hueco, las que no tienen fuente BSD) y un
+  **cargador serie propio** con el protocolo de las herramientas de TI. Con la
+  Flash en blanco o con `BOOTCFG` pidiéndolo por un pin, el chip arranca en
+  él; `ROM_UpdateUART` entra sin medir baudios. `mcu-sim` sin firmware deja
+  la Flash del E4 en blanco, y `verif/serie/sflash_e4.py` (o el `sflash` de
+  TivaWare por un redirector COM–RFC 2217) lo programa por el *backchannel*.
+* **La placa** `placas/msp_exp432e401y.xml`: los cuatro LED, los dos
+  pulsadores, RESET, los dos cristales y el *backchannel* en el 3357.
+* **El banco**, `make teste4`: **203 comprobaciones, `resto`
+  `3683870847978 ps`**, con `asane4` limpio. *Blinky* en los cuatro LED,
+  120 MHz por las dos fuentes del PLL con el aviso de `MEMTIM0` y del PLL,
+  CoreMark, la Flash y la EEPROM con DriverLib, GDB por los pines (G2) y por
+  el DAP (G1) con `load` (D2), los periféricos con DriverLib (`e4_t3`), la
+  ROM y su cargador (`e4_rom` con `MAP_`). Y `make sflash-e4`, de punta a
+  punta contra el `mcu-sim` de verdad, en el CI.
+
+Lo que queda dicho, con la letra con la que lo cita el código:
+
+| | Qué | Por qué |
+| :--- | :--- | :--- |
+| **a** | GPIO y pines | **El §2 del análisis se equivocaba**: `msp432e401y.h` y DriverLib del E4 solo nombran la apertura AHB de los puertos, no la APB de otros Tiva, `0x4005_8000 + 0x1000·n`, y el modelo solo tiene esa. Son quince puertos, A-Q sin I ni O (R, S y T son del E411Y), y los protegidos por `LOCK`/`CR` son PC0-PC3 y PD7 (PE7 no sale en el E401Y). El reparto de pines por puerto es el del TM4C1294NCPDT, el mismo silicio; PA6 y PQ4 [1F]. *Pull-up* y *pull-down* de 20 kΩ y sin tolerancia a 5 V [1F]; las fuerzas de 2/4/8/12 mA, de modelo |
+| **b** | La ROM y el arranque | La ventana de 256 KB y el alias por `RMCTL.BA` (la ROM en 0x0 mientras se arranca en ella, y el cargador lo borra antes de saltar) son [1F], de los Tiva. La R1: mismas funciones en las mismas casillas, **otras instrucciones**; `ROM_VERSION` vale 1; se lee sin estados de espera; las 85 casillas de SMBus, SPI Flash y `Update{I2C,SSI,USB,EMAC}` son un `BKPT`. Su cargador solo escucha por la UART0 (PA0/PA1) —no por SSI0, I2C0, USB ni Ethernet—, no comprueba el CRC de la imagen, y mide los baudios sondeando PA0: con PIOSC, hasta 115 200 está probado y por encima de ~460 800 el bucle puede perder flancos. Escrito desde la descripción del protocolo (SPMU301), sin el `boot_loader` de TivaWare, cuya licencia no casa con la AGPLv3. No hay volcado de la ROM de un E4 de verdad con el que comparar (la R2 está, sin probar contra una) |
+| **c** | LFIOSC | 33 kHz típicos [1F, de memoria del datasheet]; DriverLib cuenta 30 kHz nominales |
+| **d** | «Periférico listo» | 3 ciclos de SYSCLK entre `RCGC` y `PR` [1F: la nota de los datasheets de Tiva] |
+| **e** | MOSC y PLL | Arranque del cristal en 1 ms y enganche del PLL en 100 µs: de modelo. `MOSCCTL` sale del reset con `NOXTAL` y `PWRDN` [1F] |
+| **f** | La prebúsqueda | «Dos juegos de búferes de prebúsqueda de instrucciones, de 2 x 256 bits cada uno, combinables como uno de 4 x 256» [DS]: cuatro líneas de instrucciones con reemplazo LRU, y la siguiente se trae adelantada y sin coste; los datos, una línea propia. Se paga `FWS` al tocar una línea que no está. Cuándo se combinan los dos juegos y el coste real de la línea adelantada son de modelo [1F]. `FPFOFF` la apaga. `make e4-retardo` lo vigila |
+| **g** | Tiempos y protección de la Flash y la EEPROM | De modelo: 30 µs por palabra, 15 ms por sector y por el borrado total, 100 µs por palabra de EEPROM. Sin errores de verificación (`PROGRIS`, `ERRIS`) ni reintentos (`EESUPP`); `EEPASS` y `EEHIDE` no cuentan. Protección de 2 KB por bit [1F]. **`FlashProtectSet` de DriverLib del E4 elige el registro con `(bloque / 32) % 4`**, que es de los Tiva de 256 KB: por encima de 256 KB protege el bloque equivocado. Es de DriverLib, no del modelo, y `e4_nv` lo esquiva |
+| **h** | RST y WAKE | Los dos con *pull-up* interno [1F]; 50 kΩ de modelo |
+| **i** | Periféricos | UART sin IrDA, tarjeta, 9 bits ni líneas de módem; SSI e I²C solo maestros (SPI de Freescale; sin *quick command* ni `MCLKOCNT`); GPTM sin modo RTC, sin las interrupciones del PWM ni `TnWOT`/`TnSNAPS`/`TCACT`; ADC ideal, sin comparadores digitales, promediado ni DMA, `GSYNC` no sincroniza; la uDMA sin *scatter-gather* y, cuando acaba un canal de software, un **pulso** en la línea UDMA (la cabecera del E4 no tiene `CHIS`) [1F]; la hibernación sin calendario, manipulación, retención de GPIO ni la espera de `WRC`, y la causa de despertar en `RESC.HIB` [1F]. Los modos de sueño no paran relojes (`SCGC`/`DCGC`/`DSCLKCFG` se guardan); el SysTick con `CLKSOURCE = 0` cuenta SYSCLK/8, como en los STM32, y en el E4 es PIOSC/4; `SRGPIO` no resetea un puerto suelto; un perro con `INTTYPE = 1` da la interrupción normal, no el NMI |
+| **j** | Las tablas de AES de la ROM | `ROM_pvAESTable` es la dirección de la casilla 7 de `ROM_SOFTWARETABLE`, donde la ROM de TI guarda datos; en la R1 esa casilla es el hueco |
+| **k** | ~~Lo de T7~~ | **Resuelto en T7**: el CCM, los C_CAN, el EMAC con su PHY y el USB están modelados (**o**, **p**, **q**, **s**). Lo que sigue declarado, en **t** |
+| **l** | `sflash` de TI | El protocolo se ha probado con el banco, con `sflash_e4.py` (pySerial, RFC 2217) y con **BSL Scripter 3.4 de TI** en su modo `E4xx UART` (por un pty de socat, con su guion de ejemplo: el cargador de la R1 le contesta y programa lo que manda). `sflash` de TivaWare, LM Flash Programmer y UniFlash no se han probado: no se alcanzan desde aquí |
+| **m** | `SysCtlDelay` (ROM, Flash o SRAM) | TI cuenta 3 ciclos por vuelta; el núcleo del modelo cobra el salto tomado con 2 de rellenado (P = 2 de 1..3 [ARM DDI 0439]) y da 4, un 33 % de más. Es del núcleo compartido (T-tiempos), no del E4: cambiarlo mueve los tiempos de todos los chips. `e4_retardo` lo mide |
+| **n** | OpenOCD contra el E4 | No se ha probado (D3/G3 del E4 no eran de T6). El E4 se depura con el stub interno por los pines o por el DAP |
+
+#### La T7: conectividad y criptografía
+
+* **Entrega 1, el CCM** (`periph/msp432e4/ccm.h`): CRC (cuatro polinomios y
+  la suma de TCP), SHA/MD5 con SHA-224 y SHA-256 (`hash_algo.h` los gana),
+  HMAC, AES (ECB, CBC, CFB, CTR, ICM y GCM; 128/192/256) y DES/TDES.
+  `e4_t7` es un servidor de vectores: **todos** los de `verif/vectores`
+  (`cryp2.vec`, `sha2.vec`, `crc.vec`, nuevos, comprobados cada uno con dos
+  motores por `comprueba_vectores.py`) pasan por DriverLib y por el chip.
+* **Entrega 2, los C_CAN** (`ccan.h`, sobre `periph/can_motor.h`, el motor
+  que ahora comparten con el bxCAN): CAN0 y CAN1 en el mismo hilo con
+  filtros, FIFOs, extendidos y remotas, y **dos E4 en la misma placa**
+  hablando por el bus CAN que ya había. El NVIC pasa a ser de nivel (**r**).
+* **Entrega 3, el EMAC** (`emac.h`, el `eth_mac.h` del F407 con mapa propio
+  y una frontera de tramas) con el **PHY interno** (`EphyE4`), y el **puente
+  Ethernet** (`parts/puente_ethernet.h`, `mcu-sim --eth` o `eth=`): memoria,
+  `qemu:PUERTO` o `qemu-cliente:HOST:PUERTO` -el protocolo de `-netdev
+  stream` de QEMU, gvproxy y passt- y `,pcap=`. `e4_eth` es lwIP 2.2.1 (BSD-3,
+  en TERCEROS.md) con eco TCP y UDP en el 7; `make eth-e4` lo prueba contra
+  el `mcu-sim` de verdad con `verif/eth/eco_e4.py`, que es otra pila.
+* **Entrega 4, el cargador por Ethernet** de la R1 (`ROM_UpdateEMAC`, BOOTP y
+  TFTP a la Flash, y el reset): 84 casillas al hueco, una menos. `e4_bootp`
+  lo llama; en el banco y por el puente (`make eth-e4`) graba `e4_eth.bin` y
+  arranca lo grabado.
+* **Entrega 5, el USB0** (`usb.h`, el MUSB de Mentor como dispositivo) con
+  `e4_usb`, un CDC-ACM sobre `usb.c` de DriverLib; y **el puente USB de
+  clase** (U2 de `doc/analisis_puente_usb.md`, `parts/puente_usb.h`):
+  `mcu-sim --usb` o `usb=` pone un PC en D+/D- que enumera el CDC y lo lleva
+  a un canal del puente serie (RFC 2217, TCP, sus clientes o memoria). Los
+  baudios, el formato y DTR/RTS del terminal llegan al firmware como
+  `SET_LINE_CODING` y `SET_CONTROL_LINE_STATE`. `make usb-e4`, con pySerial.
+* **Entrega 6**: lo que queda declarado (**t**) y los documentos.
+* `teste4`: **296 comprobaciones, `resto` `4507254220852 ps`** (E30-E36);
+  E0-E29 no se mueven en ninguna entrega. Las otras seis suites, tampoco.
+  Tras la prebúsqueda de cuatro líneas (**f**, 2026-10-19): `resto`
+  `4505148675235 ps`, 2,1 ms menos.
+
+| | Qué | Por qué |
+| :--- | :--- | :--- |
+| **o** | El CCM | Cada bloque está listo en el acto [modelo]. El orden de los bytes de los registros de resumen es el del controlador omap-sham de Linux, la misma IP [1F]. Sin uDMA (`SYSCONFIG`/`DMAIM` se guardan) ni interrupciones (el E401Y no las tiene en el NVIC); los modos de AES CCM, CBC-MAC, XTS, f8 y f9 se guardan y avisan |
+| **p** | Los C_CAN | Copian entre las interfaces y los objetos en el acto (`BUSY` no se ve); salen de bus-off al quitar `INIT` sin los 128 × 11 bits [modelo, como F-29]; el modo básico y el control directo de CANTX (`CANTST.BASIC`/`TX`) se guardan y avisan [Bosch C_CAN User's Manual 1.2] |
+| **q** | El EMAC, su PHY y el cargador | El MAC es el del F407 (sin PAUSE, VLAN, semidúplex ni la suma de ENTRADA). El PHY negocia en 1 ms (en el chip, unos 2 s), sin pines MII ni LED, y el MDIO solo llega a la dirección 0; ID1/ID2 = 0x2000/0xA221 [1F, de memoria del datasheet de la TM4C129]. El puente Ethernet es de capa 2: la red la pone el otro extremo (gvproxy, passt, QEMU u otro mcu-sim). El cargador de la R1: BOOTP sin DHCP, TFTP sin opciones (`blksize`), sin comprobar la imagen, y con la Flash en blanco el arranque solo escucha por la UART0 |
+| **r** | El NVIC, de nivel | Una línea que sigue alta al salir de su manejador vuelve a quedar pendiente [ARMv7-M B3.4.1]; se mira 1 ps después de la salida, cuando el periférico ya ha publicado lo que le escribió el manejador [modelo]. Ningún invariante de los STM32 ni del P4 se mueve |
+| **s** | El USB0 y el puente USB | Solo dispositivo de velocidad completa: sin modo anfitrión ni OTG (SRP/HNP), alta velocidad, ULPI, uDMA del USB, isócronos, LPM, suspensión ni detección de VBUS e ID. Los paquetes cruzan como paquetes, sin NRZI, relleno ni CRC, y sin el conmutador DATA0/DATA1 [T-17]. El puente: solo la clase CDC-ACM (HID y MSC de U2 no), una configuración, sin hubs ni suspensión; las notificaciones del endpoint de interrupción (SERIAL_STATE) no se leen, y las líneas de módem que ve el terminal son fijas (CTS, DSR y DCD con el dispositivo enumerado). U1 (USB/IP) y U3 siguen sin hacer |
+| **t** | Lo que sigue declarado | El EPI (como pide el plan), PWM, QEI, los comparadores y SYSEXC: el registro contesta, no guarda y avisa una vez. El LCD no es del E401Y, sino del E411Y (T8) |
+| **u** | Las placas y su dibujo | `msp_exp432p401r.xml`, `msp_exp432e401y.xml` y `boostxl_edumkii.xml` están revisadas contra SLAU597F, SLAU748B y SLAU599B (guía y esquemáticos) y llevan su dibujo; los sistemas de las dos LaunchPad con la EDUMKII, `make p4-edumkii` y `make e4-edumkii`. **De modelo**: el RGB y el zumbador de la EDUMKII van por transistores desde los 5 V, y aquí son la carga de su pin (un LED con la resistencia de su cátodo; 2,9 kΩ); la luz de la pantalla, igual; su vidrio es de 128x128 y el `Tft128x160` enseña 160 filas; el TPS2052B de la E401Y (el interruptor de los 5 V) y el XDS110 de las dos no están, y su lado de J101 es de adorno salvo el backchannel y los 5 V; el pad VREF+ del E4 (J10.34) no existe en el modelo. Las medidas de la P401R y de la EDUMKII en los dibujos son aproximadas (la E401Y, 63,5 x 174 mm, de su guía). ~~Un `SysCtlDelay` largo desde la Flash a 120 MHz tarda en el modelo bastante más que 3 ciclos por vuelta~~ **Resuelto (2026-10-19)**: el modelo tenía una sola línea de prebúsqueda de instrucciones y no adelantaba la siguiente, así que un bucle que tocaba dos líneas de 256 bits -por sí mismo o por la búsqueda adelantada del núcleo, que lee la palabra que sigue al salto- pagaba los cinco `FWS` dos veces por vuelta: 14 ciclos en vez de 4. Ahora son cuatro líneas y la siguiente adelantada (**f**), y `make e4-retardo` mide las seis variantes a 4 ciclos. Queda el ciclo de más de **m**. `e4_edumkii` sigue esperando con el TIMER1, que es exacto a cualquier reloj |
+
 ---
 
 ## 3. Funciones no modeladas — "bits sin máquina" (F)
@@ -759,16 +1118,16 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 
 | Categoría | Puntos |
 | :--- | ---: |
-| **P** — Pendientes de plan | 15 *(una cerrada: P-14, con la matriz manual a medias; P-15, hecha su primera parte)* |
+| **P** — Pendientes de plan | 17 *(una cerrada: P-14, con la matriz manual a medias; P-15, hecha su primera parte)* |
 | **F** — Funciones no modeladas | 51 |
 | **T** — Temporización y física | 23 |
 | **D** — Datos sin fuente | 14 |
 | **X** — Discrepancias, silencios de [IR] y erratas de ST | 14 |
 | **V** — Huecos de verificación | 11 |
 | **I** — Deuda de instrumentación y proyecto | 50 *(treinta cerradas: I-11, I-12, I-15, I-16, I-17, I-20, I-22, I-25, I-28, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38, I-39, I-40, I-41, I-42, I-43, I-44, I-45, I-46, I-47, I-48, I-53 e I-54)* |
-| **Total** | **178** |
+| **Total** | **180** |
 
-De los 178, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 180, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.
@@ -780,3 +1139,7 @@ en el informe que la originó.
 > identificador más alto, no las filas que hay: **I-18 e I-19 no existen**, así
 > que son 47 puntos y no 49, y la lista de cerradas nombraba un I-18 inexistente.
 > Ahora el total **es la suma de la columna**: 12 + 51 + 22 + 14 + 14 + 11 + 47.
+>
+> **Y una tercera (2026-10-17, al dar de alta P-17).** P-16 se añadió sin
+> contarla: la fila de la **P** decía 15 con dieciséis puntos escritos. Ahora
+> son 17 (P-01 a P-17) y el total, 180.

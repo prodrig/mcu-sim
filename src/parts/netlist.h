@@ -81,6 +81,15 @@ inline bool alim_desde_nombre(const std::string& s, std::string& mcu,
             alim = n;
             return true;
         }
+    // Y los de un chip con nomenclatura propia (T0): `DVCC`, `RSTN` en un
+    // MSP432P4. Solo con el contexto activo; sin él, lo de siempre.
+    const ContextoNomenclatura& c = ContextoNomenclatura::g();
+    if (!c.activo()) return false;
+    if (p == 0) return false;
+    const std::string pre = p == std::string::npos ? std::string() : s.substr(0, p);
+    if (const Nomenclatura* nm = c.para(pre))
+        for (const char* const* a = nm->alim; a && *a; ++a)
+            if (n == *a) { mcu = pre; alim = n; return true; }
     return false;
 }
 
@@ -103,8 +112,9 @@ inline bool alim_desde_nombre(const std::string& s, std::string& mcu,
 //
 // UN JUMPER es un conector con un puente puesto (`puente="5V VCC"`): dos pines
 // vecinos que la pieza de plástico une. Son el mismo nodo, como si un <hilo>
-// los uniera dentro de la placa; `puente_a` y `puente_b` dicen cuáles (0 si
-// no tiene puente).
+// los uniera dentro de la placa; `puentes` dice cuáles (vacío si no tiene
+// puente). Un bloque de 2x2 lleva DOS, separados por una coma: `puente="1 2,
+// 3 4"` (el JP4 de la MSP-EXP432E401Y).
 // ---------------------------------------------------------------------------
 inline bool es_conector(const std::string& tipo) {
     return tipo == "Conector" || tipo == "Jumper";
@@ -114,15 +124,19 @@ struct GeomConector {
     unsigned filas = 1, columnas = 0;
     bool     zigzag = true;
     std::vector<std::string> nombres;     // vacío: todos por número
-    unsigned puente_a = 0, puente_b = 0;  // un Jumper: los dos pines unidos
+    std::vector<std::pair<unsigned, unsigned>> puentes;  // un Jumper: cada par unido
     // `acodado="si"`: los pines salen de lado, por el borde de la placa, y no
     // hacia arriba. Para la ventana nada mas: un hilo llega al borde de un pin
     // acodado y al centro de uno derecho, que es donde se ve el cable
     bool     acodado = false;
     // El puente de un Jumper escrito como lo lleva el dibujo: `5V-VCC`, por
-    // orden de pin; `no` sin puente (vease Netlist::variante)
+    // orden de pin; con dos, `1-2+3-4`, por el orden en que se dicen; `no` sin
+    // puente (vease Netlist::variante)
     std::string puente() const {
-        return puente_a ? pin_k(puente_a) + "-" + pin_k(puente_b) : std::string("no");
+        if (puentes.empty()) return "no";
+        std::string r;
+        for (const auto& p : puentes) r += (r.empty() ? "" : "+") + pin_k(p.first) + "-" + pin_k(p.second);
+        return r;
     }
     unsigned n() const { return filas * columnas; }
     // Cómo se llama el pin k: su nombre, o su número
@@ -265,6 +279,14 @@ public:
         return *n->net;
     }
     bool existe(const std::string& nombre) const { return busca(nombre) != nullptr; }
+    // ¿Es ese nodo eléctrico el de algún pad de un MCU, con el nombre que sea?
+    // En un sistema, el pad se llama `L/u0.SWDIOTMS` y la patilla de la pieza
+    // que lo toca lo ve como `SWDIOTMS`: por el nombre no se encuentra.
+    bool net_es_pin(const analog_net_if* net) const {
+        for (const auto& kv : m_)
+            if (kv.second.net == net && kv.second.es_pin) return true;
+        return false;
+    }
     // Cuántos NOMBRES hay dados de alta.
     unsigned size() const { return unsigned(m_.size()); }
     // Cuántos nodos ELÉCTRICOS distintos. No es lo mismo: un mismo AnalogNet
@@ -305,8 +327,29 @@ struct DeclMcu {
     //   "dap"             el núcleo RESERVA los cinco pines de depuración y
     //                     crea dentro un stub que habla con el DAP por llamada
     //                     de función. Es el modo rápido.
+    //   "openocd"         como "pines", pero lo que se cuelga por fuera no es
+    //                     un stub de GDB sino una sonda `remote_bitbang`:
+    //                     OpenOCD genera el SWD bit a bit y habla él con GDB
+    //                     (verif/sonda_openocd.h; T5 del MSP432). El puerto es
+    //                     el de remote_bitbang.
+    //   "cmsis-dap"       una sonda CMSIS-DAP por TCP, para el `cmsis-dap
+    //                     tcp` de OpenOCD (verif/sonda_cmsis_dap.h; X2 de
+    //                     doc/analisis_xds110.md). El puerto es el suyo, 4441
+    //                     por omision.
+    //   Con una pieza `Xds110` en la placa del chip, las dos sondas de
+    //   OpenOCD se cuelgan de ella -de sus pines de J101- y no del chip.
     std::string depuracion = "pines";
     unsigned    puerto_gdb = 0;    // 0: no se abre ningún puerto TCP
+    // Lo que solo tienen algunos chips (T4 del MSP432): `rom` es la ROM de
+    // DriverLib del P4 -"r1" (omisión), "ninguna" o el fichero de un volcado- y
+    // `tlv`, el fichero con el TLV de una placa. Vacío: lo de omisión del chip.
+    std::string rom, tlv, bsl;
+    // El Ethernet de un MSP432E4 (T7): a donde da su PHY interno -memoria,
+    // qemu:PUERTO o qemu-cliente:HOST:PUERTO, y ,pcap=FICHERO-. Vacío: nada
+    std::string eth;
+    // Su USB como dispositivo (T7): el destino serie del puente de clase
+    // CDC-ACM -rfc2217:PUERTO, tcp:PUERTO, sus clientes o memoria-. Vacío: nada
+    std::string usb;
     // El ENCAPSULADO de este chip, que es lo que decide qué pads salen de
     // verdad. Lo rellena quien resuelve el `tipo` contra el catálogo de MCUs
     // —antes de validar, porque de él depende el error «ese pad no sale»— y por
@@ -744,21 +787,36 @@ public:
                        "y '-' para el que no lo lleva";
         }
         // El puente de un Jumper: dos pines vecinos, por nombre o por número,
-        // o "no". Es obligatorio: un jumper sin decir como esta puesto es la
-        // mitad de la placa sin decir
-        g.puente_a = g.puente_b = 0;
+        // o "no"; o varios puentes, separados por comas -"1 2, 3 4"-, que no
+        // compartan pin. Es obligatorio: un jumper sin decir como esta puesto
+        // es la mitad de la placa sin decir
+        g.puentes.clear();
         if (i.tipo == "Jumper") {
             if (!i.params.count("puente"))
                 return "falta puente=\"A B\": los dos pines que une el puente (o "
                        "puente=\"no\" si no lleva)";
-            const std::string pt = i.txt("puente");
-            if (pt != "no") {
+            const std::string todo = i.txt("puente");
+            std::vector<std::string> trozos;
+            {
+                std::string t;
+                for (char ch : todo + ",") {
+                    if (ch == ',') { trozos.push_back(t); t.clear(); }
+                    else t.push_back(ch);
+                }
+            }
+            std::set<unsigned> usados;
+            for (const std::string& pt0 : trozos) {
+                std::string pt = pt0;
+                while (!pt.empty() && pt.front() == ' ') pt.erase(pt.begin());
+                while (!pt.empty() && pt.back() == ' ') pt.pop_back();
+                if (pt == "no" && trozos.size() == 1) break;
                 std::istringstream is(pt);
                 std::vector<std::string> ps;
                 std::string t;
                 while (is >> t) ps.push_back(t);
                 if (ps.size() != 2)
-                    return "puente=\"" + pt + "\" no vale: dos pines, \"A B\", o \"no\"";
+                    return "puente=\"" + todo + "\" no vale: dos pines, \"A B\", varios "
+                           "separados por comas, \"A B, C D\", o \"no\"";
                 unsigned k[2] = {0, 0};
                 for (int j = 0; j < 2; ++j) {
                     for (unsigned q = 1; q <= g.n() && !k[j]; ++q)
@@ -775,8 +833,10 @@ public:
                 if (!vecinos)
                     return "puente: " + ps[0] + " y " + ps[1] + " no estan uno al lado "
                            "del otro, y un puente solo une dos pines vecinos";
-                g.puente_a = std::min(k[0], k[1]);
-                g.puente_b = std::max(k[0], k[1]);
+                for (int j = 0; j < 2; ++j)
+                    if (usados.count(k[j])) return "puente: el pin " + ps[j] + " esta en dos puentes";
+                usados.insert(k[0]); usados.insert(k[1]);
+                g.puentes.emplace_back(std::min(k[0], k[1]), std::max(k[0], k[1]));
             }
         }
         return std::string();
@@ -943,7 +1003,7 @@ public:
                 todos.push_back(Conexion{g.pin_k(k), nm});
             }
             // El puente de un Jumper: sus dos pines, el mismo nodo
-            if (g.puente_a) pares.emplace_back(g.nodo(i.id, g.puente_a), g.nodo(i.id, g.puente_b));
+            for (const auto& pz : g.puentes) pares.emplace_back(g.nodo(i.id, pz.first), g.nodo(i.id, pz.second));
             i.pines = todos;
         }
 
@@ -1212,9 +1272,10 @@ public:
                     err.push_back("mcu " + m.id + ": identificador repetido");
                 if (m.tipo.empty())
                     err.push_back("mcu " + m.id + ": sin tipo");
-                if (m.depuracion != "pines" && m.depuracion != "dap")
-                    err.push_back("mcu " + m.id + ": depuracion debe ser 'pines' "
-                                  "o 'dap', no '" + m.depuracion + "'");
+                if (m.depuracion != "pines" && m.depuracion != "dap" &&
+                    m.depuracion != "openocd" && m.depuracion != "cmsis-dap")
+                    err.push_back("mcu " + m.id + ": depuracion debe ser 'pines', "
+                                  "'dap', 'openocd' o 'cmsis-dap', no '" + m.depuracion + "'");
                 // Dos stubs en el mismo puerto TCP no es un aviso: es que el
                 // segundo no llega a escuchar y el fallo aparece más tarde,
                 // como un GDB que se conecta al chip equivocado.
@@ -1450,6 +1511,8 @@ public:
             // pines: ahi no hay nadie mas, y si nadie conduce, nadie conduce.
             const Nodo* nd = nodos.busca(nom);
             if (nd && nd->es_pin) continue;
+            if (kv.first.net && nodos.net_es_pin(static_cast<const analog_net_if*>(kv.first.net)))
+                continue;
             // Un nodo COMPARTIDO tampoco puede quedar flotante por culpa de la
             // placa: es un pad -o dos-, y quien conduce ahi lo decide el
             // firmware. Se registra con su nombre de placa y no como pin, asi

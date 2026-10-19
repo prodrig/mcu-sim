@@ -2,6 +2,17 @@
 
 **Análisis de opciones para `mcu-sim`** · 30-09-2026
 
+> **Estado (2026-10-18): hecho U2 para CDC-ACM**, con el MSP432E401Y (T7 de
+> `doc/analisis_msp432.md`). `parts/puente_usb.h` tiene el controlador de
+> anfitrión (§3.2: control, *bulk*, NAK, SOF y reset sobre `transaccion()`)
+> y el puente de clase CDC-ACM (§6.2), que enumera el dispositivo como un PC
+> y lo lleva a un canal del puente serie (RFC 2217, TCP, sus clientes o
+> memoria) con los baudios, el formato, DTR/RTS y el break convertidos en
+> peticiones de la clase. Se monta con `mcu-sim --usb [ID=]DESTINO` o
+> `usb=` en el `<mcu>`; lo prueban `teste4` (E36) y `make usb-e4`, con
+> pySerial. Para los STM32 falta solo engancharlo a su OTG, que ya es un
+> `usb_dev_if`. HID, MSC, U1, U3 y U4 siguen sin hacer.
+
 La pregunta: qué opciones hay para construir, como se hizo con el puerto serie
 (`doc/analisis_puente_serie.md`, P-14), un elemento **externo al MCU** que
 conecte el USB OTG del chip simulado con el ordenador donde corre `mcu-sim`.

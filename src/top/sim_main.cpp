@@ -20,6 +20,12 @@
 //   <mcu tipo="STM32F407VG" id="u1" firmware="esclavo.bin"
 //        depuracion="pines" puerto_gdb="3334"/>
 //
+// o `depuracion="openocd"`, con el puerto de remote_bitbang en puerto_gdb: una
+// sonda SWD para que OpenOCD hable con los pines (verif/sonda_openocd.h); o
+// `depuracion="cmsis-dap"`, una sonda CMSIS-DAP por TCP para el `cmsis-dap tcp`
+// de OpenOCD (verif/sonda_cmsis_dap.h). Si la placa del chip lleva una pieza
+// `Xds110`, esas dos sondas son la suya: van por J101 (doc/analisis_xds110.md).
+//
 // Y la regla que hace que nada de esto rompa lo anterior:
 //
 //   ningún <mcu>   con `--mcu TIPO`, un MCU de ese tipo y nodos con nombre
@@ -115,12 +121,16 @@
 #define TITULAR_COPYRIGHT "Francisco Rodríguez Ballester (prodrig@disca.upv.es)"
 #endif
 #include "../verif/gdb_stub.h"
+#include "../verif/sonda_openocd.h"
+#include "../verif/sonda_cmsis_dap.h"
 #include "../parts/netlist_parts.h"
 #include "../parts/netlist_xml.h"
 #include "../parts/frontera_gui.h"
 #include "../parts/enlace_gui.h"
 #include "../soc/stm32f4_mcu.h"
 #include "../soc/stm32f446.h"
+#include "../soc/msp432p4/msp432p4_mcu.h"
+#include "../soc/msp432e4/msp432e4_mcu.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -133,7 +143,9 @@ static std::string mayus(std::string s) {
     for (char& c : s) if (c >= 'a' && c <= 'z') c = char(c - 'a' + 'A');
     return s;
 }
-static std::string tipos_como_texto() { return mcus_como_texto(); }
+// Desde T0, el catalogo COMUN: los STM32 de `top/mcu_caps.h` y los de las
+// familias que se dan de alta solas (`soc/mcu_desc.h`).
+static std::string tipos_como_texto() { return CatalogoMcu::como_texto(); }
 
 // Y las FAMILIAS que este ejecutable sabe construir, que es otra cosa: el
 // catálogo dice qué chips existen, y la factoría dice de cuáles hay modelo.
@@ -173,7 +185,9 @@ static double      g_tiempo_real = 0.0;
 // suyos-; con varios, no dice a cual y es un error.
 static std::string g_tipo_mcu;
 // Depuración pedida por la línea de órdenes. `g_gdb_modo` vacío = no se pidió.
-static std::string g_gdb_modo;          // "pines" o "dap"
+static std::string g_gdb_modo;          // "pines", "dap", "openocd" o "cmsis-dap"
+static std::string g_swo;               // --swo: a donde va la traza del Xds110
+static double      g_swo_bitrate = 0;   // --swo-bitrate (0: el de la placa)
 // `--firmware ID=FICHERO` y `--sin-firmware[=ID]`: el firmware de CADA chip,
 // o ninguno, por la linea de ordenes, tambien con varios MCUs. Mandan sobre
 // el firmware= de su <mcu>. Lo pide el dialogo de lanzamiento de mcu-sim-gui
@@ -181,6 +195,12 @@ static std::string g_gdb_modo;          // "pines" o "dap"
 static std::vector<std::pair<std::string, std::string>> g_firmwares;   // id, fichero
 static std::vector<std::string> g_sin_firmware;                        // ids
 static bool        g_sin_firmware_todos = false;
+// `--rom [ID=]VALOR` y `--tlv [ID=]FICHERO` (T4 del MSP432): la ROM de
+// DriverLib y el TLV de los chips que los tienen. Con ID, de ese chip, y
+// manda sobre el rom=/tlv= de su <mcu>; sin ID, de todos los que los tienen
+// -y es un error que no lo tenga ninguno-.
+static std::vector<std::pair<std::string, std::string>> g_roms, g_tlvs, g_bsls,
+                                                        g_eths, g_usbs;   // id ("" = todos), valor
 // `--mcus`: la lista de los MCUs de la placa, en XML, y nada mas
 static bool        g_lista_mcus = false;
 static unsigned    g_gdb_puerto = 0;
@@ -211,6 +231,11 @@ struct McuMontado {
     // permite que `tipo=` despache de verdad en vez de comprobarse.
     mcu_if*       mcu  = nullptr;
     GdbStub*      stub = nullptr;       // solo en modo "pines" y con puerto
+    SondaRed*     ocd  = nullptr;       // modos "openocd" y "cmsis-dap", con puerto
+    std::string   xds;                  // la pieza Xds110 que hace de sonda, si la hay
+    // Las limitaciones que se dijeron al montar: si `--rom`/`--tlv` las
+    // cambian, se dicen las nuevas (T4 del MSP432)
+    std::vector<std::string> ojo;
 };
 
 // La conexion con la ventana, si hay `--gui` y el saludo ha empezado. Es
@@ -306,6 +331,9 @@ SC_MODULE(Sim) {
 
     SC_CTOR(Sim) {
         // --- 1. Leer. No construye nada: devuelve datos ---------------------
+        // `--mcu` decide tambien como se leen los nombres de pin de la placa
+        // (T0): `P1.0` es PB0 en un STM32 y el primer pin de un MSP432P4.
+        ContextoNomenclatura::g().pon_tipo_por_omision(g_tipo_mcu);
         const std::string e = placa_o_sistema_desde_fichero(placa, g_placa, &g_nombre);
         if (!e.empty()) muere("error de netlist: " + e);
 
@@ -351,11 +379,11 @@ SC_MODULE(Sim) {
         // tipo que no está NO se sustituye por otro — se rechaza diciendo
         // cuáles hay, porque montar un F407 donde el usuario escribió otra cosa
         // sería la clase de mentira que este modelo no se permite.
-        std::vector<const McuCaps*> caps_de(decls.size(), nullptr);
+        std::vector<const McuDesc*> caps_de(decls.size(), nullptr);
         for (size_t k = 0; k < decls.size(); ++k) {
             DeclMcu& m = decls[k];
             m.tipo = mayus(m.tipo);
-            caps_de[k] = mcu_por_nombre(m.tipo);
+            caps_de[k] = CatalogoMcu::busca(m.tipo);
             if (!caps_de[k])
                 muere("mcu " + (m.id.empty() ? std::string("(el de --mcu)") : m.id) +
                       ": no se sabe construir un '" + m.tipo + "'.\n"
@@ -363,19 +391,19 @@ SC_MODULE(Sim) {
                       tipos_como_texto() + "\n"
                       "Un MCU de OTRA FAMILIA no es un parametro: es otro modelo, "
                       "con su arbol de reloj y sus perifericos.");
-            m.enc = &caps_de[k]->enc;
+            m.enc = caps_de[k]->enc;
             // Y el encapsulado tambien al netlist, que es quien valida los pads
             // ANTES de que los MCU existan.
             if (m.id.empty()) placa.fija_encapsulado_implicito(m.enc);
             else              placa.fija_encapsulado(m.id, m.enc);
             // El WLCSP90 lleva su reparto de bolas sin contrastar, y eso se
             // dice en voz alta en vez de esconderse en un comentario.
-            if (!caps_de[k]->enc.verificado)
+            if (!caps_de[k]->enc->verificado)
                 std::printf("  [aviso] %s: el reparto de pads del %s es una "
                             "reconstruccion a partir del recuento del datasheet "
                             "(%u E/S) y NO esta contrastado bola a bola\n",
-                            caps_de[k]->nombre, caps_de[k]->enc.nombre,
-                            caps_de[k]->enc.n_gpio);
+                            caps_de[k]->nombre, caps_de[k]->enc->nombre,
+                            caps_de[k]->enc->n_gpio);
         }
 
         // --- 2 bis. Conectores, acoples e hilos: qué nodos son el mismo ------
@@ -413,7 +441,7 @@ SC_MODULE(Sim) {
                 caps.puerto = d.puerto_gdb;      // 0: reserva los pines, no escucha
             }
             const std::string nm = d.id.empty() ? std::string("dut") : d.id;
-            const McuCaps* mc = caps_de[size_t(&d - &decls[0])];
+            const McuDesc* mc = caps_de[size_t(&d - &decls[0])];
             // AQUI es donde una cadena se convierte en un objeto. La factoria
             // despacha por FAMILIA -los once miembros del F405/407 son la misma
             // clase con distintos descriptores- y devuelve nullptr si esa
@@ -428,7 +456,8 @@ SC_MODULE(Sim) {
             // Y lo que el modelo sabe de si mismo y todavia no hace. Se dice
             // al montar, no al final: quien lee esto tiene que saberlo ANTES
             // de fiarse de lo que vea.
-            for (const std::string& q : m.mcu->limitaciones())
+            m.ojo = m.mcu->limitaciones();
+            for (const std::string& q : m.ojo)
                 std::fprintf(stderr, "  [ojo] %s: %s\n", nm.c_str(), q.c_str());
             // Los nodos, con el prefijo del chip. Y además con el nombre
             // desnudo cuando solo hay uno: es lo que hace que las placas
@@ -442,11 +471,45 @@ SC_MODULE(Sim) {
             // ST-LINK. El de DAP lo ha creado ya el propio núcleo.
             if (d.depuracion == "pines" && d.puerto_gdb) {
                 const std::string snm = "gdb_" + (d.id.empty() ? "dut" : d.id);
-                m.stub = new GdbStub(snm.c_str(),
-                                     m.mcu->nodo_analogico(0, 14),  // PA14 SWCLK
-                                     m.mcu->nodo_analogico(0, 13),  // PA13 SWDIO
+                // SWCLK y SWDIO los dice el chip: PA14/PA13 en un STM32, las
+                // patillas dedicadas en un MSP432P4 (T0).
+                analog_net_if* swclk = m.mcu->nodo_swclk();
+                analog_net_if* swdio = m.mcu->nodo_swdio();
+                if (!swclk || !swdio)
+                    muere("mcu " + nm + ": este chip no saca SWCLK/SWDIO, y "
+                          "depuracion=\"pines\" no tiene de donde colgarse");
+                m.stub = new GdbStub(snm.c_str(), *swclk, *swdio,
                                      d.puerto_gdb, 2e6);
+                // Y la secuencia de Flash de ESE chip (nullptr: la del F407).
+                m.stub->pon_programador(m.mcu->programador());
                 m.stub->set_enabled(false);      // se abre al arrancar, no aquí
+            }
+            // La sonda de OpenOCD se cuelga de los mismos pines, y su SRST es
+            // el NRST del chip, como en una sonda de verdad (T5 del MSP432)
+            // Con una pieza Xds110 en la placa del chip, la sonda es la suya:
+            // se le dice aqui, antes de construirla, y va por J101
+            if ((d.depuracion == "openocd" || d.depuracion == "cmsis-dap") && d.puerto_gdb) {
+                m.xds = busca_xds110(d);
+                if (Instancia* i = m.xds.empty() ? nullptr : placa.busca(m.xds)) {
+                    i->params["sonda"] = d.depuracion;
+                    i->params["puerto"] = std::to_string(d.puerto_gdb);
+                }
+            }
+            if ((d.depuracion == "openocd" || d.depuracion == "cmsis-dap") && d.puerto_gdb &&
+                m.xds.empty()) {
+                const std::string snm = "ocd_" + (d.id.empty() ? "dut" : d.id);
+                analog_net_if* swclk = m.mcu->nodo_swclk();
+                analog_net_if* swdio = m.mcu->nodo_swdio();
+                if (!swclk || !swdio)
+                    muere("mcu " + nm + ": este chip no saca SWCLK/SWDIO, y "
+                          "depuracion=\"" + d.depuracion + "\" no tiene de donde colgarse");
+                mcu_if* chip = m.mcu;
+                if (d.depuracion == "openocd")
+                    m.ocd = new SondaOpenOcd(snm.c_str(), *swclk, *swdio, d.puerto_gdb,
+                                             [chip](bool v) { chip->reset_pin(v); });
+                else
+                    m.ocd = new SondaCmsisDap(snm.c_str(), *swclk, *swdio, d.puerto_gdb,
+                                              [chip](bool v) { chip->reset_pin(v); });
             }
             if (d.puerto_gdb) hay_stub = true;
             // Los cuatro drivers de alimentacion los registra el adaptador en
@@ -469,9 +532,19 @@ SC_MODULE(Sim) {
         // falla al montar sino al abrir, en marcha, y ese mensaje sale donde
         // nadie mira.
         resuelve_puentes_serie();
+        aplica_swo();
 
         // --- 6 y 7. Construir las piezas y validar lo eléctrico -------------
         placa.construye(nodos);
+        for (McuMontado& m : mcus) {
+            if (!m.xds.empty())
+                if (Xds110* x = placa.como<Xds110>(m.xds)) m.ocd = x->sonda();
+            // Si la placa del chip lleva un XDS110 con su LDO, el 3V3 es suyo:
+            // llega al chip por el puente de J101, o no llega
+            const std::string xi = busca_xds110(m.decl);
+            if (const Xds110* x = xi.empty() ? nullptr : placa.como<Xds110>(xi))
+                if (x->tiene_ldo()) m.mcu->alimentacion_externa(true);
+        }
         for (const std::string& q : placa.valida_electrica(nodos)) {
             std::fprintf(stderr, "  [elec] %s\n", q.c_str());
             avisos_placa.push_back(q);
@@ -509,6 +582,15 @@ SC_MODULE(Sim) {
         if (mcus.empty() && !g_gui_pedida && !g_solo_valida)
             std::printf("  [aviso] sin MCU y sin --gui, nadie toca las piezas: esto "
                         "solo tiene sentido con --gui o con --valida\n");
+        // Las sondas XDS110 de la placa: lo que hacen, y su canal de la traza
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Xds110") continue;
+            const Xds110* x = placa.como<Xds110>(i.id);
+            if (!x) continue;
+            if (!x->swo_ok()) muere("  [xds110] " + i.id + ": " + x->error_swo());
+            if (x->swo_por_red()) hay_puente_red = true;
+            std::printf("  sonda %s: %s\n", i.id.c_str(), x->describir().c_str());
+        }
         for (const serie::Pieza& p : puentes) {
             const PuenteSerie* ps = placa.como<PuenteSerie>(p.id);
             if (!ps) continue;
@@ -539,8 +621,17 @@ SC_MODULE(Sim) {
             linea += ": ";
             linea += m.decl.firmware.empty() ? "sin firmware" : m.decl.firmware;
             if (m.decl.puerto_gdb) {
-                linea += ", gdb por " + m.decl.depuracion + " en el puerto " +
-                         std::to_string(m.decl.puerto_gdb);
+                const std::string por = m.xds.empty() ? std::string()
+                                                      : " por " + m.xds + " (J101)";
+                if (m.decl.depuracion == "openocd")
+                    linea += ", sonda remote_bitbang para OpenOCD en el puerto " +
+                             std::to_string(m.decl.puerto_gdb) + por;
+                else if (m.decl.depuracion == "cmsis-dap")
+                    linea += ", sonda CMSIS-DAP por TCP en el puerto " +
+                             std::to_string(m.decl.puerto_gdb) + por;
+                else
+                    linea += ", gdb por " + m.decl.depuracion + " en el puerto " +
+                             std::to_string(m.decl.puerto_gdb);
             }
             std::printf("%s\n", linea.c_str());
         }
@@ -708,6 +799,45 @@ SC_MODULE(Sim) {
         }
     }
 
+    // `--swo DESTINO` y `--swo-bitrate`: la traza de LA sonda Xds110 de la
+    // placa, sin tocar el XML. Con ninguna, o con dos, no se sabe cual
+    void aplica_swo() {
+        if (g_swo.empty() && g_swo_bitrate <= 0) return;
+        std::vector<Instancia*> x;
+        for (const Instancia& i : placa.instancias())
+            if (i.tipo == "Xds110") x.push_back(placa.busca(i.id));
+        if (x.empty()) muere("--swo: la placa no lleva ninguna sonda Xds110 (la de las LaunchPad MSP432)");
+        if (x.size() > 1) muere("--swo: la placa lleva " + std::to_string(x.size()) +
+                                " sondas Xds110; ponlo en el swo= de la que sea");
+        if (!g_swo.empty()) {
+            const serie::Destino d = serie::parsea(g_swo);
+            if (!d.valido) muere("--swo " + g_swo + ": " + d.error);
+            x[0]->params["swo"] = g_swo;
+        }
+        if (g_swo_bitrate > 0) {
+            char b[32];
+            std::snprintf(b, sizeof b, "%.0f", g_swo_bitrate);
+            x[0]->params["swo_bitrate"] = b;
+        }
+    }
+
+    // La pieza Xds110 de la placa de un chip: en una placa suelta, la que
+    // haya; en un sistema, la de la misma placa (`L/XDS` para `L/u0`)
+    std::string busca_xds110(const DeclMcu& d) {
+        const size_t b = d.id.find('/');
+        const std::string pl = b == std::string::npos ? std::string() : d.id.substr(0, b);
+        std::string hallada;
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Xds110") continue;
+            if (placa.es_sistema() && placa.placa_de(i.id) != pl) continue;
+            if (!hallada.empty())
+                muere("mcu " + d.id + ": su placa lleva dos sondas Xds110 (" + hallada + " y " +
+                      i.id + "), y --" + d.depuracion + " no sabe cual usar");
+            hallada = i.id;
+        }
+        return hallada;
+    }
+
     void resuelve_puentes_serie() {
         std::vector<serie::Pieza> decl;
         for (const Instancia& i : placa.instancias()) {
@@ -804,6 +934,11 @@ SC_MODULE(Sim) {
         if (!g_img.empty())        no("un firmware (" + g_img + ") no tiene donde cargarse y");
         if (!g_firmwares.empty())  no("--firmware");
         if (!g_sin_firmware.empty() || g_sin_firmware_todos) no("--sin-firmware");
+        if (!g_roms.empty())       no("--rom");
+        if (!g_tlvs.empty())       no("--tlv");
+        if (!g_bsls.empty())       no("--bsl");
+        if (!g_eths.empty())       no("--eth");
+        if (!g_usbs.empty())       no("--usb");
         if (!g_gdb_modo.empty())   no("un stub de GDB (--gdb, --gdb-dap)");
         if (g_puerto_dado)         no("--port");
         if (g_traza_gdb)           no("--traza-gdb");
@@ -843,10 +978,33 @@ SC_MODULE(Sim) {
             busca("--firmware", f.first).firmware = f.second;
         }
     }
+    // `--rom ID=VALOR` y `--tlv ID=FICHERO`: al <mcu> de ese id, encima de lo
+    // que diga el XML. Los que van sin id se aplican al montar, a todos.
+    void aplica_rom_tlv(std::vector<DeclMcu>& decls) {
+        auto aplica = [&](const char* op, const std::vector<std::pair<std::string, std::string>>& v,
+                          std::string DeclMcu::*campo) {
+            std::set<std::string> dichos;
+            for (const auto& x : v) {
+                if (x.first.empty()) continue;
+                if (!dichos.insert(x.first).second)
+                    muere(std::string(op) + " " + x.first + ": se dice dos veces");
+                bool hay = false;
+                for (DeclMcu& m : decls)
+                    if (m.id == x.first) { m.*campo = x.second; hay = true; }
+                if (!hay) muere(std::string(op) + " " + x.first + ": no hay ningun MCU con ese id");
+            }
+        };
+        aplica("--rom", g_roms, &DeclMcu::rom);
+        aplica("--tlv", g_tlvs, &DeclMcu::tlv);
+        aplica("--bsl", g_bsls, &DeclMcu::bsl);
+        aplica("--eth", g_eths, &DeclMcu::eth);
+        aplica("--usb", g_usbs, &DeclMcu::usb);
+    }
 
     void aplica_linea_de_ordenes(std::vector<DeclMcu>& decls) {
         if (decls.empty()) return;           // sin MCU: ya lo ha mirado comprueba_sin_mcu
         aplica_firmwares(decls);
+        aplica_rom_tlv(decls);
         const bool global = !g_img.empty() || !g_gdb_modo.empty() || g_puerto_dado;
         if (decls.size() > 1) {
             if (!global) return;
@@ -872,7 +1030,12 @@ SC_MODULE(Sim) {
         }
         if (!g_gdb_modo.empty()) {
             m.depuracion = g_gdb_modo;
-            if (!m.puerto_gdb) m.puerto_gdb = 3333;      // el de siempre
+            // el de siempre; el de OpenOCD, otro, porque OpenOCD abre el 3333
+            // para su propio GDB
+            if (!m.puerto_gdb)
+                m.puerto_gdb = g_gdb_modo == "openocd"   ? 3335u
+                             : g_gdb_modo == "cmsis-dap" ? cmsis_dap::PUERTO_OMISION
+                                                         : 3333u;
         }
         if (g_puerto_dado) {
             m.puerto_gdb = g_gdb_puerto;
@@ -946,18 +1109,25 @@ SC_MODULE(Sim) {
     // el sondeo del canal, que en marcha hace la pieza, es cosa de aqui.
     // -----------------------------------------------------------------------
     void espera_terminales() {
-        std::vector<PuenteSerie*> red;
+        // Los canales por red: los de los puentes serie y la traza SWO de las
+        // sondas XDS110 (esa, sin RFC 2217 que negociar)
+        struct Espera { CanalTcp* c; CanalRfc2217* rfc; std::string que; };
+        std::vector<Espera> red;
         for (const serie::Pieza& p : puentes)
             if (PuenteSerie* ps = placa.como<PuenteSerie>(p.id))
-                if (ps->por_red()) red.push_back(ps);
+                if (ps->por_red()) red.push_back({ps->tcp(), ps->rfc2217(), ps->canal().describir()});
+        for (const Instancia& i : placa.instancias())
+            if (i.tipo == "Xds110")
+                if (Xds110* x = placa.como<Xds110>(i.id))
+                    if (CanalTcp* c = x->canal_swo_tcp())
+                        red.push_back({c, nullptr, c->describir() + " (SWO de " + i.id + ")"});
         if (red.empty()) {
             std::fprintf(stderr, "  [serie] --espera-terminal: esta placa no tiene "
                          "puentes serie por red; no hay nada que esperar\n");
             return;
         }
-        for (PuenteSerie* ps : red)
-            std::printf("esperando a un terminal en %s (Ctrl-C para salir)\n",
-                        ps->canal().describir().c_str());
+        for (const Espera& e : red)
+            std::printf("esperando a un terminal en %s (Ctrl-C para salir)\n", e.que.c_str());
         std::fflush(stdout);
         using reloj = std::chrono::steady_clock;
         const auto segundos = [](reloj::time_point t) {
@@ -970,7 +1140,7 @@ SC_MODULE(Sim) {
         for (;;) {
             bool todos = true;
             for (std::size_t i = 0; i < n; ++i) {
-                CanalTcp* c = red[i]->tcp();
+                CanalTcp* c = red[i].c;
                 c->sondear();
                 const bool hay = c->conectado();
                 if (hay && !tenia[i]) { desde[i] = ultimo[i] = reloj::now(); bytes[i] = 0; }
@@ -981,7 +1151,7 @@ SC_MODULE(Sim) {
                     ultimo[i] = reloj::now();
                 }
                 bool listo = segundos(ultimo[i]) > 0.3;
-                if (CanalRfc2217* r = red[i]->rfc2217()) {
+                if (CanalRfc2217* r = red[i].rfc) {
                     const auto& ng = r->negociador();
                     if (ng.despierto() && !(ng.com_port() && ng.binario_salida()))
                         listo = false;
@@ -1011,6 +1181,54 @@ SC_MODULE(Sim) {
         }
         wait(10, SC_US);
 
+        // La ROM y el TLV de los chips que los tienen (T4), antes del
+        // firmware: lo que dice su <mcu> o `--rom/--tlv ID=`, y si no, lo que
+        // vaya sin id en la linea de ordenes. Sin id, un chip que no lo tiene
+        // se salta; con id, o en el XML, es un error.
+        for (const char* clave : {"rom", "tlv", "bsl", "eth", "usb"}) {
+            const char c = clave[0];
+            auto& lista = c == 'r' ? g_roms : c == 't' ? g_tlvs : c == 'b' ? g_bsls : c == 'e' ? g_eths : g_usbs;
+            std::string todos;
+            for (const auto& x : lista)
+                if (x.first.empty()) todos = x.second;
+            unsigned aceptan = 0;
+            for (McuMontado& m : mcus) {
+                const std::string& propio = c == 'r' ? m.decl.rom : c == 't' ? m.decl.tlv
+                                          : c == 'b' ? m.decl.bsl : c == 'e' ? m.decl.eth : m.decl.usb;
+                const std::string v = !propio.empty() ? propio : todos;
+                if (v.empty()) continue;
+                if (propio.empty() && !m.mcu->admite_opcion(clave)) continue;  // sin id: no lo tiene
+                const std::string e = m.mcu->opcion(clave, v);
+                const char* quien = m.decl.id.empty() ? "(el mcu)" : m.decl.id.c_str();
+                if (!e.empty()) muere(std::string(clave) + " de " + quien + ": " + e);
+                ++aceptan;
+                std::printf("%s de %s: %s\n", clave, quien,
+                            m.mcu->describe_opcion(clave).c_str());
+                // Un puente Ethernet por TCP sin --tiempo-real: los plazos de
+                // ARP y TCP del otro lado son de reloj de pared
+                if (c == 'e' && v.rfind("qemu", 0) == 0 && g_tiempo_real <= 0.0 && !g_ms_dado)
+                    std::fprintf(stderr, "  [eth] AVISO: el Ethernet de %s va por TCP y no se ha "
+                                 "pedido --tiempo-real: los plazos de ARP y TCP del ordenador\n"
+                                 "        son de reloj de pared, y la simulacion va a su ritmo\n", quien);
+                // Y uno USB por TCP: como el puente serie, el terminal vera el
+                // ritmo de la simulacion
+                if (c == 'u' && v != "memoria" && g_tiempo_real <= 0.0 && !g_ms_dado)
+                    std::fprintf(stderr, "  [usb] AVISO: el USB de %s va a un terminal por TCP y no se ha "
+                                 "pedido --tiempo-real:\n        el terminal vera el ritmo de la "
+                                 "simulacion, no el de la placa\n", quien);
+            }
+            if (!todos.empty() && aceptan == 0)
+                muere(std::string("--") + clave + " " + todos + ": ninguno de los MCUs de "
+                      "la placa tiene " + clave + " que se pueda cambiar (es de los MSP432)");
+        }
+        // Lo que la ROM o el TLV nuevos cambian de lo que se dijo al montar
+        for (McuMontado& m : mcus) {
+            const std::string nm = m.decl.id.empty() ? std::string("dut") : m.decl.id;
+            for (const std::string& q : m.mcu->limitaciones())
+                if (std::find(m.ojo.begin(), m.ojo.end(), q) == m.ojo.end())
+                    std::fprintf(stderr, "  [ojo] %s: %s\n", nm.c_str(), q.c_str());
+        }
+
         for (McuMontado& m : mcus) {
             const char* quien = m.decl.id.empty() ? "" : m.decl.id.c_str();
             // Todo por la interfaz: DONDE va el firmware y donde esta la SRAM
@@ -1022,9 +1240,8 @@ SC_MODULE(Sim) {
                 std::printf("firmware%s%s: %s\n",
                             *quien ? " de " : "", quien, m.decl.firmware.c_str());
             } else {
-                m.mcu->aparca_en_wfe();
-                std::printf("sin firmware%s%s: el nucleo se aparca en wfe\n",
-                            *quien ? " en " : "", quien);
+                const std::string que = m.mcu->sin_firmware();
+                std::printf("sin firmware%s%s: %s\n", *quien ? " en " : "", quien, que.c_str());
             }
         }
 
@@ -1053,7 +1270,10 @@ SC_MODULE(Sim) {
                 // ultimo paquete antes del "cliente desconectado" es el que no
                 // le gusto. La capacidad ya existia en el stub (set_verbose);
                 // lo que faltaba era poder pedirla desde fuera.
-                if (m.stub) {                                   // modo pines
+                if (m.ocd) {                                    // modo openocd
+                    m.ocd->set_verbose(g_traza_gdb);
+                    m.ocd->set_enabled(true);
+                } else if (m.stub) {                            // modo pines
                     m.stub->set_verbose(g_traza_gdb);
                     m.stub->set_enabled(true);
                 } else if (m.mcu->tiene_gdb_interno()) {       // modo dap
@@ -1074,7 +1294,7 @@ SC_MODULE(Sim) {
             std::printf("esperando a %s; la simulacion no se detiene sola "
                         "(Ctrl-C para salir)\n",
                         hay_stub && hay_puente_red ? "GDB y a los puentes serie"
-                        : hay_stub ? "GDB" : "los puentes serie");
+                        : hay_stub ? "GDB (u OpenOCD)" : "los puentes serie");
             // Y se vacia el buffer, que aqui no es manía. Este printf es el
             // ULTIMO antes de un bucle infinito: redirigida la salida a un
             // fichero deja de ser linea a linea y pasa a bloques, y como de
@@ -1156,6 +1376,30 @@ SC_MODULE(Sim) {
                         nd.c_str(), l->on() ? "encendido" : "apagado",
                         double(l->pin_voltage()), l->current() * 1e3);
         }
+        // Los LED RGB: lo que se ve -la mezcla- y cada canal con su pin, como
+        // un LED suelto
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "RGBLed") continue;
+            const RGBLed* l = placa.como<RGBLed>(i.id);
+            if (!l) continue;
+            std::string canales;
+            for (unsigned k = 0; k < 3; ++k) {
+                if (!l->tiene(k)) continue;
+                char c[160];
+                if (l->al_aire(k))
+                    std::snprintf(c, sizeof c, "%s en %s: un extremo al aire", RGBLed::nombre_canal(k),
+                                  i.nodo_de(RGBLed::terminal_canal(k)).c_str());
+                else
+                    std::snprintf(c, sizeof c, "%s en %s: %s, %.2f V, %.2f mA", RGBLed::nombre_canal(k),
+                                  i.nodo_de(RGBLed::terminal_canal(k)).c_str(),
+                                  l->on(k) ? "encendido" : "apagado",
+                                  std::fabs(l->tension(k)) < 0.005 ? 0.0 : l->tension(k),
+                                  l->current(k) * 1e3);
+                canales += (canales.empty() ? "" : "; ") + std::string(c);
+            }
+            std::printf("  LED RGB %s: %s  (%s)\n", i.id.c_str(), l->color_visto().c_str(),
+                        canales.c_str());
+        }
         // Las fuentes y las masas: cuanto entregan -o reciben- y si han tenido
         // que limitar. Es lo que se mira en una placa sin MCU.
         for (const Instancia& i : placa.instancias()) {
@@ -1171,6 +1415,37 @@ SC_MODULE(Sim) {
             if (f->episodios())
                 std::printf(", %u episodio(s) de sobrecorriente", f->episodios());
             std::printf("\n");
+        }
+        // Las sondas XDS110: lo que entrega su LDO -todo el lado del objetivo-
+        // y lo que ha llegado por la traza
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Xds110") continue;
+            const Xds110* x = placa.como<Xds110>(i.id);
+            if (!x) continue;
+            std::printf("  XDS110 %s:", i.id.c_str());
+            if (x->tiene_ldo())
+                std::printf(" 3V3 %.3f mA (limite %.3g mA)%s",
+                            std::fabs(x->corriente()) < 5e-7 ? 0.0 : x->corriente() * 1e3,
+                            x->config().limite_ma, x->sobrecorriente() ? "  SOBRECORRIENTE" : "");
+            else
+                std::printf(" sin LDO");
+            if (x->config().con_swo)
+                std::printf("; SWO %llu bytes, %llu mensajes ITM",
+                            (unsigned long long)x->bytes_swo(),
+                            (unsigned long long)x->mensajes_itm());
+            if (x->resets()) std::printf("; %u SRST", x->resets());
+            std::printf("\n");
+            const std::string t = x->texto_swo();
+            if (!t.empty()) {
+                std::printf("  SWO %s (memoria):\n", i.id.c_str());
+                size_t a = 0;
+                while (a < t.size()) {
+                    size_t b = t.find('\n', a);
+                    if (b == std::string::npos) b = t.size();
+                    std::printf("    | %s\n", t.substr(a, b - a).c_str());
+                    a = b + 1;
+                }
+            }
         }
         // Las pantallas: que ensenan y como lo tienen puesto. Lo que se ve de
         // verdad lo pinta la ventana; aqui, lo que hay que saber si no se ve
@@ -1478,8 +1753,14 @@ static const OpcionCli OPCIONES[] = {
      "stub de GDB por los pines SWD"},
     {"--gdb-dap", "bandera", "", "", "", "gdb", false, true, "",
      "stub de GDB contra el DAP"},
+    {"--openocd", "bandera", "", "", "", "gdb", false, true, "",
+     "sonda SWD para OpenOCD (remote_bitbang) en los pines; puerto 3335 si no se "
+     "dice --port"},
+    {"--cmsis-dap", "bandera", "", "", "", "gdb", false, true, "",
+     "sonda CMSIS-DAP por TCP para OpenOCD (cmsis-dap tcp) en los pines; puerto 4441 "
+     "si no se dice --port"},
     {"--port", "valor", "entero", "3333", "", "", false, true, "3333",
-     "puerto TCP del stub de GDB"},
+     "puerto TCP del stub de GDB, o de la sonda de OpenOCD"},
     {"--traza-gdb", "bandera", "", "", "", "", false, true, "",
      "imprime cada paquete RSP que llega al stub"},
     {"--firmware", "valor", "texto", "", "", "", true, true, "u0=mi_programa.bin",
@@ -1487,9 +1768,38 @@ static const OpcionCli OPCIONES[] = {
      "con varios MCUs. Manda sobre el firmware= de su <mcu>"},
     {"--sin-firmware", "valor_opcional", "texto", "", "", "", true, true, "u0",
      "ese MCU -sin ID, todos- sin firmware, aunque el XML diga uno: el nucleo se "
-     "aparca en wfe"},
+     "aparca en wfe (un MSP432E4 con ROM arranca en blanco su cargador serie)"},
+    {"--rom", "valor", "texto", "", "", "", true, true, "u0=ninguna",
+     "la ROM de DriverLib de un MSP432P4 o un MSP432E4, como [ID=]VALOR: r1 (la "
+     "sustituta, por omision), ninguna, o la de TI de un fichero: un volcado de la "
+     "ventana (0x0200_0000 en el P4, 0x0100_0000 en el E4) o un ELF. Sin ID, de "
+     "todos los que la tienen"},
+    {"--bsl", "valor", "texto", "", "", "", true, true, "u0=ninguno",
+     "el BSL de un MSP432P4, como [ID=]VALOR: b1 (el sustituto, por omision), "
+     "ninguno, o el de TI de un fichero: el BSL432_MSP432P401.txt (o .out) del "
+     "paquete MSP432BSL. Con la Flash en blanco el chip arranca en el. Sin ID, de "
+     "todos los que lo tienen"},
+    {"--eth", "valor", "texto", "", "", "", true, true, "u0=qemu:5555",
+     "el Ethernet de un MSP432E4, como [ID=]DESTINO: memoria, qemu:PUERTO (un "
+     "servidor con el protocolo de -netdev stream de QEMU, el de gvproxy y passt) "
+     "o qemu-cliente:HOST:PUERTO; con ,pcap=FICHERO guarda lo que pasa. Sin ID, "
+     "de todos los que lo tienen"},
+    {"--usb", "valor", "texto", "", "", "", true, true, "u0=rfc2217:3356",
+     "el USB de un MSP432E4 como dispositivo, como [ID=]DESTINO: un PC que enumera "
+     "el CDC-ACM del firmware y lo lleva a un puerto serie del puente serie: "
+     "rfc2217:PUERTO, tcp:PUERTO, rfc2217-cliente:HOST:PUERTO, tcp-cliente:HOST:PUERTO "
+     "o memoria. Los baudios del terminal llegan al firmware en SET_LINE_CODING. "
+     "Sin ID, de todos los que lo tienen"},
+    {"--tlv", "valor", "texto", "", "", "", true, true, "u0=tlv.bin",
+     "el TLV de una placa MSP432P4, como [ID=]FICHERO: los 4 KB de 0x0020_1000 "
+     "volcados. Sin ID, de todos los que lo tienen"},
     {"--mcus", "accion", "", "", "", "", false, false, "",
      "la lista de los MCUs de la placa en XML -id, tipo y firmware-, para mcu-sim-gui"},
+    {"--swo", "valor", "texto", "", "", "", false, true, "tcp:3358",
+     "a donde va la traza SWO de la sonda Xds110 de la placa: memoria, tcp:PUERTO, "
+     "rfc2217:PUERTO o sus clientes"},
+    {"--swo-bitrate", "valor", "numero", "", "bit/s", "", false, true, "1000000",
+     "los bit/s de la traza SWO: los que programa el firmware en el TPIU"},
     {"--serie", "valor", "texto", "", "", "", true, true, "VCP=rfc2217:4000",
      "a donde da el PuenteSerie ID: ID=memoria, tcp:PUERTO, rfc2217:PUERTO, "
      "tcp-cliente:HOST:PUERTO o rfc2217-cliente:HOST:PUERTO"},
@@ -1531,8 +1841,8 @@ static int vuelca_argumentos() {
         x += " ayuda=\"" + xml_escapa(o.ayuda) + "\"";
         if (!es_mcu) { x += "/>\n"; continue; }
         x += ">\n";
-        for (const McuCaps* m : CATALOGO_MCU)
-            x += std::string("    <valor>") + xml_escapa(m->nombre) + "</valor>\n";
+        for (const McuDesc& m : CatalogoMcu::todos())
+            x += std::string("    <valor>") + xml_escapa(m.nombre) + "</valor>\n";
         x += "  </opcion>\n";
     }
     x += "</argumentos>\n";
@@ -1554,6 +1864,7 @@ static int lista_mcus() {
     using stm32::xml_escapa;
     Netlist placa;
     std::string nombre;
+    ContextoNomenclatura::g().pon_tipo_por_omision(g_tipo_mcu);
     const std::string e = placa_o_sistema_desde_fichero(placa, g_placa, &nombre);
     if (!e.empty()) {
         std::fprintf(stderr, "error de netlist: %s\n", e.c_str());
@@ -1604,6 +1915,37 @@ int sc_main(int argc, char** argv) {
             }
             g_firmwares.emplace_back(v.substr(0, igual), v.substr(igual + 1));
         }
+        // `--rom [ID=]VALOR` y `--tlv [ID=]FICHERO`, con o sin igual detras
+        // de la opcion. Lo que va antes del primer igual es un id si no lleva
+        // ni '.', ni '\', ni ':' -un fichero o una ruta de Windows si los
+        // llevan; `N/u0`, el id de un sistema, no-. Que exista se mira luego.
+        else if (a == "--rom" || a.rfind("--rom=", 0) == 0 ||
+                 a == "--tlv" || a.rfind("--tlv=", 0) == 0 ||
+                 a == "--bsl" || a.rfind("--bsl=", 0) == 0 ||
+                 a == "--eth" || a.rfind("--eth=", 0) == 0 ||
+                 a == "--usb" || a.rfind("--usb=", 0) == 0) {
+            const char c = a[2];
+            const bool es_rom = c == 'r';
+            const char* op = c == 'r' ? "--rom" : c == 't' ? "--tlv" : c == 'b' ? "--bsl" : c == 'e' ? "--eth" : "--usb";
+            std::string v;
+            if (a.size() > 5 && a[5] == '=') v = a.substr(6);
+            else if (i + 1 < argc && argv[i + 1][0] != '-') v = argv[++i];
+            if (v.empty()) {
+                std::fprintf(stderr, "%s: hace falta [ID=]%s, como en %s u0=%s\n",
+                             op, es_rom || c == 'b' || c == 'e' ? "VALOR" : c == 'u' ? "DESTINO" : "FICHERO",
+                             op, es_rom ? "ninguna" : c == 'b' ? "ninguno" : c == 'e' ? "qemu:5555"
+                                 : c == 'u' ? "rfc2217:3356" : "tlv.bin");
+                return 1;
+            }
+            std::string id;
+            const size_t igual = v.find('=');
+            if (igual != std::string::npos && igual > 0 &&
+                v.find_first_of(".\\:", 0) > igual) {
+                id = v.substr(0, igual);
+                v = v.substr(igual + 1);
+            }
+            (c == 'r' ? g_roms : c == 't' ? g_tlvs : c == 'b' ? g_bsls : c == 'e' ? g_eths : g_usbs).emplace_back(id, v);
+        }
         // `--sin-firmware`, todos los chips; `--sin-firmware=ID`, ese. Solo con
         // igual: detras puede ir la placa, que no es un id
         else if (a == "--sin-firmware") g_sin_firmware_todos = true;
@@ -1628,6 +1970,8 @@ int sc_main(int argc, char** argv) {
         else if (a.rfind("--ms=", 0) == 0) { g_ms = std::atof(a.c_str() + 5); g_ms_dado = true; }
         else if (a == "--gdb")     g_gdb_modo = "pines";
         else if (a == "--gdb-dap") g_gdb_modo = "dap";
+        else if (a == "--openocd") g_gdb_modo = "openocd";
+        else if (a == "--cmsis-dap") g_gdb_modo = "cmsis-dap";
         else if (a.rfind("--port=", 0) == 0) {
             g_gdb_puerto = unsigned(std::atoi(a.c_str() + 7));
             g_puerto_dado = true;
@@ -1651,6 +1995,23 @@ int sc_main(int argc, char** argv) {
         // puentes. La SINTAXIS se comprueba aqui, en cuanto se lee, como la de
         // `--gui`; que el puente exista y que su puerto este libre se
         // comprueba al leer la placa, que es cuando se sabe.
+        else if (a == "--swo" || a.rfind("--swo=", 0) == 0) {
+            if (a.rfind("--swo=", 0) == 0) g_swo = a.substr(6);
+            else if (i + 1 < argc && argv[i + 1][0] != '-') g_swo = argv[++i];
+            if (g_swo.empty()) {
+                std::fprintf(stderr, "--swo: falta el destino de la traza: memoria, tcp:PUERTO, "
+                             "rfc2217:PUERTO...\n");
+                return 1;
+            }
+        }
+        else if (a.rfind("--swo-bitrate=", 0) == 0) {
+            g_swo_bitrate = std::atof(a.c_str() + 14);
+            if (g_swo_bitrate < 100.0 || g_swo_bitrate > 50e6) {
+                std::fprintf(stderr, "--swo-bitrate: %s no vale (de 100 a 50000000 bit/s)\n",
+                             a.c_str() + 14);
+                return 1;
+            }
+        }
         else if (a == "--serie" || a.rfind("--serie=", 0) == 0) {
             std::string v;
             if (a.rfind("--serie=", 0) == 0) v = a.substr(8);
@@ -1727,6 +2088,10 @@ int sc_main(int argc, char** argv) {
                 "     sim placa.xml --ondas      con la onda cuadrada de los relojes\n"
                 "     sim placa.xml --gdb        stub de GDB por los pines SWD\n"
                 "     sim placa.xml --gdb-dap    stub de GDB contra el DAP\n"
+                "     sim placa.xml --openocd    sonda SWD para OpenOCD por\n"
+                "                                remote_bitbang (puerto 3335)\n"
+                "     sim placa.xml --cmsis-dap  sonda CMSIS-DAP por TCP para\n"
+                "                                OpenOCD (puerto 4441)\n"
                 "     sim placa.xml --port=3333  puerto TCP del stub\n"
                 "     sim placa.xml --traza-gdb  imprime cada paquete RSP recibido\n"
                 "     sim placa.xml --gui[=host:puerto]  habla con mcu-sim-gui\n"
@@ -1750,6 +2115,10 @@ int sc_main(int argc, char** argv) {
                 "                                haya un terminal en cada puente\n"
                 "                                serie por red: asi se ve el saludo\n"
                 "                                (doc/puente_serie.md)\n"
+                "     sim placa.xml --swo DESTINO  la traza SWO de la sonda Xds110\n"
+                "                                (LaunchPad MSP432): memoria, tcp:..,\n"
+                "                                rfc2217:.. como --serie\n"
+                "     sim placa.xml --swo-bitrate=N  bit/s del SWO (1000000)\n"
                 "     sim placa.xml --mcu TIPO   el MCU de la placa: lo pone si el XML\n"
                 "                                no declara ninguno y manda sobre el\n"
                 "                                tipo si declara uno. Sin <mcu> ni\n"
@@ -1760,7 +2129,32 @@ int sc_main(int argc, char** argv) {
                 "                                firmware= del XML. Una vez por chip\n"
                 "     sim placa.xml --sin-firmware[=ID]  ese MCU -sin ID, todos- sin\n"
                 "                                firmware, aunque el XML diga uno: el\n"
-                "                                nucleo se aparca en wfe\n"
+                "                                nucleo se aparca en wfe (un MSP432E4\n"
+                "                                con ROM: Flash en blanco, y arranca\n"
+                "                                el cargador serie de la ROM)\n"
+                "     sim placa.xml --rom [ID=]VALOR  la ROM de DriverLib de un\n"
+                "                                MSP432P4 o E4: r1 (la sustituta, por\n"
+                "                                omision), ninguna, o la de TI: un\n"
+                "                                volcado de la ventana (0x0200_0000\n"
+                "                                en el P4, 0x0100_0000 en el E4) o un\n"
+                "                                ELF. Sin ID, de todos\n"
+                "     sim placa.xml --bsl [ID=]VALOR  el BSL de un MSP432P4: b1 (el\n"
+                "                                sustituto, por omision), ninguno, o\n"
+                "                                el de TI (BSL432_MSP432P401.txt u\n"
+                "                                .out). Con la Flash en blanco el\n"
+                "                                chip arranca en el. Sin ID, de todos\n"
+                "     sim placa.xml --eth [ID=]DESTINO  el Ethernet de un MSP432E4: memoria,\n"
+                "                                qemu:PUERTO (tramas por TCP con el\n"
+                "                                protocolo de QEMU, el de gvproxy) o\n"
+                "                                qemu-cliente:HOST:PUERTO; y\n"
+                "                                ,pcap=FICHERO guarda lo que pasa\n"
+                "     sim placa.xml --usb [ID=]DESTINO  el USB de un MSP432E4 como\n"
+                "                                dispositivo CDC-ACM, hasta un puerto\n"
+                "                                serie: rfc2217:PUERTO, tcp:PUERTO,\n"
+                "                                sus -cliente:HOST:PUERTO o memoria\n"
+                "     sim placa.xml --tlv [ID=]FICHERO  el TLV de una placa MSP432P4\n"
+                "                                (los 4 KB de 0x0020_1000): el DCO\n"
+                "                                sigue sus calibraciones\n"
                 "     sim placa.xml --mcus       la lista de sus MCUs en XML -id, tipo\n"
                 "                                y firmware-, para mcu-sim-gui\n"
                 "     sim placa.xml --ms=2       tiempo simulado (global: hay un\n"

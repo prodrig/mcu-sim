@@ -1,30 +1,32 @@
 # mcu-sim
 
-**Un microcontrolador STM32F4 que no existe, y se comporta como si existiera.**
+**Un microcontrolador que no existe, y se comporta como si existiera.**
 
 [![suites](https://github.com/prodrig/mcu-sim/actions/workflows/suites.yml/badge.svg)](https://github.com/prodrig/mcu-sim/actions/workflows/suites.yml)
 
-`mcu-sim` es un modelo en **SystemC 2.3.4** de varios microcontroladores de la
-familia STM32F4. Ejecuta el **binario de verdad** —el `.bin` que sale de
-STM32CubeIDE, sin recompilar ni adaptar nada— sobre un núcleo Cortex-M4F
-simulado instrucción a instrucción, con sus periféricos y con sus pines.
+`mcu-sim` es un modelo en **SystemC 2.3.4** de varios microcontroladores con
+núcleo Cortex-M4F. Ejecuta el **binario de verdad** —el que sale del IDE del
+fabricante, STM32CubeIDE o Code Composer Studio, sin recompilar ni adaptar
+nada— sobre ese núcleo simulado instrucción a instrucción, con sus periféricos
+y con sus pines.
 
 Está hecho para una situación concreta: **un alumno que no tiene la placa
-delante**. Desarrolla en STM32CubeIDE como siempre, y en vez de programar una
-NUCLEO, lanza su firmware contra este programa y observa lo mismo que
+delante**. Desarrolla en su IDE como siempre, y en vez de programar la placa,
+lanza su firmware contra este programa y observa lo mismo que
 observaría con un osciloscopio y un depurador.
 
 ---
 
 ## Qué modela
 
-**Tres piezas**, con sus diferencias reales, no una sola con interruptores:
+**Cuatro piezas**, con sus diferencias reales, no una sola con interruptores:
 
 | | Referencia | De qué va |
 | :--- | :--- | :--- |
 | **F407VG** | LQFP100, 168 MHz | La pieza principal. Es la que tiene la suite grande |
 | **F446RE** | NUCLEO-F446RE | La prueba cruzada: lo que el F446 **no** lleva y decodifica distinto |
 | **F415 / F417** | — | El acelerador criptográfico (AES, DES, HASH) |
+| **MSP432P401R** | MSP-EXP432P401R | **Otro fabricante**, el mismo núcleo: Texas Instruments. En construcción (`doc/analisis_msp432.md`, fases T0 a T3 hechas: arranca, se programa, se depura y tiene sus periféricos; con la BOOSTXL-EDUMKII) |
 
 **El núcleo** ejecuta Thumb-2 de verdad, con FPU, excepciones, NVIC, MPU y
 lockup. **Los periféricos** —RCC, DMA, temporizadores, USART, SPI/I²S, I²C,
@@ -40,7 +42,7 @@ completas desde un fichero XML.
 
 **Se depura como una placa.** Hay servidor GDB, por la sonda soldada a los
 pines o contra el DAP interno, así que `arm-none-eabi-gdb` se conecta igual que
-a un ST-LINK.
+a la sonda de la placa.
 
 ---
 
@@ -71,12 +73,14 @@ No hace falta compilador cruzado de ARM: los firmwares que usan las pruebas
 
 ## Cómo se sabe que funciona
 
-Cinco bancos de pruebas, que se ejecutan en cada cambio y en cuatro plataformas:
+Siete bancos de pruebas, que se ejecutan en cada cambio y en cuatro plataformas:
 
 ```
 make test407    # 2149 comprobaciones    2396293659555 ps   (resto: 2281827784555 ps)
 make test446    #  204                   1033367277932 ps
 make test417    #  165                    718988288 ps
+make testp4     #  406               22678579139423 ps   (resto: 22456139139423 ps; MSP432P401R)
+make teste4     #  203                3881378197978 ps   (resto: 3683870847978 ps; MSP432E401Y)
 make testserie  #  189                   400677589564 ps
 make testgui    #  145                    76450000000 ps
 ```

@@ -458,8 +458,9 @@ public:
 // La segunda familia. A partir de aqui `tipo=` en el XML DESPACHA de verdad:
 // `STM32F407VG` y `STM32F446RE` no son el mismo objeto de C++.
 REGISTRA_MCU(STM32F446, [](const char* nm, DebugCaps d, const Cableado& c,
-                           const McuCaps& caps) -> mcu_if* {
-    return new AdaptadorF4<Stm32F446>(nm, d, c, caps);
+                           const McuDesc& desc) -> mcu_if* {
+    return new AdaptadorF4<Stm32F446>(nm, d, c,
+                                      *static_cast<const McuCaps*>(desc.propio));
 });
 
 } // namespace stm32

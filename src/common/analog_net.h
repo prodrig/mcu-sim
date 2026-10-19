@@ -91,6 +91,21 @@ public:
         floating_out = (den < G_FLOAT);
         return floating_out ? v_pin_ : float(num / den);
     }
+    // La corriente de un driver con la tensión del nodo RESUELTA AHORA, sin el
+    // umbral de 0,1 mV con el que `update()` decide si el nodo ha cambiado.
+    // Con una fuente de 0,1 ohm ese umbral es 1 mA: un consumo de microamperios
+    // no mueve `voltage()` y `current()` daría cero. Es para MEDIR (el LDO de
+    // una sonda XDS110, EnergyTrace); no cambia el nodo ni avisa a nadie.
+    double corriente_exacta(int id) const {
+        double num = 0.0, den = 0.0;           // en double desde el principio:
+        for (const AnalogDrive& d : drv_) {    // el cociente en float ya tiene un
+            num += double(d.v_drv) / double(d.r_out);   // error de 1 uA con 0,1 ohm
+            den += 1.0 / double(d.r_out);
+        }
+        if (den < G_FLOAT) return 0.0;
+        const AnalogDrive& d = drv_[static_cast<size_t>(id)];
+        return (double(d.v_drv) - num / den) / double(d.r_out);
+    }
     // Corriente total que entra al nodo desde los drivers cuyo id no se pasa;
     // sirve al encapsulado para acumular el consumo por VDD/VSS [IR, §2.4].
     float abs_current(int id) const { return std::fabs(current(id)); }

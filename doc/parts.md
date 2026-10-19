@@ -68,7 +68,7 @@ Una placa declara los chips que lleva:
 | `tipo` | *(obligatorio)* | El modelo. Se saben construir **los veintiún miembros de la familia F405/F407/F415/F417**: `STM32F405RG`, `STM32F405OG`, `STM32F405VG`, `STM32F405ZG`, `STM32F405OE`, `STM32F407VE`, `STM32F407VG`, `STM32F407ZE`, `STM32F407ZG`, `STM32F407IE`, `STM32F407IG`, `STM32F415RG`, `STM32F415OG`, `STM32F415VG`, `STM32F415ZG`, `STM32F417VE`, `STM32F417VG`, `STM32F417ZE`, `STM32F417ZG`, `STM32F417IE` y `STM32F417IG` — los diez últimos son los que llevan el acelerador criptográfico. `sim --help` los lista, y `--mcu TIPO` manda sobre él. Lo que los distingue está en `doc/reutilizacion.md` §9 |
 | `id` | *(obligatorio)* | El prefijo de sus nodos (`u0.PD12`) y su nombre en la jerarquía de SystemC |
 | `firmware` | ninguno | La imagen que se le carga en la Flash. **Una por chip** |
-| `depuracion` | `pines` | `pines`: expone SWCLK/SWDIO y el stub se cuelga por fuera, como un ST-LINK. `dap`: reserva los cinco pines de depuración y el stub habla con el núcleo por llamada de función |
+| `depuracion` | `pines` | `pines`: expone SWCLK/SWDIO y el stub se cuelga por fuera, como un ST-LINK. `dap`: reserva los cinco pines de depuración y el stub habla con el núcleo por llamada de función. `openocd`: como `pines`, pero lo que se cuelga es una sonda `remote_bitbang` para que OpenOCD genere el SWD; `puerto_gdb` es entonces el de esa sonda (T5 del MSP432) |
 | `puerto_gdb` | `0` | Puerto TCP de su stub. **0 = no se abre ninguno** |
 
 **El MCU no se supone.** Si la placa no declara ninguno, lo pone `--mcu TIPO`
@@ -103,6 +103,30 @@ veces o todo esto junto al firmware posicional son errores que dicen por qué. Y
 `mcu-sim placa.xml --mcus` lista los chips —id, tipo y firmware del XML— en XML:
 es lo que usa el diálogo de lanzamiento de `mcu-sim-gui` para poner una fila de
 firmware por chip, con su casilla «sin firmware» (su plan §42).
+
+**La ROM y el TLV de un MSP432P4** (T4 del MSP432). Su `<mcu>` admite
+`rom="..."` y `tlv="..."`, y la línea de órdenes `--rom [ID=]VALOR` y `--tlv
+[ID=]FICHERO`, que mandan sobre el XML. La ROM de DriverLib es `r1` por
+omisión —la sustituta, que va dentro del simulador—, `ninguna`, o la de TI de
+un fichero: un volcado de los 32 KB de 0x0200_0000 o la imagen con símbolos
+que instala CCS (`msp432_driverlib_rom_image.out`). El TLV es el sintético
+por omisión, o los 4 KB de 0x0020_1000 volcados de una placa; con él, el DCO
+del modelo sigue las calibraciones de esa pieza. Sin ID se aplica a todos los
+chips que los tienen; un chip que no los tiene, con ID o en su XML, es un
+error.
+
+**El Ethernet y el USB de un MSP432E4** (T7 del MSP432). No son piezas de la
+placa sino puentes del chip: su `<mcu>` admite `eth="..."` y `usb="..."`, y la
+línea de órdenes `--eth [ID=]DESTINO` y `--usb [ID=]DESTINO`, que mandan sobre
+el XML. `eth` lleva las tramas de su PHY interno a `memoria`, `qemu:PUERTO` o
+`qemu-cliente:HOST:PUERTO` (el protocolo de `-netdev stream` de QEMU, el de
+gvproxy y passt), con `,pcap=FICHERO` detrás si se quieren guardar
+(`parts/puente_ethernet.h`). `usb` pone un PC en D+/D- (PL6/PL7) que enumera
+el CDC-ACM del firmware y lo saca a un puerto del puente serie: los mismos
+destinos que `--serie` (`rfc2217:PUERTO`, `tcp:PUERTO`, sus `-cliente:` y
+`memoria`), con los baudios, el formato y DTR/RTS del terminal convertidos en
+`SET_LINE_CODING` y `SET_CONTROL_LINE_STATE` (`parts/puente_usb.h`). Por TCP
+conviene `--tiempo-real`.
 
 ### 2.1 Los nodos
 
@@ -311,6 +335,7 @@ y lo que las une se dice en el sistema, que es donde se sabe.
 | `<acopla conectores="A/J1 B/J1 C/J1"/>` | Una **pila** (PC/104, cabeceras apilables): el pin *k* es el mismo en todos. Un conector va en un acople solo |
 | `<hilo a="A/CN9.2" b="B/PA3"/>` | Dos nodos cualesquiera, unidos: un cable, un cruce TX↔RX |
 | `<mcu ref="A/u0" firmware= depuracion= puerto_gdb=/>` | Lo que el montaje decide de un chip de una placa, sin tocar su fichero |
+| `<jumper ref="A/JP1" puente="..."/>` | Dónde va el puente de un `Jumper` de una placa en este montaje, sin tocar su fichero (`Jumper`, §4) |
 
 **Todo lo de la placa `A` se llama `A/...`**: `A/LD2`, `A/u0`, `A/vcc`, el
 pin de conector `A/CN9.2`. Dentro del fichero de la placa se escribe como
@@ -384,7 +409,7 @@ encoder.
 que sugiere un numérico **en grados** —unidad `°`—, y lo puede pedir también
 la tabla. El elemento gira sobre el centro de su caja tantos grados como diga
 ese numérico, a la derecha los positivos, sin vueltas ni posiciones: es el
-aspa del `Servo` (§4.11), que en `placas/servo_sg90.svg` está dibujada en el
+aspa del `Servo` (§4.12), que en `placas/servo_sg90.svg` está dibujada en el
 0 con la pala de la marca hacia arriba. Ese numérico no lleva etiqueta: ya lo
 dice el giro. Como con `giro`, para que gire sobre el eje el elemento lleva
 dentro un círculo centrado en él —sin pintar, `fill="none"`— que alcanza más
@@ -691,6 +716,54 @@ Y el montaje clásico, para comparar:
 </componente>
 ```
 
+#### `RGBLed`
+
+**Tres LED —rojo, verde y azul— en un solo encapsulado transparente**, cada uno
+con su resistencia en serie: el LED RGB de la LED2 de la MSP-EXP432P401R o el
+D1 de la BOOSTXL-EDUMKII. Por dentro son tres `Led` (arriba), con todo lo que
+eso supone —no lineales, `{vf, r}` conduciendo y alta impedancia en corte—,
+que comparten una patilla común. Lo que la pieza añade es **verse como una
+sola**: en la ventana los colores encendidos se mezclan en un único halo —rojo
+y verde dan amarillo; los tres, **blanco**— y el informe del final dice el
+color que se ve.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `r`, `g`, `b` | al menos uno | La patilla de cada color, al pin o al nodo que la gobierne. Un color sin patilla no se monta |
+| `comun` | opcional | La patilla común —el cátodo común o el ánodo común— a la vista, en un nodo. Sin ella va por dentro a masa (`comun="catodo"`) o a `vdd` (`comun="anodo"`) |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `comun` | `catodo` | `catodo`: cada color luce con su patilla **alta**. `anodo`: luce con su patilla **baja**, como un `Led` con `a_vss="no"` |
+| `vdd` | `3.3` | La tensión del ánodo común, solo con `comun="anodo"` y la patilla común por dentro. Con la patilla `comun` a la vista es un error: la tensión la pone ese nodo |
+| `vf_r`, `vf_g`, `vf_b` | `2.0`, `3.0`, `3.0` | La tensión directa de cada color |
+| `r_r`, `r_g`, `r_b` | `330` | La resistencia en serie de cada color |
+
+```xml
+<!-- La LED2 de la MSP-EXP432P401R, tras sus puentes JP9 a JP11 -->
+<componente tipo="RGBLed" id="LED2" comun="catodo" vf_r="2.0" vf_g="2.9" vf_b="2.9"
+            r_r="110" r_g="16" r_b="24">
+  <pin nombre="r" nodo="JP9.2"/>
+  <pin nombre="g" nodo="JP10.2"/>
+  <pin nombre="b" nodo="JP11.2"/>
+</componente>
+```
+
+**Observables**, por este orden: `encendido` (0/1, alguno de los tres; va el
+primero para que una ventana que no sepa de canales lo pinte como un `Led`);
+`rojo`, `verde` y `azul` (0/1, los que sugiere pintar); y `corriente_r`,
+`corriente_g` y `corriente_b` (mA, de 0 a 25). Los seis últimos llevan en el
+catálogo **`color="#rrggbb"`**: un 0/1 y una corriente del mismo color forman
+un **canal**, y la ventana suma los canales encendidos, cada uno con su brillo,
+y lleva la suma al tope —por eso rojo + verde + azul es blanco y no gris—. La
+pieza no dice cómo mezclar: la ventana no sabe qué es un `RGBLed`, solo que
+hay canales.
+
+**Dónde va.** Una placa que lleva un LED RGB de verdad —un único encapsulado—
+lo declara con un `RGBLed`, no con tres `Led`. Tres LED de colores sueltos
+—las LD3 a LD6 de la Discovery, los D1 a D4 de la MSP-EXP432E401Y— siguen
+siendo `Led`: no se mezclan, que están separados.
+
 #### `Button`
 
 Pulsador a masa. **Sin pulsar deja el pin abierto**, así que el nivel alto tiene
@@ -932,7 +1005,7 @@ simulación en marcha.
 
 | Parámetro | Omisión | Efecto |
 | :--- | :--- | :--- |
-| `puente` | *(obligatorio)* | **Los dos pines que une**, por nombre o por número: `"5V VCC"`. Tienen que ser vecinos —uno al lado del otro en la misma fila o columna—. `"no"`: sin puente |
+| `puente` | *(obligatorio)* | **Los dos pines que une**, por nombre o por número: `"5V VCC"`. Tienen que ser vecinos —uno al lado del otro en la misma fila o columna—. Un bloque que lleva **varios puentes** los dice separados por comas, sin que un pin esté en dos: `"1 2, 3 4"`. `"no"`: sin puente |
 | `columnas`, `filas`, `numeracion`, `nombres`, `acodado` | como en `Conector` | La forma de la tira, los nombres de sus pines y hacia dónde salen |
 
 ```xml
@@ -945,10 +1018,18 @@ simulación en marcha.
 ```
 
 Son errores un `puente=` que falta, que no son dos pines, un pin que el jumper
-no tiene, un pin consigo mismo y dos pines que no están uno al lado del otro.
-En el dibujo, el puente es una **variante** (§2.6): `JP1@5V-VCC` —los dos pines
-por orden de pin, con un guion— y `mcu-sim` manda la que dice `puente=`.
-`placas/ftdi_ft232rl.xml` es el ejemplo.
+no tiene, un pin consigo mismo, dos pines que no están uno al lado del otro y
+un pin en dos puentes. En el dibujo, el puente es una **variante** (§2.6):
+`JP1@5V-VCC` —los dos pines por orden de pin, con un guion— y `mcu-sim` manda
+la que dice `puente=`; con varios, unidos por `+` en el orden en que se dicen:
+`JP4@1-2+3-4`. `placas/ftdi_ft232rl.xml` es el ejemplo de uno, y los JP4 y JP5
+de `placas/msp_exp432e401y.xml`, de 2x2 con dos puentes, el de varios.
+
+**Un sistema puede mover el puente** de una de sus placas sin tocar su
+fichero: `<jumper ref="E/J5" puente="PWM LCD"/>` (§2.5). Es como se monta la
+placa en ese sistema: la BOOSTXL-EDUMKII sale de fábrica con su J5 en el rojo
+del RGB, y `placas/msp_exp432e401y_edumkii.xml` lo pasa a la luz de la
+pantalla.
 
 #### `Rpull`
 
@@ -1529,7 +1610,64 @@ sistema, está en `doc/puente_serie.md`**; con `--espera-terminal`, `mcu-sim` no
 arranca el MCU hasta que el terminal está conectado, y así no se pierde lo que
 el firmware imprime al arrancar.
 
-### 4.10 La pantalla TFT
+### 4.10 La sonda XDS110 de las LaunchPad MSP432
+
+#### `Xds110`
+
+**El lado de la sonda de J101** en la MSP-EXP432P401R (el XDS110-ET) y en la
+MSP-EXP432E401Y (el XDS110): el LDO que alimenta el lado del objetivo, la
+sonda SWD para OpenOCD y la traza SWO (X1 de `doc/analisis_xds110.md`).
+Como los puentes de J101 están entre esta pieza y el chip, **hacen lo que en
+la placa**: sin el de 3V3 el chip no arranca; sin el de TMS o el de TCK,
+OpenOCD no encuentra el DAP; sin el de RST no hay SRST.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `3v3` | opcional | La salida del LDO: el pin 3V3 del lado de la sonda de J101. Con él, el adaptador del chip **deja de alimentar** su DVCC (P4) o su VDD (E4): lo pone la placa |
+| `rst` | opcional | El SRST: a masa (10 Ω) mientras OpenOCD resetea |
+| `swdio`, `swclk` | opcional | TMS_SWDIO y TCK_SWCLK. Hacen falta para la sonda |
+| `swo` | opcional | TDO_SWO: la traza. Hace falta para `swo=` |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `et` | `no` | `si`: es el XDS110-ET. Hoy solo se dice; la medida de EnergyTrace es de la fase X3 |
+| `v`, `limite_ma` | `3.3`, `500` | La tensión del LDO y su límite: una `Fuente` por dentro |
+| `sonda` | `no` | `openocd` (`remote_bitbang`) o `cmsis-dap` (CMSIS-DAP por TCP). Lo normal es no ponerlo: **`--openocd` y `--cmsis-dap` (o `depuracion=` en el `<mcu>`) cuelgan la sonda de esta pieza** si la placa del chip la lleva |
+| `puerto` | `3335` / `4441` | El de la sonda |
+| `swo` | `no` | A dónde va la traza: `memoria`, `tcp:PUERTO`, `rfc2217:PUERTO` o sus clientes, como el `host=` de un `PuenteSerie`. `--swo DESTINO` lo dice sin tocar el XML |
+| `swo_bitrate` | `1000000` | Los bit/s de la traza en NRZ —el único formato del XDS110—. **Tienen que ser los del TPIU** (HCLK/(ACPR+1)), o llega basura. `--swo-bitrate=N` |
+| `swo_formato` | `itm` | `itm`: solo lo que el firmware escribe en el puerto de estímulo `swo_puerto` del ITM —el `printf` de `ITM_SendChar`—; `crudo`: los bytes de la línea, para un decodificador externo |
+| `swo_puerto` | `0` | El puerto de estímulo, con `itm` |
+
+```xml
+<componente tipo="Xds110" id="XDS" et="si">
+  <pin nombre="3v3"   nodo="J101.6"/>
+  <pin nombre="rst"   nodo="J101.12"/>
+  <pin nombre="swdio" nodo="J101.14"/>
+  <pin nombre="swclk" nodo="J101.16"/>
+  <pin nombre="swo"   nodo="J101.18"/>
+</componente>
+```
+
+**Observables:** `corriente` (mA, la que entrega el LDO, medida sin el umbral
+de resolución del nodo: se ven los microamperios), `sobrecorriente` (alarma)
+y `depurando` (hay un OpenOCD conectado). Al acabar, `sim` dice la corriente
+del LDO, lo recibido por la traza y los SRST.
+
+**Lo que no hace:** el *backchannel* es un `PuenteSerie` aparte; las
+corrientes de los pines del chip no pasan por el LDO (las dan los pads del
+modelo), y el E4 no tiene modelo de consumo: su LDO entrega 0 mA.
+
+**La traza en el P401R** sale por PJ.5 con su función primaria (`PJSEL0.5 =
+1`); en el E401Y, por PC3, que ya es TDO/SWO al salir del reset. Los
+firmwares `verif/fw/msp432p4/p4_swo` y `verif/fw/msp432e4/e4_swo` son el
+ejemplo:
+
+```
+./build/mcu-sim placas/msp_exp432p401r.xml verif/fw/msp432p4/p4_swo/p4_swo.out --swo memoria --ms=20
+```
+
+### 4.11 La pantalla TFT
 
 #### `Tft128x160`
 
@@ -1557,7 +1695,7 @@ regulador de 3,3 V y su retroiluminación [ST7735S, Sitronix, v1.1]. Está en
 | `r_luz` | `15` | Su resistencia en la placa, en ohmios |
 
 **Lo que se ve es lo que enseñaría la pantalla de verdad**, y se lo manda a
-la ventana como una IMAGEN de 128x160 (§4.12):
+la ventana como una IMAGEN de 128x160 (§4.14):
 
 * el chip sin tensión, en reset, dormido —SLPIN, el estado tras arrancar— o
   con la pantalla apagada —DISPOFF—: **blanca**. El cristal es de los
@@ -1627,7 +1765,7 @@ sistema la placa del nombre—, SDA, SCK y LED. Y
 la Nucleo, con `verif/fw/tft_demo`: lee el ID por SDA, la despierta y dibuja
 —el título, ocho barras de color y un cuadrado que va y viene—.
 
-### 4.11 El servo
+### 4.12 El servo
 
 #### `Servo`
 
@@ -1697,7 +1835,81 @@ servo. Y `placas/nucleo_f446re_servo.xml` la cablea a una Nucleo —el `PWM` a
 D5, PB4, el TIM3; el `VCC` a su `+5V`— con un KY-040 que lo mueve 5 grados por
 clic y la pantalla TFT de pie, con `verif/fw/servo_demo`.
 
-### 4.12 Lo que `mcu-sim-gui` puede ver y tocar
+### 4.13 Las piezas de la BOOSTXL-EDUMKII
+
+Las cuatro que trajo la placa educativa de TI (fase T3 del MSP432,
+`parts/boosterpack.h`). La placa entera es `placas/boostxl_edumkii.xml`, con
+su dibujo, y enchufada a las LaunchPad, `placas/msp_exp432p401r_edumkii.xml` y
+`placas/msp_exp432e401y_edumkii.xml`.
+
+#### `FuenteAjustable`
+
+Una tensión que se mueve con un mando: el cursor de un potenciómetro como su
+equivalente de Thevenin. Los ejes de un joystick o de un acelerómetro
+analógico, un micrófono en reposo.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `pin` | obligatorio | El nodo al que da la tensión |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `v` | `1.65` | La tensión de partida, en V |
+| `vmin`, `vmax` | `0`, `3.3` | El rango del mando |
+| `r` | `100` | Su resistencia de salida, en Ω |
+
+Mando `tension` (continuo); desde C++, `pon_tension(v)`.
+
+#### `Zumbador`
+
+Un zumbador magnético tras su transistor: para el pin es una carga a masa, y
+escucha el PWM que le llega. Observables `sonando` y `frecuencia` (el periodo
+entre dos flancos de subida; deja de sonar si pasan tres periodos sin flanco).
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `pin` | obligatorio | La señal que lo mueve |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `r_carga` | `1000` | La carga que ve el pin, en Ω |
+
+#### `Opt3001`
+
+El sensor de luz ambiental de TI por I2C, bit a bit sobre los nodos: RESULT
+con exponente y mantisa (0,01·2^E·M lx), CONFIG con la escala automática,
+conversiones de 100 u 800 ms, una vez o continuas, CRF, los límites con FH/FL
+y la patilla INT de drenador abierto; los identificadores 0x5449 y 0x3001.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `scl`, `sda` | obligatorios | El bus |
+| `int` | opcional | La interrupción |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `dir` | `0x44` | Dirección de 7 bits |
+| `lux` | `300` | La luz de partida; tiene mando |
+
+#### `Tmp006`
+
+El termómetro de infrarrojos de TI por I2C: VOBJECT (la termopila, 156,25 nV
+por cuenta), TAMBIENT (1/32 °C), CONFIG con el modo, el ritmo de conversión y
+DRDY, y su patilla; los identificadores 0x5449 y 0x0067. La tensión de la
+termopila es S0·(Tobj⁴ − Tchip⁴), con S0 = 6,4·10⁻¹⁴ y sin los términos de
+segundo orden.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `scl`, `sda` | obligatorios | El bus |
+| `drdy` | opcional | Dato listo, activa baja |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `dir` | `0x40` | Dirección de 7 bits |
+| `t_chip`, `t_objeto` | `25`, `25` | Las temperaturas, en °C; tienen mando |
+
+### 4.14 Lo que `mcu-sim-gui` puede ver y tocar
 
 Desde la fase 1 del plan de `mcu-sim-gui` (P-12), una pieza puede **declarar**
 qué deja ver —sus *observables*— y qué se le puede hacer —sus *mandos*—. La
@@ -1711,9 +1923,11 @@ Lo declaran estas:
 | Pieza | Observables | Mandos |
 | :--- | :--- | :--- |
 | `Led` | `encendido` (0/1, el que sugiere pintar) y `corriente` (mA, de 0 a 25) | — |
+| `RGBLed` | `encendido` (0/1, alguno), `rojo`, `verde` y `azul` (0/1, los que sugiere pintar) y `corriente_r`, `corriente_g` y `corriente_b` (mA, de 0 a 25); los seis con **`color=`**, sus canales | — |
 | `Button` | `pulsado` (0/1): el **dedo**, no el contacto, que en un NC es lo contrario | `pulsar` (botón, 0 suelta, 1 pulsa) |
 | `Crystal` | `presente` (0/1): si está soldado | — |
 | `Fuente`, `Gnd` | `corriente` (mA, la que entrega o recibe; la escala es ± el límite, o ±100 sin él) y `sobrecorriente` (0/1, **una alarma**: el catálogo la marca con `alarma="si"` y la ventana la pinta en rojo) | — |
+| `Xds110` | `corriente` (mA, la que entrega el LDO), `sobrecorriente` (alarma) y `depurando` (0/1, hay un OpenOCD conectado) | — |
 | `Encoder` | `posicion` (de 0 a `pasos − 1`, la que sugiere pintar), `cuenta`, `contacto_a` y `contacto_b` (0/1) | `girar` (discreto, la cuenta de clics, de −30000 a 30000) |
 | `Tft128x160` | `encendida` (0/1, la que sugiere pintar) y `luz` (mA, de 0 a 40); y la IMAGEN `pantalla`, de 128x160 | — |
 | `Servo` | `angulo` (°, de `angulo_min` a `angulo_max` o de 0 a 360, el que sugiere pintar), `pulso` (µs), `corriente` (mA) y `rpm` | `bloquear` (interruptor: sujeta el eje) |
@@ -1743,7 +1957,7 @@ Las demás no declaran nada todavía, y no les hace falta para
 compilar: los seis métodos de `ExtPartBase` tienen valores por omisión. Las
 piezas que el enunciado de la GUI necesita y no existen —`PwmMeter`,
 `StepperDriver`, `DcMotor`— están en `doc/analisis_gui.md` §8; el `Encoder`
-(§4.1) y el `Servo` (§4.11) ya están.
+(§4.1) y el `Servo` (§4.12) ya están.
 
 ---
 
@@ -1762,7 +1976,7 @@ existe—; simplemente no ha hecho falta todavía.
 encender un oscilador, enviar una trama CAN o inyectar una trama Ethernet son
 acciones, no descripción, y viven en el programa que conduce la simulación
 —o, con `--gui`, en la ventana, que las manda como órdenes a los mandos que
-cada pieza declara (§4.12)—.
+cada pieza declara (§4.14)—.
 
 **El MCU no se describe.** Variante, encapsulado y rasgos de los periféricos
 siguen fijados en C++. El fichero describe lo que está fuera del chip.

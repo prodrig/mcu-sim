@@ -1,5 +1,8 @@
 # Depurar desde STM32CubeIDE contra el simulador
 
+> ¿Un MSP432? Las configuraciones de CCS y VS Code para el MSP432P401R están
+> en `ide/msp432/`, con su README.
+
 `simulador.launch` es una configuración de lanzamiento lista para importar. Es el
 camino corto: lo que hace falta es que el alumno no tenga que elegir nada.
 

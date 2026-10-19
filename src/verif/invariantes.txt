@@ -119,3 +119,123 @@ testserie              189        400677589564        total
 # tiempo simulado: son consultas. Y el mismo dia, el tercero, `rebotes`, de un
 # tipo nuevo, `discreto`: 142 -> 145. Tampoco gasta tiempo.
 testgui                145        76450000000        total
+# El MSP432P401R (fases T0 y T1 de doc/analisis_msp432.md). Su banco lleva las
+# pruebas propias de T0 -nombres de pin por chip, catalogo comun, formatos,
+# integracion del nucleo-, que no gastan tiempo simulado, y las del chip: el
+# firmware p4_demo cargado como ELF en sus nueve modos y CoreMark a 3 MHz. El
+# tiempo es el de las esperas del banco mas lo que tarda CoreMark en acabar,
+# sondeado cada 2 ms. Contrasta `total`: no hay socket de GDB dentro.
+# Fase T2 (2026-10-15): P18 a P21 -el FLCTL desde el bus, el firmware que se
+# reprograma (modo 9 de p4_demo), los simbolos del ELF y una
+# sesion de GDB entera por los pines (G2) y por el DAP (G1)-: 96 -> 148. Desde
+# aqui hay socket de GDB dentro, y el criterio pasa a ser `resto`, como en
+# test407. El resto crece 77,5 ms: las esperas de P18 (47 ms, casi todo el
+# borrado masivo) y de P19 (30 ms).
+# Fase T3, E1 (2026-10-15): P22 a P27 -la eUSCI_A en UART con el backchannel
+# de la LaunchPad (un PuenteSerie en P1.2/P1.3), los formatos y errores, el
+# break, UCLISTEN y el IV, los modos multiprocesador y el PMAP-: 148 -> 184.
+# Antes de T3 la sonda suelta el nucleo que P21 deja parado. P0 a P21 no
+# cambian de tiempo: el ruteo de funciones del DIO no mueve nada.
+# Fase T3, E2: P28 a P34 -Timer_A en sus tres modos con PWM, captura y reloj
+# externo; el Timer32; y un servo SG90 en TA0.2-: 184 -> 218. El resto crece
+# sobre todo por P34, que mira el eje 600 ms.
+# Fase T3, E3: P35 a P39 -la eUSCI_B en I2C, maestro contra una 24Cxx (con
+# START repetido, NACK y el STOP automatico de TBCNT) y esclava contra un
+# maestro externo; y SPI contra la ST7735 y entre dos eUSCI en los cuatro
+# modos-: 218 -> 239. P0 a P34 se mueven 448 us (1181097722208 ->
+# 1181545722176 hasta P34): p4_t3 crece con los modos nuevos, su codigo se
+# desplaza en la Flash, y las esperas de 20 us del banco caen en otro sitio.
+# Comprobado: con el modelo de la eUSCI anterior y el firmware nuevo, la
+# misma cifra.
+# Fase T3, E4: P40 a P44 -el ADC14 (resoluciones, formato con signo,
+# diferencial, secuencias con MSC, disparo por TA0.1, comparador de ventana,
+# desbordamiento e IV) y REF_A (asentamiento, el sensor de temperatura con la
+# calibracion del TLV, BATMAP y VREF+ por el pin)-: 239 -> 264. Con su propio
+# firmware, p4_t3b, para no mover el codigo de p4_t3: P0 a P39 no cambian, y
+# el resto crece justo los 13,2 ms de P40-P44.
+# Fase T3, E5: P45 a P48 -la uDMA: memoria a memoria en automatico, la UCA0
+# por dos canales, el ADC14 al canal 7, ping-pong, DMA_INT0..1 y DMA_ERR-:
+# 264 -> 280. El resto crece 24,56 ms: 21,16 de P45-P48 y 3,4 de P40-P44,
+# que tardan 680 us mas cada uno porque p4_t3b ha crecido y su arranque de C
+# borra un .bss mayor (medido grupo a grupo contra la entrega anterior).
+# P0 a P39 no cambian.
+# Fase T3, E6: P49 a P52 -CRC32 (CCITT y el de Ethernet), AES256 con los
+# vectores de la FIPS-197, RTC_C de las 23:59:58 a medianoche con eventos,
+# alarma y preescalador, y COMP_E0 con histeresis-: 280 -> 306. Tres
+# segundos simulados de RTC: el resto crece 3005,41 ms, todo de P49-P52.
+# Fase T3, E7: P53 a P55 -los modos de bajo consumo: LPM0, LPM3 (solo el RTC
+# y el perro funcionan), LPM4, LPM3.5 y LPM4.5 con su salida por POR, el
+# cerrojo LOCKLPM5 y el consumo por DVCC-: 306 -> 332. El resto crece
+# 90,93 ms: 90,81 de P53-P55 y 0,12 de P40-P52 (p4_t3b mira al arrancar si
+# viene de un LPMx.5). P0 a P39 no cambian.
+# Fase T3, E8: P56-P57 -el OPT3001 y el TMP006 por la UCB1, el zumbador y
+# el joystick de la BOOSTXL-EDUMKII-: 332 -> 344. El resto crece 596 ms:
+#   366,66 ms de P56-P57;
+#   229,38 ms de P38, por un arreglo del Timer32: LOAD escrito con el
+#     temporizador parado se truncaba a 16 bits aunque luego se pusiera
+#     SIZE = 1, y los dos retardos de 120 ms del firmware de la pantalla
+#     duraban 5,31 ms cada uno (0x15F900 & 0xFFFF tics a 12 MHz);
+#   y -0,04 ms de P40-P52, que p4_t3b ha vuelto a crecer.
+# Fase T3, E9: P58-P61 -los ejemplos de DriverLib (uart_pc_echo,
+# timer_a_pwm, adc14_single_conversion y dma) con DriverLib de TI compilada
+# de sus fuentes, en driverlib_t3-: 344 -> 356. El resto crece 14,58 ms, los
+# de P58-P61: P0-P57 no cambian (P58 empieza donde acababa P57).
+# Fase T4: P62-P67 -la ROM de DriverLib: la R1 por dentro, cuatro ejemplos
+# del SDK sin modificar que usan MAP_ (con el TLV de otra pieza por --tlv en
+# P64), R3 y R2 de fichero, y la demo blinky de FreeRTOS con tickless idle-:
+# 356 -> 380. El resto crece 13951,93 ms, todos de P62-P67: los ejemplos
+# esperan al LED, que va a 1 Hz. P0-P61 no cambian, tampoco con el arreglo
+# del receptor de la eUSCI en modo UART (el arranque que baja en el mismo
+# instante en que acaba la parada anterior): ningun grupo anterior lo pisaba.
+# Fase T5: ningun grupo nuevo (la prueba de OpenOCD es `make openocd`, sin
+# invariante: su tiempo sigue al reloj de pared). Los arreglos del DAP y del
+# nucleo no mueven nada. P21 cambia una comprobacion de sitio -el reset del
+# perro con el nucleo parado lo pone en marcha, y se vuelve a poner el buzon
+# a cero- y el total crece 0,6 ms, todos dentro de P21: el resto, igual.
+# Fase T5, el BSL (D4): P68-P69 -el BSL B1 con la Flash en blanco (la sesion
+# de BSL Scripter por el banco) y una aplicacion que entra en el BSL (p4_bsl)-:
+# 380 -> 406. El resto crece 3562,969 ms, todos de P68-P69: P68 empieza en
+# 18893170139423 ps sin P21, el resto de antes. Los dos arreglos que pidio el
+# BSL de TI (el retorno de excepcion por LDM con escritura de la base y el
+# TXIFG0 de la eUSCI_B en I2C esclavo) no mueven nada: ni P0-P67 ni ninguna
+# de las otras seis suites.
+testp4                406      22456139139423        resto
+
+# teste4, la suite del MSP432E401Y (doc/analisis_msp432.md, T6). Contrasta
+# `resto` por la misma razon que testp4: E18 habla con un GDB de verdad por
+# un socket de verdad, por los pines (G2) y por el DAP (G1), y su tiempo
+# depende del anfitrion; el banco lo imprime aparte y lo quita.
+# Fase T6, entregas 1-3: E0-E24 -arranque, relojes, avisos, CoreMark, la
+# Flash y la EEPROM con DriverLib, GDB y los perifericos de e4_t3-: 154.
+# Entrega 4: E25-E29 -la ROM R1 y su cargador serie (con la Flash en blanco,
+# por ROM_UpdateUART y por BOOTCFG), MAP_ en e4_rom, y --rom ninguna-: 203.
+# El resto crece 497,78 ms, todos de E25-E29: E0-E24 no cambian.
+# Fase T7, entrega 1: E30 -el CCM (CRC, SHA/MD5, AES y DES) con e4_t7, que
+# pasa por el chip los vectores de cryp.vec, hash.vec, cryp2.vec, sha2.vec y
+# crc.vec-, y la huella de e4_t7 en E0: 213. El resto crece 2,915 ms, todos
+# de E30: E0-E29 no cambian.
+# Entrega 2: E31 -CAN0 y CAN1 en el mismo hilo- y E32 -dos chips por CAN-:
+# 235. E30 cambia en -65 us porque e4_t7 gana los modos de CAN (otro binario,
+# otro paso por el bucle de ordenes); E0-E29 no se mueven, tampoco con el
+# NVIC que vuelve a poner pendiente una linea que sigue alta (P-17 r).
+# Entrega 3: E33 -el EMAC con su PHY interno y lwIP (e4_eth): ARP, ping, eco
+# UDP y TCP con el otro extremo del cable en el banco- y la huella de e4_eth
+# en E0: 250. El resto crece 114,26 ms, todos de E33: E0-E32 no se mueven con
+# el EMAC montado (ni test407 con el MAC del F407 partido en mapa y frontera
+# de tramas).
+# Y E34 -el cargador por Ethernet de la ROM R1 (ROM_UpdateEMAC: BOOTP y
+# TFTP, que graba e4_eth.bin y lo arranca)- con las huellas de la ROM nueva y
+# de e4_bootp: 257. El resto crece 377,87 ms, todos de E34: E0-E33 iguales con
+# la ROM nueva.
+# Entrega 5: E35 -el USB0 (MUSB) como dispositivo con e4_usb, un CDC-ACM
+# sobre usb.c de DriverLib, enumerado por un PC de banco (UsbHostRig)- y E36
+# -el puente de clase CDC-ACM de parts/puente_usb.h, el de `mcu-sim --usb`,
+# con su canal en memoria-: 296 (la huella de e4_usb entra en la unica
+# comprobacion de E0, que pasa a 18 imagenes). El resto crece 320,893 ms,
+# todos de E35 y E36 (lo mismo que TESTE4_SOLO=usb): E0-E34 iguales con el
+# USB montado y el PC de banco en PL6/PL7.
+# La prebusqueda de la Flash con cuatro lineas y la siguiente adelantada
+# (P-17 f; e4_retardo) y el paso 5 de e4_t7 esperando al RXOK de su marco
+# (huellas nuevas de e4_t7): 296. El resto baja 2,105545617 ms: el codigo de
+# la Flash a 120 MHz deja de pagar los FWS al cruzar lineas.
+teste4                296      4505148675235         resto

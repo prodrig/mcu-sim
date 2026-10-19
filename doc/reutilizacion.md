@@ -8,8 +8,8 @@ otros rasgos sin tocar su código.
 
 ## 1. El problema, en una frase
 
-El proyecto modela un STM32F407VG, pero **casi nada de lo que hay dentro es del
-F407**. El núcleo es un Cortex-M4F con licencia: lo que ST decide al integrarlo
+El proyecto nació modelando un STM32F407VG, pero **casi nada de lo que hay
+dentro es del F407**. El núcleo es un Cortex-M4F con licencia: lo que ST decide al integrarlo
 son cuatro números. El controlador de Flash es el mismo en toda la familia F4;
 lo que cambia es el tamaño y la tabla de sectores. La SRAM es una SRAM.
 

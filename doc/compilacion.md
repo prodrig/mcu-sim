@@ -499,7 +499,7 @@ De dónde sacarlo:
 | Debian / Ubuntu | `apt install gcc-arm-none-eabi` |
 | MSYS2 | `pacman -S mingw-w64-x86_64-arm-none-eabi-toolchain` |
 | macOS | `brew install --cask gcc-arm-embedded` |
-| **Cualquiera, sin instalar nada** | El que ya trae **STM32CubeIDE** |
+| **Cualquiera, sin instalar nada** | El que ya trae el IDE: **STM32CubeIDE** (§6.2) |
 
 **En MSYS2, el grupo `-toolchain` y no el paquete `-gcc` a secas**, porque los
 Makefiles de firmware necesitan además `objcopy`, que viene en `binutils`. Y si
@@ -516,9 +516,10 @@ en `/ucrt64/bin` estando tú en MINGW64, se usa igual con `CROSS`.
 
 ### 6.2 El atajo: el compilador que ya tienes
 
-**Quien usa este simulador tiene STM32CubeIDE**, y CubeIDE trae su propio
-`arm-none-eabi-gcc` con su `objcopy` y su `objdump`. No hay que instalar nada:
-solo hay que encontrarlo.
+**Quien usa este simulador con un STM32 tiene STM32CubeIDE**, y CubeIDE trae su
+propio `arm-none-eabi-gcc` con su `objcopy` y su `objdump`. No hay que instalar
+nada: solo hay que encontrarlo. (Con un MSP432, Code Composer Studio puede
+instalar el mismo compilador; si no lo trae, vale el de §6.1.)
 
 ```bash
 ls -d /c/ST/STM32CubeIDE_*/STM32CubeIDE/plugins/*gnu-tools-for-stm32*/tools/bin

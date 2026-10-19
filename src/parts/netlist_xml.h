@@ -190,6 +190,39 @@ inline std::string cualifica(const ContextoPlaca& cx, const std::string& n,
     return std::string();
 }
 
+// ---------------------------------------------------------------------------
+// CON QUÉ NOMENCLATURA SE LEEN LOS NOMBRES DE ESTA PLACA (T0)
+//
+// Los nombres se canonizan al leerlos, y para eso hay que saber de qué chip es
+// cada uno: `P1.0` es PB0 en un STM32 y el primer pin del primer puerto en un
+// MSP432. Se decide aquí, ANTES de leer un solo nodo, con los <mcu> de la placa
+// y el `--mcu` de la línea de órdenes, que manda sobre el tipo de una placa con
+// uno o ningún chip. Si todos los chips siguen la regla de ST el contexto queda
+// inactivo y la lectura es la de siempre. [pins/nomenclatura.h]
+// ---------------------------------------------------------------------------
+inline void fija_nomenclatura_placa(const XmlNodo& raiz, const ContextoPlaca& cx) {
+    ContextoNomenclatura& c = ContextoNomenclatura::g();
+    if (!cx.en_sistema()) c.limpia();        // el sistema limpia una vez, al entrar
+    std::vector<std::pair<std::string, std::string>> mcus;   // id, tipo
+    for (const XmlNodo& h : raiz.hijos)
+        if (h.nombre == "mcu") mcus.emplace_back(h.attr_o("id"), h.attr_o("tipo"));
+    const std::string& om = c.tipo_por_omision();
+    if (!om.empty() && mcus.size() <= 1 && !cx.en_sistema()) {
+        if (mcus.empty()) mcus.emplace_back(std::string(), om);
+        else              mcus[0].second = om;
+    }
+    const Nomenclatura* desnudo = nullptr;
+    for (const auto& m : mcus) {
+        const Nomenclatura* n = c.de_tipo(m.second);
+        if (!m.first.empty()) {
+            c.fija(m.first, n);
+            if (cx.en_sistema()) c.fija(cx.id + "/" + m.first, n);
+        }
+        if (mcus.size() == 1) desnudo = n;
+    }
+    c.fija_desnudo(desnudo);
+}
+
 // Rellena `nl` a partir del árbol ya analizado. Devuelve "" si todo bien, o el
 // primer problema con su línea. `cx` dice si la placa es una de un <sistema>.
 // En `ilus`, si se pide, lo que la placa dice de su dibujo: el fichero tal
@@ -207,6 +240,7 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
     if (raiz.nombre != "placa")
         return donde(raiz) + "el elemento raiz es <" + raiz.nombre +
                ">, se esperaba <placa> o <sistema>";
+    fija_nomenclatura_placa(raiz, cx);
     if (nombre_placa) *nombre_placa = raiz.attr_o("nombre", "placa");
     // Los atributos de la raíz: hasta el dibujo se aceptaba cualquiera y se
     // ignoraba en silencio, que es justo lo que hace que una errata no se vea
@@ -271,6 +305,11 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
             if (a.first == "tipo" || a.first == "id") continue;
             if      (a.first == "firmware")   m.firmware   = a.second;
             else if (a.first == "depuracion") m.depuracion = a.second;
+            else if (a.first == "rom")        m.rom        = a.second;
+            else if (a.first == "tlv")        m.tlv        = a.second;
+            else if (a.first == "bsl")        m.bsl        = a.second;
+            else if (a.first == "eth")        m.eth        = a.second;
+            else if (a.first == "usb")        m.usb        = a.second;
             else if (a.first == "puerto_gdb") {
                 const long v = std::atol(a.second.c_str());
                 if (v < 0 || v > 65535)
@@ -527,6 +566,9 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
         return std::string(pos);
     };
     if (nombre) *nombre = raiz.attr_o("nombre", "sistema");
+    // Las nomenclaturas de las placas se van sumando, una por placa, con su
+    // prefijo cualificado (`A/u0`). Se empieza de cero aquí. [T0]
+    ContextoNomenclatura::g().limpia();
     for (const auto& a : raiz.attrs)
         if (a.first != "nombre" && a.first != "lienzo")
             return donde(raiz) + "<sistema>: atributo desconocido: " + a.first;
@@ -727,6 +769,11 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
                 if (a.first == "ref") continue;
                 if      (a.first == "firmware")   m->firmware   = a.second;
                 else if (a.first == "depuracion") m->depuracion = a.second;
+                else if (a.first == "rom")        m->rom        = a.second;
+                else if (a.first == "tlv")        m->tlv        = a.second;
+                else if (a.first == "bsl")        m->bsl        = a.second;
+                else if (a.first == "eth")        m->eth        = a.second;
+                else if (a.first == "usb")        m->usb        = a.second;
                 else if (a.first == "puerto_gdb") {
                     const long v = std::atol(a.second.c_str());
                     if (v < 0 || v > 65535)
@@ -737,9 +784,30 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
                     return donde(h) + "<mcu ref=...>: atributo desconocido: " + a.first +
                            " (el tipo lo dice la placa, o --mcu)";
             }
+        } else if (h.nombre == "jumper") {
+            // Como esta puesto el puente de un Jumper de una placa EN ESTE
+            // MONTAJE, sin tocar su fichero: la EDUMKII lleva su J5 al rojo
+            // del RGB de fabrica, y un sistema que quiere la pantalla con luz
+            // lo pasa a la retroiluminacion
+            for (const auto& a : h.attrs)
+                if (a.first != "ref" && a.first != "puente")
+                    return donde(h) + "<jumper>: atributo desconocido: " + a.first;
+            if (!h.tiene("ref") || !h.tiene("puente"))
+                return donde(h) + "<jumper> necesita ref=\"placa/id\" y puente=\"A B\" (o \"no\")";
+            std::string pl, rs;
+            const std::string ep = parte(h.attr_o("ref"), pl, rs);
+            if (!ep.empty()) return donde(h) + "<jumper>: " + ep;
+            Instancia* ij = nl.busca(pl + "/" + rs);
+            if (!ij || ij->tipo != "Jumper")
+                return donde(h) + "<jumper ref=\"" + h.attr_o("ref") + "\">: la placa " + pl +
+                       " no tiene ningun Jumper que se llame " + rs;
+            ij->params["puente"] = h.attr_o("puente");
+            GeomConector gj;
+            const std::string eg = Netlist::geometria(*ij, gj);
+            if (!eg.empty()) return donde(h) + "<jumper ref=\"" + h.attr_o("ref") + "\">: " + eg;
         } else {
             return donde(h) + "elemento desconocido dentro de <sistema>: <" + h.nombre +
-                   ">. Lo que va aqui: <placa>, <acopla>, <hilo>, <mcu ref> y <ruta>";
+                   ">. Lo que va aqui: <placa>, <acopla>, <hilo>, <mcu ref>, <jumper ref> y <ruta>";
         }
     }
     // Las rutas, de líneas que hay: ya están todos los acoples y los hilos

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # =============================================================================
-# comprueba_vectores.py — vuelve a calcular TODOS los vectores de `cryp.vec` y
-# `hash.vec` con DOS implementaciones independientes, y los compara con lo que
-# dice el fichero.
+# comprueba_vectores.py — vuelve a calcular TODOS los vectores de `cryp.vec`,
+# `hash.vec`, y los del MSP432E4 (`cryp2.vec`, `sha2.vec` y `crc.vec`), con DOS
+# implementaciones independientes, y los compara con lo que dice el fichero.
 #
 # QUÉ PROBLEMA RESUELVE. Los vectores son la única red de seguridad que tiene
 # un acelerador criptográfico modelado: si están mal, un modelo roto pasa las
@@ -19,7 +19,10 @@
 #
 # MOTORES
 #   AES, DES y TDES : OpenSSL (por línea de órdenes) y pycryptodome
-#   MD5, SHA-1, HMAC: hashlib/hmac de Python y `openssl dgst`
+#   AES-GCM         : pycryptodome y `cryptography` (openssl enc no hace AEAD)
+#   MD5, SHA-1, SHA-224, SHA-256 y sus HMAC: hashlib/hmac y `openssl dgst`
+#   CRC             : crccheck y un CRC bit a bit de aquí (el CRC-32, además,
+#                     con zlib); la suma de Internet, con dos sumas de aquí
 # Un motor que no esté instalado se salta con aviso; si para un caso queda
 # UNO SOLO, el caso se marca como no confirmado y el programa termina en 1.
 # Un vector con una sola fuente es justo lo que este fichero existe para
@@ -69,8 +72,9 @@ def hx(s):
 # --- Motores de cifrado ------------------------------------------------------
 
 ALG_OSSL = {"aes-ecb": "aes-%d-ecb", "aes-cbc": "aes-%d-cbc", "aes-ctr": "aes-%d-ctr",
-            "des-ecb": "des-ecb", "des-cbc": "des-cbc",
-            "tdes-ecb": "des-ede3", "tdes-cbc": "des-ede3-cbc"}
+            "aes-cfb": "aes-%d-cfb", "des-ecb": "des-ecb", "des-cbc": "des-cbc",
+            "des-cfb": "des-cfb", "tdes-ecb": "des-ede3", "tdes-cbc": "des-ede3-cbc",
+            "tdes-cfb": "des-ede3-cfb"}
 
 
 def openssl_cifra(alg, clave, iv, datos, descifra=False):
@@ -96,13 +100,18 @@ def pycrypto_cifra(alg, clave, iv, datos, descifra=False):
     k, i, d = hx(clave), hx(iv), hx(datos)
     if alg.startswith("aes"):
         mod, modos = AES, {"aes-ecb": AES.MODE_ECB, "aes-cbc": AES.MODE_CBC,
-                           "aes-ctr": AES.MODE_CTR}
+                           "aes-ctr": AES.MODE_CTR, "aes-cfb": AES.MODE_CFB}
     elif alg.startswith("tdes"):
-        mod, modos = DES3, {"tdes-ecb": DES3.MODE_ECB, "tdes-cbc": DES3.MODE_CBC}
+        mod, modos = DES3, {"tdes-ecb": DES3.MODE_ECB, "tdes-cbc": DES3.MODE_CBC,
+                            "tdes-cfb": DES3.MODE_CFB}
     else:
-        mod, modos = DES, {"des-ecb": DES.MODE_ECB, "des-cbc": DES.MODE_CBC}
+        mod, modos = DES, {"des-ecb": DES.MODE_ECB, "des-cbc": DES.MODE_CBC,
+                           "des-cfb": DES.MODE_CFB}
     modo = modos[alg]
-    if alg == "aes-ctr":
+    if alg.endswith("cfb"):
+        # CFB del bloque entero (128 en AES, 64 en DES), que es el del E4
+        c = mod.new(k, modo, i, segment_size=8 * len(i))
+    elif alg == "aes-ctr":
         from Crypto.Util import Counter
         # El CTR del CRYP cuenta sobre los 128 bits enteros del vector inicial,
         # que es lo que dice el SP 800-38A y lo que hace `openssl aes-*-ctr`.
@@ -119,16 +128,14 @@ def pycrypto_cifra(alg, clave, iv, datos, descifra=False):
 # --- Motores de resumen ------------------------------------------------------
 
 def py_resume(alg, clave, mensaje):
-    if alg == "md5":
-        return hashlib.md5(mensaje).hexdigest()
-    if alg == "sha1":
-        return hashlib.sha1(mensaje).hexdigest()
-    h = hashlib.md5 if alg == "hmac-md5" else hashlib.sha1
-    return hmac.new(clave, mensaje, h).hexdigest()
+    base = alg[5:] if alg.startswith("hmac-") else alg
+    if not alg.startswith("hmac-"):
+        return hashlib.new(base, mensaje).hexdigest()
+    return hmac.new(clave, mensaje, base).hexdigest()
 
 
 def openssl_resume(alg, clave, mensaje):
-    corto = "md5" if alg.endswith("md5") else "sha1"
+    corto = alg[5:] if alg.startswith("hmac-") else alg
     orden = ["openssl", "dgst", "-" + corto]
     if alg.startswith("hmac"):
         orden += ["-mac", "HMAC", "-macopt",
@@ -199,6 +206,116 @@ def comprueba_cryp(casos, cuenta, detalle):
                   cuenta, detalle, "descifrar")
 
 
+# --- GCM ---------------------------------------------------------------------
+
+def pycrypto_gcm(clave, iv, aad, datos):
+    try:
+        from Crypto.Cipher import AES
+    except ImportError:
+        return None
+    c = AES.new(hx(clave), AES.MODE_GCM, nonce=hx(iv))
+    c.update(hx(aad))
+    ct, tag = c.encrypt_and_digest(hx(datos))
+    return binascii.hexlify(ct + tag).decode()
+
+
+def cryptography_gcm(clave, iv, aad, datos):
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    except ImportError:
+        return None
+    r = AESGCM(hx(clave)).encrypt(hx(iv), hx(datos), hx(aad) or None)
+    return binascii.hexlify(r).decode()
+
+
+def comprueba_cryp2(casos, cuenta, detalle):
+    gcm = [c for c in casos if c["algoritmo"] == "aes-gcm"]
+    comprueba_cryp([c for c in casos if c["algoritmo"] != "aes-gcm"], cuenta, detalle)
+    for c in gcm:
+        esperado = c["salida"] + c["tag"]
+        args = (c["clave"], c["iv"], c.get("aad", ""), c["entrada"])
+        confronta(c, esperado, [("pycrypto", pycrypto_gcm(*args)),
+                                ("cryptography", cryptography_gcm(*args))],
+                  cuenta, detalle, "cifrar+tag")
+
+
+# --- CRC ---------------------------------------------------------------------
+
+# Rocksoft: ancho, polinomio, inicial, refleja la entrada, refleja la salida, xor
+CRC_PARAM = {
+    "crc32":        (32, 0x04C11DB7, 0xFFFFFFFF, True,  True,  0xFFFFFFFF),
+    "crc32c":       (32, 0x1EDC6F41, 0xFFFFFFFF, True,  True,  0xFFFFFFFF),
+    "crc16-ccitt":  (16, 0x1021,     0xFFFF,     False, False, 0),
+    "crc16-xmodem": (16, 0x1021,     0,          False, False, 0),
+    "crc16-arc":    (16, 0x8005,     0,          True,  True,  0),
+    "crc16-umts":   (16, 0x8005,     0,          False, False, 0),
+}
+
+
+def crc_bit_a_bit(alg, datos):
+    if alg == "inet":
+        return None
+    w, poli, ini, rin, rout, xo = CRC_PARAM[alg]
+    msk, top = (1 << w) - 1, 1 << (w - 1)
+    c = ini
+    for b in datos:
+        if rin:
+            b = int("{:08b}".format(b)[::-1], 2)
+        c ^= b << (w - 8)
+        for _ in range(8):
+            c = ((c << 1) ^ poli) & msk if c & top else (c << 1) & msk
+    if rout:
+        c = int("{:0{}b}".format(c, w)[::-1], 2)
+    return "%0*x" % (w // 4, c ^ xo)
+
+
+def crc_crccheck(alg, datos):
+    try:
+        from crccheck import crc
+    except ImportError:
+        return None
+    clase = {"crc32": "Crc32", "crc32c": "Crc32c", "crc16-ccitt": "Crc16CcittFalse",
+             "crc16-xmodem": "Crc16Xmodem", "crc16-arc": "Crc16Arc",
+             "crc16-umts": "Crc16Buypass"}.get(alg)
+    if clase is None:
+        return None
+    w = CRC_PARAM[alg][0]
+    return "%0*x" % (w // 4, getattr(crc, clase).calc(datos))
+
+
+def crc_zlib(alg, datos):
+    import zlib
+    return "%08x" % zlib.crc32(datos) if alg == "crc32" else None
+
+
+def inet_suma(datos):
+    s = 0
+    for i in range(0, len(datos), 2):
+        s += (datos[i] << 8) | (datos[i + 1] if i + 1 < len(datos) else 0)
+    while s >> 16:
+        s = (s & 0xFFFF) + (s >> 16)
+    return "%04x" % (~s & 0xFFFF)
+
+
+def inet_struct(datos):
+    import struct
+    d = datos + (b"\0" if len(datos) % 2 else b"")
+    s = sum(struct.unpack(">%dH" % (len(d) // 2), d))
+    s = (s % 0xFFFF) or (0xFFFF if s else 0)     # el complemento a uno, por módulo
+    return "%04x" % (~s & 0xFFFF)
+
+
+def comprueba_crc(casos, cuenta, detalle):
+    for c in casos:
+        alg, m = c["algoritmo"], hx(c["mensaje"])
+        if alg == "inet":
+            r = [("suma", inet_suma(m)), ("struct", inet_struct(m))]
+        else:
+            r = [("crccheck", crc_crccheck(alg, m)), ("bit-a-bit", crc_bit_a_bit(alg, m)),
+                 ("zlib", crc_zlib(alg, m))]
+        confronta(c, c["salida"], r, cuenta, detalle, "crc")
+
+
 def comprueba_hash(casos, cuenta, detalle, lentos):
     for c in casos:
         if c.get("lento") == "si" and not lentos:
@@ -230,10 +347,13 @@ def main():
 
     cryp = lee("cryp.vec")
     hsh = lee("hash.vec")
+    cryp2 = lee("cryp2.vec")
+    sha2 = lee("sha2.vec")
+    crc = lee("crc.vec")
 
     # Los identificadores tienen que ser únicos: un duplicado haría que una
     # prueba del banco tapara a otra sin que nadie se enterase.
-    ids = [c["id"] for c in cryp + hsh]
+    ids = [c["id"] for c in cryp + hsh + cryp2 + sha2 + crc]
     if len(ids) != len(set(ids)):
         repes = sorted({i for i in ids if ids.count(i) > 1})
         raise SystemExit("identificadores repetidos: %s" % ", ".join(repes))
@@ -242,6 +362,12 @@ def main():
     comprueba_cryp(cryp, cuenta, detalle)
     print("hash.vec: %d casos" % len(hsh))
     comprueba_hash(hsh, cuenta, detalle, lentos)
+    print("cryp2.vec: %d casos" % len(cryp2))
+    comprueba_cryp2(cryp2, cuenta, detalle)
+    print("sha2.vec: %d casos" % len(sha2))
+    comprueba_hash(sha2, cuenta, detalle, lentos)
+    print("crc.vec: %d casos" % len(crc))
+    comprueba_crc(crc, cuenta, detalle)
 
     print()
     print("RESULTADO  %d comprobaciones con dos motores, %d con uno solo, "
@@ -250,7 +376,7 @@ def main():
     print("Motores    %s" % ", ".join(sorted(cuenta.motores)))
     if cuenta.flojo:
         print("AVISO: hay casos confirmados por un solo motor. Instala lo que "
-              "falte (pip install pycryptodome) y vuelve a pasar.")
+              "falte (pip install pycryptodome cryptography crccheck) y vuelve a pasar.")
     return 1 if (cuenta.fallo or cuenta.flojo) else 0
 
 

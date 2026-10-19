@@ -1,0 +1,43 @@
+{
+    // Las tareas que arrancan mcu-sim antes de depurar (las nombra el
+    // "preLaunchTask" de launch.json). Se quedan corriendo en segundo plano:
+    // la depuracion empieza cuando el simulador dice que la sonda escucha.
+    // Cambiar las dos RUTA: el ejecutable de mcu-sim y su carpeta src.
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "mcu-sim: MSP-EXP432P401R con sonda CMSIS-DAP",
+            "type": "shell",
+            "command": "C:/RUTA/mcu-sim/src/build/mcu-sim.exe",
+            "args": ["placas/msp_exp432p401r.xml", "--cmsis-dap", "--tiempo-real"],
+            "options": { "cwd": "C:/RUTA/mcu-sim/src" },
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "mcu-sim",
+                "pattern": { "regexp": "^\\[decl\\] (.*)$", "message": 1 },
+                "background": {
+                    "activeBegins": true,
+                    "beginsPattern": "^placa '",
+                    "endsPattern": "cmsis-dap\\] escuchando"
+                }
+            }
+        },
+        {
+            "label": "mcu-sim: MSP-EXP432E401Y con sonda CMSIS-DAP",
+            "type": "shell",
+            "command": "C:/RUTA/mcu-sim/src/build/mcu-sim.exe",
+            "args": ["placas/msp_exp432e401y.xml", "--cmsis-dap", "--tiempo-real"],
+            "options": { "cwd": "C:/RUTA/mcu-sim/src" },
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "mcu-sim",
+                "pattern": { "regexp": "^\\[decl\\] (.*)$", "message": 1 },
+                "background": {
+                    "activeBegins": true,
+                    "beginsPattern": "^placa '",
+                    "endsPattern": "cmsis-dap\\] escuchando"
+                }
+            }
+        }
+    ]
+}

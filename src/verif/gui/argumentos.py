@@ -96,7 +96,8 @@ def main():
           "<mcu> ni --mcu la placa va sin MCU- y con un ejemplo que esta entre ellos"
           % len(valores))
     gdb = [x.get("nombre") for x in ops if x.get("grupo") == "gdb"]
-    check(gdb == ["--gdb", "--gdb-dap"], "--gdb y --gdb-dap, en el mismo grupo: se excluyen")
+    check(gdb == ["--gdb", "--gdb-dap", "--openocd", "--cmsis-dap"],
+          "--gdb, --gdb-dap, --openocd y --cmsis-dap, en el mismo grupo: se excluyen")
     no_gui = sorted(x.get("nombre") for x in ops
                     if x.get("con_gui") == "no" and x.get("forma") != "accion")
     check(no_gui == ["--gui", "--tiempo-real"],
@@ -128,7 +129,11 @@ def main():
             if n == "--serie":
                 continue                 # necesita una placa con un PuenteSerie
             arg = [n + "=" + v] if v else [n]
-        rc, out, err = corre(sim, [PLACA, "--valida"] + arg)
+        # --swo necesita una placa con la sonda Xds110 (una LaunchPad MSP432)
+        placa = "placas/msp_exp432p401r.xml" if n.startswith("--swo") else PLACA
+        if n == "--swo-bitrate":
+            arg = ["--swo=memoria"] + arg
+        rc, out, err = corre(sim, [placa, "--valida"] + arg)
         probadas += 1
         if rc != 0 or "uso:" in err:
             malas.append(" ".join(arg) + " (codigo %s)" % rc)

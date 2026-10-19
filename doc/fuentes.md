@@ -119,6 +119,69 @@ de método sigue en pie y hay que seguir comparando dentro de una misma versión
 pero esta vez la mezcla **no causó daño**, y eso ahora está **medido** en vez de
 supuesto.
 
+## 2 bis. Las del MSP432 (P-16), y la etiqueta con la que las cita el código
+
+El código del MSP432P4 (`soc/msp432p4/`, `periph/msp432p4/`) cita así; lo que
+solo tiene una fuente lleva **[1F]** y su subpunto de P-16 en `doc/todo.md`.
+
+| Etiqueta | Qué | Dónde |
+| :--- | :--- | :--- |
+| `[H]` | `msp432p401r.h`, la cabecera CMSIS de TI (2017-12-06, versión 3230 de la cabecera) | **Versionada**, `src/verif/fw/msp432p4/ti/`. Tomada del port de mbed de Andreas Terstegge (`github.com/Terstegge/mbed-os-MSP432`), que la incluye sin tocar |
+| `[SA]` | SLAA668A, «Getting Started with MSP432P4xx» (TI, marzo 2017): VCORE y estados de espera, tabla 2 | `ti.com/lit/an/slaa668a` |
+| `[SYS]` | `system_msp432p401r.c` (del mismo port; derivado del de TI): VLO, REFO, MODOSC, SYSOSC y la fórmula del DCO | No versionado |
+| `[OO]` | OpenOCD, `src/flash/nor/msp432.c` (GPL-2.0, solo como referencia: no se copia código) | `openocd.org/doc/doxygen/html/msp432_8c_source.html` |
+| — | **OpenOCD como herramienta de prueba (T5)**: hace falta uno de git posterior al 2024-04-07 (`79b51fe`, las órdenes de espera Z/z), porque el SWD de `remote_bitbang` (`0f70c6c`, 2023-12-03) no está en ninguna versión publicada: la 0.12.0 es de enero de 2023. Probado con `2075427` (master, 2026-10-13), la que fija `ci/construye_openocd.sh`. No se copia nada de él | `github.com/openocd-org/openocd` |
+| — | DriverLib del SDK SimpleLink MSP432P4 3.40: `rom.h` (`ROM_APITABLE`), `sysctl.h` (etiquetas del TLV), `reset.h` | `software-dl.ti.com/simplelink/esd/simplelink_msp432_sdk/3.40.00.05/docs/` |
+| `[ROM]` | La imagen de la ROM de DriverLib del P401R rev. C, con símbolos, que instala CCS para depurar dentro de ella (`ccs_base/emulation/gel/images/msp432p401r/revC/msp432_driverlib_rom_image.out`). Segunda opinión de las tablas de la R1 y la R2 de `--rom` (T4) | **No versionada**: es de TI. Se usó la copia que lleva el TICloudAgent del port de mbed de Terstegge (`1d1bf66`) |
+
+El BSL del P4 (T5, D4: `soc/msp432p4/bsl_p4.h`, `verif/fw/msp432p4/bsl_b1`)
+tiene dos fuentes, en `doc/refs/` y **sin versionar**: el paquete
+**MSP432BSL_1_01_00_00** de TI (el código del BSL a medida, «TI Text File
+License», y su imagen; de ahí el sector de 0x0020_2000, la palabra de entrada,
+la versión de 0x0020_2010, los parámetros de r0 y la etiqueta 15 del TLV) y
+**BSL Scripter 3.4** (código BSD y ejecutables: el lado del PC del protocolo,
+y la herramienta con la que se prueba). Del primero no se copia código: el B1
+está escrito desde la descripción del protocolo.
+
+El del MSP432E4 (`soc/msp432e4/`, `periph/msp432e4/`, T6) cita además así; lo
+que solo tiene una fuente lleva **[1F]** y su subpunto de **P-17**:
+
+| Etiqueta | Qué | Dónde |
+| :--- | :--- | :--- |
+| `[H]` | `msp432e401y.h`, la cabecera CMSIS del E4, y los `hw_*.h` de DriverLib | **Versionadas**, `src/verif/fw/msp432e4/sdk/`: el SDK SimpleLink MSP432E4 que lleva `msp432e-core` de Energia (`be5c1c2`), BSD-3 |
+| `[DL]` | DriverLib del E4: `sysctl.c` (PIOSC, la tabla de `MEMTIM0`, `SysCtlClockFreqSet`), `flash.c`, `eeprom.c`, `gpio.c`, `pin_map.h` (las funciones de cada pin), `rom.h` y `rom_map.h` (las 34 tablas de la ROM en `0x0100_0010`) | La misma copia, versionada |
+| `[EN]` | Energia, `variants/MSP_EXP432E401Y`: los LED, los pulsadores y la UART0 de la LaunchPad | `github.com/energia/msp432e-core` |
+| `[OO]` | OpenOCD: `DID0`/`DID1` del E401Y y el algoritmo de Flash del E4 (`contrib/loaders/flash/msp432`), como segunda opinión del controlador. No se copia código | `github.com/openocd-org/openocd` |
+| `[SPMU301]` | «TivaWare Boot Loader User's Guide»: el protocolo serie del cargador (paquetes, ACK/NAK, órdenes y estados), que el cargador de la ROM R1 implementa **sin** copiar el `boot_loader` de TivaWare | `ti.com/lit/ug/spmu301` (no versionado) |
+| `[DS]` | Datasheet del MSP432E401Y (SLASEN5): 120 MHz, 90 E/S en el TQFP de 128, la ROM | `ti.com/lit/ds/slasen5` (no versionado; de ahí, de memoria, buena parte de los **[1F]**) |
+
+Y en la T7 (CCM, C_CAN, EMAC con su PHY, el cargador por Ethernet y el USB):
+
+| Etiqueta | Qué | Dónde |
+| :--- | :--- | :--- |
+| `[H]`, `[DL]` | `hw_ccm.h`, `hw_shamd5.h`, `hw_aes.h`, `hw_des.h`, `hw_can.h`, `hw_emac.h`, `hw_usb.h` y sus `.c` de DriverLib (`crc.c`, `shamd5.c`, `aes.c`, `des.c`, `can.c`, `emac.c`, `usb.c`): mapas, bits y secuencias. Cada bloque se contrasta además con una de las de abajo | La misma copia, versionada |
+| `[TRM]` | SLAU723A, el TRM del MSP432E4: el PHY interno (`EPHY_*`, `EMACPC`), la ventana del USB y del EMAC | Leído en el visor de documentos de `ti.com` (no versionado, no bajado entero) |
+| — | Bosch, «C_CAN User's Manual» rev. 1.2: la prioridad entre objetos, las FIFOs, bus-off e INIT | Segunda fuente de `can.c`; de memoria, sin versionar |
+| — | El controlador `omap-sham` de Linux (`drivers/crypto/omap-sham.c`, la misma IP que el SHA/MD5 del CCM): el orden de los bytes del resumen | `git.kernel.org` (GPL-2.0, solo como referencia: no se copia código) |
+| — | QEMU, `-netdev stream` (y gvproxy, passt): cada trama con su longitud delante en 32 bits big-endian | `qemu.org/docs`, y el código de gvproxy |
+| — | lwIP 2.2.1, versionado en `e4_eth/lwip/` (BSD-3, TERCEROS.md) | `github.com/lwip-tcpip/lwip` |
+| — | USB 2.0 (cap. 7 y 9: la conexión, el reset y las peticiones estándar) y CDC PSTN 1.2 (`SET_LINE_CODING`, `SET_CONTROL_LINE_STATE`, `SEND_BREAK`) | `usb.org`, de memoria; sin versionar |
+| — | RFC 951 (BOOTP) y RFC 1350 (TFTP), para el cargador por Ethernet | `rfc-editor.org`, de memoria |
+
+Las placas (`placas/msp_exp432p401r.xml`, `msp_exp432e401y.xml`,
+`boostxl_edumkii.xml` y sus dibujos) salen de sus guías, **en `doc/refs/` sin
+versionar**: SLAU597F (MSP-EXP432P401R, rev. de marzo de 2018, con los
+esquemáticos de la placa rev. 2.1), SLAU748B (MSP-EXP432E401Y, septiembre de
+2018, esquemáticos rev. 1.1; el fichero se llama «MSP432P401Y» por error) y
+SLAU599B (BOOSTXL-EDUMKII, julio de 2021, esquemáticos rev. 1.1). Lo que el
+dibujo no saca de ellas -las medidas de la P401R y de la EDUMKII- es
+aproximado (P-17 u).
+
+**Pendientes de bajar a `doc/refs/`, sin versionar:** SLAU356 (TRM del
+MSP432P4), SLAS826 (datasheet del P401R), SLAU622 (BSL), SLAU723 (TRM del
+E4). La red de este entorno pide permiso para `ti.com` y no se pudo leer el
+datasheet completo: de ahí buena parte de los **[1F]**.
+
 ## 3. Lo que se ha citado y NO está aquí
 
 | Etiqueta | Documento | Por qué falta | De dónde se baja |

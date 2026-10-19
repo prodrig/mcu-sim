@@ -34,7 +34,13 @@
 #   make serie                    # el destino y el formato de un PuenteSerie, tampoco
 #   make rfc2217                  # el codec de Telnet y RFC 2217, tampoco
 #   make interop                  # el puente UART contra pySerial y socat (Python)
-#   make vectores                 # los vectores del CRYP/HASH, sin SystemC ni compilar
+#   make sflash-e4                # el cargador de la ROM del E4 por RFC 2217 (Python)
+#   make bsl-p4                   # el BSL del P4 por RFC 2217, y BSL Scripter si esta (Python)
+#   make eth-e4                   # el eco de lwIP del E4 por el puente Ethernet (Python)
+#   make usb-e4                   # el CDC-ACM del E4 por el puente USB de clase (pySerial)
+#   make e4-edumkii               # la BOOSTXL-EDUMKII sobre la LaunchPad del E4
+#   make e4-retardo               # SysCtlDelay y la prebusqueda de la Flash del E4
+#   make vectores                 # los vectores del CRYP/HASH y del CCM, sin SystemC ni compilar
 #   make asan407                  # la suite del F407 con ASan + UBSan (Linux y macOS)
 #   make asan446                  # y la del F446
 #   make bench                    # el banco de medida del coste de simulación
@@ -235,7 +241,9 @@ LDFLAGS  += $(foreach d,$(LIBDIRS),-L$(d)) $(RPATH) $(LDEXTRA)
 LDLIBS   += -lsystemc $(LIBS_SO) $(EXTRA_LD)
 
 HDRS := $(wildcard common/*.h pins/*.h parts/*.h bus/*.h mem/*.h rcc/*.h core/*.h \
-                   periph/*.h soc/*.h verif/*.h top/*.h)
+                   periph/*.h soc/*.h verif/*.h top/*.h \
+                   periph/msp432p4/*.h soc/msp432p4/*.h soc/msp432p4/*.inc \
+                   periph/msp432e4/*.h soc/msp432e4/*.h soc/msp432e4/*.inc)
 
 TEST407 := $(B)/test407$(EXE)
 MCUSIM  := $(B)/mcu-sim$(EXE)
@@ -243,6 +251,8 @@ TEST446 := $(B)/test446$(EXE)
 TEST417 := $(B)/test417$(EXE)
 TESTSERIE := $(B)/testserie$(EXE)
 TESTGUI   := $(B)/testgui$(EXE)
+TESTP4    := $(B)/testp4$(EXE)
+TESTE4    := $(B)/teste4$(EXE)
 HASHV   := $(B)/prueba_hash$(EXE)
 CRYPV   := $(B)/prueba_cryp$(EXE)
 BENCH  := $(B)/bench$(EXE)
@@ -253,9 +263,11 @@ GUIPROTO := $(B)/prueba_gui_proto$(EXE)
 ASAN407 := $(B)/asan407$(EXE)
 ASAN446 := $(B)/asan446$(EXE)
 ASAN417 := $(B)/asan417$(EXE)
+ASANP4  := $(B)/asanp4$(EXE)
+ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop run clean plataforma vectores hash cryp datos
+.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 bsl-p4 eth-e4 usb-e4 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -327,6 +339,33 @@ test446-build: $(TEST446)
 
 test446: $(TEST446)
 	$(TEST446)
+
+# EL BANCO DEL MSP432P401R (fases T0 y T1 de doc/analisis_msp432.md). Otro
+# ejecutable, por la razon de siempre: un chip mas dentro de otro banco mueve
+# su invariante. Lleva tambien las pruebas propias de T0 -nombres de pin por
+# chip, catalogo comun, ELF/TI-TXT/HEX, integracion del nucleo-, que no gastan
+# tiempo simulado y no podian ir en test407 sin cambiar su cifra.
+#   make testp4
+$(TESTP4): top/sc_main_p4.cpp $(HDRS)
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_p4.cpp $(LDFLAGS) $(LDLIBS)
+
+testp4-build: $(TESTP4)
+
+testp4: $(TESTP4)
+	$(TESTP4)
+
+# EL BANCO DEL MSP432E401Y (fase T6 de doc/analisis_msp432.md): el segundo
+# MSP432, otro ejecutable por lo mismo que el del P4.
+#   make teste4
+$(TESTE4): top/sc_main_e4.cpp $(HDRS)
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_e4.cpp $(LDFLAGS) $(LDLIBS)
+
+teste4-build: $(TESTE4)
+
+teste4: $(TESTE4)
+	$(TESTE4)
 
 # --- La capa de red, que es la única parte no portable -----------------------
 # No necesita SystemC, así que se compila y se ejecuta en cualquier sitio, y se
@@ -463,6 +502,50 @@ PYTHON ?= python3
 interop: $(MCUSIM)
 	$(PYTHON) verif/serie/interop.py --sim $(MCUSIM)
 
+# EL CARGADOR SERIE DE LA ROM DEL MSP432E4 (T6): el `mcu-sim` de verdad, con
+# placas/msp_exp432e401y.xml y SIN firmware (la Flash en blanco arranca el
+# cargador de la ROM R1), y sflash_e4.py por RFC 2217 programando e4_t3.bin,
+# arrancandolo y esperando su saludo. Python 3 y pySerial; sin invariante.
+#
+#   make sflash-e4
+sflash-e4: $(MCUSIM)
+	$(PYTHON) verif/serie/sflash_e4.py --prueba --sim $(MCUSIM)
+
+# EL BSL DEL MSP432P4 (T5, D4): el `mcu-sim` de verdad con
+# placas/msp_exp432p401r.xml y SIN firmware (la Flash en blanco entra en el
+# BSL B1), y bsl_p4.py por RFC 2217 programando el ejemplo de eco de TI,
+# arrancandolo y comprobando el eco. Con BSL_SCRIPTER=<bsl-scripter-linux-64>
+# pasa ademas el guion de ejemplo de BSL Scripter de TI por un pty de socat.
+#
+#   make bsl-p4
+bsl-p4: $(MCUSIM)
+	$(PYTHON) verif/serie/bsl_p4.py --prueba --sim $(MCUSIM)
+
+# EL ETHERNET DEL MSP432E4 (T7): el `mcu-sim` de verdad con
+# placas/msp_exp432e401y.xml y e4_eth (lwIP 2.2.1, eco TCP y UDP en el 7), el
+# puente en qemu:PUERTO con --tiempo-real, y eco_e4.py haciendo de ordenador
+# en 192.168.127.1 con su propia pila: ARP, ping, eco UDP y eco TCP, con las
+# sumas de comprobacion que pone el EMAC. Deja la captura en build/eth_e4.pcap.
+# Y otra vez con e4_bootp, que llama a ROM_UpdateEMAC: eco_e4.py contesta al
+# BOOTP, sirve e4_eth.bin por TFTP, y hace lo mismo con lo que se ha grabado.
+#
+#   make eth-e4
+eth-e4: $(MCUSIM)
+	$(PYTHON) verif/eth/eco_e4.py --prueba --sim $(MCUSIM) --pcap $(B)/eth_e4.pcap
+	$(PYTHON) verif/eth/eco_e4.py --prueba --bootp --sim $(MCUSIM)
+
+# EL USB DEL MSP432E4 (T7): el `mcu-sim` de verdad con placas/msp_exp432e401y.xml
+# y e4_usb (un CDC-ACM sobre usb.c de DriverLib), y el puente de clase (U2 de
+# doc/analisis_puente_usb.md) en --usb rfc2217:PUERTO y luego en tcp:PUERTO:
+# el puente enumera el dispositivo como un PC y cdc_e4.py es el terminal. Con
+# pySerial, que los baudios, la paridad, la parada y DTR que se ponen en el
+# terminal llegan al firmware como SET_LINE_CODING y SET_CONTROL_LINE_STATE;
+# con un socket, el eco y 4 KB de ida y vuelta.
+#
+#   make usb-e4
+usb-e4: $(MCUSIM)
+	$(PYTHON) verif/usb/cdc_e4.py --prueba --sim $(MCUSIM)
+
 # EL SALUDO CON mcu-sim-gui (P-12, fase 3 de su plan): el `mcu-sim` de verdad,
 # con placas/discovery_min.xml y blinky, contra una ventana hecha en Python con
 # su PROPIA implementacion del marco -no comparte proto_io.h, a proposito-.
@@ -520,6 +603,96 @@ gui-sin-mcu: $(MCUSIM)
 gui-sistema: $(MCUSIM)
 	$(PYTHON) verif/gui/sistema.py --sim $(MCUSIM)
 
+# LA BOOSTXL-EDUMKII SOBRE LA MSP-EXP432P401R (T3 del MSP432): el sistema de
+# placas/msp_exp432p401r_edumkii.xml con verif/fw/msp432p4/edumkii_demo, 400
+# ms, mirando lo que dice por el backchannel -el joystick y el acelerometro
+# por el ADC14, la luz del OPT3001 y la temperatura del TMP006 por I2C- y lo
+# que ha recibido la pantalla por SPI. Lo que no comprueba testp4, que monta
+# las piezas a mano: que las dos placas se acoplan por J1-J4 pin a pin.
+#   make p4-edumkii
+p4-edumkii: $(MCUSIM)
+	@$(MCUSIM) placas/msp_exp432p401r_edumkii.xml --ms=400 --serie L/BCL=memoria \
+	    > $(B)/p4-edumkii.log 2>&1 || { cat $(B)/p4-edumkii.log; exit 1; }
+	@grep -q "joy=2048,2048 acc_z=2867 lux=300.00 t=25.00 s1=0 s2=0" $(B)/p4-edumkii.log \
+	    && grep -q "10 ordenes, 20480 pixeles" $(B)/p4-edumkii.log \
+	    && ! grep -q "Warning" $(B)/p4-edumkii.log \
+	    && echo "  [OK  ] p4-edumkii: el backchannel, el ADC14, los dos sensores I2C y la pantalla" \
+	    || { echo "  [FALLO] p4-edumkii: vease $(B)/p4-edumkii.log"; exit 1; }
+
+# LA BOOSTXL-EDUMKII SOBRE LA MSP-EXP432E401Y: el sistema de
+# placas/msp_exp432e401y_edumkii.xml (la EDUMKII en la BoosterPack 1, con su
+# J5 pasado a la luz de la pantalla por el <jumper> del sistema) con
+# verif/fw/msp432e4/e4_edumkii, 400 ms: la misma linea que la de la P401R
+# por el backchannel -que llega por JP4/JP5 y J101-, la pantalla con su luz
+# y lo que ha recibido por la SSI2.
+#   make e4-edumkii
+e4-edumkii: $(MCUSIM)
+	@$(MCUSIM) placas/msp_exp432e401y_edumkii.xml --ms=400 --serie L/BCL=memoria \
+	    > $(B)/e4-edumkii.log 2>&1 || { cat $(B)/e4-edumkii.log; exit 1; }
+	@grep -q "joy=2048,2048 acc_z=2867 lux=300.00 t=25.00 s1=0 s2=0" $(B)/e4-edumkii.log \
+	    && grep -q "10 ordenes, 20480 pixeles; luz 3.4 mA" $(B)/e4-edumkii.log \
+	    && grep -q "dibujo E: boostxl_edumkii.svg (.*J5 PWM-LCD)" $(B)/e4-edumkii.log \
+	    && ! grep -q "Warning" $(B)/e4-edumkii.log \
+	    && echo "  [OK  ] e4-edumkii: el backchannel por JP4/JP5, el ADC, los dos sensores I2C y la pantalla con luz" \
+	    || { echo "  [FALLO] e4-edumkii: vease $(B)/e4-edumkii.log"; exit 1; }
+
+# LA PREBUSQUEDA DE LA FLASH DEL E4 A 120 MHz (FWS = 5):
+# verif/fw/msp432e4/e4_retardo mide con el TIMER2 los ciclos de una vuelta
+# del bucle de SysCtlDelay alineado en una linea de 256 bits, cruzando una
+# linea, desde la SRAM, el de la ROM y el de DriverLib. Los seis tienen que
+# dar lo mismo, 4 ciclos (3 + 1 del salto tomado del nucleo: P-17 m): con
+# una sola linea de prebusqueda, los que cruzan daban 14.
+#   make e4-retardo
+e4-retardo: $(MCUSIM)
+	@$(MCUSIM) placas/msp_exp432e401y.xml verif/fw/msp432e4/e4_retardo/e4_retardo.out \
+	    --ms=200 --serie BCL=memoria > $(B)/e4-retardo.log 2>&1 \
+	    || { cat $(B)/e4-retardo.log; exit 1; }
+	@grep -q "e4_retardo: f=120000000 FWS=5" $(B)/e4-retardo.log \
+	    && test "$$(grep -c 'ciclos/vuelta' $(B)/e4-retardo.log)" = 6 \
+	    && awk '/ciclos\/vuelta/ { v = $$(NF-1); if (v < 3.95 || v > 4.05) mal = 1 } \
+	            END { exit mal }' $(B)/e4-retardo.log \
+	    && echo "  [OK  ] e4-retardo: SysCtlDelay a 120 MHz, 4 ciclos por vuelta en la Flash (crucen linea o no), la SRAM y la ROM" \
+	    || { grep "ciclos/vuelta" $(B)/e4-retardo.log; \
+	         echo "  [FALLO] e4-retardo: vease $(B)/e4-retardo.log"; exit 1; }
+
+# T5: OpenOCD DE VERDAD contra el modelo, por los pines, con la sonda
+# remote_bitbang (--openocd): `program ... verify reset` en el MSP432P401R
+# con target/ti/msp432.cfg y en el F407 con target/stm32f4x.cfg, sin
+# tocarlos, y GDB por OpenOCD con los hilos de FreeRTOS. Hace falta un
+# OpenOCD de git (ci/construye_openocd.sh): con la 0.12.0 de las
+# distribuciones la prueba se OMITE y lo dice, salvo con OPENOCD_OBLIGATORIO=1.
+#   make -f Makefile.mcu-sim openocd OPENOCD=/ruta/a/bin/openocd
+OPENOCD ?= openocd
+openocd: $(MCUSIM)
+	OPENOCD="$(OPENOCD)" python3 verif/openocd/programa.py --sim $(MCUSIM)
+
+# X2 de doc/analisis_xds110.md: la sonda CMSIS-DAP por TCP (--cmsis-dap). El
+# protocolo a mano, sin OpenOCD; y con el `cmsis-dap tcp` de OpenOCD (de git
+# posterior al 2025-09-01): program ... verify reset en el P401R y el E401Y
+# por su XDS110 y en el F407 por sus pines, lo que tarda frente a
+# remote_bitbang, y GDB con FreeRTOS. Sin ese OpenOCD, la parte de OpenOCD
+# se OMITE y lo dice, salvo con OPENOCD_OBLIGATORIO=1.
+#   make -f Makefile.mcu-sim cmsis-dap OPENOCD=/ruta/a/bin/openocd
+cmsis-dap: $(MCUSIM)
+	OPENOCD="$(OPENOCD)" python3 verif/openocd/cmsis_dap.py --sim $(MCUSIM)
+
+# X1 de doc/analisis_xds110.md: la sonda XDS110 como pieza de las dos
+# LaunchPad. El 3V3 de su LDO por J101 (sin el puente el chip no arranca), la
+# traza SWO de p4_swo y e4_swo en memoria, en crudo y por TCP, y, con
+# OpenOCD, que la sonda va por el puente de TMS_SWDIO.
+#   make -f Makefile.mcu-sim xds110
+xds110: $(MCUSIM)
+	OPENOCD="$(OPENOCD)" python3 verif/openocd/xds110.py --sim $(MCUSIM)
+
+# T4: la ROM sustituta (R1) frente a la de TI (R2), que no se versiona: los
+# mismos ejemplos con las dos, y lo que tarda cada uno hasta encender P1.0.
+#   make -f Makefile.mcu-sim p4-rom-ti ROM_TI=.../msp432_driverlib_rom_image.out
+# Tambien vale un volcado binario de los 32 KB de 0x0200_0000.
+p4-rom-ti: $(TESTP4)
+	@test -n "$(ROM_TI)" || { echo "p4-rom-ti: falta ROM_TI=<la ROM de TI: el .out de CCS o un volcado>"; exit 2; }
+	TESTP4_SOLO=rom_ti P4_ROM_TI="$(ROM_TI)" $(TESTP4)
+	$(MAKE) --no-print-directory -C verif/fw/msp432p4/rom_r1 contrasta ROM_TI="$(abspath $(ROM_TI))"
+
 # EL CAMPO DE MINAS DEL PREPROCESADOR DE WINDOWS. Prueba de COMPILACION, no de
 # ejecucion: define a mano las macros que Windows trae -R_OK, min, max, ERROR,
 # VERSION...- e incluye las dos cabeceras que este proyecto comparte con
@@ -534,10 +707,11 @@ macros-win:
 	        verif/prueba_macros_win.cpp \
 	 && echo "  [OK  ] las cabeceras compartidas sobreviven a las macros de Windows"
 
-# Los VECTORES DE PRUEBA del acelerador criptográfico del F415/F417. No compila
-# nada y no necesita SystemC: vuelve a calcular con dos implementaciones
-# independientes -OpenSSL y, si está, pycryptodome- los 39 casos de
-# `verif/vectores/*.vec` y los compara con lo que dice el fichero. Es la red de
+# Los VECTORES DE PRUEBA de los aceleradores criptográficos del F415/F417 y
+# del CCM del MSP432E4. No compila nada y no necesita SystemC: vuelve a
+# calcular con dos implementaciones independientes -OpenSSL, pycryptodome,
+# cryptography, crccheck, hashlib- los 90 casos de `verif/vectores/*.vec` y
+# los compara con lo que dice el fichero. Es la red de
 # seguridad de un periférico que, mal modelado, NO falla: cifra.
 #   make vectores            # los rápidos
 #   make vectores V=--lentos # también el del millón de letras
@@ -585,6 +759,32 @@ asan446:
 else
 asan446: $(ASAN446)
 	$(ASAN446)
+endif
+
+# Y para el del MSP432P401R.
+$(ASANP4): top/sc_main_p4.cpp $(HDRS)
+	@mkdir -p $(B)
+	$(CXX) $(ASANFLAGS) -o $@ top/sc_main_p4.cpp $(LDFLAGS) $(LDLIBS)
+
+ifeq ($(PLATAFORMA),windows)
+asanp4:
+	@echo "MinGW no trae AddressSanitizer: 'make asanp4' solo va en Linux y macOS."
+else
+asanp4: $(ASANP4)
+	$(ASANP4)
+endif
+
+# Y para el del MSP432E401Y.
+$(ASANE4): top/sc_main_e4.cpp $(HDRS)
+	@mkdir -p $(B)
+	$(CXX) $(ASANFLAGS) -o $@ top/sc_main_e4.cpp $(LDFLAGS) $(LDLIBS)
+
+ifeq ($(PLATAFORMA),windows)
+asane4:
+	@echo "MinGW no trae AddressSanitizer: 'make asane4' solo va en Linux y macOS."
+else
+asane4: $(ASANE4)
+	$(ASANE4)
 endif
 
 # Y para el del acelerador criptográfico, que es el tercero.
@@ -761,6 +961,16 @@ FW407 := verif/fw verif/fw/coremark verif/fw/blinky verif/fw/dma_demo \
 FW446 := verif/fw/blinky446 verif/fw/clk446_demo
 FW417 := verif/fw/crypto_demo
 FWSERIE := verif/fw/vcp_demo
+# Los del MSP432P401R: con la cabecera de TI y el mismo compilador.
+FWP4 := verif/fw/msp432p4/p4_demo verif/fw/msp432p4/coremark verif/fw/msp432p4/p4_t3 \
+        verif/fw/msp432p4/p4_t3b verif/fw/msp432p4/edumkii_demo verif/fw/msp432p4/driverlib_t3 \
+        verif/fw/msp432p4/rom_r1 verif/fw/msp432p4/sdk_ejemplos verif/fw/msp432p4/freertos_blinky \
+        verif/fw/msp432p4/bsl_b1 verif/fw/msp432p4/p4_bsl
+# Los del MSP432E401Y (T6): con la cabecera y DriverLib de TI para el E4.
+FWE4 := verif/fw/msp432e4/e4_demo verif/fw/msp432e4/coremark verif/fw/msp432e4/e4_nv \
+        verif/fw/msp432e4/e4_t3 verif/fw/msp432e4/e4_rom verif/fw/msp432e4/rom_r1 \
+        verif/fw/msp432e4/e4_t7 verif/fw/msp432e4/e4_eth verif/fw/msp432e4/e4_bootp \
+        verif/fw/msp432e4/e4_usb verif/fw/msp432e4/e4_edumkii
 # Los de las placas de ejemplo que no usa ninguna suite de C++: el de
 # placas/barra8_en_nucleo.xml y el de placas/nucleo_f446re_barra8ac_azul.xml,
 # que vigila `make gui-sistema`; los de la pantalla TFT, el de
@@ -772,7 +982,9 @@ FWPLACAS := verif/fw/barra8_demo verif/fw/barra8_morpho verif/fw/tft_demo verif/
 
 # Todos los que hay, para `cleanfw`. Se calculan buscando Makefiles en vez de
 # escribir otra lista: asi un firmware nuevo se borra sin tocar esto.
-FW_TODOS := $(sort $(patsubst %/Makefile,%,$(wildcard verif/fw/Makefile verif/fw/*/Makefile)))
+FW_TODOS := $(sort $(patsubst %/Makefile,%,$(wildcard verif/fw/Makefile verif/fw/*/Makefile \
+                                                         verif/fw/msp432p4/*/Makefile \
+                                                         verif/fw/msp432e4/*/Makefile)))
 
 # Un aviso util en vez de veinte errores de «command not found». No aborta: hay
 # quien tiene el compilador en un sitio raro y sabe lo que hace.
@@ -843,8 +1055,24 @@ fwplacas:
 	 done
 	@echo "  [fw] los $(words $(FWPLACAS)) firmwares de las placas de ejemplo, listos"
 
-# Los cinco juegos, sin simular nada.
-fw: fw407 fw446 fw417 fwserie fwplacas
+fwp4:
+	$(AVISA_VERSIONADOS)
+	$(COMPRUEBA_CROSS)
+	@for d in $(FWP4); do \
+	   echo "  [fw] $$d"; $(MAKE) --no-print-directory -C $$d || exit 1; \
+	 done
+	@echo "  [fw] los $(words $(FWP4)) firmwares de la suite del MSP432P401R, listos"
+
+fwe4:
+	$(AVISA_VERSIONADOS)
+	$(COMPRUEBA_CROSS)
+	@for d in $(FWE4); do \
+	   echo "  [fw] $$d"; $(MAKE) --no-print-directory -C $$d || exit 1; \
+	 done
+	@echo "  [fw] los $(words $(FWE4)) firmwares de la suite del MSP432E401Y, listos"
+
+# Los siete juegos, sin simular nada.
+fw: fw407 fw446 fw417 fwserie fwplacas fwp4 fwe4
 
 # Y las suites con sus firmwares delante. En una maquina nueva ya NO hacen
 # falta: `make test407` a secas funciona, porque los .bin vienen en el
@@ -862,6 +1090,11 @@ test417fw: fw417
 
 testseriefw: fwserie
 	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) testserie
+
+testp4fw: fwp4
+	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) testp4
+teste4fw: fwe4
+	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) teste4
 
 # Borra los .bin, .elf, .o y .map de TODOS los firmwares, sean de la suite que
 # sean. Util para comprobar que la cadena cruzada funciona de cero.
