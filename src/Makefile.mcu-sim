@@ -39,6 +39,7 @@
 #   make eth-e4                   # el eco de lwIP del E4 por el puente Ethernet (Python)
 #   make usb-e4                   # el CDC-ACM del E4 por el puente USB de clase (pySerial)
 #   make e4-edumkii               # la BOOSTXL-EDUMKII sobre la LaunchPad del E4
+#   make e4-retardo               # SysCtlDelay y la prebusqueda de la Flash del E4
 #   make vectores                 # los vectores del CRYP/HASH y del CCM, sin SystemC ni compilar
 #   make asan407                  # la suite del F407 con ASan + UBSan (Linux y macOS)
 #   make asan446                  # y la del F446
@@ -266,7 +267,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 bsl-p4 eth-e4 usb-e4 e4-edumkii run clean plataforma vectores hash cryp datos
+.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 bsl-p4 eth-e4 usb-e4 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -634,6 +635,25 @@ e4-edumkii: $(MCUSIM)
 	    && ! grep -q "Warning" $(B)/e4-edumkii.log \
 	    && echo "  [OK  ] e4-edumkii: el backchannel por JP4/JP5, el ADC, los dos sensores I2C y la pantalla con luz" \
 	    || { echo "  [FALLO] e4-edumkii: vease $(B)/e4-edumkii.log"; exit 1; }
+
+# LA PREBUSQUEDA DE LA FLASH DEL E4 A 120 MHz (FWS = 5):
+# verif/fw/msp432e4/e4_retardo mide con el TIMER2 los ciclos de una vuelta
+# del bucle de SysCtlDelay alineado en una linea de 256 bits, cruzando una
+# linea, desde la SRAM, el de la ROM y el de DriverLib. Los seis tienen que
+# dar lo mismo, 4 ciclos (3 + 1 del salto tomado del nucleo: P-17 m): con
+# una sola linea de prebusqueda, los que cruzan daban 14.
+#   make e4-retardo
+e4-retardo: $(MCUSIM)
+	@$(MCUSIM) placas/msp_exp432e401y.xml verif/fw/msp432e4/e4_retardo/e4_retardo.out \
+	    --ms=200 --serie BCL=memoria > $(B)/e4-retardo.log 2>&1 \
+	    || { cat $(B)/e4-retardo.log; exit 1; }
+	@grep -q "e4_retardo: f=120000000 FWS=5" $(B)/e4-retardo.log \
+	    && test "$$(grep -c 'ciclos/vuelta' $(B)/e4-retardo.log)" = 6 \
+	    && awk '/ciclos\/vuelta/ { v = $$(NF-1); if (v < 3.95 || v > 4.05) mal = 1 } \
+	            END { exit mal }' $(B)/e4-retardo.log \
+	    && echo "  [OK  ] e4-retardo: SysCtlDelay a 120 MHz, 4 ciclos por vuelta en la Flash (crucen linea o no), la SRAM y la ROM" \
+	    || { grep "ciclos/vuelta" $(B)/e4-retardo.log; \
+	         echo "  [FALLO] e4-retardo: vease $(B)/e4-retardo.log"; exit 1; }
 
 # T5: OpenOCD DE VERDAD contra el modelo, por los pines, con la sonda
 # remote_bitbang (--openocd): `program ... verify reset` en el MSP432P401R

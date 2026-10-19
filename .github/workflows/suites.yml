@@ -253,6 +253,12 @@ jobs:
         working-directory: src
         run: make -f Makefile.mcu-sim e4-edumkii
 
+      # La prebusqueda de la Flash del E4 a 120 MHz: una vuelta de
+      # SysCtlDelay cuesta lo mismo cruce o no una linea de 256 bits.
+      - name: SysCtlDelay y la prebusqueda de la Flash del MSP432E401Y
+        working-directory: src
+        run: make -f Makefile.mcu-sim e4-retardo
+
       - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas)
         working-directory: src
         run: make -f Makefile.mcu-sim gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema

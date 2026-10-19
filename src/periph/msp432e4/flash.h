@@ -4,9 +4,13 @@
 // LA MEMORIA: 1 MB en 0x0, en sectores de 16 KB [OO; DS]. Se lee con los
 // estados de espera de MEMTIM0.FWS -los que estén EN VIGOR, es decir, los que
 // se cargaron con RSCLKCFG.MEMTIMU [sysctl.h]- cada vez que el acceso cae en
-// una línea de 256 bits distinta de la última, una para instrucciones y otra
-// para datos: es lo que hacen los búferes de prebúsqueda [1F: P-17 f].
-// FLASHCONF.FPFOFF los apaga, y entonces se paga en cada acceso.
+// una línea de 256 bits que no está en los búferes de prebúsqueda [1F: P-17 f].
+// El chip tiene «dos juegos de búferes de prebúsqueda de instrucciones, de
+// 2 x 256 bits cada uno, que se pueden combinar como uno de 4 x 256» [DS]:
+// aquí, cuatro líneas de instrucciones con reemplazo LRU, y al tocar una se
+// trae también la siguiente, sin coste -el código secuencial no espera, y un
+// bucle que cruza una línea tampoco-. Los datos (literales, tablas) llevan una
+// línea propia. FLASHCONF.FPFOFF los apaga, y entonces se paga en cada acceso.
 //
 // EL CONTROLADOR, en 0x400F_D000 [H; hw_flash.h; segunda fuente: el algoritmo
 // de Flash del E4 que TI escribió para OpenOCD, contrib/loaders/flash/msp432,
@@ -95,7 +99,20 @@ public:
 private:
     std::vector<uint8_t> mem_;
     uint64_t n_esperas_ = 0, n_detenidas_ = 0;
-    uint32_t linea_[2] = {~0u, ~0u};
+    static constexpr unsigned N_LINEAS = 4;
+    uint32_t lin_i_[N_LINEAS] = {~0u, ~0u, ~0u, ~0u};   // [0] la más reciente
+    uint32_t lin_d_ = ~0u;
+    // ¿Está `l` en los búferes de instrucciones? La sube a la más reciente; si
+    // no estaba, la mete (y sale la menos reciente)
+    bool toca_linea(uint32_t l) {
+        unsigned i = 0;
+        while (i < N_LINEAS && lin_i_[i] != l) ++i;
+        const bool estaba = i < N_LINEAS;
+        if (!estaba) i = N_LINEAS - 1;
+        for (; i > 0; --i) lin_i_[i] = lin_i_[i - 1];
+        lin_i_[0] = l;
+        return estaba;
+    }
 
     void bt(tlm::tlm_generic_payload& gp, sc_core::sc_time& t);
     unsigned dbg(tlm::tlm_generic_payload& gp) {
@@ -402,9 +419,16 @@ inline void FlashE4::bt(tlm::tlm_generic_payload& gp, sc_core::sc_time& t) {
     const AhbExt* e = gp.get_extension<AhbExt>();
     const bool instr = e && e->instr;
     const uint32_t linea = a >> 5;
-    uint32_t& ult = linea_[instr ? 0 : 1];
-    const bool acierto = ctrl && ctrl->prebusqueda() && ult == linea;
-    ult = linea;
+    bool acierto = false;
+    if (instr) {
+        acierto = toca_linea(linea);
+        toca_linea(linea + 1);               // la siguiente, adelantada
+        toca_linea(linea);                   // y la que se ejecuta, la más reciente
+    } else {
+        acierto = lin_d_ == linea;
+        lin_d_ = linea;
+    }
+    acierto = acierto && ctrl && ctrl->prebusqueda();
     const unsigned w = fws ? fws() : 0;
     const double f = sys_hz.read();
     if (!acierto && w && f > 0.0) {

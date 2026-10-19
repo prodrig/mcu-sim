@@ -167,10 +167,15 @@ void can_local(void) {
     guarda(CAN0_BASE, 10);
     buzon.estado = 50;
 
-    /* 5. Uno que no casa con nada: asentido, y en ningun objeto */
-    const uint32_t est = SAL[4];
+    /* 5. Uno que no casa con nada: asentido, y en ningun objeto. Se espera a
+     * que CAN0 acabe de mandarlo (su objeto 11) y al RXOK de CAN1, no a que
+     * cambie la cuenta de interrupciones de estado: la del TXOK de la
+     * respuesta del paso 4 puede llegar despues de leerla, y entonces se
+     * acababa antes de que el marco saliera al hilo */
+    SAL[5] = 0;
     manda(CAN0_BASE, 11, 0x7FF, MSG_OBJ_TX_INT_ENABLE, D8, 2, MSG_OBJ_TYPE_TX);
-    for (uint32_t t = 0; t < PLAZO && SAL[4] == est; ++t) { }
+    if (!espera(0, 1u << 10)) { buzon.estado = 95; for (;;) { } }
+    for (uint32_t t = 0; t < PLAZO && !(SAL[5] & CAN_STATUS_RXOK); ++t) { }
     buzon.r[0] = CANStatusGet(CAN1_BASE, CAN_STS_NEWDAT);
     SAL[6] = HWREG(CAN0_BASE + 0x08);          /* CANERR */
     buzon.estado = 100;

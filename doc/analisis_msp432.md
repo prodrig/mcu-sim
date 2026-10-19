@@ -150,7 +150,8 @@ fabricante.**
 > todos los vectores de cifrado por el chip (`e4_t7`), CAN entre dos E4 de la
 > misma placa, eco TCP y UDP con lwIP 2.2.1 (`make eth-e4`), BOOTP/TFTP por
 > el puente, y el CDC por USB con pySerial (`make usb-e4`). `make teste4`:
-> 296 comprobaciones, `resto` `4507254220852 ps`; el NVIC pasa a ser de
+> 296 comprobaciones, `resto` `4507254220852 ps` (`4505148675235 ps` desde la
+> prebúsqueda de cuatro líneas, P-17 f); el NVIC pasa a ser de
 > nivel sin mover ningún otro invariante. Lo que T7 deja dicho está en
 > **P-17** (o-t).
 
