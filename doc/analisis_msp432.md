@@ -550,8 +550,9 @@ pregunta abierta (§9).
 
 > **2026-10-19:** `doc/analisis_xds110.md` estudia el coste de la sonda
 > entera. El OpenOCD fijado trae un *backend* `cmsis-dap tcp`, así que para
-> OpenOCD esta vía ya no depende del puente USB (fase X2 de ese análisis);
-> USB/IP queda para pyOCD, Keil e IAR.
+> OpenOCD esta vía ya no depende del puente USB: **hecha** como su fase X2
+> (`--cmsis-dap`), junto con la sonda XDS110 como pieza de las dos LaunchPad
+> (X1). USB/IP queda para pyOCD, Keil e IAR.
 
 ### 4.7 Resumen de la descarga
 

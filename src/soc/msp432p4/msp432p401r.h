@@ -360,7 +360,8 @@ private:
     sc_core::sc_signal<uint8_t> s_boot_{"s_boot"}, s_dbg_lp_{"s_dbg_lp"};
     sc_core::sc_signal<bool>    s_swclk_{"s_swclk"}, s_swdio_i_{"s_swdio_i"},
                                 s_swdio_o_{"s_swdio_o"}, s_swdio_oe_{"s_swdio_oe"},
-                                s_jtdi_{"s_jtdi"}, s_jtdo_{"s_jtdo"}, s_njtrst_{"s_njtrst"};
+                                s_jtdi_{"s_jtdi"}, s_jtdo_{"s_jtdo"}, s_njtrst_{"s_njtrst"},
+                                s_tdo_oe_{"s_tdo_oe"};
     sc_core::sc_signal<bool>    s_freeze_[FZ_COUNT];
     sc_core::sc_signal<PadDrive> s_drv_swclk_{"s_drv_swclk"}, s_drv_swdio_{"s_drv_swdio"};
     sc_core::sc_signal<bool>    s_swclk_ok_{"s_swclk_ok"}, s_swclk_oor_{"s_swclk_oor"},
@@ -440,6 +441,13 @@ private:
         for (unsigned i = 0; i < FZ_COUNT; ++i) core.debug.freeze[i](s_freeze_[i]);
         core.ppb_fab = this;
         s_njtrst_.write(true);
+        // TDO/SWO sale por PJ.5, su funcion primaria (PJSEL0.5 = 1): la traza
+        // del TPIU, hasta la sonda por J101 (X1 de doc/analisis_xds110.md).
+        // El modelo deja PJ.5 como E/S al salir del reset; el firmware que
+        // quiera la traza pone PJSEL0.5, que en la placa no hace dano.
+        FuncionP4 tdo; tdo.out = &s_jtdo_; tdo.oe = &s_tdo_oe_; tdo.nombre = "TDO/SWO";
+        dio.conecta_funcion(p4::PUERTO_J, 5, 1, tdo);
+        s_tdo_oe_.write(true);
         // El `load` de GDB todavía no sabe programar esta Flash (T2): que lo
         // diga, en vez de escribir las llaves del F407 donde no hay nada.
         // Y el `load` de GDB programa esta Flash con su FLCTL (T2).

@@ -282,6 +282,15 @@ jobs:
           sudo apt-get install -y libjim-dev gdb-multiarch
           make -f Makefile.mcu-sim openocd OPENOCD="$GITHUB_WORKSPACE/openocd/bin/openocd"
 
+      # X1 y X2 de doc/analisis_xds110.md: la sonda CMSIS-DAP por TCP con el
+      # `cmsis-dap tcp` del mismo OpenOCD, y la sonda XDS110 de las LaunchPad
+      # (el 3V3 por J101, la traza SWO, la sonda por TMS_SWDIO)
+      - name: CMSIS-DAP por TCP y la sonda XDS110 de las LaunchPad
+        working-directory: src
+        env:
+          OPENOCD_OBLIGATORIO: 1
+        run: make -f Makefile.mcu-sim cmsis-dap xds110 OPENOCD="$GITHUB_WORKSPACE/openocd/bin/openocd"
+
       - uses: actions/upload-artifact@v6
         if: always()
         with:

@@ -266,7 +266,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 bsl-p4 eth-e4 usb-e4 e4-edumkii run clean plataforma vectores hash cryp datos
+.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 bsl-p4 eth-e4 usb-e4 e4-edumkii run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -645,6 +645,24 @@ e4-edumkii: $(MCUSIM)
 OPENOCD ?= openocd
 openocd: $(MCUSIM)
 	OPENOCD="$(OPENOCD)" python3 verif/openocd/programa.py --sim $(MCUSIM)
+
+# X2 de doc/analisis_xds110.md: la sonda CMSIS-DAP por TCP (--cmsis-dap). El
+# protocolo a mano, sin OpenOCD; y con el `cmsis-dap tcp` de OpenOCD (de git
+# posterior al 2025-09-01): program ... verify reset en el P401R y el E401Y
+# por su XDS110 y en el F407 por sus pines, lo que tarda frente a
+# remote_bitbang, y GDB con FreeRTOS. Sin ese OpenOCD, la parte de OpenOCD
+# se OMITE y lo dice, salvo con OPENOCD_OBLIGATORIO=1.
+#   make -f Makefile.mcu-sim cmsis-dap OPENOCD=/ruta/a/bin/openocd
+cmsis-dap: $(MCUSIM)
+	OPENOCD="$(OPENOCD)" python3 verif/openocd/cmsis_dap.py --sim $(MCUSIM)
+
+# X1 de doc/analisis_xds110.md: la sonda XDS110 como pieza de las dos
+# LaunchPad. El 3V3 de su LDO por J101 (sin el puente el chip no arranca), la
+# traza SWO de p4_swo y e4_swo en memoria, en crudo y por TCP, y, con
+# OpenOCD, que la sonda va por el puente de TMS_SWDIO.
+#   make -f Makefile.mcu-sim xds110
+xds110: $(MCUSIM)
+	OPENOCD="$(OPENOCD)" python3 verif/openocd/xds110.py --sim $(MCUSIM)
 
 # T4: la ROM sustituta (R1) frente a la de TI (R2), que no se versiona: los
 # mismos ejemplos con las dos, y lo que tarda cada uno hasta encender P1.0.

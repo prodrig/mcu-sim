@@ -7,6 +7,11 @@
     //
     // Hay que cambiar las cuatro rutas marcadas con RUTA: el OpenOCD, su .cfg,
     // el arm-none-eabi-gdb de la toolchain GNU de CCS y el .out del proyecto.
+    //
+    // Las de mcu-sim van por la sonda CMSIS-DAP por TCP de su XDS110
+    // (--cmsis-dap, X2): hace falta un OpenOCD con `cmsis-dap tcp` (xPack
+    // 0.12.0-7 o de git). Con uno mas viejo, pero con SWD en remote_bitbang,
+    // valen los .cfg mcu-sim_<chip>.cfg y --openocd en tasks.json.
     "version": "0.2.0",
     "configurations": [
         {
@@ -18,14 +23,14 @@
             "servertype": "openocd",
             "serverpath": "C:/RUTA/xpack-openocd-0.12.0-7/bin/openocd.exe",
             "configFiles": [
-                "C:/RUTA/mcu-sim/src/ide/msp432/openocd/mcu-sim_msp432p401r.cfg"
+                "C:/RUTA/mcu-sim/src/ide/msp432/openocd/mcu-sim-cmsis-dap_msp432p401r.cfg"
             ],
             "gdbPath": "C:/RUTA/ti/ccs2020/ccs/tools/compiler/gcc-arm-none-eabi_RUTA/bin/arm-none-eabi-gdb.exe",
             "executable": "${workspaceFolder}/Debug/TU_PROYECTO.out",
             "cwd": "${workspaceFolder}",
             "device": "MSP432P401R",
             "runToEntryPoint": "main",
-            "preLaunchTask": "mcu-sim: MSP-EXP432P401R con sonda para OpenOCD",
+            "preLaunchTask": "mcu-sim: MSP-EXP432P401R con sonda CMSIS-DAP",
             // OpenOCD contesta despacio mientras programa la Flash
             "preLaunchCommands": ["set remotetimeout 60"]
         },
@@ -37,14 +42,14 @@
             "servertype": "openocd",
             "serverpath": "C:/RUTA/xpack-openocd-0.12.0-7/bin/openocd.exe",
             "configFiles": [
-                "C:/RUTA/mcu-sim/src/ide/msp432/openocd/mcu-sim_msp432e401y.cfg"
+                "C:/RUTA/mcu-sim/src/ide/msp432/openocd/mcu-sim-cmsis-dap_msp432e401y.cfg"
             ],
             "gdbPath": "C:/RUTA/ti/ccs2020/ccs/tools/compiler/gcc-arm-none-eabi_RUTA/bin/arm-none-eabi-gdb.exe",
             "executable": "${workspaceFolder}/Debug/TU_PROYECTO.out",
             "cwd": "${workspaceFolder}",
             "device": "MSP432E401Y",
             "runToEntryPoint": "main",
-            "preLaunchTask": "mcu-sim: MSP-EXP432E401Y con sonda para OpenOCD",
+            "preLaunchTask": "mcu-sim: MSP-EXP432E401Y con sonda CMSIS-DAP",
             "preLaunchCommands": ["set remotetimeout 60"]
         },
         {

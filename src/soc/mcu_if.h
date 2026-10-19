@@ -78,6 +78,12 @@ public:
     // abajo, luego VDD, y solo después se suelta el reset.
     virtual void alimenta(bool encendido) = 0;
     virtual void reset_pin(bool activo) = 0;      // NRST a masa / en alta imp.
+    // La alimentación principal la pone la PLACA -el LDO de la sonda XDS110,
+    // por el puente 3V3 de J101 (doc/analisis_xds110.md, X1)-: el adaptador
+    // deja de sostener ese nodo y solo pone las masas (y la analógica, que
+    // las placas no unen). Sin el puente, el chip se queda sin alimentar.
+    // Por omisión no hace nada: los chips que no lo saben siguen igual.
+    virtual void alimentacion_externa(bool) {}
 
     // --- 4. El firmware -----------------------------------------------------
     // Devuelve false si el fichero no se puede leer o no cabe.

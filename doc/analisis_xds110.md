@@ -2,6 +2,20 @@
 
 **Análisis de coste para `mcu-sim`** · 19-10-2026
 
+> **Estado (2026-10-19): hechas X1 y X2.** La pieza **`Xds110`**
+> (`parts/xds110.h`) está en las dos LaunchPad, del lado de la sonda de J101:
+> su LDO alimenta el chip por el puente 3V3 (sin él, el chip no arranca),
+> `--openocd` y `--cmsis-dap` van por sus pines TMS/TCK/RST (sin el puente de
+> TMS, OpenOCD no encuentra el DAP), y la traza SWO -de PJ.5 en el P401R, de
+> PC3 en el E401Y- sale con `swo=` o `--swo` a memoria, TCP o RFC 2217, como
+> texto del ITM o en crudo. La sonda **CMSIS-DAP por TCP**
+> (`verif/sonda_cmsis_dap.h`, `--cmsis-dap`, puerto 4441) atiende al
+> `cmsis-dap tcp` de OpenOCD en cualquier chip: programa el P401R en 1,0 s
+> frente a los 4-6 s de `remote_bitbang`, y el F407 en 1,6 s frente a 16 s.
+> Lo prueban `make xds110` (15) y `make cmsis-dap` (25), en el CI de Linux.
+> §5 dice lo que se hizo y lo que quedó distinto del plan; §8, cómo se usa
+> desde CCS 11 y CCS 20.
+
 La pregunta: cuánto cuesta que `mcu-sim` ofrezca lo que da la sonda que va
 soldada en las LaunchPad de la familia MSP432 —el **XDS110-ET** de la
 MSP-EXP432P401R (y de la P401Y) y el **XDS110** de la MSP-EXP432E401Y—, qué
@@ -73,8 +87,8 @@ cosas distintas que conviene no mezclar:
 | Fase | Qué da | Código nuevo (aprox.) | Coste | Plataformas | Riesgo |
 | :--- | :--- | ---: | :--- | :--- | :--- |
 | X0 | Capturas y descriptores de una sonda real | 0 | Bajo, pero necesita la placa | — | Bajo |
-| **X1** | La sonda en la placa: J101 con sentido, LDO, SWD y SRST | ~400 | **Bajo** | Las tres | Bajo |
-| **X2** | CMSIS-DAP por TCP para OpenOCD | ~900 | **Medio** | Las tres | Bajo |
+| **X1** | La sonda en la placa: J101 con sentido, LDO, SWD y SRST — **hecha** | ~400 | **Bajo** | Las tres | Bajo |
+| **X2** | CMSIS-DAP por TCP para OpenOCD — **hecha** | ~900 | **Medio** | Las tres | Bajo |
 | **X3** | EnergyTrace en el modelo: fichero, observables, energía por función | ~500 | **Bajo-medio** | Las tres | Medio: la fidelidad del consumo |
 | **X4** | La ventana de EnergyTrace en `mcu-sim-gui` | ~700 | **Medio** | Las tres | Bajo |
 | X5 | CMSIS-DAP 2.0 por USB/IP (`1cbe:02a5`) | ~1 500 | Medio-alto | Linux, Windows | Medio |
@@ -295,6 +309,8 @@ salvo que un laboratorio lo necesite y preste la sonda para las capturas.
 
 ### 3.5 La traza SWO
 
+> **Hecho con X1**: `swo=` en la pieza o `--swo` (§5, X1).
+
 El modelo ya genera SWO (TPIU en NRZ) y lo recibe (`SwoReceiver`). Lo que
 hace el XDS110 —llevarlo al ordenador por su puerto auxiliar— se puede ofrecer
 **sacando el `SwoReceiver` por un canal del puente serie** (TCP en crudo o
@@ -384,6 +400,48 @@ canal del puente serie (§3.5).
 chip no arranca; sin RXD/TXD, el *backchannel* calla. El dibujo de las dos
 placas con la sonda como pieza visible. **Ningún invariante se mueve.**
 
+**Hecha (2026-10-19).** Lo que hay, y lo que quedó distinto del plan:
+
+* **`parts/xds110.h`**: la pieza, con las patillas `3v3`, `rst`, `swdio`,
+  `swclk` y `swo` y los atributos `et`, `v`, `limite_ma` (500), `sonda`,
+  `puerto`, `swo`, `swo_bitrate` (1 Mbit/s), `swo_formato` (`itm` o `crudo`)
+  y `swo_puerto`. El LDO es una `Fuente` por dentro. Observables:
+  `corriente` (mA), `sobrecorriente` (alarma) y `depurando` (hay un OpenOCD
+  conectado). `doc/parts.md` la describe.
+* **El *backchannel* sigue fuera**, como `PuenteSerie`: ya funcionaba y no
+  gana nada por estar dentro.
+* **La alimentación**: `mcu_if::alimentacion_externa()`. Con un XDS110 con LDO
+  en su placa, el adaptador del P4 deja DVCC (y el del E4, VDD) a la placa y
+  solo pone las masas y la analógica, que las placas no unen al 3V3. Sin el
+  puente 3V3 de J101 el chip se queda sin alimentar.
+* **La corriente del LDO se mide sin el umbral del nodo**
+  (`AnalogNet::corriente_exacta`): con 0,1 ohm, el 0,1 mV con el que el nodo
+  decide si ha cambiado son 1 mA, y el P401R a 3 MHz pide 0,34. Hace falta
+  para X3. **El E4 no tiene modelo de consumo**: su LDO entrega 0 mA.
+* **Las corrientes de los pines no pasan por el LDO**: los LED los alimentan
+  los pads del modelo, no DVCC. Para X3 habrá que sumarlas (lo que en los
+  STM32 hace `PowerPads`).
+* **El límite de 75 mA con EnergyTrace no se aplica**: `et="si"` solo se dice.
+  Es de X3.
+* **TDO/SWO en PJ.5**, su función primaria, que el P4 no tenía. El modelo deja
+  PJ.5 como E/S al salir del reset: el firmware que quiera la traza pone
+  `PJSEL0.5` (en la placa no hace daño; si sale del reset como TDO, falta
+  confirmarlo en X0). En el E4, PC3 ya era TDO/SWO.
+* **La traza**: un receptor UART 8N1 y el desempaquetado del ITM; a memoria,
+  TCP, RFC 2217 o sus clientes, como un puente serie. `--swo` y
+  `--swo-bitrate` la piden sin tocar el XML, y `--espera-terminal` también
+  espera a su cliente. `p4_swo` y `e4_swo` son los firmwares de prueba.
+* **`--openocd` y `--cmsis-dap` van por la sonda** si la placa del chip lleva
+  un `Xds110` (en un sistema, la de su misma placa); si no, por los pines del
+  chip, como antes.
+* **La validación eléctrica** reconoce un pad por su nodo y no solo por su
+  nombre: en un sistema, la patilla `swdio` de la sonda ve el nodo como
+  `SWDIOTMS`, y el pad se llama `L/u0.SWDIOTMS`.
+* **Pruebas**: `verif/openocd/xds110.py` y `make xds110` (15 comprobaciones,
+  en el CI de Linux); `gui-sistema` cuenta las piezas nuevas, y
+  `prueba_cruzada` de `mcu-sim-gui` comprueba la pieza y sus observables. No
+  se probó el SRST quitando el puente de RST.
+
 ### X2 · CMSIS-DAP por TCP
 
 **Qué:** el procesador CMSIS-DAP (§3.2) sobre `SwdPort`, en la sonda de X1 o
@@ -395,6 +453,27 @@ OpenOCD).
 **Pruebas:** `verif/openocd/cmsis_dap.py` y `make cmsis-dap` (P401R, E401Y y
 F407; FreeRTOS en GDB), la prueba del procesador con paquetes a mano, y la
 comparación de tiempos con `remote_bitbang` en el informe.
+
+**Hecha (2026-10-19).** `verif/sonda_cmsis_dap.h` (`SondaCmsisDap`), con
+`verif/sonda_red.h`, la interfaz que comparte con la de `remote_bitbang`:
+
+* **No usa `SwdProbe`** (`swd_port.h`), que comparten los stubs de GDB y no
+  tiene la capa de bits de CMSIS-DAP (`DAP_SWJ_Sequence`, `DAP_SWD_Sequence`,
+  el *turnaround* configurable): la sonda lleva la suya, con los mismos
+  tiempos.
+* **Las lecturas del AP** se recogen en RDBUFF por el anfitrión: en
+  `DAP_Transfer`, una lectura y RDBUFF detrás; en `DAP_TransferBlock`,
+  aplazadas, una recoge la anterior y la última va a RDBUFF.
+* **Los WAIT se reintentan con espera**, cada vez el doble hasta 1 ms.
+  OpenOCD pide 64 reintentos y no reintenta él; 64 paquetes seguidos son menos
+  que el milisegundo que el borrado de un sector del F407 tiene el bus
+  ocupado, y daba el borrado por fallido. Con la espera cubren unos 60 ms.
+* **`DAP_SWJ_Pins` con nRESET** es el SRST, y se lee del nodo de RST.
+* **Lo que tarda**, en esta máquina: el P401R se programa en 1,0 s (4-6 s con
+  `remote_bitbang`), el E401Y en 0,7 s y el F407 en 1,6 s (16 s); el `load` de
+  GDB va a 3-4 KB/s (0,5 KB/s).
+* **Pruebas**: `verif/openocd/cmsis_dap.py` y `make cmsis-dap`, 25
+  comprobaciones, en el CI de Linux con el mismo OpenOCD que `make openocd`.
 
 ### X3 · EnergyTrace en el modelo
 
@@ -501,9 +580,10 @@ Mientras no haya un XDS110 emulado —y el nativo de CCS no se recomienda
 servidor de GDB. CCS deja su *debug server* y su `.ccxml` y habla con GDB.
 Sirve igual para dos objetivos, y solo cambia el `.cfg` de OpenOCD:
 
-* **El MSP432 de `mcu-sim`**, con la sonda `remote_bitbang` que ya existe
-  (`--openocd`; T5). Cuando esté X2, el mismo camino con `cmsis-dap tcp`, más
-  rápido.
+* **El MSP432 de `mcu-sim`**, por la sonda de su XDS110 y J101 (X1): la
+  **CMSIS-DAP por TCP** (`--cmsis-dap`, X2), que es la rápida, o la
+  `remote_bitbang` (`--openocd`, T5) con un OpenOCD sin el backend `tcp` de
+  cmsis-dap. Para CCS son lo mismo: cambia el `.cfg` y nada más.
 * **Una LaunchPad de verdad**, por su XDS110, con el controlador `xds110` de
   OpenOCD.
 
@@ -517,25 +597,26 @@ datos de TI y los ajustes de Flash de CCS.
 
 | Pieza | Para `mcu-sim` | Para una LaunchPad |
 | :--- | :--- | :--- |
-| **OpenOCD** | **Con SWD en `remote_bitbang`**: uno de git posterior al 2024-04-07. En Linux, `sh ci/construye_openocd.sh <prefijo>`; en Windows y macOS, **xPack OpenOCD 0.12.0-4 o posterior** (se recomienda la 0.12.0-7, de octubre de 2025, que trae también `cmsis-dap tcp`). **La 0.12.0 publicada no vale**: dice «only one transport option; autoselect 'jtag'» | Cualquiera desde la 0.10; el de xPack sirve. El XDS110 con firmware 2.3.0.11 o posterior (CCS lo actualiza solo al conectar, o `xdsdfu`) |
+| **OpenOCD** | **Con el backend `tcp` de cmsis-dap** para `--cmsis-dap`: uno de git posterior al 2025-09-01, o **xPack OpenOCD 0.12.0-7** (octubre de 2025). Con uno anterior pero **con SWD en `remote_bitbang`** (git posterior al 2024-04-07, xPack 0.12.0-4), `--openocd`. En Linux, `sh ci/construye_openocd.sh <prefijo>` da uno con los dos. **La 0.12.0 publicada no vale para ninguno**: dice «only one transport option; autoselect 'jtag'» | Cualquiera desde la 0.10; el de xPack sirve. El XDS110 con firmware 2.3.0.11 o posterior (CCS lo actualiza solo al conectar, o `xdsdfu`) |
 | **GDB para ARM** | `arm-none-eabi-gdb` de la toolchain GNU de CCS: `<ccs>/tools/compiler/gcc-arm-none-eabi_<versión>/bin/`. Si no se instaló, se añade desde el gestor de compiladores de CCS, o se usa el de Arm. **El `gdb` del PC no sirve**: no lleva ARM | Igual |
-| **El `.cfg`** | `src/ide/msp432/openocd/mcu-sim_msp432p401r.cfg` o `…_msp432e401y.cfg` | P401R: `board/ti/msp432-launchpad.cfg` (en la 0.12.0, `board/ti_msp432_launchpad.cfg`), que trae OpenOCD. E401Y: `src/ide/msp432/openocd/launchpad_msp432e401y.cfg` |
-| **El objetivo** | `mcu-sim placas/msp_exp432p401r.xml --openocd --tiempo-real`, con o sin firmware: con la Flash en blanco el chip entra en el BSL, y OpenOCD la programa igual | La placa por USB |
+| **El `.cfg`** | En `src/ide/msp432/openocd/`: `mcu-sim-cmsis-dap_msp432p401r.cfg` o `…_msp432e401y.cfg` con `--cmsis-dap`; `mcu-sim_msp432p401r.cfg` o `…_msp432e401y.cfg` con `--openocd` | P401R: `board/ti/msp432-launchpad.cfg` (en la 0.12.0, `board/ti_msp432_launchpad.cfg`), que trae OpenOCD. E401Y: `src/ide/msp432/openocd/launchpad_msp432e401y.cfg` |
+| **El objetivo** | `mcu-sim placas/msp_exp432p401r.xml --cmsis-dap --tiempo-real` (o `--openocd`), con o sin firmware: con la Flash en blanco el chip entra en el BSL, y OpenOCD la programa igual | La placa por USB |
 
-Los `.cfg` de `mcu-sim` hacen dos cosas: eligen `remote_bitbang` en
-`localhost:3335` con SWD, y cargan el objetivo que trae OpenOCD sin tocarlo
-(`target/ti/msp432.cfg` para el P4; para el E4, `target/ti/stellaris.cfg`,
-porque OpenOCD lo trata como un TM4C129). El del E4 cambia además el evento
-`reset-start` de `stellaris.cfg`: ese evento pone `adapter speed 500`, que
-`remote_bitbang` no admite, y el reset se queda a medias. El E4 se resetea con
-SYSRESETREQ, que es lo único que necesita.
+Los `.cfg` de `mcu-sim` hacen dos cosas: eligen la sonda -`cmsis-dap` por TCP
+en `localhost:4441`, o `remote_bitbang` en `localhost:3335`- con SWD, y cargan
+el objetivo que trae OpenOCD sin tocarlo (`target/ti/msp432.cfg` para el P4;
+para el E4, `target/ti/stellaris.cfg`, porque OpenOCD lo trata como un
+TM4C129). Los del E4 cambian además el evento `reset-start` de
+`stellaris.cfg`: ese evento pone `adapter speed 500`, que `remote_bitbang` no
+admite, y el reset se queda a medias. El E4 se resetea con SYSRESETREQ, que
+es lo único que necesita, y el de CMSIS-DAP lo dice igual.
 
 **Antes de abrir el IDE, la comprobación por consola**, en tres terminales
 (desde `src/` de `mcu-sim`):
 
 ```
-./build/mcu-sim placas/msp_exp432p401r.xml --openocd --tiempo-real
-openocd -f ide/msp432/openocd/mcu-sim_msp432p401r.cfg
+./build/mcu-sim placas/msp_exp432p401r.xml --cmsis-dap --tiempo-real
+openocd -f ide/msp432/openocd/mcu-sim-cmsis-dap_msp432p401r.cfg
 arm-none-eabi-gdb -q -ex "target extended-remote localhost:3333" \
     -ex "set remotetimeout 60" -ex "monitor reset halt" -ex load \
     -ex "monitor reset halt" -ex "break main" -ex continue Debug/proyecto.out
@@ -545,15 +626,21 @@ Lo que tiene que salir, en este orden (es la salida real del 19-10-2026, con
 `p4_demo.out`):
 
 ```
-[openocd] remote_bitbang escuchando en localhost:3335              ← mcu-sim
-Info : SWD DPIDR 0x2ba01477                                          ← OpenOCD
+  mcu u0: sin firmware, sonda CMSIS-DAP por TCP en el puerto 4441 por XDS (J101)
+[cmsis-dap] escuchando en localhost:4441                            ← mcu-sim
+Info : CMSIS-DAP: SWD supported                                      ← OpenOCD
+Info : CMSIS-DAP: Interface ready
+Info : SWD DPIDR 0x2ba01477
 Info : [msp432.cpu] Cortex-M4 r0p1 processor detected
 Info : Listening on port 3333 for gdb connections
 Loading section .isr_vector, size 0xe4 lma 0x0                       ← GDB
 Loading section .text, size 0x688 lma 0xe4
-Transfer rate: 498 bytes/sec, 950 bytes/write.
+Transfer rate: 4 KB/sec, 950 bytes/write.
 Breakpoint 1, main () at main.c:208
 ```
+
+Con `--openocd` y los `.cfg` `mcu-sim_<chip>.cfg` sale `[openocd] remote_bitbang
+escuchando en localhost:3335`, y la carga va a medio kilobyte por segundo.
 
 Si esto funciona, lo que falle después es del IDE.
 
@@ -586,13 +673,13 @@ izquierda):
 | *Name* | `mcu-sim P401R` | `OpenOCD mcu-sim P401R` |
 | *Main → Location* | `C:\…\mcu-sim\src\build\mcu-sim.exe` | `C:\…\xpack-openocd-0.12.0-7\bin\openocd.exe` |
 | *Main → Working Directory* | `C:\…\mcu-sim\src` | `C:\…\mcu-sim\src` |
-| *Main → Arguments* | `placas/msp_exp432p401r.xml --openocd --tiempo-real` | `-f ide/msp432/openocd/mcu-sim_msp432p401r.cfg` |
+| *Main → Arguments* | `placas/msp_exp432p401r.xml --cmsis-dap --tiempo-real` | `-f ide/msp432/openocd/mcu-sim-cmsis-dap_msp432p401r.cfg` |
 | *Build* | Desmarcar *Build before launch* | Igual |
 | *Common* | Marcar *External Tools* en *Display in favorites menu* | Igual |
 
 *Apply*, y *Run* primero el de `mcu-sim` y después el de OpenOCD. Cada uno abre
 su consola en la vista *Console*: la de `mcu-sim` tiene que decir
-`[openocd] remote_bitbang escuchando en localhost:3335`, y la de OpenOCD,
+`[cmsis-dap] escuchando en localhost:4441`, y la de OpenOCD,
 `Listening on port 3333 for gdb connections`. Se paran con el cuadrado rojo de
 su consola.
 
@@ -628,8 +715,8 @@ Configurations…*, *GDB Hardware Debugging*, *New*. Pestaña por pestaña:
 
 *Apply* y ***Debug***. CCS ofrece pasar a la perspectiva *Debug* (la de CDT,
 no la *CCS Debug*): sí. GDB conecta, OpenOCD programa la Flash con su algoritmo
-—en `mcu-sim` va a medio kilobyte por segundo, así que un programa de 30 KB
-tarda un minuto; con X2 bajará mucho— y el programa para en `main`.
+—en `mcu-sim`, a 3-4 KB/s por CMSIS-DAP (medio kilobyte por segundo por
+`remote_bitbang`)— y el programa para en `main`.
 
 **Por qué esas órdenes.** `monitor` pasa la orden a OpenOCD: `reset halt`
 deja el núcleo parado en el vector de reset. GDB no vuelve a leer los
@@ -641,7 +728,7 @@ algoritmo de Flash, y el plazo por omisión (2 s) se queda corto.
 **Paso 4 (opcional) · Todo con un botón.** *Run → Debug Configurations… →
 Launch Group → New*, y con *Add…* las tres configuraciones en este orden:
 `mcu-sim P401R` (modo *run*, *Post launch action*: *Wait for console output
-(regexp)* con `remote_bitbang escuchando`), `OpenOCD mcu-sim P401R` (*run*,
+(regexp)* con `cmsis-dap\] escuchando`), `OpenOCD mcu-sim P401R` (*run*,
 *Wait for console output* con `Listening on port 3333`) y `openocd_msp432`
 (*debug*).
 
@@ -669,8 +756,9 @@ cada versión nueva de CCS hay que comprobarla.
 
 **Paso 2 · Las tareas y los lanzamientos.**
 
-* `tasks.json`: arranca `mcu-sim` en segundo plano y espera a que diga
-  `remote_bitbang escuchando` antes de dejar seguir. Se copia a la carpeta de
+* `tasks.json`: arranca `mcu-sim` con `--cmsis-dap` en segundo plano y espera
+  a que diga `[cmsis-dap] escuchando` antes de dejar seguir (con un OpenOCD
+  sin `cmsis-dap tcp`, `--openocd` y los `.cfg` de `remote_bitbang`). Se copia a la carpeta de
   configuración del proyecto (`.theia/tasks.json`, o `.vscode/tasks.json`,
   que Theia también lee) y se cambian las dos `RUTA`.
 * `launch.json`: en la vista *Run and Debug*, el engranaje (*Open
@@ -714,18 +802,25 @@ pila, los *breakpoints* y, con el SVD, *Cortex Peripherals*.
 | E401Y: «Unknown did0 class» | El controlador `stellaris` no conoce la clase del MSP432E4 | Inofensivo: programa con el tamaño de DID1 |
 | E401Y: «Execution of event reset-start failed» | `stellaris.cfg` sin el cambio de nuestro `.cfg` | Usar `mcu-sim_msp432e401y.cfg` |
 | GDB: «Invalid state, unable to determine sp alias» | GDB 15 con la descripción de registros de OpenOCD | Inofensivo |
-| La carga es lenta | `remote_bitbang`: un carácter por flanco | Normal hoy; X2 (§3.2) lo acelera sin cambiar nada en CCS, solo el `.cfg` |
+| La carga es lenta | `remote_bitbang`: un carácter por flanco | `--cmsis-dap` y el `.cfg` de CMSIS-DAP: en CCS no cambia nada más |
+| OpenOCD: «CMSIS-DAP: unable to connect to device localhost:4441» | `mcu-sim` no está escuchando por CMSIS-DAP: falta `--cmsis-dap`, o ha arrancado con `--openocd` | Arrancar `mcu-sim` con `--cmsis-dap` antes que OpenOCD |
+| OpenOCD: «invalid backend argument» o no conoce `cmsis-dap tcp` | Un OpenOCD anterior al backend `tcp` (septiembre de 2025) | xPack 0.12.0-7 o uno de git; o `--openocd` con su `.cfg` |
+| OpenOCD no encuentra el DAP («Error connecting DP») con J101 cambiado | Falta el puente de TMS o el de TCK: la sonda va por J101, como en la placa | Ponerlos; sin el de 3V3 el chip ni siquiera arranca |
 
 ### 8.5 Qué está probado
 
 **Probado aquí, el 19-10-2026**, en Linux, con `mcu-sim` (rama `msp432`),
-OpenOCD 2075427 y `gdb-multiarch` 15.1, con los dos `.cfg` de `mcu-sim`. Las
-órdenes son las mismas que mandan los dos IDE: `monitor reset halt`, `load`,
-`compare-sections` (todo «matched»), `break main`, `continue` y `next`.
+OpenOCD 2075427 y `gdb-multiarch` 15.1, con los cuatro `.cfg` de `mcu-sim`.
+Las órdenes son las mismas que mandan los dos IDE: `monitor reset halt`,
+`load`, `compare-sections` (todo «matched»), `break main`, `continue` y
+`next`.
 
 * **P401R**: con la Flash en blanco y con otro firmware cargado; el ejemplo
-  `systick_interrupt_gpio_blink` del SDK y `p4_demo`, a unos 500-630 B/s.
-* **E401Y**: `e4_demo`, a 526 B/s.
+  `systick_interrupt_gpio_blink` del SDK y `p4_demo`: a 4 KB/s por CMSIS-DAP
+  y a unos 500-630 B/s por `remote_bitbang`.
+* **E401Y**: `e4_demo`, a 3 KB/s por CMSIS-DAP y a 526 B/s por
+  `remote_bitbang`.
+* Las dos sondas, por el XDS110 de la placa (J101).
 
 **No probado**:
 

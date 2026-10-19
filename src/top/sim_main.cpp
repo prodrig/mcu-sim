@@ -21,7 +21,10 @@
 //        depuracion="pines" puerto_gdb="3334"/>
 //
 // o `depuracion="openocd"`, con el puerto de remote_bitbang en puerto_gdb: una
-// sonda SWD para que OpenOCD hable con los pines (verif/sonda_openocd.h).
+// sonda SWD para que OpenOCD hable con los pines (verif/sonda_openocd.h); o
+// `depuracion="cmsis-dap"`, una sonda CMSIS-DAP por TCP para el `cmsis-dap tcp`
+// de OpenOCD (verif/sonda_cmsis_dap.h). Si la placa del chip lleva una pieza
+// `Xds110`, esas dos sondas son la suya: van por J101 (doc/analisis_xds110.md).
 //
 // Y la regla que hace que nada de esto rompa lo anterior:
 //
@@ -119,6 +122,7 @@
 #endif
 #include "../verif/gdb_stub.h"
 #include "../verif/sonda_openocd.h"
+#include "../verif/sonda_cmsis_dap.h"
 #include "../parts/netlist_parts.h"
 #include "../parts/netlist_xml.h"
 #include "../parts/frontera_gui.h"
@@ -181,7 +185,9 @@ static double      g_tiempo_real = 0.0;
 // suyos-; con varios, no dice a cual y es un error.
 static std::string g_tipo_mcu;
 // Depuración pedida por la línea de órdenes. `g_gdb_modo` vacío = no se pidió.
-static std::string g_gdb_modo;          // "pines", "dap" u "openocd"
+static std::string g_gdb_modo;          // "pines", "dap", "openocd" o "cmsis-dap"
+static std::string g_swo;               // --swo: a donde va la traza del Xds110
+static double      g_swo_bitrate = 0;   // --swo-bitrate (0: el de la placa)
 // `--firmware ID=FICHERO` y `--sin-firmware[=ID]`: el firmware de CADA chip,
 // o ninguno, por la linea de ordenes, tambien con varios MCUs. Mandan sobre
 // el firmware= de su <mcu>. Lo pide el dialogo de lanzamiento de mcu-sim-gui
@@ -225,7 +231,8 @@ struct McuMontado {
     // permite que `tipo=` despache de verdad en vez de comprobarse.
     mcu_if*       mcu  = nullptr;
     GdbStub*      stub = nullptr;       // solo en modo "pines" y con puerto
-    SondaOpenOcd* ocd  = nullptr;       // solo en modo "openocd" y con puerto
+    SondaRed*     ocd  = nullptr;       // modos "openocd" y "cmsis-dap", con puerto
+    std::string   xds;                  // la pieza Xds110 que hace de sonda, si la hay
     // Las limitaciones que se dijeron al montar: si `--rom`/`--tlv` las
     // cambian, se dicen las nuevas (T4 del MSP432)
     std::vector<std::string> ojo;
@@ -479,16 +486,30 @@ SC_MODULE(Sim) {
             }
             // La sonda de OpenOCD se cuelga de los mismos pines, y su SRST es
             // el NRST del chip, como en una sonda de verdad (T5 del MSP432)
-            if (d.depuracion == "openocd" && d.puerto_gdb) {
+            // Con una pieza Xds110 en la placa del chip, la sonda es la suya:
+            // se le dice aqui, antes de construirla, y va por J101
+            if ((d.depuracion == "openocd" || d.depuracion == "cmsis-dap") && d.puerto_gdb) {
+                m.xds = busca_xds110(d);
+                if (Instancia* i = m.xds.empty() ? nullptr : placa.busca(m.xds)) {
+                    i->params["sonda"] = d.depuracion;
+                    i->params["puerto"] = std::to_string(d.puerto_gdb);
+                }
+            }
+            if ((d.depuracion == "openocd" || d.depuracion == "cmsis-dap") && d.puerto_gdb &&
+                m.xds.empty()) {
                 const std::string snm = "ocd_" + (d.id.empty() ? "dut" : d.id);
                 analog_net_if* swclk = m.mcu->nodo_swclk();
                 analog_net_if* swdio = m.mcu->nodo_swdio();
                 if (!swclk || !swdio)
                     muere("mcu " + nm + ": este chip no saca SWCLK/SWDIO, y "
-                          "depuracion=\"openocd\" no tiene de donde colgarse");
+                          "depuracion=\"" + d.depuracion + "\" no tiene de donde colgarse");
                 mcu_if* chip = m.mcu;
-                m.ocd = new SondaOpenOcd(snm.c_str(), *swclk, *swdio, d.puerto_gdb,
-                                         [chip](bool v) { chip->reset_pin(v); });
+                if (d.depuracion == "openocd")
+                    m.ocd = new SondaOpenOcd(snm.c_str(), *swclk, *swdio, d.puerto_gdb,
+                                             [chip](bool v) { chip->reset_pin(v); });
+                else
+                    m.ocd = new SondaCmsisDap(snm.c_str(), *swclk, *swdio, d.puerto_gdb,
+                                              [chip](bool v) { chip->reset_pin(v); });
             }
             if (d.puerto_gdb) hay_stub = true;
             // Los cuatro drivers de alimentacion los registra el adaptador en
@@ -511,9 +532,19 @@ SC_MODULE(Sim) {
         // falla al montar sino al abrir, en marcha, y ese mensaje sale donde
         // nadie mira.
         resuelve_puentes_serie();
+        aplica_swo();
 
         // --- 6 y 7. Construir las piezas y validar lo eléctrico -------------
         placa.construye(nodos);
+        for (McuMontado& m : mcus) {
+            if (!m.xds.empty())
+                if (Xds110* x = placa.como<Xds110>(m.xds)) m.ocd = x->sonda();
+            // Si la placa del chip lleva un XDS110 con su LDO, el 3V3 es suyo:
+            // llega al chip por el puente de J101, o no llega
+            const std::string xi = busca_xds110(m.decl);
+            if (const Xds110* x = xi.empty() ? nullptr : placa.como<Xds110>(xi))
+                if (x->tiene_ldo()) m.mcu->alimentacion_externa(true);
+        }
         for (const std::string& q : placa.valida_electrica(nodos)) {
             std::fprintf(stderr, "  [elec] %s\n", q.c_str());
             avisos_placa.push_back(q);
@@ -551,6 +582,15 @@ SC_MODULE(Sim) {
         if (mcus.empty() && !g_gui_pedida && !g_solo_valida)
             std::printf("  [aviso] sin MCU y sin --gui, nadie toca las piezas: esto "
                         "solo tiene sentido con --gui o con --valida\n");
+        // Las sondas XDS110 de la placa: lo que hacen, y su canal de la traza
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Xds110") continue;
+            const Xds110* x = placa.como<Xds110>(i.id);
+            if (!x) continue;
+            if (!x->swo_ok()) muere("  [xds110] " + i.id + ": " + x->error_swo());
+            if (x->swo_por_red()) hay_puente_red = true;
+            std::printf("  sonda %s: %s\n", i.id.c_str(), x->describir().c_str());
+        }
         for (const serie::Pieza& p : puentes) {
             const PuenteSerie* ps = placa.como<PuenteSerie>(p.id);
             if (!ps) continue;
@@ -581,9 +621,14 @@ SC_MODULE(Sim) {
             linea += ": ";
             linea += m.decl.firmware.empty() ? "sin firmware" : m.decl.firmware;
             if (m.decl.puerto_gdb) {
+                const std::string por = m.xds.empty() ? std::string()
+                                                      : " por " + m.xds + " (J101)";
                 if (m.decl.depuracion == "openocd")
                     linea += ", sonda remote_bitbang para OpenOCD en el puerto " +
-                             std::to_string(m.decl.puerto_gdb);
+                             std::to_string(m.decl.puerto_gdb) + por;
+                else if (m.decl.depuracion == "cmsis-dap")
+                    linea += ", sonda CMSIS-DAP por TCP en el puerto " +
+                             std::to_string(m.decl.puerto_gdb) + por;
                 else
                     linea += ", gdb por " + m.decl.depuracion + " en el puerto " +
                              std::to_string(m.decl.puerto_gdb);
@@ -752,6 +797,45 @@ SC_MODULE(Sim) {
                 std::printf("  ventana: %s\n", t.c_str());
             }
         }
+    }
+
+    // `--swo DESTINO` y `--swo-bitrate`: la traza de LA sonda Xds110 de la
+    // placa, sin tocar el XML. Con ninguna, o con dos, no se sabe cual
+    void aplica_swo() {
+        if (g_swo.empty() && g_swo_bitrate <= 0) return;
+        std::vector<Instancia*> x;
+        for (const Instancia& i : placa.instancias())
+            if (i.tipo == "Xds110") x.push_back(placa.busca(i.id));
+        if (x.empty()) muere("--swo: la placa no lleva ninguna sonda Xds110 (la de las LaunchPad MSP432)");
+        if (x.size() > 1) muere("--swo: la placa lleva " + std::to_string(x.size()) +
+                                " sondas Xds110; ponlo en el swo= de la que sea");
+        if (!g_swo.empty()) {
+            const serie::Destino d = serie::parsea(g_swo);
+            if (!d.valido) muere("--swo " + g_swo + ": " + d.error);
+            x[0]->params["swo"] = g_swo;
+        }
+        if (g_swo_bitrate > 0) {
+            char b[32];
+            std::snprintf(b, sizeof b, "%.0f", g_swo_bitrate);
+            x[0]->params["swo_bitrate"] = b;
+        }
+    }
+
+    // La pieza Xds110 de la placa de un chip: en una placa suelta, la que
+    // haya; en un sistema, la de la misma placa (`L/XDS` para `L/u0`)
+    std::string busca_xds110(const DeclMcu& d) {
+        const size_t b = d.id.find('/');
+        const std::string pl = b == std::string::npos ? std::string() : d.id.substr(0, b);
+        std::string hallada;
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Xds110") continue;
+            if (placa.es_sistema() && placa.placa_de(i.id) != pl) continue;
+            if (!hallada.empty())
+                muere("mcu " + d.id + ": su placa lleva dos sondas Xds110 (" + hallada + " y " +
+                      i.id + "), y --" + d.depuracion + " no sabe cual usar");
+            hallada = i.id;
+        }
+        return hallada;
     }
 
     void resuelve_puentes_serie() {
@@ -948,7 +1032,10 @@ SC_MODULE(Sim) {
             m.depuracion = g_gdb_modo;
             // el de siempre; el de OpenOCD, otro, porque OpenOCD abre el 3333
             // para su propio GDB
-            if (!m.puerto_gdb) m.puerto_gdb = g_gdb_modo == "openocd" ? 3335 : 3333;
+            if (!m.puerto_gdb)
+                m.puerto_gdb = g_gdb_modo == "openocd"   ? 3335u
+                             : g_gdb_modo == "cmsis-dap" ? cmsis_dap::PUERTO_OMISION
+                                                         : 3333u;
         }
         if (g_puerto_dado) {
             m.puerto_gdb = g_gdb_puerto;
@@ -1022,18 +1109,25 @@ SC_MODULE(Sim) {
     // el sondeo del canal, que en marcha hace la pieza, es cosa de aqui.
     // -----------------------------------------------------------------------
     void espera_terminales() {
-        std::vector<PuenteSerie*> red;
+        // Los canales por red: los de los puentes serie y la traza SWO de las
+        // sondas XDS110 (esa, sin RFC 2217 que negociar)
+        struct Espera { CanalTcp* c; CanalRfc2217* rfc; std::string que; };
+        std::vector<Espera> red;
         for (const serie::Pieza& p : puentes)
             if (PuenteSerie* ps = placa.como<PuenteSerie>(p.id))
-                if (ps->por_red()) red.push_back(ps);
+                if (ps->por_red()) red.push_back({ps->tcp(), ps->rfc2217(), ps->canal().describir()});
+        for (const Instancia& i : placa.instancias())
+            if (i.tipo == "Xds110")
+                if (Xds110* x = placa.como<Xds110>(i.id))
+                    if (CanalTcp* c = x->canal_swo_tcp())
+                        red.push_back({c, nullptr, c->describir() + " (SWO de " + i.id + ")"});
         if (red.empty()) {
             std::fprintf(stderr, "  [serie] --espera-terminal: esta placa no tiene "
                          "puentes serie por red; no hay nada que esperar\n");
             return;
         }
-        for (PuenteSerie* ps : red)
-            std::printf("esperando a un terminal en %s (Ctrl-C para salir)\n",
-                        ps->canal().describir().c_str());
+        for (const Espera& e : red)
+            std::printf("esperando a un terminal en %s (Ctrl-C para salir)\n", e.que.c_str());
         std::fflush(stdout);
         using reloj = std::chrono::steady_clock;
         const auto segundos = [](reloj::time_point t) {
@@ -1046,7 +1140,7 @@ SC_MODULE(Sim) {
         for (;;) {
             bool todos = true;
             for (std::size_t i = 0; i < n; ++i) {
-                CanalTcp* c = red[i]->tcp();
+                CanalTcp* c = red[i].c;
                 c->sondear();
                 const bool hay = c->conectado();
                 if (hay && !tenia[i]) { desde[i] = ultimo[i] = reloj::now(); bytes[i] = 0; }
@@ -1057,7 +1151,7 @@ SC_MODULE(Sim) {
                     ultimo[i] = reloj::now();
                 }
                 bool listo = segundos(ultimo[i]) > 0.3;
-                if (CanalRfc2217* r = red[i]->rfc2217()) {
+                if (CanalRfc2217* r = red[i].rfc) {
                     const auto& ng = r->negociador();
                     if (ng.despierto() && !(ng.com_port() && ng.binario_salida()))
                         listo = false;
@@ -1321,6 +1415,37 @@ SC_MODULE(Sim) {
             if (f->episodios())
                 std::printf(", %u episodio(s) de sobrecorriente", f->episodios());
             std::printf("\n");
+        }
+        // Las sondas XDS110: lo que entrega su LDO -todo el lado del objetivo-
+        // y lo que ha llegado por la traza
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Xds110") continue;
+            const Xds110* x = placa.como<Xds110>(i.id);
+            if (!x) continue;
+            std::printf("  XDS110 %s:", i.id.c_str());
+            if (x->tiene_ldo())
+                std::printf(" 3V3 %.3f mA (limite %.3g mA)%s",
+                            std::fabs(x->corriente()) < 5e-7 ? 0.0 : x->corriente() * 1e3,
+                            x->config().limite_ma, x->sobrecorriente() ? "  SOBRECORRIENTE" : "");
+            else
+                std::printf(" sin LDO");
+            if (x->config().con_swo)
+                std::printf("; SWO %llu bytes, %llu mensajes ITM",
+                            (unsigned long long)x->bytes_swo(),
+                            (unsigned long long)x->mensajes_itm());
+            if (x->resets()) std::printf("; %u SRST", x->resets());
+            std::printf("\n");
+            const std::string t = x->texto_swo();
+            if (!t.empty()) {
+                std::printf("  SWO %s (memoria):\n", i.id.c_str());
+                size_t a = 0;
+                while (a < t.size()) {
+                    size_t b = t.find('\n', a);
+                    if (b == std::string::npos) b = t.size();
+                    std::printf("    | %s\n", t.substr(a, b - a).c_str());
+                    a = b + 1;
+                }
+            }
         }
         // Las pantallas: que ensenan y como lo tienen puesto. Lo que se ve de
         // verdad lo pinta la ventana; aqui, lo que hay que saber si no se ve
@@ -1631,6 +1756,9 @@ static const OpcionCli OPCIONES[] = {
     {"--openocd", "bandera", "", "", "", "gdb", false, true, "",
      "sonda SWD para OpenOCD (remote_bitbang) en los pines; puerto 3335 si no se "
      "dice --port"},
+    {"--cmsis-dap", "bandera", "", "", "", "gdb", false, true, "",
+     "sonda CMSIS-DAP por TCP para OpenOCD (cmsis-dap tcp) en los pines; puerto 4441 "
+     "si no se dice --port"},
     {"--port", "valor", "entero", "3333", "", "", false, true, "3333",
      "puerto TCP del stub de GDB, o de la sonda de OpenOCD"},
     {"--traza-gdb", "bandera", "", "", "", "", false, true, "",
@@ -1667,6 +1795,11 @@ static const OpcionCli OPCIONES[] = {
      "volcados. Sin ID, de todos los que lo tienen"},
     {"--mcus", "accion", "", "", "", "", false, false, "",
      "la lista de los MCUs de la placa en XML -id, tipo y firmware-, para mcu-sim-gui"},
+    {"--swo", "valor", "texto", "", "", "", false, true, "tcp:3358",
+     "a donde va la traza SWO de la sonda Xds110 de la placa: memoria, tcp:PUERTO, "
+     "rfc2217:PUERTO o sus clientes"},
+    {"--swo-bitrate", "valor", "numero", "", "bit/s", "", false, true, "1000000",
+     "los bit/s de la traza SWO: los que programa el firmware en el TPIU"},
     {"--serie", "valor", "texto", "", "", "", true, true, "VCP=rfc2217:4000",
      "a donde da el PuenteSerie ID: ID=memoria, tcp:PUERTO, rfc2217:PUERTO, "
      "tcp-cliente:HOST:PUERTO o rfc2217-cliente:HOST:PUERTO"},
@@ -1838,6 +1971,7 @@ int sc_main(int argc, char** argv) {
         else if (a == "--gdb")     g_gdb_modo = "pines";
         else if (a == "--gdb-dap") g_gdb_modo = "dap";
         else if (a == "--openocd") g_gdb_modo = "openocd";
+        else if (a == "--cmsis-dap") g_gdb_modo = "cmsis-dap";
         else if (a.rfind("--port=", 0) == 0) {
             g_gdb_puerto = unsigned(std::atoi(a.c_str() + 7));
             g_puerto_dado = true;
@@ -1861,6 +1995,23 @@ int sc_main(int argc, char** argv) {
         // puentes. La SINTAXIS se comprueba aqui, en cuanto se lee, como la de
         // `--gui`; que el puente exista y que su puerto este libre se
         // comprueba al leer la placa, que es cuando se sabe.
+        else if (a == "--swo" || a.rfind("--swo=", 0) == 0) {
+            if (a.rfind("--swo=", 0) == 0) g_swo = a.substr(6);
+            else if (i + 1 < argc && argv[i + 1][0] != '-') g_swo = argv[++i];
+            if (g_swo.empty()) {
+                std::fprintf(stderr, "--swo: falta el destino de la traza: memoria, tcp:PUERTO, "
+                             "rfc2217:PUERTO...\n");
+                return 1;
+            }
+        }
+        else if (a.rfind("--swo-bitrate=", 0) == 0) {
+            g_swo_bitrate = std::atof(a.c_str() + 14);
+            if (g_swo_bitrate < 100.0 || g_swo_bitrate > 50e6) {
+                std::fprintf(stderr, "--swo-bitrate: %s no vale (de 100 a 50000000 bit/s)\n",
+                             a.c_str() + 14);
+                return 1;
+            }
+        }
         else if (a == "--serie" || a.rfind("--serie=", 0) == 0) {
             std::string v;
             if (a.rfind("--serie=", 0) == 0) v = a.substr(8);
@@ -1939,6 +2090,8 @@ int sc_main(int argc, char** argv) {
                 "     sim placa.xml --gdb-dap    stub de GDB contra el DAP\n"
                 "     sim placa.xml --openocd    sonda SWD para OpenOCD por\n"
                 "                                remote_bitbang (puerto 3335)\n"
+                "     sim placa.xml --cmsis-dap  sonda CMSIS-DAP por TCP para\n"
+                "                                OpenOCD (puerto 4441)\n"
                 "     sim placa.xml --port=3333  puerto TCP del stub\n"
                 "     sim placa.xml --traza-gdb  imprime cada paquete RSP recibido\n"
                 "     sim placa.xml --gui[=host:puerto]  habla con mcu-sim-gui\n"
@@ -1962,6 +2115,10 @@ int sc_main(int argc, char** argv) {
                 "                                haya un terminal en cada puente\n"
                 "                                serie por red: asi se ve el saludo\n"
                 "                                (doc/puente_serie.md)\n"
+                "     sim placa.xml --swo DESTINO  la traza SWO de la sonda Xds110\n"
+                "                                (LaunchPad MSP432): memoria, tcp:..,\n"
+                "                                rfc2217:.. como --serie\n"
+                "     sim placa.xml --swo-bitrate=N  bit/s del SWO (1000000)\n"
                 "     sim placa.xml --mcu TIPO   el MCU de la placa: lo pone si el XML\n"
                 "                                no declara ninguno y manda sobre el\n"
                 "                                tipo si declara uno. Sin <mcu> ni\n"

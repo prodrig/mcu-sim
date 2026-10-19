@@ -409,7 +409,7 @@ encoder.
 que sugiere un numérico **en grados** —unidad `°`—, y lo puede pedir también
 la tabla. El elemento gira sobre el centro de su caja tantos grados como diga
 ese numérico, a la derecha los positivos, sin vueltas ni posiciones: es el
-aspa del `Servo` (§4.11), que en `placas/servo_sg90.svg` está dibujada en el
+aspa del `Servo` (§4.12), que en `placas/servo_sg90.svg` está dibujada en el
 0 con la pala de la marca hacia arriba. Ese numérico no lleva etiqueta: ya lo
 dice el giro. Como con `giro`, para que gire sobre el eje el elemento lleva
 dentro un círculo centrado en él —sin pintar, `fill="none"`— que alcanza más
@@ -1610,7 +1610,64 @@ sistema, está en `doc/puente_serie.md`**; con `--espera-terminal`, `mcu-sim` no
 arranca el MCU hasta que el terminal está conectado, y así no se pierde lo que
 el firmware imprime al arrancar.
 
-### 4.10 La pantalla TFT
+### 4.10 La sonda XDS110 de las LaunchPad MSP432
+
+#### `Xds110`
+
+**El lado de la sonda de J101** en la MSP-EXP432P401R (el XDS110-ET) y en la
+MSP-EXP432E401Y (el XDS110): el LDO que alimenta el lado del objetivo, la
+sonda SWD para OpenOCD y la traza SWO (X1 de `doc/analisis_xds110.md`).
+Como los puentes de J101 están entre esta pieza y el chip, **hacen lo que en
+la placa**: sin el de 3V3 el chip no arranca; sin el de TMS o el de TCK,
+OpenOCD no encuentra el DAP; sin el de RST no hay SRST.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `3v3` | opcional | La salida del LDO: el pin 3V3 del lado de la sonda de J101. Con él, el adaptador del chip **deja de alimentar** su DVCC (P4) o su VDD (E4): lo pone la placa |
+| `rst` | opcional | El SRST: a masa (10 Ω) mientras OpenOCD resetea |
+| `swdio`, `swclk` | opcional | TMS_SWDIO y TCK_SWCLK. Hacen falta para la sonda |
+| `swo` | opcional | TDO_SWO: la traza. Hace falta para `swo=` |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `et` | `no` | `si`: es el XDS110-ET. Hoy solo se dice; la medida de EnergyTrace es de la fase X3 |
+| `v`, `limite_ma` | `3.3`, `500` | La tensión del LDO y su límite: una `Fuente` por dentro |
+| `sonda` | `no` | `openocd` (`remote_bitbang`) o `cmsis-dap` (CMSIS-DAP por TCP). Lo normal es no ponerlo: **`--openocd` y `--cmsis-dap` (o `depuracion=` en el `<mcu>`) cuelgan la sonda de esta pieza** si la placa del chip la lleva |
+| `puerto` | `3335` / `4441` | El de la sonda |
+| `swo` | `no` | A dónde va la traza: `memoria`, `tcp:PUERTO`, `rfc2217:PUERTO` o sus clientes, como el `host=` de un `PuenteSerie`. `--swo DESTINO` lo dice sin tocar el XML |
+| `swo_bitrate` | `1000000` | Los bit/s de la traza en NRZ —el único formato del XDS110—. **Tienen que ser los del TPIU** (HCLK/(ACPR+1)), o llega basura. `--swo-bitrate=N` |
+| `swo_formato` | `itm` | `itm`: solo lo que el firmware escribe en el puerto de estímulo `swo_puerto` del ITM —el `printf` de `ITM_SendChar`—; `crudo`: los bytes de la línea, para un decodificador externo |
+| `swo_puerto` | `0` | El puerto de estímulo, con `itm` |
+
+```xml
+<componente tipo="Xds110" id="XDS" et="si">
+  <pin nombre="3v3"   nodo="J101.6"/>
+  <pin nombre="rst"   nodo="J101.12"/>
+  <pin nombre="swdio" nodo="J101.14"/>
+  <pin nombre="swclk" nodo="J101.16"/>
+  <pin nombre="swo"   nodo="J101.18"/>
+</componente>
+```
+
+**Observables:** `corriente` (mA, la que entrega el LDO, medida sin el umbral
+de resolución del nodo: se ven los microamperios), `sobrecorriente` (alarma)
+y `depurando` (hay un OpenOCD conectado). Al acabar, `sim` dice la corriente
+del LDO, lo recibido por la traza y los SRST.
+
+**Lo que no hace:** el *backchannel* es un `PuenteSerie` aparte; las
+corrientes de los pines del chip no pasan por el LDO (las dan los pads del
+modelo), y el E4 no tiene modelo de consumo: su LDO entrega 0 mA.
+
+**La traza en el P401R** sale por PJ.5 con su función primaria (`PJSEL0.5 =
+1`); en el E401Y, por PC3, que ya es TDO/SWO al salir del reset. Los
+firmwares `verif/fw/msp432p4/p4_swo` y `verif/fw/msp432e4/e4_swo` son el
+ejemplo:
+
+```
+./build/mcu-sim placas/msp_exp432p401r.xml verif/fw/msp432p4/p4_swo/p4_swo.out --swo memoria --ms=20
+```
+
+### 4.11 La pantalla TFT
 
 #### `Tft128x160`
 
@@ -1638,7 +1695,7 @@ regulador de 3,3 V y su retroiluminación [ST7735S, Sitronix, v1.1]. Está en
 | `r_luz` | `15` | Su resistencia en la placa, en ohmios |
 
 **Lo que se ve es lo que enseñaría la pantalla de verdad**, y se lo manda a
-la ventana como una IMAGEN de 128x160 (§4.13):
+la ventana como una IMAGEN de 128x160 (§4.14):
 
 * el chip sin tensión, en reset, dormido —SLPIN, el estado tras arrancar— o
   con la pantalla apagada —DISPOFF—: **blanca**. El cristal es de los
@@ -1708,7 +1765,7 @@ sistema la placa del nombre—, SDA, SCK y LED. Y
 la Nucleo, con `verif/fw/tft_demo`: lee el ID por SDA, la despierta y dibuja
 —el título, ocho barras de color y un cuadrado que va y viene—.
 
-### 4.11 El servo
+### 4.12 El servo
 
 #### `Servo`
 
@@ -1778,7 +1835,7 @@ servo. Y `placas/nucleo_f446re_servo.xml` la cablea a una Nucleo —el `PWM` a
 D5, PB4, el TIM3; el `VCC` a su `+5V`— con un KY-040 que lo mueve 5 grados por
 clic y la pantalla TFT de pie, con `verif/fw/servo_demo`.
 
-### 4.12 Las piezas de la BOOSTXL-EDUMKII
+### 4.13 Las piezas de la BOOSTXL-EDUMKII
 
 Las cuatro que trajo la placa educativa de TI (fase T3 del MSP432,
 `parts/boosterpack.h`). La placa entera es `placas/boostxl_edumkii.xml`, con
@@ -1852,7 +1909,7 @@ segundo orden.
 | `dir` | `0x40` | Dirección de 7 bits |
 | `t_chip`, `t_objeto` | `25`, `25` | Las temperaturas, en °C; tienen mando |
 
-### 4.13 Lo que `mcu-sim-gui` puede ver y tocar
+### 4.14 Lo que `mcu-sim-gui` puede ver y tocar
 
 Desde la fase 1 del plan de `mcu-sim-gui` (P-12), una pieza puede **declarar**
 qué deja ver —sus *observables*— y qué se le puede hacer —sus *mandos*—. La
@@ -1870,6 +1927,7 @@ Lo declaran estas:
 | `Button` | `pulsado` (0/1): el **dedo**, no el contacto, que en un NC es lo contrario | `pulsar` (botón, 0 suelta, 1 pulsa) |
 | `Crystal` | `presente` (0/1): si está soldado | — |
 | `Fuente`, `Gnd` | `corriente` (mA, la que entrega o recibe; la escala es ± el límite, o ±100 sin él) y `sobrecorriente` (0/1, **una alarma**: el catálogo la marca con `alarma="si"` y la ventana la pinta en rojo) | — |
+| `Xds110` | `corriente` (mA, la que entrega el LDO), `sobrecorriente` (alarma) y `depurando` (0/1, hay un OpenOCD conectado) | — |
 | `Encoder` | `posicion` (de 0 a `pasos − 1`, la que sugiere pintar), `cuenta`, `contacto_a` y `contacto_b` (0/1) | `girar` (discreto, la cuenta de clics, de −30000 a 30000) |
 | `Tft128x160` | `encendida` (0/1, la que sugiere pintar) y `luz` (mA, de 0 a 40); y la IMAGEN `pantalla`, de 128x160 | — |
 | `Servo` | `angulo` (°, de `angulo_min` a `angulo_max` o de 0 a 360, el que sugiere pintar), `pulso` (µs), `corriente` (mA) y `rpm` | `bloquear` (interruptor: sujeta el eje) |
@@ -1899,7 +1957,7 @@ Las demás no declaran nada todavía, y no les hace falta para
 compilar: los seis métodos de `ExtPartBase` tienen valores por omisión. Las
 piezas que el enunciado de la GUI necesita y no existen —`PwmMeter`,
 `StepperDriver`, `DcMotor`— están en `doc/analisis_gui.md` §8; el `Encoder`
-(§4.1) y el `Servo` (§4.11) ya están.
+(§4.1) y el `Servo` (§4.12) ya están.
 
 ---
 
@@ -1918,7 +1976,7 @@ existe—; simplemente no ha hecho falta todavía.
 encender un oscilador, enviar una trama CAN o inyectar una trama Ethernet son
 acciones, no descripción, y viven en el programa que conduce la simulación
 —o, con `--gui`, en la ventana, que las manda como órdenes a los mandos que
-cada pieza declara (§4.13)—.
+cada pieza declara (§4.14)—.
 
 **El MCU no se describe.** Variante, encapsulado y rasgos de los periféricos
 siguen fijados en C++. El fichero describe lo que está fuera del chip.

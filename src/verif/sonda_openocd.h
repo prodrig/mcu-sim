@@ -74,10 +74,11 @@
 #include <string>
 #include "../common/analog_net.h"
 #include "../common/red.h"
+#include "sonda_red.h"
 
 namespace stm32 {
 
-SC_MODULE(SondaOpenOcd) {
+SC_MODULE(SondaOpenOcd), public SondaRed {
     // `reset(true)` pone NRST a masa y `reset(false)` lo suelta; lo da quien
     // monta la sonda (en sim, mcu_if::reset_pin). Vacío: SRST no hace nada.
     SondaOpenOcd(sc_core::sc_module_name nm, analog_net_if& swclk, analog_net_if& swdio,
@@ -99,7 +100,7 @@ SC_MODULE(SondaOpenOcd) {
     }
 
     // Se abre al arrancar la simulación, no al construirla (como el stub).
-    void set_enabled(bool on) {
+    void set_enabled(bool on) override {
         activo_ = on;
         if (on && !anunciado_ && abrir()) {
             anunciado_ = true;
@@ -114,12 +115,13 @@ SC_MODULE(SondaOpenOcd) {
     // correr la simulación, y el paso corto mientras OpenOCD está activo
     void set_espera_us(long us) { espera_us_ = us; }
     void set_poll_activo(sc_core::sc_time t) { poll_activo_ = t; }
-    void set_verbose(bool v) { verboso_ = v; }
+    void set_verbose(bool v) override { verboso_ = v; }
+    const char* protocolo() const override { return "remote_bitbang"; }
 
     // --- Estado observable ---------------------------------------------------
     bool escuchando() const { return red::valido(srv_); }
-    bool conectado() const { return red::valido(cli_); }
-    unsigned puerto() const { return puerto_; }
+    bool conectado() const override { return red::valido(cli_); }
+    unsigned puerto() const override { return puerto_; }
     unsigned conexiones() const { return n_conex_; }
     uint64_t flancos() const { return n_flancos_; }     // de SWCLK
     uint64_t lecturas() const { return n_lect_; }        // 'c'

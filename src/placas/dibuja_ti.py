@@ -246,7 +246,7 @@ def p401r():
     usb_micro(s, cx - 120, by - 22, id="USB")
     s.text(cx - 120, by + 52, "USB (XDS110)", size=12)
     # El XDS110
-    chip(s, cx - 175, by + 90, 110, 110, "XDS110", "-ET")
+    chip(s, cx - 175, by + 90, 110, 110, "XDS110", "-ET", id="XDS")
     s.text(cx - 120, by + 222, "XDS110-ET (sonda)", size=12)
     s.circ(cx - 10, by + 110, 8, "#e74c3c", "#7f8c8d", 1)
     s.circ(cx + 15, by + 110, 8, "#2ecc71", "#7f8c8d", 1)
@@ -543,7 +543,7 @@ def e401y():
     s.text(X(126), Y(55), "USB (XDS110)", size=12)
     boton(s, "RESET", X(444), Y(30), 48)
     s.text(X(444), Y(72), "RESET", size=12)
-    chip(s, X(55), Y(140), 140, 140, "XDS110")
+    chip(s, X(55), Y(140), 140, 140, "XDS110", id="XDS")
     s.circ(X(230), Y(110), 7, "#e74c3c", "#7f8c8d", 1)
     s.circ(X(255), Y(110), 7, "#2ecc71", "#7f8c8d", 1)
     s.text(X(242), Y(95), "LED101 LED102", size=10)

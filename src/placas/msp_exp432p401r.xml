@@ -17,9 +17,15 @@
          Y1    cristal de 32 768 Hz en PJ.0/PJ.1 (LFXT)
          Y2    cristal de 48 MHz en PJ.2/PJ.3 (HFXT)
          USB   los 5 V del cable del XDS110, que salen a J3.21, J5 y J7
+         XDS   el XDS110-ET, la sonda de la placa, del lado de la sonda de
+               J101 (doc/analisis_xds110.md, X1): su LDO da los 3,3 V del
+               lado del objetivo, y --openocd o --cmsis-dap van por sus pines
+               TMS/TCK/RST. Con swo= lleva la traza de PJ.5 a un canal
          J101  el bloque de aislamiento entre el XDS110 y el chip: diez
-               puentes, puestos de fabrica. Quitar el de RXD o el de TXD
-               desconecta el backchannel, y el de 5V, los 5 V de la placa
+               puentes, puestos de fabrica. Hacen lo que en la placa: sin
+               3V3 el chip no arranca, sin TMS o TCK OpenOCD no encuentra el
+               DAP, sin RST no hay SRST, sin RXD o TXD no hay backchannel y
+               sin 5V la placa no tiene sus 5 V
          BCL   el puerto serie de vuelta del XDS110 (backchannel UART): la
                eUSCI_A0 en P1.2/P1.3, por J101, hasta el PC por RFC 2217 en
                el 3356 (T3). En Windows es el «XDS110 Class Application/User
@@ -28,12 +34,9 @@
                BoosterPack (P7, P8, P9, P10 y el resto), 5V, 3V3 y GND
          J6    3V3, GND y GND; J7, 5V, GND y GND
 
-     Lo que NO esta todavia:
-
-       * el XDS110-ET, la sonda de la placa. Aqui se depura con el stub de GDB
-         (depuracion="dap") o con la sonda SWD por SWCLKTCK/SWDIOTMS
-         (depuracion="pines"), igual que en los STM32. Su lado de J101 es de
-         adorno, salvo el backchannel y los 5 V.
+     Se depura con OpenOCD por la sonda (--cmsis-dap o --openocd), o sin
+     ella: con el stub de GDB contra el DAP (--gdb-dap) o por los pines
+     (--gdb). La medida de EnergyTrace es de la fase X3: todavia no esta.
 
      Los conectores BoosterPack, J1-J4, estan al final: por ellos se enchufa
      la BOOSTXL-EDUMKII (placas/msp_exp432p401r_edumkii.xml). El dibujo,
@@ -115,6 +118,17 @@
     <pin nombre="15" nodo="SWCLKTCK"/>  <!-- TCK_SWCLK -->
     <pin nombre="17" nodo="PJ.5"/>      <!-- TDO_SWO -->
     <pin nombre="19" nodo="PJ.4"/>      <!-- TDI -->
+  </componente>
+
+  <!-- El XDS110-ET, del lado de la sonda de J101 [SLAU597F §2.3]: el LDO de
+       3,3 V, SWD, RST y SWO. Con swo="tcp:3358" (o --swo tcp:3358) la traza
+       de PJ.5 sale por TCP -->
+  <componente tipo="Xds110" id="XDS" et="si">
+    <pin nombre="3v3"   nodo="J101.6"/>
+    <pin nombre="rst"   nodo="J101.12"/>
+    <pin nombre="swdio" nodo="J101.14"/>
+    <pin nombre="swclk" nodo="J101.16"/>
+    <pin nombre="swo"   nodo="J101.18"/>
   </componente>
 
   <!-- El backchannel del XDS110, del lado del XDS110 de J101 [SLAU597,

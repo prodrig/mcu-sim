@@ -14,15 +14,17 @@ Aquí hay dos configuraciones:
 | `vscode/launch.json` | VS Code, con Cortex-Debug o con el depurador C/C++ de Microsoft |
 
 Y, para depurar **con OpenOCD** en vez de con el stub —contra el simulador
-(`--openocd`) o contra una LaunchPad de verdad por su XDS110—, con el paso a
-paso en `doc/analisis_xds110.md` §8:
+(`--cmsis-dap` o `--openocd`, que van por la sonda XDS110 de la placa y su
+J101) o contra una LaunchPad de verdad por su XDS110—, con el paso a paso en
+`doc/analisis_xds110.md` §8:
 
 | Fichero | Para |
 | :--- | :--- |
-| `openocd/mcu-sim_msp432p401r.cfg`, `openocd/mcu-sim_msp432e401y.cfg` | OpenOCD contra el simulador (`remote_bitbang` en el 3335) |
+| `openocd/mcu-sim-cmsis-dap_msp432p401r.cfg`, `openocd/mcu-sim-cmsis-dap_msp432e401y.cfg` | OpenOCD contra el simulador por CMSIS-DAP sobre TCP (`--cmsis-dap`, el 4441): la rápida; hace falta un OpenOCD con `cmsis-dap tcp` (xPack 0.12.0-7 o de git) |
+| `openocd/mcu-sim_msp432p401r.cfg`, `openocd/mcu-sim_msp432e401y.cfg` | OpenOCD contra el simulador por `remote_bitbang` (`--openocd`, el 3335), para un OpenOCD sin `cmsis-dap tcp` |
 | `openocd/launchpad_msp432e401y.cfg` | OpenOCD contra una MSP-EXP432E401Y por su XDS110 (para la P401R, el `board/ti/msp432-launchpad.cfg` de OpenOCD) |
 | `ccs/openocd_msp432.launch` | CCS 11 y 12, *GDB Hardware Debugging* contra OpenOCD |
-| `ccs20/launch.json`, `ccs20/tasks.json` | CCS 20 (Theia) con la extensión Cortex-Debug: arranca `mcu-sim` y OpenOCD |
+| `ccs20/launch.json`, `ccs20/tasks.json` | CCS 20 (Theia) con la extensión Cortex-Debug: arranca `mcu-sim` (con `--cmsis-dap`) y OpenOCD |
 
 ## 1. El simulador, escuchando
 

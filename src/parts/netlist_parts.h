@@ -35,6 +35,7 @@
 #include "tft_st7735.h"
 #include "boosterpack.h"
 #include "servo.h"
+#include "xds110.h"
 
 namespace stm32 {
 
@@ -477,6 +478,96 @@ REGISTRA_PARTE(Conector,
         for (const Conexion& c : d.pines)
             pines.emplace_back(c.pin, n.existe(c.nodo) ? &n[c.nodo] : nullptr);
         return new Conector(g.filas, g.columnas, g.zigzag, pines);
+    });
+
+REGISTRA_PARTE(Xds110,
+    Ayuda("La sonda XDS110 de una LaunchPad MSP432, del lado de la sonda de "
+          "J101: el LDO de 3,3 V que alimenta el lado del objetivo, SWD y "
+          "reset para OpenOCD (--openocd o --cmsis-dap van por ella y no por "
+          "el chip) y la traza SWO a un canal del puente serie. Los puentes de "
+          "J101 hacen lo que hacen en la placa: sin 3V3 el chip no arranca, sin "
+          "TMS/TCK OpenOCD no encuentra el DAP.")
+      .ejemplo("<componente tipo=\"Xds110\" id=\"XDS\" et=\"si\" swo=\"tcp:3358\">\n"
+               "  <pin nombre=\"3v3\"   nodo=\"J101.6\"/>\n"
+               "  <pin nombre=\"rst\"   nodo=\"J101.12\"/>\n"
+               "  <pin nombre=\"swdio\" nodo=\"J101.14\"/>\n"
+               "  <pin nombre=\"swclk\" nodo=\"J101.16\"/>\n"
+               "  <pin nombre=\"swo\"   nodo=\"J101.18\"/>\n"
+               "</componente>")
+      .pin("3v3", "opcional", "La salida del LDO: el pin 3V3 del lado de la sonda de J101.")
+      .pin("rst", "opcional", "RST: el SRST de la sonda, a masa mientras OpenOCD resetea.")
+      .pin("swdio, swclk", "opcional",
+           "TMS_SWDIO y TCK_SWCLK. Hacen falta para colgar la sonda de OpenOCD.")
+      .pin("swo", "opcional", "TDO_SWO: la traza. Hace falta para swo=.")
+      .atr("et", "no", "si: es el XDS110-ET, con EnergyTrace (la medida es de la fase X3).")
+      .atr("v", "3.3", "La tension del LDO.")
+      .atr("limite_ma", "500", "El limite de corriente del LDO, en mA.")
+      .atr("sonda", "no",
+           "openocd (remote_bitbang) o cmsis-dap (CMSIS-DAP por TCP): la sonda "
+           "para OpenOCD, en estos pines. Lo normal es no ponerlo y pedirla con "
+           "--openocd o --cmsis-dap, que la ponen aqui si la placa lleva un Xds110.")
+      .atr("puerto", "3335 o 4441", "El puerto TCP de la sonda.")
+      .atr("swo", "no",
+           "A donde va la traza: tcp:PUERTO, rfc2217:PUERTO, memoria, o los "
+           "clientes, como el host= de un PuenteSerie.")
+      .atr("swo_bitrate", "1000000",
+           "Los bit/s de la traza (NRZ): TIENEN QUE SER LOS QUE PROGRAMA EL "
+           "FIRMWARE en el TPIU, o llega basura.")
+      .atr("swo_formato", "itm",
+           "itm: solo lo escrito en un puerto de estimulo del ITM -el printf de "
+           "ITM_SendChar-; crudo: los bytes de la linea, para un decodificador "
+           "externo (orbuculum, el swo de pyOCD...).")
+      .atr("swo_puerto", "0", "El puerto de estimulo del ITM, con swo_formato=\"itm\".")
+      .nota("Observables: `corriente` (mA, la que entrega el LDO: todo el lado del "
+            "objetivo), `sobrecorriente` (alarma) y `depurando` (hay un OpenOCD "
+            "conectado).")
+      .nota("El backchannel (RXD/TXD de J101) no es de esta pieza: es un "
+            "PuenteSerie aparte.")
+      .cpp("corriente() en A, sobrecorriente(), sonda(), texto_swo() con "
+           "swo=\"memoria\", bytes_swo(), mensajes_itm() y resets()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto nodo = [&](const char* t) -> analog_net_if* {
+            const std::string& s = d.nodo_de(t);
+            return s.empty() ? nullptr : &n[s];
+        };
+        Xds110::Config c;
+        c.et = d.si("et", false);
+        c.v = d.num("v", 3.3);
+        c.limite_ma = d.num("limite_ma", 500.0);
+        c.sonda = d.txt("sonda", "no");
+        if (c.sonda == "no") c.sonda.clear();
+        if (!c.sonda.empty() && c.sonda != "openocd" && c.sonda != "cmsis-dap") {
+            SC_REPORT_ERROR("netlist", (d.id + ": sonda=\"" + c.sonda +
+                                        "\" no vale: openocd, cmsis-dap o no").c_str());
+            return nullptr;
+        }
+        c.puerto = unsigned(d.num("puerto", c.sonda == "openocd" ? 3335.0 : 4441.0));
+        if (!c.sonda.empty() && (!nodo("swdio") || !nodo("swclk"))) {
+            SC_REPORT_ERROR("netlist", (d.id + ": sonda=\"" + c.sonda + "\" necesita las "
+                                        "patillas swdio y swclk").c_str());
+            return nullptr;
+        }
+        const std::string swo = d.txt("swo", "no");
+        if (swo != "no") {
+            if (!nodo("swo")) {
+                SC_REPORT_ERROR("netlist", (d.id + ": swo=\"" + swo + "\" necesita la "
+                                            "patilla swo").c_str());
+                return nullptr;
+            }
+            c.con_swo = true;
+            c.swo = serie::parsea(swo);
+            c.swo_bitrate = d.num("swo_bitrate", 1e6);
+            const std::string f = d.txt("swo_formato", "itm");
+            if (f != "itm" && f != "crudo") {
+                SC_REPORT_ERROR("netlist", (d.id + ": swo_formato=\"" + f + "\" no vale: itm "
+                                            "o crudo").c_str());
+                return nullptr;
+            }
+            c.swo_itm = f == "itm";
+            c.swo_puerto = unsigned(d.num("swo_puerto", 0.0));
+        }
+        return new Xds110(d.id.c_str(), nodo("swdio"), nodo("swclk"), nodo("rst"), nodo("swo"),
+                          nodo("3v3"), c);
     });
 
 REGISTRA_PARTE(Jumper,

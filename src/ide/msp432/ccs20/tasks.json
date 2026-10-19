@@ -6,10 +6,10 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "mcu-sim: MSP-EXP432P401R con sonda para OpenOCD",
+            "label": "mcu-sim: MSP-EXP432P401R con sonda CMSIS-DAP",
             "type": "shell",
             "command": "C:/RUTA/mcu-sim/src/build/mcu-sim.exe",
-            "args": ["placas/msp_exp432p401r.xml", "--openocd", "--tiempo-real"],
+            "args": ["placas/msp_exp432p401r.xml", "--cmsis-dap", "--tiempo-real"],
             "options": { "cwd": "C:/RUTA/mcu-sim/src" },
             "isBackground": true,
             "problemMatcher": {
@@ -18,15 +18,15 @@
                 "background": {
                     "activeBegins": true,
                     "beginsPattern": "^placa '",
-                    "endsPattern": "remote_bitbang escuchando"
+                    "endsPattern": "cmsis-dap\\] escuchando"
                 }
             }
         },
         {
-            "label": "mcu-sim: MSP-EXP432E401Y con sonda para OpenOCD",
+            "label": "mcu-sim: MSP-EXP432E401Y con sonda CMSIS-DAP",
             "type": "shell",
             "command": "C:/RUTA/mcu-sim/src/build/mcu-sim.exe",
-            "args": ["placas/msp_exp432e401y.xml", "--openocd", "--tiempo-real"],
+            "args": ["placas/msp_exp432e401y.xml", "--cmsis-dap", "--tiempo-real"],
             "options": { "cwd": "C:/RUTA/mcu-sim/src" },
             "isBackground": true,
             "problemMatcher": {
@@ -35,7 +35,7 @@
                 "background": {
                     "activeBegins": true,
                     "beginsPattern": "^placa '",
-                    "endsPattern": "remote_bitbang escuchando"
+                    "endsPattern": "cmsis-dap\\] escuchando"
                 }
             }
         }

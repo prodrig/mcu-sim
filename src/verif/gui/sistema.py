@@ -1379,9 +1379,9 @@ SIS_JUMPER = """<sistema nombre="j">
 def c19_ti(sim, cp):
     grupo("C19 Las placas de TI con su dibujo, los jumpers de varios puentes y <jumper ref>")
     esperado = {
-        "msp_exp432p401r": ("placa 'msp-exp432p401r': 1 MCU(s), 22 componentes", "J101 1-2+3-4+5-6+7-8+9-10+"
+        "msp_exp432p401r": ("placa 'msp-exp432p401r': 1 MCU(s), 23 componentes", "J101 1-2+3-4+5-6+7-8+9-10+"
                             "11-12+13-14+15-16+17-18+19-20, JP10 1-2, JP11 1-2, JP8 1-2, JP9 1-2)"),
-        "msp_exp432e401y": ("placa 'msp-exp432e401y': 1 MCU(s), 31 componentes", "JP1 5-6, JP4 1-2+3-4, "
+        "msp_exp432e401y": ("placa 'msp-exp432e401y': 1 MCU(s), 32 componentes", "JP1 5-6, JP4 1-2+3-4, "
                             "JP5 1-2+3-4, JP6 1-2, JP7 1-2)"),
         "boostxl_edumkii": ("placa 'boostxl-edumkii': SIN MCU, 34 componentes", "J5 RGB-PWM)"),
     }

@@ -279,6 +279,14 @@ public:
         return *n->net;
     }
     bool existe(const std::string& nombre) const { return busca(nombre) != nullptr; }
+    // ¿Es ese nodo eléctrico el de algún pad de un MCU, con el nombre que sea?
+    // En un sistema, el pad se llama `L/u0.SWDIOTMS` y la patilla de la pieza
+    // que lo toca lo ve como `SWDIOTMS`: por el nombre no se encuentra.
+    bool net_es_pin(const analog_net_if* net) const {
+        for (const auto& kv : m_)
+            if (kv.second.net == net && kv.second.es_pin) return true;
+        return false;
+    }
     // Cuántos NOMBRES hay dados de alta.
     unsigned size() const { return unsigned(m_.size()); }
     // Cuántos nodos ELÉCTRICOS distintos. No es lo mismo: un mismo AnalogNet
@@ -324,6 +332,12 @@ struct DeclMcu {
     //                     OpenOCD genera el SWD bit a bit y habla él con GDB
     //                     (verif/sonda_openocd.h; T5 del MSP432). El puerto es
     //                     el de remote_bitbang.
+    //   "cmsis-dap"       una sonda CMSIS-DAP por TCP, para el `cmsis-dap
+    //                     tcp` de OpenOCD (verif/sonda_cmsis_dap.h; X2 de
+    //                     doc/analisis_xds110.md). El puerto es el suyo, 4441
+    //                     por omision.
+    //   Con una pieza `Xds110` en la placa del chip, las dos sondas de
+    //   OpenOCD se cuelgan de ella -de sus pines de J101- y no del chip.
     std::string depuracion = "pines";
     unsigned    puerto_gdb = 0;    // 0: no se abre ningún puerto TCP
     // Lo que solo tienen algunos chips (T4 del MSP432): `rom` es la ROM de
@@ -1259,9 +1273,9 @@ public:
                 if (m.tipo.empty())
                     err.push_back("mcu " + m.id + ": sin tipo");
                 if (m.depuracion != "pines" && m.depuracion != "dap" &&
-                    m.depuracion != "openocd")
+                    m.depuracion != "openocd" && m.depuracion != "cmsis-dap")
                     err.push_back("mcu " + m.id + ": depuracion debe ser 'pines', "
-                                  "'dap' u 'openocd', no '" + m.depuracion + "'");
+                                  "'dap', 'openocd' o 'cmsis-dap', no '" + m.depuracion + "'");
                 // Dos stubs en el mismo puerto TCP no es un aviso: es que el
                 // segundo no llega a escuchar y el fallo aparece más tarde,
                 // como un GDB que se conecta al chip equivocado.
@@ -1497,6 +1511,8 @@ public:
             // pines: ahi no hay nadie mas, y si nadie conduce, nadie conduce.
             const Nodo* nd = nodos.busca(nom);
             if (nd && nd->es_pin) continue;
+            if (kv.first.net && nodos.net_es_pin(static_cast<const analog_net_if*>(kv.first.net)))
+                continue;
             // Un nodo COMPARTIDO tampoco puede quedar flotante por culpa de la
             // placa: es un pad -o dos-, y quien conduce ahi lo decide el
             // firmware. Se registra con su nombre de placa y no como pin, asi

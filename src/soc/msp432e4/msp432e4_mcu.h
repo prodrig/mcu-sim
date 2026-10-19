@@ -69,14 +69,16 @@ public:
     analog_net_if* nodo_swclk() override { return &chip_->gpio.nodo_de(e4::PC, 0); }
     analog_net_if* nodo_swdio() override { return &chip_->gpio.nodo_de(e4::PC, 1); }
 
+    void alimentacion_externa(bool si) override { externa_ = si; }
     void alimenta(bool on) override {
+        if (externa_) chip_->vdd->set_hiz(d_vdd_);     // la pone la placa
         if (on) {
-            chip_->vdd->set_drive(d_vdd_, 3.3f, 0.1f);
+            if (!externa_) chip_->vdd->set_drive(d_vdd_, 3.3f, 0.1f);
             chip_->vdda->set_drive(d_vdda_, 3.3f, 0.1f);
             chip_->gnd->set_drive(d_gnd_, 0.0f, 0.1f);
             chip_->gnda->set_drive(d_gnda_, 0.0f, 0.1f);
         } else {
-            chip_->vdd->set_drive(d_vdd_, 0.0f, 1.0f);
+            if (!externa_) chip_->vdd->set_drive(d_vdd_, 0.0f, 1.0f);
             chip_->vdda->set_drive(d_vdda_, 0.0f, 1.0f);
             reset_pin(true);
         }
@@ -187,6 +189,7 @@ private:
     Msp432E4* chip_;
     McuDesc   desc_;
     int d_vdd_ = -1, d_gnd_ = -1, d_vdda_ = -1, d_gnda_ = -1, d_rst_ = -1;
+    bool externa_ = false;               // VDD la pone la placa (X1)
 };
 
 REGISTRA_MCU(MSP432E4, [](const char* nm, DebugCaps d, const Cableado& c,

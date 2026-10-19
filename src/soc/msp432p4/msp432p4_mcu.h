@@ -61,8 +61,10 @@ public:
         n.registra(pre + "AVCC", *chip_->avcc);   n.registra(pre + "AVSS", *chip_->avss);
         n.registra(pre + "VCORE", *chip_->vcore_pin);
         n.registra(pre + "RSTN", *chip_->rstn);
-        n.registra(pre + "SWCLKTCK", *chip_->swclk_net);
-        n.registra(pre + "SWDIOTMS", *chip_->swdio_net);
+        // Las dos de SWD son pads del chip, como los de los puertos: lo que no
+        // las gobierne ninguna pieza no queda «colgado»
+        n.registra(pre + "SWCLKTCK", *chip_->swclk_net, true);
+        n.registra(pre + "SWDIOTMS", *chip_->swdio_net, true);
     }
     analog_net_if& nodo_analogico(unsigned puerto, unsigned pin) override {
         return chip_->dio.nodo_de(puerto, pin);
@@ -70,14 +72,16 @@ public:
     analog_net_if* nodo_swclk() override { return chip_->swclk_net; }
     analog_net_if* nodo_swdio() override { return chip_->swdio_net; }
 
+    void alimentacion_externa(bool si) override { externa_ = si; }
     void alimenta(bool on) override {
+        if (externa_) chip_->dvcc->set_hiz(d_dvcc_);   // la pone la placa
         if (on) {
-            chip_->dvcc->set_drive(d_dvcc_, 3.3f, 0.1f);
+            if (!externa_) chip_->dvcc->set_drive(d_dvcc_, 3.3f, 0.1f);
             chip_->avcc->set_drive(d_avcc_, 3.3f, 0.1f);
             chip_->dvss->set_drive(d_dvss_, 0.0f, 0.1f);
             chip_->avss->set_drive(d_avss_, 0.0f, 0.1f);
         } else {
-            chip_->dvcc->set_drive(d_dvcc_, 0.0f, 1.0f);
+            if (!externa_) chip_->dvcc->set_drive(d_dvcc_, 0.0f, 1.0f);
             chip_->avcc->set_drive(d_avcc_, 0.0f, 1.0f);
             reset_pin(true);
         }
@@ -194,6 +198,7 @@ private:
     Msp432P4* chip_;
     McuDesc   desc_;
     int d_dvcc_ = -1, d_dvss_ = -1, d_avcc_ = -1, d_avss_ = -1, d_rstn_ = -1;
+    bool externa_ = false;               // DVCC la pone la placa (X1)
 };
 
 REGISTRA_MCU(MSP432P4, [](const char* nm, DebugCaps d, const Cableado& c,

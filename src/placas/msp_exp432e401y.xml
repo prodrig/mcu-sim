@@ -17,8 +17,13 @@
          Y3    cristal de 32 768 Hz en XOSC0/XOSC1 (hibernacion)
          USB   los 5 V del cable del XDS110 (DEBUG_VBUS, por J101), que JP1
                lleva a la placa en su posicion de fabrica, 5V-XDS
+         XDS   el XDS110, la sonda de la placa (sin EnergyTrace), del lado de
+               la sonda de J101 (doc/analisis_xds110.md, X1): su LDO da el
+               3V3, y --openocd o --cmsis-dap van por sus pines TMS/TCK/RST.
+               Con swo= lleva la traza de PC3 a un canal
          J101  el bloque de aislamiento del XDS110, como en la P401R: diez
-               puentes, los impares del chip y los pares del XDS110
+               puentes, los impares del chip y los pares del XDS110. Sin
+               3V3 el chip no arranca; sin TMS o TCK, no hay sonda
          JP4, JP5  los dos de 2x2 que eligen la UART del backchannel
                [SLAU748B, §2.1.6.4]: de fabrica, en vertical, la UART0
                (PA0/PA1) va al XDS110 y la UART2 (PD4/PD5) a J5.5/J5.6 de la
@@ -45,9 +50,9 @@
          ./build/mcu-sim placas/msp_exp432e401y.xml verif/fw/msp432e4/e4_eth/e4_eth.out --eth qemu:5555 --tiempo-real
          ./build/mcu-sim placas/msp_exp432e401y.xml verif/fw/msp432e4/e4_usb/e4_usb.out --usb rfc2217:3358 --tiempo-real
 
-     Lo que NO esta todavia: el XDS110 (se depura con depuracion="dap" o
-     "pines", por PC0/PC1 como un STM32), el cabezal del BSL y el TPS2052B,
-     el interruptor de los 5 V. El dibujo, msp_exp432e401y.svg, lleva cada
+     Se depura con OpenOCD por la sonda (--cmsis-dap o --openocd), o con el
+     stub de GDB (--gdb-dap, o --gdb por PC0/PC1). Lo que NO esta todavia:
+     el cabezal del BSL y el TPS2052B, el interruptor de los 5 V. El dibujo, msp_exp432e401y.svg, lleva cada
      pieza y cada pin con su id.
 
          ./build/mcu-sim placas/msp_exp432e401y.xml --valida
@@ -124,6 +129,15 @@
     <pin nombre="2" nodo="5V"/>
     <pin nombre="4" nodo="5V"/>
     <pin nombre="6" nodo="5V"/>
+  </componente>
+
+  <!-- El XDS110, del lado de la sonda de J101: el LDO, SWD, RST y SWO -->
+  <componente tipo="Xds110" id="XDS">
+    <pin nombre="3v3"   nodo="J101.6"/>
+    <pin nombre="rst"   nodo="J101.12"/>
+    <pin nombre="swdio" nodo="J101.14"/>
+    <pin nombre="swclk" nodo="J101.16"/>
+    <pin nombre="swo"   nodo="J101.18"/>
   </componente>
 
   <!-- J101, el bloque de aislamiento [hoja 4] -->

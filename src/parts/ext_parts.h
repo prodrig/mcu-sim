@@ -224,6 +224,14 @@ SC_MODULE(FuenteTension), public ExtPart {
         const double i = double(pin_current());          // >0: entra al nodo
         return masa_ ? -i : i;
     }
+    // La misma, sin el umbral de resolución del nodo (AnalogNet::corriente_exacta):
+    // la que mide el LDO de una sonda XDS110, que tiene que ver microamperios
+    double corriente_exacta() const {
+        const AnalogNet* a = dynamic_cast<const AnalogNet*>(net_);
+        if (!a || !conectada_) return corriente();
+        const double i = a->corriente_exacta(id_);
+        return masa_ ? -i : i;
+    }
     void set_enabled(bool on) override {
         ExtPartBase::set_enabled(on);
         if (on) { r_ = r0_; drive(float(v_), float(r_)); } else { hiz(); sobre_ = false; }
