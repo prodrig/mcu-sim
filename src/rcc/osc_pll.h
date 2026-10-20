@@ -88,14 +88,20 @@ SC_MODULE(Oscillator) {
     bool fuente_valida() const {
         if (!needs_source) return true;
         if (!source_present()) return false;
-        return bypass ? (meas_hz_ > 0.0) : true;
+        return bypass ? (meas_hz_ > 0.0 || declarado() > 0.0) : true;
     }
+    // Un reloj sin onda que DICE su frecuencia en el nodo (analog_net_if::
+    // reloj_declarado, el ExtClock con onda="no"): en bypass vale como una
+    // medida. Lo medido, si lo hay, manda.
+    double declarado() const { return xtal_in ? xtal_in->reloj_declarado() : 0.0; }
     // Frecuencia efectiva. En bypass es SIEMPRE la medida en el pin: sin medida
     // no hay reloj, y por eso `fuente_valida()` no deja arrancar. En modo
     // cristal es la NOMINAL del resonante, y no la que se mida en el pin: lo
     // que oscila ahi es el propio amplificador contra el cristal, no una senal
     // ajena, y quien manda es el corte del cuarzo.
-    double effective_hz() const { return bypass ? meas_hz_ : nominal_hz; }
+    double effective_hz() const {
+        return bypass ? (meas_hz_ > 0.0 ? meas_hz_ : declarado()) : nominal_hz;
+    }
     bool failed() const { return failed_; }
     void clear_failed() { failed_ = false; }
     // Generación de la onda cuadrada (véase clock_gen.h): se puede apagar

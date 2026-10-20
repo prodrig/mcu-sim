@@ -50,6 +50,13 @@ public:
     // abierto que propaga el cero de un pin a los demás sin realimentarse.
     virtual float voltage_excluding(int id, bool& floating_out) const = 0;
     virtual const sc_core::sc_event& value_changed_event() const = 0;
+    // UN RELOJ SIN ONDA (fase S1 del F303). Una fuente de reloj puede DECIR
+    // su frecuencia en el nodo en vez de dar sus flancos: es el `ExtClock` con
+    // onda="no", que hace el mismo trabajo para un oscilador en modo bypass
+    // (`rcc/osc_pll.h`) sin costar dos sucesos por periodo. Cero: nadie dice
+    // nada, y quien quiera la frecuencia la mide, como siempre.
+    virtual double reloj_declarado() const { return 0.0; }
+    virtual void   declara_reloj(double) {}
 };
 
 class AnalogNet : public sc_core::sc_prim_channel, public analog_net_if {
@@ -63,6 +70,8 @@ public:
     // apunta aquí el de verdad, que es el que se vuelca y el que se lee en los
     // mensajes. Vacío: el nombre es el de SystemC.
     std::string nombre_esq;
+    double reloj_declarado() const override { return reloj_hz_; }
+    void   declara_reloj(double hz) override { reloj_hz_ = hz; }
 
     int register_driver(const char* /*name*/) override {
         drv_.push_back(AnalogDrive{});
@@ -128,6 +137,7 @@ protected:
     }
 
 private:
+    double reloj_hz_ = 0.0;
     std::vector<AnalogDrive> drv_;
     float             v_pin_ = 0.0f;
     double            g_tot_ = 0.0;

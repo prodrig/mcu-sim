@@ -1222,6 +1222,7 @@ con 50 Ω de salida.
 | Parámetro | Omisión | Efecto |
 | :--- | :--- | :--- |
 | `hz` | `0` | Frecuencia. **Con `0` la pieza no conduce**: queda en alta impedancia y no gasta tiempo de simulación. Es lo razonable al arrancar, y se enciende desde C++ con `set_freq()` |
+| `onda` | `si` | Con `no` la pieza **no da flancos**: deja el nodo a 0 V y le DICE su frecuencia, que es lo que mira el HSE del chip para arrancar (en modo cristal y en bypass) y contar. Ocho millones de flancos por segundo cuestan más que el resto de una placa entera; sin onda, el reloj llega igual y el pin se lee a cero. Es lo que hace el MCO del ST-LINK de `placas/stm32f3discovery.xml` (S1 del F303) |
 
 Recuérdese §3.4: `hz="8M"` son **8 Hz**. Escríbase `8e6`.
 

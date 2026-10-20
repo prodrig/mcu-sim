@@ -243,7 +243,8 @@ LDLIBS   += -lsystemc $(LIBS_SO) $(EXTRA_LD)
 HDRS := $(wildcard common/*.h pins/*.h parts/*.h bus/*.h mem/*.h rcc/*.h core/*.h \
                    periph/*.h soc/*.h verif/*.h top/*.h \
                    periph/msp432p4/*.h soc/msp432p4/*.h soc/msp432p4/*.inc \
-                   periph/msp432e4/*.h soc/msp432e4/*.h soc/msp432e4/*.inc)
+                   periph/msp432e4/*.h soc/msp432e4/*.h soc/msp432e4/*.inc \
+                   soc/stm32f3/*.h soc/stm32f3/*.inc)
 
 TEST407 := $(B)/test407$(EXE)
 MCUSIM  := $(B)/mcu-sim$(EXE)
@@ -253,6 +254,7 @@ TESTSERIE := $(B)/testserie$(EXE)
 TESTGUI   := $(B)/testgui$(EXE)
 TESTP4    := $(B)/testp4$(EXE)
 TESTE4    := $(B)/teste4$(EXE)
+TESTF3    := $(B)/testf3$(EXE)
 HASHV   := $(B)/prueba_hash$(EXE)
 CRYPV   := $(B)/prueba_cryp$(EXE)
 BENCH  := $(B)/bench$(EXE)
@@ -267,7 +269,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 bsl-p4 eth-e4 usb-e4 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 bsl-p4 eth-e4 usb-e4 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -366,6 +368,18 @@ teste4-build: $(TESTE4)
 
 teste4: $(TESTE4)
 	$(TESTE4)
+
+# EL BANCO DEL STM32F303VC (fases S0-S2 de doc/analisis_stm32f303.md): otra
+# familia de ST, otro ejecutable, por lo mismo que los demas.
+#   make testf3
+$(TESTF3): top/sc_main_f3.cpp $(HDRS)
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_f3.cpp $(LDFLAGS) $(LDLIBS)
+
+testf3-build: $(TESTF3)
+
+testf3: $(TESTF3)
+	$(TESTF3)
 
 # --- La capa de red, que es la única parte no portable -----------------------
 # No necesita SystemC, así que se compila y se ejecuta en cualquier sitio, y se
@@ -635,6 +649,25 @@ e4-edumkii: $(MCUSIM)
 	    && ! grep -q "Warning" $(B)/e4-edumkii.log \
 	    && echo "  [OK  ] e4-edumkii: el backchannel por JP4/JP5, el ADC, los dos sensores I2C y la pantalla con luz" \
 	    || { echo "  [FALLO] e4-edumkii: vease $(B)/e4-edumkii.log"; exit 1; }
+
+# LA STM32F3DISCOVERY (S1 del F303, doc/analisis_stm32f303.md): el mcu-sim de
+# verdad con placas/stm32f3discovery.xml y GPIO_IOToggle de STM32CubeF3, sin
+# modificar. A los 1000 ms la rosa esta a medio dar la vuelta: LD6 (PE15) y
+# LD8 (PE14) apagados y los otros seis encendidos -el ejemplo enciende un LED
+# cada 101 ms, de PE15 a PE8, y luego los apaga en el mismo orden-; el reloj,
+# 72 MHz por el HSE desde el MCO del ST-LINK (onda="no"); y sin un aviso.
+#   make f3-discovery
+f3-discovery: $(MCUSIM)
+	@$(MCUSIM) placas/stm32f3discovery.xml verif/fw/stm32f3/gpio_iotoggle/GPIO_IOToggle.bin \
+	    --ms=1000 > $(B)/f3-discovery.log 2>&1 || { cat $(B)/f3-discovery.log; exit 1; }
+	@grep -q "placa 'stm32f3discovery': 1 MCU(s), 19 componentes, 156 nodos, 0 avisos" $(B)/f3-discovery.log \
+	    && grep -q "dibujo: stm32f3discovery.svg (.*JP3 1-2)" $(B)/f3-discovery.log \
+	    && grep -q "LED LD6 en PE15: apagado" $(B)/f3-discovery.log \
+	    && grep -q "LED LD8 en PE14: apagado" $(B)/f3-discovery.log \
+	    && test "$$(grep -c 'LED LD[0-9]* en PE[0-9]*: encendido' $(B)/f3-discovery.log)" = 6 \
+	    && ! grep -q "Warning" $(B)/f3-discovery.log \
+	    && echo "  [OK  ] f3-discovery: GPIO_IOToggle de ST en la STM32F3DISCOVERY, la rosa a 72 MHz por el HSE" \
+	    || { echo "  [FALLO] f3-discovery: vease $(B)/f3-discovery.log"; exit 1; }
 
 # LA PREBUSQUEDA DE LA FLASH DEL E4 A 120 MHz (FWS = 5):
 # verif/fw/msp432e4/e4_retardo mide con el TIMER2 los ciclos de una vuelta
@@ -971,6 +1004,10 @@ FWE4 := verif/fw/msp432e4/e4_demo verif/fw/msp432e4/coremark verif/fw/msp432e4/e
         verif/fw/msp432e4/e4_t3 verif/fw/msp432e4/e4_rom verif/fw/msp432e4/rom_r1 \
         verif/fw/msp432e4/e4_t7 verif/fw/msp432e4/e4_eth verif/fw/msp432e4/e4_bootp \
         verif/fw/msp432e4/e4_usb verif/fw/msp432e4/e4_edumkii
+# Los del STM32F303VC (S1 y S2 de doc/analisis_stm32f303.md): con el CMSIS de
+# ST (verif/fw/stm32f3/sdk) y, los de STM32CubeF3, con su HAL, sin modificar.
+FWF3 := verif/fw/stm32f3/f3_demo verif/fw/stm32f3/coremark verif/fw/stm32f3/gpio_iotoggle \
+        verif/fw/stm32f3/gpio_exti
 # Los de las placas de ejemplo que no usa ninguna suite de C++: el de
 # placas/barra8_en_nucleo.xml y el de placas/nucleo_f446re_barra8ac_azul.xml,
 # que vigila `make gui-sistema`; los de la pantalla TFT, el de
@@ -984,7 +1021,8 @@ FWPLACAS := verif/fw/barra8_demo verif/fw/barra8_morpho verif/fw/tft_demo verif/
 # escribir otra lista: asi un firmware nuevo se borra sin tocar esto.
 FW_TODOS := $(sort $(patsubst %/Makefile,%,$(wildcard verif/fw/Makefile verif/fw/*/Makefile \
                                                          verif/fw/msp432p4/*/Makefile \
-                                                         verif/fw/msp432e4/*/Makefile)))
+                                                         verif/fw/msp432e4/*/Makefile \
+                                                         verif/fw/stm32f3/*/Makefile)))
 
 # Un aviso util en vez de veinte errores de «command not found». No aborta: hay
 # quien tiene el compilador en un sitio raro y sabe lo que hace.
@@ -1071,8 +1109,16 @@ fwe4:
 	 done
 	@echo "  [fw] los $(words $(FWE4)) firmwares de la suite del MSP432E401Y, listos"
 
+fwf3:
+	$(AVISA_VERSIONADOS)
+	$(COMPRUEBA_CROSS)
+	@for d in $(FWF3); do \
+	   echo "  [fw] $$d"; $(MAKE) --no-print-directory -C $$d || exit 1; \
+	 done
+	@echo "  [fw] los $(words $(FWF3)) firmwares de la suite del STM32F303, listos"
+
 # Los siete juegos, sin simular nada.
-fw: fw407 fw446 fw417 fwserie fwplacas fwp4 fwe4
+fw: fw407 fw446 fw417 fwserie fwplacas fwp4 fwe4 fwf3
 
 # Y las suites con sus firmwares delante. En una maquina nueva ya NO hacen
 # falta: `make test407` a secas funciona, porque los .bin vienen en el
@@ -1095,6 +1141,9 @@ testp4fw: fwp4
 	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) testp4
 teste4fw: fwe4
 	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) teste4
+
+testf3fw: fwf3
+	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) testf3
 
 # Borra los .bin, .elf, .o y .map de TODOS los firmwares, sean de la suite que
 # sean. Util para comprobar que la cadena cruzada funciona de cero.

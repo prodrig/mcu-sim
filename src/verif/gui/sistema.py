@@ -61,7 +61,7 @@
 #   C18 acodado="si" en un Conector: va en su <conector> de T_PLACA, el
 #       derecho no dice nada, y otro valor es un error.
 #   C19 las placas de TI -la MSP-EXP432P401R, la MSP-EXP432E401Y y la
-#       BOOSTXL-EDUMKII- con su dibujo, cada pieza visible y cada pin en el;
+#       BOOSTXL-EDUMKII- y la STM32F3DISCOVERY con su dibujo, cada pieza visible y cada pin en el;
 #       un Jumper con VARIOS puentes (los 2x2 JP4/JP5 de la E401Y) y sus
 #       errores; y <jumper ref> en un sistema, que cambia el puente de una
 #       placa sin tocar su fichero -el J5 de la EDUMKII- y el dibujo con el.
@@ -1392,6 +1392,15 @@ def c19_ti(sim, cp):
               "placas/%s.xml valida sin un aviso, con su dibujo y sus puentes" % n)
         f = piezas_sin_dibujo(n)
         check(not f, "%s.svg: cada pieza visible y cada pin de conector, con su id (faltan: %s)" % (n, f))
+
+    # La STM32F3DISCOVERY (doc/analisis_stm32f303.md, S1): su dibujo, de
+    # placas/dibuja_st.py, con JP3 puesto
+    rc, out, err = corre(sim, ["placas/stm32f3discovery.xml", "--valida"])
+    check(rc == 0 and "placa 'stm32f3discovery': 1 MCU(s), 19 componentes" in out and
+          "0 avisos" in out and "dibujo: stm32f3discovery.svg (" in out and "JP3 1-2)" in out,
+          "placas/stm32f3discovery.xml valida sin un aviso, con su dibujo y JP3 puesto")
+    f = piezas_sin_dibujo("stm32f3discovery")
+    check(not f, "stm32f3discovery.svg: cada pieza visible y cada pin de EXP1/EXP2, con su id (faltan: %s)" % f)
 
     # Los dos sistemas: el J5 de la EDUMKII como sale de fabrica, y cambiado
     rc, out, err = corre(sim, ["placas/msp_exp432p401r_edumkii.xml", "--valida"])

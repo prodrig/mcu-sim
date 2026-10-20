@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     STM32F3DISCOVERY (MB1035): la Discovery del STM32F303VC (fase S1)
+
+     Lo que hay soldado alrededor del chip [UM1570 Rev 3; BSP de la placa,
+     stm32f3_discovery.h; doc/analisis_stm32f303.md §5]:
+
+         LD3-LD10  la ROSA DE LOS VIENTOS, ocho LED en circulo, del PE8 al
+                   PE15, con el anodo al pin: lucen con el pin ALTO
+         B1        el pulsador azul de usuario, en PA0, A VDD
+         B2        el negro, RESET, en NRST
+         MCO       los 8 MHz que el ST-LINK saca por su MCO y llegan a PF0
+                   (OSC_IN). X2, el cristal, viene sin montar
+         X3        el cristal de 32 kHz del LSE: SIN MONTAR
+         JP3       el puente IDD, entre los 3 V de la placa y el VDD del chip
+         LD1       el rojo de alimentacion
+         EXP1/2    P1 y P2, las dos tiras de 2x25 con todas las E/S. En el
+                   modelo no pueden llamarse P1 y P2: «P1.5» es el pad PB5
+
+     CINCO COSAS QUE CONVIENE SABER ANTES DE USARLA
+     ---------------------------------------------------------------------
+     1. EL PULSADOR AZUL VA A VDD, NO A MASA, como en la F4-Discovery: el BSP
+        lo configura como EXTI por flanco de SUBIDA y sin pull interno
+        (BSP_PB_Init, GPIO_MODE_IT_RISING). Una resistencia lo sujeta abajo
+        suelto [UM1570; el valor, 1F].
+
+     2. EL RELOJ LLEGA DEL ST-LINK, no de un cristal. Y funciona IGUAL con
+        RCC_HSE_ON que con RCC_HSE_BYPASS: los ejemplos de ST usan HSE_ON con
+        esta onda en OSC_IN, y en la placa arrancan. En el modelo, con HSEBYP
+        el HSE mide la frecuencia que llega; sin el, basta con que haya algo
+        en PF0 [rcc/osc_pll.h].
+
+     3. X3 NO ESTA, como en la placa: el LSE no arranca nunca, y un RTC con
+        LSE se queda esperando LSERDY. Para soldarlo, quitese conectada="no".
+
+     4. EL PUERTO COM VIRTUAL solo existe desde la revision C (ST-LINK/V2-B),
+        y es la USART1 en PC4/PC5, no la USART2 de las Nucleo. Llega con la
+        USART en la fase S3; esta primera version de la placa no lo lleva.
+
+     5. LOS SENSORES (el giroscopo L3GD20 o I3G4250D en SPI1 y la brujula
+        LSM303DLHC o LSM303AGR en I2C1, segun la revision) son de la fase S4.
+        El dibujo ya los tiene; el XML todavia no.
+
+     P1 Y P2 SON LA TABLA 6 DE UM1570, que da cada numero de pin con sus dos
+     senales, una por tira. Que senal va a cual sale de la continuidad de las
+     dos columnas -una por lado de la placa- y no de una segunda fuente: el
+     esquematico, leido por maquina, no la confirma [1F; doc/todo.md, P-18].
+
+         ./build/mcu-sim placas/stm32f3discovery.xml --valida
+         ./build/mcu-sim placas/stm32f3discovery.xml \
+             verif/fw/stm32f3/gpio_iotoggle/GPIO_IOToggle.elf --ms=1000
+     ========================================================================= -->
+<placa nombre="stm32f3discovery">
+  <mcu tipo="STM32F303VC" id="u0"/>
+
+  <!-- La alimentacion: los 5 V del USB del ST-LINK (CN1), el regulador de 3 V
+       y el puente IDD (JP3), que lleva esos 3 V al VDD del chip. Con JP3
+       quitado el chip se queda sin nada: en la placa ahi va un amperimetro -->
+  <nodo id="5V" bus="si"/>
+  <nodo id="3V" bus="si"/>
+  <componente tipo="Fuente" id="CN1" v="5" limite_ma="500">
+    <pin nombre="pin" nodo="5V"/>
+  </componente>
+  <componente tipo="Jumper" id="JP3" filas="2" columnas="1" puente="1 2">
+    <pin nombre="1" nodo="3V"/>
+    <pin nombre="2" nodo="VDD"/>
+  </componente>
+  <componente tipo="Led" id="LD1" a_vss="si" vf="1.8" r="1000">   <!-- rojo, PWR [1F: R] -->
+    <pin nombre="anodo" nodo="3V"/>
+  </componente>
+
+  <!-- El reloj: los 8 MHz del MCO del ST-LINK en PF0-OSC_IN (SB12 cerrado,
+       X2 sin montar) [UM1570]. SIN ONDA (onda="no"): la pieza dice su
+       frecuencia al HSE en vez de dar 16 millones de flancos por segundo, que
+       costaban tres veces lo que el resto de la placa; el HSE arranca igual
+       con HSE_ON y con HSE_BYPASS, y PF0 se lee a cero. Con onda="si" va la
+       onda de verdad. Y el LSE, sin su cristal -->
+  <componente tipo="ExtClock" id="MCO" hz="8e6" onda="no">
+    <pin nombre="out" nodo="PF0"/>
+  </componente>
+  <componente tipo="Crystal" id="X3" vdd="3.3" conectada="no">
+    <pin nombre="osc_in" nodo="PC14"/>
+  </componente>
+
+  <!-- La rosa: LD3 arriba (el «norte», PE9) y en el sentido de las agujas
+       LD5, LD7, LD9, LD10, LD8, LD6 y LD4 [BSP: LED3..LED10; UM1570].
+       Resistencias de 510 ohm (dos) y 680 ohm (seis) [UM1570]; cual va con
+       cual no se ha podido casar, y aqui las de 510 son las de los azules,
+       que con su vf mas alta son las que mas la necesitan [1F] -->
+  <componente tipo="Led" id="LD3" a_vss="si" vf="1.8" r="680">    <!-- rojo -->
+    <pin nombre="anodo" nodo="PE9"/>
+  </componente>
+  <componente tipo="Led" id="LD4" a_vss="si" vf="2.7" r="510">    <!-- azul -->
+    <pin nombre="anodo" nodo="PE8"/>
+  </componente>
+  <componente tipo="Led" id="LD5" a_vss="si" vf="2.0" r="680">    <!-- naranja -->
+    <pin nombre="anodo" nodo="PE10"/>
+  </componente>
+  <componente tipo="Led" id="LD6" a_vss="si" vf="2.1" r="680">    <!-- verde -->
+    <pin nombre="anodo" nodo="PE15"/>
+  </componente>
+  <componente tipo="Led" id="LD7" a_vss="si" vf="2.1" r="680">    <!-- verde -->
+    <pin nombre="anodo" nodo="PE11"/>
+  </componente>
+  <componente tipo="Led" id="LD8" a_vss="si" vf="2.0" r="680">    <!-- naranja -->
+    <pin nombre="anodo" nodo="PE14"/>
+  </componente>
+  <componente tipo="Led" id="LD9" a_vss="si" vf="2.7" r="510">    <!-- azul -->
+    <pin nombre="anodo" nodo="PE12"/>
+  </componente>
+  <componente tipo="Led" id="LD10" a_vss="si" vf="1.8" r="680">   <!-- rojo -->
+    <pin nombre="anodo" nodo="PE13"/>
+  </componente>
+
+  <!-- B1, el pulsador azul, en PA0 y a VDD; la resistencia lo baja suelto.
+       Rebota, como el de verdad -->
+  <nodo id="PA0" bus="si"/>
+  <componente tipo="Button" id="B1" v_cerrado="3.3" r_cerrado="330">
+    <pin nombre="pin" nodo="PA0"/>
+  </componente>
+  <componente tipo="Rpull" id="R_B1" v="0" r="220000" visible="no">
+    <pin nombre="a" nodo="PA0"/>
+  </componente>
+
+  <!-- B2, RESET, en NRST (SB23): el alto lo da el pull-up del propio pad -->
+  <nodo id="NRST" bus="si"/>
+  <componente tipo="Button" id="B2" r_cerrado="10" rebote="no">
+    <pin nombre="pin" nodo="NRST"/>
+  </componente>
+
+  <!-- BOOT0 a masa por 510 ohm (SB19): arranca SIEMPRE de la Flash. Con SB19
+       abierto y la de 10 kohm a VDD -que viene sin montar- arrancaria en la
+       memoria de sistema [UM1570] -->
+  <nodo id="BOOT0" bus="si"/>
+  <componente tipo="Rpull" id="R_BOOT0" v="0" r="510" visible="no">
+    <pin nombre="a" nodo="BOOT0"/>
+  </componente>
+
+  <!-- La depuracion: el ST-LINK por SWD en PA13 (SWDIO) y PA14 (SWCLK), y
+       NRST. Al otro lado esta `sim` (--gdb, --openocd o --cmsis-dap) -->
+  <nodo id="PA13"/>  <nodo id="PA14"/>
+
+  <!-- ===================================================================
+       P1 y P2, las tiras de 2x25 [UM1570, tabla 6; vease la cabecera]:
+       EXP1 (P1) a la izquierda y EXP2 (P2) a la derecha, el 1 arriba. Las masas son la
+       del chip (VSS); los 3V, el nodo de antes del puente IDD.
+       =================================================================== -->
+  <componente tipo="Conector" id="EXP1" filas="2" columnas="25">   <!-- P1 -->
+    <pin nombre="1" nodo="3V"/>    <pin nombre="2" nodo="3V"/>
+    <pin nombre="3" nodo="VSS"/>   <pin nombre="4" nodo="NRST"/>
+    <pin nombre="5" nodo="PC1"/>   <pin nombre="6" nodo="PC0"/>
+    <pin nombre="7" nodo="PC3"/>   <pin nombre="8" nodo="PC2"/>
+    <pin nombre="9" nodo="PA1"/>   <pin nombre="10" nodo="PF2"/>
+    <pin nombre="11" nodo="PA3"/>  <pin nombre="12" nodo="PA0"/>
+    <pin nombre="13" nodo="PF4"/>  <pin nombre="14" nodo="PA2"/>
+    <pin nombre="15" nodo="PA5"/>  <pin nombre="16" nodo="PA4"/>
+    <pin nombre="17" nodo="PA7"/>  <pin nombre="18" nodo="PA6"/>
+    <pin nombre="19" nodo="PC5"/>  <pin nombre="20" nodo="PC4"/>
+    <pin nombre="21" nodo="PB1"/>  <pin nombre="22" nodo="PB0"/>
+    <pin nombre="23" nodo="PE7"/>  <pin nombre="24" nodo="PB2"/>
+    <pin nombre="25" nodo="PE9"/>  <pin nombre="26" nodo="PE8"/>
+    <pin nombre="27" nodo="PE11"/> <pin nombre="28" nodo="PE10"/>
+    <pin nombre="29" nodo="PE13"/> <pin nombre="30" nodo="PE12"/>
+    <pin nombre="31" nodo="PE15"/> <pin nombre="32" nodo="PE14"/>
+    <pin nombre="33" nodo="PB11"/> <pin nombre="34" nodo="PB10"/>
+    <pin nombre="35" nodo="PB13"/> <pin nombre="36" nodo="PB12"/>
+    <pin nombre="37" nodo="PB15"/> <pin nombre="38" nodo="PB14"/>
+    <pin nombre="39" nodo="PD9"/>  <pin nombre="40" nodo="PD8"/>
+    <pin nombre="41" nodo="PD11"/> <pin nombre="42" nodo="PD10"/>
+    <pin nombre="43" nodo="PD13"/> <pin nombre="44" nodo="PD12"/>
+    <pin nombre="45" nodo="PD15"/> <pin nombre="46" nodo="PD14"/>
+    <pin nombre="47" nodo="PC6"/>  <pin nombre="48" nodo="PC7"/>
+    <pin nombre="49" nodo="VSS"/>  <pin nombre="50" nodo="VSS"/>
+  </componente>
+  <componente tipo="Conector" id="EXP2" filas="2" columnas="25">   <!-- P2 -->
+    <pin nombre="1" nodo="5V"/>    <pin nombre="2" nodo="5V"/>
+    <pin nombre="3" nodo="PF9"/>   <pin nombre="4" nodo="PF10"/>
+    <pin nombre="5" nodo="PF0"/>   <pin nombre="6" nodo="PF1"/>
+    <pin nombre="7" nodo="PC14"/>  <pin nombre="8" nodo="PC15"/>
+    <pin nombre="9" nodo="PE6"/>   <pin nombre="10" nodo="PC13"/>
+    <pin nombre="11" nodo="PE4"/>  <pin nombre="12" nodo="PE5"/>
+    <pin nombre="13" nodo="PE2"/>  <pin nombre="14" nodo="PE3"/>
+    <pin nombre="15" nodo="PE0"/>  <pin nombre="16" nodo="PE1"/>
+    <pin nombre="17" nodo="PB8"/>  <pin nombre="18" nodo="PB9"/>
+    <pin nombre="19" nodo="BOOT0"/> <pin nombre="20" nodo="VDD"/>
+    <pin nombre="21" nodo="PB6"/>  <pin nombre="22" nodo="PB7"/>
+    <pin nombre="23" nodo="PB4"/>  <pin nombre="24" nodo="PB5"/>
+    <pin nombre="25" nodo="PD7"/>  <pin nombre="26" nodo="PB3"/>
+    <pin nombre="27" nodo="PD5"/>  <pin nombre="28" nodo="PD6"/>
+    <pin nombre="29" nodo="PD3"/>  <pin nombre="30" nodo="PD4"/>
+    <pin nombre="31" nodo="PD1"/>  <pin nombre="32" nodo="PD2"/>
+    <pin nombre="33" nodo="PC12"/> <pin nombre="34" nodo="PD0"/>
+    <pin nombre="35" nodo="PC10"/> <pin nombre="36" nodo="PC11"/>
+    <pin nombre="37" nodo="PA14"/> <pin nombre="38" nodo="PA15"/>
+    <pin nombre="39" nodo="PF6"/>  <pin nombre="40" nodo="PA13"/>
+    <pin nombre="41" nodo="PA12"/> <pin nombre="42" nodo="PA11"/>
+    <pin nombre="43" nodo="PA10"/> <pin nombre="44" nodo="PA9"/>
+    <pin nombre="45" nodo="PA8"/>  <pin nombre="46" nodo="PC9"/>
+    <pin nombre="47" nodo="PC8"/>  <!-- 48: sin senal en la tabla [1F] -->
+    <pin nombre="49" nodo="VSS"/>  <pin nombre="50" nodo="VSS"/>
+  </componente>
+</placa>

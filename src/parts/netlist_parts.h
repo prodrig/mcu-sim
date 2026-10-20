@@ -1018,10 +1018,19 @@ REGISTRA_PARTE(ExtClock,
       .nota("CUIDADO CON LAS UNIDADES: hz=\"8M\" son OCHO HERCIOS, no ocho "
             "megahercios, y la placa se monta sin quejarse. Escribase 8e6. Es "
             "el fallo silencioso mas caro de este formato.")
+      .atr("onda", "si",
+           "no: SIN ONDA. El pin queda a nivel bajo y la pieza DICE su "
+           "frecuencia en el nodo; un HSE o un LSE en modo bypass la toman "
+           "como si la hubieran medido, y sin cristal (HSE_ON) basta con que "
+           "haya algo en el pin. Lo que se pierde es la onda: quien mire los "
+           "flancos del pin no vera ninguno. Es para las fuentes de reloj que "
+           "solo alimentan un oscilador -el MCO de un ST-LINK-, cuya onda a "
+           "8 MHz cuesta mas que el resto de la placa.")
       .cpp("set_freq(hz) enciende, apaga (con 0) y cambia la frecuencia en "
            "marcha."),
     [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
-        return new ExtClock(d.id.c_str(), n[d.nodo_de("out")], d.num("hz", 0.0));
+        return new ExtClock(d.id.c_str(), n[d.nodo_de("out")], d.num("hz", 0.0),
+                            3.3, 50.0, d.si("onda", true));
     });
 
 REGISTRA_PARTE(I2cWire,

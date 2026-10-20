@@ -1,0 +1,775 @@
+// =============================================================================
+// sc_main_f3.cpp — LA SUITE DEL STM32F303VC (fases S0-S2 del plan del F303)
+//
+// Un banco aparte, como el de cada chip: un chip más dentro de otra simulación
+// movería su invariante. [doc/analisis_stm32f303.md, §7.1]
+//
+//   R1-R8   (S0) los rasgos nuevos, sobre piezas sueltas: el GPIO con BRR, el
+//           EXTI de 36 líneas, el TIM de seis canales con su PWM combinado y
+//           su segundo freno, el CRC de 16 bits, el IWDG con ventana, el SPI
+//           con FIFO y empaquetado, el RTC sin CALIBR y con 16 respaldos, y la
+//           CCM ejecutable y el DBGMCU como dato
+//   F0      (S1) las imagenes de firmware son las versionadas
+//   F1-F2   sin tiempo simulado: el catalogo, el encapsulado y sus funciones
+//           alternativas (generados de la base de pines), la integracion
+//   F3-F7   el arranque: la Flash con el HSI, la memoria de sistema (BOOT0),
+//           la SRAM (BOOT0 y nBOOT1), MEM_MODE por firmware y la CCM
+//           ejecutable con su proteccion (f3_demo)
+//   F8-F10  el reloj: 72 MHz por el HSE en modo cristal y en bypass, y la
+//           secuencia mala con sus avisos
+//   F11-F12 el GPIO con BRR, el MCO en PA8, y el EXTI (B1 y la linea 33)
+//   F13     CoreMark
+//   F14-F15 GPIO_IOToggle y GPIO_EXTI de STM32CubeF3, sin modificar
+//   make testf3   (o: make -f Makefile.mcu-sim testf3-build && ./build/testf3)
+// =============================================================================
+#include <systemc>
+#include <cstdio>
+#include <cstdlib>
+#include <cmath>
+#include <cstring>
+#include <string>
+#include "../common/asan_opciones.h"
+#include "../common/huella_fw.h"
+#include "../soc/stm32f3/stm32f3_mcu.h"
+#include "../periph/timers.h"
+#include "../periph/crc.h"
+#include "../periph/watchdog.h"
+#include "../periph/spi.h"
+#include "../periph/rtc.h"
+#include "../periph/dac.h"
+#include "../periph/can.h"
+#include "../bus/ahb_decoder.h"
+#include "../verif/bus_test_master.h"
+#include "../parts/ext_parts.h"
+#include "../parts/netlist_xml.h"
+
+using namespace sc_core;
+using namespace stm32;
+
+static unsigned g_ok = 0, g_fallos = 0;
+static void grupo(const char* t) { std::printf("\n--- %s ---\n", t); }
+static bool check(bool c, const char* q) {
+    if (c) { ++g_ok;  std::printf("  [OK  ] %s\n", q); }
+    else   { ++g_fallos; std::printf("  [FALLO] %s\n", q); }
+    return c;
+}
+static bool check_eq(uint64_t got, uint64_t exp, const char* q) {
+    const bool c = (got == exp);
+    if (c) std::printf("  [OK  ] %s\n", q);
+    else   std::printf("  [FALLO] %s (obtenido 0x%llX, esperado 0x%llX)\n", q,
+                       (unsigned long long)got, (unsigned long long)exp);
+    if (c) ++g_ok; else ++g_fallos;
+    return c;
+}
+
+// =============================================================================
+// EL BANCO DE RASGOS (S0): las piezas con los rasgos del F303, sueltas, en un
+// decodificador propio y con sus relojes de banco. Ninguna toca el SoC.
+// =============================================================================
+SC_MODULE(BancoRasgos) {
+    BusTestMaster tm{"tm"};
+    AhbDecoder    dec{"dec"};
+    sc_signal<bool>   clk{"clk"}, uno{"uno"}, cero{"cero"};
+    sc_signal<double> hz{"hz"}, lsi_hz{"lsi_hz"}, rtc_hz{"rtc_hz"}, i2s_hz{"i2s_hz"};
+    // GPIO A del F3, con BRR
+    GpioPort gpio{"gpio", 0, GPIO_F3};
+    sc_vector<sc_signal<PadDrive>> g_drv{"g_drv", 16};
+    sc_vector<sc_signal<bool>> g_din{"g_din", 16}, g_exti{"g_exti", 16};
+    // EXTI de 36 líneas
+    Exti exti{"exti", EXTI_F303};
+    sc_vector<sc_signal<bool>> e_gpio{"e_gpio", N_GPIO_PORTS * N_PORT_PINS};
+    sc_vector<sc_signal<uint8_t>> e_sel{"e_sel", 16};
+    sc_vector<sc_signal<bool>> e_in{"e_in", 20}, e_lin{"e_lin", 20};
+    sc_vector<sc_signal<bool>> e_irq{"e_irq", 7}, e_int{"e_int", 7};
+    sc_signal<bool> e_evt{"e_evt"}, e_wk{"e_wk"};
+    // TIM1 del F3: seis canales, OCxM de 4 bits, segundo freno, MMS2
+    TimerBase tim{"tim", 0x40012C00u, CAPS_F3_TIM_ADV};
+    sc_vector<sc_signal<bool>> t_itr{"t_itr", 4}, t_dcc{"t_dcc", 4};
+    sc_signal<bool> t_g{"t_g"}, t_up{"t_up"}, t_cc{"t_cc"}, t_tc{"t_tc"}, t_brk{"t_brk"},
+                    t_trgo{"t_trgo"}, t_dup{"t_dup"}, t_dtr{"t_dtr"}, t_dcom{"t_dcom"};
+    // CRC programable, IWDG con ventana, SPI v3, RTC del F3
+    CrcUnit crc{"crc", CRC_F3};
+    Iwdg iwdg{"iwdg", IWDG_F3};
+    sc_signal<bool> w_rst{"w_rst"}, w_lsi{"w_lsi"};
+    SpiBase spi{"spi", 0x40013000u, CAPS_F3_SPI1};
+    sc_signal<bool> s_irq{"s_irq"}, s_drx{"s_drx"}, s_dtx{"s_dtx"};
+    Rtc rtc{"rtc", RTC_F3};
+    sc_signal<bool> r_a{"r_a"}, r_t{"r_t"}, r_w{"r_w"};
+
+    SC_CTOR(BancoRasgos) {
+        tm.isk.bind(dec.tsk);
+        uno.write(true); cero.write(false);
+        hz.write(72e6); lsi_hz.write(40e3); rtc_hz.write(32768.0); i2s_hz.write(0);
+        auto ata = [&](BusSlave& b) {
+            dec.add_slave((std::string("a_") + b.basename()).c_str(), b.base(), b.size())->bind(b.tsk);
+            b.clk(clk); b.clk_hz(hz); b.rst_n(uno); b.clk_en(uno);
+        };
+        ata(gpio); ata(exti); ata(tim); ata(crc); ata(iwdg); ata(spi); ata(rtc);
+        for (unsigned i = 0; i < 16; ++i) {
+            gpio.pad_drive[i](g_drv[i]); gpio.pad_din[i](g_din[i]); gpio.exti_line[i](g_exti[i]);
+        }
+        for (unsigned k = 0; k < e_gpio.size(); ++k) exti.gpio_line[k](e_gpio[k]);
+        for (unsigned l = 0; l < 16; ++l) exti.exticr_sel[l](e_sel[l]);
+        for (unsigned i = 0; i < 20; ++i) { exti.linea_in[i](e_in[i]); exti.linea_irq[i](e_lin[i]); }
+        exti.irq_exti0(e_irq[0]); exti.irq_exti1(e_irq[1]); exti.irq_exti2(e_irq[2]);
+        exti.irq_exti3(e_irq[3]); exti.irq_exti4(e_irq[4]); exti.irq_exti9_5(e_irq[5]);
+        exti.irq_exti15_10(e_irq[6]);
+        exti.event_out(e_evt); exti.wakeup(e_wk);
+        tim.timclk(clk); tim.timclk_hz(hz); tim.freeze(cero);
+        for (unsigned i = 0; i < 4; ++i) { tim.itr[i](t_itr[i]); tim.dma_cc[i](t_dcc[i]); }
+        tim.irq_global(t_g); tim.irq_up(t_up); tim.irq_cc(t_cc); tim.irq_trg_com(t_tc);
+        tim.irq_brk(t_brk); tim.trgo(t_trgo); tim.dma_up(t_dup); tim.dma_trig(t_dtr);
+        tim.dma_com(t_dcom);
+        iwdg.lsi_clk(clk); iwdg.lsi_hz(lsi_hz); iwdg.rst_req(w_rst); iwdg.lsi_on_req(w_lsi);
+        iwdg.freeze(cero); iwdg.hw_start(cero);
+        spi.irq(s_irq); spi.dma_req_rx(s_drx); spi.dma_req_tx(s_dtx);
+        spi.i2s_ext_clk(cero); spi.i2s_clk_hz(i2s_hz); spi.ext_ck(cero); spi.ext_ws(cero);
+        rtc.rtcclk(clk); rtc.rtcclk_hz(rtc_hz); rtc.bkp_rst_n(uno); rtc.dbp(uno);
+        rtc.exti17_alarm(r_a); rtc.exti21_tamp_ts(r_t); rtc.exti22_wakeup(r_w);
+        SC_METHOD(lazo_spi); sensitive << spi.mosi_out;
+    }
+    // MOSI unido a MISO: lo que sale vuelve a entrar
+    void lazo_spi() { spi.miso_in.write(spi.mosi_out.read()); }
+
+    uint32_t rd(uint32_t a) { uint32_t v = 0; tm.read32(a, v); return v; }
+    void wr(uint32_t a, uint32_t v) { tm.write32(a, v); }
+};
+
+static const char* const FW_DEMO   = "verif/fw/stm32f3/f3_demo/f3_demo.bin";
+static const char* const FW_CM     = "verif/fw/stm32f3/coremark/coremark_f3.bin";
+static const char* const FW_TOGGLE = "verif/fw/stm32f3/gpio_iotoggle/GPIO_IOToggle.bin";
+static const char* const FW_EXTI   = "verif/fw/stm32f3/gpio_exti/GPIO_EXTI.bin";
+
+
+// El buzon de f3_demo [verif/fw/stm32f3/f3_demo/main.c, buzon_t]
+enum : uint32_t {
+    B_MODO = 0x00, B_ARRANQUES = 0x04, B_ESTADO = 0x08, B_IDCODE = 0x0C, B_FSIZE = 0x10,
+    B_UID = 0x14, B_TSCAL = 0x20, B_VREFINT = 0x24, B_R0 = 0x28, B_R1 = 0x2C, B_R2 = 0x30,
+    B_R3 = 0x34, B_PULSACIONES = 0x38, B_IRQ_COMP = 0x3C, B_CFSR = 0x40, B_BFAR = 0x44,
+    B_FAULTS = 0x48, B_CFGR = 0x4C, B_CCM = 0x50, B_TAM = 0x60
+};
+
+SC_MODULE(TbF3) {
+    BancoRasgos* r = nullptr;
+    McuF3   mcu;
+    SocF3&  dut;
+    // La placa, lo justo: los 8 MHz del ST-LINK en PF0 (sin onda), B1 en PA0 a
+    // VDD con su resistencia a masa
+    ExtClock* mco = nullptr;
+    Button*   b1  = nullptr;
+    Rpull*    r_b1 = nullptr;
+
+    SC_CTOR(TbF3)
+        : mcu("dut", DBG_PINES, Cableado(), *CatalogoMcu::busca("STM32F303VC")),
+          dut(mcu.chip()) {
+        r = new BancoRasgos("rasgos");
+        mco = new ExtClock("mco", dut.pinmux.analog(5, 0), 8e6, 3.3, 50.0, false);
+        b1 = new Button(dut.pinmux.analog(0, 0), 330.0, 3.3);
+        b1->release();
+        r_b1 = new Rpull(dut.pinmux.analog(0, 0), 0.0, 220e3);
+        SC_THREAD(run);
+    }
+    ~TbF3() override { delete r; delete mco; delete b1; delete r_b1; }
+
+    // --- Utilidades -----------------------------------------------------------
+    uint32_t buzon(uint32_t off) { return dut.sram.peek32(off); }
+    analog_net_if& pin(unsigned p, unsigned i) { return dut.pinmux.analog(p, i); }
+    bool alto(unsigned p, unsigned i) { return pin(p, i).voltage() > 1.65f; }
+    void arranca(uint32_t modo, const char* fw = FW_DEMO) {
+        mcu.reset_pin(true);
+        wait(20, SC_US);
+        if (fw) mcu.carga_firmware(fw);
+        uint8_t ceros[B_TAM] = {};
+        dut.sram.load(ceros, sizeof ceros, 0);
+        dut.sram.poke32(B_MODO, modo);
+        mcu.reset_pin(false);
+    }
+    bool espera_estado(uint32_t e, double ms) {
+        const sc_time lim = sc_time_stamp() + sc_time(ms, SC_MS);
+        while (sc_time_stamp() < lim) {
+            if (buzon(B_ESTADO) == e) return true;
+            wait(50, SC_US);
+        }
+        return buzon(B_ESTADO) == e;
+    }
+    double periodo(unsigned p, unsigned i, unsigned n = 4, double max_ms = 100) {
+        const sc_time t_lim = sc_time_stamp() + sc_time(max_ms, SC_MS);
+        sc_time primero = SC_ZERO_TIME, ultimo = SC_ZERO_TIME;
+        unsigned flancos = 0;
+        bool ant = alto(p, i);
+        while (sc_time_stamp() < t_lim && flancos <= n) {
+            wait(t_lim - sc_time_stamp(), pin(p, i).value_changed_event());
+            const bool v = alto(p, i);
+            if (v && !ant) {
+                if (flancos == 0) primero = sc_time_stamp();
+                ultimo = sc_time_stamp();
+                ++flancos;
+            }
+            ant = v;
+        }
+        if (flancos < 2) return 0.0;
+        return (ultimo - primero).to_seconds() / double(flancos - 1);
+    }
+    // Frecuencia de un pin contando flancos de subida durante `us`
+    double frecuencia(unsigned p, unsigned i, double us) {
+        const sc_time fin = sc_time_stamp() + sc_time(us, SC_US);
+        unsigned n = 0;
+        bool ant = alto(p, i);
+        while (sc_time_stamp() < fin) {
+            wait(fin - sc_time_stamp(), pin(p, i).value_changed_event());
+            const bool v = alto(p, i);
+            if (v && !ant) ++n;
+            ant = v;
+        }
+        return double(n) / (us * 1e-6);
+    }
+    static bool cerca(double v, double ref, double tol) { return std::fabs(v - ref) <= tol * ref; }
+
+    // =======================================================================
+    // R: los rasgos de S0
+    // =======================================================================
+    void r_gpio() {
+        grupo("R1 GPIO del F3: en AHB2 y con BRR (0x28)");
+        const uint32_t B = 0x48000000u;
+        check(GPIO_F3.base == 0x48000000u && GPIO_F3.brr && !GPIO_F4.brr,
+              "el rasgo: GPIOA en 0x4800_0000 y BRR; el F4 sin BRR");
+        r->wr(B + 0x14, 0x0000FF0Fu);                  // ODR
+        r->wr(B + 0x28, 0x00000F03u);                  // BRR: borra 0-1 y 8-11
+        check_eq(r->rd(B + 0x14), 0x0000F00Cu, "BRR pone a cero los pines con un uno, y nada mas");
+        check_eq(r->rd(B + 0x28), 0, "BRR es de solo escritura: lee cero");
+        r->wr(B + 0x18, 0x00010002u);                  // BSRR: pone 1 y borra 0
+        check_eq(r->rd(B + 0x14), 0x0000F00Eu, "BSRR sigue como siempre");
+    }
+
+    void r_exti() {
+        grupo("R2 EXTI de 36 lineas, en dos tandas (IMR2..PR2)");
+        const uint32_t E = 0x40010400u;
+        check(EXTI_F303.n_lineas == 36 && EXTI_F4.n_lineas == 23, "36 lineas en el F303, 23 en el F4");
+        check_eq(r->rd(E + 0x00), 0x1F800000u,
+                 "IMR1 de reset: las directas (23-28) desenmascaradas, como en el silicio");
+        check_eq(r->rd(E + 0x20), 0xFFFFFFFCu, "IMR2 de reset: 34 y 35 (UART4/5), y lo que no existe a uno");
+        // La linea 33 (COMP7) por flanco de subida, en la segunda tanda
+        r->wr(E + 0x28, 1u << 1);                       // RTSR2: linea 33
+        r->wr(E + 0x20, 0xFFFFFFFEu | (1u << 1));       // IMR2: 33
+        r->e_in[33 - 16].write(true);
+        wait(1, SC_NS);
+        check_eq(r->rd(E + 0x34) & 2u, 2u, "un flanco de subida en la linea 33 levanta PR2[1]");
+        check(r->e_lin[33 - 16].read(), "y su salida hacia el NVIC (COMP7_IRQn)");
+        r->wr(E + 0x34, 2u);
+        wait(1, SC_NS);
+        check(!(r->rd(E + 0x34) & 2u) && !r->e_lin[33 - 16].read(), "PR2 se borra escribiendo un uno");
+        // Una directa (25, USART1) no tiene flanco ni PR, solo despierta
+        r->wr(E + 0x08, 1u << 25);                      // RTSR1: no se deja
+        check_eq(r->rd(E + 0x08) & (1u << 25), 0, "una linea directa no tiene detector de flanco");
+        r->e_in[25 - 16].write(true);
+        wait(1, SC_NS);
+        check(!(r->rd(E + 0x14) & (1u << 25)) && r->e_wk.read(),
+              "y levantada no deja nada en PR, pero despierta (IMR1[25])");
+        r->e_in[25 - 16].write(false);
+        r->e_in[33 - 16].write(false);
+        // SWIER2 en la 32 (COMP6)
+        r->wr(E + 0x20, 0xFFFFFFFDu);                   // IMR2: 32 y no 33
+        r->wr(E + 0x30, 1u);                            // SWIER2: 32
+        wait(1, SC_NS);
+        check(r->rd(E + 0x34) & 1u, "SWIER2 en la 32 levanta PR2[0]");
+        r->wr(E + 0x34, 1u);
+        check_eq(r->rd(E + 0x30) & 1u, 0, "y borrar PR2 borra SWIER2");
+        check_eq(r->rd(E + 0x38), 0, "detras de PR2 no hay nada");
+    }
+
+    void r_tim() {
+        grupo("R3 TIM1 del F3: seis canales, OCxM de 4 bits, BK2, MMS2, UIFREMAP y SMS[3]");
+        const uint32_t T = 0x40012C00u;
+        check(CAPS_F3_TIM_ADV.channels == 6 && CAPS_F3_TIM_ADV.ocm_4bits &&
+              CAPS_F3_TIM_ADV.break2 && !CAPS_TIM_ADV.ocm_4bits && CAPS_TIM_ADV.channels == 4,
+              "el rasgo: 6 canales y lo de v3 en el F303; el F4, 4 canales y nada de v3");
+        check(CAPS_F3_TIM15.channels == 2 && CAPS_F3_TIM15.comp_channels == 1 &&
+              CAPS_F3_TIM16.channels == 1 && CAPS_F3_TIM16.bdtr && !CAPS_F3_TIM16.trgo,
+              "TIM15: 2 canales, uno complementario; TIM16/17: 1 canal con freno y sin TRGO");
+        r->wr(T + 0x58, 0xE0001234u);                   // CCR5 con GC5C1..3
+        check_eq(r->rd(T + 0x58), 0xE0001234u, "CCR5 guarda el valor y GC5C1-3 (31:29)");
+        r->wr(T + 0x5C, 0x5678u);
+        check_eq(r->rd(T + 0x5C), 0x5678u, "CCR6");
+        r->wr(T + 0x58, 0); r->wr(T + 0x5C, 0);
+        r->wr(T + 0x54, 0xFFFFFFFFu);
+        check_eq(r->rd(T + 0x54), 0x0101FCFCu, "CCMR3: OC5/OC6 FE, PE, M (con M[3]) y CE, sin CCxS");
+        r->wr(T + 0x54, 0);
+        r->wr(T + 0x18, 0x00010000u);                   // CCMR1: OC1M[3]
+        check_eq(r->rd(T + 0x18), 0x00010000u, "CCMR1 deja escribir OC1M[3] (bit 16)");
+        r->wr(T + 0x44, 0xFFFFFFFFu);
+        check_eq(r->rd(T + 0x44), 0x03FFFFFFu, "BDTR: BKF, BK2F, BK2E y BK2P");
+        r->wr(T + 0x44, 0);
+        r->wr(T + 0x04, 0xFFFFFFFFu);
+        check_eq(r->rd(T + 0x04) & 0x00F00000u, 0x00F00000u, "CR2.MMS2 (23:20)");
+        r->wr(T + 0x04, 0);
+        r->wr(T + 0x08, 0x00010000u);
+        check_eq(r->rd(T + 0x08), 0x00010000u, "SMCR.SMS[3]");
+        r->wr(T + 0x08, 0);
+        // El PWM combinado: CH1 en modo 12 (OC1REF OR OC2REF)
+        r->wr(T + 0x2C, 99);                            // ARR
+        r->wr(T + 0x34, 20);                            // CCR1
+        r->wr(T + 0x38, 60);                            // CCR2
+        r->wr(T + 0x18, (0x4u << 4) | 0x00010000u | (0x6u << 12));   // OC1M = 1100, OC2M = PWM1
+        r->wr(T + 0x20, 1u);                            // CC1E
+        r->wr(T + 0x44, 1u << 15);                      // MOE
+        r->wr(T + 0x00, 1u);                            // CEN
+        wait(sc_time(0.5, SC_US));                      // CNT ~ 36
+        const bool alto = r->tim.ch_out[0].read();
+        wait(sc_time(0.5, SC_US));                      // CNT ~ 72
+        const bool bajo = !r->tim.ch_out[0].read();
+
+        check(alto && bajo, "PWM combinado 1: CH1 alto mientras OC1REF O OC2REF (CNT < 60), "
+              "bajo despues");
+        // GC5C1: CH1 = OC1REFC AND OC5REF. Con OC5 en PWM 1 y CCR5 = 30, en CNT ~ 36 cae
+        r->wr(T + 0x54, 0x6u << 4);                     // OC5M = PWM 1
+        r->wr(T + 0x58, (1u << 29) | 30u);              // GC5C1, CCR5 = 30
+        r->wr(T + 0x00, 0);
+        r->wr(T + 0x24, 0);                             // CNT = 0
+        r->wr(T + 0x00, 1u);
+        wait(sc_time(0.1, SC_US));
+        const bool g_alto = r->tim.ch_out[0].read();      // CNT ~ 7: OC1REFC y OC5REF
+        wait(sc_time(0.4, SC_US));                      // CNT ~ 36: OC5REF ya no
+        const bool g_bajo = !r->tim.ch_out[0].read();
+        check(g_alto && g_bajo, "GC5C1: el canal 1 sale AND con OC5REF (el canal sin pin)");
+        r->wr(T + 0x58, 0); r->wr(T + 0x54, 0);
+        r->wr(T + 0x00, 0);
+        // UIFREMAP: UIF en CNT[31]
+        r->wr(T + 0x00, 1u << 11);
+        r->wr(T + 0x14, 1u);                            // UG -> UIF
+        check(r->rd(T + 0x24) & 0x80000000u, "con UIFREMAP, CNT[31] es la copia de UIF");
+        r->wr(T + 0x10, 0);
+        check_eq(r->rd(T + 0x24) & 0x80000000u, 0, "y se va al borrar UIF");
+        r->wr(T + 0x00, 0);
+        // El segundo freno
+        r->wr(T + 0x44, (1u << 15) | (1u << 24) | (1u << 25));   // MOE, BK2E, BK2P = 1
+        r->tim.bkin2_in.write(true);
+        wait(1, SC_NS);
+        check((r->rd(T + 0x10) & (1u << 8)) && !(r->rd(T + 0x44) & (1u << 15)),
+              "BKIN2 activo: B2IF y MOE a cero");
+        r->tim.bkin2_in.write(false);
+        r->wr(T + 0x10, 0);
+        r->wr(T + 0x44, 0);
+        r->wr(T + 0x18, 0); r->wr(T + 0x20, 0);
+    }
+
+    void r_crc() {
+        grupo("R4 CRC programable: CRC-16/ARC (poly 0x8005, entrada y salida reflejadas)");
+        const uint32_t C = 0x40023000u;
+        check(CRC_F3.polinomio_programable && !CRC_F4.polinomio_programable,
+              "el rasgo: programable en el F303, fijo en el F4");
+        r->wr(C + 0x14, 0x8005u);                       // POL
+        r->wr(C + 0x10, 0);                             // INIT
+        r->wr(C + 0x08, (1u << 3) | (1u << 5) | (1u << 7) | 1u);   // 16 bits, REV_IN byte, REV_OUT, RESET
+        const char* s = "123456789";
+        for (const char* p = s; *p; ++p) r->tm.write8(C, uint8_t(*p));
+        check_eq(r->rd(C) & 0xFFFFu, 0xBB3Du, "\"123456789\" byte a byte: 0xBB3D, el valor de control");
+        check_eq(r->rd(C + 0x08), (1u << 3) | (1u << 5) | (1u << 7), "CR se lee (sin RESET)");
+        // El de siempre, CRC-32/MPEG-2, palabra a palabra con los valores de reset
+        r->wr(C + 0x14, 0x04C11DB7u); r->wr(C + 0x10, 0xFFFFFFFFu);
+        r->wr(C + 0x08, 1u);
+        r->wr(C, 0x12345678u);
+        check_eq(r->rd(C), crc32_word(0xFFFFFFFFu, 0x12345678u),
+                 "con POLYSIZE 32 y sin reflejar es el CRC del F4, palabra a palabra");
+        r->tm.write16(C, 0xABCDu);
+        check_eq(r->rd(C), crc_bits(crc32_word(0xFFFFFFFFu, 0x12345678u), 0xABCDu, 16, 0x04C11DB7u, 32),
+                 "y una escritura de 16 bits es un dato de 16 bits");
+    }
+
+    void r_iwdg() {
+        grupo("R5 IWDG con ventana: recargar antes de tiempo es un reset");
+        const uint32_t W = 0x40003000u;
+        r->wr(W, 0xCCCCu);                              // arranca
+        r->wr(W, 0x5555u);
+        r->wr(W + 0x04, 0);                             // /4: 0,1 ms por cuenta a 40 kHz
+        r->wr(W + 0x08, 1000);
+        r->wr(W + 0x10, 500);                           // WINR
+        check_eq(r->rd(W + 0x10), 500, "WINR se escribe con la llave");
+        check(r->rd(W + 0x0C) & 4u, "y WVU anuncia el cambio");
+        wait(1, SC_MS);
+        check_eq(r->rd(W + 0x0C), 0, "WVU baja sola");
+        wait(10, SC_MS);                                // ~ 890: por encima de la ventana
+        r->wr(W, 0xAAAAu);
+        wait(1, SC_NS);
+        check(r->w_rst.read() && r->iwdg.fuera_de_ventana() == 1,
+              "una recarga con el contador por encima de WINR pide reset");
+        wait(60, SC_MS);                                // ~ 290: dentro de la ventana
+        const unsigned antes = r->iwdg.fuera_de_ventana();
+        r->wr(W, 0xAAAAu);
+        wait(1, SC_NS);
+        check(r->iwdg.fuera_de_ventana() == antes && r->iwdg.counter() > 900,
+              "y dentro de la ventana recarga como siempre");
+    }
+
+    void r_spi() {
+        grupo("R6 SPI v3: DS en CR2, FIFO de 4 bytes y empaquetado por anchura de acceso");
+        const uint32_t S = 0x40013000u;
+        check(CAPS_F3_SPI1.fifo_v3 && !CAPS_SPI_APB2.fifo_v3, "el rasgo: FIFO en el F303, no en el F4");
+        check_eq(r->rd(S + 0x04), 0x0700u, "CR2 de reset: DS = 0111, 8 bits");
+        check_eq(r->rd(S + 0x08) & 0x1802u, 0x0002u, "SR de reset: TXE y la FIFO vacia");
+        // Maestro, 8 bits, SSM/SSI, BR = /2, FRXTH = 1 (RXNE con un byte)
+        r->wr(S + 0x04, 0x0700u | (1u << 12));
+        r->wr(S + 0x00, (1u << 2) | (1u << 8) | (1u << 9) | (1u << 6));   // MSTR, SSI, SSM, SPE
+        r->tm.write16(S + 0x0C, 0xB2A1u);               // DOS datos de 8 bits
+        check_eq((r->rd(S + 0x08) >> 11) & 3u, 1u, "una escritura de 16 bits con DS = 8: FTLVL = 1/4... "
+                 "ya ha salido uno al desplazador");
+        wait(5, SC_US);
+        check_eq((r->rd(S + 0x08) >> 9) & 3u, 2u, "y en lazo vuelven los dos: FRLVL = 1/2 (dos bytes)");
+        uint8_t b0 = 0, b1 = 0;
+        r->tm.read8(S + 0x0C, b0);
+        check(r->rd(S + 0x08) & 1u, "leidos 8 bits, queda uno: RXNE sigue a uno");
+        r->tm.read8(S + 0x0C, b1);
+        check(b0 == 0xA1 && b1 == 0xB2, "cada lectura de 8 bits saca un dato, en orden");
+        check_eq(r->rd(S + 0x08) & 1u, 0, "y la FIFO queda vacia");
+        // DS = 12 bits: un dato son dos bytes en la FIFO
+        r->wr(S + 0x00, 0);
+        r->wr(S + 0x04, 0x0B00u);                       // DS = 1011
+        r->wr(S + 0x00, (1u << 2) | (1u << 8) | (1u << 9) | (1u << 6));
+        r->tm.write16(S + 0x0C, 0x0ABCu);
+        wait(5, SC_US);
+        uint16_t h = 0;
+        r->tm.read16(S + 0x0C, h);
+        check_eq(h, 0x0ABCu, "con DS = 12, un dato de 12 bits ida y vuelta");
+        r->wr(S + 0x00, 0);
+    }
+
+    void r_rtc_ccm() {
+        grupo("R7 RTC sin CALIBR y con 16 respaldos; DAC, CAN y DBGMCU como dato");
+        const uint32_t R = 0x40002800u;
+        r->wr(R + 0x24, 0xCA); r->wr(R + 0x24, 0x53);
+        r->wr(R + 0x18, 0x81u);
+        check_eq(r->rd(R + 0x18), 0, "CALIBR (0x18) no existe en el F303: lee cero");
+        r->wr(R + 0x50 + 4 * 15, 0xCAFEu);
+        r->wr(R + 0x50 + 4 * 16, 0xBEEFu);
+        check(r->rd(R + 0x50 + 4 * 15) == 0xCAFEu && r->rd(R + 0x50 + 4 * 16) == 0,
+              "BKP15R es el ultimo: BKP16R no existe");
+        check(std::string(CAPS_DAC_F303.tsel[3]) == "TIM15_TRGO" &&
+              std::string(CAPS_DAC_F407.tsel[3]) == "TIM5_TRGO",
+              "la tabla de disparos del DAC es dato: TSEL = 011 es TIM15 en el F303 y TIM5 en el F4");
+        check(CAPS_CAN_F303.filter_banks == 14 && !CAPS_CAN_F303.shared_filters && CAPS_CAN_F303.ttcm,
+              "el bxCAN del F303: un solo controlador con sus 14 bancos");
+        check(MCU_STM32F303VC.idcode() == 0x10030422u && FZ_APB2_F303[2] == 2 &&
+              FZ_APB1_F303[FZ3_CAN] == 25,
+              "DBGMCU: IDCODE 0x1003_0422 y la tabla de congelacion del F303 (TIM15 en APB2_FZ[2])");
+        const MapaRam m = ram_f303(MCU_STM32F303VC);
+        check(m.ccm_ejecutable && m.ccm_base == 0x10000000u && m.ccm_size == 0x2000u &&
+              !RAM_STM32F407VG.ccm_ejecutable,
+              "la CCM del F303 es ejecutable (8 KB en 0x1000_0000); la del F4, no");
+    }
+
+    // =======================================================================
+    // F: el STM32F303VC (S1)
+    // =======================================================================
+    void firmwares() {
+        grupo("F0 Imagenes de firmware [verif/fw/huellas.txt]");
+        const huella_fw::Veredicto v =
+            huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "f3");
+        std::printf("         %d imagenes: %s\n", v.comprobadas, v.detalle.c_str());
+        check(v.ok(), "las imagenes de la suite del STM32F303 son las versionadas");
+    }
+
+    void catalogo() {
+        grupo("F1 El catalogo, el encapsulado y las funciones alternativas, generados");
+        const McuDesc* d = CatalogoMcu::busca("stm32f303vc");
+        check(d && std::string(d->familia) == "STM32F3" && FabricaMcu::conoce("STM32F3"),
+              "STM32F303VC esta en el catalogo, de la familia STM32F3, y la factoria la conoce");
+        const Encapsulado& e = ENC_LQFP100_F303;
+        check(e.n_gpio == 87 && e.coherente() && N_PATILLAS_F303 == 100,
+              "LQFP100: 100 patillas y 87 E/S, y la mascara cuadra");
+        check(e.bonded(5, 0) && e.bonded(5, 1) && e.bonded(5, 10) && !e.bonded(5, 3) &&
+              !e.bonded(7, 0) && !e.bonded(6, 0),
+              "PF0, PF1 y PF10 salen; PF3, PH0 y el puerto G no");
+        // Las ocho posiciones que no son las del F407 [doc/analisis_stm32f303.md §0]
+        const unsigned pos[8] = {10, 11, 12, 13, 19, 27, 49, 73};
+        const char* nom[8] = {"PF9", "PF10", "PF0-OSC_IN", "PF1-OSC_OUT", "PF2", "PF4", "VSS", "PF6"};
+        bool ok = true;
+        for (unsigned k = 0; k < 8; ++k)
+            ok = ok && PATILLAS_F303[pos[k] - 1].pos == pos[k] &&
+                 std::string(PATILLAS_F303[pos[k] - 1].nombre) == nom[k];
+        check(ok, "las ocho posiciones distintas del F407: 10, 11, 12, 13, 19, 27, 49 y 73");
+        const auto& t = SocF3::tabla_af();
+        auto tiene = [&](unsigned p, unsigned i, unsigned af, const char* sn) {
+            for (const SocF3::PinAf& x : t)
+                if (x.puerto == p && x.pin == i && x.af == af && std::string(x.senal) == sn) return true;
+            return false;
+        };
+        unsigned eventout = 0;
+        for (const SocF3::PinAf& x : t) if (std::string(x.senal) == "EVENTOUT") ++eventout;
+        check(t.size() == 399, "399 funciones alternativas en los pines que salen");
+        check(tiene(0, 8, 6, "TIM1_CH1") && tiene(4, 9, 2, "TIM1_CH1") && !tiene(0, 8, 1, "TIM1_CH1"),
+              "TIM1_CH1 es AF6 en PA8 y AF2 en PE9; NO el AF1 del F4");
+        check(tiene(2, 4, 7, "USART1_TX") && tiene(0, 5, 5, "SPI1_SCK") && tiene(1, 6, 4, "I2C1_SCL"),
+              "el VCP (USART1_TX en PC4, AF7), SPI1_SCK en PA5 (AF5), I2C1_SCL en PB6 (AF4)");
+        check(tiene(0, 13, 0, "SYS_JTMS-SWDIO") && tiene(0, 14, 0, "SYS_JTCK-SWCLK") &&
+              tiene(0, 8, 0, "RCC_MCO"), "SWD y MCO en AF0");
+        check(eventout == 82, "y los 82 EVENTOUT (AF15) de la base");
+        check(dut.pinmux.tiene_af(0, 13, 0) && dut.pinmux.tiene_af(0, 8, 0) &&
+              dut.pinmux.tiene_af(1, 9, 15),
+              "el SoC conecta los de AF0 y EVENTOUT");
+    }
+
+    void integracion() {
+        grupo("F2 La integracion del nucleo");
+        check(dut.core.nucleo.n_irq == 82 && dut.core.nucleo.prio_bits == 4 &&
+              dut.core.nucleo.hay_mpu() && dut.core.nucleo.hay_fpu(),
+              "82 lineas, 4 bits de prioridad, MPU y FPU");
+        check(!INTEGRACION_F303.alias_arranque,
+              "el alias de 0x0 no es el del nucleo: lo resuelve el SoC con MEM_MODE");
+        check(dut.core.debug.idcode() == 0x10030422u, "DBGMCU_IDCODE para el depurador: 0x1003_0422");
+        check(f3::latencia_minima(24e6) == 0 && f3::latencia_minima(48e6) == 1 &&
+              f3::latencia_minima(72e6) == 2, "la tabla de LATENCY: 0 hasta 24 MHz, 2 a 72");
+    }
+
+    void arranque_flash() {
+        grupo("F3 Arranca de la Flash con el HSI a 8 MHz (f3_demo, modo 0)");
+        arranca(0);
+        check(espera_estado(100, 20), "f3_demo llega a su bucle");
+        check(buzon(B_ARRANQUES) == 1 && dut.mem_mode() == 0, "un arranque, con MEM_MODE = 00 (la Flash)");
+        check_eq(buzon(B_IDCODE), 0x10030422u, "DBGMCU_IDCODE desde el firmware: DEV_ID 0x422, REV_ID 0x1003");
+        check_eq(buzon(B_FSIZE), 256, "F_SIZE: 256 KB");
+        check(buzon(B_UID) == f3::UID[0] && buzon(B_UID + 4) == f3::UID[1] && buzon(B_UID + 8) == f3::UID[2],
+              "el UID en 0x1FFF_F7AC");
+        check(buzon(B_TSCAL) == (f3::TS_CAL1 | (uint32_t(f3::TS_CAL2) << 16)) &&
+              buzon(B_VREFINT) == f3::VREFINT_CAL,
+              "TS_CAL1, TS_CAL2 y VREFINT_CAL donde los busca la HAL");
+        check(cerca(dut.f_sysclk(), 8e6, 1e-9), "SYSCLK = 8 MHz: el HSI");
+        const double t = periodo(4, 9);
+        std::printf("    periodo de LD3 (PE9): %.3f ms\n", t * 1e3);
+        check(cerca(t, 20e-3, 0.01), "LD3 parpadea cada 20 ms con el SysTick a 8 MHz");
+    }
+
+    void arranque_sistema() {
+        grupo("F4 Con BOOT0 alto arranca la memoria de sistema");
+        mcu.reset_pin(true);
+        mcu.boot0(true);
+        wait(20, SC_US);
+        dut.sram.poke32(0, 0);
+        mcu.reset_pin(false);
+        wait(200, SC_US);
+        check(dut.mem_mode() == 1, "MEM_MODE = 01 al salir de reset");
+        check_eq(dut.sram.peek32(0), 0x5359534Du, "el arranque de la memoria de sistema deja 'MSYS'");
+        check(dut.sysmem.peek32(f3::SYSMEM_B) == 0x20001000u, "con su pila en 0x2000_1000");
+        mcu.reset_pin(true);
+        mcu.boot0(false);
+        wait(20, SC_US);
+    }
+
+    void arranque_sram() {
+        grupo("F5 Con BOOT0 alto y nBOOT1 a cero arranca la SRAM");
+        dut.flash.pon_ob(1, 0xEF);                     // USER sin nBOOT1 (bit 4)
+        mcu.alimenta(false);
+        wait(100, SC_US);
+        mcu.boot0(true);
+        mcu.alimenta(true);
+        // El programa, en la SRAM: pila, vector y 'MSRA' en 0x2000_0400
+        const uint32_t prog[7] = {0x20002000u, 0x20000009u, 0x49034802u, 0xBF206001u,
+                                  0x0000E7FDu, 0x20000400u, 0x4152534Du};
+        for (unsigned k = 0; k < 7; ++k) dut.sram.poke32(4 * k, prog[k]);
+        dut.sram.poke32(0x400, 0);
+        wait(50, SC_US);
+        mcu.reset_pin(false);
+        wait(200, SC_US);
+        check(!dut.flash.nboot1(), "tras el encendido, FLASH_OBR dice nBOOT1 = 0");
+        check(dut.mem_mode() == 3, "MEM_MODE = 11: la SRAM en 0x0");
+        check_eq(dut.sram.peek32(0x400), 0x4152534Du, "y el programa de la SRAM corre: 'MSRA'");
+        mcu.reset_pin(true);
+        mcu.boot0(false);
+        dut.flash.pon_ob(1, 0xFF);
+        mcu.alimenta(false);
+        wait(100, SC_US);
+        mcu.alimenta(true);
+        wait(50, SC_US);
+    }
+
+    void mem_mode() {
+        grupo("F6 MEM_MODE desde el firmware: la Flash, la memoria de sistema y la SRAM en 0x0 (modo 7)");
+        arranca(7);
+        check(espera_estado(100, 20), "f3_demo termina");
+        check_eq(buzon(B_R0), 0x2000A000u, "con MEM_MODE = 00, en 0x0 esta la Flash: su _estack");
+        check_eq(buzon(B_R1), 0x20001000u, "con 01, la memoria de sistema");
+        check_eq(buzon(B_R2), 1u, "con 11, la SRAM: en 0x4 se lee buzon.arranques");
+        check_eq(buzon(B_R3) & 3u, 0u, "y vuelve a la Flash");
+    }
+
+    void ccm() {
+        grupo("F7 La CCM es ejecutable, y SYSCFG_RCR la protege (modo 6)");
+        arranca(6);
+        check(espera_estado(200, 20), "f3_demo acaba en el BusFault que se esperaba");
+        uint32_t a = 0;
+        for (uint32_t i = 0; i < 10; ++i) a = a * 3u + i;
+        check_eq(buzon(B_CCM), a, "una rutina copiada a la CCM devuelve lo que tiene que devolver");
+        check(buzon(B_R1) >= 0x10000000u && buzon(B_R1) < 0x10002000u,
+              "y su PC estaba en la CCM: se ejecuto desde alli");
+        check_eq(buzon(B_R0), 0x10000001u, "en_ccm esta en 0x1000_0000 (Thumb)");
+        check_eq(buzon(B_R2), 0x80u, "SYSCFG_RCR: la pagina 7 protegida");
+        check_eq(buzon(B_R3), 0x5A5A5A5Au, "la pagina 6 se escribe");
+        check(buzon(B_FAULTS) == 1 && dut.escrituras_ccm_protegidas() == 1,
+              "la pagina 7 no: error de bus, y el modelo lo cuenta");
+    }
+
+    void hse(unsigned modo, const char* g, const char* que) {
+        grupo(g);
+        const unsigned av0 = dut.avisos();
+        arranca(modo);
+        check(espera_estado(100, 50), "f3_demo llega a 72 MHz");
+        check(cerca(dut.f_sysclk(), 72e6, 1e-9) && cerca(dut.rcc.f_pclk1(), 36e6, 1e-9) &&
+              cerca(dut.rcc.f_pclk2(), 72e6, 1e-9),
+              "SYSCLK 72 MHz, PCLK1 36 MHz y PCLK2 72 MHz");
+        check((buzon(B_CFGR) & 0xCu) == 0x8u && (buzon(B_R1) & (1u << 17)), que);
+        check_eq(buzon(B_R2) & 7u, 2u, "FLASH_ACR.LATENCY = 2");
+        const double t = periodo(4, 8);
+        std::printf("    periodo de LD4 (PE8): %.3f ms\n", t * 1e3);
+        check(cerca(t, 20e-3, 0.01), "LD4 cada 20 ms con el SysTick a 72 MHz");
+        check(dut.avisos() == av0, "y sin un aviso");
+    }
+
+    void mala() {
+        grupo("F10 La secuencia MALA (modo 3): 72 MHz con LATENCY 0 y APB1 sin dividir");
+        const unsigned a0 = dut.rcc.avisos(), f0 = dut.flash.avisos();
+        arranca(3);
+        check(espera_estado(100, 50), "el firmware sigue (el modelo no corrompe nada: avisa)");
+        check(dut.flash.avisos() > f0, "aviso de la Flash: 72 MHz con LATENCY = 0");
+        check(dut.rcc.avisos() > a0, "aviso del RCC: PCLK1 a 72 MHz, por encima de 36");
+    }
+
+    void gpio_mco() {
+        grupo("F11 GPIO con BRR, y el MCO en PA8 (modo 4)");
+        arranca(4);
+        check(espera_estado(101, 20), "f3_demo saca el HSI por el MCO");
+        check_eq(buzon(B_R0) & 0xFF00u, 0xFF00u, "BSRR pone PE8-PE15");
+        check_eq(buzon(B_R1) & 0xFF00u, 0xAA00u, "BRR quita PE8, PE10, PE12 y PE14");
+        check_eq(buzon(B_R2), 0u, "BRR lee cero");
+        check(alto(4, 9) && !alto(4, 8), "y los pines lo siguen");
+        const double f1 = frecuencia(0, 8, 10.0);
+        std::printf("    MCO = %.3f MHz\n", f1 / 1e6);
+        check(cerca(f1, 8e6, 0.02), "PA8 da los 8 MHz del HSI");
+        check(espera_estado(102, 20), "y luego PLL/2");
+        const double f2 = frecuencia(0, 8, 5.0);
+        std::printf("    MCO = %.3f MHz\n", f2 / 1e6);
+        check(cerca(f2, 36e6, 0.02), "PA8 da 36 MHz: PLL (72) / 2");
+        arranca(99);
+        wait(100, SC_US);
+    }
+
+    void exti() {
+        grupo("F12 EXTI: B1 (PA0) por flanco de subida, y la linea 33 por SWIER2 (modo 5)");
+        arranca(5);
+        check(espera_estado(100, 20), "f3_demo espera");
+        check_eq(buzon(B_IRQ_COMP), 1u, "SWIER2 en la linea 33 llega al NVIC como COMP7_IRQn (66)");
+        check_eq(buzon(B_R0), 0xFFFFFFFEu, "IMR2 con la 33 (y lo reservado a uno)");
+        for (unsigned k = 0; k < 3; ++k) {
+            b1->press();  wait(2, SC_MS);
+            b1->release(); wait(2, SC_MS);
+        }
+        check_eq(buzon(B_PULSACIONES), 3u, "tres pulsaciones de B1, tres EXTI0");
+        check(alto(4, 9), "y LD3 conmutado tres veces: encendido");
+    }
+
+    void coremark() {
+        grupo("F13 CoreMark sobre el STM32F303VC");
+        mcu.reset_pin(true);
+        wait(20, SC_US);
+        check(mcu.carga_firmware(FW_CM), "coremark_f3.bin cargado en 0x0800_0000");
+        uint8_t ceros[16] = {};
+        dut.sram.load(ceros, sizeof ceros, 0);
+        const uint64_t i0 = dut.core.cpu.inst_count;
+        mcu.reset_pin(false);
+        const sc_time t0 = sc_time_stamp();
+        bool fin = false;
+        while (sc_time_stamp() - t0 < sc_time(8000, SC_MS)) {
+            wait(2, SC_MS);
+            if (dut.sram.peek32(0) == 1u) { fin = true; break; }
+        }
+        check(fin, "CoreMark termina");
+        const uint32_t magic = dut.sram.peek32(4), len = dut.sram.peek32(8);
+        std::string s;
+        if (magic == 0x434F4E53u && len < 4096)
+            for (uint32_t k = 0; k < len; ++k) s += char(dut.sram.peek32(12 + (k & ~3u)) >> (8 * (k & 3u)));
+        const bool crc_ok =
+            s.find("seedcrc          : 0xe9f5") != std::string::npos &&
+            s.find("[0]crclist       : 0xe714") != std::string::npos &&
+            s.find("[0]crcmatrix     : 0x1fd7") != std::string::npos &&
+            s.find("[0]crcstate      : 0x8e3a") != std::string::npos;
+        check(crc_ok, "y valida su resultado: los CRC son los canonicos del 2K run");
+        std::printf("    %llu instrucciones en %.3f s simulados\n",
+                    (unsigned long long)(dut.core.cpu.inst_count - i0),
+                    (sc_time_stamp() - t0).to_seconds());
+    }
+
+    void st_iotoggle() {
+        grupo("F14 GPIO_IOToggle de STM32CubeF3, sin modificar: la rosa, de 100 en 100 ms");
+        arranca(0, FW_TOGGLE);
+        // El orden en que se encienden: PE15, PE14 ... PE8, cada 100 ms
+        sc_time t_ultimo = SC_ZERO_TIME;
+        bool orden = true, separacion = true;
+        for (unsigned k = 0; k < 8; ++k) {
+            const unsigned p = 15 - k;
+            const sc_time lim = sc_time_stamp() + sc_time(300, SC_MS);
+            while (!alto(4, p) && sc_time_stamp() < lim) wait(lim - sc_time_stamp(), pin(4, p).value_changed_event());
+            if (!alto(4, p)) { orden = false; break; }
+            if (k > 0) {
+                const double dt = (sc_time_stamp() - t_ultimo).to_seconds();
+                if (!cerca(dt, 0.101, 0.002)) { separacion = false; std::printf("    PE%u tras %.3f ms\n", p, dt * 1e3); }
+            }
+            t_ultimo = sc_time_stamp();
+        }
+        check(cerca(dut.f_sysclk(), 72e6, 1e-9), "SystemClock_Config de ST: 72 MHz desde el HSE (HSE_ON)");
+        check(orden, "los ocho LED se encienden en el orden del ejemplo: LD6 (PE15) ... LD4 (PE8)");
+        check(separacion, "uno cada 101 ms: HAL_Delay(100) espera un tick de mas, como en el silicio");
+    }
+
+    void st_exti() {
+        grupo("F15 GPIO_EXTI de STM32CubeF3, sin modificar: B1 conmuta LD3, LD6, LD7 y LD10");
+        arranca(0, FW_EXTI);
+        wait(20, SC_MS);
+        const bool antes = alto(4, 9) || alto(4, 15) || alto(4, 11) || alto(4, 13);
+        b1->press(); wait(5, SC_MS); b1->release();
+        wait(400, SC_MS);                              // el retardo de 0x7FFFF vueltas
+        const bool una = alto(4, 9) && alto(4, 15) && alto(4, 11) && alto(4, 13);
+        b1->press(); wait(5, SC_MS); b1->release();
+        wait(400, SC_MS);                              // el retardo de 0x7FFFF vueltas
+        const bool dos = !alto(4, 9) && !alto(4, 15) && !alto(4, 11) && !alto(4, 13);
+        check(!antes, "sin pulsar, los cuatro apagados");
+        check(una, "una pulsacion: LD3, LD6, LD7 y LD10 encendidos");
+        check(dos, "otra: apagados");
+    }
+
+    void run() {
+        firmwares();
+        catalogo();
+        integracion();
+        mcu.alimenta(true);
+        wait(50, SC_US);
+        arranque_flash();
+        arranque_sistema();
+        arranque_sram();
+        mem_mode();
+        ccm();
+        hse(1, "F8 72 MHz por el HSE en modo CRISTAL (HSE_ON), con los 8 MHz del ST-LINK en PF0 (modo 1)",
+            "SWS = PLL y HSERDY");
+        hse(2, "F9 72 MHz por el HSE en modo BYPASS (modo 2)", "SWS = PLL y HSERDY, en bypass");
+        mala();
+        gpio_mco();
+        exti();
+        coremark();
+        st_iotoggle();
+        st_exti();
+        r_gpio();
+        r_exti();
+        r_tim();
+        r_crc();
+        r_iwdg();
+        r_spi();
+        r_rtc_ccm();
+        std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
+        sc_stop();
+    }
+};
+
+int sc_main(int, char*[]) {
+    sc_report_handler::set_actions(SC_WARNING,
+        std::getenv("TESTF3_AVISOS") ? SC_DISPLAY : SC_DO_NOTHING);
+    TbF3 tb("tb");
+    sc_start();
+    std::printf("\nTiempo simulado: %s\n", sc_time_stamp().to_string().c_str());
+    return g_fallos ? 1 : 0;
+}
