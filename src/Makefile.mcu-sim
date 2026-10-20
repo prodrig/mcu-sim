@@ -660,7 +660,7 @@ e4-edumkii: $(MCUSIM)
 f3-discovery: $(MCUSIM)
 	@$(MCUSIM) placas/stm32f3discovery.xml verif/fw/stm32f3/gpio_iotoggle/GPIO_IOToggle.bin \
 	    --ms=1000 > $(B)/f3-discovery.log 2>&1 || { cat $(B)/f3-discovery.log; exit 1; }
-	@grep -q "placa 'stm32f3discovery': 1 MCU(s), 19 componentes, 156 nodos, 0 avisos" $(B)/f3-discovery.log \
+	@grep -q "placa 'stm32f3discovery': 1 MCU(s), 19 componentes, 160 nodos, 0 avisos" $(B)/f3-discovery.log \
 	    && grep -q "dibujo: stm32f3discovery.svg (.*JP3 1-2)" $(B)/f3-discovery.log \
 	    && grep -q "LED LD6 en PE15: apagado" $(B)/f3-discovery.log \
 	    && grep -q "LED LD8 en PE14: apagado" $(B)/f3-discovery.log \

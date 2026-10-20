@@ -42,9 +42,9 @@
 //     necesitan OPTWRE. OBL_LAUNCH los recarga con un reset del sistema.
 //   - BSY mientras dura; al acabar, EOP (con su interrupcion, EOPIE). Quien
 //     lee la Flash mientras tanto espera, como el bus del silicio.
-//   - Los tiempos: 40 us una media palabra, 20 ms una pagina, el borrado
-//     masivo y el de los bytes de opcion [DS9118, tabla de la Flash: los
-//     tipicos].
+//   - Los tiempos [DS9118, tabla 47]: 53,5 us una media palabra (el tipico,
+//     entre 40 y 60), y 20 ms una pagina, el borrado masivo y el de los bytes
+//     de opcion (el minimo: la tabla da 20-40 ms y ningun tipico).
 // Lo que NO hace: la proteccion de lectura. RDP se carga (OBR.RDPRT) pero no
 // bloquea al depurador ni borra nada al quitarla: esta DECLARADO.
 // =============================================================================
@@ -90,8 +90,8 @@ public:
     std::function<unsigned(double)> latencia_minima;
     // OBL_LAUNCH: el SoC pide al RCC un reset del sistema con OBLRSTF
     std::function<void()> al_obl;
-    // Los tiempos del FPEC [DS9118: los tipicos]
-    sc_core::sc_time t_prog{40, sc_core::SC_US};
+    // Los tiempos del FPEC [DS9118, tabla 47]
+    sc_core::sc_time t_prog{53500, sc_core::SC_NS};
     sc_core::sc_time t_pagina{20, sc_core::SC_MS};
     sc_core::sc_time t_masa{20, sc_core::SC_MS};
 

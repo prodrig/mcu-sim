@@ -802,16 +802,18 @@ Lo que queda de una sola fuente, o de modelo, tras S2:
 
 | | Qué | Estado |
 | :--- | :--- | :--- |
-| **a** | Las tiras P1 y P2 de la Discovery (`EXP1`/`EXP2` en el XML: «P1.5» sería el pad PB5) | Tabla 6 de UM1570 leída de una copia pública con las columnas perdidas; el emparejamiento impar/par está deducido [1F]. Hay que contrastarlo con el esquemático MB1035 |
-| **b** | Los tiempos del FPEC | Los típicos de DS9118 sin haberlo leído aquí: 40 us por media palabra, 20 ms por página, por borrado masivo y por los bytes de opción [1F] |
+| **a** | Las tiras P1 y P2 de la Discovery (`EXP1`/`EXP2` en el XML: «P1.5» sería el pad PB5) | ~~Emparejamiento deducido~~ **Resuelto (2026-10-20)**: la tabla 7 de UM1570 Rev 7 y la hoja 1 del esquemático MB1035 coinciden con el XML. Con los puentes de fábrica, P2.5/P2.6 (SB17/18) y P2.41/P2.42 (SB21/22) quedan sin conectar |
+| **b** | Los tiempos del FPEC | **Contrastado con DS9118, tabla 47 (2026-10-20)**: 53,5 us por media palabra (el típico); 20 ms por página, por borrado masivo y por los bytes de opción, el mínimo de 20-40 ms, porque la tabla no da típico [de modelo] |
 | **c** | La protección de escritura | Un bit de `WRPR` por cada dos páginas y el 31 para el resto, como en el F303xC [1F: RM0316]. `MER` con alguna página protegida da `WRPRTERR` y no borra [de modelo] |
 | **d** | RDP | DECLARADO: se carga en `FLASH_OBR.RDPRT`, pero no bloquea al depurador ni borra la Flash al quitarlo |
 | **e** | Los bytes de opción borrados | Un byte a `0xFFFF` (borrado) se carga como `0xFF` sin `OPTERR`; uno cuyo complemento no cuadra, como `0xFF` con `OPTERR` [1F] |
 | **f** | El reset durante un borrado | En el modelo el borrado acaba igual; en el silicio el resultado queda indefinido |
 | **g** | La memoria de sistema | Un stub propio que deja `'MSYS'` en la SRAM y se aparca; el cargador AN3155 es S7, opcional |
-| **h** | La calibración de fábrica y el UID | Valores típicos del modelo (`TS_CAL1` 1774, `TS_CAL2` 1347, `VREFINT_CAL` 1526), no de una pieza |
+| **h** | La calibración de fábrica y el UID | Valores típicos de DS9118 (tablas 28 y 78: `TS_CAL1` 1748, `TS_CAL2` 1321, `VREFINT_CAL` 1526), no de una pieza; el UID, del modelo |
 | **i** | Los bloques de S3-S6 | DECLARADOS: ocupan su ventana, leen cero y avisan una vez con la fase que les toca (`limitaciones()` del chip los lista) |
 | **j** | La matriz | Decodificadores directos; con los DMA (S3) se decide si hace falta `AhbMatrix` |
+| **k** | Lo que se cita de RM0316 | Sigue sin estar en `doc/refs/`: la protección WRP por pares de páginas, `OBR`/`OPTERR`, el bloqueo duro de `KEYR`, los valores de reset de `ACR` y `AHBENR`, el CSS, `MEM_MODE` durante el reset [1F] |
+| **l** | La placa contra su esquemático | Contrastada con MB1035 rev. D.1 (2026-10-20): resistencias de la rosa (510 Ω en los verdes), B1 (100 + 330 Ω a VDD, 220 kΩ a masa), LD1, BOOT0, R39 y X3 sin montar. La vf de cada LED es de modelo; VDD se modela a 3,3 V, y en la placa son los 3,3 V del LD3985 menos el diodo D3 [de modelo] |
 
 ---
 

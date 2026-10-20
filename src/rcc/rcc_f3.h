@@ -135,7 +135,10 @@ public:
 
     sc_core::sc_time t_rst_pulse{20, sc_core::SC_US};
     sc_core::sc_time t_rst_release{20, sc_core::SC_US};
-    double t_pll_lock_s = 200e-6;       // [1F: DS9118, t_LOCK]
+    double t_pll_lock_s = 200e-6;       // el maximo de t_LOCK [DS9118, tabla 46]
+    // La temporizacion del POR: con VDD ya arriba, el chip sigue en reset
+    // t_RSTTEMPO (1,5 / 2,5 / 4,5 ms) [DS9118, tabla 26: el tipico]
+    sc_core::sc_time t_rsttempo{2500, sc_core::SC_US};
 
     // Al ENTRAR en un reset de alimentación o de OBL_LAUNCH: es cuando el chip
     // vuelve a cargar los bytes de opción (lo hace el SoC con la Flash)
@@ -148,10 +151,10 @@ public:
           g_tim1_("g_timclk1"), g_tim2_("g_timclk2"), g_stk_("g_stk"),
           g_rtc_("g_rtc"), g_mco_("g_mco"), g_lsi_("g_lsi") {
         SC_HAS_PROCESS(RccF3);
-        hsi.nominal_hz = 8e6;      hsi.t_startup_s = 2e-6;      // [1F: DS9118]
-        hse.nominal_hz = 8e6;      hse.t_startup_s = 2e-3;
-        lsi.nominal_hz = 40e3;     lsi.t_startup_s = 85e-6;     // [1F: DS9118]
-        lse.nominal_hz = 32768.0;  lse.t_startup_s = 2.0;
+        hsi.nominal_hz = 8e6;      hsi.t_startup_s = 2e-6;      // el maximo [DS9118, tabla 44]
+        hse.nominal_hz = 8e6;      hse.t_startup_s = 2e-3;      // [DS9118, tabla 42]
+        lsi.nominal_hz = 40e3;     lsi.t_startup_s = 85e-6;     // [DS9118, tabla 45]
+        lse.nominal_hz = 32768.0;  lse.t_startup_s = 2.0;       // [DS9118, tabla 43]
         hse.needs_source = true;
         lse.needs_source = true;
         g_hclk_.clk(hclk);       g_hclk_.freq_hz(hclk_hz);
@@ -422,12 +425,12 @@ private:
             const double f = pll_ref_ * pll_mul_;
             if (pll_ref_ < 1e6 || pll_ref_ > 24e6)
                 avisa_una(av_pllin_, "la entrada del PLL (" + mhz(pll_ref_) + ") esta fuera de "
-                          "1-24 MHz [1F: DS9118]");
+                          "1-24 MHz [DS9118, tabla 46]");
             if (f > 72e6 * (1 + 1e-9) || f < 16e6)
                 avisa_una(av_pll_, "la salida del PLL (" + mhz(f) + " = " + mhz(pll_ref_) +
                           " x " + std::to_string(pll_mul_) + ") esta fuera de 16-72 MHz: en el "
                           "silicio no engancha bien o el chip va fuera de especificacion "
-                          "[1F: DS9118]");
+                          "[DS9118, tabla 46]");
             wait(sc_core::sc_time(t_pll_lock_s, sc_core::SC_SEC), pll_ev_);
             if (pll_ev_.triggered()) { pll_ev_.notify(sc_core::SC_ZERO_TIME); continue; }
             if (!pll_on_ || pll_ref_ <= 0.0) continue;
@@ -494,8 +497,13 @@ private:
         // no es lo que hay que avisar; lo que se queda, si.
         if (f_sys_ > f3hz_max_ || f_pclk1_ > 36e6 * (1 + 1e-9) || f_pclk2_ > f3hz_max_)
             topes_ev_.notify(sc_core::sc_time(20, sc_core::SC_US));
-        if (fe > 0 && (fe < 4e6 || fe > 32e6))
-            avisa_una(av_hse_, "el HSE va a " + mhz(fe) + ", fuera de 4-32 MHz [1F: DS9118]");
+        // El HSE: un cristal de 4 a 32 MHz, o en bypass una senal de 1 a 32
+        // [DS9118, tablas 40 y 42]
+        const double fe_min = ((cr_ >> 18) & 1u) ? 1e6 : 4e6;
+        if (fe > 0 && (fe < fe_min || fe > 32e6))
+            avisa_una(av_hse_, "el HSE va a " + mhz(fe) + ", fuera de " +
+                      (((cr_ >> 18) & 1u) ? "1-32 MHz en bypass" : "4-32 MHz con cristal") +
+                      " [DS9118, tablas 40 y 42]");
         if (((apb1enr_ >> 23) & 1u) && std::fabs(f_usb() - 48e6) > 48e6 * 0.0025)
             avisa_una(av_usb_, "el USB tiene reloj (USBEN) a " + mhz(f_usb()) + ": necesita 48 MHz "
                       "exactos (PLL a 72 MHz con USBPRE = /1,5, o a 48 con /1)");
@@ -619,6 +627,7 @@ private:
                 wait(por_ok.value_changed_event() | nrst_in_n.value_changed_event());
             }
             if (corte) { pend_ |= CSR_PORRSTF; continue; }
+            if (por) wait(t_rsttempo);
             wait(t_rst_release);
             pend_ &= ~(CSR_PINRSTF | CSR_PORRSTF);
             // --- fuera ---------------------------------------------------------------

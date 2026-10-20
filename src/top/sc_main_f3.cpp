@@ -596,7 +596,10 @@ SC_MODULE(TbF3) {
         dut.sram.poke32(0x400, 0);
         wait(50, SC_US);
         mcu.reset_pin(false);
-        wait(200, SC_US);
+        wait(2, SC_MS);
+        check(dut.sram.peek32(0x400) == 0,
+              "a los 2 ms del encendido el chip sigue en reset: t_RSTTEMPO, 2,5 ms [DS9118, tabla 26]");
+        wait(1, SC_MS);
         check(!dut.flash.nboot1(), "tras el encendido, FLASH_OBR dice nBOOT1 = 0");
         check(dut.mem_mode() == 3, "MEM_MODE = 11: la SRAM en 0x0");
         check_eq(dut.sram.peek32(0x400), 0x4152534Du, "y el programa de la SRAM corre: 'MSRA'");

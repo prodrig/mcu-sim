@@ -225,7 +225,7 @@ public:
             "cero y avisa una vez",
             "la proteccion de lectura (RDP) esta DECLARADA: se carga en FLASH_OBR, pero "
             "no bloquea al depurador ni borra la Flash al quitarla; la Flash se programa "
-            "con tiempos tipicos del modelo (40 us, 20 ms por pagina)",
+            "con los tiempos de DS9118 (53,5 us por media palabra, 20 ms por pagina)",
             "DMA1/2, USART1-3, UART4/5, SPI1-3 e I2S, I2C1/2, TIM1-17, IWDG, WWDG, RTC "
             "y CRC: fase S3",
             "ADC1-4, DAC1, COMP1-7, OPAMP1-4 y TSC: fase S5; USB y CAN: fase S6",

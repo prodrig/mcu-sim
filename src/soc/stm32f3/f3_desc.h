@@ -98,22 +98,23 @@ constexpr uint16_t REV_ID = 0x1003;
 constexpr double HZ_HSI = 8.0e6;      // [HAL: HSI_VALUE]
 constexpr double HZ_LSI = 40.0e3;     // [HAL: LSI_VALUE]
 constexpr double HZ_MAX = 72.0e6;     // SYSCLK, HCLK y PCLK2 [PINDATA: Frequency]
-constexpr double HZ_APB1_MAX = 36.0e6;    // [HAL: comentarios de RCC_ClkInitTypeDef] [1F]
+constexpr double HZ_APB1_MAX = 36.0e6;    // [HAL: RCC_ClkInitTypeDef] [DS9118, tabla 24]
 // Los estados de espera de la Flash: 0 hasta 24 MHz, 1 hasta 48, 2 hasta 72
-// [HAL: comentarios de FLASH_LATENCY_x] [1F: RM0316 §3.2.1]
+// [HAL: comentarios de FLASH_LATENCY_x] [DS9118, §3.3 y §6.3.5]
 inline unsigned latencia_minima(double hz) {
     if (hz <= 24.0e6 * (1 + 1e-9)) return 0;
     if (hz <= 48.0e6 * (1 + 1e-9)) return 1;
     return 2;
 }
 
-// --- La calibración de fábrica [1F] -----------------------------------------
+// --- La calibración de fábrica -----------------------------------------------
 // Valores TÍPICOS, no de un chip concreto, y así se dice en las limitaciones:
-// V30 = 1,43 V y 4,3 mV/°C de pendiente media [1F: DS9118, tabla del sensor],
-// y VREFINT = 1,23 V, todo a VDDA = 3,3 V y 12 bits.
-constexpr uint16_t TS_CAL1 = 1774;    // 1,43 / 3,3 * 4095
-constexpr uint16_t TS_CAL2 = 1347;    // (1,43 - 80 * 0,0043) / 3,3 * 4095
-constexpr uint16_t VREFINT_CAL = 1526;
+// V25 = 1,43 V y 4,3 mV/°C de pendiente media [DS9118, tabla 78], y VREFINT =
+// 1,23 V [DS9118, tabla 28], todo a VDDA = 3,3 V y 12 bits. Las direcciones,
+// las de las tablas 29 y 79 de DS9118.
+constexpr uint16_t TS_CAL1 = 1748;    // 30 °C:  (1,43 - 5 * 0,0043) / 3,3 * 4095
+constexpr uint16_t TS_CAL2 = 1321;    // 110 °C: (1,43 - 85 * 0,0043) / 3,3 * 4095
+constexpr uint16_t VREFINT_CAL = 1526;    // 1,23 / 3,3 * 4095
 // El identificador único: un valor del modelo, fijo para que las suites sean
 // reproducibles. En el silicio son las coordenadas en la oblea, el número de
 // oblea y el lote [1F: RM0316 §34.1]

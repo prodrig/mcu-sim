@@ -26,8 +26,10 @@ adelante, para media docena de familias.
 En la rama `stm32f303`, un commit por fase. Las siete suites de antes no se
 mueven ni un picosegundo (`ci/comprueba_invariante.sh`, las siete en verde con
 los tres commits encima), y hay una octava, **`testf3`**, con su línea en
-`verif/invariantes.txt` (**172** comprobaciones; «el resto»,
-**5 194 760 789 500 ps**: el total sin F19, que habla con un socket de verdad).
+`verif/invariantes.txt` (**173** comprobaciones; «el resto»,
+**5 867 610 789 500 ps**: el total sin F19, que habla con un socket de verdad).
+Las cifras son las de después del contraste con la documentación de ST
+(abajo, «Contrastado con DS9118, UM1570 Rev 7 y el esquemático»).
 
 **S0, fuentes y rasgos.** Versionados, sin tocar: `cmsis_device_f3` v2.3.9, la
 HAL v1.5.9, el BSP de la Discovery v2.1.7 con los cuatro controladores de
@@ -89,10 +91,27 @@ palabras, LD3).
   durante unas instrucciones PCLK1 vale 72 MHz. El RCC mira los topes 20 us
   después de cada cambio, y solo avisa si siguen rotos.
 
-**Lo que sigue siendo de una fuente** ([1F], en P-18 de `doc/todo.md`): las
-tiras P1/P2 (la tabla 6 de UM1570, con el emparejamiento de columnas
-deducido), los tiempos del FPEC (los típicos de DS9118), la protección WRP de
-dos páginas por bit, y lo que de RM0316 se cita sin haberlo podido leer aquí.
+**Contrastado con DS9118, UM1570 Rev 7 y el esquemático MB1035 rev. D.1**
+(20-10-2026, en `doc/refs/stm32f303/`; `doc/fuentes.md` §1). Lo que dicen y lo
+que ha cambiado por ello:
+
+| Qué | Lo que dicen | Qué ha cambiado |
+| :--- | :--- | :--- |
+| P1 y P2 | La tabla 7 de UM1570 Rev 7 y la hoja 1 del esquemático coinciden pin a pin con el XML (`EXP1`/`EXP2`): el emparejamiento deducido de la Rev 3 era el bueno | Con los puentes de fábrica (tabla 6) **P2.5/P2.6 (PF0/PF1, SB17/SB18) y P2.41/P2.42 (PA12/PA11, SB21/SB22) no están conectados**: el XML ya no los une |
+| Las resistencias de la rosa | 510 Ω en los dos verdes (R43 en LD6, R44 en LD7) y 680 Ω en los otros seis (hoja 4) | El XML las tenía en los azules |
+| B1 | VDD → R37 (100 Ω) → pulsador → R38 (330 Ω) → SB20 → PA0, y R4 (220 kΩ) a masa (hoja 4) | `r_cerrado` de 330 a 430 Ω |
+| LD1, BOOT0, B2, X3, MCO | LD1 con R1 de 1 kΩ en 3V; BOOT0 a masa por R35 (510 Ω); R39 (el pull-up de NRST) y X3 sin montar; el MCO por SB12 y R48 (hojas 2-4) | Nada: ya era así |
+| El FPEC | t_prog 40/**53,5**/60 µs; página y borrado masivo, 20-40 ms sin típico (tabla 47) | La media palabra, de 40 a **53,5 µs**; las páginas siguen en 20 ms (el mínimo) |
+| El POR | t_RSTTEMPO 1,5/**2,5**/4,5 ms (tabla 26) | El RCC lo espera tras cada encendido; F5 lo comprueba |
+| Relojes | HSI 8 MHz y arranque de 1-2 µs; LSI 40 kHz y 85 µs; HSE 2 ms; LSE 2 s; PLL 1-24 MHz de entrada, 16-72 de salida y t_LOCK de 200 µs; HSE de 4-32 MHz con cristal y 1-32 en bypass; APB1 hasta 36 MHz (tablas 24 y 40-46) | El aviso del HSE distingue cristal y bypass; lo demás ya era así |
+| La latencia de la Flash | 0 hasta 24 MHz, 1 hasta 48, 2 hasta 72 (§3.3 y §6.3.5) | Nada: ya era así |
+| La calibración | V25 = 1,43 V, 4,3 mV/°C, VREFINT 1,23 V; las direcciones de las tablas 29 y 79 | TS_CAL1 y TS_CAL2 se calculaban como si 1,43 V fuera a 30 °C: ahora **1748 y 1321** (eran 1774 y 1347) |
+
+**Lo que sigue siendo de una fuente** ([1F], en P-18 de `doc/todo.md`): lo que
+el código cita de **RM0316**, que no está en `doc/refs/` -la protección WRP de
+dos páginas por bit, el detalle de `OBR`/`OPTERR`, el bloqueo duro de `KEYR`,
+los valores de reset de `ACR` y `AHBENR`-, y la vf de cada color de LED, que
+el esquemático no da.
 
 ---
 
@@ -112,7 +131,7 @@ son las de más crédito, porque se compararon con un programa y no a ojo:
 | `[ST-web]` | Ficha de la STM32F3DISCOVERY y sus *data briefs* DB1739 Rev 4 y 5 | ST-LINK/V2 frente a V2-B según la revisión |
 | `[stm32flash]` | `dev_table.c` de stm32flash (GPL-2.0+) | DEV_ID `0x422`, memoria de sistema, bytes de opción |
 | `[OCD]` | `target/stm32f3x.cfg` del OpenOCD que ya construye el CI | Qué controlador de Flash usa OpenOCD (`stm32f1x`) |
-| `[RM0316]`, `[DS9118]`, `[AN2606]` | Manual de referencia, hoja de datos del F303xB/C y nota de los cargadores | **No se han podido bajar desde este entorno** (§9, riesgo 1). Lo que se cita de ellos va marcado **[1F]** hasta contrastarlo |
+| `[RM0316]`, `[DS9118]`, `[AN2606]` | Manual de referencia, hoja de datos del F303xB/C y nota de los cargadores | **No se han podido bajar desde este entorno** (§9, riesgo 1). Lo que se cita de ellos va marcado **[1F]** hasta contrastarlo. **DS9118, UM1570 Rev 7 y el esquemático MB1035 están en `doc/refs/stm32f303/` desde el 20-10-2026** («Estado», arriba); RM0316 y AN2606, no |
 
 La regla del proyecto sigue en pie: **ningún dato entra en un descriptor sin dos
 fuentes**. Lo que aquí solo tiene una lleva **[1F]** y es trabajo de la fase S0.
@@ -853,10 +872,13 @@ S4 la placa queda **completa para un curso** sin lo analógico ni el USB.
 1. **Las fuentes primarias no se alcanzan desde este entorno.** El RM0316, el
    DS9118 y la revisión actual de UM1570 están en st.com, y `WebFetch` necesita
    que los pidas tú. Lo que aquí se cita de ellos lleva **[1F]**. S0 empieza por
-   tenerlos en `doc/refs/`.
+   tenerlos en `doc/refs/`. **Resuelto en parte (20-10-2026)**: DS9118, UM1570
+   Rev 7 y el esquemático están; falta RM0316.
 2. **La tabla 6 de UM1570 se leyó con las columnas perdidas.** Los pines de los
    LED, sensores, VCP y USB salen bien porque tienen una segunda fuente (BSP,
-   Zephyr), pero P1/P2 hay que transcribirlo con el esquemático.
+   Zephyr), pero P1/P2 hay que transcribirlo con el esquemático. **Resuelto
+   (20-10-2026)**: la tabla 7 de la Rev 7 y la hoja 1 del esquemático
+   coinciden con el XML.
 3. **Licencias.** Ejemplos, HAL y BSP son BSD-3 y CMSIS es Apache-2.0: se
    versionan. **La demostración y el middleware USB son SLA0044**, que limita el
    uso a dispositivos de ST: no se versionan, como el BSL de TI. La SVD y la

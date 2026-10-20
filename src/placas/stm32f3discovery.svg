@@ -334,10 +334,10 @@
   <text x="846.0" y="219.7" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">PF9</text>
   <rect x="688.6" y="205.9" width="64.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
   <text x="720.6" y="219.7" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">PF10</text>
-  <rect x="814.0" y="231.3" width="64.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
-  <text x="846.0" y="245.1" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">PF0</text>
-  <rect x="688.6" y="231.3" width="64.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
-  <text x="720.6" y="245.1" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">PF1</text>
+  <rect x="814.0" y="231.3" width="64.0" height="19.0" rx="3" fill="#bdc3c7" stroke="#ffffff" stroke-width="1"/>
+  <text x="846.0" y="245.1" font-family="Arial" font-size="12" font-weight="bold" fill="#566573" text-anchor="middle">-</text>
+  <rect x="688.6" y="231.3" width="64.0" height="19.0" rx="3" fill="#bdc3c7" stroke="#ffffff" stroke-width="1"/>
+  <text x="720.6" y="245.1" font-family="Arial" font-size="12" font-weight="bold" fill="#566573" text-anchor="middle">-</text>
   <rect x="814.0" y="256.7" width="64.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
   <text x="846.0" y="270.5" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">PC14</text>
   <rect x="688.6" y="256.7" width="64.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
@@ -406,10 +406,10 @@
   <text x="846.0" y="676.9" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">PF6</text>
   <rect x="688.6" y="663.1" width="64.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
   <text x="720.6" y="676.9" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">PA13</text>
-  <rect x="814.0" y="688.5" width="64.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
-  <text x="846.0" y="702.3" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">PA12</text>
-  <rect x="688.6" y="688.5" width="64.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
-  <text x="720.6" y="702.3" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">PA11</text>
+  <rect x="814.0" y="688.5" width="64.0" height="19.0" rx="3" fill="#bdc3c7" stroke="#ffffff" stroke-width="1"/>
+  <text x="846.0" y="702.3" font-family="Arial" font-size="12" font-weight="bold" fill="#566573" text-anchor="middle">-</text>
+  <rect x="688.6" y="688.5" width="64.0" height="19.0" rx="3" fill="#bdc3c7" stroke="#ffffff" stroke-width="1"/>
+  <text x="720.6" y="702.3" font-family="Arial" font-size="12" font-weight="bold" fill="#566573" text-anchor="middle">-</text>
   <rect x="814.0" y="713.9" width="64.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
   <text x="846.0" y="727.7" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">PA10</text>
   <rect x="688.6" y="713.9" width="64.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>

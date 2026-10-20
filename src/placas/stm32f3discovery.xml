@@ -2,8 +2,9 @@
 <!-- =========================================================================
      STM32F3DISCOVERY (MB1035): la Discovery del STM32F303VC (fase S1)
 
-     Lo que hay soldado alrededor del chip [UM1570 Rev 3; BSP de la placa,
-     stm32f3_discovery.h; doc/analisis_stm32f303.md §5]:
+     Lo que hay soldado alrededor del chip [UM1570 Rev 7; el esquematico
+     MB1035 rev. D.1; BSP de la placa, stm32f3_discovery.h;
+     doc/analisis_stm32f303.md §5; los tres PDF, en doc/refs/stm32f303]:
 
          LD3-LD10  la ROSA DE LOS VIENTOS, ocho LED en circulo, del PE8 al
                    PE15, con el anodo al pin: lucen con el pin ALTO
@@ -21,8 +22,8 @@
      ---------------------------------------------------------------------
      1. EL PULSADOR AZUL VA A VDD, NO A MASA, como en la F4-Discovery: el BSP
         lo configura como EXTI por flanco de SUBIDA y sin pull interno
-        (BSP_PB_Init, GPIO_MODE_IT_RISING). Una resistencia lo sujeta abajo
-        suelto [UM1570; el valor, 1F].
+        (BSP_PB_Init, GPIO_MODE_IT_RISING). Suelto, R4 (220 kohm) lo sujeta
+        abajo [MB1035, hoja 4].
 
      2. EL RELOJ LLEGA DEL ST-LINK, no de un cristal. Y funciona IGUAL con
         RCC_HSE_ON que con RCC_HSE_BYPASS: los ejemplos de ST usan HSE_ON con
@@ -41,10 +42,12 @@
         LSM303DLHC o LSM303AGR en I2C1, segun la revision) son de la fase S4.
         El dibujo ya los tiene; el XML todavia no.
 
-     P1 Y P2 SON LA TABLA 6 DE UM1570, que da cada numero de pin con sus dos
-     senales, una por tira. Que senal va a cual sale de la continuidad de las
-     dos columnas -una por lado de la placa- y no de una segunda fuente: el
-     esquematico, leido por maquina, no la confirma [1F; doc/todo.md, P-18].
+     P1 Y P2 SON LA TABLA 7 DE UM1570 Rev 7 Y LA HOJA 1 DEL ESQUEMATICO
+     MB1035: las dos dicen lo mismo, pin a pin. Con los puentes de soldadura
+     de fabrica [UM1570, tabla 6] hay cuatro pines de P2 SIN CONECTAR: el 5 y
+     el 6 (PF0 y PF1: SB17 y SB18 abiertos, porque PF0 recibe el MCO) y el 41
+     y el 42 (PA12 y PA11: SB21 y SB22 abiertos, para el USB de usuario). El
+     48 no lleva nada.
 
          ./build/mcu-sim placas/stm32f3discovery.xml --valida
          ./build/mcu-sim placas/stm32f3discovery.xml \
@@ -65,7 +68,7 @@
     <pin nombre="1" nodo="3V"/>
     <pin nombre="2" nodo="VDD"/>
   </componente>
-  <componente tipo="Led" id="LD1" a_vss="si" vf="1.8" r="1000">   <!-- rojo, PWR [1F: R] -->
+  <componente tipo="Led" id="LD1" a_vss="si" vf="1.8" r="1000">   <!-- rojo, PWR: R1, 1 kohm [MB1035, hoja 2] -->
     <pin nombre="anodo" nodo="3V"/>
   </componente>
 
@@ -84,45 +87,47 @@
 
   <!-- La rosa: LD3 arriba (el «norte», PE9) y en el sentido de las agujas
        LD5, LD7, LD9, LD10, LD8, LD6 y LD4 [BSP: LED3..LED10; UM1570].
-       Resistencias de 510 ohm (dos) y 680 ohm (seis) [UM1570]; cual va con
-       cual no se ha podido casar, y aqui las de 510 son las de los azules,
-       que con su vf mas alta son las que mas la necesitan [1F] -->
+       Resistencias: 510 ohm las de los dos verdes (R43 en LD6, R44 en LD7) y
+       680 ohm las otras seis [MB1035, hoja 4]. La vf de cada color es de
+       modelo: el esquematico no da la referencia de los LED -->
   <componente tipo="Led" id="LD3" a_vss="si" vf="1.8" r="680">    <!-- rojo -->
     <pin nombre="anodo" nodo="PE9"/>
   </componente>
-  <componente tipo="Led" id="LD4" a_vss="si" vf="2.7" r="510">    <!-- azul -->
+  <componente tipo="Led" id="LD4" a_vss="si" vf="2.7" r="680">    <!-- azul -->
     <pin nombre="anodo" nodo="PE8"/>
   </componente>
   <componente tipo="Led" id="LD5" a_vss="si" vf="2.0" r="680">    <!-- naranja -->
     <pin nombre="anodo" nodo="PE10"/>
   </componente>
-  <componente tipo="Led" id="LD6" a_vss="si" vf="2.1" r="680">    <!-- verde -->
+  <componente tipo="Led" id="LD6" a_vss="si" vf="2.1" r="510">    <!-- verde -->
     <pin nombre="anodo" nodo="PE15"/>
   </componente>
-  <componente tipo="Led" id="LD7" a_vss="si" vf="2.1" r="680">    <!-- verde -->
+  <componente tipo="Led" id="LD7" a_vss="si" vf="2.1" r="510">    <!-- verde -->
     <pin nombre="anodo" nodo="PE11"/>
   </componente>
   <componente tipo="Led" id="LD8" a_vss="si" vf="2.0" r="680">    <!-- naranja -->
     <pin nombre="anodo" nodo="PE14"/>
   </componente>
-  <componente tipo="Led" id="LD9" a_vss="si" vf="2.7" r="510">    <!-- azul -->
+  <componente tipo="Led" id="LD9" a_vss="si" vf="2.7" r="680">    <!-- azul -->
     <pin nombre="anodo" nodo="PE12"/>
   </componente>
   <componente tipo="Led" id="LD10" a_vss="si" vf="1.8" r="680">   <!-- rojo -->
     <pin nombre="anodo" nodo="PE13"/>
   </componente>
 
-  <!-- B1, el pulsador azul, en PA0 y a VDD; la resistencia lo baja suelto.
-       Rebota, como el de verdad -->
+  <!-- B1, el pulsador azul, en PA0 por SB20 y a VDD: pulsado, VDD llega al
+       pin por R37 (100 ohm) y R38 (330 ohm); suelto, R4 (220 kohm) lo baja
+       [MB1035, hoja 4]. C33 (100 nF) no esta: rebota, como sin ella -->
   <nodo id="PA0" bus="si"/>
-  <componente tipo="Button" id="B1" v_cerrado="3.3" r_cerrado="330">
+  <componente tipo="Button" id="B1" v_cerrado="3.3" r_cerrado="430">
     <pin nombre="pin" nodo="PA0"/>
   </componente>
   <componente tipo="Rpull" id="R_B1" v="0" r="220000" visible="no">
     <pin nombre="a" nodo="PA0"/>
   </componente>
 
-  <!-- B2, RESET, en NRST (SB23): el alto lo da el pull-up del propio pad -->
+  <!-- B2, RESET, en NRST (SB23): el alto lo da el pull-up del propio pad (R39,
+       la de 100 kohm a VDD, viene sin montar) [MB1035, hoja 4] -->
   <nodo id="NRST" bus="si"/>
   <componente tipo="Button" id="B2" r_cerrado="10" rebote="no">
     <pin nombre="pin" nodo="NRST"/>
@@ -130,7 +135,7 @@
 
   <!-- BOOT0 a masa por 510 ohm (SB19): arranca SIEMPRE de la Flash. Con SB19
        abierto y la de 10 kohm a VDD -que viene sin montar- arrancaria en la
-       memoria de sistema [UM1570] -->
+       memoria de sistema [UM1570, tabla 6; MB1035, hoja 3: R35 y R36] -->
   <nodo id="BOOT0" bus="si"/>
   <componente tipo="Rpull" id="R_BOOT0" v="0" r="510" visible="no">
     <pin nombre="a" nodo="BOOT0"/>
@@ -141,7 +146,7 @@
   <nodo id="PA13"/>  <nodo id="PA14"/>
 
   <!-- ===================================================================
-       P1 y P2, las tiras de 2x25 [UM1570, tabla 6; vease la cabecera]:
+       P1 y P2, las tiras de 2x25 [UM1570, tabla 7; MB1035, hoja 1]:
        EXP1 (P1) a la izquierda y EXP2 (P2) a la derecha, el 1 arriba. Las masas son la
        del chip (VSS); los 3V, el nodo de antes del puente IDD.
        =================================================================== -->
@@ -175,7 +180,7 @@
   <componente tipo="Conector" id="EXP2" filas="2" columnas="25">   <!-- P2 -->
     <pin nombre="1" nodo="5V"/>    <pin nombre="2" nodo="5V"/>
     <pin nombre="3" nodo="PF9"/>   <pin nombre="4" nodo="PF10"/>
-    <pin nombre="5" nodo="PF0"/>   <pin nombre="6" nodo="PF1"/>
+    <!-- 5 y 6: PF0 y PF1, por SB17 y SB18, abiertos de fabrica -->
     <pin nombre="7" nodo="PC14"/>  <pin nombre="8" nodo="PC15"/>
     <pin nombre="9" nodo="PE6"/>   <pin nombre="10" nodo="PC13"/>
     <pin nombre="11" nodo="PE4"/>  <pin nombre="12" nodo="PE5"/>
@@ -193,10 +198,10 @@
     <pin nombre="35" nodo="PC10"/> <pin nombre="36" nodo="PC11"/>
     <pin nombre="37" nodo="PA14"/> <pin nombre="38" nodo="PA15"/>
     <pin nombre="39" nodo="PF6"/>  <pin nombre="40" nodo="PA13"/>
-    <pin nombre="41" nodo="PA12"/> <pin nombre="42" nodo="PA11"/>
+    <!-- 41 y 42: PA12 y PA11, por SB21 y SB22, abiertos de fabrica -->
     <pin nombre="43" nodo="PA10"/> <pin nombre="44" nodo="PA9"/>
     <pin nombre="45" nodo="PA8"/>  <pin nombre="46" nodo="PC9"/>
-    <pin nombre="47" nodo="PC8"/>  <!-- 48: sin senal en la tabla [1F] -->
+    <pin nombre="47" nodo="PC8"/>  <!-- 48: sin conectar [MB1035, hoja 1] -->
     <pin nombre="49" nodo="VSS"/>  <pin nombre="50" nodo="VSS"/>
   </componente>
 </placa>
