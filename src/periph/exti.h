@@ -56,7 +56,7 @@ namespace stm32 {
 //                 directas o están reservadas
 //   directas      las que solo despiertan
 //   imr_reset     IMR al salir de reset: en el F303 las directas vienen
-//                 desenmascaradas [1F: RM0316, EXTI_IMR1 = 0x1F80_0000]
+//                 desenmascaradas [RM0316 §14.3.1, EXTI_IMR1 = 0x1F80_0000]
 //   genericas     las líneas 16 en adelante entran y salen por los vectores
 //                 `linea_in`/`linea_irq` en vez de por los puertos con nombre
 //                 del F4 (PVD, RTC, OTG, ETH), que en el F303 son otra cosa
@@ -192,7 +192,7 @@ protected:
         if (t < 0) return 0;
         switch (r) {
             // Los bits de IMR sin línea leen uno en el F303, que es lo que dice
-            // su valor de reset (EXTI_IMR2 = 0xFFFF_FFFC) [1F: RM0316]. En el
+            // su valor de reset (EXTI_IMR2 = 0xFFFF_FFFC) [RM0316 §14.3.7]. En el
             // F4 no hay ninguno: sus 23 líneas son todas configurables.
             case R_IMR:   return mitad(imr_ | (caps_.genericas ? ~implementadas_ : 0), t);
             case R_EMR:   return mitad(emr_, t);

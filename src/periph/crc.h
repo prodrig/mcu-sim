@@ -66,15 +66,17 @@ inline uint32_t crc32_word(uint32_t crc, uint32_t data) {
 //   CR.REV_IN (6:5)    inversión de bits de la entrada: no, por byte, por
 //                      media palabra o por palabra
 //   CR.REV_OUT (7)     inversión de bits del resultado
-//   INIT (0x10)        valor inicial, que CR.RESET carga en DR
+//   INIT (0x10)        valor inicial, que CR.RESET carga en DR; y escribirlo
+//                      tambien lo carga [RM0316 §6.3.3]
 //   POL (0x14)         el polinomio, reset 0x04C11DB7
 //
 // y DR acepta escrituras de 8, 16 y 32 bits, cada una con SU anchura de dato:
 // un byte escrito es un byte de CRC, no una palabra con tres ceros.
 //
 // La inversión de la salida se hace sobre los POLYSIZE bits del resultado, que
-// es lo que da el CRC-16 reflejado leyendo DR como media palabra [1F: RM0316
-// §6]. El cálculo sigue siendo bit a bit.
+// es lo que da el CRC-16 reflejado leyendo DR como media palabra. RM0316 §6.3.3
+// solo pone el ejemplo de 32 bits y dice que un CRC mas corto se lee en los
+// bits bajos [de modelo]. El cálculo sigue siendo bit a bit.
 // ---------------------------------------------------------------------------
 struct CrcCaps {
     uint32_t base;
@@ -220,7 +222,11 @@ protected:
                 cr_ = v & 0xF8u;
                 if (v & 1u) { dr_ = init_ & mascara(); n_words_ = 0; }
                 return;
-            case R_INIT: init_ = v; return;            // DR la carga CR.RESET [1F]
+            case R_INIT:                               // y DR se carga ya [RM0316 §6.3.3]
+                init_ = v;
+                dr_ = init_ & mascara();
+                n_words_ = 0;
+                return;
             case R_POL:  pol_ = v; return;
             default: return;
         }

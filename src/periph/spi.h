@@ -72,7 +72,7 @@ struct SpiCaps {
     // ★ La TERCERA versión del bloque (spi2s1_v3_0: F0, F3, L4, G4), fase S0
     // del F303. La estructura de registros es la misma —y por eso engaña—,
     // pero dentro cambian tres cosas que un firmware nota en cuanto arranca
-    // [CMSIS stm32f303xc.h; HAL stm32f3xx_hal_spi.c] [1F: RM0316 §30]:
+    // [CMSIS stm32f303xc.h; HAL stm32f3xx_hal_spi.c; RM0316 §30.5.9 y §30.9]:
     //   * el tamaño del dato es CR2.DS (de 4 a 16 bits, reset 8) y el bit 11
     //     de CR1 deja de ser DFF para ser CRCL, la longitud del CRC;
     //   * hay dos FIFO de 32 bits, una por sentido, con sus niveles en
@@ -126,7 +126,7 @@ constexpr SpiCaps caps_spi_apb2_i2s() {
 }
 
 // Los SPI del F303: SPI1 sin I2S en APB2, SPI2 y SPI3 con I2S en APB1. El
-// máximo de SCK es el de la hoja de datos, 18 MHz [1F: DS9118, tabla de SPI].
+// máximo de SCK es el de la hoja de datos, 18 MHz [DS9118, tabla 63].
 constexpr SpiCaps caps_f3_spi1() {
     SpiCaps c = caps_spi_apb2();
     c.fifo_v3 = true; c.max_sck_hz = 18.0e6;
@@ -263,7 +263,12 @@ protected:
                 if ((old ^ cr1_) & 0x0038u) recompute_sck();   // BR
                 break;
             }
-            case R_CR2:  cr2_ = v & cr2_mask(); break;
+            case R_CR2:
+                cr2_ = v & cr2_mask();
+                // v3: un DS «no usado» (0000-0010) se queda en 0111, 8 bits
+                // [RM0316 §30.9.2]
+                if (caps_.fifo_v3 && ((cr2_ >> 8) & 0xFu) < 3u) cr2_ = (cr2_ & ~(0xFu << 8)) | (7u << 8);
+                break;
             case R_SR:
                 // MODF, OVR, CRCERR, UDR se borran con secuencias de lectura;
                 // solo CRCERR admite el borrado escribiendo cero [IR, §12.5.3-B].
@@ -345,7 +350,7 @@ private:
     bool     rxneie()   const { return (cr2_ >> 6) & 1u; }
     bool     txeie()    const { return (cr2_ >> 7) & 1u; }
     // v3 [CMSIS: SPI_CR2_DS, SPI_CR2_FRXTH]. DS de 0000 a 0010 no vale y el
-    // hardware lo deja en 8 bits [1F: RM0316 §30.7.2].
+    // hardware lo deja en 0111, 8 bits [RM0316 §30.9.2].
     unsigned ds_bits()  const {
         const unsigned d = (cr2_ >> 8) & 0xFu;
         return d < 3u ? 8u : d + 1u;
@@ -473,8 +478,8 @@ private:
         if (rxf_.size() >= (frxth() ? 1u : 2u)) sr_ |= S_RXNE; else sr_ &= ~S_RXNE;
     }
     void write_dr_v3(uint32_t v, uint32_t be) {
-        // Un acceso de 8 bits mete un byte; de 16 (o de 32), dos [1F: RM0316
-        // §30.5.9, «data packing»]
+        // Un acceso de 8 bits mete un byte; de 16 (o de 32), dos [RM0316
+        // §30.5.9, «Data packing»]
         const unsigned n = be == 0x1u ? 1u : 2u;
         for (unsigned i = 0; i < n; ++i)
             if (txf_.size() < FIFO_BYTES) txf_.push_back(uint8_t(v >> (8 * i)));

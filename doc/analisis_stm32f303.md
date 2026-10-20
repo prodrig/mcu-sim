@@ -26,10 +26,10 @@ adelante, para media docena de familias.
 En la rama `stm32f303`, un commit por fase. Las siete suites de antes no se
 mueven ni un picosegundo (`ci/comprueba_invariante.sh`, las siete en verde con
 los tres commits encima), y hay una octava, **`testf3`**, con su línea en
-`verif/invariantes.txt` (**173** comprobaciones; «el resto»,
-**5 867 610 789 500 ps**: el total sin F19, que habla con un socket de verdad).
+`verif/invariantes.txt` (**193** comprobaciones; «el resto»,
+**5 997 559 497 838 ps**: el total sin F19, que habla con un socket de verdad).
 Las cifras son las de después del contraste con la documentación de ST
-(abajo, «Contrastado con DS9118, UM1570 Rev 7 y el esquemático»).
+(abajo: con DS9118, UM1570 Rev 7 y el esquemático, y con RM0316 Rev 10).
 
 **S0, fuentes y rasgos.** Versionados, sin tocar: `cmsis_device_f3` v2.3.9, la
 HAL v1.5.9, el BSP de la Discovery v2.1.7 con los cuatro controladores de
@@ -107,11 +107,44 @@ que ha cambiado por ello:
 | La latencia de la Flash | 0 hasta 24 MHz, 1 hasta 48, 2 hasta 72 (§3.3 y §6.3.5) | Nada: ya era así |
 | La calibración | V25 = 1,43 V, 4,3 mV/°C, VREFINT 1,23 V; las direcciones de las tablas 29 y 79 | TS_CAL1 y TS_CAL2 se calculaban como si 1,43 V fuera a 30 °C: ahora **1748 y 1321** (eran 1774 y 1347) |
 
-**Lo que sigue siendo de una fuente** ([1F], en P-18 de `doc/todo.md`): lo que
-el código cita de **RM0316**, que no está en `doc/refs/` -la protección WRP de
-dos páginas por bit, el detalle de `OBR`/`OPTERR`, el bloqueo duro de `KEYR`,
-los valores de reset de `ACR` y `AHBENR`-, y la vf de cada color de LED, que
-el esquemático no da.
+**Contrastado con RM0316 Rev 10** (enero de 2024, 20-10-2026, en
+`doc/refs/stm32f303/`). Confirma, y el código lo cita ya por sección: la
+prebúsqueda de dos bloques de 64 bits (§4.2.2), las latencias y `ACR` = 0x30
+(§4.5.1), la programación por medias palabras con su error de bus, `PGERR` con
+la excepción del cero y `WRPRTERR` (§4.2.3), la protección por pares de
+páginas y el último bit para la 62 en adelante (§4.3.2, §5), `OPTERR` y el
+comparador que no mira lo borrado (§5), `AHBENR` = 0x14, `BDCR` = 0x18 y la
+regla de `HSEBYP` (§9), la CCM de 1 KB por página sin estados de espera y
+`SYSCFG_RCR` (§3.3), los modos de arranque (§3.5), `CFGR1` = 0x7C00_000X
+(§12.1.1), `EXTI_IMR1` = 0x1F80_0000 e `IMR2` = 0xFFFF_FFFC (§14.3), el IWDG
+con ventana (§25.3.2), los PWM combinado y asimétrico y `GC5Cx` (§20), los 14
+bancos del bxCAN (§31.3.4), el `DBGMCU_IDCODE` con `REV_ID` 0x1003 = revisión
+Y y la congelación de `APB1_FZ`/`APB2_FZ` (§33), y el formato del UID (§34.1).
+
+Y lo que ha cambiado por él (comprobado en F20, F21, R4 y R6 de `testf3`):
+
+| Qué | RM0316 | Antes |
+| :--- | :--- | :--- |
+| Una llave mal en `FLASH_KEYR` | Error de bus (HardFault) y el FPEC cerrado hasta el reset (§4.2.3) | Cerraba, sin error |
+| `FLASH_CR` cerrado | Solo admite `OBL_LAUNCH`; con `BSY`, ningún registro se escribe (§4.2.3) | Ignoraba también `OBL_LAUNCH`; con `BSY` se escribía |
+| `STRT` y `FLASH_AR` | `STRT` se lee a uno mientras dura el borrado (§4.5.5); `AR` guarda la última dirección usada (§4.5.6) | `STRT` a cero; `AR`, solo lo escrito |
+| Programar un byte de opción | Solo si está borrado, **sin** la excepción del cero (§4.2.3) | Admitía el cero |
+| El nivel de RDP | Del byte **y** su complemento: 0xAA/0x55, 0xCC/0x33, lo demás nivel 1 (tabla 8) | Solo del byte |
+| Volver al nivel 0 | Programar RDP = 0xAA borra antes la Flash entera; en el nivel 2, ni `OPTER` ni programar RDP (`WRPRTERR`) (§4.3.1) | No borraba; el nivel 2 no bloqueaba nada |
+| Cuándo se cargan los bytes de opción | En **cada** reset del sistema (§5) | Solo al encender y con `OBL_LAUNCH` |
+| `HSEON` y `HSION` | No se apagan si alimentan SYSCLK, también a través del PLL (§9.4.1) | Solo el HSI, y solo directo |
+| `LSEBYP` y `MCOF` | `LSEBYP` solo con el LSE apagado (§9.4.9); `MCOF` (bit 28) a uno cuando el MCO ha cambiado (§9.4.2) | Sin ninguna de las dos |
+| `SYSCFG_CFGR1` | El bit 14 (`TIM7_DAC1_CH2_DMA_RMP`) existe en el F303xC (§12.1.1) | No se dejaba escribir |
+| CRC | Escribir `CRC_INIT` carga ya `CRC_DR` (§6.3.3) | Solo con `CR.RESET` |
+| SPI v3 | Un `DS` «no usado» se queda en 0111 (§30.9.2) | Se guardaba tal cual |
+
+**Lo que queda de modelo, porque RM0316 no lo dice** (P-18 de `doc/todo.md`):
+que una llave con `CR` ya abierto lo cierre; que escribir en una página
+protegida de la CCM sea un error de bus; que `REV_OUT` refleje solo los
+`POLYSIZE` bits; el umbral de 8 MHz del aviso de `HLFCYA`; el muestreo de BOOT0
+durante el reset (el silicio lo hace en el cuarto flanco de SYSCLK); el NMI del
+CSS como un pulso; el valor de `HSICAL` y del byte USER de fábrica; y la vf de
+cada color de LED, que el esquemático no da.
 
 ---
 
@@ -131,7 +164,7 @@ son las de más crédito, porque se compararon con un programa y no a ojo:
 | `[ST-web]` | Ficha de la STM32F3DISCOVERY y sus *data briefs* DB1739 Rev 4 y 5 | ST-LINK/V2 frente a V2-B según la revisión |
 | `[stm32flash]` | `dev_table.c` de stm32flash (GPL-2.0+) | DEV_ID `0x422`, memoria de sistema, bytes de opción |
 | `[OCD]` | `target/stm32f3x.cfg` del OpenOCD que ya construye el CI | Qué controlador de Flash usa OpenOCD (`stm32f1x`) |
-| `[RM0316]`, `[DS9118]`, `[AN2606]` | Manual de referencia, hoja de datos del F303xB/C y nota de los cargadores | **No se han podido bajar desde este entorno** (§9, riesgo 1). Lo que se cita de ellos va marcado **[1F]** hasta contrastarlo. **DS9118, UM1570 Rev 7 y el esquemático MB1035 están en `doc/refs/stm32f303/` desde el 20-10-2026** («Estado», arriba); RM0316 y AN2606, no |
+| `[RM0316]`, `[DS9118]`, `[AN2606]` | Manual de referencia, hoja de datos del F303xB/C y nota de los cargadores | **No se han podido bajar desde este entorno** (§9, riesgo 1). Lo que se cita de ellos va marcado **[1F]** hasta contrastarlo. **RM0316 Rev 10, DS9118, UM1570 Rev 7 y el esquemático MB1035 están en `doc/refs/stm32f303/` desde el 20-10-2026** («Estado», arriba); AN2606, no |
 
 La regla del proyecto sigue en pie: **ningún dato entra en un descriptor sin dos
 fuentes**. Lo que aquí solo tiene una lleva **[1F]** y es trabajo de la fase S0.
@@ -872,8 +905,9 @@ S4 la placa queda **completa para un curso** sin lo analógico ni el USB.
 1. **Las fuentes primarias no se alcanzan desde este entorno.** El RM0316, el
    DS9118 y la revisión actual de UM1570 están en st.com, y `WebFetch` necesita
    que los pidas tú. Lo que aquí se cita de ellos lleva **[1F]**. S0 empieza por
-   tenerlos en `doc/refs/`. **Resuelto en parte (20-10-2026)**: DS9118, UM1570
-   Rev 7 y el esquemático están; falta RM0316.
+   tenerlos en `doc/refs/`. **Resuelto (20-10-2026)**: DS9118, UM1570 Rev 7,
+   el esquemático y RM0316 Rev 10 están en `doc/refs/stm32f303/`; AN2606 (los
+   cargadores) hará falta en S7.
 2. **La tabla 6 de UM1570 se leyó con las columnas perdidas.** Los pines de los
    LED, sensores, VCP y USB salen bien porque tienen una segunda fuente (BSP,
    Zephyr), pero P1/P2 hay que transcribirlo con el esquemático. **Resuelto

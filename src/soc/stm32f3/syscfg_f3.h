@@ -92,7 +92,7 @@ protected:
         switch (off) {
             case R_CFGR1:
                 // MEM_MODE, los remapeos, los Fm+, ENCODER_MODE y FPU_IE
-                cfgr1_ = v & 0xFCFF39E3u;
+                cfgr1_ = v & 0xFCFF79E3u;      // [RM0316 §12.1.1]
                 break;
             case R_RCR: rcr_ = (rcr_ | v) & 0xFFu; break;     // solo se ponen, no se quitan
             case R_CFGR2:
@@ -118,7 +118,7 @@ private:
             exticr_sel[l].write(uint8_t((exticr_[l / 4] >> (4 * (l % 4))) & 0xFu));
     }
     // En reset, MEM_MODE sigue a los pines de arranque, de modo que al soltarlo
-    // ya vale lo que dijeron; FPU_IE vale 011111 [1F: RM0316 §12.1.1]. Fuera
+    // ya vale lo que dijeron; FPU_IE vale 011111 [RM0316 §12.1.1]. Fuera
     // de reset, lo que cambie el firmware.
     void reset_proc() {
         if (rst_n.read()) return;

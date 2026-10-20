@@ -7,8 +7,9 @@
 // espera cada línea que no esté en el búfer de prebúsqueda; con la prebúsqueda
 // encendida (PRFTBE, que viene encendida de reset), el búfer guarda la línea
 // en uso y trae la siguiente sin coste, de modo que el código secuencial no
-// espera [1F: RM0316 §3.2.2 y PM0063]. Los datos (literales, tablas) llevan un
-// registro de línea propio.
+// espera: el bufer de prebusqueda son dos bloques de 8 bytes, y con el CPU
+// pidiendo una palabra la siguiente ya esta [RM0316 §4.2.2]. Los datos
+// (literales, tablas) van por DCode y llevan un registro de línea propio.
 //
 // EL CONTROLADOR, en 0x4002_2000 [CMSIS: FLASH_TypeDef]:
 //   0x00 ACR      LATENCY (2:0), HLFCYA (3), PRFTBE (4), PRFTBS (5)
@@ -17,36 +18,55 @@
 //   0x0C SR       BSY, PGERR, WRPERR, EOP
 //   0x10 CR       PG, PER, MER, OPTPG, OPTER, STRT, LOCK, OPTWRE, ERRIE,
 //                 EOPIE, OBL_LAUNCH
-//   0x14 AR       la página que borra PER
+//   0x14 AR       la página que borra PER; el FPEC deja ahí la última
+//                 dirección que ha usado [RM0316 §4.5.6]
 //   0x1C OBR      lo que se cargó de los bytes de opción: RDPRT, USER, DATA0/1
 //   0x20 WRPR     la protección de escritura cargada
 //
 // LOS BYTES DE OPCIÓN, en 0x1FFF_F800: RDP, USER, DATA0, DATA1 y WRP0-3, cada
 // uno en una media palabra con su complemento en el byte alto [CMSIS:
-// OB_TypeDef]. Se cargan en OBR/WRPR al encender y con OBL_LAUNCH.
+// OB_TypeDef] [RM0316 §5, tabla 13]. Se cargan en OBR/WRPR con CADA reset del
+// sistema [RM0316 §5] (el del pin, los perros, SYSRESETREQ, OBL_LAUNCH y el de
+// alimentación).
 //
 // LO QUE VIGILA (el silicio no lo hace y lee basura en silencio): que LATENCY
-// alcance para el HCLK en vigor -0 hasta 24 MHz, 1 hasta 48, 2 hasta 72-, y
-// que el acceso de medio ciclo (HLFCYA) no se use por encima de 8 MHz.
+// alcance para el HCLK en vigor -0 hasta 24 MHz, 1 hasta 48, 2 hasta 72
+// [RM0316 §4.5.1]-, y que el acceso de medio ciclo (HLFCYA) no se use por
+// encima de 8 MHz. RM0316 §4.2.2 solo dice que es para cuando no hay un reloj
+// de alta frecuencia y que no vale con preescalador en AHB: los 8 MHz son el
+// HSI, y son del modelo.
 //
-// PROGRAMAR Y BORRAR (S2) [1F: RM0316 §4.2-4.3]:
-//   - KEYR abre CR; una llave mal, o una llave con CR ya abierto, lo cierra
-//     hasta el siguiente reset. OPTKEYR, con CR abierto, pone OPTWRE.
+// PROGRAMAR Y BORRAR (S2) [RM0316 §4.2.3, §4.3 y §4.5]:
+//   - KEYR abre CR; una llave mal es un error de bus (HardFault) y deja el
+//     FPEC cerrado hasta el siguiente reset. Una llave con CR ya abierto
+//     tambien lo cierra [de modelo: RM0316 no lo precisa]. OPTKEYR, con CR
+//     abierto, pone OPTWRE. Con CR cerrado solo se puede escribir OBL_LAUNCH,
+//     y con BSY no se escribe ningun registro.
 //   - PG: cada escritura de MEDIA PALABRA en la Flash la programa. Un byte o
 //     una palabra dan error de bus, como en el silicio. Si la media palabra no
 //     estaba borrada (y el dato no es 0x0000), PGERR y no se programa; en una
 //     pagina protegida por WRP, WRPRTERR.
-//   - PER + AR + STRT borra una pagina de 2 KB; MER + STRT, todas.
+//   - PER + AR + STRT borra una pagina de 2 KB; MER + STRT, todas. STRT se
+//     lee a uno mientras dura.
 //   - OPTER + STRT borra los bytes de opcion; OPTPG programa uno con una
-//     escritura de media palabra (el complemento lo pone el FPEC). Ambos
-//     necesitan OPTWRE. OBL_LAUNCH los recarga con un reset del sistema.
-//   - BSY mientras dura; al acabar, EOP (con su interrupcion, EOPIE). Quien
-//     lee la Flash mientras tanto espera, como el bus del silicio.
+//     escritura de media palabra (el complemento lo pone el FPEC), y solo si
+//     estaba borrado: aqui no hay excepcion para el cero. Ambos necesitan
+//     OPTWRE. OBL_LAUNCH los recarga con un reset del sistema.
+//   - BSY mientras dura; al acabar bien, EOP (con su interrupcion, EOPIE).
+//     Quien lee la Flash mientras tanto espera, como el bus del silicio.
+//   - La proteccion de escritura va por pares de paginas: un bit de WRPR por
+//     cada dos (WRP0-WRP2 y los siete primeros de WRP3), y el ultimo, para las
+//     paginas 62 a 127 [RM0316 §4.3.2 y §5, tabla 14].
+//   - El nivel de RDP sale del byte y su complemento: 0xAA/0x55 es el 0,
+//     0xCC/0x33 el 2 y cualquier otra cosa el 1 [RM0316 §4.3.1, tabla 8].
+//     Volver al nivel 0 programando 0xAA borra la Flash entera; en el nivel 2
+//     los bytes de opcion no se borran y RDP no se programa (WRPRTERR).
 //   - Los tiempos [DS9118, tabla 47]: 53,5 us una media palabra (el tipico,
 //     entre 40 y 60), y 20 ms una pagina, el borrado masivo y el de los bytes
 //     de opcion (el minimo: la tabla da 20-40 ms y ningun tipico).
-// Lo que NO hace: la proteccion de lectura. RDP se carga (OBR.RDPRT) pero no
-// bloquea al depurador ni borra nada al quitarla: esta DECLARADO.
+// Lo que NO hace: que el nivel 1 cierre la Flash al depurador y a quien
+// arranque de la SRAM o del cargador, ni que el 2 apague la depuracion: esta
+// DECLARADO.
 // =============================================================================
 #ifndef STM32_MEM_FLASH_F1_H
 #define STM32_MEM_FLASH_F1_H
@@ -77,7 +97,7 @@ public:
                               CR_OPTPG = 1u << 4, CR_OPTER = 1u << 5, CR_STRT = 1u << 6,
                               CR_LOCK = 1u << 7, CR_OPTWRE = 1u << 9, CR_ERRIE = 1u << 10,
                               CR_EOPIE = 1u << 12, CR_OBL_LAUNCH = 1u << 13;
-    static constexpr uint32_t ACR_RESET = 0x30u;      // PRFTBE y PRFTBS [1F: RM0316]
+    static constexpr uint32_t ACR_RESET = 0x30u;      // PRFTBE y PRFTBS [RM0316 §4.5.1]
     static constexpr unsigned LINEA = 8;              // 64 bits
 
     // La memoria (Flash principal) y la ventana de los bytes de opción
@@ -140,18 +160,30 @@ public:
     // Lo cargado de los bytes de opción: nBOOT1 (USER bit 4) para el arranque
     bool nboot1() const { return (obr_ >> 12) & 1u; }
     uint8_t rdp_cargado() const { return rdp_carg_; }
+    unsigned nivel_rdp() const { return (obr_ >> 1) & 3u; }     // 0, 1 o 3 (= nivel 2)
+    bool bloqueo_duro() const { return bloqueo_duro_; }
     // Con HCLK cambiado, revisar la latencia (también lo hace solo, por clk_hz)
     void revisa() { revisa_latencia(); }
     // El banco: un byte de opción como si se hubiera programado (con su
     // complemento). Vale en la siguiente carga: encendido u OBL_LAUNCH
     void pon_ob(unsigned i, uint8_t v) { if (i < 8) ob_[i] = uint16_t(v | ((~v & 0xFFu) << 8)); }
+    // Y una media palabra tal cual, con el complemento que se quiera
+    void pon_ob_crudo(unsigned i, uint16_t h) { if (i < 8) ob_[i] = h; }
+
+    // Una llave mal en KEYR es un error de bus [RM0316 §4.2.3]
+    void b_transport(tlm::tlm_generic_payload& gp, sc_core::sc_time& t) override {
+        error_bus_ = false;
+        BusSlave::b_transport(gp, t);
+        if (error_bus_ && gp.get_response_status() == tlm::TLM_OK_RESPONSE)
+            gp.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE);
+    }
 
 protected:
     uint32_t reg_read(uint32_t off) override {
         switch (off) {
             case R_ACR:  return acr_ | (prebusqueda() ? (1u << 5) : 0u);
             case R_SR:   return sr_;
-            case R_CR:   return cr_;
+            case R_CR:   return cr_ | ((sr_ & SR_BSY) && arranco_ ? CR_STRT : 0u);
             case R_AR:   return ar_;
             case R_OBR:  return obr_;
             case R_WRPR: return wrpr_;
@@ -177,14 +209,19 @@ protected:
                 irq_ev_.notify(sc_core::SC_ZERO_TIME);
                 return;
             case R_CR:       escribe_cr(v); return;
-            case R_AR:       if (!(sr_ & SR_BSY)) ar_ = v; return;
+            case R_AR:       if (!(sr_ & SR_BSY)) ar_ = v; return;     // [RM0316 §4.5.6]
             default:         return;
         }
     }
 
     // --- Programar y borrar (S2) ---------------------------------------------------
     void escribe_cr(uint32_t v) {
-        if (cr_ & CR_LOCK) return;                          // cerrado: no cambia
+        // Cerrado, CR solo admite OBL_LAUNCH; con BSY, nada [RM0316 §4.2.3]
+        if (sr_ & SR_BSY) return;
+        if (cr_ & CR_LOCK) {
+            if (v & CR_OBL_LAUNCH) { if (al_obl) al_obl(); else carga_opciones(); }
+            return;
+        }
         const uint32_t w = CR_PG | CR_PER | CR_MER | CR_OPTPG | CR_OPTER | CR_LOCK |
                            CR_ERRIE | CR_EOPIE;
         // OPTWRE solo lo pone OPTKEYR; escribirle un cero lo quita
@@ -203,7 +240,8 @@ protected:
         }
     }
     // Protegida por WRP: en el F303xC cada bit de WRPR guarda dos paginas
-    // (4 KB) y el ultimo, el 31, todas las de la 62 en adelante [1F: RM0316]
+    // (4 KB) y el ultimo, el 31, todas las de la 62 en adelante [RM0316 §5,
+    // tabla 14]
     bool protegida(uint32_t off) const {
         unsigned b = off / (2u * pagina_);
         if (b > 31) b = 31;
@@ -213,6 +251,8 @@ protected:
         const sc_core::sc_time ahora = sc_core::sc_time_stamp() + t_local;
         ocupada_hasta_ = ahora + dur;
         sr_ |= SR_BSY;
+        arranco_ = arranco_siguiente_;
+        arranco_siguiente_ = false;
         fin_ev_.cancel();
         fin_ev_.notify(dur + t_local);
     }
@@ -229,6 +269,7 @@ protected:
         std::fill(arr_.begin() + p0, arr_.begin() + p0 + pagina_, uint8_t(0xFF));
         ++n_borr_;
         olvida_lineas();
+        arranco_siguiente_ = true;
         empieza(t_pagina);
     }
     void borra_masa() {
@@ -236,11 +277,14 @@ protected:
         borra_todo();
         n_borr_ += unsigned(arr_.size() / pagina_);
         olvida_lineas();
+        arranco_siguiente_ = true;
         empieza(t_masa);
     }
     void borra_ob() {
-        if (!(cr_ & CR_OPTWRE)) { error(SR_WRPERR); return; }
+        // En el nivel 2 los bytes de opcion no se borran [RM0316 §4.3.1]
+        if (!(cr_ & CR_OPTWRE) || nivel_rdp() == 3) { error(SR_WRPERR); return; }
         for (uint16_t& h : ob_) h = 0xFFFFu;
+        arranco_siguiente_ = true;
         empieza(t_pagina);
     }
     // Una escritura en la memoria: con PG, una media palabra programa
@@ -257,6 +301,7 @@ protected:
         if (hay != 0xFFFFu && v != 0) { error(SR_PGERR); return true; }
         arr_[off] = uint8_t(v);
         arr_[off + 1] = uint8_t(v >> 8);
+        ar_ = a;                                            // [RM0316 §4.5.6]
         ++n_prog_;
         olvida_lineas();
         empieza(t_prog, t);
@@ -273,9 +318,21 @@ protected:
         if (!(cr_ & CR_OPTWRE)) { error(SR_WRPERR); return true; }
         const unsigned i = (a - ob_base_) / 2;
         const uint8_t b = d[0];
-        if (ob_[i] != 0xFFFFu && b != 0) { error(SR_PGERR); return true; }
+        // En el nivel 2, RDP no se programa [RM0316 §4.3.1]
+        if (i == 0 && nivel_rdp() == 3) { error(SR_WRPERR); return true; }
+        // Solo si estaba borrado, sin excepcion para el cero [RM0316 §4.2.3]
+        if (ob_[i] != 0xFFFFu) { error(SR_PGERR); return true; }
         ob_[i] = uint16_t(b | ((~b & 0xFFu) << 8));
-        empieza(t_prog, t);
+        ar_ = a;
+        sc_core::sc_time dur = t_prog;
+        // Volver al nivel 0 borra antes la Flash entera [RM0316 §4.3.1]
+        if (i == 0 && b == 0xAA && nivel_rdp() != 0) {
+            borra_todo();
+            n_borr_ += unsigned(arr_.size() / pagina_);
+            olvida_lineas();
+            dur += t_masa;
+        }
+        empieza(dur, t);
         return true;
     }
     void aviso_escritura(unsigned n, bool con_pg) {
@@ -285,7 +342,7 @@ protected:
         char m[220];
         if (con_pg)
             std::snprintf(m, sizeof m, "escritura de %u bytes en la Flash con PG: el FPEC solo "
-                          "programa medias palabras alineadas; error de bus [1F: RM0316 §4.2.3]", n);
+                          "programa medias palabras alineadas; error de bus [RM0316 §4.2.3]", n);
         else
             std::snprintf(m, sizeof m, "escritura en la Flash sin FLASH_CR.PG (ni OPTPG en los "
                           "bytes de opcion): error de bus");
@@ -293,6 +350,7 @@ protected:
     }
     void fin_proc() {
         sr_ &= ~SR_BSY;
+        arranco_ = false;
         sr_ |= SR_EOP;
         irq_ev_.notify(sc_core::SC_ZERO_TIME);
     }
@@ -305,6 +363,8 @@ protected:
     uint8_t  rdp_carg_ = 0xAA;
     unsigned llave_ = 0, llave_ob_ = 0;
     bool     bloqueo_duro_ = false;          // una llave mal: cerrado hasta el reset
+    bool     error_bus_ = false;             // la escritura en curso da error de bus
+    bool     arranco_ = false, arranco_siguiente_ = false;   // STRT, mientras dura
     sc_core::sc_time ocupada_hasta_ = sc_core::SC_ZERO_TIME;
     sc_core::sc_event irq_ev_, fin_ev_;
     unsigned n_avisos_ = 0, n_rech_ = 0, n_prog_ = 0, n_borr_ = 0;
@@ -315,13 +375,16 @@ protected:
 
     // Los bytes de opción de fábrica: RDP nivel 0 (0xAA), USER = 0xFF (perro por
     // software, nBOOT1 = 1, monitor de VDDA, sin paridad de la SRAM), DATA a
-    // 0xFF y sin protección de escritura [HAL: OB_*] [1F: el USER de fábrica]
+    // 0xFF y sin protección de escritura [HAL: OB_*; RM0316 §4.3.1: el nivel 0
+    // es la configuracion de fabrica] [1F: el USER de fábrica]
     void ob_fabrica() {
         const uint8_t v[8] = {0xAA, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
         for (unsigned i = 0; i < 8; ++i) ob_[i] = uint16_t(v[i] | ((~v[i] & 0xFFu) << 8));
     }
     // OBR y WRPR a partir de los bytes de opción. Un byte cuyo complemento no
-    // cuadra da OPTERR y se carga como 0xFF [1F: RM0316 §4.1]
+    // cuadra da OPTERR y se carga como 0xFF; con los dos a 0xFF (borrado) el
+    // comparador no mira [RM0316 §5]. El nivel de RDP, de la tabla 8 de §4.3.1:
+    // 0xAA/0x55 el 0, 0xCC/0x33 el 2 (RDPRT = 11), cualquier otra cosa el 1
     void carga_opciones() {
         bool err = false;
         auto byte = [&](unsigned i) -> uint8_t {
@@ -330,9 +393,9 @@ protected:
             if (uint8_t(h) != uint8_t(~(h >> 8))) { err = true; return 0xFF; }
             return uint8_t(h);
         };
-        const uint8_t rdp = uint8_t(ob_[0]);     // RDP: el byte, sin mirar el complemento
-        rdp_carg_ = rdp;
-        const uint32_t nivel = rdp == 0xAA ? 0u : (rdp == 0xCC ? 3u : 1u);
+        rdp_carg_ = uint8_t(ob_[0]);
+        const uint32_t nivel = ob_[0] == 0x55AAu ? 0u : (ob_[0] == 0x33CCu ? 3u : 1u);
+        (void)byte(0);                          // OPTERR, tambien por RDP
         const uint8_t user = byte(1), d0 = byte(2), d1 = byte(3);
         uint32_t wrp = 0;
         for (unsigned i = 0; i < 4; ++i) wrp |= uint32_t(byte(4 + i)) << (8 * i);
@@ -343,16 +406,20 @@ protected:
 
     void escribe_llave(uint32_t v) {
         if (bloqueo_duro_ || !(cr_ & CR_LOCK)) {
-            // Una llave con CR ya abierto, o tras una secuencia mala: el FPEC
-            // se cierra hasta el siguiente reset [1F: RM0316 §4.2.2]
+            // Tras una secuencia mala, cerrado hasta el reset; una llave con CR
+            // ya abierto tambien lo cierra [de modelo]
             if (!(cr_ & CR_LOCK)) { cr_ |= CR_LOCK; cr_ &= ~CR_OPTWRE; }
             bloqueo_duro_ = true;
             return;
         }
         if (llave_ == 0 && v == KEY1) { llave_ = 1; return; }
         if (llave_ == 1 && v == KEY2) { llave_ = 0; cr_ &= ~CR_LOCK; return; }
+        // Una llave mal: error de bus en la primera escritura si KEY1 no
+        // cuadra, o en la segunda si es KEY2 la que no; y el FPEC cerrado
+        // hasta el siguiente reset [RM0316 §4.2.3]
         llave_ = 0;
         bloqueo_duro_ = true;
+        error_bus_ = true;
     }
     void escribe_llave_ob(uint32_t v) {
         if (cr_ & CR_LOCK) return;
@@ -383,7 +450,8 @@ protected:
         if (hlf && !avisado_hlf_) {
             ++n_avisos_;
             SC_REPORT_WARNING("flash_f1", "FLASH_ACR.HLFCYA con HCLK por encima de 8 MHz: el "
-                              "acceso de medio ciclo solo vale con relojes lentos [1F: RM0316]");
+                              "acceso de medio ciclo solo vale sin un reloj de alta frecuencia "
+                              "[RM0316 §4.2.2; los 8 MHz, del modelo]");
         }
         avisado_hlf_ = hlf;
     }

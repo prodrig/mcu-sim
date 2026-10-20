@@ -74,6 +74,7 @@ Lo cuenta el `README`, y el porqué entero está en **I-50** de `doc/todo.md`.
 | `[DS8597]` | Datasheet STM32F415xx/F417xx | **Rev 9**, septiembre de 2020 | `stm32f407xx/stm32f415rxx stm32f417xx datasheet.pdf` |
 | `[RM0390]` | Reference manual F446xx | **Rev 9**, febrero de 2026 | `stm32f446xx/rm0390-...-stmicroelectronics.pdf` |
 | `[DS10693]` | Datasheet STM32F446xC/E | **Rev 11** | `stm32f446xx/DS_stm32f446mc.pdf` |
+| `[RM0316]` | Reference manual STM32F303xB/C/D/E, F303x6/8, F328x8, F358xC, F398xE (P-18) | **Rev 10**, enero de 2024 | `stm32f303/rm0316-stm32f303xbcde-...-stmicroelectronics.pdf` |
 | `[DS9118]` | Datasheet STM32F303xB/C (P-18) | la de `st.com` en octubre de 2026 | `stm32f303/ds9118-DS_stm32f303vc.pdf` |
 | `[UM1570]` | Discovery kit with STM32F303VC MCU | **Rev 7**, septiembre de 2023 | `stm32f303/um1570-discovery-kit-with-stm32f303vc-mcu-stmicroelectronics.pdf` |
 | `[MB1035]` | Esquemático de la STM32F3DISCOVERY | **rev. D.1** (PCB.SCH), 8 de junio de 2016 | `stm32f303/mb1035-f303c-d01_schematic.pdf` |
@@ -82,10 +83,11 @@ Cada PDF tiene al lado su extracción a texto con `pdftotext -layout`, que es
 como se leen las tablas largas sin abrir el visor: `rm0090.txt`,
 `ds_f405_f407.txt`, `ds_f415_f417.txt`, `rm0390-...txt` y `ds_f446.txt`.
 
-Del F303 falta el manual de referencia, **RM0316**: lo que el código cita de
-él sigue marcado **[1F]** (P-18 de `doc/todo.md`). El análisis de octubre se
-escribió con **UM1570 Rev 3**; la placa y su dibujo están ya contrastados con
-la Rev 7 y el esquemático (§«Estado» de `doc/analisis_stm32f303.md`).
+Del F303 están los cuatro: el código cita RM0316 y DS9118 por sección y por
+tabla. El análisis de octubre se escribió con **UM1570 Rev 3**; la placa y su
+dibujo están ya contrastados con la Rev 7 y el esquemático (§«Estado» de
+`doc/analisis_stm32f303.md`). Falta **AN2606** (los cargadores de sistema),
+que es de S7.
 
 **Dos avisos de revisión que importan.** El primero: el informe del F415/F417 es
 **el primero del proyecto escrito contra el RM0090 Rev 22**; los anteriores

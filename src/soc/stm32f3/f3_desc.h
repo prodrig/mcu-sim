@@ -90,7 +90,7 @@ enum Irq : unsigned {
 // --- Identificación ------------------------------------------------------------
 // DEV_ID 0x422: el mismo die que el F302xB/C y el F358 [stm32flash: dev_table.c;
 // OpenOCD: stm32f1x.c]. REV_ID 0x1003 es la revisión «Y», la que se vende hoy
-// [1F: la lista de revisiones de OpenOCD].
+// [RM0316 §33.6.1: 0x1001 la Z, 0x1003 la Y; UM1570: la Discovery lleva la Y].
 constexpr uint16_t DEV_ID = 0x422;
 constexpr uint16_t REV_ID = 0x1003;
 
@@ -117,7 +117,7 @@ constexpr uint16_t TS_CAL2 = 1321;    // 110 °C: (1,43 - 85 * 0,0043) / 3,3 * 4
 constexpr uint16_t VREFINT_CAL = 1526;    // 1,23 / 3,3 * 4095
 // El identificador único: un valor del modelo, fijo para que las suites sean
 // reproducibles. En el silicio son las coordenadas en la oblea, el número de
-// oblea y el lote [1F: RM0316 §34.1]
+// oblea y el lote [RM0316 §34.1]: X e Y en BCD, el número de oblea y el lote en ASCII
 constexpr uint32_t UID[3] = { 0x00330024u, 0x3333470Fu, 0x31373939u };
 
 } // namespace f3
@@ -161,7 +161,7 @@ inline constexpr F3Caps MCU_STM32F303VC{
     "STM32F303VC", CORE_STM32F303,
     0x00040000u,                 // 256 KB [PINDATA]
     0x0000A000u,                 // 40 KB [PINDATA]
-    0x00002000u,                 // 8 KB de CCM [CMSIS: CCMDATARAM_BASE; 1F: RM0316]
+    0x00002000u,                 // 8 KB de CCM [CMSIS: CCMDATARAM_BASE; RM0316 §3.3]
     f3::DEV_ID, f3::REV_ID,
     ENC_LQFP100_F303
 };

@@ -81,7 +81,7 @@ inline constexpr int FZ_APB2_F303[5]  = {0, 1, 2, 3, 4};
 // El cargador de ST no se puede distribuir; hasta S7 aquí hay un arranque que
 // deja la marca 'MSYS' y se aparca (sysmem_s1.s). Al final de la ventana, los
 // datos de fábrica: el UID, la calibración del sensor de temperatura y de
-// VREFINT, y F_SIZE [CMSIS; HAL] [1F: valores típicos, f3_desc.h].
+// VREFINT, y F_SIZE [CMSIS; HAL; DS9118] [valores típicos, f3_desc.h].
 // -----------------------------------------------------------------------------
 class SysMemF3 : public sc_core::sc_module {
 public:
@@ -223,9 +223,12 @@ public:
             "PG, PER, MER, bytes de opcion, OBL_LAUNCH), SRAM, CCM ejecutable, memoria "
             "de sistema, GPIO, EXTI y SYSCFG. El resto esta DECLARADO: contesta, lee "
             "cero y avisa una vez",
-            "la proteccion de lectura (RDP) esta DECLARADA: se carga en FLASH_OBR, pero "
-            "no bloquea al depurador ni borra la Flash al quitarla; la Flash se programa "
+            "la proteccion de lectura (RDP) esta a medias: el nivel se carga en FLASH_OBR, "
+            "volver al 0 borra la Flash y el 2 bloquea los bytes de opcion, pero el 1 no "
+            "cierra la Flash al depurador ni el 2 apaga la depuracion; la Flash se programa "
             "con los tiempos de DS9118 (53,5 us por media palabra, 20 ms por pagina)",
+            "el NMI del CSS es un pulso por fallo, no se repite hasta CSSC; el HSE que "
+            "falla no avisa a la entrada de freno de los TIM (S3)",
             "DMA1/2, USART1-3, UART4/5, SPI1-3 e I2S, I2C1/2, TIM1-17, IWDG, WWDG, RTC "
             "y CRC: fase S3",
             "ADC1-4, DAC1, COMP1-7, OPAMP1-4 y TSC: fase S5; USB y CAN: fase S6",
@@ -525,7 +528,8 @@ private:
     }
 
     // BOOT0 y nBOOT1 (bit 4 del byte USER, cargado en FLASH_OBR) deciden
-    // MEM_MODE mientras dura el reset [1F: RM0316 §3.5]:
+    // MEM_MODE [RM0316 §3.5, tabla 6, y §12.1.1]. El silicio los muestrea en
+    // el cuarto flanco de SYSCLK tras el reset; aqui, mientras dura:
     //   BOOT0 = 0                 la Flash
     //   BOOT0 = 1, nBOOT1 = 1     la memoria de sistema
     //   BOOT0 = 1, nBOOT1 = 0     la SRAM
@@ -595,8 +599,8 @@ private:
         gp.set_address(a0);
         return n;
     }
-    // La CCM: lo que protege SYSCFG_RCR no se escribe, y el intento es un error
-    // de bus [1F: RM0316 §12.1.2]
+    // La CCM: lo que protege SYSCFG_RCR no se escribe [RM0316 §3.3.2 y §12.1.2],
+    // y el intento es un error de bus [de modelo: RM0316 no dice que pasa]
     void bt_ccm(tlm::tlm_generic_payload& gp, sc_core::sc_time& t) {
         const uint32_t off = uint32_t(gp.get_address() - f3::CCM_B);
         if (gp.is_write() && syscfg.ccm_protegida(off)) {

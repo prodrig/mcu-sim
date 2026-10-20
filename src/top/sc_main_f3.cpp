@@ -26,6 +26,8 @@
 //   F18     FLASH_EraseProgram de STM32CubeF3, sin modificar
 //   F19     GDB con `load` por la sonda de los pines (G2, PA13/PA14) y por el
 //           DAP (G1), con el programador del FPEC (D2)
+//   F20-F21 el FPEC, los bytes de opcion, RDP, el RCC y el SYSCFG por el DAP,
+//           contra lo que dice RM0316
 //
 // EL TIEMPO SIMULADO DE F19 NO ES REPRODUCIBLE entre maquinas, como el de E18
 // en teste4: el stub atiende un socket de verdad. El banco imprime «el resto»,
@@ -402,6 +404,8 @@ SC_MODULE(TbF3) {
         r->tm.write16(C, 0xABCDu);
         check_eq(r->rd(C), crc_bits(crc32_word(0xFFFFFFFFu, 0x12345678u), 0xABCDu, 16, 0x04C11DB7u, 32),
                  "y una escritura de 16 bits es un dato de 16 bits");
+        r->wr(C + 0x10, 0x13579BDFu);
+        check_eq(r->rd(C), 0x13579BDFu, "escribir INIT carga ya DR, sin RESET [RM0316 §6.3.3]");
     }
 
     void r_iwdg() {
@@ -459,6 +463,8 @@ SC_MODULE(TbF3) {
         r->tm.read16(S + 0x0C, h);
         check_eq(h, 0x0ABCu, "con DS = 12, un dato de 12 bits ida y vuelta");
         r->wr(S + 0x00, 0);
+        r->wr(S + 0x04, 0x0100u);                       // DS = 0001, «no usado»
+        check_eq((r->rd(S + 0x04) >> 8) & 0xFu, 7u, "un DS no usado se queda en 0111 [RM0316 §30.9.2]");
     }
 
     void r_rtc_ccm() {
@@ -968,6 +974,127 @@ SC_MODULE(TbF3) {
         g_t_gdb += sc_time_stamp() - t0;
     }
 
+    // =======================================================================
+    // F20-F21: contra RM0316, por el DAP (como lo veria un depurador)
+    // =======================================================================
+    tlm::tlm_response_status w32(uint32_t a, uint32_t v) { return dut.core.debug.ap_write32(a, v); }
+    tlm::tlm_response_status w16(uint32_t a, uint16_t v) { return dut.core.debug.ap_write16(a, v); }
+    uint32_t r32(uint32_t a) { uint32_t v = 0; dut.core.debug.ap_read32(a, v); return v; }
+    void reinicia() { mcu.reset_pin(true); wait(30, SC_US); mcu.reset_pin(false); wait(100, SC_US); }
+
+    void fpec_rm() {
+        grupo("F20 El FPEC y los bytes de opcion, por el DAP, contra RM0316 §4-5");
+        enum : uint32_t { F = 0x40022000u, KEYR = F + 4, OPTKEYR = F + 8, SR = F + 0xC, CR = F + 0x10,
+                          AR = F + 0x14, OBR = F + 0x1C, OB = 0x1FFFF800u };
+        arranca(99);
+        wait(200, SC_US);
+        const bool err = w32(KEYR, 0x12345678u) != tlm::TLM_OK_RESPONSE;
+        w32(KEYR, FlashF1::KEY1); w32(KEYR, FlashF1::KEY2);
+        check(err && (r32(CR) & 0x80u) && dut.flash.bloqueo_duro(),
+              "una llave mal es un error de bus, y el FPEC queda cerrado hasta el reset (§4.2.3)");
+        reinicia();
+        w32(KEYR, FlashF1::KEY1); w32(KEYR, FlashF1::KEY2);
+        check_eq(r32(CR), 0u, "tras el reset, las dos llaves lo abren");
+        w32(CR, 0x80u);
+        w32(CR, 0x1u);
+        check_eq(r32(CR), 0x80u, "cerrado, CR no cambia (§4.2.3)");
+        w32(KEYR, FlashF1::KEY1); w32(KEYR, FlashF1::KEY2);
+        // Borrar la pagina 124: BSY y STRT a uno mientras dura, y CR no se escribe
+        w32(CR, 0x2u); w32(AR, 0x0803E000u); w32(CR, 0x42u);
+        const uint32_t sr_b = r32(SR), cr_b = r32(CR);
+        w32(CR, 0);
+        const uint32_t cr_c = r32(CR);
+        check((sr_b & 1u) && (cr_b & 0x40u) && cr_c == 0x42u,
+              "borrando: BSY y STRT a uno, y CR no admite escrituras (§4.2.3, §4.5.5)");
+        wait(25, SC_MS);
+        check((r32(SR) & 0x21u) == 0x20u && !(r32(CR) & 0x40u), "al acabar, EOP; BSY y STRT a cero");
+        w32(SR, 0x34u);
+        w32(CR, 0x1u);
+        w16(0x0803E004u, 0x1234u);
+        wait(100, SC_US);
+        check_eq(r32(AR), 0x0803E004u, "AR guarda la ultima direccion programada (§4.5.6)");
+        w32(CR, 0);
+        // Los bytes de opcion: borrados, DATA1 = 0x5A y, encima, un cero: PGERR
+        w32(OPTKEYR, FlashF1::KEY1); w32(OPTKEYR, FlashF1::KEY2);
+        w32(CR, 0x220u); w32(CR, 0x260u);
+        wait(25, SC_MS);
+        w32(CR, 0x210u);
+        w16(OB, 0x00AAu); wait(100, SC_US);
+        w16(OB + 6, 0x005Au); wait(100, SC_US);
+        w32(SR, 0x34u);
+        w16(OB + 6, 0x0000u); wait(100, SC_US);
+        check((r32(SR) & 4u) && dut.flash.ob_half(3) == 0xA55Au,
+              "un byte de opcion programado no admite ni un cero: PGERR (§4.2.3)");
+        w32(CR, 0x80u);
+        // Se cargan en cualquier reset del sistema, no solo con OBL_LAUNCH (§5)
+        reinicia();
+        check_eq((r32(OBR) >> 24) & 0xFFu, 0x5Au, "un reset del pin carga DATA1 = 0x5A en FLASH_OBR (§5)");
+        check_eq(r32(OBR) & 1u, 0u, "y lo borrado (USER, DATA0, WRP) no da OPTERR: el comparador no mira 0xFF/0xFF");
+        // El nivel de RDP sale del byte Y de su complemento (tabla 8)
+        dut.flash.pon_ob_crudo(0, 0x00AAu);
+        reinicia();
+        check((r32(OBR) & 7u) == 3u, "RDP = 0xAA con un complemento que no cuadra: nivel 1 y OPTERR (§4.3.1)");
+        dut.flash.pon_ob(0, 0xCCu);
+        reinicia();
+        w32(KEYR, FlashF1::KEY1); w32(KEYR, FlashF1::KEY2);
+        w32(OPTKEYR, FlashF1::KEY1); w32(OPTKEYR, FlashF1::KEY2);
+        w32(CR, 0x220u); w32(CR, 0x260u);
+        wait(1, SC_MS);
+        const bool no_borra = (r32(SR) & 0x10u) && dut.flash.ob_half(0) == 0x33CCu;
+        w32(SR, 0x34u); w32(CR, 0x210u);
+        w16(OB, 0x00AAu); wait(100, SC_US);
+        check(((r32(OBR) >> 1) & 3u) == 3u && no_borra && (r32(SR) & 0x10u) && dut.flash.ob_half(0) == 0x33CCu,
+              "en el nivel 2 ni se borran los bytes de opcion ni se programa RDP: WRPRTERR (§4.3.1)");
+        w32(CR, 0x80u);
+        // Del nivel 1 al 0: programar 0xAA borra antes la Flash entera
+        dut.flash.pon_ob(0, 0xBBu);
+        reinicia();
+        const bool n1 = ((r32(OBR) >> 1) & 3u) == 1u && dut.flash.peek32(0x08000000u) != 0xFFFFFFFFu;
+        w32(KEYR, FlashF1::KEY1); w32(KEYR, FlashF1::KEY2);
+        w32(OPTKEYR, FlashF1::KEY1); w32(OPTKEYR, FlashF1::KEY2);
+        w32(CR, 0x220u); w32(CR, 0x260u);
+        wait(25, SC_MS);
+        w32(CR, 0x210u);
+        w16(OB, 0x00AAu);
+        wait(50, SC_MS);
+        bool vacia = true;
+        for (uint32_t a = 0x08000000u; a < 0x08040000u; a += 4)
+            if (dut.flash.peek32(a) != 0xFFFFFFFFu) { vacia = false; break; }
+        check(n1 && vacia && dut.flash.ob_half(0) == 0x55AAu,
+              "del nivel 1 al 0: programar RDP = 0xAA borra antes la Flash entera (§4.3.1)");
+        w32(CR, 0x80u);
+        // Como de fabrica, para lo que sigue
+        for (unsigned i = 0; i < 8; ++i) dut.flash.pon_ob(i, i == 0 ? 0xAAu : 0xFFu);
+        reinicia();
+    }
+
+    void rcc_rm() {
+        grupo("F21 El RCC y el SYSCFG por el DAP, contra RM0316 §9 y §12");
+        enum : uint32_t { R = 0x40021000u, RCR = R, CFGR = R + 4, APB2ENR = R + 0x18, APB1ENR = R + 0x1C,
+                          BDCR = R + 0x20, PWR_CR = 0x40007000u, SYSCFG = 0x40010000u };
+        arranca(1, FW_DEMO);                            // 72 MHz desde el HSE, por el PLL
+        check(espera_estado(100, 50), "f3_demo a 72 MHz, con el PLL comiendo del HSE");
+        w32(RCR, r32(RCR) & ~((1u << 16) | 1u));
+        check((r32(RCR) & (1u << 16)) && cerca(dut.f_sysclk(), 72e6, 1e-9),
+              "HSEON no se quita mientras el HSE es SYSCLK a traves del PLL (§9.4.1)");
+        check(!(r32(RCR) & 1u), "y HSION si: el PLL no come del HSI");
+        w32(RCR, r32(RCR) | 1u);
+        w32(CFGR, (r32(CFGR) & ~(7u << 24)) | (5u << 24));     // MCO = HSI
+        wait(1, SC_US);
+        check(r32(CFGR) & (1u << 28), "MCOF a uno cuando el MCO ya ha cambiado (§9.4.2)");
+        w32(APB1ENR, r32(APB1ENR) | (1u << 28));
+        w32(PWR_CR, r32(PWR_CR) | (1u << 8));           // DBP
+        w32(BDCR, 1u);                                  // LSEON (X3 no esta: no arranca)
+        w32(BDCR, 1u | (1u << 2));
+        check_eq(r32(BDCR) & 5u, 1u, "LSEBYP no cambia con el LSE encendido (§9.4.9)");
+        w32(BDCR, 0);
+        w32(APB2ENR, r32(APB2ENR) | 1u);
+        w32(SYSCFG, r32(SYSCFG) | (1u << 14));
+        check(r32(SYSCFG) & (1u << 14), "SYSCFG_CFGR1.TIM7_DAC1_CH2_DMA_RMP se escribe en el F303xC (§12.1.1)");
+        arranca(99);
+        wait(100, SC_US);
+    }
+
     void run() {
         firmwares();
         catalogo();
@@ -997,6 +1124,8 @@ SC_MODULE(TbF3) {
         bytes_opcion();
         st_flash();
         gdb();
+        fpec_rm();
+        rcc_rm();
         r_gpio();
         r_exti();
         r_tim();

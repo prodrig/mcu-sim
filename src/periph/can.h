@@ -104,7 +104,7 @@ inline constexpr CanCaps CAPS_CAN1_F407  = caps_can1_f407();
 inline constexpr CanCaps CAPS_CAN2_F407  = caps_can2_f407();
 inline constexpr CanCaps CAPS_CAN_SINGLE = caps_can_single();
 // El bxCAN del F303 (bxcan1_v1_1, la MISMA IP del F407 [PINDATA]): uno solo,
-// dueño de sus 14 bancos [1F: RM0316 §31.7.4], con TTCM. Es `caps_can_single`
+// dueño de sus 14 bancos [RM0316 §31.3.4], con TTCM [§31.7.2]. Es `caps_can_single`
 // con la comunicación disparada por tiempo, que en el silicio sí está.
 constexpr CanCaps caps_can_f303() {
     CanCaps c = caps_can_single();

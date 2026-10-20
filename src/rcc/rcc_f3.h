@@ -140,8 +140,8 @@ public:
     // t_RSTTEMPO (1,5 / 2,5 / 4,5 ms) [DS9118, tabla 26: el tipico]
     sc_core::sc_time t_rsttempo{2500, sc_core::SC_US};
 
-    // Al ENTRAR en un reset de alimentación o de OBL_LAUNCH: es cuando el chip
-    // vuelve a cargar los bytes de opción (lo hace el SoC con la Flash)
+    // Al ENTRAR en CUALQUIER reset del sistema: el cargador de los bytes de
+    // opción los lee en cada uno [RM0316 §5] (lo hace el SoC con la Flash)
     std::function<void()> al_cargar_opciones;
 
     explicit RccF3(sc_core::sc_module_name nm)
@@ -239,8 +239,10 @@ protected:
                 return v;
             }
             case R_CFGR: {
-                uint32_t v = cfgr_ & ~(3u << 2);
-                return v | (sws_ << 2);
+                uint32_t v = cfgr_ & ~((3u << 2) | (1u << 28));
+                // MCOF: a cero al escribir MCO, a uno cuando el cambio ya vale
+                // [RM0316 §9.4.2]; aqui, en cuanto el arbol se recalcula
+                return v | (sws_ << 2) | (mcof_ ? (1u << 28) : 0u);
             }
             case R_CIR:      return cir_;
             case R_APB2RSTR: return apb2rstr_;
@@ -277,12 +279,14 @@ protected:
                 const uint32_t w = (1u << 0) | (0x1Fu << 3) | (1u << 16) | (1u << 18) |
                                    (1u << 19) | (1u << 24);
                 uint32_t nv = (cr_ & ~w) | (v & w);
-                // HSEBYP solo se cambia con el HSE apagado [1F: RM0316 §9.4.1]
+                // HSEBYP solo se cambia con el HSE apagado [RM0316 §9.4.1]
                 if ((cr_ & (1u << 16)) && ((nv ^ cr_) & (1u << 18))) nv = (nv & ~(1u << 18)) | (cr_ & (1u << 18));
-                // El PLL no se apaga si es SYSCLK; el HSI tampoco si lo es él
-                // o la fuente del PLL en marcha [1F: RM0316 §9.4.1]
+                // Ni el PLL, ni el HSE, ni el HSI se apagan si son SYSCLK
+                // directa o indirectamente (a traves del PLL) [RM0316 §9.4.1]
+                const bool pll_hse = (cfgr_ >> 16) & 1u;
                 if (sws_ == 2 && !(nv & (1u << 24))) nv |= 1u << 24;
-                if (sws_ == 0 && !(nv & 1u)) nv |= 1u;
+                if ((sws_ == 1 || (sws_ == 2 && pll_hse)) && !(nv & (1u << 16))) nv |= 1u << 16;
+                if ((sws_ == 0 || (sws_ == 2 && !pll_hse)) && !(nv & 1u)) nv |= 1u;
                 cr_ = nv;
                 break;
             }
@@ -291,6 +295,7 @@ protected:
                 uint32_t w = 0x3u | (0xFu << 4) | (7u << 8) | (7u << 11) | (1u << 22) |
                              (1u << 23) | (7u << 24);
                 if (!(cr_ & (1u << 24))) w |= (1u << 16) | (1u << 17) | (0xFu << 18);
+                if ((v ^ cfgr_) & (7u << 24)) mcof_ = false;
                 cfgr_ = (cfgr_ & ~w) | (v & w);
                 // PLLXTPRE es el bit 0 de PREDIV [CMSIS: RCC_CFGR_PLLXTPRE]
                 if (!(cr_ & (1u << 24))) cfgr2_ = (cfgr2_ & ~1u) | ((cfgr_ >> 17) & 1u);
@@ -310,12 +315,14 @@ protected:
             case R_APB1ENR:  apb1enr_  = v & masc_en_[2];  break;
             case R_BDCR: {
                 // El dominio de respaldo: sin DBP no se deja escribir
-                // [1F: RM0316 §9.4.9]
+                // [RM0316 §9.4.9]
                 if (!dbp.read()) { avisa_una(av_dbp_, "RCC_BDCR escrito sin PWR_CR.DBP: el "
                                       "dominio de respaldo esta protegido y no cambia nada. "
                                       "Pon DBP antes (HAL_PWR_EnableBkUpAccess)"); return; }
                 const uint32_t w = 1u | (1u << 2) | (3u << 3) | (3u << 8) | (1u << 15) | (1u << 16);
                 uint32_t nv = (bdcr_ & ~w) | (v & w);
+                // LSEBYP solo con el LSE apagado [RM0316 §9.4.9]
+                if ((bdcr_ & 1u) && ((nv ^ bdcr_) & (1u << 2))) nv = (nv & ~(1u << 2)) | (bdcr_ & (1u << 2));
                 // RTCSEL no se cambia una vez elegido, salvo con BDRST
                 if ((bdcr_ >> 8) & 3u) nv = (nv & ~(3u << 8)) | (bdcr_ & (3u << 8));
                 if (nv & (1u << 16)) nv = 0x18u | (1u << 16);              // BDRST
@@ -341,8 +348,11 @@ protected:
 
 private:
     // --- Registros ------------------------------------------------------------------
-    static constexpr uint32_t HSICAL = 0x10;     // valor del modelo [1F]
+    // HSICAL lo pone la fabrica en cada pieza [RM0316 §9.4.1]: aqui, un valor
+    // del modelo
+    static constexpr uint32_t HSICAL = 0x10;
     uint32_t cr_ = 0, cfgr_ = 0, cir_ = 0, apb2rstr_ = 0, apb1rstr_ = 0, ahbenr_ = 0;
+    bool mcof_ = false;
     uint32_t apb2enr_ = 0, apb1enr_ = 0, bdcr_ = 0, csr_ = 0, ahbrstr_ = 0;
     uint32_t cfgr2_ = 0, cfgr3_ = 0;
     uint32_t masc_en_[3] = {}, masc_rst_[3] = {};
@@ -377,10 +387,10 @@ private:
         cr_ = 0x00000083u | (HSICAL << 8);            // HSION, HSIRDY, HSITRIM = 16
         cfgr_ = 0; cir_ = 0;
         apb2rstr_ = apb1rstr_ = ahbrstr_ = 0;
-        ahbenr_ = (1u << 2) | (1u << 4);              // SRAMEN, FLITFEN [1F: RM0316]
+        ahbenr_ = (1u << 2) | (1u << 4);              // SRAMEN, FLITFEN: 0x14 [RM0316 §9.4.6]
         apb2enr_ = apb1enr_ = 0;
         cfgr2_ = 0; cfgr3_ = 0;
-        if (respaldo) bdcr_ = 0x00000018u;           // LSEDRV = 11 [1F: RM0316 §9.4.9]
+        if (respaldo) bdcr_ = 0x00000018u;           // LSEDRV = 11 [RM0316 §9.4.9]
         for (unsigned g = 0; g < 3; ++g) { masc_en_[g] = 0; masc_rst_[g] = 0; }
         for (const BitRccF3& b : RCC_F3_BITS) {
             masc_en_[b.grp] |= 1u << b.bit;
@@ -458,6 +468,7 @@ private:
     }
 
     void recalcula() {
+        mcof_ = true;
         const double fh = hsi.out_hz(), fe = hse.out_hz(), fp = f_pll();
         const unsigned sw = cfgr_ & 3u;
         // Si la fuente pedida no está lista, SYSCLK se queda en la anterior
@@ -532,7 +543,9 @@ public:
 private:
     static constexpr double f3hz_max_ = 72e6 * (1 + 1e-9);
 
-    // --- El CSS: el HSE falla -> SYSCLK al HSI, CSSF y NMI [1F: RM0316 §9.2.7] ---
+    // --- El CSS: el HSE falla -> SYSCLK al HSI, el HSE (y el PLL, si comia de
+    // el y era SYSCLK) apagados, CSSF y NMI [RM0316 §9.2.7]. En el silicio el
+    // NMI se repite hasta que CSSC borra CSSF; aqui es un pulso, uno por fallo ---
     void css() {
         if (!((cr_ >> 19) & 1u) || !hse.failed() || css_) return;
         css_ = true;
@@ -614,7 +627,8 @@ private:
             refresca_periferia();
             aplica_osciladores();
             recalcula();
-            if ((por || obl) && al_cargar_opciones) al_cargar_opciones();
+            (void)obl;
+            if (al_cargar_opciones) al_cargar_opciones();
             wait(t_rst_pulse);
             o_drv_nrst_ = false;
             pub_ev_.notify(sc_core::SC_ZERO_TIME);

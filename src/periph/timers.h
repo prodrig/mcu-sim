@@ -863,7 +863,8 @@ private:
     //   14/15 asimétrico   la propia contando hacia arriba, la de la pareja
     //                      contando hacia abajo (alineado al centro)
     //   GC5Cx              los canales 1-3, AND con OC5REF
-    // [CMSIS: TIM_CCMR1_OC1M_3, TIM_CCR5_GC5C1-3; 1F: RM0316 §20.3.12-13]
+    // [CMSIS: TIM_CCMR1_OC1M_3, TIM_CCR5_GC5C1-3; RM0316 §20.3.12-13, §20.4.8
+    // (OCxM) y §20.4.25 (GC5Cx)]
     bool ref_salida(unsigned c) const {
         bool v = ref_[c];
         if (caps_.ocm_4bits && c < 4) {

@@ -812,7 +812,10 @@ Lo que queda de una sola fuente, o de modelo, tras S2:
 | **h** | La calibración de fábrica y el UID | Valores típicos de DS9118 (tablas 28 y 78: `TS_CAL1` 1748, `TS_CAL2` 1321, `VREFINT_CAL` 1526), no de una pieza; el UID, del modelo |
 | **i** | Los bloques de S3-S6 | DECLARADOS: ocupan su ventana, leen cero y avisan una vez con la fase que les toca (`limitaciones()` del chip los lista) |
 | **j** | La matriz | Decodificadores directos; con los DMA (S3) se decide si hace falta `AhbMatrix` |
-| **k** | Lo que se cita de RM0316 | Sigue sin estar en `doc/refs/`: la protección WRP por pares de páginas, `OBR`/`OPTERR`, el bloqueo duro de `KEYR`, los valores de reset de `ACR` y `AHBENR`, el CSS, `MEM_MODE` durante el reset [1F] |
+| **k** | Lo que se cita de RM0316 | **Contrastado con RM0316 Rev 10 (2026-10-20)**, que ya está en `doc/refs/stm32f303/`: confirma lo citado y obliga a doce cambios (la tabla del «Estado» del análisis), probados en F20, F21, R4 y R6 de `testf3` |
+| **m** | Lo que RM0316 no dice | De modelo: una llave con `CR` abierto lo cierra; escribir en una página protegida de la CCM es error de bus; `REV_OUT` refleja los `POLYSIZE` bits; el aviso de `HLFCYA` a partir de 8 MHz; BOOT0 se muestrea durante el reset (el silicio, en el cuarto flanco de SYSCLK); `HSICAL` y el USER de fábrica |
+| **n** | RDP, a medias | El nivel se carga (byte y complemento), volver al 0 borra la Flash y el 2 bloquea los bytes de opción; pero el nivel 1 no cierra la Flash al depurador ni el 2 apaga la depuración (RM0316 §4.3.1, tabla 9) |
+| **o** | El NMI del CSS | Un pulso por fallo; en el silicio se repite hasta que `CSSC` borra `CSSF` (RM0316 §9.2.7). El fallo tampoco llega al freno de los TIM (S3) |
 | **l** | La placa contra su esquemático | Contrastada con MB1035 rev. D.1 (2026-10-20): resistencias de la rosa (510 Ω en los verdes), B1 (100 + 330 Ω a VDD, 220 kΩ a masa), LD1, BOOT0, R39 y X3 sin montar. La vf de cada LED es de modelo; VDD se modela a 3,3 V, y en la placa son los 3,3 V del LD3985 menos el diodo D3 [de modelo] |
 
 ---

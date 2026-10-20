@@ -208,7 +208,7 @@ protected:
 // VENTANA: WINR en 0x10 (reset 0x0FFF) y SR.WVU. Con la ventana puesta, una
 // recarga (0xAAAA) mientras el contador sigue por ENCIMA de WINR es tan mala
 // como no recargar: reset inmediato. Y escribir WINR recarga el contador
-// `[CMSIS] [HAL: IWDG_WINDOW_DISABLE, HAL_IWDG_Init]` [1F: RM0316 §25.3.2].
+// `[CMSIS] [HAL: IWDG_WINDOW_DISABLE, HAL_IWDG_Init]` [RM0316 §25.3.2].
 // En el F4 (iwdg1_v1_1) la dirección está reservada.
 // ---------------------------------------------------------------------------
 struct IwdgCaps {
