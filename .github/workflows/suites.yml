@@ -146,7 +146,7 @@ jobs:
     name: Linux ${{ matrix.os }} (g++, libsystemc-dev)
     runs-on: ${{ matrix.os }}
     needs: rapidas
-    timeout-minutes: 30
+    timeout-minutes: 45      # testf3, con los ejemplos de S3, son unos 9 min
     strategy:
       fail-fast: false      # que una distribucion no tape a la otra
       matrix:
@@ -165,7 +165,7 @@ jobs:
 
       - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4 y testf3)
         env:
-          SUITES_PRESUPUESTO: 600
+          SUITES_PRESUPUESTO: 1200     # testf3 (S3 del F303) pasa de los 600 s
         run: sh ci/pasa_suites.sh
 
       - name: Los invariantes de las ocho, al picosegundo
@@ -264,6 +264,12 @@ jobs:
       - name: La STM32F3DISCOVERY con GPIO_IOToggle de ST
         working-directory: src
         run: make -f Makefile.mcu-sim f3-discovery
+
+      # El VCP de la STM32F3DISCOVERY (S3): la USART1 por PC4/PC5, y dos
+      # Discovery en un sistema, cada VCP en su puerto.
+      - name: El VCP de la STM32F3DISCOVERY y dos Discovery en un sistema
+        working-directory: src
+        run: make -f Makefile.mcu-sim f3-vcp
 
       - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas)
         working-directory: src
@@ -426,7 +432,7 @@ jobs:
     name: macOS ${{ matrix.arq }}
     runs-on: ${{ matrix.os }}
     needs: rapidas
-    timeout-minutes: 30
+    timeout-minutes: 50
     strategy:
       fail-fast: false            # que una arquitectura no tape a la otra
       matrix:
@@ -491,7 +497,7 @@ jobs:
       # automatica, que es la que se encuentra un alumno.
       - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4 y testf3)
         env:
-          SUITES_PRESUPUESTO: 600
+          SUITES_PRESUPUESTO: 1500
         run: sh ci/pasa_suites.sh CXX=clang++
 
       - name: Los invariantes de las ocho, al picosegundo
@@ -605,7 +611,7 @@ jobs:
     name: Windows (MSYS2 / MinGW-w64)
     runs-on: windows-latest
     needs: rapidas
-    timeout-minutes: 45
+    timeout-minutes: 70
     defaults:
       run:
         shell: msys2 {0}
@@ -653,7 +659,7 @@ jobs:
 
       - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4 y testf3)
         env:
-          SUITES_PRESUPUESTO: 900      # aqui SystemC se compila antes: mas margen
+          SUITES_PRESUPUESTO: 1800     # aqui SystemC se compila antes: mas margen
         run: |
           sh ci/pasa_suites.sh \
              SYSTEMC_HOME="$(cygpath -u "$GITHUB_WORKSPACE")/systemc"

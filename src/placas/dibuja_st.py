@@ -202,7 +202,14 @@ def discovery():
     usb_mini(s, cx, BY - 8, id="CN1")
     s.text(cx + 62, BY + 30, "CN1", size=12)
     s.text(cx, BY + 80, "USB ST-LINK", size=11)
+    # El ST-LINK es tambien el VCP (S3): la USART1, PC4/PC5, sale por el USB
+    s.abre("VCP")
     chip(s, cx - 60, BY + 110, 120, 80, "ST-LINK/V2", "STM32F103", size=13)
+    s.cierra()
+    # VCP#destino es un rotulo: mcu-sim escribe ahi el destino de verdad del
+    # puente (el puerto, o «en memoria»), como en la Nucleo
+    s.text(cx, BY + 208, "VCP: RFC 2217 en localhost:3355", size=10, fill="#1b2631", bold=True,
+           id="VCP#destino")
     s.abre("MCO")
     s.rect(cx + 75, BY + 150, 36, 16, "#d0d3d4", "#7f8c8d", 1, rx=3)
     s.cierra()

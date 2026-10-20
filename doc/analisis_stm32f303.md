@@ -21,7 +21,7 @@ adelante, para media docena de familias.
 
 ---
 
-## Estado: S0, S1 y S2 hechas (20-10-2026)
+## Estado: S0, S1, S2 y S3 hechas (20-10-2026)
 
 En la rama `stm32f303`, un commit por fase. Las siete suites de antes no se
 mueven ni un picosegundo (`ci/comprueba_invariante.sh`, las siete en verde con
@@ -77,13 +77,88 @@ arranca, por `remote_bitbang` (O5 de `make openocd`) y por CMSIS-DAP (C6 de
 (G3/D3); `FLASH_EraseProgram` de ST pasa (F18: 48 páginas, 49 152 medias
 palabras, LD3).
 
+**S3, los periféricos de segunda generación.** `UsartV2`
+(`periph/usart_v2.h`, con rasgos: síncrona, flujo, RTO, DE, `SWAP`/`INV`/
+`MSBFIRST`, modo mudo, ruptura por `RQR`; USART1-3 y UART4/5, estas sin DMA),
+`DmaCanal` (`periph/dma_canal.h`: DMA1 de 7 canales y DMA2 de 5, prioridad y
+luego el canal más bajo, circular, HT/TC/TE, la tabla de peticiones de RM0316
+§13.4.7 con los cuatro remapeos de `SYSCFG_CFGR1`), el SPI v3 y el I2S de las
+SPI2/3, `FmpI2c` en I2C1/2 con el reloj de `RCC_CFGR3` (el esclavo, reescrito:
+direcciones de 7 y 10 bits, `OA2MSK`, estiramiento de `RXNE`/`TXIS`/`ADDR`,
+`NACKF`, `STOPF`), los TIM v3 (TIM1/8 avanzados, TIM2 de 32 bits, TIM3/4,
+TIM6/7, TIM15/16/17, con la red de ITR de RM0316 tabla 79 y el IRTIM), IWDG con
+ventana y que se para con el reset del sistema, WWDG, RTC (con la
+resincronización de `RSF`), CRC programable y Sleep/Stop/Standby en el PWR (los
+tiempos de despertar de DS9118, el PVD de la tabla 27, `WKUP1-3`, los bits de
+opción `nRST_STOP`/`nRST_STDBY`/`WDG_SW`). La placa gana el **VCP** (la USART1
+en PC4/PC5, UM1570 §6.2.3) y hay un sistema de dos, `placas/dos_f3discovery.xml`,
+con los tres buses de los readme y `placas/pullup_i2c.xml`; `make f3-vcp`
+(con `verif/fw/stm32f3/f3_vcp`) prueba los dos. **Cierre, cumplido**: los 29
+ejemplos de §7.2 marcados S3, **sin modificar**, en `verif/fw/stm32f3/ejemplos_s3`
+(42 `.bin` con huella: los de dos placas en sus dos papeles y
+`PWR_CurrentConsumption` en sus cuatro modos), pasan en `testf3`: F22-F31 con
+dos Discovery cableadas (UART, SPI e I²C, sondeo, IT y DMA, y
+`I2C_TwoBoards_AdvComIT`), F32-F39 los ocho TIM, F40-F42 los perros, F43-F46
+el RTC y las bases de tiempos sin SysTick, F47-F53 el bajo consumo; y el VCP
+con `make f3-vcp`. `testf3` sube a **296** comprobaciones (de 193) y «el
+resto», a **99 913 429 462 079 ps**; las siete suites de antes no se mueven.
+
+**Lo que S3 ha destapado fuera del F303** (las siete suites siguen al
+picosegundo con los cuatro arreglos):
+
+* **El núcleo, al volver de una excepción**, desapilaba `xPSR` con la máscara
+  0xF900FDFF, que perdía IT[1:0] y GE; y la instrucción de vuelta borraba el
+  ITSTATE recién desapilado. Una interrupción dentro de un `ITTTT` volvía con el
+  bloque roto (lo destapó `I2C_IsErrorOccurred` de la HAL). Ahora 0xFF0FFDFF, y
+  el ITSTATE se respeta.
+* **El MSP no se guardaba antes de leer la trama de vuelta.** Si una
+  interrupción anidada volvía en mitad de un manejador que luego seguía
+  desapilando, la vuelta final leía la trama unas palabras más abajo y saltaba
+  con T = 0 (`HAL_TimeBase_RTC_WKUP`: el RTC_WKUP se apropia del EXTI0 en
+  `HAL_ResumeTick`).
+* **WFI se despertaba con cualquier excepción pendiente**, también con las que
+  no pueden entrar. ARMv7-M B1.5.19: solo las que se tomarían con PRIMASK = 0.
+  `PWR_STANDBY` entra en Standby desde el manejador del EXTI0, con el SysTick
+  de su misma prioridad pendiente, y no se dormía.
+* **Un acceso a un periférico sin reloj** era un error de bus; en el F3 lee cero
+  y la escritura se pierde (`BusSlave::sin_reloj_ignora`): `HAL_UART_DeInit`
+  escribe antes de que `MspInit` abra el reloj.
+
+**Y en el modelo del F303**, lo que los ejemplos han pedido: el RTC guarda en
+`DR` lo que se escribe aunque no sea una fecha (`HAL_TimeBase_RTC_ALARM` pone
+la fecha a cero y la alarma a día 0); el reset de Standby no saca el pin NRST
+(si no, el PWR lo tomaba por un NRST externo y despertaba al instante);
+`EWUP1` deja vivo el pad de PA0 en Standby; el esclavo SPI no pierde lo que
+se cargó antes del primer flanco; la captura de un TIM con reinicio por
+esclavo ve la cuenta de antes del reinicio; y el TI1 del TIM16 se remapea al
+MCO (`TIM16_OR`), que es como `IWDG_Reset` mide el LSI.
+
+**Lo que es del ejemplo y no del modelo:** `TIM_Asymetric` con la HAL v1.5.9
+usa el mismo manejador para TIM8 y TIM1, y `HAL_TIM_PWM_Start` del TIM8 vuelve
+con `HAL_ERROR`: enciende LD3, el error. F35 lo comprueba así, con el TIM1 en
+marcha y el TIM8 configurado. `PWR_CurrentConsumption` mide corriente, que el
+modelo no tiene: F50-F53 comprueban que entra en el modo y sale por donde dice
+su readme. `FreeRTOS_ThreadCreation`, opcional, no está (habría que versionar
+FreeRTOS para el F3).
+
 **Lo que se ha decidido distinto de lo previsto:**
 
 * **La matriz** (riesgo 6): decodificadores directos, como los MSP432, y no
-  `AhbMatrix`. Con la CPU como único maestro dan los mismos tiempos; la
-  decisión de verdad es de S3, con los DMA.
-* **Los grupos de `testf3`** no son los de §7.1: R1-R7 (S0), F0-F15 (S1) y
-  F16-F19 (S2). La tabla de §7.1 queda como plan de S3 en adelante.
+  `AhbMatrix`. **Decidido en S3**, con los DMA dentro: cada DMA es un iniciador
+  con su socket al decodificador (sin la CCM, como en el silicio) y factura un
+  ciclo de HCLK por fase, sin contención con la CPU. Ningún ejemplo de ST lo
+  nota; lo que se pierde es la medida de contención.
+* **Los grupos de `testf3`** no son los de §7.1: R1-R7 (S0), F0-F15 (S1),
+  F16-F21 (S2) y F22-F53 (S3, uno por ejemplo de ST). La tabla de §7.1 queda
+  como plan de S4 en adelante.
+* **Cada ejemplo de S3 arranca desde un encendido**, no desde un reset por el
+  pin: VBAT va con VDD en la Discovery, y sin cortarla el RTC, `PWR_CSR` y las
+  banderas de `RCC_CSR` llegan del ejemplo anterior (`PWR_STANDBY` despertaba
+  al instante con el despertador que había dejado `PWR_STOP`).
+* **`make f3-dos` es `make f3-vcp`**: el sistema de dos placas se valida y se
+  arranca ahí; el intercambio, que necesita pulsar B1, es de `testf3`.
+* **El IWDG del F3 se para con el reset del sistema** (`IwdgCaps::para_con_reset`);
+  el del F4 no se ha tocado, y queda la duda de si debería (P-18 p).
 * **El MCO del ST-LINK sin onda** (`ExtClock onda="no"`): ocho millones de
   flancos por segundo costaban tres veces el resto de la placa. La pieza dice
   su frecuencia al HSE, que arranca igual en cristal y en bypass.
@@ -719,10 +794,13 @@ como el SDK de TI en `verif/fw/msp432e4/sdk/`), y sus `.bin` llevan huella.
 
 * `make f3-discovery`: la placa con la rosa girando y el pulsador, mirando lo
   que sale (como `make p4-edumkii`).
-* `make f3-dos`: el sistema de dos Discovery con un ejemplo *TwoBoards*.
+* ~~`make f3-dos`~~ `make f3-vcp` (S3): el VCP con `f3_vcp`, y el sistema de
+  dos Discovery validado y en marcha con `UART_TwoBoards_ComIT`.
 * `make openocd` y `make cmsis-dap`: un caso más cada uno, con
   `target/stm32f3x.cfg` (`program … verify reset`).
-* `make serie`: el VCP por RFC 2217.
+* `make serie`: el VCP por RFC 2217 (el de la Discovery es el mismo
+  `PuenteSerie` que el de la Nucleo; los dos de `dos_f3discovery.xml` se
+  reparten el 3355 y el 3356).
 * `verif/gui/sistema.py` (C19 y recuento de piezas) y `verif/gui/argumentos.py`
   (el catálogo crece en uno; el recuento ya no está escrito a mano).
 * En `mcu-sim-gui`, la prueba cruzada G8.
@@ -814,6 +892,8 @@ los *TwoBoards* sobre el sistema de dos placas; `make serie` con el VCP.
 
 **Tamaño:** grande. **Es la fase que más vale fuera del F303**, y conviene
 escribirla para el F0 y el G4.
+
+**Hecha el 20-10-2026** (arriba, «Estado»).
 
 ### S4 · Los sensores de la placa
 
@@ -926,12 +1006,14 @@ S4 la placa queda **completa para un curso** sin lo analógico ni el USB.
    contención CPU/DMA, pero obliga a nombrar en `BusSlaveId` un esclavo de CCM
    que el F4 no tiene. Los decodificadores directos son más simples y pierden
    esa medida. **Recomendación:** la matriz, para que los tiempos de DMA se
-   comparen con los del F4.
+   comparen con los del F4. **Decidido en S3 (20-10-2026)**: decodificadores
+   directos («Estado»); ningún ejemplo de ST nota la diferencia.
 7. **El coste del ADC.** Cuatro ADC a 5 Msps en continuo con DMA son muchos
    sucesos. Hay que medir el coste de simulación en S5 (`doc/coste_simulacion.md`)
    y, si hace falta, agrupar conversiones como hacen ya los temporizadores.
 8. **Revisión A/B frente a C+.** Sin VCP en las primeras. La placa modela la
-   actual (V2-B) y lo dice; la variante sin VCP es quitar una pieza.
+   actual (V2-B) y lo dice; la variante sin VCP es quitar una pieza (el
+   `PuenteSerie` VCP, desde S3).
 9. **`L3GD20_TR` (`0xD5`).** El BSP la acepta y no hay hoja de datos pública. Se
    modela la `0xD4` y se dice.
 10. **El nombre del espacio de nombres**, `stm32`, por fin encaja. No hay nada

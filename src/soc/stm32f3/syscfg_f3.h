@@ -17,14 +17,14 @@
 // una vez: son de S5.
 //
 // PWR, en 0x4000_7000 [CMSIS: PWR_TypeDef]: CR (LPDS, PDDS, CWUF, CSBF, PVDE,
-// PLS, DBP) y CSR (WUF, SBF, PVDO, VREFINTRDYF, EWUP1-3). De lo que hace, aquí
-// solo cuenta DBP —que abre el dominio de respaldo al RCC y al RTC— y VREFINTRDYF;
-// los modos de bajo consumo son de S3.
+// PLS, DBP) y CSR (WUF, SBF, PVDO, VREFINTRDYF, EWUP1-3); los modos de bajo
+// consumo, desde S3 (abajo).
 // =============================================================================
 #ifndef STM32_SOC_STM32F3_SYSCFG_F3_H
 #define STM32_SOC_STM32F3_SYSCFG_F3_H
 
 #include <cstdio>
+#include <functional>
 #include "../../common/periph_base.h"
 #include "f3_desc.h"
 
@@ -39,6 +39,8 @@ public:
 
     sc_core::sc_vector<sc_core::sc_out<uint8_t>> exticr_sel;   // [16] -> EXTI
     sc_core::sc_in<uint8_t> boot{"boot"};                      // lo muestreado al salir de reset
+    // CFGR1 hacia el SoC (S3): los remapeos del DMA y el ITR3 del TIM1
+    sc_core::sc_out<uint32_t> cfgr1_sig{"cfgr1_sig"};
 
     explicit SyscfgF3(sc_core::sc_module_name nm)
         : BusSlave(nm, f3::SYSCFG_B, 0x400), exticr_sel("exticr_sel", 16) {
@@ -114,6 +116,7 @@ private:
     sc_core::sc_event pub_ev_;
 
     void pub_proc() {
+        cfgr1_sig.write(cfgr1_);
         for (unsigned l = 0; l < 16; ++l)
             exticr_sel[l].write(uint8_t((exticr_[l / 4] >> (4 * (l % 4))) & 0xFu));
     }
@@ -130,24 +133,89 @@ private:
     }
 };
 
+// -----------------------------------------------------------------------------
+// EL PWR (fase S3): los cuatro modos, el PVD y los pines de despertar
+//
+//   Run      todo en marcha
+//   Sleep    WFI/WFE con SLEEPDEEP = 0: se para el núcleo, los relojes no
+//   Stop     SLEEPDEEP = 1 y PDDS = 0: se paran todos los relojes del dominio
+//            de 1,8 V, y el HSI, el HSE y el PLL se apagan; la SRAM y los
+//            registros se conservan. Despierta cualquier línea del EXTI, y al
+//            despertar SYSCLK es el HSI: hay que volver a poner el PLL
+//            [RM0316 §7.3.5]
+//   Standby  SLEEPDEEP = 1 y PDDS = 1: se apaga el dominio de 1,8 V. Despiertan
+//            un flanco de subida en un WKUP habilitado (PA0, PC13, PE6), la
+//            alarma, el despertador, el sello de tiempo y la intrusión del RTC,
+//            y NRST; la salida es un reset de alimentación, con SBF en CSR
+//            [RM0316 §7.3.6]
+//
+// Con nRST_STOP o nRST_STDBY a cero en los bytes de opción, entrar en el modo
+// es un reset (LPWRRSTF) en vez de dormir [RM0316 §9.1.2]. Con DBG_STOP o
+// DBG_STANDBY (DBGMCU_CR) se entra en el modo pero no se quitan los relojes,
+// para que la sonda no pierda el chip [RM0316 §33.16.3].
+//
+// Los tiempos de despertar son los típicos de DS9118 a 3,3 V (tabla 39). El
+// PVD compara el nivel REAL de VDD con PLS, con los umbrales y la histéresis
+// de la tabla 27, y va a la línea 16 del EXTI.
+//
+// LO QUE NO HAY: modelo de corriente (s_idd sigue a cero) y despertar desde
+// Stop por las USART o los I²C (UESM, WUPEN).
+// -----------------------------------------------------------------------------
 class PwrF3 : public BusSlave {
 public:
     enum : uint32_t { R_CR = 0x00, R_CSR = 0x04 };
-    sc_core::sc_out<bool> dbp{"dbp"};
+    static constexpr uint32_t CR_LPDS = 1u << 0, CR_PDDS = 1u << 1, CR_CWUF = 1u << 2,
+        CR_CSBF = 1u << 3, CR_PVDE = 1u << 4, CR_DBP = 1u << 8;
+    static constexpr uint32_t CSR_WUF = 1u << 0, CSR_SBF = 1u << 1, CSR_PVDO = 1u << 2,
+        CSR_VREFINTRDYF = 1u << 3, CSR_EWUP1 = 1u << 8;
 
-    explicit PwrF3(sc_core::sc_module_name nm) : BusSlave(nm, f3::PWR_B, 0x400) {
+    sc_core::sc_out<bool> dbp{"dbp"};
+    sc_core::sc_out<bool> pvd{"pvd"};                     // -> línea 16 del EXTI
+    sc_core::sc_out<bool> standby_pines{"standby_pines"}; // -> los pads en alta impedancia
+    sc_core::sc_out<bool> ewup1{"ewup1"};                 // -> PA0 sigue vivo en Standby
+    sc_core::sc_in<double> vdd_lvl{"vdd_lvl"};
+    sc_core::sc_in<bool> sleeping{"sleeping"}, sleepdeep{"sleepdeep"};
+    sc_core::sc_in<bool> exti_wakeup{"exti_wakeup"};
+    sc_core::sc_in<bool> nrst_n{"nrst_n"};
+    sc_core::sc_in<uint8_t> dbg_lp{"dbg_lp"};             // DBGMCU_CR[2:0]
+    sc_core::sc_vector<sc_core::sc_in<bool>> wkup;        // [3] PA0, PC13, PE6
+    sc_core::sc_vector<sc_core::sc_in<bool>> rtc_ev;      // alarma, sello/intrusión, despertador
+
+    // Lo que el SoC hace al entrar y salir: parar los relojes (el RCC), el
+    // dominio de 1,8 V (el RCC, como un reset que dura), y las opciones
+    std::function<void(bool)> al_parar, al_standby;
+    std::function<void()> reset_bajo_consumo;             // nRST_STOP / nRST_STDBY a cero
+    std::function<bool()> nrst_stop, nrst_stdby;          // los bits de opción (1 = duerme)
+
+    sc_core::sc_time t_wu_stop_mr{3600, sc_core::SC_NS};   // [DS9118, tabla 39, 3,3 V]
+    sc_core::sc_time t_wu_stop_lp{5400, sc_core::SC_NS};
+    sc_core::sc_time t_wu_standby{51700, sc_core::SC_NS};
+
+    explicit PwrF3(sc_core::sc_module_name nm)
+        : BusSlave(nm, f3::PWR_B, 0x400), wkup("wkup", 3), rtc_ev("rtc_ev", 3) {
         SC_HAS_PROCESS(PwrF3);
         SC_METHOD(pub_proc); sensitive << pub_ev_;
         SC_METHOD(reset_proc); sensitive << rst_n;
+        SC_METHOD(vigila_proc);
+        sensitive << vdd_lvl << sleeping << sleepdeep << exti_wakeup << nrst_n;
+        for (unsigned i = 0; i < 3; ++i) sensitive << wkup[i] << rtc_ev[i];
+        dont_initialize();
+        SC_THREAD(fsm);
     }
     uint32_t cr() const { return cr_; }
+    LpMode modo() const { return modo_; }
+    unsigned entradas_stop() const { return n_stop_; }
+    unsigned entradas_standby() const { return n_stby_; }
+    unsigned despertares() const { return n_desp_; }
 
 protected:
+    // El PWR está en el dominio de VDD: responde aunque su reloj esté cortado
+    // (PWREN solo hace falta para escribir; aquí, como en el F4, se pide)
     uint32_t reg_read(uint32_t off) override {
         switch (off) {
             case R_CR:  return cr_;
             // VREFINTRDYF: la referencia está lista en cuanto hay tensión
-            case R_CSR: return csr_ | (1u << 3);
+            case R_CSR: return csr_ | CSR_VREFINTRDYF;
             default:    return 0;
         }
     }
@@ -159,23 +227,141 @@ protected:
         }
         switch (off) {
             case R_CR:
-                if (v & (1u << 2)) csr_ &= ~1u;            // CWUF
-                if (v & (1u << 3)) csr_ &= ~2u;            // CSBF
+                if (v & CR_CWUF) csr_ &= ~CSR_WUF;
+                if (v & CR_CSBF) csr_ &= ~CSR_SBF;
                 cr_ = v & 0x1F3u;                          // LPDS, PDDS, PVDE, PLS, DBP
+                actualiza_pvd();
                 break;
             case R_CSR: csr_ = (csr_ & 0x7u) | (v & 0x700u); break;   // EWUP1-3
             default: return;
         }
         pub_ev_.notify(sc_core::SC_ZERO_TIME);
+        fsm_ev_.notify(sc_core::SC_ZERO_TIME);
     }
+
 private:
     uint32_t cr_ = 0, csr_ = 0;
-    sc_core::sc_event pub_ev_;
-    void pub_proc() { dbp.write((cr_ >> 8) & 1u); }
+    LpMode modo_ = LP_RUN;
+    bool pvdo_ = false, o_stby_pines_ = false;
+    bool wk_ant_[3] = {};
+    unsigned n_stop_ = 0, n_stby_ = 0, n_desp_ = 0;
+    sc_core::sc_event pub_ev_, fsm_ev_;
+
+    bool dbg_stop() const { return (dbg_lp.read() & 2u) != 0; }
+    bool dbg_standby() const { return (dbg_lp.read() & 4u) != 0; }
+
+    void pub_proc() {
+        dbp.write((cr_ >> 8) & 1u);
+        pvd.write(pvdo_);
+        standby_pines.write(o_stby_pines_);
+        ewup1.write((csr_ & CSR_EWUP1) != 0);
+    }
+    // Un reset del sistema -incluida la salida del Standby- no borra WUF, SBF
+    // ni EWUPx: son los que le dicen al firmware por qué ha arrancado. Solo
+    // la pérdida de VDD los borra [RM0316 §7.4.2]
     void reset_proc() {
         if (rst_n.read()) return;
-        cr_ = 0; csr_ = 0;
+        const bool vdd_ok = vdd_lvl.read() > 1.7;
+        cr_ = 0;
+        csr_ = vdd_ok ? (csr_ & (CSR_WUF | CSR_SBF | 0x700u)) : 0u;
+        actualiza_pvd();
         pub_ev_.notify(sc_core::SC_ZERO_TIME);
+    }
+
+    // PLS: umbral de bajada y, 100 mV por encima, el de subida [DS9118, tabla 27]
+    void actualiza_pvd() {
+        const double v = vdd_lvl.read();
+        if (!(cr_ & CR_PVDE) || v < 0.3) { pvdo_ = false; csr_ &= ~CSR_PVDO; return; }
+        static const double baja[8] = {2.08, 2.18, 2.28, 2.38, 2.48, 2.58, 2.68, 2.78};
+        const double u = baja[(cr_ >> 5) & 7u];
+        if (pvdo_) { if (v > u + 0.1) pvdo_ = false; }
+        else       { if (v < u) pvdo_ = true; }
+        if (pvdo_) csr_ |= CSR_PVDO; else csr_ &= ~CSR_PVDO;
+    }
+
+    void vigila_proc() {
+        actualiza_pvd();
+        // Un flanco de subida en un WKUP habilitado pone WUF, esté el chip donde esté
+        for (unsigned i = 0; i < 3; ++i) {
+            const bool w = wkup[i].read();
+            if (w && !wk_ant_[i] && (csr_ & (CSR_EWUP1 << i))) csr_ |= CSR_WUF;
+            wk_ant_[i] = w;
+        }
+        pub_ev_.notify(sc_core::SC_ZERO_TIME);
+        fsm_ev_.notify(sc_core::SC_ZERO_TIME);
+    }
+    bool despierta_standby() const {
+        for (unsigned i = 0; i < 3; ++i)
+            if ((csr_ & (CSR_EWUP1 << i)) && wkup[i].read()) return true;
+        for (unsigned i = 0; i < 3; ++i) if (rtc_ev[i].read()) return true;
+        return !nrst_n.read();
+    }
+    void modo(LpMode m) {
+        if (modo_ == m) return;
+        if (m == LP_RUN) ++n_desp_;
+        modo_ = m;
+    }
+
+    void fsm() {
+        for (;;) {
+            while (!sleeping.read()) wait(fsm_ev_);
+            if (!sleepdeep.read()) {
+                // ---------------- Sleep ---------------------------------------------
+                modo(LP_SLEEP);
+                while (sleeping.read()) wait(fsm_ev_);
+                modo(LP_RUN);
+                continue;
+            }
+            if (!(cr_ & CR_PDDS)) {
+                // ---------------- Stop ----------------------------------------------
+                if (nrst_stop && !nrst_stop()) {
+                    if (reset_bajo_consumo) reset_bajo_consumo();
+                    while (sleeping.read()) wait(fsm_ev_);
+                    continue;
+                }
+                ++n_stop_;
+                modo(LP_STOP);
+                const bool para = !dbg_stop();
+                if (para && al_parar) al_parar(true);
+                while (sleeping.read() && !exti_wakeup.read()) wait(fsm_ev_);
+                if (para && al_parar) al_parar(false);
+                wait((cr_ & CR_LPDS) ? t_wu_stop_lp : t_wu_stop_mr);
+                modo(LP_RUN);
+                // El sistema ha salido; el núcleo, todavía no: hasta que vea su
+                // despertador sigue con SLEEPDEEP, y sin esta espera volvería a
+                // entrar en el mismo instante
+                while (sleeping.read()) wait(fsm_ev_);
+                continue;
+            }
+            // ---------------- Standby -----------------------------------------------
+            // Con WUF puesto no se entra: se despierta enseguida [RM0316 §7.3.6]
+            if (csr_ & CSR_WUF) { wait(fsm_ev_); continue; }
+            if (nrst_stdby && !nrst_stdby()) {
+                if (reset_bajo_consumo) reset_bajo_consumo();
+                while (sleeping.read()) wait(fsm_ev_);
+                continue;
+            }
+            ++n_stby_;
+            csr_ |= CSR_SBF;
+            modo(LP_STANDBY);
+            if (dbg_standby()) {
+                // Con DBG_STANDBY el dominio de 1,8 V sigue vivo: sin reset
+                while (sleeping.read() && !despierta_standby()) wait(fsm_ev_);
+                modo(LP_RUN);
+                while (sleeping.read()) wait(fsm_ev_);
+                continue;
+            }
+            o_stby_pines_ = true; pub_ev_.notify(sc_core::SC_ZERO_TIME);
+            if (al_standby) al_standby(true);
+            // Lo que despierta ya ha podido llegar: espera a que se vaya y
+            // vuelva, salvo el NRST, que es un nivel
+            while (!despierta_standby()) wait(fsm_ev_);
+            wait(t_wu_standby);
+            o_stby_pines_ = false; pub_ev_.notify(sc_core::SC_ZERO_TIME);
+            if (al_standby) al_standby(false);
+            modo(LP_RUN);
+            while (sleeping.read()) wait(fsm_ev_);
+        }
     }
 };
 

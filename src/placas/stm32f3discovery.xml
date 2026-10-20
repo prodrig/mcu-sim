@@ -35,8 +35,9 @@
         LSE se queda esperando LSERDY. Para soldarlo, quitese conectada="no".
 
      4. EL PUERTO COM VIRTUAL solo existe desde la revision C (ST-LINK/V2-B),
-        y es la USART1 en PC4/PC5, no la USART2 de las Nucleo. Llega con la
-        USART en la fase S3; esta primera version de la placa no lo lleva.
+        y es la USART1 en PC4/PC5, no la USART2 de las Nucleo (S3): el VCP
+        de abajo, como el de la Nucleo, por RFC 2217 en el 3355. Con
+        --serie VCP=memoria no abre nada.
 
      5. LOS SENSORES (el giroscopo L3GD20 o I3G4250D en SPI1 y la brujula
         LSM303DLHC o LSM303AGR en I2C1, segun la revision) son de la fase S4.
@@ -139,6 +140,21 @@
   <nodo id="BOOT0" bus="si"/>
   <componente tipo="Rpull" id="R_BOOT0" v="0" r="510" visible="no">
     <pin nombre="a" nodo="BOOT0"/>
+  </componente>
+
+  <!-- VCP: el puerto COM virtual del ST-LINK/V2-B [UM1570, §6.2.3 y tabla
+       6]. Desde la revision C, SB13 y SB15 estan cerrados y la USART1 del
+       chip -PC4 su TX, PC5 su RX- va a los pines 12 y 13 del ST-LINK, que la
+       saca por el mismo cable USB que la depuracion. Aqui, como en la
+       Nucleo, un puente UART por RFC 2217 en el 3355, con los baudios y el
+       formato que ponga el terminal (doc/puente_serie.md); sus patillas se
+       llaman como las del adaptador: su rx lee el TX del MCU. Sin RTS ni
+       CTS. Dos Discovery en un sistema (dos_f3discovery.xml) piden las dos el
+       3355: la segunda se corre al siguiente libre, y se dice -->
+  <componente tipo="PuenteSerie" id="VCP" host="rfc2217:3355"
+              baudios="host" formato="8N1" muestra="si">
+    <pin nombre="rx" nodo="PC4"/>   <!-- USART1_TX -->
+    <pin nombre="tx" nodo="PC5"/>   <!-- USART1_RX -->
   </componente>
 
   <!-- La depuracion: el ST-LINK por SWD en PA13 (SWDIO) y PA14 (SWCLK), y

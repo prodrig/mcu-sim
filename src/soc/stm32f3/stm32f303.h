@@ -1,5 +1,5 @@
 // =============================================================================
-// stm32f303.h — EL STM32F303VC (fase S1 del plan del F303)
+// stm32f303.h — EL STM32F303VC (fases S1-S3 del plan del F303)
 //
 // Un SoC PROPIO y no una derivada de `SocF4`, por lo que dice §3.4 del
 // análisis: cambian el RCC, la Flash, el DMA, los buses (GPIO en AHB2, ADC en
@@ -18,12 +18,18 @@
 //                 del F3 como dato
 //
 // y lo nuevo: `RccF3` (rcc/rcc_f3.h), `FlashF1` (mem/flash_f1.h), el SYSCFG y
-// el PWR (syscfg_f3.h) y la memoria de sistema (aquí abajo).
+// el PWR (syscfg_f3.h) y la memoria de sistema (aquí abajo). Y desde S3 los
+// periféricos de segunda generación: `UsartV2` (periph/usart_v2.h), `DmaCanal`
+// (periph/dma_canal.h) con la tabla de peticiones y los remapeos de
+// SYSCFG_CFGR1, el SPI v3 y el I2S, `FmpI2c` en I2C1/2 con el reloj de
+// RCC_CFGR3, los TIM v3 con su red de ITR, IWDG con ventana, WWDG, RTC, CRC
+// programable, y Sleep/Stop/Standby en el PWR (conecta_s3()).
 //
-// LA MATRIZ: decodificadores directos, como los MSP432, y no `AhbMatrix`. Con
-// la CPU como único maestro los dos dan los mismos tiempos; la contención con
-// los DMA, que es lo que la matriz mide, llega con los DMA en S3, y es allí
-// donde se decide (§9, riesgo 6).
+// LA MATRIZ: decodificadores directos, como los MSP432, y no `AhbMatrix`.
+// Decidido en S3 con los DMA dentro (§9, riesgo 6): cada DMA es un iniciador
+// con su propio socket al decodificador y factura un ciclo de HCLK por fase,
+// sin contención con la CPU. Ningún ejemplo de ST de S3 la nota; la que se
+// pierde es la que mediría AhbMatrix.
 //
 // LO DEMÁS, DECLARADO: ocupa su ventana, avisa una vez con la fase que le toca
 // y lee cero (`periph/bloque_declarado.h`). `limitaciones()` lo enumera.
@@ -51,6 +57,14 @@
 #include "../../periph/gpio_port.h"
 #include "../../periph/exti.h"
 #include "../../periph/bloque_declarado.h"
+#include "../../periph/usart_v2.h"
+#include "../../periph/dma_canal.h"
+#include "../../periph/timers.h"
+#include "../../periph/spi.h"
+#include "../../periph/fmpi2c.h"
+#include "../../periph/watchdog.h"
+#include "../../periph/rtc.h"
+#include "../../periph/crc.h"
 
 namespace stm32 {
 
@@ -155,6 +169,26 @@ public:
     Exti      exti;
     SyscfgF3  syscfg{"syscfg"};
     PwrF3     pwr{"pwr"};
+
+    // --- Los periféricos de segunda generación (S3) --------------------------------
+    DmaCanal  dma1{"dma1", f3::DMA1_B, 7}, dma2{"dma2", f3::DMA2_B, 5};
+    CrcUnit   crc{"crc", CRC_F3};
+    // Los diez temporizadores, del MISMO modelo con los rasgos v3 [periph/timers.h]
+    TimerBase tim1{"tim1", f3::TIM1_B, CAPS_F3_TIM_ADV}, tim8{"tim8", f3::TIM8_B, CAPS_F3_TIM_ADV};
+    TimerBase tim2{"tim2", f3::TIM2_B, CAPS_F3_TIM_GP32};
+    TimerBase tim3{"tim3", f3::TIM3_B, CAPS_F3_TIM_GP16}, tim4{"tim4", f3::TIM4_B, CAPS_F3_TIM_GP16};
+    TimerBase tim6{"tim6", f3::TIM6_B, CAPS_F3_TIM_BASIC}, tim7{"tim7", f3::TIM7_B, CAPS_F3_TIM_BASIC};
+    TimerBase tim15{"tim15", f3::TIM15_B, CAPS_F3_TIM15};
+    TimerBase tim16{"tim16", f3::TIM16_B, CAPS_F3_TIM16_RMP}, tim17{"tim17", f3::TIM17_B, CAPS_F3_TIM16};
+    UsartV2   usart1{"usart1", f3::USART1_B, CAPS_F3_USART}, usart2{"usart2", f3::USART2_B, CAPS_F3_USART};
+    UsartV2   usart3{"usart3", f3::USART3_B, CAPS_F3_USART};
+    UsartV2   uart4{"uart4", f3::UART4_B, CAPS_F3_UART4}, uart5{"uart5", f3::UART5_B, CAPS_F3_UART5};
+    SpiBase   spi1{"spi1", f3::SPI1_B, CAPS_F3_SPI1};
+    SpiBase   spi2{"spi2", f3::SPI2_B, CAPS_F3_SPI_I2S}, spi3{"spi3", f3::SPI3_B, CAPS_F3_SPI_I2S};
+    FmpI2c    i2c1{"i2c1", f3::I2C1_B}, i2c2{"i2c2", f3::I2C2_B};
+    Iwdg      iwdg{"iwdg", IWDG_F3};
+    Wwdg      wwdg{"wwdg"};
+    Rtc       rtc{"rtc", RTC_F3};
     std::vector<BloqueDeclarado*> declarados;
     static constexpr unsigned N_PUERTOS = 6;
 
@@ -186,12 +220,29 @@ public:
         conecta_bus();
         conecta_pines();
         conecta_irq();
+        conecta_s3();
+        conecta_pines_s3();
         SC_METHOD(boot_proc);
         sensitive << s_boot0_ << s_sysrst_n_ << boot_ev_;
         SC_METHOD(irq_exti_proc);
         for (unsigned i = 0; i < s_exti_lin_.size(); ++i) sensitive << s_exti_lin_[i];
         dont_initialize();
         SC_METHOD(mco_proc); sensitive << mco_ev_;
+        SC_METHOD(irq_tim_proc);
+        for (unsigned k = 0; k < N_TIM; ++k) for (unsigned j = 0; j < 5; ++j) sensitive << s_tirq_[k][j];
+        dont_initialize();
+        SC_METHOD(dma_req_proc);
+        sensitive << s_cfgr1_;
+        for (unsigned k = 0; k < N_TIM; ++k) for (unsigned j = 0; j < 7; ++j) sensitive << q_t_[k][j];
+        for (auto& q : q_u_) sensitive << q[0] << q[1];
+        for (auto& q : q_spi_) sensitive << q[0] << q[1];
+        for (auto& q : q_i2c_) sensitive << q[0] << q[1];
+        dont_initialize();
+        SC_METHOD(itr3_proc); sensitive << s_cfgr1_ << s_trgo_[T4] << tim17.ch_out[0];
+        SC_METHOD(irtim_proc); sensitive << tim16.ch_out[0] << tim17.ch_out[0];
+        // El TI1 del TIM16 desde dentro: el MCO (OR.TI1_RMP = 11) [HAL: TIM_TIM16_MCO]
+        SC_METHOD(ti16_proc); sensitive << rcc.mco_sig;
+        SC_METHOD(iwdg_proc); sensitive << s_iwdg_lsi_ << s_sysrst_n_;
         // Sin las ondas de los relojes internos, como el E4: lo que cuenta
         // ciclos trabaja con la frecuencia (common/clock_gen.h)
         // El `load` de GDB programa esta Flash con su FPEC (S2)
@@ -219,25 +270,31 @@ public:
 
     std::vector<std::string> limitaciones() const {
         return {
-            "fases S1 y S2 del plan del F303: nucleo, reloj, Flash (lectura y FPEC: "
-            "PG, PER, MER, bytes de opcion, OBL_LAUNCH), SRAM, CCM ejecutable, memoria "
-            "de sistema, GPIO, EXTI y SYSCFG. El resto esta DECLARADO: contesta, lee "
-            "cero y avisa una vez",
+            "fases S1, S2 y S3 del plan del F303: nucleo, reloj, Flash (lectura y FPEC), SRAM, "
+            "CCM ejecutable, memoria de sistema, GPIO, EXTI, SYSCFG, PWR con Sleep, Stop y "
+            "Standby, DMA1/2, USART1-3 y UART4/5 (v2), SPI1-3 (v3), I2C1/2, TIM1/2/3/4/6/7/8/15/16/17 "
+            "e IRTIM, IWDG con ventana, WWDG, RTC y CRC programable. El resto esta DECLARADO: "
+            "contesta, lee cero y avisa una vez",
             "la proteccion de lectura (RDP) esta a medias: el nivel se carga en FLASH_OBR, "
             "volver al 0 borra la Flash y el 2 bloquea los bytes de opcion, pero el 1 no "
             "cierra la Flash al depurador ni el 2 apaga la depuracion; la Flash se programa "
             "con los tiempos de DS9118 (53,5 us por media palabra, 20 ms por pagina)",
             "el NMI del CSS es un pulso por fallo, no se repite hasta CSSC; el HSE que "
-            "falla no avisa a la entrada de freno de los TIM (S3)",
-            "DMA1/2, USART1-3, UART4/5, SPI1-3 e I2S, I2C1/2, TIM1-17, IWDG, WWDG, RTC "
-            "y CRC: fase S3",
+            "falla no llega a la entrada de freno de los TIM, ni el PVD ni el LOCKUP",
+            "los DMA no pasan por una matriz: cada acceso factura un ciclo de HCLK por fase, "
+            "sin contencion con la CPU; no ven la CCM, como en el silicio",
+            "las USART v2 no modelan Smartcard, IrDA, el auto-baud ni el despertar del Stop "
+            "(UESM); los I2C tampoco despiertan del Stop (WUPEN), ni calculan el PEC",
+            "el I2S en duplex completo (I2S2ext, I2S3ext) esta declarado; el I2S_CKIN no "
+            "tiene reloj; el ITR de los TIM15 desde el TIM16/17 es la salida del pin (OC1), "
+            "no OC1REF",
             "ADC1-4, DAC1, COMP1-7, OPAMP1-4 y TSC: fase S5; USB y CAN: fase S6",
             "la memoria de sistema no lleva el cargador de ST (S7, opcional): arranca "
             "un stub que deja 'MSYS' en 0x2000_0000 y se aparca en wfe",
             "la calibracion de fabrica (TS_CAL1/2, VREFINT_CAL) y el UID son valores "
             "tipicos del modelo, no de un chip",
-            "sin bajo consumo (Sleep, Stop, Standby) ni modelo de corriente; WFI solo "
-            "duerme el nucleo",
+            "sin modelo de corriente en los modos de bajo consumo; en Standby el IWDG se "
+            "para (el silicio lo deja contando)",
             "la linea 81 de la FPU (FPU_IE) no llega al NVIC, como en el F4",
         };
     }
@@ -314,8 +371,10 @@ private:
         pwr_pads.drive_nrst_low(s_nrst_drv_);
         pwr_pads.idd_req(s_idd_);
         pwr_pads.ibat_req(s_ibat_);
-        pinmux.standby(s_false_);
-        pinmux.wkup_en(s_false_);
+        pinmux.standby(s_stby_pines_);
+        // EWUP1 deja PA0 vivo en Standby: si no, el pad se apaga como los
+        // demas y WKUP1 no despierta [RM0316 §7.2.5, §7.3.6]
+        pinmux.wkup_en(s_ewup1_);
         pinmux.dbg_pins(s_false_);
         // El HSE por PF0-OSC_IN, el LSE por PC14-OSC32_IN [PINDATA]
         rcc.hse.xtal_in = &pinmux.analog(5, 0);
@@ -359,6 +418,9 @@ private:
         b.clk(clk); b.clk_hz(hz);
         b.rst_n(rcc.s_rst_n[id]); b.clk_en(rcc.s_en[id]);
         b.clk_en_live = rcc.clk_en_ptr(id);
+        // Sin reloj, el acceso se pierde sin error, como en el silicio [RM0316
+        // §9.4.6-9.4.8: «registers read or write access is not supported»]
+        b.sin_reloj_ignora = true;
     }
     template <class B>
     void engancha_sin_reloj(B& b, AhbDecoder& d, sc_core::sc_signal<bool>& clk,
@@ -397,18 +459,14 @@ private:
         flash.al_obl = [this] { rcc.pide_reset_obl(); };
         flash.latencia_minima = [](double f) { return f3::latencia_minima(f); };
 
-        const char* S3 = "Es de la fase S3 del plan (doc/analisis_stm32f303.md, S3).";
         const char* S5 = "Es de la fase S5 del plan (doc/analisis_stm32f303.md, S5).";
         const char* S6 = "Es de la fase S6 del plan (doc/analisis_stm32f303.md, S6).";
         auto& H = s_hclk_;  auto& Hz = s_hclk_hz_;
         auto& P1 = s_pclk1_; auto& P1z = s_pclk1_hz_;
         auto& P2 = s_pclk2_; auto& P2z = s_pclk2_hz_;
         // --- AHB1 --------------------------------------------------------------------
-        declara("dma1", f3::DMA1_B, 0x400, ahb1, H, Hz, F3P_DMA1, S3);
-        declara("dma2", f3::DMA2_B, 0x400, ahb1, H, Hz, F3P_DMA2, S3);
         ahb1.add_slave("s_rcc", rcc.base(), rcc.size())->bind(rcc.tsk);   // sus relojes, arriba
         engancha(flash, ahb1, H, Hz, F3P_FLITF);
-        declara("crc", f3::CRC_B, 0x400, ahb1, H, Hz, F3P_CRC, S3);
         declara("tsc", f3::TSC_B, 0x400, ahb1, H, Hz, F3P_TSC, S5);
         // --- AHB2: los GPIO ------------------------------------------------------------
         for (unsigned p = 0; p < N_PUERTOS; ++p) engancha(gpio[p], ahb2, H, Hz, F3P_GPIOA + p);
@@ -416,24 +474,13 @@ private:
         declara("adc12", f3::ADC12_B, 0x400, ahb3, H, Hz, F3P_ADC12, S5);
         declara("adc34", f3::ADC34_B, 0x400, ahb3, H, Hz, F3P_ADC34, S5);
         // --- APB1 ----------------------------------------------------------------------
-        declara("tim2", f3::TIM2_B, 0x400, apb1, P1, P1z, F3P_TIM2, S3);
-        declara("tim3", f3::TIM3_B, 0x400, apb1, P1, P1z, F3P_TIM3, S3);
-        declara("tim4", f3::TIM4_B, 0x400, apb1, P1, P1z, F3P_TIM4, S3);
-        declara("tim6", f3::TIM6_B, 0x400, apb1, P1, P1z, F3P_TIM6, S3);
-        declara("tim7", f3::TIM7_B, 0x400, apb1, P1, P1z, F3P_TIM7, S3);
-        declara("rtc", f3::RTC_B, 0x400, apb1, P1, P1z, -1, S3);
-        declara("wwdg", f3::WWDG_B, 0x400, apb1, P1, P1z, F3P_WWDG, S3);
-        declara("iwdg", f3::IWDG_B, 0x400, apb1, P1, P1z, -1, S3);
-        declara("i2s2ext", f3::I2S2EXT_B, 0x400, apb1, P1, P1z, F3P_SPI2, S3);
-        declara("spi2", f3::SPI2_B, 0x400, apb1, P1, P1z, F3P_SPI2, S3);
-        declara("spi3", f3::SPI3_B, 0x400, apb1, P1, P1z, F3P_SPI3, S3);
-        declara("i2s3ext", f3::I2S3EXT_B, 0x400, apb1, P1, P1z, F3P_SPI3, S3);
-        declara("usart2", f3::USART2_B, 0x400, apb1, P1, P1z, F3P_USART2, S3);
-        declara("usart3", f3::USART3_B, 0x400, apb1, P1, P1z, F3P_USART3, S3);
-        declara("uart4", f3::UART4_B, 0x400, apb1, P1, P1z, F3P_UART4, S3);
-        declara("uart5", f3::UART5_B, 0x400, apb1, P1, P1z, F3P_UART5, S3);
-        declara("i2c1", f3::I2C1_B, 0x400, apb1, P1, P1z, F3P_I2C1, S3);
-        declara("i2c2", f3::I2C2_B, 0x400, apb1, P1, P1z, F3P_I2C2, S3);
+        // Los bloques de extension del I2S (el duplex completo): la base de pines
+        // de ST no les da pin propio -comparten el MISO del SPI-, y quedan
+        // declarados hasta que algo los pida
+        const char* EXT = "El I2S en duplex completo (I2SxEXT) no esta modelado: comparte el pin de "
+                          "MISO del SPI, y la base de pines de ST no lo lista.";
+        declara("i2s2ext", f3::I2S2EXT_B, 0x400, apb1, P1, P1z, F3P_SPI2, EXT);
+        declara("i2s3ext", f3::I2S3EXT_B, 0x400, apb1, P1, P1z, F3P_SPI3, EXT);
         declara("usb", f3::USB_B, 0x400, apb1, P1, P1z, F3P_USB, S6);
         declara("usb_pma", f3::USB_PMA_B, 0x400, apb1, P1, P1z, F3P_USB, S6);
         declara("can", f3::CAN_B, 0x400, apb1, P1, P1z, F3P_CAN, S6);
@@ -442,13 +489,6 @@ private:
         // --- APB2 ----------------------------------------------------------------------
         engancha(syscfg, apb2, P2, P2z, F3P_SYSCFG);
         engancha_sin_reloj(exti, apb2, P2, P2z);
-        declara("tim1", f3::TIM1_B, 0x400, apb2, P2, P2z, F3P_TIM1, S3);
-        declara("spi1", f3::SPI1_B, 0x400, apb2, P2, P2z, F3P_SPI1, S3);
-        declara("tim8", f3::TIM8_B, 0x400, apb2, P2, P2z, F3P_TIM8, S3);
-        declara("usart1", f3::USART1_B, 0x400, apb2, P2, P2z, F3P_USART1, S3);
-        declara("tim15", f3::TIM15_B, 0x400, apb2, P2, P2z, F3P_TIM15, S3);
-        declara("tim16", f3::TIM16_B, 0x400, apb2, P2, P2z, F3P_TIM16, S3);
-        declara("tim17", f3::TIM17_B, 0x400, apb2, P2, P2z, F3P_TIM17, S3);
         // El PWR abre el dominio de respaldo
         pwr.dbp(s_dbp_);
         // El SYSCFG: EXTICR hacia el EXTI, y los pines de arranque
@@ -485,6 +525,302 @@ private:
         for (const PinAf& x : tabla_af())
             if (x.af == 15 && std::strcmp(x.senal, "EVENTOUT") == 0)
                 pinmux.connect_af(x.puerto, x.pin, 15, af(&s_evt_out_, &s_true_, nullptr));
+    }
+
+    // =======================================================================
+    // S3: LOS PERIFÉRICOS DE SEGUNDA GENERACIÓN
+    // =======================================================================
+    enum : unsigned { T1, T2, T3, T4, T6, T7, T8, T15, T16, T17, N_TIM };
+    TimerBase* tim_[N_TIM] = {};
+    sc_core::sc_signal<bool> s_trgo_[N_TIM];
+    sc_core::sc_signal<bool> q_t_[N_TIM][7];        // TimerBase::DmaLine
+    sc_core::sc_signal<bool> s_tirq_[N_TIM][5];     // global, up, cc, trg_com, brk
+    sc_core::sc_signal<bool> q_u_[5][2], q_spi_[3][2], q_i2c_[2][2];   // rx, tx
+    sc_core::sc_vector<sc_core::sc_signal<bool>> s_dreq1_{"s_dreq1", 7}, s_dreq2_{"s_dreq2", 5};
+    sc_core::sc_signal<uint32_t> s_cfgr1_{"s_cfgr1"};
+    sc_core::sc_signal<bool> s_t1_itr3_{"s_t1_itr3"}, s_irout_{"s_irout"};
+    sc_core::sc_signal<bool> s_iwdg_lsi_{"s_iwdg_lsi"}, s_iwdg_hw_{"s_iwdg_hw"};
+    sc_core::sc_signal<bool> s_stby_pines_{"s_stby_pines"};
+    sc_core::sc_signal<bool> s_ewup1_{"s_ewup1"};
+    sc_core::sc_signal<double> s_cero_hz_{"s_cero_hz"};
+    sc_core::sc_vector<sc_core::sc_signal<bool>> s_nc_{"s_nc", 96};
+    unsigned nc_ = 0;
+    sc_core::sc_signal<bool>& nc() { return s_nc_[nc_++]; }
+    tlm_utils::simple_target_socket<SocF3> t_dma1_{"t_dma1"}, t_dma2_{"t_dma2"};
+
+    void tim(TimerBase& t, unsigned k, AhbDecoder& d, sc_core::sc_signal<bool>& pclk,
+             sc_core::sc_signal<double>& pclk_hz, unsigned id, sc_core::sc_signal<bool>& tclk,
+             sc_core::sc_signal<double>& tclk_hz, unsigned fz,
+             std::initializer_list<sc_core::sc_signal<bool>*> itr) {
+        tim_[k] = &t;
+        engancha(t, d, pclk, pclk_hz, id);
+        t.timclk(tclk); t.timclk_hz(tclk_hz);
+        t.freeze(s_freeze_[fz]);
+        unsigned i = 0;
+        for (auto* x : itr) t.itr[i++](*x);
+        for (; i < 4; ++i) t.itr[i](s_false_);
+        t.trgo(s_trgo_[k]);
+        t.irq_global(s_tirq_[k][0]); t.irq_up(s_tirq_[k][1]); t.irq_cc(s_tirq_[k][2]);
+        t.irq_trg_com(s_tirq_[k][3]); t.irq_brk(s_tirq_[k][4]);
+        t.dma_up(q_t_[k][TimerBase::D_UP]); t.dma_trig(q_t_[k][TimerBase::D_TRIG]);
+        t.dma_com(q_t_[k][TimerBase::D_COM]);
+        for (unsigned c = 0; c < 4; ++c) t.dma_cc[c](q_t_[k][TimerBase::D_CC1 + c]);
+    }
+    void usart(UsartV2& u, unsigned n, AhbDecoder& d, sc_core::sc_signal<bool>& pclk,
+               sc_core::sc_signal<double>& pclk_hz, unsigned id, unsigned irq) {
+        engancha(u, d, pclk, pclk_hz, id);
+        u.ker_clk_hz(rcc.s_ker[RccF3::K_USART1 + n]);
+        u.irq(s_irq_[irq]);
+        u.dma_req_rx(q_u_[n][0]); u.dma_req_tx(q_u_[n][1]);
+    }
+    void spi(SpiBase& x, unsigned n, AhbDecoder& d, sc_core::sc_signal<bool>& pclk,
+             sc_core::sc_signal<double>& pclk_hz, unsigned id, unsigned irq) {
+        engancha(x, d, pclk, pclk_hz, id);
+        x.irq(s_irq_[irq]);
+        x.dma_req_rx(q_spi_[n][0]); x.dma_req_tx(q_spi_[n][1]);
+        x.i2s_ext_clk(s_false_);
+        if (n == 0) x.i2s_clk_hz(s_cero_hz_); else x.i2s_clk_hz(rcc.s_ker[RccF3::K_I2S]);
+        x.ext_ck(s_false_); x.ext_ws(s_false_);
+    }
+    void i2c(FmpI2c& x, unsigned n, unsigned id, unsigned irq_ev) {
+        engancha(x, apb1, s_pclk1_, s_pclk1_hz_, id);
+        x.ker_clk_hz(rcc.s_ker[RccF3::K_I2C1 + n]);
+        x.irq_ev(s_irq_[irq_ev]); x.irq_er(s_irq_[irq_ev + 1]);
+        x.dma_req_rx(q_i2c_[n][0]); x.dma_req_tx(q_i2c_[n][1]);
+    }
+
+    void conecta_s3() {
+        auto& H = s_hclk_;  auto& Hz = s_hclk_hz_;
+        auto& P1 = s_pclk1_; auto& P1z = s_pclk1_hz_;
+        auto& P2 = s_pclk2_; auto& P2z = s_pclk2_hz_;
+        // --- Los DMA: esclavos de AHB y maestros del bus ------------------------------
+        engancha(dma1, ahb1, H, Hz, F3P_DMA1);
+        engancha(dma2, ahb1, H, Hz, F3P_DMA2);
+        for (auto* t : {&t_dma1_, &t_dma2_}) {
+            t->register_b_transport(this, &SocF3::bt_dma);
+            t->register_transport_dbg(this, &SocF3::dbg);
+        }
+        dma1.m.bind(t_dma1_); dma2.m.bind(t_dma2_);
+        for (unsigned c = 0; c < 7; ++c) { dma1.req[c](s_dreq1_[c]); dma1.irq[c](s_irq_[f3::IRQ_DMA1_CH1 + c]); }
+        for (unsigned c = 0; c < 5; ++c) { dma2.req[c](s_dreq2_[c]); dma2.irq[c](s_irq_[f3::IRQ_DMA2_CH1 + c]); }
+        syscfg.cfgr1_sig(s_cfgr1_);
+        engancha(crc, ahb1, H, Hz, F3P_CRC);
+        // --- Los temporizadores y su interconexión [RM0316, tablas 121, 125 y 129] ----
+        tim(tim1, T1, apb2, P2, P2z, F3P_TIM1, s_tim2_, rcc.s_ker[RccF3::K_TIM1], FZ3_TIM1,
+            {&s_trgo_[T15], &s_trgo_[T2], &s_trgo_[T3], &s_t1_itr3_});
+        tim(tim8, T8, apb2, P2, P2z, F3P_TIM8, s_tim2_, rcc.s_ker[RccF3::K_TIM8], FZ3_TIM8,
+            {&s_trgo_[T1], &s_trgo_[T2], &s_trgo_[T4], &s_trgo_[T3]});
+        tim(tim2, T2, apb1, P1, P1z, F3P_TIM2, s_tim1_, s_tim1_hz_, FZ3_TIM2,
+            {&s_trgo_[T1], &s_trgo_[T8], &s_trgo_[T3], &s_trgo_[T4]});
+        tim(tim3, T3, apb1, P1, P1z, F3P_TIM3, s_tim1_, s_tim1_hz_, FZ3_TIM3,
+            {&s_trgo_[T1], &s_trgo_[T2], &s_trgo_[T15], &s_trgo_[T4]});
+        tim(tim4, T4, apb1, P1, P1z, F3P_TIM4, s_tim1_, s_tim1_hz_, FZ3_TIM4,
+            {&s_trgo_[T1], &s_trgo_[T2], &s_trgo_[T3], &s_trgo_[T8]});
+        tim(tim6, T6, apb1, P1, P1z, F3P_TIM6, s_tim1_, s_tim1_hz_, FZ3_TIM6, {});
+        tim(tim7, T7, apb1, P1, P1z, F3P_TIM7, s_tim1_, s_tim1_hz_, FZ3_TIM7, {});
+        tim(tim15, T15, apb2, P2, P2z, F3P_TIM15, s_tim2_, s_tim2_hz_, FZ3_TIM15,
+            {&s_trgo_[T2], &s_trgo_[T3], &tim16.ch_out[0], &tim17.ch_out[0]});
+        tim(tim16, T16, apb2, P2, P2z, F3P_TIM16, s_tim2_, s_tim2_hz_, FZ3_TIM16, {});
+        tim(tim17, T17, apb2, P2, P2z, F3P_TIM17, s_tim2_, s_tim2_hz_, FZ3_TIM17, {});
+        // --- Las USART, con su reloj de núcleo [RCC_CFGR3] -------------------------------
+        usart(usart1, 0, apb2, P2, P2z, F3P_USART1, f3::IRQ_USART1);
+        usart(usart2, 1, apb1, P1, P1z, F3P_USART2, f3::IRQ_USART2);
+        usart(usart3, 2, apb1, P1, P1z, F3P_USART3, f3::IRQ_USART3);
+        usart(uart4, 3, apb1, P1, P1z, F3P_UART4, f3::IRQ_UART4);
+        usart(uart5, 4, apb1, P1, P1z, F3P_UART5, f3::IRQ_UART5);
+        // --- Los SPI v3 y los I²C de segunda generación ------------------------------------
+        spi(spi1, 0, apb2, P2, P2z, F3P_SPI1, f3::IRQ_SPI1);
+        spi(spi2, 1, apb1, P1, P1z, F3P_SPI2, f3::IRQ_SPI2);
+        spi(spi3, 2, apb1, P1, P1z, F3P_SPI3, f3::IRQ_SPI3);
+        i2c(i2c1, 0, F3P_I2C1, f3::IRQ_I2C1_EV);
+        i2c(i2c2, 1, F3P_I2C2, f3::IRQ_I2C2_EV);
+        // --- Los perros y el RTC -----------------------------------------------------------
+        engancha(wwdg, apb1, P1, P1z, F3P_WWDG);
+        wwdg.irq_ewi(s_irq_[f3::IRQ_WWDG]);
+        wwdg.rst_req(s_wwdg_rr_);
+        wwdg.freeze(s_freeze_[FZ3_WWDG]);
+        // El IWDG y el RTC no tienen bit de reloj: el IWDG va al LSI, y el RTC al
+        // RTCCLK, con el dominio de respaldo
+        engancha_sin_reloj(iwdg, apb1, P1, P1z);
+        iwdg.lsi_clk(s_lsi_); iwdg.lsi_hz(s_lsi_hz_);
+        iwdg.rst_req(s_iwdg_rr_);
+        iwdg.lsi_on_req(s_iwdg_lsi_);
+        iwdg.freeze(s_freeze_[FZ3_IWDG]);
+        iwdg.hw_start(s_iwdg_hw_);
+        engancha_sin_reloj(rtc, apb1, P1, P1z);
+        rtc.rtcclk(s_rtc_); rtc.rtcclk_hz(s_rtc_hz_);
+        rtc.bkp_rst_n(s_bkprst_n_); rtc.dbp(s_dbp_);
+        // En el F3 la alarma va a la línea 17, el sello y la intrusión a la 19 y el
+        // despertador a la 20 [RM0316 §14.2.5, tabla 33]
+        rtc.exti17_alarm(s_exti_in_[17 - 16]);
+        rtc.exti21_tamp_ts(s_exti_in_[19 - 16]);
+        rtc.exti22_wakeup(s_exti_in_[20 - 16]);
+        // --- El PWR: el bajo consumo -------------------------------------------------------
+        pwr.pvd(s_exti_in_[16 - 16]);
+        pwr.standby_pines(s_stby_pines_);
+        pwr.ewup1(s_ewup1_);
+        pwr.vdd_lvl(s_vdd_);
+        pwr.sleeping(s_sleeping_); pwr.sleepdeep(s_sleepdeep_);
+        pwr.exti_wakeup(s_exti_wakeup_);
+        pwr.nrst_n(s_nrst_n_);
+        pwr.dbg_lp(s_dbg_lp_);
+        pwr.wkup[0](pinmux.pad_din[0 * N_PORT_PINS + 0]);     // WKUP1: PA0
+        pwr.wkup[1](pinmux.pad_din[2 * N_PORT_PINS + 13]);    // WKUP2: PC13
+        pwr.wkup[2](pinmux.pad_din[4 * N_PORT_PINS + 6]);     // WKUP3: PE6
+        pwr.rtc_ev[0](s_exti_in_[17 - 16]);
+        pwr.rtc_ev[1](s_exti_in_[19 - 16]);
+        pwr.rtc_ev[2](s_exti_in_[20 - 16]);
+        pwr.al_parar = [this](bool on) { rcc.para(on); };
+        pwr.al_standby = [this](bool on) { rcc.standby(on); };
+        pwr.reset_bajo_consumo = [this] { rcc.reset_bajo_consumo(); };
+        pwr.nrst_stop = [this] { return flash.nrst_stop(); };
+        pwr.nrst_stdby = [this] { return flash.nrst_stdby(); };
+        s_cero_hz_.write(0.0);
+    }
+
+    // Las interrupciones compartidas de los temporizadores [CMSIS: IRQn_Type]
+    void irq_tim_proc() {
+        auto g = [&](unsigned k, unsigned j) { return s_tirq_[k][j].read(); };
+        s_irq_[f3::IRQ_TIM1_BRK_TIM15].write(g(T1, 4) || g(T15, 0));
+        s_irq_[f3::IRQ_TIM1_UP_TIM16].write(g(T1, 1) || g(T16, 0));
+        s_irq_[f3::IRQ_TIM1_TRG_COM_TIM17].write(g(T1, 3) || g(T17, 0));
+        s_irq_[f3::IRQ_TIM1_CC].write(g(T1, 2));
+        s_irq_[f3::IRQ_TIM2].write(g(T2, 0));
+        s_irq_[f3::IRQ_TIM3].write(g(T3, 0));
+        s_irq_[f3::IRQ_TIM4].write(g(T4, 0));
+        s_irq_[f3::IRQ_TIM8_BRK].write(g(T8, 4));
+        s_irq_[f3::IRQ_TIM8_UP].write(g(T8, 1));
+        s_irq_[f3::IRQ_TIM8_TRG_COM].write(g(T8, 3));
+        s_irq_[f3::IRQ_TIM8_CC].write(g(T8, 2));
+        s_irq_[f3::IRQ_TIM6_DAC].write(g(T6, 0));
+        s_irq_[f3::IRQ_TIM7].write(g(T7, 0));
+    }
+
+    // Las peticiones de DMA, sumadas por canal, con los remapeos de
+    // SYSCFG_CFGR1 [RM0316 §13.3.2, tablas 76 y 78]
+    void dma_req_proc() {
+        const uint32_t c = s_cfgr1_.read();
+        const bool r16 = (c >> 11) & 1u, r17 = (c >> 12) & 1u;
+        const bool r6 = (c >> 13) & 1u, r7 = (c >> 14) & 1u;
+        enum { UP = 0, CC1, CC2, CC3, CC4, COM, TRIG };
+        auto t = [&](unsigned k, unsigned l) { return q_t_[k][l].read(); };
+        auto u = [&](unsigned n, unsigned d) { return q_u_[n][d].read(); };
+        auto sp = [&](unsigned n, unsigned d) { return q_spi_[n][d].read(); };
+        auto ic = [&](unsigned n, unsigned d) { return q_i2c_[n][d].read(); };
+        const bool t16 = t(T16, CC1) || t(T16, UP), t17 = t(T17, CC1) || t(T17, UP);
+        // DMA1. El ADC1 (canal 1) y el DAC son de S5
+        s_dreq1_[0].write(t(T2, CC3) || t(T4, CC1) || (!r17 && t17));
+        s_dreq1_[1].write(sp(0, 0) || u(2, 1) || t(T1, CC1) || t(T2, UP) || t(T3, CC3));
+        s_dreq1_[2].write(sp(0, 1) || u(2, 0) || t(T1, CC2) || t(T3, CC4) || t(T3, UP) ||
+                          (r6 && t(T6, UP)) || (!r16 && t16));
+        s_dreq1_[3].write(sp(1, 0) || u(0, 1) || ic(1, 1) || t(T1, CC4) || t(T1, TRIG) ||
+                          t(T1, COM) || t(T4, CC2) || (r7 && t(T7, UP)));
+        s_dreq1_[4].write(sp(1, 1) || u(0, 0) || ic(1, 0) || t(T1, UP) || t(T2, CC1) ||
+                          t(T4, CC3) || t(T15, CC1) || t(T15, UP) || t(T15, TRIG) || t(T15, COM));
+        s_dreq1_[5].write(u(1, 0) || ic(0, 1) || t(T1, CC3) || t(T3, CC1) || t(T3, TRIG) ||
+                          (r16 && t16));
+        s_dreq1_[6].write(u(1, 1) || ic(0, 0) || t(T2, CC2) || t(T2, CC4) || t(T4, UP) ||
+                          (r17 && t17));
+        // DMA2. Los ADC2-4 y el DAC son de S5
+        s_dreq2_[0].write(sp(2, 0) || t(T8, CC3) || t(T8, UP));
+        s_dreq2_[1].write(sp(2, 1) || t(T8, CC4) || t(T8, TRIG) || t(T8, COM));
+        s_dreq2_[2].write(u(3, 0) || (!r6 && t(T6, UP)) || t(T8, CC1));
+        s_dreq2_[3].write(!r7 && t(T7, UP));
+        s_dreq2_[4].write(u(3, 1) || t(T8, CC2));
+    }
+    // El ITR3 del TIM1: el TRGO del TIM4 o, con TIM1_ITR3_RMP, el OC1 del TIM17
+    void itr3_proc() {
+        s_t1_itr3_.write(((s_cfgr1_.read() >> 6) & 1u) ? tim17.ch_out[0].read() : s_trgo_[T4].read());
+    }
+    // El IRTIM: la portadora del TIM17 modulada por la envolvente del TIM16
+    // [RM0316 §24]
+    void ti16_proc() { tim16.ti1_rmp[2].write(rcc.mco_sig.read()); }
+    void irtim_proc() { s_irout_.write(tim16.ch_out[0].read() && tim17.ch_out[0].read()); }
+    // El IWDG pide el LSI; y al salir de reset, WDG_SW = 0 lo arranca solo
+    void iwdg_proc() {
+        rcc.pide_lsi(s_iwdg_lsi_.read());
+        if (s_sysrst_n_.read()) s_iwdg_hw_.write(!flash.wdg_sw());
+        else s_iwdg_hw_.write(false);
+    }
+
+    // Los pines de las funciones alternativas de S3, por su nombre en la base
+    // de pines de ST [f3_pines.inc]
+    bool endpoint(const char* n, AfEndpoint& ep) {
+        auto E = [&](sc_core::sc_signal<bool>* o, sc_core::sc_signal<bool>* e,
+                     sc_core::sc_signal<bool>* i, bool idle) {
+            ep.out = o; ep.oe = e; ep.in = i; ep.idle_in = idle; return true;
+        };
+        std::string s(n);
+        auto empieza = [&](const char* p) { return s.compare(0, std::strlen(p), p) == 0; };
+        // USART y UART
+        UsartV2* us[5] = {&usart1, &usart2, &usart3, &uart4, &uart5};
+        const char* un[5] = {"USART1_", "USART2_", "USART3_", "UART4_", "UART5_"};
+        for (unsigned k = 0; k < 5; ++k) {
+            if (!empieza(un[k])) continue;
+            UsartV2& u = *us[k];
+            const std::string f = s.substr(std::strlen(un[k]));
+            if (f == "TX")  return E(&u.tx_out, &u.tx_oe, &u.tx_in, true);
+            if (f == "RX")  return E(&u.rx_out, &u.rx_oe, &u.rx_in, true);
+            if (f == "CK")  return E(&u.ck_out, &u.ck_oe, nullptr, true);
+            if (f == "CTS") return E(nullptr, nullptr, &u.cts_in, true);
+            if (f == "RTS" || f == "DE") return E(&u.rts_out, &u.rts_oe, nullptr, true);
+            return false;
+        }
+        // SPI e I2S
+        SpiBase* sps[3] = {&spi1, &spi2, &spi3};
+        for (unsigned k = 0; k < 3; ++k) {
+            const std::string ps = "SPI" + std::to_string(k + 1) + "_", pi = "I2S" + std::to_string(k + 1) + "_";
+            SpiBase& x = *sps[k];
+            if (s == ps + "SCK" || s == pi + "CK")   return E(&x.sck_out, &x.sck_oe, &x.sck_in, false);
+            if (s == ps + "MISO")                     return E(&x.miso_out, &x.miso_oe, &x.miso_in, false);
+            if (s == ps + "MOSI" || s == pi + "SD")   return E(&x.mosi_out, &x.mosi_oe, &x.mosi_in, false);
+            if (s == ps + "NSS" || s == pi + "WS")    return E(&x.nss_out, &x.nss_oe, &x.nss_in, false);
+            if (s == pi + "MCK")                      return E(&x.mck_out, &x.mck_oe, nullptr, false);
+        }
+        // I²C, en colector abierto (lo pone el GPIO: AF_OD)
+        if (s == "I2C1_SCL") return E(&i2c1.scl_out, &i2c1.scl_oe, &i2c1.scl_in, true);
+        if (s == "I2C1_SDA") return E(&i2c1.sda_out, &i2c1.sda_oe, &i2c1.sda_in, true);
+        if (s == "I2C2_SCL") return E(&i2c2.scl_out, &i2c2.scl_oe, &i2c2.scl_in, true);
+        if (s == "I2C2_SDA") return E(&i2c2.sda_out, &i2c2.sda_oe, &i2c2.sda_in, true);
+        // Los temporizadores
+        if (s == "IR_OUT") return E(&s_irout_, &s_true_, nullptr, false);
+        static const char* tn[N_TIM] = {"TIM1_", "TIM2_", "TIM3_", "TIM4_", "TIM6_", "TIM7_",
+                                        "TIM8_", "TIM15_", "TIM16_", "TIM17_"};
+        for (unsigned k = 0; k < N_TIM; ++k) {
+            if (!empieza(tn[k])) continue;
+            TimerBase& t = *tim_[k];
+            const std::string f = s.substr(std::strlen(tn[k]));
+            if (f.size() == 3 && f.compare(0, 2, "CH") == 0) {
+                const unsigned c = unsigned(f[2] - '1');
+                if (c < 4) return E(&t.ch_out[c], &t.ch_oe[c], &t.ch_in[c], false);
+            }
+            if (f.size() == 4 && f.compare(0, 2, "CH") == 0 && f[3] == 'N') {
+                const unsigned c = unsigned(f[2] - '1');
+                if (c < 3) return E(&t.chn_out[c], &t.chn_oe[c], nullptr, false);
+            }
+            if (f == "ETR")   return E(nullptr, nullptr, &t.etr_in, false);
+            if (f == "BKIN")  return E(nullptr, nullptr, &t.bkin_in, true);
+            if (f == "BKIN2") return E(nullptr, nullptr, &t.bkin2_in, true);
+            return false;
+        }
+        return false;
+    }
+    void conecta_pines_s3() {
+        for (const PinAf& x : tabla_af()) {
+            AfEndpoint ep;
+            if (endpoint(x.senal, ep)) pinmux.connect_af(x.puerto, x.pin, x.af, ep);
+        }
+    }
+
+    // El camino de los DMA: lo de la CPU, menos la CCM, que solo ve el núcleo
+    // [RM0316 §3.1, figura 2]
+    void bt_dma(tlm::tlm_generic_payload& gp, sc_core::sc_time& t) {
+        const uint64_t a = gp.get_address();
+        if (a >= f3::CCM_B && a < uint64_t(f3::CCM_B) + ccm.size()) {
+            gp.set_response_status(tlm::TLM_ADDRESS_ERROR_RESPONSE);
+            return;
+        }
+        bt(gp, t);
     }
 
 public:

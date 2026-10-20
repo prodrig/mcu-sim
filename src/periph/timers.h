@@ -102,6 +102,7 @@ struct TimCaps {
     bool uif_remap     = false;   // CR1.UIFREMAP: copia de UIF en CNT[31]
     bool sms_4bits     = false;   // SMCR.SMS[3]: modo 8, reset + disparo
     bool or_reg        = false;   // registro de opciones (OR, 0x50)
+    bool ti1_remap     = false;   // OR.TI1_RMP: TI1 desde dentro (TIM16, S3)
     // `channels` puede valer 5 o 6 en estos: CCR5 y CCR6 son canales SIN PIN,
     // que comparan y dan referencia (para el ADC, TRGO2 y el agrupamiento
     // GC5Cx con los canales 1-3) pero no salen al encapsulado.
@@ -212,6 +213,8 @@ inline constexpr TimCaps CAPS_F3_TIM_GP16  = caps_v3(caps_gp16());
 inline constexpr TimCaps CAPS_F3_TIM_BASIC = caps_v3(caps_basic());
 inline constexpr TimCaps CAPS_F3_TIM15     = caps_f3_tim15();
 inline constexpr TimCaps CAPS_F3_TIM16     = caps_f3_tim16();
+constexpr TimCaps caps_f3_tim16_rmp() { TimCaps c = caps_f3_tim16(); c.ti1_remap = true; c.kind = "TIM16"; return c; }
+inline constexpr TimCaps CAPS_F3_TIM16_RMP = caps_f3_tim16_rmp();   // el TIM16 de verdad; TIM17 no tiene remapeo
 
 // ---------------------------------------------------------------------------
 // Implementación común. Recibe los rasgos por el constructor: este es el punto
@@ -240,6 +243,11 @@ public:
     // v3: la segunda entrada de freno y la segunda salida de disparo. Son
     // SEÑALES y no puertos, como las de los pines: un F4 no tiene que atarlas.
     sc_core::sc_signal<bool> bkin2_in{"bkin2_in"}, trgo2_sig{"trgo2_sig"};
+    // v3: las fuentes internas de TI1 que elige OR.TI1_RMP en el TIM16 del
+    // F303 (01 el RTC, 10 HSE/32, 11 el MCO) [CMSIS: TIM16_OR_TI1_RMP; HAL:
+    // TIM_TIM16_RTC, TIM_TIM16_HSE, TIM_TIM16_MCO]. Las conduce el SoC; un
+    // temporizador sin `ti1_remap` no las mira
+    sc_core::sc_signal<bool> ti1_rmp[3];
 
     // ---- Offsets [IR, §12.1.4-D] ------------------------------------------
     enum : uint32_t {
@@ -278,6 +286,7 @@ public:
         SC_METHOD(reset_proc);  sensitive << rst_n;
         SC_METHOD(cap_proc);    dont_initialize();
         for (unsigned c = 0; c < 4; ++c) sensitive << ch_in[c];
+        if (caps_.ti1_remap) for (auto& x : ti1_rmp) sensitive << x;
         SC_METHOD(trig_proc);   dont_initialize();
         for (unsigned i = 0; i < 4; ++i) sensitive << itr[i];
         sensitive << ch_in[0] << ch_in[1] << etr_in;
@@ -439,6 +448,9 @@ private:
     uint32_t psc_ = 0, arr_ = 0xFFFFu, rcr_ = 0, bdtr_ = 0, dcr_ = 0;
     uint32_t ccr_[6] = {0, 0, 0, 0, 0, 0};
     uint32_t or_ = 0, gc5c_ = 0;           // v3: OR y GC5C1..3 de CCR5
+    uint32_t antes_reset_ = 0;             // CNT justo antes del reset del esclavo
+    sc_core::sc_time t_reset_ = sc_core::SC_ZERO_TIME;
+    bool hubo_reset_ = false;
     // ---- Copias activas (registros con precarga / sombra) -----------------
     uint32_t psc_act_ = 0, arr_act_ = 0xFFFFu, ccr_act_[6] = {0, 0, 0, 0, 0, 0};
     uint32_t rep_ = 0;                     // contador de repeticiones actual
@@ -967,6 +979,7 @@ private:
     bool ti_level(unsigned c) const {
         if (c == 0 && ti1s())
             return ch_in[0].read() ^ ch_in[1].read() ^ ch_in[2].read();
+        if (c == 0 && caps_.ti1_remap && (or_ & 3u)) return ti1_rmp[(or_ & 3u) - 1].read();
         return ch_in[c].read();
     }
     // Fuente física del canal c según CCxS: 01 = TIx directa, 10 = TI vecina.
@@ -991,7 +1004,12 @@ private:
             if (++ic_div_[c] < (1u << icpsc(c))) continue; // prescaler ICxPSC
             ic_div_[c] = 0;
             if (sr_ & (1u << (1 + c))) sr_ |= 1u << (9 + c);   // CCxOF
-            ccr_[c] = ccr_act_[c] = cnt_now();
+            // La captura toma el contador de ANTES del reset del esclavo si
+            // los dos son el mismo flanco (el modo de entrada PWM: TI2FP2
+            // captura el periodo en CCR2 y reinicia) [RM0316 §20.3.6]. Los dos
+            // procesos corren en el mismo instante y en cualquier orden
+            const bool mismo = hubo_reset_ && t_reset_ == sc_core::sc_time_stamp();
+            ccr_[c] = ccr_act_[c] = mismo ? antes_reset_ : cnt_now();
             sr_ |= 1u << (1 + c);
             ++n_cap_;
             req_dma(D_CC1 + c);
@@ -1058,6 +1076,7 @@ private:
         switch (m) {
             case 4:                                        // reset
                 if (edge) {
+                    antes_reset_ = cnt_now(); t_reset_ = sc_core::sc_time_stamp(); hubo_reset_ = true;
                     cnt_ = dir_down_ ? arr_act_ : 0u;
                     t_anchor_ = sc_core::sc_time_stamp();
                     rep_ = rcr_;
@@ -1081,6 +1100,7 @@ private:
                 break;
             case 8:                                        // v3: reset + disparo
                 if (edge) {
+                    antes_reset_ = cnt_now(); t_reset_ = sc_core::sc_time_stamp(); hubo_reset_ = true;
                     cnt_ = dir_down_ ? arr_act_ : 0u;
                     t_anchor_ = sc_core::sc_time_stamp();
                     rep_ = rcr_;

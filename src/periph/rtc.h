@@ -64,9 +64,10 @@ namespace stm32 {
 struct RtcCaps {
     bool     calibr_grueso;
     unsigned n_respaldo;
+    bool     fecha_cruda = false;   // DR guarda lo escrito, sea fecha o no (S3)
 };
-inline constexpr RtcCaps RTC_F4{ true, 20 };
-inline constexpr RtcCaps RTC_F3{ false, 16 };
+inline constexpr RtcCaps RTC_F4{ true, 20, false };
+inline constexpr RtcCaps RTC_F3{ false, 16, true };
 
 class Rtc : public BusSlave {
 public:
@@ -105,6 +106,7 @@ public:
         SC_METHOD(bkp_rst_proc); sensitive << bkp_rst_n;
         SC_METHOD(clk_proc);    sensitive << rtcclk_hz;      dont_initialize();
         SC_METHOD(tamper_proc); sensitive << af1_in;          dont_initialize();
+        SC_METHOD(rsf_proc);    sensitive << rsf_ev_;         dont_initialize();
     }
 
     // ---- Observación desde el banco de pruebas ----------------------------
@@ -136,7 +138,8 @@ protected:
     // Debe arrancar con el MISMO nivel que la señal, o el primer flanco de
     // verdad se compara contra un valor que nunca existió.
     bool     tamp_prev_ = false;
-    sc_core::sc_event ev_cal_, ev_wut_, pub_ev_;
+    sc_core::sc_event ev_cal_, ev_wut_, pub_ev_, rsf_ev_;
+    bool rsf_salida_ = false;
 
     // =======================================================================
     // Relojes
@@ -196,6 +199,16 @@ protected:
     }
     void unpack_dr(uint32_t v) {
         c_.y  = from_bcd((v >> 16) & 0xFFu) % 100u;
+        // Se guarda lo escrito, aunque no sea una fecha: el comparador de la
+        // alarma mira los campos tal cual. HAL_TimeBase_RTC_ALARM pone DR = 0
+        // y una alarma con fecha 0 en cada tic (S3). En el F4 se corregía a
+        // la fecha válida más cercana; ahí sigue así
+        if (caps_.fecha_cruda) {
+            c_.wd = (v >> 13) & 7u;
+            c_.mo = from_bcd((v >> 8) & 0x1Fu);
+            c_.d  = from_bcd(v & 0x3Fu);
+            return;
+        }
         c_.wd = (v >> 13) & 7u; if (c_.wd == 0u) c_.wd = 1u;
         c_.mo = from_bcd((v >> 8) & 0x1Fu); if (c_.mo == 0u || c_.mo > 12u) c_.mo = 1u;
         c_.d  = from_bcd(v & 0x3Fu); if (c_.d == 0u) c_.d = 1u;
@@ -328,6 +341,7 @@ protected:
         } else if (!want && (isr_ & I_INIT)) {
             isr_ &= ~(I_INIT | I_INITF);
             isr_ |= I_INITS | I_RSF;             // el calendario ya está puesto
+            rsf_salida_ = true;
             t_sec_ = sc_core::sc_time_stamp();
             ev_cal_.notify(sc_core::SC_ZERO_TIME);
         }
@@ -336,9 +350,20 @@ protected:
         // escritura [IR, §12.9-mapa].
         const uint32_t w0 = I_ALRAF | I_ALRBF | I_WUTF | I_TSF | I_TSOVF |
                             I_TAMP1F | I_RSF;
+        const bool rsf_antes = (isr_ & I_RSF) != 0;
         isr_ = (isr_ & ~w0) | (isr_ & w0 & v);
+        // Al salir de INIT el calendario se copia ya a los registros sombra
+        if (!want && rsf_salida_) { isr_ |= I_RSF; rsf_salida_ = false; }
+        // RSF borrado por el firmware: el hardware lo vuelve a poner en la
+        // siguiente copia a los registros sombra, cada dos ciclos de RTCCLK
+        // [RM0316 §27.6.4]. Es lo que espera HAL_RTC_WaitForSynchro (S3)
+        if (rsf_antes && !(isr_ & I_RSF) && !init_mode()) {
+            const double f = rtcclk_hz.read();
+            rsf_ev_.notify(f > 0 ? sc_core::sc_time(2.0 / f, sc_core::SC_SEC) : sc_core::SC_ZERO_TIME);
+        }
         update_irq();
     }
+    void rsf_proc() { if (!init_mode() && rtcclk_hz.read() > 0) { isr_ |= I_RSF; } }
 
     // =======================================================================
     // Calendario

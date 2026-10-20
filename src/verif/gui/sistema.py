@@ -1396,7 +1396,7 @@ def c19_ti(sim, cp):
     # La STM32F3DISCOVERY (doc/analisis_stm32f303.md, S1): su dibujo, de
     # placas/dibuja_st.py, con JP3 puesto
     rc, out, err = corre(sim, ["placas/stm32f3discovery.xml", "--valida"])
-    check(rc == 0 and "placa 'stm32f3discovery': 1 MCU(s), 19 componentes" in out and
+    check(rc == 0 and "placa 'stm32f3discovery': 1 MCU(s), 20 componentes" in out and
           "0 avisos" in out and "dibujo: stm32f3discovery.svg (" in out and "JP3 1-2)" in out,
           "placas/stm32f3discovery.xml valida sin un aviso, con su dibujo y JP3 puesto")
     f = piezas_sin_dibujo("stm32f3discovery")

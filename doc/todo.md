@@ -783,11 +783,14 @@ Lo que queda dicho, con la letra con la que lo cita el código:
 ### P-18 — El STM32F303 y la STM32F3DISCOVERY
 
 **Analizado en `doc/analisis_stm32f303.md` (2026-10-19), con un plan de diez
-fases (S0-S9). HECHAS S0, S1 y S2 el 2026-10-20** en la rama `stm32f303`
+fases (S0-S9). HECHAS S0, S1, S2 y S3 el 2026-10-20** en la rama `stm32f303`
 («Estado» del análisis): los rasgos neutrales, el STM32F303VC con su RCC, su
 Flash con el FPEC, la CCM ejecutable, la memoria de sistema y el arranque por
 BOOT0/nBOOT1/`MEM_MODE`, la STM32F3DISCOVERY con su dibujo, `testf3` (R1-R7,
-F0-F19), `make f3-discovery`, O5 y C6 con OpenOCD, y G8 en `mcu-sim-gui`. Es la primera familia del proyecto con la
+F0-F19), `make f3-discovery`, O5 y C6 con OpenOCD, y G8 en `mcu-sim-gui`; y en S3
+los periféricos de segunda generación (USART v2, DMA por canales, SPI v3, I²C,
+TIM v3, perros, RTC, CRC, bajo consumo), el VCP, el sistema de dos Discovery,
+los 29 ejemplos de ST de S3 sin modificar (F22-F53) y `make f3-vcp`. Es la primera familia del proyecto con la
 segunda generación de IP de ST: el I²C es el `FMPI2C1` del F446 (`i2c2_v1_1`),
 y bxCAN, DAC, RTC, perros, CRC, EXTI, GPIO y temporizadores se reaprovechan por
 rasgos; RCC, controlador de Flash (el del F1), DMA por canales, USART v2, ADC,
@@ -798,7 +801,7 @@ pruebas es la STM32F3DISCOVERY, con sus dos revisiones de sensores
 SVG. Lo primero, S0: tener RM0316, DS9118 y UM1570 en `doc/refs/`, que desde
 el entorno de trabajo no se alcanzan.
 
-Lo que queda de una sola fuente, o de modelo, tras S2:
+Lo que queda de una sola fuente, o de modelo, tras S3:
 
 | | Qué | Estado |
 | :--- | :--- | :--- |
@@ -810,12 +813,16 @@ Lo que queda de una sola fuente, o de modelo, tras S2:
 | **f** | El reset durante un borrado | En el modelo el borrado acaba igual; en el silicio el resultado queda indefinido |
 | **g** | La memoria de sistema | Un stub propio que deja `'MSYS'` en la SRAM y se aparca; el cargador AN3155 es S7, opcional |
 | **h** | La calibración de fábrica y el UID | Valores típicos de DS9118 (tablas 28 y 78: `TS_CAL1` 1748, `TS_CAL2` 1321, `VREFINT_CAL` 1526), no de una pieza; el UID, del modelo |
-| **i** | Los bloques de S3-S6 | DECLARADOS: ocupan su ventana, leen cero y avisan una vez con la fase que les toca (`limitaciones()` del chip los lista) |
-| **j** | La matriz | Decodificadores directos; con los DMA (S3) se decide si hace falta `AhbMatrix` |
+| **i** | Los bloques de S4-S6 | DECLARADOS: ocupan su ventana, leen cero y avisan una vez con la fase que les toca (`limitaciones()` del chip los lista). Los de S3, hechos; de ellos queda declarado el I2S en dúplex (`I2S2ext`/`I2S3ext`) |
+| **j** | La matriz | ~~Se decide con los DMA~~ **Decidido en S3**: decodificadores directos; cada DMA, un iniciador con su socket, un ciclo de HCLK por fase y sin contención con la CPU [de modelo] |
 | **k** | Lo que se cita de RM0316 | **Contrastado con RM0316 Rev 10 (2026-10-20)**, que ya está en `doc/refs/stm32f303/`: confirma lo citado y obliga a doce cambios (la tabla del «Estado» del análisis), probados en F20, F21, R4 y R6 de `testf3` |
 | **m** | Lo que RM0316 no dice | De modelo: una llave con `CR` abierto lo cierra; escribir en una página protegida de la CCM es error de bus; `REV_OUT` refleja los `POLYSIZE` bits; el aviso de `HLFCYA` a partir de 8 MHz; BOOT0 se muestrea durante el reset (el silicio, en el cuarto flanco de SYSCLK); `HSICAL` y el USER de fábrica |
 | **n** | RDP, a medias | El nivel se carga (byte y complemento), volver al 0 borra la Flash y el 2 bloquea los bytes de opción; pero el nivel 1 no cierra la Flash al depurador ni el 2 apaga la depuración (RM0316 §4.3.1, tabla 9) |
 | **o** | El NMI del CSS | Un pulso por fallo; en el silicio se repite hasta que `CSSC` borra `CSSF` (RM0316 §9.2.7). El fallo tampoco llega al freno de los TIM (S3) |
+| **p** | El IWDG y el reset del sistema | En el F3 se para con el reset del sistema (`IwdgCaps::para_con_reset`; sin ello `IWDG_Reset` de ST seguia reiniciando). El F4 no se ha tocado, para no mover sus invariantes: **queda por mirar en RM0090 si el suyo debería pararse también** |
+| **q** | El núcleo, arreglado en S3 para todos | La vuelta de excepción desapila IT[1:0] y GE y no borra el ITSTATE; el MSP se guarda antes de leer la trama de vuelta; WFI solo despierta con una excepción que podría entrar (ARMv7-M B1.5.19). Las siete suites de antes, al picosegundo |
+| **r** | Lo que S3 no modela | USART: Smartcard, IrDA, auto-baud y `UESM`; I²C: `WUPEN` y PEC; el I2S en dúplex; el reloj de `I2S_CKIN`; el ITR del TIM15 desde el TIM16/17 es la salida OC1 y no OC1REF; la corriente en los modos de bajo consumo; el IWDG se para en Standby (el silicio sigue contando); el fallo del HSE, el PVD y LOCKUP no llegan al freno de los TIM |
+| **s** | `testf3` y su tiempo | Con los 32 grupos de S3 tarda unos 8,5 min de reloj en la máquina de trabajo (dos de ellos los ponen las diez parejas de dos Discovery): el CI le da 1200, 1500 y 1800 s de presupuesto (`SUITES_PRESUPUESTO`, Linux, macOS y Windows) y 15-25 min mas a cada trabajo |
 | **l** | La placa contra su esquemático | Contrastada con MB1035 rev. D.1 (2026-10-20): resistencias de la rosa (510 Ω en los verdes), B1 (100 + 330 Ω a VDD, 220 kΩ a masa), LD1, BOOT0, R39 y X3 sin montar. La vf de cada LED es de modelo; VDD se modela a 3,3 V, y en la placa son los 3,3 V del LD3985 menos el diodo D3 [de modelo] |
 
 ---

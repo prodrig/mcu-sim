@@ -315,6 +315,7 @@ private:
     uint16_t sh_tx_ = 0, sh_rx_ = 0;
     unsigned bit_i_ = 0;
     bool     slave_armed_ = false;
+    bool     sh_lleno_ = false;       // v3: el desplazador del esclavo tiene dato
     bool     ws_prev_ = false;
     // ---- Salidas publicadas por un único proceso --------------------------
     bool o_irq_ = false, o_drq_rx_ = false, o_drq_tx_ = false;
@@ -427,7 +428,10 @@ private:
     void recompute_sck() {
         const double f = clk_hz.read();
         sck_hz_ = (f > 0.0) ? f / double(1u << (br() + 1u)) : 0.0;
-        if (sck_hz_ > caps_.max_sck_hz * 1.001)
+        // Solo cuenta si hay un maestro en marcha: un SPI apagado no saca SCK,
+        // y en el F303 PCLK2 a 72 MHz con BR = 0 daria 36 MHz sin que nadie
+        // los use (S3)
+        if (spe() && mstr() && sck_hz_ > caps_.max_sck_hz * 1.001)
             SC_REPORT_WARNING("spi", "SCK por encima del maximo de la variante");
     }
     // I2S: con MCKOE = 0, f_CK = I2SCLK / (2*I2SDIV + ODD); la frecuencia de
@@ -869,8 +873,17 @@ private:
     // =======================================================================
     void start_slave_frame() {
         if (i2s_active()) return;
+        // v3: con la FIFO, un esclavo que ya tiene su dato cargado y no ha
+        // empezado el marco NO lo cambia por el siguiente. Sin esto, cada
+        // escritura en DR antes del primer flanco -la HAL escribe dos y luego
+        // otras dos- tiraba el dato del desplazador (S3: SPI_FullDuplex)
+        if (usa_fifo() && slave_armed_ && sh_lleno_ && bit_i_ == 0) {
+            if (!cpha() && selected()) drive_data(bit_of(sh_tx_, 0, frame_bits()));
+            return;
+        }
         bit_i_ = 0; sh_rx_ = 0;
-        if (!fetch_tx(sh_tx_)) sh_tx_ = 0;
+        sh_lleno_ = fetch_tx(sh_tx_);
+        if (!sh_lleno_) sh_tx_ = 0;
         slave_armed_ = true;
         if (!cpha() && selected()) {
             drive_data(bit_of(sh_tx_, 0, frame_bits()));   // el primer bit, antes del flanco

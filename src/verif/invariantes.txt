@@ -254,4 +254,11 @@ teste4                296      4505148675235         resto
 # opcion, RDP, el RCC y el SYSCFG por el DAP- y una comprobacion mas en R4 (CRC
 # INIT) y en R6 (DS no usado): 193. El resto crece 129,948708338 ms, casi
 # todo las esperas de F20 (borrados de 20 ms) y F21 (el arranque a 72 MHz).
-testf3                193      5997559497838         resto
+#
+# S3 (20-10-2026): los 29 ejemplos de ST de S3, sin modificar, F22-F53 (32
+# grupos: diez con dos Discovery cableadas y el resto con una, cada uno desde
+# un encendido): 193 -> 296. El resto crece unos 93,9 s simulados: lo que
+# duran los ejemplos (los perros, el RTC, Stop y Standby con despertares de
+# 3 a 20 s, los TwoBoards). Los arreglos del nucleo de S3 (vuelta de
+# excepcion, MSP, WFI) no mueven ninguna de las otras siete.
+testf3                296      99913429462079        resto

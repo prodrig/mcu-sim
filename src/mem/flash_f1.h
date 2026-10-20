@@ -159,6 +159,12 @@ public:
     bool ocupada() const { return sr_ & SR_BSY; }
     // Lo cargado de los bytes de opción: nBOOT1 (USER bit 4) para el arranque
     bool nboot1() const { return (obr_ >> 12) & 1u; }
+    // El resto del byte USER en FLASH_OBR [RM0316 §4.5.7]: WDG_SW (bit 8; 0 =
+    // el IWDG arranca solo), nRST_STOP (9) y nRST_STDBY (10; 0 = entrar en el
+    // modo es un reset)
+    bool wdg_sw() const { return (obr_ >> 8) & 1u; }
+    bool nrst_stop() const { return (obr_ >> 9) & 1u; }
+    bool nrst_stdby() const { return (obr_ >> 10) & 1u; }
     uint8_t rdp_cargado() const { return rdp_carg_; }
     unsigned nivel_rdp() const { return (obr_ >> 1) & 3u; }     // 0, 1 o 3 (= nivel 2)
     bool bloqueo_duro() const { return bloqueo_duro_; }

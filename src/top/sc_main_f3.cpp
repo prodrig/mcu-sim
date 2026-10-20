@@ -1,5 +1,5 @@
 // =============================================================================
-// sc_main_f3.cpp — LA SUITE DEL STM32F303VC (fases S0-S2 del plan del F303)
+// sc_main_f3.cpp — LA SUITE DEL STM32F303VC (fases S0-S3 del plan del F303)
 //
 // Un banco aparte, como el de cada chip: un chip más dentro de otra simulación
 // movería su invariante. [doc/analisis_stm32f303.md, §7.1]
@@ -28,6 +28,23 @@
 //           DAP (G1), con el programador del FPEC (D2)
 //   F20-F21 el FPEC, los bytes de opcion, RDP, el RCC y el SYSCFG por el DAP,
 //           contra lo que dice RM0316
+//
+//   (S3) los ejemplos de STM32CubeF3 de §7.2, sin modificar, de
+//   verif/fw/stm32f3/ejemplos_s3:
+//   F22-F31 dos Discovery cableadas (TbDos): UART_TwoBoards por la USART2
+//           (PD5/PD6, sondeo, IT y DMA), SPI_FullDuplex por la SPI3 (PC10-12)
+//           e I2C_TwoBoards por el I2C1 (PB6/PB7, 10 bits) con sus pull-ups
+//   F32-F39 los TIM: PWMOutput, DMA, TimeBase, Asymetric, InputCapture,
+//           Combined, ComplementarySignals y PWMInput
+//   F40-F42 IWDG_Reset, IWDG_WindowMode y WWDG_Example
+//   F43-F46 RTC_Calendar y las bases de tiempos de la HAL sin SysTick (RTC
+//           alarma, RTC despertador y TIM6)
+//   F47-F53 PWR_STOP, PWR_STANDBY, PWR_PVD y PWR_CurrentConsumption en sus
+//           cuatro modos (Sleep, Stop+RTC, Standby, Standby+RTC)
+//
+//   TESTF3_SOLO=s2 / s3 corre solo esos grupos, TESTF3_GRUPO=F44 solo los que
+//   empiecen asi, TESTF3_TRAZA=1 imprime trazas de depuracion: con cualquiera
+//   de ellos el tiempo simulado no es el del invariante.
 //
 // EL TIEMPO SIMULADO DE F19 NO ES REPRODUCIBLE entre maquinas, como el de E18
 // en teste4: el stub atiende un socket de verdad. El banco imprime «el resto»,
@@ -154,6 +171,112 @@ SC_MODULE(BancoRasgos) {
     void wr(uint32_t a, uint32_t v) { tm.write32(a, v); }
 };
 
+
+
+// Un generador de onda rectangular con su ciclo de trabajo, para las entradas
+// de los temporizadores (TIM_InputCapture, TIM_PWMInput). Con 0 Hz suelta el
+// pin: montado en el banco desde el principio no molesta a nadie
+SC_MODULE(GenPwm), public ExtPart {
+    GenPwm(sc_module_name nm, analog_net_if& n)
+        : sc_module(nm), ExtPart(n, "GenPwm", "gen", "out", nm) {
+        SC_HAS_PROCESS(GenPwm);
+        SC_THREAD(run);
+    }
+    void pon(double hz, double duty) { hz_ = hz; duty_ = duty; ev_.notify(SC_ZERO_TIME); }
+private:
+    double hz_ = 0, duty_ = 0.5;
+    sc_event ev_;
+    void run() {
+        for (;;) {
+            if (hz_ <= 0) { hiz(); wait(ev_); continue; }
+            const double per = 1e12 / hz_;
+            drive(3.3f, 50.0f);
+            wait(sc_time(per * duty_, SC_PS), ev_);
+            if (ev_.triggered()) continue;
+            drive(0.0f, 50.0f);
+            wait(sc_time(per * (1 - duty_), SC_PS), ev_);
+        }
+    }
+};
+
+// =============================================================================
+// S3: DOS DISCOVERY, para los ejemplos *TwoBoards* de ST [doc/analisis_stm32f303.md
+// §5.3, §7.2]. Los hilos son los de sus readme, cada uno un nodo que es un pad
+// de cada chip:
+//
+//   UART   PD5 (USART2_TX) de cada una al PD6 (USART2_RX) de la otra
+//   SPI3   PC10 (SCK), PC11 (MISO) y PC12 (MOSI), de una a otra
+//   I2C1   PB6 (SCL) y PB7 (SDA), con sus pull-up de 4,7 kohm
+//
+// Las dos con los 8 MHz del ST-LINK en PF0 y B1 en PA0. La «a» es la que
+// manda (TRANSMITTER_BOARD, MASTER_BOARD); la «b», la otra. Estan apagadas
+// hasta que un grupo las enciende.
+// =============================================================================
+static const char* const DIR_S3 = "verif/fw/stm32f3/ejemplos_s3/";
+static std::string fw_s3(const char* n) { return std::string(DIR_S3) + n + ".bin"; }
+
+struct HilosDos {
+    AnalogNet uart_ab{"h_uart_ab"}, uart_ba{"h_uart_ba"};
+    AnalogNet sck{"h_sck"}, miso{"h_miso"}, mosi{"h_mosi"}, scl{"h_scl"}, sda{"h_sda"};
+    Cableado ca, cb;
+    HilosDos() {
+        ca.une(3, 5, uart_ab); cb.une(3, 6, uart_ab);
+        cb.une(3, 5, uart_ba); ca.une(3, 6, uart_ba);
+        for (Cableado* c : {&ca, &cb}) {
+            c->une(2, 10, sck); c->une(2, 11, miso); c->une(2, 12, mosi);
+            c->une(1, 6, scl);  c->une(1, 7, sda);
+        }
+    }
+};
+
+SC_MODULE(TbDos) {
+    HilosDos h;
+    McuF3 a, b;
+    ExtClock *mco_a = nullptr, *mco_b = nullptr;
+    Button *b1_a = nullptr, *b1_b = nullptr;
+    Rpull *rb_a = nullptr, *rb_b = nullptr, *pu_scl = nullptr, *pu_sda = nullptr;
+
+    SC_CTOR(TbDos)
+        : a("dos_a", DBG_PINES, h.ca, *CatalogoMcu::busca("STM32F303VC")),
+          b("dos_b", DBG_PINES, h.cb, *CatalogoMcu::busca("STM32F303VC")) {
+        mco_a = new ExtClock("mco_a", a.chip().pinmux.analog(5, 0), 8e6, 3.3, 50.0, false);
+        mco_b = new ExtClock("mco_b", b.chip().pinmux.analog(5, 0), 8e6, 3.3, 50.0, false);
+        b1_a = new Button(a.chip().pinmux.analog(0, 0), 430.0, 3.3); b1_a->release();
+        b1_b = new Button(b.chip().pinmux.analog(0, 0), 430.0, 3.3); b1_b->release();
+        rb_a = new Rpull(a.chip().pinmux.analog(0, 0), 0.0, 220e3);
+        rb_b = new Rpull(b.chip().pinmux.analog(0, 0), 0.0, 220e3);
+        pu_scl = new Rpull(h.scl, 3.3, 4700.0);
+        pu_sda = new Rpull(h.sda, 3.3, 4700.0);
+    }
+    ~TbDos() override {
+        delete mco_a; delete mco_b; delete b1_a; delete b1_b; delete rb_a; delete rb_b;
+        delete pu_scl; delete pu_sda;
+    }
+    bool alto(McuF3& m, unsigned p, unsigned i) { return m.chip().pinmux.analog(p, i).voltage() > 1.65f; }
+    // Las dos con su firmware; la «b» arranca primero, que es lo que piden los
+    // readme («reset the Slave board first»)
+    void arranca(const std::string& fa, const std::string& fb) {
+        a.alimenta(true); b.alimenta(true);
+        a.reset_pin(true); b.reset_pin(true);
+        wait(20, SC_US);
+        a.carga_firmware(fa); b.carga_firmware(fb);
+        b.reset_pin(false);
+        wait(1, SC_MS);
+        a.reset_pin(false);
+    }
+    void pulsa(Button* x, double ms = 50) { x->press(); wait(ms, SC_MS); x->release(); }
+    void apaga() { a.alimenta(false); b.alimenta(false); wait(1, SC_MS); }
+    // Espera a que un pin se quede como se pide
+    bool espera(McuF3& m, unsigned p, unsigned i, bool v, double ms) {
+        const sc_time lim = sc_time_stamp() + sc_time(ms, SC_MS);
+        while (sc_time_stamp() < lim) {
+            if (alto(m, p, i) == v) return true;
+            wait(lim - sc_time_stamp(), m.chip().pinmux.analog(p, i).value_changed_event());
+        }
+        return alto(m, p, i) == v;
+    }
+};
+
 static const char* const FW_DEMO   = "verif/fw/stm32f3/f3_demo/f3_demo.bin";
 static const char* const FW_CM     = "verif/fw/stm32f3/coremark/coremark_f3.bin";
 static const char* const FW_TOGGLE = "verif/fw/stm32f3/gpio_iotoggle/GPIO_IOToggle.bin";
@@ -171,6 +294,9 @@ enum : uint32_t {
 
 SC_MODULE(TbF3) {
     BancoRasgos* r = nullptr;
+    TbDos*  dos = nullptr;
+    GenPwm* gen_e11 = nullptr;   // PE11: TIM1_CH2 (TIM_InputCapture)
+    GenPwm* gen_b7  = nullptr;   // PB7: TIM4_CH2 (TIM_PWMInput)
     McuF3   mcu;
     SocF3&  dut;
     // La placa, lo justo: los 8 MHz del ST-LINK en PF0 (sin onda), B1 en PA0 a
@@ -188,6 +314,9 @@ SC_MODULE(TbF3) {
         : mcu("dut", DBG_PINES, Cableado(), *CatalogoMcu::busca("STM32F303VC")),
           dut(mcu.chip()) {
         r = new BancoRasgos("rasgos");
+        dos = new TbDos("dos");
+        gen_e11 = new GenPwm("gen_e11", dut.pinmux.analog(4, 11));
+        gen_b7  = new GenPwm("gen_b7", dut.pinmux.analog(1, 7));
         mco = new ExtClock("mco", dut.pinmux.analog(5, 0), 8e6, 3.3, 50.0, false);
         b1 = new Button(dut.pinmux.analog(0, 0), 330.0, 3.3);
         b1->release();
@@ -200,7 +329,7 @@ SC_MODULE(TbF3) {
         gdb_d->pon_programador(mcu.programador());
         SC_THREAD(run);
     }
-    ~TbF3() override { delete r; delete mco; delete b1; delete r_b1; delete gdb_p; delete gdb_d; }
+    ~TbF3() override { delete r; delete dos; delete gen_e11; delete gen_b7; delete mco; delete b1; delete r_b1; delete gdb_p; delete gdb_d; }
 
     // --- Utilidades -----------------------------------------------------------
     uint32_t buzon(uint32_t off) { return dut.sram.peek32(off); }
@@ -214,6 +343,18 @@ SC_MODULE(TbF3) {
         dut.sram.load(ceros, sizeof ceros, 0);
         dut.sram.poke32(B_MODO, modo);
         mcu.reset_pin(false);
+    }
+    // Los ejemplos de ST de S3, cada uno desde un ENCENDIDO: VBAT va con VDD
+    // en la Discovery, y sin cortarla el dominio de respaldo -el RTC con su
+    // despertador o su alarma, las banderas de PWR_CSR y de RCC_CSR- llega
+    // del ejemplo anterior. PWR_STANDBY, detras de PWR_STOP, despertaba al
+    // instante con el WUTF que este habia dejado puesto
+    void arranca_s3(const std::string& fw) {
+        mcu.alimenta(false);
+        wait(1, SC_MS);
+        mcu.alimenta(true);
+        wait(50, SC_US);
+        arranca(0, fw.c_str());
     }
     bool espera_estado(uint32_t e, double ms) {
         const sc_time lim = sc_time_stamp() + sc_time(ms, SC_MS);
@@ -1095,6 +1236,475 @@ SC_MODULE(TbF3) {
         wait(100, SC_US);
     }
 
+    // =======================================================================
+    // S3: los ejemplos de dos placas de STM32CubeF3, sin modificar
+    // =======================================================================
+    // Los LED de la rosa, por su nombre en el BSP
+    enum : unsigned { LED3 = 9, LED4 = 8, LED5 = 10, LED6 = 15, LED7 = 11 };
+    void st_uart(const char* n, const char* g, unsigned ok_tx, unsigned ok_rx, unsigned err) {
+        if (!toca(g)) return;
+        grupo(g);
+        TbDos& d = *dos;
+        d.arranca(fw_s3((std::string(n) + "_tx").c_str()), fw_s3((std::string(n) + "_rx").c_str()));
+        wait(300, SC_MS);
+        const bool espera = !d.alto(d.a, 4, ok_tx) && !d.alto(d.b, 4, ok_rx);
+        d.pulsa(d.b1_a);
+        const bool a_ok = d.espera(d.a, 4, ok_tx, true, 500) && d.espera(d.a, 4, ok_rx, true, 500);
+        const bool b_ok = d.espera(d.b, 4, ok_tx, true, 500) && d.espera(d.b, 4, ok_rx, true, 500);
+        wait(20, SC_MS);
+        check(espera, "antes de pulsar B1 nadie ha mandado nada");
+        check(a_ok, "la placa 1 (TRANSMITTER_BOARD) manda y recibe: sus dos LED de exito");
+        check(b_ok, "la placa 2 recibe y devuelve: los mismos dos LED");
+        check(!d.alto(d.a, 4, err) && !d.alto(d.b, 4, err), "y ninguna enciende el LED de error");
+        traza(d.a, "usart2", d.a.chip().usart2, {0x00, 0x04, 0x08, 0x0C, 0x1C});
+        traza(d.b, "usart2", d.b.chip().usart2, {0x00, 0x04, 0x08, 0x0C, 0x1C});
+        d.apaga();
+    }
+    void st_spi(const char* n, const char* g) {
+        if (!toca(g)) return;
+        grupo(g);
+        TbDos& d = *dos;
+        d.arranca(fw_s3((std::string(n) + "_maestro").c_str()), fw_s3((std::string(n) + "_esclavo").c_str()));
+        wait(200, SC_MS);
+        d.pulsa(d.b1_a);
+        const bool m = d.espera(d.a, 4, LED4, true, 6000) && d.alto(d.a, 4, LED3);
+        const bool e = d.espera(d.b, 4, LED4, true, 100) && d.alto(d.b, 4, LED3);
+        wait(50, SC_MS);
+        check(m, "el maestro termina: LED3 (transmitido) y LED4 (recibido)");
+        check(e, "el esclavo tambien");
+        check(!d.alto(d.a, 4, LED5) && !d.alto(d.b, 4, LED5), "y nadie enciende LED5 (error o plazo)");
+        traza(d.a, "spi3", d.a.chip().spi3, {0x00, 0x04, 0x08});
+        traza(d.b, "spi3", d.b.chip().spi3, {0x00, 0x04, 0x08});
+        d.apaga();
+    }
+    void st_i2c(const char* n, const char* g, bool dos_pasos) {
+        if (!toca(g)) return;
+        grupo(g);
+        TbDos& d = *dos;
+        d.arranca(fw_s3((std::string(n) + "_maestro").c_str()), fw_s3((std::string(n) + "_esclavo").c_str()));
+        wait(200, SC_MS);
+        d.pulsa(d.b1_a);
+        if (!dos_pasos) {
+            // AdvComIT: tras sincronizar, va y vuelve sin parar; LED7 conmuta
+            unsigned n_cambios = 0; bool ant = d.alto(d.a, 4, LED7);
+            const sc_time fin = sc_time_stamp() + sc_time(500, SC_MS);
+            while (sc_time_stamp() < fin) {
+                wait(fin - sc_time_stamp(), d.a.chip().pinmux.analog(4, LED7).value_changed_event());
+                if (d.alto(d.a, 4, LED7) != ant) { ++n_cambios; ant = !ant; }
+            }
+            check(n_cambios >= 4, "el maestro conmuta LED7 en cada intercambio bueno");
+        } else {
+            const bool tx = d.espera(d.a, 4, LED7, true, 2000);
+            check(tx, "primer paso: el maestro manda y LED7 se enciende");
+            wait(100, SC_MS);
+            d.pulsa(d.b1_a);
+            const bool rx = d.espera(d.a, 4, LED7, false, 2000);
+            check(rx, "segundo paso: el maestro recibe y LED7 se apaga");
+            wait(100, SC_MS);
+            check(!d.alto(d.b, 4, LED7), "el esclavo tambien acaba con LED7 apagado");
+        }
+        check(!d.alto(d.a, 4, LED3) && !d.alto(d.b, 4, LED3), "y ninguno enciende LED3 (error)");
+        traza(d.a, "i2c1", d.a.chip().i2c1, {0x00, 0x04, 0x08, 0x10, 0x18});
+        traza(d.b, "i2c1", d.b.chip().i2c1, {0x00, 0x04, 0x08, 0x10, 0x18});
+        traza(d.b, "dma1", d.b.chip().dma1, {0x00, 0x6C, 0x70, 0x74, 0x78, 0x80, 0x84, 0x88, 0x8C});
+        d.apaga();
+    }
+
+    // =======================================================================
+    // S3: los ejemplos de una placa de STM32CubeF3, sin modificar
+    // =======================================================================
+    struct Medida { double hz = 0, duty = 0; unsigned flancos = 0; };
+    // Frecuencia y ciclo de trabajo de un pin en una ventana
+    Medida mide(unsigned p, unsigned i, double us, unsigned por_periodo = 1) {
+        // El ciclo de trabajo, entre el primer flanco de subida y el ultimo:
+        // periodos enteros
+        Medida m;
+        const sc_time fin = sc_time_stamp() + sc_time(us, SC_US);
+        bool ant = alto(p, i);
+        sc_time primero = SC_ZERO_TIME, ultimo = SC_ZERO_TIME, sube = SC_ZERO_TIME;
+        sc_time alto_t = SC_ZERO_TIME, alto_hasta_ultimo = SC_ZERO_TIME;
+        while (sc_time_stamp() < fin) {
+            wait(fin - sc_time_stamp(), pin(p, i).value_changed_event());
+            const bool v = alto(p, i);
+            if (v == ant) continue;
+            if (v) {
+                if (m.flancos == 0) primero = sc_time_stamp();
+                // Solo se cierra la cuenta en un flanco que complete periodos
+                if (m.flancos % por_periodo == 0) { ultimo = sc_time_stamp(); alto_hasta_ultimo = alto_t; }
+                sube = sc_time_stamp();
+                ++m.flancos;
+            } else if (m.flancos > 0) {
+                alto_t += sc_time_stamp() - sube;
+            }
+            ant = v;
+        }
+        if (m.flancos >= 2) {
+            m.hz = double((m.flancos - 1) / por_periodo * por_periodo) / (ultimo - primero).to_seconds();
+            m.duty = alto_hasta_ultimo.to_seconds() / (ultimo - primero).to_seconds();
+        }
+        return m;
+    }
+    bool espera_pin(unsigned p, unsigned i, bool v, double ms) {
+        const sc_time lim = sc_time_stamp() + sc_time(ms, SC_MS);
+        while (alto(p, i) != v && sc_time_stamp() < lim)
+            wait(lim - sc_time_stamp(), pin(p, i).value_changed_event());
+        return alto(p, i) == v;
+    }
+    unsigned cambios(unsigned p, unsigned i, double ms) {
+        const sc_time fin = sc_time_stamp() + sc_time(ms, SC_MS);
+        unsigned n = 0; bool ant = alto(p, i);
+        while (sc_time_stamp() < fin) {
+            wait(fin - sc_time_stamp(), pin(p, i).value_changed_event());
+            if (alto(p, i) != ant) {
+                ++n; ant = !ant;
+                if (std::getenv("TESTF3_TRAZA")) std::printf("      P%c%u = %d a los %s\n", 'A' + p, i, ant, sc_time_stamp().to_string().c_str());
+            }
+        }
+        return n;
+    }
+    // Una variable del ejemplo, sin su ELF: la palabra de la SRAM que valga eso
+    bool en_sram(uint32_t v, uint32_t* dir = nullptr, uint32_t tol = 0) {
+        for (uint32_t a = 0; a < 0x2000u; a += 4) {
+            const uint32_t w = dut.sram.peek32(a);
+            if (w + tol >= v && w <= v + tol) { if (dir) *dir = 0x20000000u + a; return true; }
+        }
+        return false;
+    }
+    uint32_t csr() { return dut.rcc.peek(0x24); }
+    enum : unsigned { L3 = 9, L4 = 8, L5 = 10, L6 = 15 };
+
+    void st_tim() {
+        if (toca("F32")) {
+            grupo("F32 TIM_TimeBase: TIM3 a 10 kHz con ARR = 9999, una interrupcion por segundo");
+            arranca_s3(fw_s3("TIM_TimeBase"));
+            wait(100, SC_MS);
+            const bool a0 = alto(4, L4);
+            espera_pin(4, L4, !a0, 1500);
+            const sc_time t1 = sc_time_stamp();
+            espera_pin(4, L4, a0, 1500);
+            const double dt = (sc_time_stamp() - t1).to_seconds();
+            if (!cerca(dt, 1.0, 1e-4)) std::printf("    dt = %.6f s; TIM3 PSC %u ARR %u, timclk %.0f\n", dt,
+                dut.tim3.dbg_read(0x28), dut.tim3.dbg_read(0x2C), dut.tim3.tick_hz());
+            check(cerca(dt, 1.0, 1e-4), "LD4 (PE8) cambia cada segundo");
+        }
+        if (toca("F33")) {
+            grupo("F33 TIM_PWMOutput: TIM3 a 24 MHz, ARR = 664, cuatro PWM en PC6-PC9");
+            arranca_s3(fw_s3("TIM_PWMOutput"));
+            wait(20, SC_MS);
+            const double esp[4] = {332.0 / 665, 249.0 / 665, 166.0 / 665, 83.0 / 665};
+            bool f = true, dd = true;
+            for (unsigned c = 0; c < 4; ++c) {
+                const Medida m = mide(2, 6 + c, 500);
+                if (!cerca(m.hz, 24e6 / 665, 1e-3)) { f = false; std::printf("    CH%u %.1f Hz\n", c + 1, m.hz); }
+                if (std::fabs(m.duty - esp[c]) > 0.005) { dd = false; std::printf("    CH%u %.4f\n", c + 1, m.duty); }
+            }
+            check(f, "los cuatro a 36,09 kHz (24 MHz / 665)");
+            check(dd, "con el 50, 37,5, 25 y 12,5 %");
+        }
+        if (toca("F34")) {
+            grupo("F34 TIM_Combined: PWM combinado de TIM1 con el canal 5 (GC5C1-3), centrado");
+            arranca_s3(fw_s3("TIM_Combined"));
+            wait(20, SC_MS);
+            const double esp[3] = {(2047.0 - 254) / 4096, (1535.0 - 254) / 4096, (1023.0 - 254) / 4096};
+            bool f = true, dd = true;
+            for (unsigned c = 0; c < 3; ++c) {
+                const Medida m = mide(0, 8 + c, 2000, 2);
+                // Dos pulsos por periodo: en centrado, CH1 (PWM1) esta alto en
+                // el valle y CH5 (PWM2) lo parte por la mitad
+                if (m.flancos < 34 || m.flancos > 36) { f = false; std::printf("    CH%u %u flancos en 2 ms\n", c + 1, m.flancos); }
+                if (std::fabs(m.duty - esp[c]) > 0.005) { dd = false; std::printf("    CH%u %.4f (%.4f)\n", c + 1, m.duty, esp[c]); }
+            }
+            check(f, "PA8-PA10: dos pulsos por periodo de 8,79 kHz (72 MHz / 2 / 4096)");
+            check(dd, "cada uno, su canal Y el 5 en PWM2: 43,8, 31,3 y 18,8 %");
+        }
+        if (toca("F35")) {
+            grupo("F35 TIM_Asymetric: TIM1 de referencia; TIM8 no arranca (el ejemplo comparte el handle)");
+            arranca_s3(fw_s3("TIM_Asymetric"));
+            wait(20, SC_MS);
+            const Medida r = mide(0, 8, 5000);
+            check(cerca(r.hz, 72e6 / 44001, 1e-3) && std::fabs(r.duty - 0.5) < 0.005,
+                  "TIM1_CH1 (PA8), la referencia: 1,636 kHz al 50 %");
+            // El ejemplo usa EL MISMO TIM_HandleTypeDef para TIM1 y TIM8, y la
+            // HAL v1.5.9 guarda en el handle el estado de cada canal: el canal
+            // 1 ya esta BUSY (de TIM1), HAL_TIM_PWM_Start de TIM8 devuelve
+            // HAL_ERROR y el ejemplo va a Error_Handler. En la placa, igual
+            check(alto(4, L3) && !(dut.tim8.dbg_read(0) & 1u),
+                  "TIM8 sin arrancar y LD3 encendido: HAL_TIM_PWM_Start(TIM8) da HAL_ERROR, como en la placa");
+            check(dut.tim8.dbg_read(0x18) == 0x01007878u && dut.tim8.dbg_read(8) == 4u,
+                  "pero TIM8 queda configurado: CH2 en PWM2 asimetrico (OC2M = 1111), reset por ITR0");
+        }
+        if (toca("F36")) {
+            grupo("F36 TIM_ComplementarySignals: TIM1 a 10 kHz con tiempo muerto, freno y LOCK");
+            arranca_s3(fw_s3("TIM_ComplementarySignals"));
+            wait(20, SC_MS);
+            const Medida c1 = mide(0, 8, 1000), c1n = mide(1, 13, 1000);
+            const Medida c2 = mide(4, 11, 1000), c2n = mide(1, 14, 1000);
+            check(cerca(c1.hz, 10e3, 1e-3) && cerca(c1n.hz, 10e3, 1e-3), "CH1 (PA8) y CH1N (PB13) a 10 kHz");
+            // Con 100 tics de tiempo muerto (1,39 us) cada flanco de subida se retrasa
+            const double dt = 100 / 72e6 * 10e3;
+            check(std::fabs(c1.duty - (899.0 / 1800 - dt)) < 0.004 && std::fabs(c1n.duty - (901.0 / 1800 - dt)) < 0.004,
+                  "50 % menos el tiempo muerto en los dos");
+            check(std::fabs(c2.duty - (449.0 / 1800 - dt)) < 0.004 && std::fabs(c2n.duty - (1351.0 / 1800 - dt)) < 0.004,
+                  "CH2 (PE11) al 25 % y CH2N (PB14) al 75 %, menos el tiempo muerto");
+            bool solape = false;
+            for (unsigned k = 0; k < 200; ++k) { if (alto(0, 8) && alto(1, 13)) solape = true; wait(337, SC_NS); }
+            check(!solape, "CH1 y CH1N nunca a la vez");
+        }
+        if (toca("F37")) {
+            grupo("F37 TIM_DMA: el DMA1 (canal 5, TIM1_UP) cambia CCR3 cada cuatro periodos (RCR = 3)");
+            arranca_s3(fw_s3("TIM_DMA"));
+            wait(20, SC_MS);
+            // Los anchos de los pulsos de CH3 (PA10), uno detras de otro
+            std::vector<double> d;
+            espera_pin(0, 10, false, 1);
+            for (unsigned k = 0; k < 30; ++k) {
+                espera_pin(0, 10, true, 1); const sc_time a = sc_time_stamp();
+                espera_pin(0, 10, false, 1);
+                d.push_back((sc_time_stamp() - a).to_seconds() * 17570.0);
+            }
+            unsigned n75 = 0, n50 = 0, n25 = 0;
+            for (double x : d) { if (std::fabs(x - 0.75) < 0.01) ++n75; else if (std::fabs(x - 0.5) < 0.01) ++n50; else if (std::fabs(x - 0.25) < 0.01) ++n25; }
+            check(n75 + n50 + n25 == 30 && n75 >= 8 && n50 >= 8 && n25 >= 8,
+                  "los tres anchos del buffer, 75, 50 y 25 %, de cuatro en cuatro");
+            check(dut.dma1.transferencias() > 10, "y los ha movido el DMA");
+        }
+        if (toca("F38")) {
+            grupo("F38 TIM_InputCapture: TIM1_CH2 (PE11) mide una senal de 10 kHz");
+            gen_e11->pon(10e3, 0.5);
+            arranca_s3(fw_s3("TIM_InputCapture"));
+            wait(50, SC_MS);
+            if (!en_sram(10000, nullptr, 2)) std::printf("    capturas TIM1 %llu, CCR2 %u; [48..58] %u %u %u %u %u\n", (unsigned long long)dut.tim1.captures(), dut.tim1.dbg_read(0x38),
+                dut.sram.peek32(0x48), dut.sram.peek32(0x4C), dut.sram.peek32(0x50), dut.sram.peek32(0x54), dut.sram.peek32(0x58));
+            // El borde de la senal no cae en un tic del contador: 7199 o 7200
+            check(en_sram(10000, nullptr, 2), "uwFrequency = PCLK2 / diferencia de capturas = 10000 (+-2)");
+            check(!alto(4, L3), "sin error");
+            gen_e11->pon(0, 0.5);
+        }
+        if (toca("F39")) {
+            grupo("F39 TIM_PWMInput: TIM4 en modo de entrada PWM (PB7), 5 kHz al 30 %");
+            gen_b7->pon(5e3, 0.3);
+            arranca_s3(fw_s3("TIM_PWMInput"));
+            wait(50, SC_MS);
+            uint32_t a = 0;
+            const bool f = en_sram(5000, &a, 2);
+            if (!f) std::printf("    capturas TIM4 %llu, CCR1 %u CCR2 %u\n", (unsigned long long)dut.tim4.captures(), dut.tim4.dbg_read(0x34), dut.tim4.dbg_read(0x38));
+            check(f, "uwFrequency = HCLK / CCR2 = 5000 (+-2)");
+            // uwDutyCycle es la palabra de al lado (.bss, en el orden que deja el enlazador)
+            auto dc = [&](uint32_t x) { const uint32_t w = dut.sram.peek32(x - 0x20000000u); return w == 29 || w == 30; };
+            check(f && (dc(a + 4) || dc(a - 4)), "uwDutyCycle = CCR1 * 100 / CCR2 = 30 (o 29: el flanco no cae en un tic)");
+            gen_b7->pon(0, 0.5);
+        }
+    }
+
+    void st_perros() {
+        if (toca("F40")) {
+            grupo("F40 IWDG_Reset: el TIM16 mide el LSI por el MCO; sin recargas, reset a 1 s");
+            arranca_s3(fw_s3("IWDG_Reset"));
+            wait(100, SC_MS);                 // lo que tarda en arrancar (y los pulsos de BSP_LED_Init)
+            const unsigned n = cambios(4, L4, 2500);
+            if (!(n >= 2 && n <= 3)) std::printf("    %u cambios; uwLsiFreq %u, IWDG PR %u RLR %u\n", n, dut.sram.peek32(0x50),
+                                                  dut.iwdg.dbg_read(4), dut.iwdg.dbg_read(8));
+            check(n >= 2 && n <= 3, "LD4 cambia cada 990 ms: el perro se recarga");
+            check(!alto(4, L3), "y no hay reset");
+            check(dut.tim16.captures() >= 2, "el TIM16 ha capturado el LSI (TI1 desde el MCO, OR.TI1_RMP)");
+            b1->press(); wait(20, SC_MS); b1->release();
+            const sc_time t0 = sc_time_stamp();
+            const bool r = espera_pin(4, L3, true, 1500);
+            check(r && (csr() & (1u << 29)), "B1: fallo, sin recargas, y el IWDG reinicia (IWDGRSTF): LD3");
+            std::printf("    LD3 a los %.0f ms\n", (sc_time_stamp() - t0).to_seconds() * 1e3);
+        }
+        if (toca("F41")) {
+            grupo("F41 IWDG_WindowMode: recargar dentro de la ventana; fuera, reset");
+            arranca_s3(fw_s3("IWDG_WindowMode"));
+            wait(100, SC_MS);                 // lo que tarda en arrancar (y los pulsos de BSP_LED_Init)
+            const unsigned n = cambios(4, L4, 2000);
+            if (!(n >= 4 && n <= 5)) std::printf("    %u cambios; IWDG PR %u RLR %u WINR %u\n", n, dut.iwdg.dbg_read(4), dut.iwdg.dbg_read(8), dut.iwdg.dbg_read(0x10));
+            check(n >= 4 && n <= 5, "LD4 cambia cada 450 ms, recargando dentro de la ventana (400 ms)");
+            const unsigned f0 = dut.iwdg.fuera_de_ventana();
+            b1->press(); wait(20, SC_MS); b1->release();
+            wait(800, SC_MS);
+            check(dut.iwdg.fuera_de_ventana() == f0 + 1 && (csr() & (1u << 29)),
+                  "B1: recarga cada 200 ms, antes de la ventana, y reset (IWDGRSTF)");
+            check(alto(4, L4) && cambios(4, L4, 1000) == 0, "tras el reset LD4 se queda encendido (los 4 s)");
+            check(!alto(4, L3), "sin error");
+        }
+        if (toca("F42")) {
+            grupo("F42 WWDG_Example: refresco cada 44 ms en la ventana; sin el, reset");
+            arranca_s3(fw_s3("WWDG_Example"));
+            wait(100, SC_MS);                 // lo que tarda en arrancar (y los pulsos de BSP_LED_Init)
+            const unsigned n = cambios(4, L4, 500);
+            if (!(n >= 10 && n <= 12)) std::printf("    %u cambios; WWDG CR %X CFR %X\n", n, dut.wwdg.dbg_read(0), dut.wwdg.dbg_read(4));
+            check(n >= 10 && n <= 12, "LD4 cambia cada 44 ms");
+            b1->press(); wait(5, SC_MS); b1->release();
+            const bool r = espera_pin(4, L3, true, 200);
+            check(r && (csr() & (1u << 30)), "B1: el WWDG reinicia (WWDGRSTF): LD3 encendido");
+            check(!alto(4, L5), "sin error");
+        }
+    }
+
+    void st_rtc() {
+        if (toca("F43")) {
+            grupo("F43 RTC_Calendar: el RTC al LSI, la fecha y la hora, y la marca en BKP1");
+            arranca_s3(fw_s3("RTC_Calendar"));
+            const bool ok = espera_pin(4, L6, true, 500);
+            const uint32_t t1 = dut.rtc.dbg_read(0x00);
+            wait(2100, SC_MS);
+            const uint32_t t2 = dut.rtc.dbg_read(0x00);
+            check(ok, "LD6: el RTC se ha configurado");
+            std::printf("    TR %06X -> %06X, DR %06X\n", t1, t2, dut.rtc.dbg_read(0x04));
+            check(t2 != t1 && ((t2 & 0x7Fu) - (t1 & 0x7Fu)) >= 2, "y cuenta: dos segundos mas en RTC_TR");
+            check(dut.rtc.dbg_read(0x54) == 0x32F2u, "RTC_BKP1R = 0x32F2, la marca del ejemplo (RTC_BKP_DR1)");
+        }
+        auto tb = [&](const char* g, const char* fw, double ms) {
+            if (!toca(g)) return;
+            grupo((std::string(g) + " " + fw + ": la base de tiempos de la HAL sin SysTick").c_str());
+            arranca_s3(fw_s3(fw));
+            wait(100, SC_MS);
+            const unsigned n = cambios(4, L3, 4 * ms + ms / 2);
+            check(n >= 4 && n <= 5, "LD3 cambia con HAL_Delay, a su ritmo");
+            b1->press(); wait(20, SC_MS); b1->release();
+            const unsigned m = cambios(4, L3, 3 * ms);
+            check(m == 0, "B1 suspende el tick: LD3 se para");
+            b1->press(); wait(20, SC_MS); b1->release();
+            check(cambios(4, L3, 3 * ms) >= 2, "otra vez B1: el tick vuelve");
+        };
+        tb("F44", "HAL_TimeBase_RTC_ALARM", 500);
+        tb("F45", "HAL_TimeBase_RTC_WKUP", 500);
+        tb("F46", "HAL_TimeBase_TIM", 1000);
+    }
+
+    void st_pwr() {
+        if (toca("F47")) {
+            grupo("F47 PWR_STOP: Stop con el regulador en bajo consumo; despierta el RTC");
+            arranca_s3(fw_s3("PWR_STOP"));
+            const unsigned n = cambios(4, L4, 4900);
+            check(n > 40, "en marcha, LD4 parpadea");
+            wait(300, SC_MS);
+            check(dut.pwr.modo() == LP_STOP && dut.f_sysclk() == 0.0, "a los 5 s, Stop: los relojes parados");
+            const unsigned e = dut.pwr.entradas_stop();
+            const bool d = espera_pin(4, L3, true, 4000);
+            check(d && dut.pwr.despertares() >= 1, "el despertador del RTC (0x1FFF / (LSI / 16) = 3,3 s) lo saca: LD3");
+            wait(50, SC_MS);
+            check(cerca(dut.f_sysclk(), 72e6, 1e-9), "y SYSCLKConfig_STOP vuelve a poner 72 MHz");
+            check(e == 1, "una entrada en Stop");
+        }
+        if (toca("F48")) {
+            grupo("F48 PWR_STANDBY: Standby con WKUP1 y la alarma del RTC");
+            arranca_s3(fw_s3("PWR_STANDBY"));
+            wait(300, SC_MS);
+            check(alto(4, L3), "en marcha, LD3 encendido");
+            b1->press(); wait(50, SC_MS); b1->release();
+            wait(100, SC_MS);
+            check(dut.pwr.modo() == LP_STANDBY && dut.en_reset(), "al soltar B1, Standby: el dominio de 1,8 V apagado");
+            check(!alto(4, L3), "y los pines sueltos");
+            const bool d = espera_pin(4, L3, true, 6000);
+            check(d, "la alarma (+5 s) lo despierta: arranca de nuevo y LD3 se enciende");
+            check((dut.pwr.dbg_read(0x04) & 2u) && (csr() & RccF3::CSR_V18PWRRSTF), "con SBF en PWR_CSR y V18PWRRSTF en RCC_CSR");
+        }
+        if (toca("F49")) {
+            grupo("F49 PWR_PVD: el PVD en el nivel 3 (2,38 V) por la linea 16 del EXTI");
+            arranca_s3(fw_s3("PWR_PVD"));
+            wait(300, SC_MS);
+            check(cambios(4, L3, 1000) >= 4, "con 3,3 V, LD3 parpadea");
+            mcu.tension(2.3);
+            wait(50, SC_MS);
+            check(cambios(4, L3, 1000) == 0, "con 2,3 V, el PVD salta y LD3 se para");
+            mcu.tension(3.3);
+            wait(50, SC_MS);
+            check(cambios(4, L3, 1000) >= 4, "con 3,3 V otra vez, vuelve a parpadear");
+        }
+        // PWR_CurrentConsumption, sus cuatro modos: el de por defecto (Sleep)
+        // y los otros tres con -D<MODO>. En todos, B1 deja de parpadear LD3 y
+        // entra en el modo; cada uno sale por donde dice su readme
+        auto cc = [&](const char* g, const char* modo, const char* fw, LpMode lp) {
+            if (!toca(g)) return false;
+            grupo((std::string(g) + " PWR_CurrentConsumption (" + modo + ")").c_str());
+            arranca_s3(fw_s3(fw));
+            wait(300, SC_MS);
+            check(cambios(4, L3, 500) >= 3, "en marcha, LD3 parpadea");
+            b1->press(); wait(50, SC_MS); b1->release();
+            wait(450, SC_MS);          // STANDBY_MODE espera 200 ms antes de entrar
+            check(dut.pwr.modo() == lp, (std::string("B1: ") + modo).c_str());
+            return true;
+        };
+        if (cc("F50", "SLEEP_MODE", "PWR_CurrentConsumption", LP_SLEEP)) {
+            check(cambios(4, L3, 500) == 0, "con el tick suspendido no despierta solo");
+            b1->press(); wait(50, SC_MS); b1->release();
+            wait(100, SC_MS);
+            check(dut.pwr.modo() == LP_RUN && cambios(4, L3, 500) >= 3, "B1 lo despierta: LD3 parpadea otra vez");
+        }
+        if (cc("F51", "STOP_RTC_MODE", "PWR_CurrentConsumption_STOP_RTC_MODE", LP_STOP)) {
+            check(dut.f_sysclk() <= 0.0, "en Stop, los relojes parados");
+            const bool d = espera_pin(4, L6, true, 23000);
+            check(d && dut.pwr.modo() == LP_RUN, "el despertador del RTC (0xA017 / (LSI / 16)) lo saca: LD6");
+        }
+        if (cc("F52", "STANDBY_MODE", "PWR_CurrentConsumption_STANDBY_MODE", LP_STANDBY)) {
+            b1->press(); wait(50, SC_MS);
+            const bool d = espera_pin(4, L5, true, 500);
+            b1->release();
+            check(d && (csr() & RccF3::CSR_V18PWRRSTF), "WKUP1 (B1, PA0) lo despierta: arranca con SBF y LD5");
+        }
+        if (cc("F53", "STANDBY_RTC_MODE", "PWR_CurrentConsumption_STANDBY_RTC_MODE", LP_STANDBY)) {
+            const bool d = espera_pin(4, L5, true, 23000);
+            check(d && (csr() & RccF3::CSR_V18PWRRSTF), "el despertador del RTC lo saca del Standby: LD5");
+        }
+    }
+
+    void s3_una() {
+        st_tim();
+        st_perros();
+        st_rtc();
+        st_pwr();
+    }
+
+    // Solo un grupo de S3 (TESTF3_GRUPO=F22), para depurarlo
+    static bool toca(const char* g) {
+        const char* e = std::getenv("TESTF3_GRUPO");
+        return !e || std::strncmp(g, e, std::strlen(e)) == 0;
+    }
+    static void traza(McuF3& m, const char* n, BusSlave& b, std::initializer_list<uint32_t> offs) {
+        if (!std::getenv("TESTF3_TRAZA")) return;
+        std::printf("    [%s] pc=%08X sysclk=%.0f lr=%08X\n", m.chip().name(), m.chip().core.cpu.pc(),
+                    m.chip().f_sysclk(), m.chip().core.cpu.reg.r[14]);
+        {
+            const uint32_t sp = m.chip().core.cpu.reg.r[13];
+            if (sp >= 0x20000000u && sp < 0x2000A000u - 32)
+                std::printf("    [%s] sp=%08X pila: pc=%08X lr=%08X\n", m.chip().name(), sp,
+                            m.chip().sram.peek32(sp - 0x20000000u + 24), m.chip().sram.peek32(sp - 0x20000000u + 20));
+            if (sp >= 0x20000000u && sp < 0x2000A000u - 64) {
+                std::printf("    [%s] pila:", m.chip().name());
+                for (unsigned k = 0; k < 12; ++k) std::printf(" %08X", m.chip().sram.peek32(sp - 0x20000000u + 4 * k));
+                std::printf("\n");
+            }
+        }
+        if (const char* v = std::getenv("TESTF3_VOLCADO")) {
+            const uint32_t a0 = uint32_t(std::strtoul(v, nullptr, 16));
+            std::printf("    [%s] %08X:", m.chip().name(), a0);
+            for (unsigned i = 0; i < 32; ++i) {
+                const uint32_t w = m.chip().sram.peek32(((a0 - 0x20000000u) & ~3u) + (i & ~3u));
+                const char c = char(w >> (8 * (i & 3)));
+                std::printf("%c", (c >= 32 && c < 127) ? c : '.');
+            }
+            std::printf("\n");
+        }
+        std::printf("    [%s %s]", m.chip().name(), n);
+        for (uint32_t o : offs) std::printf(" %02X=%08X", unsigned(o), unsigned(b.dbg_read(o)));
+        std::printf("\n");
+    }
+    void s3_dos() {
+        st_uart("UART_TwoBoards_ComPolling", "F22 UART_TwoBoards_ComPolling: dos Discovery por la USART2 (PD5/PD6)",
+                LED6, LED5, LED3);
+        st_uart("UART_TwoBoards_ComIT", "F23 UART_TwoBoards_ComIT", LED3, LED5, LED6);
+        st_uart("UART_TwoBoards_ComDMA", "F24 UART_TwoBoards_ComDMA: con el DMA1 (canales 6 y 7)", LED3, LED5, LED6);
+        st_spi("SPI_FullDuplex_ComPolling", "F25 SPI_FullDuplex_ComPolling: SPI3 maestro y esclavo (PC10-12)");
+        st_spi("SPI_FullDuplex_ComIT", "F26 SPI_FullDuplex_ComIT");
+        st_spi("SPI_FullDuplex_ComDMA", "F27 SPI_FullDuplex_ComDMA: con el DMA2 (canales 1 y 2)");
+        st_i2c("I2C_TwoBoards_ComPolling", "F28 I2C_TwoBoards_ComPolling: I2C1 con direccion de 10 bits (PB6/PB7)", true);
+        st_i2c("I2C_TwoBoards_ComIT", "F29 I2C_TwoBoards_ComIT", true);
+        st_i2c("I2C_TwoBoards_ComDMA", "F30 I2C_TwoBoards_ComDMA: con el DMA1 (canales 6 y 7)", true);
+        st_i2c("I2C_TwoBoards_AdvComIT", "F31 I2C_TwoBoards_AdvComIT: orden, respuesta y vuelta a empezar", false);
+    }
+
     void run() {
         firmwares();
         catalogo();
@@ -1104,6 +1714,13 @@ SC_MODULE(TbF3) {
         // TESTF3_SOLO=s2: solo los grupos de S2, para depurarlos (el tiempo
         // simulado, entonces, no es el del invariante)
         const char* solo = std::getenv("TESTF3_SOLO");
+        if (solo && std::strcmp(solo, "s3") == 0) {
+            s3_dos();
+            s3_una();
+            std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
+            sc_stop();
+            return;
+        }
         if (!solo || std::strcmp(solo, "s2") != 0) {
             arranque_flash();
             arranque_sistema();
@@ -1133,6 +1750,10 @@ SC_MODULE(TbF3) {
         r_iwdg();
         r_spi();
         r_rtc_ccm();
+        if (!solo) {
+            s3_una();
+            s3_dos();
+        }
         std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

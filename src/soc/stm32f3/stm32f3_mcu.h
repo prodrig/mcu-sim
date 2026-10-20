@@ -60,6 +60,11 @@ public:
             reset_pin(true);
         }
     }
+    // La tension de VDD (y VDDA) desde el banco: para el PVD (S3)
+    void tension(double v) {
+        if (!externa_) chip_->pwr_pads.vdd.set_drive(d_vdd_, float(v), 0.1f);
+        chip_->pwr_pads.vdda.set_drive(d_vdda_, float(v), 0.1f);
+    }
     void reset_pin(bool activo) override {
         if (activo) chip_->pwr_pads.nrst.set_drive(d_nrst_, 0.0f, 100.0f);
         else        chip_->pwr_pads.nrst.set_hiz(d_nrst_);

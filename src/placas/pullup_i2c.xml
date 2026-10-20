@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     DOS PULL-UP PARA UN BUS I2C, en una tira de cuatro pines
+
+     Lo que se pone en una placa de prototipos cuando dos placas hablan por
+     I2C y ninguna lleva los suyos: 4,7 kohm de SCL y de SDA a VCC. Sin
+     ellos, en colector abierto, nadie sube el hilo. La usa
+     placas/dos_f3discovery.xml, con VCC a los 3 V de una de las Discovery.
+
+         ./build/mcu-sim placas/pullup_i2c.xml --valida
+     ========================================================================= -->
+<placa nombre="pullup-i2c">
+  <componente tipo="Conector" id="P1" filas="4" columnas="1"
+              nombres="SCL SDA VCC GND"/>
+  <!-- SCL y SDA: el pull-up y los pines de las placas, todos a la vez -->
+  <nodo id="P1.SCL" bus="si"/>
+  <nodo id="P1.SDA" bus="si"/>
+  <nodo id="P1.VCC" bus="si"/>
+  <nodo id="P1.GND" bus="si"/>
+  <componente tipo="Resistencia" id="R1" r="4700">
+    <pin nombre="a" nodo="P1.VCC"/>
+    <pin nombre="b" nodo="P1.SCL"/>
+  </componente>
+  <componente tipo="Resistencia" id="R2" r="4700">
+    <pin nombre="a" nodo="P1.VCC"/>
+    <pin nombre="b" nodo="P1.SDA"/>
+  </componente>
+</placa>

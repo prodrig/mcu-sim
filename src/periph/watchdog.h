@@ -214,9 +214,16 @@ protected:
 struct IwdgCaps {
     uint32_t base;
     bool     ventana;
+    // ¿Lo para un reset del sistema? (S3) En el F303, sí: los ejemplos de ST
+    // (IWDG_Reset, IWDG_WindowMode) esperan 4 s con HAL_Delay tras un reset
+    // del perro, ANTES de volver a arrancarlo, y en la placa no se reinician;
+    // con el perro en marcha lo harían a los 762 ms. RM0316 §25.3 solo dice
+    // «once running, the IWDG cannot be stopped». El modelo del F4 lo deja
+    // contando (P-18 de doc/todo.md: queda por contrastar en el F4)
+    bool     para_con_reset = false;
 };
-inline constexpr IwdgCaps IWDG_F4{ addr::IWDG_B, false };
-inline constexpr IwdgCaps IWDG_F3{ addr::IWDG_B, true };
+inline constexpr IwdgCaps IWDG_F4{ addr::IWDG_B, false, false };
+inline constexpr IwdgCaps IWDG_F3{ addr::IWDG_B, true, true };
 
 class Iwdg : public BusSlave {
 public:
@@ -431,6 +438,10 @@ protected:
         // de marcha y solo se recarga el contador [IR, §12.11].
         sr_ = 0; unlocked_ = false;
         o_rst_ = false;
+        if (caps_.para_con_reset) {
+            run_ = false;
+            pr_ = 0; rlr_ = 0x0FFFu; winr_ = 0x0FFFu;
+        }
         cnt0_ = rlr_; t_ref_ = sc_core::sc_time_stamp();
         publish();
         ev_.notify(sc_core::SC_ZERO_TIME);

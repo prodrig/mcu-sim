@@ -133,6 +133,13 @@ public:
 
     Oscillator hsi{"hsi"}, hse{"hse"}, lsi{"lsi"}, lse{"lse"};
 
+    // Los RELOJES DE NÚCLEO (S3): los que eligen CFGR3 (USART, I²C), CFGR3
+    // (TIM1 y TIM8 a 144 MHz desde el PLL) y CFGR.I2SSRC. Son señales del RCC,
+    // como `s_en`: el SoC ata a ellas el `ker_clk_hz` de cada periférico.
+    enum KerF3 : unsigned { K_USART1, K_USART2, K_USART3, K_UART4, K_UART5,
+                            K_I2C1, K_I2C2, K_TIM1, K_TIM8, K_I2S, K_COUNT };
+    sc_core::sc_vector<sc_core::sc_signal<double>> s_ker;
+
     sc_core::sc_time t_rst_pulse{20, sc_core::SC_US};
     sc_core::sc_time t_rst_release{20, sc_core::SC_US};
     double t_pll_lock_s = 200e-6;       // el maximo de t_LOCK [DS9118, tabla 46]
@@ -146,7 +153,7 @@ public:
 
     explicit RccF3(sc_core::sc_module_name nm)
         : BusSlave(nm, 0x40021000u, 0x400),
-          s_en("s_en", F3P_COUNT), s_rst_n("s_rst_n", F3P_COUNT),
+          s_en("s_en", F3P_COUNT), s_rst_n("s_rst_n", F3P_COUNT), s_ker("s_ker", K_COUNT),
           g_hclk_("g_hclk"), g_pclk1_("g_pclk1"), g_pclk2_("g_pclk2"),
           g_tim1_("g_timclk1"), g_tim2_("g_timclk2"), g_stk_("g_stk"),
           g_rtc_("g_rtc"), g_mco_("g_mco"), g_lsi_("g_lsi") {
@@ -216,6 +223,37 @@ public:
     bool en_reset() const { return !o_sys_rst_; }
     // El OBL_LAUNCH de la Flash (S2): un reset de sistema con OBLRSTF
     void pide_reset_obl() { pend_ |= CSR_OBLRSTF; ev_rst_.notify(sc_core::SC_ZERO_TIME); }
+    // El bajo consumo (S3), lo pide el PWR:
+    //   Stop      se paran los relojes del dominio de 1,8 V; el HSE, el PLL y
+    //             el CSS se apagan, y a la vuelta SYSCLK es el HSI [RM0316 §7.3.5]
+    //   Standby   el dominio de 1,8 V se apaga: un reset que dura hasta que el
+    //             PWR encuentra un despertador. Sale como un reset de
+    //             alimentación del dominio, con V18PWRRSTF [RM0316 §9.1.1]
+    //   reset     nRST_STOP o nRST_STDBY a cero: LPWRRSTF [RM0316 §9.1.2]
+    void para(bool on) {
+        if (on == parado_) return;
+        parado_ = on;
+        if (on) {
+            cr_ &= ~((1u << 16) | (1u << 19) | (1u << 24));   // HSEON, CSSON, PLLON
+            cr_ |= 1u;                                        // HSION, para la vuelta
+            cfgr_ &= ~3u;                                     // SW = HSI
+        }
+        clk_ev_.notify(sc_core::SC_ZERO_TIME);
+    }
+    void standby(bool on) {
+        if (on == standby_) return;
+        standby_ = on;
+        // Al entrar, un reset que dura; al salir, sus banderas: el pin (el
+        // reset interno lo baja) y el POR del dominio de 1,8 V
+        if (on) ev_rst_.notify(sc_core::SC_ZERO_TIME);
+        else csr_ |= CSR_V18PWRRSTF | CSR_PINRSTF;
+        stby_ev_.notify(sc_core::SC_ZERO_TIME);
+    }
+    void reset_bajo_consumo() { pend_ |= CSR_LPWRRSTF; ev_rst_.notify(sc_core::SC_ZERO_TIME); }
+    bool parado() const { return parado_; }
+    bool en_standby() const { return standby_; }
+    // Arrancar el IWDG enciende el LSI por hardware [RM0316 §25.3.1]
+    void pide_lsi(bool on) { if (on != lsi_iwdg_) { lsi_iwdg_ = on; clk_ev_.notify(sc_core::SC_ZERO_TIME); } }
 
     void set_internal_waveforms(bool on) {
         ondas_ = on;
@@ -367,6 +405,9 @@ private:
     bool prev_rdy_[5] = {};
     bool css_ = false, ondas_ = true;
     uint32_t pend_ = 0;
+    bool parado_ = false, standby_ = false, lsi_iwdg_ = false;
+    double o_ker_[K_COUNT] = {};
+    sc_core::sc_event stby_ev_;
     unsigned n_avisos_ = 0;
     bool av_dbp_ = false, av_sys_ = false, av_p1_ = false, av_p2_ = false, av_pll_ = false,
          av_pllin_ = false, av_usb_ = false, av_hse_ = false;
@@ -410,10 +451,10 @@ private:
 
     // --- Los osciladores y el PLL ------------------------------------------------------
     void aplica_osciladores() {
-        hsi.enable(cr_ & 1u);
+        hsi.enable((cr_ & 1u) && !parado_);
         hse.bypass = (cr_ >> 18) & 1u;
         if (!css_) hse.enable((cr_ >> 16) & 1u);
-        lsi.enable(csr_ & 1u);
+        lsi.enable((csr_ & 1u) || lsi_iwdg_);
         lse.bypass = (bdcr_ >> 2) & 1u;
         lse.enable(bdcr_ & 1u);
         // El PLL: entrada HSI/2 o HSE/PREDIV, por PLLMUL [CMSIS: RCC_CFGR_PLLMUL]
@@ -476,6 +517,7 @@ private:
         else if (sw == 1 && fe > 0) { f_sys_ = fe; sws_ = 1; }
         else if (sw == 2 && fp > 0) { f_sys_ = fp; sws_ = 2; }
         else if (sws_ == 0 && fh <= 0) { f_sys_ = 0; }
+        if (parado_) f_sys_ = 0;                            // Stop: todo parado
         const unsigned hd = div_hpre((cfgr_ >> 4) & 0xFu);
         const unsigned p1 = div_ppre((cfgr_ >> 8) & 7u), p2 = div_ppre((cfgr_ >> 11) & 7u);
         f_hclk_ = clk_divide(f_sys_, hd);
@@ -528,6 +570,12 @@ private:
         g_mco_.set_freq(fm);
         g_lsi_.set_freq(lsi.out_hz());
         set_domain_hz(f_hclk_);
+        for (unsigned n = 1; n <= 5; ++n) o_ker_[K_USART1 + n - 1] = f_usart(n);
+        o_ker_[K_I2C1] = f_i2c(1); o_ker_[K_I2C2] = f_i2c(2);
+        o_ker_[K_TIM1] = f_tim18(1); o_ker_[K_TIM8] = f_tim18(8);
+        // I2SSRC (CFGR bit 23): 0 SYSCLK, 1 el pin I2S_CKIN, que no se modela
+        o_ker_[K_I2S] = ((cfgr_ >> 23) & 1u) ? 0.0 : f_sys_;
+        if (parado_) for (double& k : o_ker_) k = 0;
         // CIR: los RDYF suben en el flanco
         const bool rdy[5] = { lsi.is_ready(), lse.is_ready(), hsi.is_ready(), hse.is_ready(), pll_listo_ };
         for (unsigned i = 0; i < 5; ++i) {
@@ -623,7 +671,10 @@ private:
             hse.clear_failed();
             o_sys_rst_ = false;
             if (por) o_bkp_rst_ = false;
-            o_drv_nrst_ = true;
+            // En Standby el dominio de 1,8 V esta apagado y el reset dura lo
+            // que dure el Standby, pero no sale por el pin: si lo bajara, el
+            // PWR lo tomaria por un NRST externo y despertaria al instante
+            o_drv_nrst_ = !standby_;
             refresca_periferia();
             aplica_osciladores();
             recalcula();
@@ -636,9 +687,9 @@ private:
             // Un corte de alimentacion con el pin todavia abajo vuelve a ser un
             // POR entero: con su carga de los bytes de opcion
             bool corte = false;
-            while (!por_ok.read() || !nrst_in_n.read()) {
+            while (!por_ok.read() || !nrst_in_n.read() || standby_) {
                 if (!por_ok.read()) corte = true;
-                wait(por_ok.value_changed_event() | nrst_in_n.value_changed_event());
+                wait(por_ok.value_changed_event() | nrst_in_n.value_changed_event() | stby_ev_);
             }
             if (corte) { pend_ |= CSR_PORRSTF; continue; }
             if (por) wait(t_rsttempo);
@@ -657,11 +708,13 @@ private:
 
     void publica_proc() {
         sys_rst_n.write(o_sys_rst_);
-        bkp_rst_n.write(o_bkp_rst_);
+        // BDRST tambien resetea el dominio de respaldo: el RTC [RM0316 §9.1.3]
+        bkp_rst_n.write(o_bkp_rst_ && !((bdcr_ >> 16) & 1u));
         drive_nrst_low.write(o_drv_nrst_);
         nmi_css.write(o_nmi_);
         irq.write(o_irq_);
         for (unsigned i = 0; i < F3P_COUNT; ++i) { s_en[i].write(o_en_[i]); s_rst_n[i].write(o_rst_n_[i]); }
+        for (unsigned k = 0; k < K_COUNT; ++k) s_ker[k].write(o_ker_[k]);
     }
 };
 
