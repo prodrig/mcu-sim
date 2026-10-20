@@ -109,6 +109,8 @@ public:
         w32(f3::FLASH_B + 0x200u, 0xE7FDBF20u);
     }
     void set_ondas_reloj(bool on) override { chip_->set_ondas(on); }
+    // La secuencia del FPEC para el `load` de GDB por los pines (S2)
+    programador_nv_if* programador() override { return &ProgramadorF3::el(); }
     bool tiene_gdb_interno() const override { return chip_->core.gdb != nullptr; }
     void gdb_interno(bool activo, bool traza) override {
         if (!chip_->core.gdb) return;

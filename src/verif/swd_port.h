@@ -158,6 +158,15 @@ public:
         if (!escribir_ap(0x4, addr)) return false;
         return escribir_ap(0xC, v);
     }
+    // Una media palabra: CSW.Size = 01 y el dato en su carril de DRW; y CSW
+    // vuelve a palabra [ADIv5 §7.2.2]. Para el FPEC de los F0/F1/F3 (S2)
+    bool mem_write16(uint32_t addr, uint16_t v) {
+        if (!escribir_ap(0x0, 0x23000041u)) return false;  // CSW: media palabra
+        bool ok = escribir_ap(0x4, addr) &&
+                  escribir_ap(0xC, uint32_t(v) << (8 * (addr & 2u)));
+        if (!escribir_ap(0x0, 0x23000042u)) ok = false;     // CSW: palabra
+        return ok;
+    }
     // Un bloque con auto-incremento. La sonda tiene que TROCEARLO en la
     // frontera de 1 KiB, porque el auto-incremento de TAR no la cruza.
     unsigned mem_read_block(uint32_t addr, uint32_t* dst, unsigned n) {

@@ -192,6 +192,10 @@ SC_MODULE(DebugSys), public core_debug_if {
         for (unsigned i = 0; i < 4; ++i) b[i] = uint8_t(v >> (8 * i));
         return ap_access(true, a, b, 4);
     }
+    tlm::tlm_response_status ap_write16(uint64_t a, uint16_t v) {
+        unsigned char b[2] = {uint8_t(v), uint8_t(v >> 8)};
+        return ap_access(true, a, b, 2);
+    }
     tlm::tlm_response_status ap_read32(uint64_t a, uint32_t& v) {
         unsigned char b[4] = {0, 0, 0, 0};
         const auto r = ap_access(false, a, b, 4);

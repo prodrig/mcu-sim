@@ -119,8 +119,9 @@ e4  msp432e4/e4_usb/e4_usb.bin             4872  0x3A6BC117
 e4  msp432e4/e4_edumkii/e4_edumkii.out    31444  0xC232D666
 e4  msp432e4/e4_edumkii/e4_edumkii.bin     5768  0x1DE331BE
 
-# STM32F303VC (S1)
-f3  stm32f3/f3_demo/f3_demo.bin                      1684  0x51400B63
+# STM32F303VC (S1 y S2)
+f3  stm32f3/f3_demo/f3_demo.bin                      2100  0xAE6E4758
 f3  stm32f3/coremark/coremark_f3.bin                14560  0x7A36CAB7
 f3  stm32f3/gpio_iotoggle/GPIO_IOToggle.bin          3580  0x9E4FA656
 f3  stm32f3/gpio_exti/GPIO_EXTI.bin                  3908  0xE9E9BA36
+f3  stm32f3/flash_eraseprogram/FLASH_EraseProgram.bin   4464  0x4781D308

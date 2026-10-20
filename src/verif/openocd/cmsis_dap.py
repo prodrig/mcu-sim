@@ -14,6 +14,9 @@
 #   C3  El MSP432E401Y por su XDS110, con target/ti/stellaris.cfg.
 #   C4  El STM32F407 de discovery_min, sin XDS110: la sonda en sus pines.
 #   C5  GDB por OpenOCD con FreeRTOS en el P4, por CMSIS-DAP.
+#   C6  El STM32F303VC de la STM32F3DISCOVERY con target/stm32f3x.cfg, y G3
+#       con `load` por el servidor de GDB de OpenOCD (S2 del F303; la misma
+#       prueba que O5 de programa.py, por la otra sonda).
 #
 # C1 no necesita OpenOCD. El resto, uno con el backend `tcp` de cmsis-dap (de
 # git posterior al 2025-09-01): si no lo hay se OMITE diciendolo, salvo con
@@ -226,9 +229,11 @@ def main():
     ap.add_argument("--sim", default="build/mcu-sim")
     ap.add_argument("--openocd", default=os.environ.get("OPENOCD", "openocd"))
     ap.add_argument("--gdb", default=os.environ.get("GDB", "gdb-multiarch"))
+    ap.add_argument("--solo", default="", help="solo estos grupos: p. ej. C6")
     a = ap.parse_args()
 
-    c1_a_mano(a)
+    if a.solo != "C6":
+        c1_a_mano(a)
 
     valido, que = pr.openocd_valido(a.openocd)
     if valido and not tiene_tcp(a.openocd):
@@ -241,6 +246,15 @@ def main():
         print("\nTOTAL CMSIS-DAP: %d comprobaciones OK, %d fallos" % (pr.OK, pr.MAL))
         return 0 if pr.MAL == 0 else 1
     print("\n  OpenOCD %s" % que)
+
+    def c6():
+        pr.f303(a, "CMSIS-DAP", lambda p: Sim(a.sim, pr.F3_PLACA, pr.F3_VIEJO, p),
+                lambda p, pg: ocd_dap(a.openocd, p, "target/stm32f3x.cfg", gdb_puerto=pg),
+                "C6 STM32F303VC en la STM32F3DISCOVERY por CMSIS-DAP: target/stm32f3x.cfg, y G3")
+    if a.solo == "C6":
+        c6()
+        print("\nTOTAL CMSIS-DAP: %d comprobaciones OK, %d fallos" % (pr.OK, pr.MAL))
+        return 0 if pr.MAL == 0 else 1
 
     # ------------------------------------------------------------------------
     grupo("C2 MSP432P401R por su XDS110: program ... verify reset, y lo que tarda")
@@ -350,6 +364,9 @@ def main():
         except subprocess.TimeoutExpired:
             ocd.kill()
         s.fin()
+
+    # ------------------------------------------------------------------------
+    c6()
 
     print("\nTOTAL CMSIS-DAP: %d comprobaciones OK, %d fallos" % (pr.OK, pr.MAL))
     return 0 if pr.MAL == 0 else 1

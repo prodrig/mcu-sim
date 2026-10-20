@@ -15,6 +15,11 @@
  *   6  una rutina en la CCM, y una escritura en una pagina protegida (RCR)
  *   7  MEM_MODE: lo que hay en 0x0 con la Flash, la memoria de sistema y la
  *      SRAM
+ *   8  (S2) el FPEC: borrar la pagina 126, programar dos medias palabras,
+ *      PGERR al reprogramar, 0x0000 si se puede, LOCK; y una palabra con PG,
+ *      que es error de bus
+ *   9  (S2) los bytes de opcion: borrarlos, RDP = 0xAA y DATA0 = 0x5A,
+ *      OBL_LAUNCH; y en el arranque siguiente, dejarlos como estaban
  * ===========================================================================*/
 #include "stm32f303xc.h"
 
@@ -26,6 +31,33 @@ typedef struct {
 buzon_t buzon __attribute__((section(".mailbox")));
 
 static volatile uint32_t ms;
+static void fpec_espera(void) { while (FLASH->SR & FLASH_SR_BSY) {} }
+static void fpec_abre(void) {
+    if (FLASH->CR & FLASH_CR_LOCK) { FLASH->KEYR = 0x45670123u; FLASH->KEYR = 0xCDEF89ABu; }
+}
+static void ob_abre(void) {
+    fpec_abre();
+    FLASH->OPTKEYR = 0x45670123u; FLASH->OPTKEYR = 0xCDEF89ABu;
+}
+/* Borra los bytes de opcion y deja RDP = 0xAA (nivel 0) y, si no es 0xFF,
+ * DATA0; luego OBL_LAUNCH: un reset del sistema que los recarga */
+__attribute__((noreturn)) static void ob_reprograma(uint8_t data0) {
+    ob_abre();
+    /* |= y no =: OPTWRE se pierde si se le escribe un cero */
+    FLASH->CR |= FLASH_CR_OPTER;
+    FLASH->CR |= FLASH_CR_STRT;
+    fpec_espera();
+    FLASH->SR = FLASH_SR_EOP;
+    FLASH->CR &= ~FLASH_CR_OPTER;
+    FLASH->CR |= FLASH_CR_OPTPG;
+    *(volatile uint16_t*)0x1FFFF800u = 0x00AAu;               /* RDP: nivel 0 */
+    fpec_espera();
+    if (data0 != 0xFFu) { *(volatile uint16_t*)0x1FFFF804u = data0; fpec_espera(); }
+    buzon.extra[0] = *(volatile uint32_t*)0x1FFFF804u;       /* DATA0 y DATA1 */
+    FLASH->SR = FLASH_SR_EOP;
+    FLASH->CR = FLASH_CR_OBL_LAUNCH;
+    for (;;) {}
+}
 void SysTick_Handler(void) { ++ms; }
 static void systick(uint32_t hz) {
     SysTick->LOAD = hz / 1000u - 1u;
@@ -175,6 +207,50 @@ int main(void) {
         SYSCFG->CFGR1 &= ~SYSCFG_CFGR1_MEM_MODE;
         buzon.r[3] = SYSCFG->CFGR1;
         buzon.estado = 100;
+        for (;;) __WFI();
+    case 8: {
+        volatile uint16_t* const p = (volatile uint16_t*)0x0803F000u;     /* pagina 126 */
+        fpec_abre();
+        buzon.r[0] = FLASH->CR;                                   /* sin LOCK */
+        FLASH->CR = FLASH_CR_PER;
+        FLASH->AR = 0x0803F000u;
+        FLASH->CR = FLASH_CR_PER | FLASH_CR_STRT;
+        fpec_espera();
+        buzon.extra[0] = FLASH->SR;                               /* EOP */
+        FLASH->SR = FLASH_SR_EOP;
+        buzon.r[1] = *(volatile uint32_t*)0x0803F000u;            /* borrada */
+        FLASH->CR = FLASH_CR_PG;
+        p[0] = 0x1234u; fpec_espera();
+        p[1] = 0xABCDu; fpec_espera();
+        FLASH->SR = FLASH_SR_EOP;
+        buzon.r[2] = *(volatile uint32_t*)0x0803F000u;            /* 0xABCD1234 */
+        p[0] = 0x5555u; fpec_espera();                            /* no borrada: PGERR */
+        buzon.extra[1] = FLASH->SR;
+        FLASH->SR = FLASH_SR_PGERR | FLASH_SR_EOP;
+        p[0] = 0x0000u; fpec_espera();                            /* 0x0000 si se puede */
+        FLASH->SR = FLASH_SR_EOP;
+        buzon.extra[2] = *(volatile uint32_t*)0x0803F000u;        /* 0xABCD0000 */
+        FLASH->CR = FLASH_CR_LOCK;
+        buzon.r[3] = FLASH->CR;
+        fpec_abre();
+        FLASH->CR = FLASH_CR_PG;
+        SCB->SHCSR |= SCB_SHCSR_BUSFAULTENA_Msk;
+        buzon.estado = 150;
+        *(volatile uint32_t*)0x0803F004u = 0u;                    /* una palabra: error de bus */
+        __DSB();
+        buzon.estado = 151;                                       /* no deberia llegar */
+        for (;;) __WFI();
+    }
+    case 9:
+        if (buzon.arranques == 1) ob_reprograma(0x5Au);
+        if (buzon.arranques == 2) {
+            buzon.r[0] = FLASH->OBR;
+            buzon.r[1] = RCC->CSR;
+            buzon.r[2] = buzon.extra[0];
+            ob_reprograma(0xFFu);
+        }
+        buzon.r[3] = FLASH->OBR;
+        buzon.estado = 110;
         for (;;) __WFI();
     default:
         buzon.estado = 99;

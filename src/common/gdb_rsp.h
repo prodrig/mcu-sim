@@ -69,6 +69,10 @@ public:
     virtual ~acceso_nv_if() = default;
     virtual bool nv_leer(uint32_t a, uint32_t& v) = 0;
     virtual bool nv_escribir(uint32_t a, uint32_t v) = 0;
+    // Media palabra (CSW.Size = 01), con el dato en su carril. La necesita el
+    // FPEC de los F0/F1/F3, que solo programa medias palabras (S2 del F303).
+    // `false` si el transporte no sabe hacerla.
+    virtual bool nv_escribir16(uint32_t /*a*/, uint16_t /*v*/) { return false; }
     uint32_t nv_leer_o(uint32_t a) { uint32_t v = 0; nv_leer(a, v); return v; }
 };
 
@@ -223,6 +227,8 @@ protected:
     virtual bool dap_enganchar() = 0;
     virtual bool dap_leer(uint32_t a, uint32_t& v) = 0;
     virtual bool dap_escribir(uint32_t a, uint32_t v) = 0;
+    // Una media palabra, para quien la sepa hacer [acceso_nv_if::nv_escribir16]
+    virtual bool dap_escribir16(uint32_t /*a*/, uint16_t /*v*/) { return false; }
     // Los registros PROPIOS del AP (CSW, TAR, BASE, IDR), que no son memoria.
     // No los pide GDB: los piden los IDE, con ordenes `monitor` propias, para
     // identificar el chip antes de tocarlo. `false` = ese registro no existe.
@@ -439,6 +445,7 @@ protected:
     // lecturas y escrituras, contadas, que el resto del stub.
     bool nv_leer(uint32_t a, uint32_t& v) override    { return leer(a, v); }
     bool nv_escribir(uint32_t a, uint32_t v) override { return escribir(a, v); }
+    bool nv_escribir16(uint32_t a, uint16_t v) override { ++n_acc_; return dap_escribir16(a, v); }
 
     int  sector_de(uint32_t a) const { return nv_->sector_de(a); }
     bool flash_borrar(uint32_t addr, uint32_t len) {

@@ -691,7 +691,9 @@ e4-retardo: $(MCUSIM)
 # T5: OpenOCD DE VERDAD contra el modelo, por los pines, con la sonda
 # remote_bitbang (--openocd): `program ... verify reset` en el MSP432P401R
 # con target/ti/msp432.cfg y en el F407 con target/stm32f4x.cfg, sin
-# tocarlos, y GDB por OpenOCD con los hilos de FreeRTOS. Hace falta un
+# tocarlos, y GDB por OpenOCD con los hilos de FreeRTOS. Y desde S2 del F303
+# (O5), la STM32F3DISCOVERY con target/stm32f3x.cfg y `load` por su servidor
+# de GDB; `make cmsis-dap` hace lo mismo por CMSIS-DAP (C6). Hace falta un
 # OpenOCD de git (ci/construye_openocd.sh): con la 0.12.0 de las
 # distribuciones la prueba se OMITE y lo dice, salvo con OPENOCD_OBLIGATORIO=1.
 #   make -f Makefile.mcu-sim openocd OPENOCD=/ruta/a/bin/openocd
@@ -1007,7 +1009,7 @@ FWE4 := verif/fw/msp432e4/e4_demo verif/fw/msp432e4/coremark verif/fw/msp432e4/e
 # Los del STM32F303VC (S1 y S2 de doc/analisis_stm32f303.md): con el CMSIS de
 # ST (verif/fw/stm32f3/sdk) y, los de STM32CubeF3, con su HAL, sin modificar.
 FWF3 := verif/fw/stm32f3/f3_demo verif/fw/stm32f3/coremark verif/fw/stm32f3/gpio_iotoggle \
-        verif/fw/stm32f3/gpio_exti
+        verif/fw/stm32f3/gpio_exti verif/fw/stm32f3/flash_eraseprogram
 # Los de las placas de ejemplo que no usa ninguna suite de C++: el de
 # placas/barra8_en_nucleo.xml y el de placas/nucleo_f446re_barra8ac_azul.xml,
 # que vigila `make gui-sistema`; los de la pantalla TFT, el de

@@ -163,14 +163,14 @@ jobs:
           sudo apt-get install -y libsystemc-dev python3-serial socat
           dpkg -l libsystemc-dev python3-serial socat | tail -3
 
-      - name: Las suites (las tres de siempre, testserie, testgui, testp4 y teste4)
+      - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4 y testf3)
         env:
           SUITES_PRESUPUESTO: 600
         run: sh ci/pasa_suites.sh
 
-      - name: Los invariantes de las siete, al picosegundo
+      - name: Los invariantes de las ocho, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie testgui testp4 teste4; do
+          for s in test407 test446 test417 testserie testgui testp4 teste4 testf3; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -259,6 +259,12 @@ jobs:
         working-directory: src
         run: make -f Makefile.mcu-sim e4-retardo
 
+      # La STM32F3DISCOVERY (S1 del F303): GPIO_IOToggle de ST, sin tocar, con
+      # la rosa a 72 MHz por el HSE desde el MCO del ST-LINK.
+      - name: La STM32F3DISCOVERY con GPIO_IOToggle de ST
+        working-directory: src
+        run: make -f Makefile.mcu-sim f3-discovery
+
       - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas)
         working-directory: src
         run: make -f Makefile.mcu-sim gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema
@@ -280,7 +286,7 @@ jobs:
           sudo apt-get install -y autoconf automake libtool pkg-config texinfo libjim-dev
           sh ci/construye_openocd.sh "$GITHUB_WORKSPACE/openocd"
 
-      - name: OpenOCD programa el MSP432P401R y el F407, y GDB ve FreeRTOS
+      - name: OpenOCD programa el MSP432P401R, el F407 y el F303, y GDB ve FreeRTOS
         working-directory: src
         env:
           OPENOCD_OBLIGATORIO: 1
@@ -483,14 +489,14 @@ jobs:
 
       # SIN pasar SYSTEMC_HOME, a proposito: aqui se ejerce la deteccion
       # automatica, que es la que se encuentra un alumno.
-      - name: Las suites (las tres de siempre, testserie, testgui, testp4 y teste4)
+      - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4 y testf3)
         env:
           SUITES_PRESUPUESTO: 600
         run: sh ci/pasa_suites.sh CXX=clang++
 
-      - name: Los invariantes de las siete, al picosegundo
+      - name: Los invariantes de las ocho, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie testgui testp4 teste4; do
+          for s in test407 test446 test417 testserie testgui testp4 teste4 testf3; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -645,16 +651,16 @@ jobs:
           sh ci/construye_systemc.sh "$(cygpath -u "$GITHUB_WORKSPACE")/systemc" \
               -G Ninja -DCMAKE_ASM_FLAGS="-x assembler-with-cpp"
 
-      - name: Las suites (las tres de siempre, testserie, testgui, testp4 y teste4)
+      - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4 y testf3)
         env:
           SUITES_PRESUPUESTO: 900      # aqui SystemC se compila antes: mas margen
         run: |
           sh ci/pasa_suites.sh \
              SYSTEMC_HOME="$(cygpath -u "$GITHUB_WORKSPACE")/systemc"
 
-      - name: Los invariantes de las siete, al picosegundo
+      - name: Los invariantes de las ocho, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie testgui testp4 teste4; do
+          for s in test407 test446 test417 testserie testgui testp4 teste4 testf3; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 

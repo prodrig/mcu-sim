@@ -44,6 +44,7 @@
 #include "../../bus/ahb_decoder.h"
 #include "../../mem/sram.h"
 #include "../../mem/flash_f1.h"
+#include "f3_programador.h"
 #include "../../rcc/rcc_f3.h"
 #include "../../pins/pin_mux.h"
 #include "../../pins/power_pads.h"
@@ -193,6 +194,9 @@ public:
         SC_METHOD(mco_proc); sensitive << mco_ev_;
         // Sin las ondas de los relojes internos, como el E4: lo que cuenta
         // ciclos trabaja con la frecuencia (common/clock_gen.h)
+        // El `load` de GDB programa esta Flash con su FPEC (S2)
+        ProgramadorF3::el().tam = mcu.flash_size;
+        if (core.gdb) core.gdb->pon_programador(&ProgramadorF3::el());
         set_ondas(false);
     }
     ~SocF3() override { for (BloqueDeclarado* b : declarados) delete b; }
@@ -215,10 +219,13 @@ public:
 
     std::vector<std::string> limitaciones() const {
         return {
-            "fase S1 del plan del F303: nucleo, reloj, Flash de lectura, SRAM, CCM "
-            "ejecutable, memoria de sistema, GPIO, EXTI y SYSCFG. El resto esta "
-            "DECLARADO: contesta, lee cero y avisa una vez",
-            "programar y borrar la Flash (PG, PER, MER, bytes de opcion) es de S2",
+            "fases S1 y S2 del plan del F303: nucleo, reloj, Flash (lectura y FPEC: "
+            "PG, PER, MER, bytes de opcion, OBL_LAUNCH), SRAM, CCM ejecutable, memoria "
+            "de sistema, GPIO, EXTI y SYSCFG. El resto esta DECLARADO: contesta, lee "
+            "cero y avisa una vez",
+            "la proteccion de lectura (RDP) esta DECLARADA: se carga en FLASH_OBR, pero "
+            "no bloquea al depurador ni borra la Flash al quitarla; la Flash se programa "
+            "con tiempos tipicos del modelo (40 us, 20 ms por pagina)",
             "DMA1/2, USART1-3, UART4/5, SPI1-3 e I2S, I2C1/2, TIM1-17, IWDG, WWDG, RTC "
             "y CRC: fase S3",
             "ADC1-4, DAC1, COMP1-7, OPAMP1-4 y TSC: fase S5; USB y CAN: fase S6",
@@ -384,6 +391,7 @@ private:
         sram.hclk(s_hclk_); sram.rst_n(s_sysrst_n_);
         ccm.hclk(s_hclk_);  ccm.rst_n(s_sysrst_n_);
         flash.irq(s_irq_[f3::IRQ_FLASH]);
+        flash.al_obl = [this] { rcc.pide_reset_obl(); };
         flash.latencia_minima = [](double f) { return f3::latencia_minima(f); };
 
         const char* S3 = "Es de la fase S3 del plan (doc/analisis_stm32f303.md, S3).";

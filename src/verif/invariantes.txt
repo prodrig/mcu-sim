@@ -239,3 +239,11 @@ testp4                406      22456139139423        resto
 # (huellas nuevas de e4_t7): 296. El resto baja 2,105545617 ms: el codigo de
 # la Flash a 120 MHz deja de pagar los FWS al cruzar lineas.
 teste4                296      4505148675235         resto
+
+# STM32F303VC (S0-S2 de doc/analisis_stm32f303.md), el 2026-10-20: R1-R7
+# (los rasgos de S0 sobre piezas sueltas), F0-F15 (el chip y la Discovery:
+# arranque por BOOT0/nBOOT1/MEM_MODE, CCM, 72 MHz por el HSE en los dos
+# modos, CoreMark y dos ejemplos de ST) y F16-F19 (el FPEC, los bytes de
+# opcion, FLASH_EraseProgram de ST y GDB con `load`). Se contrasta «el
+# resto»: F19 habla con un GDB de banco por un socket de verdad, como E18.
+testf3                172      5194760789500         resto

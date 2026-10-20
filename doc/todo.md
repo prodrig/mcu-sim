@@ -783,7 +783,11 @@ Lo que queda dicho, con la letra con la que lo cita el código:
 ### P-18 — El STM32F303 y la STM32F3DISCOVERY
 
 **Analizado en `doc/analisis_stm32f303.md` (2026-10-19), con un plan de diez
-fases (S0-S9). Nada hecho todavía.** Es la primera familia del proyecto con la
+fases (S0-S9). HECHAS S0, S1 y S2 el 2026-10-20** en la rama `stm32f303`
+(«Estado» del análisis): los rasgos neutrales, el STM32F303VC con su RCC, su
+Flash con el FPEC, la CCM ejecutable, la memoria de sistema y el arranque por
+BOOT0/nBOOT1/`MEM_MODE`, la STM32F3DISCOVERY con su dibujo, `testf3` (R1-R7,
+F0-F19), `make f3-discovery`, O5 y C6 con OpenOCD, y G8 en `mcu-sim-gui`. Es la primera familia del proyecto con la
 segunda generación de IP de ST: el I²C es el `FMPI2C1` del F446 (`i2c2_v1_1`),
 y bxCAN, DAC, RTC, perros, CRC, EXTI, GPIO y temporizadores se reaprovechan por
 rasgos; RCC, controlador de Flash (el del F1), DMA por canales, USART v2, ADC,
@@ -793,6 +797,21 @@ pruebas es la STM32F3DISCOVERY, con sus dos revisiones de sensores
 (L3GD20 + LSM303DLHC hasta la D; I3G4250D + LSM303AGR desde la E), su XML y su
 SVG. Lo primero, S0: tener RM0316, DS9118 y UM1570 en `doc/refs/`, que desde
 el entorno de trabajo no se alcanzan.
+
+Lo que queda de una sola fuente, o de modelo, tras S2:
+
+| | Qué | Estado |
+| :--- | :--- | :--- |
+| **a** | Las tiras P1 y P2 de la Discovery (`EXP1`/`EXP2` en el XML: «P1.5» sería el pad PB5) | Tabla 6 de UM1570 leída de una copia pública con las columnas perdidas; el emparejamiento impar/par está deducido [1F]. Hay que contrastarlo con el esquemático MB1035 |
+| **b** | Los tiempos del FPEC | Los típicos de DS9118 sin haberlo leído aquí: 40 us por media palabra, 20 ms por página, por borrado masivo y por los bytes de opción [1F] |
+| **c** | La protección de escritura | Un bit de `WRPR` por cada dos páginas y el 31 para el resto, como en el F303xC [1F: RM0316]. `MER` con alguna página protegida da `WRPRTERR` y no borra [de modelo] |
+| **d** | RDP | DECLARADO: se carga en `FLASH_OBR.RDPRT`, pero no bloquea al depurador ni borra la Flash al quitarlo |
+| **e** | Los bytes de opción borrados | Un byte a `0xFFFF` (borrado) se carga como `0xFF` sin `OPTERR`; uno cuyo complemento no cuadra, como `0xFF` con `OPTERR` [1F] |
+| **f** | El reset durante un borrado | En el modelo el borrado acaba igual; en el silicio el resultado queda indefinido |
+| **g** | La memoria de sistema | Un stub propio que deja `'MSYS'` en la SRAM y se aparca; el cargador AN3155 es S7, opcional |
+| **h** | La calibración de fábrica y el UID | Valores típicos del modelo (`TS_CAL1` 1774, `TS_CAL2` 1347, `VREFINT_CAL` 1526), no de una pieza |
+| **i** | Los bloques de S3-S6 | DECLARADOS: ocupan su ventana, leen cero y avisan una vez con la fase que les toca (`limitaciones()` del chip los lista) |
+| **j** | La matriz | Decodificadores directos; con los DMA (S3) se decide si hace falta `AhbMatrix` |
 
 ---
 

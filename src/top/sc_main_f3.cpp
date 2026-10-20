@@ -20,6 +20,17 @@
 //   F11-F12 el GPIO con BRR, el MCO en PA8, y el EXTI (B1 y la linea 33)
 //   F13     CoreMark
 //   F14-F15 GPIO_IOToggle y GPIO_EXTI de STM32CubeF3, sin modificar
+//   F16-F17 (S2) el FPEC desde el firmware: borrar, programar medias
+//           palabras, PGERR, LOCK, el error de bus de una palabra; los bytes
+//           de opcion con OBL_LAUNCH (f3_demo, modos 8 y 9)
+//   F18     FLASH_EraseProgram de STM32CubeF3, sin modificar
+//   F19     GDB con `load` por la sonda de los pines (G2, PA13/PA14) y por el
+//           DAP (G1), con el programador del FPEC (D2)
+//
+// EL TIEMPO SIMULADO DE F19 NO ES REPRODUCIBLE entre maquinas, como el de E18
+// en teste4: el stub atiende un socket de verdad. El banco imprime «el resto»,
+// el total sin el, y eso es lo que contrasta `verif/invariantes.txt`.
+//
 //   make testf3   (o: make -f Makefile.mcu-sim testf3-build && ./build/testf3)
 // =============================================================================
 #include <systemc>
@@ -42,6 +53,12 @@
 #include "../verif/bus_test_master.h"
 #include "../parts/ext_parts.h"
 #include "../parts/netlist_xml.h"
+#include "../verif/gdb_stub.h"
+#include "../verif/gdb_client.h"
+#include "../core/gdb_stub_dap.h"
+#include <chrono>
+#include <fstream>
+#include <vector>
 
 using namespace sc_core;
 using namespace stm32;
@@ -139,7 +156,8 @@ static const char* const FW_DEMO   = "verif/fw/stm32f3/f3_demo/f3_demo.bin";
 static const char* const FW_CM     = "verif/fw/stm32f3/coremark/coremark_f3.bin";
 static const char* const FW_TOGGLE = "verif/fw/stm32f3/gpio_iotoggle/GPIO_IOToggle.bin";
 static const char* const FW_EXTI   = "verif/fw/stm32f3/gpio_exti/GPIO_EXTI.bin";
-
+static const char* const FW_FLASH  = "verif/fw/stm32f3/flash_eraseprogram/FLASH_EraseProgram.bin";
+static sc_time g_t_gdb = SC_ZERO_TIME;
 
 // El buzon de f3_demo [verif/fw/stm32f3/f3_demo/main.c, buzon_t]
 enum : uint32_t {
@@ -158,6 +176,11 @@ SC_MODULE(TbF3) {
     ExtClock* mco = nullptr;
     Button*   b1  = nullptr;
     Rpull*    r_b1 = nullptr;
+    // GDB: el stub de los pines (G2, en PA14/PA13) y el del DAP (G1)
+    GdbStub*    gdb_p = nullptr;
+    GdbStubDap* gdb_d = nullptr;
+    GdbClient   cli;
+    static constexpr unsigned PUERTO_PINES = 3451, PUERTO_DAP = 3452;
 
     SC_CTOR(TbF3)
         : mcu("dut", DBG_PINES, Cableado(), *CatalogoMcu::busca("STM32F303VC")),
@@ -167,9 +190,15 @@ SC_MODULE(TbF3) {
         b1 = new Button(dut.pinmux.analog(0, 0), 330.0, 3.3);
         b1->release();
         r_b1 = new Rpull(dut.pinmux.analog(0, 0), 0.0, 220e3);
+        gdb_p = new GdbStub("gdb_p", *mcu.nodo_swclk(), *mcu.nodo_swdio(), PUERTO_PINES, 2e6);
+        gdb_p->set_enabled(false);
+        gdb_p->pon_programador(mcu.programador());
+        gdb_d = new GdbStubDap("gdb_d", dut.core.debug, PUERTO_DAP);
+        gdb_d->set_enabled(false);
+        gdb_d->pon_programador(mcu.programador());
         SC_THREAD(run);
     }
-    ~TbF3() override { delete r; delete mco; delete b1; delete r_b1; }
+    ~TbF3() override { delete r; delete mco; delete b1; delete r_b1; delete gdb_p; delete gdb_d; }
 
     // --- Utilidades -----------------------------------------------------------
     uint32_t buzon(uint32_t off) { return dut.sram.peek32(off); }
@@ -733,26 +762,238 @@ SC_MODULE(TbF3) {
         check(dos, "otra: apagados");
     }
 
+    // =======================================================================
+    // S2: el FPEC, los bytes de opcion, FLASH_EraseProgram y GDB
+    // =======================================================================
+    void fpec() {
+        grupo("F16 El FPEC desde el firmware (f3_demo, modo 8)");
+        const unsigned p0 = dut.flash.programadas(), r0 = dut.flash.escrituras_rechazadas();
+        arranca(8);
+        check(espera_estado(200, 100), "f3_demo acaba en el BusFault que se esperaba");
+        check_eq(buzon(B_R0) & 0x80u, 0u, "KEYR: las dos llaves quitan LOCK");
+        check((buzon(0x54) & 0x21u) == 0x20u, "borrar la pagina 126: BSY mientras, EOP al acabar");
+        check_eq(buzon(B_R1), 0xFFFFFFFFu, "y se lee borrada");
+        check_eq(buzon(B_R2), 0xABCD1234u, "PG: dos medias palabras programadas");
+        check((buzon(0x58) & 0x04u) != 0, "otra vez sobre lo programado: PGERR");
+        check_eq(dut.flash.peek32(0x0803F000u), 0xABCD0000u,
+                 "pero 0x0000 se puede escribir encima; visto desde fuera");
+        check_eq(buzon(B_R3), 0x80u, "LOCK vuelve a cerrar CR");
+        check(dut.flash.escrituras_rechazadas() == r0 + 1 && buzon(B_FAULTS) == 1,
+              "una PALABRA con PG es error de bus: el FPEC solo programa medias palabras");
+        check(dut.flash.programadas() == p0 + 3, "tres medias palabras programadas en total");
+        check(dut.flash.peek32(0x0803F004u) == 0xFFFFFFFFu, "y la palabra no ha tocado la Flash");
+    }
+
+    void bytes_opcion() {
+        grupo("F17 Los bytes de opcion: borrar, programar DATA0 y OBL_LAUNCH (modo 9)");
+        arranca(9);
+        check(espera_estado(110, 200), "f3_demo da tres arranques y acaba");
+        check_eq(buzon(B_ARRANQUES), 3u, "el segundo y el tercero, por OBL_LAUNCH");
+        check_eq(buzon(B_R2) & 0xFFFFu, 0xA55Au, "OPTPG: DATA0 = 0x5A, y el FPEC pone su complemento");
+        check_eq((buzon(B_R0) >> 16) & 0xFFu, 0x5Au, "tras el reset, FLASH_OBR.DATA0 = 0x5A");
+        check_eq(buzon(B_R0) & 7u, 0u, "RDP = 0xAA: nivel 0, y sin OPTERR");
+        check((buzon(B_R1) >> 25) & 1u, "RCC_CSR.OBLRSTF: el reset fue el de OBL_LAUNCH");
+        check_eq((buzon(B_R3) >> 16) & 0xFFu, 0xFFu, "y al final, como de fabrica: DATA0 borrado");
+        check(dut.flash.ob_half(0) == 0x55AAu && dut.flash.ob_half(2) == 0xFFFFu,
+              "visto desde fuera: RDP 0x55AA, DATA0 borrado");
+        check(dut.flash.nboot1(), "USER borrado: nBOOT1 = 1");
+    }
+
+    void st_flash() {
+        grupo("F18 FLASH_EraseProgram de STM32CubeF3, sin modificar");
+        const unsigned b0 = dut.flash.borradas(), p0 = dut.flash.programadas();
+        arranca(0, FW_FLASH);
+        wait(5, SC_MS);                     // los LED, de salida y apagados
+        const sc_time lim = sc_time_stamp() + sc_time(6000, SC_MS);
+        while (sc_time_stamp() < lim && !alto(4, 9) && !alto(4, 8) && !alto(4, 10))
+            wait(5, SC_MS);
+        std::printf("    %u paginas borradas, %u medias palabras programadas\n",
+                    dut.flash.borradas() - b0, dut.flash.programadas() - p0);
+        std::printf("    %.0f ms; LD3 %d, LD4 %d, LD5 %d\n",
+                    (sc_time_stamp() - (lim - sc_time(6000, SC_MS))).to_seconds() * 1e3,
+                    alto(4, 9), alto(4, 8), alto(4, 10));
+        check(alto(4, 9) && !alto(4, 8) && !alto(4, 10),
+              "LD3 encendido: las paginas 16-63 se borran, se programan y se leen bien");
+        bool ok = true;
+        for (uint32_t a = 0x08008000u; a < 0x08020000u; a += 4)
+            if (dut.flash.peek32(a) != 0x12345678u) { ok = false; break; }
+        check(ok && dut.flash.peek32(0x08020000u) == 0xFFFFFFFFu,
+              "y en la Flash esta 0x12345678 de 0x0800_8000 a 0x0801_FFFF, y nada mas");
+    }
+
+    // --- GDB --------------------------------------------------------------
+    static std::string hex(const std::string& s) {
+        std::string h; char b[3];
+        for (unsigned char c : s) { std::snprintf(b, sizeof b, "%02x", c); h += b; }
+        return h;
+    }
+    static uint32_t de_hex_le(const std::string& s) {
+        uint32_t v = 0;
+        for (unsigned i = 0; i < 4 && 2 * i + 1 < s.size(); ++i)
+            v |= uint32_t(std::stoul(s.substr(2 * i, 2), nullptr, 16)) << (8 * i);
+        return v;
+    }
+    uint32_t pc() { return de_hex_le(cli.pedir("p0f")); }
+    std::string espera_parada(double ms = 100) { return cli.recibir(sc_time(ms, SC_MS)); }
+
+    struct ResGdb {
+        bool conecta = false, carga = false, lectura = false, wp = false, bp = false,
+             paso = false, corre = false;
+        uint32_t pc_reset = 0, pc_bp = 0, pc_paso = 0;
+    };
+
+    ResGdb sesion_gdb(unsigned puerto, const std::vector<uint8_t>& img, uint32_t parpadea) {
+        ResGdb r;
+        // En la Flash hay OTRA cosa: CoreMark. El `load` tiene que borrar.
+        arranca(0, FW_CM);
+        wait(2, SC_MS);
+        if (!cli.conectar(puerto)) return r;
+        wait(2, SC_MS);
+        cli.pedir("qSupported:swbreak+;hwbreak+;xmlRegisters=arm");
+        r.conecta = cli.pedir("QStartNoAckMode") == "OK" &&
+                    cli.pedir("?").rfind("T05", 0) == 0;
+        bool ok = !img.empty();
+        char cab[64];
+        for (size_t o = 0; ok && o < img.size(); o += 256) {
+            const size_t n = std::min<size_t>(256, img.size() - o);
+            std::snprintf(cab, sizeof cab, "M%zx,%zx:", size_t(f3::FLASH_B) + o, n);
+            std::string pq = cab;
+            for (size_t i = 0; i < n; ++i) { char b[3]; std::snprintf(b, 3, "%02x", img[o + i]); pq += b; }
+            ok = cli.pedir(pq, sc_time(400, SC_MS)) == "OK";
+        }
+        r.carga = ok;
+        std::string leido;
+        for (size_t o = 0; o < img.size(); o += 256) {
+            std::snprintf(cab, sizeof cab, "m%zx,%zx", size_t(f3::FLASH_B) + o,
+                          std::min<size_t>(256, img.size() - o));
+            leido += cli.pedir(cab, sc_time(100, SC_MS));
+        }
+        std::string esperado;
+        for (uint8_t c : img) { char b[3]; std::snprintf(b, 3, "%02x", c); esperado += b; }
+        r.lectura = leido == esperado;
+        cli.pedir("M20000000,8:0000000000000000");          // el buzon: modo 0
+        cli.pedir("qRcmd," + hex("reset halt"), sc_time(50, SC_MS));
+        r.pc_reset = pc();
+        char z[64];
+        std::snprintf(z, sizeof z, "Z2,%x,4", unsigned(f3::SRAM_B + B_ARRANQUES));
+        const bool zw = cli.pedir(z) == "OK";
+        cli.enviar("vCont;c");
+        const std::string pw = espera_parada();
+        r.wp = zw && pw.find("watch") != std::string::npos && buzon(B_ARRANQUES) == 1;
+        std::snprintf(z, sizeof z, "z2,%x,4", unsigned(f3::SRAM_B + B_ARRANQUES));
+        cli.pedir(z);
+        std::snprintf(z, sizeof z, "Z0,%x,2", parpadea);
+        const bool zb = cli.pedir(z) == "OK";
+        cli.enviar("vCont;c");
+        const std::string pb = espera_parada();
+        r.pc_bp = pc();
+        r.bp = zb && pb.find("swbreak") != std::string::npos && r.pc_bp == parpadea;
+        std::snprintf(z, sizeof z, "z0,%x,2", parpadea);
+        cli.pedir(z);
+        cli.enviar("vCont;s");
+        const std::string ps = espera_parada();
+        r.pc_paso = pc();
+        r.paso = ps.rfind("T05", 0) == 0 && r.pc_paso > parpadea && r.pc_paso < parpadea + 8;
+        // Y que siga: se espera, con un plazo de reloj, a que el nucleo deje
+        // de estar parado (el `vCont;c` lo lee el stub en tiempo de pared)
+        cli.enviar("vCont;c");
+        {
+            const auto t_lim = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (dut.core.debug.is_halted() && std::chrono::steady_clock::now() < t_lim)
+                wait(100, SC_US);
+        }
+        wait(1, SC_MS);
+        const bool parado = dut.core.debug.is_halted();
+        const uint32_t estado = buzon(B_ESTADO);
+        const double t_led = periodo(4, 9);
+        r.corre = !parado && estado == 100 && cerca(t_led, 20e-3, 0.01);
+        if (!r.corre)
+            std::printf("    al soltarlo: nucleo %s, estado %u, periodo de PE9 %.3g s\n",
+                        parado ? "PARADO" : "en marcha", unsigned(estado), t_led);
+        cli.crudo("\x03");
+        espera_parada();
+        cli.pedir("D");
+        cli.desconectar();
+        wait(1, SC_MS);
+        return r;
+    }
+
+    void informa(const char* via, const ResGdb& r, uint32_t rh) {
+        auto c = [&](bool v, const std::string& t) { check(v, (std::string(via) + ": " + t).c_str()); };
+        c(r.conecta, "GDB se conecta, negocia y encuentra el nucleo parado");
+        c(r.carga, "`load` de f3_demo.bin con paquetes M sobre CoreMark: el stub borra "
+                   "las paginas y programa medias palabras por el FPEC (D2)");
+        c(r.lectura, "y lo leido de vuelta es el .bin, byte a byte");
+        c(r.pc_reset == rh, "`monitor reset halt` para en la primera instruccion, Reset_Handler");
+        c(r.wp, "un watchpoint en buzon.arranques para el nucleo en la primera escritura");
+        c(r.bp, "un punto de ruptura en SysTick_Handler para el nucleo alli");
+        c(r.paso, "un paso avanza una instruccion");
+        c(r.corre, "y al soltarlo, el firmware cargado hace parpadear LD3 cada 20 ms");
+    }
+
+    void gdb() {
+        grupo("F19 GDB por la sonda de los pines (G2, PA14/PA13) y por el DAP (G1), con `load` (D2)");
+        std::vector<uint8_t> img;
+        {
+            std::ifstream f(FW_DEMO, std::ios::binary);
+            img.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+        }
+        auto vec = [&](unsigned i) -> uint32_t {
+            if (img.size() < 4 * i + 4) return 0;
+            return uint32_t(img[4 * i]) | (uint32_t(img[4 * i + 1]) << 8) |
+                   (uint32_t(img[4 * i + 2]) << 16) | (uint32_t(img[4 * i + 3]) << 24);
+        };
+        // Sin simbolos: el ELF no se versiona. Reset_Handler y SysTick_Handler
+        // salen de la tabla de vectores del .bin
+        const uint32_t rh = vec(1) & ~1u, st = vec(15) & ~1u;
+        const unsigned f0 = ProgramadorF3::el().fallos();
+        const sc_time t0 = sc_time_stamp();
+        gdb_p->set_enabled(true);
+        wait(1, SC_MS);
+        const ResGdb rp = sesion_gdb(PUERTO_PINES, img, st);
+        gdb_p->set_enabled(false);
+        gdb_p->soltar_pines();
+        informa("G2 (pines)", rp, rh);
+        gdb_d->set_enabled(true);
+        wait(1, SC_MS);
+        const ResGdb rd_ = sesion_gdb(PUERTO_DAP, img, st);
+        gdb_d->set_enabled(false);
+        informa("G1 (DAP)", rd_, rh);
+        check(rp.pc_reset == rd_.pc_reset && rp.pc_bp == rd_.pc_bp && rp.pc_paso == rd_.pc_paso,
+              "los dos caminos dan lo mismo: el mismo depurador, otro cable");
+        check(ProgramadorF3::el().fallos() == f0, "y el programador no ha fallado ni una vez");
+        g_t_gdb += sc_time_stamp() - t0;
+    }
+
     void run() {
         firmwares();
         catalogo();
         integracion();
         mcu.alimenta(true);
         wait(50, SC_US);
-        arranque_flash();
-        arranque_sistema();
-        arranque_sram();
-        mem_mode();
-        ccm();
-        hse(1, "F8 72 MHz por el HSE en modo CRISTAL (HSE_ON), con los 8 MHz del ST-LINK en PF0 (modo 1)",
-            "SWS = PLL y HSERDY");
-        hse(2, "F9 72 MHz por el HSE en modo BYPASS (modo 2)", "SWS = PLL y HSERDY, en bypass");
-        mala();
-        gpio_mco();
-        exti();
-        coremark();
-        st_iotoggle();
-        st_exti();
+        // TESTF3_SOLO=s2: solo los grupos de S2, para depurarlos (el tiempo
+        // simulado, entonces, no es el del invariante)
+        const char* solo = std::getenv("TESTF3_SOLO");
+        if (!solo || std::strcmp(solo, "s2") != 0) {
+            arranque_flash();
+            arranque_sistema();
+            arranque_sram();
+            mem_mode();
+            ccm();
+            hse(1, "F8 72 MHz por el HSE en modo CRISTAL (HSE_ON), con los 8 MHz del ST-LINK en PF0 (modo 1)",
+                "SWS = PLL y HSERDY");
+            hse(2, "F9 72 MHz por el HSE en modo BYPASS (modo 2)", "SWS = PLL y HSERDY, en bypass");
+            mala();
+            gpio_mco();
+            exti();
+            coremark();
+            st_iotoggle();
+            st_exti();
+        }
+        fpec();
+        bytes_opcion();
+        st_flash();
+        gdb();
         r_gpio();
         r_exti();
         r_tim();
@@ -771,5 +1012,10 @@ int sc_main(int, char*[]) {
     TbF3 tb("tb");
     sc_start();
     std::printf("\nTiempo simulado: %s\n", sc_time_stamp().to_string().c_str());
+    if (g_t_gdb != SC_ZERO_TIME)
+        std::printf("  de los cuales F19 (socket de GDB)    : %s\n"
+                    "  el resto                             : %s\n",
+                    g_t_gdb.to_string().c_str(),
+                    (sc_time_stamp() - g_t_gdb).to_string().c_str());
     return g_fallos ? 1 : 0;
 }

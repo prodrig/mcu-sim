@@ -21,6 +21,81 @@ adelante, para media docena de familias.
 
 ---
 
+## Estado: S0, S1 y S2 hechas (20-10-2026)
+
+En la rama `stm32f303`, un commit por fase. Las siete suites de antes no se
+mueven ni un picosegundo (`ci/comprueba_invariante.sh`, las siete en verde con
+los tres commits encima), y hay una octava, **`testf3`**, con su línea en
+`verif/invariantes.txt` (**172** comprobaciones; «el resto»,
+**5 194 760 789 500 ps**: el total sin F19, que habla con un socket de verdad).
+
+**S0, fuentes y rasgos.** Versionados, sin tocar: `cmsis_device_f3` v2.3.9, la
+HAL v1.5.9, el BSP de la Discovery v2.1.7 con los cuatro controladores de
+sensores y tres ejemplos de STM32CubeF3 v1.12.0 (`verif/fw/stm32f3/sdk/`, con
+su `LEEME.md`), y los dos XML de la base de pines (`soc/stm32f3/pindata/`).
+`soc/stm32f3/gen_pines.py` genera de ellos el LQFP100 (87 E/S) y las 399
+funciones alternativas. Los rasgos de §3.2, todos con el valor del F4 por
+omisión: `GpioCaps` (AHB2 y `BRR`), `ExtiCaps` (36 líneas en dos tandas, las
+directas solo despiertan), `TimCaps` v3 (seis canales, `OCxM[3]`, PWM
+combinado y asimétrico, `GC5C`, BK2, `MMS2`, `UIFREMAP`, `SMS[3]`),
+`IwdgCaps` (ventana), `CrcCaps` (polinomio y anchura programables, inversión
+de entrada y salida), `RtcCaps` (sin `CALIBR`, 16 respaldos), CAN de 14 bancos
+sin reparto, `TSEL` del DAC como tabla, la congelación del DBGMCU como dato, el
+SPI con `fifo_v3` dentro de `spi.h` (no hizo falta `spi_v3.h`: el F4 no se
+movió) y la CCM ejecutable (`MapaRam::ccm_ejecutable`). Los grupos R1-R7 de
+`testf3` los ejercen sobre piezas sueltas.
+
+**S1, el chip y la placa.** `F3Caps`, `REGISTRA_MCU(STM32F3, …)` y
+`STM32F303VC` en el catálogo; `SocF3` (`soc/stm32f3/stm32f303.h`) con el
+núcleo de 82 IRQ y 4 bits, `RccF3` (`rcc/rcc_f3.h`: HSI, HSE en cristal y en
+bypass, PLL, los preescaladores, CSS, MCO y sus avisos), `FlashF1`
+(`mem/flash_f1.h`: latencia, prebúsqueda, `HLFCYA` y el aviso), la SRAM de
+40 KB, la CCM de 8 KB ejecutable con `SYSCFG_RCR`, la memoria de sistema con el
+UID, `F_SIZE` y la calibración de fábrica, BOOT0/nBOOT1 y `MEM_MODE`, GPIO A-F,
+EXTI, SYSCFG y PWR; lo demás, DECLARADO con su fase. `placas/stm32f3discovery.xml`
+(sin sensores ni VCP) y su dibujo, `placas/stm32f3discovery.svg`, de
+`placas/dibuja_st.py`; `make f3-discovery`; la prueba cruzada G8 de
+`mcu-sim-gui`. **Cierre, cumplido**: `GPIO_IOToggle` y `GPIO_EXTI` de ST, sin
+modificar, encienden la rosa y responden a B1 (F14, F15); los dos modos del HSE
+llegan a 72 MHz sin un aviso (F8, F9); CoreMark corre y da los CRC canónicos
+(F13); la ventana enseña la Discovery con la rosa encendiéndose (G8).
+
+**S2, descarga y depuración.** El FPEC entero en `FlashF1` (llaves y bloqueo
+duro, `PG` por medias palabras con error de bus para bytes y palabras, `PGERR`,
+`WRPRTERR`, `PER`/`MER`/`STRT`, `OPTER`/`OPTPG` con `OPTWRE`, `OBL_LAUNCH` con
+su reset y `OBLRSTF`, `BSY`/`EOP` y su interrupción, la CPU parada mientras
+borra); `ProgramadorF3` (`soc/stm32f3/f3_programador.h`), el `load` de GDB por
+las dos vías -para él, la sonda aprendió a escribir **medias palabras**
+(`nv_escribir16`, `CSW.Size = 01`)-; `src/ide/stm32f3/` (CubeIDE, VS Code y
+los dos `.cfg` de OpenOCD); RDP DECLARADO. **Cierre, cumplido**: `load` de GDB
+por los pines y por el DAP con el mismo resultado (F19); OpenOCD con
+`target/stm32f3x.cfg` sin tocar programa, verifica y el firmware nuevo
+arranca, por `remote_bitbang` (O5 de `make openocd`) y por CMSIS-DAP (C6 de
+`make cmsis-dap`), y GDB por su servidor hace `load` y `compare-sections`
+(G3/D3); `FLASH_EraseProgram` de ST pasa (F18: 48 páginas, 49 152 medias
+palabras, LD3).
+
+**Lo que se ha decidido distinto de lo previsto:**
+
+* **La matriz** (riesgo 6): decodificadores directos, como los MSP432, y no
+  `AhbMatrix`. Con la CPU como único maestro dan los mismos tiempos; la
+  decisión de verdad es de S3, con los DMA.
+* **Los grupos de `testf3`** no son los de §7.1: R1-R7 (S0), F0-F15 (S1) y
+  F16-F19 (S2). La tabla de §7.1 queda como plan de S3 en adelante.
+* **El MCO del ST-LINK sin onda** (`ExtClock onda="no"`): ocho millones de
+  flancos por segundo costaban tres veces el resto de la placa. La pieza dice
+  su frecuencia al HSE, que arranca igual en cristal y en bypass.
+* **`HAL_RCC_ClockConfig` del F3** cambia `SW` antes de dividir APB1, así que
+  durante unas instrucciones PCLK1 vale 72 MHz. El RCC mira los topes 20 us
+  después de cada cambio, y solo avisa si siguen rotos.
+
+**Lo que sigue siendo de una fuente** ([1F], en P-18 de `doc/todo.md`): las
+tiras P1/P2 (la tabla 6 de UM1570, con el emparejamiento de columnas
+deducido), los tiempos del FPEC (los típicos de DS9118), la protección WRP de
+dos páginas por bit, y lo que de RM0316 se cita sin haberlo podido leer aquí.
+
+---
+
 ## Cómo leer este documento, y qué crédito darle
 
 Cada dato lleva su fuente. Las que se han podido **leer por máquina** desde aquí
@@ -612,6 +687,9 @@ XDS110.
 
 ### S0 · Fuentes y generalización neutral
 
+**Hecha el 20-10-2026** (arriba, «Estado»). Las fuentes de ST que no se
+alcanzan desde aquí (RM0316, DS9118, AN2606) siguen sin estar en `doc/refs/`.
+
 **Qué:**
 * las fuentes, en `doc/refs/` (sin versionar si su licencia no lo deja):
   RM0316, DS9118, UM1570 (la revisión actual) y su esquemático, AN2606, la SVD;
@@ -636,6 +714,8 @@ corazón de `spi.h`.
 
 ### S1 · El STM32F303VC arranca y gira la rosa
 
+**Hecha el 20-10-2026** (arriba, «Estado»).
+
 **Qué:**
 * `F3Caps`, `REGISTRA_MCU(STM32F3, …)`, `STM32F303VC` en el catálogo;
 * `SocF3`: núcleo, matriz o decodificadores, Flash de lectura (latencia,
@@ -657,6 +737,8 @@ la ventana enseña la Discovery con la rosa encendiéndose.
 **Tamaño:** grande. Es la fase con más código nuevo de una vez (RCC y SoC).
 
 ### S2 · Descarga y depuración
+
+**Hecha el 20-10-2026** (arriba, «Estado»).
 
 **Qué:** `mem/flash_f1.h` (FPEC completo, con bytes de opción y `OBL_LAUNCH`);
 su `programador_nv_if`; G1/G2/G3 y D2/D3; `src/ide/stm32f3/` (CubeIDE, VS Code,

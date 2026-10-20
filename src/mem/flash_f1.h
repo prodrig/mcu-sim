@@ -1,6 +1,6 @@
 // =============================================================================
 // flash_f1.h — La Flash de los STM32 de la familia F0/F1/F3 y su controlador
-// (el FPEC), fase S1 del F303: la LECTURA
+// (el FPEC): la lectura (fase S1 del F303) y la programacion (S2)
 //
 // LA MEMORIA: `size` bytes en 0x0800_0000, en páginas de 2 KB [HAL:
 // FLASH_PAGE_SIZE], que se leen por líneas de 64 bits. Con LATENCY estados de
@@ -29,8 +29,24 @@
 // alcance para el HCLK en vigor -0 hasta 24 MHz, 1 hasta 48, 2 hasta 72-, y
 // que el acceso de medio ciclo (HLFCYA) no se use por encima de 8 MHz.
 //
-// En esta fase la Flash se LEE. Programarla y borrarla (PG, PER, MER, OPTPG,
-// OPTER) es la fase S2: una escritura en la memoria da error de bus y lo dice.
+// PROGRAMAR Y BORRAR (S2) [1F: RM0316 §4.2-4.3]:
+//   - KEYR abre CR; una llave mal, o una llave con CR ya abierto, lo cierra
+//     hasta el siguiente reset. OPTKEYR, con CR abierto, pone OPTWRE.
+//   - PG: cada escritura de MEDIA PALABRA en la Flash la programa. Un byte o
+//     una palabra dan error de bus, como en el silicio. Si la media palabra no
+//     estaba borrada (y el dato no es 0x0000), PGERR y no se programa; en una
+//     pagina protegida por WRP, WRPRTERR.
+//   - PER + AR + STRT borra una pagina de 2 KB; MER + STRT, todas.
+//   - OPTER + STRT borra los bytes de opcion; OPTPG programa uno con una
+//     escritura de media palabra (el complemento lo pone el FPEC). Ambos
+//     necesitan OPTWRE. OBL_LAUNCH los recarga con un reset del sistema.
+//   - BSY mientras dura; al acabar, EOP (con su interrupcion, EOPIE). Quien
+//     lee la Flash mientras tanto espera, como el bus del silicio.
+//   - Los tiempos: 40 us una media palabra, 20 ms una pagina, el borrado
+//     masivo y el de los bytes de opcion [DS9118, tabla de la Flash: los
+//     tipicos].
+// Lo que NO hace: la proteccion de lectura. RDP se carga (OBR.RDPRT) pero no
+// bloquea al depurador ni borra nada al quitarla: esta DECLARADO.
 // =============================================================================
 #ifndef STM32_MEM_FLASH_F1_H
 #define STM32_MEM_FLASH_F1_H
@@ -72,6 +88,12 @@ public:
     // Quién da los estados de espera mínimos para una frecuencia; lo pone el
     // SoC con los de su chip
     std::function<unsigned(double)> latencia_minima;
+    // OBL_LAUNCH: el SoC pide al RCC un reset del sistema con OBLRSTF
+    std::function<void()> al_obl;
+    // Los tiempos del FPEC [DS9118: los tipicos]
+    sc_core::sc_time t_prog{40, sc_core::SC_US};
+    sc_core::sc_time t_pagina{20, sc_core::SC_MS};
+    sc_core::sc_time t_masa{20, sc_core::SC_MS};
 
     FlashF1(sc_core::sc_module_name nm, uint32_t reg_base, uint32_t mem_base,
             uint32_t size, uint32_t pagina, uint32_t ob_base)
@@ -85,6 +107,7 @@ public:
         SC_METHOD(reset_proc); sensitive << rst_n;
         SC_METHOD(hz_proc); sensitive << clk_hz; dont_initialize();
         SC_METHOD(irq_proc); sensitive << irq_ev_;
+        SC_METHOD(fin_proc); sensitive << fin_ev_; dont_initialize();
         ob_fabrica();
         carga_opciones();
     }
@@ -111,6 +134,9 @@ public:
     uint64_t esperas() const { return n_esperas_; }
     unsigned avisos() const { return n_avisos_; }
     unsigned escrituras_rechazadas() const { return n_rech_; }
+    unsigned programadas() const { return n_prog_; }
+    unsigned borradas() const { return n_borr_; }
+    bool ocupada() const { return sr_ & SR_BSY; }
     // Lo cargado de los bytes de opción: nBOOT1 (USER bit 4) para el arranque
     bool nboot1() const { return (obr_ >> 12) & 1u; }
     uint8_t rdp_cargado() const { return rdp_carg_; }
@@ -156,32 +182,119 @@ protected:
         }
     }
 
-    // --- Lo que hace S2 ------------------------------------------------------------
-    virtual void escribe_cr(uint32_t v) {
+    // --- Programar y borrar (S2) ---------------------------------------------------
+    void escribe_cr(uint32_t v) {
         if (cr_ & CR_LOCK) return;                          // cerrado: no cambia
         const uint32_t w = CR_PG | CR_PER | CR_MER | CR_OPTPG | CR_OPTER | CR_LOCK |
                            CR_ERRIE | CR_EOPIE;
-        cr_ = (cr_ & ~w) | (v & w);
-        if (!(cr_ & CR_LOCK)) {
-            if (v & (CR_STRT | CR_OBL_LAUNCH)) aviso_s2();
-        } else cr_ &= ~CR_OPTWRE;
+        // OPTWRE solo lo pone OPTKEYR; escribirle un cero lo quita
+        const uint32_t optwre = (v & CR_OPTWRE) ? (cr_ & CR_OPTWRE) : 0u;
+        cr_ = (cr_ & ~(w | CR_OPTWRE)) | (v & w) | optwre;
+        irq_ev_.notify(sc_core::SC_ZERO_TIME);
+        if (cr_ & CR_LOCK) { cr_ &= ~CR_OPTWRE; return; }
+        if ((v & CR_STRT) && !(sr_ & SR_BSY)) {
+            if (cr_ & CR_PER)        borra_pagina();
+            else if (cr_ & CR_MER)   borra_masa();
+            else if (cr_ & CR_OPTER) borra_ob();
+        }
+        if (v & CR_OBL_LAUNCH) {
+            if (al_obl) al_obl();
+            else carga_opciones();
+        }
     }
-    virtual bool escribe_mem(uint32_t /*a*/, const uint8_t* /*d*/, unsigned /*n*/,
-                             sc_core::sc_time& /*t*/) {
-        aviso_s2();
-        return false;
+    // Protegida por WRP: en el F303xC cada bit de WRPR guarda dos paginas
+    // (4 KB) y el ultimo, el 31, todas las de la 62 en adelante [1F: RM0316]
+    bool protegida(uint32_t off) const {
+        unsigned b = off / (2u * pagina_);
+        if (b > 31) b = 31;
+        return !((wrpr_ >> b) & 1u);
     }
-    virtual bool escribe_ob(uint32_t, const uint8_t*, unsigned, sc_core::sc_time&) {
-        aviso_s2();
-        return false;
+    void empieza(sc_core::sc_time dur, sc_core::sc_time t_local = sc_core::SC_ZERO_TIME) {
+        const sc_core::sc_time ahora = sc_core::sc_time_stamp() + t_local;
+        ocupada_hasta_ = ahora + dur;
+        sr_ |= SR_BSY;
+        fin_ev_.cancel();
+        fin_ev_.notify(dur + t_local);
     }
-    void aviso_s2() {
-        ++n_rech_;
-        if (avisado_s2_) return;
-        avisado_s2_ = true;
+    void error(uint32_t bit) {
+        sr_ |= bit;
+        irq_ev_.notify(sc_core::SC_ZERO_TIME);
+    }
+    void olvida_lineas() { lin_i_[0] = lin_i_[1] = lin_d_ = ~0u; }
+    void borra_pagina() {
+        const uint32_t base = ar_ - mem_base_;
+        if (ar_ < mem_base_ || base >= arr_.size()) { error(SR_PGERR); return; }
+        const uint32_t p0 = base & ~(pagina_ - 1u);
+        if (protegida(p0)) { error(SR_WRPERR); return; }
+        std::fill(arr_.begin() + p0, arr_.begin() + p0 + pagina_, uint8_t(0xFF));
+        ++n_borr_;
+        olvida_lineas();
+        empieza(t_pagina);
+    }
+    void borra_masa() {
+        if (wrpr_ != 0xFFFFFFFFu) { error(SR_WRPERR); return; }
+        borra_todo();
+        n_borr_ += unsigned(arr_.size() / pagina_);
+        olvida_lineas();
+        empieza(t_masa);
+    }
+    void borra_ob() {
+        if (!(cr_ & CR_OPTWRE)) { error(SR_WRPERR); return; }
+        for (uint16_t& h : ob_) h = 0xFFFFu;
+        empieza(t_pagina);
+    }
+    // Una escritura en la memoria: con PG, una media palabra programa
+    bool escribe_mem(uint32_t a, const uint8_t* d, unsigned n, sc_core::sc_time& t) {
+        if (!(cr_ & CR_PG) || n != 2 || (a & 1u)) {
+            ++n_rech_;
+            aviso_escritura(n, (cr_ & CR_PG) != 0);
+            return false;                                   // error de bus
+        }
+        const uint32_t off = a - mem_base_;
+        const uint16_t v = uint16_t(d[0] | (d[1] << 8));
+        const uint16_t hay = uint16_t(arr_[off] | (arr_[off + 1] << 8));
+        if (protegida(off)) { error(SR_WRPERR); return true; }
+        if (hay != 0xFFFFu && v != 0) { error(SR_PGERR); return true; }
+        arr_[off] = uint8_t(v);
+        arr_[off + 1] = uint8_t(v >> 8);
+        ++n_prog_;
+        olvida_lineas();
+        empieza(t_prog, t);
+        return true;
+    }
+    // Un byte de opcion: OPTPG con OPTWRE, media palabra; el complemento del
+    // byte alto lo pone el FPEC
+    bool escribe_ob(uint32_t a, const uint8_t* d, unsigned n, sc_core::sc_time& t) {
+        if (!(cr_ & CR_OPTPG) || n != 2 || (a & 1u)) {
+            ++n_rech_;
+            aviso_escritura(n, (cr_ & CR_OPTPG) != 0);
+            return false;
+        }
+        if (!(cr_ & CR_OPTWRE)) { error(SR_WRPERR); return true; }
+        const unsigned i = (a - ob_base_) / 2;
+        const uint8_t b = d[0];
+        if (ob_[i] != 0xFFFFu && b != 0) { error(SR_PGERR); return true; }
+        ob_[i] = uint16_t(b | ((~b & 0xFFu) << 8));
+        empieza(t_prog, t);
+        return true;
+    }
+    void aviso_escritura(unsigned n, bool con_pg) {
+        if (avisado_esc_) return;
+        avisado_esc_ = true;
         ++n_avisos_;
-        SC_REPORT_WARNING("flash_f1", "programar o borrar la Flash del F303 todavia no "
-                          "esta modelado (fase S2): la escritura da error de bus");
+        char m[220];
+        if (con_pg)
+            std::snprintf(m, sizeof m, "escritura de %u bytes en la Flash con PG: el FPEC solo "
+                          "programa medias palabras alineadas; error de bus [1F: RM0316 §4.2.3]", n);
+        else
+            std::snprintf(m, sizeof m, "escritura en la Flash sin FLASH_CR.PG (ni OPTPG en los "
+                          "bytes de opcion): error de bus");
+        SC_REPORT_WARNING("flash_f1", m);
+    }
+    void fin_proc() {
+        sr_ &= ~SR_BSY;
+        sr_ |= SR_EOP;
+        irq_ev_.notify(sc_core::SC_ZERO_TIME);
     }
 
     // El estado
@@ -193,10 +306,10 @@ protected:
     unsigned llave_ = 0, llave_ob_ = 0;
     bool     bloqueo_duro_ = false;          // una llave mal: cerrado hasta el reset
     sc_core::sc_time ocupada_hasta_ = sc_core::SC_ZERO_TIME;
-    sc_core::sc_event irq_ev_;
-    unsigned n_avisos_ = 0, n_rech_ = 0;
+    sc_core::sc_event irq_ev_, fin_ev_;
+    unsigned n_avisos_ = 0, n_rech_ = 0, n_prog_ = 0, n_borr_ = 0;
     uint64_t n_esperas_ = 0;
-    bool avisado_s2_ = false, avisado_lat_ = false, avisado_hlf_ = false;
+    bool avisado_esc_ = false, avisado_lat_ = false, avisado_hlf_ = false;
     uint32_t lin_i_[2] = {~0u, ~0u};         // la línea en uso y la adelantada
     uint32_t lin_d_ = ~0u;
 
@@ -213,6 +326,7 @@ protected:
         bool err = false;
         auto byte = [&](unsigned i) -> uint8_t {
             const uint16_t h = ob_[i];
+            if (h == 0xFFFFu) return 0xFF;      // borrado: sin programar, sin error
             if (uint8_t(h) != uint8_t(~(h >> 8))) { err = true; return 0xFF; }
             return uint8_t(h);
         };
@@ -364,9 +478,11 @@ protected:
         irq.write(eop || err);
     }
 
-    virtual void reset_proc() {
+    void reset_proc() {
         if (rst_n.read()) return;
-        acr_ = ACR_RESET; sr_ = 0; cr_ = CR_LOCK; ar_ = 0;
+        // Un borrado o una programacion en curso acaba igual: en el modelo el
+        // reset no la corta (en el silicio, el resultado queda indefinido)
+        acr_ = ACR_RESET; sr_ &= SR_BSY; cr_ = CR_LOCK; ar_ = 0;
         llave_ = llave_ob_ = 0; bloqueo_duro_ = false;
         lin_i_[0] = lin_i_[1] = lin_d_ = ~0u;
         avisado_lat_ = avisado_hlf_ = false;
