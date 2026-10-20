@@ -56,26 +56,99 @@ inline uint32_t crc32_word(uint32_t crc, uint32_t data) {
     return crc;
 }
 
+// ---------------------------------------------------------------------------
+// EL EJE QUE FALTABA: la unidad PROGRAMABLE (integtest1_v2_0, fase S0 del F303)
+//
+// Lo que el comentario de arriba anunciaba. En el F303 —y en el F0, el F7, los
+// L y los G— la unidad tiene [CMSIS stm32f303xc.h, CRC_TypeDef]:
+//
+//   CR.POLYSIZE (4:3)  32, 16, 8 o 7 bits
+//   CR.REV_IN (6:5)    inversión de bits de la entrada: no, por byte, por
+//                      media palabra o por palabra
+//   CR.REV_OUT (7)     inversión de bits del resultado
+//   INIT (0x10)        valor inicial, que CR.RESET carga en DR
+//   POL (0x14)         el polinomio, reset 0x04C11DB7
+//
+// y DR acepta escrituras de 8, 16 y 32 bits, cada una con SU anchura de dato:
+// un byte escrito es un byte de CRC, no una palabra con tres ceros.
+//
+// La inversión de la salida se hace sobre los POLYSIZE bits del resultado, que
+// es lo que da el CRC-16 reflejado leyendo DR como media palabra [1F: RM0316
+// §6]. El cálculo sigue siendo bit a bit.
+// ---------------------------------------------------------------------------
+struct CrcCaps {
+    uint32_t base;
+    bool     polinomio_programable;
+};
+inline constexpr CrcCaps CRC_F4{ addr::CRC_B, false };
+inline constexpr CrcCaps CRC_F3{ addr::CRC_B, true };
+
+// Un paso general: `w` bits de dato, MSB primero, sobre un CRC de `n` bits.
+inline uint32_t crc_bits(uint32_t crc, uint32_t dato, unsigned w, uint32_t pol, unsigned n) {
+    const uint32_t m = n >= 32 ? 0xFFFFFFFFu : ((1u << n) - 1u);
+    for (unsigned i = w; i-- > 0;) {
+        const bool b = (((crc >> (n - 1)) ^ (dato >> i)) & 1u) != 0;
+        crc = (crc << 1) & m;
+        if (b) crc ^= pol & m;
+    }
+    return crc;
+}
+inline uint32_t invierte_bits(uint32_t v, unsigned n) {
+    uint32_t r = 0;
+    for (unsigned i = 0; i < n; ++i) if ((v >> i) & 1u) r |= 1u << (n - 1 - i);
+    return r;
+}
+
 // =============================================================================
 // Unidad de cálculo CRC [IR, §12.20]
 // =============================================================================
 class CrcUnit : public BusSlave {
 public:
-    enum : uint32_t { R_DR = 0x00, R_IDR = 0x04, R_CR = 0x08 };
+    enum : uint32_t { R_DR = 0x00, R_IDR = 0x04, R_CR = 0x08,
+                      R_INIT = 0x10, R_POL = 0x14 };      // las dos, programable
 
-    CrcUnit(sc_core::sc_module_name nm) : BusSlave(nm, addr::CRC_B, 0x400) {
+    CrcUnit(sc_core::sc_module_name nm, const CrcCaps& caps = CRC_F4)
+        : BusSlave(nm, caps.base, 0x400), caps_(caps) {
         SC_HAS_PROCESS(CrcUnit);
         SC_METHOD(rst_proc); sensitive << rst_n;
     }
+    const CrcCaps& caps() const { return caps_; }
 
     // Ventanas para el banco de pruebas (no son registros del dispositivo).
     uint32_t peek_dr()  const { return dr_; }
     uint64_t words()    const { return n_words_; }
 
 protected:
+    CrcCaps  caps_;
     uint32_t dr_ = CRC32_INIT;
     uint8_t  idr_ = 0;
     uint64_t n_words_ = 0;
+    // La unidad programable
+    uint32_t cr_ = 0, init_ = CRC32_INIT, pol_ = CRC32_POLY;
+    unsigned polysize() const {
+        switch ((cr_ >> 3) & 3u) { case 1: return 16; case 2: return 8; case 3: return 7; default: return 32; }
+    }
+    uint32_t mascara() const { const unsigned n = polysize(); return n >= 32 ? ~0u : ((1u << n) - 1u); }
+    // REV_IN: invierte los bits dentro de cada byte, media palabra o palabra
+    uint32_t rev_in(uint32_t v, unsigned w) const {
+        switch ((cr_ >> 5) & 3u) {
+            case 1: { uint32_t r = 0;
+                      for (unsigned b = 0; b < w / 8; ++b)
+                          r |= invierte_bits((v >> (8 * b)) & 0xFFu, 8) << (8 * b);
+                      return r; }
+            case 2: if (w < 16) return invierte_bits(v, w);
+                    { uint32_t r = 0;
+                      for (unsigned h = 0; h < w / 16; ++h)
+                          r |= invierte_bits((v >> (16 * h)) & 0xFFFFu, 16) << (16 * h);
+                      return r; }
+            case 3: return invierte_bits(v, w);
+            default: return v;
+        }
+    }
+    uint32_t lee_dr() const {
+        if (!caps_.polinomio_programable) return dr_;
+        return (cr_ & (1u << 7)) ? invierte_bits(dr_ & mascara(), polysize()) : dr_;
+    }
 
     // Un ciclo de HCLK por palabra [IR, §12.20.2]. Es la razón de ser del
     // bloque: un CRC-32 por software cuesta decenas de instrucciones por
@@ -84,16 +157,20 @@ protected:
 
     uint32_t reg_read(uint32_t off) override {
         switch (off) {
-            case R_DR:  return dr_;
+            case R_DR:  return lee_dr();
             case R_IDR: return idr_;
             // CRC_CR.RESET es de SOLO ESCRITURA y se autoborra: el registro
-            // entero se lee como cero [IR, §12.20.2].
-            case R_CR:  return 0;
+            // entero se lee como cero [IR, §12.20.2]. En la programable, el
+            // resto de CR sí se lee.
+            case R_CR:  return caps_.polinomio_programable ? (cr_ & 0xF8u) : 0u;
+            case R_INIT: return caps_.polinomio_programable ? init_ : 0u;
+            case R_POL:  return caps_.polinomio_programable ? pol_ : 0u;
             default:    return 0;
         }
     }
 
     void reg_write(uint32_t off, uint32_t v, uint32_t be) override {
+        if (caps_.polinomio_programable) { escribe_programable(off, v, be); return; }
         switch (off) {
             case R_DR:
                 // El camino de datos del bloque es de 32 bits: cada escritura
@@ -127,12 +204,35 @@ protected:
         }
     }
 
+    // La unidad programable: la anchura del dato es la del acceso.
+    void escribe_programable(uint32_t off, uint32_t v, uint32_t be) {
+        switch (off) {
+            case R_DR: {
+                const unsigned w = be == 0x1u ? 8u : (be == 0x3u ? 16u : 32u);
+                const uint32_t d = rev_in(w == 32 ? v : (v & ((1u << w) - 1u)), w);
+                dr_ = crc_bits(dr_ & mascara(), d, w, pol_, polysize());
+                ++n_words_;
+                return;
+            }
+            case R_IDR: if (be & 1u) idr_ = uint8_t(v); return;
+            case R_CR:
+                if (!(be & 1u)) return;
+                cr_ = v & 0xF8u;
+                if (v & 1u) { dr_ = init_ & mascara(); n_words_ = 0; }
+                return;
+            case R_INIT: init_ = v; return;            // DR la carga CR.RESET [1F]
+            case R_POL:  pol_ = v; return;
+            default: return;
+        }
+    }
+
     void rst_proc() {
         if (rst_n.read()) return;
         // El reset del sistema sí se lleva los dos registros por delante.
         dr_ = CRC32_INIT;
         idr_ = 0;
         n_words_ = 0;
+        cr_ = 0; init_ = CRC32_INIT; pol_ = CRC32_POLY;
     }
 };
 

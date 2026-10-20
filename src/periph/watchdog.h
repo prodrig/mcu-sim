@@ -203,6 +203,21 @@ protected:
 // ===========================================================================
 // IWDG — perro guardián independiente [IR, §12.11]
 // ===========================================================================
+// ---------------------------------------------------------------------------
+// Rasgos del IWDG (fase S0 del F303). La IP iwdg1_v2_0 del F303 añade una
+// VENTANA: WINR en 0x10 (reset 0x0FFF) y SR.WVU. Con la ventana puesta, una
+// recarga (0xAAAA) mientras el contador sigue por ENCIMA de WINR es tan mala
+// como no recargar: reset inmediato. Y escribir WINR recarga el contador
+// `[CMSIS] [HAL: IWDG_WINDOW_DISABLE, HAL_IWDG_Init]` [1F: RM0316 §25.3.2].
+// En el F4 (iwdg1_v1_1) la dirección está reservada.
+// ---------------------------------------------------------------------------
+struct IwdgCaps {
+    uint32_t base;
+    bool     ventana;
+};
+inline constexpr IwdgCaps IWDG_F4{ addr::IWDG_B, false };
+inline constexpr IwdgCaps IWDG_F3{ addr::IWDG_B, true };
+
 class Iwdg : public BusSlave {
 public:
     sc_core::sc_in<bool>   lsi_clk{"lsi_clk"};      // reloj propio (LSI)
@@ -214,8 +229,9 @@ public:
     sc_core::sc_in<bool>   freeze{"freeze"};
     sc_core::sc_in<bool>   hw_start{"hw_start"};    // option bit WDG_SW = 0
 
-    enum : uint32_t { R_KR = 0x00, R_PR = 0x04, R_RLR = 0x08, R_SR = 0x0C };
-    static constexpr uint32_t SR_PVU = 1u << 0, SR_RVU = 1u << 1;
+    enum : uint32_t { R_KR = 0x00, R_PR = 0x04, R_RLR = 0x08, R_SR = 0x0C,
+                      R_WINR = 0x10 };
+    static constexpr uint32_t SR_PVU = 1u << 0, SR_RVU = 1u << 1, SR_WVU = 1u << 2;
     // Las tres llaves. No hay bits de control: el IWDG se maneja escribiendo
     // valores mágicos en KR, y eso es deliberado —hace falta una escritura muy
     // concreta para tocarlo, así que un puntero desbocado no lo desarma
@@ -224,7 +240,8 @@ public:
     static constexpr uint32_t KEY_ACCESS = 0x5555u;
     static constexpr uint32_t KEY_START  = 0xCCCCu;
 
-    Iwdg(sc_core::sc_module_name nm) : BusSlave(nm, addr::IWDG_B, 0x400) {
+    Iwdg(sc_core::sc_module_name nm, const IwdgCaps& caps = IWDG_F4)
+        : BusSlave(nm, caps.base, 0x400), caps_(caps) {
         SC_HAS_PROCESS(Iwdg);
         SC_THREAD(count_proc);
         SC_METHOD(pub_proc);    sensitive << pub_ev_;
@@ -238,9 +255,13 @@ public:
     bool     running() const { return run_; }
     double   timeout_s() const { return double(rlr_ + 1u) * tick_period(); }
     unsigned counter() const { return cnt_now(); }
+    // Las recargas fuera de ventana que han acabado en reset (banco de pruebas)
+    unsigned fuera_de_ventana() const { return n_fuera_; }
 
 protected:
-    uint32_t pr_ = 0, rlr_ = 0x0FFFu, sr_ = 0;
+    IwdgCaps caps_;
+    uint32_t pr_ = 0, rlr_ = 0x0FFFu, sr_ = 0, winr_ = 0x0FFFu;
+    unsigned n_fuera_ = 0;
     unsigned cnt0_ = 0x0FFFu;
     sc_core::sc_time t_ref_{sc_core::SC_ZERO_TIME};
     sc_core::sc_time t_sync_{sc_core::SC_ZERO_TIME};
@@ -269,6 +290,7 @@ protected:
             case R_PR:  return pr_;
             case R_RLR: return rlr_;
             case R_SR:  return sr_;
+            case R_WINR: return caps_.ventana ? winr_ : 0u;
             default:    return 0;
         }
     }
@@ -284,9 +306,25 @@ protected:
                 if (k == KEY_ACCESS) { unlocked_ = true; return; }
                 unlocked_ = false;                        // cualquier otra cierra
                 if (k == KEY_START)  { run_ = true; publish(); reload(); }
-                else if (k == KEY_RELOAD) reload();
+                else if (k == KEY_RELOAD) {
+                    // Con ventana: recargar antes de tiempo es un reset
+                    if (caps_.ventana && run_ && winr_ < 0x0FFFu && cnt_now() > winr_) {
+                        ++n_fuera_;
+                        o_rst_ = true; publish();
+                        ev_.notify(sc_core::SC_ZERO_TIME);
+                        return;
+                    }
+                    reload();
+                }
                 return;
             }
+            case R_WINR:
+                if (!caps_.ventana || !unlocked_) return;
+                winr_ = v & 0x0FFFu;
+                sr_ |= SR_WVU;
+                resync();
+                if (run_) reload();               // escribir WINR recarga
+                return;
             case R_PR:
                 // PR y RLR solo se dejan tocar tras la llave 0x5555, y el
                 // cambio tarda unos ciclos del LSI en cruzar al otro dominio:
@@ -343,7 +381,7 @@ protected:
             // La sincronización de dominio ocurre AUNQUE EL PERRO ESTÉ PARADO:
             // el valor nuevo tiene que cruzar al dominio del LSI igual, y PVU y
             // RVU se bajan solas unas cuentas después [IR, §12.11].
-            if ((sr_ & (SR_PVU | SR_RVU)) && p > 0.0) {
+            if ((sr_ & (SR_PVU | SR_RVU | SR_WVU)) && p > 0.0) {
                 // Se espera hasta el PLAZO, no "tres cuentas desde que me
                 // despierten": si entre medias llega otra escritura, el hilo se
                 // despierta antes y las banderas no deben caerse por eso.
@@ -353,7 +391,7 @@ protected:
                     wait(fin - sc_core::sc_time_stamp(), ev_);
                     continue;
                 }
-                sr_ &= ~(SR_PVU | SR_RVU);
+                sr_ &= ~(SR_PVU | SR_RVU | SR_WVU);
                 continue;
             }
             if (!run_ || frozen_ || p <= 0.0) { wait(ev_); continue; }

@@ -420,15 +420,26 @@ private:
     // mientras el depurador tiene el núcleo parado, y por tanto lo que evita
     // que un timeout salte artificialmente en mitad de una sesión.
     // -----------------------------------------------------------------------
+    // QUÉ BIT DE APB1_FZ/APB2_FZ MANDA EN CADA LÍNEA, COMO DATO (fase S0 del
+    // F303). Las 21 líneas `freeze[]` son posiciones; lo que congela cada una
+    // lo decide el SoC al atarlas. Lo que es del chip es de qué bit sale: en el
+    // F4 la línea 9 (FZ_WWDG) es el bit 11 de APB1_FZ, en el F303 el WWDG
+    // también, pero el TIM15 es el bit 2 de APB2_FZ, que en el F4 no existe.
+    // -1: la línea no la gobierna ningún bit. Por omisión, la tabla del F4.
+    int fz_apb1_[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 21, 22, 23, 25, 26};
+    int fz_apb2_[5]  = {0, 1, 16, 17, 18};
+public:
+    void set_mapa_congelacion(const int (&apb1)[16], const int (&apb2)[5]) {
+        for (unsigned i = 0; i < 16; ++i) fz_apb1_[i] = apb1[i];
+        for (unsigned i = 0; i < 5; ++i)  fz_apb2_[i] = apb2[i];
+    }
+private:
     void freeze_proc() {
         const bool h = halted.read();
-        static const int apb1[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 11, 12,
-                                   21, 22, 23, 25, 26};
-        static const int apb2[] = {0, 1, 16, 17, 18};
         for (unsigned i = 0; i < 16; ++i)
-            freeze[i].write(h && ((dbg_apb1_fz_ >> apb1[i]) & 1u));
+            freeze[i].write(h && fz_apb1_[i] >= 0 && ((dbg_apb1_fz_ >> fz_apb1_[i]) & 1u));
         for (unsigned i = 0; i < 5; ++i)
-            freeze[16 + i].write(h && ((dbg_apb2_fz_ >> apb2[i]) & 1u));
+            freeze[16 + i].write(h && fz_apb2_[i] >= 0 && ((dbg_apb2_fz_ >> fz_apb2_[i]) & 1u));
     }
 
     // =======================================================================

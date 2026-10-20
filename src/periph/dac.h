@@ -76,6 +76,18 @@ namespace stm32 {
 // aparece en otras familias de STM32 (las hay de un solo canal, de 8 bits, o
 // sin generador de ondas).
 // ---------------------------------------------------------------------------
+// LA TABLA DE DISPAROS, COMO DATO (fase S0 del F303). El bloque recibe ocho
+// entradas indexadas por TSEL y no sabe de quién son: eso lo cablea el SoC.
+// Lo que sí es del chip es QUÉ SIGNIFICA cada valor de TSEL, y cambia de una
+// familia a otra: en el F303 la posición 1 es TIM3 (o TIM8 con DAC_TRIG_RMP) y
+// la 3 es TIM15 [CMSIS stm32f303xc.h, DAC_CR_TSEL1; HAL: DAC_TRIGGER_*].
+inline constexpr const char* TSEL_DAC_F407[8] = {
+    "TIM6_TRGO", "TIM8_TRGO", "TIM7_TRGO", "TIM5_TRGO",
+    "TIM2_TRGO", "TIM4_TRGO", "EXTI9", "SWTRIG" };
+inline constexpr const char* TSEL_DAC_F303[8] = {
+    "TIM6_TRGO", "TIM3_TRGO/TIM8_TRGO", "TIM7_TRGO", "TIM15_TRGO",
+    "TIM2_TRGO", "TIM4_TRGO", "EXTI9", "SWTRIG" };
+
 struct DacCaps {
     unsigned n_channels  = 2;      // canales de salida
     unsigned bits        = 12;     // resolución del convertidor
@@ -92,6 +104,7 @@ struct DacCaps {
     double   r_open      = 15.0e3; // impedancia de salida con BOFF [ohm]
     double   v_margin    = 0.2;    // el buffer no llega a los raíles [V]
     const char* kind     = "DAC";
+    const char* const* tsel = TSEL_DAC_F407;   // qué es cada valor de TSEL
 };
 
 // --- Las variantes ---------------------------------------------------------
@@ -122,9 +135,19 @@ constexpr DacCaps caps_dac_basic() {
     return c;
 }
 
+// El DAC1 del F303 (F3_dacif_v1_1): el mismo bloque con otra tabla de
+// disparos [PINDATA; CMSIS]
+constexpr DacCaps caps_dac_f303() {
+    DacCaps c{};
+    c.tsel = TSEL_DAC_F303;
+    c.kind = "DAC1 del F303 (2 canales, 12 bits)";
+    return c;
+}
+
 inline constexpr DacCaps CAPS_DAC_F407  = caps_dac_f407();
 inline constexpr DacCaps CAPS_DAC_1CH   = caps_dac_1ch();
 inline constexpr DacCaps CAPS_DAC_BASIC = caps_dac_basic();
+inline constexpr DacCaps CAPS_DAC_F303  = caps_dac_f303();
 
 // ---------------------------------------------------------------------------
 // Implementación común. Los rasgos llegan por el constructor: este es el punto

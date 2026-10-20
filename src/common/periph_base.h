@@ -86,6 +86,7 @@ protected:
         const uint32_t off = uint32_t(gp.get_address()) - base_;
         const unsigned len = gp.get_data_length();
         unsigned char* d   = gp.get_data_ptr();
+        ancho_acceso_ = len;
 
         if (gp.is_read()) {
             // Agrupar los bytes por palabra, igual que en la escritura: hay
@@ -194,6 +195,14 @@ protected:
 
     uint32_t base_, size_;
     double   dom_hz_ = 0.0;
+    // La ANCHURA del acceso en curso, en bytes (1, 2 o 4). `reg_read` y
+    // `reg_write` ven siempre la palabra alineada, y para casi todos los
+    // registros eso basta: los byte enables dicen qué bytes se escriben. Hay un
+    // caso en el que no basta, la LECTURA de un registro de datos con FIFO cuyo
+    // efecto depende de la anchura: en el SPI de segunda generación (F0, F3,
+    // L4) leer DR con un acceso de 8 bits saca un dato de la FIFO y con uno de
+    // 16 saca dos [1F: RM0316 §30.5.9]. Nadie más lo mira.
+    unsigned ancho_acceso_ = 4;
 };
 
 } // namespace stm32

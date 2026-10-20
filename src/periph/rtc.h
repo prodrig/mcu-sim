@@ -54,6 +54,20 @@
 
 namespace stm32 {
 
+// ---------------------------------------------------------------------------
+// Rasgos del RTC (fase S0 del F303). La IP rtc2_v2_4 del F303 es la rtc2_v2_3
+// del F4 con dos diferencias de banco `[CMSIS] [PINDATA]`:
+//   * sin la calibración GRUESA (CALIBR en 0x18, y CR.DCE): solo queda la fina,
+//     CALR;
+//   * 16 registros de respaldo en vez de 20 (BKP0R..BKP15R).
+// ---------------------------------------------------------------------------
+struct RtcCaps {
+    bool     calibr_grueso;
+    unsigned n_respaldo;
+};
+inline constexpr RtcCaps RTC_F4{ true, 20 };
+inline constexpr RtcCaps RTC_F3{ false, 16 };
+
 class Rtc : public BusSlave {
 public:
     sc_core::sc_in<bool>   rtcclk{"rtcclk"};
@@ -82,7 +96,8 @@ public:
         I_TSOVF = 1u << 12, I_TAMP1F = 1u << 13
     };
 
-    Rtc(sc_core::sc_module_name nm) : BusSlave(nm, addr::RTC_B, 0x400) {
+    Rtc(sc_core::sc_module_name nm, const RtcCaps& caps = RTC_F4)
+        : BusSlave(nm, addr::RTC_B, 0x400), caps_(caps) {
         SC_HAS_PROCESS(Rtc);
         SC_THREAD(cal_proc);
         SC_THREAD(wut_proc);
@@ -101,6 +116,8 @@ public:
     bool     locked() const { return !unlocked_; }
 
 protected:
+    RtcCaps caps_;
+    uint32_t bkp_fin() const { return R_BKP0R + 4u * caps_.n_respaldo; }
     // ---- Registros ----
     uint32_t cr_ = 0, isr_ = I_ALRAWF | I_ALRBWF | I_WUTWF;   // reset: 0x0007
     uint32_t prer_ = 0x007F00FFu, wutr_ = 0x0000FFFFu, calibr_ = 0;
@@ -204,7 +221,8 @@ protected:
         return off == R_WPR || off == R_TAFCR || off >= R_BKP0R;
     }
     uint32_t reg_read(uint32_t off) override {
-        if (off >= R_BKP0R && off < R_BKP0R + 80u) return bkp_[(off - R_BKP0R) / 4];
+        if (off >= R_BKP0R && off < bkp_fin()) return bkp_[(off - R_BKP0R) / 4];
+        if (off == R_CALIBR && !caps_.calibr_grueso) return 0;
         switch (off) {
             case R_TR:  return pack_tr();
             case R_DR:  return pack_dr();
@@ -248,10 +266,12 @@ protected:
             else { wpr_step_ = 0; unlocked_ = false; }
             return;
         }
-        if (off >= R_BKP0R && off < R_BKP0R + 80u) {
+        if (off >= R_BKP0R && off < bkp_fin()) {
             bkp_[(off - R_BKP0R) / 4] = v;           // no los tapa la llave
             return;
         }
+        if (off >= bkp_fin()) return;                // F303: 16 y no 20
+        if (off == R_CALIBR && !caps_.calibr_grueso) return;
         if (off == R_ISR) { write_isr(v); return; }  // las banderas tampoco
         if (!unlocked_ && !always_writable(off)) return;
 

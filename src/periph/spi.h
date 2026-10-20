@@ -51,6 +51,7 @@
 #ifndef STM32_PERIPH_SPI_H
 #define STM32_PERIPH_SPI_H
 
+#include <deque>
 #include "../common/periph_base.h"
 
 namespace stm32 {
@@ -68,6 +69,21 @@ struct SpiCaps {
     bool sd_on_miso = false;  // el dato de I2S sale/entra por MISO, no por MOSI
     double max_sck_hz = 21.0e6;   // límite de la hoja de características
     const char* kind  = "SPI";
+    // ★ La TERCERA versión del bloque (spi2s1_v3_0: F0, F3, L4, G4), fase S0
+    // del F303. La estructura de registros es la misma —y por eso engaña—,
+    // pero dentro cambian tres cosas que un firmware nota en cuanto arranca
+    // [CMSIS stm32f303xc.h; HAL stm32f3xx_hal_spi.c] [1F: RM0316 §30]:
+    //   * el tamaño del dato es CR2.DS (de 4 a 16 bits, reset 8) y el bit 11
+    //     de CR1 deja de ser DFF para ser CRCL, la longitud del CRC;
+    //   * hay dos FIFO de 32 bits, una por sentido, con sus niveles en
+    //     SR.FTLVL/FRLVL; TXE sube con la de salida medio vacía y RXNE con la
+    //     de entrada en el umbral de CR2.FRXTH (8 o 16 bits);
+    //   * DR se EMPAQUETA según la anchura del acceso: escribir 16 bits con
+    //     DS <= 8 mete DOS datos en la FIFO, y leer 8 bits saca uno. Es el
+    //     error clásico de portar código del F4: `SPI1->DR = b` con un `b` de
+    //     16 bits manda un cero de más.
+    // El I2S de esta versión no usa la FIFO, y aquí tampoco.
+    bool fifo_v3 = false;
 };
 
 // --- Las tres variantes del STM32F407VG ------------------------------------
@@ -109,10 +125,27 @@ constexpr SpiCaps caps_spi_apb2_i2s() {
     return c;
 }
 
+// Los SPI del F303: SPI1 sin I2S en APB2, SPI2 y SPI3 con I2S en APB1. El
+// máximo de SCK es el de la hoja de datos, 18 MHz [1F: DS9118, tabla de SPI].
+constexpr SpiCaps caps_f3_spi1() {
+    SpiCaps c = caps_spi_apb2();
+    c.fifo_v3 = true; c.max_sck_hz = 18.0e6;
+    c.kind = "SPI v3 (APB2)";
+    return c;
+}
+constexpr SpiCaps caps_f3_spi_i2s() {
+    SpiCaps c = caps_spi_i2s();
+    c.fifo_v3 = true; c.max_sck_hz = 18.0e6;
+    c.kind = "SPI/I2S v3 (APB1)";
+    return c;
+}
+
 inline constexpr SpiCaps CAPS_SPI_APB2 = caps_spi_apb2();
 inline constexpr SpiCaps CAPS_SPI_APB2_I2S = caps_spi_apb2_i2s();
 inline constexpr SpiCaps CAPS_SPI_I2S  = caps_spi_i2s();
 inline constexpr SpiCaps CAPS_I2S_EXT  = caps_i2s_ext();
+inline constexpr SpiCaps CAPS_F3_SPI1    = caps_f3_spi1();
+inline constexpr SpiCaps CAPS_F3_SPI_I2S = caps_f3_spi_i2s();
 
 // ---------------------------------------------------------------------------
 // Implementación común. Recibe los rasgos por el constructor: este es el punto
@@ -148,11 +181,13 @@ public:
         S_CRCERR = 1u << 4, S_MODF = 1u << 5, S_OVR = 1u << 6, S_BSY = 1u << 7,
         S_FRE = 1u << 8
     };
+    static constexpr unsigned FIFO_BYTES = 4;     // v3: 32 bits por sentido
 
     // --- Constructor principal: los rasgos como parámetro ------------------
     SpiBase(sc_core::sc_module_name nm, uint32_t base,
             const SpiCaps& caps = CAPS_SPI_I2S)
         : BusSlave(nm, base, 0x400), caps_(caps) {
+        if (caps_.fifo_v3) cr2_ = CR2_RESET_V3;
         SC_HAS_PROCESS(SpiBase);
         SC_THREAD(master_proc);
         SC_METHOD(pub_proc);    sensitive << pub_ev_;
@@ -186,6 +221,9 @@ public:
     uint64_t frames()    const { return n_frames_; }
     uint32_t sr_raw()    const { return sr_; }
     bool     i2s_active()const { return caps_.i2s_mode && i2smod() && i2se(); }
+    // v3: lo que hay en cada FIFO, en bytes
+    unsigned nivel_tx() const { return unsigned(txf_.size()); }
+    unsigned nivel_rx() const { return unsigned(rxf_.size()); }
 
 protected:
     // =======================================================================
@@ -195,7 +233,7 @@ protected:
         switch (off) {
             case R_CR1:     return cr1_;
             case R_CR2:     return cr2_;
-            case R_SR:      sr_read_ = true; return sr_;
+            case R_SR:      sr_read_ = true; return sr_ | niveles_fifo();
             case R_DR:      return read_dr();
             case R_CRCPR:   return caps_.crc ? crcpr_ : 0u;
             case R_RXCRCR:  return caps_.crc ? rxcrc_ : 0u;
@@ -207,6 +245,9 @@ protected:
     }
 
     void reg_write(uint32_t off, uint32_t v, uint32_t be) override {
+        // v3: DR empaqueta según la anchura del acceso, así que los byte
+        // enables se miran ANTES de mezclar nada
+        if (off == R_DR && usa_fifo()) { write_dr_v3(v, be); update_irq(); wake(); return; }
         if (be != 0xFu) {                                  // acceso parcial
             uint32_t cur = (off == R_DR) ? uint32_t(tdr_) : reg_read_quiet(off), m = 0;
             for (unsigned b = 0; b < 4; ++b) if (be & (1u << b)) m |= 0xFFu << (8 * b);
@@ -253,6 +294,9 @@ protected:
 
 private:
     SpiCaps caps_;
+    static constexpr uint32_t CR2_RESET_V3 = 0x0700u;      // DS = 0111: 8 bits
+    // ---- Las FIFO de la v3 ------------------------------------------------
+    std::deque<uint8_t> txf_, rxf_;
     // ---- Registros --------------------------------------------------------
     uint32_t cr1_ = 0, cr2_ = 0, sr_ = S_TXE, crcpr_ = 0x0007u;
     uint32_t rxcrc_ = 0, txcrc_ = 0, i2scfgr_ = 0, i2spr_ = 0x0002u;
@@ -300,6 +344,16 @@ private:
     bool     errie()    const { return (cr2_ >> 5) & 1u; }
     bool     rxneie()   const { return (cr2_ >> 6) & 1u; }
     bool     txeie()    const { return (cr2_ >> 7) & 1u; }
+    // v3 [CMSIS: SPI_CR2_DS, SPI_CR2_FRXTH]. DS de 0000 a 0010 no vale y el
+    // hardware lo deja en 8 bits [1F: RM0316 §30.7.2].
+    unsigned ds_bits()  const {
+        const unsigned d = (cr2_ >> 8) & 0xFu;
+        return d < 3u ? 8u : d + 1u;
+    }
+    bool     frxth()    const { return (cr2_ >> 12) & 1u; }
+    bool     usa_fifo() const { return caps_.fifo_v3 && !i2s_active(); }
+    // Bytes que ocupa un dato en la FIFO: uno hasta 8 bits, dos por encima
+    unsigned bytes_dato() const { return ds_bits() <= 8u ? 1u : 2u; }
     // I2S [IR, §12.5.3-D]
     bool     chlen32()  const { return i2scfgr_ & 1u; }
     unsigned datlen()   const { return (i2scfgr_ >> 1) & 3u; }   // 00:16 01:24 10:32
@@ -318,8 +372,11 @@ private:
     // Número de bits por marco: SPI 8/16, I2S la longitud de canal
     unsigned frame_bits() const {
         if (i2s_active()) return chlen32() ? 32u : 16u;
+        if (caps_.fifo_v3) return ds_bits();
         return dff() ? 16u : 8u;
     }
+    // Longitud del CRC: DFF en el F4, CRCL en la v3. Es el mismo bit 11.
+    unsigned crc_len() const { return dff() ? 16u : 8u; }
     // Bits significativos del dato en I2S (DATLEN)
     unsigned data_bits() const {
         switch (datlen()) { case 1: return 24u; case 2: return 32u; default: return 16u; }
@@ -339,6 +396,8 @@ private:
         m |= (1u << 1) | (1u << 0);                         // TXDMAEN, RXDMAEN
         if (caps_.spi_mode && caps_.ti_mode) m |= 1u << 4;  // FRF
         if (caps_.spi_mode && caps_.nss_pin) m |= 1u << 2;  // SSOE
+        // v3: NSSP, DS, FRXTH, LDMA_RX, LDMA_TX
+        if (caps_.fifo_v3 && caps_.spi_mode) m |= (1u << 3) | (0xFu << 8) | (7u << 12);
         return m;
     }
     uint32_t i2scfgr_mask() const {
@@ -400,7 +459,48 @@ private:
             default: return 0;
         }
     }
+    // ---- v3: las FIFO ------------------------------------------------------
+    // FRLVL (10:9) y FTLVL (12:11): vacía, 1/4, 1/2, llena [CMSIS]
+    static uint32_t nivel(size_t bytes) { return bytes >= 4 ? 3u : (bytes >= 2 ? 2u : (bytes ? 1u : 0u)); }
+    uint32_t niveles_fifo() const {
+        if (!caps_.fifo_v3) return 0u;
+        return (nivel(rxf_.size()) << 9) | (nivel(txf_.size()) << 11);
+    }
+    // TXE y RXNE salen de los niveles, no de un registro de un solo dato
+    void banderas_fifo() {
+        if (!usa_fifo()) return;
+        if (txf_.size() <= FIFO_BYTES / 2) sr_ |= S_TXE; else sr_ &= ~S_TXE;
+        if (rxf_.size() >= (frxth() ? 1u : 2u)) sr_ |= S_RXNE; else sr_ &= ~S_RXNE;
+    }
+    void write_dr_v3(uint32_t v, uint32_t be) {
+        // Un acceso de 8 bits mete un byte; de 16 (o de 32), dos [1F: RM0316
+        // §30.5.9, «data packing»]
+        const unsigned n = be == 0x1u ? 1u : 2u;
+        for (unsigned i = 0; i < n; ++i)
+            if (txf_.size() < FIFO_BYTES) txf_.push_back(uint8_t(v >> (8 * i)));
+        tdr_full_ = !txf_.empty();
+        if (sr_read_) sr_ &= ~S_UDR;
+        sr_read_ = false;
+        banderas_fifo();
+        if (caps_.spi_mode && spe() && !mstr() && bit_i_ == 0) start_slave_frame();
+    }
+    uint32_t read_dr_v3() {
+        const unsigned n = ancho_acceso_ == 1 ? 1u : 2u;
+        uint32_t v = 0;
+        for (unsigned i = 0; i < n && !rxf_.empty(); ++i) {
+            v |= uint32_t(rxf_.front()) << (8 * i);
+            rxf_.pop_front();
+        }
+        if (sr_read_) sr_ &= ~S_OVR;
+        sr_read_ = false;
+        banderas_fifo();
+        update_irq();
+        wake();
+        return v;
+    }
+
     uint32_t read_dr() {
+        if (usa_fifo()) return read_dr_v3();
         const uint32_t v = rdr_;
         sr_ &= ~S_RXNE;
         if (sr_read_) sr_ &= ~S_OVR;                   // leer SR y luego DR
@@ -466,6 +566,7 @@ private:
     }
 
     void update_irq() {
+        banderas_fifo();
         bool i = false;
         if (txeie()  && (sr_ & S_TXE))  i = true;
         if (rxneie() && (sr_ & S_RXNE)) i = true;
@@ -544,6 +645,8 @@ private:
     void reset_proc() {
         if (rst_n.read()) return;
         cr1_ = cr2_ = 0; sr_ = S_TXE; crcpr_ = 0x0007u;
+        if (caps_.fifo_v3) cr2_ = CR2_RESET_V3;
+        txf_.clear(); rxf_.clear();
         rxcrc_ = txcrc_ = 0; i2scfgr_ = 0; i2spr_ = 0x0002u;
         tdr_ = rdr_ = 0; tdr_full_ = false; sr_read_ = false;
         crc_next_pending_ = false;
@@ -571,7 +674,7 @@ private:
     }
     void crc_accumulate(uint16_t tx, uint16_t rx) {
         if (!crcen()) return;
-        const unsigned n = dff() ? 16u : 8u;
+        const unsigned n = crc_len();
         const uint32_t poly = crcpr_ & ((1u << n) - 1u);
         txcrc_ = crc_step(txcrc_, tx & ((1u << n) - 1u), poly, n);
         rxcrc_ = crc_step(rxcrc_, rx & ((1u << n) - 1u), poly, n);
@@ -599,7 +702,7 @@ private:
             // El marco que acaba de llegar era el CRC del otro extremo
             crc_next_pending_ = false;
             cr1_ &= ~(1u << 12);                       // el hardware borra CRCNEXT
-            const unsigned n = dff() ? 16u : 8u;
+            const unsigned n = crc_len();
             const uint16_t mine = uint16_t(rxcrc_ & ((1u << n) - 1u));
             if (got != mine) sr_ |= S_CRCERR;
             rxcrc_ = txcrc_ = 0;
@@ -609,7 +712,12 @@ private:
         }
         crc_accumulate(sent, got);
         if (!(bidimode() && bidioe())) {               // hay recepción
-            if (sr_ & S_RXNE) sr_ |= S_OVR;            // no se leyó el anterior
+            if (usa_fifo()) {
+                // v3: a la FIFO; si no cabe, OVR y el dato se pierde
+                const unsigned n = bytes_dato();
+                if (rxf_.size() + n > FIFO_BYTES) sr_ |= S_OVR;
+                else for (unsigned i = 0; i < n; ++i) rxf_.push_back(uint8_t(got >> (8 * i)));
+            } else if (sr_ & S_RXNE) sr_ |= S_OVR;     // no se leyó el anterior
             else { rdr_ = got; sr_ |= S_RXNE; }
         }
         sr_ |= S_TXE;
@@ -619,9 +727,18 @@ private:
     // Toma el siguiente dato a transmitir; devuelve false si no hay ninguno.
     bool fetch_tx(uint16_t& out) {
         if (crcen() && crcnext() && !crc_next_pending_) {
-            const unsigned n = dff() ? 16u : 8u;
+            const unsigned n = crc_len();
             out = uint16_t(txcrc_ & ((1u << n) - 1u));  // se envía el CRC
             crc_next_pending_ = true;
+            return true;
+        }
+        if (usa_fifo()) {
+            const unsigned n = bytes_dato();
+            if (txf_.size() < n) return false;
+            out = 0;
+            for (unsigned i = 0; i < n; ++i) { out = uint16_t(out | (txf_.front() << (8 * i))); txf_.pop_front(); }
+            tdr_full_ = !txf_.empty();
+            update_irq();
             return true;
         }
         if (!tdr_full_) return false;
