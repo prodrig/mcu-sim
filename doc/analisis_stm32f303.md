@@ -21,7 +21,7 @@ adelante, para media docena de familias.
 
 ---
 
-## Estado: S0 a S4 y S7 hechas (21-10-2026)
+## Estado: S0 a S4, S7 y S8 hechas (21-10-2026)
 
 En la rama `stm32f303`, un commit por fase. Las siete suites de antes no se
 mueven ni un picosegundo (`ci/comprueba_invariante.sh`, las siete en verde con
@@ -155,6 +155,20 @@ su reset (el del sistema o el de `AHBRSTR`) y no lo volvía a muestrear hasta qu
 un pad cambiase. El cargador, tras un `GO` que reinicia los puertos y un reset,
 leía PD6 a cero con la línea alta y tomaba por arranque lo que no lo era. Ahora
 se muestrea al salir del reset; las siete suites, al picosegundo.
+
+**S8, la ventana y la documentación** (21-10-2026). Lo opcional de §6, hecho
+sin tocar el protocolo: en `mcu-sim-gui`, el panel de una pieza con un
+`alabeo` y un `cabeceo` continuos lleva un **mando de inclinación**, un círculo
+con un punto que se arrastra hacia el lado que baja y que no ordena nada por su
+cuenta: mueve los dos deslizadores, que son los que ordenan (G1c de
+`prueba_ventana`). Y la **aguja del rumbo**: la tabla de enlaces admite
+`observable=` con `giro` y `angulo`, para que el efecto lo mueva un observable
+que no es el que se elegiría solo; `MOV` deja de ser invisible y es una aguja
+entre U5 y U3 (`dibuja_st.py`) con
+`<enlace pieza="MOV" elemento="MOV" efecto="angulo" observable="rumbo"/>`
+(I14b de `prueba_ilustracion`, y dos comprobaciones más en `gui-sistema`, 181).
+La guía de usuario, `doc/protocolo.md` de la GUI y `doc/parts.md` (§2.6 y la
+`Postura`) lo dicen. Ninguna suite se mueve: es de la ventana y de los XML.
 
 **Los ejes, y la demo.** La placa: x al este (LD7), y al norte (LD3), z hacia
 fuera. El giróscopo, x al este e y al norte: así lo usan el ejemplo BSP y la
@@ -1036,6 +1050,8 @@ Discovery de verdad, en vez de desoldar SB19.
 **Qué:** lo opcional de §6 (el mando de inclinación, la aguja del rumbo); la guía
 de usuario; `doc/parts.md`; la entrada **P-18** de `doc/todo.md` con lo
 declarado.
+
+**HECHA el 21-10-2026** («Estado», arriba).
 
 **Tamaño:** pequeño.
 

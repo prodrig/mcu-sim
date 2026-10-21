@@ -1409,6 +1409,24 @@ def c19_ti(sim, cp):
     check(rc == 0 and "revision de D: D" in out and "U3 LSM303DLHC, U5 L3GD20)" in out and
           "0 avisos" in out,
           "placas/stm32f3discovery_d.xml: la revision D, con el L3GD20 y el LSM303DLHC")
+    # S8: la aguja del rumbo, en la tabla de enlaces con observable=, que
+    # llega en T_PLACA; y observable= sin giro ni angulo no vale
+    rc, out, placa, il, av = saludo_con_dibujos(sim, ["placas/stm32f3discovery.xml"])
+    r = ET.fromstring(placa) if placa else None
+    en = [e.attrib for e in r.iter("enlace")] if r is not None else []
+    check(rc == 0 and {"pieza": "MOV", "elemento": "MOV", "efecto": "angulo",
+                       "observable": "rumbo"} in en and il and b'id="MOV"' in il[0][1],
+          "la Discovery: MOV es la aguja del dibujo, con efecto=angulo y observable=rumbo en T_PLACA")
+    f = cp.escribe("obs.xml", MODULO % ('', '<ilustracion><enlace pieza="LD" elemento="LD" '
+                                         'efecto="brillo" observable="corriente"/></ilustracion>'))
+    rc, out, err = corre(sim, [f, "--valida"])
+    check(rc != 0 and "observable= solo vale con efecto=\"giro\" o \"angulo\"" in out + err,
+          "observable= con un efecto que no gira no se acepta, y se dice")
+    # S7: la Discovery en el cargador, con el FT232RL en la USART1
+    rc, out, err = corre(sim, ["placas/stm32f3discovery_boot0.xml", "--valida"])
+    check(rc == 0 and "en total: 1 MCU(s), 31 componentes" in out and "0 avisos" in out and
+          "JP1 VCC-3.3V" in out,
+          "placas/stm32f3discovery_boot0.xml: la Discovery con BOOT0 a VDD y el FT232RL a 3,3 V")
 
     # Los dos sistemas: el J5 de la EDUMKII como sale de fabrica, y cambiado
     rc, out, err = corre(sim, ["placas/msp_exp432p401r_edumkii.xml", "--valida"])

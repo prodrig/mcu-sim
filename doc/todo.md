@@ -783,7 +783,7 @@ Lo que queda dicho, con la letra con la que lo cita el código:
 ### P-18 — El STM32F303 y la STM32F3DISCOVERY
 
 **Analizado en `doc/analisis_stm32f303.md` (2026-10-19), con un plan de diez
-fases (S0-S9). HECHAS S0, S1, S2 y S3 el 2026-10-20 y S4 y S7 el 2026-10-21** en la rama `stm32f303`
+fases (S0-S9). HECHAS S0, S1, S2 y S3 el 2026-10-20 y S4, S7 y S8 el 2026-10-21** en la rama `stm32f303`
 («Estado» del análisis): los rasgos neutrales, el STM32F303VC con su RCC, su
 Flash con el FPEC, la CCM ejecutable, la memoria de sistema y el arranque por
 BOOT0/nBOOT1/`MEM_MODE`, la STM32F3DISCOVERY con su dibujo, `testf3` (R1-R7,
@@ -796,7 +796,8 @@ las dos revisiones, con `revision=` en la placa), el ejemplo `BSP` de ST en las
 dos revisiones, `f3_mems` contra la postura (F54-F57) y la demo de ST con
 `make f3-demo` (F58); y en S7 el cargador de sistema propio con el protocolo de
 AN3155 (`soc/stm32f3/cargador/`), que `stm32flash` usa sin modificar
-(`make f3-stm32flash`, F59-F60). Es la primera familia del proyecto con la
+(`make f3-stm32flash`, F59-F60); y en S8, en la ventana, el mando de
+inclinación y la aguja del rumbo (`observable=` en la tabla de enlaces). Es la primera familia del proyecto con la
 segunda generación de IP de ST: el I²C es el `FMPI2C1` del F446 (`i2c2_v1_1`),
 y bxCAN, DAC, RTC, perros, CRC, EXTI, GPIO y temporizadores se reaprovechan por
 rasgos; RCC, controlador de Flash (el del F1), DMA por canales, USART v2, ADC,
@@ -807,7 +808,7 @@ pruebas es la STM32F3DISCOVERY, con sus dos revisiones de sensores
 SVG. Lo primero, S0: tener RM0316, DS9118 y UM1570 en `doc/refs/`, que desde
 el entorno de trabajo no se alcanzan.
 
-Lo que queda de una sola fuente, o de modelo, tras S7:
+Lo que queda de una sola fuente, o de modelo, tras S8:
 
 | | Qué | Estado |
 | :--- | :--- | :--- |
@@ -835,6 +836,7 @@ Lo que queda de una sola fuente, o de modelo, tras S7:
 | **w** | La sincronización de las escrituras del F303 (S4) | `Cpu::sync_escritura_perif`: el núcleo del F303 sincroniza con el planificador antes de cada escritura a un periférico, para que un pulso de GPIO más corto que el quantum (el CS del giróscopo, 0,2 µs) no desaparezca. **Los F4 y los MSP432 no**: tienen el mismo problema latente, y ponerlo movería sus invariantes |
 | **x** | El `IDR` tras un reset del GPIO (S7, todos los chips) | Se ponía a cero y no se volvía a muestrear hasta que un pad cambiase; ahora se muestrea al salir del reset. Las siete suites, al picosegundo |
 | **y** | El arranque en el cargador, en la placa | `placas/stm32f3discovery_boot0.xml`: un puente de P2.19 (BOOT0) a P2.20 (VDD), como se hace con una Discovery de verdad, en vez de abrir SB19; el FT232RL en la USART1. `make f3-stm32flash` va con `-m 8n1` por el pty (Linux no guarda la paridad de un pty); la paridad de la línea la pone el puente RFC 2217 |
+| **z** | La aguja y la inclinación (S8) | La aguja de `MOV` es un indicador de rumbo (marca hacia dónde mira el borde norte de la placa), no una brújula que señale el norte: es lo que el efecto `angulo` sabe hacer, a la derecha los positivos. El mando de inclinación pone el punto en el lado que BAJA, como el LED del ejemplo BSP; el borde son 90 grados, aunque el alabeo llegue a 180 |
 | **l** | La placa contra su esquemático | Contrastada con MB1035 rev. D.1 (2026-10-20): resistencias de la rosa (510 Ω en los verdes), B1 (100 + 330 Ω a VDD, 220 kΩ a masa), LD1, BOOT0, R39 y X3 sin montar. La vf de cada LED es de modelo; VDD se modela a 3,3 V, y en la placa son los 3,3 V del LD3985 menos el diodo D3 [de modelo] |
 
 ---

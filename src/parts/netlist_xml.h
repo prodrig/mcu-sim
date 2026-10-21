@@ -489,7 +489,8 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
                 return donde(e) + "dentro de <ilustracion> solo va <enlace>, no <" +
                        e.nombre + ">";
             for (const auto& a : e.attrs)
-                if (a.first != "pieza" && a.first != "elemento" && a.first != "efecto")
+                if (a.first != "pieza" && a.first != "elemento" && a.first != "efecto" &&
+                    a.first != "observable")
                     return donde(e) + "<enlace>: atributo desconocido: " + a.first;
             if (!e.tiene("pieza") || !e.tiene("elemento"))
                 return donde(e) + "<enlace> necesita pieza= y elemento=";
@@ -497,6 +498,12 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
             en.pieza = e.attr_o("pieza");
             en.elemento = e.attr_o("elemento");
             en.efecto = e.attr_o("efecto", "");
+            // observable= dice cual mueve el giro o el angulo; la ventana
+            // comprueba que la pieza lo tenga y, si no, lo dice
+            en.observable = e.attr_o("observable", "");
+            if (!en.observable.empty() && en.efecto != "giro" && en.efecto != "angulo")
+                return donde(e) + "<enlace pieza=\"" + en.pieza + "\">: observable= solo vale con "
+                       "efecto=\"giro\" o \"angulo\"";
             if (!en.efecto.empty() && en.efecto != "brillo" && en.efecto != "hundido" &&
                 en.efecto != "giro" && en.efecto != "pantalla" && en.efecto != "angulo" &&
                 en.efecto != "ninguno")

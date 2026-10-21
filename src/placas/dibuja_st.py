@@ -185,6 +185,9 @@ def discovery():
   con el nombre del chip de cada revision como variante -U5@L3GD20 o
   U5@I3G4250D, U3@LSM303DLHC o U3@LSM303AGR-; mcu-sim deja el que se monta.
 
+  MOV, la Postura (S8), es la aguja de rumbo entre U5 y U3: gira con el rumbo
+  (la tabla del XML le da efecto="angulo" observable="rumbo").
+
   JP3 ensena su puente: JP3@1-2 (puesto, de fabrica); mcu-sim deja el que
   dice el XML (src/common/svg_variantes.h).
 """
@@ -256,6 +259,27 @@ def discovery():
     s.cierra()
     for v in ("LSM303DLHC", "LSM303AGR"):
         s.text(cx + 120, my + 280, v, size=10, fill="#7f8c8d", id="U3@" + v)
+    # El rumbo de la Postura MOV (S8): una rosa fija con el norte arriba y una
+    # aguja que GIRA con el rumbo (efecto `angulo` con observable="rumbo" en
+    # la tabla del XML), como un indicador de rumbo: marca hacia donde apunta
+    # el borde norte de la placa. La aguja va dibujada en el rumbo 0, con su
+    # punta roja arriba, y dentro de un circulo sin pintar centrado en el eje:
+    # el centro de la caja del elemento es el eje.
+    rx_, ry_, rr = cx, my + 232, 38
+    s.circ(rx_, ry_, rr + 4, "#f4f6f6", "#566573", 1.5)
+    for k, l in enumerate("NESW"):   # como la serigrafia de la rosa
+        a = math.radians(-90 + 90 * k)
+        s.text(rx_ + (rr - 8) * math.cos(a), ry_ + (rr - 8) * math.sin(a) + 4, l, size=9,
+               fill="#566573", bold=True)
+    s.abre("MOV")
+    s.circ(rx_, ry_, rr, "none")
+    s.add('<polygon points="%.1f,%.1f %.1f,%.1f %.1f,%.1f" fill="#c0392b"/>' %
+          (rx_, ry_ - rr + 12, rx_ - 5, ry_, rx_ + 5, ry_))
+    s.add('<polygon points="%.1f,%.1f %.1f,%.1f %.1f,%.1f" fill="#2c3e50"/>' %
+          (rx_, ry_ + rr - 12, rx_ - 5, ry_, rx_ + 5, ry_))
+    s.circ(rx_, ry_, 3, "#7f8c8d")
+    s.cierra()
+    s.text(rx_, ry_ + rr + 18, "MOV rumbo", size=10, fill="#7f8c8d")
     # X3, el cristal de 32 kHz: SIN MONTAR (huella vacia)
     s.abre("X3")
     s.rect(cx + 50, BY + 250, 60, 24, "none", "#7f8c8d", 1.5, rx=12)

@@ -23,6 +23,9 @@
   con el nombre del chip de cada revision como variante -U5@L3GD20 o
   U5@I3G4250D, U3@LSM303DLHC o U3@LSM303AGR-; mcu-sim deja el que se monta.
 
+  MOV, la Postura (S8), es la aguja de rumbo entre U5 y U3: gira con el rumbo
+  (la tabla del XML le da efecto="angulo" observable="rumbo").
+
   JP3 ensena su puente: JP3@1-2 (puesto, de fabrica); mcu-sim deja el que
   dice el XML (src/common/svg_variantes.h).
 -->
@@ -107,6 +110,18 @@
   </g>
   <text id="U3@LSM303DLHC" x="620.0" y="780.0" font-family="Arial" font-size="10" fill="#7f8c8d" text-anchor="middle">LSM303DLHC</text>
   <text id="U3@LSM303AGR" x="620.0" y="780.0" font-family="Arial" font-size="10" fill="#7f8c8d" text-anchor="middle">LSM303AGR</text>
+  <circle cx="500.0" cy="732.0" r="42.0" fill="#f4f6f6" stroke="#566573" stroke-width="1.5"/>
+  <text x="500.0" y="706.0" font-family="Arial" font-size="9" font-weight="bold" fill="#566573" text-anchor="middle">N</text>
+  <text x="530.0" y="736.0" font-family="Arial" font-size="9" font-weight="bold" fill="#566573" text-anchor="middle">E</text>
+  <text x="500.0" y="766.0" font-family="Arial" font-size="9" font-weight="bold" fill="#566573" text-anchor="middle">S</text>
+  <text x="470.0" y="736.0" font-family="Arial" font-size="9" font-weight="bold" fill="#566573" text-anchor="middle">W</text>
+  <g id="MOV">
+  <circle cx="500.0" cy="732.0" r="38.0" fill="none"/>
+  <polygon points="500.0,706.0 495.0,732.0 505.0,732.0" fill="#c0392b"/>
+  <polygon points="500.0,758.0 495.0,732.0 505.0,732.0" fill="#2c3e50"/>
+  <circle cx="500.0" cy="732.0" r="3.0" fill="#7f8c8d"/>
+  </g>
+  <text x="500.0" y="788.0" font-family="Arial" font-size="10" fill="#7f8c8d" text-anchor="middle">MOV rumbo</text>
   <g id="X3">
   <rect x="550.0" y="280.0" width="60.0" height="24.0" rx="12" fill="none" stroke="#7f8c8d" stroke-width="1.5"/>
   </g>

@@ -171,8 +171,10 @@
        =================================================================== -->
   <!-- La postura de la placa: la comparten los dos chips, para que cuenten la
        misma historia. Sus mandos -alabeo, cabeceo, rumbo- la inclinan y la
-       giran a 90 grados por segundo; Madrid: 0,45 gauss y 55 grados -->
-  <componente tipo="Postura" id="MOV" visible="no"/>
+       giran a 90 grados por segundo; Madrid: 0,45 gauss y 55 grados. En el
+       dibujo es la aguja de rumbo entre U5 y U3 (S8), y en la ventana, un
+       mando de inclinacion ademas de los tres deslizadores -->
+  <componente tipo="Postura" id="MOV"/>
 
   <!-- U5, el giroscopo, por SPI1: SPC en PA5, SDI en PA7, SDO en PA6, CS en
        PE3, INT1 en PE0 y DRDY/INT2 en PE1. Sus ejes: x al ESTE (LD7) e y al
@@ -285,4 +287,10 @@
     <pin nombre="47" nodo="PC8"/>  <!-- 48: sin conectar [MB1035, hoja 1] -->
     <pin nombre="49" nodo="VSS"/>  <pin nombre="50" nodo="VSS"/>
   </componente>
+
+  <!-- El dibujo: la aguja de MOV gira con su RUMBO, que no es el primero de
+       sus angulos (doc/parts.md §2.6) -->
+  <ilustracion>
+    <enlace pieza="MOV" elemento="MOV" efecto="angulo" observable="rumbo"/>
+  </ilustracion>
 </placa>

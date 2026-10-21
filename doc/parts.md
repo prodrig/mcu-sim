@@ -371,7 +371,7 @@ máquina y no ver estos ficheros.
 | Sin `ilustracion=` | El SVG que **se llame como la placa**, a su lado: `nucleo_f446re.xml` → `nucleo_f446re.svg`. Si no está, no pasa nada |
 | `<placa id="N" fichero="..." ilustracion="y.svg"/>` en un `<sistema>` | El montaje cambia el dibujo de esa placa (relativo al sistema); la tabla de la placa, que era de SU dibujo, no se usa |
 | `giro="90"` en la `<placa>`, o en su `<placa id>` de un `<sistema>` | El dibujo, **girado** 90, 180 o 270 grados en el sentido de las agujas del reloj: como está montada la placa. El del sistema manda sobre el de la placa. Ver abajo |
-| `<ilustracion><enlace pieza= elemento= [efecto=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido`, `giro`, `pantalla`, `angulo` o `ninguno` |
+| `<ilustracion><enlace pieza= elemento= [efecto=] [observable=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido`, `giro`, `pantalla`, `angulo` o `ninguno`; con `giro` o `angulo`, `observable` dice cuál de los de la pieza lo mueve (abajo) |
 
 **Lo que se comprueba aquí** —el SVG lo lee la ventana—: un dibujo
 **declarado** que no está, uno que no empieza por `<svg` ni por `<?xml`, o uno
@@ -414,6 +414,15 @@ aspa del `Servo` (§4.12), que en `placas/servo_sg90.svg` está dibujada en el
 dice el giro. Como con `giro`, para que gire sobre el eje el elemento lleva
 dentro un círculo centrado en él —sin pintar, `fill="none"`— que alcanza más
 que todo lo demás.
+
+**Cuál lo mueve: `observable=`.** Con `giro` y con `angulo`, la tabla puede
+nombrar el observable que mueve el elemento cuando no es el que se elegiría
+solo —el primero que la pieza sugiere, o el primero en grados—. Es la aguja de
+rumbo de `placas/stm32f3discovery.svg`: la `Postura` tiene tres ángulos, el
+rumbo es el tercero y se mide en «grados», y su enlace es
+`<enlace pieza="MOV" elemento="MOV" efecto="angulo" observable="rumbo"/>`. Con
+otro efecto, el fichero no valida; un nombre que la pieza no tiene, la ventana
+lo dice y deja el elemento quieto.
 
 **Lo que se ve en una pantalla: el efecto `pantalla`.** Es el de omisión de
 una pieza que enseña una IMAGEN —el `Tft128x160`—: la ventana pinta la imagen
@@ -1943,7 +1952,11 @@ velocidad angular que ven los giróscopos; parada, cero. De la orientación sale
 lo que ven los acelerómetros —1 g hacia arriba en reposo, la fuerza
 específica— y las brújulas —el campo de la Tierra, `campo` gauss con
 `inclinacion` grados hacia abajo—. No tiene patillas: los sensores la nombran
-con `<ref nombre="postura" componente="MOV"/>`.
+con `<ref nombre="postura" componente="MOV"/>`. En la ventana, además de sus
+tres deslizadores, lleva un mando de **inclinación** —un círculo con un punto
+que se arrastra hacia el lado que baja—, que sale en el panel de cualquier
+pieza con un `alabeo` y un `cabeceo` continuos y mueve esos dos deslizadores;
+y en el dibujo de la Discovery es una **aguja de rumbo** (`observable=`, §2.6).
 
 | Parámetro | Omisión | Efecto |
 | :--- | :--- | :--- |
