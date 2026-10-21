@@ -1,5 +1,5 @@
 // =============================================================================
-// sc_main_f3.cpp — LA SUITE DEL STM32F303VC (fases S0-S4 y S7 del plan del F303)
+// sc_main_f3.cpp — LA SUITE DEL STM32F303VC (fases S0-S4, S7 y S9 del plan del F303)
 //
 // Un banco aparte, como el de cada chip: un chip más dentro de otra simulación
 // movería su invariante. [doc/analisis_stm32f303.md, §7.1]
@@ -62,7 +62,14 @@
 //           READOUT UNPROTECT y WRITE UNPROTECT con su reset, y los bytes de
 //           opcion por WRITE MEMORY
 //
-//   TESTF3_SOLO=s2 / s3 / s4 / s7 / demo corre solo esos grupos, TESTF3_GRUPO=F44 solo los que
+//   (S9) el resto del die 0x422 (F303xB/C, F302xB/C, F358xC):
+//   F61     los quince en el catalogo, sin tiempo: Flash, SRAM, CCM, los tres
+//           encapsulados de cada linea, NPOR del F358 y lo que no tienen
+//   F62     un F302CB, un F303RB y un F358RC encendidos, por el bus: F_SIZE,
+//           la SRAM, la CCM, los TIM y el USB que faltan, y el cargador con
+//           AN3155 en el LQFP48
+//
+//   TESTF3_SOLO=s2 / s3 / s4 / s7 / s9 / demo corre solo esos grupos, TESTF3_GRUPO=F44 solo los que
 //   empiecen asi, TESTF3_TRAZA=1 imprime trazas de depuracion: con cualquiera
 //   de ellos el tiempo simulado no es el del invariante.
 //
@@ -299,6 +306,37 @@ SC_MODULE(TbDos) {
     }
 };
 
+// =============================================================================
+// S9: TRES MIEMBROS MAS DEL DIE 0x422, apagados hasta F63: un F302CB (LQFP48,
+// 128 KB, sin CCM, TIM7 ni TIM8), un F303RB (LQFP64, 128 KB) y un F358RC
+// (LQFP64, 256 KB, sin USB). Cada uno con un maestro de bus del banco en su
+// `from_tb`, y el F302CB con un anfitrion de AN3155 en su USART1
+// =============================================================================
+struct TbFamilia {
+    McuF3 f302cb, f303rb, f358rc;
+    BusTestMaster m302{"m302"}, m303{"m303"}, m358{"m358"};
+    PuenteSerie* bl = nullptr;
+    static PuenteSerie::Config config() {
+        PuenteSerie::Config c;
+        c.destino = serie::parsea("memoria");
+        c.formato.paridad = Paridad::par;
+        c.baudios = 115200;
+        return c;
+    }
+    TbFamilia()
+        : f302cb("f302cb", DBG_PINES, Cableado(), *CatalogoMcu::busca("STM32F302CB")),
+          f303rb("f303rb", DBG_PINES, Cableado(), *CatalogoMcu::busca("STM32F303RB")),
+          f358rc("f358rc", DBG_PINES, Cableado(), *CatalogoMcu::busca("STM32F358RC")) {
+        m302.isk.bind(f302cb.chip().from_tb);
+        m303.isk.bind(f303rb.chip().from_tb);
+        m358.isk.bind(f358rc.chip().from_tb);
+        bl = new PuenteSerie("bl302", &f302cb.chip().pinmux.analog(0, 9),
+                             &f302cb.chip().pinmux.analog(0, 10), nullptr, nullptr, nullptr, config());
+        bl->set_enabled(false);
+    }
+    ~TbFamilia() { delete bl; }
+};
+
 static const char* const FW_DEMO   = "verif/fw/stm32f3/f3_demo/f3_demo.bin";
 static const char* const FW_CM     = "verif/fw/stm32f3/coremark/coremark_f3.bin";
 static const char* const FW_TOGGLE = "verif/fw/stm32f3/gpio_iotoggle/GPIO_IOToggle.bin";
@@ -333,6 +371,7 @@ SC_MODULE(TbF3) {
     // 8E1 en cada USART que escucha el cargador: USART1 (PA9/PA10) a 115200 y
     // USART2 (PD5/PD6) a 57600. Desoldados hasta sus grupos
     PuenteSerie *bl1 = nullptr, *bl2 = nullptr;
+    TbFamilia* fam = nullptr;
     McuF3   mcu;
     SocF3&  dut;
     // La placa, lo justo: los 8 MHz del ST-LINK en PF0 (sin onda), B1 en PA0 a
@@ -386,6 +425,7 @@ SC_MODULE(TbF3) {
             bl1->set_enabled(false);
             bl2->set_enabled(false);
         }
+        fam = new TbFamilia();
         mco = new ExtClock("mco", dut.pinmux.analog(5, 0), 8e6, 3.3, 50.0, false);
         b1 = new Button(dut.pinmux.analog(0, 0), 330.0, 3.3);
         b1->release();
@@ -402,7 +442,7 @@ SC_MODULE(TbF3) {
         delete r; delete dos; delete gen_e11; delete gen_b7; delete mco; delete b1; delete r_b1;
         delete gdb_p; delete gdb_d;
         delete u5d; delete u5e; delete u3d; delete u3e; delete r27; delete r28; delete mov;
-        delete bl1; delete bl2;
+        delete bl1; delete bl2; delete fam;
     }
 
     // --- Utilidades -----------------------------------------------------------
@@ -2173,6 +2213,139 @@ SC_MODULE(TbF3) {
         wait(3, SC_MS);
     }
 
+
+    // =========================================================================
+    // S9: EL RESTO DEL DIE 0x422 (F303xB/C, F302xB/C, F358xC)
+    // =========================================================================
+    void s9_catalogo() {
+        grupo("F61 La familia del die 0x422 en el catalogo, sin tiempo simulado");
+        struct Esp { const char* n; unsigned fl, ram, ccm, gpio, pat; };
+        const Esp esp[] = {
+            {"STM32F303VC", 256, 40, 8, 87, 100}, {"STM32F303VB", 128, 32, 8, 87, 100},
+            {"STM32F303RC", 256, 40, 8, 52, 64},  {"STM32F303RB", 128, 32, 8, 52, 64},
+            {"STM32F303CC", 256, 40, 8, 37, 48},  {"STM32F303CB", 128, 32, 8, 37, 48},
+            {"STM32F302VC", 256, 40, 0, 87, 100}, {"STM32F302VB", 128, 32, 0, 87, 100},
+            {"STM32F302RC", 256, 40, 0, 52, 64},  {"STM32F302RB", 128, 32, 0, 52, 64},
+            {"STM32F302CC", 256, 40, 0, 37, 48},  {"STM32F302CB", 128, 32, 0, 37, 48},
+            {"STM32F358VC", 256, 40, 8, 86, 100}, {"STM32F358RC", 256, 40, 8, 51, 64},
+            {"STM32F358CC", 256, 40, 8, 36, 48},
+        };
+        unsigned ok = 0;
+        for (const Esp& e : esp) {
+            const McuDesc* d = CatalogoMcu::busca(e.n);
+            const F3Caps* c = d ? static_cast<const F3Caps*>(d->propio) : nullptr;
+            const bool b = c && std::string(d->familia) == "STM32F3" && c->idcode() == 0x10030422u &&
+                           c->flash_size == e.fl * 1024u && c->sram_size == e.ram * 1024u &&
+                           c->ccm_size == e.ccm * 1024u && c->enc.n_gpio == e.gpio &&
+                           c->enc.n_pines == e.pat && c->enc.coherente();
+            if (b) ++ok;
+            else std::printf("    %s: no cuadra\n", e.n);
+        }
+        check(ok == 15, "los quince: Flash, SRAM, CCM, encapsulado y E/S de la base de pines, IDCODE 0x1003_0422");
+        check(!ENC_LQFP48_F303.bonded(4, 9) && !ENC_LQFP64_F303.bonded(4, 9) &&
+              ENC_LQFP64_F303.bonded(2, 13) && !ENC_LQFP48_F303.bonded(3, 2) &&
+              ENC_LQFP64_F303.bonded(3, 2),
+              "el puerto E solo sale en el LQFP100; PD2, en el LQFP64 y no en el LQFP48");
+        check(ENC_LQFP64_F303.bonded(1, 2) && !ENC_LQFP64_F358.bonded(1, 2) &&
+              std::string(PATILLAS_LQFP64_F358[27].nombre) == "NPOR" &&
+              std::string(PATILLAS_LQFP64_F303[27].nombre) == "PB2",
+              "el F358 tiene NPOR en la patilla 28 del LQFP64, donde el F303 tiene PB2");
+        check(sizeof(PATILLAS_LQFP48_F303) / sizeof(PatillaF3) == 48 &&
+              std::string(PATILLAS_LQFP48_F303[4].nombre) == "PF0-OSC_IN" &&
+              std::string(PATILLAS_LQFP48_F303[43].nombre) == "BOOT0",
+              "LQFP48: OSC_IN en la 5 y BOOT0 en la 44");
+        check(!MCU_STM32F302CB.tiene(F3A_TIM8) && !MCU_STM32F302CB.tiene(F3A_TIM7) &&
+              MCU_STM32F302CB.tiene(F3A_USB) && !MCU_STM32F358RC.tiene(F3A_USB) &&
+              MCU_STM32F358RC.tiene(F3A_TIM8) && MCU_STM32F303VB.ausentes == 0 &&
+              std::string(MCU_STM32F302VC.sin).find("TIM8") != std::string::npos,
+              "el F302 no tiene TIM7, TIM8 ni ADC3/4, y el F358 no tiene USB [PINDATA]");
+    }
+
+    // Arranca uno de la familia desde un encendido, con BOOT0 alto: el
+    // cargador deja 'MSYS'
+    bool arranca_fam(McuF3& m) {
+        m.alimenta(true);
+        m.boot0(true);
+        m.chip().sram.poke32(0, 0);
+        m.reset_pin(false);
+        const sc_time lim = sc_time_stamp() + sc_time(5, SC_MS);
+        while (m.chip().sram.peek32(0) != 0x5359534Du && sc_time_stamp() < lim) wait(20, SC_US);
+        wait(50, SC_US);
+        return m.chip().sram.peek32(0) == 0x5359534Du;
+    }
+    static bool ok_(tlm::tlm_response_status r) { return r == tlm::TLM_OK_RESPONSE; }
+    // Un TIM con su reloj: lo que se escribe en ARR, se lee
+    static uint32_t arr(BusTestMaster& b, uint32_t en_reg, uint32_t bit, uint32_t tim) {
+        uint32_t v = 0;
+        b.read32(en_reg, v);
+        b.write32(en_reg, v | bit);
+        b.write32(tim + 0x2C, 0x1234u);
+        uint32_t r = 0;
+        b.read32(tim + 0x2C, r);
+        return r;
+    }
+
+    void s9_chips() {
+        grupo("F62 Tres de la familia en marcha: F302CB, F303RB y F358RC, por el bus");
+        TbFamilia& f = *fam;
+        const bool a = arranca_fam(f.f302cb), b = arranca_fam(f.f303rb), c = arranca_fam(f.f358rc);
+        check(a && b && c, "los tres arrancan el cargador de la memoria de sistema: 'MSYS'");
+        uint32_t v = 0;
+        uint16_t fs = 0, fs3 = 0, fs8 = 0;
+        f.m302.read16(f3::F_SIZE_A, fs);
+        f.m303.read16(f3::F_SIZE_A, fs3);
+        f.m358.read16(f3::F_SIZE_A, fs8);
+        check(fs == 128 && fs3 == 128 && fs8 == 256, "F_SIZE: 128, 128 y 256 KB");
+        check(ok_(f.m302.write32(0x20007FFCu, 0xA5A5A5A5u)) && ok_(f.m302.read32(0x20007FFCu, v)) &&
+                  v == 0xA5A5A5A5u && !ok_(f.m302.read32(0x20008000u, v)) &&
+                  ok_(f.m358.read32(0x20009FFCu, v)),
+              "la SRAM: 32 KB en el F302CB (0x2000_8000 es error de bus) y 40 en el F358RC");
+        check(!ok_(f.m302.read32(0x10000000u, v)) && ok_(f.m303.write32(0x10000000u, 7)) &&
+                  ok_(f.m303.read32(0x10000000u, v)) && v == 7,
+              "la CCM: error de bus en el F302, y en el F303RB, 8 KB");
+        const uint32_t APB2ENR = 0x40021018u, APB1ENR = 0x4002101Cu;
+        const uint32_t t8_302 = arr(f.m302, APB2ENR, 1u << 13, 0x40013400u);
+        const uint32_t t7_302 = arr(f.m302, APB1ENR, 1u << 5, 0x40001400u);
+        const uint32_t t8_358 = arr(f.m358, APB2ENR, 1u << 13, 0x40013400u);
+        const uint32_t t6_302 = arr(f.m302, APB1ENR, 1u << 4, 0x40001000u);
+        check(t8_302 == 0 && t7_302 == 0 && t8_358 == 0x1234u && t6_302 == 0x1234u &&
+                  f.f302cb.chip().bloques_ausentes().size() == 3,
+              "el TIM8 y el TIM7 del F302CB leen cero (ventana reservada) y su TIM6 si; el del F358, si");
+        f.m358.read32(0x40005C40u, v);
+        unsigned n_usb = 0;
+        for (BloqueAusente* x : f.f358rc.chip().bloques_ausentes()) n_usb += x->accesos();
+        check(v == 0 && n_usb == 1, "el USB del F358RC: su ventana es reservada, y se dice");
+        // AN3155 en el F302CB: el mismo cargador, con su Flash y su SRAM
+        bl = f.bl;
+        bl->set_enabled(true);
+        bl->borra_recibido();
+        bl_pos = 0;
+        f.f302cb.reset_pin(true);
+        wait(20, SC_US);
+        const bool m = arranca_fam(f.f302cb);
+        check(m && sincroniza() && orden(0x02) && byte() == 1 && byte() == 0x04 && byte() == 0x22 && ack(),
+              "AN3155 por la USART1 del F302CB (PA9/PA10 en el LQFP48): GET ID, 0x0422");
+        const auto fl = lee_mem(f3::F_SIZE_A, 2);
+        const uint8_t x[4] = {1, 2, 3, 4};
+        check(fl.size() == 2 && (fl[0] | fl[1] << 8) == 128 && escribe_mem(0x20007F00u, x, 4) &&
+                  !escribe_mem(0x20008000u, x, 4) && lee_mem(0x10000000u, 4).empty() &&
+                  lee_mem(0x0801FFFCu, 4).size() == 4 && lee_mem(0x08020000u, 4).empty(),
+              "el cargador se ajusta: 128 KB de Flash y 32 de SRAM por F_SIZE, y sin CCM");
+        bl->set_enabled(false);
+        bl = nullptr;
+        for (McuF3* x : {&f.f302cb, &f.f303rb, &f.f358rc}) {
+            x->reset_pin(true);
+            x->boot0(false);
+            x->alimenta(false);
+        }
+        wait(100, SC_US);
+    }
+
+    void s9() {
+        s9_catalogo();
+        if (toca("F62")) s9_chips();
+    }
+
     void s7() {
         if (toca("F59")) s7_usart1();
         if (toca("F60")) s7_usart2();
@@ -2248,6 +2421,12 @@ SC_MODULE(TbF3) {
             sc_stop();
             return;
         }
+        if (solo && std::strcmp(solo, "s9") == 0) {
+            s9();
+            std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
+            sc_stop();
+            return;
+        }
         if (solo && std::strcmp(solo, "s7") == 0) {
             s7();
             std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
@@ -2301,6 +2480,7 @@ SC_MODULE(TbF3) {
             s3_dos();
             s4();
             s7();
+            s9();
         }
         std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();

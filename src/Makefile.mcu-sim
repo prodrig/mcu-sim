@@ -736,7 +736,7 @@ f3-stm32flash: $(MCUSIM)
 	   echo "  [OMITE] f3-stm32flash: hace falta pySerial (python3 -m pip install pyserial)"; \
 	 else \
 	   rm -f $(B)/f3tty; \
-	   $(MCUSIM) placas/stm32f3discovery_boot0.xml --ms=15000 --tiempo-real \
+	   $(MCUSIM) placas/stm32f3discovery_boot0.xml --ms=6000 --tiempo-real \
 	       --serie F/U1=rfc2217:$(PUERTO_STM32FLASH) --serie D/VCP=memoria \
 	       > $(B)/f3-stm32flash-sim.log 2>&1 & sim=$$!; \
 	   python3 verif/pty_rfc2217.py $(PUERTO_STM32FLASH) $(B)/f3tty 115200 8E1 \

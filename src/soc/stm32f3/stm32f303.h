@@ -38,6 +38,7 @@
 #define STM32_SOC_STM32F3_STM32F303_H
 
 #include <systemc>
+#include <memory>
 #include <tlm>
 #include <tlm_utils/simple_target_socket.h>
 #include <tlm_utils/simple_initiator_socket.h>
@@ -254,7 +255,10 @@ public:
         if (core.gdb) core.gdb->pon_programador(&ProgramadorF3::el());
         set_ondas(false);
     }
-    ~SocF3() override { for (BloqueDeclarado* b : declarados) delete b; }
+    ~SocF3() override {
+        for (BloqueDeclarado* b : declarados) delete b;
+        for (BloqueAusente* b : ausentes) delete b;
+    }
 
     // --- Lo que mira el adaptador y el banco ------------------------------------------
     double f_sysclk() const { return rcc.f_sysclk(); }
@@ -271,9 +275,11 @@ public:
         return false;
     }
     unsigned escrituras_ccm_protegidas() const { return n_ccm_prot_; }
+    // Los bloques que este miembro de la familia no tiene (S9)
+    const std::vector<BloqueAusente*>& bloques_ausentes() const { return ausentes; }
 
     std::vector<std::string> limitaciones() const {
-        return {
+        std::vector<std::string> v = {
             "fases S1, S2 y S3 del plan del F303: nucleo, reloj, Flash (lectura y FPEC), SRAM, "
             "CCM ejecutable, memoria de sistema, GPIO, EXTI, SYSCFG, PWR con Sleep, Stop y "
             "Standby, DMA1/2, USART1-3 y UART4/5 (v2), SPI1-3 (v3), I2C1/2, TIM1/2/3/4/6/7/8/15/16/17 "
@@ -302,6 +308,18 @@ public:
             "para (el silicio lo deja contando)",
             "la linea 81 de la FPU (FPU_IE) no llega al NVIC, como en el F4",
         };
+        // S9: lo que este miembro de la familia no tiene, dicho
+        if (*mcu.sin || mcu.ccm_size == 0) {
+            std::string t = std::string(mcu.nombre) + ", del mismo die que el F303xC, no tiene";
+            if (*mcu.sin) t += std::string(" ") + mcu.sin + " [PINDATA]";
+            if (mcu.ccm_size == 0) t += std::string(*mcu.sin ? " ni" : "") + " la CCM [CMSIS: stm32f302xc.h]";
+            t += ": sus ventanas son reservadas, leen cero y avisan una vez";
+            v.push_back(t);
+        }
+        if (mcu.ausentes & F3A_USB)
+            v.push_back("el F358 se alimenta de 1,65 a 1,95 V [PINDATA], sin regulador, y tiene NPOR "
+                        "donde el F303 tiene PB2; el modelo lo alimenta y lo arranca como al F303");
+        return v;
     }
 
 private:
@@ -433,6 +451,19 @@ private:
         d.add_slave((std::string("s_") + b.basename()).c_str(), b.base(), b.size())->bind(b.tsk);
         b.clk(clk); b.clk_hz(hz); b.rst_n(s_sysrst_n_); b.clk_en(s_true_);
     }
+    // Un bloque que este miembro de la familia no tiene (S9): su ventana
+    // reservada, sin reloj ni reset
+    std::vector<BloqueAusente*> ausentes;
+    void ausente(const char* n, uint32_t base, uint32_t size, AhbDecoder& d,
+                 sc_core::sc_signal<bool>& clk, sc_core::sc_signal<double>& hz) {
+        BloqueAusente* b = new BloqueAusente(n, base, size, mcu.nombre, n);
+        engancha_sin_reloj(*b, d, clk, hz);
+        ausentes.push_back(b);
+    }
+    // Lo mismo para uno que el SoC lleva igual -un TIM-: se conecta como
+    // siempre, pero no al bus, y su ventana es la reservada
+    std::vector<std::unique_ptr<tlm_utils::simple_initiator_socket<SocF3>>> i_aus_;
+
     void declara(const char* n, uint32_t base, uint32_t size, AhbDecoder& d,
                  sc_core::sc_signal<bool>& clk, sc_core::sc_signal<double>& hz,
                  int id, const char* cuando) {
@@ -477,7 +508,8 @@ private:
         for (unsigned p = 0; p < N_PUERTOS; ++p) engancha(gpio[p], ahb2, H, Hz, F3P_GPIOA + p);
         // --- AHB3: los ADC -------------------------------------------------------------
         declara("adc12", f3::ADC12_B, 0x400, ahb3, H, Hz, F3P_ADC12, S5);
-        declara("adc34", f3::ADC34_B, 0x400, ahb3, H, Hz, F3P_ADC34, S5);
+        if (mcu.tiene(F3A_ADC34)) declara("adc34", f3::ADC34_B, 0x400, ahb3, H, Hz, F3P_ADC34, S5);
+        else ausente("ADC3/4", f3::ADC34_B, 0x400, ahb3, H, Hz);
         // --- APB1 ----------------------------------------------------------------------
         // Los bloques de extension del I2S (el duplex completo): la base de pines
         // de ST no les da pin propio -comparten el MISO del SPI-, y quedan
@@ -486,8 +518,13 @@ private:
                           "MISO del SPI, y la base de pines de ST no lo lista.";
         declara("i2s2ext", f3::I2S2EXT_B, 0x400, apb1, P1, P1z, F3P_SPI2, EXT);
         declara("i2s3ext", f3::I2S3EXT_B, 0x400, apb1, P1, P1z, F3P_SPI3, EXT);
-        declara("usb", f3::USB_B, 0x400, apb1, P1, P1z, F3P_USB, S6);
-        declara("usb_pma", f3::USB_PMA_B, 0x400, apb1, P1, P1z, F3P_USB, S6);
+        if (mcu.tiene(F3A_USB)) {
+            declara("usb", f3::USB_B, 0x400, apb1, P1, P1z, F3P_USB, S6);
+            declara("usb_pma", f3::USB_PMA_B, 0x400, apb1, P1, P1z, F3P_USB, S6);
+        } else {
+            ausente("USB", f3::USB_B, 0x400, apb1, P1, P1z);
+            ausente("la memoria de paquetes del USB", f3::USB_PMA_B, 0x400, apb1, P1, P1z);
+        }
         declara("can", f3::CAN_B, 0x400, apb1, P1, P1z, F3P_CAN, S6);
         engancha(pwr, apb1, P1, P1z, F3P_PWR);
         declara("dac1", f3::DAC1_B, 0x400, apb1, P1, P1z, F3P_DAC1, S5);
@@ -558,7 +595,18 @@ private:
              sc_core::sc_signal<double>& tclk_hz, unsigned fz,
              std::initializer_list<sc_core::sc_signal<bool>*> itr) {
         tim_[k] = &t;
-        engancha(t, d, pclk, pclk_hz, id);
+        const bool falta = (k == T7 && !mcu.tiene(F3A_TIM7)) || (k == T8 && !mcu.tiene(F3A_TIM8));
+        if (!falta) {
+            engancha(t, d, pclk, pclk_hz, id);
+        } else {
+            i_aus_.emplace_back(new tlm_utils::simple_initiator_socket<SocF3>(
+                (std::string("i_aus_") + t.basename()).c_str()));
+            i_aus_.back()->bind(t.tsk);
+            t.clk(pclk); t.clk_hz(pclk_hz);
+            t.rst_n(rcc.s_rst_n[id]); t.clk_en(rcc.s_en[id]);
+            t.clk_en_live = rcc.clk_en_ptr(id);
+            ausente(k == T7 ? "TIM7" : "TIM8", t.base(), t.size(), d, pclk, pclk_hz);
+        }
         t.timclk(tclk); t.timclk_hz(tclk_hz);
         t.freeze(s_freeze_[fz]);
         unsigned i = 0;

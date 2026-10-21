@@ -1,5 +1,6 @@
 // =============================================================================
-// f3_desc.h — EL STM32F303VC como dato (fase S1 del F303)
+// f3_desc.h — EL STM32F303VC como dato (fase S1 del F303), y su familia del
+// mismo die (S9: F303xB/C, F302xB/C y F358xC)
 //
 // Lo que `sim` y el SoC necesitan saber del chip, y nada más: el mapa de
 // memoria, los números de interrupción, el DEV_ID, el encapsulado con sus
@@ -122,26 +123,62 @@ constexpr uint32_t UID[3] = { 0x00330024u, 0x3333470Fu, 0x31373939u };
 
 } // namespace f3
 
-// --- El encapsulado, generado [soc/stm32f3/f3_patillas.inc, PINDATA] ----------
-// Las cien patillas, por posición, y la máscara de lo que sale: 87 E/S, A..E
-// completos y de F solo PF0, PF1, PF2, PF4, PF6, PF9 y PF10. OSC_IN y OSC_OUT
-// son PF0 y PF1, no PH0 y PH1 como en el F4.
+// --- Los encapsulados, generados [soc/stm32f3/f3_patillas_*.inc, PINDATA] ----
+// El LQFP100: las cien patillas, por posición, y la máscara de lo que sale: 87
+// E/S, A..E completos y de F solo PF0, PF1, PF2, PF4, PF6, PF9 y PF10. OSC_IN y
+// OSC_OUT son PF0 y PF1, no PH0 y PH1 como en el F4. El LQFP64 (52 E/S) y el
+// LQFP48 (37) son subconjuntos; el F302 tiene las del F303 (gen_pines.py lo
+// comprueba) y el F358 las mismas con NPOR, el reset de la alimentación
+// externa de 1,8 V, donde el F303 tiene PB2 [S9].
 struct PatillaF3 { unsigned pos; const char* nombre; const char* tipo; };
-inline constexpr PatillaF3 PATILLAS_F303[] = {
 #define F3_PATILLA(p, n, t) { p, n, t },
-#include "f3_patillas.inc"
+inline constexpr PatillaF3 PATILLAS_F303[] = {
+#include "f3_patillas_lqfp100.inc"
 };
+#define F3_PATILLA(p, n, t) { p, n, t },
+inline constexpr PatillaF3 PATILLAS_LQFP64_F303[] = {
+#include "f3_patillas_lqfp64.inc"
+};
+#define F3_PATILLA(p, n, t) { p, n, t },
+inline constexpr PatillaF3 PATILLAS_LQFP48_F303[] = {
+#include "f3_patillas_lqfp48.inc"
+};
+#define F3_PATILLA(p, n, t) { p, n, t },
+inline constexpr PatillaF3 PATILLAS_LQFP100_F358[] = {
+#include "f3_patillas_lqfp100_f358.inc"
+};
+#define F3_PATILLA(p, n, t) { p, n, t },
+inline constexpr PatillaF3 PATILLAS_LQFP64_F358[] = {
+#include "f3_patillas_lqfp64_f358.inc"
+};
+#define F3_PATILLA(p, n, t) { p, n, t },
+inline constexpr PatillaF3 PATILLAS_LQFP48_F358[] = {
+#include "f3_patillas_lqfp48_f358.inc"
+};
+#include "f3_lineas.inc"
 inline constexpr unsigned N_PATILLAS_F303 = sizeof(PATILLAS_F303) / sizeof(PATILLAS_F303[0]);
 
-inline constexpr Encapsulado ENC_LQFP100_F303 {
-    "LQFP100", 100, F3_N_GPIO_LQFP100,
-    { F3_MASCARA_LQFP100 },
-    true
-};
+inline constexpr Encapsulado ENC_LQFP100_F303 { "LQFP100", 100, F3_N_GPIO_LQFP100, { F3_MASCARA_LQFP100 }, true };
+inline constexpr Encapsulado ENC_LQFP64_F303  { "LQFP64", 64, F3_N_GPIO_LQFP64, { F3_MASCARA_LQFP64 }, true };
+inline constexpr Encapsulado ENC_LQFP48_F303  { "LQFP48", 48, F3_N_GPIO_LQFP48, { F3_MASCARA_LQFP48 }, true };
+inline constexpr Encapsulado ENC_LQFP100_F358 { "LQFP100", 100, F3_N_GPIO_LQFP100_F358, { F3_MASCARA_LQFP100_F358 }, true };
+inline constexpr Encapsulado ENC_LQFP64_F358  { "LQFP64", 64, F3_N_GPIO_LQFP64_F358, { F3_MASCARA_LQFP64_F358 }, true };
+inline constexpr Encapsulado ENC_LQFP48_F358  { "LQFP48", 48, F3_N_GPIO_LQFP48_F358, { F3_MASCARA_LQFP48_F358 }, true };
 
 // =============================================================================
 // EL DESCRIPTOR de un miembro de la familia
+//
+// S9: los del mismo die (DEV_ID 0x422) son el mismo silicio con otra Flash,
+// otra SRAM, otro encapsulado y, en el F302 y el F358, bloques que no están.
+// De la base de pines (f3_lineas.inc): el F302 no tiene ADC3/4, COMP3/5/7,
+// OPAMP3/4, TIM7 ni TIM8; el F358, USB. Lo confirma CMSIS (stm32f302xc.h no
+// define TIM7, TIM8 ni CCMDATARAM; stm32f358xx.h, USB), que dice además que el
+// F302 no tiene la CCM. El F358 se alimenta de 1,65 a 1,95 V [PINDATA], sin
+// regulador [de modelo: el modelo lo alimenta como a los demás].
 // =============================================================================
+enum AusenteF3 : uint32_t {
+    F3A_TIM7 = 1u << 0, F3A_TIM8 = 1u << 1, F3A_ADC34 = 1u << 2, F3A_USB = 1u << 3
+};
 struct F3Caps {
     const char* nombre;
     CoreCaps    nucleo;
@@ -150,26 +187,51 @@ struct F3Caps {
     uint32_t    ccm_size;
     uint16_t    dev_id, rev_id;
     Encapsulado enc;
+    uint32_t    ausentes = 0;        // AusenteF3
+    const char* sin = "";            // lo que la línea no tiene, entero (f3_lineas.inc)
     uint32_t idcode() const { return (uint32_t(rev_id) << 16) | dev_id; }
+    bool tiene(AusenteF3 b) const { return !(ausentes & b); }
 };
 
 // El núcleo: Cortex-M4F r0p1, 82 posiciones, 4 bits de prioridad, MPU y FPU
 // [CMSIS: __CM4_REV 0x0001, __NVIC_PRIO_BITS 4, __MPU_PRESENT, __FPU_PRESENT]
 inline constexpr CoreCaps CORE_STM32F303 = core_m4f_st(f3::N_IRQ);
 
-inline constexpr F3Caps MCU_STM32F303VC{
-    "STM32F303VC", CORE_STM32F303,
-    0x00040000u,                 // 256 KB [PINDATA]
-    0x0000A000u,                 // 40 KB [PINDATA]
-    0x00002000u,                 // 8 KB de CCM [CMSIS: CCMDATARAM_BASE; RM0316 §3.3]
-    f3::DEV_ID, f3::REV_ID,
-    ENC_LQFP100_F303
+// xB: 128 KB de Flash y 32 KB de SRAM; xC: 256 y 40 [PINDATA]. La CCM, 8 KB
+// [CMSIS: CCMDATARAM_BASE; RM0316 §3.3], salvo en el F302 [CMSIS: stm32f302xc.h]
+inline constexpr uint32_t KB = 1024u;
+inline constexpr uint32_t F302_SIN = F3A_TIM7 | F3A_TIM8 | F3A_ADC34;
+#define F3_MCU(id, nom, fl, ram, ccm, enc, aus, sin) \
+    inline constexpr F3Caps id{ nom, CORE_STM32F303, (fl) * KB, (ram) * KB, (ccm) * KB, \
+                                f3::DEV_ID, f3::REV_ID, enc, aus, sin };
+F3_MCU(MCU_STM32F303VC, "STM32F303VC", 256, 40, 8, ENC_LQFP100_F303, 0, "")
+F3_MCU(MCU_STM32F303VB, "STM32F303VB", 128, 32, 8, ENC_LQFP100_F303, 0, "")
+F3_MCU(MCU_STM32F303RC, "STM32F303RC", 256, 40, 8, ENC_LQFP64_F303, 0, "")
+F3_MCU(MCU_STM32F303RB, "STM32F303RB", 128, 32, 8, ENC_LQFP64_F303, 0, "")
+F3_MCU(MCU_STM32F303CC, "STM32F303CC", 256, 40, 8, ENC_LQFP48_F303, 0, "")
+F3_MCU(MCU_STM32F303CB, "STM32F303CB", 128, 32, 8, ENC_LQFP48_F303, 0, "")
+F3_MCU(MCU_STM32F302VC, "STM32F302VC", 256, 40, 0, ENC_LQFP100_F303, F302_SIN, F3_SIN_F302)
+F3_MCU(MCU_STM32F302VB, "STM32F302VB", 128, 32, 0, ENC_LQFP100_F303, F302_SIN, F3_SIN_F302)
+F3_MCU(MCU_STM32F302RC, "STM32F302RC", 256, 40, 0, ENC_LQFP64_F303, F302_SIN, F3_SIN_F302)
+F3_MCU(MCU_STM32F302RB, "STM32F302RB", 128, 32, 0, ENC_LQFP64_F303, F302_SIN, F3_SIN_F302)
+F3_MCU(MCU_STM32F302CC, "STM32F302CC", 256, 40, 0, ENC_LQFP48_F303, F302_SIN, F3_SIN_F302)
+F3_MCU(MCU_STM32F302CB, "STM32F302CB", 128, 32, 0, ENC_LQFP48_F303, F302_SIN, F3_SIN_F302)
+F3_MCU(MCU_STM32F358VC, "STM32F358VC", 256, 40, 8, ENC_LQFP100_F358, F3A_USB, F3_SIN_F358)
+F3_MCU(MCU_STM32F358RC, "STM32F358RC", 256, 40, 8, ENC_LQFP64_F358, F3A_USB, F3_SIN_F358)
+F3_MCU(MCU_STM32F358CC, "STM32F358CC", 256, 40, 8, ENC_LQFP48_F358, F3A_USB, F3_SIN_F358)
+#undef F3_MCU
+
+inline constexpr const F3Caps* FAMILIA_F3[] = {
+    &MCU_STM32F303VC, &MCU_STM32F303VB, &MCU_STM32F303RC, &MCU_STM32F303RB,
+    &MCU_STM32F303CC, &MCU_STM32F303CB, &MCU_STM32F302VC, &MCU_STM32F302VB,
+    &MCU_STM32F302RC, &MCU_STM32F302RB, &MCU_STM32F302CC, &MCU_STM32F302CB,
+    &MCU_STM32F358VC, &MCU_STM32F358RC, &MCU_STM32F358CC,
 };
 
 struct RegistroCatalogoF3 {
     RegistroCatalogoF3() {
-        CatalogoMcu::registra(McuDesc{ MCU_STM32F303VC.nombre, "STM32F3",
-                                       &MCU_STM32F303VC.enc, &MCU_STM32F303VC });
+        for (const F3Caps* c : FAMILIA_F3)
+            CatalogoMcu::registra(McuDesc{ c->nombre, "STM32F3", &c->enc, c });
     }
 };
 inline const RegistroCatalogoF3 g_registro_catalogo_f3{};

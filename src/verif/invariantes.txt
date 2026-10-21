@@ -277,4 +277,10 @@ teste4                296      4505148675235         resto
 # El cargador nuevo no mueve F4 ni F6 (solo su pila, ahora en 0x2000_1400), y
 # el IDR que se vuelve a muestrear tras un reset del GPIO no mueve ninguna de
 # las otras siete.
-testf3                362      116110029112941       resto
+# S9 (21-10-2026): la familia del die 0x422, F61 (los quince en el catalogo,
+# sin tiempo) y F62 (un F302CB, un F303RB y un F358RC por el bus, y AN3155 en
+# el LQFP48): 362 -> 375. El resto crece 15,254375 ms: lo que dura F62, menos
+# lo que el cargador nuevo ahorra en F59/F60 (su medida del 0x7F descarta lo
+# que no lo es, y las esperas de los grupos caen en otro sondeo). Igual en dos
+# pasadas; los tres chips nuevos estan apagados fuera de F62.
+testf3                375      116125283487941       resto

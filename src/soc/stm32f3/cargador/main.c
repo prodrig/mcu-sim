@@ -67,17 +67,33 @@ static uint32_t pasado(uint32_t t0, uint32_t t1) { return (t0 - t1) & 0xFFFFFFu;
 static void autobaudios(void) {
     const uint32_t a10 = 1u << 10, d6 = 1u << 6;
     volatile uint32_t* idr;
-    uint32_t pin;
+    uint32_t pin, bit;
     for (;;) {
-        if (!(GPIOA->IDR & a10)) { idr = &GPIOA->IDR; pin = a10; u = USART1; break; }
-        if (!(GPIOD->IDR & d6))  { idr = &GPIOD->IDR; pin = d6;  u = USART2; break; }
+        for (;;) {
+            if (!(GPIOA->IDR & a10)) { idr = &GPIOA->IDR; pin = a10; u = USART1; break; }
+            if (!(GPIOD->IDR & d6))  { idr = &GPIOD->IDR; pin = d6;  u = USART2; break; }
+        }
+        const uint32_t t0 = ahora();
+        while (!(*idr & pin)) {}             /* fin del arranque */
+        const uint32_t t1 = ahora();
+        while (*idr & pin) {                 /* los bits 0-6, a uno */
+            if (pasado(t0, ahora()) > 0x100000u) break;
+        }
+        const uint32_t t2 = ahora();
+        bit = (pasado(t0, t2) + 4u) / 8u;
+        /* Un 0x7F de verdad: el arranque dura un bit y lo que sigue, siete.
+         * Cualquier otra cosa -un pico al enchufar, un byte que no es 0x7F-
+         * se descarta, y se espera a que la linea vuelva a reposo */
+        const uint32_t arr = pasado(t0, t1);
+        const int ok = bit >= 6u && bit <= 0x10000u && 2u * arr >= bit && 2u * arr <= 3u * bit &&
+                       (*idr & pin) == 0;
+        while (!(*idr & pin)) {}
+        if (ok) break;
+        const uint32_t t3 = ahora();
+        while (pasado(t3, ahora()) < 20000u) {    /* 2,5 ms en reposo */
+            if (!(*idr & pin)) break;
+        }
     }
-    const uint32_t t0 = ahora();
-    while (!(*idr & pin)) {}                 /* fin del arranque */
-    while (*idr & pin) {}                    /* el bit 7 del 0x7F, a cero */
-    const uint32_t t1 = ahora();
-    const uint32_t bit = (pasado(t0, t1) + 4u) / 8u;
-    while (!(*idr & pin)) {}                 /* paridad y parada, a uno */
     const uint32_t t2 = ahora();
     while (pasado(t2, ahora()) < 2u * bit) {}
     /* La USART: 8 bits + paridad par (M0 = 1, PCE), al reloj del bus (8 MHz) */
@@ -96,14 +112,19 @@ static void autobaudios(void) {
 
 /* ---- Las memorias ----------------------------------------------------------- */
 static uint32_t flash_fin(void) { return 0x08000000u + (uint32_t)(*(volatile uint16_t*)0x1FFFF7CCu) * 1024u; }
+/* La SRAM, por la Flash: 32 KB en los xB (128 KB) y 40 en los xC (S9). La
+ * CCM no se ofrece: el F302 no la tiene, y el cargador no sabe en cual esta */
+static uint32_t sram_fin(void) {
+    return (*(volatile uint16_t*)0x1FFFF7CCu) <= 128u ? 0x20008000u : 0x2000A000u;
+}
 static int en(uint32_t a, uint32_t n, uint32_t b, uint32_t f) { return a >= b && a + n <= f && a + n >= a; }
 static int legible(uint32_t a, uint32_t n) {
-    return en(a, n, 0x08000000u, flash_fin()) || en(a, n, 0x20000000u, 0x2000A000u) ||
-           en(a, n, 0x10000000u, 0x10002000u) || en(a, n, 0x1FFFD800u, 0x1FFFF810u);
+    return en(a, n, 0x08000000u, flash_fin()) || en(a, n, 0x20000000u, sram_fin()) ||
+           en(a, n, 0x1FFFD800u, 0x1FFFF810u);
 }
 static int escribible(uint32_t a, uint32_t n) {
-    return en(a, n, 0x08000000u, flash_fin()) || en(a, n, 0x20001400u, 0x2000A000u) ||
-           en(a, n, 0x10000000u, 0x10002000u) || en(a, n, 0x1FFFF800u, 0x1FFFF810u);
+    return en(a, n, 0x08000000u, flash_fin()) || en(a, n, 0x20001400u, sram_fin()) ||
+           en(a, n, 0x1FFFF800u, 0x1FFFF810u);
 }
 
 /* Con RDP en el nivel 1, READ, WRITE y GO contestan NACK [AN3155 §3.4-3.6] */
@@ -267,7 +288,7 @@ static void go(void) {
     uint32_t a;
     if (protegida()) { pon(NACK); return; }
     pon(ACK);
-    if (!direccion(&a) || !(en(a, 8, 0x08000000u, flash_fin()) || en(a, 8, 0x20000000u, 0x2000A000u))) {
+    if (!direccion(&a) || !(en(a, 8, 0x08000000u, flash_fin()) || en(a, 8, 0x20000000u, sram_fin()))) {
         pon(NACK);
         return;
     }

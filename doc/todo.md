@@ -783,7 +783,7 @@ Lo que queda dicho, con la letra con la que lo cita el código:
 ### P-18 — El STM32F303 y la STM32F3DISCOVERY
 
 **Analizado en `doc/analisis_stm32f303.md` (2026-10-19), con un plan de diez
-fases (S0-S9). HECHAS S0, S1, S2 y S3 el 2026-10-20 y S4, S7 y S8 el 2026-10-21** en la rama `stm32f303`
+fases (S0-S9). HECHAS S0, S1, S2 y S3 el 2026-10-20 y S4, S7, S8 y S9 el 2026-10-21** en la rama `stm32f303`
 («Estado» del análisis): los rasgos neutrales, el STM32F303VC con su RCC, su
 Flash con el FPEC, la CCM ejecutable, la memoria de sistema y el arranque por
 BOOT0/nBOOT1/`MEM_MODE`, la STM32F3DISCOVERY con su dibujo, `testf3` (R1-R7,
@@ -797,7 +797,10 @@ dos revisiones, `f3_mems` contra la postura (F54-F57) y la demo de ST con
 `make f3-demo` (F58); y en S7 el cargador de sistema propio con el protocolo de
 AN3155 (`soc/stm32f3/cargador/`), que `stm32flash` usa sin modificar
 (`make f3-stm32flash`, F59-F60); y en S8, en la ventana, el mando de
-inclinación y la aguja del rumbo (`observable=` en la tabla de enlaces). Es la primera familia del proyecto con la
+inclinación y la aguja del rumbo (`observable=` en la tabla de enlaces); y en S9 los
+quince del die 0x422 (F303xB/C, F302xB/C y F358xC, F61-F62). **Queda S5 (lo
+analógico) y S6 (USB y CAN)**, y los otros dos dies, con su plan en
+`doc/analisis_f303xD-E_f303x6_8_F334.md`. Es la primera familia del proyecto con la
 segunda generación de IP de ST: el I²C es el `FMPI2C1` del F446 (`i2c2_v1_1`),
 y bxCAN, DAC, RTC, perros, CRC, EXTI, GPIO y temporizadores se reaprovechan por
 rasgos; RCC, controlador de Flash (el del F1), DMA por canales, USART v2, ADC,
@@ -808,7 +811,7 @@ pruebas es la STM32F3DISCOVERY, con sus dos revisiones de sensores
 SVG. Lo primero, S0: tener RM0316, DS9118 y UM1570 en `doc/refs/`, que desde
 el entorno de trabajo no se alcanzan.
 
-Lo que queda de una sola fuente, o de modelo, tras S8:
+Lo que queda de una sola fuente, o de modelo, tras S9:
 
 | | Qué | Estado |
 | :--- | :--- | :--- |
@@ -837,6 +840,7 @@ Lo que queda de una sola fuente, o de modelo, tras S8:
 | **x** | El `IDR` tras un reset del GPIO (S7, todos los chips) | Se ponía a cero y no se volvía a muestrear hasta que un pad cambiase; ahora se muestrea al salir del reset. Las siete suites, al picosegundo |
 | **y** | El arranque en el cargador, en la placa | `placas/stm32f3discovery_boot0.xml`: un puente de P2.19 (BOOT0) a P2.20 (VDD), como se hace con una Discovery de verdad, en vez de abrir SB19; el FT232RL en la USART1. `make f3-stm32flash` va con `-m 8n1` por el pty (Linux no guarda la paridad de un pty); la paridad de la línea la pone el puente RFC 2217 |
 | **z** | La aguja y la inclinación (S8) | La aguja de `MOV` es un indicador de rumbo (marca hacia dónde mira el borde norte de la placa), no una brújula que señale el norte: es lo que el efecto `angulo` sabe hacer, a la derecha los positivos. El mando de inclinación pone el punto en el lado que BAJA, como el LED del ejemplo BSP; el borde son 90 grados, aunque el alabeo llegue a 180 |
+| **aa** | La familia del die 0x422 (S9) | Lo que falta en el F302 y el F358 sale de dos fuentes (la base de pines y CMSIS); la CCM que falta en el F302, solo de CMSIS. Lo que **no** se modela: el F358 se alimenta de 1,65 a 1,95 V sin regulador y con NPOR, y el modelo lo alimenta y arranca como al F303; los bloques analógicos que faltan en el F302 (ADC3/4, COMP3/5/7, OPAMP3/4) se notarán con S5. Las hojas de datos del F302 (DS9896) y del F358 no están en `doc/refs/` |
 | **l** | La placa contra su esquemático | Contrastada con MB1035 rev. D.1 (2026-10-20): resistencias de la rosa (510 Ω en los verdes), B1 (100 + 330 Ω a VDD, 220 kΩ a masa), LD1, BOOT0, R39 y X3 sin montar. La vf de cada LED es de modelo; VDD se modela a 3,3 V, y en la placa son los 3,3 V del LD3985 menos el diodo D3 [de modelo] |
 
 ---

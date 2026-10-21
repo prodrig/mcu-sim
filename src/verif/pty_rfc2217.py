@@ -45,6 +45,9 @@ def main():
             time.sleep(0.1)
     if s is None:
         sys.exit("pty_rfc2217: nadie escucha en localhost:%d" % puerto)
+    # Que el puente aplique los baudios y el formato antes de que nadie hable:
+    # el enlace aparece despues, y quien lo espera no manda nada antes
+    time.sleep(0.5)
     maestro, esclavo = os.openpty()
     tty.setraw(maestro)
     tty.setraw(esclavo)

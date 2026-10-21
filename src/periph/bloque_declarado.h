@@ -61,5 +61,37 @@ private:
     }
 };
 
+// Un bloque que el CHIP NO TIENE, donde otro de su familia lo tiene: el TIM8
+// de un STM32F302, el USB de un F358 (S9 del F303). Lo mismo que en el silicio
+// en una dirección reservada: lee cero y lo escrito se pierde, y avisa una vez
+// diciendo que el chip no lo tiene, no que falte modelarlo.
+class BloqueAusente : public BusSlave {
+public:
+    BloqueAusente(sc_core::sc_module_name nm, uint32_t base, uint32_t size,
+                  const std::string& chip, const char* bloque)
+        : BusSlave(nm, base, size), chip_(chip), bloque_(bloque) {}
+
+    unsigned accesos() const { return n_; }
+
+protected:
+    uint32_t reg_read(uint32_t) override  { avisa(); return 0; }
+    void reg_write(uint32_t, uint32_t, uint32_t) override { avisa(); }
+    bool responds_without_clock() const override { return true; }
+
+private:
+    const std::string chip_, bloque_;
+    unsigned n_ = 0;
+    bool     avisado_ = false;
+
+    void avisa() {
+        ++n_;
+        if (avisado_) return;
+        avisado_ = true;
+        const std::string m = chip_ + " no tiene " + bloque_ + ": su ventana es "
+                              "reservada, lee cero y lo escrito se pierde";
+        SC_REPORT_WARNING("bloque-ausente", m.c_str());
+    }
+};
+
 } // namespace stm32
 #endif // STM32_PERIPH_BLOQUE_DECLARADO_H

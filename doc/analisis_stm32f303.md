@@ -21,7 +21,7 @@ adelante, para media docena de familias.
 
 ---
 
-## Estado: S0 a S4, S7 y S8 hechas (21-10-2026)
+## Estado: S0 a S4 y S7 a S9 hechas (21-10-2026)
 
 En la rama `stm32f303`, un commit por fase. Las siete suites de antes no se
 mueven ni un picosegundo (`ci/comprueba_invariante.sh`, las siete en verde con
@@ -169,6 +169,30 @@ entre U5 y U3 (`dibuja_st.py`) con
 (I14b de `prueba_ilustracion`, y dos comprobaciones más en `gui-sistema`, 181).
 La guía de usuario, `doc/protocolo.md` de la GUI y `doc/parts.md` (§2.6 y la
 `Postura`) lo dicen. Ninguna suite se mueve: es de la ventana y de los XML.
+
+**S9, el resto del die 0x422** (21-10-2026). Quince referencias en el
+catálogo, un `F3Caps` cada una (`soc/stm32f3/f3_desc.h`): F303VB/VC (LQFP100),
+RB/RC (LQFP64) y CB/CC (LQFP48); F302 en los mismos seis; y F358VC/RC/CC.
+`gen_pines.py` genera ahora los seis encapsulados (`f3_patillas_*.inc`: los
+tres del F303, que son los del F302 —lo comprueba—, y los tres del F358, que
+tiene NPOR donde el F303 tiene PB2) y `f3_lineas.inc`, lo que cada línea no
+tiene según la base de pines: el **F302**, ADC3/4, COMP3/5/7, OPAMP3/4, TIM7 y
+TIM8, y la CCM (`stm32f302xc.h` de CMSIS no la define); el **F358**, el USB. Lo
+que no tiene es una **ventana reservada** (`BloqueAusente`: lee cero, se pierde
+lo escrito y avisa una vez diciendo que el chip no lo tiene), y lo dice
+`limitaciones()`. El cargador de S7 saca la SRAM de `F_SIZE` (32 KB en los xB)
+y deja de ofrecer la CCM, que el F302 no tiene; y su medida de la velocidad
+descarta lo que no es un `0x7F` (el arranque tiene que durar un bit y lo que
+sigue, siete): con la carga de la máquina, `make f3-stm32flash` fallaba una vez
+de cada pocas porque el cargador tomaba por `0x7F` algo que no lo era (la
+conexión del terminal, probablemente). **Cierre, cumplido**: F61
+contrasta los quince sin tiempo simulado; F62 enciende un F302CB, un F303RB y un
+F358RC, comprueba por el bus `F_SIZE`, la SRAM, la CCM, el TIM7, el TIM8 y el
+USB que faltan, y habla AN3155 con el cargador del F302CB por PA9/PA10 de su
+LQFP48. `testf3` sube a **375 (de 362)** comprobaciones y «el resto», a
+**116 125 283 487 941 ps** (igual en dos pasadas). Los otros dos dies, `0x446` (F303xD/E) y `0x438` (F303x6/8 y
+F334), tienen su plan en `doc/analisis_f303xD-E_f303x6_8_F334.md`, con la lista
+de lo que hay que bajar a `doc/refs/`.
 
 **Los ejes, y la demo.** La placa: x al este (LD7), y al norte (LD3), z hacia
 fuera. El giróscopo, x al este e y al norte: así lo usan el ejemplo BSP y la
@@ -1066,6 +1090,9 @@ F446 quedó fuera de la familia del F407 hasta su propio plan `[stm32flash]
 [HAL]`.
 
 **Tamaño:** pequeño para el `0x422`; un plan aparte para los otros.
+
+**HECHA el 21-10-2026** para el `0x422` («Estado», arriba); el plan de los otros
+dos dies es `doc/analisis_f303xD-E_f303x6_8_F334.md`.
 
 ### Orden y dependencias
 
