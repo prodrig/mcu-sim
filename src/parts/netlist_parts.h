@@ -35,6 +35,7 @@
 #include "tft_st7735.h"
 #include "boosterpack.h"
 #include "servo.h"
+#include "mems_st.h"
 #include "xds110.h"
 
 namespace stm32 {
@@ -1669,6 +1670,148 @@ REGISTRA_PARTE(CanNode,
         }
         return new CanNode(d.id.c_str(), *w, d.num("bitrate", 500e3));
     });
+
+
+// ---------------------------------------------------------------------------
+// LOS SENSORES DE LA STM32F3DISCOVERY (S4 del F303): la postura y los cuatro
+// MEMS de ST (mems_st.h)
+// ---------------------------------------------------------------------------
+namespace detalle_mems {
+inline bool ejes(const Instancia& d, const char* atr, mems::Ejes& e) {
+    const std::string t = d.txt(atr, "x,y,z");
+    const std::string err = mems::Ejes::lee(t, e);
+    if (!err.empty()) { SC_REPORT_ERROR("netlist", (d.id + ": " + err).c_str()); return false; }
+    return true;
+}
+inline Postura* postura(const Instancia& d, Netlist& red) {
+    if (d.ref_de("postura").empty()) return nullptr;
+    Postura* p = red.como<Postura>(d.ref_de("postura"));
+    if (!p)
+        SC_REPORT_ERROR("netlist", (d.id + ": la Postura '" + d.ref_de("postura") +
+                                    "' no existe o todavia no se ha construido").c_str());
+    return p;
+}
+inline analog_net_if* opc(const Instancia& d, NodeMap& n, const char* pin) {
+    return d.nodo_de(pin).empty() ? nullptr : &n[d.nodo_de(pin)];
+}
+} // namespace detalle_mems
+
+REGISTRA_PARTE(Postura,
+    Ayuda("La orientacion de una placa: alabeo, cabeceo y rumbo, con un mando "
+          "cada uno. Al moverlo, la placa GIRA hasta ahi a su velocidad, y de "
+          "ese giro sale lo que ven los giroscopos; de la orientacion, lo que "
+          "ven los acelerometros (1 g hacia arriba en reposo) y las brujulas "
+          "(el campo de la Tierra con su inclinacion). La placa: x al este, y "
+          "al norte, z hacia fuera de la cara de los componentes. No tiene "
+          "patillas: los sensores la nombran con <ref nombre=\"postura\">.")
+      .ejemplo("<componente tipo=\"Postura\" id=\"MOV\" velocidad=\"90\"/>")
+      .atr("alabeo", "0", "Grados: el borde este hacia abajo, positivo.")
+      .atr("cabeceo", "0", "Grados: el borde norte hacia arriba, positivo (-90 a 90).")
+      .atr("rumbo", "0", "Grados desde el norte magnetico, en el sentido de las agujas.")
+      .atr("velocidad", "90", "A cuantos grados por segundo gira hasta donde dice un mando.")
+      .atr("campo", "0.45", "La intensidad del campo de la Tierra, en gauss.")
+      .atr("inclinacion", "55", "Su inclinacion, en grados hacia abajo (55 en Madrid).")
+      .atr("temperatura", "25", "La de los sensores, en grados C.")
+      .cpp("pon(alabeo, cabeceo, rumbo, ya), moviendose(), aceleracion(), giro(), campo()."),
+    [](const Instancia& d, NodeMap&, Netlist&) -> ExtPartBase* {
+        return new Postura(d.id.c_str(), d.num("alabeo", 0), d.num("cabeceo", 0),
+                           d.num("rumbo", 0), d.num("velocidad", 90), d.num("campo", 0.45),
+                           d.num("inclinacion", 55), d.num("temperatura", 25));
+    });
+
+#define MCU_SIM_AYUDA_GIRO(TIPO, CHIP, QUIEN)                                                  \
+    Ayuda("El giroscopo " CHIP " de ST, por SPI de cuatro hilos (modos 0 y 3), "              \
+          "con WHO_AM_I = " QUIEN ": sus registros de 0x0F a 0x38, las cuatro tasas, "        \
+          "los tres fondos de escala, el paso alto, STATUS, BDU y BLE, la temperatura, "      \
+          "INT1 con sus umbrales y DRDY. Lo que mide sale de la Postura.")                    \
+      .ejemplo("<componente tipo=\"" #TIPO "\" id=\"U5\" ejes=\"x,y,z\">\n"                   \
+               "  <pin nombre=\"spc\" nodo=\"PA5\"/>\n"                                       \
+               "  <pin nombre=\"sdi\" nodo=\"PA7\"/>\n"                                       \
+               "  <pin nombre=\"sdo\" nodo=\"PA6\"/>\n"                                       \
+               "  <pin nombre=\"cs\" nodo=\"PE3\"/>\n"                                        \
+               "  <pin nombre=\"int1\" nodo=\"PE0\"/>\n"                                      \
+               "  <pin nombre=\"drdy\" nodo=\"PE1\"/>\n"                                      \
+               "  <ref nombre=\"postura\" componente=\"MOV\"/>\n"                             \
+               "</componente>")                                                               \
+      .pin("spc", "obligatorio", "El reloj del SPI.")                                         \
+      .pin("sdi", "obligatorio", "MOSI.")                                                     \
+      .pin("sdo", "obligatorio", "MISO; en alta impedancia salvo cuando saca un dato.")       \
+      .pin("cs", "obligatorio", "La seleccion, activa baja.")                                 \
+      .pin("int1", "opcional", "INT1.")                                                       \
+      .pin("drdy", "opcional", "DRDY/INT2.")                                                  \
+      .ref("postura", "La Postura de la placa, declarada antes. Sin ella, quieta.")           \
+      .atr("ejes", "x,y,z", "Sus ejes como ejes de la placa, con signo: \"y,-x,z\".")
+
+REGISTRA_PARTE(L3gd20,
+    MCU_SIM_AYUDA_GIRO(L3gd20, "L3GD20", "0xD4")
+      .atr("quien", "0xD4", "WHO_AM_I: 0xD4, o 0xD5 para el L3GD20_TR que acepta el BSP."),
+    [](const Instancia& d, NodeMap& n, Netlist& red) -> ExtPartBase* {
+        mems::Ejes e;
+        if (!detalle_mems::ejes(d, "ejes", e)) return nullptr;
+        return new L3gd20(d.id.c_str(), n[d.nodo_de("spc")], n[d.nodo_de("sdi")],
+                          n[d.nodo_de("sdo")], n[d.nodo_de("cs")],
+                          detalle_mems::opc(d, n, "int1"), detalle_mems::opc(d, n, "drdy"),
+                          detalle_mems::postura(d, red), e, uint8_t(d.num("quien", 0xD4)));
+    });
+
+REGISTRA_PARTE(I3g4250d,
+    MCU_SIM_AYUDA_GIRO(I3g4250d, "I3G4250D", "0xD3"),
+    [](const Instancia& d, NodeMap& n, Netlist& red) -> ExtPartBase* {
+        mems::Ejes e;
+        if (!detalle_mems::ejes(d, "ejes", e)) return nullptr;
+        return new I3g4250d(d.id.c_str(), n[d.nodo_de("spc")], n[d.nodo_de("sdi")],
+                            n[d.nodo_de("sdo")], n[d.nodo_de("cs")],
+                            detalle_mems::opc(d, n, "int1"), detalle_mems::opc(d, n, "drdy"),
+                            detalle_mems::postura(d, red), e);
+    });
+#undef MCU_SIM_AYUDA_GIRO
+
+#define MCU_SIM_AYUDA_LSM303(TIPO, CHIP, MAG)                                                  \
+    Ayuda("La brujula con acelerometro " CHIP " de ST, por I2C: dos esclavos, el "            \
+          "acelerometro en 0x19 y el magnetometro en 0x1E (" MAG "). Del "                     \
+          "acelerometro, las tasas, los fondos de escala, HR y LPen, el paso alto, "           \
+          "STATUS, BDU y BLE, INT1 e INT2 con sus umbrales y el DRDY en INT1. Lo que mide "    \
+          "sale de la Postura.")                                                              \
+      .ejemplo("<componente tipo=\"" #TIPO "\" id=\"U3\" ejes_a=\"y,-x,z\" ejes_m=\"y,-x,z\">\n" \
+               "  <pin nombre=\"scl\" nodo=\"PB6\"/>\n"                                       \
+               "  <pin nombre=\"sda\" nodo=\"PB7\"/>\n"                                       \
+               "  <pin nombre=\"int1\" nodo=\"PE4\"/>\n"                                      \
+               "  <pin nombre=\"int2\" nodo=\"PE5\"/>\n"                                      \
+               "  <pin nombre=\"drdy\" nodo=\"PE2\"/>\n"                                      \
+               "  <ref nombre=\"postura\" componente=\"MOV\"/>\n"                             \
+               "</componente>")                                                               \
+      .pin("scl", "obligatorio", "El reloj del bus. Sin pull-up: lo pone la placa.")          \
+      .pin("sda", "obligatorio", "Los datos del bus.")                                        \
+      .pin("int1", "opcional", "INT1 del acelerometro.")                                      \
+      .pin("int2", "opcional", "INT2 del acelerometro.")                                      \
+      .pin("drdy", "opcional", "El dato listo del magnetometro.")                             \
+      .ref("postura", "La Postura de la placa, declarada antes. Sin ella, plana.")            \
+      .atr("ejes_a", "x,y,z", "Los ejes del acelerometro como ejes de la placa.")             \
+      .atr("ejes_m", "x,y,z", "Los del magnetometro.")
+
+#define MCU_SIM_CREA_LSM303(CLASE)                                                             \
+    [](const Instancia& d, NodeMap& n, Netlist& red) -> ExtPartBase* {                         \
+        mems::Ejes ea, em;                                                                     \
+        if (!detalle_mems::ejes(d, "ejes_a", ea) || !detalle_mems::ejes(d, "ejes_m", em))      \
+            return nullptr;                                                                    \
+        return new CLASE(d.id.c_str(), n[d.nodo_de("scl")], n[d.nodo_de("sda")],               \
+                         detalle_mems::opc(d, n, "int1"), detalle_mems::opc(d, n, "int2"),     \
+                         detalle_mems::opc(d, n, "drdy"), detalle_mems::postura(d, red), ea, em); \
+    }
+
+REGISTRA_PARTE(Lsm303dlhc,
+    MCU_SIM_AYUDA_LSM303(Lsm303dlhc, "LSM303DLHC",
+                         "CRA/CRB/MR, X-Z-Y y el byte alto primero, IRA/IRB/IRC")
+      .nota("WHO_AM_I_A = 0x33, en 0x0F del acelerometro: su hoja de datos no lo "
+            "cuenta, pero esta, y el BSP de ST distingue con el las dos revisiones."),
+    MCU_SIM_CREA_LSM303(Lsm303dlhc));
+
+REGISTRA_PARTE(Lsm303agr,
+    MCU_SIM_AYUDA_LSM303(Lsm303agr, "LSM303AGR",
+                         "estilo LIS2MDL: WHO_AM_I_M = 0x40, CFG_REG_A/B/C_M, el byte bajo primero"),
+    MCU_SIM_CREA_LSM303(Lsm303agr));
+#undef MCU_SIM_AYUDA_LSM303
+#undef MCU_SIM_CREA_LSM303
 
 // ---------------------------------------------------------------------------
 // LOS AYUDANTES TIPADOS

@@ -576,6 +576,11 @@ SC_MODULE(Sim) {
             std::printf("%s: %u MCU(s), %u componentes, %u nodos, %u avisos\n",
                         cab.c_str(), unsigned(mcus.size()),
                         unsigned(placa.instancias().size()), nodos.n_nodos(), n_avisos);
+        // La revision de la PCB de las placas que la dicen: decide que
+        // componentes se han montado (los sensores de la STM32F3DISCOVERY)
+        for (const auto& r : placa.revisiones())
+            std::printf("  revision%s%s: %s\n", r.first.empty() ? "" : " de ",
+                        r.first.c_str(), r.second.c_str());
         lee_dibujos();
         // Sin MCU, sin ventana y sin --valida, simular es ver pasar el tiempo
         // sin que nada lo mueva: se dice, por si era un <mcu> olvidado que el

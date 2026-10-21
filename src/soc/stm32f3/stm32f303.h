@@ -221,6 +221,9 @@ public:
         conecta_pines();
         conecta_irq();
         conecta_s3();
+        // Cada escritura a un periferico, en su instante (S4: el CS del
+        // giroscopo entre dos lecturas del BSP dura menos que un quantum)
+        core.cpu.sync_escritura_perif = true;
         conecta_pines_s3();
         SC_METHOD(boot_proc);
         sensitive << s_boot0_ << s_sysrst_n_ << boot_ev_;

@@ -23,6 +23,15 @@
 #   SIN_DEF  una macro que main.c DEFINE y que el readme dice que se quite
 #            para la otra placa (TRANSMITTER_BOARD). Se compila una COPIA de
 #            main.c sin esa linea, en $(OBJ); el fuente no se toca
+#
+# Y desde S4 (los sensores):
+#
+#   MEMS     1: compila tambien el BSP del giroscopo y del acelerometro y sus
+#            cuatro controladores (bsp/Components). Sin ello, nada cambia en
+#            los demas ejemplos, ni un byte de sus .bin
+#   MAS_SRC  fuentes de mas, y MAS_INC carpetas de cabeceras de mas: los de la
+#            demostracion de ST, que no se versiona (el middleware USB); y
+#   GUION    su guion de enlace, que no esta donde el de los ejemplos
 # =============================================================================
 CROSS   ?= arm-none-eabi-
 CC      := $(CROSS)gcc
@@ -32,12 +41,16 @@ CPU     := -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard
 OBJ     ?= obj
 DEFS    ?=
 SIN_DEF ?=
+MEMS    ?=
+MAS_SRC ?=
+MAS_INC ?=
+GUION   ?= $(EJ)/SW4STM32/STM32F303VCTx_FLASH.ld
 CFLAGS  := $(CPU) -Os -g -std=gnu11 -Wall -DSTM32F303xC -DUSE_HAL_DRIVER \
            -ffunction-sections -fdata-sections -ffile-prefix-map=$(CURDIR)=. \
            $(DEFS) -I$(EJ)/Inc -I$(SDK)/hal/Inc -I$(SDK)/cmsis_device_f3/Include \
            -I../../cmsis/Include -I$(SDK)/bsp
 LDFLAGS := $(CPU) --specs=nano.specs --specs=nosys.specs -Wl,--gc-sections \
-           -T$(EJ)/SW4STM32/STM32F303VCTx_FLASH.ld -Wl,-Map=$(NOMBRE).map \
+           -T$(GUION) -Wl,-Map=$(NOMBRE).map \
            -Wl,--no-warn-rwx-segments
 FUENTES := $(wildcard $(EJ)/Src/*.c)
 ifneq ($(SIN_DEF),)
@@ -45,6 +58,15 @@ FUENTES := $(filter-out %/main.c,$(FUENTES)) $(OBJ)/main.c
 endif
 SRCS    := $(FUENTES) $(SDK)/bsp/stm32f3_discovery.c \
            $(filter-out %_template.c,$(wildcard $(SDK)/hal/Src/stm32f3xx_hal*.c))
+SRCS    += $(MAS_SRC)
+CFLAGS  += $(addprefix -I,$(MAS_INC))
+ifneq ($(MEMS),)
+# Los .h del BSP piden "../Components/x/x.h" y los de los controladores
+# "../Common/x.h": el -I de bsp/Components hace que los dos encuentren lo suyo
+CFLAGS  += -I$(SDK)/bsp/Components
+SRCS    += $(SDK)/bsp/stm32f3_discovery_gyroscope.c $(SDK)/bsp/stm32f3_discovery_accelerometer.c \
+           $(wildcard $(SDK)/bsp/Components/*/*.c)
+endif
 OBJS    := $(addprefix $(OBJ)/,$(notdir $(SRCS:.c=.o))) $(OBJ)/startup.o
 
 all: $(NOMBRE).elf $(NOMBRE).bin

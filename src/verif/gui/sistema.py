@@ -1396,11 +1396,19 @@ def c19_ti(sim, cp):
     # La STM32F3DISCOVERY (doc/analisis_stm32f303.md, S1): su dibujo, de
     # placas/dibuja_st.py, con JP3 puesto
     rc, out, err = corre(sim, ["placas/stm32f3discovery.xml", "--valida"])
-    check(rc == 0 and "placa 'stm32f3discovery': 1 MCU(s), 20 componentes" in out and
-          "0 avisos" in out and "dibujo: stm32f3discovery.svg (" in out and "JP3 1-2)" in out,
+    check(rc == 0 and "placa 'stm32f3discovery': 1 MCU(s), 25 componentes" in out and
+          "0 avisos" in out and "dibujo: stm32f3discovery.svg (" in out and "JP3 1-2, " in out,
           "placas/stm32f3discovery.xml valida sin un aviso, con su dibujo y JP3 puesto")
     f = piezas_sin_dibujo("stm32f3discovery")
     check(not f, "stm32f3discovery.svg: cada pieza visible y cada pin de EXP1/EXP2, con su id (faltan: %s)" % f)
+    # Y sus dos revisiones (S4): la E, la del fichero, con el I3G4250D y el
+    # LSM303AGR; la D, por el <placa revision="D"> de un sistema
+    check("revision: E" in out and "U3 LSM303AGR, U5 I3G4250D)" in out,
+          "la revision E: el dibujo rotula U5 I3G4250D y U3 LSM303AGR")
+    rc, out, err = corre(sim, ["placas/stm32f3discovery_d.xml", "--valida"])
+    check(rc == 0 and "revision de D: D" in out and "U3 LSM303DLHC, U5 L3GD20)" in out and
+          "0 avisos" in out,
+          "placas/stm32f3discovery_d.xml: la revision D, con el L3GD20 y el LSM303DLHC")
 
     # Los dos sistemas: el J5 de la EDUMKII como sale de fabrica, y cambiado
     rc, out, err = corre(sim, ["placas/msp_exp432p401r_edumkii.xml", "--valida"])

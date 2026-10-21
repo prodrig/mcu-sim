@@ -173,6 +173,21 @@ protected:
             }
             case R_CR2:
                 cr2_ = v & 0x07FFFFFFu;
+                // TC se borra al poner START o STOP [RM0316 §28.7.7; RM0390
+                // §24.6.7]. Sin esto, el TC de una escritura anterior seguia
+                // puesto, y un firmware que lo espera tras el byte de
+                // subdireccion de la siguiente seguia de largo y pedia el START
+                // repetido con el byte aun saliendo (S4: f3_mems y la brujula)
+                if (cr2_ & (C2_START | C2_STOP)) isr_ &= ~I_TC;
+                // Y TCR, al escribir un NBYTES distinto de cero: es como sigue
+                // una transferencia con RELOAD (la escritura de
+                // HAL_I2C_Mem_Write: la subdireccion con RELOAD, y luego el
+                // dato). Antes nadie lo borraba y el maestro esperaba hasta
+                // soltar el bus (S4: el BSP de la brujula)
+                if ((isr_ & I_TCR) && ((cr2_ >> 16) & 0xFFu)) {
+                    isr_ &= ~I_TCR;
+                    despierta_maestro();
+                }
                 if (pe() && (cr2_ & C2_START)) despierta_maestro();
                 if (pe() && (cr2_ & C2_STOP))  despierta_maestro();
                 actualiza_irq();
@@ -252,9 +267,15 @@ private:
 
     void publica() { pub_ev_.notify(sc_core::SC_ZERO_TIME); }
     void despierta_maestro() { wake_ev_.notify(sc_core::SC_ZERO_TIME); }
+    // SCL y SDA, en drenador abierto POR EL PERIFERICO: un cero baja la
+    // linea y un uno la suelta (habilita la salida solo para el cero), sea
+    // cual sea OTYPER. El BSP de la STM32F3DISCOVERY pone PB6 y PB7 en
+    // AF_PP con pull-down, y la brujula de la placa contesta [de modelo: el
+    // BSP de ST y la placa, que funcionan juntos; DS9118 §6.3.20 dice que son
+    // "true open-drain"]. Con OTYPER = 1, que es lo de siempre, no cambia nada
     void pub_proc() {
-        scl_out.write(o_scl_); scl_oe.write(true);
-        sda_out.write(o_sda_); sda_oe.write(true);
+        scl_out.write(false); scl_oe.write(!o_scl_);
+        sda_out.write(false); sda_oe.write(!o_sda_);
         irq_ev.write(o_irq_ev_); irq_er.write(o_irq_er_);
         dma_req_rx.write(o_drq_rx_); dma_req_tx.write(o_drq_tx_);
     }

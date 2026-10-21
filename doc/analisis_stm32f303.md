@@ -21,7 +21,7 @@ adelante, para media docena de familias.
 
 ---
 
-## Estado: S0, S1, S2 y S3 hechas (20-10-2026)
+## Estado: S0 a S4 hechas (21-10-2026)
 
 En la rama `stm32f303`, un commit por fase. Las siete suites de antes no se
 mueven ni un picosegundo (`ci/comprueba_invariante.sh`, las siete en verde con
@@ -103,6 +103,54 @@ el RTC y las bases de tiempos sin SysTick, F47-F53 el bajo consumo; y el VCP
 con `make f3-vcp`. `testf3` sube a **296** comprobaciones (de 193) y «el
 resto», a **99 913 429 462 079 ps**; las siete suites de antes no se mueven.
 
+**S4, los sensores de la placa** (21-10-2026). `parts/mems_st.h`: la
+`Postura` (alabeo, cabeceo y rumbo, tres mandos; la placa gira hasta donde
+dicen a 90 °/s, y de ese giro sale la velocidad angular), `L3gd20` e
+`I3g4250d` por SPI y `Lsm303dlhc` y `Lsm303agr` por I2C, con sus mapas de
+registros, tasas, fondos de escala, pasos altos, interrupciones y DRDY
+(`doc/parts.md` §4.14). La placa los monta según su **revisión**:
+`<placa revision="E">` (la de por omisión) y `revision="A-D"`/`"E-"` en cada
+componente, que un sistema puede cambiar (`placas/stm32f3discovery_d.xml`); el
+dibujo rotula el chip que va (`U5@L3GD20`). Con ellos, R27 y R28, los 10 kΩ
+del I2C1 [MB1035, hoja 4]. **Cierre, cumplido**: el ejemplo `BSP` de ST, sin
+modificar, detecta los sensores de **las dos revisiones** por su `WHO_AM_I` y
+enciende el LED del lado que baja, con el acelerómetro inclinado y con el
+giróscopo girando (F56, F57); `f3_mems`, sin BSP, lee los tres sensores de cada
+revisión y lo que dicen cuadra con la `Postura` cuenta a cuenta, también la
+brújula, en cada fondo de escala (F54, F55); y la **demostración** de ST,
+compilada desde una copia de STM32CubeF3 (SLA0044: no se versiona), arranca, y
+con el giróscopo enciende el LED del lado que baja (F58, `make f3-demo`).
+`testf3` sube a **328** comprobaciones (de 296) y «el resto», a
+**115 237 619 112 941 ps**, igual en dos pasadas; las siete suites de antes no
+se mueven.
+
+**Los ejes, y la demo.** La placa: x al este (LD7), y al norte (LD3), z hacia
+fuera. El giróscopo, x al este e y al norte: así lo usan el ejemplo BSP y la
+demo, que coinciden (un giro con el borde de un LED bajando enciende ese LED).
+El acelerómetro, x al norte e y al oeste: así lo usa el ejemplo BSP (el LED del
+lado que baja); la **demo** usa otra tabla, girada un cuarto de vuelta
+(x > 0 enciende LD7 y y < 0, LD3), que con z hacia fuera no es una rotación de
+la del BSP sino una reflexión: con los ejes del modelo, la demo enciende LD6 con
+el norte abajo, y F58 comprueba eso. El magnetómetro del AGR, x al sur e y al
+este, el de la brújula de LED del libro «Discovery» de Rust para esta placa; el
+del DLHC, los del acelerómetro. Los tres últimos, de una sola fuente
+(P-18 t).
+
+**Lo que S4 ha destapado fuera de los sensores**, y arreglado:
+
+* **El I2C (`FmpI2c`, también el del F446)**: `TC` no se borraba al poner
+  `START` o `STOP`, y un firmware que lo espera tras la subdirección seguía de
+  largo; `TCR` no se borraba al escribir `NBYTES`, y una escritura con `RELOAD`
+  (la de `HAL_I2C_Mem_Write`) se quedaba esperando. Y **SCL y SDA son de drenador
+  abierto por el periférico**: el BSP de la Discovery pone PB6/PB7 en `AF_PP`
+  con pull-down, y en la placa funciona. Con `OTYPER` = 1 no cambia nada; las
+  siete suites de antes, al picosegundo.
+* **El núcleo del F303 sincroniza antes de escribir a un periférico**
+  (`Cpu::sync_escritura_perif`): con el quantum de 1 µs, dos escrituras de GPIO
+  seguidas llegaban en el mismo instante y el pulso del CS del giróscopo entre
+  dos lecturas del BSP (unos 0,2 µs) desaparecía. Solo en el F303: los F4 y los
+  MSP432 siguen como estaban.
+
 **Lo que S3 ha destapado fuera del F303** (las siete suites siguen al
 picosegundo con los cuatro arreglos):
 
@@ -149,8 +197,9 @@ FreeRTOS para el F3).
   ciclo de HCLK por fase, sin contención con la CPU. Ningún ejemplo de ST lo
   nota; lo que se pierde es la medida de contención.
 * **Los grupos de `testf3`** no son los de §7.1: R1-R7 (S0), F0-F15 (S1),
-  F16-F21 (S2) y F22-F53 (S3, uno por ejemplo de ST). La tabla de §7.1 queda
-  como plan de S4 en adelante.
+  F16-F21 (S2), F22-F53 (S3, uno por ejemplo de ST) y F54-F58 (S4; F58, la
+  demo, solo con `make f3-demo`). La tabla de §7.1 queda como plan de S5 en
+  adelante.
 * **Cada ejemplo de S3 arranca desde un encendido**, no desde un reset por el
   pin: VBAT va con VDD en la Discovery, y sin cortarla el RTC, `PWR_CSR` y las
   banderas de `RCC_CSR` llegan del ejemplo anterior (`PWR_STANDBY` despertaba
@@ -742,7 +791,7 @@ observables de las piezas nuevas son de los tipos que ya sabe pintar
 
 | Qué | Dónde | Fase |
 | :--- | :--- | :--- |
-| Prueba cruzada **G8**: la Discovery con su dibujo, sus piezas, sus tipos y los observables de la `Postura` y de los sensores | `tests/prueba_cruzada.cpp` | S1 (sin sensores) y S4 |
+| Prueba cruzada **G8**: la Discovery con su dibujo, sus piezas, sus tipos y los observables de la `Postura` y de los sensores | `tests/prueba_cruzada.cpp` | S1 (sin sensores) y S4 (hecho: los sensores de la revisión E y los tres mandos de la `Postura`) |
 | El sistema de dos Discovery en la ilustración, con su `lienzo` y sus `<ruta>` | `placas/dos_f3discovery.xml` | S3 |
 | **Opcional:** un mando de **inclinación** —un círculo que se arrastra, como un nivel de burbuja— para las piezas que declaran a la vez `alabeo` y `cabeceo`. Es **solo de la ventana**: agrupa dos mandos `continuo` que ya existen, sin tocar el protocolo | `src/panel.cpp`, `src/ilustracion.cpp` | S8 |
 | **Opcional:** la rosa de la brújula: que el dibujo enseñe el rumbo de la `Postura` (efecto `angulo`, que ya existe, sobre una aguja dibujada) | El SVG y su tabla de enlaces | S8 |
@@ -765,7 +814,7 @@ observables de las piezas nuevas son de los tipos que ya sabe pintar
 | F9-F11 | GPIO con `BRR`, EXTI de 36 líneas, la rosa de LED y el pulsador | S1 |
 | F12-F15 | FPEC: borrado de página, programación de medias palabras, errores (`PGERR`, `WRPRTERR`), bytes de opción; D2 y G1/G2 | S2 |
 | F16-F30 | USART v2, SPI v3 (empaquetado por anchura de acceso, FIFO, `DS` de 4 a 16), I²C (con `TIMINGR = 0`), DMA por canales y sus remapeos, TIM v3 (PWM asimétrico y combinado, BK2), IWDG con ventana, WWDG, RTC, CRC programable, bajo consumo | S3 |
-| F31-F34 | Los sensores con la `Postura`, en las dos revisiones | S4 |
+| F31-F34 | Los sensores con la `Postura`, en las dos revisiones | S4 (hechos como F54-F58) |
 | F35-F42 | ADC (regulador, calibración, diferencial, dual, AWD, temperatura con la calibración de fábrica), DAC, COMP, OPAMP | S5 |
 | F43-F46 | USB FS con el anfitrión de banco (`UsbHostRig`), y CAN | S6 |
 
@@ -900,6 +949,8 @@ escribirla para el F0 y el G4.
 **Qué:** `parts/mems_st.h` con `Postura`, `L3gd20`, `I3g4250d`, `Lsm303dlhc` y
 `Lsm303agr`; la placa con los sensores y `revision=`; `doc/parts.md` §4.x;
 la G8 con los sensores.
+
+**Hecha el 21-10-2026** (arriba, «Estado»).
 
 **Cierre:** el ejemplo `BSP` de ST, sin modificar, detecta los sensores de **las
 dos revisiones** y lee lo que dice la `Postura` dentro de la cuantización de

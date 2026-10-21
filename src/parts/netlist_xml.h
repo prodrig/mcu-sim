@@ -81,8 +81,32 @@ namespace stm32 {
 struct ContextoPlaca {
     std::string              id;      // "A"; vacío fuera de un sistema
     std::vector<std::string> mcus;    // los ids de SUS chips, sin cualificar
+    // La revisión de la PCB que se monta: la que diga el sistema
+    // (`<placa id fichero revision="D">`) o `--revision`; vacía, la que diga
+    // la placa en su raíz (`<placa revision="E">`)
+    std::string              revision;
     bool en_sistema() const { return !id.empty(); }
 };
+
+// LAS REVISIONES de una placa: una letra de la A a la Z. Un componente con
+// `revision="A-D"` (un intervalo), `revision="E-"` (de la E en adelante) o
+// `revision="E"` solo se monta en esas. "" si `r` vale; `dentro` dice si la
+// revisión de la placa entra
+inline bool revision_valida(const std::string& r) {
+    return r.size() == 1 && r[0] >= 'A' && r[0] <= 'Z';
+}
+inline std::string revision_casa(const std::string& espec, const std::string& rev, bool& dentro) {
+    dentro = false;
+    char a = 0, b = 0;
+    if (espec.size() == 1) a = b = espec[0];
+    else if (espec.size() == 2 && espec[1] == '-') { a = espec[0]; b = 'Z'; }
+    else if (espec.size() == 3 && espec[1] == '-') { a = espec[0]; b = espec[2]; }
+    if (a < 'A' || a > 'Z' || b < 'A' || b > 'Z' || b < a)
+        return "revision=\"" + espec + "\" no vale: una letra (\"E\"), un intervalo "
+               "(\"A-D\") o de una en adelante (\"E-\")";
+    dentro = rev[0] >= a && rev[0] <= b;
+    return std::string();
+}
 
 // `giro="90"`: el dibujo de la placa, girado al mandarlo, en grados en el
 // sentido de las agujas del reloj. "" si vale.
@@ -250,9 +274,19 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
     for (const auto& a : raiz.attrs)
         if (a.first != "nombre" && a.first != "ilustracion" && a.first != "giro" &&
             a.first != "escala" && a.first != "lienzo" && a.first != "x" && a.first != "y" &&
-            !(dentro && a.first == "id"))
+            a.first != "revision" && !(dentro && a.first == "id"))
             return donde(raiz) + "<placa>: atributo desconocido: " + a.first +
-                   " (lo que va aqui: nombre, ilustracion, giro, escala y lienzo)";
+                   " (lo que va aqui: nombre, ilustracion, giro, escala, lienzo y revision)";
+    // La revisión que se monta: la de fuera, si la hay, o la suya
+    const std::string rev = cx.revision.empty() ? raiz.attr_o("revision", "") : cx.revision;
+    if (raiz.tiene("revision") && !revision_valida(raiz.attr_o("revision")))
+        return donde(raiz) + "<placa>: revision=\"" + raiz.attr_o("revision") +
+               "\" no vale: es una letra, de la A a la Z";
+    if (!rev.empty()) {
+        if (!revision_valida(rev))
+            return donde(raiz) + "revision \"" + rev + "\" no vale: es una letra, de la A a la Z";
+        nl.pon_revision(cx.id, rev);
+    }
     Ilustracion il;
     il.declarada = raiz.attr_o("ilustracion", "");
     if (raiz.tiene("ilustracion") && il.declarada.empty())
@@ -389,6 +423,17 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
         const std::string tipo = h.attr_o("tipo");
         const std::string id   = id_de(h.attr_o("id"));
         if (!eq.empty()) return donde(h) + "<componente>: " + eq;
+        // Un componente de otras revisiones de la PCB no se monta: ni se
+        // declara, y su id queda libre para el de esta
+        if (h.tiene("revision")) {
+            if (rev.empty())
+                return donde(h) + id + ": revision=\"" + h.attr_o("revision") + "\", y la placa "
+                       "no dice cual es la suya (<placa revision=\"...\">)";
+            bool casa = false;
+            const std::string er = revision_casa(h.attr_o("revision"), rev, casa);
+            if (!er.empty()) return donde(h) + id + ": " + er;
+            if (!casa) continue;
+        }
 
         Instancia& in = nl.add(tipo.c_str(), id.c_str());
         for (const auto& a : h.attrs) {
@@ -405,6 +450,7 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
                 if (a.second == "no") in.oculta();
                 continue;
             }
+            if (a.first == "revision") continue;    // ya mirada arriba
             in.par(a.first.c_str(), a.second);      // cualquier otro: parametro
         }
         for (const XmlNodo& c : h.hijos) {
@@ -559,7 +605,8 @@ inline std::string junto_a(const std::string& carpeta, const std::string& f) {
 
 inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
                                      const std::string& carpeta,
-                                     std::string* nombre = nullptr) {
+                                     std::string* nombre = nullptr,
+                                     const std::string& revision_omision = std::string()) {
     char pos[48];
     auto donde = [&](const XmlNodo& n) {
         std::snprintf(pos, sizeof pos, "linea %u: ", n.linea);
@@ -602,10 +649,13 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
             for (const auto& a : h.attrs)
                 if (a.first != "id" && a.first != "fichero" && a.first != "ilustracion" &&
                     a.first != "giro" && a.first != "x" && a.first != "y" &&
-                    a.first != "escala")
+                    a.first != "escala" && a.first != "revision")
                     return donde(h) + "<placa id=\"" + id + "\" fichero=...>: atributo "
                            "desconocido: " + a.first + " (lo de la placa va en su fichero)";
             ps.fichero = h.attr_o("fichero");
+            // La revisión que monta ESTE sistema, sobre la de la placa
+            if (h.tiene("revision")) cx.revision = h.attr_o("revision");
+            else cx.revision = revision_omision;
             const std::string ruta = ruta_absoluta(ps.fichero) ? ps.fichero
                                                                : carpeta + ps.fichero;
             XmlLector lx;
@@ -645,6 +695,7 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
         } else {
             for (const XmlNodo& m : h.hijos)
                 if (m.nombre == "mcu" && m.tiene("id")) cx.mcus.push_back(m.attr_o("id"));
+            cx.revision = revision_omision;
             e = netlist_desde_xml(nl, h, &ps.nombre, cx, &ps.ilustracion);
             if (!e.empty()) return "placa " + id + ": " + e;
             // Escrita aquí, su dibujo es relativo al sistema, y solo si lo dice
@@ -826,16 +877,21 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
 }
 
 // Una placa o un sistema, segun lo que haya en el fichero.
+// `revision`: la de `--revision`, para la placa o, en un sistema, para las que
+// no digan la suya
 inline std::string placa_o_sistema_desde_fichero(Netlist& nl, const std::string& ruta,
-                                                 std::string* nombre = nullptr) {
+                                                 std::string* nombre = nullptr,
+                                                 const std::string& revision = std::string()) {
     XmlLector lx;
     if (!lx.parse_fichero(ruta)) return lx.error();
     if (lx.raiz().nombre == "sistema") {
-        const std::string e = sistema_desde_xml(nl, lx.raiz(), carpeta_de(ruta), nombre);
+        const std::string e = sistema_desde_xml(nl, lx.raiz(), carpeta_de(ruta), nombre, revision);
         return e.empty() ? e : ruta + ": " + e;
     }
     Ilustracion il;
-    const std::string e = netlist_desde_xml(nl, lx.raiz(), nombre, ContextoPlaca(), &il);
+    ContextoPlaca cx;
+    cx.revision = revision;
+    const std::string e = netlist_desde_xml(nl, lx.raiz(), nombre, cx, &il);
     if (!e.empty()) return ruta + ": " + e;
     il.ruta = il.declarada.empty() ? svg_hermano(ruta) : junto_a(carpeta_de(ruta), il.declarada);
     nl.pon_ilustracion(il);

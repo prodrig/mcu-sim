@@ -1,5 +1,5 @@
 // =============================================================================
-// sc_main_f3.cpp — LA SUITE DEL STM32F303VC (fases S0-S3 del plan del F303)
+// sc_main_f3.cpp — LA SUITE DEL STM32F303VC (fases S0-S4 del plan del F303)
 //
 // Un banco aparte, como el de cada chip: un chip más dentro de otra simulación
 // movería su invariante. [doc/analisis_stm32f303.md, §7.1]
@@ -42,7 +42,17 @@
 //   F47-F53 PWR_STOP, PWR_STANDBY, PWR_PVD y PWR_CurrentConsumption en sus
 //           cuatro modos (Sleep, Stop+RTC, Standby, Standby+RTC)
 //
-//   TESTF3_SOLO=s2 / s3 corre solo esos grupos, TESTF3_GRUPO=F44 solo los que
+//
+//   (S4) los sensores de la placa, con la Postura que comparten
+//   (parts/mems_st.h), montados solo en sus grupos:
+//   F54-F55 f3_mems en las revisiones E y D: los WHO_AM_I y lo que leen el
+//           giroscopo, el acelerometro y la brujula, contra la Postura
+//   F56-F57 el ejemplo BSP de ST, sin modificar, en las dos revisiones: el
+//           LED del lado que baja, con el acelerometro y con el giroscopo
+//   F58     la demostracion de ST (SLA0044, sin versionar), solo con
+//           TESTF3_SOLO=demo: `make f3-demo STM32CUBEF3=...`
+//
+//   TESTF3_SOLO=s2 / s3 / s4 / demo corre solo esos grupos, TESTF3_GRUPO=F44 solo los que
 //   empiecen asi, TESTF3_TRAZA=1 imprime trazas de depuracion: con cualquiera
 //   de ellos el tiempo simulado no es el del invariante.
 //
@@ -71,6 +81,7 @@
 #include "../bus/ahb_decoder.h"
 #include "../verif/bus_test_master.h"
 #include "../parts/ext_parts.h"
+#include "../parts/mems_st.h"
 #include "../parts/netlist_xml.h"
 #include "../verif/gdb_stub.h"
 #include "../verif/gdb_client.h"
@@ -297,6 +308,15 @@ SC_MODULE(TbF3) {
     TbDos*  dos = nullptr;
     GenPwm* gen_e11 = nullptr;   // PE11: TIM1_CH2 (TIM_InputCapture)
     GenPwm* gen_b7  = nullptr;   // PB7: TIM4_CH2 (TIM_PWMInput)
+    // S4: los sensores de las dos revisiones, con la Postura que comparten, y
+    // los pull-up del I2C1 (R27, R28). Desoldados hasta que un grupo de S4
+    // monta los de su revision: los grupos de antes no los ven
+    Postura*    mov = nullptr;
+    L3gd20*     u5d = nullptr;
+    I3g4250d*   u5e = nullptr;
+    Lsm303dlhc* u3d = nullptr;
+    Lsm303agr*  u3e = nullptr;
+    Rpull *r27 = nullptr, *r28 = nullptr;
     McuF3   mcu;
     SocF3&  dut;
     // La placa, lo justo: los 8 MHz del ST-LINK en PF0 (sin onda), B1 en PA0 a
@@ -317,6 +337,28 @@ SC_MODULE(TbF3) {
         dos = new TbDos("dos");
         gen_e11 = new GenPwm("gen_e11", dut.pinmux.analog(4, 11));
         gen_b7  = new GenPwm("gen_b7", dut.pinmux.analog(1, 7));
+        {
+            // Los ejes, los de placas/stm32f3discovery.xml
+            mems::Ejes eg, ea, emd, ema;
+            mems::Ejes::lee("x,y,z", eg);
+            mems::Ejes::lee("y,-x,z", ea);
+            mems::Ejes::lee("y,-x,z", emd);
+            mems::Ejes::lee("-y,x,z", ema);
+            auto& P = dut.pinmux;
+            mov = new Postura("mov");
+            u5d = new L3gd20("u5d", P.analog(0, 5), P.analog(0, 7), P.analog(0, 6), P.analog(4, 3),
+                             &P.analog(4, 0), &P.analog(4, 1), mov, eg);
+            u5e = new I3g4250d("u5e", P.analog(0, 5), P.analog(0, 7), P.analog(0, 6), P.analog(4, 3),
+                               &P.analog(4, 0), &P.analog(4, 1), mov, eg);
+            u3d = new Lsm303dlhc("u3d", P.analog(1, 6), P.analog(1, 7), &P.analog(4, 4),
+                                 &P.analog(4, 5), &P.analog(4, 2), mov, ea, emd);
+            u3e = new Lsm303agr("u3e", P.analog(1, 6), P.analog(1, 7), &P.analog(4, 4),
+                                &P.analog(4, 5), &P.analog(4, 2), mov, ea, ema);
+            r27 = new Rpull(P.analog(1, 7), 3.3, 10e3);
+            r28 = new Rpull(P.analog(1, 6), 3.3, 10e3);
+            for (ExtPartBase* x : std::initializer_list<ExtPartBase*>{u5d, u5e, u3d, u3e, r27, r28})
+                x->set_enabled(false);
+        }
         mco = new ExtClock("mco", dut.pinmux.analog(5, 0), 8e6, 3.3, 50.0, false);
         b1 = new Button(dut.pinmux.analog(0, 0), 330.0, 3.3);
         b1->release();
@@ -329,7 +371,11 @@ SC_MODULE(TbF3) {
         gdb_d->pon_programador(mcu.programador());
         SC_THREAD(run);
     }
-    ~TbF3() override { delete r; delete dos; delete gen_e11; delete gen_b7; delete mco; delete b1; delete r_b1; delete gdb_p; delete gdb_d; }
+    ~TbF3() override {
+        delete r; delete dos; delete gen_e11; delete gen_b7; delete mco; delete b1; delete r_b1;
+        delete gdb_p; delete gdb_d;
+        delete u5d; delete u5e; delete u3d; delete u3e; delete r27; delete r28; delete mov;
+    }
 
     // --- Utilidades -----------------------------------------------------------
     uint32_t buzon(uint32_t off) { return dut.sram.peek32(off); }
@@ -1371,7 +1417,7 @@ SC_MODULE(TbF3) {
         return false;
     }
     uint32_t csr() { return dut.rcc.peek(0x24); }
-    enum : unsigned { L3 = 9, L4 = 8, L5 = 10, L6 = 15 };
+    enum : unsigned { L3 = 9, L4 = 8, L5 = 10, L6 = 15, L7 = 11, L10 = 13 };
 
     void st_tim() {
         if (toca("F32")) {
@@ -1650,6 +1696,205 @@ SC_MODULE(TbF3) {
         }
     }
 
+    // =========================================================================
+    // S4: LOS SENSORES [doc/analisis_stm32f303.md §5.2, §5.4]
+    //
+    //   F54-F55  f3_mems, sin BSP: los WHO_AM_I de cada revision y lo que leen
+    //            los tres sensores, contra la Postura, cuenta a cuenta
+    //   F56-F57  el ejemplo BSP de ST, sin modificar, en las dos revisiones:
+    //            el LED del lado que baja, con el acelerometro y con el
+    //            giroscopo
+    // =========================================================================
+    static constexpr const char* FW_MEMS = "verif/fw/stm32f3/f3_mems/f3_mems.bin";
+    static constexpr const char* FW_BSP  = "verif/fw/stm32f3/ejemplos_s4/BSP.bin";
+    // Los de la revision `rev` soldados, los de la otra no; la placa recien
+    // encendida, plana y mirando al norte
+    void monta(char rev) {
+        mcu.alimenta(false);
+        gen_b7->pon(0, 0.5);
+        for (ExtPartBase* x : std::initializer_list<ExtPartBase*>{u5d, u5e, u3d, u3e})
+            x->set_enabled(false);
+        u5d->reinicio(); u5e->reinicio(); u3d->reinicio(); u3e->reinicio();
+        const bool e = rev == 'E';
+        u5e->set_enabled(e); u3e->set_enabled(e);
+        u5d->set_enabled(!e); u3d->set_enabled(!e);
+        r27->set_enabled(true); r28->set_enabled(true);
+        mov->pon(0, 0, 0, true);
+        wait(1, SC_MS);
+        mcu.alimenta(true);
+        wait(50, SC_US);
+    }
+    void desmonta() {
+        for (ExtPartBase* x : std::initializer_list<ExtPartBase*>{u5d, u5e, u3d, u3e, r27, r28})
+            x->set_enabled(false);
+        mov->pon(0, 0, 0, true);
+    }
+    // Que fraccion del tiempo esta encendido un LED, mirando cada 0,5 ms
+    double fraccion(unsigned p, unsigned i, double ms) {
+        unsigned n = 0, a = 0;
+        for (double t = 0; t < ms; t += 0.5) { if (alto(p, i)) ++a; ++n; wait(500, SC_US); }
+        return n ? double(a) / n : 0;
+    }
+    int32_t bz(unsigned i) { return int32_t(dut.sram.peek32(4 * i)); }
+    // El buzon de f3_mems [verif/fw/stm32f3/f3_mems/main.c]
+    enum : unsigned { M_ESTADO, M_VUELTAS, M_WHO_G, M_WHO_A, M_WHO_M, M_REV, M_ERR,
+                      M_G = 7, M_A = 10, M_M = 13 };
+    static bool cerca_n(double v, double ref, double tol) { return std::fabs(v - ref) <= tol; }
+
+    void s4_mems(char rev) {
+        const bool e = rev == 'E';
+        grupo(e ? "F54 f3_mems en la revision E: I3G4250D y LSM303AGR, contra la Postura"
+                : "F55 f3_mems en la revision D: L3GD20 y LSM303DLHC, contra la Postura");
+        monta(rev);
+        arranca(0, FW_MEMS);
+        wait(150, SC_MS);
+        check(bz(M_ESTADO) == 1 && bz(M_ERR) == 0, "configurados, sin un NACK");
+        std::printf("    WHO_AM_I %02X %02X %06X, revision %c, %d vueltas\n", bz(M_WHO_G), bz(M_WHO_A),
+                    bz(M_WHO_M), char(bz(M_REV)), bz(M_VUELTAS));
+        if (e) check(bz(M_WHO_G) == 0xD3 && bz(M_WHO_A) == 0x33 && bz(M_WHO_M) == 0x40 && bz(M_REV) == 'E',
+                     "WHO_AM_I: 0xD3 del giroscopo, 0x33 del acelerometro, 0x40 del magnetometro");
+        else  check(bz(M_WHO_G) == 0xD4 && bz(M_WHO_A) == 0x33 && bz(M_WHO_M) == 0x483433 && bz(M_REV) == 'D',
+                    "WHO_AM_I: 0xD4 del giroscopo, 0x33 del acelerometro, 'H43' del magnetometro");
+        // Plana: 1 g en z del acelerometro (HR, 12 bits a la izquierda)
+        const double lsb_a = e ? 0.98 : 1.0;
+        auto mg = [&](int k) { return double(bz(M_A + k) >> 4) * lsb_a; };
+        std::printf("    acel %.1f %.1f %.1f mg; campo %d %d %d; giro %d %d %d\n", mg(0), mg(1), mg(2),
+                    bz(M_M), bz(M_M + 1), bz(M_M + 2), bz(M_G), bz(M_G + 1), bz(M_G + 2));
+        check(cerca_n(mg(0), 0, lsb_a) && cerca_n(mg(1), 0, lsb_a) && cerca_n(mg(2), 1000, lsb_a),
+              "plana: el acelerometro lee 0, 0 y 1000 mg (una cuenta)");
+        // El campo: 0,45 gauss inclinado 55 grados -> 0,258 al norte y 0,369 abajo
+        const double H = 450 * std::cos(mems::rad(55)), V = 450 * std::sin(mems::rad(55));
+        if (e) check(cerca_n(bz(M_M), -H / 1.5, 1) && cerca_n(bz(M_M + 1), 0, 1) && cerca_n(bz(M_M + 2), -V / 1.5, 1),
+                     "y la brujula, mirando al norte: -172, 0, -246 cuentas de 1,5 mG (su x al sur)");
+        else  check(cerca_n(bz(M_M), H * 1.1, 1) && cerca_n(bz(M_M + 1), 0, 1) && cerca_n(bz(M_M + 2), -V * 0.98, 1),
+                    "y la brujula, mirando al norte: 284, 0, -362 cuentas (1100 y 980 por gauss)");
+        mov->pon(0, 0, 90, true);
+        wait(60, SC_MS);
+        if (e) check(cerca_n(bz(M_M), 0, 1) && cerca_n(bz(M_M + 1), -H / 1.5, 1),
+                     "rumbo 90: el norte, ahora a la izquierda de la placa");
+        else  check(cerca_n(bz(M_M), 0, 1) && cerca_n(bz(M_M + 1), H * 1.1, 1),
+                    "rumbo 90: el norte, ahora a la izquierda de la placa");
+        // Inclinada: el borde norte 30 grados abajo
+        mov->pon(0, -30, 90, true);
+        wait(60, SC_MS);
+        const double s30 = 1000 * std::sin(mems::rad(30)), c30 = 1000 * std::cos(mems::rad(30));
+        check(cerca_n(mg(0), -s30, lsb_a) && cerca_n(mg(1), 0, lsb_a) && cerca_n(mg(2), c30, lsb_a),
+              "el borde norte 30 grados abajo: -500 mg en x (al norte) y 866 en z");
+        // Girando: de vuelta a plana a 90 grados por segundo, el norte subiendo
+        mov->pon(0, 0, 90);
+        wait(150, SC_MS);
+        const double g0 = bz(M_G) * 17.5 / 1000, g1 = bz(M_G + 1) * 17.5 / 1000;
+        std::printf("    girando: %.2f %.2f dps\n", g0, g1);
+        check(cerca_n(g0, 90, 0.0175 + 0.5) && cerca_n(g1, 0, 0.0175 + 0.5),
+              "girando hacia arriba el borde norte: +90 dps en x del giroscopo (al este)");
+        wait(300, SC_MS);
+        check(bz(M_G) == 0 && bz(M_G + 1) == 0 && bz(M_G + 2) == 0, "y quieta otra vez: 0");
+        desmonta();
+    }
+
+    void s4_bsp(char rev) {
+        const bool e = rev == 'E';
+        grupo(e ? "F56 BSP de ST en la revision E: el LED del lado que baja"
+                : "F57 BSP de ST en la revision D: el mismo firmware, los otros sensores");
+        monta(rev);
+        arranca(0, FW_BSP);
+        wait(300, SC_MS);
+        check(cambios(4, L3, 1700) >= 2, "la rosa da vueltas (Toggle_Leds)");
+        b1->press(); wait(30, SC_MS); b1->release();
+        wait(900, SC_MS);                      // Toggle_Leds acaba su vuelta: 800 ms
+        const double plana = fraccion(4, L3, 100) + fraccion(4, L6, 100) + fraccion(4, L7, 100) +
+                             fraccion(4, L10, 100);
+        check(plana < 0.05, "B1, el acelerometro: plana, todo apagado");
+        mov->pon(0, -20, 0, true);
+        const double n3 = fraccion(4, L3, 200);
+        mov->pon(20, 0, 0, true);
+        const double n7 = fraccion(4, L7, 200);
+        mov->pon(0, 20, 0, true);
+        const double n10 = fraccion(4, L10, 200);
+        mov->pon(-20, 0, 0, true);
+        const double n6 = fraccion(4, L6, 200);
+        std::printf("    LD3 %.2f, LD7 %.2f, LD10 %.2f, LD6 %.2f\n", n3, n7, n10, n6);
+        check(n3 > 0.8 && n7 > 0.8 && n10 > 0.8 && n6 > 0.8,
+              "inclinada 20 grados: LD3 con el norte abajo, LD7 con el este, LD10 el sur, LD6 el oeste");
+        check(!(alto(4, L3) && alto(4, L10)), "sin el error del BSP (LD3 y LD10 fijos)");
+        mov->pon(0, 0, 0, true);
+        wait(50, SC_MS);
+        // B1 acaba la prueba del acelerometro y vuelve la rosa; otra vez B1,
+        // al acabar su vuelta, la del giroscopo
+        b1->press(); wait(30, SC_MS); b1->release();
+        wait(100, SC_MS);
+        b1->press(); wait(30, SC_MS); b1->release();
+        wait(900, SC_MS);
+        check(fraccion(4, L3, 100) + fraccion(4, L7, 100) < 0.05, "B1 dos veces, el giroscopo: quieta, apagado");
+        mov->pon(0, -40, 0);                   // 444 ms girando a 90 dps
+        wait(50, SC_MS);
+        const double g3 = fraccion(4, L3, 300);
+        wait(200, SC_MS);
+        const double q3 = fraccion(4, L3, 100);
+        mov->pon(40, -40, 0);
+        wait(50, SC_MS);
+        const double g7 = fraccion(4, L7, 300);
+        std::printf("    girando: LD3 %.2f (quieta %.2f), LD7 %.2f\n", g3, q3, g7);
+        check(g3 > 0.8 && q3 < 0.05, "girando con el norte bajando, LD3; parada, nada");
+        check(g7 > 0.8, "girando con el este bajando, LD7");
+        check(e ? (u5e->muestras() > 0 && u3e->muestras_a() > 0) : (u5d->muestras() > 0 && u3d->muestras_a() > 0),
+              e ? "lo han leido el I3G4250D y el LSM303AGR" : "lo han leido el L3GD20 y el LSM303DLHC");
+        wait(500, SC_MS);
+        desmonta();
+    }
+    // F58, LA DEMOSTRACION DE ST (SLA0044: no se versiona). Solo con
+    // TESTF3_SOLO=demo, que es lo que hace `make f3-demo` despues de
+    // compilarla: el invariante de testf3 no puede depender de que este. La
+    // revision E. Al arrancar, el USB (S6, declarado) y un segundo de espera;
+    // luego la rosa, B1, el giroscopo: el LED del lado que baja mientras se
+    // mueve; B1 otra vez, la rosa; B1, el acelerometro
+    static constexpr const char* FW_DEMO_ST = "verif/fw/stm32f3/ejemplos_s4/demo/Demo.bin";
+    void s4_demo() {
+        grupo("F58 La demostracion de ST (Demonstrations/, compilada de STM32CubeF3)");
+        if (!std::ifstream(FW_DEMO_ST)) {
+            check(false, "falta verif/fw/stm32f3/ejemplos_s4/demo/Demo.bin: make f3-demo STM32CUBEF3=...");
+            return;
+        }
+        monta('E');
+        arranca(0, FW_DEMO_ST);
+        wait(1500, SC_MS);
+        check(cambios(4, L3, 400) >= 2, "tras el USB y su segundo, la rosa gira");
+        b1->press(); wait(200, SC_MS); b1->release();
+        wait(100, SC_MS);
+        check(fraccion(4, L3, 100) + fraccion(4, L7, 100) < 0.05, "B1: el giroscopo, quieta, apagado");
+        mov->pon(0, -40, 0);
+        wait(50, SC_MS);
+        const double g3 = fraccion(4, L3, 300);
+        wait(200, SC_MS);
+        const double q3 = fraccion(4, L3, 100);
+        mov->pon(40, -40, 0);
+        wait(50, SC_MS);
+        const double g7 = fraccion(4, L7, 300);
+        std::printf("    girando: LD3 %.2f (quieta %.2f), LD7 %.2f\n", g3, q3, g7);
+        check(g3 > 0.8 && q3 < 0.05 && g7 > 0.8,
+              "girando, el LED del lado que baja (LD3 el norte, LD7 el este); parada, nada");
+        wait(500, SC_MS);
+        mov->pon(0, 0, 0, true);
+        b1->press(); wait(200, SC_MS); b1->release();
+        wait(300, SC_MS);
+        b1->press(); wait(200, SC_MS); b1->release();
+        wait(100, SC_MS);
+        // El acelerometro de la demo: su tabla esta girada un cuarto de vuelta
+        // respecto a la del ejemplo BSP (doc/analisis_stm32f303.md, S4). Con
+        // los ejes de la placa, el norte abajo enciende LD6
+        mov->pon(0, -20, 0, true);
+        const double a6 = fraccion(4, L6, 200), a3 = fraccion(4, L3, 200);
+        std::printf("    el acelerometro, con el norte abajo: LD6 %.2f, LD3 %.2f\n", a6, a3);
+        check(a6 > 0.8, "B1, la rosa; B1, el acelerometro: inclinada, un LED fijo (LD6, su tabla)");
+        desmonta();
+    }
+    void s4() {
+        if (toca("F54")) s4_mems('E');
+        if (toca("F55")) s4_mems('D');
+        if (toca("F56")) s4_bsp('E');
+        if (toca("F57")) s4_bsp('D');
+    }
+
     void s3_una() {
         st_tim();
         st_perros();
@@ -1714,6 +1959,18 @@ SC_MODULE(TbF3) {
         // TESTF3_SOLO=s2: solo los grupos de S2, para depurarlos (el tiempo
         // simulado, entonces, no es el del invariante)
         const char* solo = std::getenv("TESTF3_SOLO");
+        if (solo && std::strcmp(solo, "demo") == 0) {
+            s4_demo();
+            std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
+            sc_stop();
+            return;
+        }
+        if (solo && std::strcmp(solo, "s4") == 0) {
+            s4();
+            std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
+            sc_stop();
+            return;
+        }
         if (solo && std::strcmp(solo, "s3") == 0) {
             s3_dos();
             s3_una();
@@ -1753,6 +2010,7 @@ SC_MODULE(TbF3) {
         if (!solo) {
             s3_una();
             s3_dos();
+            s4();
         }
         std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();

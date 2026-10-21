@@ -181,9 +181,9 @@ def discovery():
   los pinouts: el pin del chip en azul, la alimentacion en rojo, la masa en
   negro, NRST y BOOT0 en naranja.
 
-  Los sensores (U5, el giroscopo: L3GD20 o I3G4250D segun la revision; U3, el
-  acelerometro y magnetometro: LSM303DLHC o LSM303AGR) son DECORATIVOS: la
-  placa del modelo no los lleva todavia (doc/analisis_stm32f303.md, S5).
+  Los sensores (S4): U5, el giroscopo, y U3, el acelerometro y magnetometro,
+  con el nombre del chip de cada revision como variante -U5@L3GD20 o
+  U5@I3G4250D, U3@LSM303DLHC o U3@LSM303AGR-; mcu-sim deja el que se monta.
 
   JP3 ensena su puente: JP3@1-2 (puesto, de fabrica); mcu-sim deja el que
   dice el XML (src/common/svg_variantes.h).
@@ -244,15 +244,18 @@ def discovery():
         x, y = cx + R * math.cos(a), my + R * math.sin(a)
         led(s, id_, x, y, col)
         s.text(cx + (R - 40) * math.cos(a), my + (R - 40) * math.sin(a) + 4, id_, size=11)
-    # Los sensores: decorativos
-    s.abre("U5@L3GD20")
+    # Los sensores (S4): U5 y U3, y debajo el nombre del chip de la revision
+    # que se monta, como variante (U5@L3GD20 / U5@I3G4250D ...)
+    s.abre("U5")
     chip(s, cx - 150, my + 200, 60, 60, "U5", size=11)
     s.cierra()
-    s.text(cx - 120, my + 280, "L3GD20", size=10, fill="#7f8c8d")
-    s.abre("U3@LSM303DLHC")
+    for v in ("L3GD20", "I3G4250D"):
+        s.text(cx - 120, my + 280, v, size=10, fill="#7f8c8d", id="U5@" + v)
+    s.abre("U3")
     chip(s, cx + 90, my + 200, 60, 60, "U3", size=11)
     s.cierra()
-    s.text(cx + 120, my + 280, "LSM303DLHC", size=10, fill="#7f8c8d")
+    for v in ("LSM303DLHC", "LSM303AGR"):
+        s.text(cx + 120, my + 280, v, size=10, fill="#7f8c8d", id="U3@" + v)
     # X3, el cristal de 32 kHz: SIN MONTAR (huella vacia)
     s.abre("X3")
     s.rect(cx + 50, BY + 250, 60, 24, "none", "#7f8c8d", 1.5, rx=12)

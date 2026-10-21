@@ -783,14 +783,18 @@ Lo que queda dicho, con la letra con la que lo cita el código:
 ### P-18 — El STM32F303 y la STM32F3DISCOVERY
 
 **Analizado en `doc/analisis_stm32f303.md` (2026-10-19), con un plan de diez
-fases (S0-S9). HECHAS S0, S1, S2 y S3 el 2026-10-20** en la rama `stm32f303`
+fases (S0-S9). HECHAS S0, S1, S2 y S3 el 2026-10-20 y S4 el 2026-10-21** en la rama `stm32f303`
 («Estado» del análisis): los rasgos neutrales, el STM32F303VC con su RCC, su
 Flash con el FPEC, la CCM ejecutable, la memoria de sistema y el arranque por
 BOOT0/nBOOT1/`MEM_MODE`, la STM32F3DISCOVERY con su dibujo, `testf3` (R1-R7,
 F0-F19), `make f3-discovery`, O5 y C6 con OpenOCD, y G8 en `mcu-sim-gui`; y en S3
 los periféricos de segunda generación (USART v2, DMA por canales, SPI v3, I²C,
 TIM v3, perros, RTC, CRC, bajo consumo), el VCP, el sistema de dos Discovery,
-los 29 ejemplos de ST de S3 sin modificar (F22-F53) y `make f3-vcp`. Es la primera familia del proyecto con la
+los 29 ejemplos de ST de S3 sin modificar (F22-F53) y `make f3-vcp`; y en S4
+los sensores de la placa (`parts/mems_st.h`: la `Postura` y los cuatro MEMS de
+las dos revisiones, con `revision=` en la placa), el ejemplo `BSP` de ST en las
+dos revisiones, `f3_mems` contra la postura (F54-F57) y la demo de ST con
+`make f3-demo` (F58). Es la primera familia del proyecto con la
 segunda generación de IP de ST: el I²C es el `FMPI2C1` del F446 (`i2c2_v1_1`),
 y bxCAN, DAC, RTC, perros, CRC, EXTI, GPIO y temporizadores se reaprovechan por
 rasgos; RCC, controlador de Flash (el del F1), DMA por canales, USART v2, ADC,
@@ -801,7 +805,7 @@ pruebas es la STM32F3DISCOVERY, con sus dos revisiones de sensores
 SVG. Lo primero, S0: tener RM0316, DS9118 y UM1570 en `doc/refs/`, que desde
 el entorno de trabajo no se alcanzan.
 
-Lo que queda de una sola fuente, o de modelo, tras S3:
+Lo que queda de una sola fuente, o de modelo, tras S4:
 
 | | Qué | Estado |
 | :--- | :--- | :--- |
@@ -822,7 +826,11 @@ Lo que queda de una sola fuente, o de modelo, tras S3:
 | **p** | El IWDG y el reset del sistema | En el F3 se para con el reset del sistema (`IwdgCaps::para_con_reset`; sin ello `IWDG_Reset` de ST seguia reiniciando). El F4 no se ha tocado, para no mover sus invariantes: **queda por mirar en RM0090 si el suyo debería pararse también** |
 | **q** | El núcleo, arreglado en S3 para todos | La vuelta de excepción desapila IT[1:0] y GE y no borra el ITSTATE; el MSP se guarda antes de leer la trama de vuelta; WFI solo despierta con una excepción que podría entrar (ARMv7-M B1.5.19). Las siete suites de antes, al picosegundo |
 | **r** | Lo que S3 no modela | USART: Smartcard, IrDA, auto-baud y `UESM`; I²C: `WUPEN` y PEC; el I2S en dúplex; el reloj de `I2S_CKIN`; el ITR del TIM15 desde el TIM16/17 es la salida OC1 y no OC1REF; la corriente en los modos de bajo consumo; el IWDG se para en Standby (el silicio sigue contando); el fallo del HSE, el PVD y LOCKUP no llegan al freno de los TIM |
-| **s** | `testf3` y su tiempo | Con los 32 grupos de S3 tarda unos 8,5 min de reloj en la máquina de trabajo (dos de ellos los ponen las diez parejas de dos Discovery): el CI le da 1200, 1500 y 1800 s de presupuesto (`SUITES_PRESUPUESTO`, Linux, macOS y Windows) y 15-25 min mas a cada trabajo |
+| **s** | `testf3` y su tiempo | Con los 32 grupos de S3 y los cuatro de S4 tarda unos 9-10 min de reloj en la máquina de trabajo (dos de ellos los ponen las diez parejas de dos Discovery): el CI le da 1200, 1500 y 1800 s de presupuesto (`SUITES_PRESUPUESTO`, Linux, macOS y Windows) y 15-25 min mas a cada trabajo |
+| **t** | Los ejes de los sensores (S4) | El giróscopo, de dos fuentes que coinciden (el ejemplo BSP y la demo de ST). El acelerómetro, de una: el ejemplo BSP (x al norte, y al oeste); **la demo de ST usa otra tabla**, que con z hacia fuera no es una rotación de la del BSP, y en el modelo enciende LD6 con el norte abajo (F58 lo comprueba así). El magnetómetro del AGR, del libro «Discovery» de Rust (x al sur, y al este); el del DLHC, como su acelerómetro [de modelo]. El I3G4250D, con los ejes del L3GD20. **Con una placa en la mano se resuelve en un minuto**: inclinarla con la demo y con el ejemplo BSP |
+| **u** | Los sensores, de modelo (S4) | Las hojas de datos de los cuatro MEMS no están en `doc/refs/` [1F]. De modelo: las temperaturas (0 cuentas a 25 °C), el paso alto de primer orden (el del giróscopo con la tabla de HPCF a 95 Hz escalada; el del acelerómetro, una fracción de ODR), los umbrales de INT (alto y bajo como |valor| frente al umbral, sin la duración), el DRDY del magnetómetro (se baja al leer el último byte), las sensibilidades del DLHC fuera de HR. Sin FIFO, click, 6D, SPI de tres hilos ni ruido |
+| **v** | El I2C del STM32 (S4, también el F446) | `TC` se borra con `START`/`STOP` y `TCR` al escribir `NBYTES` [RM0316 §28.7.7]; SCL y SDA de drenador abierto por el periférico, sea cual sea `OTYPER` [de modelo: el BSP de la Discovery pone `AF_PP` y funciona] |
+| **w** | La sincronización de las escrituras del F303 (S4) | `Cpu::sync_escritura_perif`: el núcleo del F303 sincroniza con el planificador antes de cada escritura a un periférico, para que un pulso de GPIO más corto que el quantum (el CS del giróscopo, 0,2 µs) no desaparezca. **Los F4 y los MSP432 no**: tienen el mismo problema latente, y ponerlo movería sus invariantes |
 | **l** | La placa contra su esquemático | Contrastada con MB1035 rev. D.1 (2026-10-20): resistencias de la rosa (510 Ω en los verdes), B1 (100 + 330 Ω a VDD, 220 kΩ a masa), LD1, BOOT0, R39 y X3 sin montar. La vf de cada LED es de modelo; VDD se modela a 3,3 V, y en la placa son los 3,3 V del LD3985 menos el diodo D3 [de modelo] |
 
 ---

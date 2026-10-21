@@ -173,3 +173,8 @@ f3  stm32f3/ejemplos_s3/UART_TwoBoards_ComIT_tx.bin        7716  0xE48B811C
 f3  stm32f3/ejemplos_s3/UART_TwoBoards_ComPolling_rx.bin   6048  0x49D1435B
 f3  stm32f3/ejemplos_s3/UART_TwoBoards_ComPolling_tx.bin   6360  0xC79AA7E4
 f3  stm32f3/ejemplos_s3/WWDG_Example.bin                   4320  0xAB6212B6
+
+# STM32F303VC (S4): los sensores. La demostracion de ST (ejemplos_s4/demo) no:
+# es SLA0044 y no se versiona
+f3  stm32f3/f3_mems/f3_mems.bin                            2024  0x47811E62
+f3  stm32f3/ejemplos_s4/BSP.bin                           12040  0xE82C2864

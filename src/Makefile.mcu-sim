@@ -269,7 +269,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 bsl-p4 eth-e4 usb-e4 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 bsl-p4 eth-e4 usb-e4 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -660,8 +660,8 @@ e4-edumkii: $(MCUSIM)
 f3-discovery: $(MCUSIM)
 	@$(MCUSIM) placas/stm32f3discovery.xml verif/fw/stm32f3/gpio_iotoggle/GPIO_IOToggle.bin \
 	    --ms=1000 > $(B)/f3-discovery.log 2>&1 || { cat $(B)/f3-discovery.log; exit 1; }
-	@grep -q "placa 'stm32f3discovery': 1 MCU(s), 20 componentes, 160 nodos, 0 avisos" $(B)/f3-discovery.log \
-	    && grep -q "dibujo: stm32f3discovery.svg (.*JP3 1-2)" $(B)/f3-discovery.log \
+	@grep -q "placa 'stm32f3discovery': 1 MCU(s), 25 componentes, 160 nodos, 0 avisos" $(B)/f3-discovery.log \
+	    && grep -q "dibujo: stm32f3discovery.svg (.*JP3 1-2, U3 LSM303AGR, U5 I3G4250D)" $(B)/f3-discovery.log \
 	    && grep -q "LED LD6 en PE15: apagado" $(B)/f3-discovery.log \
 	    && grep -q "LED LD8 en PE14: apagado" $(B)/f3-discovery.log \
 	    && test "$$(grep -c 'LED LD[0-9]* en PE[0-9]*: encendido' $(B)/f3-discovery.log)" = 6 \
@@ -691,12 +691,32 @@ f3-vcp: $(MCUSIM)
 	@$(MCUSIM) placas/dos_f3discovery.xml --ms=650 --serie A/VCP=memoria --serie B/VCP=memoria \
 	    >> $(B)/f3-dos.log 2>&1 || { cat $(B)/f3-dos.log; exit 1; }
 	@grep -q "B/VCP: el puerto 3355 es tambien el de A/VCP en su fichero; escucha en el 3356" $(B)/f3-dos.log \
-	    && grep -q "en total: 2 MCU(s), 43 componentes, 312 nodos, 0 avisos" $(B)/f3-dos.log \
+	    && grep -q "en total: 2 MCU(s), 53 componentes, 312 nodos, 0 avisos" $(B)/f3-dos.log \
 	    && grep -q "LED A/LD4 en A/u0.PE8: encendido" $(B)/f3-dos.log \
 	    && ! grep -q "LD5 en [AB]/u0.PE10: encendido" $(B)/f3-dos.log \
 	    && ! grep -q "Warning" $(B)/f3-dos.log \
 	    && echo "  [OK  ] f3-vcp: dos STM32F3DISCOVERY en un sistema, cada VCP en su puerto" \
 	    || { echo "  [FALLO] f3-vcp: vease $(B)/f3-dos.log"; exit 1; }
+
+# LA DEMOSTRACION DE ST PARA LA STM32F3DISCOVERY (S4 del F303): es SLA0044 y
+# no se versiona, asi que se compila aqui desde una copia de STM32CubeF3 con su
+# middleware USB y la prueba F58 de testf3 (TESTF3_SOLO=demo) la corre: la
+# rosa, el giroscopo con el LED del lado que baja y el acelerometro. Sin
+# STM32CUBEF3 se OMITE y lo dice. No va en el CI.
+#   make -f Makefile.mcu-sim f3-demo STM32CUBEF3=/ruta/a/STM32CubeF3
+STM32CUBEF3 ?=
+f3-demo: $(TESTF3)
+	@if [ -z "$(STM32CUBEF3)" ]; then \
+	   echo "  [OMITE] f3-demo: hace falta STM32CUBEF3=/ruta/a/STM32CubeF3 (con Middlewares/ST/STM32_USB_Device_Library)"; \
+	 else \
+	   $(MAKE) --no-print-directory -C verif/fw/stm32f3/ejemplos_s4 demo STM32CUBEF3="$(STM32CUBEF3)" >$(B)/f3-demo-fw.log 2>&1 \
+	     || { cat $(B)/f3-demo-fw.log; exit 1; }; \
+	   TESTF3_SOLO=demo $(TESTF3) > $(B)/f3-demo.log 2>&1; \
+	   sed -n '/--- F58/,/TOTAL/p' $(B)/f3-demo.log | grep "OK  \]\|FALLO\]"; \
+	   grep -q "comprobaciones OK, 0 fallos" $(B)/f3-demo.log \
+	     && echo "  [OK  ] f3-demo: la demostracion de ST en la STM32F3DISCOVERY" \
+	     || { echo "  [FALLO] f3-demo: vease $(B)/f3-demo.log"; exit 1; }; \
+	 fi
 
 # LA PREBUSQUEDA DE LA FLASH DEL E4 A 120 MHz (FWS = 5):
 # verif/fw/msp432e4/e4_retardo mide con el TIMER2 los ciclos de una vuelta
@@ -1039,7 +1059,8 @@ FWE4 := verif/fw/msp432e4/e4_demo verif/fw/msp432e4/coremark verif/fw/msp432e4/e
 # ST (verif/fw/stm32f3/sdk) y, los de STM32CubeF3, con su HAL, sin modificar.
 FWF3 := verif/fw/stm32f3/f3_demo verif/fw/stm32f3/coremark verif/fw/stm32f3/gpio_iotoggle \
         verif/fw/stm32f3/gpio_exti verif/fw/stm32f3/flash_eraseprogram \
-        verif/fw/stm32f3/f3_vcp verif/fw/stm32f3/ejemplos_s3
+        verif/fw/stm32f3/f3_vcp verif/fw/stm32f3/ejemplos_s3 \
+        verif/fw/stm32f3/f3_mems verif/fw/stm32f3/ejemplos_s4
 # Los de las placas de ejemplo que no usa ninguna suite de C++: el de
 # placas/barra8_en_nucleo.xml y el de placas/nucleo_f446re_barra8ac_azul.xml,
 # que vigila `make gui-sistema`; los de la pantalla TFT, el de

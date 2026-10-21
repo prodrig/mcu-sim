@@ -39,9 +39,14 @@
         de abajo, como el de la Nucleo, por RFC 2217 en el 3355. Con
         --serie VCP=memoria no abre nada.
 
-     5. LOS SENSORES (el giroscopo L3GD20 o I3G4250D en SPI1 y la brujula
-        LSM303DLHC o LSM303AGR en I2C1, segun la revision) son de la fase S4.
-        El dibujo ya los tiene; el XML todavia no.
+     5. LOS SENSORES DEPENDEN DE LA REVISION de la PCB (S4): hasta la D, el
+        giroscopo L3GD20 (WHO_AM_I 0xD4) y la brujula LSM303DLHC; desde la E,
+        el I3G4250D (0xD3) y el LSM303AGR. revision="E" en la raiz monta los
+        de la E, que es la que se vende; para la D, revision="D" ahi o en el
+        <placa ... revision="D"> de un sistema (stm32f3discovery_d.xml). El
+        BSP de ST prueba los dos por su WHO_AM_I: el mismo firmware vale para
+        las dos. Los mueve la Postura MOV: sus tres mandos inclinan y giran la
+        placa.
 
      P1 Y P2 SON LA TABLA 7 DE UM1570 Rev 7 Y LA HOJA 1 DEL ESQUEMATICO
      MB1035: las dos dicen lo mismo, pin a pin. Con los puentes de soldadura
@@ -54,7 +59,7 @@
          ./build/mcu-sim placas/stm32f3discovery.xml \
              verif/fw/stm32f3/gpio_iotoggle/GPIO_IOToggle.elf --ms=1000
      ========================================================================= -->
-<placa nombre="stm32f3discovery">
+<placa nombre="stm32f3discovery" revision="E">
   <mcu tipo="STM32F303VC" id="u0"/>
 
   <!-- La alimentacion: los 5 V del USB del ST-LINK (CN1), el regulador de 3 V
@@ -160,6 +165,66 @@
   <!-- La depuracion: el ST-LINK por SWD en PA13 (SWDIO) y PA14 (SWCLK), y
        NRST. Al otro lado esta `sim` (--gdb, --openocd o --cmsis-dap) -->
   <nodo id="PA13"/>  <nodo id="PA14"/>
+
+  <!-- ===================================================================
+       LOS SENSORES [MB1035, hoja 4; UM1570 §6.11-6.12; BSP: stm32f3_discovery.h]
+       =================================================================== -->
+  <!-- La postura de la placa: la comparten los dos chips, para que cuenten la
+       misma historia. Sus mandos -alabeo, cabeceo, rumbo- la inclinan y la
+       giran a 90 grados por segundo; Madrid: 0,45 gauss y 55 grados -->
+  <componente tipo="Postura" id="MOV" visible="no"/>
+
+  <!-- U5, el giroscopo, por SPI1: SPC en PA5, SDI en PA7, SDO en PA6, CS en
+       PE3, INT1 en PE0 y DRDY/INT2 en PE1. Sus ejes: x al ESTE (LD7) e y al
+       NORTE (LD3). Salen del BSP de ST y de la demo, que coinciden: un giro
+       con el borde de un LED hacia abajo enciende ese LED (x > 5 dps, LD10;
+       x < -5, LD3; y < -5, LD6; y > 5, LD7). El I3G4250D, en la misma huella
+       y con los mismos ejes [de modelo: una fuente] -->
+  <componente tipo="L3gd20" id="U5" revision="A-D" ejes="x,y,z">
+    <pin nombre="spc" nodo="PA5"/>  <pin nombre="sdi" nodo="PA7"/>
+    <pin nombre="sdo" nodo="PA6"/>  <pin nombre="cs" nodo="PE3"/>
+    <pin nombre="int1" nodo="PE0"/> <pin nombre="drdy" nodo="PE1"/>
+    <ref nombre="postura" componente="MOV"/>
+  </componente>
+  <componente tipo="I3g4250d" id="U5" revision="E-" ejes="x,y,z">
+    <pin nombre="spc" nodo="PA5"/>  <pin nombre="sdi" nodo="PA7"/>
+    <pin nombre="sdo" nodo="PA6"/>  <pin nombre="cs" nodo="PE3"/>
+    <pin nombre="int1" nodo="PE0"/> <pin nombre="drdy" nodo="PE1"/>
+    <ref nombre="postura" componente="MOV"/>
+  </componente>
+
+  <!-- U3, la brujula con acelerometro, por I2C1: SCL en PB6, SDA en PB7, con
+       R27 y R28 de 10 kohm a los 3 V; INT1 en PE4, INT2 en PE5 y el DRDY del
+       magnetometro en PE2. Los ejes del ACELEROMETRO, x al NORTE e y al OESTE
+       ("y,-x,z"): los del ejemplo BSP de ST, el unico que los usa con el LED
+       del lado que baja (x < -1000, LD3; y < -1000, LD6). La demo de ST
+       enciende otro LED, girado un cuarto de vuelta: su tabla no es una
+       rotacion con z hacia fuera (doc/analisis_stm32f303.md, S4). Los del
+       MAGNETOMETRO del DLHC, los mismos [de modelo]; los del AGR, x al SUR e
+       y al ESTE ("-y,x,z"), los de la brujula de LED del libro «Discovery»
+       de Rust para esta placa [una fuente] -->
+  <nodo id="PB6" bus="si"/>
+  <nodo id="PB7" bus="si"/>
+  <componente tipo="Resistencia" id="R27" r="10000" visible="no">
+    <pin nombre="a" nodo="3V"/>
+    <pin nombre="b" nodo="PB7"/>
+  </componente>
+  <componente tipo="Resistencia" id="R28" r="10000" visible="no">
+    <pin nombre="a" nodo="3V"/>
+    <pin nombre="b" nodo="PB6"/>
+  </componente>
+  <componente tipo="Lsm303dlhc" id="U3" revision="A-D" ejes_a="y,-x,z" ejes_m="y,-x,z">
+    <pin nombre="scl" nodo="PB6"/>  <pin nombre="sda" nodo="PB7"/>
+    <pin nombre="int1" nodo="PE4"/> <pin nombre="int2" nodo="PE5"/>
+    <pin nombre="drdy" nodo="PE2"/>
+    <ref nombre="postura" componente="MOV"/>
+  </componente>
+  <componente tipo="Lsm303agr" id="U3" revision="E-" ejes_a="y,-x,z" ejes_m="-y,x,z">
+    <pin nombre="scl" nodo="PB6"/>  <pin nombre="sda" nodo="PB7"/>
+    <pin nombre="int1" nodo="PE4"/> <pin nombre="int2" nodo="PE5"/>
+    <pin nombre="drdy" nodo="PE2"/>
+    <ref nombre="postura" componente="MOV"/>
+  </componente>
 
   <!-- ===================================================================
        P1 y P2, las tiras de 2x25 [UM1570, tabla 7; MB1035, hoja 1]:

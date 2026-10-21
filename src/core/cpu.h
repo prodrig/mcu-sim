@@ -74,6 +74,14 @@ SC_MODULE(Cpu) {
 
     // Quantum de sincronización con el planificador (loosely-timed)
     sc_core::sc_time quantum{1, sc_core::SC_US};
+    // Sincronizar con el planificador antes de cada escritura a un periferico
+    // (0x4000_0000-0x5FFF_FFFF): cada una sale en su instante, y no todas las
+    // de un quantum en el mismo. Sin ello, un pulso de un pin mas corto que el
+    // quantum -el CS del giroscopo de la STM32F3DISCOVERY entre dos lecturas
+    // del BSP de ST, unos 0,2 us- desaparece: las dos escrituras de GPIO
+    // llegan en el mismo instante y gana la ultima. Lo pone el SoC del F303
+    // (S4); los F4 y los MSP432 siguen como estaban
+    bool sync_escritura_perif = false;
 
     // Estadísticas y control para el banco de pruebas
     uint64_t inst_count = 0, exc_count = 0;
@@ -291,6 +299,7 @@ private:
             }
         }
         if (!mpu_ok(addr, true, false)) return false;
+        if (sync_escritura_perif && addr >= 0x40000000u && addr < 0x60000000u) sync();
         uint32_t d = val;
         if (!bus_access(dbus, true, addr, size, d, BusMaster::CORE_DBUS, false, exclusive)) {
             take_fault(EXC_BUSFAULT, BF_PRECISERR, true, addr);
