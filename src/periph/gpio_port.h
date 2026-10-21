@@ -26,6 +26,26 @@
 
 namespace stm32 {
 
+// ---------------------------------------------------------------------------
+// Rasgos del puerto (fase S0 del F303) [doc/analisis_stm32f303.md, §3.2]
+//
+// El mismo banco de registros vale para los STM32 de segunda generación con dos
+// diferencias, y las dos son datos:
+//
+//   * DÓNDE ESTÁ: en el F4 los puertos cuelgan de AHB1 desde 0x4002_0000; en el
+//     F303, de AHB2 desde 0x4800_0000 `[CMSIS]`;
+//   * BRR en 0x28: una escritura pone a cero los pines cuyos bits valgan uno,
+//     como la mitad alta de BSRR pero en la baja. LL y HAL lo usan para
+//     `LL_GPIO_ResetOutputPin` `[CMSIS] [HAL]`. En el F4 la dirección está
+//     reservada y lee cero.
+// ---------------------------------------------------------------------------
+struct GpioCaps {
+    uint32_t base;      // dirección del puerto A; los demás, de 0x400 en 0x400
+    bool     brr;       // registro BRR en 0x28
+};
+inline constexpr GpioCaps GPIO_F4{ addr::GPIOA_B, false };
+inline constexpr GpioCaps GPIO_F3{ 0x48000000u, true };
+
 class GpioPort : public BusSlave {
 public:
     sc_core::sc_vector<sc_core::sc_out<PadDrive>> pad_drive;  // [16] -> pin_mux
@@ -37,10 +57,10 @@ public:
     af_sel_if* mux = nullptr;
 
     // idx: 0=A .. 8=I. Valores de reset especiales de PA/PB (debug) [IR, §3.4.1]
-    GpioPort(sc_core::sc_module_name nm, unsigned idx)
-        : BusSlave(nm, addr::GPIOA_B + 0x400u * idx, 0x400),
+    GpioPort(sc_core::sc_module_name nm, unsigned idx, const GpioCaps& caps = GPIO_F4)
+        : BusSlave(nm, caps.base + 0x400u * idx, 0x400),
           pad_drive("pad_drive", 16), pad_din("pad_din", 16),
-          exti_line("exti_line", 16), idx_(idx) {
+          exti_line("exti_line", 16), idx_(idx), caps_(caps) {
         SC_HAS_PROCESS(GpioPort);
         reset_state();
         SC_METHOD(update_pads);
@@ -94,13 +114,21 @@ protected:
             case 0x1C: write_lckr(v & m);                    break;
             case 0x20: afrl_ = merge_afr(afrl_, v, m, 0);    break;
             case 0x24: afrh_ = merge_afr(afrh_, v, m, 8);    break;
+            case 0x28:                                       // BRR (F3) [CMSIS]
+                if (!caps_.brr) return;
+                odr_ &= ~(v & m & 0xFFFFu);
+                break;
             default:   return;
         }
         ev_regs_.notify(sc_core::SC_ZERO_TIME);
     }
 
+public:
+    const GpioCaps& caps() const { return caps_; }
+
 private:
     unsigned idx_;
+    GpioCaps caps_;
     uint32_t moder_ = 0, otyper_ = 0, ospeedr_ = 0, pupdr_ = 0;
     uint32_t idr_ = 0, odr_ = 0, lckr_ = 0, afrl_ = 0, afrh_ = 0;
     unsigned lck_state_ = 0;        // FSM de la secuencia 1-0-1
@@ -198,7 +226,12 @@ private:
         idr_ = v;
     }
 
-    void reset_proc() { if (!rst_n.read()) { reset_state(); ev_regs_.notify(sc_core::SC_ZERO_TIME); } }
+    // El IDR es lo que dicen los pads: tras un reset -del sistema o del puerto
+    // por AHBRSTR- se vuelve a muestrear, sin esperar a que un pad cambie
+    void reset_proc() {
+        if (!rst_n.read()) { reset_state(); ev_regs_.notify(sc_core::SC_ZERO_TIME); }
+        ev_idr_.notify(sc_core::SC_ZERO_TIME);
+    }
 
     // Valores de reset [IR, §3.4.1, §3.4.3, §3.4.4]
     void reset_state() {

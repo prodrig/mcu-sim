@@ -371,7 +371,7 @@ máquina y no ver estos ficheros.
 | Sin `ilustracion=` | El SVG que **se llame como la placa**, a su lado: `nucleo_f446re.xml` → `nucleo_f446re.svg`. Si no está, no pasa nada |
 | `<placa id="N" fichero="..." ilustracion="y.svg"/>` en un `<sistema>` | El montaje cambia el dibujo de esa placa (relativo al sistema); la tabla de la placa, que era de SU dibujo, no se usa |
 | `giro="90"` en la `<placa>`, o en su `<placa id>` de un `<sistema>` | El dibujo, **girado** 90, 180 o 270 grados en el sentido de las agujas del reloj: como está montada la placa. El del sistema manda sobre el de la placa. Ver abajo |
-| `<ilustracion><enlace pieza= elemento= [efecto=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido`, `giro`, `pantalla`, `angulo` o `ninguno` |
+| `<ilustracion><enlace pieza= elemento= [efecto=] [observable=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido`, `giro`, `pantalla`, `angulo` o `ninguno`; con `giro` o `angulo`, `observable` dice cuál de los de la pieza lo mueve (abajo) |
 
 **Lo que se comprueba aquí** —el SVG lo lee la ventana—: un dibujo
 **declarado** que no está, uno que no empieza por `<svg` ni por `<?xml`, o uno
@@ -414,6 +414,15 @@ aspa del `Servo` (§4.12), que en `placas/servo_sg90.svg` está dibujada en el
 dice el giro. Como con `giro`, para que gire sobre el eje el elemento lleva
 dentro un círculo centrado en él —sin pintar, `fill="none"`— que alcanza más
 que todo lo demás.
+
+**Cuál lo mueve: `observable=`.** Con `giro` y con `angulo`, la tabla puede
+nombrar el observable que mueve el elemento cuando no es el que se elegiría
+solo —el primero que la pieza sugiere, o el primero en grados—. Es la aguja de
+rumbo de `placas/stm32f3discovery.svg`: la `Postura` tiene tres ángulos, el
+rumbo es el tercero y se mide en «grados», y su enlace es
+`<enlace pieza="MOV" elemento="MOV" efecto="angulo" observable="rumbo"/>`. Con
+otro efecto, el fichero no valida; un nombre que la pieza no tiene, la ventana
+lo dice y deja el elemento quieto.
 
 **Lo que se ve en una pantalla: el efecto `pantalla`.** Es el de omisión de
 una pieza que enseña una IMAGEN —el `Tft128x160`—: la ventana pinta la imagen
@@ -1222,6 +1231,7 @@ con 50 Ω de salida.
 | Parámetro | Omisión | Efecto |
 | :--- | :--- | :--- |
 | `hz` | `0` | Frecuencia. **Con `0` la pieza no conduce**: queda en alta impedancia y no gasta tiempo de simulación. Es lo razonable al arrancar, y se enciende desde C++ con `set_freq()` |
+| `onda` | `si` | Con `no` la pieza **no da flancos**: deja el nodo a 0 V y le DICE su frecuencia, que es lo que mira el HSE del chip para arrancar (en modo cristal y en bypass) y contar. Ocho millones de flancos por segundo cuestan más que el resto de una placa entera; sin onda, el reloj llega igual y el pin se lee a cero. Es lo que hace el MCO del ST-LINK de `placas/stm32f3discovery.xml` (S1 del F303) |
 
 Recuérdese §3.4: `hz="8M"` son **8 Hz**. Escríbase `8e6`.
 
@@ -1695,7 +1705,7 @@ regulador de 3,3 V y su retroiluminación [ST7735S, Sitronix, v1.1]. Está en
 | `r_luz` | `15` | Su resistencia en la placa, en ohmios |
 
 **Lo que se ve es lo que enseñaría la pantalla de verdad**, y se lo manda a
-la ventana como una IMAGEN de 128x160 (§4.14):
+la ventana como una IMAGEN de 128x160 (§4.15):
 
 * el chip sin tensión, en reset, dormido —SLPIN, el estado tras arrancar— o
   con la pantalla apagada —DISPOFF—: **blanca**. El cristal es de los
@@ -1909,7 +1919,105 @@ segundo orden.
 | `dir` | `0x40` | Dirección de 7 bits |
 | `t_chip`, `t_objeto` | `25`, `25` | Las temperaturas, en °C; tienen mando |
 
-### 4.14 Lo que `mcu-sim-gui` puede ver y tocar
+### 4.14 Los sensores de la STM32F3DISCOVERY
+
+Los de la placa del F303 (fase S4, `parts/mems_st.h`): una `Postura` que
+dice cómo está la placa y cuatro MEMS de ST que la leen, dos por revisión
+de la PCB. La placa entera es `placas/stm32f3discovery.xml`.
+
+**Los ejes de la placa**: x hacia el **este** (LD7), y hacia el **norte**
+(LD3, el lado del ST-LINK), z saliendo por la cara de los componentes; la
+serigrafía de la rosa dice N, E, S y W. Cada sensor dice los suyos respecto a
+esos con `ejes="..."`: tres ejes de la placa con su signo (`"y,-x,z"`: su x es
+la y de la placa y su y, la −x). Tiene que ser una rotación —tres distintos y la
+regla de la mano derecha— o el fichero no valida.
+
+**Las revisiones**: un `<componente>` con `revision="A-D"`, `"E-"` (de la E
+en adelante) o `"E"` solo se monta si la placa es de esas. La placa dice la
+suya en la raíz (`<placa ... revision="E">`), y un sistema puede cambiarla
+para una de sus placas (`<placa id="D" fichero="..." revision="D">`; véase
+`placas/stm32f3discovery_d.xml`). Dos componentes de revisiones distintas
+pueden llamarse igual —`U5` es el L3GD20 en una y el I3G4250D en la otra—,
+`--valida` dice la revisión de cada placa, y el dibujo rotula el chip que se
+monta como variante (`U5@L3GD20`).
+
+#### `Postura`
+
+La orientación de la placa: **alabeo** (el borde este hacia abajo, positivo),
+**cabeceo** (el borde norte hacia arriba, positivo, de −90 a 90) y **rumbo**
+(hacia dónde mira el norte de la placa, en grados desde el norte magnético).
+Un mando continuo cada uno: al moverlo, la placa **gira** hasta ahí a
+`velocidad` grados por segundo, en pasos de 1 ms, y de ese giro sale la
+velocidad angular que ven los giróscopos; parada, cero. De la orientación sale
+lo que ven los acelerómetros —1 g hacia arriba en reposo, la fuerza
+específica— y las brújulas —el campo de la Tierra, `campo` gauss con
+`inclinacion` grados hacia abajo—. No tiene patillas: los sensores la nombran
+con `<ref nombre="postura" componente="MOV"/>`. En la ventana, además de sus
+tres deslizadores, lleva un mando de **inclinación** —un círculo con un punto
+que se arrastra hacia el lado que baja—, que sale en el panel de cualquier
+pieza con un `alabeo` y un `cabeceo` continuos y mueve esos dos deslizadores;
+y en el dibujo de la Discovery es una **aguja de rumbo** (`observable=`, §2.6).
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `alabeo`, `cabeceo`, `rumbo` | `0` | La de partida, en grados |
+| `velocidad` | `90` | A cuántos grados por segundo gira hacia lo que piden los mandos |
+| `campo` | `0.45` | El campo de la Tierra, en gauss |
+| `inclinacion` | `55` | Su inclinación, en grados (la de Madrid) |
+| `temperatura` | `25` | La de los sensores, en °C |
+
+Observables `alabeo`, `cabeceo`, `rumbo` (los que sugiere pintar) y `giro`
+(dps, el módulo). Desde C++, `pon(alabeo, cabeceo, rumbo, ya)` —con `ya`, de
+golpe— y `moviendose()`.
+
+#### `L3gd20`, `I3g4250d`
+
+Los giróscopos de las revisiones A-D (`WHO_AM_I` 0xD4; con `quien="0xD5"`, el
+L3GD20_TR que el BSP también acepta) y E (0xD3): el mismo mapa, de 0x0F a
+0x38, por **SPI de cuatro hilos en modo 0 o 3** (R/W en el bit 7 del primer
+byte, el autoincremento en el 6). Las cuatro tasas (95 a 760 Hz), los tres
+fondos de escala (8,75 / 17,5 / 70 mdps por cuenta), `PD` y los ejes, STATUS
+con sus sobrescrituras, BDU y BLE, la temperatura (−1 cuenta por grado, 0 a
+25 °C [de modelo]), el paso alto de primer orden con `HPCF` cuando `Out_Sel` lo
+pide, INT1 con sus umbrales (OR o AND, con LIR; sin la duración) y DRDY en
+INT2, en contrafase o drenador abierto y activas altas o bajas. MISO, en alta
+impedancia salvo cuando saca un dato. La FIFO, el SPI de tres hilos y el modo
+I2C no están: los dos primeros avisan.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `spc`, `sdi`, `sdo`, `cs` | obligatorios | El SPI |
+| `int1`, `drdy` | opcionales | INT1 y DRDY/INT2 |
+
+Parámetro `ejes` (`x,y,z`); referencia `postura`. Observables `giro_x`,
+`giro_y` y `giro_z` (dps, la última muestra).
+
+#### `Lsm303dlhc`, `Lsm303agr`
+
+Las brújulas con acelerómetro de las revisiones A-D y E, por **I2C**: dos
+esclavos en un encapsulado, el acelerómetro en 0x19 y el magnetómetro en 0x1E
+(el bit 7 de la subdirección pide el autoincremento en el primero; el segundo
+avanza siempre). El acelerómetro, el mismo en los dos (`WHO_AM_I_A` 0x33, que
+la hoja de datos del DLHC no cuenta): las tasas de 1 a 5376 Hz, HR (12 bits),
+normal (10) y LPen (8), justificados a la izquierda, los cuatro fondos de
+escala con las sensibilidades de cada hoja de datos, el paso alto con FDS,
+BDU, BLE, INT1 e INT2 con sus umbrales y el DRDY en INT1. El magnetómetro del
+DLHC: CRA/CRB/MR, X-Z-Y con el byte alto primero, 12 bits y −4096 si se sale,
+`IRA/IRB/IRC` = 'H43' y la temperatura; el del AGR, estilo LIS2MDL:
+`WHO_AM_I_M` 0x40, `CFG_REG_A/B/C_M`, el byte bajo primero y 1,5 mG por
+cuenta, una vez o continuo. La FIFO, el click y el 6D avisan; los pull-up los
+pone la placa.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `scl`, `sda` | obligatorios | El bus |
+| `int1`, `int2` | opcionales | Las interrupciones del acelerómetro |
+| `drdy` | opcional | El dato listo del magnetómetro |
+
+Parámetros `ejes_a` y `ejes_m` (`x,y,z`); referencia `postura`. Observables
+`acel_x/y/z` (mg) y `campo_x/y/z` (mG).
+
+### 4.15 Lo que `mcu-sim-gui` puede ver y tocar
 
 Desde la fase 1 del plan de `mcu-sim-gui` (P-12), una pieza puede **declarar**
 qué deja ver —sus *observables*— y qué se le puede hacer —sus *mandos*—. La
@@ -1931,6 +2039,9 @@ Lo declaran estas:
 | `Encoder` | `posicion` (de 0 a `pasos − 1`, la que sugiere pintar), `cuenta`, `contacto_a` y `contacto_b` (0/1) | `girar` (discreto, la cuenta de clics, de −30000 a 30000) |
 | `Tft128x160` | `encendida` (0/1, la que sugiere pintar) y `luz` (mA, de 0 a 40); y la IMAGEN `pantalla`, de 128x160 | — |
 | `Servo` | `angulo` (°, de `angulo_min` a `angulo_max` o de 0 a 360, el que sugiere pintar), `pulso` (µs), `corriente` (mA) y `rpm` | `bloquear` (interruptor: sujeta el eje) |
+| `Postura` | `alabeo`, `cabeceo`, `rumbo` (°, los que sugiere pintar) y `giro` (dps) | `alabeo`, `cabeceo` y `rumbo` (continuos: la placa gira hasta ahí) |
+| `L3gd20`, `I3g4250d` | `giro_x`, `giro_y`, `giro_z` (dps) | — |
+| `Lsm303dlhc`, `Lsm303agr` | `acel_x/y/z` (mg) y `campo_x/y/z` (mG) | — |
 
 **Una pieza puede enseñar además una IMAGEN entera** —la pantalla de un
 TFT—, que no cabe en un número (`Imagen` en `parts/part_base.h`). El catálogo
@@ -1976,7 +2087,7 @@ existe—; simplemente no ha hecho falta todavía.
 encender un oscilador, enviar una trama CAN o inyectar una trama Ethernet son
 acciones, no descripción, y viven en el programa que conduce la simulación
 —o, con `--gui`, en la ventana, que las manda como órdenes a los mandos que
-cada pieza declara (§4.14)—.
+cada pieza declara (§4.15)—.
 
 **El MCU no se describe.** Variante, encapsulado y rasgos de los periféricos
 siguen fijados en C++. El fichero describe lo que está fuera del chip.

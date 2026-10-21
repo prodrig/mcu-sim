@@ -152,6 +152,7 @@ SC_MODULE(CortexM4F) {
           caps(c), nucleo(n), integracion(ig) {
         ccm_base_ = ram.ccm_base;
         ccm_size_ = ram.ccm_size;
+        ccm_exec_ = ram.ccm_ejecutable;
         // Sin SC_HAS_PROCESS: este módulo no declara ningún proceso propio -sus
         // hijos (cpu, fpu, scs) sí, cada uno el suyo-, y la macro solo define un
         // typedef que entonces no usa nadie. GCC y clang avisan de ello.
@@ -241,6 +242,7 @@ private:
     // transacción: el router las presta al payload y las retira al salir).
     AhbExt ext_i_, ext_d_, ext_s_, ext_dbg_;
     uint32_t ccm_base_ = addr::CCM_BASE, ccm_size_ = addr::CCM_SIZE;
+    bool     ccm_exec_ = false;            // MapaRam::ccm_ejecutable (F303)
 
     static bool is_ppb(uint64_t a)  { return a >= 0xE0000000ull && a < 0xE0100000ull; }
     static bool is_scs(uint64_t a)  { return a >= 0xE000E000ull && a < 0xE000F000ull &&
@@ -312,7 +314,11 @@ private:
         gp.set_address(a);
         // El ICode solo cubre la región Code; una búsqueda de instrucción por
         // encima de 0x2000 0000 sale por el bus System [IR, §5.1, §7.6].
-        if (a < 0x20000000ull) icode->b_transport(gp, t);
+        // Una CCM EJECUTABLE (F303) está también en el bus de instrucciones:
+        // la búsqueda va a su puerto directo, como los datos. En el F4 el
+        // rasgo es falso y esta línea no cambia nada.
+        if (ccm_exec_ && is_ccm(a)) ccm->b_transport(gp, t);
+        else if (a < 0x20000000ull) icode->b_transport(gp, t);
         else                   sbus->b_transport(gp, t);
         gp.set_address(a0);
         give_back(gp, lent);

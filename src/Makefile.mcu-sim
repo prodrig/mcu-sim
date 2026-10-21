@@ -243,7 +243,8 @@ LDLIBS   += -lsystemc $(LIBS_SO) $(EXTRA_LD)
 HDRS := $(wildcard common/*.h pins/*.h parts/*.h bus/*.h mem/*.h rcc/*.h core/*.h \
                    periph/*.h soc/*.h verif/*.h top/*.h \
                    periph/msp432p4/*.h soc/msp432p4/*.h soc/msp432p4/*.inc \
-                   periph/msp432e4/*.h soc/msp432e4/*.h soc/msp432e4/*.inc)
+                   periph/msp432e4/*.h soc/msp432e4/*.h soc/msp432e4/*.inc \
+                   soc/stm32f3/*.h soc/stm32f3/*.inc)
 
 TEST407 := $(B)/test407$(EXE)
 MCUSIM  := $(B)/mcu-sim$(EXE)
@@ -253,6 +254,7 @@ TESTSERIE := $(B)/testserie$(EXE)
 TESTGUI   := $(B)/testgui$(EXE)
 TESTP4    := $(B)/testp4$(EXE)
 TESTE4    := $(B)/teste4$(EXE)
+TESTF3    := $(B)/testf3$(EXE)
 HASHV   := $(B)/prueba_hash$(EXE)
 CRYPV   := $(B)/prueba_cryp$(EXE)
 BENCH  := $(B)/bench$(EXE)
@@ -267,7 +269,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 bsl-p4 eth-e4 usb-e4 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 bsl-p4 eth-e4 usb-e4 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -366,6 +368,18 @@ teste4-build: $(TESTE4)
 
 teste4: $(TESTE4)
 	$(TESTE4)
+
+# EL BANCO DEL STM32F303VC (fases S0-S2 de doc/analisis_stm32f303.md): otra
+# familia de ST, otro ejecutable, por lo mismo que los demas.
+#   make testf3
+$(TESTF3): top/sc_main_f3.cpp $(HDRS)
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_f3.cpp $(LDFLAGS) $(LDLIBS)
+
+testf3-build: $(TESTF3)
+
+testf3: $(TESTF3)
+	$(TESTF3)
 
 # --- La capa de red, que es la única parte no portable -----------------------
 # No necesita SystemC, así que se compila y se ejecuta en cualquier sitio, y se
@@ -636,6 +650,111 @@ e4-edumkii: $(MCUSIM)
 	    && echo "  [OK  ] e4-edumkii: el backchannel por JP4/JP5, el ADC, los dos sensores I2C y la pantalla con luz" \
 	    || { echo "  [FALLO] e4-edumkii: vease $(B)/e4-edumkii.log"; exit 1; }
 
+# LA STM32F3DISCOVERY (S1 del F303, doc/analisis_stm32f303.md): el mcu-sim de
+# verdad con placas/stm32f3discovery.xml y GPIO_IOToggle de STM32CubeF3, sin
+# modificar. A los 1000 ms la rosa esta a medio dar la vuelta: LD6 (PE15) y
+# LD8 (PE14) apagados y los otros seis encendidos -el ejemplo enciende un LED
+# cada 101 ms, de PE15 a PE8, y luego los apaga en el mismo orden-; el reloj,
+# 72 MHz por el HSE desde el MCO del ST-LINK (onda="no"); y sin un aviso.
+#   make f3-discovery
+f3-discovery: $(MCUSIM)
+	@$(MCUSIM) placas/stm32f3discovery.xml verif/fw/stm32f3/gpio_iotoggle/GPIO_IOToggle.bin \
+	    --ms=1000 > $(B)/f3-discovery.log 2>&1 || { cat $(B)/f3-discovery.log; exit 1; }
+	@grep -q "placa 'stm32f3discovery': 1 MCU(s), 25 componentes, 160 nodos, 0 avisos" $(B)/f3-discovery.log \
+	    && grep -q "dibujo: stm32f3discovery.svg (.*JP3 1-2, U3 LSM303AGR, U5 I3G4250D)" $(B)/f3-discovery.log \
+	    && grep -q "LED LD6 en PE15: apagado" $(B)/f3-discovery.log \
+	    && grep -q "LED LD8 en PE14: apagado" $(B)/f3-discovery.log \
+	    && test "$$(grep -c 'LED LD[0-9]* en PE[0-9]*: encendido' $(B)/f3-discovery.log)" = 6 \
+	    && ! grep -q "Warning" $(B)/f3-discovery.log \
+	    && echo "  [OK  ] f3-discovery: GPIO_IOToggle de ST en la STM32F3DISCOVERY, la rosa a 72 MHz por el HSE" \
+	    || { echo "  [FALLO] f3-discovery: vease $(B)/f3-discovery.log"; exit 1; }
+
+# EL PUERTO COM VIRTUAL DE LA STM32F3DISCOVERY (S3 del F303): el VCP de
+# placas/stm32f3discovery.xml, la USART1 en PC4/PC5, con verif/fw/stm32f3/f3_vcp
+# a 115200 8N1 y 72 MHz, en memoria (--serie VCP=memoria): el saludo y una
+# linea cada 100 ms, sin un error de trama ni un aviso. Y el sistema de dos
+# Discovery (placas/dos_f3discovery.xml, con UART_TwoBoards_ComIT de ST):
+# --valida dice que el VCP de B se corre al 3356, y en marcha, con los dos
+# VCP en memoria, A espera su B1 con LD4 parpadeando y nadie enciende LD5 (el
+# intercambio en si, con la pulsacion, es F22-F24 de testf3).
+#   make f3-vcp
+f3-vcp: $(MCUSIM)
+	@$(MCUSIM) placas/stm32f3discovery.xml verif/fw/stm32f3/f3_vcp/f3_vcp.bin \
+	    --ms=350 --serie VCP=memoria > $(B)/f3-vcp.log 2>&1 || { cat $(B)/f3-vcp.log; exit 1; }
+	@grep -q "\[VCP\] f3_vcp: la USART1 por PC4/PC5, 115200 8N1, SYSCLK 72 MHz" $(B)/f3-vcp.log \
+	    && grep -q "\[VCP\] tic 3" $(B)/f3-vcp.log \
+	    && grep -q "serie VCP: 79 bytes del MCU (0 con error de trama, 0 de paridad)" $(B)/f3-vcp.log \
+	    && ! grep -q "Warning" $(B)/f3-vcp.log \
+	    && echo "  [OK  ] f3-vcp: el VCP de la STM32F3DISCOVERY, la USART1 por PC4/PC5" \
+	    || { echo "  [FALLO] f3-vcp: vease $(B)/f3-vcp.log"; exit 1; }
+	@$(MCUSIM) placas/dos_f3discovery.xml --valida > $(B)/f3-dos.log 2>&1 || { cat $(B)/f3-dos.log; exit 1; }
+	@$(MCUSIM) placas/dos_f3discovery.xml --ms=650 --serie A/VCP=memoria --serie B/VCP=memoria \
+	    >> $(B)/f3-dos.log 2>&1 || { cat $(B)/f3-dos.log; exit 1; }
+	@grep -q "B/VCP: el puerto 3355 es tambien el de A/VCP en su fichero; escucha en el 3356" $(B)/f3-dos.log \
+	    && grep -q "en total: 2 MCU(s), 53 componentes, 312 nodos, 0 avisos" $(B)/f3-dos.log \
+	    && grep -q "LED A/LD4 en A/u0.PE8: encendido" $(B)/f3-dos.log \
+	    && ! grep -q "LD5 en [AB]/u0.PE10: encendido" $(B)/f3-dos.log \
+	    && ! grep -q "Warning" $(B)/f3-dos.log \
+	    && echo "  [OK  ] f3-vcp: dos STM32F3DISCOVERY en un sistema, cada VCP en su puerto" \
+	    || { echo "  [FALLO] f3-vcp: vease $(B)/f3-dos.log"; exit 1; }
+
+# LA DEMOSTRACION DE ST PARA LA STM32F3DISCOVERY (S4 del F303): es SLA0044 y
+# no se versiona, asi que se compila aqui desde una copia de STM32CubeF3 con su
+# middleware USB y la prueba F58 de testf3 (TESTF3_SOLO=demo) la corre: la
+# rosa, el giroscopo con el LED del lado que baja y el acelerometro. Sin
+# STM32CUBEF3 se OMITE y lo dice. No va en el CI.
+#   make -f Makefile.mcu-sim f3-demo STM32CUBEF3=/ruta/a/STM32CubeF3
+STM32CUBEF3 ?=
+f3-demo: $(TESTF3)
+	@if [ -z "$(STM32CUBEF3)" ]; then \
+	   echo "  [OMITE] f3-demo: hace falta STM32CUBEF3=/ruta/a/STM32CubeF3 (con Middlewares/ST/STM32_USB_Device_Library)"; \
+	 else \
+	   $(MAKE) --no-print-directory -C verif/fw/stm32f3/ejemplos_s4 demo STM32CUBEF3="$(STM32CUBEF3)" >$(B)/f3-demo-fw.log 2>&1 \
+	     || { cat $(B)/f3-demo-fw.log; exit 1; }; \
+	   TESTF3_SOLO=demo $(TESTF3) > $(B)/f3-demo.log 2>&1; \
+	   sed -n '/--- F58/,/TOTAL/p' $(B)/f3-demo.log | grep "OK  \]\|FALLO\]"; \
+	   grep -q "comprobaciones OK, 0 fallos" $(B)/f3-demo.log \
+	     && echo "  [OK  ] f3-demo: la demostracion de ST en la STM32F3DISCOVERY" \
+	     || { echo "  [FALLO] f3-demo: vease $(B)/f3-demo.log"; exit 1; }; \
+	 fi
+
+# EL CARGADOR DE SISTEMA DEL F303 CON stm32flash (S7 del F303): el sistema
+# placas/stm32f3discovery_boot0.xml -la Discovery con BOOT0 a VDD y un FT232RL
+# en la USART1- a tiempo real, su U1 por RFC 2217, verif/pty_rfc2217.py que lo
+# convierte en un pty a 115200 8E1, y stm32flash 0.7, sin modificar, que borra,
+# (con -m 8n1: un pty de Linux no guarda la paridad, y stm32flash comprueba lo
+# que pone; la paridad de verdad la pone el puente RFC 2217)
+# escribe f3_vcp.bin, lo verifica y lo arranca (GO): el VCP de la placa, en
+# memoria, tiene que dar su saludo. Sin stm32flash o sin pySerial se OMITE y lo
+# dice. No va en el CI (necesita un pty y tiempo real).
+#   make -f Makefile.mcu-sim f3-stm32flash
+PUERTO_STM32FLASH ?= 47361
+f3-stm32flash: $(MCUSIM)
+	@if ! command -v stm32flash >/dev/null 2>&1; then \
+	   echo "  [OMITE] f3-stm32flash: no hay stm32flash (apt install stm32flash)"; \
+	 elif ! python3 -c "import serial" >/dev/null 2>&1; then \
+	   echo "  [OMITE] f3-stm32flash: hace falta pySerial (python3 -m pip install pyserial)"; \
+	 else \
+	   rm -f $(B)/f3tty; \
+	   $(MCUSIM) placas/stm32f3discovery_boot0.xml --ms=6000 --tiempo-real \
+	       --serie F/U1=rfc2217:$(PUERTO_STM32FLASH) --serie D/VCP=memoria \
+	       > $(B)/f3-stm32flash-sim.log 2>&1 & sim=$$!; \
+	   python3 verif/pty_rfc2217.py $(PUERTO_STM32FLASH) $(B)/f3tty 115200 8E1 \
+	       > $(B)/f3-stm32flash-pty.log 2>&1 & pty=$$!; \
+	   i=0; while [ ! -e $(B)/f3tty ] && [ $$i -lt 100 ]; do sleep 0.1; i=$$((i+1)); done; \
+	   stm32flash -b 115200 -m 8n1 -w verif/fw/stm32f3/f3_vcp/f3_vcp.bin -v -g 0x0 $(B)/f3tty \
+	       > $(B)/f3-stm32flash.log 2>&1; r=$$?; \
+	   sleep 1; kill $$pty 2>/dev/null; wait $$sim; \
+	   cat $(B)/f3-stm32flash-sim.log >> $(B)/f3-stm32flash.log; \
+	   test $$r = 0 \
+	     && grep -q "Device ID *: 0x0422" $(B)/f3-stm32flash.log \
+	     && grep -q "Version *: 0x31" $(B)/f3-stm32flash.log \
+	     && grep -q "Wrote and verified address 0x08000414 (100.00%) Done" $(B)/f3-stm32flash.log \
+	     && grep -q "\[D/VCP\] f3_vcp: la USART1 por PC4/PC5" $(B)/f3-stm32flash.log \
+	     && echo "  [OK  ] f3-stm32flash: stm32flash borra, escribe, verifica y arranca f3_vcp por el cargador AN3155" \
+	     || { echo "  [FALLO] f3-stm32flash: vease $(B)/f3-stm32flash.log"; exit 1; }; \
+	 fi
+
 # LA PREBUSQUEDA DE LA FLASH DEL E4 A 120 MHz (FWS = 5):
 # verif/fw/msp432e4/e4_retardo mide con el TIMER2 los ciclos de una vuelta
 # del bucle de SysCtlDelay alineado en una linea de 256 bits, cruzando una
@@ -658,7 +777,9 @@ e4-retardo: $(MCUSIM)
 # T5: OpenOCD DE VERDAD contra el modelo, por los pines, con la sonda
 # remote_bitbang (--openocd): `program ... verify reset` en el MSP432P401R
 # con target/ti/msp432.cfg y en el F407 con target/stm32f4x.cfg, sin
-# tocarlos, y GDB por OpenOCD con los hilos de FreeRTOS. Hace falta un
+# tocarlos, y GDB por OpenOCD con los hilos de FreeRTOS. Y desde S2 del F303
+# (O5), la STM32F3DISCOVERY con target/stm32f3x.cfg y `load` por su servidor
+# de GDB; `make cmsis-dap` hace lo mismo por CMSIS-DAP (C6). Hace falta un
 # OpenOCD de git (ci/construye_openocd.sh): con la 0.12.0 de las
 # distribuciones la prueba se OMITE y lo dice, salvo con OPENOCD_OBLIGATORIO=1.
 #   make -f Makefile.mcu-sim openocd OPENOCD=/ruta/a/bin/openocd
@@ -971,6 +1092,12 @@ FWE4 := verif/fw/msp432e4/e4_demo verif/fw/msp432e4/coremark verif/fw/msp432e4/e
         verif/fw/msp432e4/e4_t3 verif/fw/msp432e4/e4_rom verif/fw/msp432e4/rom_r1 \
         verif/fw/msp432e4/e4_t7 verif/fw/msp432e4/e4_eth verif/fw/msp432e4/e4_bootp \
         verif/fw/msp432e4/e4_usb verif/fw/msp432e4/e4_edumkii
+# Los del STM32F303VC (S1 y S2 de doc/analisis_stm32f303.md): con el CMSIS de
+# ST (verif/fw/stm32f3/sdk) y, los de STM32CubeF3, con su HAL, sin modificar.
+FWF3 := verif/fw/stm32f3/f3_demo verif/fw/stm32f3/coremark verif/fw/stm32f3/gpio_iotoggle \
+        verif/fw/stm32f3/gpio_exti verif/fw/stm32f3/flash_eraseprogram \
+        verif/fw/stm32f3/f3_vcp verif/fw/stm32f3/ejemplos_s3 \
+        verif/fw/stm32f3/f3_mems verif/fw/stm32f3/ejemplos_s4
 # Los de las placas de ejemplo que no usa ninguna suite de C++: el de
 # placas/barra8_en_nucleo.xml y el de placas/nucleo_f446re_barra8ac_azul.xml,
 # que vigila `make gui-sistema`; los de la pantalla TFT, el de
@@ -984,7 +1111,8 @@ FWPLACAS := verif/fw/barra8_demo verif/fw/barra8_morpho verif/fw/tft_demo verif/
 # escribir otra lista: asi un firmware nuevo se borra sin tocar esto.
 FW_TODOS := $(sort $(patsubst %/Makefile,%,$(wildcard verif/fw/Makefile verif/fw/*/Makefile \
                                                          verif/fw/msp432p4/*/Makefile \
-                                                         verif/fw/msp432e4/*/Makefile)))
+                                                         verif/fw/msp432e4/*/Makefile \
+                                                         verif/fw/stm32f3/*/Makefile)))
 
 # Un aviso util en vez de veinte errores de «command not found». No aborta: hay
 # quien tiene el compilador en un sitio raro y sabe lo que hace.
@@ -1071,8 +1199,16 @@ fwe4:
 	 done
 	@echo "  [fw] los $(words $(FWE4)) firmwares de la suite del MSP432E401Y, listos"
 
+fwf3:
+	$(AVISA_VERSIONADOS)
+	$(COMPRUEBA_CROSS)
+	@for d in $(FWF3); do \
+	   echo "  [fw] $$d"; $(MAKE) --no-print-directory -C $$d || exit 1; \
+	 done
+	@echo "  [fw] los $(words $(FWF3)) firmwares de la suite del STM32F303, listos"
+
 # Los siete juegos, sin simular nada.
-fw: fw407 fw446 fw417 fwserie fwplacas fwp4 fwe4
+fw: fw407 fw446 fw417 fwserie fwplacas fwp4 fwe4 fwf3
 
 # Y las suites con sus firmwares delante. En una maquina nueva ya NO hacen
 # falta: `make test407` a secas funciona, porque los .bin vienen en el
@@ -1095,6 +1231,9 @@ testp4fw: fwp4
 	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) testp4
 teste4fw: fwe4
 	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) teste4
+
+testf3fw: fwf3
+	$(MAKE) --no-print-directory -f $(ESTE_MAKEFILE) testf3
 
 # Borra los .bin, .elf, .o y .map de TODOS los firmwares, sean de la suite que
 # sean. Util para comprobar que la cadena cruzada funciona de cero.

@@ -118,3 +118,63 @@ e4  msp432e4/e4_usb/e4_usb.out            30676  0x1DDB13CD
 e4  msp432e4/e4_usb/e4_usb.bin             4872  0x3A6BC117
 e4  msp432e4/e4_edumkii/e4_edumkii.out    31444  0xC232D666
 e4  msp432e4/e4_edumkii/e4_edumkii.bin     5768  0x1DE331BE
+
+# STM32F303VC (S1 y S2)
+f3  stm32f3/f3_demo/f3_demo.bin                      2100  0xAE6E4758
+f3  stm32f3/coremark/coremark_f3.bin                14560  0x7A36CAB7
+f3  stm32f3/gpio_iotoggle/GPIO_IOToggle.bin          3580  0x9E4FA656
+f3  stm32f3/gpio_exti/GPIO_EXTI.bin                  3908  0xE9E9BA36
+f3  stm32f3/flash_eraseprogram/FLASH_EraseProgram.bin   4464  0x4781D308
+
+# STM32F303VC (S3): el VCP, y los ejemplos de STM32CubeF3 sin modificar
+# (verif/fw/stm32f3/ejemplos_s3; los *_tx/_rx y *_maestro/_esclavo son el
+# mismo ejemplo con su interruptor de placa, y PWR_CurrentConsumption_<MODO>
+# el mismo con -D<MODO>)
+f3  stm32f3/f3_vcp/f3_vcp.bin                              1044  0x3616DEBA
+f3  stm32f3/ejemplos_s3/HAL_TimeBase_RTC_ALARM.bin         5244  0x086346AE
+f3  stm32f3/ejemplos_s3/HAL_TimeBase_RTC_WKUP.bin          5120  0x73C6F79C
+f3  stm32f3/ejemplos_s3/HAL_TimeBase_TIM.bin               4892  0x371AE387
+f3  stm32f3/ejemplos_s3/I2C_TwoBoards_AdvComIT_esclavo.bin   8660  0xB65933D1
+f3  stm32f3/ejemplos_s3/I2C_TwoBoards_AdvComIT_maestro.bin   9432  0xCAACD3AE
+f3  stm32f3/ejemplos_s3/I2C_TwoBoards_ComDMA_esclavo.bin   9268  0xF1FFE13E
+f3  stm32f3/ejemplos_s3/I2C_TwoBoards_ComDMA_maestro.bin  10164  0x0F4EF1BD
+f3  stm32f3/ejemplos_s3/I2C_TwoBoards_ComIT_esclavo.bin    8352  0x869FDA39
+f3  stm32f3/ejemplos_s3/I2C_TwoBoards_ComIT_maestro.bin    9072  0x7CBA697F
+f3  stm32f3/ejemplos_s3/I2C_TwoBoards_ComPolling_esclavo.bin   6420  0x104CB2F3
+f3  stm32f3/ejemplos_s3/I2C_TwoBoards_ComPolling_maestro.bin   6756  0x44C3AC15
+f3  stm32f3/ejemplos_s3/IWDG_Reset.bin                     6384  0xEE087A8D
+f3  stm32f3/ejemplos_s3/IWDG_WindowMode.bin                4304  0xF0890EED
+f3  stm32f3/ejemplos_s3/PWR_CurrentConsumption.bin         4736  0x8D03B490
+f3  stm32f3/ejemplos_s3/PWR_CurrentConsumption_STANDBY_MODE.bin   4592  0x448731CF
+f3  stm32f3/ejemplos_s3/PWR_CurrentConsumption_STANDBY_RTC_MODE.bin   5760  0xF7C7900D
+f3  stm32f3/ejemplos_s3/PWR_CurrentConsumption_STOP_RTC_MODE.bin   6256  0x0B1AC883
+f3  stm32f3/ejemplos_s3/PWR_PVD.bin                        4100  0x74F31FDF
+f3  stm32f3/ejemplos_s3/PWR_STANDBY.bin                    6184  0x62981A59
+f3  stm32f3/ejemplos_s3/PWR_STOP.bin                       5840  0x5C4A548D
+f3  stm32f3/ejemplos_s3/RTC_Calendar.bin                   9200  0x6551841E
+f3  stm32f3/ejemplos_s3/SPI_FullDuplex_ComDMA_esclavo.bin   6676  0x97772B23
+f3  stm32f3/ejemplos_s3/SPI_FullDuplex_ComDMA_maestro.bin   6968  0x5A8896F3
+f3  stm32f3/ejemplos_s3/SPI_FullDuplex_ComIT_esclavo.bin   6192  0xEC27CCB6
+f3  stm32f3/ejemplos_s3/SPI_FullDuplex_ComIT_maestro.bin   6512  0xB8B128AB
+f3  stm32f3/ejemplos_s3/SPI_FullDuplex_ComPolling_esclavo.bin   5980  0x65FAAB94
+f3  stm32f3/ejemplos_s3/SPI_FullDuplex_ComPolling_maestro.bin   6256  0x45583FE4
+f3  stm32f3/ejemplos_s3/TIM_Asymetric.bin                  6184  0x466B8BFB
+f3  stm32f3/ejemplos_s3/TIM_Combined.bin                   5608  0xB62E8524
+f3  stm32f3/ejemplos_s3/TIM_ComplementarySignals.bin       6064  0x99806CCD
+f3  stm32f3/ejemplos_s3/TIM_DMA.bin                        6496  0x684D2132
+f3  stm32f3/ejemplos_s3/TIM_InputCapture.bin               5560  0x74C9BCCE
+f3  stm32f3/ejemplos_s3/TIM_PWMInput.bin                   5924  0xE085FB11
+f3  stm32f3/ejemplos_s3/TIM_PWMOutput.bin                  5552  0xD504D571
+f3  stm32f3/ejemplos_s3/TIM_TimeBase.bin                   4612  0x179BFBD9
+f3  stm32f3/ejemplos_s3/UART_TwoBoards_ComDMA_rx.bin       8156  0x0E061385
+f3  stm32f3/ejemplos_s3/UART_TwoBoards_ComDMA_tx.bin       8312  0x348F25F6
+f3  stm32f3/ejemplos_s3/UART_TwoBoards_ComIT_rx.bin        7560  0x08A63832
+f3  stm32f3/ejemplos_s3/UART_TwoBoards_ComIT_tx.bin        7716  0xE48B811C
+f3  stm32f3/ejemplos_s3/UART_TwoBoards_ComPolling_rx.bin   6048  0x49D1435B
+f3  stm32f3/ejemplos_s3/UART_TwoBoards_ComPolling_tx.bin   6360  0xC79AA7E4
+f3  stm32f3/ejemplos_s3/WWDG_Example.bin                   4320  0xAB6212B6
+
+# STM32F303VC (S4): los sensores. La demostracion de ST (ejemplos_s4/demo) no:
+# es SLA0044 y no se versiona
+f3  stm32f3/f3_mems/f3_mems.bin                            2024  0x47811E62
+f3  stm32f3/ejemplos_s4/BSP.bin                           12040  0xE82C2864

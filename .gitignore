@@ -56,6 +56,12 @@ trace/
 src/verif/fw/msp432p4/rom_r1/tablas.c
 src/verif/fw/msp432e4/rom_r1/tablas.c
 src/verif/fw/msp432e4/rom_r1/simbolos.txt
+# Los objetos de los ejemplos de ST de S3 del F303, y la copia del main.c de
+# los receptores UART (SIN_DEF= de ejemplo_st.mk)
+src/verif/fw/stm32f3/ejemplos_s3/obj/
+src/verif/fw/stm32f3/ejemplos_s4/obj/
+# La demostracion de ST (S4): SLA0044, no se versiona ni compilada
+src/verif/fw/stm32f3/ejemplos_s4/demo/
 
 # Herramientas de análisis
 *.gcda

@@ -1,0 +1,82 @@
+{
+    // VS Code contra el STM32F303VC del simulador (fase S2 del F303).
+    // Copiar a .vscode/launch.json del proyecto y cambiar "executable"/"program".
+    // Antes de depurar, el simulador escuchando (ide/stm32f3/README.md):
+    //     ./build/mcu-sim placas/stm32f3discovery.xml --gdb-dap --tiempo-real
+    // o, para las dos ultimas entradas, con --cmsis-dap (y OpenOCD lo arranca
+    // la propia extension).
+    "version": "0.2.0",
+    "configurations": [
+        {
+            // Con la extension Cortex-Debug (marus25.cortex-debug), contra el
+            // stub de GDB del simulador
+            "name": "STM32F303VC (simulador, Cortex-Debug)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "external",
+            "gdbTarget": "localhost:3333",
+            "gdbPath": "arm-none-eabi-gdb",
+            "executable": "${workspaceFolder}/Debug/TU_PROYECTO.elf",
+            "cwd": "${workspaceFolder}",
+            "device": "STM32F303VC",
+            "runToEntryPoint": "main",
+            // El stub hace el reset y el halt; la carga programa la Flash por
+            // el FPEC, media palabra a media palabra. GDB no relee los
+            // registros tras un `monitor`: hay que decirselo.
+            "overrideLaunchCommands": [
+                "monitor reset halt",
+                "maintenance flush register-cache",
+                "load",
+                "monitor reset halt",
+                "maintenance flush register-cache"
+            ],
+            "overrideResetCommands": [
+                "monitor reset halt",
+                "maintenance flush register-cache"
+            ],
+            "overrideRestartCommands": [
+                "monitor reset halt",
+                "maintenance flush register-cache"
+            ]
+        },
+        {
+            // Cortex-Debug con OpenOCD, por la sonda CMSIS-DAP del simulador
+            // (mcu-sim ... --cmsis-dap): target/stm32f3x.cfg de OpenOCD, sin tocar
+            "name": "STM32F303VC (simulador, OpenOCD por CMSIS-DAP)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "serverpath": "openocd",
+            "configFiles": ["${workspaceFolder}/ide/stm32f3/openocd/mcu-sim-cmsis-dap_stm32f303.cfg"],
+            "gdbPath": "arm-none-eabi-gdb",
+            "executable": "${workspaceFolder}/Debug/TU_PROYECTO.elf",
+            "cwd": "${workspaceFolder}",
+            "device": "STM32F303VC",
+            "runToEntryPoint": "main"
+        },
+        {
+            // Sin extensiones de ARM: el depurador de C/C++ de Microsoft
+            // (ms-vscode.cpptools), por MI, contra el stub
+            "name": "STM32F303VC (simulador, cppdbg)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/Debug/TU_PROYECTO.elf",
+            "cwd": "${workspaceFolder}",
+            "MIMode": "gdb",
+            "miDebuggerPath": "arm-none-eabi-gdb",
+            "miDebuggerServerAddress": "localhost:3333",
+            "stopAtConnect": true,
+            "setupCommands": [
+                { "text": "set pagination off" }
+            ],
+            "postRemoteConnectCommands": [
+                { "text": "monitor reset halt" },
+                { "text": "maintenance flush register-cache" },
+                { "text": "load" },
+                { "text": "monitor reset halt" },
+                { "text": "maintenance flush register-cache" },
+                { "text": "tbreak main" }
+            ]
+        }
+    ]
+}

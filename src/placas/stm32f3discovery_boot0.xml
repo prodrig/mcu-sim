@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     LA STM32F3DISCOVERY EN EL CARGADOR DE SISTEMA, con un FT232RL en la
+     USART1 (S7 del F303)
+
+     En la placa, BOOT0 va a masa por SB19 y R35 (510 ohm): arranca siempre de
+     la Flash. Para arrancar el cargador de la memoria de sistema basta un
+     puente entre los pines 19 (BOOT0) y 20 (VDD) de P2, que estan uno al lado
+     del otro: los 3 V ganan a los 510 ohm, y se pulsa RESET (B2)
+     [UM1570, tabla 6 y §6.12; AN2606, «STM32F303xB/C»].
+
+     El cargador escucha en la USART1 (PA9 TX, PA10 RX) y en la USART2 (PD5
+     TX, PD6 RX), a 8E1 y a la velocidad que diga el 0x7F del anfitrion. El
+     del modelo es PROPIO -el de ST no se puede distribuir-, con el protocolo
+     de AN3155 (src/soc/stm32f3/cargador/). Aqui, el adaptador de
+     ftdi_ft232rl.xml a 3,3 V en la USART1:
+
+         FT232RL         Discovery
+         P1.RX     <-    P2.44  PA9  (USART1_TX)
+         P1.TX     ->    P2.43  PA10 (USART1_RX)
+         P1.GND    -     P1.3   GND
+
+     Su U1 es un RFC 2217 en el 3356 que configura el terminal: 115200 8E1 lo
+     pone quien se conecte. `make f3-stm32flash` lo prueba con stm32flash, por
+     un pty (verif/pty_rfc2217.py):
+
+         ./build/mcu-sim placas/stm32f3discovery_boot0.xml --valida
+         ./build/mcu-sim placas/stm32f3discovery_boot0.xml --ms=60000 --tiempo-real &
+         python3 verif/pty_rfc2217.py 3356 /tmp/f3tty &
+         stm32flash -b 115200 -m 8n1 -w verif/fw/stm32f3/f3_vcp/f3_vcp.bin -v -g 0 /tmp/f3tty
+
+     -m 8n1 porque un pty de Linux no guarda la paridad y stm32flash comprueba
+     lo que pone: el 8E1 de la linea lo pone pty_rfc2217.py por RFC 2217.
+     Con un puerto de verdad (o com0com en Windows), el -m de siempre.
+     ========================================================================= -->
+<sistema nombre="stm32f3discovery-boot0">
+  <placa id="D" fichero="stm32f3discovery.xml" x="0" y="0"/>
+  <placa id="F" fichero="ftdi_ft232rl.xml" x="130" y="40"/>
+  <jumper ref="F/JP1" puente="VCC 3.3V"/>
+
+  <!-- El puente de BOOT0 a VDD, en P2 -->
+  <hilo a="D/EXP2.19" b="D/EXP2.20"/>
+
+  <!-- El adaptador en la USART1 -->
+  <hilo a="F/P1.RX"  b="D/EXP2.44"/>   <!-- PA9, el TX del chip -->
+  <hilo a="F/P1.TX"  b="D/EXP2.43"/>   <!-- PA10, el RX -->
+  <hilo a="F/P1.GND" b="D/EXP1.3"/>
+</sistema>

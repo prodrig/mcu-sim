@@ -4,7 +4,8 @@
 #
 # Ejecuta las suites -las tres de siempre; desde la fase D1 del puente UART
 # (P-14), `testserie`; desde la fase 1 de mcu-sim-gui (P-12), `testgui`; y
-# las de los MSP432, `testp4` (T1) y `teste4` (T6)-.
+# las de los MSP432, `testp4` (T1) y `teste4` (T6); y la del STM32F303,
+# `testf3` (S0-S3 de doc/analisis_stm32f303.md)-.
 # Existe por un fallo del 2026-09-28 que costo la unica cosa que no se puede
 # reconstruir: LA EVIDENCIA.
 #
@@ -72,8 +73,9 @@ fallos=0
 # las mas baratas (segundos), y si algun dia se colgaran no deberian llevarse
 # por delante el log de las tres que tienen historia. `testp4`, el del
 # MSP432P401R (doc/analisis_msp432.md, T1), detras de todas por lo mismo, y
-# `teste4`, el del MSP432E401Y (T6), la ultima.
-for s in test407 test446 test417 testserie testgui testp4 teste4; do
+# `teste4`, el del MSP432E401Y (T6), detras; y `testf3`, el del STM32F303
+# (S0-S3), la ultima.
+for s in test407 test446 test417 testserie testgui testp4 teste4 testf3; do
     echo "  [suites] $s (presupuesto ${presupuesto}s)"
 
     # El `echo $?` dentro del subshell es como se recoge el estado a traves de

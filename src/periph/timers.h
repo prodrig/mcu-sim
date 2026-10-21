@@ -89,6 +89,23 @@ struct TimCaps {
     bool clock_division = true;   // CR1.CKD
     bool split_irq      = false;  // 4 vectores (BRK/UP/TRG_COM/CC) o uno solo
     const char* kind    = "TIM";  // etiqueta para trazas y avisos
+
+    // --- La tercera generación del bloque (gptimer2_v3_x: F3, F0, L4, G4) ---
+    // Todos a `false` en el F4, que es la condición de la fase S0: con ellos
+    // apagados, este fichero hace exactamente lo de siempre.
+    // [doc/analisis_stm32f303.md, §3.2; CMSIS stm32f303xc.h]
+    bool ocm_4bits     = false;   // OCxM[3] (bit 16/24): OPM redisparable y PWM
+                                  // combinado y asimétrico (modos 8-15)
+    bool break2        = false;   // segunda entrada de freno: BK2E/BK2P/BK2F, B2IF, B2G
+    bool filtro_break  = false;   // BDTR.BKF[19:16]
+    bool mms2          = false;   // CR2.MMS2[23:20] y la salida TRGO2 (hacia el ADC)
+    bool uif_remap     = false;   // CR1.UIFREMAP: copia de UIF en CNT[31]
+    bool sms_4bits     = false;   // SMCR.SMS[3]: modo 8, reset + disparo
+    bool or_reg        = false;   // registro de opciones (OR, 0x50)
+    bool ti1_remap     = false;   // OR.TI1_RMP: TI1 desde dentro (TIM16, S3)
+    // `channels` puede valer 5 o 6 en estos: CCR5 y CCR6 son canales SIN PIN,
+    // que comparan y dan referencia (para el ADC, TRGO2 y el agrupamiento
+    // GC5Cx con los canales 1-3) pero no salen al encapsulado.
 };
 
 // --- Las seis variantes del STM32F407VG ------------------------------------
@@ -145,12 +162,59 @@ constexpr TimCaps caps_basic() {              // TIM6, TIM7 [IR, §12.3]
     return c;
 }
 
+// --- Los del F303 (gptimer2_v3_x) [CMSIS stm32f303xc.h; PINDATA] ------------
+// Los mismos tipos que en el F4 con la tercera generación encendida, y tres
+// nuevos: TIM15 (dos canales, uno con complementaria) y TIM16/TIM17 (uno, con
+// complementaria). Todos con freno.
+constexpr TimCaps caps_v3(TimCaps c) {
+    c.ocm_4bits = true; c.uif_remap = true;
+    if (c.slave_mode) c.sms_4bits = true;
+    if (c.bdtr) c.filtro_break = true;
+    return c;
+}
+constexpr TimCaps caps_f3_advanced() {        // TIM1, TIM8 del F303
+    TimCaps c = caps_v3(caps_advanced());
+    c.channels = 6; c.break2 = true; c.mms2 = true; c.or_reg = true;
+    c.kind = "avanzado v3";
+    return c;
+}
+constexpr TimCaps caps_f3_tim15() {           // TIM15
+    TimCaps c{};
+    c.width_bits = 16; c.channels = 2; c.comp_channels = 1;
+    c.bdtr = true; c.repetition = true;
+    c.ext_trigger = false; c.encoder = false; c.hall = false;
+    c.center_aligned = false; c.down_count = false;
+    c = caps_v3(c);
+    c.kind = "TIM15";
+    return c;
+}
+constexpr TimCaps caps_f3_tim16() {           // TIM16, TIM17
+    TimCaps c{};
+    c.width_bits = 16; c.channels = 1; c.comp_channels = 1;
+    c.bdtr = true; c.repetition = true;
+    c.slave_mode = false; c.ext_trigger = false; c.encoder = false;
+    c.hall = false; c.trgo = false;
+    c.center_aligned = false; c.down_count = false;
+    c = caps_v3(c);
+    c.or_reg = true;                          // TIM16_OR: remapeo de TI1
+    c.kind = "TIM16/17";
+    return c;
+}
+
 inline constexpr TimCaps CAPS_TIM_ADV   = caps_advanced();
 inline constexpr TimCaps CAPS_TIM_GP32  = caps_gp32();
 inline constexpr TimCaps CAPS_TIM_GP16  = caps_gp16();
 inline constexpr TimCaps CAPS_TIM_GP2CH = caps_gp2ch();
 inline constexpr TimCaps CAPS_TIM_GP1CH = caps_gp1ch();
 inline constexpr TimCaps CAPS_TIM_BASIC = caps_basic();
+inline constexpr TimCaps CAPS_F3_TIM_ADV   = caps_f3_advanced();
+inline constexpr TimCaps CAPS_F3_TIM_GP32  = caps_v3(caps_gp32());
+inline constexpr TimCaps CAPS_F3_TIM_GP16  = caps_v3(caps_gp16());
+inline constexpr TimCaps CAPS_F3_TIM_BASIC = caps_v3(caps_basic());
+inline constexpr TimCaps CAPS_F3_TIM15     = caps_f3_tim15();
+inline constexpr TimCaps CAPS_F3_TIM16     = caps_f3_tim16();
+constexpr TimCaps caps_f3_tim16_rmp() { TimCaps c = caps_f3_tim16(); c.ti1_remap = true; c.kind = "TIM16"; return c; }
+inline constexpr TimCaps CAPS_F3_TIM16_RMP = caps_f3_tim16_rmp();   // el TIM16 de verdad; TIM17 no tiene remapeo
 
 // ---------------------------------------------------------------------------
 // Implementación común. Recibe los rasgos por el constructor: este es el punto
@@ -176,6 +240,14 @@ public:
     sc_core::sc_vector<sc_core::sc_signal<bool>> ch_out, ch_oe, ch_in;  // [4]
     sc_core::sc_vector<sc_core::sc_signal<bool>> chn_out, chn_oe;       // [3]
     sc_core::sc_signal<bool> etr_in{"etr_in"}, bkin_in{"bkin_in"};
+    // v3: la segunda entrada de freno y la segunda salida de disparo. Son
+    // SEÑALES y no puertos, como las de los pines: un F4 no tiene que atarlas.
+    sc_core::sc_signal<bool> bkin2_in{"bkin2_in"}, trgo2_sig{"trgo2_sig"};
+    // v3: las fuentes internas de TI1 que elige OR.TI1_RMP en el TIM16 del
+    // F303 (01 el RTC, 10 HSE/32, 11 el MCO) [CMSIS: TIM16_OR_TI1_RMP; HAL:
+    // TIM_TIM16_RTC, TIM_TIM16_HSE, TIM_TIM16_MCO]. Las conduce el SoC; un
+    // temporizador sin `ti1_remap` no las mira
+    sc_core::sc_signal<bool> ti1_rmp[3];
 
     // ---- Offsets [IR, §12.1.4-D] ------------------------------------------
     enum : uint32_t {
@@ -183,13 +255,16 @@ public:
         R_EGR = 0x14, R_CCMR1 = 0x18, R_CCMR2 = 0x1C, R_CCER = 0x20,
         R_CNT = 0x24, R_PSC = 0x28, R_ARR = 0x2C, R_RCR = 0x30,
         R_CCR1 = 0x34, R_CCR2 = 0x38, R_CCR3 = 0x3C, R_CCR4 = 0x40,
-        R_BDTR = 0x44, R_DCR = 0x48, R_DMAR = 0x4C
+        R_BDTR = 0x44, R_DCR = 0x48, R_DMAR = 0x4C,
+        // v3 [CMSIS stm32f303xc.h, TIM_TypeDef]
+        R_OR = 0x50, R_CCMR3 = 0x54, R_CCR5 = 0x58, R_CCR6 = 0x5C
     };
     enum SrBit : uint32_t {
         S_UIF = 1u << 0, S_CC1IF = 1u << 1, S_CC2IF = 1u << 2, S_CC3IF = 1u << 3,
         S_CC4IF = 1u << 4, S_COMIF = 1u << 5, S_TIF = 1u << 6, S_BIF = 1u << 7,
         S_CC1OF = 1u << 9, S_CC2OF = 1u << 10, S_CC3OF = 1u << 11,
-        S_CC4OF = 1u << 12
+        S_CC4OF = 1u << 12,
+        S_B2IF = 1u << 8, S_CC5IF = 1u << 16, S_CC6IF = 1u << 17     // v3
     };
     // Líneas de petición de DMA
     enum DmaLine : unsigned { D_UP = 0, D_CC1, D_CC2, D_CC3, D_CC4, D_COM,
@@ -211,10 +286,13 @@ public:
         SC_METHOD(reset_proc);  sensitive << rst_n;
         SC_METHOD(cap_proc);    dont_initialize();
         for (unsigned c = 0; c < 4; ++c) sensitive << ch_in[c];
+        if (caps_.ti1_remap) for (auto& x : ti1_rmp) sensitive << x;
         SC_METHOD(trig_proc);   dont_initialize();
         for (unsigned i = 0; i < 4; ++i) sensitive << itr[i];
         sensitive << ch_in[0] << ch_in[1] << etr_in;
         SC_METHOD(brk_proc);    sensitive << bkin_in; dont_initialize();
+        if (caps_.break2) { SC_METHOD(brk2_proc); sensitive << bkin2_in; dont_initialize(); }
+        if (caps_.mms2)   { SC_THREAD(trgo2_proc); }
     }
     // --- Atajo de selección en tiempo de ejecución -------------------------
     // Los dos ejes que más distinguen a un temporizador de otro: la anchura del
@@ -265,7 +343,13 @@ protected:
             case R_CCMR1: return ccmr_[0];
             case R_CCMR2: return ccmr_[1];
             case R_CCER:  return ccer_;
-            case R_CNT:   return cnt_now();
+            case R_CNT: {
+                const uint32_t v = cnt_now();
+                // UIFREMAP: la copia de UIF en el bit 31 (en TIM2, en lugar
+                // del bit 31 del contador) [CMSIS: TIM_CNT_UIFCPY]
+                if (uifremap()) return (v & 0x7FFFFFFFu) | ((sr_ & S_UIF) ? 0x80000000u : 0u);
+                return v;
+            }
             case R_PSC:   return psc_;
             case R_ARR:   return arr_;
             case R_RCR:   return caps_.repetition ? rcr_ : 0u;
@@ -280,6 +364,10 @@ protected:
             }
             case R_BDTR:  return caps_.bdtr ? bdtr_ : 0u;
             case R_DCR:   return caps_.dma_burst ? dcr_ : 0u;
+            case R_OR:    return caps_.or_reg ? or_ : 0u;
+            case R_CCMR3: return caps_.channels > 4 ? ccmr_[2] : 0u;
+            case R_CCR5:  return caps_.channels > 4 ? (ccr_[4] | (gc5c_ << 29)) : 0u;
+            case R_CCR6:  return caps_.channels > 5 ? ccr_[5] : 0u;
             default:      return 0;
         }
     }
@@ -327,8 +415,18 @@ protected:
                 if (!ocpe(c) || is_input(c)) ccr_act_[c] = ccr_[c];
                 break;
             }
-            case R_BDTR:  if (caps_.bdtr) { bdtr_ = v & 0xFFFFu; } break;
+            case R_BDTR:  if (caps_.bdtr) { bdtr_ = v & bdtr_mask(); } break;
             case R_DCR:   if (caps_.dma_burst) dcr_ = v & 0x1F1Fu; break;
+            case R_OR:    if (caps_.or_reg) or_ = v & 0xFFu; break;
+            case R_CCMR3: if (caps_.channels > 4) { ccmr_[2] = v & ccmr_mask(2); refresh_shadows(); } break;
+            case R_CCR5: case R_CCR6: {
+                const unsigned c = off == R_CCR5 ? 4u : 5u;
+                if (c >= caps_.channels) return;
+                if (c == 4) gc5c_ = (v >> 29) & 7u;            // GC5C1..3
+                ccr_[c] = v & cnt_mask() & (c == 4 && caps_.width_bits >= 32 ? 0x1FFFFFFFu : ~0u);
+                if (!ocpe(c)) ccr_act_[c] = ccr_[c];
+                break;
+            }
             case R_DMAR:  write_dmar(v); return;         // ya publica por dentro
             default:      return;
         }
@@ -346,11 +444,15 @@ private:
 
     // ---- Registros --------------------------------------------------------
     uint32_t cr1_ = 0, cr2_ = 0, smcr_ = 0, dier_ = 0, sr_ = 0;
-    uint32_t ccmr_[2] = {0, 0}, ccer_ = 0;
+    uint32_t ccmr_[3] = {0, 0, 0}, ccer_ = 0;
     uint32_t psc_ = 0, arr_ = 0xFFFFu, rcr_ = 0, bdtr_ = 0, dcr_ = 0;
-    uint32_t ccr_[4] = {0, 0, 0, 0};
+    uint32_t ccr_[6] = {0, 0, 0, 0, 0, 0};
+    uint32_t or_ = 0, gc5c_ = 0;           // v3: OR y GC5C1..3 de CCR5
+    uint32_t antes_reset_ = 0;             // CNT justo antes del reset del esclavo
+    sc_core::sc_time t_reset_ = sc_core::SC_ZERO_TIME;
+    bool hubo_reset_ = false;
     // ---- Copias activas (registros con precarga / sombra) -----------------
-    uint32_t psc_act_ = 0, arr_act_ = 0xFFFFu, ccr_act_[4] = {0, 0, 0, 0};
+    uint32_t psc_act_ = 0, arr_act_ = 0xFFFFu, ccr_act_[6] = {0, 0, 0, 0, 0, 0};
     uint32_t rep_ = 0;                     // contador de repeticiones actual
     uint32_t burst_i_ = 0;                 // índice del modo ráfaga DMAR
 
@@ -370,7 +472,9 @@ private:
     bool slave_gate_ = true;               // nivel de puerta en modo gated
 
     // ---- Salidas publicadas por un único proceso --------------------------
-    bool ref_[4] = {false, false, false, false};       // OCxREF
+    bool ref_[6] = {false, false, false, false, false, false};   // OCxREF
+    bool o_trgo2_ = false;                 // v3: TRGO2
+    sc_core::sc_event trgo2_ev_;
     bool o_ch_[4] = {false, false, false, false}, o_che_[4] = {false, false, false, false};
     bool o_chn_[3] = {false, false, false}, o_chne_[3] = {false, false, false};
     bool o_irq_g_ = false, o_irq_up_ = false, o_irq_cc_ = false;
@@ -395,7 +499,14 @@ private:
     unsigned mms()   const { return caps_.trgo ? ((cr2_ >> 4) & 7u) : 0u; }
     bool     ccds()  const { return (cr2_ >> 3) & 1u; }
     bool     ti1s()  const { return caps_.hall && ((cr2_ >> 7) & 1u); }
-    unsigned sms()   const { return caps_.slave_mode ? (smcr_ & 7u) : 0u; }
+    unsigned sms()   const {
+        if (!caps_.slave_mode) return 0u;
+        return (smcr_ & 7u) | (caps_.sms_4bits && ((smcr_ >> 16) & 1u) ? 8u : 0u);
+    }
+    bool     uifremap() const { return caps_.uif_remap && ((cr1_ >> 11) & 1u); }
+    unsigned mms2()  const { return caps_.mms2 ? ((cr2_ >> 20) & 0xFu) : 0u; }
+    bool     bk2e()  const { return caps_.break2 && ((bdtr_ >> 24) & 1u); }
+    bool     bk2p()  const { return (bdtr_ >> 25) & 1u; }
     unsigned ts()    const { return (smcr_ >> 4) & 7u; }
     bool     ece()   const { return caps_.ext_trigger && ((smcr_ >> 14) & 1u); }
     bool     etp()   const { return caps_.ext_trigger && ((smcr_ >> 15) & 1u); }
@@ -411,11 +522,17 @@ private:
     // Campos por canal (CCMRx dividido en dos mitades de 8 bits)
     unsigned ccs(unsigned c)  const { return (ccmr_[c / 2] >> (8 * (c & 1))) & 3u; }
     bool     is_input(unsigned c) const { return ccs(c) != 0; }
-    unsigned ocm(unsigned c)  const { return (ccmr_[c / 2] >> (8 * (c & 1) + 4)) & 7u; }
+    unsigned ocm(unsigned c)  const {
+        const unsigned m = (ccmr_[c / 2] >> (8 * (c & 1) + 4)) & 7u;
+        if (!caps_.ocm_4bits) return m;
+        return m | (((ccmr_[c / 2] >> (16 + 8 * (c & 1))) & 1u) << 3);   // OCxM[3]
+    }
     bool     ocpe(unsigned c) const { return (ccmr_[c / 2] >> (8 * (c & 1) + 3)) & 1u; }
     unsigned icpsc(unsigned c)const { return (ccmr_[c / 2] >> (8 * (c & 1) + 2)) & 3u; }
     bool     cce(unsigned c)  const { return (ccer_ >> (4 * c)) & 1u; }
     bool     ccp(unsigned c)  const { return (ccer_ >> (4 * c + 1)) & 1u; }
+    // Los canales con pin, que son los cuatro primeros: CCR5 y CCR6 no salen.
+    unsigned pin_channels() const { return caps_.channels < 4 ? caps_.channels : 4u; }
     bool     ccne(unsigned c) const { return (ccer_ >> (4 * c + 2)) & 1u; }
     bool     ccnp(unsigned c) const { return (ccer_ >> (4 * c + 3)) & 1u; }
     bool     ois(unsigned c)  const { return (cr2_ >> (8 + 2 * c)) & 1u; }
@@ -431,6 +548,7 @@ private:
         if (caps_.down_count)     m |= 1u << 4;            // DIR
         if (caps_.center_aligned) m |= 3u << 5;            // CMS
         if (caps_.clock_division) m |= 3u << 8;            // CKD
+        if (caps_.uif_remap)      m |= 1u << 11;           // UIFREMAP
         return m;
     }
     uint32_t cr2_mask() const {
@@ -443,23 +561,25 @@ private:
             for (unsigned c = 0; c < caps_.channels; ++c) m |= 1u << (8 + 2 * c);
             for (unsigned c = 0; c < caps_.comp_channels; ++c) m |= 1u << (9 + 2 * c);
         }
+        if (caps_.mms2) m |= 0xFu << 20;                   // MMS2
         return m;
     }
     uint32_t smcr_mask() const {
         uint32_t m = 0;
         if (caps_.slave_mode)  m |= 0x00F7u;               // SMS, TS, MSM
         if (caps_.ext_trigger) m |= 0xFF00u;               // ETF, ETPS, ECE, ETP
+        if (caps_.sms_4bits)   m |= 1u << 16;              // SMS[3]
         return m;
     }
     uint32_t dier_mask() const {
         uint32_t m = 1u << 0;                              // UIE
-        for (unsigned c = 0; c < caps_.channels; ++c) m |= 1u << (1 + c);
+        for (unsigned c = 0; c < pin_channels(); ++c) m |= 1u << (1 + c);
         if (caps_.comp_channels) m |= 1u << 5;             // COMIE
         if (caps_.slave_mode)    m |= 1u << 6;             // TIE
         if (caps_.bdtr)          m |= 1u << 7;             // BIE
         if (caps_.dma) {
             m |= 1u << 8;                                  // UDE
-            for (unsigned c = 0; c < caps_.channels; ++c) m |= 1u << (9 + c);
+            for (unsigned c = 0; c < pin_channels(); ++c) m |= 1u << (9 + c);
             if (caps_.comp_channels) m |= 1u << 13;        // COMDE
             if (caps_.slave_mode)    m |= 1u << 14;        // TDE
         }
@@ -467,35 +587,51 @@ private:
     }
     uint32_t sr_rc_mask() const {                          // bits borrables
         uint32_t m = 1u << 0;
-        for (unsigned c = 0; c < caps_.channels; ++c) m |= (1u << (1 + c)) | (1u << (9 + c));
+        for (unsigned c = 0; c < pin_channels(); ++c) m |= (1u << (1 + c)) | (1u << (9 + c));
         if (caps_.comp_channels) m |= 1u << 5;
         if (caps_.slave_mode)    m |= 1u << 6;
         if (caps_.bdtr)          m |= 1u << 7;
+        if (caps_.break2)        m |= S_B2IF;
+        if (caps_.channels > 4)  m |= S_CC5IF;
+        if (caps_.channels > 5)  m |= S_CC6IF;
         return m;
     }
     uint32_t egr_mask() const {
         uint32_t m = 1u << 0;                              // UG
-        for (unsigned c = 0; c < caps_.channels; ++c) m |= 1u << (1 + c);
+        for (unsigned c = 0; c < pin_channels(); ++c) m |= 1u << (1 + c);
         if (caps_.comp_channels) m |= 1u << 5;             // COMG
         if (caps_.slave_mode)    m |= 1u << 6;             // TG
         if (caps_.bdtr)          m |= 1u << 7;             // BG
+        if (caps_.break2)        m |= 1u << 8;             // B2G
         return m;
     }
     uint32_t ccmr_mask(unsigned half) const {
         uint32_t m = 0;
         for (unsigned k = 0; k < 2; ++k) {
             const unsigned c = 2 * half + k;
-            if (c < caps_.channels) m |= 0xFFu << (8 * k);
+            if (c < caps_.channels) {
+                m |= 0xFFu << (8 * k);
+                if (caps_.ocm_4bits) m |= 1u << (16 + 8 * k);   // OCxM[3]
+            }
         }
+        if (half == 2) m &= ~0x0303u;          // CCMR3 no tiene CCxS: solo salida
         return m;
     }
     uint32_t ccer_mask() const {
         uint32_t m = 0;
-        for (unsigned c = 0; c < caps_.channels; ++c) {
+        for (unsigned c = 0; c < pin_channels(); ++c) {
             m |= (1u << (4 * c)) | (1u << (4 * c + 1));    // CCxE, CCxP
             m |= 1u << (4 * c + 3);                        // CCxNP
             if (c < caps_.comp_channels) m |= 1u << (4 * c + 2);   // CCxNE
         }
+        if (caps_.channels > 4) m |= 3u << 16;             // CC5E, CC5P
+        if (caps_.channels > 5) m |= 3u << 20;             // CC6E, CC6P
+        return m;
+    }
+    uint32_t bdtr_mask() const {
+        uint32_t m = 0xFFFFu;
+        if (caps_.filtro_break) m |= 0xFu << 16;           // BKF
+        if (caps_.break2)       m |= 0x3Fu << 20;          // BK2F, BK2E, BK2P
         return m;
     }
 
@@ -666,6 +802,7 @@ private:
             req_dma(D_UP);
         }
         if (mms() == 2) pulse_trgo();
+        if (mms2() == 2) pulse_trgo2();
         if (opm() && !sw) { cr1_ &= ~1u; ticking_ = false; }   // un solo pulso
     }
 
@@ -678,9 +815,11 @@ private:
                 if (cms() == 1 && !dir_down_) continue;
                 if (cms() == 2 && dir_down_)  continue;
             }
+            if (c >= 4) { sr_ |= c == 4 ? S_CC5IF : S_CC6IF; continue; }   // sin DMA
             sr_ |= 1u << (1 + c);
             req_dma(D_CC1 + c);
             if (mms() == 3 && c == 0) pulse_trgo();        // TRGO = pulso de CC1
+            if (mms2() == 3 && c == 0) pulse_trgo2();
         }
     }
 
@@ -692,7 +831,9 @@ private:
     // EGR: generación de sucesos por software [IR, §12.1.4-D]
     void write_egr(uint32_t v) {
         if (v & (1u << 0)) update_event(true);             // UG
-        for (unsigned c = 0; c < caps_.channels; ++c)
+        if (v & (1u << 8)) { sr_ |= S_B2IF; if (caps_.bdtr) bdtr_ &= ~(1u << 15); }  // B2G
+        if (mms2() == 0 && (v & 1u)) pulse_trgo2();
+        for (unsigned c = 0; c < pin_channels(); ++c)
             if (v & (1u << (1 + c))) { sr_ |= 1u << (1 + c); req_dma(D_CC1 + c); }
         if (v & (1u << 5)) { sr_ |= S_COMIF; req_dma(D_COM); }
         if (v & (1u << 6)) { sr_ |= S_TIF;   req_dma(D_TRIG); }
@@ -718,8 +859,35 @@ private:
             case 5: return true;                                 // forzado activo
             case 6: return dir_down_ ? (cv <= r) : (cv < r);     // PWM modo 1
             case 7: return !(dir_down_ ? (cv <= r) : (cv < r));  // PWM modo 2
+            // v3 (OCxM[3] = 1). La referencia de cada canal es la de su PWM
+            // base; lo que cambia es la SALIDA, que combina la pareja (véase
+            // ref_salida). El OPM redisparable (8, 9) se aproxima por el PWM
+            // 1 o 2: el redisparo por TRGI no está [doc/todo.md, P-18].
+            case 8: case 12: case 14:
+                return dir_down_ ? (cv <= r) : (cv < r);         // base PWM 1
+            case 9: case 13: case 15:
+                return !(dir_down_ ? (cv <= r) : (cv < r));      // base PWM 2
             default: return ref_[c];
         }
+    }
+    // La referencia que llega al PIN (OCxREFC). En el F4 es OCxREF. En v3:
+    //   12/13 combinado    OCxREF OR / AND la de su pareja (1-2, 3-4)
+    //   14/15 asimétrico   la propia contando hacia arriba, la de la pareja
+    //                      contando hacia abajo (alineado al centro)
+    //   GC5Cx              los canales 1-3, AND con OC5REF
+    // [CMSIS: TIM_CCMR1_OC1M_3, TIM_CCR5_GC5C1-3; RM0316 §20.3.12-13, §20.4.8
+    // (OCxM) y §20.4.25 (GC5Cx)]
+    bool ref_salida(unsigned c) const {
+        bool v = ref_[c];
+        if (caps_.ocm_4bits && c < 4) {
+            const unsigned m = ocm(c), p = c ^ 1u;
+            const bool rp = p < caps_.channels ? ref_[p] : false;
+            if (m == 12) v = v || rp;
+            else if (m == 13) v = v && rp;
+            else if (m == 14 || m == 15) v = dir_down_ ? rp : v;
+        }
+        if (c < 3 && ((gc5c_ >> c) & 1u) && caps_.channels > 4) v = v && ref_[4];
+        return v;
     }
 
     // Tiempo muerto: DTG[7:0] codifica el retardo en pasos de t_DTS [IR, §12.1.4-C]
@@ -754,14 +922,15 @@ private:
     }
 
     void publish_pins() {
-        for (unsigned c = 0; c < caps_.channels; ++c) {
+        for (unsigned c = 0; c < pin_channels(); ++c) {
             if (is_input(c)) { o_che_[c] = false; if (c < 3) o_chne_[c] = false; continue; }
             const bool dead = (dead_mask_ >> c) & 1u;
-            const bool act  = moe() ? (dead ? false : ref_[c]) : ois(c);
+            const bool rc   = ref_salida(c);
+            const bool act  = moe() ? (dead ? false : rc) : ois(c);
             o_ch_[c]  = act ^ ccp(c);
             o_che_[c] = cce(c) && (moe() || ossi());
             if (c < caps_.comp_channels) {
-                const bool actn = moe() ? (dead ? false : !ref_[c]) : oisn(c);
+                const bool actn = moe() ? (dead ? false : !rc) : oisn(c);
                 o_chn_[c]  = actn ^ ccnp(c);
                 o_chne_[c] = ccne(c) && (moe() || ossi());
             }
@@ -793,6 +962,15 @@ private:
         update_irq();
         if (aoe()) { /* el rearme automático ocurre en el siguiente UEV */ }
     }
+    // La segunda entrada de freno (v3): lo mismo, con B2IF [CMSIS: TIM_BDTR_BK2E]
+    void brk2_proc() {
+        if (!bk2e()) return;
+        if (bkin2_in.read() != bk2p()) return;
+        bdtr_ &= ~(1u << 15);
+        sr_ |= S_B2IF;
+        publish_pins();
+        update_irq();
+    }
 
     // =======================================================================
     // Captura de entrada
@@ -801,6 +979,7 @@ private:
     bool ti_level(unsigned c) const {
         if (c == 0 && ti1s())
             return ch_in[0].read() ^ ch_in[1].read() ^ ch_in[2].read();
+        if (c == 0 && caps_.ti1_remap && (or_ & 3u)) return ti1_rmp[(or_ & 3u) - 1].read();
         return ch_in[c].read();
     }
     // Fuente física del canal c según CCxS: 01 = TIx directa, 10 = TI vecina.
@@ -825,7 +1004,12 @@ private:
             if (++ic_div_[c] < (1u << icpsc(c))) continue; // prescaler ICxPSC
             ic_div_[c] = 0;
             if (sr_ & (1u << (1 + c))) sr_ |= 1u << (9 + c);   // CCxOF
-            ccr_[c] = ccr_act_[c] = cnt_now();
+            // La captura toma el contador de ANTES del reset del esclavo si
+            // los dos son el mismo flanco (el modo de entrada PWM: TI2FP2
+            // captura el periodo en CCR2 y reinicia) [RM0316 §20.3.6]. Los dos
+            // procesos corren en el mismo instante y en cualquier orden
+            const bool mismo = hubo_reset_ && t_reset_ == sc_core::sc_time_stamp();
+            ccr_[c] = ccr_act_[c] = mismo ? antes_reset_ : cnt_now();
             sr_ |= 1u << (1 + c);
             ++n_cap_;
             req_dma(D_CC1 + c);
@@ -892,6 +1076,7 @@ private:
         switch (m) {
             case 4:                                        // reset
                 if (edge) {
+                    antes_reset_ = cnt_now(); t_reset_ = sc_core::sc_time_stamp(); hubo_reset_ = true;
                     cnt_ = dir_down_ ? arr_act_ : 0u;
                     t_anchor_ = sc_core::sc_time_stamp();
                     rep_ = rcr_;
@@ -913,6 +1098,18 @@ private:
             case 7:                                        // reloj externo modo 1
                 if (edge && cen()) step_counter(dir_bit());
                 break;
+            case 8:                                        // v3: reset + disparo
+                if (edge) {
+                    antes_reset_ = cnt_now(); t_reset_ = sc_core::sc_time_stamp(); hubo_reset_ = true;
+                    cnt_ = dir_down_ ? arr_act_ : 0u;
+                    t_anchor_ = sc_core::sc_time_stamp();
+                    rep_ = rcr_;
+                    if (!cen()) { cr1_ |= 1u; start_counting(); }
+                    sr_ |= S_TIF; req_dma(D_TRIG);
+                    if (!udis() && !urs()) { sr_ |= S_UIF; req_dma(D_UP); }
+                    wake();
+                }
+                break;
             default: break;
         }
         update_irq();
@@ -924,6 +1121,7 @@ private:
     // TRGO, interrupciones y peticiones de DMA
     // =======================================================================
     void update_trgo() {
+        update_trgo2();
         if (!caps_.trgo) { o_trgo_ = false; return; }
         switch (mms()) {
             case 1: o_trgo_ = cen(); break;                // enable
@@ -936,6 +1134,26 @@ private:
         }
     }
     void pulse_trgo() { if (caps_.trgo) trgo_ev_.notify(sc_core::SC_ZERO_TIME); }
+    void pulse_trgo2() { if (caps_.mms2) trgo2_ev_.notify(sc_core::SC_ZERO_TIME); }
+    // TRGO2 por nivel: enable y las referencias OC1..OC6. Los modos 10-15
+    // (flancos combinados de OC4/OC6, para el ADC) dejan TRGO2 a cero.
+    void update_trgo2() {
+        if (!caps_.mms2) return;
+        const unsigned m = mms2();
+        if (m == 1) o_trgo2_ = cen();
+        else if (m >= 4 && m <= 9) { const unsigned c = m - 4; o_trgo2_ = c < caps_.channels && ref_[c]; }
+        else if (m >= 10) o_trgo2_ = false;
+    }
+    void trgo2_proc() {
+        for (;;) {
+            wait(trgo2_ev_);
+            o_trgo2_ = true; publish();
+            sc_core::sc_time w = t_tick_;
+            if (w == sc_core::SC_ZERO_TIME) w = sc_core::sc_time(10, sc_core::SC_NS);
+            wait(w);
+            o_trgo2_ = false; update_trgo2(); publish();
+        }
+    }
     // Un pulso de TRGO dura un ciclo de cuenta, como en el silicio; el ADC y el
     // DAC lo detectan por flanco.
     void trgo_proc() {
@@ -952,11 +1170,12 @@ private:
     void update_irq() {
         const bool up  = (sr_ & S_UIF) && (dier_ & 1u);
         bool cc = false;
-        for (unsigned c = 0; c < caps_.channels; ++c)
+        for (unsigned c = 0; c < pin_channels(); ++c)
             if ((sr_ & (1u << (1 + c))) && (dier_ & (1u << (1 + c)))) cc = true;
         const bool com = (sr_ & S_COMIF) && (dier_ & (1u << 5));
         const bool trg = (sr_ & S_TIF)   && (dier_ & (1u << 6));
-        const bool brk = (sr_ & S_BIF)   && (dier_ & (1u << 7));
+        // BIE cubre los dos frenos [CMSIS: TIM_DIER_BIE]
+        const bool brk = (sr_ & (caps_.break2 ? (S_BIF | S_B2IF) : S_BIF)) && (dier_ & (1u << 7));
         if (caps_.split_irq) {
             o_irq_up_ = up; o_irq_cc_ = cc; o_irq_tc_ = com || trg; o_irq_brk_ = brk;
             o_irq_g_  = false;
@@ -1032,6 +1251,7 @@ private:
         irq_trg_com.write(o_irq_tc_);
         irq_brk.write(o_irq_brk_);
         trgo.write(o_trgo_);
+        if (caps_.mms2) trgo2_sig.write(o_trgo2_);
         dma_up.write((o_dma_ >> D_UP) & 1u);
         dma_trig.write((o_dma_ >> D_TRIG) & 1u);
         dma_com.write((o_dma_ >> D_COM) & 1u);
@@ -1049,11 +1269,12 @@ private:
     void reset_proc() {
         if (rst_n.read()) return;
         cr1_ = cr2_ = smcr_ = dier_ = sr_ = ccer_ = 0;
-        ccmr_[0] = ccmr_[1] = 0;
+        ccmr_[0] = ccmr_[1] = ccmr_[2] = 0;
         psc_ = psc_act_ = 0; rcr_ = rep_ = 0; bdtr_ = 0; dcr_ = 0; burst_i_ = 0;
+        or_ = gc5c_ = 0; o_trgo2_ = false;
         arr_ = arr_act_ = cnt_mask();
-        for (unsigned c = 0; c < 4; ++c) { ccr_[c] = ccr_act_[c] = 0; ic_div_[c] = 0;
-                                           ref_[c] = false; }
+        for (unsigned c = 0; c < 4; ++c) { ic_div_[c] = 0; }
+        for (unsigned c = 0; c < 6; ++c) { ccr_[c] = ccr_act_[c] = 0; ref_[c] = false; }
         cnt_ = 0; dir_down_ = false; ticking_ = false; steps_ = 0;
         t_anchor_ = sc_core::sc_time_stamp();
         n_uev_ = n_cap_ = 0;

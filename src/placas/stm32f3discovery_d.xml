@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     LA STM32F3DISCOVERY DE LA REVISION D: L3GD20 y LSM303DLHC (S4 del F303)
+
+     La misma placa, montada como las de antes de la revision E: un sistema de
+     una sola placa que le cambia la revision (stm32f3discovery.xml dice la E).
+     Lo mismo vale para cualquier otro sistema: <placa ... revision="D">.
+
+         ./build/mcu-sim placas/stm32f3discovery_d.xml --valida
+     ========================================================================= -->
+<sistema nombre="stm32f3discovery-d">
+  <placa id="D" fichero="stm32f3discovery.xml" revision="D"/>
+</sistema>

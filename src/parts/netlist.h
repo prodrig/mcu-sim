@@ -40,6 +40,7 @@
 #include <cstdlib>
 #include <functional>
 #include <list>
+#include <cctype>
 #include <map>
 #include <memory>
 #include <ostream>
@@ -370,6 +371,7 @@ struct EnlaceIlustracion {
     std::string pieza;        // el nombre en SU placa: "LD2", nunca "N/LD2"
     std::string elemento;     // el id en el SVG
     std::string efecto;       // "", "brillo", "hundido", "giro", "pantalla", "angulo" o "ninguno"
+    std::string observable;   // el que mueve el giro o el ángulo, si no es el primero (S8 del F303)
 };
 struct Ilustracion {
     std::string declarada;    // lo que dice el XML, tal cual; vacío si no dice
@@ -567,6 +569,10 @@ public:
     void pon_ilustracion(Ilustracion i) { ilustracion_ = std::move(i); }
     // Plan §38 de mcu-sim-gui: el lienzo y las rutas de las líneas
     void pon_lienzo(const LienzoVentana& l) { lienzo_ = l; }
+    // La revisión de la PCB de cada placa que la dice: "" para una suelta,
+    // su id en un sistema
+    void pon_revision(const std::string& placa, const std::string& r) { revisiones_[placa] = r; }
+    const std::map<std::string, std::string>& revisiones() const { return revisiones_; }
     const LienzoVentana& lienzo() const { return lienzo_; }
     void pon_rutas(std::vector<RutaLinea> r) { rutas_ = std::move(r); }
     const std::vector<RutaLinea>& rutas() const { return rutas_; }
@@ -859,6 +865,15 @@ public:
     // (`SERVO.aspa@cuatro`).
     static std::vector<std::pair<std::string, std::string>> variantes(const Instancia& i) {
         std::vector<std::pair<std::string, std::string>> v;
+        // Un sensor de la STM32F3DISCOVERY dice su chip, para el rotulo
+        // de su revision (`U5@L3GD20`)
+        if (i.tipo == "L3gd20" || i.tipo == "I3g4250d" || i.tipo == "Lsm303dlhc" ||
+            i.tipo == "Lsm303agr") {
+            std::string t = i.tipo;
+            for (char& c : t) c = char(std::toupper(static_cast<unsigned char>(c)));
+            v.push_back({std::string(), t});
+            return v;
+        }
         if (i.tipo == "Servo") {
             v.push_back({".cuerpo", i.txt("color", "azul")});
             v.push_back({".aspa", i.txt("aspa", "dos")});
@@ -1636,6 +1651,8 @@ public:
                 os << sangria << "  <enlace pieza=\"" << xml_escapa(e.pieza)
                    << "\" elemento=\"" << xml_escapa(e.elemento) << "\"";
                 if (!e.efecto.empty()) os << " efecto=\"" << xml_escapa(e.efecto) << "\"";
+                if (!e.observable.empty())
+                    os << " observable=\"" << xml_escapa(e.observable) << "\"";
                 os << "/>\n";
             }
             os << sangria << "</ilustracion>\n";
@@ -1803,6 +1820,7 @@ private:
     std::vector<PlacaDeSistema> placas_;
     Ilustracion ilustracion_;
     LienzoVentana lienzo_;
+    std::map<std::string, std::string> revisiones_;
     std::vector<RutaLinea> rutas_;
     bool                       sin_mcu_ = false;
     const Encapsulado*         enc_implicito_ = &ENC_LQFP100;

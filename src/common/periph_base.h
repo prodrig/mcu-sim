@@ -18,6 +18,7 @@
 #define STM32_COMMON_PERIPH_BASE_H
 
 #include <systemc>
+#include <cstring>
 #include <tlm>
 #include <tlm_utils/simple_target_socket.h>
 #include "ahb_types.h"
@@ -43,6 +44,11 @@ public:
     // periférico todavía sin reloj. El top enlaza aquí el estado interno del
     // RCC; si es nulo se usa el puerto clk_en [IR, §4.8].
     const bool* clk_en_live = nullptr;
+    // Qué pasa con un acceso a un bloque sin reloj: en los F4 de este modelo,
+    // error de bus (false, como siempre); en el F303, se ignora (true: lo pone
+    // su SoC). Y cuántos ha habido
+    bool sin_reloj_ignora = false;
+    unsigned accesos_sin_reloj() const { return n_sin_reloj_; }
     bool clock_enabled() const { return clk_en_live ? *clk_en_live : clk_en.read(); }
 
     BusSlave(sc_core::sc_module_name nm, uint32_t base, uint32_t size)
@@ -86,6 +92,7 @@ protected:
         const uint32_t off = uint32_t(gp.get_address()) - base_;
         const unsigned len = gp.get_data_length();
         unsigned char* d   = gp.get_data_ptr();
+        ancho_acceso_ = len;
 
         if (gp.is_read()) {
             // Agrupar los bytes por palabra, igual que en la escritura: hay
@@ -158,6 +165,15 @@ protected:
             return false;
         }
         if (!clock_enabled() && !responds_without_clock()) {
+            if (sin_reloj_ignora) {
+                // Como el silicio de los F3 (y la HAL de ST cuenta con ello:
+                // HAL_UART_DeInit escribe CR1 antes de dar el reloj): la
+                // escritura se pierde y la lectura da cero, sin error (S3)
+                ++n_sin_reloj_;
+                if (gp.is_read()) std::memset(gp.get_data_ptr(), 0, gp.get_data_length());
+                gp.set_response_status(tlm::TLM_OK_RESPONSE);
+                return false;
+            }
             // Periférico sin reloj: el acceso no obtiene respuesta -> BusFault
             gp.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE);
             return false;
@@ -194,6 +210,15 @@ protected:
 
     uint32_t base_, size_;
     double   dom_hz_ = 0.0;
+    // La ANCHURA del acceso en curso, en bytes (1, 2 o 4). `reg_read` y
+    // `reg_write` ven siempre la palabra alineada, y para casi todos los
+    // registros eso basta: los byte enables dicen qué bytes se escriben. Hay un
+    // caso en el que no basta, la LECTURA de un registro de datos con FIFO cuyo
+    // efecto depende de la anchura: en el SPI de segunda generación (F0, F3,
+    // L4) leer DR con un acceso de 8 bits saca un dato de la FIFO y con uno de
+    // 16 saca dos [1F: RM0316 §30.5.9]. Nadie más lo mira.
+    unsigned ancho_acceso_ = 4;
+    unsigned n_sin_reloj_ = 0;
 };
 
 } // namespace stm32

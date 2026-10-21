@@ -118,13 +118,19 @@ private:
 // Reloj externo de onda cuadrada (oscilador de encapsulado o generador).
 // ---------------------------------------------------------------------------
 SC_MODULE(ExtClock), public ExtPart {
+    // `onda` = false: SIN ONDA. La pieza deja el pin a nivel bajo y DICE su
+    // frecuencia en el nodo (analog_net_if::declara_reloj) en vez de dar los
+    // flancos. Un oscilador en bypass la toma como medida, y el pin no cuesta
+    // dos sucesos por periodo. Es el MCO del ST-LINK de la STM32F3DISCOVERY:
+    // a 8 MHz, la onda costaba tres veces lo que el resto de la placa.
     ExtClock(sc_core::sc_module_name nm, analog_net_if& n, double hz,
-             double vdd = 3.3, double r_out = 50.0)
+             double vdd = 3.3, double r_out = 50.0, bool onda = true)
         : sc_core::sc_module(nm), ExtPart(n, "ExtClock", "extclk", "out", nm),
-          hz_(hz), vdd_(vdd), r_(r_out) {
+          hz_(hz), vdd_(vdd), r_(r_out), onda_(onda), nodo_(n) {
         SC_HAS_PROCESS(ExtClock);
         SC_THREAD(run);
     }
+    bool con_onda() const { return onda_; }
     void set_freq(double hz) { hz_ = hz; ev_.notify(sc_core::SC_ZERO_TIME); }
     void stop()              { set_freq(0.0); }
     void set_enabled(bool on) override {
@@ -134,7 +140,16 @@ SC_MODULE(ExtClock), public ExtPart {
 private:
     void run() {
         for (;;) {
-            if (hz_ <= 0.0 || !conectada_) { hiz(); wait(ev_); continue; }
+            if (hz_ <= 0.0 || !conectada_) {
+                if (!onda_) nodo_.declara_reloj(0.0);
+                hiz(); wait(ev_); continue;
+            }
+            if (!onda_) {
+                nodo_.declara_reloj(hz_);
+                drive(0.0f, float(r_));
+                wait(ev_);
+                continue;
+            }
             const sc_core::sc_time half(0.5e12 / hz_, sc_core::SC_PS);
             drive(lvl_ ? float(vdd_) : 0.0f, float(r_));
             lvl_ = !lvl_;
@@ -142,6 +157,8 @@ private:
         }
     }
     double hz_, vdd_, r_;
+    bool   onda_;
+    analog_net_if& nodo_;
     bool   lvl_ = false;
     sc_core::sc_event ev_;
 };

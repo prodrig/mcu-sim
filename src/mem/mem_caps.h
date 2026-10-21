@@ -75,6 +75,15 @@ struct MapaRam {
     uint32_t sram2_base, sram2_size;   // size 0 = no hay SRAM2
     uint32_t ccm_base,   ccm_size;     // size 0 = no hay CCM
     uint32_t bkp_base,   bkp_size;     // size 0 = no hay SRAM de backup
+    // ¿Se puede EJECUTAR de la CCM? En el F4 no: la CCM cuelga solo del D-bus
+    // del núcleo, y una búsqueda de instrucción en su ventana sale por el
+    // ICode y acaba en un error. En el F303 sí: ST la pone en el bus de
+    // instrucciones precisamente para que las rutinas críticas corran desde
+    // ella sin los estados de espera de la Flash [RM0316 §3.3]. Con
+    // `true`, el router del núcleo manda también las búsquedas a su puerto
+    // `ccm` (core/cortex_m4f.h). Por omisión `false`, que es el F4 de siempre.
+    // [doc/analisis_stm32f303.md, §1.2 y §3.2]
+    bool ccm_ejecutable = false;
 
     bool hay_sram2() const { return sram2_size != 0; }
     bool hay_ccm()   const { return ccm_size   != 0; }

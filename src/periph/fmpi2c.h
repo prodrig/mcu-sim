@@ -42,8 +42,10 @@
 //     repetido, STOP, direcciones de 7 y de 10 bits, y la cuenta de NBYTES con
 //     RELOAD y AUTOEND;
 //   * ESCLAVO: reconocimiento de START y STOP por los flancos del bus,
-//     comparación con OAR1 y OAR2, dirección leída en ADDCODE, sentido en DIR y
-//     estiramiento del reloj mientras el firmware no atiende;
+//     comparación con OAR1 (7 y 10 bits) y OAR2 (con su máscara), dirección
+//     leída en ADDCODE, sentido en DIR, los datos en los dos sentidos y
+//     estiramiento del reloj mientras el firmware no atiende (completado en
+//     la fase S3 del F303; véase el esclavo, abajo);
 //   * las banderas de ISR con su semántica de borrado por ICR, las dos líneas
 //     de interrupción —evento y error, que en el F446 son los vectores 95 y
 //     96— y las peticiones de DMA.
@@ -158,7 +160,10 @@ protected:
         switch (off) {
             case R_CR1: {
                 const bool antes = pe();
-                cr1_ = v & 0x00F07FFFu;
+                // Todos los campos: hasta PECEN (23), sin el 13, que no existe
+                // [RM0316 §28.7.1]. La mascara de antes, 0x00F07FFF, se
+                // comia RXDMAEN (15), SBC, NOSTRETCH, WUPEN y GCEN (16-19)
+                cr1_ = v & 0x00FFDFFFu;
                 // PE a cero PARA el periférico y borra la mayoría del estado
                 // [RM0390, §23.7.1]. No es un detalle: es la forma canónica de
                 // sacar al bloque de un bus atascado.
@@ -168,11 +173,26 @@ protected:
             }
             case R_CR2:
                 cr2_ = v & 0x07FFFFFFu;
+                // TC se borra al poner START o STOP [RM0316 §28.7.7; RM0390
+                // §24.6.7]. Sin esto, el TC de una escritura anterior seguia
+                // puesto, y un firmware que lo espera tras el byte de
+                // subdireccion de la siguiente seguia de largo y pedia el START
+                // repetido con el byte aun saliendo (S4: f3_mems y la brujula)
+                if (cr2_ & (C2_START | C2_STOP)) isr_ &= ~I_TC;
+                // Y TCR, al escribir un NBYTES distinto de cero: es como sigue
+                // una transferencia con RELOAD (la escritura de
+                // HAL_I2C_Mem_Write: la subdireccion con RELOAD, y luego el
+                // dato). Antes nadie lo borraba y el maestro esperaba hasta
+                // soltar el bus (S4: el BSP de la brujula)
+                if ((isr_ & I_TCR) && ((cr2_ >> 16) & 0xFFu)) {
+                    isr_ &= ~I_TCR;
+                    despierta_maestro();
+                }
                 if (pe() && (cr2_ & C2_START)) despierta_maestro();
                 if (pe() && (cr2_ & C2_STOP))  despierta_maestro();
                 actualiza_irq();
                 break;
-            case R_OAR1:     oar1_ = v & 0x0000C3FFu; break;
+            case R_OAR1:     oar1_ = v & 0x000087FFu; break;   // OA1EN, OA1MODE, OA1 [RM0316 §28.7.3]
             case R_OAR2:     oar2_ = v & 0x000087FEu; break;
             case R_TIMINGR:
                 // Solo se programa con el periférico apagado, igual que el
@@ -247,9 +267,15 @@ private:
 
     void publica() { pub_ev_.notify(sc_core::SC_ZERO_TIME); }
     void despierta_maestro() { wake_ev_.notify(sc_core::SC_ZERO_TIME); }
+    // SCL y SDA, en drenador abierto POR EL PERIFERICO: un cero baja la
+    // linea y un uno la suelta (habilita la salida solo para el cero), sea
+    // cual sea OTYPER. El BSP de la STM32F3DISCOVERY pone PB6 y PB7 en
+    // AF_PP con pull-down, y la brujula de la placa contesta [de modelo: el
+    // BSP de ST y la placa, que funcionan juntos; DS9118 §6.3.20 dice que son
+    // "true open-drain"]. Con OTYPER = 1, que es lo de siempre, no cambia nada
     void pub_proc() {
-        scl_out.write(o_scl_); scl_oe.write(true);
-        sda_out.write(o_sda_); sda_oe.write(true);
+        scl_out.write(false); scl_oe.write(!o_scl_);
+        sda_out.write(false); sda_oe.write(!o_sda_);
         irq_ev.write(o_irq_ev_); irq_er.write(o_irq_er_);
         dma_req_rx.write(o_drq_rx_); dma_req_tx.write(o_drq_tx_);
     }
@@ -306,8 +332,12 @@ private:
     bool suelta_scl_y_espera() {
         set_scl(true);
         const sc_core::sc_time t0 = sc_core::sc_time_stamp();
-        const sc_core::sc_time tope = t_bajo() * 400.0;
-        while (!scl_in.read()) {                 // un esclavo puede estirar
+        // Un esclavo puede estirar: en el silicio, sin límite; aquí, 400
+        // semiperiodos o 25 ms, lo que sea más (un esclavo de este mismo IP
+        // estira mientras su firmware atiende ADDR)
+        sc_core::sc_time tope = t_bajo() * 400.0;
+        if (tope < sc_core::sc_time(25, sc_core::SC_MS)) tope = sc_core::sc_time(25, sc_core::SC_MS);
+        while (!scl_in.read()) {
             if (sc_core::sc_time_stamp() - t0 > tope) return false;
             wait(t_alto() / 4.0, scl_in.value_changed_event());
         }
@@ -363,7 +393,15 @@ private:
         return v;
     }
     void condicion_start() {
-        set_sda(true); set_scl(true);
+        // El bus es nuestro desde ya: el esclavo de este mismo bloque no tiene
+        // que tomar por suyo el START que pone el maestro
+        en_transferencia_ = true;
+        set_sda(true);
+        // Un START REPETIDO empieza con SCL abajo, y puede que un esclavo lo
+        // esté estirando (el de 10 bits, mientras su firmware atiende ADDR):
+        // hay que esperar a que suba de verdad, o SDA bajaría con SCL bajo y
+        // eso no es un START (S3)
+        suelta_scl_y_espera();
         wait(t_alto());
         set_sda(false);                          // SDA baja con SCL alto
         wait(t_alto() / 2.0);
@@ -424,6 +462,11 @@ private:
                 if (!perdido && ack) ack = envia_byte(uint8_t(sadd & 0xFFu), perdido);
                 if (!perdido && ack && rd_wrn()) {
                     // Para LEER hay que repetir el START con el bit de lectura.
+                    // Antes, SCL se queda abajo su semiperiodo: sin esto el
+                    // START repetido salía pegado al noveno pulso, sin flanco
+                    // de bajada, y un esclavo de 10 bits no lo veía (S3)
+                    set_sda(true);
+                    wait(t_bajo());
                     condicion_start();
                     ack = envia_byte(uint8_t(h | 1u), perdido);
                 }
@@ -546,7 +589,24 @@ private:
 
     // =======================================================================
     // ESCLAVO: lo gobiernan los flancos del bus, no un registro
+    //
+    // (S3 del F303.) La fase 4 del F446 reconocía la dirección y levantaba
+    // ADDR, y ahí se quedaba. Ahora el esclavo es entero, el que pide la HAL
+    // de cualquier familia con este IP [RM0316 §28.4.9]:
+    //   * direcciones de 7 bits en OAR1 y OAR2 (con OA2MSK) y la llamada
+    //     general; y de 10 bits en OAR1, con la cabecera 11110xx0, el segundo
+    //     byte, y el START repetido con la cabecera de lectura 11110xx1
+    //   * ADDR con DIR y ADDCODE, y el reloj estirado hasta que el firmware lo
+    //     borra (con NOSTRETCH = 0, que es lo que usa la HAL)
+    //   * recibir: RXNE por byte, y el reloj estirado antes del ACK si el
+    //     anterior sigue sin leer; CR2.NACK manda un NACK
+    //   * transmitir: TXIS cuando hace falta el siguiente, el reloj estirado
+    //     hasta que llega a TXDR, y NACKF cuando el maestro dice basta
+    //   * STOPF con el STOP, y otra vez ADDR con un START repetido
     // =======================================================================
+    enum : int { EV_STOP = -1, EV_START = -2, EV_FUERA = -3 };
+    bool sl_dir10_ = false;                // la cabecera de 10 bits ya cuadró
+
     void slave_proc() {
         for (;;) {
             wait(scl_in.value_changed_event() | sda_in.value_changed_event());
@@ -557,42 +617,199 @@ private:
             const bool scl = scl_in.read(), sda = sda_in.read();
             // START: SDA baja con SCL alto. STOP: SDA sube con SCL alto.
             if (scl && sl_scl_prev_ && sl_sda_prev_ && !sda) {
-                sl_activo_ = true;
-                isr_ |= I_BUSY;
-                recibe_como_esclavo();
+                sl_dir10_ = false;
+                int r = EV_START;
+                while (r == EV_START) r = sesion_esclavo();
+                if (r == EV_STOP) fin_esclavo();
             } else if (scl && sl_scl_prev_ && !sl_sda_prev_ && sda) {
-                if (sl_activo_) { isr_ |= I_STOPF; actualiza_irq(); }
-                sl_activo_ = false;
-                isr_ &= ~I_BUSY;
-                actualiza_irq();
+                fin_esclavo();
             }
-            sl_scl_prev_ = scl; sl_sda_prev_ = sda;
+            sl_scl_prev_ = scl_in.read(); sl_sda_prev_ = sda_in.read();
         }
     }
-    // Lee la dirección que viene detrás del START y, si es la nuestra, levanta
-    // ADDR con el sentido en DIR y la dirección en ADDCODE.
-    void recibe_como_esclavo() {
-        uint8_t a = 0;
-        for (int i = 0; i < 8; ++i) {
-            wait(scl_in.posedge_event());
-            a = uint8_t((a << 1) | (sda_in.read() ? 1u : 0u));
-        }
-        const unsigned dir7 = a >> 1;
-        const bool leer = (a & 1u) != 0;
-        const bool mia = ((oar1_ & (1u << 15)) && dir7 == ((oar1_ >> 1) & 0x7Fu)) ||
-                         ((oar2_ & (1u << 15)) && dir7 == ((oar2_ >> 1) & 0x7Fu)) ||
-                         ((cr1_ & C1_GCEN) && a == 0);
-        if (!mia) { sl_activo_ = false; return; }
-        // ACK: tiramos de SDA durante el noveno pulso.
-        wait(scl_in.negedge_event());
-        set_sda(false);
-        wait(scl_in.posedge_event());
-        wait(scl_in.negedge_event());
-        set_sda(true);
-        isr_ = (isr_ & ~(0x7Fu << 17)) | (uint32_t(dir7) << 17);   // ADDCODE
-        isr_ |= I_ADDR;
-        if (leer) isr_ |= I_DIR; else isr_ &= ~I_DIR;
+    void fin_esclavo() {
+        if (sl_activo_) isr_ |= I_STOPF;
+        sl_activo_ = false;
+        isr_ &= ~I_BUSY;
+        set_scl(true); set_sda(true);
         actualiza_irq();
+    }
+    // Un bit: el nivel de SDA en el flanco de subida de SCL; o la condición
+    // que el maestro ha puesto mientras SCL estaba alto
+    int lee_bit() {
+        while (!scl_in.read()) {
+            wait(scl_in.value_changed_event() | wake_ev_);
+            if (!pe()) return EV_FUERA;
+        }
+        const bool v = sda_in.read();
+        while (scl_in.read()) {
+            wait(scl_in.value_changed_event() | sda_in.value_changed_event() | wake_ev_);
+            if (!pe()) return EV_FUERA;
+            if (scl_in.read() && sda_in.read() != v) return sda_in.read() ? EV_STOP : EV_START;
+        }
+        return v ? 1 : 0;
+    }
+    int lee_byte(uint8_t& b) {
+        b = 0;
+        for (int i = 0; i < 8; ++i) {
+            const int r = lee_bit();
+            if (r < 0) return r;
+            b = uint8_t((b << 1) | unsigned(r));
+        }
+        return 0;
+    }
+    // El noveno pulso, con SDA abajo (ACK) o suelta (NACK); empieza con SCL
+    // bajo y acaba en su flanco de bajada
+    bool pulso_ack(bool ack) {
+        set_sda(!ack);
+        if (!espera_scl(true)) return false;
+        if (!espera_scl(false)) return false;
+        set_sda(true);
+        return true;
+    }
+    bool espera_scl(bool nivel) {
+        while (scl_in.read() != nivel) {
+            wait(scl_in.value_changed_event() | wake_ev_);
+            if (!pe()) return false;
+        }
+        return true;
+    }
+    // Estirar el reloj (SCL abajo) mientras `sigue` diga que sí, con tope
+    template <class F> bool estira(F sigue) {
+        if (cr1_ & C1_NOSTRETCH) return true;
+        set_scl(false);
+        const sc_core::sc_time t0 = sc_core::sc_time_stamp();
+        const sc_core::sc_time tope = sc_core::sc_time(25, sc_core::SC_MS);
+        while (sigue()) {
+            wait(sc_core::sc_time(1, sc_core::SC_US), wake_ev_);
+            if (!pe()) { set_scl(true); return false; }
+            if (sc_core::sc_time_stamp() - t0 > tope) {
+                SC_REPORT_WARNING("fmpi2c", "esclavo: el firmware no atiende y el reloj "
+                                  "lleva 25 ms estirado; se suelta el bus");
+                set_scl(true);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool mia_7(uint8_t a) const {
+        const unsigned d7 = a >> 1;
+        if ((oar1_ & (1u << 15)) && !(oar1_ & (1u << 10)) && d7 == ((oar1_ >> 1) & 0x7Fu)) return true;
+        if (oar2_ & (1u << 15)) {
+            // OA2MSK: cuántos bits bajos de OA2 no se comparan [RM0316 §28.7.4]
+            const unsigned msk = (oar2_ >> 8) & 7u;
+            if (msk == 7) return (d7 & 0x78u) != 0x78u && d7 > 7u;   // todas las no reservadas
+            const unsigned m = 0x7Fu & ~((1u << msk) - 1u);
+            if ((d7 & m) == (((oar2_ >> 1) & 0x7Fu) & m)) return true;
+        }
+        return (cr1_ & C1_GCEN) && a == 0;
+    }
+
+    // Una sesión: de un START (o un START repetido) hasta el siguiente o el STOP
+    int sesion_esclavo() {
+        isr_ |= I_BUSY;
+        // El START acaba cuando el maestro baja SCL: el primer bit va después
+        if (!espera_scl(false)) return EV_FUERA;
+        uint8_t a = 0;
+        int r = lee_byte(a);
+        if (r < 0) return r;
+        const bool leer = a & 1u;
+        const bool d10 = (oar1_ & (1u << 15)) && (oar1_ & (1u << 10));
+        bool mia = false;
+        if (d10 && (a & 0xF8u) == 0xF0u) {
+            const bool cab = ((a >> 1) & 3u) == ((oar1_ >> 8) & 3u);
+            if (!leer) {
+                if (!cab) return espera_fin();
+                if (!pulso_ack(true)) return EV_FUERA;
+                uint8_t b = 0;
+                r = lee_byte(b);
+                if (r < 0) return r;
+                if (b != (oar1_ & 0xFFu)) { sl_dir10_ = false; return espera_fin(); }
+                sl_dir10_ = true;
+                mia = true;
+            } else {
+                mia = cab && sl_dir10_;
+            }
+        } else {
+            mia = mia_7(a);
+        }
+        if (!mia) return espera_fin();
+        // ACK, ADDR y el reloj estirado hasta que el firmware borre ADDR
+        sl_activo_ = true;
+        if (!pulso_ack(true)) return EV_FUERA;
+        const unsigned code = (d10 && (a & 0xF8u) == 0xF0u) ? (a >> 1) : (a >> 1);
+        isr_ = (isr_ & ~(0x7Fu << 17)) | (uint32_t(code & 0x7Fu) << 17);
+        if (leer) isr_ |= I_DIR; else isr_ &= ~I_DIR;
+        isr_ |= I_ADDR;
+        if (leer) { isr_ |= I_TXE; hay_tx_ = false; }   // el transmisor empieza vacío
+        actualiza_irq();
+        if (!estira([&] { return (isr_ & I_ADDR) != 0; })) return EV_FUERA;
+        return leer ? transmite_esclavo() : recibe_esclavo();
+    }
+    // No era para nosotros: se espera, sin tocar el bus, al STOP o al START
+    int espera_fin() {
+        for (;;) {
+            const int r = lee_bit();
+            if (r < 0) return r;
+        }
+    }
+    int recibe_esclavo() {
+        set_scl(true);
+        for (;;) {
+            uint8_t v = 0;
+            const int r = lee_byte(v);
+            if (r < 0) return r;
+            // El anterior sin leer: se estira antes del ACK [RM0316 §28.4.9]
+            if (isr_ & I_RXNE) {
+                if (!estira([&] { return (isr_ & I_RXNE) != 0; })) return EV_FUERA;
+            }
+            rxdr_ = v;
+            isr_ |= I_RXNE;
+            leido_rx_ = false;
+            actualiza_irq();
+            const bool ack = !(cr2_ & C2_NACK);
+            cr2_ &= ~C2_NACK;
+            set_sda(!ack);
+            set_scl(true);
+            if (!espera_scl(true) || !espera_scl(false)) return EV_FUERA;
+            set_sda(true);
+        }
+    }
+    int transmite_esclavo() {
+        for (;;) {
+            // Hace falta el siguiente: TXIS, y el reloj estirado hasta que llega
+            if (!hay_tx_) {
+                isr_ |= I_TXIS | I_TXE;
+                actualiza_irq();
+                if (!estira([&] { return !hay_tx_; })) return EV_FUERA;
+            }
+            const uint8_t v = uint8_t(txdr_);
+            hay_tx_ = false;
+            isr_ |= I_TXE;
+            actualiza_irq();
+            for (int i = 7; i >= 0; --i) {
+                set_sda((v >> i) & 1u);
+                set_scl(true);
+                if (!espera_scl(true) || !espera_scl(false)) return EV_FUERA;
+            }
+            set_sda(true);
+            // El noveno: ¿el maestro reconoce?
+            if (!espera_scl(true)) return EV_FUERA;
+            const bool ack = !sda_in.read();
+            if (!espera_scl(false)) return EV_FUERA;
+            if (!ack) {
+                isr_ |= I_NACKF;
+                isr_ &= ~I_TXIS;
+                actualiza_irq();
+                return espera_fin();
+            }
+            // Pide ya el siguiente, para que el firmware lo prepare
+            isr_ |= I_TXIS;
+            actualiza_irq();
+            set_scl(false);
+            if (!estira([&] { return !hay_tx_; })) return EV_FUERA;
+        }
     }
 };
 
