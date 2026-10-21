@@ -76,6 +76,14 @@ public:
         refs_.push_back({n, "(obligatorio)", q});
         return *this;
     }
+    // Una pieza que NO se conecta a nada por patillas -la Postura de una placa,
+    // que los sensores nombran con <ref>-: lo dice, con el porqué, y eso cuenta
+    // como sus terminales. No es una salida para no documentarlos: hay que
+    // explicar por qué no los tiene
+    Ayuda& sin_terminales(const char* porque) {
+        sin_pines_ = porque ? porque : "";
+        return *this;
+    }
     Ayuda& nota(const char* t)    { notas_.push_back(t); return *this; }
     Ayuda& cpp(const char* t)     { cpp_ = t;      return *this; }
     Ayuda& ejemplo(const char* t) { ejemplo_ = t;  return *this; }
@@ -86,7 +94,7 @@ public:
     // notas menos todavía; los terminales sí, porque una pieza sin terminales
     // no se puede conectar a nada.
     bool completa() const {
-        return resumen_.size() >= 40 && !pines_.empty();
+        return resumen_.size() >= 40 && (!pines_.empty() || sin_pines_.size() >= 20);
     }
 
     const std::string& resumen() const { return resumen_; }
@@ -100,6 +108,7 @@ public:
 private:
     std::string resumen_, cpp_, ejemplo_;
     std::vector<Fila> pines_, attrs_, refs_;
+    std::string sin_pines_;
     std::vector<std::string> notas_;
 };
 
@@ -197,6 +206,9 @@ inline std::string Ayuda::texto(const std::string& tipo) const {
     if (!pines_.empty()) {
         s += "\nTERMINALES  (<pin nombre=\"...\" nodo=\"...\"/>)\n";
         for (const Fila& f : pines_) s += fila(f, "");
+    } else if (!sin_pines_.empty()) {
+        s += "\nTERMINALES  ninguno\n";
+        s += envuelve(sin_pines_, 2);
     }
     if (!attrs_.empty()) {
         s += "\nATRIBUTOS DEL XML  (<componente ... nombre=\"valor\">)\n";

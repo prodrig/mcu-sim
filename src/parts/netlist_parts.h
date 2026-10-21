@@ -1705,6 +1705,9 @@ REGISTRA_PARTE(Postura,
           "al norte, z hacia fuera de la cara de los componentes. No tiene "
           "patillas: los sensores la nombran con <ref nombre=\"postura\">.")
       .ejemplo("<componente tipo=\"Postura\" id=\"MOV\" velocidad=\"90\"/>")
+      .sin_terminales("No va a ningun nodo: es un dato de la placa, no un circuito. "
+                      "Los sensores la leen por <ref nombre=\"postura\" "
+                      "componente=\"MOV\"/>, y la ventana la mueve con sus mandos.")
       .atr("alabeo", "0", "Grados: el borde este hacia abajo, positivo.")
       .atr("cabeceo", "0", "Grados: el borde norte hacia arriba, positivo (-90 a 90).")
       .atr("rumbo", "0", "Grados desde el norte magnetico, en el sentido de las agujas.")

@@ -554,10 +554,19 @@ SC_MODULE(TbE4) {
         for (unsigned char c : s) { std::snprintf(b, sizeof b, "%02x", c); h += b; }
         return h;
     }
+    // Dos cifras hexadecimales; si no lo son -una respuesta que no es la que
+    // se esperaba, un "OK" o un "E01"-, 0xFF y no una excepcion que tumbe la
+    // suite: la comprobacion que lo use fallara, y dira cual
+    static unsigned hex2(const std::string& s, size_t i) {
+        auto d = [](char c) { return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10
+                                   : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1; };
+        const int a = d(s[i]), b = d(s[i + 1]);
+        return a < 0 || b < 0 ? 0xFFu : unsigned(a * 16 + b);
+    }
     static uint32_t de_hex_le(const std::string& s) {
         uint32_t v = 0;
         for (unsigned i = 0; i < 4 && 2 * i + 1 < s.size(); ++i)
-            v |= uint32_t(std::stoul(s.substr(2 * i, 2), nullptr, 16)) << (8 * i);
+            v |= uint32_t(hex2(s, 2 * i)) << (8 * i);
         return v;
     }
     uint32_t pc() { return de_hex_le(cli.pedir("p0f")); }
