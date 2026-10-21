@@ -50,5 +50,5 @@ CMSIS, con su arranque y su guion de enlazado (`startup_f3.s`, generado por
 ## Lo que NO está
 
 La memoria de sistema de ST (su cargador AN3155) no se puede distribuir: el
-modelo arranca ahí un stub propio (`src/soc/stm32f3/sysmem_s1.s`) y el
-cargador es la fase S7, opcional, de `doc/analisis_stm32f303.md`.
+modelo lleva uno propio con el mismo protocolo por USART1 y USART2
+(`src/soc/stm32f3/cargador/`, fase S7 de `doc/analisis_stm32f303.md`).

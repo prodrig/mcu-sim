@@ -269,7 +269,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 bsl-p4 eth-e4 usb-e4 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 bsl-p4 eth-e4 usb-e4 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -716,6 +716,43 @@ f3-demo: $(TESTF3)
 	   grep -q "comprobaciones OK, 0 fallos" $(B)/f3-demo.log \
 	     && echo "  [OK  ] f3-demo: la demostracion de ST en la STM32F3DISCOVERY" \
 	     || { echo "  [FALLO] f3-demo: vease $(B)/f3-demo.log"; exit 1; }; \
+	 fi
+
+# EL CARGADOR DE SISTEMA DEL F303 CON stm32flash (S7 del F303): el sistema
+# placas/stm32f3discovery_boot0.xml -la Discovery con BOOT0 a VDD y un FT232RL
+# en la USART1- a tiempo real, su U1 por RFC 2217, verif/pty_rfc2217.py que lo
+# convierte en un pty a 115200 8E1, y stm32flash 0.7, sin modificar, que borra,
+# (con -m 8n1: un pty de Linux no guarda la paridad, y stm32flash comprueba lo
+# que pone; la paridad de verdad la pone el puente RFC 2217)
+# escribe f3_vcp.bin, lo verifica y lo arranca (GO): el VCP de la placa, en
+# memoria, tiene que dar su saludo. Sin stm32flash o sin pySerial se OMITE y lo
+# dice. No va en el CI (necesita un pty y tiempo real).
+#   make -f Makefile.mcu-sim f3-stm32flash
+PUERTO_STM32FLASH ?= 47361
+f3-stm32flash: $(MCUSIM)
+	@if ! command -v stm32flash >/dev/null 2>&1; then \
+	   echo "  [OMITE] f3-stm32flash: no hay stm32flash (apt install stm32flash)"; \
+	 elif ! python3 -c "import serial" >/dev/null 2>&1; then \
+	   echo "  [OMITE] f3-stm32flash: hace falta pySerial (python3 -m pip install pyserial)"; \
+	 else \
+	   rm -f $(B)/f3tty; \
+	   $(MCUSIM) placas/stm32f3discovery_boot0.xml --ms=15000 --tiempo-real \
+	       --serie F/U1=rfc2217:$(PUERTO_STM32FLASH) --serie D/VCP=memoria \
+	       > $(B)/f3-stm32flash-sim.log 2>&1 & sim=$$!; \
+	   python3 verif/pty_rfc2217.py $(PUERTO_STM32FLASH) $(B)/f3tty 115200 8E1 \
+	       > $(B)/f3-stm32flash-pty.log 2>&1 & pty=$$!; \
+	   i=0; while [ ! -e $(B)/f3tty ] && [ $$i -lt 100 ]; do sleep 0.1; i=$$((i+1)); done; \
+	   stm32flash -b 115200 -m 8n1 -w verif/fw/stm32f3/f3_vcp/f3_vcp.bin -v -g 0x0 $(B)/f3tty \
+	       > $(B)/f3-stm32flash.log 2>&1; r=$$?; \
+	   sleep 1; kill $$pty 2>/dev/null; wait $$sim; \
+	   cat $(B)/f3-stm32flash-sim.log >> $(B)/f3-stm32flash.log; \
+	   test $$r = 0 \
+	     && grep -q "Device ID *: 0x0422" $(B)/f3-stm32flash.log \
+	     && grep -q "Version *: 0x31" $(B)/f3-stm32flash.log \
+	     && grep -q "Wrote and verified address 0x08000414 (100.00%) Done" $(B)/f3-stm32flash.log \
+	     && grep -q "\[D/VCP\] f3_vcp: la USART1 por PC4/PC5" $(B)/f3-stm32flash.log \
+	     && echo "  [OK  ] f3-stm32flash: stm32flash borra, escribe, verifica y arranca f3_vcp por el cargador AN3155" \
+	     || { echo "  [FALLO] f3-stm32flash: vease $(B)/f3-stm32flash.log"; exit 1; }; \
 	 fi
 
 # LA PREBUSQUEDA DE LA FLASH DEL E4 A 120 MHz (FWS = 5):

@@ -226,7 +226,12 @@ private:
         idr_ = v;
     }
 
-    void reset_proc() { if (!rst_n.read()) { reset_state(); ev_regs_.notify(sc_core::SC_ZERO_TIME); } }
+    // El IDR es lo que dicen los pads: tras un reset -del sistema o del puerto
+    // por AHBRSTR- se vuelve a muestrear, sin esperar a que un pad cambie
+    void reset_proc() {
+        if (!rst_n.read()) { reset_state(); ev_regs_.notify(sc_core::SC_ZERO_TIME); }
+        ev_idr_.notify(sc_core::SC_ZERO_TIME);
+    }
 
     // Valores de reset [IR, §3.4.1, §3.4.3, §3.4.4]
     void reset_state() {

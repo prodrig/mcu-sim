@@ -783,7 +783,7 @@ Lo que queda dicho, con la letra con la que lo cita el código:
 ### P-18 — El STM32F303 y la STM32F3DISCOVERY
 
 **Analizado en `doc/analisis_stm32f303.md` (2026-10-19), con un plan de diez
-fases (S0-S9). HECHAS S0, S1, S2 y S3 el 2026-10-20 y S4 el 2026-10-21** en la rama `stm32f303`
+fases (S0-S9). HECHAS S0, S1, S2 y S3 el 2026-10-20 y S4 y S7 el 2026-10-21** en la rama `stm32f303`
 («Estado» del análisis): los rasgos neutrales, el STM32F303VC con su RCC, su
 Flash con el FPEC, la CCM ejecutable, la memoria de sistema y el arranque por
 BOOT0/nBOOT1/`MEM_MODE`, la STM32F3DISCOVERY con su dibujo, `testf3` (R1-R7,
@@ -794,7 +794,9 @@ los 29 ejemplos de ST de S3 sin modificar (F22-F53) y `make f3-vcp`; y en S4
 los sensores de la placa (`parts/mems_st.h`: la `Postura` y los cuatro MEMS de
 las dos revisiones, con `revision=` en la placa), el ejemplo `BSP` de ST en las
 dos revisiones, `f3_mems` contra la postura (F54-F57) y la demo de ST con
-`make f3-demo` (F58). Es la primera familia del proyecto con la
+`make f3-demo` (F58); y en S7 el cargador de sistema propio con el protocolo de
+AN3155 (`soc/stm32f3/cargador/`), que `stm32flash` usa sin modificar
+(`make f3-stm32flash`, F59-F60). Es la primera familia del proyecto con la
 segunda generación de IP de ST: el I²C es el `FMPI2C1` del F446 (`i2c2_v1_1`),
 y bxCAN, DAC, RTC, perros, CRC, EXTI, GPIO y temporizadores se reaprovechan por
 rasgos; RCC, controlador de Flash (el del F1), DMA por canales, USART v2, ADC,
@@ -805,7 +807,7 @@ pruebas es la STM32F3DISCOVERY, con sus dos revisiones de sensores
 SVG. Lo primero, S0: tener RM0316, DS9118 y UM1570 en `doc/refs/`, que desde
 el entorno de trabajo no se alcanzan.
 
-Lo que queda de una sola fuente, o de modelo, tras S4:
+Lo que queda de una sola fuente, o de modelo, tras S7:
 
 | | Qué | Estado |
 | :--- | :--- | :--- |
@@ -815,7 +817,7 @@ Lo que queda de una sola fuente, o de modelo, tras S4:
 | **d** | RDP | DECLARADO: se carga en `FLASH_OBR.RDPRT`, pero no bloquea al depurador ni borra la Flash al quitarlo |
 | **e** | Los bytes de opción borrados | Un byte a `0xFFFF` (borrado) se carga como `0xFF` sin `OPTERR`; uno cuyo complemento no cuadra, como `0xFF` con `OPTERR` [1F] |
 | **f** | El reset durante un borrado | En el modelo el borrado acaba igual; en el silicio el resultado queda indefinido |
-| **g** | La memoria de sistema | Un stub propio que deja `'MSYS'` en la SRAM y se aparca; el cargador AN3155 es S7, opcional |
+| **g** | La memoria de sistema | ~~Un stub que deja `'MSYS'` y se aparca~~ **S7 (2026-10-21)**: un cargador PROPIO con el protocolo de AN3155 por USART1 y USART2, a 8E1 y con la velocidad del `0x7F`; `stm32flash` 0.7 lo usa sin modificar. De modelo: sin I²C, SPI, CAN ni DFU; WRITE PROTECT y READOUT PROTECT contestan NACK; la velocidad se mide con el SysTick (el de ST usa un temporizador), y sale un 2 % corta a 115 200 por el quantum. AN2606 y AN3155 no están en `doc/refs/`: lo citado sale de ellos de memoria y de `stm32flash` (su `dev_table`: la SRAM libre desde `0x2000_1400`) [1F] |
 | **h** | La calibración de fábrica y el UID | Valores típicos de DS9118 (tablas 28 y 78: `TS_CAL1` 1748, `TS_CAL2` 1321, `VREFINT_CAL` 1526), no de una pieza; el UID, del modelo |
 | **i** | Los bloques de S4-S6 | DECLARADOS: ocupan su ventana, leen cero y avisan una vez con la fase que les toca (`limitaciones()` del chip los lista). Los de S3, hechos; de ellos queda declarado el I2S en dúplex (`I2S2ext`/`I2S3ext`) |
 | **j** | La matriz | ~~Se decide con los DMA~~ **Decidido en S3**: decodificadores directos; cada DMA, un iniciador con su socket, un ciclo de HCLK por fase y sin contención con la CPU [de modelo] |
@@ -831,6 +833,8 @@ Lo que queda de una sola fuente, o de modelo, tras S4:
 | **u** | Los sensores, de modelo (S4) | Las hojas de datos de los cuatro MEMS no están en `doc/refs/` [1F]. De modelo: las temperaturas (0 cuentas a 25 °C), el paso alto de primer orden (el del giróscopo con la tabla de HPCF a 95 Hz escalada; el del acelerómetro, una fracción de ODR), los umbrales de INT (alto y bajo como |valor| frente al umbral, sin la duración), el DRDY del magnetómetro (se baja al leer el último byte), las sensibilidades del DLHC fuera de HR. Sin FIFO, click, 6D, SPI de tres hilos ni ruido |
 | **v** | El I2C del STM32 (S4, también el F446) | `TC` se borra con `START`/`STOP` y `TCR` al escribir `NBYTES` [RM0316 §28.7.7]; SCL y SDA de drenador abierto por el periférico, sea cual sea `OTYPER` [de modelo: el BSP de la Discovery pone `AF_PP` y funciona] |
 | **w** | La sincronización de las escrituras del F303 (S4) | `Cpu::sync_escritura_perif`: el núcleo del F303 sincroniza con el planificador antes de cada escritura a un periférico, para que un pulso de GPIO más corto que el quantum (el CS del giróscopo, 0,2 µs) no desaparezca. **Los F4 y los MSP432 no**: tienen el mismo problema latente, y ponerlo movería sus invariantes |
+| **x** | El `IDR` tras un reset del GPIO (S7, todos los chips) | Se ponía a cero y no se volvía a muestrear hasta que un pad cambiase; ahora se muestrea al salir del reset. Las siete suites, al picosegundo |
+| **y** | El arranque en el cargador, en la placa | `placas/stm32f3discovery_boot0.xml`: un puente de P2.19 (BOOT0) a P2.20 (VDD), como se hace con una Discovery de verdad, en vez de abrir SB19; el FT232RL en la USART1. `make f3-stm32flash` va con `-m 8n1` por el pty (Linux no guarda la paridad de un pty); la paridad de la línea la pone el puente RFC 2217 |
 | **l** | La placa contra su esquemático | Contrastada con MB1035 rev. D.1 (2026-10-20): resistencias de la rosa (510 Ω en los verdes), B1 (100 + 330 Ω a VDD, 220 kΩ a masa), LD1, BOOT0, R39 y X3 sin montar. La vf de cada LED es de modelo; VDD se modela a 3,3 V, y en la placa son los 3,3 V del LD3985 menos el diodo D3 [de modelo] |
 
 ---

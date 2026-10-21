@@ -92,8 +92,9 @@ inline constexpr int FZ_APB2_F303[5]  = {0, 1, 2, 3, 4};
 // -----------------------------------------------------------------------------
 // LA MEMORIA DE SISTEMA: 8 KB en 0x1FFF_D800, de solo lectura
 //
-// El cargador de ST no se puede distribuir; hasta S7 aquí hay un arranque que
-// deja la marca 'MSYS' y se aparca (sysmem_s1.s). Al final de la ventana, los
+// El cargador de ST no se puede distribuir: desde S7 va uno PROPIO con el
+// protocolo de AN3155 por USART1 (PA9/PA10) y USART2 (PD5/PD6), cargador/main.c,
+// que además deja la marca 'MSYS' en 0x2000_0000. Al final de la ventana, los
 // datos de fábrica: el UID, la calibración del sensor de temperatura y de
 // VREFINT, y F_SIZE [CMSIS; HAL; DS9118] [valores típicos, f3_desc.h].
 // -----------------------------------------------------------------------------
@@ -107,7 +108,7 @@ public:
         tsk.register_b_transport(this, &SysMemF3::bt);
         tsk.register_transport_dbg(this, &SysMemF3::dbg);
         static const uint8_t stub[] = {
-#include "sysmem_s1.inc"
+#include "sysmem.inc"
         };
         std::memcpy(mem_.data(), stub, sizeof stub);
         for (unsigned i = 0; i < 3; ++i) pon32(f3::UID_B + 4 * i, f3::UID[i]);
@@ -292,8 +293,9 @@ public:
             "tiene reloj; el ITR de los TIM15 desde el TIM16/17 es la salida del pin (OC1), "
             "no OC1REF",
             "ADC1-4, DAC1, COMP1-7, OPAMP1-4 y TSC: fase S5; USB y CAN: fase S6",
-            "la memoria de sistema no lleva el cargador de ST (S7, opcional): arranca "
-            "un stub que deja 'MSYS' en 0x2000_0000 y se aparca en wfe",
+            "la memoria de sistema no lleva el cargador de ST sino uno propio con el "
+            "protocolo de AN3155 por USART1/USART2 (sin I2C, SPI, CAN ni el DFU por USB); "
+            "WRITE PROTECT y READOUT PROTECT contestan NACK",
             "la calibracion de fabrica (TS_CAL1/2, VREFINT_CAL) y el UID son valores "
             "tipicos del modelo, no de un chip",
             "sin modelo de corriente en los modos de bajo consumo; en Standby el IWDG se "

@@ -21,7 +21,7 @@ adelante, para media docena de familias.
 
 ---
 
-## Estado: S0 a S4 hechas (21-10-2026)
+## Estado: S0 a S4 y S7 hechas (21-10-2026)
 
 En la rama `stm32f303`, un commit por fase. Las siete suites de antes no se
 mueven ni un picosegundo (`ci/comprueba_invariante.sh`, las siete en verde con
@@ -123,6 +123,38 @@ con el giróscopo enciende el LED del lado que baja (F58, `make f3-demo`).
 `testf3` sube a **328** comprobaciones (de 296) y «el resto», a
 **115 237 619 112 941 ps**, igual en dos pasadas; las siete suites de antes no
 se mueven.
+
+**S7, el cargador de sistema** (21-10-2026). El de ST no se puede distribuir:
+en la memoria de sistema va uno **propio**, `soc/stm32f3/cargador/` (C con
+CMSIS, 2 KB), que `gen_sysmem.sh` compila y convierte en `sysmem.inc`
+(versionado, con la huella del `.bin`: el modelo no necesita el compilador
+cruzado). Habla el protocolo de **AN3155** por la USART1 (PA9/PA10) y la USART2
+(PD5/PD6) a 8E1: mide la velocidad con los dos flancos de bajada del `0x7F`
+(ocho bits, con el SysTick a los 8 MHz del HSI; la USART v2 del modelo no tiene
+auto-baud), y atiende GET, GET VERSION (3.1), GET ID (`0x0422`), READ, GO
+(VTOR, MSP y lo que tocó, a su estado de reset), WRITE (Flash por el FPEC en
+medias palabras, SRAM y los bytes de opción con su `OBL_LAUNCH`), EXTENDED
+ERASE (masivo y por páginas), WRITE UNPROTECT y READOUT UNPROTECT; WRITE
+PROTECT y READOUT PROTECT se anuncian y contestan NACK [de modelo]. Con RDP en
+el nivel 1, READ, WRITE y GO contestan NACK. Se reserva los 5 KB de SRAM del
+de ST (hasta `0x2000_1400`, lo que `stm32flash` da por libre) y sigue dejando
+`'MSYS'` en `0x2000_0000` (F4). La Discovery entra en él con un puente entre
+BOOT0 y VDD, que en P2 son los pines 19 y 20: `placas/stm32f3discovery_boot0.xml`
+lo pone y cuelga un FT232RL (`ftdi_ft232rl.xml`) de la USART1. **Cierre,
+cumplido**: `stm32flash` 0.7, sin modificar, reconoce el chip, borra, escribe
+`f3_vcp.bin`, lo verifica y lo arranca, y el VCP de la placa da su saludo
+(`make f3-stm32flash`, por un pty y RFC 2217 con `verif/pty_rfc2217.py`; con
+`-m 8n1`, porque un pty de Linux no guarda la paridad); y en `testf3`, un
+anfitrión de AN3155 escrito en el banco recorre todas las órdenes por las dos
+USART, a 115 200 y a 57 600, con RDP, el desbloqueo y los bytes de opción
+(F59, F60). `testf3` sube a **362** comprobaciones (de 328) y «el resto», a
+**116 110 029 112 941 ps**; las siete suites de antes no se mueven.
+
+**Lo que S7 ha destapado, para todos los chips:** el GPIO ponía `IDR` a cero en
+su reset (el del sistema o el de `AHBRSTR`) y no lo volvía a muestrear hasta que
+un pad cambiase. El cargador, tras un `GO` que reinicia los puertos y un reset,
+leía PD6 a cero con la línea alta y tomaba por arranque lo que no lo era. Ahora
+se muestrea al salir del reset; las siete suites, al picosegundo.
 
 **Los ejes, y la demo.** La placa: x al este (LD7), y al norte (LD3), z hacia
 fuera. El giróscopo, x al este e y al norte: así lo usan el ejemplo BSP y la
@@ -632,7 +664,7 @@ DFU lo usa poca gente con esta placa, porque el ST-LINK ya está ahí.
 | **D1** carga directa | `mcu-sim placa.xml fw.elf` | Cargador (ya sabe ELF) y la base de la Flash del descriptor | Nulo | S1 |
 | **D2** `load` de GDB | `arm-none-eabi-gdb`, CubeIDE (*GDB Hardware Debugging*) | **`programador_nv_if` del FPEC**: llaves, borrado de páginas de 2 KB, medias palabras | Pequeño | S2 |
 | **D3** OpenOCD | `openocd -f interface/cmsis-dap.cfg -c "cmsis-dap backend tcp" -f target/stm32f3x.cfg` (o `remote_bitbang`) | El controlador `stm32f1x` de OpenOCD `[OCD]`: **su cargador corre en el núcleo simulado** y escribe el FPEC, como el de `msp432` en el P4 | Pequeño, una vez hecho D2 | S2 |
-| **D4** cargador de sistema | `stm32flash` por el `PuenteSerie` (RFC 2217) | **Un cargador propio** en `0x1FFF_D800` con el protocolo AN3155 (documentado), porque la imagen de ST no se puede distribuir | Medio | S7, opcional |
+| **D4** cargador de sistema | `stm32flash` por el `PuenteSerie` (RFC 2217) | **Un cargador propio** en `0x1FFF_D800` con el protocolo AN3155 (documentado), porque la imagen de ST no se puede distribuir | Medio | S7: **hecho** (`make f3-stm32flash`) |
 | **D5** USB DFU | `dfu-util` | El FSDEV y un DFU propio | Medio-grande | Fuera del plan |
 | **G1** `--gdb-dap` | GDB | Nada nuevo | Nulo | S1 |
 | **G2** sonda SWD por los pines (PA13/PA14) | GDB | Nada nuevo | Nulo | S1 |
@@ -992,6 +1024,10 @@ montar `[UM1570]`).
 
 **Cierre:** `stm32flash`, sin modificar, programa la Flash por el
 `PuenteSerie`.
+
+**HECHA el 21-10-2026** («Estado», arriba). La variante de la placa es un
+sistema con un puente BOOT0-VDD en P2 (19-20), lo que se hace con una
+Discovery de verdad, en vez de desoldar SB19.
 
 **Tamaño:** medio.
 

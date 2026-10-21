@@ -269,4 +269,12 @@ teste4                296      4505148675235         resto
 # sincroniza antes de cada escritura a un periferico, que mueve algun instante
 # de los grupos de antes sin cambiar ninguna comprobacion. F58 (la demo de ST)
 # no cuenta: solo corre con TESTF3_SOLO=demo.
-testf3                328      115237619112941       resto
+#
+# S7 (21-10-2026): el cargador de sistema propio, F59-F60 (AN3155 por la
+# USART1 y la USART2, con un anfitrion en el banco): 328 -> 362. El resto
+# crece 872,41 ms simulados, lo que duran esos dos grupos (el borrado masivo y
+# los de paginas a 20 ms, f3_vcp.bin a 115200 y los resets de las opciones).
+# El cargador nuevo no mueve F4 ni F6 (solo su pila, ahora en 0x2000_1400), y
+# el IDR que se vuelve a muestrear tras un reset del GPIO no mueve ninguna de
+# las otras siete.
+testf3                362      116110029112941       resto

@@ -1,5 +1,5 @@
 // =============================================================================
-// sc_main_f3.cpp — LA SUITE DEL STM32F303VC (fases S0-S4 del plan del F303)
+// sc_main_f3.cpp — LA SUITE DEL STM32F303VC (fases S0-S4 y S7 del plan del F303)
 //
 // Un banco aparte, como el de cada chip: un chip más dentro de otra simulación
 // movería su invariante. [doc/analisis_stm32f303.md, §7.1]
@@ -52,7 +52,17 @@
 //   F58     la demostracion de ST (SLA0044, sin versionar), solo con
 //           TESTF3_SOLO=demo: `make f3-demo STM32CUBEF3=...`
 //
-//   TESTF3_SOLO=s2 / s3 / s4 / demo corre solo esos grupos, TESTF3_GRUPO=F44 solo los que
+//   (S7) el cargador de sistema propio (soc/stm32f3/cargador), con un
+//   anfitrion de AN3155 escrito aqui sobre un PuenteSerie en memoria a 8E1:
+//   F59     por la USART1 (PA9/PA10) a 115200: sincronizar, GET, GET VERSION,
+//           GET ID, READ de lo de fabrica, los NACK, el borrado masivo y por
+//           paginas, WRITE de f3_vcp.bin en la Flash y en la SRAM, READ de
+//           vuelta y GO, con f3_vcp en marcha
+//   F60     por la USART2 (PD5/PD6) a 57600: RDP en el nivel 1 (NACK),
+//           READOUT UNPROTECT y WRITE UNPROTECT con su reset, y los bytes de
+//           opcion por WRITE MEMORY
+//
+//   TESTF3_SOLO=s2 / s3 / s4 / s7 / demo corre solo esos grupos, TESTF3_GRUPO=F44 solo los que
 //   empiecen asi, TESTF3_TRAZA=1 imprime trazas de depuracion: con cualquiera
 //   de ellos el tiempo simulado no es el del invariante.
 //
@@ -82,6 +92,7 @@
 #include "../verif/bus_test_master.h"
 #include "../parts/ext_parts.h"
 #include "../parts/mems_st.h"
+#include "../parts/puente_serie.h"
 #include "../parts/netlist_xml.h"
 #include "../verif/gdb_stub.h"
 #include "../verif/gdb_client.h"
@@ -292,6 +303,7 @@ static const char* const FW_DEMO   = "verif/fw/stm32f3/f3_demo/f3_demo.bin";
 static const char* const FW_CM     = "verif/fw/stm32f3/coremark/coremark_f3.bin";
 static const char* const FW_TOGGLE = "verif/fw/stm32f3/gpio_iotoggle/GPIO_IOToggle.bin";
 static const char* const FW_EXTI   = "verif/fw/stm32f3/gpio_exti/GPIO_EXTI.bin";
+static const char* const FW_VCP    = "verif/fw/stm32f3/f3_vcp/f3_vcp.bin";
 static const char* const FW_FLASH  = "verif/fw/stm32f3/flash_eraseprogram/FLASH_EraseProgram.bin";
 static sc_time g_t_gdb = SC_ZERO_TIME;
 
@@ -317,6 +329,10 @@ SC_MODULE(TbF3) {
     Lsm303dlhc* u3d = nullptr;
     Lsm303agr*  u3e = nullptr;
     Rpull *r27 = nullptr, *r28 = nullptr;
+    // S7: el anfitrion del cargador de sistema, un puente UART en memoria a
+    // 8E1 en cada USART que escucha el cargador: USART1 (PA9/PA10) a 115200 y
+    // USART2 (PD5/PD6) a 57600. Desoldados hasta sus grupos
+    PuenteSerie *bl1 = nullptr, *bl2 = nullptr;
     McuF3   mcu;
     SocF3&  dut;
     // La placa, lo justo: los 8 MHz del ST-LINK en PF0 (sin onda), B1 en PA0 a
@@ -359,6 +375,17 @@ SC_MODULE(TbF3) {
             for (ExtPartBase* x : std::initializer_list<ExtPartBase*>{u5d, u5e, u3d, u3e, r27, r28})
                 x->set_enabled(false);
         }
+        {
+            PuenteSerie::Config c;
+            c.destino = serie::parsea("memoria");
+            c.formato.paridad = Paridad::par;
+            c.baudios = 115200;
+            bl1 = new PuenteSerie("bl1", &pin(0, 9), &pin(0, 10), nullptr, nullptr, nullptr, c);
+            c.baudios = 57600;
+            bl2 = new PuenteSerie("bl2", &pin(3, 5), &pin(3, 6), nullptr, nullptr, nullptr, c);
+            bl1->set_enabled(false);
+            bl2->set_enabled(false);
+        }
         mco = new ExtClock("mco", dut.pinmux.analog(5, 0), 8e6, 3.3, 50.0, false);
         b1 = new Button(dut.pinmux.analog(0, 0), 330.0, 3.3);
         b1->release();
@@ -375,6 +402,7 @@ SC_MODULE(TbF3) {
         delete r; delete dos; delete gen_e11; delete gen_b7; delete mco; delete b1; delete r_b1;
         delete gdb_p; delete gdb_d;
         delete u5d; delete u5e; delete u3d; delete u3e; delete r27; delete r28; delete mov;
+        delete bl1; delete bl2;
     }
 
     // --- Utilidades -----------------------------------------------------------
@@ -769,7 +797,7 @@ SC_MODULE(TbF3) {
         wait(200, SC_US);
         check(dut.mem_mode() == 1, "MEM_MODE = 01 al salir de reset");
         check_eq(dut.sram.peek32(0), 0x5359534Du, "el arranque de la memoria de sistema deja 'MSYS'");
-        check(dut.sysmem.peek32(f3::SYSMEM_B) == 0x20001000u, "con su pila en 0x2000_1000");
+        check(dut.sysmem.peek32(f3::SYSMEM_B) == 0x20001400u, "con su pila en 0x2000_1400: los 5 KB de SRAM del cargador");
         mcu.reset_pin(true);
         mcu.boot0(false);
         wait(20, SC_US);
@@ -810,7 +838,7 @@ SC_MODULE(TbF3) {
         arranca(7);
         check(espera_estado(100, 20), "f3_demo termina");
         check_eq(buzon(B_R0), 0x2000A000u, "con MEM_MODE = 00, en 0x0 esta la Flash: su _estack");
-        check_eq(buzon(B_R1), 0x20001000u, "con 01, la memoria de sistema");
+        check_eq(buzon(B_R1), 0x20001400u, "con 01, la memoria de sistema: la pila del cargador");
         check_eq(buzon(B_R2), 1u, "con 11, la SRAM: en 0x4 se lee buzon.arranques");
         check_eq(buzon(B_R3) & 3u, 0u, "y vuelve a la Flash");
     }
@@ -1895,6 +1923,261 @@ SC_MODULE(TbF3) {
         if (toca("F57")) s4_bsp('D');
     }
 
+
+    // =========================================================================
+    // S7: EL CARGADOR DE SISTEMA, el propio (soc/stm32f3/cargador), con el
+    // protocolo de AN3155 desde un anfitrion escrito aqui
+    // =========================================================================
+    static constexpr uint8_t ACK = 0x79, NACK = 0x1F;
+    PuenteSerie* bl = nullptr;     // el puente con el que se habla
+    std::size_t  bl_pos = 0;       // lo ya leido de lo que ha mandado el chip
+
+    void manda(std::initializer_list<uint8_t> v) {
+        std::string t;
+        for (uint8_t b : v) t.push_back(char(b));
+        bl->envia(t);
+    }
+    void manda(const std::vector<uint8_t>& v) { bl->envia(std::string(v.begin(), v.end())); }
+    // Un byte del chip, o -1 si no llega en ese tiempo
+    int byte(double ms = 20) {
+        const sc_time lim = sc_time_stamp() + sc_time(ms, SC_MS);
+        while (bl->recibido().size() <= bl_pos && sc_time_stamp() < lim) wait(20, SC_US);
+        if (bl->recibido().size() <= bl_pos) return -1;
+        return uint8_t(bl->recibido()[bl_pos++]);
+    }
+    bool ack(double ms = 20) { return byte(ms) == ACK; }
+    bool orden(uint8_t c) { manda({c, uint8_t(~c)}); return ack(); }
+    bool direccion(uint32_t a) {
+        const uint8_t b[4] = {uint8_t(a >> 24), uint8_t(a >> 16), uint8_t(a >> 8), uint8_t(a)};
+        manda({b[0], b[1], b[2], b[3], uint8_t(b[0] ^ b[1] ^ b[2] ^ b[3])});
+        return ack();
+    }
+    // READ MEMORY: hasta 256 bytes; vacio si algo contesta NACK
+    std::vector<uint8_t> lee_mem(uint32_t a, unsigned n) {
+        std::vector<uint8_t> v;
+        if (!orden(0x11) || !direccion(a)) return v;
+        manda({uint8_t(n - 1), uint8_t(~(n - 1))});
+        if (!ack()) return v;
+        for (unsigned i = 0; i < n; ++i) {
+            const int b = byte();
+            if (b < 0) return {};
+            v.push_back(uint8_t(b));
+        }
+        return v;
+    }
+    // WRITE MEMORY: hasta 256 bytes
+    bool escribe_mem(uint32_t a, const uint8_t* d, unsigned n) {
+        if (!orden(0x31) || !direccion(a)) return false;
+        std::vector<uint8_t> v{uint8_t(n - 1)};
+        uint8_t x = uint8_t(n - 1);
+        for (unsigned i = 0; i < n; ++i) { v.push_back(d[i]); x ^= d[i]; }
+        v.push_back(x);
+        manda(v);
+        return ack(50);
+    }
+    bool borra_masivo() {
+        if (!orden(0x44)) return false;
+        manda({0xFF, 0xFF, 0x00});
+        return ack(100);
+    }
+    bool borra_paginas(std::initializer_list<uint16_t> p) {
+        if (!orden(0x44)) return false;
+        const uint16_t n = uint16_t(p.size() - 1);
+        std::vector<uint8_t> v{uint8_t(n >> 8), uint8_t(n)};
+        for (uint16_t k : p) { v.push_back(uint8_t(k >> 8)); v.push_back(uint8_t(k)); }
+        uint8_t x = 0;
+        for (uint8_t b : v) x ^= b;
+        v.push_back(x);
+        manda(v);
+        return ack(30.0 * double(p.size()) + 20);
+    }
+    // El 0x7F: el cargador mide su velocidad y contesta ACK
+    bool sincroniza() {
+        bl_pos = bl->recibido().size();
+        manda({0x7F});
+        if (std::getenv("TESTF3_TRAZA")) {
+            std::string t;
+            const unsigned pp = bl == bl1 ? 0 : 3, pi = bl == bl1 ? 10 : 6;
+            for (int i = 0; i < 100; ++i) { t += alto(pp, pi) ? '1' : '0'; wait(2, SC_US); }
+            std::printf("    RX: %s pc=%08X msys=%08X\n", t.c_str(), dut.core.cpu.pc(), dut.sram.peek32(0));
+        }
+        return ack(5);
+    }
+    // Con BOOT0 alto, de un reset del pin, con el anfitrion en `p`
+    void arranca_cargador(PuenteSerie* p) {
+        mcu.reset_pin(true);
+        mcu.boot0(true);
+        bl1->set_enabled(p == bl1);
+        bl2->set_enabled(p == bl2);
+        bl = p;
+        bl->borra_recibido();
+        bl_pos = 0;
+        wait(20, SC_US);
+        dut.sram.poke32(0, 0);
+        mcu.reset_pin(false);
+        espera_msys();
+    }
+    // Hasta que el cargador deja su 'MSYS' (tras un encendido, t_RSTTEMPO)
+    bool espera_msys(double ms = 5) {
+        const sc_time lim = sc_time_stamp() + sc_time(ms, SC_MS);
+        while (dut.sram.peek32(0) != 0x5359534Du && sc_time_stamp() < lim) wait(10, SC_US);
+        wait(50, SC_US);
+        return dut.sram.peek32(0) == 0x5359534Du;
+    }
+    void suelta_cargador() {
+        mcu.reset_pin(true);
+        mcu.boot0(false);
+        bl1->set_enabled(false);
+        bl2->set_enabled(false);
+        bl = nullptr;
+        wait(20, SC_US);
+    }
+    static std::vector<uint8_t> fichero(const char* f) {
+        std::ifstream in(f, std::ios::binary);
+        return std::vector<uint8_t>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    unsigned cambios_led(unsigned i, double ms) {
+        unsigned n = 0;
+        bool a = alto(4, i);
+        for (double t = 0; t < ms; t += 1) {
+            wait(1, SC_MS);
+            if (alto(4, i) != a) { a = !a; ++n; }
+        }
+        return n;
+    }
+
+    void s7_usart1() {
+        grupo("F59 El cargador de sistema por la USART1 (PA9/PA10), 115200 8E1: AN3155 de punta a punta");
+        mcu.carga_firmware(FW_DEMO);           // algo que borrar
+        arranca_cargador(bl1);
+        check(dut.mem_mode() == 1, "BOOT0 alto: la memoria de sistema en 0x0");
+        check(sincroniza(), "el 0x7F: el cargador mide la velocidad y contesta ACK (0x79)");
+        if (std::getenv("TESTF3_TRAZA"))
+            std::printf("    BRR=%u CR1=%08X pc=%08X rx=%zu\n", unsigned(dut.usart1.dbg_read(0x0C)),
+                        unsigned(dut.usart1.dbg_read(0x00)), dut.core.cpu.pc(), bl->recibido().size());
+        // GET
+        bool g = orden(0x00);
+        const int n = byte(), ver = byte();
+        std::vector<uint8_t> ords;
+        for (int i = 0; i < n; ++i) ords.push_back(uint8_t(byte()));
+        g = g && ack();
+        const std::vector<uint8_t> esp{0x00, 0x01, 0x02, 0x11, 0x21, 0x31, 0x44, 0x63, 0x73, 0x82, 0x92};
+        check(g && n == 11 && ver == 0x31 && ords == esp,
+              "GET: la version 3.1 y las 11 ordenes de AN3155 con el borrado extendido (0x44)");
+        // GET VERSION, GET ID
+        const bool v = orden(0x01) && byte() == 0x31 && byte() == 0 && byte() == 0 && ack();
+        check(v, "GET VERSION: 0x31 y los dos bytes de opcion a cero");
+        const bool id = orden(0x02) && byte() == 1 && byte() == 0x04 && byte() == 0x22 && ack();
+        check(id, "GET ID: 0x0422, el del F303xB/C [AN2606]");
+        // Lo de fabrica, por READ
+        const auto fs = lee_mem(f3::F_SIZE_A, 2);
+        check(fs.size() == 2 && (fs[0] | fs[1] << 8) == 256, "READ de F_SIZE: 256 KB");
+        const auto uid = lee_mem(f3::UID_B, 12);
+        bool u = uid.size() == 12;
+        for (unsigned i = 0; u && i < 12; ++i) u = uid[i] == uint8_t(f3::UID[i / 4] >> (8 * (i % 4)));
+        check(u, "READ del UID: los 96 bits");
+        // Los errores
+        manda({0x11, 0x11});
+        check(byte() == NACK, "una orden con el complemento mal: NACK");
+        check(orden(0x63) == false, "WRITE PROTECT (0x63): se anuncia, pero contesta NACK [de modelo]");
+        check(lee_mem(0x40000000u, 4).empty(), "READ de un periferico: NACK");
+        // El borrado masivo
+        const auto antes = lee_mem(0x08000000u, 8);
+        check(antes.size() == 8 && antes[0] != 0xFF, "la Flash tiene un programa (f3_demo)");
+        check(borra_masivo(), "EXTENDED ERASE 0xFFFF: borrado masivo, ACK");
+        const auto despues = lee_mem(0x08000000u, 256);
+        bool ff = despues.size() == 256;
+        for (uint8_t b : despues) ff = ff && b == 0xFF;
+        check(ff, "y la Flash, a 0xFF");
+        // WRITE de f3_vcp.bin, en bloques de 256
+        const auto fw = fichero(FW_VCP);
+        bool w = !fw.empty();
+        for (std::size_t o = 0; w && o < fw.size(); o += 256)
+            w = escribe_mem(0x08000000u + uint32_t(o), &fw[o], unsigned(std::min<std::size_t>(256, fw.size() - o)));
+        check(w, "WRITE MEMORY de f3_vcp.bin en la Flash, por el FPEC: ACK en cada bloque");
+        bool r = !fw.empty();
+        for (std::size_t o = 0; r && o < fw.size(); o += 256) {
+            const unsigned k = unsigned(std::min<std::size_t>(256, fw.size() - o));
+            r = lee_mem(0x08000000u + uint32_t(o), k) == std::vector<uint8_t>(fw.begin() + o, fw.begin() + o + k);
+        }
+        check(r, "READ MEMORY lo devuelve byte a byte");
+        // Una pagina suelta
+        const uint8_t marca[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+        const bool pw = escribe_mem(0x08032000u, marca, 8) && lee_mem(0x08032000u, 8).size() == 8 &&
+                        lee_mem(0x08032000u, 1)[0] == 1;
+        const bool pe = borra_paginas({100});
+        const auto pl = lee_mem(0x08032000u, 8);
+        check(pw && pe && pl == std::vector<uint8_t>(8, 0xFF) && lee_mem(0x08000000u, 4) ==
+              std::vector<uint8_t>(fw.begin(), fw.begin() + 4),
+              "EXTENDED ERASE de la pagina 100: solo esa, y el programa sigue");
+        // La SRAM
+        const uint8_t s[5] = {0xDE, 0xAD, 0xBE, 0xEF, 0x42};
+        check(escribe_mem(0x20002000u, s, 5) && lee_mem(0x20002000u, 5) == std::vector<uint8_t>(s, s + 5),
+              "WRITE y READ en la SRAM de 0x2000_2000");
+        check(!escribe_mem(0x20000100u, s, 4), "WRITE en la SRAM del cargador (por debajo de 0x2000_1400): NACK");
+        // GO
+        const bool go = orden(0x21) && direccion(0x08000000u);
+        check(go, "GO 0x0800_0000: ACK");
+        wait(5, SC_MS);
+        check(dut.core.scs.vtor() == 0x08000000u, "con VTOR en la Flash");
+        const unsigned c = cambios_led(9, 350);
+        std::printf("    LD3 cambia %u veces en 350 ms\n", c);
+        check(c >= 3 && c <= 4, "y f3_vcp corre: LD3 (PE9) cambia cada 100 ms, con el HSE y el PLL");
+        suelta_cargador();
+    }
+
+    void s7_usart2() {
+        grupo("F60 El cargador por la USART2 (PD5/PD6) a 57600, y la proteccion de lectura");
+        arranca_cargador(bl2);
+        check(sincroniza(), "el 0x7F por PD6: ACK a 57600");
+        check(orden(0x02) && byte() == 1 && byte() == 0x04 && byte() == 0x22 && ack(), "GET ID por la USART2");
+        const auto fw = fichero(FW_VCP);
+        check(lee_mem(0x08000000u, 16) == std::vector<uint8_t>(fw.begin(), fw.begin() + 16),
+              "la Flash conserva lo que escribio F59");
+        // RDP en el nivel 1: lo programa el banco y se carga en un encendido
+        suelta_cargador();
+        dut.flash.pon_ob(0, 0xBB);
+        mcu.alimenta(false);
+        wait(100, SC_US);
+        mcu.alimenta(true);
+        wait(50, SC_US);
+        arranca_cargador(bl2);
+        check(sincroniza(), "con RDP en el nivel 1, el cargador contesta al 0x7F");
+        manda({0x11, 0xEE});
+        check(byte() == NACK, "pero READ MEMORY contesta NACK [AN3155 §3.4]");
+        manda({0x21, 0xDE});
+        check(byte() == NACK, "y GO tambien");
+        // READOUT UNPROTECT: borra la Flash, RDP a 0xAA y un reset
+        const bool ru = orden(0x92) && ack(100);
+        check(ru, "READOUT UNPROTECT: los dos ACK");
+        wait(60, SC_MS);                      // el borrado de los bytes y el reset
+        check(sincroniza(), "el chip se reinicia (OBL_LAUNCH) y el cargador vuelve a sincronizar");
+        const auto f = lee_mem(0x08000000u, 16);
+        check(f == std::vector<uint8_t>(16, 0xFF), "READ vuelve a valer, y la Flash esta borrada");
+        check(!dut.flash.nivel_rdp(), "RDP en el nivel 0");
+        // WRITE UNPROTECT: los WRP borrados y otro reset
+        const bool wu = orden(0x73) && ack(100);
+        wait(40, SC_MS);
+        check(wu && sincroniza(), "WRITE UNPROTECT: los dos ACK, el reset y otra vez ACK al 0x7F");
+        // Los bytes de opcion por WRITE MEMORY: USER sin nBOOT1 en 0x1FFF_F802
+        const uint8_t ob[4] = {0xAA, 0x55, 0xEF, 0x10};
+        const bool wo = escribe_mem(0x1FFFF800u, ob, 4);
+        wait(40, SC_MS);
+        check(wo && !dut.flash.nboot1(), "WRITE MEMORY en los bytes de opcion: USER = 0xEF, nBOOT1 a cero");
+        check(dut.mem_mode() == 3, "y, tras el reset, BOOT0 alto ya arranca la SRAM");
+        suelta_cargador();
+        for (unsigned i = 0; i < 8; ++i) dut.flash.pon_ob(i, i == 0 ? 0xAAu : 0xFFu);
+        mcu.alimenta(false);
+        wait(100, SC_US);
+        mcu.alimenta(true);
+        wait(3, SC_MS);
+    }
+
+    void s7() {
+        if (toca("F59")) s7_usart1();
+        if (toca("F60")) s7_usart2();
+    }
+
     void s3_una() {
         st_tim();
         st_perros();
@@ -1965,6 +2248,12 @@ SC_MODULE(TbF3) {
             sc_stop();
             return;
         }
+        if (solo && std::strcmp(solo, "s7") == 0) {
+            s7();
+            std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
+            sc_stop();
+            return;
+        }
         if (solo && std::strcmp(solo, "s4") == 0) {
             s4();
             std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
@@ -2011,6 +2300,7 @@ SC_MODULE(TbF3) {
             s3_una();
             s3_dos();
             s4();
+            s7();
         }
         std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
