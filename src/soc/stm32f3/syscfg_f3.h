@@ -13,8 +13,10 @@
 //
 // y en la misma ventana, aunque son otros bloques, los registros de los siete
 // comparadores (0x1C-0x34) y los cuatro amplificadores (0x38-0x44) [CMSIS:
-// COMPx_BASE, OPAMPx_BASE]. En esta fase guardan lo que se escribe y avisan
-// una vez: son de S5.
+// COMPx_BASE, OPAMPx_BASE]. Desde S5 los atienden los bloques de verdad
+// (periph/comp.h, periph/opamp.h): el SYSCFG se los DELEGA por `analogico`
+// (índice 0-6 los comparadores, 7-10 los amplificadores). Sin delegado, guardan
+// lo que se escribe y avisan una vez, como en S1-S4.
 //
 // PWR, en 0x4000_7000 [CMSIS: PWR_TypeDef]: CR (LPDS, PDDS, CWUF, CSBF, PVDE,
 // PLS, DBP) y CSR (WUF, SBF, PVDO, VREFINTRDYF, EWUP1-3); los modos de bajo
@@ -54,11 +56,20 @@ public:
     bool ccm_protegida(uint32_t off) const { return (rcr_ >> (off / 0x400u)) & 1u; }
     uint32_t cfgr1() const { return cfgr1_; }
     unsigned avisos_comp() const { return n_comp_; }
+    // S5: quién atiende COMP1-7_CSR y OPAMP1-4_CSR (índice 0..10), y su reset
+    struct Analogico {
+        std::function<uint32_t(unsigned)> lee;
+        std::function<void(unsigned, uint32_t)> escribe;
+        std::function<void()> reinicia;
+    } analogico;
 
 protected:
     uint32_t reg_read(uint32_t off) override {
         if (off >= R_EXTICR1 && off < R_CFGR2) return exticr_[(off - R_EXTICR1) / 4];
-        if (off >= R_COMP1 && off <= R_OPAMP4) return compopamp_[(off - R_COMP1) / 4];
+        if (off >= R_COMP1 && off <= R_OPAMP4) {
+            if (analogico.lee) return analogico.lee((off - R_COMP1) / 4);
+            return compopamp_[(off - R_COMP1) / 4];
+        }
         switch (off) {
             case R_CFGR1: return cfgr1_;
             case R_RCR:   return rcr_;
@@ -75,6 +86,10 @@ protected:
         if (off >= R_EXTICR1 && off < R_CFGR2) {
             exticr_[(off - R_EXTICR1) / 4] = v & 0xFFFFu;
             pub_ev_.notify(sc_core::SC_ZERO_TIME);
+            return;
+        }
+        if (off >= R_COMP1 && off <= R_OPAMP4 && analogico.escribe) {
+            analogico.escribe((off - R_COMP1) / 4, v);
             return;
         }
         if (off >= R_COMP1 && off <= R_OPAMP4) {
@@ -129,6 +144,7 @@ private:
         rcr_ = 0; cfgr2_ = 0;
         for (uint32_t& e : exticr_) e = 0;
         for (uint32_t& c : compopamp_) c = 0;
+        if (analogico.reinicia) analogico.reinicia();
         pub_ev_.notify(sc_core::SC_ZERO_TIME);
     }
 };

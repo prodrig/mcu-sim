@@ -19,7 +19,9 @@
 #                          alternativa de cada pin del LQFP100, que contiene a
 #                          los demas: el GPIO es del die, no del encapsulado;
 #   f3_lineas.inc          lo que cada linea (F302, F358) no tiene del F303,
-#                          segun las IP que la base de pines da a su LQFP100.
+#                          segun las IP que la base de pines da a su LQFP100;
+#   f3_analogico.inc       {adc, canal, puerto, pin} de cada entrada ADCx_INy
+#                          que sale a un pin del LQFP100 (S5).
 #
 # El guion se niega a escribir si lo que lee no cuadra: si el numero de E/S
 # que declara la base (`IONb`) no es el de la mascara, si una AF no es un
@@ -149,6 +151,25 @@ def main():
             if ips - ips303:
                 sys.exit('%s tiene IP que el F303 no tiene: %s' % (linea, sorted(ips - ips303)))
             f.write('#define F3_SIN_%s "%s"\n' % (linea, ' '.join(sorted(ips303 - ips))))
+    # Las entradas de los ADC, de las señales de cada patilla [PINDATA]
+    ain = []
+    for p in leidos['LQFP100'][0].findall('s:Pin', NS):
+        q = pin_de(p.get('Name'))
+        if q is None:
+            continue
+        for sg in p.findall('s:Signal', NS):
+            m = re.match(r'^ADC([1-4])_IN(\d+)$', sg.get('Name'))
+            if m:
+                ain.append((int(m.group(1)), int(m.group(2)), q[0], q[1]))
+    ain.sort()
+    if len(set((a, c) for a, c, _, _ in ain)) != len(ain):
+        sys.exit('un canal de ADC en dos pines')
+    with open('f3_analogico.inc', 'w', newline='\n') as f:
+        f.write(CAB)
+        f.write('// Las %u entradas de los ADC que salen al LQFP100: {adc, canal, puerto (0 = A),\n'
+                '// pin}. ADC12_INx sale como ADC1_INx y ADC2_INx en el mismo pin.\n' % len(ain))
+        for a, c, p_, i in ain:
+            f.write('{%u, %2u, %u, %2u},  // ADC%u_IN%u en P%s%u\n' % (a, c, p_, i, a, c, LETRAS[p_], i))
     print('%s; %u funciones alternativas'
           % (', '.join('%s %u E/S' % (k, v[3]) for k, v in leidos.items()), len(af)))
 

@@ -178,3 +178,6 @@ f3  stm32f3/ejemplos_s3/WWDG_Example.bin                   4320  0xAB6212B6
 # es SLA0044 y no se versiona
 f3  stm32f3/f3_mems/f3_mems.bin                            2024  0x47811E62
 f3  stm32f3/ejemplos_s4/BSP.bin                           12040  0xE82C2864
+
+# STM32F303VC (S5): lo analogico, con CMSIS y las funciones en linea de LL
+f3  stm32f3/f3_analog/f3_analog.bin                        2884  0x60678F1A

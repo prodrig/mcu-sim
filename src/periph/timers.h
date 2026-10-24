@@ -103,6 +103,12 @@ struct TimCaps {
     bool sms_4bits     = false;   // SMCR.SMS[3]: modo 8, reset + disparo
     bool or_reg        = false;   // registro de opciones (OR, 0x50)
     bool ti1_remap     = false;   // OR.TI1_RMP: TI1 desde dentro (TIM16, S3)
+    // S5: las señales internas hacia lo analógico. OCxREF de los seis canales
+    // como señal (los disparos «TIMx_CCy» de los ADC y el «blanking» de los
+    // comparadores) y la entrada de freno BRK_ACTH (y BRK2) de los
+    // comparadores, activa a nivel alto y sin filtro [RM0316 §8.3.x, nota de
+    // la tabla de interconexión]
+    bool internas      = false;
     // `channels` puede valer 5 o 6 en estos: CCR5 y CCR6 son canales SIN PIN,
     // que comparan y dan referencia (para el ADC, TRGO2 y el agrupamiento
     // GC5Cx con los canales 1-3) pero no salen al encapsulado.
@@ -167,7 +173,7 @@ constexpr TimCaps caps_basic() {              // TIM6, TIM7 [IR, §12.3]
 // nuevos: TIM15 (dos canales, uno con complementaria) y TIM16/TIM17 (uno, con
 // complementaria). Todos con freno.
 constexpr TimCaps caps_v3(TimCaps c) {
-    c.ocm_4bits = true; c.uif_remap = true;
+    c.ocm_4bits = true; c.uif_remap = true; c.internas = true;
     if (c.slave_mode) c.sms_4bits = true;
     if (c.bdtr) c.filtro_break = true;
     return c;
@@ -248,6 +254,11 @@ public:
     // TIM_TIM16_RTC, TIM_TIM16_HSE, TIM_TIM16_MCO]. Las conduce el SoC; un
     // temporizador sin `ti1_remap` no las mira
     sc_core::sc_signal<bool> ti1_rmp[3];
+    // S5 (`internas`): OCxREF de cada canal, y los frenos que llegan de los
+    // comparadores. Señales: las escribe este bloque y las lee el SoC, o al
+    // revés, sin compartir escritor con los pines
+    sc_core::sc_signal<bool> ocref[6];
+    sc_core::sc_signal<bool> brk_acth{"brk_acth"}, brk2_acth{"brk2_acth"};
 
     // ---- Offsets [IR, §12.1.4-D] ------------------------------------------
     enum : uint32_t {
@@ -293,6 +304,10 @@ public:
         SC_METHOD(brk_proc);    sensitive << bkin_in; dont_initialize();
         if (caps_.break2) { SC_METHOD(brk2_proc); sensitive << bkin2_in; dont_initialize(); }
         if (caps_.mms2)   { SC_THREAD(trgo2_proc); }
+        if (caps_.internas && caps_.bdtr) {
+            SC_METHOD(brk_acth_proc); sensitive << brk_acth; dont_initialize();
+            if (caps_.break2) { SC_METHOD(brk2_acth_proc); sensitive << brk2_acth; dont_initialize(); }
+        }
     }
     // --- Atajo de selección en tiempo de ejecución -------------------------
     // Los dos ejes que más distinguen a un temporizador de otro: la anchura del
@@ -962,6 +977,23 @@ private:
         update_irq();
         if (aoe()) { /* el rearme automático ocurre en el siguiente UEV */ }
     }
+    // El freno de los comparadores (BRK_ACTH): activo a nivel alto, sin BKP ni
+    // filtro; se suma al del pin [RM0316 §8.3.x]. BRK2 desde un comparador, lo
+    // mismo con B2IF [de modelo: activo a nivel alto, sin BK2P]
+    void brk_acth_proc() {
+        if (!bke() || !brk_acth.read()) return;
+        bdtr_ &= ~(1u << 15);
+        sr_ |= S_BIF;
+        publish_pins();
+        update_irq();
+    }
+    void brk2_acth_proc() {
+        if (!bk2e() || !brk2_acth.read()) return;
+        bdtr_ &= ~(1u << 15);
+        sr_ |= S_B2IF;
+        publish_pins();
+        update_irq();
+    }
     // La segunda entrada de freno (v3): lo mismo, con B2IF [CMSIS: TIM_BDTR_BK2E]
     void brk2_proc() {
         if (!bk2e()) return;
@@ -1252,6 +1284,7 @@ private:
         irq_brk.write(o_irq_brk_);
         trgo.write(o_trgo_);
         if (caps_.mms2) trgo2_sig.write(o_trgo2_);
+        if (caps_.internas) for (unsigned c = 0; c < 6; ++c) ocref[c].write(c < caps_.channels && ref_[c]);
         dma_up.write((o_dma_ >> D_UP) & 1u);
         dma_trig.write((o_dma_ >> D_TRIG) & 1u);
         dma_com.write((o_dma_ >> D_COM) & 1u);

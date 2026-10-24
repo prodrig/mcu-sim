@@ -137,7 +137,8 @@ public:
     // (TIM1 y TIM8 a 144 MHz desde el PLL) y CFGR.I2SSRC. Son señales del RCC,
     // como `s_en`: el SoC ata a ellas el `ker_clk_hz` de cada periférico.
     enum KerF3 : unsigned { K_USART1, K_USART2, K_USART3, K_UART4, K_UART5,
-                            K_I2C1, K_I2C2, K_TIM1, K_TIM8, K_I2S, K_COUNT };
+                            K_I2C1, K_I2C2, K_TIM1, K_TIM8, K_I2S,
+                            K_ADC12, K_ADC34, K_COUNT };   // ADCxy_CK (CFGR2, S5)
     sc_core::sc_vector<sc_core::sc_signal<double>> s_ker;
 
     sc_core::sc_time t_rst_pulse{20, sc_core::SC_US};
@@ -575,6 +576,7 @@ private:
         o_ker_[K_TIM1] = f_tim18(1); o_ker_[K_TIM8] = f_tim18(8);
         // I2SSRC (CFGR bit 23): 0 SYSCLK, 1 el pin I2S_CKIN, que no se modela
         o_ker_[K_I2S] = ((cfgr_ >> 23) & 1u) ? 0.0 : f_sys_;
+        o_ker_[K_ADC12] = f_adc12(); o_ker_[K_ADC34] = f_adc34();
         if (parado_) for (double& k : o_ker_) k = 0;
         // CIR: los RDYF suben en el flanco
         const bool rdy[5] = { lsi.is_ready(), lse.is_ready(), hsi.is_ready(), hse.is_ready(), pll_listo_ };

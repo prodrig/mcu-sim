@@ -41,6 +41,8 @@
 #ifndef STM32_PERIPH_DMA_CANAL_H
 #define STM32_PERIPH_DMA_CANAL_H
 
+#include <cstdio>
+#include <functional>
 #include <tlm_utils/simple_initiator_socket.h>
 #include "../common/periph_base.h"
 
@@ -74,6 +76,10 @@ public:
     }
 
     unsigned canales() const { return n_; }
+    // La última transferencia de un bloque (CNDTR llega a cero, circular o no):
+    // la señal DMA_EOT que el ADC de los F3 usa para dejar de pedir en el modo
+    // de una vez (DMACFG = 0) [RM0316 §15.3.26]. Se llama con el canal (0..n-1)
+    std::function<void(unsigned)> al_terminar;
     // Para el banco
     uint64_t transferencias() const { return n_trf_; }
     uint32_t cndtr(unsigned c) const { return c < n_ ? ch_[c].ndt : 0; }
@@ -292,6 +298,7 @@ private:
         if (!x.mitad && x.ndt <= x.ndt_prog / 2) { x.mitad = true; pon(c, F_HTIF); }
         if (x.ndt == 0) {
             pon(c, F_TCIF);
+            if (al_terminar) al_terminar(c);
             if ((x.ccr & CCR_CIRC) && !(x.ccr & CCR_MEM2MEM)) {
                 x.ndt = x.ndt_prog; x.pa = x.par; x.ma = x.mar; x.mitad = false;
             } else {

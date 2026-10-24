@@ -1,0 +1,54 @@
+// GENERADO por gen_pines.py a partir de la base de pines de ST
+// (STM32_open_pin_data, BSD-3; pindata/): NO SE EDITA A MANO.
+// Las 50 entradas de los ADC que salen al LQFP100: {adc, canal, puerto (0 = A),
+// pin}. ADC12_INx sale como ADC1_INx y ADC2_INx en el mismo pin.
+{1,  1, 0,  0},  // ADC1_IN1 en PA0
+{1,  2, 0,  1},  // ADC1_IN2 en PA1
+{1,  3, 0,  2},  // ADC1_IN3 en PA2
+{1,  4, 0,  3},  // ADC1_IN4 en PA3
+{1,  5, 5,  4},  // ADC1_IN5 en PF4
+{1,  6, 2,  0},  // ADC1_IN6 en PC0
+{1,  7, 2,  1},  // ADC1_IN7 en PC1
+{1,  8, 2,  2},  // ADC1_IN8 en PC2
+{1,  9, 2,  3},  // ADC1_IN9 en PC3
+{1, 10, 5,  2},  // ADC1_IN10 en PF2
+{2,  1, 0,  4},  // ADC2_IN1 en PA4
+{2,  2, 0,  5},  // ADC2_IN2 en PA5
+{2,  3, 0,  6},  // ADC2_IN3 en PA6
+{2,  4, 0,  7},  // ADC2_IN4 en PA7
+{2,  5, 2,  4},  // ADC2_IN5 en PC4
+{2,  6, 2,  0},  // ADC2_IN6 en PC0
+{2,  7, 2,  1},  // ADC2_IN7 en PC1
+{2,  8, 2,  2},  // ADC2_IN8 en PC2
+{2,  9, 2,  3},  // ADC2_IN9 en PC3
+{2, 10, 5,  2},  // ADC2_IN10 en PF2
+{2, 11, 2,  5},  // ADC2_IN11 en PC5
+{2, 12, 1,  2},  // ADC2_IN12 en PB2
+{3,  1, 1,  1},  // ADC3_IN1 en PB1
+{3,  2, 4,  9},  // ADC3_IN2 en PE9
+{3,  3, 4, 13},  // ADC3_IN3 en PE13
+{3,  5, 1, 13},  // ADC3_IN5 en PB13
+{3,  6, 4,  8},  // ADC3_IN6 en PE8
+{3,  7, 3, 10},  // ADC3_IN7 en PD10
+{3,  8, 3, 11},  // ADC3_IN8 en PD11
+{3,  9, 3, 12},  // ADC3_IN9 en PD12
+{3, 10, 3, 13},  // ADC3_IN10 en PD13
+{3, 11, 3, 14},  // ADC3_IN11 en PD14
+{3, 12, 1,  0},  // ADC3_IN12 en PB0
+{3, 13, 4,  7},  // ADC3_IN13 en PE7
+{3, 14, 4, 10},  // ADC3_IN14 en PE10
+{3, 15, 4, 11},  // ADC3_IN15 en PE11
+{3, 16, 4, 12},  // ADC3_IN16 en PE12
+{4,  1, 4, 14},  // ADC4_IN1 en PE14
+{4,  2, 4, 15},  // ADC4_IN2 en PE15
+{4,  3, 1, 12},  // ADC4_IN3 en PB12
+{4,  4, 1, 14},  // ADC4_IN4 en PB14
+{4,  5, 1, 15},  // ADC4_IN5 en PB15
+{4,  6, 4,  8},  // ADC4_IN6 en PE8
+{4,  7, 3, 10},  // ADC4_IN7 en PD10
+{4,  8, 3, 11},  // ADC4_IN8 en PD11
+{4,  9, 3, 12},  // ADC4_IN9 en PD12
+{4, 10, 3, 13},  // ADC4_IN10 en PD13
+{4, 11, 3, 14},  // ADC4_IN11 en PD14
+{4, 12, 3,  8},  // ADC4_IN12 en PD8
+{4, 13, 3,  9},  // ADC4_IN13 en PD9

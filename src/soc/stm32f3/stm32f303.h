@@ -17,6 +17,11 @@
 //   DBGMCU        el de `DebugSys`, con DEV_ID 0x422 y la tabla de congelación
 //                 del F3 como dato
 //
+// Y desde S5 lo analógico (conecta_s5()): los cuatro ADC de segunda
+// generación en dos parejas (`AdcParV3`, periph/adc_v3.h), el DAC1, los siete
+// comparadores (periph/comp.h) y los cuatro amplificadores (periph/opamp.h),
+// estos dos con sus registros delegados por el SYSCFG. El TSC sigue declarado.
+//
 // y lo nuevo: `RccF3` (rcc/rcc_f3.h), `FlashF1` (mem/flash_f1.h), el SYSCFG y
 // el PWR (syscfg_f3.h) y la memoria de sistema (aquí abajo). Y desde S3 los
 // periféricos de segunda generación: `UsartV2` (periph/usart_v2.h), `DmaCanal`
@@ -66,6 +71,10 @@
 #include "../../periph/watchdog.h"
 #include "../../periph/rtc.h"
 #include "../../periph/crc.h"
+#include "../../periph/adc_v3.h"
+#include "../../periph/dac.h"
+#include "../../periph/comp.h"
+#include "../../periph/opamp.h"
 
 namespace stm32 {
 
@@ -191,6 +200,14 @@ public:
     Iwdg      iwdg{"iwdg", IWDG_F3};
     Wwdg      wwdg{"wwdg"};
     Rtc       rtc{"rtc", RTC_F3};
+    // --- Lo analógico (S5) -------------------------------------------------------------
+    AdcParV3  adc12{"adc12", f3::ADC12_B, "ADC1", "ADC2"}, adc34{"adc34", f3::ADC34_B, "ADC3", "ADC4"};
+    DacBase   dac1{"dac1", CAPS_DAC_F303};
+    CompF3    comp{"comp", [this](unsigned p, unsigned i) -> analog_net_if& { return pinmux.analog(p, i); }};
+    OpampF3   opamp{"opamp", [this](unsigned p, unsigned i) -> analog_net_if& { return pinmux.analog(p, i); }};
+    // La temperatura del chip, la que lee el sensor (la pone el banco) [°C]
+    double temp_c = 25.0;
+    void set_die_temp(double c) { temp_c = c; }
     std::vector<BloqueDeclarado*> declarados;
     static constexpr unsigned N_PUERTOS = 6;
 
@@ -223,6 +240,7 @@ public:
         conecta_pines();
         conecta_irq();
         conecta_s3();
+        conecta_s5();
         // Cada escritura a un periferico, en su instante (S4: el CS del
         // giroscopo entre dos lecturas del BSP dura menos que un quantum)
         core.cpu.sync_escritura_perif = true;
@@ -235,6 +253,7 @@ public:
         SC_METHOD(mco_proc); sensitive << mco_ev_;
         SC_METHOD(irq_tim_proc);
         for (unsigned k = 0; k < N_TIM; ++k) for (unsigned j = 0; j < 5; ++j) sensitive << s_tirq_[k][j];
+        sensitive << s_dac_irq_;
         dont_initialize();
         SC_METHOD(dma_req_proc);
         sensitive << s_cfgr1_;
@@ -242,6 +261,18 @@ public:
         for (auto& q : q_u_) sensitive << q[0] << q[1];
         for (auto& q : q_spi_) sensitive << q[0] << q[1];
         for (auto& q : q_i2c_) sensitive << q[0] << q[1];
+        for (auto& q : q_adc_) sensitive << q;
+        for (auto& q : q_dac_) sensitive << q;
+        dont_initialize();
+        SC_METHOD(irq_adc_proc); sensitive << s_adc12_irq_[0] << s_adc12_irq_[1];
+        dont_initialize();
+        SC_METHOD(exti_ln_proc);
+        for (unsigned i = 0; i < s_exti_gpio_.size(); ++i) sensitive << s_exti_gpio_[i];
+        for (unsigned l : {2u, 9u, 11u, 15u}) sensitive << s_exticr_[l];
+        SC_METHOD(dac_trig_proc); sensitive << s_cfgr1_ << s_trgo_[T3] << s_trgo_[T8];
+        SC_METHOD(comp_proc);
+        for (unsigned i = 0; i < CompF3::N; ++i) sensitive << comp.out[i];
+        sensitive << comp.cfg_ev;
         dont_initialize();
         SC_METHOD(itr3_proc); sensitive << s_cfgr1_ << s_trgo_[T4] << tim17.ch_out[0];
         SC_METHOD(irtim_proc); sensitive << tim16.ch_out[0] << tim17.ch_out[0];
@@ -280,11 +311,11 @@ public:
 
     std::vector<std::string> limitaciones() const {
         std::vector<std::string> v = {
-            "fases S1, S2 y S3 del plan del F303: nucleo, reloj, Flash (lectura y FPEC), SRAM, "
+            "fases S1, S2, S3 y S5 del plan del F303: nucleo, reloj, Flash (lectura y FPEC), SRAM, "
             "CCM ejecutable, memoria de sistema, GPIO, EXTI, SYSCFG, PWR con Sleep, Stop y "
             "Standby, DMA1/2, USART1-3 y UART4/5 (v2), SPI1-3 (v3), I2C1/2, TIM1/2/3/4/6/7/8/15/16/17 "
-            "e IRTIM, IWDG con ventana, WWDG, RTC y CRC programable. El resto esta DECLARADO: "
-            "contesta, lee cero y avisa una vez",
+            "e IRTIM, IWDG con ventana, WWDG, RTC, CRC programable, ADC1-4, DAC1, COMP1-7 y "
+            "OPAMP1-4. El resto (TSC, USB, CAN) esta DECLARADO: contesta, lee cero y avisa una vez",
             "la proteccion de lectura (RDP) esta a medias: el nivel se carga en FLASH_OBR, "
             "volver al 0 borra la Flash y el 2 bloquea los bytes de opcion, pero el 1 no "
             "cierra la Flash al depurador ni el 2 apaga la depuracion; la Flash se programa "
@@ -298,7 +329,11 @@ public:
             "el I2S en duplex completo (I2S2ext, I2S3ext) esta declarado; el I2S_CKIN no "
             "tiene reloj; el ITR de los TIM15 desde el TIM16/17 es la salida del pin (OC1), "
             "no OC1REF",
-            "ADC1-4, DAC1, COMP1-7, OPAMP1-4 y TSC: fase S5; USB y CAN: fase S6",
+            "lo analogico (S5): los ADC no modelan la latencia de los disparos, el ruido ni el "
+            "error de un ADC calibrado, ni sacan AWDx_OUT a los temporizadores; VREF+ es VDDA; "
+            "los comparadores cambian en un delta y no hacen BLANKING ni van a capturas ni "
+            "a OCREF_CLR; los OPAMP no conmutan con TCM_EN; el TSC esta DECLARADO",
+            "USB y CAN: fase S6",
             "la memoria de sistema no lleva el cargador de ST sino uno propio con el "
             "protocolo de AN3155 por USART1/USART2 (sin I2C, SPI, CAN ni el DFU por USB); "
             "WRITE PROTECT y READOUT PROTECT contestan NACK",
@@ -507,9 +542,18 @@ private:
         // --- AHB2: los GPIO ------------------------------------------------------------
         for (unsigned p = 0; p < N_PUERTOS; ++p) engancha(gpio[p], ahb2, H, Hz, F3P_GPIOA + p);
         // --- AHB3: los ADC -------------------------------------------------------------
-        declara("adc12", f3::ADC12_B, 0x400, ahb3, H, Hz, F3P_ADC12, S5);
-        if (mcu.tiene(F3A_ADC34)) declara("adc34", f3::ADC34_B, 0x400, ahb3, H, Hz, F3P_ADC34, S5);
-        else ausente("ADC3/4", f3::ADC34_B, 0x400, ahb3, H, Hz);
+        engancha(adc12, ahb3, H, Hz, F3P_ADC12);
+        if (mcu.tiene(F3A_ADC34)) {
+            engancha(adc34, ahb3, H, Hz, F3P_ADC34);
+        } else {
+            // Como un TIM ausente: conectado, pero fuera del bus (S9)
+            i_aus_.emplace_back(new tlm_utils::simple_initiator_socket<SocF3>("i_aus_adc34"));
+            i_aus_.back()->bind(adc34.tsk);
+            adc34.clk(H); adc34.clk_hz(Hz);
+            adc34.rst_n(rcc.s_rst_n[F3P_ADC34]); adc34.clk_en(rcc.s_en[F3P_ADC34]);
+            adc34.clk_en_live = rcc.clk_en_ptr(F3P_ADC34);
+            ausente("ADC3/4", f3::ADC34_B, 0x400, ahb3, H, Hz);
+        }
         // --- APB1 ----------------------------------------------------------------------
         // Los bloques de extension del I2S (el duplex completo): la base de pines
         // de ST no les da pin propio -comparten el MISO del SPI-, y quedan
@@ -527,7 +571,7 @@ private:
         }
         declara("can", f3::CAN_B, 0x400, apb1, P1, P1z, F3P_CAN, S6);
         engancha(pwr, apb1, P1, P1z, F3P_PWR);
-        declara("dac1", f3::DAC1_B, 0x400, apb1, P1, P1z, F3P_DAC1, S5);
+        engancha(dac1, apb1, P1, P1z, F3P_DAC1);
         // --- APB2 ----------------------------------------------------------------------
         engancha(syscfg, apb2, P2, P2z, F3P_SYSCFG);
         engancha_sin_reloj(exti, apb2, P2, P2z);
@@ -589,6 +633,13 @@ private:
     unsigned nc_ = 0;
     sc_core::sc_signal<bool>& nc() { return s_nc_[nc_++]; }
     tlm_utils::simple_target_socket<SocF3> t_dma1_{"t_dma1"}, t_dma2_{"t_dma2"};
+    // S5
+    sc_core::sc_signal<bool> q_adc_[4], q_dac_[2];            // ADC1..4; DAC canal 1, 2
+    sc_core::sc_signal<bool> s_adc12_irq_[2], s_dac_irq_{"s_dac_irq"};
+    sc_core::sc_signal<bool> s_exti_ln_[4];                   // EXTI2, 9, 11, 15 (disparos)
+    sc_core::sc_signal<bool> s_dac_t8_{"s_dac_t8"};           // TSEL 1: TIM8 o TIM3 TRGO
+    bool ana_falta_[11] = {};                                  // COMP1-7, OPAMP1-4 que no hay
+    bool av_ana_falta_ = false;
 
     void tim(TimerBase& t, unsigned k, AhbDecoder& d, sc_core::sc_signal<bool>& pclk,
              sc_core::sc_signal<double>& pclk_hz, unsigned id, sc_core::sc_signal<bool>& tclk,
@@ -731,6 +782,169 @@ private:
         s_cero_hz_.write(0.0);
     }
 
+    // =======================================================================
+    // S5: LO ANALÓGICO
+    // =======================================================================
+    double vdda_v() const { const double v = s_vdda_.read(); return v > 0 ? v : 3.3; }
+    // Las fuentes de disparo de los ADC y el DAC, por su nombre [RM0316 tablas
+    // 89-92]. TIMx_CCy es el OCyREF del canal [de modelo]
+    sc_core::sc_signal<bool>& disparo(const std::string& n) {
+        static const char* tn[N_TIM] = {"TIM1_", "TIM2_", "TIM3_", "TIM4_", "TIM6_", "TIM7_",
+                                        "TIM8_", "TIM15_", "TIM16_", "TIM17_"};
+        if (n == "EXTI2")  return s_exti_ln_[0];
+        if (n == "EXTI9")  return s_exti_ln_[1];
+        if (n == "EXTI11") return s_exti_ln_[2];
+        if (n == "EXTI15") return s_exti_ln_[3];
+        for (unsigned k = 0; k < N_TIM; ++k) {
+            const std::string p = tn[k];
+            if (n.compare(0, p.size(), p) != 0) continue;
+            const std::string f = n.substr(p.size());
+            if (f == "TRGO")  return s_trgo_[k];
+            if (f == "TRGO2") return tim_[k]->trgo2_sig;
+            if (f.size() == 3 && f.compare(0, 2, "CC") == 0) return tim_[k]->ocref[f[2] - '1'];
+        }
+        SC_REPORT_FATAL("stm32f303", ("disparo desconocido: " + n).c_str());
+        return s_false_;
+    }
+    void conecta_s5() {
+        static const char* const EXT12[16] = {
+            "TIM1_CC1", "TIM1_CC2", "TIM1_CC3", "TIM2_CC2", "TIM3_TRGO", "TIM4_CC4", "EXTI11",
+            "TIM8_TRGO", "TIM8_TRGO2", "TIM1_TRGO", "TIM1_TRGO2", "TIM2_TRGO", "TIM4_TRGO",
+            "TIM6_TRGO", "TIM15_TRGO", "TIM3_CC4"};
+        static const char* const JEXT12[16] = {
+            "TIM1_TRGO", "TIM1_CC4", "TIM2_TRGO", "TIM2_CC1", "TIM3_CC4", "TIM4_TRGO", "EXTI15",
+            "TIM8_CC4", "TIM1_TRGO2", "TIM8_TRGO", "TIM8_TRGO2", "TIM3_CC3", "TIM3_TRGO",
+            "TIM3_CC1", "TIM6_TRGO", "TIM15_TRGO"};
+        static const char* const EXT34[16] = {
+            "TIM3_CC1", "TIM2_CC3", "TIM1_CC3", "TIM8_CC1", "TIM8_TRGO", "EXTI2", "TIM4_CC1",
+            "TIM2_TRGO", "TIM8_TRGO2", "TIM1_TRGO", "TIM1_TRGO2", "TIM3_TRGO", "TIM4_TRGO",
+            "TIM7_TRGO", "TIM15_TRGO", "TIM2_CC1"};
+        static const char* const JEXT34[16] = {
+            "TIM1_TRGO", "TIM1_CC4", "TIM4_CC3", "TIM8_CC2", "TIM8_CC4", "TIM4_CC3", "TIM4_CC4",
+            "TIM4_TRGO", "TIM1_TRGO2", "TIM8_TRGO", "TIM8_TRGO2", "TIM1_CC3", "TIM3_TRGO",
+            "TIM2_TRGO", "TIM7_TRGO", "TIM15_TRGO"};
+        for (unsigned i = 0; i < 16; ++i) {
+            adc12.ext[i](disparo(EXT12[i]));  adc12.jext[i](disparo(JEXT12[i]));
+            adc34.ext[i](disparo(EXT34[i]));  adc34.jext[i](disparo(JEXT34[i]));
+        }
+        // Los relojes: ADCxy_CK del RCC (CKMODE = 00) o HCLK
+        adc12.ker_hz(rcc.s_ker[RccF3::K_ADC12]);
+        adc34.ker_hz(rcc.s_ker[RccF3::K_ADC34]);
+        // Las interrupciones: ADC1 y ADC2 comparten la 18 [CMSIS: ADC1_2_IRQn]
+        adc12.irq_m(s_adc12_irq_[0]); adc12.irq_s(s_adc12_irq_[1]);
+        adc34.irq_m(s_irq_[f3::IRQ_ADC3]); adc34.irq_s(s_irq_[f3::IRQ_ADC4]);
+        adc12.dma_m(q_adc_[0]); adc12.dma_s(q_adc_[1]);
+        adc34.dma_m(q_adc_[2]); adc34.dma_s(q_adc_[3]);
+        // El fin de bloque del DMA: el ADC de una vez deja de pedir
+        dma1.al_terminar = [this](unsigned c) { if (c == 0) adc12.dma_fin(0); };
+        dma2.al_terminar = [this](unsigned c) {
+            const bool r24 = (s_cfgr1_.read() >> 8) & 1u;
+            if (c == (r24 ? 2u : 0u)) adc12.dma_fin(1);
+            if (c == (r24 ? 3u : 1u)) adc34.dma_fin(1);
+            if (c == 4) adc34.dma_fin(0);
+        };
+        adc12.vref = [this] { return vdda_v(); };
+        adc34.vref = [this] { return vdda_v(); };
+        // Las entradas externas [f3_analogico.inc, generado]
+        struct Ain { uint8_t adc, canal, puerto, pin; };
+        static const Ain ain[] = {
+#include "f3_analogico.inc"
+        };
+        for (const Ain& a : ain) {
+            analog_net_if* n = &pinmux.analog(a.puerto, a.pin);
+            AdcParV3& par = a.adc <= 2 ? adc12 : adc34;
+            par.fuente((a.adc - 1u) & 1u, a.canal, [n] { return double(n->voltage()); });
+        }
+        // Las internas [RM0316 §15.3.4, tablas 85-86; DS9118 tablas 66 y 79]
+        auto vrefint = [this](const AdcParV3& p) { return ((p.ccr() >> 22) & 1u) ? f3::V_REFINT : 0.0; };
+        adc12.fuente(0, 15, [this] { return opamp.vrefopamp(0); });
+        adc12.fuente(0, 16, [this] {
+            if (!((adc12.ccr() >> 23) & 1u)) return 0.0;                    // TSEN
+            return f3::V25_TS - (temp_c - 25.0) * f3::AVG_SLOPE_TS;
+        });
+        adc12.fuente(0, 17, [this] { return ((adc12.ccr() >> 24) & 1u) ? s_vbat_.read() / 2.0 : 0.0; });
+        adc12.fuente(0, 18, [this, vrefint] { return vrefint(adc12); });
+        adc12.fuente(1, 17, [this] { return opamp.vrefopamp(1); });
+        adc12.fuente(1, 18, [this, vrefint] { return vrefint(adc12); });
+        adc34.fuente(0, 17, [this] { return opamp.vrefopamp(2); });
+        adc34.fuente(0, 18, [this, vrefint] { return vrefint(adc34); });
+        adc34.fuente(1, 17, [this] { return opamp.vrefopamp(3); });
+        adc34.fuente(1, 18, [this, vrefint] { return vrefint(adc34); });
+        // El DAC1: PA4 y PA5, y sus disparos [RM0316 tabla 97]
+        dac1.irq(s_dac_irq_);
+        dac1.dma_req_ch1(q_dac_[0]); dac1.dma_req_ch2(q_dac_[1]);
+        dac1.vref(s_vdda_);
+        dac1.trig[0](s_trgo_[T6]); dac1.trig[1](s_dac_t8_); dac1.trig[2](s_trgo_[T7]);
+        dac1.trig[3](s_trgo_[T15]); dac1.trig[4](s_trgo_[T2]); dac1.trig[5](s_trgo_[T4]);
+        dac1.trig[6](s_exti_ln_[1]); dac1.trig[7](s_false_);
+        dac1.bind_out(0, pinmux.analog(0, 4));
+        dac1.bind_out(1, pinmux.analog(0, 5));
+        // Los comparadores y los amplificadores, con los registros en el SYSCFG
+        comp.vdda = [this] { return vdda_v(); };
+        comp.vrefint = [] { return f3::V_REFINT; };
+        opamp.vdda = [this] { return vdda_v(); };
+        // Los que la línea no tiene (el F302: COMP3/5/7 y OPAMP3/4 [PINDATA]) son
+        // registros reservados: leen cero, no se escriben y se dice una vez
+        for (unsigned i = 0; i < CompF3::N + OpampF3::N; ++i) {
+            const std::string n = i < CompF3::N ? "COMP" + std::to_string(i + 1)
+                                                : "OPAMP" + std::to_string(i - CompF3::N + 1);
+            const std::string sin = std::string(" ") + mcu.sin + " ";
+            ana_falta_[i] = sin.find(" " + n + " ") != std::string::npos;
+        }
+        syscfg.analogico.lee = [this](unsigned i) -> uint32_t {
+            if (i < 11 && ana_falta_[i]) return 0;
+            return i < CompF3::N ? comp.lee(i) : opamp.lee(i - CompF3::N);
+        };
+        syscfg.analogico.escribe = [this](unsigned i, uint32_t v) {
+            if (i < 11 && ana_falta_[i]) {
+                if (!av_ana_falta_) {
+                    av_ana_falta_ = true;
+                    const std::string m = std::string(mcu.nombre) + " no tiene COMP3/5/7 ni OPAMP3/4 "
+                                          "[PINDATA]: su registro es reservado";
+                    SC_REPORT_WARNING("stm32f303", m.c_str());
+                }
+                return;
+            }
+            if (i < CompF3::N) comp.escribe(i, v); else opamp.escribe(i - CompF3::N, v);
+        };
+        syscfg.analogico.reinicia = [this] { comp.reinicia(); opamp.reinicia(); };
+    }
+    void irq_adc_proc() { s_irq_[f3::IRQ_ADC1_2].write(s_adc12_irq_[0].read() || s_adc12_irq_[1].read()); }
+    // La línea n del EXTI antes de la máscara: el pin que elige EXTICR
+    void exti_ln_proc() {
+        static const unsigned l[4] = {2, 9, 11, 15};
+        for (unsigned k = 0; k < 4; ++k) {
+            const unsigned port = s_exticr_[l[k]].read();
+            const unsigned i = port * N_PORT_PINS + l[k];
+            s_exti_ln_[k].write(i < s_exti_gpio_.size() && s_exti_gpio_[i].read());
+        }
+    }
+    // TSEL = 001 del DAC1: el TRGO del TIM8 o, con DAC1_TRIG1_RMP (CFGR1 bit 7), el del TIM3
+    void dac_trig_proc() {
+        s_dac_t8_.write(((s_cfgr1_.read() >> 7) & 1u) ? s_trgo_[T3].read() : s_trgo_[T8].read());
+    }
+    // Los comparadores: al EXTI (21, 22, 29-33) y a los frenos de TIM1/TIM8
+    // (OUTSEL 0001-0101) [RM0316 §17.3.4, tabla 33]
+    void comp_proc() {
+        static const unsigned linea[CompF3::N] = {21, 22, 29, 30, 31, 32, 33};
+        bool b1 = false, b1_2 = false, b8 = false, b8_2 = false;
+        for (unsigned i = 0; i < CompF3::N; ++i) {
+            const bool o = comp.out[i].read();
+            s_exti_in_[linea[i] - 16].write(o);
+            if (!o || !comp.activo(i)) continue;
+            switch (comp.outsel(i)) {
+                case 1: b1 = true; break;
+                case 2: b1_2 = true; break;
+                case 3: b8 = true; break;
+                case 4: b8_2 = true; break;
+                case 5: b1_2 = true; b8_2 = true; break;
+                default: break;
+            }
+        }
+        tim1.brk_acth.write(b1); tim1.brk2_acth.write(b1_2);
+        tim8.brk_acth.write(b8); tim8.brk2_acth.write(b8_2);
+    }
+
     // Las interrupciones compartidas de los temporizadores [CMSIS: IRQn_Type]
     void irq_tim_proc() {
         auto g = [&](unsigned k, unsigned j) { return s_tirq_[k][j].read(); };
@@ -745,7 +959,7 @@ private:
         s_irq_[f3::IRQ_TIM8_UP].write(g(T8, 1));
         s_irq_[f3::IRQ_TIM8_TRG_COM].write(g(T8, 3));
         s_irq_[f3::IRQ_TIM8_CC].write(g(T8, 2));
-        s_irq_[f3::IRQ_TIM6_DAC].write(g(T6, 0));
+        s_irq_[f3::IRQ_TIM6_DAC].write(g(T6, 0) || s_dac_irq_.read());
         s_irq_[f3::IRQ_TIM7].write(g(T7, 0));
     }
 
@@ -761,25 +975,30 @@ private:
         auto sp = [&](unsigned n, unsigned d) { return q_spi_[n][d].read(); };
         auto ic = [&](unsigned n, unsigned d) { return q_i2c_[n][d].read(); };
         const bool t16 = t(T16, CC1) || t(T16, UP), t17 = t(T17, CC1) || t(T17, UP);
-        // DMA1. El ADC1 (canal 1) y el DAC son de S5
-        s_dreq1_[0].write(t(T2, CC3) || t(T4, CC1) || (!r17 && t17));
+        // Los ADC y el DAC1 (S5): ADC24_DMA_RMP (bit 8) lleva el ADC2 y el ADC4 a los
+        // canales 3 y 4 del DMA2; TIM6DAC1 y TIM7DAC2 (13, 14), el DAC al DMA1
+        const bool r24 = (c >> 8) & 1u;
+        const bool a1 = q_adc_[0].read(), a2 = q_adc_[1].read(), a3 = q_adc_[2].read(), a4 = q_adc_[3].read();
+        const bool d1 = q_dac_[0].read(), d2 = q_dac_[1].read();
+        // DMA1
+        s_dreq1_[0].write(a1 || t(T2, CC3) || t(T4, CC1) || (!r17 && t17));
         s_dreq1_[1].write(sp(0, 0) || u(2, 1) || t(T1, CC1) || t(T2, UP) || t(T3, CC3));
         s_dreq1_[2].write(sp(0, 1) || u(2, 0) || t(T1, CC2) || t(T3, CC4) || t(T3, UP) ||
-                          (r6 && t(T6, UP)) || (!r16 && t16));
+                          (r6 && (t(T6, UP) || d1)) || (!r16 && t16));
         s_dreq1_[3].write(sp(1, 0) || u(0, 1) || ic(1, 1) || t(T1, CC4) || t(T1, TRIG) ||
-                          t(T1, COM) || t(T4, CC2) || (r7 && t(T7, UP)));
+                          t(T1, COM) || t(T4, CC2) || (r7 && (t(T7, UP) || d2)));
         s_dreq1_[4].write(sp(1, 1) || u(0, 0) || ic(1, 0) || t(T1, UP) || t(T2, CC1) ||
                           t(T4, CC3) || t(T15, CC1) || t(T15, UP) || t(T15, TRIG) || t(T15, COM));
         s_dreq1_[5].write(u(1, 0) || ic(0, 1) || t(T1, CC3) || t(T3, CC1) || t(T3, TRIG) ||
                           (r16 && t16));
         s_dreq1_[6].write(u(1, 1) || ic(0, 0) || t(T2, CC2) || t(T2, CC4) || t(T4, UP) ||
                           (r17 && t17));
-        // DMA2. Los ADC2-4 y el DAC son de S5
-        s_dreq2_[0].write(sp(2, 0) || t(T8, CC3) || t(T8, UP));
-        s_dreq2_[1].write(sp(2, 1) || t(T8, CC4) || t(T8, TRIG) || t(T8, COM));
-        s_dreq2_[2].write(u(3, 0) || (!r6 && t(T6, UP)) || t(T8, CC1));
-        s_dreq2_[3].write(!r7 && t(T7, UP));
-        s_dreq2_[4].write(u(3, 1) || t(T8, CC2));
+        // DMA2
+        s_dreq2_[0].write(sp(2, 0) || t(T8, CC3) || t(T8, UP) || (!r24 && a2));
+        s_dreq2_[1].write(sp(2, 1) || t(T8, CC4) || t(T8, TRIG) || t(T8, COM) || (!r24 && a4));
+        s_dreq2_[2].write(u(3, 0) || (!r6 && (t(T6, UP) || d1)) || t(T8, CC1) || (r24 && a2));
+        s_dreq2_[3].write((!r7 && (t(T7, UP) || d2)) || (r24 && a4));
+        s_dreq2_[4].write(u(3, 1) || t(T8, CC2) || a3);
     }
     // El ITR3 del TIM1: el TRGO del TIM4 o, con TIM1_ITR3_RMP, el OC1 del TIM17
     void itr3_proc() {
@@ -835,6 +1054,11 @@ private:
         if (s == "I2C1_SDA") return E(&i2c1.sda_out, &i2c1.sda_oe, &i2c1.sda_in, true);
         if (s == "I2C2_SCL") return E(&i2c2.scl_out, &i2c2.scl_oe, &i2c2.scl_in, true);
         if (s == "I2C2_SDA") return E(&i2c2.sda_out, &i2c2.sda_oe, &i2c2.sda_in, true);
+        // Las salidas de los comparadores (S5)
+        if (s.size() == 9 && empieza("COMP") && s.compare(5, 4, "_OUT") == 0) {
+            const unsigned k = unsigned(s[4] - '1');
+            if (k < CompF3::N) return E(&comp.out[k], &s_true_, nullptr, false);
+        }
         // Los temporizadores
         if (s == "IR_OUT") return E(&s_irout_, &s_true_, nullptr, false);
         static const char* tn[N_TIM] = {"TIM1_", "TIM2_", "TIM3_", "TIM4_", "TIM6_", "TIM7_",

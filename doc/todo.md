@@ -783,7 +783,7 @@ Lo que queda dicho, con la letra con la que lo cita el código:
 ### P-18 — El STM32F303 y la STM32F3DISCOVERY
 
 **Analizado en `doc/analisis_stm32f303.md` (2026-10-19), con un plan de diez
-fases (S0-S9). HECHAS S0, S1, S2 y S3 el 2026-10-20 y S4, S7, S8 y S9 el 2026-10-21** en la rama `stm32f303`
+fases (S0-S9). HECHAS S0, S1, S2 y S3 el 2026-10-20, S4, S7, S8 y S9 el 2026-10-21 y S5 el 2026-10-24** en la rama `stm32f303`
 («Estado» del análisis): los rasgos neutrales, el STM32F303VC con su RCC, su
 Flash con el FPEC, la CCM ejecutable, la memoria de sistema y el arranque por
 BOOT0/nBOOT1/`MEM_MODE`, la STM32F3DISCOVERY con su dibujo, `testf3` (R1-R7,
@@ -842,6 +842,7 @@ Lo que queda de una sola fuente, o de modelo, tras S9:
 | **z** | La aguja y la inclinación (S8) | La aguja de `MOV` es un indicador de rumbo (marca hacia dónde mira el borde norte de la placa), no una brújula que señale el norte: es lo que el efecto `angulo` sabe hacer, a la derecha los positivos. El mando de inclinación pone el punto en el lado que BAJA, como el LED del ejemplo BSP; el borde son 90 grados, aunque el alabeo llegue a 180 |
 | **aa** | La familia del die 0x422 (S9) | Lo que falta en el F302 y el F358 sale de dos fuentes (la base de pines y CMSIS); la CCM que falta en el F302, solo de CMSIS. Lo que **no** se modela: el F358 se alimenta de 1,65 a 1,95 V sin regulador y con NPOR, y el modelo lo alimenta y arranca como al F303; los bloques analógicos que faltan en el F302 (ADC3/4, COMP3/5/7, OPAMP3/4) se notarán con S5. Las hojas de datos del F302 (DS9896) y del F358 no están en `doc/refs/` |
 | **bb** | El CI de S4 (2026-10-21) | Falló en las cinco plataformas por T126 de `test407`: la `Postura` no tiene patillas y la regla de `sim --help` exige terminales. Ahora `Ayuda::sin_terminales("por qué")` cuenta como tales, y la ficha dice «TERMINALES ninguno» con el motivo. Las invariantes no se habían movido: lo que fallaba era una comprobación |
+| **cc** | Lo analógico (S5) | De modelo, y dicho en `limitaciones()`: los disparos del ADC sin latencia y TIMx_CCy como el flanco de OCyREF; el ADC calibrado, sin ruido ni desplazamiento (sin calibrar, 16 cuentas); VREF+ es VDDA; los factores de CALFACT, unos cualesquiera; los AWDx_OUT no llegan al ETR de los TIM. Los comparadores cambian en un delta (el DS da de 50 ns a 2 µs según MODE), con la histéresis entre el típico y el máximo de DS9118; BLANKING, OUTSEL a capturas y a OCREF_CLR y COMP1_INP_DAC se guardan y avisan. Los OPAMP: seguidor y PGA al instante, sin TCM_EN, y el cero de cada par en 0x10. El DAC: con TEN = 1, encender ya no carga DOR (todos los chips; las suites de los F4, al picosegundo). TSC declarado | — |
 | **l** | La placa contra su esquemático | Contrastada con MB1035 rev. D.1 (2026-10-20): resistencias de la rosa (510 Ω en los verdes), B1 (100 + 330 Ω a VDD, 220 kΩ a masa), LD1, BOOT0, R39 y X3 sin montar. La vf de cada LED es de modelo; VDD se modela a 3,3 V, y en la placa son los 3,3 V del LD3985 menos el diodo D3 [de modelo] |
 
 ---

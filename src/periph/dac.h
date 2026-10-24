@@ -311,7 +311,13 @@ protected:
                 cr_ = v & cr_mask();
                 for (unsigned c = 0; c < caps_.n_channels; ++c) {
                     const bool was = (old >> (sh(c) + 0)) & 1u;
-                    if (!was && en(c)) { ch_[c].n_upd = 0; load_dor(c); }
+                    if (!was && en(c)) {
+                        ch_[c].n_upd = 0;
+                        // Con TEN = 1 el dato espera al disparo también al
+                        // encender [RM0316 §16.5.4; RM0090 §14.3.4]
+                        if (!ten(c) || !caps_.trigger) load_dor(c);
+                        else ch_[c].ev.notify(sc_core::SC_ZERO_TIME);
+                    }
                     if (was && !en(c)) shut_channel(c);
                     // Cambiar BOFF cambia la ETAPA DE SALIDA, no el dato: hay
                     // que volver a aplicarla aunque DOR no se haya movido, o el

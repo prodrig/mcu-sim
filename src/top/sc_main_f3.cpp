@@ -1,5 +1,5 @@
 // =============================================================================
-// sc_main_f3.cpp — LA SUITE DEL STM32F303VC (fases S0-S4, S7 y S9 del plan del F303)
+// sc_main_f3.cpp — LA SUITE DEL STM32F303VC (fases S0-S5, S7 y S9 del plan del F303)
 //
 // Un banco aparte, como el de cada chip: un chip más dentro de otra simulación
 // movería su invariante. [doc/analisis_stm32f303.md, §7.1]
@@ -69,7 +69,21 @@
 //           la SRAM, la CCM, los TIM y el USB que faltan, y el cargador con
 //           AN3155 en el LQFP48
 //
-//   TESTF3_SOLO=s2 / s3 / s4 / s7 / s9 / demo corre solo esos grupos, TESTF3_GRUPO=F44 solo los que
+//   (S5) lo analogico, con f3_analog (CMSIS y las funciones en linea de LL) y
+//   seis fuentes de tension del banco (PC0, PC1, PC2, PC4, PB0, PA1), sueltas
+//   fuera de sus grupos; corre al final, despues de S9:
+//   F63     el ritual de los ADC y el sensor de temperatura: VDDA con
+//           VREFINT_CAL y la temperatura con TS_CAL1/TS_CAL2 (y la macro de
+//           LL), contra la del banco de -40 a 105 C
+//   F64     IN6 diferencial (PC0 contra PC1) e IN8 simple, por la IRQ 18
+//   F65     ADC1 y ADC2 en simultaneo regular, MDMA = 10 por el DMA1 canal 1
+//   F66     el COMP4 (PB0 contra VREFINT) frena el TIM1 (BRK_ACTH) y avisa
+//           por la linea 30 del EXTI (IRQ 65)
+//   F67     el OPAMP1 en PGA de 4 (PA1 -> PA2), leido por el ADC1, y su recorte
+//   F68     el DAC1 con TSEL = 001 y DAC1_TRIG1_RMP: el TRGO del TIM3; el ADC2
+//           lo lee en PA4
+//
+//   TESTF3_SOLO=s2 / s3 / s4 / s5 / s7 / s9 / demo corre solo esos grupos, TESTF3_GRUPO=F44 solo los que
 //   empiecen asi, TESTF3_TRAZA=1 imprime trazas de depuracion: con cualquiera
 //   de ellos el tiempo simulado no es el del invariante.
 //
@@ -228,6 +242,18 @@ private:
     }
 };
 
+// Una fuente de tension que el banco mueve (S5): un Thevenin de 10 ohm en el
+// nodo, o nada. Las entradas de los ADC, de los comparadores y del OPAMP
+class FuenteVar : public ExtPart {
+public:
+    FuenteVar(analog_net_if& n, const char* nm) : ExtPart(n, "FuenteVar", "fv", "out", nm) { hiz(); }
+    void pon(double v) { v_ = v; conectada_ = true; drive(float(v), 10.0f); }
+    void suelta() { conectada_ = false; hiz(); }
+    double v() const { return v_; }
+private:
+    double v_ = 0;
+};
+
 // =============================================================================
 // S3: DOS DISCOVERY, para los ejemplos *TwoBoards* de ST [doc/analisis_stm32f303.md
 // §5.3, §7.2]. Los hilos son los de sus readme, cada uno un nodo que es un pad
@@ -372,6 +398,11 @@ SC_MODULE(TbF3) {
     // USART2 (PD5/PD6) a 57600. Desoldados hasta sus grupos
     PuenteSerie *bl1 = nullptr, *bl2 = nullptr;
     TbFamilia* fam = nullptr;
+    // S5: las fuentes de las entradas analogicas, sueltas hasta sus grupos:
+    // PC0, PC1, PC2 (ADC1_IN6-8), PC4 (ADC2_IN5), PB0 (COMP4_INP) y PA1
+    // (OPAMP1_VINP)
+    FuenteVar *v_c0 = nullptr, *v_c1 = nullptr, *v_c2 = nullptr, *v_c4 = nullptr,
+              *v_b0 = nullptr, *v_a1 = nullptr;
     McuF3   mcu;
     SocF3&  dut;
     // La placa, lo justo: los 8 MHz del ST-LINK en PF0 (sin onda), B1 en PA0 a
@@ -426,6 +457,12 @@ SC_MODULE(TbF3) {
             bl2->set_enabled(false);
         }
         fam = new TbFamilia();
+        v_c0 = new FuenteVar(dut.pinmux.analog(2, 0), "v_c0");
+        v_c1 = new FuenteVar(dut.pinmux.analog(2, 1), "v_c1");
+        v_c2 = new FuenteVar(dut.pinmux.analog(2, 2), "v_c2");
+        v_c4 = new FuenteVar(dut.pinmux.analog(2, 4), "v_c4");
+        v_b0 = new FuenteVar(dut.pinmux.analog(1, 0), "v_b0");
+        v_a1 = new FuenteVar(dut.pinmux.analog(0, 1), "v_a1");
         mco = new ExtClock("mco", dut.pinmux.analog(5, 0), 8e6, 3.3, 50.0, false);
         b1 = new Button(dut.pinmux.analog(0, 0), 330.0, 3.3);
         b1->release();
@@ -443,6 +480,7 @@ SC_MODULE(TbF3) {
         delete gdb_p; delete gdb_d;
         delete u5d; delete u5e; delete u3d; delete u3e; delete r27; delete r28; delete mov;
         delete bl1; delete bl2; delete fam;
+        delete v_c0; delete v_c1; delete v_c2; delete v_c4; delete v_b0; delete v_a1;
     }
 
     // --- Utilidades -----------------------------------------------------------
@@ -2350,6 +2388,212 @@ SC_MODULE(TbF3) {
         wait(100, SC_US);
     }
 
+    // =========================================================================
+    // S5: LO ANALOGICO [doc/analisis_stm32f303.md §8 S5], con f3_analog (CMSIS
+    // y las funciones en linea de LL) y las fuentes del banco
+    //
+    //   F63  el ritual de los ADC y el sensor de temperatura: VDDA con
+    //        VREFINT_CAL y la temperatura con TS_CAL1/TS_CAL2, contra la que
+    //        pone el banco
+    //   F64  una conversion diferencial (IN6: PC0 contra PC1), por la IRQ 18
+    //   F65  ADC1 y ADC2 en simultaneo regular con un DMA para los dos (MDMA)
+    //   F66  el COMP4 frena el TIM1 (BRK_ACTH) y avisa por la linea 30
+    //   F67  el OPAMP1 en PGA de 4, leido por el ADC1
+    //   F68  el DAC1 al ritmo del TRGO del TIM3 (TSEL = 001 con el remapeo), y
+    //        el ADC2 que lo lee
+    // =========================================================================
+    static constexpr const char* FW_ANALOG = "verif/fw/stm32f3/f3_analog/f3_analog.bin";
+    // El buzon de f3_analog [verif/fw/stm32f3/f3_analog/main.c]
+    enum : uint32_t { A_ESTADO = 0x04, A_VUELTAS = 0x08, A_ERR = 0x0C, A_R = 0x10, A_DMA = 0x40, A_TAM = 0x80 };
+    int32_t ar(unsigned i) { return int32_t(dut.sram.peek32(A_R + 4 * i)); }
+    void arranca_analog(uint32_t modo) {
+        uint8_t ceros[A_TAM] = {};
+        mcu.reset_pin(true);
+        wait(20, SC_US);
+        dut.sram.load(ceros, sizeof ceros, 0);
+        arranca(modo, FW_ANALOG);
+    }
+    // Espera a que el firmware de `n` vueltas mas (o a que llegue a `estado`)
+    bool vueltas(unsigned n, double ms = 50) {
+        const uint32_t v0 = buzon(A_VUELTAS);
+        for (double t = 0; t < ms; t += 0.1) {
+            if (buzon(A_VUELTAS) >= v0 + n) return true;
+            wait(100, SC_US);
+        }
+        return false;
+    }
+    bool estado(uint32_t e, double ms = 50) {
+        for (double t = 0; t < ms; t += 0.1) {
+            if (buzon(A_ESTADO) == e) return true;
+            wait(100, SC_US);
+        }
+        return false;
+    }
+    // Lo que un ADC ideal de 12 bits da con VREF+ = 3,3 V
+    static int32_t cuentas(double v) { return int32_t(std::floor(v / 3.3 * 4095.0 + 0.5)); }
+    static int32_t cuentas_dif(double v) { return int32_t(std::floor((v / 3.3 + 1.0) * 0.5 * 4095.0 + 0.5)); }
+    static bool cerca_i(int32_t v, int32_t ref, int32_t tol) { return v >= ref - tol && v <= ref + tol; }
+    // Los flancos de un pin en un intervalo
+    unsigned flancos(unsigned p, unsigned i, double us) {
+        const sc_time fin = sc_time_stamp() + sc_time(us, SC_US);
+        bool a = alto(p, i);
+        unsigned n = 0;
+        while (sc_time_stamp() < fin) {
+            wait(fin - sc_time_stamp(), pin(p, i).value_changed_event());
+            const bool b = alto(p, i);
+            if (b != a) { ++n; a = b; }
+        }
+        return n;
+    }
+    void sueltas() {
+        for (FuenteVar* f : {v_c0, v_c1, v_c2, v_c4, v_b0, v_a1}) f->suelta();
+        dut.set_die_temp(25.0);
+    }
+
+    void s5_temperatura() {
+        grupo("F63 El ritual de los ADC y el sensor de temperatura (f3_analog, modo 1): TS_CAL1/TS_CAL2");
+        dut.set_die_temp(25.0);
+        const uint64_t c0 = dut.adc12.conversiones(0);
+        arranca_analog(1);
+        check(estado(1) && vueltas(2), "regulador, 10 us, ADCAL, ADEN y ADRDY: el ADC1 convierte");
+        std::printf("    TS %d, VREFINT %d, VDDA %d mV, %d C (%d centesimas), CALFACT 0x%X\n",
+                    ar(0), ar(1), ar(2), ar(3), ar(4), unsigned(ar(5)));
+        check(cerca_i(ar(1), f3::VREFINT_CAL, 1) && cerca_i(ar(2), 3300, 3),
+              "VREFINT da VREFINT_CAL (1526) y VDDA sale 3300 mV con la macro de LL");
+        check(ar(5) != 0 && dut.adc12.conversiones(0) > c0, "la calibracion deja su factor en CALFACT");
+        const double ts[4] = {25.0, -40.0, 85.0, 105.0};
+        bool ok = true, ok_ll = true;
+        for (double t : ts) {
+            dut.set_die_temp(t);
+            vueltas(3);
+            const double c = ar(4) / 100.0;
+            std::printf("    banco %.1f C: el firmware lee %.2f C (LL: %d)\n", t, c, ar(3));
+            ok = ok && std::fabs(c - t) <= 0.5;
+            ok_ll = ok_ll && std::abs(ar(3) - int32_t(t)) <= 1;
+        }
+        check(ok, "la temperatura con TS_CAL1/TS_CAL2 es la del banco, +-0,5 C, de -40 a 105 C");
+        check(ok_ll, "y __LL_ADC_CALC_TEMPERATURE, la de ST, en grados enteros");
+        sueltas();
+    }
+
+    void s5_diferencial() {
+        grupo("F64 Una conversion diferencial (IN6: PC0 contra PC1) e IN8 simple, por la IRQ 18 (modo 2)");
+        v_c0->pon(2.0); v_c1->pon(1.0); v_c2->pon(1.2);
+        arranca_analog(2);
+        check(estado(1) && vueltas(2), "calibrado en simple y en diferencial, y convirtiendo");
+        std::printf("    IN6 dif %d (%d mV), IN8 %d, %d IRQ, DIFSEL 0x%X, CALFACT 0x%X\n",
+                    ar(0), ar(2), ar(1), ar(3), unsigned(ar(4)), unsigned(ar(5)));
+        check(ar(4) == (1 << 6) && (ar(5) >> 16) != 0 && (ar(5) & 0x7F) != 0,
+              "DIFSEL = IN6, y CALFACT con los dos factores");
+        check(cerca_i(ar(0), cuentas_dif(1.0), 1) && cerca_i(ar(2), 1000, 2),
+              "PC0 - PC1 = +1 V: 2669 cuentas, que son +1000 mV");
+        check(cerca_i(ar(1), cuentas(1.2), 1), "y IN8 (PC2), simple en la misma secuencia: 1,2 V");
+        const int32_t n = ar(3);
+        v_c0->pon(1.0); v_c1->pon(2.0);
+        vueltas(3);
+        std::printf("    al reves: IN6 %d (%d mV)\n", ar(0), ar(2));
+        check(cerca_i(ar(0), cuentas_dif(-1.0), 1) && cerca_i(ar(2), -1000, 2) && ar(3) > n,
+              "al reves, -1 V: 1426 cuentas, y la IRQ 18 sigue llegando por cada EOS");
+        sueltas();
+    }
+
+    void s5_dual() {
+        grupo("F65 ADC1 y ADC2 en simultaneo regular, con un DMA para los dos (MDMA, modo 3)");
+        v_c1->pon(1.0); v_c4->pon(2.5);
+        const uint64_t c1 = dut.adc12.conversiones(0), c2 = dut.adc12.conversiones(1);
+        arranca_analog(3);
+        check(estado(2, 100) && buzon(A_ERR) == 0, "el DMA1 canal 1 llega a TCIF");
+        const uint64_t n1 = dut.adc12.conversiones(0) - c1, n2 = dut.adc12.conversiones(1) - c2;
+        std::printf("    CNDTR %d, CCR 0x%X, %llu y %llu conversiones; CDR[0] = 0x%08X\n", ar(0),
+                    unsigned(ar(1)), (unsigned long long)n1, (unsigned long long)n2,
+                    unsigned(buzon(A_DMA)));
+        check(ar(0) == 0 && ar(1) == int32_t(0x8000u | 6u) && ar(3) == 0,
+              "DUAL = 00110 y MDMA = 10; CNDTR a cero y ADSTP los para a los dos");
+        bool ok = true;
+        for (unsigned k = 0; k < 16; ++k) {
+            const uint32_t w = buzon(A_DMA + 4 * k);
+            ok = ok && cerca_i(int32_t(w & 0xFFFFu), cuentas(1.0), 1) && cerca_i(int32_t(w >> 16), cuentas(2.5), 1);
+        }
+        check(ok, "las 16 palabras de ADC_CDR: el ADC1 (PC1, 1 V) abajo y el ADC2 (PC4, 2,5 V) arriba");
+        check(n1 >= 16 && n1 <= 18 && n1 == n2, "a la par: tantas conversiones del maestro como del esclavo");
+        sueltas();
+    }
+
+    void s5_freno() {
+        grupo("F66 El COMP4 (PB0 contra VREFINT) frena el TIM1 por BRK_ACTH y avisa por la linea 30 (modo 4)");
+        v_b0->pon(0.5);
+        arranca_analog(4);
+        check(estado(1) && vueltas(2), "TIM1 en PWM y el COMP4 encendido");
+        const unsigned f0 = flancos(4, 9, 1000);
+        std::printf("    PE9: %u flancos en 1 ms; BDTR 0x%X, CSR 0x%08X\n", f0, unsigned(ar(0)), unsigned(ar(2)));
+        check(f0 >= 19 && f0 <= 21 && (ar(0) & (1 << 15)) && !(ar(2) & (1 << 30)),
+              "0,5 V < VREFINT: salida baja, MOE a uno y PWM de 10 kHz en PE9");
+        v_b0->pon(2.0);
+        vueltas(3);
+        const unsigned f1 = flancos(4, 9, 1000);
+        std::printf("    PB0 a 2 V: %u flancos; BDTR 0x%X, SR 0x%X, CSR 0x%08X, %d IRQ\n", f1,
+                    unsigned(ar(0)), unsigned(ar(1)), unsigned(ar(2)), ar(3));
+        check((ar(2) & (1 << 30)) && ar(4) == 1 && dut.comp.out[3].read(),
+              "2 V > VREFINT: COMP4_OUT a uno (y LL_COMP_ReadOutputLevel)");
+        check(!(ar(0) & (1 << 15)) && (ar(1) & (1 << 7)) && f1 == 0,
+              "el freno: MOE a cero, BIF, y PE9 deja de conmutar");
+        check(ar(3) == 1, "la linea 30 del EXTI, una vez, por la IRQ 65 (COMP4_5_6)");
+        v_b0->pon(0.5);
+        vueltas(3);
+        check(!(ar(0) & (1 << 15)) && !(ar(2) & (1 << 30)) && ar(3) == 1,
+              "y vuelve abajo: el freno queda (MOE no vuelve sin el firmware) y no hay otra IRQ");
+        sueltas();
+    }
+
+    void s5_pga() {
+        grupo("F67 El OPAMP1 en PGA de 4 (PA1 -> PA2), leido por el ADC1 (modo 5)");
+        v_a1->pon(0.5);
+        arranca_analog(5);
+        check(estado(1) && vueltas(2), "OPAMP1 en PGA y el ADC1 convirtiendo");
+        std::printf("    VOUT %d, VINP %d, PA2 %.3f V, CSR 0x%08X\n", ar(0), ar(1),
+                    double(pin(0, 2).voltage()), unsigned(ar(2)));
+        check(cerca_i(ar(1), cuentas(0.5), 1) && cerca_i(ar(0), cuentas(2.0), 2),
+              "0,5 V en PA1: 2 V en PA2 (2482 cuentas por IN3; 620 por IN2)");
+        check(std::fabs(pin(0, 2).voltage() - 2.0f) < 0.01f && dut.opamp.activo(0),
+              "y el nodo de PA2 esta a 2 V: lo conduce el OPAMP1");
+        v_a1->pon(0.3);
+        vueltas(3);
+        check(cerca_i(ar(0), cuentas(1.2), 2), "0,3 V: 1,2 V a la salida");
+        v_a1->pon(1.0);
+        vueltas(3);
+        check(ar(0) == 4095 && std::fabs(pin(0, 2).voltage() - 3.3f) < 0.01f,
+              "1 V por 4 no cabe: la salida se queda en VDDA (4095)");
+        sueltas();
+    }
+
+    void s5_dac() {
+        grupo("F68 El DAC1 al ritmo del TIM3 (TSEL = 001 con DAC1_TRIG1_RMP), leido por el ADC2 (modo 6)");
+        arranca_analog(6);
+        check(estado(1, 60) && vueltas(2), "TIM3 a 1 kHz y el DAC con TEN1");
+        check(ar(0) == 0, "sin disparos, DOR1 no carga DHR12R1: sigue a cero");
+        const int32_t p0 = ar(4);
+        bool ok = true;
+        for (unsigned k = 0; k < 4; ++k) {
+            vueltas(1);
+            const int32_t d = ar(2), a = ar(3);
+            std::printf("    paso %d: DOR1 %d, ADC2 %d, PA4 %.3f V\n", ar(4), d, a, double(pin(0, 4).voltage()));
+            ok = ok && (d == 512 || d == 1536 || d == 2560 || d == 3584) && cerca_i(a, d, 3);
+        }
+        check(ok, "cada TRGO del TIM3 carga la rampa en DOR1, y el ADC2 (IN1, PA4) la lee");
+        vueltas(10, 30);
+        check(ar(4) - p0 >= 12 && ar(4) - p0 <= 16, "un disparo por milisegundo");
+        sueltas();
+    }
+
+    void s5() {
+        if (toca("F63")) s5_temperatura();
+        if (toca("F64")) s5_diferencial();
+        if (toca("F65")) s5_dual();
+        if (toca("F66")) s5_freno();
+        if (toca("F67")) s5_pga();
+        if (toca("F68")) s5_dac();
+    }
+
     void s9() {
         s9_catalogo();
         if (toca("F62")) s9_chips();
@@ -2430,6 +2674,12 @@ SC_MODULE(TbF3) {
             sc_stop();
             return;
         }
+        if (solo && std::strcmp(solo, "s5") == 0) {
+            s5();
+            std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
+            sc_stop();
+            return;
+        }
         if (solo && std::strcmp(solo, "s9") == 0) {
             s9();
             std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
@@ -2490,6 +2740,7 @@ SC_MODULE(TbF3) {
             s4();
             s7();
             s9();
+            s5();
         }
         std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();

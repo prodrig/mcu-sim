@@ -1097,7 +1097,7 @@ FWE4 := verif/fw/msp432e4/e4_demo verif/fw/msp432e4/coremark verif/fw/msp432e4/e
 FWF3 := verif/fw/stm32f3/f3_demo verif/fw/stm32f3/coremark verif/fw/stm32f3/gpio_iotoggle \
         verif/fw/stm32f3/gpio_exti verif/fw/stm32f3/flash_eraseprogram \
         verif/fw/stm32f3/f3_vcp verif/fw/stm32f3/ejemplos_s3 \
-        verif/fw/stm32f3/f3_mems verif/fw/stm32f3/ejemplos_s4
+        verif/fw/stm32f3/f3_mems verif/fw/stm32f3/ejemplos_s4 verif/fw/stm32f3/f3_analog
 # Los de las placas de ejemplo que no usa ninguna suite de C++: el de
 # placas/barra8_en_nucleo.xml y el de placas/nucleo_f446re_barra8ac_azul.xml,
 # que vigila `make gui-sistema`; los de la pantalla TFT, el de

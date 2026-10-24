@@ -116,6 +116,8 @@ inline unsigned latencia_minima(double hz) {
 constexpr uint16_t TS_CAL1 = 1748;    // 30 °C:  (1,43 - 5 * 0,0043) / 3,3 * 4095
 constexpr uint16_t TS_CAL2 = 1321;    // 110 °C: (1,43 - 85 * 0,0043) / 3,3 * 4095
 constexpr uint16_t VREFINT_CAL = 1526;    // 1,23 / 3,3 * 4095
+// Lo que mide el sensor y VREFINT en el modelo, de lo que salen los de arriba (S5)
+constexpr double V25_TS = 1.43, AVG_SLOPE_TS = 0.0043, V_REFINT = 1.23;
 // El identificador único: un valor del modelo, fijo para que las suites sean
 // reproducibles. En el silicio son las coordenadas en la oblea, el número de
 // oblea y el lote [RM0316 §34.1]: X e Y en BCD, el número de oblea y el lote en ASCII

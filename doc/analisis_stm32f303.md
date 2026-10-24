@@ -21,7 +21,7 @@ adelante, para media docena de familias.
 
 ---
 
-## Estado: S0 a S4 y S7 a S9 hechas (21-10-2026)
+## Estado: S0 a S5 y S7 a S9 hechas (24-10-2026)
 
 En la rama `stm32f303`, un commit por fase. Las siete suites de antes no se
 mueven ni un picosegundo (`ci/comprueba_invariante.sh`, las siete en verde con
@@ -123,6 +123,62 @@ con el giróscopo enciende el LED del lado que baja (F58, `make f3-demo`).
 `testf3` sube a **328** comprobaciones (de 296) y «el resto», a
 **115 237 619 112 941 ps**, igual en dos pasadas; las siete suites de antes no
 se mueven.
+
+**S5, lo analógico** (24-10-2026). Cuatro bloques nuevos, todos con su
+porqué en la cabecera:
+
+* **`periph/adc_v3.h`**, el ADC de segunda generación, **por parejas**
+  (`AdcParV3`: maestro en 0x000, esclavo en 0x100, registros comunes en
+  0x300, como `ADC1_2_COMMON` de CMSIS), dos en el SoC (ADC12 y ADC34). El
+  ritual entero —ADVREGEN 10→00→01 y sus 10 µs, ADCAL simple y diferencial
+  (112 ciclos, CALFACT), ADEN hasta ADRDY—, y lo que el silicio deja hacer mal
+  lo avisa: sin regulador no arranca; antes de los 10 µs o sin calibrar
+  convierte con un desplazamiento de 16 cuentas [de modelo]. 18 canales con
+  DIFSEL, muestreo de 1,5 a 601,5 ciclos y RES; 16 regulares y 4 inyectados
+  con la cola de contextos (JQM, JQOVF); continuo, discontinuo, JAUTO,
+  AUTDLY; OFR1-4 con signo, alineación, OVR/OVRMOD; los tres perros; DMA de
+  una vez o circular, con `DmaCanal::al_terminar` como DMA_EOT; y los modos
+  duales (simultáneo regular e inyectado, entrelazado con DELAY, alterno),
+  con MDMA y CDR. Los 64 disparos (tablas 89-92) son señales: TRGO, TRGO2,
+  OCxREF (S5 las saca de `TimerBase`, rasgo `internas`) y las líneas 2, 9, 11
+  y 15 del EXTI. El reloj, `ADCxy_CK` del RCC (nuevo: `K_ADC12`, `K_ADC34`) o
+  HCLK/1, /2, /4 por CKMODE. Las entradas son funciones: los pines salen de la
+  base de pines (`gen_pines.py` escribe `f3_analogico.inc`, 50 entradas); las
+  internas, del SoC: el sensor (V25 = 1,43 V, 4,3 mV/°C, a la temperatura que
+  pone el banco: `SocF3::set_die_temp`), VREFINT (1,23 V), VBAT/2 y VREFOPAMPx.
+* **El DAC1**: el `DacBase` de siempre con los disparos del F3 (TSEL 001 es
+  TIM8 o, con `DAC1_TRIG1_RMP`, TIM3), su DMA (DMA2 3/4 o DMA1 3/4 con los
+  remapeos) y su IRQ con la del TIM6. Arreglado para todos: con TEN = 1,
+  encender el canal ya no carga DOR (lo hace el disparo, RM0316 §16.5.4).
+* **`periph/comp.h`**, los siete comparadores, y **`periph/opamp.h`**, los
+  cuatro amplificadores. Sus registros están en la ventana del SYSCFG, que
+  ahora se los **delega** (`SyscfgF3::analogico`). Los comparadores comparan
+  los nodos de los pines (o VREFINT y sus fracciones, o PA4/PA5, donde pone el
+  DAC) con histéresis y POL, y su salida va al bit OUT, a su línea del EXTI
+  (21, 22, 29-33), a los pines COMPx_OUT y a los frenos de TIM1/TIM8
+  (`brk_acth`, `brk2_acth`). Los amplificadores conducen VOUT (PA2, PA6, PB1,
+  PB12) con 10 Ω: seguidor y PGA al instante, recortados a los raíles; el
+  modo autónomo integra el error con 8,2 MHz de GBW y 4,7 V/µs, y cierra
+  cualquier red del banco; con CALON, OUTCAL. El F302, que no tiene COMP3/5/7
+  ni OPAMP3/4, ve esos registros reservados.
+* **El TSC**, declarado, como estaba.
+
+El firmware es propio, **`verif/fw/stm32f3/f3_analog`**, con CMSIS y las
+funciones en línea de los LL de ST (ST no trae ejemplos analógicos para esta
+placa), y el banco pone seis fuentes de tensión. **Cierre, cumplido**: F63 lee
+el sensor y VREFINT y calcula VDDA con `VREFINT_CAL` (3300 mV) y la
+temperatura con `TS_CAL1`/`TS_CAL2` —a mano y con `__LL_ADC_CALC_TEMPERATURE`—
+a 25, -40, 85 y 105 °C, a ±0,5 °C de la del banco; F64 convierte IN6 en
+diferencial (PC0 contra PC1, ±1 V: 2669 y 1426 cuentas) por la IRQ 18; F65
+pone ADC1 y ADC2 en simultáneo regular con MDMA y el DMA1 canal 1, 16
+palabras de CDR, y los para a los dos con ADSTP; F66 hace que el COMP4 (PB0
+contra VREFINT) frene el TIM1 por BRK_ACTH —MOE a cero, BIF y PE9 quieto— y
+avise por la línea 30 (IRQ 65); F67 pone el OPAMP1 en PGA de 4 (0,5 V en PA1,
+2 V en PA2, leídos por el ADC1) y lo ve recortar; y F68 dispara el DAC1 con el
+TRGO del TIM3 por el remapeo y el ADC2 lo lee en PA4. `testf3` sube a
+**404 (de 375)** comprobaciones y «el resto», a **116 195 423 487 941 ps** (igual en dos pasadas); los
+grupos de antes no se mueven ni un picosegundo (lo analógico, conectado y sin
+usar, no cuesta nada). Coste (riesgo 7): los 70 ms simulados de F63-F68, con el ADC en continuo a casi 1 Msps en F65, cuestan 0,6 s de reloj en esta máquina; no ha hecho falta agrupar conversiones.
 
 **S7, el cargador de sistema** (21-10-2026). El de ST no se puede distribuir:
 en la memoria de sistema va uno **propio**, `soc/stm32f3/cargador/` (C con
@@ -1041,6 +1097,8 @@ que dispara el *break* de TIM1; un OPAMP en PGA ×4 visto por el ADC.
 
 **Tamaño:** grande. El ADC solo es tan grande como el de todo el F4.
 
+**Hecha el 24-10-2026** («Estado»): F63-F68 de `testf3`, con `f3_analog`.
+
 ### S6 · USB y CAN
 
 **Qué:** `usb_fs.h` sobre `usb_dev_if`; el puente U2 (CDC) y una prueba HID con
@@ -1141,6 +1199,8 @@ S4 la placa queda **completa para un curso** sin lo analógico ni el USB.
 7. **El coste del ADC.** Cuatro ADC a 5 Msps en continuo con DMA son muchos
    sucesos. Hay que medir el coste de simulación en S5 (`doc/coste_simulacion.md`)
    y, si hace falta, agrupar conversiones como hacen ya los temporizadores.
+   **Medido en S5 (24-10-2026)**: F63-F68, 70 ms simulados con el ADC en
+   continuo a casi 1 Msps en F65, cuestan 0,6 s de reloj; no ha hecho falta.
 8. **Revisión A/B frente a C+.** Sin VCP en las primeras. La placa modela la
    actual (V2-B) y lo dice; la variante sin VCP es quitar una pieza (el
    `PuenteSerie` VCP, desde S3).
