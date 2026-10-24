@@ -181,3 +181,7 @@ f3  stm32f3/ejemplos_s4/BSP.bin                           12040  0xE82C2864
 
 # STM32F303VC (S5): lo analogico, con CMSIS y las funciones en linea de LL
 f3  stm32f3/f3_analog/f3_analog.bin                        2884  0x60678F1A
+
+# STM32F303VC (S6): el USB de usuario con TinyUSB (MIT, sdk/tinyusb) y el CAN
+f3  stm32f3/f3_usb/f3_usb.bin                        12416  0xF16751CA
+f3  stm32f3/f3_can/f3_can.bin                         1516  0x2F9027F7

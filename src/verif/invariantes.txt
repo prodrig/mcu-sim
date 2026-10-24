@@ -291,4 +291,10 @@ teste4                296      4505148675235         resto
 # ADC, el DAC, los comparadores y los OPAMP conectados y sin usar no cuestan
 # nada, y encender el DAC con TEN = 1 sin cargar DOR no mueve test407.
 # Igual en dos pasadas.
-testf3                404      116195423487941       resto
+# S6 (24-10-2026): el USB y el CAN, F69-F71 (f3_usb con TinyUSB por el puente
+# de clase en memoria y con un PC de banco, y f3_can entre las dos Discovery):
+# 404 -> 428. El resto crece 680,06 ms, lo que duran esos tres grupos, que
+# corren al final; hasta F68 no se mueve nada: el USB y el CAN conectados y sin
+# usar no cuestan (el vigia del USB duerme mientras esta apagado), R16 y el PC
+# de banco nacen desenchufados. Igual en dos pasadas.
+testf3                428      116875480154660       resto

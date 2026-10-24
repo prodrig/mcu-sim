@@ -18,6 +18,8 @@
 #include "stm32f303.h"
 #include "../../parts/netlist.h"
 #include "../../common/imagen_fw.h"
+#include "../../parts/puente_usb.h"
+#include <memory>
 
 namespace stm32 {
 
@@ -31,7 +33,7 @@ public:
         d_nrst_ = chip_->pwr_pads.nrst.register_driver("sim_nrst");
         d_bt0_  = chip_->pwr_pads.boot0.register_driver("sim_boot0");
     }
-    ~McuF3() override { delete chip_; }
+    ~McuF3() override { puente_usb_.reset(); delete chip_; }
 
     SocF3& chip() { return *chip_; }
     const McuDesc& desc() const override { return desc_; }
@@ -116,6 +118,33 @@ public:
     void set_ondas_reloj(bool on) override { chip_->set_ondas(on); }
     // La secuencia del FPEC para el `load` de GDB por los pines (S2)
     programador_nv_if* programador() override { return &ProgramadorF3::el(); }
+    // El USB de usuario (S6): un PC en D+ (PA12) y D- (PA11) que enumera el
+    // CDC-ACM del firmware y lo lleva a un canal serie (parts/puente_usb.h),
+    // como `--usb` en el MSP432E4
+    bool admite_opcion(const std::string& clave) const override {
+        return clave == "usb" && chip_->mcu.tiene(F3A_USB);
+    }
+    std::string opcion(const std::string& clave, const std::string& valor) override {
+        if (clave == "usb") {
+            if (!chip_->mcu.tiene(F3A_USB)) return std::string(chip_->mcu.nombre) + " no tiene USB";
+            const serie::Destino d = serie::parsea(valor);
+            if (!d.valido) return d.error;
+            if (puente_usb_) return "el USB ya tiene su puente";
+            puente_usb_.reset(new PuenteUsbCdc(chip_->pinmux.analog(0, 12), chip_->pinmux.analog(0, 11),
+                                               &chip_->usb, d));
+            puente_usb_->controlador().pausa_control_us = PAUSA_CONTROL_US;
+            return puente_usb_->error();
+        }
+        return mcu_if::opcion(clave, valor);
+    }
+    std::string describe_opcion(const std::string& clave) const override {
+        if (clave == "usb") return puente_usb_ ? puente_usb_->describir() : "";
+        return "";
+    }
+    PuenteUsbCdc* puente_usb() { return puente_usb_.get(); }
+    // Lo que el PC de `--usb` deja entre dos transferencias de control: una
+    // microtrama (parts/puente_usb.h, ControladorUsb::pausa_control_us)
+    static constexpr double PAUSA_CONTROL_US = 125.0;
     bool tiene_gdb_interno() const override { return chip_->core.gdb != nullptr; }
     void gdb_interno(bool activo, bool traza) override {
         if (!chip_->core.gdb) return;
@@ -125,6 +154,7 @@ public:
 
 private:
     SocF3*  chip_;
+    std::unique_ptr<PuenteUsbCdc> puente_usb_;
     McuDesc desc_;
     int d_vdd_ = -1, d_vss_ = -1, d_vdda_ = -1, d_nrst_ = -1, d_bt0_ = -1;
     bool externa_ = false;

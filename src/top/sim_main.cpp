@@ -1225,7 +1225,7 @@ SC_MODULE(Sim) {
             }
             if (!todos.empty() && aceptan == 0)
                 muere(std::string("--") + clave + " " + todos + ": ninguno de los MCUs de "
-                      "la placa tiene " + clave + " que se pueda cambiar (es de los MSP432)");
+                      "la placa tiene " + clave + " que se pueda cambiar (es de los MSP432; el usb, tambien del STM32F303)");
         }
         // Lo que la ROM o el TLV nuevos cambian de lo que se dijo al montar
         for (McuMontado& m : mcus) {
@@ -1791,7 +1791,7 @@ static const OpcionCli OPCIONES[] = {
      "o qemu-cliente:HOST:PUERTO; con ,pcap=FICHERO guarda lo que pasa. Sin ID, "
      "de todos los que lo tienen"},
     {"--usb", "valor", "texto", "", "", "", true, true, "u0=rfc2217:3356",
-     "el USB de un MSP432E4 como dispositivo, como [ID=]DESTINO: un PC que enumera "
+     "el USB de un MSP432E4 o de un STM32F303 como dispositivo, como [ID=]DESTINO: un PC que enumera "
      "el CDC-ACM del firmware y lo lleva a un puerto serie del puente serie: "
      "rfc2217:PUERTO, tcp:PUERTO, rfc2217-cliente:HOST:PUERTO, tcp-cliente:HOST:PUERTO "
      "o memoria. Los baudios del terminal llegan al firmware en SET_LINE_CODING. "
@@ -2154,7 +2154,7 @@ int sc_main(int argc, char** argv) {
                 "                                protocolo de QEMU, el de gvproxy) o\n"
                 "                                qemu-cliente:HOST:PUERTO; y\n"
                 "                                ,pcap=FICHERO guarda lo que pasa\n"
-                "     sim placa.xml --usb [ID=]DESTINO  el USB de un MSP432E4 como\n"
+                "     sim placa.xml --usb [ID=]DESTINO  el USB de un MSP432E4 o un F303 como\n"
                 "                                dispositivo CDC-ACM, hasta un puerto\n"
                 "                                serie: rfc2217:PUERTO, tcp:PUERTO,\n"
                 "                                sus -cliente:HOST:PUERTO o memoria\n"

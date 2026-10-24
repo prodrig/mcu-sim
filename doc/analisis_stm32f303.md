@@ -21,7 +21,7 @@ adelante, para media docena de familias.
 
 ---
 
-## Estado: S0 a S5 y S7 a S9 hechas (24-10-2026)
+## Estado: S0 a S9 hechas (24-10-2026)
 
 En la rama `stm32f303`, un commit por fase. Las siete suites de antes no se
 mueven ni un picosegundo (`ci/comprueba_invariante.sh`, las siete en verde con
@@ -179,6 +179,53 @@ TRGO del TIM3 por el remapeo y el ADC2 lo lee en PA4. `testf3` sube a
 **404 (de 375)** comprobaciones y «el resto», a **116 195 423 487 941 ps** (igual en dos pasadas); los
 grupos de antes no se mueven ni un picosegundo (lo analógico, conectado y sin
 usar, no cuesta nada). Coste (riesgo 7): los 70 ms simulados de F63-F68, con el ADC en continuo a casi 1 Msps en F65, cuestan 0,6 s de reloj en esta máquina; no ha hecho falta agrupar conversiones.
+
+**S6, el USB y el CAN** (24-10-2026).
+
+* **`periph/usb_fs.h`**, el USB de dispositivo de segunda generación (FSDEV),
+  sobre `usb_dev_if`, la frontera de paquetes del proyecto: los ocho `EPnR`
+  con su semántica de escritura (STAT y DTOG cambian con un 1, CTR se borra con
+  un 0), `CNTR`, `ISTR` (CTR, DIR y EP_ID salen de los endpoints), `FNR`,
+  `DADDR` y `BTABLE`, y la memoria de paquetes de 512 bytes en su propia
+  ventana con el acceso «1 x 16 bits/palabra». SETUP se acepta siempre y deja
+  los dos sentidos en NAK y los dos DTOG a uno; OUT e IN contestan según
+  STAT_RX/STAT_TX. Lo eléctrico sale de los nodos de PA11 y PA12: el SE0 de
+  más de 2,5 µs es el reset del bus, tres milisegundos sin nada la suspensión,
+  y lo que se mueve estando suspendido, el despertar (y la línea 18 del EXTI).
+  No contesta sin USBEN, sin los 48 MHz, con PDWN o FRES, o con PA11/PA12
+  fuera de AF14, y lo dice. Sin doble búfer ni isócronos [de modelo].
+* **El bxCAN**: el `BxCanBase` de siempre con `CAPS_CAN_F303` (un solo
+  controlador, 14 bancos), con su congelación y los pines de la base (PA11/12,
+  PB8/9, PD0/1).
+* **Los vectores compartidos**: USB_HP con CAN_TX en la 19 y USB_LP con CAN_RX0
+  en la 20, salvo que `USB_IT_RMP` lleve los del USB a la 74, la 75 y la 76
+  (el despertar, de la 42 a la 76).
+* **`--usb` en el F303**: el mismo `PuenteUsbCdc` del E4 (el PC que enumera y
+  lleva el CDC-ACM a un puerto serie), en PA12/PA11. Su `ControladorUsb` tiene
+  ahora `pausa_control_us`: con TinyUSB, un SETUP que llega mientras la pila
+  aún atiende el estado de la transferencia anterior se la come, como en el
+  silicio; un PC de verdad deja una microtrama, y el puente del F303 también
+  (125 µs; el del E4, 0, como siempre). La placa lleva R16, la de 1,5 kΩ de D+
+  a 3 V [MB1035, hoja 2].
+* **La memoria compartida con el CAN** que preveía el plan no existe en el
+  xB/C: DS9118 §3.24 la da por dedicada; la que reparte 256 bytes con el CAN es
+  la del F303xD/E (RM0316 §32.3, nota 3).
+
+Dos firmwares nuevos: **`f3_usb`**, con **TinyUSB 0.18.0** (MIT, versionado
+en `verif/fw/stm32f3/sdk/tinyusb`): un compuesto CDC-ACM + ratón HID; y
+**`f3_can`**, solo CMSIS. **Cierre, cumplido**: el CDC de `f3_usb` enumera y
+hace eco por `--usb` (`make usb-f3`: pySerial por RFC 2217 y un socket por TCP,
+con el `cdc_e4.py` de siempre; y F69, en memoria, con un bloque de 2000 bytes y
+otra enumeración tras un reset del chip); el ratón de la **demostración de
+ST**, con su middleware sin tocar, se deja enumerar por el PC de banco y el
+giróscopo mueve el cursor (F58, solo con `make f3-demo`), y el de `f3_usb`
+también, con B1 y con `USB_IT_RMP`, y se suspende y se despierta (F70); y las
+dos Discovery hablan CAN a 500 kbit/s con sus transceptores, con los filtros,
+las dos FIFO y, sin el otro, el error de ACK (F71). `testf3` sube a
+**428 (de 404)** comprobaciones y «el resto», a **116 875 480 154 660 ps** (igual en dos pasadas); los grupos de antes no se mueven.
+Un hallazgo de CMSIS: `stm32f303xc.h` define `USBWakeUp_IRQn` como
+`USBWakeUp_RMP_IRQn` (la 76) y el manejador igual, así que quien escriba
+`USBWakeUp_IRQHandler` en C rellena el vector 76, no el 42.
 
 **S7, el cargador de sistema** (21-10-2026). El de ST no se puede distribuir:
 en la memoria de sistema va uno **propio**, `soc/stm32f3/cargador/` (C con
@@ -508,9 +555,12 @@ fuentes**. Lo que aquí solo tiene una lleva **[1F]** y es trabajo de la fase S0
      o AF11 en el F303 según el pin; TIM8, por AF3 frente a AF4 o AF10;
      UART4/5, por AF8 frente a AF5 `[PINDATA]`. La tabla se **genera** de la
      base de pines, como la del E4.
-  7. **USB y CAN comparten** los 512 bytes de memoria de paquetes [1F: RM0316]
-     y los vectores 19 y 20 (`USB_HP_CAN_TX`, `USB_LP_CAN_RX0`), salvo que `SYSCFG_CFGR1.
-     USB_IT_RMP` mueva los del USB a 74-76 `[CMSIS]`.
+  7. **USB y CAN comparten** los vectores 19 y 20 (`USB_HP_CAN_TX`, `USB_LP_CAN_RX0`), salvo que `SYSCFG_CFGR1.
+     USB_IT_RMP` mueva los del USB a 74-76 `[CMSIS]`. (Lo que se decía aquí
+     de que compartían también los 512 bytes de la memoria de paquetes era
+     falso para el xB/C: DS9118 §3.24 la da por **dedicada** al USB; la que se
+     reparte con el CAN, 256 de 1024 bytes, es la del F303xD/E, RM0316 §32.3,
+     nota 3. Contrastado en S6.)
 * **Tamaño y recomendación.** Es un puerto **medio-grande**: más que el F446,
   menos que el E4 con su T7. El plan (§8) tiene diez fases, S0-S9, con su banco
   y su cierre cada una. **S0-S4 —chip, descarga, periféricos de aula y los
@@ -658,8 +708,8 @@ guion lee la base de pines y escribe la tabla, y la tabla se versiona.
    que convierte la temperatura con `TS_CAL1`/`TS_CAL2` necesita valores
    plausibles en `0x1FFF_F7B8` y `0x1FFF_F7C2`, como el MSP432 necesitaba su
    TLV. Se rellenan con valores típicos y se dice.
-4. **Hay bloques que se comparten**: la memoria de paquetes del USB con el CAN,
-   los vectores 19 y 20 entre USB y CAN, la 24-26 entre TIM1 y TIM15/16/17, la
+4. **Hay bloques que se comparten**: los vectores 19 y 20 entre USB y CAN (la
+   memoria de paquetes, no: en el xB/C es solo del USB, S6), la 24-26 entre TIM1 y TIM15/16/17, la
    54 entre TIM6 y el DAC `[CMSIS]`. Es el mismo patrón de puertas `Or2` que ya
    tiene `SocF4`.
 5. **Un mismo pin puede tener dos tolerancias.** El F303 mezcla pines FT
@@ -1110,6 +1160,9 @@ USB; `USB_IT_RMP`.
 CAN entre las dos Discovery con transceptores.
 
 **Tamaño:** medio-grande.
+
+**Hecha el 24-10-2026** («Estado»): F69-F71 de `testf3`, F58 con el ratón y
+`make usb-f3`. La memoria compartida con el CAN no existe en el xB/C (§2.5).
 
 ### S7 · El cargador de sistema (opcional)
 

@@ -1,5 +1,5 @@
 // =============================================================================
-// sc_main_f3.cpp — LA SUITE DEL STM32F303VC (fases S0-S5, S7 y S9 del plan del F303)
+// sc_main_f3.cpp — LA SUITE DEL STM32F303VC (fases S0-S7 y S9 del plan del F303)
 //
 // Un banco aparte, como el de cada chip: un chip más dentro de otra simulación
 // movería su invariante. [doc/analisis_stm32f303.md, §7.1]
@@ -83,7 +83,18 @@
 //   F68     el DAC1 con TSEL = 001 y DAC1_TRIG1_RMP: el TRGO del TIM3; el ADC2
 //           lo lee en PA4
 //
-//   TESTF3_SOLO=s2 / s3 / s4 / s5 / s7 / s9 / demo corre solo esos grupos, TESTF3_GRUPO=F44 solo los que
+//   (S6) el USB de usuario y el CAN, al final, despues de S5:
+//   F69     f3_usb (TinyUSB, CDC + HID) por el puente de clase de `--usb`, en
+//           memoria: enumera, eco, SET_LINE_CODING y DTR/RTS, 2000 bytes, y
+//           otra enumeracion tras un reset del chip
+//   F70     el raton HID con un PC de banco (UsbHostRig y ControladorUsb) y
+//           USB_IT_RMP: los informes de B1, la suspension y el despertar
+//   F71     CAN entre las dos Discovery (TbDos) con sus transceptores, f3_can:
+//           filtros, las dos FIFO por las IRQ 20 y 21, y sin el otro, ACK
+//   F58 (la demo de ST, solo con TESTF3_SOLO=demo) termina con su raton: el
+//   PC de banco lo enumera y el giroscopo mueve el cursor
+//
+//   TESTF3_SOLO=s2 / s3 / s4 / s5 / s6 / s7 / s9 / demo corre solo esos grupos, TESTF3_GRUPO=F44 solo los que
 //   empiecen asi, TESTF3_TRAZA=1 imprime trazas de depuracion: con cualquiera
 //   de ellos el tiempo simulado no es el del invariante.
 //
@@ -114,6 +125,7 @@
 #include "../parts/ext_parts.h"
 #include "../parts/mems_st.h"
 #include "../parts/puente_serie.h"
+#include "../parts/puente_usb.h"
 #include "../parts/netlist_xml.h"
 #include "../verif/gdb_stub.h"
 #include "../verif/gdb_client.h"
@@ -290,6 +302,10 @@ SC_MODULE(TbDos) {
     ExtClock *mco_a = nullptr, *mco_b = nullptr;
     Button *b1_a = nullptr, *b1_b = nullptr;
     Rpull *rb_a = nullptr, *rb_b = nullptr, *pu_scl = nullptr, *pu_sda = nullptr;
+    // S6: el CAN, un hilo con su terminador y un transceptor por placa en PD1
+    // (CAN_TX) y PD0 (CAN_RX), sin soldar hasta F71
+    CanWire* can_hilo = nullptr;
+    CanTransceiver *xcvr_a = nullptr, *xcvr_b = nullptr;
 
     SC_CTOR(TbDos)
         : a("dos_a", DBG_PINES, h.ca, *CatalogoMcu::busca("STM32F303VC")),
@@ -302,10 +318,14 @@ SC_MODULE(TbDos) {
         rb_b = new Rpull(b.chip().pinmux.analog(0, 0), 0.0, 220e3);
         pu_scl = new Rpull(h.scl, 3.3, 4700.0);
         pu_sda = new Rpull(h.sda, 3.3, 4700.0);
+        can_hilo = new CanWire(3.3, 1000.0, "can_hilo");
+        xcvr_a = new CanTransceiver("xcvr_a", a.chip().pinmux.analog(3, 1), a.chip().pinmux.analog(3, 0), *can_hilo);
+        xcvr_b = new CanTransceiver("xcvr_b", b.chip().pinmux.analog(3, 1), b.chip().pinmux.analog(3, 0), *can_hilo);
     }
     ~TbDos() override {
         delete mco_a; delete mco_b; delete b1_a; delete b1_b; delete rb_a; delete rb_b;
         delete pu_scl; delete pu_sda;
+        delete xcvr_a; delete xcvr_b; delete can_hilo;
     }
     bool alto(McuF3& m, unsigned p, unsigned i) { return m.chip().pinmux.analog(p, i).voltage() > 1.65f; }
     // Las dos con su firmware; la «b» arranca primero, que es lo que piden los
@@ -403,6 +423,13 @@ SC_MODULE(TbF3) {
     // (OPAMP1_VINP)
     FuenteVar *v_c0 = nullptr, *v_c1 = nullptr, *v_c2 = nullptr, *v_c4 = nullptr,
               *v_b0 = nullptr, *v_a1 = nullptr;
+    // S6: R16 (1,5 kohm de D+ a 3 V) desoldada hasta los grupos del USB; el
+    // puente de clase (el PC de `--usb`) se monta en F69, y en F70 un PC de banco
+    // (UsbHostRig para lo electrico y ControladorUsb para las transferencias)
+    Rpull* r16 = nullptr;
+    PuenteUsbCdc* puente_usb = nullptr;
+    UsbHostRig* pc_usb = nullptr;
+    AnalogNet usb_vbus{"usb_vbus"}, usb_id{"usb_id"};
     McuF3   mcu;
     SocF3&  dut;
     // La placa, lo justo: los 8 MHz del ST-LINK en PF0 (sin onda), B1 en PA0 a
@@ -463,6 +490,9 @@ SC_MODULE(TbF3) {
         v_c4 = new FuenteVar(dut.pinmux.analog(2, 4), "v_c4");
         v_b0 = new FuenteVar(dut.pinmux.analog(1, 0), "v_b0");
         v_a1 = new FuenteVar(dut.pinmux.analog(0, 1), "v_a1");
+        r16 = new Rpull(dut.pinmux.analog(0, 12), 3.0, 1500.0);
+        r16->set_enabled(false);
+        pc_usb = new UsbHostRig("pc_usb", dut.pinmux.analog(0, 11), dut.pinmux.analog(0, 12), usb_vbus, usb_id);
         mco = new ExtClock("mco", dut.pinmux.analog(5, 0), 8e6, 3.3, 50.0, false);
         b1 = new Button(dut.pinmux.analog(0, 0), 330.0, 3.3);
         b1->release();
@@ -481,6 +511,7 @@ SC_MODULE(TbF3) {
         delete u5d; delete u5e; delete u3d; delete u3e; delete r27; delete r28; delete mov;
         delete bl1; delete bl2; delete fam;
         delete v_c0; delete v_c1; delete v_c2; delete v_c4; delete v_b0; delete v_a1;
+        delete puente_usb; delete pc_usb; delete r16;
     }
 
     // --- Utilidades -----------------------------------------------------------
@@ -1971,6 +2002,7 @@ SC_MODULE(TbF3) {
             return;
         }
         monta('E');
+        r16->set_enabled(true);             // la de D+ del USB de usuario (S6)
         arranca(0, FW_DEMO_ST);
         wait(1500, SC_MS);
         check(cambios(4, L3, 400) >= 2, "tras el USB y su segundo, la rosa gira");
@@ -2001,6 +2033,44 @@ SC_MODULE(TbF3) {
         const double a6 = fraccion(4, L6, 200), a3 = fraccion(4, L3, 200);
         std::printf("    el acelerometro, con el norte abajo: LD6 %.2f, LD3 %.2f\n", a6, a3);
         check(a6 > 0.8, "B1, la rosa; B1, el acelerometro: inclinada, un LED fijo (LD6, su tabla)");
+        // S6: el raton. B1, la rosa; B1, el USB: LD3, LD6, LD7 y LD10 y el
+        // giroscopo mueve el cursor [UM1570 §5, paso 6]. El PC de banco
+        // enchufa el cable ahora (R16 estaba soldada desde el principio)
+        mov->pon(0, 0, 0, true);
+        b1->press(); wait(200, SC_MS); b1->release();
+        wait(300, SC_MS);
+        b1->press(); wait(200, SC_MS); b1->release();
+        wait(50, SC_MS);
+        ControladorUsb hc(&dut.usb);
+        hc.pausa_control_us = McuF3::PAUSA_CONTROL_US;
+        pc_usb->conectar(true);
+        wait(100, SC_MS);
+        uint8_t ep = 0;
+        const bool en = usb_enumera(hc, ep);
+        std::printf("    el raton de la demo: %s, EP%u IN\n", en ? "enumerado" : "NO enumerado", ep);
+        check(en && ep != 0, "la demo se deja enumerar como un raton HID (el middleware de ST, sin tocar)");
+        int x = 0, y = 0;
+        unsigned informes = 0;
+        auto tramas = [&](unsigned n) {
+            for (unsigned k = 0; k < n; ++k) {
+                hc.sof();
+                std::vector<uint8_t> p;
+                if (hc.paquete(PID_IN, 7, ep, {}, p) == PID_ACK && p.size() >= 3) {
+                    x += int8_t(p[1]); y += int8_t(p[2]); ++informes;
+                }
+                wait(1, SC_MS);
+            }
+        };
+        tramas(50);
+        const unsigned quieta = informes;
+        mov->pon(0, 0, 90);                 // girando el rumbo a 90 grados por segundo
+        tramas(300);
+        std::printf("    quieta: %u informes; girando: %u, el cursor en (%d, %d)\n", quieta, informes - quieta, x, y);
+        check(quieta == 0 && informes > 10 && x != 0,
+              "quieta, el cursor no se mueve; girando la placa, el raton de la demo lo mueve");
+        mov->pon(0, 0, 90, true);
+        pc_usb->conectar(false);
+        r16->set_enabled(false);
         desmonta();
     }
     void s4() {
@@ -2585,6 +2655,218 @@ SC_MODULE(TbF3) {
         sueltas();
     }
 
+    // =========================================================================
+    // S6: EL USB DE USUARIO Y EL CAN [doc/analisis_stm32f303.md §8 S6]
+    //
+    //   F69  f3_usb (TinyUSB) por el puente de clase de `--usb`: enumera el
+    //        CDC-ACM del compuesto, el eco, SET_LINE_CODING y DTR/RTS, un bloque
+    //        grande, y vuelve a enumerarlo tras un reset del chip
+    //   F70  el raton HID con un PC de banco, con USB_IT_RMP (IRQ 74-76): la
+    //        enumeracion paso a paso, los informes de B1, la suspension y el
+    //        despertar
+    //   F71  CAN entre las dos Discovery con sus transceptores (f3_can)
+    // =========================================================================
+    static constexpr const char* FW_USB = "verif/fw/stm32f3/f3_usb/f3_usb.bin";
+    // El buzon de f3_usb [verif/fw/stm32f3/f3_usb/main.c]
+    enum : uint32_t { U_ESTADO = 0x04, U_MONTAJES = 0x08, U_SUSP = 0x0C, U_BAUDIOS = 0x10, U_LINEAS = 0x14,
+                      U_BYTES = 0x18, U_INFORMES = 0x1C, U_PULS = 0x20, U_RMP = 0x24, U_IRQ = 0x28,
+                      U_IRQ_RMP = 0x2C };
+    template <class F> bool espera_que(F f, double ms) {
+        const sc_time lim = sc_time_stamp() + sc_time(ms, SC_MS);
+        while (!f() && sc_time_stamp() < lim) wait(100, SC_US);
+        return f();
+    }
+
+    void s6_cdc() {
+        grupo("F69 f3_usb (TinyUSB) por el puente de clase de --usb: el CDC-ACM, en memoria");
+        r16->set_enabled(true);
+        arranca(0, FW_USB);
+        if (!puente_usb)
+            puente_usb = new PuenteUsbCdc(pin(0, 12), pin(0, 11), &dut.usb, serie::parsea("memoria"));
+        else
+            puente_usb->enchufa(true);
+        puente_usb->controlador().pausa_control_us = McuF3::PAUSA_CONTROL_US;
+        CanalMemoria& m = *puente_usb->memoria();
+        check(puente_usb->error().empty() && espera_que([&] { return puente_usb->listo(); }, 500),
+              "R16 en D+: el puente ve llegar el dispositivo y lo enumera");
+        std::printf("    %04X:%04X \"%s\", en la direccion %u; %u resets del bus\n", puente_usb->vid(),
+                    puente_usb->pid(), puente_usb->producto().c_str(), dut.usb.direccion(), dut.usb.resets());
+        check(puente_usb->vid() == 0x1209 && puente_usb->pid() == 0x0003 &&
+                  puente_usb->producto() == "f3_usb (CDC + HID)" && dut.usb.direccion() == 1,
+              "1209:0003, \"f3_usb (CDC + HID)\", en la direccion 1: el compuesto, con su IAD");
+        check(espera_que([&] { return buzon(U_MONTAJES) == 1 && buzon(U_LINEAS) == 3; }, 20) && alto(4, L3),
+              "tud_mount_cb (LD3) y, al abrir el puerto, DTR y RTS");
+        check(buzon(U_IRQ) > 0 && buzon(U_IRQ_RMP) == 0 && buzon(U_RMP) == 0,
+              "sin USB_IT_RMP, el USB entra por las 19 y 20, las que comparte con el CAN");
+        m.empuja("eco por el usb");
+        check(espera_que([&] { return m.recibido() == "ECO POR EL USB"; }, 30),
+              "lo que entra por el canal vuelve en mayusculas");
+        puente_usb->pide_baudios(9600);
+        puente_usb->pide_paridad(3);
+        puente_usb->pide_parada(2);
+        puente_usb->pide_control(9);
+        check(espera_que([&] { return buzon(U_BAUDIOS) == 9600 && buzon(U_LINEAS) == 2; }, 20),
+              "RFC 2217 -> CDC: SET_LINE_CODING 9600 y SET_CONTROL_LINE_STATE 2 (sin DTR)");
+        m.borra_recibido();
+        m.empuja("?");
+        check(espera_que([&] { return m.recibido() == "9600 8E2 2\r\n"; }, 30),
+              "y el firmware lo cuenta: \"9600 8E2 2\"");
+        m.borra_recibido();
+        std::string blq, esp;
+        for (unsigned i = 0; i < 2000; ++i) {
+            const char c = char('a' + i % 26);
+            blq += c; esp += char(c - 32);
+        }
+        const sc_time t0 = sc_time_stamp();
+        m.empuja(blq);
+        const bool todo = espera_que([&] { return m.recibido().size() >= esp.size(); }, 300);
+        check(todo && m.recibido() == esp, "2000 bytes de ida y vuelta, en orden y sin perder ninguno");
+        std::printf("    en %.1f ms simulados; %u paquetes, %u NAK; %llu bytes IN y %llu OUT en el FSDEV\n",
+                    (sc_time_stamp() - t0).to_seconds() * 1e3, puente_usb->controlador().paquetes(),
+                    puente_usb->controlador().naks(), (unsigned long long)dut.usb.bytes_in(),
+                    (unsigned long long)dut.usb.bytes_out());
+        // Un reset del chip: R16 sigue, pero el dispositivo deja de contestar,
+        // y el puente lo vuelve a enumerar
+        mcu.reset_pin(true);
+        wait(50, SC_US);
+        mcu.reset_pin(false);
+        check(espera_que([&] { return puente_usb->enumeraciones() == 2 && puente_usb->listo(); }, 600),
+              "tras un reset del chip, sin contestar, el puente lo suelta y lo vuelve a enumerar");
+        m.borra_recibido();
+        m.empuja("otra vez");
+        check(espera_que([&] { return m.recibido() == "OTRA VEZ"; }, 30), "y sigue el eco");
+        puente_usb->enchufa(false);
+        wait(1, SC_MS);
+        r16->set_enabled(false);
+    }
+
+    // Un PC de banco: la enumeracion entera a mano
+    bool usb_enumera(ControladorUsb& hc, uint8_t& ep_hid) {
+        std::vector<uint8_t> d;
+        pc_usb->reset_bus();
+        for (int i = 0; i < 10; ++i) { hc.sof(); wait(1, SC_MS); }
+        if (hc.control_in(0, ControladorUsb::setup(0x80, 6, 0x0100, 0, 8), d, 8) != PID_ACK || d.size() < 8) return false;
+        if (hc.control_out(0, ControladorUsb::setup(0x00, 5, 7, 0, 0)) != PID_ACK) return false;
+        for (int i = 0; i < 2; ++i) { hc.sof(); wait(1, SC_MS); }
+        if (hc.control_in(7, ControladorUsb::setup(0x80, 6, 0x0200, 0, 255), d, 64) != PID_ACK || d.size() < 9) return false;
+        // La interfaz HID (clase 3) y su endpoint IN de interrupcion
+        ep_hid = 0;
+        bool en_hid = false;
+        for (size_t i = 0; i + 1 < d.size() && d[i] >= 2; i += d[i]) {
+            if (d[i + 1] == 4 && i + 5 < d.size()) en_hid = d[i + 5] == 3;
+            if (d[i + 1] == 5 && en_hid && i + 3 < d.size() && (d[i + 3] & 3u) == 3 && (d[i + 2] & 0x80))
+                ep_hid = d[i + 2] & 0x0Fu;
+        }
+        return ep_hid && hc.control_out(7, ControladorUsb::setup(0x00, 9, 1, 0, 0)) == PID_ACK;
+    }
+    void s6_hid() {
+        grupo("F70 El raton HID de f3_usb con un PC de banco, y USB_IT_RMP (IRQ 74, 75 y 76)");
+        r16->set_enabled(true);
+        arranca(1, FW_USB);
+        ControladorUsb hc(&dut.usb);
+        hc.pausa_control_us = McuF3::PAUSA_CONTROL_US;
+        pc_usb->conectar(true);
+        wait(100, SC_MS);
+        uint8_t ep = 0;
+        const bool en = usb_enumera(hc, ep);
+        check(en && ep == 3 && dut.usb.direccion() == 7, "reset, direccion 7, configuracion: el raton en el EP3 IN");
+        check(espera_que([&] { return buzon(U_MONTAJES) == 1; }, 5) && buzon(U_RMP) == 1,
+              "montado, con SYSCFG_CFGR1.USB_IT_RMP puesto por el firmware");
+        // Las tramas, y un IN al raton en cada una (bInterval = 10)
+        int x = 0, y = 0;
+        unsigned informes = 0, naks = 0;
+        auto tramas = [&](unsigned n) {
+            for (unsigned k = 0; k < n; ++k) {
+                hc.sof();
+                std::vector<uint8_t> p;
+                const uint8_t r = hc.paquete(PID_IN, 7, ep, {}, p);
+                if (r == PID_ACK && p.size() >= 3) { x += int8_t(p[1]); y += int8_t(p[2]); ++informes; }
+                else if (r == PID_NAK) ++naks;
+                wait(1, SC_MS);
+            }
+        };
+        tramas(20);
+        check(informes == 0 && naks > 0, "quieto, el raton contesta NAK");
+        b1->press(); tramas(30); b1->release(); tramas(30);
+        b1->press(); tramas(30); b1->release(); tramas(30);
+        std::printf("    %u informes: el cursor en (%d, %d); %u IRQ por las 74-76, %u por las 19-20\n", informes, x, y,
+                    buzon(U_IRQ_RMP), buzon(U_IRQ));
+        check(informes == 4 && x == 20 && y == 10, "dos pulsaciones de B1: el cursor 20 a la derecha y 10 abajo");
+        check(buzon(U_IRQ_RMP) > 0 && buzon(U_IRQ) == 0, "con el remapeo, todo el USB llega por las 74-76");
+        // Sin tramas, el bus se suspende; con ellas, se despierta
+        wait(10, SC_MS);
+        check(buzon(U_SUSP) == 1 && dut.usb.suspendido() && alto(4, L10),
+              "3 ms sin SOF: SUSP, tud_suspend_cb (LD10) y FSUSP");
+        tramas(5);
+        check(!dut.usb.suspendido() && !alto(4, L10), "la primera trama lo despierta: WKUP y tud_resume_cb");
+        pc_usb->conectar(false);
+        r16->set_enabled(false);
+        mcu.reset_pin(true);
+        wait(20, SC_US);
+    }
+
+    static constexpr const char* FW_CAN = "verif/fw/stm32f3/f3_can/f3_can.bin";
+    // El buzon de f3_can [verif/fw/stm32f3/f3_can/main.c]
+    enum : uint32_t { C_ESTADO = 0x04, C_ENVIADOS = 0x08, C_BUENAS = 0x0C, C_RX0 = 0x10, C_RX1 = 0x14,
+                      C_MALAS = 0x18, C_ESR = 0x1C, C_IRQ20 = 0x28, C_IRQ21 = 0x2C, C_PERDIDOS = 0x30 };
+    void s6_can() {
+        grupo("F71 CAN entre las dos Discovery con sus transceptores (f3_can, 500 kbit/s, PD0/PD1)");
+        TbDos& d = *dos;
+        d.xcvr_a->set_attached(true);
+        d.xcvr_b->set_attached(true);
+        d.a.alimenta(true); d.b.alimenta(true);
+        d.a.reset_pin(true); d.b.reset_pin(true);
+        wait(20, SC_US);
+        d.a.carga_firmware(FW_CAN); d.b.carga_firmware(FW_CAN);
+        // El buzon no se carga (NOLOAD): fuera lo que dejaron los de S3
+        for (uint32_t o = 0; o < 0x40; o += 4) { d.a.chip().sram.poke32(o, 0); d.b.chip().sram.poke32(o, 0); }
+        d.a.chip().sram.poke32(0, 1);              // el que pregunta
+        d.b.chip().sram.poke32(0, 2);              // el que contesta
+        d.b.reset_pin(false);
+        wait(1, SC_MS);
+        d.a.reset_pin(false);
+        auto bz = [](McuF3& m, uint32_t o) { return m.chip().sram.peek32(o); };
+        check(espera_que([&] { return bz(d.a, C_ESTADO) == 1 && bz(d.b, C_ESTADO) == 1; }, 20),
+              "los dos salen de inicializacion: 11 bits recesivos en el hilo");
+        wait(40, SC_MS);
+        std::printf("    A: %u enviados, %u respuestas buenas, %u malas, ESR 0x%08X\n", bz(d.a, C_ENVIADOS),
+                    bz(d.a, C_BUENAS), bz(d.a, C_MALAS), bz(d.a, C_ESR));
+        std::printf("    B: FIFO0 %u, FIFO1 %u, %u malas, %u contestadas; IRQ 20: %u, 21: %u; ESR 0x%08X\n",
+                    bz(d.b, C_RX0), bz(d.b, C_RX1), bz(d.b, C_MALAS), bz(d.b, C_ENVIADOS), bz(d.b, C_IRQ20),
+                    bz(d.b, C_IRQ21), bz(d.b, C_ESR));
+        check(bz(d.a, C_ENVIADOS) == 28 && bz(d.b, C_RX0) == 20 && bz(d.b, C_ENVIADOS) == 20,
+              "A manda 20 x 0x123, 4 x 0x155 y 4 x 0x345; B recibe los 20 0x123 por la FIFO 0 y contesta");
+        check(bz(d.b, C_RX1) == 4 && bz(d.b, C_MALAS) == 0,
+              "los filtros de B: el 0x155 no pasa, el 0x345 va al banco 1 y a la FIFO 1");
+        check(bz(d.a, C_BUENAS) == 20 && bz(d.a, C_MALAS) == 0, "y A recibe los 20 0x124, con n + 1");
+        check(bz(d.b, C_IRQ20) >= 1 && bz(d.b, C_IRQ21) >= 1 && bz(d.a, C_PERDIDOS) == 0 && bz(d.b, C_PERDIDOS) == 0,
+              "las FIFO por las IRQ 20 (con el USB) y 21, sin desbordar");
+        check((bz(d.a, C_ESR) & 0xFF000000u) == 0 && (bz(d.b, C_ESR) & 0xFF000000u) == 0 &&
+                  (bz(d.a, C_ESR) & 7u) == 0,
+              "TEC y REC a cero en los dos: ni un error en el hilo");
+        // Sin el otro, nadie asiente: A se queda con errores
+        d.xcvr_b->set_attached(false);
+        d.b.reset_pin(true);
+        d.a.reset_pin(true);
+        wait(20, SC_US);
+        d.a.chip().sram.poke32(0, 1);
+        for (uint32_t o = 4; o < 0x40; o += 4) d.a.chip().sram.poke32(o, 0);
+        d.a.reset_pin(false);
+        wait(20, SC_MS);
+        const uint32_t tec = bz(d.a, C_ESR) >> 16 & 0xFFu;
+        std::printf("    solo: ESR 0x%08X (TEC %u)\n", bz(d.a, C_ESR), tec);
+        check(bz(d.a, C_BUENAS) == 0 && tec >= 96 && ((bz(d.a, C_ESR) & 0x70u) >> 4) == 3,
+              "solo en el hilo: sin asentimiento, error de ACK (LEC 3) y el TEC sube a error pasivo");
+        d.apaga();
+        d.xcvr_a->set_attached(false);
+    }
+
+    void s6() {
+        if (toca("F69")) s6_cdc();
+        if (toca("F70")) s6_hid();
+        if (toca("F71")) s6_can();
+    }
+
     void s5() {
         if (toca("F63")) s5_temperatura();
         if (toca("F64")) s5_diferencial();
@@ -2674,6 +2956,12 @@ SC_MODULE(TbF3) {
             sc_stop();
             return;
         }
+        if (solo && std::strcmp(solo, "s6") == 0) {
+            s6();
+            std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
+            sc_stop();
+            return;
+        }
         if (solo && std::strcmp(solo, "s5") == 0) {
             s5();
             std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
@@ -2741,6 +3029,7 @@ SC_MODULE(TbF3) {
             s7();
             s9();
             s5();
+            s6();
         }
         std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();

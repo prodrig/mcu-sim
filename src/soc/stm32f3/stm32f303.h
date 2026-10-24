@@ -21,6 +21,9 @@
 // generación en dos parejas (`AdcParV3`, periph/adc_v3.h), el DAC1, los siete
 // comparadores (periph/comp.h) y los cuatro amplificadores (periph/opamp.h),
 // estos dos con sus registros delegados por el SYSCFG. El TSC sigue declarado.
+// Y desde S6 (conecta_s6()) el USB de dispositivo (`UsbFs`, periph/usb_fs.h) y
+// el bxCAN (`BxCanBase` con CAPS_CAN_F303), con sus vectores compartidos y el
+// remapeo USB_IT_RMP.
 //
 // y lo nuevo: `RccF3` (rcc/rcc_f3.h), `FlashF1` (mem/flash_f1.h), el SYSCFG y
 // el PWR (syscfg_f3.h) y la memoria de sistema (aquí abajo). Y desde S3 los
@@ -75,6 +78,8 @@
 #include "../../periph/dac.h"
 #include "../../periph/comp.h"
 #include "../../periph/opamp.h"
+#include "../../periph/usb_fs.h"
+#include "../../periph/can.h"
 
 namespace stm32 {
 
@@ -205,6 +210,9 @@ public:
     DacBase   dac1{"dac1", CAPS_DAC_F303};
     CompF3    comp{"comp", [this](unsigned p, unsigned i) -> analog_net_if& { return pinmux.analog(p, i); }};
     OpampF3   opamp{"opamp", [this](unsigned p, unsigned i) -> analog_net_if& { return pinmux.analog(p, i); }};
+    // --- USB y CAN (S6) -------------------------------------------------------------
+    UsbFs     usb{"usb", f3::USB_B, f3::USB_PMA_B};
+    BxCanBase can{"can", f3::CAN_B, CAPS_CAN_F303};
     // La temperatura del chip, la que lee el sensor (la pone el banco) [°C]
     double temp_c = 25.0;
     void set_die_temp(double c) { temp_c = c; }
@@ -241,6 +249,7 @@ public:
         conecta_irq();
         conecta_s3();
         conecta_s5();
+        conecta_s6();
         // Cada escritura a un periferico, en su instante (S4: el CS del
         // giroscopo entre dos lecturas del BSP dura menos que un quantum)
         core.cpu.sync_escritura_perif = true;
@@ -249,6 +258,11 @@ public:
         sensitive << s_boot0_ << s_sysrst_n_ << boot_ev_;
         SC_METHOD(irq_exti_proc);
         for (unsigned i = 0; i < s_exti_lin_.size(); ++i) sensitive << s_exti_lin_[i];
+        sensitive << s_cfgr1_;
+        dont_initialize();
+        SC_METHOD(usb_can_proc);
+        sensitive << s_cfgr1_ << s_usb_hp_ << s_usb_lp_;
+        for (auto& q : s_can_irq_) sensitive << q;
         dont_initialize();
         SC_METHOD(mco_proc); sensitive << mco_ev_;
         SC_METHOD(irq_tim_proc);
@@ -311,11 +325,11 @@ public:
 
     std::vector<std::string> limitaciones() const {
         std::vector<std::string> v = {
-            "fases S1, S2, S3 y S5 del plan del F303: nucleo, reloj, Flash (lectura y FPEC), SRAM, "
+            "fases S1, S2, S3, S5 y S6 del plan del F303: nucleo, reloj, Flash (lectura y FPEC), SRAM, "
             "CCM ejecutable, memoria de sistema, GPIO, EXTI, SYSCFG, PWR con Sleep, Stop y "
             "Standby, DMA1/2, USART1-3 y UART4/5 (v2), SPI1-3 (v3), I2C1/2, TIM1/2/3/4/6/7/8/15/16/17 "
             "e IRTIM, IWDG con ventana, WWDG, RTC, CRC programable, ADC1-4, DAC1, COMP1-7 y "
-            "OPAMP1-4. El resto (TSC, USB, CAN) esta DECLARADO: contesta, lee cero y avisa una vez",
+            "OPAMP1-4, USB y CAN. El TSC esta DECLARADO: contesta, lee cero y avisa una vez",
             "la proteccion de lectura (RDP) esta a medias: el nivel se carga en FLASH_OBR, "
             "volver al 0 borra la Flash y el 2 bloquea los bytes de opcion, pero el 1 no "
             "cierra la Flash al depurador ni el 2 apaga la depuracion; la Flash se programa "
@@ -333,7 +347,10 @@ public:
             "error de un ADC calibrado, ni sacan AWDx_OUT a los temporizadores; VREF+ es VDDA; "
             "los comparadores cambian en un delta y no hacen BLANKING ni van a capturas ni "
             "a OCREF_CLR; los OPAMP no conmutan con TCM_EN; el TSC esta DECLARADO",
-            "USB y CAN: fase S6",
+            "el USB (S6): sin doble bufer ni isocronos, sin errores de cable (ERR) ni la "
+            "RESUME del dispositivo; el SE0, la suspension y el despertar salen de los nodos "
+            "de PA11/PA12, y los paquetes cruzan como paquetes (periph/otg.h); necesita "
+            "48 MHz y PA11/PA12 en AF14, y si no, no contesta y lo dice",
             "la memoria de sistema no lleva el cargador de ST sino uno propio con el "
             "protocolo de AN3155 por USART1/USART2 (sin I2C, SPI, CAN ni el DFU por USB); "
             "WRITE PROTECT y READOUT PROTECT contestan NACK",
@@ -531,7 +548,6 @@ private:
         flash.latencia_minima = [](double f) { return f3::latencia_minima(f); };
 
         const char* S5 = "Es de la fase S5 del plan (doc/analisis_stm32f303.md, S5).";
-        const char* S6 = "Es de la fase S6 del plan (doc/analisis_stm32f303.md, S6).";
         auto& H = s_hclk_;  auto& Hz = s_hclk_hz_;
         auto& P1 = s_pclk1_; auto& P1z = s_pclk1_hz_;
         auto& P2 = s_pclk2_; auto& P2z = s_pclk2_hz_;
@@ -563,13 +579,22 @@ private:
         declara("i2s2ext", f3::I2S2EXT_B, 0x400, apb1, P1, P1z, F3P_SPI2, EXT);
         declara("i2s3ext", f3::I2S3EXT_B, 0x400, apb1, P1, P1z, F3P_SPI3, EXT);
         if (mcu.tiene(F3A_USB)) {
-            declara("usb", f3::USB_B, 0x400, apb1, P1, P1z, F3P_USB, S6);
-            declara("usb_pma", f3::USB_PMA_B, 0x400, apb1, P1, P1z, F3P_USB, S6);
+            engancha(usb, apb1, P1, P1z, F3P_USB);
+            engancha(usb.pma, apb1, P1, P1z, F3P_USB);
         } else {
+            // El F358: conectado, pero fuera del bus (S9)
+            for (BusSlave* b : std::initializer_list<BusSlave*>{&usb, &usb.pma}) {
+                i_aus_.emplace_back(new tlm_utils::simple_initiator_socket<SocF3>(
+                    (std::string("i_aus_") + b->basename()).c_str()));
+                i_aus_.back()->bind(b->tsk);
+                b->clk(P1); b->clk_hz(P1z);
+                b->rst_n(rcc.s_rst_n[F3P_USB]); b->clk_en(rcc.s_en[F3P_USB]);
+                b->clk_en_live = rcc.clk_en_ptr(F3P_USB);
+            }
             ausente("USB", f3::USB_B, 0x400, apb1, P1, P1z);
             ausente("la memoria de paquetes del USB", f3::USB_PMA_B, 0x400, apb1, P1, P1z);
         }
-        declara("can", f3::CAN_B, 0x400, apb1, P1, P1z, F3P_CAN, S6);
+        engancha(can, apb1, P1, P1z, F3P_CAN);
         engancha(pwr, apb1, P1, P1z, F3P_PWR);
         engancha(dac1, apb1, P1, P1z, F3P_DAC1);
         // --- APB2 ----------------------------------------------------------------------
@@ -638,6 +663,8 @@ private:
     sc_core::sc_signal<bool> s_adc12_irq_[2], s_dac_irq_{"s_dac_irq"};
     sc_core::sc_signal<bool> s_exti_ln_[4];                   // EXTI2, 9, 11, 15 (disparos)
     sc_core::sc_signal<bool> s_dac_t8_{"s_dac_t8"};           // TSEL 1: TIM8 o TIM3 TRGO
+    // S6
+    sc_core::sc_signal<bool> s_usb_hp_{"s_usb_hp"}, s_usb_lp_{"s_usb_lp"}, s_can_irq_[4];
     bool ana_falta_[11] = {};                                  // COMP1-7, OPAMP1-4 que no hay
     bool av_ana_falta_ = false;
 
@@ -909,6 +936,39 @@ private:
         };
         syscfg.analogico.reinicia = [this] { comp.reinicia(); opamp.reinicia(); };
     }
+    // =======================================================================
+    // S6: USB Y CAN
+    // =======================================================================
+    void conecta_s6() {
+        // El USB: D+ en PA12 y D- en PA11, los 48 MHz del RCC y la línea 18
+        usb.bind_pines(pinmux.analog(0, 12), pinmux.analog(0, 11));
+        usb.f48 = [this] { return rcc.f_usb(); };
+        usb.pines_af = [this] {
+            // MODER = 10 y AFR = 14 en PA11 y PA12 [PINDATA: USB_DM/USB_DP en AF14]
+            const uint32_t m = gpio[0].dbg_read(0x00), h = gpio[0].dbg_read(0x24);
+            return ((m >> 22) & 3u) == 2 && ((m >> 24) & 3u) == 2 &&
+                   ((h >> 12) & 0xFu) == 14 && ((h >> 16) & 0xFu) == 14;
+        };
+        usb.irq_hp(s_usb_hp_); usb.irq_lp(s_usb_lp_);
+        usb.wkup(s_exti_in_[18 - 16]);
+        // El bxCAN: un solo controlador, dueño de sus 14 bancos
+        can.freeze(s_freeze_[FZ3_CAN]);
+        can.irq_tx(s_can_irq_[0]); can.irq_rx0(s_can_irq_[1]);
+        can.irq_rx1(s_can_irq_[2]); can.irq_sce(s_can_irq_[3]);
+    }
+    // USB y CAN comparten la 19 y la 20, salvo que USB_IT_RMP lleve los del USB a
+    // la 74 y la 75 [RM0316 §12.1.1, tabla 82]
+    void usb_can_proc() {
+        const bool rmp = (s_cfgr1_.read() >> 5) & 1u;
+        const bool hp = s_usb_hp_.read(), lp = s_usb_lp_.read();
+        s_irq_[f3::IRQ_USB_HP_CAN_TX].write(s_can_irq_[0].read() || (!rmp && hp));
+        s_irq_[f3::IRQ_USB_LP_CAN_RX0].write(s_can_irq_[1].read() || (!rmp && lp));
+        s_irq_[f3::IRQ_CAN_RX1].write(s_can_irq_[2].read());
+        s_irq_[f3::IRQ_CAN_SCE].write(s_can_irq_[3].read());
+        s_irq_[f3::IRQ_USB_HP].write(rmp && hp);
+        s_irq_[f3::IRQ_USB_LP].write(rmp && lp);
+    }
+
     void irq_adc_proc() { s_irq_[f3::IRQ_ADC1_2].write(s_adc12_irq_[0].read() || s_adc12_irq_[1].read()); }
     // La línea n del EXTI antes de la máscara: el pin que elige EXTICR
     void exti_ln_proc() {
@@ -1054,6 +1114,9 @@ private:
         if (s == "I2C1_SDA") return E(&i2c1.sda_out, &i2c1.sda_oe, &i2c1.sda_in, true);
         if (s == "I2C2_SCL") return E(&i2c2.scl_out, &i2c2.scl_oe, &i2c2.scl_in, true);
         if (s == "I2C2_SDA") return E(&i2c2.sda_out, &i2c2.sda_oe, &i2c2.sda_in, true);
+        // El bxCAN (S6): TX push-pull, RX con reposo recesivo
+        if (s == "CAN_TX") return E(&can.tx_out, &can.tx_oe, nullptr, true);
+        if (s == "CAN_RX") return E(nullptr, nullptr, &can.rx_in, true);
         // Las salidas de los comparadores (S5)
         if (s.size() == 9 && empieza("COMP") && s.compare(5, 4, "_OUT") == 0) {
             const unsigned k = unsigned(s[4] - '1');
@@ -1132,7 +1195,10 @@ private:
         auto l = [&](unsigned n) { return n >= 16 && n - 16 < s_exti_lin_.size() && s_exti_lin_[n - 16].read(); };
         s_irq_[f3::IRQ_PVD].write(l(16));
         s_irq_[f3::IRQ_RTC_ALARM].write(l(17));
-        s_irq_[f3::IRQ_USB_WAKEUP].write(l(18));
+        // El despertar del USB: la 42 o, con USB_IT_RMP, la 76 [RM0316 §12.1.1]
+        const bool rmp = (s_cfgr1_.read() >> 5) & 1u;
+        s_irq_[f3::IRQ_USB_WAKEUP].write(!rmp && l(18));
+        s_irq_[f3::IRQ_USB_WAKEUP_RMP].write(rmp && l(18));
         s_irq_[f3::IRQ_TAMP_STAMP].write(l(19));
         s_irq_[f3::IRQ_RTC_WKUP].write(l(20));
         s_irq_[f3::IRQ_COMP1_2_3].write(l(21) || l(22) || l(29));

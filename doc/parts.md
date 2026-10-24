@@ -126,7 +126,11 @@ el CDC-ACM del firmware y lo saca a un puerto del puente serie: los mismos
 destinos que `--serie` (`rfc2217:PUERTO`, `tcp:PUERTO`, sus `-cliente:` y
 `memoria`), con los baudios, el formato y DTR/RTS del terminal convertidos en
 `SET_LINE_CODING` y `SET_CONTROL_LINE_STATE` (`parts/puente_usb.h`). Por TCP
-conviene `--tiempo-real`.
+conviene `--tiempo-real`. Desde S6 del F303, `usb` vale también para un **STM32F303**
+(xB/C y F302; el F358 no tiene USB): el PC va a D+/D- en PA12/PA11, y la placa
+pone la resistencia de subida de D+ (R16 en `stm32f3discovery.xml`), que el
+chip no tiene; ese PC deja 125 µs entre dos transferencias de control, como uno
+de verdad (`ControladorUsb::pausa_control_us`).
 
 ### 2.1 Los nodos
 

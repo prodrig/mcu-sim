@@ -1396,7 +1396,7 @@ def c19_ti(sim, cp):
     # La STM32F3DISCOVERY (doc/analisis_stm32f303.md, S1): su dibujo, de
     # placas/dibuja_st.py, con JP3 puesto
     rc, out, err = corre(sim, ["placas/stm32f3discovery.xml", "--valida"])
-    check(rc == 0 and "placa 'stm32f3discovery': 1 MCU(s), 25 componentes" in out and
+    check(rc == 0 and "placa 'stm32f3discovery': 1 MCU(s), 26 componentes" in out and
           "0 avisos" in out and "dibujo: stm32f3discovery.svg (" in out and "JP3 1-2, " in out,
           "placas/stm32f3discovery.xml valida sin un aviso, con su dibujo y JP3 puesto")
     f = piezas_sin_dibujo("stm32f3discovery")
@@ -1424,7 +1424,7 @@ def c19_ti(sim, cp):
           "observable= con un efecto que no gira no se acepta, y se dice")
     # S7: la Discovery en el cargador, con el FT232RL en la USART1
     rc, out, err = corre(sim, ["placas/stm32f3discovery_boot0.xml", "--valida"])
-    check(rc == 0 and "en total: 1 MCU(s), 31 componentes" in out and "0 avisos" in out and
+    check(rc == 0 and "en total: 1 MCU(s), 32 componentes" in out and "0 avisos" in out and
           "JP1 VCC-3.3V" in out,
           "placas/stm32f3discovery_boot0.xml: la Discovery con BOOT0 a VDD y el FT232RL a 3,3 V")
 

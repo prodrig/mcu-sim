@@ -162,6 +162,16 @@
     <pin nombre="tx" nodo="PC5"/>   <!-- USART1_RX -->
   </componente>
 
+  <!-- USB USER (CN2, Mini-B): D- en PA11 y D+ en PA12, por R18 y R17 (22 ohm,
+       no se modelan), y R16, la de 1,5 kohm de D+ a 3 V que dice que hay un
+       dispositivo de Full Speed: el F303xB/C no la tiene dentro [MB1035, hoja
+       2; UM1570 §6.6]. El PC al otro lado lo pone `sim ... --usb DESTINO`: un
+       CDC-ACM del firmware sale por TCP o RFC 2217 (parts/puente_usb.h) -->
+  <componente tipo="Resistencia" id="R16" r="1500" visible="no">
+    <pin nombre="a" nodo="3V"/>
+    <pin nombre="b" nodo="PA12"/>
+  </componente>
+
   <!-- La depuracion: el ST-LINK por SWD en PA13 (SWDIO) y PA14 (SWCLK), y
        NRST. Al otro lado esta `sim` (--gdb, --openocd o --cmsis-dap) -->
   <nodo id="PA13"/>  <nodo id="PA14"/>

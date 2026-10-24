@@ -241,6 +241,12 @@ jobs:
         working-directory: src
         run: make -f Makefile.mcu-sim usb-e4
 
+      # El USB de usuario de la STM32F3DISCOVERY (S6 del F303): f3_usb, con
+      # TinyUSB sobre el FSDEV, y el mismo cdc_e4.py, con --f3.
+      - name: El CDC-ACM del STM32F303 (TinyUSB) por el puente USB
+        working-directory: src
+        run: make -f Makefile.mcu-sim usb-f3
+
       # La BOOSTXL-EDUMKII enchufada a la MSP-EXP432P401R (T3 del MSP432): el
       # sistema de dos placas con su firmware, mirando lo que sale.
       - name: La BOOSTXL-EDUMKII sobre la LaunchPad del MSP432P401R
