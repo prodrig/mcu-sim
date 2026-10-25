@@ -131,6 +131,7 @@
 #include "../soc/stm32f446.h"
 #include "../soc/msp432p4/msp432p4_mcu.h"
 #include "../soc/msp432e4/msp432e4_mcu.h"
+#include "../soc/stm32f3/stm32f3_mcu.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -575,6 +576,11 @@ SC_MODULE(Sim) {
             std::printf("%s: %u MCU(s), %u componentes, %u nodos, %u avisos\n",
                         cab.c_str(), unsigned(mcus.size()),
                         unsigned(placa.instancias().size()), nodos.n_nodos(), n_avisos);
+        // La revision de la PCB de las placas que la dicen: decide que
+        // componentes se han montado (los sensores de la STM32F3DISCOVERY)
+        for (const auto& r : placa.revisiones())
+            std::printf("  revision%s%s: %s\n", r.first.empty() ? "" : " de ",
+                        r.first.c_str(), r.second.c_str());
         lee_dibujos();
         // Sin MCU, sin ventana y sin --valida, simular es ver pasar el tiempo
         // sin que nada lo mueva: se dice, por si era un <mcu> olvidado que el
@@ -1219,7 +1225,7 @@ SC_MODULE(Sim) {
             }
             if (!todos.empty() && aceptan == 0)
                 muere(std::string("--") + clave + " " + todos + ": ninguno de los MCUs de "
-                      "la placa tiene " + clave + " que se pueda cambiar (es de los MSP432)");
+                      "la placa tiene " + clave + " que se pueda cambiar (es de los MSP432; el usb, tambien del STM32F303)");
         }
         // Lo que la ROM o el TLV nuevos cambian de lo que se dijo al montar
         for (McuMontado& m : mcus) {
@@ -1785,7 +1791,7 @@ static const OpcionCli OPCIONES[] = {
      "o qemu-cliente:HOST:PUERTO; con ,pcap=FICHERO guarda lo que pasa. Sin ID, "
      "de todos los que lo tienen"},
     {"--usb", "valor", "texto", "", "", "", true, true, "u0=rfc2217:3356",
-     "el USB de un MSP432E4 como dispositivo, como [ID=]DESTINO: un PC que enumera "
+     "el USB de un MSP432E4 o de un STM32F303 como dispositivo, como [ID=]DESTINO: un PC que enumera "
      "el CDC-ACM del firmware y lo lleva a un puerto serie del puente serie: "
      "rfc2217:PUERTO, tcp:PUERTO, rfc2217-cliente:HOST:PUERTO, tcp-cliente:HOST:PUERTO "
      "o memoria. Los baudios del terminal llegan al firmware en SET_LINE_CODING. "
@@ -2148,7 +2154,7 @@ int sc_main(int argc, char** argv) {
                 "                                protocolo de QEMU, el de gvproxy) o\n"
                 "                                qemu-cliente:HOST:PUERTO; y\n"
                 "                                ,pcap=FICHERO guarda lo que pasa\n"
-                "     sim placa.xml --usb [ID=]DESTINO  el USB de un MSP432E4 como\n"
+                "     sim placa.xml --usb [ID=]DESTINO  el USB de un MSP432E4 o un F303 como\n"
                 "                                dispositivo CDC-ACM, hasta un puerto\n"
                 "                                serie: rfc2217:PUERTO, tcp:PUERTO,\n"
                 "                                sus -cliente:HOST:PUERTO o memoria\n"

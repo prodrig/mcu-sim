@@ -70,6 +70,14 @@ public:
     // Cuanto espera un NAK en una etapa de control antes de rendirse: el
     // limite de 5 s de USB 2.0 §9.2.6.4 es para un sistema; aqui, 50 ms
     double plazo_control_ms = 50.0;
+    // Cuánto deja, como poco, entre el final de una transferencia de control y
+    // el SETUP de la siguiente. Un sistema de verdad no las encadena más deprisa
+    // que una microtrama (125 us): entre las dos pasan la llamada de vuelta del
+    // controlador y la siguiente petición. Con 0 (el de siempre, el del E4), las
+    // encadena; el FSDEV del F303 con TinyUSB necesita la pausa, porque el SETUP
+    // que llega mientras la pila aún atiende el estado de la anterior se la come
+    // (como en el silicio: periph/usb_fs.h)
+    double pausa_control_us = 0.0;
 
     static std::vector<uint8_t> setup(uint8_t tipo, uint8_t pet, uint16_t valor, uint16_t indice,
                                       uint16_t largo) {
@@ -105,6 +113,7 @@ public:
     uint8_t control_in(uint8_t dir, const std::vector<uint8_t>& st, std::vector<uint8_t>& d,
                        unsigned mps0 = 64) {
         d.clear();
+        pausa();
         std::vector<uint8_t> p;
         uint8_t r = paquete(PID_SETUP, dir, 0, st, p);
         if (r != PID_ACK) return r;
@@ -115,11 +124,14 @@ public:
             d.insert(d.end(), p.begin(), p.end());
             if (p.size() < mps0) break;
         }
-        return insiste(PID_OUT, dir, 0, {}, p);
+        r = insiste(PID_OUT, dir, 0, {}, p);
+        t_fin_ = sc_core::sc_time_stamp();
+        return r;
     }
     // Control de salida: SETUP, los datos por paquetes y el IN de cero bytes
     uint8_t control_out(uint8_t dir, const std::vector<uint8_t>& st, const std::vector<uint8_t>& d = {},
                         unsigned mps0 = 64) {
+        pausa();
         std::vector<uint8_t> p;
         uint8_t r = paquete(PID_SETUP, dir, 0, st, p);
         if (r != PID_ACK) return r;
@@ -129,6 +141,7 @@ public:
             if (r != PID_ACK) return r;
         }
         r = insiste(PID_IN, dir, 0, {}, p);
+        t_fin_ = sc_core::sc_time_stamp();
         return r == PID_ACK && !p.empty() ? uint8_t(PID_NADIE) : r;
     }
     void sof() { if (dev_) dev_->sof(uint16_t(++trama_ & 0x7FFu)); }
@@ -139,6 +152,12 @@ public:
 private:
     usb_dev_if* dev_;
     unsigned trama_ = 0, n_paquetes_ = 0, n_nak_ = 0, n_stall_ = 0;
+    sc_core::sc_time t_fin_;
+    void pausa() {
+        if (pausa_control_us <= 0.0) return;
+        const sc_core::sc_time p(pausa_control_us, sc_core::SC_US), d = sc_core::sc_time_stamp() - t_fin_;
+        if (d < p) sc_core::wait(p - d);
+    }
 };
 
 // ---------------------------------------------------------------------------

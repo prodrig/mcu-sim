@@ -343,7 +343,7 @@ inline void Cpu::exec_16(uint32_t hw) {
                            o_sleepdeep_ = sys->scr_sleepdeep(); publish(); }
                     return;
                 case 3:                                               // WFI
-                    if (!sys->any_pending()) {
+                    if (!wfi_despierta()) {
                         sleeping_state_ = true;
                         sleep_wfe_ = false;
                         o_sleepdeep_ = sys->scr_sleepdeep();

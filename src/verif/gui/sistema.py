@@ -61,7 +61,7 @@
 #   C18 acodado="si" en un Conector: va en su <conector> de T_PLACA, el
 #       derecho no dice nada, y otro valor es un error.
 #   C19 las placas de TI -la MSP-EXP432P401R, la MSP-EXP432E401Y y la
-#       BOOSTXL-EDUMKII- con su dibujo, cada pieza visible y cada pin en el;
+#       BOOSTXL-EDUMKII- y la STM32F3DISCOVERY con su dibujo, cada pieza visible y cada pin en el;
 #       un Jumper con VARIOS puentes (los 2x2 JP4/JP5 de la E401Y) y sus
 #       errores; y <jumper ref> en un sistema, que cambia el puente de una
 #       placa sin tocar su fichero -el J5 de la EDUMKII- y el dibujo con el.
@@ -1392,6 +1392,41 @@ def c19_ti(sim, cp):
               "placas/%s.xml valida sin un aviso, con su dibujo y sus puentes" % n)
         f = piezas_sin_dibujo(n)
         check(not f, "%s.svg: cada pieza visible y cada pin de conector, con su id (faltan: %s)" % (n, f))
+
+    # La STM32F3DISCOVERY (doc/analisis_stm32f303.md, S1): su dibujo, de
+    # placas/dibuja_st.py, con JP3 puesto
+    rc, out, err = corre(sim, ["placas/stm32f3discovery.xml", "--valida"])
+    check(rc == 0 and "placa 'stm32f3discovery': 1 MCU(s), 26 componentes" in out and
+          "0 avisos" in out and "dibujo: stm32f3discovery.svg (" in out and "JP3 1-2, " in out,
+          "placas/stm32f3discovery.xml valida sin un aviso, con su dibujo y JP3 puesto")
+    f = piezas_sin_dibujo("stm32f3discovery")
+    check(not f, "stm32f3discovery.svg: cada pieza visible y cada pin de EXP1/EXP2, con su id (faltan: %s)" % f)
+    # Y sus dos revisiones (S4): la E, la del fichero, con el I3G4250D y el
+    # LSM303AGR; la D, por el <placa revision="D"> de un sistema
+    check("revision: E" in out and "U3 LSM303AGR, U5 I3G4250D)" in out,
+          "la revision E: el dibujo rotula U5 I3G4250D y U3 LSM303AGR")
+    rc, out, err = corre(sim, ["placas/stm32f3discovery_d.xml", "--valida"])
+    check(rc == 0 and "revision de D: D" in out and "U3 LSM303DLHC, U5 L3GD20)" in out and
+          "0 avisos" in out,
+          "placas/stm32f3discovery_d.xml: la revision D, con el L3GD20 y el LSM303DLHC")
+    # S8: la aguja del rumbo, en la tabla de enlaces con observable=, que
+    # llega en T_PLACA; y observable= sin giro ni angulo no vale
+    rc, out, placa, il, av = saludo_con_dibujos(sim, ["placas/stm32f3discovery.xml"])
+    r = ET.fromstring(placa) if placa else None
+    en = [e.attrib for e in r.iter("enlace")] if r is not None else []
+    check(rc == 0 and {"pieza": "MOV", "elemento": "MOV", "efecto": "angulo",
+                       "observable": "rumbo"} in en and il and b'id="MOV"' in il[0][1],
+          "la Discovery: MOV es la aguja del dibujo, con efecto=angulo y observable=rumbo en T_PLACA")
+    f = cp.escribe("obs.xml", MODULO % ('', '<ilustracion><enlace pieza="LD" elemento="LD" '
+                                         'efecto="brillo" observable="corriente"/></ilustracion>'))
+    rc, out, err = corre(sim, [f, "--valida"])
+    check(rc != 0 and "observable= solo vale con efecto=\"giro\" o \"angulo\"" in out + err,
+          "observable= con un efecto que no gira no se acepta, y se dice")
+    # S7: la Discovery en el cargador, con el FT232RL en la USART1
+    rc, out, err = corre(sim, ["placas/stm32f3discovery_boot0.xml", "--valida"])
+    check(rc == 0 and "en total: 1 MCU(s), 32 componentes" in out and "0 avisos" in out and
+          "JP1 VCC-3.3V" in out,
+          "placas/stm32f3discovery_boot0.xml: la Discovery con BOOT0 a VDD y el FT232RL a 3,3 V")
 
     # Los dos sistemas: el J5 de la EDUMKII como sale de fabrica, y cambiado
     rc, out, err = corre(sim, ["placas/msp_exp432p401r_edumkii.xml", "--valida"])

@@ -19,6 +19,8 @@
 #                                          y e4_usb, las dos veces
 #   python3 cdc_e4.py PUERTO               contra un mcu-sim que ya escucha
 #                                          en rfc2217:PUERTO
+#   python3 cdc_e4.py --prueba --f3        lo mismo con la STM32F3DISCOVERY y
+#                                          f3_usb (TinyUSB), que habla igual (S6)
 # =============================================================================
 import argparse
 import os
@@ -29,6 +31,11 @@ import tempfile
 import time
 
 FW = "verif/fw/msp432e4/e4_usb/e4_usb.out"
+PLACA = "placas/msp_exp432e401y.xml"
+NOMBRE = "e4_usb"
+# El del STM32F303 (S6): el mismo protocolo, con TinyUSB
+FW_F3 = "verif/fw/stm32f3/f3_usb/f3_usb.bin"
+PLACA_F3 = "placas/stm32f3discovery.xml"
 
 
 def puerto_libre():
@@ -101,7 +108,7 @@ def con_socket(puerto, check):
 
 
 def arranca(sim, destino, log):
-    args = [sim, "placas/msp_exp432e401y.xml", FW, "--usb", destino, "--tiempo-real"]
+    args = [sim, PLACA, FW, "--usb", destino, "--tiempo-real"]
     return subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT)
 
 
@@ -119,8 +126,12 @@ def main():
     ap = argparse.ArgumentParser(description="El CDC-ACM del MSP432E401Y por el puente USB")
     ap.add_argument("puerto", nargs="?", type=int)
     ap.add_argument("--prueba", action="store_true")
+    ap.add_argument("--f3", action="store_true", help="la STM32F3DISCOVERY con f3_usb")
     ap.add_argument("--sim", default=os.path.join("build", "mcu-sim" + (".exe" if os.name == "nt" else "")))
     a = ap.parse_args()
+    global FW, PLACA, NOMBRE
+    if a.f3:
+        FW, PLACA, NOMBRE = FW_F3, PLACA_F3, "f3_usb"
     fallos = 0
 
     def check(cond, texto):
@@ -130,7 +141,7 @@ def main():
             fallos += 1
         return cond
 
-    print("--- el CDC-ACM de e4_usb por el puente USB de clase (U2) ---")
+    print("--- el CDC-ACM de %s por el puente USB de clase (U2) ---" % NOMBRE)
     if not a.prueba:
         if not a.puerto:
             ap.error("falta el PUERTO (o --prueba)")
@@ -141,7 +152,7 @@ def main():
             log = tempfile.NamedTemporaryFile("w", suffix=".log", delete=False)
             p = arranca(a.sim, "%s:%d" % (modo, puerto), log)
             try:
-                if check(espera_enumerado(log.name), "%s: el puente enumera el CDC de e4_usb" % modo):
+                if check(espera_enumerado(log.name), "%s: el puente enumera el CDC de %s" % (modo, NOMBRE)):
                     quien(puerto, check)
             except (OSError, ImportError) as e:
                 check(False, "%s: %s" % (modo, e))
@@ -155,7 +166,7 @@ def main():
                 if fallos:
                     print(open(log.name).read()[-3000:])
                 os.unlink(log.name)
-    print("TOTAL cdc_e4: %s" % ("todo OK" if not fallos else "%d fallos" % fallos))
+    print("TOTAL cdc %s: %s" % (NOMBRE, "todo OK" if not fallos else "%d fallos" % fallos))
     return 1 if fallos else 0
 
 

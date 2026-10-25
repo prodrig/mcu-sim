@@ -15,6 +15,7 @@
 #define STM32_VERIF_GDB_CLIENT_H
 
 #include <systemc>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -65,12 +66,27 @@ public:
         }
     }
     // Espera un paquete completo, cediendo el paso a la simulacion.
+    //
+    // El plazo es de tiempo SIMULADO, pero el paquete viaja por un socket de
+    // verdad, y eso tarda tiempo de RELOJ. Si la simulacion va mucho mas
+    // deprisa que el reloj -poco que simular, una maquina rapida, un loopback
+    // lento como el de macOS en el CI-, el plazo simulado vencia antes de que
+    // la respuesta cruzase el socket: llegaba tarde y la siguiente peticion la
+    // tomaba por suya (`stoul: no conversion` al leer un "OK" como registro).
+    // Asi que no se rinde hasta que han pasado las dos cosas: el plazo
+    // simulado y un minimo de reloj. Solo cambia algo cuando la respuesta no
+    // llega a tiempo, y eso cae en la parte del tiempo simulado que depende del
+    // socket (T-16), que no cuenta en «el resto» de ninguna suite.
+    static constexpr int MIN_RELOJ_MS = 500;
     std::string recibir(sc_core::sc_time limite = sc_core::sc_time(20, sc_core::SC_MS)) {
         const sc_core::sc_time t0 = sc_core::sc_time_stamp();
+        const auto r0 = std::chrono::steady_clock::now();
         for (;;) {
             const std::string p = extraer();
             if (!p.empty() || visto_) { visto_ = false; return p; }
-            if (sc_core::sc_time_stamp() - t0 > limite) return std::string();
+            if (sc_core::sc_time_stamp() - t0 > limite &&
+                std::chrono::steady_clock::now() - r0 > std::chrono::milliseconds(MIN_RELOJ_MS))
+                return std::string();
             sc_core::wait(sc_core::sc_time(200, sc_core::SC_US));
             sorber();
         }

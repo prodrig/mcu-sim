@@ -239,3 +239,66 @@ testp4                406      22456139139423        resto
 # (huellas nuevas de e4_t7): 296. El resto baja 2,105545617 ms: el codigo de
 # la Flash a 120 MHz deja de pagar los FWS al cruzar lineas.
 teste4                296      4505148675235         resto
+
+# STM32F303VC (S0-S2 de doc/analisis_stm32f303.md), el 2026-10-20: R1-R7
+# (los rasgos de S0 sobre piezas sueltas), F0-F15 (el chip y la Discovery:
+# arranque por BOOT0/nBOOT1/MEM_MODE, CCM, 72 MHz por el HSE en los dos
+# modos, CoreMark y dos ejemplos de ST) y F16-F19 (el FPEC, los bytes de
+# opcion, FLASH_EraseProgram de ST y GDB con `load`). Se contrasta «el
+# resto»: F19 habla con un GDB de banco por un socket de verdad, como E18.
+# Contrastado con DS9118 (el mismo dia): la media palabra del FPEC cuesta
+# 53,5 us y no 40, y el POR tiene su t_RSTTEMPO de 2,5 ms (una comprobacion
+# mas, en F5): 173. El resto crece 672,85 ms, casi todo de FLASH_EraseProgram
+# (F18: 49 152 medias palabras x 13,5 us).
+# Y con RM0316 Rev 10 (el mismo dia): F20 y F21 -el FPEC, los bytes de
+# opcion, RDP, el RCC y el SYSCFG por el DAP- y una comprobacion mas en R4 (CRC
+# INIT) y en R6 (DS no usado): 193. El resto crece 129,948708338 ms, casi
+# todo las esperas de F20 (borrados de 20 ms) y F21 (el arranque a 72 MHz).
+#
+# S3 (20-10-2026): los 29 ejemplos de ST de S3, sin modificar, F22-F53 (32
+# grupos: diez con dos Discovery cableadas y el resto con una, cada uno desde
+# un encendido): 193 -> 296. El resto crece unos 93,9 s simulados: lo que
+# duran los ejemplos (los perros, el RTC, Stop y Standby con despertares de
+# 3 a 20 s, los TwoBoards). Los arreglos del nucleo de S3 (vuelta de
+# excepcion, MSP, WFI) no mueven ninguna de las otras siete.
+#
+# S4 (21-10-2026): los sensores, F54-F57 (f3_mems y el ejemplo BSP de ST en
+# las dos revisiones de la placa): 296 -> 328. El resto crece unos 15,3 s
+# simulados, casi todo lo que duran esos cuatro grupos -la rosa del BSP da su
+# vuelta de 800 ms antes de mirar B1-; y desde S4 el nucleo del F303
+# sincroniza antes de cada escritura a un periferico, que mueve algun instante
+# de los grupos de antes sin cambiar ninguna comprobacion. F58 (la demo de ST)
+# no cuenta: solo corre con TESTF3_SOLO=demo.
+#
+# S7 (21-10-2026): el cargador de sistema propio, F59-F60 (AN3155 por la
+# USART1 y la USART2, con un anfitrion en el banco): 328 -> 362. El resto
+# crece 872,41 ms simulados, lo que duran esos dos grupos (el borrado masivo y
+# los de paginas a 20 ms, f3_vcp.bin a 115200 y los resets de las opciones).
+# El cargador nuevo no mueve F4 ni F6 (solo su pila, ahora en 0x2000_1400), y
+# el IDR que se vuelve a muestrear tras un reset del GPIO no mueve ninguna de
+# las otras siete.
+# S9 (21-10-2026): la familia del die 0x422, F61 (los quince en el catalogo,
+# sin tiempo) y F62 (un F302CB, un F303RB y un F358RC por el bus, y AN3155 en
+# el LQFP48): 362 -> 375. El resto crece 15,254375 ms: lo que dura F62, menos
+# lo que el cargador nuevo ahorra en F59/F60 (su medida del 0x7F descarta lo
+# que no lo es, y las esperas de los grupos caen en otro sondeo). Igual en dos
+# pasadas; los tres chips nuevos estan apagados fuera de F62.
+# S5 (24-10-2026): lo analogico, F63-F68 (f3_analog: el sensor de temperatura
+# con TS_CAL1/TS_CAL2, una conversion diferencial, ADC1 y ADC2 en dual con
+# MDMA, el COMP4 que frena el TIM1, el OPAMP1 en PGA de 4 y el DAC1 con el
+# TRGO del TIM3): 375 -> 404. El resto crece 70,14 ms, lo que duran esos seis
+# grupos, que corren al final; hasta F62 no se mueve ni un picosegundo: los
+# ADC, el DAC, los comparadores y los OPAMP conectados y sin usar no cuestan
+# nada, y encender el DAC con TEN = 1 sin cargar DOR no mueve test407.
+# Igual en dos pasadas.
+# S6 (24-10-2026): el USB y el CAN, F69-F71 (f3_usb con TinyUSB por el puente
+# de clase en memoria y con un PC de banco, y f3_can entre las dos Discovery):
+# 404 -> 428. El resto crece 680,06 ms, lo que duran esos tres grupos, que
+# corren al final; hasta F68 no se mueve nada: el USB y el CAN conectados y sin
+# usar no cuestan (el vigia del USB duerme mientras esta apagado), R16 y el PC
+# de banco nacen desenchufados. Igual en dos pasadas.
+# CI de macOS (25-10-2026): F19 (el socket de GDB) pasa al final. Con grupos
+# detras, lo que durase cambiaba su fase, y en los dos macOS F59 tardaba 20 us
+# menos (T-16). El resto no se mueve: la misma cifra, ahora con cualquier
+# TESTF3_DESFASE*_PS.
+testf3                428      116875480154660       resto

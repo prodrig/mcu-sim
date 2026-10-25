@@ -24,6 +24,13 @@
 #   O3  G3: GDB por el servidor de GDB de OpenOCD, con su soporte de RTOS:
 #       la demo de FreeRTOS en el P4, y `info threads` enseña sus tareas.
 #   O4  Y la sonda, desde fuera: los errores que dice `sim`.
+#   O5  STM32F303VC (S2 de doc/analisis_stm32f303.md): en la STM32F3DISCOVERY
+#       con GPIO_IOToggle en la Flash, OpenOCD programa f3_demo con
+#       target/stm32f3x.cfg y el controlador stm32f1x SIN TOCAR -su
+#       algoritmo corre en el nucleo simulado y programa el FPEC media
+#       palabra a media palabra-, lo verifica, y el firmware nuevo arranca.
+#       Y G3: GDB por el servidor de OpenOCD, con `load` (D3).
+#       `f303()` es comun a este fichero y a cmsis_dap.py (C6).
 #
 # Hace falta un OpenOCD con SWD en remote_bitbang, que NO está en la 0.12.0
 # de las distribuciones: se integró el 2023-12-03 y sus órdenes de espera
@@ -147,11 +154,113 @@ def openocd_valido(ocd):
     return True, v.group(1) if v else "?"
 
 
+F3_PLACA = "placas/stm32f3discovery.xml"
+F3_VIEJO = "verif/fw/stm32f3/gpio_iotoggle/GPIO_IOToggle.bin"
+F3_NUEVO = "verif/fw/stm32f3/f3_demo/f3_demo.bin"
+
+
+def bin_a_elf(binario, base, destino):
+    """Un ELF32 ARM minimo con el .bin como seccion .text en `base` (y su
+    PT_LOAD): lo que `load` y `compare-sections` de GDB necesitan, sin
+    depender de que el .elf (que no se versiona) exista"""
+    import struct
+    datos = open(binario, "rb").read()
+    eh, ph, sh = 52, 32, 40
+    off = eh + ph
+    shstr = b"\0.text\0.shstrtab\0"
+    off_str = off + len(datos)
+    off_sh = (off_str + len(shstr) + 3) & ~3
+    cab = struct.pack("<16sHHIIIIIHHHHHH", b"\x7fELF\x01\x01\x01" + b"\0" * 9, 2, 40, 1,
+                      base | 1, eh, off_sh, 0x05000400, eh, ph, 1, sh, 3, 2)
+    seg = struct.pack("<IIIIIIII", 1, off, base, base, len(datos), len(datos), 5, 4)
+    nulo = b"\0" * sh
+    text = struct.pack("<IIIIIIIIII", 1, 1, 6, base, off, len(datos), 0, 0, 4, 0)
+    strs = struct.pack("<IIIIIIIIII", 7, 3, 0, 0, off_str, len(shstr), 0, 0, 1, 0)
+    with open(destino, "wb") as f:
+        f.write(cab + seg + datos + shstr + b"\0" * (off_sh - off_str - len(shstr)) +
+                nulo + text + strs)
+
+
+def f303(a, via, sim, ocd_fn, nombre_grupo):
+    """O5 / C6: el F303 en la Discovery por una sonda. `sim(puerto)` lanza
+    mcu-sim con su sonda; `ocd_fn(puerto, gdb_puerto)` da la orden base de
+    OpenOCD para ella"""
+    grupo(nombre_grupo)
+    p = puerto_libre()
+    s = sim(p)
+    check(s.listo, "%s: mcu-sim escucha en el puerto %d" % (via, p))
+    rc, sal, t = corre(ocd_fn(p, 0) +
+                       ["-c", "program %s 0x08000000 verify reset exit" % F3_NUEVO], 240)
+    print("    %.1f s; %s" % (t, " | ".join(l for l in sal.splitlines() if l.startswith("**"))))
+    check(rc == 0 and "** Programming Finished **" in sal and "** Verified OK **" in sal,
+          "%s: OpenOCD programa y verifica f3_demo.bin con el algoritmo de stm32f1x, "
+          "que escribe el FPEC desde el nucleo simulado" % via)
+    check("device id = 0x10030422" in sal and "flash size = 256 KiB" in sal,
+          "%s: identifica el F303: DBGMCU_IDCODE 0x10030422 y F_SIZE = 256 KiB" % via)
+    # El buzon a cero (modo 0) y un reset: f3_demo llega a su bucle
+    rc2, sal2, _ = corre(ocd_fn(p, 0) +
+                         ["-c", "init", "-c", "halt", "-c", "mww 0x20000000 0 24",
+                          "-c", "reset run", "-c", "sleep 300", "-c", "mdw 0x20000000 4",
+                          "-c", "mdw 0xE0042004 2", "-c", "shutdown"], 120)
+    buzon = palabras(sal2, 0x20000000)
+    fz = palabras(sal2, 0xe0042004)
+    print("    buzon: %s; DBGMCU CR/APB1FZ: %s" % (" ".join("%08x" % v for v in buzon),
+                                                 " ".join("%08x" % v for v in fz)))
+    check(len(buzon) == 4 and buzon[1] >= 1 and buzon[2] == 100 and buzon[3] == 0x10030422,
+          "%s: el firmware nuevo arranca: estado 100 e IDCODE en su buzon" % via)
+    check(len(fz) == 2 and fz[0] & 7 == 7 and fz[1] & 0x1800 == 0x1800,
+          "%s: stm32f3x.cfg congela los perros y deja el DBGMCU de depurar en bajo consumo" % via)
+    gdb = shutil.which(a.gdb)
+    if not gdb:
+        print("  [--  ] G3 OMITIDO: no hay %s" % a.gdb)
+        s.fin()
+        return
+    # G3 y D3: GDB por el servidor de OpenOCD, con `load`, sobre CoreMark
+    pg = puerto_libre()
+    d = tempfile.mkdtemp(prefix="f303")
+    elf = os.path.join(d, "f3_demo.elf")
+    bin_a_elf(F3_NUEVO, 0x08000000, elf)
+    rc, sal, _ = corre(ocd_fn(p, 0) + ["-c", "program verif/fw/stm32f3/coremark/coremark_f3.bin "
+                                       "0x08000000 verify exit"], 240)
+    ocd = subprocess.Popen(ocd_fn(p, pg) + ["-c", "init", "-c", "halt"],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    listo, t0 = False, time.time()
+    while time.time() - t0 < 60:
+        l = ocd.stdout.readline()
+        if not l:
+            break
+        if "Listening on port %d for gdb" % pg in l:
+            listo = True
+            break
+    rc, sal, _ = corre([gdb, "-batch", "-nx", elf,
+                        "-ex", "target extended-remote localhost:%d" % pg,
+                        "-ex", "monitor reset halt", "-ex", "load",
+                        "-ex", "compare-sections",
+                        "-ex", "monitor mww 0x20000000 0 24",
+                        "-ex", "monitor reset run", "-ex", "monitor sleep 300",
+                        "-ex", "monitor mdw 0x20000008", "-ex", "detach"], 240)
+    est = palabras(sal, 0x20000008)
+    print("    %s" % " | ".join(l for l in sal.splitlines()
+                                if l.startswith("Transfer rate") or "matched" in l)[:200])
+    check(listo and rc == 0 and "Transfer rate" in sal and "MIS-MATCHED" not in sal and
+          "matched" in sal, "%s: G3, GDB por OpenOCD: `load` del ELF sobre CoreMark (D3) y "
+          "compare-sections dice que coincide" % via)
+    check(est and est[0] == 100, "%s: y tras `monitor reset run`, f3_demo llega a su bucle" % via)
+    ocd.terminate()
+    try:
+        ocd.wait(10)
+    except subprocess.TimeoutExpired:
+        ocd.kill()
+    shutil.rmtree(d, ignore_errors=True)
+    s.fin()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sim", default="build/mcu-sim")
     ap.add_argument("--openocd", default=os.environ.get("OPENOCD", "openocd"))
     ap.add_argument("--gdb", default=os.environ.get("GDB", "gdb-multiarch"))
+    ap.add_argument("--solo", default="", help="solo estos grupos: p. ej. O5")
     a = ap.parse_args()
 
     valido, que = openocd_valido(a.openocd)
@@ -162,6 +271,13 @@ def main():
             return 1
         return 0
     print("  OpenOCD %s" % que)
+
+    if a.solo == "O5":
+        f303(a, "remote_bitbang", lambda p: Sim(a.sim, F3_PLACA, F3_VIEJO, p),
+             lambda p, pg: ocd_base(a.openocd, p, "target/stm32f3x.cfg", gdb=bool(pg), gdb_puerto=pg),
+             "O5 STM32F303VC en la STM32F3DISCOVERY: target/stm32f3x.cfg, y G3")
+        print("\nTOTAL OpenOCD: %d comprobaciones OK, %d fallos" % (OK, MAL))
+        return 0 if MAL == 0 else 1
 
     # ------------------------------------------------------------------------
     grupo("O1 MSP432P401R: program ... verify reset con el controlador msp432")
@@ -283,6 +399,11 @@ def main():
     texto = s.fin()
     check("transport select swd" in texto,
           "con JTAG, mcu-sim avisa de que la sonda es SWD (y OpenOCD no encuentra TAP)")
+
+    # ------------------------------------------------------------------------
+    f303(a, "remote_bitbang", lambda p: Sim(a.sim, F3_PLACA, F3_VIEJO, p),
+         lambda p, pg: ocd_base(a.openocd, p, "target/stm32f3x.cfg", gdb=bool(pg), gdb_puerto=pg),
+         "O5 STM32F303VC en la STM32F3DISCOVERY: target/stm32f3x.cfg, y G3")
 
     print("\nTOTAL OpenOCD: %d comprobaciones OK, %d fallos" % (OK, MAL))
     return 0 if MAL == 0 else 1

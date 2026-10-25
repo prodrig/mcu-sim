@@ -76,6 +76,18 @@ namespace stm32 {
 // aparece en otras familias de STM32 (las hay de un solo canal, de 8 bits, o
 // sin generador de ondas).
 // ---------------------------------------------------------------------------
+// LA TABLA DE DISPAROS, COMO DATO (fase S0 del F303). El bloque recibe ocho
+// entradas indexadas por TSEL y no sabe de quién son: eso lo cablea el SoC.
+// Lo que sí es del chip es QUÉ SIGNIFICA cada valor de TSEL, y cambia de una
+// familia a otra: en el F303 la posición 1 es TIM3 (o TIM8 con DAC_TRIG_RMP) y
+// la 3 es TIM15 [CMSIS stm32f303xc.h, DAC_CR_TSEL1; HAL: DAC_TRIGGER_*].
+inline constexpr const char* TSEL_DAC_F407[8] = {
+    "TIM6_TRGO", "TIM8_TRGO", "TIM7_TRGO", "TIM5_TRGO",
+    "TIM2_TRGO", "TIM4_TRGO", "EXTI9", "SWTRIG" };
+inline constexpr const char* TSEL_DAC_F303[8] = {
+    "TIM6_TRGO", "TIM3_TRGO/TIM8_TRGO", "TIM7_TRGO", "TIM15_TRGO",
+    "TIM2_TRGO", "TIM4_TRGO", "EXTI9", "SWTRIG" };
+
 struct DacCaps {
     unsigned n_channels  = 2;      // canales de salida
     unsigned bits        = 12;     // resolución del convertidor
@@ -92,6 +104,7 @@ struct DacCaps {
     double   r_open      = 15.0e3; // impedancia de salida con BOFF [ohm]
     double   v_margin    = 0.2;    // el buffer no llega a los raíles [V]
     const char* kind     = "DAC";
+    const char* const* tsel = TSEL_DAC_F407;   // qué es cada valor de TSEL
 };
 
 // --- Las variantes ---------------------------------------------------------
@@ -122,9 +135,19 @@ constexpr DacCaps caps_dac_basic() {
     return c;
 }
 
+// El DAC1 del F303 (F3_dacif_v1_1): el mismo bloque con otra tabla de
+// disparos [PINDATA; CMSIS]
+constexpr DacCaps caps_dac_f303() {
+    DacCaps c{};
+    c.tsel = TSEL_DAC_F303;
+    c.kind = "DAC1 del F303 (2 canales, 12 bits)";
+    return c;
+}
+
 inline constexpr DacCaps CAPS_DAC_F407  = caps_dac_f407();
 inline constexpr DacCaps CAPS_DAC_1CH   = caps_dac_1ch();
 inline constexpr DacCaps CAPS_DAC_BASIC = caps_dac_basic();
+inline constexpr DacCaps CAPS_DAC_F303  = caps_dac_f303();
 
 // ---------------------------------------------------------------------------
 // Implementación común. Los rasgos llegan por el constructor: este es el punto
@@ -288,7 +311,13 @@ protected:
                 cr_ = v & cr_mask();
                 for (unsigned c = 0; c < caps_.n_channels; ++c) {
                     const bool was = (old >> (sh(c) + 0)) & 1u;
-                    if (!was && en(c)) { ch_[c].n_upd = 0; load_dor(c); }
+                    if (!was && en(c)) {
+                        ch_[c].n_upd = 0;
+                        // Con TEN = 1 el dato espera al disparo también al
+                        // encender [RM0316 §16.5.4; RM0090 §14.3.4]
+                        if (!ten(c) || !caps_.trigger) load_dor(c);
+                        else ch_[c].ev.notify(sc_core::SC_ZERO_TIME);
+                    }
                     if (was && !en(c)) shut_channel(c);
                     // Cambiar BOFF cambia la ETAPA DE SALIDA, no el dato: hay
                     // que volver a aplicarla aunque DOR no se haya movido, o el

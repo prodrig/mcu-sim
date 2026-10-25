@@ -74,6 +74,14 @@ SC_MODULE(Cpu) {
 
     // Quantum de sincronización con el planificador (loosely-timed)
     sc_core::sc_time quantum{1, sc_core::SC_US};
+    // Sincronizar con el planificador antes de cada escritura a un periferico
+    // (0x4000_0000-0x5FFF_FFFF): cada una sale en su instante, y no todas las
+    // de un quantum en el mismo. Sin ello, un pulso de un pin mas corto que el
+    // quantum -el CS del giroscopo de la STM32F3DISCOVERY entre dos lecturas
+    // del BSP de ST, unos 0,2 us- desaparece: las dos escrituras de GPIO
+    // llegan en el mismo instante y gana la ultima. Lo pone el SoC del F303
+    // (S4); los F4 y los MSP432 siguen como estaban
+    bool sync_escritura_perif = false;
 
     // Estadísticas y control para el banco de pruebas
     uint64_t inst_count = 0, exc_count = 0;
@@ -151,6 +159,16 @@ SC_MODULE(Cpu) {
     // Ventana al estado de sueño, para el banco de pruebas de bajo consumo:
     // no basta con ver `sleeping` desde fuera, hay que saber CÓMO se durmió.
     bool durmiendo() const { return sleeping_state_; }
+    // Lo que despierta (o no deja dormir) a WFI: una excepcion pendiente,
+    // habilitada y con prioridad para apropiarse de la ejecucion en curso, la
+    // que se tomaria si PRIMASK valiera 0 [ARMv7-M B1.5.19]. Antes valia
+    // cualquiera pendiente, y un WFI dentro de un manejador -el EXTI0 de
+    // PWR_STANDBY del F303 (S3) entra asi en Standby- no dormia con el SysTick
+    // de su misma prioridad pendiente, que no puede entrar.
+    bool wfi_despierta() const {
+        RegFile r = reg; r.primask = 0;
+        return sys->pending_exception(sys->execution_priority(r), r) > 0;
+    }
     bool durmio_con_wfe() const { return sleep_wfe_; }
     bool evento_armado() const { return event_reg_; }
 
@@ -193,6 +211,7 @@ private:
     uint32_t trapped_cfsr_ = 0;
     unsigned last_isize_ = 0;        // longitud de la última instrucción (2 o 4)
     bool     it_just_set_ = false;   // la instrucción ejecutada fue un IT
+    bool     exc_ret_ = false;       // la instrucción ejecutada volvió de una excepción
     // Dirección de retorno apilada: las excepciones síncronas generadas *por*
     // una instrucción que se considera completada (SVC) retornan a la
     // siguiente; los faults precisos retornan a la instrucción que falló
@@ -280,6 +299,7 @@ private:
             }
         }
         if (!mpu_ok(addr, true, false)) return false;
+        if (sync_escritura_perif && addr >= 0x40000000u && addr < 0x60000000u) sync();
         uint32_t d = val;
         if (!bus_access(dbus, true, addr, size, d, BusMaster::CORE_DBUS, false, exclusive)) {
             take_fault(EXC_BUSFAULT, BF_PRECISERR, true, addr);
@@ -577,7 +597,7 @@ inline void Cpu::exec_proc() {
                 // solo ve las notificaciones POSTERIORES a la propia espera.
                 // El sondeo de antes tapaba esa carrera a base de fuerza bruta.
                 {
-                    const bool ya = sys->any_pending() ||
+                    const bool ya = wfi_despierta() ||
                                     (sleep_wfe_ && (event_reg_ || event_in.read())) ||
                                     !rst_n.read() || dbg_halt_req.read() ||
                                     (dbg && dbg->dbg_halt_now());
@@ -585,7 +605,7 @@ inline void Cpu::exec_proc() {
                 }
                 const bool por_evento = sleep_wfe_ &&
                                         (event_reg_ || event_in.read());
-                if (sys->any_pending() || por_evento || !rst_n.read()) {
+                if (wfi_despierta() || por_evento || !rst_n.read()) {
                     if (por_evento) event_reg_ = false;   // WFE lo consume
                     sleeping_state_ = false;
                     o_sleeping_ = false; o_sleepdeep_ = false; publish();
@@ -605,7 +625,7 @@ inline void Cpu::exec_proc() {
 }
 
 inline void Cpu::step() {
-    aborted_ = false; branched_ = false; cycles_ = 1; it_just_set_ = false;
+    aborted_ = false; branched_ = false; cycles_ = 1; it_just_set_ = false; exc_ret_ = false;
     ret_next_instr_ = false;
     const uint32_t pc = cur_pc_;
     next_pc_ = pc + 2u;                     // por defecto (se corrige tras el fetch)
@@ -653,6 +673,7 @@ inline void Cpu::step() {
     // estado y NO lo avanza: el avance corresponde a las instrucciones del
     // bloque. Un salto tomado termina el bloque.
     if (it_just_set_)   { /* ITSTATE recién cargado: no avanzar */ }
+    else if (exc_ret_)  { /* el ITSTATE que se acaba de desapilar */ }
     else if (branched_) reg.set_itstate(0);
     else                reg.it_advance();
 
@@ -793,6 +814,14 @@ inline void Cpu::exception_return(uint32_t exc_ret) {
 
     sys->return_exception(int(n));
 
+    // El SP en curso (el de Handler, MSP) se guarda antes de leer la trama.
+    // Sin esto, MSP se quedaba con el valor de la ultima entrada o salida de
+    // excepcion: si una interrupcion anidada volvia en mitad de un manejador
+    // que despues seguia desapilando (pop {.., pc} de una funcion llamada
+    // desde él), la vuelta final leia la trama unas palabras mas abajo y
+    // saltaba a cualquier parte con T = 0. Lo destapo HAL_TimeBase_RTC_WKUP
+    // del F303 (S3): el RTC_WKUP se apropia del EXTI0 en HAL_ResumeTick.
+    reg.store_sp();
     uint32_t sp = use_psp ? reg.psp : reg.msp;
     uint32_t v[8];
     bool err = false;
@@ -829,7 +858,14 @@ inline void Cpu::exception_return(uint32_t exc_ret) {
     if (use_psp) reg.psp = sp; else reg.msp = sp;
     reg.r[13] = ret_handler ? reg.msp : (use_psp ? reg.psp : reg.msp);
 
-    reg.xpsr = (xpsr_ret & 0xF900FDFFu) | (reg.xpsr & 0x00000000u);
+    // N Z C V Q, IT[1:0], T, GE[3:0] e IT[7:2]: todo lo apilado menos el bit
+    // 9 (el de la alineacion de la pila) [ARMv7-M, B1.5.8]. La mascara de
+    // antes (0xF900FDFF) se dejaba IT[1:0] y GE: una interrupcion en mitad de
+    // un bloque IT de cuatro (ITTTT, mascara 0001) volvia con el bloque roto
+    // y las instrucciones que faltaban se ejecutaban sin condicion. Lo
+    // destapo la HAL del I2C del F303 (S3), en I2C_IsErrorOccurred
+    reg.xpsr = xpsr_ret & 0xFF0FFDFFu;
+    exc_ret_ = true;
     reg.set_thumb((xpsr_ret >> 24) & 1u);
     reg.set_ipsr(xpsr_ret & 0x1FFu);
     sys->set_vectactive(reg.ipsr());

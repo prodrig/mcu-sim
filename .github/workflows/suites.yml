@@ -146,7 +146,7 @@ jobs:
     name: Linux ${{ matrix.os }} (g++, libsystemc-dev)
     runs-on: ${{ matrix.os }}
     needs: rapidas
-    timeout-minutes: 30
+    timeout-minutes: 45      # testf3, con los ejemplos de S3, son unos 9 min
     strategy:
       fail-fast: false      # que una distribucion no tape a la otra
       matrix:
@@ -163,14 +163,14 @@ jobs:
           sudo apt-get install -y libsystemc-dev python3-serial socat
           dpkg -l libsystemc-dev python3-serial socat | tail -3
 
-      - name: Las suites (las tres de siempre, testserie, testgui, testp4 y teste4)
+      - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4 y testf3)
         env:
-          SUITES_PRESUPUESTO: 600
+          SUITES_PRESUPUESTO: 1200     # testf3 (S3 del F303) pasa de los 600 s
         run: sh ci/pasa_suites.sh
 
-      - name: Los invariantes de las siete, al picosegundo
+      - name: Los invariantes de las ocho, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie testgui testp4 teste4; do
+          for s in test407 test446 test417 testserie testgui testp4 teste4 testf3; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -241,6 +241,12 @@ jobs:
         working-directory: src
         run: make -f Makefile.mcu-sim usb-e4
 
+      # El USB de usuario de la STM32F3DISCOVERY (S6 del F303): f3_usb, con
+      # TinyUSB sobre el FSDEV, y el mismo cdc_e4.py, con --f3.
+      - name: El CDC-ACM del STM32F303 (TinyUSB) por el puente USB
+        working-directory: src
+        run: make -f Makefile.mcu-sim usb-f3
+
       # La BOOSTXL-EDUMKII enchufada a la MSP-EXP432P401R (T3 del MSP432): el
       # sistema de dos placas con su firmware, mirando lo que sale.
       - name: La BOOSTXL-EDUMKII sobre la LaunchPad del MSP432P401R
@@ -258,6 +264,18 @@ jobs:
       - name: SysCtlDelay y la prebusqueda de la Flash del MSP432E401Y
         working-directory: src
         run: make -f Makefile.mcu-sim e4-retardo
+
+      # La STM32F3DISCOVERY (S1 del F303): GPIO_IOToggle de ST, sin tocar, con
+      # la rosa a 72 MHz por el HSE desde el MCO del ST-LINK.
+      - name: La STM32F3DISCOVERY con GPIO_IOToggle de ST
+        working-directory: src
+        run: make -f Makefile.mcu-sim f3-discovery
+
+      # El VCP de la STM32F3DISCOVERY (S3): la USART1 por PC4/PC5, y dos
+      # Discovery en un sistema, cada VCP en su puerto.
+      - name: El VCP de la STM32F3DISCOVERY y dos Discovery en un sistema
+        working-directory: src
+        run: make -f Makefile.mcu-sim f3-vcp
 
       - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas)
         working-directory: src
@@ -280,7 +298,7 @@ jobs:
           sudo apt-get install -y autoconf automake libtool pkg-config texinfo libjim-dev
           sh ci/construye_openocd.sh "$GITHUB_WORKSPACE/openocd"
 
-      - name: OpenOCD programa el MSP432P401R y el F407, y GDB ve FreeRTOS
+      - name: OpenOCD programa el MSP432P401R, el F407 y el F303, y GDB ve FreeRTOS
         working-directory: src
         env:
           OPENOCD_OBLIGATORIO: 1
@@ -420,7 +438,7 @@ jobs:
     name: macOS ${{ matrix.arq }}
     runs-on: ${{ matrix.os }}
     needs: rapidas
-    timeout-minutes: 30
+    timeout-minutes: 50
     strategy:
       fail-fast: false            # que una arquitectura no tape a la otra
       matrix:
@@ -483,14 +501,14 @@ jobs:
 
       # SIN pasar SYSTEMC_HOME, a proposito: aqui se ejerce la deteccion
       # automatica, que es la que se encuentra un alumno.
-      - name: Las suites (las tres de siempre, testserie, testgui, testp4 y teste4)
+      - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4 y testf3)
         env:
-          SUITES_PRESUPUESTO: 600
+          SUITES_PRESUPUESTO: 1500
         run: sh ci/pasa_suites.sh CXX=clang++
 
-      - name: Los invariantes de las siete, al picosegundo
+      - name: Los invariantes de las ocho, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie testgui testp4 teste4; do
+          for s in test407 test446 test417 testserie testgui testp4 teste4 testf3; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -599,7 +617,7 @@ jobs:
     name: Windows (MSYS2 / MinGW-w64)
     runs-on: windows-latest
     needs: rapidas
-    timeout-minutes: 45
+    timeout-minutes: 70
     defaults:
       run:
         shell: msys2 {0}
@@ -645,16 +663,16 @@ jobs:
           sh ci/construye_systemc.sh "$(cygpath -u "$GITHUB_WORKSPACE")/systemc" \
               -G Ninja -DCMAKE_ASM_FLAGS="-x assembler-with-cpp"
 
-      - name: Las suites (las tres de siempre, testserie, testgui, testp4 y teste4)
+      - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4 y testf3)
         env:
-          SUITES_PRESUPUESTO: 900      # aqui SystemC se compila antes: mas margen
+          SUITES_PRESUPUESTO: 1800     # aqui SystemC se compila antes: mas margen
         run: |
           sh ci/pasa_suites.sh \
              SYSTEMC_HOME="$(cygpath -u "$GITHUB_WORKSPACE")/systemc"
 
-      - name: Los invariantes de las siete, al picosegundo
+      - name: Los invariantes de las ocho, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie testgui testp4 teste4; do
+          for s in test407 test446 test417 testserie testgui testp4 teste4 testf3; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 

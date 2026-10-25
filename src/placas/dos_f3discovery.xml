@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     DOS STM32F3DISCOVERY CABLEADAS, para los ejemplos *TwoBoards* de ST (S3)
+
+     Los hilos de los readme de STM32CubeF3, los tres buses a la vez (cada
+     ejemplo usa uno; los otros no estorban) y las masas unidas
+     [verif/fw/stm32f3/sdk/ejemplos/*/readme.txt; UM1570, tabla 7]:
+
+         bus    A              B              en P2 (EXP2)
+         UART   PD5 (TX)   ->  PD6 (RX)       27 -> 28   cruzados
+                PD6 (RX)   <-  PD5 (TX)       28 <- 27
+         SPI3   PC10 (SCK)  -  PC10           35
+                PC11 (MISO) -  PC11           36
+                PC12 (MOSI) -  PC12           33
+         I2C1   PB6 (SCL)   -  PB6            21   con los pull-up de
+                PB7 (SDA)   -  PB7            22   placas/pullup_i2c.xml
+         GND    P1.3        -  P1.3
+
+     A es la que manda (TRANSMITTER_BOARD, MASTER_BOARD) y B la otra: con
+     UART_TwoBoards_ComIT de ST, sin modificar, como viene abajo. El B1 de A
+     arranca el intercambio -en la ventana, mcu-sim-gui, se pulsa con el
+     raton-; mientras, LD4 de A parpadea. Si sale bien, LD6 y LD3 en las dos;
+     LD5 es el error. Los otros ejemplos de dos placas son los .bin de
+     verif/fw/stm32f3/ejemplos_s3 (*_tx/_rx, *_maestro/_esclavo), con
+     --firmware A/u0=... B/u0=...; testf3 los pasa todos (F22-F31).
+
+     LOS DOS VCP piden el 3355, cada uno en su fichero: el de B se corre al
+     3356, y se dice. Con --serie A/VCP=memoria --serie B/VCP=memoria no se
+     abre nada.
+
+         ./build/mcu-sim placas/dos_f3discovery.xml --valida
+         ./build/mcu-sim placas/dos_f3discovery.xml --gui
+     ========================================================================= -->
+<sistema nombre="dos-f3discovery">
+  <placa id="A" fichero="stm32f3discovery.xml" x="0" y="0"/>
+  <placa id="B" fichero="stm32f3discovery.xml" x="130" y="0"/>
+  <placa id="P" fichero="pullup_i2c.xml" x="90" y="40"/>
+
+  <!-- UART: la USART2 de cada una, cruzada -->
+  <hilo a="A/EXP2.27" b="B/EXP2.28"/>   <!-- PD5 de A al PD6 de B -->
+  <hilo a="A/EXP2.28" b="B/EXP2.27"/>   <!-- PD6 de A al PD5 de B -->
+
+  <!-- SPI3, pin a pin -->
+  <hilo a="A/EXP2.35" b="B/EXP2.35"/>   <!-- PC10, SCK -->
+  <hilo a="A/EXP2.36" b="B/EXP2.36"/>   <!-- PC11, MISO -->
+  <hilo a="A/EXP2.33" b="B/EXP2.33"/>   <!-- PC12, MOSI -->
+
+  <!-- I2C1, pin a pin, y los pull-up a los 3 V de A -->
+  <hilo a="A/EXP2.21" b="B/EXP2.21"/>   <!-- PB6, SCL -->
+  <hilo a="A/EXP2.22" b="B/EXP2.22"/>   <!-- PB7, SDA -->
+  <hilo a="P/P1.SCL"  b="A/EXP2.21"/>
+  <hilo a="P/P1.SDA"  b="A/EXP2.22"/>
+  <hilo a="P/P1.VCC"  b="A/EXP1.1"/>    <!-- 3V -->
+  <hilo a="P/P1.GND"  b="A/EXP1.3"/>
+
+  <!-- Las masas -->
+  <hilo a="A/EXP1.3"  b="B/EXP1.3"/>
+
+  <mcu ref="A/u0" firmware="verif/fw/stm32f3/ejemplos_s3/UART_TwoBoards_ComIT_tx.bin"/>
+  <mcu ref="B/u0" firmware="verif/fw/stm32f3/ejemplos_s3/UART_TwoBoards_ComIT_rx.bin"/>
+</sistema>

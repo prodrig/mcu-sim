@@ -89,6 +89,7 @@ private:
     }
     bool dap_leer(uint32_t a, uint32_t& v) override  { return swd_.mem_read32(a, v); }
     bool dap_escribir(uint32_t a, uint32_t v) override { return swd_.mem_write32(a, v); }
+    bool dap_escribir16(uint32_t a, uint16_t v) override { return swd_.mem_write16(a, v); }
     // Los registros PROPIOS del AP. En SWD la direccion del AP son solo dos
     // bits (A[3:2]): el resto sale del campo APBANKSEL de SELECT, asi que para
     // llegar a 0xF8 hay que cambiar de banco, leer, y DEJARLO COMO ESTABA. Lo
