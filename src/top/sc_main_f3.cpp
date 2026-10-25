@@ -25,7 +25,8 @@
 //           de opcion con OBL_LAUNCH (f3_demo, modos 8 y 9)
 //   F18     FLASH_EraseProgram de STM32CubeF3, sin modificar
 //   F19     GDB con `load` por la sonda de los pines (G2, PA13/PA14) y por el
-//           DAP (G1), con el programador del FPEC (D2)
+//           DAP (G1), con el programador del FPEC (D2). Corre EL ULTIMO, detras
+//           de F71 (ver abajo); conserva el numero
 //   F20-F21 el FPEC, los bytes de opcion, RDP, el RCC y el SYSCFG por el DAP,
 //           contra lo que dice RM0316
 //
@@ -108,7 +109,12 @@
 //
 // EL TIEMPO SIMULADO DE F19 NO ES REPRODUCIBLE entre maquinas, como el de E18
 // en teste4: el stub atiende un socket de verdad. El banco imprime «el resto»,
-// el total sin el, y eso es lo que contrasta `verif/invariantes.txt`.
+// el total sin el, y eso es lo que contrasta `verif/invariantes.txt`. Por eso
+// F19 va al final: con grupos detras, lo que durase cambiaba la fase con que
+// empezaban respecto de lo que corre solo (la CPU con su quantum, los hilos
+// que sondean), y una respuesta del chip un microsegundo antes podia cruzar un
+// sondeo de 20 us del banco. En macOS (Intel y Apple), F59 tardaba asi 20 us
+// menos (CI del 25-10-2026). Detras de F19 no queda nada que medir.
 //
 //   make testf3   (o: make -f Makefile.mcu-sim testf3-build && ./build/testf3)
 // =============================================================================
@@ -3035,7 +3041,6 @@ SC_MODULE(TbF3) {
         fpec();
         bytes_opcion();
         st_flash();
-        gdb();
         fpec_rm();
         rcc_rm();
         r_gpio();
@@ -3054,6 +3059,11 @@ SC_MODULE(TbF3) {
             s5();
             s6();
         }
+        // F19, EL ULTIMO: es el unico grupo cuyo tiempo simulado depende de la
+        // maquina (el socket). Detras de el no queda nada que medir, y «el
+        // resto» sale igual en todas. En medio movia la fase de todo lo que
+        // corria despues, y en macOS F59 tardaba 20 us menos (CI del 25-10-2026)
+        gdb();
         std::printf("\nTOTAL F3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

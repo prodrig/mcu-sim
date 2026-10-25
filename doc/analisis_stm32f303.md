@@ -227,6 +227,21 @@ Un hallazgo de CMSIS: `stm32f303xc.h` define `USBWakeUp_IRQn` como
 `USBWakeUp_RMP_IRQn` (la 76) y el manejador igual, así que quien escriba
 `USBWakeUp_IRQHandler` en C rellena el vector 76, no el 42.
 
+**El CI de macOS** (25-10-2026). En los dos macOS, Intel y Apple, «el resto»
+salía 20 µs menor. Con los `[t=]` de cada grupo se vio que todo coincidía con
+Linux hasta F19 (el GDB por socket), y que **F59** duraba 20 µs menos.
+
+* **La causa:** lo que corre solo arrastra su fase de un grupo a otro. Es el
+  caso de la CPU, que ve un byte de la USART al acabar su quantum de 1 µs, y de
+  los hilos que sondean. F19 dura lo que quiera el socket de la máquina. En
+  F59, eso adelantaba 1,13 µs un ACK del cargador, y el primer bloque de WRITE
+  MEMORY caía en el sondeo de 20 µs anterior del banco.
+* **El arreglo:** F19 corre ahora **el último**, y conserva su número. «El
+  resto» no cambia, y ya no depende de ningún `TESTF3_DESFASE*_PS`.
+* **Lo que no bastó:** fijar la duración de F19 a 4 s. Un desfase dentro de
+  F19 movía F60 10 µs.
+* **El mismo riesgo** tiene `teste4`, con grupos detrás de E18 (T-16).
+
 **S7, el cargador de sistema** (21-10-2026). El de ST no se puede distribuir:
 en la memoria de sistema va uno **propio**, `soc/stm32f3/cargador/` (C con
 CMSIS, 2 KB), que `gen_sysmem.sh` compila y convierte en `sysmem.inc`
