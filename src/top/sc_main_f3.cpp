@@ -94,6 +94,14 @@
 //   F58 (la demo de ST, solo con TESTF3_SOLO=demo) termina con su raton: el
 //   PC de banco lo enumera y el giroscopo mueve el cursor
 //
+//   CADA GRUPO DICE SU INSTANTE en la cabecera ([t=...]): con dos logs de dos
+//   plataformas, el primero que no coincide es el que se ha movido. Y para
+//   comprobar que «el resto» no depende de lo que dure F19 (el socket):
+//   TESTF3_DESFASE_PS, TESTF3_DESFASE2_PS y TESTF3_DESFASE3_PS anaden esos ps
+//   al principio, entre las dos sesiones y al final de F19 (cuentan como
+//   socket); TESTF3_PUERTO_GDB=N pone los stubs en N y N+1, para correr dos
+//   bancos a la vez.
+//
 //   TESTF3_SOLO=s2 / s3 / s4 / s5 / s6 / s7 / s9 / demo corre solo esos grupos, TESTF3_GRUPO=F44 solo los que
 //   empiecen asi, TESTF3_TRAZA=1 imprime trazas de depuracion: con cualquiera
 //   de ellos el tiempo simulado no es el del invariante.
@@ -138,7 +146,12 @@ using namespace sc_core;
 using namespace stm32;
 
 static unsigned g_ok = 0, g_fallos = 0;
-static void grupo(const char* t) { std::printf("\n--- %s ---\n", t); }
+// Cada grupo dice en que instante simulado empieza: si «el resto» cambia en
+// una plataforma y no en otra, comparar los dos logs dice que grupo se ha
+// movido (T-16; el CI de S5 en macOS Intel, 24-10-2026)
+static void grupo(const char* t) {
+    std::printf("\n--- %s --- [t=%s]\n", t, sc_core::sc_time_stamp().to_string().c_str());
+}
 static bool check(bool c, const char* q) {
     if (c) { ++g_ok;  std::printf("  [OK  ] %s\n", q); }
     else   { ++g_fallos; std::printf("  [FALLO] %s\n", q); }
@@ -441,7 +454,12 @@ SC_MODULE(TbF3) {
     GdbStub*    gdb_p = nullptr;
     GdbStubDap* gdb_d = nullptr;
     GdbClient   cli;
-    static constexpr unsigned PUERTO_PINES = 3451, PUERTO_DAP = 3452;
+    // TESTF3_PUERTO_GDB=N: los stubs en N y N+1, para correr dos bancos a la vez
+    static unsigned puerto_gdb(unsigned d) {
+        const char* e = std::getenv("TESTF3_PUERTO_GDB");
+        return (e ? unsigned(std::atoi(e)) : 3451u) + d;
+    }
+    const unsigned PUERTO_PINES = puerto_gdb(0), PUERTO_DAP = puerto_gdb(1);
 
     SC_CTOR(TbF3)
         : mcu("dut", DBG_PINES, Cableado(), *CatalogoMcu::busca("STM32F303VC")),
@@ -1290,9 +1308,13 @@ SC_MODULE(TbF3) {
         const uint32_t rh = vec(1) & ~1u, st = vec(15) & ~1u;
         const unsigned f0 = ProgramadorF3::el().fallos();
         const sc_time t0 = sc_time_stamp();
+        // TESTF3_DESFASE_PS=N: N ps mas dentro de F19, como si el socket hubiera
+        // tardado otra cosa; «el resto» no deberia moverse (T-16)
+        if (const char* e = std::getenv("TESTF3_DESFASE_PS")) wait(sc_time(double(std::atoll(e)), SC_PS));
         gdb_p->set_enabled(true);
         wait(1, SC_MS);
         const ResGdb rp = sesion_gdb(PUERTO_PINES, img, st);
+        if (const char* e = std::getenv("TESTF3_DESFASE2_PS")) wait(sc_time(double(std::atoll(e)), SC_PS));
         gdb_p->set_enabled(false);
         gdb_p->soltar_pines();
         informa("G2 (pines)", rp, rh);
@@ -1304,6 +1326,7 @@ SC_MODULE(TbF3) {
         check(rp.pc_reset == rd_.pc_reset && rp.pc_bp == rd_.pc_bp && rp.pc_paso == rd_.pc_paso,
               "los dos caminos dan lo mismo: el mismo depurador, otro cable");
         check(ProgramadorF3::el().fallos() == f0, "y el programador no ha fallado ni una vez");
+        if (const char* e = std::getenv("TESTF3_DESFASE3_PS")) wait(sc_time(double(std::atoll(e)), SC_PS));
         g_t_gdb += sc_time_stamp() - t0;
     }
 

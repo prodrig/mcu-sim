@@ -60,6 +60,8 @@ public:
     static constexpr uint32_t TRIM_FABRICA = 0x10;
     // El reset deja los recortes de fábrica a la vista [RM0316: 0xXXXX 0000]
     static constexpr uint32_t CSR_RESET = (TRIM_FABRICA << 24) | (TRIM_FABRICA << 19);
+    // M_PI no es de C++ estandar: MinGW con -std=c++17 no lo define (CI del 24-10)
+    static constexpr double PI = 3.14159265358979323846;
     static constexpr double GBW_HZ = 8.2e6, SLEW_V_S = 4.7e6, R_OUT = 10.0, PASO_S = 20e-9;
 
     using Nodo = std::function<analog_net_if&(unsigned puerto, unsigned pin)>;
@@ -183,7 +185,7 @@ private:
             // Autónomo: el lazo lo cierra lo de fuera
             const double vm = double(vm_[i][vms]->voltage());
             const double e = vp(i) + desplazamiento(i) - vm;
-            double dv = 2.0 * M_PI * GBW_HZ * PASO_S * e;
+            double dv = 2.0 * PI * GBW_HZ * PASO_S * e;
             const double lim = SLEW_V_S * PASO_S;
             if (dv > lim) dv = lim;
             if (dv < -lim) dv = -lim;
