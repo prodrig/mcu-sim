@@ -167,7 +167,8 @@ public:
             const ExtPartBase* p = piezas_[i];
             s += "  <pieza idx=\"" + std::to_string(i) + "\" id=\"" +
                  xml_escapa(p->pieza()) + "\" tipo=\"" + xml_escapa(p->tipo()) + "\"";
-            if (p->n_observables() == 0 && p->n_mandos() == 0 && p->n_imagenes() == 0) {
+            if (p->n_observables() == 0 && p->n_mandos() == 0 && p->n_imagenes() == 0 &&
+                !p->serie_salida()) {
                 s += "/>\n";
                 continue;
             }
@@ -201,6 +202,11 @@ public:
                      "\" alto=\"" + std::to_string(im.alto) +
                      "\" formato=\"rgb888\"/>\n";
             }
+            // Un puente serie en memoria: la ventana le abre una pestaña
+            // (T_SERIE y T_SERIE_ENVIA)
+            if (p->serie_salida())
+                s += "    <serie destino=\"memoria\" formato=\"" +
+                     xml_escapa(p->serie_formato()) + "\"/>\n";
             s += "  </pieza>\n";
         }
         s += "</catalogo>\n";

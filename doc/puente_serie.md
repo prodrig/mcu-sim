@@ -127,6 +127,7 @@ Primero decide **qué quieres**, porque cambia el modo del puente:
 | Ver el `printf` y teclear, sin instalar casi nada | **en crudo**: `--serie VCP=tcp:3355` | CoolTerm, PuTTY, `nc` (§3.1) |
 | Además, que los **baudios del terminal** lleguen al MCU | **RFC 2217** (el de las placas de ejemplo) | `miniterm` de Python (§3.2) |
 | Un **puerto serie del sistema** (`/dev/…`, `COMn`) para un programa que solo sabe abrir puertos | en crudo o RFC 2217, según la herramienta | §4 |
+| Con **mcu-sim-gui**, sin programas aparte: la ventana hace de terminal | **en memoria**: `--serie VCP=memoria` | la pestaña del puente en la ventana |
 
 **En crudo** los bytes del socket son los de la línea y nada más: cualquier
 programa que hable TCP sirve, pero los baudios que pongas en él no llegan a
@@ -135,6 +136,15 @@ terminal puede fijar baudios, paridad, bits de parada y control de flujo de la
 línea simulada, mover DTR y RTS y mandar un *break*. Los dos modos no se
 mezclan: el puerto es de uno o de otro. `--serie VCP=…` cambia el de la placa
 sin editarla.
+
+**En memoria** el puente no abre ningún puerto. Sin ventana, lo que imprime
+el firmware solo se ve en la consola de `mcu-sim` (con `muestra="si"`). Con
+`--gui`, el catálogo lo anuncia y **mcu-sim-gui le da una pestaña**: lo
+recibido y lo enviado de dos colores, una entrada que mezcla ASCII con bytes
+en hexadecimal (`\x41`, `\x0102`…) y casillas para añadir CR, LF y un CRC
+(Modbus RTU, Modbus ASCII o la suma módulo 256). Lo cuenta su guía de usuario,
+§6.1; por dentro son `T_SERIE` y `T_SERIE_ENVIA` (`doc/protocolo.md` §4 de
+mcu-sim-gui), y lo prueba `make gui-serie`.
 
 ### 3.1 Un terminal que hable TCP (sin puerto serie)
 

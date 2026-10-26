@@ -93,6 +93,8 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
+#include <algorithm>
 #include <deque>
 #include <functional>
 #include <string>
@@ -232,6 +234,9 @@ SC_MODULE(EnlaceGui) {
     // --- Lo que ha pasado, para las pruebas y para quien quiera saberlo --------
     uint64_t instantaneas() const { return n_inst_; }
     uint64_t imagenes() const { return n_img_; }                   // T_IMAGEN mandados
+    uint64_t series() const { return n_serie_; }                   // T_SERIE mandados
+    uint64_t bytes_serie_salida() const { return n_serie_out_; }   // en esos T_SERIE
+    uint64_t bytes_serie_entrada() const { return n_serie_in_; }   // de T_SERIE_ENVIA, que cupieron
     uint64_t avisos() const { return n_avisos_; }
     uint64_t estados() const { return n_estados_; }
     uint64_t ignorados() const { return n_ignorados_; }
@@ -246,6 +251,9 @@ SC_MODULE(EnlaceGui) {
 
 private:
     struct Aviso { uint32_t nivel; std::string origen, texto; uint64_t t; };
+    // Un puente en memoria y hasta dónde se ha mandado lo suyo
+    struct Consola { unsigned pieza; std::size_t hecho; };
+    static constexpr std::size_t SERIE_TROZO = 4096;
 
     static double pared() {
         return std::chrono::duration<double>(
@@ -373,9 +381,67 @@ private:
                     break;
                 case T_PASO:     paso(m); break;
                 case T_PARA:     parar_ = true; break;
+                case T_SERIE_ENVIA: serie_envia(m.texto()); break;
                 default:         ++n_ignorados_; break;   // lo desconocido
             }
             if (parar_) return;      // lo que venga detrás de T_PARA ya no cuenta
+        }
+    }
+
+    // T_SERIE_ENVIA: lo que se teclea en la pestaña de un puente en memoria,
+    // a la cola del puente hacia el MCU. Lo que no cabe se tira, y se dice.
+    void serie_envia(const std::string& cuerpo) {
+        using namespace mcusim::proto;
+        CabSerie c{};
+        if (cuerpo.size() < sizeof c) {
+            encola_aviso(N_AVISO, "mcu-sim/gui", "T_SERIE_ENVIA de " +
+                         std::to_string(cuerpo.size()) + " bytes, sin cabecera: se ignora");
+            return;
+        }
+        std::memcpy(&c, cuerpo.data(), sizeof c);
+        if (cuerpo.size() != sizeof c + std::size_t(c.n)) {
+            encola_aviso(N_AVISO, "mcu-sim/gui", "T_SERIE_ENVIA de " +
+                         std::to_string(cuerpo.size()) + " bytes no mide lo que dice: se ignora");
+            return;
+        }
+        ExtPartBase* p = fr_.catalogo().pieza(c.pieza);
+        if (!p || !p->serie_salida()) {
+            encola_aviso(N_AVISO, "mcu-sim/gui", "T_SERIE_ENVIA a la pieza " +
+                         std::to_string(c.pieza) + ", que no es un puente serie en memoria: "
+                         "se ignora");
+            return;
+        }
+        const std::size_t k = p->serie_entrada(cuerpo.substr(sizeof c));
+        n_serie_in_ += k;
+        if (k < c.n)
+            encola_aviso(N_AVISO, "mcu-sim/gui", p->pieza() + ": la cola hacia el MCU esta "
+                         "llena; de " + std::to_string(c.n) + " bytes han entrado " +
+                         std::to_string(k) + " y el resto se tira");
+    }
+
+    // T_SERIE: lo que los puentes en memoria tienen sin mandar, a trozos de
+    // SERIE_TROZO. Con la salida llena se queda en el puente: no se tira.
+    void serie_a_salida(bool todo) {
+        using namespace mcusim::proto;
+        if (!consolas_hechas_) {
+            consolas_hechas_ = true;
+            for (unsigned i = 0; i < fr_.catalogo().n_piezas(); ++i)
+                if (fr_.catalogo().pieza(i)->serie_salida()) consolas_.push_back({i, 0});
+        }
+        for (Consola& k : consolas_) {
+            const std::string* s = fr_.catalogo().pieza(k.pieza)->serie_salida();
+            if (!s) continue;
+            if (s->size() < k.hecho) k.hecho = 0;     // alguien lo ha borrado
+            while (k.hecho < s->size() && (todo || sal_.size() < tope_)) {
+                const std::size_t n = std::min(SERIE_TROZO, s->size() - k.hecho);
+                CabSerie c{ahora_ns(), uint16_t(k.pieza), 0, uint32_t(n)};
+                std::string b(reinterpret_cast<const char*>(&c), sizeof c);
+                b.append(*s, k.hecho, n);
+                em_.mensaje(sal_, T_SERIE, b);
+                k.hecho += n;
+                n_serie_out_ += n;
+                ++n_serie_;
+            }
         }
     }
 
@@ -477,6 +543,8 @@ private:
             ++n_img_;
             hubo = true;
         }
+        // Y lo de los puentes serie en memoria
+        serie_a_salida(todo);
         return hubo;
     }
 
@@ -638,6 +706,9 @@ private:
     uint64_t                  n_inst_ = 0, n_img_ = 0, n_avisos_ = 0, n_estados_ = 0,
                               n_ignorados_ = 0, n_subs_ = 0,
                               n_msj_ordenes_ = 0, n_ordenes_ = 0, n_ecos_ = 0;
+    std::vector<Consola>      consolas_;
+    bool                      consolas_hechas_ = false;
+    uint64_t                  n_serie_ = 0, n_serie_out_ = 0, n_serie_in_ = 0;
     sc_core::sc_report_handler_proc anterior_ = nullptr;
     sc_core::sc_event         ev_activa_;
 };

@@ -135,6 +135,7 @@ enum Tipo : uint16_t {
     T_ORDEN_HECHA = 0x0013,  // eco de una orden con el instante REAL en que se aplicó
     T_PONG        = 0x0014,
     T_IMAGEN      = 0x0015,  // lo que enseña una pantalla: una imagen entera (véase abajo)
+    T_SERIE       = 0x0016,  // lo que ha mandado el MCU a un puente serie en memoria
     T_FIN         = 0x001F,  // se acabó: motivo y código de salida
 
     // --- De la pantalla al modelo ------------------------------------------
@@ -146,7 +147,8 @@ enum Tipo : uint16_t {
     T_PASO        = 0x8005,  // avanza N ns simulados y vuelve a pausa
     T_ORDENES     = 0x8006,  // n x Orden, con la semántica de deltas de abajo
     T_PARA        = 0x8007,  // final ordenado: sc_stop()
-    T_PING        = 0x8008
+    T_PING        = 0x8008,
+    T_SERIE_ENVIA = 0x8009   // lo que se teclea en la ventana para un puente en memoria
 };
 
 inline bool es_del_modelo(uint16_t t)  { return (t & 0x8000u) == 0; }
@@ -204,6 +206,31 @@ struct CabImagen {
     uint32_t relleno;      // a cero
 };
 static_assert(sizeof(CabImagen) == 24, "CabImagen son 24 bytes");
+
+// T_SERIE y T_SERIE_ENVIA (2026-10, sin subir la versión: quien no los
+// conoce los salta): los bytes de un PuenteSerie cuyo destino es `memoria`,
+// que es el que no abre ningún puerto. La ventana hace de terminal.
+//
+// Los puentes que valen salen en T_CATALOGO, dentro de su <pieza>, como
+// `<serie destino="memoria" formato="115200 8N1"/>`; `pieza` es el índice de
+// esa pieza. Detrás de la cabecera van `n` bytes, tal cual: no son
+// texto, y pueden traer cualquier valor, el cero incluido.
+//
+//   * T_SERIE: lo que el MCU ha mandado desde el anterior, en el orden en que
+//     salió de la línea. `t_sim_ns` es el instante en que el modelo lo
+//     recoge, no el de cada byte. Con la salida atascada no se tira nada: se
+//     espera en el puente, y sale cuando haya sitio;
+//   * T_SERIE_ENVIA: lo que la ventana manda al MCU, `t_sim_ns` a cero. Entra
+//     en la cola del puente hacia el MCU cuando el modelo lo lee, y de ahí a
+//     la línea a sus baudios. Lo que no cabe en esa cola se tira y un T_AVISO
+//     lo dice. Antes de T_ARRANCA no vale: se salta, como lo desconocido.
+struct CabSerie {
+    uint64_t t_sim_ns;
+    uint16_t pieza;        // índice de pieza que dio el catálogo
+    uint16_t relleno;      // a cero
+    uint32_t n;            // bytes que siguen
+};
+static_assert(sizeof(CabSerie) == 16, "CabSerie son 16 bytes");
 
 // Lo que la pantalla manda: tocar un mando de una pieza.
 //

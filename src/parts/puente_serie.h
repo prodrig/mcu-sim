@@ -276,6 +276,14 @@ SC_MODULE(PuenteSerie), public ExtPartBase, public LineaSerie {
     const std::string& recibido() const { return mem_->recibido(); }
     void borra_recibido() { if (mem_) mem_->borra_recibido(); }
 
+    // --- La pestaña de la ventana (ExtPartBase): solo en memoria -------------
+    const std::string* serie_salida() const override { return mem_ ? &mem_->recibido() : nullptr; }
+    std::size_t serie_entrada(const std::string& s) override { return envia(s); }
+    std::string serie_formato() const override {
+        return std::to_string(long(cfg_.baudios)) + " " + como_texto(cfg_.formato) +
+               (cfg_.flujo_rtscts ? " RTS/CTS" : "");
+    }
+
     // --- Contadores ---------------------------------------------------------
     uint64_t bytes_desde_mcu() const { return n_desde_; }
     uint64_t bytes_hacia_mcu() const { return n_hacia_; }

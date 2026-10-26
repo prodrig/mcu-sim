@@ -277,9 +277,9 @@ jobs:
         working-directory: src
         run: make -f Makefile.mcu-sim f3-vcp
 
-      - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas)
+      - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas, serie)
         working-directory: src
-        run: make -f Makefile.mcu-sim gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema
+        run: make -f Makefile.mcu-sim gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema gui-serie
 
       # OpenOCD DE VERDAD contra el modelo, por los pines (T5 del MSP432): de
       # git, porque la 0.12.0 del paquete no tiene SWD en remote_bitbang. Se

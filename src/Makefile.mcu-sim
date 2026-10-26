@@ -31,6 +31,7 @@
 #   make gui-argumentos           # que --argumentos dice lo mismo que --help y que argv (Python)
 #   make gui-sin-mcu              # una placa sin MCU, y Fuente y Gnd con su limite (Python)
 #   make gui-sistema              # conectores, y varias placas enchufadas: <sistema> (Python)
+#   make gui-serie                # un puente serie en memoria, con la ventana de terminal (Python)
 #   make serie                    # el destino y el formato de un PuenteSerie, tampoco
 #   make rfc2217                  # el codec de Telnet y RFC 2217, tampoco
 #   make interop                  # el puente UART contra pySerial y socat (Python)
@@ -269,7 +270,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -622,6 +623,14 @@ gui-sin-mcu: $(MCUSIM)
 # Segundos; no toca ningun invariante.
 gui-sistema: $(MCUSIM)
 	$(PYTHON) verif/gui/sistema.py --sim $(MCUSIM)
+
+# UN PUENTE SERIE EN MEMORIA CON LA VENTANA DE TERMINAL: la pestana de cada
+# puente `memoria` en mcu-sim-gui. El catalogo lo anuncia (<serie>), lo que
+# imprime vcp_demo llega en T_SERIE, lo que se teclea va en T_SERIE_ENVIA y
+# vuelve -bytes que no son texto incluidos-, y lo que no vale se avisa.
+# Segundos; no toca ningun invariante.
+gui-serie: $(MCUSIM)
+	$(PYTHON) verif/gui/serie.py --sim $(MCUSIM)
 
 # LA BOOSTXL-EDUMKII SOBRE LA MSP-EXP432P401R (T3 del MSP432): el sistema de
 # placas/msp_exp432p401r_edumkii.xml con verif/fw/msp432p4/edumkii_demo, 400

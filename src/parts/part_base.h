@@ -259,6 +259,22 @@ public:
     virtual float    brillo_imagen(unsigned) const { return 1.f; }
     virtual double   luz_acumulada(unsigned) const { return 0.0; }
 
+    // --- Un terminal serie para la ventana ---------------------------------
+    // Lo ofrece el PuenteSerie cuyo destino es `memoria`, que no abre ningún
+    // puerto: la ventana hace de terminal, en su propia pestaña (T_SERIE y
+    // T_SERIE_ENVIA, `doc/protocolo.md` §4 en mcu-sim-gui). Lo demás no.
+    //
+    //   * serie_salida() es TODO lo que ha mandado el MCU desde el principio,
+    //     o nullptr si la pieza no lo ofrece. El enlace recuerda hasta dónde
+    //     lo ha mandado; si alguien lo borra (un banco de pruebas), vuelve a
+    //     empezar desde el principio de lo que haya;
+    //   * serie_entrada(b) mete bytes hacia el MCU y devuelve cuántos han
+    //     cabido en la cola del puente;
+    //   * serie_formato() dice los baudios y la trama, para la pestaña.
+    virtual const std::string* serie_salida() const { return nullptr; }
+    virtual std::size_t        serie_entrada(const std::string&) { return 0; }
+    virtual std::string        serie_formato() const { return std::string(); }
+
     // --- Inventario y volcado del netlist -----------------------------------
     static const std::vector<ExtPartBase*>& inventario() { return inventario_mut(); }
 
