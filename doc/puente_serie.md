@@ -141,7 +141,7 @@ sin editarla.
 el firmware solo se ve en la consola de `mcu-sim` (con `muestra="si"`). Con
 `--gui`, el catálogo lo anuncia y **mcu-sim-gui le da una pestaña**: lo
 recibido y lo enviado de dos colores, una entrada que mezcla ASCII con bytes
-en hexadecimal (`\x41`, `\x0102`…) y casillas para añadir CR, LF y un CRC
+en hexadecimal (`\x41`, `\x{0102}`…) y casillas para enviar CR, LF y un CRC
 (Modbus RTU, Modbus ASCII o la suma módulo 256). Lo cuenta su guía de usuario,
 §6.1; por dentro son `T_SERIE` y `T_SERIE_ENVIA` (`doc/protocolo.md` §4 de
 mcu-sim-gui), y lo prueba `make gui-serie`.
