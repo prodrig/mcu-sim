@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     MODULO KY-040 DE 24 PULSOS POR VUELTA: ENCODER ROTATIVO CON PULSADOR,
+     sin MCU
+
+     El mismo modulo que placas/ky040.xml -el mismo conector, los mismos
+     pull-ups, el mismo pulsador y el mismo dibujo- con el otro encoder que
+     se le monta: uno de 24 clics por vuelta y 24 pulsos en cada contacto, un
+     CICLO ENTERO POR CLIC (24 PPR, como el PEC11R-4220F-S0024 de Bourns),
+     donde el de placas/ky040.xml da medio, 15 pulsos en 30 clics.
+
+         P1.CLK   el contacto A del encoder (con su pull-up R2)
+         P1.DT    el contacto B del encoder (con su pull-up R3)
+         P1.SW    el pulsador, normalmente abierto, a masa al apretarlo
+         P1.VCC   la alimentacion de los pull-ups: 5 V o 3,3 V
+         P1.GND   la masa: el comun del encoder
+
+     EN CADA CLIC, los dos contactos se cierran y se vuelven a abrir: en el
+     reposo estan los dos abiertos, CLK y DT altos, y entre un clic y el
+     siguiente pasan por los cuatro estados del codigo Gray
+     (`./build/mcu-sim --help Encoder`):
+
+         a la derecha     CLK DT = 11 -> 01 -> 00 -> 10 -> 11   (un clic)
+         a la izquierda   CLK DT = 11 -> 10 -> 00 -> 01 -> 11   (un clic)
+
+     Hay UN flanco de bajada de CLK por clic, y el sentido es DT en ese
+     flanco: alto, a la derecha; bajo, a la izquierda. Un firmware escrito
+     para el de 30 clics, que cuenta los dos flancos de CLK, aqui cuenta dos
+     por clic.
+
+     EN LA VENTANA, el anillo del mando gira 15 grados por clic -una vuelta
+     son 24-; la rueda del raton lo gira un clic por paso, y un clic en la
+     caperuza aprieta el eje.
+
+     Sola, la placa no hace nada -no lleva chip-; se valida igual:
+
+         ./build/mcu-sim placas/ky040_24ppr.xml --valida
+     ========================================================================= -->
+<placa nombre="ky040-24ppr" ilustracion="ky040.svg">
+  <!-- El conector de cinco pines, vertical, con CLK arriba -->
+  <componente tipo="Conector" id="P1" filas="5" columnas="1" acodado="si"
+              nombres="CLK DT SW VCC GND"/>
+
+  <!-- CLK, DT y VCC los conducen varios a la vez -el contacto, su pull-up y
+       el pin del MCU-, y es a proposito; GND, los dos contactos -->
+  <nodo id="P1.CLK" bus="si"/>
+  <nodo id="P1.DT" bus="si"/>
+  <nodo id="P1.VCC" bus="si"/>
+  <nodo id="P1.GND" bus="si"/>
+
+  <!-- El encoder, con el comun a masa: 24 clics y 24 pulsos por vuelta -->
+  <componente tipo="Encoder" id="ENC" pasos="24" pulsos="24">
+    <pin nombre="a" nodo="P1.CLK"/>
+    <pin nombre="b" nodo="P1.DT"/>
+    <pin nombre="c" nodo="P1.GND"/>
+  </componente>
+
+  <!-- Los pull-ups de CLK y DT, a la VCC del conector -->
+  <componente tipo="Resistencia" id="R2" r="10000">
+    <pin nombre="a" nodo="P1.VCC"/>
+    <pin nombre="b" nodo="P1.CLK"/>
+  </componente>
+  <componente tipo="Resistencia" id="R3" r="10000">
+    <pin nombre="a" nodo="P1.VCC"/>
+    <pin nombre="b" nodo="P1.DT"/>
+  </componente>
+
+  <!-- El pulsador del eje: normalmente abierto, a 0 V al apretarlo -->
+  <componente tipo="Button" id="SW1" v_cerrado="0">
+    <pin nombre="pin" nodo="P1.SW"/>
+  </componente>
+
+  <!-- En el dibujo, el anillo del mando gira con el encoder, y la caperuza
+       del centro se hunde con el pulsador -->
+  <ilustracion>
+    <enlace pieza="ENC" elemento="ENC" efecto="giro"/>
+    <enlace pieza="SW1" elemento="SW1" efecto="hundido"/>
+  </ilustracion>
+</placa>

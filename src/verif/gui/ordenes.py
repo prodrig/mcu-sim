@@ -46,6 +46,16 @@
 #       `bloquear`- lo para donde esté, gasta lo de un servo bloqueado -más
 #       de lo que da el USB de la Nucleo, que lo avisa- y al soltarlo sigue.
 #       La pantalla, con MADCTL 0x00, enseña la aguja donde debe.
+#   O8  EL KY-040 DE 24 PPR (`placas/ky040_24ppr.xml`), con el mismo banco que
+#       O6: un CICLO ENTERO por clic -los dos contactos se cierran y se abren,
+#       cuatro cambios en código Gray, primero CLK a la derecha y primero DT a
+#       la izquierda-, en reposo los dos abiertos, y `posicion` da la vuelta en
+#       24. Y lo que no vale de `pulsos`.
+#   O9  EL SISTEMA DEL FTDI (`placas/nucleo_f446re_encoder_tft_servo.xml`): la
+#       Nucleo, el servo, el KY-040 de 24 PPR, la pantalla de pie y el
+#       adaptador FTDI, con `verif/fw/encoder_tft_servo`. 7,5 grados por clic,
+#       hasta el tope; apretar el eje lo centra; cada cambio sale por el FTDI,
+#       la USART3, y no por el VCP; y la pantalla enseña la aguja.
 #
 #   make -f Makefile.mcu-sim gui-ordenes
 #   python3 verif/gui/ordenes.py [--sim build/mcu-sim]
@@ -633,6 +643,179 @@ def o7_servo(sim):
           "(%s), y donde estuvo en el 0 ya solo hay fondo" % (naranja,))
 
 
+# ---------------------------------------------------------------------------
+# O8
+# ---------------------------------------------------------------------------
+KY24 = "placas/ky040_24ppr.xml"
+
+
+def o8_ky040_24ppr(sim):
+    grupo("O8 El KY-040 de 24 PPR: un ciclo entero por clic")
+    r = subprocess.run([sim, KY24, "--valida"], stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, timeout=60)
+    out = r.stdout.decode("utf-8", "replace")
+    check(r.returncode == 0 and "placa 'ky040-24ppr': SIN MCU, 5 componentes, 5 nodos, 0 avisos"
+          in out and "dibujo: ky040.svg" in out,
+          "%s se valida sin avisos, con el dibujo del KY-040" % KY24)
+    tmp = tempfile.mkdtemp(prefix="ky24_")
+    try:
+        with open(os.path.join(tmp, "banco_ky040.xml"), "w", encoding="utf-8") as f:
+            f.write(BANCO_KY040)
+        sis = os.path.join(tmp, "sistema.xml")
+        with open(sis, "w", encoding="utf-8") as f:
+            f.write(SISTEMA_KY040 % os.path.abspath(KY24))
+        # Lo que no vale: 13 pulsos con 24 pasos; 24 con 25; y un ciclo entero
+        # que no cabe en el clic
+        malos = []
+        for atr, que in (('pulsos="13"', "es 12, medio ciclo por clic, o 24, uno entero"),
+                         ('pasos="25" pulsos="24"', "es 25, uno entero por clic"),
+                         ('pulsos="24" desfase_ms="2"', "menor que un tercio de clic_ms")):
+            with open(os.path.join(tmp, "malo.xml"), "w", encoding="utf-8") as f:
+                f.write(BANCO_KY040.replace('<placa nombre="banco-ky040">',
+                                            '<placa nombre="malo">').replace(
+                    '</placa>', '<componente tipo="Encoder" id="E" pasos="24" %s>'
+                    '<pin nombre="a" nodo="J.CLK"/><pin nombre="b" nodo="J.DT"/>'
+                    '<pin nombre="c" nodo="J.GND"/></componente></placa>' % atr)
+                    .replace('pasos="24" pasos="25"', 'pasos="25"'))
+            r = subprocess.run([sim, os.path.join(tmp, "malo.xml"), "--valida"],
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+            o = r.stdout.decode("utf-8", "replace")
+            malos.append(r.returncode != 0 and que in o)
+        check(all(malos), "pulsos= solo vale pasos/2 o pasos, y un ciclo entero tiene que caber "
+              "en el clic: tres errores que dicen por que (%s)" % malos)
+        # Un clic a la derecha; dos mas; cuatro a la izquierda -pasando por el
+        # 0, hasta la -1, que es la 23-
+        m = ky040_con_ordenes(sim, sis, [(10, "girar", 1), (20, "girar", 3), (40, "girar", -1),
+                                         (120, "pulsar", 1), (130, "pulsar", 0)])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    if not check(m and len(m) == 300, "con su banco por hilos, corre 150 ms"):
+        return
+    en = {x[0]: x[1:] for x in m}
+    check([en[t][:2] for t in (10.5, 11.5, 12.5, 13.5)] == [(0, 1), (0, 0), (1, 0), (1, 1)] and
+          en[13.5][3] == 1,
+          "un clic a la derecha: CLK baja, DT baja 1 ms despues, CLK sube y DT sube: el ciclo "
+          "entero en 3 ms, y la posicion, 1")
+    seq = []
+    for x in m:
+        if not seq or seq[-1] != x[1:3]:
+            seq.append(x[1:3])
+    gray = all(abs(a[0] - b[0]) + abs(a[1] - b[1]) == 1 for a, b in zip(seq, seq[1:]))
+    der = [(1, 1), (0, 1), (0, 0), (1, 0)] * 3
+    izq = [(1, 1), (1, 0), (0, 0), (0, 1)] * 4 + [(1, 1)]
+    check(gray and len(seq) == 29 and seq == der + izq,
+          "siete clics, veintiocho cambios en codigo Gray: a la derecha 11, 01, 00, 10 -CLK "
+          "delante-, a la izquierda 11, 10, 00, 01 -DT delante- (%s)"
+          % " ".join("%d%d" % q for q in seq))
+    # Cada clic dura tres desfases, 3 ms, y el siguiente empieza clic_ms, 5,
+    # despues: uno cada 8 ms. Entre uno y otro, el reposo
+    reposo = (9.5, 15.0, 45.0, 53.0, 61.0, 70.0)
+    check(all(en[t][:2] == (1, 1) and en[t][4:] == (0, 0) for t in reposo),
+          "en cada clic, en reposo, los dos contactos abiertos: CLK y DT altos")
+    check([en[t][3] for t in reposo[1:]] == [1, 2, 1, 0, 23] and en[39.5][3] == 3,
+          "la posicion: 1, 3, y a la izquierda 2, 1, 0 y 23 -da la vuelta en 24-")
+    check(en[119.5][2] == 1 and en[125.0][2] == 0 and en[140.0][2] == 1,
+          "y el pulsador del eje, el mismo")
+
+
+# ---------------------------------------------------------------------------
+# O9
+# ---------------------------------------------------------------------------
+FTDI = "placas/nucleo_f446re_encoder_tft_servo.xml"
+
+
+def o9_ftdi(sim):
+    grupo("O9 El servo con el encoder de 24 PPR, la pantalla y el FTDI")
+    r = subprocess.run([sim, FTDI, "--valida"], stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, timeout=60)
+    out = r.stdout.decode("utf-8", "replace")
+    check(r.returncode == 0 and "5 placas: N (nucleo-f446re), S (servo-sg90), K (ky040-24ppr), "
+          "T (tft-128x160), F (ftdi-ft232rl)" in out and
+          "1 MCU(s), 26 componentes, 174 nodos, 0 avisos" in out and
+          "dibujo F: ftdi_ft232rl.svg (10 kB, JP1 VCC-3.3V, girado 180)" in out,
+          "%s se valida sin avisos: cinco placas, el FTDI con su jumper en 3.3V" % FTDI)
+    v = Ventana()
+    p = arranca(sim, [FTDI, "--ms=1200", "--serie", "F/U1=memoria", "--serie",
+                      "N/VCP=memoria"], v.puerto)
+    try:
+        if not check(v.acepta(), "con la ventana"):
+            return
+        _, _, cat, listo = saludo_hasta_listo(v, version=2)
+        enc, me, oe = pieza_de(cat, "K/ENC")
+        sw, ms_, _ = pieza_de(cat, "K/SW1")
+        sv, msv, osv = pieza_de(cat, "S/SERVO")
+        img = [int(i.get("id_obs")) for pz in ET.fromstring(cat).iter("pieza")
+               if pz.get("id") == "T/TFT" for i in pz.iter("imagen")]
+        if not check(listo and None not in (enc, sw, sv) and len(img) == 1,
+                     "en el catalogo, el encoder, su pulsador, el servo y la pantalla"):
+            return
+        ids = [osv["angulo"], osv["pulso"], oe["posicion"]]
+        suscribe(v, MS, ids + img)
+        lista = [(400, enc, me["girar"], 3), (600, enc, me["girar"], -2),
+                 (800, sw, ms_["pulsar"], 1), (850, sw, ms_["pulsar"], 0),
+                 (900, enc, me["girar"], 20)]
+        t, ords = 0, []
+        for ms, pz_, m, val in lista:
+            ords.append((ms * MS - t, pz_, m, float(val)))
+            t = ms * MS
+        ordenes(v, ords)
+        arranque(v)
+        inst, ims = [], []
+        while True:
+            tt, c = v.recibe(seg=120)
+            if tt is None or tt == T_FIN:
+                break
+            if tt == T_INSTANTANEA:
+                inst.append(instantanea(c))
+            elif tt == T_IMAGEN:
+                ims.append(imagen(c))
+        rc, out, err = termina(p)
+    finally:
+        if p.poll() is None:
+            p.kill()
+        v.cierra()
+    if not check(rc == 0 and len(inst) == 1200, "corre 1200 ms con una muestra cada ms"):
+        return
+    en = {}
+    for ts, _, m in inst:
+        x = dict(m)
+        en[round(ts / MS)] = tuple(x[i] for i in ids)
+
+    def ang(ms):
+        return en[ms][0]
+
+    def grados(us):
+        return (us - 1000) * 0.18 - 90
+    check(abs(ang(390)) < 1e-4 and "[F/U1] encoder_tft_servo: angulo 0.0, pulso 1500 us" in out
+          and "[N/VCP]" not in out,
+          "al arrancar, el firmware lleva el servo al centro, y lo dice por el FTDI -la "
+          "USART3-, no por el VCP")
+    check(abs(ang(590) - grados(1625)) < 1e-3 and en[590][2] == 3 and
+          "[F/U1] encoder_tft_servo: angulo +22.5, pulso 1625 us" in out,
+          "tres clics a la derecha, en tres flancos de bajada de CLK: +22,5 grados, un pulso "
+          "de 1625 us (%.2f grados)" % ang(590))
+    check(abs(ang(790) - grados(1417)) < 1e-3 and en[790][2] == 22 and
+          "angulo -15.0, pulso 1417 us" in out,
+          "cinco a la izquierda, hasta la cuenta -2 -la posicion 22 de 24-: -15 grados "
+          "(%.2f)" % ang(790))
+    check(abs(ang(890)) < 1e-4 and out.count("angulo 0.0, pulso 1500 us") >= 2,
+          "apretar el eje lo lleva al centro")
+    check(abs(ang(1190) - 90) < 1e-4 and "angulo +90.0, pulso 2000 us" in out and
+          "angulo +97.5" not in out,
+          "veintidos clics a la derecha lo mandan al tope, +90, y de ahi no pasa")
+    ult = ims[-1] if ims else None
+
+    def px(x, y):
+        k = (y * 128 + x) * 3
+        return tuple(ult[6][k:k + 3])
+    naranja = ult and px(94, 100)
+    check(ult is not None and naranja[0] > 240 and 120 < naranja[1] < 140 and naranja[2] < 10 and
+          px(64, 70) == (0, 24, 65),
+          "la pantalla, de pie con MADCTL 0x00: la aguja naranja apunta a +90 (%s)" % (naranja,))
+    check("serie F/U1: " in out and "0 con error de trama" in out,
+          "y el FTDI recibe sin errores de trama: 115200 8N1 a los dos lados")
+
+
 def main():
     a = argparse.ArgumentParser(description="las ordenes de mcu-sim-gui, contra el mcu-sim de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -648,6 +831,8 @@ def main():
     o5_reset(sim)
     o6_ky040(sim)
     o7_servo(sim)
+    o8_ky040_24ppr(sim)
+    o9_ftdi(sim)
     return ventana.resumen("ORDENES")
 
 

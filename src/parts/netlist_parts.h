@@ -677,7 +677,9 @@ REGISTRA_PARTE(Encoder,
           "en el contrario primero b. Con c a masa y a y b con su pull-up, a "
           "y b dan un codigo Gray de dos bits -11, 01, 00, 10 hacia un lado, "
           "al reves hacia el otro-. Los pull-ups no son del encoder: los pone "
-          "la placa.")
+          "la placa. Eso es medio ciclo por clic; con `pulsos` igual a `pasos`, "
+          "un ciclo ENTERO: en el reposo los dos abiertos, y cada clic los "
+          "cierra y los abre, a delante a la derecha -11, 01, 00, 10, 11-.")
       .ejemplo("<componente tipo=\"Encoder\" id=\"ENC\" pasos=\"30\">\n"
                "  <pin nombre=\"a\" nodo=\"P1.CLK\"/>\n"
                "  <pin nombre=\"b\" nodo=\"P1.DT\"/>\n"
@@ -687,11 +689,16 @@ REGISTRA_PARTE(Encoder,
       .pin("b", "obligatorio", "El contacto B, el que va delante girando a la izquierda.")
       .pin("c", "obligatorio", "El comun de los dos contactos.")
       .atr("pasos", "30", "Las posiciones -los clics- de una vuelta.")
+      .atr("pulsos", "pasos/2",
+           "Los pulsos de una vuelta en cada contacto (PPR): pasos/2, medio "
+           "ciclo por clic, como el de 30 clics y 15 pulsos; o pasos, un ciclo "
+           "entero por clic, como los de 20 o 24 clics y otros tantos pulsos.")
       .atr("r_cerrado", "1", "La resistencia de un contacto cerrado, en ohmios.")
       .atr("desfase_ms", "1",
            "Lo que tarda el segundo contacto en seguir al primero dentro de un "
            "clic, en ms. Es lo que deja ver el sentido; tiene que ser menor "
-           "que clic_ms.")
+           "que clic_ms, y con un ciclo entero por clic, que son tres "
+           "desfases, menor que un tercio.")
       .atr("clic_ms", "5",
            "Lo que se tarda de un clic al siguiente cuando se le pide girar "
            "varios de una vez, en ms.")
@@ -711,14 +718,40 @@ REGISTRA_PARTE(Encoder,
                                         "\" no vale; es un entero de 1 a 1000").c_str());
             return nullptr;
         }
+        // Los pulsos: pasos/2 (medio ciclo por clic, el de siempre) o pasos
+        // (uno entero). Sin el atributo, medio, tambien con pasos impares
+        bool entero = false;
+        if (!d.txt("pulsos").empty()) {
+            const double p = d.num("pulsos", 0.0);
+            if (p == pasos) {
+                entero = true;
+            } else if (p * 2.0 != pasos) {
+                char t[160];
+                if (std::fmod(pasos, 2.0) == 0.0)
+                    std::snprintf(t, sizeof t, "es %g, medio ciclo por clic, o %g, uno entero",
+                                  pasos / 2.0, pasos);
+                else
+                    std::snprintf(t, sizeof t, "es %g, uno entero por clic: con pasos impares "
+                                  "no hay medio", pasos);
+                SC_REPORT_ERROR("netlist", ("Encoder '" + d.id + "': pulsos=\"" +
+                                            d.txt("pulsos") + "\" no vale; " + t).c_str());
+                return nullptr;
+            }
+        }
         if (desfase <= 0.0 || clic <= desfase) {
             SC_REPORT_ERROR("netlist", ("Encoder '" + d.id + "': desfase_ms tiene que ser "
                                         "positivo y menor que clic_ms").c_str());
             return nullptr;
         }
+        if (entero && clic <= 3.0 * desfase) {
+            SC_REPORT_ERROR("netlist", ("Encoder '" + d.id + "': con un ciclo entero por "
+                                        "clic son tres desfases, y desfase_ms tiene que "
+                                        "ser menor que un tercio de clic_ms").c_str());
+            return nullptr;
+        }
         return new Encoder(d.id.c_str(), n[d.nodo_de("a")], n[d.nodo_de("b")],
                            n[d.nodo_de("c")], unsigned(pasos), d.num("r_cerrado", 1.0),
-                           desfase, clic);
+                           desfase, clic, entero);
     });
 
 REGISTRA_PARTE(Tft128x160,

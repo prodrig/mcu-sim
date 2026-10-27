@@ -758,6 +758,14 @@ private:
 // cambio por medio clic. Cada contacto es una rama (RamaDosNodos) de
 // `r_cerrado` ohmios, o abierta.
 //
+// Eso es MEDIO CICLO POR CLIC: en una vuelta, cada contacto da pasos/2 pulsos
+// (el de 30 clics, 15). Otros encoders -los de 20 o 24 clics y otros tantos
+// pulsos, como el PEC11R de Bourns o el EC11 de 20/20- dan UN CICLO ENTERO
+// POR CLIC: en el reposo los dos contactos están abiertos, y cada clic los
+// cierra y los vuelve a abrir, los dos, con A delante girando a la derecha:
+// 11 -> 01 -> 00 -> 10 -> 11, cuatro cambios por clic. Es `ciclo_entero`
+// (en el XML, `pulsos` igual a `pasos`).
+//
 // EL MANDO es `girar`: la CUENTA de clics, sin vueltas -sube hacia un lado y
 // baja hacia el otro-. Pedirle otra cuenta gira el eje hasta ella, un clic
 // detrás de otro, cada `clic_ms`, con `desfase_ms` entre el contacto que va
@@ -769,9 +777,10 @@ SC_MODULE(Encoder), public ExtPartBase {
 
     Encoder(sc_core::sc_module_name nm, analog_net_if& a, analog_net_if& b, analog_net_if& c,
             unsigned pasos = 30, double r_cerrado = 1.0, double desfase_ms = 1.0,
-            double clic_ms = 5.0)
+            double clic_ms = 5.0, bool ciclo_entero = false)
         : sc_core::sc_module(nm), ExtPartBase("Encoder", nm),
-          a_(&a), b_(&b), c_(&c), pasos_(pasos ? pasos : 1), r_(r_cerrado),
+          a_(&a), b_(&b), c_(&c), pasos_(pasos ? pasos : 1), entero_(ciclo_entero),
+          r_(r_cerrado),
           desfase_(desfase_ms, sc_core::SC_MS), clic_(clic_ms, sc_core::SC_MS) {
         const int ia = add_pin("a", a, "enc");
         const int ib = add_pin("b", b, "enc");
@@ -793,6 +802,10 @@ SC_MODULE(Encoder), public ExtPartBase {
     void gira(long clics) { gira_a(objetivo_ + clics); }
     long     cuenta()   const { return cuenta_; }
     unsigned pasos()    const { return pasos_; }
+    // Los pulsos de una vuelta en cada contacto: pasos/2, o pasos con un
+    // ciclo entero por clic
+    double   pulsos()   const { return entero_ ? double(pasos_) : pasos_ / 2.0; }
+    bool     ciclo_entero() const { return entero_; }
     unsigned posicion() const {
         const long p = cuenta_ % long(pasos_);
         return unsigned(p < 0 ? p + long(pasos_) : p);
@@ -840,14 +853,26 @@ private:
         for (;;) {
             while (cuenta_ == objetivo_) wait(ev_objetivo_);
             const int sentido = objetivo_ > cuenta_ ? 1 : -1;
-            const bool cerrar = (cuenta_ + sentido) % 2 != 0;   // impares: cerrados
             bool& primero = sentido > 0 ? ca_ : cb_;
             bool& segundo = sentido > 0 ? cb_ : ca_;
-            primero = cerrar;
-            ev_contactos_.notify(sc_core::SC_ZERO_TIME);
-            wait(desfase_);
-            segundo = cerrar;
-            ev_contactos_.notify(sc_core::SC_ZERO_TIME);
+            if (entero_) {
+                // Un ciclo entero: se cierran los dos y se vuelven a abrir,
+                // siempre el mismo delante
+                const bool paso[4] = {true, true, false, false};
+                bool* quien[4] = {&primero, &segundo, &primero, &segundo};
+                for (int k = 0; k < 4; ++k) {
+                    if (k) wait(desfase_);
+                    *quien[k] = paso[k];
+                    ev_contactos_.notify(sc_core::SC_ZERO_TIME);
+                }
+            } else {
+                const bool cerrar = (cuenta_ + sentido) % 2 != 0;   // impares: cerrados
+                primero = cerrar;
+                ev_contactos_.notify(sc_core::SC_ZERO_TIME);
+                wait(desfase_);
+                segundo = cerrar;
+                ev_contactos_.notify(sc_core::SC_ZERO_TIME);
+            }
             cuenta_ += sentido;
             if (cuenta_ != objetivo_) wait(clic_);
         }
@@ -855,6 +880,7 @@ private:
 
     analog_net_if *a_, *b_, *c_;
     unsigned pasos_;
+    bool entero_;                // un ciclo entero por clic, y no medio
     double r_;
     sc_core::sc_time desfase_, clic_;
     std::unique_ptr<RamaDosNodos> rama_a_, rama_b_;

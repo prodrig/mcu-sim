@@ -1150,6 +1150,23 @@ dos bits, un cambio por cada medio clic:
 
 Los pull-ups no son del encoder: los pone la placa.
 
+Eso es **medio ciclo por clic**: en una vuelta, cada contacto da `pasos/2`
+pulsos —el de 30 clics, 15—. Otros encoders dan **un ciclo entero por clic**:
+los de 20 o 24 clics y otros tantos pulsos por vuelta (el PEC11R-4220F-S0024
+de Bourns, 24 PPR y 24 clics). En el reposo los dos contactos están abiertos
+—con pull-ups, `a` y `b` altos—, y cada clic los cierra y los vuelve a abrir,
+los dos, el `a` delante a la derecha: los cuatro estados del código Gray en
+cada clic. Es `pulsos` igual a `pasos`:
+
+| Girando, un clic | `a` `b` |
+| :--- | :--- |
+| a la derecha | 11 → 01 → 00 → 10 → 11 |
+| a la izquierda | 11 → 10 → 00 → 01 → 11 |
+
+Hay **un** flanco de bajada de `a` por clic, y el sentido es `b` en ese
+flanco: alto, a la derecha. Un firmware escrito para el de medio ciclo, que
+cuenta los dos flancos de `a`, aquí cuenta dos por clic.
+
 | Terminal | | |
 | :--- | :--- | :--- |
 | `a` | obligatorio | El contacto A, el que va delante girando a la derecha |
@@ -1159,9 +1176,10 @@ Los pull-ups no son del encoder: los pone la placa.
 | Parámetro | Omisión | Efecto |
 | :--- | :--- | :--- |
 | `pasos` | `30` | Las posiciones —los clics— de una vuelta, de 1 a 1000 |
+| `pulsos` | `pasos/2` | Los pulsos de una vuelta en cada contacto (PPR): `pasos/2`, medio ciclo por clic, o `pasos`, uno entero. Otro valor es un error que dice los dos que valen; con `pasos` impares, solo el entero |
 | `r_cerrado` | `1` | La resistencia de un contacto cerrado, en ohmios |
-| `desfase_ms` | `1` | Lo que tarda el segundo contacto en seguir al primero dentro de un clic. Tiene que ser menor que `clic_ms` |
-| `clic_ms` | `5` | Lo que se tarda de un clic al siguiente cuando se pide girar varios de una vez |
+| `desfase_ms` | `1` | Lo que tarda el segundo contacto en seguir al primero dentro de un clic. Tiene que ser menor que `clic_ms`; con un ciclo entero por clic, que son tres desfases, menor que un tercio |
+| `clic_ms` | `5` | Lo que se espera, cuando se pide girar varios de una vez, entre el final de un clic y el principio del siguiente |
 
 **El mando es `girar`**: la **cuenta** de clics, sin vueltas —sube hacia la
 derecha y baja hacia la izquierda—, de −30000 a 30000. Pedir otra cuenta gira
@@ -1176,7 +1194,10 @@ que se abre y se cierra; el común `c` lleva las dos.
 pull-ups de 10 kΩ de `CLK` y `DT` a `P1.VCC` (dos `Resistencia`) y el pulsador
 del eje, un `Button` normalmente abierto a 0 V en `P1.SW`, **sin pull-up**,
 como en la mayoría de los módulos. Su dibujo, `placas/ky040.svg`, tiene en el
-centro el mando que gira (§2.6).
+centro el mando que gira (§2.6). `placas/ky040_24ppr.xml` es el mismo módulo
+con el otro encoder que se le monta, `pasos="24" pulsos="24"`, y con el mismo
+dibujo, que gira 15° por clic; `placas/nucleo_f446re_encoder_tft_servo.xml` lo
+usa.
 
 #### `Driver`
 
