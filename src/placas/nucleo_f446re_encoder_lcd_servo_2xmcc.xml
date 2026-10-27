@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     EL SISTEMA DEL SERVO, EL ENCODER, LA PANTALLA Y EL FTDI, CON DOS MOTORES
+     DE CONTINUA TRAS UN L298N
+
+     placas/nucleo_f446re_encoder_tft_servo.xml, con el mismo cableado, mas
+     un modulo L298N, dos motorreductores TT con su encoder de 24 PPR y la
+     bateria de los motores; y verif/fw/encoder_lcd_servo_2xmcc, que mueve
+     los dos motores con el mando, mide su velocidad con los encoders y la
+     ensena en la pantalla, con el servo de aguja:
+
+         L298N      ENA     IN1    IN2    IN3    IN4    ENB    GND
+         Nucleo     D15     A2     A3     A4     A5     D14    GND
+         conector   CN5.10  CN8.3  CN8.4  CN8.5  CN8.6  CN5.9  CN5.7
+         chip       PB8     PA4    PB0    PC1    PC0    PB9    VSS
+
+         motor A    ROJO  NEGRO        su encoder   A      B      VCC    GND
+         L298N      OUT1  OUT2        Nucleo       A0     A1     +3V3   GND
+                                      conector     CN8.1  CN8.2  CN7.5  CN7.22
+                                      chip         PA0    PA1    VDD    VSS
+
+         motor B    ROJO  NEGRO        su encoder   A      B      VCC    GND
+         L298N      OUT3  OUT4        Nucleo       D7     D8     IOREF  GND
+                                      conector     CN9.8  CN5.1  CN7.12 CN10.9
+                                      chip         PA8    PA9    VDD    VSS
+
+         bateria    BAT   GND
+         L298N      +12V  GND
+
+     y lo del sistema sin motores: el servo en D5 (PB4), el encoder de mando
+     en D2, D3 y D4, la pantalla en D13, D11, D10, D9 y D6 -su RESET en D6
+     deja D7 y D8 al encoder del motor B- y el FTDI por CN7.1, CN7.2 y CN7.8.
+
+     EL L298N (placas/l298n.xml), sin los puentes de ENA y ENB: la velocidad
+     es el PWM que les llega, el TIM4 a 1 kHz en PB8 y PB9, y el sentido, IN1
+     e IN2 (IN3 e IN4). Con el 5V-EN puesto: su 78M05 saca de la bateria los
+     5 V de la logica. Su masa, la de la Nucleo y la de la bateria, unidas.
+     Las entradas son TTL: 3,3 V son un alto.
+
+     LOS MOTORES (placas/motor_tt_encoder.xml), el A en la borna de la
+     izquierda y el B en la de la derecha, con el rojo en OUT1 y OUT3: hacia
+     delante -IN1 alto, IN2 bajo- giran a la derecha, y sus encoders cuentan
+     hacia arriba. Cada encoder, a 3,3 V de la Nucleo, a un temporizador en
+     modo encoder: el del A al TIM2 (PA0 y PA1), el del B al TIM1 (PA8 y PA9).
+
+     LA BATERIA (placas/bateria_2x18650.xml), dos 18650: 7,4 V. El L298 se
+     come unos 1,6 V, y al motor le llegan unos 5,7 a toda marcha: unas 240
+     rpm en vacio. Con cuatro pilas AA no llegaria para el 78M05.
+
+     EL MANDO, el KY-040 de 24 PPR: cada clic, un 10 % mas de PWM, de -100 %
+     a +100 %; apretar el eje, parados. El servo es la aguja de las rpm del
+     motor A, de -250 a +250. En la ventana, la rueda del raton sobre el
+     mando lo gira, y cada motor deja sujetar la rueda -`bloquear`- o
+     frenarla con una `carga`.
+
+         ./build/mcu-sim placas/nucleo_f446re_encoder_lcd_servo_2xmcc.xml --ms=1500 --serie F/U1=memoria
+
+     y con la ventana, mcu-sim-gui, para verlo.
+     ========================================================================= -->
+<sistema nombre="nucleo-f446re-encoder-lcd-servo-2xmcc">
+  <placa id="N" fichero="nucleo_f446re.xml" x="0" y="0"/>
+  <placa id="S" fichero="servo_sg90.xml" x="140" y="0"/>
+  <placa id="K" fichero="ky040_24ppr.xml" x="140" y="58"/>
+  <placa id="T" fichero="tft_128x160.xml" giro="90" x="200" y="2"/>
+  <placa id="F" fichero="ftdi_ft232rl.xml" giro="180" x="-62" y="4"/>
+  <placa id="L" fichero="l298n.xml" x="36" y="112"/>
+  <placa id="MA" fichero="motor_tt_encoder.xml" x="-70" y="104"/>
+  <placa id="MB" fichero="motor_tt_encoder.xml" x="92" y="104"/>
+  <placa id="B" fichero="bateria_2x18650.xml" x="18" y="166"/>
+
+  <!-- El servo -->
+  <hilo a="S/P1.PWM"   b="N/CN9.6"/>    <!-- D5,  PB4: TIM3_CH1 -->
+  <hilo a="S/P1.VCC"   b="N/CN6.5"/>    <!-- +5V, el del USB -->
+  <hilo a="S/P1.GND"   b="N/CN6.7"/>    <!-- GND -->
+
+  <!-- El encoder de mando -->
+  <hilo a="K/P1.CLK"   b="N/CN9.3"/>    <!-- D2,  PA10 -->
+  <hilo a="K/P1.DT"    b="N/CN9.4"/>    <!-- D3,  PB3 -->
+  <hilo a="K/P1.SW"    b="N/CN9.5"/>    <!-- D4,  PB5 -->
+  <hilo a="K/P1.VCC"   b="N/CN7.16"/>   <!-- +3V3 del morpho -->
+  <hilo a="K/P1.GND"   b="N/CN7.20"/>   <!-- GND del morpho -->
+
+  <!-- La pantalla -->
+  <hilo a="T/P1.SCK"   b="N/CN5.6"/>    <!-- D13, PA5: SPI1_SCK -->
+  <hilo a="T/P1.SDA"   b="N/CN5.4"/>    <!-- D11, PA7: SPI1_MOSI -->
+  <hilo a="T/P1.CS"    b="N/CN5.3"/>    <!-- D10, PB6 -->
+  <hilo a="T/P1.AD"    b="N/CN5.2"/>    <!-- D9,  PC7 -->
+  <hilo a="T/P1.RESET" b="N/CN9.7"/>    <!-- D6,  PB10 -->
+  <hilo a="T/P1.VCC"   b="N/CN6.4"/>    <!-- +3V3 -->
+  <hilo a="T/P1.LED"   b="N/CN6.2"/>    <!-- IOREF, tambien 3,3 V -->
+  <hilo a="T/P1.GND"   b="N/CN6.6"/>    <!-- GND -->
+
+  <!-- El FTDI: sus nombres son los del adaptador -->
+  <hilo a="F/P1.RX"    b="N/CN7.1"/>    <!-- PC10: USART3_TX -->
+  <hilo a="F/P1.TX"    b="N/CN7.2"/>    <!-- PC11: USART3_RX -->
+  <hilo a="F/P1.GND"   b="N/CN7.8"/>    <!-- GND -->
+  <jumper ref="F/JP1" puente="VCC 3.3V"/>
+
+  <!-- El L298N: sin los puentes de ENA y ENB, que llevan el PWM -->
+  <jumper ref="L/JA" puente="no"/>
+  <jumper ref="L/JB" puente="no"/>
+  <hilo a="L/JA.ENA"   b="N/CN5.10"/>   <!-- D15, PB8: TIM4_CH3 -->
+  <hilo a="L/P1.IN1"   b="N/CN8.3"/>    <!-- A2,  PA4 -->
+  <hilo a="L/P1.IN2"   b="N/CN8.4"/>    <!-- A3,  PB0 -->
+  <hilo a="L/P1.IN3"   b="N/CN8.5"/>    <!-- A4,  PC1 -->
+  <hilo a="L/P1.IN4"   b="N/CN8.6"/>    <!-- A5,  PC0 -->
+  <hilo a="L/JB.ENB"   b="N/CN5.9"/>    <!-- D14, PB9: TIM4_CH4 -->
+  <hilo a="L/X1.GND"   b="N/CN5.7"/>    <!-- la masa comun -->
+
+  <!-- La bateria, a la borna de la alimentacion -->
+  <hilo a="B/P1.BAT"  b="L/X1.12V"/>
+  <hilo a="B/P1.GND"   b="L/X1.GND"/>
+
+  <!-- Los motores, a sus bornas -->
+  <hilo a="MA/M.ROJO"    b="L/MA.OUT1"/>
+  <hilo a="MA/M.NEGRO"    b="L/MA.OUT2"/>
+  <hilo a="MB/M.ROJO"    b="L/MB.OUT3"/>
+  <hilo a="MB/M.NEGRO"    b="L/MB.OUT4"/>
+
+  <!-- Sus encoders, a la Nucleo -->
+  <hilo a="MA/P1.A"    b="N/CN8.1"/>    <!-- A0, PA0: TIM2_CH1 -->
+  <hilo a="MA/P1.B"    b="N/CN8.2"/>    <!-- A1, PA1: TIM2_CH2 -->
+  <hilo a="MA/P1.VCC"  b="N/CN7.5"/>    <!-- VDD, 3,3 V -->
+  <hilo a="MA/P1.GND"  b="N/CN7.22"/>   <!-- GND -->
+  <hilo a="MB/P1.A"    b="N/CN9.8"/>    <!-- D7, PA8: TIM1_CH1 -->
+  <hilo a="MB/P1.B"    b="N/CN5.1"/>    <!-- D8, PA9: TIM1_CH2 -->
+  <hilo a="MB/P1.VCC"  b="N/CN7.12"/>   <!-- IOREF, 3,3 V -->
+  <hilo a="MB/P1.GND"  b="N/CN10.9"/>   <!-- GND -->
+
+  <mcu ref="N/u0" firmware="verif/fw/encoder_lcd_servo_2xmcc/encoder_lcd_servo_2xmcc.bin"/>
+</sistema>

@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     MOTORREDUCTOR TT DE 3 A 6 V CON UN ENCODER DE 24 PPR, sin MCU
+
+     El motor amarillo de los coches de juguete y los robots de practicas: un
+     motor de continua con su reductora de plastico de 1:48 y el eje de
+     salida doble, que atraviesa la caja. En uno de los dos lados, en vez de
+     la rueda, un DISCO de 24 ventanas montado de traves en el eje, y una
+     plaquita con dos sensores opticos de horquilla que lo abrazan, desfasados
+     un cuarto de ventana: un encoder incremental de 24 pulsos por vuelta del
+     eje de salida, en cuadratura.
+
+     Visto desde ese lado, con el eje hacia quien mira:
+
+         M.ROJO        los dos terminales del motor, a la derecha, con su
+         M.NEGRO       hilo rojo (+) y negro (-). Con el rojo mas alto, el
+                       eje gira A LA DERECHA -el sentido de las agujas del
+                       reloj, visto asi-
+         P1.VCC        la tira de la plaquita del encoder, arriba: su
+         P1.GND        alimentacion (3,3 o 5 V), la masa, y las dos
+         P1.A          salidas, A y B, de colector abierto con su pull-up de
+         P1.B          10 kohm a VCC. A va delante girando a la derecha
+
+     EL MOTOR, MOTOR: un MotorCC (`./build/mcu-sim --help MotorCC`) con las
+     cifras del TT de 1:48 [Adafruit 3777]: 250 rpm y 160 mA en vacio y
+     1,5 A bloqueado a 6 V; 0,25 A para arrancar parado; 50 ms de constante
+     de tiempo. Con ppr="24" y sus cuatro patillas de encoder.
+
+     LOS MANDOS: `bloquear`, la mano que sujeta la rueda, y `carga`, un par
+     que se opone al giro, en % del de bloqueo.
+
+     EN LA VENTANA, el disco gira con el eje (el efecto `angulo`), con su
+     marca blanca para seguirlo con la vista.
+
+         ./build/mcu-sim placas/motor_tt_encoder.xml --valida
+     ========================================================================= -->
+<placa nombre="motor-tt-encoder">
+  <!-- Los terminales del motor -->
+  <componente tipo="Conector" id="M" filas="2" columnas="1" nombres="ROJO NEGRO"/>
+
+  <!-- Sus bornes los conducen a la vez el motor -su f.e.m.- y quien lo mueve:
+       es a proposito -->
+  <nodo id="M.ROJO" bus="si"/>
+  <nodo id="M.NEGRO" bus="si"/>
+
+  <!-- La tira del encoder, en su plaquita -->
+  <componente tipo="Conector" id="P1" filas="1" columnas="4" nombres="VCC GND A B"/>
+
+  <!-- El motor, con su encoder en el eje de salida -->
+  <componente tipo="MotorCC" id="MOTOR" v_nominal="6" rpm_vacio="250" i_vacio_ma="160"
+              i_bloqueo_ma="1500" i_arranque_ma="250" tau_ms="50" reduccion="48"
+              ppr="24">
+    <pin nombre="a"       nodo="M.ROJO"/>
+    <pin nombre="b"       nodo="M.NEGRO"/>
+    <pin nombre="enc_vcc" nodo="P1.VCC"/>
+    <pin nombre="enc_gnd" nodo="P1.GND"/>
+    <pin nombre="enc_a"   nodo="P1.A"/>
+    <pin nombre="enc_b"   nodo="P1.B"/>
+  </componente>
+</placa>

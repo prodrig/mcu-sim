@@ -1494,6 +1494,38 @@ SC_MODULE(Sim) {
                         "empezo en %+.1f grados\n", i.id.c_str(), s->angulo(), s->objetivo(),
                         senal, estado, s->tension(), s->corriente_ma(), s->inicial());
         }
+        // Los motores: a cuanto van, lo que gastan y lo que ha contado su
+        // encoder; los puentes en H, que hace cada uno y lo que disipan; y los
+        // reguladores, si les falta margen
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "MotorCC") continue;
+            const MotorCC* m = placa.como<MotorCC>(i.id);
+            if (!m) continue;
+            std::printf("  MOTOR %s: %+.1f rpm (%+.0f en el motor), %+.2f V y %+.0f mA de media; "
+                        "%+.2f vueltas%s", i.id.c_str(), m->rpm(), m->rpm_motor(),
+                        m->tension_media(), m->corriente_media_ma(), m->vueltas(),
+                        m->bloqueado() ? "; bloqueado" : "");
+            if (m->tiene_encoder())
+                std::printf("; encoder %+ld cuartos (%u PPR)", m->cuenta(), m->config().ppr);
+            std::printf("\n");
+        }
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "L298") continue;
+            const L298* l = placa.como<L298>(i.id);
+            if (!l) continue;
+            std::printf("  L298 %s: A %s (%+.0f mA), B %s (%+.0f mA); VS %.0f mA, VSS %.0f mA; "
+                        "disipa %.2f W (como mucho %.2f), de media%s\n", i.id.c_str(), l->estado(0),
+                        l->corriente_ma(0), l->estado(1), l->corriente_ma(1),
+                        l->corriente_vs_ma(), l->corriente_vss_ma(), l->disipacion(),
+                        l->disipacion_max(), l->logica() ? "" : "; SIN LOGICA");
+        }
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Regulador") continue;
+            const Regulador* r = placa.como<Regulador>(i.id);
+            if (!r) continue;
+            std::printf("  REGULADOR %s: %.2f V, %.1f mA%s\n", i.id.c_str(), r->tension(),
+                        r->corriente_ma(), r->sin_margen() ? "; SIN MARGEN" : "");
+        }
         // Y lo que los puentes serie tengan a medias, que tambien se ve desde
         // fuera: es la basura de unos baudios equivocados.
         for (const serie::Pieza& p : puentes)

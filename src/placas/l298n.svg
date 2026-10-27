@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+  MODULO L298N, DOBLE PUENTE EN H, dibujado a mano: una aproximacion, no una
+  foto. Es el dibujo de placas/l298n.xml, que lo encuentra solo porque se
+  llama como ella. Generado por placas/dibuja_motores.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: el modulo mide 43 x 43 mm- y cada pieza con el id de su pieza en el
+  XML:
+
+    U1    el L298 bajo su disipador, arriba
+    U2    el regulador 78M05
+    D1    el LED rojo de los 5 V, que luce con la logica
+    MA, MB, X1   las tres bornas azules: cada tornillo es su pin (MA.OUT1,
+          MA.OUT2; MB.OUT3, MB.OUT4; X1.12V, X1.GND, X1.5V). Un hilo engancha
+          en el tornillo
+    JA, P1, JB   la tira de ocho pines de abajo: JA.5V y JA.ENA, P1.IN1 a
+          P1.IN4, JB.ENB y JB.5V. Los puentes de ENA y ENB son VARIANTES
+          (JA@5V-ENA, JB@ENB-5V): mcu-sim deja la que dice el jumper, o
+          ninguna si se ha quitado
+    JP5   el puente 5V-EN, con su variante JP5@REG-5V
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 430" width="43mm" height="43mm">
+  <rect x="0" y="0" width="430" height="430" rx="12" fill="#b71c1c" stroke="#7f0000" stroke-width="2"/>
+  <circle cx="24" cy="24" r="15" fill="#cfcfcf" stroke="#8a8a8a" stroke-width="1.5"/>
+  <circle cx="24" cy="24" r="8" fill="#3a0000"/>
+  <circle cx="406" cy="24" r="15" fill="#cfcfcf" stroke="#8a8a8a" stroke-width="1.5"/>
+  <circle cx="406" cy="24" r="8" fill="#3a0000"/>
+  <circle cx="24" cy="406" r="15" fill="#cfcfcf" stroke="#8a8a8a" stroke-width="1.5"/>
+  <circle cx="24" cy="406" r="8" fill="#3a0000"/>
+  <circle cx="406" cy="406" r="15" fill="#cfcfcf" stroke="#8a8a8a" stroke-width="1.5"/>
+  <circle cx="406" cy="406" r="8" fill="#3a0000"/>
+  <g id="U1">
+    <rect x="112" y="6" width="206" height="168" rx="4" fill="#1c1c1c" stroke="#000000" stroke-width="1.5"/>
+    <rect x="124" y="12" width="8" height="156" fill="#2f2f2f"/>
+    <rect x="143" y="12" width="8" height="156" fill="#2f2f2f"/>
+    <rect x="162" y="12" width="8" height="156" fill="#2f2f2f"/>
+    <rect x="181" y="12" width="8" height="156" fill="#2f2f2f"/>
+    <rect x="200" y="12" width="8" height="156" fill="#2f2f2f"/>
+    <rect x="219" y="12" width="8" height="156" fill="#2f2f2f"/>
+    <rect x="238" y="12" width="8" height="156" fill="#2f2f2f"/>
+    <rect x="257" y="12" width="8" height="156" fill="#2f2f2f"/>
+    <rect x="276" y="12" width="8" height="156" fill="#2f2f2f"/>
+    <rect x="295" y="12" width="8" height="156" fill="#2f2f2f"/>
+    <rect x="150" y="174" width="130" height="22" fill="#111111"/>
+    <rect x="154" y="196" width="3.5" height="16" fill="#bdbdbd"/>
+    <rect x="162.4" y="196" width="3.5" height="24" fill="#bdbdbd"/>
+    <rect x="170.8" y="196" width="3.5" height="16" fill="#bdbdbd"/>
+    <rect x="179.2" y="196" width="3.5" height="24" fill="#bdbdbd"/>
+    <rect x="187.6" y="196" width="3.5" height="16" fill="#bdbdbd"/>
+    <rect x="196" y="196" width="3.5" height="24" fill="#bdbdbd"/>
+    <rect x="204.4" y="196" width="3.5" height="16" fill="#bdbdbd"/>
+    <rect x="212.8" y="196" width="3.5" height="24" fill="#bdbdbd"/>
+    <rect x="221.2" y="196" width="3.5" height="16" fill="#bdbdbd"/>
+    <rect x="229.6" y="196" width="3.5" height="24" fill="#bdbdbd"/>
+    <rect x="238" y="196" width="3.5" height="16" fill="#bdbdbd"/>
+    <rect x="246.4" y="196" width="3.5" height="24" fill="#bdbdbd"/>
+    <rect x="254.8" y="196" width="3.5" height="16" fill="#bdbdbd"/>
+    <rect x="263.2" y="196" width="3.5" height="24" fill="#bdbdbd"/>
+    <rect x="271.6" y="196" width="3.5" height="16" fill="#bdbdbd"/>
+    <text x="215" y="189" font-family="Arial" font-size="11" font-weight="bold" fill="#e0e0e0" text-anchor="middle">L298N</text>
+  </g>
+  <circle cx="128" cy="262" r="24" fill="#212121" stroke="#000000" stroke-width="1.5"/>
+  <circle cx="128" cy="262" r="18" fill="#37474f"/>
+  <rect x="126" y="240" width="4" height="44" fill="#90a4ae"/>
+  <circle cx="302" cy="262" r="24" fill="#212121" stroke="#000000" stroke-width="1.5"/>
+  <circle cx="302" cy="262" r="18" fill="#37474f"/>
+  <rect x="300" y="240" width="4" height="44" fill="#90a4ae"/>
+  <g id="U2">
+    <rect x="193" y="236" width="44" height="12" fill="#bdbdbd" stroke="#757575" stroke-width="1"/>
+    <rect x="188" y="246" width="54" height="40" rx="2" fill="#1a1a1a" stroke="#000000" stroke-width="1"/>
+    <text x="215" y="270" font-family="Arial" font-size="9" font-weight="bold" fill="#e0e0e0" text-anchor="middle">78M05</text>
+  </g>
+  <text x="215" y="302" font-family="Arial" font-size="8" fill="#f5f5f5" text-anchor="middle">U2</text>
+  <g id="D1">
+    <rect x="140" y="318" width="18" height="10" rx="2" fill="#ff5252" stroke="#7f0000" stroke-width="1"/>
+  </g>
+  <text x="149" y="312" font-family="Arial" font-size="8" fill="#f5f5f5" text-anchor="middle">D1</text>
+  <text x="38" y="170" font-family="Arial" font-size="9" font-weight="bold" fill="#f5f5f5" text-anchor="middle">MOTOR A</text>
+  <rect x="8" y="178" width="60" height="114" rx="3" fill="#1565c0" stroke="#0d47a1" stroke-width="1.5"/>
+  <rect x="8" y="192" width="6" height="30" fill="#0a2a5a"/>
+  <rect x="8" y="248" width="6" height="30" fill="#0a2a5a"/>
+  <g id="MA">
+  <g id="MA.OUT1">
+    <circle cx="40" cy="207" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="28" y="204.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="MA.OUT2">
+    <circle cx="40" cy="263" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="28" y="260.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  </g>
+  <text x="74" y="211" font-family="Arial" font-size="9" font-weight="bold" fill="#f5f5f5">OUT1</text>
+  <text x="74" y="267" font-family="Arial" font-size="9" font-weight="bold" fill="#f5f5f5">OUT2</text>
+  <text x="392" y="170" font-family="Arial" font-size="9" font-weight="bold" fill="#f5f5f5" text-anchor="middle">MOTOR B</text>
+  <rect x="362" y="178" width="60" height="114" rx="3" fill="#1565c0" stroke="#0d47a1" stroke-width="1.5"/>
+  <rect x="416" y="192" width="6" height="30" fill="#0a2a5a"/>
+  <rect x="416" y="248" width="6" height="30" fill="#0a2a5a"/>
+  <g id="MB">
+  <g id="MB.OUT3">
+    <circle cx="390" cy="207" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="378" y="204.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="MB.OUT4">
+    <circle cx="390" cy="263" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="378" y="260.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  </g>
+  <text x="356" y="211" font-family="Arial" font-size="9" font-weight="bold" fill="#f5f5f5" text-anchor="end">OUT3</text>
+  <text x="356" y="267" font-family="Arial" font-size="9" font-weight="bold" fill="#f5f5f5" text-anchor="end">OUT4</text>
+  <rect x="46" y="364" width="172" height="58" rx="3" fill="#1565c0" stroke="#0d47a1" stroke-width="1.5"/>
+  <g id="X1">
+  <g id="X1.12V">
+    <circle cx="74" cy="393" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="62" y="390.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X1.GND">
+    <circle cx="132" cy="393" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="120" y="390.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X1.5V">
+    <circle cx="190" cy="393" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="178" y="390.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  </g>
+  <text x="74" y="357" font-family="Arial" font-size="9" font-weight="bold" fill="#f5f5f5" text-anchor="middle">+12V</text>
+  <text x="132" y="357" font-family="Arial" font-size="9" font-weight="bold" fill="#f5f5f5" text-anchor="middle">GND</text>
+  <text x="190" y="357" font-family="Arial" font-size="9" font-weight="bold" fill="#f5f5f5" text-anchor="middle">+5V</text>
+  <g id="JP5">
+    <rect x="48" y="310" width="62.4" height="22" rx="2" fill="#1c1c1c" stroke="#000000" stroke-width="1"/>
+  <rect id="JP5.REG" x="54" y="315" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="JP5.5V" x="79.4" y="315" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <g id="JP5@REG-5V">
+    <rect x="50" y="312" width="45.4" height="18" rx="3" fill="#0a0a0a" stroke="#e8e8e8" stroke-width="2" fill-opacity="0.45"/>
+    <rect x="60" y="318.5" width="25.4" height="5" fill="#e0e0e0"/>
+  </g>
+  </g>
+  <text x="73" y="303" font-family="Arial" font-size="8" font-weight="bold" fill="#f5f5f5" text-anchor="middle">5V-EN</text>
+  <rect x="221" y="350" width="203.8" height="24" rx="2" fill="#1c1c1c" stroke="#000000" stroke-width="1"/>
+  <text x="234" y="344" font-family="Arial" font-size="7.5" font-weight="bold" fill="#f5f5f5" text-anchor="middle">5V</text>
+  <text x="259.4" y="344" font-family="Arial" font-size="7.5" font-weight="bold" fill="#f5f5f5" text-anchor="middle">ENA</text>
+  <text x="284.8" y="344" font-family="Arial" font-size="7.5" font-weight="bold" fill="#f5f5f5" text-anchor="middle">IN1</text>
+  <text x="310.2" y="344" font-family="Arial" font-size="7.5" font-weight="bold" fill="#f5f5f5" text-anchor="middle">IN2</text>
+  <text x="335.6" y="344" font-family="Arial" font-size="7.5" font-weight="bold" fill="#f5f5f5" text-anchor="middle">IN3</text>
+  <text x="361" y="344" font-family="Arial" font-size="7.5" font-weight="bold" fill="#f5f5f5" text-anchor="middle">IN4</text>
+  <text x="386.4" y="344" font-family="Arial" font-size="7.5" font-weight="bold" fill="#f5f5f5" text-anchor="middle">ENB</text>
+  <text x="411.8" y="344" font-family="Arial" font-size="7.5" font-weight="bold" fill="#f5f5f5" text-anchor="middle">5V</text>
+  <g id="JA">
+  <rect id="JA.5V" x="228" y="356" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="JA.ENA" x="253.4" y="356" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <g id="JA@5V-ENA">
+    <rect x="224" y="353" width="45.4" height="18" rx="3" fill="#0a0a0a" stroke="#e8e8e8" stroke-width="2" fill-opacity="0.45"/>
+    <rect x="234" y="359.5" width="25.4" height="5" fill="#e0e0e0"/>
+  </g>
+  </g>
+  <g id="P1">
+  <rect id="P1.IN1" x="278.8" y="356" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="P1.IN2" x="304.2" y="356" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="P1.IN3" x="329.6" y="356" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="P1.IN4" x="355" y="356" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <g id="JB">
+  <rect id="JB.ENB" x="380.4" y="356" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="JB.5V" x="405.8" y="356" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <g id="JB@ENB-5V">
+    <rect x="376.4" y="353" width="45.4" height="18" rx="3" fill="#0a0a0a" stroke="#e8e8e8" stroke-width="2" fill-opacity="0.45"/>
+    <rect x="386.4" y="359.5" width="25.4" height="5" fill="#e0e0e0"/>
+  </g>
+  </g>
+  <text x="330" y="410" font-family="Arial" font-size="16" font-weight="bold" fill="#f5f5f5" text-anchor="middle">L298N</text>
+</svg>

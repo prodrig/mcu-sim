@@ -585,6 +585,13 @@ paso, ni motor de continua, ni encoder incremental.
 | `StepperDriver` | Cuatro o dos pines de paso y dirección, contar pasos, publicar ángulo. Con micropaso, si hace falta | medio |
 | `DcMotor` + puente en H | Tensión media a partir del ciclo de trabajo, y de ahí una velocidad. Aquí empieza a haber física de verdad, y hay que decidir cuánta se quiere | **el grande** |
 
+> **Al día (2026-10-27): el motor de continua está hecho**, como `MotorCC`,
+> con su puente en H, `L298`, y el `Regulador` del módulo L298N
+> (`doc/parts.md` §4.16). La decisión que pedía este párrafo se tomó así:
+> sin inductancia, y sin pasos fijos —entre dos cambios de los bornes la
+> ecuación del eje tiene solución exacta, y el proceso despierta en los
+> cambios, en los flancos del encoder y cada milisegundo mientras acelera—.
+
 El `DcMotor` es el que merece cuidado y una decisión explícita: un motor de
 continua con su inercia, su constante de tiempo y su carga es un modelo
 **continuo** metido en un simulador de eventos discretos. Se puede hacer —se

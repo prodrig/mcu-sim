@@ -1111,10 +1111,12 @@ FWF3 := verif/fw/stm32f3/f3_demo verif/fw/stm32f3/coremark verif/fw/stm32f3/gpio
 # placas/nucleo_f446re_tft.xml y su prueba, que vigila `make gui-marcha`; y los
 # del servo, el de placas/nucleo_f446re_servo.xml, que vigila `make
 # gui-ordenes`, y su prueba, que vigila `make gui-marcha`; y el del servo con
-# el FTDI, el de placas/nucleo_f446re_encoder_tft_servo.xml, que vigila `make
-# gui-ordenes`
+# el FTDI, el de placas/nucleo_f446re_encoder_tft_servo.xml, y el de los dos
+# motores, el de placas/nucleo_f446re_encoder_lcd_servo_2xmcc.xml, que vigila
+# `make gui-ordenes`
 FWPLACAS := verif/fw/barra8_demo verif/fw/barra8_morpho verif/fw/tft_demo verif/fw/tft_prueba \
-            verif/fw/servo_demo verif/fw/servo_prueba verif/fw/encoder_tft_servo
+            verif/fw/servo_demo verif/fw/servo_prueba verif/fw/encoder_tft_servo \
+            verif/fw/encoder_lcd_servo_2xmcc
 
 # Todos los que hay, para `cleanfw`. Se calculan buscando Makefiles en vez de
 # escribir otra lista: asi un firmware nuevo se borra sin tocar esto.

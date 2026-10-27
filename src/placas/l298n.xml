@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     MODULO L298N: DOBLE PUENTE EN H PARA DOS MOTORES DE CONTINUA, sin MCU
+
+     El modulo rojo de 43 x 43 mm con el L298 bajo su disipador negro, el
+     regulador 78M05 y tres bornas azules. Visto desde arriba, con el
+     disipador arriba:
+
+         MA.OUT1, MA.OUT2    la borna de la IZQUIERDA: el motor A
+         MB.OUT3, MB.OUT4    la de la DERECHA: el motor B
+         X1.12V              la borna de abajo a la izquierda, de tres: la
+         X1.GND              alimentacion de los motores, VS (serigrafiado
+         X1.5V               +12V, de 7 a 35 V con el regulador), la masa
+                             y los 5 V de la logica
+         JA.5V JA.ENA        abajo a la derecha, la tira de ocho pines: el
+         P1.IN1 .. P1.IN4    ENA con el puente de fabrica a 5 V, las cuatro
+         JB.ENB JB.5V        entradas y el ENB con el suyo
+         JP5.REG JP5.5V      el puente 5V-EN, junto a la borna de abajo
+
+     EL CHIP, U1: un L298 (`./build/mcu-sim --help L298`), los dos puentes en
+     H. ENA habilita el puente A e IN1 e IN2 dicen hacia donde: IN1 alto e
+     IN2 bajo, OUT1 a VS y OUT2 a masa; al reves, al reves; iguales, el motor
+     frena; con ENA bajo, va libre. Igual ENB, IN3, IN4, OUT3 y OUT4. Las
+     entradas son TTL: valen los 3,3 V de un STM32.
+
+     LAS SALIDAS NO LLEGAN A VS NI A MASA: el L298 se come 1,35 V arriba y
+     1,2 V abajo con 1 A, unos 1,6 V entre las dos con lo que gasta un
+     motorreductor en vacio. Con 7,4 V en la borna, al motor le llegan unos
+     5,7.
+
+     LOS PUENTES DE FABRICA: JA y JB, el ENA y el ENB a 5 V -los motores
+     siempre habilitados, a toda velocidad-. Para regularla con PWM se quitan,
+     y el PWM va a JA.ENA y JB.ENB: en un sistema,
+
+         <jumper ref="L/JA" puente="no"/>
+
+     Y JP5, el 5V-EN, puesto: el 78M05, U2, saca los 5 V de la logica de VS,
+     y la borna X1.5V es una SALIDA de 5 V. Para eso VS tiene que pasar de 7 V
+     -el regulador cae 2-; con menos, la logica se queda corta y U2 lo avisa.
+     Con mas de 12 V se quita el puente y los 5 V se dan por X1.5V.
+
+     LO QUE NO SE MODELA: los ocho diodos de libre circulacion -sin
+     inductancia en el motor (doc/parts.md, MotorCC) no tienen nada que
+     llevar- y los condensadores. Los SENSE A y SENSE B van a masa por el
+     modulo, y por dentro del L298 en el modelo.
+
+     El LED rojo, D1, es el de los 5 V: luce si hay logica.
+
+         ./build/mcu-sim placas/l298n.xml --valida
+     ========================================================================= -->
+<placa nombre="l298n">
+  <!-- Las bornas de los motores, a los lados -->
+  <componente tipo="Conector" id="MA" filas="2" columnas="1" nombres="OUT1 OUT2"/>
+  <componente tipo="Conector" id="MB" filas="2" columnas="1" nombres="OUT3 OUT4"/>
+
+  <!-- La borna de la alimentacion: +12V (VS), GND y +5V -->
+  <componente tipo="Conector" id="X1" filas="1" columnas="3" nombres="12V GND 5V">
+    <pin nombre="5V" nodo="V5"/>
+  </componente>
+  <nodo id="V5" bus="si"/>
+  <nodo id="X1.12V" bus="si"/>
+  <nodo id="X1.GND" bus="si"/>
+
+  <!-- La tira de abajo: ENA con su puente a 5 V, las cuatro entradas y ENB
+       con el suyo -->
+  <componente tipo="Jumper" id="JA" filas="1" columnas="2" nombres="5V ENA" puente="5V ENA">
+    <pin nombre="5V" nodo="V5"/>
+  </componente>
+  <componente tipo="Conector" id="P1" filas="1" columnas="4" nombres="IN1 IN2 IN3 IN4"/>
+  <componente tipo="Jumper" id="JB" filas="1" columnas="2" nombres="ENB 5V" puente="ENB 5V">
+    <pin nombre="5V" nodo="V5"/>
+  </componente>
+
+  <!-- El 5V-EN: la salida del regulador a los 5 V del modulo -->
+  <componente tipo="Jumper" id="JP5" filas="1" columnas="2" nombres="REG 5V" puente="REG 5V">
+    <pin nombre="5V" nodo="V5"/>
+  </componente>
+
+  <!-- U1, el L298 -->
+  <componente tipo="L298" id="U1">
+    <pin nombre="vs"   nodo="X1.12V"/>
+    <pin nombre="vss"  nodo="V5"/>
+    <pin nombre="gnd"  nodo="X1.GND"/>
+    <pin nombre="ena"  nodo="JA.ENA"/>
+    <pin nombre="in1"  nodo="P1.IN1"/>
+    <pin nombre="in2"  nodo="P1.IN2"/>
+    <pin nombre="enb"  nodo="JB.ENB"/>
+    <pin nombre="in3"  nodo="P1.IN3"/>
+    <pin nombre="in4"  nodo="P1.IN4"/>
+    <pin nombre="out1" nodo="MA.OUT1"/>
+    <pin nombre="out2" nodo="MA.OUT2"/>
+    <pin nombre="out3" nodo="MB.OUT3"/>
+    <pin nombre="out4" nodo="MB.OUT4"/>
+  </componente>
+
+  <!-- U2, el 78M05: los 5 V de la logica, de VS -->
+  <componente tipo="Regulador" id="U2" v="5" caida="1.7" limite_ma="500" iq_ma="5">
+    <pin nombre="entrada" nodo="X1.12V"/>
+    <pin nombre="salida"  nodo="JP5.REG"/>
+    <pin nombre="gnd"     nodo="X1.GND"/>
+  </componente>
+
+  <!-- D1, el LED de los 5 V, con su resistencia de 1 kohm -->
+  <componente tipo="Led" id="D1" vf="2.0" r="1000">
+    <pin nombre="anodo"  nodo="V5"/>
+    <pin nombre="catodo" nodo="X1.GND"/>
+  </componente>
+</placa>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     PORTAPILAS DE DOS 18650 EN SERIE: 7,4 V, sin MCU
+
+     La bateria de los motores de un robot de practicas: dos celdas de litio
+     de 3,7 V en serie, en su portapilas negro, con dos hilos:
+
+         P1.BAT     el positivo, el hilo rojo: 7,4 V
+         P1.GND     el negativo, el negro
+
+     LA BATERIA, BAT: una Fuente de 7,4 V con la resistencia interna de las
+     dos celdas y los contactos del portapilas, 0,15 ohm: con los dos motores
+     bloqueados tras un L298N, unos 2 A, cae 0,3 V. No se descarga. Su
+     negativo, P1.GND, es la masa de quien la use: la de la Nucleo, en un
+     sistema; sola, no va a ningun sitio.
+
+     Por que 7,4 V y no cuatro pilas AA: el L298 se come unos 1,6 V, y el
+     78M05 del modulo L298N necesita 7 V para dar sus 5. Con 6 V, los motores
+     andarian a 4,4 V y la logica del L298 se quedaria corta.
+
+         ./build/mcu-sim placas/bateria_2x18650.xml --valida
+     ========================================================================= -->
+<placa nombre="bateria-2x18650">
+  <componente tipo="Conector" id="P1" filas="2" columnas="1" nombres="BAT GND"/>
+
+  <componente tipo="Fuente" id="BAT" v="7.4" r="0.15">
+    <pin nombre="pin" nodo="P1.BAT"/>
+  </componente>
+</placa>

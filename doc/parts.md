@@ -1,6 +1,6 @@
 # Catálogo de componentes externos
 
-Referencia de las **25 piezas** que la factoría de `src/parts/` sabe construir:
+Referencia de las **44 piezas** que la factoría de `src/parts/` sabe construir:
 qué terminales tiene cada una, qué parámetros admite, qué hace cada parámetro y
 qué queda fuera del fichero.
 
@@ -2067,6 +2067,9 @@ Lo declaran estas:
 | `Postura` | `alabeo`, `cabeceo`, `rumbo` (°, los que sugiere pintar) y `giro` (dps) | `alabeo`, `cabeceo` y `rumbo` (continuos: la placa gira hasta ahí) |
 | `L3gd20`, `I3g4250d` | `giro_x`, `giro_y`, `giro_z` (dps) | — |
 | `Lsm303dlhc`, `Lsm303agr` | `acel_x/y/z` (mg) y `campo_x/y/z` (mG) | — |
+| `MotorCC` | `angulo` (°, de 0 a 360, el que sugiere pintar), `rpm`, `corriente` (mA) y `tension` (V), las dos de media; con encoder, `cuenta`, `enc_a` y `enc_b` | `bloquear` (interruptor: la mano en la rueda) y `carga` (continuo, de 0 a 100 % del par de bloqueo) |
+| `L298` | `corriente_a`, `corriente_b` y `corriente_vs` (mA, de media), `disipacion` (W) y `logica` (0/1) | — |
+| `Regulador` | `tension` (V), `corriente` (mA) y `sin_margen` (**alarma**) | — |
 
 **Una pieza puede enseñar además una IMAGEN entera** —la pantalla de un
 TFT—, que no cabe en un número (`Imagen` en `parts/part_base.h`). El catálogo
@@ -2091,9 +2094,175 @@ método de siempre: `acciona(pulsar, 1)` hace lo mismo que `press()`.
 
 Las demás no declaran nada todavía, y no les hace falta para
 compilar: los seis métodos de `ExtPartBase` tienen valores por omisión. Las
-piezas que el enunciado de la GUI necesita y no existen —`PwmMeter`,
-`StepperDriver`, `DcMotor`— están en `doc/analisis_gui.md` §8; el `Encoder`
-(§4.1) y el `Servo` (§4.12) ya están.
+piezas que el enunciado de la GUI necesita y no existen —`PwmMeter` y
+`StepperDriver`— están en `doc/analisis_gui.md` §8; el `Encoder` (§4.1), el
+`Servo` (§4.12) y el motor de continua con su puente en H, `MotorCC` y `L298`
+(§4.16), ya están.
+
+
+### 4.16 El motor de continua y su puente en H
+
+Las tres piezas del robot de prácticas (`parts/motor_cc.h` y
+`parts/puente_h.h`): el motorreductor, el L298 que lo mueve y el regulador
+que alimenta la lógica del módulo L298N. Montadas, son `placas/l298n.xml`,
+`placas/motor_tt_encoder.xml` y `placas/bateria_2x18650.xml`, y con la Nucleo,
+`placas/nucleo_f446re_encoder_lcd_servo_2xmcc.xml`.
+
+#### `MotorCC`
+
+Un **motor de corriente continua con reductora** y, si se le dan sus cuatro
+patillas, un **encoder incremental** en el eje de salida. Las cifras de
+omisión son las del motorreductor TT amarillo de 1:48 y 3 a 6 V [Adafruit
+3777: 250 rpm y 160 mA en vacío y 1,5 A bloqueado a 6 V].
+
+**Lo eléctrico.** Entre `a` y `b`, una f.e.m. `E = Ke·ω` en serie con la
+resistencia del bobinado `R`: `Va − Vb = E + R·i`. Con `a` más alto gira a la
+**derecha** —en el sentido de las agujas del reloj, mirando el eje de salida
+desde su extremo—, que es el ángulo positivo. Es una rama entre dos nodos con
+una fuente dentro, en los dos sentidos: un motor que gira **genera**, y con un
+borne al aire enseña su f.e.m. en él.
+
+**Lo mecánico**, en el eje de salida y con la reductora dentro:
+
+    J·dω/dt = Kt·i − Tf·sgn(ω) − Tc·sgn(ω)
+
+con `Kt = Ke`, un rozamiento seco `Tf` —el que se lleva la corriente en
+vacío—, uno de **arranque** mayor que hay que vencer para que se mueva parado
+—el de `i_arranque_ma`— y la carga `Tc` del mando `carga`. La inercia `J` sale
+de la constante de tiempo. Las cifras se dan como en una hoja de datos y de ahí
+sale el resto: `R = v_nominal / i_bloqueo`, `Ke = (v_nominal − i_vacio·R) /
+ω_vacio`.
+
+**No se integra a pasos.** Entre dos cambios de lo que hay en sus bornes, la
+tensión de Thevenin que ve el motor es constante y la ecuación tiene
+solución exacta —una exponencial con corriente, una recta sin ella—. El
+proceso despierta en cada cambio de los bornes, en cada flanco del encoder
+—calculado sobre esa solución, no muestreado—, cuando se para, y cada
+milisegundo mientras acelera o frena, para que la corriente y la f.e.m. que
+ven los demás sigan al eje.
+
+**Lo que no es fiel: no tiene inductancia.** La corriente sigue a la tensión
+al momento: con PWM se corta con él, donde en el motor de verdad la bobina la
+alisa dentro de cada periodo. En vacío eso hace que la velocidad suba más
+deprisa con el ciclo de trabajo que en el de verdad: con el L298N a 1 kHz, el
+50 % da unas 196 rpm de las 238 del 100 %. La media de lo que entra sí es la
+de verdad.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `a`, `b` | obligatorios | Los bornes: con `a` más alto, gira a la derecha |
+| `enc_vcc`, `enc_gnd` | con `ppr` | La alimentación del encoder. Con menos de 2,5 V entre los dos, sus salidas se quedan al aire |
+| `enc_a`, `enc_b` | con `ppr` | Las salidas, en cuadratura: girando a la derecha A va delante —00, 10, 11, 01—; a la izquierda, B. De colector abierto con un pull-up de 10 kΩ a `enc_vcc`: altas con 10 kΩ, bajas con 100 Ω |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `v_nominal` | `6` | La tensión a la que se dan las demás cifras, en V |
+| `rpm_vacio` | `250` | Las rpm del eje de salida en vacío, a `v_nominal` |
+| `i_vacio_ma` | `160` | La corriente en vacío, a `v_nominal`: el rozamiento |
+| `i_bloqueo_ma` | `1500` | La corriente con el eje sujeto, a `v_nominal`: la resistencia |
+| `i_arranque_ma` | `250` | La que hace falta para que arranque parado, de `i_vacio_ma` a `i_bloqueo_ma` |
+| `tau_ms` | `50` | La constante de tiempo mecánica en vacío: lo que tarda en llegar al 63 % de su velocidad. De ella sale la inercia |
+| `reduccion` | `48` | La de la reductora: solo para decir las rpm del motor |
+| `v_max` | `7.2` | Lo que aguanta: por encima, se avisa |
+| `ppr` | `0` | Las ventanas del disco del encoder, los pulsos de cada canal por vuelta del eje de salida. `0`, sin encoder y sin sus patillas; con él, las cuatro |
+| `enc_i_ma` | `20` | Lo que gasta el sensor del encoder a 3,3 V |
+| `posicion_inicial` | `0` | El ángulo del eje al arrancar, en grados |
+
+Deja ver `angulo` (de 0 a 360, el que sugiere pintar: la ventana gira el
+elemento de la pieza con él, el efecto `angulo`, como el disco de
+`placas/motor_tt_encoder.svg`), `rpm`, y la `corriente` y la `tension` **de
+media** —un filtro de primer orden de 5 ms: lo que marcaría un polímetro con
+PWM—; con encoder, `cuenta` —los cuartos de ciclo, con signo: 4·`ppr` por
+vuelta— y `enc_a` y `enc_b`. Los **mandos**: `bloquear`, la mano que sujeta la
+rueda, y `carga`, un par que se opone al giro, en % del de bloqueo. Avisa de la
+sobretensión. Al terminar, `sim` dice cómo ha quedado: `MOTOR MA/MOTOR: +237.8
+rpm (+11413 en el motor), +5.74 V y +160 mA de media; +3.72 vueltas; encoder
++357 cuartos (24 PPR)`. Desde C++, `rpm()`, `rpm_motor()`, `angulo()`,
+`vueltas()`, `corriente_ma()` y `tension()` —las de ahora—,
+`corriente_media_ma()` y `tension_media()`, `fem()`, `cuenta()`, `enc_a()`,
+`enc_b()`, `bloquea(si)` y `pon_carga(0..1)`.
+
+`placas/motor_tt_encoder.xml` es el motorreductor con un disco de 24 ventanas
+de través en el eje de salida y la plaquita de sus dos sensores ópticos: 24
+PPR, 96 cuartos por vuelta del eje. Sus terminales son `M.ROJO` (+) y
+`M.NEGRO`; la tira del encoder, `P1.VCC`, `P1.GND`, `P1.A` y `P1.B`.
+
+#### `L298`
+
+El **doble puente en H** de ST [DS0218]: dos puentes, A y B, para dos motores
+de continua (o un paso a paso bipolar).
+
+| ENA | IN1 | IN2 | OUT1 | OUT2 | El motor |
+| :---: | :---: | :---: | :---: | :---: | :--- |
+| alto | alto | bajo | VS | masa | hacia delante |
+| alto | bajo | alto | masa | VS | hacia atrás |
+| alto | igual | igual | VS o masa | VS o masa | en corto: **frena** |
+| bajo | — | — | al aire | al aire | **libre** |
+
+Igual ENB, IN3, IN4, OUT3 y OUT4. Las entradas son **TTL** —bajo hasta 1,5 V,
+alto desde 2,3 V—: valen los 3,3 V de un STM32. Entre los dos, la entrada se
+queda como estaba y se avisa.
+
+**Las salidas no llegan a VS ni a masa**: son Darlington, y caen lo que dice
+la hoja de datos —arriba 1,35 V con 1 A y 2 V con 2 A; abajo 1,2 y 1,7—. En
+línea recta, eso es una fuente de `VS − 0,7 V` con 0,65 Ω arriba y de 0,7 V
+con 0,5 Ω abajo: con un motorreductor en vacío, unos 1,6 V menos de los que da
+la batería, y casi 3,2 con 1 A. Es lo que más sorprende del L298 la primera
+vez.
+
+Lo que sale por las salidas altas lo pide a `vs`, más 13 mA con algún puente
+habilitado (4 sin ninguno); la lógica, a `vss`, 24 mA (6 sin habilitar). Con
+menos de 4,5 V en `vss` las salidas se quedan al aire, y se avisa. Pasar de
+2 A por una salida se avisa: el L298 no se protege. Los SENSE A y B van a masa
+por dentro.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `vs` | obligatorio | La alimentación de los motores |
+| `vss` | obligatorio | La de la lógica, de 4,5 a 7 V |
+| `gnd` | obligatorio | La masa |
+| `ena`, `in1`, `in2` | obligatorios | El puente A |
+| `enb`, `in3`, `in4` | obligatorios | El puente B |
+| `out1` … `out4` | obligatorios | Las salidas: `out1` y `out2` del A, `out3` y `out4` del B |
+
+Deja ver `corriente_a` y `corriente_b` —la de cada motor, la que sale por OUT1
+y OUT3—, `corriente_vs` —lo que pide a VS—, `disipacion` —lo que se queda en
+el chip, en W—, las cuatro de media, y `logica`. Al terminar: `L298 L/U1: A
+adelante (+160 mA), B adelante (+160 mA); VS 333 mA, VSS 24 mA; disipa 0.72 W
+(como mucho 6.58), de media`. Desde C++, `logica()`, `habilitado(p)`,
+`estado(p)` —`adelante`, `atras`, `freno` o `libre`—, `corriente_ma(p)`,
+`corriente_salida(k)` —la de ahora—, `corriente_vs_ma()`, `disipacion()` y
+`disipacion_max()`.
+
+#### `Regulador`
+
+Un **regulador lineal** de tres patillas, como el 78M05 de los módulos L298N:
+da `v` voltios mientras la entrada le deje `caida` de margen; con menos, la
+entrada menos la caída, y lo deja ver como una alarma, `sin_margen`, cuando se
+queda 50 mV corto. Lo que entrega lo pide a la entrada, más su corriente de
+reposo.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `entrada`, `salida`, `gnd` | obligatorios | |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `v` | `5` | La tensión de salida |
+| `caida` | `2` | El margen que necesita, en V |
+| `limite_ma` | `500` | Lo que da: pasar de ahí se avisa |
+| `iq_ma` | `5` | Su corriente de reposo |
+| `r` | `0.1` | La resistencia de su salida |
+
+`placas/l298n.xml` es el módulo rojo entero: el L298 (`U1`), el 78M05 (`U2`,
+con `caida="1.7"`, la suya a los 30 mA de la lógica), el LED de los 5 V
+(`D1`), las bornas de los motores (`MA.OUT1`, `MA.OUT2`, `MB.OUT3`,
+`MB.OUT4`), la de la alimentación (`X1.12V`, `X1.GND`, `X1.5V`), la tira de
+abajo con los **puentes de ENA y ENB** puestos de fábrica (`JA` y `JB`, que se
+quitan con `<jumper ref="L/JA" puente="no"/>` para darles PWM) y el **5V-EN**
+(`JP5`). Los diodos de libre circulación no se modelan: sin inductancia en el
+motor no tienen nada que llevar. `placas/bateria_2x18650.xml` es la batería:
+una `Fuente` de 7,4 V con 0,15 Ω.
 
 ---
 

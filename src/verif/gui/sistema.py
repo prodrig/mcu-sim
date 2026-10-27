@@ -68,6 +68,10 @@
 #   C20 el LED RGB: la LED2 de la P401R y el D1 de la EDUMKII son UNA pieza
 #       RGBLed, con sus patillas r/g/b, y el catalogo marca sus canales con
 #       color= para que la ventana los mezcle.
+#   C21 las placas del sistema de los motores -el L298N, el motorreductor con
+#       su encoder y la bateria-, con su dibujo de placas/dibuja_motores.py:
+#       cada pieza visible y cada pin, con su id; los puentes de ENA, ENB y
+#       5V-EN, como variantes; y en el sistema, el L298N sin los de ENA y ENB.
 #
 #   make -f Makefile.mcu-sim gui-sistema
 #   python3 verif/gui/sistema.py [--sim build/mcu-sim]
@@ -1504,6 +1508,44 @@ def c20_rgb(sim, cp):
         check(not sueltos, "y ya no hay tres Led sueltos (%s)" % sueltos)
 
 
+# ---------------------------------------------------------------------------
+# C21
+# ---------------------------------------------------------------------------
+PLACAS_MOTORES = ("l298n", "motor_tt_encoder", "bateria_2x18650")
+
+
+def c21_motores(sim, cp):
+    grupo("C21 El L298N, el motor con su encoder y la bateria, con su dibujo")
+    esperado = {
+        "l298n": ("placa 'l298n': SIN MCU, 10 componentes", "JA 5V-ENA, JB ENB-5V, JP5 REG-5V)"),
+        "motor_tt_encoder": ("placa 'motor-tt-encoder': SIN MCU, 3 componentes", "(8 kB)"),
+        "bateria_2x18650": ("placa 'bateria-2x18650': SIN MCU, 2 componentes", "kB)"),
+    }
+    for n in PLACAS_MOTORES:
+        rc, out, err = corre(sim, ["placas/%s.xml" % n, "--valida"])
+        cab, dib = esperado[n]
+        check(rc == 0 and cab in out and "0 avisos" in out and ("dibujo: %s.svg (" % n) in out and
+              dib in out, "placas/%s.xml valida sin un aviso, con su dibujo" % n)
+        f = piezas_sin_dibujo(n)
+        check(not f, "%s.svg: cada pieza visible y cada pin de conector, con su id (faltan: %s)"
+              % (n, f))
+    with open(os.path.join(SRC, "placas", "l298n.svg"), encoding="utf-8") as fh:
+        svg = fh.read()
+    check(all(('id="%s"' % x) in svg for x in ("JA@5V-ENA", "JB@ENB-5V", "JP5@REG-5V")),
+          "los tres puentes del L298N son variantes del dibujo")
+    with open(os.path.join(SRC, "placas", "motor_tt_encoder.svg"), encoding="utf-8") as fh:
+        svg = fh.read()
+    check('<g id="MOTOR">' in svg and svg.count('transform="rotate(') >= 24,
+          "el disco del motor, con sus 24 ventanas, es el elemento MOTOR: el que gira")
+    rc, out, placa, il, av = saludo_con_dibujos(
+        sim, ["placas/nucleo_f446re_encoder_lcd_servo_2xmcc.xml"])
+    l298 = [d for (pl, d) in [(x[0].get("placas"), x[1]) for x in il] if pl and "L" in pl.split()]
+    check(rc == 0 and len(l298) == 1 and b'id="JA@5V-ENA"' not in l298[0] and
+          b'id="JB@ENB-5V"' not in l298[0] and b'id="JP5@REG-5V"' in l298[0],
+          "en el sistema de los motores, la ventana recibe el L298N sin los puentes de ENA y "
+          "ENB -llevan el PWM- y con el 5V-EN puesto")
+
+
 def main():
     a = argparse.ArgumentParser(description="conectores y sistemas de placas")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -1535,6 +1577,7 @@ def main():
         c18_acodado(sim, cp)
         c19_ti(sim, cp)
         c20_rgb(sim, cp)
+        c21_motores(sim, cp)
     finally:
         cp.borra()
     return ventana.resumen("SISTEMA")

@@ -35,6 +35,8 @@
 #include "tft_st7735.h"
 #include "boosterpack.h"
 #include "servo.h"
+#include "motor_cc.h"
+#include "puente_h.h"
 #include "mems_st.h"
 #include "xds110.h"
 
@@ -982,6 +984,216 @@ REGISTRA_PARTE(Servo,
             return mal("color=\"" + color + "\" no vale; es azul o negro");
         return new Servo(d.id.c_str(), n[d.nodo_de("vcc")], n[d.nodo_de("gnd")],
                          n[d.nodo_de("pwm")], c);
+    });
+
+REGISTRA_PARTE(MotorCC,
+    Ayuda("Un MOTOR DE CORRIENTE CONTINUA con reductora -el motorreductor TT "
+          "amarillo de 1:48, por omision- y, si se le dan sus cuatro patillas, "
+          "un ENCODER incremental en el eje de salida. Entre a y b, una f.e.m. "
+          "Ke*w en serie con la resistencia del bobinado, sin inductancia: con "
+          "a mas alto que b gira a la derecha, que es el angulo positivo. El eje "
+          "tiene su inercia, un rozamiento seco, uno de arranque mayor y la carga "
+          "del mando: entre dos cambios de lo que hay en sus bornes, la ecuacion "
+          "se resuelve exacta, no a pasos. Las cifras son las de una hoja de "
+          "datos: la tension nominal, las rpm y la corriente en vacio, y la de "
+          "bloqueo; de ahi salen R y Ke. El encoder es un disco de `ppr` ventanas "
+          "con dos sensores en cuadratura: A va delante a la derecha; salidas de "
+          "colector abierto con pull-up de 10 kohm a enc_vcc.")
+      .ejemplo("<componente tipo=\"MotorCC\" id=\"MOTOR\" ppr=\"24\">\n"
+               "  <pin nombre=\"a\"       nodo=\"M.ROJO\"/>\n"
+               "  <pin nombre=\"b\"       nodo=\"M.NEGRO\"/>\n"
+               "  <pin nombre=\"enc_vcc\" nodo=\"P1.VCC\"/>\n"
+               "  <pin nombre=\"enc_gnd\" nodo=\"P1.GND\"/>\n"
+               "  <pin nombre=\"enc_a\"   nodo=\"P1.A\"/>\n"
+               "  <pin nombre=\"enc_b\"   nodo=\"P1.B\"/>\n"
+               "</componente>")
+      .pin("a", "obligatorio", "Un borne del motor: el +, el que hace girar a la derecha.")
+      .pin("b", "obligatorio", "El otro.")
+      .pin("enc_vcc", "con ppr", "La alimentacion del encoder: con menos de 2,5 V sus "
+           "salidas se quedan al aire.")
+      .pin("enc_gnd", "con ppr", "Su masa.")
+      .pin("enc_a", "con ppr", "La salida A: va delante girando a la derecha.")
+      .pin("enc_b", "con ppr", "La salida B.")
+      .atr("v_nominal", "6", "La tension a la que se dan las demas cifras, en V.")
+      .atr("rpm_vacio", "250", "Las rpm del eje de salida en vacio, a v_nominal.")
+      .atr("i_vacio_ma", "160", "La corriente en vacio, a v_nominal: el rozamiento.")
+      .atr("i_bloqueo_ma", "1500", "La corriente con el eje sujeto, a v_nominal: "
+           "R = v_nominal / i_bloqueo.")
+      .atr("i_arranque_ma", "250", "La que hace falta para que arranque parado: el "
+           "rozamiento de arranque, que es mayor que el de marcha.")
+      .atr("tau_ms", "50", "La constante de tiempo mecanica en vacio, en ms: lo que "
+           "tarda en llegar al 63 % de su velocidad. De ella sale la inercia.")
+      .atr("reduccion", "48", "La de la reductora: solo para decir las rpm del motor.")
+      .atr("v_max", "7.2", "Lo que aguanta, en V: por encima, se avisa.")
+      .atr("ppr", "0", "Las ventanas del disco del encoder, los pulsos por vuelta del "
+           "eje de salida en cada canal. 0: sin encoder, y sin sus patillas.")
+      .atr("enc_i_ma", "20", "Lo que gasta el sensor del encoder a 3,3 V, en mA.")
+      .atr("posicion_inicial", "0", "El angulo del eje al arrancar, en grados.")
+      .nota("Deja ver `angulo` (grados, de 0 a 360, el que sugiere pintar: la "
+            "ventana gira el elemento de la pieza con el, el efecto `angulo`), "
+            "`rpm` del eje de salida, `corriente` (mA, de a a b) y `tension` (V), "
+            "estas dos DE MEDIA -un filtro de 5 ms: lo que marcaria un polimetro con "
+            "PWM-; "
+            "con encoder, tambien `cuenta` (los cuartos de ciclo, con signo), "
+            "`enc_a` y `enc_b`. Los MANDOS: `bloquear`, la mano que sujeta el eje, "
+            "y `carga`, un par que se opone al giro, de 0 a 100 % del de bloqueo. "
+            "Avisa de la sobretension.")
+      .cpp("rpm(), rpm_motor(), angulo(), vueltas(), corriente_ma(), tension(), "
+           "fem(), cuenta(), enc_a(), enc_b(); bloquea(si), pon_carga(0..1)."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("MotorCC '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        auto numero = [](const std::string& t, double& v) {
+            if (t.empty()) return false;
+            char* fin = nullptr;
+            v = std::strtod(t.c_str(), &fin);
+            return fin && *fin == '\0' && std::isfinite(v);
+        };
+        ConfigMotorCC c;
+        double ppr = 0;
+        const char* claves[] = {"v_nominal", "rpm_vacio", "i_vacio_ma", "i_bloqueo_ma",
+                                "i_arranque_ma", "tau_ms", "reduccion", "v_max", "ppr",
+                                "enc_i_ma", "posicion_inicial"};
+        double* destinos[] = {&c.v_nominal, &c.rpm_vacio, &c.i_vacio_ma, &c.i_bloqueo_ma,
+                              &c.i_arranque_ma, &c.tau_ms, &c.reduccion, &c.v_max, &ppr,
+                              &c.enc_i_ma, &c.posicion_inicial};
+        for (unsigned k = 0; k < sizeof claves / sizeof *claves; ++k) {
+            const std::string t = d.txt(claves[k]);
+            if (!t.empty() && !numero(t, *destinos[k]))
+                return mal(std::string(claves[k]) + "=\"" + t + "\" no es un numero");
+        }
+        if (d.nodo_de("a").empty() || d.nodo_de("b").empty())
+            return mal("le faltan sus bornes, <pin nombre=\"a\"> y <pin nombre=\"b\">");
+        if (c.v_nominal <= 0 || c.rpm_vacio <= 0 || c.tau_ms <= 0 || c.reduccion <= 0 ||
+            c.v_max <= 0 || c.enc_i_ma <= 0)
+            return mal("v_nominal, rpm_vacio, tau_ms, reduccion, v_max y enc_i_ma tienen que "
+                       "ser positivos");
+        if (c.i_vacio_ma <= 0 || c.i_bloqueo_ma <= c.i_vacio_ma)
+            return mal("las corrientes van i_vacio_ma > 0 e i_bloqueo_ma mayor que ella");
+        if (c.i_arranque_ma < c.i_vacio_ma || c.i_arranque_ma >= c.i_bloqueo_ma)
+            return mal("i_arranque_ma va de i_vacio_ma a i_bloqueo_ma: arrancar cuesta mas "
+                       "que seguir, y menos que el bloqueo");
+        if (ppr < 0 || ppr > 10000 || ppr != std::floor(ppr))
+            return mal("ppr es un entero de 0 a 10000");
+        c.ppr = unsigned(ppr);
+        const char* enc[4] = {"enc_vcc", "enc_gnd", "enc_a", "enc_b"};
+        unsigned con = 0;
+        for (const char* e : enc) con += d.nodo_de(e).empty() ? 0u : 1u;
+        if (c.ppr && con != 4)
+            return mal("con ppr, el encoder lleva sus cuatro patillas: enc_vcc, enc_gnd, "
+                       "enc_a y enc_b");
+        if (!c.ppr && con)
+            return mal("las patillas del encoder piden ppr=, los pulsos por vuelta");
+        if (!c.ppr)
+            return new MotorCC(d.id.c_str(), n[d.nodo_de("a")], n[d.nodo_de("b")], c);
+        return new MotorCC(d.id.c_str(), n[d.nodo_de("a")], n[d.nodo_de("b")], c,
+                           &n[d.nodo_de("enc_vcc")], &n[d.nodo_de("enc_gnd")],
+                           &n[d.nodo_de("enc_a")], &n[d.nodo_de("enc_b")]);
+    });
+
+REGISTRA_PARTE(L298,
+    Ayuda("El L298 de ST: DOS PUENTES EN H completos para motores de continua. "
+          "Con ENA alto, IN1 alto e IN2 bajo llevan OUT1 a VS y OUT2 a masa; al "
+          "reves, al reves; iguales, el motor frena en corto; con ENA bajo las dos "
+          "salidas se quedan al aire y el motor va libre. Igual ENB, IN3, IN4, OUT3 "
+          "y OUT4. Las entradas son TTL -bajo hasta 1,5 V, alto desde 2,3 V-: "
+          "valen con 3,3 V. Las salidas son Darlington y no llegan a los rieles: "
+          "caen 0,7 V mas 0,65 ohm arriba y 0,7 V mas 0,5 ohm abajo, que son "
+          "los 1,35 y 1,2 V de la hoja de datos con 1 A. Lo que sale por las "
+          "salidas altas lo pide a VS, con su consumo de reposo; la logica, a VSS, "
+          "que necesita de 4,5 a 7 V.")
+      .ejemplo("<componente tipo=\"L298\" id=\"U1\">\n"
+               "  <pin nombre=\"vs\"   nodo=\"X1.12V\"/>\n"
+               "  <pin nombre=\"vss\"  nodo=\"V5\"/>\n"
+               "  <pin nombre=\"gnd\"  nodo=\"X1.GND\"/>\n"
+               "  <pin nombre=\"ena\"  nodo=\"JA.ENA\"/>\n"
+               "  <pin nombre=\"in1\"  nodo=\"P1.IN1\"/>\n"
+               "  <pin nombre=\"in2\"  nodo=\"P1.IN2\"/>\n"
+               "  <pin nombre=\"enb\"  nodo=\"JB.ENB\"/>\n"
+               "  <pin nombre=\"in3\"  nodo=\"P1.IN3\"/>\n"
+               "  <pin nombre=\"in4\"  nodo=\"P1.IN4\"/>\n"
+               "  <pin nombre=\"out1\" nodo=\"MA.OUT1\"/>\n"
+               "  <pin nombre=\"out2\" nodo=\"MA.OUT2\"/>\n"
+               "  <pin nombre=\"out3\" nodo=\"MB.OUT3\"/>\n"
+               "  <pin nombre=\"out4\" nodo=\"MB.OUT4\"/>\n"
+               "</componente>")
+      .pin("vs", "obligatorio", "La alimentacion de los motores, hasta 46 V.")
+      .pin("vss", "obligatorio", "La de la logica, de 4,5 a 7 V.")
+      .pin("gnd", "obligatorio", "La masa; tambien la de los SENSE A y B.")
+      .pin("ena, enb", "obligatorios", "La habilitacion de cada puente.")
+      .pin("in1 .. in4", "obligatorios", "Las entradas: in1 e in2 del puente A, in3 e "
+           "in4 del B.")
+      .pin("out1 .. out4", "obligatorios", "Las salidas: out1 y out2 del A, out3 y out4 "
+           "del B.")
+      .nota("Deja ver `corriente_a` y `corriente_b` (mA, la de cada motor, la que sale "
+            "por OUT1 y OUT3), `corriente_vs` (mA, lo que pide a VS) y `disipacion` "
+            "(W, lo que se queda en el chip), las cuatro DE MEDIA -un filtro de 5 ms-, "
+            "y `logica` (0/1). Avisa, una vez cada "
+            "cosa, de una entrada a un nivel que no es ni alto ni bajo, de la logica "
+            "sin tension y de mas de 2 A por una salida, que es lo que aguanta: el "
+            "L298 no se protege.")
+      .cpp("logica(), habilitado(p), estado(p) -adelante, atras, freno o libre-, "
+           "corriente_ma(p), corriente_salida(k), corriente_vs_ma(), "
+           "corriente_vss_ma(), disipacion() y disipacion_max()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        const char* todos[] = {"vs", "vss", "gnd", "ena", "enb", "in1", "in2", "in3", "in4",
+                               "out1", "out2", "out3", "out4"};
+        for (const char* t : todos)
+            if (d.nodo_de(t).empty()) {
+                SC_REPORT_ERROR("netlist", ("L298 '" + d.id + "': le falta <pin nombre=\"" +
+                                            std::string(t) + "\">; lleva las trece "
+                                            "patillas").c_str());
+                return nullptr;
+            }
+        analog_net_if* en[2] = {&n[d.nodo_de("ena")], &n[d.nodo_de("enb")]};
+        analog_net_if* in[4] = {&n[d.nodo_de("in1")], &n[d.nodo_de("in2")],
+                                &n[d.nodo_de("in3")], &n[d.nodo_de("in4")]};
+        analog_net_if* out[4] = {&n[d.nodo_de("out1")], &n[d.nodo_de("out2")],
+                                 &n[d.nodo_de("out3")], &n[d.nodo_de("out4")]};
+        return new L298(d.id.c_str(), n[d.nodo_de("vs")], n[d.nodo_de("vss")],
+                        n[d.nodo_de("gnd")], en, in, out);
+    });
+
+REGISTRA_PARTE(Regulador,
+    Ayuda("Un REGULADOR LINEAL de tres patillas, como el 78M05 de los modulos L298N: "
+          "da `v` voltios por la salida mientras la entrada le deje `caida` de "
+          "margen; con menos, la entrada menos la caida, y lo deja ver como una "
+          "alarma, `sin_margen`. Lo que entrega lo pide a la entrada, mas su "
+          "corriente de reposo: una bateria floja se nota a los dos lados.")
+      .ejemplo("<componente tipo=\"Regulador\" id=\"U2\" v=\"5\" caida=\"2\">\n"
+               "  <pin nombre=\"entrada\" nodo=\"X1.12V\"/>\n"
+               "  <pin nombre=\"salida\"  nodo=\"JP5.REG\"/>\n"
+               "  <pin nombre=\"gnd\"     nodo=\"X1.GND\"/>\n"
+               "</componente>")
+      .pin("entrada", "obligatorio", "La entrada.")
+      .pin("salida", "obligatorio", "La salida regulada.")
+      .pin("gnd", "obligatorio", "La masa.")
+      .atr("v", "5", "La tension de salida, en V.")
+      .atr("caida", "2", "El margen que necesita entre la entrada y la salida, en V.")
+      .atr("limite_ma", "500", "Lo que da: pasar de ahi se avisa.")
+      .atr("iq_ma", "5", "Su corriente de reposo, que tambien pide a la entrada.")
+      .atr("r", "0.1", "La resistencia de su salida, en ohmios.")
+      .nota("Deja ver `tension` (V), `corriente` (mA, la de la salida) y `sin_margen`, "
+            "una alarma. Avisa de la falta de margen y de pasar de limite_ma.")
+      .cpp("tension(), corriente_ma() y sin_margen()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        for (const char* t : {"entrada", "salida", "gnd"})
+            if (d.nodo_de(t).empty()) {
+                SC_REPORT_ERROR("netlist", ("Regulador '" + d.id + "': le falta <pin nombre=\"" +
+                                            std::string(t) + "\">").c_str());
+                return nullptr;
+            }
+        const double v = d.num("v", 5.0), caida = d.num("caida", 2.0);
+        const double lim = d.num("limite_ma", 500.0), iq = d.num("iq_ma", 5.0);
+        if (v <= 0 || caida < 0 || lim <= 0 || iq < 0) {
+            SC_REPORT_ERROR("netlist", ("Regulador '" + d.id + "': v y limite_ma tienen que "
+                                        "ser positivos, y caida e iq_ma no negativos").c_str());
+            return nullptr;
+        }
+        return new Regulador(d.id.c_str(), n[d.nodo_de("entrada")], n[d.nodo_de("salida")],
+                             n[d.nodo_de("gnd")], v, caida, lim, iq, d.num("r", 0.1));
     });
 
 REGISTRA_PARTE(Driver,

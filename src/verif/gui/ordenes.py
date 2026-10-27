@@ -56,6 +56,14 @@
 #       adaptador FTDI, con `verif/fw/encoder_tft_servo`. 7,5 grados por clic,
 #       hasta el tope; apretar el eje lo centra; cada cambio sale por el FTDI,
 #       la USART3, y no por el VCP; y la pantalla enseña la aguja.
+#   O10 EL MISMO SISTEMA CON DOS MOTORES
+#       (`placas/nucleo_f446re_encoder_lcd_servo_2xmcc.xml`): un L298N, dos
+#       motorreductores con su encoder de 24 PPR y su batería, con
+#       `verif/fw/encoder_lcd_servo_2xmcc`. El mando pide el PWM -un 10 % por
+#       clic-, los encoders, contados por el TIM2 y el TIM1 en modo encoder,
+#       dan las rpm que dicen el FTDI y la pantalla, el servo hace de aguja de
+#       las del motor A, y sujetar un motor no toca al otro; apretar el eje
+#       los para.
 #
 #   make -f Makefile.mcu-sim gui-ordenes
 #   python3 verif/gui/ordenes.py [--sim build/mcu-sim]
@@ -816,6 +824,121 @@ def o9_ftdi(sim):
           "y el FTDI recibe sin errores de trama: 115200 8N1 a los dos lados")
 
 
+# ---------------------------------------------------------------------------
+# O10
+# ---------------------------------------------------------------------------
+MCC = "placas/nucleo_f446re_encoder_lcd_servo_2xmcc.xml"
+
+
+def o10_motores(sim):
+    import re
+    grupo("O10 Dos motores con encoder tras un L298N, con el mando, la pantalla y el FTDI")
+    r = subprocess.run([sim, MCC, "--valida"], stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, timeout=60)
+    out = r.stdout.decode("utf-8", "replace")
+    check(r.returncode == 0 and "9 placas: N (nucleo-f446re), S (servo-sg90), K (ky040-24ppr), "
+          "T (tft-128x160), F (ftdi-ft232rl), L (l298n), MA (motor-tt-encoder), "
+          "MB (motor-tt-encoder), B (bateria-2x18650)" in out and
+          "1 MCU(s), 44 componentes, 180 nodos, 0 avisos" in out and
+          "dibujo L: l298n.svg (12 kB, JA no, JB no, JP5 REG-5V)" in out and
+          "dibujo MB: motor_tt_encoder.svg, el mismo que MA" in out,
+          "%s se valida sin avisos: nueve placas, el L298N sin los puentes de ENA y ENB, y "
+          "los dos motores con el mismo dibujo" % MCC)
+    v = Ventana()
+    p = arranca(sim, [MCC, "--ms=3600", "--serie", "F/U1=memoria", "--serie",
+                      "N/VCP=memoria"], v.puerto)
+    try:
+        if not check(v.acepta(), "con la ventana"):
+            return
+        _, _, cat, listo = saludo_hasta_listo(v, version=2)
+        enc, me, _ = pieza_de(cat, "K/ENC")
+        sw, ms_, _ = pieza_de(cat, "K/SW1")
+        ma, mma, oma = pieza_de(cat, "MA/MOTOR")
+        mb, _, omb = pieza_de(cat, "MB/MOTOR")
+        sv, _, osv = pieza_de(cat, "S/SERVO")
+        img = [int(i.get("id_obs")) for pz in ET.fromstring(cat).iter("pieza")
+               if pz.get("id") == "T/TFT" for i in pz.iter("imagen")]
+        if not check(listo and None not in (enc, sw, ma, mb, sv) and len(img) == 1 and
+                     "bloquear" in mma and "carga" in mma,
+                     "en el catalogo, el mando, los dos motores con `bloquear` y `carga`, el servo "
+                     "y la pantalla"):
+            return
+        ids = [oma["rpm"], omb["rpm"], osv["angulo"], oma["corriente"]]
+        suscribe(v, MS, ids + img)
+        lista = [(400, enc, me["girar"], 10), (1300, enc, me["girar"], 5),
+                 (2100, ma, mma["bloquear"], 1), (2500, ma, mma["bloquear"], 0),
+                 (3100, sw, ms_["pulsar"], 1), (3150, sw, ms_["pulsar"], 0)]
+        t, ords = 0, []
+        for ms, pz_, m, val in lista:
+            ords.append((ms * MS - t, pz_, m, float(val)))
+            t = ms * MS
+        ordenes(v, ords)
+        arranque(v)
+        inst, ims = [], []
+        while True:
+            tt, c = v.recibe(seg=120)
+            if tt is None or tt == T_FIN:
+                break
+            if tt == T_INSTANTANEA:
+                inst.append(instantanea(c))
+            elif tt == T_IMAGEN:
+                ims.append(imagen(c))
+        rc, out, err = termina(p)
+    finally:
+        if p.poll() is None:
+            p.kill()
+        v.cierra()
+    if not check(rc == 0 and len(inst) == 3600, "corre 3600 ms con una muestra cada ms"):
+        return
+    en = {}
+    for ts, _, m in inst:
+        x = dict(m)
+        en[round(ts / MS)] = tuple(x[i] for i in ids)
+    lineas = [l for l in out.splitlines() if "[F/U1] 2xmcc: pwm" in l]
+
+    def dice(pwm, a=None, b=None):
+        for l in lineas:
+            m = re.search(r"pwm ([+-]?\d+)%, A ([+-]?\d+) rpm, B ([+-]?\d+) rpm", l)
+            if m and int(m.group(1)) == pwm and (a is None or a(int(m.group(2)))) and \
+                    (b is None or b(int(m.group(3)))):
+                return True
+        return False
+    check(en[390][:2] == (0, 0) and dice(0, lambda x: x == 0, lambda x: x == 0) and
+          "[F/U1] 2xmcc: L298N con PWM de 1 kHz en PB8 y PB9; encoders en TIM2 y TIM1" in out,
+          "al arrancar, parados: el PWM a cero, y el FTDI lo dice")
+    check(all(237 < en[1290][k] < 240.5 for k in (0, 1)) and
+          dice(100, lambda x: x in (237, 240), lambda x: x in (237, 240)),
+          "diez clics: +100 %%, y los dos motores a %.1f rpm; los encoders, contados por el TIM2 "
+          "y el TIM1 en 250 ms, dicen 237 o 240 -de 2,5 en 2,5-" % en[1290][0])
+    check(83 < en[1290][2] < 89,
+          "el servo, la aguja de las rpm del motor A: %.1f grados -1500 us mas 2 por rpm-"
+          % en[1290][2])
+    check(all(190 < en[2090][k] < 200 for k in (0, 1)) and
+          dice(50, lambda x: 190 <= x <= 205, lambda x: 190 <= x <= 205),
+          "cinco clics atras, +50 %%: %.1f rpm. Sin la inductancia del motor, la velocidad no "
+          "baja a la mitad" % en[2090][0])
+    check(en[2490][0] == 0 and 185 < en[2490][1] < 200 and en[2490][3] > 400 and
+          dice(50, lambda x: x == 0, lambda x: 185 <= x <= 205),
+          "sujeto el motor A, se para y pide %.0f mA de media; el B sigue a %.1f rpm, y el "
+          "FTDI lo dice" % (en[2490][3], en[2490][1]))
+    check(185 < en[2990][0] < 200,
+          "al soltarlo, el A vuelve a su velocidad (%.1f rpm)" % en[2990][0])
+    check(dice(0) and en[3590][:2] == (0, 0) and en[3200][1] > 50,
+          "apretar el eje: PWM a cero, ENA y ENB bajos, y los dos motores siguen libres por "
+          "su inercia hasta pararse")
+    antes = [x for x in ims if x[0] <= 1300 * MS]
+    ult = antes[-1] if antes else None
+
+    def px(x, y):
+        k = (y * 128 + x) * 3
+        return tuple(ult[6][k:k + 3])
+    verde_a, verde_b = (px(100, 64), px(100, 106)) if ult else (None, None)
+    check(ult is not None and verde_a[1] > 200 and verde_a[0] < 20 and verde_b == verde_a and
+          px(126, 64) != verde_a and px(30, 64) != verde_a,
+          "la pantalla, de pie: las dos barras, verdes hacia la derecha -hacia delante- hasta "
+          "las 240 rpm (%s)" % (verde_a,))
+
+
 def main():
     a = argparse.ArgumentParser(description="las ordenes de mcu-sim-gui, contra el mcu-sim de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -833,6 +956,7 @@ def main():
     o7_servo(sim)
     o8_ky040_24ppr(sim)
     o9_ftdi(sim)
+    o10_motores(sim)
     return ventana.resumen("ORDENES")
 
 
