@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     MODULO IBT-2, UN PUENTE EN H DE 43 A CON DOS BTS7960, sin MCU
+
+     El puente para un motor de continua de mas potencia que el TT
+     (doc/analisis_cnc.md §5.3): dos medios puentes BTS7960 de Infineon, uno a
+     cada borna del motor, con sus entradas por un 74HC244 alimentado del VCC
+     del modulo. Tres bornas:
+
+         P1  RPWM, LPWM, R_EN, L_EN, R_IS, L_IS, VCC, GND     la logica
+         X1  BMAS, BMENOS                                     la alimentacion: B+ y B-
+         X2  MMAS, MMENOS                                     el motor: M+ y M-
+
+     U1 es el medio puente del lado R, el de M+: RPWM alto lo lleva a B+, bajo
+     a B-; R_EN alto lo despierta. U2, el del lado L, el de M-, con LPWM y
+     L_EN. Hacia delante -M+ mas alto que M-, el motor a la derecha-: R_EN y
+     L_EN altos, el PWM en RPWM y LPWM bajo. Al reves, al reves. Los dos
+     bajos: el motor en corto, frena. EN bajos: libre.
+
+     Cada uno es un MedioPuente (`./build/mcu-sim --help MedioPuente`): 7 mohm
+     arriba y 9 abajo, y R_IS y L_IS fuentes de corriente de la que sale por
+     el de arriba entre 8500, que una resistencia de fuera convierte en
+     tension. Con VCC a 5 V, el 74HC244 pide 3,5 V para un alto: los 3,3 V de
+     un STM32 quedan por debajo -funciona, fuera de especificacion-, y se
+     avisa.
+
+     GND de P1 y BMENOS son la misma masa.
+
+         ./build/mcu-sim placas/ibt2.xml --valida
+     ========================================================================= -->
+<placa nombre="ibt2">
+  <componente tipo="Conector" id="P1" filas="1" columnas="8"
+              nombres="RPWM LPWM R_EN L_EN R_IS L_IS VCC GND">
+    <pin nombre="GND" nodo="MASA"/>
+  </componente>
+  <componente tipo="Conector" id="X1" filas="1" columnas="2" nombres="BMAS BMENOS">
+    <pin nombre="BMENOS" nodo="MASA"/>
+  </componente>
+  <componente tipo="Conector" id="X2" filas="1" columnas="2" nombres="MMAS MMENOS"/>
+  <nodo id="MASA" bus="si"/>
+  <nodo id="X1.BMAS" bus="si"/>
+  <nodo id="X2.MMAS" bus="si"/>
+  <nodo id="X2.MMENOS" bus="si"/>
+  <nodo id="P1.VCC" bus="si"/>
+
+  <componente tipo="MedioPuente" id="U1">
+    <pin nombre="vs"  nodo="X1.BMAS"/>
+    <pin nombre="gnd" nodo="MASA"/>
+    <pin nombre="in"  nodo="P1.RPWM"/>
+    <pin nombre="inh" nodo="P1.R_EN"/>
+    <pin nombre="out" nodo="X2.MMAS"/>
+    <pin nombre="is"  nodo="P1.R_IS"/>
+    <pin nombre="vdd" nodo="P1.VCC"/>
+  </componente>
+  <componente tipo="MedioPuente" id="U2">
+    <pin nombre="vs"  nodo="X1.BMAS"/>
+    <pin nombre="gnd" nodo="MASA"/>
+    <pin nombre="in"  nodo="P1.LPWM"/>
+    <pin nombre="inh" nodo="P1.L_EN"/>
+    <pin nombre="out" nodo="X2.MMENOS"/>
+    <pin nombre="is"  nodo="P1.L_IS"/>
+    <pin nombre="vdd" nodo="P1.VCC"/>
+  </componente>
+</placa>

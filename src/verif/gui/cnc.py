@@ -17,6 +17,13 @@
 #       CURVA DE PAR MÁXIMO a 24 y a 48 V, con su esquina; los pasos perdidos
 #       con una rampa demasiado corta; el modelo ideal; el DRV8825 y el
 #       TMC2209; un paso a paso tras un L298; y lo que cuesta simularlo.
+#   C3  (F1b) LA CONTINUA DE POTENCIA. El cabezal, un motor 775 a 24 V tras un
+#       módulo MOSFET: a unas 10 000 rpm; con PWM, casi a tope en vacío y a
+#       la mitad con carga; sin el diodo, el aviso; un IRF520 que no se abre con 5 V. El IBT-2 con sus
+#       dos BTS7960: adelante, atrás y freno, su IS, y el 74HC244 con 3,3 V. Y
+#       un PID de posición en el firmware de una Nucleo-F446RE, con el
+#       motorreductor de 37 mm y su encoder Hall: una vuelta y media atrás,
+#       con el error en 4 cuentas.
 #
 # Cada grupo monta su banco en una carpeta temporal, con placas escritas aquí.
 #
@@ -56,6 +63,9 @@ def corre(sim, ruta, ms, args=()):
     r = subprocess.run([sim, ruta, "--ms=%d" % ms] + list(args), stdout=subprocess.PIPE,
                        stderr=subprocess.STDOUT, timeout=600)
     return r.returncode, r.stdout.decode("utf-8", "replace")
+
+
+ULTIMA = [""]          # la consola de la ultima simulacion con ventana
 
 
 def muestrea(sim, ruta, ms, pedidos, periodo_ns=1000000, lista=(), args=()):
@@ -98,7 +108,8 @@ def muestrea(sim, ruta, ms, pedidos, periodo_ns=1000000, lista=(), args=()):
                 avs.append(aviso(c))
             elif tt == T_FIN:
                 break
-        rc, _, _ = termina(p)
+        rc, out, _ = termina(p)
+        ULTIMA[0] = out
         return series, avs, cat, rc
     finally:
         if p.poll() is None:
@@ -736,6 +747,213 @@ PAP_L298 = """<placa nombre="pap-l298">
 """
 
 
+# ---------------------------------------------------------------------------
+# C3 (F1b): la continua de potencia
+# ---------------------------------------------------------------------------
+BANCO_CABEZAL = """<placa nombre="banco-cabezal">
+  <componente tipo="Conector" id="J" filas="1" columnas="3" nombres="V24 GND SIG"/>
+  <nodo id="J.GND" bus="si"/>
+  <componente tipo="Fuente" id="PSU" v="24" limite_ma="10000" media_ms="50">
+    <pin nombre="pin" nodo="J.V24"/></componente>
+  <componente tipo="Gnd" id="MASA"><pin nombre="pin" nodo="J.GND"/></componente>
+  %(senal)s
+</placa>
+"""
+SENAL_FIJA = """<componente tipo="FuenteAjustable" id="SIG" v="%s" vmin="0" vmax="5" r="10">
+    <pin nombre="pin" nodo="J.SIG"/></componente>"""
+SENAL_PWM = """<componente tipo="ExtClock" id="SIG" hz="1000" vdd="5"><pin nombre="out" nodo="J.SIG"/></componente>"""
+SISTEMA_CABEZAL = """<sistema nombre="prueba-cabezal">
+  <placa id="Q" fichero="%(dir)s/modulo_mosfet.xml"/>
+  <placa id="M" fichero="%(placas)s/motor_775.xml"/>
+  <placa id="T" fichero="banco_cabezal.xml"/>
+  <hilo a="T/J.V24" b="Q/X1.VIN"/>
+  <hilo a="T/J.GND" b="Q/X1.GNDP"/>
+  <hilo a="T/J.SIG" b="Q/P1.SIG"/>
+  <hilo a="M/M.ROJO"  b="Q/X2.MAS"/>
+  <hilo a="M/M.NEGRO" b="Q/X2.MENOS"/>
+</sistema>
+"""
+BANCO_IBT2 = """<placa nombre="banco-ibt2">
+  <componente tipo="Conector" id="J" filas="1" columnas="8"
+              nombres="RPWM LPWM R_EN L_EN R_IS V5 GND V12"/>
+  <nodo id="J.GND" bus="si"/>
+  <componente tipo="Fuente" id="PSU" v="12" limite_ma="10000" media_ms="20">
+    <pin nombre="pin" nodo="J.V12"/></componente>
+  <componente tipo="Fuente" id="V5" v="5"><pin nombre="pin" nodo="J.V5"/></componente>
+  <componente tipo="Gnd" id="MASA"><pin nombre="pin" nodo="J.GND"/></componente>
+  <componente tipo="FuenteAjustable" id="RPWM" v="%(rpwm)s" vmin="0" vmax="5" r="10">
+    <pin nombre="pin" nodo="J.RPWM"/></componente>
+  <componente tipo="FuenteAjustable" id="LPWM" v="%(lpwm)s" vmin="0" vmax="5" r="10">
+    <pin nombre="pin" nodo="J.LPWM"/></componente>
+  <componente tipo="FuenteAjustable" id="EN" v="%(en)s" vmin="0" vmax="5" r="10">
+    <pin nombre="pin" nodo="J.R_EN"/></componente>
+  <componente tipo="Resistencia" id="RIS" r="1000">
+    <pin nombre="a" nodo="J.R_IS"/><pin nombre="b" nodo="J.GND"/></componente>
+</placa>
+"""
+SISTEMA_IBT2 = """<sistema nombre="prueba-ibt2">
+  <placa id="H" fichero="%(placas)s/ibt2.xml"/>
+  <placa id="M" fichero="%(placas)s/motor_jgb37_encoder.xml"/>
+  <placa id="T" fichero="banco_ibt2.xml"/>
+  <hilo a="T/J.RPWM" b="H/P1.RPWM"/>
+  <hilo a="T/J.LPWM" b="H/P1.LPWM"/>
+  <hilo a="T/J.R_EN" b="H/P1.R_EN"/>
+  <hilo a="T/J.R_EN" b="H/P1.L_EN"/>
+  <hilo a="T/J.R_IS" b="H/P1.R_IS"/>
+  <hilo a="T/J.V5"   b="H/P1.VCC"/>
+  <hilo a="T/J.GND"  b="H/P1.GND"/>
+  <hilo a="T/J.V12"  b="H/X1.BMAS"/>
+  <hilo a="M/M.ROJO"   b="H/X2.MMAS"/>
+  <hilo a="M/M.BLANCO" b="H/X2.MMENOS"/>
+</sistema>
+"""
+
+
+def c3_continua(sim, cp):
+    placas = os.path.abspath("placas")
+    grupo("C3 (F1b) El cabezal: un motor 775 a 24 V tras un modulo MOSFET")
+    for placa, cab in (("motor_775", "placa 'motor-775': SIN MCU, 2 componentes, 2 nodos, 0 avisos"),
+                       ("modulo_mosfet", "placa 'modulo-mosfet': SIN MCU, 5 componentes, 4 nodos, 0 avisos"),
+                       ("ibt2", "placa 'ibt2': SIN MCU, 5 componentes, 11 nodos, 0 avisos"),
+                       ("motor_jgb37_encoder", "placa 'motor-jgb37-encoder': SIN MCU, 3 componentes, "
+                        "6 nodos, 0 avisos")):
+        rc, out = valida(sim, "placas/%s.xml" % placa)
+        f = piezas_sin_dibujo(placa)
+        check(rc == 0 and cab in out and ("dibujo: %s.svg (" % placa) in out and not f,
+              "placas/%s.xml se valida sin avisos, con su dibujo: cada pieza visible y cada pin "
+              "de conector, con su id%s" % (placa, " (faltan: %s)" % f if f else ""))
+    mosfet = open(os.path.join(placas, "modulo_mosfet.xml"), encoding="utf-8").read()
+
+    def cabezal(senal, modulo=mosfet, ms=800):
+        cp("banco_cabezal.xml", BANCO_CABEZAL % {"senal": senal})
+        cp("modulo_mosfet.xml", modulo)
+        cp("modulo_mosfet.svg", open(os.path.join(placas, "modulo_mosfet.svg"), encoding="utf-8").read())
+        ruta = cp("cabezal.xml", SISTEMA_CABEZAL % {"placas": placas,
+                                                     "dir": os.path.dirname(cp("x", ""))})
+        return corre(sim, ruta, ms)
+
+    rc, out = cabezal(SENAL_FIJA % 5)
+    lm, lq = linea(out, "MOTOR M/MOTOR:"), linea(out, "MOSFET Q/Q1 (IRLZ44N):")
+    rpm5 = numero_tras(lm, "MOTOR M/MOTOR: ")
+    check(rc == 0 and rpm5 and 9600 < rpm5 < 10000 and "conduce" in lq,
+          "con 5 V en SIG, el IRLZ44N se abre y el 775 va a %.0f rpm: las 10 000 de su anuncio, "
+          "menos lo que cae en la fuente y en los 25 mohm del MOSFET (%s)" % (rpm5 or 0, lq))
+    rc, out = cabezal(SENAL_FIJA % 3.3)
+    rpm33 = numero_tras(linea(out, "MOTOR M/MOTOR:"), "MOTOR M/MOTOR: ")
+    check(rpm33 and abs(rpm33 - rpm5) < 30 and "no se abre" not in out,
+          "con 3,3 V, como lo da un STM32, casi igual (%.0f rpm): el IRLZ44N es de nivel logico"
+          % (rpm33 or 0))
+    rc, out = cabezal(SENAL_PWM)
+    lm = linea(out, "MOTOR M/MOTOR:")
+    rpm_pwm = numero_tras(lm, "MOTOR M/MOTOR: ")
+    check(rc == 0 and rpm_pwm and 0.9 * rpm5 < rpm_pwm < rpm5 and "sin diodo" not in out,
+          "con un PWM de 1 kHz al 50 %% y en vacio, CASI A TODA VELOCIDAD (%.0f rpm), como en el "
+          "taller: con L/R = 0,25 ms la corriente se acaba en cada hueco, y mientras no hay "
+          "corriente el motor no frena; el PWM regula el par, no la velocidad" % (rpm_pwm or 0))
+
+    def cabezal_cargado(senal):
+        cp("banco_cabezal.xml", BANCO_CABEZAL % {"senal": senal})
+        cp("modulo_mosfet.xml", mosfet)
+        ruta = cp("cabezal.xml", SISTEMA_CABEZAL % {"placas": placas,
+                                                     "dir": os.path.dirname(cp("x", ""))})
+        s, avs, cat, rc = muestrea(sim, ruta, 800, [("M/MOTOR", "rpm"), ("M/MOTOR", "corriente")],
+                                   periodo_ns=50000000, lista=[(1, "M/MOTOR", "carga", 10)])
+        if not s or not s[("M/MOTOR", "rpm")]:
+            return None, None
+        return s[("M/MOTOR", "rpm")][-1][1], s[("M/MOTOR", "corriente")][-1][1]
+
+    r_lleno, i_lleno = cabezal_cargado(SENAL_FIJA % 5)
+    r_medio, i_medio = cabezal_cargado(SENAL_PWM.replace('hz="1000"', 'hz="20000"'))
+    check(r_lleno and r_medio and 0.35 * r_lleno < r_medio < 0.5 * r_lleno and
+          abs(i_medio - i_lleno) < 0.05 * i_lleno,
+          "con el 10 %% del par de bloqueo, la corriente ya no se acaba: un PWM de 20 kHz al 50 %% "
+          "lo deja a %.0f rpm de las %.0f a tope -la mitad de la tension, menos la caida en el "
+          "bobinado y en el diodo-, con la misma corriente, %.0f mA" % (r_medio or 0, r_lleno or 0,
+                                                                     i_medio or 0))
+    sin = mosfet.replace('diodo="si"', 'diodo="no"').replace('    <pin nombre="libre"    nodo="VMAS"/>\n', '')
+    rc, out = cabezal(SENAL_PWM, modulo=sin, ms=200)
+    check("se abre con" in out and "sin diodo de libre circulacion" in out and
+          "en una placa de verdad lo rompe" in out,
+          "SIN EL DIODO, en el primer hueco del PWM: «...sin diodo de libre circulacion: la bobina "
+          "del motor lo sube hasta la avalancha del MOSFET, y en una placa de verdad lo rompe»")
+    irf = mosfet.replace('modelo="IRLZ44N"', 'modelo="IRF520"')
+    rc, out = cabezal(SENAL_FIJA % 5, modulo=irf)
+    rpm_irf = numero_tras(linea(out, "MOTOR M/MOTOR:"), "MOTOR M/MOTOR: ")
+    check("no se abre" not in out and "pide 10.0 para abrirse del todo" in out and rpm_irf and
+          rpm_irf < rpm5 - 100,
+          "con el IRF520 de los modulos azules y 5 V en la puerta: se avisa de que no se abre del "
+          "todo, y el motor va mas despacio (%.0f rpm)" % (rpm_irf or 0))
+
+    grupo("C3 (F1b) El IBT-2: dos BTS7960 con el motorreductor de 37 mm")
+
+    def ibt2(rpwm, lpwm, en=5.0, carga=None, ms=600):
+        cp("banco_ibt2.xml", BANCO_IBT2 % {"rpwm": rpwm, "lpwm": lpwm, "en": en})
+        ruta = cp("ibt2.xml", SISTEMA_IBT2 % {"placas": placas})
+        if carga is None:
+            return corre(sim, ruta, ms)
+        s, avs, cat, rc = muestrea(sim, ruta, ms, [("M/MOTOR", "rpm"), ("M/MOTOR", "corriente")],
+                                   periodo_ns=10000000, lista=[(1, "M/MOTOR", "carga", carga)])
+        return s, avs
+
+    rc, out = ibt2(5, 0)
+    lm, l1, l2 = linea(out, "MOTOR M/MOTOR:"), linea(out, "BTS7960 H/U1:"), linea(out, "BTS7960 H/U2:")
+    r_adel = numero_tras(lm, "MOTOR M/MOTOR: ")
+    check(r_adel and 320 < r_adel < 333 and "alto" in l1 and "bajo" in l2,
+          "RPWM alto y LPWM bajo, con los dos EN: M+ a B+ y M- a masa, hacia delante, a %.0f rpm "
+          "-las 333 del anuncio a 12 V, menos los miliohmios del puente- (%s; %s)" % (r_adel or 0, l1, l2))
+    rc, out = ibt2(0, 5)
+    r_atras = numero_tras(linea(out, "MOTOR M/MOTOR:"), "MOTOR M/MOTOR: ")
+    check(r_atras and abs(r_atras + r_adel) < 2, "al reves, al reves: %.0f rpm" % (r_atras or 0))
+    rc, out = ibt2(5, 0, en=0)
+    r_dormido = numero_tras(linea(out, "MOTOR M/MOTOR:"), "MOTOR M/MOTOR: ")
+    check("dormido" in linea(out, "BTS7960 H/U1:") and r_dormido is not None and
+          abs(r_dormido) < 0.5,
+          "con los EN bajos, los dos duermen y el motor no se mueve")
+    s, avs = ibt2(5, 0, carga=50.0)
+    i = [v for t, v in s[("M/MOTOR", "corriente")] if t > 0.4]
+    i_m = sum(i) / len(i)
+    check(i_m > 500, "con una carga del 50 %% del par de bloqueo pide %.0f mA" % i_m)
+    lis = linea(ULTIMA[0], "BTS7960 H/U1:")
+    i_is = numero_tras(lis, "IS ")
+    i_out = numero_tras(lis, "alto, ")
+    check(i_is is not None and i_out and
+          abs(i_is - i_out * 1e3 / 8500.0) < 0.05 * abs(i_out * 1e3 / 8500.0) + 0.2,
+          "R_IS es una fuente de corriente: %.1f uA por %.0f mA que salen, entre 8500, por la "
+          "resistencia de 1 kohm del banco (%s)" % (i_is or 0, i_out or 0, lis))
+    rc, out = ibt2(3.3, 0)
+    check("3.30 V en IN, y el 74HC244 del modulo, con su VCC, pide 3.50 V para un alto" in out,
+          "con 3,3 V en RPWM y el VCC del modulo a 5 V, el 74HC244 queda fuera de especificacion "
+          "y se avisa (y lo lee alto)")
+
+    grupo("C3 (F1b) Un PID de posicion en el firmware, con el encoder Hall en el TIM2")
+    t0 = time.time()
+    s, avs, cat, rc = muestrea(sim, "placas/nucleo_f446re_ibt2_jgb37.xml", 2000,
+                               [("M/MOTOR", "cuenta"), ("N/LD2", "encendido")], periodo_ns=5000000)
+    dt = time.time() - t0
+    ok = s is not None and rc == 0
+    check(ok, "placas/nucleo_f446re_ibt2_jgb37.xml corre 2 s con verif/fw/cnc_pid")
+    if not ok:
+        return
+    c = s[("M/MOTOR", "cuenta")]
+    led = s[("N/LD2", "encendido")]
+    ida = [v for t, v in c if 0.1 < t <= 1.1]
+    vuelta = [v for t, v in c if t > 1.1]
+    check(max(ida) < 1320 * 1.02 and abs(ida[-1] - 1320) <= 4,
+          "una vuelta del eje de salida, 1320 cuentas: llega sin pasarse mas de un 2 %% (como "
+          "mucho %d) y se queda a %d" % (max(ida), ida[-1]))
+    check(min(vuelta) > -660 - 0.02 * 1980 and abs(vuelta[-1] + 660) <= 4,
+          "y media vuelta atras, a -660: como mucho %d, y se queda a %d" % (min(vuelta), vuelta[-1]))
+    dentro = [t for t, v in c if 0.1 < t <= 1.1 and all(abs(x - 1320) <= 4 for tt, x in c
+                                                         if t <= tt <= 1.1)]
+    check(dentro and dentro[0] < 0.7,
+          "dentro de 4 cuentas desde los %.0f ms: en menos de 600 ms desde la orden"
+          % (dentro[0] * 1e3 if dentro else -1))
+    check(led and led[-1][1] == 1.0 and any(v == 0.0 for t, v in led if 0.1 < t < 0.4),
+          "y el LED LD2, que el firmware enciende con el error en 4 cuentas, luce al final")
+    check("74HC244" in textos(avs), "el 74HC244 del IBT-2, con 3,3 V del STM32: se avisa")
+    check(dt < 4.0, "2 s simulados, con el MCU y el PWM de 1 kHz, en %.2f s de reloj" % dt)
+
+
 def main():
     a = argparse.ArgumentParser(description="La fresadora CNC, por fases, contra el mcu-sim de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -754,6 +972,7 @@ def main():
             return ruta
         c1_cadena(sim, cp)
         c2_pap(sim, cp)
+        c3_continua(sim, cp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print()

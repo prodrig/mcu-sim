@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+  MOTORREDUCTOR JGB37-520 CON ENCODER HALL, dibujado a mano: una aproximacion,
+  no una foto. Es el dibujo de placas/motor_jgb37_encoder.xml, que lo
+  encuentra solo porque se llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 100 x 42 mm- y cada pieza con el id de su pieza en el XML. De lado:
+  el eje de salida a la izquierda, la reductora dorada, el motor y, atras, la
+  plaquita del encoder con su cable.
+
+    MOTOR  el disco del eje de salida, visto de frente a la izquierda, que
+           GIRA con el angulo (efecto `angulo`)
+    M      los hilos del motor: M.ROJO (+) y M.BLANCO
+    P1     los del encoder: P1.VCC, P1.GND, P1.A y P1.B
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 420" width="100mm" height="42mm">
+  <g id="MOTOR">
+    <circle cx="140" cy="210" r="118" fill="none" stroke="none" stroke-width="1.5"/>
+    <circle cx="140" cy="210" r="110" fill="#455a64" stroke="#101820" stroke-width="2"/>
+    <rect x="133" y="108" width="14" height="38.5" fill="#90a4ae" transform="rotate(0 140 210)"/>
+    <rect x="133" y="108" width="14" height="38.5" fill="#90a4ae" transform="rotate(60 140 210)"/>
+    <rect x="133" y="108" width="14" height="38.5" fill="#90a4ae" transform="rotate(120 140 210)"/>
+    <rect x="133" y="108" width="14" height="38.5" fill="#90a4ae" transform="rotate(180 140 210)"/>
+    <rect x="133" y="108" width="14" height="38.5" fill="#90a4ae" transform="rotate(240 140 210)"/>
+    <rect x="133" y="108" width="14" height="38.5" fill="#90a4ae" transform="rotate(300 140 210)"/>
+    <circle cx="140" cy="210" r="27.5" fill="#9e9e9e" stroke="#616161" stroke-width="1.5"/>
+    <rect x="136" y="104" width="8" height="77" fill="#f5f5f5"/>
+  </g>
+  <rect x="270" y="110" width="260" height="200" rx="10" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="2"/>
+  <text x="400" y="215" font-family="Arial" font-size="20" font-weight="bold" fill="#5d4300" text-anchor="middle">1:30</text>
+  <rect x="530" y="120" width="270" height="180" rx="12" fill="#b0bec5" stroke="#546e7a" stroke-width="2"/>
+  <text x="665" y="215" font-family="Arial" font-size="18" font-weight="bold" fill="#263238" text-anchor="middle">JGB37 12 V</text>
+  <rect x="800" y="100" width="40" height="220" rx="4" fill="#1b5e20" stroke="#0d3311" stroke-width="1.5"/>
+  <g id="M">
+    <g id="M.ROJO">
+      <rect x="840" y="126" width="70" height="8" fill="#c62828" stroke="#000000" stroke-width="0.6"/>
+      <circle cx="920" cy="130" r="11" fill="#c62828" stroke="#000000" stroke-width="1.2"/>
+    </g>
+    <g id="M.BLANCO">
+      <rect x="840" y="158" width="70" height="8" fill="#eceff1" stroke="#000000" stroke-width="0.6"/>
+      <circle cx="920" cy="162" r="11" fill="#eceff1" stroke="#000000" stroke-width="1.2"/>
+    </g>
+  </g>
+  <g id="P1">
+    <g id="P1.GND">
+      <rect x="840" y="190" width="70" height="8" fill="#212121" stroke="#000000" stroke-width="0.6"/>
+      <circle cx="920" cy="194" r="11" fill="#212121" stroke="#000000" stroke-width="1.2"/>
+    </g>
+    <g id="P1.VCC">
+      <rect x="840" y="222" width="70" height="8" fill="#1565c0" stroke="#000000" stroke-width="0.6"/>
+      <circle cx="920" cy="226" r="11" fill="#1565c0" stroke="#000000" stroke-width="1.2"/>
+    </g>
+    <g id="P1.A">
+      <rect x="840" y="254" width="70" height="8" fill="#f9a825" stroke="#000000" stroke-width="0.6"/>
+      <circle cx="920" cy="258" r="11" fill="#f9a825" stroke="#000000" stroke-width="1.2"/>
+    </g>
+    <g id="P1.B">
+      <rect x="840" y="286" width="70" height="8" fill="#2e7d32" stroke="#000000" stroke-width="0.6"/>
+      <circle cx="920" cy="290" r="11" fill="#2e7d32" stroke="#000000" stroke-width="1.2"/>
+    </g>
+  </g>
+  <text x="940" y="135" font-family="Arial" font-size="12" font-weight="bold" fill="#263238">ROJO</text>
+  <text x="940" y="167" font-family="Arial" font-size="12" font-weight="bold" fill="#263238">BLANCO</text>
+  <text x="940" y="199" font-family="Arial" font-size="12" font-weight="bold" fill="#263238">GND</text>
+  <text x="940" y="231" font-family="Arial" font-size="12" font-weight="bold" fill="#263238">VCC</text>
+  <text x="940" y="263" font-family="Arial" font-size="12" font-weight="bold" fill="#263238">A</text>
+  <text x="940" y="295" font-family="Arial" font-size="12" font-weight="bold" fill="#263238">B</text>
+</svg>

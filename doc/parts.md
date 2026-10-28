@@ -933,6 +933,12 @@ constante**: entrega exactamente el límite y deja caer la tensión —o, en una
 en la ventana); al salir, vuelve sola a tensión constante. El cálculo no itera a
 ciegas: lee el resto del nodo como otro Thevenin `{Vx, Rx}` y se pone la
 resistencia que deja la corriente en el límite, `|v − Vx| / I_lim − Rx`.
+Con una **carga inductiva** —un motor que arranca y tira de 40 A de golpe— la
+cuenta no basta: la bobina sujeta su corriente, y lo de fuera ya no se comporta
+como un Thevenin. Una `Fuente` no deja su nodo por debajo de 0 V: si lo que
+haría falta para el límite lo hundiría, se pone la resistencia que deja pasar
+la corriente que la carga sujeta con el nodo a 0 V, `v / I`, y las dos partes
+están de acuerdo a la primera, sin oscilar.
 
 **Un nodo con una fuente y varias cargas es un raíl, no un cortocircuito**: la
 validación eléctrica no cuenta la fuente como otra pieza conduciendo, así que no
@@ -2616,6 +2622,87 @@ unas 1240 a 48 V, el doble: por eso los Nanotec van a 48 V. Con una rampa de
 5 ms hasta 1000 rpm el rotor se descuelga y pierde miles de pasos; con 400 ms,
 ninguno. Un eje así, a 1/8 y 3200 Hz, cuesta unos 0,09 s de CPU por segundo
 simulado, con el arranque de `mcu-sim` (`make gui-cnc`, C2).
+
+### 4.19 La continua de potencia: `Mosfet` y `MedioPuente`
+
+`parts/potencia.h`, la fase F1b de `doc/analisis_cnc.md` (§5.3): lo que hace
+falta para mover el cabezal de una fresadora y un eje servo de continua.
+Montadas, son `placas/motor_775.xml`, `placas/modulo_mosfet.xml`,
+`placas/ibt2.xml`, `placas/motor_jgb37_encoder.xml` y el sistema
+`placas/nucleo_f446re_ibt2_jgb37.xml`. Los motores son `MotorCC` (§4.16) con
+otras cifras.
+
+#### `Mosfet`
+
+Un **N-MOSFET de lado bajo**, como el IRLZ44N de los módulos que dan el PWM del
+cabezal. Con `Vgs` por encima del umbral, el drenador es un Thevenin hacia la
+fuente con una `RDS` que baja con la puerta: a `vgs_ref` es `rds_on`, y cerca
+del umbral, mucho más —un MOSFET que no es de nivel lógico apenas se abre con
+3,3 V, y con menos de `vgs_plena` y más de 1 A se avisa—. Cerrado, con
+`diodo="si"` y la patilla `libre` en el + de la carga, el **diodo de libre
+circulación** del módulo: la corriente de la bobina sigue por él, contra
+`V(libre) + Vd`. **Sin el diodo**, la bobina sube el drenador hasta la
+avalancha y en una placa de verdad lo rompe: aquí la corriente se corta, y se
+avisa en el primer hueco.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `drenador` | obligatorio | El − de la carga |
+| `fuente` | obligatorio | La masa |
+| `puerta` | obligatorio | La señal |
+| `libre` | con `diodo="si"` | El cátodo del diodo: el + de la carga |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `modelo` | `IRLZ44N` | `IRLZ44N` (25 mΩ a 5 V, de nivel lógico) o `IRF520` (0,27 Ω a 10 V: el de los módulos azules) |
+| `vth`, `rds_on`, `vgs_ref`, `vgs_plena`, `i_max` | según el modelo | Las cifras del modelo, cambiadas |
+| `diodo` | `si` | El diodo de libre circulación |
+
+Deja ver `conduce`, `corriente` (mA, de media), `disipacion` (W) y `vgs`. Al
+terminar: `MOSFET Q/Q1 (IRLZ44N): conduce, Vgs 5.00 V, 500 mA de media,
+25 mohm; disipa 0.01 W`.
+
+#### `MedioPuente`
+
+Un **medio puente integrado**, el BTS7960 de Infineon. Con `inh` alto, `in`
+alto pone la salida en VS por el transistor de arriba (7 mΩ) e `in` bajo en
+masa por el de abajo (9 mΩ); con `inh` bajo duerme, y la salida se queda al
+aire: la corriente de una bobina vuelve por los diodos de sus transistores
+hasta acabarse. **`is` es una fuente de corriente**, la que sale por arriba
+entre 8500, que una resistencia de fuera convierte en tensión. Con `vdd`, las
+entradas pasan por el 74HC244 del módulo IBT-2: cortan en VCC/2 y piden
+0,7·VCC para un alto, así que los 3,3 V de un STM32 con el VCC a 5 V quedan
+fuera de especificación —funciona, y se avisa—. Dos son un puente en H: el
+IBT-2, de 43 A.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `vs`, `gnd` | obligatorios | La alimentación, de 5,5 a 27,5 V |
+| `in`, `inh` | obligatorios | La entrada y el despertar |
+| `out` | obligatorio | La salida |
+| `is` | opcional | La medida de la corriente |
+| `vdd` | opcional | El VCC del 74HC244 del módulo |
+
+Deja ver `corriente` (mA, de media), `disipacion` y `despierto`. Al terminar:
+`BTS7960 H/U1: alto, +1021 mA de media, IS 120.1 uA; disipa 0.01 W`.
+
+#### Lo que sale
+
+* **El cabezal**: el 775 a 24 V tras el módulo con el IRLZ44N, a 9958 rpm con
+  5 V en la puerta y casi igual con 3,3. Con el IRF520 y 5 V, se avisa de que
+  no se abre del todo, y va más despacio.
+* **El PWM regula el par, no la velocidad.** Con 1 kHz al 50 % y en vacío, el
+  775 va casi a tope, a 9612 rpm: con `L/R` = 0,25 ms la corriente se acaba en
+  cada hueco —la conducción discontinua—, y sin corriente el motor no frena.
+  Con el 10 % del par de bloqueo y 20 kHz, la corriente ya no se acaba, y va a
+  3471 rpm de las 8608 a tope: la mitad de la tensión, menos la caída en el
+  bobinado y en el diodo. Así se comporta el de verdad.
+* **El eje servo**: el motorreductor de 37 mm tras el IBT-2, a 332 rpm a 12 V
+  en los dos sentidos; dormido, quieto; con la mitad del par de bloqueo, 1 A,
+  y su IS. Con `verif/fw/cnc_pid` en la Nucleo-F446RE, un **PID de posición**
+  —el encoder en el TIM2 en modo encoder, el PWM del TIM4 a 1 kHz— lleva el
+  eje de salida una vuelta, 1320 cuentas, y media atrás, sin pasarse más de un
+  2 % y a 2 cuentas de la consigna en menos de 600 ms (`make gui-cnc`, C3).
 
 ---
 

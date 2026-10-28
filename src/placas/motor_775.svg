@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+  MOTOR 775 DE 24 V, EL CABEZAL, dibujado a mano: una aproximacion, no una
+  foto. Es el dibujo de placas/motor_775.xml, que lo encuentra solo porque se
+  llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 90 x 46 mm- y cada pieza con el id de su pieza en el XML. De lado:
+  la carcasa de 42 mm, el ventilador visto desde la fresa a la izquierda y
+  las dos bornas atras.
+
+    MOTOR  el ventilador del eje, que GIRA con el angulo (efecto `angulo`)
+    M      los terminales: M.ROJO (+) y M.NEGRO (-)
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 460" width="90mm" height="46mm">
+  <rect x="250" y="90" width="470" height="280" rx="18" fill="#b0bec5" stroke="#546e7a" stroke-width="2"/>
+  <rect x="300" y="90" width="10" height="280" fill="#90a4ae"/>
+  <rect x="360" y="90" width="10" height="280" fill="#90a4ae"/>
+  <rect x="420" y="90" width="10" height="280" fill="#90a4ae"/>
+  <rect x="480" y="90" width="10" height="280" fill="#90a4ae"/>
+  <rect x="540" y="90" width="10" height="280" fill="#90a4ae"/>
+  <rect x="600" y="90" width="10" height="280" fill="#90a4ae"/>
+  <rect x="720" y="140" width="40" height="180" rx="6" fill="#455a64" stroke="#263238" stroke-width="1.5"/>
+  <text x="485" y="245" font-family="Arial" font-size="22" font-weight="bold" fill="#263238" text-anchor="middle">775  24 V</text>
+  <g id="MOTOR">
+    <circle cx="140" cy="230" r="128" fill="none" stroke="none" stroke-width="1.5"/>
+    <circle cx="140" cy="230" r="120" fill="#37474f" stroke="#101820" stroke-width="2"/>
+    <rect x="133" y="118" width="14" height="42" fill="#90a4ae" transform="rotate(0 140 230)"/>
+    <rect x="133" y="118" width="14" height="42" fill="#90a4ae" transform="rotate(40 140 230)"/>
+    <rect x="133" y="118" width="14" height="42" fill="#90a4ae" transform="rotate(80 140 230)"/>
+    <rect x="133" y="118" width="14" height="42" fill="#90a4ae" transform="rotate(120 140 230)"/>
+    <rect x="133" y="118" width="14" height="42" fill="#90a4ae" transform="rotate(160 140 230)"/>
+    <rect x="133" y="118" width="14" height="42" fill="#90a4ae" transform="rotate(200 140 230)"/>
+    <rect x="133" y="118" width="14" height="42" fill="#90a4ae" transform="rotate(240 140 230)"/>
+    <rect x="133" y="118" width="14" height="42" fill="#90a4ae" transform="rotate(280 140 230)"/>
+    <rect x="133" y="118" width="14" height="42" fill="#90a4ae" transform="rotate(320 140 230)"/>
+    <circle cx="140" cy="230" r="30" fill="#9e9e9e" stroke="#616161" stroke-width="1.5"/>
+    <rect x="136" y="114" width="8" height="84" fill="#f5f5f5"/>
+  </g>
+  <g id="M">
+    <g id="M.ROJO">
+      <rect x="760" y="180" width="50" height="14" fill="#c62828"/>
+      <circle cx="820" cy="187" r="14" fill="#c62828" stroke="#7f0000" stroke-width="1.2"/>
+    </g>
+    <g id="M.NEGRO">
+      <rect x="760" y="266" width="50" height="14" fill="#212121"/>
+      <circle cx="820" cy="273" r="14" fill="#212121" stroke="#000000" stroke-width="1.2"/>
+    </g>
+  </g>
+  <text x="850" y="193" font-family="Arial" font-size="22" font-weight="bold" fill="#c62828" text-anchor="middle">+</text>
+  <text x="850" y="281" font-family="Arial" font-size="26" font-weight="bold" fill="#212121" text-anchor="middle">-</text>
+</svg>

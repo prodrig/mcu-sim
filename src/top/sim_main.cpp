@@ -1546,6 +1546,26 @@ SC_MODULE(Sim) {
             if (!g) continue;
             std::printf("  GENERADOR %s: %.0f Hz, %+ld pasos\n", i.id.c_str(), g->hz(), g->pasos());
         }
+        // Los interruptores de potencia: el MOSFET de un cabezal y los medios
+        // puentes de un IBT-2
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Mosfet") continue;
+            const Mosfet* q = placa.como<Mosfet>(i.id);
+            if (!q) continue;
+            std::printf("  MOSFET %s (%s): %s, Vgs %.2f V, %.0f mA de media, %.0f mohm; disipa %.2f "
+                        "W%s\n", i.id.c_str(), q->config().modelo.c_str(),
+                        q->conduce() ? "conduce" : (q->por_el_diodo() ? "por el diodo" : "abierto"),
+                        q->vgs(), q->corriente_media() * 1e3, q->rds() * 1e3, q->disipacion(),
+                        q->config().diodo ? "" : "; SIN DIODO");
+        }
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "MedioPuente") continue;
+            const MedioPuente* h = placa.como<MedioPuente>(i.id);
+            if (!h) continue;
+            std::printf("  BTS7960 %s: %s, %+.0f mA de media, IS %.1f uA; disipa %.2f W\n",
+                        i.id.c_str(), h->estado(), h->corriente_media() * 1e3,
+                        h->corriente_is() * 1e6, h->disipacion());
+        }
         // Las cadenas mecanicas: a cuanto va su eje, cuanto ha girado y la
         // inercia que mueve, todo reflejada en el
         for (const Instancia& i : placa.instancias()) {

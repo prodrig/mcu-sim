@@ -320,6 +320,21 @@ private:
             if (dv / (r0_ + rx) > lim_) {                 // pide mas del limite
                 r_nueva = std::max(r0_, dv / lim_ - rx);
                 sobre = true;
+                // Una fuente no da tension negativa. Lo que hay fuera puede
+                // sujetar su corriente -la bobina de un motor no la deja
+                // cambiar de golpe, y empuja lo que haga falta-, y entonces
+                // la cuenta de arriba subiria r sin fin, en el mismo instante,
+                // con el nodo cada vez mas negativo. Se queda en la que deja
+                // el nodo a 0 V, y la corriente de la bobina se acaba con el
+                // tiempo, contra lo que tenga delante
+                if (!masa_ && vx < 0.0) {
+                    // Lo de fuera sujeta la corriente que pasa: la r que la
+                    // deja pasar con el nodo a 0 V es v/i, y con ella las dos
+                    // partes están de acuerdo a la primera
+                    const double i = std::max(lim_, corriente_exacta());
+                    const double r_cero = v_ / i;
+                    if (r_cero < r_nueva) r_nueva = std::max(r0_, r_cero);
+                }
             }
         }
         if (sobre && !sobre_) {

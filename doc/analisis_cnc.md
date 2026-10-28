@@ -811,6 +811,40 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
   se mueven, y el banco del `MotorCC` sigue dando los mismos números con sus
   17 cifras.
 
+### F1b, hecha: la continua de potencia
+
+* **`Mosfet`** (`parts/potencia.h`): un N-MOSFET de lado bajo con una `RDS`
+  que baja con la puerta —el IRLZ44N de nivel lógico y el IRF520 de los
+  módulos azules, que con 5 V apenas se abre, y se avisa— y el diodo de libre
+  circulación del módulo. **Sin el diodo, aviso** en el primer hueco del PWM.
+* **`MedioPuente`**: el BTS7960, en vez de un `PuenteH` con parámetros: un
+  IBT-2 son DOS medios puentes, cada uno con su IN, su INH y su IS, y el
+  modelo es el del chip. IS es una fuente de corriente, la que sale entre
+  8500, y el 74HC244 del módulo avisa de los 3,3 V de un STM32 con el VCC a
+  5 V.
+* **Placas**: `motor_775.xml`, `modulo_mosfet.xml`, `ibt2.xml`,
+  `motor_jgb37_encoder.xml` y el sistema `nucleo_f446re_ibt2_jgb37.xml`, con su
+  dibujo. Las cifras de los dos motores que no da ningún vendedor —la
+  corriente de bloqueo, la constante de tiempo, la inductancia— son
+  estimaciones, y lo dicen.
+* **El 775 a 24 V, a 9958 rpm** con 5 V o 3,3 V en la puerta del IRLZ44N.
+* **Lo que el §5.3 no decía: con PWM y en vacío, el 775 no va a la mitad.**
+  Con `L/R` = 0,25 ms la corriente se acaba en cada hueco de un PWM de 1 kHz,
+  y al 50 % va a 9612 rpm. Con carga y 20 kHz, la corriente es continua y va
+  al 40 % de la velocidad a tope: el PWM de un MOSFET de lado bajo regula el
+  par, y GRBL lo usa en lazo abierto. Es lo que pasa en el taller.
+* **El PID de posición** en el firmware (`verif/fw/cnc_pid`): una vuelta del
+  eje de salida y media atrás, sin pasarse más de un 2 % y en 2 cuentas de la
+  consigna. El motorreductor no arranca con menos del 16 % de PWM —su
+  rozamiento de arranque—: el PID lleva una zona muerta y un mando mínimo.
+* **La fuente con límite y un motor que arranca**: el 775 parado pide 40 A, y
+  el límite de la `Fuente` de 10 A oscilaba sin fin en el mismo instante —la
+  bobina sujeta su corriente y lo de fuera no es un Thevenin—. Ahora una
+  `Fuente` no deja su nodo por debajo de 0 V, con la resistencia que deja
+  pasar la corriente de la bobina: converge a la primera. El banco del
+  `MotorCC` sigue dando sus 17 cifras.
+* **Pruebas**: `make gui-cnc` C3, 23 comprobaciones (80 en total).
+
 ## Fuentes
 
 * **VEVOR 3020.** La página que se dio no se pudo abrir por su longitud. El

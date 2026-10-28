@@ -170,7 +170,232 @@ def pololu_a4988():
     s.guarda("pololu_a4988.svg")
 
 
+def bornes(s, id_con, x, y0, nombres, colores, paso=80, ancho=60, izq=False):
+    """Una borna de tornillo de varias vias, en vertical: cada tornillo es su pin"""
+    s.add(s.rect(x - ancho / 2, y0 - 40, ancho, paso * len(nombres), "#1565c0", "#0d47a1", 1.5, rx=3))
+    s.add('<g id="%s">' % id_con)
+    for k, n in enumerate(nombres):
+        tornillo(s, "%s.%s" % (id_con, n), x, y0 + k * paso)
+    s.add("</g>")
+    for k, (n, col) in enumerate(zip(nombres, colores)):
+        if izq:
+            s.add(s.text(x - ancho / 2 - 8, y0 + k * paso + 5, n, 14, col, "end"))
+        else:
+            s.add(s.text(x + ancho / 2 + 8, y0 + k * paso + 5, n, 14, col))
+
+
+def disco_motor(s, cx, cy, r, ventanas, color="#263238"):
+    """El disco o el ventilador del eje, que GIRA (efecto `angulo`), con su marca"""
+    s.add('<g id="MOTOR">')
+    s.add("  " + s.circ(cx, cy, r + 8, "none", "none"))
+    s.add("  " + s.circ(cx, cy, r, color, "#101820", 2))
+    for k in range(ventanas):
+        a = k * 360.0 / ventanas
+        s.add("  " + s.rect(cx - 7, cy - r + 8, 14, r * 0.35, "#90a4ae",
+                            extra=' transform="rotate(%s %s %s)"' % (f(a), f(cx), f(cy))))
+    s.add("  " + s.circ(cx, cy, r * 0.25, "#9e9e9e", "#616161", 1.5))
+    s.add("  " + s.rect(cx - 4, cy - r + 4, 8, r * 0.7, BLANCO))
+    s.add("</g>")
+
+
+# ---------------------------------------------------------------------------
+# EL CABEZAL: EL MOTOR 775
+# ---------------------------------------------------------------------------
+def motor_775():
+    s = Svg(900, 460, """
+  MOTOR 775 DE 24 V, EL CABEZAL, dibujado a mano: una aproximacion, no una
+  foto. Es el dibujo de placas/motor_775.xml, que lo encuentra solo porque se
+  llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 90 x 46 mm- y cada pieza con el id de su pieza en el XML. De lado:
+  la carcasa de 42 mm, el ventilador visto desde la fresa a la izquierda y
+  las dos bornas atras.
+
+    MOTOR  el ventilador del eje, que GIRA con el angulo (efecto `angulo`)
+    M      los terminales: M.ROJO (+) y M.NEGRO (-)
+""")
+    s.add(s.rect(250, 90, 470, 280, "#b0bec5", "#546e7a", 2, rx=18))
+    for k in range(6):
+        s.add(s.rect(300 + k * 60, 90, 10, 280, "#90a4ae"))
+    s.add(s.rect(720, 140, 40, 180, "#455a64", "#263238", 1.5, rx=6))
+    s.add(s.text(485, 245, "775  24 V", 22, "#263238", "middle"))
+    disco_motor(s, 140, 230, 120, 9, "#37474f")
+    s.add('<g id="M">')
+    s.add('  <g id="M.ROJO">')
+    s.add("    " + s.rect(760, 180, 50, 14, "#c62828"))
+    s.add("    " + s.circ(820, 187, 14, "#c62828", "#7f0000", 1.2))
+    s.add("  </g>")
+    s.add('  <g id="M.NEGRO">')
+    s.add("    " + s.rect(760, 266, 50, 14, "#212121"))
+    s.add("    " + s.circ(820, 273, 14, "#212121", "#000000", 1.2))
+    s.add("  </g>")
+    s.add("</g>")
+    s.add(s.text(850, 193, "+", 22, "#c62828", "middle"))
+    s.add(s.text(850, 281, "-", 26, "#212121", "middle"))
+    s.guarda("motor_775.svg")
+
+
+# ---------------------------------------------------------------------------
+# EL MODULO MOSFET DEL CABEZAL
+# ---------------------------------------------------------------------------
+def modulo_mosfet():
+    s = Svg(500, 340, """
+  MODULO MOSFET DEL CABEZAL, dibujado a mano: una aproximacion, no una foto.
+  Es el dibujo de placas/modulo_mosfet.xml, que lo encuentra solo porque se
+  llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 50 x 34 mm- y cada pieza con el id de su pieza en el XML:
+
+    Q1     el MOSFET, en su TO-220, en el centro
+    R1     la resistencia de la puerta a masa
+    X1     la borna de la alimentacion: X1.VIN (+) y X1.GNDP (-)
+    X2     la del motor: X2.MAS (+) y X2.MENOS (-)
+    P1     la senal: P1.SIG y P1.GND
+""")
+    s.add(s.rect(0, 0, 500, 340, "#0d47a1", "#08306b", 2, rx=10))
+    bornes(s, "X1", 60, 90, ("VIN", "GNDP"), (BLANCO, BLANCO))
+    bornes(s, "X2", 440, 90, ("MAS", "MENOS"), (BLANCO, BLANCO), izq=True)
+    s.add('<g id="Q1">')
+    s.add("  " + s.rect(190, 40, 120, 60, "#9e9e9e", "#616161", 1.5, rx=4))
+    s.add("  " + s.circ(250, 70, 14, "#424242"))
+    s.add("  " + s.rect(190, 100, 120, 110, "#1c1c1c", "#000000", 1.5, rx=3))
+    for k in range(3):
+        s.add("  " + s.rect(205 + k * 40, 210, 10, 40, "#bdbdbd"))
+    s.add("  " + s.text(250, 165, "IRLZ44N", 14, "#e0e0e0", "middle"))
+    s.add("</g>")
+    s.add('<g id="R1">')
+    s.add("  " + s.rect(120, 270, 40, 18, "#212121", "#9e9e9e", 0.8))
+    s.add("</g>")
+    s.add(s.rect(200, 262, 30, 34, "#212121", "#000000", 1, rx=3))
+    s.add(s.text(215, 316, "D1", 11, BLANCO, "middle", False))
+    s.add(s.rect(300, 290, 2 * P + 12, 26, "#1c1c1c", "#000000", 1, rx=2))
+    s.add('<g id="P1">')
+    pin_tira(s, "P1.SIG", 318, 303)
+    pin_tira(s, "P1.GND", 318 + P, 303)
+    s.add("</g>")
+    s.add(s.text(318, 284, "SIG", 11, BLANCO, "middle"))
+    s.add(s.text(318 + P, 284, "GND", 11, BLANCO, "middle"))
+    s.guarda("modulo_mosfet.svg")
+
+
+# ---------------------------------------------------------------------------
+# EL MODULO IBT-2
+# ---------------------------------------------------------------------------
+def ibt2():
+    s = Svg(500, 520, """
+  MODULO IBT-2, PUENTE EN H CON DOS BTS7960, dibujado a mano: una
+  aproximacion, no una foto. Es el dibujo de placas/ibt2.xml, que lo
+  encuentra solo porque se llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 50 x 52 mm- y cada pieza con el id de su pieza en el XML:
+
+    U1, U2  los dos BTS7960, bajo el disipador: el de M+ y el de M-
+    X1      la borna de la alimentacion: X1.BMAS (B+) y X1.BMENOS (B-)
+    X2      la del motor: X2.MMAS (M+) y X2.MMENOS (M-)
+    P1      la tira de ocho de la logica: RPWM, LPWM, R_EN, L_EN, R_IS, L_IS,
+            VCC y GND
+""")
+    s.add(s.rect(0, 0, 500, 520, "#c62828", "#7f0000", 2, rx=10))
+    s.add(s.rect(70, 30, 360, 220, "#263238", "#000000", 1.5, rx=6))
+    for k in range(9):
+        s.add(s.rect(84 + k * 38, 40, 18, 200, "#37474f"))
+    s.add('<g id="U1">')
+    s.add("  " + s.rect(110, 270, 110, 70, "#1c1c1c", "#000000", 1.5, rx=3))
+    s.add("  " + s.text(165, 312, "BTS7960", 13, "#e0e0e0", "middle"))
+    s.add("</g>")
+    s.add('<g id="U2">')
+    s.add("  " + s.rect(280, 270, 110, 70, "#1c1c1c", "#000000", 1.5, rx=3))
+    s.add("  " + s.text(335, 312, "BTS7960", 13, "#e0e0e0", "middle"))
+    s.add("</g>")
+    s.add(s.text(165, 358, "R (M+)", 11, BLANCO, "middle"))
+    s.add(s.text(335, 358, "L (M-)", 11, BLANCO, "middle"))
+    # Las bornas, arriba a los lados
+    s.add(s.rect(4, 40, 56, 160, "#1565c0", "#0d47a1", 1.5, rx=3))
+    s.add('<g id="X1">')
+    tornillo(s, "X1.BMAS", 32, 80)
+    tornillo(s, "X1.BMENOS", 32, 160)
+    s.add("</g>")
+    s.add(s.text(32, 34, "B+  B-", 11, BLANCO, "middle"))
+    s.add(s.rect(440, 40, 56, 160, "#1565c0", "#0d47a1", 1.5, rx=3))
+    s.add('<g id="X2">')
+    tornillo(s, "X2.MMAS", 468, 80)
+    tornillo(s, "X2.MMENOS", 468, 160)
+    s.add("</g>")
+    s.add(s.text(468, 34, "M+  M-", 11, BLANCO, "middle"))
+    # La tira de la logica, abajo
+    nombres = ("RPWM", "LPWM", "R_EN", "L_EN", "R_IS", "L_IS", "VCC", "GND")
+    x0 = 250 - 3.5 * P
+    s.add(s.rect(x0 - 14, 440, 7 * P + 28, 28, "#1c1c1c", "#000000", 1, rx=2))
+    s.add('<g id="P1">')
+    for k, n in enumerate(nombres):
+        pin_tira(s, "P1." + n, x0 + k * P, 454)
+    s.add("</g>")
+    for k, n in enumerate(nombres):
+        s.add(s.text(x0 + k * P, 492, n.replace("_", ""), 7.5, BLANCO, "middle"))
+    s.add(s.text(250, 420, "IBT-2  43 A", 14, BLANCO, "middle"))
+    s.guarda("ibt2.svg")
+
+
+# ---------------------------------------------------------------------------
+# EL MOTORREDUCTOR DE 37 mm CON SU ENCODER
+# ---------------------------------------------------------------------------
+def motor_jgb37():
+    s = Svg(1000, 420, """
+  MOTORREDUCTOR JGB37-520 CON ENCODER HALL, dibujado a mano: una aproximacion,
+  no una foto. Es el dibujo de placas/motor_jgb37_encoder.xml, que lo
+  encuentra solo porque se llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 100 x 42 mm- y cada pieza con el id de su pieza en el XML. De lado:
+  el eje de salida a la izquierda, la reductora dorada, el motor y, atras, la
+  plaquita del encoder con su cable.
+
+    MOTOR  el disco del eje de salida, visto de frente a la izquierda, que
+           GIRA con el angulo (efecto `angulo`)
+    M      los hilos del motor: M.ROJO (+) y M.BLANCO
+    P1     los del encoder: P1.VCC, P1.GND, P1.A y P1.B
+""")
+    disco_motor(s, 140, 210, 110, 6, "#455a64")
+    s.add(s.rect(270, 110, 260, 200, "#d4ac0d", "#9a7d0a", 2, rx=10))
+    s.add(s.text(400, 215, "1:30", 20, "#5d4300", "middle"))
+    s.add(s.rect(530, 120, 270, 180, "#b0bec5", "#546e7a", 2, rx=12))
+    s.add(s.text(665, 215, "JGB37 12 V", 18, "#263238", "middle"))
+    s.add(s.rect(800, 100, 40, 220, "#1b5e20", "#0d3311", 1.5, rx=4))
+    hilos = (("M.ROJO", "#c62828"), ("M.BLANCO", "#eceff1"), ("P1.GND", "#212121"),
+             ("P1.VCC", "#1565c0"), ("P1.A", "#f9a825"), ("P1.B", "#2e7d32"))
+    s.add('<g id="M">')
+    for k, (id_, col) in enumerate(hilos[:2]):
+        y = 130 + k * 32
+        s.add('  <g id="%s">' % id_)
+        s.add("    " + s.rect(840, y - 4, 70, 8, col, "#000000", 0.6))
+        s.add("    " + s.circ(920, y, 11, col, "#000000", 1.2))
+        s.add("  </g>")
+    s.add("</g>")
+    s.add('<g id="P1">')
+    for k, (id_, col) in enumerate(hilos[2:]):
+        y = 130 + (k + 2) * 32
+        s.add('  <g id="%s">' % id_)
+        s.add("    " + s.rect(840, y - 4, 70, 8, col, "#000000", 0.6))
+        s.add("    " + s.circ(920, y, 11, col, "#000000", 1.2))
+        s.add("  </g>")
+    s.add("</g>")
+    for k, (id_, col) in enumerate(hilos):
+        s.add(s.text(940, 130 + k * 32 + 5, id_.split(".")[1], 12, "#263238"))
+    s.guarda("motor_jgb37_encoder.svg")
+
+
 if __name__ == "__main__":
     nema17()
     st5918()
     pololu_a4988()
+    motor_775()
+    modulo_mosfet()
+    ibt2()
+    motor_jgb37()

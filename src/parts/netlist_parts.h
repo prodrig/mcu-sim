@@ -39,6 +39,7 @@
 #include "puente_h.h"
 #include "motor_pap.h"
 #include "driver_pap.h"
+#include "potencia.h"
 #include "mems_st.h"
 #include "xds110.h"
 
@@ -1453,6 +1454,104 @@ REGISTRA_PARTE(GeneradorPasos,
         return new GeneradorPasos(d.id.c_str(), n[d.nodo_de("step")], n[d.nodo_de("dir")], hz, a,
                                   d.num("ancho_us", 2.0), d.num("dir_us", 5.0),
                                   d.num("sentido", 1.0) >= 0.5, d.num("vdd", 3.3));
+    });
+
+REGISTRA_PARTE(Mosfet,
+    Ayuda("Un N-MOSFET DE LADO BAJO, como el IRLZ44N de los modulos que gobiernan el "
+          "cabezal de una fresadora con el PWM de GRBL: el canal entre drenador y fuente "
+          "conduce con la tension de la puerta por encima del umbral, con una RDS que baja "
+          "con ella -un MOSFET que no es de nivel logico apenas conduce con 3,3 V-. Con "
+          "diodo=si y la patilla libre, el DIODO DE LIBRE CIRCULACION del modulo, del "
+          "drenador al + del motor: la corriente de la bobina sigue por el al abrirse el "
+          "canal. Sin el, la bobina sube el drenador hasta la avalancha y el MOSFET se "
+          "rompe: aqui la corriente se corta, y se avisa.")
+      .ejemplo("<componente tipo=\"Mosfet\" id=\"Q1\" modelo=\"IRLZ44N\" diodo=\"si\">\n"
+               "  <pin nombre=\"drenador\" nodo=\"OUT-\"/><pin nombre=\"fuente\" nodo=\"GND\"/>\n"
+               "  <pin nombre=\"puerta\" nodo=\"SIG\"/><pin nombre=\"libre\" nodo=\"OUT+\"/>\n"
+               "</componente>")
+      .pin("drenador", "obligatorio", "Al - de la carga.")
+      .pin("fuente", "obligatorio", "A masa.")
+      .pin("puerta", "obligatorio", "La senal: con Vgs por encima del umbral, conduce.")
+      .pin("libre", "con diodo=si", "El catodo del diodo de libre circulacion: el + de la carga.")
+      .atr("modelo", "IRLZ44N", "IRLZ44N (de nivel logico: 25 mohm a 5 V, umbral de 1 a 2 V) o "
+           "IRF520 (0,27 ohm a 10 V, umbral de 2 a 4 V: el de los modulos azules, que con 5 V "
+           "apenas se abre). Las cifras de abajo cambian las suyas.")
+      .atr("vth", "segun el modelo", "El umbral, en V.")
+      .atr("rds_on", "segun el modelo", "La resistencia del canal a vgs_ref, en ohmios.")
+      .atr("vgs_ref", "segun el modelo", "La tension de la puerta a la que se da rds_on.")
+      .atr("vgs_plena", "segun el modelo", "La que garantiza la hoja de datos: con menos y mas de "
+           "1 A, se avisa.")
+      .atr("i_max", "segun el modelo", "Lo que aguanta, en A: por encima, se avisa.")
+      .atr("diodo", "si", "El diodo de libre circulacion del modulo, con su patilla libre.")
+      .nota("Deja ver `conduce`, `corriente` (mA, de media), `disipacion` (W, I²·RDS) y `vgs`. "
+            "Avisa de abrirse sin diodo con corriente, de la puerta que no lo abre del todo y de "
+            "la sobrecorriente.")
+      .cpp("conduce(), por_el_diodo(), rds(), corriente(), corriente_diodo(), vgs(), disipacion()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Mosfet '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        for (const char* t : {"drenador", "fuente", "puerta"})
+            if (d.nodo_de(t).empty()) return mal(std::string("le falta <pin nombre=\"") + t + "\">");
+        ConfigMosfet c;
+        c.modelo = d.txt("modelo", "IRLZ44N");
+        if (!modelo_mosfet(c.modelo, c)) return mal("modelo es IRLZ44N o IRF520");
+        c.vth = d.num("vth", c.vth);
+        c.rds_on = d.num("rds_on", c.rds_on);
+        c.vgs_ref = d.num("vgs_ref", c.vgs_ref);
+        c.vgs_plena = d.num("vgs_plena", c.vgs_plena);
+        c.i_max = d.num("i_max", c.i_max);
+        c.diodo = d.si("diodo", true);
+        if (c.vth <= 0 || c.rds_on <= 0 || c.vgs_ref <= c.vth || c.i_max <= 0)
+            return mal("vth, rds_on e i_max son positivos, y vgs_ref pasa de vth");
+        if (c.diodo && d.nodo_de("libre").empty())
+            return mal("con diodo=si, el diodo va a <pin nombre=\"libre\">, el + de la carga");
+        if (!c.diodo && !d.nodo_de("libre").empty())
+            return mal("la patilla libre es la del diodo: con diodo=no, sobra");
+        return new Mosfet(d.id.c_str(), n[d.nodo_de("drenador")], n[d.nodo_de("fuente")],
+                          n[d.nodo_de("puerta")],
+                          d.nodo_de("libre").empty() ? nullptr : &n[d.nodo_de("libre")], c);
+    });
+
+REGISTRA_PARTE(MedioPuente,
+    Ayuda("Un MEDIO PUENTE INTEGRADO, el BTS7960 de Infineon: con INH alto, IN alto pone "
+          "la salida en VS por el transistor de arriba (7 mohm) e IN bajo en masa por el "
+          "de abajo (9 mohm); con INH bajo duerme, y la salida se queda al aire: la "
+          "corriente de la bobina de un motor sigue por los diodos de sus transistores "
+          "hasta acabarse. IS es una FUENTE DE CORRIENTE, la de la salida entre 8500. Dos "
+          "son un puente en H: el modulo IBT-2, de 43 A. Con vdd, las entradas pasan por el "
+          "74HC244 del modulo, alimentado de su VCC.")
+      .ejemplo("<componente tipo=\"MedioPuente\" id=\"U1\">\n"
+               "  <pin nombre=\"vs\" nodo=\"B+\"/> <pin nombre=\"gnd\" nodo=\"B-\"/>\n"
+               "  <pin nombre=\"in\" nodo=\"RPWM\"/> <pin nombre=\"inh\" nodo=\"R_EN\"/>\n"
+               "  <pin nombre=\"out\" nodo=\"M+\"/> <pin nombre=\"is\" nodo=\"R_IS\"/>\n"
+               "  <pin nombre=\"vdd\" nodo=\"VCC\"/>\n"
+               "</componente>")
+      .pin("vs, gnd", "obligatorios", "La alimentacion, de 5,5 a 27,5 V, y la masa.")
+      .pin("in", "obligatorio", "Alto: la salida a VS; bajo: a masa.")
+      .pin("inh", "obligatorio", "Alto: despierto; bajo: duerme, la salida al aire.")
+      .pin("out", "obligatorio", "La salida.")
+      .pin("is", "opcional", "La medida de la corriente: una fuente de corriente.")
+      .pin("vdd", "opcional", "El VCC del 74HC244 del modulo: con el, las entradas cortan en "
+           "VCC/2 y piden 0,7·VCC para un alto.")
+      .nota("Deja ver `corriente` (mA, de media, la que sale), `disipacion` (W) y `despierto`. "
+            "Avisa de los niveles dudosos de sus entradas y de pasar de 43 A.")
+      .cpp("estado() -alto, bajo o dormido-, corriente(), corriente_media(), corriente_is(), "
+           "disipacion()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        for (const char* t : {"vs", "gnd", "in", "inh", "out"})
+            if (d.nodo_de(t).empty()) {
+                SC_REPORT_ERROR("netlist", ("MedioPuente '" + d.id + "': le falta <pin nombre=\"" +
+                                            std::string(t) + "\">").c_str());
+                return nullptr;
+            }
+        auto nd = [&](const char* t) -> analog_net_if* {
+            return d.nodo_de(t).empty() ? nullptr : &n[d.nodo_de(t)];
+        };
+        return new MedioPuente(d.id.c_str(), n[d.nodo_de("vs")], n[d.nodo_de("gnd")],
+                               n[d.nodo_de("in")], n[d.nodo_de("inh")], n[d.nodo_de("out")],
+                               nd("is"), nd("vdd"));
     });
 
 REGISTRA_PARTE(L298,
