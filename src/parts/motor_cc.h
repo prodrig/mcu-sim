@@ -42,6 +42,14 @@
 // `i_arranque_ma`- y la carga Tc del mando `carga`, que se opone al giro. J
 // sale de la constante de tiempo `tau_ms`.
 //
+// ESA ECUACIÓN ES DE SU CADENA (parts/cadena.h). El motor es un ACTUADOR: da
+// el par Kt·i y pone su J, su Tf, su Ts y su Tc; la cadena les suma lo que
+// tenga detrás -un volante, una reductora, un husillo- y lo integra todo
+// junto, con la corriente. Un motor suelto tiene su cadena IMPLÍCITA, de él
+// solo, que mueve su propio proceso: es la de siempre, y da lo mismo al
+// decimal. Si una <transmision> lo engancha, la mueve el proceso de ella y el
+// suyo se queda parado.
+//
 // Las dos ecuaciones se integran juntas, con Runge-Kutta de cuarto orden a
 // pasos de 5 us como mucho, pero SystemC no despierta en cada paso: el
 // proceso despierta en cada cambio de los bornes, en cada flanco del encoder
@@ -67,6 +75,7 @@
 #include <set>
 #include <string>
 #include "ext_parts.h"
+#include "cadena.h"
 
 namespace stm32 {
 
@@ -154,11 +163,9 @@ struct ConfigMotorCC {
     double posicion_inicial = 0.0; // grados
 };
 
-SC_MODULE(MotorCC), public ExtPartBase {
+SC_MODULE(MotorCC), public ExtPartBase, public Actuador {
     static constexpr double PI = 3.14159265358979323846;
-    static constexpr double PASO = 5e-6;           // s: el paso máximo de integración
-    static constexpr double REFRESCO = 1e-3;       // s, mientras acelera o frena
-    static constexpr double REFRESCO_I = 1e-4;     // s, mientras la corriente se asienta
+    static constexpr double PASO = Cadena::PASO;   // s: el paso máximo de integración
     static constexpr double ENC_V_MIN = 2.5;       // V, para que el sensor funcione
     static constexpr double ENC_R_ALTO = 10000.0, ENC_R_BAJO = 100.0;
 
@@ -166,7 +173,8 @@ SC_MODULE(MotorCC), public ExtPartBase {
             const ConfigMotorCC& c = ConfigMotorCC(), analog_net_if* enc_vcc = nullptr,
             analog_net_if* enc_gnd = nullptr, analog_net_if* enc_a = nullptr,
             analog_net_if* enc_b = nullptr)
-        : sc_core::sc_module(nm), ExtPartBase("MotorCC", nm), a_(&a), b_(&b), c_(c) {
+        : sc_core::sc_module(nm), ExtPartBase("MotorCC", nm), a_(&a), b_(&b), c_(c),
+          propia_(c.posicion_inicial * PI / 180.0) {
         const int ia = add_pin("a", a, "motor");
         const int ib = add_pin("b", b, "motor");
         rama_.reset(new RamaFem(a, ia, b, ib));
@@ -188,10 +196,12 @@ SC_MODULE(MotorCC), public ExtPartBase {
         ts_ = kt_ * std::max(c_.i_arranque_ma, c_.i_vacio_ma) * 1e-3;
         t_bloqueo_ = kt_ * c_.i_bloqueo_ma * 1e-3;
         j_ = c_.tau_ms * 1e-3 * ke_ * kt_ / r_;
-        x_.th = c_.posicion_inicial * PI / 180.0;
         rt_ = r_;
         if (c_.ppr) dq_ = 2.0 * PI / (4.0 * c_.ppr);
-        q_ = cuarto_de(x_.th, 0);
+        q_ = cuarto_de(c_.posicion_inicial * PI / 180.0, 0);
+        // Suelto, con su cadena: él solo
+        propia_.pon_actuador(this);
+        propia_.cierra();
         SC_HAS_PROCESS(MotorCC);
         SC_THREAD(motor);
     }
@@ -202,37 +212,42 @@ SC_MODULE(MotorCC), public ExtPartBase {
     }
 
     // --- Desde C++ -------------------------------------------------------------
-    double rpm() const { return x_.w * 60.0 / (2.0 * PI); }           // del eje de salida
+    // Su eje es el de referencia de su cadena
+    double rpm() const { return cadena_->w() * 60.0 / (2.0 * PI); }   // del eje de salida
     double rpm_motor() const { return rpm() * c_.reduccion; }
     double angulo() const {                                           // 0..360
-        double g = std::fmod(x_.th * 180.0 / PI, 360.0);
+        double g = std::fmod(cadena_->th() * 180.0 / PI, 360.0);
         return g < 0 ? g + 360.0 : g;
     }
-    double vueltas() const { return x_.th / (2.0 * PI); }
+    double vueltas() const { return cadena_->th() / (2.0 * PI); }
     // La corriente y la tension de AHORA, de a a b: con PWM, a saltos -la
     // corriente, menos: la alisa la bobina-
-    double corriente_ma() const { return x_.i * 1e3; }
+    double corriente_ma() const { return i_ * 1e3; }
     double tension() const { return v_bornes(); }
     // Y su MEDIA de los ultimos milisegundos (un filtro de primer orden de
     // MEDIA_S): lo que marcaria un polimetro. Es lo que se deja ver
-    double corriente_media_ma() const { return media(i_med_, x_.i) * 1e3; }
+    double corriente_media_ma() const { return media(i_med_, i_) * 1e3; }
     double tension_media() const { return media(v_med_, v_bornes()); }
-    double fem() const { return ke_ * x_.w; }
+    double fem() const { return ke_ * cadena_->w(); }
     long   cuenta() const { return q_; }            // cuartos de ciclo del encoder
     bool   enc_a() const { return enc_a_; }
     bool   enc_b() const { return enc_b_; }
     bool   tiene_encoder() const { return ea_ != nullptr; }
-    bool   bloqueado() const { return bloq_; }
-    void   bloquea(bool si) { bloq_ = si; ev_mando_.notify(sc_core::SC_ZERO_TIME); }
+    bool   bloqueado() const override { return bloq_; }
+    void   bloquea(bool si) { bloq_ = si; cadena_->toca(); }
     double carga() const { return carga_; }          // 0..1 del par de bloqueo
     void   pon_carga(double f) {
         carga_ = std::max(0.0, std::min(1.0, f));
-        ev_mando_.notify(sc_core::SC_ZERO_TIME);
+        cadena_->toca();
     }
     double r_bobinado() const { return r_; }
     double inductancia() const { return l_; }
     double ke() const { return ke_; }
+    double kt() const { return kt_; }
+    double j_propia() const { return j_; }          // kg·m², la del motor y su reductora
     const ConfigMotorCC& config() const { return c_; }
+    // ¿Va en una <transmision>? Si no, en la suya, él solo
+    bool en_transmision() const { return cadena_ != &propia_; }
 
     // --- Lo que deja ver y tocar -------------------------------------------------
     unsigned n_observables() const override { return ea_ ? 7 : 4; }
@@ -272,6 +287,91 @@ SC_MODULE(MotorCC), public ExtPartBase {
         else pon_carga(double(v) / 100.0);
     }
 
+    // =========================================================================
+    // EL MOTOR COMO ACTUADOR DE SU CADENA: la corriente de la bobina
+    //
+    //     L·di/dt = Vth - Ke·w - (R + Rth)·i       (con la rama cerrada)
+    //
+    // y el par Kt·i. Con la rama abierta, i = 0. Lo mecánico -la inercia, el
+    // rozamiento seco, el de arranque y la carga del mando- lo pone en la
+    // cadena, que lo integra con lo que tenga detrás, a pasos de 5 us como
+    // mucho -y nunca más de una quinta parte de L/(R+Rth)-.
+    // =========================================================================
+    unsigned n_e() const override { return 1; }
+    void lee_e(double* e) const override { e[0] = i_; }
+    void pon_e(const double* e) override { i_ = e[0]; }
+    void deriva(const double* e, double w, double, double* de, double& par) const override {
+        de[0] = conduce_ ? (vth_ - ke_ * w - rt_ * e[0]) / l_ : 0.0;
+        par = kt_ * e[0];
+    }
+    void prepara(double* e) const override { if (!conduce_) e[0] = 0.0; }
+    double paso_max() const override {
+        return conduce_ ? std::min(PASO, 0.2 * l_ / rt_) : Actuador::INF;
+    }
+    bool inerte() const override { return !conduce_; }
+    bool asentado(const double* e) const override {
+        if (!conduce_) return e[0] == 0.0;
+        return std::fabs(e[0] - vth_ / rt_) < 1e-7;
+    }
+    double par_asentado(double) const override { return conduce_ ? kt_ * (vth_ / rt_) : 0.0; }
+    void limpia(double* e) const override { if (!conduce_) e[0] = 0.0; }
+    void asienta(double* e) const override { if (conduce_) e[0] = vth_ / rt_; }
+    bool asentando(const double*, const double* de) const override {
+        return conduce_ && std::fabs(de[0]) * Cadena::REFRESCO_I > 1e-3;
+    }
+    bool estable(const double*, const double* de) const override {
+        return conduce_ && std::fabs(de[0]) < 1e-6;
+    }
+    // El próximo flanco del encoder, con la velocidad de ahora
+    double hasta_marca(double th, double w) const override {
+        if (!c_.ppr) return Actuador::INF;
+        const int s = signo(w);
+        const double frontera = (s > 0 ? q_ + 1 : q_) * dq_;
+        return std::max(1e-9, std::fabs(frontera - th) / std::fabs(w));
+    }
+    // Un flanco del encoder, o que la corriente cambie de sentido -la ven los
+    // diodos de un puente-
+    bool cambia(const double* e0, const double* e, double th, double w) const override {
+        if (c_.ppr && cuarto_de(th, signo(w)) != q_) return true;
+        const int i0 = signo(e0[0]);
+        return conduce_ && i0 != 0 && signo(e[0]) != i0;
+    }
+    double inercia() const override { return j_; }
+    double rozamiento() const override { return tf_ + t_carga(); }
+    double arranque() const override { return ts_ + t_carga(); }
+    double posicion_inicial() const override { return c_.posicion_inicial * PI / 180.0; }
+    std::string nombre_actuador() const override { return pieza(); }
+
+    void antes() override { apunta_medias(); }
+    void regimen() override {
+        // Lo que ven los bornes, sin el motor: el régimen desde aquí
+        double vth = 0, rth = 0;
+        const bool cond = conectada_ && rama_->fuera(vth, rth);
+        if (!cond) i_ = 0.0;            // la rama abierta corta la corriente
+        conduce_ = cond;
+        vth_ = vth;
+        rt_ = r_ + rth;
+        // La rama: con ella cerrada, la que hace pasar la corriente de la
+        // bobina -una f.e.m. que deja en los bornes Vth - Rth·i-; abierta,
+        // la f.e.m. del giro
+        if (cond) rama_->resuelve(true, vth - i_ * rt_, r_);
+        else      rama_->resuelve(conectada_, ke_ * cadena_->w(), r_);
+        avisa_tension();
+        if (c_.ppr) q_ = cuarto_de(cadena_->th(), signo(cadena_->w()));
+        pon_encoder();
+    }
+    // Lo que lo despierta: los bornes, la conexión y, con encoder, su
+    // alimentación. Los mandos, por la cadena
+    void eventos(sc_core::sc_event_or_list& l) override {
+        l |= a_->value_changed_event();
+        l |= b_->value_changed_event();
+        l |= evento_conexion();
+        if (ev_) {
+            l |= ev_->value_changed_event();
+            l |= eg_->value_changed_event();
+        }
+    }
+
 private:
     static double ahora() { return sc_core::sc_time_stamp().to_seconds(); }
     static int signo(double x) { return x > 0 ? 1 : (x < 0 ? -1 : 0); }
@@ -282,131 +382,22 @@ private:
         return ahora_x + (med - ahora_x) * std::exp(-dt / MEDIA_S);
     }
     void apunta_medias() {
-        i_med_ = media(i_med_, x_.i);
+        i_med_ = media(i_med_, i_);
         v_med_ = media(v_med_, v_bornes());
         t_med_ = ahora();
     }
     // La tension entre los bornes: con la rama cerrada, la de Thevenin menos lo
     // que cae fuera; abierta, la f.e.m.
     double v_bornes() const {
-        return conduce_ ? vth_ - (rt_ - r_) * x_.i : ke_ * x_.w;
+        return conduce_ ? vth_ - (rt_ - r_) * i_ : ke_ * cadena_->w();
     }
+    double t_carga() const { return carga_ * t_bloqueo_; }
 
     // El cuarto de ciclo del encoder en el que está el ángulo th. En una
     // frontera exacta, el de delante según el sentido
     long cuarto_de(double th, int s) const {
         if (!c_.ppr) return 0;
         return long(std::floor(th / dq_ + s * 1e-7));
-    }
-
-    // =========================================================================
-    // EL MOTOR: la corriente por la bobina, la velocidad y el ángulo del eje
-    //
-    //     L·di/dt = Vth - Ke·w - (R + Rth)·i       (con la rama cerrada)
-    //     J·dw/dt = Kt·i - (Tf + Tc)·sgn(w)
-    //
-    // Con la rama abierta, i = 0. Parado, el eje se queda mientras el par no
-    // pase del de arranque; y al pararse, el rozamiento no lo empuja hacia
-    // atrás. Se integra con Runge-Kutta de cuarto orden a pasos de 5 us como
-    // mucho -y nunca más de una quinta parte de L/(R+Rth)-, que es pura
-    // cuenta: SystemC no despierta en cada paso.
-    // =========================================================================
-    struct Estado { double i = 0.0, w = 0.0, th = 0.0; };
-    double t_carga() const { return carga_ * t_bloqueo_; }
-    double paso_max() const {
-        return conduce_ ? std::min(PASO, 0.2 * l_ / rt_) : 1e-4;
-    }
-    // Las derivadas, con el sentido s del rozamiento fijo (0: parado)
-    void deriva(double i, double w, int s, double& di, double& dw) const {
-        di = conduce_ ? (vth_ - ke_ * w - rt_ * i) / l_ : 0.0;
-        dw = (s == 0) ? 0.0 : (kt_ * i - (tf_ + t_carga()) * s) / j_;
-    }
-    // Un paso de h segundos
-    Estado paso(Estado x, double h) const {
-        if (!conduce_) x.i = 0.0;
-        int s = signo(x.w);
-        if (bloq_) { x.w = 0.0; s = 0; }
-        else if (s == 0 && std::fabs(kt_ * x.i) > ts_ + t_carga()) s = signo(x.i);
-        if (!conduce_) {
-            // Sin corriente: el rozamiento lo frena en línea recta, exacto
-            if (s == 0) return x;
-            const double a = -(tf_ + t_carga()) * s / j_;
-            double t = h;
-            if (-x.w / a < h) t = -x.w / a;
-            x.th += x.w * t + 0.5 * a * t * t;
-            x.w = (t < h) ? 0.0 : x.w + a * h;
-            if (signo(x.w) == -s) x.w = 0.0;
-            return x;
-        }
-        double k1i, k1w, k2i, k2w, k3i, k3w, k4i, k4w;
-        deriva(x.i, x.w, s, k1i, k1w);
-        deriva(x.i + 0.5 * h * k1i, x.w + 0.5 * h * k1w, s, k2i, k2w);
-        deriva(x.i + 0.5 * h * k2i, x.w + 0.5 * h * k2w, s, k3i, k3w);
-        deriva(x.i + h * k3i, x.w + h * k3w, s, k4i, k4w);
-        const double w0 = x.w;
-        x.i += h / 6.0 * (k1i + 2 * k2i + 2 * k3i + k4i);
-        x.w += h / 6.0 * (k1w + 2 * k2w + 2 * k3w + k4w);
-        if (s != 0 && signo(x.w) != s) x.w = 0.0;     // se para
-        x.th += 0.5 * (w0 + x.w) * h;
-        return x;
-    }
-    // ¿Se queda como está? Parado, sin arrancar, con la corriente asentada
-    bool quieto(const Estado& x) const {
-        if (x.w != 0.0 && !bloq_) return false;
-        if (!conduce_) return x.i == 0.0;
-        const double i_ss = vth_ / rt_;
-        const bool arranca = !bloq_ && std::fabs(kt_ * i_ss) > ts_ + t_carga();
-        return !arranca && std::fabs(x.i - i_ss) < 1e-7;
-    }
-    // Lleva el estado de t0_ al t1 con el régimen que había
-    void avanza(double t1) {
-        double dt = t1 - t0_;
-        t0_ = t1;
-        if (dt <= 0.0) return;
-        if (quieto(x_)) { if (!conduce_) x_.i = 0.0; return; }
-        const double hm = paso_max();
-        const long n = std::max(1L, long(std::ceil(dt / hm - 1e-9)));
-        const double h = dt / double(n);
-        for (long k = 0; k < n; ++k) {
-            x_ = paso(x_, h);
-            if (quieto(x_)) {
-                if (conduce_) x_.i = vth_ / rt_;
-                break;
-            }
-        }
-    }
-    // Cuándo pasa algo que hay que hacer ver, sin que nadie toque los bornes:
-    // un flanco del encoder, que la corriente cambie de sentido -la ven los
-    // diodos de un puente-, que se pare o arranque, o el refresco. Se ensaya
-    // con los mismos pasos que dará avanza(), así que el instante es exacto
-    double proximo() const {
-        if (quieto(x_)) return std::numeric_limits<double>::infinity();
-        const double hm = paso_max();
-        double di, dw;
-        deriva(x_.i, x_.w, signo(x_.w), di, dw);
-        const bool asentando = conduce_ && std::fabs(di) * REFRESCO_I > 1e-3;
-        const double horizonte = asentando ? REFRESCO_I : REFRESCO;
-        // Estable del todo: los flancos, con la velocidad de ahora
-        if (conduce_ && std::fabs(di) < 1e-6 && std::fabs(dw) < 1e-6 && x_.w != 0.0) {
-            if (!c_.ppr) return std::numeric_limits<double>::infinity();
-            const int s = signo(x_.w);
-            const double frontera = (s > 0 ? q_ + 1 : q_) * dq_;
-            return std::max(1e-9, std::fabs(frontera - x_.th) / std::fabs(x_.w));
-        }
-        Estado x = x_;
-        const long q0 = q_;
-        const int s0 = signo(x.w), i0 = signo(x.i);
-        double t = 0.0;
-        while (t < horizonte - 1e-12) {
-            const double h = std::min(hm, horizonte - t);
-            x = paso(x, h);
-            t += h;
-            if (c_.ppr && cuarto_de(x.th, signo(x.w)) != q0) return t;
-            if (signo(x.w) != s0) return t;
-            if (conduce_ && i0 != 0 && signo(x.i) != i0) return t;
-            if (quieto(x)) return t;
-        }
-        return horizonte;
     }
 
     // --- El encoder ----------------------------------------------------------
@@ -430,48 +421,10 @@ private:
         eb_->set_drive(id_eb_, enc_b_ ? vh : vl, float(enc_b_ ? ENC_R_ALTO : ENC_R_BAJO));
     }
 
-    // --- El proceso ----------------------------------------------------------
+    // --- El proceso: el de su cadena implícita, si va suelto -------------------
     void motor() {
-        for (;;) {
-            apunta_medias();
-            avanza(ahora());
-            // Lo que ven los bornes, sin el motor: el régimen desde aquí
-            double vth = 0, rth = 0;
-            const bool cond = conectada_ && rama_->fuera(vth, rth);
-            if (!cond) x_.i = 0.0;          // la rama abierta corta la corriente
-            conduce_ = cond;
-            vth_ = vth;
-            rt_ = r_ + rth;
-            // La rama: con ella cerrada, la que hace pasar la corriente de la
-            // bobina -una f.e.m. que deja en los bornes Vth - Rth·i-; abierta,
-            // la f.e.m. del giro
-            if (cond) rama_->resuelve(true, vth - x_.i * rt_, r_);
-            else      rama_->resuelve(conectada_, ke_ * x_.w, r_);
-            avisa_tension();
-            if (c_.ppr) q_ = cuarto_de(x_.th, signo(x_.w));
-            pon_encoder();
-            // Nunca menos de un nanosegundo: un plazo que redondea a cero
-            // sería un bucle de ciclos delta
-            const double plazo = proximo();
-            if (!std::isfinite(plazo)) wait(despierta());
-            else wait(sc_core::sc_time(std::max(plazo, 1e-9), sc_core::SC_SEC), despierta());
-        }
-    }
-    // Lo que lo despierta: los bornes, los mandos, la conexión y, con
-    // encoder, su alimentación
-    const sc_core::sc_event_or_list& despierta() {
-        if (!despierta_) {
-            despierta_.reset(new sc_core::sc_event_or_list());
-            *despierta_ |= a_->value_changed_event();
-            *despierta_ |= b_->value_changed_event();
-            *despierta_ |= ev_mando_;
-            *despierta_ |= evento_conexion();
-            if (ev_) {
-                *despierta_ |= ev_->value_changed_event();
-                *despierta_ |= eg_->value_changed_event();
-            }
-        }
-        return *despierta_;
+        if (en_transmision()) return;      // la mueve el proceso de la transmisión
+        propia_.corre();
     }
 
     // La sobretension, de media: la punta de cada periodo de PWM -la de la
@@ -497,13 +450,13 @@ private:
     double dq_ = 1.0;
     long q_ = 0;
     bool enc_a_ = false, enc_b_ = false;
-    std::unique_ptr<sc_core::sc_event_or_list> despierta_;
     // Las constantes
     double r_ = 4.0, l_ = 1.5e-3, ke_ = 0.2, kt_ = 0.2, tf_ = 0.0, ts_ = 0.0, t_bloqueo_ = 0.0,
            j_ = 1e-3;
-    // El estado, en t0_
-    double t0_ = 0.0;
-    Estado x_;
+    // Su cadena implícita: él solo, con su carga
+    Cadena propia_;
+    // La corriente de la bobina, de a a b
+    double i_ = 0.0;
     // Las medias de la corriente y la tension, hasta t_med_
     double i_med_ = 0.0, v_med_ = 0.0, t_med_ = 0.0;
     // El régimen: lo que ven los bornes
@@ -512,7 +465,6 @@ private:
     // Los mandos
     bool bloq_ = false;
     double carga_ = 0.0;
-    sc_core::sc_event ev_mando_;
     bool dicho_sobretension_ = false;
 };
 

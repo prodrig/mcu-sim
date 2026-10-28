@@ -375,7 +375,7 @@ máquina y no ver estos ficheros.
 | Sin `ilustracion=` | El SVG que **se llame como la placa**, a su lado: `nucleo_f446re.xml` → `nucleo_f446re.svg`. Si no está, no pasa nada |
 | `<placa id="N" fichero="..." ilustracion="y.svg"/>` en un `<sistema>` | El montaje cambia el dibujo de esa placa (relativo al sistema); la tabla de la placa, que era de SU dibujo, no se usa |
 | `giro="90"` en la `<placa>`, o en su `<placa id>` de un `<sistema>` | El dibujo, **girado** 90, 180 o 270 grados en el sentido de las agujas del reloj: como está montada la placa. El del sistema manda sobre el de la placa. Ver abajo |
-| `<ilustracion><enlace pieza= elemento= [efecto=] [observable=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido`, `giro`, `pantalla`, `angulo`, `display` o `ninguno`; con `giro` o `angulo`, `observable` dice cuál de los de la pieza lo mueve; con `display`, cuáles enseña, uno por fila (abajo) |
+| `<ilustracion><enlace pieza= elemento= [efecto=] [observable=] [vector=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido`, `giro`, `pantalla`, `angulo`, `display`, `desplaza` o `ninguno`; con `giro` o `angulo`, `observable` dice cuál de los de la pieza lo mueve; con `display`, cuáles enseña, uno por fila; con `desplaza`, cuáles lo trasladan, y `vector` cuánto cada uno (abajo) |
 
 **Lo que se comprueba aquí** —el SVG lo lee la ventana—: un dibujo
 **declarado** que no está, uno que no empieza por `<svg` ni por `<?xml`, o uno
@@ -447,6 +447,25 @@ etiqueta debajo. Es el display de `placas/fuente_laboratorio.svg`:
 `<enlace pieza="PSU" elemento="PSU" efecto="display" observable="tension
 corriente"/>`. Para que las filas caigan en sus ventanitas, el elemento las
 lleva todas, del mismo alto y repartidas por igual.
+
+**Lo que se mueve en línea recta: el efecto `desplaza`.** Es el `angulo`
+lineal, y solo lo pone la tabla: la ventana TRASLADA el elemento. Lo mueven
+uno o varios numéricos de la pieza —`observable=`, separados por blancos—,
+cada uno con su vector —`vector=`, dos números por observable, x e y—, en
+unidades del dibujo (las de su `viewBox`) por unidad del observable, y se
+suman:
+
+    <enlace pieza="MAQ" elemento="cabezal" efecto="desplaza"
+            observable="x z" vector="2.5 0  0 -2.5"/>
+
+lleva el cabezal 2,5 a la derecha por cada mm de `x` y 2,5 hacia arriba por
+cada mm de `z`. Así un elemento se mueve con dos ejes sin que la ventana tenga
+que componer grupos anidados, que es lo que haría falta para que el carro Z
+de una fresadora se moviera con el X (`doc/analisis_cnc.md` §9). `mcu-sim`
+comprueba que los dos atributos estén y que el vector tenga dos números por
+observable; que la pieza tenga esos observables lo mira la ventana, que se
+queda sin efecto si no, y lo dice. Con el elemento van su halo y su contorno
+de alarma; los numéricos que lo mueven no llevan etiqueta.
 
 **El giro: la misma placa, montada de otra manera.** Una placa no siempre va
 derecha: la pantalla TFT puede ir de pie, con el conector abajo, o del revés,
@@ -2156,6 +2175,11 @@ de la constante de tiempo. Las cifras se dan como en una hoja de datos y de ahí
 sale el resto: `R = v_nominal / i_bloqueo`, `Ke = (v_nominal − i_vacio·R) /
 ω_vacio`.
 
+Esa ecuación es de su **cadena mecánica** (§4.17): el motor da el par `Kt·i` y
+pone su `J`, su `Tf`, su rozamiento de arranque y su `Tc`, y la cadena les suma
+lo que tenga detrás. Un motor suelto lleva la suya, de él solo, y es lo de
+siempre al decimal: M9 y M10 dan las mismas rpm que antes de la cadena.
+
 **Cómo se integra.** Las dos ecuaciones, la de la bobina y la del eje, juntas,
 con Runge-Kutta de cuarto orden a pasos de 5 µs como mucho —y nunca más de un
 quinto de `L/(R + Rth)`—. Pero SystemC no despierta en cada paso: es pura
@@ -2306,6 +2330,95 @@ la ventana las escribe DENTRO de su display —el efecto `display`, §2.6—:
 `placas/nucleo_f446re_encoder_lcd_servo_2xmcc.xml` el 5V-EN se quita y la
 lógica del L298N toma el +5V de la Nucleo: la fuente enseña lo que gastan los
 motores, más el reposo del L298 y del 78M05 (de 9 a 18 mA).
+
+### 4.17 La cadena mecánica: `<transmision>` y `Volante`
+
+`parts/cadena.h`, la fase F0 de `doc/analisis_cnc.md` (§4, opción C). Hasta
+aquí cada motor llevaba su carga dentro. Una máquina necesita que el par pase
+por una reductora, un acople, un husillo y una tuerca hasta un carro, y que
+todo eso vuelva al motor como inercia y como par resistente.
+
+**Una sola masa.** Con acoples rígidos —las resonancias torsionales de varios
+kHz no interesan aquí—, toda la cadena es un solo grado de libertad: el ángulo
+y la velocidad de su **eje de referencia**, que es el de los motores. Cada cosa
+se refleja en él:
+
+    J = Σ J_motor + Σ J_k / n_k²
+    F = Σ F_motor + Σ F_k / (n_k · η_k)
+
+con `n_k` las vueltas del eje de referencia por vuelta de la entrada del
+elemento `k` —el producto de las relaciones de lo que hay antes de él— y `η_k`
+el rendimiento de eso mismo. La cadena integra **una sola ecuación mecánica**
+con las corrientes de todos sus motores:
+
+    J·dω/dt = Σ T_motor(i, ω, θ) − F·sgn(ω) − B·ω
+
+Parada, no se mueve mientras el par no pase de la suma de los rozamientos de
+**arranque** de cada pieza; en marcha, se opone al giro con los de marcha.
+
+**Las piezas son de dos clases.** Un **actuador** es un motor: tiene estados
+eléctricos —la corriente de su bobina— y da un par; sus bornes y sus mandos
+despiertan a la cadena. Un **elemento** es pasivo: una inercia, unos
+rozamientos y una relación de transmisión, con sus cifras en su entrada, el eje
+que da al motor. Hoy hay un elemento, el `Volante`; la reductora, el acople, el
+husillo y el carro son de la fase F2.
+
+**Cómo se integra.** Como lo hacía el `MotorCC`, generalizado: Runge-Kutta de
+cuarto orden en todo, a pasos de 5 µs como mucho —o menos, si lo pide la parte
+eléctrica de algún motor—. El ángulo, con Runge-Kutta si algún motor da un par
+que depende de él —el paso a paso—; si no, con la regla del trapecio sobre la
+velocidad, que es lo que hacía el `MotorCC`. SystemC despierta al proceso de
+la cadena en los cambios de los bornes de sus motores, en sus mandos, en lo que
+cada motor diga que hay que hacer ver —un flanco de su encoder, un cambio de
+sentido de su corriente—, ensayado de antemano con los mismos pasos, cuando se
+para y cada 0,1 o 1 ms mientras se mueve.
+
+**El motor suelto.** Un motor que no va en ninguna `<transmision>` lleva su
+cadena **implícita**, de él solo, con su carga de siempre, y la mueve su propio
+proceso. Si una transmisión lo engancha, la mueve el proceso de ella. Con su
+cadena implícita el `MotorCC` es el de antes **bit a bit**: un banco del motor
+tras el L298 —a tensión fija, con PWM de 1 kHz, casi sin inductancia y sin los
+diodos, con carga, bloqueado y suelto— da los mismos números con los 17
+decimales, y M9 y M10 las mismas rpm.
+
+#### `<transmision>`
+
+    <componente tipo="MotorCC" id="M" .../>
+    <componente tipo="Volante" id="V" inercia_gcm2="500"/>
+    <transmision id="EJE" cadena="M V"/>
+
+`cadena=` nombra las piezas **en orden**: primero los motores —uno, o hasta
+cuatro en el mismo eje, como los dos de un pórtico—, después los elementos, del
+motor hacia la carga. Va detrás de todas las que nombra, como cualquier
+referencia, y es una pieza `Transmision` cuyas `<ref>` son `e0`, `e1`... (así
+se vuelca). Son errores, con su nombre: una pieza que no se ha declarado antes,
+una que no tiene eje (`MASA es un Gnd, que no tiene eje`), un motor detrás de
+un elemento, una pieza en dos transmisiones y una cadena sin motores. No se
+dibuja (`visible="no"` de oficio).
+
+Deja ver `angulo` y `rpm` del eje de referencia e `inercia`, toda la reflejada
+en él, en g·cm². Los mandos de cada motor —`bloquear`, `carga`— siguen siendo
+suyos y actúan sobre la cadena entera. Al terminar: `TRANSMISION EJE: +234.2
+rpm, +0.83 vueltas; 1 motor(es) y 1 elemento(s), 10479.3 g·cm2 reflejados`.
+Desde C++, `cadena()`: `rpm()`, `th()`, `w()`, `inercia()`, `relacion_total()`,
+`actuadores()` y `elementos()`.
+
+#### `Volante`
+
+Una inercia en un eje, con su rozamiento seco y viscoso, y nada más. Sin
+patillas: lo une al motor la transmisión que los nombra. Con uno de inercia
+conocida, la constante de tiempo del motor es la de la cuenta, `τ = (J_motor +
+J_volante)·R / (Ke·Kt)`: con uno igual que el TT, el doble (`make gui-cnc`,
+C1). Suelto, no se mueve.
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `inercia_gcm2` | — | Su inercia, en g·cm² (1 g·cm² = 10⁻⁷ kg·m²). O esta, o las dos de abajo |
+| `diametro_mm`, `espesor_mm` | — | Un disco macizo de acero, 7850 kg/m³: `J = m·r²/2` |
+| `rozamiento_ncm` | `0` | Su rozamiento seco, en N·cm: el de sus rodamientos |
+| `viscoso_mnms` | `0` | Su rozamiento viscoso, en mN·m por rad/s |
+
+Deja ver `angulo` —el que sugiere pintar: la ventana lo gira— y `rpm`.
 
 ---
 

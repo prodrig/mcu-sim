@@ -1108,6 +1108,112 @@ REGISTRA_PARTE(MotorCC,
                            &n[d.nodo_de("enc_a")], &n[d.nodo_de("enc_b")]);
     });
 
+REGISTRA_PARTE(Volante,
+    Ayuda("UN VOLANTE: una inercia en un eje, con su rozamiento seco y viscoso, y "
+          "nada mas. Va en una <transmision> detras de un motor (parts/cadena.h): la "
+          "cadena suma su inercia a la del motor y la integra con el, y el motor "
+          "tarda mas en arrancar y en pararse. Con uno de inercia conocida, la "
+          "constante de tiempo del motor es la que sale de la cuenta, "
+          "tau = (J_motor + J_volante)·R / (Ke·Kt). Suelto, sin transmision, no se "
+          "mueve.")
+      .ejemplo("<componente tipo=\"Volante\" id=\"V\" diametro_mm=\"60\" espesor_mm=\"10\"/>\n"
+               "<transmision id=\"EJE\" cadena=\"MOTOR V\"/>")
+      .sin_terminales("No va a ningun nodo: es una pieza mecanica, y lo que la une al "
+                      "motor es la <transmision> que los nombra a los dos.")
+      .atr("inercia_gcm2", "", "Su inercia en g·cm² (1 g·cm² = 1e-7 kg·m²). O esta, o "
+           "diametro_mm y espesor_mm.")
+      .atr("diametro_mm", "", "El diametro de un disco macizo de acero (7850 kg/m³): la "
+           "inercia sale de J = m·r²/2.")
+      .atr("espesor_mm", "", "Y su espesor.")
+      .atr("rozamiento_ncm", "0", "Su rozamiento seco, en N·cm: el de sus rodamientos.")
+      .atr("viscoso_mnms", "0", "Su rozamiento viscoso, en mN·m por rad/s.")
+      .nota("Deja ver `angulo` (grados, de 0 a 360, el que sugiere pintar: la ventana "
+            "gira el elemento con el) y `rpm`.")
+      .cpp("angulo(), rpm(), vueltas(), inercia() (kg·m²)."),
+    [](const Instancia& d, NodeMap&, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Volante '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        if (!d.pines.empty()) return mal("no lleva patillas: lo une al motor una <transmision>");
+        const bool por_j = !d.txt("inercia_gcm2").empty();
+        const bool por_disco = !d.txt("diametro_mm").empty() || !d.txt("espesor_mm").empty();
+        if (por_j == por_disco)
+            return mal("su inercia es inercia_gcm2, o diametro_mm y espesor_mm; una de las dos");
+        double j = 0.0;
+        if (por_j) {
+            j = d.num("inercia_gcm2", 0.0) * 1e-7;
+        } else {
+            const double dm = d.num("diametro_mm", 0.0) * 1e-3, e = d.num("espesor_mm", 0.0) * 1e-3;
+            if (dm <= 0 || e <= 0) return mal("diametro_mm y espesor_mm tienen que ser positivos");
+            const double r = dm / 2.0, m = 7850.0 * 3.14159265358979323846 * r * r * e;
+            j = m * r * r / 2.0;
+        }
+        const double f = d.num("rozamiento_ncm", 0.0) * 1e-2, b = d.num("viscoso_mnms", 0.0) * 1e-3;
+        if (j <= 0 || f < 0 || b < 0)
+            return mal("la inercia tiene que ser positiva, y los rozamientos no negativos");
+        return new Volante(d.id.c_str(), j, f, b);
+    });
+
+REGISTRA_PARTE(Transmision,
+    Ayuda("UNA CADENA MECANICA: los motores y lo que mueven, en un solo eje rigido "
+          "(parts/cadena.h). Se declara con <transmision id=\"X\" cadena=\"M1 V\"/>: "
+          "primero los motores -uno, o varios en el mismo eje-, despues los "
+          "elementos, del motor hacia la carga. Todo se refleja en el eje de los "
+          "motores -la inercia de cada elemento dividida por el cuadrado de la "
+          "relacion que hay antes de el; su rozamiento, por la relacion y el "
+          "rendimiento- y la cadena integra una sola ecuacion mecanica con las "
+          "corrientes de todos sus motores. Un motor que no esta en ninguna lleva la "
+          "suya, de el solo, con su carga de siempre.")
+      .ejemplo("<componente tipo=\"MotorCC\" id=\"M\" .../>\n"
+               "<componente tipo=\"Volante\" id=\"V\" inercia_gcm2=\"500\"/>\n"
+               "<transmision id=\"EJE\" cadena=\"M V\"/>")
+      .sin_terminales("No va a ningun nodo: une piezas por su eje, no por sus patillas. "
+                      "Las nombra en cadena=, que son sus <ref> e0, e1...")
+      .ref("e0, e1 ...", "Las piezas de la cadena, en orden: es lo que escribe cadena= en "
+           "<transmision>. Primero los motores, despues los elementos.")
+      .nota("Deja ver `angulo` y `rpm` del eje de los motores, e `inercia`, la de todo "
+            "reflejada en el, en g·cm². Los mandos de cada motor -bloquear, carga- "
+            "siguen siendo suyos, y actuan sobre la cadena entera.")
+      .nota("Una pieza va en una cadena como mucho; y un elemento suelto, sin "
+            "transmision, no se mueve.")
+      .cpp("cadena(): rpm(), th(), w(), inercia(), relacion_total(), actuadores(), "
+           "elementos()."),
+    [](const Instancia& d, NodeMap&, Netlist& nl) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("transmision '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        if (!d.pines.empty()) return mal("no lleva patillas: une piezas por su eje");
+        std::vector<Actuador*> act;
+        std::vector<ElementoMecanico*> elem;
+        for (unsigned k = 0;; ++k) {
+            const std::string r = d.ref_de(("e" + std::to_string(k)).c_str());
+            if (r.empty()) break;
+            ExtPartBase* p = nl.pieza(r);
+            if (!p) return mal(r + " no se ha construido");
+            Actuador* a = dynamic_cast<Actuador*>(p);
+            ElementoMecanico* e = dynamic_cast<ElementoMecanico*>(p);
+            if (!a && !e)
+                return mal(r + " es un " + p->tipo() + ", que no tiene eje: en una cadena "
+                           "van motores y elementos mecanicos");
+            if ((a && a->transmision()) || (e && e->transmision()))
+                return mal(r + " ya va en otra transmision");
+            if (a) {
+                if (!elem.empty())
+                    return mal(r + " es un motor y va detras de un elemento: primero los "
+                               "motores, despues lo que mueven");
+                if (act.size() >= Cadena::MAX_A)
+                    return mal("lleva mas de " + std::to_string(Cadena::MAX_A) + " motores");
+                act.push_back(a);
+            } else {
+                elem.push_back(e);
+            }
+        }
+        if (act.empty()) return mal("no lleva ningun motor: cadena= empieza por ellos");
+        return new Transmision(d.id.c_str(), act, elem);
+    });
+
 REGISTRA_PARTE(L298,
     Ayuda("El L298 de ST: DOS PUENTES EN H completos para motores de continua. "
           "Con ENA alto, IN1 alto e IN2 bajo llevan OUT1 a VS y OUT2 a masa; al "

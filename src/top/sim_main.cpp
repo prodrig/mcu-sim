@@ -1515,6 +1515,19 @@ SC_MODULE(Sim) {
                 std::printf("; encoder %+ld cuartos (%u PPR)", m->cuenta(), m->config().ppr);
             std::printf("\n");
         }
+        // Las cadenas mecanicas: a cuanto va su eje, cuanto ha girado y la
+        // inercia que mueve, todo reflejada en el
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Transmision") continue;
+            const Transmision* t = placa.como<Transmision>(i.id);
+            if (!t) continue;
+            const Cadena& c = t->cadena();
+            std::printf("  TRANSMISION %s: %+.1f rpm, %+.2f vueltas; %u motor(es) y %u "
+                        "elemento(s), %.1f g·cm2 reflejados%s\n", i.id.c_str(), c.rpm(),
+                        c.th() / (2.0 * 3.14159265358979323846), unsigned(c.actuadores().size()),
+                        unsigned(c.elementos().size()), c.inercia() * 1e7,
+                        c.bloqueada() ? "; bloqueada" : "");
+        }
         for (const Instancia& i : placa.instancias()) {
             if (i.tipo != "L298") continue;
             const L298* l = placa.como<L298>(i.id);

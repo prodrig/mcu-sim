@@ -370,8 +370,10 @@ struct DeclMcu {
 struct EnlaceIlustracion {
     std::string pieza;        // el nombre en SU placa: "LD2", nunca "N/LD2"
     std::string elemento;     // el id en el SVG
-    std::string efecto;       // "", "brillo", "hundido", "giro", "pantalla", "angulo" o "ninguno"
+    std::string efecto;       // "", "brillo", "hundido", "giro", "pantalla", "angulo", "display",
+                              // "desplaza" o "ninguno"
     std::string observable;   // el que mueve el giro o el ángulo, si no es el primero (S8 del F303)
+    std::string vector;       // con `desplaza`: x e y por unidad de cada observable
 };
 struct Ilustracion {
     std::string declarada;    // lo que dice el XML, tal cual; vacío si no dice
@@ -1653,6 +1655,7 @@ public:
                 if (!e.efecto.empty()) os << " efecto=\"" << xml_escapa(e.efecto) << "\"";
                 if (!e.observable.empty())
                     os << " observable=\"" << xml_escapa(e.observable) << "\"";
+                if (!e.vector.empty()) os << " vector=\"" << xml_escapa(e.vector) << "\"";
                 os << "/>\n";
             }
             os << sangria << "</ilustracion>\n";

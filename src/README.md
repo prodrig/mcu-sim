@@ -165,6 +165,7 @@ make -f Makefile.mcu-sim rfc2217      # el codec de Telnet y RFC 2217 del puente
 make -f Makefile.mcu-sim gui-proto    # el transporte con mcu-sim-gui, tampoco
 make -f Makefile.mcu-sim gui-saludo   # el saludo con mcu-sim-gui, con el sim de verdad (Python)
 make -f Makefile.mcu-sim gui-marcha   # y con la simulacion en marcha (Python)
+make -f Makefile.mcu-sim gui-cnc      # la fresadora CNC por fases: cadena, motores y drivers (Python)
 make -f Makefile.mcu-sim gui-ordenes  # y las ordenes, con sus ecos (Python)
 make -f Makefile.mcu-sim gui-control  # y el control: pausa, paso, parar y ritmo (Python)
 make -f Makefile.mcu-sim gui-argumentos  # que --argumentos dice lo que acepta sim (Python)

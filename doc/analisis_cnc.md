@@ -727,6 +727,44 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
   dispersión enorme. Valen para ver tendencias (avanzar más deprisa frena el
   cabezal y pierde pasos), no para predecir un mecanizado.
 
+## 13. Lo decidido, y lo hecho
+
+**Decidido el 2026-10-28**, al empezar la rama `cnc` de `mcu-sim` y de
+`mcu-sim-gui`:
+
+1. **La arquitectura mecánica**: la cadena rígida declarada, la opción C del §4.
+2. **El modelo eléctrico de los drivers**: la **corriente impuesta con tope de
+   tensión**, la tercera forma del §5.2.
+3. **El orden**: F0, F1a, F1b y F1c, un parche por fase.
+
+### F0, hecha: la cadena mecánica y el efecto `desplaza`
+
+* **`parts/cadena.h`**. La `Cadena`: un grado de libertad, los motores
+  (`Actuador`) y los elementos pasivos (`ElementoMecanico`) reflejados en el eje
+  de los motores, y **un solo integrador** —Runge-Kutta de cuarto orden, a pasos
+  de 5 µs como mucho— con las corrientes de todos los motores y la ecuación
+  mecánica. El ángulo va con Runge-Kutta si algún motor da un par que depende de
+  él —el paso a paso de F1a—; si no, con el trapecio de siempre.
+* **`<transmision id cadena="M V"/>`** en el XML de una placa: una pieza
+  `Transmision` cuyas referencias son las piezas de la cadena, en orden, motores
+  primero. Sus errores tienen nombre: la pieza declarada después, la que no
+  tiene eje, el motor detrás de un elemento, la pieza en dos transmisiones.
+* **El `MotorCC`, actuador de su cadena.** Suelto, lleva la suya implícita, de
+  él solo, con su carga de siempre. **M9 y M10 dan las mismas rpm al decimal**,
+  y más que eso: un banco del motor tras el L298 —a tensión fija, con PWM de
+  1 kHz, casi sin inductancia y sin diodos, con carga, bloqueado y suelto— da
+  los mismos números **con sus 17 cifras** antes y después de la cadena.
+* **El `Volante`**, el primer elemento: una inercia con sus rozamientos. Con uno
+  igual que el TT, la constante de tiempo pasa de 53 ms a 106 —la cuenta da 52,5
+  y 105— y llega a la misma velocidad (`make gui-cnc`, C1).
+* **El efecto `desplaza`**: `observable="x z" vector="2.5 0  0 -2.5"` en la
+  tabla de enlaces. `mcu-sim` lo valida y lo manda en `T_PLACA`; la ventana
+  traslada el elemento con la suma de cada observable por su vector (I27 de
+  `mcu-sim-gui`). Va con su halo y su contorno.
+* **Pruebas**: `make gui-cnc` (C1, 16 comprobaciones), y en `mcu-sim-gui` la I27.
+  Ninguna suite se mueve; las dos de `gui-sistema` que comprobaban el texto de la
+  lista de efectos lo comprueban con `desplaza`.
+
 ## Fuentes
 
 * **VEVOR 3020.** La página que se dio no se pudo abrir por su longitud. El
