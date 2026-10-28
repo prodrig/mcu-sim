@@ -1415,9 +1415,15 @@ SC_MODULE(Sim) {
             char lim[48] = "sin limite";
             if (f->limite_ma() > 0.0)
                 std::snprintf(lim, sizeof lim, "limite %.3g mA", f->limite_ma());
-            std::printf("  %s %s en %s: %.2f mA (%s)%s", i.tipo.c_str(), i.id.c_str(),
-                        i.nodo_de("pin").c_str(), f->corriente() * 1e3, lim,
-                        f->sobrecorriente() ? "  SOBRECORRIENTE" : "");
+            if (f->media_ms() > 0.0)
+                std::printf("  %s %s en %s: %.2f V, %.2f mA de media (%s)%s", i.tipo.c_str(),
+                            i.id.c_str(), i.nodo_de("pin").c_str(), f->tension_media(),
+                            f->corriente_media() * 1e3, lim,
+                            f->sobrecorriente() ? "  SOBRECORRIENTE" : "");
+            else
+                std::printf("  %s %s en %s: %.2f mA (%s)%s", i.tipo.c_str(), i.id.c_str(),
+                            i.nodo_de("pin").c_str(), f->corriente() * 1e3, lim,
+                            f->sobrecorriente() ? "  SOBRECORRIENTE" : "");
             if (f->episodios())
                 std::printf(", %u episodio(s) de sobrecorriente", f->episodios());
             std::printf("\n");

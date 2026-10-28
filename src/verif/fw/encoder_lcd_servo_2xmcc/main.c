@@ -6,7 +6,7 @@
  * El firmware de placas/nucleo_f446re_encoder_lcd_servo_2xmcc.xml: el
  * sistema de placas/nucleo_f446re_encoder_tft_servo.xml, con el mismo
  * cableado, más un módulo L298N, dos motorreductores con un encoder de 24 PPR
- * cada uno y la batería de los motores:
+ * cada uno y la fuente de laboratorio de los motores:
  *
  *     L298N      ENA   IN1   IN2   IN3   IN4   ENB   GND
  *     Nucleo     D15   A2    A3    A4    A5    D14   GND

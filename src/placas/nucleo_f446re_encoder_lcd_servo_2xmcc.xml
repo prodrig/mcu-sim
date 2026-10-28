@@ -5,7 +5,8 @@
 
      placas/nucleo_f446re_encoder_tft_servo.xml, con el mismo cableado, mas
      un modulo L298N, dos motorreductores TT con su encoder de 24 PPR y la
-     bateria de los motores; y verif/fw/encoder_lcd_servo_2xmcc, que mueve
+     fuente de laboratorio de los motores, que ensena lo que gastan; y
+     verif/fw/encoder_lcd_servo_2xmcc, que mueve
      los dos motores con el mando, mide su velocidad con los encoders y la
      ensena en la pantalla, con el servo de aguja:
 
@@ -24,7 +25,7 @@
                                       conector     CN9.8  CN5.1  CN7.12 CN10.9
                                       chip         PA8    PA9    VDD    VSS
 
-         bateria    BAT   GND
+         fuente     ROJO  NEGRO
          L298N      +12V  GND
 
      y lo del sistema sin motores: el servo en D5 (PB4), el encoder de mando
@@ -33,8 +34,12 @@
 
      EL L298N (placas/l298n.xml), sin los puentes de ENA y ENB: la velocidad
      es el PWM que les llega, el TIM4 a 1 kHz en PB8 y PB9, y el sentido, IN1
-     e IN2 (IN3 e IN4). Con el 5V-EN puesto: su 78M05 saca de la bateria los
-     5 V de la logica. Su masa, la de la Nucleo y la de la bateria, unidas.
+     e IN2 (IN3 e IN4). SIN el 5V-EN: la logica del L298 -24 mA- y el LED de
+     los 5 V toman el +5V de la Nucleo (CN7.18) por la borna X1.5V, y lo que
+     la fuente ensena es lo de los motores. Su masa, la de la Nucleo y la de
+     la fuente, unidas.
+     Con sus diodos de libre circulacion: la corriente de la bobina de cada
+     motor sigue por ellos cuando el PWM suelta el puente.
      Las entradas son TTL: 3,3 V son un alto.
 
      LOS MOTORES (placas/motor_tt_encoder.xml), el A en la borna de la
@@ -43,9 +48,13 @@
      hacia arriba. Cada encoder, a 3,3 V de la Nucleo, a un temporizador en
      modo encoder: el del A al TIM2 (PA0 y PA1), el del B al TIM1 (PA8 y PA9).
 
-     LA BATERIA (placas/bateria_2x18650.xml), dos 18650: 7,4 V. El L298 se
-     come unos 1,6 V, y al motor le llegan unos 5,7 a toda marcha: unas 240
-     rpm en vacio. Con cuatro pilas AA no llegaria para el 78M05.
+     LA FUENTE DE LABORATORIO (placas/fuente_laboratorio.xml), a 7,5 V con
+     el limite en 3 A, en la borna +12V: su display ensena la tension y lo
+     que gastan los motores, de media, como el de verdad -con el reposo del
+     L298 y del 78M05, de 9 a 18 mA-; y si llegan a los 3 A -al invertir el
+     giro a toda marcha- pasa a corriente constante y se rodea de rojo. El
+     L298 se come unos 1,6 V, y al motor le llegan unos 5,8 a toda marcha:
+     unas 240 rpm en vacio.
 
      EL MANDO, el KY-040 de 24 PPR: cada clic, un 10 % mas de PWM, de -100 %
      a +100 %; apretar el eje, parados. El servo es la aguja de las rpm del
@@ -66,7 +75,7 @@
   <placa id="L" fichero="l298n.xml" x="36" y="112"/>
   <placa id="MA" fichero="motor_tt_encoder.xml" x="-70" y="104"/>
   <placa id="MB" fichero="motor_tt_encoder.xml" x="92" y="104"/>
-  <placa id="B" fichero="bateria_2x18650.xml" x="18" y="166"/>
+  <placa id="PS" fichero="fuente_laboratorio.xml" x="10" y="166"/>
 
   <!-- El servo -->
   <hilo a="S/P1.PWM"   b="N/CN9.6"/>    <!-- D5,  PB4: TIM3_CH1 -->
@@ -106,10 +115,14 @@
   <hilo a="L/P1.IN4"   b="N/CN8.6"/>    <!-- A5,  PC0 -->
   <hilo a="L/JB.ENB"   b="N/CN5.9"/>    <!-- D14, PB9: TIM4_CH4 -->
   <hilo a="L/X1.GND"   b="N/CN5.7"/>    <!-- la masa comun -->
+  <!-- Sin el 5V-EN: la logica, del +5V de la Nucleo, y la fuente, solo para
+       los motores -->
+  <jumper ref="L/JP5" puente="no"/>
+  <hilo a="L/X1.5V"    b="N/CN7.18"/>   <!-- +5V, el del USB -->
 
-  <!-- La bateria, a la borna de la alimentacion -->
-  <hilo a="B/P1.BAT"  b="L/X1.12V"/>
-  <hilo a="B/P1.GND"   b="L/X1.GND"/>
+  <!-- La fuente, a la borna de la alimentacion -->
+  <hilo a="PS/P1.ROJO"  b="L/X1.12V"/>
+  <hilo a="PS/P1.NEGRO" b="L/X1.GND"/>
 
   <!-- Los motores, a sus bornas -->
   <hilo a="MA/M.ROJO"    b="L/MA.OUT1"/>

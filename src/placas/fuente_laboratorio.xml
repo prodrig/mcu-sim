@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     FUENTE DE ALIMENTACION DE LABORATORIO, a 7,5 V con el limite en 3 A, sin
+     MCU
+
+     La fuente de mesa de una sola salida, de 0 a 30 V y de 0 a 5 A, con su
+     display, sus dos mandos -tension y limite de corriente- y sus dos
+     bornas:
+
+         P1.ROJO    el positivo, la borna roja
+         P1.NEGRO   el negativo, la negra
+
+     LA SALIDA, PSU: una Fuente (`./build/mcu-sim --help Fuente`) de 7,5 V
+     con 0,1 ohm y el LIMITE DE CORRIENTE en 3 A: si la carga pide mas, entrega
+     los 3 A justos -pasa de tension constante a CORRIENTE CONSTANTE-, deja
+     caer la tension y se avisa; en la ventana se rodea de rojo, como el LED
+     CC de la de verdad.
+
+     EL DISPLAY: media_ms="100". Lo que deja ver, la corriente y la tension,
+     es su MEDIA de los ultimos 100 ms, como el display de una fuente, que no
+     salta con el PWM de la carga. En la ventana se lee DENTRO del display
+     -el efecto `display` de la tabla de enlaces-: la tension arriba y la
+     corriente abajo, en A.
+
+     Su negativo, P1.NEGRO, es la masa de quien la use: la de la Nucleo, en un
+     sistema; sola, no va a ningun sitio.
+
+         ./build/mcu-sim placas/fuente_laboratorio.xml --valida
+     ========================================================================= -->
+<placa nombre="fuente-laboratorio">
+  <componente tipo="Conector" id="P1" filas="1" columnas="2" nombres="ROJO NEGRO"/>
+
+  <componente tipo="Fuente" id="PSU" v="7.5" r="0.1" limite_ma="3000" media_ms="100">
+    <pin nombre="pin" nodo="P1.ROJO"/>
+  </componente>
+
+  <!-- En el dibujo, el display: la tension arriba y la corriente abajo -->
+  <ilustracion>
+    <enlace pieza="PSU" elemento="PSU" efecto="display" observable="tension corriente"/>
+  </ilustracion>
+</placa>

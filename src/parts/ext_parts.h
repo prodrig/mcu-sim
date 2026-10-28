@@ -218,11 +218,16 @@ private:
 // nodo, y la fuente se vuelve a ajustar en la siguiente vuelta.
 // ---------------------------------------------------------------------------
 SC_MODULE(FuenteTension), public ExtPart {
+    // `media_ms`: con mas de 0, lo que deja ver es la MEDIA de la corriente y
+    // de la tension en esos ms -un filtro de primer orden-, como el display
+    // de una fuente de laboratorio, que no salta con el PWM de la carga; y deja
+    // ver tambien la tension. Con 0, lo de siempre: la de ahora, sin tension.
     FuenteTension(sc_core::sc_module_name nm, analog_net_if& n, const char* tipo,
-                  double v, double r, double limite_ma, bool masa)
+                  double v, double r, double limite_ma, bool masa, double media_ms = 0.0)
         : sc_core::sc_module(nm), ExtPart(n, tipo, masa ? "gnd" : "fuente", "pin", nm),
           v_(v), r0_(r < 0.1 ? 0.1 : r), lim_(limite_ma > 0.0 ? limite_ma / 1000.0 : 0.0),
-          masa_(masa) {
+          masa_(masa), media_s_(media_ms > 0.0 ? media_ms * 1e-3 : 0.0),
+          v_med_(v), v_ant_(v) {
         marca_riel("pin");
         r_ = r0_;
         drive(float(v_), float(r_));
@@ -230,6 +235,7 @@ SC_MODULE(FuenteTension), public ExtPart {
         // preguntarla. Con límite, un proceso que reajusta cuando el nodo cambia.
         SC_HAS_PROCESS(FuenteTension);
         if (lim_ > 0.0) SC_THREAD(vigila);
+        if (media_s_ > 0.0) SC_THREAD(promedia);
     }
     double v() const         { return v_; }
     double limite_ma() const { return lim_ * 1000.0; }
@@ -254,18 +260,44 @@ SC_MODULE(FuenteTension), public ExtPart {
         if (on) { r_ = r0_; drive(float(v_), float(r_)); } else { hiz(); sobre_ = false; }
     }
 
-    unsigned   n_observables() const override { return 2; }
+    // Las de media, con media_ms (con 0, las de ahora)
+    double corriente_media() const {
+        return media_s_ > 0.0 ? media(i_med_, conectada_ ? corriente() : 0.0) : corriente();
+    }
+    double tension_media() const {
+        return media_s_ > 0.0 ? media(v_med_, double(pin_voltage())) : double(pin_voltage());
+    }
+    double media_ms() const { return media_s_ * 1e3; }
+
+    unsigned   n_observables() const override { return media_s_ > 0.0 ? 3 : 2; }
     Observable observable(unsigned i) const override {
         const float esc = lim_ > 0.0 ? float(lim_ * 1000.0) : 100.f;
         if (i == 0) return {"corriente", "mA", -esc, esc, true};
-        return {"sobrecorriente", "", 0.f, 1.f, true, true};
+        if (i == 1) return {"sobrecorriente", "", 0.f, 1.f, true, true};
+        return {"tension", "V", 0.f, float(std::max(1.0, v_ * 1.2)), true};
     }
     float valor_observable(unsigned i) const override {
-        if (i == 0) return conectada_ ? float(corriente() * 1000.0) : 0.f;
-        return sobre_ ? 1.f : 0.f;
+        if (i == 0) return conectada_ ? float(corriente_media() * 1000.0) : 0.f;
+        if (i == 1) return sobre_ ? 1.f : 0.f;
+        return float(tension_media());
     }
 
 private:
+    static double ahora() { return sc_core::sc_time_stamp().to_seconds(); }
+    double media(double med, double x) const {
+        return x + (med - x) * std::exp(-(ahora() - t_med_) / media_s_);
+    }
+    // Las medias: cada vez que el nodo cambia, lo que valian hasta ahora
+    void promedia() {
+        for (;;) {
+            wait(net_->value_changed_event() | evento_conexion());
+            i_med_ = media(i_med_, i_ant_);
+            v_med_ = media(v_med_, v_ant_);
+            t_med_ = ahora();
+            i_ant_ = conectada_ ? corriente() : 0.0;
+            v_ant_ = double(pin_voltage());
+        }
+    }
     void vigila() {
         for (;;) {
             wait(net_->value_changed_event() | evento_conexion());
@@ -308,6 +340,8 @@ private:
     }
     double   v_, r0_, lim_;
     bool     masa_;
+    double   media_s_ = 0.0;
+    double   v_med_ = 0.0, v_ant_ = 0.0, i_med_ = 0.0, t_med_ = 0.0, i_ant_ = 0.0;
     double   r_ = 0.1;
     bool     sobre_ = false;
     unsigned episodios_ = 0;
@@ -316,8 +350,8 @@ private:
 class Fuente : public FuenteTension {
 public:
     Fuente(sc_core::sc_module_name nm, analog_net_if& n, double v = 3.3,
-           double r = 0.1, double limite_ma = 0.0)
-        : FuenteTension(nm, n, "Fuente", v, r, limite_ma, false) {}
+           double r = 0.1, double limite_ma = 0.0, double media_ms = 0.0)
+        : FuenteTension(nm, n, "Fuente", v, r, limite_ma, false, media_ms) {}
 };
 
 class Gnd : public FuenteTension {

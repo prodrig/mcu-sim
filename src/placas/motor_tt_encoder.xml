@@ -24,7 +24,10 @@
      EL MOTOR, MOTOR: un MotorCC (`./build/mcu-sim --help MotorCC`) con las
      cifras del TT de 1:48 [Adafruit 3777]: 250 rpm y 160 mA en vacio y
      1,5 A bloqueado a 6 V; 0,25 A para arrancar parado; 50 ms de constante
-     de tiempo. Con ppr="24" y sus cuatro patillas de encoder.
+     de tiempo; y 1,5 mH de inductancia, que su hoja de datos no da -los
+     motores de su tamano andan entre 0,5 y 3 mH-: con el PWM de 1 kHz de un
+     L298N, la corriente sube y baja dentro de cada periodo. Con ppr="24" y
+     sus cuatro patillas de encoder.
 
      LOS MANDOS: `bloquear`, la mano que sujeta la rueda, y `carga`, un par
      que se opone al giro, en % del de bloqueo.
@@ -48,7 +51,7 @@
 
   <!-- El motor, con su encoder en el eje de salida -->
   <componente tipo="MotorCC" id="MOTOR" v_nominal="6" rpm_vacio="250" i_vacio_ma="160"
-              i_bloqueo_ma="1500" i_arranque_ma="250" tau_ms="50" reduccion="48"
+              i_bloqueo_ma="1500" i_arranque_ma="250" tau_ms="50" l_mh="1.5" reduccion="48"
               ppr="24">
     <pin nombre="a"       nodo="M.ROJO"/>
     <pin nombre="b"       nodo="M.NEGRO"/>

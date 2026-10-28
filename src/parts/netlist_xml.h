@@ -498,18 +498,25 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
             en.pieza = e.attr_o("pieza");
             en.elemento = e.attr_o("elemento");
             en.efecto = e.attr_o("efecto", "");
-            // observable= dice cual mueve el giro o el angulo; la ventana
-            // comprueba que la pieza lo tenga y, si no, lo dice
+            // observable= dice cual mueve el giro o el angulo, o cuales
+            // ensena un display, uno por fila; la ventana comprueba que la
+            // pieza los tenga y, si no, lo dice
             en.observable = e.attr_o("observable", "");
-            if (!en.observable.empty() && en.efecto != "giro" && en.efecto != "angulo")
+            if (!en.observable.empty() && en.efecto != "giro" && en.efecto != "angulo" &&
+                en.efecto != "display")
                 return donde(e) + "<enlace pieza=\"" + en.pieza + "\">: observable= solo vale con "
-                       "efecto=\"giro\" o \"angulo\"";
+                       "efecto=\"giro\", \"angulo\" o \"display\"";
+            if (en.efecto != "display" &&
+                en.observable.find_first_of(" \t") != std::string::npos)
+                return donde(e) + "<enlace pieza=\"" + en.pieza + "\">: con efecto=\"" +
+                       en.efecto + "\", observable= es uno solo; varios, uno por fila, solo "
+                       "con efecto=\"display\"";
             if (!en.efecto.empty() && en.efecto != "brillo" && en.efecto != "hundido" &&
                 en.efecto != "giro" && en.efecto != "pantalla" && en.efecto != "angulo" &&
-                en.efecto != "ninguno")
+                en.efecto != "display" && en.efecto != "ninguno")
                 return donde(e) + "<enlace pieza=\"" + en.pieza + "\">: efecto '" +
                        en.efecto + "' desconocido (brillo, hundido, giro, pantalla, " +
-                       "angulo o ninguno)";
+                       "angulo, display o ninguno)";
             const std::string q = id_de(en.pieza);
             if (!eq.empty()) return donde(e) + "<enlace>: " + eq;
             if (!nl.busca(q))

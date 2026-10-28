@@ -69,7 +69,8 @@
 #       RGBLed, con sus patillas r/g/b, y el catalogo marca sus canales con
 #       color= para que la ventana los mezcle.
 #   C21 las placas del sistema de los motores -el L298N, el motorreductor con
-#       su encoder y la bateria-, con su dibujo de placas/dibuja_motores.py:
+#       su encoder y la fuente de laboratorio-, con su dibujo de
+#       placas/dibuja_motores.py:
 #       cada pieza visible y cada pin, con su id; los puentes de ENA, ENB y
 #       5V-EN, como variantes; y en el sistema, el L298N sin los de ENA y ENB.
 #
@@ -1424,7 +1425,7 @@ def c19_ti(sim, cp):
     f = cp.escribe("obs.xml", MODULO % ('', '<ilustracion><enlace pieza="LD" elemento="LD" '
                                          'efecto="brillo" observable="corriente"/></ilustracion>'))
     rc, out, err = corre(sim, [f, "--valida"])
-    check(rc != 0 and "observable= solo vale con efecto=\"giro\" o \"angulo\"" in out + err,
+    check(rc != 0 and "observable= solo vale con efecto=\"giro\", \"angulo\" o \"display\"" in out + err,
           "observable= con un efecto que no gira no se acepta, y se dice")
     # S7: la Discovery en el cargador, con el FT232RL en la USART1
     rc, out, err = corre(sim, ["placas/stm32f3discovery_boot0.xml", "--valida"])
@@ -1511,15 +1512,15 @@ def c20_rgb(sim, cp):
 # ---------------------------------------------------------------------------
 # C21
 # ---------------------------------------------------------------------------
-PLACAS_MOTORES = ("l298n", "motor_tt_encoder", "bateria_2x18650")
+PLACAS_MOTORES = ("l298n", "motor_tt_encoder", "fuente_laboratorio")
 
 
 def c21_motores(sim, cp):
-    grupo("C21 El L298N, el motor con su encoder y la bateria, con su dibujo")
+    grupo("C21 El L298N, el motor con su encoder y la fuente, con su dibujo")
     esperado = {
         "l298n": ("placa 'l298n': SIN MCU, 10 componentes", "JA 5V-ENA, JB ENB-5V, JP5 REG-5V)"),
         "motor_tt_encoder": ("placa 'motor-tt-encoder': SIN MCU, 3 componentes", "(8 kB)"),
-        "bateria_2x18650": ("placa 'bateria-2x18650': SIN MCU, 2 componentes", "kB)"),
+        "fuente_laboratorio": ("placa 'fuente-laboratorio': SIN MCU, 2 componentes", "kB)"),
     }
     for n in PLACAS_MOTORES:
         rc, out, err = corre(sim, ["placas/%s.xml" % n, "--valida"])
@@ -1541,9 +1542,24 @@ def c21_motores(sim, cp):
         sim, ["placas/nucleo_f446re_encoder_lcd_servo_2xmcc.xml"])
     l298 = [d for (pl, d) in [(x[0].get("placas"), x[1]) for x in il] if pl and "L" in pl.split()]
     check(rc == 0 and len(l298) == 1 and b'id="JA@5V-ENA"' not in l298[0] and
-          b'id="JB@ENB-5V"' not in l298[0] and b'id="JP5@REG-5V"' in l298[0],
+          b'id="JB@ENB-5V"' not in l298[0] and b'id="JP5@REG-5V"' not in l298[0],
           "en el sistema de los motores, la ventana recibe el L298N sin los puentes de ENA y "
-          "ENB -llevan el PWM- y con el 5V-EN puesto")
+          "ENB -llevan el PWM- ni el 5V-EN -la logica va al +5V de la Nucleo-")
+    rc, out, err = corre(sim, ["placas/fuente_laboratorio.xml", "--valida"])
+    rc2, out2, placa, il, av = saludo_con_dibujos(sim, ["placas/fuente_laboratorio.xml"])
+    r = ET.fromstring(placa) if placa else None
+    en = [e.attrib for e in r.iter("enlace")] if r is not None else []
+    check(rc == 0 and {"pieza": "PSU", "elemento": "PSU", "efecto": "display",
+                       "observable": "tension corriente"} in en,
+          "la fuente: su display, con efecto=display y la tension y la corriente, una por "
+          "fila, en T_PLACA")
+    for enl, dice in (('efecto="angulo" observable="tension corriente"', "observable= es uno solo"),
+                      ('efecto="pantallita"', "angulo, display o ninguno")):
+        f = cp.escribe("disp.xml", MODULO % ('', '<ilustracion><enlace pieza="LD" elemento="LD" '
+                                              '%s/></ilustracion>' % enl))
+        rc, out, err = corre(sim, [f, "--valida"])
+        check(rc != 0 and dice in out + err,
+              "%s no se acepta, y se dice" % enl)
 
 
 def main():

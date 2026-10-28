@@ -55,6 +55,13 @@ namespace stm32 {
 // las salidas altas, más 13 mA con algún puente habilitado (4 sin ninguno);
 // la lógica gasta 24 mA (6 sin habilitar) [DS0218, Is e Iss].
 //
+// LOS DIODOS DE LIBRE CIRCULACIÓN no son del chip: un motor necesita que se
+// los pongan por fuera, y el módulo L298N los lleva. Con `diodos` (ConfigL298),
+// una salida que se suelta llevando la corriente de la bobina de un motor la
+// sigue llevando por su diodo -la que salía, desde masa, a -vd; la que entraba,
+// hacia VS, a VS + vd- hasta que se acaba: la corriente decae deprisa contra
+// toda la tensión de la alimentación. Sin ellos, la corriente se corta.
+//
 // Lo que NO hace: las patillas de sensado de corriente, SENSE A y SENSE B,
 // van a masa por dentro -en el módulo, con un puente-; ni la temperatura ni
 // su protección, que el L298 no tiene: pasar de 2 A por salida se avisa, y
@@ -65,6 +72,8 @@ struct ConfigL298 {
     double vl0 = 0.7, rl = 0.5;      // la baja: vl0 sobre masa, con rl
     double vil = 1.5, vih = 2.3;     // las entradas
     double vss_min = 4.5;            // la lógica
+    bool   diodos = false;           // los de libre circulación, por fuera
+    double vd = 0.9, rd = 0.2;       // y su caída: un 1N4007 con unos cientos de mA
 };
 
 SC_MODULE(L298), public ExtPartBase {
@@ -188,21 +197,29 @@ private:
             logica_ = logica;
             for (int p = 0; p < 2; ++p) en_v_[p] = nivel(en_[p], en_v_[p], nen[p]);
             for (int k = 0; k < 4; ++k) in_v_[k] = nivel(in_[k], in_v_[k], nin[k]);
-            // Las salidas
+            // Las salidas. Una que se suelta llevando corriente -la de la
+            // bobina de un motor, que no se corta de golpe- la sigue llevando
+            // por su diodo, si los hay: la que salia, desde masa (a -vd); la que
+            // entraba, hacia VS (a VS + vd). Hasta que esa corriente se acaba
             const double vg = double(gnd_->voltage());
             bool cambia = false;
             for (int k = 0; k < 4; ++k) {
                 const bool on = habilitado(k / 2);
-                conduce_[k] = on;
-                alta_[k] = in_v_[k];
+                if (on) diodo_[k] = 0;
+                else if (c_.diodos && diodo_[k] == 0 && conduce_[k] && std::fabs(i_out_[k]) > 1e-3)
+                    diodo_[k] = i_out_[k] > 0 ? -1 : 1;
+                conduce_[k] = on || diodo_[k] != 0;
+                alta_[k] = on && in_v_[k];
                 float vd = 0.f, rd = R_HIZ;
                 if (on && alta_[k]) { vd = float(vg + std::max(0.0, vs - c_.vh0)); rd = float(c_.rh); }
                 else if (on)        { vd = float(vg + c_.vl0); rd = float(c_.rl); }
+                else if (diodo_[k] > 0) { vd = float(vg + vs + c_.vd); rd = float(c_.rd); }
+                else if (diodo_[k] < 0) { vd = float(vg - c_.vd); rd = float(c_.rd); }
                 if (vd == v_drv_[k] && rd == r_drv_[k]) continue;
                 v_drv_[k] = vd;
                 r_drv_[k] = rd;
                 cambia = true;
-                if (!on) out_[k]->set_hiz(id_out_[k]);
+                if (!conduce_[k]) out_[k]->set_hiz(id_out_[k]);
                 else out_[k]->set_drive(id_out_[k], vd, rd);
             }
             // Con una salida recien cambiada, el nodo aun no se ha resuelto:
@@ -215,10 +232,23 @@ private:
             // Lo que sale por cada una, lo que piden VS y VSS y lo que se
             // queda en el chip
             double i_alta = 0.0, p = 0.0;
+            bool suelta = false;
             for (int k = 0; k < 4; ++k) {
                 // current(): lo que el driver mete en el nodo
                 i_out_[k] = conduce_[k] ? double(out_[k]->current(id_out_[k])) : 0.0;
                 if (!conduce_[k]) continue;
+                if (diodo_[k] != 0) {
+                    // Un diodo no conduce al reves: acabada la corriente, se suelta
+                    if ((diodo_[k] < 0 && i_out_[k] < 0) || (diodo_[k] > 0 && i_out_[k] > 0)) {
+                        diodo_[k] = 0;
+                        conduce_[k] = false;
+                        i_out_[k] = 0.0;
+                        suelta = true;
+                    } else if (diodo_[k] > 0) {
+                        i_alta += i_out_[k];        // la que vuelve a VS
+                    }
+                    continue;
+                }
                 const double vo = double(out_[k]->voltage()) - vg;
                 if (alta_[k]) {
                     if (i_out_[k] > 0) { i_alta += i_out_[k]; p += (vs - vo) * i_out_[k]; }
@@ -232,6 +262,12 @@ private:
                     avisa("sobrecorriente", b);
                 }
             }
+            if (suelta) {
+                ev_revisa_.notify(sc_core::SC_ZERO_TIME);
+                wait(despierta());
+                continue;
+            }
+            i_alta = std::max(0.0, i_alta);
             const bool alguno = habilitado(0) || habilitado(1);
             const double iq_vs = logica ? (alguno ? 13e-3 : 4e-3) : 0.0;
             const double iq_vss = logica ? (alguno ? 24e-3 : 6e-3) : 0.0;
@@ -285,6 +321,7 @@ private:
     double r_vs_ = 0.0, r_vss_ = 0.0;
     bool logica_ = false, en_v_[2] = {false, false}, in_v_[4] = {false, false, false, false};
     bool conduce_[4] = {false, false, false, false}, alta_[4] = {false, false, false, false};
+    int  diodo_[4] = {0, 0, 0, 0};    // 1: a VS; -1: desde masa; 0: ninguno
     double i_out_[4] = {0, 0, 0, 0}, i_vs_ = 0.0, i_vss_ = 0.0, p_ = 0.0, p_max_ = 0.0;
     float v_drv_[4] = {0.f, 0.f, 0.f, 0.f}, r_drv_[4] = {R_HIZ, R_HIZ, R_HIZ, R_HIZ};
     double med_[4] = {0, 0, 0, 0}, t_med_ = 0.0;

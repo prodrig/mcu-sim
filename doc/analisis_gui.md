@@ -588,9 +588,11 @@ paso, ni motor de continua, ni encoder incremental.
 > **Al día (2026-10-27): el motor de continua está hecho**, como `MotorCC`,
 > con su puente en H, `L298`, y el `Regulador` del módulo L298N
 > (`doc/parts.md` §4.16). La decisión que pedía este párrafo se tomó así:
-> sin inductancia, y sin pasos fijos —entre dos cambios de los bornes la
-> ecuación del eje tiene solución exacta, y el proceso despierta en los
-> cambios, en los flancos del encoder y cada milisegundo mientras acelera—.
+> con la inductancia del bobinado y los diodos del módulo, integrando la
+> corriente y el eje juntos a pasos de 5 µs como pura cuenta, sin que SystemC
+> despierte en cada paso: el proceso despierta en los cambios de los bornes,
+> en los flancos del encoder —ensayados de antemano— y cada 0,1 o 1 ms
+> mientras la corriente o la velocidad cambian.
 
 El `DcMotor` es el que merece cuidado y una decisión explícita: un motor de
 continua con su inercia, su constante de tiempo y su carga es un modelo

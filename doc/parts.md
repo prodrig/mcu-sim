@@ -375,7 +375,7 @@ máquina y no ver estos ficheros.
 | Sin `ilustracion=` | El SVG que **se llame como la placa**, a su lado: `nucleo_f446re.xml` → `nucleo_f446re.svg`. Si no está, no pasa nada |
 | `<placa id="N" fichero="..." ilustracion="y.svg"/>` en un `<sistema>` | El montaje cambia el dibujo de esa placa (relativo al sistema); la tabla de la placa, que era de SU dibujo, no se usa |
 | `giro="90"` en la `<placa>`, o en su `<placa id>` de un `<sistema>` | El dibujo, **girado** 90, 180 o 270 grados en el sentido de las agujas del reloj: como está montada la placa. El del sistema manda sobre el de la placa. Ver abajo |
-| `<ilustracion><enlace pieza= elemento= [efecto=] [observable=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido`, `giro`, `pantalla`, `angulo` o `ninguno`; con `giro` o `angulo`, `observable` dice cuál de los de la pieza lo mueve (abajo) |
+| `<ilustracion><enlace pieza= elemento= [efecto=] [observable=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido`, `giro`, `pantalla`, `angulo`, `display` o `ninguno`; con `giro` o `angulo`, `observable` dice cuál de los de la pieza lo mueve; con `display`, cuáles enseña, uno por fila (abajo) |
 
 **Lo que se comprueba aquí** —el SVG lo lee la ventana—: un dibujo
 **declarado** que no está, uno que no empieza por `<svg` ni por `<?xml`, o uno
@@ -436,6 +436,17 @@ izquierda: la fila de arriba de la imagen queda a la izquierda, y su columna
 izquierda, abajo. `placas/tft_128x160.svg` lleva el vidrio apaisado, con el
 conector a la derecha; un firmware que quiera verlo derecho en esa postura
 pone MADCTL = 0x60.
+
+**Lo que se lee en un display: el efecto `display`.** Solo lo pone la tabla
+de enlaces. La ventana escribe DENTRO del elemento el valor de los numéricos
+que diga `observable=` —varios, separados por blancos, uno por fila, de arriba
+abajo— o, sin él, los que la pieza sugiere, con sus cifras de colores sobre el
+fondo que traiga el dibujo, como el display de un aparato: cuatro cifras, y
+los mA que pasan de 1000, en A —`0.367 A`, `7.474 V`—. Esos ya no llevan
+etiqueta debajo. Es el display de `placas/fuente_laboratorio.svg`:
+`<enlace pieza="PSU" elemento="PSU" efecto="display" observable="tension
+corriente"/>`. Para que las filas caigan en sus ventanitas, el elemento las
+lleva todas, del mismo alto y repartidas por igual.
 
 **El giro: la misma placa, montada de otra manera.** Una placa no siempre va
 derecha: la pantalla TFT puede ir de pie, con el conector abajo, o del revés,
@@ -893,6 +904,7 @@ tira lo que cuelga de ellas.
 | `v` | `3.3` | Solo `Fuente`: la tensión, en voltios |
 | `limite_ma` | `no` | **El límite de corriente**, en mA, o `no` para ninguno |
 | `r` | `0.1` | La resistencia interna, en ohmios. 0,1 Ω es lo menos que admite un nodo: una fuente casi ideal |
+| `media_ms` | `0` | Solo en `Fuente`. Con más de 0, la `corriente` que deja ver es su **media** en esos ms —un filtro de primer orden—, como el display de una fuente de laboratorio, que no salta con el PWM de la carga; y deja ver también la `tension`, de media. Con 0, la de cada instante |
 
 **El límite se comporta como el de una fuente de laboratorio.** Por debajo,
 tensión constante. Si la carga pide más, la pieza pasa a **corriente
@@ -2059,7 +2071,7 @@ Lo declaran estas:
 | `RGBLed` | `encendido` (0/1, alguno), `rojo`, `verde` y `azul` (0/1, los que sugiere pintar) y `corriente_r`, `corriente_g` y `corriente_b` (mA, de 0 a 25); los seis con **`color=`**, sus canales | — |
 | `Button` | `pulsado` (0/1): el **dedo**, no el contacto, que en un NC es lo contrario | `pulsar` (botón, 0 suelta, 1 pulsa) |
 | `Crystal` | `presente` (0/1): si está soldado | — |
-| `Fuente`, `Gnd` | `corriente` (mA, la que entrega o recibe; la escala es ± el límite, o ±100 sin él) y `sobrecorriente` (0/1, **una alarma**: el catálogo la marca con `alarma="si"` y la ventana la pinta en rojo) | — |
+| `Fuente`, `Gnd` | `corriente` (mA, la que entrega o recibe; la escala es ± el límite, o ±100 sin él; con `media_ms`, de media) y `sobrecorriente` (0/1, **una alarma**: el catálogo la marca con `alarma="si"` y la ventana la pinta en rojo); con `media_ms`, también `tension` (V, de media) | — |
 | `Xds110` | `corriente` (mA, la que entrega el LDO), `sobrecorriente` (alarma) y `depurando` (0/1, hay un OpenOCD conectado) | — |
 | `Encoder` | `posicion` (de 0 a `pasos − 1`, la que sugiere pintar), `cuenta`, `contacto_a` y `contacto_b` (0/1) | `girar` (discreto, la cuenta de clics, de −30000 a 30000) |
 | `Tft128x160` | `encendida` (0/1, la que sugiere pintar) y `luz` (mA, de 0 a 40); y la IMAGEN `pantalla`, de 128x160 | — |
@@ -2105,7 +2117,7 @@ piezas que el enunciado de la GUI necesita y no existen —`PwmMeter` y
 Las tres piezas del robot de prácticas (`parts/motor_cc.h` y
 `parts/puente_h.h`): el motorreductor, el L298 que lo mueve y el regulador
 que alimenta la lógica del módulo L298N. Montadas, son `placas/l298n.xml`,
-`placas/motor_tt_encoder.xml` y `placas/bateria_2x18650.xml`, y con la Nucleo,
+`placas/motor_tt_encoder.xml` y `placas/fuente_laboratorio.xml`, y con la Nucleo,
 `placas/nucleo_f446re_encoder_lcd_servo_2xmcc.xml`.
 
 #### `MotorCC`
@@ -2116,11 +2128,22 @@ omisión son las del motorreductor TT amarillo de 1:48 y 3 a 6 V [Adafruit
 3777: 250 rpm y 160 mA en vacío y 1,5 A bloqueado a 6 V].
 
 **Lo eléctrico.** Entre `a` y `b`, una f.e.m. `E = Ke·ω` en serie con la
-resistencia del bobinado `R`: `Va − Vb = E + R·i`. Con `a` más alto gira a la
-**derecha** —en el sentido de las agujas del reloj, mirando el eje de salida
-desde su extremo—, que es el ángulo positivo. Es una rama entre dos nodos con
-una fuente dentro, en los dos sentidos: un motor que gira **genera**, y con un
-borne al aire enseña su f.e.m. en él.
+resistencia `R` y la **inductancia** `L` del bobinado:
+
+    Va − Vb = E + R·i + L·di/dt
+
+Con `a` más alto gira a la **derecha** —en el sentido de las agujas del reloj,
+mirando el eje de salida desde su extremo—, que es el ángulo positivo. Un
+motor que gira **genera**, y con un borne al aire enseña su f.e.m. en él.
+
+**La bobina no deja que la corriente cambie de golpe.** Con PWM, sube y baja
+dentro de cada periodo con la constante `L / (R + lo de fuera)`, unos 0,3 ms
+tras un L298N. Cuando el puente suelta los bornes, la corriente sigue por
+donde pueda: por los **diodos de libre circulación** del módulo L298N (`L298`
+con `diodos="si"`), contra toda la tensión de la alimentación, y se acaba en
+unas decenas de µs. Si no hay por dónde, se corta. Para la red, el motor es
+una rama entre dos nodos que deja pasar la corriente de su bobina: una f.e.m.
+tal que en los bornes quede `Vth − Rth·i`.
 
 **Lo mecánico**, en el eje de salida y con la reductora dentro:
 
@@ -2133,20 +2156,23 @@ de la constante de tiempo. Las cifras se dan como en una hoja de datos y de ahí
 sale el resto: `R = v_nominal / i_bloqueo`, `Ke = (v_nominal − i_vacio·R) /
 ω_vacio`.
 
-**No se integra a pasos.** Entre dos cambios de lo que hay en sus bornes, la
-tensión de Thevenin que ve el motor es constante y la ecuación tiene
-solución exacta —una exponencial con corriente, una recta sin ella—. El
-proceso despierta en cada cambio de los bornes, en cada flanco del encoder
-—calculado sobre esa solución, no muestreado—, cuando se para, y cada
-milisegundo mientras acelera o frena, para que la corriente y la f.e.m. que
-ven los demás sigan al eje.
+**Cómo se integra.** Las dos ecuaciones, la de la bobina y la del eje, juntas,
+con Runge-Kutta de cuarto orden a pasos de 5 µs como mucho —y nunca más de un
+quinto de `L/(R + Rth)`—. Pero SystemC no despierta en cada paso: es pura
+cuenta. El proceso despierta en cada cambio de los bornes; en cada flanco del
+encoder y cuando la corriente cambia de sentido —que es cuando se apagan los
+diodos—, ensayados de antemano con los mismos pasos, así que caen en su
+instante; cuando se para; y cada 0,1 ms mientras la corriente se asienta o
+cada milisegundo mientras acelera, para que la corriente y la f.e.m. que ven
+los demás sigan al motor.
 
-**Lo que no es fiel: no tiene inductancia.** La corriente sigue a la tensión
-al momento: con PWM se corta con él, donde en el motor de verdad la bobina la
-alisa dentro de cada periodo. En vacío eso hace que la velocidad suba más
-deprisa con el ciclo de trabajo que en el de verdad: con el L298N a 1 kHz, el
-50 % da unas 196 rpm de las 238 del 100 %. La media de lo que entra sí es la
-de verdad.
+**Lo que se ve con el PWM.** Con el L298N a 1 kHz y sus diodos, el 50 % da
+unas 145 rpm de las 243 del 100 %. Casi sin inductancia —`l_mh="0.01"`— daría
+unas 200: la corriente se cortaría con el PWM y el motor seguiría, en cada
+hueco, con lo que tenía. Sin los diodos, la corriente de la bobina se corta al
+soltar el puente, y va más despacio aún (`make gui-marcha`, M10). La
+inductancia del TT no la da su hoja de datos: 1,5 mH es una estimación —los
+motores de su tamaño andan entre 0,5 y 3 mH—, y se cambia con `l_mh`.
 
 | Terminal | | |
 | :--- | :--- | :--- |
@@ -2162,6 +2188,7 @@ de verdad.
 | `i_bloqueo_ma` | `1500` | La corriente con el eje sujeto, a `v_nominal`: la resistencia |
 | `i_arranque_ma` | `250` | La que hace falta para que arranque parado, de `i_vacio_ma` a `i_bloqueo_ma` |
 | `tau_ms` | `50` | La constante de tiempo mecánica en vacío: lo que tarda en llegar al 63 % de su velocidad. De ella sale la inercia |
+| `l_mh` | `1.5` | La inductancia del bobinado, de 0,001 a 1000 mH |
 | `reduccion` | `48` | La de la reductora: solo para decir las rpm del motor |
 | `v_max` | `7.2` | Lo que aguanta: por encima, se avisa |
 | `ppr` | `0` | Las ventanas del disco del encoder, los pulsos de cada canal por vuelta del eje de salida. `0`, sin encoder y sin sus patillas; con él, las cuatro |
@@ -2207,7 +2234,7 @@ queda como estaba y se avisa.
 la hoja de datos —arriba 1,35 V con 1 A y 2 V con 2 A; abajo 1,2 y 1,7—. En
 línea recta, eso es una fuente de `VS − 0,7 V` con 0,65 Ω arriba y de 0,7 V
 con 0,5 Ω abajo: con un motorreductor en vacío, unos 1,6 V menos de los que da
-la batería, y casi 3,2 con 1 A. Es lo que más sorprende del L298 la primera
+la fuente, y casi 3,2 con 1 A. Es lo que más sorprende del L298 la primera
 vez.
 
 Lo que sale por las salidas altas lo pide a `vs`, más 13 mA con algún puente
@@ -2215,6 +2242,17 @@ habilitado (4 sin ninguno); la lógica, a `vss`, 24 mA (6 sin habilitar). Con
 menos de 4,5 V en `vss` las salidas se quedan al aire, y se avisa. Pasar de
 2 A por una salida se avisa: el L298 no se protege. Los SENSE A y B van a masa
 por dentro.
+
+**Los diodos de libre circulación** no son del chip: un motor los necesita por
+fuera, y el módulo L298N los lleva. Con `diodos="si"`, una salida que se
+suelta llevando la corriente de la bobina de un motor la sigue llevando por su
+diodo —la que salía, desde masa, a −0,9 V; la que entraba, hacia VS, a VS +
+0,9 V, con 0,2 Ω— hasta que esa corriente cambia de sentido, y entonces se
+suelta de verdad. La que vuelve a VS no se descuenta de lo que se le pide.
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `diodos` | `no` | `si`: los diodos de libre circulación, por fuera del chip |
 
 | Terminal | | |
 | :--- | :--- | :--- |
@@ -2260,9 +2298,14 @@ con `caida="1.7"`, la suya a los 30 mA de la lógica), el LED de los 5 V
 `MB.OUT4`), la de la alimentación (`X1.12V`, `X1.GND`, `X1.5V`), la tira de
 abajo con los **puentes de ENA y ENB** puestos de fábrica (`JA` y `JB`, que se
 quitan con `<jumper ref="L/JA" puente="no"/>` para darles PWM) y el **5V-EN**
-(`JP5`). Los diodos de libre circulación no se modelan: sin inductancia en el
-motor no tienen nada que llevar. `placas/bateria_2x18650.xml` es la batería:
-una `Fuente` de 7,4 V con 0,15 Ω.
+(`JP5`), con `diodos="si"` en el L298. `placas/fuente_laboratorio.xml` es la
+fuente de mesa que alimenta los motores: una `Fuente` de 7,5 V con el límite
+en 3 A y `media_ms="100"`, que deja ver la corriente y la tensión de media, y
+la ventana las escribe DENTRO de su display —el efecto `display`, §2.6—:
+`7.474 V` arriba y `0.340 A` abajo. En
+`placas/nucleo_f446re_encoder_lcd_servo_2xmcc.xml` el 5V-EN se quita y la
+lógica del L298N toma el +5V de la Nucleo: la fuente enseña lo que gastan los
+motores, más el reposo del L298 y del 78M05 (de 9 a 18 mA).
 
 ---
 

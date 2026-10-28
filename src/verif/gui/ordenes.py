@@ -58,12 +58,12 @@
 #       la USART3, y no por el VCP; y la pantalla enseña la aguja.
 #   O10 EL MISMO SISTEMA CON DOS MOTORES
 #       (`placas/nucleo_f446re_encoder_lcd_servo_2xmcc.xml`): un L298N, dos
-#       motorreductores con su encoder de 24 PPR y su batería, con
+#       motorreductores con su encoder de 24 PPR y una fuente de laboratorio, con
 #       `verif/fw/encoder_lcd_servo_2xmcc`. El mando pide el PWM -un 10 % por
 #       clic-, los encoders, contados por el TIM2 y el TIM1 en modo encoder,
 #       dan las rpm que dicen el FTDI y la pantalla, el servo hace de aguja de
-#       las del motor A, y sujetar un motor no toca al otro; apretar el eje
-#       los para.
+#       las del motor A, sujetar un motor no toca al otro, y el display de la
+#       fuente enseña lo que gastan; apretar el eje los para.
 #
 #   make -f Makefile.mcu-sim gui-ordenes
 #   python3 verif/gui/ordenes.py [--sim build/mcu-sim]
@@ -838,9 +838,9 @@ def o10_motores(sim):
     out = r.stdout.decode("utf-8", "replace")
     check(r.returncode == 0 and "9 placas: N (nucleo-f446re), S (servo-sg90), K (ky040-24ppr), "
           "T (tft-128x160), F (ftdi-ft232rl), L (l298n), MA (motor-tt-encoder), "
-          "MB (motor-tt-encoder), B (bateria-2x18650)" in out and
+          "MB (motor-tt-encoder), PS (fuente-laboratorio)" in out and
           "1 MCU(s), 44 componentes, 180 nodos, 0 avisos" in out and
-          "dibujo L: l298n.svg (12 kB, JA no, JB no, JP5 REG-5V)" in out and
+          "dibujo L: l298n.svg (12 kB, JA no, JB no, JP5 no)" in out and
           "dibujo MB: motor_tt_encoder.svg, el mismo que MA" in out,
           "%s se valida sin avisos: nueve placas, el L298N sin los puentes de ENA y ENB, y "
           "los dos motores con el mismo dibujo" % MCC)
@@ -856,14 +856,16 @@ def o10_motores(sim):
         ma, mma, oma = pieza_de(cat, "MA/MOTOR")
         mb, _, omb = pieza_de(cat, "MB/MOTOR")
         sv, _, osv = pieza_de(cat, "S/SERVO")
+        ps, _, ops = pieza_de(cat, "PS/PSU")
         img = [int(i.get("id_obs")) for pz in ET.fromstring(cat).iter("pieza")
                if pz.get("id") == "T/TFT" for i in pz.iter("imagen")]
-        if not check(listo and None not in (enc, sw, ma, mb, sv) and len(img) == 1 and
-                     "bloquear" in mma and "carga" in mma,
-                     "en el catalogo, el mando, los dos motores con `bloquear` y `carga`, el servo "
-                     "y la pantalla"):
+        if not check(listo and None not in (enc, sw, ma, mb, sv, ps) and len(img) == 1 and
+                     "bloquear" in mma and "carga" in mma and "tension" in ops,
+                     "en el catalogo, el mando, los dos motores con `bloquear` y `carga`, el servo, "
+                     "la pantalla y la fuente, con su corriente y su tension"):
             return
-        ids = [oma["rpm"], omb["rpm"], osv["angulo"], oma["corriente"]]
+        ids = [oma["rpm"], omb["rpm"], osv["angulo"], oma["corriente"], ops["corriente"],
+               ops["tension"]]
         suscribe(v, MS, ids + img)
         lista = [(400, enc, me["girar"], 10), (1300, enc, me["girar"], 5),
                  (2100, ma, mma["bloquear"], 1), (2500, ma, mma["bloquear"], 0),
@@ -906,22 +908,28 @@ def o10_motores(sim):
     check(en[390][:2] == (0, 0) and dice(0, lambda x: x == 0, lambda x: x == 0) and
           "[F/U1] 2xmcc: L298N con PWM de 1 kHz en PB8 y PB9; encoders en TIM2 y TIM1" in out,
           "al arrancar, parados: el PWM a cero, y el FTDI lo dice")
-    check(all(237 < en[1290][k] < 240.5 for k in (0, 1)) and
-          dice(100, lambda x: x in (237, 240), lambda x: x in (237, 240)),
+    check(all(241 < en[1290][k] < 246 for k in (0, 1)) and
+          dice(100, lambda x: x in (242, 245), lambda x: x in (242, 245)),
           "diez clics: +100 %%, y los dos motores a %.1f rpm; los encoders, contados por el TIM2 "
-          "y el TIM1 en 250 ms, dicen 237 o 240 -de 2,5 en 2,5-" % en[1290][0])
-    check(83 < en[1290][2] < 89,
+          "y el TIM1 en 250 ms, dicen 242 o 245 -de 2,5 en 2,5-" % en[1290][0])
+    check(7 < en[390][4] < 12 and 325 < en[1290][4] < 360 and
+          abs(en[1290][5] - (7.5 - en[1290][4] * 1e-4)) < 0.01 and en[2490][4] > en[2090][4],
+          "el display de la fuente: %.0f mA parados -el reposo del L298 y del 78M05; la "
+          "logica va al +5V de la Nucleo-, %.0f mA con los dos a toda marcha -los dos motores "
+          "y el reposo-, a %.2f V; y mas con un motor bloqueado (%.0f mA)"
+          % (en[390][4], en[1290][4], en[1290][5], en[2490][4]))
+    check(83 < en[1290][2] < 90,
           "el servo, la aguja de las rpm del motor A: %.1f grados -1500 us mas 2 por rpm-"
           % en[1290][2])
-    check(all(190 < en[2090][k] < 200 for k in (0, 1)) and
-          dice(50, lambda x: 190 <= x <= 205, lambda x: 190 <= x <= 205),
-          "cinco clics atras, +50 %%: %.1f rpm. Sin la inductancia del motor, la velocidad no "
-          "baja a la mitad" % en[2090][0])
-    check(en[2490][0] == 0 and 185 < en[2490][1] < 200 and en[2490][3] > 400 and
-          dice(50, lambda x: x == 0, lambda x: 185 <= x <= 205),
+    check(all(138 < en[2090][k] < 155 for k in (0, 1)) and
+          dice(50, lambda x: 135 <= x <= 160, lambda x: 135 <= x <= 160),
+          "cinco clics atras, +50 %%: %.1f rpm. Con la inductancia del motor y los diodos del "
+          "L298N, la velocidad va con el ciclo de trabajo" % en[2090][0])
+    check(en[2490][0] == 0 and 135 < en[2490][1] < 155 and en[2490][3] > 300 and
+          dice(50, lambda x: x == 0, lambda x: 130 <= x <= 160),
           "sujeto el motor A, se para y pide %.0f mA de media; el B sigue a %.1f rpm, y el "
           "FTDI lo dice" % (en[2490][3], en[2490][1]))
-    check(185 < en[2990][0] < 200,
+    check(120 < en[2990][0] < 155,
           "al soltarlo, el A vuelve a su velocidad (%.1f rpm)" % en[2990][0])
     check(dice(0) and en[3590][:2] == (0, 0) and en[3200][1] > 50,
           "apretar el eje: PWM a cero, ENA y ENB bajos, y los dos motores siguen libres por "

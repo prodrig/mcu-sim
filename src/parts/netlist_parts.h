@@ -381,9 +381,13 @@ REGISTRA_PARTE(Fuente,
            "`sobrecorriente` a 1 y lo avisa.")
       .atr("r", "0.1", "La resistencia interna, en ohmios: 0,1 es lo menos que "
            "admite un nodo, o sea una fuente casi ideal.")
+      .atr("media_ms", "0", "Con mas de 0, la corriente que deja ver es su MEDIA en "
+           "esos ms -un filtro de primer orden-, como el display de una fuente de "
+           "laboratorio, que no salta con el PWM de la carga; y deja ver tambien la "
+           "`tension`, de media. Con 0, la de cada instante.")
       .nota("Lo que deja ver: `corriente`, en mA, la que ENTREGA (negativa si "
             "otra cosa la empuja hacia atras), y `sobrecorriente`, que la "
-            "ventana pinta como alarma.")
+            "ventana pinta como alarma; con media_ms, ademas, `tension`.")
       .nota("Un nodo con una fuente y varias cargas es un RAIL, no un "
             "cortocircuito: la validacion electrica no lo cuenta como dos piezas "
             "conduciendo. Dos fuentes (o fuente y masa) en el mismo nodo, si, y se "
@@ -397,8 +401,14 @@ REGISTRA_PARTE(Fuente,
                 d.txt("limite_ma") + "\" no vale; mA, o \"no\"").c_str());
             return nullptr;
         }
+        const double med = d.num("media_ms", 0.0);
+        if (med < 0.0 || med > 10000.0) {
+            SC_REPORT_ERROR("netlist", ("Fuente '" + d.id + "': media_ms=\"" +
+                d.txt("media_ms") + "\" no vale; de 0 a 10000 ms").c_str());
+            return nullptr;
+        }
         return new Fuente(d.id.c_str(), n[d.nodo_de("pin")], d.num("v", 3.3),
-                          d.num("r", 0.1), lim);
+                          d.num("r", 0.1), lim, med);
     });
 
 REGISTRA_PARTE(Gnd,
@@ -990,12 +1000,13 @@ REGISTRA_PARTE(MotorCC,
     Ayuda("Un MOTOR DE CORRIENTE CONTINUA con reductora -el motorreductor TT "
           "amarillo de 1:48, por omision- y, si se le dan sus cuatro patillas, "
           "un ENCODER incremental en el eje de salida. Entre a y b, una f.e.m. "
-          "Ke*w en serie con la resistencia del bobinado, sin inductancia: con "
-          "a mas alto que b gira a la derecha, que es el angulo positivo. El eje "
-          "tiene su inercia, un rozamiento seco, uno de arranque mayor y la carga "
-          "del mando: entre dos cambios de lo que hay en sus bornes, la ecuacion "
-          "se resuelve exacta, no a pasos. Las cifras son las de una hoja de "
-          "datos: la tension nominal, las rpm y la corriente en vacio, y la de "
+          "Ke*w en serie con la resistencia y la INDUCTANCIA del bobinado: con a "
+          "mas alto que b gira a la derecha, que es el angulo positivo. La "
+          "corriente de la bobina no cambia de golpe: con PWM sube y baja en cada "
+          "periodo, y si el puente suelta los bornes sigue por sus diodos, o se "
+          "corta si no los hay. El eje tiene su inercia, un rozamiento seco, uno "
+          "de arranque mayor y la carga del mando. Las cifras son las de una hoja "
+          "de datos: la tension nominal, las rpm y la corriente en vacio, y la de "
           "bloqueo; de ahi salen R y Ke. El encoder es un disco de `ppr` ventanas "
           "con dos sensores en cuadratura: A va delante a la derecha; salidas de "
           "colector abierto con pull-up de 10 kohm a enc_vcc.")
@@ -1023,6 +1034,8 @@ REGISTRA_PARTE(MotorCC,
            "rozamiento de arranque, que es mayor que el de marcha.")
       .atr("tau_ms", "50", "La constante de tiempo mecanica en vacio, en ms: lo que "
            "tarda en llegar al 63 % de su velocidad. De ella sale la inercia.")
+      .atr("l_mh", "1.5", "La inductancia del bobinado, en mH. La del TT no la da su "
+           "hoja de datos; los motores de su tamano andan entre 0,5 y 3 mH.")
       .atr("reduccion", "48", "La de la reductora: solo para decir las rpm del motor.")
       .atr("v_max", "7.2", "Lo que aguanta, en V: por encima, se avisa.")
       .atr("ppr", "0", "Las ventanas del disco del encoder, los pulsos por vuelta del "
@@ -1054,11 +1067,11 @@ REGISTRA_PARTE(MotorCC,
         ConfigMotorCC c;
         double ppr = 0;
         const char* claves[] = {"v_nominal", "rpm_vacio", "i_vacio_ma", "i_bloqueo_ma",
-                                "i_arranque_ma", "tau_ms", "reduccion", "v_max", "ppr",
+                                "i_arranque_ma", "tau_ms", "l_mh", "reduccion", "v_max", "ppr",
                                 "enc_i_ma", "posicion_inicial"};
         double* destinos[] = {&c.v_nominal, &c.rpm_vacio, &c.i_vacio_ma, &c.i_bloqueo_ma,
-                              &c.i_arranque_ma, &c.tau_ms, &c.reduccion, &c.v_max, &ppr,
-                              &c.enc_i_ma, &c.posicion_inicial};
+                              &c.i_arranque_ma, &c.tau_ms, &c.l_mh, &c.reduccion, &c.v_max,
+                              &ppr, &c.enc_i_ma, &c.posicion_inicial};
         for (unsigned k = 0; k < sizeof claves / sizeof *claves; ++k) {
             const std::string t = d.txt(claves[k]);
             if (!t.empty() && !numero(t, *destinos[k]))
@@ -1070,6 +1083,8 @@ REGISTRA_PARTE(MotorCC,
             c.v_max <= 0 || c.enc_i_ma <= 0)
             return mal("v_nominal, rpm_vacio, tau_ms, reduccion, v_max y enc_i_ma tienen que "
                        "ser positivos");
+        if (c.l_mh < 0.001 || c.l_mh > 1000.0)
+            return mal("l_mh va de 0.001 a 1000 mH");
         if (c.i_vacio_ma <= 0 || c.i_bloqueo_ma <= c.i_vacio_ma)
             return mal("las corrientes van i_vacio_ma > 0 e i_bloqueo_ma mayor que ella");
         if (c.i_arranque_ma < c.i_vacio_ma || c.i_arranque_ma >= c.i_bloqueo_ma)
@@ -1127,6 +1142,11 @@ REGISTRA_PARTE(L298,
            "in4 del B.")
       .pin("out1 .. out4", "obligatorios", "Las salidas: out1 y out2 del A, out3 y out4 "
            "del B.")
+      .atr("diodos", "no", "si: los diodos de libre circulacion que el chip necesita por "
+           "fuera, y que el modulo L298N lleva. Una salida que se suelta llevando la "
+           "corriente de la bobina de un motor la sigue llevando por su diodo -desde "
+           "masa, a -0,9 V, o hacia VS, a VS + 0,9 V- hasta que se acaba. Sin ellos, "
+           "esa corriente se corta.")
       .nota("Deja ver `corriente_a` y `corriente_b` (mA, la de cada motor, la que sale "
             "por OUT1 y OUT3), `corriente_vs` (mA, lo que pide a VS) y `disipacion` "
             "(W, lo que se queda en el chip), las cuatro DE MEDIA -un filtro de 5 ms-, "
@@ -1152,8 +1172,15 @@ REGISTRA_PARTE(L298,
                                 &n[d.nodo_de("in3")], &n[d.nodo_de("in4")]};
         analog_net_if* out[4] = {&n[d.nodo_de("out1")], &n[d.nodo_de("out2")],
                                  &n[d.nodo_de("out3")], &n[d.nodo_de("out4")]};
+        const std::string di = d.txt("diodos", "no");
+        if (di != "si" && di != "no") {
+            SC_REPORT_ERROR("netlist", ("L298 '" + d.id + "': diodos es si o no").c_str());
+            return nullptr;
+        }
+        ConfigL298 c;
+        c.diodos = di == "si";
         return new L298(d.id.c_str(), n[d.nodo_de("vs")], n[d.nodo_de("vss")],
-                        n[d.nodo_de("gnd")], en, in, out);
+                        n[d.nodo_de("gnd")], en, in, out, c);
     });
 
 REGISTRA_PARTE(Regulador,

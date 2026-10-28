@@ -46,13 +46,20 @@
 #       pulso fuera de rango; que el analógico suelta sin señal y el digital
 #       no; que un pulso de 200 us no lo es; lo que gastan; y los avisos.
 #   M9  UN MOTOR DE CONTINUA TRAS UN L298N (`placas/motor_tt_encoder.xml`,
-#       `placas/l298n.xml` y `placas/bateria_2x18650.xml`, las piezas MotorCC,
-#       L298 y Regulador), sin MCU: ENA, IN1 e IN2 con tres FuenteAjustable que
-#       se mueven con órdenes. La velocidad, la corriente y la tensión de
-#       régimen; la caída del L298; la constante de tiempo; el encoder en
-#       cuadratura, A delante hacia delante y B hacia atrás, en los pines; la
-#       carga y el bloqueo; parar libre (ENA bajo) y frenar (IN1 = IN2), que
-#       para antes; lo que piden la batería y el 78M05.
+#       `placas/l298n.xml` y `placas/fuente_laboratorio.xml`, las piezas
+#       MotorCC, L298 y Regulador y la Fuente con su display), sin MCU: ENA,
+#       IN1 e IN2 con tres FuenteAjustable que se mueven con órdenes. La
+#       velocidad, la corriente y la tensión de régimen; la caída del L298; la
+#       constante de tiempo; el encoder en cuadratura, A delante hacia delante
+#       y B hacia atrás, en los pines; la carga y el bloqueo; parar libre (ENA
+#       bajo) y frenar (IN1 = IN2), que para antes; lo que enseña el display de
+#       la fuente.
+#  M10  LA INDUCTANCIA del motor, con el mismo banco y un PWM de 1 kHz al 50 %
+#       en ENA: con sus 1,5 mH y los diodos del módulo, la corriente sigue por
+#       ellos cuando el puente se suelta y el motor va a unas 145 rpm; casi sin
+#       inductancia, a casi 200 -la corriente se corta con el PWM y el motor
+#       sigue con lo que tenía-; y sin diodos, la de la bobina se corta al
+#       soltar el puente, y va más despacio aún.
 #
 # La contrapresión —instantáneas que se tiran, avisos que no— no se puede
 # provocar con fiabilidad desde aquí: el sistema operativo amortigua megas.
@@ -710,13 +717,13 @@ BANCO_MOTOR = """<placa nombre="banco-motor">
 </placa>
 """
 SISTEMA_MOTOR = """<sistema nombre="prueba-motor">
-  <placa id="B" fichero="%(placas)s/bateria_2x18650.xml"/>
+  <placa id="PS" fichero="%(placas)s/fuente_laboratorio.xml"/>
   <placa id="L" fichero="%(placas)s/l298n.xml"/>
   <placa id="M" fichero="%(placas)s/motor_tt_encoder.xml"/>
   <placa id="T" fichero="banco_motor.xml"/>
   <jumper ref="L/JA" puente="no"/>
-  <hilo a="B/P1.BAT"  b="L/X1.12V"/>
-  <hilo a="B/P1.GND"  b="L/X1.GND"/>
+  <hilo a="PS/P1.ROJO"  b="L/X1.12V"/>
+  <hilo a="PS/P1.NEGRO" b="L/X1.GND"/>
   <hilo a="L/X1.GND"  b="T/J.GND"/>
   <hilo a="T/J.ENA"   b="L/JA.ENA"/>
   <hilo a="T/J.IN1"   b="L/P1.IN1"/>
@@ -734,11 +741,11 @@ SISTEMA_MOTOR = """<sistema nombre="prueba-motor">
 
 
 def m9_motor(sim, cp):
-    grupo("M9 Un motor de continua con su encoder, tras un L298N y una bateria")
+    grupo("M9 Un motor de continua con su encoder, tras un L298N y una fuente de laboratorio")
     for placa, cab in (("motor_tt_encoder", "placa 'motor-tt-encoder': SIN MCU, 3 componentes, "
                         "6 nodos, 0 avisos"),
                        ("l298n", "placa 'l298n': SIN MCU, 10 componentes, 11 nodos, 0 avisos"),
-                       ("bateria_2x18650", "placa 'bateria-2x18650': SIN MCU, 2 componentes, "
+                       ("fuente_laboratorio", "placa 'fuente-laboratorio': SIN MCU, 2 componentes, "
                         "2 nodos, 0 avisos")):
         r = subprocess.run([sim, "placas/%s.xml" % placa, "--valida"], stdout=subprocess.PIPE,
                            stderr=subprocess.STDOUT, timeout=60)
@@ -773,7 +780,7 @@ def m9_motor(sim, cp):
                                           "enc_a", "enc_b"]),
                              ("L/U1", ["corriente_a", "corriente_vs", "logica"]),
                              ("L/U2", ["tension", "sin_margen"]), ("L/D1", ["encendido"]),
-                             ("B/BAT", ["corriente"]), ("T/LA", ["encendido"]),
+                             ("PS/PSU", ["corriente", "tension"]), ("T/LA", ["encendido"]),
                              ("T/LB", ["encendido"])):
             for o in pz[pid].iter("observable"):
                 if o.get("nombre") in nombres:
@@ -812,22 +819,21 @@ def m9_motor(sim, cp):
     def a(ms, que, pid="M/MOTOR"):
         return en[ms][(pid, que)]
     rpm = a(590, "rpm")
-    check(237 < rpm < 240 and abs(a(590, "corriente") - 160) < 2 and
-          5.65 < a(590, "tension") < 5.85,
+    check(242 < rpm < 245 and abs(a(590, "corriente") - 160) < 2 and
+          5.75 < a(590, "tension") < 5.95,
           "con ENA e IN1 altos, IN2 bajo: hacia delante, a %.1f rpm en vacio, con %.1f mA y "
           "%.2f V en los bornes" % (rpm, a(590, "corriente"), a(590, "tension")))
-    ibat = a(590, "corriente", "B/BAT")
-    vbat = 7.4 - ibat * 1e-3 * 0.15
+    ips, vps = a(590, "corriente", "PS/PSU"), a(590, "tension", "PS/PSU")
     check(abs(a(590, "corriente_a", "L/U1") - 160) < 2 and
-          abs(a(590, "corriente_vs", "L/U1") - 173) < 3 and abs(ibat - 205) < 4 and
-          1.5 < vbat - a(590, "tension") < 1.8,
-          "el L298 se come %.2f V de los %.2f de la bateria; pide a VS el motor y sus 13 mA, y la "
-          "bateria da ademas lo de la logica por el 78M05 (%.0f mA)"
-          % (vbat - a(590, "tension"), vbat, ibat))
+          abs(a(590, "corriente_vs", "L/U1") - 173) < 3 and abs(ips - 205) < 10 and
+          abs(vps - (7.5 - ips * 1e-4)) < 0.005 and 1.5 < vps - a(590, "tension") < 1.8,
+          "el L298 se come %.2f V de los %.2f de la fuente; pide a VS el motor y sus 13 mA, y "
+          "el display de la fuente ensena ademas lo de la logica por el 78M05 (%.0f mA)"
+          % (vps - a(590, "tension"), vps, ips))
     r64 = a(64, "rpm") / rpm
     check(0.58 < r64 < 0.68,
           "la constante de tiempo: a los 64 ms -50 ms en vacio, con la resistencia del L298 "
-          "y la bateria- va al %.0f %% de su velocidad" % (r64 * 100))
+          "y la fuente- va al %.0f %% de su velocidad" % (r64 * 100))
     seq = []
     for t_ in range(1, 600):
         x = (int(a(t_, "enc_a")), int(a(t_, "enc_b")))
@@ -886,6 +892,51 @@ def m9_motor(sim, cp):
           % [x for x in (out + err).splitlines() if "Warning" in x or "[elec]" in x][:3])
 
 
+# ---------------------------------------------------------------------------
+# M10
+# ---------------------------------------------------------------------------
+def m10_inductancia(sim, cp):
+    grupo("M10 La inductancia del motor, con un PWM de 1 kHz al 50 % en ENA")
+    banco = BANCO_MOTOR.replace(
+        """<componente tipo="FuenteAjustable" id="ENA" v="3.3" vmin="0" vmax="3.3" r="10">
+    <pin nombre="pin" nodo="J.ENA"/></componente>""",
+        """<componente tipo="ExtClock" id="ENA" hz="1000"><pin nombre="out" nodo="J.ENA"/></componente>""")
+    cp("banco_motor.xml", banco)
+    with open("placas/motor_tt_encoder.xml", encoding="utf-8") as f:
+        motor = f.read()
+    with open("placas/l298n.xml", encoding="utf-8") as f:
+        l298n = f.read()
+    placas = os.path.dirname(cp("motor_tt_encoder.xml", motor))
+    cp("fuente_laboratorio.xml", open("placas/fuente_laboratorio.xml", encoding="utf-8").read())
+    for svg in ("motor_tt_encoder", "l298n", "fuente_laboratorio"):
+        cp(svg + ".svg", open("placas/%s.svg" % svg, encoding="utf-8").read())
+    rpms = {}
+    for caso, m, l in (("1,5 mH y diodos", motor, l298n),
+                       ("0,01 mH", motor.replace('l_mh="1.5"', 'l_mh="0.01"'), l298n),
+                       ("sin diodos", motor, l298n.replace('diodos="si"', 'diodos="no"'))):
+        cp("motor_tt_encoder.xml", m)
+        cp("l298n.xml", l)
+        sis = cp("motor.xml", SISTEMA_MOTOR % {"placas": placas})
+        r = subprocess.run([sim, sis, "--ms=1500"], stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, timeout=300)
+        out = r.stdout.decode("utf-8", "replace")
+        k = out.find("MOTOR M/MOTOR: ")
+        rpms[caso] = float(out[k + 15:].split()[0]) if r.returncode == 0 and k >= 0 else None
+    a, b, c = rpms["1,5 mH y diodos"], rpms["0,01 mH"], rpms["sin diodos"]
+    check(None not in (a, b, c), "el banco corre en los tres casos (%s)" % rpms)
+    if None in (a, b, c):
+        return
+    check(130 < a < 160,
+          "con 1,5 mH, la corriente sube con L/R en cada periodo y sigue por los diodos al "
+          "soltarse el puente: %.1f rpm al 50 %%" % a)
+    check(185 < b < 215 and b > a + 30,
+          "casi sin inductancia la corriente sigue a la tension, y el motor va a %.1f rpm, "
+          "mucho mas que la mitad de 243" % b)
+    check(c < a,
+          "y sin los diodos del modulo, la corriente de la bobina se corta al soltar el "
+          "puente: %.1f rpm, menos aun" % c)
+
+
 def main():
     a = argparse.ArgumentParser(description="mcu-sim-gui en marcha, contra el mcu-sim de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -910,6 +961,7 @@ def main():
         m7_chip(sim, cp)
         m8_servo(sim, cp)
         m9_motor(sim, cp)
+        m10_inductancia(sim, cp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return ventana.resumen("MARCHA")

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # =============================================================================
 # dibuja_motores.py — Genera los dibujos del sistema de los dos motores:
-#                     l298n.svg, motor_tt_encoder.svg y bateria_2x18650.svg
+#                     l298n.svg, motor_tt_encoder.svg y fuente_laboratorio.svg
 #
 # Los SVG estan versionados; esto es como se hicieron, para rehacerlos si
 # cambia una placa. Dibujados a mano -una aproximacion, no una foto-, con el
@@ -289,52 +289,59 @@ def motor():
 # ---------------------------------------------------------------------------
 # EL PORTAPILAS
 # ---------------------------------------------------------------------------
-def bateria():
-    s = Svg(800, 440, """
-  PORTAPILAS DE DOS 18650 EN SERIE, dibujado a mano: una aproximacion, no una
-  foto. Es el dibujo de placas/bateria_2x18650.xml, que lo encuentra solo
-  porque se llama como ella. Generado por placas/dibuja_motores.py.
+def fuente():
+    s = Svg(1000, 600, """
+  FUENTE DE ALIMENTACION DE LABORATORIO, dibujada a mano: una aproximacion,
+  no una foto. Es el dibujo de placas/fuente_laboratorio.xml, que lo encuentra
+  solo porque se llama como ella. Generado por placas/dibuja_motores.py.
 
   Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
   1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
-  0,1 mm: 80 x 44 mm- y cada pieza con el id de su pieza en el XML:
+  0,1 mm: 100 x 60 mm- y cada pieza con el id de su pieza en el XML:
 
-    BAT    la etiqueta de 7,4 V, entre las dos celdas: la Fuente. Deja ver
-           lo que entrega
-    P1     los dos hilos: P1.BAT, el rojo, y P1.GND, el negro
+    PSU    la ventanita del display, con sus dos filas: la Fuente. La ventana
+           escribe en la de arriba la tension y en la de abajo la corriente,
+           de media (el efecto `display` de la tabla de enlaces), y la rodea
+           de rojo cuando limita la corriente
+    P1     las dos bornas: P1.ROJO (+) y P1.NEGRO (-)
 """)
-    s.add(s.rect(10, 10, 690, 420, "#212121", "#000000", 2, rx=10))
-    for k, (y, color, pos_der) in enumerate(((36, "#1e88e5", True), (234, "#43a047", False))):
-        s.add("  " + s.rect(56, y, 600, 170, color, "#0b2545", 1.5, rx=30))
-        s.add("  " + s.rect(56, y + 18, 600, 8, "#ffffff", extra=' fill-opacity="0.25"'))
-        xn = 660 if pos_der else 40
-        s.add("  " + s.rect(xn, y + 60, 16, 50, "#cfd8dc", "#78909c", 1, rx=3))
-        s.add("  " + s.text(356, y + 98, "18650  3,7 V", 22, BLANCO, "middle"))
-        s.add("  " + s.text(620 if pos_der else 92, y + 100, "+", 26, BLANCO, "middle"))
-    # La etiqueta de la bateria: la Fuente, que deja ver lo que entrega
-    s.add('<g id="BAT">')
-    s.add("  " + s.rect(296, 200, 120, 40, "#fdd835", "#212121", 1.5, rx=4))
-    s.add("  " + s.text(356, 228, "7,4 V", 20, "#212121", "middle"))
+    s.add(s.rect(0, 0, 1000, 600, "#37474f", "#263238", 2, rx=20))
+    s.add(s.rect(20, 20, 960, 560, "#cfd8dc", "#90a4ae", 1.5, rx=12))
+    # El display: la pieza es la ventanita entera, con sus dos filas -la
+    # tension arriba, la corriente abajo-; la ventana escribe en cada una su
+    # valor (el efecto `display` de la tabla de enlaces de la placa)
+    s.add(s.rect(56, 56, 508, 278, "#263238", rx=8))
+    s.add('<g id="PSU">')
+    s.add("  " + s.rect(66, 66, 488, 258, "#111111", "#000000", 1.5, rx=4))
+    s.add("  " + s.rect(76, 76, 468, 109, "#1a1a1a"))
+    s.add("  " + s.rect(76, 205, 468, 109, "#1a1a1a"))
     s.add("</g>")
-    for y in (36, 234):
-        s.add(s.rect(20, y + 40, 18, 90, "#b0bec5"))
-        s.add(s.rect(678, y + 40, 18, 90, "#b0bec5"))
-    s.add(s.rect(700, 92, 50, 10, "#d32f2f"))
-    s.add(s.rect(700, 330, 50, 10, "#212121", "#555555", 1))
+    s.add(s.text(66, 360, "CV / CC", 15, "#263238", bold=False))
+    s.add(s.text(554, 360, "LIMITE 3,00 A", 15, "#263238", "end", bold=False))
+    # Los dos mandos
+    for x, t in ((690, "TENSION"), (860, "CORRIENTE")):
+        s.add(s.circ(x, 170, 58, "#212121", "#000000", 2))
+        s.add(s.circ(x, 170, 44, "#424242"))
+        s.add(s.rect(x - 4, 116, 8, 30, "#e0e0e0"))
+        s.add(s.text(x, 262, t, 15, "#263238", "middle"))
+    s.add(s.text(775, 60, "FUENTE DC  0-30 V  0-5 A", 16, "#263238", "middle"))
+    # El interruptor
+    s.add(s.rect(70, 400, 120, 70, "#212121", "#000000", 1.5, rx=6))
+    s.add(s.rect(80, 410, 50, 50, "#e53935", rx=4))
+    s.add(s.text(130, 500, "POWER", 15, "#263238", "middle"))
+    # Las bornas
+    s.add(s.circ(690, 460, 44, "#b71c1c", "#7f0000", 2))
+    s.add(s.circ(860, 460, 44, "#212121", "#000000", 2))
     s.add('<g id="P1">')
-    s.add('  <g id="P1.BAT">')
-    s.add("    " + s.circ(762, 97, 13, "#d32f2f", "#7f0000", 1.2))
-    s.add("  </g>")
-    s.add('  <g id="P1.GND">')
-    s.add("    " + s.circ(762, 335, 13, "#212121", "#000000", 1.2))
-    s.add("  </g>")
+    s.add("  " + s.circ(690, 460, 22, "#ef5350", "#7f0000", 1.5, id="P1.ROJO"))
+    s.add("  " + s.circ(860, 460, 22, "#616161", "#000000", 1.5, id="P1.NEGRO"))
     s.add("</g>")
-    s.add(s.text(762, 136, "+7,4 V", 12, "#d32f2f", "middle"))
-    s.add(s.text(762, 314, "GND", 12, "#212121", "middle"))
-    s.guarda("bateria_2x18650.svg")
+    s.add(s.text(690, 548, "+", 30, "#b71c1c", "middle"))
+    s.add(s.text(860, 548, "-", 34, "#212121", "middle"))
+    s.guarda("fuente_laboratorio.svg")
 
 
 if __name__ == "__main__":
     l298n()
     motor()
-    bateria()
+    fuente()

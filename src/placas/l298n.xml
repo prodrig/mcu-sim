@@ -25,8 +25,8 @@
 
      LAS SALIDAS NO LLEGAN A VS NI A MASA: el L298 se come 1,35 V arriba y
      1,2 V abajo con 1 A, unos 1,6 V entre las dos con lo que gasta un
-     motorreductor en vacio. Con 7,4 V en la borna, al motor le llegan unos
-     5,7.
+     motorreductor en vacio. Con 7,5 V en la borna, al motor le llegan unos
+     5,8.
 
      LOS PUENTES DE FABRICA: JA y JB, el ENA y el ENB a 5 V -los motores
      siempre habilitados, a toda velocidad-. Para regularla con PWM se quitan,
@@ -39,9 +39,11 @@
      -el regulador cae 2-; con menos, la logica se queda corta y U2 lo avisa.
      Con mas de 12 V se quita el puente y los 5 V se dan por X1.5V.
 
-     LO QUE NO SE MODELA: los ocho diodos de libre circulacion -sin
-     inductancia en el motor (doc/parts.md, MotorCC) no tienen nada que
-     llevar- y los condensadores. Los SENSE A y SENSE B van a masa por el
+     LOS DIODOS DE LIBRE CIRCULACION, que el L298 necesita por fuera y el
+     modulo lleva: diodos="si" en U1. Cuando el PWM suelta un puente, la
+     corriente de la bobina del motor sigue por ellos -desde masa y hacia
+     VS- y se acaba enseguida, contra toda la tension de la alimentacion.
+     Los condensadores no se modelan. Los SENSE A y SENSE B van a masa por el
      modulo, y por dentro del L298 en el modelo.
 
      El LED rojo, D1, es el de los 5 V: luce si hay logica.
@@ -77,7 +79,7 @@
   </componente>
 
   <!-- U1, el L298 -->
-  <componente tipo="L298" id="U1">
+  <componente tipo="L298" id="U1" diodos="si">
     <pin nombre="vs"   nodo="X1.12V"/>
     <pin nombre="vss"  nodo="V5"/>
     <pin nombre="gnd"  nodo="X1.GND"/>
