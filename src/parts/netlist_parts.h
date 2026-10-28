@@ -37,6 +37,8 @@
 #include "servo.h"
 #include "motor_cc.h"
 #include "puente_h.h"
+#include "motor_pap.h"
+#include "driver_pap.h"
 #include "mems_st.h"
 #include "xds110.h"
 
@@ -1212,6 +1214,245 @@ REGISTRA_PARTE(Transmision,
         }
         if (act.empty()) return mal("no lleva ningun motor: cadena= empieza por ellos");
         return new Transmision(d.id.c_str(), act, elem);
+    });
+
+REGISTRA_PARTE(MotorPaP,
+    Ayuda("Un MOTOR PASO A PASO hibrido bipolar de dos fases, el de las impresoras "
+          "y las fresadoras: 200 pasos por vuelta, dos bobinas, A (a1-a2) y B "
+          "(b1-b2). El modelo clasico: cada bobina con su R, su L y su f.e.m., y el "
+          "par -Km·ia·sin(Nr·th) + Km·ib·cos(Nr·th) - Td·sin(4·Nr·th). De ahi salen "
+          "la curva par-velocidad, la perdida de pasos y la resonancia. Cada bobina "
+          "va como este cableada: entre las dos salidas de una fase de un DriverPaP, "
+          "la corriente es su consigna mientras la tension le llegue (CORRIENTE "
+          "IMPUESTA CON TOPE DE TENSION); entre nodos de Thevenin -un L298-, como un "
+          "motor de continua; al aire, sin corriente. Lo mecanico es de su cadena "
+          "(parts/cadena.h). Sabe donde tendria que estar y cuenta los PASOS "
+          "PERDIDOS.")
+      .ejemplo("<componente tipo=\"MotorPaP\" id=\"MX\" par_retencion_ncm=\"25\" corriente_a=\"1.3\"\n"
+               "            r_ohm=\"2.4\" l_mh=\"2.8\" inercia_gcm2=\"34\">\n"
+               "  <pin nombre=\"a1\" nodo=\"M.A1\"/><pin nombre=\"a2\" nodo=\"M.A2\"/>\n"
+               "  <pin nombre=\"b1\" nodo=\"M.B1\"/><pin nombre=\"b2\" nodo=\"M.B2\"/>\n"
+               "</componente>")
+      .pin("a1, a2", "obligatorios", "La bobina A. Con la corriente de a1 a a2, el rotor va a 0.")
+      .pin("b1, b2", "obligatorios", "La B. Con la corriente de b1 a b2, el rotor va un paso a la "
+           "derecha.")
+      .atr("par_retencion_ncm", "25", "El par de retencion, en N·cm, con las dos fases a la "
+           "corriente nominal (o con una, con retencion_una_fase).")
+      .atr("corriente_a", "1.3", "La corriente nominal por fase, en A.")
+      .atr("r_ohm", "2.4", "La resistencia de cada fase, en ohmios.")
+      .atr("l_mh", "2.8", "La inductancia de cada fase, en mH.")
+      .atr("conexion", "bipolar", "bipolar: las tres cifras de arriba son las de cada bobina. "
+           "serie o paralelo: un motor de OCHO hilos, y son las de media bobina, las de "
+           "unipolar, que es como las da Nanotec: en serie, 2R, 4L e I/1,41; en paralelo, "
+           "R/2, L e I·1,41.")
+      .atr("retencion_una_fase", "no", "si: el par de retencion se midio con una fase.")
+      .atr("km", "0", "La constante de par, en N·m/A. 0: del par de retencion, "
+           "Km = T/(I·1,41) con dos fases.")
+      .atr("detent_ncm", "1.5", "El par sin corriente, en N·cm: el que se nota al girarlo a mano.")
+      .atr("inercia_gcm2", "34", "La del rotor, en g·cm².")
+      .atr("rozamiento_ncm", "0.5", "El rozamiento seco de sus rodamientos, en N·cm.")
+      .atr("viscoso_mnms", "0.1", "El amortiguamiento, en mN·m por rad/s (estimado).")
+      .atr("pasos", "200", "Los pasos enteros por vuelta: 200 (1,8°) o 400 (0,9°).")
+      .atr("modelo", "dinamico", "ideal: cada paso es exactamente un paso, sin corrientes ni "
+           "perdidas; el rotor va a donde dicen las consignas. Para probar firmware deprisa.")
+      .atr("posicion_inicial", "0", "El angulo del eje al arrancar, en grados.")
+      .nota("Deja ver `angulo` (el que sugiere pintar), `rpm`, `corriente_a` y `corriente_b` "
+            "(mA, las de ahora), `par` (N·m), `retraso` (en pasos enteros, de -2 a 2: lo "
+            "que va el rotor tras donde lo llevan las corrientes), `pasos_perdidos` -de "
+            "cuatro en cuatro, una vuelta electrica cada vez que se descuelga- y la alarma "
+            "`pierde_pasos`. Los mandos: `bloquear` y `carga`, en % del par de retencion.")
+      .nota("Avisa de una bobina al aire, de una entre dos fases o dos drivers, y de los "
+            "pasos perdidos.")
+      .cpp("rpm(), angulo(), vueltas(), posicion_pasos(), corriente_ma(k), par(), retraso(), "
+           "pasos_perdidos(), modo(k) -corriente, tension, suelta o mal-, km(), r_fase(), "
+           "l_fase(), corriente_nominal(); bloquea(si), pon_carga(0..1)."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("MotorPaP '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        for (const char* t : {"a1", "a2", "b1", "b2"})
+            if (d.nodo_de(t).empty())
+                return mal(std::string("le falta <pin nombre=\"") + t + "\">: lleva sus dos bobinas");
+        ConfigMotorPaP c;
+        c.par_retencion_ncm = d.num("par_retencion_ncm", c.par_retencion_ncm);
+        c.corriente_a = d.num("corriente_a", c.corriente_a);
+        c.r_ohm = d.num("r_ohm", c.r_ohm);
+        c.l_mh = d.num("l_mh", c.l_mh);
+        c.conexion = d.txt("conexion", "bipolar");
+        c.retencion_una_fase = d.si("retencion_una_fase", false);
+        c.km = d.num("km", 0.0);
+        c.detent_ncm = d.num("detent_ncm", c.detent_ncm);
+        c.inercia_gcm2 = d.num("inercia_gcm2", c.inercia_gcm2);
+        c.rozamiento_ncm = d.num("rozamiento_ncm", c.rozamiento_ncm);
+        c.viscoso_mnms = d.num("viscoso_mnms", c.viscoso_mnms);
+        c.posicion_inicial = d.num("posicion_inicial", 0.0);
+        const double pasos = d.num("pasos", 200.0);
+        const std::string mo = d.txt("modelo", "dinamico");
+        if (c.conexion != "bipolar" && c.conexion != "serie" && c.conexion != "paralelo")
+            return mal("conexion es bipolar, serie o paralelo");
+        if (mo != "dinamico" && mo != "ideal") return mal("modelo es dinamico o ideal");
+        c.ideal = mo == "ideal";
+        if (c.par_retencion_ncm <= 0 || c.corriente_a <= 0 || c.r_ohm <= 0 || c.l_mh <= 0 ||
+            c.inercia_gcm2 <= 0)
+            return mal("par_retencion_ncm, corriente_a, r_ohm, l_mh e inercia_gcm2 tienen que "
+                       "ser positivos");
+        if (c.km < 0 || c.detent_ncm < 0 || c.rozamiento_ncm < 0 || c.viscoso_mnms < 0)
+            return mal("km, detent_ncm, rozamiento_ncm y viscoso_mnms no pueden ser negativos");
+        if (pasos < 4 || std::fmod(pasos, 4.0) != 0.0 || pasos > 2000)
+            return mal("pasos es un multiplo de 4, de 4 a 2000: 200 o 400");
+        c.pasos = unsigned(pasos);
+        return new MotorPaP(d.id.c_str(), n[d.nodo_de("a1")], n[d.nodo_de("a2")],
+                            n[d.nodo_de("b1")], n[d.nodo_de("b2")], c);
+    });
+
+REGISTRA_PARTE(DriverPaP,
+    Ayuda("Un DRIVER DE PASO A PASO con entradas de paso y direccion: el chip de un "
+          "modulo de la CNC Shield, A4988, DRV8825 o TMC2209, o uno externo tipo DM542 "
+          "(modelo=). Cada flanco de "
+          "subida de STEP avanza un micropaso hacia donde diga DIR; las MS eligen el "
+          "micropaso, y Vref la corriente. Cada fase de salida es una CORRIENTE "
+          "IMPUESTA CON TOPE DE TENSION: el driver dice que corriente quiere y puede "
+          "poner de -VMOT a +VMOT, y la bobina la sigue mientras le llegue (no hay "
+          "sucesos de chopper). Comprueba lo que se equivoca en la vida real: el ancho "
+          "del pulso, DIR antes de STEP, los niveles de las entradas contra su VDD, EN, "
+          "RESET y SLEEP, la corriente, VMOT y la temperatura.")
+      .ejemplo("<componente tipo=\"DriverPaP\" id=\"U1\" modelo=\"A4988\" vref=\"0.6\">\n"
+               "  <pin nombre=\"vmot\" nodo=\"VMOT\"/> <pin nombre=\"gnd\" nodo=\"GND\"/>\n"
+               "  <pin nombre=\"vdd\" nodo=\"VDD\"/>   <pin nombre=\"en\" nodo=\"EN\"/>\n"
+               "  <pin nombre=\"ms1\" nodo=\"MS1\"/>   <pin nombre=\"ms2\" nodo=\"MS2\"/>\n"
+               "  <pin nombre=\"ms3\" nodo=\"MS3\"/>   <pin nombre=\"rst\" nodo=\"RST\"/>\n"
+               "  <pin nombre=\"slp\" nodo=\"SLP\"/>   <pin nombre=\"step\" nodo=\"STEP\"/>\n"
+               "  <pin nombre=\"dir\" nodo=\"DIR\"/>\n"
+               "  <pin nombre=\"out1a\" nodo=\"1A\"/> <pin nombre=\"out1b\" nodo=\"1B\"/>\n"
+               "  <pin nombre=\"out2a\" nodo=\"2A\"/> <pin nombre=\"out2b\" nodo=\"2B\"/>\n"
+               "</componente>")
+      .pin("vmot, gnd", "obligatorios", "La alimentacion de los motores y la masa.")
+      .pin("vdd", "A4988 y TMC2209", "La de la logica (VIO en el TMC2209). El DRV8825 no la "
+           "tiene: su logica es suya, de VMOT.")
+      .pin("en", "obligatorio (en el DM542, opcional)", "La habilitacion, ACTIVA A NIVEL BAJO: "
+           "alto, salidas apagadas. En el DM542 es ENA+, con ENA- a masa: sin conectar, habilitado.")
+      .pin("ms1, ms2, ms3", "ms3 no en el TMC2209; ninguna en el DM542", "El micropaso. A4988: 000 paso entero, 100 "
+           "medio, 010 cuarto, 110 octavo, 111 dieciseisavo. DRV8825 (MODE0..2): de 000 entero "
+           "a 101 1/32. TMC2209 (MS1, MS2): 00 1/8, 10 1/32, 01 1/64, 11 1/16.")
+      .pin("rst, slp", "A4988 y DRV8825", "RESET y SLEEP, activos a nivel bajo. En el A4988 "
+           "RESET no lleva resistencia: al aire se avisa.")
+      .pin("step, dir", "obligatorios", "Paso y direccion: DIR alto, hacia delante. En el DM542, "
+           "PUL+ y DIR+, con PUL- y DIR- a masa.")
+      .pin("out1a, out1b, out2a, out2b", "obligatorios", "Las salidas: la fase 1 de OUT1A a "
+           "OUT1B, la 2 de OUT2A a OUT2B.")
+      .atr("modelo", "A4988", "A4988, DRV8825, TMC2209 o DM542: los cuatro juegos de parametros. "
+           "El DM542 es un driver externo de 20 a 50 V y 4,2 A con ENTRADAS OPTOACOPLADAS: cada "
+           "una es el LED de un optoacoplador con 270 ohm, que pide de 7 a 16 mA a quien la "
+           "mueve -con 3,3 V, por poco-; ENA con corriente apaga las salidas.")
+      .atr("micropasos", "8", "Solo en el DM542: el micropaso de sus interruptores, potencia "
+           "de dos de 1 a 128.")
+      .atr("corriente_a", "2", "Solo en el DM542: la corriente de pico de sus interruptores, "
+           "de 1 a 4,2 A.")
+      .atr("vref", "segun el modelo", "La tension del potenciometro, en V: la corriente de pico "
+           "es Vref/(8·0,068) en el A4988 del modulo Pololu, 2·Vref en el DRV8825 y Vref en un "
+           "TMC2209 con Rs de 0,11 ohm. Omision: 0,6, 0,5 y 1,4 V.")
+      .atr("disipador", "no", "si: con disipador, la mitad de resistencia termica.")
+      .atr("t_ambiente", "25", "La temperatura del aire, en °C.")
+      .nota("Deja ver `corriente_1` y `corriente_2` (las consignas, mA), `micropasos`, "
+            "`pasos` (con signo), `corriente_vmot` (lo que pide a VMOT, mA), `temperatura` "
+            "(°C) y las alarmas `sobretemperatura` y `sin_tension`. Su mando es `vref`, el "
+            "potenciometro.")
+      .nota("Lo que no hace: el rizado del chopper, la interpolacion, el UART, el StallGuard y "
+            "el StealthChop del TMC2209, ni la energia que vuelve al frenar.")
+      .cpp("micropasos(), pasos(), posicion(), consigna_ma(f), corriente_ma(f), activo(), "
+           "logica(), temperatura(), sobretemperatura(), corriente_vmot_ma(), disipacion(), "
+           "vref(), pon_vref(v), corriente_ajustada()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("DriverPaP '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        ConfigDriverPaP c;
+        c.modelo = d.txt("modelo", "A4988");
+        const ModeloDriverPaP* m = modelo_driver_pap(c.modelo);
+        if (!m)
+            return mal("modelo=\"" + c.modelo + "\" no existe: A4988, DRV8825, TMC2209 o DM542");
+        std::vector<std::string> pide = {"vmot", "gnd", "step", "dir", "out1a", "out1b", "out2a",
+                                         "out2b"};
+        std::vector<std::string> no = {};
+        if (m->con_vdd) pide.push_back("vdd"); else no.push_back("vdd");
+        if (c.modelo == "DM542") {
+            for (const char* t : {"ms1", "ms2", "ms3", "rst", "slp"}) no.push_back(t);
+        } else {
+            for (const char* t : {"en", "ms1", "ms2"}) pide.push_back(t);
+            if (c.modelo == "TMC2209")
+                for (const char* t : {"ms3", "rst", "slp"}) no.push_back(t);
+            else
+                for (const char* t : {"ms3", "rst", "slp"}) pide.push_back(t);
+        }
+        for (const std::string& t : pide)
+            if (d.nodo_de(t).empty()) return mal("le falta <pin nombre=\"" + t + "\">");
+        for (const std::string& t : no)
+            if (!d.nodo_de(t).empty())
+                return mal("el " + c.modelo + " no tiene " + t +
+                           (c.modelo == "DM542" ? ": el micropaso y la corriente van con sus "
+                                                  "interruptores, micropasos= y corriente_a="
+                                                : ""));
+        c.vref = d.num("vref", -1.0);
+        c.disipador = d.si("disipador", false);
+        c.t_ambiente = d.num("t_ambiente", 25.0);
+        if (c.modelo == "DM542") {
+            const double mp = d.num("micropasos", 8.0), ia = d.num("corriente_a", 2.0);
+            const unsigned u = unsigned(mp);
+            if (mp != double(u) || u < 1 || u > 128 || (u & (u - 1)))
+                return mal("micropasos es una potencia de dos, de 1 a 128 (los de 400 a 25600 "
+                           "pasos por vuelta de sus interruptores)");
+            if (ia < 1.0 || ia > 4.2) return mal("corriente_a va de 1 a 4,2 A de pico");
+            c.micropasos = u;
+            c.corriente_a = ia;
+        } else if (!d.txt("micropasos").empty() || !d.txt("corriente_a").empty()) {
+            return mal("micropasos= y corriente_a= son de un DM542: el " + c.modelo +
+                       " los toma de sus MS y de vref");
+        }
+        auto nd = [&](const char* t) -> analog_net_if* {
+            return d.nodo_de(t).empty() ? nullptr : &n[d.nodo_de(t)];
+        };
+        return new DriverPaP(d.id.c_str(), c, n[d.nodo_de("vmot")], n[d.nodo_de("gnd")], nd("vdd"),
+                             nd("en"), nd("ms1"), nd("ms2"), nd("ms3"), nd("rst"), nd("slp"),
+                             n[d.nodo_de("step")], n[d.nodo_de("dir")], n[d.nodo_de("out1a")],
+                             n[d.nodo_de("out1b")], n[d.nodo_de("out2a")], n[d.nodo_de("out2b")]);
+    });
+
+REGISTRA_PARTE(GeneradorPasos,
+    Ayuda("Un GENERADOR DE PASOS de banco: STEP y DIR para mover un driver de paso a paso "
+          "sin MCU. Va a `hz` pasos por segundo y llega con una rampa de aceleracion "
+          "constante; un cambio de sentido en marcha frena, cambia DIR, espera y vuelve a "
+          "arrancar. Es un instrumento, como un generador de funciones con rampa.")
+      .ejemplo("<componente tipo=\"GeneradorPasos\" id=\"G\" hz=\"4000\" rampa_ms=\"200\">\n"
+               "  <pin nombre=\"step\" nodo=\"STEP\"/><pin nombre=\"dir\" nodo=\"DIR\"/>\n"
+               "</componente>")
+      .pin("step, dir", "obligatorios", "Las salidas, de vdd voltios con 50 ohm.")
+      .atr("hz", "0", "Los pasos por segundo a los que va (el objetivo, el mando `hz`).")
+      .atr("aceleracion", "0", "En pasos/s². 0 y sin rampa_ms: de golpe.")
+      .atr("rampa_ms", "0", "O la rampa como el tiempo de parado a hz: aceleracion = hz/rampa.")
+      .atr("ancho_us", "2", "Lo que dura el pulso alto de STEP.")
+      .atr("dir_us", "5", "Lo que espera tras cambiar DIR antes del primer paso.")
+      .atr("sentido", "1", "1: DIR alto; 0: bajo (el mando `sentido`).")
+      .atr("vdd", "3.3", "La tension de las salidas.")
+      .nota("Deja ver `hz`, la de ahora, y `pasos`, con su signo."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        if (d.nodo_de("step").empty() || d.nodo_de("dir").empty()) {
+            SC_REPORT_ERROR("netlist", ("GeneradorPasos '" + d.id + "': le faltan step y dir").c_str());
+            return nullptr;
+        }
+        const double hz = d.num("hz", 0.0);
+        double a = d.num("aceleracion", 0.0);
+        const double rampa = d.num("rampa_ms", 0.0);
+        if (a <= 0.0 && rampa > 0.0 && hz > 0.0) a = hz / (rampa * 1e-3);
+        if (hz < 0 || a < 0 || d.num("ancho_us", 2.0) <= 0) {
+            SC_REPORT_ERROR("netlist", ("GeneradorPasos '" + d.id + "': hz, aceleracion y "
+                                        "ancho_us no pueden ser negativos").c_str());
+            return nullptr;
+        }
+        return new GeneradorPasos(d.id.c_str(), n[d.nodo_de("step")], n[d.nodo_de("dir")], hz, a,
+                                  d.num("ancho_us", 2.0), d.num("dir_us", 5.0),
+                                  d.num("sentido", 1.0) >= 0.5, d.num("vdd", 3.3));
     });
 
 REGISTRA_PARTE(L298,

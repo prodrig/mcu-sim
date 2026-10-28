@@ -92,8 +92,11 @@ public:
     virtual void deriva(const double* e, double w, double th, double* de, double& par) const = 0;
     // ¿Su par depende del ángulo? (el de un paso a paso, sí)
     virtual bool depende_del_angulo() const { return false; }
-    // Antes de cada paso: lo que el régimen impone (sin rama, sin corriente)
-    virtual void prepara(double* /*e*/) const {}
+    // Antes de cada paso, con el eje en (w, th): lo que el régimen impone (sin
+    // rama, sin corriente), y lo que no puede cambiar a mitad del paso -hacia
+    // dónde empuja un chopper, por dónde vuelve una corriente-: una
+    // discontinuidad dentro de un paso de Runge-Kutta no se integra
+    virtual void prepara(double* /*e*/, double /*w*/, double /*th*/) const {}
     // Después de cada paso, con el estado de antes: un límite que se cruza
     // (la corriente impuesta que llega a su consigna) se queda en él
     virtual void recorta(const double* /*e0*/, double* /*e*/) const {}
@@ -115,9 +118,18 @@ public:
     // Cuánto falta para su próxima marca -un flanco de su encoder- con la
     // velocidad de ahora; INF, ninguna
     virtual double hasta_marca(double /*th*/, double /*w*/) const { return INF; }
+    // ¿Hay algo que ensayar para despertar en su instante -un flanco de su
+    // encoder, un cambio de sentido de su corriente-? Si no, la cadena se mira
+    // cada 0,1 o 1 ms sin ensayar nada: un paso a paso despierta de todas
+    // formas en cada flanco de STEP
+    virtual bool con_marcas() const { return true; }
     // ¿Ha pasado algo que haya que hacer ver entre e0 y (e, th, w)?
     virtual bool cambia(const double* /*e0*/, const double* /*e*/, double /*th*/,
                         double /*w*/) const { return false; }
+    // Un paso de h segundos HECHO de verdad -no ensayado-, de e0 a e, con el
+    // eje en (w, th) al final: para llevar la cuenta de lo que gasta
+    virtual void hecho(const double* /*e0*/, const double* /*e*/, double /*w*/, double /*th*/,
+                       double /*h*/) {}
 
     // --- Lo mecánico suyo ---------------------------------------------------
     virtual double inercia() const = 0;           // kg·m², en su eje
@@ -244,6 +256,14 @@ public:
     }
     const std::vector<Actuador*>& actuadores() const { return act_; }
     const std::vector<ElementoMecanico*>& elementos() const { return elem_; }
+    // EL MODELO IDEAL de un motor (MotorPaP, modelo="ideal") no se integra:
+    // pone el eje donde dice, parado, y la cadena lo sigue
+    void impone(double th) {
+        x_.th = th;
+        x_.w = 0.0;
+        t0_ = ahora();
+        for (size_t k = 0; k < elem_.size(); ++k) elem_[k]->mueve(th_de(unsigned(k)), 0.0);
+    }
     // Algo ha cambiado en un mando: que la cadena lo mire
     void toca() { ev_mando_.notify(sc_core::SC_ZERO_TIME); }
     const sc_core::sc_event& evento_mando() const { return ev_mando_; }
@@ -335,7 +355,7 @@ private:
 
     // Un paso de h segundos
     Estado paso(Estado x, double h) const {
-        for (size_t k = 0; k < act_.size(); ++k) act_[k]->prepara(x.e[k]);
+        for (size_t k = 0; k < act_.size(); ++k) act_[k]->prepara(x.e[k], x.w, x.th);
         int s = signo(x.w);
         if (bloq_) { x.w = 0.0; s = 0; }
         else if (s == 0) {
@@ -410,6 +430,7 @@ private:
         if (dt <= 0.0) return;
         if (quieto(x_)) {
             for (size_t k = 0; k < act_.size(); ++k) act_[k]->limpia(x_.e[k]);
+            quieto_hecho(dt);
             escribe(x_);
             return;
         }
@@ -417,13 +438,21 @@ private:
         const long n = std::max(1L, long(std::ceil(dt / hm - 1e-9)));
         const double h = dt / double(n);
         for (long k = 0; k < n; ++k) {
+            const Estado x0 = x_;
             x_ = paso(x_, h);
+            for (size_t a = 0; a < act_.size(); ++a) act_[a]->hecho(x0.e[a], x_.e[a], x_.w, x_.th, h);
             if (quieto(x_)) {
                 for (size_t a = 0; a < act_.size(); ++a) act_[a]->asienta(x_.e[a]);
+                quieto_hecho(dt - double(k + 1) * h);
                 break;
             }
         }
         escribe(x_);
+    }
+    // Lo que queda del intervalo, quieta: también cuenta para lo que se gasta
+    void quieto_hecho(double resto) {
+        if (resto <= 0.0) return;
+        for (size_t a = 0; a < act_.size(); ++a) act_[a]->hecho(x_.e[a], x_.e[a], x_.w, x_.th, resto);
     }
     // Cuándo pasa algo que hay que hacer ver, sin que nadie toque los bornes:
     // lo que diga cada motor, que se pare o arranque, o el refresco. Se ensaya
@@ -433,13 +462,14 @@ private:
         lee(x_);
         if (quieto(x_)) return INF;
         const double hm = paso_max();
-        Estado d;
+        Estado d, xp = x_;
         double par = 0.0;
-        deriva(x_, signo(x_.w), d, par);
+        for (size_t k = 0; k < act_.size(); ++k) act_[k]->prepara(xp.e[k], xp.w, xp.th);
+        deriva(xp, signo(xp.w), d, par);
         bool asentando = false, estable = true;
         for (size_t k = 0; k < act_.size(); ++k) {
-            asentando = asentando || act_[k]->asentando(x_.e[k], d.e[k]);
-            estable = estable && act_[k]->estable(x_.e[k], d.e[k]);
+            asentando = asentando || act_[k]->asentando(xp.e[k], d.e[k]);
+            estable = estable && act_[k]->estable(xp.e[k], d.e[k]);
         }
         const double horizonte = asentando ? REFRESCO_I : REFRESCO;
         // Estable del todo: las marcas, con la velocidad de ahora
@@ -448,6 +478,9 @@ private:
             for (const Actuador* a : act_) t = std::min(t, a->hasta_marca(x_.th, x_.w));
             return t;
         }
+        bool marcas = false;
+        for (const Actuador* a : act_) marcas = marcas || a->con_marcas();
+        if (!marcas) return horizonte;
         Estado x = x_;
         const int s0 = signo(x.w);
         double t = 0.0;

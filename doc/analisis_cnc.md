@@ -765,6 +765,52 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
   Ninguna suite se mueve; las dos de `gui-sistema` que comprobaban el texto de la
   lista de efectos lo comprueban con `desplaza`.
 
+### F1a, hecha: los paso a paso y sus drivers, con corriente impuesta
+
+* **La rama de corriente impuesta con tope de tensión** (§5.2, la tercera
+  forma): un canal aparte del nodo, `FaseCorriente` en `common/analog_net.h`,
+  que el driver declara en los nodos de sus dos salidas, y `RamaCorriente` en
+  `parts/ext_parts.h`, su lado. Encaja con el resolvedor de `AnalogNet` sin
+  tocarlo: el riesgo del §12 no se da. La bobina deja en la rama la energía
+  que ha entrado en ella, integrada —con un chopper, la potencia de cada
+  instante salta de signo dentro de cada micropaso—, y el driver la pide de
+  media a VMOT.
+* **`MotorPaP`** (`parts/motor_pap.h`), dinámico e ideal, con sus pasos
+  perdidos. Cada bobina va como esté cableada: con corriente impuesta, con
+  Thevenin tras un L298, al aire o mal, y lo dice.
+* **`DriverPaP`** (`parts/driver_pap.h`): **A4988, DRV8825 y TMC2209**, y
+  además el **DM542**, el driver externo de 48 V con entradas optoacopladas:
+  ninguno de los otros tres aguanta los 48 V de la curva del ST5918. Y un
+  **`GeneradorPasos`** de banco, para mover un driver sin firmware.
+* **Placas**: `nema17_3018.xml`, `st5918l3008.xml` y `pololu_a4988.xml`, con su
+  dibujo (`placas/dibuja_cnc.py`).
+* **Lo que dice la ficha de Nanotec y el §5.1 no**: el ST5918L3008 es de
+  OCHO hilos, y sus 3 A, 1 Ω y 1,9 mH son de media bobina, en unipolar. En
+  bipolar va a 2,1 A en serie (2 Ω, 7,6 mH) o a 4,2 A en paralelo (0,5 Ω,
+  1,9 mH), con el mismo par de retención; la curva de su ficha se da así, a
+  24 y a 48 V. `MotorPaP` lo admite con `conexion=`, y la placa va en
+  paralelo. Con eso, `Km` es 0,31 N·m/A, y no 0,44.
+* **La curva par–velocidad** del ST5918 en paralelo tras el DM542, con la
+  carga subiendo hasta que pierde pasos: 1,23 N·m abajo con 24 y 48 V, y la
+  **esquina** —el 70 %— en unas **640 rpm a 24 V y 1240 a 48 V**. El §5.1
+  estimaba unas 800 y 1600 con `V/(L·I)`, que deja fuera la f.e.m.: el orden y
+  la proporción son los de la cuenta. La curva de la ficha no se puede leer de
+  su página, así que no se contrasta punto a punto.
+* **Pasos perdidos** con una rampa de 5 ms hasta 1000 rpm, y ninguno con
+  400 ms. **Un aviso por cada error** de cableado y de temporización: RESET al
+  aire, 3,3 V con VDD a 5 V, un pulso corto, DIR tarde, una bobina al aire o
+  entre dos fases, VMOT bajo, la bobina al revés —gira al revés—, EN alto —el
+  traductor cuenta y el motor no se mueve— y la protección térmica.
+* **El coste, medido** (§10, el riesgo): el primer intento costaba 0,6 s de
+  CPU por segundo simulado por eje, porque la cadena ensayaba 1 ms por delante
+  en cada flanco de STEP. Sin ensayo para el paso a paso —que despierta en cada
+  flanco de todas formas— y con pasos de 10 µs, **0,09 s/s por eje** a 1/8 y
+  3200 Hz, arranque incluido. Los tres ejes caben de sobra en la estimación
+  de 0,3 s/s del §10.
+* **Pruebas**: `make gui-cnc` C2, 41 comprobaciones (57 en total). M9 y M10 no
+  se mueven, y el banco del `MotorCC` sigue dando los mismos números con sus
+  17 cifras.
+
 ## Fuentes
 
 * **VEVOR 3020.** La página que se dio no se pudo abrir por su longitud. El

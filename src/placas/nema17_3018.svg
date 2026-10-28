@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+  MOTOR PASO A PASO NEMA 17 DE LA FRESADORA 3018, dibujado a mano: una
+  aproximacion, no una foto. Es el dibujo de placas/nema17_3018.xml, que lo
+  encuentra solo porque se llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 70 x 50 mm- y cada pieza con el id de su pieza en el XML. Visto de
+  frente, con el eje hacia quien mira: la cara de 42 mm y sus cuatro hilos.
+
+    MOTOR  el EJE, que gira con el angulo del rotor (el efecto `angulo`):
+           dibujado en el 0, con la marca blanca arriba, y positivo es a la
+           derecha. Lleva un circulo sin pintar centrado en el eje
+    M      los cuatro hilos: M.A1 (negro), M.A2 (verde), M.B1 (rojo) y
+           M.B2 (azul), con su terminal
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 500" width="70mm" height="50mm">
+  <rect x="0" y="0" width="700" height="500" rx="10" fill="#eceff1"/>
+  <rect x="30" y="40" width="420" height="420" rx="25.2" fill="#455a64" stroke="#263238" stroke-width="2"/>
+  <rect x="38" y="48" width="404" height="404" rx="21" fill="none" stroke="#607d8b" stroke-width="1.2"/>
+  <circle cx="85" cy="95" r="18.9" fill="#1c1c1c" stroke="#000000" stroke-width="1"/>
+  <circle cx="85" cy="405" r="18.9" fill="#1c1c1c" stroke="#000000" stroke-width="1"/>
+  <circle cx="395" cy="95" r="18.9" fill="#1c1c1c" stroke="#000000" stroke-width="1"/>
+  <circle cx="395" cy="405" r="18.9" fill="#1c1c1c" stroke="#000000" stroke-width="1"/>
+  <circle cx="240" cy="250" r="110" fill="#78909c" stroke="#37474f" stroke-width="1.5"/>
+  <circle cx="240" cy="250" r="100" fill="#90a4ae"/>
+  <g id="MOTOR">
+    <circle cx="240" cy="250" r="114" fill="none" stroke="none" stroke-width="1.5"/>
+    <circle cx="240" cy="250" r="25" fill="#cfd8dc" stroke="#546e7a" stroke-width="1.5"/>
+    <rect x="224" y="226" width="32" height="11" fill="#78909c"/>
+    <rect x="237" y="146" width="6" height="77" fill="#f5f5f5"/>
+  </g>
+  <text x="240" y="442" font-family="Arial" font-size="13" font-weight="bold" fill="#cfd8dc" text-anchor="middle">NEMA 17  1,8°</text>
+  <g id="M">
+    <g id="M.A1">
+      <rect x="500" y="156" width="40" height="8" fill="#212121"/>
+      <circle cx="550" cy="160" r="12" fill="#212121" stroke="#000000" stroke-width="1.2"/>
+    </g>
+    <g id="M.A2">
+      <rect x="500" y="216" width="40" height="8" fill="#2e7d32"/>
+      <circle cx="550" cy="220" r="12" fill="#2e7d32" stroke="#000000" stroke-width="1.2"/>
+    </g>
+    <g id="M.B1">
+      <rect x="500" y="276" width="40" height="8" fill="#c62828"/>
+      <circle cx="550" cy="280" r="12" fill="#c62828" stroke="#000000" stroke-width="1.2"/>
+    </g>
+    <g id="M.B2">
+      <rect x="500" y="336" width="40" height="8" fill="#1565c0"/>
+      <circle cx="550" cy="340" r="12" fill="#1565c0" stroke="#000000" stroke-width="1.2"/>
+    </g>
+  </g>
+  <text x="570" y="165" font-family="Arial" font-size="13" font-weight="bold" fill="#263238">A1</text>
+  <text x="570" y="225" font-family="Arial" font-size="13" font-weight="bold" fill="#263238">A2</text>
+  <text x="570" y="285" font-family="Arial" font-size="13" font-weight="bold" fill="#263238">B1</text>
+  <text x="570" y="345" font-family="Arial" font-size="13" font-weight="bold" fill="#263238">B2</text>
+  <text x="560" y="450" font-family="Arial" font-size="13" font-weight="bold" fill="#263238" text-anchor="middle">0,25 N·m  1,3 A</text>
+</svg>

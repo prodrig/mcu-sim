@@ -8,6 +8,15 @@
 #       la del motor suelto. Lo que la transmisión deja ver, la inercia
 #       reflejada, y los errores de una cadena mal declarada. Y el efecto
 #       `desplaza` de la tabla de enlaces, con su vector=.
+#   C2  (F1a) LOS PASO A PASO Y SUS DRIVERS. El NEMA 17 de la 3018 tras el
+#       módulo Pololu del A4988, movido por un generador de pasos: sigue a los
+#       pasos, con su corriente; y cada error de cableado y de temporización,
+#       un aviso con nombre -RESET al aire, 3,3 V con VDD a 5 V, un pulso
+#       corto, DIR tarde, una bobina al aire o entre dos fases, VMOT bajo-, la
+#       protección térmica y la bobina al revés. El ST5918 tras un DM542: su
+#       CURVA DE PAR MÁXIMO a 24 y a 48 V, con su esquina; los pasos perdidos
+#       con una rampa demasiado corta; el modelo ideal; el DRV8825 y el
+#       TMC2209; un paso a paso tras un L298; y lo que cuesta simularlo.
 #
 # Cada grupo monta su banco en una carpeta temporal, con placas escritas aquí.
 #
@@ -19,10 +28,12 @@
 import argparse
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 
 import ventana
@@ -93,6 +104,27 @@ def muestrea(sim, ruta, ms, pedidos, periodo_ns=1000000, lista=(), args=()):
         if p.poll() is None:
             p.kill()
         v.cierra()
+
+
+def piezas_sin_dibujo(nombre):
+    """Las piezas visibles y los pines de conector del XML que el SVG no tiene
+    (como en sistema.py: con expresiones regulares, que los comentarios de las
+    placas llevan `--valida`)"""
+    with open(os.path.join("placas", nombre + ".svg"), encoding="utf-8") as f:
+        ids = set(re.findall(r'id="([^"]+)"', f.read()))
+    with open(os.path.join("placas", nombre + ".xml"), encoding="utf-8") as f:
+        x = re.sub(r"<!--.*?-->", "", f.read(), flags=re.S)
+    falta = []
+    for tipo, id_, attrs in re.findall(r'<componente\s+tipo="(\w+)"\s+id="([^"]+)"([^>]*)>', x):
+        if 'visible="no"' in attrs:
+            continue
+        if id_ not in ids:
+            falta.append(id_)
+        if tipo in ("Conector", "Jumper"):
+            m = re.search(r'nombres="([^"]+)"', attrs)
+            falta += ["%s.%s" % (id_, q) for q in (m.group(1).split() if m else [])
+                      if "%s.%s" % (id_, q) not in ids]
+    return falta
 
 
 def cruce(serie, nivel):
@@ -245,6 +277,465 @@ def c1_cadena(sim, cp):
           "vector= con otro efecto: error")
 
 
+# ---------------------------------------------------------------------------
+# C2 (F1a): los paso a paso y sus drivers
+# ---------------------------------------------------------------------------
+# El banco: las alimentaciones, EN y las MS con un mando cada una, y el
+# generador de pasos
+BANCO_PAP = """<placa nombre="banco-pap">
+  <componente tipo="Conector" id="J" filas="1" columnas="9"
+              nombres="VMOT GND VLOG EN MS1 MS2 MS3 STEP DIR"/>
+  <nodo id="J.GND" bus="si"/>
+  <componente tipo="Fuente" id="VMOT" v="%(vmot)s" limite_ma="5000" media_ms="20">
+    <pin nombre="pin" nodo="J.VMOT"/></componente>
+  <componente tipo="Gnd" id="MASA"><pin nombre="pin" nodo="J.GND"/></componente>
+  <componente tipo="Fuente" id="VLOG" v="%(vlog)s"><pin nombre="pin" nodo="J.VLOG"/></componente>
+  <componente tipo="FuenteAjustable" id="EN" v="0" vmin="0" vmax="5" r="10">
+    <pin nombre="pin" nodo="J.EN"/></componente>
+  <componente tipo="FuenteAjustable" id="MS1" v="%(ms)s" vmin="0" vmax="5" r="10">
+    <pin nombre="pin" nodo="J.MS1"/></componente>
+  <componente tipo="FuenteAjustable" id="MS2" v="%(ms)s" vmin="0" vmax="5" r="10">
+    <pin nombre="pin" nodo="J.MS2"/></componente>
+  <componente tipo="FuenteAjustable" id="MS3" v="%(ms)s" vmin="0" vmax="5" r="10">
+    <pin nombre="pin" nodo="J.MS3"/></componente>
+  <componente tipo="GeneradorPasos" id="G" hz="%(hz)s" rampa_ms="%(rampa)s" ancho_us="%(ancho)s"
+              dir_us="%(dir_us)s" vdd="%(vpaso)s">
+    <pin nombre="step" nodo="J.STEP"/><pin nombre="dir" nodo="J.DIR"/></componente>
+</placa>
+"""
+SISTEMA_PAP = """<sistema nombre="prueba-pap">
+  <placa id="D" fichero="%(placas)s/pololu_a4988.xml"/>
+  <placa id="M" fichero="%(placas)s/%(motor)s.xml"/>
+  <placa id="T" fichero="banco_pap.xml"/>
+  <hilo a="T/J.VMOT" b="D/J2.VMOT"/>
+  <hilo a="T/J.GND"  b="D/J2.GND1"/>
+  <hilo a="T/J.VLOG" b="D/J2.VLOG"/>
+  <hilo a="T/J.EN"   b="D/J1.EN"/>
+  <hilo a="T/J.MS1"  b="D/J1.MS1"/>
+  <hilo a="T/J.MS2"  b="D/J1.MS2"/>
+  <hilo a="T/J.MS3"  b="D/J1.MS3"/>
+  <hilo a="T/J.STEP" b="D/J1.STEP"/>
+  <hilo a="T/J.DIR"  b="D/J1.DIR"/>
+%(rst)s%(bobinas)s</sistema>
+"""
+RST_SLP = '  <hilo a="D/J1.RST" b="D/J1.SLP"/>\n'
+BOBINAS = """  <hilo a="M/M.A1" b="D/J2.1A"/>
+  <hilo a="M/M.A2" b="D/J2.1B"/>
+  <hilo a="M/M.B1" b="D/J2.2A"/>
+  <hilo a="M/M.B2" b="D/J2.2B"/>
+"""
+
+
+def textos(avs):
+    """Los avisos de una ventana, en un texto: origen y texto de cada uno"""
+    return " | ".join("%s: %s" % (a[2], a[3]) for a in (avs or []))
+
+
+def linea(out, cabeza):
+    k = out.find(cabeza)
+    return out[k:out.find("\n", k)].strip() if k >= 0 else ""
+
+
+def numero_tras(lin, antes):
+    k = lin.find(antes)
+    if k < 0:
+        return None
+    t = lin[k + len(antes):].split()[0].rstrip(",;")
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def c2_pap(sim, cp):
+    placas = os.path.abspath("placas")
+    grupo("C2 (F1a) El NEMA 17 de la 3018 tras el modulo Pololu del A4988")
+    for placa, cab in (("nema17_3018", "placa 'nema17-3018': SIN MCU, 2 componentes, 4 nodos, 0 avisos"),
+                       ("st5918l3008", "placa 'st5918l3008': SIN MCU, 2 componentes, 4 nodos, 0 avisos"),
+                       ("pololu_a4988", "placa 'pololu-a4988': SIN MCU, 4 componentes, 15 nodos, "
+                        "0 avisos")):
+        rc, out = valida(sim, "placas/%s.xml" % placa)
+        f = piezas_sin_dibujo(placa)
+        check(rc == 0 and cab in out and ("dibujo: %s.svg (" % placa) in out and not f,
+              "placas/%s.xml se valida sin avisos, con su dibujo: cada pieza visible y cada pin "
+              "de conector, con su id%s" % (placa, " (faltan: %s)" % f if f else ""))
+
+    def banco(vmot=12, vlog=5, ms=5, hz=3200, rampa=100, ancho=2, dir_us=5, vpaso=5,
+              motor="nema17_3018", rst=RST_SLP, bobinas=BOBINAS, nombre="pap"):
+        cp("banco_pap.xml", BANCO_PAP % {"vmot": vmot, "vlog": vlog, "ms": ms, "hz": hz,
+                                         "rampa": rampa, "ancho": ancho, "dir_us": dir_us,
+                                         "vpaso": vpaso})
+        return cp(nombre + ".xml", SISTEMA_PAP % {"placas": placas, "motor": motor, "rst": rst,
+                                                   "bobinas": bobinas})
+
+    # 1/16 a 3200 Hz: una vuelta por segundo, 60 rpm
+    ruta = banco()
+    series, avs, cat, rc = muestrea(sim, ruta, 1500, [("M/MOTOR", "rpm"), ("M/MOTOR", "corriente_a"),
+                                                      ("M/MOTOR", "corriente_b"),
+                                                      ("M/MOTOR", "pasos_perdidos"),
+                                                      ("D/U1", "micropasos"), ("D/U1", "pasos"),
+                                                      ("D/U1", "corriente_vmot"),
+                                                      ("T/VMOT", "corriente")])
+    ok = series is not None and rc == 0
+    check(ok, "el banco corre 1500 ms: la Pololu, el NEMA 17 y el generador")
+    if not ok:
+        return
+    pz = {x.get("id"): x for x in ET.fromstring(cat).iter("pieza")}
+    mo = [o.get("nombre") for o in pz["M/MOTOR"].iter("observable")]
+    dr = [o.get("nombre") for o in pz["D/U1"].iter("observable")]
+    md = [m.get("nombre") for m in pz["D/U1"].iter("mando")]
+    check(mo == ["angulo", "rpm", "corriente_a", "corriente_b", "par", "retraso", "pasos_perdidos",
+                 "pierde_pasos"] and
+          dr == ["corriente_1", "corriente_2", "micropasos", "pasos", "corriente_vmot",
+                 "temperatura", "sobretemperatura", "sin_tension"] and md == ["vref"],
+          "en el catalogo, el motor deja ver su angulo, rpm, sus dos corrientes, el par, el "
+          "retraso y los pasos perdidos; el driver, sus consignas, el micropaso, los pasos, lo "
+          "que gasta y su temperatura; su mando es el potenciometro de Vref")
+    rpm = [v for t, v in series[("M/MOTOR", "rpm")] if t > 0.6]
+    media = sum(rpm) / len(rpm)
+    check(abs(media - 60.0) < 1.0,
+          "con las MS a 5 V va a 1/16, y a 3200 Hz da una vuelta por segundo: %.2f rpm de media"
+          % media)
+    ia = max(abs(v) for t, v in series[("M/MOTOR", "corriente_a")] if t > 0.6)
+    ib = max(abs(v) for t, v in series[("M/MOTOR", "corriente_b")] if t > 0.6)
+    check(abs(ia - 1103) < 30 and abs(ib - 1103) < 30,
+          "la corriente de cada fase sube y baja con la consigna: de pico, %.0f y %.0f mA, los "
+          "0,6 V / (8 x 0,068 ohm) del potenciometro" % (ia, ib))
+    perd = series[("M/MOTOR", "pasos_perdidos")][-1][1]
+    mp = series[("D/U1", "micropasos")][-1][1]
+    check(perd == 0 and mp == 16, "sin perder un paso, a 1/16 (%g)" % mp)
+    rc, out = corre(sim, ruta, 1500)
+    lm = linea(out, "PASO A PASO M/MOTOR:")
+    ld = linea(out, "DRIVER D/U1 (A4988):")
+    lg = linea(out, "GENERADOR T/G:")
+    pasos_m = numero_tras(lm, "rpm, ")
+    pasos_g = numero_tras(lg, "Hz, ")
+    check(pasos_m is not None and pasos_g is not None and abs(pasos_m - pasos_g / 16.0) < 0.6,
+          "y al final, el rotor esta donde lo han llevado: %s pasos enteros por %s micropasos del "
+          "generador (%s)" % (pasos_m, pasos_g, lm))
+    check("activo, 1/16" in ld and "corriente" in lm,
+          "la consola dice como queda cada uno: %s" % ld)
+    ivm = [v for t, v in series[("D/U1", "corriente_vmot")] if t > 0.6]
+    fuente = [v for t, v in series[("T/VMOT", "corriente")] if t > 0.6]
+    check(ivm and 40 < sum(ivm) / len(ivm) < 400 and fuente and
+          abs(sum(fuente) / len(fuente) - sum(ivm) / len(ivm)) < 0.25 * sum(ivm) / len(ivm),
+          "lo que pide a VMOT es lo que gastan las bobinas y sus transistores, de media: %.0f mA, "
+          "y la fuente lo ve (%.0f mA): el chopper no se simula, pero se paga"
+          % (sum(ivm) / len(ivm), sum(fuente) / len(fuente)))
+    check("fuera de especificacion" not in textos(avs),
+          "con el generador a 5 V y VDD a 5 V, ningun nivel dudoso")
+
+    grupo("C2 (F1a) Los errores de cableado y de temporizacion, cada uno con su aviso")
+
+    def avisos_de(ruta, ms=300):
+        rc, out = corre(sim, ruta, ms)
+        return rc, out
+
+    casos = [
+        ("3,3 V con VDD a 5 V", dict(vpaso=3.3),
+         "en step, y el A4988 pide 3.50 V para un alto y 1.50 para un bajo con su VDD: fuera de "
+         "especificacion (lo lee alto)"),
+        ("RESET al aire", dict(rst=""), "RESET esta al aire. En el modulo de Pololu no lleva "
+         "resistencia: se une a SLEEP, o a VDD"),
+        ("un pulso de 0,5 us", dict(ancho=0.5), "STEP sube 500 ns y el minimo es 1000 ns"),
+        ("VMOT a 6 V", dict(vmot=6), "6.0 V en VMOT, y el A4988 pide de 8.00 a 35 V"),
+        ("la bobina B al aire", dict(bobinas=BOBINAS.replace('  <hilo a="M/M.B1" b="D/J2.2A"/>\n', '')
+                                     .replace('  <hilo a="M/M.B2" b="D/J2.2B"/>\n', '')),
+         "la bobina B esta al aire: con una fase sola el motor no gira"),
+        ("la bobina A entre las dos fases", dict(bobinas=BOBINAS.replace('b="D/J2.1B"', 'b="D/J2.2B"')
+                                                 .replace('<hilo a="M/M.B2" b="D/J2.2B"/>',
+                                                          '<hilo a="M/M.B2" b="D/J2.1B"/>')),
+         "la bobina A va entre la fase 1 de D/U1 y la fase 2 de D/U1"),
+    ]
+    for caso, kw, dice in casos:
+        rc, out = avisos_de(banco(**kw))
+        check(dice in out, "%s: «...%s»" % (caso, dice[:60]))
+    # RESET al aire: no se mueve
+    rc, out = corre(sim, banco(rst=""), 600)
+    lm = linea(out, "PASO A PASO M/MOTOR:")
+    check(abs(numero_tras(lm, "rpm, ") or 0.0) < 1.0,
+          "con RESET al aire el A4988 se queda en reset y el motor no se mueve: %s" % lm)
+    # EN alto: el traductor cuenta, las salidas no
+    cp("banco_pap.xml", (BANCO_PAP % {"vmot": 12, "vlog": 5, "ms": 5, "hz": 3200, "rampa": 100,
+                                      "ancho": 2, "dir_us": 5, "vpaso": 5})
+       .replace('id="EN" v="0"', 'id="EN" v="5"'))
+    rc, out = corre(sim, cp("en_alto.xml", SISTEMA_PAP % {"placas": placas, "motor": "nema17_3018",
+                                                          "rst": RST_SLP, "bobinas": BOBINAS}), 600)
+    lm, ld = linea(out, "PASO A PASO M/MOTOR:"), linea(out, "DRIVER D/U1 (A4988):")
+    check("salidas apagadas" in ld and abs(numero_tras(lm, "rpm, ") or 0.0) < 0.6 and
+          (numero_tras(ld, "1/16, ") or 0) > 1000,
+          "EN alto, que es apagado: el traductor cuenta los pasos, pero el motor no se mueve "
+          "(%s; %s)" % (ld, lm))
+    # La bobina A al reves: gira al reves
+    rc, out = corre(sim, banco(bobinas=BOBINAS.replace('a="M/M.A1" b="D/J2.1A"', 'a="M/M.A1" b="D/J2.1B"')
+                               .replace('a="M/M.A2" b="D/J2.1B"', 'a="M/M.A2" b="D/J2.1A"')), 600)
+    lm = linea(out, "PASO A PASO M/MOTOR:")
+    check((numero_tras(lm, "rpm, ") or 0) < -30,
+          "la bobina A al reves: el motor gira AL REVES (%s)" % lm)
+    # DIR tarde: un cambio de sentido con 50 ns de margen
+    cp("banco_pap.xml", (BANCO_PAP % {"vmot": 12, "vlog": 5, "ms": 5, "hz": 3200, "rampa": 20,
+                                      "ancho": 2, "dir_us": 0.05, "vpaso": 5}))
+    ruta = cp("dir.xml", SISTEMA_PAP % {"placas": placas, "motor": "nema17_3018", "rst": RST_SLP,
+                                        "bobinas": BOBINAS})
+    series, avs, cat, rc = muestrea(sim, ruta, 400, [("M/MOTOR", "rpm")],
+                                    lista=[(150, "T/G", "sentido", 0.0)])
+    textos_ = textos(avs)
+    check("DIR cambia 50 ns antes del flanco de STEP, y necesita 200 ns" in textos_,
+          "DIR cambia 50 ns antes del paso, y el A4988 pide 200: se avisa")
+    # La proteccion termica: Vref alto, sin disipador, parado
+    cp("banco_pap.xml", (BANCO_PAP % {"vmot": 12, "vlog": 5, "ms": 0, "hz": 0, "rampa": 0,
+                                      "ancho": 2, "dir_us": 5, "vpaso": 5}))
+    ruta = cp("termica.xml", SISTEMA_PAP % {"placas": placas, "motor": "nema17_3018",
+                                            "rst": RST_SLP, "bobinas": BOBINAS})
+    series, avs, cat, rc = muestrea(sim, ruta, 14000, [("D/U1", "temperatura"),
+                                                       ("D/U1", "sobretemperatura"),
+                                                       ("M/MOTOR", "corriente_a")],
+                                    periodo_ns=50000000, lista=[(1, "D/U1", "vref", 1.2)])
+    textos_ = textos(avs)
+    tsd = [t for t, v in (series or {}).get(("D/U1", "sobretemperatura"), []) if v == 1.0]
+    tj = max(v for t, v in series[("D/U1", "temperatura")]) if series else 0
+    vuelve = [t for t, v in series[("D/U1", "sobretemperatura")] if tsd and t > tsd[0] and v == 0.0] \
+        if series else []
+    fin_tsd = vuelve[0] if vuelve else 1e9
+    ia_tsd = [abs(v) for t, v in series[("M/MOTOR", "corriente_a")] if tsd and t > tsd[0] + 0.02
+              and t < fin_tsd - 0.02] if series else []
+    check(tsd and 160 <= tj < 172 and "la proteccion termica apaga las salidas" in textos_ and
+          ia_tsd and max(ia_tsd) < 1.0,
+          "con Vref a 1,2 V (2,2 A, que el A4988 deja en 2) y sin disipador, parado: a los "
+          "%.1f s pasa de 165 °C, la "
+          "proteccion termica apaga las salidas y la corriente se va" % (tsd[0] if tsd else -1))
+    check(bool(vuelve), "y al bajar 15 °C vuelve a encenderlas, a los %.1f s"
+          % (vuelve[0] if vuelve else -1))
+
+    grupo("C2 (F1a) La curva de par maximo del ST5918 tras un DM542, a 24 y a 48 V")
+    curva = {}
+    for vbus in (24, 48):
+        for rpm in (120, 600, 900, 1200, 1800):
+            curva[(vbus, rpm)] = pull_out(sim, cp, vbus, rpm)
+    tabla = "; ".join("%d V: %s" % (vb, ", ".join("%d rpm %.2f" % (r, curva[(vb, r)])
+                                                     for r in (120, 600, 900, 1200, 1800)))
+                      for vb in (24, 48))
+    bajo = curva[(24, 120)]
+    check(0.55 * 1.8668 < bajo < 0.72 * 1.8668 and abs(curva[(48, 120)] - bajo) < 0.05,
+          "a 120 rpm, %.2f N·m con 24 y con 48 V: Km·I = 0,31 x 4,2 = 1,31, menos sus "
+          "rozamientos y el par sin corriente, el 62 %% del de retencion" % bajo)
+    mono = all(curva[(vb, b)] <= curva[(vb, a)] + 0.04 for vb in (24, 48)
+               for a, b in ((120, 600), (600, 900), (900, 1200), (1200, 1800)))
+    check(mono, "el par cae con la velocidad: %s" % tabla)
+    check(all(curva[(48, r)] >= curva[(24, r)] - 0.03 for r in (600, 900, 1200, 1800)) and
+          curva[(48, 1200)] > 3 * curva[(24, 1200)],
+          "y a 48 V aguanta mucho mas: a 1200 rpm, %.2f N·m contra %.2f"
+          % (curva[(48, 1200)], curva[(24, 1200)]))
+
+    def esquina(vb):
+        ref = 0.7 * curva[(vb, 120)]
+        pts = [(r, curva[(vb, r)]) for r in (120, 600, 900, 1200, 1800)]
+        for (r0, t0), (r1, t1) in zip(pts, pts[1:]):
+            if t1 < ref <= t0:
+                return r0 + (r1 - r0) * (t0 - ref) / (t0 - t1)
+        return None
+    e24, e48 = esquina(24), esquina(48)
+    check(e24 and e48 and 450 < e24 < 950 and 1000 < e48 < 1800 and 1.5 < e48 / e24 < 2.6,
+          "la esquina -el 70 %% del par de abajo-: a %s rpm con 24 V y a %s con 48, casi el "
+          "doble (el analisis estimaba unas 800 y 1600)"
+          % ("%.0f" % e24 if e24 else "?", "%.0f" % e48 if e48 else "?"))
+
+    grupo("C2 (F1a) Los pasos perdidos, el modelo ideal, los otros drivers y lo que cuesta")
+    # Una rampa demasiado corta: a 1000 rpm en 5 ms
+    for rampa, pierde in ((5, True), (400, False)):
+        rc, out = corre(sim, dm542(cp, 24, 6667, rampa), 900)
+        lm = linea(out, "PASO A PASO M/MOTOR:")
+        n = int(lm.split("pasos, ")[1].split()[0]) if "pasos, " in lm else None
+        if pierde:
+            check(n and n != 0 and "ha perdido pasos" in out,
+                  "a 1000 rpm con una rampa de 5 ms el rotor se descuelga: %d pasos perdidos, y "
+                  "se avisa" % (n or 0))
+        else:
+            check(n == 0 and abs(numero_tras(lm, "PASO A PASO M/MOTOR: ") or 0) > 900,
+                  "con 400 ms de rampa llega, y no pierde ninguno (%s)" % lm)
+    # El modelo ideal: exactamente los pasos
+    texto = open(os.path.join(placas, "nema17_3018.xml"), encoding="utf-8").read()
+    cp("nema17_3018.xml", texto.replace('id="MOTOR" ', 'id="MOTOR" modelo="ideal" '))
+    for svg in ("nema17_3018", "pololu_a4988"):
+        cp(svg + ".svg", open(os.path.join(placas, svg + ".svg"), encoding="utf-8").read())
+    cp("pololu_a4988.xml", open(os.path.join(placas, "pololu_a4988.xml"), encoding="utf-8").read())
+    cp("banco_pap.xml", BANCO_PAP % {"vmot": 12, "vlog": 5, "ms": 5, "hz": 32000, "rampa": 0,
+                                     "ancho": 2, "dir_us": 5, "vpaso": 5})
+    sis = SISTEMA_PAP % {"placas": os.path.dirname(cp("x", "")), "motor": "nema17_3018",
+                         "rst": RST_SLP, "bobinas": BOBINAS}
+    rc, out = corre(sim, cp("ideal.xml", sis), 500)
+    lm = linea(out, "PASO A PASO M/MOTOR:")
+    ld = linea(out, "DRIVER D/U1 (A4988):")
+    pm, pd = numero_tras(lm, "rpm, "), numero_tras(ld, "1/16, ")
+    check("ideal" in lm and pm is not None and pd is not None and abs(pm - pd / 16.0) < 0.0626 and
+          abs(pm * 16 - round(pm * 16)) < 0.08 and "0 perdidos" in lm,
+          "con modelo=\"ideal\", el rotor da exactamente un micropaso por paso, aunque arranque de "
+          "golpe a 600 rpm: %s pasos enteros por %s micropasos del driver (el primero llega en "
+          "t = 0, antes de que el motor vea la posicion de casa)" % (pm, pd))
+    # El DRV8825 y el TMC2209
+    for modelo, pines, dice in (
+            ("DRV8825", '<pin nombre="vdd" nodo="X"/>', "el DRV8825 no tiene vdd"),
+            ("TMC2209", '<pin nombre="ms3" nodo="X"/>', "el TMC2209 no tiene ms3"),
+            ("DM542", '', "el DM542 no tiene ms1: el micropaso y la "
+             "corriente van con sus interruptores")):
+        rc, out = valida(sim, cp("mal_%s.xml" % modelo, otro_driver(modelo, extra=pines)))
+        check(rc != 0 and dice in out, "%s con una patilla que no tiene: error (%s)" % (modelo, dice))
+    for modelo, ms, micro in (("DRV8825", (3.3, 0, 3.3), 32), ("DRV8825", (0, 3.3, 0), 4),
+                              ("TMC2209", (3.3, 0, 0), 32), ("TMC2209", (0, 0, 0), 8),
+                              ("TMC2209", (3.3, 3.3, 0), 16)):
+        rc, out = corre(sim, cp("ms.xml", otro_driver(modelo, ms=ms)), 50)
+        ld = linea(out, "DRIVER U1 (%s):" % modelo)
+        check(("1/%d," % micro) in ld and "fuera de especificacion" not in out,
+              "%s con MS = %s: 1/%d, y sus entradas aceptan 3,3 V sin aviso (%s)"
+              % (modelo, "".join("1" if x else "0" for x in ms[:(3 if modelo == "DRV8825" else 2)]),
+                 micro, ld))
+    # Tras un L298: las bobinas, con Thevenin
+    rc, out = corre(sim, cp("l298.xml", PAP_L298 % {"in1": 3.3, "in2": 0, "in3": 0, "in4": 0}), 300)
+    lm = linea(out, "PASO A PASO MOT:")
+    a0 = numero_tras(lm, "rpm, ")
+    rc, out = corre(sim, cp("l298.xml", PAP_L298 % {"in1": 0, "in2": 0, "in3": 3.3, "in4": 0}), 300)
+    lm2 = linea(out, "PASO A PASO MOT:")
+    a1 = numero_tras(lm2, "rpm, ")
+    check(a0 is not None and a1 is not None and abs(a0) < 0.05 and abs(a1 - 1.0) < 0.05 and
+          "A tension" in lm and "B tension" in lm2,
+          "tras un L298, cada bobina es una rama de Thevenin, como un motor de continua: con "
+          "la A, el rotor en 0; con la B, un paso a la derecha (%s; %s)" % (lm, lm2))
+    # Lo que cuesta: un eje moviendose, 1/8 a 4 kHz -20 mm/s con un husillo de 8 mm-
+    t0 = time.time()
+    rc, out = corre(sim, dm542(cp, 24, 3200, 50, micro=8), 3000)
+    dt = time.time() - t0
+    check(rc == 0 and dt < 1.5,
+          "y lo que cuesta: un eje con su DM542, a 1/8 y 3200 Hz, 3 s simulados en %.2f s de "
+          "reloj (%.2f s por segundo simulado, con el arranque de mcu-sim)" % (dt, dt / 3.0))
+
+
+# El ST5918 tras un DM542: el driver en la placa del banco
+BANCO_DM542 = """<placa nombre="banco-dm542">
+  <componente tipo="Conector" id="M" filas="1" columnas="4" nombres="A1 A2 B1 B2"/>
+  <nodo id="VMOT" externo="si"/>
+  <nodo id="GND" externo="si" bus="si"/>
+  <nodo id="STEP" externo="si"/>
+  <nodo id="DIR" externo="si"/>
+  <nodo id="M.A1" bus="si"/><nodo id="M.A2" bus="si"/><nodo id="M.B1" bus="si"/><nodo id="M.B2" bus="si"/>
+  <componente tipo="Fuente" id="PSU" v="%(vbus)s" limite_ma="10000" media_ms="20">
+    <pin nombre="pin" nodo="VMOT"/></componente>
+  <componente tipo="Gnd" id="MASA"><pin nombre="pin" nodo="GND"/></componente>
+  <componente tipo="DriverPaP" id="U1" modelo="DM542" micropasos="%(micro)s" corriente_a="4.2">
+    <pin nombre="vmot" nodo="VMOT"/><pin nombre="gnd" nodo="GND"/>
+    <pin nombre="step" nodo="STEP"/><pin nombre="dir" nodo="DIR"/>
+    <pin nombre="out1a" nodo="M.A1"/><pin nombre="out1b" nodo="M.A2"/>
+    <pin nombre="out2a" nodo="M.B1"/><pin nombre="out2b" nodo="M.B2"/>
+  </componente>
+  <componente tipo="GeneradorPasos" id="G" hz="%(hz)s" rampa_ms="%(rampa)s" ancho_us="5" vdd="5">
+    <pin nombre="step" nodo="STEP"/><pin nombre="dir" nodo="DIR"/></componente>
+</placa>
+"""
+SISTEMA_DM542 = """<sistema nombre="prueba-dm542">
+  <placa id="B" fichero="banco_dm542.xml"/>
+  <placa id="M" fichero="%(placas)s/st5918l3008.xml"/>
+  <hilo a="M/M.A1" b="B/M.A1"/>
+  <hilo a="M/M.A2" b="B/M.A2"/>
+  <hilo a="M/M.B1" b="B/M.B1"/>
+  <hilo a="M/M.B2" b="B/M.B2"/>
+</sistema>
+"""
+
+
+def dm542(cp, vbus, hz, rampa, micro=2):
+    cp("banco_dm542.xml", BANCO_DM542 % {"vbus": vbus, "hz": hz, "rampa": rampa, "micro": micro})
+    return cp("dm542.xml", SISTEMA_DM542 % {"placas": os.path.abspath("placas")})
+
+
+def pull_out(sim, cp, vbus, rpm):
+    """El par maximo a `rpm`: llega con su rampa y, desde ahi, la carga sube un
+    1 % del de retencion cada 30 ms hasta que pierde pasos. A medio paso."""
+    hz = rpm * 200 * 2 / 60.0
+    rampa = max(50.0, rpm * 0.3)                     # ms
+    ruta = dm542(cp, vbus, hz, rampa)
+    t0 = rampa + 200
+    lista = [(t0 + 30 * k, "M/MOTOR", "carga", float(k)) for k in range(1, 100)]
+    series, avs, cat, rc = muestrea(sim, ruta, int(t0 + 30 * 100), [("M/MOTOR", "pasos_perdidos")],
+                                    periodo_ns=1000000, lista=lista)
+    if not series:
+        return 0.0
+    p0 = None
+    for t, v in series[("M/MOTOR", "pasos_perdidos")]:
+        if t * 1e3 < t0:
+            p0 = v
+            continue
+        if p0 is not None and v != p0:
+            k = int((t * 1e3 - t0) // 30)            # la carga que tenia: k %
+            return max(0, k - 1) * 0.01 * 1.8668
+    return 1.8668
+
+
+def otro_driver(modelo, extra="", ms=(0, 0, 0)):
+    """Una placa con un DriverPaP de otro modelo, sus patillas y el NEMA 17"""
+    vdd = '<pin nombre="vdd" nodo="VLOG"/>' if modelo == "TMC2209" else ""
+    ms3 = '<pin nombre="ms3" nodo="MS3"/><pin nombre="rst" nodo="VLOG"/><pin nombre="slp" nodo="VLOG"/>' \
+        if modelo == "DRV8825" else ""
+    return """<placa nombre="otro">
+  <nodo id="VMOT" externo="si"/><nodo id="GND" externo="si" bus="si"/><nodo id="VLOG" externo="si" bus="si"/>
+  <nodo id="EN" externo="si"/><nodo id="MS1" externo="si"/><nodo id="MS2" externo="si"/>
+  <nodo id="MS3" externo="si"/><nodo id="STEP" externo="si"/><nodo id="DIR" externo="si"/>
+  <nodo id="X" externo="si"/>
+  <nodo id="BA1" externo="si" bus="si"/><nodo id="BA2" externo="si" bus="si"/>
+  <nodo id="BB1" externo="si" bus="si"/><nodo id="BB2" externo="si" bus="si"/>
+  <componente tipo="Fuente" id="PV" v="12"><pin nombre="pin" nodo="VMOT"/></componente>
+  <componente tipo="Fuente" id="PL" v="3.3"><pin nombre="pin" nodo="VLOG"/></componente>
+  <componente tipo="Gnd" id="MASA"><pin nombre="pin" nodo="GND"/></componente>
+  <componente tipo="Gnd" id="GEN"><pin nombre="pin" nodo="EN"/></componente>
+  <componente tipo="Fuente" id="F1" v="%s"><pin nombre="pin" nodo="MS1"/></componente>
+  <componente tipo="Fuente" id="F2" v="%s"><pin nombre="pin" nodo="MS2"/></componente>
+  <componente tipo="Fuente" id="F3" v="%s"><pin nombre="pin" nodo="MS3"/></componente>
+  <componente tipo="DriverPaP" id="U1" modelo="%s">
+    <pin nombre="vmot" nodo="VMOT"/><pin nombre="gnd" nodo="GND"/>%s%s
+    <pin nombre="en" nodo="EN"/><pin nombre="ms1" nodo="MS1"/><pin nombre="ms2" nodo="MS2"/>
+    <pin nombre="step" nodo="STEP"/><pin nombre="dir" nodo="DIR"/>%s
+    <pin nombre="out1a" nodo="BA1"/><pin nombre="out1b" nodo="BA2"/>
+    <pin nombre="out2a" nodo="BB1"/><pin nombre="out2b" nodo="BB2"/>
+  </componente>
+  <componente tipo="GeneradorPasos" id="G" hz="1000" vdd="3.3">
+    <pin nombre="step" nodo="STEP"/><pin nombre="dir" nodo="DIR"/></componente>
+  <componente tipo="MotorPaP" id="MOT">
+    <pin nombre="a1" nodo="BA1"/><pin nombre="a2" nodo="BA2"/>
+    <pin nombre="b1" nodo="BB1"/><pin nombre="b2" nodo="BB2"/>
+  </componente>
+</placa>
+""" % (ms[0], ms[1], ms[2], modelo, vdd, ms3, extra)
+
+
+# Un paso a paso tras un L298: cuatro tensiones en IN1..IN4, los dos puentes
+# habilitados, y una bobina en cada uno
+PAP_L298 = """<placa nombre="pap-l298">
+  <nodo id="VS" externo="si"/><nodo id="V5" externo="si"/><nodo id="GND" externo="si" bus="si"/>
+  <nodo id="IN1" externo="si"/><nodo id="IN2" externo="si"/><nodo id="IN3" externo="si"/>
+  <nodo id="IN4" externo="si"/>
+  <nodo id="O1" externo="si" bus="si"/><nodo id="O2" externo="si" bus="si"/>
+  <nodo id="O3" externo="si" bus="si"/><nodo id="O4" externo="si" bus="si"/>
+  <componente tipo="Fuente" id="PS" v="12"><pin nombre="pin" nodo="VS"/></componente>
+  <componente tipo="Fuente" id="P5" v="5"><pin nombre="pin" nodo="V5"/></componente>
+  <componente tipo="Gnd" id="MASA"><pin nombre="pin" nodo="GND"/></componente>
+  <componente tipo="Fuente" id="F1" v="%(in1)s"><pin nombre="pin" nodo="IN1"/></componente>
+  <componente tipo="Fuente" id="F2" v="%(in2)s"><pin nombre="pin" nodo="IN2"/></componente>
+  <componente tipo="Fuente" id="F3" v="%(in3)s"><pin nombre="pin" nodo="IN3"/></componente>
+  <componente tipo="Fuente" id="F4" v="%(in4)s"><pin nombre="pin" nodo="IN4"/></componente>
+  <componente tipo="L298" id="U1" diodos="si">
+    <pin nombre="vs" nodo="VS"/><pin nombre="vss" nodo="V5"/><pin nombre="gnd" nodo="GND"/>
+    <pin nombre="ena" nodo="V5"/><pin nombre="enb" nodo="V5"/>
+    <pin nombre="in1" nodo="IN1"/><pin nombre="in2" nodo="IN2"/>
+    <pin nombre="in3" nodo="IN3"/><pin nombre="in4" nodo="IN4"/>
+    <pin nombre="out1" nodo="O1"/><pin nombre="out2" nodo="O2"/>
+    <pin nombre="out3" nodo="O3"/><pin nombre="out4" nodo="O4"/>
+  </componente>
+  <componente tipo="MotorPaP" id="MOT" r_ohm="30" l_mh="40" corriente_a="0.4" par_retencion_ncm="30">
+    <pin nombre="a1" nodo="O1"/><pin nombre="a2" nodo="O2"/>
+    <pin nombre="b1" nodo="O3"/><pin nombre="b2" nodo="O4"/>
+  </componente>
+</placa>
+"""
+
+
 def main():
     a = argparse.ArgumentParser(description="La fresadora CNC, por fases, contra el mcu-sim de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -262,6 +753,7 @@ def main():
                 f.write(texto)
             return ruta
         c1_cadena(sim, cp)
+        c2_pap(sim, cp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print()

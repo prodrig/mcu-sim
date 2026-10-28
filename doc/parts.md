@@ -2420,6 +2420,203 @@ C1). Suelto, no se mueve.
 
 Deja ver `angulo` —el que sugiere pintar: la ventana lo gira— y `rpm`.
 
+### 4.18 El paso a paso, sus drivers y un generador de pasos
+
+`parts/motor_pap.h` y `parts/driver_pap.h`, la fase F1a de
+`doc/analisis_cnc.md` (§5.1 y §5.2). Montadas, son `placas/nema17_3018.xml`,
+`placas/st5918l3008.xml` y `placas/pololu_a4988.xml`.
+
+#### La corriente impuesta con tope de tensión
+
+Un driver de paso a paso de verdad es un **chopper**: conmuta su puente a 20 o
+40 kHz para que la corriente de cada fase siga la consigna del micropaso.
+Simularlo conmutando costaría cientos de miles de sucesos por segundo con tres
+ejes, y por eso cada fase del driver no es un Thevenin sino una **rama de
+corriente impuesta** (`RamaCorriente`, `parts/ext_parts.h`): «quiero `i*`, y
+puedo poner entre mis dos salidas de −VMOT a +VMOT». Lo **declara** en los
+nodos de sus dos salidas —un polo en cada uno— por un canal aparte del nodo
+(`FaseCorriente` y `declara_salida_corriente` en `common/analog_net.h`, como
+`declara_reloj` declara una frecuencia). La bobina que encuentra esas dos
+salidas en sus bornes integra su corriente sabiéndolo:
+
+* **si la tensión que haría falta, `R·i* + f.e.m.`, cabe en el tope, la
+  corriente es la consigna**: lo que consigue un chopper bueno;
+* si no, la tensión se queda en el tope —`±VMOT`— y la corriente va por
+  detrás: es la **caída de par con la velocidad**;
+* con el driver apagado, la corriente vuelve al bus por sus diodos, contra
+  `VMOT + 2·Vd`, hasta acabarse.
+
+El driver despierta en los flancos de STEP, en los cambios de sus entradas y de
+sus alimentaciones, y cada milisegundo mientras conduce. No hay sucesos de
+chopper, y su rizado se pierde. Lo que gasta lo deja la bobina en la rama, ya
+**integrado** —la energía que ha entrado en ella, por su balance: lo que se
+queda en R, lo que va a la inductancia y lo que se convierte en par, y la
+integral de `i²`—, porque con un chopper la potencia de cada instante salta de
+signo dentro de cada micropaso. El driver pide a VMOT esa potencia de media,
+más `I²·RDS(on)` de sus transistores y su reposo: el chopper no se simula,
+pero se paga. Lo que vuelve de las bobinas al frenar no se lleva a ninguna
+parte: una fuente de laboratorio no lo absorbe, y es de la fase F5.
+
+Dentro de cada paso de integración el régimen de cada bobina no cambia —sigue
+a la consigna, sube o baja contra el tope, o vuelve por los diodos—: un
+cambio de régimen a mitad de un paso de Runge-Kutta no se integra. Cuando la
+corriente cruza su consigna, se queda en ella.
+
+#### `MotorPaP`
+
+Un **híbrido bipolar de dos fases**, con `Nr = pasos/4` dientes de rotor:
+
+    va = R·ia + L·dia/dt − Km·ω·sin(Nr·θ)
+    vb = R·ib + L·dib/dt + Km·ω·cos(Nr·θ)
+    T  = −Km·ia·sin(Nr·θ) + Km·ib·cos(Nr·θ) − Td·sin(4·Nr·θ)
+
+Con la corriente de `a1` a `a2` el rotor va a 0; con la de `b1` a `b2`, un paso
+a la derecha. Cada bobina va **como esté cableada**, y se mira en cada vuelta:
+entre las dos salidas de una fase de un `DriverPaP`, con corriente impuesta;
+entre nodos de Thevenin —un `L298`—, como un motor de continua (`RamaFem`); al
+aire, sin corriente, y con la otra movida se avisa («con una fase sola el
+motor no gira»); entre salidas de dos fases o de dos drivers, sin corriente, y
+se avisa. Las dos salidas al revés: gira al revés.
+
+Lo mecánico es de su cadena (§4.17): el par, la inercia del rotor, un
+rozamiento seco y uno viscoso, y la carga del mando. El par depende del ángulo,
+así que la cadena integra el ángulo con Runge-Kutta, a pasos de **10 µs**
+como mucho —el doble de largos que los del `MotorCC`: la corriente sigue a su
+consigna sin integrar nada, y lo que queda son la mecánica y las subidas de la
+corriente contra el tope, de un kHz y pico; con 5 µs la curva de par máximo
+cambia menos de un 2 %—. No ensaya nada para despertar en su instante: despierta
+en cada flanco de STEP de todas formas.
+
+**Los pasos perdidos.** El motor sabe dónde tendría que estar: donde lo llevan
+las corrientes que le piden, `Nr·θ* = atan2(ib*, ia*)`, seguido vuelta a vuelta.
+La primera vez que tiene corriente se queda con el equilibrio más cercano; desde
+ahí, el **retraso** es lo que el rotor va por detrás, en pasos enteros, y un
+rotor que se descuelga cae en el equilibrio de al lado: **cuatro pasos** —una
+vuelta eléctrica— cada vez. Eso son los `pasos_perdidos`, con su alarma.
+
+**El modelo ideal** (`modelo="ideal"`): cada micropaso es exactamente un
+micropaso, sin corrientes ni pérdidas; el rotor va a donde dicen las consignas
+(`Cadena::impone`). Para probar firmware deprisa.
+
+**Un motor de ocho hilos.** Nanotec da las cifras de los suyos como se miden en
+unipolar, por media bobina. `conexion="serie"` las convierte a bipolar en serie
+—`2R`, `4L`, `I/√2`— y `conexion="paralelo"` a bipolar en paralelo —`R/2`, `L`,
+`I·√2`—; el par de retención es el mismo. El ST5918L3008 da 3 A, 1 Ω y 1,9 mH;
+en paralelo son 4,2 A, 0,5 Ω y 1,9 mH. `Km` sale del par de retención, medido
+con las dos fases: `Km = T/(I·√2)`.
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `par_retencion_ncm` | `25` | El par de retención con las dos fases a la corriente nominal, en N·cm |
+| `corriente_a` | `1.3` | La corriente nominal por fase |
+| `r_ohm`, `l_mh` | `2.4`, `2.8` | La resistencia y la inductancia de cada fase |
+| `conexion` | `bipolar` | `serie` o `paralelo`: un motor de ocho hilos, con las cifras de media bobina |
+| `retencion_una_fase` | `no` | El par de retención, medido con una fase |
+| `km` | `0` | La constante de par, en N·m/A; `0`, del par de retención |
+| `detent_ncm` | `1.5` | El par sin corriente |
+| `inercia_gcm2` | `34` | La del rotor |
+| `rozamiento_ncm`, `viscoso_mnms` | `0.5`, `0.1` | Sus rozamientos: seco, en N·cm, y viscoso, en mN·m por rad/s (estimados) |
+| `pasos` | `200` | Por vuelta: 200 o 400 |
+| `modelo` | `dinamico` | `ideal`: un micropaso por micropaso |
+
+Deja ver `angulo` (el que sugiere pintar: la ventana gira el eje), `rpm`,
+`corriente_a` y `corriente_b` —las de ahora—, `par`, `retraso`,
+`pasos_perdidos` y la alarma `pierde_pasos`; sus mandos son `bloquear` y
+`carga`, en % del par de retención. Al terminar dice dónde ha quedado, con las
+rpm y las corrientes de ese instante —a 1/16 y 60 rpm de media, el rotor
+vibra con cada micropaso—: `PASO A PASO M/MOTOR: +107.6 rpm, +291.70 pasos
+(+1.46 vueltas); A corriente +924 mA, B corriente -604 mA; retraso -0.01 pasos,
+0 perdidos`.
+
+#### `DriverPaP`
+
+El chip de un módulo de los de la CNC Shield, o un driver externo, como cuatro
+juegos de parámetros (`modelo=`):
+
+| | VMOT | Lógica | Pulso de STEP; DIR antes | Corriente | Micropaso | Protección |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **A4988** (módulo Pololu) | 8–35 V | VDD de 3 a 5,5 V; alto desde 0,7·VDD | 1 µs; 200 ns | `Vref/(8·0,068)`, hasta 2 A | MS1..3: 1, 1/2, 1/4, 1/8, 1/16 | 165 °C |
+| **DRV8825** | 8,2–45 V | la suya; alto desde 2,2 V | 1,9 µs; 650 ns | `2·Vref`, hasta 2,5 A | MODE0..2: hasta 1/32 | 150 °C |
+| **TMC2209** | 4,75–29 V | VIO de 3 a 5 V; alto desde 0,7·VIO | 100 ns; 20 ns | `Vref·0,325/(2,5·0,13)`, hasta 2,8 A | MS1, MS2: 1/8, 1/32, 1/64, 1/16 | 143 °C |
+| **DM542** (externo) | 20–50 V | **optoacoplada**: un LED con 270 Ω, de 7 a 16 mA | 2,5 µs; 5 µs | la de sus interruptores, hasta 4,2 A | la de sus interruptores, hasta 1/128 | — |
+
+Cada flanco de subida de STEP avanza la posición un micropaso hacia donde diga
+DIR —alto, hacia delante—. La posición va en 1/256 de paso; la fase eléctrica
+es `φ = posición·90°/256` y las consignas, `I·cos φ` y `I·sin φ`. Empieza en 45°,
+como el A4988 y el DRV8825: en paso entero, las dos fases al 70,71 %. El
+traductor cuenta aunque EN apague las salidas, como el de verdad.
+
+**Lo que comprueba, porque es lo que se equivoca en la vida real**, y cada fallo
+es un aviso con nombre, una vez: el ancho del pulso de STEP, alto y bajo; DIR
+antes y después del flanco; el nivel de cada entrada —con VDD a 5 V, el A4988
+pide 3,5 V para un alto, y los 3,3 V de un STM32 se quedan cortos: funciona,
+fuera de especificación—; una entrada al aire; EN, activo a nivel bajo; RESET
+al aire —el módulo de Pololu no lleva resistencia, y se queda en reset—; los
+pasos en el milisegundo que tarda en despertar de SLEEP; una Vref que pide más
+de lo que da el chip; VMOT fuera de su margen —por debajo de su mínimo se
+apagan las salidas—; la lógica sin tensión; y la **temperatura**: lo que se
+queda en sus transistores, `I²·RDS(on)` por fase, con una resistencia térmica
+—la del módulo, sin o con disipador, estimada— y una constante de tiempo de
+3 s. Pasar del umbral apaga las salidas hasta que se enfría; con Vref a 1,2 V y
+sin disipador, un A4988 parado salta a los 7,6 s. Las entradas del A4988 llevan
+por dentro sus resistencias a masa en MS1..3; las del DRV8825 y el TMC2209, en
+todas. Las del DM542 son el LED de un optoacoplador: piden su corriente a quien
+las mueve.
+
+**Lo que no hace**: el rizado del chopper y sus modos de decaimiento; la
+interpolación a 1/256, el UART, el StallGuard, el StealthChop y la reducción
+de corriente parado del TMC2209; la protección de cortocircuito de las
+salidas; y la energía que vuelve al bus al frenar.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `vmot`, `gnd` | obligatorios | La potencia y la masa |
+| `vdd` | A4988 y TMC2209 | La lógica (VIO en el TMC2209) |
+| `en` | obligatorio; opcional en el DM542 | Activo a nivel bajo: alto, salidas apagadas |
+| `ms1`, `ms2`, `ms3` | `ms3` no en el TMC2209; ninguna en el DM542 | El micropaso |
+| `rst`, `slp` | A4988 y DRV8825 | RESET y SLEEP, activos a nivel bajo |
+| `step`, `dir` | obligatorios | Paso y dirección |
+| `out1a`, `out1b`, `out2a`, `out2b` | obligatorios | La fase 1, de OUT1A a OUT1B, y la 2 |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `modelo` | `A4988` | `A4988`, `DRV8825`, `TMC2209` o `DM542` |
+| `vref` | `0.6`, `0.5`, `1.4` | La del potenciómetro, en V (el mando `vref`) |
+| `disipador` | `no` | Con disipador, la mitad de resistencia térmica |
+| `t_ambiente` | `25` | La temperatura del aire |
+| `micropasos`, `corriente_a` | `8`, `2` | Solo en el DM542: sus interruptores |
+
+Deja ver `corriente_1` y `corriente_2` —las consignas—, `micropasos`, `pasos`,
+`corriente_vmot` —de media—, `temperatura` y las alarmas `sobretemperatura` y
+`sin_tension`. Al terminar: `DRIVER D/U1 (A4988): activo, 1/16, +4659 pasos;
+fases +973 y -520 mA de 1.10 A; VMOT 332 mA de media; 44 °C`.
+
+#### `GeneradorPasos`
+
+Un instrumento de banco: STEP y DIR a `hz` pasos por segundo, con una rampa de
+aceleración constante —`aceleracion` en pasos/s², o `rampa_ms` de parado a
+`hz`—; un cambio de `sentido` en marcha frena, cambia DIR, espera `dir_us` y
+vuelve a arrancar. El pulso dura `ancho_us`, y las salidas son de `vdd` voltios
+con 50 Ω. Sus mandos son `hz` y `sentido`; deja ver `hz` y `pasos`.
+
+#### Lo que sale
+
+Con el ST5918 en paralelo tras un DM542 de 4,2 A, a medio paso, el **par
+máximo** —la carga con la que empieza a perder pasos— a 120 rpm es 1,23 N·m con
+24 y con 48 V: `Km·I = 0,31 × 4,2 = 1,31`, menos sus rozamientos. Cae con la
+velocidad, y mucho antes a 24 V:
+
+| rpm | 120 | 600 | 900 | 1200 | 1800 |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| 24 V | 1,23 | 0,93 | 0,41 | 0,22 | 0,11 |
+| 48 V | 1,23 | 1,16 | 1,08 | 0,90 | 0,43 |
+
+La **esquina** —el 70 % del par de abajo— está en unas 640 rpm a 24 V y en
+unas 1240 a 48 V, el doble: por eso los Nanotec van a 48 V. Con una rampa de
+5 ms hasta 1000 rpm el rotor se descuelga y pierde miles de pasos; con 400 ms,
+ninguno. Un eje así, a 1/8 y 3200 Hz, cuesta unos 0,09 s de CPU por segundo
+simulado, con el arranque de `mcu-sim` (`make gui-cnc`, C2).
+
 ---
 
 ## 5. Lo que el fichero todavía no puede hacer

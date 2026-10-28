@@ -749,6 +749,78 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// UNA RAMA DE CORRIENTE IMPUESTA: el lado del DRIVER de una fase de paso a
+// paso (common/analog_net.h, FaseCorriente; doc/analisis_cnc.md §5.2). Dos
+// salidas, la `p` -por la que sale la consigna- y la `m` -por la que vuelve-,
+// declaradas en sus nodos. El driver dice qué corriente quiere y con qué tope
+// de tensión (`manda`); la bobina que esté entre los dos nodos la sigue
+// mientras ese tope le llegue, y deja aquí lo que pone y lo que pasa.
+//
+// Para que se pueda MEDIR algo en los nodos, `muestra()` pone en cada salida
+// un Thevenin flojo, de 10 kohm, con la tensión que tendrían: la mitad del bus
+// más y menos la mitad de lo que se pone en la bobina. No carga nada, y la
+// bobina, que sabe que es una salida de corriente, no lo mira.
+// ---------------------------------------------------------------------------
+class RamaCorriente {
+public:
+    static constexpr float R_VER = 1.0e4f;
+    RamaCorriente(analog_net_if& p, int id_p, analog_net_if& m, int id_m, const char* quien,
+                  int numero)
+        : p_(&p), m_(&m), id_p_(id_p), id_m_(id_m), quien_(quien ? quien : "") {
+        f_.ev = &ev_;
+        f_.quien = quien_.c_str();
+        f_.numero = numero;
+        p.declara_salida_corriente(SalidaCorriente{&f_, +1});
+        m.declara_salida_corriente(SalidaCorriente{&f_, -1});
+    }
+    // La consigna, el tope y si conduce. Solo avisa si algo cambia
+    void manda(double i, double vbus, bool activa) {
+        if (i == f_.i && vbus == f_.vbus && activa == f_.activa) return;
+        f_.i = i;
+        f_.vbus = vbus;
+        f_.activa = activa;
+        ev_.notify(sc_core::SC_ZERO_TIME);
+    }
+    void pon_diodos(double vd) { f_.vd = vd; }
+    // Las tensiones de las salidas, para verlas: con `vg` la de la masa
+    void muestra(double vg) {
+        const bool ver = f_.activa || (f_.con_carga && f_.i_carga != 0.0);
+        if (!ver) {
+            if (viendo_) { p_->set_hiz(id_p_); m_->set_hiz(id_m_); viendo_ = false; }
+            return;
+        }
+        const float vp = float(vg + 0.5 * (f_.vbus + f_.v_carga));
+        const float vm = float(vg + 0.5 * (f_.vbus - f_.v_carga));
+        if (viendo_ && std::fabs(vp - vp_) < 0.05f && std::fabs(vm - vm_) < 0.05f) return;
+        vp_ = vp; vm_ = vm; viendo_ = true;
+        p_->set_drive(id_p_, vp, R_VER);
+        m_->set_drive(id_m_, vm, R_VER);
+    }
+    void suelta() { p_->set_hiz(id_p_); m_->set_hiz(id_m_); viendo_ = false; }
+
+    double consigna() const { return f_.i; }
+    bool   activa() const { return f_.activa; }
+    // Lo que deja la bobina: la tensión que se le pone y la corriente que pasa
+    bool   con_carga() const { return f_.con_carga; }
+    double v_carga() const { return f_.con_carga ? f_.v_carga : 0.0; }
+    double i_carga() const { return f_.con_carga ? f_.i_carga : 0.0; }
+    // Lo acumulado por la bobina, y hasta cuándo
+    double energia() const { return f_.energia; }
+    double i2s() const { return f_.i2s; }
+    double t_carga() const { return f_.t_carga; }
+    const sc_core::sc_event& evento() const { return ev_; }
+
+private:
+    analog_net_if *p_, *m_;
+    int id_p_, id_m_;
+    std::string quien_;
+    FaseCorriente f_;
+    sc_core::sc_event ev_;
+    bool viendo_ = false;
+    float vp_ = 0.f, vm_ = 0.f;
+};
+
+// ---------------------------------------------------------------------------
 // RESISTENCIA entre dos nodos, a y b. La de un pull-up que cuelga de la VCC de
 // un conector -la que ponga quien alimenta el módulo-, y no de una tensión
 // fija como Rpull.

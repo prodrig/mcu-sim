@@ -304,7 +304,7 @@ SC_MODULE(MotorCC), public ExtPartBase, public Actuador {
         de[0] = conduce_ ? (vth_ - ke_ * w - rt_ * e[0]) / l_ : 0.0;
         par = kt_ * e[0];
     }
-    void prepara(double* e) const override { if (!conduce_) e[0] = 0.0; }
+    void prepara(double* e, double, double) const override { if (!conduce_) e[0] = 0.0; }
     double paso_max() const override {
         return conduce_ ? std::min(PASO, 0.2 * l_ / rt_) : Actuador::INF;
     }

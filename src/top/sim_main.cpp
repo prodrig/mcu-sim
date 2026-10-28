@@ -1515,6 +1515,37 @@ SC_MODULE(Sim) {
                 std::printf("; encoder %+ld cuartos (%u PPR)", m->cuenta(), m->config().ppr);
             std::printf("\n");
         }
+        // Los paso a paso: donde estan, a cuanto van y si han perdido pasos; sus
+        // drivers, que micropaso llevan, cuantos pasos han contado y lo que
+        // gastan; y los generadores de pasos
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "MotorPaP") continue;
+            const MotorPaP* m = placa.como<MotorPaP>(i.id);
+            if (!m) continue;
+            std::printf("  PASO A PASO %s: %+.1f rpm, %+.2f pasos (%+.2f vueltas); A %s %+.0f mA, "
+                        "B %s %+.0f mA; retraso %+.2f pasos, %ld perdidos%s%s\n", i.id.c_str(),
+                        m->rpm(), m->posicion_pasos(), m->vueltas(), m->modo(0),
+                        m->corriente_ma(0), m->modo(1), m->corriente_ma(1), m->retraso(),
+                        m->pasos_perdidos(), m->ideal() ? "; ideal" : "",
+                        m->bloqueado() ? "; bloqueado" : "");
+        }
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "DriverPaP") continue;
+            const DriverPaP* d = placa.como<DriverPaP>(i.id);
+            if (!d) continue;
+            std::printf("  DRIVER %s (%s): %s, 1/%u, %+ld pasos; fases %+.0f y %+.0f mA de %.2f A; "
+                        "VMOT %.0f mA de media; %.0f °C%s\n", i.id.c_str(), d->modelo().nombre,
+                        d->activo() ? "activo" : (d->logica() ? "salidas apagadas" : "sin logica"),
+                        d->micropasos(), d->pasos(), d->consigna_ma(0), d->consigna_ma(1),
+                        d->corriente_ajustada(), d->corriente_vmot_ma(), d->temperatura(),
+                        d->sobretemperatura() ? "; PROTECCION TERMICA" : "");
+        }
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "GeneradorPasos") continue;
+            const GeneradorPasos* g = placa.como<GeneradorPasos>(i.id);
+            if (!g) continue;
+            std::printf("  GENERADOR %s: %.0f Hz, %+ld pasos\n", i.id.c_str(), g->hz(), g->pasos());
+        }
         // Las cadenas mecanicas: a cuanto va su eje, cuanto ha girado y la
         // inercia que mueve, todo reflejada en el
         for (const Instancia& i : placa.instancias()) {
