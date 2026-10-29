@@ -1616,6 +1616,22 @@ SC_MODULE(Sim) {
                 if (!r) continue;
                 std::printf("  REDUCTORA %s: 1:%g, %+.1f rpm en su salida\n", i.id.c_str(),
                             r->config().relacion, r->rpm_salida());
+            } else if (i.tipo == "FinalCarrera") {
+                const FinalCarrera* f = placa.como<FinalCarrera>(i.id);
+                if (!f) continue;
+                std::printf("  FINAL %s: %s, pisado %u veces\n", i.id.c_str(),
+                            f->pisado() ? "PISADO" : "suelto", f->veces());
+            } else if (i.tipo == "Sonda") {
+                const Sonda* p = placa.como<Sonda>(i.id);
+                if (!p) continue;
+                std::printf("  SONDA %s: %s, la fresa la toca con el Z a %.2f mm\n", i.id.c_str(),
+                            !p->puesta() ? "quitada" : (p->toca() ? "TOCA" : "puesta"),
+                            p->altura_mm());
+            } else if (i.tipo == "Interruptor") {
+                const Interruptor* t = placa.como<Interruptor>(i.id);
+                if (!t) continue;
+                std::printf("  INTERRUPTOR %s: %s\n", i.id.c_str(),
+                            t->pulsado() ? "PULSADO" : "en reposo");
             } else if (i.tipo == "Freno") {
                 const Freno* f = placa.como<Freno>(i.id);
                 if (!f) continue;

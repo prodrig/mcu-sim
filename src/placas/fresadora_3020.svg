@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+  LA FRESADORA 3020, EN PLANTA Y ALZADO, dibujada a mano: una aproximacion,
+  no una foto. Es el dibujo de placas/fresadora_3020.xml, que lo encuentra
+  solo porque se llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 150 x 130 mm-, A ESCALA: 1,5 unidades por mm de la maquina. Cada
+  pieza con el id de su pieza en el XML:
+
+    ARRIBA, LA PLANTA: la mesa (CY), que se mueve en Y, y el carro X (CX) en
+      el puente, los dos DIBUJADOS EN SU POSICION 0 y trasladados con ella
+      (efecto `desplaza`); los motores, acoples y husillos de X e Y, y los
+      finales FX y FY.
+    ABAJO, EL ALZADO: el carro X (XALZ, con la transmision TX) y la
+      herramienta (HERR: el carro Z, CZ, el cabezal y la fresa), que se
+      mueve con X y Z a la vez; el motor, el acople, el husillo y el final de
+      Z van en el carro X; la placa de la sonda (PRB) en la mesa.
+    A LA DERECHA: la seta (ESTOP), la fuente (PSU), las cotas (MAQ) y los
+      cables: J1, MX, MY, MZ, FIN, SONDA y SETA.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 1300" width="150mm" height="130mm">
+  <rect x="0" y="0" width="1500" height="1300" rx="10" fill="#eceff1"/>
+  <rect x="120" y="40" width="800" height="680" rx="8" fill="#cfd8dc" stroke="#78909c" stroke-width="2"/>
+  <text x="130" y="64" font-family="Arial" font-size="14" font-weight="bold" fill="#455a64">PLANTA</text>
+  <g id="CY">
+    <rect x="200" y="330" width="490" height="320" rx="4" fill="#a1887f" stroke="#5d4037" stroke-width="2"/>
+    <rect x="200" y="370" width="490" height="3" fill="#8d6e63"/>
+    <rect x="200" y="410" width="490" height="3" fill="#8d6e63"/>
+    <rect x="200" y="450" width="490" height="3" fill="#8d6e63"/>
+    <rect x="200" y="490" width="490" height="3" fill="#8d6e63"/>
+    <rect x="200" y="530" width="490" height="3" fill="#8d6e63"/>
+    <rect x="200" y="570" width="490" height="3" fill="#8d6e63"/>
+    <rect x="200" y="610" width="490" height="3" fill="#8d6e63"/>
+  </g>
+  <rect x="150" y="305" width="720" height="50" rx="4" fill="#b0bec5" stroke="#607d8b" stroke-width="2"/>
+  <g id="CX">
+    <rect x="180" y="285" width="80" height="90" rx="6" fill="#546e7a" stroke="#263238" stroke-width="2"/>
+    <circle cx="220" cy="330" r="22" fill="#cfd8dc" stroke="#263238" stroke-width="2"/>
+    <circle cx="220" cy="330" r="4" fill="#263238"/>
+  </g>
+  <rect id="MOTX" x="60" y="300" width="60" height="60" rx="6" fill="#455a64" stroke="#263238" stroke-width="2"/>
+  <rect id="AX" x="120" y="322" width="26" height="16" rx="3" fill="#90a4ae" stroke="#455a64" stroke-width="1"/>
+  <rect id="HX" x="146" y="327" width="700" height="6" fill="#e0e0e0" stroke="#9e9e9e" stroke-width="1"/>
+  <rect id="FX" x="160" y="300" width="14" height="20" fill="#ffca28" stroke="#ff8f00" stroke-width="1"/>
+  <rect id="MOTY" x="415" y="700" width="60" height="50" rx="6" fill="#455a64" stroke="#263238" stroke-width="2"/>
+  <rect id="AY" x="437" y="674" width="16" height="26" rx="3" fill="#90a4ae" stroke="#455a64" stroke-width="1"/>
+  <rect id="HY" x="442" y="250" width="6" height="424" fill="#e0e0e0" stroke="#9e9e9e" stroke-width="1"/>
+  <rect id="FY" x="340" y="660" width="20" height="14" fill="#ffca28" stroke="#ff8f00" stroke-width="1"/>
+  <rect x="120" y="780" width="800" height="480" rx="8" fill="#cfd8dc" stroke="#78909c" stroke-width="2"/>
+  <text x="130" y="804" font-family="Arial" font-size="14" font-weight="bold" fill="#455a64">ALZADO</text>
+  <rect x="150" y="1200" width="740" height="20" fill="#78909c"/>
+  <rect x="200" y="1150" width="490" height="50" rx="3" fill="#a1887f" stroke="#5d4037" stroke-width="2"/>
+  <rect id="PRB" x="380" y="1140" width="60" height="10" fill="#b87333" stroke="#6d4c41" stroke-width="1"/>
+  <rect x="150" y="840" width="30" height="360" fill="#b0bec5" stroke="#607d8b" stroke-width="2"/>
+  <rect x="860" y="840" width="30" height="360" fill="#b0bec5" stroke="#607d8b" stroke-width="2"/>
+  <rect x="150" y="830" width="740" height="40" rx="4" fill="#b0bec5" stroke="#607d8b" stroke-width="2"/>
+  <g id="XALZ">
+    <rect x="170" y="870" width="100" height="150" rx="6" fill="#546e7a" stroke="#263238" stroke-width="2"/>
+    <rect id="MOTZ" x="195" y="812" width="50" height="50" rx="5" fill="#455a64" stroke="#263238" stroke-width="2"/>
+    <rect id="AZ" x="214" y="862" width="12" height="16" rx="2" fill="#90a4ae" stroke="#455a64" stroke-width="1"/>
+    <rect id="HZ" x="218" y="878" width="4" height="220" fill="#e0e0e0" stroke="#9e9e9e" stroke-width="1"/>
+    <rect id="FZ" x="248" y="884" width="16" height="12" fill="#ffca28" stroke="#ff8f00" stroke-width="1"/>
+  </g>
+  <g id="HERR">
+    <rect id="CZ" x="180" y="1020" width="80" height="70" rx="5" fill="#37474f" stroke="#263238" stroke-width="2"/>
+    <rect x="194" y="1090" width="52" height="60" rx="6" fill="#b0bec5" stroke="#546e7a" stroke-width="2"/>
+    <rect x="217" y="1150" width="6" height="20" fill="#9e9e9e" stroke="#424242" stroke-width="1"/>
+  </g>
+  <g id="ESTOP">
+    <circle cx="1300" cy="120" r="60" fill="#ffd600" stroke="#f57f17" stroke-width="3"/>
+    <circle cx="1300" cy="120" r="42" fill="#d50000" stroke="#7f0000" stroke-width="2"/>
+  </g>
+  <text x="1300" y="205" font-family="Arial" font-size="12" font-weight="bold" fill="#b71c1c" text-anchor="middle">PARADA</text>
+  <rect id="PSU" x="1130" y="230" width="340" height="120" rx="6" fill="#455a64" stroke="#263238" stroke-width="2"/>
+  <text x="1300" y="300" font-family="Arial" font-size="16" font-weight="bold" fill="#eceff1" text-anchor="middle">24 V  5 A</text>
+  <rect id="MAQ" x="1130" y="380" width="340" height="210" rx="8" fill="#1b1b1b" stroke="#000000" stroke-width="2"/>
+  <text x="1300" y="612" font-family="Arial" font-size="12" font-weight="bold" fill="#455a64" text-anchor="middle">X  Y  Z</text>
+  <text x="1140" y="665" font-family="Arial" font-size="11" font-weight="bold" fill="#455a64">J1</text>
+  <g id="J1">
+  <rect id="J1.V24" x="1224" y="654" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J1.GND" x="1284" y="654" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="1230" y="682" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">V24</text>
+  <text x="1290" y="682" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">GND</text>
+  <text x="1140" y="745" font-family="Arial" font-size="11" font-weight="bold" fill="#455a64">MX</text>
+  <g id="MX">
+  <rect id="MX.A1" x="1224" y="734" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="MX.A2" x="1284" y="734" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="MX.B1" x="1344" y="734" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="MX.B2" x="1404" y="734" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="1230" y="762" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">A1</text>
+  <text x="1290" y="762" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">A2</text>
+  <text x="1350" y="762" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">B1</text>
+  <text x="1410" y="762" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">B2</text>
+  <text x="1140" y="825" font-family="Arial" font-size="11" font-weight="bold" fill="#455a64">MY</text>
+  <g id="MY">
+  <rect id="MY.A1" x="1224" y="814" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="MY.A2" x="1284" y="814" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="MY.B1" x="1344" y="814" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="MY.B2" x="1404" y="814" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="1230" y="842" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">A1</text>
+  <text x="1290" y="842" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">A2</text>
+  <text x="1350" y="842" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">B1</text>
+  <text x="1410" y="842" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">B2</text>
+  <text x="1140" y="905" font-family="Arial" font-size="11" font-weight="bold" fill="#455a64">MZ</text>
+  <g id="MZ">
+  <rect id="MZ.A1" x="1224" y="894" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="MZ.A2" x="1284" y="894" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="MZ.B1" x="1344" y="894" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="MZ.B2" x="1404" y="894" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="1230" y="922" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">A1</text>
+  <text x="1290" y="922" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">A2</text>
+  <text x="1350" y="922" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">B1</text>
+  <text x="1410" y="922" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">B2</text>
+  <text x="1140" y="985" font-family="Arial" font-size="11" font-weight="bold" fill="#455a64">FIN</text>
+  <g id="FIN">
+  <rect id="FIN.X" x="1224" y="974" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="FIN.Y" x="1284" y="974" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="FIN.Z" x="1344" y="974" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="FIN.GND" x="1404" y="974" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="1230" y="1002" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">X</text>
+  <text x="1290" y="1002" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">Y</text>
+  <text x="1350" y="1002" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">Z</text>
+  <text x="1410" y="1002" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">GND</text>
+  <text x="1140" y="1065" font-family="Arial" font-size="11" font-weight="bold" fill="#455a64">SONDA</text>
+  <g id="SONDA">
+  <rect id="SONDA.PLACA" x="1224" y="1054" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SONDA.FRESA" x="1284" y="1054" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="1230" y="1082" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">PLACA</text>
+  <text x="1290" y="1082" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">FRESA</text>
+  <text x="1140" y="1145" font-family="Arial" font-size="11" font-weight="bold" fill="#455a64">SETA</text>
+  <g id="SETA">
+  <rect id="SETA.ABORT" x="1224" y="1134" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SETA.GND" x="1284" y="1134" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="1230" y="1162" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">ABORT</text>
+  <text x="1290" y="1162" font-family="Arial" font-size="8" fill="#455a64" text-anchor="middle">GND</text>
+</svg>

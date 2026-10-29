@@ -1376,6 +1376,190 @@ def c5_transmision(sim, cp):
           "la transmision deja ver la cota del carro, para el display del dibujo: %.2f mm"
           % (z[-1][1] if z else 0))
 
+# =============================================================================
+# C6 (F3): la máquina
+# =============================================================================
+def maquina(sim, cp, guion, ms, pos=("50", "50", "50"), pedidos=(("M/CX", "posicion"),),
+            lista=(), periodo_ns=5000000, extra_maquina=()):
+    """La fresadora 3020 entera (placas/cnc_3020.xml) con su firmware, el
+    G-code de `guion` tecleado por el VCP -en memoria- y los carros donde diga
+    `pos`. Devuelve (series, avisos, consola, segundos de reloj)"""
+    placas = os.path.abspath("placas")
+    n = open(os.path.join(placas, "nucleo_f446re.xml"), encoding="utf-8").read()
+    n = n.replace('host="rfc2217:3355"\n              baudios="host"',
+                  'host="memoria" guion_ms="20" guion="%s"\n              baudios="115200"' % guion)
+    m = open(os.path.join(placas, "fresadora_3020.xml"), encoding="utf-8").read()
+    m = m.replace('posicion_mm="150"', 'posicion_mm="%s"' % pos[0])
+    m = m.replace('posicion_mm="100"', 'posicion_mm="%s"' % pos[1])
+    m = m.replace('posicion_mm="50" vertical', 'posicion_mm="%s" vertical' % pos[2])
+    for a, b in extra_maquina:
+        m = m.replace(a, b)
+    d = os.path.dirname(cp("nucleo.xml", n))
+    cp("fresadora.xml", m)
+    x = open(os.path.join(placas, "cnc_3020.xml"), encoding="utf-8").read()
+    x = x.replace('fichero="nucleo_f446re.xml"', 'fichero="%s/nucleo.xml"' % d)
+    x = x.replace('fichero="fresadora_3020.xml"', 'fichero="%s/fresadora.xml"' % d)
+    for f in ("cnc_shield_v3", "pololu_a4988", "modulo_mosfet", "motor_775"):
+        x = x.replace('fichero="%s.xml"' % f, 'fichero="%s/%s.xml"' % (placas, f))
+    x = x.replace('firmware="verif/fw/cnc/cnc.bin"',
+                  'firmware="%s"' % os.path.abspath("verif/fw/cnc/cnc.bin"))
+    ruta = cp("cnc.xml", x)
+    t0 = time.time()
+    s, avs, cat, rc = muestrea(sim, ruta, ms, list(pedidos), periodo_ns=periodo_ns, lista=lista)
+    return s, avs, ULTIMA[0], time.time() - t0
+
+
+def vcp(out):
+    """Lo que ha dicho el firmware por el VCP, una línea por elemento"""
+    return [l.split("[N/VCP] ", 1)[1] for l in out.splitlines() if "[N/VCP] " in l]
+
+
+def d_segmento(px, py, a, b):
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    l2 = dx * dx + dy * dy
+    u = max(0.0, min(1.0, ((px - a[0]) * dx + (py - a[1]) * dy) / l2)) if l2 else 0.0
+    return math.hypot(px - a[0] - u * dx, py - a[1] - u * dy)
+
+
+def quieto_en(serie_x, serie_y, t0, t1):
+    """La posición media de los carros entre t0 y t1 (s)"""
+    xs = [v for t, v in serie_x if t0 <= t <= t1]
+    ys = [v for t, v in serie_y if t0 <= t <= t1]
+    return sum(xs) / len(xs), sum(ys) / len(ys)
+
+
+def c6_maquina(sim, cp):
+    grupo("C6 (F3) La maquina: la CNC Shield, la fresadora y el cableado")
+    for placa, cab in (("cnc_shield_v3", "placa 'cnc-shield-v3': SIN MCU"),
+                       ("fresadora_3020", "placa 'fresadora-3020': SIN MCU")):
+        rc, out = valida(sim, "placas/%s.xml" % placa)
+        f = piezas_sin_dibujo(placa)
+        check(rc == 0 and cab in out and " 0 avisos" in out and ("dibujo: %s.svg (" % placa) in out
+              and not f, "placas/%s.xml se valida sin avisos, con su dibujo: cada pieza visible y "
+              "cada pin de conector, con su id%s" % (placa, " (faltan: %s)" % f if f else ""))
+    rc, out = valida(sim, "placas/cnc_3020.xml")
+    check(rc == 0 and "8 placas" in out and "0 avisos" in out and "mcu N/u0: verif/fw/cnc/cnc.bin" in out,
+          "placas/cnc_3020.xml, el sistema entero -Nucleo, shield, tres A4988, la fresadora y el "
+          "cabezal-, se monta sin avisos")
+    r = subprocess.run([sim, "placas/nucleo_f446re.xml", "verif/fw/fp_anidado/fp_anidado.bin", "300",
+                        "--serie", "VCP=memoria"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                       timeout=120)
+    o = r.stdout.decode("utf-8", "replace")
+    check("FP anidado: 100 de 100 bien (100 fuera, 100 dentro)" in o,
+          "EL FALLO DEL NUCLEO QUE DESTAPO EL FIRMWARE: una interrupcion anidada en un manejador "
+          "sin FP ya no borra S0-S15 del hilo principal -CONTROL.FPCA a cero al entrar en una "
+          "excepcion- (verif/fw/fp_anidado: %s)" % (linea(o, "FP anidado") or "nada"))
+
+    grupo("C6 (F3) El G-code: un cuadrado y un circulo, contra lo pedido")
+    s, avs, out, dt = maquina(sim, cp, "$I\\n?\\n", 200)
+    v = vcp(out)
+    check(any(l.startswith("Grbl 1.1f") for l in v) and "[VER:1.1f.mcu-sim:]" in v and
+          any(l.startswith("<Idle|MPos:0.000,0.000,0.000") for l in v),
+          "el firmware saluda como GRBL 1.1 -para que Candle o UGS lo reconozcan-, dice que no lo "
+          "es, y contesta a $I y a ? (%s)" % " / ".join(v[:4]))
+    check("3.30 V en step, y el A4988 pide 3.50 V para un alto" in textos(avs),
+          "los A4988 del shield leen los 3,3 V de la Nucleo con su logica a 5 V: por debajo de su "
+          "0,7·VDD, y se avisa (§8.1)")
+    # Un cuadrado de 20 mm y un circulo de 10 de radio, a 1200 mm/min. Antes, un
+    # paso adelante en X y en Y que recoge la holgura, y medio segundo quieto
+    g = ("G21 G91\\nG1 X1 Y1 F600\\nG4 P0.5\\nG90 G92 X0 Y0\\n"
+         "G1 X20 F1200\\nG1 Y20\\nG1 X0\\nG1 Y0\\nG4 P0.3\\nG0 X10\\n"
+         "G2 X10 Y0 I0 J10 F1200\\n")
+    s, avs, out, dt = maquina(sim, cp, g, 9500, pedidos=(("M/CX", "posicion"), ("M/CY", "posicion")),
+                              periodo_ns=2000000)
+    sx, sy = s[("M/CX", "posicion")], s[("M/CY", "posicion")]
+    x0, y0 = quieto_en(sx, sy, 0.35, 0.45)
+    pts = [(t, a - x0, b - y0) for (t, a), (_, b) in zip(sx, sy) if t > 0.5]
+    cuad = [(0, 0), (20, 0), (20, 20), (0, 20), (0, 0)]
+    # El cuadrado acaba al volver a (0, 0) despues de pasar por (0, 20)
+    t20 = [t for t, x, y in pts if math.hypot(x, y - 20) < 0.05]
+    t_fin = [t for t, x, y in pts if t20 and t > t20[0] and math.hypot(x, y) < 0.06]
+    t_cuad = t_fin[0] if t_fin else 1e9
+    lado = [(x, y) for t, x, y in pts if t <= t_cuad]
+    peor_c = max((min(d_segmento(x, y, cuad[i], cuad[i + 1]) for i in range(4)) for x, y in lado),
+                 default=9)
+    esquinas = [min(math.hypot(x - cx, y - cy) for t, x, y in pts) for cx, cy in cuad[1:4]]
+    check(peor_c < 0.05 and max(esquinas) < 0.03,
+          "el CUADRADO de 20 mm: el carro X y la mesa no se separan de su lado mas de %.3f mm -la "
+          "holgura de las tuercas es de 0,02-, y pasan por las esquinas a %.3f como mucho (%d "
+          "puntos)" % (peor_c, max(esquinas), len(lado)))
+    # El circulo: lo de despues, menos el rapido de (0, 0) a (10, 0)
+    arco = [(x, y) for t, x, y in pts if t > t_cuad and d_segmento(x, y, (0, 0), (10, 0)) > 0.06]
+    radios = [math.hypot(x - 10, y - 10) for x, y in arco]
+    angulos = sorted(math.degrees(math.atan2(y - 10, x - 10)) for x, y in arco)
+    hueco = max([b - a for a, b in zip(angulos, angulos[1:])] + [angulos[0] + 360 - angulos[-1]]) \
+        if angulos else 360
+    check(radios and max(abs(r - 10) for r in radios) < 0.05 and hueco < 10,
+          "el CIRCULO de 10 mm de radio, en G2: entre %.3f y %.3f, y da la vuelta entera"
+          % (min(radios or [0]), max(radios or [0])))
+    check(dt < 9.5 * 2.5, "9,5 s de maquina en %.1f s de reloj: %.2f s por segundo, con los tres "
+          "ejes y el MCU" % (dt, dt / 9.5))
+
+    grupo("C6 (F3) El homing, la sonda, los limites, la seta y el cabezal")
+    s, avs, out, dt = maquina(sim, cp, "$H\\nG0 X10 Y5\\n", 7000, pos=("8", "6", "66"),
+                              pedidos=(("M/CX", "posicion"), ("M/CY", "posicion"), ("M/CZ", "posicion"),
+                                       ("M/FX", "pisado"), ("M/FY", "pisado"), ("M/FZ", "pisado")),
+                              periodo_ns=2000000)
+    v = vcp(out)
+    primero = {}
+    for k in ("FX", "FY", "FZ"):
+        t = [t for t, x in s[("M/%s" % k, "pisado")] if x == 1.0]
+        primero[k] = t[0] if t else 99
+    veces = {k: sum(1 for (t0, a), (t1, b) in zip(s[("M/%s" % k, "pisado")], s[("M/%s" % k, "pisado")][1:])
+                    if a == 0.0 and b == 1.0) for k in ("FX", "FY", "FZ")}
+    cx, cy, cz = (s[("M/C%s" % e, "posicion")][-1][1] for e in "XYZ")
+    check(v.count("ok") == 2 and primero["FZ"] < primero["FX"] < primero["FY"] and
+          all(n == 2 for n in veces.values()),
+          "$H: primero el Z ARRIBA -para no arrastrar la fresa-, despues X y despues Y; cada "
+          "final se pisa dos veces, rapido y despacio (Z a %.2f s, X a %.2f, Y a %.2f)"
+          % (primero["FZ"], primero["FX"], primero["FY"]))
+    check(abs(cx - 11.48) < 0.03 and abs(cy - 6.48) < 0.03 and abs(cz - 70.52) < 0.03,
+          "la casa queda a 1 mm de cada final (X e Y en 1,48, Z en 70,52), y G0 X10 Y5 va de ahi: "
+          "el carro X a %.3f mm y la mesa a %.3f; el Z, arriba, a %.3f" % (cx, cy, cz))
+    s, avs, out, dt = maquina(sim, cp, "G38.2 Z-10 F300\\n", 2500, pos=("50", "50", "26"),
+                              pedidos=(("M/CZ", "posicion"), ("M/PRB", "toca")))
+    v = vcp(out)
+    prb = [l for l in v if l.startswith("[PRB:")]
+    cz = s[("M/CZ", "posicion")][-1][1]
+    zp = float(prb[0].split(",")[2].split(":")[0]) if prb else 0
+    check(prb and prb[0].endswith(":1]") and abs(zp + 6.0) < 0.03 and abs(cz - 20.0) < 0.01,
+          "G38.2 Z-10: el Z baja hasta que la fresa toca la placa de la sonda, a 20 mm, y se para "
+          "ahi (%.3f); el control dice %s -sus pasos: lo que de mas es la holgura de la tuerca-"
+          % (cz, prb[0] if prb else "nada"))
+    s, avs, out, dt = maquina(sim, cp, "G38.2 Z-3 F300\\n", 2000, pos=("50", "50", "26"),
+                              lista=[(5, "M/PRB", "puesta", 0)])
+    v = vcp(out)
+    check(any(l.endswith(":0]") and l.startswith("[PRB:") for l in v) and "ALARM:5" in v,
+          "sin la placa, baja los 3 mm sin tocar nada: [PRB:...:0] y ALARM:5, la de GRBL")
+    s, avs, out, dt = maquina(sim, cp, "G0 X-10\\n", 2000, pos=("5", "50", "50"))
+    v = vcp(out)
+    cx = s[("M/CX", "posicion")][-1][1]
+    check("ALARM:1" in v and "[MSG:Limite duro: un final pisado]" in v and 0.3 < cx < 0.5,
+          "G0 X-10 desde 5 mm: el final de X se pisa a 0,5 mm y el control se para en seco -un "
+          "limite duro, ALARM:1-, sin llegar al tope (el carro, a %.2f mm)" % cx)
+    s, avs, out, dt = maquina(sim, cp, "G1 X40 F600\\n", 2500,
+                              pedidos=(("M/CX", "posicion"), ("M/CZ", "posicion")),
+                              lista=[(1000, "M/ESTOP", "pulsar", 1)])
+    v = vcp(out)
+    px = s[("M/CX", "posicion")]
+    en_seta = [x for t, x in px if 1.0 <= t <= 1.02]
+    al_final = px[-1][1]
+    ld = [linea(out, "DRIVER %s/U1" % d) for d in ("DX", "DY", "DZ")]
+    check("ALARM:3" in v and "[MSG:Abortado: la seta o A0]" in v and en_seta and
+          abs(al_final - en_seta[0]) < 0.2 and all("salidas apagadas" in l for l in ld) and
+          abs(s[("M/CZ", "posicion")][-1][1] - 50.0) < 0.01,
+          "LA SETA a mitad de un G1: su contacto NC corta los 24 V de los drivers -se apagan sus "
+          "salidas- y el NO avisa al control por A0, que se para y lo dice (ALARM:3). El carro X "
+          "se queda en %.2f mm, y el Z, sin corriente, no se cae: su Tr8x2 se sujeta solo"
+          % al_final)
+    s, avs, out, dt = maquina(sim, cp, "M3 S1000\\nG4 P0.6\\nM5\\n", 3000,
+                              pedidos=(("C/MOTOR", "rpm"),), periodo_ns=10000000)
+    r = s[("C/MOTOR", "rpm")]
+    check(max(v for t, v in r) > 9500 and r[-1][1] < 0.15 * max(v for t, v in r),
+          "M3 S1000: el PWM de D11 abre el MOSFET y el 775 se pone a %.0f rpm; con M5 se queda "
+          "suelto y se para por su rozamiento, en unos dos segundos (%.0f rpm al final)"
+          % (max(v for t, v in r), r[-1][1]))
+
 
 def main():
     a = argparse.ArgumentParser(description="La fresadora CNC, por fases, contra el mcu-sim de verdad")
@@ -1398,6 +1582,7 @@ def main():
         c3_continua(sim, cp)
         c4_bldc(sim, cp)
         c5_transmision(sim, cp)
+        c6_maquina(sim, cp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print()

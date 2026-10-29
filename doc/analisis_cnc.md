@@ -906,6 +906,42 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
   `mcu-sim-gui`, una cota en mm lleva siempre su signo y una cifra más.
 * **Pruebas**: `make gui-cnc` C5, 18 comprobaciones (117 en total).
 
+### F3, hecha: la máquina, con su firmware propio
+
+* **`parts/maquina.h`**: `FinalCarrera`, `Sonda` e `Interruptor` —contactos
+  que accionan los carros o la mano— y `Cotas`. El carro avisa a los que lo
+  miran cada vez que se mueve.
+* **Placas**: `cnc_shield_v3.xml` (la CNC Shield V3, con sus jumpers de
+  micropasos y sus tiras), `fresadora_3020.xml` (la mecánica de una 3020, con
+  finales, sonda, seta, fuente y el dibujo en planta y alzado) y el sistema
+  `cnc_3020.xml`: Nucleo-F446RE, shield, tres A4988, la 3020 y el cabezal 775
+  con su módulo MOSFET. Valida sin avisos. El final Z va al D12 y el PWM del
+  cabezal al D11, como en GRBL 1.1.
+* **El firmware propio, `verif/fw/cnc`**: `G0`–`G3` con trapecio, `$H`,
+  `G38.2`, `M3`/`M5`, límites duros, ABORT y los de tiempo real, con el saludo
+  de GRBL 1.1 para que lo reconozca un emisor y un `[MSG:…]` que dice que no
+  es GRBL. A 84 MHz: a 16 MHz, la interrupción de los pasos a 20 kHz dejaba
+  sin CPU a la UART y se perdían caracteres. Ahora el TIM6 va a 10 kHz y solo
+  mientras hay algo que mover.
+* **Un fallo del núcleo, encontrado por el homing**: al entrar en una
+  excepción, **`CONTROL.FPCA` no se ponía a 0** (ARMv7-M, `ExceptionTaken`).
+  Con una interrupción anidada dentro de otra que había usado la FPU, la de
+  dentro apilaba un marco de FP perezoso que no tocaba y la de fuera volvía
+  con S0–S15 cambiados: el homing perdía pasos y se iba de madre. Arreglado en
+  `core/cpu.h`, con su regresión, `verif/fw/fp_anidado`: 0 de 100 sin el
+  arreglo, 100 de 100 con él. Las demás baterías dan lo mismo que antes.
+* **Lo que sale**: un cuadrado de 20 mm con 24 µm de error; un círculo de
+  radio 10 entre 9,959 y 10,041 —la holgura de la tuerca, en los cambios de
+  cuadrante—; `$H` en orden; `G38.2` a 19,996 sobre una placa de 20 y
+  `ALARM:5` sin ella; `ALARM:1` en un límite duro; la seta, que **corta los
+  drivers** (`ALARM:3`, «salidas apagadas», el Z sujeto por su husillo); el
+  cabezal a 9878 rpm y parándose solo. **Unos 1,3 s de reloj por segundo de
+  máquina** mientras se mueve.
+* **Candle y UGS**: el VCP de la Nucleo es un `PuenteSerie`, en RFC 2217 en
+  el puerto 3355 (§8.3). En las pruebas, un guion en memoria.
+* **Pruebas**: `make gui-cnc` C6, 16 comprobaciones (133 en total).
+* **grblHAL**, en un parche aparte.
+
 ## Fuentes
 
 * **VEVOR 3020.** La página que se dio no se pudo abrir por su longitud. El

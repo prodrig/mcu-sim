@@ -1122,10 +1122,14 @@ FWF3 := verif/fw/stm32f3/f3_demo verif/fw/stm32f3/coremark verif/fw/stm32f3/gpio
 # el FTDI, el de placas/nucleo_f446re_encoder_tft_servo.xml, y el de los dos
 # motores, el de placas/nucleo_f446re_encoder_lcd_servo_2xmcc.xml, que vigila
 # `make gui-ordenes`; y el PID de posicion del eje servo de continua de la
-# CNC, el de placas/nucleo_f446re_ibt2_jgb37.xml, que vigila `make gui-cnc`
+# CNC, el de placas/nucleo_f446re_ibt2_jgb37.xml, que vigila `make gui-cnc`;
+# el control numerico de la fresadora, el de placas/cnc_3020.xml, y la prueba
+# del contexto FP de las excepciones anidadas que destapo, que vigila tambien
+# `make gui-cnc`
 FWPLACAS := verif/fw/barra8_demo verif/fw/barra8_morpho verif/fw/tft_demo verif/fw/tft_prueba \
             verif/fw/servo_demo verif/fw/servo_prueba verif/fw/encoder_tft_servo \
-            verif/fw/encoder_lcd_servo_2xmcc verif/fw/cnc_pid
+            verif/fw/encoder_lcd_servo_2xmcc verif/fw/cnc_pid verif/fw/cnc \
+            verif/fw/fp_anidado
 
 # Todos los que hay, para `cleanfw`. Se calculan buscando Makefiles en vez de
 # escribir otra lista: asi un firmware nuevo se borra sin tocar esto.

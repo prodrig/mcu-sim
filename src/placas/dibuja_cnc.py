@@ -533,6 +533,192 @@ def eje_z():
     s.guarda("eje_z_tr8.svg")
 
 
+# ---------------------------------------------------------------------------
+# LA CNC SHIELD V3
+# ---------------------------------------------------------------------------
+def cnc_shield():
+    s = Svg(700, 540, """
+  CNC SHIELD V3 (Protoneer), dibujada a mano: una aproximacion, no una foto.
+  Es el dibujo de placas/cnc_shield_v3.xml, que lo encuentra solo porque se
+  llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 70 x 54 mm, la de un Arduino Uno- y cada pieza con el id de su
+  pieza en el XML. Vista desde arriba:
+
+    J5, J6, J8, J9  los conectores Arduino de debajo, en los bordes
+    SX1, SX2 ...    los zocalos de los tres drivers, X, Y y Z
+    MX, MY, MZ      las tiras de los motores
+    JX0 ... JZ2     los puentes del micropaso (JX0@5V-MS: puesto)
+    FIN, SPN, COOL, CTL  las tiras de los finales, el cabezal, la
+                    refrigeracion y el control
+    PWR             la borna de la potencia
+    R1              la resistencia de EN
+""")
+    s.add(s.rect(0, 0, 700, 540, "#1565c0", "#0d47a1", 2, rx=12))
+
+    def tira(id_con, nombres, x0, y0, dx, dy, rot=None, color=BLANCO, tam=7):
+        s.add('<g id="%s">' % id_con)
+        for k, n in enumerate(nombres):
+            pin_tira(s, "%s.%s" % (id_con, n), x0 + k * dx, y0 + k * dy)
+        s.add("</g>")
+        if rot:
+            for k, n in enumerate(rot):
+                s.add(s.text(x0 + k * dx + (0 if dx else 14), y0 + k * dy + (18 if dx else 3), n, tam,
+                             color, "middle" if dx else "start", bold=False))
+
+    # Los Arduino, en los bordes
+    tira("J5", [str(k) for k in range(1, 11)], 30, 18, 25.4, 0)
+    tira("J9", [str(k) for k in range(1, 9)], 330, 18, 25.4, 0)
+    tira("J6", [str(k) for k in range(1, 9)], 120, 522, 25.4, 0)
+    tira("J8", [str(k) for k in range(1, 7)], 400, 522, 25.4, 0)
+    # Los tres zocalos, con sus motores y sus puentes
+    for i, e in enumerate("XYZ"):
+        x = 70 + i * 200
+        s.add(s.rect(x - 14, 70, 130, 230, "#0d47a1", "#08306b", 1, rx=4))
+        tira("S%s1" % e, ("EN", "MS1", "MS2", "MS3", "RST", "SLP", "STEP", "DIR"), x, 90, 0, 26)
+        tira("S%s2" % e, ("VMOT", "GND1", "2B", "2A", "1A", "1B", "VLOG", "GND2"), x + 100, 90, 0, 26)
+        s.add(s.text(x + 50, 64, "eje " + e, 11, BLANCO, "middle"))
+        tira("M%s" % e, ("2B", "2A", "1A", "1B"), x + 10, 330, 25.4, 0, ("2B", "2A", "1A", "1B"))
+        for k in range(3):
+            j = "J%s%d" % (e, k)
+            jx = x + 10 + k * 34
+            s.add('<g id="%s">' % j)
+            pin_tira(s, j + ".5V", jx, 380)
+            pin_tira(s, j + ".MS", jx, 380 + 25.4)
+            s.add("</g>")
+            s.add(s.rect(jx - 9, 372, 18, 42, "#212121", "#000000", 1, rx=2,
+                         id="%s@5V-MS" % j))
+        s.add(s.text(x + 44, 430, "MS1 MS2 MS3", 7, BLANCO, "middle", bold=False))
+    tira("FIN", ("XMIN", "XMAX", "YMIN", "YMAX", "ZMIN", "ZMAX"), 70, 470, 25.4, 0,
+         ("X-", "X+", "Y-", "Y+", "Z-", "Z+"))
+    tira("SPN", ("EN", "DIR"), 250, 470, 25.4, 0, ("SpE", "SpD"))
+    tira("COOL", ("EN",), 320, 470, 25.4, 0, ("Cl",))
+    tira("CTL", ("ABORT", "HOLD", "RESUME", "ESTOP", "SDA", "SCL"), 370, 470, 25.4, 0,
+         ("Ab", "Ho", "Re", "ES", "SD", "SC"))
+    s.add(s.rect(600, 60, 80, 120, "#2e7d32", "#1b5e20", 1.5, rx=4))
+    s.add('<g id="PWR">')
+    tornillo(s, "PWR.V+", 640, 90)
+    tornillo(s, "PWR.GND", 640, 150)
+    s.add("</g>")
+    s.add(s.text(640, 196, "12-36 V", 9, BLANCO, "middle"))
+    s.add('<g id="R1">')
+    s.add("  " + s.rect(610, 230, 40, 14, "#d7ccc8", "#5d4037", 1))
+    s.add("</g>")
+    s.add(s.text(350, 455, "CNC SHIELD V3", 12, BLANCO, "middle"))
+    s.guarda("cnc_shield_v3.svg")
+
+
+# ---------------------------------------------------------------------------
+# LA FRESADORA 3020: PLANTA Y ALZADO
+# ---------------------------------------------------------------------------
+def fresadora():
+    K = 1.5                                   # unidades del dibujo por mm de maquina
+    s = Svg(1500, 1300, """
+  LA FRESADORA 3020, EN PLANTA Y ALZADO, dibujada a mano: una aproximacion,
+  no una foto. Es el dibujo de placas/fresadora_3020.xml, que lo encuentra
+  solo porque se llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 150 x 130 mm-, A ESCALA: 1,5 unidades por mm de la maquina. Cada
+  pieza con el id de su pieza en el XML:
+
+    ARRIBA, LA PLANTA: la mesa (CY), que se mueve en Y, y el carro X (CX) en
+      el puente, los dos DIBUJADOS EN SU POSICION 0 y trasladados con ella
+      (efecto `desplaza`); los motores, acoples y husillos de X e Y, y los
+      finales FX y FY.
+    ABAJO, EL ALZADO: el carro X (XALZ, con la transmision TX) y la
+      herramienta (HERR: el carro Z, CZ, el cabezal y la fresa), que se
+      mueve con X y Z a la vez; el motor, el acople, el husillo y el final de
+      Z van en el carro X; la placa de la sonda (PRB) en la mesa.
+    A LA DERECHA: la seta (ESTOP), la fuente (PSU), las cotas (MAQ) y los
+      cables: J1, MX, MY, MZ, FIN, SONDA y SETA.
+""")
+    s.add(s.rect(0, 0, 1500, 1300, "#eceff1", rx=10))
+    gris, oscuro, al = "#90a4ae", "#455a64", "#b0bec5"
+    # --- La planta --------------------------------------------------------
+    x0, y0 = 220, 640                       # X = 0 e Y = 0 de los carros
+    s.add(s.rect(120, 40, 800, 680, "#cfd8dc", "#78909c", 2, rx=8))
+    s.add(s.text(130, 64, "PLANTA", 14, oscuro))
+    # La mesa, en Y = 0: 300 x 200 mm
+    s.add('<g id="CY">')
+    s.add("  " + s.rect(x0 - 20, y0 - 300 - 10, 450 + 40, 300 + 20, "#a1887f", "#5d4037", 2, rx=4))
+    for k in range(1, 8):
+        s.add("  " + s.rect(x0 - 20, y0 - 300 - 10 + k * 40, 490, 3, "#8d6e63"))
+    s.add("</g>")
+    # El puente, fijo, y el carro X en X = 0
+    yp = 330
+    s.add(s.rect(150, yp - 25, 720, 50, al, "#607d8b", 2, rx=4))
+    s.add('<g id="CX">')
+    s.add("  " + s.rect(x0 - 40, yp - 45, 80, 90, "#546e7a", "#263238", 2, rx=6))
+    s.add("  " + s.circ(x0, yp, 22, "#cfd8dc", "#263238", 2))
+    s.add("  " + s.circ(x0, yp, 4, "#263238"))
+    s.add("</g>")
+    # X: motor a la izquierda del puente
+    s.add(s.rect(60, yp - 30, 60, 60, oscuro, "#263238", 2, rx=6, id="MOTX"))
+    s.add(s.rect(120, yp - 8, 26, 16, gris, oscuro, 1, rx=3, id="AX"))
+    s.add(s.rect(146, yp - 3, 700, 6, "#e0e0e0", "#9e9e9e", 1, id="HX"))
+    s.add(s.rect(x0 - 60, yp - 30, 14, 20, "#ffca28", "#ff8f00", 1, id="FX"))
+    # Y: motor delante de la mesa
+    s.add(s.rect(x0 + 195, 700, 60, 50, oscuro, "#263238", 2, rx=6, id="MOTY"))
+    s.add(s.rect(x0 + 217, 674, 16, 26, gris, oscuro, 1, rx=3, id="AY"))
+    s.add(s.rect(x0 + 222, 250, 6, 424, "#e0e0e0", "#9e9e9e", 1, id="HY"))
+    s.add(s.rect(x0 + 120, 660, 20, 14, "#ffca28", "#ff8f00", 1, id="FY"))
+    # --- El alzado --------------------------------------------------------
+    ya = 1220                                # el suelo
+    s.add(s.rect(120, 780, 800, 480, "#cfd8dc", "#78909c", 2, rx=8))
+    s.add(s.text(130, 804, "ALZADO", 14, oscuro))
+    s.add(s.rect(150, ya - 20, 740, 20, "#78909c"))
+    s.add(s.rect(x0 - 20, ya - 70, 490, 50, "#a1887f", "#5d4037", 2, rx=3))
+    s.add(s.rect(x0 + 160, ya - 80, 60, 10, "#b87333", "#6d4c41", 1, id="PRB"))
+    s.add(s.rect(150, 840, 30, ya - 860, al, "#607d8b", 2))
+    s.add(s.rect(860, 840, 30, ya - 860, al, "#607d8b", 2))
+    s.add(s.rect(150, 830, 740, 40, al, "#607d8b", 2, rx=4))
+    # El carro X, en X = 0, con lo del Z encima
+    s.add('<g id="XALZ">')
+    s.add("  " + s.rect(x0 - 50, 870, 100, 150, "#546e7a", "#263238", 2, rx=6))
+    s.add("  " + s.rect(x0 - 25, 812, 50, 50, oscuro, "#263238", 2, rx=5, id="MOTZ"))
+    s.add("  " + s.rect(x0 - 6, 862, 12, 16, gris, oscuro, 1, rx=2, id="AZ"))
+    s.add("  " + s.rect(x0 - 2, 878, 4, 220, "#e0e0e0", "#9e9e9e", 1, id="HZ"))
+    s.add("  " + s.rect(x0 + 28, 884, 16, 12, "#ffca28", "#ff8f00", 1, id="FZ"))
+    s.add("</g>")
+    # La herramienta, en X = 0 y Z = 0: la punta de la fresa 20 mm por debajo
+    # de la placa de la sonda, que la toca con el carro Z a 20 mm
+    punta = ya - 80 + 20 * K
+    s.add('<g id="HERR">')
+    s.add("  " + s.rect(x0 - 40, punta - 150, 80, 70, "#37474f", "#263238", 2, rx=5, id="CZ"))
+    s.add("  " + s.rect(x0 - 26, punta - 80, 52, 60, "#b0bec5", "#546e7a", 2, rx=6))
+    s.add("  " + s.rect(x0 - 3, punta - 20, 6, 20, "#9e9e9e", "#424242", 1))
+    s.add("</g>")
+    # --- A la derecha -----------------------------------------------------
+    s.add('<g id="ESTOP">')
+    s.add("  " + s.circ(1300, 120, 60, "#ffd600", "#f57f17", 3))
+    s.add("  " + s.circ(1300, 120, 42, "#d50000", "#7f0000", 2))
+    s.add("</g>")
+    s.add(s.text(1300, 205, "PARADA", 12, "#b71c1c", "middle"))
+    s.add(s.rect(1130, 230, 340, 120, "#455a64", "#263238", 2, rx=6, id="PSU"))
+    s.add(s.text(1300, 300, "24 V  5 A", 16, "#eceff1", "middle"))
+    s.add(s.rect(1130, 380, 340, 210, "#1b1b1b", "#000000", 2, rx=8, id="MAQ"))
+    s.add(s.text(1300, 612, "X  Y  Z", 12, oscuro, "middle"))
+    cables = (("J1", ("V24", "GND")), ("MX", ("A1", "A2", "B1", "B2")),
+              ("MY", ("A1", "A2", "B1", "B2")), ("MZ", ("A1", "A2", "B1", "B2")),
+              ("FIN", ("X", "Y", "Z", "GND")), ("SONDA", ("PLACA", "FRESA")),
+              ("SETA", ("ABORT", "GND")))
+    y = 660
+    for con, pines in cables:
+        s.add(s.text(1140, y + 5, con, 11, oscuro))
+        s.add('<g id="%s">' % con)
+        for k, n in enumerate(pines):
+            pin_tira(s, "%s.%s" % (con, n), 1230 + k * 60, y)
+        s.add("</g>")
+        for k, n in enumerate(pines):
+            s.add(s.text(1230 + k * 60, y + 22, n, 8, oscuro, "middle", bold=False))
+        y += 80
+    s.guarda("fresadora_3020.svg")
+
+
 if __name__ == "__main__":
     nema17()
     st5918()
@@ -544,3 +730,5 @@ if __name__ == "__main__":
     db59()
     controlador_c5e()
     eje_z()
+    cnc_shield()
+    fresadora()

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     LA FRESADORA 3020 ENTERA: la maquina, una NUCLEO-F446RE con una CNC
+     Shield V3 y tres A4988, y el cabezal, con el firmware de verif/fw/cnc
+
+     La fase F3 de doc/analisis_cnc.md: una 3020 simulada que se mueve con
+     G-code. El G-code entra por el VCP del ST-LINK, el PuenteSerie de la
+     Nucleo (RFC 2217 en el 3355): Candle, UGS o CNCjs se conectan como a una
+     maquina de verdad (doc/puente_serie.md).
+
+       N   placas/nucleo_f446re.xml, con verif/fw/cnc: un control numerico
+           pequeno que habla como GRBL 1.1 (G0 G1 G2 G3 G4 G28 G38.2 G92, M3
+           M5, $H, ?, !, ~)
+       S   placas/cnc_shield_v3.xml, enchufado en sus conectores Arduino
+       DX, DY, DZ  tres placas/pololu_a4988.xml en los zocalos del shield, a
+           1/8 por sus puentes
+       M   placas/fresadora_3020.xml: los tres ejes, los finales, la sonda, la
+           seta y la fuente de 24 V
+       Q, C  placas/modulo_mosfet.xml y placas/motor_775.xml: el cabezal
+
+     EL CABLEADO, como en GRBL 1.1 sobre un shield con la serigrafia de la 0.9:
+     el final de Z a SPN.EN (D12) y la senal del cabezal a FIN.ZMAX (D11, el
+     PWM). Los finales de X e Y, a FIN.XMIN y FIN.YMIN; la sonda, a CTL.SCL
+     (A5); el segundo contacto de la seta, a CTL.ABORT (A0). Los 24 V de la
+     fuente, tras la seta, a PWR del shield y a la entrada del modulo MOSFET.
+
+     Los A4988 leen los 3,3 V de la Nucleo con su logica a 5 V: por debajo de
+     su 0,7·VDD. Funciona -como en el de verdad- y se avisa (§8.1).
+
+         ./build/mcu-sim placas/cnc_3020.xml --gui
+     ========================================================================= -->
+<sistema nombre="cnc-3020">
+  <placa id="N" fichero="nucleo_f446re.xml" x="0" y="0"/>
+  <placa id="S" fichero="cnc_shield_v3.xml" x="0" y="0"/>
+  <placa id="DX" fichero="pololu_a4988.xml"/>
+  <placa id="DY" fichero="pololu_a4988.xml"/>
+  <placa id="DZ" fichero="pololu_a4988.xml"/>
+  <placa id="M" fichero="fresadora_3020.xml"/>
+  <placa id="Q" fichero="modulo_mosfet.xml"/>
+  <placa id="C" fichero="motor_775.xml"/>
+
+  <!-- El shield en la Nucleo -->
+  <acopla a="N/CN5" b="S/J5"/>
+  <acopla a="N/CN6" b="S/J6"/>
+  <acopla a="N/CN8" b="S/J8"/>
+  <acopla a="N/CN9" b="S/J9"/>
+
+  <!-- Los drivers en sus zocalos -->
+  <acopla a="S/SX1" b="DX/J1"/> <acopla a="S/SX2" b="DX/J2"/>
+  <acopla a="S/SY1" b="DY/J1"/> <acopla a="S/SY2" b="DY/J2"/>
+  <acopla a="S/SZ1" b="DZ/J1"/> <acopla a="S/SZ2" b="DZ/J2"/>
+
+  <!-- Los motores: la bobina A a 1A-1B, la B a 2A-2B -->
+  <hilo a="S/MX.1A" b="M/MX.A1"/> <hilo a="S/MX.1B" b="M/MX.A2"/>
+  <hilo a="S/MX.2A" b="M/MX.B1"/> <hilo a="S/MX.2B" b="M/MX.B2"/>
+  <hilo a="S/MY.1A" b="M/MY.A1"/> <hilo a="S/MY.1B" b="M/MY.A2"/>
+  <hilo a="S/MY.2A" b="M/MY.B1"/> <hilo a="S/MY.2B" b="M/MY.B2"/>
+  <hilo a="S/MZ.1A" b="M/MZ.A1"/> <hilo a="S/MZ.1B" b="M/MZ.A2"/>
+  <hilo a="S/MZ.2A" b="M/MZ.B1"/> <hilo a="S/MZ.2B" b="M/MZ.B2"/>
+
+  <!-- La potencia, tras la seta -->
+  <hilo a="M/J1.V24" b="S/PWR.V+"/>
+  <hilo a="M/J1.GND" b="S/PWR.GND"/>
+
+  <!-- Los finales, la sonda y la seta -->
+  <hilo a="M/FIN.X" b="S/FIN.XMIN"/>
+  <hilo a="M/FIN.Y" b="S/FIN.YMIN"/>
+  <hilo a="M/FIN.Z" b="S/SPN.EN"/>        <!-- D12: GRBL 1.1 -->
+  <hilo a="M/SONDA.PLACA" b="S/CTL.SCL"/> <!-- A5 -->
+  <hilo a="M/SETA.ABORT" b="S/CTL.ABORT"/><!-- A0 -->
+
+  <!-- El cabezal: el modulo MOSFET con su PWM en D11 -->
+  <hilo a="M/J1.V24" b="Q/X1.VIN"/>
+  <hilo a="M/J1.GND" b="Q/X1.GNDP"/>
+  <hilo a="S/FIN.ZMAX" b="Q/P1.SIG"/>    <!-- D11: el PWM del cabezal -->
+  <hilo a="C/M.ROJO" b="Q/X2.MAS"/>
+  <hilo a="C/M.NEGRO" b="Q/X2.MENOS"/>
+
+  <mcu ref="N/u0" firmware="verif/fw/cnc/cnc.bin"/>
+</sistema>

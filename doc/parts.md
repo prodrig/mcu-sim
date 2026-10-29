@@ -2904,6 +2904,68 @@ entra en la cadena como rozamiento, y si el eje gira avisa de que **patina**.
   que para el carro y un paso a paso que pierde pasos sin que nadie se entere;
   un Tr8 de un metro con un extremo libre que pasa de su velocidad crítica.
 
+### 4.22 La máquina: `FinalCarrera`, `Sonda`, `Interruptor` y `Cotas`
+
+`parts/maquina.h`, la fase F3 de `doc/analisis_cnc.md` (§7). Es lo que rodea
+a los ejes de una fresadora. Los tres primeros son **contactos**: ramas entre
+dos nodos que se vuelven a resolver cada vez que cambia uno de sus nodos o lo
+que los acciona. Los que accionan los carros (§4.21) los nombran con un
+`<ref nombre="carro" componente="CX"/>`, y el carro avisa a los que lo miran
+cada vez que se mueve. Montada, una fresadora entera es
+`placas/cnc_3020.xml`, un `<sistema>`: la Nucleo-F446RE, la CNC Shield V3,
+tres A4988, la mecánica de una 3020 y el cabezal 775 con su módulo MOSFET.
+
+| Pieza | Atributos (omisión) | Terminales | Lo que hace |
+| :--- | :--- | :--- | :--- |
+| `FinalCarrera` | `posicion_mm` (1), `lado` (min o max), `histeresis_mm` (0,02); ref `carro` | `com`; `no`, `nc` o los dos | Pisado cuando el carro pasa de `posicion_mm`; la alarma `pisado` |
+| `Sonda` | `altura_mm` (20), `puesta` (sí); ref `carro` | `placa`, `fresa` | La fresa toca la placa con el Z en `altura_mm` o más abajo; mando `puesta`, observable `toca` |
+| `Interruptor` | `contactos` («NC», o «NC NO» con dos), `enclavado` (no) | `a1`, `b1`; `a2`, `b2` | Mando `pulsar` (un botón, o un interruptor si se enclava), la alarma `pulsado` |
+| `Cotas` | refs `x`, `y` y `z` (cualquiera) | — | Observables `x`, `y` y `z` en mm, para un display y para trasladar la herramienta en el alzado |
+
+**La seta de emergencia** es un `Interruptor` de dos contactos enclavado: el
+NC corta los 24 V de los drivers —**la potencia, no solo el aviso**— y el NO
+lleva el ABORT de la shield a masa para que el control lo sepa. Con la seta
+pulsada los A4988 se quedan sin VMOT: «salidas apagadas», y el Tr8x2 sujeta
+el Z donde estaba.
+
+**Las placas de F3:**
+
+* `cnc_shield_v3.xml`, la **CNC Shield V3** de Protoneer: los conectores
+  Arduino, tres zócalos Pololu (`SX1`/`SX2`, …) con los nombres de las tiras
+  de `pololu_a4988.xml`, las tiras de los motores (2B 2A 1A 1B), los jumpers
+  de micropasos (MS1 y MS2 puestos: 1/8), la tira de finales —X, Y y Z, cada
+  uno con su MIN y su MAX en el mismo pin, D9, D10 y D11—, `SPN` (D12 y D13),
+  `COOL` (A3), `CTL` (ABORT, HOLD, RESUME en A0–A2, ESTOP al RESET, SDA y SCL
+  en A4 y A5) y los 10 kΩ del EN a 5 V.
+* `fresadora_3020.xml`, **la mecánica de una 3020**: X y Y con Tr8x8 y Z con
+  Tr8x2, sus finales —X y Y abajo, Z arriba—, la sonda a 20 mm, la seta, la
+  fuente de 24 V y las cotas de la máquina; en el dibujo, planta y alzado a
+  1,5 unidades por mm, con la herramienta que se mueve en los dos.
+* `cnc_3020.xml`, **el sistema**: todo junto, con `verif/fw/cnc` en la
+  Nucleo. El final Z va al D12, como en la tira `SPN.EN` de la shield (GRBL
+  1.1 cambió el D11 y el D12 para tener el PWM del cabezal en el D11).
+
+**El firmware** (`verif/fw/cnc`) es **un control propio, pequeño, que no es
+GRBL** pero habla como él para que un emisor de G-code se entienda con él:
+`G0`/`G1`/`G2`/`G3` con trapecio de velocidad, `$H` (Z arriba primero, después
+X e Y, rápido, separarse 1 mm y despacio), `G38.2`, `G4`, `G92`, `G28`,
+`M3`/`M4`/`M5 S…` (el PWM del cabezal a 1 kHz), `M8`/`M9`, `$X`, `$$`, `$G`,
+`$I`, `$#` y los de tiempo real `?`, `!`, `~` y Ctrl-X. Límites duros
+(`ALARM:1`), ABORT (`ALARM:3`) y una sonda que no toca (`ALARM:5`). A 84 MHz,
+con 200, 200 y 800 pasos por mm.
+
+**Lo que sale** (`make gui-cnc`, C6):
+
+* Un cuadrado de 20 mm y un círculo de 10 mm de radio: la trayectoria contra
+  la pedida, con 24 µm de error en el cuadrado y el radio entre 9,959 y
+  10,041 en el círculo —la holgura de la tuerca, al cambiar de cuadrante—.
+* `$H`: el Z sube primero; las cotas, 11,48, 6,48 y 70,52 mm.
+* `G38.2`: el Z se para a 19,996 mm sobre la placa de 20; sin la placa,
+  `ALARM:5`. Un límite duro a 0,48 mm, `ALARM:1`. La seta: `ALARM:3`, los
+  drivers sin salidas y el Z quieto.
+* El cabezal: `M3 S10000`, 9878 rpm; `M5`, y se para solo en unos 2 s.
+* **El coste**: unos 1,3 s de reloj por segundo de máquina mientras se mueve.
+
 ---
 
 ## 5. Lo que el fichero todavía no puede hacer

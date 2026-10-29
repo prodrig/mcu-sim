@@ -43,6 +43,7 @@
 #include "motor_bldc.h"
 #include "controlador_motor.h"
 #include "transmision.h"
+#include "maquina.h"
 #include "mems_st.h"
 #include "xds110.h"
 
@@ -1386,6 +1387,178 @@ REGISTRA_PARTE(Freno,
             return mal("v_nominal, potencia_w y par_ncm son positivos");
         if (c.suelta_ms < 0 || c.echa_ms < 0) return mal("los retardos no pueden ser negativos");
         return new Freno(d.id.c_str(), n[d.nodo_de("a")], n[d.nodo_de("b")], c);
+    });
+
+// ---------------------------------------------------------------------------
+// LO QUE RODEA A LOS EJES DE UNA FRESADORA (F3, parts/maquina.h)
+// ---------------------------------------------------------------------------
+namespace detalle_maquina {
+inline Carro* carro(const Instancia& d, Netlist& red, const char* nombre = "carro") {
+    const std::string r = d.ref_de(nombre);
+    if (r.empty()) {
+        SC_REPORT_ERROR("netlist", (d.id + ": le falta <ref nombre=\"" + std::string(nombre) +
+                                    "\" componente=\"...\"/>, el Carro que lo acciona").c_str());
+        return nullptr;
+    }
+    Carro* c = red.como<Carro>(r);
+    if (!c)
+        SC_REPORT_ERROR("netlist", (d.id + ": el Carro '" + r + "' no existe o todavia no se ha "
+                                    "construido: va antes").c_str());
+    return c;
+}
+} // namespace detalle_maquina
+
+REGISTRA_PARTE(FinalCarrera,
+    Ayuda("UN FINAL DE CARRERA: un microinterruptor que pisa un Carro al pasar por una "
+          "posicion, con sus contactos COM, NO y NC. El homing ($H) y los limites duros "
+          "de una fresadora. Con lado=min se pisa con el carro por debajo de posicion_mm; "
+          "con lado=max, por encima; y para soltarlo hay que volver histeresis_mm. Lo "
+          "habitual: COM a masa y NO al pin, con su pull-up: pisado, se lee bajo.")
+      .ejemplo("<componente tipo=\"FinalCarrera\" id=\"FX\" posicion_mm=\"1\" lado=\"min\">\n"
+               "  <ref nombre=\"carro\" componente=\"CX\"/>\n"
+               "  <pin nombre=\"com\" nodo=\"GND\"/> <pin nombre=\"no\" nodo=\"LIM_X\"/>\n"
+               "</componente>")
+      .pin("com", "obligatorio", "El comun.")
+      .pin("no, nc", "uno o los dos", "El normalmente abierto y el normalmente cerrado.")
+      .ref("carro", "El Carro que lo pisa, declarado antes.")
+      .atr("posicion_mm", "1", "Donde se pisa, en la posicion del carro.")
+      .atr("lado", "min", "min: pisado por debajo; max: por encima.")
+      .atr("histeresis_mm", "0.02", "Lo que hay que volver para soltarlo.")
+      .nota("Deja ver la alarma `pisado`.")
+      .cpp("pisado(), veces(), carro()."),
+    [](const Instancia& d, NodeMap& n, Netlist& red) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("FinalCarrera '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        Carro* c = detalle_maquina::carro(d, red);
+        if (!c) return nullptr;
+        if (d.nodo_de("com").empty()) return mal("le falta <pin nombre=\"com\">");
+        if (d.nodo_de("no").empty() && d.nodo_de("nc").empty())
+            return mal("lleva <pin nombre=\"no\">, <pin nombre=\"nc\"> o los dos");
+        ConfigFinalCarrera k;
+        k.posicion_mm = d.num("posicion_mm", k.posicion_mm);
+        const std::string lado = d.txt("lado", "min");
+        if (lado != "min" && lado != "max") return mal("lado es min o max");
+        k.lado_max = lado == "max";
+        k.histeresis_mm = d.num("histeresis_mm", k.histeresis_mm);
+        if (k.histeresis_mm < 0) return mal("histeresis_mm no puede ser negativa");
+        auto nd = [&](const char* t) -> analog_net_if* {
+            return d.nodo_de(t).empty() ? nullptr : &n[d.nodo_de(t)];
+        };
+        return new FinalCarrera(d.id.c_str(), *c, k, n[d.nodo_de("com")], nd("no"), nd("nc"));
+    });
+
+REGISTRA_PARTE(Sonda,
+    Ayuda("LA SONDA DE HERRAMIENTA: una placa de contacto sobre la pieza, para el cero de "
+          "Z (G38.2). La fresa la toca cuando el Carro Z baja hasta altura_mm, y entonces "
+          "cierra el circuito entre sus dos pinzas: la de la placa -al pin de la sonda, con "
+          "su pull-up- y la de la fresa -a masa-. El mando `puesta` la pone o la quita.")
+      .ejemplo("<componente tipo=\"Sonda\" id=\"PRB\" altura_mm=\"20\">\n"
+               "  <ref nombre=\"carro\" componente=\"CZ\"/>\n"
+               "  <pin nombre=\"placa\" nodo=\"PROBE\"/> <pin nombre=\"fresa\" nodo=\"GND\"/>\n"
+               "</componente>")
+      .pin("placa, fresa", "obligatorios", "Las dos pinzas.")
+      .ref("carro", "El Carro Z, declarado antes.")
+      .atr("altura_mm", "20", "La posicion del carro Z con la fresa tocando la placa.")
+      .atr("puesta", "si", "si: la placa esta en la mesa al arrancar.")
+      .nota("Deja ver `toca`; su mando es `puesta`.")
+      .cpp("toca(), altura_mm(), puesta(), pon(si)."),
+    [](const Instancia& d, NodeMap& n, Netlist& red) -> ExtPartBase* {
+        Carro* c = detalle_maquina::carro(d, red);
+        if (!c) return nullptr;
+        if (d.nodo_de("placa").empty() || d.nodo_de("fresa").empty()) {
+            SC_REPORT_ERROR("netlist", ("Sonda '" + d.id + "': lleva sus dos pinzas, placa y "
+                                        "fresa").c_str());
+            return nullptr;
+        }
+        return new Sonda(d.id.c_str(), *c, d.num("altura_mm", 20.0), n[d.nodo_de("placa")],
+                         n[d.nodo_de("fresa")], d.si("puesta", true));
+    });
+
+REGISTRA_PARTE(Interruptor,
+    Ayuda("UN INTERRUPTOR A MANO con uno o dos contactos, cada uno normalmente cerrado o "
+          "abierto (contactos=), con enclavamiento o sin el. Una SETA DE EMERGENCIA es uno "
+          "enclavado de dos contactos: el NC corta la potencia de los drivers -no basta "
+          "con avisar al MCU-, y el NO le avisa. Su mando es `pulsar`: un boton, o una "
+          "casilla si se enclava.")
+      .ejemplo("<componente tipo=\"Interruptor\" id=\"SETA\" contactos=\"NC NO\" enclavado=\"si\">\n"
+               "  <pin nombre=\"a1\" nodo=\"V24\"/> <pin nombre=\"b1\" nodo=\"VMOT\"/>\n"
+               "  <pin nombre=\"a2\" nodo=\"ABORT\"/> <pin nombre=\"b2\" nodo=\"GND\"/>\n"
+               "</componente>")
+      .pin("a1, b1", "obligatorios", "El primer contacto.")
+      .pin("a2, b2", "opcionales", "El segundo.")
+      .atr("contactos", "NC", "NC o NO por contacto: \"NC NO\".")
+      .atr("enclavado", "no", "si: se queda pulsado hasta que se suelta (una seta).")
+      .atr("pulsado", "no", "si: empieza pulsado.")
+      .nota("Deja ver la alarma `pulsado`.")
+      .cpp("pulsado(), pulsa(si)."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Interruptor '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        if (d.nodo_de("a1").empty() || d.nodo_de("b1").empty())
+            return mal("lleva su primer contacto, a1 y b1");
+        const bool dos = !d.nodo_de("a2").empty() || !d.nodo_de("b2").empty();
+        if (dos && (d.nodo_de("a2").empty() || d.nodo_de("b2").empty()))
+            return mal("el segundo contacto lleva a2 y b2");
+        const std::string t = d.txt("contactos", dos ? "NC NC" : "NC");
+        bool nc[2] = {true, true};
+        size_t k = 0, i = 0;
+        while (i < t.size()) {
+            while (i < t.size() && t[i] == ' ') ++i;
+            size_t j = i;
+            while (j < t.size() && t[j] != ' ') ++j;
+            if (j > i) {
+                const std::string w = t.substr(i, j - i);
+                if (k >= 2 || (w != "NC" && w != "NO")) return mal("contactos es NC o NO por contacto");
+                nc[k++] = w == "NC";
+            }
+            i = j;
+        }
+        if (k != (dos ? 2u : 1u)) return mal("contactos= dice uno por contacto");
+        auto nd = [&](const char* p) -> analog_net_if* {
+            return d.nodo_de(p).empty() ? nullptr : &n[d.nodo_de(p)];
+        };
+        Interruptor* s = new Interruptor(d.id.c_str(), n[d.nodo_de("a1")], n[d.nodo_de("b1")],
+                                         nd("a2"), nd("b2"), nc[0], nc[1], d.si("enclavado", false));
+        if (d.si("pulsado", false)) s->pulsa(true);
+        return s;
+    });
+
+REGISTRA_PARTE(Cotas,
+    Ayuda("LAS COTAS de una fresadora: la posicion de sus tres Carro, X, Y y Z, en mm, como "
+          "el display de un control numerico. Es lo que pide el efecto display del dibujo, y "
+          "el desplaza de un elemento que se mueve con dos ejes a la vez -la herramienta en "
+          "el alzado, con X y Z-.")
+      .ejemplo("<componente tipo=\"Cotas\" id=\"MAQ\">\n"
+               "  <ref nombre=\"x\" componente=\"CX\"/> <ref nombre=\"y\" componente=\"CY\"/>\n"
+               "  <ref nombre=\"z\" componente=\"CZ\"/>\n"
+               "</componente>")
+      .sin_terminales("No va a ningun nodo: lee la posicion de los carros.")
+      .ref("x, y, z", "Los tres Carro, declarados antes. Alguno puede faltar.")
+      .nota("Deja ver `x`, `y` y `z`, en mm.")
+      .cpp("cota(k)."),
+    [](const Instancia& d, NodeMap&, Netlist& red) -> ExtPartBase* {
+        const Carro* c[3] = {nullptr, nullptr, nullptr};
+        const char* nm[3] = {"x", "y", "z"};
+        for (int k = 0; k < 3; ++k) {
+            const std::string r = d.ref_de(nm[k]);
+            if (r.empty()) continue;
+            c[k] = red.como<Carro>(r);
+            if (!c[k]) {
+                SC_REPORT_ERROR("netlist", ("Cotas '" + d.id + "': el Carro '" + r +
+                                            "' no existe o todavia no se ha construido").c_str());
+                return nullptr;
+            }
+        }
+        if (!c[0] && !c[1] && !c[2]) {
+            SC_REPORT_ERROR("netlist", ("Cotas '" + d.id + "': no lleva ningun carro: "
+                                        "<ref nombre=\"x\" componente=\"...\"/>").c_str());
+            return nullptr;
+        }
+        return new Cotas(d.id.c_str(), c[0], c[1], c[2]);
     });
 
 REGISTRA_PARTE(Transmision,

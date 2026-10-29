@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     LA FRESADORA 3020, la maquina sin su control, sin MCU
+
+     La mecanica de una VEVOR 3020 (doc/analisis_cnc.md §2, fase F3): tres ejes
+     con su NEMA 17, su acople de espiral, su husillo y su carro, con lo que
+     rodea a los ejes -los finales de carrera, la sonda, la seta- y la fuente
+     de 24 V. El control -la Nucleo, la CNC Shield y sus drivers- y el cabezal
+     -el 775 y su modulo MOSFET- son otras placas: placas/cnc_3020.xml las
+     monta juntas.
+
+     LOS EJES, con lo que VEVOR no publica estimado (§2):
+       X  el carro del puente, con el Z y el cabezal: 2,5 kg, 300 mm, Tr8x8
+       Y  la mesa, que se mueve debajo del puente: 3 kg, 200 mm, Tr8x8
+       Z  el carro del cabezal, vertical: 1,2 kg, 72 mm, Tr8x2 -se sujeta
+          solo: sin corriente, el cabezal no se cae-
+       Con un driver a 1/8, 200 pasos por mm en X e Y y 800 en Z.
+
+     LOS FINALES DE CARRERA, microinterruptores con COM a masa y NO al cable:
+       FX  el carro X, en su extremo de abajo (posicion 0,5 mm)
+       FY  la mesa, en el suyo (0,5 mm)
+       FZ  el carro Z, ARRIBA (71,5 mm): el homing sube el Z primero
+
+     LA SONDA, PRB: una placa de contacto en la mesa; la fresa la toca con el
+     carro Z a 20 mm. La pinza de la placa, a SONDA.PLACA; la de la fresa, a
+     masa.
+
+     LA SETA, SETA: enclavada, con dos contactos. El NC corta los 24 V de los
+     motores -la potencia de los drivers: no basta con avisar al MCU- y el NO
+     lleva SETA.ABORT a masa, para que el control se pare y lo diga.
+
+     LA FUENTE, PSU: 24 V. Sale por J1.V24 DESPUES de la seta.
+
+     LAS COTAS, MAQ y HERR: las posiciones de los tres carros, para el display
+     del dibujo y para mover la herramienta en el alzado con X y Z a la vez.
+
+     SUS CABLES:
+       MX, MY, MZ                   los cuatro hilos de cada motor
+       FIN.X, FIN.Y, FIN.Z, FIN.GND los finales
+       SONDA.PLACA, SONDA.FRESA     la sonda
+       SETA.ABORT, SETA.GND         el segundo contacto de la seta
+       J1.V24, J1.GND               los 24 V, tras la seta
+
+     EN LA VENTANA, la planta -arriba: la mesa se mueve en Y y el carro X a lo
+     largo del puente- y el alzado -abajo: el carro X y la herramienta, con X
+     y Z-, y las cotas en un display.
+
+         ./build/mcu-sim placas/fresadora_3020.xml --valida
+     ========================================================================= -->
+<placa nombre="fresadora-3020">
+  <nodo id="GND" bus="si"/>
+  <nodo id="V24" bus="si"/>
+  <nodo id="J1.V24" bus="si"/>
+  <componente tipo="Conector" id="J1" filas="1" columnas="2" nombres="V24 GND">
+    <pin nombre="GND" nodo="GND"/>
+  </componente>
+  <componente tipo="Fuente" id="PSU" v="24" media_ms="20"><pin nombre="pin" nodo="V24"/></componente>
+  <componente tipo="Gnd" id="MASA" visible="no"><pin nombre="pin" nodo="GND"/></componente>
+
+  <!-- El eje X -->
+  <componente tipo="Conector" id="MX" filas="4" columnas="1" nombres="A1 A2 B1 B2"/>
+  <nodo id="MX.A1" bus="si"/> <nodo id="MX.A2" bus="si"/>
+  <nodo id="MX.B1" bus="si"/> <nodo id="MX.B2" bus="si"/>
+  <componente tipo="MotorPaP" id="MOTX" par_retencion_ncm="25" corriente_a="1.3" r_ohm="2.4"
+              l_mh="2.8" inercia_gcm2="34" eje_mm="5">
+    <pin nombre="a1" nodo="MX.A1"/> <pin nombre="a2" nodo="MX.A2"/>
+    <pin nombre="b1" nodo="MX.B1"/> <pin nombre="b2" nodo="MX.B2"/>
+  </componente>
+  <componente tipo="Acople" id="AX" tipo_acople="espiral" d1_mm="5" d2_mm="8" inercia_gcm2="3"/>
+  <componente tipo="Husillo" id="HX" rosca="Tr" diametro_mm="8" avance_mm="8" paso_mm="2" mu="0.15" longitud_mm="400" holgura_mm="0.02"/>
+  <componente tipo="Carro" id="CX" eje="x" masa_kg="2.5" rozamiento_n="6" recorrido_mm="300" posicion_mm="150"/>
+  <transmision id="TX" cadena="MOTX AX HX CX"/>
+
+  <!-- El eje Y -->
+  <componente tipo="Conector" id="MY" filas="4" columnas="1" nombres="A1 A2 B1 B2"/>
+  <nodo id="MY.A1" bus="si"/> <nodo id="MY.A2" bus="si"/>
+  <nodo id="MY.B1" bus="si"/> <nodo id="MY.B2" bus="si"/>
+  <componente tipo="MotorPaP" id="MOTY" par_retencion_ncm="25" corriente_a="1.3" r_ohm="2.4"
+              l_mh="2.8" inercia_gcm2="34" eje_mm="5">
+    <pin nombre="a1" nodo="MY.A1"/> <pin nombre="a2" nodo="MY.A2"/>
+    <pin nombre="b1" nodo="MY.B1"/> <pin nombre="b2" nodo="MY.B2"/>
+  </componente>
+  <componente tipo="Acople" id="AY" tipo_acople="espiral" d1_mm="5" d2_mm="8" inercia_gcm2="3"/>
+  <componente tipo="Husillo" id="HY" rosca="Tr" diametro_mm="8" avance_mm="8" paso_mm="2" mu="0.15" longitud_mm="300" holgura_mm="0.02"/>
+  <componente tipo="Carro" id="CY" eje="y" masa_kg="3" rozamiento_n="8" recorrido_mm="200" posicion_mm="100"/>
+  <transmision id="TY" cadena="MOTY AY HY CY"/>
+
+  <!-- El eje Z -->
+  <componente tipo="Conector" id="MZ" filas="4" columnas="1" nombres="A1 A2 B1 B2"/>
+  <nodo id="MZ.A1" bus="si"/> <nodo id="MZ.A2" bus="si"/>
+  <nodo id="MZ.B1" bus="si"/> <nodo id="MZ.B2" bus="si"/>
+  <componente tipo="MotorPaP" id="MOTZ" par_retencion_ncm="25" corriente_a="1.3" r_ohm="2.4"
+              l_mh="2.8" inercia_gcm2="34" eje_mm="5">
+    <pin nombre="a1" nodo="MZ.A1"/> <pin nombre="a2" nodo="MZ.A2"/>
+    <pin nombre="b1" nodo="MZ.B1"/> <pin nombre="b2" nodo="MZ.B2"/>
+  </componente>
+  <componente tipo="Acople" id="AZ" tipo_acople="espiral" d1_mm="5" d2_mm="8" inercia_gcm2="3"/>
+  <componente tipo="Husillo" id="HZ" rosca="Tr" diametro_mm="8" avance_mm="2" paso_mm="2" mu="0.15" longitud_mm="150" holgura_mm="0.02"/>
+  <componente tipo="Carro" id="CZ" eje="z" masa_kg="1.2" rozamiento_n="4" recorrido_mm="72" posicion_mm="50" vertical="si"/>
+  <transmision id="TZ" cadena="MOTZ AZ HZ CZ"/>
+
+  <!-- Los finales de carrera -->
+  <componente tipo="Conector" id="FIN" filas="1" columnas="4" nombres="X Y Z GND">
+    <pin nombre="GND" nodo="GND"/>
+  </componente>
+  <componente tipo="FinalCarrera" id="FX" posicion_mm="0.5" lado="min">
+    <ref nombre="carro" componente="CX"/>
+    <pin nombre="com" nodo="GND"/> <pin nombre="no" nodo="FIN.X"/>
+  </componente>
+  <componente tipo="FinalCarrera" id="FY" posicion_mm="0.5" lado="min">
+    <ref nombre="carro" componente="CY"/>
+    <pin nombre="com" nodo="GND"/> <pin nombre="no" nodo="FIN.Y"/>
+  </componente>
+  <componente tipo="FinalCarrera" id="FZ" posicion_mm="71.5" lado="max">
+    <ref nombre="carro" componente="CZ"/>
+    <pin nombre="com" nodo="GND"/> <pin nombre="no" nodo="FIN.Z"/>
+  </componente>
+
+  <!-- La sonda -->
+  <componente tipo="Conector" id="SONDA" filas="1" columnas="2" nombres="PLACA FRESA">
+    <pin nombre="FRESA" nodo="GND"/>
+  </componente>
+  <componente tipo="Sonda" id="PRB" altura_mm="20">
+    <ref nombre="carro" componente="CZ"/>
+    <pin nombre="placa" nodo="SONDA.PLACA"/> <pin nombre="fresa" nodo="GND"/>
+  </componente>
+
+  <!-- La seta -->
+  <componente tipo="Conector" id="SETA" filas="1" columnas="2" nombres="ABORT GND">
+    <pin nombre="GND" nodo="GND"/>
+  </componente>
+  <componente tipo="Interruptor" id="ESTOP" contactos="NC NO" enclavado="si">
+    <pin nombre="a1" nodo="V24"/> <pin nombre="b1" nodo="J1.V24"/>
+    <pin nombre="a2" nodo="SETA.ABORT"/> <pin nombre="b2" nodo="GND"/>
+  </componente>
+
+  <!-- Las cotas -->
+  <componente tipo="Cotas" id="MAQ">
+    <ref nombre="x" componente="CX"/> <ref nombre="y" componente="CY"/>
+    <ref nombre="z" componente="CZ"/>
+  </componente>
+  <componente tipo="Cotas" id="HERR">
+    <ref nombre="x" componente="CX"/> <ref nombre="y" componente="CY"/>
+    <ref nombre="z" componente="CZ"/>
+  </componente>
+
+  <ilustracion>
+    <enlace pieza="CX" elemento="CX" efecto="desplaza" observable="posicion" vector="1.5 0"/>
+    <enlace pieza="CY" elemento="CY" efecto="desplaza" observable="posicion" vector="0 -1.5"/>
+    <enlace pieza="TX" elemento="XALZ" efecto="desplaza" observable="posicion" vector="1.5 0"/>
+    <enlace pieza="HERR" elemento="HERR" efecto="desplaza" observable="x z" vector="1.5 0  0 -1.5"/>
+    <enlace pieza="MAQ" elemento="MAQ" efecto="display" observable="x y z"/>
+    <!-- Los motores, los acoples y los husillos, de lado: sin girar -->
+    <enlace pieza="MOTX" elemento="MOTX" efecto="ninguno"/>
+    <enlace pieza="MOTY" elemento="MOTY" efecto="ninguno"/>
+    <enlace pieza="MOTZ" elemento="MOTZ" efecto="ninguno"/>
+    <enlace pieza="AX" elemento="AX" efecto="ninguno"/>
+    <enlace pieza="AY" elemento="AY" efecto="ninguno"/>
+    <enlace pieza="AZ" elemento="AZ" efecto="ninguno"/>
+    <enlace pieza="HX" elemento="HX" efecto="ninguno"/>
+    <enlace pieza="HY" elemento="HY" efecto="ninguno"/>
+    <enlace pieza="HZ" elemento="HZ" efecto="ninguno"/>
+  </ilustracion>
+</placa>
