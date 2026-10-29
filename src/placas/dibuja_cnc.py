@@ -471,6 +471,68 @@ def controlador_c5e():
     s.guarda("controlador_tipo_c5e.svg")
 
 
+# ---------------------------------------------------------------------------
+# UN EJE Z COMPLETO, DE LADO
+# ---------------------------------------------------------------------------
+def eje_z():
+    s = Svg(700, 1300, """
+  UN EJE Z COMPLETO -NEMA 17, ACOPLE, HUSILLO Tr8x2 Y CARRO-, visto de lado,
+  dibujado a mano: una aproximacion, no una foto. Es el dibujo de
+  placas/eje_z_tr8.xml, que lo encuentra solo porque se llama como ella.
+  Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 70 x 130 mm-, A ESCALA 1:2 -cada mm de la maquina son 5 unidades-
+  y cada pieza con el id de su pieza en el XML:
+
+    MOTOR  el NEMA 17, arriba
+    M      sus cuatro hilos
+    A      el acople de espiral
+    H      el husillo, de 200 mm
+    C      el carro con el cabezal, DIBUJADO EN EL TOPE DE ABAJO (posicion 0):
+           sube con su posicion, 5 unidades por mm (efecto `desplaza`)
+    COTA   el display de su posicion (efecto `display` de la transmision Z)
+""")
+    s.add(s.rect(0, 0, 700, 1300, "#eceff1", rx=10))
+    # La columna: el perfil de aluminio de detras
+    s.add(s.rect(150, 300, 60, 900, "#b0bec5", "#78909c", 1.5))
+    # El motor, arriba: 42 mm a 1:2
+    s.add('<g id="MOTOR">')
+    s.add("  " + s.rect(170, 60, 210, 200, GRIS_MOTOR, GRIS_MOTOR_B, 2, rx=8))
+    s.add("  " + s.text(275, 165, "NEMA 17", 16, "#cfd8dc", "middle"))
+    s.add("</g>")
+    hilos_motor(s, 420, 80, ("#212121", "#2e7d32", "#c62828", "#1565c0"),
+                ("A1", "A2", "B1", "B2"), paso=45)
+    # El acople, de 5 a 8
+    s.add('<g id="A">')
+    s.add("  " + s.rect(255, 260, 40, 60, "#90a4ae", "#455a64", 1.5, rx=4))
+    for k in range(5):
+        s.add("  " + s.rect(255, 268 + k * 10, 40, 3, "#455a64"))
+    s.add("</g>")
+    # El husillo: 200 mm, de 320 a 1170 (con sus apoyos)
+    s.add('<g id="H">')
+    s.add("  " + s.rect(268, 320, 14, 850, "#cfd8dc", "#78909c", 1))
+    for k in range(43):
+        s.add("  " + s.rect(268, 330 + k * 19.5, 14, 4, "#90a4ae"))
+    s.add("</g>")
+    s.add(s.rect(240, 320, 70, 26, "#37474f", rx=3))
+    s.add(s.rect(240, 1150, 70, 26, "#37474f", rx=3))
+    # El carro, en el tope de abajo: su centro en y = 1100, y sube 5 por mm
+    s.add('<g id="C">')
+    s.add("  " + s.rect(200, 1040, 150, 110, "#546e7a", "#263238", 2, rx=6))
+    s.add("  " + s.rect(255, 1060, 40, 70, "#c9a227", "#7d6608", 1.2, rx=3))
+    s.add("  " + s.rect(350, 1060, 90, 70, "#78909c", "#37474f", 1.5, rx=6))
+    s.add("  " + s.rect(440, 1080, 12, 30, "#9e9e9e"))
+    s.add("  " + s.text(275, 1030, "Z", 18, "#263238", "middle"))
+    s.add("</g>")
+    # La cota
+    s.add(s.rect(470, 560, 200, 70, "#1b1b1b", "#000000", 2, rx=6, id="COTA"))
+    s.add(s.text(570, 660, "COTA Z", 14, "#263238", "middle"))
+    s.add(s.text(350, 1250, "Tr8x2  200 mm  1,2 kg", 15, "#263238", "middle"))
+    s.guarda("eje_z_tr8.svg")
+
+
 if __name__ == "__main__":
     nema17()
     st5918()
@@ -481,3 +543,4 @@ if __name__ == "__main__":
     motor_jgb37()
     db59()
     controlador_c5e()
+    eje_z()

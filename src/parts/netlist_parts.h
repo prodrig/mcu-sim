@@ -42,6 +42,7 @@
 #include "potencia.h"
 #include "motor_bldc.h"
 #include "controlador_motor.h"
+#include "transmision.h"
 #include "mems_st.h"
 #include "xds110.h"
 
@@ -1046,6 +1047,8 @@ REGISTRA_PARTE(MotorCC,
       .atr("ppr", "0", "Las ventanas del disco del encoder, los pulsos por vuelta del "
            "eje de salida en cada canal. 0: sin encoder, y sin sus patillas.")
       .atr("enc_i_ma", "20", "Lo que gasta el sensor del encoder a 3,3 V, en mA.")
+      .atr("eje_mm", "0", "El diametro de su eje, para ver si encaja con el acople de una "
+           "<transmision>; 0, no se comprueba.")
       .atr("posicion_inicial", "0", "El angulo del eje al arrancar, en grados.")
       .nota("Deja ver `angulo` (grados, de 0 a 360, el que sugiere pintar: la "
             "ventana gira el elemento de la pieza con el, el efecto `angulo`), "
@@ -1073,10 +1076,10 @@ REGISTRA_PARTE(MotorCC,
         double ppr = 0;
         const char* claves[] = {"v_nominal", "rpm_vacio", "i_vacio_ma", "i_bloqueo_ma",
                                 "i_arranque_ma", "tau_ms", "l_mh", "reduccion", "v_max", "ppr",
-                                "enc_i_ma", "posicion_inicial"};
+                                "enc_i_ma", "posicion_inicial", "eje_mm"};
         double* destinos[] = {&c.v_nominal, &c.rpm_vacio, &c.i_vacio_ma, &c.i_bloqueo_ma,
                               &c.i_arranque_ma, &c.tau_ms, &c.l_mh, &c.reduccion, &c.v_max,
-                              &ppr, &c.enc_i_ma, &c.posicion_inicial};
+                              &ppr, &c.enc_i_ma, &c.posicion_inicial, &c.eje_mm};
         for (unsigned k = 0; k < sizeof claves / sizeof *claves; ++k) {
             const std::string t = d.txt(claves[k]);
             if (!t.empty() && !numero(t, *destinos[k]))
@@ -1112,6 +1115,16 @@ REGISTRA_PARTE(MotorCC,
                            &n[d.nodo_de("enc_vcc")], &n[d.nodo_de("enc_gnd")],
                            &n[d.nodo_de("enc_a")], &n[d.nodo_de("enc_b")]);
     });
+
+// Un diametro en mm, sin ceros de sobra: 6.35, 5, 8
+inline std::string num_mm(double d) {
+    char b[32];
+    std::snprintf(b, sizeof b, "%.2f", d);
+    std::string t = b;
+    while (!t.empty() && t.back() == '0') t.pop_back();
+    if (!t.empty() && t.back() == '.') t.pop_back();
+    return t;
+}
 
 REGISTRA_PARTE(Volante,
     Ayuda("UN VOLANTE: una inercia en un eje, con su rozamiento seco y viscoso, y "
@@ -1158,6 +1171,221 @@ REGISTRA_PARTE(Volante,
         if (j <= 0 || f < 0 || b < 0)
             return mal("la inercia tiene que ser positiva, y los rozamientos no negativos");
         return new Volante(d.id.c_str(), j, f, b);
+    });
+
+REGISTRA_PARTE(Reductora,
+    Ayuda("UNA REDUCTORA en una cadena (parts/transmision.h): una relacion -vueltas de "
+          "su entrada por cada una de su salida-, un rendimiento directo y otro inverso "
+          "-cero o menos en un sinfin que se sujeta solo: la carga no puede mover el "
+          "motor-, una holgura en minutos de arco, la inercia de su entrada y un par "
+          "maximo en su salida, que se avisa si se pasa. Va en una <transmision>.")
+      .ejemplo("<componente tipo=\"Reductora\" id=\"R\" relacion=\"5\" rendimiento=\"0.9\"\n"
+               "            holgura_arcmin=\"15\" inercia_gcm2=\"8\" par_max_nm=\"6\"/>")
+      .sin_terminales("Es una pieza mecanica: la une su <transmision>.")
+      .atr("relacion", "3", "Vueltas de la entrada por cada una de la salida.")
+      .atr("rendimiento", "0.9", "El directo, de 0 a 1.")
+      .atr("rendimiento_inverso", "el directo", "El de cuando la carga mueve al motor; cero "
+           "o menos, se sujeta sola (un sinfin).")
+      .atr("holgura_arcmin", "0", "En minutos de arco, en la salida: una zona muerta.")
+      .atr("inercia_gcm2", "0", "La de su entrada.")
+      .atr("par_max_nm", "0", "El par de su salida que aguanta; 0, sin limite.")
+      .atr("entrada_mm, salida_mm", "0", "Los diametros de sus ejes, para ver si encajan.")
+      .nota("Deja ver `angulo` y `rpm` de su salida.")
+      .cpp("rpm_salida(), par_salida(), config()."),
+    [](const Instancia& d, NodeMap&, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Reductora '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        if (!d.pines.empty()) return mal("no lleva patillas: la une su <transmision>");
+        ConfigReductora c;
+        c.relacion = d.num("relacion", c.relacion);
+        c.rendimiento = d.num("rendimiento", c.rendimiento);
+        c.rendimiento_inverso = d.txt("rendimiento_inverso").empty() ? -1.0
+                              : d.num("rendimiento_inverso", 0.0);
+        c.holgura_arcmin = d.num("holgura_arcmin", 0.0);
+        c.inercia_gcm2 = d.num("inercia_gcm2", 0.0);
+        c.par_max_nm = d.num("par_max_nm", 0.0);
+        c.entrada_mm = d.num("entrada_mm", 0.0);
+        c.salida_mm = d.num("salida_mm", 0.0);
+        if (c.relacion <= 0) return mal("relacion es positiva");
+        if (c.rendimiento <= 0 || c.rendimiento > 1) return mal("rendimiento va de 0 a 1");
+        if (c.rendimiento_inverso > 1 || (c.rendimiento_inverso < -0.5 && !d.txt("rendimiento_inverso").empty()))
+            return mal("rendimiento_inverso va de -0,5 a 1: cero o menos, se sujeta sola");
+        if (c.holgura_arcmin < 0 || c.inercia_gcm2 < 0 || c.par_max_nm < 0)
+            return mal("holgura_arcmin, inercia_gcm2 y par_max_nm no pueden ser negativos");
+        return new Reductora(d.id.c_str(), c);
+    });
+
+REGISTRA_PARTE(Acople,
+    Ayuda("UN ACOPLE entre el eje del motor y el del husillo (parts/transmision.h): una "
+          "inercia y, si acaso, una holgura -la estrella de uno de mordaza-. Sus dos "
+          "diametros tienen que encajar con el eje de delante y el de detras: la "
+          "<transmision> lo comprueba, y un acople de 5 mm en un eje de 6,35 no se "
+          "monta.")
+      .ejemplo("<componente tipo=\"Acople\" id=\"A\" tipo_acople=\"espiral\" d1_mm=\"5\" d2_mm=\"8\"/>")
+      .sin_terminales("Es una pieza mecanica: la une su <transmision>.")
+      .atr("tipo_acople", "espiral", "espiral, mordaza o fuelle: para el dibujo y los mensajes.")
+      .atr("d1_mm, d2_mm", "0", "El agujero del lado del motor y el del husillo; 0, no se "
+           "comprueba.")
+      .atr("inercia_gcm2", "2", "La suya.")
+      .atr("holgura_arcmin", "0", "En minutos de arco.")
+      .nota("Deja ver `angulo`.")
+      .cpp("config()."),
+    [](const Instancia& d, NodeMap&, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Acople '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        if (!d.pines.empty()) return mal("no lleva patillas: lo une su <transmision>");
+        ConfigAcople c;
+        c.tipo = d.txt("tipo_acople", "espiral");
+        c.d1_mm = d.num("d1_mm", 0.0);
+        c.d2_mm = d.num("d2_mm", 0.0);
+        c.inercia_gcm2 = d.num("inercia_gcm2", c.inercia_gcm2);
+        c.holgura_arcmin = d.num("holgura_arcmin", 0.0);
+        if (c.tipo != "espiral" && c.tipo != "mordaza" && c.tipo != "fuelle")
+            return mal("tipo_acople es espiral, mordaza o fuelle");
+        if (c.d1_mm < 0 || c.d2_mm < 0 || c.inercia_gcm2 < 0 || c.holgura_arcmin < 0)
+            return mal("los diametros, la inercia y la holgura no pueden ser negativos");
+        return new Acople(d.id.c_str(), c);
+    });
+
+REGISTRA_PARTE(Husillo,
+    Ayuda("UN HUSILLO CON SU TUERCA (parts/transmision.h): trapezoidal (Tr), ACME o de "
+          "bolas. Pasa el giro a avance: su relacion es 2·pi/avance. EL RENDIMIENTO NO SE "
+          "DA, SE CALCULA: del angulo de la helice, atan(avance/(pi·d_medio)), y del "
+          "rozamiento de la tuerca, mu. Con el, el inverso y el AUTOBLOQUEO: un Tr8x2 "
+          "sujeta solo un eje Z; uno de bolas, no. Su inercia, la de un cilindro de acero. "
+          "La holgura de su tuerca. Avisa de pasar de su velocidad critica y, si es de "
+          "bolas, de su DN.")
+      .ejemplo("<componente tipo=\"Husillo\" id=\"H\" rosca=\"Tr\" diametro_mm=\"8\" avance_mm=\"2\"\n"
+               "            paso_mm=\"2\" mu=\"0.15\" longitud_mm=\"350\" holgura_mm=\"0.02\"/>")
+      .sin_terminales("Es una pieza mecanica: la une su <transmision>.")
+      .atr("rosca", "Tr", "Tr (30°), ACME (29°) o bolas.")
+      .atr("diametro_mm", "8", "El nominal.")
+      .atr("avance_mm", "8", "Lo que avanza la tuerca por vuelta.")
+      .atr("paso_mm", "2", "El de la rosca: avance/entradas. Un Tr8x8 tiene cuatro entradas "
+           "de 2 mm.")
+      .atr("mu", "0.15", "El rozamiento de la tuerca: 0,15 laton o bronce en acero, 0,1 POM, "
+           "0,005 bolas.")
+      .atr("longitud_mm", "350", "Su largo: su inercia y su velocidad critica.")
+      .atr("apoyos", "fijo-apoyado", "fijo-libre, apoyado-apoyado, fijo-apoyado o fijo-fijo: la "
+           "velocidad critica.")
+      .atr("holgura_mm", "0", "La de su tuerca: unas centesimas simple, casi nada doble o "
+           "antiholgura.")
+      .atr("extremo_mm", "el nominal", "El del extremo que va al acople (un 1605 mecanizado, 10).")
+      .nota("Deja ver `angulo` y `rpm`. Al montar dice su angulo de helice, sus dos "
+            "rendimientos y si se sujeta solo.")
+      .cpp("lambda_grados(), rendimiento_directo(), rendimiento_inv(), se_sujeta(), "
+           "velocidad_critica(), fuerza_de(par), rpm()."),
+    [](const Instancia& d, NodeMap&, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Husillo '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        if (!d.pines.empty()) return mal("no lleva patillas: lo une su <transmision>");
+        ConfigHusillo c;
+        c.rosca = d.txt("rosca", "Tr");
+        c.diametro_mm = d.num("diametro_mm", c.diametro_mm);
+        c.avance_mm = d.num("avance_mm", c.avance_mm);
+        c.paso_mm = d.num("paso_mm", c.rosca == "bolas" ? c.avance_mm : 2.0);
+        c.mu = d.num("mu", c.rosca == "bolas" ? 0.005 : 0.15);
+        c.longitud_mm = d.num("longitud_mm", c.longitud_mm);
+        c.apoyos = d.txt("apoyos", "fijo-apoyado");
+        c.holgura_mm = d.num("holgura_mm", 0.0);
+        c.extremo_mm = d.num("extremo_mm", 0.0);
+        if (c.rosca != "Tr" && c.rosca != "ACME" && c.rosca != "bolas")
+            return mal("rosca es Tr, ACME o bolas");
+        if (c.diametro_mm <= 0 || c.avance_mm <= 0 || c.paso_mm <= 0 || c.longitud_mm <= 0)
+            return mal("diametro_mm, avance_mm, paso_mm y longitud_mm son positivos");
+        if (c.paso_mm >= c.diametro_mm) return mal("paso_mm tiene que ser menor que el diametro");
+        if (c.mu < 0 || c.mu > 1) return mal("mu va de 0 a 1");
+        if (c.apoyos != "fijo-libre" && c.apoyos != "apoyado-apoyado" &&
+            c.apoyos != "fijo-apoyado" && c.apoyos != "fijo-fijo")
+            return mal("apoyos es fijo-libre, apoyado-apoyado, fijo-apoyado o fijo-fijo");
+        if (c.holgura_mm < 0 || c.extremo_mm < 0) return mal("holgura_mm y extremo_mm no pueden ser negativos");
+        return new Husillo(d.id.c_str(), c);
+    });
+
+REGISTRA_PARTE(Carro,
+    Ayuda("UN CARRO, con sus guias y lo que lleva encima (parts/transmision.h): una masa, "
+          "un rozamiento seco y otro viscoso, un recorrido con TOPES DUROS -llegar a uno "
+          "para la cadena en seco: un paso a paso pierde pasos, uno de continua pide la "
+          "corriente de bloqueo- y, si es vertical, SU PESO, que empuja hacia abajo. Va "
+          "detras de un husillo: su entrada es lineal. Su posicion, en mm, es lo que mueve "
+          "el dibujo.")
+      .ejemplo("<componente tipo=\"Carro\" id=\"CZ\" eje=\"z\" masa_kg=\"1.2\" rozamiento_n=\"4\"\n"
+               "            recorrido_mm=\"72\" posicion_mm=\"60\" vertical=\"si\"/>")
+      .sin_terminales("Es una pieza mecanica: la une su <transmision>.")
+      .atr("masa_kg", "1", "La del carro y lo que lleva: el X lleva el Z, el Z el cabezal.")
+      .atr("rozamiento_n", "5", "El seco de sus guias, en N.")
+      .atr("viscoso_ns_m", "0", "El viscoso, en N·s/m.")
+      .atr("recorrido_mm", "300", "De tope a tope.")
+      .atr("posicion_mm", "0", "Donde empieza, desde el tope de abajo.")
+      .atr("vertical", "no", "si: con su peso, hacia las posiciones bajas.")
+      .atr("eje", "x", "x, y o z: para los mensajes.")
+      .nota("Deja ver `posicion` (mm), `velocidad` (mm/s) y la alarma `en_tope`. Su mando es "
+            "`fuerza`, en N: la de fuera, la del corte (positiva, hacia arriba del "
+            "recorrido). Avisa de cada choque contra un tope.")
+      .cpp("posicion_mm(), velocidad_mm_s(), en_tope(), choques(), pon_fuerza(N)."),
+    [](const Instancia& d, NodeMap&, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Carro '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        if (!d.pines.empty()) return mal("no lleva patillas: lo une su <transmision>");
+        ConfigCarro c;
+        c.masa_kg = d.num("masa_kg", c.masa_kg);
+        c.rozamiento_n = d.num("rozamiento_n", c.rozamiento_n);
+        c.viscoso_ns_m = d.num("viscoso_ns_m", 0.0);
+        c.recorrido_mm = d.num("recorrido_mm", c.recorrido_mm);
+        c.posicion_mm = d.num("posicion_mm", 0.0);
+        c.vertical = d.si("vertical", false);
+        c.eje = d.txt("eje", "x");
+        if (c.masa_kg <= 0 || c.recorrido_mm <= 0) return mal("masa_kg y recorrido_mm son positivos");
+        if (c.rozamiento_n < 0 || c.viscoso_ns_m < 0) return mal("los rozamientos no pueden ser negativos");
+        if (c.posicion_mm < 0 || c.posicion_mm > c.recorrido_mm)
+            return mal("posicion_mm va de 0 a recorrido_mm");
+        return new Carro(d.id.c_str(), c);
+    });
+
+REGISTRA_PARTE(Freno,
+    Ayuda("UN FRENO DE MUELLE (parts/transmision.h), como los BWA y BCD de Nanotec: "
+          "frena SIN corriente y se suelta con la suya. Una bobina de V²/P ohmios entre a "
+          "y b, que se suelta con el 70 % de su tension y se echa por debajo del 25 %, "
+          "cada cosa con su retardo; echado, su par de retencion entra en la cadena como "
+          "rozamiento. Va en una <transmision>, normalmente pegado al motor.")
+      .ejemplo("<componente tipo=\"Freno\" id=\"F\" v_nominal=\"24\" potencia_w=\"8\" par_ncm=\"50\">\n"
+               "  <pin nombre=\"a\" nodo=\"BRK+\"/> <pin nombre=\"b\" nodo=\"BRK-\"/>\n"
+               "</componente>")
+      .pin("a, b", "obligatorios", "Los dos hilos de su bobina.")
+      .atr("v_nominal", "24", "La tension de su bobina.")
+      .atr("potencia_w", "8", "Lo que gasta suelto: la bobina es de V²/P.")
+      .atr("par_ncm", "50", "El de retencion, en N·cm.")
+      .atr("suelta_ms, echa_ms", "30, 20", "Lo que tarda en soltarse y en echarse "
+           "(estimados: las fichas no los dan).")
+      .atr("eje_mm", "0", "El diametro de su eje, para ver si encaja.")
+      .nota("Deja ver `suelto`, `corriente` (mA) y la alarma `patina`: echado y girando.")
+      .cpp("suelto(), corriente_ma(), r_bobina()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Freno '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        if (d.nodo_de("a").empty() || d.nodo_de("b").empty())
+            return mal("lleva su bobina: <pin nombre=\"a\"> y <pin nombre=\"b\">");
+        ConfigFreno c;
+        c.v_nominal = d.num("v_nominal", c.v_nominal);
+        c.potencia_w = d.num("potencia_w", c.potencia_w);
+        c.par_ncm = d.num("par_ncm", c.par_ncm);
+        c.suelta_ms = d.num("suelta_ms", c.suelta_ms);
+        c.echa_ms = d.num("echa_ms", c.echa_ms);
+        c.eje_mm = d.num("eje_mm", 0.0);
+        if (c.v_nominal <= 0 || c.potencia_w <= 0 || c.par_ncm <= 0)
+            return mal("v_nominal, potencia_w y par_ncm son positivos");
+        if (c.suelta_ms < 0 || c.echa_ms < 0) return mal("los retardos no pueden ser negativos");
+        return new Freno(d.id.c_str(), n[d.nodo_de("a")], n[d.nodo_de("b")], c);
     });
 
 REGISTRA_PARTE(Transmision,
@@ -1216,6 +1444,24 @@ REGISTRA_PARTE(Transmision,
             }
         }
         if (act.empty()) return mal("no lleva ningun motor: cadena= empieza por ellos");
+        // F2: que los ejes encajen. Cada motor con el primer elemento, y cada
+        // elemento con el siguiente
+        auto encaja = [&](double a, double b, const std::string& qa, const std::string& qb) {
+            return a <= 0.0 || b <= 0.0 || std::fabs(a - b) < 0.01 ? std::string()
+                 : qa + " da un eje de " + num_mm(a) + " mm y " + qb + " lo recibe de " +
+                   num_mm(b) + ": no encajan";
+        };
+        if (!elem.empty())
+            for (Actuador* a : act) {
+                const std::string t = encaja(a->diametro_eje(), elem[0]->diametro_entrada(),
+                                             a->nombre_actuador(), elem[0]->nombre_elemento());
+                if (!t.empty()) return mal(t);
+            }
+        for (size_t k = 0; k + 1 < elem.size(); ++k) {
+            const std::string t = encaja(elem[k]->diametro_salida(), elem[k + 1]->diametro_entrada(),
+                                         elem[k]->nombre_elemento(), elem[k + 1]->nombre_elemento());
+            if (!t.empty()) return mal(t);
+        }
         return new Transmision(d.id.c_str(), act, elem);
     });
 
@@ -1258,6 +1504,8 @@ REGISTRA_PARTE(MotorPaP,
       .atr("pasos", "200", "Los pasos enteros por vuelta: 200 (1,8°) o 400 (0,9°).")
       .atr("modelo", "dinamico", "ideal: cada paso es exactamente un paso, sin corrientes ni "
            "perdidas; el rotor va a donde dicen las consignas. Para probar firmware deprisa.")
+      .atr("eje_mm", "0", "El diametro de su eje, para ver si encaja con el acople de una "
+           "<transmision>; 0, no se comprueba.")
       .atr("posicion_inicial", "0", "El angulo del eje al arrancar, en grados.")
       .nota("Deja ver `angulo` (el que sugiere pintar), `rpm`, `corriente_a` y `corriente_b` "
             "(mA, las de ahora), `par` (N·m), `retraso` (en pasos enteros, de -2 a 2: lo "
@@ -1290,6 +1538,8 @@ REGISTRA_PARTE(MotorPaP,
         c.rozamiento_ncm = d.num("rozamiento_ncm", c.rozamiento_ncm);
         c.viscoso_mnms = d.num("viscoso_mnms", c.viscoso_mnms);
         c.posicion_inicial = d.num("posicion_inicial", 0.0);
+        c.eje_mm = d.num("eje_mm", 0.0);
+        if (c.eje_mm < 0) return mal("eje_mm no puede ser negativo");
         const double pasos = d.num("pasos", 200.0);
         const std::string mo = d.txt("modelo", "dinamico");
         if (c.conexion != "bipolar" && c.conexion != "serie" && c.conexion != "paralelo")
@@ -1596,6 +1846,8 @@ REGISTRA_PARTE(MotorBLDC,
       .atr("pares_polos", "3", "Los pares de polos: 6·p cambios de Hall por vuelta.")
       .atr("ppr", "0", "Las lineas del encoder por vuelta; 0, sin el. Cuesta un suceso por "
            "flanco: 1000 lineas a 3500 rpm son 233 000 por segundo.")
+      .atr("eje_mm", "0", "El diametro de su eje, para ver si encaja con el acople de una "
+           "<transmision>; 0, no se comprueba.")
       .atr("posicion_inicial", "0", "El angulo del eje al arrancar, en grados.")
       .nota("Deja ver `angulo`, `rpm`, `corriente` (A, la del eje q), `par` (N·m), `tension` "
             "(la que le pone el controlador), `hall` (el codigo, H1 en el bit 2), la alarma "
@@ -1621,6 +1873,8 @@ REGISTRA_PARTE(MotorBLDC,
         c.rozamiento_ncm = d.num("rozamiento_ncm", c.rozamiento_ncm);
         c.viscoso_mnms = d.num("viscoso_mnms", c.viscoso_mnms);
         c.posicion_inicial = d.num("posicion_inicial", 0.0);
+        c.eje_mm = d.num("eje_mm", 0.0);
+        if (c.eje_mm < 0) return mal("eje_mm no puede ser negativo");
         const double pp = d.num("pares_polos", 3.0), ppr = d.num("ppr", 0.0);
         if (c.kt_ncm_a <= 0 || c.r_ohm <= 0 || c.l_mh <= 0 || c.inercia_gcm2 <= 0 ||
             c.corriente_nominal <= 0 || c.corriente_pico <= 0)

@@ -29,6 +29,10 @@
 #       cada paso contado; 3500 rpm con 0,47 N·m a 9,4 A; con más carga de la
 #       que puede, no pierde pasos: se para y lo dice. Las fases y los Hall
 #       cruzados, los Hall sin tensión, y el encoder contra los Hall a 60 rpm.
+#   C5  (F2) LA TRANSMISIÓN. El rendimiento y el autobloqueo de la tabla del
+#       §6.3, calculados; la inercia reflejada; el Z con bolas sin freno se
+#       cae, con Tr8x2 o con freno, no; los pasos, la holgura de la tuerca, el
+#       tope y la velocidad crítica; un acople que no encaja.
 #
 # Cada grupo monta su banco en una carpeta temporal, con placas escritas aquí.
 #
@@ -1171,6 +1175,207 @@ def c4_bldc(sim, cp):
     check(dt1 < 4.0, "lo que cuesta: 2,2 s a 3500 rpm con la carga, en %.2f s de reloj (con los "
           "Hall; el encoder añade un suceso por flanco)" % dt1)
 
+# =============================================================================
+# C5 (F2): la transmisión
+# =============================================================================
+BANCO_EJE = """<placa nombre="banco-eje">
+  <componente tipo="Conector" id="J" filas="1" columnas="7" nombres="VMOT GND VLOG STEP DIR V24 BRK"/>
+  <nodo id="J.GND" bus="si"/>
+  <componente tipo="Fuente" id="VMOT" v="12" limite_ma="5000" media_ms="20">
+    <pin nombre="pin" nodo="J.VMOT"/></componente>
+  <componente tipo="Gnd" id="MASA"><pin nombre="pin" nodo="J.GND"/></componente>
+  <componente tipo="Fuente" id="VLOG" v="5"><pin nombre="pin" nodo="J.VLOG"/></componente>
+  <componente tipo="FuenteAjustable" id="BRK" v="%(freno)s" vmin="0" vmax="24" r="0.5">
+    <pin nombre="pin" nodo="J.BRK"/></componente>
+  <componente tipo="GeneradorPasos" id="G" hz="0" ancho_us="5" vdd="5">
+    <pin nombre="step" nodo="J.STEP"/><pin nombre="dir" nodo="J.DIR"/></componente>
+</placa>
+"""
+SISTEMA_EJE = """<sistema nombre="prueba-eje">
+  <placa id="E" fichero="eje.xml"/>
+  <placa id="T" fichero="banco_eje.xml"/>
+%(driver)s</sistema>
+"""
+DRIVER_EJE = """  <placa id="D" fichero="%(placas)s/pololu_a4988.xml"/>
+  <hilo a="T/J.VMOT" b="D/J2.VMOT"/>
+  <hilo a="T/J.GND"  b="D/J2.GND1"/>
+  <hilo a="T/J.VLOG" b="D/J2.VLOG"/>
+  <hilo a="T/J.GND"  b="D/J1.EN"/>
+  <hilo a="T/J.GND"  b="D/J1.MS1"/>
+  <hilo a="T/J.GND"  b="D/J1.MS2"/>
+  <hilo a="T/J.GND"  b="D/J1.MS3"/>
+  <hilo a="T/J.STEP" b="D/J1.STEP"/>
+  <hilo a="T/J.DIR"  b="D/J1.DIR"/>
+  <hilo a="D/J1.RST" b="D/J1.SLP"/>
+  <hilo a="E/M.A1" b="D/J2.1A"/>
+  <hilo a="E/M.A2" b="D/J2.1B"/>
+  <hilo a="E/M.B1" b="D/J2.2A"/>
+  <hilo a="E/M.B2" b="D/J2.2B"/>
+"""
+FRENO_EJE = """  <hilo a="T/J.BRK" b="E/F.A"/>
+  <hilo a="T/J.GND" b="E/F.B"/>
+"""
+BOLAS = ('<componente tipo="Husillo" id="H" rosca="bolas" diametro_mm="16" avance_mm="5" '
+         'longitud_mm="200" extremo_mm="8" apoyos="fijo-apoyado"/>')
+
+
+def eje(sim, cp, husillo=None, masa=None, driver=True, freno=None, ms=500, lista=(), extra="",
+        cambia=(), pedidos=(("E/C", "posicion"),)):
+    """El eje Z de placas/eje_z_tr8.xml en un banco: con su A4988 en paso
+    entero (100 pasos por mm con el Tr8x2) y un generador de pasos, o sin
+    driver. Con otro husillo, otra masa, y un freno: el BCD de 24 V entre el
+    motor y el acople"""
+    x = open(os.path.join("placas", "eje_z_tr8.xml"), encoding="utf-8").read()
+    if husillo:
+        x = re.sub(r'<componente tipo="Husillo".*?/>', husillo, x, flags=re.S)
+    if masa:
+        x = x.replace('masa_kg="1.2"', 'masa_kg="%s"' % masa)
+    if freno is not None:
+        x = x.replace('<transmision id="Z" cadena="MOTOR A H C"/>',
+                      '<componente tipo="Conector" id="F" filas="2" columnas="1" nombres="A B"/>\n'
+                      '  <componente tipo="Freno" id="FR" v_nominal="24" potencia_w="8" '
+                      'par_ncm="50" eje_mm="5">\n'
+                      '    <pin nombre="a" nodo="F.A"/><pin nombre="b" nodo="F.B"/>\n'
+                      '  </componente>\n'
+                      '  <transmision id="Z" cadena="MOTOR FR A H C"/>')
+    for a, b in cambia:
+        x = x.replace(a, b)
+    x = x.replace("</placa>", extra + "</placa>")
+    cp("eje.xml", x)
+    cp("banco_eje.xml", BANCO_EJE % {"freno": freno or 0})
+    drv = DRIVER_EJE % {"placas": os.path.abspath("placas")} if driver else ""
+    if freno is not None:
+        drv += FRENO_EJE
+    ruta = cp("ejez.xml", SISTEMA_EJE % {"driver": drv})
+    s, avs, cat, rc = muestrea(sim, ruta, ms, list(pedidos), periodo_ns=5000000, lista=lista)
+    return s, avs, ULTIMA[0], rc
+
+
+def c5_transmision(sim, cp):
+    grupo("C5 (F2) El husillo: el rendimiento y el autobloqueo salen de la helice")
+    husillos = (("Tr8, avance 2, laton", 'rosca="Tr" diametro_mm="8" avance_mm="2" paso_mm="2" mu="0.15"',
+                 5.2, 0.36, None, True),
+                ("Tr8, avance 8 (4 entradas)", 'rosca="Tr" diametro_mm="8" avance_mm="8" paso_mm="2" mu="0.15"',
+                 20.0, 0.66, 0.54, False),
+                ("bolas 1605", 'rosca="bolas" diametro_mm="16" avance_mm="5"', 5.7, 0.95, 0.95, False))
+    for nombre, attrs, lam, eta, etai, sujeta in husillos:
+        s, avs, out, rc = eje(sim, cp, husillo='<componente tipo="Husillo" id="H" %s longitud_mm="200" '
+                              'extremo_mm="8"/>' % attrs, driver=False, ms=10)
+        lh = linea(out, "HUSILLO E/H:")
+        m_ = re.search(r"helice ([0-9.]+)", lh)
+        l_ = float(m_.group(1)) if m_ else None
+        e_ = numero_tras(lh, "rendimiento ")
+        ei = numero_tras(lh, "directo y ")
+        ok = (l_ is not None and abs(l_ - lam) < 0.15 and e_ is not None and abs(e_ - eta) < 0.015
+              and (("SE SUJETA SOLO" in lh) == sujeta) and (etai is None or abs(ei - etai) < 0.015))
+        check(ok, "%s: la tabla del §6.3 -helice %.1f°, rendimiento %.2f%s- sale del calculo: %s"
+              % (nombre, lam, eta, "; se sujeta solo" if sujeta else ", inverso %.2f" % etai, lh))
+
+    grupo("C5 (F2) El eje Z de la 3018: la inercia reflejada y lo que se sujeta sin corriente")
+    rc, out = valida(sim, "placas/eje_z_tr8.xml")
+    f = piezas_sin_dibujo("eje_z_tr8")
+    check(rc == 0 and " 0 avisos" in out and "dibujo: eje_z_tr8.svg (" in out and not f,
+          "placas/eje_z_tr8.xml se valida sin avisos, con su dibujo: cada pieza visible y cada pin "
+          "de conector, con su id%s" % (" (faltan: %s)" % f if f else ""))
+    s, avs, out, rc = eje(sim, cp, driver=False, ms=300)
+    lt = linea(out, "TRANSMISION E/Z:")
+    j = numero_tras(lt, "elemento(s), ")
+    j_h = 7850 * math.pi * 0.008 ** 4 * 0.2 / 32 * 1e7
+    j_c = 1.2 * (0.002 / (2 * math.pi)) ** 2 * 1e7
+    cuenta = 34 + 3 + j_h + j_c
+    check(j and abs(j - cuenta) < 0.2,
+          "la inercia reflejada en el motor es J_motor + J_acople + J_husillo + m·(p/2·pi)²: "
+          "34 + 3 + %.1f + %.2f = %.1f g·cm², y la cadena dice %.1f" % (j_h, j_c, cuenta, j or 0))
+    pos = s[("E/C", "posicion")] if s else []
+    check(pos and abs(pos[-1][1] - 60.0) < 0.01,
+          "sin corriente en el motor, el Tr8x2 sujeta el cabezal: sigue a %.3f mm" % pos[-1][1])
+    s, avs, out, rc = eje(sim, cp, driver=False, masa=5, ms=300)
+    check(abs(s[("E/C", "posicion")][-1][1] - 60.0) < 0.01,
+          "y con 5 kg -un cabezal de 800 W-, tambien: un Tr8x2 se sujeta solo con cualquier peso")
+    s, avs, out, rc = eje(sim, cp, husillo=BOLAS, driver=False, masa=5, ms=600)
+    p = s[("E/C", "posicion")]
+    t0 = [t for t, v in p if v < 1e-3]
+    check(t0 and "choca con el tope de abajo" in textos(avs),
+          "EL Z CON BOLAS SIN FRENO SE CAE: con un 1605 y 5 kg, el cabezal llega abajo a los %.0f "
+          "ms y choca con el tope" % ((t0 or [0])[0] * 1e3))
+    s, avs, out, rc = eje(sim, cp, husillo=BOLAS, driver=False, masa=1.2, ms=300)
+    check(abs(s[("E/C", "posicion")][-1][1] - 60.0) < 0.01,
+          "con 1,2 kg no se cae: el par de retencion sin corriente del NEMA 17 (1,5 N·cm) puede "
+          "con los 0,9 que le llegan")
+    s, avs, out, rc = eje(sim, cp, husillo=BOLAS, driver=False, masa=5, freno=0, ms=300)
+    lf = linea(out, "FRENO E/FR:")
+    check(abs(s[("E/C", "posicion")][-1][1] - 60.0) < 0.01 and "echado" in lf,
+          "con un freno de muelle sin corriente entre el motor y el acople, no se cae (%s)" % lf)
+    s, avs, out, rc = eje(sim, cp, husillo=BOLAS, driver=False, masa=5, freno=24, ms=800,
+                          pedidos=(("E/C", "posicion"), ("E/FR", "suelto")))
+    lf = linea(out, "FRENO E/FR:")
+    i_fr = numero_tras(lf, "suelto, ")
+    suelto = [t for t, v in s[("E/FR", "suelto")] if v == 1.0]
+    check(s[("E/C", "posicion")][-1][1] < 1e-3 and i_fr and abs(i_fr - 331) < 3 and suelto and
+          0.025 <= suelto[0] <= 0.040,
+          "con sus 24 V se suelta a los %.0f ms -su retardo, 30-, gasta %.0f mA -una bobina de "
+          "24²/8 W = 72 ohm, tras los 0,5 de la fuente- y el cabezal se cae"
+          % ((suelto or [0])[0] * 1e3, i_fr or 0))
+    reductora = ('<componente tipo="Reductora" id="R" relacion="10" rendimiento="0.5" '
+                 'rendimiento_inverso="-0.1" inercia_gcm2="5"/>\n  ')
+    s, avs, out, rc = eje(sim, cp, husillo=BOLAS, driver=False, masa=5, ms=300,
+                          cambia=(('<componente tipo="Acople"', reductora + '<componente tipo="Acople"'),
+                                  ('cadena="MOTOR A H C"', 'cadena="MOTOR R A H C"')))
+    check(abs(s[("E/C", "posicion")][-1][1] - 60.0) < 0.01,
+          "con una reductora de sinfin de 1:10 que se sujeta sola, el 1605 con 5 kg tampoco se cae")
+
+    grupo("C5 (F2) El eje en marcha: los pasos, la holgura, los topes y los avisos")
+    lista = [(100, "T/G", "hz", 1000), (600, "T/G", "hz", 0), (700, "T/G", "sentido", 0),
+             (750, "T/G", "hz", 1000), (1250, "T/G", "hz", 0)]
+    # Con el modelo ideal del paso a paso, cada paso es un paso exacto: lo que
+    # falta es la holgura
+    s, avs, out, rc = eje(sim, cp, ms=1400, lista=lista, pedidos=(("E/C", "posicion"),
+                                                                ("T/G", "pasos")),
+                          cambia=(('inercia_gcm2="34" eje_mm="5"',
+                                   'inercia_gcm2="34" eje_mm="5" modelo="ideal"'),))
+    p, g = s[("E/C", "posicion")], s[("T/G", "pasos")]
+    antes = [v for t, v in p if t < 0.095][-1]
+    arriba = [v for t, v in p if 0.62 < t < 0.69][-1]
+    n_up = [v for t, v in g if 0.62 < t < 0.69][-1]
+    n_down = n_up - g[-1][1]
+    fin = p[-1][1]
+    sube, baja = arriba - antes, arriba - fin
+    check(n_up / 100.0 - 0.016 <= sube <= n_up / 100.0 + 0.001,
+          "con el A4988 en paso entero, %d pasos hacia arriba son %.2f mm -100 pasos por mm-, y el "
+          "carro sube %.4f: la holgura de la tuerca se come un poco al arrancar" % (n_up, n_up / 100.0,
+                                                                                 sube))
+    check(abs(baja - (n_down / 100.0 - 0.03)) < 0.0005,
+          "y al bajar %d pasos baja %.4f, no %.2f: al cambiar de sentido el motor recorre los 30 um "
+          "de la holgura antes de mover el carro" % (n_down, baja, n_down / 100.0))
+    lista = [(100, "T/G", "hz", 1000), (1600, "T/G", "hz", 0)]
+    s, avs, out, rc = eje(sim, cp, ms=1700, lista=lista)
+    lp = linea(out, "PASO A PASO E/MOTOR:")
+    perd = re.search(r"([0-9]+) perdidos", lp)
+    check("choca con el tope de arriba" in textos(avs) and
+          s[("E/C", "posicion")][-1][1] > 71.9 and perd and int(perd.group(1)) > 100,
+          "1500 pasos hacia arriba desde los 60 mm: a los 12 el carro choca con el tope de arriba, "
+          "se queda ahi y el paso a paso pierde los que faltan, sin que el driver se entere (%s)" % lp)
+    s, avs, out, rc = eje(sim, cp, ms=600, lista=[(100, "T/G", "hz", 1000)],
+                          cambia=(('longitud_mm="200" apoyos="fijo-apoyado"',
+                                   'longitud_mm="1000" apoyos="fijo-libre"'),
+                                  ('recorrido_mm="72"', 'recorrido_mm="900"')))
+    check("por encima de su velocidad critica" in textos(avs),
+          "un Tr8 de un metro con un extremo libre tiene la velocidad critica en 260 rpm, y a 300 "
+          "se avisa: «...por encima de su velocidad critica, 259 (Tr de 1000 mm, apoyos fijo-libre): "
+          "vibra como una cuerda»")
+    x = open(os.path.join("placas", "eje_z_tr8.xml"), encoding="utf-8").read()
+    x = x.replace('d1_mm="5"', 'd1_mm="6.35"')
+    rc, out = valida(sim, cp("eje_mal.xml", x))
+    check(rc != 0 and "MOTOR da un eje de 5 mm y A lo recibe de 6.35: no encajan" in out,
+          "un acople de 6,35 mm en el eje de 5 de un NEMA 17 no se monta: «MOTOR da un eje de 5 mm "
+          "y A lo recibe de 6.35: no encajan»")
+    s, avs, out, rc = eje(sim, cp, ms=300, lista=[(50, "T/G", "hz", 1000)],
+                          pedidos=(("E/Z", "posicion"),))
+    z = s[("E/Z", "posicion")] if s else []
+    check(z and z[-1][1] > 62.0,
+          "la transmision deja ver la cota del carro, para el display del dibujo: %.2f mm"
+          % (z[-1][1] if z else 0))
+
 
 def main():
     a = argparse.ArgumentParser(description="La fresadora CNC, por fases, contra el mcu-sim de verdad")
@@ -1192,6 +1397,7 @@ def main():
         c2_pap(sim, cp)
         c3_continua(sim, cp)
         c4_bldc(sim, cp)
+        c5_transmision(sim, cp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print()

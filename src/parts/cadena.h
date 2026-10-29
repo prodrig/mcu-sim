@@ -138,6 +138,7 @@ public:
     virtual double viscoso() const { return 0.0; }      // N·m·s/rad
     virtual bool   bloqueado() const { return false; }  // una mano que lo sujeta
     virtual double posicion_inicial() const { return 0.0; }  // rad
+    virtual double diametro_eje() const { return 0.0; }      // mm; 0, no se sabe
 
     // --- El proceso -----------------------------------------------------------
     // Antes de avanzar (apuntar sus medias) y después (resolver sus ramas, sus
@@ -173,7 +174,30 @@ public:
     virtual double arranque() const { return rozamiento(); }
     virtual double viscoso() const { return 0.0; }       // N·m·s/rad
     virtual bool   bloqueado() const { return false; }
-    // Su entrada se ha movido: th en rad, w en rad/s
+    // F2. El RENDIMIENTO INVERSO: el de cuando la carga mueve al motor -un Z que
+    // baja por su peso-; cero o menos, se sujeta solo (autobloqueo)
+    virtual double rendimiento_inverso() const { return rendimiento(); }
+    // Una CARGA ACTIVA en su entrada -la gravedad de un carro vertical, la
+    // fuerza de corte-: no es un rozamiento, empuja hacia un lado. En N·m, o en
+    // N si su entrada es lineal; positiva, hacia donde crece su entrada
+    virtual double carga_activa() const { return 0.0; }
+    // La HOLGURA de su salida, en sus unidades (rad, o m): una zona muerta
+    // cinemática. Cambia dónde está lo de detrás, no la dinámica
+    virtual double holgura() const { return 0.0; }
+    // Los TOPES DUROS de su entrada: el recorrido de un carro
+    virtual bool limites(double& /*lo*/, double& /*hi*/) const { return false; }
+    // La cadena le dice si está contra uno de sus topes (-1 el de abajo, 1 el
+    // de arriba, 0 ninguno): sin la holgura, que no cuenta para el choque
+    virtual void tope(int /*cual*/) {}
+    // Dónde empieza su entrada; NAN, donde la deje el motor
+    virtual double posicion_inicial() const { return std::numeric_limits<double>::quiet_NaN(); }
+    // Los diámetros de sus ejes, en mm, para ver si encajan; 0, no se sabe
+    virtual double diametro_entrada() const { return 0.0; }
+    virtual double diametro_salida() const { return 0.0; }
+    // El par que le llega a la entrada, en N·m (para avisar de que se pasa)
+    virtual void esfuerzo(double /*par_entrada*/) {}
+    virtual bool quiere_esfuerzo() const { return false; }
+    // Su entrada se ha movido: th en rad (o m), w en rad/s (o m/s)
     virtual void mueve(double /*th*/, double /*w*/) {}
     // El nombre, para los mensajes
     virtual std::string nombre_elemento() const = 0;
@@ -217,17 +241,43 @@ public:
     // Lo reflejado, una vez montada. Las cifras de cada pieza no cambian
     void cierra() {
         n_.clear();
-        double n = 1.0, eta = 1.0;
+        eta_.clear();
+        etai_.clear();
+        double n = 1.0, eta = 1.0, etai = 1.0;
         for (ElementoMecanico* e : elem_) {
             n_.push_back(n);
             eta_.push_back(eta);
+            etai_.push_back(etai);
             n *= e->relacion();
             eta *= e->rendimiento();
+            // Uno que se sujeta solo deja la cadena sujeta: el rendimiento
+            // inverso de lo que hay detrás es el suyo, negativo
+            const double ri = e->rendimiento_inverso();
+            etai = (etai <= 0.0 || ri <= 0.0) ? -std::fabs(etai * ri) : etai * ri;
         }
+        salida_.assign(elem_.size(), 0.0);
+        entrada_.assign(elem_.size(), 0.0);
         th_angulo_ = false;
         for (Actuador* a : act_) th_angulo_ = th_angulo_ || a->depende_del_angulo();
         if (!act_.empty()) x_.th = act_[0]->posicion_inicial();
+        // Un elemento que dice dónde empieza -un carro- manda
+        for (size_t k = 0; k < elem_.size(); ++k) {
+            const double p = elem_[k]->posicion_inicial();
+            if (std::isfinite(p)) x_.th = p * n_[k];
+        }
+        // Las salidas de los que tienen holgura, centradas en el hueco
+        for (size_t k = 0; k < elem_.size(); ++k) {
+            entrada_[k] = th_de(unsigned(k));
+            salida_[k] = entrada_[k] / elem_[k]->relacion();
+        }
     }
+    // La entrada del elemento k, con las holguras de delante: donde está de verdad
+    double entrada_de(unsigned k) const { return entrada_[k]; }
+    // De la entrada del elemento k: el factor de la referencia, y sus
+    // rendimientos de lo que hay antes
+    double relacion_de(unsigned k) const { return n_[k]; }
+    double rendimiento_de(unsigned k) const { return eta_[k]; }
+    double rendimiento_inverso_de(unsigned k) const { return etai_[k]; }
 
     // --- Lo que se lee ---------------------------------------------------
     double w() const  { return x_.w; }                // rad/s del eje de referencia
@@ -276,8 +326,7 @@ public:
         for (;;) {
             for (Actuador* a : act_) a->antes();
             avanza(ahora());
-            for (size_t k = 0; k < elem_.size(); ++k) elem_[k]->mueve(th_de(unsigned(k)),
-                                                                      w_de(unsigned(k)));
+            reparte();
             for (Actuador* a : act_) a->regimen();
             // Nunca menos de un nanosegundo: un plazo que redondea a cero
             // sería un bucle de ciclos delta
@@ -299,6 +348,27 @@ private:
     };
 
     // --- Lo que suman todos ------------------------------------------------
+    // El rozamiento que pone la CARGA ACTIVA al pasar por los rendimientos, con
+    // el eje yendo hacia s: si la carga se opone, el motor la empuja y se pierde
+    // |T|·(1/η - 1); si ayuda, la carga mueve al motor y se pierde |T|·(1 - ηi)
+    // -con ηi <= 0, más que lo que empuja: se sujeta sola-
+    double rozamiento_carga(int s) const {
+        double f = 0.0;
+        for (size_t k = 0; k < elem_.size(); ++k) {
+            const double F = elem_[k]->carga_activa();
+            if (F == 0.0) continue;
+            const double t = F / n_[k];
+            if (t * s < 0.0) f += std::fabs(t) * (1.0 / eta_[k] - 1.0);
+            else             f += std::fabs(t) * (1.0 - etai_[k]);
+        }
+        return f;
+    }
+    double par_activo() const {
+        double t = 0.0;
+        for (size_t k = 0; k < elem_.size(); ++k)
+            if (elem_[k]->carga_activa() != 0.0) t += elem_[k]->carga_activa() / n_[k];
+        return t;
+    }
     double rozamiento() const {
         double f = 0.0;
         for (const Actuador* a : act_) f += a->rozamiento();
@@ -342,6 +412,7 @@ private:
         d.th = x.w;
         if (s == 0) { d.w = 0.0; return; }
         double m = par - f_ * s;
+        if (activa_) m += ta_ - (s > 0 ? fc_[1] : fc_[0]) * s;
         if (b_ != 0.0) m -= b_ * x.w;
         d.w = m / j_;
     }
@@ -363,9 +434,16 @@ private:
             Estado d;
             double par = 0.0;
             deriva(x, 0, d, par);
-            if (std::fabs(par) > fa_) s = signo(par);
+            if (!activa_) {
+                if (std::fabs(par) > fa_) s = signo(par);
+            } else {
+                const double p = par + ta_;
+                const int sp = signo(p);
+                if (sp != 0 && std::fabs(p) > fa_ + (sp > 0 ? fc_[1] : fc_[0])) s = sp;
+            }
+            if (s != 0 && topes_ && en_tope(x.th, s)) s = 0;
         }
-        if (inerte()) {
+        if (inerte() && !activa_) {
             // Sin corriente: el rozamiento lo frena en línea recta, exacto
             if (s == 0) return x;
             const double a = -f_ * s / j_;
@@ -393,6 +471,7 @@ private:
         if (s != 0 && signo(x.w) != s) x.w = 0.0;     // se para
         if (th_angulo_) x.th += h / 6.0 * (k1.th + 2 * k2.th + 2 * k3.th + k4.th);
         else            x.th += 0.5 * (x0.w + x.w) * h;
+        if (topes_) contra_tope(x);
         for (size_t k = 0; k < act_.size(); ++k) act_[k]->recorta(x0.e[k], x.e[k]);
         return x;
     }
@@ -404,8 +483,72 @@ private:
             if (!act_[k]->asentado(x.e[k])) return false;
             par += act_[k]->par_asentado(x.th);
         }
-        const bool arranca = !bloq_ && std::fabs(par) > fa_;
+        if (!activa_) {
+            const bool arranca = !bloq_ && std::fabs(par) > fa_;
+            return !arranca;
+        }
+        const double p = par + ta_;
+        const int sp = signo(p);
+        bool arranca = !bloq_ && sp != 0 && std::fabs(p) > fa_ + (sp > 0 ? fc_[1] : fc_[0]);
+        if (arranca && topes_ && en_tope(x.th, sp)) arranca = false;
         return !arranca;
+    }
+    // Los topes duros: ¿está el eje contra uno, yendo hacia s?
+    bool en_tope(double th, int s) const {
+        for (size_t k = 0; k < elem_.size(); ++k) {
+            double lo = 0, hi = 0;
+            if (!elem_[k]->limites(lo, hi)) continue;
+            const double x = th / n_[k], eps = 1e-9 * std::max(1.0, std::fabs(hi - lo));
+            if ((s > 0 && x >= hi - eps) || (s < 0 && x <= lo + eps)) return true;
+        }
+        return false;
+    }
+    // Un tope que se cruza: el eje se queda en él, parado (un choque inelástico)
+    void contra_tope(Estado& x) const {
+        for (size_t k = 0; k < elem_.size(); ++k) {
+            double lo = 0, hi = 0;
+            if (!elem_[k]->limites(lo, hi)) continue;
+            const double p = x.th / n_[k];
+            if (p > hi) { x.th = hi * n_[k]; if (x.w > 0.0) x.w = 0.0; }
+            else if (p < lo) { x.th = lo * n_[k]; if (x.w < 0.0) x.w = 0.0; }
+        }
+    }
+    // Lo que se ve de cada elemento: su entrada, pasada por las holguras de los
+    // de delante; y el par que le llega
+    void reparte() {
+        double par = 0.0;
+        bool quiere = false;
+        for (const ElementoMecanico* e : elem_) quiere = quiere || e->quiere_esfuerzo();
+        if (quiere) {
+            Estado d;
+            for (size_t k = 0; k < act_.size(); ++k) {
+                double t = 0.0;
+                act_[k]->deriva(x_.e[k], x_.w, x_.th, d.e[k], t);
+                par += t;
+            }
+        }
+        double p = x_.th;                        // la entrada del elemento k
+        for (size_t k = 0; k < elem_.size(); ++k) {
+            ElementoMecanico* e = elem_[k];
+            const double w = x_.w / n_[k];
+            if (quiere) e->esfuerzo(par * n_[k] * eta_[k]);
+            double lo, hi;
+            if (e->limites(lo, hi)) {
+                const double x = x_.th / n_[k], eps = 1e-9 * std::max(1.0, std::fabs(hi - lo));
+                e->tope(x >= hi - eps ? 1 : (x <= lo + eps ? -1 : 0));
+            }
+            entrada_[k] = p;
+            e->mueve(p, w);
+            // Su salida: con holgura, se queda mientras la entrada recorre el hueco
+            const double ideal = p / e->relacion(), h = e->holgura();
+            if (h > 0.0) {
+                if (ideal - salida_[k] > 0.5 * h) salida_[k] = ideal - 0.5 * h;
+                else if (ideal - salida_[k] < -0.5 * h) salida_[k] = ideal + 0.5 * h;
+            } else {
+                salida_[k] = ideal;
+            }
+            p = salida_[k];
+        }
     }
     // Lo que valen ahora las sumas: cambian con los mandos de cada pieza
     void cifras() {
@@ -414,6 +557,17 @@ private:
         fa_ = arranque();
         b_ = viscoso();
         bloq_ = bloqueada();
+        // F2: la carga activa y los topes, si alguno los tiene
+        activa_ = false;
+        topes_ = false;
+        for (const ElementoMecanico* e : elem_) {
+            double lo, hi;
+            if (e->carga_activa() != 0.0) activa_ = true;
+            if (e->limites(lo, hi)) topes_ = true;
+        }
+        ta_ = activa_ ? par_activo() : 0.0;
+        fc_[0] = activa_ ? rozamiento_carga(-1) : 0.0;
+        fc_[1] = activa_ ? rozamiento_carga(1) : 0.0;
     }
     void lee(Estado& x) const {
         for (size_t k = 0; k < act_.size(); ++k) act_[k]->lee_e(x.e[k]);
@@ -498,11 +652,16 @@ private:
 
     std::vector<Actuador*> act_;
     std::vector<ElementoMecanico*> elem_;
-    std::vector<double> n_, eta_;       // de cada elemento: relación y rendimiento antes de él
+    std::vector<double> n_, eta_, etai_; // de cada elemento: relación y rendimientos antes de él
+    std::vector<double> salida_;          // la salida de cada uno, con su holgura
+    std::vector<double> entrada_;         // y su entrada
     bool th_angulo_ = false;
     // Las sumas, al día en cada vuelta
     double j_ = 1e-3, f_ = 0.0, fa_ = 0.0, b_ = 0.0;
     bool bloq_ = false;
+    // F2: la carga activa, el rozamiento que pone en cada sentido, y los topes
+    bool activa_ = false, topes_ = false;
+    double ta_ = 0.0, fc_[2] = {0.0, 0.0};
     // El estado, en t0_
     double t0_ = 0.0;
     Estado x_;
@@ -529,13 +688,29 @@ SC_MODULE(Transmision), public ExtPartBase {
     Cadena& cadena() { return cadena_; }
     const Cadena& cadena() const { return cadena_; }
 
-    unsigned n_observables() const override { return 3; }
+    // Si acaba en un carro -un elemento con topes-, deja ver también su
+    // POSICIÓN en mm: la cota de un eje, para un display
+    bool con_posicion() const {
+        double lo, hi;
+        return !cadena_.elementos().empty() && cadena_.elementos().back()->limites(lo, hi);
+    }
+    double posicion_mm() const {
+        return con_posicion() ? cadena_.entrada_de(unsigned(cadena_.elementos().size() - 1)) * 1e3 : 0.0;
+    }
+    unsigned n_observables() const override { return con_posicion() ? 4 : 3; }
     Observable observable(unsigned i) const override {
         if (i == 0) return {"angulo", "°", 0.f, 360.f, true};
         if (i == 1) return {"rpm", "rpm", -6000.f, 6000.f, false};
+        if (i == 3) {
+            double lo = 0, hi = 0;
+            cadena_.elementos().back()->limites(lo, hi);
+            const float m = float(std::max(std::fabs(lo), std::fabs(hi)) * 1e3);
+            return {"posicion", "mm", -m, m, false};
+        }
         return {"inercia", "g·cm²", 0.f, 0.f, false};
     }
     float valor_observable(unsigned i) const override {
+        if (i == 3) return float(posicion_mm());
         if (i == 0) {
             double g = std::fmod(cadena_.th() * 180.0 / 3.14159265358979323846, 360.0);
             return float(g < 0 ? g + 360.0 : g);

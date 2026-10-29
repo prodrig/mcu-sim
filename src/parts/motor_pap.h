@@ -84,6 +84,7 @@ struct ConfigMotorPaP {
     unsigned pasos = 200;              // por vuelta, enteros
     bool   ideal = false;              // cada paso, un paso: sin corrientes
     double posicion_inicial = 0.0;     // grados
+    double eje_mm = 0.0;               // el diámetro del eje; 0, no se sabe
 };
 
 SC_MODULE(MotorPaP), public ExtPartBase, public Actuador {
@@ -339,6 +340,7 @@ SC_MODULE(MotorPaP), public ExtPartBase, public Actuador {
     double rozamiento() const override { return tf_ + carga_ * t_ret_; }
     double viscoso() const override { return b_; }
     double posicion_inicial() const override { return c_.posicion_inicial * PI / 180.0; }
+    double diametro_eje() const override { return c_.eje_mm; }
     std::string nombre_actuador() const override { return pieza(); }
 
     void regimen() override {

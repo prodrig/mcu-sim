@@ -1591,6 +1591,38 @@ SC_MODULE(Sim) {
                         c->corriente_q(), c->corriente_vcc_ma(),
                         c->freno_suelto() ? "suelto" : "echado");
         }
+        // La transmision (F2): cada husillo con sus rendimientos, cada carro donde
+        // esta, cada reductora y cada freno
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo == "Husillo") {
+                const Husillo* h = placa.como<Husillo>(i.id);
+                if (!h) continue;
+                const ConfigHusillo& c = h->config();
+                std::printf("  HUSILLO %s: %s%.0fx%.0f, helice %.1f°, rendimiento %.2f directo y "
+                            "%.2f inverso%s; %+.0f rpm (critica %.0f)\n", i.id.c_str(),
+                            c.rosca == "bolas" ? "bolas " : c.rosca.c_str(), c.diametro_mm,
+                            c.avance_mm, h->lambda_grados(), h->rendimiento_directo(),
+                            h->rendimiento_inv(), h->se_sujeta() ? ": SE SUJETA SOLO" : "",
+                            h->rpm(), h->velocidad_critica());
+            } else if (i.tipo == "Carro") {
+                const Carro* c = placa.como<Carro>(i.id);
+                if (!c) continue;
+                std::printf("  CARRO %s (%s): %.3f mm, %+.1f mm/s%s%s\n", i.id.c_str(),
+                            c->config().eje.c_str(), c->posicion_mm(), c->velocidad_mm_s(),
+                            c->en_tope() ? "; EN UN TOPE" : "",
+                            c->choques() ? "; ha chocado" : "");
+            } else if (i.tipo == "Reductora") {
+                const Reductora* r = placa.como<Reductora>(i.id);
+                if (!r) continue;
+                std::printf("  REDUCTORA %s: 1:%g, %+.1f rpm en su salida\n", i.id.c_str(),
+                            r->config().relacion, r->rpm_salida());
+            } else if (i.tipo == "Freno") {
+                const Freno* f = placa.como<Freno>(i.id);
+                if (!f) continue;
+                std::printf("  FRENO %s: %s, %.0f mA\n", i.id.c_str(),
+                            f->suelto() ? "suelto" : "echado", f->corriente_ma());
+            }
+        }
         // Las cadenas mecanicas: a cuanto va su eje, cuanto ha girado y la
         // inercia que mueve, todo reflejada en el
         for (const Instancia& i : placa.instancias()) {

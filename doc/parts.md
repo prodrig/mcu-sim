@@ -2822,6 +2822,88 @@ la puesta en marcha automática, el I²t ni la energía que vuelve al frenar (F5
 * **Lo que cuesta**: 2,2 s a 3500 rpm con los Hall, en medio segundo de CPU
   (`make gui-cnc`, C4).
 
+### 4.21 La transmisión: `Reductora`, `Acople`, `Husillo`, `Carro` y `Freno`
+
+`parts/transmision.h`, la fase F2 de `doc/analisis_cnc.md` (§6). Son
+**elementos de una cadena** (§4.17): una `<transmision>` los pone detrás de sus
+motores, del motor hacia la carga, y la cadena refleja cada uno en el eje de
+los motores. Montado, un eje entero es `placas/eje_z_tr8.xml`: un NEMA 17, un
+acople de espiral, un Tr8x2 y el carro Z de una 3018, de lado, con el carro
+que sube y baja en el dibujo y su cota en un display.
+
+**Lo que la cadena aprende en F2:**
+
+* **La carga activa.** Un elemento puede empujar —el peso de un carro
+  vertical, la fuerza de corte—, y no solo frenar. Pasa por los rendimientos
+  según hacia dónde vaya la energía: si el motor la empuja, se pierde
+  `|T|·(1/η − 1)`; si la carga mueve al motor, `|T|·(1 − ηi)`, con `ηi` el
+  **rendimiento inverso**. Con `ηi ≤ 0` lo que se pierde es más de lo que la
+  carga empuja: **se sujeta sola**, y el motor tiene que empujar hasta para
+  bajar.
+* **Los topes duros.** El recorrido de un carro: al llegar, la cadena se para
+  en seco, y no arranca hacia el tope. Un paso a paso pierde pasos; uno de
+  continua pide la corriente de bloqueo.
+* **La holgura**, una zona muerta **cinemática**: mientras el motor recorre el
+  hueco, lo de detrás se queda donde está. Cambia dónde están las cosas, no la
+  dinámica (la inercia no se separa durante el hueco).
+* **Que los ejes encajen.** Cada motor dice el diámetro de su eje (`eje_mm`)
+  y cada elemento los de su entrada y su salida; la `<transmision>` no se
+  monta si no casan: «MOTOR da un eje de 5 mm y A lo recibe de 6.35: no
+  encajan».
+* **La cota.** Una transmisión que acaba en un carro deja ver su `posicion`
+  en mm, para un display (en `mcu-sim-gui`, una cota en mm lleva siempre su
+  signo y una cifra más).
+
+| Pieza | Atributos (omisión) | Lo que hace |
+| :--- | :--- | :--- |
+| `Reductora` | `relacion` (3), `rendimiento` (0,9), `rendimiento_inverso` (el directo; ≤ 0 en un sinfín), `holgura_arcmin` (0), `inercia_gcm2` (0), `par_max_nm` (0), `entrada_mm`, `salida_mm` | Avisa si su salida pasa de `par_max_nm` |
+| `Acople` | `tipo_acople` (espiral, mordaza o fuelle), `d1_mm`, `d2_mm`, `inercia_gcm2` (2), `holgura_arcmin` (0) | Sus dos diámetros tienen que encajar |
+| `Husillo` | `rosca` (Tr, ACME o bolas), `diametro_mm` (8), `avance_mm` (8), `paso_mm` (2), `mu` (0,15; 0,005 de bolas), `longitud_mm` (350), `apoyos` (fijo-apoyado), `holgura_mm` (0), `extremo_mm` | **El rendimiento se calcula**; avisa de la velocidad crítica y del DN |
+| `Carro` | `masa_kg` (1), `rozamiento_n` (5), `viscoso_ns_m` (0), `recorrido_mm` (300), `posicion_mm` (0), `vertical` (no), `eje` | Topes, peso; su mando `fuerza` es la de fuera |
+| `Freno` | `v_nominal` (24), `potencia_w` (8), `par_ncm` (50), `suelta_ms` (30), `echa_ms` (20), `eje_mm`; terminales `a` y `b` | Frena sin corriente |
+
+**El husillo.** Del ángulo de la hélice `λ = atan(avance/(π·d_m))` —`d_m`, el
+nominal menos medio paso en una rosca, el nominal en uno de bolas— y del de
+rozamiento con el flanco, `φ' = atan(μ/cos(α/2))` —α de 30° en Tr, 29° en
+ACME, 0 de bolas—:
+
+    η  = tan λ / tan(λ + φ')        ηi = tan(λ − φ') / tan λ
+
+| Husillo | λ | η | ηi | |
+| :--- | ---: | ---: | ---: | :--- |
+| Tr8x2, latón (μ 0,15) | 5,2° | 0,36 | −0,70 | **se sujeta solo** |
+| Tr8x8, 4 entradas | 20,0° | 0,66 | 0,54 | |
+| Bolas 1605 (μ 0,005) | 5,7° | 0,95 | 0,95 | |
+
+Su inercia es la de un cilindro de acero de su diámetro y su largo (un Tr8 de
+200 mm, 6,3 g·cm²; un 1605 de 400, 202). La **velocidad crítica**,
+`n_c = f·1,2·10⁵·d_r/L²` rpm, con `f` 0,36 fijo-libre, 1 apoyado-apoyado, 1,47
+fijo-apoyado y 2,24 fijo-fijo; y en uno de bolas, `d·n ≤ 70 000`. Al pasarlos,
+un aviso.
+
+**El carro** es la pieza de las guías, el carro y lo que lleva: su entrada es
+**lineal**, en metros —la relación de un husillo es `2π/avance`, radianes por
+metro—, así que su masa se refleja como `m·(avance/2π)²` y su peso como un par
+de `m·g·avance/2π`. Deja ver `posicion` (mm), `velocidad` (mm/s) y la alarma
+`en_tope`, y avisa de cada choque.
+
+**El freno** es una bobina de `V²/P` ohmios que se suelta con el 70 % de su
+tensión y se echa por debajo del 25 %, cada cosa con su retardo; echado, su par
+entra en la cadena como rozamiento, y si el eje gira avisa de que **patina**.
+
+**Lo que sale** (`make gui-cnc`, C5):
+
+* La tabla de arriba, calculada; y la inercia reflejada del eje Z,
+  `34 + 3 + 6,3 + 1,22 = 44,5 g·cm²`.
+* **Sin corriente**, el Tr8x2 sujeta el cabezal con cualquier peso; un 1605
+  con 5 kg se cae y choca abajo a los 420 ms; con 1,2 kg no, porque el par de
+  retención sin corriente del NEMA 17 (1,5 N·cm) puede con los 0,9 que le
+  llegan. Con un freno de muelle sin corriente, o con un sinfín que se sujeta
+  solo, no se cae; con los 24 V del freno, se suelta a los 30 ms y se cae.
+* 100 pasos por mm; la holgura de 30 µm se ve al cambiar de sentido; un tope
+  que para el carro y un paso a paso que pierde pasos sin que nadie se entere;
+  un Tr8 de un metro con un extremo libre que pasa de su velocidad crítica.
+
 ---
 
 ## 5. Lo que el fichero todavía no puede hacer

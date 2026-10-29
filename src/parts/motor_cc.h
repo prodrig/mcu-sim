@@ -161,6 +161,7 @@ struct ConfigMotorCC {
     unsigned ppr = 0;              // ventanas del disco del encoder; 0, sin él
     double enc_i_ma = 20.0;        // lo que gasta el sensor a 3,3 V
     double posicion_inicial = 0.0; // grados
+    double eje_mm = 0.0;           // el diámetro del eje de salida; 0, no se sabe
 };
 
 SC_MODULE(MotorCC), public ExtPartBase, public Actuador {
@@ -340,6 +341,7 @@ SC_MODULE(MotorCC), public ExtPartBase, public Actuador {
     double rozamiento() const override { return tf_ + t_carga(); }
     double arranque() const override { return ts_ + t_carga(); }
     double posicion_inicial() const override { return c_.posicion_inicial * PI / 180.0; }
+    double diametro_eje() const override { return c_.eje_mm; }
     std::string nombre_actuador() const override { return pieza(); }
 
     void antes() override { apunta_medias(); }

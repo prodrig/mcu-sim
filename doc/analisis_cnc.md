@@ -736,6 +736,8 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
 2. **El modelo eléctrico de los drivers**: la **corriente impuesta con tope de
    tensión**, la tercera forma del §5.2.
 3. **El orden**: F0, F1a, F1b y F1c, un parche por fase.
+4. **El 2026-10-29, F2 y F3**, un parche por fase. En F3, **el firmware
+   propio**; grblHAL, después y en un parche aparte (la pregunta 2 del §12).
 
 ### F0, hecha: la cadena mecánica y el efecto `desplaza`
 
@@ -880,6 +882,29 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
   18 000 rpm—. En el paso a paso, la curva a 48 V sube un poco: la esquina
   pasa de 1240 a 1290 rpm.
 * **Pruebas**: `make gui-cnc` C4, 19 comprobaciones (99 en total).
+
+### F2, hecha: la transmisión
+
+* **`parts/transmision.h`**: `Reductora`, `Acople`, `Husillo`, `Carro` y
+  `Freno`, elementos de la cadena. El husillo **calcula** su rendimiento del
+  ángulo de la hélice y del rozamiento de la tuerca, con el inverso y el
+  autobloqueo; su inercia, de su diámetro y su largo; avisa de la velocidad
+  crítica y del DN.
+* **La cadena aprende** la carga activa —el peso de un Z— con el rendimiento
+  según hacia dónde va la energía, los topes duros, la holgura como zona
+  muerta cinemática y que los ejes encajen (`eje_mm` en los motores). El
+  `MotorCC` sigue dando sus 17 cifras.
+* **La tabla del §6.3, calculada**: Tr8x2 5,2°, 0,36 y se sujeta solo
+  (inverso −0,70); Tr8x8 20°, 0,66 y 0,54; bolas 1605 5,7°, 0,95 y 0,95.
+* **El Z con bolas sin freno se cae; con Tr8x2, no.** Con un matiz que la
+  tabla no decía: con 1,2 kg el 1605 tampoco se cae, porque el par de
+  retención sin corriente del NEMA 17 —1,5 N·cm— puede con los 0,9 que le
+  llegan. Hacen falta unos 5 kg —un cabezal de 800 W— para que se caiga.
+  Con un freno de muelle o un sinfín que se sujeta solo, no.
+* **Placa**: `eje_z_tr8.xml`, el Z de la 3018 de punta a punta, de lado, con
+  el carro que se mueve en el dibujo y su **cota** en un display. En
+  `mcu-sim-gui`, una cota en mm lleva siempre su signo y una cifra más.
+* **Pruebas**: `make gui-cnc` C5, 18 comprobaciones (117 en total).
 
 ## Fuentes
 
