@@ -2614,11 +2614,11 @@ velocidad, y mucho antes a 24 V:
 
 | rpm | 120 | 600 | 900 | 1200 | 1800 |
 | :--- | ---: | ---: | ---: | ---: | ---: |
-| 24 V | 1,23 | 0,93 | 0,41 | 0,22 | 0,11 |
-| 48 V | 1,23 | 1,16 | 1,08 | 0,90 | 0,43 |
+| 24 V | 1,23 | 0,93 | 0,41 | 0,19 | 0,17 |
+| 48 V | 1,23 | 1,18 | 1,08 | 0,93 | 0,45 |
 
 La **esquina** —el 70 % del par de abajo— está en unas 640 rpm a 24 V y en
-unas 1240 a 48 V, el doble: por eso los Nanotec van a 48 V. Con una rampa de
+unas 1290 a 48 V, el doble: por eso los Nanotec van a 48 V. Con una rampa de
 5 ms hasta 1000 rpm el rotor se descuelga y pierde miles de pasos; con 400 ms,
 ninguno. Un eje así, a 1/8 y 3200 Hz, cuesta unos 0,09 s de CPU por segundo
 simulado, con el arranque de `mcu-sim` (`make gui-cnc`, C2).
@@ -2703,6 +2703,124 @@ Deja ver `corriente` (mA, de media), `disipacion` y `despierto`. Al terminar:
   —el encoder en el TIM2 en modo encoder, el PWM del TIM4 a 1 kHz— lleva el
   eje de salida una vuelta, 1320 cuentas, y media atrás, sin pasarse más de un
   2 % y a 2 cuentas de la consigna en menos de 600 ms (`make gui-cnc`, C3).
+
+### 4.20 El BLDC y su controlador: `MotorBLDC` y `ControladorMotor`
+
+`parts/motor_bldc.h` y `parts/controlador_motor.h`, la fase F1c de
+`doc/analisis_cnc.md` (§5.4 y §5.5). Montadas, son `placas/db59l024035_a.xml`
+—el BLDC de Nanotec de 24 V y 172 W— y `placas/controlador_tipo_c5e.xml`.
+
+#### `MotorBLDC`
+
+Un BLDC trifásico con sus tres Hall y, con `ppr=`, un encoder. Lo conmuta su
+controlador por dentro —FOC o seis pasos, que desde fuera no se ven—, así que
+se modela **en el eje q**, como un motor de continua equivalente con las
+cifras de entre dos fases:
+
+    V = R·i + L·di/dt + Kt·ω          T = Kt·i
+
+La corriente es la de la **rama de corriente impuesta con tope de tensión**
+del paso a paso (§4.18): el controlador declara sus tres salidas —U con el
+polo +1, V con el −1 y W con el 0— y el motor sigue la consigna mientras
+`R·i* + Kt·ω` quepa en la tensión de alimentación. **U, V y W se comprueban**:
+cada una a la suya, o no hay corriente y se avisa —«las fases van cruzadas:
+con los Hall, la conmutación no casa con las bobinas, y un BLDC así da
+sacudidas sin girar»—.
+
+Los **Hall**, a 120° eléctricos con `pares_polos` pares de polos —6·p cambios
+por vuelta—: 101, 100, 110, 010, 011 y 001 girando a la derecha. Son de
+colector abierto, como los de Nanotec: el pull-up lo pone el controlador.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `u`, `v`, `w` | obligatorios | Las tres fases |
+| `hall_vcc`, `hall_gnd` | con los Hall | Su alimentación, 5 V |
+| `h1`, `h2`, `h3` | con `hall_vcc` | Los tres Hall |
+| `enc_a`, `enc_b` | con `ppr` | El encoder, en cuadratura |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `kt_ncm_a` | `5` | La constante de par, en N·cm/A, y la de f.e.m. |
+| `r_ohm`, `l_mh` | `0.22`, `0.29` | Entre dos fases |
+| `corriente_nominal`, `corriente_pico` | `9.4`, `28` | En A. La carga va en % de `Kt·I` nominal; por encima del pico, se avisa |
+| `inercia_gcm2` | `119` | La del rotor |
+| `rozamiento_ncm`, `viscoso_mnms` | `1.5`, `0.02` | Estimados: la ficha no da la corriente en vacío |
+| `pares_polos` | `3` | 18 cambios de Hall por vuelta |
+| `ppr` | `0` | Las líneas del encoder; cada flanco es un suceso |
+
+Deja ver `angulo`, `rpm`, `corriente` (A, la del eje q), `par`, `tension`,
+`hall`, la alarma `sobrecorriente` y, con encoder, `cuenta`. Sus mandos son
+`bloquear` y `carga`, hasta el 300 % del par nominal.
+
+#### `ControladorMotor`
+
+Un controlador **de reloj y dirección en lazo cerrado**, tipo C5-E: desde
+fuera, un driver de pasos; por dentro, una cascada de lazos cada `lazo_us`:
+
+    θ*   = pasos · 2π / pasos_vuelta
+    ω*   = kp_pos·(θ* − θ) + dθ*/dt
+    i_q* = kp_vel·(ω* − ω) + ki_vel·∫(ω* − ω)        (hasta corriente_max)
+
+La posición sale de los Hall —un tramo de 20° en el DB59— o del encoder, y la
+velocidad del tiempo entre cambios (el método M/T); entre dos cambios, la
+posición se interpola sin salir del tramo. Con la consigna quieta y el error
+dentro de medio tramo, el lazo de posición no empuja.
+
+**No pierde pasos sin enterarse.** Cada paso cuenta. Si el error de seguimiento
+pasa de `error_max_grados` durante `error_ms`, **se para, echa el freno, lo
+dice** —un aviso y la salida de error— y deja de seguir pasos hasta que se le
+quite EN. **El freno**: con EN, corriente, y en la vuelta siguiente se suelta
+—la salida `freno` a VCC—; pasados `freno_ms`, en marcha. Sin EN o con un
+fallo, al revés: se echa al momento y la corriente sigue `freno_ms`, para que
+el eje no caiga. Los Hall con un código imposible —000 o 111, un hilo suelto
+o sin tensión— también lo paran.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `vcc`, `gnd` | obligatorios | De 12 a 48 V: la lógica, el motor y el tope de su tensión |
+| `u`, `v`, `w` | obligatorios | Las fases |
+| `step`, `dir`, `en` | obligatorios | Con 10 kΩ a masa; EN, activa alta |
+| `v5` | opcional | Los 5 V de los sensores |
+| `h1`, `h2`, `h3` | sin encoder | Con 4,7 kΩ a sus 5 V |
+| `enc_a`, `enc_b` | con `encoder="si"` | Ídem |
+| `freno` | opcional | A VCC con el freno suelto; al aire, echado |
+| `error` | opcional | A masa con error; al aire, sin él |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `pasos_vuelta` | `2000` | Pasos de STEP por vuelta del motor |
+| `corriente_max` | `10` | El tope de la consigna del eje q, en A |
+| `encoder`, `ppr` | `no`, `1000` | La realimentación |
+| `pares_polos` | `3` | Para contar los Hall |
+| `kp_pos`, `kp_vel`, `ki_vel` | `20`, `0.015`, `1` (con encoder, `50`, `0.06`, `3`) | Las ganancias, las de un DB59L024035-A suelto |
+| `rpm_max` | `4000` | El tope de la consigna de velocidad |
+| `error_max_grados`, `error_ms` | `360`, `10` | El error de seguimiento que lo para |
+| `freno_ms` | `100` | Lo que tarda el freno |
+| `lazo_us` | `1000` | El periodo de los lazos |
+| `umbral` | `2.5` | El de las entradas, con 0,25 V de histéresis |
+
+Deja ver `estado` (0 sin tensión, 1 deshabilitado, 2 soltando el freno, 3 en
+marcha, 4 echando el freno, 5 error), `pasos`, `error_seguimiento`,
+`corriente_q`, `rpm`, `corriente_vcc`, `freno_suelto` y la alarma `error`. Al
+terminar: `CONTROLADOR C/U1 (tipo C5-E): en marcha, +124675 pasos (0 sin
+seguir); error de seguimiento +0.1°, 54.0 como mucho; iq +9.85 A; VCC 9349 mA
+de media; freno suelto`. No hace el bus de campo (F6), los finales de carrera,
+la puesta en marcha automática, el I²t ni la energía que vuelve al frenar (F5).
+
+#### Lo que sale
+
+* **El punto nominal**: a 3500 rpm, con la carga subiendo hasta 0,47 N·m, la
+  corriente sube **9,40 A** —`Kt·I = 0,05 × 9,4 = 0,47`, la ficha— y la
+  tensión, `R·I + Kt·ω`, se queda en 20,5 V de los 24.
+* **Más de lo que puede**: con el 120 % —11,6 A de los 10 del controlador—
+  se para por el error de seguimiento, echa el freno y lo dice. El 100 % de
+  golpe también: frena al rotor de 119 g·cm² a casi 40 000 rad/s², y los lazos,
+  con una medida cada 20°, no llegan; el 50 % de golpe lo aguanta.
+* **Los Hall contra el encoder**: a 60 rpm, con los Hall —18 medidas por
+  vuelta— va a tirones; con un encoder de 250 líneas, suave. A 600 rpm y más,
+  los Hall bastan.
+* **Lo que cuesta**: 2,2 s a 3500 rpm con los Hall, en medio segundo de CPU
+  (`make gui-cnc`, C4).
 
 ---
 

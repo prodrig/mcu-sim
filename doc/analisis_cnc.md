@@ -792,7 +792,7 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
   paralelo. Con eso, `Km` es 0,31 N·m/A, y no 0,44.
 * **La curva par–velocidad** del ST5918 en paralelo tras el DM542, con la
   carga subiendo hasta que pierde pasos: 1,23 N·m abajo con 24 y 48 V, y la
-  **esquina** —el 70 %— en unas **640 rpm a 24 V y 1240 a 48 V**. El §5.1
+  **esquina** —el 70 %— en unas **640 rpm a 24 V y 1290 a 48 V**. El §5.1
   estimaba unas 800 y 1600 con `V/(L·I)`, que deja fuera la f.e.m.: el orden y
   la proporción son los de la cuenta. La curva de la ficha no se puede leer de
   su página, así que no se contrasta punto a punto.
@@ -844,6 +844,42 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
   pasar la corriente de la bobina: converge a la primera. El banco del
   `MotorCC` sigue dando sus 17 cifras.
 * **Pruebas**: `make gui-cnc` C3, 23 comprobaciones (80 en total).
+
+### F1c, hecha: el BLDC con su controlador
+
+* **`MotorBLDC`** (`parts/motor_bldc.h`): en el eje q, como un motor de
+  continua equivalente con las cifras de entre dos fases, con la misma rama de
+  corriente impuesta con tope de tensión que el paso a paso. U, V y W se
+  cablean y se comprueban: el controlador declara sus tres salidas con los
+  polos +1, −1 y 0, y unas fases cruzadas se avisan. Los Hall, de colector
+  abierto, y un encoder opcional.
+* **`ControladorMotor`** (`parts/controlador_motor.h`), un controlador tipo
+  C5-E de reloj y dirección: la cascada de lazos de posición y velocidad
+  sobre los Hall o el encoder, con la velocidad por el método M/T y la
+  posición interpolada dentro de cada tramo. La salida de freno con su
+  secuencia —corriente y después soltar; echar y después quitar la
+  corriente— y la de error.
+* **Placas**: `db59l024035_a.xml` y `controlador_tipo_c5e.xml`, con su dibujo.
+  La ficha del DB59 da 6 polos —tres pares, 18 cambios de Hall por vuelta— y
+  el -A tiene un solo eje: el encoder iría en el -B, con eje por detrás.
+* **0,47 N·m a 9,4 A**: a 3500 rpm, con la carga subiendo hasta el par
+  nominal, la corriente sube 9,40 A, y la tensión se queda en 20,5 V de los
+  24. Con el 120 %, **no pierde pasos: avisa y se para**, echa el freno y deja
+  de seguir pasos.
+* **Lo que el §5.5 no decía: con los Hall solos, los lazos tienen que ir
+  despacio.** Una medida cada 20° es una medida cada 5 ms a 600 rpm; con las
+  ganancias de un encoder, el lazo oscila a ±1000 rpm. Con unas cuatro veces
+  menos, va suave de 600 rpm para arriba, pero a 60 rpm va a tirones; con un
+  encoder de 250 líneas, suave. Y un escalón del 100 % de la carga lo para: el
+  rotor solo tiene 119 g·cm². Con la carga de una máquina —el husillo, el
+  carro— la inercia es mayor y las ganancias se suben.
+* **Un fallo de F1a, arreglado**: una corriente que estaba justo en su
+  consigna cuando el tope de tensión empezaba a apartarla volvía a la
+  consigna en cada paso: con la consigna quieta, la f.e.m. no llegaba a
+  comerse el par. Salió con los Hall cruzados de F1c —el BLDC se embalaba a
+  18 000 rpm—. En el paso a paso, la curva a 48 V sube un poco: la esquina
+  pasa de 1240 a 1290 rpm.
+* **Pruebas**: `make gui-cnc` C4, 19 comprobaciones (99 en total).
 
 ## Fuentes
 

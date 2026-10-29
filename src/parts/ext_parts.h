@@ -797,11 +797,19 @@ public:
         ev_.notify(sc_core::SC_ZERO_TIME);
     }
     void pon_diodos(double vd) { f_.vd = vd; }
+    // UNA TERCERA SALIDA, la W de un controlador de BLDC (parts/controlador_motor.h):
+    // se declara con el polo 0 -por ella no va la corriente del eje q, pero el
+    // motor comprueba que esté y en su sitio- y se ve a media tensión
+    void pon_tercera(analog_net_if& w, int id_w) {
+        w_ = &w;
+        id_w_ = id_w;
+        w.declara_salida_corriente(SalidaCorriente{&f_, 0});
+    }
     // Las tensiones de las salidas, para verlas: con `vg` la de la masa
     void muestra(double vg) {
         const bool ver = f_.activa || (f_.con_carga && f_.i_carga != 0.0);
         if (!ver) {
-            if (viendo_) { p_->set_hiz(id_p_); m_->set_hiz(id_m_); viendo_ = false; }
+            if (viendo_) { suelta(); }
             return;
         }
         const float vp = float(vg + 0.5 * (f_.vbus + f_.v_carga));
@@ -810,8 +818,13 @@ public:
         vp_ = vp; vm_ = vm; viendo_ = true;
         p_->set_drive(id_p_, vp, R_VER);
         m_->set_drive(id_m_, vm, R_VER);
+        if (w_) w_->set_drive(id_w_, float(vg + 0.5 * f_.vbus), R_VER);
     }
-    void suelta() { p_->set_hiz(id_p_); m_->set_hiz(id_m_); viendo_ = false; }
+    void suelta() {
+        p_->set_hiz(id_p_); m_->set_hiz(id_m_);
+        if (w_) w_->set_hiz(id_w_);
+        viendo_ = false;
+    }
 
     double consigna() const { return f_.i; }
     bool   activa() const { return f_.activa; }
@@ -826,8 +839,8 @@ public:
     const sc_core::sc_event& evento() const { return ev_; }
 
 private:
-    analog_net_if *p_, *m_;
-    int id_p_, id_m_;
+    analog_net_if *p_, *m_, *w_ = nullptr;
+    int id_p_, id_m_, id_w_ = -1;
     std::string quien_;
     FaseCorriente f_;
     sc_core::sc_event ev_;

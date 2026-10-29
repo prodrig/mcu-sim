@@ -391,6 +391,86 @@ def motor_jgb37():
     s.guarda("motor_jgb37_encoder.svg")
 
 
+# ---------------------------------------------------------------------------
+# EL BLDC DB59L024035-A
+# ---------------------------------------------------------------------------
+def db59():
+    s = Svg(800, 600, """
+  MOTOR BLDC NANOTEC DB59L024035-A (NEMA 23), dibujado a mano: una
+  aproximacion, no una foto. Es el dibujo de placas/db59l024035_a.xml, que lo
+  encuentra solo porque se llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 80 x 60 mm- y cada pieza con el id de su pieza en el XML. Visto de
+  frente: la cara de 56 mm y sus dos cables.
+
+    MOTOR  el EJE, que gira con el rotor (el efecto `angulo`)
+    M      las tres fases: M.U, M.V y M.W
+    P1     el cable de los Hall: P1.VCC, P1.GND, P1.H1, P1.H2 y P1.H3
+""")
+    s.add(s.rect(0, 0, 800, 600, "#eceff1", rx=10))
+    cara_nema(s, 290, 300, 540, 474, 380, 80, "DB59L024035-A  BLDC")
+    hilos_motor(s, 590, 70, ("#f9a825", "#c62828", "#212121"), ("U", "V", "W"), paso=50)
+    hilos_motor(s, 590, 260, ("#c62828", "#212121", "#1565c0", "#eceff1", "#2e7d32"),
+                ("VCC", "GND", "H1", "H2", "H3"), id_con="P1", paso=50)
+    s.add(s.text(660, 560, "24 V  0,47 N·m  3500 rpm", 13, "#263238", "middle"))
+    s.guarda("db59l024035_a.svg")
+
+
+# ---------------------------------------------------------------------------
+# EL CONTROLADOR TIPO C5-E
+# ---------------------------------------------------------------------------
+def controlador_c5e():
+    s = Svg(700, 560, """
+  UN CONTROLADOR DE MOTOR TIPO C5-E, dibujado a mano: una caja generica, no
+  la de Nanotec. Es el dibujo de placas/controlador_tipo_c5e.xml, que lo
+  encuentra solo porque se llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 70 x 56 mm- y cada pieza con el id de su pieza en el XML. Visto de
+  frente, con sus bornas:
+
+    U1  el controlador, en el centro
+    X1  la alimentacion: VCC y GND, arriba a la izquierda
+    X2  el motor: U, V y W, arriba a la derecha
+    X3  los Hall: 5V, GND, H1, H2 y H3, a la derecha
+    X4  el encoder: 5V, GND, A y B, a la derecha, debajo
+    X5  el mando: STEP, DIR, EN, BRK, ERR y GND, abajo
+""")
+    s.add(s.rect(0, 0, 700, 560, "#37474f", "#1c262b", 2, rx=12))
+    s.add(s.rect(20, 20, 660, 520, "#455a64", "#263238", 1.2, rx=8))
+    s.add('<g id="U1">')
+    s.add("  " + s.rect(170, 170, 300, 170, "#263238", "#101820", 1.5, rx=6))
+    s.add("  " + s.text(320, 245, "CONTROLADOR", 18, "#eceff1", "middle"))
+    s.add("  " + s.text(320, 275, "tipo C5-E  12-48 V  10 A", 13, "#b0bec5", "middle"))
+    s.add("  " + s.text(320, 305, "reloj y direccion, lazo cerrado", 11, "#90a4ae", "middle"))
+    s.add("</g>")
+
+    def borna(id_con, nombres, x0, y0, dx, dy, rotulo_dy):
+        n = len(nombres)
+        w = abs(dx) * (n - 1) + 50 if dx else 50
+        h = abs(dy) * (n - 1) + 50 if dy else 50
+        s.add(s.rect(x0 - 25, y0 - 25, w, h, "#2e7d32", "#1b5e20", 1.5, rx=4))
+        s.add('<g id="%s">' % id_con)
+        for k, nm in enumerate(nombres):
+            tornillo(s, "%s.%s" % (id_con, nm), x0 + k * dx, y0 + k * dy)
+        s.add("</g>")
+        for k, nm in enumerate(nombres):
+            if dx:
+                s.add(s.text(x0 + k * dx, y0 + rotulo_dy, nm, 10, BLANCO, "middle"))
+            else:
+                s.add(s.text(x0 - 34, y0 + k * dy + 4, nm, 10, BLANCO, "end"))
+
+    borna("X1", ("VCC", "GND"), 70, 80, 50, 0, 44)
+    borna("X2", ("U", "V", "W"), 470, 80, 50, 0, 44)
+    borna("X3", ("5V", "GND", "H1", "H2", "H3"), 630, 150, 0, 44, 0)
+    borna("X4", ("5V", "GND", "A", "B"), 630, 382, 0, 42, 0)
+    borna("X5", ("STEP", "DIR", "EN", "BRK", "ERR", "GND"), 100, 480, 56, 0, -36)
+    s.guarda("controlador_tipo_c5e.svg")
+
+
 if __name__ == "__main__":
     nema17()
     st5918()
@@ -399,3 +479,5 @@ if __name__ == "__main__":
     modulo_mosfet()
     ibt2()
     motor_jgb37()
+    db59()
+    controlador_c5e()

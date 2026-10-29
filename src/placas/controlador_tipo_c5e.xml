@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UN CONTROLADOR DE MOTOR TIPO C5-E, de reloj y direccion en lazo cerrado,
+     con salida de freno y de error, sin MCU
+
+     Un controlador generico con las cifras de los C5-E de Nanotec de 10 A
+     (doc/analisis_cnc.md §5.5): de 12 a 48 V, para un BLDC con sus Hall o su
+     encoder. Desde fuera, un driver de pasos: el firmware de la CNC no
+     cambia. Por dentro, una cascada de lazos de posicion y velocidad, y la
+     corriente impuesta en el motor. No pierde pasos sin enterarse: si el
+     motor no puede seguir, se para, echa el freno y lo dice. Sus bornas:
+
+         X1  VCC, GND                   la alimentacion
+         X2  U, V, W                    el motor
+         X3  5V, GND, H1, H2, H3        los Hall: los 5 V salen de aqui, y
+                                        cada entrada lleva su pull-up
+         X4  5V, GND, A, B              un encoder, si lo hay (encoder="si"
+                                        en U1)
+         X5  STEP, DIR, EN, BRK, ERR, GND   el mando: paso, direccion,
+                                        habilitacion -alta-; BRK, la salida
+                                        del freno, a VCC con el freno suelto;
+                                        ERR, la de error, de colector abierto:
+                                        a masa con error, el pull-up lo pone
+                                        quien la lea
+
+     U1: un ControladorMotor (`./build/mcu-sim --help ControladorMotor`) a
+     2000 pasos por vuelta, 10 A de tope, el error de seguimiento en una vuelta
+     del motor durante 10 ms y 100 ms de freno. Las entradas cortan en 2,5 V:
+     valen 3,3 y 5 V. Sus ganancias son las de un DB59L024035-A suelto, con sus
+     Hall. NO es un C5-E de verdad: ni su bus de campo, ni su puesta en marcha
+     automatica, ni sus finales de carrera.
+
+         ./build/mcu-sim placas/controlador_tipo_c5e.xml --valida
+     ========================================================================= -->
+<placa nombre="controlador-tipo-c5e">
+  <componente tipo="Conector" id="X1" filas="1" columnas="2" nombres="VCC GND">
+    <pin nombre="GND" nodo="MASA"/>
+  </componente>
+  <componente tipo="Conector" id="X2" filas="1" columnas="3" nombres="U V W"/>
+  <componente tipo="Conector" id="X3" filas="1" columnas="5" nombres="5V GND H1 H2 H3">
+    <pin nombre="5V" nodo="CINCO"/>
+    <pin nombre="GND" nodo="MASA"/>
+  </componente>
+  <componente tipo="Conector" id="X4" filas="1" columnas="4" nombres="5V GND A B">
+    <pin nombre="5V" nodo="CINCO"/>
+    <pin nombre="GND" nodo="MASA"/>
+  </componente>
+  <componente tipo="Conector" id="X5" filas="1" columnas="6" nombres="STEP DIR EN BRK ERR GND">
+    <pin nombre="GND" nodo="MASA"/>
+  </componente>
+  <nodo id="MASA" bus="si"/>
+  <nodo id="X1.VCC" bus="si"/>
+  <nodo id="CINCO" bus="si"/>
+
+  <componente tipo="ControladorMotor" id="U1" pasos_vuelta="2000" corriente_max="10"
+              pares_polos="3" error_max_grados="360" error_ms="10" freno_ms="100">
+    <pin nombre="vcc"   nodo="X1.VCC"/>
+    <pin nombre="gnd"   nodo="MASA"/>
+    <pin nombre="u"     nodo="X2.U"/>
+    <pin nombre="v"     nodo="X2.V"/>
+    <pin nombre="w"     nodo="X2.W"/>
+    <pin nombre="v5"    nodo="CINCO"/>
+    <pin nombre="h1"    nodo="X3.H1"/>
+    <pin nombre="h2"    nodo="X3.H2"/>
+    <pin nombre="h3"    nodo="X3.H3"/>
+    <pin nombre="enc_a" nodo="X4.A"/>
+    <pin nombre="enc_b" nodo="X4.B"/>
+    <pin nombre="step"  nodo="X5.STEP"/>
+    <pin nombre="dir"   nodo="X5.DIR"/>
+    <pin nombre="en"    nodo="X5.EN"/>
+    <pin nombre="freno" nodo="X5.BRK"/>
+    <pin nombre="error" nodo="X5.ERR"/>
+  </componente>
+</placa>

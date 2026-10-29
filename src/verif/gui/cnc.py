@@ -19,11 +19,16 @@
 #       TMC2209; un paso a paso tras un L298; y lo que cuesta simularlo.
 #   C3  (F1b) LA CONTINUA DE POTENCIA. El cabezal, un motor 775 a 24 V tras un
 #       módulo MOSFET: a unas 10 000 rpm; con PWM, casi a tope en vacío y a
-#       la mitad con carga; sin el diodo, el aviso; un IRF520 que no se abre con 5 V. El IBT-2 con sus
-#       dos BTS7960: adelante, atrás y freno, su IS, y el 74HC244 con 3,3 V. Y
-#       un PID de posición en el firmware de una Nucleo-F446RE, con el
-#       motorreductor de 37 mm y su encoder Hall: una vuelta y media atrás,
-#       con el error en 4 cuentas.
+#       la mitad con carga; sin el diodo, el aviso; un IRF520 que no se abre
+#       con 5 V. El IBT-2 con sus dos BTS7960: adelante, atrás y freno, su IS,
+#       y el 74HC244 con 3,3 V. Y un PID de posición en el firmware de una
+#       Nucleo-F446RE, con el motorreductor de 37 mm y su encoder Hall: una
+#       vuelta y media atrás, con el error en 4 cuentas.
+#   C4  (F1c) EL BLDC CON SU CONTROLADOR. El DB59L024035-A tras un controlador
+#       tipo C5-E, en reloj y dirección: la secuencia del freno; 600 rpm con
+#       cada paso contado; 3500 rpm con 0,47 N·m a 9,4 A; con más carga de la
+#       que puede, no pierde pasos: se para y lo dice. Las fases y los Hall
+#       cruzados, los Hall sin tensión, y el encoder contra los Hall a 60 rpm.
 #
 # Cada grupo monta su banco en una carpeta temporal, con placas escritas aquí.
 #
@@ -953,6 +958,219 @@ def c3_continua(sim, cp):
     check("74HC244" in textos(avs), "el 74HC244 del IBT-2, con 3,3 V del STM32: se avisa")
     check(dt < 4.0, "2 s simulados, con el MCU y el PWM de 1 kHz, en %.2f s de reloj" % dt)
 
+# =============================================================================
+# C4 (F1c): el BLDC con su controlador
+# =============================================================================
+BANCO_BLDC = """<placa nombre="banco-bldc">
+  <componente tipo="Conector" id="J" filas="1" columnas="7" nombres="V24 GND STEP DIR EN BRK ERR"/>
+  <nodo id="J.GND" bus="si"/>
+  <nodo id="V5"/>
+  <componente tipo="Fuente" id="PSU" v="24" media_ms="20"><pin nombre="pin" nodo="J.V24"/></componente>
+  <componente tipo="Fuente" id="L5" v="5"><pin nombre="pin" nodo="V5"/></componente>
+  <componente tipo="Gnd" id="MASA"><pin nombre="pin" nodo="J.GND"/></componente>
+  <componente tipo="FuenteAjustable" id="EN" v="%(en)s" vmin="0" vmax="5" r="10">
+    <pin nombre="pin" nodo="J.EN"/></componente>
+  <componente tipo="GeneradorPasos" id="G" hz="%(hz)s" aceleracion="%(acel)s" vdd="5">
+    <pin nombre="step" nodo="J.STEP"/><pin nombre="dir" nodo="J.DIR"/></componente>
+  <componente tipo="Resistencia" id="RF" r="1000"><pin nombre="a" nodo="J.BRK"/><pin nombre="b" nodo="J.GND"/></componente>
+  <componente tipo="Resistencia" id="RE" r="10000"><pin nombre="a" nodo="J.ERR"/><pin nombre="b" nodo="V5"/></componente>
+</placa>
+"""
+SISTEMA_BLDC = """<sistema nombre="prueba-bldc">
+  <placa id="C" fichero="controlador.xml"/>
+  <placa id="M" fichero="motor.xml"/>
+  <placa id="T" fichero="banco_bldc.xml"/>
+  <hilo a="T/J.V24"  b="C/X1.VCC"/>
+  <hilo a="T/J.GND"  b="C/X1.GND"/>
+  <hilo a="T/J.STEP" b="C/X5.STEP"/>
+  <hilo a="T/J.DIR"  b="C/X5.DIR"/>
+  <hilo a="T/J.EN"   b="C/X5.EN"/>
+  <hilo a="T/J.BRK"  b="C/X5.BRK"/>
+  <hilo a="T/J.ERR"  b="C/X5.ERR"/>
+  <hilo a="M/M.%(u)s" b="C/X2.U"/>
+  <hilo a="M/M.%(v)s" b="C/X2.V"/>
+  <hilo a="M/M.W"    b="C/X2.W"/>
+%(hall)s</sistema>
+"""
+HALL = """  <hilo a="M/P1.VCC" b="C/X3.5V"/>
+  <hilo a="M/P1.GND" b="C/X3.GND"/>
+  <hilo a="M/P1.%(h1)s" b="C/X3.H1"/>
+  <hilo a="M/P1.%(h2)s" b="C/X3.H2"/>
+  <hilo a="M/P1.H3" b="C/X3.H3"/>
+"""
+ENCODER = """  <hilo a="M/P1.A" b="C/X4.A"/>
+  <hilo a="M/P1.B" b="C/X4.B"/>
+"""
+OBS_BLDC = [("M/MOTOR", "rpm"), ("M/MOTOR", "corriente"), ("M/MOTOR", "tension"),
+            ("C/U1", "estado"), ("C/U1", "error_seguimiento"), ("C/U1", "freno_suelto"),
+            ("C/U1", "corriente_vcc"), ("C/U1", "error")]
+
+
+def bldc(sim, cp, hz=0.0, acel=0.0, en=5, lista=(), ms=1000, periodo_ns=1000000, cruza_fases=False,
+         cruza_hall=False, sin_hall_vcc=False, encoder=False, ctrl=""):
+    """El controlador tipo C5-E y el DB59L024035-A en un banco: 24 V, un generador
+    de pasos, EN, la salida del freno a 1 kohm y la de error con su pull-up"""
+    placas = os.path.abspath("placas")
+    m = open(os.path.join(placas, "db59l024035_a.xml"), encoding="utf-8").read()
+    c = open(os.path.join(placas, "controlador_tipo_c5e.xml"), encoding="utf-8").read()
+    if encoder:
+        # El -B, con un encoder de 250 lineas en su eje de atras
+        m = m.replace('filas="5" columnas="1" nombres="VCC GND H1 H2 H3"',
+                      'filas="7" columnas="1" nombres="VCC GND H1 H2 H3 A B"')
+        m = m.replace('pares_polos="3">', 'pares_polos="3" ppr="250">')
+        m = m.replace('<pin nombre="h3"       nodo="P1.H3"/>',
+                      '<pin nombre="h3"       nodo="P1.H3"/>\n    <pin nombre="enc_a" nodo="P1.A"/>'
+                      '<pin nombre="enc_b" nodo="P1.B"/>')
+        c = c.replace('freno_ms="100">', 'freno_ms="100" encoder="si" ppr="250">')
+    if ctrl:
+        c = c.replace('freno_ms="100"', 'freno_ms="100" ' + ctrl)
+    cp("motor.xml", m)
+    cp("controlador.xml", c)
+    cp("banco_bldc.xml", BANCO_BLDC % {"en": en, "hz": hz, "acel": acel})
+    hall = HALL % {"h1": "H2" if cruza_hall else "H1", "h2": "H1" if cruza_hall else "H2"}
+    if sin_hall_vcc:
+        hall = hall.replace('  <hilo a="M/P1.VCC" b="C/X3.5V"/>\n', "")
+    if encoder:
+        hall += ENCODER
+    ruta = cp("bldc.xml", SISTEMA_BLDC % {"u": "V" if cruza_fases else "U",
+                                          "v": "U" if cruza_fases else "V", "hall": hall})
+    t0 = time.time()
+    s, avs, cat, rc = muestrea(sim, ruta, ms, OBS_BLDC, periodo_ns=periodo_ns, lista=lista)
+    return s, avs, ULTIMA[0], time.time() - t0
+
+
+def entre(serie, t0, t1):
+    return [v for t, v in serie if t0 <= t <= t1]
+
+
+def c4_bldc(sim, cp):
+    grupo("C4 (F1c) El BLDC DB59L024035-A y su controlador tipo C5-E")
+    for placa, cab in (("db59l024035_a", "placa 'db59l024035-a': SIN MCU"),
+                       ("controlador_tipo_c5e", "placa 'controlador-tipo-c5e': SIN MCU")):
+        rc, out = valida(sim, "placas/%s.xml" % placa)
+        f = piezas_sin_dibujo(placa)
+        check(rc == 0 and cab in out and " 0 avisos" in out and ("dibujo: %s.svg (" % placa) in out
+              and not f, "placas/%s.xml se valida sin avisos, con su dibujo: cada pieza visible y "
+              "cada pin de conector, con su id%s" % (placa, " (faltan: %s)" % f if f else ""))
+
+    # El freno: con EN, corriente y despues se suelta; sin EN, se echa y despues
+    # se quita la corriente
+    s, avs, out, dt = bldc(sim, cp, ms=500, lista=[(300, "T/EN", "tension", 0)],
+                           periodo_ns=500000)
+    est, fr = s[("C/U1", "estado")], s[("C/U1", "freno_suelto")]
+    suelta = [t for t, v in fr if v == 1.0]
+    marcha = [t for t, v in est if v == 3.0]
+    check(suelta and suelta[0] <= 0.0021 and marcha and 0.099 <= marcha[0] <= 0.102 and
+          all(v == 2.0 for t, v in est if t < 0.099),
+          "con EN, el controlador pone corriente y en la vuelta siguiente suelta el freno (a los "
+          "%.1f ms); pasados sus 100 ms, en marcha (a los %.1f)" % ((suelta or [0])[0] * 1e3,
+                                                                    (marcha or [0])[0] * 1e3))
+    echado = [t for t, v in fr if t > 0.3 and v == 0.0]
+    deshab = [t for t, v in est if t > 0.3 and v == 1.0]
+    check(echado and echado[0] <= 0.3011 and deshab and 0.399 <= deshab[0] <= 0.402 and
+          all(v == 4.0 for t, v in est if 0.3006 < t < 0.399),
+          "sin EN, al reves: se echa el freno al momento (%.1f ms) y la corriente sigue 100 ms, "
+          "hasta los %.1f: el eje no cae en ningun momento" % ((echado or [0])[0] * 1e3,
+                                                               (deshab or [0])[0] * 1e3))
+    s, avs, out, dt = bldc(sim, cp, hz=2000, ms=200)
+    check("antes de que se suelte el freno" in textos(avs),
+          "los pasos que llegan antes de que se suelte el freno se cuentan, y se avisa")
+
+    # 600 rpm, y la posicion al paso
+    s, avs, out, dt = bldc(sim, cp, acel=40000, ms=1500, lista=[(150, "T/G", "hz", 20000)])
+    r = entre(s[("M/MOTOR", "rpm")], 1.0, 1.5)
+    e = [abs(v) for t, v in s[("C/U1", "error_seguimiento")]]
+    lb, lg = linea(out, "BLDC M/MOTOR:"), linea(out, "GENERADOR T/G:")
+    vueltas, pasos = numero_tras(lb, "rpm, "), numero_tras(lg, "Hz, ")
+    check(r and abs(sum(r) / len(r) - 600) < 3 and max(r) - min(r) < 20 and max(e) < 90,
+          "con 20 kHz de STEP a 2000 pasos por vuelta, a %.1f rpm -600-, sin rizado que se vea "
+          "(de %.1f a %.1f) y con el error de seguimiento en %.0f° como mucho, en la rampa"
+          % (sum(r) / len(r) if r else 0, min(r or [0]), max(r or [0]), max(e or [0])))
+    check(vueltas is not None and pasos and abs(vueltas - pasos / 2000.0) < 0.05,
+          "cada paso cuenta: %+.0f pasos son %+.3f vueltas, y el motor ha dado %+.3f -empezo "
+          "en el medio del primer tramo de los Hall, a 10°-" % (pasos or 0, (pasos or 0) / 2000.0,
+                                                               vueltas or 0))
+
+    # El punto nominal: 3500 rpm con 0,47 N·m
+    rampa = [(150, "T/G", "hz", 116667)] + [(1000 + 10 * k, "M/MOTOR", "carga", 2.0 * k)
+                                            for k in range(1, 51)]
+    s0, avs0, out0, dt0 = bldc(sim, cp, acel=200000, ms=2200, lista=[(150, "T/G", "hz", 116667)])
+    s1, avs1, out1, dt1 = bldc(sim, cp, acel=200000, ms=2200, lista=rampa)
+    i0 = entre(s0[("M/MOTOR", "corriente")], 1.7, 2.2)
+    i1 = entre(s1[("M/MOTOR", "corriente")], 1.7, 2.2)
+    r1 = entre(s1[("M/MOTOR", "rpm")], 1.7, 2.2)
+    v1 = entre(s1[("M/MOTOR", "tension")], 1.7, 2.2)
+    ivcc = entre(s1[("C/U1", "corriente_vcc")], 1.7, 2.2)
+    e1 = [abs(v) for t, v in s1[("C/U1", "error_seguimiento")]]
+    di = (sum(i1) / len(i1) - sum(i0) / len(i0)) if i0 and i1 else 0
+    check(r1 and abs(sum(r1) / len(r1) - 3500) < 5 and abs(di - 9.4) < 0.15 and
+          s1[("C/U1", "estado")][-1][1] == 3.0,
+          "a 3500 rpm, con la carga subiendo hasta el par nominal, 0,47 N·m: la corriente sube "
+          "%.2f A, las 9,4 de la ficha (Kt·I = 0,05 x 9,4 = 0,47), y se queda en %.2f con el "
+          "rozamiento" % (di, sum(i1) / len(i1) if i1 else 0))
+    check(v1 and max(v1) < 23.0 and max(e1) < 180,
+          "y la tension cabe: R·I + Kt·w = %.1f V de los 24 -el tope no llega-; el error de "
+          "seguimiento, %.0f° como mucho" % (sum(v1) / len(v1) if v1 else 0, max(e1 or [0])))
+    p_eje = 0.47 * 3500 * 2 * math.pi / 60
+    check(ivcc and 7000 < sum(ivcc) / len(ivcc) < 9500,
+          "de los 24 V tira %.0f mA de media: %.0f W en el eje, mas lo del bobinado, el puente y "
+          "el reposo" % (sum(ivcc) / len(ivcc) if ivcc else 0, p_eje))
+
+    # Mas de lo que puede: no pierde pasos, se para y lo dice
+    rampa = [(150, "T/G", "hz", 116667)] + [(1000 + 10 * k, "M/MOTOR", "carga", 2.4 * k)
+                                            for k in range(1, 51)]
+    s, avs, out, dt = bldc(sim, cp, acel=200000, ms=2200, lista=rampa)
+    lc = linea(out, "CONTROLADOR C/U1")
+    sin_seguir = numero_tras(lc, "pasos (")
+    check(s[("C/U1", "estado")][-1][1] == 5.0 and s[("C/U1", "error")][-1][1] == 1.0 and
+          "error de seguimiento" in textos(avs) and "freno echado" in lc and sin_seguir,
+          "con el 120 %% -0,56 N·m, 11,6 A de los 10 del controlador- el motor no puede: NO "
+          "PIERDE PASOS SIN ENTERARSE, se para, echa el freno, lo dice y deja de seguir pasos "
+          "(%s)" % lc)
+    check("por detras de la consigna (el limite es 360° durante 10 ms)" in textos(avs),
+          "«...error de seguimiento: el motor va N° por detras de la consigna (el limite es 360° "
+          "durante 10 ms). Se para, echa el freno y lo dice por su salida de error»")
+    s, avs, out, dt = bldc(sim, cp, acel=200000, ms=1500,
+                           lista=[(150, "T/G", "hz", 116667), (1000, "M/MOTOR", "carga", 100)])
+    check(s[("C/U1", "estado")][-1][1] == 5.0,
+          "el 100 % DE GOLPE tambien lo para: frena al rotor de 119 g·cm² a 39 500 rad/s², y "
+          "los lazos, con una medida cada 20°, no llegan a tiempo; con la misma carga en medio "
+          "segundo, si")
+    s, avs, out, dt = bldc(sim, cp, acel=200000, ms=1500,
+                           lista=[(150, "T/G", "hz", 116667), (1000, "M/MOTOR", "carga", 50)])
+    check(s[("C/U1", "estado")][-1][1] == 3.0,
+          "y el 50 %% de golpe lo aguanta, con %.0f° de error como mucho"
+          % max(abs(v) for t, v in s[("C/U1", "error_seguimiento")]))
+
+    grupo("C4 (F1c) Los errores de cableado, y el encoder")
+    s, avs, out, dt = bldc(sim, cp, acel=40000, ms=600, lista=[(150, "T/G", "hz", 20000)],
+                           cruza_fases=True)
+    check("las fases van cruzadas -U a la V de C/U1, V a la U, W a la W-" in textos(avs) and
+          s[("C/U1", "estado")][-1][1] == 5.0,
+          "U y V cruzadas: el motor lo dice, no hay corriente, y el controlador se para por el "
+          "error de seguimiento")
+    s, avs, out, dt = bldc(sim, cp, acel=40000, ms=600, lista=[(150, "T/G", "hz", 20000)],
+                           cruza_hall=True)
+    rmax = max(abs(v) for t, v in s[("M/MOTOR", "rpm")])
+    check(s[("C/U1", "estado")][-1][1] == 5.0 and "error de seguimiento" in textos(avs),
+          "H1 y H2 cruzados: el controlador cree que va al reves, empuja mas -el motor se "
+          "embala hasta %.0f rpm- y el error de seguimiento lo para" % rmax)
+    s, avs, out, dt = bldc(sim, cp, ms=300, sin_hall_vcc=True)
+    check("los Hall dicen 111, que no existe" in textos(avs) and s[("C/U1", "estado")][-1][1] == 5.0,
+          "sin los 5 V de los Hall: «los Hall dicen 111, que no existe: un hilo suelto o sin "
+          "alimentacion. Se para»")
+    lenta = [(150, "T/G", "hz", 2000)]
+    sh, avs, out, dth = bldc(sim, cp, acel=20000, ms=1200, lista=lenta)
+    se, avs, out, dte = bldc(sim, cp, acel=20000, ms=1200, lista=lenta, encoder=True)
+    rh, re_ = entre(sh[("M/MOTOR", "rpm")], 0.8, 1.2), entre(se[("M/MOTOR", "rpm")], 0.8, 1.2)
+    check(rh and re_ and max(re_) - min(re_) < 5 and max(rh) - min(rh) > 50 and
+          abs(sum(re_) / len(re_) - 60) < 1 and abs(sum(rh) / len(rh) - 60) < 10,
+          "a 60 rpm, con los Hall -18 medidas por vuelta- va a tirones (de %.0f a %.0f rpm); "
+          "con un encoder de 250 lineas, suave (de %.1f a %.1f)" % (min(rh), max(rh), min(re_),
+                                                                     max(re_)))
+    check(dt1 < 4.0, "lo que cuesta: 2,2 s a 3500 rpm con la carga, en %.2f s de reloj (con los "
+          "Hall; el encoder añade un suceso por flanco)" % dt1)
+
 
 def main():
     a = argparse.ArgumentParser(description="La fresadora CNC, por fases, contra el mcu-sim de verdad")
@@ -973,6 +1191,7 @@ def main():
         c1_cadena(sim, cp)
         c2_pap(sim, cp)
         c3_continua(sim, cp)
+        c4_bldc(sim, cp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print()

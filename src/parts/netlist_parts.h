@@ -40,6 +40,8 @@
 #include "motor_pap.h"
 #include "driver_pap.h"
 #include "potencia.h"
+#include "motor_bldc.h"
+#include "controlador_motor.h"
 #include "mems_st.h"
 #include "xds110.h"
 
@@ -1552,6 +1554,212 @@ REGISTRA_PARTE(MedioPuente,
         return new MedioPuente(d.id.c_str(), n[d.nodo_de("vs")], n[d.nodo_de("gnd")],
                                n[d.nodo_de("in")], n[d.nodo_de("inh")], n[d.nodo_de("out")],
                                nd("is"), nd("vdd"));
+    });
+
+REGISTRA_PARTE(MotorBLDC,
+    Ayuda("Un MOTOR BLDC trifasico con sus tres sensores Hall y, con ppr=, un encoder, "
+          "movido por un controlador que lo conmuta por dentro (ControladorMotor). Se "
+          "modela EN EL EJE Q, como un motor de continua equivalente con las cifras de "
+          "entre dos fases: V = R·i + L·di/dt + Kt·w, par Kt·i. La corriente es la del "
+          "controlador, CORRIENTE IMPUESTA CON TOPE DE TENSION, como en un paso a paso. "
+          "U, V y W se cablean y se comprueban: cada una, a la suya del controlador; "
+          "cruzadas o al aire, sin corriente y con aviso. Los Hall y el encoder son de "
+          "colector abierto: el pull-up lo pone quien los lee. Lo mecanico es de su "
+          "cadena (parts/cadena.h). Las cifras de omision, las del Nanotec "
+          "DB59L024035-A.")
+      .ejemplo("<componente tipo=\"MotorBLDC\" id=\"MOTOR\" kt_ncm_a=\"5\" r_ohm=\"0.22\" "
+               "l_mh=\"0.29\"\n"
+               "            inercia_gcm2=\"119\" pares_polos=\"3\">\n"
+               "  <pin nombre=\"u\" nodo=\"M.U\"/> <pin nombre=\"v\" nodo=\"M.V\"/>\n"
+               "  <pin nombre=\"w\" nodo=\"M.W\"/>\n"
+               "  <pin nombre=\"hall_vcc\" nodo=\"P1.VCC\"/> <pin nombre=\"hall_gnd\" nodo=\"P1.GND\"/>\n"
+               "  <pin nombre=\"h1\" nodo=\"P1.H1\"/> <pin nombre=\"h2\" nodo=\"P1.H2\"/>\n"
+               "  <pin nombre=\"h3\" nodo=\"P1.H3\"/>\n"
+               "</componente>")
+      .pin("u, v, w", "obligatorios", "Las tres fases. Con la consigna positiva del "
+           "controlador, el eje gira a la DERECHA, el angulo positivo.")
+      .pin("hall_vcc, hall_gnd", "con los Hall", "La alimentacion de los sensores, 5 V: con "
+           "menos de 3,5, sus salidas se quedan al aire.")
+      .pin("h1, h2, h3", "con hall_vcc", "Los Hall, a 120° electricos: 101, 100, 110, 010, 011, "
+           "001 girando a la derecha. Colector abierto.")
+      .pin("enc_a, enc_b", "con ppr", "El encoder, en cuadratura, A delante a la derecha. "
+           "Colector abierto.")
+      .atr("kt_ncm_a", "5", "La constante de par, en N·cm/A (y la de f.e.m., en V·s/rad·100).")
+      .atr("r_ohm", "0.22", "La resistencia entre dos fases.")
+      .atr("l_mh", "0.29", "La inductancia entre dos fases.")
+      .atr("corriente_nominal", "9.4", "En A: la carga del mando va en % de Kt por ella.")
+      .atr("corriente_pico", "28", "En A: por encima, se avisa.")
+      .atr("inercia_gcm2", "119", "La del rotor.")
+      .atr("rozamiento_ncm", "1.5", "El seco, en N·cm (estimado: la ficha no da la corriente "
+           "en vacio).")
+      .atr("viscoso_mnms", "0.02", "En mN·m por rad/s (estimado).")
+      .atr("pares_polos", "3", "Los pares de polos: 6·p cambios de Hall por vuelta.")
+      .atr("ppr", "0", "Las lineas del encoder por vuelta; 0, sin el. Cuesta un suceso por "
+           "flanco: 1000 lineas a 3500 rpm son 233 000 por segundo.")
+      .atr("posicion_inicial", "0", "El angulo del eje al arrancar, en grados.")
+      .nota("Deja ver `angulo`, `rpm`, `corriente` (A, la del eje q), `par` (N·m), `tension` "
+            "(la que le pone el controlador), `hall` (el codigo, H1 en el bit 2), la alarma "
+            "`sobrecorriente` y, con encoder, `cuenta`. Los mandos: `bloquear` y `carga`, en "
+            "% del par nominal, hasta el 300 %.")
+      .cpp("rpm(), angulo(), vueltas(), corriente(), par(), tension(), fem(), sector_hall(), "
+           "hall(), cuenta(), modo(), kt(), par_nominal(); bloquea(si), pon_carga(veces)."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("MotorBLDC '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        for (const char* t : {"u", "v", "w"})
+            if (d.nodo_de(t).empty())
+                return mal(std::string("le falta <pin nombre=\"") + t + "\">: lleva sus tres fases");
+        ConfigMotorBLDC c;
+        c.kt_ncm_a = d.num("kt_ncm_a", c.kt_ncm_a);
+        c.r_ohm = d.num("r_ohm", c.r_ohm);
+        c.l_mh = d.num("l_mh", c.l_mh);
+        c.corriente_nominal = d.num("corriente_nominal", c.corriente_nominal);
+        c.corriente_pico = d.num("corriente_pico", c.corriente_pico);
+        c.inercia_gcm2 = d.num("inercia_gcm2", c.inercia_gcm2);
+        c.rozamiento_ncm = d.num("rozamiento_ncm", c.rozamiento_ncm);
+        c.viscoso_mnms = d.num("viscoso_mnms", c.viscoso_mnms);
+        c.posicion_inicial = d.num("posicion_inicial", 0.0);
+        const double pp = d.num("pares_polos", 3.0), ppr = d.num("ppr", 0.0);
+        if (c.kt_ncm_a <= 0 || c.r_ohm <= 0 || c.l_mh <= 0 || c.inercia_gcm2 <= 0 ||
+            c.corriente_nominal <= 0 || c.corriente_pico <= 0)
+            return mal("kt_ncm_a, r_ohm, l_mh, inercia_gcm2 y las corrientes tienen que ser "
+                       "positivos");
+        if (c.rozamiento_ncm < 0 || c.viscoso_mnms < 0)
+            return mal("rozamiento_ncm y viscoso_mnms no pueden ser negativos");
+        if (pp < 1 || pp > 50 || pp != std::floor(pp)) return mal("pares_polos va de 1 a 50");
+        if (ppr < 0 || ppr > 100000 || ppr != std::floor(ppr)) return mal("ppr va de 0 a 100000");
+        c.pares_polos = unsigned(pp);
+        c.ppr = unsigned(ppr);
+        const bool hall = !d.nodo_de("hall_vcc").empty() || !d.nodo_de("hall_gnd").empty() ||
+                          !d.nodo_de("h1").empty() || !d.nodo_de("h2").empty() ||
+                          !d.nodo_de("h3").empty();
+        if (hall)
+            for (const char* t : {"hall_vcc", "hall_gnd", "h1", "h2", "h3"})
+                if (d.nodo_de(t).empty())
+                    return mal(std::string("le falta <pin nombre=\"") + t + "\">: los Hall van "
+                               "con su alimentacion y sus tres salidas");
+        const bool enc = !d.nodo_de("enc_a").empty() || !d.nodo_de("enc_b").empty();
+        if (enc && (d.nodo_de("enc_a").empty() || d.nodo_de("enc_b").empty()))
+            return mal("el encoder lleva enc_a y enc_b");
+        if (enc && !c.ppr) return mal("con enc_a y enc_b, ppr= dice cuantas lineas tiene");
+        if (enc && !hall) return mal("el encoder se alimenta de hall_vcc y hall_gnd");
+        auto nd = [&](const char* t) -> analog_net_if* {
+            return d.nodo_de(t).empty() ? nullptr : &n[d.nodo_de(t)];
+        };
+        return new MotorBLDC(d.id.c_str(), n[d.nodo_de("u")], n[d.nodo_de("v")], n[d.nodo_de("w")],
+                             c, nd("hall_vcc"), nd("hall_gnd"), nd("h1"), nd("h2"), nd("h3"),
+                             nd("enc_a"), nd("enc_b"));
+    });
+
+REGISTRA_PARTE(ControladorMotor,
+    Ayuda("Un CONTROLADOR DE MOTOR inteligente, de RELOJ Y DIRECCION EN LAZO CERRADO, con "
+          "salida de freno y de error: un controlador tipo C5-E para un MotorBLDC. Cada "
+          "flanco de subida de STEP es un paso hacia donde diga DIR; por dentro, una "
+          "cascada de lazos de posicion y velocidad sobre lo que miden sus Hall o su "
+          "encoder, cada lazo_us, y la corriente del eje q impuesta en el motor, con el "
+          "tope en VCC. NO PIERDE PASOS SIN ENTERARSE: si el error de seguimiento pasa de "
+          "error_max_grados durante error_ms, se para, echa el freno y lo dice por su "
+          "salida de error. Con EN, corriente y se suelta el freno; sin EN, se echa el freno "
+          "y, pasados freno_ms, se quita la corriente.")
+      .ejemplo("<componente tipo=\"ControladorMotor\" id=\"U1\" pasos_vuelta=\"2000\">\n"
+               "  <pin nombre=\"vcc\" nodo=\"X1.VCC\"/> <pin nombre=\"gnd\" nodo=\"X1.GND\"/>\n"
+               "  <pin nombre=\"u\" nodo=\"X2.U\"/> <pin nombre=\"v\" nodo=\"X2.V\"/>\n"
+               "  <pin nombre=\"w\" nodo=\"X2.W\"/>\n"
+               "  <pin nombre=\"v5\" nodo=\"X3.5V\"/> <pin nombre=\"h1\" nodo=\"X3.H1\"/>\n"
+               "  <pin nombre=\"h2\" nodo=\"X3.H2\"/> <pin nombre=\"h3\" nodo=\"X3.H3\"/>\n"
+               "  <pin nombre=\"step\" nodo=\"X4.STEP\"/> <pin nombre=\"dir\" nodo=\"X4.DIR\"/>\n"
+               "  <pin nombre=\"en\" nodo=\"X4.EN\"/> <pin nombre=\"freno\" nodo=\"X4.BRK\"/>\n"
+               "  <pin nombre=\"error\" nodo=\"X4.ERR\"/>\n"
+               "</componente>")
+      .pin("vcc, gnd", "obligatorios", "La alimentacion, de 12 a 48 V: la de la logica y la del "
+           "motor, y el tope de su tension.")
+      .pin("u, v, w", "obligatorios", "Las tres fases del motor.")
+      .pin("step, dir, en", "obligatorios", "Paso, direccion (alto: hacia delante) y "
+           "habilitacion (alta: habilitado), con 10 kohm a masa por dentro y el umbral en "
+           "umbral= voltios.")
+      .pin("v5", "opcional", "Los 5 V de los sensores.")
+      .pin("h1, h2, h3", "con los Hall", "Los Hall del motor, con 4,7 kohm a los 5 V de dentro.")
+      .pin("enc_a, enc_b", "con encoder=\"si\"", "El encoder, con sus pull-ups.")
+      .pin("freno", "opcional", "La salida del freno: a VCC, suelto; al aire, echado.")
+      .pin("error", "opcional", "La salida de error: a masa con error, al aire sin el.")
+      .atr("corriente_max", "10", "El tope de la consigna del eje q, en A.")
+      .atr("pasos_vuelta", "2000", "Los pasos de STEP por vuelta del motor.")
+      .atr("encoder", "no", "si: la posicion, del encoder (ppr=); no, de los Hall (pares_polos=).")
+      .atr("pares_polos", "3", "Los del motor: 6·p cambios de Hall por vuelta.")
+      .atr("ppr", "1000", "Las lineas del encoder.")
+      .atr("kp_pos", "20; 50 con encoder", "La ganancia del lazo de posicion, en 1/s.")
+      .atr("kp_vel, ki_vel", "0.015 y 1; 0.06 y 3 con encoder", "Las del de velocidad: A por rad/s y A "
+           "por rad. Las de omision son las de un DB59L024035-A suelto; con los Hall, una medida "
+           "cada 20°, mas bajas.")
+      .atr("rpm_max", "4000", "El tope de la consigna de velocidad.")
+      .atr("error_max_grados, error_ms", "360, 10", "El error de seguimiento que lo para, en "
+           "grados del motor, y cuanto tiene que durar.")
+      .atr("freno_ms", "100", "Lo que tarda el freno en soltarse y en echarse.")
+      .atr("lazo_us", "1000", "El periodo de los lazos.")
+      .atr("umbral", "2.5", "El umbral de las entradas, en V, con 0,25 de histeresis.")
+      .nota("Deja ver `estado` (0 sin tension, 1 deshabilitado, 2 soltando el freno, 3 en "
+            "marcha, 4 echando el freno, 5 error), `pasos`, `error_seguimiento` (grados), "
+            "`corriente_q` (A, la consigna), `rpm` (las medidas), `corriente_vcc` (mA, de "
+            "media), `freno_suelto` y la alarma `error`.")
+      .nota("Lo que no hace: el bus de campo, los finales de carrera, la puesta en marcha "
+            "automatica, el I²t y la energia que vuelve al frenar.")
+      .cpp("estado(), texto_estado(), pasos(), pasos_ignorados(), posicion_grados(), "
+           "consigna_grados(), error_grados(), error_maximo_grados(), rpm_medidas(), "
+           "corriente_q(), corriente_vcc_ma(), freno_suelto(), en_error(), causa()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("ControladorMotor '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        for (const char* t : {"vcc", "gnd", "u", "v", "w", "step", "dir", "en"})
+            if (d.nodo_de(t).empty()) return mal(std::string("le falta <pin nombre=\"") + t + "\">");
+        ConfigControladorMotor c;
+        c.corriente_max = d.num("corriente_max", c.corriente_max);
+        const double pv = d.num("pasos_vuelta", 2000.0), pp = d.num("pares_polos", 3.0),
+                     ppr = d.num("ppr", 1000.0);
+        c.encoder = d.si("encoder", false);
+        // Con el encoder, la medida es fina y los lazos pueden ir mas deprisa
+        c.kp_pos = d.num("kp_pos", c.encoder ? 50.0 : c.kp_pos);
+        c.kp_vel = d.num("kp_vel", c.encoder ? 0.06 : c.kp_vel);
+        c.ki_vel = d.num("ki_vel", c.encoder ? 3.0 : c.ki_vel);
+        c.rpm_max = d.num("rpm_max", c.rpm_max);
+        c.error_max_grados = d.num("error_max_grados", c.error_max_grados);
+        c.error_ms = d.num("error_ms", c.error_ms);
+        c.freno_ms = d.num("freno_ms", c.freno_ms);
+        c.lazo_us = d.num("lazo_us", c.lazo_us);
+        c.umbral = d.num("umbral", c.umbral);
+        if (c.corriente_max <= 0 || c.corriente_max > 30)
+            return mal("corriente_max va de 0 a 30 A");
+        if (pv < 4 || pv > 1e6 || pv != std::floor(pv)) return mal("pasos_vuelta va de 4 a 1000000");
+        if (pp < 1 || pp > 50 || pp != std::floor(pp)) return mal("pares_polos va de 1 a 50");
+        if (ppr < 1 || ppr > 100000 || ppr != std::floor(ppr)) return mal("ppr va de 1 a 100000");
+        if (c.kp_pos < 0 || c.kp_vel < 0 || c.ki_vel < 0 || c.rpm_max <= 0)
+            return mal("las ganancias no pueden ser negativas, y rpm_max es positivo");
+        if (c.error_max_grados <= 0 || c.error_ms < 0 || c.freno_ms < 0)
+            return mal("error_max_grados es positivo; error_ms y freno_ms, no negativos");
+        if (c.lazo_us < 50 || c.lazo_us > 10000) return mal("lazo_us va de 50 a 10000");
+        c.pasos_vuelta = unsigned(pv);
+        c.pares_polos = unsigned(pp);
+        c.ppr = unsigned(ppr);
+        if (c.encoder) {
+            if (d.nodo_de("enc_a").empty() || d.nodo_de("enc_b").empty())
+                return mal("con encoder=\"si\" lleva enc_a y enc_b");
+        } else {
+            for (const char* t : {"h1", "h2", "h3"})
+                if (d.nodo_de(t).empty())
+                    return mal(std::string("le falta <pin nombre=\"") + t + "\">: sin encoder, la "
+                               "posicion es la de los Hall");
+        }
+        auto nd = [&](const char* t) -> analog_net_if* {
+            return d.nodo_de(t).empty() ? nullptr : &n[d.nodo_de(t)];
+        };
+        return new ControladorMotor(d.id.c_str(), c, n[d.nodo_de("vcc")], n[d.nodo_de("gnd")],
+                                    n[d.nodo_de("u")], n[d.nodo_de("v")], n[d.nodo_de("w")],
+                                    n[d.nodo_de("step")], n[d.nodo_de("dir")], n[d.nodo_de("en")],
+                                    nd("v5"), nd("h1"), nd("h2"), nd("h3"), nd("enc_a"),
+                                    nd("enc_b"), nd("freno"), nd("error"));
     });
 
 REGISTRA_PARTE(L298,

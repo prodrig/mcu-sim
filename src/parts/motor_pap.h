@@ -257,8 +257,10 @@ SC_MODULE(MotorPaP), public ExtPartBase, public Actuador {
         for (int k = 0; k < 2; ++k) {
             const Bobina& b = bob_[k];
             if (b.modo != Corriente || reg_[k] == Sigue || reg_[k] == Nada) continue;
+            // Solo si la CRUZA: la que sale de la consigna empujada por el
+            // tope -la f.e.m. se come la tensión- se va, y no vuelve
             const double obj = b.activa ? b.obj : 0.0;
-            if ((e0[k] - obj) * (e[k] - obj) <= 0.0) e[k] = obj;
+            if ((e0[k] - obj) * (e[k] - obj) < 0.0) e[k] = obj;
         }
     }
     double paso_max() const override {

@@ -1566,6 +1566,31 @@ SC_MODULE(Sim) {
                         i.id.c_str(), h->estado(), h->corriente_media() * 1e3,
                         h->corriente_is() * 1e6, h->disipacion());
         }
+        // Los BLDC y sus controladores: a cuanto van, su corriente, sus Hall; y el
+        // estado del controlador, sus pasos y su error de seguimiento
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "MotorBLDC") continue;
+            const MotorBLDC* m = placa.como<MotorBLDC>(i.id);
+            if (!m) continue;
+            std::printf("  BLDC %s: %+.1f rpm, %+.2f vueltas; %s, %+.2f A, %+.3f N·m, %+.1f V; Hall "
+                        "%u%u%u", i.id.c_str(), m->rpm(), m->vueltas(), m->modo(), m->corriente(),
+                        m->par(), m->tension(), (m->hall() >> 2) & 1, (m->hall() >> 1) & 1,
+                        m->hall() & 1);
+            if (m->tiene_encoder()) std::printf("; encoder %+ld cuartos", m->cuenta());
+            std::printf("%s\n", m->bloqueado() ? "; bloqueado" : "");
+        }
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "ControladorMotor") continue;
+            const ControladorMotor* c = placa.como<ControladorMotor>(i.id);
+            if (!c) continue;
+            std::printf("  CONTROLADOR %s (%s): %s%s%s, %+ld pasos (%ld sin seguir); error de "
+                        "seguimiento %+.1f°, %.1f como mucho; iq %+.2f A; VCC %.0f mA de media; "
+                        "freno %s\n", i.id.c_str(), c->config().nombre.c_str(), c->texto_estado(),
+                        c->causa().empty() ? "" : " por ", c->causa().c_str(), c->pasos(),
+                        c->pasos_ignorados(), c->error_grados(), c->error_maximo_grados(),
+                        c->corriente_q(), c->corriente_vcc_ma(),
+                        c->freno_suelto() ? "suelto" : "echado");
+        }
         // Las cadenas mecanicas: a cuanto va su eje, cuanto ha girado y la
         // inercia que mueve, todo reflejada en el
         for (const Instancia& i : placa.instancias()) {
