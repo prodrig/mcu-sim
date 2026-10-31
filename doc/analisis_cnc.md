@@ -529,7 +529,7 @@ El `DriverPaP` debe comprobar estos umbrales y avisar, como hace el `Servo` con 
 
 Sirve para las pruebas, y cada cosa que falle se ve en su código.
 
-**2. grblHAL sin modificar**, en F3.
+**2. grblHAL sin modificar**, en F3. Hecho: §13, «F3: grblHAL».
 
 * **Lo soporta de forma oficial**: su driver STM32F4xx soporta el F401, F407,
   F411 y **F446**, con configuraciones para la Nucleo-64, y en su repositorio
@@ -940,7 +940,80 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
 * **Candle y UGS**: el VCP de la Nucleo es un `PuenteSerie`, en RFC 2217 en
   el puerto 3355 (§8.3). En las pruebas, un guion en memoria.
 * **Pruebas**: `make gui-cnc` C6, 16 comprobaciones (133 en total).
-* **grblHAL**, en un parche aparte.
+* **grblHAL**, en un parche aparte: la sección siguiente.
+
+### F3: grblHAL, sin modificar
+
+**grblHAL corre en la 3020 sin tocar una línea**, y hace lo mismo que el
+firmware propio: el mismo *homing*, el mismo cuadrado y el mismo círculo, al
+micrómetro. Por el camino destapó **dos fallos del modelo**, arreglados aquí.
+Lo demás que hubo que hacer es lo que haría quien lo monte de verdad:
+configurarlo con `$` y cablear la máquina como él la espera.
+
+* **Cuál.** El driver STM32F4xx en `a6318ac` (2026-10-15), con su núcleo
+  `4ec1ae4` (*build* 20261015): el entorno `nucleo_f446re_protoneer` de su
+  `platformio.ini` —`BOARD_PROTONEER_3XX` y `NUCLEO_F446`—, compilado sin
+  PlatformIO por `verif/fw/grblhal/Makefile`, que baja las fuentes en esos
+  commits (`make -f Makefile.mcu-sim grblhal`). Es GPL-3: **ni sus fuentes ni
+  su binario se versionan**, y sin él `make gui-cnc` se salta sus pruebas.
+  190 KB; 180 MHz del PLL con el HSI; los ajustes, en la Flash.
+* **Fallo del modelo 1: `UADD8` ponía GE siempre.** La suma de cada byte
+  ponía su bandera con `>= 0`, que una suma sin signo cumple siempre, en vez
+  de con el acarreo, `>= 0x100`; y lo mismo `UASX` y `USAX` en su mitad que
+  suma [ARMv7-M, A7.7.176]. El `strlen` de newlib para ARMv7-M busca el cero
+  del final con `uadd8` y `sel`: no lo encontraba nunca, leía hasta el final
+  de la RAM y acababa en un fallo de bus en `0x20020000`, al arrancar
+  —`setting_remove_elements`—, sin haber dicho nada. Ningún firmware de las
+  baterías usaba ese `strlen`. Arreglado en `core/cpu_exec32.h`, con su
+  regresión, `verif/fw/simd_ge`: las doce sumas y restas con GE sobre seis
+  pares, contra el pseudocódigo de la arquitectura, y `strlen` con todas las
+  longitudes y alineaciones. Sin el arreglo, 57 de 72 y `strlen` no vuelve.
+* **Fallo del modelo 2: un aviso de más.** grblHAL deja el dominio de 48 MHz
+  a 180 MHz (`PLLQ = 2`) porque no usa ni el USB ni el SDIO, y el SDIO
+  avisaba de que su reloj pasaba del máximo aun apagado. Ahora el reloj se
+  mira solo con el SDIO encendido y `SDIO_CK` habilitado (`periph/sdio.h`).
+* **Las entradas son NC.** En grblHAL, un final, la seta, HOLD o START
+  abiertos —a uno con su *pull-up*— están **activados**: espera contactos
+  normalmente cerrados, que es lo seguro. Los de esta máquina son NO: arranca
+  en `ALARM:10` con los finales de X e Y pisados. Se arregla con `$5=7` y
+  `$14=70`, y un Ctrl-X para salir de la seta. Y DIR va al revés que en el
+  propio: `$3=7`.
+* **El cableado es el de la serigrafía del shield, no el de GRBL 1.1.** Su
+  mapa pone el final de Z en D11, la habilitación del cabezal en D12 y el PWM
+  en D13 —que es también LD2—. En `cnc_3020.xml`, cableada para GRBL 1.1, D11
+  es el PWM del cabezal y los 10 kΩ del módulo MOSFET lo tienen a cero: el
+  final de Z, pisado, y con los límites duros `ALARM:1` sin moverse. De ahí
+  **`placas/cnc_3020_grblhal.xml`**: la misma máquina con tres hilos
+  cambiados.
+* **No tiene sonda.** El mapa de la Protoneer la quita (`PROBE_ENABLE 0`;
+  `$I` dice `NOPROBE`) y `G38.2` da `error:20`.
+* **El otro entorno, `nucleo_f446re_generic_uno`, tampoco sirve tal cual.**
+  Su mapa (`uno_map.h`) es el de GRBL 1.1 —PWM en D11, sonda en A5— y
+  pondría el final de Z en D12 *si estuviera definido `VARIABLE_SPINDLE`*,
+  una macro del GRBL antiguo que grblHAL ya no define en ningún sitio: el
+  final de Z se queda en D11, **el mismo pin que el PWM**. Probado en
+  `cnc_3020.xml`: Z siempre pisado y el cabezal que no gira. Es un fallo del
+  mapa de grblHAL, no del modelo.
+* **Un error de G-code se queda.** Con `COMPATIBILITY_LEVEL` 0, tras un error
+  grblHAL contesta el mismo error a cada línea de G-code sin ejecutarla, hasta
+  una línea en blanco o una orden `$`: un trabajo se para en su primer error.
+  Es a propósito, y el emisor lo tiene que saber.
+* **Sus coordenadas de máquina son negativas**, como en GRBL: tras `$H` la
+  casa es X−299 Y−199 Z−1 (recorrido menos separación), y un `G0 X10` absoluto
+  se va al otro extremo.
+* **Escribir un ajuste lleva su tiempo**: va a la Flash. Un guion que manda
+  ajustes y un Ctrl-X seguidos tiene que esperar entre medias, o el reset
+  llega antes que los ajustes.
+* **Lo que sale** (`make gui-cnc`, C7, 12 comprobaciones; 145 en total):
+  `$H` con el Z primero y X e Y a la vez, cada final dos veces; la casa en
+  11,479, 6,477 y 70,521 tras `G91 G0 X10 Y5` —la misma que el propio—; el
+  cuadrado a 22 µm y el círculo entre 9,959 y 10,038; el cabezal a 9668 rpm
+  por D13; la seta, `ALARM:10` con los drivers sin salidas. **Unos 4,9 s de
+  reloj por segundo de máquina**: el MCU a 180 MHz y la interrupción de
+  pasos de grblHAL, frente a los 1,3 del propio.
+* **Lo que no hizo falta tocar**: los temporizadores de pasos y de pulso, las
+  EXTI de los finales, el PWM, la USART2, la Flash y el SysTick de grblHAL
+  funcionaron a la primera.
 
 ## Fuentes
 

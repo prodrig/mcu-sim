@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     LA FRESADORA 3020 CON grblHAL: la misma maquina que cnc_3020.xml, con el
+     cableado que espera grblHAL para esta placa ("Protoneer v3" en la
+     Nucleo-F446RE) y su firmware, verif/fw/grblhal/grblhal.bin
+
+     grblHAL SIN MODIFICAR (doc/analisis_cnc.md, «F3: grblHAL»). Su binario
+     no se versiona -es GPL-3-: lo construye `make -C verif/fw/grblhal`, que
+     baja sus fuentes en los commits fijados.
+
+     EL CABLEADO, el de boards/protoneer_3.xx_map.h de grblHAL, que es el de
+     la serigrafia del shield (GRBL 0.9), no el de GRBL 1.1:
+
+       final de Z     FIN.ZMAX (D11), no SPN.EN (D12)
+       cabezal        SPN.DIR (D13) lleva el PWM (SPINDLE_PWM0_NODIR); SPN.EN
+                      (D12) es la habilitacion y queda al aire
+       sonda          NINGUNA: el mapa la quita (PROBE_ENABLE 0) y G38.2 da
+                      error. La placa sigue en A5, que nadie lee
+
+     LAS ENTRADAS, en grblHAL, son de contacto NC por omision (abierto, a uno
+     con el pull-up, es «activado»): los finales y la seta de esta maquina son
+     NO, y hay que invertirlos con $5=7 y $14=70 (ESTOP, HOLD y START, que al
+     aire tambien estan a uno). Y DIR: grblHAL pone DIR a uno para ir hacia
+     negativo, al reves que verif/fw/cnc: $3=7.
+
+     Los A4988 leen los 3,3 V de la Nucleo con su logica a 5 V: por debajo de
+     su 0,7·VDD. Funciona -como en el de verdad- y se avisa (§8.1).
+
+         ./build/mcu-sim placas/cnc_3020_grblhal.xml --gui
+     ========================================================================= -->
+<sistema nombre="cnc-3020-grblhal">
+  <placa id="N" fichero="nucleo_f446re.xml" x="0" y="0"/>
+  <placa id="S" fichero="cnc_shield_v3.xml" x="0" y="0"/>
+  <placa id="DX" fichero="pololu_a4988.xml"/>
+  <placa id="DY" fichero="pololu_a4988.xml"/>
+  <placa id="DZ" fichero="pololu_a4988.xml"/>
+  <placa id="M" fichero="fresadora_3020.xml"/>
+  <placa id="Q" fichero="modulo_mosfet.xml"/>
+  <placa id="C" fichero="motor_775.xml"/>
+
+  <!-- El shield en la Nucleo -->
+  <acopla a="N/CN5" b="S/J5"/>
+  <acopla a="N/CN6" b="S/J6"/>
+  <acopla a="N/CN8" b="S/J8"/>
+  <acopla a="N/CN9" b="S/J9"/>
+
+  <!-- Los drivers en sus zocalos -->
+  <acopla a="S/SX1" b="DX/J1"/> <acopla a="S/SX2" b="DX/J2"/>
+  <acopla a="S/SY1" b="DY/J1"/> <acopla a="S/SY2" b="DY/J2"/>
+  <acopla a="S/SZ1" b="DZ/J1"/> <acopla a="S/SZ2" b="DZ/J2"/>
+
+  <!-- Los motores: la bobina A a 1A-1B, la B a 2A-2B -->
+  <hilo a="S/MX.1A" b="M/MX.A1"/> <hilo a="S/MX.1B" b="M/MX.A2"/>
+  <hilo a="S/MX.2A" b="M/MX.B1"/> <hilo a="S/MX.2B" b="M/MX.B2"/>
+  <hilo a="S/MY.1A" b="M/MY.A1"/> <hilo a="S/MY.1B" b="M/MY.A2"/>
+  <hilo a="S/MY.2A" b="M/MY.B1"/> <hilo a="S/MY.2B" b="M/MY.B2"/>
+  <hilo a="S/MZ.1A" b="M/MZ.A1"/> <hilo a="S/MZ.1B" b="M/MZ.A2"/>
+  <hilo a="S/MZ.2A" b="M/MZ.B1"/> <hilo a="S/MZ.2B" b="M/MZ.B2"/>
+
+  <!-- La potencia, tras la seta -->
+  <hilo a="M/J1.V24" b="S/PWR.V+"/>
+  <hilo a="M/J1.GND" b="S/PWR.GND"/>
+
+  <!-- Los finales, la sonda y la seta -->
+  <hilo a="M/FIN.X" b="S/FIN.XMIN"/>
+  <hilo a="M/FIN.Y" b="S/FIN.YMIN"/>
+  <hilo a="M/FIN.Z" b="S/FIN.ZMAX"/>      <!-- D11: grblHAL -->
+  <hilo a="M/SONDA.PLACA" b="S/CTL.SCL"/> <!-- A5 -->
+  <hilo a="M/SETA.ABORT" b="S/CTL.ABORT"/><!-- A0 -->
+
+  <!-- El cabezal: el modulo MOSFET con su PWM en D13 (tambien LD2) -->
+  <hilo a="M/J1.V24" b="Q/X1.VIN"/>
+  <hilo a="M/J1.GND" b="Q/X1.GNDP"/>
+  <hilo a="S/SPN.DIR" b="Q/P1.SIG"/>     <!-- D13: el PWM del cabezal -->
+  <hilo a="C/M.ROJO" b="Q/X2.MAS"/>
+  <hilo a="C/M.NEGRO" b="Q/X2.MENOS"/>
+
+  <mcu ref="N/u0" firmware="verif/fw/grblhal/grblhal.bin"/>
+</sistema>

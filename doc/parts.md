@@ -2963,8 +2963,18 @@ con 200, 200 y 800 pasos por mm.
 * `G38.2`: el Z se para a 19,996 mm sobre la placa de 20; sin la placa,
   `ALARM:5`. Un límite duro a 0,48 mm, `ALARM:1`. La seta: `ALARM:3`, los
   drivers sin salidas y el Z quieto.
-* El cabezal: `M3 S10000`, 9878 rpm; `M5`, y se para solo en unos 2 s.
+* El cabezal: `M3 S1000` —S va de 0 a 1000—, 9878 rpm; `M5`, y se para solo
+  en unos 2 s.
 * **El coste**: unos 1,3 s de reloj por segundo de máquina mientras se mueve.
+
+**grblHAL sin modificar** (C7) corre en `cnc_3020_grblhal.xml`, la misma
+máquina con el cableado de su mapa para la Nucleo con la shield —el de la
+serigrafía: final de Z en D11, PWM del cabezal en D13, sin sonda—, y hace el
+mismo *homing*, el mismo cuadrado y el mismo círculo. Sus entradas son de
+contacto NC: con los NO de esta máquina, `$5=7` y `$14=70`. Su binario es GPL-3
+y no se versiona: `make -f Makefile.mcu-sim grblhal` lo baja y lo construye.
+Lo que destapó y lo que no puede hacer, en `doc/analisis_cnc.md` (§13, «F3:
+grblHAL»).
 
 ---
 

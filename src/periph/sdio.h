@@ -712,8 +712,12 @@ protected:
     // =======================================================================
     void ck_proc() {
         for (;;) {
-            const double h = half_period();
-            if (!powered() || !clken() || h <= 0.0) {
+            // El reloj, solo con el SDIO encendido y SDIO_CK habilitado: un
+            // firmware que no usa el SDIO puede dejar el dominio de 48 MHz
+            // fuera de rango (grblHAL en la F446, 180 MHz con PLLQ = 2), y no
+            // hay nada de que avisar
+            const double h = (powered() && clken()) ? half_period() : 0.0;
+            if (h <= 0.0) {
                 o_ck_ = false; o_ck_oe_ = powered();
                 o_d_oe_.fill(false); o_cmd_oe_ = false;
                 publish();

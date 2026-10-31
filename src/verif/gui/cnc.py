@@ -33,6 +33,15 @@
 #       §6.3, calculados; la inercia reflejada; el Z con bolas sin freno se
 #       cae, con Tr8x2 o con freno, no; los pasos, la holgura de la tuerca, el
 #       tope y la velocidad crítica; un acople que no encaja.
+#   C6  (F3) LA MÁQUINA, con verif/fw/cnc. La shield, la fresadora y el
+#       sistema; un cuadrado y un círculo contra lo pedido; $H, G38.2, los
+#       límites duros, la seta que corta los drivers y el cabezal. Y el fallo
+#       del núcleo que destapó el firmware (CONTROL.FPCA).
+#   C7  (F3) grblHAL SIN MODIFICAR, en la 3020 con su cableado. El fallo del
+#       núcleo que destapó (GE de UADD8, el strlen de newlib); lo que hay que
+#       ajustar ($5, $14, $3) y lo que no puede (la sonda). Si no está
+#       verif/fw/grblhal/grblhal.bin -GPL-3, no se versiona: `make -C
+#       verif/fw/grblhal`-, se saltan sus pruebas.
 #
 # Cada grupo monta su banco en una carpeta temporal, con placas escritas aquí.
 #
@@ -1380,14 +1389,17 @@ def c5_transmision(sim, cp):
 # C6 (F3): la máquina
 # =============================================================================
 def maquina(sim, cp, guion, ms, pos=("50", "50", "50"), pedidos=(("M/CX", "posicion"),),
-            lista=(), periodo_ns=5000000, extra_maquina=()):
-    """La fresadora 3020 entera (placas/cnc_3020.xml) con su firmware, el
-    G-code de `guion` tecleado por el VCP -en memoria- y los carros donde diga
-    `pos`. Devuelve (series, avisos, consola, segundos de reloj)"""
+            lista=(), periodo_ns=5000000, extra_maquina=(), sistema="cnc_3020.xml",
+            firmware="verif/fw/cnc/cnc.bin", guion_ms=20):
+    """La fresadora 3020 entera (placas/cnc_3020.xml, u otro `sistema`) con su
+    firmware, el G-code de `guion` tecleado por el VCP -en memoria- a los
+    `guion_ms` y los carros donde diga `pos`. Devuelve (series, avisos, consola,
+    segundos de reloj)"""
     placas = os.path.abspath("placas")
     n = open(os.path.join(placas, "nucleo_f446re.xml"), encoding="utf-8").read()
     n = n.replace('host="rfc2217:3355"\n              baudios="host"',
-                  'host="memoria" guion_ms="20" guion="%s"\n              baudios="115200"' % guion)
+                  'host="memoria" guion_ms="%d" guion="%s"\n              baudios="115200"'
+                  % (guion_ms, guion))
     m = open(os.path.join(placas, "fresadora_3020.xml"), encoding="utf-8").read()
     m = m.replace('posicion_mm="150"', 'posicion_mm="%s"' % pos[0])
     m = m.replace('posicion_mm="100"', 'posicion_mm="%s"' % pos[1])
@@ -1396,13 +1408,13 @@ def maquina(sim, cp, guion, ms, pos=("50", "50", "50"), pedidos=(("M/CX", "posic
         m = m.replace(a, b)
     d = os.path.dirname(cp("nucleo.xml", n))
     cp("fresadora.xml", m)
-    x = open(os.path.join(placas, "cnc_3020.xml"), encoding="utf-8").read()
+    x = open(os.path.join(placas, sistema), encoding="utf-8").read()
     x = x.replace('fichero="nucleo_f446re.xml"', 'fichero="%s/nucleo.xml"' % d)
     x = x.replace('fichero="fresadora_3020.xml"', 'fichero="%s/fresadora.xml"' % d)
     for f in ("cnc_shield_v3", "pololu_a4988", "modulo_mosfet", "motor_775"):
         x = x.replace('fichero="%s.xml"' % f, 'fichero="%s/%s.xml"' % (placas, f))
-    x = x.replace('firmware="verif/fw/cnc/cnc.bin"',
-                  'firmware="%s"' % os.path.abspath("verif/fw/cnc/cnc.bin"))
+    fw = os.path.abspath(firmware)
+    x = re.sub(r'(<mcu ref="N/u0" firmware=)"[^"]*"', lambda m: '%s"%s"' % (m.group(1), fw), x)
     ruta = cp("cnc.xml", x)
     t0 = time.time()
     s, avs, cat, rc = muestrea(sim, ruta, ms, list(pedidos), periodo_ns=periodo_ns, lista=lista)
@@ -1426,6 +1438,32 @@ def quieto_en(serie_x, serie_y, t0, t1):
     xs = [v for t, v in serie_x if t0 <= t <= t1]
     ys = [v for t, v in serie_y if t0 <= t <= t1]
     return sum(xs) / len(xs), sum(ys) / len(ys)
+
+
+def cuadrado_y_circulo(s, t_quieto):
+    """El cuadrado de 20 mm y el circulo de 10 de radio de C6 y C7, medidos
+    desde donde estan quietos los carros en `t_quieto` (s): el peor
+    apartamiento de los lados, la distancia a las esquinas, los radios y el
+    mayor hueco del circulo, en grados"""
+    sx, sy = s[("M/CX", "posicion")], s[("M/CY", "posicion")]
+    x0, y0 = quieto_en(sx, sy, t_quieto, t_quieto + 0.1)
+    pts = [(t, a - x0, b - y0) for (t, a), (_, b) in zip(sx, sy) if t > t_quieto + 0.15]
+    cuad = [(0, 0), (20, 0), (20, 20), (0, 20), (0, 0)]
+    # El cuadrado acaba al volver a (0, 0) despues de pasar por (0, 20)
+    t20 = [t for t, x, y in pts if math.hypot(x, y - 20) < 0.05]
+    t_fin = [t for t, x, y in pts if t20 and t > t20[0] and math.hypot(x, y) < 0.06]
+    t_cuad = t_fin[0] if t_fin else 1e9
+    lado = [(x, y) for t, x, y in pts if t <= t_cuad]
+    peor_c = max((min(d_segmento(x, y, cuad[i], cuad[i + 1]) for i in range(4)) for x, y in lado),
+                 default=9)
+    esquinas = [min(math.hypot(x - cx, y - cy) for t, x, y in pts) for cx, cy in cuad[1:4]]
+    # El circulo: lo de despues, menos el rapido de (0, 0) a (10, 0)
+    arco = [(x, y) for t, x, y in pts if t > t_cuad and d_segmento(x, y, (0, 0), (10, 0)) > 0.06]
+    radios = [math.hypot(x - 10, y - 10) for x, y in arco]
+    angulos = sorted(math.degrees(math.atan2(y - 10, x - 10)) for x, y in arco)
+    hueco = max([b - a for a, b in zip(angulos, angulos[1:])] + [angulos[0] + 360 - angulos[-1]]) \
+        if angulos else 360
+    return peor_c, esquinas, len(lado), radios, hueco
 
 
 def c6_maquina(sim, cp):
@@ -1467,28 +1505,11 @@ def c6_maquina(sim, cp):
          "G2 X10 Y0 I0 J10 F1200\\n")
     s, avs, out, dt = maquina(sim, cp, g, 9500, pedidos=(("M/CX", "posicion"), ("M/CY", "posicion")),
                               periodo_ns=2000000)
-    sx, sy = s[("M/CX", "posicion")], s[("M/CY", "posicion")]
-    x0, y0 = quieto_en(sx, sy, 0.35, 0.45)
-    pts = [(t, a - x0, b - y0) for (t, a), (_, b) in zip(sx, sy) if t > 0.5]
-    cuad = [(0, 0), (20, 0), (20, 20), (0, 20), (0, 0)]
-    # El cuadrado acaba al volver a (0, 0) despues de pasar por (0, 20)
-    t20 = [t for t, x, y in pts if math.hypot(x, y - 20) < 0.05]
-    t_fin = [t for t, x, y in pts if t20 and t > t20[0] and math.hypot(x, y) < 0.06]
-    t_cuad = t_fin[0] if t_fin else 1e9
-    lado = [(x, y) for t, x, y in pts if t <= t_cuad]
-    peor_c = max((min(d_segmento(x, y, cuad[i], cuad[i + 1]) for i in range(4)) for x, y in lado),
-                 default=9)
-    esquinas = [min(math.hypot(x - cx, y - cy) for t, x, y in pts) for cx, cy in cuad[1:4]]
+    peor_c, esquinas, n_lado, radios, hueco = cuadrado_y_circulo(s, 0.35)
     check(peor_c < 0.05 and max(esquinas) < 0.03,
           "el CUADRADO de 20 mm: el carro X y la mesa no se separan de su lado mas de %.3f mm -la "
           "holgura de las tuercas es de 0,02-, y pasan por las esquinas a %.3f como mucho (%d "
-          "puntos)" % (peor_c, max(esquinas), len(lado)))
-    # El circulo: lo de despues, menos el rapido de (0, 0) a (10, 0)
-    arco = [(x, y) for t, x, y in pts if t > t_cuad and d_segmento(x, y, (0, 0), (10, 0)) > 0.06]
-    radios = [math.hypot(x - 10, y - 10) for x, y in arco]
-    angulos = sorted(math.degrees(math.atan2(y - 10, x - 10)) for x, y in arco)
-    hueco = max([b - a for a, b in zip(angulos, angulos[1:])] + [angulos[0] + 360 - angulos[-1]]) \
-        if angulos else 360
+          "puntos)" % (peor_c, max(esquinas), n_lado))
     check(radios and max(abs(r - 10) for r in radios) < 0.05 and hueco < 10,
           "el CIRCULO de 10 mm de radio, en G2: entre %.3f y %.3f, y da la vuelta entera"
           % (min(radios or [0]), max(radios or [0])))
@@ -1561,6 +1582,131 @@ def c6_maquina(sim, cp):
           % (max(v for t, v in r), r[-1][1]))
 
 
+# La 3020 en los ajustes de grblHAL: los de verif/fw/cnc -200, 200 y 800 pasos
+# por mm; 20, 20 y 8 mm/s; 300, 300 y 150 mm/s2; 300, 200 y 72 mm de
+# recorrido-, los motores siempre con corriente ($1=255) y DIR al reves que
+# verif/fw/cnc ($3=7: grblHAL pone DIR a uno para ir hacia negativo)
+AJUSTES_3020 = ("$100=200\\n$101=200\\n$102=800\\n$110=1200\\n$111=1200\\n$112=480\\n"
+                "$120=300\\n$121=300\\n$122=150\\n$130=300\\n$131=200\\n$132=72\\n"
+                "$1=255\\n$3=7\\n")
+
+
+def guion_grblhal(gcode, ajustes=""):
+    """Lo que se teclea a grblHAL en la 3020: $14 y $5 -sus entradas son de
+    contacto NC y las de esta maquina, NO-, una vuelta en blanco mientras los
+    escribe en la Flash, Ctrl-X para que salga de la seta (ALARM:10), $X, los
+    AJUSTES_3020, los `ajustes` y el `gcode`. El guion se teclea de una vez:
+    las lineas en blanco son la espera (400 son 35 ms a 115200)"""
+    espera = "\\n" * 400
+    return ("\\n$14=70\\n$5=7\\n" + espera + "\\x18" + espera + "$X\\n" + AJUSTES_3020 + ajustes +
+            gcode)
+
+
+GRBLHAL = "verif/fw/grblhal/grblhal.bin"
+
+
+def c7_grblhal(sim, cp):
+    grupo("C7 (F3) El fallo del nucleo que destapo grblHAL: GE en las sumas paralelas")
+    r = subprocess.run([sim, "placas/nucleo_f446re.xml", "verif/fw/simd_ge/simd_ge.bin", "300",
+                        "--serie", "VCP=memoria"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                       timeout=120)
+    o = r.stdout.decode("utf-8", "replace")
+    check("SIMD GE: 72 de 72 bien" in o and "strlen: 164 de 164 bien" in o,
+          "UADD8, UASX y USAX ponen GE con el ACARREO, no con un >= 0 que una suma sin signo "
+          "cumple siempre; y el strlen de newlib, que busca el cero con uadd8 y sel, lo encuentra "
+          "(verif/fw/simd_ge: %s; %s)" % (linea(o, "SIMD GE") or "nada", linea(o, "strlen") or "nada"))
+    rc, out = valida(sim, "placas/cnc_3020_grblhal.xml")
+    check(rc == 0 and "8 placas" in out and "0 avisos" in out,
+          "placas/cnc_3020_grblhal.xml, la 3020 con el cableado de grblHAL -el final de Z en D11 y "
+          "el PWM del cabezal en D13-, se monta sin avisos")
+    if not os.path.exists(GRBLHAL):
+        print("  [--  ] sin %s: `make -C verif/fw/grblhal` baja grblHAL y lo construye; se "
+              "saltan sus pruebas" % GRBLHAL)
+        return
+    kw = dict(sistema="cnc_3020_grblhal.xml", firmware=GRBLHAL, guion_ms=600)
+
+    grupo("C7 (F3) grblHAL sin modificar en la 3020")
+    s, avs, out, dt = maquina(sim, cp, "$I\\n?\\n", 1000, **kw)
+    v = vcp(out)
+    est = [l for l in v if l.startswith("<")]
+    pn = est[0].split("Pn:")[1].split("|")[0] if est and "Pn:" in est[0] else ""
+    check(any(l.startswith("GrblHAL 1.1f") for l in v) and "[BOARD:Protoneer v3]" in v and
+          "[DRIVER:STM32F446@180MHz]" in v and any("NOPROBE" in l for l in v),
+          "grblHAL arranca en la Nucleo a 180 MHz con el HSI, como \"Protoneer v3\" -la CNC "
+          "Shield-, y dice que no tiene sonda (NOPROBE): su mapa la quita")
+    check("ALARM:10" in v and all(c in pn for c in "XYE") and "SDIO_CK" not in textos(avs),
+          "SUS ENTRADAS SON NC: con los finales y la seta de esta maquina, que son NO, arranca "
+          "en ALARM:10 -la seta- con los finales de X e Y pisados (Pn:%s). Se arregla con $5 y "
+          "$14, sin tocar el firmware" % pn)
+    s, avs, out, dt = maquina(sim, cp, guion_grblhal("$H\\nM3 S1000\\n", "$21=1\\n$22=1\\n"), 3000,
+                              pos=("8", "6", "66"), pedidos=(("M/CZ", "posicion"), ("C/MOTOR", "rpm")),
+                              firmware=GRBLHAL, guion_ms=600)
+    v = vcp(out)
+    check("ALARM:1" in v and s[("M/CZ", "posicion")][-1][1] == 66.0 and
+          max(x for t, x in s[("C/MOTOR", "rpm")]) == 0.0,
+          "EN EL CABLEADO DE GRBL 1.1 (placas/cnc_3020.xml) NO VA: grblHAL lee el final de Z en "
+          "D11, que ahi es el PWM del cabezal, y los 10 kohm del modulo MOSFET lo tienen a cero: "
+          "pisado. Con los limites duros, ALARM:1 sin moverse, y ni $H ni M3")
+    s, avs, out, dt = maquina(sim, cp, guion_grblhal(
+        "$H\\nG91 G0 X10 Y5\\n", "$21=1\\n$22=1\\n$23=3\\n$24=60\\n$25=600\\n$27=1\\n"),
+        9000, pos=("8", "6", "66"),
+        pedidos=(("M/CX", "posicion"), ("M/CY", "posicion"), ("M/CZ", "posicion"),
+                 ("M/FX", "pisado"), ("M/FY", "pisado"), ("M/FZ", "pisado")), periodo_ns=2000000, **kw)
+    primero, veces = {}, {}
+    for k in ("FX", "FY", "FZ"):
+        f = s[("M/%s" % k, "pisado")]
+        t = [t for t, x in f if x == 1.0]
+        primero[k] = t[0] if t else 99
+        veces[k] = sum(1 for (t0, a), (t1, b) in zip(f, f[1:]) if a == 0.0 and b == 1.0)
+    cx, cy, cz = (s[("M/C%s" % e, "posicion")][-1][1] for e in "XYZ")
+    check(primero["FZ"] < min(primero["FX"], primero["FY"]) and all(n == 2 for n in veces.values()),
+          "$H: el Z arriba primero y despues X e Y A LA VEZ ($44=4, $45=3); cada final, dos "
+          "veces (Z a %.2f s, X a %.2f, Y a %.2f)" % (primero["FZ"], primero["FX"], primero["FY"]))
+    check(abs(cx - 11.48) < 0.03 and abs(cy - 6.48) < 0.03 and abs(cz - 70.52) < 0.03,
+          "la casa, la misma que con verif/fw/cnc -a 1 mm de cada final-: G91 G0 X10 Y5 deja el "
+          "carro X a %.3f mm, la mesa a %.3f y el Z a %.3f. (Sus coordenadas de maquina, no: como "
+          "GRBL, grblHAL llama a esa casa X-299 Y-199 Z-1, y un G0 X10 absoluto se va al otro "
+          "extremo)" % (cx, cy, cz))
+    g = ("G21 G91\\nG1 X1 Y1 F600\\nG4 P0.5\\nG90 G92 X0 Y0\\n"
+         "G1 X20 F1200\\nG1 Y20\\nG1 X0\\nG1 Y0\\nG4 P0.3\\nG0 X10\\n"
+         "G2 X10 Y0 I0 J10 F1200\\n")
+    s, avs, out, dt = maquina(sim, cp, guion_grblhal(g), 10500,
+                              pedidos=(("M/CX", "posicion"), ("M/CY", "posicion")), periodo_ns=2000000,
+                              **kw)
+    # Quieto tras el paso de 1 mm que recoge la holgura: grblHAL tarda en
+    # escribir sus ajustes, y el paso empieza hacia 1 s
+    t1 = [t for t, x in s[("M/CX", "posicion")] if x > 50.5]
+    peor_c, esquinas, n_lado, radios, hueco = cuadrado_y_circulo(s, (t1[0] if t1 else 0) + 0.2)
+    check(peor_c < 0.05 and max(esquinas) < 0.03 and radios and
+          max(abs(r - 10) for r in radios) < 0.05 and hueco < 10,
+          "el mismo cuadrado y el mismo circulo que C6: los lados a %.3f mm como mucho, las "
+          "esquinas a %.3f, el radio entre %.3f y %.3f" % (peor_c, max(esquinas),
+                                                          min(radios or [0]), max(radios or [0])))
+    check(dt < 10.5 * 6, "10,5 s de maquina en %.1f s de reloj: %.2f s por segundo -a 180 MHz, "
+          "con el tick de pasos de grblHAL-" % (dt, dt / 10.5))
+    s, avs, out, dt = maquina(sim, cp, guion_grblhal(
+        "M3 S1000\\nG4 P0.6\\nM5\\nG38.2 Z-10 F300\\nG1 X80 F600\\n\\nG1 X80 F600\\n"), 5000,
+        pedidos=(("M/CX", "posicion"), ("M/CZ", "posicion"), ("C/MOTOR", "rpm")),
+        lista=[(3000, "M/ESTOP", "pulsar", 1)], periodo_ns=10000000, **kw)
+    v = vcp(out)
+    r = s[("C/MOTOR", "rpm")]
+    px = s[("M/CX", "posicion")]
+    en_seta = [x for t, x in px if 3.0 <= t <= 3.02]
+    ld = [linea(out, "DRIVER %s/U1" % d) for d in ("DX", "DY", "DZ")]
+    check(max(x for t, x in r) > 9500 and r[-1][1] < 0.15 * max(x for t, x in r),
+          "M3 S1000: el PWM de D13 -y LD2, que esta en el mismo pin- abre el MOSFET y el 775 se "
+          "pone a %.0f rpm; con M5 se para solo" % max(x for t, x in r))
+    check(v.count("error:20") == 2 and en_seta and en_seta[0] > 52,
+          "G38.2, sin sonda: error:20. Y EL ERROR SE QUEDA: el G1 de despues da error:20 sin "
+          "moverse -grblHAL no ejecuta mas G-code tras un error hasta una linea en blanco o una "
+          "orden $-; tras la linea en blanco, el G1 si va (X a %.2f mm al pulsar la seta)"
+          % (en_seta[0] if en_seta else 0))
+    check("ALARM:10" in v and all("salidas apagadas" in l for l in ld) and
+          abs(px[-1][1] - en_seta[0]) < 0.2 and abs(s[("M/CZ", "posicion")][-1][1] - 50) < 0.01,
+          "LA SETA a mitad del G1: los drivers se quedan sin 24 V y grblHAL, por A0, se para "
+          "(ALARM:10); X en %.2f mm y el Z, sujeto por su husillo" % px[-1][1])
+
+
 def main():
     a = argparse.ArgumentParser(description="La fresadora CNC, por fases, contra el mcu-sim de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -1583,6 +1729,7 @@ def main():
         c4_bldc(sim, cp)
         c5_transmision(sim, cp)
         c6_maquina(sim, cp)
+        c7_grblhal(sim, cp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print()
