@@ -370,8 +370,10 @@ struct DeclMcu {
 struct EnlaceIlustracion {
     std::string pieza;        // el nombre en SU placa: "LD2", nunca "N/LD2"
     std::string elemento;     // el id en el SVG
-    std::string efecto;       // "", "brillo", "hundido", "giro", "pantalla", "angulo" o "ninguno"
+    std::string efecto;       // "", "brillo", "hundido", "giro", "pantalla", "angulo", "display",
+                              // "desplaza" o "ninguno"
     std::string observable;   // el que mueve el giro o el ángulo, si no es el primero (S8 del F303)
+    std::string vector;       // con `desplaza`: x e y por unidad de cada observable
 };
 struct Ilustracion {
     std::string declarada;    // lo que dice el XML, tal cual; vacío si no dice
@@ -430,6 +432,7 @@ struct Instancia {
     // eléctrico. Un netlist tiene que saber expresarlo, y además tiene que
     // saber que el referido se construye ANTES que quien lo refiere.
     std::map<std::string, std::string> refs;
+    std::set<std::string> tardias;           // las de refs que no tienen orden (ref_tardia)
     bool conectada = true;
     // Para la ventana nada más: `visible="no"` es una pieza que no interesa
     // ver en la ilustración. La simulación no lo mira
@@ -460,6 +463,13 @@ struct Instancia {
     }
     Instancia& ref(const char* clave, const std::string& id_instancia) {
         refs[clave] = id_instancia;
+        return *this;
+    }
+    // Una referencia que la pieza busca cuando ya está todo montado -la de un
+    // <ref> de un <sistema>, de una placa a otra-: no importa el orden
+    Instancia& ref_tardia(const char* clave, const std::string& id_instancia) {
+        refs[clave] = id_instancia;
+        tardias.insert(clave);
         return *this;
     }
     Instancia& desconectada() { conectada = false; return *this; }
@@ -1365,7 +1375,7 @@ public:
                 // El orden importa: `construye()` va en orden de declaracion, y
                 // referirse a algo que todavia no se ha construido es un error
                 // del netlist, no del modelo.
-                if (!antes(r.second, i.id))
+                if (!antes(r.second, i.id) && !i.tardias.count(r.first))
                     err.push_back(i.id + "." + r.first + ": " + r.second +
                                   " se declara despues, y hace falta antes");
             }
@@ -1653,6 +1663,7 @@ public:
                 if (!e.efecto.empty()) os << " efecto=\"" << xml_escapa(e.efecto) << "\"";
                 if (!e.observable.empty())
                     os << " observable=\"" << xml_escapa(e.observable) << "\"";
+                if (!e.vector.empty()) os << " vector=\"" << xml_escapa(e.vector) << "\"";
                 os << "/>\n";
             }
             os << sangria << "</ilustracion>\n";

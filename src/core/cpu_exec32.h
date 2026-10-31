@@ -638,7 +638,13 @@ inline void Cpu::exec_32_dp_reg(uint32_t hw1, uint32_t hw2) {
                 int32_t s0 = half(a, 0) - half(b, 1), s1 = half(a, 1) + half(b, 0);
                 unsigned g = 0;
                 const uint32_t l = pack16(s0, g, 0), h = pack16(s1, g, 1);
-                if (writes_ge) { ge = 0; if (s0 >= 0) ge |= 0x3u; if (s1 >= 0) ge |= 0xCu; }
+                // La mitad que suma, sin signo (UASX), pone GE con el acarreo,
+                // >= 0x10000, no con >= 0, que lo cumple siempre [ARMv7-M, A7.7.183]
+                if (writes_ge) {
+                    ge = 0;
+                    if (s0 >= 0) ge |= 0x3u;
+                    if (sgn ? (s1 >= 0) : (s1 >= 0x10000)) ge |= 0xCu;
+                }
                 r = (h << 16) | l;
                 break;
             }
@@ -646,7 +652,11 @@ inline void Cpu::exec_32_dp_reg(uint32_t hw1, uint32_t hw2) {
                 int32_t s0 = half(a, 0) + half(b, 1), s1 = half(a, 1) - half(b, 0);
                 unsigned g = 0;
                 const uint32_t l = pack16(s0, g, 0), h = pack16(s1, g, 1);
-                if (writes_ge) { ge = 0; if (s0 >= 0) ge |= 0x3u; if (s1 >= 0) ge |= 0xCu; }
+                if (writes_ge) {                       // USAX: lo mismo, al reves
+                    ge = 0;
+                    if (sgn ? (s0 >= 0) : (s0 >= 0x10000)) ge |= 0x3u;
+                    if (s1 >= 0) ge |= 0xCu;
+                }
                 r = (h << 16) | l;
                 break;
             }
@@ -655,7 +665,12 @@ inline void Cpu::exec_32_dp_reg(uint32_t hw1, uint32_t hw2) {
                 ge = 0;
                 for (unsigned i = 0; i < 4; ++i) {
                     int32_t s = sub ? (byte(a, i) - byte(b, i)) : (byte(a, i) + byte(b, i));
-                    if (writes_ge && s >= 0) ge |= (1u << i);
+                    // UADD8 pone GE[i] con el ACARREO del byte, >= 0x100: con
+                    // >= 0 lo pondria siempre, y el strlen de newlib para
+                    // ARMv7-M (uadd8 + sel) no veria nunca el cero del final
+                    // [ARMv7-M, A7.7.176]. Las restas y SADD8, con >= 0
+                    const bool g = (sub || sgn) ? (s >= 0) : (s >= 0x100);
+                    if (writes_ge && g) ge |= (1u << i);
                     if (sat) s = int32_t(sgn ? signed_sat_q(s, 8).result : unsigned_sat_q(s, 8).result);
                     else if (halv) s >>= 1;
                     r |= (uint32_t(s) & 0xFFu) << (8 * i);

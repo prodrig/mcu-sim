@@ -135,6 +135,7 @@ enum Tipo : uint16_t {
     T_ORDEN_HECHA = 0x0013,  // eco de una orden con el instante REAL en que se aplicó
     T_PONG        = 0x0014,
     T_IMAGEN      = 0x0015,  // lo que enseña una pantalla: una imagen entera (véase abajo)
+    T_IMAGEN_RECT = 0x0016,  // un trozo de una imagen: solo lo que cambió (véase abajo)
     T_FIN         = 0x001F,  // se acabó: motivo y código de salida
 
     // --- De la pantalla al modelo ------------------------------------------
@@ -204,6 +205,34 @@ struct CabImagen {
     uint32_t relleno;      // a cero
 };
 static_assert(sizeof(CabImagen) == 24, "CabImagen son 24 bytes");
+
+// T_IMAGEN_RECT (2026-10, sin subir la versión): UN TROZO de una imagen, el
+// rectángulo que ha cambiado desde la anterior que salió de ella -entera o a
+// trozos-. Cabecera y detrás `w` x `h` píxeles en `formato`, por filas, de
+// arriba abajo; `ancho` y `alto` son los de la imagen entera, para que quien
+// la recibe compruebe que es la que tiene. Un rectángulo vacío (w = h = 0)
+// cambia solo la luz.
+//
+// SOLO SI SE PIDE: la GUI pone `imagen_parcial=1` en T_VERSION, y sin eso no
+// llega nunca -una ventana que no lo conoce sigue recibiendo T_IMAGEN
+// enteras-. Aun pidiéndolo, la primera imagen tras una suscripción va entera,
+// y también la que cambia en más de media imagen: el trozo ya no ahorra nada.
+// Se manda en el orden en que se tomó, así que aplicar los trozos uno detrás
+// de otro sobre la última entera da siempre la imagen de ahora.
+//
+// Es lo que hace barata la pieza mecanizada de una fresadora (parts/pieza.h):
+// cada instantánea cambia unas pocas celdas de una imagen de cientos de kB.
+struct CabImagenRect {
+    uint64_t t_sim_ns;
+    uint16_t id;           // el id_obs de la imagen, el del catálogo
+    uint16_t formato;      // FormatoImagen
+    uint16_t ancho, alto;  // los de la imagen ENTERA
+    uint16_t x, y;         // la esquina de arriba a la izquierda del trozo
+    uint16_t w, h;         // y su tamaño; 0 x 0, solo la luz
+    float    brillo;       // 0..1, la de la imagen entera
+    uint32_t relleno;      // a cero
+};
+static_assert(sizeof(CabImagenRect) == 32, "CabImagenRect son 32 bytes");
 
 // Lo que la pantalla manda: tocar un mando de una pieza.
 //

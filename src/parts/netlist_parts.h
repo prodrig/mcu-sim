@@ -37,6 +37,14 @@
 #include "servo.h"
 #include "motor_cc.h"
 #include "puente_h.h"
+#include "motor_pap.h"
+#include "driver_pap.h"
+#include "potencia.h"
+#include "motor_bldc.h"
+#include "controlador_motor.h"
+#include "transmision.h"
+#include "maquina.h"
+#include "pieza.h"
 #include "mems_st.h"
 #include "xds110.h"
 
@@ -1041,6 +1049,8 @@ REGISTRA_PARTE(MotorCC,
       .atr("ppr", "0", "Las ventanas del disco del encoder, los pulsos por vuelta del "
            "eje de salida en cada canal. 0: sin encoder, y sin sus patillas.")
       .atr("enc_i_ma", "20", "Lo que gasta el sensor del encoder a 3,3 V, en mA.")
+      .atr("eje_mm", "0", "El diametro de su eje, para ver si encaja con el acople de una "
+           "<transmision>; 0, no se comprueba.")
       .atr("posicion_inicial", "0", "El angulo del eje al arrancar, en grados.")
       .nota("Deja ver `angulo` (grados, de 0 a 360, el que sugiere pintar: la "
             "ventana gira el elemento de la pieza con el, el efecto `angulo`), "
@@ -1068,10 +1078,10 @@ REGISTRA_PARTE(MotorCC,
         double ppr = 0;
         const char* claves[] = {"v_nominal", "rpm_vacio", "i_vacio_ma", "i_bloqueo_ma",
                                 "i_arranque_ma", "tau_ms", "l_mh", "reduccion", "v_max", "ppr",
-                                "enc_i_ma", "posicion_inicial"};
+                                "enc_i_ma", "posicion_inicial", "eje_mm"};
         double* destinos[] = {&c.v_nominal, &c.rpm_vacio, &c.i_vacio_ma, &c.i_bloqueo_ma,
                               &c.i_arranque_ma, &c.tau_ms, &c.l_mh, &c.reduccion, &c.v_max,
-                              &ppr, &c.enc_i_ma, &c.posicion_inicial};
+                              &ppr, &c.enc_i_ma, &c.posicion_inicial, &c.eje_mm};
         for (unsigned k = 0; k < sizeof claves / sizeof *claves; ++k) {
             const std::string t = d.txt(claves[k]);
             if (!t.empty() && !numero(t, *destinos[k]))
@@ -1106,6 +1116,1160 @@ REGISTRA_PARTE(MotorCC,
         return new MotorCC(d.id.c_str(), n[d.nodo_de("a")], n[d.nodo_de("b")], c,
                            &n[d.nodo_de("enc_vcc")], &n[d.nodo_de("enc_gnd")],
                            &n[d.nodo_de("enc_a")], &n[d.nodo_de("enc_b")]);
+    });
+
+// Un diametro en mm, sin ceros de sobra: 6.35, 5, 8
+inline std::string num_mm(double d) {
+    char b[32];
+    std::snprintf(b, sizeof b, "%.2f", d);
+    std::string t = b;
+    while (!t.empty() && t.back() == '0') t.pop_back();
+    if (!t.empty() && t.back() == '.') t.pop_back();
+    return t;
+}
+
+REGISTRA_PARTE(Volante,
+    Ayuda("UN VOLANTE: una inercia en un eje, con su rozamiento seco y viscoso, y "
+          "nada mas. Va en una <transmision> detras de un motor (parts/cadena.h): la "
+          "cadena suma su inercia a la del motor y la integra con el, y el motor "
+          "tarda mas en arrancar y en pararse. Con uno de inercia conocida, la "
+          "constante de tiempo del motor es la que sale de la cuenta, "
+          "tau = (J_motor + J_volante)·R / (Ke·Kt). Suelto, sin transmision, no se "
+          "mueve.")
+      .ejemplo("<componente tipo=\"Volante\" id=\"V\" diametro_mm=\"60\" espesor_mm=\"10\"/>\n"
+               "<transmision id=\"EJE\" cadena=\"MOTOR V\"/>")
+      .sin_terminales("No va a ningun nodo: es una pieza mecanica, y lo que la une al "
+                      "motor es la <transmision> que los nombra a los dos.")
+      .atr("inercia_gcm2", "", "Su inercia en g·cm² (1 g·cm² = 1e-7 kg·m²). O esta, o "
+           "diametro_mm y espesor_mm.")
+      .atr("diametro_mm", "", "El diametro de un disco macizo de acero (7850 kg/m³): la "
+           "inercia sale de J = m·r²/2.")
+      .atr("espesor_mm", "", "Y su espesor.")
+      .atr("rozamiento_ncm", "0", "Su rozamiento seco, en N·cm: el de sus rodamientos.")
+      .atr("viscoso_mnms", "0", "Su rozamiento viscoso, en mN·m por rad/s.")
+      .nota("Deja ver `angulo` (grados, de 0 a 360, el que sugiere pintar: la ventana "
+            "gira el elemento con el) y `rpm`.")
+      .cpp("angulo(), rpm(), vueltas(), inercia() (kg·m²)."),
+    [](const Instancia& d, NodeMap&, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Volante '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        if (!d.pines.empty()) return mal("no lleva patillas: lo une al motor una <transmision>");
+        const bool por_j = !d.txt("inercia_gcm2").empty();
+        const bool por_disco = !d.txt("diametro_mm").empty() || !d.txt("espesor_mm").empty();
+        if (por_j == por_disco)
+            return mal("su inercia es inercia_gcm2, o diametro_mm y espesor_mm; una de las dos");
+        double j = 0.0;
+        if (por_j) {
+            j = d.num("inercia_gcm2", 0.0) * 1e-7;
+        } else {
+            const double dm = d.num("diametro_mm", 0.0) * 1e-3, e = d.num("espesor_mm", 0.0) * 1e-3;
+            if (dm <= 0 || e <= 0) return mal("diametro_mm y espesor_mm tienen que ser positivos");
+            const double r = dm / 2.0, m = 7850.0 * 3.14159265358979323846 * r * r * e;
+            j = m * r * r / 2.0;
+        }
+        const double f = d.num("rozamiento_ncm", 0.0) * 1e-2, b = d.num("viscoso_mnms", 0.0) * 1e-3;
+        if (j <= 0 || f < 0 || b < 0)
+            return mal("la inercia tiene que ser positiva, y los rozamientos no negativos");
+        return new Volante(d.id.c_str(), j, f, b);
+    });
+
+REGISTRA_PARTE(Reductora,
+    Ayuda("UNA REDUCTORA en una cadena (parts/transmision.h): una relacion -vueltas de "
+          "su entrada por cada una de su salida-, un rendimiento directo y otro inverso "
+          "-cero o menos en un sinfin que se sujeta solo: la carga no puede mover el "
+          "motor-, una holgura en minutos de arco, la inercia de su entrada y un par "
+          "maximo en su salida, que se avisa si se pasa. Va en una <transmision>.")
+      .ejemplo("<componente tipo=\"Reductora\" id=\"R\" relacion=\"5\" rendimiento=\"0.9\"\n"
+               "            holgura_arcmin=\"15\" inercia_gcm2=\"8\" par_max_nm=\"6\"/>")
+      .sin_terminales("Es una pieza mecanica: la une su <transmision>.")
+      .atr("relacion", "3", "Vueltas de la entrada por cada una de la salida.")
+      .atr("rendimiento", "0.9", "El directo, de 0 a 1.")
+      .atr("rendimiento_inverso", "el directo", "El de cuando la carga mueve al motor; cero "
+           "o menos, se sujeta sola (un sinfin).")
+      .atr("holgura_arcmin", "0", "En minutos de arco, en la salida: una zona muerta.")
+      .atr("inercia_gcm2", "0", "La de su entrada.")
+      .atr("par_max_nm", "0", "El par de su salida que aguanta; 0, sin limite.")
+      .atr("entrada_mm, salida_mm", "0", "Los diametros de sus ejes, para ver si encajan.")
+      .nota("Deja ver `angulo` y `rpm` de su salida.")
+      .cpp("rpm_salida(), par_salida(), config()."),
+    [](const Instancia& d, NodeMap&, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Reductora '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        if (!d.pines.empty()) return mal("no lleva patillas: la une su <transmision>");
+        ConfigReductora c;
+        c.relacion = d.num("relacion", c.relacion);
+        c.rendimiento = d.num("rendimiento", c.rendimiento);
+        c.rendimiento_inverso = d.txt("rendimiento_inverso").empty() ? -1.0
+                              : d.num("rendimiento_inverso", 0.0);
+        c.holgura_arcmin = d.num("holgura_arcmin", 0.0);
+        c.inercia_gcm2 = d.num("inercia_gcm2", 0.0);
+        c.par_max_nm = d.num("par_max_nm", 0.0);
+        c.entrada_mm = d.num("entrada_mm", 0.0);
+        c.salida_mm = d.num("salida_mm", 0.0);
+        if (c.relacion <= 0) return mal("relacion es positiva");
+        if (c.rendimiento <= 0 || c.rendimiento > 1) return mal("rendimiento va de 0 a 1");
+        if (c.rendimiento_inverso > 1 || (c.rendimiento_inverso < -0.5 && !d.txt("rendimiento_inverso").empty()))
+            return mal("rendimiento_inverso va de -0,5 a 1: cero o menos, se sujeta sola");
+        if (c.holgura_arcmin < 0 || c.inercia_gcm2 < 0 || c.par_max_nm < 0)
+            return mal("holgura_arcmin, inercia_gcm2 y par_max_nm no pueden ser negativos");
+        return new Reductora(d.id.c_str(), c);
+    });
+
+REGISTRA_PARTE(Acople,
+    Ayuda("UN ACOPLE entre el eje del motor y el del husillo (parts/transmision.h): una "
+          "inercia y, si acaso, una holgura -la estrella de uno de mordaza-. Sus dos "
+          "diametros tienen que encajar con el eje de delante y el de detras: la "
+          "<transmision> lo comprueba, y un acople de 5 mm en un eje de 6,35 no se "
+          "monta.")
+      .ejemplo("<componente tipo=\"Acople\" id=\"A\" tipo_acople=\"espiral\" d1_mm=\"5\" d2_mm=\"8\"/>")
+      .sin_terminales("Es una pieza mecanica: la une su <transmision>.")
+      .atr("tipo_acople", "espiral", "espiral, mordaza o fuelle: para el dibujo y los mensajes.")
+      .atr("d1_mm, d2_mm", "0", "El agujero del lado del motor y el del husillo; 0, no se "
+           "comprueba.")
+      .atr("inercia_gcm2", "2", "La suya.")
+      .atr("holgura_arcmin", "0", "En minutos de arco.")
+      .nota("Deja ver `angulo`.")
+      .cpp("config()."),
+    [](const Instancia& d, NodeMap&, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Acople '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        if (!d.pines.empty()) return mal("no lleva patillas: lo une su <transmision>");
+        ConfigAcople c;
+        c.tipo = d.txt("tipo_acople", "espiral");
+        c.d1_mm = d.num("d1_mm", 0.0);
+        c.d2_mm = d.num("d2_mm", 0.0);
+        c.inercia_gcm2 = d.num("inercia_gcm2", c.inercia_gcm2);
+        c.holgura_arcmin = d.num("holgura_arcmin", 0.0);
+        if (c.tipo != "espiral" && c.tipo != "mordaza" && c.tipo != "fuelle")
+            return mal("tipo_acople es espiral, mordaza o fuelle");
+        if (c.d1_mm < 0 || c.d2_mm < 0 || c.inercia_gcm2 < 0 || c.holgura_arcmin < 0)
+            return mal("los diametros, la inercia y la holgura no pueden ser negativos");
+        return new Acople(d.id.c_str(), c);
+    });
+
+REGISTRA_PARTE(Husillo,
+    Ayuda("UN HUSILLO CON SU TUERCA (parts/transmision.h): trapezoidal (Tr), ACME o de "
+          "bolas. Pasa el giro a avance: su relacion es 2·pi/avance. EL RENDIMIENTO NO SE "
+          "DA, SE CALCULA: del angulo de la helice, atan(avance/(pi·d_medio)), y del "
+          "rozamiento de la tuerca, mu. Con el, el inverso y el AUTOBLOQUEO: un Tr8x2 "
+          "sujeta solo un eje Z; uno de bolas, no. Su inercia, la de un cilindro de acero. "
+          "La holgura de su tuerca. Avisa de pasar de su velocidad critica y, si es de "
+          "bolas, de su DN.")
+      .ejemplo("<componente tipo=\"Husillo\" id=\"H\" rosca=\"Tr\" diametro_mm=\"8\" avance_mm=\"2\"\n"
+               "            paso_mm=\"2\" mu=\"0.15\" longitud_mm=\"350\" holgura_mm=\"0.02\"/>")
+      .sin_terminales("Es una pieza mecanica: la une su <transmision>.")
+      .atr("rosca", "Tr", "Tr (30°), ACME (29°) o bolas.")
+      .atr("diametro_mm", "8", "El nominal.")
+      .atr("avance_mm", "8", "Lo que avanza la tuerca por vuelta.")
+      .atr("paso_mm", "2", "El de la rosca: avance/entradas. Un Tr8x8 tiene cuatro entradas "
+           "de 2 mm.")
+      .atr("mu", "0.15", "El rozamiento de la tuerca: 0,15 laton o bronce en acero, 0,1 POM, "
+           "0,005 bolas.")
+      .atr("longitud_mm", "350", "Su largo: su inercia y su velocidad critica.")
+      .atr("apoyos", "fijo-apoyado", "fijo-libre, apoyado-apoyado, fijo-apoyado o fijo-fijo: la "
+           "velocidad critica.")
+      .atr("holgura_mm", "0", "La de su tuerca: unas centesimas simple, casi nada doble o "
+           "antiholgura.")
+      .atr("extremo_mm", "el nominal", "El del extremo que va al acople (un 1605 mecanizado, 10).")
+      .nota("Deja ver `angulo` y `rpm`. Al montar dice su angulo de helice, sus dos "
+            "rendimientos y si se sujeta solo.")
+      .cpp("lambda_grados(), rendimiento_directo(), rendimiento_inv(), se_sujeta(), "
+           "velocidad_critica(), fuerza_de(par), rpm()."),
+    [](const Instancia& d, NodeMap&, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Husillo '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        if (!d.pines.empty()) return mal("no lleva patillas: lo une su <transmision>");
+        ConfigHusillo c;
+        c.rosca = d.txt("rosca", "Tr");
+        c.diametro_mm = d.num("diametro_mm", c.diametro_mm);
+        c.avance_mm = d.num("avance_mm", c.avance_mm);
+        c.paso_mm = d.num("paso_mm", c.rosca == "bolas" ? c.avance_mm : 2.0);
+        c.mu = d.num("mu", c.rosca == "bolas" ? 0.005 : 0.15);
+        c.longitud_mm = d.num("longitud_mm", c.longitud_mm);
+        c.apoyos = d.txt("apoyos", "fijo-apoyado");
+        c.holgura_mm = d.num("holgura_mm", 0.0);
+        c.extremo_mm = d.num("extremo_mm", 0.0);
+        if (c.rosca != "Tr" && c.rosca != "ACME" && c.rosca != "bolas")
+            return mal("rosca es Tr, ACME o bolas");
+        if (c.diametro_mm <= 0 || c.avance_mm <= 0 || c.paso_mm <= 0 || c.longitud_mm <= 0)
+            return mal("diametro_mm, avance_mm, paso_mm y longitud_mm son positivos");
+        if (c.paso_mm >= c.diametro_mm) return mal("paso_mm tiene que ser menor que el diametro");
+        if (c.mu < 0 || c.mu > 1) return mal("mu va de 0 a 1");
+        if (c.apoyos != "fijo-libre" && c.apoyos != "apoyado-apoyado" &&
+            c.apoyos != "fijo-apoyado" && c.apoyos != "fijo-fijo")
+            return mal("apoyos es fijo-libre, apoyado-apoyado, fijo-apoyado o fijo-fijo");
+        if (c.holgura_mm < 0 || c.extremo_mm < 0) return mal("holgura_mm y extremo_mm no pueden ser negativos");
+        return new Husillo(d.id.c_str(), c);
+    });
+
+REGISTRA_PARTE(Carro,
+    Ayuda("UN CARRO, con sus guias y lo que lleva encima (parts/transmision.h): una masa, "
+          "un rozamiento seco y otro viscoso, un recorrido con TOPES DUROS -llegar a uno "
+          "para la cadena en seco: un paso a paso pierde pasos, uno de continua pide la "
+          "corriente de bloqueo- y, si es vertical, SU PESO, que empuja hacia abajo. Va "
+          "detras de un husillo: su entrada es lineal. Su posicion, en mm, es lo que mueve "
+          "el dibujo.")
+      .ejemplo("<componente tipo=\"Carro\" id=\"CZ\" eje=\"z\" masa_kg=\"1.2\" rozamiento_n=\"4\"\n"
+               "            recorrido_mm=\"72\" posicion_mm=\"60\" vertical=\"si\"/>")
+      .sin_terminales("Es una pieza mecanica: la une su <transmision>.")
+      .atr("masa_kg", "1", "La del carro y lo que lleva: el X lleva el Z, el Z el cabezal.")
+      .atr("rozamiento_n", "5", "El seco de sus guias, en N.")
+      .atr("viscoso_ns_m", "0", "El viscoso, en N·s/m.")
+      .atr("recorrido_mm", "300", "De tope a tope.")
+      .atr("posicion_mm", "0", "Donde empieza, desde el tope de abajo.")
+      .atr("vertical", "no", "si: con su peso, hacia las posiciones bajas.")
+      .atr("eje", "x", "x, y o z: para los mensajes.")
+      .nota("Deja ver `posicion` (mm), `velocidad` (mm/s) y la alarma `en_tope`. Su mando es "
+            "`fuerza`, en N: la de fuera, la del corte (positiva, hacia arriba del "
+            "recorrido). Avisa de cada choque contra un tope.")
+      .cpp("posicion_mm(), velocidad_mm_s(), en_tope(), choques(), pon_fuerza(N)."),
+    [](const Instancia& d, NodeMap&, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Carro '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        if (!d.pines.empty()) return mal("no lleva patillas: lo une su <transmision>");
+        ConfigCarro c;
+        c.masa_kg = d.num("masa_kg", c.masa_kg);
+        c.rozamiento_n = d.num("rozamiento_n", c.rozamiento_n);
+        c.viscoso_ns_m = d.num("viscoso_ns_m", 0.0);
+        c.recorrido_mm = d.num("recorrido_mm", c.recorrido_mm);
+        c.posicion_mm = d.num("posicion_mm", 0.0);
+        c.vertical = d.si("vertical", false);
+        c.eje = d.txt("eje", "x");
+        if (c.masa_kg <= 0 || c.recorrido_mm <= 0) return mal("masa_kg y recorrido_mm son positivos");
+        if (c.rozamiento_n < 0 || c.viscoso_ns_m < 0) return mal("los rozamientos no pueden ser negativos");
+        if (c.posicion_mm < 0 || c.posicion_mm > c.recorrido_mm)
+            return mal("posicion_mm va de 0 a recorrido_mm");
+        return new Carro(d.id.c_str(), c);
+    });
+
+REGISTRA_PARTE(Freno,
+    Ayuda("UN FRENO DE MUELLE (parts/transmision.h), como los BWA y BCD de Nanotec: "
+          "frena SIN corriente y se suelta con la suya. Una bobina de V²/P ohmios entre a "
+          "y b, que se suelta con el 70 % de su tension y se echa por debajo del 25 %, "
+          "cada cosa con su retardo; echado, su par de retencion entra en la cadena como "
+          "rozamiento. Va en una <transmision>, normalmente pegado al motor.")
+      .ejemplo("<componente tipo=\"Freno\" id=\"F\" v_nominal=\"24\" potencia_w=\"8\" par_ncm=\"50\">\n"
+               "  <pin nombre=\"a\" nodo=\"BRK+\"/> <pin nombre=\"b\" nodo=\"BRK-\"/>\n"
+               "</componente>")
+      .pin("a, b", "obligatorios", "Los dos hilos de su bobina.")
+      .atr("v_nominal", "24", "La tension de su bobina.")
+      .atr("potencia_w", "8", "Lo que gasta suelto: la bobina es de V²/P.")
+      .atr("par_ncm", "50", "El de retencion, en N·cm.")
+      .atr("suelta_ms, echa_ms", "30, 20", "Lo que tarda en soltarse y en echarse "
+           "(estimados: las fichas no los dan).")
+      .atr("eje_mm", "0", "El diametro de su eje, para ver si encaja.")
+      .nota("Deja ver `suelto`, `corriente` (mA) y la alarma `patina`: echado y girando.")
+      .cpp("suelto(), corriente_ma(), r_bobina()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Freno '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        if (d.nodo_de("a").empty() || d.nodo_de("b").empty())
+            return mal("lleva su bobina: <pin nombre=\"a\"> y <pin nombre=\"b\">");
+        ConfigFreno c;
+        c.v_nominal = d.num("v_nominal", c.v_nominal);
+        c.potencia_w = d.num("potencia_w", c.potencia_w);
+        c.par_ncm = d.num("par_ncm", c.par_ncm);
+        c.suelta_ms = d.num("suelta_ms", c.suelta_ms);
+        c.echa_ms = d.num("echa_ms", c.echa_ms);
+        c.eje_mm = d.num("eje_mm", 0.0);
+        if (c.v_nominal <= 0 || c.potencia_w <= 0 || c.par_ncm <= 0)
+            return mal("v_nominal, potencia_w y par_ncm son positivos");
+        if (c.suelta_ms < 0 || c.echa_ms < 0) return mal("los retardos no pueden ser negativos");
+        return new Freno(d.id.c_str(), n[d.nodo_de("a")], n[d.nodo_de("b")], c);
+    });
+
+// ---------------------------------------------------------------------------
+// LO QUE RODEA A LOS EJES DE UNA FRESADORA (F3, parts/maquina.h)
+// ---------------------------------------------------------------------------
+namespace detalle_maquina {
+inline Carro* carro(const Instancia& d, Netlist& red, const char* nombre = "carro") {
+    const std::string r = d.ref_de(nombre);
+    if (r.empty()) {
+        SC_REPORT_ERROR("netlist", (d.id + ": le falta <ref nombre=\"" + std::string(nombre) +
+                                    "\" componente=\"...\"/>, el Carro que lo acciona").c_str());
+        return nullptr;
+    }
+    Carro* c = red.como<Carro>(r);
+    if (!c)
+        SC_REPORT_ERROR("netlist", (d.id + ": el Carro '" + r + "' no existe o todavia no se ha "
+                                    "construido: va antes").c_str());
+    return c;
+}
+} // namespace detalle_maquina
+
+REGISTRA_PARTE(FinalCarrera,
+    Ayuda("UN FINAL DE CARRERA: un microinterruptor que pisa un Carro al pasar por una "
+          "posicion, con sus contactos COM, NO y NC. El homing ($H) y los limites duros "
+          "de una fresadora. Con lado=min se pisa con el carro por debajo de posicion_mm; "
+          "con lado=max, por encima; y para soltarlo hay que volver histeresis_mm. Lo "
+          "habitual: COM a masa y NO al pin, con su pull-up: pisado, se lee bajo.")
+      .ejemplo("<componente tipo=\"FinalCarrera\" id=\"FX\" posicion_mm=\"1\" lado=\"min\">\n"
+               "  <ref nombre=\"carro\" componente=\"CX\"/>\n"
+               "  <pin nombre=\"com\" nodo=\"GND\"/> <pin nombre=\"no\" nodo=\"LIM_X\"/>\n"
+               "</componente>")
+      .pin("com", "obligatorio", "El comun.")
+      .pin("no, nc", "uno o los dos", "El normalmente abierto y el normalmente cerrado.")
+      .ref("carro", "El Carro que lo pisa, declarado antes.")
+      .atr("posicion_mm", "1", "Donde se pisa, en la posicion del carro.")
+      .atr("lado", "min", "min: pisado por debajo; max: por encima.")
+      .atr("histeresis_mm", "0.02", "Lo que hay que volver para soltarlo.")
+      .nota("Deja ver la alarma `pisado`.")
+      .cpp("pisado(), veces(), carro()."),
+    [](const Instancia& d, NodeMap& n, Netlist& red) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("FinalCarrera '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        Carro* c = detalle_maquina::carro(d, red);
+        if (!c) return nullptr;
+        if (d.nodo_de("com").empty()) return mal("le falta <pin nombre=\"com\">");
+        if (d.nodo_de("no").empty() && d.nodo_de("nc").empty())
+            return mal("lleva <pin nombre=\"no\">, <pin nombre=\"nc\"> o los dos");
+        ConfigFinalCarrera k;
+        k.posicion_mm = d.num("posicion_mm", k.posicion_mm);
+        const std::string lado = d.txt("lado", "min");
+        if (lado != "min" && lado != "max") return mal("lado es min o max");
+        k.lado_max = lado == "max";
+        k.histeresis_mm = d.num("histeresis_mm", k.histeresis_mm);
+        if (k.histeresis_mm < 0) return mal("histeresis_mm no puede ser negativa");
+        auto nd = [&](const char* t) -> analog_net_if* {
+            return d.nodo_de(t).empty() ? nullptr : &n[d.nodo_de(t)];
+        };
+        return new FinalCarrera(d.id.c_str(), *c, k, n[d.nodo_de("com")], nd("no"), nd("nc"));
+    });
+
+REGISTRA_PARTE(Sonda,
+    Ayuda("LA SONDA DE HERRAMIENTA: una placa de contacto sobre la pieza, para el cero de "
+          "Z (G38.2). La fresa la toca cuando el Carro Z baja hasta altura_mm, y entonces "
+          "cierra el circuito entre sus dos pinzas: la de la placa -al pin de la sonda, con "
+          "su pull-up- y la de la fresa -a masa-. El mando `puesta` la pone o la quita.")
+      .ejemplo("<componente tipo=\"Sonda\" id=\"PRB\" altura_mm=\"20\">\n"
+               "  <ref nombre=\"carro\" componente=\"CZ\"/>\n"
+               "  <pin nombre=\"placa\" nodo=\"PROBE\"/> <pin nombre=\"fresa\" nodo=\"GND\"/>\n"
+               "</componente>")
+      .pin("placa, fresa", "obligatorios", "Las dos pinzas.")
+      .ref("carro", "El Carro Z, declarado antes.")
+      .atr("altura_mm", "20", "La posicion del carro Z con la fresa tocando la placa.")
+      .atr("puesta", "si", "si: la placa esta en la mesa al arrancar.")
+      .nota("Deja ver `toca`; su mando es `puesta`.")
+      .cpp("toca(), altura_mm(), puesta(), pon(si)."),
+    [](const Instancia& d, NodeMap& n, Netlist& red) -> ExtPartBase* {
+        Carro* c = detalle_maquina::carro(d, red);
+        if (!c) return nullptr;
+        if (d.nodo_de("placa").empty() || d.nodo_de("fresa").empty()) {
+            SC_REPORT_ERROR("netlist", ("Sonda '" + d.id + "': lleva sus dos pinzas, placa y "
+                                        "fresa").c_str());
+            return nullptr;
+        }
+        return new Sonda(d.id.c_str(), *c, d.num("altura_mm", 20.0), n[d.nodo_de("placa")],
+                         n[d.nodo_de("fresa")], d.si("puesta", true));
+    });
+
+REGISTRA_PARTE(Interruptor,
+    Ayuda("UN INTERRUPTOR A MANO con uno o dos contactos, cada uno normalmente cerrado o "
+          "abierto (contactos=), con enclavamiento o sin el. Una SETA DE EMERGENCIA es uno "
+          "enclavado de dos contactos: el NC corta la potencia de los drivers -no basta "
+          "con avisar al MCU-, y el NO le avisa. Su mando es `pulsar`: un boton, o una "
+          "casilla si se enclava.")
+      .ejemplo("<componente tipo=\"Interruptor\" id=\"SETA\" contactos=\"NC NO\" enclavado=\"si\">\n"
+               "  <pin nombre=\"a1\" nodo=\"V24\"/> <pin nombre=\"b1\" nodo=\"VMOT\"/>\n"
+               "  <pin nombre=\"a2\" nodo=\"ABORT\"/> <pin nombre=\"b2\" nodo=\"GND\"/>\n"
+               "</componente>")
+      .pin("a1, b1", "obligatorios", "El primer contacto.")
+      .pin("a2, b2", "opcionales", "El segundo.")
+      .atr("contactos", "NC", "NC o NO por contacto: \"NC NO\".")
+      .atr("enclavado", "no", "si: se queda pulsado hasta que se suelta (una seta).")
+      .atr("pulsado", "no", "si: empieza pulsado.")
+      .nota("Deja ver la alarma `pulsado`.")
+      .cpp("pulsado(), pulsa(si)."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Interruptor '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        if (d.nodo_de("a1").empty() || d.nodo_de("b1").empty())
+            return mal("lleva su primer contacto, a1 y b1");
+        const bool dos = !d.nodo_de("a2").empty() || !d.nodo_de("b2").empty();
+        if (dos && (d.nodo_de("a2").empty() || d.nodo_de("b2").empty()))
+            return mal("el segundo contacto lleva a2 y b2");
+        const std::string t = d.txt("contactos", dos ? "NC NC" : "NC");
+        bool nc[2] = {true, true};
+        size_t k = 0, i = 0;
+        while (i < t.size()) {
+            while (i < t.size() && t[i] == ' ') ++i;
+            size_t j = i;
+            while (j < t.size() && t[j] != ' ') ++j;
+            if (j > i) {
+                const std::string w = t.substr(i, j - i);
+                if (k >= 2 || (w != "NC" && w != "NO")) return mal("contactos es NC o NO por contacto");
+                nc[k++] = w == "NC";
+            }
+            i = j;
+        }
+        if (k != (dos ? 2u : 1u)) return mal("contactos= dice uno por contacto");
+        auto nd = [&](const char* p) -> analog_net_if* {
+            return d.nodo_de(p).empty() ? nullptr : &n[d.nodo_de(p)];
+        };
+        Interruptor* s = new Interruptor(d.id.c_str(), n[d.nodo_de("a1")], n[d.nodo_de("b1")],
+                                         nd("a2"), nd("b2"), nc[0], nc[1], d.si("enclavado", false));
+        if (d.si("pulsado", false)) s->pulsa(true);
+        return s;
+    });
+
+REGISTRA_PARTE(Cotas,
+    Ayuda("LAS COTAS de una fresadora: la posicion de sus tres Carro, X, Y y Z, en mm, como "
+          "el display de un control numerico. Es lo que pide el efecto display del dibujo, y "
+          "el desplaza de un elemento que se mueve con dos ejes a la vez -la herramienta en "
+          "el alzado, con X y Z-.")
+      .ejemplo("<componente tipo=\"Cotas\" id=\"MAQ\">\n"
+               "  <ref nombre=\"x\" componente=\"CX\"/> <ref nombre=\"y\" componente=\"CY\"/>\n"
+               "  <ref nombre=\"z\" componente=\"CZ\"/>\n"
+               "</componente>")
+      .sin_terminales("No va a ningun nodo: lee la posicion de los carros.")
+      .ref("x, y, z", "Los tres Carro, declarados antes. Alguno puede faltar.")
+      .nota("Deja ver `x`, `y` y `z`, en mm.")
+      .cpp("cota(k)."),
+    [](const Instancia& d, NodeMap&, Netlist& red) -> ExtPartBase* {
+        const Carro* c[3] = {nullptr, nullptr, nullptr};
+        const char* nm[3] = {"x", "y", "z"};
+        for (int k = 0; k < 3; ++k) {
+            const std::string r = d.ref_de(nm[k]);
+            if (r.empty()) continue;
+            c[k] = red.como<Carro>(r);
+            if (!c[k]) {
+                SC_REPORT_ERROR("netlist", ("Cotas '" + d.id + "': el Carro '" + r +
+                                            "' no existe o todavia no se ha construido").c_str());
+                return nullptr;
+            }
+        }
+        if (!c[0] && !c[1] && !c[2]) {
+            SC_REPORT_ERROR("netlist", ("Cotas '" + d.id + "': no lleva ningun carro: "
+                                        "<ref nombre=\"x\" componente=\"...\"/>").c_str());
+            return nullptr;
+        }
+        return new Cotas(d.id.c_str(), c[0], c[1], c[2]);
+    });
+
+REGISTRA_PARTE(Pieza,
+    Ayuda("LA PIEZA QUE SE MECANIZA: un bloque sujeto a la mesa, con un mapa de alturas que "
+          "la fresa va comiendo. La fresa esta donde la ponen los tres Carro: su punta, en "
+          "(X - x_mm, Y - y_mm) de la pieza y a Z - mesa_mm por encima de la mesa. Es plana, "
+          "en V o de bola, y al moverse barre su perfil y deja en cada celda lo mas bajo. "
+          "Ensena la pieza desde arriba -mas oscura cuanto mas honda- en su imagen, que sale "
+          "a trozos. Con fuerzas=si, el corte (Kienzle, con el k_c1.1 del material) frena "
+          "el cabezal y resiste el avance de los carros.")
+      .ejemplo("<componente tipo=\"Pieza\" id=\"PZA\" material=\"mdf\"\n"
+               "     largo_mm=\"100\" ancho_mm=\"60\" espesor_mm=\"12\"\n"
+               "     x_mm=\"100\" y_mm=\"70\" mesa_mm=\"3\" fresa=\"plana\">\n"
+               "  <ref nombre=\"x\" componente=\"CX\"/> <ref nombre=\"y\" componente=\"CY\"/>\n"
+               "  <ref nombre=\"z\" componente=\"CZ\"/>\n"
+               "</componente>")
+      .sin_terminales("No va a ningun nodo: la mueven los carros.")
+      .ref("x, y, z", "Los tres Carro, declarados antes.")
+      .ref("cabezal", "(opcional) El MotorCC que hace girar la fresa: el corte lo frena. En un "
+                      "<sistema>, de otra placa: <ref pieza=\"M/PZA\" nombre=\"cabezal\" "
+                      "componente=\"C/MOTOR\"/>.")
+      .atr("material", "mdf", "mdf, madera, metacrilato o aluminio: su color y su k_c1.1.")
+      .atr("largo_mm, ancho_mm", "100, 60", "En X y en Y.")
+      .atr("espesor_mm", "12", "En Z.")
+      .atr("x_mm, y_mm", "100, 70", "Los carros X e Y con la fresa en la esquina (0, 0).")
+      .atr("mesa_mm", "3", "El carro Z con la punta de la fresa tocando la mesa.")
+      .atr("celda_mm", "0.25", "El lado de una celda del mapa: un pixel de la imagen.")
+      .atr("fresa", "plana", "plana, v o bola.")
+      .atr("fresa_mm", "3.175", "Su diametro.")
+      .atr("angulo_v", "60", "El de la punta de una fresa en V, en grados.")
+      .atr("filos", "2", "Para el espesor de viruta.")
+      .atr("rpm", "10000", "La fresa, si no hay ref cabezal.")
+      .atr("fuerzas", "si", "si: el corte frena el cabezal y resiste el avance.")
+      .atr("mapa", "", "Un fichero: al acabar, las alturas en CSV, una fila por celda en Y.")
+      .nota("Deja ver quitado (mm3), hondo (mm), q (mm3/s), par (N cm), fuerza (N), mesa "
+            "-el carro Y, para mover la imagen con la mesa- y la alarma choque -la fresa en "
+            "la mesa-; su imagen, pieza; su mando, nueva.")
+      .cpp("altura(i, j), nx(), ny(), quitado_mm3(), hondo_mm(), guarda_mapa(ruta)."),
+    [](const Instancia& d, NodeMap&, Netlist& red) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Pieza '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        Carro* c[3];
+        const char* nm[3] = {"x", "y", "z"};
+        for (int k = 0; k < 3; ++k) {
+            c[k] = detalle_maquina::carro(d, red, nm[k]);
+            if (!c[k]) return nullptr;
+        }
+        ConfigPieza k;
+        k.material = material_pieza(d.txt("material", "mdf"));
+        if (!k.material) return mal("material=\"" + d.txt("material") + "\": los que hay son "
+                                    "mdf, madera, metacrilato y aluminio");
+        k.largo_mm = d.num("largo_mm", k.largo_mm);
+        k.ancho_mm = d.num("ancho_mm", k.ancho_mm);
+        k.espesor_mm = d.num("espesor_mm", k.espesor_mm);
+        k.x_mm = d.num("x_mm", k.x_mm);
+        k.y_mm = d.num("y_mm", k.y_mm);
+        k.mesa_mm = d.num("mesa_mm", k.mesa_mm);
+        k.celda_mm = d.num("celda_mm", k.celda_mm);
+        k.fresa_mm = d.num("fresa_mm", k.fresa_mm);
+        k.angulo_v = d.num("angulo_v", k.angulo_v);
+        k.filos = unsigned(std::max(1.0, d.num("filos", 2)));
+        k.rpm = d.num("rpm", k.rpm);
+        k.fuerzas = d.si("fuerzas", true);
+        k.mapa = d.txt("mapa", "");
+        k.cabezal = d.ref_de("cabezal");
+        const std::string f = d.txt("fresa", "plana");
+        if (f == "plana") k.fresa = TipoFresa::Plana;
+        else if (f == "v") k.fresa = TipoFresa::V;
+        else if (f == "bola") k.fresa = TipoFresa::Bola;
+        else return mal("fresa=\"" + f + "\": plana, v o bola");
+        if (k.largo_mm <= 0 || k.ancho_mm <= 0 || k.espesor_mm <= 0)
+            return mal("largo_mm, ancho_mm y espesor_mm tienen que ser positivos");
+        if (k.celda_mm < 0.05 || k.celda_mm > 5)
+            return mal("celda_mm va de 0.05 a 5");
+        if (k.largo_mm / k.celda_mm > 4000 || k.ancho_mm / k.celda_mm > 4000)
+            return mal("mas de 4000 celdas de lado: una celda mas grande");
+        if (k.fresa_mm <= 0) return mal("fresa_mm tiene que ser positivo");
+        if (k.fresa == TipoFresa::V && (k.angulo_v <= 0 || k.angulo_v >= 180))
+            return mal("angulo_v va de 0 a 180, sin llegar");
+        return new Pieza(d.id.c_str(), *c[0], *c[1], *c[2], k);
+    });
+
+REGISTRA_PARTE(Transmision,
+    Ayuda("UNA CADENA MECANICA: los motores y lo que mueven, en un solo eje rigido "
+          "(parts/cadena.h). Se declara con <transmision id=\"X\" cadena=\"M1 V\"/>: "
+          "primero los motores -uno, o varios en el mismo eje-, despues los "
+          "elementos, del motor hacia la carga. Todo se refleja en el eje de los "
+          "motores -la inercia de cada elemento dividida por el cuadrado de la "
+          "relacion que hay antes de el; su rozamiento, por la relacion y el "
+          "rendimiento- y la cadena integra una sola ecuacion mecanica con las "
+          "corrientes de todos sus motores. Un motor que no esta en ninguna lleva la "
+          "suya, de el solo, con su carga de siempre.")
+      .ejemplo("<componente tipo=\"MotorCC\" id=\"M\" .../>\n"
+               "<componente tipo=\"Volante\" id=\"V\" inercia_gcm2=\"500\"/>\n"
+               "<transmision id=\"EJE\" cadena=\"M V\"/>")
+      .sin_terminales("No va a ningun nodo: une piezas por su eje, no por sus patillas. "
+                      "Las nombra en cadena=, que son sus <ref> e0, e1...")
+      .ref("e0, e1 ...", "Las piezas de la cadena, en orden: es lo que escribe cadena= en "
+           "<transmision>. Primero los motores, despues los elementos.")
+      .nota("Deja ver `angulo` y `rpm` del eje de los motores, e `inercia`, la de todo "
+            "reflejada en el, en g·cm². Los mandos de cada motor -bloquear, carga- "
+            "siguen siendo suyos, y actuan sobre la cadena entera.")
+      .nota("Una pieza va en una cadena como mucho; y un elemento suelto, sin "
+            "transmision, no se mueve.")
+      .cpp("cadena(): rpm(), th(), w(), inercia(), relacion_total(), actuadores(), "
+           "elementos()."),
+    [](const Instancia& d, NodeMap&, Netlist& nl) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("transmision '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        if (!d.pines.empty()) return mal("no lleva patillas: une piezas por su eje");
+        std::vector<Actuador*> act;
+        std::vector<ElementoMecanico*> elem;
+        for (unsigned k = 0;; ++k) {
+            const std::string r = d.ref_de(("e" + std::to_string(k)).c_str());
+            if (r.empty()) break;
+            ExtPartBase* p = nl.pieza(r);
+            if (!p) return mal(r + " no se ha construido");
+            Actuador* a = dynamic_cast<Actuador*>(p);
+            ElementoMecanico* e = dynamic_cast<ElementoMecanico*>(p);
+            if (!a && !e)
+                return mal(r + " es un " + p->tipo() + ", que no tiene eje: en una cadena "
+                           "van motores y elementos mecanicos");
+            if ((a && a->transmision()) || (e && e->transmision()))
+                return mal(r + " ya va en otra transmision");
+            if (a) {
+                if (!elem.empty())
+                    return mal(r + " es un motor y va detras de un elemento: primero los "
+                               "motores, despues lo que mueven");
+                if (act.size() >= Cadena::MAX_A)
+                    return mal("lleva mas de " + std::to_string(Cadena::MAX_A) + " motores");
+                act.push_back(a);
+            } else {
+                elem.push_back(e);
+            }
+        }
+        if (act.empty()) return mal("no lleva ningun motor: cadena= empieza por ellos");
+        // F2: que los ejes encajen. Cada motor con el primer elemento, y cada
+        // elemento con el siguiente
+        auto encaja = [&](double a, double b, const std::string& qa, const std::string& qb) {
+            return a <= 0.0 || b <= 0.0 || std::fabs(a - b) < 0.01 ? std::string()
+                 : qa + " da un eje de " + num_mm(a) + " mm y " + qb + " lo recibe de " +
+                   num_mm(b) + ": no encajan";
+        };
+        if (!elem.empty())
+            for (Actuador* a : act) {
+                const std::string t = encaja(a->diametro_eje(), elem[0]->diametro_entrada(),
+                                             a->nombre_actuador(), elem[0]->nombre_elemento());
+                if (!t.empty()) return mal(t);
+            }
+        for (size_t k = 0; k + 1 < elem.size(); ++k) {
+            const std::string t = encaja(elem[k]->diametro_salida(), elem[k + 1]->diametro_entrada(),
+                                         elem[k]->nombre_elemento(), elem[k + 1]->nombre_elemento());
+            if (!t.empty()) return mal(t);
+        }
+        return new Transmision(d.id.c_str(), act, elem);
+    });
+
+REGISTRA_PARTE(MotorPaP,
+    Ayuda("Un MOTOR PASO A PASO hibrido bipolar de dos fases, el de las impresoras "
+          "y las fresadoras: 200 pasos por vuelta, dos bobinas, A (a1-a2) y B "
+          "(b1-b2). El modelo clasico: cada bobina con su R, su L y su f.e.m., y el "
+          "par -Km·ia·sin(Nr·th) + Km·ib·cos(Nr·th) - Td·sin(4·Nr·th). De ahi salen "
+          "la curva par-velocidad, la perdida de pasos y la resonancia. Cada bobina "
+          "va como este cableada: entre las dos salidas de una fase de un DriverPaP, "
+          "la corriente es su consigna mientras la tension le llegue (CORRIENTE "
+          "IMPUESTA CON TOPE DE TENSION); entre nodos de Thevenin -un L298-, como un "
+          "motor de continua; al aire, sin corriente. Lo mecanico es de su cadena "
+          "(parts/cadena.h). Sabe donde tendria que estar y cuenta los PASOS "
+          "PERDIDOS.")
+      .ejemplo("<componente tipo=\"MotorPaP\" id=\"MX\" par_retencion_ncm=\"25\" corriente_a=\"1.3\"\n"
+               "            r_ohm=\"2.4\" l_mh=\"2.8\" inercia_gcm2=\"34\">\n"
+               "  <pin nombre=\"a1\" nodo=\"M.A1\"/><pin nombre=\"a2\" nodo=\"M.A2\"/>\n"
+               "  <pin nombre=\"b1\" nodo=\"M.B1\"/><pin nombre=\"b2\" nodo=\"M.B2\"/>\n"
+               "</componente>")
+      .pin("a1, a2", "obligatorios", "La bobina A. Con la corriente de a1 a a2, el rotor va a 0.")
+      .pin("b1, b2", "obligatorios", "La B. Con la corriente de b1 a b2, el rotor va un paso a la "
+           "derecha.")
+      .atr("par_retencion_ncm", "25", "El par de retencion, en N·cm, con las dos fases a la "
+           "corriente nominal (o con una, con retencion_una_fase).")
+      .atr("corriente_a", "1.3", "La corriente nominal por fase, en A.")
+      .atr("r_ohm", "2.4", "La resistencia de cada fase, en ohmios.")
+      .atr("l_mh", "2.8", "La inductancia de cada fase, en mH.")
+      .atr("conexion", "bipolar", "bipolar: las tres cifras de arriba son las de cada bobina. "
+           "serie o paralelo: un motor de OCHO hilos, y son las de media bobina, las de "
+           "unipolar, que es como las da Nanotec: en serie, 2R, 4L e I/1,41; en paralelo, "
+           "R/2, L e I·1,41.")
+      .atr("retencion_una_fase", "no", "si: el par de retencion se midio con una fase.")
+      .atr("km", "0", "La constante de par, en N·m/A. 0: del par de retencion, "
+           "Km = T/(I·1,41) con dos fases.")
+      .atr("detent_ncm", "1.5", "El par sin corriente, en N·cm: el que se nota al girarlo a mano.")
+      .atr("inercia_gcm2", "34", "La del rotor, en g·cm².")
+      .atr("rozamiento_ncm", "0.5", "El rozamiento seco de sus rodamientos, en N·cm.")
+      .atr("viscoso_mnms", "0.1", "El amortiguamiento, en mN·m por rad/s (estimado).")
+      .atr("pasos", "200", "Los pasos enteros por vuelta: 200 (1,8°) o 400 (0,9°).")
+      .atr("modelo", "dinamico", "ideal: cada paso es exactamente un paso, sin corrientes ni "
+           "perdidas; el rotor va a donde dicen las consignas. Para probar firmware deprisa.")
+      .atr("eje_mm", "0", "El diametro de su eje, para ver si encaja con el acople de una "
+           "<transmision>; 0, no se comprueba.")
+      .atr("posicion_inicial", "0", "El angulo del eje al arrancar, en grados.")
+      .nota("Deja ver `angulo` (el que sugiere pintar), `rpm`, `corriente_a` y `corriente_b` "
+            "(mA, las de ahora), `par` (N·m), `retraso` (en pasos enteros, de -2 a 2: lo "
+            "que va el rotor tras donde lo llevan las corrientes), `pasos_perdidos` -de "
+            "cuatro en cuatro, una vuelta electrica cada vez que se descuelga- y la alarma "
+            "`pierde_pasos`. Los mandos: `bloquear` y `carga`, en % del par de retencion.")
+      .nota("Avisa de una bobina al aire, de una entre dos fases o dos drivers, y de los "
+            "pasos perdidos.")
+      .cpp("rpm(), angulo(), vueltas(), posicion_pasos(), corriente_ma(k), par(), retraso(), "
+           "pasos_perdidos(), modo(k) -corriente, tension, suelta o mal-, km(), r_fase(), "
+           "l_fase(), corriente_nominal(); bloquea(si), pon_carga(0..1)."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("MotorPaP '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        for (const char* t : {"a1", "a2", "b1", "b2"})
+            if (d.nodo_de(t).empty())
+                return mal(std::string("le falta <pin nombre=\"") + t + "\">: lleva sus dos bobinas");
+        ConfigMotorPaP c;
+        c.par_retencion_ncm = d.num("par_retencion_ncm", c.par_retencion_ncm);
+        c.corriente_a = d.num("corriente_a", c.corriente_a);
+        c.r_ohm = d.num("r_ohm", c.r_ohm);
+        c.l_mh = d.num("l_mh", c.l_mh);
+        c.conexion = d.txt("conexion", "bipolar");
+        c.retencion_una_fase = d.si("retencion_una_fase", false);
+        c.km = d.num("km", 0.0);
+        c.detent_ncm = d.num("detent_ncm", c.detent_ncm);
+        c.inercia_gcm2 = d.num("inercia_gcm2", c.inercia_gcm2);
+        c.rozamiento_ncm = d.num("rozamiento_ncm", c.rozamiento_ncm);
+        c.viscoso_mnms = d.num("viscoso_mnms", c.viscoso_mnms);
+        c.posicion_inicial = d.num("posicion_inicial", 0.0);
+        c.eje_mm = d.num("eje_mm", 0.0);
+        if (c.eje_mm < 0) return mal("eje_mm no puede ser negativo");
+        const double pasos = d.num("pasos", 200.0);
+        const std::string mo = d.txt("modelo", "dinamico");
+        if (c.conexion != "bipolar" && c.conexion != "serie" && c.conexion != "paralelo")
+            return mal("conexion es bipolar, serie o paralelo");
+        if (mo != "dinamico" && mo != "ideal") return mal("modelo es dinamico o ideal");
+        c.ideal = mo == "ideal";
+        if (c.par_retencion_ncm <= 0 || c.corriente_a <= 0 || c.r_ohm <= 0 || c.l_mh <= 0 ||
+            c.inercia_gcm2 <= 0)
+            return mal("par_retencion_ncm, corriente_a, r_ohm, l_mh e inercia_gcm2 tienen que "
+                       "ser positivos");
+        if (c.km < 0 || c.detent_ncm < 0 || c.rozamiento_ncm < 0 || c.viscoso_mnms < 0)
+            return mal("km, detent_ncm, rozamiento_ncm y viscoso_mnms no pueden ser negativos");
+        if (pasos < 4 || std::fmod(pasos, 4.0) != 0.0 || pasos > 2000)
+            return mal("pasos es un multiplo de 4, de 4 a 2000: 200 o 400");
+        c.pasos = unsigned(pasos);
+        return new MotorPaP(d.id.c_str(), n[d.nodo_de("a1")], n[d.nodo_de("a2")],
+                            n[d.nodo_de("b1")], n[d.nodo_de("b2")], c);
+    });
+
+REGISTRA_PARTE(DriverPaP,
+    Ayuda("Un DRIVER DE PASO A PASO con entradas de paso y direccion: el chip de un "
+          "modulo de la CNC Shield, A4988, DRV8825 o TMC2209, o uno externo tipo DM542 "
+          "(modelo=). Cada flanco de "
+          "subida de STEP avanza un micropaso hacia donde diga DIR; las MS eligen el "
+          "micropaso, y Vref la corriente. Cada fase de salida es una CORRIENTE "
+          "IMPUESTA CON TOPE DE TENSION: el driver dice que corriente quiere y puede "
+          "poner de -VMOT a +VMOT, y la bobina la sigue mientras le llegue (no hay "
+          "sucesos de chopper). Comprueba lo que se equivoca en la vida real: el ancho "
+          "del pulso, DIR antes de STEP, los niveles de las entradas contra su VDD, EN, "
+          "RESET y SLEEP, la corriente, VMOT y la temperatura.")
+      .ejemplo("<componente tipo=\"DriverPaP\" id=\"U1\" modelo=\"A4988\" vref=\"0.6\">\n"
+               "  <pin nombre=\"vmot\" nodo=\"VMOT\"/> <pin nombre=\"gnd\" nodo=\"GND\"/>\n"
+               "  <pin nombre=\"vdd\" nodo=\"VDD\"/>   <pin nombre=\"en\" nodo=\"EN\"/>\n"
+               "  <pin nombre=\"ms1\" nodo=\"MS1\"/>   <pin nombre=\"ms2\" nodo=\"MS2\"/>\n"
+               "  <pin nombre=\"ms3\" nodo=\"MS3\"/>   <pin nombre=\"rst\" nodo=\"RST\"/>\n"
+               "  <pin nombre=\"slp\" nodo=\"SLP\"/>   <pin nombre=\"step\" nodo=\"STEP\"/>\n"
+               "  <pin nombre=\"dir\" nodo=\"DIR\"/>\n"
+               "  <pin nombre=\"out1a\" nodo=\"1A\"/> <pin nombre=\"out1b\" nodo=\"1B\"/>\n"
+               "  <pin nombre=\"out2a\" nodo=\"2A\"/> <pin nombre=\"out2b\" nodo=\"2B\"/>\n"
+               "</componente>")
+      .pin("vmot, gnd", "obligatorios", "La alimentacion de los motores y la masa.")
+      .pin("vdd", "A4988 y TMC2209", "La de la logica (VIO en el TMC2209). El DRV8825 no la "
+           "tiene: su logica es suya, de VMOT.")
+      .pin("en", "obligatorio (en el DM542, opcional)", "La habilitacion, ACTIVA A NIVEL BAJO: "
+           "alto, salidas apagadas. En el DM542 es ENA+, con ENA- a masa: sin conectar, habilitado.")
+      .pin("ms1, ms2, ms3", "ms3 no en el TMC2209; ninguna en el DM542", "El micropaso. A4988: 000 paso entero, 100 "
+           "medio, 010 cuarto, 110 octavo, 111 dieciseisavo. DRV8825 (MODE0..2): de 000 entero "
+           "a 101 1/32. TMC2209 (MS1, MS2): 00 1/8, 10 1/32, 01 1/64, 11 1/16.")
+      .pin("rst, slp", "A4988 y DRV8825", "RESET y SLEEP, activos a nivel bajo. En el A4988 "
+           "RESET no lleva resistencia: al aire se avisa.")
+      .pin("step, dir", "obligatorios", "Paso y direccion: DIR alto, hacia delante. En el DM542, "
+           "PUL+ y DIR+, con PUL- y DIR- a masa.")
+      .pin("out1a, out1b, out2a, out2b", "obligatorios", "Las salidas: la fase 1 de OUT1A a "
+           "OUT1B, la 2 de OUT2A a OUT2B.")
+      .atr("modelo", "A4988", "A4988, DRV8825, TMC2209 o DM542: los cuatro juegos de parametros. "
+           "El DM542 es un driver externo de 20 a 50 V y 4,2 A con ENTRADAS OPTOACOPLADAS: cada "
+           "una es el LED de un optoacoplador con 270 ohm, que pide de 7 a 16 mA a quien la "
+           "mueve -con 3,3 V, por poco-; ENA con corriente apaga las salidas.")
+      .atr("micropasos", "8", "Solo en el DM542: el micropaso de sus interruptores, potencia "
+           "de dos de 1 a 128.")
+      .atr("corriente_a", "2", "Solo en el DM542: la corriente de pico de sus interruptores, "
+           "de 1 a 4,2 A.")
+      .atr("vref", "segun el modelo", "La tension del potenciometro, en V: la corriente de pico "
+           "es Vref/(8·0,068) en el A4988 del modulo Pololu, 2·Vref en el DRV8825 y Vref en un "
+           "TMC2209 con Rs de 0,11 ohm. Omision: 0,6, 0,5 y 1,4 V.")
+      .atr("disipador", "no", "si: con disipador, la mitad de resistencia termica.")
+      .atr("t_ambiente", "25", "La temperatura del aire, en °C.")
+      .nota("Deja ver `corriente_1` y `corriente_2` (las consignas, mA), `micropasos`, "
+            "`pasos` (con signo), `corriente_vmot` (lo que pide a VMOT, mA), `temperatura` "
+            "(°C) y las alarmas `sobretemperatura` y `sin_tension`. Su mando es `vref`, el "
+            "potenciometro.")
+      .nota("Lo que no hace: el rizado del chopper, la interpolacion, el UART, el StallGuard y "
+            "el StealthChop del TMC2209, ni la energia que vuelve al frenar.")
+      .cpp("micropasos(), pasos(), posicion(), consigna_ma(f), corriente_ma(f), activo(), "
+           "logica(), temperatura(), sobretemperatura(), corriente_vmot_ma(), disipacion(), "
+           "vref(), pon_vref(v), corriente_ajustada()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("DriverPaP '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        ConfigDriverPaP c;
+        c.modelo = d.txt("modelo", "A4988");
+        const ModeloDriverPaP* m = modelo_driver_pap(c.modelo);
+        if (!m)
+            return mal("modelo=\"" + c.modelo + "\" no existe: A4988, DRV8825, TMC2209 o DM542");
+        std::vector<std::string> pide = {"vmot", "gnd", "step", "dir", "out1a", "out1b", "out2a",
+                                         "out2b"};
+        std::vector<std::string> no = {};
+        if (m->con_vdd) pide.push_back("vdd"); else no.push_back("vdd");
+        if (c.modelo == "DM542") {
+            for (const char* t : {"ms1", "ms2", "ms3", "rst", "slp"}) no.push_back(t);
+        } else {
+            for (const char* t : {"en", "ms1", "ms2"}) pide.push_back(t);
+            if (c.modelo == "TMC2209")
+                for (const char* t : {"ms3", "rst", "slp"}) no.push_back(t);
+            else
+                for (const char* t : {"ms3", "rst", "slp"}) pide.push_back(t);
+        }
+        for (const std::string& t : pide)
+            if (d.nodo_de(t).empty()) return mal("le falta <pin nombre=\"" + t + "\">");
+        for (const std::string& t : no)
+            if (!d.nodo_de(t).empty())
+                return mal("el " + c.modelo + " no tiene " + t +
+                           (c.modelo == "DM542" ? ": el micropaso y la corriente van con sus "
+                                                  "interruptores, micropasos= y corriente_a="
+                                                : ""));
+        c.vref = d.num("vref", -1.0);
+        c.disipador = d.si("disipador", false);
+        c.t_ambiente = d.num("t_ambiente", 25.0);
+        if (c.modelo == "DM542") {
+            const double mp = d.num("micropasos", 8.0), ia = d.num("corriente_a", 2.0);
+            const unsigned u = unsigned(mp);
+            if (mp != double(u) || u < 1 || u > 128 || (u & (u - 1)))
+                return mal("micropasos es una potencia de dos, de 1 a 128 (los de 400 a 25600 "
+                           "pasos por vuelta de sus interruptores)");
+            if (ia < 1.0 || ia > 4.2) return mal("corriente_a va de 1 a 4,2 A de pico");
+            c.micropasos = u;
+            c.corriente_a = ia;
+        } else if (!d.txt("micropasos").empty() || !d.txt("corriente_a").empty()) {
+            return mal("micropasos= y corriente_a= son de un DM542: el " + c.modelo +
+                       " los toma de sus MS y de vref");
+        }
+        auto nd = [&](const char* t) -> analog_net_if* {
+            return d.nodo_de(t).empty() ? nullptr : &n[d.nodo_de(t)];
+        };
+        return new DriverPaP(d.id.c_str(), c, n[d.nodo_de("vmot")], n[d.nodo_de("gnd")], nd("vdd"),
+                             nd("en"), nd("ms1"), nd("ms2"), nd("ms3"), nd("rst"), nd("slp"),
+                             n[d.nodo_de("step")], n[d.nodo_de("dir")], n[d.nodo_de("out1a")],
+                             n[d.nodo_de("out1b")], n[d.nodo_de("out2a")], n[d.nodo_de("out2b")]);
+    });
+
+REGISTRA_PARTE(GeneradorPasos,
+    Ayuda("Un GENERADOR DE PASOS de banco: STEP y DIR para mover un driver de paso a paso "
+          "sin MCU. Va a `hz` pasos por segundo y llega con una rampa de aceleracion "
+          "constante; un cambio de sentido en marcha frena, cambia DIR, espera y vuelve a "
+          "arrancar. Es un instrumento, como un generador de funciones con rampa.")
+      .ejemplo("<componente tipo=\"GeneradorPasos\" id=\"G\" hz=\"4000\" rampa_ms=\"200\">\n"
+               "  <pin nombre=\"step\" nodo=\"STEP\"/><pin nombre=\"dir\" nodo=\"DIR\"/>\n"
+               "</componente>")
+      .pin("step, dir", "obligatorios", "Las salidas, de vdd voltios con 50 ohm.")
+      .atr("hz", "0", "Los pasos por segundo a los que va (el objetivo, el mando `hz`).")
+      .atr("aceleracion", "0", "En pasos/s². 0 y sin rampa_ms: de golpe.")
+      .atr("rampa_ms", "0", "O la rampa como el tiempo de parado a hz: aceleracion = hz/rampa.")
+      .atr("ancho_us", "2", "Lo que dura el pulso alto de STEP.")
+      .atr("dir_us", "5", "Lo que espera tras cambiar DIR antes del primer paso.")
+      .atr("sentido", "1", "1: DIR alto; 0: bajo (el mando `sentido`).")
+      .atr("vdd", "3.3", "La tension de las salidas.")
+      .nota("Deja ver `hz`, la de ahora, y `pasos`, con su signo."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        if (d.nodo_de("step").empty() || d.nodo_de("dir").empty()) {
+            SC_REPORT_ERROR("netlist", ("GeneradorPasos '" + d.id + "': le faltan step y dir").c_str());
+            return nullptr;
+        }
+        const double hz = d.num("hz", 0.0);
+        double a = d.num("aceleracion", 0.0);
+        const double rampa = d.num("rampa_ms", 0.0);
+        if (a <= 0.0 && rampa > 0.0 && hz > 0.0) a = hz / (rampa * 1e-3);
+        if (hz < 0 || a < 0 || d.num("ancho_us", 2.0) <= 0) {
+            SC_REPORT_ERROR("netlist", ("GeneradorPasos '" + d.id + "': hz, aceleracion y "
+                                        "ancho_us no pueden ser negativos").c_str());
+            return nullptr;
+        }
+        return new GeneradorPasos(d.id.c_str(), n[d.nodo_de("step")], n[d.nodo_de("dir")], hz, a,
+                                  d.num("ancho_us", 2.0), d.num("dir_us", 5.0),
+                                  d.num("sentido", 1.0) >= 0.5, d.num("vdd", 3.3));
+    });
+
+REGISTRA_PARTE(Mosfet,
+    Ayuda("Un N-MOSFET DE LADO BAJO, como el IRLZ44N de los modulos que gobiernan el "
+          "cabezal de una fresadora con el PWM de GRBL: el canal entre drenador y fuente "
+          "conduce con la tension de la puerta por encima del umbral, con una RDS que baja "
+          "con ella -un MOSFET que no es de nivel logico apenas conduce con 3,3 V-. Con "
+          "diodo=si y la patilla libre, el DIODO DE LIBRE CIRCULACION del modulo, del "
+          "drenador al + del motor: la corriente de la bobina sigue por el al abrirse el "
+          "canal. Sin el, la bobina sube el drenador hasta la avalancha y el MOSFET se "
+          "rompe: aqui la corriente se corta, y se avisa.")
+      .ejemplo("<componente tipo=\"Mosfet\" id=\"Q1\" modelo=\"IRLZ44N\" diodo=\"si\">\n"
+               "  <pin nombre=\"drenador\" nodo=\"OUT-\"/><pin nombre=\"fuente\" nodo=\"GND\"/>\n"
+               "  <pin nombre=\"puerta\" nodo=\"SIG\"/><pin nombre=\"libre\" nodo=\"OUT+\"/>\n"
+               "</componente>")
+      .pin("drenador", "obligatorio", "Al - de la carga.")
+      .pin("fuente", "obligatorio", "A masa.")
+      .pin("puerta", "obligatorio", "La senal: con Vgs por encima del umbral, conduce.")
+      .pin("libre", "con diodo=si", "El catodo del diodo de libre circulacion: el + de la carga.")
+      .atr("modelo", "IRLZ44N", "IRLZ44N (de nivel logico: 25 mohm a 5 V, umbral de 1 a 2 V) o "
+           "IRF520 (0,27 ohm a 10 V, umbral de 2 a 4 V: el de los modulos azules, que con 5 V "
+           "apenas se abre). Las cifras de abajo cambian las suyas.")
+      .atr("vth", "segun el modelo", "El umbral, en V.")
+      .atr("rds_on", "segun el modelo", "La resistencia del canal a vgs_ref, en ohmios.")
+      .atr("vgs_ref", "segun el modelo", "La tension de la puerta a la que se da rds_on.")
+      .atr("vgs_plena", "segun el modelo", "La que garantiza la hoja de datos: con menos y mas de "
+           "1 A, se avisa.")
+      .atr("i_max", "segun el modelo", "Lo que aguanta, en A: por encima, se avisa.")
+      .atr("diodo", "si", "El diodo de libre circulacion del modulo, con su patilla libre.")
+      .nota("Deja ver `conduce`, `corriente` (mA, de media), `disipacion` (W, I²·RDS) y `vgs`. "
+            "Avisa de abrirse sin diodo con corriente, de la puerta que no lo abre del todo y de "
+            "la sobrecorriente.")
+      .cpp("conduce(), por_el_diodo(), rds(), corriente(), corriente_diodo(), vgs(), disipacion()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Mosfet '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        for (const char* t : {"drenador", "fuente", "puerta"})
+            if (d.nodo_de(t).empty()) return mal(std::string("le falta <pin nombre=\"") + t + "\">");
+        ConfigMosfet c;
+        c.modelo = d.txt("modelo", "IRLZ44N");
+        if (!modelo_mosfet(c.modelo, c)) return mal("modelo es IRLZ44N o IRF520");
+        c.vth = d.num("vth", c.vth);
+        c.rds_on = d.num("rds_on", c.rds_on);
+        c.vgs_ref = d.num("vgs_ref", c.vgs_ref);
+        c.vgs_plena = d.num("vgs_plena", c.vgs_plena);
+        c.i_max = d.num("i_max", c.i_max);
+        c.diodo = d.si("diodo", true);
+        if (c.vth <= 0 || c.rds_on <= 0 || c.vgs_ref <= c.vth || c.i_max <= 0)
+            return mal("vth, rds_on e i_max son positivos, y vgs_ref pasa de vth");
+        if (c.diodo && d.nodo_de("libre").empty())
+            return mal("con diodo=si, el diodo va a <pin nombre=\"libre\">, el + de la carga");
+        if (!c.diodo && !d.nodo_de("libre").empty())
+            return mal("la patilla libre es la del diodo: con diodo=no, sobra");
+        return new Mosfet(d.id.c_str(), n[d.nodo_de("drenador")], n[d.nodo_de("fuente")],
+                          n[d.nodo_de("puerta")],
+                          d.nodo_de("libre").empty() ? nullptr : &n[d.nodo_de("libre")], c);
+    });
+
+REGISTRA_PARTE(MedioPuente,
+    Ayuda("Un MEDIO PUENTE INTEGRADO, el BTS7960 de Infineon: con INH alto, IN alto pone "
+          "la salida en VS por el transistor de arriba (7 mohm) e IN bajo en masa por el "
+          "de abajo (9 mohm); con INH bajo duerme, y la salida se queda al aire: la "
+          "corriente de la bobina de un motor sigue por los diodos de sus transistores "
+          "hasta acabarse. IS es una FUENTE DE CORRIENTE, la de la salida entre 8500. Dos "
+          "son un puente en H: el modulo IBT-2, de 43 A. Con vdd, las entradas pasan por el "
+          "74HC244 del modulo, alimentado de su VCC.")
+      .ejemplo("<componente tipo=\"MedioPuente\" id=\"U1\">\n"
+               "  <pin nombre=\"vs\" nodo=\"B+\"/> <pin nombre=\"gnd\" nodo=\"B-\"/>\n"
+               "  <pin nombre=\"in\" nodo=\"RPWM\"/> <pin nombre=\"inh\" nodo=\"R_EN\"/>\n"
+               "  <pin nombre=\"out\" nodo=\"M+\"/> <pin nombre=\"is\" nodo=\"R_IS\"/>\n"
+               "  <pin nombre=\"vdd\" nodo=\"VCC\"/>\n"
+               "</componente>")
+      .pin("vs, gnd", "obligatorios", "La alimentacion, de 5,5 a 27,5 V, y la masa.")
+      .pin("in", "obligatorio", "Alto: la salida a VS; bajo: a masa.")
+      .pin("inh", "obligatorio", "Alto: despierto; bajo: duerme, la salida al aire.")
+      .pin("out", "obligatorio", "La salida.")
+      .pin("is", "opcional", "La medida de la corriente: una fuente de corriente.")
+      .pin("vdd", "opcional", "El VCC del 74HC244 del modulo: con el, las entradas cortan en "
+           "VCC/2 y piden 0,7·VCC para un alto.")
+      .nota("Deja ver `corriente` (mA, de media, la que sale), `disipacion` (W) y `despierto`. "
+            "Avisa de los niveles dudosos de sus entradas y de pasar de 43 A.")
+      .cpp("estado() -alto, bajo o dormido-, corriente(), corriente_media(), corriente_is(), "
+           "disipacion()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        for (const char* t : {"vs", "gnd", "in", "inh", "out"})
+            if (d.nodo_de(t).empty()) {
+                SC_REPORT_ERROR("netlist", ("MedioPuente '" + d.id + "': le falta <pin nombre=\"" +
+                                            std::string(t) + "\">").c_str());
+                return nullptr;
+            }
+        auto nd = [&](const char* t) -> analog_net_if* {
+            return d.nodo_de(t).empty() ? nullptr : &n[d.nodo_de(t)];
+        };
+        return new MedioPuente(d.id.c_str(), n[d.nodo_de("vs")], n[d.nodo_de("gnd")],
+                               n[d.nodo_de("in")], n[d.nodo_de("inh")], n[d.nodo_de("out")],
+                               nd("is"), nd("vdd"));
+    });
+
+REGISTRA_PARTE(MotorBLDC,
+    Ayuda("Un MOTOR BLDC trifasico con sus tres sensores Hall y, con ppr=, un encoder, "
+          "movido por un controlador que lo conmuta por dentro (ControladorMotor). Se "
+          "modela EN EL EJE Q, como un motor de continua equivalente con las cifras de "
+          "entre dos fases: V = R·i + L·di/dt + Kt·w, par Kt·i. La corriente es la del "
+          "controlador, CORRIENTE IMPUESTA CON TOPE DE TENSION, como en un paso a paso. "
+          "U, V y W se cablean y se comprueban: cada una, a la suya del controlador; "
+          "cruzadas o al aire, sin corriente y con aviso. Los Hall y el encoder son de "
+          "colector abierto: el pull-up lo pone quien los lee. Lo mecanico es de su "
+          "cadena (parts/cadena.h). Las cifras de omision, las del Nanotec "
+          "DB59L024035-A.")
+      .ejemplo("<componente tipo=\"MotorBLDC\" id=\"MOTOR\" kt_ncm_a=\"5\" r_ohm=\"0.22\" "
+               "l_mh=\"0.29\"\n"
+               "            inercia_gcm2=\"119\" pares_polos=\"3\">\n"
+               "  <pin nombre=\"u\" nodo=\"M.U\"/> <pin nombre=\"v\" nodo=\"M.V\"/>\n"
+               "  <pin nombre=\"w\" nodo=\"M.W\"/>\n"
+               "  <pin nombre=\"hall_vcc\" nodo=\"P1.VCC\"/> <pin nombre=\"hall_gnd\" nodo=\"P1.GND\"/>\n"
+               "  <pin nombre=\"h1\" nodo=\"P1.H1\"/> <pin nombre=\"h2\" nodo=\"P1.H2\"/>\n"
+               "  <pin nombre=\"h3\" nodo=\"P1.H3\"/>\n"
+               "</componente>")
+      .pin("u, v, w", "obligatorios", "Las tres fases. Con la consigna positiva del "
+           "controlador, el eje gira a la DERECHA, el angulo positivo.")
+      .pin("hall_vcc, hall_gnd", "con los Hall", "La alimentacion de los sensores, 5 V: con "
+           "menos de 3,5, sus salidas se quedan al aire.")
+      .pin("h1, h2, h3", "con hall_vcc", "Los Hall, a 120° electricos: 101, 100, 110, 010, 011, "
+           "001 girando a la derecha. Colector abierto.")
+      .pin("enc_a, enc_b", "con ppr", "El encoder, en cuadratura, A delante a la derecha. "
+           "Colector abierto.")
+      .atr("kt_ncm_a", "5", "La constante de par, en N·cm/A (y la de f.e.m., en V·s/rad·100).")
+      .atr("r_ohm", "0.22", "La resistencia entre dos fases.")
+      .atr("l_mh", "0.29", "La inductancia entre dos fases.")
+      .atr("corriente_nominal", "9.4", "En A: la carga del mando va en % de Kt por ella.")
+      .atr("corriente_pico", "28", "En A: por encima, se avisa.")
+      .atr("inercia_gcm2", "119", "La del rotor.")
+      .atr("rozamiento_ncm", "1.5", "El seco, en N·cm (estimado: la ficha no da la corriente "
+           "en vacio).")
+      .atr("viscoso_mnms", "0.02", "En mN·m por rad/s (estimado).")
+      .atr("pares_polos", "3", "Los pares de polos: 6·p cambios de Hall por vuelta.")
+      .atr("ppr", "0", "Las lineas del encoder por vuelta; 0, sin el. Cuesta un suceso por "
+           "flanco: 1000 lineas a 3500 rpm son 233 000 por segundo.")
+      .atr("eje_mm", "0", "El diametro de su eje, para ver si encaja con el acople de una "
+           "<transmision>; 0, no se comprueba.")
+      .atr("posicion_inicial", "0", "El angulo del eje al arrancar, en grados.")
+      .nota("Deja ver `angulo`, `rpm`, `corriente` (A, la del eje q), `par` (N·m), `tension` "
+            "(la que le pone el controlador), `hall` (el codigo, H1 en el bit 2), la alarma "
+            "`sobrecorriente` y, con encoder, `cuenta`. Los mandos: `bloquear` y `carga`, en "
+            "% del par nominal, hasta el 300 %.")
+      .cpp("rpm(), angulo(), vueltas(), corriente(), par(), tension(), fem(), sector_hall(), "
+           "hall(), cuenta(), modo(), kt(), par_nominal(); bloquea(si), pon_carga(veces)."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("MotorBLDC '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        for (const char* t : {"u", "v", "w"})
+            if (d.nodo_de(t).empty())
+                return mal(std::string("le falta <pin nombre=\"") + t + "\">: lleva sus tres fases");
+        ConfigMotorBLDC c;
+        c.kt_ncm_a = d.num("kt_ncm_a", c.kt_ncm_a);
+        c.r_ohm = d.num("r_ohm", c.r_ohm);
+        c.l_mh = d.num("l_mh", c.l_mh);
+        c.corriente_nominal = d.num("corriente_nominal", c.corriente_nominal);
+        c.corriente_pico = d.num("corriente_pico", c.corriente_pico);
+        c.inercia_gcm2 = d.num("inercia_gcm2", c.inercia_gcm2);
+        c.rozamiento_ncm = d.num("rozamiento_ncm", c.rozamiento_ncm);
+        c.viscoso_mnms = d.num("viscoso_mnms", c.viscoso_mnms);
+        c.posicion_inicial = d.num("posicion_inicial", 0.0);
+        c.eje_mm = d.num("eje_mm", 0.0);
+        if (c.eje_mm < 0) return mal("eje_mm no puede ser negativo");
+        const double pp = d.num("pares_polos", 3.0), ppr = d.num("ppr", 0.0);
+        if (c.kt_ncm_a <= 0 || c.r_ohm <= 0 || c.l_mh <= 0 || c.inercia_gcm2 <= 0 ||
+            c.corriente_nominal <= 0 || c.corriente_pico <= 0)
+            return mal("kt_ncm_a, r_ohm, l_mh, inercia_gcm2 y las corrientes tienen que ser "
+                       "positivos");
+        if (c.rozamiento_ncm < 0 || c.viscoso_mnms < 0)
+            return mal("rozamiento_ncm y viscoso_mnms no pueden ser negativos");
+        if (pp < 1 || pp > 50 || pp != std::floor(pp)) return mal("pares_polos va de 1 a 50");
+        if (ppr < 0 || ppr > 100000 || ppr != std::floor(ppr)) return mal("ppr va de 0 a 100000");
+        c.pares_polos = unsigned(pp);
+        c.ppr = unsigned(ppr);
+        const bool hall = !d.nodo_de("hall_vcc").empty() || !d.nodo_de("hall_gnd").empty() ||
+                          !d.nodo_de("h1").empty() || !d.nodo_de("h2").empty() ||
+                          !d.nodo_de("h3").empty();
+        if (hall)
+            for (const char* t : {"hall_vcc", "hall_gnd", "h1", "h2", "h3"})
+                if (d.nodo_de(t).empty())
+                    return mal(std::string("le falta <pin nombre=\"") + t + "\">: los Hall van "
+                               "con su alimentacion y sus tres salidas");
+        const bool enc = !d.nodo_de("enc_a").empty() || !d.nodo_de("enc_b").empty();
+        if (enc && (d.nodo_de("enc_a").empty() || d.nodo_de("enc_b").empty()))
+            return mal("el encoder lleva enc_a y enc_b");
+        if (enc && !c.ppr) return mal("con enc_a y enc_b, ppr= dice cuantas lineas tiene");
+        if (enc && !hall) return mal("el encoder se alimenta de hall_vcc y hall_gnd");
+        auto nd = [&](const char* t) -> analog_net_if* {
+            return d.nodo_de(t).empty() ? nullptr : &n[d.nodo_de(t)];
+        };
+        return new MotorBLDC(d.id.c_str(), n[d.nodo_de("u")], n[d.nodo_de("v")], n[d.nodo_de("w")],
+                             c, nd("hall_vcc"), nd("hall_gnd"), nd("h1"), nd("h2"), nd("h3"),
+                             nd("enc_a"), nd("enc_b"));
+    });
+
+REGISTRA_PARTE(ControladorMotor,
+    Ayuda("Un CONTROLADOR DE MOTOR inteligente, de RELOJ Y DIRECCION EN LAZO CERRADO, con "
+          "salida de freno y de error: un controlador tipo C5-E para un MotorBLDC. Cada "
+          "flanco de subida de STEP es un paso hacia donde diga DIR; por dentro, una "
+          "cascada de lazos de posicion y velocidad sobre lo que miden sus Hall o su "
+          "encoder, cada lazo_us, y la corriente del eje q impuesta en el motor, con el "
+          "tope en VCC. NO PIERDE PASOS SIN ENTERARSE: si el error de seguimiento pasa de "
+          "error_max_grados durante error_ms, se para, echa el freno y lo dice por su "
+          "salida de error. Con EN, corriente y se suelta el freno; sin EN, se echa el freno "
+          "y, pasados freno_ms, se quita la corriente.")
+      .ejemplo("<componente tipo=\"ControladorMotor\" id=\"U1\" pasos_vuelta=\"2000\">\n"
+               "  <pin nombre=\"vcc\" nodo=\"X1.VCC\"/> <pin nombre=\"gnd\" nodo=\"X1.GND\"/>\n"
+               "  <pin nombre=\"u\" nodo=\"X2.U\"/> <pin nombre=\"v\" nodo=\"X2.V\"/>\n"
+               "  <pin nombre=\"w\" nodo=\"X2.W\"/>\n"
+               "  <pin nombre=\"v5\" nodo=\"X3.5V\"/> <pin nombre=\"h1\" nodo=\"X3.H1\"/>\n"
+               "  <pin nombre=\"h2\" nodo=\"X3.H2\"/> <pin nombre=\"h3\" nodo=\"X3.H3\"/>\n"
+               "  <pin nombre=\"step\" nodo=\"X4.STEP\"/> <pin nombre=\"dir\" nodo=\"X4.DIR\"/>\n"
+               "  <pin nombre=\"en\" nodo=\"X4.EN\"/> <pin nombre=\"freno\" nodo=\"X4.BRK\"/>\n"
+               "  <pin nombre=\"error\" nodo=\"X4.ERR\"/>\n"
+               "</componente>")
+      .pin("vcc, gnd", "obligatorios", "La alimentacion, de 12 a 48 V: la de la logica y la del "
+           "motor, y el tope de su tension.")
+      .pin("u, v, w", "obligatorios", "Las tres fases del motor.")
+      .pin("step, dir, en", "obligatorios", "Paso, direccion (alto: hacia delante) y "
+           "habilitacion (alta: habilitado), con 10 kohm a masa por dentro y el umbral en "
+           "umbral= voltios.")
+      .pin("v5", "opcional", "Los 5 V de los sensores.")
+      .pin("h1, h2, h3", "con los Hall", "Los Hall del motor, con 4,7 kohm a los 5 V de dentro.")
+      .pin("enc_a, enc_b", "con encoder=\"si\"", "El encoder, con sus pull-ups.")
+      .pin("freno", "opcional", "La salida del freno: a VCC, suelto; al aire, echado.")
+      .pin("error", "opcional", "La salida de error: a masa con error, al aire sin el.")
+      .atr("corriente_max", "10", "El tope de la consigna del eje q, en A.")
+      .atr("pasos_vuelta", "2000", "Los pasos de STEP por vuelta del motor.")
+      .atr("encoder", "no", "si: la posicion, del encoder (ppr=); no, de los Hall (pares_polos=).")
+      .atr("pares_polos", "3", "Los del motor: 6·p cambios de Hall por vuelta.")
+      .atr("ppr", "1000", "Las lineas del encoder.")
+      .atr("kp_pos", "20; 50 con encoder", "La ganancia del lazo de posicion, en 1/s.")
+      .atr("kp_vel, ki_vel", "0.015 y 1; 0.06 y 3 con encoder", "Las del de velocidad: A por rad/s y A "
+           "por rad. Las de omision son las de un DB59L024035-A suelto; con los Hall, una medida "
+           "cada 20°, mas bajas.")
+      .atr("rpm_max", "4000", "El tope de la consigna de velocidad.")
+      .atr("error_max_grados, error_ms", "360, 10", "El error de seguimiento que lo para, en "
+           "grados del motor, y cuanto tiene que durar.")
+      .atr("freno_ms", "100", "Lo que tarda el freno en soltarse y en echarse.")
+      .atr("lazo_us", "1000", "El periodo de los lazos.")
+      .atr("umbral", "2.5", "El umbral de las entradas, en V, con 0,25 de histeresis.")
+      .nota("Deja ver `estado` (0 sin tension, 1 deshabilitado, 2 soltando el freno, 3 en "
+            "marcha, 4 echando el freno, 5 error), `pasos`, `error_seguimiento` (grados), "
+            "`corriente_q` (A, la consigna), `rpm` (las medidas), `corriente_vcc` (mA, de "
+            "media), `freno_suelto` y la alarma `error`.")
+      .nota("Lo que no hace: el bus de campo, los finales de carrera, la puesta en marcha "
+            "automatica, el I²t y la energia que vuelve al frenar.")
+      .cpp("estado(), texto_estado(), pasos(), pasos_ignorados(), posicion_grados(), "
+           "consigna_grados(), error_grados(), error_maximo_grados(), rpm_medidas(), "
+           "corriente_q(), corriente_vcc_ma(), freno_suelto(), en_error(), causa()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("ControladorMotor '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        for (const char* t : {"vcc", "gnd", "u", "v", "w", "step", "dir", "en"})
+            if (d.nodo_de(t).empty()) return mal(std::string("le falta <pin nombre=\"") + t + "\">");
+        ConfigControladorMotor c;
+        c.corriente_max = d.num("corriente_max", c.corriente_max);
+        const double pv = d.num("pasos_vuelta", 2000.0), pp = d.num("pares_polos", 3.0),
+                     ppr = d.num("ppr", 1000.0);
+        c.encoder = d.si("encoder", false);
+        // Con el encoder, la medida es fina y los lazos pueden ir mas deprisa
+        c.kp_pos = d.num("kp_pos", c.encoder ? 50.0 : c.kp_pos);
+        c.kp_vel = d.num("kp_vel", c.encoder ? 0.06 : c.kp_vel);
+        c.ki_vel = d.num("ki_vel", c.encoder ? 3.0 : c.ki_vel);
+        c.rpm_max = d.num("rpm_max", c.rpm_max);
+        c.error_max_grados = d.num("error_max_grados", c.error_max_grados);
+        c.error_ms = d.num("error_ms", c.error_ms);
+        c.freno_ms = d.num("freno_ms", c.freno_ms);
+        c.lazo_us = d.num("lazo_us", c.lazo_us);
+        c.umbral = d.num("umbral", c.umbral);
+        if (c.corriente_max <= 0 || c.corriente_max > 30)
+            return mal("corriente_max va de 0 a 30 A");
+        if (pv < 4 || pv > 1e6 || pv != std::floor(pv)) return mal("pasos_vuelta va de 4 a 1000000");
+        if (pp < 1 || pp > 50 || pp != std::floor(pp)) return mal("pares_polos va de 1 a 50");
+        if (ppr < 1 || ppr > 100000 || ppr != std::floor(ppr)) return mal("ppr va de 1 a 100000");
+        if (c.kp_pos < 0 || c.kp_vel < 0 || c.ki_vel < 0 || c.rpm_max <= 0)
+            return mal("las ganancias no pueden ser negativas, y rpm_max es positivo");
+        if (c.error_max_grados <= 0 || c.error_ms < 0 || c.freno_ms < 0)
+            return mal("error_max_grados es positivo; error_ms y freno_ms, no negativos");
+        if (c.lazo_us < 50 || c.lazo_us > 10000) return mal("lazo_us va de 50 a 10000");
+        c.pasos_vuelta = unsigned(pv);
+        c.pares_polos = unsigned(pp);
+        c.ppr = unsigned(ppr);
+        if (c.encoder) {
+            if (d.nodo_de("enc_a").empty() || d.nodo_de("enc_b").empty())
+                return mal("con encoder=\"si\" lleva enc_a y enc_b");
+        } else {
+            for (const char* t : {"h1", "h2", "h3"})
+                if (d.nodo_de(t).empty())
+                    return mal(std::string("le falta <pin nombre=\"") + t + "\">: sin encoder, la "
+                               "posicion es la de los Hall");
+        }
+        auto nd = [&](const char* t) -> analog_net_if* {
+            return d.nodo_de(t).empty() ? nullptr : &n[d.nodo_de(t)];
+        };
+        return new ControladorMotor(d.id.c_str(), c, n[d.nodo_de("vcc")], n[d.nodo_de("gnd")],
+                                    n[d.nodo_de("u")], n[d.nodo_de("v")], n[d.nodo_de("w")],
+                                    n[d.nodo_de("step")], n[d.nodo_de("dir")], n[d.nodo_de("en")],
+                                    nd("v5"), nd("h1"), nd("h2"), nd("h3"), nd("enc_a"),
+                                    nd("enc_b"), nd("freno"), nd("error"));
     });
 
 REGISTRA_PARTE(L298,

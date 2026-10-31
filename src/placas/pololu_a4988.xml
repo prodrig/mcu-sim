@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     MODULO POLOLU DEL A4988, el driver de paso a paso de la CNC Shield, sin MCU
+
+     El modulo de 20 x 15 mm con el A4988 de Allegro, su potenciometro de Vref
+     y sus dos resistencias de 0,068 ohm (doc/analisis_cnc.md §5.2). Dos
+     tiras de ocho pines:
+
+         J1  EN, MS1, MS2, MS3, RST, SLP, STEP, DIR      la logica
+         J2  VMOT, GND1, 2B, 2A, 1A, 1B, VLOG, GND2      la potencia y el motor
+
+     EL CHIP, U1: un DriverPaP con modelo="A4988" (`./build/mcu-sim --help
+     DriverPaP`). Cada fase es una corriente impuesta con tope de tension: la
+     bobina de 1A a 1B sigue a la consigna de la fase 1, y la de 2A a 2B a la
+     de la 2, mientras VMOT le llegue. La corriente de pico la pone el
+     potenciometro: I = Vref / (8 · 0,068) = 1,84 · Vref -el mando `vref`-.
+     Aqui, 0,6 V: 1,1 A.
+
+     LO QUE HAY QUE SABER PARA CABLEARLO, como con el de verdad:
+
+       * RST NO LLEVA RESISTENCIA: al aire, el A4988 no sabe si esta en
+         reset, y se avisa. Se une a SLP -lo hace la CNC Shield-, o a VDD.
+       * SLP va a VDD con R1, de 10 kohm, en el modulo: despierto si nadie lo
+         toca.
+       * MS1, MS2 y MS3 tienen sus resistencias a masa DENTRO del chip: sin
+         nada, paso entero.
+       * EN es activo a nivel BAJO y no lleva resistencia: hay que ponerlo.
+       * Con VDD a 5 V, un alto tiene que pasar de 3,5 V: los 3,3 V de un
+         STM32 quedan por debajo -funciona casi siempre, fuera de
+         especificacion-, y se avisa.
+
+     GND1 y GND2 son la misma masa. VLOG es el VDD del serigrafiado, la
+     logica, que va al nodo LOGICA: `J2.VDD` se leeria como el pad VDD de un
+     MCU llamado J2.
+
+         ./build/mcu-sim placas/pololu_a4988.xml --valida
+     ========================================================================= -->
+<placa nombre="pololu-a4988">
+  <componente tipo="Conector" id="J1" filas="8" columnas="1"
+              nombres="EN MS1 MS2 MS3 RST SLP STEP DIR"/>
+  <componente tipo="Conector" id="J2" filas="8" columnas="1"
+              nombres="VMOT GND1 2B 2A 1A 1B VLOG GND2">
+    <pin nombre="GND1" nodo="GND"/>
+    <pin nombre="GND2" nodo="GND"/>
+    <pin nombre="VLOG" nodo="LOGICA"/>
+  </componente>
+  <nodo id="GND" bus="si"/>
+  <nodo id="J2.VMOT" bus="si"/>
+  <nodo id="LOGICA" bus="si"/>
+  <nodo id="J2.1A" bus="si"/>
+  <nodo id="J2.1B" bus="si"/>
+  <nodo id="J2.2A" bus="si"/>
+  <nodo id="J2.2B" bus="si"/>
+  <nodo id="J1.SLP" bus="si"/>
+
+  <componente tipo="DriverPaP" id="U1" modelo="A4988" vref="0.6">
+    <pin nombre="vmot"  nodo="J2.VMOT"/>
+    <pin nombre="gnd"   nodo="GND"/>
+    <pin nombre="vdd"   nodo="LOGICA"/>
+    <pin nombre="en"    nodo="J1.EN"/>
+    <pin nombre="ms1"   nodo="J1.MS1"/>
+    <pin nombre="ms2"   nodo="J1.MS2"/>
+    <pin nombre="ms3"   nodo="J1.MS3"/>
+    <pin nombre="rst"   nodo="J1.RST"/>
+    <pin nombre="slp"   nodo="J1.SLP"/>
+    <pin nombre="step"  nodo="J1.STEP"/>
+    <pin nombre="dir"   nodo="J1.DIR"/>
+    <pin nombre="out1a" nodo="J2.1A"/>
+    <pin nombre="out1b" nodo="J2.1B"/>
+    <pin nombre="out2a" nodo="J2.2A"/>
+    <pin nombre="out2b" nodo="J2.2B"/>
+  </componente>
+
+  <!-- R1: SLEEP a VDD, en el modulo -->
+  <componente tipo="Resistencia" id="R1" r="10000">
+    <pin nombre="a" nodo="J1.SLP"/>
+    <pin nombre="b" nodo="LOGICA"/>
+  </componente>
+</placa>

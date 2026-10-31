@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+  CNC SHIELD V3 (Protoneer), dibujada a mano: una aproximacion, no una foto.
+  Es el dibujo de placas/cnc_shield_v3.xml, que lo encuentra solo porque se
+  llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 70 x 54 mm, la de un Arduino Uno- y cada pieza con el id de su
+  pieza en el XML. Vista desde arriba:
+
+    J5, J6, J8, J9  los conectores Arduino de debajo, en los bordes
+    SX1, SX2 ...    los zocalos de los tres drivers, X, Y y Z
+    MX, MY, MZ      las tiras de los motores
+    JX0 ... JZ2     los puentes del micropaso (JX0@5V-MS: puesto)
+    FIN, SPN, COOL, CTL  las tiras de los finales, el cabezal, la
+                    refrigeracion y el control
+    PWR             la borna de la potencia
+    R1              la resistencia de EN
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 540" width="70mm" height="54mm">
+  <rect x="0" y="0" width="700" height="540" rx="12" fill="#1565c0" stroke="#0d47a1" stroke-width="2"/>
+  <g id="J5">
+  <rect id="J5.1" x="24" y="12" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J5.2" x="49.4" y="12" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J5.3" x="74.8" y="12" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J5.4" x="100.2" y="12" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J5.5" x="125.6" y="12" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J5.6" x="151" y="12" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J5.7" x="176.4" y="12" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J5.8" x="201.8" y="12" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J5.9" x="227.2" y="12" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J5.10" x="252.6" y="12" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <g id="J9">
+  <rect id="J9.1" x="324" y="12" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J9.2" x="349.4" y="12" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J9.3" x="374.8" y="12" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J9.4" x="400.2" y="12" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J9.5" x="425.6" y="12" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J9.6" x="451" y="12" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J9.7" x="476.4" y="12" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J9.8" x="501.8" y="12" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <g id="J6">
+  <rect id="J6.1" x="114" y="516" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J6.2" x="139.4" y="516" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J6.3" x="164.8" y="516" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J6.4" x="190.2" y="516" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J6.5" x="215.6" y="516" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J6.6" x="241" y="516" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J6.7" x="266.4" y="516" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J6.8" x="291.8" y="516" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <g id="J8">
+  <rect id="J8.1" x="394" y="516" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J8.2" x="419.4" y="516" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J8.3" x="444.8" y="516" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J8.4" x="470.2" y="516" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J8.5" x="495.6" y="516" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J8.6" x="521" y="516" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <rect x="56" y="70" width="130" height="230" rx="4" fill="#0d47a1" stroke="#08306b" stroke-width="1"/>
+  <g id="SX1">
+  <rect id="SX1.EN" x="64" y="84" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SX1.MS1" x="64" y="110" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SX1.MS2" x="64" y="136" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SX1.MS3" x="64" y="162" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SX1.RST" x="64" y="188" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SX1.SLP" x="64" y="214" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SX1.STEP" x="64" y="240" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SX1.DIR" x="64" y="266" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <g id="SX2">
+  <rect id="SX2.VMOT" x="164" y="84" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SX2.GND1" x="164" y="110" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SX2.2B" x="164" y="136" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SX2.2A" x="164" y="162" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SX2.1A" x="164" y="188" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SX2.1B" x="164" y="214" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SX2.VLOG" x="164" y="240" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SX2.GND2" x="164" y="266" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="120" y="64" font-family="Arial" font-size="11" font-weight="bold" fill="#f5f5f5" text-anchor="middle">eje X</text>
+  <g id="MX">
+  <rect id="MX.2B" x="74" y="324" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="MX.2A" x="99.4" y="324" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="MX.1A" x="124.8" y="324" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="MX.1B" x="150.2" y="324" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="80" y="348" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">2B</text>
+  <text x="105.4" y="348" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">2A</text>
+  <text x="130.8" y="348" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">1A</text>
+  <text x="156.2" y="348" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">1B</text>
+  <g id="JX0">
+  <rect id="JX0.5V" x="74" y="374" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="JX0.MS" x="74" y="399.4" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <rect id="JX0@5V-MS" x="71" y="372" width="18" height="42" rx="2" fill="#212121" stroke="#000000" stroke-width="1"/>
+  <g id="JX1">
+  <rect id="JX1.5V" x="108" y="374" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="JX1.MS" x="108" y="399.4" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <rect id="JX1@5V-MS" x="105" y="372" width="18" height="42" rx="2" fill="#212121" stroke="#000000" stroke-width="1"/>
+  <g id="JX2">
+  <rect id="JX2.5V" x="142" y="374" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="JX2.MS" x="142" y="399.4" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <rect id="JX2@5V-MS" x="139" y="372" width="18" height="42" rx="2" fill="#212121" stroke="#000000" stroke-width="1"/>
+  <text x="114" y="430" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">MS1 MS2 MS3</text>
+  <rect x="256" y="70" width="130" height="230" rx="4" fill="#0d47a1" stroke="#08306b" stroke-width="1"/>
+  <g id="SY1">
+  <rect id="SY1.EN" x="264" y="84" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SY1.MS1" x="264" y="110" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SY1.MS2" x="264" y="136" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SY1.MS3" x="264" y="162" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SY1.RST" x="264" y="188" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SY1.SLP" x="264" y="214" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SY1.STEP" x="264" y="240" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SY1.DIR" x="264" y="266" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <g id="SY2">
+  <rect id="SY2.VMOT" x="364" y="84" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SY2.GND1" x="364" y="110" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SY2.2B" x="364" y="136" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SY2.2A" x="364" y="162" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SY2.1A" x="364" y="188" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SY2.1B" x="364" y="214" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SY2.VLOG" x="364" y="240" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SY2.GND2" x="364" y="266" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="320" y="64" font-family="Arial" font-size="11" font-weight="bold" fill="#f5f5f5" text-anchor="middle">eje Y</text>
+  <g id="MY">
+  <rect id="MY.2B" x="274" y="324" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="MY.2A" x="299.4" y="324" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="MY.1A" x="324.8" y="324" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="MY.1B" x="350.2" y="324" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="280" y="348" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">2B</text>
+  <text x="305.4" y="348" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">2A</text>
+  <text x="330.8" y="348" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">1A</text>
+  <text x="356.2" y="348" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">1B</text>
+  <g id="JY0">
+  <rect id="JY0.5V" x="274" y="374" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="JY0.MS" x="274" y="399.4" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <rect id="JY0@5V-MS" x="271" y="372" width="18" height="42" rx="2" fill="#212121" stroke="#000000" stroke-width="1"/>
+  <g id="JY1">
+  <rect id="JY1.5V" x="308" y="374" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="JY1.MS" x="308" y="399.4" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <rect id="JY1@5V-MS" x="305" y="372" width="18" height="42" rx="2" fill="#212121" stroke="#000000" stroke-width="1"/>
+  <g id="JY2">
+  <rect id="JY2.5V" x="342" y="374" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="JY2.MS" x="342" y="399.4" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <rect id="JY2@5V-MS" x="339" y="372" width="18" height="42" rx="2" fill="#212121" stroke="#000000" stroke-width="1"/>
+  <text x="314" y="430" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">MS1 MS2 MS3</text>
+  <rect x="456" y="70" width="130" height="230" rx="4" fill="#0d47a1" stroke="#08306b" stroke-width="1"/>
+  <g id="SZ1">
+  <rect id="SZ1.EN" x="464" y="84" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SZ1.MS1" x="464" y="110" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SZ1.MS2" x="464" y="136" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SZ1.MS3" x="464" y="162" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SZ1.RST" x="464" y="188" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SZ1.SLP" x="464" y="214" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SZ1.STEP" x="464" y="240" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SZ1.DIR" x="464" y="266" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <g id="SZ2">
+  <rect id="SZ2.VMOT" x="564" y="84" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SZ2.GND1" x="564" y="110" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SZ2.2B" x="564" y="136" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SZ2.2A" x="564" y="162" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SZ2.1A" x="564" y="188" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SZ2.1B" x="564" y="214" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SZ2.VLOG" x="564" y="240" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SZ2.GND2" x="564" y="266" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="520" y="64" font-family="Arial" font-size="11" font-weight="bold" fill="#f5f5f5" text-anchor="middle">eje Z</text>
+  <g id="MZ">
+  <rect id="MZ.2B" x="474" y="324" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="MZ.2A" x="499.4" y="324" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="MZ.1A" x="524.8" y="324" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="MZ.1B" x="550.2" y="324" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="480" y="348" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">2B</text>
+  <text x="505.4" y="348" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">2A</text>
+  <text x="530.8" y="348" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">1A</text>
+  <text x="556.2" y="348" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">1B</text>
+  <g id="JZ0">
+  <rect id="JZ0.5V" x="474" y="374" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="JZ0.MS" x="474" y="399.4" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <rect id="JZ0@5V-MS" x="471" y="372" width="18" height="42" rx="2" fill="#212121" stroke="#000000" stroke-width="1"/>
+  <g id="JZ1">
+  <rect id="JZ1.5V" x="508" y="374" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="JZ1.MS" x="508" y="399.4" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <rect id="JZ1@5V-MS" x="505" y="372" width="18" height="42" rx="2" fill="#212121" stroke="#000000" stroke-width="1"/>
+  <g id="JZ2">
+  <rect id="JZ2.5V" x="542" y="374" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="JZ2.MS" x="542" y="399.4" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <rect id="JZ2@5V-MS" x="539" y="372" width="18" height="42" rx="2" fill="#212121" stroke="#000000" stroke-width="1"/>
+  <text x="514" y="430" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">MS1 MS2 MS3</text>
+  <g id="FIN">
+  <rect id="FIN.XMIN" x="64" y="464" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="FIN.XMAX" x="89.4" y="464" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="FIN.YMIN" x="114.8" y="464" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="FIN.YMAX" x="140.2" y="464" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="FIN.ZMIN" x="165.6" y="464" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="FIN.ZMAX" x="191" y="464" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="70" y="488" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">X-</text>
+  <text x="95.4" y="488" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">X+</text>
+  <text x="120.8" y="488" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">Y-</text>
+  <text x="146.2" y="488" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">Y+</text>
+  <text x="171.6" y="488" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">Z-</text>
+  <text x="197" y="488" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">Z+</text>
+  <g id="SPN">
+  <rect id="SPN.EN" x="244" y="464" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="SPN.DIR" x="269.4" y="464" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="250" y="488" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">SpE</text>
+  <text x="275.4" y="488" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">SpD</text>
+  <g id="COOL">
+  <rect id="COOL.EN" x="314" y="464" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="320" y="488" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">Cl</text>
+  <g id="CTL">
+  <rect id="CTL.ABORT" x="364" y="464" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="CTL.HOLD" x="389.4" y="464" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="CTL.RESUME" x="414.8" y="464" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="CTL.ESTOP" x="440.2" y="464" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="CTL.SDA" x="465.6" y="464" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="CTL.SCL" x="491" y="464" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="370" y="488" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">Ab</text>
+  <text x="395.4" y="488" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">Ho</text>
+  <text x="420.8" y="488" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">Re</text>
+  <text x="446.2" y="488" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">ES</text>
+  <text x="471.6" y="488" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">SD</text>
+  <text x="497" y="488" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">SC</text>
+  <rect x="600" y="60" width="80" height="120" rx="4" fill="#2e7d32" stroke="#1b5e20" stroke-width="1.5"/>
+  <g id="PWR">
+  <g id="PWR.V+">
+    <circle cx="640" cy="90" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="628" y="87.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="PWR.GND">
+    <circle cx="640" cy="150" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="628" y="147.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  </g>
+  <text x="640" y="196" font-family="Arial" font-size="9" font-weight="bold" fill="#f5f5f5" text-anchor="middle">12-36 V</text>
+  <g id="R1">
+    <rect x="610" y="230" width="40" height="14" fill="#d7ccc8" stroke="#5d4037" stroke-width="1"/>
+  </g>
+  <text x="350" y="455" font-family="Arial" font-size="12" font-weight="bold" fill="#f5f5f5" text-anchor="middle">CNC SHIELD V3</text>
+</svg>

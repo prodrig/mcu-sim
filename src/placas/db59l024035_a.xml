@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     MOTOR BLDC NANOTEC DB59L024035-A (NEMA 23), sin MCU
+
+     Un brushless de 24 V y 172 W con sus tres sensores Hall (doc/analisis_cnc.md
+     §5.4), el motor de referencia de la version potente de la fresadora, tras
+     un controlador que lo conmuta por dentro (placas/controlador_tipo_c5e.xml).
+     Sus dos cables:
+
+         M.U, M.V, M.W         las tres fases (amarillo, rojo y negro en la
+                               ficha de Nanotec)
+         P1.VCC, P1.GND        la alimentacion de los Hall, 5 V
+         P1.H1, P1.H2, P1.H3   los tres Hall, de colector abierto: el pull-up
+                               lo pone el controlador
+
+     EL MOTOR, MOTOR: un MotorBLDC (`./build/mcu-sim --help MotorBLDC`) con las
+     cifras de su ficha: 3500 rpm, 9,4 A y 0,47 N·m nominales, 28 A y 1,41
+     N·m de pico, 5 N·cm/A, 0,22 ohm y 0,29 mH entre fases, 119 g·cm² y tres
+     pares de polos -18 cambios de Hall por vuelta-. Kt·I = 0,05 x 9,4 = 0,47
+     N·m, y 172 W / 366 rad/s = 0,47: las cuentas cuadran. El rozamiento es una
+     ESTIMACION: la ficha no da la corriente en vacio. El -A tiene un solo eje:
+     el encoder va en el -B, con el eje por detras. El orden de los colores de
+     H1, H2 y H3 no se lee bien en la ficha: aqui solo van los nombres.
+
+     LOS MANDOS: `bloquear` y `carga`, el par que se opone al giro, en % del
+     nominal (0,47 N·m), hasta el 300 %.
+
+     EN LA VENTANA, el eje gira con el rotor (el efecto `angulo`).
+
+         ./build/mcu-sim placas/db59l024035_a.xml --valida
+     ========================================================================= -->
+<placa nombre="db59l024035-a">
+  <componente tipo="Conector" id="M" filas="3" columnas="1" nombres="U V W"/>
+  <componente tipo="Conector" id="P1" filas="5" columnas="1" nombres="VCC GND H1 H2 H3"/>
+
+  <componente tipo="MotorBLDC" id="MOTOR" kt_ncm_a="5" r_ohm="0.22" l_mh="0.29"
+              corriente_nominal="9.4" corriente_pico="28" inercia_gcm2="119"
+              rozamiento_ncm="1.5" pares_polos="3">
+    <pin nombre="u"        nodo="M.U"/>
+    <pin nombre="v"        nodo="M.V"/>
+    <pin nombre="w"        nodo="M.W"/>
+    <pin nombre="hall_vcc" nodo="P1.VCC"/>
+    <pin nombre="hall_gnd" nodo="P1.GND"/>
+    <pin nombre="h1"       nodo="P1.H1"/>
+    <pin nombre="h2"       nodo="P1.H2"/>
+    <pin nombre="h3"       nodo="P1.H3"/>
+  </componente>
+</placa>

@@ -1515,6 +1515,154 @@ SC_MODULE(Sim) {
                 std::printf("; encoder %+ld cuartos (%u PPR)", m->cuenta(), m->config().ppr);
             std::printf("\n");
         }
+        // Los paso a paso: donde estan, a cuanto van y si han perdido pasos; sus
+        // drivers, que micropaso llevan, cuantos pasos han contado y lo que
+        // gastan; y los generadores de pasos
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "MotorPaP") continue;
+            const MotorPaP* m = placa.como<MotorPaP>(i.id);
+            if (!m) continue;
+            std::printf("  PASO A PASO %s: %+.1f rpm, %+.2f pasos (%+.2f vueltas); A %s %+.0f mA, "
+                        "B %s %+.0f mA; retraso %+.2f pasos, %ld perdidos%s%s\n", i.id.c_str(),
+                        m->rpm(), m->posicion_pasos(), m->vueltas(), m->modo(0),
+                        m->corriente_ma(0), m->modo(1), m->corriente_ma(1), m->retraso(),
+                        m->pasos_perdidos(), m->ideal() ? "; ideal" : "",
+                        m->bloqueado() ? "; bloqueado" : "");
+        }
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "DriverPaP") continue;
+            const DriverPaP* d = placa.como<DriverPaP>(i.id);
+            if (!d) continue;
+            std::printf("  DRIVER %s (%s): %s, 1/%u, %+ld pasos; fases %+.0f y %+.0f mA de %.2f A; "
+                        "VMOT %.0f mA de media; %.0f °C%s\n", i.id.c_str(), d->modelo().nombre,
+                        d->activo() ? "activo" : (d->logica() ? "salidas apagadas" : "sin logica"),
+                        d->micropasos(), d->pasos(), d->consigna_ma(0), d->consigna_ma(1),
+                        d->corriente_ajustada(), d->corriente_vmot_ma(), d->temperatura(),
+                        d->sobretemperatura() ? "; PROTECCION TERMICA" : "");
+        }
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "GeneradorPasos") continue;
+            const GeneradorPasos* g = placa.como<GeneradorPasos>(i.id);
+            if (!g) continue;
+            std::printf("  GENERADOR %s: %.0f Hz, %+ld pasos\n", i.id.c_str(), g->hz(), g->pasos());
+        }
+        // Los interruptores de potencia: el MOSFET de un cabezal y los medios
+        // puentes de un IBT-2
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Mosfet") continue;
+            const Mosfet* q = placa.como<Mosfet>(i.id);
+            if (!q) continue;
+            std::printf("  MOSFET %s (%s): %s, Vgs %.2f V, %.0f mA de media, %.0f mohm; disipa %.2f "
+                        "W%s\n", i.id.c_str(), q->config().modelo.c_str(),
+                        q->conduce() ? "conduce" : (q->por_el_diodo() ? "por el diodo" : "abierto"),
+                        q->vgs(), q->corriente_media() * 1e3, q->rds() * 1e3, q->disipacion(),
+                        q->config().diodo ? "" : "; SIN DIODO");
+        }
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "MedioPuente") continue;
+            const MedioPuente* h = placa.como<MedioPuente>(i.id);
+            if (!h) continue;
+            std::printf("  BTS7960 %s: %s, %+.0f mA de media, IS %.1f uA; disipa %.2f W\n",
+                        i.id.c_str(), h->estado(), h->corriente_media() * 1e3,
+                        h->corriente_is() * 1e6, h->disipacion());
+        }
+        // Los BLDC y sus controladores: a cuanto van, su corriente, sus Hall; y el
+        // estado del controlador, sus pasos y su error de seguimiento
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "MotorBLDC") continue;
+            const MotorBLDC* m = placa.como<MotorBLDC>(i.id);
+            if (!m) continue;
+            std::printf("  BLDC %s: %+.1f rpm, %+.2f vueltas; %s, %+.2f A, %+.3f N·m, %+.1f V; Hall "
+                        "%u%u%u", i.id.c_str(), m->rpm(), m->vueltas(), m->modo(), m->corriente(),
+                        m->par(), m->tension(), (m->hall() >> 2) & 1, (m->hall() >> 1) & 1,
+                        m->hall() & 1);
+            if (m->tiene_encoder()) std::printf("; encoder %+ld cuartos", m->cuenta());
+            std::printf("%s\n", m->bloqueado() ? "; bloqueado" : "");
+        }
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "ControladorMotor") continue;
+            const ControladorMotor* c = placa.como<ControladorMotor>(i.id);
+            if (!c) continue;
+            std::printf("  CONTROLADOR %s (%s): %s%s%s, %+ld pasos (%ld sin seguir); error de "
+                        "seguimiento %+.1f°, %.1f como mucho; iq %+.2f A; VCC %.0f mA de media; "
+                        "freno %s\n", i.id.c_str(), c->config().nombre.c_str(), c->texto_estado(),
+                        c->causa().empty() ? "" : " por ", c->causa().c_str(), c->pasos(),
+                        c->pasos_ignorados(), c->error_grados(), c->error_maximo_grados(),
+                        c->corriente_q(), c->corriente_vcc_ma(),
+                        c->freno_suelto() ? "suelto" : "echado");
+        }
+        // La transmision (F2): cada husillo con sus rendimientos, cada carro donde
+        // esta, cada reductora y cada freno
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo == "Husillo") {
+                const Husillo* h = placa.como<Husillo>(i.id);
+                if (!h) continue;
+                const ConfigHusillo& c = h->config();
+                std::printf("  HUSILLO %s: %s%.0fx%.0f, helice %.1f°, rendimiento %.2f directo y "
+                            "%.2f inverso%s; %+.0f rpm (critica %.0f)\n", i.id.c_str(),
+                            c.rosca == "bolas" ? "bolas " : c.rosca.c_str(), c.diametro_mm,
+                            c.avance_mm, h->lambda_grados(), h->rendimiento_directo(),
+                            h->rendimiento_inv(), h->se_sujeta() ? ": SE SUJETA SOLO" : "",
+                            h->rpm(), h->velocidad_critica());
+            } else if (i.tipo == "Carro") {
+                const Carro* c = placa.como<Carro>(i.id);
+                if (!c) continue;
+                std::printf("  CARRO %s (%s): %.3f mm, %+.1f mm/s%s%s\n", i.id.c_str(),
+                            c->config().eje.c_str(), c->posicion_mm(), c->velocidad_mm_s(),
+                            c->en_tope() ? "; EN UN TOPE" : "",
+                            c->choques() ? "; ha chocado" : "");
+            } else if (i.tipo == "Reductora") {
+                const Reductora* r = placa.como<Reductora>(i.id);
+                if (!r) continue;
+                std::printf("  REDUCTORA %s: 1:%g, %+.1f rpm en su salida\n", i.id.c_str(),
+                            r->config().relacion, r->rpm_salida());
+            } else if (i.tipo == "Pieza") {
+                const Pieza* p = placa.como<Pieza>(i.id);
+                if (!p) continue;
+                const ConfigPieza& k = p->config();
+                const char* fr = k.fresa == TipoFresa::Plana ? "plana"
+                               : k.fresa == TipoFresa::V ? "en V" : "de bola";
+                std::printf("  PIEZA %s: %s de %g x %g x %g mm, fresa %s de %g mm; %.1f mm3 "
+                            "quitados, hasta %.3f mm de hondo%s\n", i.id.c_str(),
+                            k.material->texto, k.largo_mm, k.ancho_mm, k.espesor_mm, fr,
+                            k.fresa_mm, p->quitado_mm3(), p->hondo_mm(),
+                            p->choque() ? "; LA FRESA HA ENTRADO EN LA MESA" : "");
+            } else if (i.tipo == "FinalCarrera") {
+                const FinalCarrera* f = placa.como<FinalCarrera>(i.id);
+                if (!f) continue;
+                std::printf("  FINAL %s: %s, pisado %u veces\n", i.id.c_str(),
+                            f->pisado() ? "PISADO" : "suelto", f->veces());
+            } else if (i.tipo == "Sonda") {
+                const Sonda* p = placa.como<Sonda>(i.id);
+                if (!p) continue;
+                std::printf("  SONDA %s: %s, la fresa la toca con el Z a %.2f mm\n", i.id.c_str(),
+                            !p->puesta() ? "quitada" : (p->toca() ? "TOCA" : "puesta"),
+                            p->altura_mm());
+            } else if (i.tipo == "Interruptor") {
+                const Interruptor* t = placa.como<Interruptor>(i.id);
+                if (!t) continue;
+                std::printf("  INTERRUPTOR %s: %s\n", i.id.c_str(),
+                            t->pulsado() ? "PULSADO" : "en reposo");
+            } else if (i.tipo == "Freno") {
+                const Freno* f = placa.como<Freno>(i.id);
+                if (!f) continue;
+                std::printf("  FRENO %s: %s, %.0f mA\n", i.id.c_str(),
+                            f->suelto() ? "suelto" : "echado", f->corriente_ma());
+            }
+        }
+        // Las cadenas mecanicas: a cuanto va su eje, cuanto ha girado y la
+        // inercia que mueve, todo reflejada en el
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Transmision") continue;
+            const Transmision* t = placa.como<Transmision>(i.id);
+            if (!t) continue;
+            const Cadena& c = t->cadena();
+            std::printf("  TRANSMISION %s: %+.1f rpm, %+.2f vueltas; %u motor(es) y %u "
+                        "elemento(s), %.1f g·cm2 reflejados%s\n", i.id.c_str(), c.rpm(),
+                        c.th() / (2.0 * 3.14159265358979323846), unsigned(c.actuadores().size()),
+                        unsigned(c.elementos().size()), c.inercia() * 1e7,
+                        c.bloqueada() ? "; bloqueada" : "");
+        }
         for (const Instancia& i : placa.instancias()) {
             if (i.tipo != "L298") continue;
             const L298* l = placa.como<L298>(i.id);
@@ -1706,6 +1854,7 @@ static int saluda_gui(Sim& s, stm32::gui::ClienteGui& cli,
             // de sc_start(): por eso la secuencia de instantaneas se repite al
             // picosegundo de una ejecucion a otra.
             canal = cli.entrega();
+            s.frontera.imagen_parcial(cli.imagen_parcial());
             s.enlace.activa(canal.get(), cli.emisor(), cli.lector());
             aplica_arranca(s, arr);
             if (cli.hay_suscripcion()) s.enlace.suscripcion_inicial(cli.suscripcion());

@@ -34,6 +34,45 @@ constexpr float R_HIZ = 1.0e12f;              // alta impedancia efectiva
 // que todos los drivers presenten más de 1 Gohm [IR, §2.4; premisa de pines].
 constexpr double G_FLOAT = 1.0e-9;            // 1/(1 Gohm)
 
+// ---------------------------------------------------------------------------
+// UNA FASE DE CORRIENTE IMPUESTA (fase F1a de la CNC, doc/analisis_cnc.md
+// §5.2). Un driver de paso a paso de verdad es un CHOPPER: conmuta su puente a
+// 20-40 kHz para que la corriente de cada fase siga a la consigna. Simularlo
+// conmutando costaría cientos de miles de sucesos por segundo, así que cada
+// fase del driver no es un Thevenin sino esto: «quiero `i` amperios, y puedo
+// poner entre mis dos salidas de -vbus a +vbus». Lo DECLARA en los dos nodos de
+// sus salidas -un polo en cada uno-, como `declara_reloj` declara una
+// frecuencia, y la carga que encuentre esas dos salidas en sus bornes -una
+// bobina- integra su corriente sabiéndolo: si la tensión que haría falta cabe
+// en el tope, la corriente es la consigna; si no, la tensión se queda en el
+// tope y la corriente va por detrás. Lo que gasta, la carga lo deja aquí, y el
+// driver lo pide a su alimentación.
+// ---------------------------------------------------------------------------
+struct FaseCorriente {
+    // Lo que manda el driver
+    double i = 0.0;          // A: la consigna; sale por el polo + y vuelve por el -
+    double vbus = 0.0;       // V: lo más que pone entre los dos polos, en un sentido o en otro
+    bool   activa = false;   // el puente conduce: habilitado, con tensión y sin protección
+    double vd = 0.7;         // V: sus diodos; suelto, la corriente vuelve al bus contra vbus + 2·vd
+    const sc_core::sc_event* ev = nullptr;   // lo notifica el driver cuando cambia algo
+    const char* quien = "";  // el driver, para los mensajes
+    int    numero = 0;       // la fase, para los mensajes: 1, 2...
+    // Lo que deja la carga: lo de ahora, y lo ACUMULADO hasta `t_carga` -la
+    // energía que ha entrado en la bobina y la integral de i²-, de donde el
+    // driver saca lo que ha gastado de media entre dos miradas: con un chopper
+    // lo de ahora salta de signo dentro de cada paso
+    double v_carga = 0.0;    // V del polo + al -
+    double i_carga = 0.0;    // A del polo + al -
+    bool   con_carga = false;
+    double energia = 0.0;    // J, del driver a la bobina (negativa si vuelve)
+    double i2s = 0.0;        // A²·s
+    double t_carga = 0.0;    // s: hasta cuándo valen las dos
+};
+struct SalidaCorriente {
+    FaseCorriente* fase = nullptr;
+    int polo = 0;            // +1: por aquí sale la consigna; -1: por aquí vuelve
+};
+
 class analog_net_if : virtual public sc_core::sc_interface {
 public:
     virtual int   register_driver(const char* name)            = 0;
@@ -57,6 +96,13 @@ public:
     // nada, y quien quiera la frecuencia la mide, como siempre.
     virtual double reloj_declarado() const { return 0.0; }
     virtual void   declara_reloj(double) {}
+    // LAS SALIDAS DE CORRIENTE IMPUESTA que hay en el nodo (véase arriba). Lo
+    // normal es ninguna, o una; dos son dos drivers en corto
+    virtual const std::vector<SalidaCorriente>& salidas_corriente() const {
+        static const std::vector<SalidaCorriente> ninguna;
+        return ninguna;
+    }
+    virtual void declara_salida_corriente(const SalidaCorriente&) {}
 };
 
 class AnalogNet : public sc_core::sc_prim_channel, public analog_net_if {
@@ -72,6 +118,8 @@ public:
     std::string nombre_esq;
     double reloj_declarado() const override { return reloj_hz_; }
     void   declara_reloj(double hz) override { reloj_hz_ = hz; }
+    const std::vector<SalidaCorriente>& salidas_corriente() const override { return salidas_; }
+    void declara_salida_corriente(const SalidaCorriente& s) override { salidas_.push_back(s); }
 
     int register_driver(const char* /*name*/) override {
         drv_.push_back(AnalogDrive{});
@@ -138,6 +186,7 @@ protected:
 
 private:
     double reloj_hz_ = 0.0;
+    std::vector<SalidaCorriente> salidas_;
     std::vector<AnalogDrive> drv_;
     float             v_pin_ = 0.0f;
     double            g_tot_ = 0.0;

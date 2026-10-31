@@ -529,7 +529,7 @@ El `DriverPaP` debe comprobar estos umbrales y avisar, como hace el `Servo` con 
 
 Sirve para las pruebas, y cada cosa que falle se ve en su código.
 
-**2. grblHAL sin modificar**, en F3.
+**2. grblHAL sin modificar**, en F3. Hecho: §13, «F3: grblHAL».
 
 * **Lo soporta de forma oficial**: su driver STM32F4xx soporta el F401, F407,
   F411 y **F446**, con configuraciones para la Nucleo-64, y en su repositorio
@@ -726,6 +726,335 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
 * **Las fuerzas de corte** (F4) dependen del material y de la fresa con una
   dispersión enorme. Valen para ver tendencias (avanzar más deprisa frena el
   cabezal y pierde pasos), no para predecir un mecanizado.
+
+## 13. Lo decidido, y lo hecho
+
+**Decidido el 2026-10-28**, al empezar la rama `cnc` de `mcu-sim` y de
+`mcu-sim-gui`:
+
+1. **La arquitectura mecánica**: la cadena rígida declarada, la opción C del §4.
+2. **El modelo eléctrico de los drivers**: la **corriente impuesta con tope de
+   tensión**, la tercera forma del §5.2.
+3. **El orden**: F0, F1a, F1b y F1c, un parche por fase.
+4. **El 2026-10-29, F2 y F3**, un parche por fase. En F3, **el firmware
+   propio**; grblHAL, después y en un parche aparte (la pregunta 2 del §12).
+5. **El 2026-10-31, F4**, con las fuerzas de corte que el plan daba por
+   opcionales: sin ellas la pieza solo se ve, y con ellas se nota.
+
+### F0, hecha: la cadena mecánica y el efecto `desplaza`
+
+* **`parts/cadena.h`**. La `Cadena`: un grado de libertad, los motores
+  (`Actuador`) y los elementos pasivos (`ElementoMecanico`) reflejados en el eje
+  de los motores, y **un solo integrador** —Runge-Kutta de cuarto orden, a pasos
+  de 5 µs como mucho— con las corrientes de todos los motores y la ecuación
+  mecánica. El ángulo va con Runge-Kutta si algún motor da un par que depende de
+  él —el paso a paso de F1a—; si no, con el trapecio de siempre.
+* **`<transmision id cadena="M V"/>`** en el XML de una placa: una pieza
+  `Transmision` cuyas referencias son las piezas de la cadena, en orden, motores
+  primero. Sus errores tienen nombre: la pieza declarada después, la que no
+  tiene eje, el motor detrás de un elemento, la pieza en dos transmisiones.
+* **El `MotorCC`, actuador de su cadena.** Suelto, lleva la suya implícita, de
+  él solo, con su carga de siempre. **M9 y M10 dan las mismas rpm al decimal**,
+  y más que eso: un banco del motor tras el L298 —a tensión fija, con PWM de
+  1 kHz, casi sin inductancia y sin diodos, con carga, bloqueado y suelto— da
+  los mismos números **con sus 17 cifras** antes y después de la cadena.
+* **El `Volante`**, el primer elemento: una inercia con sus rozamientos. Con uno
+  igual que el TT, la constante de tiempo pasa de 53 ms a 106 —la cuenta da 52,5
+  y 105— y llega a la misma velocidad (`make gui-cnc`, C1).
+* **El efecto `desplaza`**: `observable="x z" vector="2.5 0  0 -2.5"` en la
+  tabla de enlaces. `mcu-sim` lo valida y lo manda en `T_PLACA`; la ventana
+  traslada el elemento con la suma de cada observable por su vector (I27 de
+  `mcu-sim-gui`). Va con su halo y su contorno.
+* **Pruebas**: `make gui-cnc` (C1, 16 comprobaciones), y en `mcu-sim-gui` la I27.
+  Ninguna suite se mueve; las dos de `gui-sistema` que comprobaban el texto de la
+  lista de efectos lo comprueban con `desplaza`.
+
+### F1a, hecha: los paso a paso y sus drivers, con corriente impuesta
+
+* **La rama de corriente impuesta con tope de tensión** (§5.2, la tercera
+  forma): un canal aparte del nodo, `FaseCorriente` en `common/analog_net.h`,
+  que el driver declara en los nodos de sus dos salidas, y `RamaCorriente` en
+  `parts/ext_parts.h`, su lado. Encaja con el resolvedor de `AnalogNet` sin
+  tocarlo: el riesgo del §12 no se da. La bobina deja en la rama la energía
+  que ha entrado en ella, integrada —con un chopper, la potencia de cada
+  instante salta de signo dentro de cada micropaso—, y el driver la pide de
+  media a VMOT.
+* **`MotorPaP`** (`parts/motor_pap.h`), dinámico e ideal, con sus pasos
+  perdidos. Cada bobina va como esté cableada: con corriente impuesta, con
+  Thevenin tras un L298, al aire o mal, y lo dice.
+* **`DriverPaP`** (`parts/driver_pap.h`): **A4988, DRV8825 y TMC2209**, y
+  además el **DM542**, el driver externo de 48 V con entradas optoacopladas:
+  ninguno de los otros tres aguanta los 48 V de la curva del ST5918. Y un
+  **`GeneradorPasos`** de banco, para mover un driver sin firmware.
+* **Placas**: `nema17_3018.xml`, `st5918l3008.xml` y `pololu_a4988.xml`, con su
+  dibujo (`placas/dibuja_cnc.py`).
+* **Lo que dice la ficha de Nanotec y el §5.1 no**: el ST5918L3008 es de
+  OCHO hilos, y sus 3 A, 1 Ω y 1,9 mH son de media bobina, en unipolar. En
+  bipolar va a 2,1 A en serie (2 Ω, 7,6 mH) o a 4,2 A en paralelo (0,5 Ω,
+  1,9 mH), con el mismo par de retención; la curva de su ficha se da así, a
+  24 y a 48 V. `MotorPaP` lo admite con `conexion=`, y la placa va en
+  paralelo. Con eso, `Km` es 0,31 N·m/A, y no 0,44.
+* **La curva par–velocidad** del ST5918 en paralelo tras el DM542, con la
+  carga subiendo hasta que pierde pasos: 1,23 N·m abajo con 24 y 48 V, y la
+  **esquina** —el 70 %— en unas **640 rpm a 24 V y 1290 a 48 V**. El §5.1
+  estimaba unas 800 y 1600 con `V/(L·I)`, que deja fuera la f.e.m.: el orden y
+  la proporción son los de la cuenta. La curva de la ficha no se puede leer de
+  su página, así que no se contrasta punto a punto.
+* **Pasos perdidos** con una rampa de 5 ms hasta 1000 rpm, y ninguno con
+  400 ms. **Un aviso por cada error** de cableado y de temporización: RESET al
+  aire, 3,3 V con VDD a 5 V, un pulso corto, DIR tarde, una bobina al aire o
+  entre dos fases, VMOT bajo, la bobina al revés —gira al revés—, EN alto —el
+  traductor cuenta y el motor no se mueve— y la protección térmica.
+* **El coste, medido** (§10, el riesgo): el primer intento costaba 0,6 s de
+  CPU por segundo simulado por eje, porque la cadena ensayaba 1 ms por delante
+  en cada flanco de STEP. Sin ensayo para el paso a paso —que despierta en cada
+  flanco de todas formas— y con pasos de 10 µs, **0,09 s/s por eje** a 1/8 y
+  3200 Hz, arranque incluido. Los tres ejes caben de sobra en la estimación
+  de 0,3 s/s del §10.
+* **Pruebas**: `make gui-cnc` C2, 41 comprobaciones (57 en total). M9 y M10 no
+  se mueven, y el banco del `MotorCC` sigue dando los mismos números con sus
+  17 cifras.
+
+### F1b, hecha: la continua de potencia
+
+* **`Mosfet`** (`parts/potencia.h`): un N-MOSFET de lado bajo con una `RDS`
+  que baja con la puerta —el IRLZ44N de nivel lógico y el IRF520 de los
+  módulos azules, que con 5 V apenas se abre, y se avisa— y el diodo de libre
+  circulación del módulo. **Sin el diodo, aviso** en el primer hueco del PWM.
+* **`MedioPuente`**: el BTS7960, en vez de un `PuenteH` con parámetros: un
+  IBT-2 son DOS medios puentes, cada uno con su IN, su INH y su IS, y el
+  modelo es el del chip. IS es una fuente de corriente, la que sale entre
+  8500, y el 74HC244 del módulo avisa de los 3,3 V de un STM32 con el VCC a
+  5 V.
+* **Placas**: `motor_775.xml`, `modulo_mosfet.xml`, `ibt2.xml`,
+  `motor_jgb37_encoder.xml` y el sistema `nucleo_f446re_ibt2_jgb37.xml`, con su
+  dibujo. Las cifras de los dos motores que no da ningún vendedor —la
+  corriente de bloqueo, la constante de tiempo, la inductancia— son
+  estimaciones, y lo dicen.
+* **El 775 a 24 V, a 9958 rpm** con 5 V o 3,3 V en la puerta del IRLZ44N.
+* **Lo que el §5.3 no decía: con PWM y en vacío, el 775 no va a la mitad.**
+  Con `L/R` = 0,25 ms la corriente se acaba en cada hueco de un PWM de 1 kHz,
+  y al 50 % va a 9612 rpm. Con carga y 20 kHz, la corriente es continua y va
+  al 40 % de la velocidad a tope: el PWM de un MOSFET de lado bajo regula el
+  par, y GRBL lo usa en lazo abierto. Es lo que pasa en el taller.
+* **El PID de posición** en el firmware (`verif/fw/cnc_pid`): una vuelta del
+  eje de salida y media atrás, sin pasarse más de un 2 % y en 2 cuentas de la
+  consigna. El motorreductor no arranca con menos del 16 % de PWM —su
+  rozamiento de arranque—: el PID lleva una zona muerta y un mando mínimo.
+* **La fuente con límite y un motor que arranca**: el 775 parado pide 40 A, y
+  el límite de la `Fuente` de 10 A oscilaba sin fin en el mismo instante —la
+  bobina sujeta su corriente y lo de fuera no es un Thevenin—. Ahora una
+  `Fuente` no deja su nodo por debajo de 0 V, con la resistencia que deja
+  pasar la corriente de la bobina: converge a la primera. El banco del
+  `MotorCC` sigue dando sus 17 cifras.
+* **Pruebas**: `make gui-cnc` C3, 23 comprobaciones (80 en total).
+
+### F1c, hecha: el BLDC con su controlador
+
+* **`MotorBLDC`** (`parts/motor_bldc.h`): en el eje q, como un motor de
+  continua equivalente con las cifras de entre dos fases, con la misma rama de
+  corriente impuesta con tope de tensión que el paso a paso. U, V y W se
+  cablean y se comprueban: el controlador declara sus tres salidas con los
+  polos +1, −1 y 0, y unas fases cruzadas se avisan. Los Hall, de colector
+  abierto, y un encoder opcional.
+* **`ControladorMotor`** (`parts/controlador_motor.h`), un controlador tipo
+  C5-E de reloj y dirección: la cascada de lazos de posición y velocidad
+  sobre los Hall o el encoder, con la velocidad por el método M/T y la
+  posición interpolada dentro de cada tramo. La salida de freno con su
+  secuencia —corriente y después soltar; echar y después quitar la
+  corriente— y la de error.
+* **Placas**: `db59l024035_a.xml` y `controlador_tipo_c5e.xml`, con su dibujo.
+  La ficha del DB59 da 6 polos —tres pares, 18 cambios de Hall por vuelta— y
+  el -A tiene un solo eje: el encoder iría en el -B, con eje por detrás.
+* **0,47 N·m a 9,4 A**: a 3500 rpm, con la carga subiendo hasta el par
+  nominal, la corriente sube 9,40 A, y la tensión se queda en 20,5 V de los
+  24. Con el 120 %, **no pierde pasos: avisa y se para**, echa el freno y deja
+  de seguir pasos.
+* **Lo que el §5.5 no decía: con los Hall solos, los lazos tienen que ir
+  despacio.** Una medida cada 20° es una medida cada 5 ms a 600 rpm; con las
+  ganancias de un encoder, el lazo oscila a ±1000 rpm. Con unas cuatro veces
+  menos, va suave de 600 rpm para arriba, pero a 60 rpm va a tirones; con un
+  encoder de 250 líneas, suave. Y un escalón del 100 % de la carga lo para: el
+  rotor solo tiene 119 g·cm². Con la carga de una máquina —el husillo, el
+  carro— la inercia es mayor y las ganancias se suben.
+* **Un fallo de F1a, arreglado**: una corriente que estaba justo en su
+  consigna cuando el tope de tensión empezaba a apartarla volvía a la
+  consigna en cada paso: con la consigna quieta, la f.e.m. no llegaba a
+  comerse el par. Salió con los Hall cruzados de F1c —el BLDC se embalaba a
+  18 000 rpm—. En el paso a paso, la curva a 48 V sube un poco: la esquina
+  pasa de 1240 a 1290 rpm.
+* **Pruebas**: `make gui-cnc` C4, 19 comprobaciones (99 en total).
+
+### F2, hecha: la transmisión
+
+* **`parts/transmision.h`**: `Reductora`, `Acople`, `Husillo`, `Carro` y
+  `Freno`, elementos de la cadena. El husillo **calcula** su rendimiento del
+  ángulo de la hélice y del rozamiento de la tuerca, con el inverso y el
+  autobloqueo; su inercia, de su diámetro y su largo; avisa de la velocidad
+  crítica y del DN.
+* **La cadena aprende** la carga activa —el peso de un Z— con el rendimiento
+  según hacia dónde va la energía, los topes duros, la holgura como zona
+  muerta cinemática y que los ejes encajen (`eje_mm` en los motores). El
+  `MotorCC` sigue dando sus 17 cifras.
+* **La tabla del §6.3, calculada**: Tr8x2 5,2°, 0,36 y se sujeta solo
+  (inverso −0,70); Tr8x8 20°, 0,66 y 0,54; bolas 1605 5,7°, 0,95 y 0,95.
+* **El Z con bolas sin freno se cae; con Tr8x2, no.** Con un matiz que la
+  tabla no decía: con 1,2 kg el 1605 tampoco se cae, porque el par de
+  retención sin corriente del NEMA 17 —1,5 N·cm— puede con los 0,9 que le
+  llegan. Hacen falta unos 5 kg —un cabezal de 800 W— para que se caiga.
+  Con un freno de muelle o un sinfín que se sujeta solo, no.
+* **Placa**: `eje_z_tr8.xml`, el Z de la 3018 de punta a punta, de lado, con
+  el carro que se mueve en el dibujo y su **cota** en un display. En
+  `mcu-sim-gui`, una cota en mm lleva siempre su signo y una cifra más.
+* **Pruebas**: `make gui-cnc` C5, 18 comprobaciones (117 en total).
+
+### F3, hecha: la máquina, con su firmware propio
+
+* **`parts/maquina.h`**: `FinalCarrera`, `Sonda` e `Interruptor` —contactos
+  que accionan los carros o la mano— y `Cotas`. El carro avisa a los que lo
+  miran cada vez que se mueve.
+* **Placas**: `cnc_shield_v3.xml` (la CNC Shield V3, con sus jumpers de
+  micropasos y sus tiras), `fresadora_3020.xml` (la mecánica de una 3020, con
+  finales, sonda, seta, fuente y el dibujo en planta y alzado) y el sistema
+  `cnc_3020.xml`: Nucleo-F446RE, shield, tres A4988, la 3020 y el cabezal 775
+  con su módulo MOSFET. Valida sin avisos. El final Z va al D12 y el PWM del
+  cabezal al D11, como en GRBL 1.1.
+* **El firmware propio, `verif/fw/cnc`**: `G0`–`G3` con trapecio, `$H`,
+  `G38.2`, `M3`/`M5`, límites duros, ABORT y los de tiempo real, con el saludo
+  de GRBL 1.1 para que lo reconozca un emisor y un `[MSG:…]` que dice que no
+  es GRBL. A 84 MHz: a 16 MHz, la interrupción de los pasos a 20 kHz dejaba
+  sin CPU a la UART y se perdían caracteres. Ahora el TIM6 va a 10 kHz y solo
+  mientras hay algo que mover.
+* **Un fallo del núcleo, encontrado por el homing**: al entrar en una
+  excepción, **`CONTROL.FPCA` no se ponía a 0** (ARMv7-M, `ExceptionTaken`).
+  Con una interrupción anidada dentro de otra que había usado la FPU, la de
+  dentro apilaba un marco de FP perezoso que no tocaba y la de fuera volvía
+  con S0–S15 cambiados: el homing perdía pasos y se iba de madre. Arreglado en
+  `core/cpu.h`, con su regresión, `verif/fw/fp_anidado`: 0 de 100 sin el
+  arreglo, 100 de 100 con él. Las demás baterías dan lo mismo que antes.
+* **Lo que sale**: un cuadrado de 20 mm con 24 µm de error; un círculo de
+  radio 10 entre 9,959 y 10,041 —la holgura de la tuerca, en los cambios de
+  cuadrante—; `$H` en orden; `G38.2` a 19,996 sobre una placa de 20 y
+  `ALARM:5` sin ella; `ALARM:1` en un límite duro; la seta, que **corta los
+  drivers** (`ALARM:3`, «salidas apagadas», el Z sujeto por su husillo); el
+  cabezal a 9878 rpm y parándose solo. **Unos 1,3 s de reloj por segundo de
+  máquina** mientras se mueve.
+* **Candle y UGS**: el VCP de la Nucleo es un `PuenteSerie`, en RFC 2217 en
+  el puerto 3355 (§8.3). En las pruebas, un guion en memoria.
+* **Pruebas**: `make gui-cnc` C6, 16 comprobaciones (133 en total).
+* **grblHAL**, en un parche aparte: la sección siguiente.
+
+### F3: grblHAL, sin modificar
+
+**grblHAL corre en la 3020 sin tocar una línea**, y hace lo mismo que el
+firmware propio: el mismo *homing*, el mismo cuadrado y el mismo círculo, al
+micrómetro. Por el camino destapó **dos fallos del modelo**, arreglados aquí.
+Lo demás que hubo que hacer es lo que haría quien lo monte de verdad:
+configurarlo con `$` y cablear la máquina como él la espera.
+
+* **Cuál.** El driver STM32F4xx en `a6318ac` (2026-10-15), con su núcleo
+  `4ec1ae4` (*build* 20261015): el entorno `nucleo_f446re_protoneer` de su
+  `platformio.ini` —`BOARD_PROTONEER_3XX` y `NUCLEO_F446`—, compilado sin
+  PlatformIO por `verif/fw/grblhal/Makefile`, que baja las fuentes en esos
+  commits (`make -f Makefile.mcu-sim grblhal`). Es GPL-3: **ni sus fuentes ni
+  su binario se versionan**, y sin él `make gui-cnc` se salta sus pruebas.
+  190 KB; 180 MHz del PLL con el HSI; los ajustes, en la Flash.
+* **Fallo del modelo 1: `UADD8` ponía GE siempre.** La suma de cada byte
+  ponía su bandera con `>= 0`, que una suma sin signo cumple siempre, en vez
+  de con el acarreo, `>= 0x100`; y lo mismo `UASX` y `USAX` en su mitad que
+  suma [ARMv7-M, A7.7.176]. El `strlen` de newlib para ARMv7-M busca el cero
+  del final con `uadd8` y `sel`: no lo encontraba nunca, leía hasta el final
+  de la RAM y acababa en un fallo de bus en `0x20020000`, al arrancar
+  —`setting_remove_elements`—, sin haber dicho nada. Ningún firmware de las
+  baterías usaba ese `strlen`. Arreglado en `core/cpu_exec32.h`, con su
+  regresión, `verif/fw/simd_ge`: las doce sumas y restas con GE sobre seis
+  pares, contra el pseudocódigo de la arquitectura, y `strlen` con todas las
+  longitudes y alineaciones. Sin el arreglo, 57 de 72 y `strlen` no vuelve.
+* **Fallo del modelo 2: un aviso de más.** grblHAL deja el dominio de 48 MHz
+  a 180 MHz (`PLLQ = 2`) porque no usa ni el USB ni el SDIO, y el SDIO
+  avisaba de que su reloj pasaba del máximo aun apagado. Ahora el reloj se
+  mira solo con el SDIO encendido y `SDIO_CK` habilitado (`periph/sdio.h`).
+* **Las entradas son NC.** En grblHAL, un final, la seta, HOLD o START
+  abiertos —a uno con su *pull-up*— están **activados**: espera contactos
+  normalmente cerrados, que es lo seguro. Los de esta máquina son NO: arranca
+  en `ALARM:10` con los finales de X e Y pisados. Se arregla con `$5=7` y
+  `$14=70`, y un Ctrl-X para salir de la seta. Y DIR va al revés que en el
+  propio: `$3=7`.
+* **El cableado es el de la serigrafía del shield, no el de GRBL 1.1.** Su
+  mapa pone el final de Z en D11, la habilitación del cabezal en D12 y el PWM
+  en D13 —que es también LD2—. En `cnc_3020.xml`, cableada para GRBL 1.1, D11
+  es el PWM del cabezal y los 10 kΩ del módulo MOSFET lo tienen a cero: el
+  final de Z, pisado, y con los límites duros `ALARM:1` sin moverse. De ahí
+  **`placas/cnc_3020_grblhal.xml`**: la misma máquina con tres hilos
+  cambiados.
+* **No tiene sonda.** El mapa de la Protoneer la quita (`PROBE_ENABLE 0`;
+  `$I` dice `NOPROBE`) y `G38.2` da `error:20`.
+* **El otro entorno, `nucleo_f446re_generic_uno`, tampoco sirve tal cual.**
+  Su mapa (`uno_map.h`) es el de GRBL 1.1 —PWM en D11, sonda en A5— y
+  pondría el final de Z en D12 *si estuviera definido `VARIABLE_SPINDLE`*,
+  una macro del GRBL antiguo que grblHAL ya no define en ningún sitio: el
+  final de Z se queda en D11, **el mismo pin que el PWM**. Probado en
+  `cnc_3020.xml`: Z siempre pisado y el cabezal que no gira. Es un fallo del
+  mapa de grblHAL, no del modelo.
+* **Un error de G-code se queda.** Con `COMPATIBILITY_LEVEL` 0, tras un error
+  grblHAL contesta el mismo error a cada línea de G-code sin ejecutarla, hasta
+  una línea en blanco o una orden `$`: un trabajo se para en su primer error.
+  Es a propósito, y el emisor lo tiene que saber.
+* **Sus coordenadas de máquina son negativas**, como en GRBL: tras `$H` la
+  casa es X−299 Y−199 Z−1 (recorrido menos separación), y un `G0 X10` absoluto
+  se va al otro extremo.
+* **Escribir un ajuste lleva su tiempo**: va a la Flash. Un guion que manda
+  ajustes y un Ctrl-X seguidos tiene que esperar entre medias, o el reset
+  llega antes que los ajustes.
+* **Lo que sale** (`make gui-cnc`, C7, 12 comprobaciones; 145 en total):
+  `$H` con el Z primero y X e Y a la vez, cada final dos veces; la casa en
+  11,479, 6,477 y 70,521 tras `G91 G0 X10 Y5` —la misma que el propio—; el
+  cuadrado a 22 µm y el círculo entre 9,959 y 10,038; el cabezal a 9668 rpm
+  por D13; la seta, `ALARM:10` con los drivers sin salidas. **Unos 4,9 s de
+  reloj por segundo de máquina**: el MCU a 180 MHz y la interrupción de
+  pasos de grblHAL, frente a los 1,3 del propio.
+* **Lo que no hizo falta tocar**: los temporizadores de pasos y de pulso, las
+  EXTI de los finales, el PWM, la USART2, la Flash y el SysTick de grblHAL
+  funcionaron a la primera.
+
+### F4, hecha: la pieza
+
+* **`parts/pieza.h`**: `Pieza`, un bloque en la mesa con un mapa de alturas en
+  celdas de 0,25 mm. La fresa —plana, en V o de bola— está donde la ponen los
+  tres carros y, al moverse, estampa su perfil a pasos de un cuarto de celda:
+  en cada celda queda lo más bajo. Al acabar, el mapa en CSV (`mapa=`).
+* **Las fuerzas del corte**, con Kienzle: el volumen que de verdad se quita
+  por segundo sale de la rejilla, y con el espesor de viruta y el k_c1.1 del
+  material da el par en el cabezal y la resistencia de los carros. Entran en
+  la cadena como **rozamientos secos de más** —el `MotorCC` y el `Carro`
+  aprenden un par y una fuerza de fuera—, así que frenan y no empujan nunca.
+  El `MotorCC` sigue dando sus 17 cifras.
+* **Una referencia de una placa a otra**: `<ref pieza="M/PZA" nombre="cabezal"
+  componente="C/MOTOR"/>` dentro del `<sistema>`. La pieza la busca cuando ya
+  está todo montado, así que el orden no importa.
+* **La imagen, a trozos** (`T_IMAGEN_RECT`, sin subir la versión del
+  protocolo): una ventana que dice `imagen_parcial=1` en `T_VERSION` recibe
+  solo el rectángulo que cambió. Lo calcula la frontera comparando con la
+  última que salió, así que le sirve igual al TFT. Once segundos de raya, con
+  instantáneas cada 5 ms: 319 kB contra 196 MB enteras.
+* **En la ventana** (`mcu-sim-gui`): pega los trozos; una `pantalla` con
+  `observable=` y `vector=` se desplaza —la pieza va con la mesa—; y los
+  elementos vivos se apilan en el orden del dibujo, no en el de las piezas: si
+  no, la pieza tapaba el carro X que la recorre.
+* **Un error de F3, corregido**: en la planta, la mesa subía con Y, así que la
+  fresa iba hacia delante con +Y y lo grabado salía al revés. Ahora +Y lleva
+  la fresa hacia el fondo, arriba en la planta, como en cualquier plano. Y el
+  alzado pone la pieza de 12 mm en la mesa, con la cara de arriba a 15 mm, y
+  la placa de la sonda, de 5 mm, encima: la fresa la sigue tocando a 20.
+* **Lo que sale**: un bolsillo de 20 x 10 x 2 mm con el fondo plano a 1,984 mm
+  —lo que baja de verdad el carro Z— y las paredes en su sitio; una V de 60°
+  de 1,119 mm de ancho contra 1,137; en aluminio el cabezal cae a unas 8500
+  rpm y en MDF ni se entera; sin `M3`, la fresa parada hace perder pasos; y
+  una fresa que baja de más entra en la mesa. **Unos 1,9 s de reloj por
+  segundo de máquina** mientras corta.
+* **Pruebas**: `make gui-cnc` C8, 8 comprobaciones (153 en total); en
+  `mcu-sim-gui`, I13 y la nueva I28 (351 en `ilustracion`); `make gui-proto`,
+  el saludo con `imagen_parcial` y los dos tipos de imagen (66).
 
 ## Fuentes
 

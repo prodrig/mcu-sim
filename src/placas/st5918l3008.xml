@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     MOTOR PASO A PASO NANOTEC ST5918L3008-A (NEMA 23), sin MCU
+
+     El de la version potente de la fresadora (doc/analisis_cnc.md §5.1): un
+     hibrido de 56 mm, 200 pasos por vuelta, 1,87 N·m. Es un motor de OCHO
+     hilos, y Nanotec da sus cifras como se miden en unipolar -por media
+     bobina-: 3 A, 1 ohm y 1,9 mH. En bipolar, las dos medias bobinas de cada
+     fase van en serie o en paralelo, y el par de retencion es el mismo:
+
+         en serie      2,12 A, 2 ohm y 7,6 mH: menos corriente, mas tension
+         en paralelo   4,24 A, 0,5 ohm y 1,9 mH: lo de un driver de 4,2 A a
+                       48 V, el DM542 o un Nanotec
+
+     Esta placa lo lleva EN PARALELO (conexion="paralelo"), con los ocho
+     hilos ya unidos de dos en dos en sus cuatro terminales:
+
+         M.A1, M.A2    la fase A
+         M.B1, M.B2    la fase B
+
+     EL MOTOR, MOTOR: un MotorPaP (`./build/mcu-sim --help MotorPaP`) con las
+     cifras de la ficha de Nanotec [ST5918L3008-A: 186,68 N·cm, 3 A, 1 ohm,
+     1,9 mH, 480 g·cm2]. El par sin corriente (6 N·cm) y los rozamientos no
+     los da: son ESTIMACIONES. Para llevarlo en serie, conexion="serie".
+
+     Su curva de par maximo, con un driver de 4,2 A, cae con la velocidad: a
+     24 V se queda en el 70 % hacia las 650 rpm, y a 48 V hacia las 1300
+     (`make gui-cnc`, C2). Por eso los Nanotec van a 48 V.
+
+         ./build/mcu-sim placas/st5918l3008.xml --valida
+     ========================================================================= -->
+<placa nombre="st5918l3008">
+  <componente tipo="Conector" id="M" filas="4" columnas="1" nombres="A1 A2 B1 B2"/>
+  <nodo id="M.A1" bus="si"/>
+  <nodo id="M.A2" bus="si"/>
+  <nodo id="M.B1" bus="si"/>
+  <nodo id="M.B2" bus="si"/>
+
+  <componente tipo="MotorPaP" id="MOTOR" par_retencion_ncm="186.68" corriente_a="3" r_ohm="1"
+              l_mh="1.9" conexion="paralelo" detent_ncm="6" inercia_gcm2="480"
+              rozamiento_ncm="2" viscoso_mnms="0.5">
+    <pin nombre="a1" nodo="M.A1"/>
+    <pin nombre="a2" nodo="M.A2"/>
+    <pin nombre="b1" nodo="M.B1"/>
+    <pin nombre="b2" nodo="M.B2"/>
+  </componente>
+</placa>

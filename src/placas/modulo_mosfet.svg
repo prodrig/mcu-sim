@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+  MODULO MOSFET DEL CABEZAL, dibujado a mano: una aproximacion, no una foto.
+  Es el dibujo de placas/modulo_mosfet.xml, que lo encuentra solo porque se
+  llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 50 x 34 mm- y cada pieza con el id de su pieza en el XML:
+
+    Q1     el MOSFET, en su TO-220, en el centro
+    R1     la resistencia de la puerta a masa
+    X1     la borna de la alimentacion: X1.VIN (+) y X1.GNDP (-)
+    X2     la del motor: X2.MAS (+) y X2.MENOS (-)
+    P1     la senal: P1.SIG y P1.GND
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 340" width="50mm" height="34mm">
+  <rect x="0" y="0" width="500" height="340" rx="10" fill="#0d47a1" stroke="#08306b" stroke-width="2"/>
+  <rect x="30" y="50" width="60" height="160" rx="3" fill="#1565c0" stroke="#0d47a1" stroke-width="1.5"/>
+  <g id="X1">
+  <g id="X1.VIN">
+    <circle cx="60" cy="90" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="48" y="87.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X1.GNDP">
+    <circle cx="60" cy="170" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="48" y="167.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  </g>
+  <text x="98" y="95" font-family="Arial" font-size="14" font-weight="bold" fill="#f5f5f5">VIN</text>
+  <text x="98" y="175" font-family="Arial" font-size="14" font-weight="bold" fill="#f5f5f5">GNDP</text>
+  <rect x="410" y="50" width="60" height="160" rx="3" fill="#1565c0" stroke="#0d47a1" stroke-width="1.5"/>
+  <g id="X2">
+  <g id="X2.MAS">
+    <circle cx="440" cy="90" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="428" y="87.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X2.MENOS">
+    <circle cx="440" cy="170" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="428" y="167.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  </g>
+  <text x="402" y="95" font-family="Arial" font-size="14" font-weight="bold" fill="#f5f5f5" text-anchor="end">MAS</text>
+  <text x="402" y="175" font-family="Arial" font-size="14" font-weight="bold" fill="#f5f5f5" text-anchor="end">MENOS</text>
+  <g id="Q1">
+    <rect x="190" y="40" width="120" height="60" rx="4" fill="#9e9e9e" stroke="#616161" stroke-width="1.5"/>
+    <circle cx="250" cy="70" r="14" fill="#424242"/>
+    <rect x="190" y="100" width="120" height="110" rx="3" fill="#1c1c1c" stroke="#000000" stroke-width="1.5"/>
+    <rect x="205" y="210" width="10" height="40" fill="#bdbdbd"/>
+    <rect x="245" y="210" width="10" height="40" fill="#bdbdbd"/>
+    <rect x="285" y="210" width="10" height="40" fill="#bdbdbd"/>
+    <text x="250" y="165" font-family="Arial" font-size="14" font-weight="bold" fill="#e0e0e0" text-anchor="middle">IRLZ44N</text>
+  </g>
+  <g id="R1">
+    <rect x="120" y="270" width="40" height="18" fill="#212121" stroke="#9e9e9e" stroke-width="0.8"/>
+  </g>
+  <rect x="200" y="262" width="30" height="34" rx="3" fill="#212121" stroke="#000000" stroke-width="1"/>
+  <text x="215" y="316" font-family="Arial" font-size="11" fill="#f5f5f5" text-anchor="middle">D1</text>
+  <rect x="300" y="290" width="62.8" height="26" rx="2" fill="#1c1c1c" stroke="#000000" stroke-width="1"/>
+  <g id="P1">
+  <rect id="P1.SIG" x="312" y="297" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="P1.GND" x="337.4" y="297" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="318" y="284" font-family="Arial" font-size="11" font-weight="bold" fill="#f5f5f5" text-anchor="middle">SIG</text>
+  <text x="343.4" y="284" font-family="Arial" font-size="11" font-weight="bold" fill="#f5f5f5" text-anchor="middle">GND</text>
+</svg>

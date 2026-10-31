@@ -231,7 +231,7 @@ SC_MODULE(EnlaceGui) {
 
     // --- Lo que ha pasado, para las pruebas y para quien quiera saberlo --------
     uint64_t instantaneas() const { return n_inst_; }
-    uint64_t imagenes() const { return n_img_; }                   // T_IMAGEN mandados
+    uint64_t imagenes() const { return n_img_; }                   // T_IMAGEN y T_IMAGEN_RECT mandados
     uint64_t avisos() const { return n_avisos_; }
     uint64_t estados() const { return n_estados_; }
     uint64_t ignorados() const { return n_ignorados_; }
@@ -470,9 +470,11 @@ private:
         // el muestreador deja de tomar mientras haya dos esperando
         while (!fr_.imagenes.empty() && (todo || sal_.size() < tope_)) {
             const ImagenTomada& im = fr_.imagenes.front();
-            std::string c(reinterpret_cast<const char*>(&im.cab), sizeof im.cab);
+            std::string c = im.trozo
+                ? std::string(reinterpret_cast<const char*>(&im.rect), sizeof im.rect)
+                : std::string(reinterpret_cast<const char*>(&im.cab), sizeof im.cab);
             c += im.pix;
-            em_.mensaje(sal_, T_IMAGEN, c);
+            em_.mensaje(sal_, im.trozo ? T_IMAGEN_RECT : T_IMAGEN, c);
             fr_.imagenes.pop_front();
             ++n_img_;
             hubo = true;
