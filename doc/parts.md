@@ -2119,6 +2119,12 @@ RGB888 y la luz aparte (`doc/protocolo.md` §4.1 en `mcu-sim-gui`). Con dos
 esperando a una ventana que no lee, la siguiente no se toma: la muestra de
 después mandará la que haya.
 
+**Una imagen que cambia poco sale a trozos** si la ventana lo pide
+(`imagen_parcial=1` en `T_VERSION`): la frontera guarda la última que salió de
+cada imagen suscrita y, si la nueva cambia en menos de la mitad, manda solo el
+rectángulo que encierra lo cambiado, en `T_IMAGEN_RECT`. Es lo que hace barata
+la pieza mecanizada de una fresadora (`Pieza`, §4.23), y le sirve igual al TFT.
+
 `Crystal` no publica la frecuencia por lo mismo que no la lleva como atributo:
 la del HSE es un dato del árbol de reloj y vive en el RCC.
 
@@ -2975,6 +2981,76 @@ contacto NC: con los NO de esta máquina, `$5=7` y `$14=70`. Su binario es GPL-3
 y no se versiona: `make -f Makefile.mcu-sim grblhal` lo baja y lo construye.
 Lo que destapó y lo que no puede hacer, en `doc/analisis_cnc.md` (§13, «F3:
 grblHAL»).
+
+### 4.23 La pieza que se mecaniza: `Pieza`
+
+`parts/pieza.h`, la fase F4 de `doc/analisis_cnc.md` (§9). Un bloque sujeto a
+la mesa, de `largo_mm` x `ancho_mm` x `espesor_mm`, con un **mapa de alturas**:
+una rejilla de celdas de `celda_mm` y en cada una la altura del material que
+queda. La fresa está donde la ponen los tres carros (refs `x`, `y` y `z`): su
+punta, en la pieza, en `(X − x_mm, Y − y_mm)` y a `Z − mesa_mm` por encima de
+la mesa. Al moverse, la pieza **estampa** el perfil de la fresa a lo largo del
+camino, a pasos de un cuarto de celda, y en cada celda se queda con lo más
+bajo:
+
+| Fresa | A una distancia r del eje, su filo está por encima de la punta |
+| :--- | :--- |
+| `plana` | 0 |
+| `bola` | `R − √(R² − r²)` |
+| `v` | `r / tan(angulo_v / 2)` |
+
+| Atributo | Omisión | |
+| :--- | :--- | :--- |
+| `material` | `mdf` | `mdf`, `madera`, `metacrilato` o `aluminio`: su color y su k_c1.1 |
+| `largo_mm`, `ancho_mm`, `espesor_mm` | 100, 60, 12 | En X, Y y Z |
+| `x_mm`, `y_mm` | 100, 70 | Los carros X e Y con la fresa en la esquina (0, 0) |
+| `mesa_mm` | 3 | El carro Z con la punta de la fresa tocando la mesa |
+| `celda_mm` | 0,25 | Una celda: un píxel de la imagen |
+| `fresa`, `fresa_mm`, `angulo_v`, `filos` | `plana`, 3,175, 60, 2 | |
+| `rpm` | 10 000 | La fresa, si no hay ref `cabezal` |
+| `fuerzas` | `si` | El corte frena el cabezal y resiste el avance |
+| `mapa` | — | Un fichero: al acabar, las alturas en CSV, una fila por celda en Y |
+
+**Lo que se ve** es su imagen, `pieza`: desde arriba, una celda por píxel, con
++Y hacia arriba, el color del material más oscuro cuanto más hondo, la mesa
+donde se ha pasado de lado a lado y una línea tenue donde la fresa pasó por
+encima sin cortar. Sale a trozos (§4.15). En el dibujo, el efecto
+`pantalla` con `observable="mesa"` y un vector la lleva con la mesa.
+
+**Las fuerzas del corte** (Kienzle), con `fuerzas="si"`. De la rejilla sale lo
+que de verdad se quita por segundo, Q, filtrado con 5 ms, y con el espesor de
+viruta `h = v_f / (n · z)`:
+
+    k_c = k_c1.1 · h^(−m_c)      P = k_c · Q      T = P / ω      F_c = T / R
+
+T frena el cabezal —el `MotorCC` de la ref `cabezal`, que en un `<sistema>`
+puede ser de otra placa: `<ref pieza="M/PZA" nombre="cabezal"
+componente="C/MOTOR"/>`— como un par resistente más (`pon_par_externo`), y
+0,6·F_c se reparte entre los carros según su velocidad como un rozamiento seco
+más (`Carro::pon_rozamiento_corte`): se opone al avance y no empuja nunca un
+carro parado. Con la fresa parada, la máquina **empuja** el material: k_c1.1
+por la sección que barre, y un aviso. Los k_c1.1 son orientativos —40 N/mm² el
+MDF, 25 la madera, 150 el metacrilato y 700 el aluminio—: valen para ver
+tendencias, no para predecir un mecanizado.
+
+Deja ver `quitado` (mm³), `hondo` (mm), `q` (mm³/s), `par` (N·cm), `fuerza`
+(N), `mesa` (mm) y la alarma `choque`, la fresa en la mesa; su mando, `nueva`,
+deja la pieza sin mecanizar.
+
+**Lo que sale** (`make gui-cnc`, C8), con `verif/fw/cnc` en `cnc_3020.xml`:
+
+* Un bolsillo de 20 x 10 mm y 2 de hondo en MDF, con la fresa plana de 3,175:
+  el fondo plano a 1,984 mm —lo que de verdad baja el carro Z, la holgura de su
+  tuerca—, las paredes en su sitio a la celda y 392,6 mm³ quitados, los de sus
+  esquinas redondeadas. El cabezal ni se entera: 9693 rpm como poco.
+* Una raya con una V de 60° y 0,984 mm de honda: 1,119 mm de ancho contra los
+  1,137 de `2 · hondo · tan 30°`.
+* La imagen a trozos: once segundos de raya, con instantáneas cada 5 ms, son
+  714 trozos y 319 kB; enteras, 196 MB. La misma imagen al final.
+* Una ranura de 1 mm en aluminio a 600 mm/min pide hasta 26 N·cm y el 775 baja
+  a unas 8500 rpm. Sin `M3`, la fresa parada hace perder pasos a X e Y. Una
+  fresa que baja de más atraviesa los 12 mm y entra en la mesa: `choque`.
+* **El coste**: unos 1,9 s de reloj por segundo de máquina mientras corta.
 
 ---
 

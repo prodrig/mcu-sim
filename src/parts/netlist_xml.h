@@ -543,11 +543,15 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
             // ensena un display, uno por fila; la ventana comprueba que la
             // pieza los tenga y, si no, lo dice
             en.observable = e.attr_o("observable", "");
+            // Una pantalla que se mueve -la imagen de la pieza mecanizada de
+            // una fresadora, que va con la mesa- se traslada como `desplaza`
+            const bool traslada = en.efecto == "desplaza" ||
+                                  (en.efecto == "pantalla" && !en.observable.empty());
             if (!en.observable.empty() && en.efecto != "giro" && en.efecto != "angulo" &&
-                en.efecto != "display" && en.efecto != "desplaza")
+                en.efecto != "display" && !traslada)
                 return donde(e) + "<enlace pieza=\"" + en.pieza + "\">: observable= solo vale con "
-                       "efecto=\"giro\", \"angulo\", \"display\" o \"desplaza\"";
-            if (en.efecto != "display" && en.efecto != "desplaza" &&
+                       "efecto=\"giro\", \"angulo\", \"display\", \"desplaza\" o \"pantalla\"";
+            if (en.efecto != "display" && !traslada &&
                 en.observable.find_first_of(" \t") != std::string::npos)
                 return donde(e) + "<enlace pieza=\"" + en.pieza + "\">: con efecto=\"" +
                        en.efecto + "\", observable= es uno solo; varios solo con "
@@ -563,10 +567,10 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
             // observable -dos numeros por observable, x e y-. Los dos hacen
             // falta, y casan
             en.vector = e.attr_o("vector", "");
-            if (e.tiene("vector") && en.efecto != "desplaza")
+            if (e.tiene("vector") && en.efecto != "desplaza" && en.efecto != "pantalla")
                 return donde(e) + "<enlace pieza=\"" + en.pieza + "\">: vector= solo vale con "
-                       "efecto=\"desplaza\"";
-            if (en.efecto == "desplaza") {
+                       "efecto=\"desplaza\" o \"pantalla\"";
+            if (traslada || (en.efecto == "pantalla" && e.tiene("vector"))) {
                 std::vector<double> v;
                 size_t n_obs = 0;
                 {
@@ -578,9 +582,10 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
                     }
                 }
                 if (!n_obs || en.vector.empty())
-                    return donde(e) + "<enlace pieza=\"" + en.pieza + "\">: efecto=\"desplaza\" "
-                           "necesita observable= -uno o varios- y vector=, dos numeros por "
-                           "observable: lo que se mueve el elemento, en x y en y, por unidad";
+                    return donde(e) + "<enlace pieza=\"" + en.pieza + "\">: efecto=\"" +
+                           en.efecto + "\" necesita observable= -uno o varios- y vector=, dos "
+                           "numeros por observable: lo que se mueve el elemento, en x y en y, "
+                           "por unidad";
                 if (!lee_numeros(en.vector, v) || v.size() != 2 * n_obs)
                     return donde(e) + "<enlace pieza=\"" + en.pieza + "\">: vector=\"" + en.vector +
                            "\" no vale: son " + std::to_string(2 * n_obs) + " numeros, x e y "
@@ -939,9 +944,34 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
             GeomConector gj;
             const std::string eg = Netlist::geometria(*ij, gj);
             if (!eg.empty()) return donde(h) + "<jumper ref=\"" + h.attr_o("ref") + "\">: " + eg;
+        } else if (h.nombre == "ref") {
+            // Una pieza de una placa que mira a otra pieza de OTRA placa: la
+            // pieza mecanizada de una fresadora y el motor de su cabezal, que
+            // va en su propia placa. Lo que pide la pieza como <ref> en su
+            // placa, aquí con el nombre cualificado. La pieza lo busca cuando
+            // ya está todo montado: no importa cuál se construye antes
+            for (const auto& a : h.attrs)
+                if (a.first != "pieza" && a.first != "nombre" && a.first != "componente")
+                    return donde(h) + "<ref>: atributo desconocido: " + a.first;
+            if (!h.tiene("pieza") || !h.tiene("nombre") || !h.tiene("componente"))
+                return donde(h) + "<ref> dentro de un <sistema> necesita pieza=\"placa/id\", "
+                       "nombre=\"...\" y componente=\"placa/id\"";
+            std::string q[2];
+            const char* lado[2] = {"pieza", "componente"};
+            for (int k = 0; k < 2; ++k) {
+                std::string pl, rs;
+                const std::string e = parte(h.attr_o(lado[k]), pl, rs);
+                if (!e.empty()) return donde(h) + "<ref>: " + e;
+                q[k] = pl + "/" + rs;
+                if (!nl.busca(q[k]))
+                    return donde(h) + "<ref " + lado[k] + "=\"" + h.attr_o(lado[k]) +
+                           "\">: la placa " + pl + " no tiene ningun componente que se llame " + rs;
+            }
+            nl.busca(q[0])->ref_tardia(h.attr_o("nombre").c_str(), q[1]);
         } else {
             return donde(h) + "elemento desconocido dentro de <sistema>: <" + h.nombre +
-                   ">. Lo que va aqui: <placa>, <acopla>, <hilo>, <mcu ref>, <jumper ref> y <ruta>";
+                   ">. Lo que va aqui: <placa>, <acopla>, <hilo>, <mcu ref>, <jumper ref>, "
+                   "<ref pieza> y <ruta>";
         }
     }
     // Las rutas, de líneas que hay: ya están todos los acoples y los hilos

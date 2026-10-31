@@ -44,6 +44,7 @@
 #include "controlador_motor.h"
 #include "transmision.h"
 #include "maquina.h"
+#include "pieza.h"
 #include "mems_st.h"
 #include "xds110.h"
 
@@ -1559,6 +1560,88 @@ REGISTRA_PARTE(Cotas,
             return nullptr;
         }
         return new Cotas(d.id.c_str(), c[0], c[1], c[2]);
+    });
+
+REGISTRA_PARTE(Pieza,
+    Ayuda("LA PIEZA QUE SE MECANIZA: un bloque sujeto a la mesa, con un mapa de alturas que "
+          "la fresa va comiendo. La fresa esta donde la ponen los tres Carro: su punta, en "
+          "(X - x_mm, Y - y_mm) de la pieza y a Z - mesa_mm por encima de la mesa. Es plana, "
+          "en V o de bola, y al moverse barre su perfil y deja en cada celda lo mas bajo. "
+          "Ensena la pieza desde arriba -mas oscura cuanto mas honda- en su imagen, que sale "
+          "a trozos. Con fuerzas=si, el corte (Kienzle, con el k_c1.1 del material) frena "
+          "el cabezal y resiste el avance de los carros.")
+      .ejemplo("<componente tipo=\"Pieza\" id=\"PZA\" material=\"mdf\"\n"
+               "     largo_mm=\"100\" ancho_mm=\"60\" espesor_mm=\"12\"\n"
+               "     x_mm=\"100\" y_mm=\"70\" mesa_mm=\"3\" fresa=\"plana\">\n"
+               "  <ref nombre=\"x\" componente=\"CX\"/> <ref nombre=\"y\" componente=\"CY\"/>\n"
+               "  <ref nombre=\"z\" componente=\"CZ\"/>\n"
+               "</componente>")
+      .sin_terminales("No va a ningun nodo: la mueven los carros.")
+      .ref("x, y, z", "Los tres Carro, declarados antes.")
+      .ref("cabezal", "(opcional) El MotorCC que hace girar la fresa: el corte lo frena. En un "
+                      "<sistema>, de otra placa: <ref pieza=\"M/PZA\" nombre=\"cabezal\" "
+                      "componente=\"C/MOTOR\"/>.")
+      .atr("material", "mdf", "mdf, madera, metacrilato o aluminio: su color y su k_c1.1.")
+      .atr("largo_mm, ancho_mm", "100, 60", "En X y en Y.")
+      .atr("espesor_mm", "12", "En Z.")
+      .atr("x_mm, y_mm", "100, 70", "Los carros X e Y con la fresa en la esquina (0, 0).")
+      .atr("mesa_mm", "3", "El carro Z con la punta de la fresa tocando la mesa.")
+      .atr("celda_mm", "0.25", "El lado de una celda del mapa: un pixel de la imagen.")
+      .atr("fresa", "plana", "plana, v o bola.")
+      .atr("fresa_mm", "3.175", "Su diametro.")
+      .atr("angulo_v", "60", "El de la punta de una fresa en V, en grados.")
+      .atr("filos", "2", "Para el espesor de viruta.")
+      .atr("rpm", "10000", "La fresa, si no hay ref cabezal.")
+      .atr("fuerzas", "si", "si: el corte frena el cabezal y resiste el avance.")
+      .atr("mapa", "", "Un fichero: al acabar, las alturas en CSV, una fila por celda en Y.")
+      .nota("Deja ver quitado (mm3), hondo (mm), q (mm3/s), par (N cm), fuerza (N), mesa "
+            "-el carro Y, para mover la imagen con la mesa- y la alarma choque -la fresa en "
+            "la mesa-; su imagen, pieza; su mando, nueva.")
+      .cpp("altura(i, j), nx(), ny(), quitado_mm3(), hondo_mm(), guarda_mapa(ruta)."),
+    [](const Instancia& d, NodeMap&, Netlist& red) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("Pieza '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        Carro* c[3];
+        const char* nm[3] = {"x", "y", "z"};
+        for (int k = 0; k < 3; ++k) {
+            c[k] = detalle_maquina::carro(d, red, nm[k]);
+            if (!c[k]) return nullptr;
+        }
+        ConfigPieza k;
+        k.material = material_pieza(d.txt("material", "mdf"));
+        if (!k.material) return mal("material=\"" + d.txt("material") + "\": los que hay son "
+                                    "mdf, madera, metacrilato y aluminio");
+        k.largo_mm = d.num("largo_mm", k.largo_mm);
+        k.ancho_mm = d.num("ancho_mm", k.ancho_mm);
+        k.espesor_mm = d.num("espesor_mm", k.espesor_mm);
+        k.x_mm = d.num("x_mm", k.x_mm);
+        k.y_mm = d.num("y_mm", k.y_mm);
+        k.mesa_mm = d.num("mesa_mm", k.mesa_mm);
+        k.celda_mm = d.num("celda_mm", k.celda_mm);
+        k.fresa_mm = d.num("fresa_mm", k.fresa_mm);
+        k.angulo_v = d.num("angulo_v", k.angulo_v);
+        k.filos = unsigned(std::max(1.0, d.num("filos", 2)));
+        k.rpm = d.num("rpm", k.rpm);
+        k.fuerzas = d.si("fuerzas", true);
+        k.mapa = d.txt("mapa", "");
+        k.cabezal = d.ref_de("cabezal");
+        const std::string f = d.txt("fresa", "plana");
+        if (f == "plana") k.fresa = TipoFresa::Plana;
+        else if (f == "v") k.fresa = TipoFresa::V;
+        else if (f == "bola") k.fresa = TipoFresa::Bola;
+        else return mal("fresa=\"" + f + "\": plana, v o bola");
+        if (k.largo_mm <= 0 || k.ancho_mm <= 0 || k.espesor_mm <= 0)
+            return mal("largo_mm, ancho_mm y espesor_mm tienen que ser positivos");
+        if (k.celda_mm < 0.05 || k.celda_mm > 5)
+            return mal("celda_mm va de 0.05 a 5");
+        if (k.largo_mm / k.celda_mm > 4000 || k.ancho_mm / k.celda_mm > 4000)
+            return mal("mas de 4000 celdas de lado: una celda mas grande");
+        if (k.fresa_mm <= 0) return mal("fresa_mm tiene que ser positivo");
+        if (k.fresa == TipoFresa::V && (k.angulo_v <= 0 || k.angulo_v >= 180))
+            return mal("angulo_v va de 0 a 180, sin llegar");
+        return new Pieza(d.id.c_str(), *c[0], *c[1], *c[2], k);
     });
 
 REGISTRA_PARTE(Transmision,

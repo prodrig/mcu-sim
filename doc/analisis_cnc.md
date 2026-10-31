@@ -738,6 +738,8 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
 3. **El orden**: F0, F1a, F1b y F1c, un parche por fase.
 4. **El 2026-10-29, F2 y F3**, un parche por fase. En F3, **el firmware
    propio**; grblHAL, después y en un parche aparte (la pregunta 2 del §12).
+5. **El 2026-10-31, F4**, con las fuerzas de corte que el plan daba por
+   opcionales: sin ellas la pieza solo se ve, y con ellas se nota.
 
 ### F0, hecha: la cadena mecánica y el efecto `desplaza`
 
@@ -1014,6 +1016,45 @@ configurarlo con `$` y cablear la máquina como él la espera.
 * **Lo que no hizo falta tocar**: los temporizadores de pasos y de pulso, las
   EXTI de los finales, el PWM, la USART2, la Flash y el SysTick de grblHAL
   funcionaron a la primera.
+
+### F4, hecha: la pieza
+
+* **`parts/pieza.h`**: `Pieza`, un bloque en la mesa con un mapa de alturas en
+  celdas de 0,25 mm. La fresa —plana, en V o de bola— está donde la ponen los
+  tres carros y, al moverse, estampa su perfil a pasos de un cuarto de celda:
+  en cada celda queda lo más bajo. Al acabar, el mapa en CSV (`mapa=`).
+* **Las fuerzas del corte**, con Kienzle: el volumen que de verdad se quita
+  por segundo sale de la rejilla, y con el espesor de viruta y el k_c1.1 del
+  material da el par en el cabezal y la resistencia de los carros. Entran en
+  la cadena como **rozamientos secos de más** —el `MotorCC` y el `Carro`
+  aprenden un par y una fuerza de fuera—, así que frenan y no empujan nunca.
+  El `MotorCC` sigue dando sus 17 cifras.
+* **Una referencia de una placa a otra**: `<ref pieza="M/PZA" nombre="cabezal"
+  componente="C/MOTOR"/>` dentro del `<sistema>`. La pieza la busca cuando ya
+  está todo montado, así que el orden no importa.
+* **La imagen, a trozos** (`T_IMAGEN_RECT`, sin subir la versión del
+  protocolo): una ventana que dice `imagen_parcial=1` en `T_VERSION` recibe
+  solo el rectángulo que cambió. Lo calcula la frontera comparando con la
+  última que salió, así que le sirve igual al TFT. Once segundos de raya, con
+  instantáneas cada 5 ms: 319 kB contra 196 MB enteras.
+* **En la ventana** (`mcu-sim-gui`): pega los trozos; una `pantalla` con
+  `observable=` y `vector=` se desplaza —la pieza va con la mesa—; y los
+  elementos vivos se apilan en el orden del dibujo, no en el de las piezas: si
+  no, la pieza tapaba el carro X que la recorre.
+* **Un error de F3, corregido**: en la planta, la mesa subía con Y, así que la
+  fresa iba hacia delante con +Y y lo grabado salía al revés. Ahora +Y lleva
+  la fresa hacia el fondo, arriba en la planta, como en cualquier plano. Y el
+  alzado pone la pieza de 12 mm en la mesa, con la cara de arriba a 15 mm, y
+  la placa de la sonda, de 5 mm, encima: la fresa la sigue tocando a 20.
+* **Lo que sale**: un bolsillo de 20 x 10 x 2 mm con el fondo plano a 1,984 mm
+  —lo que baja de verdad el carro Z— y las paredes en su sitio; una V de 60°
+  de 1,119 mm de ancho contra 1,137; en aluminio el cabezal cae a unas 8500
+  rpm y en MDF ni se entera; sin `M3`, la fresa parada hace perder pasos; y
+  una fresa que baja de más entra en la mesa. **Unos 1,9 s de reloj por
+  segundo de máquina** mientras corta.
+* **Pruebas**: `make gui-cnc` C8, 8 comprobaciones (153 en total); en
+  `mcu-sim-gui`, I13 y la nueva I28 (351 en `ilustracion`); `make gui-proto`,
+  el saludo con `imagen_parcial` y los dos tipos de imagen (66).
 
 ## Fuentes
 

@@ -1616,6 +1616,17 @@ SC_MODULE(Sim) {
                 if (!r) continue;
                 std::printf("  REDUCTORA %s: 1:%g, %+.1f rpm en su salida\n", i.id.c_str(),
                             r->config().relacion, r->rpm_salida());
+            } else if (i.tipo == "Pieza") {
+                const Pieza* p = placa.como<Pieza>(i.id);
+                if (!p) continue;
+                const ConfigPieza& k = p->config();
+                const char* fr = k.fresa == TipoFresa::Plana ? "plana"
+                               : k.fresa == TipoFresa::V ? "en V" : "de bola";
+                std::printf("  PIEZA %s: %s de %g x %g x %g mm, fresa %s de %g mm; %.1f mm3 "
+                            "quitados, hasta %.3f mm de hondo%s\n", i.id.c_str(),
+                            k.material->texto, k.largo_mm, k.ancho_mm, k.espesor_mm, fr,
+                            k.fresa_mm, p->quitado_mm3(), p->hondo_mm(),
+                            p->choque() ? "; LA FRESA HA ENTRADO EN LA MESA" : "");
             } else if (i.tipo == "FinalCarrera") {
                 const FinalCarrera* f = placa.como<FinalCarrera>(i.id);
                 if (!f) continue;
@@ -1843,6 +1854,7 @@ static int saluda_gui(Sim& s, stm32::gui::ClienteGui& cli,
             // de sc_start(): por eso la secuencia de instantaneas se repite al
             // picosegundo de una ejecucion a otra.
             canal = cli.entrega();
+            s.frontera.imagen_parcial(cli.imagen_parcial());
             s.enlace.activa(canal.get(), cli.emisor(), cli.lector());
             aplica_arranca(s, arr);
             if (cli.hay_suscripcion()) s.enlace.suscripcion_inicial(cli.suscripcion());

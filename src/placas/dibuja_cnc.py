@@ -627,29 +627,45 @@ def fresadora():
 
     ARRIBA, LA PLANTA: la mesa (CY), que se mueve en Y, y el carro X (CX) en
       el puente, los dos DIBUJADOS EN SU POSICION 0 y trasladados con ella
-      (efecto `desplaza`); los motores, acoples y husillos de X e Y, y los
-      finales FX y FY.
+      (efecto `desplaza`); la pieza (PZA), sobre la mesa en Y = 0, donde la
+      ventana pinta la imagen de lo mecanizado y que va con la mesa (efecto
+      `pantalla` con su `mesa`); los motores, acoples y husillos de X e Y, y
+      los finales FX y FY.
     ABAJO, EL ALZADO: el carro X (XALZ, con la transmision TX) y la
       herramienta (HERR: el carro Z, CZ, el cabezal y la fresa), que se
       mueve con X y Z a la vez; el motor, el acople, el husillo y el final de
-      Z van en el carro X; la placa de la sonda (PRB) en la mesa.
+      Z van en el carro X; la pieza, de 12 mm, en la mesa -su cara de arriba
+      con el carro Z a 15 mm-, y la placa de la sonda (PRB), de 5 mm, encima.
     A LA DERECHA: la seta (ESTOP), la fuente (PSU), las cotas (MAQ) y los
       cables: J1, MX, MY, MZ, FIN, SONDA y SETA.
 """)
     s.add(s.rect(0, 0, 1500, 1300, "#eceff1", rx=10))
     gris, oscuro, al = "#90a4ae", "#455a64", "#b0bec5"
     # --- La planta --------------------------------------------------------
-    x0, y0 = 220, 640                       # X = 0 e Y = 0 de los carros
+    x0 = 220                                # X = 0 del carro X
+    yp = 350                                # el puente: donde esta la fresa en Y
     s.add(s.rect(120, 40, 800, 680, "#cfd8dc", "#78909c", 2, rx=8))
     s.add(s.text(130, 64, "PLANTA", 14, oscuro))
-    # La mesa, en Y = 0: 300 x 200 mm
+    # Y: motor delante de la mesa, y su husillo DEBAJO: se dibuja antes que
+    # ella -la ventana apila lo que se mueve en el orden del dibujo-
+    s.add(s.rect(x0 + 195, 700, 60, 50, oscuro, "#263238", 2, rx=6, id="MOTY"))
+    s.add(s.rect(x0 + 217, 674, 16, 26, gris, oscuro, 1, rx=3, id="AY"))
+    s.add(s.rect(x0 + 222, 60, 6, 614, "#e0e0e0", "#9e9e9e", 1, id="HY"))
+    s.add(s.rect(x0 + 120, 660, 20, 14, "#ffca28", "#ff8f00", 1, id="FY"))
+    # La mesa, en Y = 0: su borde de delante -abajo- bajo la fresa. Con Y la
+    # mesa viene hacia delante, y la fresa queda mas atras en ella: +Y, hacia
+    # el fondo, ARRIBA en la planta, como en cualquier plano
     s.add('<g id="CY">')
-    s.add("  " + s.rect(x0 - 20, y0 - 300 - 10, 450 + 40, 300 + 20, "#a1887f", "#5d4037", 2, rx=4))
+    s.add("  " + s.rect(x0 - 20, yp - 300 - 10, 450 + 40, 300 + 20, "#a1887f", "#5d4037", 2, rx=4))
     for k in range(1, 8):
-        s.add("  " + s.rect(x0 - 20, y0 - 300 - 10 + k * 40, 490, 3, "#8d6e63"))
+        s.add("  " + s.rect(x0 - 20, yp - 300 - 10 + k * 40, 490, 3, "#8d6e63"))
     s.add("</g>")
+    # La pieza, en la mesa en Y = 0: 100 x 60 mm con su esquina (0, 0) -la de
+    # delante a la izquierda- bajo la fresa con los carros en X 100 e Y 70
+    # (x_mm, y_mm de PZA)
+    s.add(s.rect(x0 + 100 * K, yp - (70 + 60) * K, 100 * K, 60 * K, "#c4a476", "#8d6e63", 1,
+                 id="PZA"))
     # El puente, fijo, y el carro X en X = 0
-    yp = 330
     s.add(s.rect(150, yp - 25, 720, 50, al, "#607d8b", 2, rx=4))
     s.add('<g id="CX">')
     s.add("  " + s.rect(x0 - 40, yp - 45, 80, 90, "#546e7a", "#263238", 2, rx=6))
@@ -661,18 +677,17 @@ def fresadora():
     s.add(s.rect(120, yp - 8, 26, 16, gris, oscuro, 1, rx=3, id="AX"))
     s.add(s.rect(146, yp - 3, 700, 6, "#e0e0e0", "#9e9e9e", 1, id="HX"))
     s.add(s.rect(x0 - 60, yp - 30, 14, 20, "#ffca28", "#ff8f00", 1, id="FX"))
-    # Y: motor delante de la mesa
-    s.add(s.rect(x0 + 195, 700, 60, 50, oscuro, "#263238", 2, rx=6, id="MOTY"))
-    s.add(s.rect(x0 + 217, 674, 16, 26, gris, oscuro, 1, rx=3, id="AY"))
-    s.add(s.rect(x0 + 222, 250, 6, 424, "#e0e0e0", "#9e9e9e", 1, id="HY"))
-    s.add(s.rect(x0 + 120, 660, 20, 14, "#ffca28", "#ff8f00", 1, id="FY"))
     # --- El alzado --------------------------------------------------------
     ya = 1220                                # el suelo
     s.add(s.rect(120, 780, 800, 480, "#cfd8dc", "#78909c", 2, rx=8))
     s.add(s.text(130, 804, "ALZADO", 14, oscuro))
     s.add(s.rect(150, ya - 20, 740, 20, "#78909c"))
-    s.add(s.rect(x0 - 20, ya - 70, 490, 50, "#a1887f", "#5d4037", 2, rx=3))
-    s.add(s.rect(x0 + 160, ya - 80, 60, 10, "#b87333", "#6d4c41", 1, id="PRB"))
+    mesa = ya - 70                           # la cara de la mesa: el carro Z a 3 mm
+    s.add(s.rect(x0 - 20, mesa, 490, 50, "#a1887f", "#5d4037", 2, rx=3))
+    # La pieza, de 12 mm, y la placa de la sonda, de 5, encima: la fresa la
+    # toca con el carro Z a 20 mm
+    s.add(s.rect(x0 + 100 * K, mesa - 12 * K, 100 * K, 12 * K, "#c4a476", "#8d6e63", 1))
+    s.add(s.rect(x0 + 160, mesa - 17 * K, 60, 5 * K, "#b87333", "#6d4c41", 1, id="PRB"))
     s.add(s.rect(150, 840, 30, ya - 860, al, "#607d8b", 2))
     s.add(s.rect(860, 840, 30, ya - 860, al, "#607d8b", 2))
     s.add(s.rect(150, 830, 740, 40, al, "#607d8b", 2, rx=4))
@@ -684,9 +699,9 @@ def fresadora():
     s.add("  " + s.rect(x0 - 2, 878, 4, 220, "#e0e0e0", "#9e9e9e", 1, id="HZ"))
     s.add("  " + s.rect(x0 + 28, 884, 16, 12, "#ffca28", "#ff8f00", 1, id="FZ"))
     s.add("</g>")
-    # La herramienta, en X = 0 y Z = 0: la punta de la fresa 20 mm por debajo
-    # de la placa de la sonda, que la toca con el carro Z a 20 mm
-    punta = ya - 80 + 20 * K
+    # La herramienta, en X = 0 y Z = 0: la punta de la fresa 3 mm por debajo
+    # de la cara de la mesa (mesa_mm de PZA)
+    punta = mesa + 3 * K
     s.add('<g id="HERR">')
     s.add("  " + s.rect(x0 - 40, punta - 150, 80, 70, "#37474f", "#263238", 2, rx=5, id="CZ"))
     s.add("  " + s.rect(x0 - 26, punta - 80, 52, 60, "#b0bec5", "#546e7a", 2, rx=6))

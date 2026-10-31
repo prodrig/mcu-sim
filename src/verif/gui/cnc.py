@@ -42,6 +42,11 @@
 #       ajustar ($5, $14, $3) y lo que no puede (la sonda). Si no está
 #       verif/fw/grblhal/grblhal.bin -GPL-3, no se versiona: `make -C
 #       verif/fw/grblhal`-, se saltan sus pruebas.
+#   C8  (F4) LA PIEZA. Un bolsillo de 20 x 10 x 2 mm sale con su fondo plano,
+#       su hondo y sus paredes; una V de 60° da el ancho que toca; la imagen
+#       de la pieza sale a trozos (T_IMAGEN_RECT) y llega igual que entera;
+#       en aluminio el corte frena el cabezal; sin M3, la fresa parada hace
+#       perder pasos; y una fresa que baja de más entra en la mesa.
 #
 # Cada grupo monta su banco en una carpeta temporal, con placas escritas aquí.
 #
@@ -63,7 +68,8 @@ import xml.etree.ElementTree as ET
 
 import ventana
 from ventana import (Ventana, arranque, check, grupo, arranca, termina, saludo_hasta_listo,
-                     suscribe, instantanea, aviso, ordenes, T_INSTANTANEA, T_AVISO, T_FIN)
+                     suscribe, instantanea, aviso, ordenes, imagen, imagen_rect, aplica_rect,
+                     T_INSTANTANEA, T_AVISO, T_FIN, T_IMAGEN, T_IMAGEN_RECT)
 
 
 # ---------------------------------------------------------------------------
@@ -84,24 +90,37 @@ def corre(sim, ruta, ms, args=()):
 
 
 ULTIMA = [""]          # la consola de la ultima simulacion con ventana
+# Las imagenes de la ultima simulacion con ventana, por (pieza, imagen): las
+# enteras y los trozos que llegaron, los bytes y la imagen de al final, rehecha
+IMAGENES = [{}]
 
 
-def muestrea(sim, ruta, ms, pedidos, periodo_ns=1000000, lista=(), args=()):
+def muestrea(sim, ruta, ms, pedidos, periodo_ns=1000000, lista=(), args=(), imagenes=(),
+             parcial=False):
     """Corre `ruta` `ms` ms con la ventana, suscrita cada `periodo_ns` a los
     observables `pedidos` -[(pieza, observable)]-, mandando las `lista` de
     órdenes [(t_ms, pieza, mando, valor)]. Devuelve (series, avisos, catalogo, rc):
-    series[(pieza, obs)] = [(t_s, valor)]."""
+    series[(pieza, obs)] = [(t_s, valor)]. Con `imagenes` -[(pieza, imagen)]-
+    se suscribe tambien a ellas, a trozos si `parcial`, y deja en IMAGENES lo
+    que llego."""
     v = Ventana()
     p = arranca(sim, [ruta, "--ms=%d" % ms] + list(args), v.puerto)
     try:
         if not v.acepta():
             return None, None, None, None
-        _, _, cat, listo = saludo_hasta_listo(v, version=2)
+        _, _, cat, listo = saludo_hasta_listo(v, version=2, parcial=parcial)
         pz = {x.get("id"): x for x in ET.fromstring(cat).iter("pieza")}
         ids = []
         for pid, nombre in pedidos:
             ob = [o for o in pz[pid].iter("observable") if o.get("nombre") == nombre]
             ids.append(int(ob[0].get("id_obs")))
+        img_de = {}
+        for pid, nombre in imagenes:
+            im = [o for o in pz[pid].iter("imagen") if o.get("nombre") == nombre][0]
+            img_de[int(im.get("id_obs"))] = (pid, nombre)
+            ids.append(int(im.get("id_obs")))
+        IMAGENES[0] = {k: {"enteras": 0, "trozos": 0, "bytes": 0, "final": None, "ancho": 0,
+                           "alto": 0, "vacios": 0} for k in imagenes}
         suscribe(v, periodo_ns, ids)
         ords, t = [], 0
         for t_ms, pid, mando, valor in lista:
@@ -124,6 +143,19 @@ def muestrea(sim, ruta, ms, pedidos, periodo_ns=1000000, lista=(), args=()):
                     series[k].append((ts * 1e-9, val))
             elif tt == T_AVISO:
                 avs.append(aviso(c))
+            elif tt == T_IMAGEN and len(c) >= 24:
+                ts, i, fmt, an, al, br, pix = imagen(c)
+                e = IMAGENES[0][img_de[i]]
+                e.update(enteras=e["enteras"] + 1, bytes=e["bytes"] + len(c), ancho=an, alto=al,
+                         final=bytearray(pix))
+            elif tt == T_IMAGEN_RECT and len(c) >= 32:
+                ts, i, fmt, an, al, x, y, w, h, br, pix = imagen_rect(c)
+                e = IMAGENES[0][img_de[i]]
+                e.update(trozos=e["trozos"] + 1, bytes=e["bytes"] + len(c))
+                if w * h == 0:
+                    e["vacios"] += 1
+                elif e["final"] is not None and an == e["ancho"] and al == e["alto"]:
+                    aplica_rect(e["final"], an, x, y, w, h, pix)
             elif tt == T_FIN:
                 break
         rc, out, _ = termina(p)
@@ -1390,7 +1422,7 @@ def c5_transmision(sim, cp):
 # =============================================================================
 def maquina(sim, cp, guion, ms, pos=("50", "50", "50"), pedidos=(("M/CX", "posicion"),),
             lista=(), periodo_ns=5000000, extra_maquina=(), sistema="cnc_3020.xml",
-            firmware="verif/fw/cnc/cnc.bin", guion_ms=20):
+            firmware="verif/fw/cnc/cnc.bin", guion_ms=20, imagenes=(), parcial=False):
     """La fresadora 3020 entera (placas/cnc_3020.xml, u otro `sistema`) con su
     firmware, el G-code de `guion` tecleado por el VCP -en memoria- a los
     `guion_ms` y los carros donde diga `pos`. Devuelve (series, avisos, consola,
@@ -1417,7 +1449,8 @@ def maquina(sim, cp, guion, ms, pos=("50", "50", "50"), pedidos=(("M/CX", "posic
     x = re.sub(r'(<mcu ref="N/u0" firmware=)"[^"]*"', lambda m: '%s"%s"' % (m.group(1), fw), x)
     ruta = cp("cnc.xml", x)
     t0 = time.time()
-    s, avs, cat, rc = muestrea(sim, ruta, ms, list(pedidos), periodo_ns=periodo_ns, lista=lista)
+    s, avs, cat, rc = muestrea(sim, ruta, ms, list(pedidos), periodo_ns=periodo_ns, lista=lista,
+                               imagenes=imagenes, parcial=parcial)
     return s, avs, ULTIMA[0], time.time() - t0
 
 
@@ -1707,6 +1740,136 @@ def c7_grblhal(sim, cp):
           "(ALARM:10); X en %.2f mm y el Z, sujeto por su husillo" % px[-1][1])
 
 
+def corta(sim, cp, g, ms, pos, material="mdf", fresa="plana", angulo=60, imagenes=(),
+          parcial=False, pedidos=()):
+    """Un mecanizado con verif/fw/cnc en la 3020: el G-code `g` -una lista de
+    lineas- desde los carros en `pos`, que el programa declara con G92 para
+    hablar en coordenadas de maquina. Devuelve (series, avisos, consola,
+    segundos de reloj, mapa): el mapa de alturas de la pieza al acabar, por
+    filas de Y"""
+    mapa = os.path.join(os.path.dirname(cp("vacio.txt", "")), "mapa_%s_%s.csv" % (material, fresa))
+    g = ["G92 X%s Y%s Z%s" % pos] + g
+    ped = (("M/PZA", "q"), ("M/PZA", "par"), ("M/PZA", "fuerza"), ("C/MOTOR", "rpm"),
+           ("M/CX", "posicion"), ("M/CY", "posicion"), ("M/CZ", "posicion")) + tuple(pedidos)
+    s, avs, out, dt = maquina(
+        sim, cp, "\\n".join(g) + "\\n", ms, pos=pos, pedidos=ped, periodo_ns=5000000,
+        extra_maquina=[('material="mdf"', 'material="%s"' % material),
+                       ('fresa="plana" fresa_mm="3.175">',
+                        'fresa="%s" fresa_mm="3.175" angulo_v="%g" mapa="%s">'
+                        % (fresa, angulo, mapa.replace("\\", "/")))],
+        imagenes=imagenes, parcial=parcial)
+    filas = [[float(x) for x in l.split(",")] for l in open(mapa) if not l.startswith("#")] \
+        if os.path.exists(mapa) else []
+    return s, avs, out, dt, filas
+
+
+def durante_corte(s, clave):
+    """Los valores de `clave` mientras la pieza pierde material"""
+    q = s[("M/PZA", "q")]
+    return [v for (t, a), (_, v) in zip(q, s[clave]) if a > 1.0]
+
+
+def c8_pieza(sim, cp):
+    CELDA, E = 0.25, 12.0
+    grupo("C8 (F4) La pieza: un bolsillo de profundidad conocida")
+    # Un bolsillo de 20 x 10 mm y 2 de hondo en X 120-140 e Y 85-95 -en la
+    # pieza, 20-40 y 15-25-, con la fresa plana de 3,175 mm: en zigzag con
+    # pasadas de 1,5 mm y una vuelta al borde
+    r = 3.175 / 2
+    x0, x1, y0, y1 = 120 + r, 140 - r, 85 + r, 95 - r
+    g = ["M3 S1000", "G4 P1", "G1 Z13 F120"]
+    y, d = y0, 1
+    while True:
+        g.append("G1 X%.4f F600" % (x1 if d > 0 else x0))
+        d = -d
+        if y >= y1 - 1e-9:
+            break
+        y = min(y + 1.5, y1)
+        g.append("G1 Y%.4f" % y)
+    g += ["G1 X%.4f Y%.4f" % (x0, y0), "G1 X%.4f" % x1, "G1 Y%.4f" % y1, "G1 X%.4f" % x0,
+          "G1 Y%.4f" % y0, "G0 Z20", "M5"]
+    s, avs, out, dt, m = corta(sim, cp, g, 23000, ("%.4f" % x0, "%.4f" % y0, "20"))
+    zs = s[("M/CZ", "posicion")]
+    z_fondo = min(z for t, z in zs)
+    def h(u, v):
+        return m[int(v / CELDA)][int(u / CELDA)]
+    dentro = [h(u / 4, v / 4) for u in range(84, 157) for v in range(64, 97)]
+    cortadas = [(i, j) for j, f in enumerate(m) for i, x in enumerate(f) if x < E - 0.5]
+    us = [(i + 0.5) * CELDA for i, j in cortadas]
+    vs = [(j + 0.5) * CELDA for i, j in cortadas]
+    hondo = E - max(dentro)
+    check(m and max(dentro) - min(dentro) < 1e-3 and abs(hondo - (15 - z_fondo)) < 1e-3 and
+          abs(hondo - 2.0) < 0.025,
+          "EL FONDO, PLANO Y A SU HONDO: %.3f mm en todo el bolsillo -lo que de verdad baja el "
+          "carro Z, a %.3f: la holgura de su tuerca y un paso, contra los 13 pedidos-"
+          % (hondo, z_fondo))
+    check(cortadas and abs(min(us) - 20.125) < 1e-6 and abs(max(us) - 39.875) < 1e-6 and
+          abs(min(vs) - 15.125) < 1e-6 and abs(max(vs) - 24.875) < 1e-6,
+          "LAS PAREDES, donde tocan: el bolsillo va de X %.3f a %.3f y de Y %.3f a %.3f en la "
+          "pieza -los centros de sus celdas de 0,25 mm: de 20 a 40 y de 15 a 25-"
+          % (min(us or [0]), max(us or [0]), min(vs or [0]), max(vs or [0])))
+    quitado = float(re.search(r"PIEZA M/PZA: .*?; ([0-9.]+) mm3", out).group(1)) \
+        if "PIEZA M/PZA" in out else 0
+    geo = 20 * 10 * 2.0 - (4 - math.pi) * r * r * 2.0
+    rpm = durante_corte(s, ("C/MOTOR", "rpm"))
+    check(abs(quitado - geo * hondo / 2.0) / geo < 0.02 and rpm and min(rpm) > 9500,
+          "%.1f mm3 quitados, los del bolsillo con sus esquinas redondeadas (%.1f); en MDF el "
+          "cabezal ni se entera: %.0f rpm como poco" % (quitado, geo * hondo / 2.0,
+                                                        min(rpm or [0])))
+
+    grupo("C8 (F4) Un grabado en V da el ancho que toca, y la imagen sale a trozos")
+    # Una raya de 40 mm con una fresa en V de 60 grados, 1 mm de honda: de
+    # ancho, 2 x 1 x tan(30) = 1,155 mm. En Y = 115,125, el centro de una
+    # celda: la punta de la V es mas fina que la celda
+    g = ["M3 S1000", "G4 P1", "G1 Z14 F120", "G1 X170 F600", "G0 Z20", "M5"]
+    res = {}
+    for parc in (True, False):
+        res[parc] = corta(sim, cp, g, 11000, ("130", "115.125", "20"), fresa="v",
+                          imagenes=(("M/PZA", "pieza"),), parcial=parc) + (dict(IMAGENES[0]),)
+    s, avs, out, dt, m, im = res[True]
+    hondo = 15 - min(z for t, z in s[("M/CZ", "posicion")])
+    anchos = []
+    for i in range(int(35 / CELDA), int(36 / CELDA)):
+        area = sum(E - f[i] for f in m) * CELDA
+        anchos.append(2 * area / hondo)
+    w = sum(anchos) / len(anchos) if anchos else 0
+    teo = 2 * hondo * math.tan(math.radians(30))
+    check(anchos and abs(w - teo) / teo < 0.05,
+          "LA V DE 60 GRADOS, %.3f mm de honda: %.3f mm de ancho -de su seccion, 2 x area / "
+          "hondo-, contra %.3f de 2 x hondo x tan 30" % (hondo, w, teo))
+    p, t = im[("M/PZA", "pieza")], res[False][5][("M/PZA", "pieza")]
+    check(p["enteras"] == 1 and p["trozos"] > 20 and t["trozos"] == 0 and
+          p["final"] is not None and p["final"] == t["final"] and p["bytes"] * 5 < t["bytes"],
+          "LA IMAGEN, A TROZOS (T_IMAGEN_RECT) si la ventana lo pide: una entera y %d trozos, "
+          "%d kB, y la misma imagen al final que %d enteras sin pedirlo, %d kB"
+          % (p["trozos"], p["bytes"] // 1024, t["enteras"], t["bytes"] // 1024))
+
+    grupo("C8 (F4) Las fuerzas del corte")
+    g = ["M3 S1000", "G4 P1", "G1 Z14 F120", "G1 X170 F600", "G0 Z20", "M5"]
+    s, avs, out, dt, m = corta(sim, cp, g, 11000, ("130", "115.125", "20"), material="aluminio")
+    rpm, par = durante_corte(s, ("C/MOTOR", "rpm")), durante_corte(s, ("M/PZA", "par"))
+    vx = durante_corte(s, ("M/CX", "posicion"))
+    check(rpm and sum(rpm) / len(rpm) < 0.9 * 9878 and max(par) > 20,
+          "UNA RANURA EN ALUMINIO, de 1 mm a 600 mm/min: el corte pide hasta %.0f N·cm y el "
+          "775 baja a %.0f rpm de media (de 9878 en vacio): k_c1.1 de 700 N/mm2, frente a "
+          "40 del MDF" % (max(par or [0]), sum(rpm) / max(1, len(rpm))))
+    g = ["G1 Z14 F120", "G1 X170 F600", "G0 Z20"]
+    s, avs, out, dt, m = corta(sim, cp, g, 9000, ("130", "115.125", "20"))
+    tx = textos(avs)
+    check("la fresa esta parada y la maquina la mete en el material" in tx and
+          "ha perdido pasos" in tx and s[("M/CX", "posicion")][-1][1] < 169,
+          "SIN M3, la fresa no gira y la maquina la mete en el MDF: la pieza lo dice, los paso "
+          "a paso pierden pasos y el carro X se queda en %.2f mm de los 170 pedidos"
+          % s[("M/CX", "posicion")][-1][1])
+    g = ["M3 S1000", "G4 P0.5", "G1 Z2.5 F480", "G0 Z20", "M5"]
+    s, avs, out, dt, m = corta(sim, cp, g, 6000, ("150", "100", "20"),
+                               pedidos=(("M/PZA", "choque"), ("M/PZA", "hondo")))
+    check("la fresa entra" in textos(avs) and
+          s[("M/PZA", "choque")][-1][1] == 1.0 and s[("M/PZA", "hondo")][-1][1] == 12.0,
+          "Y SI BAJA DEMASIADO, atraviesa los 12 mm y entra en la mesa: la alarma choque y el "
+          "aviso: %s" % next((a[3] for a in avs if "la fresa entra" in a[3]), "nada"))
+
+
 def main():
     a = argparse.ArgumentParser(description="La fresadora CNC, por fases, contra el mcu-sim de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -1730,6 +1893,7 @@ def main():
         c5_transmision(sim, cp)
         c6_maquina(sim, cp)
         c7_grblhal(sim, cp)
+        c8_pieza(sim, cp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print()

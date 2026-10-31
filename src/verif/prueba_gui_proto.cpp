@@ -156,6 +156,10 @@ std::vector<Caso> del_modelo() {
     v.push_back({T_ESTADO, bytes(Estado{F_CORRIENDO, 0, 5000000ull, 1.25, 987654ull})});
     v.push_back({T_ORDEN_HECHA, bytes(OrdenHecha{1500000000ull, 3, 0, 1.f, RES_TARDE, 0})});
     v.push_back({T_PONG, ""});
+    v.push_back({T_IMAGEN, bytes(CabImagen{7000000ull, 3, FMT_RGB888, 2, 1, 1.f, 0}) +
+                               std::string("\xff\x00\x00\x00\xff\x00", 6)});
+    v.push_back({T_IMAGEN_RECT, bytes(CabImagenRect{8000000ull, 3, FMT_RGB888, 2, 1, 1, 0, 1, 1,
+                                                    0.5f, 0}) + std::string("\x00\x00\xff", 3)});
     v.push_back({T_FIN, bytes(Fin{M_PARA, 0, 4220000000ull})});
     return v;
 }
@@ -238,7 +242,7 @@ void p1_marco() {
         Lector L(Origen::Modelo);
         L.mete(todo.data(), todo.size());
         comprueba(iguales(vacia(L), casos),
-                  "los diez tipos del modelo, de un golpe: los mismos bytes, en orden");
+                  "los doce tipos del modelo, de un golpe: los mismos bytes, en orden");
         comprueba(L.pendientes() == 0 && L.leidos() == casos.size() && !L.roto(),
                   "y no sobra ni falta nada");
     }
@@ -666,6 +670,8 @@ void p4_saludo() {
         comprueba(arr.ritmo == RIT_LIBRE && arr.ventana_ns == 5000000ull,
                   "con el cuerpo de T_ARRANCA intacto");
         comprueba(m.version() == 1, "con la version que eligio la GUI");
+        comprueba(!m.imagen_parcial(),
+                  "una GUI que no dice imagen_parcial=1 no recibe imagenes a trozos");
         comprueba(m.hay_suscripcion() &&
                   m.suscripcion() == gui::cuerpo_suscripcion(2000000ull, {3, 5}),
                   "de dos T_SUSCRIBE antes de arrancar se guarda el ultimo, entero: "
@@ -737,7 +743,7 @@ void p4_saludo() {
         std::vector<Copia> vio;
         GuiFalsa g([&](red::socket_t c, Lector& L, Emisor& e) {
             recibe_gui(c, L, 1);
-            manda_gui(c, e, T_VERSION, "protocolo=1\n");
+            manda_gui(c, e, T_VERSION, "protocolo=1\nimagen_parcial=1\n");
             L.fija_version(1); e.fija_version(1);
             vio = recibe_gui(c, L, 5);
             manda_gui(c, e, T_PARA);
@@ -761,6 +767,9 @@ void p4_saludo() {
                   vio[2].cuerpo.substr(sizeof ca) ==
                       "placanodo X: conducen a la vez A.a y B.a",
                   "con nivel aviso, origen 'placa', t = 0 y el texto entero");
+        comprueba(m.imagen_parcial(),
+                  "y una que dice imagen_parcial=1 en T_VERSION las recibe a trozos "
+                  "(T_IMAGEN_RECT)");
     }
 
     // --- Las formas de fallar -----------------------------------------------

@@ -273,7 +273,7 @@ public:
         x_ = c_.posicion_mm * 1e-3;
     }
     double inercia() const override { return c_.masa_kg; }           // kg: su entrada es lineal
-    double rozamiento() const override { return c_.rozamiento_n; }
+    double rozamiento() const override { return c_.rozamiento_n + roz_corte_; }
     double viscoso() const override { return c_.viscoso_ns_m; }
     double carga_activa() const override {
         return (c_.vertical ? -c_.masa_kg * transmision::G : 0.0) + fuerza_;
@@ -316,6 +316,13 @@ public:
     unsigned choques() const { return choques_; }
     double fuerza() const { return fuerza_; }
     void   pon_fuerza(double f) { fuerza_ = f; if (cadena_) cadena_->toca(); }
+    // La resistencia del corte (F4, parts/pieza.h): un rozamiento seco MÁS,
+    // en N, que se opone al movimiento y no empuja nunca un carro parado
+    double rozamiento_corte() const { return roz_corte_; }
+    void   pon_rozamiento_corte(double n) {
+        roz_corte_ = n > 0.0 ? n : 0.0;
+        if (cadena_) cadena_->toca();
+    }
     const ConfigCarro& config() const { return c_; }
 
     unsigned n_observables() const override { return 3; }
@@ -337,7 +344,7 @@ public:
     void acciona(unsigned, float v) override { pon_fuerza(double(v)); }
 private:
     ConfigCarro c_;
-    double x_ = 0.0, v_ = 0.0, v_ant_ = 0.0, fuerza_ = 0.0, x_avisado_ = -1.0;
+    double x_ = 0.0, v_ = 0.0, v_ant_ = 0.0, fuerza_ = 0.0, x_avisado_ = -1.0, roz_corte_ = 0.0;
     bool tope_ = false;
     std::unique_ptr<sc_core::sc_event> ev_mueve_;
     unsigned choques_ = 0;

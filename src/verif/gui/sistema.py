@@ -1425,7 +1425,8 @@ def c19_ti(sim, cp):
     f = cp.escribe("obs.xml", MODULO % ('', '<ilustracion><enlace pieza="LD" elemento="LD" '
                                          'efecto="brillo" observable="corriente"/></ilustracion>'))
     rc, out, err = corre(sim, [f, "--valida"])
-    check(rc != 0 and "observable= solo vale con efecto=\"giro\", \"angulo\", \"display\" o \"desplaza\"" in out + err,
+    check(rc != 0 and "observable= solo vale con efecto=\"giro\", \"angulo\", \"display\", "
+          "\"desplaza\" o \"pantalla\"" in out + err,
           "observable= con un efecto que no gira no se acepta, y se dice")
     # S7: la Discovery en el cargador, con el FT232RL en la USART1
     rc, out, err = corre(sim, ["placas/stm32f3discovery_boot0.xml", "--valida"])

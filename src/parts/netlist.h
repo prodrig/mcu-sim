@@ -432,6 +432,7 @@ struct Instancia {
     // eléctrico. Un netlist tiene que saber expresarlo, y además tiene que
     // saber que el referido se construye ANTES que quien lo refiere.
     std::map<std::string, std::string> refs;
+    std::set<std::string> tardias;           // las de refs que no tienen orden (ref_tardia)
     bool conectada = true;
     // Para la ventana nada más: `visible="no"` es una pieza que no interesa
     // ver en la ilustración. La simulación no lo mira
@@ -462,6 +463,13 @@ struct Instancia {
     }
     Instancia& ref(const char* clave, const std::string& id_instancia) {
         refs[clave] = id_instancia;
+        return *this;
+    }
+    // Una referencia que la pieza busca cuando ya está todo montado -la de un
+    // <ref> de un <sistema>, de una placa a otra-: no importa el orden
+    Instancia& ref_tardia(const char* clave, const std::string& id_instancia) {
+        refs[clave] = id_instancia;
+        tardias.insert(clave);
         return *this;
     }
     Instancia& desconectada() { conectada = false; return *this; }
@@ -1367,7 +1375,7 @@ public:
                 // El orden importa: `construye()` va en orden de declaracion, y
                 // referirse a algo que todavia no se ha construido es un error
                 // del netlist, no del modelo.
-                if (!antes(r.second, i.id))
+                if (!antes(r.second, i.id) && !i.tardias.count(r.first))
                     err.push_back(i.id + "." + r.first + ": " + r.second +
                                   " se declara despues, y hace falta antes");
             }

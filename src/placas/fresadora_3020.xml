@@ -21,9 +21,16 @@
        FY  la mesa, en el suyo (0,5 mm)
        FZ  el carro Z, ARRIBA (71,5 mm): el homing sube el Z primero
 
-     LA SONDA, PRB: una placa de contacto en la mesa; la fresa la toca con el
-     carro Z a 20 mm. La pinza de la placa, a SONDA.PLACA; la de la fresa, a
-     masa.
+     LA SONDA, PRB: una placa de contacto de 5 mm sobre la pieza; la fresa la
+     toca con el carro Z a 20 mm. La pinza de la placa, a SONDA.PLACA; la de
+     la fresa, a masa.
+
+     LA PIEZA, PZA (fase F4): un bloque de MDF de 100 x 60 x 12 mm en la mesa,
+     con su esquina (0, 0) bajo la fresa con los carros en X 100 e Y 70. La
+     punta de la fresa toca la mesa con el carro Z a 3 mm, y la cara de arriba
+     de la pieza a 15. La fresa, plana de 3,175 mm. Lo que la fresa se come se
+     ve en la planta, y con el cabezal de placas/cnc_3020.xml el corte lo
+     frena.
 
      LA SETA, SETA: enclavada, con dos contactos. El NC corta los 24 V de los
      motores -la potencia de los drivers: no basta con avisar al MCU- y el NO
@@ -134,6 +141,14 @@
     <pin nombre="a2" nodo="SETA.ABORT"/> <pin nombre="b2" nodo="GND"/>
   </componente>
 
+  <!-- La pieza -->
+  <componente tipo="Pieza" id="PZA" material="mdf" largo_mm="100" ancho_mm="60"
+              espesor_mm="12" x_mm="100" y_mm="70" mesa_mm="3" celda_mm="0.25"
+              fresa="plana" fresa_mm="3.175">
+    <ref nombre="x" componente="CX"/> <ref nombre="y" componente="CY"/>
+    <ref nombre="z" componente="CZ"/>
+  </componente>
+
   <!-- Las cotas -->
   <componente tipo="Cotas" id="MAQ">
     <ref nombre="x" componente="CX"/> <ref nombre="y" componente="CY"/>
@@ -145,8 +160,11 @@
   </componente>
 
   <ilustracion>
+    <!-- Por orden, de abajo arriba: la mesa, la pieza encima -con lo
+         mecanizado, que va con la mesa- y el carro X sobre las dos -->
+    <enlace pieza="CY" elemento="CY" efecto="desplaza" observable="posicion" vector="0 1.5"/>
+    <enlace pieza="PZA" elemento="PZA" efecto="pantalla" observable="mesa" vector="0 1.5"/>
     <enlace pieza="CX" elemento="CX" efecto="desplaza" observable="posicion" vector="1.5 0"/>
-    <enlace pieza="CY" elemento="CY" efecto="desplaza" observable="posicion" vector="0 -1.5"/>
     <enlace pieza="TX" elemento="XALZ" efecto="desplaza" observable="posicion" vector="1.5 0"/>
     <enlace pieza="HERR" elemento="HERR" efecto="desplaza" observable="x z" vector="1.5 0  0 -1.5"/>
     <enlace pieza="MAQ" elemento="MAQ" efecto="display" observable="x y z"/>

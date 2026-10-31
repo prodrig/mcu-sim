@@ -76,5 +76,8 @@
   <hilo a="C/M.ROJO" b="Q/X2.MAS"/>
   <hilo a="C/M.NEGRO" b="Q/X2.MENOS"/>
 
+  <!-- La pieza mecanizada frena el cabezal: su ref, de una placa a otra -->
+  <ref pieza="M/PZA" nombre="cabezal" componente="C/MOTOR"/>
+
   <mcu ref="N/u0" firmware="verif/fw/cnc/cnc.bin"/>
 </sistema>

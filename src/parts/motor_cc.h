@@ -241,6 +241,14 @@ SC_MODULE(MotorCC), public ExtPartBase, public Actuador {
         carga_ = std::max(0.0, std::min(1.0, f));
         cadena_->toca();
     }
+    // Un par resistente de fuera, en N·m: el que pide la fresa al cortar
+    // (parts/pieza.h). Se suma a la carga y, como ella, frena y no empuja
+    double par_externo() const { return par_ext_; }
+    void   pon_par_externo(double nm) {
+        par_ext_ = nm > 0.0 ? nm : 0.0;
+        cadena_->toca();
+    }
+    double par_bloqueo() const { return t_bloqueo_; }
     double r_bobinado() const { return r_; }
     double inductancia() const { return l_; }
     double ke() const { return ke_; }
@@ -393,7 +401,8 @@ private:
     double v_bornes() const {
         return conduce_ ? vth_ - (rt_ - r_) * i_ : ke_ * cadena_->w();
     }
-    double t_carga() const { return carga_ * t_bloqueo_; }
+    // La carga del mando y el par de fuera -el del corte, F4-, como rozamiento
+    double t_carga() const { return carga_ * t_bloqueo_ + par_ext_; }
 
     // El cuarto de ciclo del encoder en el que está el ángulo th. En una
     // frontera exacta, el de delante según el sentido
@@ -467,6 +476,7 @@ private:
     // Los mandos
     bool bloq_ = false;
     double carga_ = 0.0;
+    double par_ext_ = 0.0;
     bool dicho_sobretension_ = false;
 };
 

@@ -50,6 +50,7 @@
 #include <cstdint>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <deque>
 #include <map>
 #include <string>
@@ -228,11 +229,38 @@ struct Instantanea {
     std::vector<mcusim::proto::Muestra>   muestras;
 };
 
-// Una imagen ya tomada: la cabecera de T_IMAGEN y sus píxeles.
+// Una imagen ya tomada: la cabecera de T_IMAGEN y sus píxeles; o, si `trozo`,
+// la de T_IMAGEN_RECT y los del rectángulo que cambió.
 struct ImagenTomada {
-    mcusim::proto::CabImagen cab;
-    std::string              pix;
+    mcusim::proto::CabImagen     cab;
+    mcusim::proto::CabImagenRect rect{};
+    bool                         trozo = false;
+    std::string                  pix;
 };
+
+// El rectángulo más pequeño que encierra los píxeles en que se diferencian
+// dos imágenes RGB888 de `ancho` x `alto`. Devuelve false si son iguales.
+inline bool rect_cambiado(const std::string& a, const std::string& b, unsigned ancho,
+                          unsigned alto, unsigned& x, unsigned& y, unsigned& w, unsigned& h) {
+    const std::size_t fila = std::size_t(ancho) * 3u;
+    unsigned y0 = alto, y1 = 0, x0 = ancho, x1 = 0;
+    for (unsigned r = 0; r < alto; ++r) {
+        const char* pa = a.data() + r * fila;
+        const char* pb = b.data() + r * fila;
+        if (std::memcmp(pa, pb, fila) == 0) continue;
+        if (r < y0) y0 = r;
+        y1 = r;
+        unsigned c = 0;
+        while (c < ancho && std::memcmp(pa + c * 3u, pb + c * 3u, 3) == 0) ++c;
+        if (c < x0) x0 = c;
+        unsigned d = ancho - 1u;
+        while (d > c && std::memcmp(pa + d * 3u, pb + d * 3u, 3) == 0) --d;
+        if (d > x1) x1 = d;
+    }
+    if (y0 == alto) return false;
+    x = x0; y = y0; w = x1 - x0 + 1u; h = y1 - y0 + 1u;
+    return true;
+}
 
 // ---------------------------------------------------------------------------
 // Los dos procesos
@@ -265,6 +293,11 @@ SC_MODULE(FronteraGui) {
     }
     bool activa() const { return activa_; }
     const Catalogo& catalogo() const { return cat_; }
+
+    // Si la ventana entiende T_IMAGEN_RECT (lo dijo en T_VERSION): una imagen
+    // que cambia poco sale a trozos. Se fija al arrancar, antes de muestrear.
+    void imagen_parcial(bool si) { parcial_ = si; }
+    bool imagen_parcial() const { return parcial_; }
 
     // --- T_SUSCRIBE ----------------------------------------------------------
     // Reemplaza a la anterior. Con periodo 0 o sin ids no se muestrea. Un id
@@ -338,6 +371,7 @@ SC_MODULE(FronteraGui) {
     uint64_t aplicadas() const { return aplicadas_; }
     uint64_t imagenes_tomadas() const { return img_tomadas_; }
     uint64_t imagenes_aplazadas() const { return img_aplazadas_; }
+    uint64_t imagenes_a_trozos() const { return img_trozos_; }
 
     // Aplica UNA orden ya, en el instante actual, y devuelve su eco. Es lo
     // que hace el aplicador al llegar el instante de cada una, y es pública
@@ -449,6 +483,34 @@ private:
                                               im.ancho, im.alto, brillo, 0u};
             p->pinta_imagen(k, it.pix);
             it.pix.resize(std::size_t(im.ancho) * im.alto * 3u, '\0');
+            // A trozos, si la ventana lo entiende, si ya tiene una entera de
+            // esta misma imagen y si el trozo es menos de la mitad. El trozo
+            // es contra la ÚLTIMA QUE SALIÓ a la cola: así, aplicados en orden,
+            // dan siempre la de ahora, aunque la ventana vaya atrasada.
+            if (parcial_ && e.enviada && e.pix.size() == it.pix.size()) {
+                unsigned x = 0, y = 0, w = 0, h = 0;
+                rect_cambiado(e.pix, it.pix, im.ancho, im.alto, x, y, w, h);
+                if (2u * w * h < unsigned(im.ancho) * im.alto) {
+                    ImagenTomada tr;
+                    tr.trozo = true;
+                    tr.rect = mcusim::proto::CabImagenRect{
+                        t, e.id, mcusim::proto::FMT_RGB888, im.ancho, im.alto,
+                        uint16_t(x), uint16_t(y), uint16_t(w), uint16_t(h), brillo, 0u};
+                    tr.pix.reserve(std::size_t(w) * h * 3u);
+                    for (unsigned r = y; r < y + h; ++r)
+                        tr.pix.append(it.pix, (std::size_t(r) * im.ancho + x) * 3u,
+                                      std::size_t(w) * 3u);
+                    e.pix.swap(it.pix);
+                    imagenes.push_back(std::move(tr));
+                    e.enviada = true;
+                    e.version = v;
+                    e.brillo = brillo;
+                    ++img_tomadas_;
+                    ++img_trozos_;
+                    continue;
+                }
+            }
+            if (parcial_) e.pix = it.pix;
             imagenes.push_back(std::move(it));
             e.enviada = true;
             e.version = v;
@@ -493,10 +555,12 @@ private:
         float    brillo = 0.f;
         double   luz_prev = 0.0;
         uint64_t t_prev = 0;
+        std::string pix;              // la última que salió, con trozos
     };
     std::vector<uint16_t>     subs_obs_;
     std::vector<EstadoImagen> subs_img_;
-    uint64_t                  img_tomadas_ = 0, img_aplazadas_ = 0;
+    uint64_t                  img_tomadas_ = 0, img_aplazadas_ = 0, img_trozos_ = 0;
+    bool                      parcial_ = false;
     bool                  cambio_subs_ = false;
     uint32_t              perdidas_pend_ = 0;
     uint64_t              tomadas_ = 0, perdidas_total_ = 0, aplicadas_ = 0;
