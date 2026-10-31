@@ -47,6 +47,11 @@
 #       de la pieza sale a trozos (T_IMAGEN_RECT) y llega igual que entera;
 #       en aluminio el corte frena el cabezal; sin M3, la fresa parada hace
 #       perder pasos; y una fresa que baja de más entra en la mesa.
+#   C9  (F5) LA POTENCIA DE 48 V. El Z con BLDC, freno y husillo de bolas: al
+#       frenar, la energía vuelve al bus; la resistencia de frenado la quema;
+#       sin ella, el bus sube y salta la protección -y el freno sujeta el Z-;
+#       con una fuente que absorbe, no pasa nada. Y un final de 24 V por un
+#       optoacoplador.
 #
 # Cada grupo monta su banco en una carpeta temporal, con placas escritas aquí.
 #
@@ -1870,6 +1875,97 @@ def c8_pieza(sim, cp):
           "aviso: %s" % next((a[3] for a in avs if "la fresa entra" in a[3]), "nada"))
 
 
+OBS_Z48 = [("CZ", "posicion"), ("CBUS", "tension"), ("RF", "conduce"), ("RF", "energia"),
+           ("U1", "estado"), ("U1", "corriente_vcc"), ("U1", "error"), ("PSU", "corriente"),
+           ("MOTOR", "rpm"), ("U2", "led"), ("U2", "salida"), ("U2", "saturado")]
+
+
+def eje_z48(sim, cp, lista, ms, sin_chopper=False, absorbe=False, periodo_ns=1000000):
+    """El Z de 48 V (placas/eje_z_48v.xml) con las ordenes de `lista` a su
+    generador de pasos; sin la resistencia de frenado -desoldada- o con una
+    fuente que absorbe, si se pide. Devuelve (series, avisos, consola, reloj)"""
+    x = open("placas/eje_z_48v.xml", encoding="utf-8").read()
+    if sin_chopper:
+        x = x.replace('<componente tipo="ChopperFrenado" id="RF"',
+                      '<componente tipo="ChopperFrenado" id="RF" conectada="no"')
+    if absorbe:
+        x = x.replace('absorbe="no"', 'absorbe="si"')
+    d = os.path.dirname(cp("vacio.txt", ""))
+    ruta = cp("eje_z_48v.xml", x)
+    shutil.copy("placas/eje_z_48v.svg", os.path.join(d, "eje_z_48v.svg"))
+    t0 = time.time()
+    s, avs, cat, rc = muestrea(sim, ruta, ms, OBS_Z48, periodo_ns=periodo_ns, lista=lista)
+    return s, avs, ULTIMA[0], time.time() - t0
+
+
+# Bajar el Z 45 mm a 2000 rpm del motor -16 667 pasos/s, 83 mm/s a la salida
+# de la reductora- y pararlo en seco, con una rampa de 100 ms
+BAJA_Y_PARA = [(1, "G", "sentido", 0), (300, "G", "hz", 16667), (1100, "G", "hz", 0)]
+
+
+def c9_potencia(sim, cp):
+    grupo("C9 (F5) La potencia de 48 V: el bus, su condensador y la energia que vuelve")
+    rc, out = valida(sim, "placas/eje_z_48v.xml")
+    f = piezas_sin_dibujo("eje_z_48v")
+    check(rc == 0 and "placa 'eje-z-48v': SIN MCU" in out and " 0 avisos" in out and
+          "dibujo: eje_z_48v.svg (" in out and not f,
+          "placas/eje_z_48v.xml -BLDC, controlador, freno, reductora, husillo de bolas, "
+          "fuente conmutada, condensador, resistencia de frenado y el final por un "
+          "optoacoplador- se valida sin avisos, con su dibujo%s" % (" (faltan: %s)" % f if f else ""))
+    s, avs, out, dt = eje_z48(sim, cp, BAJA_Y_PARA, 1500)
+    bus = s[("CBUS", "tension")]
+    pico = max(v for t, v in bus)
+    vcc = s[("U1", "corriente_vcc")]
+    dev = min(v for t, v in vcc)
+    z = s[("CZ", "posicion")][-1][1]
+    e_rf = s[("RF", "energia")][-1][1]
+    est = s[("U1", "estado")][-1][1]
+    check(dev < -300 and 49.0 < pico < 51.0 and e_rf > 0.02 and est == 3.0 and abs(z - 75.55) < 0.2,
+          "AL FRENAR EL Z QUE BAJA, el motor genera y el controlador lo DEVUELVE al bus (%.0f mA "
+          "hacia la fuente); la fuente conmutada no lo absorbe y el condensador sube hasta %.2f V; "
+          "la resistencia de frenado entra a 50,5 y quema %.0f mJ; el controlador sigue en marcha "
+          "y el Z llega: %.2f mm" % (dev, pico, e_rf * 1e3, z))
+    check(dt < 1.5 * 20, "1,5 s del eje en %.1f s de reloj" % dt)
+    s, avs, out, dt = eje_z48(sim, cp, BAJA_Y_PARA, 1500, sin_chopper=True)
+    bus = s[("CBUS", "tension")]
+    pico = max(v for t, v in bus)
+    t_pico = [t for t, v in bus if v == pico][0]
+    est = s[("U1", "estado")][-1][1]
+    err = s[("U1", "error")][-1][1]
+    z = s[("CZ", "posicion")][-1][1]
+    tx = textos(avs)
+    check("SOBRETENSION" in tx and 52.8 <= pico < 53.5 and t_pico > 1.05 and est == 5.0 and
+          err == 1.0,
+          "SIN LA RESISTENCIA DE FRENADO, el bus sube al parar hasta %.2f V a los %.3f s y SALTA "
+          "LA PROTECCION del controlador a 52,8: corta el puente y da error (estado %d)"
+          % (pico, t_pico, est))
+    check(abs(z - 75.55) < 0.5 and "freno esta echado y el eje gira" not in tx,
+          "y el Z, sin corriente, no se cae: lo sujeta el FRENO, que se echa en 20 ms (%.2f mm, "
+          "contra 75,55 con la resistencia)" % z)
+    s, avs, out, dt = eje_z48(sim, cp, BAJA_Y_PARA, 1500, sin_chopper=True, absorbe=True)
+    bus = s[("CBUS", "tension")]
+    psu = s[("PSU", "corriente")]
+    check(max(v for t, v in bus) < 48.5 and min(v for t, v in psu) < -20 and
+          s[("U1", "estado")][-1][1] == 3.0,
+          "con una fuente de LABORATORIO, que lo absorbe (absorbe=\"si\"), el bus no se mueve "
+          "(%.2f V como mucho): la fuente se traga lo que vuelve -%.0f mA hacia atras, de media "
+          "en 20 ms, como lo ve su display-"
+          % (max(v for t, v in bus), min(v for t, v in psu)))
+
+    grupo("C9 (F5) El final de Z, un inductivo de 24 V, por un optoacoplador")
+    s, avs, out, dt = eje_z48(sim, cp, [(1, "G", "sentido", 1), (300, "G", "hz", 8000)], 1500,
+                              periodo_ns=5000000)
+    led, sal, sat = s[("U2", "led")], s[("U2", "salida")], s[("U2", "saturado")]
+    antes = [v for t, v in sat if t < 0.3]
+    pis = [k for k, (t, v) in enumerate(sat) if v == 1.0]
+    check(antes and max(antes) == 0.0 and pis and 9.5 < led[pis[0]][1] < 11.0 and
+          0.25 < sal[pis[0]][1] < 0.35,
+          "el Z sube hasta su final, a 148 mm: el sensor cierra a masa, el LED del PC817 se "
+          "lleva %.1f mA por sus 2,2 kohm a 24 V y la salida se SATURA: %.2f mA por los 10 kohm "
+          "a 3,3 V, el pin del MCU a nivel bajo, y los 24 V lejos de el"
+          % (led[pis[0]][1] if pis else 0, sal[pis[0]][1] if pis else 0))
+
+
 def main():
     a = argparse.ArgumentParser(description="La fresadora CNC, por fases, contra el mcu-sim de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -1894,6 +1990,7 @@ def main():
         c6_maquina(sim, cp)
         c7_grblhal(sim, cp)
         c8_pieza(sim, cp)
+        c9_potencia(sim, cp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print()

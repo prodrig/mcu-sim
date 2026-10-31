@@ -40,12 +40,19 @@
 // suelta el freno -la salida a VCC- y, pasados `freno_ms`, ya en marcha. Al
 // quitar EN o al fallar, al revés: se echa el freno y, pasados `freno_ms`, se
 // quita la corriente. Así el eje no cae en ningún momento. (El freno mecánico
-// es de la fase F5: aquí solo la salida.)
+// es `Freno`, parts/transmision.h.)
+//
+// LA ENERGÍA QUE VUELVE (fase F5). Cuando el motor frena -o el peso de un Z lo
+// arrastra hacia abajo-, lo que entra en él es negativo: el controlador lo
+// DEVUELVE a VCC (InyectorCorriente). Con una fuente que no lo absorbe, lo
+// recoge el condensador del bus y la tensión sube; por encima de
+// `v_sobretension` -un 10 % sobre `vcc_max`- SALTA LA PROTECCIÓN: corta el
+// puente en el acto, echa el freno y lo dice, como un error más.
 //
 // Lo que NO hace: el bus de campo (F6), los finales de carrera, la puesta en
-// marcha automática que mide el motor, el I²t de la corriente de pico y la
-// energía que vuelve al frenar (F5). Sus ganancias de omisión son las de un
-// DB59L024035-A suelto: con una carga de mucha inercia hay que subirlas.
+// marcha automática que mide el motor y el I²t de la corriente de pico. Sus
+// ganancias de omisión son las de un DB59L024035-A suelto: con una carga de
+// mucha inercia hay que subirlas.
 // =============================================================================
 #ifndef STM32_PARTS_CONTROLADOR_MOTOR_H
 #define STM32_PARTS_CONTROLADOR_MOTOR_H
@@ -81,6 +88,10 @@ struct ConfigControladorMotor {
     double umbral = 2.5;                     // V: las entradas (con 0,25 de histéresis)
     double rds = 0.03;                       // ohm: lo que se queda en el puente (estimado)
     double i_reposo = 0.08;                  // A de VCC en reposo (estimado)
+    // La protección de sobretensión (F5): por encima, corta el puente en el
+    // acto, echa el freno y lo dice. 0: un 10 % por encima de vcc_max
+    double v_sobretension = 0.0;
+    double sobretension() const { return v_sobretension > 0.0 ? v_sobretension : vcc_max * 1.1; }
 };
 
 SC_MODULE(ControladorMotor), public ExtPartBase {
@@ -99,6 +110,8 @@ SC_MODULE(ControladorMotor), public ExtPartBase {
         const int ivc = add_pin("vcc", vcc, "controlador");
         const int ig = add_pin("gnd", gnd, "controlador");
         carga_vcc_.reset(new RamaDosNodos(vcc, ivc, gnd, ig));
+        // Lo que vuelve al bus cuando el motor frena: otro driver en VCC
+        iny_vcc_.reset(new InyectorCorriente(vcc, add_drv("vcc", "controlador_bus")));
         const int iu = add_pin("u", u, "controlador_out");
         const int iv = add_pin("v", v, "controlador_out");
         const int iw = add_pin("w", w, "controlador_out");
@@ -129,6 +142,7 @@ SC_MODULE(ControladorMotor), public ExtPartBase {
     }
     ~ControladorMotor() override {
         carga_vcc_->suelta();
+        iny_vcc_->suelta();
         fase_->suelta();
     }
 
@@ -157,6 +171,9 @@ SC_MODULE(ControladorMotor), public ExtPartBase {
     bool   freno_suelto() const { return freno_on_; }
     bool   en_error() const { return estado_ == Error || (estado_ == Echando && fallo_); }
     const std::string& causa() const { return causa_; }
+    bool   sobretension() const { return cortado_; }
+    unsigned sobretensiones() const { return sobretensiones_; }
+    double corriente_devuelta_ma() const { return iny_vcc_->corriente() * 1e3; }
     const ConfigControladorMotor& config() const { return c_; }
 
     unsigned n_observables() const override { return 8; }
@@ -217,11 +234,29 @@ private:
                           potencia ? "" : ": se apaga");
             avisa("vcc_bajo", b);
         }
-        if (vcc > c_.vcc_max * 1.05) {
+        // Por encima de su margen: una fuente de más tensión de la que toca. Lo
+        // que sube el bus al frenar no es eso -lo recoge la resistencia de
+        // frenado, o salta la protección, que lo dice ella-: se mira con el
+        // puente parado, con la fuente sola
+        if (vcc > c_.vcc_max * 1.05 && !activo()) {
             char b[200];
             std::snprintf(b, sizeof b, "%s: %.1f V en VCC, y el controlador %s aguanta %.0f",
                           pieza().c_str(), vcc, c_.nombre.c_str(), c_.vcc_max);
             avisa("vcc_alto", b);
+        }
+        // LA PROTECCIÓN DE SOBRETENSIÓN: el bus ha subido -lo que devuelve el
+        // motor al frenar, con una fuente que no lo absorbe y sin resistencia
+        // de frenado-. Corta el puente en el acto, echa el freno y lo dice
+        if (activo() && !cortado_ && vcc > c_.sobretension()) {
+            cortado_ = true;
+            ++sobretensiones_;
+            char b[300];
+            std::snprintf(b, sizeof b, "%s: SOBRETENSION, %.1f V en VCC (salta a %.1f): corta el "
+                          "puente, echa el freno y lo dice por su salida de error. La energia que "
+                          "devuelve el motor al frenar no tiene a donde ir: una resistencia de "
+                          "frenado", pieza().c_str(), vcc, c_.sobretension());
+            SC_REPORT_WARNING("controlador", b);
+            deshabilita(t, true, "sobretension");
         }
         // Al encenderse, los pull-ups de los sensores todavía no se ven en los
         // nodos: se leen desde la próxima vez
@@ -364,6 +399,7 @@ private:
         i_ = 0.0;
         t_error_ = -1.0;
         freno_on_ = false;           // primero corriente; el freno, en la próxima vuelta
+        cortado_ = false;
     }
     void deshabilita(double t, bool fallo, const std::string& causa) {
         estado_ = Echando;
@@ -438,7 +474,8 @@ private:
     }
 
     void manda(double vcc) {
-        fase_->manda(activo() ? i_ : 0.0, std::max(0.0, vcc), activo());
+        const bool puente = activo() && !cortado_;
+        fase_->manda(puente ? i_ : 0.0, std::max(0.0, vcc), puente);
         fase_->muestra(vg());
     }
 
@@ -456,9 +493,19 @@ private:
             pc_ = pt_ = 0.0;
         }
         const double iq = estado_ != Apagado ? c_.i_reposo : 0.0;
-        const double i_ahora = vcc > 0.5 ? std::max(0.0, pc_ + pt_) / vcc + iq : 0.0;
+        // Con el motor frenando, lo que entra en él es NEGATIVO: vuelve al bus
+        // (F5). Hasta F4 se quedaba en nada
+        const double i_ahora = vcc > 0.5 ? (pc_ + pt_) / vcc + iq : 0.0;
         i_vcc_ = i_ahora + (i_vcc_ - i_ahora) * std::exp(-(t - t_ivcc_) / 5e-3);
+        // Con el puente cortado no vuelve nada, ni de media: en el acto
+        if (cortado_ && i_vcc_ < 0.0) i_vcc_ = 0.0;
         t_ivcc_ = t;
+        if (conectada_ && vcc >= 0.05 && i_vcc_ < -1e-6) {
+            if (r_vcc_ != 0.0) { carga_vcc_->suelta(); r_vcc_ = 0.0; }
+            iny_vcc_->pon(-i_vcc_);
+            return;
+        }
+        iny_vcc_->suelta();
         if (!conectada_ || vcc < 0.05 || i_vcc_ <= 1e-6) {
             if (r_vcc_ != 0.0) { carga_vcc_->suelta(); r_vcc_ = 0.0; }
             return;
@@ -512,6 +559,9 @@ private:
     int id_v5_ = -1, id_freno_ = -1, id_error_ = -1;
     std::unique_ptr<RamaCorriente> fase_;
     std::unique_ptr<RamaDosNodos> carga_vcc_;
+    std::unique_ptr<InyectorCorriente> iny_vcc_;
+    bool cortado_ = false;            // la protección de sobretensión, hasta otro EN
+    unsigned sobretensiones_ = 0;
     Entrada step_, dir_, en_;
     Entrada sen_[5];                   // H1, H2, H3, A y B
     bool alimentado_ = false;

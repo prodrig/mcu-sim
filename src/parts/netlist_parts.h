@@ -45,6 +45,7 @@
 #include "transmision.h"
 #include "maquina.h"
 #include "pieza.h"
+#include "bus_potencia.h"
 #include "mems_st.h"
 #include "xds110.h"
 
@@ -393,6 +394,9 @@ REGISTRA_PARTE(Fuente,
            "esos ms -un filtro de primer orden-, como el display de una fuente de "
            "laboratorio, que no salta con el PWM de la carga; y deja ver tambien la "
            "`tension`, de media. Con 0, la de cada instante.")
+      .atr("absorbe", "si", "no: una fuente CONMUTADA, que no se traga lo que le devuelven -un "
+           "motor que frena-: si lo de fuera sube por encima de `v`, se aparta, como tras "
+           "un diodo, y el bus sube (doc/analisis_cnc.md, fase F5).")
       .nota("Lo que deja ver: `corriente`, en mA, la que ENTREGA (negativa si "
             "otra cosa la empuja hacia atras), y `sobrecorriente`, que la "
             "ventana pinta como alarma; con media_ms, ademas, `tension`.")
@@ -416,7 +420,7 @@ REGISTRA_PARTE(Fuente,
             return nullptr;
         }
         return new Fuente(d.id.c_str(), n[d.nodo_de("pin")], d.num("v", 3.3),
-                          d.num("r", 0.1), lim, med);
+                          d.num("r", 0.1), lim, med, d.si("absorbe", true));
     });
 
 REGISTRA_PARTE(Gnd,
@@ -1644,6 +1648,96 @@ REGISTRA_PARTE(Pieza,
         return new Pieza(d.id.c_str(), *c[0], *c[1], *c[2], k);
     });
 
+REGISTRA_PARTE(Condensador,
+    Ayuda("EL CONDENSADOR DEL BUS de una maquina: la energia que devuelve un motor al "
+          "frenar va a parar aqui si la fuente no la absorbe (absorbe=\"no\"), y su "
+          "tension sube. Integra su carga, exacta entre dos cambios del nodo, tras su "
+          "resistencia serie (ESR); por encima de v_max avisa: se hincha o revienta.")
+      .ejemplo("<componente tipo=\"Condensador\" id=\"CBUS\" c_uf=\"2200\" v_max=\"63\">\n"
+               "  <pin nombre=\"mas\" nodo=\"BUS\"/> <pin nombre=\"menos\" nodo=\"GND\"/>\n"
+               "</componente>")
+      .pin("mas, menos", "obligatorios", "Sus dos patas; menos, a la masa del bus.")
+      .atr("c_uf", "1000", "La capacidad, en uF.")
+      .atr("esr_ohm", "0.1", "Su resistencia serie, en ohmios: 0,1 es lo menos que admite un nodo.")
+      .atr("v_max", "63", "La tension que aguanta.")
+      .atr("v_inicial", "0", "Con la que empieza: 0, descargado.")
+      .nota("Deja ver tension (V), corriente (A, positiva si se carga), energia (J) y la "
+            "alarma sobretension."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        if (d.nodo_de("mas").empty() || d.nodo_de("menos").empty()) {
+            SC_REPORT_ERROR("netlist", ("Condensador '" + d.id + "': le faltan mas y menos").c_str());
+            return nullptr;
+        }
+        const double c = d.num("c_uf", 1000.0);
+        if (c <= 0.0) {
+            SC_REPORT_ERROR("netlist", ("Condensador '" + d.id + "': c_uf tiene que ser positivo").c_str());
+            return nullptr;
+        }
+        return new Condensador(d.id.c_str(), n[d.nodo_de("mas")], n[d.nodo_de("menos")], c,
+                               d.num("esr_ohm", 0.1), d.num("v_max", 63.0), d.num("v_inicial", 0.0));
+    });
+
+REGISTRA_PARTE(ChopperFrenado,
+    Ayuda("LA RESISTENCIA DE FRENADO con su comparador -el chopper de frenado de un "
+          "controlador, o un modulo aparte-: con el bus por encima de v_on pone r_ohm entre "
+          "mas y menos y quema lo que devuelven los motores; por debajo de v_off la quita. "
+          "Sin ella, con una fuente que no absorbe, el bus sube al frenar hasta que salta la "
+          "proteccion de sobretension.")
+      .ejemplo("<componente tipo=\"ChopperFrenado\" id=\"RF\" r_ohm=\"10\" v_on=\"50.5\"\n"
+               "            v_off=\"49.5\" potencia_w=\"50\">\n"
+               "  <pin nombre=\"mas\" nodo=\"BUS\"/> <pin nombre=\"menos\" nodo=\"GND\"/>\n"
+               "</componente>")
+      .pin("mas, menos", "obligatorios", "El bus y su masa.")
+      .atr("r_ohm", "10", "La resistencia.")
+      .atr("v_on, v_off", "50.5, 49.5", "Las tensiones a las que entra y sale.")
+      .atr("potencia_w", "50", "La que aguanta, de media: por encima, avisa.")
+      .nota("Deja ver conduce, potencia (W, la media de un segundo), energia (J) y la "
+            "alarma caliente."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        if (d.nodo_de("mas").empty() || d.nodo_de("menos").empty()) {
+            SC_REPORT_ERROR("netlist", ("ChopperFrenado '" + d.id + "': le faltan mas y menos").c_str());
+            return nullptr;
+        }
+        const double on = d.num("v_on", 50.5), off = d.num("v_off", 49.5);
+        if (off > on) {
+            SC_REPORT_ERROR("netlist", ("ChopperFrenado '" + d.id + "': v_off no puede pasar de v_on").c_str());
+            return nullptr;
+        }
+        return new ChopperFrenado(d.id.c_str(), n[d.nodo_de("mas")], n[d.nodo_de("menos")],
+                                  d.num("r_ohm", 10.0), on, off, d.num("potencia_w", 50.0));
+    });
+
+REGISTRA_PARTE(Optoacoplador,
+    Ayuda("UN OPTOACOPLADOR, como un PC817: un LED entre anodo y catodo y un fototransistor "
+          "entre colector y emisor que pasa como mucho ctr veces la corriente del LED. Lo "
+          "que separa un sensor inductivo de 24 V de un pin de 3,3 V, o un MCU de las "
+          "entradas de 5 V de un driver: el LED, con su resistencia; la salida, con un "
+          "pull-up.")
+      .ejemplo("<componente tipo=\"Optoacoplador\" id=\"U1\" ctr=\"1\">\n"
+               "  <pin nombre=\"anodo\" nodo=\"A\"/> <pin nombre=\"catodo\" nodo=\"SENSOR\"/>\n"
+               "  <pin nombre=\"colector\" nodo=\"PIN\"/> <pin nombre=\"emisor\" nodo=\"GND\"/>\n"
+               "</componente>")
+      .pin("anodo, catodo", "obligatorios", "El LED.")
+      .pin("colector, emisor", "obligatorios", "El fototransistor.")
+      .atr("vf", "1.2", "La tension del LED, en V.")
+      .atr("r_led", "10", "Su resistencia interna, en ohmios (la de fuera va aparte).")
+      .atr("ctr", "1", "La relacion de transferencia: 1 es el 100 %.")
+      .atr("vce_sat", "0.2", "La tension de la salida saturada.")
+      .atr("if_max_ma", "50", "Lo que aguanta el LED: por encima, avisa.")
+      .nota("Deja ver led y salida, en mA, y saturado."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        for (const char* p : {"anodo", "catodo", "colector", "emisor"})
+            if (d.nodo_de(p).empty()) {
+                SC_REPORT_ERROR("netlist", ("Optoacoplador '" + d.id + "': le falta el pin " +
+                                            std::string(p)).c_str());
+                return nullptr;
+            }
+        return new Optoacoplador(d.id.c_str(), n[d.nodo_de("anodo")], n[d.nodo_de("catodo")],
+                                 n[d.nodo_de("colector")], n[d.nodo_de("emisor")],
+                                 d.num("vf", 1.2), d.num("r_led", 10.0), d.num("ctr", 1.0),
+                                 d.num("vce_sat", 0.2), d.num("if_max_ma", 50.0));
+    });
+
 REGISTRA_PARTE(Transmision,
     Ayuda("UNA CADENA MECANICA: los motores y lo que mueven, en un solo eje rigido "
           "(parts/cadena.h). Se declara con <transmision id=\"X\" cadena=\"M1 V\"/>: "
@@ -2209,6 +2303,8 @@ REGISTRA_PARTE(ControladorMotor,
       .atr("freno_ms", "100", "Lo que tarda el freno en soltarse y en echarse.")
       .atr("lazo_us", "1000", "El periodo de los lazos.")
       .atr("umbral", "2.5", "El umbral de las entradas, en V, con 0,25 de histeresis.")
+      .atr("v_sobretension", "1,1 x vcc_max", "Por encima, corta el puente, echa el freno y "
+           "da error: lo que devuelve el motor al frenar ha subido el bus.")
       .nota("Deja ver `estado` (0 sin tension, 1 deshabilitado, 2 soltando el freno, 3 en "
             "marcha, 4 echando el freno, 5 error), `pasos`, `error_seguimiento` (grados), "
             "`corriente_q` (A, la consigna), `rpm` (las medidas), `corriente_vcc` (mA, de "
@@ -2239,6 +2335,7 @@ REGISTRA_PARTE(ControladorMotor,
         c.error_ms = d.num("error_ms", c.error_ms);
         c.freno_ms = d.num("freno_ms", c.freno_ms);
         c.lazo_us = d.num("lazo_us", c.lazo_us);
+        c.v_sobretension = d.num("v_sobretension", 0.0);
         c.umbral = d.num("umbral", c.umbral);
         if (c.corriente_max <= 0 || c.corriente_max > 30)
             return mal("corriente_max va de 0 a 30 A");

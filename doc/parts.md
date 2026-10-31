@@ -924,6 +924,7 @@ tira lo que cuelga de ellas.
 | `limite_ma` | `no` | **El límite de corriente**, en mA, o `no` para ninguno |
 | `r` | `0.1` | La resistencia interna, en ohmios. 0,1 Ω es lo menos que admite un nodo: una fuente casi ideal |
 | `media_ms` | `0` | Solo en `Fuente`. Con más de 0, la `corriente` que deja ver es su **media** en esos ms —un filtro de primer orden—, como el display de una fuente de laboratorio, que no salta con el PWM de la carga; y deja ver también la `tension`, de media. Con 0, la de cada instante |
+| `absorbe` | `si` | Solo en `Fuente`. Con `no`, una fuente **conmutada**, que no se traga lo que le devuelven —un motor que frena—: si lo de fuera sube por encima de `v`, se aparta, como tras un diodo, y el bus sube (§4.24) |
 
 **El límite se comporta como el de una fuente de laboratorio.** Por debajo,
 tensión constante. Si la carga pide más, la pieza pasa a **corriente
@@ -2802,6 +2803,7 @@ o sin tensión— también lo paran.
 | `rpm_max` | `4000` | El tope de la consigna de velocidad |
 | `error_max_grados`, `error_ms` | `360`, `10` | El error de seguimiento que lo para |
 | `freno_ms` | `100` | Lo que tarda el freno |
+| `v_sobretension` | `52.8` | Por encima, corta el puente, echa el freno y da error (§4.24) |
 | `lazo_us` | `1000` | El periodo de los lazos |
 | `umbral` | `2.5` | El de las entradas, con 0,25 V de histéresis |
 
@@ -3051,6 +3053,54 @@ deja la pieza sin mecanizar.
   a unas 8500 rpm. Sin `M3`, la fresa parada hace perder pasos a X e Y. Una
   fresa que baja de más atraviesa los 12 mm y entra en la mesa: `choque`.
 * **El coste**: unos 1,9 s de reloj por segundo de máquina mientras corta.
+
+### 4.24 La potencia de 48 V: `Condensador`, `ChopperFrenado` y `Optoacoplador`
+
+`parts/bus_potencia.h`, la fase F5 de `doc/analisis_cnc.md` (§6.6). **Al
+frenar una masa, o al bajar un Z, el motor genera.** Desde F5 el driver lo
+devuelve a su alimentación —`DriverPaP` a VMOT, `ControladorMotor` a VCC—: lo
+que entra en el motor es negativo, y lo mete en el bus con un
+`InyectorCorriente` (`parts/ext_parts.h`), una fuente de corriente exacta
+mientras lo de fuera sea lineal. Hasta F4 se quedaba en nada.
+
+¿A dónde va? **Una fuente de laboratorio lo absorbe**; una **conmutada**, no:
+`Fuente absorbe="no"` se aparta, como tras un diodo, si lo de fuera sube por
+encima de su tensión. Entonces lo recoge el condensador del bus y la tensión
+sube.
+
+| Pieza | Atributos (omisión) | Terminales | Lo que hace |
+| :--- | :--- | :--- | :--- |
+| `Condensador` | `c_uf` (1000), `esr_ohm` (0,1), `v_max` (63), `v_inicial` (0) | `mas`, `menos` | Integra su carga, exacta entre dos cambios del nodo; por encima de `v_max`, la alarma `sobretension` |
+| `ChopperFrenado` | `r_ohm` (10), `v_on` (50,5), `v_off` (49,5), `potencia_w` (50) | `mas`, `menos` | Pone `r_ohm` en el bus por encima de `v_on` y la quita por debajo de `v_off`; `conduce`, `potencia` (media de 1 s), `energia` y la alarma `caliente` |
+| `Optoacoplador` | `vf` (1,2), `r_led` (10), `ctr` (1), `vce_sat` (0,2), `if_max_ma` (50) | `anodo`, `catodo`, `colector`, `emisor` | La salida pasa como mucho `ctr` veces la corriente del LED: saturada si lo de fuera pide menos |
+
+**El condensador** es un Thevenin en su nodo: su tensión, tras su ESR. Lo que
+hay en el nodo sin él es otro Thevenin {vx, rx}, y mientras no cambia la
+tensión va hacia vx con τ = (rx + ESR)·C, exacto para cualquier paso. Se pone
+al día en cada cambio del nodo y, mientras le queda camino, cada τ/5 como mucho
+y cada milisegundo como poco. En equilibrio no cuesta nada.
+
+**La protección de sobretensión** del `ControladorMotor`, `v_sobretension` —un
+10 % sobre su tensión máxima, 52,8 V en uno de 48—: corta el puente en el
+acto, echa el freno y da error, como un error de seguimiento. Lo que le
+devuelve el motor deja de volver en el mismo instante. Un `DriverPaP` con
+VMOT por encima de su margen solo lo avisa.
+
+**Lo que sale** (`make gui-cnc`, C9) con `placas/eje_z_48v.xml`: el Z de la
+versión potente, con un BLDC, su controlador en lazo cerrado con encoder, un
+freno, una reductora planetaria 3:1, un husillo de bolas 1605 —que no se
+sujeta solo— y un cabezal de 12 kg; una fuente conmutada de 48 V, 470 µF de
+bus y 10 Ω de frenado.
+
+* Bajando a 83 mm/s y parando en 100 ms, el controlador devuelve unos 400 mA
+  al bus; el condensador sube hasta 50,5 V, la resistencia entra y quema unos
+  80 mJ, y el Z llega.
+* **Sin la resistencia** (`conectada="no"`), el bus sube a 52,8 V al parar y
+  **salta la protección**: puente cortado, error y freno, que sujeta el Z con
+  0,26 mm de caída mientras se echa.
+* Con una fuente que absorbe, el bus ni se mueve.
+* El final de Z, un inductivo NPN de 24 V, por un PC817: 10,3 mA por su LED
+  con 2,2 kΩ y la salida saturada, 0,31 mA por 10 kΩ a 3,3 V.
 
 ---
 

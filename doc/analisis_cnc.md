@@ -740,6 +740,9 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
    propio**; grblHAL, después y en un parche aparte (la pregunta 2 del §12).
 5. **El 2026-10-31, F4**, con las fuerzas de corte que el plan daba por
    opcionales: sin ellas la pieza solo se ve, y con ellas se nota.
+6. **El 2026-10-31, F5**, con un eje Z de 48 V de punta a punta como banco
+   —BLDC, controlador, freno, reductora, bolas y el bus—, sin MCU: el
+   fenómeno es el mismo en una máquina entera, y así se ve solo.
 
 ### F0, hecha: la cadena mecánica y el efecto `desplaza`
 
@@ -1055,6 +1058,43 @@ configurarlo con `$` y cablear la máquina como él la espera.
 * **Pruebas**: `make gui-cnc` C8, 8 comprobaciones (153 en total); en
   `mcu-sim-gui`, I13 y la nueva I28 (351 en `ilustracion`); `make gui-proto`,
   el saludo con `imagen_parcial` y los dos tipos de imagen (66).
+
+### F5, hecha: la potencia de 48 V
+
+* **La energía que vuelve.** `DriverPaP` y `ControladorMotor` ya no tiran lo
+  que el motor genera al frenar: lo devuelven a su alimentación con un
+  `InyectorCorriente` (`parts/ext_parts.h`), una fuente de corriente exacta
+  mientras lo de fuera sea lineal.
+* **`Fuente absorbe="no"`**: una fuente conmutada, que se aparta si el bus la
+  sube, como tras un diodo. La de laboratorio, la de siempre, lo absorbe.
+* **`parts/bus_potencia.h`**: el `Condensador` —integra su carga, exacta
+  entre dos cambios del nodo, y en equilibrio no cuesta nada—, el
+  `ChopperFrenado` —la resistencia de frenado con su comparador— y el
+  `Optoacoplador`, un PC817 cuya salida pasa como mucho CTR veces su LED.
+* **La protección de sobretensión** del `ControladorMotor`: a 52,8 V —un 10 %
+  sobre sus 48— corta el puente en el acto, echa el freno y da error.
+* **`placas/eje_z_48v.xml`**: el Z de la versión potente, sin MCU. Un BLDC
+  con su controlador en lazo cerrado —con un encoder de 100 líneas: con los
+  Hall solos, 12 kg colgados oscilan—, un freno de 48 V en el eje del motor,
+  una reductora planetaria 3:1, un husillo de bolas 1605 y un cabezal de
+  12 kg. Una fuente conmutada de 48 V y 10 A, 470 µF de bus y 10 Ω de
+  frenado. El final de Z, un inductivo NPN de 24 V, por un optoacoplador.
+* **Lo que sale**: bajando a 83 mm/s y parando en 100 ms, unos 400 mA vuelven
+  al bus, que sube hasta 50,5 V: la resistencia entra, quema unos 80 mJ y el
+  Z llega. **Sin ella, el bus sube a 52,8 V al parar y salta la protección**
+  —puente cortado, error—, y el freno sujeta el Z con 0,26 mm de caída. Con
+  una fuente que absorbe, el bus no se mueve. El final: 10,3 mA por el LED y
+  la salida saturada, 0,31 mA a 3,3 V.
+* **Lo que se aprendió**: el bus sube poco. Lo que devuelve el rotor al frenar
+  —su energía cinética, unos 0,3 J a 2000 rpm— se lo comen en buena parte el
+  cobre del motor y los rozamientos; con 1000 µF ya no salta. Un controlador
+  suelto lleva unos cientos de µF; la máquina de verdad añade más, o la
+  resistencia. Y un encoder de 1000 líneas a 3000 rpm da más cuentas de las
+  que el modelo del motor separa: el controlador ve saltos de dos cuartos.
+* **Lo que queda**: el resto de la máquina de 48 V —X e Y con NEMA 23 y
+  DM542, que ya devuelven al bus— y el `DriverPaP` con protección de
+  sobretensión, que hoy solo avisa.
+* **Pruebas**: `make gui-cnc` C9, 7 comprobaciones.
 
 ## Fuentes
 

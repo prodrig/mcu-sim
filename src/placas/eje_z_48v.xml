@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     EL EJE Z DE LA VERSION DE 48 V, sin MCU
+
+     La fase F5 de doc/analisis_cnc.md (§6.6): la potencia de una fresadora
+     seria. Un BLDC DB59L024035-A con un controlador tipo C5-E en lazo cerrado,
+     una reductora planetaria 3:1, un husillo de BOLAS 1605 -que no se sujeta
+     solo: sin el FRENO, el cabezal se cae- y un cabezal de 12 kg. Lo mueve un
+     generador de pasos de banco, como un control numerico.
+
+     El controlador cierra el lazo con el ENCODER del motor, de 100 lineas:
+     un Z con 12 kg colgados no se sostiene bien con los Hall solos.
+
+     EL BUS DE 48 V es lo que no se ve en la de 24 V. Al frenar el Z que baja,
+     el motor GENERA, y el controlador lo devuelve al bus:
+
+       PSU    una fuente CONMUTADA de 48 V y 10 A: no absorbe lo que le
+              devuelven (absorbe="no")
+       CBUS   el condensador del bus, 470 uF y 63 V -lo que lleva el
+              controlador, y poco mas-: lo recoge, y sube
+       RF     la RESISTENCIA DE FRENADO, 10 ohm con su comparador: entra a
+              50,5 V y sale a 49,5; sin ella (conectada="no"), el bus sube
+              hasta 52,8 V y salta la proteccion del controlador, que corta el
+              puente, echa el freno y da error
+       U1     el controlador, que devuelve al bus lo que el motor genera
+
+     EL FINAL DE Z, arriba, es un sensor INDUCTIVO NPN de 24 V -por fuera, un
+     contacto a masa-, y no va directo a un pin de 3,3 V: va por un
+     OPTOACOPLADOR (U2, un PC817), con 2,2 kohm a 24 V en su LED y la salida
+     con 10 kohm a 3,3 V en Z_HOME: bajo con el sensor pisado.
+
+     El freno de 48 V va en el eje del motor, alimentado por la salida de freno
+     del controlador (lo habitual es uno de 24 V y la salida con PWM; aqui,
+     por simplicidad, de la tension del bus).
+
+         ./build/mcu-sim placas/eje_z_48v.xml --gui
+     ========================================================================= -->
+<placa nombre="eje-z-48v">
+  <nodo id="GND" bus="si"/>
+  <nodo id="BUS" bus="si"/>
+  <nodo id="V24" bus="si"/>
+  <nodo id="V33" bus="si"/>
+  <nodo id="V5" bus="si"/>
+  <nodo id="STEP" bus="si"/>
+  <nodo id="DIR" bus="si"/>
+  <nodo id="EN" bus="si"/>
+  <nodo id="ERR" bus="si"/>
+  <nodo id="U" bus="si"/>
+  <nodo id="V" bus="si"/>
+  <nodo id="W" bus="si"/>
+  <nodo id="H1" bus="si"/>
+  <nodo id="H2" bus="si"/>
+  <nodo id="H3" bus="si"/>
+  <nodo id="FRENO" bus="si"/>
+  <nodo id="SENSOR" bus="si"/>
+  <nodo id="LED" bus="si"/>
+  <nodo id="Z_HOME" bus="si"/>
+  <nodo id="ENC_A" bus="si"/>
+  <nodo id="ENC_B" bus="si"/>
+  <componente tipo="Gnd" id="MASA" visible="no"><pin nombre="pin" nodo="GND"/></componente>
+
+  <!-- El bus de 48 V -->
+  <componente tipo="Fuente" id="PSU" v="48" limite_ma="10000" absorbe="no" media_ms="20">
+    <pin nombre="pin" nodo="BUS"/>
+  </componente>
+  <componente tipo="Condensador" id="CBUS" c_uf="470" v_max="63" v_inicial="48">
+    <pin nombre="mas" nodo="BUS"/> <pin nombre="menos" nodo="GND"/>
+  </componente>
+  <componente tipo="ChopperFrenado" id="RF" r_ohm="10" v_on="50.5" v_off="49.5" potencia_w="100">
+    <pin nombre="mas" nodo="BUS"/> <pin nombre="menos" nodo="GND"/>
+  </componente>
+
+  <!-- El mando: un generador de pasos y EN, de banco -->
+  <componente tipo="GeneradorPasos" id="G" hz="0" rampa_ms="100" vdd="5" sentido="0">
+    <pin nombre="step" nodo="STEP"/> <pin nombre="dir" nodo="DIR"/>
+  </componente>
+  <componente tipo="FuenteAjustable" id="EN" v="5" vmin="0" vmax="5" r="10">
+    <pin nombre="pin" nodo="EN"/>
+  </componente>
+  <componente tipo="Resistencia" id="RE" r="10000">
+    <pin nombre="a" nodo="ERR"/> <pin nombre="b" nodo="V5"/>
+  </componente>
+
+  <!-- El controlador y el motor -->
+  <componente tipo="ControladorMotor" id="U1" pasos_vuelta="500" corriente_max="10"
+              pares_polos="3" error_max_grados="360" error_ms="10" freno_ms="100"
+              encoder="si" ppr="100">
+    <pin nombre="vcc"   nodo="BUS"/>
+    <pin nombre="gnd"   nodo="GND"/>
+    <pin nombre="u"     nodo="U"/>
+    <pin nombre="v"     nodo="V"/>
+    <pin nombre="w"     nodo="W"/>
+    <pin nombre="v5"    nodo="V5"/>
+    <pin nombre="h1"    nodo="H1"/>
+    <pin nombre="h2"    nodo="H2"/>
+    <pin nombre="h3"    nodo="H3"/>
+    <pin nombre="enc_a" nodo="ENC_A"/>
+    <pin nombre="enc_b" nodo="ENC_B"/>
+    <pin nombre="step"  nodo="STEP"/>
+    <pin nombre="dir"   nodo="DIR"/>
+    <pin nombre="en"    nodo="EN"/>
+    <pin nombre="freno" nodo="FRENO"/>
+    <pin nombre="error" nodo="ERR"/>
+  </componente>
+  <componente tipo="MotorBLDC" id="MOTOR" kt_ncm_a="5" r_ohm="0.22" l_mh="0.29"
+              corriente_nominal="9.4" corriente_pico="28" inercia_gcm2="119"
+              rozamiento_ncm="1.5" pares_polos="3" ppr="100" eje_mm="8">
+    <pin nombre="u"        nodo="U"/>
+    <pin nombre="v"        nodo="V"/>
+    <pin nombre="w"        nodo="W"/>
+    <pin nombre="hall_vcc" nodo="V5"/>
+    <pin nombre="hall_gnd" nodo="GND"/>
+    <pin nombre="h1"       nodo="H1"/>
+    <pin nombre="h2"       nodo="H2"/>
+    <pin nombre="h3"       nodo="H3"/>
+    <pin nombre="enc_a"    nodo="ENC_A"/>
+    <pin nombre="enc_b"    nodo="ENC_B"/>
+  </componente>
+
+  <!-- La mecanica: freno, reductora, acople, husillo de bolas y el cabezal -->
+  <componente tipo="Freno" id="FR" v_nominal="48" potencia_w="10" par_ncm="100" eje_mm="8">
+    <pin nombre="a" nodo="FRENO"/> <pin nombre="b" nodo="GND"/>
+  </componente>
+  <componente tipo="Reductora" id="RP" relacion="3" rendimiento="0.9" holgura_arcmin="8"
+              inercia_gcm2="10" entrada_mm="8" salida_mm="12"/>
+  <componente tipo="Acople" id="AC" tipo_acople="fuelle" d1_mm="12" d2_mm="10" inercia_gcm2="15"/>
+  <componente tipo="Husillo" id="HZ" rosca="bolas" diametro_mm="16" avance_mm="5"
+              longitud_mm="300" apoyos="fijo-apoyado" extremo_mm="10"/>
+  <componente tipo="Carro" id="CZ" eje="z" masa_kg="12" rozamiento_n="15" recorrido_mm="150"
+              posicion_mm="120" vertical="si"/>
+  <transmision id="Z" cadena="MOTOR FR RP AC HZ CZ"/>
+
+  <!-- El final de Z: un inductivo de 24 V por un optoacoplador -->
+  <componente tipo="Fuente" id="PS24" v="24"><pin nombre="pin" nodo="V24"/></componente>
+  <componente tipo="Fuente" id="PS33" v="3.3"><pin nombre="pin" nodo="V33"/></componente>
+  <componente tipo="FinalCarrera" id="SZ" posicion_mm="148" lado="max">
+    <ref nombre="carro" componente="CZ"/>
+    <pin nombre="com" nodo="GND"/> <pin nombre="no" nodo="SENSOR"/>
+  </componente>
+  <componente tipo="Resistencia" id="RL" r="2200">
+    <pin nombre="a" nodo="V24"/> <pin nombre="b" nodo="LED"/>
+  </componente>
+  <componente tipo="Optoacoplador" id="U2" ctr="1">
+    <pin nombre="anodo" nodo="LED"/> <pin nombre="catodo" nodo="SENSOR"/>
+    <pin nombre="colector" nodo="Z_HOME"/> <pin nombre="emisor" nodo="GND"/>
+  </componente>
+  <componente tipo="Resistencia" id="RP33" r="10000">
+    <pin nombre="a" nodo="V33"/> <pin nombre="b" nodo="Z_HOME"/>
+  </componente>
+
+  <ilustracion>
+    <enlace pieza="CZ" elemento="CZ" efecto="desplaza" observable="posicion" vector="0 -4"/>
+    <enlace pieza="Z" elemento="COTA" efecto="display" observable="posicion"/>
+    <enlace pieza="CBUS" elemento="VBUS" efecto="display" observable="tension"/>
+    <enlace pieza="MOTOR" elemento="MOTOR" efecto="ninguno"/>
+    <enlace pieza="RP" elemento="RP" efecto="ninguno"/>
+    <enlace pieza="AC" elemento="AC" efecto="ninguno"/>
+    <enlace pieza="HZ" elemento="HZ" efecto="ninguno"/>
+  </ilustracion>
+</placa>

@@ -1616,6 +1616,23 @@ SC_MODULE(Sim) {
                 if (!r) continue;
                 std::printf("  REDUCTORA %s: 1:%g, %+.1f rpm en su salida\n", i.id.c_str(),
                             r->config().relacion, r->rpm_salida());
+            } else if (i.tipo == "Condensador") {
+                const Condensador* c = placa.como<Condensador>(i.id);
+                if (!c) continue;
+                std::printf("  CONDENSADOR %s: %.0f uF, %.2f V (pico %.2f, aguanta %.0f)%s\n",
+                            i.id.c_str(), c->capacidad_uf(), c->tension(), c->v_pico(), c->v_max(),
+                            c->v_pico() > c->v_max() ? ": SE HA PASADO" : "");
+            } else if (i.tipo == "ChopperFrenado") {
+                const ChopperFrenado* r = placa.como<ChopperFrenado>(i.id);
+                if (!r) continue;
+                std::printf("  FRENADO %s: %s, ha entrado %u veces y ha quemado %.3f J\n",
+                            i.id.c_str(), r->conduce() ? "CONDUCE" : "abierta", r->veces(),
+                            r->energia_j());
+            } else if (i.tipo == "Optoacoplador") {
+                const Optoacoplador* o = placa.como<Optoacoplador>(i.id);
+                if (!o) continue;
+                std::printf("  OPTO %s: LED %.2f mA, salida %.2f mA%s\n", i.id.c_str(), o->led_ma(),
+                            o->salida_ma(), o->saturado() ? ", saturada" : "");
             } else if (i.tipo == "Pieza") {
                 const Pieza* p = placa.como<Pieza>(i.id);
                 if (!p) continue;

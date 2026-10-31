@@ -52,8 +52,9 @@
 // Lo que NO hace: el rizado del chopper y sus modos de decaimiento; la
 // interpolación a 1/256 del TMC2209 (cada paso salta lo que diga su micropaso),
 // su UART, su StallGuard, su StealthChop y su reducción de corriente parado; la
-// protección de cortocircuito de las salidas; la energía que vuelve al bus al
-// frenar, que se queda en nada (es de la fase F5).
+// protección de cortocircuito de las salidas, y la de sobretensión: lo que
+// vuelve al bus al frenar SÍ va a VMOT (fase F5), y un VMOT por encima de su
+// margen solo se avisa.
 // =============================================================================
 #ifndef STM32_PARTS_DRIVER_PAP_H
 #define STM32_PARTS_DRIVER_PAP_H
@@ -174,6 +175,8 @@ SC_MODULE(DriverPaP), public ExtPartBase {
         const int ivm = add_pin("vmot", vmot, "driver_pap");
         const int ig = add_pin("gnd", gnd, "driver_pap");
         carga_vm_.reset(new RamaDosNodos(vmot, ivm, gnd, ig));
+        // Lo que vuelve a VMOT cuando el motor frena (F5)
+        iny_vm_.reset(new InyectorCorriente(vmot, add_drv("vmot", "driver_pap_bus")));
         if (vdd_) {
             const int ivd = add_pin("vdd", *vdd_, "driver_pap");
             const int ig2 = add_drv("gnd", "driver_pap");
@@ -223,6 +226,7 @@ SC_MODULE(DriverPaP), public ExtPartBase {
     }
     ~DriverPaP() override {
         carga_vm_->suelta();
+        iny_vm_->suelta();
         if (carga_vdd_) carga_vdd_->suelta();
         for (auto& f : fase_) f->suelta();
     }
@@ -418,8 +422,9 @@ private:
         fase_[1]->manda(imax * std::sin(phi), std::max(0.0, vm), activa_);
         // Lo que gasta, de media desde la última vez que la bobina dejó cuentas:
         // lo que ha entrado en las bobinas, lo que se ha quedado en sus
-        // transistores y el reposo. Con lo que vuelve de las bobinas no se hace
-        // nada: una fuente de laboratorio no lo absorbe (es de la fase F5)
+        // transistores y el reposo. Lo que vuelve de las bobinas al frenar es
+        // negativo, y se DEVUELVE a VMOT (fase F5): con una fuente que no lo
+        // absorbe, lo recoge el condensador del bus
         {
             double e = 0.0, q = 0.0, tc = 0.0;
             for (auto& f : fase_) { e += f->energia(); q += f->i2s(); tc = std::max(tc, f->t_carga()); }
@@ -433,12 +438,18 @@ private:
             }
         }
         const double iq = logica_ ? m_.iq_vm : 0.0;
-        const double i_ahora = (vm > 0.5) ? std::max(0.0, pc_ + pt_) / vm + iq : 0.0;
+        const double i_ahora = (vm > 0.5) ? (pc_ + pt_) / vm + iq : 0.0;
         // De media, como la ve una fuente: un filtro de 5 ms
         i_vm_ = i_ahora + (i_vm_ - i_ahora) * std::exp(-(t - t_ivm_) / 5e-3);
         t_ivm_ = t;
         p_ = pt_ + (vm > 0.5 ? vm * iq : 0.0);
-        pide(*carga_vm_, r_vm_, vm, i_vm_);
+        if (conectada_ && vm >= 0.05 && i_vm_ < -1e-6) {
+            pide(*carga_vm_, r_vm_, vm, 0.0);
+            iny_vm_->pon(-i_vm_);
+        } else {
+            iny_vm_->suelta();
+            pide(*carga_vm_, r_vm_, vm, i_vm_);
+        }
         if (carga_vdd_) pide(*carga_vdd_, r_vdd_, vl, logica_ ? m_.iq_vdd : 0.0);
         for (auto& f : fase_) f->muestra(vg);
         // La próxima vez: las entradas, y cada milisegundo mientras conduce o se
@@ -540,6 +551,7 @@ private:
     Entrada ent_[N_ENT];
     std::unique_ptr<RamaCorriente> fase_[2];
     std::unique_ptr<RamaDosNodos> carga_vm_, carga_vdd_;
+    std::unique_ptr<InyectorCorriente> iny_vm_;
     double r_vm_ = 0.0, r_vdd_ = 0.0;
     double vref_ = 0.6;
     int pos_ = 128;

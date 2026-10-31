@@ -734,6 +734,92 @@ def fresadora():
     s.guarda("fresadora_3020.svg")
 
 
+# ---------------------------------------------------------------------------
+# EL EJE Z DE 48 V (fase F5): el eje, de lado, y su bus de potencia
+# ---------------------------------------------------------------------------
+def eje_z_48v():
+    K = 4                                     # unidades por mm del carro
+    s = Svg(1400, 1300, """
+  EL EJE Z DE LA VERSION DE 48 V, de lado, con su bus de potencia, dibujado a
+  mano: una aproximacion, no una foto. Es el dibujo de placas/eje_z_48v.xml,
+  que lo encuentra solo porque se llama como ella. Generado por
+  placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 140 x 130 mm-, y cada pieza con el id de su pieza en el XML:
+
+    A LA IZQUIERDA, EL EJE: el BLDC (MOTOR), su freno (FR), la reductora
+      planetaria (RP), el acople de fuelle (AC), el husillo de bolas 1605 (HZ)
+      y el cabezal (CZ), DIBUJADO EN LA POSICION 0 y que sube 4 unidades por
+      mm (efecto `desplaza`); el sensor inductivo del final (SZ), arriba.
+    A LA DERECHA, EL BUS: la fuente conmutada (PSU), el condensador (CBUS,
+      con su tension en el display VBUS), la resistencia de frenado (RF, que
+      se enciende cuando conduce), el controlador (U1), el generador de pasos
+      (G) y EN, y el final por su optoacoplador: la fuente de 24 V (PS24),
+      la resistencia del LED (RL), el optoacoplador (U2) y la salida con su
+      pull-up (RP33) a 3,3 V (PS33). Y la cota de Z (COTA).
+""")
+    s.add(s.rect(0, 0, 1400, 1300, "#eceff1", rx=10))
+    # --- El eje -------------------------------------------------------------
+    s.add(s.rect(80, 300, 50, 950, "#b0bec5", "#78909c", 1.5))
+    s.add('<g id="MOTOR">')
+    s.add("  " + s.rect(170, 40, 200, 130, GRIS_MOTOR, GRIS_MOTOR_B, 2, rx=8))
+    s.add("  " + s.text(270, 112, "BLDC 59", 16, "#cfd8dc", "middle"))
+    s.add("</g>")
+    s.add(s.rect(190, 170, 160, 40, "#37474f", "#212121", 1.5, rx=4, id="FR"))
+    s.add(s.text(270, 196, "FRENO", 12, "#eceff1", "middle"))
+    s.add(s.rect(200, 210, 140, 60, "#78909c", "#37474f", 1.5, rx=6, id="RP"))
+    s.add(s.text(270, 246, "3:1", 14, "#263238", "middle"))
+    s.add(s.rect(250, 270, 40, 40, "#90a4ae", "#455a64", 1.5, rx=4, id="AC"))
+    s.add('<g id="HZ">')
+    s.add("  " + s.rect(262, 310, 16, 900, "#cfd8dc", "#78909c", 1))
+    for k in range(45):
+        s.add("  " + s.rect(262, 318 + k * 20, 16, 3, "#90a4ae"))
+    s.add("</g>")
+    # El cabezal en la posicion 0: su base en y = 1200; sube K por mm
+    s.add('<g id="CZ">')
+    s.add("  " + s.rect(150, 1080, 240, 120, "#546e7a", "#263238", 2, rx=6))
+    s.add("  " + s.rect(390, 1060, 120, 160, "#37474f", "#212121", 2, rx=8))
+    s.add("  " + s.rect(440, 1220, 20, 50, "#9e9e9e"))
+    s.add("  " + s.text(270, 1150, "12 kg", 16, "#eceff1", "middle"))
+    s.add("</g>")
+    s.add(s.rect(400, 1200 - 148 * K - 40, 40, 30, "#ffca28", "#ff8f00", 1.5, rx=4, id="SZ"))
+    s.add(s.text(450, 1200 - 148 * K - 20, "SZ", 12, "#263238"))
+    s.add(s.text(270, 1290, "1605  300 mm  12 kg", 15, "#263238", "middle"))
+    # --- El bus -------------------------------------------------------------
+    x = 620
+    s.add(s.rect(x, 40, 300, 120, "#455a64", "#263238", 2, rx=6, id="PSU"))
+    s.add(s.text(x + 150, 110, "48 V  10 A", 18, "#eceff1", "middle"))
+    s.add('<g id="CBUS">')
+    s.add("  " + s.rect(x + 340, 50, 90, 110, "#1565c0", "#0d47a1", 2, rx=20))
+    s.add("  " + s.text(x + 385, 112, "470u", 14, "#eceff1", "middle"))
+    s.add("</g>")
+    s.add(s.rect(x + 450, 60, 300, 90, "#1b1b1b", "#000000", 2, rx=6, id="VBUS"))
+    s.add(s.text(x + 600, 175, "BUS", 12, "#263238", "middle"))
+    s.add(s.rect(x, 210, 300, 70, "#8d6e63", "#4e342e", 2, rx=6, id="RF"))
+    s.add(s.text(x + 150, 252, "R FRENADO 10 ohm", 14, "#efebe9", "middle"))
+    s.add(s.rect(x, 330, 430, 250, "#263238", "#000000", 2, rx=8, id="U1"))
+    s.add(s.text(x + 215, 460, "CONTROLADOR  C5-E", 20, "#eceff1", "middle"))
+    s.add(s.rect(x + 470, 330, 150, 110, "#00695c", "#004d40", 2, rx=6, id="G"))
+    s.add(s.text(x + 545, 392, "PASOS", 14, "#eceff1", "middle"))
+    s.add(s.rect(x + 470, 470, 150, 70, "#00695c", "#004d40", 2, rx=6, id="EN"))
+    s.add(s.text(x + 545, 512, "EN", 14, "#eceff1", "middle"))
+    s.add(s.rect(x + 640, 470, 70, 30, "#bcaaa4", "#6d4c41", 1, rx=4, id="RE"))
+    # El final por el optoacoplador
+    s.add(s.rect(x, 660, 200, 90, "#455a64", "#263238", 2, rx=6, id="PS24"))
+    s.add(s.text(x + 100, 712, "24 V", 16, "#eceff1", "middle"))
+    s.add(s.rect(x + 230, 690, 90, 30, "#bcaaa4", "#6d4c41", 1, rx=4, id="RL"))
+    s.add(s.rect(x + 350, 650, 140, 110, "#fafafa", "#212121", 2, rx=6, id="U2"))
+    s.add(s.text(x + 420, 712, "PC817", 14, "#212121", "middle"))
+    s.add(s.rect(x + 520, 690, 90, 30, "#bcaaa4", "#6d4c41", 1, rx=4, id="RP33"))
+    s.add(s.rect(x + 640, 660, 130, 90, "#455a64", "#263238", 2, rx=6, id="PS33"))
+    s.add(s.text(x + 705, 712, "3,3 V", 16, "#eceff1", "middle"))
+    s.add(s.rect(x + 200, 850, 300, 90, "#1b1b1b", "#000000", 2, rx=6, id="COTA"))
+    s.add(s.text(x + 350, 965, "COTA Z", 12, "#263238", "middle"))
+    s.guarda("eje_z_48v.svg")
+
+
 if __name__ == "__main__":
     nema17()
     st5918()
@@ -747,3 +833,4 @@ if __name__ == "__main__":
     eje_z()
     cnc_shield()
     fresadora()
+    eje_z_48v()
