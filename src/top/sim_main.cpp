@@ -1578,6 +1578,12 @@ SC_MODULE(Sim) {
                         p->disipacion(), p->sobrecorrientes(), p->en_fallo() ? "; EN FALLO" : "",
                         p->vivo() ? "" : "; SIN TENSION");
         }
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Amplificador") continue;
+            const Amplificador* a = placa.como<Amplificador>(i.id);
+            if (!a) continue;
+            std::printf("  AMPLIFICADOR %s: %.3f V\n", i.id.c_str(), a->salida());
+        }
         // Los BLDC y sus controladores: a cuanto van, su corriente, sus Hall; y el
         // estado del controlador, sus pasos y su error de seguimiento
         for (const Instancia& i : placa.instancias()) {

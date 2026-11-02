@@ -2183,15 +2183,21 @@ REGISTRA_PARTE(PuenteTrifasico,
       .pin("diag", "opcional", "DIAG-EN: entrada -baja, todo abierto- y salida de drenador "
            "abierto, a masa con 100 ohm mientras dura una sobrecorriente. El pull-up es de la "
            "placa.")
+      .pin("sense1, sense2, sense3", "opcionales", "Las fuentes de los transistores de abajo, "
+           "con su shunt de r_sense a masa dentro de la pieza: a -i·r_sense mientras conduce el "
+           "de abajo -o su diodo-, con i la que sale por OUTx; si no, a masa. Para medir la "
+           "corriente de cada fase (la FOC). Sin ellos, las fuentes van a masa.")
       .atr("r_on", "0.73", "La resistencia de cada transistor, en ohm.")
       .atr("i_ocp", "2.8", "La sobrecorriente, en A, en cualquier transistor que conduzca.")
       .atr("t_bloqueo_us", "200", "Lo que se queda DIAG-EN bajo tras ella: el RC de REN y CEN de "
            "la placa.")
+      .atr("r_sense", "0.33", "Los shunts de los pines sense, en ohm: los de la IHM07M1.")
       .nota("Deja ver `corriente_1` a `corriente_3` (A, la que sale por cada salida), "
             "`disipacion`, `sobrecorrientes` y la alarma `fallo`.")
       .nota("Lo que no hace: el tiempo muerto de 1 us entre los dos transistores de una fase, "
             "los tiempos de conmutacion y la proteccion termica.")
-      .cpp("estado(k), corriente(k), en_fallo(), sobrecorrientes(), vivo(), disipacion()."),
+      .cpp("estado(k), corriente(k), corriente_shunt(k), con_shunts(), en_fallo(), "
+           "sobrecorrientes(), vivo(), disipacion()."),
     [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
         auto mal = [&](const std::string& t) {
             SC_REPORT_ERROR("netlist", ("PuenteTrifasico '" + d.id + "': " + t).c_str());
@@ -2204,14 +2210,50 @@ REGISTRA_PARTE(PuenteTrifasico,
         c.r_on = d.num("r_on", c.r_on);
         c.i_ocp = d.num("i_ocp", c.i_ocp);
         c.t_bloqueo_us = d.num("t_bloqueo_us", c.t_bloqueo_us);
-        if (c.r_on <= 0 || c.i_ocp <= 0 || c.t_bloqueo_us < 0)
-            return mal("r_on e i_ocp son positivos; t_bloqueo_us, no negativo");
+        c.r_sense = d.num("r_sense", c.r_sense);
+        if (c.r_on <= 0 || c.i_ocp <= 0 || c.t_bloqueo_us < 0 || c.r_sense <= 0)
+            return mal("r_on, i_ocp y r_sense son positivos; t_bloqueo_us, no negativo");
+        analog_net_if* se[3] = {nullptr, nullptr, nullptr};
+        static const char* ns[3] = {"sense1", "sense2", "sense3"};
+        for (int k = 0; k < 3; ++k)
+            if (!d.nodo_de(ns[k]).empty()) se[k] = &n[d.nodo_de(ns[k])];
         analog_net_if* in[3] = {&n[d.nodo_de("in1")], &n[d.nodo_de("in2")], &n[d.nodo_de("in3")]};
         analog_net_if* en[3] = {&n[d.nodo_de("en1")], &n[d.nodo_de("en2")], &n[d.nodo_de("en3")]};
         analog_net_if* out[3] = {&n[d.nodo_de("out1")], &n[d.nodo_de("out2")], &n[d.nodo_de("out3")]};
         return new PuenteTrifasico(d.id.c_str(), n[d.nodo_de("vs")], n[d.nodo_de("gnd")], in, en,
                                    out, d.nodo_de("diag").empty() ? nullptr : &n[d.nodo_de("diag")],
-                                   c);
+                                   c, se);
+    });
+
+REGISTRA_PARTE(Amplificador,
+    Ayuda("Un AMPLIFICADOR DE MEDIDA: la etapa de un operacional que lleva la caida en un shunt "
+          "al ADC. La salida es offset + ganancia·(entrada - gnd), entre gnd y vcc -rail to "
+          "rail-, tras r_salida; la entrada no carga. Los de la X-NUCLEO-IHM07M1, un TSV994 por "
+          "fase: 1,528 de ganancia y 1,56 V de polarizacion, para ver la corriente en los dos "
+          "sentidos.")
+      .ejemplo("<componente tipo=\"Amplificador\" id=\"U10A\" ganancia=\"1.528\" offset=\"1.56\">\n"
+               "  <pin nombre=\"entrada\" nodo=\"SENS1\"/> <pin nombre=\"salida\" nodo=\"CUR_A\"/>\n"
+               "  <pin nombre=\"vcc\" nodo=\"V33\"/> <pin nombre=\"gnd\" nodo=\"GND\"/>\n"
+               "</componente>")
+      .pin("entrada", "obligatorio", "Lo que se mide, contra gnd. No carga.")
+      .pin("salida", "obligatorio", "La salida, tras r_salida.")
+      .pin("vcc, gnd", "obligatorios", "La alimentacion: la salida no sale de ahi.")
+      .atr("ganancia", "1", "La ganancia.")
+      .atr("offset", "0", "La polarizacion, en V sobre gnd: la salida con la entrada a cero.")
+      .atr("r_salida", "100", "La resistencia de salida, en ohm.")
+      .nota("Deja ver `salida`, en V.")
+      .nota("Lo que no hace: el ancho de banda, el ruido, la deriva y el filtro RC de la placa.")
+      .cpp("salida()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        for (const char* t : {"entrada", "salida", "vcc", "gnd"})
+            if (d.nodo_de(t).empty()) {
+                SC_REPORT_ERROR("netlist", ("Amplificador '" + d.id + "': le falta <pin nombre=\"" +
+                                            t + "\">").c_str());
+                return nullptr;
+            }
+        return new Amplificador(d.id.c_str(), n[d.nodo_de("entrada")], n[d.nodo_de("salida")],
+                                n[d.nodo_de("vcc")], n[d.nodo_de("gnd")], d.num("ganancia", 1.0),
+                                d.num("offset", 0.0), d.num("r_salida", 100.0));
     });
 
 REGISTRA_PARTE(MotorBLDC,

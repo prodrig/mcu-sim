@@ -972,6 +972,8 @@ def x_nucleo_ihm07m1():
     J2          la borna del motor: A, B y C
     J3          la borna de los Hall: 5V, GND, H1, H2 y H3
     REN         la resistencia de DIAG-EN; RH1, RH2 y RH3 las de los Hall
+    U10A, U10B, U10C  los tres amplificadores de la corriente: el TSV994,
+                debajo del L6230
     D11         el LED rojo
 """)
     s.add(s.rect(0, 0, 700, 620, "#1b5e20", "#0d3b10", 2, rx=12))
@@ -1013,6 +1015,10 @@ def x_nucleo_ihm07m1():
         s.add('<g id="RH%d">' % (k + 1))
         s.add("  " + s.rect(140 + k * 50, 450, 40, 14, "#d7ccc8", "#5d4037", 1))
         s.add("</g>")
+    s.add(s.rect(300, 440, 100, 44, "#212121", "#000000", 1.2, rx=3))
+    for k, q in enumerate("ABC"):
+        s.add(s.rect(306 + k * 31, 446, 26, 32, "#2b2b2b", id="U10" + q))
+    s.add(s.text(350, 500, "TSV994", 8, BLANCO, "middle", bold=False))
     s.add(s.circ(530, 470, 10, "#e53935", "#7f0000", 1.2, id="D11"))
     s.add(s.text(530, 498, "FAULT", 8, BLANCO, "middle"))
     s.add(s.text(350, 220, "X-NUCLEO-IHM07M1", 13, BLANCO, "middle"))

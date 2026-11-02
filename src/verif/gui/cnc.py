@@ -65,6 +65,11 @@
 #       velocidad en los dos sentidos, la sobrecorriente que baja DIAG-EN y
 #       frena el TIM1, los Hall cruzados, la conmutacion senoidal y lo que
 #       cuesta cada una.
+#   C12 LA FOC. El mismo banco, con los tres shunts de la IHM07M1 y sus
+#       amplificadores en el ADC, disparados por el TIM1 en el pico del PWM:
+#       el offset, la corriente medida contra la del motor, iq e id, el lazo
+#       de velocidad con una carga de golpe, el cambio de sentido sin parar,
+#       las tres fases a la vez y lo que cuesta.
 #
 # Cada grupo monta su banco en una carpeta temporal, con placas escritas aquí.
 #
@@ -2316,7 +2321,93 @@ def c11_bldc_mcu(sim, cp):
           "fases llevando corriente a la vez el %.0f %% del tiempo" % (r or 0, 100 * tres / max(1, len(tr))))
     check(dt < 1.5 * 12,
           "y cuesta: 1,5 s del motor en %.1f s de reloj, %.1f por segundo; seis pasos, menos de "
-          "uno. Es lo que costaria la FOC" % (dt, dt / 1.5))
+          "uno" % (dt, dt / 1.5))
+
+
+def c12_foc(sim, cp):
+    grupo("C12 La FOC: la corriente de los shunts, en los ejes del rotor")
+    # --- El offset, al arrancar -----------------------------------------------
+    s, avs, out, dt = bldc6(sim, cp, "M 2\\nI 1\\nP 150\\n?\\nC\\n", 260, periodo_ns=1000000,
+                            lista=[(1, "M/MOTOR", "bloquear", 1)])
+    v = vcp(out)
+    saludo = next((l for l in v if "offset de la corriente" in l), "")
+    try:
+        off = [float(x) for x in saludo.split("offset de la corriente")[1].split("cuentas")[0].split()]
+    except (IndexError, ValueError):
+        off = []
+    teo = 1.56 / 3.3 * 4095
+    check(len(off) == 3 and all(abs(x - teo) < 8 for x in off),
+          "EL OFFSET, medido al arrancar con el puente apagado: %s cuentas por fase -los 1,56 V "
+          "de los amplificadores, %.0f en la cuenta-" % (" ".join("%.0f" % x for x in off), teo))
+    # --- Con el rotor sujeto: corriente continua, la medida contra la del motor
+    lc = next((l for l in v if l.startswith("ia ")), "")
+    med = [numero_tras(lc, k) for k in ("ia ", "ib ", "ic ")]
+    mot = [s[("M/MOTOR", "corriente_%s" % k)][-1][1] for k in "uvw"]
+    st = next((l for l in v if l.startswith("rpm ")), "")
+    iq, idd = numero_tras(st, "iq "), numero_tras(st, "id ")
+    check(None not in med and all(abs(a - b) < 0.02 for a, b in zip(med, mot)) and
+          iq is not None and abs(iq - 1.0) < 0.03 and abs(idd) < 0.03,
+          "CON EL ROTOR SUJETO e iq a 1 A: el firmware mide %s A por los shunts, el ADC y Clarke, "
+          "y el motor lleva %s; en los ejes del rotor, iq %.2f e id %.2f" % (
+              " ".join("%+.3f" % x for x in med if x is not None),
+              " ".join("%+.3f" % x for x in mot), iq or 0, idd or 0))
+
+    # --- El lazo de velocidad, con una carga de golpe --------------------------
+    s, avs, out, dt = bldc6(sim, cp, "M 2\\nR 2000\\nP 500\\n?\\nP 600\\n?\\n", 1250,
+                            lista=[(600, "M/MOTOR", "carga", 100)])
+    v = vcp(out)
+    st = [l for l in v if l.startswith("rpm ")]
+    r1, r2 = (rpm_vcp(v, 0), rpm_vcp(v, 1)) if len(st) > 1 else (None, None)
+    iq1 = numero_tras(st[0], "iq ") if st else None
+    iq2 = numero_tras(st[1], "iq ") if len(st) > 1 else None
+    rm = s[("M/MOTOR", "rpm")]
+    caida = min((x for t, x in rm if 0.6 < t < 0.8), default=0)
+    # La carga, el 100 % del par nominal, mas el rozamiento; el par por amperio
+    # de iq, el de la fundamental de la f.e.m. trapezoidal: 1,5·(4/pi)·sen(30°)
+    # /(pi/6)·Kt/2 = 0,912·Kt
+    kt = 0.057
+    t_carga = kt * 0.88 + 0.003 + 0.005e-3 * 2000 * 2 * math.pi / 60
+    iq_teo = t_carga / (0.912 * kt)
+    tarda = numero_tras(st[-1], "tarda ") if st else None
+    check(r1 is not None and abs(r1 - 2000) < 15 and iq1 is not None and iq1 < 0.2 and
+          r2 is not None and abs(r2 - 2000) < 25 and iq2 is not None and
+          abs(iq2 - iq_teo) / iq_teo < 0.1,
+          "CON EL LAZO DE VELOCIDAD, que da iq: a 2000 rpm (%.0f) con %.2f A, lo del rozamiento. "
+          "Con el par nominal de golpe cae a %.0f rpm y vuelve a %.0f, con iq %.2f A: %.2f en la "
+          "cuenta, con el par por amperio de la fundamental de su f.e.m. trapezoidal" % (
+              r1 or 0, iq1 or 0, caida, r2 or 0, iq2 or 0, iq_teo))
+    check(tarda is not None and tarda < 50,
+          "la interrupcion de la FOC, en el pico de cada periodo del PWM, tarda %.1f us de los 50 "
+          "como mucho -en este modelo, que cuenta unas tres veces los ciclos del silicio (P-02 de "
+          "doc/todo.md)-" % (tarda or 0))
+    check(dt < 1.25 * 12,
+          "y cuesta: 1,25 s del motor en %.1f s de reloj, %.1f por segundo -en senoidal, unos 5,5-"
+          % (dt, dt / 1.25))
+
+    # --- Hacia atras, sin parar ------------------------------------------------
+    s, avs, out, dt = bldc6(sim, cp, "M 2\\nR 2000\\nP 400\\nR -1500\\n", 800)
+    rm = s[("M/MOTOR", "rpm")]
+    t_r = next((t for t, x in rm if x < 1900 and t > 0.3), None)
+    t_c = next((t for t, x in rm if t_r and t > t_r and x < 0), None)
+    t_l = next((t for t, x in rm if t_r and t > t_r and x < -1450), None)
+    fin = [x for t, x in rm if t > 0.7]
+    check(t_r and t_c and t_l and t_l - t_r < 0.1 and fin and all(abs(x + 1500) < 20 for x in fin),
+          "DE 2000 rpm A -1500 SIN PARAR: el lazo pide iq negativa, el motor frena, pasa por cero "
+          "a los %.0f ms y llega a los %.0f; luego, a %.0f" % (
+              1000 * ((t_c or 0) - (t_r or 0)), 1000 * ((t_l or 0) - (t_r or 0)),
+              sum(fin) / max(1, len(fin))))
+
+    # --- Las tres fases a la vez, senoidales -----------------------------------
+    s, avs, out, dt = bldc6(sim, cp, "M 2\\nR 2000\\n", 260, periodo_ns=20000,
+                            lista=[(1, "M/MOTOR", "carga", 100)])
+    iu, iv, iw = (s[("M/MOTOR", "corriente_%s" % k)] for k in "uvw")
+    tr = [(a[1], b[1], c[1]) for a, b, c in zip(iu, iv, iw) if a[0] > 0.2]
+    pico = max(max(abs(x) for x in t) for t in tr) if tr else 0
+    tres = sum(1 for t in tr if sorted(abs(x) for x in t)[0] > 0.1 * pico) if tr else 0
+    check(tr and 0.9 < pico < 1.5 and tres / len(tr) > 0.7,
+          "LA CORRIENTE POR FASE, cada 20 us con la carga: las tres llevan corriente a la vez el "
+          "%.0f %% del tiempo -en una senoide, el 81 %%; en seis pasos, nunca-, con %.2f A de pico"
+          % (100 * tres / max(1, len(tr)), pico))
 
 
 def main():
@@ -2346,6 +2437,7 @@ def main():
         c9_potencia(sim, cp)
         c10_canopen(sim, cp)
         c11_bldc_mcu(sim, cp)
+        c12_foc(sim, cp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print()

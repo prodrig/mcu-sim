@@ -1,10 +1,11 @@
 /* ===========================================================================
- * main.c — UN BLDC CONMUTADO POR EL MCU, EN SEIS PASOS CON SUS HALL: una
- *          NUCLEO-F446RE con una X-NUCLEO-IHM07M1 y un Nanotec DB42S01
+ * main.c — UN BLDC CONMUTADO POR EL MCU, EN SEIS PASOS CON SUS HALL, EN
+ *          SENOIDAL Y CON FOC: una NUCLEO-F446RE con una X-NUCLEO-IHM07M1 y
+ *          un Nanotec DB42S01
  *
  * El firmware de la fase F7 de doc/analisis_cnc.md (§5.4): sin controlador
- * que lo conmute por dentro, el MCU decide en cada momento qué dos fases del
- * motor llevan corriente. Es el de placas/nucleo_ihm07m1_db42.xml.
+ * que lo conmute por dentro, el MCU decide en cada momento qué tensión lleva
+ * cada fase del motor. Es el de placas/nucleo_ihm07m1_db42.xml.
  *
  * LOS SEIS PASOS. Los tres Hall dicen en qué sector de 60° eléctricos está el
  * rotor; en cada uno se alimentan las dos fases cuya f.e.m. está plana -una
@@ -36,6 +37,37 @@
  * kHz). Es la FOC sin su lazo de corriente: la tensión, no la corriente,
  * va en fase con la f.e.m.
  *
+ * LA FOC (M 2), el control de campo orientado: lo que se manda es la
+ * CORRIENTE, y en los ejes del rotor. Cada periodo del PWM:
+ *
+ *   1. LA CORRIENTE DE LAS TRES FASES, de los tres shunts de la IHM07M1 y sus
+ *      amplificadores: i = (offset - x)·3,3 / 4095 / (1,528·0,33), A por
+ *      cuenta del ADC; el offset, medido al arrancar con el puente apagado.
+ *      Un shunt solo ve su fase mientras conduce el transistor de abajo: con
+ *      el PWM centrado, en el pico del contador, cuando los tres están abajo.
+ *      Ahí lo pide el TIM1: el canal 4, en PWM 2 con CCR4 = ARR - 30, sube
+ *      OC4REF 0,36 us antes del pico, y OC4REF es su TRGO (MMS = 111), el
+ *      disparo de los grupos inyectados de los tres ADC (JEXTSEL = 0001). Cada
+ *      ADC convierte una fase -el 1 PA0, el 2 PC1, el 3 PC0-, los tres a la
+ *      vez, en 0,71 us. El ciclo, como mucho el 94 %: abajo, 3 us.
+ *   2. CLARKE Y PARK: las tres corrientes, a un vector (alfa, beta), y ese
+ *      vector, a los ejes del rotor: d, a lo largo del imán, y q, en fase con
+ *      la f.e.m. -90° por delante del imán-. El ángulo, el de los Hall
+ *      interpolado, como en senoidal.
+ *   3. DOS PI, uno por eje: id a cero, iq a lo que se pide. Su salida, la
+ *      tensión en d y en q, hasta lo que da el bus.
+ *   4. PARK Y CLARKE AL REVÉS, y la inyección del mínimo y el máximo -lo
+ *      mismo que el vector espacial-: cada fase, su ciclo.
+ *
+ * Con el lazo de velocidad (R), el PI de cada milisegundo da iq en vez del
+ * ciclo, con su signo: para cambiar de sentido no hace falta parar. Con I,
+ * iq directamente: el par. La tensión del bus no se mide -el modelo de la
+ * IHM07M1 no lleva el divisor de VIN-: se da por 24 V.
+ *
+ * La interrupción de los ADC, con lo que llama, va en la RAM, y la raíz con
+ * VSQRT. En el modelo tarda unos 30 us de los 50 del periodo: cuenta unas
+ * tres veces los ciclos del silicio (P-02 de doc/todo.md). `?` dice la peor.
+ *
  * LA PROTECCIÓN: DIAG-EN del L6230 va a PA6, la entrada de freno del TIM1
  * (BKE, activa baja). Una sobrecorriente la baja: el TIM1 quita MOE en el acto
  * -el PWM se apaga sin esperar a nadie- y su interrupción lo cuenta, apaga
@@ -46,10 +78,13 @@
  *     R rpm      a esa velocidad, con el lazo; negativa, hacia atrás
  *     D %        ese ciclo, sin lazo; negativo, hacia atrás (en senoidal, la
  *                amplitud de la senoide)
- *     M 0|1      seis pasos (0) o senoidal (1)
+ *     M 0|1|2    seis pasos (0), senoidal (1) o FOC (2)
+ *     I A        en FOC: esa iq, sin lazo de velocidad; negativa, hacia atrás
  *     S          para: los EN abajo
  *     P ms       espera
- *     ?          rpm, ciclo, Hall y fallos
+ *     ?          rpm, ciclo -en FOC, id e iq-, Hall y fallos
+ *     C          en FOC: las corrientes de las tres fases, las de la última
+ *                medida
  * ===========================================================================*/
 #include "stm32f446xx.h"
 #include <stdint.h>
@@ -126,7 +161,8 @@ static volatile int g_marcha;              /* conmutando */
 static volatile float g_ciclo;             /* 0..CICLO_MAX */
 static volatile uint32_t g_fallos;
 static volatile uint32_t g_conmutaciones;
-static volatile int g_seno;                /* conmutación senoidal */
+static volatile int g_modo;                /* 0 seis pasos, 1 senoidal, 2 FOC */
+#define g_seno (g_modo != 0)                  /* las tres fases con PWM */
 
 static inline uint32_t hall(void)
 {
@@ -166,12 +202,14 @@ static void pon_en(int u, int v, int w)
                   (w ? (1u << 12) : (1u << 28));
 }
 
-/* El modo de salida de cada canal del TIM1: PWM 1 (110) o forzado a bajo (100) */
+/* El modo de salida de cada canal del TIM1: PWM 1 (110) o forzado a bajo (100).
+ * El canal 4, siempre en PWM 2: su OC4REF es el disparo de los ADC */
 static void pon_modos(int pwm_u, int pwm_v, int pwm_w)
 {
     const uint32_t m1 = (pwm_u ? 6u : 4u) << TIM_CCMR1_OC1M_Pos | TIM_CCMR1_OC1PE |
                         (pwm_v ? 6u : 4u) << TIM_CCMR1_OC2M_Pos | TIM_CCMR1_OC2PE;
-    const uint32_t m2 = (pwm_w ? 6u : 4u) << TIM_CCMR2_OC3M_Pos | TIM_CCMR2_OC3PE;
+    const uint32_t m2 = (pwm_w ? 6u : 4u) << TIM_CCMR2_OC3M_Pos | TIM_CCMR2_OC3PE |
+                        7u << TIM_CCMR2_OC4M_Pos;
     TIM1->CCMR1 = m1;
     TIM1->CCMR2 = m2;
 }
@@ -201,7 +239,10 @@ static void conmuta(void)
 
 /* --- En senoidal ------------------------------------------------------------ */
 #define PI_F 3.14159265f
-static float seno(float x)                 /* x en radianes, cualquiera */
+/* Lo que corre en cada periodo del PWM, en la RAM: desde la Flash, con sus
+ * estados de espera, la FOC no cabe en los 50 us */
+#define EN_RAM __attribute__((section(".data.ram"), long_call, noinline))
+EN_RAM static float seno(float x)                 /* x en radianes, cualquiera */
 {
     while (x > PI_F) x -= 2.0f * PI_F;
     while (x < -PI_F) x += 2.0f * PI_F;
@@ -213,7 +254,7 @@ static int sentido_hall(void);
 static int sector_hall(void);
 
 /* El ángulo eléctrico, en grados, de los Hall */
-static float angulo_e(void)
+EN_RAM static float angulo_e(void)
 {
     const int s = sector_hall();
     if (s < 0) return 0.0f;
@@ -230,13 +271,148 @@ static float angulo_e(void)
 void TIM1_UP_TIM10_IRQHandler(void)
 {
     TIM1->SR = ~TIM_SR_UIF;
-    if (!g_marcha || !g_seno) return;
+    if (!g_marcha || g_modo != 1) return;
     const float th = (angulo_e() + 30.0f) * PI_F / 180.0f;
     const float m = (float)g_dir * g_ciclo;
     const float a = 0.5f * (float)PWM_ARR;
     TIM1->CCR1 = (uint32_t)(a + a * m * seno(th));
     TIM1->CCR2 = (uint32_t)(a + a * m * seno(th - 2.0943951f));
     TIM1->CCR3 = (uint32_t)(a + a * m * seno(th - 4.1887902f));
+}
+
+
+/* --- La FOC ----------------------------------------------------------------- */
+static volatile uint32_t g_ms;
+#define VBUS     24.0f                     /* V: no se mide */
+#define CICLO_FOC 0.94f                    /* abajo, al menos 3 us: para medir */
+#define IQ_MAX   2.0f                      /* A: por debajo de los 2,8 del L6230 */
+#define A_CUENTA (3.3f / 4095.0f / (1.528f * 0.33f))
+#define RAIZ3    1.7320508f
+/* Los PI de corriente, para unos 500 Hz con Lf = 2,9 mH y Rf = 1,75 ohm:
+ * Kp = Lf·w, Ki = Rf·w */
+static const float KP_I = 9.0f, KI_I = 5500.0f;   /* V/A y V/(A·s) */
+static const float DT_PWM = 50e-6f;
+
+static volatile float g_off[3];            /* las cuentas del ADC con i = 0 */
+static volatile float g_i[3];              /* A, por fase: las de la última medida */
+static volatile float g_id, g_iq, g_iq_obj;
+static float g_int_d, g_int_q;
+
+static float limita(float x, float a, float b) { return x < a ? a : (x > b ? b : x); }
+
+static inline float raiz(float x)            /* VSQRT: 14 ciclos, sin libm */
+{
+    float r;
+    __asm volatile("vsqrt.f32 %0, %1" : "=t"(r) : "t"(x));
+    return r;
+}
+
+/* En el pico del contador, los tres ADC han medido: la FOC entera */
+/* Lo que tarda, medido con el SysTick: la entrada, la salida y lo que se
+ * lleva el bus no los cuenta el DWT, y aquí importan */
+static volatile uint32_t g_isr_max;
+EN_RAM void ADC_IRQHandler(void)
+{
+    const uint32_t t0 = SysTick->VAL;
+    if (!(ADC1->SR & ADC_SR_JEOC)) return;
+    while (!(ADC2->SR & ADC_SR_JEOC) || !(ADC3->SR & ADC_SR_JEOC)) { }
+    const float xa = (float)ADC1->JDR1, xb = (float)ADC2->JDR1, xc = (float)ADC3->JDR1;
+    ADC1->SR = ~ADC_SR_JEOC;
+    ADC2->SR = ~ADC_SR_JEOC;
+    ADC3->SR = ~ADC_SR_JEOC;
+    const float ia = (g_off[0] - xa) * A_CUENTA;
+    const float ib = (g_off[1] - xb) * A_CUENTA;
+    const float ic = (g_off[2] - xc) * A_CUENTA;
+    g_i[0] = ia; g_i[1] = ib; g_i[2] = ic;
+    if (!g_marcha || g_modo != 2) return;
+    /* Clarke, con las tres */
+    const float al = (2.0f * ia - ib - ic) * (1.0f / 3.0f);
+    const float be = (ib - ic) * (1.0f / RAIZ3);
+    /* Park: el eje d, 150° por detrás del ángulo de los Hall -la f.e.m. de U
+     * tiene su máximo a 60°, y el imán va 90° por detrás de ella- */
+    const float th = (angulo_e() - 150.0f) * (PI_F / 180.0f);
+    const float sn = seno(th), cs = seno(th + 0.5f * PI_F);
+    const float id = al * cs + be * sn;
+    const float iq = -al * sn + be * cs;
+    g_id = id; g_iq = iq;
+    /* Los dos PI, con su tope: la tensión que cabe con el bus */
+    const float vmax = CICLO_FOC * VBUS / RAIZ3;
+    const float ed = -id, eq = g_iq_obj - iq;
+    const float nd = g_int_d + (KI_I * DT_PWM) * ed;
+    const float nq = g_int_q + (KI_I * DT_PWM) * eq;
+    float vd = KP_I * ed + nd, vq = KP_I * eq + nq;
+    const float m2 = vd * vd + vq * vq;
+    if (m2 > vmax * vmax) {                   /* saturado: a escala, sin acumular */
+        const float f = vmax / raiz(m2);
+        vd *= f; vq *= f;
+    } else {
+        g_int_d = nd; g_int_q = nq;
+    }
+    /* Park y Clarke al revés */
+    const float va = vd * cs - vq * sn;
+    const float vb = vd * sn + vq * cs;
+    const float v0 = va;
+    const float v1 = -0.5f * va + (0.5f * RAIZ3) * vb;
+    const float v2 = -0.5f * va - (0.5f * RAIZ3) * vb;
+    /* El mínimo y el máximo, al centro: cada fase, su ciclo */
+    float mx = v0, mn = v0;
+    if (v1 > mx) mx = v1; else if (v1 < mn) mn = v1;
+    if (v2 > mx) mx = v2; else if (v2 < mn) mn = v2;
+    const float c = 0.5f * (mx + mn);
+    const float k = (float)PWM_ARR / VBUS, med = 0.5f * (float)PWM_ARR;
+    const float tope = CICLO_FOC * (float)PWM_ARR;
+    TIM1->CCR1 = (uint32_t)limita(med + (v0 - c) * k, 0.0f, tope);
+    TIM1->CCR2 = (uint32_t)limita(med + (v1 - c) * k, 0.0f, tope);
+    TIM1->CCR3 = (uint32_t)limita(med + (v2 - c) * k, 0.0f, tope);
+    int32_t d = (int32_t)t0 - (int32_t)SysTick->VAL;
+    if (d < 0) d += (int32_t)(HCLK / 1000u);
+    if ((uint32_t)d > g_isr_max) g_isr_max = (uint32_t)d;
+}
+
+/* Los ADC: cada uno, una fase en su grupo inyectado. Primero, el offset de
+ * cada una con el puente apagado: 64 conversiones por software */
+static void adc_inicia(void)
+{
+    RCC->APB2ENR |= RCC_APB2ENR_ADC1EN | RCC_APB2ENR_ADC2EN | RCC_APB2ENR_ADC3EN;
+    (void)RCC->APB2ENR;
+    GPIOA->MODER |= 3u << (2u * 0u);           /* PA0, analógica */
+    GPIOC->MODER |= 3u << (2u * 0u) | 3u << (2u * 1u);   /* PC0 y PC1 */
+    ADC123_COMMON->CCR = ADC_CCR_ADCPRE_0;     /* 84 / 4 = 21 MHz */
+    ADC_TypeDef* const a[3] = {ADC1, ADC2, ADC3};
+    static const uint32_t canal[3] = {0u, 11u, 10u};
+    for (int k = 0; k < 3; ++k) {
+        a[k]->CR1 = 0;
+        a[k]->SMPR1 = 0;
+        a[k]->SMPR2 = 0;                       /* 3 ciclos: 0,71 us por conversión */
+        a[k]->JSQR = canal[k] << ADC_JSQR_JSQ4_Pos;   /* JL = 0: una, la de JSQ4 */
+        a[k]->CR2 = ADC_CR2_ADON;
+    }
+    const uint32_t t0 = g_ms;
+    while (g_ms - t0 < 2u) __WFI();            /* la estabilización */
+    float suma[3] = {0.0f, 0.0f, 0.0f};
+    for (int n = 0; n < 64; ++n)
+        for (int k = 0; k < 3; ++k) {
+            a[k]->SR = 0;
+            a[k]->CR2 |= ADC_CR2_JSWSTART;
+            while (!(a[k]->SR & ADC_SR_JEOC)) { }
+            suma[k] += (float)a[k]->JDR1;
+        }
+    for (int k = 0; k < 3; ++k) {
+        g_off[k] = suma[k] / 64.0f;
+        a[k]->SR = 0;
+    }
+    ADC1->CR1 = ADC_CR1_JEOCIE;
+    NVIC_SetPriority(ADC_IRQn, 1);
+    NVIC_EnableIRQ(ADC_IRQn);
+}
+
+/* Los disparos del TIM1, solo en FOC: TRGO en flanco de subida (JEXTSEL =
+ * 0001). En los otros modos no se mide, y no cuesta */
+static void adc_disparos(int si)
+{
+    ADC_TypeDef* const a[3] = {ADC1, ADC2, ADC3};
+    for (int k = 0; k < 3; ++k)
+        a[k]->CR2 = ADC_CR2_ADON | (si ? ADC_CR2_JEXTEN_0 | (1u << ADC_CR2_JEXTSEL_Pos) : 0u);
 }
 
 /* --- La velocidad, de los Hall -------------------------------------------- */
@@ -292,15 +468,24 @@ void TIM1_BRK_TIM9_IRQHandler(void)
 }
 
 /* --- El lazo: cada milisegundo -------------------------------------------- */
-static volatile uint32_t g_ms;
 static volatile int g_lazo;                /* con lazo de velocidad */
 static volatile float g_rpm_obj, g_integral;
 static const float KP = 0.0004f, KI = 0.004f;   /* ciclo por rpm, y por rpm·s */
+static const float KP_W = 0.0008f, KI_W = 0.02f;   /* en FOC: A por rpm, y por rpm·s */
 
 void SysTick_Handler(void)
 {
     ++g_ms;
     if (!g_marcha || !g_lazo) return;
+    if (g_modo == 2) {                       /* en FOC, da iq: con signo */
+        const float e = g_rpm_obj - rpm();
+        const float i = g_integral + KI_W * e * 0.001f;
+        const float q = KP_W * e + i;
+        if (q > IQ_MAX) g_iq_obj = IQ_MAX;
+        else if (q < -IQ_MAX) g_iq_obj = -IQ_MAX;
+        else { g_iq_obj = q; g_integral = i; }
+        return;
+    }
     const float obj = g_rpm_obj < 0.0f ? -g_rpm_obj : g_rpm_obj;
     float med = rpm();
     if (med < 0.0f) med = -med;
@@ -329,6 +514,10 @@ static int arranca(int dir)
     g_dir = dir;
     g_marcha = 1;
     g_sector_ant = sector(hall());
+    if (g_modo == 2) {
+        g_int_d = g_int_q = 0.0f;
+        TIM1->CCR1 = TIM1->CCR2 = TIM1->CCR3 = PWM_ARR / 2u;   /* tensión cero */
+    }
     if (g_seno) { pon_modos(1, 1, 1); pon_en(1, 1, 1); }
     else conmuta();
     return 1;
@@ -344,17 +533,32 @@ static void informa(void)
 {
     envia("rpm ");
     envia_f(rpm(), 0);
-    envia(" ciclo ");
-    envia_f(g_ciclo * 100.0f, 1);
-    envia("% hall ");
+    if (g_modo == 2) {
+        envia(" id ");
+        envia_f(g_id, 2);
+        envia(" iq ");
+        envia_f(g_iq, 2);
+        envia(" A");
+    } else {
+        envia(" ciclo ");
+        envia_f(g_ciclo * 100.0f, 1);
+        envia("%");
+    }
+    envia(" hall ");
     const uint32_t h = hall();
     envia_c((char)('0' + ((h >> 2) & 1u)));
     envia_c((char)('0' + ((h >> 1) & 1u)));
     envia_c((char)('0' + (h & 1u)));
     envia(" fallos ");
     envia_u(g_fallos);
-    envia(g_seno ? " senoidal" : " seis pasos");
-    envia(g_marcha ? " en marcha\r\n" : " parado\r\n");
+    envia(g_modo == 2 ? " foc" : (g_modo ? " senoidal" : " seis pasos"));
+    envia(g_marcha ? " en marcha" : " parado");
+    if (g_modo == 2) {                        /* lo que tarda la FOC, la peor vez */
+        envia("; la FOC tarda ");
+        envia_f((float)g_isr_max / (float)(HCLK / 1000000u), 1);
+        envia(" us de 50");
+    }
+    envia("\r\n");
 }
 
 static float numero(const char* s)
@@ -382,6 +586,12 @@ static void ejecuta(char* l)
         case 'R': {
             const float r = numero(l + 1);
             g_rpm_obj = r;
+            if (g_modo == 2) {                 /* en FOC, sin parar al cambiar de sentido */
+                if (!g_marcha) { g_integral = 0.0f; g_iq_obj = 0.0f; }
+                g_lazo = 1;
+                if (!g_marcha && !arranca(1)) return;
+                break;
+            }
             if (r == 0.0f) { apaga(); pon_ciclo(0.0f); break; }
             const int dir = r < 0.0f ? -1 : 1;
             if (g_marcha && dir != g_dir) {    /* hacia el otro lado: primero, a parar */
@@ -394,24 +604,46 @@ static void ejecuta(char* l)
             if (!arranca(dir)) return;
             break;
         }
+        case 'I': {
+            if (g_modo != 2) { envia("error: I, solo en FOC (M 2)\r\n"); return; }
+            const float q = numero(l + 1);
+            g_lazo = 0;
+            g_iq_obj = limita(q, -IQ_MAX, IQ_MAX);
+            if (!g_marcha && !arranca(1)) return;
+            break;
+        }
         case 'D': {
             const float d = numero(l + 1);
+            if (g_modo == 2) { envia("error: en FOC, I o R\r\n"); return; }
             g_lazo = 0;
             if (d == 0.0f) { apaga(); pon_ciclo(0.0f); break; }
             pon_ciclo((d < 0.0f ? -d : d) / 100.0f);
             if (!arranca(d < 0.0f ? -1 : 1)) return;
             break;
         }
-        case 'S': apaga(); pon_ciclo(0.0f); g_lazo = 0; break;
-        case 'M':
+        case 'S': apaga(); pon_ciclo(0.0f); g_lazo = 0; g_iq_obj = 0.0f; break;
+        case 'M': {
             apaga();
             g_lazo = 0;
-            g_seno = numero(l + 1) != 0.0f;
-            if (g_seno) TIM1->DIER |= TIM_DIER_UIE;
+            g_iq_obj = 0.0f;
+            const float m = numero(l + 1);
+            g_modo = m >= 2.0f ? 2 : (m != 0.0f ? 1 : 0);
+            if (g_modo == 1) TIM1->DIER |= TIM_DIER_UIE;
             else TIM1->DIER &= ~TIM_DIER_UIE;
+            adc_disparos(g_modo == 2);
             pon_ciclo(0.0f);
             break;
+        }
         case 'P': espera((uint32_t)numero(l + 1)); break;
+        case 'C':                              /* las tres corrientes medidas */
+            envia("ia ");
+            envia_f(g_i[0], 3);
+            envia(" ib ");
+            envia_f(g_i[1], 3);
+            envia(" ic ");
+            envia_f(g_i[2], 3);
+            envia(" A\r\n");
+            break;
         case '?': informa(); break;
         default:
             envia("error: no entiendo '");
@@ -488,6 +720,8 @@ int main(void)
     pon_modos(0, 0, 0);
     pon_ciclo(0.0f);
     TIM1->CCER = TIM_CCER_CC1E | TIM_CCER_CC2E | TIM_CCER_CC3E;
+    TIM1->CCR4 = PWM_ARR - 30u;               /* 0,36 us antes del pico */
+    TIM1->CR2 = 7u << TIM_CR2_MMS_Pos;        /* TRGO = OC4REF: los ADC */
     TIM1->BDTR = TIM_BDTR_MOE | TIM_BDTR_BKE;  /* BKP = 0: frena con PA6 bajo */
     TIM1->RCR = 1;                            /* una actualización por periodo */
     TIM1->EGR = TIM_EGR_UG;
@@ -520,13 +754,14 @@ int main(void)
     SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk;
     NVIC_SetPriority(SysTick_IRQn, 2);
 
-    envia("\r\nseis pasos (F7): DB42S01 en una X-NUCLEO-IHM07M1, PWM de 20 kHz, ");
+    /* Los ADC de la corriente, con su offset */
+    adc_inicia();
+
+    envia("\r\nseis pasos, senoidal y FOC (F7): DB42S01 en una X-NUCLEO-IHM07M1, PWM de 20 kHz, ");
     envia_u(PARES);
-    envia(" pares de polos; Hall ");
-    const uint32_t h = hall();
-    envia_c((char)('0' + ((h >> 2) & 1u)));
-    envia_c((char)('0' + ((h >> 1) & 1u)));
-    envia_c((char)('0' + (h & 1u)));
+    envia(" pares de polos; offset de la corriente ");
+    for (int k = 0; k < 3; ++k) { envia_f(g_off[k], 0); envia(k < 2 ? " " : ""); }
+    envia(" cuentas; Hall ");
     envia("\r\n");
 
     static char lin[64];

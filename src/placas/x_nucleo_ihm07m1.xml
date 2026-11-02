@@ -17,12 +17,18 @@
             -TIM2_CH1 a CH3: el interfaz de sensores Hall del TIM2-, con sus
             pull-ups de 10 kohm (JP3 cerrado, el de fabrica)
        D11  el LED rojo de PB2, con 510 ohm
+       LOS SHUNTS, para la FOC: R43, R44 y R45, 0,33 ohm de la fuente de cada
+            transistor de abajo a masa -van dentro de U1: sus pines sense-, y
+            U10A, U10B y U10C, los tres operacionales del TSV994, con 1,528
+            de ganancia y 1,56 V de polarizacion [ST, el foro: los da el MC
+            Workbench]: la corriente de la fase A en PA0, la de la B en PC1 y
+            la de la C en PC0. Lo que sale por cada fase, positiva, baja la
+            tension: 1,56 - 0,504·i V. Es la configuracion de TRES SHUNTS, con
+            J5 y J6 en 1-2; la de fabrica es la de uno, en 2-3, y esa no esta
 
-     LO QUE NO LLEVA ESTE MODELO: las tres resistencias de 0,33 ohm de las
-     fuentes de los transistores de abajo con su amplificador (la corriente de
-     cada fase, en PA0, PC1 y PC0), los divisores que miden la f.e.m. de cada
-     fase (PC3, PB0 y PA7) y VIN (PA1, 169 kohm y 9,31 kohm), el
-     potenciometro de PB1 y el sensor de temperatura.
+     LO QUE NO LLEVA ESTE MODELO: los divisores que miden la f.e.m. de cada
+     fase (PC3, PB0 y PA7) y VIN (PA1, 169 kohm y 9,31 kohm), el filtro RC de
+     cada amplificador, el potenciometro de PB1 y el sensor de temperatura.
      Los pull-ups de los Hall, a 3,3 V: el manual no dice a que tension van, y
      las entradas de PA15, PB3 y PB10 aguantan las dos.
 
@@ -40,6 +46,9 @@
     <pin nombre="19" nodo="GND"/>
     <pin nombre="20" nodo="GND"/>
     <pin nombre="22" nodo="GND"/>
+    <pin nombre="28" nodo="CUR_A"/>   <!-- PA0, ADC123_IN0 -->
+    <pin nombre="36" nodo="CUR_B"/>   <!-- PC1, ADC123_IN11 -->
+    <pin nombre="38" nodo="CUR_C"/>   <!-- PC0, ADC123_IN10 -->
   </componente>
   <componente tipo="Conector" id="CN10" filas="2" columnas="19">
     <pin nombre="9" nodo="GND"/>
@@ -63,6 +72,9 @@
   <nodo id="J2.A" bus="si"/>
   <nodo id="J2.B" bus="si"/>
   <nodo id="J2.C" bus="si"/>
+  <nodo id="SENS1"/>
+  <nodo id="SENS2"/>
+  <nodo id="SENS3"/>
 
   <!-- Las bornas -->
   <componente tipo="Conector" id="J1" filas="1" columnas="2" nombres="VIN GND">
@@ -84,6 +96,22 @@
     <pin nombre="en1" nodo="EN1"/> <pin nombre="en2" nodo="EN2"/> <pin nombre="en3" nodo="EN3"/>
     <pin nombre="out1" nodo="J2.A"/> <pin nombre="out2" nodo="J2.B"/> <pin nombre="out3" nodo="J2.C"/>
     <pin nombre="diag" nodo="DIAG"/>
+    <pin nombre="sense1" nodo="SENS1"/> <pin nombre="sense2" nodo="SENS2"/>
+    <pin nombre="sense3" nodo="SENS3"/>
+  </componente>
+
+  <!-- Los tres amplificadores de la corriente (el TSV994) -->
+  <componente tipo="Amplificador" id="U10A" ganancia="1.528" offset="1.56">
+    <pin nombre="entrada" nodo="SENS1"/> <pin nombre="salida" nodo="CUR_A"/>
+    <pin nombre="vcc" nodo="V33"/> <pin nombre="gnd" nodo="GND"/>
+  </componente>
+  <componente tipo="Amplificador" id="U10B" ganancia="1.528" offset="1.56">
+    <pin nombre="entrada" nodo="SENS2"/> <pin nombre="salida" nodo="CUR_B"/>
+    <pin nombre="vcc" nodo="V33"/> <pin nombre="gnd" nodo="GND"/>
+  </componente>
+  <componente tipo="Amplificador" id="U10C" ganancia="1.528" offset="1.56">
+    <pin nombre="entrada" nodo="SENS3"/> <pin nombre="salida" nodo="CUR_C"/>
+    <pin nombre="vcc" nodo="V33"/> <pin nombre="gnd" nodo="GND"/>
   </componente>
   <componente tipo="Resistencia" id="REN" r="100000">
     <pin nombre="a" nodo="DIAG"/> <pin nombre="b" nodo="V33"/>

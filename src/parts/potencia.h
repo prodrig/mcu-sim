@@ -18,7 +18,11 @@
 //   PuenteTrifasico  tres medios puentes en un chip, el L6230 de ST (fase
 //                F7): el de la X-NUCLEO-IHM07M1, para un BLDC que conmuta el
 //                MCU. INx y ENx por medio puente, y DIAG-EN, que los apaga
-//                todos y por el que el chip dice una sobrecorriente
+//                todos y por el que el chip dice una sobrecorriente; con
+//                `sense1` a `sense3`, sus tres shunts (la FOC)
+//   Amplificador la etapa de un operacional que lleva la caída en un shunt
+//                al ADC, con su ganancia y su polarización: los tres TSV994
+//                de la IHM07M1
 //
 // LOS DOS SON COMO EL L298 (parts/puente_h.h), con otras cifras: lo que
 // conducen es una resistencia -RDS(on), de miliohmios- y no una caída de
@@ -441,6 +445,15 @@ private:
 // UVLO, que vuelve a 6,3- no hace nada. Las entradas cortan en 1,8 V al subir
 // y en 1,3 al bajar: valen 3,3 V.
 //
+// LOS SHUNTS (`sense1` a `sense3`, la FOC de la IHM07M1): el chip saca la
+// fuente de cada transistor de abajo a su SENSEx, y la placa pone ahí una
+// resistencia a masa, `r_sense`. Por ella pasa lo que pasa por el transistor
+// de abajo -o por su diodo-: SENSEx queda a -i·r_sense mientras conduce, con i
+// la corriente que sale por OUTx, y a cero mientras conduce el de arriba o
+// nadie. Va dentro de la pieza: la fase ve r_on + r_sense hacia masa, y el
+// pin, un Thevenin de r_sense con esa tensión. Sin pines `sense`, las fuentes
+// van a masa.
+//
 // Lo que NO hace: el tiempo muerto de 1 us que pone el chip entre un
 // transistor y otro de una misma fase (la corriente pasa por el diodo en vez de
 // por el de enfrente ese microsegundo), los tiempos de conmutación, la
@@ -456,12 +469,14 @@ struct ConfigPuenteTrifasico {
     double v_alto = 1.8, v_bajo = 1.3; // V: las entradas
     double iq = 5e-3;                  // A: lo que gasta
     double vs_max = 52.0;              // V
+    double r_sense = 0.33;             // ohm: los shunts, con los pines `sense`
 };
 
 SC_MODULE(PuenteTrifasico), public ExtPartBase {
     PuenteTrifasico(sc_core::sc_module_name nm, analog_net_if& vs, analog_net_if& gnd,
                     analog_net_if* in[3], analog_net_if* en[3], analog_net_if* out[3],
-                    analog_net_if* diag, const ConfigPuenteTrifasico& c = ConfigPuenteTrifasico())
+                    analog_net_if* diag, const ConfigPuenteTrifasico& c = ConfigPuenteTrifasico(),
+                    analog_net_if* sense[3] = nullptr)
         : sc_core::sc_module(nm), ExtPartBase("PuenteTrifasico", nm), vs_(&vs), gnd_(&gnd),
           diag_(diag), c_(c) {
         const int ivs = add_pin("vs", vs, "l6230");
@@ -477,6 +492,11 @@ SC_MODULE(PuenteTrifasico), public ExtPartBase {
             add_ref(ni[k], *in[k]);
             add_ref(ne[k], *en[k]);
             m_[k].id = add_pin(no[k], *out[k], "l6230_out");
+            if (sense && sense[k]) {
+                static const char* ns[3] = {"sense1", "sense2", "sense3"};
+                m_[k].sense = sense[k];
+                m_[k].id_s = add_pin(ns[k], *sense[k], "l6230_sense");
+            }
         }
         if (diag_) id_diag_ = add_pin("diag", *diag_, "l6230_diag");
         SC_HAS_PROCESS(PuenteTrifasico);
@@ -484,7 +504,10 @@ SC_MODULE(PuenteTrifasico), public ExtPartBase {
     }
     ~PuenteTrifasico() override {
         carga_->suelta();
-        for (Medio& m : m_) m.out->set_hiz(m.id);
+        for (Medio& m : m_) {
+            m.out->set_hiz(m.id);
+            if (m.sense) m.sense->set_hiz(m.id_s);
+        }
         if (diag_) diag_->set_hiz(id_diag_);
     }
 
@@ -495,6 +518,9 @@ SC_MODULE(PuenteTrifasico), public ExtPartBase {
         return m.diodo != 0 ? "diodo" : "abierto";
     }
     double corriente(int k) const { return m_[k].conduce ? m_[k].i : 0.0; }   // A, la que sale
+    // Lo que pasa por el shunt de k hacia masa (A): la de abajo, cambiada de signo
+    double corriente_shunt(int k) const { return baja(m_[k]) ? -m_[k].i : 0.0; }
+    bool   con_shunts() const { return m_[0].sense || m_[1].sense || m_[2].sense; }
     bool   en_fallo() const { return fallo_; }
     unsigned sobrecorrientes() const { return n_ocp_; }
     bool   vivo() const { return vivo_; }
@@ -518,8 +544,9 @@ SC_MODULE(PuenteTrifasico), public ExtPartBase {
 
 private:
     struct Medio {
-        analog_net_if *in = nullptr, *en = nullptr, *out = nullptr;
-        int id = -1;
+        analog_net_if *in = nullptr, *en = nullptr, *out = nullptr, *sense = nullptr;
+        int id = -1, id_s = -1;
+        float v_s = -1e9f;
         bool niv_in = false, niv_en = false;
         bool activo = false, alto = false, conduce = false;
         int diodo = 0;                 // +1: hacia VS; -1: desde masa
@@ -532,6 +559,9 @@ private:
         return x + (med - x) * std::exp(-(ahora() - t_med_) / MEDIA_S);
     }
     double v(const analog_net_if* n) const { return double(n->voltage()) - double(gnd_->voltage()); }
+    // Conduce por abajo: el transistor de abajo, o el diodo de abajo
+    static bool baja(const Medio& m) { return (m.activo && !m.alto) || m.diodo < 0; }
+    double rs(const Medio& m) const { return m.sense ? c_.r_sense : 0.0; }
     bool nivel(analog_net_if* n, bool antes) const {
         const double x = v(n);
         return antes ? x > c_.v_bajo : x >= c_.v_alto;
@@ -573,15 +603,16 @@ private:
                 m.conduce = m.activo || m.diodo != 0;
                 float vd = 0.f, rd = R_HIZ;
                 if (m.activo && m.alto)  { vd = float(vg + vs); rd = float(c_.r_on); }
-                else if (m.activo)       { vd = float(vg);      rd = float(c_.r_on); }
+                else if (m.activo)       { vd = float(vg);      rd = float(c_.r_on + rs(m)); }
                 else if (m.diodo > 0)    { vd = float(vg + vs + c_.vd); rd = float(c_.rd); }
-                else if (m.diodo < 0)    { vd = float(vg - c_.vd);      rd = float(c_.rd); }
+                else if (m.diodo < 0)    { vd = float(vg - c_.vd);      rd = float(c_.rd + rs(m)); }
                 if (rd != m.r_drv || std::fabs(vd - m.v_drv) > 2e-4f) {
                     m.v_drv = vd; m.r_drv = rd;
                     if (!m.conduce) m.out->set_hiz(m.id);
                     else m.out->set_drive(m.id, vd, rd);
                     cambio = true;
                 }
+                pon_sense(m, vg);
                 if (m.activo) p_ += m.i * m.i * c_.r_on;
                 if (m.alto && m.i > 0.0) i_vs += m.i;
                 // LA SOBRECORRIENTE, en un transistor que conduce
@@ -610,6 +641,15 @@ private:
         if (fallo_) wait(sc_core::sc_time(std::max(1e-9, t_fin_fallo_ - ahora()), sc_core::SC_SEC),
                          despierta());
         else wait(despierta());
+    }
+    // SENSEx: la caída en su shunt, vista desde fuera tras el mismo shunt
+    void pon_sense(Medio& m, double vg) {
+        if (!m.sense) return;
+        if (!conectada_) { if (m.v_s > -1e8f) { m.sense->set_hiz(m.id_s); m.v_s = -1e9f; } return; }
+        const float x = float(vg - (baja(m) ? m.i * c_.r_sense : 0.0));
+        if (std::fabs(x - m.v_s) < 1e-5f) return;
+        m.v_s = x;
+        m.sense->set_drive(m.id_s, x, float(c_.r_sense));
     }
     // DIAG-EN: a masa mientras dura el fallo; si no, al aire (el pull-up es de la placa)
     void pon_diag() {
@@ -663,6 +703,68 @@ private:
     sc_core::sc_event ev_;
     std::unique_ptr<sc_core::sc_event_or_list> despierta_;
     std::set<std::string> dichos_;
+};
+
+// ---------------------------------------------------------------------------
+// UN AMPLIFICADOR DE MEDIDA: la etapa de un operacional que lleva la caída en
+// un shunt al ADC. La salida es `offset + ganancia·(entrada - gnd)`, entre gnd
+// y vcc -rail to rail-, tras `r_salida`; la entrada no carga. Los tres de la
+// X-NUCLEO-IHM07M1, un TSV994 por fase: 1,528 de ganancia y 1,56 V de
+// polarización, para que el ADC vea la corriente en los dos sentidos.
+//
+// Lo que NO hace: el ancho de banda, el ruido y la deriva del offset. El
+// filtro RC de la placa, tampoco: la salida sigue a la entrada en el acto.
+// ---------------------------------------------------------------------------
+SC_MODULE(Amplificador), public ExtPartBase {
+    Amplificador(sc_core::sc_module_name nm, analog_net_if& ent, analog_net_if& sal,
+                 analog_net_if& vcc, analog_net_if& gnd, double ganancia, double offset,
+                 double r_salida)
+        : sc_core::sc_module(nm), ExtPartBase("Amplificador", nm), ent_(&ent), sal_(&sal),
+          vcc_(&vcc), gnd_(&gnd), g_(ganancia), off_(offset), r_(std::max(1e-3, r_salida)) {
+        add_ref("entrada", ent);
+        id_ = add_pin("salida", sal, "amplificador");
+        add_ref("vcc", vcc);
+        add_ref("gnd", gnd);
+        SC_HAS_PROCESS(Amplificador);
+        SC_THREAD(sigue);
+    }
+    ~Amplificador() override { sal_->set_hiz(id_); }
+    double salida() const { return v_; }
+
+    unsigned n_observables() const override { return 1; }
+    Observable observable(unsigned) const override { return {"salida", "V", 0.f, 5.f, false}; }
+    float valor_observable(unsigned) const override { return float(v_); }
+
+private:
+    void sigue() {
+        sc_core::sc_event_or_list l;
+        l |= ent_->value_changed_event();
+        l |= vcc_->value_changed_event();
+        l |= gnd_->value_changed_event();
+        l |= evento_conexion();
+        for (;;) {
+            const double vg = double(gnd_->voltage());
+            const double vc = double(vcc_->voltage()) - vg;
+            if (!conectada_ || vc < 0.5) {
+                if (puesto_) { sal_->set_hiz(id_); puesto_ = false; }
+                v_ = 0.0;
+            } else {
+                double x = off_ + g_ * (double(ent_->voltage()) - vg);
+                x = std::min(std::max(x, 0.0), vc);
+                if (!puesto_ || std::fabs(x - v_) > 1e-5) {
+                    v_ = x;
+                    puesto_ = true;
+                    sal_->set_drive(id_, float(vg + x), float(r_));
+                }
+            }
+            wait(l);
+        }
+    }
+    analog_net_if *ent_, *sal_, *vcc_, *gnd_;
+    double g_, off_, r_;
+    int id_ = -1;
+    double v_ = 0.0;
+    bool puesto_ = false;
 };
 
 } // namespace stm32

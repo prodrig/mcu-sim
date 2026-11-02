@@ -3189,7 +3189,7 @@ husillo de bolas 1605, un carro de 10 kg, el final de abajo y el analizador.
   pasiva, que no se ve, y la suspensión: uno cada 166 µs en vez de cada 150.
 
 
-### 4.26 El BLDC conmutado por el MCU: `MotorBLDC` por fases y `PuenteTrifasico`
+### 4.26 El BLDC conmutado por el MCU: `MotorBLDC` por fases, `PuenteTrifasico` y `Amplificador`
 
 `parts/motor_bldc.h` y `parts/potencia.h`, la fase F7 de `doc/analisis_cnc.md`
 (§5.4, el segundo nivel). Hasta F6 al BLDC lo conmutaba su controlador por
@@ -3226,6 +3226,7 @@ EN—. Con los dos transistores abiertos, la corriente sigue por sus diodos,
 | `r_on` | `0.73` | La de cada transistor, en Ω |
 | `i_ocp` | `2.8` | La sobrecorriente, en A |
 | `t_bloqueo_us` | `200` | Lo que se queda DIAG-EN bajo después |
+| `r_sense` | `0.33` | Los shunts de los pines `sense` |
 
 **La sobrecorriente** baja **DIAG-EN** —drenador abierto, el pull-up es de la
 placa— y abre los seis transistores durante `t_bloqueo_us`. En la
@@ -3235,11 +3236,38 @@ en el mismo instante, sin el firmware. Deja ver `corriente_1` a `corriente_3`,
 muerto de 1 µs entre los dos transistores de una fase, los tiempos de
 conmutación y la protección térmica.
 
+**Los shunts**, con los pines `sense1` a `sense3`: el chip saca la fuente de
+cada transistor de abajo a su SENSEx, y la placa pone ahí su shunt a masa. Van
+dentro de la pieza: la fase ve `r_on + r_sense` hacia masa, y SENSEx, un
+Thevenin de `r_sense` a `−i·r_sense` mientras conduce el de abajo —o su
+diodo—, y a masa si no. Así solo se ve la corriente de una fase mientras su
+transistor de abajo conduce, como en la placa: con el PWM centrado, en el pico
+del contador.
+
+**`Amplificador`**, la etapa de un operacional que lleva la caída del shunt al
+ADC: `offset + ganancia·(entrada − gnd)`, entre `gnd` y `vcc`, tras
+`r_salida` (100 Ω); la entrada no carga. Deja ver `salida`. No hace el ancho de
+banda, el ruido, la deriva ni el filtro RC de la placa.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `entrada` | obligatorio | Lo que mide, contra `gnd` |
+| `salida` | obligatorio | Al ADC |
+| `vcc`, `gnd` | obligatorios | La alimentación: la salida no sale de ahí |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `ganancia` | `1` | |
+| `offset` | `0` | En V sobre `gnd`: la salida con la entrada a cero |
+| `r_salida` | `100` | En Ω |
+
 **Las placas**: `placas/db42s01.xml`, un Nanotec DB42S01 —NEMA 17, 48 V, 31 W,
 5,7 N·cm/A, 3,5 Ω y 5,8 mH entre fases— por fases;
 `placas/x_nucleo_ihm07m1.xml`, la expansión, en los morpho de la Nucleo —IN1 a
 IN3 en PA8, PA9 y PA10, EN1 a EN3 en PC10 a PC12, DIAG-EN en PA6, los Hall en
-PA15, PB3 y PB10, el TIM2—; `placas/fuente_24v.xml`; y
+PA15, PB3 y PB10, el TIM2; y los shunts con los tres amplificadores del
+TSV994, 1,528 de ganancia y 1,56 V de polarización, en PA0, PC1 y PC0—;
+`placas/fuente_24v.xml`; y
 `placas/nucleo_ihm07m1_db42.xml`, el sistema, con `verif/fw/bldc6`.
 
 **Lo que sale** (`make gui-cnc`, C11):
@@ -3258,8 +3286,21 @@ PA15, PB3 y PB10, el TIM2—; `placas/fuente_24v.xml`; y
 * **En senoidal**, las tres fases con PWM, la tensión girando con el ángulo
   interpolado entre dos Hall: a 2000 rpm, con las tres fases llevando
   corriente a la vez.
-* **El coste**: seis pasos con PWM de 20 kHz, algo menos de un segundo de reloj
-  por segundo del motor; senoidal, unos 5,5. Es lo que costaría la FOC.
+* **El coste**: seis pasos con PWM de 20 kHz, un segundo de reloj por segundo
+  del motor; senoidal, unos 5,5.
+
+Y **con FOC** (C12): el TIM1 dispara los tres ADC en el pico de cada periodo
+—OC4REF como TRGO—, y el firmware lleva la corriente a los ejes del rotor.
+
+* El offset de cada fase, 1939 cuentas, medido al arrancar: 1936 en la cuenta.
+* Con el rotor sujeto e iq a 1 A, mide +0,866, −0,865 y 0 A, lo que lleva el
+  motor: iq 1,00, id 0,00.
+* A 2000 rpm con el par nominal de golpe, cae a 900 y vuelve, con iq 1,04 A:
+  lo de la cuenta con la fundamental de la f.e.m. trapezoidal, 0,912·Kt por
+  amperio.
+* De 2000 a −1500 rpm sin parar, en 11 ms. Las tres fases, con corriente a la
+  vez el 79 % del tiempo.
+* Unos 7 s de reloj por segundo del motor.
 
 ---
 

@@ -753,6 +753,11 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
    TIM1— no está en el modelo, y el coste de las tres fases con PWM, que es lo
    que el plan pedía medir antes, ya lo dice la senoidal. Un motor pequeño, el
    DB42S01, que cabe en los 2,8 A del L6230.
+9. **El 2026-11-02, la FOC**, en un parche más sobre F7: los shunts y sus
+   amplificadores en la IHM07M1, y el mismo firmware con un modo más. Lo que
+   se dijo en 8 sobre el ADC no era así: el disparo por TRGO del TIM1 sí está
+   en el modelo —F-19 es solo el de los eventos de comparación—, y con OC4REF
+   como TRGO basta.
 
 ### F0, hecha: la cadena mecánica y el efecto `desplaza`
 
@@ -1211,12 +1216,55 @@ configurarlo con `$` y cablear la máquina como él la espera.
   va a PB3. Hasta que el firmware lo pasa a TIM2 hay dos que tiran del mismo
   hilo, y el modelo lo avisa una vez. El firmware configura los Hall lo
   primero.
-* **Lo que queda**: la **FOC**, que necesita las tres resistencias de 0,33 Ω
-  con su amplificador, en PA0, PC1 y PC0, y el ADC disparado por el TIM1 —sus
-  disparos por temporizador no están en el modelo (F-19)—; los divisores de la
-  f.e.m. para seis pasos sin sensores; el tiempo muerto y la protección
-  térmica del L6230.
+* **Lo que queda**: la FOC, hecha después (la sección siguiente); los
+  divisores de la f.e.m. para seis pasos sin sensores; el tiempo muerto y la
+  protección térmica del L6230.
 * **Pruebas**: `make gui-cnc` C11, 11 comprobaciones, unos 18 s.
+
+### F7: la FOC, hecha
+
+* **Los shunts**: el `PuenteTrifasico` con `sense1` a `sense3` saca la fuente
+  de cada transistor de abajo a su shunt, `r_sense`, 0,33 Ω, dentro de la
+  pieza: el pin queda a `−i·r_sense` mientras conduce el de abajo —o su
+  diodo— y a masa si no. La fase ve `r_on + r_sense` hacia masa.
+* **`Amplificador`** (`parts/potencia.h`), la etapa de un operacional:
+  `offset + ganancia·entrada`, entre masa y VCC. Los tres TSV994 de la IHM07M1,
+  con 1,528 de ganancia y 1,56 V de polarización [ST, el foro]: la corriente
+  de la fase A en PA0, la de la B en PC1 y la de la C en PC0, a 0,504 V/A.
+  Es la configuración de tres shunts —J5 y J6 en 1-2—; la de fábrica es la de
+  uno.
+* **La FOC en `verif/fw/bldc6`, `M 2`**: cada periodo del PWM, el canal 4 del
+  TIM1, en PWM 2 con CCR4 = ARR − 30, sube OC4REF 0,36 µs antes del pico del
+  contador —con el PWM centrado, cuando los tres transistores de abajo
+  conducen—, y OC4REF, como TRGO, dispara a la vez el grupo inyectado de los
+  tres ADC, uno por fase. En su interrupción: Clarke con las tres, Park con el
+  ángulo de los Hall interpolado, dos PI —id a cero, iq a lo pedido—, Park y
+  Clarke al revés con su tope, y la inyección del mínimo y el máximo. `I A`
+  manda iq; `R rpm`, el lazo de velocidad, que ahora da iq con su signo. El
+  offset de cada fase, medido al arrancar.
+* **Lo que sale**:
+  * El offset, 1939 cuentas por fase: 1936 en la cuenta.
+  * Con el rotor sujeto e iq a 1 A, el firmware mide +0,866, −0,865 y 0 A, lo
+    que lleva el motor, y en los ejes del rotor, iq 1,00 e id 0,00.
+  * A 2000 rpm, iq 0,06 A, lo del rozamiento. Con el par nominal de golpe cae
+    a 900 rpm —24 g·cm², sin nada más que mover— y vuelve a 2000 con iq 1,04
+    A: 1,04 en la cuenta, con el par por amperio de la fundamental de su f.e.m.
+    trapezoidal, `1,5·(4/π)·sen 30°/(π/6)·Kt/2 = 0,912·Kt`.
+  * De 2000 a −1500 rpm sin parar: pasa por cero a los 5 ms y llega en 11.
+  * Las tres fases llevan corriente a la vez el 79 % del tiempo: el 81 % de una
+    senoide.
+* **Lo que costó**: la interrupción no cabía en los 50 µs. El modelo cuenta
+  unas tres veces los ciclos del silicio (P-02 en `doc/todo.md`) y la FOC,
+  desde la Flash, se comía todo el procesador: el SysTick no llegaba. En la
+  RAM, con la raíz por VSQRT, tarda 30 µs. En el silicio serían unos diez.
+  Y el lazo de velocidad, que en seis pasos va sobre el ciclo, aquí va sobre
+  el par: con el rotor solo, 1 A acelera unas 200 000 rpm/s, y las ganancias de
+  seis pasos lo hacían oscilar. 0,0008 A/rpm y 0,02 A/(rpm·s).
+* **El coste**: ~7 s de reloj por segundo del motor, algo más que la senoidal
+  por los tres ADC y sus amplificadores.
+* **Lo que queda**: la medida de VIN, la FOC sin sensores —un observador en
+  vez de los Hall— y la de un shunt.
+* **Pruebas**: `make gui-cnc` C12, 7 comprobaciones, unos 40 s.
 
 ## Fuentes
 
@@ -1250,7 +1298,8 @@ configurarlo con `$` y cablear la máquina como él la espera.
   [los husillos](https://www.nanotec.com/eu/en/products/290-leads-screws-for-stepper-motor) y
   [los actuadores lineales NEMA 17](https://www.nanotec.com/eu/en/products/2973-nema17-linear-actuator-42-mm).
 * **X-NUCLEO-IHM07M1**:
-  [el manual, UM1943](https://dl.btc.pl/kamami_wa/x_nucleo_ihm07m1_um1943.pdf).
+  [el manual, UM1943](https://dl.btc.pl/kamami_wa/x_nucleo_ihm07m1_um1943.pdf), y
+  [la ganancia y la polarización de sus amplificadores, en el foro de ST](https://community.st.com/s/question/0D50X00009XkXoASAV/xnucleoihm07m1-current-sensing-calculations).
 * **L6230**:
   [la página de ST, con su hoja de datos](https://www.st.com/en/motor-drivers/l6230.html).
 * **Nanotec DB42**:

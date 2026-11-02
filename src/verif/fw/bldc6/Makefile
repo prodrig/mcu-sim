@@ -1,6 +1,7 @@
 # =============================================================================
-# Makefile — Un BLDC conmutado por el MCU en seis pasos
-#            con una X-NUCLEO-IHM07M1 sobre una NUCLEO-F446RE (fase F7 de la CNC)
+# Makefile — Un BLDC conmutado por el MCU, en seis pasos, en senoidal y con
+#            FOC, con una X-NUCLEO-IHM07M1 sobre una NUCLEO-F446RE (fase F7 de
+#            la CNC)
 #
 # Se compila con la cabecera de dispositivo de ST y el CMSIS-Core oficiales,
 # incluidos en ../cmsis (Apache-2.0), y con el startup y el system_stm32f4xx.c
