@@ -301,6 +301,8 @@ public:
         SC_METHOD(trig_proc);   dont_initialize();
         for (unsigned i = 0; i < 4; ++i) sensitive << itr[i];
         sensitive << ch_in[0] << ch_in[1] << etr_in;
+        // Con el XOR de los Hall (TI1S), TI1 cambia también con CH3
+        if (caps_.hall) sensitive << ch_in[2];
         SC_METHOD(brk_proc);    sensitive << bkin_in; dont_initialize();
         if (caps_.break2) { SC_METHOD(brk2_proc); sensitive << bkin2_in; dont_initialize(); }
         if (caps_.mms2)   { SC_THREAD(trgo2_proc); }
@@ -1015,36 +1017,42 @@ private:
         return ch_in[c].read();
     }
     // Fuente física del canal c según CCxS: 01 = TIx directa, 10 = TI vecina.
+    // 11 = TRC, la entrada del controlador de disparo (TRGI): no es un pin, y
+    // la captura la hace trig_proc en cada uno de sus flancos
     unsigned ic_source(unsigned c) const {
         const unsigned s = ccs(c);
         if (s == 1) return c;
         if (s == 2) return c ^ 1u;                         // CH1<->CH2, CH3<->CH4
-        return c;                                          // 11 = TRC (aprox.)
+        return c;
+    }
+    // Una captura en el canal c: el prescaler, el desbordamiento CCxOF y el
+    // valor. Toma el contador de ANTES del reset del esclavo si los dos son el
+    // mismo flanco (el modo de entrada PWM: TI2FP2 captura el periodo en CCR2 y
+    // reinicia) [RM0316 §20.3.6]. Los dos procesos corren en el mismo instante
+    // y en cualquier orden
+    void captura(unsigned c) {
+        if (++ic_div_[c] < (1u << icpsc(c))) return;      // prescaler ICxPSC
+        ic_div_[c] = 0;
+        if (sr_ & (1u << (1 + c))) sr_ |= 1u << (9 + c);   // CCxOF
+        const bool mismo = hubo_reset_ && t_reset_ == sc_core::sc_time_stamp();
+        ccr_[c] = ccr_act_[c] = mismo ? antes_reset_ : cnt_now();
+        sr_ |= 1u << (1 + c);
+        ++n_cap_;
+        req_dma(D_CC1 + c);
     }
 
     void cap_proc() {
         bool now[4];
         for (unsigned c = 0; c < 4; ++c) now[c] = ti_level(c);
         for (unsigned c = 0; c < caps_.channels; ++c) {
-            if (!is_input(c)) continue;
+            if (!is_input(c) || ccs(c) == 3) continue;     // TRC: en trig_proc
             const unsigned src = ic_source(c);
             const bool lv = now[src], pv = ti_prev_[src];
             if (lv == pv) continue;
             // Polaridad: CCxP=0 subida, CCxP=1 bajada, CCxP+CCxNP ambos flancos
             const bool both = ccp(c) && ccnp(c);
             if (!both && (lv != !ccp(c))) continue;
-            if (++ic_div_[c] < (1u << icpsc(c))) continue; // prescaler ICxPSC
-            ic_div_[c] = 0;
-            if (sr_ & (1u << (1 + c))) sr_ |= 1u << (9 + c);   // CCxOF
-            // La captura toma el contador de ANTES del reset del esclavo si
-            // los dos son el mismo flanco (el modo de entrada PWM: TI2FP2
-            // captura el periodo en CCR2 y reinicia) [RM0316 §20.3.6]. Los dos
-            // procesos corren en el mismo instante y en cualquier orden
-            const bool mismo = hubo_reset_ && t_reset_ == sc_core::sc_time_stamp();
-            ccr_[c] = ccr_act_[c] = mismo ? antes_reset_ : cnt_now();
-            sr_ |= 1u << (1 + c);
-            ++n_cap_;
-            req_dma(D_CC1 + c);
+            captura(c);
         }
         for (unsigned c = 0; c < 4; ++c) ti_prev_[c] = now[c];
         if (encoder_mode()) encoder_step(now);
@@ -1105,6 +1113,17 @@ private:
 
         const unsigned m = sms();
         const bool edge = (ts() == 4) ? changed : rising;  // TI1F_ED: ambos flancos
+        // LA CAPTURA DE TRC (CCxS = 11), en cada flanco de TRGI: con TI1F_ED,
+        // en los dos. Es la interfaz de sensores Hall: con TI1S, CC1 captura el
+        // tiempo entre dos cambios cualesquiera de los tres Hall [RM0390, TIM1
+        // y TIM8, la interfaz con sensores Hall]. Antes del reset del esclavo,
+        // que es el mismo flanco
+        if (edge) {
+            bool hubo = false;
+            for (unsigned c = 0; c < caps_.channels; ++c)
+                if (is_input(c) && ccs(c) == 3) { captura(c); hubo = true; }
+            if (hubo) { update_irq(); publish(); }
+        }
         switch (m) {
             case 4:                                        // reset
                 if (edge) {
