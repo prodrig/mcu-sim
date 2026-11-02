@@ -276,6 +276,16 @@ protected:
     unsigned tx_i_ = 0, tx_arb_ = 0, tx_nstuff_ = 0;
     unsigned err_i_ = 0, recesivos_ = 0;
     bool     ack_visto_ = false;
+    // La bandera de error de un nodo en ERROR PASIVO es PASIVA: seis bits
+    // recesivos, que no destruyen el marco de nadie [ISO 11898-1, 10.4.4.2]
+    bool     bandera_pasiva_ = false;
+    bool     fue_emisor_ = false;        // el error fue de un marco propio
+    // Tras un marco de error, el espacio entre marcos: la intermision -3 bits-
+    // y, para un emisor en error pasivo, la suspension -8 mas-. Desde el
+    // tercero, un dominante es el bit de arranque de otro
+    unsigned inter_i_ = 0, inter_n_ = 0;
+
+    bool error_pasivo() const { return tec_ >= 128 || rec_ >= 128; }
 
     // Receptor
     std::vector<bool> rx_bits_;          // bits SIN relleno
@@ -316,7 +326,9 @@ protected:
     }
 
     bool bit_a_emitir() const {
-        if (estado_ == ERROR_FLAG) return err_i_ >= 6;   // 6 dominantes y suelta
+        // 6 dominantes y suelta; o, en error pasivo, 6 recesivos
+        if (estado_ == ERROR_FLAG) return bandera_pasiva_ || err_i_ >= 6;
+        if (estado_ == INTERMISSION) return true;
         if (estado_ == TX && tx_i_ < tx_bits_.size()) return tx_bits_[tx_i_];
         // EL ASENTIMIENTO. Un receptor que ha visto el marco entero y con el
         // CRC correcto pone la ranura de asentimiento a DOMINANTE. Es su unica
@@ -333,10 +345,29 @@ protected:
     // transmite: es de ahi de donde salen el arbitraje y el asentimiento.
     void procesar_bit(bool visto) {
         if (estado_ == ERROR_FLAG) {
+            // La bandera, seis bits, y el delimitador, ocho recesivos
             ++err_i_;
-            if (err_i_ >= 6) { if (visto) ++recesivos_; else recesivos_ = 0; }
-            if (recesivos_ >= 8) { estado_ = IDLE; tx_activo_ = -1;
-                                   cm_reposo_tras_error(); publish(); }
+            if (err_i_ > 6) { if (visto) ++recesivos_; else recesivos_ = 0; }
+            if (recesivos_ >= 8) {
+                tx_activo_ = -1;
+                // Despues, el espacio entre marcos: la intermision y, si el
+                // nodo transmitia en error pasivo, la suspension
+                intermision(3u + (fue_emisor_ && error_pasivo() ? 8u : 0u));
+                cm_reposo_tras_error();
+                publish();
+            }
+            return;
+        }
+        if (estado_ == INTERMISSION) {
+            // Un dominante desde el tercer bit es el arranque de otro nodo: a
+            // recibir. En los dos primeros seria una sobrecarga, que el modelo
+            // no hace
+            if (!visto && inter_i_ >= 2) {
+                empezar_recepcion();
+                recibir_bit(false);
+                return;
+            }
+            if (++inter_i_ >= inter_n_) { estado_ = IDLE; publish(); }
             return;
         }
         if (estado_ == TX) {
@@ -351,6 +382,10 @@ protected:
                 // y el modo existe justamente para probar el nodo solo, sin
                 // nadie mas conectado [IR, 12.12].
                 ack_visto_ = cm_bucle() ? true : !visto;
+                // Sin asentimiento, la bandera de error sale en el bit
+                // siguiente, el delimitador de ACK, y no al acabar el marco
+                // [ISO 11898-1, 10.11]
+                if (!ack_visto_) { error(LEC_ACK, true); return; }
             } else if (visto != emitido) {
                 if (tx_i_ < tx_arb_ && emitido && !tx_stuff_[tx_i_]) {
                     // Se ha perdido el arbitraje: otro nodo manda un
@@ -402,8 +437,18 @@ protected:
         if (tec_ > 0) --tec_;
         tx_activo_ = -1;
         estado_ = IDLE;
+        // Un emisor en error pasivo, tras la intermision -que va en sus bits-,
+        // se suspende ocho bits antes de volver a transmitir
+        if (error_pasivo()) intermision(8u, 0u);
         cm_tx_ok(i);
         publish();
+    }
+    // El espacio entre marcos: `n` bits; desde `sof` (0..), un dominante es un
+    // bit de arranque
+    void intermision(unsigned n, unsigned sof = 2u) {
+        estado_ = INTERMISSION;
+        inter_i_ = sof == 0u ? 2u : 0u;
+        inter_n_ = n + inter_i_;
     }
 
     // El receptor: quita el relleno y va armando el marco.
@@ -535,20 +580,29 @@ protected:
     }
 
     // Señalización de error: seis bits dominantes seguidos, que es lo que
-    // destruye el marco para todos y obliga a repetirlo.
+    // destruye el marco para todos y obliga a repetirlo; o seis recesivos, la
+    // bandera pasiva de un nodo en error pasivo.
+    //
+    // LOS CONTADORES [ISO 11898-1, 12.1.4.2]: el emisor suma 8 al TEC, salvo
+    // en un error de asentimiento estando ya en error pasivo -sin nadie que
+    // asienta, un nodo solo en el bus se queda en error pasivo reintentando, y
+    // no se desconecta-; el receptor suma 1 al REC. El bus-off, cuando el TEC
+    // PASA de 255.
     void error(uint32_t codigo, bool del_emisor) {
         lec_ = codigo;
+        bandera_pasiva_ = error_pasivo();
+        fue_emisor_ = del_emisor;
+        bool off = false;
         if (del_emisor) {
-            tec_ += 8;
+            if (!(codigo == LEC_ACK && tec_ >= 128)) tec_ += 8;
+            if (tec_ > 255) { tec_ = 255; off = true; }
             const unsigned i = unsigned(tx_activo_ >= 0 ? tx_activo_ : 0);
             cm_tx_error(i);
             tx_activo_ = -1;
-        } else {
-            rec_ += 8;
+        } else if (rec_ < 255) {
+            ++rec_;
         }
-        if (tec_ > 255) tec_ = 255;
-        if (rec_ > 255) rec_ = 255;
-        if (tec_ >= 255) entrar_bus_off();
+        if (off) entrar_bus_off();
         estado_ = ERROR_FLAG;
         err_i_ = 0; recesivos_ = 0;
         cm_error();
