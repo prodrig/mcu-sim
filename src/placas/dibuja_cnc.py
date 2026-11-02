@@ -820,6 +820,110 @@ def eje_z_48v():
     s.guarda("eje_z_48v.svg")
 
 
+# ---------------------------------------------------------------------------
+# EL TRANSCEPTOR CAN SN65HVD230 (F6)
+# ---------------------------------------------------------------------------
+def sn65hvd230():
+    s = Svg(360, 240, """
+  MODULO TRANSCEPTOR CAN SN65HVD230, dibujado a mano: una aproximacion, no una
+  foto. Es el dibujo de placas/sn65hvd230.xml, que lo encuentra solo porque se
+  llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 36 x 24 mm- y cada pieza con el id de su pieza en el XML:
+
+    U1  el SN65HVD230, en el centro
+    R1  los 120 ohm del final del bus
+    J1  la tira: 3V3, GND, CTX, CRX, CANH y CANL
+""")
+    s.add(s.rect(0, 0, 360, 240, "#1565c0", "#0d47a1", 2, rx=10))
+    s.add('<g id="U1">')
+    s.add("  " + s.rect(120, 50, 120, 80, "#212121", "#000000", 1.2, rx=4))
+    s.add("  " + s.text(180, 95, "VP230", 14, "#e0e0e0", "middle"))
+    s.add("</g>")
+    s.add(s.rect(270, 70, 50, 24, "#263238", "#000000", 1, rx=2, id="R1"))
+    s.add(s.text(295, 112, "120R", 10, BLANCO, "middle"))
+    s.add(s.text(30, 40, "SN65HVD230", 12, BLANCO))
+    nombres = ("3V3", "GND", "CTX", "CRX", "CANH", "CANL")
+    s.add('<g id="J1">')
+    for k, nm in enumerate(nombres):
+        pin_tira(s, "J1.%s" % nm, 55 + k * 50, 190)
+    s.add("</g>")
+    for k, nm in enumerate(nombres):
+        s.add(s.text(55 + k * 50, 222, nm, 9, BLANCO, "middle"))
+    s.guarda("sn65hvd230.svg")
+
+
+# ---------------------------------------------------------------------------
+# UN EJE X POR CANOPEN (F6)
+# ---------------------------------------------------------------------------
+def eje_x_canopen():
+    K = 3                                     # unidades por mm del carro
+    X0 = 280                                  # el centro del carro en la posicion 0
+    s = Svg(1400, 760, """
+  UN EJE X CON SU CONTROLADOR POR CANOPEN, de frente, dibujado a mano: una
+  aproximacion, no una foto. Es el dibujo de placas/eje_x_canopen.xml, que lo
+  encuentra solo porque se llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 140 x 76 mm- y cada pieza con el id de su pieza en el XML:
+
+    ARRIBA, EL EJE: el BLDC (MOTOR), el acople de fuelle (AC), el husillo de
+      bolas 1605 (HX) y el carro (CX), DIBUJADO EN LA POSICION 0 y que va a la
+      derecha 3 unidades por mm (efecto `desplaza`); el final de abajo (SX), a
+      5 mm, y la cota (COTA).
+    ABAJO: la fuente de 48 V (PSU), el controlador (U1), el analizador del
+      bus (A1, con sus marcos y su carga) y la borna del bus (J1: CANH, CANL y
+      GND).
+""")
+    s.add(s.rect(0, 0, 1400, 760, "#eceff1", rx=10))
+    # --- El eje -------------------------------------------------------------
+    s.add(s.rect(220, 250, 1100, 30, "#b0bec5", "#78909c", 1.5))      # la bancada
+    s.add('<g id="MOTOR">')
+    s.add("  " + s.rect(30, 110, 150, 130, GRIS_MOTOR, GRIS_MOTOR_B, 2, rx=8))
+    s.add("  " + s.text(105, 182, "BLDC 59", 15, "#cfd8dc", "middle"))
+    s.add("</g>")
+    s.add(s.rect(180, 155, 40, 40, "#90a4ae", "#455a64", 1.5, rx=4, id="AC"))
+    s.add('<g id="HX">')
+    s.add("  " + s.rect(220, 168, X0 + 300 * K - 220 + 60, 14, "#cfd8dc", "#78909c", 1))
+    for k in range(48):
+        s.add("  " + s.rect(226 + k * 20, 168, 3, 14, "#90a4ae"))
+    s.add("</g>")
+    s.add('<g id="CX">')
+    s.add("  " + s.rect(X0 - 60, 110, 120, 140, "#546e7a", "#263238", 2, rx=6))
+    s.add("  " + s.rect(X0 - 20, 160, 40, 30, "#c9a227", "#7d6608", 1.2, rx=3))
+    s.add("  " + s.text(X0, 140, "X", 18, "#eceff1", "middle"))
+    s.add("  " + s.text(X0, 236, "10 kg", 13, "#eceff1", "middle"))
+    s.add("</g>")
+    s.add(s.rect(X0 + 5 * K - 15, 284, 30, 26, "#ffca28", "#ff8f00", 1.5, rx=4, id="SX"))
+    s.add(s.text(X0 + 5 * K + 22, 303, "SX", 12, "#263238"))
+    s.add(s.rect(1000, 30, 260, 64, "#1b1b1b", "#000000", 2, rx=6, id="COTA"))
+    s.add(s.text(1130, 110, "COTA X", 12, "#263238", "middle"))
+    s.add(s.text(760, 330, "1605  400 mm  10 kg  300 mm de recorrido", 14, "#263238", "middle"))
+    # --- Abajo: la fuente, el controlador, el analizador y el bus -----------
+    s.add(s.rect(40, 400, 240, 110, "#455a64", "#263238", 2, rx=6, id="PSU"))
+    s.add(s.text(160, 462, "48 V", 18, "#eceff1", "middle"))
+    s.add('<g id="U1">')
+    s.add("  " + s.rect(330, 380, 420, 300, "#263238", "#000000", 2, rx=8))
+    s.add("  " + s.text(540, 500, "CONTROLADOR  C5-E", 20, "#eceff1", "middle"))
+    s.add("  " + s.text(540, 535, "CANopen  nodo 1  500 kbit/s", 13, "#b0bec5", "middle"))
+    s.add("  " + s.text(540, 565, "CiA 402: pp, pv, hm", 12, "#90a4ae", "middle"))
+    s.add("</g>")
+    s.add(s.rect(800, 400, 300, 110, "#1b1b1b", "#000000", 2, rx=6, id="A1"))
+    s.add(s.text(950, 535, "ANALIZADOR CAN", 12, "#263238", "middle"))
+    s.add(s.rect(1150, 560, 200, 90, "#2e7d32", "#1b5e20", 1.5, rx=4))
+    s.add('<g id="J1">')
+    for k, nm in enumerate(("CANH", "CANL", "GND")):
+        tornillo(s, "J1.%s" % nm, 1190 + k * 60, 595)
+    s.add("</g>")
+    for k, nm in enumerate(("CANH", "CANL", "GND")):
+        s.add(s.text(1190 + k * 60, 637, nm, 10, BLANCO, "middle"))
+    s.add(s.text(1250, 680, "BUS CAN", 12, "#263238", "middle"))
+    s.guarda("eje_x_canopen.svg")
+
+
 if __name__ == "__main__":
     nema17()
     st5918()
@@ -834,3 +938,5 @@ if __name__ == "__main__":
     cnc_shield()
     fresadora()
     eje_z_48v()
+    sn65hvd230()
+    eje_x_canopen()

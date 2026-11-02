@@ -587,8 +587,10 @@ gui-marcha: $(MCUSIM)
 
 # LA FRESADORA CNC, por fases (doc/analisis_cnc.md §11): la cadena mecanica y
 # el efecto desplaza (F0), los paso a paso y sus drivers (F1a), la continua de
-# potencia (F1b) y el BLDC con su controlador (F1c). La misma ventana en
-# Python; unos segundos.
+# potencia (F1b), el BLDC con su controlador (F1c), la transmision (F2), la
+# maquina con su firmware (F3, y grblHAL si esta), la pieza (F4), la potencia
+# de 48 V (F5) y el bus de campo (F6). La misma ventana en Python; unos
+# minutos.
 gui-cnc: $(MCUSIM)
 	$(PYTHON) verif/gui/cnc.py --sim $(MCUSIM)
 
@@ -1133,12 +1135,14 @@ FWF3 := verif/fw/stm32f3/f3_demo verif/fw/stm32f3/coremark verif/fw/stm32f3/gpio
 # el control numerico de la fresadora, el de placas/cnc_3020.xml, y la prueba
 # del contexto FP de las excepciones anidadas que destapo, que vigila tambien
 # `make gui-cnc`; y la de las banderas GE de las sumas paralelas, que destapo
-# grblHAL, tambien en `make gui-cnc`. grblHAL mismo NO esta en la lista: es
-# GPL-3, no se versiona, y `make -C verif/fw/grblhal` lo baja de la red
+# grblHAL, tambien en `make gui-cnc`; y el maestro CANopen del eje por el bus
+# de campo, el de placas/eje_canopen.xml, que vigila `make gui-cnc`. grblHAL
+# mismo NO esta en la lista: es GPL-3, no se versiona, y `make -C
+# verif/fw/grblhal` lo baja de la red
 FWPLACAS := verif/fw/barra8_demo verif/fw/barra8_morpho verif/fw/tft_demo verif/fw/tft_prueba \
             verif/fw/servo_demo verif/fw/servo_prueba verif/fw/encoder_tft_servo \
             verif/fw/encoder_lcd_servo_2xmcc verif/fw/cnc_pid verif/fw/cnc \
-            verif/fw/fp_anidado verif/fw/simd_ge
+            verif/fw/fp_anidado verif/fw/simd_ge verif/fw/canopen
 
 # Todos los que hay, para `cleanfw`. Se calculan buscando Makefiles en vez de
 # escribir otra lista: asi un firmware nuevo se borra sin tocar esto.

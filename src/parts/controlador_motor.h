@@ -49,10 +49,36 @@
 // `v_sobretension` -un 10 % sobre `vcc_max`- SALTA LA PROTECCIÓN: corta el
 // puente en el acto, echa el freno y lo dice, como un error más.
 //
-// Lo que NO hace: el bus de campo (F6), los finales de carrera, la puesta en
-// marcha automática que mide el motor y el I²t de la corriente de pico. Sus
-// ganancias de omisión son las de un DB59L024035-A suelto: con una carga de
-// mucha inercia hay que subirlas.
+// EL BUS DE CAMPO (fase F6). Con `mando="canopen"` no hay STEP, DIR ni EN: se
+// le manda por CANopen, por su pin `can` -lleva el transceptor dentro-, como a
+// un C5-E con su bus. Es un esclavo CiA 301 (parts/canopen.h: NMT, SDO, PDO,
+// SYNC, heartbeat y EMCY) con un subconjunto de CiA 402, el perfil de los
+// accionamientos:
+//
+//   LA MÁQUINA DE ESTADOS del accionamiento, por la palabra de control
+//   (0x6040) y dicha en la de estado (0x6041): Switch on disabled → Ready to
+//   switch on → Switched on → Operation enabled, con la parada rápida, el
+//   fallo y su reinicio. Operation enabled es lo que con EN era habilitar:
+//   corriente, se suelta el freno; al salir, se echa y se quita.
+//   LOS MODOS (0x6060): el PERFIL DE POSICIÓN (1) -una consigna con su
+//   velocidad, su aceleración y su frenada, absoluta o relativa, en el acto o
+//   tras la que va, con el saludo de los bits 4 y 12-, el PERFIL DE VELOCIDAD
+//   (3) y el HOMING (6): con los métodos 17 y 18 -el final de carrera de abajo
+//   o el de arriba: hacia él deprisa, de vuelta despacio, y el cero donde se
+//   suelta- y el 35 y 37, el cero donde está.
+//   LOS FINALES DE CARRERA, `fin_neg` y `fin_pos`, con pull-up a los 5 V de
+//   dentro y activos a nivel bajo: el homing los usa, y fuera de él paran el
+//   motor si se va hacia uno pisado (el bit 11 de la palabra de estado).
+//   LOS FALLOS van por EMCY: el error de seguimiento (8611), la sobretensión
+//   (3210) y los Hall (7300), y el 0000 al quitarlos.
+//
+// Las posiciones van en PASOS -pasos_vuelta por vuelta del motor-, las
+// velocidades en pasos/s y las aceleraciones en pasos/s².
+//
+// Lo que NO hace: la puesta en marcha automática que mide el motor, el I²t de
+// la corriente de pico, los modos síncronos de CiA 402 (CSP, CSV) y el mapeo
+// variable de los PDO. Sus ganancias de omisión son las de un DB59L024035-A
+// suelto: con una carga de mucha inercia hay que subirlas.
 // =============================================================================
 #ifndef STM32_PARTS_CONTROLADOR_MOTOR_H
 #define STM32_PARTS_CONTROLADOR_MOTOR_H
@@ -65,6 +91,7 @@
 #include <set>
 #include <string>
 #include "ext_parts.h"
+#include "canopen.h"
 
 namespace stm32 {
 
@@ -92,6 +119,12 @@ struct ConfigControladorMotor {
     // acto, echa el freno y lo dice. 0: un 10 % por encima de vcc_max
     double v_sobretension = 0.0;
     double sobretension() const { return v_sobretension > 0.0 ? v_sobretension : vcc_max * 1.1; }
+    // El bus de campo (F6): por CANopen en vez de por pasos
+    bool canopen = false;
+    unsigned nodo = 1;                       // 1..127
+    double can_kbps = 500.0;
+    bool terminador = false;                 // 120 ohm en el hilo
+    double arranque_ms = 100.0;              // de la tensión al boot-up
 };
 
 SC_MODULE(ControladorMotor), public ExtPartBase {
@@ -101,12 +134,13 @@ SC_MODULE(ControladorMotor), public ExtPartBase {
 
     ControladorMotor(sc_core::sc_module_name nm, const ConfigControladorMotor& c,
                      analog_net_if& vcc, analog_net_if& gnd, analog_net_if& u, analog_net_if& v,
-                     analog_net_if& w, analog_net_if& step, analog_net_if& dir, analog_net_if& en,
+                     analog_net_if& w, analog_net_if* step, analog_net_if* dir, analog_net_if* en,
                      analog_net_if* v5, analog_net_if* h1, analog_net_if* h2, analog_net_if* h3,
                      analog_net_if* enc_a, analog_net_if* enc_b, analog_net_if* freno,
-                     analog_net_if* error)
+                     analog_net_if* error, analog_net_if* can = nullptr,
+                     analog_net_if* fin_neg = nullptr, analog_net_if* fin_pos = nullptr)
         : sc_core::sc_module(nm), ExtPartBase("ControladorMotor", nm), c_(c), vcc_(&vcc),
-          gnd_(&gnd), v5_(v5), freno_(freno), error_(error) {
+          gnd_(&gnd), v5_(v5), freno_(freno), error_(error), can_(can) {
         const int ivc = add_pin("vcc", vcc, "controlador");
         const int ig = add_pin("gnd", gnd, "controlador");
         carga_vcc_.reset(new RamaDosNodos(vcc, ivc, gnd, ig));
@@ -119,19 +153,33 @@ SC_MODULE(ControladorMotor), public ExtPartBase {
         fase_->pon_tercera(w, iw);
         // Las entradas de mando, con su resistencia a masa por dentro
         auto entrada = [&](Entrada& e, analog_net_if* n, const char* nombre) {
+            if (!n) return;
             e.n = n;
             e.nombre = nombre;
             e.id = add_pin(nombre, *n, "controlador_in");
             n->set_drive(e.id, 0.0f, R_ENTRADA);
         };
-        entrada(step_, &step, "step");
-        entrada(dir_, &dir, "dir");
-        entrada(en_, &en, "en");
-        // Las de los sensores, con su pull-up a los 5 V de dentro
-        analog_net_if* s[5] = {h1, h2, h3, enc_a, enc_b};
-        const char* ns[5] = {"h1", "h2", "h3", "enc_a", "enc_b"};
-        for (int k = 0; k < 5; ++k)
+        entrada(step_, step, "step");
+        entrada(dir_, dir, "dir");
+        entrada(en_, en, "en");
+        // Las de los sensores -y los finales de carrera-, con su pull-up a los
+        // 5 V de dentro
+        analog_net_if* s[7] = {h1, h2, h3, enc_a, enc_b, fin_neg, fin_pos};
+        const char* ns[7] = {"h1", "h2", "h3", "enc_a", "enc_b", "fin_neg", "fin_pos"};
+        for (int k = 0; k < 7; ++k)
             if (s[k]) { sen_[k].n = s[k]; sen_[k].nombre = ns[k]; sen_[k].id = add_pin(ns[k], *s[k], "controlador_sensor"); }
+        // El bus de campo: el transceptor de dentro y, si lo lleva, el terminador
+        if (c_.canopen && can_) {
+            const int id = add_pin("can", *can_, "controlador_can");
+            if (c_.terminador) id_term_ = add_drv("can", "controlador_term");
+            puerto_.reset(new PuertoCan("can", *can_, id, c_.can_kbps * 1e3));
+            co_.reset(new EsclavoCanOpen(*puerto_, uint8_t(c_.nodo), pieza(), c_.arranque_ms * 1e-3));
+            co_->al_cambiar = [this]() { co_cambio_ = true; ev_can_.notify(sc_core::SC_ZERO_TIME); };
+            co_->al_reiniciar = [this]() { reinicio_ = true; ev_can_.notify(sc_core::SC_ZERO_TIME); };
+            co_->avisa = [this](const std::string& q, const std::string& t) { avisa(q, t); };
+            define_402();
+            omision_402();
+        }
         if (v5_) id_v5_ = add_pin("v5", *v5_, "controlador_5v");
         if (freno_) id_freno_ = add_pin("freno", *freno_, "controlador_freno");
         if (error_) id_error_ = add_pin("error", *error_, "controlador_error");
@@ -176,7 +224,66 @@ SC_MODULE(ControladorMotor), public ExtPartBase {
     double corriente_devuelta_ma() const { return iny_vcc_->corriente() * 1e3; }
     const ConfigControladorMotor& config() const { return c_; }
 
-    unsigned n_observables() const override { return 8; }
+    // --- El bus de campo (F6) ------------------------------------------------
+    enum Estado402 { NoListo, SwitchOnDisabled, ReadyToSwitchOn, SwitchedOn, OperationEnabled,
+                     QuickStopActive, FaultReactionActive, Fault };
+    bool canopen() const { return co_ != nullptr; }
+    Estado402 estado_402() const { return e402_; }
+    static const char* texto_402(Estado402 e) {
+        switch (e) {
+            case NoListo:             return "Not ready to switch on";
+            case SwitchOnDisabled:    return "Switch on disabled";
+            case ReadyToSwitchOn:     return "Ready to switch on";
+            case SwitchedOn:          return "Switched on";
+            case OperationEnabled:    return "Operation enabled";
+            case QuickStopActive:     return "Quick stop active";
+            case FaultReactionActive: return "Fault reaction active";
+            default:                  return "Fault";
+        }
+    }
+    uint16_t statusword() const {
+        uint16_t s = 0;
+        switch (e402_) {
+            case NoListo:             s = 0x0000; break;
+            case SwitchOnDisabled:    s = 0x0040; break;
+            case ReadyToSwitchOn:     s = 0x0021; break;
+            case SwitchedOn:          s = 0x0023; break;
+            case OperationEnabled:    s = 0x0027; break;
+            case QuickStopActive:     s = 0x0007; break;
+            case FaultReactionActive: s = 0x000F; break;
+            case Fault:               s = 0x0008; break;
+        }
+        if (e402_ != NoListo) s |= 0x0200;                       // remoto
+        if (potencia_) s |= 0x0010;                              // con tensión
+        if (limite_) s |= 0x0800;                                // un final pisado
+        if (e402_ == OperationEnabled || e402_ == QuickStopActive) {
+            if (modo_ == 1) {
+                if (alcanzado()) s |= 0x0400;
+                if (sp_ack_) s |= 0x1000;
+            } else if (modo_ == 3) {
+                if (halt_ ? v_ref_ == 0.0 : v_ref_ == double(int32_t(vel_obj_))) s |= 0x0400;
+                if (std::fabs(w_med_) * c_.pasos_vuelta / (2.0 * PI) < 1.0) s |= 0x1000;
+            } else if (modo_ == 6) {
+                if ((hm_ok_ || hm_err_) && fase_hm_ == 0 && v_ref_ == 0.0) s |= 0x0400;
+                if (hm_ok_) s |= 0x1000;
+                if (hm_err_) s |= 0x2000;
+            }
+        }
+        return s;
+    }
+    uint16_t controlword() const { return cw_; }
+    int modo() const { return modo_; }
+    unsigned estado_nmt() const { return co_ ? co_->estado() : 0u; }
+    long posicion_real() const { return long(std::lround(pos_real())); }
+    long objetivo() const { return long(std::lround(obj_)); }
+    double velocidad_perfil() const { return v_ref_; }       // pasos/s
+    bool homing_hecho() const { return hm_ok_; }
+    bool en_limite() const { return limite_; }
+    uint16_t codigo_error() const { return codigo_error_; }
+    const EsclavoCanOpen* esclavo() const { return co_.get(); }
+    const PuertoCan* puerto() const { return puerto_.get(); }
+
+    unsigned n_observables() const override { return co_ ? 12 : 8; }
     Observable observable(unsigned i) const override {
         const float im = float(c_.corriente_max);
         switch (i) {
@@ -188,7 +295,11 @@ SC_MODULE(ControladorMotor), public ExtPartBase {
             case 4: return {"rpm", "rpm", -float(c_.rpm_max), float(c_.rpm_max), false};
             case 5: return {"corriente_vcc", "mA", 0.f, 15000.f, true};
             case 6: return {"freno_suelto", "", 0.f, 1.f, true};
-            default: return {"error", "", 0.f, 1.f, true, true};
+            case 7: return {"error", "", 0.f, 1.f, true, true};
+            case 8: return {"statusword", "", 0.f, 65535.f, true};
+            case 9: return {"nmt", "", 0.f, 127.f, false};
+            case 10: return {"posicion", "", -1e9f, 1e9f, true};
+            default: return {"modo", "", -1.f, 10.f, false};
         }
     }
     float valor_observable(unsigned i) const override {
@@ -200,7 +311,11 @@ SC_MODULE(ControladorMotor), public ExtPartBase {
             case 4: return float(rpm_medidas());
             case 5: return float(i_vcc_ * 1e3);
             case 6: return freno_on_ ? 1.f : 0.f;
-            default: return en_error() ? 1.f : 0.f;
+            case 7: return en_error() ? 1.f : 0.f;
+            case 8: return float(statusword());
+            case 9: return float(estado_nmt());
+            case 10: return float(posicion_real());
+            default: return float(modo_);
         }
     }
 
@@ -217,6 +332,7 @@ private:
 
     // Una entrada digital, con su histéresis
     bool lee(Entrada& e) {
+        if (!e.n) return false;
         const double x = double(e.n->voltage()) - vg();
         if (e.nivel && x < c_.umbral - 0.25) e.nivel = false;
         else if (!e.nivel && x > c_.umbral + 0.25) e.nivel = true;
@@ -268,30 +384,49 @@ private:
         }
         // Los sensores: los cambios, con su instante
         if (potencia && !recien) sensores(t);
-        // Las entradas de mando
-        const bool en = potencia && lee(en_);
-        const bool dir = potencia && lee(dir_);
-        const bool step_antes = step_.nivel;
-        const bool step = potencia && lee(step_);
-        if (step && !step_antes) paso(dir);
-        // EN: habilitar, deshabilitar y quitar el error
-        if (potencia) {
-            if (en && estado_ == Deshabilitado) habilita(t);
-            else if (!en && (estado_ == Soltando || estado_ == Marcha)) deshabilita(t, false, "");
-            else if (!en && estado_ == Error) { estado_ = Deshabilitado; fallo_ = false; }
+        potencia_ = potencia;
+        if (co_) {
+            // El bus de campo: la palabra de control, en vez de STEP, DIR y EN
+            termina_hilo();
+            if (potencia && !co_on_) { co_on_ = true; co_->enciende(t); omision_402(); }
+            else if (!potencia && co_on_) { co_on_ = false; co_->apaga(); }
+            if (potencia && !recien) finales(t);
+            procesa_402(t, potencia);
+        } else {
+            // Las entradas de mando
+            const bool en = potencia && lee(en_);
+            const bool dir = potencia && lee(dir_);
+            const bool step_antes = step_.nivel;
+            const bool step = potencia && lee(step_);
+            if (step && !step_antes) paso(dir);
+            // EN: habilitar, deshabilitar y quitar el error
+            if (potencia) {
+                if (en && estado_ == Deshabilitado) habilita(t);
+                else if (!en && (estado_ == Soltando || estado_ == Marcha)) deshabilita(t, false, "");
+                else if (!en && estado_ == Error) { estado_ = Deshabilitado; fallo_ = false; }
+            }
         }
         // El lazo, cada lazo_us
         while (activo() && t >= t_lazo_ - 1e-12) {
             lazo(t_lazo_);
             t_lazo_ += lazo_;
         }
+        if (co_) {
+            procesa_402(t, potencia);            // lo que haya cambiado en el lazo
+            if (co_on_) co_->tick(t);
+        }
         manda(vcc);
         cuentas(t, vcc);
         salidas(vcc);
         const bool vivo = activo() || fase_->i_carga() != 0.0;
-        if (activo()) next_trigger(sc_core::sc_time(std::max(1e-9, t_lazo_ - t), sc_core::SC_SEC),
-                                   despierta());
-        else if (vivo) next_trigger(sc_core::sc_time(1e-3, sc_core::SC_SEC), despierta());
+        double dt = -1.0;                        // cuándo volver, si no es por un cambio
+        if (activo()) dt = std::max(1e-9, t_lazo_ - t);
+        else if (vivo) dt = 1e-3;
+        if (co_on_) {
+            const double p = co_->proximo(t);
+            if (p >= 0.0 && (dt < 0.0 || p - t < dt)) dt = std::max(1e-9, p - t);
+        }
+        if (dt >= 0.0) next_trigger(sc_core::sc_time(dt, sc_core::SC_SEC), despierta());
         else next_trigger(despierta());
     }
     bool activo() const { return estado_ == Soltando || estado_ == Marcha || estado_ == Echando; }
@@ -400,6 +535,15 @@ private:
         t_error_ = -1.0;
         freno_on_ = false;           // primero corriente; el freno, en la próxima vuelta
         cortado_ = false;
+        if (co_) {
+            // Por CANopen, el perfil arranca parado donde está
+            p_ref_ = pos_real();
+            v_ref_ = 0.0;
+            obj_ = p_ref_;
+            hecho_ = true;
+            hay_pend_ = false;
+            fase_hm_ = 0;
+        }
     }
     void deshabilita(double t, bool fallo, const std::string& causa) {
         estado_ = Echando;
@@ -434,9 +578,15 @@ private:
             avisa("hall", b);
             deshabilita(t, true, "Hall");
         }
-        // La consigna: cada paso cuenta
-        if (estado_ != Echando)
-            th_ref_ = th_base_ + double(pasos_ - pasos_base_) * 2.0 * PI / double(c_.pasos_vuelta);
+        // La consigna: cada paso cuenta; por CANopen, la del perfil
+        if (estado_ != Echando) {
+            if (co_) {
+                perfil(t, lazo_);
+                th_ref_ = cero_ + p_ref_ * 2.0 * PI / double(c_.pasos_vuelta);
+            } else {
+                th_ref_ = th_base_ + double(pasos_ - pasos_base_) * 2.0 * PI / double(c_.pasos_vuelta);
+            }
+        }
         const double w_ff = (th_ref_ - th_ant_) / lazo_;
         th_ant_ = th_ref_;
         const double e = th_ref_ - th_med_;
@@ -538,14 +688,345 @@ private:
         }
     }
 
+    // =========================================================================
+    // EL BUS DE CAMPO (F6): CiA 402 sobre el esclavo CANopen
+    // =========================================================================
+    double k_paso() const { return 2.0 * PI / double(c_.pasos_vuelta); }   // rad por paso
+    double pos_real() const { return (th_med_ - cero_) / k_paso(); }      // en pasos
+    bool alcanzado() const {
+        if (halt_) return v_ref_ == 0.0;
+        return hecho_ && !hay_pend_ && std::fabs(pos_real() - obj_) <= double(ventana_pos_);
+    }
+
+    // El terminador de 120 ohm, si lo lleva: mientras esté en la placa
+    void termina_hilo() {
+        if (id_term_ < 0) return;
+        const int q = conectada_ ? 1 : 0;
+        if (q == term_puesto_) return;
+        term_puesto_ = q;
+        if (q) can_->set_drive(id_term_, 3.3f, 120.0f);
+        else can_->set_hiz(id_term_);
+    }
+
+    // Los finales de carrera, activos a nivel bajo. El cero del homing, en el
+    // instante en que se suelta el suyo
+    void finales(double t) {
+        const bool n0 = fin_n_, p0 = fin_p_;
+        fin_n_ = sen_[5].n && !lee(sen_[5]);
+        fin_p_ = sen_[6].n && !lee(sen_[6]);
+        if (fase_hm_ == 2 && ((metodo_ == 17 && n0 && !fin_n_) || (metodo_ == 18 && p0 && !fin_p_))) {
+            mide(t);
+            captura();
+            fase_hm_ = 3;
+        }
+        if (limite_ && !fin_n_ && !fin_p_) limite_ = false;
+    }
+    // La posición de ahora pasa a valer home_offset; el perfil, con ella
+    void captura() {
+        const double cero = th_med_ - double(int32_t(home_offset_)) * k_paso();
+        const double d = (cero_ - cero) / k_paso();
+        p_ref_ += d;
+        obj_ += d;
+        pend_ += d;
+        cero_ = cero;
+    }
+    void cambia_modo(int m) {
+        if (m == modo_) return;
+        modo_ = m;
+        hecho_ = true;
+        hay_pend_ = false;
+        obj_ = p_ref_;
+        fase_hm_ = 0;
+        sp_ack_ = false;
+    }
+    void empieza_homing(double t) {
+        hm_ok_ = hm_err_ = false;
+        limite_ = false;
+        if (metodo_ == 35 || metodo_ == 37) {
+            mide(t);
+            captura();
+            hm_ok_ = true;
+            fase_hm_ = 0;
+            return;
+        }
+        if ((metodo_ == 17 && !sen_[5].n) || (metodo_ == 18 && !sen_[6].n)) {
+            hm_err_ = true;
+            avisa("homing_sin_final", pieza() + ": homing por el metodo " + std::to_string(metodo_) +
+                  ", y el controlador no tiene cableado ese final de carrera");
+            return;
+        }
+        fase_hm_ = 1;
+    }
+
+    // Los valores de omisión: al encenderse y al reiniciar el nodo
+    void omision_402() {
+        const uint32_t pv = c_.pasos_vuelta;
+        e402_ = NoListo;
+        cw_ = cw_ant_ = 0;
+        modo_ = 0;
+        obj_607a_ = vel_obj_ = home_offset_ = 0;
+        v_perfil_ = pv;                    // una vuelta por segundo
+        acel_ = decel_ = 10u * pv;
+        d_rapida_ = 50u * pv;
+        metodo_ = 35;
+        v_busca_ = pv / 2u;
+        v_cero_ = std::max(1u, pv / 20u);
+        a_home_ = 10u * pv;
+        ventana_pos_ = std::max(1u, pv / 100u);
+        sp_ack_ = halt_ = hm_ok_ = hm_err_ = limite_ = hay_pend_ = false;
+        hecho_ = true;
+        fase_hm_ = 0;
+        cero_ = th_med_;
+        p_ref_ = obj_ = pend_ = 0.0;
+        v_ref_ = 0.0;
+        codigo_error_ = 0;
+    }
+
+    // El diccionario de objetos: lo de CiA 402 que hace, y la identidad
+    void define_402() {
+        EsclavoCanOpen& o = *co_;
+        const uint32_t BIEN = canopen::SdoBien, RANGO = canopen::SdoRango;
+        o.define(0x1000, 0, 4, 'r', []() { return 0x00020192u; });     // CiA 402, servo
+        o.define(0x1018, 0, 1, 'r', []() { return 4u; });
+        o.define(0x1018, 1, 4, 'r', []() { return 0u; });              // no es de nadie
+        o.define(0x1018, 2, 4, 'r', []() { return 0u; });
+        o.define(0x1018, 3, 4, 'r', []() { return 0x00010000u; });
+        o.define(0x1018, 4, 4, 'r', [this]() { return uint32_t(c_.nodo); });
+        o.define(0x603F, 0, 2, 'r', [this]() { return uint32_t(codigo_error_); });
+        o.define(0x6040, 0, 2, 'w', [this]() { return uint32_t(cw_); },
+                 [this, BIEN](uint32_t v) { cw_ = uint16_t(v); return BIEN; });
+        o.define(0x6041, 0, 2, 'r', [this]() { return uint32_t(statusword()); });
+        o.define(0x605A, 0, 2, 'r', []() { return 2u; });              // parada rápida: a SOD
+        o.define(0x6060, 0, 1, 'w', [this]() { return uint32_t(uint8_t(modo_)); },
+                 [this, BIEN, RANGO](uint32_t v) {
+                     const int m = int(int8_t(uint8_t(v)));
+                     if (m != 0 && m != 1 && m != 3 && m != 6) return RANGO;
+                     cambia_modo(m);
+                     return BIEN;
+                 });
+        o.define(0x6061, 0, 1, 'r', [this]() { return uint32_t(uint8_t(modo_)); });
+        o.define(0x6062, 0, 4, 'r', [this]() { return uint32_t(int32_t(std::lround(p_ref_))); });
+        o.define(0x6064, 0, 4, 'r', [this]() { return uint32_t(int32_t(posicion_real())); });
+        o.define(0x6065, 0, 4, 'w',
+                 [this]() { return uint32_t(std::lround(c_.error_max_grados / 360.0 * c_.pasos_vuelta)); },
+                 [this, BIEN, RANGO](uint32_t v) {
+                     if (!v) return RANGO;
+                     c_.error_max_grados = double(v) * 360.0 / double(c_.pasos_vuelta);
+                     return BIEN;
+                 });
+        o.define(0x6066, 0, 2, 'w', [this]() { return uint32_t(std::lround(c_.error_ms)); },
+                 [this, BIEN](uint32_t v) { c_.error_ms = double(v); return BIEN; });
+        o.define_valor(0x6067, 0, 4, 'w', &ventana_pos_);
+        o.define(0x606C, 0, 4, 'r', [this]() { return uint32_t(int32_t(std::lround(w_med_ / k_paso()))); });
+        o.define_valor(0x607A, 0, 4, 'w', &obj_607a_);
+        o.define_valor(0x607C, 0, 4, 'w', &home_offset_);
+        o.define_valor(0x6081, 0, 4, 'w', &v_perfil_);
+        auto positivo = [BIEN, RANGO](uint32_t* x) {
+            return [x, BIEN, RANGO](uint32_t v) { if (!v) return RANGO; *x = v; return BIEN; };
+        };
+        o.define(0x6083, 0, 4, 'w', [this]() { return acel_; }, positivo(&acel_));
+        o.define(0x6084, 0, 4, 'w', [this]() { return decel_; }, positivo(&decel_));
+        o.define(0x6085, 0, 4, 'w', [this]() { return d_rapida_; }, positivo(&d_rapida_));
+        o.define(0x6098, 0, 1, 'w', [this]() { return uint32_t(uint8_t(metodo_)); },
+                 [this, BIEN, RANGO](uint32_t v) {
+                     const int m = int(int8_t(uint8_t(v)));
+                     if (m != 17 && m != 18 && m != 35 && m != 37) return RANGO;
+                     metodo_ = m;
+                     return BIEN;
+                 });
+        o.define(0x6099, 0, 1, 'r', []() { return 2u; });
+        o.define(0x6099, 1, 4, 'w', [this]() { return v_busca_; }, positivo(&v_busca_));
+        o.define(0x6099, 2, 4, 'w', [this]() { return v_cero_; }, positivo(&v_cero_));
+        o.define(0x609A, 0, 4, 'w', [this]() { return a_home_; }, positivo(&a_home_));
+        o.define_valor(0x60FF, 0, 4, 'w', &vel_obj_);
+        o.define(0x6502, 0, 4, 'r', []() { return 0x25u; });          // pp, pv y hm
+        // Los PDO, con su mapeo fijo
+        o.pdo(true, 0, {{0x604000u, 2}, {0x607A00u, 4}}, 255);
+        o.pdo(true, 1, {{0x604000u, 2}, {0x60FF00u, 4}}, 255);
+        o.pdo(false, 0, {{0x604100u, 2}, {0x606400u, 4}}, 1);
+        o.pdo(false, 1, {{0x604100u, 2}, {0x606C00u, 4}}, 1, false);
+    }
+
+    // LA MÁQUINA DE ESTADOS de CiA 402, por la palabra de control
+    void procesa_402(double t, bool potencia) {
+        if (reinicio_) {
+            reinicio_ = false;
+            omision_402();
+            if (estado_ == Soltando || estado_ == Marcha) deshabilita(t, false, "");
+        }
+        if (!potencia) { e402_ = NoListo; return; }
+        if (e402_ == NoListo) {
+            if (co_->estado() == canopen::Inicializando) return;
+            e402_ = SwitchOnDisabled;
+        }
+        // Los fallos: la reacción mientras se echa el freno, y el fallo
+        if (en_error()) {
+            if (e402_ != FaultReactionActive && e402_ != Fault) {
+                e402_ = FaultReactionActive;
+                codigo_error_ = causa_ == "seguimiento" ? 0x8611 : causa_ == "sobretension" ? 0x3210
+                              : 0x7300;
+                co_->emcy(codigo_error_, causa_ == "sobretension" ? 0x05 : 0x21);
+                fase_hm_ = 0;
+                hay_pend_ = false;
+            }
+            if (estado_ == Error) e402_ = Fault;
+        }
+        const bool cambio = co_cambio_;
+        co_cambio_ = false;
+        const uint16_t cw = cw_;
+        const bool reset = (cw & 0x80) && !(cw_ant_ & 0x80);
+        const bool sube4 = (cw & 0x10) && !(cw_ant_ & 0x10);
+        const bool baja4 = !(cw & 0x10) && (cw_ant_ & 0x10);
+        cw_ant_ = cw;
+        if (e402_ == Fault) {
+            if (reset && estado_ == Error) {
+                estado_ = Deshabilitado;
+                fallo_ = false;
+                causa_.clear();
+                codigo_error_ = 0;
+                co_->emcy(0x0000, 0x00);
+                e402_ = SwitchOnDisabled;
+            }
+            return;
+        }
+        if (e402_ == FaultReactionActive) return;
+        if (cambio) {
+            const bool dv = !(cw & 0x02);
+            const bool qs = (cw & 0x02) && !(cw & 0x04);
+            const bool apaga = (cw & 0x07) == 0x06;
+            const bool enciende = (cw & 0x0F) == 0x07;
+            const bool habilita_op = (cw & 0x0F) == 0x0F;
+            switch (e402_) {
+                case SwitchOnDisabled:
+                    if (apaga) e402_ = ReadyToSwitchOn;
+                    break;
+                case ReadyToSwitchOn:
+                    if (dv || qs) e402_ = SwitchOnDisabled;
+                    else if (enciende) e402_ = SwitchedOn;
+                    else if (habilita_op) e402_ = OperationEnabled;
+                    break;
+                case SwitchedOn:
+                    if (dv || qs) e402_ = SwitchOnDisabled;
+                    else if (apaga) e402_ = ReadyToSwitchOn;
+                    else if (habilita_op) e402_ = OperationEnabled;
+                    break;
+                case OperationEnabled:
+                    if (dv) e402_ = SwitchOnDisabled;
+                    else if (qs) e402_ = QuickStopActive;
+                    else if (apaga) e402_ = ReadyToSwitchOn;
+                    else if (enciende) e402_ = SwitchedOn;
+                    break;
+                case QuickStopActive:
+                    if (dv) e402_ = SwitchOnDisabled;
+                    break;
+                default: break;
+            }
+            halt_ = (cw & 0x100) != 0;
+        }
+        // Lo de dentro sigue a la máquina de estados: con corriente en
+        // Operation enabled y en la parada rápida, sin ella en lo demás
+        const bool quiere = e402_ == OperationEnabled || e402_ == QuickStopActive;
+        if (quiere && estado_ == Deshabilitado) habilita(t);
+        else if (!quiere && (estado_ == Soltando || estado_ == Marcha)) deshabilita(t, false, "");
+        // Las consignas, con el bit 4
+        if (!cambio || e402_ != OperationEnabled) return;
+        if (modo_ == 1) {
+            if (sube4) {
+                const double v = double(int32_t(obj_607a_));
+                const double objetivo = (cw & 0x40) ? obj_ + v : v;
+                if ((cw & 0x20) || hecho_) {
+                    obj_ = objetivo;
+                    hecho_ = false;
+                    hay_pend_ = false;
+                } else {
+                    pend_ = objetivo;
+                    hay_pend_ = true;
+                }
+                sp_ack_ = true;
+                limite_ = false;
+            } else if (baja4 && !hay_pend_) {
+                sp_ack_ = false;
+            }
+        } else if (modo_ == 6) {
+            if (sube4) empieza_homing(t);
+            else if (baja4 && fase_hm_ != 0) fase_hm_ = 4;      // se interrumpe: a parar
+        }
+    }
+
+    // EL PERFIL, cada lazo: la consigna de posición y su velocidad, en pasos
+    void perfil(double t, double dt) {
+        (void)t;
+        const double a = double(std::max(1u, acel_)), d = double(std::max(1u, decel_));
+        const double qs = double(std::max(1u, d_rapida_));
+        double v_cmd = 0.0, ac = a, de = d;
+        if (e402_ == QuickStopActive) {
+            de = qs;
+        } else if (halt_ || e402_ != OperationEnabled) {
+            v_cmd = 0.0;
+        } else if (modo_ == 1) {
+            if (hecho_ && hay_pend_) {
+                obj_ = pend_;
+                hay_pend_ = false;
+                hecho_ = false;
+                if (!(cw_ & 0x10)) sp_ack_ = false;
+            }
+            if (!hecho_) {
+                const double e = obj_ - p_ref_;
+                v_cmd = signo(e) * std::min(double(v_perfil_), std::sqrt(2.0 * d * std::fabs(e)));
+            }
+        } else if (modo_ == 3) {
+            v_cmd = double(int32_t(vel_obj_));
+        } else if (modo_ == 6) {
+            ac = de = double(std::max(1u, a_home_));
+            const double s = metodo_ == 18 ? 1.0 : -1.0;     // hacia el final
+            if (fase_hm_ == 1) {
+                v_cmd = s * double(v_busca_);
+                if ((metodo_ == 17 && fin_n_) || (metodo_ == 18 && fin_p_)) fase_hm_ = 2;
+            }
+            if (fase_hm_ == 2) v_cmd = -s * double(v_cero_);
+        }
+        // Los finales de carrera, fuera del homing: no se va hacia uno pisado
+        const bool buscando = modo_ == 6 && (fase_hm_ == 1 || fase_hm_ == 2);
+        if (!buscando && ((fin_n_ && (v_cmd < 0.0 || v_ref_ < 0.0)) ||
+                          (fin_p_ && (v_cmd > 0.0 || v_ref_ > 0.0)))) {
+            if (!limite_)
+                avisa("limite", pieza() + ": va hacia un final de carrera pisado: se para");
+            limite_ = true;
+            v_cmd = 0.0;
+            de = qs;
+        }
+        // La aceleración, con su tope
+        const bool acelera = std::fabs(v_cmd) > std::fabs(v_ref_) && v_cmd * v_ref_ >= 0.0;
+        const double r = (acelera ? ac : de) * dt;
+        const double v = v_ref_ + std::max(-r, std::min(r, v_cmd - v_ref_));
+        double p = p_ref_ + 0.5 * (v_ref_ + v) * dt;
+        double v1 = v;
+        if (modo_ == 1 && !hecho_ && !halt_ && e402_ == OperationEnabled && !limite_) {
+            const double e0 = obj_ - p_ref_, e1 = obj_ - p;
+            if (e0 == 0.0 || e0 * e1 <= 0.0 || (std::fabs(e1) < 0.5 && std::fabs(v) <= de * dt * 1.5)) {
+                p = obj_;
+                v1 = 0.0;
+                hecho_ = true;
+            }
+        }
+        p_ref_ = p;
+        v_ref_ = v1;
+        if (v1 == 0.0) {
+            if (e402_ == QuickStopActive) e402_ = SwitchOnDisabled;   // y se quita la corriente
+            if (modo_ == 6 && fase_hm_ == 3) { fase_hm_ = 0; hm_ok_ = true; }
+            else if (modo_ == 6 && fase_hm_ == 4) fase_hm_ = 0;
+        }
+    }
+
     const sc_core::sc_event_or_list& despierta() {
         if (!despierta_) {
             despierta_.reset(new sc_core::sc_event_or_list());
             *despierta_ |= vcc_->value_changed_event();
             *despierta_ |= gnd_->value_changed_event();
-            for (Entrada* e : {&step_, &dir_, &en_}) *despierta_ |= e->n->value_changed_event();
+            for (Entrada* e : {&step_, &dir_, &en_}) if (e->n) *despierta_ |= e->n->value_changed_event();
             for (const Entrada& s : sen_) if (s.n) *despierta_ |= s.n->value_changed_event();
             *despierta_ |= evento_conexion();
+            if (co_) *despierta_ |= ev_can_;
         }
         return *despierta_;
     }
@@ -563,7 +1044,7 @@ private:
     bool cortado_ = false;            // la protección de sobretensión, hasta otro EN
     unsigned sobretensiones_ = 0;
     Entrada step_, dir_, en_;
-    Entrada sen_[5];                   // H1, H2, H3, A y B
+    Entrada sen_[7];                   // H1, H2, H3, A, B y los dos finales
     bool alimentado_ = false;
     double t_alimenta_ = 0.0;
     // El estado
@@ -592,6 +1073,21 @@ private:
     int freno_puesto_ = -1, error_puesto_ = -1;
     double v_freno_ = 0.0;
     std::unique_ptr<sc_core::sc_event_or_list> despierta_;
+    // El bus de campo (F6)
+    analog_net_if* can_ = nullptr;
+    std::unique_ptr<PuertoCan> puerto_;
+    std::unique_ptr<EsclavoCanOpen> co_;
+    sc_core::sc_event ev_can_;
+    int id_term_ = -1, term_puesto_ = -1;
+    bool co_on_ = false, co_cambio_ = false, reinicio_ = false, potencia_ = false;
+    Estado402 e402_ = NoListo;
+    uint16_t cw_ = 0, cw_ant_ = 0, codigo_error_ = 0;
+    int modo_ = 0, metodo_ = 35, fase_hm_ = 0;
+    uint32_t obj_607a_ = 0, vel_obj_ = 0, home_offset_ = 0, v_perfil_ = 0, acel_ = 1, decel_ = 1,
+             d_rapida_ = 1, v_busca_ = 1, v_cero_ = 1, a_home_ = 1, ventana_pos_ = 1;
+    bool sp_ack_ = false, halt_ = false, hm_ok_ = false, hm_err_ = false, limite_ = false,
+         hay_pend_ = false, hecho_ = true, fin_n_ = false, fin_p_ = false;
+    double cero_ = 0.0, p_ref_ = 0.0, v_ref_ = 0.0, obj_ = 0.0, pend_ = 0.0;
     std::set<std::string> dichos_;
 };
 

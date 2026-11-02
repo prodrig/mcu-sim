@@ -1590,6 +1590,30 @@ SC_MODULE(Sim) {
                         c->pasos_ignorados(), c->error_grados(), c->error_maximo_grados(),
                         c->corriente_q(), c->corriente_vcc_ma(),
                         c->freno_suelto() ? "suelto" : "echado");
+            // Por CANopen (F6): su nodo, su estado y lo que ha pasado por el bus
+            if (const EsclavoCanOpen* e = c->esclavo())
+                std::printf("    CANopen nodo %u: %s; %s (0x%04X), modo %d, posicion %+ld pasos%s; "
+                            "%u SDO (%u abortados), %u RPDO, %u TPDO, %u EMCY, %u SYNC; TEC %u\n",
+                            unsigned(e->nodo()), canopen::texto_nmt(e->estado()),
+                            ControladorMotor::texto_402(c->estado_402()), unsigned(c->statusword()),
+                            c->modo(), c->posicion_real(), c->homing_hecho() ? ", con homing" : "",
+                            e->sdos(), e->abortos(), e->rpdos(), e->tpdos(), e->emcys(),
+                            e->syncs(), c->puerto()->tec());
+        }
+        // Los analizadores de bus CAN (F6): cuantos marcos de cada tipo
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "AnalizadorCan") continue;
+            const AnalizadorCan* a = placa.como<AnalizadorCan>(i.id);
+            if (!a) continue;
+            std::printf("  ANALIZADOR CAN %s: %u marcos", i.id.c_str(), a->tramas());
+            const char* sep = " (";
+            for (const auto& kv : a->tipos()) {
+                std::printf("%s%u %s", sep, kv.second, kv.first.c_str());
+                sep = ", ";
+            }
+            std::printf("%s; %u errores, %u sin asentir; carga %.1f %% de media, %.1f como mucho\n",
+                        a->tramas() ? ")" : "", a->errores(), a->sin_asentir(), a->carga_media(),
+                        a->carga_maxima());
         }
         // La transmision (F2): cada husillo con sus rendimientos, cada carro donde
         // esta, cada reductora y cada freno

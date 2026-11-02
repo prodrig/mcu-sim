@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UN MODULO TRANSCEPTOR CAN SN65HVD230, de 3,3 V, con su terminador
+
+     La fase F6 de doc/analisis_cnc.md: lo que va entre los pines CAN_TX y
+     CAN_RX de un MCU y el par del bus. El SN65HVD230 de TI es de 3,3 V, asi
+     que se pone directo a una Nucleo, y los modulos que se venden llevan los
+     120 ohm del final del bus soldados. Sus pines:
+
+         J1  3V3, GND     la alimentacion
+             CTX          la entrada del transceptor: el CAN_TX del MCU
+             CRX          su salida: el CAN_RX del MCU
+             CANH, CANL   el bus
+
+     EL BUS ES UN HILO, como en todo mcu-sim (CanWire, parts/ext_parts.h): el
+     par diferencial CANH-CANL va en el nodo de CANH, recesivo a 3,3 V por el
+     terminador y dominante cuando un transceptor tira de el. CANL se cablea
+     por fidelidad, y no lleva nada.
+
+         ./build/mcu-sim placas/sn65hvd230.xml --valida
+     ========================================================================= -->
+<placa nombre="sn65hvd230">
+  <componente tipo="Conector" id="J1" filas="1" columnas="6" nombres="3V3 GND CTX CRX CANH CANL"/>
+  <nodo id="J1.CANH" bus="si"/>
+
+  <componente tipo="CanWire" id="R1" r_term="120">
+    <pin nombre="bus" nodo="J1.CANH"/>
+  </componente>
+  <componente tipo="CanTransceiver" id="U1">
+    <pin nombre="txd" nodo="J1.CTX"/>
+    <pin nombre="rxd" nodo="J1.CRX"/>
+    <pin nombre="bus" nodo="J1.CANH"/>
+    <ref nombre="hilo" componente="R1"/>
+  </componente>
+</placa>

@@ -2266,7 +2266,10 @@ REGISTRA_PARTE(ControladorMotor,
           "tope en VCC. NO PIERDE PASOS SIN ENTERARSE: si el error de seguimiento pasa de "
           "error_max_grados durante error_ms, se para, echa el freno y lo dice por su "
           "salida de error. Con EN, corriente y se suelta el freno; sin EN, se echa el freno "
-          "y, pasados freno_ms, se quita la corriente.")
+          "y, pasados freno_ms, se quita la corriente. Con mando=\"canopen\", en vez de STEP, "
+          "DIR y EN, CANOPEN por su pin can: un esclavo CiA 301 con un subconjunto de CiA 402 "
+          "-la maquina de estados, el perfil de posicion, el de velocidad y el homing- "
+          "(doc/parts.md).")
       .ejemplo("<componente tipo=\"ControladorMotor\" id=\"U1\" pasos_vuelta=\"2000\">\n"
                "  <pin nombre=\"vcc\" nodo=\"X1.VCC\"/> <pin nombre=\"gnd\" nodo=\"X1.GND\"/>\n"
                "  <pin nombre=\"u\" nodo=\"X2.U\"/> <pin nombre=\"v\" nodo=\"X2.V\"/>\n"
@@ -2280,9 +2283,14 @@ REGISTRA_PARTE(ControladorMotor,
       .pin("vcc, gnd", "obligatorios", "La alimentacion, de 12 a 48 V: la de la logica y la del "
            "motor, y el tope de su tension.")
       .pin("u, v, w", "obligatorios", "Las tres fases del motor.")
-      .pin("step, dir, en", "obligatorios", "Paso, direccion (alto: hacia delante) y "
-           "habilitacion (alta: habilitado), con 10 kohm a masa por dentro y el umbral en "
-           "umbral= voltios.")
+      .pin("step, dir, en", "obligatorios, menos con CANopen", "Paso, direccion (alto: hacia "
+           "delante) y habilitacion (alta: habilitado), con 10 kohm a masa por dentro y el "
+           "umbral en umbral= voltios.")
+      .pin("can", "con mando=\"canopen\"", "El hilo del bus CAN: el transceptor va dentro. "
+           "Recesivo por encima de 1,65 V, como el de un CanWire.")
+      .pin("fin_neg, fin_pos", "opcionales", "Los finales de carrera de abajo y de arriba, con "
+           "pull-up a los 5 V de dentro y activos a nivel bajo: el homing por los metodos 17 y "
+           "18, y fuera de el no se va hacia uno pisado. Solo con CANopen.")
       .pin("v5", "opcional", "Los 5 V de los sensores.")
       .pin("h1, h2, h3", "con los Hall", "Los Hall del motor, con 4,7 kohm a los 5 V de dentro.")
       .pin("enc_a, enc_b", "con encoder=\"si\"", "El encoder, con sus pull-ups.")
@@ -2305,12 +2313,24 @@ REGISTRA_PARTE(ControladorMotor,
       .atr("umbral", "2.5", "El umbral de las entradas, en V, con 0,25 de histeresis.")
       .atr("v_sobretension", "1,1 x vcc_max", "Por encima, corta el puente, echa el freno y "
            "da error: lo que devuelve el motor al frenar ha subido el bus.")
+      .atr("mando", "pasos", "pasos: reloj y direccion, por STEP, DIR y EN; canopen: por el bus "
+           "de campo, por el pin can.")
+      .atr("nodo", "1", "Con CANopen, su numero de nodo: de 1 a 127.")
+      .atr("can_kbps", "500", "La velocidad del bus: 125, 250, 500 o 1000 kbit/s.")
+      .atr("terminador", "no", "si: lleva los 120 ohm del final del bus puestos.")
+      .atr("arranque_ms", "100", "De la tension al boot-up: lo que tarda en hablar.")
       .nota("Deja ver `estado` (0 sin tension, 1 deshabilitado, 2 soltando el freno, 3 en "
             "marcha, 4 echando el freno, 5 error), `pasos`, `error_seguimiento` (grados), "
             "`corriente_q` (A, la consigna), `rpm` (las medidas), `corriente_vcc` (mA, de "
             "media), `freno_suelto` y la alarma `error`.")
-      .nota("Lo que no hace: el bus de campo, los finales de carrera, la puesta en marcha "
-            "automatica, el I²t y la energia que vuelve al frenar.")
+      .nota("Con CANopen deja ver ademas `statusword` (0x6041), `nmt` (0, 4, 5 o 127), "
+            "`posicion` (0x6064, en pasos) y `modo` (0x6061). Sus objetos: 1000, 1001, 1017, "
+            "1018, los PDO 1400, 1401, 1600, 1601, 1800, 1801, 1A00 y 1A01 -con el mapeo fijo-, "
+            "y de CiA 402 603F, 6040, 6041, 605A, 6060-6067, 606C, 607A, 607C, 6081, 6083-6085, "
+            "6098, 6099, 609A, 60FF y 6502. Las posiciones, en pasos; las velocidades, en "
+            "pasos/s.")
+      .nota("Lo que no hace: la puesta en marcha automatica, el I²t, los modos sincronos de "
+            "CiA 402 y el mapeo variable de los PDO.")
       .cpp("estado(), texto_estado(), pasos(), pasos_ignorados(), posicion_grados(), "
            "consigna_grados(), error_grados(), error_maximo_grados(), rpm_medidas(), "
            "corriente_q(), corriente_vcc_ma(), freno_suelto(), en_error(), causa()."),
@@ -2319,9 +2339,30 @@ REGISTRA_PARTE(ControladorMotor,
             SC_REPORT_ERROR("netlist", ("ControladorMotor '" + d.id + "': " + t).c_str());
             return nullptr;
         };
-        for (const char* t : {"vcc", "gnd", "u", "v", "w", "step", "dir", "en"})
-            if (d.nodo_de(t).empty()) return mal(std::string("le falta <pin nombre=\"") + t + "\">");
+        const std::string mando = d.txt("mando", "pasos");
+        if (mando != "pasos" && mando != "canopen") return mal("mando es pasos o canopen");
         ConfigControladorMotor c;
+        c.canopen = mando == "canopen";
+        for (const char* t : {"vcc", "gnd", "u", "v", "w"})
+            if (d.nodo_de(t).empty()) return mal(std::string("le falta <pin nombre=\"") + t + "\">");
+        if (!c.canopen) {
+            for (const char* t : {"step", "dir", "en"})
+                if (d.nodo_de(t).empty()) return mal(std::string("le falta <pin nombre=\"") + t + "\">");
+            for (const char* t : {"can", "fin_neg", "fin_pos"})
+                if (!d.nodo_de(t).empty())
+                    return mal(std::string("el pin ") + t + " es del bus de campo: con mando=\"canopen\"");
+        } else {
+            if (d.nodo_de("can").empty()) return mal("con mando=\"canopen\" lleva <pin nombre=\"can\">");
+            const double nd = d.num("nodo", 1.0), kb = d.num("can_kbps", 500.0);
+            if (nd < 1 || nd > 127 || nd != std::floor(nd)) return mal("nodo va de 1 a 127");
+            if (kb != 125 && kb != 250 && kb != 500 && kb != 1000)
+                return mal("can_kbps es 125, 250, 500 o 1000");
+            c.nodo = unsigned(nd);
+            c.can_kbps = kb;
+            c.terminador = d.si("terminador", false);
+            c.arranque_ms = d.num("arranque_ms", c.arranque_ms);
+            if (c.arranque_ms < 0 || c.arranque_ms > 10000) return mal("arranque_ms va de 0 a 10000");
+        }
         c.corriente_max = d.num("corriente_max", c.corriente_max);
         const double pv = d.num("pasos_vuelta", 2000.0), pp = d.num("pares_polos", 3.0),
                      ppr = d.num("ppr", 1000.0);
@@ -2364,9 +2405,10 @@ REGISTRA_PARTE(ControladorMotor,
         };
         return new ControladorMotor(d.id.c_str(), c, n[d.nodo_de("vcc")], n[d.nodo_de("gnd")],
                                     n[d.nodo_de("u")], n[d.nodo_de("v")], n[d.nodo_de("w")],
-                                    n[d.nodo_de("step")], n[d.nodo_de("dir")], n[d.nodo_de("en")],
+                                    nd("step"), nd("dir"), nd("en"),
                                     nd("v5"), nd("h1"), nd("h2"), nd("h3"), nd("enc_a"),
-                                    nd("enc_b"), nd("freno"), nd("error"));
+                                    nd("enc_b"), nd("freno"), nd("error"), nd("can"),
+                                    nd("fin_neg"), nd("fin_pos"));
     });
 
 REGISTRA_PARTE(L298,
@@ -3202,6 +3244,40 @@ REGISTRA_PARTE(CanNode,
             return nullptr;
         }
         return new CanNode(d.id.c_str(), *w, d.num("bitrate", 500e3));
+    });
+
+REGISTRA_PARTE(AnalizadorCan,
+    Ayuda("Un ANALIZADOR DE BUS CAN de banco: escucha el hilo SIN TOCARLO -no asiente ni "
+          "transmite- y apunta cada marco con su instante, su identificador, sus bytes y lo "
+          "que significa en CANopen (NMT, SYNC, EMCY, PDO, SDO, heartbeat). Cuenta los marcos, "
+          "los errores, los que NADIE ASIENTE -un bus con un solo nodo, o con el otro "
+          "apagado- y la CARGA del bus. Se cuelga de cualquier nodo del hilo, sin necesitar "
+          "el objeto del CanWire.")
+      .ejemplo("<componente tipo=\"AnalizadorCan\" id=\"A1\" bitrate=\"500e3\" traza=\"can.txt\">\n"
+               "  <pin nombre=\"bus\" nodo=\"CAN\"/>\n"
+               "</componente>")
+      .pin("bus", "obligatorio", "El nodo del hilo.")
+      .atr("bitrate", "500000", "La velocidad del bus, en bit/s: la de los demas.")
+      .atr("traza", "nada", "El fichero donde apunta cada marco, una linea por marco.")
+      .atr("ventana_ms", "100", "La ventana de la carga: los bits de sus marcos contra los que "
+           "caben en ella.")
+      .atr("umbral", "1.65", "Dominante, por debajo de estos voltios.")
+      .nota("Deja ver `tramas`, `carga` (%, en la ultima ventana), `errores`, `sin_asentir` y "
+            "`ultimo_id`. Al acabar, su resumen: cuantos marcos de cada tipo.")
+      .cpp("tramas(), errores(), sin_asentir(), carga(), carga_maxima(), carga_media(), "
+           "por_tipo(\"SYNC\"), tipos()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        if (d.nodo_de("bus").empty()) {
+            SC_REPORT_ERROR("netlist", ("AnalizadorCan '" + d.id + "': le falta <pin nombre=\"bus\">").c_str());
+            return nullptr;
+        }
+        const double b = d.num("bitrate", 500e3);
+        if (b < 10e3 || b > 1e6) {
+            SC_REPORT_ERROR("netlist", ("AnalizadorCan '" + d.id + "': bitrate va de 10e3 a 1e6").c_str());
+            return nullptr;
+        }
+        return new AnalizadorCan(d.id.c_str(), n[d.nodo_de("bus")], b, d.txt("traza", ""),
+                                 d.num("ventana_ms", 100.0), d.num("umbral", 1.65));
     });
 
 

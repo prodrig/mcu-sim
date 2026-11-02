@@ -743,6 +743,10 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
 6. **El 2026-10-31, F5**, con un eje Z de 48 V de punta a punta como banco
    —BLDC, controlador, freno, reductora, bolas y el bus—, sin MCU: el
    fenómeno es el mismo en una máquina entera, y así se ve solo.
+7. **El 2026-11-02, F6**, por **CANopen** y no por Modbus RTU: el bxCAN, el
+   `CanTransceiver` y el `CanWire` ya estaban, y es el bus de los C5-E. Un
+   eje con su controlador y una Nucleo con un maestro propio; el puerto CAN
+   del controlador, a nivel de bit como el del MCU.
 
 ### F0, hecha: la cadena mecánica y el efecto `desplaza`
 
@@ -1095,6 +1099,59 @@ configurarlo con `$` y cablear la máquina como él la espera.
   DM542, que ya devuelven al bus— y el `DriverPaP` con protección de
   sobretensión, que hoy solo avisa.
 * **Pruebas**: `make gui-cnc` C9, 7 comprobaciones.
+
+### F6, hecha: el bus de campo
+
+* **`parts/canopen.h`**: el `PuertoCan`, un nodo CAN a nivel de bit que va
+  dentro de una pieza —el relleno, el CRC, el arbitraje, el asentimiento y los
+  reintentos, con las funciones del bxCAN— y que en reposo no cuesta nada; el
+  `EsclavoCanOpen`, lo de CiA 301 —NMT con su boot-up, el servidor de SDO
+  expedito, los PDO con su mapeo fijo, la SYNC, el heartbeat y los EMCY—; y
+  el `AnalizadorCan`, una pieza de banco que escucha el hilo sin tocarlo y
+  apunta cada marco y lo que significa en CANopen.
+* **El `ControladorMotor` con `mando="canopen"`**, el C5-E con su bus: CiA 402
+  con la máquina de estados del accionamiento, el **perfil de posición**, el
+  **de velocidad** y el **homing** por un final (métodos 17 y 18) o donde
+  está (35 y 37), sus finales de carrera, y sus fallos por EMCY. Lo que con
+  EN era habilitar es ahora *Operation enabled*.
+* **`placas/sn65hvd230.xml`**, el transceptor de 3,3 V con sus 120 Ω;
+  **`placas/eje_x_canopen.xml`**, un eje X con el controlador —nodo 1, 500
+  kbit/s, el otro terminador—, un BLDC con encoder de 500 líneas, un 1605 y
+  10 kg, su final y el analizador; y **`placas/eje_canopen.xml`**, el sistema
+  con la Nucleo: el CAN1 en PB8 y PB9, en D15 y D14.
+* **`verif/fw/canopen`**, un maestro pequeño: espera el boot-up, configura el
+  nodo por SDO, lo arranca, manda la SYNC cada 5 ms y lo habilita; luego, por
+  el VCP, `H` el homing, `G mm` por el RPDO1, `V mm/s` por el RPDO2, `Q` la
+  parada rápida y `R` el reinicio de un fallo.
+* **Lo que sale**: el arranque entero en el hilo —el boot-up a los 100 ms, 15
+  SDO, el NMT, la SYNC cada 5,000 ms con su TPDO1 detrás en menos de un cuarto
+  de ms— con el bus al 6 %. El homing deja el cero a 5,02 mm del tope. 100 mm a
+  50 mm/s con 500 mm/s² tardan 2,09 s —2,1 en la cuenta—, a 50,00 mm/s de
+  crucero; al acabar de acelerar, el servo se pasa a 52,8 mm/s recuperando el
+  error de seguimiento. Contra el tope, el EMCY 8611 y *Fault*; el reinicio,
+  el 0000. Sin el controlador, nadie asiente: el maestro se queda en error
+  pasivo, reintentando, y lo dice.
+* **Lo que se aprendió**: **un final de carrera tiene que estar más lejos del
+  tope de lo que el eje tarda en parar**. A 50 mm/s, la parada rápida de
+  omisión —250 mm/s²— necesita 5 mm, y el final estaba a 5: paraba a 0,02 mm
+  del tope. El maestro pone 1000 mm/s², 1,25 mm. Y el reinicio de un fallo
+  solo vale en *Fault*: mientras el controlador echa el freno, *Fault reaction
+  active*, se ignora, y el maestro tiene que esperarlo.
+* **Lo que destapó en el motor CAN del modelo**, y se arregló en el parche
+  anterior a este (T-24 en `doc/todo.md`): sin nadie que asienta, el bxCAN
+  acababa en **bus-off**, y uno de verdad se queda en **error pasivo**, con el
+  TEC en 128, reintentando —el error de asentimiento de un nodo en error
+  pasivo no suma, ISO 11898-1—. Y con él, seis cosas más del mismo sitio: la
+  bandera pasiva, el error de asentimiento en su bit, la intermisión tras un
+  marco de error, la suspensión del error pasivo, el REC de uno en uno y el
+  bus-off al pasar de 255. Ahora el analizador lo ve como en un bus de verdad:
+  los 16 primeros reintentos con su marco de error y, desde el error pasivo,
+  sin él, uno cada 166 µs en vez de cada 150.
+* **Lo que queda**: los modos síncronos (CSP), el mapeo variable de los PDO,
+  la 3020 entera con tres ejes por el bus y un firmware de control numérico
+  que interpole sobre ellos, y Modbus RTU con un RS-485.
+* **Pruebas**: `make gui-cnc` C10, 14 comprobaciones. 9 s del eje en 2,8 s de
+  reloj.
 
 ## Fuentes
 

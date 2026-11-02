@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UN EJE X CON SU CONTROLADOR POR CANOPEN, sin MCU
+
+     La fase F6 de doc/analisis_cnc.md (§5.5): el controlador tipo C5-E con su
+     bus de campo. Ni STEP ni DIR: estados, consignas y perfiles por CANopen,
+     por J1, que se cablea al transceptor de quien lo mande (placas/
+     eje_canopen.xml lo pone con una Nucleo).
+
+       U1     el controlador, nodo 1 a 500 kbit/s, con los 120 ohm del final
+              del bus puestos y un encoder de 500 lineas: 2000 pasos por
+              vuelta, 400 por mm
+       MOTOR  un BLDC DB59L024035-A, con su encoder
+       AC, HX, CX  un acople de fuelle, un husillo de bolas 1605 de 400 mm y
+              un carro de 10 kg con 300 mm de recorrido
+       SX     el final de abajo, un micro a masa a 5 mm, en la entrada
+              fin_neg del controlador: el homing por el metodo 17
+       PSU    una fuente de 48 V
+       A1     un ANALIZADOR del bus, como el que se cuelga de una maquina para
+              ver lo que pasa por el: no asiente ni transmite
+
+     Sus pines: J1 CANH, CANL y GND, el bus.
+
+         ./build/mcu-sim placas/eje_canopen.xml --gui
+     ========================================================================= -->
+<placa nombre="eje-x-canopen">
+  <componente tipo="Conector" id="J1" filas="1" columnas="3" nombres="CANH CANL GND">
+    <pin nombre="GND" nodo="GND"/>
+  </componente>
+  <nodo id="GND" bus="si"/>
+  <nodo id="BUS" bus="si"/>
+  <nodo id="V5" bus="si"/>
+  <nodo id="J1.CANH" bus="si"/>
+  <nodo id="U" bus="si"/>
+  <nodo id="V" bus="si"/>
+  <nodo id="W" bus="si"/>
+  <nodo id="H1" bus="si"/>
+  <nodo id="H2" bus="si"/>
+  <nodo id="H3" bus="si"/>
+  <nodo id="ENC_A" bus="si"/>
+  <nodo id="ENC_B" bus="si"/>
+  <nodo id="FIN" bus="si"/>
+  <nodo id="ERR" bus="si"/>
+  <componente tipo="Gnd" id="MASA" visible="no"><pin nombre="pin" nodo="GND"/></componente>
+
+  <componente tipo="Fuente" id="PSU" v="48" limite_ma="10000" media_ms="20">
+    <pin nombre="pin" nodo="BUS"/>
+  </componente>
+
+  <!-- El controlador, por CANopen -->
+  <componente tipo="ControladorMotor" id="U1" mando="canopen" nodo="1" can_kbps="500"
+              terminador="si" pasos_vuelta="2000" corriente_max="10" pares_polos="3"
+              encoder="si" ppr="500" error_max_grados="360" error_ms="10" freno_ms="20">
+    <pin nombre="vcc"     nodo="BUS"/>
+    <pin nombre="gnd"     nodo="GND"/>
+    <pin nombre="u"       nodo="U"/>
+    <pin nombre="v"       nodo="V"/>
+    <pin nombre="w"       nodo="W"/>
+    <pin nombre="v5"      nodo="V5"/>
+    <pin nombre="h1"      nodo="H1"/>
+    <pin nombre="h2"      nodo="H2"/>
+    <pin nombre="h3"      nodo="H3"/>
+    <pin nombre="enc_a"   nodo="ENC_A"/>
+    <pin nombre="enc_b"   nodo="ENC_B"/>
+    <pin nombre="can"     nodo="J1.CANH"/>
+    <pin nombre="fin_neg" nodo="FIN"/>
+    <pin nombre="error"   nodo="ERR"/>
+  </componente>
+  <componente tipo="MotorBLDC" id="MOTOR" kt_ncm_a="5" r_ohm="0.22" l_mh="0.29"
+              corriente_nominal="9.4" corriente_pico="28" inercia_gcm2="119"
+              rozamiento_ncm="1.5" pares_polos="3" ppr="500" eje_mm="8">
+    <pin nombre="u"        nodo="U"/>
+    <pin nombre="v"        nodo="V"/>
+    <pin nombre="w"        nodo="W"/>
+    <pin nombre="hall_vcc" nodo="V5"/>
+    <pin nombre="hall_gnd" nodo="GND"/>
+    <pin nombre="h1"       nodo="H1"/>
+    <pin nombre="h2"       nodo="H2"/>
+    <pin nombre="h3"       nodo="H3"/>
+    <pin nombre="enc_a"    nodo="ENC_A"/>
+    <pin nombre="enc_b"    nodo="ENC_B"/>
+  </componente>
+
+  <!-- La mecanica -->
+  <componente tipo="Acople" id="AC" tipo_acople="fuelle" d1_mm="8" d2_mm="10" inercia_gcm2="15"/>
+  <componente tipo="Husillo" id="HX" rosca="bolas" diametro_mm="16" avance_mm="5"
+              longitud_mm="400" apoyos="fijo-apoyado" extremo_mm="10"/>
+  <componente tipo="Carro" id="CX" eje="x" masa_kg="10" rozamiento_n="10" recorrido_mm="300"
+              posicion_mm="40"/>
+  <transmision id="X" cadena="MOTOR AC HX CX"/>
+  <componente tipo="FinalCarrera" id="SX" posicion_mm="5" lado="min">
+    <ref nombre="carro" componente="CX"/>
+    <pin nombre="com" nodo="GND"/> <pin nombre="no" nodo="FIN"/>
+  </componente>
+
+  <!-- El analizador del bus -->
+  <componente tipo="AnalizadorCan" id="A1" bitrate="500e3">
+    <pin nombre="bus" nodo="J1.CANH"/>
+  </componente>
+
+  <ilustracion>
+    <enlace pieza="CX" elemento="CX" efecto="desplaza" observable="posicion" vector="3 0"/>
+    <enlace pieza="X" elemento="COTA" efecto="display" observable="posicion"/>
+    <enlace pieza="A1" elemento="A1" efecto="display" observable="tramas carga"/>
+    <enlace pieza="MOTOR" elemento="MOTOR" efecto="ninguno"/>
+    <enlace pieza="AC" elemento="AC" efecto="ninguno"/>
+    <enlace pieza="HX" elemento="HX" efecto="ninguno"/>
+  </ilustracion>
+</placa>

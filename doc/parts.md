@@ -2812,8 +2812,9 @@ marcha, 4 echando el freno, 5 error), `pasos`, `error_seguimiento`,
 `corriente_q`, `rpm`, `corriente_vcc`, `freno_suelto` y la alarma `error`. Al
 terminar: `CONTROLADOR C/U1 (tipo C5-E): en marcha, +124675 pasos (0 sin
 seguir); error de seguimiento +0.1°, 54.0 como mucho; iq +9.85 A; VCC 9349 mA
-de media; freno suelto`. No hace el bus de campo (F6), los finales de carrera,
-la puesta en marcha automática, el I²t ni la energía que vuelve al frenar (F5).
+de media; freno suelto`. El bus de campo y los finales de carrera son de F6
+(§4.25), y la energía que vuelve al frenar, de F5 (§4.24). No hace la puesta en
+marcha automática ni el I²t.
 
 #### Lo que sale
 
@@ -3101,6 +3102,89 @@ bus y 10 Ω de frenado.
 * Con una fuente que absorbe, el bus ni se mueve.
 * El final de Z, un inductivo NPN de 24 V, por un PC817: 10,3 mA por su LED
   con 2,2 kΩ y la salida saturada, 0,31 mA por 10 kΩ a 3,3 V.
+
+
+### 4.25 El bus de campo: `ControladorMotor` por CANopen y `AnalizadorCan`
+
+`parts/canopen.h` y `parts/controlador_motor.h`, la fase F6 de
+`doc/analisis_cnc.md` (§5.5, la segunda capa). Un controlador de verdad —un
+C5-E de Nanotec con su bus— no recibe pasos por un hilo: se le mandan
+**estados, consignas y perfiles por CANopen**. Con `mando="canopen"`, el
+`ControladorMotor` deja STEP, DIR y EN y se cuelga del bus por su pin `can`,
+con el transceptor dentro.
+
+**El puerto** (`PuertoCan`) es un nodo CAN a nivel de bit, como `CanNode`: el
+relleno, el CRC15, el arbitraje, el asentimiento y los reintentos, con las
+mismas funciones que el bxCAN (`periph/can_motor.h`). Lo distinto es que va
+dentro de otra pieza —le entrega los marcos— y que **en reposo no cuesta
+nada**: no se despierta en cada bit, solo cuando el hilo cambia. El hilo es un
+nodo analógico como el de un `CanWire`: dominante por debajo de 1,65 V. Para
+recibir le bastan ocho bits recesivos tras un marco; para transmitir espera
+los once, con la intermisión. Con `terminador="si"`, el controlador pone sus
+120 Ω en el hilo.
+
+**El esclavo** (`EsclavoCanOpen`) es lo de CiA 301 que no depende del aparato:
+
+* **NMT**: inicializando, el **boot-up** (`0x700+nodo`, `00`) pasados
+  `arranque_ms`, pre-operacional, operacional y parado; reiniciar el nodo y la
+  comunicación.
+* **SDO**, el servidor, expedito —objetos de cuatro bytes como mucho—, con sus
+  códigos de aborto: no existe, subíndice, solo lectura, longitud, rango.
+* **PDO con su mapeo fijo**: el RPDO1 (palabra de control y posición objetivo),
+  el RPDO2 (palabra de control y velocidad objetivo), el TPDO1 (palabra de
+  estado y posición) y el TPDO2 (palabra de estado y velocidad, apagado). Se
+  cambian el COB-ID —su bit 31— y el tipo: de 1 a 240, en cada tantas SYNC; 254
+  y 255, por evento, con su inhibición y su temporizador.
+* **SYNC**, **heartbeat** (`0x1017`) y **EMCY** (`0x80+nodo`).
+
+**CiA 402**, en el controlador:
+
+| | |
+| :--- | :--- |
+| La máquina de estados | Por la palabra de control (`0x6040`) y dicha en la de estado (`0x6041`): *Switch on disabled* → *Ready to switch on* (06) → *Switched on* (07) → *Operation enabled* (0F), la parada rápida (`0x605A` = 2: frena y a *Switch on disabled*), *Fault reaction active* mientras echa el freno, *Fault* y su reinicio con el bit 7. *Operation enabled* es lo que con EN era habilitar |
+| Perfil de posición (1) | `0x607A` con el bit 4 —absoluta, o relativa con el 6; en el acto con el 5, o tras la que va—, el saludo en el bit 12, *target reached* en el 10 dentro de `0x6067`; `0x6081`, `0x6083` y `0x6084`. El perfil es trapezoidal, cada lazo |
+| Perfil de velocidad (3) | `0x60FF`, con las mismas rampas |
+| Homing (6) | `0x6098`: 17 y 18, por el final de abajo o el de arriba —hacia él a `0x6099:1`, de vuelta a `0x6099:2`, y el cero donde se suelta—, y 35 y 37, el cero donde está. `0x607C`, `0x609A` |
+| Los finales | `fin_neg` y `fin_pos`, con pull-up a 5 V, activos a nivel bajo. Fuera del homing, si se va hacia uno pisado, para con la parada rápida (`0x6085`) y lo dice en el bit 11 |
+| Los fallos | Por EMCY: 8611 el error de seguimiento (`0x6065`, `0x6066`), 3210 la sobretensión, 7300 los Hall; 0000 al quitarlo |
+
+Las posiciones van en **pasos** —`pasos_vuelta` por vuelta del motor—, las
+velocidades en pasos/s y las aceleraciones en pasos/s². Deja ver además
+`statusword`, `nmt`, `posicion` y `modo`. Lo que no hace: los modos síncronos
+(CSP, CSV), el mapeo variable de los PDO y los SDO por segmentos.
+
+**`AnalizadorCan`** es una pieza de banco: escucha el hilo **sin tocarlo** —no
+asiente ni transmite—, apunta cada marco en `traza=` con su instante, sus
+bytes y lo que significa en CANopen, y cuenta los marcos, los errores, los que
+**nadie asiente** y la carga del bus.
+
+    100.0000  701  1  00                       boot-up del nodo 1
+    100.2375  601  8  40 00 10 00 00 00 00 00  SDO al nodo 1: lee 1000:00
+    100.4855  581  8  43 00 10 00 92 01 02 00  SDO del nodo 1: 1000:00 vale 131474 (0x20192)
+    106.1029  000  2  01 01                    NMT: arranca el nodo 1
+    106.4952  080  0                           SYNC
+    106.5972  181  6  50 02 00 00 00 00        TPDO1 del nodo 1
+
+**Lo que sale** (`make gui-cnc`, C10) con `placas/eje_canopen.xml`: una Nucleo
+con un transceptor SN65HVD230 en su CAN1 (PB8 y PB9) y el maestro de
+`verif/fw/canopen`, y `placas/eje_x_canopen.xml`, un eje X con un BLDC, un
+husillo de bolas 1605, un carro de 10 kg, el final de abajo y el analizador.
+
+* El arranque, en el hilo: el boot-up a los 100 ms, 15 SDO, el NMT, y la SYNC
+  cada 5 ms con su TPDO1 detrás; *Switch on disabled*, *Ready to switch on*,
+  *Switched on* y *Operation enabled*. El bus, al 6 %.
+* El homing por el final: el cero, a 5,02 mm del tope —el final y su
+  histéresis—. Un movimiento de 100 mm a 50 mm/s con 500 mm/s² tarda 2,09 s,
+  2,1 en la cuenta.
+* Un final pisado para el eje con la parada rápida. **Tiene que estar más lejos
+  del tope de lo que el eje tarda en parar**: a 50 mm/s, la de omisión
+  —250 mm/s²— necesita 5 mm, y el final está a 5. El maestro pone 1000.
+* Contra el tope de arriba, el error de seguimiento: un EMCY 8611, *Fault*, el
+  reinicio con su EMCY 0000, y otra vez en marcha.
+* Sin el controlador, nadie asiente: el analizador ve los reintentos del
+  maestro sin asentimiento, los 16 primeros con su marco de error y, desde que
+  el maestro está en error pasivo —TEC 128, y ahí se queda—, con la bandera
+  pasiva, que no se ve, y la suspensión: uno cada 166 µs en vez de cada 150.
 
 ---
 

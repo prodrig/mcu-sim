@@ -52,6 +52,13 @@
 #       sin ella, el bus sube y salta la protección -y el freno sujeta el Z-;
 #       con una fuente que absorbe, no pasa nada. Y un final de 24 V por un
 #       optoacoplador.
+#   C10 (F6) EL BUS DE CAMPO. Un eje X con su controlador por CANopen y una
+#       Nucleo con un transceptor y un maestro (verif/fw/canopen): el
+#       arranque -boot-up, SDO, NMT, la SYNC y la maquina de estados de CiA
+#       402-, el homing por el final, el perfil de posicion, un final que para
+#       el eje, el fallo con su EMCY y su reinicio, el perfil de velocidad, la
+#       parada rapida, y un bus sin nadie que asienta. Las tramas, en el hilo:
+#       las apunta un analizador.
 #
 # Cada grupo monta su banco en una carpeta temporal, con placas escritas aquí.
 #
@@ -1966,6 +1973,201 @@ def c9_potencia(sim, cp):
           % (led[pis[0]][1] if pis else 0, sal[pis[0]][1] if pis else 0))
 
 
+OBS_CAN = [("E/CX", "posicion"), ("E/U1", "statusword"), ("E/U1", "posicion"), ("E/A1", "tramas"),
+           ("E/A1", "carga")]
+
+
+def eje_can(sim, cp, guion, ms, extra=(), periodo_ns=5000000):
+    """El eje X por CANopen (placas/eje_canopen.xml) con el maestro de
+    verif/fw/canopen, las órdenes de `guion` tecleadas por el VCP y el
+    analizador apuntando en una traza. Devuelve (series, avisos, consola,
+    marcos, segundos de reloj): marcos, [(ms, id o None, bytes, texto)]"""
+    placas = os.path.abspath("placas")
+    n = open(os.path.join(placas, "nucleo_f446re.xml"), encoding="utf-8").read()
+    n = n.replace('host="rfc2217:3355"\n              baudios="host"',
+                  'host="memoria" guion_ms="20" guion="%s"\n              baudios="115200"' % guion)
+    d = os.path.dirname(cp("nucleo.xml", n))
+    traza = os.path.join(d, "traza_can.txt")
+    if os.path.exists(traza):
+        os.remove(traza)
+    e = open(os.path.join(placas, "eje_x_canopen.xml"), encoding="utf-8").read()
+    e = e.replace('bitrate="500e3">', 'bitrate="500e3" traza="%s">' % traza)
+    for a, b in extra:
+        e = e.replace(a, b)
+    cp("eje.xml", e)
+    x = open(os.path.join(placas, "eje_canopen.xml"), encoding="utf-8").read()
+    x = x.replace('fichero="nucleo_f446re.xml"', 'fichero="%s/nucleo.xml"' % d)
+    x = x.replace('fichero="eje_x_canopen.xml"', 'fichero="%s/eje.xml"' % d)
+    x = x.replace('fichero="sn65hvd230.xml"', 'fichero="%s/sn65hvd230.xml"' % placas)
+    x = x.replace('firmware="verif/fw/canopen/canopen.bin"',
+                  'firmware="%s"' % os.path.abspath("verif/fw/canopen/canopen.bin"))
+    ruta = cp("canopen.xml", x)
+    t0 = time.time()
+    s, avs, cat, rc = muestrea(sim, ruta, ms, OBS_CAN, periodo_ns=periodo_ns)
+    dt = time.time() - t0
+    marcos = []
+    if os.path.exists(traza):
+        for l in open(traza, encoding="utf-8"):
+            if l.startswith("#") or not l.strip():
+                continue
+            p = l.split()
+            if p[1] == "---":
+                marcos.append((float(p[0]), None, [], l.split("---", 1)[1].strip()))
+                continue
+            k = int(p[2])
+            marcos.append((float(p[0]), int(p[1], 16), [int(b, 16) for b in p[3:3 + k]],
+                           " ".join(p[3 + k:])))
+    return s, avs, ULTIMA[0], marcos, dt
+
+
+def tras(lineas, texto, desde=0):
+    """El índice de la primera línea desde `desde` que lleva `texto`, o -1"""
+    for i in range(desde, len(lineas)):
+        if texto in lineas[i]:
+            return i
+    return -1
+
+
+def c10_canopen(sim, cp):
+    grupo("C10 (F6) El bus de campo: un eje por CANopen")
+    rc, out = valida(sim, "placas/eje_canopen.xml")
+    f = piezas_sin_dibujo("sn65hvd230") + piezas_sin_dibujo("eje_x_canopen")
+    check(rc == 0 and "3 placas" in out and " 0 avisos" in out and
+          "dibujo T: sn65hvd230.svg (" in out and "dibujo E: eje_x_canopen.svg (" in out and not f,
+          "placas/eje_canopen.xml -la Nucleo con el maestro, un transceptor SN65HVD230 en su "
+          "CAN1 y el eje X con su controlador por CANopen y un analizador del bus- se valida sin "
+          "avisos, con sus dibujos%s" % (" (faltan: %s)" % f if f else ""))
+
+    # --- El arranque ---------------------------------------------------------
+    s, avs, out, mc, dt = eje_can(sim, cp, "?\\n", 700)
+    v = vcp(out)
+    orden = ["boot-up del nodo 1", "tipo de aparato 0x00020192", "Switch on disabled (0x0250)",
+             "Ready to switch on (0x0231)", "Switched on (0x0233)", "Operation enabled (0x0237)",
+             "listo"]
+    pos, i = [], 0
+    for o in orden:
+        i = tras(v, o, i)
+        pos.append(i)
+    check(all(k >= 0 for k in pos),
+          "EL ARRANQUE: el boot-up del nodo, su tipo por SDO -0x00020192, CiA 402-, y la maquina "
+          "de estados del accionamiento por la palabra de control, en su orden: Switch on "
+          "disabled, Ready to switch on, Switched on, Operation enabled%s"
+          % ("" if all(k >= 0 for k in pos) else " (falta: %s)" % orden[pos.index(-1)]))
+    pide = [m for m in mc if m[1] == 0x601]
+    resp = [m for m in mc if m[1] == 0x581]
+    nmt = [m for m in mc if m[1] == 0x000]
+    syncs = [m for m in mc if m[1] == 0x080]
+    check(mc and mc[0][1] == 0x701 and mc[0][2] == [0] and abs(mc[0][0] - 100.0) < 0.01 and
+          len(pide) == len(resp) >= 14 and not any("ABORTA" in m[3] for m in resp) and
+          nmt and nmt[0][2] == [1, 1] and syncs and nmt[0][0] < syncs[0][0],
+          "EN EL HILO, lo primero es el boot-up (701, 00) a los %.1f ms -los 100 de su arranque-; "
+          "%d SDO, todos contestados y ninguno abortado; y el NMT de arranque (000, 01 01) antes de "
+          "la primera SYNC" % (mc[0][0] if mc else 0, len(pide)))
+    huecos = [b[0] - a[0] for a, b in zip(syncs, syncs[1:])]
+    tpdo = [m for m in mc if m[1] == 0x181]
+    tras_sync = all(any(0 < t[0] - y[0] < 0.25 for t in tpdo) for y in syncs)
+    check(huecos and max(abs(h - 5.0) for h in huecos) < 0.002 and tras_sync,
+          "la SYNC sale cada 5 ms -%d, de %.4f a %.4f ms entre una y otra- y tras cada una, en "
+          "menos de un cuarto de ms, el TPDO1 del nodo: su palabra de estado y su posicion"
+          % (len(syncs), min(huecos) if huecos else 0, max(huecos) if huecos else 0))
+
+    # --- El homing, el perfil de posicion y un final -------------------------
+    s, avs, out, mc, dt = eje_can(sim, cp, "H\\nG 100\\nG 50.5\\n?\\nG -10\\nG 20\\n", 9000)
+    v = vcp(out)
+    cx = s[("E/CX", "posicion")]
+    hm = next((l for l in v if l.startswith("homing hecho")), "")
+    fin = cx[-1][1]
+    cero = fin - 20.0
+    check("0x1637" in hm and abs(cero - 5.02) < 0.01,
+          "EL HOMING por el final de abajo (metodo 17): hacia el deprisa, de vuelta despacio, y el "
+          "cero donde se suelta: a %.3f mm del tope, el final de 5 mm con su histeresis. La "
+          "palabra de estado lo dice: %s" % (cero, hm.split(": ", 1)[-1]))
+    g = next((l for l in v if l.startswith("en 100.")), "")
+    ms_g = numero_tras(g, "a los ") if g else 0
+    # La velocidad, de 20 en 20 ms: la posición llega cada 5, con el paso del encoder
+    vel = [(b[1] - a[1]) / (b[0] - a[0]) for a, b in zip(cx, cx[4:]) if b[0] - a[0] > 0]
+    vmax = max(vel) if vel else 0
+    crucero = sorted(x for x in vel if x > 45.0)
+    vc = crucero[len(crucero) // 2] if crucero else 0
+    llega = [x for t, x in cx if abs(x - (cero + 100.0)) < 0.05]
+    check(g and abs(ms_g - 2100) <= 20 and abs(vc - 50.0) < 0.1 and vmax < 55.0 and llega,
+          "EL PERFIL DE POSICION: a 100 mm por el RPDO1 -la consigna con el bit 4 y el saludo del "
+          "12- a 50 mm/s con 500 mm/s2: llega en %d ms -2100 en la cuenta-, a %.2f mm/s de "
+          "crucero, y el carro se queda a 100 mm del cero. Al acabar de acelerar el servo se pasa "
+          "hasta %.1f mm/s: recupera el error de seguimiento" % (ms_g, vc, vmax))
+    lim = next((l for l in v if l.startswith("error: no llega")), "")
+    vuelta = next((l for l in v if l.startswith("en 20.")), "")
+    xmin = min(x for t, x in cx[len(cx) // 2:])
+    check("0x0A37" in lim and xmin > 3.0 and "choca" not in textos(avs) and vuelta,
+          "UN FINAL QUE PARA EL EJE: a -10 mm, el final de abajo lo para con la parada rapida "
+          "-el bit 11 de la palabra de estado, %s-, a %.2f mm del tope sin llegar a el; y de "
+          "vuelta a 20 mm, sale del final y llega" % (lim.split(", ")[-1], xmin))
+    hb = [m for m in mc if m[1] == 0x701 and m[2] == [5]]
+    hb_h = [b[0] - a[0] for a, b in zip(hb, hb[1:])]
+    rpdo = [m for m in mc if m[1] == 0x201]
+    errs = [m for m in mc if m[1] is None]
+    noack = [m for m in mc if "NADIE" in m[3]]
+    carga = 100.0 * sum(1 for m in mc if m[1] is not None) / max(1, len(mc))
+    check(hb_h and max(abs(h - 100.0) for h in hb_h) < 1.0 and len(rpdo) == 12 and not errs and
+          not noack and s[("E/A1", "carga")][-1][1] < 15.0,
+          "en %.0f s, %d marcos en el hilo: el heartbeat del nodo cada 100 ms (%d, operacional), "
+          "12 RPDO -tres por movimiento-, ni un error ni un marco sin asentir, y el bus al %.1f %%"
+          % (mc[-1][0] / 1e3 if mc else 0, len(mc), len(hb), s[("E/A1", "carga")][-1][1]))
+    check(dt < 9.0 * 1.5, "9 s del eje en %.1f s de reloj" % dt)
+
+    # --- El fallo, su reinicio, el perfil de velocidad y la parada rapida ----
+    g = "H\\nG 320\\nR\\nG 200\\nV -20\\nP 500\\nV 0\\nP 300\\n?\\nV 30\\nP 300\\nQ\\n?\\n"
+    s, avs, out, mc, dt = eje_can(sim, cp, g, 14000)
+    v = vcp(out)
+    tx = textos(avs)
+    em = [m for m in mc if m[1] == 0x081]
+    i_f = tras(v, "Fault (0x0218)")
+    check("choca con el tope de arriba" in tx and em and em[0][2][:3] == [0x11, 0x86, 0x21] and
+          tras(v, "EMCY del nodo 1: 0x8611") >= 0 and tras(v, "Fault reaction active (0x021F)") >= 0
+          and i_f >= 0,
+          "EL FALLO: a 320 mm, el carro choca con el tope de arriba, el error de seguimiento pasa "
+          "de una vuelta y el controlador se para y lo dice por el bus: un EMCY 8611 con el "
+          "registro 21, y Fault reaction active -echando el freno- y Fault en su palabra de estado")
+    i_r = tras(v, "EMCY del nodo 1: 0x0000", i_f)
+    i_oe = tras(v, "Operation enabled", i_r)
+    g200 = next((l for l in v if l.startswith("en 199.") or l.startswith("en 200.")), "")
+    check(i_r > 0 and i_oe > 0 and g200 and abs(numero_tras(g200, "en ") - 200.0) < 0.02,
+          "y SU REINICIO: el bit 7 de la palabra de control en Fault quita el fallo -un EMCY "
+          "0000-, se vuelve a habilitar y el eje vuelve a ir: %s" % g200)
+    p190 = next((l for l in v if l.startswith("pos 19")), "")
+    check(p190 and abs(numero_tras(p190, "pos ") - 190.0) < 0.05,
+          "EL PERFIL DE VELOCIDAD, por el RPDO2: a -20 mm/s medio segundo y parado, el eje "
+          "acaba a 10 mm de donde estaba -%s-" % p190.split(" (")[0])
+    i_q = tras(v, "Quick stop active (0x0217)")
+    i_s = tras(v, "Switch on disabled (0x0250)", max(i_q, 0))
+    cx = s[("E/CX", "posicion")]
+    sw = s[("E/U1", "statusword")]
+    check(i_q > 0 and i_s > i_q and abs(cx[-1][1] - cx[-2][1]) < 1e-3 and sw[-1][1] == 0x0250,
+          "LA PARADA RAPIDA, yendo a 30 mm/s: Quick stop active mientras frena con su rampa y, "
+          "parado, Switch on disabled: sin corriente")
+
+    # --- Un bus sin nadie que asienta ----------------------------------------
+    s, avs, out, mc, dt = eje_can(sim, cp, "?\\n", 1200, extra=(
+        ('<componente tipo="ControladorMotor" id="U1"',
+         '<componente tipo="ControladorMotor" id="U1" conectada="no"'),))
+    v = vcp(out)
+    nc = next((l for l in v if l.startswith("nadie contesta")), "")
+    marcos = [m for m in mc if m[1] is not None]
+    banderas = [m for m in mc if m[1] is None and "marco de error" in m[3]]
+    # Los reintentos: cada 75 bits mientras es error activo; con la bandera
+    # pasiva y la suspension, cada 83
+    h = [round((b[0] - a[0]) * 1e3) for a, b in zip(marcos, marcos[1:])]
+    check(nc and "TEC=128" in nc and "error pasivo" in nc and "bus off" not in nc and
+          len(marcos) > 1000 and all("NADIE LO ASIENTE" in m[3] for m in marcos) and
+          len(banderas) == 16 and h[:15] == [150] * 15 and h[20:30] == [166] * 10 and
+          marcos[-1][0] < 1100.0,
+          "SIN EL CONTROLADOR, nadie asiente: el maestro reintenta su NMT sin parar -el "
+          "analizador, que no asiente, lo ve %d veces-; los 16 primeros con su marco de error, "
+          "hasta el error pasivo, TEC 128, y desde ahi con la bandera pasiva -que no se ve- y la "
+          "suspension: un reintento cada 166 us en vez de cada 150. Y ahi se queda, sin "
+          "desconectarse: %s" % (len(marcos), nc))
+
+
 def main():
     a = argparse.ArgumentParser(description="La fresadora CNC, por fases, contra el mcu-sim de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -1991,6 +2193,7 @@ def main():
         c7_grblhal(sim, cp)
         c8_pieza(sim, cp)
         c9_potencia(sim, cp)
+        c10_canopen(sim, cp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print()
