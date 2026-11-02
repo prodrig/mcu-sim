@@ -924,6 +924,140 @@ def eje_x_canopen():
     s.guarda("eje_x_canopen.svg")
 
 
+# ---------------------------------------------------------------------------
+# EL BLDC NANOTEC DB42S01 (F7)
+# ---------------------------------------------------------------------------
+def db42s01():
+    s = Svg(700, 520, """
+  MOTOR BLDC NANOTEC DB42S01 (NEMA 17), dibujado a mano: una aproximacion, no
+  una foto. Es el dibujo de placas/db42s01.xml, que lo encuentra solo porque se
+  llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 70 x 52 mm- y cada pieza con el id de su pieza en el XML. Visto de
+  frente: la cara de 42 mm y sus dos cables.
+
+    MOTOR  el EJE, que gira con el rotor (el efecto `angulo`)
+    M      las tres fases: M.U, M.V y M.W
+    P1     el cable de los Hall: P1.VCC, P1.GND, P1.H1, P1.H2 y P1.H3
+""")
+    s.add(s.rect(0, 0, 700, 520, "#eceff1", rx=10))
+    cara_nema(s, 230, 260, 420, 310, 220, 50, "DB42S01  BLDC")
+    hilos_motor(s, 500, 60, ("#f9a825", "#c62828", "#212121"), ("U", "V", "W"), paso=46)
+    hilos_motor(s, 500, 230, ("#c62828", "#212121", "#1565c0", "#eceff1", "#2e7d32"),
+                ("VCC", "GND", "H1", "H2", "H3"), id_con="P1", paso=46)
+    s.add(s.text(580, 490, "48 V  31 W  6000 rpm", 12, "#263238", "middle"))
+    s.guarda("db42s01.svg")
+
+
+# ---------------------------------------------------------------------------
+# LA X-NUCLEO-IHM07M1 (F7)
+# ---------------------------------------------------------------------------
+def x_nucleo_ihm07m1():
+    s = Svg(700, 620, """
+  X-NUCLEO-IHM07M1 (ST), dibujada a mano: una aproximacion, no una foto. Es el
+  dibujo de placas/x_nucleo_ihm07m1.xml, que lo encuentra solo porque se llama
+  como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 70 x 62 mm- y cada pieza con el id de su pieza en el XML. Vista
+  desde arriba:
+
+    CN7, CN10   los morpho de debajo, en los bordes: CN7.1 ... CN7.38, los
+                impares por fuera
+    U1          el L6230, en el centro
+    J1          la borna de la alimentacion: VIN y GND
+    J2          la borna del motor: A, B y C
+    J3          la borna de los Hall: 5V, GND, H1, H2 y H3
+    REN         la resistencia de DIAG-EN; RH1, RH2 y RH3 las de los Hall
+    D11         el LED rojo
+""")
+    s.add(s.rect(0, 0, 700, 620, "#1b5e20", "#0d3b10", 2, rx=12))
+
+    def morpho(id_con, x_fuera, x_dentro):
+        s.add('<g id="%s">' % id_con)
+        for k in range(1, 39):
+            fila = (k - 1) // 2
+            x = x_fuera if k % 2 else x_dentro
+            pin_tira(s, "%s.%d" % (id_con, k), x, 70 + fila * 25.4)
+        s.add("</g>")
+        s.add(s.text((x_fuera + x_dentro) / 2, 50, id_con, 10, BLANCO, "middle"))
+
+    morpho("CN7", 30, 55.4)
+    morpho("CN10", 670, 644.6)
+    s.add('<g id="U1">')
+    s.add("  " + s.rect(270, 260, 160, 160, "#212121", "#000000", 1.5, rx=4))
+    s.add("  " + s.text(350, 335, "L6230", 18, "#e0e0e0", "middle"))
+    s.add("  " + s.text(350, 362, "DMOS 3 x 2,8 A", 10, "#9e9e9e", "middle", bold=False))
+    s.add("</g>")
+
+    def borna(id_con, nombres, x0, y0, dx, rotulos):
+        n = len(nombres)
+        s.add(s.rect(x0 - 25, y0 - 25, dx * (n - 1) + 50, 50, "#1565c0", "#0d47a1", 1.5, rx=4))
+        s.add('<g id="%s">' % id_con)
+        for k, nm in enumerate(nombres):
+            tornillo(s, "%s.%s" % (id_con, nm), x0 + k * dx, y0)
+        s.add("</g>")
+        for k, nm in enumerate(rotulos):
+            s.add(s.text(x0 + k * dx, y0 + 42, nm, 9, BLANCO, "middle"))
+
+    borna("J1", ("VIN", "GND"), 140, 110, 46, ("VIN", "GND"))
+    borna("J2", ("A", "B", "C"), 420, 110, 46, ("A", "B", "C"))
+    borna("J3", ("5V", "GND", "H1", "H2", "H3"), 200, 540, 46, ("+", "GND", "H1", "H2", "H3"))
+    s.add('<g id="REN">')
+    s.add("  " + s.rect(480, 300, 40, 14, "#d7ccc8", "#5d4037", 1))
+    s.add("</g>")
+    for k in range(3):
+        s.add('<g id="RH%d">' % (k + 1))
+        s.add("  " + s.rect(140 + k * 50, 450, 40, 14, "#d7ccc8", "#5d4037", 1))
+        s.add("</g>")
+    s.add(s.circ(530, 470, 10, "#e53935", "#7f0000", 1.2, id="D11"))
+    s.add(s.text(530, 498, "FAULT", 8, BLANCO, "middle"))
+    s.add(s.text(350, 220, "X-NUCLEO-IHM07M1", 13, BLANCO, "middle"))
+    s.add(s.text(350, 236, "8-48 V  1,4 A", 9, BLANCO, "middle", bold=False))
+    s.guarda("x_nucleo_ihm07m1.svg")
+
+
+# ---------------------------------------------------------------------------
+# UNA FUENTE DE 24 V (F7)
+# ---------------------------------------------------------------------------
+def fuente_24v():
+    s = Svg(800, 400, """
+  UNA FUENTE CONMUTADA DE 24 V Y 5 A, de caja metalica, dibujada a mano: una
+  aproximacion, no una foto. Es el dibujo de placas/fuente_24v.xml, que lo
+  encuentra solo porque se llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 80 x 40 mm- y cada pieza con el id de su pieza en el XML:
+
+    PSU  la ventanita del display, con sus dos filas: la ventana escribe en
+         la de arriba la tension y en la de abajo la corriente (el efecto
+         `display`)
+    P1   la borna: P1.POS (V+) y P1.NEG (V-)
+""")
+    s.add(s.rect(0, 0, 800, 400, "#90a4ae", "#546e7a", 2, rx=8))
+    for k in range(14):
+        s.add(s.rect(40 + k * 22, 40, 10, 140, "#607d8b", rx=4))
+    s.add(s.text(200, 230, "24 V  5 A", 22, "#263238", "middle"))
+    s.add(s.text(200, 260, "fuente conmutada", 13, "#263238", "middle", bold=False))
+    s.add('<g id="PSU">')
+    s.add("  " + s.rect(70, 290, 260, 90, "#111111", "#000000", 1.5, rx=4))
+    s.add("  " + s.rect(78, 298, 244, 34, "#1a1a1a"))
+    s.add("  " + s.rect(78, 338, 244, 34, "#1a1a1a"))
+    s.add("</g>")
+    s.add(s.rect(420, 60, 340, 120, "#212121", "#000000", 1.5, rx=4))
+    s.add('<g id="P1">')
+    tornillo(s, "P1.POS", 520, 120)
+    tornillo(s, "P1.NEG", 660, 120)
+    s.add("</g>")
+    s.add(s.text(520, 210, "V+", 16, "#b71c1c", "middle"))
+    s.add(s.text(660, 210, "V-", 16, "#212121", "middle"))
+    s.guarda("fuente_24v.svg")
+
+
 if __name__ == "__main__":
     nema17()
     st5918()
@@ -940,3 +1074,6 @@ if __name__ == "__main__":
     eje_z_48v()
     sn65hvd230()
     eje_x_canopen()
+    db42s01()
+    x_nucleo_ihm07m1()
+    fuente_24v()

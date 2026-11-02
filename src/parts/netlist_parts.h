@@ -2156,6 +2156,64 @@ REGISTRA_PARTE(MedioPuente,
                                nd("is"), nd("vdd"));
     });
 
+REGISTRA_PARTE(PuenteTrifasico,
+    Ayuda("Un PUENTE TRIFASICO integrado, el L6230 de ST: tres medios puentes de DMOS, de 8 a "
+          "52 V y 2,8 A de pico, para un BLDC que conmuta el MCU (el de la X-NUCLEO-IHM07M1). "
+          "Por medio puente: ENx lo habilita -bajo, sus dos transistores abiertos- e INx elige: "
+          "alto, OUTx a VS por el de arriba; bajo, a masa por el de abajo, 0,73 ohm cada uno. "
+          "DIAG-EN, baja, los abre todos, y el chip la baja el mismo -drenador abierto- con una "
+          "SOBRECORRIENTE de 2,8 A, durante t_bloqueo_us. La corriente de una fase que se suelta "
+          "sigue por los diodos de sus transistores hasta acabarse.")
+      .ejemplo("<componente tipo=\"PuenteTrifasico\" id=\"U1\">\n"
+               "  <pin nombre=\"vs\" nodo=\"VBUS\"/> <pin nombre=\"gnd\" nodo=\"GND\"/>\n"
+               "  <pin nombre=\"in1\" nodo=\"IN1\"/> <pin nombre=\"in2\" nodo=\"IN2\"/>\n"
+               "  <pin nombre=\"in3\" nodo=\"IN3\"/>\n"
+               "  <pin nombre=\"en1\" nodo=\"EN1\"/> <pin nombre=\"en2\" nodo=\"EN2\"/>\n"
+               "  <pin nombre=\"en3\" nodo=\"EN3\"/>\n"
+               "  <pin nombre=\"out1\" nodo=\"J2.A\"/> <pin nombre=\"out2\" nodo=\"J2.B\"/>\n"
+               "  <pin nombre=\"out3\" nodo=\"J2.C\"/>\n"
+               "  <pin nombre=\"diag\" nodo=\"DIAG\"/>\n"
+               "</componente>")
+      .pin("vs, gnd", "obligatorios", "La alimentacion de los transistores, de 8 a 52 V. Por "
+           "debajo de 5,5 V no hace nada (UVLO; vuelve a 6,3).")
+      .pin("in1, in2, in3", "obligatorios", "Las entradas de cada medio puente: alto, la salida a "
+           "VS; bajo, a masa. Cortan en 1,8 V al subir y en 1,3 al bajar.")
+      .pin("en1, en2, en3", "obligatorios", "Las habilitaciones: bajo, el medio puente abierto.")
+      .pin("out1, out2, out3", "obligatorios", "Las salidas, a las fases del motor.")
+      .pin("diag", "opcional", "DIAG-EN: entrada -baja, todo abierto- y salida de drenador "
+           "abierto, a masa con 100 ohm mientras dura una sobrecorriente. El pull-up es de la "
+           "placa.")
+      .atr("r_on", "0.73", "La resistencia de cada transistor, en ohm.")
+      .atr("i_ocp", "2.8", "La sobrecorriente, en A, en cualquier transistor que conduzca.")
+      .atr("t_bloqueo_us", "200", "Lo que se queda DIAG-EN bajo tras ella: el RC de REN y CEN de "
+           "la placa.")
+      .nota("Deja ver `corriente_1` a `corriente_3` (A, la que sale por cada salida), "
+            "`disipacion`, `sobrecorrientes` y la alarma `fallo`.")
+      .nota("Lo que no hace: el tiempo muerto de 1 us entre los dos transistores de una fase, "
+            "los tiempos de conmutacion y la proteccion termica.")
+      .cpp("estado(k), corriente(k), en_fallo(), sobrecorrientes(), vivo(), disipacion()."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto mal = [&](const std::string& t) {
+            SC_REPORT_ERROR("netlist", ("PuenteTrifasico '" + d.id + "': " + t).c_str());
+            return nullptr;
+        };
+        for (const char* t : {"vs", "gnd", "in1", "in2", "in3", "en1", "en2", "en3", "out1",
+                              "out2", "out3"})
+            if (d.nodo_de(t).empty()) return mal(std::string("le falta <pin nombre=\"") + t + "\">");
+        ConfigPuenteTrifasico c;
+        c.r_on = d.num("r_on", c.r_on);
+        c.i_ocp = d.num("i_ocp", c.i_ocp);
+        c.t_bloqueo_us = d.num("t_bloqueo_us", c.t_bloqueo_us);
+        if (c.r_on <= 0 || c.i_ocp <= 0 || c.t_bloqueo_us < 0)
+            return mal("r_on e i_ocp son positivos; t_bloqueo_us, no negativo");
+        analog_net_if* in[3] = {&n[d.nodo_de("in1")], &n[d.nodo_de("in2")], &n[d.nodo_de("in3")]};
+        analog_net_if* en[3] = {&n[d.nodo_de("en1")], &n[d.nodo_de("en2")], &n[d.nodo_de("en3")]};
+        analog_net_if* out[3] = {&n[d.nodo_de("out1")], &n[d.nodo_de("out2")], &n[d.nodo_de("out3")]};
+        return new PuenteTrifasico(d.id.c_str(), n[d.nodo_de("vs")], n[d.nodo_de("gnd")], in, en,
+                                   out, d.nodo_de("diag").empty() ? nullptr : &n[d.nodo_de("diag")],
+                                   c);
+    });
+
 REGISTRA_PARTE(MotorBLDC,
     Ayuda("Un MOTOR BLDC trifasico con sus tres sensores Hall y, con ppr=, un encoder, "
           "movido por un controlador que lo conmuta por dentro (ControladorMotor). Se "
@@ -2166,7 +2224,9 @@ REGISTRA_PARTE(MotorBLDC,
           "cruzadas o al aire, sin corriente y con aviso. Los Hall y el encoder son de "
           "colector abierto: el pull-up lo pone quien los lee. Lo mecanico es de su "
           "cadena (parts/cadena.h). Las cifras de omision, las del Nanotec "
-          "DB59L024035-A.")
+          "DB59L024035-A. Con fases=\"si\", TRES FASES DE VERDAD en estrella, para un puente "
+          "trifasico que lo conmuta desde el MCU (PuenteTrifasico): Vk - Vn = Rf·ik + "
+          "Lf·dik/dt + ek, con la f.e.m. trapezoidal o senoidal.")
       .ejemplo("<componente tipo=\"MotorBLDC\" id=\"MOTOR\" kt_ncm_a=\"5\" r_ohm=\"0.22\" "
                "l_mh=\"0.29\"\n"
                "            inercia_gcm2=\"119\" pares_polos=\"3\">\n"
@@ -2199,6 +2259,15 @@ REGISTRA_PARTE(MotorBLDC,
       .atr("eje_mm", "0", "El diametro de su eje, para ver si encaja con el acople de una "
            "<transmision>; 0, no se comprueba.")
       .atr("posicion_inicial", "0", "El angulo del eje al arrancar, en grados.")
+      .atr("fases", "no", "si: tres fases en estrella, cada una con la mitad de r_ohm y de "
+           "l_mh y su f.e.m., para un puente que las conmute; no: en el eje q, para un "
+           "ControladorMotor.")
+      .atr("fem", "trapezoidal", "Con fases=\"si\", la forma de la f.e.m.: trapezoidal (plana "
+           "120°, la de U en +1 de 0° a 120° electricos, los sectores 0 y 1 de los Hall) o "
+           "senoidal. La constante por fase, Kt/2 o Kt/√3.")
+      .nota("Por fases deja ver ademas `corriente_u`, `corriente_v` y `corriente_w`, de cada "
+            "borne hacia el neutro. Una fase que solo ve mas de 100 ohm fuera esta abierta: sin "
+            "corriente, y su borne a la f.e.m.")
       .nota("Deja ver `angulo`, `rpm`, `corriente` (A, la del eje q), `par` (N·m), `tension` "
             "(la que le pone el controlador), `hall` (el codigo, H1 en el bit 2), la alarma "
             "`sobrecorriente` y, con encoder, `cuenta`. Los mandos: `bloquear` y `carga`, en "
@@ -2225,6 +2294,10 @@ REGISTRA_PARTE(MotorBLDC,
         c.posicion_inicial = d.num("posicion_inicial", 0.0);
         c.eje_mm = d.num("eje_mm", 0.0);
         if (c.eje_mm < 0) return mal("eje_mm no puede ser negativo");
+        c.fases = d.si("fases", false);
+        const std::string fem = d.txt("fem", "trapezoidal");
+        if (fem != "trapezoidal" && fem != "senoidal") return mal("fem es trapezoidal o senoidal");
+        c.senoidal = fem == "senoidal";
         const double pp = d.num("pares_polos", 3.0), ppr = d.num("ppr", 0.0);
         if (c.kt_ncm_a <= 0 || c.r_ohm <= 0 || c.l_mh <= 0 || c.inercia_gcm2 <= 0 ||
             c.corriente_nominal <= 0 || c.corriente_pico <= 0)

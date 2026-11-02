@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     EL BLDC NANOTEC DB42S01 (NEMA 17), POR FASES, sin MCU
+
+     La fase F7 de doc/analisis_cnc.md (§5.4): un BLDC pequeno para conmutarlo
+     desde el MCU con un puente trifasico -la X-NUCLEO-IHM07M1, con su L6230 de
+     1,4 A eficaces y 2,8 de pico-. Sus cifras, las de su ficha [Nanotec,
+     DB42S01]: 48 V, 6000 rpm y 31 W; 0,88 A nominales y 2,63 de pico; 5,7
+     N·cm/A; 3,5 ohm y 5,8 mH entre fases; 24 g·cm2 de rotor.
+
+     LO QUE LA FICHA NO DICE, ESTIMADO: los pares de polos -4, los de un motor
+     de 42 mm de ocho polos- y el rozamiento -0,3 N·cm-. Los Hall, a 120°
+     electricos y de colector abierto, como los de los DB de Nanotec.
+
+     El motor, por fases (`fases="si"`): tres fases en estrella, con la mitad de
+     la resistencia y de la inductancia de entre dos cada una -1,75 ohm y 2,9
+     mH-, y la f.e.m. trapezoidal. Sus hilos:
+
+         M   U, V, W        las fases
+         P1  VCC, GND       la alimentacion de los Hall, 5 V
+             H1, H2, H3     los Hall: el pull-up lo pone quien los lee
+
+         ./build/mcu-sim placas/db42s01.xml --valida
+     ========================================================================= -->
+<placa nombre="db42s01">
+  <componente tipo="Conector" id="M" filas="3" columnas="1" nombres="U V W"/>
+  <componente tipo="Conector" id="P1" filas="5" columnas="1" nombres="VCC GND H1 H2 H3"/>
+
+  <componente tipo="MotorBLDC" id="MOTOR" fases="si" fem="trapezoidal" kt_ncm_a="5.7"
+              r_ohm="3.5" l_mh="5.8" corriente_nominal="0.88" corriente_pico="2.63"
+              inercia_gcm2="24" rozamiento_ncm="0.3" viscoso_mnms="0.005" pares_polos="4">
+    <pin nombre="u"        nodo="M.U"/>
+    <pin nombre="v"        nodo="M.V"/>
+    <pin nombre="w"        nodo="M.W"/>
+    <pin nombre="hall_vcc" nodo="P1.VCC"/>
+    <pin nombre="hall_gnd" nodo="P1.GND"/>
+    <pin nombre="h1"       nodo="P1.H1"/>
+    <pin nombre="h2"       nodo="P1.H2"/>
+    <pin nombre="h3"       nodo="P1.H3"/>
+  </componente>
+
+  <ilustracion>
+    <enlace pieza="MOTOR" elemento="MOTOR" efecto="angulo"/>
+  </ilustracion>
+</placa>

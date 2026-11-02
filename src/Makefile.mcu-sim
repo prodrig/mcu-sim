@@ -1136,13 +1136,14 @@ FWF3 := verif/fw/stm32f3/f3_demo verif/fw/stm32f3/coremark verif/fw/stm32f3/gpio
 # del contexto FP de las excepciones anidadas que destapo, que vigila tambien
 # `make gui-cnc`; y la de las banderas GE de las sumas paralelas, que destapo
 # grblHAL, tambien en `make gui-cnc`; y el maestro CANopen del eje por el bus
-# de campo, el de placas/eje_canopen.xml, que vigila `make gui-cnc`. grblHAL
-# mismo NO esta en la lista: es GPL-3, no se versiona, y `make -C
+# de campo, el de placas/eje_canopen.xml, que vigila `make gui-cnc`; y el del
+# BLDC conmutado por el MCU, el de placas/nucleo_ihm07m1_db42.xml, que vigila
+# tambien `make gui-cnc`. grblHAL mismo NO esta en la lista: es GPL-3, no se versiona, y `make -C
 # verif/fw/grblhal` lo baja de la red
 FWPLACAS := verif/fw/barra8_demo verif/fw/barra8_morpho verif/fw/tft_demo verif/fw/tft_prueba \
             verif/fw/servo_demo verif/fw/servo_prueba verif/fw/encoder_tft_servo \
             verif/fw/encoder_lcd_servo_2xmcc verif/fw/cnc_pid verif/fw/cnc \
-            verif/fw/fp_anidado verif/fw/simd_ge verif/fw/canopen
+            verif/fw/fp_anidado verif/fw/simd_ge verif/fw/canopen verif/fw/bldc6
 
 # Todos los que hay, para `cleanfw`. Se calculan buscando Makefiles en vez de
 # escribir otra lista: asi un firmware nuevo se borra sin tocar esto.

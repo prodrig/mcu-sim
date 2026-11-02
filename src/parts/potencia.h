@@ -15,6 +15,10 @@
 //                el transistor de arriba o el de abajo, INH lo habilita, y IS
 //                saca una corriente proporcional a la de la salida. Dos son
 //                un puente en H, el módulo IBT-2 de 43 A
+//   PuenteTrifasico  tres medios puentes en un chip, el L6230 de ST (fase
+//                F7): el de la X-NUCLEO-IHM07M1, para un BLDC que conmuta el
+//                MCU. INx y ENx por medio puente, y DIAG-EN, que los apaga
+//                todos y por el que el chip dice una sobrecorriente
 //
 // LOS DOS SON COMO EL L298 (parts/puente_h.h), con otras cifras: lo que
 // conducen es una resistencia -RDS(on), de miliohmios- y no una caída de
@@ -412,6 +416,250 @@ private:
     double v_is_ = -1.0;
     double i_ = 0.0, i_is_ = 0.0, p_ = 0.0, r_vs_ = 0.0, i_vs_ = 0.0;
     double med_[2] = {0.0, 0.0}, t_med_ = 0.0;
+    sc_core::sc_event ev_;
+    std::unique_ptr<sc_core::sc_event_or_list> despierta_;
+    std::set<std::string> dichos_;
+};
+
+// ---------------------------------------------------------------------------
+// UN PUENTE TRIFÁSICO INTEGRADO: el L6230 de ST [L6230, DocID18094 Rev 3], el
+// de la X-NUCLEO-IHM07M1 (fase F7 de doc/analisis_cnc.md, §5.4). Tres medios
+// puentes de DMOS, de 8 a 52 V y 2,8 A de pico:
+//
+//   ENx  habilita su medio puente; bajo, sus dos transistores abiertos
+//   INx  con ENx alto, alto pone OUTx en VS por el de arriba y bajo, en masa
+//        por el de abajo: 0,73 ohm cada uno
+//   DIAG-EN  entrada y salida a la vez: baja, abre los seis transistores; y el
+//        chip la baja él mismo -drenador abierto- si detecta una SOBRECORRIENTE
+//        (2,8 A típicos en cualquiera de ellos) o se calienta, durante
+//        `t_bloqueo_us`, lo que tarda en cargarse el RC de REN y CEN de la
+//        placa (200 us con 100 kohm y 5,6 nF). Quien la lea -la entrada de
+//        freno de un temporizador- se entera
+//
+// Como el BTS7960: la corriente de una fase que se suelta sigue por los diodos
+// de sus transistores (1,15 V) hasta acabarse. Por debajo de 5,5 V en VS -su
+// UVLO, que vuelve a 6,3- no hace nada. Las entradas cortan en 1,8 V al subir
+// y en 1,3 al bajar: valen 3,3 V.
+//
+// Lo que NO hace: el tiempo muerto de 1 us que pone el chip entre un
+// transistor y otro de una misma fase (la corriente pasa por el diodo en vez de
+// por el de enfrente ese microsegundo), los tiempos de conmutación, la
+// temperatura y la protección térmica.
+// ---------------------------------------------------------------------------
+struct ConfigPuenteTrifasico {
+    std::string modelo = "L6230";
+    double r_on = 0.73;                // ohm, cada transistor
+    double vd = 1.15, rd = 0.1;        // los diodos
+    double i_ocp = 2.8;                // A: la sobrecorriente
+    double t_bloqueo_us = 200.0;       // lo que DIAG-EN se queda bajo tras ella
+    double vs_on = 6.3, vs_off = 5.5;  // V: el UVLO
+    double v_alto = 1.8, v_bajo = 1.3; // V: las entradas
+    double iq = 5e-3;                  // A: lo que gasta
+    double vs_max = 52.0;              // V
+};
+
+SC_MODULE(PuenteTrifasico), public ExtPartBase {
+    PuenteTrifasico(sc_core::sc_module_name nm, analog_net_if& vs, analog_net_if& gnd,
+                    analog_net_if* in[3], analog_net_if* en[3], analog_net_if* out[3],
+                    analog_net_if* diag, const ConfigPuenteTrifasico& c = ConfigPuenteTrifasico())
+        : sc_core::sc_module(nm), ExtPartBase("PuenteTrifasico", nm), vs_(&vs), gnd_(&gnd),
+          diag_(diag), c_(c) {
+        const int ivs = add_pin("vs", vs, "l6230");
+        const int ig = add_pin("gnd", gnd, "l6230");
+        carga_.reset(new RamaDosNodos(vs, ivs, gnd, ig));
+        static const char* ni[3] = {"in1", "in2", "in3"};
+        static const char* ne[3] = {"en1", "en2", "en3"};
+        static const char* no[3] = {"out1", "out2", "out3"};
+        for (int k = 0; k < 3; ++k) {
+            m_[k].in = in[k];
+            m_[k].en = en[k];
+            m_[k].out = out[k];
+            add_ref(ni[k], *in[k]);
+            add_ref(ne[k], *en[k]);
+            m_[k].id = add_pin(no[k], *out[k], "l6230_out");
+        }
+        if (diag_) id_diag_ = add_pin("diag", *diag_, "l6230_diag");
+        SC_HAS_PROCESS(PuenteTrifasico);
+        SC_THREAD(puente);
+    }
+    ~PuenteTrifasico() override {
+        carga_->suelta();
+        for (Medio& m : m_) m.out->set_hiz(m.id);
+        if (diag_) diag_->set_hiz(id_diag_);
+    }
+
+    // De cada medio puente: "alto", "bajo", "diodo" o "abierto"
+    const char* estado(int k) const {
+        const Medio& m = m_[k];
+        if (m.activo) return m.alto ? "alto" : "bajo";
+        return m.diodo != 0 ? "diodo" : "abierto";
+    }
+    double corriente(int k) const { return m_[k].conduce ? m_[k].i : 0.0; }   // A, la que sale
+    bool   en_fallo() const { return fallo_; }
+    unsigned sobrecorrientes() const { return n_ocp_; }
+    bool   vivo() const { return vivo_; }
+    double disipacion() const { return media(med_p_, p_); }
+    const ConfigPuenteTrifasico& config() const { return c_; }
+
+    unsigned n_observables() const override { return 6; }
+    Observable observable(unsigned i) const override {
+        static const char* nc[3] = {"corriente_1", "corriente_2", "corriente_3"};
+        if (i < 3) return {nc[i], "A", -3.f, 3.f, false};
+        if (i == 3) return {"disipacion", "W", 0.f, 5.f, false};
+        if (i == 4) return {"sobrecorrientes", "", 0.f, 1e6f, false};
+        return {"fallo", "", 0.f, 1.f, true, true};
+    }
+    float valor_observable(unsigned i) const override {
+        if (i < 3) return float(corriente(int(i)));
+        if (i == 3) return float(disipacion());
+        if (i == 4) return float(n_ocp_);
+        return fallo_ ? 1.f : 0.f;
+    }
+
+private:
+    struct Medio {
+        analog_net_if *in = nullptr, *en = nullptr, *out = nullptr;
+        int id = -1;
+        bool niv_in = false, niv_en = false;
+        bool activo = false, alto = false, conduce = false;
+        int diodo = 0;                 // +1: hacia VS; -1: desde masa
+        double i = 0.0;
+        float v_drv = 0.f, r_drv = R_HIZ;
+    };
+    static double ahora() { return sc_core::sc_time_stamp().to_seconds(); }
+    static constexpr double MEDIA_S = 5e-3;
+    double media(double med, double x) const {
+        return x + (med - x) * std::exp(-(ahora() - t_med_) / MEDIA_S);
+    }
+    double v(const analog_net_if* n) const { return double(n->voltage()) - double(gnd_->voltage()); }
+    bool nivel(analog_net_if* n, bool antes) const {
+        const double x = v(n);
+        return antes ? x > c_.v_bajo : x >= c_.v_alto;
+    }
+
+    void puente() {
+        for (;;) {
+            const double t = ahora();
+            med_p_ = media(med_p_, p_);
+            t_med_ = t;
+            const double vg = double(gnd_->voltage());
+            const double vs = v(vs_);
+            vivo_ = conectada_ && (vivo_ ? vs > c_.vs_off : vs >= c_.vs_on);
+            if (conectada_ && vs > c_.vs_max * 1.05) {
+                char b[160];
+                std::snprintf(b, sizeof b, "%s: %.1f V en VS, y el %s aguanta %.0f", pieza().c_str(),
+                              vs, c_.modelo.c_str(), c_.vs_max);
+                avisa("vs_alto", b);
+            }
+            // El fallo: DIAG-EN bajo mientras dura el bloqueo
+            if (fallo_ && t >= t_fin_fallo_ - 1e-12) fallo_ = false;
+            pon_diag();
+            const bool diag_bajo = diag_ ? !nivel(diag_, diag_alto_) : false;
+            diag_alto_ = !diag_bajo;
+            const bool habilita = vivo_ && !fallo_ && !diag_bajo;
+            bool cambio = false;
+            double i_vs = 0.0;
+            p_ = 0.0;
+            for (Medio& m : m_) {
+                m.niv_en = nivel(m.en, m.niv_en);
+                m.niv_in = nivel(m.in, m.niv_in);
+                m.activo = habilita && m.niv_en;
+                m.alto = m.activo && m.niv_in;
+                m.i = m.conduce ? corriente_de(m.out, m.id) : 0.0;
+                // Los diodos: la salida que se suelta llevando corriente
+                if (m.diodo != 0 && ((m.diodo < 0 && m.i < 0) || (m.diodo > 0 && m.i > 0))) m.diodo = 0;
+                if (m.activo) m.diodo = 0;
+                else if (m.diodo == 0 && m.conduce && std::fabs(m.i) > 1e-3) m.diodo = m.i > 0 ? -1 : 1;
+                m.conduce = m.activo || m.diodo != 0;
+                float vd = 0.f, rd = R_HIZ;
+                if (m.activo && m.alto)  { vd = float(vg + vs); rd = float(c_.r_on); }
+                else if (m.activo)       { vd = float(vg);      rd = float(c_.r_on); }
+                else if (m.diodo > 0)    { vd = float(vg + vs + c_.vd); rd = float(c_.rd); }
+                else if (m.diodo < 0)    { vd = float(vg - c_.vd);      rd = float(c_.rd); }
+                if (rd != m.r_drv || std::fabs(vd - m.v_drv) > 2e-4f) {
+                    m.v_drv = vd; m.r_drv = rd;
+                    if (!m.conduce) m.out->set_hiz(m.id);
+                    else m.out->set_drive(m.id, vd, rd);
+                    cambio = true;
+                }
+                if (m.activo) p_ += m.i * m.i * c_.r_on;
+                if (m.alto && m.i > 0.0) i_vs += m.i;
+                // LA SOBRECORRIENTE, en un transistor que conduce
+                if (m.activo && std::fabs(m.i) > c_.i_ocp && !fallo_) {
+                    fallo_ = true;
+                    ++n_ocp_;
+                    t_fin_fallo_ = t + c_.t_bloqueo_us * 1e-6;
+                    char b[260];
+                    std::snprintf(b, sizeof b, "%s: SOBRECORRIENTE, %.2f A por un transistor (salta a "
+                                  "%.1f): abre los seis y baja DIAG-EN %.0f us", pieza().c_str(),
+                                  std::fabs(m.i), c_.i_ocp, c_.t_bloqueo_us);
+                    avisa("ocp", b);
+                    cambio = true;
+                }
+            }
+            if (cambio) {
+                ev_.notify(sc_core::SC_ZERO_TIME);
+                espera();
+                continue;
+            }
+            pide(i_vs + (vivo_ ? c_.iq : 0.0), vs);
+            espera();
+        }
+    }
+    void espera() {
+        if (fallo_) wait(sc_core::sc_time(std::max(1e-9, t_fin_fallo_ - ahora()), sc_core::SC_SEC),
+                         despierta());
+        else wait(despierta());
+    }
+    // DIAG-EN: a masa mientras dura el fallo; si no, al aire (el pull-up es de la placa)
+    void pon_diag() {
+        if (!diag_) return;
+        const int q = (fallo_ && conectada_) ? 1 : 0;
+        if (q == diag_puesto_) return;
+        diag_puesto_ = q;
+        if (q) diag_->set_drive(id_diag_, gnd_->voltage(), 100.0f);
+        else diag_->set_hiz(id_diag_);
+    }
+    void pide(double i, double vs) {
+        if (!conectada_ || vs < 0.05 || i <= 1e-6) {
+            if (r_vs_ != 0.0) { carga_->suelta(); r_vs_ = 0.0; i_vs_ = 0.0; }
+            return;
+        }
+        if (r_vs_ != 0.0 && std::fabs(i - i_vs_) < std::max(1e-3, 1e-3 * i)) return;
+        r_vs_ = vs / i;
+        i_vs_ = i;
+        carga_->resuelve(true, r_vs_);
+    }
+    const sc_core::sc_event_or_list& despierta() {
+        if (!despierta_) {
+            despierta_.reset(new sc_core::sc_event_or_list());
+            *despierta_ |= vs_->value_changed_event();
+            *despierta_ |= gnd_->value_changed_event();
+            for (Medio& m : m_) {
+                *despierta_ |= m.in->value_changed_event();
+                *despierta_ |= m.en->value_changed_event();
+                *despierta_ |= m.out->value_changed_event();
+            }
+            if (diag_) *despierta_ |= diag_->value_changed_event();
+            *despierta_ |= evento_conexion();
+            *despierta_ |= ev_;
+        }
+        return *despierta_;
+    }
+    void avisa(const std::string& que, const std::string& t) {
+        if (!dichos_.insert(que).second) return;
+        SC_REPORT_WARNING("l6230", t.c_str());
+    }
+
+    analog_net_if *vs_, *gnd_, *diag_;
+    ConfigPuenteTrifasico c_;
+    Medio m_[3];
+    std::unique_ptr<RamaDosNodos> carga_;
+    int id_diag_ = -1, diag_puesto_ = -1;
+    bool vivo_ = false, fallo_ = false, diag_alto_ = true;
+    double t_fin_fallo_ = 0.0;
+    unsigned n_ocp_ = 0;
+    double p_ = 0.0, med_p_ = 0.0, t_med_ = 0.0, r_vs_ = 0.0, i_vs_ = 0.0;
     sc_core::sc_event ev_;
     std::unique_ptr<sc_core::sc_event_or_list> despierta_;
     std::set<std::string> dichos_;

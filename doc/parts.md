@@ -2754,6 +2754,8 @@ colector abierto, como los de Nanotec: el pull-up lo pone el controlador.
 | `rozamiento_ncm`, `viscoso_mnms` | `1.5`, `0.02` | Estimados: la ficha no da la corriente en vacío |
 | `pares_polos` | `3` | 18 cambios de Hall por vuelta |
 | `ppr` | `0` | Las líneas del encoder; cada flanco es un suceso |
+| `fases` | `no` | Con `si`, tres fases de verdad para un puente que conmuta el MCU (§4.26) |
+| `fem` | `trapezoidal` | Con `fases`: la forma de la f.e.m., `trapezoidal` o `senoidal` |
 
 Deja ver `angulo`, `rpm`, `corriente` (A, la del eje q), `par`, `tension`,
 `hall`, la alarma `sobrecorriente` y, con encoder, `cuenta`. Sus mandos son
@@ -3185,6 +3187,79 @@ husillo de bolas 1605, un carro de 10 kg, el final de abajo y el analizador.
   maestro sin asentimiento, los 16 primeros con su marco de error y, desde que
   el maestro está en error pasivo —TEC 128, y ahí se queda—, con la bandera
   pasiva, que no se ve, y la suspensión: uno cada 166 µs en vez de cada 150.
+
+
+### 4.26 El BLDC conmutado por el MCU: `MotorBLDC` por fases y `PuenteTrifasico`
+
+`parts/motor_bldc.h` y `parts/potencia.h`, la fase F7 de `doc/analisis_cnc.md`
+(§5.4, el segundo nivel). Hasta F6 al BLDC lo conmutaba su controlador por
+dentro; aquí lo conmuta el **firmware**, con el TIM1 y un puente trifásico, y
+las tres fases son de verdad.
+
+**`MotorBLDC fases="si"`**: tres fases en estrella, cada una con la mitad de
+la resistencia y de la inductancia de entre dos (`Rf = R/2`, `Lf = L/2`):
+
+    Vk − Vn = Rf·ik + Lf·dik/dt + ek       ek = Kf·ω·fk(θe)       Σ ik = 0
+
+`fem="trapezoidal"` (la de omisión) da a cada fase una meseta de 120°
+eléctricos, con `Kf = Kt/2`: con dos fases cerradas, el par es `Kt·i`, el
+mismo de las cifras de entre dos. `fem="senoidal"`, una senoide con
+`Kf = Kt/√3`. Los Hall, como siempre: a 120° y alineados con la f.e.m., 101
+100 110 010 011 001 girando a la derecha.
+
+El neutro no se saca. **Una fase está cerrada** si lo de fuera la tiene a
+menos de 100 Ω —su transistor conduce, o la corriente sigue por un diodo—; si
+no, está abierta, su corriente es cero y su terminal se pone a lo que manda la
+f.e.m., `Vn + ek`, que es lo que mide un firmware *sensorless*. `Vn` es la
+media de las cerradas. Las ecuaciones van en la cadena (RK4, tres estados más),
+y cada cambio de sentido de una corriente es un suceso: ahí un diodo deja de
+conducir. Deja ver además `corriente_u`, `corriente_v` y `corriente_w`.
+
+**`PuenteTrifasico`**, el L6230 de ST: tres medios puentes de DMOS de 0,73 Ω,
+de 8 a 52 V. Por medio puente, `ENx` lo habilita e `INx` elige arriba o abajo
+—el modo de la X-NUCLEO-IHM07M1: el PWM del TIM1 en IN y la fase abierta con
+EN—. Con los dos transistores abiertos, la corriente sigue por sus diodos,
+1,15 V, hasta acabarse.
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `r_on` | `0.73` | La de cada transistor, en Ω |
+| `i_ocp` | `2.8` | La sobrecorriente, en A |
+| `t_bloqueo_us` | `200` | Lo que se queda DIAG-EN bajo después |
+
+**La sobrecorriente** baja **DIAG-EN** —drenador abierto, el pull-up es de la
+placa— y abre los seis transistores durante `t_bloqueo_us`. En la
+IHM07M1 DIAG-EN va a PA6, **la entrada de freno del TIM1**: el PWM se apaga
+en el mismo instante, sin el firmware. Deja ver `corriente_1` a `corriente_3`,
+`disipacion`, `sobrecorrientes` y la alarma `fallo`. Lo que no hace: el tiempo
+muerto de 1 µs entre los dos transistores de una fase, los tiempos de
+conmutación y la protección térmica.
+
+**Las placas**: `placas/db42s01.xml`, un Nanotec DB42S01 —NEMA 17, 48 V, 31 W,
+5,7 N·cm/A, 3,5 Ω y 5,8 mH entre fases— por fases;
+`placas/x_nucleo_ihm07m1.xml`, la expansión, en los morpho de la Nucleo —IN1 a
+IN3 en PA8, PA9 y PA10, EN1 a EN3 en PC10 a PC12, DIAG-EN en PA6, los Hall en
+PA15, PB3 y PB10, el TIM2—; `placas/fuente_24v.xml`; y
+`placas/nucleo_ihm07m1_db42.xml`, el sistema, con `verif/fw/bldc6`.
+
+**Lo que sale** (`make gui-cnc`, C11):
+
+* **Seis pasos sin lazo**, al 30 %: 1137 rpm, 1162 en la cuenta. El firmware
+  las mide con el TIM2 en su interfaz de Hall —el XOR de los tres en TI1 y la
+  captura en cada cambio— y da 1142.
+* **La corriente por fase**, cada 20 µs: siempre una de las tres a cero, la
+  abierta del sector; las otras dos, la misma, una entrando y otra saliendo.
+* **Con el lazo de velocidad**, a 2000 rpm, hacia atrás a 1500, y parado.
+* **Con el rotor sujeto**, al 70 %: el L6230 salta a 2,8 A, y el freno del
+  TIM1 apaga el PWM antes de que el firmware se entere. Suelto el rotor,
+  rearmando MOE, vuelve a arrancar.
+* **Con dos Hall cruzados**, la tabla no casa con el rotor: sacudidas, sin
+  arrancar.
+* **En senoidal**, las tres fases con PWM, la tensión girando con el ángulo
+  interpolado entre dos Hall: a 2000 rpm, con las tres fases llevando
+  corriente a la vez.
+* **El coste**: seis pasos con PWM de 20 kHz, algo menos de un segundo de reloj
+  por segundo del motor; senoidal, unos 5,5. Es lo que costaría la FOC.
 
 ---
 

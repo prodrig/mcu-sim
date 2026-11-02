@@ -747,6 +747,12 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
    `CanTransceiver` y el `CanWire` ya estaban, y es el bus de los C5-E. Un
    eje con su controlador y una Nucleo con un maestro propio; el puerto CAN
    del controlador, a nivel de bit como el del MCU.
+8. **El 2026-11-02, F7**, con **seis pasos y la conmutación senoidal** por
+   los Hall, y la FOC medida pero no hecha: lo que la pide —las tres
+   resistencias de las fuentes con su amplificador y el ADC disparado por el
+   TIM1— no está en el modelo, y el coste de las tres fases con PWM, que es lo
+   que el plan pedía medir antes, ya lo dice la senoidal. Un motor pequeño, el
+   DB42S01, que cabe en los 2,8 A del L6230.
 
 ### F0, hecha: la cadena mecánica y el efecto `desplaza`
 
@@ -1153,6 +1159,65 @@ configurarlo con `$` y cablear la máquina como él la espera.
 * **Pruebas**: `make gui-cnc` C10, 14 comprobaciones. 9 s del eje en 2,8 s de
   reloj.
 
+### F7, hecha: el BLDC conmutado por el MCU
+
+* **`MotorBLDC fases="si"`** (`parts/motor_bldc.h`): tres fases de verdad en
+  estrella, `Vk − Vn = Rf·ik + Lf·dik/dt + ek`, con la f.e.m. trapezoidal
+  —120° de meseta, `Kf = Kt/2`— o senoidal —`Kf = Kt/√3`—, y el neutro sin
+  sacar. Una fase con lo de fuera a más de 100 Ω está abierta: corriente cero,
+  y su terminal a `Vn + ek`, lo que leería un firmware sin sensores. Tres
+  estados más en la cadena, y un suceso cada vez que una corriente cambia de
+  sentido, que es cuando un diodo deja de conducir.
+* **`PuenteTrifasico`** (`parts/potencia.h`), el L6230: tres medios puentes de
+  0,73 Ω con IN y EN, los diodos de los transistores, el UVLO, y la
+  sobrecorriente de 2,8 A, que baja **DIAG-EN** 200 µs y lo abre todo.
+* **Las placas**: `placas/db42s01.xml` —el Nanotec DB42S01, 48 V, 31 W, 5,7
+  N·cm/A, 3,5 Ω y 5,8 mH entre fases, 24 g·cm²; los pares de polos, 4, y el
+  rozamiento, estimados—; `placas/x_nucleo_ihm07m1.xml`, en los morpho —IN1 a
+  IN3 en PA8 a PA10, el TIM1; EN1 a EN3 en PC10 a PC12; DIAG-EN en PA6, la
+  entrada de freno del TIM1; los Hall en PA15, PB3 y PB10, el TIM2, con sus
+  pull-ups—; `placas/fuente_24v.xml`; y `placas/nucleo_ihm07m1_db42.xml`, el
+  sistema. Con sus dibujos.
+* **`verif/fw/bldc6`**: el TIM1 centrado a 20 kHz con el freno habilitado; el
+  TIM2 en su interfaz de Hall —el XOR de los tres en TI1, captura en cada
+  cambio y reinicio—, que da el periodo entre dos Hall y conmuta en su
+  interrupción con la tabla de seis pasos; un PI de velocidad cada ms; y, con
+  `M 1`, la **conmutación senoidal**: en cada periodo del PWM, las tres fases
+  a `½ + ½·m·sen(θe + 30° − k·120°)`, con el ángulo interpolado entre dos Hall
+  con el contador del TIM2. Por el VCP: `R rpm`, `D %`, `M 0|1`, `S`, `P ms` y
+  `?`.
+* **Lo que sale**: al 30 % sin lazo, 1137 rpm —1162 en la cuenta—, y el
+  firmware mide 1142. La corriente, en bloques de 120°: siempre una fase a
+  cero. Con el lazo, 2000 rpm, −1500 y parado. Con el rotor sujeto al 70 %, el
+  L6230 salta a 2,8 A y el TIM1 se apaga por su freno antes de que el firmware
+  lo sepa; suelto, vuelve a arrancar. Con dos Hall cruzados, sacudidas sin
+  arrancar. En senoidal, 2000 rpm con las tres fases llevando corriente.
+* **El coste, lo que el plan pedía medir antes**:
+
+  | Conmutación | Reloj por segundo del motor |
+  | :--- | ---: |
+  | Seis pasos, PWM de 20 kHz en una fase | ~0,9 s |
+  | Senoidal, PWM de 20 kHz en las tres | ~5,5 s |
+
+  La previsión del §10 —el coste de un motor con PWM multiplicado por 20—
+  era pesimista para seis pasos, donde solo conmuta una fase y las otras dos
+  están quietas: va en tiempo real. La senoidal, con las tres fases y una
+  interrupción en cada periodo del PWM, es cinco veces más lenta que el tiempo
+  real; la FOC costaría lo mismo, más el ADC.
+* **Lo que destapó en los TIM del modelo**, y se arregló en el parche anterior
+  a este (T-25 en `doc/todo.md`): la captura de TRC con `TI1S` saltaba en uno
+  de cada dos cambios de los Hall, y tiene que saltar en todos.
+* **Lo aprendido**: tras el reset, **PB3 es JTDO**, una salida, y el Hall H2
+  va a PB3. Hasta que el firmware lo pasa a TIM2 hay dos que tiran del mismo
+  hilo, y el modelo lo avisa una vez. El firmware configura los Hall lo
+  primero.
+* **Lo que queda**: la **FOC**, que necesita las tres resistencias de 0,33 Ω
+  con su amplificador, en PA0, PC1 y PC0, y el ADC disparado por el TIM1 —sus
+  disparos por temporizador no están en el modelo (F-19)—; los divisores de la
+  f.e.m. para seis pasos sin sensores; el tiempo muerto y la protección
+  térmica del L6230.
+* **Pruebas**: `make gui-cnc` C11, 11 comprobaciones, unos 18 s.
+
 ## Fuentes
 
 * **VEVOR 3020.** La página que se dio no se pudo abrir por su longitud. El
@@ -1184,6 +1249,12 @@ configurarlo con `$` y cablear la máquina como él la espera.
   [la familia](https://www.nanotec.com/eu/en/products/2273-screws-and-nuts-for-linear-actuators),
   [los husillos](https://www.nanotec.com/eu/en/products/290-leads-screws-for-stepper-motor) y
   [los actuadores lineales NEMA 17](https://www.nanotec.com/eu/en/products/2973-nema17-linear-actuator-42-mm).
+* **X-NUCLEO-IHM07M1**:
+  [el manual, UM1943](https://dl.btc.pl/kamami_wa/x_nucleo_ihm07m1_um1943.pdf).
+* **L6230**:
+  [la página de ST, con su hoja de datos](https://www.st.com/en/motor-drivers/l6230.html).
+* **Nanotec DB42**:
+  [la serie, con el DB42S01](https://www.nanotec.com/fileadmin/files/Baureihenuebersichten/BLDC_Motoren/DB42.pdf).
 * **grblHAL para STM32F4xx** (F401, F407, F411, F446; Nucleo-64):
   [github.com/grblHAL/STM32F4xx](https://www.github.com/grblHAL/STM32F4xx).
 * **TMC2209**:

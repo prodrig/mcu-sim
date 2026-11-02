@@ -59,6 +59,12 @@
 #       el eje, el fallo con su EMCY y su reinicio, el perfil de velocidad, la
 #       parada rapida, y un bus sin nadie que asienta. Las tramas, en el hilo:
 #       las apunta un analizador.
+#   C11 (F7) EL BLDC CONMUTADO POR EL MCU. Una Nucleo con una X-NUCLEO-IHM07M1
+#       (el L6230) y un Nanotec DB42S01, con verif/fw/bldc6: seis pasos con
+#       los Hall en el TIM2 -la corriente por fase, dos de tres-, el lazo de
+#       velocidad en los dos sentidos, la sobrecorriente que baja DIAG-EN y
+#       frena el TIM1, los Hall cruzados, la conmutacion senoidal y lo que
+#       cuesta cada una.
 #
 # Cada grupo monta su banco en una carpeta temporal, con placas escritas aquí.
 #
@@ -2168,6 +2174,151 @@ def c10_canopen(sim, cp):
           "desconectarse: %s" % (len(marcos), nc))
 
 
+OBS_BLDC6 = [("M/MOTOR", "rpm"), ("M/MOTOR", "hall"), ("M/MOTOR", "corriente_u"),
+             ("M/MOTOR", "corriente_v"), ("M/MOTOR", "corriente_w"), ("X/U1", "sobrecorrientes"),
+             ("X/U1", "fallo"), ("F/PSU", "corriente")]
+
+
+def bldc6(sim, cp, guion, ms, periodo_ns=1000000, lista=(), extra_sistema=(), extra_motor=()):
+    """La Nucleo con la X-NUCLEO-IHM07M1 y el DB42S01 (placas/nucleo_ihm07m1_db42.xml) con
+    verif/fw/bldc6 y las órdenes de `guion` por el VCP. Devuelve (series, avisos, consola,
+    segundos de reloj)"""
+    placas = os.path.abspath("placas")
+    n = open(os.path.join(placas, "nucleo_f446re.xml"), encoding="utf-8").read()
+    n = n.replace('host="rfc2217:3355"\n              baudios="host"',
+                  'host="memoria" guion_ms="20" guion="%s"\n              baudios="115200"' % guion)
+    d = os.path.dirname(cp("nucleo.xml", n))
+    m = open(os.path.join(placas, "db42s01.xml"), encoding="utf-8").read()
+    for a, b in extra_motor:
+        m = m.replace(a, b)
+    cp("motor.xml", m)
+    x = open(os.path.join(placas, "nucleo_ihm07m1_db42.xml"), encoding="utf-8").read()
+    x = x.replace('fichero="nucleo_f446re.xml"', 'fichero="%s/nucleo.xml"' % d)
+    x = x.replace('fichero="db42s01.xml"', 'fichero="%s/motor.xml"' % d)
+    for f in ("x_nucleo_ihm07m1", "fuente_24v"):
+        x = x.replace('fichero="%s.xml"' % f, 'fichero="%s/%s.xml"' % (placas, f))
+    x = x.replace('firmware="verif/fw/bldc6/bldc6.bin"',
+                  'firmware="%s"' % os.path.abspath("verif/fw/bldc6/bldc6.bin"))
+    for a, b in extra_sistema:
+        x = x.replace(a, b)
+    ruta = cp("bldc6.xml", x)
+    t0 = time.time()
+    s, avs, cat, rc = muestrea(sim, ruta, ms, OBS_BLDC6, periodo_ns=periodo_ns, lista=lista)
+    return s, avs, ULTIMA[0], time.time() - t0
+
+
+def rpm_vcp(lineas, k=-1):
+    """Las rpm de la k-ésima respuesta a ? del firmware"""
+    r = [l for l in lineas if l.startswith("rpm ")]
+    return numero_tras(r[k], "rpm ") if r else None
+
+
+def c11_bldc_mcu(sim, cp):
+    grupo("C11 (F7) El BLDC conmutado por el MCU: seis pasos con los Hall")
+    rc, out = valida(sim, "placas/nucleo_ihm07m1_db42.xml")
+    f = (piezas_sin_dibujo("x_nucleo_ihm07m1") + piezas_sin_dibujo("db42s01") +
+         piezas_sin_dibujo("fuente_24v"))
+    check(rc == 0 and "4 placas" in out and " 0 avisos" in out and
+          "dibujo X: x_nucleo_ihm07m1.svg (" in out and "dibujo M: db42s01.svg (" in out and
+          "dibujo F: fuente_24v.svg (" in out and not f,
+          "placas/nucleo_ihm07m1_db42.xml -la Nucleo, la X-NUCLEO-IHM07M1 en sus morpho, el "
+          "DB42S01 por fases y una fuente de 24 V- se valida sin avisos, con sus dibujos%s"
+          % (" (faltan: %s)" % f if f else ""))
+
+    # --- Sin lazo: un ciclo fijo ----------------------------------------------
+    s, avs, out, dt = bldc6(sim, cp, "D 30\\nP 600\\n?\\n", 700)
+    v = vcp(out)
+    r_fw = rpm_vcp(v)
+    r_m = s[("M/MOTOR", "rpm")][-1][1]
+    # Lo que da la cuenta: Kt·w = d·V - (2·Rf + 2·Ron)·I, con I la del rozamiento
+    kt, rf, ron = 0.057, 1.75, 0.73
+    i0 = 0.003 / kt
+    w = (0.3 * 24.0 - 2 * (rf + ron) * i0) / kt
+    r_teo = w * 60 / (2 * math.pi)
+    check(r_fw and abs(r_fw - r_m) / r_m < 0.01 and abs(r_m - r_teo) / r_teo < 0.08,
+          "SEIS PASOS SIN LAZO, al 30 %%: el motor va a %.0f rpm -%.0f en la cuenta, con 7,2 V "
+          "medios contra su f.e.m., sus bobinas y los transistores-, y el firmware lo mide con "
+          "el TIM2 en su interfaz de Hall: %.0f rpm" % (r_m, r_teo, r_fw))
+    hs = [int(round(x)) for t, x in s[("M/MOTOR", "hall")] if t > 0.4]
+    sec = []
+    for h in hs:
+        if not sec or sec[-1] != h:
+            sec.append(h)
+    orden = [5, 4, 6, 2, 3, 1]
+    bien = all(orden[(orden.index(a) + 1) % 6] == b for a, b in zip(sec, sec[1:]) if a in orden)
+    check(len(sec) > 12 and bien and 0 not in hs and 7 not in hs,
+          "los Hall pasan por los seis sectores en su orden, 101 100 110 010 011 001, sin "
+          "saltarse ninguno")
+
+    # La corriente por fase: dos de tres, en bloques de 120°. Mientras acelera,
+    # que es cuando lleva corriente: en vacio no pasa de 0,1 A, y entonces pesa
+    # lo que tarda en apagarse la de la fase que se abre, por los diodos
+    s, avs, out, dt = bldc6(sim, cp, "D 30\\n", 80, periodo_ns=20000)
+    iu, iv, iw = (s[("M/MOTOR", "corriente_%s" % k)] for k in "uvw")
+    tr = [(a[1], b[1], c[1]) for a, b, c in zip(iu, iv, iw) if 0.025 < a[0] <= 0.05]
+    pico = max(max(abs(x) for x in t) for t in tr) if tr else 0
+    dos = sum(1 for t in tr if sorted(abs(x) for x in t)[0] < 0.1 * pico)
+    check(tr and pico > 0.5 and dos / len(tr) > 0.95,
+          "LA CORRIENTE POR FASE, cada 20 us mientras acelera: en el %.0f %% de las muestras "
+          "una de las tres esta a menos del 10 %% del pico -%.2f A-: la abierta del sector. Las "
+          "otras dos llevan la misma, una entrando y otra saliendo" % (100 * dos / max(1, len(tr)), pico))
+
+    # --- Con lazo, en los dos sentidos ---------------------------------------
+    s, avs, out, dt = bldc6(sim, cp, "R 2000\\nP 1000\\n?\\nR -1500\\nP 1500\\n?\\nS\\nP 300\\n?\\n",
+                            3500)
+    v = vcp(out)
+    r1, r2, r3 = rpm_vcp(v, 0), rpm_vcp(v, 1), rpm_vcp(v, 2)
+    check(r1 is not None and abs(r1 - 2000) < 20 and r2 is not None and abs(r2 + 1500) < 15 and
+          r3 == 0,
+          "CON EL LAZO DE VELOCIDAD, cada ms: a 2000 rpm -%.0f-, hacia atras a 1500 -%.0f-, "
+          "pasando por cero, y parado" % (r1 or 0, r2 or 0))
+    check(dt < 3.5 * 1.5,
+          "seis pasos con PWM de 20 kHz: 3,5 s del motor en %.1f s de reloj" % dt)
+
+    # --- La sobrecorriente -----------------------------------------------------
+    s, avs, out, dt = bldc6(sim, cp, "D 70\\nP 200\\n?\\nR 1000\\nP 800\\n?\\n", 1200,
+                            lista=[(1, "M/MOTOR", "bloquear", 1), (150, "M/MOTOR", "bloquear", 0)])
+    v = vcp(out)
+    fallo = next((l for l in v if l.startswith("FALLO")), "")
+    oc = s[("X/U1", "sobrecorrientes")][-1][1]
+    st = [l for l in v if l.startswith("rpm ")]
+    check(fallo and oc >= 1 and "SOBRECORRIENTE" in textos(avs) and st and "fallos 1" in st[0] and
+          "parado" in st[0],
+          "CON EL ROTOR SUJETO, al 70 %%: 2,9 A en la cuenta. El L6230 salta a 2,8, baja DIAG-EN, "
+          "y la entrada de freno del TIM1 apaga el PWM en el acto, sin esperar al firmware, "
+          "que despues lo dice: %s" % fallo)
+    check(len(st) > 1 and abs(rpm_vcp(v, 1) - 1000) < 15 and "fallos 1" in st[1],
+          "y suelto el rotor, vuelve a arrancar -rearmando MOE- y va a 1000 rpm: %s" % st[-1])
+
+    # --- Los Hall cruzados ----------------------------------------------------
+    s, avs, out, dt = bldc6(sim, cp, "D 30\\nP 600\\n?\\n", 700, extra_sistema=(
+        ('<hilo a="M/P1.H1" b="X/J3.H1"/>', '<hilo a="M/P1.H1" b="X/J3.H2"/>'),
+        ('<hilo a="M/P1.H2" b="X/J3.H2"/>', '<hilo a="M/P1.H2" b="X/J3.H1"/>')))
+    rm = s[("M/MOTOR", "rpm")]
+    vmax = max(abs(x) for t, x in rm if t > 0.2)
+    check(vmax < 200,
+          "CON H1 Y H2 CRUZADOS, la tabla de seis pasos no casa con el rotor: el motor da "
+          "sacudidas sin arrancar (%.0f rpm como mucho)" % vmax)
+
+    # --- En senoidal -----------------------------------------------------------
+    s, avs, out, dt = bldc6(sim, cp, "M 1\\nR 2000\\nP 1300\\n?\\n", 1500, periodo_ns=1000000)
+    v = vcp(out)
+    r = rpm_vcp(v)
+    s2, avs2, out2, dt2 = bldc6(sim, cp, "M 1\\nD 50\\n", 420, periodo_ns=20000)
+    iu, iv, iw = (s2[("M/MOTOR", "corriente_%s" % k)] for k in "uvw")
+    tr = [(a[1], b[1], c[1]) for a, b, c in zip(iu, iv, iw) if a[0] > 0.4]
+    pico = max(max(abs(x) for x in t) for t in tr)
+    tres = sum(1 for t in tr if sorted(abs(x) for x in t)[0] > 0.1 * pico) if tr else 0
+    check(r is not None and abs(r - 2000) < 20 and "senoidal" in v[-2] and tr and
+          tres / len(tr) > 0.6,
+          "EN SENOIDAL -las tres fases con PWM y la tension girando con el angulo que se "
+          "interpola entre dos Hall, cada periodo del PWM-: a 2000 rpm (%.0f), con las tres "
+          "fases llevando corriente a la vez el %.0f %% del tiempo" % (r or 0, 100 * tres / max(1, len(tr))))
+    check(dt < 1.5 * 12,
+          "y cuesta: 1,5 s del motor en %.1f s de reloj, %.1f por segundo; seis pasos, menos de "
+          "uno. Es lo que costaria la FOC" % (dt, dt / 1.5))
+
+
 def main():
     a = argparse.ArgumentParser(description="La fresadora CNC, por fases, contra el mcu-sim de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -2194,6 +2345,7 @@ def main():
         c8_pieza(sim, cp)
         c9_potencia(sim, cp)
         c10_canopen(sim, cp)
+        c11_bldc_mcu(sim, cp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print()

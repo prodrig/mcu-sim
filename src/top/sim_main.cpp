@@ -1566,6 +1566,18 @@ SC_MODULE(Sim) {
                         i.id.c_str(), h->estado(), h->corriente_media() * 1e3,
                         h->corriente_is() * 1e6, h->disipacion());
         }
+        // El puente trifasico de un BLDC conmutado por el MCU (F7): cada medio
+        // puente, su corriente, y si ha saltado la sobrecorriente
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "PuenteTrifasico") continue;
+            const PuenteTrifasico* p = placa.como<PuenteTrifasico>(i.id);
+            if (!p) continue;
+            std::printf("  L6230 %s: %s %+.2f A, %s %+.2f A, %s %+.2f A; disipa %.2f W; %u "
+                        "sobrecorrientes%s%s\n", i.id.c_str(), p->estado(0), p->corriente(0),
+                        p->estado(1), p->corriente(1), p->estado(2), p->corriente(2),
+                        p->disipacion(), p->sobrecorrientes(), p->en_fallo() ? "; EN FALLO" : "",
+                        p->vivo() ? "" : "; SIN TENSION");
+        }
         // Los BLDC y sus controladores: a cuanto van, su corriente, sus Hall; y el
         // estado del controlador, sus pasos y su error de seguimiento
         for (const Instancia& i : placa.instancias()) {
@@ -1576,6 +1588,9 @@ SC_MODULE(Sim) {
                         "%u%u%u", i.id.c_str(), m->rpm(), m->vueltas(), m->modo(), m->corriente(),
                         m->par(), m->tension(), (m->hall() >> 2) & 1, (m->hall() >> 1) & 1,
                         m->hall() & 1);
+            if (m->por_fases())
+                std::printf("; fases %+.2f %+.2f %+.2f A, neutro %.1f V", m->corriente_fase(0),
+                            m->corriente_fase(1), m->corriente_fase(2), m->tension_neutro());
             if (m->tiene_encoder()) std::printf("; encoder %+ld cuartos", m->cuenta());
             std::printf("%s\n", m->bloqueado() ? "; bloqueado" : "");
         }
