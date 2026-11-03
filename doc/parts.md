@@ -3226,7 +3226,6 @@ EN—. Con los dos transistores abiertos, la corriente sigue por sus diodos,
 | `r_on` | `0.73` | La de cada transistor, en Ω |
 | `i_ocp` | `2.8` | La sobrecorriente, en A |
 | `t_bloqueo_us` | `200` | Lo que se queda DIAG-EN bajo después |
-| `r_sense` | `0.33` | Los shunts de los pines `sense` |
 
 **La sobrecorriente** baja **DIAG-EN** —drenador abierto, el pull-up es de la
 placa— y abre los seis transistores durante `t_bloqueo_us`. En la
@@ -3237,12 +3236,24 @@ muerto de 1 µs entre los dos transistores de una fase, los tiempos de
 conmutación y la protección térmica.
 
 **Los shunts**, con los pines `sense1` a `sense3`: el chip saca la fuente de
-cada transistor de abajo a su SENSEx, y la placa pone ahí su shunt a masa. Van
-dentro de la pieza: la fase ve `r_on + r_sense` hacia masa, y SENSEx, un
-Thevenin de `r_sense` a `−i·r_sense` mientras conduce el de abajo —o su
-diodo—, y a masa si no. Así solo se ve la corriente de una fase mientras su
-transistor de abajo conduce, como en la placa: con el PWM centrado, en el pico
-del contador.
+cada transistor de abajo a su SENSEx, y la placa pone ahí su shunt a masa
+—una `Resistencia`—: uno por fase, o uno para las tres, con los tres pines en
+el mismo nodo. Por cada SENSEx la pieza **mete** en el nodo lo que pasa por su
+transistor de abajo —o por su diodo—, `−i`, con `i` la que sale por OUTx, y
+nada mientras conduce el de arriba o nadie: una fuente de corriente, que en un
+nodo compartido es la suma. La tensión la pone el shunt. Así solo se ve la
+corriente de una fase mientras su transistor de abajo conduce, como en la
+placa: con el PWM centrado, en el pico del contador; con un shunt para las
+tres, en el pico no se ve nada —lo que baja por una sube por otra— y en el
+valle, la del bus.
+
+Lo que entra así en masa vuelve a la fuente por su negativo, y la fuente de
+este modelo tiene la vuelta en el cero absoluto: la pieza lo saca de la masa
+por su `gnd` —si no, subiría la masa por las 0,1 Ω de sus uniones y lo vería el
+ADC, que mide contra el cero—, y no lo cuenta en lo que pide a VS. Hacia su
+fase, el transistor de abajo se ve como `r_on` más lo que hay de SENSEx a
+masa: con un shunt para las tres, sin lo que pasa por él de las otras dos,
+milivoltios contra los 24 V del bus.
 
 **`Amplificador`**, la etapa de un operacional que lleva la caída del shunt al
 ADC: `offset + ganancia·(entrada − gnd)`, entre `gnd` y `vcc`, tras
@@ -3266,9 +3277,12 @@ banda, el ruido, la deriva ni el filtro RC de la placa.
 `placas/x_nucleo_ihm07m1.xml`, la expansión, en los morpho de la Nucleo —IN1 a
 IN3 en PA8, PA9 y PA10, EN1 a EN3 en PC10 a PC12, DIAG-EN en PA6, los Hall en
 PA15, PB3 y PB10, el TIM2; y los shunts con los tres amplificadores del
-TSV994, 1,528 de ganancia y 1,56 V de polarización, en PA0, PC1 y PC0—;
+TSV994, 1,528 de ganancia y 1,56 V de polarización, en PA0, PC1 y PC0; y J5 y
+J6, uno o tres shunts, como en la placa: de fábrica en 2-3, uno, y en 1-2,
+tres—;
 `placas/fuente_24v.xml`; y
-`placas/nucleo_ihm07m1_db42.xml`, el sistema, con `verif/fw/bldc6`.
+`placas/nucleo_ihm07m1_db42.xml`, el sistema, con `verif/fw/bldc6` y J5 y J6
+en 1-2, para la FOC.
 
 **Lo que sale** (`make gui-cnc`, C11):
 
@@ -3286,8 +3300,8 @@ TSV994, 1,528 de ganancia y 1,56 V de polarización, en PA0, PC1 y PC0—;
 * **En senoidal**, las tres fases con PWM, la tensión girando con el ángulo
   interpolado entre dos Hall: a 2000 rpm, con las tres fases llevando
   corriente a la vez.
-* **El coste**: seis pasos con PWM de 20 kHz, un segundo de reloj por segundo
-  del motor; senoidal, unos 5,5.
+* **El coste**: seis pasos con PWM de 20 kHz, un segundo y medio de reloj por
+  segundo del motor; senoidal, unos 8.
 
 Y **con FOC** (C12): el TIM1 dispara los tres ADC en el pico de cada periodo
 —OC4REF como TRGO—, y el firmware lleva la corriente a los ejes del rotor.
@@ -3300,7 +3314,13 @@ Y **con FOC** (C12): el TIM1 dispara los tres ADC en el pico de cada periodo
   amperio.
 * De 2000 a −1500 rpm sin parar, en 11 ms. Las tres fases, con corriente a la
   vez el 79 % del tiempo.
-* Unos 7 s de reloj por segundo del motor.
+* Unos 9 s de reloj por segundo del motor.
+
+Y **con uno o con tres** (C13), el rotor sujeto con U arriba y V abajo, medido
+en el valle: con uno, PA0 ve toda la corriente y PC1 y PC0 se quedan en el
+offset; con tres, la de V en PC1. La del bus, la suma de lo que baja por los
+shunts, 0,85 A con los dos. Y con uno, el firmware no arranca la FOC: lo
+cuenta con un pulso —en el pico, con uno, no ve nada— y lo dice.
 
 ---
 

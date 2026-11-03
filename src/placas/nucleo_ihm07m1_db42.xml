@@ -11,6 +11,9 @@
      abajo a masa y la tercera abierta, con su EN bajo. Un lazo de velocidad,
      cada milisegundo, mueve el ciclo. Una sobrecorriente del L6230 baja
      DIAG-EN, que es la entrada de freno del TIM1: apaga el PWM en el acto.
+     Tambien en SENOIDAL y con FOC: la FOC con los tres shunts de la IHM07M1,
+     por eso J5 y J6 van aqui en 1-2 -de fabrica estan en 2-3, un solo
+     shunt-.
 
        N   placas/nucleo_f446re.xml, con verif/fw/bldc6
        X   placas/x_nucleo_ihm07m1.xml, en sus morpho
@@ -18,7 +21,8 @@
        F   placas/fuente_24v.xml, en J1
 
      Por el VCP (115200 8N1): R rpm la velocidad -con signo-, D % el ciclo sin
-     lazo, S para, ? el estado (verif/fw/bldc6/main.c).
+     lazo, I A la corriente en FOC, M 0|1|2 el modo, S para, ? el estado
+     (verif/fw/bldc6/main.c).
 
          ./build/mcu-sim placas/nucleo_ihm07m1_db42.xml --gui
      ========================================================================= -->
@@ -31,6 +35,9 @@
   <!-- La IHM07M1 en los morpho de la Nucleo -->
   <acopla a="N/CN7" b="X/CN7"/>
   <acopla a="N/CN10" b="X/CN10"/>
+  <!-- Tres shunts, para la FOC -->
+  <jumper ref="X/J5" puente="1 2"/>
+  <jumper ref="X/J6" puente="1 2"/>
 
   <!-- El motor: las fases a J2 y los Hall a J3 -->
   <hilo a="M/M.U" b="X/J2.A"/>

@@ -2184,19 +2184,20 @@ REGISTRA_PARTE(PuenteTrifasico,
            "abierto, a masa con 100 ohm mientras dura una sobrecorriente. El pull-up es de la "
            "placa.")
       .pin("sense1, sense2, sense3", "opcionales", "Las fuentes de los transistores de abajo, "
-           "con su shunt de r_sense a masa dentro de la pieza: a -i·r_sense mientras conduce el "
-           "de abajo -o su diodo-, con i la que sale por OUTx; si no, a masa. Para medir la "
-           "corriente de cada fase (la FOC). Sin ellos, las fuentes van a masa.")
+           "a sus shunts, que pone la placa: por cada una sale hacia el shunt -i mientras "
+           "conduce el de abajo -o su diodo-, con i la que sale por OUTx, y nada si no. Tres "
+           "nodos con un shunt cada uno, o -los tres pines al mismo nodo- un shunt para las "
+           "tres, que se lleva la suma. Para medir la corriente (la FOC, o la del bus). Sin "
+           "ellos, las fuentes van a masa.")
       .atr("r_on", "0.73", "La resistencia de cada transistor, en ohm.")
       .atr("i_ocp", "2.8", "La sobrecorriente, en A, en cualquier transistor que conduzca.")
       .atr("t_bloqueo_us", "200", "Lo que se queda DIAG-EN bajo tras ella: el RC de REN y CEN de "
            "la placa.")
-      .atr("r_sense", "0.33", "Los shunts de los pines sense, en ohm: los de la IHM07M1.")
       .nota("Deja ver `corriente_1` a `corriente_3` (A, la que sale por cada salida), "
             "`disipacion`, `sobrecorrientes` y la alarma `fallo`.")
       .nota("Lo que no hace: el tiempo muerto de 1 us entre los dos transistores de una fase, "
             "los tiempos de conmutacion y la proteccion termica.")
-      .cpp("estado(k), corriente(k), corriente_shunt(k), con_shunts(), en_fallo(), "
+      .cpp("estado(k), corriente(k), corriente_shunt(k), con_shunts(), shunts(), en_fallo(), "
            "sobrecorrientes(), vivo(), disipacion()."),
     [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
         auto mal = [&](const std::string& t) {
@@ -2210,9 +2211,8 @@ REGISTRA_PARTE(PuenteTrifasico,
         c.r_on = d.num("r_on", c.r_on);
         c.i_ocp = d.num("i_ocp", c.i_ocp);
         c.t_bloqueo_us = d.num("t_bloqueo_us", c.t_bloqueo_us);
-        c.r_sense = d.num("r_sense", c.r_sense);
-        if (c.r_on <= 0 || c.i_ocp <= 0 || c.t_bloqueo_us < 0 || c.r_sense <= 0)
-            return mal("r_on, i_ocp y r_sense son positivos; t_bloqueo_us, no negativo");
+        if (c.r_on <= 0 || c.i_ocp <= 0 || c.t_bloqueo_us < 0)
+            return mal("r_on e i_ocp son positivos; t_bloqueo_us, no negativo");
         analog_net_if* se[3] = {nullptr, nullptr, nullptr};
         static const char* ns[3] = {"sense1", "sense2", "sense3"};
         for (int k = 0; k < 3; ++k)

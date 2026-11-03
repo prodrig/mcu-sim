@@ -59,6 +59,18 @@
  *   4. PARK Y CLARKE AL REVÉS, y la inyección del mínimo y el máximo -lo
  *      mismo que el vector espacial-: cada fase, su ciclo.
  *
+ * UNO O TRES SHUNTS: J5 y J6 de la IHM07M1. Con tres (en 1-2), cada fase
+ * tiene el suyo; con uno (en 2-3, el de fábrica), las tres fuentes de abajo
+ * van juntas a R43, y PA0 ve la suma: PC1 y PC0 se quedan en el offset. La
+ * FOC necesita los tres: la primera vez que se pide, el firmware los cuenta
+ * con un pulso -con uno solo, en el pico no ve nada- y, si hay uno, lo dice
+ * y no la arranca. En SEIS PASOS vale cualquiera: se mide en el VALLE del
+ * contador, cuando conducen el de arriba de la fase del PWM y el de abajo de
+ * otra, y por el shunt de esa -o por el único- pasa la corriente del bus. La
+ * suma de lo que bajan los tres es esa corriente con los dos: `?` la da como
+ * ibus, la media de 5 ms. Solo mide cuando se le pregunta: en el modelo,
+ * medir cada periodo cuesta más que conmutar.
+ *
  * Con el lazo de velocidad (R), el PI de cada milisegundo da iq en vez del
  * ciclo, con su signo: para cambiar de sentido no hace falta parar. Con I,
  * iq directamente: el par. La tensión del bus no se mide -el modelo de la
@@ -82,7 +94,7 @@
  *     I A        en FOC: esa iq, sin lazo de velocidad; negativa, hacia atrás
  *     S          para: los EN abajo
  *     P ms       espera
- *     ?          rpm, ciclo -en FOC, id e iq-, Hall y fallos
+ *     ?          rpm, ciclo e ibus -en FOC, id e iq-, Hall y fallos
  *     C          en FOC: las corrientes de las tres fases, las de la última
  *                medida
  * ===========================================================================*/
@@ -203,13 +215,14 @@ static void pon_en(int u, int v, int w)
 }
 
 /* El modo de salida de cada canal del TIM1: PWM 1 (110) o forzado a bajo (100).
- * El canal 4, siempre en PWM 2: su OC4REF es el disparo de los ADC */
+ * El canal 4 es el disparo de los ADC: su OC4REF, en PWM 1 o en PWM 2 */
+static volatile uint32_t g_oc4m = 7u;
 static void pon_modos(int pwm_u, int pwm_v, int pwm_w)
 {
     const uint32_t m1 = (pwm_u ? 6u : 4u) << TIM_CCMR1_OC1M_Pos | TIM_CCMR1_OC1PE |
                         (pwm_v ? 6u : 4u) << TIM_CCMR1_OC2M_Pos | TIM_CCMR1_OC2PE;
     const uint32_t m2 = (pwm_w ? 6u : 4u) << TIM_CCMR2_OC3M_Pos | TIM_CCMR2_OC3PE |
-                        7u << TIM_CCMR2_OC4M_Pos;
+                        g_oc4m << TIM_CCMR2_OC4M_Pos;
     TIM1->CCMR1 = m1;
     TIM1->CCMR2 = m2;
 }
@@ -296,6 +309,10 @@ static const float DT_PWM = 50e-6f;
 static volatile float g_off[3];            /* las cuentas del ADC con i = 0 */
 static volatile float g_i[3];              /* A, por fase: las de la última medida */
 static volatile float g_id, g_iq, g_iq_obj;
+static volatile float g_ibus;               /* A: la del bus, en seis pasos */
+static volatile float g_suma_bus;
+static volatile uint32_t g_n_bus;
+static int g_shunts;                        /* 0: sin saber; 1 o 3 */
 static float g_int_d, g_int_q;
 
 static float limita(float x, float a, float b) { return x < a ? a : (x > b ? b : x); }
@@ -315,7 +332,10 @@ EN_RAM void ADC_IRQHandler(void)
 {
     const uint32_t t0 = SysTick->VAL;
     if (!(ADC1->SR & ADC_SR_JEOC)) return;
-    while (!(ADC2->SR & ADC_SR_JEOC) || !(ADC3->SR & ADC_SR_JEOC)) { }
+    /* Los tres van a la vez; si uno no llega -se acaban de apagar los
+     * disparos entre el de uno y el de otro-, esa medida no vale */
+    for (int n = 0; !(ADC2->SR & ADC_SR_JEOC) || !(ADC3->SR & ADC_SR_JEOC); ++n)
+        if (n > 50) { ADC1->SR = ~ADC_SR_JEOC; return; }
     const float xa = (float)ADC1->JDR1, xb = (float)ADC2->JDR1, xc = (float)ADC3->JDR1;
     ADC1->SR = ~ADC_SR_JEOC;
     ADC2->SR = ~ADC_SR_JEOC;
@@ -324,6 +344,11 @@ EN_RAM void ADC_IRQHandler(void)
     const float ib = (g_off[1] - xb) * A_CUENTA;
     const float ic = (g_off[2] - xc) * A_CUENTA;
     g_i[0] = ia; g_i[1] = ib; g_i[2] = ic;
+    if (g_modo == 0) {                        /* seis pasos: la del bus, sumada */
+        g_suma_bus += -(ia + ib + ic);
+        ++g_n_bus;
+        return;
+    }
     if (!g_marcha || g_modo != 2) return;
     /* Clarke, con las tres */
     const float al = (2.0f * ia - ib - ic) * (1.0f / 3.0f);
@@ -406,13 +431,23 @@ static void adc_inicia(void)
     NVIC_EnableIRQ(ADC_IRQn);
 }
 
-/* Los disparos del TIM1, solo en FOC: TRGO en flanco de subida (JEXTSEL =
- * 0001). En los otros modos no se mide, y no cuesta */
-static void adc_disparos(int si)
+/* DÓNDE MIDE: los disparos del TIM1, TRGO en flanco de subida (JEXTSEL =
+ * 0001), y su OC4REF. En el PICO del contador (FOC: PWM 2 con CCR4 = ARR -
+ * 30), con los tres de abajo conduciendo: cada shunt, su fase. En el VALLE
+ * (seis pasos: PWM 1 con CCR4 = 30), con el de arriba de la fase del PWM y el
+ * de abajo de la otra: el shunt de esa otra -o el único- lleva la corriente
+ * del bus. En senoidal no se mide, y no cuesta */
+enum { NO_MIDE, VALLE, PICO };
+static void muestreo(int donde)
 {
+    g_oc4m = donde == VALLE ? 6u : 7u;
+    TIM1->CCR4 = donde == VALLE ? 30u : PWM_ARR - 30u;
+    TIM1->CCMR2 = (TIM1->CCMR2 & ~TIM_CCMR2_OC4M) | g_oc4m << TIM_CCMR2_OC4M_Pos;
     ADC_TypeDef* const a[3] = {ADC1, ADC2, ADC3};
     for (int k = 0; k < 3; ++k)
-        a[k]->CR2 = ADC_CR2_ADON | (si ? ADC_CR2_JEXTEN_0 | (1u << ADC_CR2_JEXTSEL_Pos) : 0u);
+        a[k]->CR2 = ADC_CR2_ADON |
+                    (donde != NO_MIDE ? ADC_CR2_JEXTEN_0 | (1u << ADC_CR2_JEXTSEL_Pos) : 0u);
+    for (int k = 0; k < 3; ++k) a[k]->SR = ~ADC_SR_JEOC;
 }
 
 /* --- La velocidad, de los Hall -------------------------------------------- */
@@ -529,8 +564,44 @@ static void espera(uint32_t ms)
     while (g_ms - t0 < ms) __WFI();
 }
 
+/* CUÁNTOS SHUNTS HAY -J5 y J6-, la primera vez que se pide la FOC: un
+ * pulso de 4 ms con U al 60 % y V y W al 50 %, y la corriente de U medida en
+ * el pico. Con tres, su shunt la ve: 0,8 A. Con uno, en el pico los tres de
+ * abajo conducen, y lo que baja por uno sube por los otros: por el shunt
+ * común, nada */
+static int cuenta_shunts(void)
+{
+    if (!(GPIOA->IDR & (1u << 6)) || !(TIM1->BDTR & TIM_BDTR_MOE)) return 0;
+    muestreo(PICO);
+    TIM1->CCR1 = (uint32_t)(0.6f * (float)PWM_ARR);
+    TIM1->CCR2 = TIM1->CCR3 = PWM_ARR / 2u;
+    pon_modos(1, 1, 1);
+    pon_en(1, 1, 1);
+    espera(4);
+    const float a = g_i[0];
+    apaga();
+    TIM1->CCR1 = TIM1->CCR2 = TIM1->CCR3 = PWM_ARR / 2u;
+    espera(10);                               /* que se apague por los diodos */
+    return (a > 0.15f || a < -0.15f) ? 3 : 1;
+}
+
+/* En seis pasos, la corriente del bus: 5 ms de medidas en el valle, la
+ * media. Solo cuando se pregunta: medir cada periodo cuesta, en el modelo,
+ * más que conmutar */
+static void mide_bus(void)
+{
+    if (g_modo != 0) return;
+    g_suma_bus = 0.0f;
+    g_n_bus = 0;
+    muestreo(VALLE);
+    espera(5);
+    muestreo(NO_MIDE);
+    g_ibus = g_n_bus ? g_suma_bus / (float)g_n_bus : 0.0f;
+}
+
 static void informa(void)
 {
+    mide_bus();
     envia("rpm ");
     envia_f(rpm(), 0);
     if (g_modo == 2) {
@@ -543,6 +614,11 @@ static void informa(void)
         envia(" ciclo ");
         envia_f(g_ciclo * 100.0f, 1);
         envia("%");
+        if (g_modo == 0) {
+            envia(" ibus ");
+            envia_f(g_marcha ? g_ibus : 0.0f, 2);
+            envia(" A");
+        }
     }
     envia(" hall ");
     const uint32_t h = hall();
@@ -627,15 +703,29 @@ static void ejecuta(char* l)
             g_lazo = 0;
             g_iq_obj = 0.0f;
             const float m = numero(l + 1);
-            g_modo = m >= 2.0f ? 2 : (m != 0.0f ? 1 : 0);
+            int modo = m >= 2.0f ? 2 : (m != 0.0f ? 1 : 0);
+            if (modo == 2) {
+                if (!g_shunts) g_shunts = cuenta_shunts();
+                if (g_shunts != 3) {
+                    g_modo = 0;
+                    muestreo(NO_MIDE);
+                    pon_ciclo(0.0f);
+                    envia(g_shunts == 1
+                          ? "error: un solo shunt (J5 y J6 en 2-3): la FOC necesita los tres (en 1-2)\r\n"
+                          : "error: no se pueden contar los shunts: DIAG-EN bajo\r\n");
+                    return;
+                }
+            }
+            g_modo = modo;
             if (g_modo == 1) TIM1->DIER |= TIM_DIER_UIE;
             else TIM1->DIER &= ~TIM_DIER_UIE;
-            adc_disparos(g_modo == 2);
+            muestreo(g_modo == 2 ? PICO : NO_MIDE);
             pon_ciclo(0.0f);
             break;
         }
         case 'P': espera((uint32_t)numero(l + 1)); break;
         case 'C':                              /* las tres corrientes medidas */
+            mide_bus();
             envia("ia ");
             envia_f(g_i[0], 3);
             envia(" ib ");
@@ -756,6 +846,7 @@ int main(void)
 
     /* Los ADC de la corriente, con su offset */
     adc_inicia();
+    muestreo(NO_MIDE);                        /* seis pasos: mide al preguntar */
 
     envia("\r\nseis pasos, senoidal y FOC (F7): DB42S01 en una X-NUCLEO-IHM07M1, PWM de 20 kHz, ");
     envia_u(PARES);

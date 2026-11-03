@@ -758,6 +758,8 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
    se dijo en 8 sobre el ADC no era así: el disparo por TRGO del TIM1 sí está
    en el modelo —F-19 es solo el de los eventos de comparación—, y con OC4REF
    como TRGO basta.
+10. **El 2026-11-03, uno o tres shunts**, en otro parche: J5 y J6 de la
+    IHM07M1 eligen, como en la placa, y salen como de fábrica, con uno.
 
 ### F0, hecha: la cadena mecánica y el efecto `desplaza`
 
@@ -1224,9 +1226,9 @@ configurarlo con `$` y cablear la máquina como él la espera.
 ### F7: la FOC, hecha
 
 * **Los shunts**: el `PuenteTrifasico` con `sense1` a `sense3` saca la fuente
-  de cada transistor de abajo a su shunt, `r_sense`, 0,33 Ω, dentro de la
-  pieza: el pin queda a `−i·r_sense` mientras conduce el de abajo —o su
-  diodo— y a masa si no. La fase ve `r_on + r_sense` hacia masa.
+  de cada transistor de abajo a su shunt, 0,33 Ω: el pin queda a
+  `−i·r_sense` mientras conduce el de abajo —o su diodo— y a masa si no. (En
+  este parche, dentro de la pieza; desde el siguiente, en la placa.)
 * **`Amplificador`** (`parts/potencia.h`), la etapa de un operacional:
   `offset + ganancia·entrada`, entre masa y VCC. Los tres TSV994 de la IHM07M1,
   con 1,528 de ganancia y 1,56 V de polarización [ST, el foro]: la corriente
@@ -1265,6 +1267,51 @@ configurarlo con `$` y cablear la máquina como él la espera.
 * **Lo que queda**: la medida de VIN, la FOC sin sensores —un observador en
   vez de los Hall— y la de un shunt.
 * **Pruebas**: `make gui-cnc` C12, 7 comprobaciones, unos 40 s.
+
+### F7: uno o tres shunts, hecho
+
+* **J5 y J6**, como en la placa [UM1943, tabla 1]: «Selection for
+  single/three shunt configuration. Set to single shunt by default 2-3
+  CLOSED». El pin 2 de J5 es SENS2 —SENS3 en J6—; en 1-2 (3Sh) va a su shunt,
+  R44 —R45—, y en 2-3 (1Sh), a SENS1: las tres fuentes, juntas, a R43. El
+  manual no da la tira pin a pin, solo el 1Sh y el 3Sh del esquema y el 2-3
+  de fábrica: es la lectura que casa con los dos. La IHM07M1 sale con uno;
+  `placas/nucleo_ihm07m1_db42.xml`, el sistema de la FOC, pone los dos en 1-2
+  con `<jumper ref>`.
+* **Los shunts, en la placa**: R43, R44 y R45, `Resistencia` de 0,33 Ω, y los
+  amplificadores, uno por shunt. El `PuenteTrifasico` ya no los lleva: por cada
+  SENSx **mete** en su nodo lo que pasa por el transistor de abajo, como una
+  fuente de corriente —en un nodo compartido, la suma—, y la tensión la pone
+  el shunt. Lo que entra en masa lo saca de la masa por su `gnd`, como lo
+  recoge la fuente de verdad por su negativo: la de este modelo tiene la
+  vuelta en el cero absoluto, y sin eso la masa subía por las 0,1 Ω de sus
+  uniones —43 mV con 0,85 A— y el ADC, que mide contra el cero, lo veía.
+* **El firmware**: en seis pasos mide en el **valle** del contador —el canal 4
+  en PWM 1 con CCR4 = 30—, cuando conducen el de arriba de la fase del PWM y
+  el de abajo de otra: por el shunt de esa, o por el único, pasa la corriente
+  del bus, y la suma de lo que baja por los tres vale con los dos. `?` la da
+  como ibus, la media de 5 ms; solo mide al preguntar, porque en el modelo
+  medir cada periodo costaba más que conmutar. La FOC necesita los tres: la
+  primera vez que se pide, el firmware los cuenta con un pulso de 4 ms —en el
+  pico, con uno, lo que baja por una fase sube por las otras y no ve nada— y,
+  con uno, lo dice y no la arranca.
+* **Lo que sale**: con el rotor sujeto —U arriba, V abajo, 0,85 A—, con uno,
+  PA0 ve −0,847 A y PC1 y PC0, cero; con tres, PC1 ve los −0,847. La del bus,
+  0,85 A con los dos.
+* **Lo que costó**: dos bucles de ciclos delta. El primero, de la fuente de
+  corriente en un nodo con una `Resistencia`: cada una se rehacía con lo que
+  movía la otra, en el último bit de un float; la fuente solo se rehace si la
+  corriente cambia más de 0,1 mA, o lo de fuera más de 1 mV. El segundo, de la
+  vuelta por la masa, que es el nodo de todo: con 1 Ω de fuente, lo que cuelga
+  de la masa no paraba de rehacerse; con 100 Ω, la masa ni la nota. Y uno del firmware: la interrupción esperaba a los tres ADC sin
+  límite, y al apagar los disparos entre el de uno y el de otro, se quedaba
+  esperando al que no llegaba.
+* **El coste**: seis pasos, un segundo y medio de reloj por segundo del motor
+  —antes, uno—; senoidal, unos 8; FOC, unos 9. Lo de más son los shunts y sus
+  amplificadores, que se mueven con cada flanco del PWM.
+* **Lo que queda**: la FOC con un shunt —dos medidas por periodo, en los dos
+  vectores activos, y el desplazamiento de fases cuando no caben—.
+* **Pruebas**: `make gui-cnc` C13, 5 comprobaciones.
 
 ## Fuentes
 

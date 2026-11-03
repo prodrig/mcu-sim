@@ -974,6 +974,9 @@ def x_nucleo_ihm07m1():
     REN         la resistencia de DIAG-EN; RH1, RH2 y RH3 las de los Hall
     U10A, U10B, U10C  los tres amplificadores de la corriente: el TSV994,
                 debajo del L6230
+    R43, R44, R45  los shunts, a la derecha del L6230
+    J5, J6      uno o tres shunts: J5.1 a J5.3, y el puente en 1-2 (J5@1-2,
+                tres) o en 2-3 (J5@2-3, uno, el de fabrica)
     D11         el LED rojo
 """)
     s.add(s.rect(0, 0, 700, 620, "#1b5e20", "#0d3b10", 2, rx=12))
@@ -1019,6 +1022,21 @@ def x_nucleo_ihm07m1():
     for k, q in enumerate("ABC"):
         s.add(s.rect(306 + k * 31, 446, 26, 32, "#2b2b2b", id="U10" + q))
     s.add(s.text(350, 500, "TSV994", 8, BLANCO, "middle", bold=False))
+    for k, r in enumerate(("R43", "R44", "R45")):
+        s.add('<g id="%s">' % r)
+        s.add("  " + s.rect(450, 350 + k * 24, 50, 16, "#37474f", "#000000", 1))
+        s.add("</g>")
+        s.add(s.text(508, 362 + k * 24, r, 8, BLANCO, bold=False))
+    for j, (jp, y) in enumerate((("J5", 270), ("J6", 306))):
+        s.add('<g id="%s">' % jp)
+        for k in range(3):
+            pin_tira(s, "%s.%d" % (jp, k + 1), 180 + k * 25.4, y)
+        s.add("</g>")
+        dm.puente(s, "%s@1-2" % jp, 180, 205.4, y)
+        dm.puente(s, "%s@2-3" % jp, 205.4, 230.8, y)
+        s.add(s.text(160, y + 4, jp, 8, BLANCO, "end", bold=False))
+    s.add(s.text(180, 336, "3Sh", 7, BLANCO, "middle", bold=False))
+    s.add(s.text(230.8, 336, "1Sh", 7, BLANCO, "middle", bold=False))
     s.add(s.circ(530, 470, 10, "#e53935", "#7f0000", 1.2, id="D11"))
     s.add(s.text(530, 498, "FAULT", 8, BLANCO, "middle"))
     s.add(s.text(350, 220, "X-NUCLEO-IHM07M1", 13, BLANCO, "middle"))

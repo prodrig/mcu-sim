@@ -19,6 +19,9 @@
     REN         la resistencia de DIAG-EN; RH1, RH2 y RH3 las de los Hall
     U10A, U10B, U10C  los tres amplificadores de la corriente: el TSV994,
                 debajo del L6230
+    R43, R44, R45  los shunts, a la derecha del L6230
+    J5, J6      uno o tres shunts: J5.1 a J5.3, y el puente en 1-2 (J5@1-2,
+                tres) o en 2-3 (J5@2-3, uno, el de fabrica)
     D11         el LED rojo
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 620" width="70mm" height="62mm">
@@ -186,6 +189,48 @@
   <rect id="U10B" x="337" y="446" width="26" height="32" fill="#2b2b2b"/>
   <rect id="U10C" x="368" y="446" width="26" height="32" fill="#2b2b2b"/>
   <text x="350" y="500" font-family="Arial" font-size="8" fill="#f5f5f5" text-anchor="middle">TSV994</text>
+  <g id="R43">
+    <rect x="450" y="350" width="50" height="16" fill="#37474f" stroke="#000000" stroke-width="1"/>
+  </g>
+  <text x="508" y="362" font-family="Arial" font-size="8" fill="#f5f5f5">R43</text>
+  <g id="R44">
+    <rect x="450" y="374" width="50" height="16" fill="#37474f" stroke="#000000" stroke-width="1"/>
+  </g>
+  <text x="508" y="386" font-family="Arial" font-size="8" fill="#f5f5f5">R44</text>
+  <g id="R45">
+    <rect x="450" y="398" width="50" height="16" fill="#37474f" stroke="#000000" stroke-width="1"/>
+  </g>
+  <text x="508" y="410" font-family="Arial" font-size="8" fill="#f5f5f5">R45</text>
+  <g id="J5">
+  <rect id="J5.1" x="174" y="264" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J5.2" x="199.4" y="264" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J5.3" x="224.8" y="264" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <g id="J5@1-2">
+    <rect x="170" y="261" width="45.4" height="18" rx="3" fill="#0a0a0a" stroke="#e8e8e8" stroke-width="2" fill-opacity="0.45"/>
+    <rect x="180" y="267.5" width="25.4" height="5" fill="#e0e0e0"/>
+  </g>
+  <g id="J5@2-3">
+    <rect x="195.4" y="261" width="45.4" height="18" rx="3" fill="#0a0a0a" stroke="#e8e8e8" stroke-width="2" fill-opacity="0.45"/>
+    <rect x="205.4" y="267.5" width="25.4" height="5" fill="#e0e0e0"/>
+  </g>
+  <text x="160" y="274" font-family="Arial" font-size="8" fill="#f5f5f5" text-anchor="end">J5</text>
+  <g id="J6">
+  <rect id="J6.1" x="174" y="300" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J6.2" x="199.4" y="300" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="J6.3" x="224.8" y="300" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <g id="J6@1-2">
+    <rect x="170" y="297" width="45.4" height="18" rx="3" fill="#0a0a0a" stroke="#e8e8e8" stroke-width="2" fill-opacity="0.45"/>
+    <rect x="180" y="303.5" width="25.4" height="5" fill="#e0e0e0"/>
+  </g>
+  <g id="J6@2-3">
+    <rect x="195.4" y="297" width="45.4" height="18" rx="3" fill="#0a0a0a" stroke="#e8e8e8" stroke-width="2" fill-opacity="0.45"/>
+    <rect x="205.4" y="303.5" width="25.4" height="5" fill="#e0e0e0"/>
+  </g>
+  <text x="160" y="310" font-family="Arial" font-size="8" fill="#f5f5f5" text-anchor="end">J6</text>
+  <text x="180" y="336" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">3Sh</text>
+  <text x="230.8" y="336" font-family="Arial" font-size="7" fill="#f5f5f5" text-anchor="middle">1Sh</text>
   <circle id="D11" cx="530" cy="470" r="10" fill="#e53935" stroke="#7f0000" stroke-width="1.2"/>
   <text x="530" y="498" font-family="Arial" font-size="8" font-weight="bold" fill="#f5f5f5" text-anchor="middle">FAULT</text>
   <text x="350" y="220" font-family="Arial" font-size="13" font-weight="bold" fill="#f5f5f5" text-anchor="middle">X-NUCLEO-IHM07M1</text>

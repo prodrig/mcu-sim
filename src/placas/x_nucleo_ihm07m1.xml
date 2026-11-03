@@ -17,14 +17,23 @@
             -TIM2_CH1 a CH3: el interfaz de sensores Hall del TIM2-, con sus
             pull-ups de 10 kohm (JP3 cerrado, el de fabrica)
        D11  el LED rojo de PB2, con 510 ohm
-       LOS SHUNTS, para la FOC: R43, R44 y R45, 0,33 ohm de la fuente de cada
-            transistor de abajo a masa -van dentro de U1: sus pines sense-, y
-            U10A, U10B y U10C, los tres operacionales del TSV994, con 1,528
-            de ganancia y 1,56 V de polarizacion [ST, el foro: los da el MC
-            Workbench]: la corriente de la fase A en PA0, la de la B en PC1 y
-            la de la C en PC0. Lo que sale por cada fase, positiva, baja la
-            tension: 1,56 - 0,504·i V. Es la configuracion de TRES SHUNTS, con
-            J5 y J6 en 1-2; la de fabrica es la de uno, en 2-3, y esa no esta
+       LOS SHUNTS: R43, R44 y R45, 0,33 ohm a masa, y U10A, U10B y U10C, los
+            tres operacionales del TSV994, con 1,528 de ganancia y 1,56 V de
+            polarizacion [ST, el foro: los da el MC Workbench], cada uno sobre
+            un shunt: el de R43 a PA0, el de R44 a PC1 y el de R45 a PC0. Lo
+            que baja por un shunt hacia masa, positivo, sube la tension: 1,56
+            + 0,504·i V. Por cada SENSx del L6230 sale hacia su shunt la
+            corriente del transistor de abajo de su fase.
+       J5, J6  UNO O TRES SHUNTS [UM1943, tabla 1: "Selection for
+            single/three shunt configuration. Set to single shunt by default
+            2-3 CLOSED"]. Su pin 2 es SENS2 -SENS3 en J6-; en 1-2 (3Sh) va a
+            su propio shunt, R44 -R45-, y en 2-3 (1Sh), a SENS1: las tres
+            fuentes, juntas, a R43. EL DE FABRICA, 2-3: UN SHUNT, la
+            corriente del bus en PA0, y PC1 y PC0 quietos en 1,56 V. Para la
+            FOC con los tres, 1-2; un <sistema> lo cambia sin tocar la placa:
+            <jumper ref="X/J5" puente="1 2"/>. El manual no da la tira pin a
+            pin -solo el 1Sh y el 3Sh del esquema y el 2-3 de fabrica-: esta
+            es la lectura que casa con los dos
 
      LO QUE NO LLEVA ESTE MODELO: los divisores que miden la f.e.m. de cada
      fase (PC3, PB0 y PA7) y VIN (PA1, 169 kohm y 9,31 kohm), el filtro RC de
@@ -72,9 +81,11 @@
   <nodo id="J2.A" bus="si"/>
   <nodo id="J2.B" bus="si"/>
   <nodo id="J2.C" bus="si"/>
-  <nodo id="SENS1"/>
-  <nodo id="SENS2"/>
-  <nodo id="SENS3"/>
+  <nodo id="SENS1" bus="si"/>
+  <nodo id="SENS2" bus="si"/>
+  <nodo id="SENS3" bus="si"/>
+  <nodo id="VSH2" bus="si"/>
+  <nodo id="VSH3" bus="si"/>
 
   <!-- Las bornas -->
   <componente tipo="Conector" id="J1" filas="1" columnas="2" nombres="VIN GND">
@@ -100,17 +111,34 @@
     <pin nombre="sense3" nodo="SENS3"/>
   </componente>
 
-  <!-- Los tres amplificadores de la corriente (el TSV994) -->
+  <!-- Los shunts, y J5 y J6: uno (2-3, el de fabrica) o tres (1-2) -->
+  <componente tipo="Resistencia" id="R43" r="0.33">
+    <pin nombre="a" nodo="SENS1"/> <pin nombre="b" nodo="GND"/>
+  </componente>
+  <componente tipo="Resistencia" id="R44" r="0.33">
+    <pin nombre="a" nodo="VSH2"/> <pin nombre="b" nodo="GND"/>
+  </componente>
+  <componente tipo="Resistencia" id="R45" r="0.33">
+    <pin nombre="a" nodo="VSH3"/> <pin nombre="b" nodo="GND"/>
+  </componente>
+  <componente tipo="Jumper" id="J5" filas="1" columnas="3" puente="2 3">
+    <pin nombre="1" nodo="VSH2"/> <pin nombre="2" nodo="SENS2"/> <pin nombre="3" nodo="SENS1"/>
+  </componente>
+  <componente tipo="Jumper" id="J6" filas="1" columnas="3" puente="2 3">
+    <pin nombre="1" nodo="VSH3"/> <pin nombre="2" nodo="SENS3"/> <pin nombre="3" nodo="SENS1"/>
+  </componente>
+
+  <!-- Los tres amplificadores de la corriente (el TSV994), uno por shunt -->
   <componente tipo="Amplificador" id="U10A" ganancia="1.528" offset="1.56">
     <pin nombre="entrada" nodo="SENS1"/> <pin nombre="salida" nodo="CUR_A"/>
     <pin nombre="vcc" nodo="V33"/> <pin nombre="gnd" nodo="GND"/>
   </componente>
   <componente tipo="Amplificador" id="U10B" ganancia="1.528" offset="1.56">
-    <pin nombre="entrada" nodo="SENS2"/> <pin nombre="salida" nodo="CUR_B"/>
+    <pin nombre="entrada" nodo="VSH2"/> <pin nombre="salida" nodo="CUR_B"/>
     <pin nombre="vcc" nodo="V33"/> <pin nombre="gnd" nodo="GND"/>
   </componente>
   <componente tipo="Amplificador" id="U10C" ganancia="1.528" offset="1.56">
-    <pin nombre="entrada" nodo="SENS3"/> <pin nombre="salida" nodo="CUR_C"/>
+    <pin nombre="entrada" nodo="VSH3"/> <pin nombre="salida" nodo="CUR_C"/>
     <pin nombre="vcc" nodo="V33"/> <pin nombre="gnd" nodo="GND"/>
   </componente>
   <componente tipo="Resistencia" id="REN" r="100000">

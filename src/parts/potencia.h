@@ -19,7 +19,8 @@
 //                F7): el de la X-NUCLEO-IHM07M1, para un BLDC que conmuta el
 //                MCU. INx y ENx por medio puente, y DIAG-EN, que los apaga
 //                todos y por el que el chip dice una sobrecorriente; con
-//                `sense1` a `sense3`, sus tres shunts (la FOC)
+//                `sense1` a `sense3`, las fuentes de los de abajo, a sus
+//                shunts: tres, o uno para los tres
 //   Amplificador la etapa de un operacional que lleva la caída en un shunt
 //                al ADC, con su ganancia y su polarización: los tres TSV994
 //                de la IHM07M1
@@ -445,14 +446,26 @@ private:
 // UVLO, que vuelve a 6,3- no hace nada. Las entradas cortan en 1,8 V al subir
 // y en 1,3 al bajar: valen 3,3 V.
 //
-// LOS SHUNTS (`sense1` a `sense3`, la FOC de la IHM07M1): el chip saca la
-// fuente de cada transistor de abajo a su SENSEx, y la placa pone ahí una
-// resistencia a masa, `r_sense`. Por ella pasa lo que pasa por el transistor
-// de abajo -o por su diodo-: SENSEx queda a -i·r_sense mientras conduce, con i
-// la corriente que sale por OUTx, y a cero mientras conduce el de arriba o
-// nadie. Va dentro de la pieza: la fase ve r_on + r_sense hacia masa, y el
-// pin, un Thevenin de r_sense con esa tensión. Sin pines `sense`, las fuentes
-// van a masa.
+// LOS SHUNTS (`sense1` a `sense3`, la IHM07M1): el chip saca la fuente de
+// cada transistor de abajo a su SENSEx, y la placa pone ahí su shunt a masa:
+// uno por fase, o -con J5 y J6 de la IHM07M1 en 2-3- los tres SENSx unidos y
+// un solo shunt. Por SENSEx sale hacia el shunt lo que pasa por el transistor
+// de abajo -o por su diodo-: -i, con i la corriente que sale por OUTx, y nada
+// mientras conduce el de arriba o nadie. La pieza la METE en el nodo, como una
+// fuente de corriente: si varias fases comparten nodo -un shunt-, la suma, por
+// un solo pin. La tensión del nodo la pone el shunt, que es de la placa.
+//
+// Lo que entra en masa por los shunts vuelve a la fuente por su negativo, y
+// la fuente de este modelo tiene su vuelta en el cero absoluto: la pieza lo
+// saca del nodo de masa por su `gnd`, o subiría la masa de todo -por las
+// 0,1 ohm de sus uniones al cero- y lo vería el ADC, que mide contra el cero.
+// Por lo mismo, lo que pide a VS no cuenta lo que vuelve por un shunt.
+//
+// Hacia su fase, el de abajo se ve como r_on más la resistencia que hay en su
+// SENSEx hacia masa -lo que mide de fuera, el shunt-. Con un shunt para las
+// tres no ve lo que pasa por él de las otras dos: una aproximación de
+// milivoltios, la caída en 0,33 ohm, contra los 24 V del bus. Sin pines
+// `sense`, las fuentes van a masa.
 //
 // Lo que NO hace: el tiempo muerto de 1 us que pone el chip entre un
 // transistor y otro de una misma fase (la corriente pasa por el diodo en vez de
@@ -469,7 +482,6 @@ struct ConfigPuenteTrifasico {
     double v_alto = 1.8, v_bajo = 1.3; // V: las entradas
     double iq = 5e-3;                  // A: lo que gasta
     double vs_max = 52.0;              // V
-    double r_sense = 0.33;             // ohm: los shunts, con los pines `sense`
 };
 
 SC_MODULE(PuenteTrifasico), public ExtPartBase {
@@ -482,6 +494,7 @@ SC_MODULE(PuenteTrifasico), public ExtPartBase {
         const int ivs = add_pin("vs", vs, "l6230");
         const int ig = add_pin("gnd", gnd, "l6230");
         carga_.reset(new RamaDosNodos(vs, ivs, gnd, ig));
+        id_vuelta_ = add_drv("gnd", "l6230_vuelta");
         static const char* ni[3] = {"in1", "in2", "in3"};
         static const char* ne[3] = {"en1", "en2", "en3"};
         static const char* no[3] = {"out1", "out2", "out3"};
@@ -496,6 +509,10 @@ SC_MODULE(PuenteTrifasico), public ExtPartBase {
                 static const char* ns[3] = {"sense1", "sense2", "sense3"};
                 m_[k].sense = sense[k];
                 m_[k].id_s = add_pin(ns[k], *sense[k], "l6230_sense");
+                // El primero de los que comparten nodo es el que mete la suma
+                m_[k].lider = true;
+                for (int j = 0; j < k; ++j)
+                    if (m_[j].sense == sense[k]) m_[k].lider = false;
             }
         }
         if (diag_) id_diag_ = add_pin("diag", *diag_, "l6230_diag");
@@ -508,6 +525,7 @@ SC_MODULE(PuenteTrifasico), public ExtPartBase {
             m.out->set_hiz(m.id);
             if (m.sense) m.sense->set_hiz(m.id_s);
         }
+        gnd_->set_hiz(id_vuelta_);
         if (diag_) diag_->set_hiz(id_diag_);
     }
 
@@ -521,6 +539,8 @@ SC_MODULE(PuenteTrifasico), public ExtPartBase {
     // Lo que pasa por el shunt de k hacia masa (A): la de abajo, cambiada de signo
     double corriente_shunt(int k) const { return baja(m_[k]) ? -m_[k].i : 0.0; }
     bool   con_shunts() const { return m_[0].sense || m_[1].sense || m_[2].sense; }
+    // Cuántos shunts distintos: 3, o 1 si las tres fuentes van al mismo nodo
+    int    shunts() const { return int(m_[0].lider) + int(m_[1].lider) + int(m_[2].lider); }
     bool   en_fallo() const { return fallo_; }
     unsigned sobrecorrientes() const { return n_ocp_; }
     bool   vivo() const { return vivo_; }
@@ -546,7 +566,9 @@ private:
     struct Medio {
         analog_net_if *in = nullptr, *en = nullptr, *out = nullptr, *sense = nullptr;
         int id = -1, id_s = -1;
-        float v_s = -1e9f;
+        bool lider = false, inyecta = false;   // el que mete la corriente de su nodo
+        double rs = 0.0;                       // lo que hay de SENSEx a masa
+        double i_s = 0.0, vx_s = 0.0, g_s = 0.0;   // con lo que se puso
         bool niv_in = false, niv_en = false;
         bool activo = false, alto = false, conduce = false;
         int diodo = 0;                 // +1: hacia VS; -1: desde masa
@@ -561,7 +583,9 @@ private:
     double v(const analog_net_if* n) const { return double(n->voltage()) - double(gnd_->voltage()); }
     // Conduce por abajo: el transistor de abajo, o el diodo de abajo
     static bool baja(const Medio& m) { return (m.activo && !m.alto) || m.diodo < 0; }
-    double rs(const Medio& m) const { return m.sense ? c_.r_sense : 0.0; }
+    double rs(const Medio& m) const { return m.sense ? m.rs : 0.0; }
+    static constexpr double RI = 1.0;          // la de la fuente de corriente
+    static constexpr double RV = 100.0;        // la de la vuelta: la masa no la nota
     bool nivel(analog_net_if* n, bool antes) const {
         const double x = v(n);
         return antes ? x > c_.v_bajo : x >= c_.v_alto;
@@ -606,15 +630,16 @@ private:
                 else if (m.activo)       { vd = float(vg);      rd = float(c_.r_on + rs(m)); }
                 else if (m.diodo > 0)    { vd = float(vg + vs + c_.vd); rd = float(c_.rd); }
                 else if (m.diodo < 0)    { vd = float(vg - c_.vd);      rd = float(c_.rd + rs(m)); }
-                if (rd != m.r_drv || std::fabs(vd - m.v_drv) > 2e-4f) {
+                if (std::fabs(rd - m.r_drv) > 1e-4f * rd || std::fabs(vd - m.v_drv) > 2e-4f) {
                     m.v_drv = vd; m.r_drv = rd;
                     if (!m.conduce) m.out->set_hiz(m.id);
                     else m.out->set_drive(m.id, vd, rd);
                     cambio = true;
                 }
-                pon_sense(m, vg);
                 if (m.activo) p_ += m.i * m.i * c_.r_on;
                 if (m.alto && m.i > 0.0) i_vs += m.i;
+                // Lo que vuelve por un shunt ya llega a masa por el: no se pide dos veces
+                if (m.sense && baja(m)) i_vs += m.i;
                 // LA SOBRECORRIENTE, en un transistor que conduce
                 if (m.activo && std::fabs(m.i) > c_.i_ocp && !fallo_) {
                     fallo_ = true;
@@ -628,12 +653,13 @@ private:
                     cambio = true;
                 }
             }
+            pon_senses();
             if (cambio) {
                 ev_.notify(sc_core::SC_ZERO_TIME);
                 espera();
                 continue;
             }
-            pide(i_vs + (vivo_ ? c_.iq : 0.0), vs);
+            pide(std::max(0.0, i_vs) + (vivo_ ? c_.iq : 0.0), vs);
             espera();
         }
     }
@@ -642,14 +668,59 @@ private:
                          despierta());
         else wait(despierta());
     }
-    // SENSEx: la caída en su shunt, vista desde fuera tras el mismo shunt
-    void pon_sense(Medio& m, double vg) {
-        if (!m.sense) return;
-        if (!conectada_) { if (m.v_s > -1e8f) { m.sense->set_hiz(m.id_s); m.v_s = -1e9f; } return; }
-        const float x = float(vg - (baja(m) ? m.i * c_.r_sense : 0.0));
-        if (std::fabs(x - m.v_s) < 1e-5f) return;
-        m.v_s = x;
-        m.sense->set_drive(m.id_s, x, float(c_.r_sense));
+    // SENSEx: cada nodo, lo que va por los de abajo de sus fases, hacia el
+    // shunt. Una fuente de corriente: lo de fuera, visto como Thevenin, y la
+    // tensión que hace pasar por ahí exactamente esa corriente
+    void pon_senses() {
+        double vuelta = 0.0;                   // lo que entra en masa por los shunts
+        for (Medio& m : m_) {
+            if (!m.sense || !m.lider) continue;
+            double i = 0.0;
+            for (const Medio& o : m_)
+                if (o.sense == m.sense && baja(o)) i -= o.i;
+            bool solo = false;
+            const double vx = double(m.sense->voltage_excluding(m.id_s, solo));
+            const double g = m.sense->conductance() - (m.inyecta ? 1.0 / RI : 0.0);
+            if (!conectada_ || solo || g <= G_FLOAT) {
+                if (m.inyecta) { m.sense->set_hiz(m.id_s); m.inyecta = false; }
+                m.rs = 0.0;
+                if (conectada_ && std::fabs(i) > 1e-3) {
+                    char b[200];
+                    std::snprintf(b, sizeof b, "%s: SENSE%d no tiene nada hacia masa -el shunt-, y "
+                                  "por el pasan %.2f A", pieza().c_str(), int(&m - m_) + 1, i);
+                    avisa("sin_shunt", b);
+                }
+            } else {
+                vuelta += i;
+                // Solo si cambia de verdad: lo de fuera se mueve un poco con
+                // lo que mete la propia pieza -por el shunt, la masa-, y sin
+                // los umbrales se volvería a poner en bucle
+                if (!m.inyecta || std::fabs(i - m.i_s) > 1e-4 || std::fabs(vx - m.vx_s) > 1e-3 ||
+                    std::fabs(g - m.g_s) > 1e-3 * g) {
+                    m.i_s = i; m.vx_s = vx; m.g_s = g;
+                    m.rs = 1.0 / g;                    // solo con el, o bailaria en el ultimo bit
+                    m.inyecta = true;
+                    m.sense->set_drive(m.id_s, float(vx + i * (m.rs + RI)), float(RI));
+                }
+            }
+            for (Medio& o : m_)
+                if (o.sense == m.sense && &o != &m) o.rs = m.rs;
+        }
+        // Y eso mismo, fuera de la masa: vuelve a la fuente
+        if (!con_shunts()) return;
+        bool solo = false;
+        const double vx = double(gnd_->voltage_excluding(id_vuelta_, solo));
+        const double g = gnd_->conductance() - (vuelta_puesta_ ? 1.0 / RV : 0.0);
+        if (!conectada_ || solo || g <= G_FLOAT || std::fabs(vuelta) < 1e-6) {
+            if (vuelta_puesta_) { gnd_->set_hiz(id_vuelta_); vuelta_puesta_ = false; }
+            return;
+        }
+        if (!vuelta_puesta_ || std::fabs(vuelta - i_vuelta_) > 1e-4 ||
+            std::fabs(vx - vx_vuelta_) > 1e-3 || std::fabs(g - g_vuelta_) > 1e-3 * g) {
+            i_vuelta_ = vuelta; vx_vuelta_ = vx; g_vuelta_ = g;
+            vuelta_puesta_ = true;
+            gnd_->set_drive(id_vuelta_, float(vx - vuelta * (1.0 / g + RV)), float(RV));
+        }
     }
     // DIAG-EN: a masa mientras dura el fallo; si no, al aire (el pull-up es de la placa)
     void pon_diag() {
@@ -695,7 +766,9 @@ private:
     ConfigPuenteTrifasico c_;
     Medio m_[3];
     std::unique_ptr<RamaDosNodos> carga_;
-    int id_diag_ = -1, diag_puesto_ = -1;
+    int id_diag_ = -1, diag_puesto_ = -1, id_vuelta_ = -1;
+    bool vuelta_puesta_ = false;
+    double i_vuelta_ = 0.0, vx_vuelta_ = 0.0, g_vuelta_ = 0.0;
     bool vivo_ = false, fallo_ = false, diag_alto_ = true;
     double t_fin_fallo_ = 0.0;
     unsigned n_ocp_ = 0;

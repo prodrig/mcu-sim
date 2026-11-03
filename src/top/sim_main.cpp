@@ -1573,10 +1573,11 @@ SC_MODULE(Sim) {
             const PuenteTrifasico* p = placa.como<PuenteTrifasico>(i.id);
             if (!p) continue;
             std::printf("  L6230 %s: %s %+.2f A, %s %+.2f A, %s %+.2f A; disipa %.2f W; %u "
-                        "sobrecorrientes%s%s\n", i.id.c_str(), p->estado(0), p->corriente(0),
+                        "sobrecorrientes%s%s%s\n", i.id.c_str(), p->estado(0), p->corriente(0),
                         p->estado(1), p->corriente(1), p->estado(2), p->corriente(2),
-                        p->disipacion(), p->sobrecorrientes(), p->en_fallo() ? "; EN FALLO" : "",
-                        p->vivo() ? "" : "; SIN TENSION");
+                        p->disipacion(), p->sobrecorrientes(),
+                        !p->con_shunts() ? "" : (p->shunts() == 1 ? "; un shunt" : "; tres shunts"),
+                        p->en_fallo() ? "; EN FALLO" : "", p->vivo() ? "" : "; SIN TENSION");
         }
         for (const Instancia& i : placa.instancias()) {
             if (i.tipo != "Amplificador") continue;
