@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UN EJE Z COMPLETO DE UNA FRESADORA DE SOBREMESA, sin MCU
+
+     El eje vertical de una 3018/3020 (doc/analisis_cnc.md §6, fase F2), de
+     punta a punta: el NEMA 17, un acople de espiral, un husillo Tr8x2 y el
+     carro con el cabezal. Visto de lado, con el motor arriba. Sus cuatro
+     hilos, M.A1, M.A2, M.B1 y M.B2, van a un driver.
+
+     MOTOR, el NEMA 17 de nema17_3018.xml, con su eje de 5 mm.
+     A, un ACOPLE DE ESPIRAL de 5 a 8 mm: si no encajaran, la <transmision>
+       no se montaria.
+     H, el HUSILLO: Tr8 de 2 mm de avance -una entrada-, tuerca de laton
+       (mu 0,15) con 0,03 mm de holgura, 200 mm entre un rodamiento fijo y uno
+       apoyado. Su helice de 5,2° y su rozamiento dan un rendimiento de 0,36,
+       y el inverso es negativo: SE SUJETA SOLO. Sin corriente en el motor, el
+       cabezal no se cae (con uno de bolas, si). El avance de las maquinas de
+       VEVOR no lo dice nadie: es una ESTIMACION, y cambia la maquina entera.
+     C, el CARRO Z: 1,2 kg -el soporte y un motor 775-, 4 N de rozamiento de
+       sus guias, 72 mm de recorrido -el de la 3020-, vertical, con su peso.
+       Empieza a 60 mm del tope de abajo.
+     Z, la <transmision>: deja ver la posicion del carro en mm, la COTA.
+
+     EN LA VENTANA, el carro sube y baja con su posicion (el efecto
+     `desplaza`) y el display de la derecha ensena su cota, con su signo.
+
+         ./build/mcu-sim placas/eje_z_tr8.xml --valida
+     ========================================================================= -->
+<placa nombre="eje-z-tr8">
+  <componente tipo="Conector" id="M" filas="4" columnas="1" nombres="A1 A2 B1 B2"/>
+  <nodo id="M.A1" bus="si"/>
+  <nodo id="M.A2" bus="si"/>
+  <nodo id="M.B1" bus="si"/>
+  <nodo id="M.B2" bus="si"/>
+
+  <componente tipo="MotorPaP" id="MOTOR" par_retencion_ncm="25" corriente_a="1.3" r_ohm="2.4"
+              l_mh="2.8" inercia_gcm2="34" eje_mm="5">
+    <pin nombre="a1" nodo="M.A1"/>
+    <pin nombre="a2" nodo="M.A2"/>
+    <pin nombre="b1" nodo="M.B1"/>
+    <pin nombre="b2" nodo="M.B2"/>
+  </componente>
+  <componente tipo="Acople" id="A" tipo_acople="espiral" d1_mm="5" d2_mm="8" inercia_gcm2="3"/>
+  <componente tipo="Husillo" id="H" rosca="Tr" diametro_mm="8" avance_mm="2" paso_mm="2"
+              mu="0.15" longitud_mm="200" apoyos="fijo-apoyado" holgura_mm="0.03"/>
+  <componente tipo="Carro" id="C" eje="z" masa_kg="1.2" rozamiento_n="4" recorrido_mm="72"
+              posicion_mm="60" vertical="si"/>
+  <transmision id="Z" cadena="MOTOR A H C"/>
+
+  <ilustracion>
+    <enlace pieza="C" elemento="C" efecto="desplaza" observable="posicion" vector="0 -5"/>
+    <enlace pieza="Z" elemento="COTA" efecto="display" observable="posicion"/>
+  </ilustracion>
+</placa>

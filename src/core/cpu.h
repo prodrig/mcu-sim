@@ -778,6 +778,15 @@ inline void Cpu::exception_entry(int excp) {
     // Cambio a modo Handler y pila principal [IR, §7.1]
     reg.handler_mode = true;
     reg.control = uint8_t(reg.control & ~2u);       // SPSEL = 0 en Handler
+    // Y el manejador EMPIEZA SIN CONTEXTO FP: CONTROL.FPCA = 0 [ARMv7-M,
+    // B1.5.6, ExceptionTaken]. El del interrumpido ya va en EXC_RETURN (bit 4)
+    // y vuelve con él. Sin esto, una interrupción que se anidaba en un
+    // manejador sin FP abría OTRA trama FP diferida encima de la de fuera: su
+    // vuelta borraba LSPACT, y la vuelta de fuera leía S0-S15 de una trama que
+    // nunca se escribió. El hilo principal perdía sus registros FP a ratos. Lo
+    // destapó el firmware de la CNC (F3): el TIM6 de los pasos interrumpiendo a
+    // la USART2 mientras el bucle principal hacía cuentas en coma flotante
+    reg.set_fpca(false);
     reg.r[13] = reg.msp;
     reg.set_ipsr(unsigned(excp));
     reg.set_itstate(0);

@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     LA X-NUCLEO-IHM07M1: un puente trifasico L6230 para un BLDC, sin MCU, que
+     se enchufa en los morpho de una Nucleo
+
+     La fase F7 de doc/analisis_cnc.md (§5.4): el BLDC conmutado por el propio
+     MCU. Las cifras y los pines, los de su manual [UM1943, tabla 3] y los del
+     L6230 [DocID18094]: de 8 a 48 V en J1, 1,4 A eficaces y 2,8 de pico.
+
+       U1   el L6230: IN1 a IN3 en PA8, PA9 y PA10 -TIM1_CH1 a CH3: el PWM de
+            cada fase-, EN1 a EN3 en PC10, PC11 y PC12, y DIAG-EN en PA6 -la
+            entrada de freno del TIM1-, con REN, 100 kohm a 3,3 V: el chip la
+            baja con una sobrecorriente
+       J1   VIN y GND, la alimentacion del motor
+       J2   A, B y C, el motor
+       J3   el sensor: 5V, GND, H1, H2 y H3. H1 a PA15, H2 a PB3 y H3 a PB10
+            -TIM2_CH1 a CH3: el interfaz de sensores Hall del TIM2-, con sus
+            pull-ups de 10 kohm (JP3 cerrado, el de fabrica)
+       D11  el LED rojo de PB2, con 510 ohm
+       LOS SHUNTS: R43, R44 y R45, 0,33 ohm a masa, y U10A, U10B y U10C, los
+            tres operacionales del TSV994, con 1,528 de ganancia y 1,56 V de
+            polarizacion [ST, el foro: los da el MC Workbench], cada uno sobre
+            un shunt: el de R43 a PA0, el de R44 a PC1 y el de R45 a PC0. Lo
+            que baja por un shunt hacia masa, positivo, sube la tension: 1,56
+            + 0,504·i V. Por cada SENSx del L6230 sale hacia su shunt la
+            corriente del transistor de abajo de su fase.
+       J5, J6  UNO O TRES SHUNTS [UM1943, tabla 1: "Selection for
+            single/three shunt configuration. Set to single shunt by default
+            2-3 CLOSED"]. Su pin 2 es SENS2 -SENS3 en J6-; en 1-2 (3Sh) va a
+            su propio shunt, R44 -R45-, y en 2-3 (1Sh), a SENS1: las tres
+            fuentes, juntas, a R43. EL DE FABRICA, 2-3: UN SHUNT, la
+            corriente del bus en PA0, y PC1 y PC0 quietos en 1,56 V. Para la
+            FOC con los tres, 1-2; un <sistema> lo cambia sin tocar la placa:
+            <jumper ref="X/J5" puente="1 2"/>. El manual no da la tira pin a
+            pin -solo el 1Sh y el 3Sh del esquema y el 2-3 de fabrica-: esta
+            es la lectura que casa con los dos
+
+     LO QUE NO LLEVA ESTE MODELO: los divisores que miden la f.e.m. de cada
+     fase (PC3, PB0 y PA7) y VIN (PA1, 169 kohm y 9,31 kohm), el filtro RC de
+     cada amplificador, el potenciometro de PB1 y el sensor de temperatura.
+     Los pull-ups de los Hall, a 3,3 V: el manual no dice a que tension van, y
+     las entradas de PA15, PB3 y PB10 aguantan las dos.
+
+         ./build/mcu-sim placas/x_nucleo_ihm07m1.xml --valida
+     ========================================================================= -->
+<placa nombre="x-nucleo-ihm07m1">
+  <!-- Los morpho: los de la Nucleo, los mismos pines -->
+  <componente tipo="Conector" id="CN7" filas="2" columnas="19">
+    <pin nombre="1" nodo="EN1"/>      <!-- PC10 -->
+    <pin nombre="2" nodo="EN2"/>      <!-- PC11 -->
+    <pin nombre="3" nodo="EN3"/>      <!-- PC12 -->
+    <pin nombre="16" nodo="V33"/>     <!-- +3V3 -->
+    <pin nombre="17" nodo="H1"/>      <!-- PA15 -->
+    <pin nombre="18" nodo="V5"/>      <!-- +5V -->
+    <pin nombre="19" nodo="GND"/>
+    <pin nombre="20" nodo="GND"/>
+    <pin nombre="22" nodo="GND"/>
+    <pin nombre="28" nodo="CUR_A"/>   <!-- PA0, ADC123_IN0 -->
+    <pin nombre="36" nodo="CUR_B"/>   <!-- PC1, ADC123_IN11 -->
+    <pin nombre="38" nodo="CUR_C"/>   <!-- PC0, ADC123_IN10 -->
+  </componente>
+  <componente tipo="Conector" id="CN10" filas="2" columnas="19">
+    <pin nombre="9" nodo="GND"/>
+    <pin nombre="13" nodo="DIAG"/>    <!-- PA6, TIM1_BKIN -->
+    <pin nombre="20" nodo="GND"/>
+    <pin nombre="21" nodo="IN2"/>     <!-- PA9, TIM1_CH2 -->
+    <pin nombre="22" nodo="LED"/>     <!-- PB2 -->
+    <pin nombre="23" nodo="IN1"/>     <!-- PA8, TIM1_CH1 -->
+    <pin nombre="25" nodo="H3"/>      <!-- PB10, TIM2_CH3 -->
+    <pin nombre="31" nodo="H2"/>      <!-- PB3, TIM2_CH2 -->
+    <pin nombre="33" nodo="IN3"/>     <!-- PA10, TIM1_CH3 -->
+  </componente>
+  <nodo id="GND" bus="si"/>
+  <nodo id="V33" bus="si"/>
+  <nodo id="V5" bus="si"/>
+  <nodo id="J1.VIN" bus="si"/>
+  <nodo id="DIAG" bus="si"/>
+  <nodo id="H1" bus="si"/>
+  <nodo id="H2" bus="si"/>
+  <nodo id="H3" bus="si"/>
+  <nodo id="J2.A" bus="si"/>
+  <nodo id="J2.B" bus="si"/>
+  <nodo id="J2.C" bus="si"/>
+  <nodo id="SENS1" bus="si"/>
+  <nodo id="SENS2" bus="si"/>
+  <nodo id="SENS3" bus="si"/>
+  <nodo id="VSH2" bus="si"/>
+  <nodo id="VSH3" bus="si"/>
+
+  <!-- Las bornas -->
+  <componente tipo="Conector" id="J1" filas="1" columnas="2" nombres="VIN GND">
+    <pin nombre="GND" nodo="GND"/>
+  </componente>
+  <componente tipo="Conector" id="J2" filas="1" columnas="3" nombres="A B C"/>
+  <componente tipo="Conector" id="J3" filas="1" columnas="5" nombres="5V GND H1 H2 H3">
+    <pin nombre="5V" nodo="V5"/>
+    <pin nombre="GND" nodo="GND"/>
+    <pin nombre="H1" nodo="H1"/>
+    <pin nombre="H2" nodo="H2"/>
+    <pin nombre="H3" nodo="H3"/>
+  </componente>
+
+  <!-- El L6230 -->
+  <componente tipo="PuenteTrifasico" id="U1">
+    <pin nombre="vs" nodo="J1.VIN"/> <pin nombre="gnd" nodo="GND"/>
+    <pin nombre="in1" nodo="IN1"/> <pin nombre="in2" nodo="IN2"/> <pin nombre="in3" nodo="IN3"/>
+    <pin nombre="en1" nodo="EN1"/> <pin nombre="en2" nodo="EN2"/> <pin nombre="en3" nodo="EN3"/>
+    <pin nombre="out1" nodo="J2.A"/> <pin nombre="out2" nodo="J2.B"/> <pin nombre="out3" nodo="J2.C"/>
+    <pin nombre="diag" nodo="DIAG"/>
+    <pin nombre="sense1" nodo="SENS1"/> <pin nombre="sense2" nodo="SENS2"/>
+    <pin nombre="sense3" nodo="SENS3"/>
+  </componente>
+
+  <!-- Los shunts, y J5 y J6: uno (2-3, el de fabrica) o tres (1-2) -->
+  <componente tipo="Resistencia" id="R43" r="0.33">
+    <pin nombre="a" nodo="SENS1"/> <pin nombre="b" nodo="GND"/>
+  </componente>
+  <componente tipo="Resistencia" id="R44" r="0.33">
+    <pin nombre="a" nodo="VSH2"/> <pin nombre="b" nodo="GND"/>
+  </componente>
+  <componente tipo="Resistencia" id="R45" r="0.33">
+    <pin nombre="a" nodo="VSH3"/> <pin nombre="b" nodo="GND"/>
+  </componente>
+  <componente tipo="Jumper" id="J5" filas="1" columnas="3" puente="2 3">
+    <pin nombre="1" nodo="VSH2"/> <pin nombre="2" nodo="SENS2"/> <pin nombre="3" nodo="SENS1"/>
+  </componente>
+  <componente tipo="Jumper" id="J6" filas="1" columnas="3" puente="2 3">
+    <pin nombre="1" nodo="VSH3"/> <pin nombre="2" nodo="SENS3"/> <pin nombre="3" nodo="SENS1"/>
+  </componente>
+
+  <!-- Los tres amplificadores de la corriente (el TSV994), uno por shunt -->
+  <componente tipo="Amplificador" id="U10A" ganancia="1.528" offset="1.56">
+    <pin nombre="entrada" nodo="SENS1"/> <pin nombre="salida" nodo="CUR_A"/>
+    <pin nombre="vcc" nodo="V33"/> <pin nombre="gnd" nodo="GND"/>
+  </componente>
+  <componente tipo="Amplificador" id="U10B" ganancia="1.528" offset="1.56">
+    <pin nombre="entrada" nodo="VSH2"/> <pin nombre="salida" nodo="CUR_B"/>
+    <pin nombre="vcc" nodo="V33"/> <pin nombre="gnd" nodo="GND"/>
+  </componente>
+  <componente tipo="Amplificador" id="U10C" ganancia="1.528" offset="1.56">
+    <pin nombre="entrada" nodo="VSH3"/> <pin nombre="salida" nodo="CUR_C"/>
+    <pin nombre="vcc" nodo="V33"/> <pin nombre="gnd" nodo="GND"/>
+  </componente>
+  <componente tipo="Resistencia" id="REN" r="100000">
+    <pin nombre="a" nodo="DIAG"/> <pin nombre="b" nodo="V33"/>
+  </componente>
+
+  <!-- Los pull-ups de los Hall (JP3) -->
+  <componente tipo="Resistencia" id="RH1" r="10000">
+    <pin nombre="a" nodo="H1"/> <pin nombre="b" nodo="V33"/>
+  </componente>
+  <componente tipo="Resistencia" id="RH2" r="10000">
+    <pin nombre="a" nodo="H2"/> <pin nombre="b" nodo="V33"/>
+  </componente>
+  <componente tipo="Resistencia" id="RH3" r="10000">
+    <pin nombre="a" nodo="H3"/> <pin nombre="b" nodo="V33"/>
+  </componente>
+
+  <!-- El LED rojo -->
+  <componente tipo="Led" id="D11" r="510" vf="1.8">
+    <pin nombre="anodo" nodo="LED"/>
+  </componente>
+
+  <ilustracion>
+    <enlace pieza="U1" elemento="U1" efecto="ninguno"/>
+  </ilustracion>
+</placa>

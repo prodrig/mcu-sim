@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UN BLDC CONMUTADO POR EL MCU: una NUCLEO-F446RE con una X-NUCLEO-IHM07M1
+     y un Nanotec DB42S01, a 24 V, con el firmware de verif/fw/bldc6
+
+     La fase F7 de doc/analisis_cnc.md (§5.4): sin controlador que lo haga por
+     dentro, la Nucleo conmuta el motor en SEIS PASOS con sus Hall. El TIM2
+     escucha los tres Hall en su interfaz de sensores (CR2.TI1S: su XOR en
+     TI1) y mide el tiempo entre cambios; en cada cambio, el firmware elige las
+     dos fases que tocan: el PWM de 20 kHz del TIM1 en la de arriba, la de
+     abajo a masa y la tercera abierta, con su EN bajo. Un lazo de velocidad,
+     cada milisegundo, mueve el ciclo. Una sobrecorriente del L6230 baja
+     DIAG-EN, que es la entrada de freno del TIM1: apaga el PWM en el acto.
+     Tambien en SENOIDAL y con FOC: la FOC con los tres shunts de la IHM07M1,
+     por eso J5 y J6 van aqui en 1-2 -de fabrica estan en 2-3, un solo
+     shunt-.
+
+       N   placas/nucleo_f446re.xml, con verif/fw/bldc6
+       X   placas/x_nucleo_ihm07m1.xml, en sus morpho
+       M   placas/db42s01.xml, el motor: sus fases a J2 y sus Hall a J3
+       F   placas/fuente_24v.xml, en J1
+
+     Por el VCP (115200 8N1): R rpm la velocidad -con signo-, D % el ciclo sin
+     lazo, I A la corriente en FOC, M 0|1|2 el modo, S para, ? el estado
+     (verif/fw/bldc6/main.c).
+
+         ./build/mcu-sim placas/nucleo_ihm07m1_db42.xml --gui
+     ========================================================================= -->
+<sistema nombre="nucleo-ihm07m1-db42">
+  <placa id="N" fichero="nucleo_f446re.xml" x="0" y="0"/>
+  <placa id="X" fichero="x_nucleo_ihm07m1.xml" x="0" y="0"/>
+  <placa id="M" fichero="db42s01.xml"/>
+  <placa id="F" fichero="fuente_24v.xml"/>
+
+  <!-- La IHM07M1 en los morpho de la Nucleo -->
+  <acopla a="N/CN7" b="X/CN7"/>
+  <acopla a="N/CN10" b="X/CN10"/>
+  <!-- Tres shunts, para la FOC -->
+  <jumper ref="X/J5" puente="1 2"/>
+  <jumper ref="X/J6" puente="1 2"/>
+
+  <!-- El motor: las fases a J2 y los Hall a J3 -->
+  <hilo a="M/M.U" b="X/J2.A"/>
+  <hilo a="M/M.V" b="X/J2.B"/>
+  <hilo a="M/M.W" b="X/J2.C"/>
+  <hilo a="M/P1.VCC" b="X/J3.5V"/>
+  <hilo a="M/P1.GND" b="X/J3.GND"/>
+  <hilo a="M/P1.H1" b="X/J3.H1"/>
+  <hilo a="M/P1.H2" b="X/J3.H2"/>
+  <hilo a="M/P1.H3" b="X/J3.H3"/>
+
+  <!-- La fuente, a 24 V -->
+  <hilo a="F/P1.POS" b="X/J1.VIN"/>
+  <hilo a="F/P1.NEG" b="X/J1.GND"/>
+
+  <mcu ref="N/u0" firmware="verif/fw/bldc6/bldc6.bin"/>
+</sistema>

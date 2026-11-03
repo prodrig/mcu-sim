@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UN EJE SERVO DE CONTINUA: LA NUCLEO-F446RE, UN IBT-2 Y UN MOTORREDUCTOR DE
+     37 mm CON ENCODER HALL, con un PID de posicion
+
+     La alternativa didactica al paso a paso de la fase F1b de
+     doc/analisis_cnc.md (§5.3): el lazo de posicion lo cierra el FIRMWARE,
+     verif/fw/cnc_pid, con el encoder en el TIM2 en modo encoder y el PWM del
+     TIM4 en RPWM o LPWM del IBT-2. La consigna es una vuelta del eje de salida
+     -1320 cuentas- a los 100 ms, y media vuelta atras a los 1100. LD2 luce
+     cuando el error es de 4 cuentas o menos.
+
+         IBT-2   RPWM D15 (PB8)  LPWM D14 (PB9)  R_EN A2 (PA4)  L_EN A3 (PB0)
+                 VCC +5V          GND
+         motor   encoder A A0 (PA0), B A1 (PA1), VCC +3V3, GND
+         fuente  la de laboratorio, 7,5 V y 3 A, a B+ y B- del IBT-2
+
+     El 74HC244 del IBT-2 va al +5V de la Nucleo: pide 3,5 V para un alto, y
+     los 3,3 V del STM32 quedan por debajo. Funciona -como en el de verdad-
+     y se avisa.
+
+         ./build/mcu-sim placas/nucleo_f446re_ibt2_jgb37.xml
+     ========================================================================= -->
+<sistema nombre="nucleo-f446re-ibt2-jgb37">
+  <placa id="N" fichero="nucleo_f446re.xml" x="0" y="0"/>
+  <placa id="H" fichero="ibt2.xml" x="150" y="10"/>
+  <placa id="M" fichero="motor_jgb37_encoder.xml" x="150" y="80"/>
+  <placa id="PS" fichero="fuente_laboratorio.xml" x="220" y="10"/>
+
+  <!-- El IBT-2 -->
+  <hilo a="H/P1.RPWM" b="N/CN5.10"/>   <!-- D15, PB8: TIM4_CH3 -->
+  <hilo a="H/P1.LPWM" b="N/CN5.9"/>    <!-- D14, PB9: TIM4_CH4 -->
+  <hilo a="H/P1.R_EN" b="N/CN8.3"/>    <!-- A2,  PA4 -->
+  <hilo a="H/P1.L_EN" b="N/CN8.4"/>    <!-- A3,  PB0 -->
+  <hilo a="H/P1.VCC"  b="N/CN6.5"/>    <!-- +5V, el del USB -->
+  <hilo a="H/P1.GND"  b="N/CN6.6"/>    <!-- GND -->
+
+  <!-- La fuente, a la borna de la alimentacion -->
+  <hilo a="PS/P1.ROJO"  b="H/X1.BMAS"/>
+  <hilo a="PS/P1.NEGRO" b="H/X1.BMENOS"/>
+
+  <!-- El motor y su encoder -->
+  <hilo a="M/M.ROJO"   b="H/X2.MMAS"/>
+  <hilo a="M/M.BLANCO" b="H/X2.MMENOS"/>
+  <hilo a="M/P1.A"     b="N/CN8.1"/>   <!-- A0, PA0: TIM2_CH1 -->
+  <hilo a="M/P1.B"     b="N/CN8.2"/>   <!-- A1, PA1: TIM2_CH2 -->
+  <hilo a="M/P1.VCC"   b="N/CN7.5"/>   <!-- VDD, 3,3 V -->
+  <hilo a="M/P1.GND"   b="N/CN7.22"/>  <!-- GND -->
+
+  <mcu ref="N/u0" firmware="verif/fw/cnc_pid/cnc_pid.bin"/>
+</sistema>

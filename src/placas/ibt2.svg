@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+  MODULO IBT-2, PUENTE EN H CON DOS BTS7960, dibujado a mano: una
+  aproximacion, no una foto. Es el dibujo de placas/ibt2.xml, que lo
+  encuentra solo porque se llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 50 x 52 mm- y cada pieza con el id de su pieza en el XML:
+
+    U1, U2  los dos BTS7960, bajo el disipador: el de M+ y el de M-
+    X1      la borna de la alimentacion: X1.BMAS (B+) y X1.BMENOS (B-)
+    X2      la del motor: X2.MMAS (M+) y X2.MMENOS (M-)
+    P1      la tira de ocho de la logica: RPWM, LPWM, R_EN, L_EN, R_IS, L_IS,
+            VCC y GND
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 520" width="50mm" height="52mm">
+  <rect x="0" y="0" width="500" height="520" rx="10" fill="#c62828" stroke="#7f0000" stroke-width="2"/>
+  <rect x="70" y="30" width="360" height="220" rx="6" fill="#263238" stroke="#000000" stroke-width="1.5"/>
+  <rect x="84" y="40" width="18" height="200" fill="#37474f"/>
+  <rect x="122" y="40" width="18" height="200" fill="#37474f"/>
+  <rect x="160" y="40" width="18" height="200" fill="#37474f"/>
+  <rect x="198" y="40" width="18" height="200" fill="#37474f"/>
+  <rect x="236" y="40" width="18" height="200" fill="#37474f"/>
+  <rect x="274" y="40" width="18" height="200" fill="#37474f"/>
+  <rect x="312" y="40" width="18" height="200" fill="#37474f"/>
+  <rect x="350" y="40" width="18" height="200" fill="#37474f"/>
+  <rect x="388" y="40" width="18" height="200" fill="#37474f"/>
+  <g id="U1">
+    <rect x="110" y="270" width="110" height="70" rx="3" fill="#1c1c1c" stroke="#000000" stroke-width="1.5"/>
+    <text x="165" y="312" font-family="Arial" font-size="13" font-weight="bold" fill="#e0e0e0" text-anchor="middle">BTS7960</text>
+  </g>
+  <g id="U2">
+    <rect x="280" y="270" width="110" height="70" rx="3" fill="#1c1c1c" stroke="#000000" stroke-width="1.5"/>
+    <text x="335" y="312" font-family="Arial" font-size="13" font-weight="bold" fill="#e0e0e0" text-anchor="middle">BTS7960</text>
+  </g>
+  <text x="165" y="358" font-family="Arial" font-size="11" font-weight="bold" fill="#f5f5f5" text-anchor="middle">R (M+)</text>
+  <text x="335" y="358" font-family="Arial" font-size="11" font-weight="bold" fill="#f5f5f5" text-anchor="middle">L (M-)</text>
+  <rect x="4" y="40" width="56" height="160" rx="3" fill="#1565c0" stroke="#0d47a1" stroke-width="1.5"/>
+  <g id="X1">
+  <g id="X1.BMAS">
+    <circle cx="32" cy="80" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="20" y="77.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X1.BMENOS">
+    <circle cx="32" cy="160" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="20" y="157.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  </g>
+  <text x="32" y="34" font-family="Arial" font-size="11" font-weight="bold" fill="#f5f5f5" text-anchor="middle">B+  B-</text>
+  <rect x="440" y="40" width="56" height="160" rx="3" fill="#1565c0" stroke="#0d47a1" stroke-width="1.5"/>
+  <g id="X2">
+  <g id="X2.MMAS">
+    <circle cx="468" cy="80" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="456" y="77.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X2.MMENOS">
+    <circle cx="468" cy="160" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="456" y="157.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  </g>
+  <text x="468" y="34" font-family="Arial" font-size="11" font-weight="bold" fill="#f5f5f5" text-anchor="middle">M+  M-</text>
+  <rect x="147.1" y="440" width="205.8" height="28" rx="2" fill="#1c1c1c" stroke="#000000" stroke-width="1"/>
+  <g id="P1">
+  <rect id="P1.RPWM" x="155.1" y="448" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="P1.LPWM" x="180.5" y="448" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="P1.R_EN" x="205.9" y="448" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="P1.L_EN" x="231.3" y="448" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="P1.R_IS" x="256.7" y="448" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="P1.L_IS" x="282.1" y="448" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="P1.VCC" x="307.5" y="448" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="P1.GND" x="332.9" y="448" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="161.1" y="492" font-family="Arial" font-size="7.5" font-weight="bold" fill="#f5f5f5" text-anchor="middle">RPWM</text>
+  <text x="186.5" y="492" font-family="Arial" font-size="7.5" font-weight="bold" fill="#f5f5f5" text-anchor="middle">LPWM</text>
+  <text x="211.9" y="492" font-family="Arial" font-size="7.5" font-weight="bold" fill="#f5f5f5" text-anchor="middle">REN</text>
+  <text x="237.3" y="492" font-family="Arial" font-size="7.5" font-weight="bold" fill="#f5f5f5" text-anchor="middle">LEN</text>
+  <text x="262.7" y="492" font-family="Arial" font-size="7.5" font-weight="bold" fill="#f5f5f5" text-anchor="middle">RIS</text>
+  <text x="288.1" y="492" font-family="Arial" font-size="7.5" font-weight="bold" fill="#f5f5f5" text-anchor="middle">LIS</text>
+  <text x="313.5" y="492" font-family="Arial" font-size="7.5" font-weight="bold" fill="#f5f5f5" text-anchor="middle">VCC</text>
+  <text x="338.9" y="492" font-family="Arial" font-size="7.5" font-weight="bold" fill="#f5f5f5" text-anchor="middle">GND</text>
+  <text x="250" y="420" font-family="Arial" font-size="14" font-weight="bold" fill="#f5f5f5" text-anchor="middle">IBT-2  43 A</text>
+</svg>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UNA FUENTE CONMUTADA DE 24 V Y 5 A, sin MCU
+
+     La de carril DIN o la de caja metalica de una maquina pequena: una salida,
+     con su limite de corriente. Sus bornas:
+
+         P1.POS  el positivo, V+
+         P1.NEG  el negativo, V-: la masa de quien la use
+
+     PSU: una Fuente (`./build/mcu-sim --help Fuente`) de 24 V con 0,05 ohm y
+     el limite en 5 A. Lo que deja ver -la corriente y la tension- es su media
+     de los ultimos 20 ms.
+
+         ./build/mcu-sim placas/fuente_24v.xml --valida
+     ========================================================================= -->
+<placa nombre="fuente-24v">
+  <componente tipo="Conector" id="P1" filas="1" columnas="2" nombres="POS NEG"/>
+
+  <componente tipo="Fuente" id="PSU" v="24" r="0.05" limite_ma="5000" media_ms="20">
+    <pin nombre="pin" nodo="P1.POS"/>
+  </componente>
+
+  <ilustracion>
+    <enlace pieza="PSU" elemento="PSU" efecto="display" observable="tension corriente"/>
+  </ilustracion>
+</placa>

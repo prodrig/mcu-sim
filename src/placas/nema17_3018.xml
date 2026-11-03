@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     MOTOR PASO A PASO NEMA 17 DE LA FRESADORA 3018, sin MCU
+
+     El de los tres ejes de la VEVOR 3018 (doc/analisis_cnc.md §2): un hibrido
+     bipolar de 42 mm, 200 pasos por vuelta, 0,25 N·m con 1,3 A. Visto de
+     frente, con el eje hacia quien mira, y sus cuatro hilos:
+
+         M.A1, M.A2    la bobina A: negro y verde
+         M.B1, M.B2    la bobina B: rojo y azul
+
+     Con la corriente de A1 a A2 el rotor va a 0; con la de B1 a B2, un paso a
+     la DERECHA (1,8°, el angulo positivo).
+
+     EL MOTOR, MOTOR: un MotorPaP (`./build/mcu-sim --help MotorPaP`). VEVOR no
+     publica sus cifras; las de su hermana, la 3018, son 12 V, 1,3 A y
+     0,25 N·m, y con eso es de la familia del 17HS3401: 2,4 ohm y 2,8 mH por
+     fase, 34 g·cm2 de rotor. Esas tres, el par sin corriente (1,5 N·cm) y los
+     rozamientos son ESTIMACIONES; Nanotec tiene motores de esta clase en su
+     serie ST4118.
+
+     LOS MANDOS: `bloquear`, una mano que sujeta el eje, y `carga`, un par que
+     se opone al giro, en % del de retencion.
+
+     EN LA VENTANA, el eje gira con el rotor (el efecto `angulo`), con su
+     marca blanca para seguirlo con la vista.
+
+         ./build/mcu-sim placas/nema17_3018.xml --valida
+     ========================================================================= -->
+<placa nombre="nema17-3018">
+  <!-- Los cuatro hilos -->
+  <componente tipo="Conector" id="M" filas="4" columnas="1" nombres="A1 A2 B1 B2"/>
+
+  <!-- Sus bornes los conducen a la vez el motor -su f.e.m.- y quien lo
+       mueve: es a proposito -->
+  <nodo id="M.A1" bus="si"/>
+  <nodo id="M.A2" bus="si"/>
+  <nodo id="M.B1" bus="si"/>
+  <nodo id="M.B2" bus="si"/>
+
+  <componente tipo="MotorPaP" id="MOTOR" par_retencion_ncm="25" corriente_a="1.3" r_ohm="2.4"
+              l_mh="2.8" detent_ncm="1.5" inercia_gcm2="34" rozamiento_ncm="0.5"
+              viscoso_mnms="0.1">
+    <pin nombre="a1" nodo="M.A1"/>
+    <pin nombre="a2" nodo="M.A2"/>
+    <pin nombre="b1" nodo="M.B1"/>
+    <pin nombre="b2" nodo="M.B2"/>
+  </componente>
+</placa>

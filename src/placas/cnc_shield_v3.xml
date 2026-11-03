@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     CNC SHIELD V3 (Protoneer), sin MCU
+
+     El shield mas comun de GRBL (doc/analisis_cnc.md §7 y §8.1), para el
+     Arduino Uno: se enchufa en los cuatro conectores Arduino de la Nucleo
+     -J5, J6, J8 y J9, acoplados a CN5, CN6, CN8 y CN9- y lleva los zocalos de
+     los modulos Pololu de los drivers. Aqui, los tres de X, Y y Z (el cuarto,
+     el A, que copia uno de ellos, no se monta). Cada zocalo son dos tiras de
+     ocho, SX1 y SX2, como las del modulo: un <sistema> las acopla con su J1 y
+     su J2.
+
+     LO QUE UNE EL SHIELD, como en el de verdad:
+
+       STEP X, Y, Z   D2, D3, D4         DIR X, Y, Z   D5, D6, D7
+       EN             D8, el de los tres drivers, con 10 kohm a 5 V: sin
+                      programa, deshabilitados
+       FIN            los finales: XMIN y XMAX (X- y X+) a D9, YMIN e YMAX a D10,
+                      ZMIN y ZMAX a D11
+       SPN            EN del cabezal a D12, DIR a D13
+       COOL           A3
+       CTL            ABORT A0, HOLD A1, RESUME A2, ESTOP al RESET, SDA A4 y
+                      SCL A5 (la sonda de GRBL)
+       PWR            la potencia de los motores: V+ a VMOT de los tres
+                      zocalos, de 12 a 36 V; GND, la masa de todo
+
+     LA SERIGRAFIA ES LA DE GRBL 0.9: en GRBL 1.1 con el cabezal por PWM, D11
+     es el PWM y D12 el final de Z. Hay que cablearlo al reves de lo que pone:
+     el final de Z a SPN.EN y la senal del cabezal a FIN.ZMAX.
+
+     RST y SLP de cada zocalo van juntos, como en el shield. La logica de los
+     drivers es de los 5 V del Arduino (J6.5): con un A4988, los 3,3 V de la
+     Nucleo quedan por debajo de su 0,7·VDD, y se avisa -funciona, fuera de
+     especificacion-. Los puentes del micropaso, tres por eje (J{X,Y,Z}0..2),
+     llevan MS1, MS2 y MS3 a 5 V: con los dos primeros, 1/8 con un A4988.
+
+         ./build/mcu-sim placas/cnc_shield_v3.xml --valida
+     ========================================================================= -->
+<placa nombre="cnc-shield-v3">
+  <!-- Los conectores Arduino: los de la Nucleo, al reves -->
+  <componente tipo="Conector" id="J5" filas="1" columnas="10">   <!-- D8..D15 -->
+    <pin nombre="1" nodo="EN"/>
+    <pin nombre="2" nodo="FIN.XMIN"/>
+    <pin nombre="3" nodo="FIN.YMIN"/>
+    <pin nombre="4" nodo="FIN.ZMIN"/>
+    <pin nombre="5" nodo="SPN.EN"/>
+    <pin nombre="6" nodo="SPN.DIR"/>
+    <pin nombre="7" nodo="GND"/>
+  </componente>
+  <componente tipo="Conector" id="J6" filas="1" columnas="8">    <!-- potencia -->
+    <pin nombre="3" nodo="CTL.ESTOP"/>
+    <pin nombre="5" nodo="CINCO"/>
+    <pin nombre="6" nodo="GND"/>
+    <pin nombre="7" nodo="GND"/>
+  </componente>
+  <componente tipo="Conector" id="J8" filas="1" columnas="6">    <!-- A0..A5 -->
+    <pin nombre="1" nodo="CTL.ABORT"/>
+    <pin nombre="2" nodo="CTL.HOLD"/>
+    <pin nombre="3" nodo="CTL.RESUME"/>
+    <pin nombre="4" nodo="COOL.EN"/>
+    <pin nombre="5" nodo="CTL.SDA"/>
+    <pin nombre="6" nodo="CTL.SCL"/>
+  </componente>
+  <componente tipo="Conector" id="J9" filas="1" columnas="8">    <!-- D0..D7 -->
+    <pin nombre="3" nodo="STEP_X"/>
+    <pin nombre="4" nodo="STEP_Y"/>
+    <pin nombre="5" nodo="STEP_Z"/>
+    <pin nombre="6" nodo="DIR_X"/>
+    <pin nombre="7" nodo="DIR_Y"/>
+    <pin nombre="8" nodo="DIR_Z"/>
+  </componente>
+
+  <!-- Las tiras de los cables -->
+  <componente tipo="Conector" id="FIN" filas="1" columnas="6" nombres="XMIN XMAX YMIN YMAX ZMIN ZMAX">
+    <pin nombre="XMAX" nodo="FIN.XMIN"/>
+    <pin nombre="YMAX" nodo="FIN.YMIN"/>
+    <pin nombre="ZMAX" nodo="FIN.ZMIN"/>
+  </componente>
+  <componente tipo="Conector" id="SPN" filas="1" columnas="2" nombres="EN DIR"/>
+  <componente tipo="Conector" id="COOL" filas="1" columnas="1" nombres="EN"/>
+  <componente tipo="Conector" id="CTL" filas="1" columnas="6"
+              nombres="ABORT HOLD RESUME ESTOP SDA SCL"/>
+  <componente tipo="Conector" id="PWR" filas="1" columnas="2" nombres="V+ GND">
+    <pin nombre="GND" nodo="GND"/>
+  </componente>
+  <nodo id="GND" bus="si"/>
+  <nodo id="CINCO" bus="si"/>
+  <nodo id="PWR.V+" bus="si"/>
+  <nodo id="EN" bus="si"/>
+  <nodo id="SPN.DIR" bus="si"/>
+
+  <!-- EN, con su resistencia a 5 V -->
+  <componente tipo="Resistencia" id="R1" r="10000">
+    <pin nombre="a" nodo="EN"/> <pin nombre="b" nodo="CINCO"/>
+  </componente>
+
+  <!-- El zocalo X: las dos tiras de un modulo Pololu, como las suyas -->
+  <componente tipo="Conector" id="SX1" filas="8" columnas="1"
+              nombres="EN MS1 MS2 MS3 RST SLP STEP DIR">
+    <pin nombre="EN" nodo="EN"/>
+    <pin nombre="MS1" nodo="MS1_X"/>
+    <pin nombre="MS2" nodo="MS2_X"/>
+    <pin nombre="MS3" nodo="MS3_X"/>
+    <pin nombre="RST" nodo="RS_X"/>
+    <pin nombre="SLP" nodo="RS_X"/>
+    <pin nombre="STEP" nodo="STEP_X"/>
+    <pin nombre="DIR" nodo="DIR_X"/>
+  </componente>
+  <componente tipo="Conector" id="SX2" filas="8" columnas="1"
+              nombres="VMOT GND1 2B 2A 1A 1B VLOG GND2">
+    <pin nombre="VMOT" nodo="PWR.V+"/>
+    <pin nombre="GND1" nodo="GND"/>
+    <pin nombre="2B" nodo="MX.2B"/>
+    <pin nombre="2A" nodo="MX.2A"/>
+    <pin nombre="1A" nodo="MX.1A"/>
+    <pin nombre="1B" nodo="MX.1B"/>
+    <pin nombre="VLOG" nodo="CINCO"/>
+    <pin nombre="GND2" nodo="GND"/>
+  </componente>
+  <componente tipo="Conector" id="MX" filas="4" columnas="1" nombres="2B 2A 1A 1B"/>
+  <!-- Los puentes del micropaso de X: MS1 y MS2 puestos, 1/8 con un A4988 -->
+  <componente tipo="Jumper" id="JX0" filas="2" columnas="1" nombres="5V MS" puente="5V MS">
+    <pin nombre="5V" nodo="CINCO"/> <pin nombre="MS" nodo="MS1_X"/>
+  </componente>
+  <componente tipo="Jumper" id="JX1" filas="2" columnas="1" nombres="5V MS" puente="5V MS">
+    <pin nombre="5V" nodo="CINCO"/> <pin nombre="MS" nodo="MS2_X"/>
+  </componente>
+  <componente tipo="Jumper" id="JX2" filas="2" columnas="1" nombres="5V MS" puente="no">
+    <pin nombre="5V" nodo="CINCO"/> <pin nombre="MS" nodo="MS3_X"/>
+  </componente>
+  <nodo id="MX.2B" bus="si"/> <nodo id="MX.2A" bus="si"/>
+  <nodo id="MX.1A" bus="si"/> <nodo id="MX.1B" bus="si"/>
+  <nodo id="RS_X" bus="si"/>
+  <!-- El zocalo Y: las dos tiras de un modulo Pololu, como las suyas -->
+  <componente tipo="Conector" id="SY1" filas="8" columnas="1"
+              nombres="EN MS1 MS2 MS3 RST SLP STEP DIR">
+    <pin nombre="EN" nodo="EN"/>
+    <pin nombre="MS1" nodo="MS1_Y"/>
+    <pin nombre="MS2" nodo="MS2_Y"/>
+    <pin nombre="MS3" nodo="MS3_Y"/>
+    <pin nombre="RST" nodo="RS_Y"/>
+    <pin nombre="SLP" nodo="RS_Y"/>
+    <pin nombre="STEP" nodo="STEP_Y"/>
+    <pin nombre="DIR" nodo="DIR_Y"/>
+  </componente>
+  <componente tipo="Conector" id="SY2" filas="8" columnas="1"
+              nombres="VMOT GND1 2B 2A 1A 1B VLOG GND2">
+    <pin nombre="VMOT" nodo="PWR.V+"/>
+    <pin nombre="GND1" nodo="GND"/>
+    <pin nombre="2B" nodo="MY.2B"/>
+    <pin nombre="2A" nodo="MY.2A"/>
+    <pin nombre="1A" nodo="MY.1A"/>
+    <pin nombre="1B" nodo="MY.1B"/>
+    <pin nombre="VLOG" nodo="CINCO"/>
+    <pin nombre="GND2" nodo="GND"/>
+  </componente>
+  <componente tipo="Conector" id="MY" filas="4" columnas="1" nombres="2B 2A 1A 1B"/>
+  <!-- Los puentes del micropaso de Y: MS1 y MS2 puestos, 1/8 con un A4988 -->
+  <componente tipo="Jumper" id="JY0" filas="2" columnas="1" nombres="5V MS" puente="5V MS">
+    <pin nombre="5V" nodo="CINCO"/> <pin nombre="MS" nodo="MS1_Y"/>
+  </componente>
+  <componente tipo="Jumper" id="JY1" filas="2" columnas="1" nombres="5V MS" puente="5V MS">
+    <pin nombre="5V" nodo="CINCO"/> <pin nombre="MS" nodo="MS2_Y"/>
+  </componente>
+  <componente tipo="Jumper" id="JY2" filas="2" columnas="1" nombres="5V MS" puente="no">
+    <pin nombre="5V" nodo="CINCO"/> <pin nombre="MS" nodo="MS3_Y"/>
+  </componente>
+  <nodo id="MY.2B" bus="si"/> <nodo id="MY.2A" bus="si"/>
+  <nodo id="MY.1A" bus="si"/> <nodo id="MY.1B" bus="si"/>
+  <nodo id="RS_Y" bus="si"/>
+  <!-- El zocalo Z: las dos tiras de un modulo Pololu, como las suyas -->
+  <componente tipo="Conector" id="SZ1" filas="8" columnas="1"
+              nombres="EN MS1 MS2 MS3 RST SLP STEP DIR">
+    <pin nombre="EN" nodo="EN"/>
+    <pin nombre="MS1" nodo="MS1_Z"/>
+    <pin nombre="MS2" nodo="MS2_Z"/>
+    <pin nombre="MS3" nodo="MS3_Z"/>
+    <pin nombre="RST" nodo="RS_Z"/>
+    <pin nombre="SLP" nodo="RS_Z"/>
+    <pin nombre="STEP" nodo="STEP_Z"/>
+    <pin nombre="DIR" nodo="DIR_Z"/>
+  </componente>
+  <componente tipo="Conector" id="SZ2" filas="8" columnas="1"
+              nombres="VMOT GND1 2B 2A 1A 1B VLOG GND2">
+    <pin nombre="VMOT" nodo="PWR.V+"/>
+    <pin nombre="GND1" nodo="GND"/>
+    <pin nombre="2B" nodo="MZ.2B"/>
+    <pin nombre="2A" nodo="MZ.2A"/>
+    <pin nombre="1A" nodo="MZ.1A"/>
+    <pin nombre="1B" nodo="MZ.1B"/>
+    <pin nombre="VLOG" nodo="CINCO"/>
+    <pin nombre="GND2" nodo="GND"/>
+  </componente>
+  <componente tipo="Conector" id="MZ" filas="4" columnas="1" nombres="2B 2A 1A 1B"/>
+  <!-- Los puentes del micropaso de Z: MS1 y MS2 puestos, 1/8 con un A4988 -->
+  <componente tipo="Jumper" id="JZ0" filas="2" columnas="1" nombres="5V MS" puente="5V MS">
+    <pin nombre="5V" nodo="CINCO"/> <pin nombre="MS" nodo="MS1_Z"/>
+  </componente>
+  <componente tipo="Jumper" id="JZ1" filas="2" columnas="1" nombres="5V MS" puente="5V MS">
+    <pin nombre="5V" nodo="CINCO"/> <pin nombre="MS" nodo="MS2_Z"/>
+  </componente>
+  <componente tipo="Jumper" id="JZ2" filas="2" columnas="1" nombres="5V MS" puente="no">
+    <pin nombre="5V" nodo="CINCO"/> <pin nombre="MS" nodo="MS3_Z"/>
+  </componente>
+  <nodo id="MZ.2B" bus="si"/> <nodo id="MZ.2A" bus="si"/>
+  <nodo id="MZ.1A" bus="si"/> <nodo id="MZ.1B" bus="si"/>
+  <nodo id="RS_Z" bus="si"/>
+</placa>

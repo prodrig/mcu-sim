@@ -222,11 +222,15 @@ SC_MODULE(FuenteTension), public ExtPart {
     // de la tension en esos ms -un filtro de primer orden-, como el display
     // de una fuente de laboratorio, que no salta con el PWM de la carga; y deja
     // ver tambien la tension. Con 0, lo de siempre: la de ahora, sin tension.
+    // `absorbe`: con false, una fuente CONMUTADA, que no se traga lo que le
+    // devuelven -la energía de un motor que frena (fase F5 de la CNC)-: si lo
+    // de fuera sube por encima de su tensión, se aparta, como tras un diodo
     FuenteTension(sc_core::sc_module_name nm, analog_net_if& n, const char* tipo,
-                  double v, double r, double limite_ma, bool masa, double media_ms = 0.0)
+                  double v, double r, double limite_ma, bool masa, double media_ms = 0.0,
+                  bool absorbe = true)
         : sc_core::sc_module(nm), ExtPart(n, tipo, masa ? "gnd" : "fuente", "pin", nm),
           v_(v), r0_(r < 0.1 ? 0.1 : r), lim_(limite_ma > 0.0 ? limite_ma / 1000.0 : 0.0),
-          masa_(masa), media_s_(media_ms > 0.0 ? media_ms * 1e-3 : 0.0),
+          masa_(masa), absorbe_(absorbe || masa), media_s_(media_ms > 0.0 ? media_ms * 1e-3 : 0.0),
           v_med_(v), v_ant_(v) {
         marca_riel("pin");
         r_ = r0_;
@@ -234,12 +238,15 @@ SC_MODULE(FuenteTension), public ExtPart {
         // Sin límite no hace falta vigilar nada: la corriente se calcula al
         // preguntarla. Con límite, un proceso que reajusta cuando el nodo cambia.
         SC_HAS_PROCESS(FuenteTension);
-        if (lim_ > 0.0) SC_THREAD(vigila);
+        if (lim_ > 0.0 || !absorbe_) SC_THREAD(vigila);
         if (media_s_ > 0.0) SC_THREAD(promedia);
     }
     double v() const         { return v_; }
     double limite_ma() const { return lim_ * 1000.0; }
     bool   sobrecorriente() const { return sobre_; }
+    bool   absorbe() const { return absorbe_; }
+    // Una fuente que no absorbe, apartada porque lo de fuera está por encima
+    bool   apartada() const { return apartada_; }
     // Las veces que ha entrado en sobrecorriente desde que se construyó
     unsigned episodios() const { return episodios_; }
     // La corriente, en A: la que entrega una Fuente; la que recibe una Gnd
@@ -257,6 +264,7 @@ SC_MODULE(FuenteTension), public ExtPart {
     }
     void set_enabled(bool on) override {
         ExtPartBase::set_enabled(on);
+        apartada_ = false;
         if (on) { r_ = r0_; drive(float(v_), float(r_)); } else { hiz(); sobre_ = false; }
     }
 
@@ -311,7 +319,25 @@ private:
         // vio el nodo, o la resta no da cero cuando no hay nadie mas.
         bool solo = false;
         const double vx = double(net_->voltage_excluding(id_, solo));
-        const double gx = net_->conductance() - 1.0 / double(float(r_));
+        const double gx = net_->conductance() - (apartada_ ? 0.0 : 1.0 / double(float(r_)));
+        // La que no absorbe se aparta si lo de fuera la sube -con un milivoltio
+        // de margen, para no ir y venir con un condensador que se queda justo
+        // en su tension- y vuelve cuando baja
+        if (!absorbe_) {
+            const bool fuera = !solo && gx > G_FLOAT && vx > v_ + 1e-3;
+            if (fuera && !apartada_) {
+                apartada_ = true;
+                sobre_ = false;
+                hiz();
+                ++apartadas_;
+            }
+            if (apartada_ && !fuera && (solo || gx <= G_FLOAT || vx < v_)) {
+                apartada_ = false;
+                r_ = r0_;
+                drive(float(v_), float(r_));
+            }
+            if (apartada_ || lim_ <= 0.0) return;
+        }
         double r_nueva = r0_;
         bool sobre = false;
         if (!solo && gx > G_FLOAT) {
@@ -320,6 +346,21 @@ private:
             if (dv / (r0_ + rx) > lim_) {                 // pide mas del limite
                 r_nueva = std::max(r0_, dv / lim_ - rx);
                 sobre = true;
+                // Una fuente no da tension negativa. Lo que hay fuera puede
+                // sujetar su corriente -la bobina de un motor no la deja
+                // cambiar de golpe, y empuja lo que haga falta-, y entonces
+                // la cuenta de arriba subiria r sin fin, en el mismo instante,
+                // con el nodo cada vez mas negativo. Se queda en la que deja
+                // el nodo a 0 V, y la corriente de la bobina se acaba con el
+                // tiempo, contra lo que tenga delante
+                if (!masa_ && vx < 0.0) {
+                    // Lo de fuera sujeta la corriente que pasa: la r que la
+                    // deja pasar con el nodo a 0 V es v/i, y con ella las dos
+                    // partes están de acuerdo a la primera
+                    const double i = std::max(lim_, corriente_exacta());
+                    const double r_cero = v_ / i;
+                    if (r_cero < r_nueva) r_nueva = std::max(r0_, r_cero);
+                }
             }
         }
         if (sobre && !sobre_) {
@@ -339,7 +380,9 @@ private:
         }
     }
     double   v_, r0_, lim_;
-    bool     masa_;
+    bool     masa_, absorbe_;
+    bool     apartada_ = false;
+    unsigned apartadas_ = 0;
     double   media_s_ = 0.0;
     double   v_med_ = 0.0, v_ant_ = 0.0, i_med_ = 0.0, t_med_ = 0.0, i_ant_ = 0.0;
     double   r_ = 0.1;
@@ -350,8 +393,9 @@ private:
 class Fuente : public FuenteTension {
 public:
     Fuente(sc_core::sc_module_name nm, analog_net_if& n, double v = 3.3,
-           double r = 0.1, double limite_ma = 0.0, double media_ms = 0.0)
-        : FuenteTension(nm, n, "Fuente", v, r, limite_ma, false, media_ms) {}
+           double r = 0.1, double limite_ma = 0.0, double media_ms = 0.0,
+           bool absorbe = true)
+        : FuenteTension(nm, n, "Fuente", v, r, limite_ma, false, media_ms, absorbe) {}
 };
 
 class Gnd : public FuenteTension {
@@ -741,11 +785,154 @@ public:
     }
     // La corriente que va de a a b, en A (positiva si entra por a)
     double corriente() const { return -double(a_->current(id_a_)); }
+    // Lo de FUERA de la rama, sin ella: lo que tendrían sus dos nodos y la
+    // resistencia que hay en serie por los dos lados. False si un lado está
+    // al aire. Lo que necesita quien quiere decidir cuánto deja pasar -la
+    // salida de un optoacoplador, que pasa como mucho CTR veces su LED-
+    bool fuera(double& va0, double& vb0, double& r_fuera) const {
+        bool solo_a = false, solo_b = false;
+        va0 = double(a_->voltage_excluding(id_a_, solo_a));
+        vb0 = double(b_->voltage_excluding(id_b_, solo_b));
+        const double ga = a_->conductance() - (ra_ < R_HIZ ? 1.0 / double(ra_) : 0.0);
+        const double gb = b_->conductance() - (rb_ < R_HIZ ? 1.0 / double(rb_) : 0.0);
+        if (solo_a || solo_b || ga <= G_FLOAT || gb <= G_FLOAT) return false;
+        r_fuera = 1.0 / ga + 1.0 / gb;
+        return true;
+    }
 
 private:
     analog_net_if *a_, *b_;
     int   id_a_, id_b_;
     float ra_ = R_HIZ, rb_ = R_HIZ;   // la r aplicada en cada lado (la que cuenta el nodo)
+};
+
+// ---------------------------------------------------------------------------
+// UNA FUENTE DE CORRIENTE EN UN NODO: mete `i` amperios en él, sea lo que sea
+// lo de fuera, mientras lo de fuera sea lineal -un condensador, una fuente,
+// una resistencia-. Es un Thevenin {vx + i·(rx + RI), RI}, con {vx, rx} lo
+// que hay en el nodo sin ella: la corriente que entra es exactamente i. Lo que
+// necesita un driver para DEVOLVER al bus la energía que genera el motor al
+// frenar (fase F5 de doc/analisis_cnc.md, §6.6): hasta F4 se quedaba en nada.
+//
+// RI, 100 ohmios, es grande frente a lo que suele haber en un bus -un
+// condensador, unos miliohmios-: si el bus sube entre dos ajustes, lo que mete
+// apenas cambia. Con el nodo al aire no hay a dónde meter nada, y no mete.
+// ---------------------------------------------------------------------------
+class InyectorCorriente {
+public:
+    static constexpr double RI = 100.0;
+    InyectorCorriente(analog_net_if& n, int id) : n_(&n), id_(id) {}
+    // Mete `i` A (con i <= 0, nada)
+    void pon(double i) {
+        if (i <= 1e-6) { suelta(); return; }
+        bool solo = false;
+        const double vx = double(n_->voltage_excluding(id_, solo));
+        const double g = n_->conductance() - (activo_ ? 1.0 / double(float(RI)) : 0.0);
+        if (solo || g <= G_FLOAT) { suelta(); return; }
+        const double vth = vx + i * (1.0 / g + RI);
+        if (activo_ && std::fabs(vth - vth_) < 1e-4) return;
+        vth_ = vth;
+        i_ = i;
+        activo_ = true;
+        n_->set_drive(id_, float(vth), float(RI));
+    }
+    void suelta() {
+        if (!activo_) return;
+        n_->set_hiz(id_);
+        activo_ = false;
+        i_ = 0.0;
+    }
+    double corriente() const { return activo_ ? i_ : 0.0; }
+private:
+    analog_net_if* n_;
+    int id_;
+    bool activo_ = false;
+    double vth_ = 0.0, i_ = 0.0;
+};
+
+// ---------------------------------------------------------------------------
+// UNA RAMA DE CORRIENTE IMPUESTA: el lado del DRIVER de una fase de paso a
+// paso (common/analog_net.h, FaseCorriente; doc/analisis_cnc.md §5.2). Dos
+// salidas, la `p` -por la que sale la consigna- y la `m` -por la que vuelve-,
+// declaradas en sus nodos. El driver dice qué corriente quiere y con qué tope
+// de tensión (`manda`); la bobina que esté entre los dos nodos la sigue
+// mientras ese tope le llegue, y deja aquí lo que pone y lo que pasa.
+//
+// Para que se pueda MEDIR algo en los nodos, `muestra()` pone en cada salida
+// un Thevenin flojo, de 10 kohm, con la tensión que tendrían: la mitad del bus
+// más y menos la mitad de lo que se pone en la bobina. No carga nada, y la
+// bobina, que sabe que es una salida de corriente, no lo mira.
+// ---------------------------------------------------------------------------
+class RamaCorriente {
+public:
+    static constexpr float R_VER = 1.0e4f;
+    RamaCorriente(analog_net_if& p, int id_p, analog_net_if& m, int id_m, const char* quien,
+                  int numero)
+        : p_(&p), m_(&m), id_p_(id_p), id_m_(id_m), quien_(quien ? quien : "") {
+        f_.ev = &ev_;
+        f_.quien = quien_.c_str();
+        f_.numero = numero;
+        p.declara_salida_corriente(SalidaCorriente{&f_, +1});
+        m.declara_salida_corriente(SalidaCorriente{&f_, -1});
+    }
+    // La consigna, el tope y si conduce. Solo avisa si algo cambia
+    void manda(double i, double vbus, bool activa) {
+        if (i == f_.i && vbus == f_.vbus && activa == f_.activa) return;
+        f_.i = i;
+        f_.vbus = vbus;
+        f_.activa = activa;
+        ev_.notify(sc_core::SC_ZERO_TIME);
+    }
+    void pon_diodos(double vd) { f_.vd = vd; }
+    // UNA TERCERA SALIDA, la W de un controlador de BLDC (parts/controlador_motor.h):
+    // se declara con el polo 0 -por ella no va la corriente del eje q, pero el
+    // motor comprueba que esté y en su sitio- y se ve a media tensión
+    void pon_tercera(analog_net_if& w, int id_w) {
+        w_ = &w;
+        id_w_ = id_w;
+        w.declara_salida_corriente(SalidaCorriente{&f_, 0});
+    }
+    // Las tensiones de las salidas, para verlas: con `vg` la de la masa
+    void muestra(double vg) {
+        const bool ver = f_.activa || (f_.con_carga && f_.i_carga != 0.0);
+        if (!ver) {
+            if (viendo_) { suelta(); }
+            return;
+        }
+        const float vp = float(vg + 0.5 * (f_.vbus + f_.v_carga));
+        const float vm = float(vg + 0.5 * (f_.vbus - f_.v_carga));
+        if (viendo_ && std::fabs(vp - vp_) < 0.05f && std::fabs(vm - vm_) < 0.05f) return;
+        vp_ = vp; vm_ = vm; viendo_ = true;
+        p_->set_drive(id_p_, vp, R_VER);
+        m_->set_drive(id_m_, vm, R_VER);
+        if (w_) w_->set_drive(id_w_, float(vg + 0.5 * f_.vbus), R_VER);
+    }
+    void suelta() {
+        p_->set_hiz(id_p_); m_->set_hiz(id_m_);
+        if (w_) w_->set_hiz(id_w_);
+        viendo_ = false;
+    }
+
+    double consigna() const { return f_.i; }
+    bool   activa() const { return f_.activa; }
+    // Lo que deja la bobina: la tensión que se le pone y la corriente que pasa
+    bool   con_carga() const { return f_.con_carga; }
+    double v_carga() const { return f_.con_carga ? f_.v_carga : 0.0; }
+    double i_carga() const { return f_.con_carga ? f_.i_carga : 0.0; }
+    // Lo acumulado por la bobina, y hasta cuándo
+    double energia() const { return f_.energia; }
+    double i2s() const { return f_.i2s; }
+    double t_carga() const { return f_.t_carga; }
+    const sc_core::sc_event& evento() const { return ev_; }
+
+private:
+    analog_net_if *p_, *m_, *w_ = nullptr;
+    int id_p_, id_m_, id_w_ = -1;
+    std::string quien_;
+    FaseCorriente f_;
+    sc_core::sc_event ev_;
+    bool viendo_ = false;
+    float vp_ = 0.f, vm_ = 0.f;
 };
 
 // ---------------------------------------------------------------------------

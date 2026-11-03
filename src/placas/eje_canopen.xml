@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     UN EJE POR CANOPEN: una NUCLEO-F446RE, un transceptor SN65HVD230 y el eje
+     X con su controlador tipo C5-E, con el firmware de verif/fw/canopen
+
+     La fase F6 de doc/analisis_cnc.md (§5.5): el bus de campo. El CAN1 de la
+     Nucleo, en PB8 (RX, D15) y PB9 (TX, D14), va al transceptor, y su CANH y
+     su CANL, al controlador: un bus de dos nodos con un terminador de 120 ohm
+     en cada punta, a 500 kbit/s. El firmware es un maestro CANopen: espera el
+     boot-up, configura el controlador por SDO, lo pone en operacional, manda
+     la SYNC cada 5 ms y lo habilita con la palabra de control. Luego, lo que
+     le digan por el VCP: H el homing, G mm a una posicion, V mm/s a una
+     velocidad (verif/fw/canopen/main.c).
+
+       N   placas/nucleo_f446re.xml
+       T   placas/sn65hvd230.xml
+       E   placas/eje_x_canopen.xml, con el analizador del bus
+
+         ./build/mcu-sim placas/eje_canopen.xml --gui
+     ========================================================================= -->
+<sistema nombre="eje-canopen">
+  <placa id="N" fichero="nucleo_f446re.xml" x="0" y="0"/>
+  <placa id="T" fichero="sn65hvd230.xml"/>
+  <placa id="E" fichero="eje_x_canopen.xml"/>
+
+  <!-- El transceptor en el CAN1 de la Nucleo -->
+  <hilo a="N/CN5.9" b="T/J1.CTX"/>    <!-- PB9, D14: CAN1_TX -->
+  <hilo a="N/CN5.10" b="T/J1.CRX"/>   <!-- PB8, D15: CAN1_RX -->
+  <hilo a="N/CN6.4" b="T/J1.3V3"/>
+  <hilo a="N/CN6.6" b="T/J1.GND"/>
+
+  <!-- El bus, al controlador -->
+  <hilo a="T/J1.CANH" b="E/J1.CANH"/>
+  <hilo a="T/J1.CANL" b="E/J1.CANL"/>
+  <hilo a="T/J1.GND" b="E/J1.GND"/>
+
+  <mcu ref="N/u0" firmware="verif/fw/canopen/canopen.bin"/>
+</sistema>

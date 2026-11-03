@@ -144,6 +144,9 @@ public:
                          ", y este mcu-sim solo ofrecia hasta la " +
                          std::to_string(VERSION_PROTO));
         version_ = uint16_t(v);
+        // Lo que la GUI sabe recibir, además de lo de su versión: imágenes a
+        // trozos (T_IMAGEN_RECT). Una que no lo dice no las recibe nunca
+        parcial_ = valor_entero(m.cuerpo, "imagen_parcial") == 1;
         em_.fija_version(version_);
         lec_.fija_version(version_);
 
@@ -215,6 +218,7 @@ public:
 
     const std::string& error() const { return error_; }
     uint16_t           version() const { return version_; }
+    bool               imagen_parcial() const { return parcial_; }  // T_IMAGEN_RECT
     unsigned           ignorados() const { return ignorados_; }
     bool               hay_suscripcion() const { return hay_suscripcion_; }
     const std::string& suscripcion() const { return suscripcion_; }
@@ -322,6 +326,7 @@ private:
     mcusim::proto::Lector  lec_{mcusim::proto::Origen::Pantalla};
     std::string            error_;
     uint16_t               version_ = 0;
+    bool                   parcial_ = false;
     std::string            placa_v1_;
     unsigned               ignorados_ = 0;
     std::vector<std::string> avisos_placa_;

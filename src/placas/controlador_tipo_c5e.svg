@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+  UN CONTROLADOR DE MOTOR TIPO C5-E, dibujado a mano: una caja generica, no
+  la de Nanotec. Es el dibujo de placas/controlador_tipo_c5e.xml, que lo
+  encuentra solo porque se llama como ella. Generado por placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 70 x 56 mm- y cada pieza con el id de su pieza en el XML. Visto de
+  frente, con sus bornas:
+
+    U1  el controlador, en el centro
+    X1  la alimentacion: VCC y GND, arriba a la izquierda
+    X2  el motor: U, V y W, arriba a la derecha
+    X3  los Hall: 5V, GND, H1, H2 y H3, a la derecha
+    X4  el encoder: 5V, GND, A y B, a la derecha, debajo
+    X5  el mando: STEP, DIR, EN, BRK, ERR y GND, abajo
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 560" width="70mm" height="56mm">
+  <rect x="0" y="0" width="700" height="560" rx="12" fill="#37474f" stroke="#1c262b" stroke-width="2"/>
+  <rect x="20" y="20" width="660" height="520" rx="8" fill="#455a64" stroke="#263238" stroke-width="1.2"/>
+  <g id="U1">
+    <rect x="170" y="170" width="300" height="170" rx="6" fill="#263238" stroke="#101820" stroke-width="1.5"/>
+    <text x="320" y="245" font-family="Arial" font-size="18" font-weight="bold" fill="#eceff1" text-anchor="middle">CONTROLADOR</text>
+    <text x="320" y="275" font-family="Arial" font-size="13" font-weight="bold" fill="#b0bec5" text-anchor="middle">tipo C5-E  12-48 V  10 A</text>
+    <text x="320" y="305" font-family="Arial" font-size="11" font-weight="bold" fill="#90a4ae" text-anchor="middle">reloj y direccion, lazo cerrado</text>
+  </g>
+  <rect x="45" y="55" width="100" height="50" rx="4" fill="#2e7d32" stroke="#1b5e20" stroke-width="1.5"/>
+  <g id="X1">
+  <g id="X1.VCC">
+    <circle cx="70" cy="80" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="58" y="77.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X1.GND">
+    <circle cx="120" cy="80" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="108" y="77.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  </g>
+  <text x="70" y="124" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="middle">VCC</text>
+  <text x="120" y="124" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="middle">GND</text>
+  <rect x="445" y="55" width="150" height="50" rx="4" fill="#2e7d32" stroke="#1b5e20" stroke-width="1.5"/>
+  <g id="X2">
+  <g id="X2.U">
+    <circle cx="470" cy="80" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="458" y="77.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X2.V">
+    <circle cx="520" cy="80" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="508" y="77.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X2.W">
+    <circle cx="570" cy="80" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="558" y="77.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  </g>
+  <text x="470" y="124" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="middle">U</text>
+  <text x="520" y="124" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="middle">V</text>
+  <text x="570" y="124" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="middle">W</text>
+  <rect x="605" y="125" width="50" height="226" rx="4" fill="#2e7d32" stroke="#1b5e20" stroke-width="1.5"/>
+  <g id="X3">
+  <g id="X3.5V">
+    <circle cx="630" cy="150" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="618" y="147.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X3.GND">
+    <circle cx="630" cy="194" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="618" y="191.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X3.H1">
+    <circle cx="630" cy="238" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="618" y="235.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X3.H2">
+    <circle cx="630" cy="282" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="618" y="279.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X3.H3">
+    <circle cx="630" cy="326" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="618" y="323.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  </g>
+  <text x="596" y="154" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="end">5V</text>
+  <text x="596" y="198" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="end">GND</text>
+  <text x="596" y="242" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="end">H1</text>
+  <text x="596" y="286" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="end">H2</text>
+  <text x="596" y="330" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="end">H3</text>
+  <rect x="605" y="357" width="50" height="176" rx="4" fill="#2e7d32" stroke="#1b5e20" stroke-width="1.5"/>
+  <g id="X4">
+  <g id="X4.5V">
+    <circle cx="630" cy="382" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="618" y="379.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X4.GND">
+    <circle cx="630" cy="424" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="618" y="421.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X4.A">
+    <circle cx="630" cy="466" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="618" y="463.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X4.B">
+    <circle cx="630" cy="508" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="618" y="505.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  </g>
+  <text x="596" y="386" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="end">5V</text>
+  <text x="596" y="428" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="end">GND</text>
+  <text x="596" y="470" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="end">A</text>
+  <text x="596" y="512" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="end">B</text>
+  <rect x="75" y="455" width="330" height="50" rx="4" fill="#2e7d32" stroke="#1b5e20" stroke-width="1.5"/>
+  <g id="X5">
+  <g id="X5.STEP">
+    <circle cx="100" cy="480" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="88" y="477.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X5.DIR">
+    <circle cx="156" cy="480" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="144" y="477.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X5.EN">
+    <circle cx="212" cy="480" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="200" y="477.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X5.BRK">
+    <circle cx="268" cy="480" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="256" y="477.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X5.ERR">
+    <circle cx="324" cy="480" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="312" y="477.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  <g id="X5.GND">
+    <circle cx="380" cy="480" r="17" fill="#cfd8dc" stroke="#78909c" stroke-width="1.5"/>
+    <rect x="368" y="477.5" width="24" height="5" rx="1" fill="#546e7a"/>
+  </g>
+  </g>
+  <text x="100" y="444" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="middle">STEP</text>
+  <text x="156" y="444" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="middle">DIR</text>
+  <text x="212" y="444" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="middle">EN</text>
+  <text x="268" y="444" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="middle">BRK</text>
+  <text x="324" y="444" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="middle">ERR</text>
+  <text x="380" y="444" font-family="Arial" font-size="10" font-weight="bold" fill="#f5f5f5" text-anchor="middle">GND</text>
+</svg>

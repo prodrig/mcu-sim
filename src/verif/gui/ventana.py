@@ -46,6 +46,7 @@ T_ILUSTRACION = 0x0005
 T_INSTANTANEA, T_AVISO, T_ESTADO, T_ORDEN_HECHA = 0x0010, 0x0011, 0x0012, 0x0013
 T_PONG, T_FIN = 0x0014, 0x001F
 T_IMAGEN = 0x0015
+T_IMAGEN_RECT = 0x0016
 T_VERSION, T_SUSCRIBE, T_ARRANCA, T_ORDENES, T_PARA, T_PING = (
     0x8000, 0x8001, 0x8002, 0x8006, 0x8007, 0x8008)
 T_PAUSA, T_SIGUE, T_PASO = 0x8003, 0x8004, 0x8005
@@ -159,14 +160,16 @@ def termina(p, seg=20.0):
     return rc, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
 
 
-def saludo_hasta_listo(v, valida=False, version=1):
+def saludo_hasta_listo(v, valida=False, version=1, parcial=False):
     """El saludo desde la ventana. Devuelve (hola, placa, catalogo, listo).
     `version` es la del protocolo que elige: la 2 recibe un <sistema> en
-    T_PLACA si lo es, la 1 lo recibe con la raiz <placa> de siempre."""
+    T_PLACA si lo es, la 1 lo recibe con la raiz <placa> de siempre. Con
+    `parcial`, dice que entiende las imagenes a trozos (T_IMAGEN_RECT)."""
     t, hola = v.recibe()
     if t != T_HOLA:
         return None, None, None, False
-    v.manda(T_VERSION, ("protocolo=%d\ngui=saludo.py\n" % version).encode())
+    v.manda(T_VERSION, ("protocolo=%d\ngui=saludo.py\n%s" %
+                        (version, "imagen_parcial=1\n" if parcial else "")).encode())
     v.version = version
     t1, placa = v.recibe()
     t2, cat = v.recibe()
@@ -251,6 +254,21 @@ def imagen(cuerpo):
     """Un T_IMAGEN: (t_sim_ns, id_obs, formato, ancho, alto, brillo, pixeles)"""
     t, i, fmt, an, al, br, _ = struct.unpack("<QHHHHfI", cuerpo[:24])
     return t, i, fmt, an, al, br, cuerpo[24:]
+
+
+def imagen_rect(cuerpo):
+    """Un T_IMAGEN_RECT: (t_sim_ns, id_obs, formato, ancho, alto, x, y, w, h,
+    brillo, pixeles del trozo)"""
+    t, i, fmt, an, al, x, y, w, h, br, _ = struct.unpack("<QHHHHHHHHfI", cuerpo[:32])
+    return t, i, fmt, an, al, x, y, w, h, br, cuerpo[32:]
+
+
+def aplica_rect(img, ancho, x, y, w, h, pix):
+    """Pone el trozo `pix` (w x h, RGB888) en `img`, un bytearray de la imagen
+    entera de `ancho` de ancho"""
+    for r in range(h):
+        o = ((y + r) * ancho + x) * 3
+        img[o:o + w * 3] = pix[r * w * 3:(r + 1) * w * 3]
 
 
 def aviso(cuerpo):

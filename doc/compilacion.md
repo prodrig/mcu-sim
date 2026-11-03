@@ -598,7 +598,7 @@ arranca, y eso no lo arregla el guarda.
 
 ```bash
 make red        # 13 comprobaciones de la capa de red, sin SystemC
-make test407    # 2149 comprobaciones
+make test407    # 2151 comprobaciones
 make test446    # 204
 make test417    # 165
 ```
@@ -606,7 +606,7 @@ make test417    # 165
 Y el criterio que de verdad vale, más allá de que pasen: al final de `make test407`,
 
 ```
-TOTAL     : 2149 comprobaciones OK, 0 fallos
+TOTAL     : 2151 comprobaciones OK, 0 fallos
 Tiempo simulado: 2396293659555 ps
 ```
 
@@ -617,21 +617,24 @@ Y debajo, desde que la suite corrió en una segunda máquina, **tres líneas má
 
 ```
   de los cuales T96+T97 (socket de GDB): 108265875 ns
-  el resto                             : 2281827784555 ps
+  el resto                             : 2281249034555 ps
   huella de coremark.bin               : 0x644FCE21
   (la que debe ser esta en verif/fw/huellas.txt, y T00 lo comprueba: T-22)
 ```
 
 El total cambia de una máquina a otra —lleva dentro lo que T96 y T97 esperan
 al socket de GDB, **T-16**—; lo que se contrasta es **`resto`**. Y `resto` solo
-se ha movido tres veces, las tres a propósito y con su motivo en
+se ha movido cuatro veces, las cuatro a propósito y con su motivo en
 `src/verif/invariantes.txt`: de `2239552024213` a `2240553274213 ps` al
 corregir el tick de más del IWDG (**T-23**, 2026-09-23), y de ahí a
 `2245527784555 ps` al añadir **T131** (**I-53**, 2026-10-02), la prueba del
 SysTick que dejaba de interrumpir al reanudar una parada del depurador —el
 arreglo en sí no movía nada: los 4,97 ms son de la prueba—, y de ahí a
 `2281827784555 ps` al añadir **T132** (2026-10-03), la de los rebotes del
-pulsador, que tampoco mueven nada por sí solos: los 36,3 ms son de la prueba.
+pulsador, que tampoco mueven nada por sí solos: los 36,3 ms son de la prueba;
+y de ahí a `2281249034555 ps` al corregir las reglas de error del motor CAN
+(**T-24**, 2026-11-02): T87 comprobaba que un nodo sin nadie que asienta
+acabara en bus-off, y uno de verdad se queda en error pasivo.
 
 **La precondición para comparar dos máquinas no era la que parecía.** Mientras
 los `.bin` no se versionaron, se compilaban en cada sitio con el compilador

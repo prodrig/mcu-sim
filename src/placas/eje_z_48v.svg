@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+  EL EJE Z DE LA VERSION DE 48 V, de lado, con su bus de potencia, dibujado a
+  mano: una aproximacion, no una foto. Es el dibujo de placas/eje_z_48v.xml,
+  que lo encuentra solo porque se llama como ella. Generado por
+  placas/dibuja_cnc.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 140 x 130 mm-, y cada pieza con el id de su pieza en el XML:
+
+    A LA IZQUIERDA, EL EJE: el BLDC (MOTOR), su freno (FR), la reductora
+      planetaria (RP), el acople de fuelle (AC), el husillo de bolas 1605 (HZ)
+      y el cabezal (CZ), DIBUJADO EN LA POSICION 0 y que sube 4 unidades por
+      mm (efecto `desplaza`); el sensor inductivo del final (SZ), arriba.
+    A LA DERECHA, EL BUS: la fuente conmutada (PSU), el condensador (CBUS,
+      con su tension en el display VBUS), la resistencia de frenado (RF, que
+      se enciende cuando conduce), el controlador (U1), el generador de pasos
+      (G) y EN, y el final por su optoacoplador: la fuente de 24 V (PS24),
+      la resistencia del LED (RL), el optoacoplador (U2) y la salida con su
+      pull-up (RP33) a 3,3 V (PS33). Y la cota de Z (COTA).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1300" width="140mm" height="130mm">
+  <rect x="0" y="0" width="1400" height="1300" rx="10" fill="#eceff1"/>
+  <rect x="80" y="300" width="50" height="950" fill="#b0bec5" stroke="#78909c" stroke-width="1.5"/>
+  <g id="MOTOR">
+    <rect x="170" y="40" width="200" height="130" rx="8" fill="#455a64" stroke="#263238" stroke-width="2"/>
+    <text x="270" y="112" font-family="Arial" font-size="16" font-weight="bold" fill="#cfd8dc" text-anchor="middle">BLDC 59</text>
+  </g>
+  <rect id="FR" x="190" y="170" width="160" height="40" rx="4" fill="#37474f" stroke="#212121" stroke-width="1.5"/>
+  <text x="270" y="196" font-family="Arial" font-size="12" font-weight="bold" fill="#eceff1" text-anchor="middle">FRENO</text>
+  <rect id="RP" x="200" y="210" width="140" height="60" rx="6" fill="#78909c" stroke="#37474f" stroke-width="1.5"/>
+  <text x="270" y="246" font-family="Arial" font-size="14" font-weight="bold" fill="#263238" text-anchor="middle">3:1</text>
+  <rect id="AC" x="250" y="270" width="40" height="40" rx="4" fill="#90a4ae" stroke="#455a64" stroke-width="1.5"/>
+  <g id="HZ">
+    <rect x="262" y="310" width="16" height="900" fill="#cfd8dc" stroke="#78909c" stroke-width="1"/>
+    <rect x="262" y="318" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="338" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="358" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="378" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="398" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="418" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="438" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="458" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="478" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="498" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="518" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="538" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="558" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="578" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="598" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="618" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="638" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="658" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="678" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="698" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="718" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="738" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="758" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="778" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="798" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="818" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="838" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="858" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="878" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="898" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="918" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="938" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="958" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="978" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="998" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="1018" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="1038" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="1058" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="1078" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="1098" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="1118" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="1138" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="1158" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="1178" width="16" height="3" fill="#90a4ae"/>
+    <rect x="262" y="1198" width="16" height="3" fill="#90a4ae"/>
+  </g>
+  <g id="CZ">
+    <rect x="150" y="1080" width="240" height="120" rx="6" fill="#546e7a" stroke="#263238" stroke-width="2"/>
+    <rect x="390" y="1060" width="120" height="160" rx="8" fill="#37474f" stroke="#212121" stroke-width="2"/>
+    <rect x="440" y="1220" width="20" height="50" fill="#9e9e9e"/>
+    <text x="270" y="1150" font-family="Arial" font-size="16" font-weight="bold" fill="#eceff1" text-anchor="middle">12 kg</text>
+  </g>
+  <rect id="SZ" x="400" y="568" width="40" height="30" rx="4" fill="#ffca28" stroke="#ff8f00" stroke-width="1.5"/>
+  <text x="450" y="588" font-family="Arial" font-size="12" font-weight="bold" fill="#263238">SZ</text>
+  <text x="270" y="1290" font-family="Arial" font-size="15" font-weight="bold" fill="#263238" text-anchor="middle">1605  300 mm  12 kg</text>
+  <rect id="PSU" x="620" y="40" width="300" height="120" rx="6" fill="#455a64" stroke="#263238" stroke-width="2"/>
+  <text x="770" y="110" font-family="Arial" font-size="18" font-weight="bold" fill="#eceff1" text-anchor="middle">48 V  10 A</text>
+  <g id="CBUS">
+    <rect x="960" y="50" width="90" height="110" rx="20" fill="#1565c0" stroke="#0d47a1" stroke-width="2"/>
+    <text x="1005" y="112" font-family="Arial" font-size="14" font-weight="bold" fill="#eceff1" text-anchor="middle">470u</text>
+  </g>
+  <rect id="VBUS" x="1070" y="60" width="300" height="90" rx="6" fill="#1b1b1b" stroke="#000000" stroke-width="2"/>
+  <text x="1220" y="175" font-family="Arial" font-size="12" font-weight="bold" fill="#263238" text-anchor="middle">BUS</text>
+  <rect id="RF" x="620" y="210" width="300" height="70" rx="6" fill="#8d6e63" stroke="#4e342e" stroke-width="2"/>
+  <text x="770" y="252" font-family="Arial" font-size="14" font-weight="bold" fill="#efebe9" text-anchor="middle">R FRENADO 10 ohm</text>
+  <rect id="U1" x="620" y="330" width="430" height="250" rx="8" fill="#263238" stroke="#000000" stroke-width="2"/>
+  <text x="835" y="460" font-family="Arial" font-size="20" font-weight="bold" fill="#eceff1" text-anchor="middle">CONTROLADOR  C5-E</text>
+  <rect id="G" x="1090" y="330" width="150" height="110" rx="6" fill="#00695c" stroke="#004d40" stroke-width="2"/>
+  <text x="1165" y="392" font-family="Arial" font-size="14" font-weight="bold" fill="#eceff1" text-anchor="middle">PASOS</text>
+  <rect id="EN" x="1090" y="470" width="150" height="70" rx="6" fill="#00695c" stroke="#004d40" stroke-width="2"/>
+  <text x="1165" y="512" font-family="Arial" font-size="14" font-weight="bold" fill="#eceff1" text-anchor="middle">EN</text>
+  <rect id="RE" x="1260" y="470" width="70" height="30" rx="4" fill="#bcaaa4" stroke="#6d4c41" stroke-width="1"/>
+  <rect id="PS24" x="620" y="660" width="200" height="90" rx="6" fill="#455a64" stroke="#263238" stroke-width="2"/>
+  <text x="720" y="712" font-family="Arial" font-size="16" font-weight="bold" fill="#eceff1" text-anchor="middle">24 V</text>
+  <rect id="RL" x="850" y="690" width="90" height="30" rx="4" fill="#bcaaa4" stroke="#6d4c41" stroke-width="1"/>
+  <rect id="U2" x="970" y="650" width="140" height="110" rx="6" fill="#fafafa" stroke="#212121" stroke-width="2"/>
+  <text x="1040" y="712" font-family="Arial" font-size="14" font-weight="bold" fill="#212121" text-anchor="middle">PC817</text>
+  <rect id="RP33" x="1140" y="690" width="90" height="30" rx="4" fill="#bcaaa4" stroke="#6d4c41" stroke-width="1"/>
+  <rect id="PS33" x="1260" y="660" width="130" height="90" rx="6" fill="#455a64" stroke="#263238" stroke-width="2"/>
+  <text x="1325" y="712" font-family="Arial" font-size="16" font-weight="bold" fill="#eceff1" text-anchor="middle">3,3 V</text>
+  <rect id="COTA" x="820" y="850" width="300" height="90" rx="6" fill="#1b1b1b" stroke="#000000" stroke-width="2"/>
+  <text x="970" y="965" font-family="Arial" font-size="12" font-weight="bold" fill="#263238" text-anchor="middle">COTA Z</text>
+</svg>

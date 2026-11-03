@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     MODULO MOSFET PARA EL CABEZAL, con su diodo de libre circulacion, sin MCU
+
+     El que pone el PWM del cabezal de GRBL en un motor 775 (doc/analisis_cnc.md
+     §5.3): un N-MOSFET de nivel logico de lado bajo, su diodo de libre
+     circulacion entre las dos bornas del motor y una resistencia que sujeta
+     la puerta a masa. Tres bornas:
+
+         X1  VIN, GNDP        la alimentacion del motor: + y -
+         X2  MAS, MENOS       el motor: MAS es el mismo + que VIN, y MENOS
+                              va al drenador
+         P1  SIG, GND         la senal y la masa de la logica, que es la
+                              misma que GNDP
+
+     Q1, el MOSFET: un Mosfet (`./build/mcu-sim --help Mosfet`) IRLZ44N, de
+     25 mohm con 5 V en la puerta y algo mas con 3,3, con diodo="si": el
+     diodo del modulo, de MENOS a MAS. Con el PWM, la corriente de la bobina
+     del motor sigue por el en cada hueco. Quitandolo -diodo="no", y sin la
+     patilla libre- el modelo avisa en el primer flanco: sin el, la bobina
+     sube el drenador hasta la avalancha y el MOSFET se rompe.
+
+     R1, 10 kohm de la puerta a masa: sin senal, el motor parado.
+
+         ./build/mcu-sim placas/modulo_mosfet.xml --valida
+     ========================================================================= -->
+<placa nombre="modulo-mosfet">
+  <componente tipo="Conector" id="X1" filas="1" columnas="2" nombres="VIN GNDP">
+    <pin nombre="VIN"  nodo="VMAS"/>
+    <pin nombre="GNDP" nodo="MASA"/>
+  </componente>
+  <componente tipo="Conector" id="X2" filas="1" columnas="2" nombres="MAS MENOS">
+    <pin nombre="MAS" nodo="VMAS"/>
+  </componente>
+  <componente tipo="Conector" id="P1" filas="1" columnas="2" nombres="SIG GND">
+    <pin nombre="GND" nodo="MASA"/>
+  </componente>
+  <nodo id="VMAS" bus="si"/>
+  <nodo id="MASA" bus="si"/>
+  <nodo id="X2.MENOS" bus="si"/>
+  <nodo id="P1.SIG" bus="si"/>
+
+  <componente tipo="Mosfet" id="Q1" modelo="IRLZ44N" diodo="si">
+    <pin nombre="drenador" nodo="X2.MENOS"/>
+    <pin nombre="fuente"   nodo="MASA"/>
+    <pin nombre="puerta"   nodo="P1.SIG"/>
+    <pin nombre="libre"    nodo="VMAS"/>
+  </componente>
+
+  <componente tipo="Resistencia" id="R1" r="10000">
+    <pin nombre="a" nodo="P1.SIG"/>
+    <pin nombre="b" nodo="MASA"/>
+  </componente>
+</placa>
