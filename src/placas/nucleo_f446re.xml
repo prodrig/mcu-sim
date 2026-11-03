@@ -6,8 +6,10 @@
      Nucleo-F446RE aparte del chip son un LED, un pulsador y el ST-LINK.
 
          LD2   LED verde de usuario, en PA5, a masa por 510 ohmios
-         B1    pulsador azul, en PC13, a MASA, con el pull-up INTERNO del MCU
-               sujetandolo arriba (la placa no lleva resistencia ahi)
+         B1    pulsador azul, en PC13, a MASA, con el pull-up DE LA PLACA:
+               R30, 4,7 kohm a +3V3, y R29, 100 ohm, hasta el pin [MB1136,
+               el esquema]. Suelto, PC13 lee 1 sin que el firmware programe
+               nada; pulsado, 0
          B2    pulsador negro de RESET, en NRST, a masa: pulsarlo resetea el
                chip, y mientras esta pulsado el chip sigue en reset
          VCP   el puerto COM virtual del ST-LINK: la USART2 (PA2 y PA3) por
@@ -44,11 +46,20 @@
     <pin nombre="anodo" nodo="PA5"/>
   </componente>
 
-  <!-- B1: a masa. Suelto deja PC13 abierto, y quien lo sujeta arriba es el
-       pull-up interno que programa el firmware; sin el, el pin quedaria
-       indeterminado, que es exactamente lo que pasa en la placa real. -->
+  <!-- B1: a masa, con su pull-up en la placa [MB1136, el esquema]: R30,
+       4,7 kohm a +3V3, en el nodo del boton, y R29, 100 ohm, de ahi a PC13.
+       Suelto, PC13 lee 1 aunque el firmware no programe el pull-up interno;
+       pulsado, 0. El de 100 nF de C15 no se modela: los rebotes los hace el
+       boton. Las dos resistencias no se dibujan: en el SVG solo esta B1. -->
+  <nodo id="B1_USER" externo="si" bus="si"/>
   <componente tipo="Button" id="B1" v_cerrado="0" r_cerrado="10">
-    <pin nombre="pin" nodo="PC13"/>
+    <pin nombre="pin" nodo="B1_USER"/>
+  </componente>
+  <componente tipo="Rpull" id="R30" v="3.3" r="4700" visible="no">
+    <pin nombre="a" nodo="B1_USER"/>
+  </componente>
+  <componente tipo="Resistencia" id="R29" r="100" visible="no">
+    <pin nombre="a" nodo="B1_USER"/> <pin nombre="b" nodo="PC13"/>
   </componente>
 
   <!-- B2: el RESET negro, sobre NRST y a masa [UM1724, botones]. Igual que

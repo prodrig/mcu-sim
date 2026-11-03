@@ -547,7 +547,7 @@ def o7_servo(sim):
                        stderr=subprocess.STDOUT, timeout=60)
     out = r.stdout.decode("utf-8", "replace")
     check(r.returncode == 0 and "4 placas: N (nucleo-f446re), S (servo-sg90), K (ky040), "
-          "T (tft-128x160)" in out and "1 MCU(s), 20 componentes, 170 nodos, 0 avisos" in out and
+          "T (tft-128x160)" in out and "1 MCU(s), 22 componentes, 171 nodos, 0 avisos" in out and
           "dibujo T: tft_128x160.svg (6 kB, girado 90)" in out,
           "%s se valida sin avisos: la Nucleo, el servo, el encoder y la pantalla, de pie" % SERVO)
     # Donde empieza: al azar, otro cada vez
@@ -739,7 +739,7 @@ def o9_ftdi(sim):
     out = r.stdout.decode("utf-8", "replace")
     check(r.returncode == 0 and "5 placas: N (nucleo-f446re), S (servo-sg90), K (ky040-24ppr), "
           "T (tft-128x160), F (ftdi-ft232rl)" in out and
-          "1 MCU(s), 26 componentes, 174 nodos, 0 avisos" in out and
+          "1 MCU(s), 28 componentes, 175 nodos, 0 avisos" in out and
           "dibujo F: ftdi_ft232rl.svg (10 kB, JP1 VCC-3.3V, girado 180)" in out,
           "%s se valida sin avisos: cinco placas, el FTDI con su jumper en 3.3V" % FTDI)
     v = Ventana()
@@ -839,7 +839,7 @@ def o10_motores(sim):
     check(r.returncode == 0 and "9 placas: N (nucleo-f446re), S (servo-sg90), K (ky040-24ppr), "
           "T (tft-128x160), F (ftdi-ft232rl), L (l298n), MA (motor-tt-encoder), "
           "MB (motor-tt-encoder), PS (fuente-laboratorio)" in out and
-          "1 MCU(s), 44 componentes, 180 nodos, 0 avisos" in out and
+          "1 MCU(s), 46 componentes, 181 nodos, 0 avisos" in out and
           "dibujo L: l298n.svg (12 kB, JA no, JB no, JP5 no)" in out and
           "dibujo MB: motor_tt_encoder.svg, el mismo que MA" in out,
           "%s se valida sin avisos: nueve placas, el L298N sin los puentes de ENA y ENB, y "

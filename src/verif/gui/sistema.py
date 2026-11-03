@@ -152,9 +152,10 @@ def nodo_de_led(out, id_):
 def c1_conector(sim, cp):
     grupo("C1 Un conector en una placa")
     rc, out, err = corre(sim, ["placas/nucleo_f446re.xml", "--valida"])
-    check(rc == 0 and "11 componentes, 170 nodos, 0 avisos" in out,
+    check(rc == 0 and "13 componentes, 171 nodos, 0 avisos" in out,
           "la Nucleo con sus cuatro conectores Arduino y sus dos morpho valida sin un aviso: "
-          "154 nodos del chip, el +5V del USB y 15 pines de conector al aire -5 de los Arduino "
+          "154 nodos del chip, el +5V del USB, el de B1 -con su pull-up de 4K7- y 15 pines de "
+          "conector al aire -5 de los Arduino "
           "(VIN, AREF, un NC, y D0 y D1, que son del VCP) y 10 de los morpho (E5V, VIN y los "
           "NC)-, ninguno flotante")
     placa = cp.escribe("c1.xml", """<placa nombre="c1">
@@ -782,7 +783,7 @@ def c11_barra(sim, cp):
           "con las dos patillas, a_vss no tiene sentido, y escribirlo es un error que lo dice")
 
     rc, out, err = corre(sim, ["placas/barra8_en_nucleo.xml", "--valida"])
-    check(rc == 0 and "1 MCU(s), 20 componentes, 170 nodos, 0 avisos" in out and
+    check(rc == 0 and "1 MCU(s), 22 componentes, 171 nodos, 0 avisos" in out and
           "dibujo B: barra8_rojo.svg" in out,
           "placas/barra8_en_nucleo.xml: la barra cableada a la Nucleo con nueve hilos, el "
           "comun a D10; ni un aviso")
@@ -911,7 +912,7 @@ def c12_nombres_y_morpho(sim, cp):
     ej = "placas/nucleo_f446re_barra8ac_azul.xml"
     rc, out, err = corre(sim, [ej, "--valida"])
     check(rc == 0 and "3 placas: N (nucleo-f446re), B (barra8-anodo-comun-azul)" in out and
-          "1 MCU(s), 26 componentes, 174 nodos, 0 avisos" in out,
+          "1 MCU(s), 28 componentes, 175 nodos, 0 avisos" in out,
           "%s: la Nucleo y la barra de anodo comun azul, nueve hilos, ni un aviso -el comun "
           "es bus aunque el hilo lo lleve a VDD-" % ej)
     rc, out, err = corre(sim, [ej, "--ms=75"])
@@ -1051,7 +1052,7 @@ def destino_dibujado(svg):
 def c14_vcp(sim, cp):
     grupo("C14 El VCP del ST-LINK de la Nucleo, y la barra con el FT232RL")
     rc, out, err = corre(sim, ["placas/nucleo_f446re.xml", "--valida"])
-    check(rc == 0 and "11 componentes, 170 nodos, 0 avisos" in out and
+    check(rc == 0 and "13 componentes, 171 nodos, 0 avisos" in out and
           "serie VCP: RFC 2217 en localhost:3355" in out,
           "la Nucleo lleva el VCP de su ST-LINK: un puente UART en la USART2, por RFC 2217 en "
           "el 3355; D0 y D1 se quedan al aire, que PA3 y PA2 son del VCP")
@@ -1092,7 +1093,7 @@ def c14_vcp(sim, cp):
     ej = "placas/nucleo_f446re_barra8ac_azul.xml"
     rc, out, err = corre(sim, [ej, "--valida"])
     check(rc == 0 and "3 placas: N (nucleo-f446re), B (barra8-anodo-comun-azul), "
-          "F (ftdi-ft232rl)" in out and "1 MCU(s), 26 componentes, 174 nodos, 0 avisos" in out
+          "F (ftdi-ft232rl)" in out and "1 MCU(s), 28 componentes, 175 nodos, 0 avisos" in out
           and "serie N/VCP: RFC 2217 en localhost:3355" in out and
           "serie F/U1: RFC 2217 en localhost:3356" in out,
           "%s lleva el FT232RL, y dos puertos serie: el VCP en el 3355 y el adaptador en el "
