@@ -1371,10 +1371,15 @@ configurarlo con `$` y cablear la máquina como él la espera.
 * **Lo que costó**: una geometría vacía —una superficie antes de llegar sus
   alturas— tumba Qt Quick 3D (una división por cero con un `stride` de 0).
   Ahora se le pone a la superficie al llegar las primeras alturas.
-* **Lo que queda**:
-  * El empaquetado de Windows y macOS con los módulos de QML de Qt Quick 3D:
-    hasta entonces, su CI compila sin la vista 3D.
-  * Mallas de verdad (STL) en vez de cajas y cilindros.
+* **Los paquetes** de `mcu-sim-gui` la llevan en las tres plataformas, con los
+  módulos de QML de Qt Quick 3D dentro (un parche más, después del de F8):
+  * en Linux, en el AppImage, junto con el OpenGL de Wayland;
+  * en Windows, en `qml/` junto al `.exe`;
+  * en macOS, en `Contents/Resources/qml`.
+
+  Cada script de empaquetado lo comprueba con `mcu-sim-gui --comprueba-3d`,
+  que carga la escena desde el paquete y dice de dónde saca los módulos.
+* **Lo que queda**: mallas de verdad (STL) en vez de cajas y cilindros.
 * **Pruebas**:
   * `make gui-cnc` C14, 5 comprobaciones:
     * el `<vista3d>` de la fresadora;
@@ -1383,11 +1388,11 @@ configurarlo con `$` y cablear la máquina como él la espera.
     * la imagen de alturas contra el mapa de la pieza, a menos de 0,005 mm
       en las 96 000 celdas;
     * la huella en el azul.
-  * En `mcu-sim-gui`, `prueba_vista3d`, 11 comprobaciones:
+  * En `mcu-sim-gui`, `prueba_vista3d`, 12 comprobaciones:
     * la escena leída de `T_PLACA` contra el catálogo, con sus avisos;
     * cómo la mueven las muestras;
     * el descifrado de las alturas;
-    * la escena dibujada;
+    * la escena dibujada, y la carga de `--comprueba-3d`;
     * con `MCU_SIM`, el bolsillo de C8 en la 3020 con la ventana entera: el
       hueco de la superficie 3D mide 1,98 mm y está donde toca.
 
