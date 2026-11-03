@@ -53,6 +53,7 @@
 #define STM32_PARTS_NETLIST_XML_H
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <map>
 #include <sstream>
@@ -247,6 +248,124 @@ inline void fija_nomenclatura_placa(const XmlNodo& raiz, const ContextoPlaca& cx
     c.fija_desnudo(desnudo);
 }
 
+// LA VISTA 3D de una placa (F8 de doc/analisis_cnc.md, §9), en mm, con Z
+// hacia arriba:
+//
+//   <vista3d camara="x y z" mira="x y z">          desde dónde se mira, y adónde
+//     <solido forma="caja" tam="dx dy dz" en="x y z" color="#rrggbb"/>
+//     <solido forma="cilindro" tam="diametro largo" eje="x|y|z" en="x y z"
+//             pieza="HX" gira="angulo"/>            gira sobre su eje con un observable, en grados
+//     <solido pieza="CX" forma="caja" ... observable="posicion" vector="1 0 0"/>
+//     <superficie pieza="PZA" imagen="alturas" tam="largo ancho" en="x y z"
+//                 observable="mesa" vector="0 -1 0" color="#rrggbb"/>
+//   </vista3d>
+//
+// `en` es el centro de un sólido -con todos sus observables a cero- y la
+// esquina (x, y) de abajo a la izquierda de una superficie, a la altura z de
+// su base. Cada observable lo traslada su vector, x, y y z por unidad, como
+// `desplaza` en el dibujo. Una superficie es la imagen de alturas de su
+// pieza, celda a celda. Aquí se comprueba la forma -las piezas existen, los
+// números son los que tocan-; los observables y las imágenes, que son de la
+// pieza ya construida, los comprueba la ventana, que los conoce, y lo dice.
+inline std::string lee_vista3d(Netlist& nl, const XmlNodo& h, const std::string& prefijo,
+                               Vista3d& v) {
+    char pos[48];
+    auto donde = [&](const XmlNodo& n) {
+        std::snprintf(pos, sizeof pos, "linea %u: ", n.linea);
+        return std::string(pos);
+    };
+    auto numeros = [](const std::string& t, size_t n) {
+        std::vector<double> x;
+        return lee_numeros(t, x) && x.size() == n;
+    };
+    auto palabras = [](const std::string& t) {
+        size_t n = 0;
+        bool en = false;
+        for (char c : t) {
+            const bool b = c == ' ' || c == '\t' || c == '\n' || c == '\r';
+            if (!b && !en) ++n;
+            en = !b;
+        }
+        return n;
+    };
+    auto color_ok = [](const std::string& c) {
+        if (c.size() != 7 || c[0] != '#') return false;
+        for (size_t k = 1; k < 7; ++k)
+            if (!std::isxdigit(static_cast<unsigned char>(c[k]))) return false;
+        return true;
+    };
+    v.hay = true;
+    for (const auto& a : h.attrs) {
+        if (a.first != "camara" && a.first != "mira")
+            return donde(h) + "<vista3d>: atributo desconocido: " + a.first +
+                   " (camara y mira, x y z en mm)";
+        if (!numeros(a.second, 3))
+            return donde(h) + "<vista3d>: " + a.first + "=\"" + a.second + "\" no vale: x y z";
+        v.attrs.push_back(a);
+    }
+    for (const XmlNodo& e : h.hijos) {
+        const bool sol = e.nombre == "solido", sup = e.nombre == "superficie";
+        if (!sol && !sup)
+            return donde(e) + "dentro de <vista3d> van <solido> y <superficie>, no <" +
+                   e.nombre + ">";
+        const std::string q = "<" + e.nombre + ">: ";
+        for (const auto& a : e.attrs) {
+            const std::string& n = a.first;
+            const bool comun = n == "pieza" || n == "tam" || n == "en" || n == "color" ||
+                               n == "observable" || n == "vector";
+            if (!comun && !(sol && (n == "forma" || n == "eje" || n == "gira")) &&
+                !(sup && n == "imagen"))
+                return donde(e) + q + "atributo desconocido: " + n;
+        }
+        const std::string pieza = e.attr_o("pieza", "");
+        if (!pieza.empty() && (pieza.find('/') != std::string::npos || !nl.busca(prefijo + pieza)))
+            return donde(e) + q + "la placa no tiene ninguna pieza '" + pieza + "'";
+        if (e.tiene("color") && !color_ok(e.attr_o("color")))
+            return donde(e) + q + "color=\"" + e.attr_o("color") + "\" no vale: #rrggbb";
+        if (e.tiene("en") && !numeros(e.attr_o("en"), 3))
+            return donde(e) + q + "en=\"" + e.attr_o("en") + "\" no vale: x y z, en mm";
+        const std::string obs = e.attr_o("observable", "");
+        if ((!obs.empty() || e.tiene("vector") || e.tiene("gira")) && pieza.empty())
+            return donde(e) + q + "observable=, vector= y gira= son de una pieza: falta pieza=";
+        if (!obs.empty() || e.tiene("vector")) {
+            const size_t n = palabras(obs);
+            if (!n || !numeros(e.attr_o("vector", ""), 3 * n))
+                return donde(e) + q + "observable= y vector= van juntos: tres numeros, x y z, "
+                       "por cada observable";
+        }
+        if (sol) {
+            const std::string f = e.attr_o("forma", "");
+            if (f != "caja" && f != "cilindro")
+                return donde(e) + q + "forma=\"" + f + "\": caja o cilindro";
+            if (!numeros(e.attr_o("tam", ""), f == "caja" ? 3 : 2))
+                return donde(e) + q + "tam=\"" + e.attr_o("tam", "") + "\" no vale: " +
+                       (f == "caja" ? "largo, ancho y alto" : "diametro y largo") + ", en mm";
+            if (e.tiene("eje")) {
+                const std::string x = e.attr_o("eje");
+                if (f != "cilindro") return donde(e) + q + "eje= es de un cilindro";
+                if (x != "x" && x != "y" && x != "z")
+                    return donde(e) + q + "eje=\"" + x + "\": x, y o z";
+            }
+            if (e.tiene("gira") && (f != "cilindro" || palabras(e.attr_o("gira")) != 1))
+                return donde(e) + q + "gira= es UN observable, en grados, y es de un cilindro: "
+                       "gira sobre su eje";
+        } else {
+            if (pieza.empty() || !e.tiene("imagen"))
+                return donde(e) + q + "una superficie es la imagen de alturas de una pieza: "
+                       "pieza= e imagen=";
+            if (!numeros(e.attr_o("tam", ""), 2))
+                return donde(e) + q + "tam=\"" + e.attr_o("tam", "") + "\" no vale: largo y "
+                       "ancho, en mm";
+        }
+        Elemento3d x;
+        x.etiqueta = e.nombre;
+        x.attrs = e.attrs;
+        x.linea = e.linea;
+        v.elementos.push_back(x);
+    }
+    return std::string();
+}
+
 // Rellena `nl` a partir del árbol ya analizado. Devuelve "" si todo bien, o el
 // primer problema con su línea. `cx` dice si la placa es una de un <sistema>.
 // En `ilus`, si se pide, lo que la placa dice de su dibujo: el fichero tal
@@ -414,7 +533,9 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
     // Segunda pasada: los componentes, EN ORDEN. El orden del fichero es el
     // orden de construccion, y de eso depende que una referencia funcione.
     for (const XmlNodo& h : raiz.hijos) {
-        if (h.nombre == "nodo" || h.nombre == "mcu" || h.nombre == "ilustracion") continue;
+        if (h.nombre == "nodo" || h.nombre == "mcu" || h.nombre == "ilustracion" ||
+            h.nombre == "vista3d")
+            continue;
         // UNA CADENA MECANICA (parts/cadena.h): `<transmision id cadena="M V">`
         // es una pieza Transmision cuyas referencias e0, e1... son las piezas
         // de cadena=, en su orden. Va en el mismo orden que los componentes,
@@ -602,6 +723,15 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
                            "' ya esta en la tabla";
             il.enlaces.push_back(en);
         }
+    }
+    // Cuarta pasada: la vista 3D (F8 de doc/analisis_cnc.md), también con las
+    // piezas ya declaradas
+    for (const XmlNodo& h : raiz.hijos) {
+        if (h.nombre != "vista3d") continue;
+        if (il.vista3d.hay) return donde(h) + "<vista3d> repetida: una por placa";
+        const std::string e =
+            lee_vista3d(nl, h, cx.en_sistema() ? cx.id + "/" : std::string(), il.vista3d);
+        if (!e.empty()) return e;
     }
     if (ilus) *ilus = il;
     return std::string();

@@ -50,7 +50,8 @@
 
      EN LA VENTANA, la planta -arriba: la mesa se mueve en Y y el carro X a lo
      largo del puente- y el alzado -abajo: el carro X y la herramienta, con X
-     y Z-, y las cotas en un display.
+     y Z-, y las cotas en un display. Y, aparte, la vista 3D (<vista3d>,
+     abajo): la maquina entera, con lo mecanizado como una superficie.
 
          ./build/mcu-sim placas/fresadora_3020.xml --valida
      ========================================================================= -->
@@ -179,4 +180,47 @@
     <enlace pieza="HY" elemento="HY" efecto="ninguno"/>
     <enlace pieza="HZ" elemento="HZ" efecto="ninguno"/>
   </ilustracion>
+
+  <!-- LA VISTA 3D (F8 de doc/analisis_cnc.md, §9): en mm, con Z hacia arriba,
+       la punta de la fresa en x = la cota X e y = 0, y la mesa a z = 0 -la
+       fresa la toca con el carro Z a 3 mm-. La mesa va en Y al reves que su
+       carro: con la cota Y, la herramienta queda sobre el punto Y de la mesa.
+       Lo que no se mueve, sin pieza=; los husillos giran con su angulo -->
+  <vista3d camara="560 -560 430" mira="150 0 40">
+    <!-- La bancada y las guias de la mesa -->
+    <solido forma="caja" tam="440 360 25" en="150 0 -35" color="#37474f"/>
+    <solido forma="cilindro" tam="12 360" eje="y" en="40 0 -20" color="#b0bec5"/>
+    <solido forma="cilindro" tam="12 360" eje="y" en="260 0 -20" color="#b0bec5"/>
+    <solido pieza="HY" forma="cilindro" tam="8 300" eje="y" en="150 0 -20" gira="angulo" color="#cfd8dc"/>
+    <solido forma="caja" tam="42 40 42" en="150 -200 -20" color="#263238"/>
+    <!-- La mesa, con la pieza encima -->
+    <solido pieza="CY" forma="caja" tam="360 240 15" en="150 100 -7.5" color="#90a4ae"
+            observable="posicion" vector="0 -1 0"/>
+    <superficie pieza="PZA" imagen="alturas" tam="100 60" en="100 70 0" color="#c8a27a"
+                observable="mesa" vector="0 -1 0"/>
+    <!-- El puente: los dos montantes, la viga, sus guias, el husillo X y su motor -->
+    <solido forma="caja" tam="30 40 230" en="-65 75 70" color="#455a64"/>
+    <solido forma="caja" tam="30 40 230" en="365 75 70" color="#455a64"/>
+    <solido forma="caja" tam="460 30 60" en="150 75 140" color="#546e7a"/>
+    <solido forma="cilindro" tam="12 440" eje="x" en="150 58 115" color="#b0bec5"/>
+    <solido forma="cilindro" tam="12 440" eje="x" en="150 58 165" color="#b0bec5"/>
+    <solido pieza="HX" forma="cilindro" tam="8 400" eje="x" en="150 58 140" gira="angulo" color="#cfd8dc"/>
+    <solido forma="caja" tam="40 42 42" en="-105 58 140" color="#263238"/>
+    <!-- El carro X, con el husillo Z y su motor -->
+    <solido pieza="CX" forma="caja" tam="90 12 110" en="0 48 140" color="#78909c"
+            observable="posicion" vector="1 0 0"/>
+    <solido pieza="CX" forma="cilindro" tam="8 150" eje="z" en="0 38 135" color="#cfd8dc"
+            observable="posicion" vector="1 0 0"/>
+    <solido pieza="CX" forma="caja" tam="42 42 40" en="0 38 220" color="#263238"
+            observable="posicion" vector="1 0 0"/>
+    <!-- El carro Z con el cabezal, la pinza y la fresa: con x y con z -->
+    <solido pieza="HERR" forma="caja" tam="80 8 110" en="0 28 70" color="#90a4ae"
+            observable="x z" vector="1 0 0  0 0 1"/>
+    <solido pieza="HERR" forma="cilindro" tam="45 90" eje="z" en="0 0 67" color="#eceff1"
+            observable="x z" vector="1 0 0  0 0 1"/>
+    <solido pieza="HERR" forma="cilindro" tam="14 6" eje="z" en="0 0 19" color="#9e9e9e"
+            observable="x z" vector="1 0 0  0 0 1"/>
+    <solido pieza="HERR" forma="cilindro" tam="3.175 22" eje="z" en="0 0 8" color="#ffd54f"
+            observable="x z" vector="1 0 0  0 0 1"/>
+  </vista3d>
 </placa>

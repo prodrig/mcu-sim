@@ -622,7 +622,7 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
 
 **V2: isométrica, que es opcional.** El mismo `desplaza` con vectores isométricos (X a 30°, Y a 150°, Z vertical) mueve los carros en una vista en perspectiva dibujada en SVG. La pieza pide entonces una **transformación afín** de la imagen, que `QTransform` hace sin más.
 
-**V3: 3D, en F8.** Qt Quick 3D, con mallas de los carros y un mapa de alturas como malla. Es otro orden de trabajo en la ventana, y **nada en `mcu-sim` cambia**: lee los mismos observables.
+**V3: 3D, en F8.** Qt Quick 3D, con mallas de los carros y un mapa de alturas como malla. Es otro orden de trabajo en la ventana, y **nada en `mcu-sim` cambia**: lee los mismos observables. *(Hecha, con dos cambios en `mcu-sim` que el plan no veía: la escena la declara la placa, y la pieza manda sus alturas en una imagen aparte. Véase «F8, hecha», en el §13.)*
 
 **Una gráfica temporal**, un osciloscopio de observables, sería muy útil para ver `ia`, `ib`, la velocidad y el error de seguimiento. No existe en la ventana y no depende de la CNC: va aparte.
 
@@ -682,7 +682,7 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
 | **F5** Potencia | La versión de 48 V: NEMA 23 o BLDC con controlador, husillos de bolas 1605, **freno en Z**, reductora planetaria en el BLDC, **condensador de bus y resistencia de frenado**, optoacopladores | `Condensador`, `Fuente absorbe=`, `Optoacoplador` | Sin resistencia de frenado, el bus sube al frenar el Z y salta la protección | M |
 | **F6** Bus de campo | El controlador por **CANopen**, un subconjunto de CiA 402 (estados, perfil de posición, *homing*, PDO), por el bxCAN que ya está. O Modbus RTU con un RS-485 | `ControladorMotor` con su diccionario de objetos | Un firmware que lleva un eje por CANopen. Las tramas en el `CanWire` | L |
 | **F7** BLDC desde el MCU | Tres fases de verdad. **X-NUCLEO-IHM07M1** (L6230). Seis pasos con Hall por el TIM1 y el TIM2/3; después FOC | `MotorBLDC` por fases, `PuenteTrifasico` | Arranca y gira con seis pasos. La corriente por fase. **Medir el coste antes** | L |
-| **F8** 3D | Qt Quick 3D en la ventana | Solo `mcu-sim-gui` | La misma máquina, vista en 3D | L |
+| **F8** 3D | Qt Quick 3D en la ventana | Solo `mcu-sim-gui` (al final, también `mcu-sim`: §13, decisión 11) | La misma máquina, vista en 3D | L |
 
 **El orden es el que se pidió**: motores y drivers primero (F1), la transmisión después (F2) y la máquina y su visualización (F3).
 
@@ -760,6 +760,12 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
    como TRGO basta.
 10. **El 2026-11-03, uno o tres shunts**, en otro parche: J5 y J6 de la
     IHM07M1 eligen, como en la placa, y salen como de fábrica, con uno.
+11. **El 2026-11-03, F8**, con dos parches, uno por repositorio, y **`mcu-sim`
+    sí cambia**, contra lo que decía el §9: la escena 3D la declara la placa
+    —un `<vista3d>` junto a la `<ilustracion>`, que vuelve en `T_PLACA`— y la
+    pieza manda sus alturas en una segunda imagen, `alturas`, porque la de
+    color no se puede deshacer en alturas. En la ventana, Qt Quick 3D, en una
+    ventana aparte como la ilustración, y opcional al compilar.
 
 ### F0, hecha: la cadena mecánica y el efecto `desplaza`
 
@@ -1313,6 +1319,78 @@ configurarlo con `$` y cablear la máquina como él la espera.
   vectores activos, y el desplazamiento de fases cuando no caben—.
 * **Pruebas**: `make gui-cnc` C13, 5 comprobaciones.
 
+### F8, hecha: la vista 3D
+
+* **Lo que el plan no veía.** El §9 decía que nada en `mcu-sim` cambiaba. Dos
+  cosas sí:
+  * **La forma de la máquina.** Los observables dicen dónde está cada carro,
+    pero no cómo es: qué tamaño tiene, dónde está su cero y hacia dónde se
+    mueve. En el 2D eso lo dicen el SVG y la tabla de enlaces de la placa;
+    en el 3D, un **`<vista3d>`** en el XML de la placa, junto a la
+    `<ilustracion>`. `mcu-sim` lo valida y lo vuelve a mandar en `T_PLACA`
+    tal cual, y no lo usa para nada más.
+  * **Las alturas de la pieza.** La imagen `pieza` de F4 es de color —más
+    oscuro cuanto más hondo, la mesa donde se ha atravesado— y no se puede
+    deshacer en alturas. La `Pieza` manda una **segunda imagen, `alturas`**,
+    del mismo tamaño, solo si alguien la pide:
+    * en cada píxel, la altura sobre la mesa en centésimas de mm, con el byte
+      alto en el rojo y el bajo en el verde;
+    * en el azul, 255 donde la punta de la fresa ha pasado por encima sin
+      cortar.
+
+    Va a trozos, como la otra (`T_IMAGEN_RECT`).
+* **El `<vista3d>`** (`doc/parts.md`). Lleva `camara=` y `mira=`, en mm, con
+  Z hacia arriba. Dentro van dos clases de elemento:
+  * **`<solido>`**: una caja (`tam`, largo, ancho y alto) o un cilindro
+    (`tam`, diámetro y largo, y su `eje`).
+  * **`<superficie>`**: la imagen de alturas de una pieza, con su largo y su
+    ancho.
+
+  Cada elemento lleva `en=`, su sitio con todo a cero, y `color=`. Si es de
+  una `pieza=`, se mueve con `observable=` y `vector=`, como el `desplaza`
+  del 2D, pero con tres números por observable. Un cilindro, además, puede
+  girar sobre su eje con `gira=`, un observable en grados: así se ven girar
+  los husillos.
+* **La 3020** (`placas/fresadora_3020.xml`) tiene 20 sólidos y la superficie:
+  * la bancada y sus guías;
+  * la mesa, que se mueve con CY, y la pieza encima, que se mueve con la mesa;
+  * el pórtico, el carro X y el Z;
+  * el cabezal con su fresa, que bajan con HERR;
+  * los tres husillos, que giran, y sus motores.
+* **En la ventana**: «Vista > Vista 3D» (Ctrl+3), una ventana aparte.
+  * La cámara orbita con el ratón: arrastrar gira, la rueda acerca y aleja,
+    y el botón derecho desplaza. «Vista inicial» la devuelve a donde dice la
+    placa.
+  * La superficie es una malla de un vértice por celda —400 x 240 en la 3020,
+    con un borde que hace de costados—, con el color de la imagen 2D en cada
+    vértice. Se rehace como mucho diez veces por segundo, al llegar alturas
+    nuevas.
+  * La imagen de alturas solo se pide con la ventana abierta.
+  * Es opcional al compilar (`MCU_SIM_GUI_3D`, AUTO por omisión). Sin Qt
+    Quick 3D, la ventana dice que esa compilación no la lleva.
+* **Lo que costó**: una geometría vacía —una superficie antes de llegar sus
+  alturas— tumba Qt Quick 3D (una división por cero con un `stride` de 0).
+  Ahora se le pone a la superficie al llegar las primeras alturas.
+* **Lo que queda**:
+  * El empaquetado de Windows y macOS con los módulos de QML de Qt Quick 3D:
+    hasta entonces, su CI compila sin la vista 3D.
+  * Mallas de verdad (STL) en vez de cajas y cilindros.
+* **Pruebas**:
+  * `make gui-cnc` C14, 5 comprobaciones:
+    * el `<vista3d>` de la fresadora;
+    * trece errores, cada uno con su línea;
+    * el `<vista3d>` en `T_PLACA`;
+    * la imagen de alturas contra el mapa de la pieza, a menos de 0,005 mm
+      en las 96 000 celdas;
+    * la huella en el azul.
+  * En `mcu-sim-gui`, `prueba_vista3d`, 11 comprobaciones:
+    * la escena leída de `T_PLACA` contra el catálogo, con sus avisos;
+    * cómo la mueven las muestras;
+    * el descifrado de las alturas;
+    * la escena dibujada;
+    * con `MCU_SIM`, el bolsillo de C8 en la 3020 con la ventana entera: el
+      hueco de la superficie 3D mide 1,98 mm y está donde toca.
+
 ## Fuentes
 
 * **VEVOR 3020.** La página que se dio no se pudo abrir por su longitud. El
@@ -1355,6 +1433,11 @@ configurarlo con `$` y cablear la máquina como él la espera.
   [github.com/grblHAL/STM32F4xx](https://www.github.com/grblHAL/STM32F4xx).
 * **TMC2209**:
   [la hoja de datos, rev. 1.08](https://wcm-cce.cldnet.analog.com/media/en/technical-documentation/data-sheets/TMC2209_datasheet_rev1.08.pdf).
+* **Qt Quick 3D** (F8):
+  [QQuick3DGeometry](https://doc.qt.io/qt-6/qquick3dgeometry.html), la malla
+  hecha en C++, y
+  [OrbitCameraController](https://doc.qt.io/qt-6/qml-qtquick3d-helpers-orbitcameracontroller.html),
+  la cámara que orbita con el ratón.
 * **Código y documentación de `mcu-sim`:**
   * `src/parts/motor_cc.h` y `src/parts/puente_h.h` (§4.16 de
     `doc/parts.md`);

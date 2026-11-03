@@ -74,6 +74,12 @@
 #       tres fuentes de abajo a R43 y la corriente del bus en PA0; con tres,
 #       cada fase la suya. La del bus, la misma con los dos; y la FOC, que no
 #       arranca con uno.
+#   C14 (F8) LA VISTA 3D. El <vista3d> de la fresadora -sólidos y la
+#       superficie de la pieza, movidos por los mismos observables que el
+#       dibujo-, validado: cada error, con su línea; vuelve en T_PLACA tal
+#       cual. Y la imagen de alturas de la pieza, contra el mapa de alturas:
+#       en centésimas de mm, la fila de arriba la de más Y, y la huella de la
+#       fresa en el azul.
 #
 # Cada grupo monta su banco en una carpeta temporal, con placas escritas aquí.
 #
@@ -117,6 +123,7 @@ def corre(sim, ruta, ms, args=()):
 
 
 ULTIMA = [""]          # la consola de la ultima simulacion con ventana
+PLACA = [b""]          # el T_PLACA de la ultima simulacion con ventana
 # Las imagenes de la ultima simulacion con ventana, por (pieza, imagen): las
 # enteras y los trozos que llegaron, los bytes y la imagen de al final, rehecha
 IMAGENES = [{}]
@@ -135,7 +142,7 @@ def muestrea(sim, ruta, ms, pedidos, periodo_ns=1000000, lista=(), args=(), imag
     try:
         if not v.acepta():
             return None, None, None, None
-        _, _, cat, listo = saludo_hasta_listo(v, version=2, parcial=parcial)
+        _, PLACA[0], cat, listo = saludo_hasta_listo(v, version=2, parcial=parcial)
         pz = {x.get("id"): x for x in ET.fromstring(cat).iter("pieza")}
         ids = []
         for pid, nombre in pedidos:
@@ -2457,6 +2464,102 @@ def c13_shunts(sim, cp):
           "y con uno no la arranca: %s" % err)
 
 
+def c14_vista3d(sim, cp):
+    grupo("C14 (F8) La vista 3D: el <vista3d> de la fresadora")
+    placas = os.path.abspath("placas")
+    fres = open(os.path.join(placas, "fresadora_3020.xml"), encoding="utf-8").read()
+    rc, out = valida(sim, "placas/fresadora_3020.xml")
+    # (con una expresion regular: los comentarios de las placas llevan `--valida`)
+    b3 = re.search(r"^  <vista3d .*?</vista3d>", fres, re.S | re.M)
+    v3 = ET.fromstring(b3.group(0)) if b3 else None
+    sol = v3.findall("solido") if v3 is not None else []
+    sup = v3.findall("superficie") if v3 is not None else []
+    check(rc == 0 and " 0 avisos" in out and len(sol) > 15 and len(sup) == 1 and
+          sup[0].get("pieza") == "PZA" and sup[0].get("imagen") == "alturas",
+          "LA FRESADORA DECLARA SU VISTA 3D: %d solidos -bancada, guias, husillos, carros, "
+          "motores y cabezal- y la superficie de la pieza, la imagen de alturas de PZA; valida, "
+          "sin avisos" % len(sol))
+
+    # Cada error, en una copia de la fresadora con su <vista3d> estropeado
+    malos = [
+        ('<vista3d camara="560 -560 430"', '<vista3d camara="560 -560" ',
+         'camara="560 -560" no vale'),
+        ('<solido forma="caja" tam="440 360 25"', '<caja forma="caja" tam="440 360 25"',
+         'van <solido> y <superficie>, no <caja>'),
+        ('<solido forma="caja" tam="440 360 25"', '<solido forma="caja" tam="440 360 25" brillo="1"',
+         'atributo desconocido: brillo'),
+        ('<solido pieza="CY"', '<solido pieza="CQ"', "ninguna pieza 'CQ'"),
+        ('<solido forma="caja" tam="440 360 25"', '<solido forma="caja" tam="440 360"',
+         'largo, ancho y alto'),
+        ('<solido forma="caja" tam="440 360 25"', '<solido forma="esfera" tam="440 360 25"',
+         'caja o cilindro'),
+        ('<solido forma="caja" tam="440 360 25"', '<solido forma="caja" eje="x" tam="440 360 25"',
+         'eje= es de un cilindro'),
+        ('<solido forma="caja" tam="440 360 25"', '<solido forma="caja" vector="1 0 0" tam="440 360 25"',
+         'falta pieza='),
+        ('observable="posicion" vector="0 -1 0"', 'observable="posicion" vector="0 -1"',
+         'tres numeros, x y z'),
+        ('gira="angulo"', 'gira="angulo rpm"', 'gira= es UN observable'),
+        ('color="#c8a27a"', 'color="marron"', 'color="marron" no vale'),
+        ('imagen="alturas" ', '', 'pieza= e imagen='),
+    ]
+    bien = []
+    for a, b, esperado in malos:
+        m = fres.replace(a, b, 1)
+        r, o = valida(sim, cp("fresadora_mala.xml", m))
+        bien.append(m != fres and r != 0 and esperado in o and "linea " in o)
+        if not bien[-1]:
+            print("    (%s: rc %d) %s" % (esperado, r, o.strip().splitlines()[-1] if o.strip() else ""))
+    m = fres.replace("</vista3d>", "</vista3d>\n  <vista3d/>", 1)
+    r, o = valida(sim, cp("fresadora_mala.xml", m))
+    bien.append(r != 0 and "vista3d" in o)
+    check(all(bien), "CADA ERROR, CON SU LINEA: %d de %d -una camara sin z, un elemento que no es "
+          "ni solido ni superficie, un atributo, una pieza, un tam, una forma, un eje o un "
+          "vector que no van, un gira de dos observables, un color, una superficie sin imagen y "
+          "un segundo <vista3d>-" % (sum(bien), len(bien)))
+
+    # La imagen de alturas: la raya en V de C8, 1 mm de honda en Y = 115,125,
+    # y la vuelta por encima, en vacio, de X 170 a 150
+    CELDA, E = 0.25, 12.0
+    g = ["M3 S1000", "G4 P1", "G1 Z14 F120", "G1 X170 F600", "G0 Z20", "G0 X150", "M5"]
+    s, avs, out, dt, mapa = corta(sim, cp, g, 11000, ("130", "115.125", "20"), fresa="v",
+                                  imagenes=(("M/PZA", "alturas"), ("M/PZA", "pieza")))
+    im = IMAGENES[0][("M/PZA", "alturas")]
+    raiz = ET.fromstring(PLACA[0]) if PLACA[0] else None
+    pl = [p for p in raiz.iter("placa") if p.get("id") == "M"] if raiz is not None else []
+    v3e = pl[0].find("vista3d") if pl else None
+    check(v3e is not None and v3e.get("camara") == v3.get("camara") and
+          len(v3e) == len(v3) and
+          all(a.tag == b.tag and a.attrib == b.attrib for a, b in zip(v3e, v3)),
+          "EN T_PLACA, el <vista3d> en la <placa id=\"M\"> del sistema, tal cual: %d elementos, "
+          "con sus atributos; la ventana lo lee de ahi" % (len(v3e) if v3e is not None else 0))
+    an, al, px = im["ancho"], im["alto"], im["final"]
+    dif, filas_ok, paso = 1e9, False, []
+    if px is not None and mapa and an == len(mapa[0]) and al == len(mapa):
+        filas_ok = True
+        dif = 0.0
+        for fila in range(al):
+            j = al - 1 - fila                              # arriba, la de mas Y
+            for i in range(an):
+                q = 3 * (fila * an + i)
+                h = ((px[q] << 8) | px[q + 1]) / 100.0
+                dif = max(dif, abs(h - mapa[j][i]))
+                if px[q + 2] == 255:
+                    paso.append((i, j))
+    fila_raya = int((115.125 - 70) / CELDA)
+    vuelta = [i for i, j in paso if j == fila_raya and int(50 / CELDA) <= i <= int(70 / CELDA)]
+    check(im["enteras"] >= 1 and filas_ok and dif <= 0.005 + 1e-6,
+          "LA IMAGEN DE ALTURAS, %dx%d, contra el mapa de alturas de la pieza: la misma en "
+          "todas sus celdas, con %.4f mm de diferencia como mucho -centesimas de mm en el rojo "
+          "y el verde, la fila de arriba la de mas Y-" % (an, al, dif))
+    check(paso and all(j == fila_raya for i, j in paso) and len(vuelta) >= 79 and
+          len(paso) - len(vuelta) <= 3,
+          "Y EN EL AZUL, la huella de la punta en vacio: las %d celdas de la vuelta por encima, "
+          "de X 170 a 150 -de 81, las de los extremos segun donde paran los pasos-, y %d donde "
+          "empezo a bajar; todas en la fila de la raya"
+          % (len(vuelta), len(paso) - len(vuelta)))
+
+
 def main():
     a = argparse.ArgumentParser(description="La fresadora CNC, por fases, contra el mcu-sim de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -2486,6 +2589,7 @@ def main():
         c11_bldc_mcu(sim, cp)
         c12_foc(sim, cp)
         c13_shunts(sim, cp)
+        c14_vista3d(sim, cp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print()

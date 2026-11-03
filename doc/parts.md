@@ -376,6 +376,7 @@ máquina y no ver estos ficheros.
 | `<placa id="N" fichero="..." ilustracion="y.svg"/>` en un `<sistema>` | El montaje cambia el dibujo de esa placa (relativo al sistema); la tabla de la placa, que era de SU dibujo, no se usa |
 | `giro="90"` en la `<placa>`, o en su `<placa id>` de un `<sistema>` | El dibujo, **girado** 90, 180 o 270 grados en el sentido de las agujas del reloj: como está montada la placa. El del sistema manda sobre el de la placa. Ver abajo |
 | `<ilustracion><enlace pieza= elemento= [efecto=] [observable=] [vector=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido`, `giro`, `pantalla`, `angulo`, `display`, `desplaza` o `ninguno`; con `giro` o `angulo`, `observable` dice cuál de los de la pieza lo mueve; con `display`, cuáles enseña, uno por fila; con `desplaza`, cuáles lo trasladan, y `vector` cuánto cada uno (abajo) |
+| `<vista3d>` | La **vista 3D**: cajas, cilindros y la superficie de una pieza, movidos por observables, para la ventana 3D de `mcu-sim-gui` (abajo) |
 
 **Lo que se comprueba aquí** —el SVG lo lee la ventana—: un dibujo
 **declarado** que no está, uno que no empieza por `<svg` ni por `<?xml`, o uno
@@ -478,6 +479,46 @@ imagen de una pantalla— gira con ella. La serigrafía también gira, como en l
 placa de verdad. La consola lo dice: `dibujo T: tft_128x160.svg (6 kB, girado
 90)`. Hace falta que la raíz del SVG tenga viewBox; si no, se avisa y se manda
 como está. Un giro que no sea 0, 90, 180 o 270 es un error de la placa.
+
+**La vista 3D: `<vista3d>`.** Junto a la `<ilustracion>`, una placa puede
+declarar cómo es en tres dimensiones, para la ventana 3D de `mcu-sim-gui`
+(`doc/analisis_cnc.md`, F8). `mcu-sim` no la usa: la valida y la manda en
+`T_PLACA` tal cual, dentro de su `<placa>` si es de un `<sistema>`.
+
+Las medidas van en mm, con Z hacia arriba. `camara=` y `mira=` (x y z) dicen
+desde dónde se mira al abrir la ventana. Dentro, dos clases de elemento:
+
+| Elemento | Atributos | Qué es |
+| :--- | :--- | :--- |
+| `<solido>` | `forma="caja"` con `tam` = largo, ancho y alto; o `forma="cilindro"` con `tam` = diámetro y largo, y `eje` = `x`, `y` o `z` (`z` si no se dice) | Una caja o un cilindro. Un cilindro de una pieza puede girar sobre su eje con `gira=`, un observable en grados: un husillo con su `angulo` |
+| `<superficie>` | `pieza`, `imagen` y `tam` = largo y ancho | La imagen de alturas de una pieza —la `alturas` de una `Pieza`, §4.23— como una malla, con su esquina de menos X y menos Y en `en` |
+
+Los dos llevan, además:
+* `en=`, el sitio con todos los observables a cero: el centro de un sólido,
+  la esquina de una superficie;
+* `color=`, `#rrggbb`;
+* `pieza=`, `observable=` y `vector=`, opcionales, para moverse como el
+  `desplaza` de la tabla de enlaces, pero con tres números por observable.
+
+Un trozo de la 3020 (`placas/fresadora_3020.xml`):
+
+    <vista3d camara="560 -560 430" mira="150 0 40">
+      <solido pieza="HY" forma="cilindro" tam="8 300" eje="y" en="150 0 -20"
+              gira="angulo" color="#cfd8dc"/>
+      <solido pieza="CY" forma="caja" tam="360 240 15" en="150 100 -7.5"
+              color="#90a4ae" observable="posicion" vector="0 -1 0"/>
+      <superficie pieza="PZA" imagen="alturas" tam="100 60" en="100 70 0"
+                  observable="mesa" vector="0 -1 0" color="#c8a27a"/>
+    </vista3d>
+
+`mcu-sim` comprueba:
+* las formas, los tamaños, los colores y los vectores;
+* que la pieza exista;
+* que `gira` sea un solo observable y de un cilindro;
+* que haya un solo `<vista3d>`.
+
+Que la pieza tenga esos observables y esa imagen lo mira la ventana: lo que no
+casa se queda quieto o sin dibujar, y lo dice.
 
 ```xml
 <sistema nombre="nucleo-y-tft-de-pie">
@@ -3021,6 +3062,16 @@ bajo:
 donde se ha pasado de lado a lado y una línea tenue donde la fresa pasó por
 encima sin cortar. Sale a trozos (§4.15). En el dibujo, el efecto
 `pantalla` con `observable="mesa"` y un vector la lleva con la mesa.
+
+**Y sus alturas**, otra imagen del mismo tamaño, `alturas`, para la vista 3D
+de la ventana (§2.6, `<vista3d>`). Solo sale si alguien la pide, y también a
+trozos:
+* en cada píxel, la altura de lo que queda sobre la mesa en centésimas de mm:
+  el byte alto en el rojo y el bajo en el verde;
+* en el azul, 255 donde la punta ha pasado por encima sin cortar.
+
+La fila de arriba es la de más Y, como en la otra. El color de `pieza` no se
+puede deshacer en alturas; esta, sí.
 
 **Las fuerzas del corte** (Kienzle), con `fuerzas="si"`. De la rejilla sale lo
 que de verdad se quita por segundo, Q, filtrado con 5 ms, y con el espesor de

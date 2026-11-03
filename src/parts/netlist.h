@@ -375,6 +375,22 @@ struct EnlaceIlustracion {
     std::string observable;   // el que mueve el giro o el ángulo, si no es el primero (S8 del F303)
     std::string vector;       // con `desplaza`: x e y por unidad de cada observable
 };
+// LA VISTA 3D de una placa (fase F8 de doc/analisis_cnc.md, §9): sólidos -una
+// caja, un cilindro- y superficies -un mapa de alturas, la pieza mecanizada-,
+// cada uno donde va, y lo que lo mueve: observables de una pieza, cada uno
+// con su vector, como `desplaza`, pero en tres dimensiones. Aquí no se dibuja
+// nada: se lee, se valida y se manda en T_PLACA, tal cual, y lo dibuja la
+// ventana. Por eso se guarda como se escribió: la etiqueta y sus atributos
+struct Elemento3d {
+    std::string etiqueta;                                     // "solido" o "superficie"
+    std::vector<std::pair<std::string, std::string>> attrs;   // en el orden del fichero
+    unsigned linea = 0;
+};
+struct Vista3d {
+    bool hay = false;
+    std::vector<std::pair<std::string, std::string>> attrs;   // camara=, mira=
+    std::vector<Elemento3d> elementos;
+};
 struct Ilustracion {
     std::string declarada;    // lo que dice el XML, tal cual; vacío si no dice
     std::string ruta;         // dónde se busca, ya resuelta; vacía si en ningún sitio
@@ -389,6 +405,7 @@ struct Ilustracion {
     bool   colocada = false;
     double x_mm = 0, y_mm = 0;
     double escala = 1.0;
+    Vista3d vista3d;
 };
 
 // El lienzo de la ventana, en mm, si es fijo (`lienzo="x y ancho alto"`); y
@@ -1668,6 +1685,21 @@ public:
             }
             os << sangria << "</ilustracion>\n";
         };
+        // La vista 3D, como se escribió (F8 de la CNC)
+        auto vista3d = [&](const Ilustracion& il, const char* sangria) {
+            if (!il.vista3d.hay) return;
+            os << sangria << "<vista3d";
+            for (const auto& a : il.vista3d.attrs)
+                os << " " << a.first << "=\"" << xml_escapa(a.second) << "\"";
+            os << ">\n";
+            for (const Elemento3d& e : il.vista3d.elementos) {
+                os << sangria << "  <" << e.etiqueta;
+                for (const auto& a : e.attrs)
+                    os << " " << a.first << "=\"" << xml_escapa(a.second) << "\"";
+                os << "/>\n";
+            }
+            os << sangria << "</vista3d>\n";
+        };
         os << (sis ? "<sistema" : "<placa") << " nombre=\"" << xml_escapa(nombre_placa)
            << "\"";
         if (!es_sistema() && !ilustracion_.declarada.empty())
@@ -1686,7 +1718,10 @@ public:
             os << " lienzo=\"" << num(lienzo_.x) << " " << num(lienzo_.y) << " "
                << num(lienzo_.ancho) << " " << num(lienzo_.alto) << "\"";
         os << ">\n";
-        if (!es_sistema()) tabla(ilustracion_, "  ");
+        if (!es_sistema()) {
+            tabla(ilustracion_, "  ");
+            vista3d(ilustracion_, "  ");
+        }
         if (sis)
             for (const PlacaDeSistema& p : placas_) {
                 unsigned n = 0;
@@ -1704,6 +1739,7 @@ public:
                     os << " escala=\"" << num(p.ilustracion.escala) << "\"";
                 os << " piezas=\"" << n << "\">\n";
                 tabla(p.ilustracion, "    ");
+                vista3d(p.ilustracion, "    ");
                 for (const DeclMcu& m : mcus_)
                     if (placa_de(m.id) == p.id)
                         os << "    <mcu ref=\"" << xml_escapa(m.id) << "\" tipo=\""

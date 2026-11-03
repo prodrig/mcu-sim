@@ -31,6 +31,13 @@
 // pasado de lado a lado. Cambia solo donde la fresa corta, y por eso sale a
 // trozos (T_IMAGEN_RECT, common/protocolo.h).
 //
+// Y LAS ALTURAS, otra imagen del mismo tamaño -`alturas`-, para la vista 3D
+// de la ventana (F8 del análisis): en cada píxel, la altura de lo que queda
+// de la pieza sobre la mesa en centésimas de mm, el byte alto en el rojo y el
+// bajo en el verde, y en el azul, 255 si la fresa ha pasado por encima. El
+// color de la otra no se puede deshacer en alturas; esta, sí. Solo sale si
+// alguien la pide.
+//
 // LAS FUERZAS DEL CORTE (Kienzle), si `fuerzas="si"`. De la rejilla sale lo
 // que de verdad se quita por segundo, Q (mm³/s), y la energía específica del
 // material da la potencia:
@@ -186,15 +193,29 @@ SC_MODULE(Pieza), public ExtPartBase {
     float valor_mando(unsigned) const override { return 0.f; }
     void acciona(unsigned, float v) override { if (v >= 0.5f) nueva(); }
 
-    unsigned n_imagenes() const override { return 1; }
-    Imagen   imagen(unsigned) const override { return {"pieza", uint16_t(nx_), uint16_t(ny_)}; }
+    unsigned n_imagenes() const override { return 2; }
+    Imagen   imagen(unsigned k) const override {
+        return {k ? "alturas" : "pieza", uint16_t(nx_), uint16_t(ny_)};
+    }
     uint64_t version_imagen(unsigned) const override { return version_; }
     // Siempre con toda su luz: la luz acumulada es el tiempo
     double   luz_acumulada(unsigned) const override { return sc_core::sc_time_stamp().to_seconds(); }
     // Como se ve desde arriba en un plano: X a la derecha e Y hacia ARRIBA -la
     // fila de arriba de la imagen es la última de la rejilla-
-    void pinta_imagen(unsigned, std::string& rgb) const override {
+    void pinta_imagen(unsigned img, std::string& rgb) const override {
         rgb.resize(h_.size() * 3u);
+        if (img == 1) {                                // las alturas, en centésimas
+            for (std::size_t q = 0; q < h_.size(); ++q) {
+                const std::size_t fila = q / std::size_t(nx_), col = q % std::size_t(nx_);
+                const std::size_t k = (std::size_t(ny_) - 1u - fila) * std::size_t(nx_) + col;
+                const long c = std::lround(std::max(0.0, double(h_[k])) * 100.0);
+                const unsigned v = unsigned(std::min(65535L, c));
+                rgb[3 * q]     = char(uint8_t(v >> 8));
+                rgb[3 * q + 1] = char(uint8_t(v & 0xFFu));
+                rgb[3 * q + 2] = char(uint8_t(paso_[k] ? 255 : 0));
+            }
+            return;
+        }
         const MaterialPieza& m = *c_.material;
         const double e = c_.espesor_mm;
         for (std::size_t q = 0; q < h_.size(); ++q) {
