@@ -5,11 +5,13 @@ extraído de los veintidós informes de `doc/` y contrastado contra el código d
 `src/`. Fecha de corte original: fase F7 cerrada, **1811/1811 comprobaciones,
 0 fallos**.
 
-**Puesto al día con los dos planes de familia posteriores** —el del F446 y el
-del F415/F417—, que cerraron puntos y abrieron otros. Estado de hoy: **tres
-bancos**, `test407` (2118), `test446` (204) y `test417` (165), **0 fallos**, y
-los tres invariantes intactos —`2336217899213`, `1033367277932` y
-`718988288 ps`— **en Linux y en Windows, al picosegundo**.
+**Puesto al día con los planes posteriores** —el del F446, el del F415/F417,
+y después el puente serie, la ventana, los MSP432, el STM32F303 y la fresadora
+CNC—, que cerraron puntos y abrieron otros. Estado de hoy (2026-11-03): **ocho
+bancos**, `test407` (2151), `test446` (204), `test417` (165), `testf3` (428),
+`testp4` (406), `teste4` (296), `testserie` (189) y `testgui` (145), **0
+fallos**, y sus invariantes intactos al picosegundo **en las cuatro
+plataformas de la integración continua** (`src/verif/invariantes.txt`).
 
 ## Cómo leer este documento
 
@@ -64,6 +66,15 @@ redactar esta revisión, no solo leído en un informe.
   y **T7**: su conectividad y su criptografía —CCM, dos C_CAN, EMAC con
   PHY interno y lwIP por el puente Ethernet, el cargador por Ethernet de la
   ROM y el USB como CDC-ACM por el puente USB de clase—.
+- **Y otra generación de periféricos de ST** (**P-18**): el STM32F303 con la
+  STM32F3DISCOVERY, plan de diez fases en `doc/analisis_stm32f303.md`, **las
+  diez hechas** (S0-S9): los periféricos de segunda generación, los sensores
+  de la placa, lo analógico, el USB y el CAN, el cargador de sistema y las
+  quince referencias del die 0x422. `make testf3`.
+- **Y una fresadora CNC** de tres ejes, con sus motores, drivers, mecánica,
+  firmware y su vista 3D (`doc/analisis_cnc.md`, fases F0 a F8, en la rama
+  `cnc`). Lo que destapó en el modelo está en **T-24** (las reglas de error
+  del CAN) y **T-25** (la captura de TRC de los TIM).
 - **Cincuenta y una funciones "bits sin máquina"**: registros que se guardan, se
   enmascaran y se leen correctamente, pero cuya lógica no se ejecuta. Casi todas
   corresponden a caminos que ningún firmware corriente usa, y casi todas están
@@ -1189,16 +1200,16 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 
 | Categoría | Puntos |
 | :--- | ---: |
-| **P** — Pendientes de plan | 17 *(una cerrada: P-14, con la matriz manual a medias; P-15, hecha su primera parte)* |
+| **P** — Pendientes de plan | 18 *(una cerrada: P-14, con la matriz manual a medias; P-15, hecha su primera parte)* |
 | **F** — Funciones no modeladas | 51 |
-| **T** — Temporización y física | 23 |
+| **T** — Temporización y física | 25 *(cuatro cerradas: T-22, T-23, T-24 y T-25)* |
 | **D** — Datos sin fuente | 14 |
 | **X** — Discrepancias, silencios de [IR] y erratas de ST | 14 |
 | **V** — Huecos de verificación | 11 |
-| **I** — Deuda de instrumentación y proyecto | 50 *(treinta cerradas: I-11, I-12, I-15, I-16, I-17, I-20, I-22, I-25, I-28, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38, I-39, I-40, I-41, I-42, I-43, I-44, I-45, I-46, I-47, I-48, I-53 e I-54)* |
-| **Total** | **180** |
+| **I** — Deuda de instrumentación y proyecto | 52 *(treinta y cinco cerradas: I-11, I-12, I-15, I-16, I-17, I-20, I-22, I-23, I-24, I-25, I-26, I-28, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38, I-39, I-40, I-41, I-42, I-43, I-44, I-45, I-46, I-47, I-48, I-50, I-51, I-53 e I-54)* |
+| **Total** | **185** |
 
-De los 180, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 185, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.
@@ -1214,3 +1225,9 @@ en el informe que la originó.
 > **Y una tercera (2026-10-17, al dar de alta P-17).** P-16 se añadió sin
 > contarla: la fila de la **P** decía 15 con dieciséis puntos escritos. Ahora
 > son 17 (P-01 a P-17) y el total, 180.
+>
+> **Y la cuarta (2026-11-03), contando otra vez fila a fila.** Faltaban por
+> contar P-18 (el F303) y T-24 y T-25 (el CAN y la captura de TRC, que destapó
+> la CNC); la fila de la I decía 50 con 52 escritos; y de la I había cerradas
+> cinco que la lista no nombraba (I-23, I-24, I-26, I-50 e I-51). Son
+> 18 + 51 + 25 + 14 + 14 + 11 + 52 = **185**.

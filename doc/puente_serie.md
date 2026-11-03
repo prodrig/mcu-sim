@@ -106,6 +106,23 @@ Igual, cambiando el `.bin`:
   TX del MCU) y `tx` (el RX del MCU). `./mcu-sim --help PuenteSerie` explica
   todos los atributos.
 
+**Las placas que lo traen**, como la de verdad:
+
+| Placa | Puente | USART del MCU | Puerto |
+| :--- | :--- | :--- | :--- |
+| `nucleo_f446re.xml` (y los sistemas con la Nucleo) | `VCP`, el del ST-LINK | USART2 (PA2/PA3) | 3355 |
+| `stm32f3discovery.xml` | `VCP`, el del ST-LINK | USART1 (PC4/PC5) | 3355 |
+| `msp_exp432p401r.xml` | `BCL`, el *backchannel* del XDS110 | eUSCI_A0 (P1.2/P1.3) | 3356 |
+| `msp_exp432e401y.xml` | `BCL`, el *backchannel* del XDS110 | UART0 (PA0/PA1) | 3357 |
+
+Todos por RFC 2217. Para cambiar el destino —TCP en crudo, otro puerto—, `--serie
+ID=DESTINO` (§3).
+
+**Por USB, en vez de por una USART.** Un MSP432E401Y o un STM32F303 que hagan
+de dispositivo USB serie (CDC-ACM) salen igual al ordenador con `--usb
+[ID=]DESTINO`: los mismos destinos que `--serie`, y los baudios del terminal
+llegan al firmware como `SET_LINE_CODING` (`doc/parts.md` §2.0).
+
 La pieza en el XML, por si montas tu propia placa:
 
 ```xml

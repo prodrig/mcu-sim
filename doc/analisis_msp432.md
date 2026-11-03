@@ -18,6 +18,11 @@ estructura. La diferencia de fondo entre los dos casos explica casi todo lo que
 sigue: **en el ESP32 cambia la arquitectura, y aquí solo cambia el
 fabricante.**
 
+> **Estado hoy (2026-11-03): hechas T0 a T7**, en `main` desde la rama
+> `msp432`; queda **T8**, el resto de la familia y lo opcional. Lo que sigue es
+> el diario de cada fase, con las cifras de cuando se cerró: las de hoy están
+> en `src/verif/invariantes.txt` (`testp4`, 406; `teste4`, 296).
+>
 > **Estado (2026-10-14, rama `msp432`): hechas T0 y T1.** Ningún invariante
 > de las cinco suites se movió al hacer T0. El MSP432P401R arranca, cambia de
 > reloj, avisa de lo que el silicio no avisa, resetea por sus cuatro caminos y

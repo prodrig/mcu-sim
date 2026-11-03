@@ -5,6 +5,13 @@ modelo, qué se puede tocar desde ella, y qué le cuesta a la simulación. No es
 plan aprobado: es el análisis previo, con las decisiones que hay que tomar, las
 medidas que las sostienen y el precio de cada camino.*
 
+> **Estado (2026-11-03).** Se eligió el escenario 3, **dos procesos**, y está
+> hecho en el repositorio `mcu-sim-gui`: su plan (`doc/plan_dos_procesos.md`
+> allí) tiene hechas las fases 0 a 7 —falta la 8, grabar y reproducir
+> sesiones—, y encima las ilustraciones, varias placas y la vista 3D de la
+> fresadora CNC. Lo que le tocó a este lado está en **P-12** de
+> `doc/todo.md`. Lo que sigue es el análisis tal como se escribió.
+
 Caso de referencia, el del enunciado: una placa con un STM32F407, reloj externo,
 sistema de reset, varios LEDs y botones, salidas PWM para servos y variadores,
 etapas de potencia para motores paso a paso y de continua, y entradas de

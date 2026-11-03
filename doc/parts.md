@@ -1,6 +1,6 @@
 # Catálogo de componentes externos
 
-Referencia de las **44 piezas** que la factoría de `src/parts/` sabe construir:
+Referencia de las **69 piezas** que la factoría de `src/parts/` sabe construir:
 qué terminales tiene cada una, qué parámetros admite, qué hace cada parámetro y
 qué queda fuera del fichero.
 
@@ -65,11 +65,26 @@ Una placa declara los chips que lleva:
 
 | Atributo | Omisión | Efecto |
 | :--- | :--- | :--- |
-| `tipo` | *(obligatorio)* | El modelo. Se saben construir **los veintiún miembros de la familia F405/F407/F415/F417**: `STM32F405RG`, `STM32F405OG`, `STM32F405VG`, `STM32F405ZG`, `STM32F405OE`, `STM32F407VE`, `STM32F407VG`, `STM32F407ZE`, `STM32F407ZG`, `STM32F407IE`, `STM32F407IG`, `STM32F415RG`, `STM32F415OG`, `STM32F415VG`, `STM32F415ZG`, `STM32F417VE`, `STM32F417VG`, `STM32F417ZE`, `STM32F417ZG`, `STM32F417IE` y `STM32F417IG` — los diez últimos son los que llevan el acelerador criptográfico. `sim --help` los lista, y `--mcu TIPO` manda sobre él. Lo que los distingue está en `doc/reutilizacion.md` §9 |
+| `tipo` | *(obligatorio)* | El modelo: una de las **46 referencias** de abajo. `sim --help` las lista, y `--mcu TIPO` manda sobre él |
 | `id` | *(obligatorio)* | El prefijo de sus nodos (`u0.PD12`) y su nombre en la jerarquía de SystemC |
 | `firmware` | ninguno | La imagen que se le carga en la Flash. **Una por chip** |
 | `depuracion` | `pines` | `pines`: expone SWCLK/SWDIO y el stub se cuelga por fuera, como un ST-LINK. `dap`: reserva los cinco pines de depuración y el stub habla con el núcleo por llamada de función. `openocd`: como `pines`, pero lo que se cuelga es una sonda `remote_bitbang` para que OpenOCD genere el SWD; `puerto_gdb` es entonces el de esa sonda (T5 del MSP432) |
 | `puerto_gdb` | `0` | Puerto TCP de su stub. **0 = no se abre ninguno** |
+
+**Los tipos que se saben construir**, por familia:
+
+| Familia | Tipos | Lo que los distingue |
+| :--- | :--- | :--- |
+| STM32F405 / F407 | `STM32F405RG`, `STM32F405OG`, `STM32F405VG`, `STM32F405ZG`, `STM32F405OE`, `STM32F407VE`, `STM32F407VG`, `STM32F407ZE`, `STM32F407ZG`, `STM32F407IE`, `STM32F407IG` | El encapsulado y la Flash; el F405 sin Ethernet ni DCMI (`doc/reutilizacion.md` §9) |
+| STM32F415 / F417 | `STM32F415RG`, `STM32F415OG`, `STM32F415VG`, `STM32F415ZG`, `STM32F417VE`, `STM32F417VG`, `STM32F417ZE`, `STM32F417ZG`, `STM32F417IE`, `STM32F417IG` | Los mismos, con el acelerador criptográfico |
+| STM32F446 | `STM32F446MC`, `STM32F446ME`, `STM32F446RC`, `STM32F446RE`, `STM32F446VC`, `STM32F446VE`, `STM32F446ZC`, `STM32F446ZE` | Otro die de la familia F4, con sus periféricos propios (`src/README.md`) |
+| STM32F302 / F303 / F358 | `STM32F303VC`, `STM32F303VB`, `STM32F303RC`, `STM32F303RB`, `STM32F303CC`, `STM32F303CB`, `STM32F302VC`, `STM32F302VB`, `STM32F302RC`, `STM32F302RB`, `STM32F302CC`, `STM32F302CB`, `STM32F358VC`, `STM32F358RC`, `STM32F358CC` | El die 0x422, en LQFP100, LQFP64 y LQFP48: el F302 sin ADC3/4 ni TIM8, el F358 sin USB (`doc/analisis_stm32f303.md`) |
+| MSP432P4 (TI) | `MSP432P401R` | La LaunchPad MSP-EXP432P401R; con `rom=`, `tlv=` y `bsl=` (abajo) |
+| MSP432E4 (TI) | `MSP432E401Y` | La LaunchPad MSP-EXP432E401Y; con `eth=` y `usb=` (abajo) |
+
+Un tipo de **otra familia** no es un parámetro: es otro modelo, con su árbol de
+reloj y sus periféricos. Un tipo que no está en la lista es un error que dice
+cuáles hay.
 
 **El MCU no se supone.** Si la placa no declara ninguno, lo pone `--mcu TIPO`
 en la línea de órdenes —un chip sin id, con los nodos de nombre desnudo—; si
@@ -77,7 +92,7 @@ declara uno y además se pasa `--mcu`, **gana `--mcu`**: sustituye el tipo del
 `<mcu>` y lo dice. Y si no hay ni lo uno ni lo otro, **la placa va sin MCU**
 (§2.1 dice qué cambia entonces en los nodos).
 
-**Un `<mcu>` no lleva hijos.** Sus 144 pads existen sin declararlos: un
+**Un `<mcu>` no lleva hijos.** Sus pads existen sin declararlos: un
 `<pin>` dentro de un `<mcu>` se rechaza.
 
 **Cómo se nombran los pines**, que es la parte que hay que tener clara:
@@ -115,6 +130,11 @@ del modelo sigue las calibraciones de esa pieza. Sin ID se aplica a todos los
 chips que los tienen; un chip que no los tiene, con ID o en su XML, es un
 error.
 
+**Y su BSL** (T5 del MSP432): `bsl="..."` en el `<mcu>`, o `--bsl [ID=]VALOR`.
+Por omisión es el **B1**, un BSL propio con el protocolo de TI; `ninguno`; o el
+de TI de un fichero —el `BSL432_MSP432P401.txt` (o `.out`) del paquete
+MSP432BSL—. Con la Flash en blanco, el chip arranca en él.
+
 **El Ethernet y el USB de un MSP432E4** (T7 del MSP432). No son piezas de la
 placa sino puentes del chip: su `<mcu>` admite `eth="..."` y `usb="..."`, y la
 línea de órdenes `--eth [ID=]DESTINO` y `--usb [ID=]DESTINO`, que mandan sobre
@@ -151,11 +171,18 @@ de verdad (`ControladorUsb::pausa_control_us`).
 | `bus` | `no` | `si` = varias piezas pueden conducir a la vez sin que sea un error |
 | `une` | *(ninguno)* | Los pads que **son** este nodo, separados por espacios. Al menos dos |
 
-**Los nodos de pin no hace falta declararlos.** Los 144 pads del chip y los diez
-nodos de alimentación y arranque existen desde el principio, con su nombre de
-esquemático: `PA0`…`PI15`, `VDD`, `VSS`, `VDDA`, `VSSA`, `VREF+`, `VBAT`,
-`VCAP1`, `VCAP2`, `NRST`, `BOOT0`. Declararlos con `<nodo id="PA5"/>` es
-opcional y solo sirve para documentar. **Los externos sí**: sin
+**Los nodos de pin no hace falta declararlos.** Los pads del chip y sus nodos de
+alimentación y arranque existen desde el principio, con su nombre de
+esquemático, que es el del fabricante:
+
+| Chip | Pads | Alimentación y control |
+| :--- | :--- | :--- |
+| STM32F4 | `PA0`…`PI15` | `VDD`, `VSS`, `VDDA`, `VSSA`, `VREF+`, `VBAT`, `VCAP1`, `VCAP2`, `NRST`, `BOOT0` |
+| STM32F3 | `PA0`…`PF10` | `VDD`, `VSS`, `VDDA`, `VSSA`, `VREF+`, `VBAT`, `NRST`, `BOOT0` |
+| MSP432P401R | `P1.0`…`P10.5` y `PJ.0`…`PJ.5` | `DVCC`, `DVSS`, `AVCC`, `AVSS`, `VCORE`, `RSTN` (la RSTn/NMI del datasheet), `SWCLKTCK`, `SWDIOTMS` |
+| MSP432E401Y | `PA0`…`PQ4` | `VDD`, `GND`, `VDDA`, `GNDA`, `VDDC`, `VBAT`, `RST`, `OSC0`, `OSC1`, `XOSC0`, `XOSC1`, `HIB`, `WAKE` |
+
+Declararlos con `<nodo id="PA5"/>` es opcional y solo sirve para documentar. **Los externos sí**: sin
 `externo="si"` el nodo no existe y la validación lo rechaza.
 
 **En una placa sin MCU** no hay pads: todo nodo es de la placa, así que cada
@@ -215,8 +242,18 @@ con un solo pad.
 
 #### Cómo se escribe el nombre de un pin
 
-El modelo acepta **las cuatro formas** con las que los fabricantes nombran un
-pin, y todas designan el mismo punto:
+**El nombre lo interpreta el chip** (`src/pins/nomenclatura.h`), porque no hay
+una regla que valga para todos: en un STM32, `P1.0` sería el primer pin del
+segundo puerto, y en un MSP432P4 es el del primero.
+
+**En un MSP432** se escribe como en su datasheet:
+* en el **P401R**, `P1.0` a `P10.5` y `PJ.0` a `PJ.5`: el número es el del
+  puerto de TI, no hay `P0`, y `PJ` es un puerto aparte;
+* en el **E401Y**, una letra de la `A` a la `Q` y un número del 0 al 7 —no todos los puertos los tienen todos—: `PN0`, o `PN.0` y `PN_0`, que
+  valen lo mismo. La forma canónica, la de los volcados, es `PN0`.
+
+**En un STM32**, F4 o F3, el modelo acepta **las cuatro formas** con las que
+los fabricantes nombran un pin, y todas designan el mismo punto:
 
 | | |
 | :--- | :--- |

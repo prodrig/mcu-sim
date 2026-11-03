@@ -10,8 +10,12 @@ aquí no hace falta.*
 
 Los ejecutables se publican en la página de **Releases** del repositorio, y los
 construye la integración continua a partir de un commit concreto: no salen del
-portátil de nadie. Cada uno se publica **solo si las tres suites pasaron y los
-tres invariantes coincidieron al picosegundo** en su plataforma.
+portátil de nadie. Cada uno se publica **solo si las ocho suites pasaron y los
+ocho invariantes coincidieron al picosegundo** en su plataforma.
+
+Simula los mismos chips en las cuatro plataformas: los STM32F405/407,
+F415/417, F446 y F302/303/358 de ST, y los MSP432P401R y MSP432E401Y de Texas
+Instruments. `./mcu-sim --help` los lista.
 
 | Tu máquina | Fichero | ¿Hay que instalar algo? |
 | :--- | :--- | :--- |
@@ -187,8 +191,9 @@ abre ese puerto. Se puede cancelar: solo escucha en tu propia máquina
 
 ## 7. Lo que estos paquetes **no** traen
 
-- **Las suites de verificación** (`test407`, `test446`, `test417`). Se construyen
-  desde el código; el CI las ejecuta en cada cambio y su resultado es público.
+- **Las suites de verificación** (`test407`, `test446`, `test417`, `testf3`,
+  `testp4`, `teste4`, `testserie` y `testgui`). Se construyen desde el código;
+  el CI las ejecuta en cada cambio y su resultado es público.
 - **El código de los firmwares de ejemplo**: los `.bin` sí van (abajo); sus
   fuentes, en el repositorio. El uso previsto es que compiles el tuyo en el
   IDE de tu microcontrolador —STM32CubeIDE, Code Composer Studio— y lo

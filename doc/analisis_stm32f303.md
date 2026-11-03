@@ -23,6 +23,12 @@ adelante, para media docena de familias.
 
 ## Estado: S0 a S9 hechas (24-10-2026)
 
+> **Hoy (2026-11-03)** está en `main`, y `testf3` tiene **428**
+> comprobaciones, «el resto» en **116 875 480 154 660 ps**
+> (`src/verif/invariantes.txt`). Lo que sigue es el diario de cada fase, con
+> las cifras de cuando se cerró. Los otros dos dies de la línea F30x están
+> analizados en `doc/analisis_f303xD-E_f303x6_8_F334.md`, sin empezar.
+
 En la rama `stm32f303`, un commit por fase. Las siete suites de antes no se
 mueven ni un picosegundo (`ci/comprueba_invariante.sh`, las siete en verde con
 los tres commits encima), y hay una octava, **`testf3`**, con su línea en
