@@ -97,11 +97,17 @@ public:
         return {};
     }
 
+    // `--restore-rdp`: la protección de lectura de un STM32 a la de fábrica,
+    // aunque esté en el nivel 2. Devuelve lo que ha hecho, o "" si ya estaba
+    virtual bool tiene_rdp() const { return false; }
+    virtual std::string restablece_rdp() { return std::string(); }
+
     // Lo que es, para los mensajes: "Flash", "Flash y EEPROM", "EEPROM de 64 bytes"
     std::string describe_nv() const {
+        const std::vector<RegionNv> r = regiones_nv();
         std::string s;
-        for (const RegionNv& r : regiones_nv())
-            s += (s.empty() ? "" : " y ") + r.nombre;
+        for (size_t i = 0; i < r.size(); ++i)
+            s += (i == 0 ? "" : i + 1 == r.size() ? " y " : ", ") + r[i].nombre;
         return s;
     }
 };

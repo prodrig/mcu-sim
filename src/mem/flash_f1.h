@@ -176,6 +176,34 @@ public:
     // Y una media palabra tal cual, con el complemento que se quiera
     void pon_ob_crudo(unsigned i, uint16_t h) { if (i < 8) ob_[i] = h; }
 
+    // LOS BYTES DE OPCIÓN, como bytes del bloque de 0x1FFF_F800 -su byte y su
+    // complemento-, para `contenido` (common/memoria_nv.h). Valen en la
+    // siguiente carga, como los de pon_ob
+    uint32_t ob_base() const { return ob_base_; }
+    static constexpr uint32_t OB_BYTES = 16;
+    bool lee_ob(uint32_t k, uint8_t& v) const {
+        if (k >= OB_BYTES) return false;
+        v = uint8_t(ob_[k / 2] >> (8 * (k & 1u)));
+        return true;
+    }
+    bool escribe_ob(uint32_t k, uint8_t v) {
+        if (k >= OB_BYTES) return false;
+        uint16_t& h = ob_[k / 2];
+        h = (k & 1u) ? uint16_t((h & 0x00FFu) | (uint16_t(v) << 8)) : uint16_t((h & 0xFF00u) | v);
+        return true;
+    }
+    // Los de fábrica, en bytes: la referencia
+    static std::vector<uint8_t> ob_de_fabrica() {
+        const uint8_t v[8] = {0xAA, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+        std::vector<uint8_t> b;
+        for (uint8_t x : v) { b.push_back(x); b.push_back(uint8_t(~x)); }
+        return b;
+    }
+    // --restore-rdp: RDP al de fábrica (0xAA y su complemento), AUNQUE esté en
+    // el nivel 2 y sin borrar la Flash. No es lo que hace el chip: es la salida
+    // de emergencia del simulador. Vale en la siguiente carga
+    void restablece_rdp() { ob_[0] = 0x55AAu; }
+
     // Una llave mal en KEYR es un error de bus [RM0316 §4.2.3]
     void b_transport(tlm::tlm_generic_payload& gp, sc_core::sc_time& t) override {
         error_bus_ = false;

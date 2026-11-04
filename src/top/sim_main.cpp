@@ -208,6 +208,10 @@ static void al_recibir_senal(int s) {
     std::signal(s, SIG_DFL);
 }
 static std::vector<std::string> g_sin_firmware;                        // ids
+// `--restore-rdp[=ID]`: el RDP de un STM32 a su valor de fabrica tras cargar
+// su contenido, aunque este en el nivel 2. Sin ID, el de todos
+static std::vector<std::string> g_restore_rdp;
+static bool        g_restore_rdp_todos = false;
 static bool        g_sin_firmware_todos = false;
 // `--rom [ID=]VALOR` y `--tlv [ID=]FICHERO` (T4 del MSP432): la ROM de
 // DriverLib y el TLV de los chips que los tienen. Con ID, de ese chip, y
@@ -770,6 +774,35 @@ SC_MODULE(Sim) {
         }
         return con;
     }
+    // `--restore-rdp[=ID]`: tras cargar, el RDP de esos chips -sin ID, de
+    // todos los que lo tienen- a su valor de fabrica. Con ID, uno que no lo
+    // tiene es un error
+    void restablece_rdp() {
+        if (!g_restore_rdp_todos && g_restore_rdp.empty()) return;
+        for (const std::string& id : g_restore_rdp) {
+            bool ok = false;
+            for (McuMontado& m : mcus)
+                if (m.decl.id == id || (m.decl.id.empty() && id == "u0"))
+                    ok = m.mcu->memoria_nv() && m.mcu->memoria_nv()->tiene_rdp();
+            if (!ok) muere("--restore-rdp=" + id + ": no hay ningun STM32 con ese id (RDP es de los "
+                           "STM32F4 y F3)");
+        }
+        unsigned n = 0;
+        for (McuMontado& m : mcus) {
+            memoria_nv_if* nv = m.mcu->memoria_nv();
+            if (!nv || !nv->tiene_rdp()) continue;
+            const std::string id = m.decl.id.empty() ? std::string("u0") : m.decl.id;
+            if (!g_restore_rdp_todos &&
+                std::find(g_restore_rdp.begin(), g_restore_rdp.end(), id) == g_restore_rdp.end())
+                continue;
+            ++n;
+            const std::string q = nv->restablece_rdp();
+            std::printf("--restore-rdp en %s: %s\n", id.c_str(),
+                        q.empty() ? "RDP ya estaba en el de fabrica" : q.c_str());
+        }
+        if (n == 0) muere("--restore-rdp: ninguno de los MCUs de la placa tiene RDP (es de los "
+                          "STM32F4 y F3)");
+    }
     // Guardar, al acabar: lo llama sc_main tras sc_start(), sea cual sea el
     // final -los ms, Parar en la ventana, la ventana que se va, una senal-
     void guarda_memorias() {
@@ -1079,6 +1112,7 @@ SC_MODULE(Sim) {
         if (!g_img.empty())        no("un firmware (" + g_img + ") no tiene donde cargarse y");
         if (!g_firmwares.empty())  no("--firmware");
         if (!g_sin_firmware.empty() || g_sin_firmware_todos) no("--sin-firmware");
+        if (!g_restore_rdp.empty() || g_restore_rdp_todos) no("--restore-rdp");
         if (!g_roms.empty())       no("--rom");
         if (!g_tlvs.empty())       no("--tlv");
         if (!g_bsls.empty())       no("--bsl");
@@ -1379,6 +1413,7 @@ SC_MODULE(Sim) {
         // encima, como lo grabaria el IDE, y lo demas que guardo el programa
         // -sus datos en otras paginas- sigue ahi
         const std::set<mcu_if*> con_contenido = carga_memorias();
+        restablece_rdp();
         for (McuMontado& m : mcus) {
             const char* quien = m.decl.id.empty() ? "" : m.decl.id.c_str();
             // Todo por la interfaz: DONDE va el firmware y donde esta la SRAM
@@ -2172,6 +2207,10 @@ static const OpcionCli OPCIONES[] = {
     {"--sin-firmware", "valor_opcional", "texto", "", "", "", true, true, "u0",
      "ese MCU -sin ID, todos- sin firmware, aunque el XML diga uno: el nucleo se "
      "aparca en wfe (un MSP432E4 con ROM arranca en blanco su cargador serie)"},
+    {"--restore-rdp", "valor_opcional", "texto", "", "", "", true, true, "u0",
+     "el RDP de ese STM32 -sin ID, de todos- a su valor de fabrica (0xAA, nivel 0) "
+     "tras cargar su contenido, aunque este en el nivel 2, y sin borrar la Flash: "
+     "la salida de emergencia de un contenido con el chip protegido"},
     {"--rom", "valor", "texto", "", "", "", true, true, "u0=ninguna",
      "la ROM de DriverLib de un MSP432P4 o un MSP432E4, como [ID=]VALOR: r1 (la "
      "sustituta, por omision), ninguna, o la de TI de un fichero: un volcado de la "
@@ -2311,7 +2350,7 @@ static std::string que_memoria_de_mcu(const std::string& tipo) {
     const std::string t = mayus(tipo);
     if (t.rfind("MSP432E4", 0) == 0) return "Flash y EEPROM";
     if (t.rfind("MSP432P4", 0) == 0) return "Flash y Flash de informacion";
-    return "Flash";
+    return "Flash y bytes de opcion";
 }
 static std::string que_memoria_de_pieza(const std::string& tipo) {
     if (tipo == "I2cEeprom") return "EEPROM de 64 bytes";
@@ -2441,6 +2480,16 @@ int sc_main(int argc, char** argv) {
                 return 1;
             }
             g_sin_firmware.push_back(id);
+        }
+        else if (a == "--restore-rdp") g_restore_rdp_todos = true;
+        else if (a.rfind("--restore-rdp=", 0) == 0) {
+            const std::string id = a.substr(14);
+            if (id.empty()) {
+                std::fprintf(stderr, "--restore-rdp=: falta el id del MCU; sin igual es "
+                             "para todos\n");
+                return 1;
+            }
+            g_restore_rdp.push_back(id);
         }
         else if (a == "--mcu" && i + 1 < argc) g_tipo_mcu = mayus(argv[++i]);
         else if (a.rfind("--mcu=", 0) == 0)    g_tipo_mcu = mayus(a.substr(6));
@@ -2616,6 +2665,10 @@ int sc_main(int argc, char** argv) {
                 "                                nucleo se aparca en wfe (un MSP432E4\n"
                 "                                con ROM: Flash en blanco, y arranca\n"
                 "                                el cargador serie de la ROM)\n"
+                "     sim placa.xml --restore-rdp[=ID]  el RDP de ese STM32 -sin ID,\n"
+                "                                todos- a su valor de fabrica tras cargar\n"
+                "                                su contenido, aunque este en el nivel 2\n"
+                "                                y sin borrar la Flash\n"
                 "     sim placa.xml --rom [ID=]VALOR  la ROM de DriverLib de un\n"
                 "                                MSP432P4 o E4: r1 (la sustituta, por\n"
                 "                                omision), ninguna, o la de TI: un\n"

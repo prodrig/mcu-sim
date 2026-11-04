@@ -23,7 +23,11 @@
 #       banco, enteras;
 #   K4  EL FINAL: con Ctrl-C (SIGINT) y con SIGTERM tambien se guarda; con
 #       T_PARA desde la ventana, tambien; y un fichero que no se puede leer
-#       no se pisa.
+#       no se pisa;
+#   K5  LOS BYTES DE OPCION de un STM32F4 (0x1FFF_C000) y un F3
+#       (0x1FFF_F800): de fabrica no salen; programados, van y vuelven; con
+#       WDG_SW = 0, el IWDG arranca solo; RDP en el nivel 1 o 2 se avisa, y
+#       --restore-rdp[=ID] lo devuelve al de fabrica.
 #
 #   make -f Makefile.mcu-sim gui-contenido
 #   python3 verif/gui/contenido.py [--sim build/mcu-sim]
@@ -144,7 +148,7 @@ def k1_xml(sim, d):
         pass
     u0, u5 = mem.get("A/u0"), mem.get("A/U5")
     check(rc == 0 and u0 is not None and u0.get("clase") == "mcu" and
-          u0.get("que") == "Flash" and u0.get("contenido", "").endswith("sis_f.hex") and
+          u0.get("que") == "Flash y bytes de opcion" and u0.get("contenido", "").endswith("sis_f.hex") and
           u5 is not None and u5.get("clase") == "pieza" and u5.get("tipo") == "I2cEeprom" and
           u5.get("contenido", "").endswith("sis_u5.hex"),
           "--memorias: el chip -su Flash- y la EEPROM, cada una con el contenido del "
@@ -355,6 +359,74 @@ def k4_final(sim, d):
           "un fichero que no se puede leer es un error, y no se pisa al acabar")
 
 
+# ---------------------------------------------------------------------------
+# K5
+# ---------------------------------------------------------------------------
+def k5_opciones(sim, d):
+    grupo("K5 Los bytes de opcion de los STM32, y --restore-rdp")
+    fw = "verif/fw/blinky/blinky.bin"
+    pl = "placas/discovery_min.xml"
+    OB4 = 0x1FFFC000
+
+    f = os.path.join(d, "ob4.hex")
+    rc, out0, err = corre(sim, [pl, fw, "--ms=1500", "--contenido", "u0=" + f])
+    m = lee_hex(f)
+    check(rc == 0 and "(Flash y bytes de opcion)" in out0 and m and max(m) < 0x08100000,
+          "STM32F407: sus bytes de opcion son del contenido, pero los de fabrica no salen "
+          "en el fichero: es su referencia")
+
+    # WDG_SW = 0 (bit 5 de USER): el IWDG arranca solo y el blinky, que no lo
+    # refresca, se resetea. Acaba con otros LED
+    escribe_hex(f, {OB4: 0xDF, OB4 + 1: 0xAA})
+    rc, out, err = corre(sim, [pl, fw, "--ms=1500", "--contenido", "u0=" + f])
+    m = lee_hex(f)
+    check(rc == 0 and leds(out) != leds(out0) and m.get(OB4) == 0xDF and m.get(OB4 + 1) == 0xAA and
+          all(m.get(OB4 + k) == 0xFF for k in range(2, 16)),
+          "STM32F407: con WDG_SW = 0 el IWDG arranca solo -el blinky no lo refresca y acaba "
+          "con otros LED-, y los 16 bytes del bloque vuelven al fichero")
+
+    # RDP en el nivel 2, y --restore-rdp
+    escribe_hex(f, {OB4 + 1: 0xCC})
+    rc, out, err = corre(sim, [pl, fw, "--ms=5", "--contenido", "u0=" + f])
+    m = lee_hex(f)
+    check(rc == 0 and "RDP en el nivel 2" in out and "no lo aplica" in out and
+          m.get(OB4 + 1) == 0xCC,
+          "STM32F407: RDP en el nivel 2 se avisa -el modelo del F4 no lo aplica-, y se guarda")
+    rc, out, err = corre(sim, [pl, fw, "--ms=5", "--contenido", "u0=" + f, "--restore-rdp"])
+    m = lee_hex(f)
+    check(rc == 0 and "--restore-rdp en u0: RDP del nivel 2 al de fabrica" in out and
+          not any(a >= OB4 for a in m),
+          "STM32F407: --restore-rdp lo devuelve al de fabrica, y los bytes de opcion, ya de "
+          "fabrica, no vuelven al fichero")
+
+    # El F3: su bloque de 0x1FFF_F800, con complementos
+    OB3 = 0x1FFFF800
+    pl3, fw3 = "placas/stm32f3discovery.xml", "verif/fw/stm32f3/gpio_iotoggle/GPIO_IOToggle.bin"
+    f3 = os.path.join(d, "ob3.hex")
+    rc, out, err = corre(sim, [pl3, fw3, "--ms=5", "--contenido", "u0=" + f3])
+    m = lee_hex(f3)
+    check(rc == 0 and m and max(m) < 0x08100000,
+          "STM32F303: sus bytes de opcion de fabrica tampoco salen")
+    escribe_hex(f3, {OB3: 0xCC, OB3 + 1: 0x33, OB3 + 4: 0x5A, OB3 + 5: 0xA5})
+    rc, out, err = corre(sim, [pl3, fw3, "--ms=5", "--contenido", "u0=" + f3])
+    m = lee_hex(f3)
+    check(rc == 0 and "RDP en el NIVEL 2" in out and m.get(OB3) == 0xCC and m.get(OB3 + 1) == 0x33 and
+          m.get(OB3 + 4) == 0x5A and m.get(OB3 + 5) == 0xA5 and m.get(OB3 + 2) == 0xFF,
+          "STM32F303: DATA0 = 0x5A y RDP en el nivel 2, con sus complementos, van y vuelven, "
+          "y el nivel 2 se avisa")
+    rc, out, err = corre(sim, [pl3, fw3, "--ms=5", "--contenido", "u0=" + f3, "--restore-rdp=u0"])
+    m = lee_hex(f3)
+    check(rc == 0 and "RDP del nivel 2 al de fabrica" in out and m.get(OB3) == 0xAA and
+          m.get(OB3 + 1) == 0x55 and m.get(OB3 + 4) == 0x5A,
+          "STM32F303: --restore-rdp=u0 deja RDP en 0xAA/0x55 aunque este en el nivel 2; "
+          "DATA0 sigue")
+
+    rc, out, err = corre(sim, [pl, fw, "--ms=1", "--restore-rdp=u9"])
+    rc2, out2, err2 = corre(sim, ["placas/msp_exp432p401r.xml", "--ms=1", "--restore-rdp"])
+    check(rc != 0 and "--restore-rdp=u9" in err and rc2 != 0 and "ninguno de los MCUs" in err2,
+          "--restore-rdp con un id que no es de un STM32, o en una placa sin STM32: error")
+
+
 def main():
     a = argparse.ArgumentParser(description="la memoria no volatil, de una simulacion a otra")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -370,6 +442,7 @@ def main():
         k2_flash(sim, d)
         k3_piezas(sim, d)
         k4_final(sim, d)
+        k5_opciones(sim, d)
     finally:
         shutil.rmtree(d, ignore_errors=True)
     return ventana.resumen("CONTENIDO")

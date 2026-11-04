@@ -456,6 +456,7 @@ make mcu-sim
 ./build/mcu-sim sistema.xml --sin-firmware      # ninguno, aunque el XML lo diga
 ./build/mcu-sim sistema.xml --mcus              # sus MCUs, en XML
 ./build/mcu-sim placa.xml --contenido u0=f.hex  # la Flash, de f.hex y a f.hex al acabar
+./build/mcu-sim placa.xml --contenido u0=f.hex --restore-rdp  # y su RDP, al de fabrica
 ./build/mcu-sim sistema.xml --memorias          # sus memorias no volatiles, en XML
 ./build/mcu-sim p4.xml --rom ninguna            # MSP432P4: sin ROM de DriverLib (o r1,
                                                 #   o la de TI: un volcado o el .out de CCS)

@@ -283,6 +283,8 @@ SC_MODULE(SocF4) {
     sc_core::sc_signal<bool> s_mii{"s_mii"};
     // Constantes y sumidero de no-conectados
     sc_core::sc_signal<bool> s_false{"s_false"}, s_true{"s_true"};
+    // WDG_SW = 0: el IWDG arranca solo al salir de cada reset
+    sc_core::sc_signal<bool> s_iwdg_hw{"s_iwdg_hw"};
     sc_core::sc_signal<double> s_zero_hz{"s_zero_hz"};   // dominio sin reloj
     sc_core::sc_vector<sc_core::sc_signal<bool>> s_nc{"s_nc", 256};
     unsigned nc_i_ = 0;
@@ -339,7 +341,13 @@ SC_MODULE(SocF4) {
         // El apagado del dominio de 1,2 V y el bit suelto que necesita el mux
         SC_METHOD(standby_proc); sensitive << s_standby; dont_initialize();
         SC_METHOD(dbg_stby_proc); sensitive << s_dbg_lp;
+        SC_METHOD(iwdg_hw_proc); sensitive << s_sysrst_n;
     }
+
+    // El bit WDG_SW de los bytes de opción: a 0, el IWDG arranca solo al
+    // salir de cada reset, como lo arrancaría un 0xCCCC en KR [IR, §12.11 y
+    // §5.7.1]. Dentro del reset, bajo; así cada salida es un flanco
+    void iwdg_hw_proc() { s_iwdg_hw.write(s_sysrst_n.read() && !flash.wdg_sw()); }
 
     // -----------------------------------------------------------------------
     // Entrada en Standby: se APAGA el dominio de 1,2 V y con él se va todo lo

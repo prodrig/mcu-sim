@@ -695,16 +695,32 @@ fabricante; las de las piezas, desde 0.
 
 | Memoria | En el fichero |
 | :--- | :--- |
-| STM32F4 y STM32F3 | La Flash principal, desde 0x0800_0000 |
+| STM32F4 | La Flash principal, desde 0x0800_0000, y los bytes de opción en 0x1FFF_C000 (USER y RDP en C000-C001, nWRP en C008-C009, con la disposición de RM0090) |
+| STM32F3 | La Flash principal, desde 0x0800_0000, y los bytes de opción en 0x1FFF_F800 (RDP, USER, DATA0, DATA1 y WRP0-3, cada uno con su complemento). El F303 no tiene OTP |
 | MSP432P401R | La Flash principal desde 0x0, y la de información desde 0x0020_0000 (4 KB: el TLV y el BSL no, que son de la pieza) |
 | MSP432E401Y | La Flash desde 0x0, y la EEPROM —que no está en el mapa: se lee por registros— en 0x400A_F000, la ventana de esos registros |
 | `I2cEeprom` | Sus 64 bytes, desde 0 |
 | `SdCard` | Sus 2 KB, desde 0 |
 | `ExtNand` | Sus 8 KB, desde 0 |
 
-Al guardar, la Flash de un MCU solo escribe los registros que no son todo
-0xFF: un MB de Flash con un programa de 20 KB son 20 KB de fichero. Las de
-las piezas se guardan enteras. El fichero se escribe en un temporal y se
+Al guardar, **lo que es igual a su referencia no se escribe**: la Flash de un
+MCU solo escribe los registros que no son todo 0xFF —un MB de Flash con un
+programa de 20 KB son 20 KB de fichero—, y los bytes de opción, solo si no son
+los de fábrica. Las de las piezas se guardan enteras. **Cuidado** con grabar un
+`contenido` en una placa de verdad: es un Intel HEX corriente, y una
+herramienta que acepte esas direcciones programaría también los bytes de
+opción —RDP incluido— que lleve.
+
+**Los bytes de opción de un STM32 valen desde el primer arranque**, como en el
+chip: WDG_SW = 0 arranca el IWDG solo, BOR_LEV fija el umbral del BOR, nWRP y
+WRP protegen, y en el F3 nBOOT1 elige el arranque y DATA0/DATA1 son los dos
+bytes del usuario. **RDP** se guarda, y la consola avisa al cargar un nivel 1 o
+2. En el F3 el nivel 1 lo aplica el cargador de sistema (NACK), y el 2 no deja
+borrar los bytes de opción nunca, como en el chip. El modelo del F4 no aplica
+RDP. **`--restore-rdp[=ID]`** —sin ID, todos los STM32— devuelve RDP a su
+valor de fábrica (0xAA, nivel 0) justo después de cargar, aunque esté en el
+nivel 2, y sin borrar la Flash: no es lo que haría el chip, es la salida de
+emergencia de un `contenido` con el chip protegido. El fichero se escribe en un temporal y se
 renombra, así que una simulación que muere a medias no lo deja cortado.
 
 **Quién manda**, de menos a más: el `contenido` de la placa —en su `<mcu>` o
@@ -727,7 +743,7 @@ contenido por memoria (su plan §53).
 
 ```xml
 <memorias placa="placas/x.xml">
-  <memoria id="N/u0" tipo="STM32F446RE" clase="mcu" que="Flash" contenido=""/>
+  <memoria id="N/u0" tipo="STM32F446RE" clase="mcu" que="Flash y bytes de opcion" contenido=""/>
   <memoria id="N/U5" tipo="I2cEeprom" clase="pieza" que="EEPROM de 64 bytes" contenido="e.hex"/>
 </memorias>
 ```
