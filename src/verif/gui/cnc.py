@@ -83,6 +83,15 @@
 #
 # Cada grupo monta su banco en una carpeta temporal, con placas escritas aquí.
 #
+# LO QUE CUESTA, en segundos de reloj, depende de la máquina, y de lo cargada
+# que esté. Por eso cada tope de tiempo de reloj está escrito para la máquina
+# de REFERENCIA -un contenedor Linux de dos núcleos, donde el patrón de abajo
+# tarda PATRON_REF- y se multiplica por lo que la de ahora sea más lenta: el
+# patrón -servo_demo en la Nucleo-F446RE, 300 ms simulados, el mejor de tres-
+# se mide al empezar. Una máquina más rápida no aprieta los topes. Cada tope
+# deja además un 40 % sobre lo peor que se ha medido en la de referencia: lo
+# que tienen que cazar es que algo cueste el doble, no un mal momento.
+#
 #   make -f Makefile.mcu-sim gui-cnc
 #   python3 verif/gui/cnc.py [--sim build/mcu-sim]
 #
@@ -108,6 +117,34 @@ from ventana import (Ventana, arranque, check, grupo, arranca, termina, saludo_h
 # ---------------------------------------------------------------------------
 # Lo común
 # ---------------------------------------------------------------------------
+PATRON_REF = 0.5          # s de reloj del patron en la maquina de referencia
+LENTITUD = [1.0]          # lo que esta maquina es mas lenta que la de referencia
+
+
+def mide_patron(sim):
+    """El patron de velocidad: servo_demo en la Nucleo-F446RE, 300 ms simulados -el
+    nucleo a 180 MHz sin parar, que es lo que pesa en los bancos de abajo-. El mejor
+    de tres, en segundos de reloj, con el arranque de mcu-sim."""
+    mejor = None
+    for _ in range(3):
+        t0 = time.time()
+        rc, _out = corre(sim, "placas/nucleo_f446re.xml", 300,
+                         ["verif/fw/servo_demo/servo_demo.bin"])
+        dt = time.time() - t0
+        if rc == 0 and (mejor is None or dt < mejor):
+            mejor = dt
+    return mejor
+
+
+def cuesta(dt, tope, texto):
+    """Un tope de tiempo de reloj -el de la maquina de referencia-, por lo lenta
+    que sea esta."""
+    t = tope * LENTITUD[0]
+    check(dt < t, texto + " (tope %.1f s%s)" %
+          (t, "" if LENTITUD[0] == 1.0 else ", esta maquina a x%.2f de la de referencia"
+           % LENTITUD[0]))
+
+
 def valida(sim, ruta):
     """`--valida` de una placa: (codigo, salida)."""
     r = subprocess.run([sim, ruta, "--valida"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -699,9 +736,9 @@ def c2_pap(sim, cp):
     t0 = time.time()
     rc, out = corre(sim, dm542(cp, 24, 3200, 50, micro=8), 3000)
     dt = time.time() - t0
-    check(rc == 0 and dt < 1.5,
-          "y lo que cuesta: un eje con su DM542, a 1/8 y 3200 Hz, 3 s simulados en %.2f s de "
-          "reloj (%.2f s por segundo simulado, con el arranque de mcu-sim)" % (dt, dt / 3.0))
+    cuesta(dt if rc == 0 else float("inf"), 1.5,
+           "y lo que cuesta: un eje con su DM542, a 1/8 y 3200 Hz, 3 s simulados en %.2f s de "
+           "reloj (%.2f s por segundo simulado, con el arranque de mcu-sim)" % (dt, dt / 3.0))
 
 
 # El ST5918 tras un DM542: el driver en la placa del banco
@@ -1035,7 +1072,7 @@ def c3_continua(sim, cp):
     check(led and led[-1][1] == 1.0 and any(v == 0.0 for t, v in led if 0.1 < t < 0.4),
           "y el LED LD2, que el firmware enciende con el error en 4 cuentas, luce al final")
     check("74HC244" in textos(avs), "el 74HC244 del IBT-2, con 3,3 V del STM32: se avisa")
-    check(dt < 4.0, "2 s simulados, con el MCU y el PWM de 1 kHz, en %.2f s de reloj" % dt)
+    cuesta(dt, 4.0, "2 s simulados, con el MCU y el PWM de 1 kHz, en %.2f s de reloj" % dt)
 
 # =============================================================================
 # C4 (F1c): el BLDC con su controlador
@@ -1247,7 +1284,7 @@ def c4_bldc(sim, cp):
           "a 60 rpm, con los Hall -18 medidas por vuelta- va a tirones (de %.0f a %.0f rpm); "
           "con un encoder de 250 lineas, suave (de %.1f a %.1f)" % (min(rh), max(rh), min(re_),
                                                                      max(re_)))
-    check(dt1 < 4.0, "lo que cuesta: 2,2 s a 3500 rpm con la carga, en %.2f s de reloj (con los "
+    cuesta(dt1, 4.0, "lo que cuesta: 2,2 s a 3500 rpm con la carga, en %.2f s de reloj (con los "
           "Hall; el encoder añade un suceso por flanco)" % dt1)
 
 # =============================================================================
@@ -1580,7 +1617,7 @@ def c6_maquina(sim, cp):
     check(radios and max(abs(r - 10) for r in radios) < 0.05 and hueco < 10,
           "el CIRCULO de 10 mm de radio, en G2: entre %.3f y %.3f, y da la vuelta entera"
           % (min(radios or [0]), max(radios or [0])))
-    check(dt < 9.5 * 2.5, "9,5 s de maquina en %.1f s de reloj: %.2f s por segundo, con los tres "
+    cuesta(dt, 9.5 * 2.5, "9,5 s de maquina en %.1f s de reloj: %.2f s por segundo, con los tres "
           "ejes y el MCU" % (dt, dt / 9.5))
 
     grupo("C6 (F3) El homing, la sonda, los limites, la seta y el cabezal")
@@ -1749,7 +1786,7 @@ def c7_grblhal(sim, cp):
           "el mismo cuadrado y el mismo circulo que C6: los lados a %.3f mm como mucho, las "
           "esquinas a %.3f, el radio entre %.3f y %.3f" % (peor_c, max(esquinas),
                                                           min(radios or [0]), max(radios or [0])))
-    check(dt < 10.5 * 6, "10,5 s de maquina en %.1f s de reloj: %.2f s por segundo -a 180 MHz, "
+    cuesta(dt, 10.5 * 10, "10,5 s de maquina en %.1f s de reloj: %.2f s por segundo -a 180 MHz, "
           "con el tick de pasos de grblHAL-" % (dt, dt / 10.5))
     s, avs, out, dt = maquina(sim, cp, guion_grblhal(
         "M3 S1000\\nG4 P0.6\\nM5\\nG38.2 Z-10 F300\\nG1 X80 F600\\n\\nG1 X80 F600\\n"), 5000,
@@ -1954,7 +1991,7 @@ def c9_potencia(sim, cp):
           "hacia la fuente); la fuente conmutada no lo absorbe y el condensador sube hasta %.2f V; "
           "la resistencia de frenado entra a 50,5 y quema %.0f mJ; el controlador sigue en marcha "
           "y el Z llega: %.2f mm" % (dev, pico, e_rf * 1e3, z))
-    check(dt < 1.5 * 20, "1,5 s del eje en %.1f s de reloj" % dt)
+    cuesta(dt, 1.5 * 20, "1,5 s del eje en %.1f s de reloj" % dt)
     s, avs, out, dt = eje_z48(sim, cp, BAJA_Y_PARA, 1500, sin_chopper=True)
     bus = s[("CBUS", "tension")]
     pico = max(v for t, v in bus)
@@ -2135,7 +2172,7 @@ def c10_canopen(sim, cp):
           "en %.0f s, %d marcos en el hilo: el heartbeat del nodo cada 100 ms (%d, operacional), "
           "12 RPDO -tres por movimiento-, ni un error ni un marco sin asentir, y el bus al %.1f %%"
           % (mc[-1][0] / 1e3 if mc else 0, len(mc), len(hb), s[("E/A1", "carga")][-1][1]))
-    check(dt < 9.0 * 1.5, "9 s del eje en %.1f s de reloj" % dt)
+    cuesta(dt, 9.0 * 1.5, "9 s del eje en %.1f s de reloj" % dt)
 
     # --- El fallo, su reinicio, el perfil de velocidad y la parada rapida ----
     g = "H\\nG 320\\nR\\nG 200\\nV -20\\nP 500\\nV 0\\nP 300\\n?\\nV 30\\nP 300\\nQ\\n?\\n"
@@ -2288,8 +2325,8 @@ def c11_bldc_mcu(sim, cp):
           r3 == 0,
           "CON EL LAZO DE VELOCIDAD, cada ms: a 2000 rpm -%.0f-, hacia atras a 1500 -%.0f-, "
           "pasando por cero, y parado" % (r1 or 0, r2 or 0))
-    check(dt < 3.5 * 2,
-          "seis pasos con PWM de 20 kHz: 3,5 s del motor en %.1f s de reloj" % dt)
+    cuesta(dt, 3.5 * 3.5,
+           "seis pasos con PWM de 20 kHz: 3,5 s del motor en %.1f s de reloj" % dt)
 
     # --- La sobrecorriente -----------------------------------------------------
     s, avs, out, dt = bldc6(sim, cp, "D 70\\nP 200\\n?\\nR 1000\\nP 800\\n?\\n", 1200,
@@ -2330,9 +2367,9 @@ def c11_bldc_mcu(sim, cp):
           "EN SENOIDAL -las tres fases con PWM y la tension girando con el angulo que se "
           "interpola entre dos Hall, cada periodo del PWM-: a 2000 rpm (%.0f), con las tres "
           "fases llevando corriente a la vez el %.0f %% del tiempo" % (r or 0, 100 * tres / max(1, len(tr))))
-    check(dt < 1.5 * 12,
-          "y cuesta: 1,5 s del motor en %.1f s de reloj, %.1f por segundo; seis pasos, poco mas "
-          "de uno" % (dt, dt / 1.5))
+    cuesta(dt, 1.5 * 16,
+           "y cuesta: 1,5 s del motor en %.1f s de reloj, %.1f por segundo; seis pasos, poco mas "
+           "de uno" % (dt, dt / 1.5))
 
 
 def c12_foc(sim, cp):
@@ -2391,9 +2428,9 @@ def c12_foc(sim, cp):
           "la interrupcion de la FOC, en el pico de cada periodo del PWM, tarda %.1f us de los 50 "
           "como mucho -en este modelo, que cuenta unas tres veces los ciclos del silicio (P-02 de "
           "doc/todo.md)-" % (tarda or 0))
-    check(dt < 1.25 * 12,
-          "y cuesta: 1,25 s del motor en %.1f s de reloj, %.1f por segundo -en senoidal, unos 8-"
-          % (dt, dt / 1.25))
+    cuesta(dt, 1.25 * 20,
+           "y cuesta: 1,25 s del motor en %.1f s de reloj, %.1f por segundo -en senoidal, unos 8-"
+           % (dt, dt / 1.25))
 
     # --- Hacia atras, sin parar ------------------------------------------------
     s, avs, out, dt = bldc6(sim, cp, "M 2\\nR 2000\\nP 400\\nR -1500\\n", 800)
@@ -2576,6 +2613,12 @@ def main():
             with open(ruta, "w", encoding="utf-8") as f:
                 f.write(texto)
             return ruta
+        p = mide_patron(sim)
+        if p is not None:
+            LENTITUD[0] = max(1.0, p / PATRON_REF)
+        print("  patron de velocidad: %s s de reloj -%.2f en la maquina de referencia-; los "
+              "topes de reloj, x%.2f" % ("%.2f" % p if p is not None else "?", PATRON_REF,
+                                         LENTITUD[0]))
         c1_cadena(sim, cp)
         c2_pap(sim, cp)
         c3_continua(sim, cp)

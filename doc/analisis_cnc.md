@@ -661,6 +661,16 @@ Todo ello lo pide una tabla de enlaces, y el refresco son 60 instantáneas por s
 
 **Los invariantes no se mueven.** Ninguna pieza nueva entra en las ocho suites. Las pruebas nuevas van en las de Python de la ventana (`gui-marcha` y una `gui-cnc`), como M9 y M10.
 
+**Lo que cuesta, en `gui-cnc`, depende de la máquina.** Los topes de tiempo de
+reloj están escritos para la de referencia —un contenedor Linux de dos
+núcleos—, con un 40 % sobre lo peor medido en ella, y se multiplican por lo que
+la de ahora sea más lenta. Eso lo dice un **patrón** que se mide al empezar:
+`servo_demo` en la Nucleo-F446RE, 300 ms simulados, el mejor de tres —0,5 s
+en la de referencia—. Lo que esos topes tienen que cazar es que algo cueste el
+doble, no un mal momento de la máquina: antes, con los de seis pasos, grblHAL y
+la FOC a menos de un 5 % de lo medido, la suite fallaba sin que nada hubiera
+cambiado.
+
 ## 11. Plan por fases
 
 **Los tamaños** se dan comparando con lo ya hecho:
