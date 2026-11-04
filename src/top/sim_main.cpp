@@ -2348,7 +2348,7 @@ static int lista_mcus() {
 //   </memorias>
 static std::string que_memoria_de_mcu(const std::string& tipo) {
     const std::string t = mayus(tipo);
-    if (t.rfind("MSP432E4", 0) == 0) return "Flash y EEPROM";
+    if (t.rfind("MSP432E4", 0) == 0) return "Flash, EEPROM, BOOTCFG, USER_REG, FMPRE y FMPPE";
     if (t.rfind("MSP432P4", 0) == 0) return "Flash y Flash de informacion";
     if (t.rfind("STM32F3", 0) == 0) return "Flash y bytes de opcion";
     return "Flash, OTP y bytes de opcion";

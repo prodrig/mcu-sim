@@ -698,7 +698,7 @@ fabricante; las de las piezas, desde 0.
 | STM32F4 | La Flash principal, desde 0x0800_0000; la OTP en 0x1FFF_7800 (512 bytes en 16 bloques de 32, y sus 16 bytes de bloqueo en 0x1FFF_7A00); y los bytes de opción en 0x1FFF_C000 (USER y RDP en C000-C001, nWRP en C008-C009, con la disposición de RM0090) |
 | STM32F3 | La Flash principal, desde 0x0800_0000, y los bytes de opción en 0x1FFF_F800 (RDP, USER, DATA0, DATA1 y WRP0-3, cada uno con su complemento). El F303 no tiene OTP |
 | MSP432P401R | La Flash principal desde 0x0, y la de información desde 0x0020_0000 (4 KB: el TLV y el BSL no, que son de la pieza) |
-| MSP432E401Y | La Flash desde 0x0, y la EEPROM —que no está en el mapa: se lee por registros— en 0x400A_F000, la ventana de esos registros |
+| MSP432E401Y | La Flash desde 0x0; la EEPROM —que no está en el mapa: se lee por registros— en 0x400A_F000, la ventana de esos registros; y lo que el firmware fija con COMT en sus direcciones del SYSCTL: BOOTCFG (0x400F_E1D0), USER_REG0-3 (0x400F_E1E0), FMPRE0-15 (0x400F_E200) y FMPPE0-15 (0x400F_E400). De fábrica no salen, y lo del fichero vale desde el primer arranque |
 | `I2cEeprom` | Sus 64 bytes, desde 0 |
 | `SdCard` | Sus 2 KB, desde 0 |
 | `ExtNand` | Sus 8 KB, desde 0 |

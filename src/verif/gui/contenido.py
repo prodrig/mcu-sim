@@ -31,7 +31,11 @@
 #   K6  LA OTP de un STM32F4 (0x1FFF_7800), con sus bytes de bloqueo: va y
 #       vuelve, y por GDB -como la programaria un firmware-, un bloque se
 #       programa hasta que su byte de bloqueo es 0x00, y el bloqueo dura de
-#       una simulacion a la siguiente.
+#       una simulacion a la siguiente;
+#   K7  LOS REGISTROS NO VOLATILES de un MSP432E401Y -BOOTCFG, USER_REG0-3,
+#       FMPRE y FMPPE, los que el firmware fija con COMT-: de fabrica no
+#       salen; los del fichero estan en vigor desde el arranque, y lo que se
+#       fija por GDB, como un firmware, queda en el fichero.
 #
 #   make -f Makefile.mcu-sim gui-contenido
 #   python3 verif/gui/contenido.py [--sim build/mcu-sim]
@@ -274,7 +278,7 @@ def k2_flash(sim, d):
     rc, out, err = corre(sim, ["placas/msp_exp432e401y.xml", "verif/fw/msp432e4/e4_demo/e4_demo.out",
                                "--ms=5", "--contenido", "u0=" + f2])
     m = lee_hex(f2)
-    check(rc == 0 and "(Flash y EEPROM)" in out and all(m.get(a) == v for a, v in ee.items()) and
+    check(rc == 0 and "(Flash, EEPROM, BOOTCFG, USER_REG, FMPRE y FMPPE)" in out and all(m.get(a) == v for a, v in ee.items()) and
           max(m) < 0x400AF000 + 6 * 1024,
           "MSP432E401Y: la Flash y la EEPROM; la EEPROM, en 0x400A_F000, va y vuelve")
 
@@ -485,17 +489,19 @@ def programa(g, a, datos, psize):
     return sr
 
 
-def con_gdb(sim, f, puerto, que):
-    """El F407 con su stub de GDB y `contenido`; `que(g)` por GDB; y Ctrl-C"""
-    p = subprocess.Popen([sim, "placas/discovery_min.xml", "verif/fw/blinky/blinky.bin", "--gdb",
-                          "--port=%d" % puerto, "--tiempo-real", "--contenido", "u0=" + f],
+def con_gdb(sim, f, puerto, que, placa="placas/discovery_min.xml",
+            fw="verif/fw/blinky/blinky.bin", gdb="--gdb", llave=True):
+    """El chip con su stub de GDB y `contenido`; `que(g)` por GDB; y Ctrl-C"""
+    p = subprocess.Popen([sim, placa, fw, gdb, "--port=%d" % puerto, "--tiempo-real",
+                          "--contenido", "u0=" + f],
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     r = None
     try:
         g = Rsp(puerto)
         g.pide("?")
-        g.w32(FLASH_R + 0x04, 0x45670123)                # KEYR: abre CR
-        g.w32(FLASH_R + 0x04, 0xCDEF89AB)
+        if llave:
+            g.w32(FLASH_R + 0x04, 0x45670123)            # KEYR: abre CR
+            g.w32(FLASH_R + 0x04, 0xCDEF89AB)
         r = que(g)
         g.c.close()
     finally:
@@ -553,6 +559,50 @@ def k6_otp(sim, d):
           "en la simulacion siguiente el bloque 1 sigue bloqueado (WRPERR); el 2, no")
 
 
+# ---------------------------------------------------------------------------
+# K7
+# ---------------------------------------------------------------------------
+SYSCTL_E4 = 0x400FE000
+FMC_E4 = 0x400FD000
+
+
+def k7_e4(sim, d):
+    grupo("K7 Los registros no volatiles de un MSP432E401Y")
+    pl, fw = "placas/msp_exp432e401y.xml", "verif/fw/msp432e4/e4_demo/e4_demo.out"
+    f = os.path.join(d, "e4_nv.hex")
+    rc, out, err = corre(sim, [pl, fw, "--ms=5", "--contenido", "u0=" + f])
+    m = lee_hex(f)
+    check(rc == 0 and m and not any(a >= SYSCTL_E4 for a in m),
+          "MSP432E401Y: BOOTCFG, USER_REG, FMPRE y FMPPE de fabrica no salen en el fichero")
+
+    ur0, pe0 = SYSCTL_E4 + 0x1E0, SYSCTL_E4 + 0x400
+    dat = {ur0 + k: b for k, b in enumerate((0x78, 0x56, 0x34, 0x12))}
+    dat.update({pe0: 0xFE, pe0 + 1: 0xFF, pe0 + 2: 0xFF, pe0 + 3: 0xFF})
+    escribe_hex(f, dat)
+    rc, out, err = corre(sim, [pl, fw, "--ms=5", "--contenido", "u0=" + f])
+    m = lee_hex(f)
+    check(rc == 0 and all(m.get(a) == v for a, v in dat.items()),
+          "USER_REG0 = 0x12345678 y FMPPE0 con el bloque 0 protegido van y vuelven, en "
+          "0x400F_E1E0 y 0x400F_E400")
+    if os.name == "nt":
+        print("  (lo fijado por GDB: con Ctrl-C para acabar, no en Windows)")
+        return
+
+    def fija(g):
+        en_vigor = (g.r32(ur0), g.r32(pe0))
+        g.w32(ur0 + 4, 0xCAFEF00D)                       # USER_REG1
+        g.w32(FMC_E4 + 0x000, 0x80000001)                # FMA: USER_REG1
+        g.w32(FMC_E4 + 0x008, 0xA4420008)                # FMC: WRKEY | COMT
+        return en_vigor
+    v = con_gdb(sim, f, 3397, fija, placa=pl, fw=fw, gdb="--gdb-dap", llave=False)
+    m = lee_hex(f) if os.path.exists(f) else {}
+    ur1 = sum(m.get(ur0 + 4 + k, 0) << (8 * k) for k in range(4))
+    check(v == (0x12345678, 0xFFFFFFFE) and ur1 == 0xCAFEF00D and m.get(ur0) == 0x78,
+          "lo del fichero esta en vigor desde el arranque (USER_REG0 0x%08X, FMPPE0 0x%08X), y "
+          "USER_REG1 fijado con COMT por GDB, como un firmware, queda en el fichero (0x%08X)"
+          % (v[0], v[1], ur1) if v else "el E4 por GDB")
+
+
 def main():
     a = argparse.ArgumentParser(description="la memoria no volatil, de una simulacion a otra")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -570,6 +620,7 @@ def main():
         k4_final(sim, d)
         k5_opciones(sim, d)
         k6_otp(sim, d)
+        k7_e4(sim, d)
     finally:
         shutil.rmtree(d, ignore_errors=True)
     return ventana.resumen("CONTENIDO")

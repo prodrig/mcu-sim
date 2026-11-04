@@ -34,7 +34,8 @@
 // BOOTCFG, USER_REG0-3 y FMPRE0-15/FMPPE0-15 (protección de lectura y de
 // programación, un bit por bloque de 2 KB [1F: P-17 g]). Lo que se escribe en
 // ellos vale hasta el siguiente reset; con COMT se queda para siempre, como en
-// el chip. «Para siempre» es la vida del modelo: no hay fichero detrás.
+// el chip. «Para siempre» es la vida del modelo, salvo con `contenido`: lo
+// fijado va al fichero en sus direcciones (lee_fijo/escribe_fijo).
 //
 // PROGRAMAR SOLO BAJA BITS: lo que queda es lo que había Y lo nuevo. Un 1
 // donde había un 0 levanta INVDRIS y no se programa. Los tiempos son de
@@ -220,6 +221,30 @@ public:
         if (off >= S_FMPRE && off < S_FMPRE + 64) { auto& r = fmpre_[(off - S_FMPRE) / 4]; r &= v; return; }
         if (off >= S_FMPPE && off < S_FMPPE + 64) { auto& r = fmppe_[(off - S_FMPPE) / 4]; r &= v; return; }
     }
+    // LO FIJADO, byte a byte, por su desplazamiento desde 0x400F_E000 -BOOTCFG,
+    // USER_REG0-3, FMPRE0-15 y FMPPE0-15-, para `contenido`
+    // (common/memoria_nv.h). Vale en el siguiente reset, o con reset_fijos()
+    uint32_t* fijo(uint32_t off) {
+        if (off >= S_BOOTCFG && off < S_BOOTCFG + 4) return &bootcfg_fijo_;
+        if (off >= S_USERREG && off < S_USERREG + 16) return &userreg_fijo_[(off - S_USERREG) / 4];
+        if (off >= S_FMPRE && off < S_FMPRE + 64) return &fmpre_fijo_[(off - S_FMPRE) / 4];
+        if (off >= S_FMPPE && off < S_FMPPE + 64) return &fmppe_fijo_[(off - S_FMPPE) / 4];
+        return nullptr;
+    }
+    bool lee_fijo(uint32_t off, uint8_t& v) {
+        const uint32_t* r = fijo(off);
+        if (!r) return false;
+        v = uint8_t(*r >> (8 * (off & 3u)));
+        return true;
+    }
+    bool escribe_fijo(uint32_t off, uint8_t v) {
+        uint32_t* r = fijo(off);
+        if (!r) return false;
+        const unsigned k = 8 * (off & 3u);
+        *r = (*r & ~(0xFFu << k)) | (uint32_t(v) << k);
+        return true;
+    }
+
     // Al reset, lo fijado vuelve a valer
     void reset_fijos() {
         bootcfg_ = bootcfg_fijo_;

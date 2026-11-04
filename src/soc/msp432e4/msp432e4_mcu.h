@@ -41,21 +41,43 @@ public:
 
     Msp432E4& chip() { return *chip_; }
 
-    // La Flash y la EEPROM, para `contenido` (common/memoria_nv.h). La EEPROM
-    // no está en el mapa de memoria -se lee por registros-: en el fichero va
-    // en la ventana de esos registros, 0x400A_F000, que no es de nada más
+    // La Flash, la EEPROM y los registros no volátiles, para `contenido`
+    // (common/memoria_nv.h). La EEPROM no está en el mapa de memoria -se lee
+    // por registros-: en el fichero va en la ventana de esos registros,
+    // 0x400A_F000, que no es de nada más. Los registros que el firmware FIJA
+    // con COMT -BOOTCFG, USER_REG0-3, FMPRE0-15 y FMPPE0-15, en el espacio del
+    // SYSCTL- van en sus direcciones, con la referencia de fábrica: no salen
+    // si nadie ha fijado nada
     memoria_nv_if* memoria_nv() override { return this; }
     std::vector<RegionNv> regiones_nv() const override {
+        using F = FlashCtrlE4;
+        auto todo_ff = [](uint32_t n) { return std::vector<uint8_t>(n, 0xFF); };
+        std::vector<uint8_t> bootcfg = todo_ff(4);
+        bootcfg[0] = uint8_t(F::BOOTCFG_FABRICA);
         return {RegionNv::borrada("Flash", e4::FLASH_B, chip_->flash.size()),
-                RegionNv::borrada("EEPROM", e4::EEPROM_B, chip_->eeprom.bytes())};
+                RegionNv::borrada("EEPROM", e4::EEPROM_B, chip_->eeprom.bytes()),
+                RegionNv::con_referencia("BOOTCFG", e4::SYSCTL_B + F::S_BOOTCFG, bootcfg),
+                RegionNv::con_referencia("USER_REG", e4::SYSCTL_B + F::S_USERREG, todo_ff(16)),
+                RegionNv::con_referencia("FMPRE", e4::SYSCTL_B + F::S_FMPRE, todo_ff(64)),
+                RegionNv::con_referencia("FMPPE", e4::SYSCTL_B + F::S_FMPPE, todo_ff(64))};
     }
     bool lee_nv(uint32_t a, uint8_t& v) override {
         if (chip_->flash.es_flash(a)) { v = uint8_t(chip_->flash.peek32(a)); return true; }
+        if (a >= e4::SYSCTL_B && a < e4::SYSCTL_B + 0x1000u)
+            return chip_->flashc.lee_fijo(a - e4::SYSCTL_B, v);
         return a >= e4::EEPROM_B && chip_->eeprom.lee_byte(a - e4::EEPROM_B, v);
     }
     bool escribe_nv(uint32_t a, uint8_t v) override {
         if (chip_->flash.es_flash(a)) return chip_->flash.poke_byte(a, v);
+        if (a >= e4::SYSCTL_B && a < e4::SYSCTL_B + 0x1000u)
+            return chip_->flashc.escribe_fijo(a - e4::SYSCTL_B, v);
         return a >= e4::EEPROM_B && chip_->eeprom.escribe_byte(a - e4::EEPROM_B, v);
+    }
+    // El fichero llega con el chip en reset, después del de alimentación que
+    // habría puesto en vigor lo fijado: se pone ahora
+    std::vector<std::string> tras_cargar_nv(std::string&) override {
+        chip_->flashc.reset_fijos();
+        return {};
     }
     const McuDesc& desc() const override { return desc_; }
     std::vector<std::string> limitaciones() const override { return chip_->limitaciones(); }
