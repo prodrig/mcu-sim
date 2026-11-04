@@ -697,7 +697,7 @@ fabricante; las de las piezas, desde 0.
 | :--- | :--- |
 | STM32F4 | La Flash principal, desde 0x0800_0000; la OTP en 0x1FFF_7800 (512 bytes en 16 bloques de 32, y sus 16 bytes de bloqueo en 0x1FFF_7A00); y los bytes de opción en 0x1FFF_C000 (USER y RDP en C000-C001, nWRP en C008-C009, con la disposición de RM0090) |
 | STM32F3 | La Flash principal, desde 0x0800_0000, y los bytes de opción en 0x1FFF_F800 (RDP, USER, DATA0, DATA1 y WRP0-3, cada uno con su complemento). El F303 no tiene OTP |
-| MSP432P401R | La Flash principal desde 0x0, y la de información desde 0x0020_0000 (4 KB: el TLV y el BSL no, que son de la pieza) |
+| MSP432P401R | La Flash principal desde 0x0, y la de información entera: el sector 0 en 0x0020_0000 (el buzón y los datos del programa), el TLV en 0x0020_1000 y el BSL en 0x0020_2000. El TLV y el BSL solo salen si difieren de lo que había antes de cargar, y entonces enteros |
 | MSP432E401Y | La Flash desde 0x0; la EEPROM —que no está en el mapa: se lee por registros— en 0x400A_F000, la ventana de esos registros; y lo que el firmware fija con COMT en sus direcciones del SYSCTL: BOOTCFG (0x400F_E1D0), USER_REG0-3 (0x400F_E1E0), FMPRE0-15 (0x400F_E200) y FMPPE0-15 (0x400F_E400). De fábrica no salen, y lo del fichero vale desde el primer arranque |
 | `I2cEeprom` | Sus 64 bytes, desde 0 |
 | `SdCard` | Sus 2 KB, desde 0 |
@@ -710,6 +710,16 @@ solo si no son los de fábrica. Las de las piezas se guardan enteras. **Cuidado*
 `contenido` en una placa de verdad: es un Intel HEX corriente, y una
 herramienta que acepte esas direcciones programaría también la OTP —para
 siempre— y los bytes de opción —RDP incluido— que lleve.
+
+**El TLV y el BSL del P4** ya los ponen `tlv=` y `bsl=`, así que su referencia
+es lo que hay justo antes de cargar, con esas dos opciones aplicadas. El TLV no
+lo puede cambiar el firmware: si el fichero trae uno —el volcado de la
+información de una placa con UniFlash—, se valida como el de `tlv=` y **se
+adopta**, con sus calibraciones del DCO; pero si `tlv=` dio un fichero, manda
+`tlv=` y la consola lo dice. El BSL sí lo puede cambiar el firmware, si quita
+su protección: uno del fichero distinto del de `bsl=` **manda**, porque es lo
+que ya tenía el chip, y la consola lo dice. Para volver al de `bsl=`, se quita
+del fichero. Los dos se guardan enteros o no se guardan: no hay medio BSL.
 
 **La OTP del F4** se programa como la Flash, y un bloque de 32 bytes no se
 programa más una vez que su byte de bloqueo está a 0x00: da WRPERR. Con

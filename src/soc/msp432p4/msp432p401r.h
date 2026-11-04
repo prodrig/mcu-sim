@@ -250,10 +250,19 @@ public:
         return e;
     }
     void pon_tlv_sintetico() { flash.pon_tlv_sintetico(); tlv_.clear(); aplica_tlv(); relojes(); }
+    // El TLV que trajo el `contenido` -el volcado de la información de una
+    // placa-: se valida como el de tlv=, y el DCO sigue sus calibraciones
+    std::string adopta_tlv_de_contenido() {
+        const std::string e = FlashP4::valida_tlv(flash.copia(p4::TLV_B, 0x1000u));
+        if (!e.empty()) return e;
+        tlv_ = "el del contenido";
+        aplica_tlv(); relojes();
+        return "";
+    }
     const std::string& tlv() const { return tlv_; }
 
     // --- El BSL y el código de arranque de TI (T5, D4) [bsl_p4.h] ---------------
-    enum class OrigenBsl { B1, Fichero, Ninguno };
+    enum class OrigenBsl { B1, Fichero, Ninguno, Contenido };
     bool hay_bsl_b1() const { return bsl_b1::HAY; }
     void pon_bsl_b1() {
         std::vector<uint8_t> s(p4::BSL_SIZE, 0xFF);
@@ -273,6 +282,8 @@ public:
         bsl_ = OrigenBsl::Fichero; bsl_ruta_ = ruta;
         return "";
     }
+    // El BSL que trajo el `contenido`, distinto del de bsl=: manda él
+    void bsl_de_contenido() { bsl_ = OrigenBsl::Contenido; bsl_ruta_.clear(); }
     OrigenBsl origen_bsl() const { return bsl_; }
     const std::string& ruta_bsl() const { return bsl_ruta_; }
     uint32_t huella_bsl() const {
@@ -285,6 +296,7 @@ public:
         switch (bsl_) {
             case OrigenBsl::B1:      return "B1 (sustituto: el protocolo de TI por la UART del backchannel)";
             case OrigenBsl::Fichero: return "B2 (el de TI, de fichero)";
+            case OrigenBsl::Contenido: return "el del contenido (distinto del de bsl=)";
             default:                 return "B3 (sin BSL)";
         }
     }

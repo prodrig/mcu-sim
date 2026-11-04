@@ -17,8 +17,8 @@
 #   K2  LA FLASH DE UN MCU: el fichero se crea con el firmware dentro, igual
 #       que el .bin; sin firmware, arranca lo que hay en el y hace lo mismo;
 #       el firmware se graba ENCIMA y los datos de otras paginas siguen; y lo
-#       mismo en un STM32F303, un MSP432P401R -con su Flash de informacion,
-#       pero no su TLV- y un MSP432E401Y, con su EEPROM en 0x400A_F000;
+#       mismo en un STM32F303, un MSP432P401R -con el sector 0 de su Flash de
+#       informacion- y un MSP432E401Y, con su EEPROM en 0x400A_F000;
 #   K3  LAS PIEZAS: la I2cEeprom, de ida y vuelta; la SdCard y la ExtNand del
 #       banco, enteras;
 #   K4  EL FINAL: con Ctrl-C (SIGINT) y con SIGTERM tambien se guarda; con
@@ -35,7 +35,10 @@
 #   K7  LOS REGISTROS NO VOLATILES de un MSP432E401Y -BOOTCFG, USER_REG0-3,
 #       FMPRE y FMPPE, los que el firmware fija con COMT-: de fabrica no
 #       salen; los del fichero estan en vigor desde el arranque, y lo que se
-#       fija por GDB, como un firmware, queda en el fichero.
+#       fija por GDB, como un firmware, queda en el fichero;
+#   K8  EL TLV Y EL BSL de un MSP432P401R: solo salen si difieren de lo que
+#       habia antes de cargar; un TLV del fichero se valida y se adopta,
+#       salvo que mande tlv=; un BSL del fichero manda sobre bsl=.
 #
 #   make -f Makefile.mcu-sim gui-contenido
 #   python3 verif/gui/contenido.py [--sim build/mcu-sim]
@@ -264,12 +267,6 @@ def k2_flash(sim, d):
     m = lee_hex(f2)
     check(rc == 0 and all(m.get(0x00200000 + i) == i for i in range(16)),
           "MSP432P401R: el sector 0 de su Flash de informacion (0x0020_0000) va y vuelve")
-    escribe_hex(f2, {0x00201000: 1})
-    antes = open(f2).read()
-    rc, out, err = corre(sim, ["placas/msp_exp432p401r.xml", "--ms=1", "--contenido", "u0=" + f2])
-    check(rc != 0 and "0x00201000 no es de la memoria" in err and open(f2).read() == antes,
-          "pero el TLV (0x0020_1000) no es del contenido -lo pone tlv=-: un fichero con el "
-          "es un error, y el fichero no se toca")
 
     # El MSP432E401Y: su EEPROM, en la ventana de sus registros
     f2 = os.path.join(d, "e4_ee.hex")
@@ -603,6 +600,62 @@ def k7_e4(sim, d):
           % (v[0], v[1], ur1) if v else "el E4 por GDB")
 
 
+# ---------------------------------------------------------------------------
+# K8
+# ---------------------------------------------------------------------------
+TLV, BSL = 0x00201000, 0x00202000
+
+
+def k8_tlv_bsl(sim, d):
+    grupo("K8 El TLV y el BSL de un MSP432P401R")
+    pl, fw = "placas/msp_exp432p401r.xml", "verif/fw/msp432p4/p4_demo/p4_demo.out"
+    f = os.path.join(d, "p4_tb.hex")
+    rc, out, err = corre(sim, [pl, fw, "--ms=5", "--contenido", "u0=" + f])
+    m = lee_hex(f)
+    check(rc == 0 and "(Flash, Flash de informacion, TLV y BSL)" in out and m and
+          not any(a >= TLV for a in m),
+          "MSP432P401R: el TLV y el BSL son del contenido, pero sin tocar no salen: su "
+          "referencia es lo que habia antes de cargar")
+
+    # Un TLV que no es un TLV: error, y el fichero no se toca
+    escribe_hex(f, {TLV + 4: 0x99})
+    antes = open(f).read()
+    rc, out, err = corre(sim, [pl, fw, "--ms=1", "--contenido", "u0=" + f])
+    check(rc != 0 and "el TLV del fichero (0x0020_1000) no empieza por la etiqueta DEVINFO" in err and
+          open(f).read() == antes,
+          "un TLV en el fichero que no es un TLV -sin DEVINFO- es un error, y el fichero no se toca")
+
+    # Uno que si: la suma cambiada. Se adopta, y sale entero
+    escribe_hex(f, {TLV: 0x01})
+    rc, out, err = corre(sim, [pl, fw, "--ms=5", "--contenido", "u0=" + f])
+    m = lee_hex(f)
+    tlv = bytes(m.get(TLV + i, 0xFF) for i in range(0x1000))
+    check(rc == 0 and "TLV del contenido" in out and all(TLV + i in m for i in range(0x1000)) and
+          tlv[0] == 0x01 and tlv[4] == 11,
+          "un TLV valido en el fichero -el volcado de una placa- se adopta, y al guardar sale "
+          "ENTERO, los 4 KB: es todo o nada")
+
+    # Con tlv= de un fichero, manda tlv=
+    tb = os.path.join(d, "tlv.bin")
+    open(tb, "wb").write(tlv)
+    escribe_hex(f, {TLV: 0x02})
+    rc, out, err = corre(sim, [pl, fw, "--ms=5", "--tlv", tb, "--contenido", "u0=" + f])
+    m = lee_hex(f)
+    check(rc == 0 and "manda el de tlv=" in out and not any(TLV <= a < TLV + 0x1000 for a in m),
+          "con --tlv de un fichero, el TLV del contenido no se usa -manda tlv=- y, igual que "
+          "el de tlv=, no sale")
+
+    # El BSL: uno cambiado manda sobre bsl=, y sale entero
+    escribe_hex(f, {BSL + 0x10: 0x00})
+    rc, out, err = corre(sim, [pl, fw, "--ms=5", "--contenido", "u0=" + f])
+    m = lee_hex(f)
+    rc2, out2, err2 = corre(sim, [pl, fw, "--ms=5", "--contenido", "u0=" + f])
+    check(rc == 0 and "BSL del contenido" in out and m.get(BSL + 0x10) == 0x00 and
+          all(BSL + i in m for i in range(0x2000)) and rc2 == 0 and "BSL del contenido" in out2,
+          "un BSL del fichero distinto del de bsl= manda, y sale ENTERO, los 8 KB; en la "
+          "simulacion siguiente sigue mandando")
+
+
 def main():
     a = argparse.ArgumentParser(description="la memoria no volatil, de una simulacion a otra")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -621,6 +674,7 @@ def main():
         k5_opciones(sim, d)
         k6_otp(sim, d)
         k7_e4(sim, d)
+        k8_tlv_bsl(sim, d)
     finally:
         shutil.rmtree(d, ignore_errors=True)
     return ventana.resumen("CONTENIDO")
