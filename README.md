@@ -211,6 +211,7 @@ con su plan en `doc/`:
 | El STM32F303 y la STM32F3DISCOVERY | `doc/analisis_stm32f303.md` | S0 a S9 hechas; los otros dos dies de la línea F30x, analizados (`analisis_f303xD-E_f303x6_8_F334.md`) |
 | Una fresadora CNC de tres ejes | `doc/analisis_cnc.md` | F0 a F8 hechas, en la rama `cnc` |
 | Los puentes Wi-Fi y Bluetooth: módulos AT, procesadores de red, HCI y la radio del chip | `doc/analisis_wifi_bl.md` | Analizados; nada hecho |
+| El `contenido` de las memorias no volátiles: bytes de opción, OTP, TLV, BSL y registros del E4 | `doc/analisis_contenido.md` | Analizado, y hecho en cinco parches |
 
 **Verificado en las cuatro plataformas** —Linux, Windows, macOS Apple Silicon
 y macOS Intel— por la integración continua, que en cada empujón pasa las ocho
