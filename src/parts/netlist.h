@@ -351,6 +351,10 @@ struct DeclMcu {
     // Su USB como dispositivo (T7): el destino serie del puente de clase
     // CDC-ACM -rfc2217:PUERTO, tcp:PUERTO, sus clientes o memoria-. Vacío: nada
     std::string usb;
+    // El fichero Intel HEX de su memoria no volátil -la Flash; en un E4,
+    // también la EEPROM-: se carga antes del firmware y se guarda al acabar
+    // (common/memoria_nv.h). Vacío: como siempre, sin fichero.
+    std::string contenido;
     // El ENCAPSULADO de este chip, que es lo que decide qué pads salen de
     // verdad. Lo rellena quien resuelve el `tipo` contra el catálogo de MCUs
     // —antes de validar, porque de él depende el error «ese pad no sale»— y por

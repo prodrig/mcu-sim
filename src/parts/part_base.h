@@ -154,6 +154,8 @@ struct Imagen {
 // (necesitan procesos) y piezas que no (una resistencia no tiene proceso), y
 // obligar a las segundas a serlo solo añadiría objetos a la jerarquía.
 // ---------------------------------------------------------------------------
+class memoria_nv_if;   // common/memoria_nv.h
+
 class ExtPartBase {
 public:
     // `nombre` es el identificador de INSTANCIA, el que usará el netlist para
@@ -184,6 +186,11 @@ public:
     // hasta que hubo dos cosas que casar: el XML de la placa y el catálogo de
     // observables que recibe mcu-sim-gui (fase 3 de su plan).
     void pon_id(const std::string& id) { if (!id.empty()) pieza_ = id; }
+
+    // La memoria NO VOLÁTIL de la pieza, si la tiene: la de una 24Cxx, una
+    // tarjeta SD o una NAND. Es lo que carga y guarda el atributo `contenido`
+    // (common/memoria_nv.h). nullptr: no tiene.
+    virtual memoria_nv_if* memoria_nv() { return nullptr; }
 
     // --- Terminales ---------------------------------------------------------
     const std::vector<Terminal>& terminales() const { return term_; }

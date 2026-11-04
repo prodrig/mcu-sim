@@ -20,10 +20,11 @@
 #include "msp432p401r.h"
 #include "../../parts/netlist.h"
 #include "../../common/imagen_fw.h"
+#include "../../common/memoria_nv.h"
 
 namespace stm32 {
 
-class McuP4 : public mcu_if {
+class McuP4 : public mcu_if, public memoria_nv_if {
 public:
     McuP4(const char* nm, DebugCaps dbg, const Cableado& cab, const McuDesc& d)
         : chip_(new Msp432P4(nm, dbg, cab, *static_cast<const McuCapsP4*>(d.propio))),
@@ -37,6 +38,31 @@ public:
     ~McuP4() override { delete chip_; }
 
     Msp432P4& chip() { return *chip_; }
+
+    // La Flash principal y el sector 0 de la de información (0x0020_0000, el
+    // del buzón del arranque y los datos del programa), para `contenido`
+    // (common/memoria_nv.h). El resto de la de información es el TLV y el BSL,
+    // que ponen `tlv=` y `bsl=`: no se guardan, para que no los pise un
+    // contenido viejo
+    memoria_nv_if* memoria_nv() override { return this; }
+    std::vector<RegionNv> regiones_nv() const override {
+        const auto& c = *static_cast<const McuCapsP4*>(desc_.propio);
+        return {RegionNv{"Flash", p4::FLASH_B, c.flash_size, true},
+                RegionNv{"Flash de informacion", p4::INFO_B, 0x1000u, true}};
+    }
+    bool en_nv(uint32_t a) const {
+        const auto& c = *static_cast<const McuCapsP4*>(desc_.propio);
+        return (a >= p4::FLASH_B && a - p4::FLASH_B < c.flash_size) ||
+               (a >= p4::INFO_B && a - p4::INFO_B < 0x1000u);
+    }
+    bool lee_nv(uint32_t a, uint8_t& v) override {
+        if (!en_nv(a)) return false;
+        v = uint8_t(chip_->flash.peek32(a));
+        return true;
+    }
+    bool escribe_nv(uint32_t a, uint8_t v) override {
+        return en_nv(a) && chip_->flash.poke_byte(a, v);
+    }
     const McuDesc& desc() const override { return desc_; }
     std::vector<std::string> limitaciones() const override { return chip_->limitaciones(); }
 

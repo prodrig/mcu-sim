@@ -40,6 +40,7 @@
 #include <string>
 #include <utility>
 #include "../common/analog_net.h"
+#include "../common/memoria_nv.h"
 #include "part_base.h"        // ExtPartBase: terminales con nombre y set_enabled
 #include "motor_uart.h"       // ReceptorUart: el de SwoReceiver, y el del puente serie
 #include "../periph/sdio.h"   // sd_crc7 y SdCrc16: el protocolo es el mismo
@@ -1477,7 +1478,7 @@ private:
 // Puede estirar el reloj tras el byte de dirección, que es lo que obliga al
 // maestro a respetar el clock stretching.
 // ---------------------------------------------------------------------------
-SC_MODULE(I2cEeprom), public I2cPart {
+SC_MODULE(I2cEeprom), public I2cPart, public memoria_nv_if {
     I2cEeprom(sc_core::sc_module_name nm, analog_net_if& scl, analog_net_if& sda,
               uint8_t dev_addr = 0x50, double vdd = 3.3)
         : sc_core::sc_module(nm), I2cPart(scl, sda, "I2cEeprom", "eeprom", nm, vdd), addr_(dev_addr) {
@@ -1490,6 +1491,19 @@ SC_MODULE(I2cEeprom), public I2cPart {
     }
     uint8_t  peek(unsigned i) const { return mem_[i % sizeof mem_]; }
     void     poke(unsigned i, uint8_t v) { mem_[i % sizeof mem_] = v; }
+    // Para `contenido` (common/memoria_nv.h): sus 64 bytes, desde 0
+    memoria_nv_if* memoria_nv() override { return this; }
+    std::vector<RegionNv> regiones_nv() const override {
+        return {RegionNv{"EEPROM de 64 bytes", 0, uint32_t(sizeof mem_), false}};
+    }
+    bool lee_nv(uint32_t a, uint8_t& v) override {
+        if (a >= sizeof mem_) return false;
+        v = mem_[a]; return true;
+    }
+    bool escribe_nv(uint32_t a, uint8_t v) override {
+        if (a >= sizeof mem_) return false;
+        mem_[a] = v; return true;
+    }
     unsigned bytes_written() const { return n_wr_; }
     unsigned bytes_read()    const { return n_rd_; }
     // Estiramiento del reloj: microsegundos que retiene SCL tras la dirección
@@ -1613,7 +1627,7 @@ private:
 // Puede además ESTROPEAR a propósito el CRC de la respuesta o el de los datos,
 // que es como se comprueba que el host levanta CCRCFAIL y DCRCFAIL de verdad.
 // ===========================================================================
-SC_MODULE(SdCard), public ExtPartBase {
+SC_MODULE(SdCard), public ExtPartBase, public memoria_nv_if {
     SdCard(sc_core::sc_module_name nm, analog_net_if& ck, analog_net_if& cmd,
            analog_net_if* d0, analog_net_if* d1, analog_net_if* d2,
            analog_net_if* d3, double vdd = 3.3)
@@ -1660,6 +1674,19 @@ SC_MODULE(SdCard), public ExtPartBase {
     // ---- Observación y control desde el banco ----------------------------
     uint8_t  peek(unsigned i) const { return mem_[i % sizeof mem_]; }
     void     poke(unsigned i, uint8_t v) { mem_[i % sizeof mem_] = v; }
+    // Para `contenido` (common/memoria_nv.h): sus 2 KB, desde 0
+    memoria_nv_if* memoria_nv() override { return this; }
+    std::vector<RegionNv> regiones_nv() const override {
+        return {RegionNv{"tarjeta SD de 2 KB", 0, uint32_t(sizeof mem_), false}};
+    }
+    bool lee_nv(uint32_t a, uint8_t& v) override {
+        if (a >= sizeof mem_) return false;
+        v = mem_[a]; return true;
+    }
+    bool escribe_nv(uint32_t a, uint8_t v) override {
+        if (a >= sizeof mem_) return false;
+        mem_[a] = v; return true;
+    }
     unsigned commands() const { return n_cmd_; }
     unsigned last_cmd() const { return last_cmd_; }
     uint32_t last_arg() const { return last_arg_; }
@@ -2761,7 +2788,7 @@ private:
 // leer identificacion (0x90), leer pagina (0x00 ... 0x30), programar
 // (0x80 ... 0x10) y leer estado (0x70).
 // ===========================================================================
-SC_MODULE(ExtNand), public ExtPartBase {
+SC_MODULE(ExtNand), public ExtPartBase, public memoria_nv_if {
     ExtNand(sc_core::sc_module_name nm, const std::vector<analog_net_if*>& d,
             analog_net_if& cle, analog_net_if& ale, analog_net_if& nce,
             analog_net_if& noe, analog_net_if& nwe, analog_net_if* rb = nullptr,
@@ -2796,6 +2823,19 @@ SC_MODULE(ExtNand), public ExtPartBase {
     void set_conectada(bool on) { set_enabled(on); }       // nombre histórico
     void escribe(uint32_t off, uint8_t v) { if (off < mem_.size()) mem_[off] = v; }
     uint8_t lee(uint32_t off) const { return off < mem_.size() ? mem_[off] : 0xFFu; }
+    // Para `contenido` (common/memoria_nv.h): sus 8 KB, pagina a pagina, desde 0
+    memoria_nv_if* memoria_nv() override { return this; }
+    std::vector<RegionNv> regiones_nv() const override {
+        return {RegionNv{"NAND de 8 KB", 0, uint32_t(mem_.size()), false}};
+    }
+    bool lee_nv(uint32_t a, uint8_t& v) override {
+        if (a >= mem_.size()) return false;
+        v = mem_[a]; return true;
+    }
+    bool escribe_nv(uint32_t a, uint8_t v) override {
+        if (a >= mem_.size()) return false;
+        mem_[a] = v; return true;
+    }
     unsigned mandatos() const { return n_cmd_; }
     unsigned bytes_leidos() const { return n_rd_; }
     unsigned bytes_escritos() const { return n_wr_; }

@@ -70,6 +70,7 @@ Una placa declara los chips que lleva:
 | `firmware` | ninguno | La imagen que se le carga en la Flash. **Una por chip** |
 | `depuracion` | `pines` | `pines`: expone SWCLK/SWDIO y el stub se cuelga por fuera, como un ST-LINK. `dap`: reserva los cinco pines de depuración y el stub habla con el núcleo por llamada de función. `openocd`: como `pines`, pero lo que se cuelga es una sonda `remote_bitbang` para que OpenOCD genere el SWD; `puerto_gdb` es entonces el de esa sonda (T5 del MSP432) |
 | `puerto_gdb` | `0` | Puerto TCP de su stub. **0 = no se abre ninguno** |
+| `contenido` | ninguno | Un fichero Intel HEX con lo que guarda su memoria no volátil: se carga al arrancar, antes del firmware, y se guarda al acabar (§2.7) |
 
 **Los tipos que se saben construir**, por familia:
 
@@ -117,7 +118,8 @@ firmware, el núcleo se aparca en `wfe`. Un id que no está, el mismo chip dos
 veces o todo esto junto al firmware posicional son errores que dicen por qué. Y
 `mcu-sim placa.xml --mcus` lista los chips —id, tipo y firmware del XML— en XML:
 es lo que usa el diálogo de lanzamiento de `mcu-sim-gui` para poner una fila de
-firmware por chip, con su casilla «sin firmware» (su plan §42).
+firmware por chip, con su casilla «sin firmware» (su plan §42). Lo mismo
+hace `mcu-sim placa.xml --memorias` con las memorias no volátiles (§2.7).
 
 **La ROM y el TLV de un MSP432P4** (T4 del MSP432). Su `<mcu>` admite
 `rom="..."` y `tlv="..."`, y la línea de órdenes `--rom [ID=]VALOR` y `--tlv
@@ -375,7 +377,8 @@ y lo que las une se dice en el sistema, que es donde se sabe.
 | `<acopla a="A/CN9" b="B/J9" [espejo="si"]/>` | Dos `Conector` (§4.1) enchufados: el pin *k* de uno con el *k* del otro; en espejo, con el que le cae enfrente |
 | `<acopla conectores="A/J1 B/J1 C/J1"/>` | Una **pila** (PC/104, cabeceras apilables): el pin *k* es el mismo en todos. Un conector va en un acople solo |
 | `<hilo a="A/CN9.2" b="B/PA3"/>` | Dos nodos cualesquiera, unidos: un cable, un cruce TX↔RX |
-| `<mcu ref="A/u0" firmware= depuracion= puerto_gdb=/>` | Lo que el montaje decide de un chip de una placa, sin tocar su fichero |
+| `<mcu ref="A/u0" firmware= depuracion= puerto_gdb= contenido=/>` | Lo que el montaje decide de un chip de una placa, sin tocar su fichero |
+| `<memoria ref="A/U5" contenido="e.hex"/>` | El fichero de la memoria no volátil de un chip o de una pieza de una placa (§2.7), sin tocar su fichero |
 | `<jumper ref="A/JP1" puente="..."/>` | Dónde va el puente de un `Jumper` de una placa en este montaje, sin tocar su fichero (`Jumper`, §4) |
 
 **Todo lo de la placa `A` se llama `A/...`**: `A/LD2`, `A/u0`, `A/vcc`, el
@@ -660,6 +663,74 @@ fichero —`x`, `y` y `escala` en cada `<placa id>`, `lienzo` en la raíz y las
 `<ruta>` detrás de los acoples y los hilos—, añadido a la versión 2 del
 protocolo sin subirla: una ventana que no lo conoce no lo lee.
 `placas/nucleo_f446re_servo.xml` lo usa.
+
+### 2.7 La memoria no volátil: `contenido`
+
+Lo que guarda sin alimentación un chip o una pieza —la Flash de un MCU, la
+EEPROM de un MSP432E4, una `I2cEeprom`, una `SdCard`, una `ExtNand`— se
+perdía al acabar la simulación. Con el atributo **`contenido`**, esa memoria
+**se carga de un fichero Intel HEX al arrancar y se guarda en él al acabar**,
+y la simulación siguiente sigue donde lo dejó la anterior:
+
+```xml
+<mcu tipo="STM32F407VG" id="u0" firmware="app.bin" contenido="flash_u0.hex"/>
+<componente tipo="I2cEeprom" id="U5" dir="0x50" contenido="eeprom_u5.hex">...</componente>
+```
+
+* **Sin `contenido`, nada cambia**: la memoria arranca como siempre.
+* **Si el fichero aún no existe**, la memoria arranca como siempre y el
+  fichero se crea al acabar. La consola lo dice: `contenido de u0 (Flash):
+  flash_u0.hex, que aun no existe: se creara al acabar`.
+* **Lo que el fichero no dice** se queda como estaba al construir la memoria
+  —la Flash, borrada a 0xFF—. Un byte del fichero que no cae en la memoria es
+  un error que dice cuál, y el fichero no se toca.
+* **La Flash de un MCU, primero el contenido y después el firmware encima**:
+  lo que el programa guardó en otras páginas se conserva. Sin firmware, el
+  chip arranca con lo que traiga el contenido —no se aparca en `wfe`—.
+* Las rutas son relativas al directorio de trabajo, como las del firmware.
+
+**Dónde está cada memoria en el fichero**: las de un MCU, en sus direcciones
+del mapa de memoria, que es como las escriben y las leen las herramientas del
+fabricante; las de las piezas, desde 0.
+
+| Memoria | En el fichero |
+| :--- | :--- |
+| STM32F4 y STM32F3 | La Flash principal, desde 0x0800_0000 |
+| MSP432P401R | La Flash principal desde 0x0, y la de información desde 0x0020_0000 (4 KB: el TLV y el BSL no, que son de la pieza) |
+| MSP432E401Y | La Flash desde 0x0, y la EEPROM —que no está en el mapa: se lee por registros— en 0x400A_F000, la ventana de esos registros |
+| `I2cEeprom` | Sus 64 bytes, desde 0 |
+| `SdCard` | Sus 2 KB, desde 0 |
+| `ExtNand` | Sus 8 KB, desde 0 |
+
+Al guardar, la Flash de un MCU solo escribe los registros que no son todo
+0xFF: un MB de Flash con un programa de 20 KB son 20 KB de fichero. Las de
+las piezas se guardan enteras. El fichero se escribe en un temporal y se
+renombra, así que una simulación que muere a medias no lo deja cortado.
+
+**Quién manda**, de menos a más: el `contenido` de la placa —en su `<mcu>` o
+su `<componente>`—; el del sistema —`<mcu ref="N/u0" contenido=...>` para un
+chip, `<memoria ref="N/U5" contenido=...>` para lo que sea—; y
+`--contenido ID=FICHERO` en la línea de órdenes, con el id del sistema
+(`--contenido N/u0=flash.hex`, `--contenido U5=eeprom.hex`; un chip sin id, el
+de `--mcu`, es `u0`). Un `contenido` en un `<componente>` que no tiene memoria
+no volátil, o un id que no está, son errores que dicen por qué.
+
+**Cuándo se guarda**: al acabar la simulación de forma ordenada —con su
+`--ms`, con el **Parar** o *Detener* de la ventana (`T_PARA`), o con Ctrl+C o
+`SIGTERM`, que paran la simulación en el siguiente milisegundo simulado y
+guardan—. Si el proceso muere de golpe, el fichero se queda como estaba.
+`--valida` no carga ni guarda nada.
+
+**`mcu-sim placa.xml --memorias`** las lista en XML, sin construir nada: es
+lo que usa el diálogo de lanzamiento de `mcu-sim-gui` para poner una fila de
+contenido por memoria (su plan §53).
+
+```xml
+<memorias placa="placas/x.xml">
+  <memoria id="N/u0" tipo="STM32F446RE" clase="mcu" que="Flash" contenido=""/>
+  <memoria id="N/U5" tipo="I2cEeprom" clase="pieza" que="EEPROM de 64 bytes" contenido="e.hex"/>
+</memorias>
+```
 
 ---
 
@@ -1451,6 +1522,7 @@ escritura y lectura secuenciales, y su bit de reconocimiento.
 | Parámetro | Omisión | Efecto |
 | :--- | :--- | :--- |
 | `dir` | `0x50` (80) | Dirección de esclavo de 7 bits. Se puede escribir en hexadecimal (`0x50`) o decimal (`80`) |
+| `contenido` | ninguno | Fichero Intel HEX de sus 64 bytes: se carga al arrancar y se guarda al acabar (§2.7) |
 
 Desde C++: `peek`/`poke` para ver y poner memoria, `set_ack(false)` para
 provocar un NACK y `set_stretch_us()` para que retenga el reloj.
@@ -1582,7 +1654,9 @@ Entiende leer identificación (0x90), leer página (0x00…0x30), programar
 | `noe`, `nwe` | obligatorios | Pasivos |
 | `rb` | opcional | Ready/Busy. Si se conecta, la NAND lo gobierna |
 
-Sin parámetros en el XML.
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `contenido` | ninguno | Fichero Intel HEX de sus 8 KB: se carga al arrancar y se guarda al acabar (§2.7) |
 
 ---
 
@@ -1703,9 +1777,12 @@ CMD7, CMD16, ACMD6 —que es lo que pone el bus a cuatro hilos—, CMD17 y CMD24
 | `dat0` | recomendado | Con solo `dat0` la tarjeta funciona en modo de un hilo |
 | `dat1`, `dat2`, `dat3` | opcionales | Hacen falta para el bus de cuatro hilos. Cada uno con su pull-up de 47 kΩ |
 
-Sin parámetros en el XML. `conectada="no"` es el zócalo vacío: **se van con ella
-los pull-ups**, que es precisamente lo que distingue un zócalo vacío de uno
-ocupado.
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `contenido` | ninguno | Fichero Intel HEX de sus 2 KB: se carga al arrancar y se guarda al acabar (§2.7) |
+
+`conectada="no"` es el zócalo vacío: **se van con ella los pull-ups**, que es
+precisamente lo que distingue un zócalo vacío de uno ocupado.
 
 Desde C++: `peek`/`poke`, `commands()`, `bus_width()`, y tres averías a
 propósito —`break_resp_crc`, `break_data_crc` y `set_mute`— para comprobar que

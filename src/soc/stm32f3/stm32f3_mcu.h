@@ -18,12 +18,13 @@
 #include "stm32f303.h"
 #include "../../parts/netlist.h"
 #include "../../common/imagen_fw.h"
+#include "../../common/memoria_nv.h"
 #include "../../parts/puente_usb.h"
 #include <memory>
 
 namespace stm32 {
 
-class McuF3 : public mcu_if {
+class McuF3 : public mcu_if, public memoria_nv_if {
 public:
     McuF3(const char* nm, DebugCaps dbg, const Cableado& cab, const McuDesc& d)
         : chip_(new SocF3(nm, dbg, cab, *static_cast<const F3Caps*>(d.propio))), desc_(d) {
@@ -36,6 +37,19 @@ public:
     ~McuF3() override { puente_usb_.reset(); delete chip_; }
 
     SocF3& chip() { return *chip_; }
+
+    // La Flash principal, para `contenido` (common/memoria_nv.h). Ni los
+    // bytes de opción ni la memoria de sistema
+    memoria_nv_if* memoria_nv() override { return this; }
+    std::vector<RegionNv> regiones_nv() const override {
+        return {RegionNv{"Flash", chip_->flash.mem_base(), chip_->flash.size(), true}};
+    }
+    bool lee_nv(uint32_t a, uint8_t& v) override {
+        if (!chip_->flash.es_flash(a)) return false;
+        v = uint8_t(chip_->flash.peek32(a));
+        return true;
+    }
+    bool escribe_nv(uint32_t a, uint8_t v) override { return chip_->flash.poke8(a, v); }
     const McuDesc& desc() const override { return desc_; }
     std::vector<std::string> limitaciones() const override { return chip_->limitaciones(); }
 

@@ -75,6 +75,7 @@
 // =============================================================================
 #include <systemc>
 #include <chrono>
+#include <csignal>
 #include <thread>
 #include <cstdio>
 #include <cstdlib>
@@ -86,6 +87,7 @@
 #include <string>
 #include <vector>
 #include "../common/asan_opciones.h"
+#include "../common/memoria_nv.h"
 #include "../common/gui_destino.h"
 #include "../common/gui_cliente.h"
 #include "../common/serie_destino.h"
@@ -194,6 +196,17 @@ static double      g_swo_bitrate = 0;   // --swo-bitrate (0: el de la placa)
 // el firmware= de su <mcu>. Lo pide el dialogo de lanzamiento de mcu-sim-gui
 // (su plan §42), que tiene una fila por chip.
 static std::vector<std::pair<std::string, std::string>> g_firmwares;   // id, fichero
+// `--contenido ID=FICHERO`: el fichero de la memoria no volatil de un MCU o de
+// una pieza, por encima del `contenido` del XML (common/memoria_nv.h)
+static std::vector<std::pair<std::string, std::string>> g_contenidos;
+static bool g_lista_memorias = false;
+// Ctrl-C o SIGTERM con memorias que guardar: la simulacion acaba en orden, y
+// las guarda (`Sim::vigila_senal`). La segunda vez, se muere sin mas
+static volatile std::sig_atomic_t g_senal = 0;
+static void al_recibir_senal(int s) {
+    g_senal = s;
+    std::signal(s, SIG_DFL);
+}
 static std::vector<std::string> g_sin_firmware;                        // ids
 static bool        g_sin_firmware_todos = false;
 // `--rom [ID=]VALOR` y `--tlv [ID=]FICHERO` (T4 del MSP432): la ROM de
@@ -297,6 +310,17 @@ static int ayuda_de_componente(const std::string& que) {
 
 SC_MODULE(Sim) {
     std::vector<McuMontado> mcus;
+    // Las memorias no volatiles con `contenido`: se cargan antes del firmware
+    // y se guardan al acabar (common/memoria_nv.h)
+    struct MemoriaMontada {
+        std::string     id;          // "N/u0", "U5"; "(el mcu)" el de --mcu
+        std::string     ruta;
+        memoria_nv_if*  nv  = nullptr;
+        mcu_if*         mcu = nullptr;   // si es la de un chip
+        bool            cargada = false; // se intento: al acabar, se guarda
+        size_t          bytes = 0;       // los que trajo el fichero
+    };
+    std::vector<MemoriaMontada> memorias;
     NodeMap      nodos;
     Netlist      placa;
     unsigned     n_avisos = 0;
@@ -546,6 +570,7 @@ SC_MODULE(Sim) {
             if (const Xds110* x = xi.empty() ? nullptr : placa.como<Xds110>(xi))
                 if (x->tiene_ldo()) m.mcu->alimentacion_externa(true);
         }
+        resuelve_memorias();
         for (const std::string& q : placa.valida_electrica(nodos)) {
             std::fprintf(stderr, "  [elec] %s\n", q.c_str());
             avisos_placa.push_back(q);
@@ -642,6 +667,113 @@ SC_MODULE(Sim) {
             std::printf("%s\n", linea.c_str());
         }
         SC_THREAD(run);
+    }
+
+    // -----------------------------------------------------------------------
+    // Las memorias no volatiles con `contenido` (common/memoria_nv.h): el del
+    // XML -el del <sistema> ya ha pisado el de la placa al leerlo- y, encima,
+    // `--contenido ID=FICHERO`. Un id que no es de nadie, o de algo sin
+    // memoria no volatil, es un error que dice cuales hay.
+    // -----------------------------------------------------------------------
+    void resuelve_memorias() {
+        std::string hay;
+        for (const McuMontado& m : mcus)
+            if (m.mcu->memoria_nv())
+                hay += (hay.empty() ? "" : ", ") + (m.decl.id.empty() ? std::string("u0") : m.decl.id);
+        for (const Instancia& i : placa.instancias())
+            if (es_memoria_nv(i.tipo)) hay += (hay.empty() ? "" : ", ") + i.id;
+        std::set<std::string> dichos;
+        for (const auto& c : g_contenidos) {
+            if (!dichos.insert(c.first).second)
+                muere("--contenido " + c.first + ": se dice dos veces");
+            bool ok = false;
+            for (McuMontado& m : mcus)
+                if (m.decl.id == c.first || (m.decl.id.empty() && c.first == "u0")) {
+                    m.decl.contenido = c.second;
+                    ok = true;
+                }
+            if (!ok)
+                if (Instancia* i = placa.busca(c.first))
+                    if (es_memoria_nv(i->tipo)) { i->params["contenido"] = c.second; ok = true; }
+            if (!ok)
+                muere("--contenido " + c.first + ": no hay ningun MCU ni pieza con memoria no "
+                      "volatil con ese id. Las que hay: " + (hay.empty() ? std::string("ninguna") : hay));
+        }
+        for (McuMontado& m : mcus) {
+            if (m.decl.contenido.empty()) continue;
+            const std::string id = m.decl.id.empty() ? std::string("(el mcu)") : m.decl.id;
+            memoria_nv_if* nv = m.mcu->memoria_nv();
+            if (!nv) muere("contenido de " + id + ": el " + m.mcu->desc().nombre +
+                           " no tiene memoria no volatil que guardar");
+            MemoriaMontada mm;
+            mm.id = id; mm.ruta = m.decl.contenido; mm.nv = nv; mm.mcu = m.mcu;
+            memorias.push_back(mm);
+        }
+        for (const Instancia& i : placa.instancias()) {
+            const auto c = i.params.find("contenido");
+            if (c == i.params.end() || c->second.empty()) continue;
+            ExtPartBase* p = placa.pieza(i.id);
+            memoria_nv_if* nv = p ? p->memoria_nv() : nullptr;
+            if (!nv) muere("contenido de " + i.id + ": un " + i.tipo + " no tiene memoria no volatil");
+            MemoriaMontada mm;
+            mm.id = i.id; mm.ruta = c->second; mm.nv = nv;
+            memorias.push_back(mm);
+        }
+        for (const MemoriaMontada& mm : memorias)
+            std::printf("  contenido de %s (%s): %s%s\n", mm.id.c_str(), mm.nv->describe_nv().c_str(),
+                        mm.ruta.c_str(), existe_fichero(mm.ruta) ? "" : ", que aun no existe: se "
+                        "creara al acabar");
+        // Ctrl-C o SIGTERM acaban la simulacion en orden, para guardarlas
+        if (!memorias.empty() && !g_solo_valida) {
+            std::signal(SIGINT, al_recibir_senal);
+#ifdef SIGTERM
+            std::signal(SIGTERM, al_recibir_senal);
+#endif
+            SC_THREAD(vigila_senal);
+        }
+    }
+    // Un milisegundo simulado tras otro, mirando si ha llegado una senal
+    void vigila_senal() {
+        for (;;) {
+            wait(1, SC_MS);
+            if (g_senal) {
+                std::printf("\nsenal %d: la simulacion acaba en t = %.3f ms\n", int(g_senal),
+                            sc_time_stamp().to_seconds() * 1e3);
+                std::fflush(stdout);
+                sc_stop();
+                return;
+            }
+        }
+    }
+    // Cargar, antes del firmware. Devuelve los chips cuyo contenido traia algo:
+    // esos, sin firmware, arrancan lo que haya, y no se aparcan
+    std::set<mcu_if*> carga_memorias() {
+        std::set<mcu_if*> con;
+        for (MemoriaMontada& mm : memorias) {
+            bool existia = false;
+            const std::string e = carga_contenido(*mm.nv, mm.ruta, mm.bytes, existia);
+            if (!e.empty()) muere("contenido de " + mm.id + ": " + e);
+            mm.cargada = true;
+            if (existia)
+                std::printf("contenido de %s: %zu bytes de %s\n", mm.id.c_str(), mm.bytes, mm.ruta.c_str());
+            else
+                std::printf("contenido de %s: %s no existe; arranca como siempre\n", mm.id.c_str(),
+                            mm.ruta.c_str());
+            if (mm.mcu && mm.bytes) con.insert(mm.mcu);
+        }
+        return con;
+    }
+    // Guardar, al acabar: lo llama sc_main tras sc_start(), sea cual sea el
+    // final -los ms, Parar en la ventana, la ventana que se va, una senal-
+    void guarda_memorias() {
+        for (MemoriaMontada& mm : memorias) {
+            if (!mm.cargada) continue;       // --valida, o no se llego a arrancar
+            size_t n = 0;
+            const std::string e = guarda_contenido(*mm.nv, mm.ruta, n);
+            if (!e.empty()) std::fprintf(stderr, "contenido de %s: %s\n", mm.id.c_str(), e.c_str());
+            else std::printf("contenido de %s: %zu bytes a %s\n", mm.id.c_str(), n, mm.ruta.c_str());
+        }
+        std::fflush(stdout);
     }
 
     ~Sim() {
@@ -1164,7 +1296,7 @@ SC_MODULE(Sim) {
                 }
                 todos = todos && (listo || segundos(desde[i]) > 2.0);
             }
-            if (todos) break;
+            if (todos || g_senal) break;
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         std::printf("terminal conectado: arranca el MCU\n");
@@ -1174,6 +1306,7 @@ SC_MODULE(Sim) {
     void run() {
         if (g_solo_valida) { sc_stop(); return; }
         if (g_espera_terminal) espera_terminales();
+        if (g_senal) { sc_stop(); return; }   // Ctrl-C esperando al terminal
         // La onda cuadrada de los relojes internos se apaga por omision. No es
         // una simplificacion del modelo: es un interruptor que ya existia. Con
         // ella encendida, los flancos de HCLK son el noventa y tantos por
@@ -1235,6 +1368,10 @@ SC_MODULE(Sim) {
                     std::fprintf(stderr, "  [ojo] %s: %s\n", nm.c_str(), q.c_str());
         }
 
+        // Las memorias no volatiles, ANTES del firmware: el firmware se graba
+        // encima, como lo grabaria el IDE, y lo demas que guardo el programa
+        // -sus datos en otras paginas- sigue ahi
+        const std::set<mcu_if*> con_contenido = carga_memorias();
         for (McuMontado& m : mcus) {
             const char* quien = m.decl.id.empty() ? "" : m.decl.id.c_str();
             // Todo por la interfaz: DONDE va el firmware y donde esta la SRAM
@@ -1245,6 +1382,9 @@ SC_MODULE(Sim) {
                     muere("no se puede cargar " + m.decl.firmware);
                 std::printf("firmware%s%s: %s\n",
                             *quien ? " de " : "", quien, m.decl.firmware.c_str());
+            } else if (con_contenido.count(m.mcu)) {
+                std::printf("sin firmware%s%s: arranca lo que haya en su contenido\n",
+                            *quien ? " en " : "", quien);
             } else {
                 const std::string que = m.mcu->sin_firmware();
                 std::printf("sin firmware%s%s: %s\n", *quien ? " en " : "", quien, que.c_str());
@@ -2051,6 +2191,14 @@ static const OpcionCli OPCIONES[] = {
      "volcados. Sin ID, de todos los que lo tienen"},
     {"--mcus", "accion", "", "", "", "", false, false, "",
      "la lista de los MCUs de la placa en XML -id, tipo y firmware-, para mcu-sim-gui"},
+    {"--contenido", "valor", "texto", "", "", "", true, true, "u0=flash.hex",
+     "el fichero Intel HEX de la memoria no volatil de un MCU o de una pieza, como "
+     "ID=FICHERO (u0, U5, o N/u0 y N/U5 en un sistema): se carga al arrancar -antes "
+     "del firmware- y se guarda al acabar. Si no existe, se crea. Manda sobre el "
+     "contenido= del XML"},
+    {"--memorias", "accion", "", "", "", "", false, false, "",
+     "la lista de las memorias no volatiles de la placa en XML -id, tipo, que son y "
+     "su contenido-, para mcu-sim-gui"},
     {"--swo", "valor", "texto", "", "", "", false, true, "tcp:3358",
      "a donde va la traza SWO de la sonda Xds110 de la placa: memoria, tcp:PUERTO, "
      "rfc2217:PUERTO o sus clientes"},
@@ -2143,6 +2291,64 @@ static int lista_mcus() {
     return 0;
 }
 
+// `--memorias`: las memorias no volatiles de la placa o del sistema, como las
+// declara el XML, para que el dialogo de lanzamiento de mcu-sim-gui ponga una
+// fila por memoria con su fichero `contenido` (common/memoria_nv.h). Las de
+// los MCUs y las de las piezas que las tienen. Lee y no construye nada:
+//
+//   <memorias placa="placas/x.xml">
+//     <memoria id="N/u0" tipo="STM32F446RE" clase="mcu" que="Flash" contenido=""/>
+//     <memoria id="N/U5" tipo="I2cEeprom" clase="pieza" que="EEPROM" contenido="e.hex"/>
+//   </memorias>
+static std::string que_memoria_de_mcu(const std::string& tipo) {
+    const std::string t = mayus(tipo);
+    if (t.rfind("MSP432E4", 0) == 0) return "Flash y EEPROM";
+    if (t.rfind("MSP432P4", 0) == 0) return "Flash y Flash de informacion";
+    return "Flash";
+}
+static std::string que_memoria_de_pieza(const std::string& tipo) {
+    if (tipo == "I2cEeprom") return "EEPROM de 64 bytes";
+    if (tipo == "SdCard")    return "tarjeta SD de 2 KB";
+    if (tipo == "ExtNand")   return "NAND de 8 KB";
+    return "memoria";
+}
+static int lista_memorias() {
+    using stm32::xml_escapa;
+    Netlist placa;
+    std::string nombre;
+    ContextoNomenclatura::g().pon_tipo_por_omision(g_tipo_mcu);
+    const std::string e = placa_o_sistema_desde_fichero(placa, g_placa, &nombre);
+    if (!e.empty()) {
+        std::fprintf(stderr, "error de netlist: %s\n", e.c_str());
+        return 1;
+    }
+    std::vector<DeclMcu> decls = placa.mcus();
+    if (!g_tipo_mcu.empty() && decls.empty() && !placa.es_sistema()) {
+        DeclMcu m;
+        m.tipo = g_tipo_mcu;
+        decls.push_back(m);
+    } else if (!g_tipo_mcu.empty() && decls.size() == 1) {
+        decls[0].tipo = g_tipo_mcu;
+    }
+    std::string x = "<memorias placa=\"" + xml_escapa(g_placa) + "\">\n";
+    // Un chip sin id -el de --mcu en una placa sin <mcu>- es `u0` para
+    // --contenido
+    for (const DeclMcu& m : decls)
+        x += "  <memoria id=\"" + xml_escapa(m.id.empty() ? std::string("u0") : m.id) + "\" tipo=\"" + xml_escapa(mayus(m.tipo)) +
+             "\" clase=\"mcu\" que=\"" + que_memoria_de_mcu(m.tipo) + "\" contenido=\"" +
+             xml_escapa(m.contenido) + "\"/>\n";
+    for (const Instancia& i : placa.instancias()) {
+        if (!stm32::es_memoria_nv(i.tipo)) continue;
+        const auto c = i.params.find("contenido");
+        x += "  <memoria id=\"" + xml_escapa(i.id) + "\" tipo=\"" + xml_escapa(i.tipo) +
+             "\" clase=\"pieza\" que=\"" + que_memoria_de_pieza(i.tipo) + "\" contenido=\"" +
+             xml_escapa(c == i.params.end() ? std::string() : c->second) + "\"/>\n";
+    }
+    x += "</memorias>\n";
+    std::fputs(x.c_str(), stdout);
+    return 0;
+}
+
 int sc_main(int argc, char** argv) {
     sc_report_handler::set_actions("rcc",   SC_WARNING, SC_DO_NOTHING);
     sc_report_handler::set_actions("flash", SC_WARNING, SC_DO_NOTHING);
@@ -2157,6 +2363,21 @@ int sc_main(int argc, char** argv) {
         else if (a == "--traza-gdb") g_traza_gdb = true;
         else if (a == "--argumentos") return vuelca_argumentos();
         else if (a == "--mcus") g_lista_mcus = true;
+        else if (a == "--memorias") g_lista_memorias = true;
+        // `--contenido ID=FICHERO`: como --firmware, con el id de un MCU o de
+        // una pieza con memoria no volatil
+        else if (a == "--contenido" || a.rfind("--contenido=", 0) == 0) {
+            std::string v;
+            if (a.rfind("--contenido=", 0) == 0) v = a.substr(12);
+            else if (i + 1 < argc && argv[i + 1][0] != '-') v = argv[++i];
+            const size_t igual = v.find('=');
+            if (igual == std::string::npos || igual == 0 || igual + 1 == v.size()) {
+                std::fprintf(stderr, "--contenido: hace falta ID=FICHERO, como en "
+                             "--contenido N/u0=flash.hex o --contenido U5=eeprom.hex\n");
+                return 1;
+            }
+            g_contenidos.emplace_back(v.substr(0, igual), v.substr(igual + 1));
+        }
         // `--firmware ID=FICHERO`, `--firmware=ID=FICHERO`; el id es el del
         // <mcu> -`u0`, o `N/u0` en un sistema- y lo demas, el fichero
         else if (a == "--firmware" || a.rfind("--firmware=", 0) == 0) {
@@ -2413,6 +2634,14 @@ int sc_main(int argc, char** argv) {
                 "                                sigue sus calibraciones\n"
                 "     sim placa.xml --mcus       la lista de sus MCUs en XML -id, tipo\n"
                 "                                y firmware-, para mcu-sim-gui\n"
+                "     sim placa.xml --contenido ID=FICHERO  la memoria no volatil\n"
+                "                                del MCU o de la pieza ID -su Flash, una\n"
+                "                                EEPROM- en Intel HEX: se carga al\n"
+                "                                arrancar y se guarda al acabar (tambien\n"
+                "                                con Ctrl-C); si no existe, se crea.\n"
+                "                                Manda sobre su contenido= del XML\n"
+                "     sim placa.xml --memorias   la lista de sus memorias no volatiles\n"
+                "                                en XML, para mcu-sim-gui\n"
                 "     sim placa.xml --ms=2       tiempo simulado (global: hay un\n"
                 "                                solo reloj por muchos chips)\n"
                 "     sim --argumentos           estas opciones en XML, para que\n"
@@ -2486,6 +2715,7 @@ int sc_main(int argc, char** argv) {
     }
     g_placa = libres[0];
     if (g_lista_mcus) return lista_mcus();
+    if (g_lista_memorias) return lista_memorias();
     if (libres.size() > 1) g_img = libres[1];
     if (libres.size() > 2) { g_ms = std::atof(libres[2].c_str()); g_ms_dado = true; }
 
@@ -2522,6 +2752,9 @@ int sc_main(int argc, char** argv) {
         if (r >= 0) return r;
     }
     sc_start();
+    // Las memorias con `contenido`, a sus ficheros: antes de despedirse de la
+    // ventana, que puede lanzar otra simulacion en cuanto lo sepa
+    s.guarda_memorias();
     // Se acabo la ventana: se le dice a la GUI, con lo que quedara pendiente
     // -avisos, instantaneas, un T_ESTADO final- y el instante en que se acabo.
     // Si la GUI ya no esta, no pasa nada. Desde la fase 6, tambien puede ser

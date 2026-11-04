@@ -38,6 +38,7 @@
 #include "../top/soc_f4.h"
 #include "../parts/netlist.h"
 #include "../verif/image_loader.h"
+#include "../common/memoria_nv.h"
 
 namespace stm32 {
 
@@ -53,7 +54,7 @@ public:
 };
 
 template <class Chip>
-class AdaptadorF4 : public McuF4 {
+class AdaptadorF4 : public McuF4, public memoria_nv_if {
 public:
     AdaptadorF4(const char* nm, DebugCaps dbg, const Cableado& cab,
                 const McuCaps& c)
@@ -111,6 +112,22 @@ public:
     void reset_pin(bool activo) override {
         if (activo) dut_->pwr_pads.nrst.set_drive(d_nrst_, 0.0f, 100.0f);
         else        dut_->pwr_pads.nrst.set_hiz(d_nrst_);
+    }
+
+    // La Flash principal, para `contenido` (common/memoria_nv.h). Ni la OTP
+    // ni los bytes de opción: lo que se conserva es lo que programa el firmware
+    memoria_nv_if* memoria_nv() override { return this; }
+    std::vector<RegionNv> regiones_nv() const override {
+        return {RegionNv{"Flash", caps_.memoria.flash.base, caps_.memoria.flash.size, true}};
+    }
+    bool en_flash(uint32_t a) const {
+        return a >= caps_.memoria.flash.base && a - caps_.memoria.flash.base < caps_.memoria.flash.size;
+    }
+    bool lee_nv(uint32_t a, uint8_t& v) override {
+        return en_flash(a) && dut_->flash.peek_byte(a, v);
+    }
+    bool escribe_nv(uint32_t a, uint8_t v) override {
+        return en_flash(a) && dut_->flash.poke_byte(a, v);
     }
 
     bool carga_firmware(const std::string& ruta) override {

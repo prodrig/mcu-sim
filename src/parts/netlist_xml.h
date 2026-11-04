@@ -60,6 +60,7 @@
 #include <string>
 #include "netlist.h"
 #include "xml_min.h"
+#include "../common/memoria_nv.h"
 
 namespace stm32 {
 
@@ -463,6 +464,7 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
             else if (a.first == "bsl")        m.bsl        = a.second;
             else if (a.first == "eth")        m.eth        = a.second;
             else if (a.first == "usb")        m.usb        = a.second;
+            else if (a.first == "contenido")  m.contenido  = a.second;
             else if (a.first == "puerto_gdb") {
                 const long v = std::atol(a.second.c_str());
                 if (v < 0 || v > 65535)
@@ -613,6 +615,10 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
                 continue;
             }
             if (a.first == "revision") continue;    // ya mirada arriba
+            // El fichero de su memoria no volatil: solo las que la tienen
+            if (a.first == "contenido" && !es_memoria_nv(tipo))
+                return donde(h) + id + ": contenido=\"" + a.second + "\": un " + tipo +
+                       " no tiene memoria no volatil (la tienen los MCU, " + tipos_memoria_nv() + ")";
             in.par(a.first.c_str(), a.second);      // cualquier otro: parametro
         }
         for (const XmlNodo& c : h.hijos) {
@@ -1043,6 +1049,7 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
                 else if (a.first == "bsl")        m->bsl        = a.second;
                 else if (a.first == "eth")        m->eth        = a.second;
                 else if (a.first == "usb")        m->usb        = a.second;
+                else if (a.first == "contenido")  m->contenido  = a.second;
                 else if (a.first == "puerto_gdb") {
                     const long v = std::atol(a.second.c_str());
                     if (v < 0 || v > 65535)
@@ -1052,6 +1059,31 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
                 } else
                     return donde(h) + "<mcu ref=...>: atributo desconocido: " + a.first +
                            " (el tipo lo dice la placa, o --mcu)";
+            }
+        } else if (h.nombre == "memoria") {
+            // El fichero de una memoria no volátil EN ESTE MONTAJE, sin tocar
+            // la placa: el de un chip (`N/u0`) o el de una pieza (`N/U5`).
+            // Manda sobre el `contenido` de la placa (common/memoria_nv.h)
+            for (const auto& a : h.attrs)
+                if (a.first != "ref" && a.first != "contenido")
+                    return donde(h) + "<memoria>: atributo desconocido: " + a.first;
+            if (!h.tiene("ref") || !h.tiene("contenido"))
+                return donde(h) + "<memoria> necesita ref=\"placa/id\" -un MCU o una pieza- y "
+                       "contenido=\"fichero.hex\"";
+            std::string pl, rs;
+            const std::string ep = parte(h.attr_o("ref"), pl, rs);
+            if (!ep.empty()) return donde(h) + "<memoria>: " + ep;
+            if (DeclMcu* m = nl.mcu_mut(pl + "/" + rs)) {
+                m->contenido = h.attr_o("contenido");
+            } else if (Instancia* im = nl.busca(pl + "/" + rs)) {
+                if (!es_memoria_nv(im->tipo))
+                    return donde(h) + "<memoria ref=\"" + h.attr_o("ref") + "\">: " + rs + " es un " +
+                           im->tipo + ", que no tiene memoria no volatil (la tienen los MCU, " +
+                           tipos_memoria_nv() + ")";
+                im->params["contenido"] = h.attr_o("contenido");
+            } else {
+                return donde(h) + "<memoria ref=\"" + h.attr_o("ref") + "\">: la placa " + pl +
+                       " no tiene ningun MCU ni pieza que se llame " + rs;
             }
         } else if (h.nombre == "jumper") {
             // Como esta puesto el puente de un Jumper de una placa EN ESTE
@@ -1101,7 +1133,7 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
         } else {
             return donde(h) + "elemento desconocido dentro de <sistema>: <" + h.nombre +
                    ">. Lo que va aqui: <placa>, <acopla>, <hilo>, <mcu ref>, <jumper ref>, "
-                   "<ref pieza> y <ruta>";
+                   "<memoria ref>, <ref pieza> y <ruta>";
         }
     }
     // Las rutas, de líneas que hay: ya están todos los acoples y los hilos

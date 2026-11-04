@@ -70,9 +70,9 @@ Y `ci/comprueba_invariante.sh` contrasta las ocho.
 
 `linux`, `macos` y `windows` pasan también `verif/gui/saludo.py`,
 `verif/gui/marcha.py`, `verif/gui/ordenes.py`, `verif/gui/control.py` y
-`verif/gui/argumentos.py`, `verif/gui/sin_mcu.py` y `verif/gui/sistema.py`
-(`make gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu
-gui-sistema`); y en `linux`, además, `verif/gui/cnc.py` (`make gui-cnc`, la
+`verif/gui/argumentos.py`, `verif/gui/sin_mcu.py`, `verif/gui/sistema.py` y
+`verif/gui/contenido.py` (`make gui-saludo gui-marcha gui-ordenes gui-control
+gui-argumentos gui-sin-mcu gui-sistema gui-contenido`); y en `linux`, además, `verif/gui/cnc.py` (`make gui-cnc`, la
 fresadora CNC por fases),
 detrás de la
 interoperabilidad del puente UART y por el mismo motivo: necesitan el `mcu-sim`

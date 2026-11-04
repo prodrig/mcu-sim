@@ -178,6 +178,7 @@ make -f Makefile.mcu-sim gui-control  # y el control: pausa, paso, parar y ritmo
 make -f Makefile.mcu-sim gui-argumentos  # que --argumentos dice lo que acepta sim (Python)
 make -f Makefile.mcu-sim gui-sin-mcu  # una placa sin MCU, con su alarma (Python)
 make -f Makefile.mcu-sim gui-sistema  # varias placas enchufadas, y sus dibujos (Python)
+make -f Makefile.mcu-sim gui-contenido  # la memoria no volatil, de una simulacion a otra (Python)
 make -f Makefile.mcu-sim testserie    # el banco del puente UART, que es OTRO ejecutable
 make -f Makefile.mcu-sim testgui      # el de la frontera con mcu-sim-gui, OTRO mas
 make -f Makefile.mcu-sim testp4       # el del MSP432P401R, y las pruebas de T0
@@ -454,6 +455,8 @@ make mcu-sim
 ./build/mcu-sim sistema.xml --firmware N/u0=x.bin  # el firmware de ese chip
 ./build/mcu-sim sistema.xml --sin-firmware      # ninguno, aunque el XML lo diga
 ./build/mcu-sim sistema.xml --mcus              # sus MCUs, en XML
+./build/mcu-sim placa.xml --contenido u0=f.hex  # la Flash, de f.hex y a f.hex al acabar
+./build/mcu-sim sistema.xml --memorias          # sus memorias no volatiles, en XML
 ./build/mcu-sim p4.xml --rom ninguna            # MSP432P4: sin ROM de DriverLib (o r1,
                                                 #   o la de TI: un volcado o el .out de CCS)
 ./build/mcu-sim p4.xml --tlv tlv.bin            # MSP432P4: el TLV de una placa

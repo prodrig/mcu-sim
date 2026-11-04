@@ -19,13 +19,14 @@
 #include "msp432e401y.h"
 #include "../../parts/netlist.h"
 #include "../../common/imagen_fw.h"
+#include "../../common/memoria_nv.h"
 #include "../../parts/puente_ethernet.h"
 #include "../../parts/puente_usb.h"
 #include <memory>
 
 namespace stm32 {
 
-class McuE4 : public mcu_if {
+class McuE4 : public mcu_if, public memoria_nv_if {
 public:
     McuE4(const char* nm, DebugCaps dbg, const Cableado& cab, const McuDesc& d)
         : chip_(new Msp432E4(nm, dbg, cab, *static_cast<const McuCapsE4*>(d.propio))),
@@ -39,6 +40,23 @@ public:
     ~McuE4() override { puente_eth_.reset(); puente_usb_.reset(); delete chip_; }
 
     Msp432E4& chip() { return *chip_; }
+
+    // La Flash y la EEPROM, para `contenido` (common/memoria_nv.h). La EEPROM
+    // no está en el mapa de memoria -se lee por registros-: en el fichero va
+    // en la ventana de esos registros, 0x400A_F000, que no es de nada más
+    memoria_nv_if* memoria_nv() override { return this; }
+    std::vector<RegionNv> regiones_nv() const override {
+        return {RegionNv{"Flash", e4::FLASH_B, chip_->flash.size(), true},
+                RegionNv{"EEPROM", e4::EEPROM_B, chip_->eeprom.bytes(), true}};
+    }
+    bool lee_nv(uint32_t a, uint8_t& v) override {
+        if (chip_->flash.es_flash(a)) { v = uint8_t(chip_->flash.peek32(a)); return true; }
+        return a >= e4::EEPROM_B && chip_->eeprom.lee_byte(a - e4::EEPROM_B, v);
+    }
+    bool escribe_nv(uint32_t a, uint8_t v) override {
+        if (chip_->flash.es_flash(a)) return chip_->flash.poke_byte(a, v);
+        return a >= e4::EEPROM_B && chip_->eeprom.escribe_byte(a - e4::EEPROM_B, v);
+    }
     const McuDesc& desc() const override { return desc_; }
     std::vector<std::string> limitaciones() const override { return chip_->limitaciones(); }
 

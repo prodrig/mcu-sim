@@ -2764,6 +2764,12 @@ REGISTRA_PARTE(I2cEeprom,
       .atr("dir", "0x50 (80)",
            "Direccion de esclavo de 7 bits. Se puede escribir en hexadecimal "
            "(0x50) o en decimal (80).")
+      .atr("contenido", "ninguno",
+           "Un fichero Intel HEX con sus 64 bytes, desde 0: se carga al arrancar y se "
+           "guarda al acabar, tambien con Ctrl-C. Si aun no existe, la pieza "
+           "arranca como siempre y el fichero se crea. En un <sistema>, "
+           "<memoria ref=\"placa/id\" contenido=\"...\"/> manda sobre el de la "
+           "placa, y --contenido ID=FICHERO sobre los dos")
       .cpp("peek/poke para ver y poner memoria, set_ack(false) para provocar "
            "un NACK y set_stretch_us() para que retenga el reloj."),
     [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
@@ -3032,7 +3038,13 @@ REGISTRA_PARTE(SdCard,
       .pin("dat1, dat2, dat3", "opcionales",
            "Hacen falta para el bus de cuatro hilos. Cada uno con su pull-up "
            "de 47 kohm.")
-      .nota("Sin atributos en el XML. conectada=\"no\" es el zocalo vacio, y "
+      .atr("contenido", "ninguno",
+           "Un fichero Intel HEX con sus 2 KB, desde 0: se carga al arrancar y se "
+           "guarda al acabar, tambien con Ctrl-C. Si aun no existe, la pieza "
+           "arranca como siempre y el fichero se crea. En un <sistema>, "
+           "<memoria ref=\"placa/id\" contenido=\"...\"/> manda sobre el de la "
+           "placa, y --contenido ID=FICHERO sobre los dos")
+      .nota("conectada=\"no\" es el zocalo vacio, y "
             "SE VAN CON ELLA LOS PULL-UPS, que es precisamente lo que "
             "distingue un zocalo vacio de uno ocupado.")
       .cpp("peek/poke, commands(), bus_width(), y tres averias a proposito "
@@ -3154,7 +3166,13 @@ REGISTRA_PARTE(ExtNand,
       .pin("nce", "obligatorio", "Chip enable. Pasivo.")
       .pin("noe, nwe", "obligatorios", "Output y write enable. Pasivos.")
       .pin("rb", "opcional", "Ready/Busy. Si se conecta, la NAND lo gobierna.")
-      .nota("Sin atributos en el XML. Comparte el chip select con la ExtSram "
+      .atr("contenido", "ninguno",
+           "Un fichero Intel HEX con sus 8 KB, pagina a pagina, desde 0: se carga al arrancar y se "
+           "guarda al acabar, tambien con Ctrl-C. Si aun no existe, la pieza "
+           "arranca como siempre y el fichero se crea. En un <sistema>, "
+           "<memoria ref=\"placa/id\" contenido=\"...\"/> manda sobre el de la "
+           "placa, y --contenido ID=FICHERO sobre los dos")
+      .nota("Comparte el chip select con la ExtSram "
             "en este encapsulado, asi que las dos no pueden estar puestas a la "
             "vez."),
     [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {

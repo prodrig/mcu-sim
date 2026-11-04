@@ -296,7 +296,7 @@ jobs:
 
       - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas)
         working-directory: src
-        run: make -f Makefile.mcu-sim gui-saludo gui-marcha gui-cnc gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema
+        run: make -f Makefile.mcu-sim gui-saludo gui-marcha gui-cnc gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema gui-contenido
 
       # OpenOCD DE VERDAD contra el modelo, por los pines (T5 del MSP432): de
       # git, porque la 0.12.0 del paquete no tiene SWD en remote_bitbang. Se
@@ -590,6 +590,7 @@ jobs:
           python3 verif/gui/argumentos.py
           python3 verif/gui/sin_mcu.py
           python3 verif/gui/sistema.py
+          python3 verif/gui/contenido.py
 
       # DESPUES de la interoperabilidad, no antes: sus `interop_*.log` -la
       # consola de cada mcu-sim que arranca- tambien estan en src/build/, y
@@ -747,6 +748,7 @@ jobs:
           python verif/gui/argumentos.py
           python verif/gui/sin_mcu.py
           python verif/gui/sistema.py
+          python verif/gui/contenido.py
 
       - uses: actions/upload-artifact@v6
         if: always()
