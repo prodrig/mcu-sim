@@ -114,15 +114,19 @@ public:
         else        dut_->pwr_pads.nrst.set_hiz(d_nrst_);
     }
 
-    // La Flash principal y los bytes de opción, para `contenido`
-    // (common/memoria_nv.h). Los bytes de opción van en su bloque de
-    // 0x1FFF_C000 (mem/flash_if.h: bloque_de_optcr), con la referencia de
-    // fábrica: no salen si nadie los ha programado
+    // La Flash principal, la OTP y los bytes de opción, para `contenido`
+    // (common/memoria_nv.h). La OTP, en 0x1FFF_7800 con sus bytes de bloqueo,
+    // sin lo que esté a 0xFF. Los bytes de opción, en su bloque de 0x1FFF_C000
+    // (mem/flash_if.h: bloque_de_optcr), con la referencia de fábrica: no
+    // salen si nadie los ha programado
     memoria_nv_if* memoria_nv() override { return this; }
     std::vector<RegionNv> regiones_nv() const override {
         const MapaFlash& m = dut_->flash.mapa;
-        return {RegionNv::borrada("Flash", caps_.memoria.flash.base, caps_.memoria.flash.size),
-                RegionNv::con_referencia("bytes de opcion", m.opt_base, dut_->flash.ob_de_fabrica())};
+        std::vector<RegionNv> r{RegionNv::borrada("Flash", caps_.memoria.flash.base,
+                                                  caps_.memoria.flash.size)};
+        if (m.otp_size) r.push_back(RegionNv::borrada("OTP", m.otp_base, m.otp_size));
+        r.push_back(RegionNv::con_referencia("bytes de opcion", m.opt_base, dut_->flash.ob_de_fabrica()));
+        return r;
     }
     bool en_flash(uint32_t a) const {
         return a >= caps_.memoria.flash.base && a - caps_.memoria.flash.base < caps_.memoria.flash.size;
@@ -131,11 +135,15 @@ public:
         const MapaFlash& m = dut_->flash.mapa;
         return a >= m.opt_base && a - m.opt_base < m.opt_size;
     }
+    bool en_otp(uint32_t a) const {
+        const MapaFlash& m = dut_->flash.mapa;
+        return a >= m.otp_base && a - m.otp_base < m.otp_size;
+    }
     bool lee_nv(uint32_t a, uint8_t& v) override {
-        return (en_flash(a) || en_ob(a)) && dut_->flash.peek_byte(a, v);
+        return (en_flash(a) || en_otp(a) || en_ob(a)) && dut_->flash.peek_byte(a, v);
     }
     bool escribe_nv(uint32_t a, uint8_t v) override {
-        return (en_flash(a) || en_ob(a)) && dut_->flash.poke_byte(a, v);
+        return (en_flash(a) || en_otp(a) || en_ob(a)) && dut_->flash.poke_byte(a, v);
     }
     // El fichero llega con NRST abajo, después del reset de alimentación que
     // habría cargado los bytes de opción en OPTCR: se cargan ahora

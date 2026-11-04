@@ -2350,7 +2350,8 @@ static std::string que_memoria_de_mcu(const std::string& tipo) {
     const std::string t = mayus(tipo);
     if (t.rfind("MSP432E4", 0) == 0) return "Flash y EEPROM";
     if (t.rfind("MSP432P4", 0) == 0) return "Flash y Flash de informacion";
-    return "Flash y bytes de opcion";
+    if (t.rfind("STM32F3", 0) == 0) return "Flash y bytes de opcion";
+    return "Flash, OTP y bytes de opcion";
 }
 static std::string que_memoria_de_pieza(const std::string& tipo) {
     if (tipo == "I2cEeprom") return "EEPROM de 64 bytes";

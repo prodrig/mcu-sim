@@ -27,7 +27,11 @@
 #   K5  LOS BYTES DE OPCION de un STM32F4 (0x1FFF_C000) y un F3
 #       (0x1FFF_F800): de fabrica no salen; programados, van y vuelven; con
 #       WDG_SW = 0, el IWDG arranca solo; RDP en el nivel 1 o 2 se avisa, y
-#       --restore-rdp[=ID] lo devuelve al de fabrica.
+#       --restore-rdp[=ID] lo devuelve al de fabrica;
+#   K6  LA OTP de un STM32F4 (0x1FFF_7800), con sus bytes de bloqueo: va y
+#       vuelve, y por GDB -como la programaria un firmware-, un bloque se
+#       programa hasta que su byte de bloqueo es 0x00, y el bloqueo dura de
+#       una simulacion a la siguiente.
 #
 #   make -f Makefile.mcu-sim gui-contenido
 #   python3 verif/gui/contenido.py [--sim build/mcu-sim]
@@ -42,6 +46,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import socket
 import xml.etree.ElementTree as ET
 
 import ventana
@@ -148,7 +153,7 @@ def k1_xml(sim, d):
         pass
     u0, u5 = mem.get("A/u0"), mem.get("A/U5")
     check(rc == 0 and u0 is not None and u0.get("clase") == "mcu" and
-          u0.get("que") == "Flash y bytes de opcion" and u0.get("contenido", "").endswith("sis_f.hex") and
+          u0.get("que") == "Flash, OTP y bytes de opcion" and u0.get("contenido", "").endswith("sis_f.hex") and
           u5 is not None and u5.get("clase") == "pieza" and u5.get("tipo") == "I2cEeprom" and
           u5.get("contenido", "").endswith("sis_u5.hex"),
           "--memorias: el chip -su Flash- y la EEPROM, cada una con el contenido del "
@@ -371,7 +376,7 @@ def k5_opciones(sim, d):
     f = os.path.join(d, "ob4.hex")
     rc, out0, err = corre(sim, [pl, fw, "--ms=1500", "--contenido", "u0=" + f])
     m = lee_hex(f)
-    check(rc == 0 and "(Flash y bytes de opcion)" in out0 and m and max(m) < 0x08100000,
+    check(rc == 0 and "(Flash, OTP y bytes de opcion)" in out0 and m and max(m) < 0x08100000,
           "STM32F407: sus bytes de opcion son del contenido, pero los de fabrica no salen "
           "en el fichero: es su referencia")
 
@@ -427,6 +432,127 @@ def k5_opciones(sim, d):
           "--restore-rdp con un id que no es de un STM32, o en una placa sin STM32: error")
 
 
+# ---------------------------------------------------------------------------
+# K6
+# ---------------------------------------------------------------------------
+class Rsp:
+    """Lo justo de GDB remoto: leer y escribir memoria, como un depurador"""
+    def __init__(self, puerto, seg=20):
+        t0 = time.time()
+        while True:
+            try:
+                self.c = socket.create_connection(("127.0.0.1", puerto), timeout=5)
+                break
+            except OSError:
+                if time.time() - t0 > seg:
+                    raise
+                time.sleep(0.2)
+        self.c.settimeout(20)
+        self.b = b""
+
+    def pide(self, cmd):
+        self.c.sendall(("$%s#%02x" % (cmd, sum(cmd.encode()) & 0xFF)).encode())
+        while not (b"$" in self.b and b"#" in self.b[self.b.index(b"$"):] and
+                   len(self.b) - self.b.index(b"#", self.b.index(b"$")) >= 3):
+            self.b += self.c.recv(4096)
+        i = self.b.index(b"$")
+        j = self.b.index(b"#", i)
+        r = self.b[i + 1:j].decode()
+        self.b = self.b[j + 3:]
+        self.c.sendall(b"+")
+        return r
+
+    def w(self, a, data):
+        return self.pide("M%x,%x:%s" % (a, len(data), data.hex()))
+
+    def w32(self, a, v):
+        return self.w(a, v.to_bytes(4, "little"))
+
+    def r32(self, a):
+        return int.from_bytes(bytes.fromhex(self.pide("m%x,4" % a)), "little")
+
+
+FLASH_R = 0x40023C00
+OTP = 0x1FFF7800
+
+
+def programa(g, a, datos, psize):
+    """PG con el PSIZE dado (0: byte, 2: palabra); devuelve FLASH_SR, y lo limpia"""
+    g.w32(FLASH_R + 0x10, (psize << 8) | 1)
+    g.w(a, datos)
+    sr = g.r32(FLASH_R + 0x0C)
+    g.w32(FLASH_R + 0x0C, 0xF3)
+    return sr
+
+
+def con_gdb(sim, f, puerto, que):
+    """El F407 con su stub de GDB y `contenido`; `que(g)` por GDB; y Ctrl-C"""
+    p = subprocess.Popen([sim, "placas/discovery_min.xml", "verif/fw/blinky/blinky.bin", "--gdb",
+                          "--port=%d" % puerto, "--tiempo-real", "--contenido", "u0=" + f],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    r = None
+    try:
+        g = Rsp(puerto)
+        g.pide("?")
+        g.w32(FLASH_R + 0x04, 0x45670123)                # KEYR: abre CR
+        g.w32(FLASH_R + 0x04, 0xCDEF89AB)
+        r = que(g)
+        g.c.close()
+    finally:
+        p.send_signal(signal.SIGINT)
+        try:
+            p.communicate(timeout=20)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.communicate()
+    return r
+
+
+def k6_otp(sim, d):
+    grupo("K6 La OTP de un STM32F4, con su bloqueo")
+    fw = "verif/fw/blinky/blinky.bin"
+    f = os.path.join(d, "otp.hex")
+    dat = {OTP + i: (0xC0 + i) & 0xFF for i in range(32)}
+    dat[OTP + 512] = 0x00                                 # bloque 0 bloqueado
+    escribe_hex(f, dat)
+    rc, out, err = corre(sim, ["placas/discovery_min.xml", fw, "--ms=5", "--contenido", "u0=" + f])
+    m = lee_hex(f)
+    check(rc == 0 and "(Flash, OTP y bytes de opcion)" in out and
+          all(m.get(a) == v for a, v in dat.items()) and
+          not any(OTP + 32 <= a < OTP + 512 for a in m),
+          "STM32F407: la OTP (0x1FFF_7800) y sus bytes de bloqueo (0x1FFF_7A00) van y vuelven, "
+          "sin lo que esta a 0xFF")
+    if os.name == "nt":
+        print("  (la OTP por GDB: con Ctrl-C para acabar, no en Windows)")
+        return
+
+    f = os.path.join(d, "otp_gdb.hex")
+
+    def primera(g):
+        a = programa(g, OTP + 0x20, (0x12345678).to_bytes(4, "little"), 2)
+        # El byte de bloqueo del bloque 1 a 0x00, en una palabra: los otros
+        # tres a 0xFF no programan nada
+        b = programa(g, OTP + 0x200, bytes([0xFF, 0x00, 0xFF, 0xFF]), 2)
+        c = programa(g, OTP + 0x24, (0x9ABCDEF0).to_bytes(4, "little"), 2)
+        return a, b, c, g.r32(OTP + 0x24)
+    a, b, c, v = con_gdb(sim, f, 3393, primera)
+    m = lee_hex(f) if os.path.exists(f) else {}
+    check((a & 0xF3) == 1 and (b & 0xF3) == 1 and (c & 0x10) and v == 0xFFFFFFFF and
+          m.get(OTP + 0x20) == 0x78 and m.get(OTP + 0x201) == 0x00,
+          "por GDB, como un firmware: el bloque 1 se programa (EOP), su byte de bloqueo a 0x00 "
+          "lo cierra, y programarlo otra vez da WRPERR y no escribe; al acabar, la OTP y el "
+          "bloqueo estan en el fichero (SR 0x%X, 0x%X, 0x%X)" % (a, b, c))
+
+    def segunda(g):
+        return (programa(g, OTP + 0x28, (1).to_bytes(4, "little"), 2),
+                programa(g, OTP + 0x40, (0x55AA55AA).to_bytes(4, "little"), 2))
+    c1, c2 = con_gdb(sim, f, 3394, segunda)
+    m = lee_hex(f) if os.path.exists(f) else {}
+    check((c1 & 0x10) and (c2 & 0xF3) == 1 and m.get(OTP + 0x40) == 0xAA and
+          m.get(OTP + 0x28) == 0xFF,
+          "en la simulacion siguiente el bloque 1 sigue bloqueado (WRPERR); el 2, no")
+
+
 def main():
     a = argparse.ArgumentParser(description="la memoria no volatil, de una simulacion a otra")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -443,6 +569,7 @@ def main():
         k3_piezas(sim, d)
         k4_final(sim, d)
         k5_opciones(sim, d)
+        k6_otp(sim, d)
     finally:
         shutil.rmtree(d, ignore_errors=True)
     return ventana.resumen("CONTENIDO")

@@ -425,6 +425,17 @@ private:
         return ((optcr_ >> (16 + sector)) & 1u) == 0;   // nWRP: 0 = protegido
     }
 
+    // LA OTP: 512 bytes en 16 bloques de 32, y detrás un byte de bloqueo por
+    // bloque. Un bloque no se programa más una vez que su byte de bloqueo está
+    // a 0x00 [RM0090, «One-time programmable bytes»]. El manual pide que esos
+    // bytes valgan 0x00 o 0xFF; con cualquier otra cosa el bloque se da por
+    // bloqueado [de modelo]. Programarlo da WRPERR, como un sector protegido
+    // [de modelo: el manual no dice qué error]
+    bool otp_bloqueada(uint32_t a) const {
+        if (mapa.otp_size < 528u || a < mapa.otp_base || a >= mapa.otp_base + 512u) return false;
+        return otp_[512u + (a - mapa.otp_base) / 32u] != 0xFFu;
+    }
+
     void set_err(uint32_t bit) { sr_ |= bit; update_irq(); }
     void update_irq() {
         const bool eopie = (cr_ >> 24) & 1u, errie = (cr_ >> 25) & 1u;
@@ -457,7 +468,7 @@ private:
         else if (a % ps)              { set_err(1u << 5); ok = false; }  // PGAERR
         else {
             const int sec = mapa.sector_de(a);
-            if (sec >= 0 && sector_write_protected(sec)) {
+            if ((sec >= 0 && sector_write_protected(sec)) || otp_bloqueada(a)) {
                 set_err(1u << 4); ok = false;                             // WRPERR
             } else {
                 for (unsigned i = 0; i < len; ++i)
