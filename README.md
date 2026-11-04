@@ -210,6 +210,7 @@ con su plan en `doc/`:
 | Los puentes Ethernet y USB, y la sonda XDS110 | `doc/analisis_puente_ethernet.md`, `analisis_puente_usb.md` y `analisis_xds110.md` | Hechos en lo que piden los MSP432 y el F303 |
 | El STM32F303 y la STM32F3DISCOVERY | `doc/analisis_stm32f303.md` | S0 a S9 hechas; los otros dos dies de la línea F30x, analizados (`analisis_f303xD-E_f303x6_8_F334.md`) |
 | Una fresadora CNC de tres ejes | `doc/analisis_cnc.md` | F0 a F8 hechas, en la rama `cnc` |
+| Los puentes Wi-Fi y Bluetooth: módulos AT, procesadores de red, HCI y la radio del chip | `doc/analisis_wifi_bl.md` | Analizados; nada hecho |
 
 **Verificado en las cuatro plataformas** —Linux, Windows, macOS Apple Silicon
 y macOS Intel— por la integración continua, que en cada empujón pasa las ocho
