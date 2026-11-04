@@ -1494,7 +1494,7 @@ SC_MODULE(I2cEeprom), public I2cPart, public memoria_nv_if {
     // Para `contenido` (common/memoria_nv.h): sus 64 bytes, desde 0
     memoria_nv_if* memoria_nv() override { return this; }
     std::vector<RegionNv> regiones_nv() const override {
-        return {RegionNv{"EEPROM de 64 bytes", 0, uint32_t(sizeof mem_), false}};
+        return {RegionNv::entera("EEPROM de 64 bytes", 0, uint32_t(sizeof mem_))};
     }
     bool lee_nv(uint32_t a, uint8_t& v) override {
         if (a >= sizeof mem_) return false;
@@ -1677,7 +1677,7 @@ SC_MODULE(SdCard), public ExtPartBase, public memoria_nv_if {
     // Para `contenido` (common/memoria_nv.h): sus 2 KB, desde 0
     memoria_nv_if* memoria_nv() override { return this; }
     std::vector<RegionNv> regiones_nv() const override {
-        return {RegionNv{"tarjeta SD de 2 KB", 0, uint32_t(sizeof mem_), false}};
+        return {RegionNv::entera("tarjeta SD de 2 KB", 0, uint32_t(sizeof mem_))};
     }
     bool lee_nv(uint32_t a, uint8_t& v) override {
         if (a >= sizeof mem_) return false;
@@ -2826,7 +2826,7 @@ SC_MODULE(ExtNand), public ExtPartBase, public memoria_nv_if {
     // Para `contenido` (common/memoria_nv.h): sus 8 KB, pagina a pagina, desde 0
     memoria_nv_if* memoria_nv() override { return this; }
     std::vector<RegionNv> regiones_nv() const override {
-        return {RegionNv{"NAND de 8 KB", 0, uint32_t(mem_.size()), false}};
+        return {RegionNv::entera("NAND de 8 KB", 0, uint32_t(mem_.size()))};
     }
     bool lee_nv(uint32_t a, uint8_t& v) override {
         if (a >= mem_.size()) return false;

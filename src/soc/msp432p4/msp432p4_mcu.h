@@ -47,8 +47,8 @@ public:
     memoria_nv_if* memoria_nv() override { return this; }
     std::vector<RegionNv> regiones_nv() const override {
         const auto& c = *static_cast<const McuCapsP4*>(desc_.propio);
-        return {RegionNv{"Flash", p4::FLASH_B, c.flash_size, true},
-                RegionNv{"Flash de informacion", p4::INFO_B, 0x1000u, true}};
+        return {RegionNv::borrada("Flash", p4::FLASH_B, c.flash_size),
+                RegionNv::borrada("Flash de informacion", p4::INFO_B, 0x1000u)};
     }
     bool en_nv(uint32_t a) const {
         const auto& c = *static_cast<const McuCapsP4*>(desc_.propio);

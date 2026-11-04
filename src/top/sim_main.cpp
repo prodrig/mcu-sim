@@ -751,6 +751,7 @@ SC_MODULE(Sim) {
         std::set<mcu_if*> con;
         for (MemoriaMontada& mm : memorias) {
             bool existia = false;
+            mm.nv->antes_de_cargar_nv();          // las referencias, ya montado
             const std::string e = carga_contenido(*mm.nv, mm.ruta, mm.bytes, existia);
             if (!e.empty()) muere("contenido de " + mm.id + ": " + e);
             mm.cargada = true;
@@ -759,6 +760,12 @@ SC_MODULE(Sim) {
             else
                 std::printf("contenido de %s: %s no existe; arranca como siempre\n", mm.id.c_str(),
                             mm.ruta.c_str());
+            // Lo que el chip hace con lo cargado: el fichero llega con NRST
+            // abajo, despues del reset de alimentacion que lo habria leido
+            std::string e2;
+            for (const std::string& a : mm.nv->tras_cargar_nv(e2))
+                std::printf("  contenido de %s: %s\n", mm.id.c_str(), a.c_str());
+            if (!e2.empty()) muere("contenido de " + mm.id + ": " + e2);
             if (mm.mcu && mm.bytes) con.insert(mm.mcu);
         }
         return con;

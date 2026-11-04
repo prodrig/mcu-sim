@@ -17,11 +17,20 @@
 // mapa —se lee por registros—, en la ventana de esos registros, 0x400A_F000; y
 // la de una pieza, desde 0.
 //
-// Lo que el fichero no dice se queda como estaba al construir la memoria. Por
-// eso al guardar, una región `omite_borrado` —la Flash de un MCU, que arranca
-// borrada— solo escribe los registros que no son todo 0xFF: un MB de Flash con
-// un programa de 20 KB son 20 KB de fichero. Las de las piezas, que arrancan
-// con un patrón de prueba, se guardan enteras.
+// LA REFERENCIA de una región es lo que vale si nadie la ha tocado: ninguna
+// (se guarda entera: las piezas, que arrancan con un patrón de prueba), un
+// RELLENO (la Flash de un MCU, que arranca borrada a 0xFF) o unos BYTES (los
+// de fábrica de los bytes de opción, el BSL que puso `bsl=`...). Al guardar,
+// lo que es igual a la referencia no se escribe: un MB de Flash con un
+// programa de 20 KB son 20 KB de fichero, y unos bytes de opción de fábrica no
+// salen. Lo que el fichero no dice se queda como estaba al construir la
+// memoria -que es la referencia-, así que la ida y vuelta es exacta. Una región
+// TODO O NADA -un BSL- no se guarda a trozos: si algo difiere, va entera.
+//
+// Y dos momentos: ANTES DE CARGAR, el chip fija las referencias que dependen
+// de cómo se ha montado (el BSL y el TLV con `bsl=` y `tlv=` ya aplicados);
+// DESPUÉS, hace con lo cargado lo que haría el chip -recargar sus bytes de
+// opción, que el reset de alimentación ya leyó-, y dice lo que haya que decir.
 // =============================================================================
 #ifndef STM32_COMMON_MEMORIA_NV_H
 #define STM32_COMMON_MEMORIA_NV_H
@@ -37,10 +46,38 @@
 namespace stm32 {
 
 struct RegionNv {
-    std::string nombre;          // "Flash", "EEPROM", "Flash de informacion"
+    enum class Ref : uint8_t { Ninguna, Relleno, Bytes };
+
+    std::string nombre;          // "Flash", "EEPROM", "Bytes de opcion"
     uint32_t    base = 0;        // donde va en el fichero
     uint32_t    tam  = 0;        // bytes
-    bool        omite_borrado = false;   // al guardar, sin los registros todo 0xFF
+    Ref         ref = Ref::Ninguna;
+    uint8_t     relleno = 0xFF;            // con Ref::Relleno
+    std::vector<uint8_t> referencia;       // con Ref::Bytes: `tam` bytes
+    bool        todo_o_nada = false;       // si algo difiere, se guarda entera
+
+    // Se guarda entera
+    static RegionNv entera(std::string n, uint32_t b, uint32_t t) {
+        RegionNv r; r.nombre = std::move(n); r.base = b; r.tam = t; return r;
+    }
+    // Sin lo que este a `rel` (la Flash, a 0xFF)
+    static RegionNv borrada(std::string n, uint32_t b, uint32_t t, uint8_t rel = 0xFF) {
+        RegionNv r = entera(std::move(n), b, t); r.ref = Ref::Relleno; r.relleno = rel; return r;
+    }
+    // Sin lo que sea igual a `ref`, byte a byte
+    static RegionNv con_referencia(std::string n, uint32_t b, std::vector<uint8_t> ref,
+                                   bool todo = false) {
+        RegionNv r = entera(std::move(n), b, uint32_t(ref.size()));
+        r.ref = Ref::Bytes; r.referencia = std::move(ref); r.todo_o_nada = todo; return r;
+    }
+    // ¿Es `v` lo que vale el byte `off` sin tocar? Sin referencia, nunca
+    bool es_referencia(uint32_t off, uint8_t v) const {
+        switch (ref) {
+            case Ref::Relleno: return v == relleno;
+            case Ref::Bytes:   return off < referencia.size() && v == referencia[off];
+            default:           return false;
+        }
+    }
 };
 
 class memoria_nv_if {
@@ -50,6 +87,15 @@ public:
     // Un byte, por su dirección EN EL FICHERO. false: no es de ninguna región
     virtual bool lee_nv(uint32_t a, uint8_t& v) = 0;
     virtual bool escribe_nv(uint32_t a, uint8_t v) = 0;
+
+    // Antes de cargar: fijar las referencias que dependen del montaje
+    virtual void antes_de_cargar_nv() {}
+    // Después de cargar: lo que el chip hace con lo cargado. Devuelve los
+    // avisos para la consola; un error va en `error`, y la simulación no sigue
+    virtual std::vector<std::string> tras_cargar_nv(std::string& error) {
+        (void)error;
+        return {};
+    }
 
     // Lo que es, para los mensajes: "Flash", "Flash y EEPROM", "EEPROM de 64 bytes"
     std::string describe_nv() const {
@@ -147,21 +193,32 @@ inline std::string carga_contenido(memoria_nv_if& m, const std::string& ruta,
     return std::string();
 }
 
-// GUARDAR: la memoria entera en el fichero, región a región.
+// GUARDAR: la memoria en el fichero, región a región, sin lo que es igual a
+// su referencia.
 inline std::string guarda_contenido(memoria_nv_if& m, const std::string& ruta, size_t& guardados) {
     std::vector<TrozoFw> t;
     guardados = 0;
     for (const RegionNv& r : m.regiones_nv()) {
+        // Todo o nada: si nada difiere, nada; si algo, entera
+        bool entera = r.ref == RegionNv::Ref::Ninguna;
+        if (r.todo_o_nada) {
+            for (uint32_t off = 0; off < r.tam && !entera; ++off) {
+                uint8_t v = 0xFF;
+                m.lee_nv(r.base + off, v);
+                entera = !r.es_referencia(off, v);
+            }
+            if (!entera) continue;
+        }
         for (uint32_t off = 0; off < r.tam; off += 16) {
             const uint32_t n = std::min<uint32_t>(16, r.tam - off);
             uint8_t b[16];
-            bool borrado = true;
+            bool de_referencia = true;
             for (uint32_t k = 0; k < n; ++k) {
                 b[k] = 0xFF;
                 m.lee_nv(r.base + off + k, b[k]);
-                borrado = borrado && b[k] == 0xFF;
+                de_referencia = de_referencia && r.es_referencia(off + k, b[k]);
             }
-            if (r.omite_borrado && borrado) continue;
+            if (!entera && de_referencia) continue;
             const uint32_t a = r.base + off;
             if (!t.empty() && t.back().dir + t.back().datos.size() == a)
                 t.back().datos.insert(t.back().datos.end(), b, b + n);

@@ -42,7 +42,7 @@ public:
     // bytes de opción ni la memoria de sistema
     memoria_nv_if* memoria_nv() override { return this; }
     std::vector<RegionNv> regiones_nv() const override {
-        return {RegionNv{"Flash", chip_->flash.mem_base(), chip_->flash.size(), true}};
+        return {RegionNv::borrada("Flash", chip_->flash.mem_base(), chip_->flash.size())};
     }
     bool lee_nv(uint32_t a, uint8_t& v) override {
         if (!chip_->flash.es_flash(a)) return false;

@@ -118,7 +118,7 @@ public:
     // ni los bytes de opción: lo que se conserva es lo que programa el firmware
     memoria_nv_if* memoria_nv() override { return this; }
     std::vector<RegionNv> regiones_nv() const override {
-        return {RegionNv{"Flash", caps_.memoria.flash.base, caps_.memoria.flash.size, true}};
+        return {RegionNv::borrada("Flash", caps_.memoria.flash.base, caps_.memoria.flash.size)};
     }
     bool en_flash(uint32_t a) const {
         return a >= caps_.memoria.flash.base && a - caps_.memoria.flash.base < caps_.memoria.flash.size;

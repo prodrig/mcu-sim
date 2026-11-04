@@ -46,8 +46,8 @@ public:
     // en la ventana de esos registros, 0x400A_F000, que no es de nada más
     memoria_nv_if* memoria_nv() override { return this; }
     std::vector<RegionNv> regiones_nv() const override {
-        return {RegionNv{"Flash", e4::FLASH_B, chip_->flash.size(), true},
-                RegionNv{"EEPROM", e4::EEPROM_B, chip_->eeprom.bytes(), true}};
+        return {RegionNv::borrada("Flash", e4::FLASH_B, chip_->flash.size()),
+                RegionNv::borrada("EEPROM", e4::EEPROM_B, chip_->eeprom.bytes())};
     }
     bool lee_nv(uint32_t a, uint8_t& v) override {
         if (chip_->flash.es_flash(a)) { v = uint8_t(chip_->flash.peek32(a)); return true; }
