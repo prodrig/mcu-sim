@@ -1,18 +1,29 @@
-# El resto de la familia F3: F303xD/E, F303x6/8 y F334
+# Dos dies más de la familia F3: F303xD/E, F303x6/8 y F334
 
-**Qué hace falta para los dos dies que S9 dejó fuera, y qué hay que bajar a
+**Qué hace falta para dos de los dies que S9 dejó fuera, y qué hay que bajar a
 `doc/refs/` antes de empezar** · 21-10-2026
+
+> **Estado: analizado, sin empezar.** Lo que está y lo que no de la familia
+> F3, en `doc/parts.md` §2.0.
 
 `doc/analisis_stm32f303.md` (S9) metió en el catálogo todo el **die 0x422**:
 F303xB/C, F302xB/C y F358xC, quince referencias que son el mismo silicio con
-otra Flash, otra SRAM, otro encapsulado y algún bloque de menos. Este documento
-es el plan para los otros dos dies de la línea F30x, que **no** son el mismo
-silicio y por eso no caben en un descriptor:
+otra Flash, otra SRAM, otro encapsulado y algún bloque de menos. Pero la
+familia STM32F3 tiene **cinco dies**, y S9 dejó fuera cuatro. Este documento
+es el plan para **dos de ellos**, los dos que llevan el F303, que **no** son el
+mismo silicio que el 0x422 y por eso no caben en un descriptor:
 
 | Die | DEV_ID | Referencias | Lo que los distingue |
 | :--- | :--- | :--- | :--- |
 | **0x446** | `0x446` | **F303xD/E** (384/512 KB), F302xD/E, F398xE | 64 KB de SRAM, FMC, TIM20, I²C3, SPI4, puertos G y H, LQFP144 |
 | **0x438** | `0x438` | **F303x6/8** (32/64 KB), **F334x4/6/8**, F328x8 | 12 KB de SRAM, sin DMA2 ni puerto E, DAC2; el **F334 con HRTIM1** |
+
+Los otros dos **quedan fuera de este análisis, y sin analizar**:
+
+| Die | DEV_ID | Referencias | Por qué no está aquí |
+| :--- | :--- | :--- | :--- |
+| 0x439 | `0x439` | F301x6/8, F302x6/8, F318x8 | Es de la línea F30x, pero sin F303: la de acceso (F301) y la de USB/CAN (F302x6/8) |
+| 0x432 | `0x432` | F373, F378 | Es otra línea, con ADC sigma-delta |
 
 Lo que se dice abajo de cada die sale de dos fuentes que ya están en la máquina
 de trabajo y se pueden comparar por programa —la **base de pines de ST**
