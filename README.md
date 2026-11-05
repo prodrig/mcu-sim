@@ -208,7 +208,7 @@ con su plan en `doc/`:
 | Varias placas enchufadas: `<sistema>` | `doc/analisis_placas_conectadas.md` | Hecho |
 | Los MSP432P401R y MSP432E401Y | `doc/analisis_msp432.md` | T0 a T7 hechas; T8, el resto de la familia, pendiente |
 | Los puentes Ethernet y USB, y la sonda XDS110 | `doc/analisis_puente_ethernet.md`, `analisis_puente_usb.md` y `analisis_xds110.md` | Hechos en lo que piden los MSP432 y el F303 |
-| El STM32F303 y la STM32F3DISCOVERY | `doc/analisis_stm32f303.md` | S0 a S9 hechas; los otros dos dies de la línea F30x, analizados (`analisis_f303xD-E_f303x6_8_F334.md`) |
+| El STM32F303 y la STM32F3DISCOVERY | `doc/analisis_stm32f303.md` | S0 a S9 hechas, para el die 0x422 (F303xB/C, F302xB/C, F358xC); los dies 0x446 y 0x438, analizados (`analisis_f303xD-E_f303x6_8_F334.md`); el 0x439 y el 0x432, sin analizar (`doc/parts.md` §2.0) |
 | Una fresadora CNC de tres ejes | `doc/analisis_cnc.md` | F0 a F8 hechas, en la rama `cnc` |
 | Los puentes Wi-Fi y Bluetooth: módulos AT, procesadores de red, HCI y la radio del chip | `doc/analisis_wifi_bl.md` | Analizados; nada hecho |
 | El `contenido` de las memorias no volátiles: bytes de opción, OTP, TLV, BSL y registros del E4 | `doc/analisis_contenido.md` | Analizado, y hecho en cinco parches |

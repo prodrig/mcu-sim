@@ -315,8 +315,9 @@ no se puede distribuir—, que `stm32flash` programa como el de verdad.
 Los sensores de la placa —el giróscopo y el acelerómetro-magnetómetro, de las
 revisiones D y E— se mueven con una `Postura` que se inclina desde
 `mcu-sim-gui`. Y lo escrito para él vale, más adelante, para media docena de
-familias: `doc/analisis_f303xD-E_f303x6_8_F334.md` analiza los otros dos dies
-de la línea F30x.
+familias: `doc/analisis_f303xD-E_f303x6_8_F334.md` analiza dos de los otros
+dies de la familia, el 0x446 y el 0x438. Lo que está y lo que no, en
+`doc/parts.md` §2.0.
 
 ```
 ./build/mcu-sim placas/stm32f3discovery.xml verif/fw/stm32f3/gpio_iotoggle/GPIO_IOToggle.bin 900

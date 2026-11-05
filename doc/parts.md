@@ -72,16 +72,38 @@ Una placa declara los chips que lleva:
 | `puerto_gdb` | `0` | Puerto TCP de su stub. **0 = no se abre ninguno** |
 | `contenido` | ninguno | Un fichero Intel HEX con lo que guarda su memoria no volátil: se carga al arrancar, antes del firmware, y se guarda al acabar (§2.7) |
 
-**Los tipos que se saben construir**, por familia:
+**Los tipos que se saben construir**, por familia y, dentro de cada una, por
+die —el silicio: dos referencias del mismo die son el mismo chip con otra
+Flash, otra SRAM, otro encapsulado o algún bloque de menos, y caben en un
+descriptor; otro die es otro modelo—:
 
-| Familia | Tipos | Lo que los distingue |
-| :--- | :--- | :--- |
-| STM32F405 / F407 | `STM32F405RG`, `STM32F405OG`, `STM32F405VG`, `STM32F405ZG`, `STM32F405OE`, `STM32F407VE`, `STM32F407VG`, `STM32F407ZE`, `STM32F407ZG`, `STM32F407IE`, `STM32F407IG` | El encapsulado y la Flash; el F405 sin Ethernet ni DCMI (`doc/reutilizacion.md` §9) |
-| STM32F415 / F417 | `STM32F415RG`, `STM32F415OG`, `STM32F415VG`, `STM32F415ZG`, `STM32F417VE`, `STM32F417VG`, `STM32F417ZE`, `STM32F417ZG`, `STM32F417IE`, `STM32F417IG` | Los mismos, con el acelerador criptográfico |
-| STM32F446 | `STM32F446MC`, `STM32F446ME`, `STM32F446RC`, `STM32F446RE`, `STM32F446VC`, `STM32F446VE`, `STM32F446ZC`, `STM32F446ZE` | Otro die de la familia F4, con sus periféricos propios (`src/README.md`) |
-| STM32F302 / F303 / F358 | `STM32F303VC`, `STM32F303VB`, `STM32F303RC`, `STM32F303RB`, `STM32F303CC`, `STM32F303CB`, `STM32F302VC`, `STM32F302VB`, `STM32F302RC`, `STM32F302RB`, `STM32F302CC`, `STM32F302CB`, `STM32F358VC`, `STM32F358RC`, `STM32F358CC` | El die 0x422, en LQFP100, LQFP64 y LQFP48: el F302 sin ADC3/4 ni TIM8, el F358 sin USB (`doc/analisis_stm32f303.md`) |
-| MSP432P4 (TI) | `MSP432P401R` | La LaunchPad MSP-EXP432P401R; con `rom=`, `tlv=` y `bsl=` (abajo) |
-| MSP432E4 (TI) | `MSP432E401Y` | La LaunchPad MSP-EXP432E401Y; con `eth=` y `usb=` (abajo) |
+| Familia | Die | Línea | Tipos | Lo que los distingue |
+| :--- | :--- | :--- | :--- | :--- |
+| **STM32F4** (ST) | 0x413 | F405 / F407 | `STM32F405RG`, `STM32F405OG`, `STM32F405VG`, `STM32F405ZG`, `STM32F405OE`, `STM32F407VE`, `STM32F407VG`, `STM32F407ZE`, `STM32F407ZG`, `STM32F407IE`, `STM32F407IG` | El encapsulado y la Flash; el F405 sin Ethernet ni DCMI (`doc/reutilizacion.md` §9) |
+| | 0x413 | F415 / F417 | `STM32F415RG`, `STM32F415OG`, `STM32F415VG`, `STM32F415ZG`, `STM32F417VE`, `STM32F417VG`, `STM32F417ZE`, `STM32F417ZG`, `STM32F417IE`, `STM32F417IG` | Los mismos, con el acelerador criptográfico |
+| | 0x421 | F446 | `STM32F446MC`, `STM32F446ME`, `STM32F446RC`, `STM32F446RE`, `STM32F446VC`, `STM32F446VE`, `STM32F446ZC`, `STM32F446ZE` | Otro die de la familia F4, con sus periféricos propios (`src/README.md`) |
+| **STM32F3** (ST) | 0x422 | F303 | `STM32F303VC`, `STM32F303VB`, `STM32F303RC`, `STM32F303RB`, `STM32F303CC`, `STM32F303CB` | En LQFP100, LQFP64 y LQFP48; xB con 128 KB de Flash y 32 KB de SRAM, xC con 256 y 40 (`doc/analisis_stm32f303.md`) |
+| | 0x422 | F302 | `STM32F302VC`, `STM32F302VB`, `STM32F302RC`, `STM32F302RB`, `STM32F302CC`, `STM32F302CB` | El F303 sin ADC3/4, COMP3/5/7, OPAMP3/4, TIM7, TIM8 ni CCM |
+| | 0x422 | F358 | `STM32F358VC`, `STM32F358RC`, `STM32F358CC` | El F303xC sin USB, y con NPOR donde el F303 tiene PB2 |
+| **MSP432P4** (TI) | — | P401 | `MSP432P401R` | La LaunchPad MSP-EXP432P401R; con `rom=`, `tlv=` y `bsl=` (abajo) (`doc/analisis_msp432.md`) |
+| **MSP432E4** (TI) | — | E401 | `MSP432E401Y` | La LaunchPad MSP-EXP432E401Y; con `eth=` y `usb=` (abajo) (`doc/analisis_msp432.md`) |
+
+`mcu-sim --help` da la misma lista. **Lo que no está** —y por eso un
+`--mcu` con ello es un error—, de las familias de arriba:
+
+* **STM32F3**: solo está el die 0x422, que es lo que hicieron las fases S0 a
+  S9 de `doc/analisis_stm32f303.md`. Los otros cuatro dies de la familia no:
+
+  | Die | Referencias | Estado |
+  | :--- | :--- | :--- |
+  | 0x446 | F303xD/E, F302xD/E, F398xE | Analizado en `doc/analisis_f303xD-E_f303x6_8_F334.md`; sin empezar |
+  | 0x438 | F303x6/8, F334x4/6/8, F328x8 | Analizado en el mismo; sin empezar |
+  | 0x439 | F301x6/8, F302x6/8, F318x8 | Sin analizar |
+  | 0x432 | F373, F378 | Sin analizar: es otra línea, con ADC sigma-delta |
+
+* **STM32F4**: solo los dies 0x413 y 0x421; ni el F401, ni el F411, ni los
+  F42x/F43x, entre otros.
+* **MSP432**: solo esas dos referencias.
 
 Un tipo de **otra familia** no es un parámetro: es otro modelo, con su árbol de
 reloj y sus periféricos. Un tipo que no está en la lista es un error que dice
