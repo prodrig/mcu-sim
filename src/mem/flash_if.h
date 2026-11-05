@@ -18,6 +18,7 @@
 #ifndef STM32_MEM_FLASH_IF_H
 #define STM32_MEM_FLASH_IF_H
 
+#include <utility>
 #include <vector>
 #include <cstring>
 #include <cstdio>
@@ -206,6 +207,18 @@ public:
     // --restore-rdp: RDP al de fábrica (0xAA) en el bloque, aunque esté en el
     // nivel 2. Vale al recargar
     void restablece_rdp() { if (optb_.size() > 1) optb_[1] = 0xAA; }
+    // --restore-otp: la OTP entera -datos y bytes de bloqueo- a 0xFF, como sale
+    // de fábrica. No es lo que hace el chip, que no la borra nunca: es la salida
+    // del simulador para un `contenido` con la OTP gastada. Devuelve cuántos
+    // bytes de datos estaban programados y cuántos bloques bloqueados
+    std::pair<unsigned, unsigned> restablece_otp() {
+        unsigned datos = 0, bloques = 0;
+        for (size_t i = 0; i < otp_.size(); ++i) {
+            if (otp_[i] != 0xFFu) { if (i < 512u) ++datos; else ++bloques; }
+            otp_[i] = 0xFFu;
+        }
+        return {datos, bloques};
+    }
     bool     cr_locked()  const { return (cr_ & (1u << 31)) != 0; }
     bool     opt_locked() const { return (optcr_ & 1u) != 0; }
     unsigned latency()    const { return acr_ & 0xFu; }

@@ -101,6 +101,10 @@ public:
     // aunque esté en el nivel 2. Devuelve lo que ha hecho, o "" si ya estaba
     virtual bool tiene_rdp() const { return false; }
     virtual std::string restablece_rdp() { return std::string(); }
+    // `--restore-otp`: la OTP de un STM32F4 -datos y bytes de bloqueo- a la de
+    // fábrica, todo a 0xFF. Devuelve lo que ha hecho, o "" si ya estaba
+    virtual bool tiene_otp() const { return false; }
+    virtual std::string restablece_otp() { return std::string(); }
 
     // Lo que es, para los mensajes: "Flash", "Flash y EEPROM", "EEPROM de 64 bytes"
     std::string describe_nv() const {

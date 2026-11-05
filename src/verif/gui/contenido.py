@@ -31,7 +31,8 @@
 #   K6  LA OTP de un STM32F4 (0x1FFF_7800), con sus bytes de bloqueo: va y
 #       vuelve, y por GDB -como la programaria un firmware-, un bloque se
 #       programa hasta que su byte de bloqueo es 0x00, y el bloqueo dura de
-#       una simulacion a la siguiente;
+#       una simulacion a la siguiente; --restore-otp[=ID] la devuelve a la de
+#       fabrica, bloqueos incluidos, y sin contenido es un error;
 #   K7  LOS REGISTROS NO VOLATILES de un MSP432E401Y -BOOTCFG, USER_REG0-3,
 #       FMPRE y FMPPE, los que el firmware fija con COMT-: de fabrica no
 #       salen; los del fichero estan en vigor desde el arranque, y lo que se
@@ -525,6 +526,28 @@ def k6_otp(sim, d):
           not any(OTP + 32 <= a < OTP + 512 for a in m),
           "STM32F407: la OTP (0x1FFF_7800) y sus bytes de bloqueo (0x1FFF_7A00) van y vuelven, "
           "sin lo que esta a 0xFF")
+
+    # --restore-otp: la de fabrica, y en el fichero ya no sale
+    fr = os.path.join(d, "otp_r.hex")
+    escribe_hex(fr, dat)
+    rc, out, err = corre(sim, ["placas/discovery_min.xml", fw, "--ms=5", "--contenido", "u0=" + fr,
+                               "--restore-otp"])
+    m = lee_hex(fr)
+    check(rc == 0 and "--restore-otp en u0: la OTP a la de fabrica (todo a 0xFF): 32 bytes "
+          "programados y 1 bloques bloqueados" in out and m and
+          not any(OTP <= a < OTP + 528 for a in m),
+          "--restore-otp devuelve la OTP a la de fabrica -datos y bloqueos-, y ya no sale en el "
+          "fichero")
+    rc1, o1, e1 = corre(sim, ["placas/discovery_min.xml", fw, "--ms=1", "--restore-otp=u0"])
+    rc2, o2, e2 = corre(sim, ["placas/discovery_min.xml", fw, "--ms=1", "--restore-otp"])
+    rc3, o3, e3 = corre(sim, ["placas/stm32f3discovery.xml",
+                              "verif/fw/stm32f3/gpio_iotoggle/GPIO_IOToggle.bin", "--ms=1",
+                              "--contenido", "u0=" + os.path.join(d, "f3_otp.hex"),
+                              "--restore-otp=u0"])
+    check(rc1 != 0 and "no tiene contenido" in e1 and rc2 != 0 and "ningun STM32F4" in e2 and
+          rc3 != 0 and "ningun STM32F4 con ese id" in e3,
+          "--restore-otp sin contenido es un error -la OTP ya arranca de fabrica-, y en un "
+          "STM32F3, que no tiene OTP, tambien")
     if os.name == "nt":
         print("  (la OTP por GDB: con Ctrl-C para acabar, no en Windows)")
         return

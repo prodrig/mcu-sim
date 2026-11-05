@@ -724,6 +724,10 @@ del fichero. Los dos se guardan enteros o no se guardan: no hay medio BSL.
 **La OTP del F4** se programa como la Flash, y un bloque de 32 bytes no se
 programa más una vez que su byte de bloqueo está a 0x00: da WRPERR. Con
 `contenido`, lo grabado y lo bloqueado siguen así en la simulación siguiente.
+**`--restore-otp[=ID]`** —sin ID, todos los F4 con `contenido`— la devuelve a
+la de fábrica, todo a 0xFF y los bloqueos incluidos, justo después de cargar.
+El chip no la borra nunca: es la salida de un `contenido` con la OTP gastada.
+Sin `contenido` es un error, porque la OTP ya arranca de fábrica.
 
 **Los bytes de opción de un STM32 valen desde el primer arranque**, como en el
 chip: WDG_SW = 0 arranca el IWDG solo, BOR_LEV fija el umbral del BOR, nWRP y

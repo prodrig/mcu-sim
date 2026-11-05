@@ -148,6 +148,12 @@ Nada más del modelo lee la OTP.
 
 **Dificultad:** baja. Región con relleno 0xFF y el bloqueo en `program_write`.
 
+**La salida de emergencia:** como RDP, una OTP gastada en un `contenido` no
+tiene vuelta en el chip. **`--restore-otp[=ID]`** la devuelve a la de fábrica
+—todo a 0xFF, también los bytes de bloqueo— justo después de cargar el
+`contenido` de ese F4, y la consola dice cuántos bytes y bloqueos había. Sin
+`contenido` es un error: la OTP ya arranca de fábrica.
+
 ---
 
 ## 4. MSP432E401Y: los registros no volátiles

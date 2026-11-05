@@ -212,6 +212,10 @@ static std::vector<std::string> g_sin_firmware;                        // ids
 // su contenido, aunque este en el nivel 2. Sin ID, el de todos
 static std::vector<std::string> g_restore_rdp;
 static bool        g_restore_rdp_todos = false;
+// `--restore-otp[=ID]`: la OTP de un STM32F4 con `contenido` a la de fabrica
+// tras cargarlo. Sin ID, la de todos los que tienen contenido
+static std::vector<std::string> g_restore_otp;
+static bool        g_restore_otp_todos = false;
 static bool        g_sin_firmware_todos = false;
 // `--rom [ID=]VALOR` y `--tlv [ID=]FICHERO` (T4 del MSP432): la ROM de
 // DriverLib y el TLV de los chips que los tienen. Con ID, de ese chip, y
@@ -774,6 +778,44 @@ SC_MODULE(Sim) {
         }
         return con;
     }
+    // `--restore-otp[=ID]`: tras cargar, la OTP de esos STM32F4 -sin ID, de
+    // todos los que tienen `contenido`- a la de fabrica. Sin contenido no
+    // tiene sentido -la OTP arranca de fabrica-: con ID es un error, y sin ID,
+    // si no hay ninguno
+    void restablece_otp() {
+        if (!g_restore_otp_todos && g_restore_otp.empty()) return;
+        auto contenido_de = [&](mcu_if* m) -> MemoriaMontada* {
+            for (MemoriaMontada& mm : memorias)
+                if (mm.mcu == m && mm.cargada) return &mm;
+            return nullptr;
+        };
+        for (const std::string& id : g_restore_otp) {
+            McuMontado* e = nullptr;
+            for (McuMontado& m : mcus)
+                if (m.decl.id == id || (m.decl.id.empty() && id == "u0")) e = &m;
+            if (!e || !e->mcu->memoria_nv() || !e->mcu->memoria_nv()->tiene_otp())
+                muere("--restore-otp=" + id + ": no hay ningun STM32F4 con ese id (la OTP es "
+                      "de los STM32F4)");
+            if (!contenido_de(e->mcu))
+                muere("--restore-otp=" + id + ": ese chip no tiene contenido, y sin el su OTP "
+                      "ya arranca de fabrica");
+        }
+        unsigned n = 0;
+        for (McuMontado& m : mcus) {
+            memoria_nv_if* nv = m.mcu->memoria_nv();
+            if (!nv || !nv->tiene_otp() || !contenido_de(m.mcu)) continue;
+            const std::string id = m.decl.id.empty() ? std::string("u0") : m.decl.id;
+            if (!g_restore_otp_todos &&
+                std::find(g_restore_otp.begin(), g_restore_otp.end(), id) == g_restore_otp.end())
+                continue;
+            ++n;
+            const std::string q = nv->restablece_otp();
+            std::printf("--restore-otp en %s: %s\n", id.c_str(),
+                        q.empty() ? "la OTP ya estaba de fabrica" : q.c_str());
+        }
+        if (n == 0) muere("--restore-otp: ningun STM32F4 de la placa tiene contenido (la OTP "
+                          "arranca de fabrica sin el)");
+    }
     // `--restore-rdp[=ID]`: tras cargar, el RDP de esos chips -sin ID, de
     // todos los que lo tienen- a su valor de fabrica. Con ID, uno que no lo
     // tiene es un error
@@ -1113,6 +1155,7 @@ SC_MODULE(Sim) {
         if (!g_firmwares.empty())  no("--firmware");
         if (!g_sin_firmware.empty() || g_sin_firmware_todos) no("--sin-firmware");
         if (!g_restore_rdp.empty() || g_restore_rdp_todos) no("--restore-rdp");
+        if (!g_restore_otp.empty() || g_restore_otp_todos) no("--restore-otp");
         if (!g_roms.empty())       no("--rom");
         if (!g_tlvs.empty())       no("--tlv");
         if (!g_bsls.empty())       no("--bsl");
@@ -1414,6 +1457,7 @@ SC_MODULE(Sim) {
         // -sus datos en otras paginas- sigue ahi
         const std::set<mcu_if*> con_contenido = carga_memorias();
         restablece_rdp();
+        restablece_otp();
         for (McuMontado& m : mcus) {
             const char* quien = m.decl.id.empty() ? "" : m.decl.id.c_str();
             // Todo por la interfaz: DONDE va el firmware y donde esta la SRAM
@@ -2207,6 +2251,10 @@ static const OpcionCli OPCIONES[] = {
     {"--sin-firmware", "valor_opcional", "texto", "", "", "", true, true, "u0",
      "ese MCU -sin ID, todos- sin firmware, aunque el XML diga uno: el nucleo se "
      "aparca en wfe (un MSP432E4 con ROM arranca en blanco su cargador serie)"},
+    {"--restore-otp", "valor_opcional", "texto", "", "", "", true, true, "u0",
+     "la OTP de ese STM32F4 -sin ID, de todos los que tienen contenido- a la de "
+     "fabrica (todo a 0xFF, tambien los bytes de bloqueo) tras cargar su contenido: "
+     "el chip no la borra nunca; es la salida de un contenido con la OTP gastada"},
     {"--restore-rdp", "valor_opcional", "texto", "", "", "", true, true, "u0",
      "el RDP de ese STM32 -sin ID, de todos- a su valor de fabrica (0xAA, nivel 0) "
      "tras cargar su contenido, aunque este en el nivel 2, y sin borrar la Flash: "
@@ -2482,6 +2530,16 @@ int sc_main(int argc, char** argv) {
             }
             g_sin_firmware.push_back(id);
         }
+        else if (a == "--restore-otp") g_restore_otp_todos = true;
+        else if (a.rfind("--restore-otp=", 0) == 0) {
+            const std::string id = a.substr(14);
+            if (id.empty()) {
+                std::fprintf(stderr, "--restore-otp=: falta el id del MCU; sin igual es "
+                             "para todos los que tienen contenido\n");
+                return 1;
+            }
+            g_restore_otp.push_back(id);
+        }
         else if (a == "--restore-rdp") g_restore_rdp_todos = true;
         else if (a.rfind("--restore-rdp=", 0) == 0) {
             const std::string id = a.substr(14);
@@ -2666,6 +2724,9 @@ int sc_main(int argc, char** argv) {
                 "                                nucleo se aparca en wfe (un MSP432E4\n"
                 "                                con ROM: Flash en blanco, y arranca\n"
                 "                                el cargador serie de la ROM)\n"
+                "     sim placa.xml --restore-otp[=ID]  la OTP de ese STM32F4 -sin ID,\n"
+                "                                todos los que tienen contenido- a la de\n"
+                "                                fabrica tras cargarlo, bloqueos incluidos\n"
                 "     sim placa.xml --restore-rdp[=ID]  el RDP de ese STM32 -sin ID,\n"
                 "                                todos- a su valor de fabrica tras cargar\n"
                 "                                su contenido, aunque este en el nivel 2\n"

@@ -155,6 +155,14 @@ public:
                 ": el modelo del F4 no lo aplica -ni cierra la Flash al depurador ni lo "
                 "apaga-, pero se guarda. --restore-rdp lo devuelve al de fabrica"};
     }
+    bool tiene_otp() const override { return dut_->flash.mapa.otp_size != 0; }
+    std::string restablece_otp() override {
+        const auto n = dut_->flash.restablece_otp();
+        if (n.first == 0 && n.second == 0) return std::string();
+        return "la OTP a la de fabrica (todo a 0xFF): " + std::to_string(n.first) +
+               " bytes programados y " + std::to_string(n.second) + " bloques bloqueados. Es "
+               "--restore-otp: el chip no la borra nunca";
+    }
     bool tiene_rdp() const override { return true; }
     std::string restablece_rdp() override {
         const uint8_t r = dut_->flash.rdp();
