@@ -38,6 +38,7 @@
 #include "../top/soc_f4.h"
 #include "../parts/netlist.h"
 #include "../verif/image_loader.h"
+#include "../common/memoria_nv.h"
 
 namespace stm32 {
 
@@ -53,7 +54,7 @@ public:
 };
 
 template <class Chip>
-class AdaptadorF4 : public McuF4 {
+class AdaptadorF4 : public McuF4, public memoria_nv_if {
 public:
     AdaptadorF4(const char* nm, DebugCaps dbg, const Cableado& cab,
                 const McuCaps& c)
@@ -111,6 +112,66 @@ public:
     void reset_pin(bool activo) override {
         if (activo) dut_->pwr_pads.nrst.set_drive(d_nrst_, 0.0f, 100.0f);
         else        dut_->pwr_pads.nrst.set_hiz(d_nrst_);
+    }
+
+    // La Flash principal, la OTP y los bytes de opción, para `contenido`
+    // (common/memoria_nv.h). La OTP, en 0x1FFF_7800 con sus bytes de bloqueo,
+    // sin lo que esté a 0xFF. Los bytes de opción, en su bloque de 0x1FFF_C000
+    // (mem/flash_if.h: bloque_de_optcr), con la referencia de fábrica: no
+    // salen si nadie los ha programado
+    memoria_nv_if* memoria_nv() override { return this; }
+    std::vector<RegionNv> regiones_nv() const override {
+        const MapaFlash& m = dut_->flash.mapa;
+        std::vector<RegionNv> r{RegionNv::borrada("Flash", caps_.memoria.flash.base,
+                                                  caps_.memoria.flash.size)};
+        if (m.otp_size) r.push_back(RegionNv::borrada("OTP", m.otp_base, m.otp_size));
+        r.push_back(RegionNv::con_referencia("bytes de opcion", m.opt_base, dut_->flash.ob_de_fabrica()));
+        return r;
+    }
+    bool en_flash(uint32_t a) const {
+        return a >= caps_.memoria.flash.base && a - caps_.memoria.flash.base < caps_.memoria.flash.size;
+    }
+    bool en_ob(uint32_t a) const {
+        const MapaFlash& m = dut_->flash.mapa;
+        return a >= m.opt_base && a - m.opt_base < m.opt_size;
+    }
+    bool en_otp(uint32_t a) const {
+        const MapaFlash& m = dut_->flash.mapa;
+        return a >= m.otp_base && a - m.otp_base < m.otp_size;
+    }
+    bool lee_nv(uint32_t a, uint8_t& v) override {
+        return (en_flash(a) || en_otp(a) || en_ob(a)) && dut_->flash.peek_byte(a, v);
+    }
+    bool escribe_nv(uint32_t a, uint8_t v) override {
+        return (en_flash(a) || en_otp(a) || en_ob(a)) && dut_->flash.poke_byte(a, v);
+    }
+    // El fichero llega con NRST abajo, después del reset de alimentación que
+    // habría cargado los bytes de opción en OPTCR: se cargan ahora
+    std::vector<std::string> tras_cargar_nv(std::string&) override {
+        dut_->flash.recarga_opciones();
+        const uint8_t r = dut_->flash.rdp();
+        if (r == 0xAA) return {};
+        return {std::string("RDP en el nivel ") + (r == 0xCC ? "2" : "1") +
+                ": el modelo del F4 no lo aplica -ni cierra la Flash al depurador ni lo "
+                "apaga-, pero se guarda. --restore-rdp lo devuelve al de fabrica"};
+    }
+    bool tiene_otp() const override { return dut_->flash.mapa.otp_size != 0; }
+    std::string restablece_otp() override {
+        const auto n = dut_->flash.restablece_otp();
+        if (n.first == 0 && n.second == 0) return std::string();
+        return "la OTP a la de fabrica (todo a 0xFF): " + std::to_string(n.first) +
+               " bytes programados y " + std::to_string(n.second) + " bloques bloqueados. Es "
+               "--restore-otp: el chip no la borra nunca";
+    }
+    bool tiene_rdp() const override { return true; }
+    std::string restablece_rdp() override {
+        const uint8_t r = dut_->flash.rdp();
+        if (r == 0xAA) return std::string();
+        dut_->flash.restablece_rdp();
+        dut_->flash.recarga_opciones();
+        return std::string("RDP del nivel ") + (r == 0xCC ? "2" : "1") +
+               " al de fabrica (0xAA, nivel 0), sin borrar la Flash: es --restore-rdp, no lo "
+               "que haria el chip";
     }
 
     bool carga_firmware(const std::string& ruta) override {

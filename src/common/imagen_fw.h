@@ -213,7 +213,11 @@ inline std::string lee_titxt(const std::string& ruta, std::vector<TrozoFw>& t) {
 // Intel HEX, para los chips que no son un STM32 (el STM32 lo lee su propia
 // Flash, `FlashIf::load_ihex_file`, y así sigue). Registros 00 (datos), 01
 // (fin), 02 (segmento), 04 (dirección alta); 03 y 05 se aceptan y se ignoran.
-inline std::string lee_ihex(const std::string& ruta, std::vector<TrozoFw>& t) {
+// `vacio_vale`: un fichero sin datos -solo el registro de fin- no es un error.
+// Es lo que deja el `contenido` de una memoria que estaba borrada entera
+// (common/memoria_nv.h); un firmware vacío, en cambio, sí lo es.
+inline std::string lee_ihex(const std::string& ruta, std::vector<TrozoFw>& t,
+                            bool vacio_vale = false) {
     using namespace detalle_fw;
     t.clear();
     std::vector<uint8_t> f;
@@ -266,7 +270,7 @@ inline std::string lee_ihex(const std::string& ruta, std::vector<TrozoFw>& t) {
             default: return donde + "tipo de registro desconocido";
         }
     }
-    if (t.empty()) return ruta + ": el fichero Intel HEX no tiene datos";
+    if (t.empty() && !vacio_vale) return ruta + ": el fichero Intel HEX no tiene datos";
     return std::string();
 }
 

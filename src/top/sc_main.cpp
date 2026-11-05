@@ -9508,10 +9508,12 @@ SC_MODULE(F1Tb) {
               "sin errores: no hace falta que haya nadie en el bus");
         c_wr(C1_B, BxCanBase::R_TSR, 1u);
 
-        // --- Los contadores de error y el bus-off ------------------------------
+        // --- Los contadores de error: el error pasivo y el bus-off ------------
         // Se quita el nodo externo del bus. Sin nadie que asienta, cada intento
-        // suma ocho al contador de transmision, y a los 255 el bloque se
-        // desconecta solo: es el bus-off del protocolo.
+        // suma ocho al contador de transmision HASTA EL ERROR PASIVO, y ahi se
+        // queda: el error de asentimiento de un nodo en error pasivo no suma
+        // [ISO 11898-1, 12.1.4.2]. Un nodo solo en el bus reintenta sin fin y
+        // no se desconecta.
         c_wr(C1_B, BxCanBase::R_MCR, BxCanBase::M_INRQ);
         wait(20, SC_US);
         c_wr(C1_B, BxCanBase::R_BTR, BTR_500K);
@@ -9519,12 +9521,15 @@ SC_MODULE(F1Tb) {
         nodo_ext->set_enabled(false);
         wait(50, SC_US);
         unsigned intentos = 0;
-        while (intentos < 40 && !(c_rd(C1_B, BxCanBase::R_ESR) & BxCanBase::E_BOFF)) {
+        auto un_intento = [&]() {
             c_wr(C1_B, BxCanBase::R_MCR, BxCanBase::M_NART);
             can_enviar(C1_B, 0, 0x123, false, z, 1);
             can_espera_tx(C1_B, 0, sc_time(1, SC_MS));
             c_wr(C1_B, BxCanBase::R_TSR, 1u);
             ++intentos;
+        };
+        while (intentos < 24) {
+            un_intento();
             if (intentos == 12) {
                 const uint32_t e = c_rd(C1_B, BxCanBase::R_ESR);
                 std::printf("    tras %u intentos sin asentimiento: TEC = %u, ESR = 0x%08X\n",
@@ -9537,12 +9542,28 @@ SC_MODULE(F1Tb) {
                       "y pasados 128, EPVF: pasivo ante los errores");
             }
         }
-        const uint32_t esr = c_rd(C1_B, BxCanBase::R_ESR);
-        std::printf("    al cabo de %u intentos: ESR = 0x%08X (TEC = %u)\n",
+        uint32_t esr = c_rd(C1_B, BxCanBase::R_ESR);
+        std::printf("    al cabo de %u intentos sin asentimiento: ESR = 0x%08X (TEC = %u)\n",
+                    intentos, esr, (esr >> 16) & 0xFFu);
+        check(((esr >> 16) & 0xFFu) == 128u && !(esr & BxCanBase::E_BOFF) &&
+                  (esr & BxCanBase::E_EPVF),
+              "y AHI SE QUEDA: en error pasivo, sin asentimiento el TEC no sube de 128 y el nodo "
+              "no se desconecta [ISO 11898-1, 12.1.4.2]");
+        check_eq((esr >> 4) & 7u, 3u, "con LEC = 3, error de asentimiento");
+        // El bus-off llega con errores de BIT: con el transceptor en reposo, el
+        // hilo no lleva lo que el MCU pone, y su bit de arranque se lee
+        // recesivo. Cada intento suma 8, y al PASAR de 255 el bloque se
+        // desconecta solo.
+        xcvr1->set_standby(false);
+        wait(50, SC_US);
+        while (intentos < 60 && !(c_rd(C1_B, BxCanBase::R_ESR) & BxCanBase::E_BOFF)) un_intento();
+        esr = c_rd(C1_B, BxCanBase::R_ESR);
+        std::printf("    con el transceptor en reposo, al cabo de %u intentos: ESR = 0x%08X (TEC = %u)\n",
                     intentos, esr, (esr >> 16) & 0xFFu);
         check(esr & BxCanBase::E_BOFF,
-              "y al llegar a 255 el nodo se desconecta solo: bus-off [IR, 12.12]");
-        check_eq((esr >> 4) & 7u, 3u, "con LEC = 3, error de asentimiento");
+              "con errores de bit, al pasar de 255 el nodo se desconecta solo: bus-off [IR, 12.12]");
+        check_eq((esr >> 4) & 7u, 5u, "con LEC = 5, error de bit dominante");
+        xcvr1->set_standby(true);
         nodo_ext->set_enabled(true);
         c_wr(C1_B, BxCanBase::R_MCR, BxCanBase::M_INRQ);
         wait(20, SC_US);

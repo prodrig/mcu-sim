@@ -154,7 +154,7 @@ inline void SocF4::bind_periph_common() {
     // IWDG y RTC: sin bit ENR (siempre accesibles); RTC en dominio backup
     iwdg.clk(s_pclk1); iwdg.clk_hz(s_pclk1_hz); iwdg.rst_n(s_sysrst_n); iwdg.clk_en(s_true);
     iwdg.lsi_clk(s_lsiclk); iwdg.lsi_hz(s_lsi_hz); iwdg.freeze(s_freeze[FZ_IWDG]);
-    iwdg.hw_start(s_false);            // TODO(F2): option bit WDG_SW
+    iwdg.hw_start(s_iwdg_hw);          // option bit WDG_SW (iwdg_hw_proc)
     iwdg.rst_req(s_iwdg_rr);
     iwdg.lsi_on_req(s_iwdg_lsi);
     rtc.clk(s_pclk1); rtc.clk_hz(s_pclk1_hz); rtc.rst_n(s_sysrst_n); rtc.clk_en(s_true);

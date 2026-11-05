@@ -18,6 +18,7 @@
 #ifndef STM32_MEM_FLASH_IF_H
 #define STM32_MEM_FLASH_IF_H
 
+#include <utility>
 #include <vector>
 #include <cstring>
 #include <cstdio>
@@ -73,9 +74,9 @@ public:
           mem_(m.size, 0xFF), sysmem_(m.sysmem_size, 0xFF),
           otp_(m.otp_size, 0xFF), optb_(m.opt_size, 0xFF) {
         // Valor de fábrica de los option bytes (OPTCR = 0x0FFF AAED): RDP nivel
-        // 0, sin protección de escritura, BOR desactivado [IR, §5.7.1].
-        const uint32_t opt_factory = 0x0FFFAAEDu;
-        std::memcpy(optb_.data(), &opt_factory, 4);
+        // 0, sin protección de escritura, BOR desactivado [IR, §5.7.1]. En el
+        // bloque, todo a 1 salvo RDP = 0xAA (bloque_de_optcr)
+        bloque_de_optcr(0x0FFFAAEDu);
         icode.register_b_transport(this, &FlashIf::bt_icode);
         icode.register_transport_dbg(this, &FlashIf::dbg_mem);
         dcode.register_b_transport(this, &FlashIf::bt_dcode);
@@ -186,6 +187,38 @@ public:
     uint32_t reg_sr()     const { return sr_; }
     uint32_t reg_cr()     const { return cr_; }
     uint32_t reg_optcr()  const { return optcr_; }
+    // Lo cargado de los bytes de opción: WDG_SW (0 = el IWDG arranca solo) y RDP
+    bool     wdg_sw()     const { return (optcr_ >> 5) & 1u; }
+    uint8_t  rdp()        const { return uint8_t(optcr_ >> 8); }
+
+    // LOS BYTES DE OPCIÓN, para `contenido` (common/memoria_nv.h): el bloque
+    // de 0x1FFF_C000 se lee y se escribe con peek_byte/poke_byte; esto lo carga
+    // en OPTCR, como un reset, y avisa del BOR_LEV nuevo
+    void recarga_opciones() {
+        optcr_ = optcr_de_bloque() | 1u;
+        irq_ev_.notify(sc_core::SC_ZERO_TIME);
+    }
+    // Los de fábrica, en bytes: la referencia
+    std::vector<uint8_t> ob_de_fabrica() const {
+        std::vector<uint8_t> b(mapa.opt_size, 0xFF);
+        if (b.size() > 1) b[1] = 0xAA;
+        return b;
+    }
+    // --restore-rdp: RDP al de fábrica (0xAA) en el bloque, aunque esté en el
+    // nivel 2. Vale al recargar
+    void restablece_rdp() { if (optb_.size() > 1) optb_[1] = 0xAA; }
+    // --restore-otp: la OTP entera -datos y bytes de bloqueo- a 0xFF, como sale
+    // de fábrica. No es lo que hace el chip, que no la borra nunca: es la salida
+    // del simulador para un `contenido` con la OTP gastada. Devuelve cuántos
+    // bytes de datos estaban programados y cuántos bloques bloqueados
+    std::pair<unsigned, unsigned> restablece_otp() {
+        unsigned datos = 0, bloques = 0;
+        for (size_t i = 0; i < otp_.size(); ++i) {
+            if (otp_[i] != 0xFFu) { if (i < 512u) ++datos; else ++bloques; }
+            otp_[i] = 0xFFu;
+        }
+        return {datos, bloques};
+    }
     bool     cr_locked()  const { return (cr_ & (1u << 31)) != 0; }
     bool     opt_locked() const { return (optcr_ & 1u) != 0; }
     unsigned latency()    const { return acr_ & 0xFu; }
@@ -254,12 +287,28 @@ private:
         // desde el bloque programado, no desde una constante. Es lo que hace
         // que un BOR_LEV programado siga vigente en el siguiente arranque
         // [IR, §5.7]. OPTLOCK vuelve a 1 y OPTSTRT a 0.
-        std::memcpy(&optcr_, optb_.data(), 4);
-        optcr_ = (optcr_ & ~0x2u) | 1u;
-        // Los option bytes reflejan OPTCR en su primera palabra; el resto del
-        // bloque de 16 B no está detallado en las fuentes.
-        // ⚠ NO DISPONIBLE EN LAS FUENTES: distribución byte a byte del bloque
-        // de option bytes 0x1FFF C000-0x1FFF C00F.
+        optcr_ = optcr_de_bloque() | 1u;
+    }
+    // EL BLOQUE de 0x1FFF_C000, con la disposición de RM0090 para el
+    // F405/07/15/17 (la tabla de los bytes de opción):
+    //   0x1FFF_C000  USER: nRST_STDBY (7), nRST_STOP (6), WDG_SW (5), BOR_LEV (3:2)
+    //   0x1FFF_C001  RDP
+    //   0x1FFF_C008  nWRP[7:0]
+    //   0x1FFF_C009  nWRP[11:8] en los bits 3:0
+    // Los bits sin uso (4, 1 y 0 de USER; 15:12 de nWRP) y los bytes
+    // reservados, a 1, como la Flash borrada: el bloque de fábrica es todo
+    // 0xFF salvo RDP = 0xAA [de modelo: RM0090 no dice cómo se leen; a
+    // contrastar con un volcado de una placa]
+    uint32_t optcr_de_bloque() const {
+        const uint32_t user = optb_[0], rdp = optb_[1];
+        const uint32_t nwrp = (uint32_t(optb_[8]) | (uint32_t(optb_[9]) << 8)) & 0xFFFu;
+        return (user & 0xECu) | (rdp << 8) | (nwrp << 16);
+    }
+    void bloque_de_optcr(uint32_t o) {
+        optb_[0] = uint8_t((o & 0xECu) | 0x13u);
+        optb_[1] = uint8_t(o >> 8);
+        optb_[8] = uint8_t(o >> 16);
+        optb_[9] = uint8_t(((o >> 24) & 0x0Fu) | 0xF0u);
     }
     void reset_proc() { if (!rst_n.read()) { reset_regs(); o_irq_ = false; irq_ev_.notify(sc_core::SC_ZERO_TIME); } }
     void irq_proc()   {
@@ -389,6 +438,17 @@ private:
         return ((optcr_ >> (16 + sector)) & 1u) == 0;   // nWRP: 0 = protegido
     }
 
+    // LA OTP: 512 bytes en 16 bloques de 32, y detrás un byte de bloqueo por
+    // bloque. Un bloque no se programa más una vez que su byte de bloqueo está
+    // a 0x00 [RM0090, «One-time programmable bytes»]. El manual pide que esos
+    // bytes valgan 0x00 o 0xFF; con cualquier otra cosa el bloque se da por
+    // bloqueado [de modelo]. Programarlo da WRPERR, como un sector protegido
+    // [de modelo: el manual no dice qué error]
+    bool otp_bloqueada(uint32_t a) const {
+        if (mapa.otp_size < 528u || a < mapa.otp_base || a >= mapa.otp_base + 512u) return false;
+        return otp_[512u + (a - mapa.otp_base) / 32u] != 0xFFu;
+    }
+
     void set_err(uint32_t bit) { sr_ |= bit; update_irq(); }
     void update_irq() {
         const bool eopie = (cr_ >> 24) & 1u, errie = (cr_ >> 25) & 1u;
@@ -421,7 +481,7 @@ private:
         else if (a % ps)              { set_err(1u << 5); ok = false; }  // PGAERR
         else {
             const int sec = mapa.sector_de(a);
-            if (sec >= 0 && sector_write_protected(sec)) {
+            if ((sec >= 0 && sector_write_protected(sec)) || otp_bloqueada(a)) {
                 set_err(1u << 4); ok = false;                             // WRPERR
             } else {
                 for (unsigned i = 0; i < len; ++i)
@@ -574,7 +634,7 @@ private:
                 if (v & 1u) optcr_ |= 1u;             // OPTLOCK es 'rs'
                 irq_ev_.notify(sc_core::SC_ZERO_TIME);    // republica BOR_LEV
                 if (optcr_ & (1u << 1)) {             // OPTSTRT
-                    std::memcpy(optb_.data(), &optcr_, 4);
+                    bloque_de_optcr(optcr_);
                     optcr_ &= ~(1u << 1);
                     sr_ |= 1u;                        // EOP
                     update_irq();

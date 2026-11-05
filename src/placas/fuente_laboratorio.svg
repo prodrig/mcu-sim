@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+  FUENTE DE ALIMENTACION DE LABORATORIO, dibujada a mano: una aproximacion,
+  no una foto. Es el dibujo de placas/fuente_laboratorio.xml, que lo encuentra
+  solo porque se llama como ella. Generado por placas/dibuja_motores.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 100 x 60 mm- y cada pieza con el id de su pieza en el XML:
+
+    PSU    la ventanita del display, con sus dos filas: la Fuente. La ventana
+           escribe en la de arriba la tension y en la de abajo la corriente,
+           de media (el efecto `display` de la tabla de enlaces), y la rodea
+           de rojo cuando limita la corriente
+    P1     las dos bornas: P1.ROJO (+) y P1.NEGRO (-)
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" width="100mm" height="60mm">
+  <rect x="0" y="0" width="1000" height="600" rx="20" fill="#37474f" stroke="#263238" stroke-width="2"/>
+  <rect x="20" y="20" width="960" height="560" rx="12" fill="#cfd8dc" stroke="#90a4ae" stroke-width="1.5"/>
+  <rect x="56" y="56" width="508" height="278" rx="8" fill="#263238"/>
+  <g id="PSU">
+    <rect x="66" y="66" width="488" height="258" rx="4" fill="#111111" stroke="#000000" stroke-width="1.5"/>
+    <rect x="76" y="76" width="468" height="109" fill="#1a1a1a"/>
+    <rect x="76" y="205" width="468" height="109" fill="#1a1a1a"/>
+  </g>
+  <text x="66" y="360" font-family="Arial" font-size="15" fill="#263238">CV / CC</text>
+  <text x="554" y="360" font-family="Arial" font-size="15" fill="#263238" text-anchor="end">LIMITE 3,00 A</text>
+  <circle cx="690" cy="170" r="58" fill="#212121" stroke="#000000" stroke-width="2"/>
+  <circle cx="690" cy="170" r="44" fill="#424242"/>
+  <rect x="686" y="116" width="8" height="30" fill="#e0e0e0"/>
+  <text x="690" y="262" font-family="Arial" font-size="15" font-weight="bold" fill="#263238" text-anchor="middle">TENSION</text>
+  <circle cx="860" cy="170" r="58" fill="#212121" stroke="#000000" stroke-width="2"/>
+  <circle cx="860" cy="170" r="44" fill="#424242"/>
+  <rect x="856" y="116" width="8" height="30" fill="#e0e0e0"/>
+  <text x="860" y="262" font-family="Arial" font-size="15" font-weight="bold" fill="#263238" text-anchor="middle">CORRIENTE</text>
+  <text x="775" y="60" font-family="Arial" font-size="16" font-weight="bold" fill="#263238" text-anchor="middle">FUENTE DC  0-30 V  0-5 A</text>
+  <rect x="70" y="400" width="120" height="70" rx="6" fill="#212121" stroke="#000000" stroke-width="1.5"/>
+  <rect x="80" y="410" width="50" height="50" rx="4" fill="#e53935"/>
+  <text x="130" y="500" font-family="Arial" font-size="15" font-weight="bold" fill="#263238" text-anchor="middle">POWER</text>
+  <circle cx="690" cy="460" r="44" fill="#b71c1c" stroke="#7f0000" stroke-width="2"/>
+  <circle cx="860" cy="460" r="44" fill="#212121" stroke="#000000" stroke-width="2"/>
+  <g id="P1">
+    <circle id="P1.ROJO" cx="690" cy="460" r="22" fill="#ef5350" stroke="#7f0000" stroke-width="1.5"/>
+    <circle id="P1.NEGRO" cx="860" cy="460" r="22" fill="#616161" stroke="#000000" stroke-width="1.5"/>
+  </g>
+  <text x="690" y="548" font-family="Arial" font-size="30" font-weight="bold" fill="#b71c1c" text-anchor="middle">+</text>
+  <text x="860" y="548" font-family="Arial" font-size="34" font-weight="bold" fill="#212121" text-anchor="middle">-</text>
+</svg>

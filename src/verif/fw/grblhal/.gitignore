@@ -1,0 +1,7 @@
+# grblHAL es GPL-3: sus fuentes y su binario se bajan y se construyen aqui
+# (vease el Makefile), y no se versionan
+fuentes/
+o/
+grblhal.bin
+grblhal.elf
+grblhal.map

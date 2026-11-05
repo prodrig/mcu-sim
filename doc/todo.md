@@ -5,11 +5,13 @@ extraído de los veintidós informes de `doc/` y contrastado contra el código d
 `src/`. Fecha de corte original: fase F7 cerrada, **1811/1811 comprobaciones,
 0 fallos**.
 
-**Puesto al día con los dos planes de familia posteriores** —el del F446 y el
-del F415/F417—, que cerraron puntos y abrieron otros. Estado de hoy: **tres
-bancos**, `test407` (2118), `test446` (204) y `test417` (165), **0 fallos**, y
-los tres invariantes intactos —`2336217899213`, `1033367277932` y
-`718988288 ps`— **en Linux y en Windows, al picosegundo**.
+**Puesto al día con los planes posteriores** —el del F446, el del F415/F417,
+y después el puente serie, la ventana, los MSP432, el STM32F303 y la fresadora
+CNC—, que cerraron puntos y abrieron otros. Estado de hoy (2026-11-03): **ocho
+bancos**, `test407` (2151), `test446` (204), `test417` (165), `testf3` (428),
+`testp4` (406), `teste4` (296), `testserie` (189) y `testgui` (145), **0
+fallos**, y sus invariantes intactos al picosegundo **en las cuatro
+plataformas de la integración continua** (`src/verif/invariantes.txt`).
 
 ## Cómo leer este documento
 
@@ -64,6 +66,15 @@ redactar esta revisión, no solo leído en un informe.
   y **T7**: su conectividad y su criptografía —CCM, dos C_CAN, EMAC con
   PHY interno y lwIP por el puente Ethernet, el cargador por Ethernet de la
   ROM y el USB como CDC-ACM por el puente USB de clase—.
+- **Y otra generación de periféricos de ST** (**P-18**): el STM32F303 con la
+  STM32F3DISCOVERY, plan de diez fases en `doc/analisis_stm32f303.md`, **las
+  diez hechas** (S0-S9): los periféricos de segunda generación, los sensores
+  de la placa, lo analógico, el USB y el CAN, el cargador de sistema y las
+  quince referencias del die 0x422. `make testf3`.
+- **Y una fresadora CNC** de tres ejes, con sus motores, drivers, mecánica,
+  firmware y su vista 3D (`doc/analisis_cnc.md`, fases F0 a F8, en la rama
+  `cnc`). Lo que destapó en el modelo está en **T-24** (las reglas de error
+  del CAN) y **T-25** (la captura de TRC de los TIM).
 - **Cincuenta y una funciones "bits sin máquina"**: registros que se guardan, se
   enmascaran y se leen correctamente, pero cuya lógica no se ejecuta. Casi todas
   corresponden a caminos que ningún firmware corriente usa, y casi todas están
@@ -262,6 +273,10 @@ aquí:
 | z | ~~**Conectores acodados y derechos, para los hilos de la ventana**~~ **HECHO**, pedido por el uso. **`acodado="si"`** en un `Conector` (o un `Jumper`): los pines salen de lado, por el borde de la placa; por omisión, `no`, hacia arriba. Se comprueba (`si` o `no`), va en el `<conector>` de `T_PLACA` y la simulación no lo mira. `mcu-sim-gui` lleva un hilo al borde de un pin acodado y al centro de uno derecho, con un círculo (su plan §44). Acodados: el `P1` del KY-040, la pantalla TFT, el servo y el FT232RL. `make gui-sistema` C18 (144 → **147**). Ningún invariante se mueve | — |
 | aa | ~~**Un LED RGB: tres colores en un encapsulado, que se mezclan**~~ **HECHO**, pedido por el uso. (1) **`RGBLed`** (`parts/ext_parts.h`): tres `Led` hijos —rojo, verde, azul—, cada uno con su `vf_*` y su `r_*`, con la patilla común por dentro (`comun="catodo"` a masa, `"anodo"` a `vdd`) o a la vista (`<pin nombre="comun">`); `ExtPartBase::adopta` le pasa los terminales de los hijos y `retira` los saca del inventario, que la pieza es una. (2) **`color="#rrggbb"` en el catálogo** (`Observable::color`): un 0/1 y una corriente del mismo color son un canal; la ventana (mcu-sim-gui) suma los encendidos con su brillo y los lleva al tope —los tres, blanco—, pinta de su color el ● del panel y da al piloto generado un encapsulado claro. Sin cambiar la versión del protocolo: una ventana anterior pinta `encendido`, el primero. (3) **Las placas**: revisadas todas; solo dos llevan un LED RGB de verdad, la LED2 de la MSP-EXP432P401R y el D1 de la BOOSTXL-EDUMKII (este, con los transistores de su montaje como carga de cada canal), y su dibujo es ahora un único elemento con la cúpula clara. Los LED de colores sueltos (Discovery, Nucleo, MSP-EXP432E401Y) siguen siendo `Led`. (4) El informe del final dice «LED RGB LED2: cian». Ningún invariante se mueve | — |
 | ab | ~~**La sonda XDS110 de las LaunchPad MSP432, y una sonda CMSIS-DAP por TCP**~~ **HECHO**, X1 y X2 de `doc/analisis_xds110.md`. (1) **`Xds110`** (`parts/xds110.h`), el lado de la sonda de J101 en las dos LaunchPad: su LDO alimenta el chip por el puente 3V3 (`mcu_if::alimentacion_externa`: el adaptador deja DVCC/VDD a la placa; sin el puente, el chip no arranca), `--openocd` y `--cmsis-dap` van por sus pines TMS/TCK/RST, y la traza SWO -PJ.5 en el P401R, que gana TDO/SWO como función primaria; PC3 en el E401Y- sale con `swo=`, `--swo` y `--swo-bitrate` a memoria, TCP o RFC 2217, como texto del ITM o en crudo; `--espera-terminal` también espera a su cliente. La corriente del LDO se mide sin el umbral de 0,1 mV del nodo (`AnalogNet::corriente_exacta`). (2) **`SondaCmsisDap`** (`verif/sonda_cmsis_dap.h`, `--cmsis-dap` o `depuracion="cmsis-dap"`, puerto 4441), para el `cmsis-dap tcp` de OpenOCD en cualquier chip: programa el P401R en 1,0 s (4-6 s con `remote_bitbang`) y el F407 en 1,6 s (16 s); los WAIT se reintentan con espera, o el borrado de un sector del F407 no cabe en los 64 reintentos de OpenOCD. (3) La validación eléctrica reconoce un pad por su nodo, no solo por su nombre. (4) `make xds110` (15) y `make cmsis-dap` (25), en el CI de Linux; firmwares `p4_swo` y `e4_swo`; `.cfg` de CMSIS-DAP y configuraciones de CCS 20 en `ide/msp432/`. Ningún invariante se mueve | — |
+| ac | ~~**Un KY-040 de 24 PPR, y el servo con el FTDI**~~ **HECHO**, pedido por el uso. (1) **`pulsos=` en `Encoder`**: `pasos/2`, medio ciclo por clic —el de siempre, y el de omisión—, o `pasos`, **un ciclo entero por clic**: en el reposo los dos contactos abiertos, y cada clic los cierra y los abre, `a` delante a la derecha, en tres `desfase_ms` (que tienen que caber en `clic_ms`); otro valor es un error que dice los que valen. Sin el atributo, nada cambia. (2) **`placas/ky040_24ppr.xml`**: el KY-040 con `pasos="24" pulsos="24"` y el dibujo de `ky040.svg`. (3) **`placas/nucleo_f446re_encoder_tft_servo.xml`**: la Nucleo, el SG90 de aspa en cruz, el KY-040 de 24 PPR, la pantalla de pie con su RESET en D6 y el FT232RL en la USART3 por CN7.1 y CN7.2 con el jumper en 3.3V, con `verif/fw/encoder_tft_servo` —7,5 grados por clic, un flanco de CLK por clic, la consola por el FTDI, que escucha `+`, `-` y `0`—. Lo vigilan O8 y O9 de `make gui-ordenes`. Ningún invariante se mueve | — |
+| ad | ~~**Dos motores de continua con su encoder, tras un L298N**~~ **HECHO**, pedido por el uso. (1) **`MotorCC`** (`parts/motor_cc.h`): una f.e.m. `Ke·ω` en serie con `R` entre sus bornes —una `RamaFem`, que genera en los dos sentidos—, sin inductancia; el eje con su inercia, un rozamiento seco, uno de arranque mayor y la `carga` del mando, resuelto exacto entre dos cambios de los bornes —sin pasos fijos—; las cifras, las de una hoja de datos (las del TT de 1:48 por omisión). Con `ppr`, un encoder en cuadratura en el eje de salida, con los flancos calculados y no muestreados. Deja ver `angulo` —el disco gira en la ventana—, `rpm`, la corriente y la tensión de media, y la cuenta; mandos `bloquear` y `carga`. (2) **`L298`** (`parts/puente_h.h`): los dos puentes con su tabla de verdad —adelante, atrás, freno, libre—, entradas TTL, las caídas de la hoja de datos como fuentes de Thevenin, lo que pide a VS y VSS, lo que disipa y sus avisos. (3) **`Regulador`**: el 78M05, con su caída y la alarma `sin_margen`. (4) **`placas/l298n.xml`**, **`motor_tt_encoder.xml`** y **`bateria_2x18650.xml`** (sustituida en `ae`), con sus dibujos de `placas/dibuja_motores.py`, y **`placas/nucleo_f446re_encoder_lcd_servo_2xmcc.xml`** con `verif/fw/encoder_lcd_servo_2xmcc` —PWM del TIM4, encoders en el TIM2 y el TIM1 en modo encoder, el servo de aguja—. Lo vigilan M9 de `make gui-marcha`, O10 de `make gui-ordenes` y C21 de `make gui-sistema`. Ningún invariante se mueve | — |
+| ae | ~~**La inductancia del motor, y una fuente de laboratorio en vez de la batería**~~ **HECHO**, pedido por el uso. (1) **`MotorCC` con `l_mh`** (1,5 por omisión, una estimación): la corriente de la bobina y el eje se integran juntos con Runge-Kutta a pasos de 5 µs como pura cuenta; el proceso despierta en los cambios de los bornes, en los flancos del encoder y cuando la corriente cambia de sentido —ensayados de antemano con los mismos pasos— y cada 0,1 o 1 ms mientras algo se mueve. Para la red, una rama que deja pasar la corriente de la bobina. La sobretensión se avisa de media. (2) **`L298` con `diodos="si"`**: una salida que se suelta llevando corriente la sigue llevando por su diodo, a masa o a VS, hasta que cambia de sentido; el módulo L298N los lleva. (3) **`Fuente` con `media_ms`**: la corriente que deja ver es su media, y deja ver también la tensión, como el display de una fuente de mesa. (4) **`placas/fuente_laboratorio.xml`** (7,5 V, límite de 3 A, display de 100 ms) en lugar de `bateria_2x18650.xml`, que desaparece; en el sistema de los motores, sin el 5V-EN —la lógica del L298N, del +5V de la Nucleo—, para que la fuente enseñe lo de los motores. (5) **El efecto `display`** de la tabla de enlaces: la ventana escribe dentro del elemento, una por fila, los numéricos de `observable=` —el display de la fuente: la tensión y la corriente—; `mcu-sim` lo admite y lo manda en `T_PLACA`, y `mcu-sim-gui` lo pinta (su I26). Con PWM al 50 % a 1 kHz, el motor va a unas 145 rpm (antes, 196). Lo vigilan M9 y M10 de `make gui-marcha`, O10 de `make gui-ordenes` y C21 de `make gui-sistema`. Ningún invariante se mueve | — |
+| af | ~~**La memoria no volátil, de una simulación a la siguiente**~~ **HECHO**, pedido por el uso —lo que guardaba la Flash o una EEPROM se perdía al acabar—. (1) **`contenido="fichero.hex"`** en el `<mcu>` y el `<componente>` de una placa, en el `<mcu ref>` y el nuevo **`<memoria ref>`** de un sistema, y **`--contenido ID=FICHERO`**, por ese orden de menos a más: la memoria se carga de ese Intel HEX al arrancar y se guarda en él al acabar; si no existe, se crea al acabar. Valen la Flash de los STM32F4 y F3 (desde 0x0800_0000), la Flash y la de información del MSP432P401R, la Flash y la EEPROM del MSP432E401Y (esta en 0x400A_F000) y las `I2cEeprom`, `SdCard` y `ExtNand` (desde 0); un `contenido` en otra pieza es un error (`common/memoria_nv.h`, `doc/parts.md` §2.7). (2) **Primero el contenido y después el firmware encima**; sin firmware, el chip arranca con lo que traiga. (3) Se guarda al acabar con `--ms`, con `T_PARA` y con Ctrl+C o `SIGTERM`, que paran en el siguiente milisegundo simulado; `--valida` no toca nada. (4) **`--memorias`** las lista en XML para el diálogo de `mcu-sim-gui` (su plan §53). **`make gui-contenido`** (25) lo vigila contra el `mcu-sim` de verdad. Ningún invariante se mueve | — |
 
 **El riesgo que hay que vigilar, y tiene su mitigación escrita:** los dos
 `SC_THREAD` de la frontera se construyen siempre —la elaboración de SystemC es
@@ -967,6 +982,8 @@ Los tres puntos que siguen vienen del plan del F415/F417
 | **T-20** | **`VOS` afecta al consumo pero no a la frecuencia máxima**: el modelo **permite correr a 168 MHz en escala 3**, cosa que el silicio no admite. Único caso catalogado de comportamiento **más permisivo** que el hardware | F7-lowpower §7 |
 | **T-21** | **Un evento del EXTI despierta también de un `WFI`**. En ARM el registro de evento no debe despertar de un `WFI`. La distinción está hecha **a medias**: el núcleo ya no despierta con el registro de evento, pero sí con el nivel de la entrada | F7-lowpower §7 |
 | **T-23** | ~~**El IWDG resetea UN TICK ANTES de su plazo**~~ **CORREGIDO el 2026-09-23.** El modelo reseteaba al LLEGAR el contador a cero, o sea a las RLR cuentas; [RM0090, §21.3] da el plazo como `t_LSI x 4 x 2^PR x (RLR+1)`, que es lo que `timeout_s()` decía aquí desde siempre. Con un plazo de 201,0 ms el perro ladraba a los 200,0; ahora lo hace a los 201,1 —el primer sondeo del banco después del plazo—. **Lo destapó una diferencia entre versiones de SystemC**, no una comprobación: con la 3.0.2 el redondeo caía del otro lado y compensaba el tick por accidente. Y **la comprobación que debía cazarlo, `check_near(dti, timeout_s, 0.05)`, tenía un 5 % de tolerancia para un error del 0,5 %: diez veces más floja que el defecto.** Ahora es del **0,2 %** —±0,4 ms, cuatro veces el paso del sondeo y menos de medio tick—, o sea que puede fallar, que es lo mínimo que se le pide. **Mueve el invariante, a propósito y por primera vez desde la fase 7**: la columna `resto` del F407 pasa de `2239552024213` a `2240553274213 ps` (1,00125 ms más) y el total a `2337219149213`. Las otras dos suites no se mueven. Comprobado con SystemC 2.3.4 y 3.0.2: mismas cifras | F5-RTC/WDG, 2026-09-23 |
+| **T-24** | ~~**El motor CAN no seguía las reglas de error de ISO 11898-1**~~ **CORREGIDO el 2026-11-02** (lo destapó la fase F6 de `doc/analisis_cnc.md`: un analizador en el bus). Eran siete cosas del mismo sitio, `periph/can_motor.h`, y valen para el bxCAN y el C_CAN: (1) **sin nadie que asienta llegaba a bus-off**: el error de asentimiento de un nodo en error pasivo no suma al TEC, y un nodo solo en el bus se queda en TEC 128 reintentando [ISO 11898-1, 12.1.4.2]; (2) **la bandera de error de un nodo en error pasivo era dominante**, y es pasiva, seis recesivos [10.4.4.2]; (3) **el error de asentimiento se señalaba tras el fin de trama**, y sale en el delimitador de ACK, el bit siguiente a la ranura; (4) **tras un marco de error volvía a transmitir a los 8 bits recesivos**, sin los 3 de la intermisión; (5) **un emisor en error pasivo no se suspendía** los 8 bits que pide la norma; (6) **el REC subía de 8 en 8**, y sube de uno en uno; (7) **el bus-off llegaba con el TEC en 255**, y llega al pasar de 255. T87 daba por bueno (1): ahora comprueba que se queda en error pasivo, y llega al bus-off con errores de bit, con el transceptor en reposo. Mueve el invariante del F407 (`src/verif/invariantes.txt`) |
+| **T-25** | ~~**La captura de TRC de los TIM solo veía uno de cada dos cambios de los Hall**~~ **CORREGIDO el 2026-11-02** (lo destapó la fase F7 de `doc/analisis_cnc.md`: un BLDC conmutado por el TIM2 en su interfaz de Hall). Con `TI1S` —el XOR de los tres Hall en TI1— y `CC1S = 11`, la captura de TRC tiene que saltar en **cada** cambio del XOR: TRGI es TI1F_ED, que es de los dos flancos [RM0390, TIM1 y TIM8, la interfaz con sensores Hall]. El modelo la hacía en `cap_proc`, que mira la polaridad del canal, y solo capturaba en uno de cada dos: el firmware medía un periodo doble y no podía saber el sentido. Ahora la captura de los canales en TRC va en `trig_proc`, en cada flanco de TRGI, factorizada en `captura(c)`. Ninguna suite usaba TRC ni `TI1S`: **no mueve ningún invariante** |
 
 ---
 
@@ -1184,16 +1201,16 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 
 | Categoría | Puntos |
 | :--- | ---: |
-| **P** — Pendientes de plan | 17 *(una cerrada: P-14, con la matriz manual a medias; P-15, hecha su primera parte)* |
+| **P** — Pendientes de plan | 18 *(una cerrada: P-14, con la matriz manual a medias; P-15, hecha su primera parte)* |
 | **F** — Funciones no modeladas | 51 |
-| **T** — Temporización y física | 23 |
+| **T** — Temporización y física | 25 *(cuatro cerradas: T-22, T-23, T-24 y T-25)* |
 | **D** — Datos sin fuente | 14 |
 | **X** — Discrepancias, silencios de [IR] y erratas de ST | 14 |
 | **V** — Huecos de verificación | 11 |
-| **I** — Deuda de instrumentación y proyecto | 50 *(treinta cerradas: I-11, I-12, I-15, I-16, I-17, I-20, I-22, I-25, I-28, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38, I-39, I-40, I-41, I-42, I-43, I-44, I-45, I-46, I-47, I-48, I-53 e I-54)* |
-| **Total** | **180** |
+| **I** — Deuda de instrumentación y proyecto | 52 *(treinta y cinco cerradas: I-11, I-12, I-15, I-16, I-17, I-20, I-22, I-23, I-24, I-25, I-26, I-28, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38, I-39, I-40, I-41, I-42, I-43, I-44, I-45, I-46, I-47, I-48, I-50, I-51, I-53 e I-54)* |
+| **Total** | **185** |
 
-De los 180, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 185, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.
@@ -1209,3 +1226,9 @@ en el informe que la originó.
 > **Y una tercera (2026-10-17, al dar de alta P-17).** P-16 se añadió sin
 > contarla: la fila de la **P** decía 15 con dieciséis puntos escritos. Ahora
 > son 17 (P-01 a P-17) y el total, 180.
+>
+> **Y la cuarta (2026-11-03), contando otra vez fila a fila.** Faltaban por
+> contar P-18 (el F303) y T-24 y T-25 (el CAN y la captura de TRC, que destapó
+> la CNC); la fila de la I decía 50 con 52 escritos; y de la I había cerradas
+> cinco que la lista no nombraba (I-23, I-24, I-26, I-50 e I-51). Son
+> 18 + 51 + 25 + 14 + 14 + 11 + 52 = **185**.

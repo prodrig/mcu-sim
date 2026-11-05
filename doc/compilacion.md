@@ -32,21 +32,26 @@ tocar el `Makefile`, y qué hacer cuando falla. La segunda mitad está ordenada 
 ```bash
 cd src
 make                    # el simulador: build/mcu-sim
-make test407            # construye y ejecuta la suite del F407: 2149 comprobaciones
+make test407            # construye y ejecuta la suite del F407: 2151 comprobaciones
 make test446            # y la del F446: 204 comprobaciones
 make test417            # el acelerador criptografico del F415/F417: 165
+make testf3             # el STM32F303: 428
+make testp4             # el MSP432P401R: 406
+make teste4             # el MSP432E401Y: 296
+make testserie          # el puente UART: 189
+make testgui            # la frontera con mcu-sim-gui: 145
 
 make test407fw          # REGENERA los firmwares (estan versionados) y LUEGO la suite
 make test446fw          # lo mismo para la del F446
 make test417fw          # y para la del F415/F417
-make fw                 # solo los firmwares de las tres, sin simular
+make fw                 # solo los firmwares de todas las suites y placas, sin simular
 make cleanfw            # borrarlos todos (deja el arbol como recien clonado)
 make hash               # los vectores de MD5 y SHA-1, que no necesitan SystemC
 make cryp               # los de AES, DES y TDES, en las dos direcciones
 ```
 
 Hace falta **SystemC ≥ 2.3.3** de Accellera y un compilador con **C++17**. Nada
-más: el modelo son 45 000 líneas de C++17 y `<systemc>`, y la única dependencia
+más: el modelo son unas 115 000 líneas de C++17 y `<systemc>`, y la única dependencia
 del sistema operativo está en `common/red.h`.
 
 **Ejecuta siempre desde `src/`**, que es lo que hace `make`. Las imágenes de
@@ -598,7 +603,7 @@ arranca, y eso no lo arregla el guarda.
 
 ```bash
 make red        # 13 comprobaciones de la capa de red, sin SystemC
-make test407    # 2149 comprobaciones
+make test407    # 2151 comprobaciones
 make test446    # 204
 make test417    # 165
 ```
@@ -606,7 +611,7 @@ make test417    # 165
 Y el criterio que de verdad vale, más allá de que pasen: al final de `make test407`,
 
 ```
-TOTAL     : 2149 comprobaciones OK, 0 fallos
+TOTAL     : 2151 comprobaciones OK, 0 fallos
 Tiempo simulado: 2396293659555 ps
 ```
 
@@ -617,21 +622,24 @@ Y debajo, desde que la suite corrió en una segunda máquina, **tres líneas má
 
 ```
   de los cuales T96+T97 (socket de GDB): 108265875 ns
-  el resto                             : 2281827784555 ps
+  el resto                             : 2281249034555 ps
   huella de coremark.bin               : 0x644FCE21
   (la que debe ser esta en verif/fw/huellas.txt, y T00 lo comprueba: T-22)
 ```
 
 El total cambia de una máquina a otra —lleva dentro lo que T96 y T97 esperan
 al socket de GDB, **T-16**—; lo que se contrasta es **`resto`**. Y `resto` solo
-se ha movido tres veces, las tres a propósito y con su motivo en
+se ha movido cuatro veces, las cuatro a propósito y con su motivo en
 `src/verif/invariantes.txt`: de `2239552024213` a `2240553274213 ps` al
 corregir el tick de más del IWDG (**T-23**, 2026-09-23), y de ahí a
 `2245527784555 ps` al añadir **T131** (**I-53**, 2026-10-02), la prueba del
 SysTick que dejaba de interrumpir al reanudar una parada del depurador —el
 arreglo en sí no movía nada: los 4,97 ms son de la prueba—, y de ahí a
 `2281827784555 ps` al añadir **T132** (2026-10-03), la de los rebotes del
-pulsador, que tampoco mueven nada por sí solos: los 36,3 ms son de la prueba.
+pulsador, que tampoco mueven nada por sí solos: los 36,3 ms son de la prueba;
+y de ahí a `2281249034555 ps` al corregir las reglas de error del motor CAN
+(**T-24**, 2026-11-02): T87 comprobaba que un nodo sin nadie que asienta
+acabara en bus-off, y uno de verdad se queda en error pasivo.
 
 **La precondición para comparar dos máquinas no era la que parecía.** Mientras
 los `.bin` no se versionaron, se compilaban en cada sitio con el compilador
@@ -675,7 +683,7 @@ haber variado.)*
 
 | Plataforma | Estado |
 | :--- | :--- |
-| Linux, g++ 13 | **Verificado**: 2149/2149, 204/204, 165/165, `make red` 13/13, ASan limpio en los tres |
+| Linux, g++ 13 | **Verificado**: las ocho suites —2151/2151, 204/204, 165/165, 428/428, 406/406, 296/296, 189/189 y 145/145—, `make red` 13/13, ASan limpio |
 | Linux, clang | **Verificado** con el codigo anterior a versionar los firmwares: 2117/2117, mismo tiempo simulado al picosegundo. Falta repetirlo; no se espera nada distinto, pero no se ha hecho |
 | **Windows, MSYS2 / MinGW-w64** | **VERIFICADO POR COMPLETO, y los TRES invariantes coinciden con los de Linux al picosegundo.** Con los firmwares versionados: **2118/2118** en `2336217899213 ps` (huella `0x644FCE21`), **204/204** en `1033367277932 ps` y **165/165** en `718988288 ps`. Antes, con los firmwares de cada sitio, el del F407 salia `2334217899213 ps`: los 2 ms eran el binario y nada mas (**T-22**) |
 | Windows, cruzado desde Linux | **Compila y enlaza** (`make red PLATAFORMA=windows CXX=x86_64-w64-mingw32-g++`, PE32+ sin avisos). Ojo: el cruzado de Debian usa hilos **win32** y el de MSYS2 **posix**, así que no reproduce el caso de §5.6 |
@@ -709,19 +717,22 @@ El F446 y el F417 se ejecutaron **dos veces**, con salida idéntica: el tiempo
 simulado no depende de la carga de la máquina, como debe ser en un modelo
 donde el tiempo lo lleva el planificador y no el reloj de pared.
 
-En **macOS** sigue faltando la verificación, pero ya no es un hueco sin plan:
-entra por la **integración continua**, en las dos arquitecturas y sobre
-hardware Apple real —que es la única forma legal de probarlo desde un PC con
-Windows, porque la licencia de macOS solo permite virtualizarla sobre un
-ordenador Apple—. Está contado en **`doc/integracion_continua.md`**, y sigue
-siendo el punto **I-23** del trabajo pendiente hasta que salgan las 2 118
-comprobaciones y el invariante.
+En **macOS** la verificación llegó por la **integración continua**, en las dos
+arquitecturas y sobre hardware Apple real —que es la única forma legal de
+probarlo desde un PC con Windows, porque la licencia de macOS solo permite
+virtualizarla sobre un ordenador Apple—. Salieron las 2 118 comprobaciones de
+entonces y el invariante, y el punto **I-23** se cerró el 2026-09-23. Está
+contado en **`doc/integracion_continua.md`**.
+
+*(Las cifras de esta sección son las de cuando se verificó cada plataforma.
+Las de hoy, las ocho suites, están en `src/verif/invariantes.txt`, y la
+integración continua las contrasta en las cuatro en cada cambio.)*
 
 ## 8.1 Y lo mismo, en cada cambio
 
-`.github/workflows/suites.yml` ejecuta las tres suites en las cuatro
+`.github/workflows/suites.yml` ejecuta las ocho suites en las cuatro
 plataformas en cada empujón a `main`, y **contrasta el tiempo simulado contra
-`src/verif/invariantes.txt`**, que es donde viven esas tres cifras una sola vez.
+`src/verif/invariantes.txt`**, que es donde viven esas cifras una sola vez.
 Si no coinciden, el trabajo falla; no avisa, falla. El porqué de ese criterio
 —y no el de «las suites pasan»— está en §7, y el detalle de los cuatro trabajos
 en `doc/integracion_continua.md`.

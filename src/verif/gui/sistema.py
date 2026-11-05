@@ -68,6 +68,11 @@
 #   C20 el LED RGB: la LED2 de la P401R y el D1 de la EDUMKII son UNA pieza
 #       RGBLed, con sus patillas r/g/b, y el catalogo marca sus canales con
 #       color= para que la ventana los mezcle.
+#   C21 las placas del sistema de los motores -el L298N, el motorreductor con
+#       su encoder y la fuente de laboratorio-, con su dibujo de
+#       placas/dibuja_motores.py:
+#       cada pieza visible y cada pin, con su id; los puentes de ENA, ENB y
+#       5V-EN, como variantes; y en el sistema, el L298N sin los de ENA y ENB.
 #
 #   make -f Makefile.mcu-sim gui-sistema
 #   python3 verif/gui/sistema.py [--sim build/mcu-sim]
@@ -147,9 +152,10 @@ def nodo_de_led(out, id_):
 def c1_conector(sim, cp):
     grupo("C1 Un conector en una placa")
     rc, out, err = corre(sim, ["placas/nucleo_f446re.xml", "--valida"])
-    check(rc == 0 and "11 componentes, 170 nodos, 0 avisos" in out,
+    check(rc == 0 and "13 componentes, 171 nodos, 0 avisos" in out,
           "la Nucleo con sus cuatro conectores Arduino y sus dos morpho valida sin un aviso: "
-          "154 nodos del chip, el +5V del USB y 15 pines de conector al aire -5 de los Arduino "
+          "154 nodos del chip, el +5V del USB, el de B1 -con su pull-up de 4K7- y 15 pines de "
+          "conector al aire -5 de los Arduino "
           "(VIN, AREF, un NC, y D0 y D1, que son del VCP) y 10 de los morpho (E5V, VIN y los "
           "NC)-, ninguno flotante")
     placa = cp.escribe("c1.xml", """<placa nombre="c1">
@@ -777,7 +783,7 @@ def c11_barra(sim, cp):
           "con las dos patillas, a_vss no tiene sentido, y escribirlo es un error que lo dice")
 
     rc, out, err = corre(sim, ["placas/barra8_en_nucleo.xml", "--valida"])
-    check(rc == 0 and "1 MCU(s), 20 componentes, 170 nodos, 0 avisos" in out and
+    check(rc == 0 and "1 MCU(s), 22 componentes, 171 nodos, 0 avisos" in out and
           "dibujo B: barra8_rojo.svg" in out,
           "placas/barra8_en_nucleo.xml: la barra cableada a la Nucleo con nueve hilos, el "
           "comun a D10; ni un aviso")
@@ -906,7 +912,7 @@ def c12_nombres_y_morpho(sim, cp):
     ej = "placas/nucleo_f446re_barra8ac_azul.xml"
     rc, out, err = corre(sim, [ej, "--valida"])
     check(rc == 0 and "3 placas: N (nucleo-f446re), B (barra8-anodo-comun-azul)" in out and
-          "1 MCU(s), 26 componentes, 174 nodos, 0 avisos" in out,
+          "1 MCU(s), 28 componentes, 175 nodos, 0 avisos" in out,
           "%s: la Nucleo y la barra de anodo comun azul, nueve hilos, ni un aviso -el comun "
           "es bus aunque el hilo lo lleve a VDD-" % ej)
     rc, out, err = corre(sim, [ej, "--ms=75"])
@@ -1046,7 +1052,7 @@ def destino_dibujado(svg):
 def c14_vcp(sim, cp):
     grupo("C14 El VCP del ST-LINK de la Nucleo, y la barra con el FT232RL")
     rc, out, err = corre(sim, ["placas/nucleo_f446re.xml", "--valida"])
-    check(rc == 0 and "11 componentes, 170 nodos, 0 avisos" in out and
+    check(rc == 0 and "13 componentes, 171 nodos, 0 avisos" in out and
           "serie VCP: RFC 2217 en localhost:3355" in out,
           "la Nucleo lleva el VCP de su ST-LINK: un puente UART en la USART2, por RFC 2217 en "
           "el 3355; D0 y D1 se quedan al aire, que PA3 y PA2 son del VCP")
@@ -1087,7 +1093,7 @@ def c14_vcp(sim, cp):
     ej = "placas/nucleo_f446re_barra8ac_azul.xml"
     rc, out, err = corre(sim, [ej, "--valida"])
     check(rc == 0 and "3 placas: N (nucleo-f446re), B (barra8-anodo-comun-azul), "
-          "F (ftdi-ft232rl)" in out and "1 MCU(s), 26 componentes, 174 nodos, 0 avisos" in out
+          "F (ftdi-ft232rl)" in out and "1 MCU(s), 28 componentes, 175 nodos, 0 avisos" in out
           and "serie N/VCP: RFC 2217 en localhost:3355" in out and
           "serie F/U1: RFC 2217 en localhost:3356" in out,
           "%s lleva el FT232RL, y dos puertos serie: el VCP en el 3355 y el adaptador en el "
@@ -1420,7 +1426,8 @@ def c19_ti(sim, cp):
     f = cp.escribe("obs.xml", MODULO % ('', '<ilustracion><enlace pieza="LD" elemento="LD" '
                                          'efecto="brillo" observable="corriente"/></ilustracion>'))
     rc, out, err = corre(sim, [f, "--valida"])
-    check(rc != 0 and "observable= solo vale con efecto=\"giro\" o \"angulo\"" in out + err,
+    check(rc != 0 and "observable= solo vale con efecto=\"giro\", \"angulo\", \"display\", "
+          "\"desplaza\" o \"pantalla\"" in out + err,
           "observable= con un efecto que no gira no se acepta, y se dice")
     # S7: la Discovery en el cargador, con el FT232RL en la USART1
     rc, out, err = corre(sim, ["placas/stm32f3discovery_boot0.xml", "--valida"])
@@ -1504,6 +1511,59 @@ def c20_rgb(sim, cp):
         check(not sueltos, "y ya no hay tres Led sueltos (%s)" % sueltos)
 
 
+# ---------------------------------------------------------------------------
+# C21
+# ---------------------------------------------------------------------------
+PLACAS_MOTORES = ("l298n", "motor_tt_encoder", "fuente_laboratorio")
+
+
+def c21_motores(sim, cp):
+    grupo("C21 El L298N, el motor con su encoder y la fuente, con su dibujo")
+    esperado = {
+        "l298n": ("placa 'l298n': SIN MCU, 10 componentes", "JA 5V-ENA, JB ENB-5V, JP5 REG-5V)"),
+        "motor_tt_encoder": ("placa 'motor-tt-encoder': SIN MCU, 3 componentes", "(8 kB)"),
+        "fuente_laboratorio": ("placa 'fuente-laboratorio': SIN MCU, 2 componentes", "kB)"),
+    }
+    for n in PLACAS_MOTORES:
+        rc, out, err = corre(sim, ["placas/%s.xml" % n, "--valida"])
+        cab, dib = esperado[n]
+        check(rc == 0 and cab in out and "0 avisos" in out and ("dibujo: %s.svg (" % n) in out and
+              dib in out, "placas/%s.xml valida sin un aviso, con su dibujo" % n)
+        f = piezas_sin_dibujo(n)
+        check(not f, "%s.svg: cada pieza visible y cada pin de conector, con su id (faltan: %s)"
+              % (n, f))
+    with open(os.path.join(SRC, "placas", "l298n.svg"), encoding="utf-8") as fh:
+        svg = fh.read()
+    check(all(('id="%s"' % x) in svg for x in ("JA@5V-ENA", "JB@ENB-5V", "JP5@REG-5V")),
+          "los tres puentes del L298N son variantes del dibujo")
+    with open(os.path.join(SRC, "placas", "motor_tt_encoder.svg"), encoding="utf-8") as fh:
+        svg = fh.read()
+    check('<g id="MOTOR">' in svg and svg.count('transform="rotate(') >= 24,
+          "el disco del motor, con sus 24 ventanas, es el elemento MOTOR: el que gira")
+    rc, out, placa, il, av = saludo_con_dibujos(
+        sim, ["placas/nucleo_f446re_encoder_lcd_servo_2xmcc.xml"])
+    l298 = [d for (pl, d) in [(x[0].get("placas"), x[1]) for x in il] if pl and "L" in pl.split()]
+    check(rc == 0 and len(l298) == 1 and b'id="JA@5V-ENA"' not in l298[0] and
+          b'id="JB@ENB-5V"' not in l298[0] and b'id="JP5@REG-5V"' not in l298[0],
+          "en el sistema de los motores, la ventana recibe el L298N sin los puentes de ENA y "
+          "ENB -llevan el PWM- ni el 5V-EN -la logica va al +5V de la Nucleo-")
+    rc, out, err = corre(sim, ["placas/fuente_laboratorio.xml", "--valida"])
+    rc2, out2, placa, il, av = saludo_con_dibujos(sim, ["placas/fuente_laboratorio.xml"])
+    r = ET.fromstring(placa) if placa else None
+    en = [e.attrib for e in r.iter("enlace")] if r is not None else []
+    check(rc == 0 and {"pieza": "PSU", "elemento": "PSU", "efecto": "display",
+                       "observable": "tension corriente"} in en,
+          "la fuente: su display, con efecto=display y la tension y la corriente, una por "
+          "fila, en T_PLACA")
+    for enl, dice in (('efecto="angulo" observable="tension corriente"', "observable= es uno solo"),
+                      ('efecto="pantallita"', "angulo, display, desplaza o ninguno")):
+        f = cp.escribe("disp.xml", MODULO % ('', '<ilustracion><enlace pieza="LD" elemento="LD" '
+                                              '%s/></ilustracion>' % enl))
+        rc, out, err = corre(sim, [f, "--valida"])
+        check(rc != 0 and dice in out + err,
+              "%s no se acepta, y se dice" % enl)
+
+
 def main():
     a = argparse.ArgumentParser(description="conectores y sistemas de placas")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -1535,6 +1595,7 @@ def main():
         c18_acodado(sim, cp)
         c19_ti(sim, cp)
         c20_rgb(sim, cp)
+        c21_motores(sim, cp)
     finally:
         cp.borra()
     return ventana.resumen("SISTEMA")

@@ -3,15 +3,17 @@
 Un simulador didáctico, pensado para quien desarrolla en el IDE de su
 microcontrolador —STM32CubeIDE, Code Composer Studio— y no tiene la tarjeta
 delante: se compila el firmware igual que para el chip y se ejecuta contra este
-modelo igual que contra una placa. Hoy hay **tres familias, de dos fabricantes,
-y treinta referencias** montables:
+modelo igual que contra una placa. Hoy hay **seis familias, de dos fabricantes,
+y 46 referencias** montables:
 
 | Familia | Referencias | Dónde está |
 | :--- | :--- | :--- |
 | **STM32F405 / F407** | once, del LQFP64 al UFBGA176 | `src/top/soc_f4.h` + su descriptor |
 | **STM32F415 / F417** | diez, las mismas **con el acelerador criptográfico** | el mismo netlist, otro descriptor |
 | **STM32F446** | ocho, del WLCSP81 al UFBGA144 | `src/soc/stm32f446.h` + su descriptor |
-| **MSP432P401R** (Texas Instruments) | una, el LQFP100 de la LaunchPad | `src/soc/msp432p4/` — fase T1 de `doc/analisis_msp432.md` |
+| **STM32F302 / F303 / F358** | quince, del die 0x422, en LQFP48, LQFP64 y LQFP100 | `src/soc/stm32f3/` — `doc/analisis_stm32f303.md` |
+| **MSP432P401R** (Texas Instruments) | una, el LQFP100 de la LaunchPad | `src/soc/msp432p4/` — `doc/analisis_msp432.md`, T0 a T5 |
+| **MSP432E401Y** (Texas Instruments) | una, el TQFP128 de la LaunchPad | `src/soc/msp432e4/` — `doc/analisis_msp432.md`, T6 y T7 |
 
 Que las diez del F415/F417 sean «el mismo netlist con otro descriptor» es
 exactamente lo que el proyecto quería poder decir: un chip nuevo de una familia
@@ -60,7 +62,7 @@ P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
 | **F7** (ETH) | Ethernet 10/100: MII/RMII en los pines, MDIO, descriptores, filtrado, MMC y PTP | **completada** |
 | F7 (resto) | afinado AT | pendiente |
 
-**Hay TRES bancos de familia, y son tres ejecutables distintos a propósito**:
+**Hay SEIS bancos de chip, y son seis ejecutables distintos a propósito**:
 montar un segundo chip dentro de una simulación mueve su tiempo simulado, así
 que cada familia corre la suya. **Y dos más**, que van aparte por la misma
 razón —lo que prueban, dentro de `test407`, movería su invariante—:
@@ -69,25 +71,26 @@ razón —lo que prueban, dentro de `test407`, movería su invariante—:
 
 | Orden | Qué ejecuta | Comprobaciones | Tiempo simulado |
 | :--- | :--- | ---: | ---: |
-| `make test407` | La suite acumulada de las siete fases, sobre el F407VG | **2149** | `2396293659555 ps` (`resto`: **`2281827784555 ps`**) |
+| `make test407` | La suite acumulada de las siete fases, sobre el F407VG | **2151** | `2416514909555 ps` (`resto`: **`2281249034555 ps`**) |
 | `make test446` | La del F446RE y sus ocho referencias | **204** | `1033367277932 ps` |
 | `make test417` | La del acelerador criptográfico del F415/F417 | **165** | `718988288 ps` |
 | `make testserie` | La del puente UART: `PuenteSerie`, un F407 con `vcp_demo` y clientes TCP y RFC 2217 de verdad | **189** | `400677589564 ps` |
 | `make testp4` | La del MSP432P401R (P-16, fases T0 a T5): las pruebas de T0 -nombres de pin por chip, catalogo comun, ELF/TI-TXT/HEX, integracion del nucleo-, el chip con `p4_demo` cargado como ELF y CoreMark; T2: el FLCTL, un firmware que reprograma su Flash y una sesion de GDB por los pines y por el DAP; T3: todos los perifericos, el bajo consumo, las piezas de la BOOSTXL-EDUMKII y los ejemplos de DriverLib; T4: la ROM de DriverLib, ejemplos del SDK sin modificar que usan `MAP_`, el TLV de fichero y FreeRTOS; y T5: el BSL con la Flash en blanco y desde una aplicacion | **406** | `22678579139423 ps` (`resto`: **`22456139139423 ps`**) |
-| `make teste4` | La del MSP432E401Y (P-17, fase T6): el chip con `e4_demo` (PIOSC, 120 MHz por las dos fuentes del PLL y los avisos de `MEMTIM0`, el GPIO de Tiva, los perros, CoreMark), la Flash y la EEPROM con DriverLib, GDB por los pines y por el DAP con `load`, los periféricos con DriverLib (`e4_t3`) y la ROM R1 con su cargador serie (`e4_rom` con `MAP_`, la Flash en blanco, `ROM_UpdateUART`, `BOOTCFG`) | **203** | `3881378197978 ps` (`resto`: **`3683870847978 ps`**) |
+| `make teste4` | La del MSP432E401Y (P-17, fase T6): el chip con `e4_demo` (PIOSC, 120 MHz por las dos fuentes del PLL y los avisos de `MEMTIM0`, el GPIO de Tiva, los perros, CoreMark), la Flash y la EEPROM con DriverLib, GDB por los pines y por el DAP con `load`, los periféricos con DriverLib (`e4_t3`) y la ROM R1 con su cargador serie (`e4_rom` con `MAP_`, la Flash en blanco, `ROM_UpdateUART`, `BOOTCFG`); y desde T7, la conectividad y la criptografía: el CCM con todos sus vectores (`e4_t7`), CAN entre dos E4, el EMAC con lwIP, el cargador por Ethernet y el USB como CDC-ACM | **296** | `4702656025235 ps` (`resto`: **`4505148675235 ps`**) |
+| `make testf3` | La del STM32F303 (P-18, fases S0 a S9 de `doc/analisis_stm32f303.md`): el chip y la STM32F3DISCOVERY con la rosa; el FPEC y GDB; los periféricos de segunda generación (USART v2, DMA por canales, SPI v3, I2C, TIM v3, RTC); los sensores de la placa; lo analógico (ADC por parejas, DAC, comparadores, amplificadores); el USB y el CAN; el cargador de sistema propio, con el protocolo de AN3155; y las quince referencias del die 0x422 | **428** | `117644316504660 ps` (`resto`: **`116875480154660 ps`**) |
 | `make testgui` | La de la frontera con `mcu-sim-gui`: lo que cada pieza deja ver y tocar, el catálogo, el muestreador, el aplicador y el enlace que atiende la conexión en marcha —instantáneas, avisos, órdenes con sus ecos, la pausa y los pasos—, sobre una placa mínima sin chip | **145** | `76450000000 ps` |
 
-**En una máquina nueva no hace falta nada más**: los diecinueve firmwares que
-las suites cargan en la Flash **están versionados** (37 KB), así que `make
-test407` funciona en un árbol recién clonado y **sin compilador cruzado de
-ARM**. Cuál es la imagen buena lo dice `verif/fw/huellas.txt`, y el primer
-grupo de cada suite —`T00` en el F407, `A0` en las otras dos— lo comprueba
-antes de simular nada. `make fw407` y compañía siguen ahí para **regenerarlos**,
+**En una máquina nueva no hace falta nada más**: los 118 firmwares que
+las suites cargan en la Flash **están versionados** (unos 2 MB, muchos de
+ellos ejemplos de ST y de TI sin modificar), así que `make test407` funciona en
+un árbol recién clonado y **sin compilador cruzado de ARM**. Cuál es la imagen
+buena lo dice `verif/fw/huellas.txt`, y el primer grupo de cada suite —`T00`
+en el F407, `A0` en el F446 y el F417— lo comprueba antes de simular nada. `make fw407` y compañía siguen ahí para **regenerarlos**,
 que es otra cosa y avisa antes: `doc/compilacion.md` §6, y **T-22** para el
 motivo.
 
-Las 2149 del primero salen de: 1 de T00 + 143 de F1 + 12 de F2 + 85 de F3 + 345 de F4
-(DMA, UART/USART, TIM y EXTI/SYSCFG) + 678 de F5 (SPI/I2S, I2C, ADC, DAC, RTC y
+Las 2151 del primero salen de: 1 de T00 + 143 de F1 + 12 de F2 + 85 de F3 + 345 de F4
+(DMA, UART/USART, TIM y EXTI/SYSCFG) + 680 de F5 (SPI/I2S, I2C, ADC, DAC, RTC y
 perros guardianes, SDIO, CRC/RNG y bxCAN) + 159 de F6 (depuración y los dos
 servidores GDB) + 426 de F7 (116 de bajo consumo, 61 del DCMI, 54 del FSMC,
 113 del USB OTG y 82 del Ethernet) + 300 del netlist y las piezas sueltas. Código de salida 0 si
@@ -116,7 +119,11 @@ prueba que lo vigila, con sus 4,97 ms propios: `resto` en `2245527784555 ps`.
 **La tercera, el 2026-10-03**, igual: los rebotes del pulsador no mueven nada
 —un pulsador sin rebote no crea ningún proceso, y los del banco se montan sin
 rebote—, y lo que suma es **T132**, su prueba, con 36,3 ms propios: `resto` en
-`2281827784555 ps`.
+`2281827784555 ps`. **La cuarta, el 2026-11-02**, sí es de comportamiento: el
+motor CAN sigue las reglas de error de ISO 11898-1 (**T-24**), y T87, que daba
+por bueno que un nodo sin nadie que asienta llegara al bus-off, comprueba ahora
+que se queda en error pasivo: 2149 → **2151**, y `resto` 0,57875 ms menos,
+`2281249034555 ps`. Las otras suites no se mueven.
 
 **Con una precondición que costó una segunda máquina descubrir**: vale siempre
 que los **firmwares sean los mismos binarios**. Mientras los `.bin` no se
@@ -134,7 +141,7 @@ mano; el ejecutable trae su propia configuración, porque ASan sin
 `detect_stack_use_after_return=0` es incompatible con las corrutinas de SystemC
 y revienta antes de la primera comprobación (véase `common/asan_opciones.h`).
 
-**Las tres hay que ejecutarlas desde `src/`**, que es lo que hace `make`. Las
+**Las suites hay que ejecutarlas desde `src/`**, que es lo que hace `make`. Las
 imágenes de firmware se cargan por rutas relativas, y desde otro directorio
 fallan diecisiete comprobaciones por un motivo que no tiene nada que ver con lo
 que se estaba mirando.
@@ -165,13 +172,28 @@ make -f Makefile.mcu-sim rfc2217      # el codec de Telnet y RFC 2217 del puente
 make -f Makefile.mcu-sim gui-proto    # el transporte con mcu-sim-gui, tampoco
 make -f Makefile.mcu-sim gui-saludo   # el saludo con mcu-sim-gui, con el sim de verdad (Python)
 make -f Makefile.mcu-sim gui-marcha   # y con la simulacion en marcha (Python)
+make -f Makefile.mcu-sim gui-cnc      # la fresadora CNC por fases: cadena, motores, drivers y controladores (Python)
 make -f Makefile.mcu-sim gui-ordenes  # y las ordenes, con sus ecos (Python)
 make -f Makefile.mcu-sim gui-control  # y el control: pausa, paso, parar y ritmo (Python)
 make -f Makefile.mcu-sim gui-argumentos  # que --argumentos dice lo que acepta sim (Python)
+make -f Makefile.mcu-sim gui-sin-mcu  # una placa sin MCU, con su alarma (Python)
+make -f Makefile.mcu-sim gui-sistema  # varias placas enchufadas, y sus dibujos (Python)
+make -f Makefile.mcu-sim gui-contenido  # la memoria no volatil, de una simulacion a otra (Python)
 make -f Makefile.mcu-sim testserie    # el banco del puente UART, que es OTRO ejecutable
 make -f Makefile.mcu-sim testgui      # el de la frontera con mcu-sim-gui, OTRO mas
 make -f Makefile.mcu-sim testp4       # el del MSP432P401R, y las pruebas de T0
-make -f Makefile.mcu-sim teste4       # el del MSP432E401Y (T6)
+make -f Makefile.mcu-sim teste4       # el del MSP432E401Y (T6 y T7)
+make -f Makefile.mcu-sim testf3       # el del STM32F303 (S0 a S9)
+make -f Makefile.mcu-sim f3-discovery # la F3DISCOVERY con GPIO_IOToggle de ST, sin tocarlo
+make -f Makefile.mcu-sim f3-vcp       # su VCP, y dos Discovery en un sistema (Python)
+make -f Makefile.mcu-sim f3-stm32flash  # stm32flash contra el cargador de sistema del F303
+make -f Makefile.mcu-sim usb-f3       # el CDC-ACM de TinyUSB por el puente USB (Python)
+make -f Makefile.mcu-sim eth-e4       # eco TCP y UDP con lwIP por el puente Ethernet del E4 (Python)
+make -f Makefile.mcu-sim usb-e4       # el CDC-ACM del E4 por el puente USB (Python)
+make -f Makefile.mcu-sim e4-edumkii   # la EDUMKII sobre la LaunchPad del E4
+make -f Makefile.mcu-sim interop      # el puente UART contra pySerial y socat (Python)
+make -f Makefile.mcu-sim cmsis-dap xds110 OPENOCD=...  # OpenOCD por CMSIS-DAP y por la sonda XDS110
+make -f Makefile.mcu-sim grblhal      # baja y construye grblHAL para la 3020 (GPL-3, no se versiona)
 make -f Makefile.mcu-sim sflash-e4    # sflash por RFC 2217 contra el cargador de la ROM del E4 (Python)
 make -f Makefile.mcu-sim bsl-p4       # el BSL del P4 por RFC 2217; BSL Scripter si BSL_SCRIPTER=... (Python)
 make -f Makefile.mcu-sim asane4       # teste4 con ASan + UBSan
@@ -274,6 +296,62 @@ construir un segundo chip dentro del banco del F407 **mueve su tiempo simulado**
 un chip no es inerte. Dos chips en la misma simulación son una placa de dos
 chips.
 
+## El STM32F303: la segunda generación de periféricos de ST
+
+Desde el plan de `doc/analisis_stm32f303.md` (fases S0 a S9) está el **die
+0x422**: el STM32F303xB/C, el F302xB/C y el F358xC, quince referencias que son
+el mismo silicio con otra Flash, otro encapsulado y algún bloque de menos
+(`soc/stm32f3/f3_desc.h`). La placa de pruebas es la **STM32F3DISCOVERY**
+(`placas/stm32f3discovery.xml`), con su dibujo.
+
+Lo que lo hace distinto de un F4 no es el fabricante sino la **generación de
+los periféricos**: el F303 es el primer chip del proyecto con la de las
+familias F0, F3, L4 y G4. Hay una USART v2, un DMA por canales, un SPI v3, el
+I2C de `TIMINGR`, los TIM v3, un ADC por parejas con su calibración,
+comparadores y amplificadores, el USB de dispositivo FSDEV y el bxCAN. Y en la
+memoria de sistema, un **cargador propio** con el protocolo de AN3155 —el de ST
+no se puede distribuir—, que `stm32flash` programa como el de verdad.
+
+Los sensores de la placa —el giróscopo y el acelerómetro-magnetómetro, de las
+revisiones D y E— se mueven con una `Postura` que se inclina desde
+`mcu-sim-gui`. Y lo escrito para él vale, más adelante, para media docena de
+familias: `doc/analisis_f303xD-E_f303x6_8_F334.md` analiza dos de los otros
+dies de la familia, el 0x446 y el 0x438. Lo que está y lo que no, en
+`doc/parts.md` §2.0.
+
+```
+./build/mcu-sim placas/stm32f3discovery.xml verif/fw/stm32f3/gpio_iotoggle/GPIO_IOToggle.bin 900
+make testf3           # su suite, otro ejecutable
+```
+
+## Los MSP432 de Texas Instruments
+
+Desde el plan de `doc/analisis_msp432.md` hay **otro fabricante** con el mismo
+núcleo Cortex-M4F: lo que era de ST dentro de lo que es de ARM se separó sin
+mover un picosegundo (T0), y encima van dos chips.
+
+* **El MSP432P401R** (T1 a T5), con la LaunchPad **MSP-EXP432P401R** y la
+  BoosterPack **BOOSTXL-EDUMKII**. Lleva sus periféricos —eUSCI, Timer_A,
+  Timer32, ADC14, comparadores, RTC, DMA, AES256 y CRC32—, el bajo consumo,
+  el FLCTL, la ROM de DriverLib —una sustituta propia, la R1, o la de TI de un
+  fichero— y el BSL. Se carga el `.out` de Code Composer Studio tal cual, y los
+  ejemplos del SDK que usan `MAP_` corren sin tocarlos.
+* **El MSP432E401Y** (T6 y T7), con la **MSP-EXP432E401Y**. Lleva el SYSCTL
+  con su PLL, el GPIO de Tiva, la Flash y la EEPROM, UART, SSI, I²C, GPTM, ADC,
+  uDMA, hibernación y la ROM con un cargador serie propio. Y su conectividad:
+  el CCM —CRC, SHA/MD5, AES, DES—, dos C_CAN, el EMAC con su PHY interno, el
+  cargador por Ethernet de la ROM y el USB.
+
+Su Ethernet y su USB salen al ordenador por dos puentes, `--eth` y `--usb`
+(`doc/analisis_puente_ethernet.md` y `doc/analisis_puente_usb.md`). La sonda
+XDS110 de las LaunchPad, con su traza SWO, es una pieza más (`Xds110`,
+`doc/analisis_xds110.md`).
+
+```
+./build/mcu-sim placas/msp_exp432p401r.xml verif/fw/msp432p4/p4_demo/p4_demo.out --ms=60
+make testp4 teste4    # sus dos suites
+```
+
 ## Las tres plataformas
 
 **Un solo Makefile.** La plataforma se detecta sola —por `OS=Windows_NT` o por
@@ -324,14 +402,15 @@ validar una plataforma nueva antes de pelearse con la biblioteca.
 
 | Plataforma | Estado | Comprobado |
 | :--- | :--- | :--- |
-| Linux, g++ 13 | **verificado** | 2149/2149 comprobaciones, 204/204 del F446, 165/165 del F417, 189/189 de `testserie` y 145/145 de `testgui`, `make red` 13/13, ASan + UBSan limpio en las tres suites (`make asan407`, `make asan446`, `make asan417`), las seis placas validan sin un aviso |
+| Linux, g++ 13 | **verificado** | Las ocho suites: 2151/2151, 204/204 del F446, 165/165 del F417, 428/428 del F303, 406/406 del P4, 296/296 del E4, 189/189 de `testserie` y 145/145 de `testgui`; `make red` 13/13; ASan + UBSan limpio (`make asan407`, `asan446`, `asan417`, `asanp4`, `asane4`, `asanserie`) |
 | Linux, clang | **verificado** | mismo resultado y mismo tiempo simulado al picosegundo |
 | Windows, MSYS2 / MinGW-w64 | **verificado** | **Los tres invariantes son los mismos que en Linux, al picosegundo**: 2118/2118 con `resto` en `2240553274213 ps` antes de I-53 (huella `0x644FCE21`; antes de T-23, `2336217899213 ps` de total, igual que en Linux), 204/204 en `1033367277932 ps` y 165/165 en `718988288 ps`. Antes el del F407 salía 2 ms por debajo, y era el binario y nada más (**T-22**). Para que el ejecutable corra FUERA de MSYS2 hace falta el `-static` del Makefile: `doc/compilacion.md` §5.6 |
-| macOS, clang | **la rama específica compila** | Se fuerza la combinación de macOS —sin `MSG_NOSIGNAL`, con `SO_NOSIGPIPE`— y compila con g++ y con clang; **falta probarlo en un Mac** |
+| macOS, clang, Apple Silicon e Intel | **verificado** | Por la integración continua, con la SystemC 3.0.2 de Homebrew: las mismas cifras que en Linux, al picosegundo |
 
-Lo que en Windows y macOS **no** está verificado es lo mismo en los dos casos:
-construir la biblioteca de SystemC y ejecutar allí. El modelo no usa nada
-exótico, pero eso no es una demostración.
+**Desde el 2026-09-23 las cuatro plataformas las verifica la integración
+continua en cada cambio**: las ocho suites y sus invariantes al picosegundo
+(`doc/integracion_continua.md`). Las cifras de la fila de Windows son las de
+cuando se verificó a mano.
 
 En Windows, además, MinGW usa por omisión el `printf` de msvcrt, que **no
 entiende `%llu`**, y el modelo lo usa veintiocho veces; el Makefile pasa
@@ -377,6 +456,10 @@ make mcu-sim
 ./build/mcu-sim sistema.xml --firmware N/u0=x.bin  # el firmware de ese chip
 ./build/mcu-sim sistema.xml --sin-firmware      # ninguno, aunque el XML lo diga
 ./build/mcu-sim sistema.xml --mcus              # sus MCUs, en XML
+./build/mcu-sim placa.xml --contenido u0=f.hex  # la Flash, de f.hex y a f.hex al acabar
+./build/mcu-sim placa.xml --contenido u0=f.hex --restore-rdp  # y su RDP, al de fabrica
+./build/mcu-sim placa.xml --contenido u0=f.hex --restore-otp  # y la OTP de un F4, a 0xFF
+./build/mcu-sim sistema.xml --memorias          # sus memorias no volatiles, en XML
 ./build/mcu-sim p4.xml --rom ninguna            # MSP432P4: sin ROM de DriverLib (o r1,
                                                 #   o la de TI: un volcado o el .out de CCS)
 ./build/mcu-sim p4.xml --tlv tlv.bin            # MSP432P4: el TLV de una placa
@@ -556,7 +639,7 @@ Con un tipo que el programa no modele, el error lo dice y lista los que hay:
 ```
 mcu u0: no se sabe construir un 'STM32F103C8'.
 Los tipos que este programa modela son:
-  STM32F405RG, ..., STM32F446ZE
+  STM32F405RG, ..., STM32F358CC
 Un MCU de OTRA FAMILIA no es un parametro: es otro modelo, con su arbol de reloj y sus perifericos.
 ```
 
@@ -624,7 +707,7 @@ Algunas de las de `placas/`:
 | `led_azul_5v.xml` | Un LED azul de 3,0 V colgado de 5 V con el cátodo al pin |
 | `banco.xml` | La placa entera de la suite: 43 componentes de 20 tipos |
 | `dos_mcu.xml` | Dos STM32F407 hablando por I2C, cada uno con su puerto de GDB |
-| `nucleo_f446re.xml` | La **NUCLEO-F446RE**: LD2, B1 (USER), **B2 (RESET, en NRST)**, el **VCP del ST-LINK** —un `PuenteSerie` en la USART2 (PA2 y PA3) por RFC 2217 en el 3355; D0 y D1 se quedan al aire, como con los puentes de fábrica—, sus cuatro conectores Arduino (CN5, CN6, CN8, CN9) y sus dos **morpho**, CN7 a la izquierda y CN10 a la derecha, con cada pin en el pad de la tarjeta, y el **+5V del USB** —una `Fuente` de 5 V con los 500 mA del ST-LINK, en CN6.5, CN7.18 y CN10.8—. Con su **dibujo**, `nucleo_f446re.svg`, que `mcu-sim-gui` enseña sin que nadie diga nada porque se llama como ella (`doc/parts.md` §2.6): cada pin de los seis conectores con su rótulo, como en los pinouts de ST |
+| `nucleo_f446re.xml` | La **NUCLEO-F446RE**: LD2, B1 (USER, con el pull-up de 4K7 de la placa), **B2 (RESET, en NRST)**, el **VCP del ST-LINK** —un `PuenteSerie` en la USART2 (PA2 y PA3) por RFC 2217 en el 3355; D0 y D1 se quedan al aire, como con los puentes de fábrica—, sus cuatro conectores Arduino (CN5, CN6, CN8, CN9) y sus dos **morpho**, CN7 a la izquierda y CN10 a la derecha, con cada pin en el pad de la tarjeta, y el **+5V del USB** —una `Fuente` de 5 V con los 500 mA del ST-LINK, en CN6.5, CN7.18 y CN10.8—. Con su **dibujo**, `nucleo_f446re.svg`, que `mcu-sim-gui` enseña sin que nadie diga nada porque se llama como ella (`doc/parts.md` §2.6): cada pin de los seis conectores con su rótulo, como en los pinouts de ST |
 | `shield_leds.xml` | Un shield Arduino de prueba, **sin MCU**: dos LEDs y un pulsador en sus conectores J5..J9 |
 | `nucleo_y_shield.xml` | **Un `<sistema>`**: la Nucleo con el shield enchufado; el blinky enciende a la vez el LD2 de una placa y el LED de la otra |
 | `pila_pc104.xml` | **Una pila PC/104**: un módulo CPU (`pc104_cpu.xml`) y dos de LEDs (`pc104_leds.xml`, el mismo fichero dos veces) con un solo `<acopla>` de tres conectores |
@@ -633,10 +716,47 @@ Algunas de las de `placas/`:
 | `nucleo_f446re_barra8ac_azul.xml` | **Un `<sistema>`**: la barra azul de ánodo común cableada a los **morpho** de la Nucleo —`P1.D1`..`P1.D8` a PC0..PC3 y PB12..PB15 por CN7 y CN10, `P1.COM` a VDD por CN7.5— y el **FT232RL** en la USART1 (RX, TX y GND a CN10.21, CN10.33 y CN10.20), y `verif/fw/barra8_morpho`, una luz que corre con cada pin a cero y que habla por los dos puertos serie: el VCP (3355) y el adaptador (3356) |
 | `ftdi_ft232rl.xml` | **Un adaptador USB-serie FT232RL, sin MCU**: el conector de 6 pines `P1` (DTR, RX, TX, VCC, CTS, GND), el **jumper** `JP1` (5V, VCC, 3.3V) que elige la tensión de VCC con su `puente=`, y un `PuenteSerie` cuyas patillas siguen a VCC (`vccio`). Con su dibujo, `ftdi_ft232rl.svg`, que enseña el puente donde está |
 | `ky040.xml` | **Un módulo KY-040, sin MCU**: un `Encoder` de 30 clics por vuelta en código Gray y su pulsador del eje, con el conector acodado de 5 pines `P1` (CLK, DT, SW, VCC —serigrafiado `+`— y GND), los pull-ups de 10 kΩ de CLK y DT a VCC (dos `Resistencia`) y SW sin pull-up, como en el módulo. Con su dibujo, `ky040.svg`, con un mando en el centro que gira el encoder con la rueda del ratón y lo aprieta con un clic |
+| `ky040_24ppr.xml` | **El KY-040 de 24 pulsos por vuelta, sin MCU**: el mismo módulo, conector, pull-ups, pulsador y dibujo que `ky040.xml`, con un `Encoder` de 24 clics y **un ciclo entero por clic** (`pulsos="24"`, 24 PPR): en el reposo CLK y DT altos, y en cada clic los cuatro estados del código Gray, con un solo flanco de bajada de CLK |
 | `tft_128x160.xml` | **Una pantalla TFT de 1,8" y 128x160 con su ST7735S, sin MCU**: un `Tft128x160` por SPI de cuatro hilos y su conector acodado de 8 pines `P1` a la derecha (VCC, GND, CS, RESET, AD —serigrafiado `A/D`—, SDA, SCK y LED). Lo que se ve es lo que enseñaría la de verdad: blanca hasta que la despiertan, ruido al encenderla sin borrarla, su memoria con MADCTL, desplazamiento, modo parcial, ocho colores e inversión, y negra sin luz. Con su dibujo, `tft_128x160.svg`, sobre cuyo vidrio la ventana pinta la imagen; montada en otra postura, `giro="90"`, `"180"` o `"270"` en el sistema gira el dibujo y la imagen con él |
 | `nucleo_f446re_tft.xml` | **Un `<sistema>`**: la pantalla cableada con ocho hilos a los conectores Arduino de la Nucleo —SCK y SDA al SPI1 (D13, D11), CS, A/D y RESET a D10, D9 y D8, VCC y LED a 3,3 V— y `verif/fw/tft_demo`, que lee su ID por SDA (7C89F0, por el VCP), la despierta y dibuja: el título, ocho barras de color y un cuadrado que va y viene. `verif/fw/tft_prueba` prueba el chip cosa a cosa con el mismo cableado (`make gui-marcha` M7) |
 | `servo_sg90.xml` | **Un servo SG90 sin MCU**: un `Servo` a 5 V, de −90 a +90 grados con pulsos de 1 a 2 ms cada 20 ms y 0,12 s por cada 60 grados, con su conector acodado de 3 pines `P1` debajo (VCC, GND y PWM). Al arrancar, el eje está en un ángulo al azar, como el de verdad. Con su dibujo, `servo_sg90.svg`: el cuerpo azul o negro y el aspa —una, dos, cuatro o seis palas, o un disco, con una marca roja— son variantes que elige el servo, y el aspa gira con el ángulo |
 | `nucleo_f446re_servo.xml` | **Un `<sistema>`**: la Nucleo con el servo —su señal en D5, PB4, el TIM3; su VCC en el `+5V`—, un KY-040 en D2, D3 y D4 y la pantalla TFT de pie (`giro="90"`), con `verif/fw/servo_demo`: cada clic del encoder mueve el servo 5 grados, apretar el eje lo centra, y la pantalla —MADCTL 0x00— enseña un cuadrante con la aguja, el ángulo y el pulso. `verif/fw/servo_prueba` prueba el servo con una secuencia de pulsos (`make gui-marcha` M8). Cada placa lleva su sitio en la ventana, `x=` e `y=` en su `<placa id>` (`doc/parts.md` §2.6) |
+| `nucleo_f446re_encoder_tft_servo.xml` | **Un `<sistema>`**: la Nucleo con el servo SG90 de aspa en cruz en D5 (PB4, el TIM3) y el `+5V`, el **KY-040 de 24 PPR** en D2, D3 y D4, la pantalla TFT de pie —con su RESET en D6, para dejar D7 y D8 al TIM1 del sistema ampliado— y el **FT232RL** en la USART3 por el morpho (PC10 y PC11, CN7.1 y CN7.2, con su jumper en 3.3V), con `verif/fw/encoder_tft_servo`: cada clic mueve el servo 7,5 grados —una vuelta del mando, de punta a punta—, apretar el eje lo centra, la pantalla enseña la aguja, y el FTDI cuenta cada cambio y escucha `+`, `-` y `0` (`make gui-ordenes` O9) |
+| `l298n.xml` | **Un módulo L298N, sin MCU**: el doble puente en H `L298` (`U1`), el 78M05 que saca los 5 V de la lógica de la alimentación (`Regulador`, `U2`), sus diodos de libre circulación (`diodos="si"`) con su puente **5V-EN** (`JP5`), el LED de los 5 V, las bornas de los dos motores (`MA`, `MB`) y la de la alimentación (`X1`: +12V, GND, +5V), y la tira de abajo con los **puentes de ENA y ENB** puestos de fábrica (`JA`, `JB`), que un sistema quita con `<jumper ref>` para darles PWM. Con su dibujo, `l298n.svg`, generado por `dibuja_motores.py` |
+| `motor_tt_encoder.xml` | **Un motorreductor TT de 1:48 con un encoder de 24 PPR, sin MCU**: un `MotorCC` con las cifras del de verdad —250 rpm y 160 mA en vacío, 1,5 A bloqueado, a 6 V— con 1,5 mH de inductancia, y un disco de 24 ventanas de través en el eje de salida, con su plaquita de dos sensores en cuadratura; los terminales `M.ROJO` y `M.NEGRO` y la tira `P1` (VCC, GND, A, B). Con su dibujo, `motor_tt_encoder.svg`, cuyo disco gira con el eje |
+| `fuente_laboratorio.xml` | **Una fuente de laboratorio, sin MCU**: una `Fuente` de 7,5 V con el límite en 3 A y `media_ms="100"` —su display enseña la corriente y la tensión de media, como el de verdad: la ventana las escribe dentro, con el efecto `display` de la tabla de enlaces; y se rodea de rojo al limitar—, con sus bornas `P1.ROJO` y `P1.NEGRO`. Con su dibujo, de `dibuja_motores.py` |
+| `nucleo_f446re_encoder_lcd_servo_2xmcc.xml` | **Un `<sistema>`**: `nucleo_f446re_encoder_tft_servo.xml` con el mismo cableado, más el L298N —ENA y ENB al TIM4 en D15 y D14, IN1..IN4 a A2..A5—, dos motorreductores con su encoder —el del A al TIM2 por A0 y A1, el del B al TIM1 por D7 y D8, los dos en modo encoder— y la fuente de laboratorio, que enseña en su display lo que gastan —la lógica del L298N va al +5V de la Nucleo, sin el 5V-EN—, con `verif/fw/encoder_lcd_servo_2xmcc`: el mando pide el PWM, un 10 % por clic; la pantalla enseña las rpm de los dos con una barra, el servo hace de aguja de las del A, y el FTDI lo cuenta (`make gui-ordenes` O10; las piezas, `make gui-marcha` M9) |
+| `nema17_3018.xml` | **El NEMA 17 de la fresadora 3018, sin MCU** (fase F1a de `doc/analisis_cnc.md`): un `MotorPaP` de 200 pasos, 0,25 N·m y 1,3 A —2,4 Ω, 2,8 mH y 34 g·cm², estimados: VEVOR no publica sus cifras— con sus cuatro hilos `M.A1`, `M.A2`, `M.B1` y `M.B2`. En su dibujo, el eje gira con el rotor |
+| `st5918l3008.xml` | **El Nanotec ST5918L3008-A (NEMA 23), sin MCU**: un `MotorPaP` de 1,87 N·m con las cifras de la ficha —3 A, 1 Ω y 1,9 mH de media bobina, 480 g·cm²—, un motor de ocho hilos montado **en paralelo** (`conexion="paralelo"`: 4,2 A, 0,5 Ω y 1,9 mH); los mismos cuatro terminales. Tras un driver de 4,2 A, su par máximo cae al 70 % hacia las 650 rpm a 24 V y hacia las 1300 a 48 V (`make gui-cnc`, C2) |
+| `pololu_a4988.xml` | **El módulo Pololu del A4988, sin MCU**: un `DriverPaP` con `modelo="A4988"` y Vref a 0,6 V (1,1 A), R1 de SLEEP a la lógica, y sus dos tiras: `J1` (EN, MS1, MS2, MS3, RST, SLP, STEP, DIR) y `J2` (VMOT, GND1, 2B, 2A, 1A, 1B, VLOG —el VDD del serigrafiado—, GND2). RST va al aire, como en el de verdad: se une a SLP |
+| `motor_775.xml` | **El motor 775 del cabezal, sin MCU** (fase F1b de `doc/analisis_cnc.md`): un `MotorCC` de 24 V y 10 000 rpm en vacío, sin reductora —la corriente de bloqueo, la constante de tiempo y sus 0,15 mH son estimaciones—, con sus terminales `M.ROJO` y `M.NEGRO`. Sus mandos, `bloquear` y `carga`, son la fresa clavada y el par del corte |
+| `modulo_mosfet.xml` | **El módulo MOSFET del cabezal, sin MCU**: un `Mosfet` IRLZ44N de lado bajo con su diodo de libre circulación y 10 kΩ de la puerta a masa; sus bornas `X1` (VIN, GNDP), `X2` (MAS, MENOS) y `P1` (SIG, GND). Sin el diodo, se avisa en el primer hueco del PWM |
+| `ibt2.xml` | **El módulo IBT-2, sin MCU**: dos `MedioPuente` BTS7960, uno por borna del motor, con sus entradas por el 74HC244 del módulo; `P1` (RPWM, LPWM, R_EN, L_EN, R_IS, L_IS, VCC, GND), `X1` (BMAS, BMENOS) y `X2` (MMAS, MMENOS). R_IS y L_IS son fuentes de corriente |
+| `motor_jgb37_encoder.xml` | **Un motorreductor de 37 mm con encoder Hall (JGB37-520), sin MCU**: un `MotorCC` de 12 V y 333 rpm en el eje de salida, de 1:30, con 11 pulsos por vuelta del motor —330 del eje de salida, 1320 cuentas—; `M.ROJO`, `M.BLANCO` y la tira `P1` (VCC, GND, A, B) |
+| `nucleo_f446re_ibt2_jgb37.xml` | **Un `<sistema>`**: un eje servo de continua —la Nucleo, el IBT-2 con RPWM y LPWM en el TIM4 (D15 y D14), R_EN y L_EN en A2 y A3, el motorreductor de 37 mm con su encoder en el TIM2 (A0 y A1) y la fuente de laboratorio— con `verif/fw/cnc_pid`, un PID de posición: una vuelta del eje de salida y media atrás, con LD2 encendido cuando el error es de 4 cuentas o menos (`make gui-cnc`, C3) |
+| `db59l024035_a.xml` | **El BLDC Nanotec DB59L024035-A (NEMA 23), sin MCU** (fase F1c de `doc/analisis_cnc.md`): un `MotorBLDC` de 24 V, 3500 rpm y 0,47 N·m a 9,4 A —5 N·cm/A, 0,22 Ω y 0,29 mH entre fases, 119 g·cm², tres pares de polos—, con sus fases `M.U`, `M.V` y `M.W` y el cable de los Hall `P1` (VCC, GND, H1, H2, H3). En su dibujo, el eje gira con el rotor |
+| `controlador_tipo_c5e.xml` | **Un controlador de motor tipo C5-E, sin MCU**: un `ControladorMotor` de reloj y dirección en lazo cerrado, de 12 a 48 V y 10 A, a 2000 pasos por vuelta, con salida de freno y de error; sus bornas `X1` (VCC, GND), `X2` (U, V, W), `X3` (5V, GND, H1, H2, H3), `X4` (5V, GND, A, B) y `X5` (STEP, DIR, EN, BRK, ERR, GND). Si el motor no puede seguir, se para y lo dice (`make gui-cnc`, C4) |
+| `eje_z_tr8.xml` | **Un eje Z completo de una fresadora de sobremesa, sin MCU** (fase F2 de `doc/analisis_cnc.md`): el NEMA 17 con su eje de 5 mm, un `Acople` de espiral de 5 a 8, un `Husillo` Tr8x2 de 200 mm con 0,03 mm de holgura —se sujeta solo: sin corriente, el cabezal no se cae— y el `Carro` Z de 1,2 kg y 72 mm de recorrido, vertical, en una `<transmision>`; los cuatro hilos del motor en `M`. En su dibujo, de lado y a 1:2, el carro sube y baja con su posicion y un display ensena su cota (`make gui-cnc`, C5) |
+| `eje_z_48v.xml` | **El eje Z de la versión de 48 V, sin MCU** (fase F5 de `doc/analisis_cnc.md`): el BLDC con su controlador en lazo cerrado y encoder, un `Freno`, una reductora planetaria 3:1, un husillo de bolas 1605 y un cabezal de 12 kg; una fuente CONMUTADA de 48 V (`absorbe="no"`), el `Condensador` del bus y la resistencia de frenado (`ChopperFrenado`); el final de Z, un inductivo de 24 V, por un `Optoacoplador`. Al frenar, la energía vuelve al bus; sin la resistencia, salta la protección del controlador (`make gui-cnc`, C9) |
+| `cnc_shield_v3.xml` | **La CNC Shield V3 de Protoneer, sin MCU** (fase F3 de `doc/analisis_cnc.md`): los conectores Arduino, los zócalos Pololu `SX1`/`SX2`, `SY1`/`SY2` y `SZ1`/`SZ2` con los nombres de `pololu_a4988.xml`, las tiras de los motores `MX`, `MY` y `MZ`, los jumpers de micropasos (de fábrica, 1/8), los finales `FIN` (D9, D10, D11), `SPN` (D12, D13), `COOL` (A3), `CTL` (ABORT, HOLD, RESUME, ESTOP, SDA, SCL) y `PWR` |
+| `fresadora_3020.xml` | **La mecánica de una fresadora 3020, sin MCU**: X e Y con Tr8x8 y Z con Tr8x2, sus finales, la sonda de herramienta, la seta de emergencia de dos contactos, la fuente de 24 V, las cotas y **la pieza** (fase F4): un bloque de MDF de 100 x 60 x 12 mm con su mapa de alturas, que la fresa va comiendo (`Pieza`). En el dibujo, planta y alzado, con la herramienta, un display con las tres cotas y lo mecanizado sobre la mesa (`make gui-cnc`, C8). Y su **vista 3D** (`<vista3d>`, fase F8): la máquina en cajas y cilindros que se mueven con los carros, los husillos que giran y la pieza como una superficie, con sus alturas en una segunda imagen, `alturas` (`make gui-cnc`, C14) |
+| `cnc_3020.xml` | **Un `<sistema>`: la 3020 entera**, con la Nucleo-F446RE, la shield, tres A4988, la mecánica y el cabezal 775 con su módulo MOSFET, y `verif/fw/cnc`, un control propio que habla como GRBL: `G0`–`G3`, `$H`, `G38.2`, `M3`/`M5` y la seta que corta los drivers (`make gui-cnc`, C6). Un `<ref>` de sistema lleva el corte de la pieza al motor del cabezal, que lo frena (C8) |
+| `cnc_3020_grblhal.xml` | **La misma 3020 con grblHAL sin modificar** (`verif/fw/grblhal`, GPL-3: no se versiona, lo baja y lo construye `make grblhal`) y el cableado de su mapa para la shield: el final de Z en `FIN.ZMAX` (D11) y el PWM del cabezal en `SPN.DIR` (D13, también LD2); sin sonda, que ese mapa no tiene. Sus entradas son NC: con los finales y la seta de esta máquina, `$5=7` y `$14=70` (`make gui-cnc`, C7) |
+| `sn65hvd230.xml` | **Un módulo transceptor CAN SN65HVD230, sin MCU** (fase F6 de `doc/analisis_cnc.md`): el `CanTransceiver` de 3,3 V y los 120 Ω del final del bus (`CanWire`) |
+| `eje_x_canopen.xml` | **Un eje X con su controlador por CANopen, sin MCU** (fase F6): un `ControladorMotor` con `mando="canopen"` —nodo 1, 500 kbit/s, CiA 402 con el perfil de posición, el de velocidad y el homing—, un BLDC con encoder, un husillo de bolas 1605, un carro de 10 kg, su final de abajo y un `AnalizadorCan` que apunta lo que pasa por el bus |
+| `eje_canopen.xml` | **Un `<sistema>`: un eje por el bus de campo**, la Nucleo con el transceptor en su CAN1 y `verif/fw/canopen`, un maestro CANopen: boot-up, SDO, NMT, SYNC, la máquina de estados del accionamiento, el homing, `G mm` y `V mm/s` por el VCP (`make gui-cnc`, C10) |
+| `db42s01.xml` | **El BLDC Nanotec DB42S01 (NEMA 17, 48 V, 31 W), por fases, sin MCU** (fase F7): un `MotorBLDC fases="si"` —tres fases en estrella con la f.e.m. trapezoidal— y sus Hall |
+| `x_nucleo_ihm07m1.xml` | **La X-NUCLEO-IHM07M1, sin MCU** (fase F7): el L6230 (`PuenteTrifasico`) en los morpho de la Nucleo —IN en PA8 a PA10, EN en PC10 a PC12, DIAG-EN en PA6—, los Hall en PA15, PB3 y PB10, y los shunts con sus amplificadores (`Amplificador`) en PA0, PC1 y PC0: uno o tres, con J5 y J6, como en la placa (de fábrica, uno) |
+| `fuente_24v.xml` | **Una fuente conmutada de 24 V y 5 A, sin MCU** (fase F7) |
+| `nucleo_ihm07m1_db42.xml` | **Un `<sistema>`: el BLDC conmutado por el MCU**, la Nucleo con la IHM07M1, el DB42S01 y la fuente de 24 V, con `verif/fw/bldc6`: seis pasos por los Hall en el TIM2, el lazo de velocidad, la sobrecorriente por el freno del TIM1, la conmutación senoidal y la FOC con los tres shunts (J5 y J6 en 1-2); `R rpm`, `D %`, `I A`, `M 0\|1\|2`, `S`, `C` y `?` por el VCP (`make gui-cnc`, C11 a C13) |
+| `cripto_f417.xml` | Una placa mínima con un **STM32F417VG**, el del acelerador criptográfico: lo que cambia no se ve en los pines, sino en el mapa de memoria (el CRYP y el HASH) |
+| `nucleo_f446re_vcp.xml` | La Nucleo con su **VCP del ST-LINK** por RFC 2217, aparte de `nucleo_f446re.xml` para no mover el invariante de `test446`; con `verif/fw/vcp_demo` (`doc/puente_serie.md`) |
+| `vcp_memoria.xml`, `vcp_tcp.xml` y `vcp_rfc2217.xml` | Un F407 con un **puente UART** en la USART2, a la memoria, por TCP y por RFC 2217: las fases D2, D3 y D5 de `doc/analisis_puente_serie.md` |
+| `stm32f3discovery.xml` | La **STM32F3DISCOVERY** (revisión E) [UM1570]: la rosa de ocho LED (PE8 a PE15), B1 y B2, los 8 MHz del MCO del ST-LINK, el **VCP** en la USART1, los sensores —el giróscopo `U5` y la brújula `U3`, con su `Postura` `MOV`— y sus dos tiras de 50 pines. Con su **dibujo**, `stm32f3discovery.svg` (`make f3-discovery`) |
+| `stm32f3discovery_d.xml` | La misma, de la **revisión D**: un L3GD20 y un LSM303DLHC en lugar del I3G4250D y el LSM303AGR |
+| `dos_f3discovery.xml` | **Un `<sistema>`**: dos Discovery cableadas por UART, SPI3 e I2C1, para los ejemplos *TwoBoards* de STM32CubeF3, con `pullup_i2c.xml` en el bus (`make f3-vcp`) |
+| `pullup_i2c.xml` | **Dos pull-up de 4,7 kΩ para un bus I2C, sin MCU**, en una tira de cuatro pines |
+| `stm32f3discovery_boot0.xml` | **Un `<sistema>`**: la Discovery con BOOT0 a VDD —arranca el **cargador de sistema**— y un FT232RL en la USART1, para `stm32flash` (`make f3-stm32flash`) |
 | `msp_exp432p401r.xml` | La **MSP-EXP432P401R** [SLAU597F]: LED1 y el RGB tras sus jumpers JP8-JP11, S1, S2 y S3 (RESET), los dos cristales, el **bloque J101** del XDS110 con sus diez puentes, el backchannel en el 3356, las cuatro tiras **BoosterPack** J1-J4, el conector del borde J5 (2x19) y las tiras de 3V3 y 5V. Con su **dibujo**, `msp_exp432p401r.svg` |
 | `msp_exp432e401y.xml` | La **MSP-EXP432E401Y** [SLAU748B]: D1-D4, USR_SW1/2, RESET y WAKE, los dos cristales, J101, **JP1** (de dónde salen los 5 V), **JP4 y JP5** (la UART0 al XDS110 o el CAN0 a la BoosterPack 2), las **dos BoosterPack XL** (J1-J4 y J5-J8), los 98 agujeros de J10 y J12/J13. Con su **dibujo**, `msp_exp432e401y.svg` |
 | `boostxl_edumkii.xml` | La **BOOSTXL-EDUMKII**, sin MCU [SLAU599B]: joystick, acelerómetro, micrófono, pulsadores con sus pull-ups, RGB, zumbador, pantalla, OPT3001 y TMP006, el conector del servo, las pinzas, y el **jumper J5** que lleva J4.39 al rojo del RGB (de fábrica) o a la luz de la pantalla. Con su **dibujo**, `boostxl_edumkii.svg` |
@@ -703,9 +823,9 @@ La elección es un parámetro del núcleo, no una opción del banco:
 | `core/` | `core_caps.h` (los RASGOS del núcleo: cuántas líneas de interrupción, cuántos bits de prioridad, cuántas regiones de MPU y qué FPU. Es lo que ST decide al integrar un Cortex-M4F con licencia, y lo que distingue a un F407 de otro chip del mismo núcleo; `Scs`, `Mpu` y `CortexM4F` lo toman por constructor con el F407 por omisión), `cortex_m4f.h` (router I/D/S/CCM/PPB con alias de 0x0 y bit-banding), `cpu.h` (bucle fetch/decode/execute, excepciones, prebúsqueda), `cpu_state.h` (RegFile y utilidades arquitectónicas), `cpu_exec16.h` / `cpu_exec32.h` (ISA completa [II]), `fpu.h` (FPv4-SP), `scs.h` (SCB + NVIC + SysTick + MPU), `debug_if.h` (el contrato por el que la CPU llama al depurador en cada búsqueda, cada acceso y cada excepción) y `debug.h` (el subsistema CoreSight completo: SWJ-DP con el protocolo SWD a nivel de bit, AHB-AP, Core Debug, FPB, DWT, ITM/TPIU con salida por SWO, ROM table y DBGMCU; véase `doc/stm32f4xx/stm32f407vg_fase6_debug.md`) y `gdb_stub_dap.h` (el segundo servidor GDB, el que se engancha al DAP por dentro cuando el núcleo se construye con `DBG_INTERNO`; véase `doc/stm32f4xx/stm32f407vg_fase6_gdb2.md`) |
 | `periph/` | un fichero por familia de periférico, todos derivados de `BusSlave`. `usart.h` es un único modelo parametrizado del que salen los tipos `Usart` y `Uart` (véase `doc/stm32f4xx/stm32f407vg_fase4_uart.md`), `timers.h` uno del que salen los seis tipos de temporizador del F407 (véase `doc/stm32f4xx/stm32f407vg_fase4_tim.md`), `spi.h` uno del que salen las cinco instancias de SPI/I2S, incluidos los bloques de extensión I2SxEXT (véase `doc/stm32f4xx/stm32f407vg_fase5_spi.md`), `i2c.h` uno del que salen los tres I2C/SMBus, que en el F407 resultan ser idénticos (véase `doc/stm32f4xx/stm32f407vg_fase5_i2c.md`), `adc.h` uno del que salen los tres convertidores, que en cambio SÍ se diferencian —entradas internas, papel de maestro y canales disponibles— (véase `doc/stm32f4xx/stm32f407vg_fase5_adc.md`), `dac.h` uno del que salen las variantes de uno y dos canales (véase `doc/stm32f4xx/stm32f407vg_fase5_dac.md`), `rtc.h` y `watchdog.h` los periféricos de sistema que sobreviven al reset o al fallo del reloj (véase `doc/stm32f4xx/stm32f407vg_fase5_rtc_wdog.md`), `sdio.h` el bloque de tarjetas SD/SD I/O/MMC, modelado a nivel de bit sobre los nueve pines del bus (véase `doc/stm32f4xx/stm32f407vg_fase5_sdio.md`), `crc.h` la unidad de cálculo CRC y `rng.h` el generador de números aleatorios, con su fuente de ruido y sus dos condiciones de error (dos ficheros desde la fase 1 del plan del F446, porque no son un periférico con dos mitades sino dos periféricos que la documentación agrupó: el F446 lleva el primero y no el segundo. `crc_rng.h` sigue existiendo como inclusión de los dos, para que nada que lo usara tuviera que cambiar; véase `doc/stm32f4xx/stm32f407vg_fase5_crc_rng.md`), `can.h` uno del que salen los dos bxCAN, que se diferencian en algo esencial —CAN1 es el dueño de los 28 bancos de filtros y CAN2 no tiene ventana de filtros propia— (véase `doc/stm32f4xx/stm32f407vg_fase5_can.md`), `dcmi.h` uno del que salen las cuatro variantes del interfaz de cámara, cuyo eje principal no es un bit del registro sino cuántos de los catorce hilos de datos tiene cableados el encapsulado (véase `doc/stm32f4xx/stm32f407vg_fase7_dcmi.md`), `fsmc.h` el controlador del bus externo, que es el primer periférico cuyos rasgos son POR BANCO y no del bloque entero —los cuatro bancos del FSMC no comparten ni el mapa de registros: BCR/BTR/BWTR el 1, PCR/SR/PMEM/PATT/ECCR los NAND y PIO4 el de PC Card— y cuyo eje decisivo vuelve a ser el encapsulado: sin A0-A15 ni NE2-NE4, este chip solo puede usar el bus multiplexado (véase `doc/stm32f4xx/stm32f407vg_fase7_fsmc.md`), `otg.h` los dos controladores USB On-The-Go, que son el caso mas extremo de rasgos por instancia del proyecto —el FS y el HS se diferencian en el bus, en el transceptor, en el tamaño de la RAM de FIFOs, en cuantos endpoints y canales gobiernan, en si son MAESTROS de la matriz y hasta en cuantas IRQ sacan— y donde ademas la palabra «canal» significa tres cosas distintas: las dos instancias (que no son copias), los canales de anfitrion (que si lo son) y los endpoints de dispositivo (donde el EP0 tiene otra forma de registro) (véase `doc/stm32f4xx/stm32f407vg_fase7_otg.md`), `eth_mac.h` el Ethernet MAC 10/100, donde «canal» vuelve a significar tres cosas distintas —las dos interfaces fisicas MII y RMII, que no son dos modos sino dos CAMINOS con distinto numero de hilos y de relojes; los dos anillos del DMA, cuyos descriptores comparten los nombres de los campos y ninguno de sus significados; y los cuatro filtros de direccion, donde el 0 no tiene ni habilitacion ni mascara de bytes— (véase `doc/stm32f4xx/stm32f407vg_fase7_eth.md`), `fmpi2c.h` el I2C moderno del F446, que **es otro IP** y no el de siempre con una velocidad más: TIMINGR en vez de CCR, ISR/ICR en vez de la pareja SR1/SR2 leída en el orden correcto, y NBYTES/RELOAD/AUTOEND en vez de contar bytes a mano, `quadspi.h` la memoria externa serie con sus cuatro `CCR.FMODE` y su ventana de 256 MB mapeada en memoria, `sai.h` el interfaz de audio, cuya unidad de verdad no es el periférico sino el BLOQUE —dos por SAI, cada uno con su dirección, su reloj y su FIFO—, `bloque_declarado.h` la tercera manera de tratar un bloque que el silicio tiene y el modelo no: ni dejar su ventana sin decodificar (eso es para lo que el chip NO lleva) ni contestar como si estuviera (eso es un modelo que funciona y miente), sino **contestar y decirlo**, con un aviso la primera vez que alguien lo toca, y `pwr.h`, que no es un periférico más sino el ÁRBITRO DE LA ENERGÍA: decide en cuál de los cuatro modos está el MCU, ordena al RCC parar los relojes o apagar el dominio de 1,2 V, vigila VDD con el PVD y calcula la corriente que el chip pide por sus pines (véase `doc/stm32f4xx/stm32f407vg_fase7_lowpower.md`) |
 | `parts/` | LIBRERÍA DE COMPONENTES EXTERNOS al MCU. `part_factory.h` (el registro `cadena → creador y AYUDA`, con macro de auto-registro: el único sitio donde un nombre escrito por una persona se convierte en un objeto), `part_help.h` (la ficha de una pieza —qué hace, terminales, atributos del XML con su valor por omisión, notas y ejemplo— que imprime `sim --help COMPONENTE`; va PEGADA AL REGISTRO y no en una tabla aparte, porque una tabla aparte se queda vieja y una ayuda que miente es peor que ninguna, y la macro la EXIGE, de modo que una pieza nueva no se puede dar de alta sin explicarse), `xml_min.h` (lector de XML mínimo y ESTRICTO, sin dependencias: lo que no entiende es un error con línea y columna, nunca una suposición), `netlist_xml.h` (del árbol XML al netlist), `netlist.h` (el netlist en memoria: NODOS con nombre de esquemático —`PA5`, `VDD`, o creados para lo que no es un pin—, INSTANCIAS con tipo, identificador, parámetros y REFERENCIAS a otras instancias, y CONEXIONES nominales terminal→nodo; construye antes de `sc_start` porque la elaboración de SystemC es estática, valida la declaración sin simular y vuelca a XML), `netlist_parts.h` (el catálogo: una entrada de factoría por tipo —creador Y ficha de ayuda en la misma llamada—, más los ayudantes tipados con los que se monta una placa desde C++), `part_base.h` (`ExtPartBase`: terminales con NOMBRE —no por posición del constructor—, un único `set_enabled(bool)` para soldar y desoldar, inventario global de piezas y volcado del netlist en XML; véase `doc/stm32f4xx/stm32f407vg_parts_paso1.md`), `ext_parts.h` (circuitería externa de placa: cristal, reloj, LED, pulsador, resistencia, driver, pista entre pines, hilo de bus I2C con pull-up, EEPROM 24Cxx, maestro I2C externo, tarjeta SD a nivel de pin, el bus CAN completo —hilo cableado en Y con su terminador, transceptores y un nodo CAN externo que habla el protocolo—, una sonda SWD que habla el protocolo bit a bit por PA13/PA14, un analizador de traza SWO colgado de PB3 y un sensor de imagen CMOS que genera cuadros enteros sobre PIXCLK/HSYNC/VSYNC y doce hilos de datos, con sincronismo por hardware o embebido, una SRAM asíncrona de 64 K que se suelda al bus externo del FSMC —engancha la dirección baja de los propios hilos de datos con NL y guarda en el flanco de subida de NWE, byte a byte según NBL0/NBL1— y una NAND de 16 páginas que entiende mandatos, direcciones y datos por CLE/ALE, y los dos extremos de un cable USB —un PC que da los 5 V de VBUS, pone los dos 15 kohm a masa y hace el reset con un SE0 largo, y un aparato que declara su existencia con el 1,5 kohm de D+ y se entera del reset porque lo VE— y el PHY de Ethernet, que pone los relojes del camino de datos, habla MDIO bit a bit con sus registros de la norma y hace de buzon de tramas con su CRC-32) |
-| `soc/` | LO QUE ES «DE ESTE CHIP» Y NO «DE ESTA ARQUITECTURA», separado en la fase 1 del plan del F446. `f446_mapa_perif.h` (las siete direcciones y las trece posiciones de vector que solo tiene el F446, verificadas contra `stm32f446xx.h` y no contra la tabla de fronteras del RM, que se deja el FMPI2C1 sin nombrar), `stm32f446.h` (la clase **`Stm32F446`**, que la fase 2 añadió: el die de la familia con el descriptor del F446RE —512 KB, sin CCM, sin Ethernet, sin RNG, sin los bloques de extensión del I2S, LQFP64 propio, 97 posiciones de vector, siete maestros de matriz e IDCODE `0x1000 0421`— —y que desde la fase 4 declara y engancha sus siete periféricos propios, incluido el decodificador del puerto que el FMC y el QUADSPI COMPARTEN— y con un `limitaciones()` que enumera en voz alta lo que el modelo todavía NO hace, que `sim` imprime al montar la placa), `mcu_if.h` (la INTERFAZ de un MCU vista desde `sim` —registrar sus nodos, entregar el nodo de un pad, alimentarse, cargar firmware y los dos interruptores de traza— y `FabricaMcu`, el registro `familia → creador` que convierte el `tipo=` del XML en un objeto de verdad en vez de comprobarlo contra una lista. Se busca por FAMILIA y no por nombre de pieza, porque los once miembros del F405/407 son la misma clase con descriptores distintos; una familia sin modelo enlazado devuelve `nullptr` y `sim` lo dice con nombre, nunca monta otro chip en su lugar), `stm32f4_mcu.h` (el adaptador de la familia F405/407 a esa interfaz, que además guarda los cuatro índices de driver de la alimentación y el orden de arranque de una placa real), `f4_mapa_perif.h` (las bases de los periféricos, la tabla de sectores de la Flash, `N_IRQ`, `N_EXTI` y los topes de frecuencia) y `f4_mapa_af.h` (las 169 conexiones de la tabla de funciones alternativas, sacadas del cuerpo del top; el F446 resultó tener la MISMA tabla salvo los huecos del AF11 de Ethernet) |
+| `soc/` | LO QUE ES «DE ESTE CHIP» Y NO «DE ESTA ARQUITECTURA», separado en la fase 1 del plan del F446. `f446_mapa_perif.h` (las siete direcciones y las trece posiciones de vector que solo tiene el F446, verificadas contra `stm32f446xx.h` y no contra la tabla de fronteras del RM, que se deja el FMPI2C1 sin nombrar), `stm32f446.h` (la clase **`Stm32F446`**, que la fase 2 añadió: el die de la familia con el descriptor del F446RE —512 KB, sin CCM, sin Ethernet, sin RNG, sin los bloques de extensión del I2S, LQFP64 propio, 97 posiciones de vector, siete maestros de matriz e IDCODE `0x1000 0421`— —y que desde la fase 4 declara y engancha sus siete periféricos propios, incluido el decodificador del puerto que el FMC y el QUADSPI COMPARTEN— y con un `limitaciones()` que enumera en voz alta lo que el modelo todavía NO hace, que `sim` imprime al montar la placa), `mcu_if.h` (la INTERFAZ de un MCU vista desde `sim` —registrar sus nodos, entregar el nodo de un pad, alimentarse, cargar firmware y los dos interruptores de traza— y `FabricaMcu`, el registro `familia → creador` que convierte el `tipo=` del XML en un objeto de verdad en vez de comprobarlo contra una lista. Se busca por FAMILIA y no por nombre de pieza, porque los once miembros del F405/407 son la misma clase con descriptores distintos; una familia sin modelo enlazado devuelve `nullptr` y `sim` lo dice con nombre, nunca monta otro chip en su lugar), `stm32f4_mcu.h` (el adaptador de la familia F405/407 a esa interfaz, que además guarda los cuatro índices de driver de la alimentación y el orden de arranque de una placa real), `f4_mapa_perif.h` (las bases de los periféricos, la tabla de sectores de la Flash, `N_IRQ`, `N_EXTI` y los topes de frecuencia) y `f4_mapa_af.h` (las 169 conexiones de la tabla de funciones alternativas, sacadas del cuerpo del top; el F446 resultó tener la MISMA tabla salvo los huecos del AF11 de Ethernet). Y una carpeta por cada familia que no es F4, con su clase, su descriptor, sus pines generados de la base de datos del fabricante y su programador de la Flash para el `load` de GDB: `stm32f3/` (el `Stm32F303` del die 0x422, sus quince descriptores y el cargador de sistema propio, `cargador/`), `msp432p4/` (el MSP432P401R, su ROM R1 y su BSL B1) y `msp432e4/` (el MSP432E401Y y su ROM R1 con el cargador serie) |
 | `verif/` | `bus_test_master.h` (maestro de bus de verificación), `image_loader.h` (carga de .bin/.hex y tabla de vectores), `decoder_vectors.h` (254 vectores generados desde `doc/stm32f4xx/valida_instrucciones.py` por `gen_decoder_vectors.py`), `swd_port.h` (el maestro SWD a nivel de bit, con el tratamiento de WAIT/FAULT y demás peculiaridades de ADIv5), `gdb_stub.h` (el servidor GDB/RSP de los pines: solo el transporte, porque el protocolo vive en `common/gdb_rsp.h`) y `gdb_client.h` (un GDB de mentira para verificarlo), `fw/` (firmware de autocomprobación, *port* bare-metal de CoreMark, CMSIS oficial, blinky de referencia y demostraciones del DMA, de los puertos serie, de los temporizadores, del EXTI, del SPI, del I2C, del ADC, del DAC, del SDIO, del CRC/RNG, del bxCAN y de la traza ITM/DWT) |
-| `top/` | `soc_f4.h` + `soc_f4_bind2.h` (el netlist de integración del DIE de la familia F4: se llamaba `stm32f407vg.h` y `Stm32F407VG`, y la fase 2 lo renombró porque nunca fue «del F407VG» —los once miembros del F405/407 y el F446 son este mismo netlist con otro descriptor—; `using Stm32F407VG = SocF4;` deja valer lo escrito), `sc_main_f446.cpp` (**la suite del F446**, un ejecutable APARTE: construir un segundo chip dentro del banco del F407 mueve su tiempo simulado, así que dos chips son dos simulaciones; `make test446`), `mcu_caps.h` (el DESCRIPTOR de un microcontrolador: junta los rasgos del núcleo, el mapa de memoria y los topes de reloj; su campo `familia` marca la frontera de lo recombinable —dos chips de la misma familia se distinguen con un descriptor, dos familias distintas necesitan modelo nuevo—), `sc_main.cpp` (suite de verificación acumulada del F407) |
+| `top/` | `soc_f4.h` + `soc_f4_bind2.h` (el netlist de integración del DIE de la familia F4: se llamaba `stm32f407vg.h` y `Stm32F407VG`, y la fase 2 lo renombró porque nunca fue «del F407VG» —los once miembros del F405/407 y el F446 son este mismo netlist con otro descriptor—; `using Stm32F407VG = SocF4;` deja valer lo escrito), `sc_main_f446.cpp` (**la suite del F446**, un ejecutable APARTE: construir un segundo chip dentro del banco del F407 mueve su tiempo simulado, así que dos chips son dos simulaciones; `make test446`), `mcu_caps.h` (el DESCRIPTOR de un microcontrolador: junta los rasgos del núcleo, el mapa de memoria y los topes de reloj; su campo `familia` marca la frontera de lo recombinable —dos chips de la misma familia se distinguen con un descriptor, dos familias distintas necesitan modelo nuevo—), `sc_main.cpp` (suite de verificación acumulada del F407), y las suites de los demás, cada una su ejecutable: `sc_main_f417.cpp`, `sc_main_f3.cpp`, `sc_main_p4.cpp` (con sus partes de T3 a T5 en `sc_main_p4_t*.h`), `sc_main_e4.cpp`, `sc_main_serie.cpp` y `sc_main_gui.cpp`; y `sim_main.cpp`, el programa `mcu-sim` |
 
 ## Convenciones
 

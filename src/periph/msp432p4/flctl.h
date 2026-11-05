@@ -230,24 +230,35 @@ public:
         std::fclose(f);
         if (d.size() > 0x1000u)
             return ruta + ": mas de 4 KB; el TLV es el sector 0x0020_1000-0x0020_1FFF";
-        const size_t n = d.size() / 4;
-        auto w = [&](size_t i) { uint32_t v; std::memcpy(&v, d.data() + 4 * i, 4); return v; };
-        if (n < 3 || w(1) != 11u)
-            return ruta + ": no empieza por la etiqueta DEVINFO (11) detras de la suma; "
-                          "no parece un volcado de 0x0020_1000";
-        bool fin = false;
-        for (size_t i = 1; i < n && !fin;) {
-            if (w(i) == 0x0BD0E11Du) { fin = true; break; }
-            if (i + 1 >= n) break;
-            i += 2 + size_t(w(i + 1));
-        }
-        if (!fin)
-            return ruta + ": la cadena de etiquetas no llega a la de fin del TLV "
-                          "(0x0BD0E11D); no parece un volcado de 0x0020_1000";
+        const std::string e = valida_tlv(d);
+        if (!e.empty()) return ruta + ": " + e;
         uint8_t* p = info_.data() + (p4::TLV_B - p4::INFO_B);
         std::fill(p, p + 0x1000, uint8_t(0xFF));
         std::memcpy(p, d.data(), d.size());
         return "";
+    }
+
+    // ¿Es un TLV? Detrás de la suma, la etiqueta DEVINFO, y la cadena de
+    // etiquetas hasta la de fin. Devuelve el porqué, o ""
+    static std::string valida_tlv(const std::vector<uint8_t>& d) {
+        const size_t n = d.size() / 4;
+        auto w = [&](size_t i) { uint32_t v; std::memcpy(&v, d.data() + 4 * i, 4); return v; };
+        if (n < 3 || w(1) != 11u)
+            return "no empieza por la etiqueta DEVINFO (11) detras de la suma; "
+                   "no parece un volcado de 0x0020_1000";
+        for (size_t i = 1; i < n;) {
+            if (w(i) == 0x0BD0E11Du) return std::string();
+            if (i + 1 >= n) break;
+            i += 2 + size_t(w(i + 1));
+        }
+        return "la cadena de etiquetas no llega a la de fin del TLV (0x0BD0E11D); no "
+               "parece un volcado de 0x0020_1000";
+    }
+    // Un trozo de la memoria, tal cual: las referencias del contenido
+    std::vector<uint8_t> copia(uint32_t a, uint32_t n) const {
+        std::vector<uint8_t> v(n, 0xFF);
+        for (uint32_t i = 0; i < n; ++i) v[i] = uint8_t(peek32(a + i));
+        return v;
     }
 
     // Estadística: estados de espera pagados y esperas por banco ocupado.

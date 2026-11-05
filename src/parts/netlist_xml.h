@@ -53,12 +53,14 @@
 #define STM32_PARTS_NETLIST_XML_H
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <map>
 #include <sstream>
 #include <string>
 #include "netlist.h"
 #include "xml_min.h"
+#include "../common/memoria_nv.h"
 
 namespace stm32 {
 
@@ -247,6 +249,124 @@ inline void fija_nomenclatura_placa(const XmlNodo& raiz, const ContextoPlaca& cx
     c.fija_desnudo(desnudo);
 }
 
+// LA VISTA 3D de una placa (F8 de doc/analisis_cnc.md, §9), en mm, con Z
+// hacia arriba:
+//
+//   <vista3d camara="x y z" mira="x y z">          desde dónde se mira, y adónde
+//     <solido forma="caja" tam="dx dy dz" en="x y z" color="#rrggbb"/>
+//     <solido forma="cilindro" tam="diametro largo" eje="x|y|z" en="x y z"
+//             pieza="HX" gira="angulo"/>            gira sobre su eje con un observable, en grados
+//     <solido pieza="CX" forma="caja" ... observable="posicion" vector="1 0 0"/>
+//     <superficie pieza="PZA" imagen="alturas" tam="largo ancho" en="x y z"
+//                 observable="mesa" vector="0 -1 0" color="#rrggbb"/>
+//   </vista3d>
+//
+// `en` es el centro de un sólido -con todos sus observables a cero- y la
+// esquina (x, y) de abajo a la izquierda de una superficie, a la altura z de
+// su base. Cada observable lo traslada su vector, x, y y z por unidad, como
+// `desplaza` en el dibujo. Una superficie es la imagen de alturas de su
+// pieza, celda a celda. Aquí se comprueba la forma -las piezas existen, los
+// números son los que tocan-; los observables y las imágenes, que son de la
+// pieza ya construida, los comprueba la ventana, que los conoce, y lo dice.
+inline std::string lee_vista3d(Netlist& nl, const XmlNodo& h, const std::string& prefijo,
+                               Vista3d& v) {
+    char pos[48];
+    auto donde = [&](const XmlNodo& n) {
+        std::snprintf(pos, sizeof pos, "linea %u: ", n.linea);
+        return std::string(pos);
+    };
+    auto numeros = [](const std::string& t, size_t n) {
+        std::vector<double> x;
+        return lee_numeros(t, x) && x.size() == n;
+    };
+    auto palabras = [](const std::string& t) {
+        size_t n = 0;
+        bool en = false;
+        for (char c : t) {
+            const bool b = c == ' ' || c == '\t' || c == '\n' || c == '\r';
+            if (!b && !en) ++n;
+            en = !b;
+        }
+        return n;
+    };
+    auto color_ok = [](const std::string& c) {
+        if (c.size() != 7 || c[0] != '#') return false;
+        for (size_t k = 1; k < 7; ++k)
+            if (!std::isxdigit(static_cast<unsigned char>(c[k]))) return false;
+        return true;
+    };
+    v.hay = true;
+    for (const auto& a : h.attrs) {
+        if (a.first != "camara" && a.first != "mira")
+            return donde(h) + "<vista3d>: atributo desconocido: " + a.first +
+                   " (camara y mira, x y z en mm)";
+        if (!numeros(a.second, 3))
+            return donde(h) + "<vista3d>: " + a.first + "=\"" + a.second + "\" no vale: x y z";
+        v.attrs.push_back(a);
+    }
+    for (const XmlNodo& e : h.hijos) {
+        const bool sol = e.nombre == "solido", sup = e.nombre == "superficie";
+        if (!sol && !sup)
+            return donde(e) + "dentro de <vista3d> van <solido> y <superficie>, no <" +
+                   e.nombre + ">";
+        const std::string q = "<" + e.nombre + ">: ";
+        for (const auto& a : e.attrs) {
+            const std::string& n = a.first;
+            const bool comun = n == "pieza" || n == "tam" || n == "en" || n == "color" ||
+                               n == "observable" || n == "vector";
+            if (!comun && !(sol && (n == "forma" || n == "eje" || n == "gira")) &&
+                !(sup && n == "imagen"))
+                return donde(e) + q + "atributo desconocido: " + n;
+        }
+        const std::string pieza = e.attr_o("pieza", "");
+        if (!pieza.empty() && (pieza.find('/') != std::string::npos || !nl.busca(prefijo + pieza)))
+            return donde(e) + q + "la placa no tiene ninguna pieza '" + pieza + "'";
+        if (e.tiene("color") && !color_ok(e.attr_o("color")))
+            return donde(e) + q + "color=\"" + e.attr_o("color") + "\" no vale: #rrggbb";
+        if (e.tiene("en") && !numeros(e.attr_o("en"), 3))
+            return donde(e) + q + "en=\"" + e.attr_o("en") + "\" no vale: x y z, en mm";
+        const std::string obs = e.attr_o("observable", "");
+        if ((!obs.empty() || e.tiene("vector") || e.tiene("gira")) && pieza.empty())
+            return donde(e) + q + "observable=, vector= y gira= son de una pieza: falta pieza=";
+        if (!obs.empty() || e.tiene("vector")) {
+            const size_t n = palabras(obs);
+            if (!n || !numeros(e.attr_o("vector", ""), 3 * n))
+                return donde(e) + q + "observable= y vector= van juntos: tres numeros, x y z, "
+                       "por cada observable";
+        }
+        if (sol) {
+            const std::string f = e.attr_o("forma", "");
+            if (f != "caja" && f != "cilindro")
+                return donde(e) + q + "forma=\"" + f + "\": caja o cilindro";
+            if (!numeros(e.attr_o("tam", ""), f == "caja" ? 3 : 2))
+                return donde(e) + q + "tam=\"" + e.attr_o("tam", "") + "\" no vale: " +
+                       (f == "caja" ? "largo, ancho y alto" : "diametro y largo") + ", en mm";
+            if (e.tiene("eje")) {
+                const std::string x = e.attr_o("eje");
+                if (f != "cilindro") return donde(e) + q + "eje= es de un cilindro";
+                if (x != "x" && x != "y" && x != "z")
+                    return donde(e) + q + "eje=\"" + x + "\": x, y o z";
+            }
+            if (e.tiene("gira") && (f != "cilindro" || palabras(e.attr_o("gira")) != 1))
+                return donde(e) + q + "gira= es UN observable, en grados, y es de un cilindro: "
+                       "gira sobre su eje";
+        } else {
+            if (pieza.empty() || !e.tiene("imagen"))
+                return donde(e) + q + "una superficie es la imagen de alturas de una pieza: "
+                       "pieza= e imagen=";
+            if (!numeros(e.attr_o("tam", ""), 2))
+                return donde(e) + q + "tam=\"" + e.attr_o("tam", "") + "\" no vale: largo y "
+                       "ancho, en mm";
+        }
+        Elemento3d x;
+        x.etiqueta = e.nombre;
+        x.attrs = e.attrs;
+        x.linea = e.linea;
+        v.elementos.push_back(x);
+    }
+    return std::string();
+}
+
 // Rellena `nl` a partir del árbol ya analizado. Devuelve "" si todo bien, o el
 // primer problema con su línea. `cx` dice si la placa es una de un <sistema>.
 // En `ilus`, si se pide, lo que la placa dice de su dibujo: el fichero tal
@@ -344,6 +464,7 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
             else if (a.first == "bsl")        m.bsl        = a.second;
             else if (a.first == "eth")        m.eth        = a.second;
             else if (a.first == "usb")        m.usb        = a.second;
+            else if (a.first == "contenido")  m.contenido  = a.second;
             else if (a.first == "puerto_gdb") {
                 const long v = std::atol(a.second.c_str());
                 if (v < 0 || v > 65535)
@@ -414,7 +535,50 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
     // Segunda pasada: los componentes, EN ORDEN. El orden del fichero es el
     // orden de construccion, y de eso depende que una referencia funcione.
     for (const XmlNodo& h : raiz.hijos) {
-        if (h.nombre == "nodo" || h.nombre == "mcu" || h.nombre == "ilustracion") continue;
+        if (h.nombre == "nodo" || h.nombre == "mcu" || h.nombre == "ilustracion" ||
+            h.nombre == "vista3d")
+            continue;
+        // UNA CADENA MECANICA (parts/cadena.h): `<transmision id cadena="M V">`
+        // es una pieza Transmision cuyas referencias e0, e1... son las piezas
+        // de cadena=, en su orden. Va en el mismo orden que los componentes,
+        // detras de todos los que nombra, como cualquier referencia
+        if (h.nombre == "transmision") {
+            if (!h.tiene("id"))     return donde(h) + "<transmision> sin atributo id";
+            if (!h.tiene("cadena")) return donde(h) + "<transmision> sin atributo cadena";
+            for (const auto& a : h.attrs)
+                if (a.first != "id" && a.first != "cadena")
+                    return donde(h) + "<transmision>: atributo desconocido: " + a.first;
+            if (!h.hijos.empty())
+                return donde(h) + "<transmision> no lleva hijos: las piezas van en cadena=";
+            const std::string id = id_de(h.attr_o("id"));
+            if (!eq.empty()) return donde(h) + "<transmision>: " + eq;
+            std::vector<std::string> piezas;
+            {
+                std::string t;
+                const std::string ca = h.attr_o("cadena");
+                for (size_t k = 0; k <= ca.size(); ++k) {
+                    const char c = (k == ca.size()) ? ' ' : ca[k];
+                    if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+                        if (!t.empty()) { piezas.push_back(t); t.clear(); }
+                    } else t.push_back(c);
+                }
+            }
+            if (piezas.empty())
+                return donde(h) + "<transmision id=\"" + id + "\">: cadena= esta vacia; son "
+                       "las piezas, separadas por espacios, del motor hacia la carga";
+            Instancia& in = nl.add("Transmision", id.c_str());
+            in.oculta();            // no es algo que se dibuje: es un eje
+            for (size_t k = 0; k < piezas.size(); ++k) {
+                for (size_t j = 0; j < k; ++j)
+                    if (piezas[j] == piezas[k])
+                        return donde(h) + "<transmision id=\"" + id + "\">: " + piezas[k] +
+                               " esta dos veces en la cadena";
+                const std::string q = id_de(piezas[k]);
+                if (!eq.empty()) return donde(h) + "<transmision>: " + eq;
+                in.ref(("e" + std::to_string(k)).c_str(), q);
+            }
+            continue;
+        }
         if (h.nombre != "componente")
             return donde(h) + "elemento desconocido dentro de <placa>: <" +
                    h.nombre + ">";
@@ -451,6 +615,10 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
                 continue;
             }
             if (a.first == "revision") continue;    // ya mirada arriba
+            // El fichero de su memoria no volatil: solo las que la tienen
+            if (a.first == "contenido" && !es_memoria_nv(tipo))
+                return donde(h) + id + ": contenido=\"" + a.second + "\": un " + tipo +
+                       " no tiene memoria no volatil (la tienen los MCU, " + tipos_memoria_nv() + ")";
             in.par(a.first.c_str(), a.second);      // cualquier otro: parametro
         }
         for (const XmlNodo& c : h.hijos) {
@@ -490,7 +658,7 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
                        e.nombre + ">";
             for (const auto& a : e.attrs)
                 if (a.first != "pieza" && a.first != "elemento" && a.first != "efecto" &&
-                    a.first != "observable")
+                    a.first != "observable" && a.first != "vector")
                     return donde(e) + "<enlace>: atributo desconocido: " + a.first;
             if (!e.tiene("pieza") || !e.tiene("elemento"))
                 return donde(e) + "<enlace> necesita pieza= y elemento=";
@@ -498,18 +666,58 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
             en.pieza = e.attr_o("pieza");
             en.elemento = e.attr_o("elemento");
             en.efecto = e.attr_o("efecto", "");
-            // observable= dice cual mueve el giro o el angulo; la ventana
-            // comprueba que la pieza lo tenga y, si no, lo dice
+            // observable= dice cual mueve el giro o el angulo, o cuales
+            // ensena un display, uno por fila; la ventana comprueba que la
+            // pieza los tenga y, si no, lo dice
             en.observable = e.attr_o("observable", "");
-            if (!en.observable.empty() && en.efecto != "giro" && en.efecto != "angulo")
+            // Una pantalla que se mueve -la imagen de la pieza mecanizada de
+            // una fresadora, que va con la mesa- se traslada como `desplaza`
+            const bool traslada = en.efecto == "desplaza" ||
+                                  (en.efecto == "pantalla" && !en.observable.empty());
+            if (!en.observable.empty() && en.efecto != "giro" && en.efecto != "angulo" &&
+                en.efecto != "display" && !traslada)
                 return donde(e) + "<enlace pieza=\"" + en.pieza + "\">: observable= solo vale con "
-                       "efecto=\"giro\" o \"angulo\"";
+                       "efecto=\"giro\", \"angulo\", \"display\", \"desplaza\" o \"pantalla\"";
+            if (en.efecto != "display" && !traslada &&
+                en.observable.find_first_of(" \t") != std::string::npos)
+                return donde(e) + "<enlace pieza=\"" + en.pieza + "\">: con efecto=\"" +
+                       en.efecto + "\", observable= es uno solo; varios solo con "
+                       "efecto=\"display\" o \"desplaza\"";
             if (!en.efecto.empty() && en.efecto != "brillo" && en.efecto != "hundido" &&
                 en.efecto != "giro" && en.efecto != "pantalla" && en.efecto != "angulo" &&
-                en.efecto != "ninguno")
+                en.efecto != "display" && en.efecto != "desplaza" && en.efecto != "ninguno")
                 return donde(e) + "<enlace pieza=\"" + en.pieza + "\">: efecto '" +
                        en.efecto + "' desconocido (brillo, hundido, giro, pantalla, " +
-                       "angulo o ninguno)";
+                       "angulo, display, desplaza o ninguno)";
+            // `desplaza` (doc/analisis_cnc.md §9): traslada el elemento, cada
+            // observable por su vector, en unidades del dibujo por unidad del
+            // observable -dos numeros por observable, x e y-. Los dos hacen
+            // falta, y casan
+            en.vector = e.attr_o("vector", "");
+            if (e.tiene("vector") && en.efecto != "desplaza" && en.efecto != "pantalla")
+                return donde(e) + "<enlace pieza=\"" + en.pieza + "\">: vector= solo vale con "
+                       "efecto=\"desplaza\" o \"pantalla\"";
+            if (traslada || (en.efecto == "pantalla" && e.tiene("vector"))) {
+                std::vector<double> v;
+                size_t n_obs = 0;
+                {
+                    bool en_palabra = false;
+                    for (char c : en.observable) {
+                        const bool blanco = c == ' ' || c == '\t' || c == '\n' || c == '\r';
+                        if (!blanco && !en_palabra) ++n_obs;
+                        en_palabra = !blanco;
+                    }
+                }
+                if (!n_obs || en.vector.empty())
+                    return donde(e) + "<enlace pieza=\"" + en.pieza + "\">: efecto=\"" +
+                           en.efecto + "\" necesita observable= -uno o varios- y vector=, dos "
+                           "numeros por observable: lo que se mueve el elemento, en x y en y, "
+                           "por unidad";
+                if (!lee_numeros(en.vector, v) || v.size() != 2 * n_obs)
+                    return donde(e) + "<enlace pieza=\"" + en.pieza + "\">: vector=\"" + en.vector +
+                           "\" no vale: son " + std::to_string(2 * n_obs) + " numeros, x e y "
+                           "por cada observable";
+            }
             const std::string q = id_de(en.pieza);
             if (!eq.empty()) return donde(e) + "<enlace>: " + eq;
             if (!nl.busca(q))
@@ -521,6 +729,15 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
                            "' ya esta en la tabla";
             il.enlaces.push_back(en);
         }
+    }
+    // Cuarta pasada: la vista 3D (F8 de doc/analisis_cnc.md), también con las
+    // piezas ya declaradas
+    for (const XmlNodo& h : raiz.hijos) {
+        if (h.nombre != "vista3d") continue;
+        if (il.vista3d.hay) return donde(h) + "<vista3d> repetida: una por placa";
+        const std::string e =
+            lee_vista3d(nl, h, cx.en_sistema() ? cx.id + "/" : std::string(), il.vista3d);
+        if (!e.empty()) return e;
     }
     if (ilus) *ilus = il;
     return std::string();
@@ -832,6 +1049,7 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
                 else if (a.first == "bsl")        m->bsl        = a.second;
                 else if (a.first == "eth")        m->eth        = a.second;
                 else if (a.first == "usb")        m->usb        = a.second;
+                else if (a.first == "contenido")  m->contenido  = a.second;
                 else if (a.first == "puerto_gdb") {
                     const long v = std::atol(a.second.c_str());
                     if (v < 0 || v > 65535)
@@ -841,6 +1059,31 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
                 } else
                     return donde(h) + "<mcu ref=...>: atributo desconocido: " + a.first +
                            " (el tipo lo dice la placa, o --mcu)";
+            }
+        } else if (h.nombre == "memoria") {
+            // El fichero de una memoria no volátil EN ESTE MONTAJE, sin tocar
+            // la placa: el de un chip (`N/u0`) o el de una pieza (`N/U5`).
+            // Manda sobre el `contenido` de la placa (common/memoria_nv.h)
+            for (const auto& a : h.attrs)
+                if (a.first != "ref" && a.first != "contenido")
+                    return donde(h) + "<memoria>: atributo desconocido: " + a.first;
+            if (!h.tiene("ref") || !h.tiene("contenido"))
+                return donde(h) + "<memoria> necesita ref=\"placa/id\" -un MCU o una pieza- y "
+                       "contenido=\"fichero.hex\"";
+            std::string pl, rs;
+            const std::string ep = parte(h.attr_o("ref"), pl, rs);
+            if (!ep.empty()) return donde(h) + "<memoria>: " + ep;
+            if (DeclMcu* m = nl.mcu_mut(pl + "/" + rs)) {
+                m->contenido = h.attr_o("contenido");
+            } else if (Instancia* im = nl.busca(pl + "/" + rs)) {
+                if (!es_memoria_nv(im->tipo))
+                    return donde(h) + "<memoria ref=\"" + h.attr_o("ref") + "\">: " + rs + " es un " +
+                           im->tipo + ", que no tiene memoria no volatil (la tienen los MCU, " +
+                           tipos_memoria_nv() + ")";
+                im->params["contenido"] = h.attr_o("contenido");
+            } else {
+                return donde(h) + "<memoria ref=\"" + h.attr_o("ref") + "\">: la placa " + pl +
+                       " no tiene ningun MCU ni pieza que se llame " + rs;
             }
         } else if (h.nombre == "jumper") {
             // Como esta puesto el puente de un Jumper de una placa EN ESTE
@@ -863,9 +1106,34 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
             GeomConector gj;
             const std::string eg = Netlist::geometria(*ij, gj);
             if (!eg.empty()) return donde(h) + "<jumper ref=\"" + h.attr_o("ref") + "\">: " + eg;
+        } else if (h.nombre == "ref") {
+            // Una pieza de una placa que mira a otra pieza de OTRA placa: la
+            // pieza mecanizada de una fresadora y el motor de su cabezal, que
+            // va en su propia placa. Lo que pide la pieza como <ref> en su
+            // placa, aquí con el nombre cualificado. La pieza lo busca cuando
+            // ya está todo montado: no importa cuál se construye antes
+            for (const auto& a : h.attrs)
+                if (a.first != "pieza" && a.first != "nombre" && a.first != "componente")
+                    return donde(h) + "<ref>: atributo desconocido: " + a.first;
+            if (!h.tiene("pieza") || !h.tiene("nombre") || !h.tiene("componente"))
+                return donde(h) + "<ref> dentro de un <sistema> necesita pieza=\"placa/id\", "
+                       "nombre=\"...\" y componente=\"placa/id\"";
+            std::string q[2];
+            const char* lado[2] = {"pieza", "componente"};
+            for (int k = 0; k < 2; ++k) {
+                std::string pl, rs;
+                const std::string e = parte(h.attr_o(lado[k]), pl, rs);
+                if (!e.empty()) return donde(h) + "<ref>: " + e;
+                q[k] = pl + "/" + rs;
+                if (!nl.busca(q[k]))
+                    return donde(h) + "<ref " + lado[k] + "=\"" + h.attr_o(lado[k]) +
+                           "\">: la placa " + pl + " no tiene ningun componente que se llame " + rs;
+            }
+            nl.busca(q[0])->ref_tardia(h.attr_o("nombre").c_str(), q[1]);
         } else {
             return donde(h) + "elemento desconocido dentro de <sistema>: <" + h.nombre +
-                   ">. Lo que va aqui: <placa>, <acopla>, <hilo>, <mcu ref>, <jumper ref> y <ruta>";
+                   ">. Lo que va aqui: <placa>, <acopla>, <hilo>, <mcu ref>, <jumper ref>, "
+                   "<memoria ref>, <ref pieza> y <ruta>";
         }
     }
     // Las rutas, de líneas que hay: ya están todos los acoples y los hilos

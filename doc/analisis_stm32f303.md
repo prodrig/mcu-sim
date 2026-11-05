@@ -21,7 +21,24 @@ adelante, para media docena de familias.
 
 ---
 
-## Estado: S0 a S9 hechas (24-10-2026)
+## Estado: S0 a S9 hechas (24-10-2026), para el die 0x422
+
+> **Hoy (2026-11-03)** está en `main`, y `testf3` tiene **428**
+> comprobaciones, «el resto» en **116 875 480 154 660 ps**
+> (`src/verif/invariantes.txt`). Lo que sigue es el diario de cada fase, con
+> las cifras de cuando se cerró.
+>
+> **Lo que cubren S0 a S9 es un die, no la familia STM32F3 entera.** Es el
+> **0x422**: el F303xB/C, el F302xB/C y el F358xC, quince referencias que son
+> el mismo silicio (S9; `doc/parts.md` §2.0). Los otros cuatro dies de la
+> familia no están:
+>
+> | Die | Referencias | Estado |
+> | :--- | :--- | :--- |
+> | 0x446 | F303xD/E, F302xD/E, F398xE | Analizado en `doc/analisis_f303xD-E_f303x6_8_F334.md`; sin empezar |
+> | 0x438 | F303x6/8, F334x4/6/8, F328x8 | Analizado en el mismo; sin empezar |
+> | 0x439 | F301x6/8, F302x6/8, F318x8 | Sin analizar |
+> | 0x432 | F373, F378 | Sin analizar: es otra línea, con ADC sigma-delta |
 
 En la rama `stm32f303`, un commit por fase. Las siete suites de antes no se
 mueven ni un picosegundo (`ci/comprueba_invariante.sh`, las siete en verde con
@@ -308,7 +325,7 @@ contrasta los quince sin tiempo simulado; F62 enciende un F302CB, un F303RB y un
 F358RC, comprueba por el bus `F_SIZE`, la SRAM, la CCM, el TIM7, el TIM8 y el
 USB que faltan, y habla AN3155 con el cargador del F302CB por PA9/PA10 de su
 LQFP48. `testf3` sube a **375 (de 362)** comprobaciones y «el resto», a
-**116 125 283 487 941 ps** (igual en dos pasadas). Los otros dos dies, `0x446` (F303xD/E) y `0x438` (F303x6/8 y
+**116 125 283 487 941 ps** (igual en dos pasadas). Dos de los otros dies, `0x446` (F303xD/E) y `0x438` (F303x6/8 y
 F334), tienen su plan en `doc/analisis_f303xD-E_f303x6_8_F334.md`, con la lista
 de lo que hay que bajar a `doc/refs/`.
 

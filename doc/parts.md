@@ -1,6 +1,6 @@
 # Catálogo de componentes externos
 
-Referencia de las **25 piezas** que la factoría de `src/parts/` sabe construir:
+Referencia de las **69 piezas** que la factoría de `src/parts/` sabe construir:
 qué terminales tiene cada una, qué parámetros admite, qué hace cada parámetro y
 qué queda fuera del fichero.
 
@@ -65,11 +65,49 @@ Una placa declara los chips que lleva:
 
 | Atributo | Omisión | Efecto |
 | :--- | :--- | :--- |
-| `tipo` | *(obligatorio)* | El modelo. Se saben construir **los veintiún miembros de la familia F405/F407/F415/F417**: `STM32F405RG`, `STM32F405OG`, `STM32F405VG`, `STM32F405ZG`, `STM32F405OE`, `STM32F407VE`, `STM32F407VG`, `STM32F407ZE`, `STM32F407ZG`, `STM32F407IE`, `STM32F407IG`, `STM32F415RG`, `STM32F415OG`, `STM32F415VG`, `STM32F415ZG`, `STM32F417VE`, `STM32F417VG`, `STM32F417ZE`, `STM32F417ZG`, `STM32F417IE` y `STM32F417IG` — los diez últimos son los que llevan el acelerador criptográfico. `sim --help` los lista, y `--mcu TIPO` manda sobre él. Lo que los distingue está en `doc/reutilizacion.md` §9 |
+| `tipo` | *(obligatorio)* | El modelo: una de las **46 referencias** de abajo. `sim --help` las lista, y `--mcu TIPO` manda sobre él |
 | `id` | *(obligatorio)* | El prefijo de sus nodos (`u0.PD12`) y su nombre en la jerarquía de SystemC |
 | `firmware` | ninguno | La imagen que se le carga en la Flash. **Una por chip** |
 | `depuracion` | `pines` | `pines`: expone SWCLK/SWDIO y el stub se cuelga por fuera, como un ST-LINK. `dap`: reserva los cinco pines de depuración y el stub habla con el núcleo por llamada de función. `openocd`: como `pines`, pero lo que se cuelga es una sonda `remote_bitbang` para que OpenOCD genere el SWD; `puerto_gdb` es entonces el de esa sonda (T5 del MSP432) |
 | `puerto_gdb` | `0` | Puerto TCP de su stub. **0 = no se abre ninguno** |
+| `contenido` | ninguno | Un fichero Intel HEX con lo que guarda su memoria no volátil: se carga al arrancar, antes del firmware, y se guarda al acabar (§2.7) |
+
+**Los tipos que se saben construir**, por familia y, dentro de cada una, por
+die —el silicio: dos referencias del mismo die son el mismo chip con otra
+Flash, otra SRAM, otro encapsulado o algún bloque de menos, y caben en un
+descriptor; otro die es otro modelo—:
+
+| Familia | Die | Línea | Tipos | Lo que los distingue |
+| :--- | :--- | :--- | :--- | :--- |
+| **STM32F4** (ST) | 0x413 | F405 / F407 | `STM32F405RG`, `STM32F405OG`, `STM32F405VG`, `STM32F405ZG`, `STM32F405OE`, `STM32F407VE`, `STM32F407VG`, `STM32F407ZE`, `STM32F407ZG`, `STM32F407IE`, `STM32F407IG` | El encapsulado y la Flash; el F405 sin Ethernet ni DCMI (`doc/reutilizacion.md` §9) |
+| | 0x413 | F415 / F417 | `STM32F415RG`, `STM32F415OG`, `STM32F415VG`, `STM32F415ZG`, `STM32F417VE`, `STM32F417VG`, `STM32F417ZE`, `STM32F417ZG`, `STM32F417IE`, `STM32F417IG` | Los mismos, con el acelerador criptográfico |
+| | 0x421 | F446 | `STM32F446MC`, `STM32F446ME`, `STM32F446RC`, `STM32F446RE`, `STM32F446VC`, `STM32F446VE`, `STM32F446ZC`, `STM32F446ZE` | Otro die de la familia F4, con sus periféricos propios (`src/README.md`) |
+| **STM32F3** (ST) | 0x422 | F303 | `STM32F303VC`, `STM32F303VB`, `STM32F303RC`, `STM32F303RB`, `STM32F303CC`, `STM32F303CB` | En LQFP100, LQFP64 y LQFP48; xB con 128 KB de Flash y 32 KB de SRAM, xC con 256 y 40 (`doc/analisis_stm32f303.md`) |
+| | 0x422 | F302 | `STM32F302VC`, `STM32F302VB`, `STM32F302RC`, `STM32F302RB`, `STM32F302CC`, `STM32F302CB` | El F303 sin ADC3/4, COMP3/5/7, OPAMP3/4, TIM7, TIM8 ni CCM |
+| | 0x422 | F358 | `STM32F358VC`, `STM32F358RC`, `STM32F358CC` | El F303xC sin USB, y con NPOR donde el F303 tiene PB2 |
+| **MSP432P4** (TI) | — | P401 | `MSP432P401R` | La LaunchPad MSP-EXP432P401R; con `rom=`, `tlv=` y `bsl=` (abajo) (`doc/analisis_msp432.md`) |
+| **MSP432E4** (TI) | — | E401 | `MSP432E401Y` | La LaunchPad MSP-EXP432E401Y; con `eth=` y `usb=` (abajo) (`doc/analisis_msp432.md`) |
+
+`mcu-sim --help` da la misma lista. **Lo que no está** —y por eso un
+`--mcu` con ello es un error—, de las familias de arriba:
+
+* **STM32F3**: solo está el die 0x422, que es lo que hicieron las fases S0 a
+  S9 de `doc/analisis_stm32f303.md`. Los otros cuatro dies de la familia no:
+
+  | Die | Referencias | Estado |
+  | :--- | :--- | :--- |
+  | 0x446 | F303xD/E, F302xD/E, F398xE | Analizado en `doc/analisis_f303xD-E_f303x6_8_F334.md`; sin empezar |
+  | 0x438 | F303x6/8, F334x4/6/8, F328x8 | Analizado en el mismo; sin empezar |
+  | 0x439 | F301x6/8, F302x6/8, F318x8 | Sin analizar |
+  | 0x432 | F373, F378 | Sin analizar: es otra línea, con ADC sigma-delta |
+
+* **STM32F4**: solo los dies 0x413 y 0x421; ni el F401, ni el F411, ni los
+  F42x/F43x, entre otros.
+* **MSP432**: solo esas dos referencias.
+
+Un tipo de **otra familia** no es un parámetro: es otro modelo, con su árbol de
+reloj y sus periféricos. Un tipo que no está en la lista es un error que dice
+cuáles hay.
 
 **El MCU no se supone.** Si la placa no declara ninguno, lo pone `--mcu TIPO`
 en la línea de órdenes —un chip sin id, con los nodos de nombre desnudo—; si
@@ -77,7 +115,7 @@ declara uno y además se pasa `--mcu`, **gana `--mcu`**: sustituye el tipo del
 `<mcu>` y lo dice. Y si no hay ni lo uno ni lo otro, **la placa va sin MCU**
 (§2.1 dice qué cambia entonces en los nodos).
 
-**Un `<mcu>` no lleva hijos.** Sus 144 pads existen sin declararlos: un
+**Un `<mcu>` no lleva hijos.** Sus pads existen sin declararlos: un
 `<pin>` dentro de un `<mcu>` se rechaza.
 
 **Cómo se nombran los pines**, que es la parte que hay que tener clara:
@@ -102,7 +140,8 @@ firmware, el núcleo se aparca en `wfe`. Un id que no está, el mismo chip dos
 veces o todo esto junto al firmware posicional son errores que dicen por qué. Y
 `mcu-sim placa.xml --mcus` lista los chips —id, tipo y firmware del XML— en XML:
 es lo que usa el diálogo de lanzamiento de `mcu-sim-gui` para poner una fila de
-firmware por chip, con su casilla «sin firmware» (su plan §42).
+firmware por chip, con su casilla «sin firmware» (su plan §42). Lo mismo
+hace `mcu-sim placa.xml --memorias` con las memorias no volátiles (§2.7).
 
 **La ROM y el TLV de un MSP432P4** (T4 del MSP432). Su `<mcu>` admite
 `rom="..."` y `tlv="..."`, y la línea de órdenes `--rom [ID=]VALOR` y `--tlv
@@ -114,6 +153,11 @@ por omisión, o los 4 KB de 0x0020_1000 volcados de una placa; con él, el DCO
 del modelo sigue las calibraciones de esa pieza. Sin ID se aplica a todos los
 chips que los tienen; un chip que no los tiene, con ID o en su XML, es un
 error.
+
+**Y su BSL** (T5 del MSP432): `bsl="..."` en el `<mcu>`, o `--bsl [ID=]VALOR`.
+Por omisión es el **B1**, un BSL propio con el protocolo de TI; `ninguno`; o el
+de TI de un fichero —el `BSL432_MSP432P401.txt` (o `.out`) del paquete
+MSP432BSL—. Con la Flash en blanco, el chip arranca en él.
 
 **El Ethernet y el USB de un MSP432E4** (T7 del MSP432). No son piezas de la
 placa sino puentes del chip: su `<mcu>` admite `eth="..."` y `usb="..."`, y la
@@ -151,11 +195,18 @@ de verdad (`ControladorUsb::pausa_control_us`).
 | `bus` | `no` | `si` = varias piezas pueden conducir a la vez sin que sea un error |
 | `une` | *(ninguno)* | Los pads que **son** este nodo, separados por espacios. Al menos dos |
 
-**Los nodos de pin no hace falta declararlos.** Los 144 pads del chip y los diez
-nodos de alimentación y arranque existen desde el principio, con su nombre de
-esquemático: `PA0`…`PI15`, `VDD`, `VSS`, `VDDA`, `VSSA`, `VREF+`, `VBAT`,
-`VCAP1`, `VCAP2`, `NRST`, `BOOT0`. Declararlos con `<nodo id="PA5"/>` es
-opcional y solo sirve para documentar. **Los externos sí**: sin
+**Los nodos de pin no hace falta declararlos.** Los pads del chip y sus nodos de
+alimentación y arranque existen desde el principio, con su nombre de
+esquemático, que es el del fabricante:
+
+| Chip | Pads | Alimentación y control |
+| :--- | :--- | :--- |
+| STM32F4 | `PA0`…`PI15` | `VDD`, `VSS`, `VDDA`, `VSSA`, `VREF+`, `VBAT`, `VCAP1`, `VCAP2`, `NRST`, `BOOT0` |
+| STM32F3 | `PA0`…`PF10` | `VDD`, `VSS`, `VDDA`, `VSSA`, `VREF+`, `VBAT`, `NRST`, `BOOT0` |
+| MSP432P401R | `P1.0`…`P10.5` y `PJ.0`…`PJ.5` | `DVCC`, `DVSS`, `AVCC`, `AVSS`, `VCORE`, `RSTN` (la RSTn/NMI del datasheet), `SWCLKTCK`, `SWDIOTMS` |
+| MSP432E401Y | `PA0`…`PQ4` | `VDD`, `GND`, `VDDA`, `GNDA`, `VDDC`, `VBAT`, `RST`, `OSC0`, `OSC1`, `XOSC0`, `XOSC1`, `HIB`, `WAKE` |
+
+Declararlos con `<nodo id="PA5"/>` es opcional y solo sirve para documentar. **Los externos sí**: sin
 `externo="si"` el nodo no existe y la validación lo rechaza.
 
 **En una placa sin MCU** no hay pads: todo nodo es de la placa, así que cada
@@ -215,8 +266,18 @@ con un solo pad.
 
 #### Cómo se escribe el nombre de un pin
 
-El modelo acepta **las cuatro formas** con las que los fabricantes nombran un
-pin, y todas designan el mismo punto:
+**El nombre lo interpreta el chip** (`src/pins/nomenclatura.h`), porque no hay
+una regla que valga para todos: en un STM32, `P1.0` sería el primer pin del
+segundo puerto, y en un MSP432P4 es el del primero.
+
+**En un MSP432** se escribe como en su datasheet:
+* en el **P401R**, `P1.0` a `P10.5` y `PJ.0` a `PJ.5`: el número es el del
+  puerto de TI, no hay `P0`, y `PJ` es un puerto aparte;
+* en el **E401Y**, una letra de la `A` a la `Q` y un número del 0 al 7 —no todos los puertos los tienen todos—: `PN0`, o `PN.0` y `PN_0`, que
+  valen lo mismo. La forma canónica, la de los volcados, es `PN0`.
+
+**En un STM32**, F4 o F3, el modelo acepta **las cuatro formas** con las que
+los fabricantes nombran un pin, y todas designan el mismo punto:
 
 | | |
 | :--- | :--- |
@@ -338,7 +399,8 @@ y lo que las une se dice en el sistema, que es donde se sabe.
 | `<acopla a="A/CN9" b="B/J9" [espejo="si"]/>` | Dos `Conector` (§4.1) enchufados: el pin *k* de uno con el *k* del otro; en espejo, con el que le cae enfrente |
 | `<acopla conectores="A/J1 B/J1 C/J1"/>` | Una **pila** (PC/104, cabeceras apilables): el pin *k* es el mismo en todos. Un conector va en un acople solo |
 | `<hilo a="A/CN9.2" b="B/PA3"/>` | Dos nodos cualesquiera, unidos: un cable, un cruce TX↔RX |
-| `<mcu ref="A/u0" firmware= depuracion= puerto_gdb=/>` | Lo que el montaje decide de un chip de una placa, sin tocar su fichero |
+| `<mcu ref="A/u0" firmware= depuracion= puerto_gdb= contenido=/>` | Lo que el montaje decide de un chip de una placa, sin tocar su fichero |
+| `<memoria ref="A/U5" contenido="e.hex"/>` | El fichero de la memoria no volátil de un chip o de una pieza de una placa (§2.7), sin tocar su fichero |
 | `<jumper ref="A/JP1" puente="..."/>` | Dónde va el puente de un `Jumper` de una placa en este montaje, sin tocar su fichero (`Jumper`, §4) |
 
 **Todo lo de la placa `A` se llama `A/...`**: `A/LD2`, `A/u0`, `A/vcc`, el
@@ -375,7 +437,8 @@ máquina y no ver estos ficheros.
 | Sin `ilustracion=` | El SVG que **se llame como la placa**, a su lado: `nucleo_f446re.xml` → `nucleo_f446re.svg`. Si no está, no pasa nada |
 | `<placa id="N" fichero="..." ilustracion="y.svg"/>` en un `<sistema>` | El montaje cambia el dibujo de esa placa (relativo al sistema); la tabla de la placa, que era de SU dibujo, no se usa |
 | `giro="90"` en la `<placa>`, o en su `<placa id>` de un `<sistema>` | El dibujo, **girado** 90, 180 o 270 grados en el sentido de las agujas del reloj: como está montada la placa. El del sistema manda sobre el de la placa. Ver abajo |
-| `<ilustracion><enlace pieza= elemento= [efecto=] [observable=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido`, `giro`, `pantalla`, `angulo` o `ninguno`; con `giro` o `angulo`, `observable` dice cuál de los de la pieza lo mueve (abajo) |
+| `<ilustracion><enlace pieza= elemento= [efecto=] [observable=] [vector=]/></ilustracion>` | La **tabla de enlaces**: qué elemento del SVG es cada pieza, para dibujos que no se quieren tocar. Sin ella, cada pieza es el elemento con su mismo id (`id="LD2"`). `efecto` es `brillo`, `hundido`, `giro`, `pantalla`, `angulo`, `display`, `desplaza` o `ninguno`; con `giro` o `angulo`, `observable` dice cuál de los de la pieza lo mueve; con `display`, cuáles enseña, uno por fila; con `desplaza`, cuáles lo trasladan, y `vector` cuánto cada uno (abajo) |
+| `<vista3d>` | La **vista 3D**: cajas, cilindros y la superficie de una pieza, movidos por observables, para la ventana 3D de `mcu-sim-gui` (abajo) |
 
 **Lo que se comprueba aquí** —el SVG lo lee la ventana—: un dibujo
 **declarado** que no está, uno que no empieza por `<svg` ni por `<?xml`, o uno
@@ -437,6 +500,36 @@ izquierda, abajo. `placas/tft_128x160.svg` lleva el vidrio apaisado, con el
 conector a la derecha; un firmware que quiera verlo derecho en esa postura
 pone MADCTL = 0x60.
 
+**Lo que se lee en un display: el efecto `display`.** Solo lo pone la tabla
+de enlaces. La ventana escribe DENTRO del elemento el valor de los numéricos
+que diga `observable=` —varios, separados por blancos, uno por fila, de arriba
+abajo— o, sin él, los que la pieza sugiere, con sus cifras de colores sobre el
+fondo que traiga el dibujo, como el display de un aparato: cuatro cifras, y
+los mA que pasan de 1000, en A —`0.367 A`, `7.474 V`—. Esos ya no llevan
+etiqueta debajo. Es el display de `placas/fuente_laboratorio.svg`:
+`<enlace pieza="PSU" elemento="PSU" efecto="display" observable="tension
+corriente"/>`. Para que las filas caigan en sus ventanitas, el elemento las
+lleva todas, del mismo alto y repartidas por igual.
+
+**Lo que se mueve en línea recta: el efecto `desplaza`.** Es el `angulo`
+lineal, y solo lo pone la tabla: la ventana TRASLADA el elemento. Lo mueven
+uno o varios numéricos de la pieza —`observable=`, separados por blancos—,
+cada uno con su vector —`vector=`, dos números por observable, x e y—, en
+unidades del dibujo (las de su `viewBox`) por unidad del observable, y se
+suman:
+
+    <enlace pieza="MAQ" elemento="cabezal" efecto="desplaza"
+            observable="x z" vector="2.5 0  0 -2.5"/>
+
+lleva el cabezal 2,5 a la derecha por cada mm de `x` y 2,5 hacia arriba por
+cada mm de `z`. Así un elemento se mueve con dos ejes sin que la ventana tenga
+que componer grupos anidados, que es lo que haría falta para que el carro Z
+de una fresadora se moviera con el X (`doc/analisis_cnc.md` §9). `mcu-sim`
+comprueba que los dos atributos estén y que el vector tenga dos números por
+observable; que la pieza tenga esos observables lo mira la ventana, que se
+queda sin efecto si no, y lo dice. Con el elemento van su halo y su contorno
+de alarma; los numéricos que lo mueven no llevan etiqueta.
+
 **El giro: la misma placa, montada de otra manera.** Una placa no siempre va
 derecha: la pantalla TFT puede ir de pie, con el conector abajo, o del revés,
 con el conector a la izquierda. En vez de un dibujo por postura, `giro=` gira
@@ -448,6 +541,46 @@ imagen de una pantalla— gira con ella. La serigrafía también gira, como en l
 placa de verdad. La consola lo dice: `dibujo T: tft_128x160.svg (6 kB, girado
 90)`. Hace falta que la raíz del SVG tenga viewBox; si no, se avisa y se manda
 como está. Un giro que no sea 0, 90, 180 o 270 es un error de la placa.
+
+**La vista 3D: `<vista3d>`.** Junto a la `<ilustracion>`, una placa puede
+declarar cómo es en tres dimensiones, para la ventana 3D de `mcu-sim-gui`
+(`doc/analisis_cnc.md`, F8). `mcu-sim` no la usa: la valida y la manda en
+`T_PLACA` tal cual, dentro de su `<placa>` si es de un `<sistema>`.
+
+Las medidas van en mm, con Z hacia arriba. `camara=` y `mira=` (x y z) dicen
+desde dónde se mira al abrir la ventana. Dentro, dos clases de elemento:
+
+| Elemento | Atributos | Qué es |
+| :--- | :--- | :--- |
+| `<solido>` | `forma="caja"` con `tam` = largo, ancho y alto; o `forma="cilindro"` con `tam` = diámetro y largo, y `eje` = `x`, `y` o `z` (`z` si no se dice) | Una caja o un cilindro. Un cilindro de una pieza puede girar sobre su eje con `gira=`, un observable en grados: un husillo con su `angulo` |
+| `<superficie>` | `pieza`, `imagen` y `tam` = largo y ancho | La imagen de alturas de una pieza —la `alturas` de una `Pieza`, §4.23— como una malla, con su esquina de menos X y menos Y en `en` |
+
+Los dos llevan, además:
+* `en=`, el sitio con todos los observables a cero: el centro de un sólido,
+  la esquina de una superficie;
+* `color=`, `#rrggbb`;
+* `pieza=`, `observable=` y `vector=`, opcionales, para moverse como el
+  `desplaza` de la tabla de enlaces, pero con tres números por observable.
+
+Un trozo de la 3020 (`placas/fresadora_3020.xml`):
+
+    <vista3d camara="560 -560 430" mira="150 0 40">
+      <solido pieza="HY" forma="cilindro" tam="8 300" eje="y" en="150 0 -20"
+              gira="angulo" color="#cfd8dc"/>
+      <solido pieza="CY" forma="caja" tam="360 240 15" en="150 100 -7.5"
+              color="#90a4ae" observable="posicion" vector="0 -1 0"/>
+      <superficie pieza="PZA" imagen="alturas" tam="100 60" en="100 70 0"
+                  observable="mesa" vector="0 -1 0" color="#c8a27a"/>
+    </vista3d>
+
+`mcu-sim` comprueba:
+* las formas, los tamaños, los colores y los vectores;
+* que la pieza exista;
+* que `gira` sea un solo observable y de un cilindro;
+* que haya un solo `<vista3d>`.
+
+Que la pieza tenga esos observables y esa imagen lo mira la ventana: lo que no
+casa se queda quieto o sin dibujar, y lo dice.
 
 ```xml
 <sistema nombre="nucleo-y-tft-de-pie">
@@ -552,6 +685,108 @@ fichero —`x`, `y` y `escala` en cada `<placa id>`, `lienzo` en la raíz y las
 `<ruta>` detrás de los acoples y los hilos—, añadido a la versión 2 del
 protocolo sin subirla: una ventana que no lo conoce no lo lee.
 `placas/nucleo_f446re_servo.xml` lo usa.
+
+### 2.7 La memoria no volátil: `contenido`
+
+Lo que guarda sin alimentación un chip o una pieza —la Flash de un MCU, la
+EEPROM de un MSP432E4, una `I2cEeprom`, una `SdCard`, una `ExtNand`— se
+perdía al acabar la simulación. Con el atributo **`contenido`**, esa memoria
+**se carga de un fichero Intel HEX al arrancar y se guarda en él al acabar**,
+y la simulación siguiente sigue donde lo dejó la anterior:
+
+```xml
+<mcu tipo="STM32F407VG" id="u0" firmware="app.bin" contenido="flash_u0.hex"/>
+<componente tipo="I2cEeprom" id="U5" dir="0x50" contenido="eeprom_u5.hex">...</componente>
+```
+
+* **Sin `contenido`, nada cambia**: la memoria arranca como siempre.
+* **Si el fichero aún no existe**, la memoria arranca como siempre y el
+  fichero se crea al acabar. La consola lo dice: `contenido de u0 (Flash):
+  flash_u0.hex, que aun no existe: se creara al acabar`.
+* **Lo que el fichero no dice** se queda como estaba al construir la memoria
+  —la Flash, borrada a 0xFF—. Un byte del fichero que no cae en la memoria es
+  un error que dice cuál, y el fichero no se toca.
+* **La Flash de un MCU, primero el contenido y después el firmware encima**:
+  lo que el programa guardó en otras páginas se conserva. Sin firmware, el
+  chip arranca con lo que traiga el contenido —no se aparca en `wfe`—.
+* Las rutas son relativas al directorio de trabajo, como las del firmware.
+
+**Dónde está cada memoria en el fichero**: las de un MCU, en sus direcciones
+del mapa de memoria, que es como las escriben y las leen las herramientas del
+fabricante; las de las piezas, desde 0.
+
+| Memoria | En el fichero |
+| :--- | :--- |
+| STM32F4 | La Flash principal, desde 0x0800_0000; la OTP en 0x1FFF_7800 (512 bytes en 16 bloques de 32, y sus 16 bytes de bloqueo en 0x1FFF_7A00); y los bytes de opción en 0x1FFF_C000 (USER y RDP en C000-C001, nWRP en C008-C009, con la disposición de RM0090) |
+| STM32F3 | La Flash principal, desde 0x0800_0000, y los bytes de opción en 0x1FFF_F800 (RDP, USER, DATA0, DATA1 y WRP0-3, cada uno con su complemento). El F303 no tiene OTP |
+| MSP432P401R | La Flash principal desde 0x0, y la de información entera: el sector 0 en 0x0020_0000 (el buzón y los datos del programa), el TLV en 0x0020_1000 y el BSL en 0x0020_2000. El TLV y el BSL solo salen si difieren de lo que había antes de cargar, y entonces enteros |
+| MSP432E401Y | La Flash desde 0x0; la EEPROM —que no está en el mapa: se lee por registros— en 0x400A_F000, la ventana de esos registros; y lo que el firmware fija con COMT en sus direcciones del SYSCTL: BOOTCFG (0x400F_E1D0), USER_REG0-3 (0x400F_E1E0), FMPRE0-15 (0x400F_E200) y FMPPE0-15 (0x400F_E400). De fábrica no salen, y lo del fichero vale desde el primer arranque |
+| `I2cEeprom` | Sus 64 bytes, desde 0 |
+| `SdCard` | Sus 2 KB, desde 0 |
+| `ExtNand` | Sus 8 KB, desde 0 |
+
+Al guardar, **lo que es igual a su referencia no se escribe**: la Flash de un
+MCU solo escribe los registros que no son todo 0xFF —un MB de Flash con un
+programa de 20 KB son 20 KB de fichero—, la OTP igual, y los bytes de opción,
+solo si no son los de fábrica. Las de las piezas se guardan enteras. **Cuidado** con grabar un
+`contenido` en una placa de verdad: es un Intel HEX corriente, y una
+herramienta que acepte esas direcciones programaría también la OTP —para
+siempre— y los bytes de opción —RDP incluido— que lleve.
+
+**El TLV y el BSL del P4** ya los ponen `tlv=` y `bsl=`, así que su referencia
+es lo que hay justo antes de cargar, con esas dos opciones aplicadas. El TLV no
+lo puede cambiar el firmware: si el fichero trae uno —el volcado de la
+información de una placa con UniFlash—, se valida como el de `tlv=` y **se
+adopta**, con sus calibraciones del DCO; pero si `tlv=` dio un fichero, manda
+`tlv=` y la consola lo dice. El BSL sí lo puede cambiar el firmware, si quita
+su protección: uno del fichero distinto del de `bsl=` **manda**, porque es lo
+que ya tenía el chip, y la consola lo dice. Para volver al de `bsl=`, se quita
+del fichero. Los dos se guardan enteros o no se guardan: no hay medio BSL.
+
+**La OTP del F4** se programa como la Flash, y un bloque de 32 bytes no se
+programa más una vez que su byte de bloqueo está a 0x00: da WRPERR. Con
+`contenido`, lo grabado y lo bloqueado siguen así en la simulación siguiente.
+**`--restore-otp[=ID]`** —sin ID, todos los F4 con `contenido`— la devuelve a
+la de fábrica, todo a 0xFF y los bloqueos incluidos, justo después de cargar.
+El chip no la borra nunca: es la salida de un `contenido` con la OTP gastada.
+Sin `contenido` es un error, porque la OTP ya arranca de fábrica.
+
+**Los bytes de opción de un STM32 valen desde el primer arranque**, como en el
+chip: WDG_SW = 0 arranca el IWDG solo, BOR_LEV fija el umbral del BOR, nWRP y
+WRP protegen, y en el F3 nBOOT1 elige el arranque y DATA0/DATA1 son los dos
+bytes del usuario. **RDP** se guarda, y la consola avisa al cargar un nivel 1 o
+2. En el F3 el nivel 1 lo aplica el cargador de sistema (NACK), y el 2 no deja
+borrar los bytes de opción nunca, como en el chip. El modelo del F4 no aplica
+RDP. **`--restore-rdp[=ID]`** —sin ID, todos los STM32— devuelve RDP a su
+valor de fábrica (0xAA, nivel 0) justo después de cargar, aunque esté en el
+nivel 2, y sin borrar la Flash: no es lo que haría el chip, es la salida de
+emergencia de un `contenido` con el chip protegido. El fichero se escribe en un temporal y se
+renombra, así que una simulación que muere a medias no lo deja cortado.
+
+**Quién manda**, de menos a más: el `contenido` de la placa —en su `<mcu>` o
+su `<componente>`—; el del sistema —`<mcu ref="N/u0" contenido=...>` para un
+chip, `<memoria ref="N/U5" contenido=...>` para lo que sea—; y
+`--contenido ID=FICHERO` en la línea de órdenes, con el id del sistema
+(`--contenido N/u0=flash.hex`, `--contenido U5=eeprom.hex`; un chip sin id, el
+de `--mcu`, es `u0`). Un `contenido` en un `<componente>` que no tiene memoria
+no volátil, o un id que no está, son errores que dicen por qué.
+
+**Cuándo se guarda**: al acabar la simulación de forma ordenada —con su
+`--ms`, con el **Parar** o *Detener* de la ventana (`T_PARA`), o con Ctrl+C o
+`SIGTERM`, que paran la simulación en el siguiente milisegundo simulado y
+guardan—. Si el proceso muere de golpe, el fichero se queda como estaba.
+`--valida` no carga ni guarda nada.
+
+**`mcu-sim placa.xml --memorias`** las lista en XML, sin construir nada: es
+lo que usa el diálogo de lanzamiento de `mcu-sim-gui` para poner una fila de
+contenido por memoria (su plan §53).
+
+```xml
+<memorias placa="placas/x.xml">
+  <memoria id="N/u0" tipo="STM32F446RE" clase="mcu" que="Flash, OTP y bytes de opcion" contenido=""/>
+  <memoria id="N/U5" tipo="I2cEeprom" clase="pieza" que="EEPROM de 64 bytes" contenido="e.hex"/>
+</memorias>
+```
 
 ---
 
@@ -893,6 +1128,8 @@ tira lo que cuelga de ellas.
 | `v` | `3.3` | Solo `Fuente`: la tensión, en voltios |
 | `limite_ma` | `no` | **El límite de corriente**, en mA, o `no` para ninguno |
 | `r` | `0.1` | La resistencia interna, en ohmios. 0,1 Ω es lo menos que admite un nodo: una fuente casi ideal |
+| `media_ms` | `0` | Solo en `Fuente`. Con más de 0, la `corriente` que deja ver es su **media** en esos ms —un filtro de primer orden—, como el display de una fuente de laboratorio, que no salta con el PWM de la carga; y deja ver también la `tension`, de media. Con 0, la de cada instante |
+| `absorbe` | `si` | Solo en `Fuente`. Con `no`, una fuente **conmutada**, que no se traga lo que le devuelven —un motor que frena—: si lo de fuera sube por encima de `v`, se aparta, como tras un diodo, y el bus sube (§4.24) |
 
 **El límite se comporta como el de una fuente de laboratorio.** Por debajo,
 tensión constante. Si la carga pide más, la pieza pasa a **corriente
@@ -902,6 +1139,12 @@ constante**: entrega exactamente el límite y deja caer la tensión —o, en una
 en la ventana); al salir, vuelve sola a tensión constante. El cálculo no itera a
 ciegas: lee el resto del nodo como otro Thevenin `{Vx, Rx}` y se pone la
 resistencia que deja la corriente en el límite, `|v − Vx| / I_lim − Rx`.
+Con una **carga inductiva** —un motor que arranca y tira de 40 A de golpe— la
+cuenta no basta: la bobina sujeta su corriente, y lo de fuera ya no se comporta
+como un Thevenin. Una `Fuente` no deja su nodo por debajo de 0 V: si lo que
+haría falta para el límite lo hundiría, se pone la resistencia que deja pasar
+la corriente que la carga sujeta con el nodo a 0 V, `v / I`, y las dos partes
+están de acuerdo a la primera, sin oscilar.
 
 **Un nodo con una fuente y varias cargas es un raíl, no un cortocircuito**: la
 validación eléctrica no cuenta la fuente como otra pieza conduciendo, así que no
@@ -1150,6 +1393,23 @@ dos bits, un cambio por cada medio clic:
 
 Los pull-ups no son del encoder: los pone la placa.
 
+Eso es **medio ciclo por clic**: en una vuelta, cada contacto da `pasos/2`
+pulsos —el de 30 clics, 15—. Otros encoders dan **un ciclo entero por clic**:
+los de 20 o 24 clics y otros tantos pulsos por vuelta (el PEC11R-4220F-S0024
+de Bourns, 24 PPR y 24 clics). En el reposo los dos contactos están abiertos
+—con pull-ups, `a` y `b` altos—, y cada clic los cierra y los vuelve a abrir,
+los dos, el `a` delante a la derecha: los cuatro estados del código Gray en
+cada clic. Es `pulsos` igual a `pasos`:
+
+| Girando, un clic | `a` `b` |
+| :--- | :--- |
+| a la derecha | 11 → 01 → 00 → 10 → 11 |
+| a la izquierda | 11 → 10 → 00 → 01 → 11 |
+
+Hay **un** flanco de bajada de `a` por clic, y el sentido es `b` en ese
+flanco: alto, a la derecha. Un firmware escrito para el de medio ciclo, que
+cuenta los dos flancos de `a`, aquí cuenta dos por clic.
+
 | Terminal | | |
 | :--- | :--- | :--- |
 | `a` | obligatorio | El contacto A, el que va delante girando a la derecha |
@@ -1159,9 +1419,10 @@ Los pull-ups no son del encoder: los pone la placa.
 | Parámetro | Omisión | Efecto |
 | :--- | :--- | :--- |
 | `pasos` | `30` | Las posiciones —los clics— de una vuelta, de 1 a 1000 |
+| `pulsos` | `pasos/2` | Los pulsos de una vuelta en cada contacto (PPR): `pasos/2`, medio ciclo por clic, o `pasos`, uno entero. Otro valor es un error que dice los dos que valen; con `pasos` impares, solo el entero |
 | `r_cerrado` | `1` | La resistencia de un contacto cerrado, en ohmios |
-| `desfase_ms` | `1` | Lo que tarda el segundo contacto en seguir al primero dentro de un clic. Tiene que ser menor que `clic_ms` |
-| `clic_ms` | `5` | Lo que se tarda de un clic al siguiente cuando se pide girar varios de una vez |
+| `desfase_ms` | `1` | Lo que tarda el segundo contacto en seguir al primero dentro de un clic. Tiene que ser menor que `clic_ms`; con un ciclo entero por clic, que son tres desfases, menor que un tercio |
+| `clic_ms` | `5` | Lo que se espera, cuando se pide girar varios de una vez, entre el final de un clic y el principio del siguiente |
 
 **El mando es `girar`**: la **cuenta** de clics, sin vueltas —sube hacia la
 derecha y baja hacia la izquierda—, de −30000 a 30000. Pedir otra cuenta gira
@@ -1176,7 +1437,10 @@ que se abre y se cierra; el común `c` lleva las dos.
 pull-ups de 10 kΩ de `CLK` y `DT` a `P1.VCC` (dos `Resistencia`) y el pulsador
 del eje, un `Button` normalmente abierto a 0 V en `P1.SW`, **sin pull-up**,
 como en la mayoría de los módulos. Su dibujo, `placas/ky040.svg`, tiene en el
-centro el mando que gira (§2.6).
+centro el mando que gira (§2.6). `placas/ky040_24ppr.xml` es el mismo módulo
+con el otro encoder que se le monta, `pasos="24" pulsos="24"`, y con el mismo
+dibujo, que gira 15° por clic; `placas/nucleo_f446re_encoder_tft_servo.xml` lo
+usa.
 
 #### `Driver`
 
@@ -1314,6 +1578,7 @@ escritura y lectura secuenciales, y su bit de reconocimiento.
 | Parámetro | Omisión | Efecto |
 | :--- | :--- | :--- |
 | `dir` | `0x50` (80) | Dirección de esclavo de 7 bits. Se puede escribir en hexadecimal (`0x50`) o decimal (`80`) |
+| `contenido` | ninguno | Fichero Intel HEX de sus 64 bytes: se carga al arrancar y se guarda al acabar (§2.7) |
 
 Desde C++: `peek`/`poke` para ver y poner memoria, `set_ack(false)` para
 provocar un NACK y `set_stretch_us()` para que retenga el reloj.
@@ -1445,7 +1710,9 @@ Entiende leer identificación (0x90), leer página (0x00…0x30), programar
 | `noe`, `nwe` | obligatorios | Pasivos |
 | `rb` | opcional | Ready/Busy. Si se conecta, la NAND lo gobierna |
 
-Sin parámetros en el XML.
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `contenido` | ninguno | Fichero Intel HEX de sus 8 KB: se carga al arrancar y se guarda al acabar (§2.7) |
 
 ---
 
@@ -1566,9 +1833,12 @@ CMD7, CMD16, ACMD6 —que es lo que pone el bus a cuatro hilos—, CMD17 y CMD24
 | `dat0` | recomendado | Con solo `dat0` la tarjeta funciona en modo de un hilo |
 | `dat1`, `dat2`, `dat3` | opcionales | Hacen falta para el bus de cuatro hilos. Cada uno con su pull-up de 47 kΩ |
 
-Sin parámetros en el XML. `conectada="no"` es el zócalo vacío: **se van con ella
-los pull-ups**, que es precisamente lo que distingue un zócalo vacío de uno
-ocupado.
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `contenido` | ninguno | Fichero Intel HEX de sus 2 KB: se carga al arrancar y se guarda al acabar (§2.7) |
+
+`conectada="no"` es el zócalo vacío: **se van con ella los pull-ups**, que es
+precisamente lo que distingue un zócalo vacío de uno ocupado.
 
 Desde C++: `peek`/`poke`, `commands()`, `bus_width()`, y tres averías a
 propósito —`break_resp_crc`, `break_data_crc` y `set_mute`— para comprobar que
@@ -2038,7 +2308,7 @@ Lo declaran estas:
 | `RGBLed` | `encendido` (0/1, alguno), `rojo`, `verde` y `azul` (0/1, los que sugiere pintar) y `corriente_r`, `corriente_g` y `corriente_b` (mA, de 0 a 25); los seis con **`color=`**, sus canales | — |
 | `Button` | `pulsado` (0/1): el **dedo**, no el contacto, que en un NC es lo contrario | `pulsar` (botón, 0 suelta, 1 pulsa) |
 | `Crystal` | `presente` (0/1): si está soldado | — |
-| `Fuente`, `Gnd` | `corriente` (mA, la que entrega o recibe; la escala es ± el límite, o ±100 sin él) y `sobrecorriente` (0/1, **una alarma**: el catálogo la marca con `alarma="si"` y la ventana la pinta en rojo) | — |
+| `Fuente`, `Gnd` | `corriente` (mA, la que entrega o recibe; la escala es ± el límite, o ±100 sin él; con `media_ms`, de media) y `sobrecorriente` (0/1, **una alarma**: el catálogo la marca con `alarma="si"` y la ventana la pinta en rojo); con `media_ms`, también `tension` (V, de media) | — |
 | `Xds110` | `corriente` (mA, la que entrega el LDO), `sobrecorriente` (alarma) y `depurando` (0/1, hay un OpenOCD conectado) | — |
 | `Encoder` | `posicion` (de 0 a `pasos − 1`, la que sugiere pintar), `cuenta`, `contacto_a` y `contacto_b` (0/1) | `girar` (discreto, la cuenta de clics, de −30000 a 30000) |
 | `Tft128x160` | `encendida` (0/1, la que sugiere pintar) y `luz` (mA, de 0 a 40); y la IMAGEN `pantalla`, de 128x160 | — |
@@ -2046,6 +2316,9 @@ Lo declaran estas:
 | `Postura` | `alabeo`, `cabeceo`, `rumbo` (°, los que sugiere pintar) y `giro` (dps) | `alabeo`, `cabeceo` y `rumbo` (continuos: la placa gira hasta ahí) |
 | `L3gd20`, `I3g4250d` | `giro_x`, `giro_y`, `giro_z` (dps) | — |
 | `Lsm303dlhc`, `Lsm303agr` | `acel_x/y/z` (mg) y `campo_x/y/z` (mG) | — |
+| `MotorCC` | `angulo` (°, de 0 a 360, el que sugiere pintar), `rpm`, `corriente` (mA) y `tension` (V), las dos de media; con encoder, `cuenta`, `enc_a` y `enc_b` | `bloquear` (interruptor: la mano en la rueda) y `carga` (continuo, de 0 a 100 % del par de bloqueo) |
+| `L298` | `corriente_a`, `corriente_b` y `corriente_vs` (mA, de media), `disipacion` (W) y `logica` (0/1) | — |
+| `Regulador` | `tension` (V), `corriente` (mA) y `sin_margen` (**alarma**) | — |
 
 **Una pieza puede enseñar además una IMAGEN entera** —la pantalla de un
 TFT—, que no cabe en un número (`Imagen` en `parts/part_base.h`). El catálogo
@@ -2057,6 +2330,12 @@ cada instante de la rejilla, si ha cambiado —su contenido o su luz— desde la
 RGB888 y la luz aparte (`doc/protocolo.md` §4.1 en `mcu-sim-gui`). Con dos
 esperando a una ventana que no lee, la siguiente no se toma: la muestra de
 después mandará la que haya.
+
+**Una imagen que cambia poco sale a trozos** si la ventana lo pide
+(`imagen_parcial=1` en `T_VERSION`): la frontera guarda la última que salió de
+cada imagen suscrita y, si la nueva cambia en menos de la mitad, manda solo el
+rectángulo que encierra lo cambiado, en `T_IMAGEN_RECT`. Es lo que hace barata
+la pieza mecanizada de una fresadora (`Pieza`, §4.23), y le sirve igual al TFT.
 
 `Crystal` no publica la frecuencia por lo mismo que no la lleva como atributo:
 la del HSE es un dato del árbol de reloj y vive en el RCC.
@@ -2070,9 +2349,1199 @@ método de siempre: `acciona(pulsar, 1)` hace lo mismo que `press()`.
 
 Las demás no declaran nada todavía, y no les hace falta para
 compilar: los seis métodos de `ExtPartBase` tienen valores por omisión. Las
-piezas que el enunciado de la GUI necesita y no existen —`PwmMeter`,
-`StepperDriver`, `DcMotor`— están en `doc/analisis_gui.md` §8; el `Encoder`
-(§4.1) y el `Servo` (§4.12) ya están.
+piezas que el enunciado de la GUI necesita y no existen —`PwmMeter` y
+`StepperDriver`— están en `doc/analisis_gui.md` §8; el `Encoder` (§4.1), el
+`Servo` (§4.12) y el motor de continua con su puente en H, `MotorCC` y `L298`
+(§4.16), ya están.
+
+
+### 4.16 El motor de continua y su puente en H
+
+Las tres piezas del robot de prácticas (`parts/motor_cc.h` y
+`parts/puente_h.h`): el motorreductor, el L298 que lo mueve y el regulador
+que alimenta la lógica del módulo L298N. Montadas, son `placas/l298n.xml`,
+`placas/motor_tt_encoder.xml` y `placas/fuente_laboratorio.xml`, y con la Nucleo,
+`placas/nucleo_f446re_encoder_lcd_servo_2xmcc.xml`.
+
+#### `MotorCC`
+
+Un **motor de corriente continua con reductora** y, si se le dan sus cuatro
+patillas, un **encoder incremental** en el eje de salida. Las cifras de
+omisión son las del motorreductor TT amarillo de 1:48 y 3 a 6 V [Adafruit
+3777: 250 rpm y 160 mA en vacío y 1,5 A bloqueado a 6 V].
+
+**Lo eléctrico.** Entre `a` y `b`, una f.e.m. `E = Ke·ω` en serie con la
+resistencia `R` y la **inductancia** `L` del bobinado:
+
+    Va − Vb = E + R·i + L·di/dt
+
+Con `a` más alto gira a la **derecha** —en el sentido de las agujas del reloj,
+mirando el eje de salida desde su extremo—, que es el ángulo positivo. Un
+motor que gira **genera**, y con un borne al aire enseña su f.e.m. en él.
+
+**La bobina no deja que la corriente cambie de golpe.** Con PWM, sube y baja
+dentro de cada periodo con la constante `L / (R + lo de fuera)`, unos 0,3 ms
+tras un L298N. Cuando el puente suelta los bornes, la corriente sigue por
+donde pueda: por los **diodos de libre circulación** del módulo L298N (`L298`
+con `diodos="si"`), contra toda la tensión de la alimentación, y se acaba en
+unas decenas de µs. Si no hay por dónde, se corta. Para la red, el motor es
+una rama entre dos nodos que deja pasar la corriente de su bobina: una f.e.m.
+tal que en los bornes quede `Vth − Rth·i`.
+
+**Lo mecánico**, en el eje de salida y con la reductora dentro:
+
+    J·dω/dt = Kt·i − Tf·sgn(ω) − Tc·sgn(ω)
+
+con `Kt = Ke`, un rozamiento seco `Tf` —el que se lleva la corriente en
+vacío—, uno de **arranque** mayor que hay que vencer para que se mueva parado
+—el de `i_arranque_ma`— y la carga `Tc` del mando `carga`. La inercia `J` sale
+de la constante de tiempo. Las cifras se dan como en una hoja de datos y de ahí
+sale el resto: `R = v_nominal / i_bloqueo`, `Ke = (v_nominal − i_vacio·R) /
+ω_vacio`.
+
+Esa ecuación es de su **cadena mecánica** (§4.17): el motor da el par `Kt·i` y
+pone su `J`, su `Tf`, su rozamiento de arranque y su `Tc`, y la cadena les suma
+lo que tenga detrás. Un motor suelto lleva la suya, de él solo, y es lo de
+siempre al decimal: M9 y M10 dan las mismas rpm que antes de la cadena.
+
+**Cómo se integra.** Las dos ecuaciones, la de la bobina y la del eje, juntas,
+con Runge-Kutta de cuarto orden a pasos de 5 µs como mucho —y nunca más de un
+quinto de `L/(R + Rth)`—. Pero SystemC no despierta en cada paso: es pura
+cuenta. El proceso despierta en cada cambio de los bornes; en cada flanco del
+encoder y cuando la corriente cambia de sentido —que es cuando se apagan los
+diodos—, ensayados de antemano con los mismos pasos, así que caen en su
+instante; cuando se para; y cada 0,1 ms mientras la corriente se asienta o
+cada milisegundo mientras acelera, para que la corriente y la f.e.m. que ven
+los demás sigan al motor.
+
+**Lo que se ve con el PWM.** Con el L298N a 1 kHz y sus diodos, el 50 % da
+unas 145 rpm de las 243 del 100 %. Casi sin inductancia —`l_mh="0.01"`— daría
+unas 200: la corriente se cortaría con el PWM y el motor seguiría, en cada
+hueco, con lo que tenía. Sin los diodos, la corriente de la bobina se corta al
+soltar el puente, y va más despacio aún (`make gui-marcha`, M10). La
+inductancia del TT no la da su hoja de datos: 1,5 mH es una estimación —los
+motores de su tamaño andan entre 0,5 y 3 mH—, y se cambia con `l_mh`.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `a`, `b` | obligatorios | Los bornes: con `a` más alto, gira a la derecha |
+| `enc_vcc`, `enc_gnd` | con `ppr` | La alimentación del encoder. Con menos de 2,5 V entre los dos, sus salidas se quedan al aire |
+| `enc_a`, `enc_b` | con `ppr` | Las salidas, en cuadratura: girando a la derecha A va delante —00, 10, 11, 01—; a la izquierda, B. De colector abierto con un pull-up de 10 kΩ a `enc_vcc`: altas con 10 kΩ, bajas con 100 Ω |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `v_nominal` | `6` | La tensión a la que se dan las demás cifras, en V |
+| `rpm_vacio` | `250` | Las rpm del eje de salida en vacío, a `v_nominal` |
+| `i_vacio_ma` | `160` | La corriente en vacío, a `v_nominal`: el rozamiento |
+| `i_bloqueo_ma` | `1500` | La corriente con el eje sujeto, a `v_nominal`: la resistencia |
+| `i_arranque_ma` | `250` | La que hace falta para que arranque parado, de `i_vacio_ma` a `i_bloqueo_ma` |
+| `tau_ms` | `50` | La constante de tiempo mecánica en vacío: lo que tarda en llegar al 63 % de su velocidad. De ella sale la inercia |
+| `l_mh` | `1.5` | La inductancia del bobinado, de 0,001 a 1000 mH |
+| `reduccion` | `48` | La de la reductora: solo para decir las rpm del motor |
+| `v_max` | `7.2` | Lo que aguanta: por encima, se avisa |
+| `ppr` | `0` | Las ventanas del disco del encoder, los pulsos de cada canal por vuelta del eje de salida. `0`, sin encoder y sin sus patillas; con él, las cuatro |
+| `enc_i_ma` | `20` | Lo que gasta el sensor del encoder a 3,3 V |
+| `posicion_inicial` | `0` | El ángulo del eje al arrancar, en grados |
+
+Deja ver `angulo` (de 0 a 360, el que sugiere pintar: la ventana gira el
+elemento de la pieza con él, el efecto `angulo`, como el disco de
+`placas/motor_tt_encoder.svg`), `rpm`, y la `corriente` y la `tension` **de
+media** —un filtro de primer orden de 5 ms: lo que marcaría un polímetro con
+PWM—; con encoder, `cuenta` —los cuartos de ciclo, con signo: 4·`ppr` por
+vuelta— y `enc_a` y `enc_b`. Los **mandos**: `bloquear`, la mano que sujeta la
+rueda, y `carga`, un par que se opone al giro, en % del de bloqueo. Avisa de la
+sobretensión. Al terminar, `sim` dice cómo ha quedado: `MOTOR MA/MOTOR: +237.8
+rpm (+11413 en el motor), +5.74 V y +160 mA de media; +3.72 vueltas; encoder
++357 cuartos (24 PPR)`. Desde C++, `rpm()`, `rpm_motor()`, `angulo()`,
+`vueltas()`, `corriente_ma()` y `tension()` —las de ahora—,
+`corriente_media_ma()` y `tension_media()`, `fem()`, `cuenta()`, `enc_a()`,
+`enc_b()`, `bloquea(si)` y `pon_carga(0..1)`.
+
+`placas/motor_tt_encoder.xml` es el motorreductor con un disco de 24 ventanas
+de través en el eje de salida y la plaquita de sus dos sensores ópticos: 24
+PPR, 96 cuartos por vuelta del eje. Sus terminales son `M.ROJO` (+) y
+`M.NEGRO`; la tira del encoder, `P1.VCC`, `P1.GND`, `P1.A` y `P1.B`.
+
+#### `L298`
+
+El **doble puente en H** de ST [DS0218]: dos puentes, A y B, para dos motores
+de continua (o un paso a paso bipolar).
+
+| ENA | IN1 | IN2 | OUT1 | OUT2 | El motor |
+| :---: | :---: | :---: | :---: | :---: | :--- |
+| alto | alto | bajo | VS | masa | hacia delante |
+| alto | bajo | alto | masa | VS | hacia atrás |
+| alto | igual | igual | VS o masa | VS o masa | en corto: **frena** |
+| bajo | — | — | al aire | al aire | **libre** |
+
+Igual ENB, IN3, IN4, OUT3 y OUT4. Las entradas son **TTL** —bajo hasta 1,5 V,
+alto desde 2,3 V—: valen los 3,3 V de un STM32. Entre los dos, la entrada se
+queda como estaba y se avisa.
+
+**Las salidas no llegan a VS ni a masa**: son Darlington, y caen lo que dice
+la hoja de datos —arriba 1,35 V con 1 A y 2 V con 2 A; abajo 1,2 y 1,7—. En
+línea recta, eso es una fuente de `VS − 0,7 V` con 0,65 Ω arriba y de 0,7 V
+con 0,5 Ω abajo: con un motorreductor en vacío, unos 1,6 V menos de los que da
+la fuente, y casi 3,2 con 1 A. Es lo que más sorprende del L298 la primera
+vez.
+
+Lo que sale por las salidas altas lo pide a `vs`, más 13 mA con algún puente
+habilitado (4 sin ninguno); la lógica, a `vss`, 24 mA (6 sin habilitar). Con
+menos de 4,5 V en `vss` las salidas se quedan al aire, y se avisa. Pasar de
+2 A por una salida se avisa: el L298 no se protege. Los SENSE A y B van a masa
+por dentro.
+
+**Los diodos de libre circulación** no son del chip: un motor los necesita por
+fuera, y el módulo L298N los lleva. Con `diodos="si"`, una salida que se
+suelta llevando la corriente de la bobina de un motor la sigue llevando por su
+diodo —la que salía, desde masa, a −0,9 V; la que entraba, hacia VS, a VS +
+0,9 V, con 0,2 Ω— hasta que esa corriente cambia de sentido, y entonces se
+suelta de verdad. La que vuelve a VS no se descuenta de lo que se le pide.
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `diodos` | `no` | `si`: los diodos de libre circulación, por fuera del chip |
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `vs` | obligatorio | La alimentación de los motores |
+| `vss` | obligatorio | La de la lógica, de 4,5 a 7 V |
+| `gnd` | obligatorio | La masa |
+| `ena`, `in1`, `in2` | obligatorios | El puente A |
+| `enb`, `in3`, `in4` | obligatorios | El puente B |
+| `out1` … `out4` | obligatorios | Las salidas: `out1` y `out2` del A, `out3` y `out4` del B |
+
+Deja ver `corriente_a` y `corriente_b` —la de cada motor, la que sale por OUT1
+y OUT3—, `corriente_vs` —lo que pide a VS—, `disipacion` —lo que se queda en
+el chip, en W—, las cuatro de media, y `logica`. Al terminar: `L298 L/U1: A
+adelante (+160 mA), B adelante (+160 mA); VS 333 mA, VSS 24 mA; disipa 0.72 W
+(como mucho 6.58), de media`. Desde C++, `logica()`, `habilitado(p)`,
+`estado(p)` —`adelante`, `atras`, `freno` o `libre`—, `corriente_ma(p)`,
+`corriente_salida(k)` —la de ahora—, `corriente_vs_ma()`, `disipacion()` y
+`disipacion_max()`.
+
+#### `Regulador`
+
+Un **regulador lineal** de tres patillas, como el 78M05 de los módulos L298N:
+da `v` voltios mientras la entrada le deje `caida` de margen; con menos, la
+entrada menos la caída, y lo deja ver como una alarma, `sin_margen`, cuando se
+queda 50 mV corto. Lo que entrega lo pide a la entrada, más su corriente de
+reposo.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `entrada`, `salida`, `gnd` | obligatorios | |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `v` | `5` | La tensión de salida |
+| `caida` | `2` | El margen que necesita, en V |
+| `limite_ma` | `500` | Lo que da: pasar de ahí se avisa |
+| `iq_ma` | `5` | Su corriente de reposo |
+| `r` | `0.1` | La resistencia de su salida |
+
+`placas/l298n.xml` es el módulo rojo entero: el L298 (`U1`), el 78M05 (`U2`,
+con `caida="1.7"`, la suya a los 30 mA de la lógica), el LED de los 5 V
+(`D1`), las bornas de los motores (`MA.OUT1`, `MA.OUT2`, `MB.OUT3`,
+`MB.OUT4`), la de la alimentación (`X1.12V`, `X1.GND`, `X1.5V`), la tira de
+abajo con los **puentes de ENA y ENB** puestos de fábrica (`JA` y `JB`, que se
+quitan con `<jumper ref="L/JA" puente="no"/>` para darles PWM) y el **5V-EN**
+(`JP5`), con `diodos="si"` en el L298. `placas/fuente_laboratorio.xml` es la
+fuente de mesa que alimenta los motores: una `Fuente` de 7,5 V con el límite
+en 3 A y `media_ms="100"`, que deja ver la corriente y la tensión de media, y
+la ventana las escribe DENTRO de su display —el efecto `display`, §2.6—:
+`7.474 V` arriba y `0.340 A` abajo. En
+`placas/nucleo_f446re_encoder_lcd_servo_2xmcc.xml` el 5V-EN se quita y la
+lógica del L298N toma el +5V de la Nucleo: la fuente enseña lo que gastan los
+motores, más el reposo del L298 y del 78M05 (de 9 a 18 mA).
+
+### 4.17 La cadena mecánica: `<transmision>` y `Volante`
+
+`parts/cadena.h`, la fase F0 de `doc/analisis_cnc.md` (§4, opción C). Hasta
+aquí cada motor llevaba su carga dentro. Una máquina necesita que el par pase
+por una reductora, un acople, un husillo y una tuerca hasta un carro, y que
+todo eso vuelva al motor como inercia y como par resistente.
+
+**Una sola masa.** Con acoples rígidos —las resonancias torsionales de varios
+kHz no interesan aquí—, toda la cadena es un solo grado de libertad: el ángulo
+y la velocidad de su **eje de referencia**, que es el de los motores. Cada cosa
+se refleja en él:
+
+    J = Σ J_motor + Σ J_k / n_k²
+    F = Σ F_motor + Σ F_k / (n_k · η_k)
+
+con `n_k` las vueltas del eje de referencia por vuelta de la entrada del
+elemento `k` —el producto de las relaciones de lo que hay antes de él— y `η_k`
+el rendimiento de eso mismo. La cadena integra **una sola ecuación mecánica**
+con las corrientes de todos sus motores:
+
+    J·dω/dt = Σ T_motor(i, ω, θ) − F·sgn(ω) − B·ω
+
+Parada, no se mueve mientras el par no pase de la suma de los rozamientos de
+**arranque** de cada pieza; en marcha, se opone al giro con los de marcha.
+
+**Las piezas son de dos clases.** Un **actuador** es un motor: tiene estados
+eléctricos —la corriente de su bobina— y da un par; sus bornes y sus mandos
+despiertan a la cadena. Un **elemento** es pasivo: una inercia, unos
+rozamientos y una relación de transmisión, con sus cifras en su entrada, el eje
+que da al motor. Hoy hay un elemento, el `Volante`; la reductora, el acople, el
+husillo y el carro son de la fase F2.
+
+**Cómo se integra.** Como lo hacía el `MotorCC`, generalizado: Runge-Kutta de
+cuarto orden en todo, a pasos de 5 µs como mucho —o menos, si lo pide la parte
+eléctrica de algún motor—. El ángulo, con Runge-Kutta si algún motor da un par
+que depende de él —el paso a paso—; si no, con la regla del trapecio sobre la
+velocidad, que es lo que hacía el `MotorCC`. SystemC despierta al proceso de
+la cadena en los cambios de los bornes de sus motores, en sus mandos, en lo que
+cada motor diga que hay que hacer ver —un flanco de su encoder, un cambio de
+sentido de su corriente—, ensayado de antemano con los mismos pasos, cuando se
+para y cada 0,1 o 1 ms mientras se mueve.
+
+**El motor suelto.** Un motor que no va en ninguna `<transmision>` lleva su
+cadena **implícita**, de él solo, con su carga de siempre, y la mueve su propio
+proceso. Si una transmisión lo engancha, la mueve el proceso de ella. Con su
+cadena implícita el `MotorCC` es el de antes **bit a bit**: un banco del motor
+tras el L298 —a tensión fija, con PWM de 1 kHz, casi sin inductancia y sin los
+diodos, con carga, bloqueado y suelto— da los mismos números con los 17
+decimales, y M9 y M10 las mismas rpm.
+
+#### `<transmision>`
+
+    <componente tipo="MotorCC" id="M" .../>
+    <componente tipo="Volante" id="V" inercia_gcm2="500"/>
+    <transmision id="EJE" cadena="M V"/>
+
+`cadena=` nombra las piezas **en orden**: primero los motores —uno, o hasta
+cuatro en el mismo eje, como los dos de un pórtico—, después los elementos, del
+motor hacia la carga. Va detrás de todas las que nombra, como cualquier
+referencia, y es una pieza `Transmision` cuyas `<ref>` son `e0`, `e1`... (así
+se vuelca). Son errores, con su nombre: una pieza que no se ha declarado antes,
+una que no tiene eje (`MASA es un Gnd, que no tiene eje`), un motor detrás de
+un elemento, una pieza en dos transmisiones y una cadena sin motores. No se
+dibuja (`visible="no"` de oficio).
+
+Deja ver `angulo` y `rpm` del eje de referencia e `inercia`, toda la reflejada
+en él, en g·cm². Los mandos de cada motor —`bloquear`, `carga`— siguen siendo
+suyos y actúan sobre la cadena entera. Al terminar: `TRANSMISION EJE: +234.2
+rpm, +0.83 vueltas; 1 motor(es) y 1 elemento(s), 10479.3 g·cm2 reflejados`.
+Desde C++, `cadena()`: `rpm()`, `th()`, `w()`, `inercia()`, `relacion_total()`,
+`actuadores()` y `elementos()`.
+
+#### `Volante`
+
+Una inercia en un eje, con su rozamiento seco y viscoso, y nada más. Sin
+patillas: lo une al motor la transmisión que los nombra. Con uno de inercia
+conocida, la constante de tiempo del motor es la de la cuenta, `τ = (J_motor +
+J_volante)·R / (Ke·Kt)`: con uno igual que el TT, el doble (`make gui-cnc`,
+C1). Suelto, no se mueve.
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `inercia_gcm2` | — | Su inercia, en g·cm² (1 g·cm² = 10⁻⁷ kg·m²). O esta, o las dos de abajo |
+| `diametro_mm`, `espesor_mm` | — | Un disco macizo de acero, 7850 kg/m³: `J = m·r²/2` |
+| `rozamiento_ncm` | `0` | Su rozamiento seco, en N·cm: el de sus rodamientos |
+| `viscoso_mnms` | `0` | Su rozamiento viscoso, en mN·m por rad/s |
+
+Deja ver `angulo` —el que sugiere pintar: la ventana lo gira— y `rpm`.
+
+### 4.18 El paso a paso, sus drivers y un generador de pasos
+
+`parts/motor_pap.h` y `parts/driver_pap.h`, la fase F1a de
+`doc/analisis_cnc.md` (§5.1 y §5.2). Montadas, son `placas/nema17_3018.xml`,
+`placas/st5918l3008.xml` y `placas/pololu_a4988.xml`.
+
+#### La corriente impuesta con tope de tensión
+
+Un driver de paso a paso de verdad es un **chopper**: conmuta su puente a 20 o
+40 kHz para que la corriente de cada fase siga la consigna del micropaso.
+Simularlo conmutando costaría cientos de miles de sucesos por segundo con tres
+ejes, y por eso cada fase del driver no es un Thevenin sino una **rama de
+corriente impuesta** (`RamaCorriente`, `parts/ext_parts.h`): «quiero `i*`, y
+puedo poner entre mis dos salidas de −VMOT a +VMOT». Lo **declara** en los
+nodos de sus dos salidas —un polo en cada uno— por un canal aparte del nodo
+(`FaseCorriente` y `declara_salida_corriente` en `common/analog_net.h`, como
+`declara_reloj` declara una frecuencia). La bobina que encuentra esas dos
+salidas en sus bornes integra su corriente sabiéndolo:
+
+* **si la tensión que haría falta, `R·i* + f.e.m.`, cabe en el tope, la
+  corriente es la consigna**: lo que consigue un chopper bueno;
+* si no, la tensión se queda en el tope —`±VMOT`— y la corriente va por
+  detrás: es la **caída de par con la velocidad**;
+* con el driver apagado, la corriente vuelve al bus por sus diodos, contra
+  `VMOT + 2·Vd`, hasta acabarse.
+
+El driver despierta en los flancos de STEP, en los cambios de sus entradas y de
+sus alimentaciones, y cada milisegundo mientras conduce. No hay sucesos de
+chopper, y su rizado se pierde. Lo que gasta lo deja la bobina en la rama, ya
+**integrado** —la energía que ha entrado en ella, por su balance: lo que se
+queda en R, lo que va a la inductancia y lo que se convierte en par, y la
+integral de `i²`—, porque con un chopper la potencia de cada instante salta de
+signo dentro de cada micropaso. El driver pide a VMOT esa potencia de media,
+más `I²·RDS(on)` de sus transistores y su reposo: el chopper no se simula,
+pero se paga. Lo que vuelve de las bobinas al frenar no se lleva a ninguna
+parte: una fuente de laboratorio no lo absorbe, y es de la fase F5.
+
+Dentro de cada paso de integración el régimen de cada bobina no cambia —sigue
+a la consigna, sube o baja contra el tope, o vuelve por los diodos—: un
+cambio de régimen a mitad de un paso de Runge-Kutta no se integra. Cuando la
+corriente cruza su consigna, se queda en ella.
+
+#### `MotorPaP`
+
+Un **híbrido bipolar de dos fases**, con `Nr = pasos/4` dientes de rotor:
+
+    va = R·ia + L·dia/dt − Km·ω·sin(Nr·θ)
+    vb = R·ib + L·dib/dt + Km·ω·cos(Nr·θ)
+    T  = −Km·ia·sin(Nr·θ) + Km·ib·cos(Nr·θ) − Td·sin(4·Nr·θ)
+
+Con la corriente de `a1` a `a2` el rotor va a 0; con la de `b1` a `b2`, un paso
+a la derecha. Cada bobina va **como esté cableada**, y se mira en cada vuelta:
+entre las dos salidas de una fase de un `DriverPaP`, con corriente impuesta;
+entre nodos de Thevenin —un `L298`—, como un motor de continua (`RamaFem`); al
+aire, sin corriente, y con la otra movida se avisa («con una fase sola el
+motor no gira»); entre salidas de dos fases o de dos drivers, sin corriente, y
+se avisa. Las dos salidas al revés: gira al revés.
+
+Lo mecánico es de su cadena (§4.17): el par, la inercia del rotor, un
+rozamiento seco y uno viscoso, y la carga del mando. El par depende del ángulo,
+así que la cadena integra el ángulo con Runge-Kutta, a pasos de **10 µs**
+como mucho —el doble de largos que los del `MotorCC`: la corriente sigue a su
+consigna sin integrar nada, y lo que queda son la mecánica y las subidas de la
+corriente contra el tope, de un kHz y pico; con 5 µs la curva de par máximo
+cambia menos de un 2 %—. No ensaya nada para despertar en su instante: despierta
+en cada flanco de STEP de todas formas.
+
+**Los pasos perdidos.** El motor sabe dónde tendría que estar: donde lo llevan
+las corrientes que le piden, `Nr·θ* = atan2(ib*, ia*)`, seguido vuelta a vuelta.
+La primera vez que tiene corriente se queda con el equilibrio más cercano; desde
+ahí, el **retraso** es lo que el rotor va por detrás, en pasos enteros, y un
+rotor que se descuelga cae en el equilibrio de al lado: **cuatro pasos** —una
+vuelta eléctrica— cada vez. Eso son los `pasos_perdidos`, con su alarma.
+
+**El modelo ideal** (`modelo="ideal"`): cada micropaso es exactamente un
+micropaso, sin corrientes ni pérdidas; el rotor va a donde dicen las consignas
+(`Cadena::impone`). Para probar firmware deprisa.
+
+**Un motor de ocho hilos.** Nanotec da las cifras de los suyos como se miden en
+unipolar, por media bobina. `conexion="serie"` las convierte a bipolar en serie
+—`2R`, `4L`, `I/√2`— y `conexion="paralelo"` a bipolar en paralelo —`R/2`, `L`,
+`I·√2`—; el par de retención es el mismo. El ST5918L3008 da 3 A, 1 Ω y 1,9 mH;
+en paralelo son 4,2 A, 0,5 Ω y 1,9 mH. `Km` sale del par de retención, medido
+con las dos fases: `Km = T/(I·√2)`.
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `par_retencion_ncm` | `25` | El par de retención con las dos fases a la corriente nominal, en N·cm |
+| `corriente_a` | `1.3` | La corriente nominal por fase |
+| `r_ohm`, `l_mh` | `2.4`, `2.8` | La resistencia y la inductancia de cada fase |
+| `conexion` | `bipolar` | `serie` o `paralelo`: un motor de ocho hilos, con las cifras de media bobina |
+| `retencion_una_fase` | `no` | El par de retención, medido con una fase |
+| `km` | `0` | La constante de par, en N·m/A; `0`, del par de retención |
+| `detent_ncm` | `1.5` | El par sin corriente |
+| `inercia_gcm2` | `34` | La del rotor |
+| `rozamiento_ncm`, `viscoso_mnms` | `0.5`, `0.1` | Sus rozamientos: seco, en N·cm, y viscoso, en mN·m por rad/s (estimados) |
+| `pasos` | `200` | Por vuelta: 200 o 400 |
+| `modelo` | `dinamico` | `ideal`: un micropaso por micropaso |
+
+Deja ver `angulo` (el que sugiere pintar: la ventana gira el eje), `rpm`,
+`corriente_a` y `corriente_b` —las de ahora—, `par`, `retraso`,
+`pasos_perdidos` y la alarma `pierde_pasos`; sus mandos son `bloquear` y
+`carga`, en % del par de retención. Al terminar dice dónde ha quedado, con las
+rpm y las corrientes de ese instante —a 1/16 y 60 rpm de media, el rotor
+vibra con cada micropaso—: `PASO A PASO M/MOTOR: +107.6 rpm, +291.70 pasos
+(+1.46 vueltas); A corriente +924 mA, B corriente -604 mA; retraso -0.01 pasos,
+0 perdidos`.
+
+#### `DriverPaP`
+
+El chip de un módulo de los de la CNC Shield, o un driver externo, como cuatro
+juegos de parámetros (`modelo=`):
+
+| | VMOT | Lógica | Pulso de STEP; DIR antes | Corriente | Micropaso | Protección |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **A4988** (módulo Pololu) | 8–35 V | VDD de 3 a 5,5 V; alto desde 0,7·VDD | 1 µs; 200 ns | `Vref/(8·0,068)`, hasta 2 A | MS1..3: 1, 1/2, 1/4, 1/8, 1/16 | 165 °C |
+| **DRV8825** | 8,2–45 V | la suya; alto desde 2,2 V | 1,9 µs; 650 ns | `2·Vref`, hasta 2,5 A | MODE0..2: hasta 1/32 | 150 °C |
+| **TMC2209** | 4,75–29 V | VIO de 3 a 5 V; alto desde 0,7·VIO | 100 ns; 20 ns | `Vref·0,325/(2,5·0,13)`, hasta 2,8 A | MS1, MS2: 1/8, 1/32, 1/64, 1/16 | 143 °C |
+| **DM542** (externo) | 20–50 V | **optoacoplada**: un LED con 270 Ω, de 7 a 16 mA | 2,5 µs; 5 µs | la de sus interruptores, hasta 4,2 A | la de sus interruptores, hasta 1/128 | — |
+
+Cada flanco de subida de STEP avanza la posición un micropaso hacia donde diga
+DIR —alto, hacia delante—. La posición va en 1/256 de paso; la fase eléctrica
+es `φ = posición·90°/256` y las consignas, `I·cos φ` y `I·sin φ`. Empieza en 45°,
+como el A4988 y el DRV8825: en paso entero, las dos fases al 70,71 %. El
+traductor cuenta aunque EN apague las salidas, como el de verdad.
+
+**Lo que comprueba, porque es lo que se equivoca en la vida real**, y cada fallo
+es un aviso con nombre, una vez: el ancho del pulso de STEP, alto y bajo; DIR
+antes y después del flanco; el nivel de cada entrada —con VDD a 5 V, el A4988
+pide 3,5 V para un alto, y los 3,3 V de un STM32 se quedan cortos: funciona,
+fuera de especificación—; una entrada al aire; EN, activo a nivel bajo; RESET
+al aire —el módulo de Pololu no lleva resistencia, y se queda en reset—; los
+pasos en el milisegundo que tarda en despertar de SLEEP; una Vref que pide más
+de lo que da el chip; VMOT fuera de su margen —por debajo de su mínimo se
+apagan las salidas—; la lógica sin tensión; y la **temperatura**: lo que se
+queda en sus transistores, `I²·RDS(on)` por fase, con una resistencia térmica
+—la del módulo, sin o con disipador, estimada— y una constante de tiempo de
+3 s. Pasar del umbral apaga las salidas hasta que se enfría; con Vref a 1,2 V y
+sin disipador, un A4988 parado salta a los 7,6 s. Las entradas del A4988 llevan
+por dentro sus resistencias a masa en MS1..3; las del DRV8825 y el TMC2209, en
+todas. Las del DM542 son el LED de un optoacoplador: piden su corriente a quien
+las mueve.
+
+**Lo que no hace**: el rizado del chopper y sus modos de decaimiento; la
+interpolación a 1/256, el UART, el StallGuard, el StealthChop y la reducción
+de corriente parado del TMC2209; la protección de cortocircuito de las
+salidas; y la energía que vuelve al bus al frenar.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `vmot`, `gnd` | obligatorios | La potencia y la masa |
+| `vdd` | A4988 y TMC2209 | La lógica (VIO en el TMC2209) |
+| `en` | obligatorio; opcional en el DM542 | Activo a nivel bajo: alto, salidas apagadas |
+| `ms1`, `ms2`, `ms3` | `ms3` no en el TMC2209; ninguna en el DM542 | El micropaso |
+| `rst`, `slp` | A4988 y DRV8825 | RESET y SLEEP, activos a nivel bajo |
+| `step`, `dir` | obligatorios | Paso y dirección |
+| `out1a`, `out1b`, `out2a`, `out2b` | obligatorios | La fase 1, de OUT1A a OUT1B, y la 2 |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `modelo` | `A4988` | `A4988`, `DRV8825`, `TMC2209` o `DM542` |
+| `vref` | `0.6`, `0.5`, `1.4` | La del potenciómetro, en V (el mando `vref`) |
+| `disipador` | `no` | Con disipador, la mitad de resistencia térmica |
+| `t_ambiente` | `25` | La temperatura del aire |
+| `micropasos`, `corriente_a` | `8`, `2` | Solo en el DM542: sus interruptores |
+
+Deja ver `corriente_1` y `corriente_2` —las consignas—, `micropasos`, `pasos`,
+`corriente_vmot` —de media—, `temperatura` y las alarmas `sobretemperatura` y
+`sin_tension`. Al terminar: `DRIVER D/U1 (A4988): activo, 1/16, +4659 pasos;
+fases +973 y -520 mA de 1.10 A; VMOT 332 mA de media; 44 °C`.
+
+#### `GeneradorPasos`
+
+Un instrumento de banco: STEP y DIR a `hz` pasos por segundo, con una rampa de
+aceleración constante —`aceleracion` en pasos/s², o `rampa_ms` de parado a
+`hz`—; un cambio de `sentido` en marcha frena, cambia DIR, espera `dir_us` y
+vuelve a arrancar. El pulso dura `ancho_us`, y las salidas son de `vdd` voltios
+con 50 Ω. Sus mandos son `hz` y `sentido`; deja ver `hz` y `pasos`.
+
+#### Lo que sale
+
+Con el ST5918 en paralelo tras un DM542 de 4,2 A, a medio paso, el **par
+máximo** —la carga con la que empieza a perder pasos— a 120 rpm es 1,23 N·m con
+24 y con 48 V: `Km·I = 0,31 × 4,2 = 1,31`, menos sus rozamientos. Cae con la
+velocidad, y mucho antes a 24 V:
+
+| rpm | 120 | 600 | 900 | 1200 | 1800 |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| 24 V | 1,23 | 0,93 | 0,41 | 0,19 | 0,17 |
+| 48 V | 1,23 | 1,18 | 1,08 | 0,93 | 0,45 |
+
+La **esquina** —el 70 % del par de abajo— está en unas 640 rpm a 24 V y en
+unas 1290 a 48 V, el doble: por eso los Nanotec van a 48 V. Con una rampa de
+5 ms hasta 1000 rpm el rotor se descuelga y pierde miles de pasos; con 400 ms,
+ninguno. Un eje así, a 1/8 y 3200 Hz, cuesta unos 0,09 s de CPU por segundo
+simulado, con el arranque de `mcu-sim` (`make gui-cnc`, C2).
+
+### 4.19 La continua de potencia: `Mosfet` y `MedioPuente`
+
+`parts/potencia.h`, la fase F1b de `doc/analisis_cnc.md` (§5.3): lo que hace
+falta para mover el cabezal de una fresadora y un eje servo de continua.
+Montadas, son `placas/motor_775.xml`, `placas/modulo_mosfet.xml`,
+`placas/ibt2.xml`, `placas/motor_jgb37_encoder.xml` y el sistema
+`placas/nucleo_f446re_ibt2_jgb37.xml`. Los motores son `MotorCC` (§4.16) con
+otras cifras.
+
+#### `Mosfet`
+
+Un **N-MOSFET de lado bajo**, como el IRLZ44N de los módulos que dan el PWM del
+cabezal. Con `Vgs` por encima del umbral, el drenador es un Thevenin hacia la
+fuente con una `RDS` que baja con la puerta: a `vgs_ref` es `rds_on`, y cerca
+del umbral, mucho más —un MOSFET que no es de nivel lógico apenas se abre con
+3,3 V, y con menos de `vgs_plena` y más de 1 A se avisa—. Cerrado, con
+`diodo="si"` y la patilla `libre` en el + de la carga, el **diodo de libre
+circulación** del módulo: la corriente de la bobina sigue por él, contra
+`V(libre) + Vd`. **Sin el diodo**, la bobina sube el drenador hasta la
+avalancha y en una placa de verdad lo rompe: aquí la corriente se corta, y se
+avisa en el primer hueco.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `drenador` | obligatorio | El − de la carga |
+| `fuente` | obligatorio | La masa |
+| `puerta` | obligatorio | La señal |
+| `libre` | con `diodo="si"` | El cátodo del diodo: el + de la carga |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `modelo` | `IRLZ44N` | `IRLZ44N` (25 mΩ a 5 V, de nivel lógico) o `IRF520` (0,27 Ω a 10 V: el de los módulos azules) |
+| `vth`, `rds_on`, `vgs_ref`, `vgs_plena`, `i_max` | según el modelo | Las cifras del modelo, cambiadas |
+| `diodo` | `si` | El diodo de libre circulación |
+
+Deja ver `conduce`, `corriente` (mA, de media), `disipacion` (W) y `vgs`. Al
+terminar: `MOSFET Q/Q1 (IRLZ44N): conduce, Vgs 5.00 V, 500 mA de media,
+25 mohm; disipa 0.01 W`.
+
+#### `MedioPuente`
+
+Un **medio puente integrado**, el BTS7960 de Infineon. Con `inh` alto, `in`
+alto pone la salida en VS por el transistor de arriba (7 mΩ) e `in` bajo en
+masa por el de abajo (9 mΩ); con `inh` bajo duerme, y la salida se queda al
+aire: la corriente de una bobina vuelve por los diodos de sus transistores
+hasta acabarse. **`is` es una fuente de corriente**, la que sale por arriba
+entre 8500, que una resistencia de fuera convierte en tensión. Con `vdd`, las
+entradas pasan por el 74HC244 del módulo IBT-2: cortan en VCC/2 y piden
+0,7·VCC para un alto, así que los 3,3 V de un STM32 con el VCC a 5 V quedan
+fuera de especificación —funciona, y se avisa—. Dos son un puente en H: el
+IBT-2, de 43 A.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `vs`, `gnd` | obligatorios | La alimentación, de 5,5 a 27,5 V |
+| `in`, `inh` | obligatorios | La entrada y el despertar |
+| `out` | obligatorio | La salida |
+| `is` | opcional | La medida de la corriente |
+| `vdd` | opcional | El VCC del 74HC244 del módulo |
+
+Deja ver `corriente` (mA, de media), `disipacion` y `despierto`. Al terminar:
+`BTS7960 H/U1: alto, +1021 mA de media, IS 120.1 uA; disipa 0.01 W`.
+
+#### Lo que sale
+
+* **El cabezal**: el 775 a 24 V tras el módulo con el IRLZ44N, a 9958 rpm con
+  5 V en la puerta y casi igual con 3,3. Con el IRF520 y 5 V, se avisa de que
+  no se abre del todo, y va más despacio.
+* **El PWM regula el par, no la velocidad.** Con 1 kHz al 50 % y en vacío, el
+  775 va casi a tope, a 9612 rpm: con `L/R` = 0,25 ms la corriente se acaba en
+  cada hueco —la conducción discontinua—, y sin corriente el motor no frena.
+  Con el 10 % del par de bloqueo y 20 kHz, la corriente ya no se acaba, y va a
+  3471 rpm de las 8608 a tope: la mitad de la tensión, menos la caída en el
+  bobinado y en el diodo. Así se comporta el de verdad.
+* **El eje servo**: el motorreductor de 37 mm tras el IBT-2, a 332 rpm a 12 V
+  en los dos sentidos; dormido, quieto; con la mitad del par de bloqueo, 1 A,
+  y su IS. Con `verif/fw/cnc_pid` en la Nucleo-F446RE, un **PID de posición**
+  —el encoder en el TIM2 en modo encoder, el PWM del TIM4 a 1 kHz— lleva el
+  eje de salida una vuelta, 1320 cuentas, y media atrás, sin pasarse más de un
+  2 % y a 2 cuentas de la consigna en menos de 600 ms (`make gui-cnc`, C3).
+
+### 4.20 El BLDC y su controlador: `MotorBLDC` y `ControladorMotor`
+
+`parts/motor_bldc.h` y `parts/controlador_motor.h`, la fase F1c de
+`doc/analisis_cnc.md` (§5.4 y §5.5). Montadas, son `placas/db59l024035_a.xml`
+—el BLDC de Nanotec de 24 V y 172 W— y `placas/controlador_tipo_c5e.xml`.
+
+#### `MotorBLDC`
+
+Un BLDC trifásico con sus tres Hall y, con `ppr=`, un encoder. Lo conmuta su
+controlador por dentro —FOC o seis pasos, que desde fuera no se ven—, así que
+se modela **en el eje q**, como un motor de continua equivalente con las
+cifras de entre dos fases:
+
+    V = R·i + L·di/dt + Kt·ω          T = Kt·i
+
+La corriente es la de la **rama de corriente impuesta con tope de tensión**
+del paso a paso (§4.18): el controlador declara sus tres salidas —U con el
+polo +1, V con el −1 y W con el 0— y el motor sigue la consigna mientras
+`R·i* + Kt·ω` quepa en la tensión de alimentación. **U, V y W se comprueban**:
+cada una a la suya, o no hay corriente y se avisa —«las fases van cruzadas:
+con los Hall, la conmutación no casa con las bobinas, y un BLDC así da
+sacudidas sin girar»—.
+
+Los **Hall**, a 120° eléctricos con `pares_polos` pares de polos —6·p cambios
+por vuelta—: 101, 100, 110, 010, 011 y 001 girando a la derecha. Son de
+colector abierto, como los de Nanotec: el pull-up lo pone el controlador.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `u`, `v`, `w` | obligatorios | Las tres fases |
+| `hall_vcc`, `hall_gnd` | con los Hall | Su alimentación, 5 V |
+| `h1`, `h2`, `h3` | con `hall_vcc` | Los tres Hall |
+| `enc_a`, `enc_b` | con `ppr` | El encoder, en cuadratura |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `kt_ncm_a` | `5` | La constante de par, en N·cm/A, y la de f.e.m. |
+| `r_ohm`, `l_mh` | `0.22`, `0.29` | Entre dos fases |
+| `corriente_nominal`, `corriente_pico` | `9.4`, `28` | En A. La carga va en % de `Kt·I` nominal; por encima del pico, se avisa |
+| `inercia_gcm2` | `119` | La del rotor |
+| `rozamiento_ncm`, `viscoso_mnms` | `1.5`, `0.02` | Estimados: la ficha no da la corriente en vacío |
+| `pares_polos` | `3` | 18 cambios de Hall por vuelta |
+| `ppr` | `0` | Las líneas del encoder; cada flanco es un suceso |
+| `fases` | `no` | Con `si`, tres fases de verdad para un puente que conmuta el MCU (§4.26) |
+| `fem` | `trapezoidal` | Con `fases`: la forma de la f.e.m., `trapezoidal` o `senoidal` |
+
+Deja ver `angulo`, `rpm`, `corriente` (A, la del eje q), `par`, `tension`,
+`hall`, la alarma `sobrecorriente` y, con encoder, `cuenta`. Sus mandos son
+`bloquear` y `carga`, hasta el 300 % del par nominal.
+
+#### `ControladorMotor`
+
+Un controlador **de reloj y dirección en lazo cerrado**, tipo C5-E: desde
+fuera, un driver de pasos; por dentro, una cascada de lazos cada `lazo_us`:
+
+    θ*   = pasos · 2π / pasos_vuelta
+    ω*   = kp_pos·(θ* − θ) + dθ*/dt
+    i_q* = kp_vel·(ω* − ω) + ki_vel·∫(ω* − ω)        (hasta corriente_max)
+
+La posición sale de los Hall —un tramo de 20° en el DB59— o del encoder, y la
+velocidad del tiempo entre cambios (el método M/T); entre dos cambios, la
+posición se interpola sin salir del tramo. Con la consigna quieta y el error
+dentro de medio tramo, el lazo de posición no empuja.
+
+**No pierde pasos sin enterarse.** Cada paso cuenta. Si el error de seguimiento
+pasa de `error_max_grados` durante `error_ms`, **se para, echa el freno, lo
+dice** —un aviso y la salida de error— y deja de seguir pasos hasta que se le
+quite EN. **El freno**: con EN, corriente, y en la vuelta siguiente se suelta
+—la salida `freno` a VCC—; pasados `freno_ms`, en marcha. Sin EN o con un
+fallo, al revés: se echa al momento y la corriente sigue `freno_ms`, para que
+el eje no caiga. Los Hall con un código imposible —000 o 111, un hilo suelto
+o sin tensión— también lo paran.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `vcc`, `gnd` | obligatorios | De 12 a 48 V: la lógica, el motor y el tope de su tensión |
+| `u`, `v`, `w` | obligatorios | Las fases |
+| `step`, `dir`, `en` | obligatorios | Con 10 kΩ a masa; EN, activa alta |
+| `v5` | opcional | Los 5 V de los sensores |
+| `h1`, `h2`, `h3` | sin encoder | Con 4,7 kΩ a sus 5 V |
+| `enc_a`, `enc_b` | con `encoder="si"` | Ídem |
+| `freno` | opcional | A VCC con el freno suelto; al aire, echado |
+| `error` | opcional | A masa con error; al aire, sin él |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `pasos_vuelta` | `2000` | Pasos de STEP por vuelta del motor |
+| `corriente_max` | `10` | El tope de la consigna del eje q, en A |
+| `encoder`, `ppr` | `no`, `1000` | La realimentación |
+| `pares_polos` | `3` | Para contar los Hall |
+| `kp_pos`, `kp_vel`, `ki_vel` | `20`, `0.015`, `1` (con encoder, `50`, `0.06`, `3`) | Las ganancias, las de un DB59L024035-A suelto |
+| `rpm_max` | `4000` | El tope de la consigna de velocidad |
+| `error_max_grados`, `error_ms` | `360`, `10` | El error de seguimiento que lo para |
+| `freno_ms` | `100` | Lo que tarda el freno |
+| `v_sobretension` | `52.8` | Por encima, corta el puente, echa el freno y da error (§4.24) |
+| `lazo_us` | `1000` | El periodo de los lazos |
+| `umbral` | `2.5` | El de las entradas, con 0,25 V de histéresis |
+
+Deja ver `estado` (0 sin tensión, 1 deshabilitado, 2 soltando el freno, 3 en
+marcha, 4 echando el freno, 5 error), `pasos`, `error_seguimiento`,
+`corriente_q`, `rpm`, `corriente_vcc`, `freno_suelto` y la alarma `error`. Al
+terminar: `CONTROLADOR C/U1 (tipo C5-E): en marcha, +124675 pasos (0 sin
+seguir); error de seguimiento +0.1°, 54.0 como mucho; iq +9.85 A; VCC 9349 mA
+de media; freno suelto`. El bus de campo y los finales de carrera son de F6
+(§4.25), y la energía que vuelve al frenar, de F5 (§4.24). No hace la puesta en
+marcha automática ni el I²t.
+
+#### Lo que sale
+
+* **El punto nominal**: a 3500 rpm, con la carga subiendo hasta 0,47 N·m, la
+  corriente sube **9,40 A** —`Kt·I = 0,05 × 9,4 = 0,47`, la ficha— y la
+  tensión, `R·I + Kt·ω`, se queda en 20,5 V de los 24.
+* **Más de lo que puede**: con el 120 % —11,6 A de los 10 del controlador—
+  se para por el error de seguimiento, echa el freno y lo dice. El 100 % de
+  golpe también: frena al rotor de 119 g·cm² a casi 40 000 rad/s², y los lazos,
+  con una medida cada 20°, no llegan; el 50 % de golpe lo aguanta.
+* **Los Hall contra el encoder**: a 60 rpm, con los Hall —18 medidas por
+  vuelta— va a tirones; con un encoder de 250 líneas, suave. A 600 rpm y más,
+  los Hall bastan.
+* **Lo que cuesta**: 2,2 s a 3500 rpm con los Hall, en medio segundo de CPU
+  (`make gui-cnc`, C4).
+
+### 4.21 La transmisión: `Reductora`, `Acople`, `Husillo`, `Carro` y `Freno`
+
+`parts/transmision.h`, la fase F2 de `doc/analisis_cnc.md` (§6). Son
+**elementos de una cadena** (§4.17): una `<transmision>` los pone detrás de sus
+motores, del motor hacia la carga, y la cadena refleja cada uno en el eje de
+los motores. Montado, un eje entero es `placas/eje_z_tr8.xml`: un NEMA 17, un
+acople de espiral, un Tr8x2 y el carro Z de una 3018, de lado, con el carro
+que sube y baja en el dibujo y su cota en un display.
+
+**Lo que la cadena aprende en F2:**
+
+* **La carga activa.** Un elemento puede empujar —el peso de un carro
+  vertical, la fuerza de corte—, y no solo frenar. Pasa por los rendimientos
+  según hacia dónde vaya la energía: si el motor la empuja, se pierde
+  `|T|·(1/η − 1)`; si la carga mueve al motor, `|T|·(1 − ηi)`, con `ηi` el
+  **rendimiento inverso**. Con `ηi ≤ 0` lo que se pierde es más de lo que la
+  carga empuja: **se sujeta sola**, y el motor tiene que empujar hasta para
+  bajar.
+* **Los topes duros.** El recorrido de un carro: al llegar, la cadena se para
+  en seco, y no arranca hacia el tope. Un paso a paso pierde pasos; uno de
+  continua pide la corriente de bloqueo.
+* **La holgura**, una zona muerta **cinemática**: mientras el motor recorre el
+  hueco, lo de detrás se queda donde está. Cambia dónde están las cosas, no la
+  dinámica (la inercia no se separa durante el hueco).
+* **Que los ejes encajen.** Cada motor dice el diámetro de su eje (`eje_mm`)
+  y cada elemento los de su entrada y su salida; la `<transmision>` no se
+  monta si no casan: «MOTOR da un eje de 5 mm y A lo recibe de 6.35: no
+  encajan».
+* **La cota.** Una transmisión que acaba en un carro deja ver su `posicion`
+  en mm, para un display (en `mcu-sim-gui`, una cota en mm lleva siempre su
+  signo y una cifra más).
+
+| Pieza | Atributos (omisión) | Lo que hace |
+| :--- | :--- | :--- |
+| `Reductora` | `relacion` (3), `rendimiento` (0,9), `rendimiento_inverso` (el directo; ≤ 0 en un sinfín), `holgura_arcmin` (0), `inercia_gcm2` (0), `par_max_nm` (0), `entrada_mm`, `salida_mm` | Avisa si su salida pasa de `par_max_nm` |
+| `Acople` | `tipo_acople` (espiral, mordaza o fuelle), `d1_mm`, `d2_mm`, `inercia_gcm2` (2), `holgura_arcmin` (0) | Sus dos diámetros tienen que encajar |
+| `Husillo` | `rosca` (Tr, ACME o bolas), `diametro_mm` (8), `avance_mm` (8), `paso_mm` (2), `mu` (0,15; 0,005 de bolas), `longitud_mm` (350), `apoyos` (fijo-apoyado), `holgura_mm` (0), `extremo_mm` | **El rendimiento se calcula**; avisa de la velocidad crítica y del DN |
+| `Carro` | `masa_kg` (1), `rozamiento_n` (5), `viscoso_ns_m` (0), `recorrido_mm` (300), `posicion_mm` (0), `vertical` (no), `eje` | Topes, peso; su mando `fuerza` es la de fuera |
+| `Freno` | `v_nominal` (24), `potencia_w` (8), `par_ncm` (50), `suelta_ms` (30), `echa_ms` (20), `eje_mm`; terminales `a` y `b` | Frena sin corriente |
+
+**El husillo.** Del ángulo de la hélice `λ = atan(avance/(π·d_m))` —`d_m`, el
+nominal menos medio paso en una rosca, el nominal en uno de bolas— y del de
+rozamiento con el flanco, `φ' = atan(μ/cos(α/2))` —α de 30° en Tr, 29° en
+ACME, 0 de bolas—:
+
+    η  = tan λ / tan(λ + φ')        ηi = tan(λ − φ') / tan λ
+
+| Husillo | λ | η | ηi | |
+| :--- | ---: | ---: | ---: | :--- |
+| Tr8x2, latón (μ 0,15) | 5,2° | 0,36 | −0,70 | **se sujeta solo** |
+| Tr8x8, 4 entradas | 20,0° | 0,66 | 0,54 | |
+| Bolas 1605 (μ 0,005) | 5,7° | 0,95 | 0,95 | |
+
+Su inercia es la de un cilindro de acero de su diámetro y su largo (un Tr8 de
+200 mm, 6,3 g·cm²; un 1605 de 400, 202). La **velocidad crítica**,
+`n_c = f·1,2·10⁵·d_r/L²` rpm, con `f` 0,36 fijo-libre, 1 apoyado-apoyado, 1,47
+fijo-apoyado y 2,24 fijo-fijo; y en uno de bolas, `d·n ≤ 70 000`. Al pasarlos,
+un aviso.
+
+**El carro** es la pieza de las guías, el carro y lo que lleva: su entrada es
+**lineal**, en metros —la relación de un husillo es `2π/avance`, radianes por
+metro—, así que su masa se refleja como `m·(avance/2π)²` y su peso como un par
+de `m·g·avance/2π`. Deja ver `posicion` (mm), `velocidad` (mm/s) y la alarma
+`en_tope`, y avisa de cada choque.
+
+**El freno** es una bobina de `V²/P` ohmios que se suelta con el 70 % de su
+tensión y se echa por debajo del 25 %, cada cosa con su retardo; echado, su par
+entra en la cadena como rozamiento, y si el eje gira avisa de que **patina**.
+
+**Lo que sale** (`make gui-cnc`, C5):
+
+* La tabla de arriba, calculada; y la inercia reflejada del eje Z,
+  `34 + 3 + 6,3 + 1,22 = 44,5 g·cm²`.
+* **Sin corriente**, el Tr8x2 sujeta el cabezal con cualquier peso; un 1605
+  con 5 kg se cae y choca abajo a los 420 ms; con 1,2 kg no, porque el par de
+  retención sin corriente del NEMA 17 (1,5 N·cm) puede con los 0,9 que le
+  llegan. Con un freno de muelle sin corriente, o con un sinfín que se sujeta
+  solo, no se cae; con los 24 V del freno, se suelta a los 30 ms y se cae.
+* 100 pasos por mm; la holgura de 30 µm se ve al cambiar de sentido; un tope
+  que para el carro y un paso a paso que pierde pasos sin que nadie se entere;
+  un Tr8 de un metro con un extremo libre que pasa de su velocidad crítica.
+
+### 4.22 La máquina: `FinalCarrera`, `Sonda`, `Interruptor` y `Cotas`
+
+`parts/maquina.h`, la fase F3 de `doc/analisis_cnc.md` (§7). Es lo que rodea
+a los ejes de una fresadora. Los tres primeros son **contactos**: ramas entre
+dos nodos que se vuelven a resolver cada vez que cambia uno de sus nodos o lo
+que los acciona. Los que accionan los carros (§4.21) los nombran con un
+`<ref nombre="carro" componente="CX"/>`, y el carro avisa a los que lo miran
+cada vez que se mueve. Montada, una fresadora entera es
+`placas/cnc_3020.xml`, un `<sistema>`: la Nucleo-F446RE, la CNC Shield V3,
+tres A4988, la mecánica de una 3020 y el cabezal 775 con su módulo MOSFET.
+
+| Pieza | Atributos (omisión) | Terminales | Lo que hace |
+| :--- | :--- | :--- | :--- |
+| `FinalCarrera` | `posicion_mm` (1), `lado` (min o max), `histeresis_mm` (0,02); ref `carro` | `com`; `no`, `nc` o los dos | Pisado cuando el carro pasa de `posicion_mm`; la alarma `pisado` |
+| `Sonda` | `altura_mm` (20), `puesta` (sí); ref `carro` | `placa`, `fresa` | La fresa toca la placa con el Z en `altura_mm` o más abajo; mando `puesta`, observable `toca` |
+| `Interruptor` | `contactos` («NC», o «NC NO» con dos), `enclavado` (no) | `a1`, `b1`; `a2`, `b2` | Mando `pulsar` (un botón, o un interruptor si se enclava), la alarma `pulsado` |
+| `Cotas` | refs `x`, `y` y `z` (cualquiera) | — | Observables `x`, `y` y `z` en mm, para un display y para trasladar la herramienta en el alzado |
+
+**La seta de emergencia** es un `Interruptor` de dos contactos enclavado: el
+NC corta los 24 V de los drivers —**la potencia, no solo el aviso**— y el NO
+lleva el ABORT de la shield a masa para que el control lo sepa. Con la seta
+pulsada los A4988 se quedan sin VMOT: «salidas apagadas», y el Tr8x2 sujeta
+el Z donde estaba.
+
+**Las placas de F3:**
+
+* `cnc_shield_v3.xml`, la **CNC Shield V3** de Protoneer: los conectores
+  Arduino, tres zócalos Pololu (`SX1`/`SX2`, …) con los nombres de las tiras
+  de `pololu_a4988.xml`, las tiras de los motores (2B 2A 1A 1B), los jumpers
+  de micropasos (MS1 y MS2 puestos: 1/8), la tira de finales —X, Y y Z, cada
+  uno con su MIN y su MAX en el mismo pin, D9, D10 y D11—, `SPN` (D12 y D13),
+  `COOL` (A3), `CTL` (ABORT, HOLD, RESUME en A0–A2, ESTOP al RESET, SDA y SCL
+  en A4 y A5) y los 10 kΩ del EN a 5 V.
+* `fresadora_3020.xml`, **la mecánica de una 3020**: X y Y con Tr8x8 y Z con
+  Tr8x2, sus finales —X y Y abajo, Z arriba—, la sonda a 20 mm, la seta, la
+  fuente de 24 V y las cotas de la máquina; en el dibujo, planta y alzado a
+  1,5 unidades por mm, con la herramienta que se mueve en los dos.
+* `cnc_3020.xml`, **el sistema**: todo junto, con `verif/fw/cnc` en la
+  Nucleo. El final Z va al D12, como en la tira `SPN.EN` de la shield (GRBL
+  1.1 cambió el D11 y el D12 para tener el PWM del cabezal en el D11).
+
+**El firmware** (`verif/fw/cnc`) es **un control propio, pequeño, que no es
+GRBL** pero habla como él para que un emisor de G-code se entienda con él:
+`G0`/`G1`/`G2`/`G3` con trapecio de velocidad, `$H` (Z arriba primero, después
+X e Y, rápido, separarse 1 mm y despacio), `G38.2`, `G4`, `G92`, `G28`,
+`M3`/`M4`/`M5 S…` (el PWM del cabezal a 1 kHz), `M8`/`M9`, `$X`, `$$`, `$G`,
+`$I`, `$#` y los de tiempo real `?`, `!`, `~` y Ctrl-X. Límites duros
+(`ALARM:1`), ABORT (`ALARM:3`) y una sonda que no toca (`ALARM:5`). A 84 MHz,
+con 200, 200 y 800 pasos por mm.
+
+**Lo que sale** (`make gui-cnc`, C6):
+
+* Un cuadrado de 20 mm y un círculo de 10 mm de radio: la trayectoria contra
+  la pedida, con 24 µm de error en el cuadrado y el radio entre 9,959 y
+  10,041 en el círculo —la holgura de la tuerca, al cambiar de cuadrante—.
+* `$H`: el Z sube primero; las cotas, 11,48, 6,48 y 70,52 mm.
+* `G38.2`: el Z se para a 19,996 mm sobre la placa de 20; sin la placa,
+  `ALARM:5`. Un límite duro a 0,48 mm, `ALARM:1`. La seta: `ALARM:3`, los
+  drivers sin salidas y el Z quieto.
+* El cabezal: `M3 S1000` —S va de 0 a 1000—, 9878 rpm; `M5`, y se para solo
+  en unos 2 s.
+* **El coste**: unos 1,3 s de reloj por segundo de máquina mientras se mueve.
+
+**grblHAL sin modificar** (C7) corre en `cnc_3020_grblhal.xml`, la misma
+máquina con el cableado de su mapa para la Nucleo con la shield —el de la
+serigrafía: final de Z en D11, PWM del cabezal en D13, sin sonda—, y hace el
+mismo *homing*, el mismo cuadrado y el mismo círculo. Sus entradas son de
+contacto NC: con los NO de esta máquina, `$5=7` y `$14=70`. Su binario es GPL-3
+y no se versiona: `make -f Makefile.mcu-sim grblhal` lo baja y lo construye.
+Lo que destapó y lo que no puede hacer, en `doc/analisis_cnc.md` (§13, «F3:
+grblHAL»).
+
+### 4.23 La pieza que se mecaniza: `Pieza`
+
+`parts/pieza.h`, la fase F4 de `doc/analisis_cnc.md` (§9). Un bloque sujeto a
+la mesa, de `largo_mm` x `ancho_mm` x `espesor_mm`, con un **mapa de alturas**:
+una rejilla de celdas de `celda_mm` y en cada una la altura del material que
+queda. La fresa está donde la ponen los tres carros (refs `x`, `y` y `z`): su
+punta, en la pieza, en `(X − x_mm, Y − y_mm)` y a `Z − mesa_mm` por encima de
+la mesa. Al moverse, la pieza **estampa** el perfil de la fresa a lo largo del
+camino, a pasos de un cuarto de celda, y en cada celda se queda con lo más
+bajo:
+
+| Fresa | A una distancia r del eje, su filo está por encima de la punta |
+| :--- | :--- |
+| `plana` | 0 |
+| `bola` | `R − √(R² − r²)` |
+| `v` | `r / tan(angulo_v / 2)` |
+
+| Atributo | Omisión | |
+| :--- | :--- | :--- |
+| `material` | `mdf` | `mdf`, `madera`, `metacrilato` o `aluminio`: su color y su k_c1.1 |
+| `largo_mm`, `ancho_mm`, `espesor_mm` | 100, 60, 12 | En X, Y y Z |
+| `x_mm`, `y_mm` | 100, 70 | Los carros X e Y con la fresa en la esquina (0, 0) |
+| `mesa_mm` | 3 | El carro Z con la punta de la fresa tocando la mesa |
+| `celda_mm` | 0,25 | Una celda: un píxel de la imagen |
+| `fresa`, `fresa_mm`, `angulo_v`, `filos` | `plana`, 3,175, 60, 2 | |
+| `rpm` | 10 000 | La fresa, si no hay ref `cabezal` |
+| `fuerzas` | `si` | El corte frena el cabezal y resiste el avance |
+| `mapa` | — | Un fichero: al acabar, las alturas en CSV, una fila por celda en Y |
+
+**Lo que se ve** es su imagen, `pieza`: desde arriba, una celda por píxel, con
++Y hacia arriba, el color del material más oscuro cuanto más hondo, la mesa
+donde se ha pasado de lado a lado y una línea tenue donde la fresa pasó por
+encima sin cortar. Sale a trozos (§4.15). En el dibujo, el efecto
+`pantalla` con `observable="mesa"` y un vector la lleva con la mesa.
+
+**Y sus alturas**, otra imagen del mismo tamaño, `alturas`, para la vista 3D
+de la ventana (§2.6, `<vista3d>`). Solo sale si alguien la pide, y también a
+trozos:
+* en cada píxel, la altura de lo que queda sobre la mesa en centésimas de mm:
+  el byte alto en el rojo y el bajo en el verde;
+* en el azul, 255 donde la punta ha pasado por encima sin cortar.
+
+La fila de arriba es la de más Y, como en la otra. El color de `pieza` no se
+puede deshacer en alturas; esta, sí.
+
+**Las fuerzas del corte** (Kienzle), con `fuerzas="si"`. De la rejilla sale lo
+que de verdad se quita por segundo, Q, filtrado con 5 ms, y con el espesor de
+viruta `h = v_f / (n · z)`:
+
+    k_c = k_c1.1 · h^(−m_c)      P = k_c · Q      T = P / ω      F_c = T / R
+
+T frena el cabezal —el `MotorCC` de la ref `cabezal`, que en un `<sistema>`
+puede ser de otra placa: `<ref pieza="M/PZA" nombre="cabezal"
+componente="C/MOTOR"/>`— como un par resistente más (`pon_par_externo`), y
+0,6·F_c se reparte entre los carros según su velocidad como un rozamiento seco
+más (`Carro::pon_rozamiento_corte`): se opone al avance y no empuja nunca un
+carro parado. Con la fresa parada, la máquina **empuja** el material: k_c1.1
+por la sección que barre, y un aviso. Los k_c1.1 son orientativos —40 N/mm² el
+MDF, 25 la madera, 150 el metacrilato y 700 el aluminio—: valen para ver
+tendencias, no para predecir un mecanizado.
+
+Deja ver `quitado` (mm³), `hondo` (mm), `q` (mm³/s), `par` (N·cm), `fuerza`
+(N), `mesa` (mm) y la alarma `choque`, la fresa en la mesa; su mando, `nueva`,
+deja la pieza sin mecanizar.
+
+**Lo que sale** (`make gui-cnc`, C8), con `verif/fw/cnc` en `cnc_3020.xml`:
+
+* Un bolsillo de 20 x 10 mm y 2 de hondo en MDF, con la fresa plana de 3,175:
+  el fondo plano a 1,984 mm —lo que de verdad baja el carro Z, la holgura de su
+  tuerca—, las paredes en su sitio a la celda y 392,6 mm³ quitados, los de sus
+  esquinas redondeadas. El cabezal ni se entera: 9693 rpm como poco.
+* Una raya con una V de 60° y 0,984 mm de honda: 1,119 mm de ancho contra los
+  1,137 de `2 · hondo · tan 30°`.
+* La imagen a trozos: once segundos de raya, con instantáneas cada 5 ms, son
+  714 trozos y 319 kB; enteras, 196 MB. La misma imagen al final.
+* Una ranura de 1 mm en aluminio a 600 mm/min pide hasta 26 N·cm y el 775 baja
+  a unas 8500 rpm. Sin `M3`, la fresa parada hace perder pasos a X e Y. Una
+  fresa que baja de más atraviesa los 12 mm y entra en la mesa: `choque`.
+* **El coste**: unos 1,9 s de reloj por segundo de máquina mientras corta.
+
+### 4.24 La potencia de 48 V: `Condensador`, `ChopperFrenado` y `Optoacoplador`
+
+`parts/bus_potencia.h`, la fase F5 de `doc/analisis_cnc.md` (§6.6). **Al
+frenar una masa, o al bajar un Z, el motor genera.** Desde F5 el driver lo
+devuelve a su alimentación —`DriverPaP` a VMOT, `ControladorMotor` a VCC—: lo
+que entra en el motor es negativo, y lo mete en el bus con un
+`InyectorCorriente` (`parts/ext_parts.h`), una fuente de corriente exacta
+mientras lo de fuera sea lineal. Hasta F4 se quedaba en nada.
+
+¿A dónde va? **Una fuente de laboratorio lo absorbe**; una **conmutada**, no:
+`Fuente absorbe="no"` se aparta, como tras un diodo, si lo de fuera sube por
+encima de su tensión. Entonces lo recoge el condensador del bus y la tensión
+sube.
+
+| Pieza | Atributos (omisión) | Terminales | Lo que hace |
+| :--- | :--- | :--- | :--- |
+| `Condensador` | `c_uf` (1000), `esr_ohm` (0,1), `v_max` (63), `v_inicial` (0) | `mas`, `menos` | Integra su carga, exacta entre dos cambios del nodo; por encima de `v_max`, la alarma `sobretension` |
+| `ChopperFrenado` | `r_ohm` (10), `v_on` (50,5), `v_off` (49,5), `potencia_w` (50) | `mas`, `menos` | Pone `r_ohm` en el bus por encima de `v_on` y la quita por debajo de `v_off`; `conduce`, `potencia` (media de 1 s), `energia` y la alarma `caliente` |
+| `Optoacoplador` | `vf` (1,2), `r_led` (10), `ctr` (1), `vce_sat` (0,2), `if_max_ma` (50) | `anodo`, `catodo`, `colector`, `emisor` | La salida pasa como mucho `ctr` veces la corriente del LED: saturada si lo de fuera pide menos |
+
+**El condensador** es un Thevenin en su nodo: su tensión, tras su ESR. Lo que
+hay en el nodo sin él es otro Thevenin {vx, rx}, y mientras no cambia la
+tensión va hacia vx con τ = (rx + ESR)·C, exacto para cualquier paso. Se pone
+al día en cada cambio del nodo y, mientras le queda camino, cada τ/5 como mucho
+y cada milisegundo como poco. En equilibrio no cuesta nada.
+
+**La protección de sobretensión** del `ControladorMotor`, `v_sobretension` —un
+10 % sobre su tensión máxima, 52,8 V en uno de 48—: corta el puente en el
+acto, echa el freno y da error, como un error de seguimiento. Lo que le
+devuelve el motor deja de volver en el mismo instante. Un `DriverPaP` con
+VMOT por encima de su margen solo lo avisa.
+
+**Lo que sale** (`make gui-cnc`, C9) con `placas/eje_z_48v.xml`: el Z de la
+versión potente, con un BLDC, su controlador en lazo cerrado con encoder, un
+freno, una reductora planetaria 3:1, un husillo de bolas 1605 —que no se
+sujeta solo— y un cabezal de 12 kg; una fuente conmutada de 48 V, 470 µF de
+bus y 10 Ω de frenado.
+
+* Bajando a 83 mm/s y parando en 100 ms, el controlador devuelve unos 400 mA
+  al bus; el condensador sube hasta 50,5 V, la resistencia entra y quema unos
+  80 mJ, y el Z llega.
+* **Sin la resistencia** (`conectada="no"`), el bus sube a 52,8 V al parar y
+  **salta la protección**: puente cortado, error y freno, que sujeta el Z con
+  0,26 mm de caída mientras se echa.
+* Con una fuente que absorbe, el bus ni se mueve.
+* El final de Z, un inductivo NPN de 24 V, por un PC817: 10,3 mA por su LED
+  con 2,2 kΩ y la salida saturada, 0,31 mA por 10 kΩ a 3,3 V.
+
+
+### 4.25 El bus de campo: `ControladorMotor` por CANopen y `AnalizadorCan`
+
+`parts/canopen.h` y `parts/controlador_motor.h`, la fase F6 de
+`doc/analisis_cnc.md` (§5.5, la segunda capa). Un controlador de verdad —un
+C5-E de Nanotec con su bus— no recibe pasos por un hilo: se le mandan
+**estados, consignas y perfiles por CANopen**. Con `mando="canopen"`, el
+`ControladorMotor` deja STEP, DIR y EN y se cuelga del bus por su pin `can`,
+con el transceptor dentro.
+
+**El puerto** (`PuertoCan`) es un nodo CAN a nivel de bit, como `CanNode`: el
+relleno, el CRC15, el arbitraje, el asentimiento y los reintentos, con las
+mismas funciones que el bxCAN (`periph/can_motor.h`). Lo distinto es que va
+dentro de otra pieza —le entrega los marcos— y que **en reposo no cuesta
+nada**: no se despierta en cada bit, solo cuando el hilo cambia. El hilo es un
+nodo analógico como el de un `CanWire`: dominante por debajo de 1,65 V. Para
+recibir le bastan ocho bits recesivos tras un marco; para transmitir espera
+los once, con la intermisión. Con `terminador="si"`, el controlador pone sus
+120 Ω en el hilo.
+
+**El esclavo** (`EsclavoCanOpen`) es lo de CiA 301 que no depende del aparato:
+
+* **NMT**: inicializando, el **boot-up** (`0x700+nodo`, `00`) pasados
+  `arranque_ms`, pre-operacional, operacional y parado; reiniciar el nodo y la
+  comunicación.
+* **SDO**, el servidor, expedito —objetos de cuatro bytes como mucho—, con sus
+  códigos de aborto: no existe, subíndice, solo lectura, longitud, rango.
+* **PDO con su mapeo fijo**: el RPDO1 (palabra de control y posición objetivo),
+  el RPDO2 (palabra de control y velocidad objetivo), el TPDO1 (palabra de
+  estado y posición) y el TPDO2 (palabra de estado y velocidad, apagado). Se
+  cambian el COB-ID —su bit 31— y el tipo: de 1 a 240, en cada tantas SYNC; 254
+  y 255, por evento, con su inhibición y su temporizador.
+* **SYNC**, **heartbeat** (`0x1017`) y **EMCY** (`0x80+nodo`).
+
+**CiA 402**, en el controlador:
+
+| | |
+| :--- | :--- |
+| La máquina de estados | Por la palabra de control (`0x6040`) y dicha en la de estado (`0x6041`): *Switch on disabled* → *Ready to switch on* (06) → *Switched on* (07) → *Operation enabled* (0F), la parada rápida (`0x605A` = 2: frena y a *Switch on disabled*), *Fault reaction active* mientras echa el freno, *Fault* y su reinicio con el bit 7. *Operation enabled* es lo que con EN era habilitar |
+| Perfil de posición (1) | `0x607A` con el bit 4 —absoluta, o relativa con el 6; en el acto con el 5, o tras la que va—, el saludo en el bit 12, *target reached* en el 10 dentro de `0x6067`; `0x6081`, `0x6083` y `0x6084`. El perfil es trapezoidal, cada lazo |
+| Perfil de velocidad (3) | `0x60FF`, con las mismas rampas |
+| Homing (6) | `0x6098`: 17 y 18, por el final de abajo o el de arriba —hacia él a `0x6099:1`, de vuelta a `0x6099:2`, y el cero donde se suelta—, y 35 y 37, el cero donde está. `0x607C`, `0x609A` |
+| Los finales | `fin_neg` y `fin_pos`, con pull-up a 5 V, activos a nivel bajo. Fuera del homing, si se va hacia uno pisado, para con la parada rápida (`0x6085`) y lo dice en el bit 11 |
+| Los fallos | Por EMCY: 8611 el error de seguimiento (`0x6065`, `0x6066`), 3210 la sobretensión, 7300 los Hall; 0000 al quitarlo |
+
+Las posiciones van en **pasos** —`pasos_vuelta` por vuelta del motor—, las
+velocidades en pasos/s y las aceleraciones en pasos/s². Deja ver además
+`statusword`, `nmt`, `posicion` y `modo`. Lo que no hace: los modos síncronos
+(CSP, CSV), el mapeo variable de los PDO y los SDO por segmentos.
+
+**`AnalizadorCan`** es una pieza de banco: escucha el hilo **sin tocarlo** —no
+asiente ni transmite—, apunta cada marco en `traza=` con su instante, sus
+bytes y lo que significa en CANopen, y cuenta los marcos, los errores, los que
+**nadie asiente** y la carga del bus.
+
+    100.0000  701  1  00                       boot-up del nodo 1
+    100.2375  601  8  40 00 10 00 00 00 00 00  SDO al nodo 1: lee 1000:00
+    100.4855  581  8  43 00 10 00 92 01 02 00  SDO del nodo 1: 1000:00 vale 131474 (0x20192)
+    106.1029  000  2  01 01                    NMT: arranca el nodo 1
+    106.4952  080  0                           SYNC
+    106.5972  181  6  50 02 00 00 00 00        TPDO1 del nodo 1
+
+**Lo que sale** (`make gui-cnc`, C10) con `placas/eje_canopen.xml`: una Nucleo
+con un transceptor SN65HVD230 en su CAN1 (PB8 y PB9) y el maestro de
+`verif/fw/canopen`, y `placas/eje_x_canopen.xml`, un eje X con un BLDC, un
+husillo de bolas 1605, un carro de 10 kg, el final de abajo y el analizador.
+
+* El arranque, en el hilo: el boot-up a los 100 ms, 15 SDO, el NMT, y la SYNC
+  cada 5 ms con su TPDO1 detrás; *Switch on disabled*, *Ready to switch on*,
+  *Switched on* y *Operation enabled*. El bus, al 6 %.
+* El homing por el final: el cero, a 5,02 mm del tope —el final y su
+  histéresis—. Un movimiento de 100 mm a 50 mm/s con 500 mm/s² tarda 2,09 s,
+  2,1 en la cuenta.
+* Un final pisado para el eje con la parada rápida. **Tiene que estar más lejos
+  del tope de lo que el eje tarda en parar**: a 50 mm/s, la de omisión
+  —250 mm/s²— necesita 5 mm, y el final está a 5. El maestro pone 1000.
+* Contra el tope de arriba, el error de seguimiento: un EMCY 8611, *Fault*, el
+  reinicio con su EMCY 0000, y otra vez en marcha.
+* Sin el controlador, nadie asiente: el analizador ve los reintentos del
+  maestro sin asentimiento, los 16 primeros con su marco de error y, desde que
+  el maestro está en error pasivo —TEC 128, y ahí se queda—, con la bandera
+  pasiva, que no se ve, y la suspensión: uno cada 166 µs en vez de cada 150.
+
+
+### 4.26 El BLDC conmutado por el MCU: `MotorBLDC` por fases, `PuenteTrifasico` y `Amplificador`
+
+`parts/motor_bldc.h` y `parts/potencia.h`, la fase F7 de `doc/analisis_cnc.md`
+(§5.4, el segundo nivel). Hasta F6 al BLDC lo conmutaba su controlador por
+dentro; aquí lo conmuta el **firmware**, con el TIM1 y un puente trifásico, y
+las tres fases son de verdad.
+
+**`MotorBLDC fases="si"`**: tres fases en estrella, cada una con la mitad de
+la resistencia y de la inductancia de entre dos (`Rf = R/2`, `Lf = L/2`):
+
+    Vk − Vn = Rf·ik + Lf·dik/dt + ek       ek = Kf·ω·fk(θe)       Σ ik = 0
+
+`fem="trapezoidal"` (la de omisión) da a cada fase una meseta de 120°
+eléctricos, con `Kf = Kt/2`: con dos fases cerradas, el par es `Kt·i`, el
+mismo de las cifras de entre dos. `fem="senoidal"`, una senoide con
+`Kf = Kt/√3`. Los Hall, como siempre: a 120° y alineados con la f.e.m., 101
+100 110 010 011 001 girando a la derecha.
+
+El neutro no se saca. **Una fase está cerrada** si lo de fuera la tiene a
+menos de 100 Ω —su transistor conduce, o la corriente sigue por un diodo—; si
+no, está abierta, su corriente es cero y su terminal se pone a lo que manda la
+f.e.m., `Vn + ek`, que es lo que mide un firmware *sensorless*. `Vn` es la
+media de las cerradas. Las ecuaciones van en la cadena (RK4, tres estados más),
+y cada cambio de sentido de una corriente es un suceso: ahí un diodo deja de
+conducir. Deja ver además `corriente_u`, `corriente_v` y `corriente_w`.
+
+**`PuenteTrifasico`**, el L6230 de ST: tres medios puentes de DMOS de 0,73 Ω,
+de 8 a 52 V. Por medio puente, `ENx` lo habilita e `INx` elige arriba o abajo
+—el modo de la X-NUCLEO-IHM07M1: el PWM del TIM1 en IN y la fase abierta con
+EN—. Con los dos transistores abiertos, la corriente sigue por sus diodos,
+1,15 V, hasta acabarse.
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `r_on` | `0.73` | La de cada transistor, en Ω |
+| `i_ocp` | `2.8` | La sobrecorriente, en A |
+| `t_bloqueo_us` | `200` | Lo que se queda DIAG-EN bajo después |
+
+**La sobrecorriente** baja **DIAG-EN** —drenador abierto, el pull-up es de la
+placa— y abre los seis transistores durante `t_bloqueo_us`. En la
+IHM07M1 DIAG-EN va a PA6, **la entrada de freno del TIM1**: el PWM se apaga
+en el mismo instante, sin el firmware. Deja ver `corriente_1` a `corriente_3`,
+`disipacion`, `sobrecorrientes` y la alarma `fallo`. Lo que no hace: el tiempo
+muerto de 1 µs entre los dos transistores de una fase, los tiempos de
+conmutación y la protección térmica.
+
+**Los shunts**, con los pines `sense1` a `sense3`: el chip saca la fuente de
+cada transistor de abajo a su SENSEx, y la placa pone ahí su shunt a masa
+—una `Resistencia`—: uno por fase, o uno para las tres, con los tres pines en
+el mismo nodo. Por cada SENSEx la pieza **mete** en el nodo lo que pasa por su
+transistor de abajo —o por su diodo—, `−i`, con `i` la que sale por OUTx, y
+nada mientras conduce el de arriba o nadie: una fuente de corriente, que en un
+nodo compartido es la suma. La tensión la pone el shunt. Así solo se ve la
+corriente de una fase mientras su transistor de abajo conduce, como en la
+placa: con el PWM centrado, en el pico del contador; con un shunt para las
+tres, en el pico no se ve nada —lo que baja por una sube por otra— y en el
+valle, la del bus.
+
+Lo que entra así en masa vuelve a la fuente por su negativo, y la fuente de
+este modelo tiene la vuelta en el cero absoluto: la pieza lo saca de la masa
+por su `gnd` —si no, subiría la masa por las 0,1 Ω de sus uniones y lo vería el
+ADC, que mide contra el cero—, y no lo cuenta en lo que pide a VS. Hacia su
+fase, el transistor de abajo se ve como `r_on` más lo que hay de SENSEx a
+masa: con un shunt para las tres, sin lo que pasa por él de las otras dos,
+milivoltios contra los 24 V del bus.
+
+**`Amplificador`**, la etapa de un operacional que lleva la caída del shunt al
+ADC: `offset + ganancia·(entrada − gnd)`, entre `gnd` y `vcc`, tras
+`r_salida` (100 Ω); la entrada no carga. Deja ver `salida`. No hace el ancho de
+banda, el ruido, la deriva ni el filtro RC de la placa.
+
+| Terminal | | |
+| :--- | :--- | :--- |
+| `entrada` | obligatorio | Lo que mide, contra `gnd` |
+| `salida` | obligatorio | Al ADC |
+| `vcc`, `gnd` | obligatorios | La alimentación: la salida no sale de ahí |
+
+| Parámetro | Omisión | Efecto |
+| :--- | :--- | :--- |
+| `ganancia` | `1` | |
+| `offset` | `0` | En V sobre `gnd`: la salida con la entrada a cero |
+| `r_salida` | `100` | En Ω |
+
+**Las placas**: `placas/db42s01.xml`, un Nanotec DB42S01 —NEMA 17, 48 V, 31 W,
+5,7 N·cm/A, 3,5 Ω y 5,8 mH entre fases— por fases;
+`placas/x_nucleo_ihm07m1.xml`, la expansión, en los morpho de la Nucleo —IN1 a
+IN3 en PA8, PA9 y PA10, EN1 a EN3 en PC10 a PC12, DIAG-EN en PA6, los Hall en
+PA15, PB3 y PB10, el TIM2; y los shunts con los tres amplificadores del
+TSV994, 1,528 de ganancia y 1,56 V de polarización, en PA0, PC1 y PC0; y J5 y
+J6, uno o tres shunts, como en la placa: de fábrica en 2-3, uno, y en 1-2,
+tres—;
+`placas/fuente_24v.xml`; y
+`placas/nucleo_ihm07m1_db42.xml`, el sistema, con `verif/fw/bldc6` y J5 y J6
+en 1-2, para la FOC.
+
+**Lo que sale** (`make gui-cnc`, C11):
+
+* **Seis pasos sin lazo**, al 30 %: 1137 rpm, 1162 en la cuenta. El firmware
+  las mide con el TIM2 en su interfaz de Hall —el XOR de los tres en TI1 y la
+  captura en cada cambio— y da 1142.
+* **La corriente por fase**, cada 20 µs: siempre una de las tres a cero, la
+  abierta del sector; las otras dos, la misma, una entrando y otra saliendo.
+* **Con el lazo de velocidad**, a 2000 rpm, hacia atrás a 1500, y parado.
+* **Con el rotor sujeto**, al 70 %: el L6230 salta a 2,8 A, y el freno del
+  TIM1 apaga el PWM antes de que el firmware se entere. Suelto el rotor,
+  rearmando MOE, vuelve a arrancar.
+* **Con dos Hall cruzados**, la tabla no casa con el rotor: sacudidas, sin
+  arrancar.
+* **En senoidal**, las tres fases con PWM, la tensión girando con el ángulo
+  interpolado entre dos Hall: a 2000 rpm, con las tres fases llevando
+  corriente a la vez.
+* **El coste**: seis pasos con PWM de 20 kHz, un segundo y medio de reloj por
+  segundo del motor; senoidal, unos 8.
+
+Y **con FOC** (C12): el TIM1 dispara los tres ADC en el pico de cada periodo
+—OC4REF como TRGO—, y el firmware lleva la corriente a los ejes del rotor.
+
+* El offset de cada fase, 1939 cuentas, medido al arrancar: 1936 en la cuenta.
+* Con el rotor sujeto e iq a 1 A, mide +0,866, −0,865 y 0 A, lo que lleva el
+  motor: iq 1,00, id 0,00.
+* A 2000 rpm con el par nominal de golpe, cae a 900 y vuelve, con iq 1,04 A:
+  lo de la cuenta con la fundamental de la f.e.m. trapezoidal, 0,912·Kt por
+  amperio.
+* De 2000 a −1500 rpm sin parar, en 11 ms. Las tres fases, con corriente a la
+  vez el 79 % del tiempo.
+* Unos 9 s de reloj por segundo del motor.
+
+Y **con uno o con tres** (C13), el rotor sujeto con U arriba y V abajo, medido
+en el valle: con uno, PA0 ve toda la corriente y PC1 y PC0 se quedan en el
+offset; con tres, la de V en PC1. La del bus, la suma de lo que baja por los
+shunts, 0,85 A con los dos. Y con uno, el firmware no arranca la FOC: lo
+cuenta con un pulso —en el pico, con uno, no ve nada— y lo dice.
 
 ---
 

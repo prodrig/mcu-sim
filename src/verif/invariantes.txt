@@ -68,6 +68,14 @@
 #  picosegundo. T132 -18 comprobaciones- gasta 36300000000 ps propios, y el
 #  resto pasa a 2281827784555.)
 #
+# (Y la cuarta, 2026-11-02: el motor CAN sigue las reglas de error de ISO
+#  11898-1 -T-24 en doc/todo.md-. Lo mueve T87, que daba por bueno que un nodo
+#  sin nadie que asienta llegara a bus-off: ahora comprueba que se queda en
+#  error pasivo con el TEC en 128 -2 comprobaciones mas-, y llega al bus-off
+#  con errores de bit, con el transceptor en reposo. 2149 -> 2151, y el resto,
+#  0,57875 ms menos: 2281249034555. Ningun otro grupo cambia, ni otra suite:
+#  el C_CAN del MSP432E4 y el bxCAN del F303 tampoco se mueven.)
+#
 # O sea que contrastar el total generaba un fallo falso en una plataforma y
 # tapaba el criterio de verdad. Contrastar `resto` no afloja nada: quita del
 # criterio exactamente la parte que el propio proyecto tiene documentada como
@@ -79,7 +87,7 @@
 # mas lo que T96 y T97 gasten sin esperar a nadie.
 
 # suite      comprobaciones   tiempo simulado (ps)   cifra
-test407               2149      2281827784555        resto
+test407               2151      2281249034555        resto
 test446                204      1033367277932        total
 test417                165           718988288        total
 # El banco del puente UART (P-14). Crece con cada fase del plan de

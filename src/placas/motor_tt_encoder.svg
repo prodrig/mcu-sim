@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+  MOTORREDUCTOR TT CON UN ENCODER DE 24 PPR, dibujado a mano: una
+  aproximacion, no una foto. Es el dibujo de placas/motor_tt_encoder.xml, que
+  lo encuentra solo porque se llama como ella. Generado por
+  placas/dibuja_motores.py.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, geometria como atributo, tamano en milimetros -una unidad es
+  0,1 mm: 94 x 48 mm- y cada pieza con el id de su pieza en el XML. Visto
+  desde el lado del encoder, con el eje de salida hacia quien mira: la caja
+  amarilla de la reductora, el motor plateado a la derecha con sus dos
+  terminales, y en el eje el DISCO del encoder con su plaquita arriba.
+
+    MOTOR  el disco de 24 ventanas, que GIRA con el angulo del eje (el
+           efecto `angulo`): dibujado en el 0, con la marca blanca arriba, y
+           positivo es a la derecha. Lleva dentro un circulo sin pintar
+           centrado en el eje que alcanza mas que el disco: el centro de su
+           caja es el eje, y gira sobre el
+    M      los terminales del motor, con su hilo: M.ROJO (+) y M.NEGRO (-)
+    P1     la tira de la plaquita del encoder: P1.VCC, P1.GND, P1.A, P1.B
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 480" width="94mm" height="48mm">
+  <rect x="70" y="150" width="560" height="224" rx="22" fill="#f4c20d" stroke="#b8860b" stroke-width="2"/>
+  <rect x="84" y="164" width="532" height="196" rx="16" fill="none" stroke="#d4a20a" stroke-width="1.2"/>
+  <circle cx="560" cy="182" r="9" fill="#b8860b"/>
+  <circle cx="560" cy="182" r="4" fill="#5d4300"/>
+  <circle cx="560" cy="342" r="9" fill="#b8860b"/>
+  <circle cx="560" cy="342" r="4" fill="#5d4300"/>
+  <circle cx="430" cy="182" r="9" fill="#b8860b"/>
+  <circle cx="430" cy="182" r="4" fill="#5d4300"/>
+  <circle cx="430" cy="342" r="9" fill="#b8860b"/>
+  <circle cx="430" cy="342" r="4" fill="#5d4300"/>
+  <text x="500" y="270" font-family="Arial" font-size="18" font-weight="bold" fill="#5d4300" text-anchor="middle">TT 1:48</text>
+  <rect x="630" y="166" width="232" height="192" rx="6" fill="#cfd8dc" stroke="#78909c" stroke-width="2"/>
+  <rect x="650" y="166" width="6" height="192" fill="#b0bec5"/>
+  <rect x="690" y="166" width="6" height="192" fill="#b0bec5"/>
+  <rect x="730" y="166" width="6" height="192" fill="#b0bec5"/>
+  <rect x="770" y="166" width="6" height="192" fill="#b0bec5"/>
+  <rect x="810" y="166" width="6" height="192" fill="#b0bec5"/>
+  <rect x="862" y="186" width="26" height="152" rx="4" fill="#263238" stroke="#000000" stroke-width="1.5"/>
+  <rect x="888" y="214" width="16" height="8" fill="#bdbdbd"/>
+  <rect x="888" y="302" width="16" height="8" fill="#bdbdbd"/>
+  <g id="M">
+    <g id="M.ROJO">
+      <rect x="904" y="213" width="14" height="10" fill="#d32f2f"/>
+      <circle cx="920" cy="218" r="11" fill="#d32f2f" stroke="#7f0000" stroke-width="1.2"/>
+    </g>
+    <g id="M.NEGRO">
+      <rect x="904" y="301" width="14" height="10" fill="#212121"/>
+      <circle cx="920" cy="306" r="11" fill="#212121" stroke="#000000" stroke-width="1.2"/>
+    </g>
+  </g>
+  <text x="918" y="196" font-family="Arial" font-size="16" font-weight="bold" fill="#d32f2f" text-anchor="middle">+</text>
+  <text x="918" y="340" font-family="Arial" font-size="18" font-weight="bold" fill="#212121" text-anchor="middle">-</text>
+  <rect x="96" y="8" width="188" height="92" rx="4" fill="#1565c0" stroke="#0d47a1" stroke-width="1.5"/>
+  <rect x="150" y="86" width="24" height="46" rx="2" fill="#212121" stroke="#000000" stroke-width="1"/>
+  <rect x="206" y="86" width="24" height="46" rx="2" fill="#212121" stroke="#000000" stroke-width="1"/>
+  <rect x="116" y="28" width="103.6" height="24" rx="2" fill="#1c1c1c" stroke="#000000" stroke-width="1"/>
+  <g id="P1">
+  <rect id="P1.VCC" x="123" y="34" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="P1.GND" x="148.4" y="34" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="P1.A" x="173.8" y="34" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  <rect id="P1.B" x="199.2" y="34" width="12" height="12" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="0.8"/>
+  </g>
+  <text x="129" y="70" font-family="Arial" font-size="8" font-weight="bold" fill="#f5f5f5" text-anchor="middle">VCC</text>
+  <text x="154.4" y="70" font-family="Arial" font-size="8" font-weight="bold" fill="#f5f5f5" text-anchor="middle">GND</text>
+  <text x="179.8" y="70" font-family="Arial" font-size="8" font-weight="bold" fill="#f5f5f5" text-anchor="middle">A</text>
+  <text x="205.2" y="70" font-family="Arial" font-size="8" font-weight="bold" fill="#f5f5f5" text-anchor="middle">B</text>
+  <text x="270" y="94" font-family="Arial" font-size="8" font-weight="bold" fill="#f5f5f5" text-anchor="end">24 PPR</text>
+  <g id="MOTOR">
+    <circle cx="190" cy="262" r="158" fill="none" stroke="none" stroke-width="1.5"/>
+    <circle cx="190" cy="262" r="150" fill="#263238" stroke="#101820" stroke-width="2"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(0 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(15 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(30 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(45 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(60 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(75 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(90 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(105 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(120 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(135 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(150 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(165 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(180 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(195 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(210 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(225 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(240 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(255 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(270 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(285 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(300 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(315 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(330 190 262)"/>
+    <rect x="181" y="122" width="18" height="30" fill="#cfd8dc" transform="rotate(345 190 262)"/>
+    <circle cx="190" cy="262" r="100" fill="#37474f" stroke="#101820" stroke-width="1"/>
+    <circle cx="190" cy="262" r="30" fill="#9e9e9e" stroke="#616161" stroke-width="1.5"/>
+    <rect x="181" y="253" width="18" height="18" fill="#f4c20d" stroke="#b8860b" stroke-width="1"/>
+    <circle cx="190" cy="176" r="9" fill="#f5f5f5"/>
+    <rect x="187" y="184" width="6" height="36" fill="#f5f5f5"/>
+  </g>
+</svg>

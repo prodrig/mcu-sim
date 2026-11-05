@@ -20,10 +20,11 @@
 #include "msp432p401r.h"
 #include "../../parts/netlist.h"
 #include "../../common/imagen_fw.h"
+#include "../../common/memoria_nv.h"
 
 namespace stm32 {
 
-class McuP4 : public mcu_if {
+class McuP4 : public mcu_if, public memoria_nv_if {
 public:
     McuP4(const char* nm, DebugCaps dbg, const Cableado& cab, const McuDesc& d)
         : chip_(new Msp432P4(nm, dbg, cab, *static_cast<const McuCapsP4*>(d.propio))),
@@ -37,6 +38,64 @@ public:
     ~McuP4() override { delete chip_; }
 
     Msp432P4& chip() { return *chip_; }
+
+    // La Flash principal y la de información entera, para `contenido`
+    // (common/memoria_nv.h):
+    //   * el sector 0 de la información (0x0020_0000): el buzón del arranque y
+    //     los datos del programa, sin lo que esté a 0xFF;
+    //   * el TLV (0x0020_1000), que el firmware no puede cambiar: sale solo si
+    //     difiere del que había antes de cargar -es decir, si vino del
+    //     fichero-, entero. Uno que viene en el fichero se valida y se adopta,
+    //     salvo que tlv= diga uno: entonces manda tlv=;
+    //   * el BSL (0x0020_2000), que el firmware sí puede cambiar: sale solo si
+    //     difiere del que puso bsl=, entero. Uno que viene en el fichero manda
+    //     sobre bsl=.
+    memoria_nv_if* memoria_nv() override { return this; }
+    std::vector<RegionNv> regiones_nv() const override {
+        const auto& c = *static_cast<const McuCapsP4*>(desc_.propio);
+        return {RegionNv::borrada("Flash", p4::FLASH_B, c.flash_size),
+                RegionNv::borrada("Flash de informacion", p4::INFO_B, 0x1000u),
+                RegionNv::con_referencia("TLV", p4::TLV_B,
+                    ref_tlv_.empty() ? chip_->flash.copia(p4::TLV_B, 0x1000u) : ref_tlv_, true),
+                RegionNv::con_referencia("BSL", p4::BSL_B,
+                    ref_bsl_.empty() ? chip_->flash.copia(p4::BSL_B, p4::BSL_SIZE) : ref_bsl_, true)};
+    }
+    bool en_nv(uint32_t a) const {
+        const auto& c = *static_cast<const McuCapsP4*>(desc_.propio);
+        return (a >= p4::FLASH_B && a - p4::FLASH_B < c.flash_size) ||
+               (a >= p4::INFO_B && a - p4::INFO_B < p4::INFO_SIZE);
+    }
+    bool lee_nv(uint32_t a, uint8_t& v) override {
+        if (!en_nv(a)) return false;
+        v = uint8_t(chip_->flash.peek32(a));
+        return true;
+    }
+    bool escribe_nv(uint32_t a, uint8_t v) override {
+        return en_nv(a) && chip_->flash.poke_byte(a, v);
+    }
+    // Antes de cargar, con tlv= y bsl= ya puestos: las referencias
+    void antes_de_cargar_nv() override {
+        ref_tlv_ = chip_->flash.copia(p4::TLV_B, 0x1000u);
+        ref_bsl_ = chip_->flash.copia(p4::BSL_B, p4::BSL_SIZE);
+    }
+    std::vector<std::string> tras_cargar_nv(std::string& error) override {
+        std::vector<std::string> a;
+        if (chip_->flash.copia(p4::TLV_B, 0x1000u) != ref_tlv_) {
+            if (!chip_->tlv().empty()) {
+                for (uint32_t i = 0; i < 0x1000u; ++i) chip_->flash.poke_byte(p4::TLV_B + i, ref_tlv_[i]);
+                a.push_back("el TLV del contenido no se usa: manda el de tlv= (" + chip_->tlv() + ")");
+            } else {
+                const std::string e = chip_->adopta_tlv_de_contenido();
+                if (!e.empty()) { error = "el TLV del fichero (0x0020_1000) " + e; return a; }
+                a.push_back("TLV del contenido: el de esa pieza, con sus calibraciones");
+            }
+        }
+        if (chip_->flash.copia(p4::BSL_B, p4::BSL_SIZE) != ref_bsl_) {
+            chip_->bsl_de_contenido();
+            a.push_back("BSL del contenido, distinto del de bsl=: manda el del contenido");
+        }
+        return a;
+    }
     const McuDesc& desc() const override { return desc_; }
     std::vector<std::string> limitaciones() const override { return chip_->limitaciones(); }
 
@@ -195,6 +254,7 @@ public:
     }
 
 private:
+    std::vector<uint8_t> ref_tlv_, ref_bsl_;   // las referencias, antes de cargar
     Msp432P4* chip_;
     McuDesc   desc_;
     int d_dvcc_ = -1, d_dvss_ = -1, d_avcc_ = -1, d_avss_ = -1, d_rstn_ = -1;

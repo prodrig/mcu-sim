@@ -18,12 +18,13 @@
 #include "stm32f303.h"
 #include "../../parts/netlist.h"
 #include "../../common/imagen_fw.h"
+#include "../../common/memoria_nv.h"
 #include "../../parts/puente_usb.h"
 #include <memory>
 
 namespace stm32 {
 
-class McuF3 : public mcu_if {
+class McuF3 : public mcu_if, public memoria_nv_if {
 public:
     McuF3(const char* nm, DebugCaps dbg, const Cableado& cab, const McuDesc& d)
         : chip_(new SocF3(nm, dbg, cab, *static_cast<const F3Caps*>(d.propio))), desc_(d) {
@@ -36,6 +37,46 @@ public:
     ~McuF3() override { puente_usb_.reset(); delete chip_; }
 
     SocF3& chip() { return *chip_; }
+
+    // La Flash principal y los bytes de opción, para `contenido`
+    // (common/memoria_nv.h). Los bytes de opción van en su bloque de
+    // 0x1FFF_F800, con su complemento, como los vuelca STM32CubeProgrammer; su
+    // referencia es la de fábrica, y no salen si nadie los ha programado. La
+    // memoria de sistema es ROM: no se guarda
+    memoria_nv_if* memoria_nv() override { return this; }
+    std::vector<RegionNv> regiones_nv() const override {
+        return {RegionNv::borrada("Flash", chip_->flash.mem_base(), chip_->flash.size()),
+                RegionNv::con_referencia("bytes de opcion", chip_->flash.ob_base(),
+                                         FlashF1::ob_de_fabrica())};
+    }
+    bool es_ob(uint32_t a) const {
+        return a >= chip_->flash.ob_base() && a - chip_->flash.ob_base() < FlashF1::OB_BYTES;
+    }
+    bool lee_nv(uint32_t a, uint8_t& v) override {
+        if (es_ob(a)) return chip_->flash.lee_ob(a - chip_->flash.ob_base(), v);
+        if (!chip_->flash.es_flash(a)) return false;
+        v = uint8_t(chip_->flash.peek32(a));
+        return true;
+    }
+    bool escribe_nv(uint32_t a, uint8_t v) override {
+        if (es_ob(a)) return chip_->flash.escribe_ob(a - chip_->flash.ob_base(), v);
+        return chip_->flash.poke8(a, v);
+    }
+    // El fichero llega con NRST abajo, después del reset de alimentación que
+    // habría cargado los bytes de opción: se cargan ahora, como lo haría él
+    std::vector<std::string> tras_cargar_nv(std::string&) override {
+        recarga_opciones();
+        return avisos_rdp();
+    }
+    bool tiene_rdp() const override { return true; }
+    std::string restablece_rdp() override {
+        const unsigned n = nivel();
+        if (chip_->flash.ob_half(0) == 0x55AAu) return std::string();
+        chip_->flash.restablece_rdp();
+        recarga_opciones();
+        return "RDP del nivel " + std::to_string(n) + " al de fabrica (0xAA, nivel 0), sin borrar "
+               "la Flash: es --restore-rdp, no lo que haria el chip";
+    }
     const McuDesc& desc() const override { return desc_; }
     std::vector<std::string> limitaciones() const override { return chip_->limitaciones(); }
 
@@ -153,6 +194,22 @@ public:
     }
 
 private:
+    void recarga_opciones() {
+        if (chip_->rcc.al_cargar_opciones) chip_->rcc.al_cargar_opciones();
+        else chip_->flash.recarga_opciones();
+    }
+    unsigned nivel() const { const unsigned n = chip_->flash.nivel_rdp(); return n == 3 ? 2 : n; }
+    std::vector<std::string> avisos_rdp() const {
+        const unsigned n = nivel();
+        if (n == 1)
+            return {"RDP en el nivel 1: el cargador de sistema contesta NACK. Volver al 0 borra "
+                    "la Flash, como en el chip; --restore-rdp lo devuelve al de fabrica sin borrarla"};
+        if (n == 2)
+            return {"RDP en el NIVEL 2: el chip no deja borrar los bytes de opcion ni bajarlo, "
+                    "nunca. --restore-rdp lo devuelve al de fabrica (salida de emergencia del "
+                    "simulador)"};
+        return {};
+    }
     SocF3*  chip_;
     std::unique_ptr<PuenteUsbCdc> puente_usb_;
     McuDesc desc_;

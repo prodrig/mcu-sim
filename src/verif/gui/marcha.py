@@ -45,6 +45,21 @@
 #       pulso a la velocidad de su tensión; la banda muerta; el tope con un
 #       pulso fuera de rango; que el analógico suelta sin señal y el digital
 #       no; que un pulso de 200 us no lo es; lo que gastan; y los avisos.
+#   M9  UN MOTOR DE CONTINUA TRAS UN L298N (`placas/motor_tt_encoder.xml`,
+#       `placas/l298n.xml` y `placas/fuente_laboratorio.xml`, las piezas
+#       MotorCC, L298 y Regulador y la Fuente con su display), sin MCU: ENA,
+#       IN1 e IN2 con tres FuenteAjustable que se mueven con órdenes. La
+#       velocidad, la corriente y la tensión de régimen; la caída del L298; la
+#       constante de tiempo; el encoder en cuadratura, A delante hacia delante
+#       y B hacia atrás, en los pines; la carga y el bloqueo; parar libre (ENA
+#       bajo) y frenar (IN1 = IN2), que para antes; lo que enseña el display de
+#       la fuente.
+#  M10  LA INDUCTANCIA del motor, con el mismo banco y un PWM de 1 kHz al 50 %
+#       en ENA: con sus 1,5 mH y los diodos del módulo, la corriente sigue por
+#       ellos cuando el puente se suelta y el motor va a unas 145 rpm; casi sin
+#       inductancia, a casi 200 -la corriente se corta con el PWM y el motor
+#       sigue con lo que tenía-; y sin diodos, la de la bobina se corta al
+#       soltar el puente, y va más despacio aún.
 #
 # La contrapresión —instantáneas que se tiran, avisos que no— no se puede
 # provocar con fiabilidad desde aquí: el sistema operativo amortigua megas.
@@ -69,7 +84,8 @@ import ventana
 from ventana import (Ventana, arranque, RIT_REAL, check, grupo, arranca, termina, saludo_hasta_listo, fin,
                      suscribe, instantanea, aviso, estado,
                      T_INSTANTANEA, T_AVISO, T_ESTADO, T_PONG, T_FIN, T_ARRANCA, T_PING,
-                     M_VENTANA, RIT_LIBRE, N_AVISO, F_CORRIENDO, F_TERMINADA, T_IMAGEN, imagen)
+                     M_VENTANA, RIT_LIBRE, N_AVISO, F_CORRIENDO, F_TERMINADA, T_IMAGEN, imagen,
+                     ordenes)
 
 PLACA = "placas/discovery_min.xml"
 FW = "verif/fw/blinky/blinky.bin"
@@ -675,6 +691,252 @@ def m8_servo(sim, cp):
           "los alimenta sin pasar de sus 500 mA")
 
 
+# ---------------------------------------------------------------------------
+# M9
+# ---------------------------------------------------------------------------
+# El banco del motor: tres tensiones que se mueven con ordenes -ENA, IN1 e
+# IN2-, los 3,3 V y la masa del encoder, y un LED en cada salida del encoder
+# que luce con ella alta (con 1 Mohm de serie no carga nada)
+BANCO_MOTOR = """<placa nombre="banco-motor">
+  <componente tipo="Conector" id="J" filas="1" columnas="7" nombres="ENA IN1 IN2 VCC GND A B"/>
+  <nodo id="J.GND" bus="si"/>
+  <nodo id="J.A" bus="si"/>
+  <nodo id="J.B" bus="si"/>
+  <componente tipo="FuenteAjustable" id="ENA" v="3.3" vmin="0" vmax="3.3" r="10">
+    <pin nombre="pin" nodo="J.ENA"/></componente>
+  <componente tipo="FuenteAjustable" id="IN1" v="3.3" vmin="0" vmax="3.3" r="10">
+    <pin nombre="pin" nodo="J.IN1"/></componente>
+  <componente tipo="FuenteAjustable" id="IN2" v="0" vmin="0" vmax="3.3" r="10">
+    <pin nombre="pin" nodo="J.IN2"/></componente>
+  <componente tipo="Fuente" id="V33" v="3.3"><pin nombre="pin" nodo="J.VCC"/></componente>
+  <componente tipo="Gnd" id="MASA"><pin nombre="pin" nodo="J.GND"/></componente>
+  <componente tipo="Led" id="LA" vf="1.0" r="1000000">
+    <pin nombre="anodo" nodo="J.A"/><pin nombre="catodo" nodo="J.GND"/></componente>
+  <componente tipo="Led" id="LB" vf="1.0" r="1000000">
+    <pin nombre="anodo" nodo="J.B"/><pin nombre="catodo" nodo="J.GND"/></componente>
+</placa>
+"""
+SISTEMA_MOTOR = """<sistema nombre="prueba-motor">
+  <placa id="PS" fichero="%(placas)s/fuente_laboratorio.xml"/>
+  <placa id="L" fichero="%(placas)s/l298n.xml"/>
+  <placa id="M" fichero="%(placas)s/motor_tt_encoder.xml"/>
+  <placa id="T" fichero="banco_motor.xml"/>
+  <jumper ref="L/JA" puente="no"/>
+  <hilo a="PS/P1.ROJO"  b="L/X1.12V"/>
+  <hilo a="PS/P1.NEGRO" b="L/X1.GND"/>
+  <hilo a="L/X1.GND"  b="T/J.GND"/>
+  <hilo a="T/J.ENA"   b="L/JA.ENA"/>
+  <hilo a="T/J.IN1"   b="L/P1.IN1"/>
+  <hilo a="T/J.IN2"   b="L/P1.IN2"/>
+  <hilo a="M/M.ROJO"  b="L/MA.OUT1"/>
+  <hilo a="M/M.NEGRO" b="L/MA.OUT2"/>
+  <hilo a="M/P1.VCC"  b="T/J.VCC"/>
+  <hilo a="M/P1.GND"  b="T/J.GND"/>
+  <hilo a="M/P1.A"    b="T/J.A"/>
+  <hilo a="M/P1.B"    b="T/J.B"/>
+  <hilo a="L/P1.IN3"  b="T/J.GND"/>
+  <hilo a="L/P1.IN4"  b="T/J.GND"/>
+</sistema>
+"""
+
+
+def m9_motor(sim, cp):
+    grupo("M9 Un motor de continua con su encoder, tras un L298N y una fuente de laboratorio")
+    for placa, cab in (("motor_tt_encoder", "placa 'motor-tt-encoder': SIN MCU, 3 componentes, "
+                        "6 nodos, 0 avisos"),
+                       ("l298n", "placa 'l298n': SIN MCU, 10 componentes, 11 nodos, 0 avisos"),
+                       ("fuente_laboratorio", "placa 'fuente-laboratorio': SIN MCU, 2 componentes, "
+                        "2 nodos, 0 avisos")):
+        r = subprocess.run([sim, "placas/%s.xml" % placa, "--valida"], stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, timeout=60)
+        out = r.stdout.decode("utf-8", "replace")
+        check(r.returncode == 0 and cab in out and ("dibujo: %s.svg (" % placa) in out,
+              "placas/%s.xml se valida sin avisos, con su dibujo" % placa)
+    cp("banco_motor.xml", BANCO_MOTOR)
+    sis = cp("motor.xml", SISTEMA_MOTOR % {"placas": os.path.abspath("placas")})
+    MS = 1000000
+    v = Ventana()
+    p = arranca(sim, [sis, "--ms=3300"], v.puerto)
+    try:
+        if not check(v.acepta(), "el banco del motor se conecta"):
+            return
+        _, _, cat, listo = saludo_hasta_listo(v, version=2)
+        pz = {x.get("id"): x for x in ET.fromstring(cat).iter("pieza")}
+        mo = pz.get("M/MOTOR")
+        obs = [(o.get("nombre"), o.get("unidad"), o.get("min"), o.get("max"), o.get("interesante"))
+               for o in mo.iter("observable")] if mo is not None else []
+        mandos = {m.get("nombre"): int(m.get("idx")) for m in mo.iter("mando")} \
+            if mo is not None else {}
+        l298 = [o.get("nombre") for o in pz["L/U1"].iter("observable")] if "L/U1" in pz else []
+        check(listo and obs[:1] == [("angulo", "°", "0", "360", "si")] and
+              [o[0] for o in obs] == ["angulo", "rpm", "corriente", "tension", "cuenta", "enc_a",
+                                      "enc_b"] and sorted(mandos) == ["bloquear", "carga"] and
+              l298 == ["corriente_a", "corriente_b", "corriente_vs", "disipacion", "logica"],
+              "en el catalogo, el motor deja ver `angulo` en grados, de 0 a 360 -el que sugiere-, "
+              "`rpm`, `corriente`, `tension` y su encoder; sus mandos son `bloquear` y `carga`; "
+              "el L298, sus corrientes, lo que disipa y su logica")
+        ids = {}
+        for pid, nombres in (("M/MOTOR", ["angulo", "rpm", "corriente", "tension", "cuenta",
+                                          "enc_a", "enc_b"]),
+                             ("L/U1", ["corriente_a", "corriente_vs", "logica"]),
+                             ("L/U2", ["tension", "sin_margen"]), ("L/D1", ["encendido"]),
+                             ("PS/PSU", ["corriente", "tension"]), ("T/LA", ["encendido"]),
+                             ("T/LB", ["encendido"])):
+            for o in pz[pid].iter("observable"):
+                if o.get("nombre") in nombres:
+                    ids[(pid, o.get("nombre"))] = int(o.get("id_obs"))
+        suscribe(v, MS, sorted(ids.values()))
+
+        def tension(pid):
+            return int(pz[pid].get("idx")), int(next(pz[pid].iter("mando")).get("idx"))
+        ena, in1, in2 = tension("T/ENA"), tension("T/IN1"), tension("T/IN2")
+        mot = int(mo.get("idx"))
+        lista = [(600, mot, mandos["carga"], 50.0), (900, mot, mandos["carga"], 0.0),
+                 (1200, mot, mandos["bloquear"], 1.0), (1400, mot, mandos["bloquear"], 0.0),
+                 (1800, ena[0], ena[1], 0.0),
+                 (2400, in1[0], in1[1], 0.0), (2400, in2[0], in2[1], 3.3),
+                 (2400, ena[0], ena[1], 3.3),
+                 (3000, in2[0], in2[1], 0.0)]
+        t, ords = 0, []
+        for ms, pieza, mando, val in lista:
+            ords.append((ms * MS - t, pieza, mando, val))
+            t = ms * MS
+        ordenes(v, ords)
+        arranque(v)
+        inst, avs, _, _ = hasta_fin(v)
+        rc, out, err = termina(p)
+    finally:
+        if p.poll() is None:
+            p.kill()
+        v.cierra()
+    if not check(rc == 0 and len(inst) == 3300, "corre 3300 ms, con una muestra cada ms"):
+        return
+    de_id = {i: k for k, i in ids.items()}
+    en = {}
+    for ts, _, m in inst:
+        en[round(ts / MS)] = {de_id[i]: x for i, x in m}
+
+    def a(ms, que, pid="M/MOTOR"):
+        return en[ms][(pid, que)]
+    rpm = a(590, "rpm")
+    check(242 < rpm < 245 and abs(a(590, "corriente") - 160) < 2 and
+          5.75 < a(590, "tension") < 5.95,
+          "con ENA e IN1 altos, IN2 bajo: hacia delante, a %.1f rpm en vacio, con %.1f mA y "
+          "%.2f V en los bornes" % (rpm, a(590, "corriente"), a(590, "tension")))
+    ips, vps = a(590, "corriente", "PS/PSU"), a(590, "tension", "PS/PSU")
+    check(abs(a(590, "corriente_a", "L/U1") - 160) < 2 and
+          abs(a(590, "corriente_vs", "L/U1") - 173) < 3 and abs(ips - 205) < 10 and
+          abs(vps - (7.5 - ips * 1e-4)) < 0.005 and 1.5 < vps - a(590, "tension") < 1.8,
+          "el L298 se come %.2f V de los %.2f de la fuente; pide a VS el motor y sus 13 mA, y "
+          "el display de la fuente ensena ademas lo de la logica por el 78M05 (%.0f mA)"
+          % (vps - a(590, "tension"), vps, ips))
+    r64 = a(64, "rpm") / rpm
+    check(0.58 < r64 < 0.68,
+          "la constante de tiempo: a los 64 ms -50 ms en vacio, con la resistencia del L298 "
+          "y la fuente- va al %.0f %% de su velocidad" % (r64 * 100))
+    seq = []
+    for t_ in range(1, 600):
+        x = (int(a(t_, "enc_a")), int(a(t_, "enc_b")))
+        if not seq or seq[-1] != x:
+            seq.append(x)
+    adelante = [(0, 0), (1, 0), (1, 1), (0, 1)]
+    ok = all(adelante[(adelante.index(p_) + 1) % 4] == q for p_, q in zip(seq, seq[1:]))
+    check(ok and len(seq) - 1 == int(a(599, "cuenta")) - int(a(1, "cuenta")),
+          "el encoder en cuadratura: hacia delante 00, 10, 11, 01 -A delante-, un cambio por "
+          "cuarto de ventana, y la cuenta los cuenta (%d)" % (len(seq) - 1))
+    vueltas = a(599, "cuenta") / 96.0
+    check(all(a(t_, "encendido", "T/LA") == a(t_, "enc_a") and
+              a(t_, "encendido", "T/LB") == a(t_, "enc_b") for t_ in range(5, 600, 7)) and
+          2.0 < vueltas < 2.5,
+          "y llega a los pines: el LED de cada salida luce con ella alta; 96 cuartos por "
+          "vuelta del eje, %.2f vueltas en 600 ms" % vueltas)
+    check(45 < a(890, "rpm") < 75 and 850 < a(890, "corriente") < 960 and
+          abs(a(1190, "rpm") - rpm) < 3,
+          "con una carga del 50 %% del par de bloqueo, baja a %.0f rpm y pide %.0f mA; sin "
+          "ella, vuelve (%.1f)" % (a(890, "rpm"), a(890, "corriente"), a(1190, "rpm")))
+    quieto = a(1210, "angulo")
+    check(a(1390, "rpm") == 0 and all(a(t_, "angulo") == quieto for t_ in range(1210, 1400, 10)) and
+          1100 < a(1390, "corriente") < 1200 and abs(a(1790, "rpm") - rpm) < 1,
+          "BLOQUEADO, el eje no se mueve y pide la corriente de bloqueo tras el L298 (%.0f mA); "
+          "al soltarlo, vuelve a su velocidad" % a(1390, "corriente"))
+    libre = next((t_ for t_ in range(1800, 2400) if a(t_, "rpm") == 0), None)
+    check(a(1850, "rpm") > 100 and abs(a(1850, "corriente")) < 0.5 and libre and
+          2100 < libre < 2300,
+          "ENA bajo: las dos salidas al aire, sin corriente, y el motor sigue LIBRE con su "
+          "inercia hasta que el rozamiento lo para, a los %s ms" % libre)
+    check(abs(a(2990, "rpm") + rpm) < 1 and a(2990, "corriente") < -155 and
+          a(2990, "cuenta") < a(2400, "cuenta"),
+          "IN1 bajo e IN2 alto: HACIA ATRAS, a %.1f rpm, y la cuenta baja" % a(2990, "rpm"))
+    seq = []
+    for t_ in range(2700, 3000):
+        x = (int(a(t_, "enc_a")), int(a(t_, "enc_b")))
+        if not seq or seq[-1] != x:
+            seq.append(x)
+    check(all(adelante[(adelante.index(p_) - 1) % 4] == q for p_, q in zip(seq, seq[1:])),
+          "hacia atras, B va delante: 00, 01, 11, 10")
+    freno = next((t_ for t_ in range(3000, 3300) if a(t_, "rpm") == 0), None)
+    check(freno and freno - 3000 < 150 and freno - 3000 < (libre - 1800) / 2 and
+          a(3005, "corriente") > 0,
+          "IN1 = IN2 con ENA alto: el motor en corto FRENA -la corriente cambia de sentido- y "
+          "para en %s ms, mucho antes que libre (%s)" % (freno - 3000 if freno else None,
+                                                         libre - 1800 if libre else None))
+    check(all(abs(a(t_, "tension", "L/U2") - 5.0) < 0.02 and a(t_, "sin_margen", "L/U2") == 0 and
+              a(t_, "encendido", "L/D1") == 1 and a(t_, "logica", "L/U1") == 1
+              for t_ in range(10, 3300, 50)),
+          "el 78M05 da sus 5 V todo el rato, con margen: la logica del L298 y el LED D1")
+    check("MOTOR M/MOTOR: +0.0 rpm" in out and "encoder" in out and "(24 PPR)" in out and
+          "L298 L/U1: A freno" in out and "REGULADOR L/U2: 5.00 V" in out and
+          "Warning" not in out + err and "[elec]" not in out + err,
+          "la consola dice como ha quedado cada uno: el motor parado, el puente A frenando y "
+          "el regulador; y sin un aviso %s"
+          % [x for x in (out + err).splitlines() if "Warning" in x or "[elec]" in x][:3])
+
+
+# ---------------------------------------------------------------------------
+# M10
+# ---------------------------------------------------------------------------
+def m10_inductancia(sim, cp):
+    grupo("M10 La inductancia del motor, con un PWM de 1 kHz al 50 % en ENA")
+    banco = BANCO_MOTOR.replace(
+        """<componente tipo="FuenteAjustable" id="ENA" v="3.3" vmin="0" vmax="3.3" r="10">
+    <pin nombre="pin" nodo="J.ENA"/></componente>""",
+        """<componente tipo="ExtClock" id="ENA" hz="1000"><pin nombre="out" nodo="J.ENA"/></componente>""")
+    cp("banco_motor.xml", banco)
+    with open("placas/motor_tt_encoder.xml", encoding="utf-8") as f:
+        motor = f.read()
+    with open("placas/l298n.xml", encoding="utf-8") as f:
+        l298n = f.read()
+    placas = os.path.dirname(cp("motor_tt_encoder.xml", motor))
+    cp("fuente_laboratorio.xml", open("placas/fuente_laboratorio.xml", encoding="utf-8").read())
+    for svg in ("motor_tt_encoder", "l298n", "fuente_laboratorio"):
+        cp(svg + ".svg", open("placas/%s.svg" % svg, encoding="utf-8").read())
+    rpms = {}
+    for caso, m, l in (("1,5 mH y diodos", motor, l298n),
+                       ("0,01 mH", motor.replace('l_mh="1.5"', 'l_mh="0.01"'), l298n),
+                       ("sin diodos", motor, l298n.replace('diodos="si"', 'diodos="no"'))):
+        cp("motor_tt_encoder.xml", m)
+        cp("l298n.xml", l)
+        sis = cp("motor.xml", SISTEMA_MOTOR % {"placas": placas})
+        r = subprocess.run([sim, sis, "--ms=1500"], stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, timeout=300)
+        out = r.stdout.decode("utf-8", "replace")
+        k = out.find("MOTOR M/MOTOR: ")
+        rpms[caso] = float(out[k + 15:].split()[0]) if r.returncode == 0 and k >= 0 else None
+    a, b, c = rpms["1,5 mH y diodos"], rpms["0,01 mH"], rpms["sin diodos"]
+    check(None not in (a, b, c), "el banco corre en los tres casos (%s)" % rpms)
+    if None in (a, b, c):
+        return
+    check(130 < a < 160,
+          "con 1,5 mH, la corriente sube con L/R en cada periodo y sigue por los diodos al "
+          "soltarse el puente: %.1f rpm al 50 %%" % a)
+    check(185 < b < 215 and b > a + 30,
+          "casi sin inductancia la corriente sigue a la tension, y el motor va a %.1f rpm, "
+          "mucho mas que la mitad de 243" % b)
+    check(c < a,
+          "y sin los diodos del modulo, la corriente de la bobina se corta al soltar el "
+          "puente: %.1f rpm, menos aun" % c)
+
+
 def main():
     a = argparse.ArgumentParser(description="mcu-sim-gui en marcha, contra el mcu-sim de verdad")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -698,6 +960,8 @@ def main():
         m6_pantalla(sim, cp)
         m7_chip(sim, cp)
         m8_servo(sim, cp)
+        m9_motor(sim, cp)
+        m10_inductancia(sim, cp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return ventana.resumen("MARCHA")

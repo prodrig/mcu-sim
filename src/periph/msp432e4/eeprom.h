@@ -57,6 +57,19 @@ public:
     }
 
     uint32_t palabra(unsigned i) const { return i < mem_.size() ? mem_[i] : 0; }
+    // Byte a byte, sin pasar por los registros: para el `contenido` del chip
+    uint32_t bytes() const { return uint32_t(mem_.size() * 4); }
+    bool lee_byte(uint32_t i, uint8_t& v) const {
+        if (i >= bytes()) return false;
+        v = uint8_t(mem_[i / 4] >> (8 * (i % 4)));
+        return true;
+    }
+    bool escribe_byte(uint32_t i, uint8_t v) {
+        if (i >= bytes()) return false;
+        const unsigned s = 8 * (i % 4);
+        mem_[i / 4] = (mem_[i / 4] & ~(0xFFu << s)) | (uint32_t(v) << s);
+        return true;
+    }
     unsigned escrituras() const { return n_esc_; }
 
 protected:

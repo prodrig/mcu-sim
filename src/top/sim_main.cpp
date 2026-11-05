@@ -75,6 +75,7 @@
 // =============================================================================
 #include <systemc>
 #include <chrono>
+#include <csignal>
 #include <thread>
 #include <cstdio>
 #include <cstdlib>
@@ -86,6 +87,7 @@
 #include <string>
 #include <vector>
 #include "../common/asan_opciones.h"
+#include "../common/memoria_nv.h"
 #include "../common/gui_destino.h"
 #include "../common/gui_cliente.h"
 #include "../common/serie_destino.h"
@@ -194,7 +196,26 @@ static double      g_swo_bitrate = 0;   // --swo-bitrate (0: el de la placa)
 // el firmware= de su <mcu>. Lo pide el dialogo de lanzamiento de mcu-sim-gui
 // (su plan §42), que tiene una fila por chip.
 static std::vector<std::pair<std::string, std::string>> g_firmwares;   // id, fichero
+// `--contenido ID=FICHERO`: el fichero de la memoria no volatil de un MCU o de
+// una pieza, por encima del `contenido` del XML (common/memoria_nv.h)
+static std::vector<std::pair<std::string, std::string>> g_contenidos;
+static bool g_lista_memorias = false;
+// Ctrl-C o SIGTERM con memorias que guardar: la simulacion acaba en orden, y
+// las guarda (`Sim::vigila_senal`). La segunda vez, se muere sin mas
+static volatile std::sig_atomic_t g_senal = 0;
+static void al_recibir_senal(int s) {
+    g_senal = s;
+    std::signal(s, SIG_DFL);
+}
 static std::vector<std::string> g_sin_firmware;                        // ids
+// `--restore-rdp[=ID]`: el RDP de un STM32 a su valor de fabrica tras cargar
+// su contenido, aunque este en el nivel 2. Sin ID, el de todos
+static std::vector<std::string> g_restore_rdp;
+static bool        g_restore_rdp_todos = false;
+// `--restore-otp[=ID]`: la OTP de un STM32F4 con `contenido` a la de fabrica
+// tras cargarlo. Sin ID, la de todos los que tienen contenido
+static std::vector<std::string> g_restore_otp;
+static bool        g_restore_otp_todos = false;
 static bool        g_sin_firmware_todos = false;
 // `--rom [ID=]VALOR` y `--tlv [ID=]FICHERO` (T4 del MSP432): la ROM de
 // DriverLib y el TLV de los chips que los tienen. Con ID, de ese chip, y
@@ -297,6 +318,17 @@ static int ayuda_de_componente(const std::string& que) {
 
 SC_MODULE(Sim) {
     std::vector<McuMontado> mcus;
+    // Las memorias no volatiles con `contenido`: se cargan antes del firmware
+    // y se guardan al acabar (common/memoria_nv.h)
+    struct MemoriaMontada {
+        std::string     id;          // "N/u0", "U5"; "(el mcu)" el de --mcu
+        std::string     ruta;
+        memoria_nv_if*  nv  = nullptr;
+        mcu_if*         mcu = nullptr;   // si es la de un chip
+        bool            cargada = false; // se intento: al acabar, se guarda
+        size_t          bytes = 0;       // los que trajo el fichero
+    };
+    std::vector<MemoriaMontada> memorias;
     NodeMap      nodos;
     Netlist      placa;
     unsigned     n_avisos = 0;
@@ -546,6 +578,7 @@ SC_MODULE(Sim) {
             if (const Xds110* x = xi.empty() ? nullptr : placa.como<Xds110>(xi))
                 if (x->tiene_ldo()) m.mcu->alimentacion_externa(true);
         }
+        resuelve_memorias();
         for (const std::string& q : placa.valida_electrica(nodos)) {
             std::fprintf(stderr, "  [elec] %s\n", q.c_str());
             avisos_placa.push_back(q);
@@ -642,6 +675,187 @@ SC_MODULE(Sim) {
             std::printf("%s\n", linea.c_str());
         }
         SC_THREAD(run);
+    }
+
+    // -----------------------------------------------------------------------
+    // Las memorias no volatiles con `contenido` (common/memoria_nv.h): el del
+    // XML -el del <sistema> ya ha pisado el de la placa al leerlo- y, encima,
+    // `--contenido ID=FICHERO`. Un id que no es de nadie, o de algo sin
+    // memoria no volatil, es un error que dice cuales hay.
+    // -----------------------------------------------------------------------
+    void resuelve_memorias() {
+        std::string hay;
+        for (const McuMontado& m : mcus)
+            if (m.mcu->memoria_nv())
+                hay += (hay.empty() ? "" : ", ") + (m.decl.id.empty() ? std::string("u0") : m.decl.id);
+        for (const Instancia& i : placa.instancias())
+            if (es_memoria_nv(i.tipo)) hay += (hay.empty() ? "" : ", ") + i.id;
+        std::set<std::string> dichos;
+        for (const auto& c : g_contenidos) {
+            if (!dichos.insert(c.first).second)
+                muere("--contenido " + c.first + ": se dice dos veces");
+            bool ok = false;
+            for (McuMontado& m : mcus)
+                if (m.decl.id == c.first || (m.decl.id.empty() && c.first == "u0")) {
+                    m.decl.contenido = c.second;
+                    ok = true;
+                }
+            if (!ok)
+                if (Instancia* i = placa.busca(c.first))
+                    if (es_memoria_nv(i->tipo)) { i->params["contenido"] = c.second; ok = true; }
+            if (!ok)
+                muere("--contenido " + c.first + ": no hay ningun MCU ni pieza con memoria no "
+                      "volatil con ese id. Las que hay: " + (hay.empty() ? std::string("ninguna") : hay));
+        }
+        for (McuMontado& m : mcus) {
+            if (m.decl.contenido.empty()) continue;
+            const std::string id = m.decl.id.empty() ? std::string("(el mcu)") : m.decl.id;
+            memoria_nv_if* nv = m.mcu->memoria_nv();
+            if (!nv) muere("contenido de " + id + ": el " + m.mcu->desc().nombre +
+                           " no tiene memoria no volatil que guardar");
+            MemoriaMontada mm;
+            mm.id = id; mm.ruta = m.decl.contenido; mm.nv = nv; mm.mcu = m.mcu;
+            memorias.push_back(mm);
+        }
+        for (const Instancia& i : placa.instancias()) {
+            const auto c = i.params.find("contenido");
+            if (c == i.params.end() || c->second.empty()) continue;
+            ExtPartBase* p = placa.pieza(i.id);
+            memoria_nv_if* nv = p ? p->memoria_nv() : nullptr;
+            if (!nv) muere("contenido de " + i.id + ": un " + i.tipo + " no tiene memoria no volatil");
+            MemoriaMontada mm;
+            mm.id = i.id; mm.ruta = c->second; mm.nv = nv;
+            memorias.push_back(mm);
+        }
+        for (const MemoriaMontada& mm : memorias)
+            std::printf("  contenido de %s (%s): %s%s\n", mm.id.c_str(), mm.nv->describe_nv().c_str(),
+                        mm.ruta.c_str(), existe_fichero(mm.ruta) ? "" : ", que aun no existe: se "
+                        "creara al acabar");
+        // Ctrl-C o SIGTERM acaban la simulacion en orden, para guardarlas
+        if (!memorias.empty() && !g_solo_valida) {
+            std::signal(SIGINT, al_recibir_senal);
+#ifdef SIGTERM
+            std::signal(SIGTERM, al_recibir_senal);
+#endif
+            SC_THREAD(vigila_senal);
+        }
+    }
+    // Un milisegundo simulado tras otro, mirando si ha llegado una senal
+    void vigila_senal() {
+        for (;;) {
+            wait(1, SC_MS);
+            if (g_senal) {
+                std::printf("\nsenal %d: la simulacion acaba en t = %.3f ms\n", int(g_senal),
+                            sc_time_stamp().to_seconds() * 1e3);
+                std::fflush(stdout);
+                sc_stop();
+                return;
+            }
+        }
+    }
+    // Cargar, antes del firmware. Devuelve los chips cuyo contenido traia algo:
+    // esos, sin firmware, arrancan lo que haya, y no se aparcan
+    std::set<mcu_if*> carga_memorias() {
+        std::set<mcu_if*> con;
+        for (MemoriaMontada& mm : memorias) {
+            bool existia = false;
+            mm.nv->antes_de_cargar_nv();          // las referencias, ya montado
+            const std::string e = carga_contenido(*mm.nv, mm.ruta, mm.bytes, existia);
+            if (!e.empty()) muere("contenido de " + mm.id + ": " + e);
+            mm.cargada = true;
+            if (existia)
+                std::printf("contenido de %s: %zu bytes de %s\n", mm.id.c_str(), mm.bytes, mm.ruta.c_str());
+            else
+                std::printf("contenido de %s: %s no existe; arranca como siempre\n", mm.id.c_str(),
+                            mm.ruta.c_str());
+            // Lo que el chip hace con lo cargado: el fichero llega con NRST
+            // abajo, despues del reset de alimentacion que lo habria leido
+            std::string e2;
+            for (const std::string& a : mm.nv->tras_cargar_nv(e2))
+                std::printf("  contenido de %s: %s\n", mm.id.c_str(), a.c_str());
+            if (!e2.empty()) muere("contenido de " + mm.id + ": " + e2);
+            if (mm.mcu && mm.bytes) con.insert(mm.mcu);
+        }
+        return con;
+    }
+    // `--restore-otp[=ID]`: tras cargar, la OTP de esos STM32F4 -sin ID, de
+    // todos los que tienen `contenido`- a la de fabrica. Sin contenido no
+    // tiene sentido -la OTP arranca de fabrica-: con ID es un error, y sin ID,
+    // si no hay ninguno
+    void restablece_otp() {
+        if (!g_restore_otp_todos && g_restore_otp.empty()) return;
+        auto contenido_de = [&](mcu_if* m) -> MemoriaMontada* {
+            for (MemoriaMontada& mm : memorias)
+                if (mm.mcu == m && mm.cargada) return &mm;
+            return nullptr;
+        };
+        for (const std::string& id : g_restore_otp) {
+            McuMontado* e = nullptr;
+            for (McuMontado& m : mcus)
+                if (m.decl.id == id || (m.decl.id.empty() && id == "u0")) e = &m;
+            if (!e || !e->mcu->memoria_nv() || !e->mcu->memoria_nv()->tiene_otp())
+                muere("--restore-otp=" + id + ": no hay ningun STM32F4 con ese id (la OTP es "
+                      "de los STM32F4)");
+            if (!contenido_de(e->mcu))
+                muere("--restore-otp=" + id + ": ese chip no tiene contenido, y sin el su OTP "
+                      "ya arranca de fabrica");
+        }
+        unsigned n = 0;
+        for (McuMontado& m : mcus) {
+            memoria_nv_if* nv = m.mcu->memoria_nv();
+            if (!nv || !nv->tiene_otp() || !contenido_de(m.mcu)) continue;
+            const std::string id = m.decl.id.empty() ? std::string("u0") : m.decl.id;
+            if (!g_restore_otp_todos &&
+                std::find(g_restore_otp.begin(), g_restore_otp.end(), id) == g_restore_otp.end())
+                continue;
+            ++n;
+            const std::string q = nv->restablece_otp();
+            std::printf("--restore-otp en %s: %s\n", id.c_str(),
+                        q.empty() ? "la OTP ya estaba de fabrica" : q.c_str());
+        }
+        if (n == 0) muere("--restore-otp: ningun STM32F4 de la placa tiene contenido (la OTP "
+                          "arranca de fabrica sin el)");
+    }
+    // `--restore-rdp[=ID]`: tras cargar, el RDP de esos chips -sin ID, de
+    // todos los que lo tienen- a su valor de fabrica. Con ID, uno que no lo
+    // tiene es un error
+    void restablece_rdp() {
+        if (!g_restore_rdp_todos && g_restore_rdp.empty()) return;
+        for (const std::string& id : g_restore_rdp) {
+            bool ok = false;
+            for (McuMontado& m : mcus)
+                if (m.decl.id == id || (m.decl.id.empty() && id == "u0"))
+                    ok = m.mcu->memoria_nv() && m.mcu->memoria_nv()->tiene_rdp();
+            if (!ok) muere("--restore-rdp=" + id + ": no hay ningun STM32 con ese id (RDP es de los "
+                           "STM32F4 y F3)");
+        }
+        unsigned n = 0;
+        for (McuMontado& m : mcus) {
+            memoria_nv_if* nv = m.mcu->memoria_nv();
+            if (!nv || !nv->tiene_rdp()) continue;
+            const std::string id = m.decl.id.empty() ? std::string("u0") : m.decl.id;
+            if (!g_restore_rdp_todos &&
+                std::find(g_restore_rdp.begin(), g_restore_rdp.end(), id) == g_restore_rdp.end())
+                continue;
+            ++n;
+            const std::string q = nv->restablece_rdp();
+            std::printf("--restore-rdp en %s: %s\n", id.c_str(),
+                        q.empty() ? "RDP ya estaba en el de fabrica" : q.c_str());
+        }
+        if (n == 0) muere("--restore-rdp: ninguno de los MCUs de la placa tiene RDP (es de los "
+                          "STM32F4 y F3)");
+    }
+    // Guardar, al acabar: lo llama sc_main tras sc_start(), sea cual sea el
+    // final -los ms, Parar en la ventana, la ventana que se va, una senal-
+    void guarda_memorias() {
+        for (MemoriaMontada& mm : memorias) {
+            if (!mm.cargada) continue;       // --valida, o no se llego a arrancar
+            size_t n = 0;
+            const std::string e = guarda_contenido(*mm.nv, mm.ruta, n);
+            if (!e.empty()) std::fprintf(stderr, "contenido de %s: %s\n", mm.id.c_str(), e.c_str());
+            else std::printf("contenido de %s: %zu bytes a %s\n", mm.id.c_str(), n, mm.ruta.c_str());
+        }
+        std::fflush(stdout);
     }
 
     ~Sim() {
@@ -940,6 +1154,8 @@ SC_MODULE(Sim) {
         if (!g_img.empty())        no("un firmware (" + g_img + ") no tiene donde cargarse y");
         if (!g_firmwares.empty())  no("--firmware");
         if (!g_sin_firmware.empty() || g_sin_firmware_todos) no("--sin-firmware");
+        if (!g_restore_rdp.empty() || g_restore_rdp_todos) no("--restore-rdp");
+        if (!g_restore_otp.empty() || g_restore_otp_todos) no("--restore-otp");
         if (!g_roms.empty())       no("--rom");
         if (!g_tlvs.empty())       no("--tlv");
         if (!g_bsls.empty())       no("--bsl");
@@ -1164,7 +1380,7 @@ SC_MODULE(Sim) {
                 }
                 todos = todos && (listo || segundos(desde[i]) > 2.0);
             }
-            if (todos) break;
+            if (todos || g_senal) break;
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         std::printf("terminal conectado: arranca el MCU\n");
@@ -1174,6 +1390,7 @@ SC_MODULE(Sim) {
     void run() {
         if (g_solo_valida) { sc_stop(); return; }
         if (g_espera_terminal) espera_terminales();
+        if (g_senal) { sc_stop(); return; }   // Ctrl-C esperando al terminal
         // La onda cuadrada de los relojes internos se apaga por omision. No es
         // una simplificacion del modelo: es un interruptor que ya existia. Con
         // ella encendida, los flancos de HCLK son el noventa y tantos por
@@ -1235,6 +1452,12 @@ SC_MODULE(Sim) {
                     std::fprintf(stderr, "  [ojo] %s: %s\n", nm.c_str(), q.c_str());
         }
 
+        // Las memorias no volatiles, ANTES del firmware: el firmware se graba
+        // encima, como lo grabaria el IDE, y lo demas que guardo el programa
+        // -sus datos en otras paginas- sigue ahi
+        const std::set<mcu_if*> con_contenido = carga_memorias();
+        restablece_rdp();
+        restablece_otp();
         for (McuMontado& m : mcus) {
             const char* quien = m.decl.id.empty() ? "" : m.decl.id.c_str();
             // Todo por la interfaz: DONDE va el firmware y donde esta la SRAM
@@ -1245,6 +1468,9 @@ SC_MODULE(Sim) {
                     muere("no se puede cargar " + m.decl.firmware);
                 std::printf("firmware%s%s: %s\n",
                             *quien ? " de " : "", quien, m.decl.firmware.c_str());
+            } else if (con_contenido.count(m.mcu)) {
+                std::printf("sin firmware%s%s: arranca lo que haya en su contenido\n",
+                            *quien ? " en " : "", quien);
             } else {
                 const std::string que = m.mcu->sin_firmware();
                 std::printf("sin firmware%s%s: %s\n", *quien ? " en " : "", quien, que.c_str());
@@ -1415,9 +1641,15 @@ SC_MODULE(Sim) {
             char lim[48] = "sin limite";
             if (f->limite_ma() > 0.0)
                 std::snprintf(lim, sizeof lim, "limite %.3g mA", f->limite_ma());
-            std::printf("  %s %s en %s: %.2f mA (%s)%s", i.tipo.c_str(), i.id.c_str(),
-                        i.nodo_de("pin").c_str(), f->corriente() * 1e3, lim,
-                        f->sobrecorriente() ? "  SOBRECORRIENTE" : "");
+            if (f->media_ms() > 0.0)
+                std::printf("  %s %s en %s: %.2f V, %.2f mA de media (%s)%s", i.tipo.c_str(),
+                            i.id.c_str(), i.nodo_de("pin").c_str(), f->tension_media(),
+                            f->corriente_media() * 1e3, lim,
+                            f->sobrecorriente() ? "  SOBRECORRIENTE" : "");
+            else
+                std::printf("  %s %s en %s: %.2f mA (%s)%s", i.tipo.c_str(), i.id.c_str(),
+                            i.nodo_de("pin").c_str(), f->corriente() * 1e3, lim,
+                            f->sobrecorriente() ? "  SOBRECORRIENTE" : "");
             if (f->episodios())
                 std::printf(", %u episodio(s) de sobrecorriente", f->episodios());
             std::printf("\n");
@@ -1493,6 +1725,249 @@ SC_MODULE(Sim) {
             std::printf("  SERVO %s: %+.1f grados (objetivo %+.1f), %s; %s; %.2f V, %.0f mA; "
                         "empezo en %+.1f grados\n", i.id.c_str(), s->angulo(), s->objetivo(),
                         senal, estado, s->tension(), s->corriente_ma(), s->inicial());
+        }
+        // Los motores: a cuanto van, lo que gastan y lo que ha contado su
+        // encoder; los puentes en H, que hace cada uno y lo que disipan; y los
+        // reguladores, si les falta margen
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "MotorCC") continue;
+            const MotorCC* m = placa.como<MotorCC>(i.id);
+            if (!m) continue;
+            std::printf("  MOTOR %s: %+.1f rpm (%+.0f en el motor), %+.2f V y %+.0f mA de media; "
+                        "%+.2f vueltas%s", i.id.c_str(), m->rpm(), m->rpm_motor(),
+                        m->tension_media(), m->corriente_media_ma(), m->vueltas(),
+                        m->bloqueado() ? "; bloqueado" : "");
+            if (m->tiene_encoder())
+                std::printf("; encoder %+ld cuartos (%u PPR)", m->cuenta(), m->config().ppr);
+            std::printf("\n");
+        }
+        // Los paso a paso: donde estan, a cuanto van y si han perdido pasos; sus
+        // drivers, que micropaso llevan, cuantos pasos han contado y lo que
+        // gastan; y los generadores de pasos
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "MotorPaP") continue;
+            const MotorPaP* m = placa.como<MotorPaP>(i.id);
+            if (!m) continue;
+            std::printf("  PASO A PASO %s: %+.1f rpm, %+.2f pasos (%+.2f vueltas); A %s %+.0f mA, "
+                        "B %s %+.0f mA; retraso %+.2f pasos, %ld perdidos%s%s\n", i.id.c_str(),
+                        m->rpm(), m->posicion_pasos(), m->vueltas(), m->modo(0),
+                        m->corriente_ma(0), m->modo(1), m->corriente_ma(1), m->retraso(),
+                        m->pasos_perdidos(), m->ideal() ? "; ideal" : "",
+                        m->bloqueado() ? "; bloqueado" : "");
+        }
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "DriverPaP") continue;
+            const DriverPaP* d = placa.como<DriverPaP>(i.id);
+            if (!d) continue;
+            std::printf("  DRIVER %s (%s): %s, 1/%u, %+ld pasos; fases %+.0f y %+.0f mA de %.2f A; "
+                        "VMOT %.0f mA de media; %.0f °C%s\n", i.id.c_str(), d->modelo().nombre,
+                        d->activo() ? "activo" : (d->logica() ? "salidas apagadas" : "sin logica"),
+                        d->micropasos(), d->pasos(), d->consigna_ma(0), d->consigna_ma(1),
+                        d->corriente_ajustada(), d->corriente_vmot_ma(), d->temperatura(),
+                        d->sobretemperatura() ? "; PROTECCION TERMICA" : "");
+        }
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "GeneradorPasos") continue;
+            const GeneradorPasos* g = placa.como<GeneradorPasos>(i.id);
+            if (!g) continue;
+            std::printf("  GENERADOR %s: %.0f Hz, %+ld pasos\n", i.id.c_str(), g->hz(), g->pasos());
+        }
+        // Los interruptores de potencia: el MOSFET de un cabezal y los medios
+        // puentes de un IBT-2
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Mosfet") continue;
+            const Mosfet* q = placa.como<Mosfet>(i.id);
+            if (!q) continue;
+            std::printf("  MOSFET %s (%s): %s, Vgs %.2f V, %.0f mA de media, %.0f mohm; disipa %.2f "
+                        "W%s\n", i.id.c_str(), q->config().modelo.c_str(),
+                        q->conduce() ? "conduce" : (q->por_el_diodo() ? "por el diodo" : "abierto"),
+                        q->vgs(), q->corriente_media() * 1e3, q->rds() * 1e3, q->disipacion(),
+                        q->config().diodo ? "" : "; SIN DIODO");
+        }
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "MedioPuente") continue;
+            const MedioPuente* h = placa.como<MedioPuente>(i.id);
+            if (!h) continue;
+            std::printf("  BTS7960 %s: %s, %+.0f mA de media, IS %.1f uA; disipa %.2f W\n",
+                        i.id.c_str(), h->estado(), h->corriente_media() * 1e3,
+                        h->corriente_is() * 1e6, h->disipacion());
+        }
+        // El puente trifasico de un BLDC conmutado por el MCU (F7): cada medio
+        // puente, su corriente, y si ha saltado la sobrecorriente
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "PuenteTrifasico") continue;
+            const PuenteTrifasico* p = placa.como<PuenteTrifasico>(i.id);
+            if (!p) continue;
+            std::printf("  L6230 %s: %s %+.2f A, %s %+.2f A, %s %+.2f A; disipa %.2f W; %u "
+                        "sobrecorrientes%s%s%s\n", i.id.c_str(), p->estado(0), p->corriente(0),
+                        p->estado(1), p->corriente(1), p->estado(2), p->corriente(2),
+                        p->disipacion(), p->sobrecorrientes(),
+                        !p->con_shunts() ? "" : (p->shunts() == 1 ? "; un shunt" : "; tres shunts"),
+                        p->en_fallo() ? "; EN FALLO" : "", p->vivo() ? "" : "; SIN TENSION");
+        }
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Amplificador") continue;
+            const Amplificador* a = placa.como<Amplificador>(i.id);
+            if (!a) continue;
+            std::printf("  AMPLIFICADOR %s: %.3f V\n", i.id.c_str(), a->salida());
+        }
+        // Los BLDC y sus controladores: a cuanto van, su corriente, sus Hall; y el
+        // estado del controlador, sus pasos y su error de seguimiento
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "MotorBLDC") continue;
+            const MotorBLDC* m = placa.como<MotorBLDC>(i.id);
+            if (!m) continue;
+            std::printf("  BLDC %s: %+.1f rpm, %+.2f vueltas; %s, %+.2f A, %+.3f N·m, %+.1f V; Hall "
+                        "%u%u%u", i.id.c_str(), m->rpm(), m->vueltas(), m->modo(), m->corriente(),
+                        m->par(), m->tension(), (m->hall() >> 2) & 1, (m->hall() >> 1) & 1,
+                        m->hall() & 1);
+            if (m->por_fases())
+                std::printf("; fases %+.2f %+.2f %+.2f A, neutro %.1f V", m->corriente_fase(0),
+                            m->corriente_fase(1), m->corriente_fase(2), m->tension_neutro());
+            if (m->tiene_encoder()) std::printf("; encoder %+ld cuartos", m->cuenta());
+            std::printf("%s\n", m->bloqueado() ? "; bloqueado" : "");
+        }
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "ControladorMotor") continue;
+            const ControladorMotor* c = placa.como<ControladorMotor>(i.id);
+            if (!c) continue;
+            std::printf("  CONTROLADOR %s (%s): %s%s%s, %+ld pasos (%ld sin seguir); error de "
+                        "seguimiento %+.1f°, %.1f como mucho; iq %+.2f A; VCC %.0f mA de media; "
+                        "freno %s\n", i.id.c_str(), c->config().nombre.c_str(), c->texto_estado(),
+                        c->causa().empty() ? "" : " por ", c->causa().c_str(), c->pasos(),
+                        c->pasos_ignorados(), c->error_grados(), c->error_maximo_grados(),
+                        c->corriente_q(), c->corriente_vcc_ma(),
+                        c->freno_suelto() ? "suelto" : "echado");
+            // Por CANopen (F6): su nodo, su estado y lo que ha pasado por el bus
+            if (const EsclavoCanOpen* e = c->esclavo())
+                std::printf("    CANopen nodo %u: %s; %s (0x%04X), modo %d, posicion %+ld pasos%s; "
+                            "%u SDO (%u abortados), %u RPDO, %u TPDO, %u EMCY, %u SYNC; TEC %u\n",
+                            unsigned(e->nodo()), canopen::texto_nmt(e->estado()),
+                            ControladorMotor::texto_402(c->estado_402()), unsigned(c->statusword()),
+                            c->modo(), c->posicion_real(), c->homing_hecho() ? ", con homing" : "",
+                            e->sdos(), e->abortos(), e->rpdos(), e->tpdos(), e->emcys(),
+                            e->syncs(), c->puerto()->tec());
+        }
+        // Los analizadores de bus CAN (F6): cuantos marcos de cada tipo
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "AnalizadorCan") continue;
+            const AnalizadorCan* a = placa.como<AnalizadorCan>(i.id);
+            if (!a) continue;
+            std::printf("  ANALIZADOR CAN %s: %u marcos", i.id.c_str(), a->tramas());
+            const char* sep = " (";
+            for (const auto& kv : a->tipos()) {
+                std::printf("%s%u %s", sep, kv.second, kv.first.c_str());
+                sep = ", ";
+            }
+            std::printf("%s; %u errores, %u sin asentir; carga %.1f %% de media, %.1f como mucho\n",
+                        a->tramas() ? ")" : "", a->errores(), a->sin_asentir(), a->carga_media(),
+                        a->carga_maxima());
+        }
+        // La transmision (F2): cada husillo con sus rendimientos, cada carro donde
+        // esta, cada reductora y cada freno
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo == "Husillo") {
+                const Husillo* h = placa.como<Husillo>(i.id);
+                if (!h) continue;
+                const ConfigHusillo& c = h->config();
+                std::printf("  HUSILLO %s: %s%.0fx%.0f, helice %.1f°, rendimiento %.2f directo y "
+                            "%.2f inverso%s; %+.0f rpm (critica %.0f)\n", i.id.c_str(),
+                            c.rosca == "bolas" ? "bolas " : c.rosca.c_str(), c.diametro_mm,
+                            c.avance_mm, h->lambda_grados(), h->rendimiento_directo(),
+                            h->rendimiento_inv(), h->se_sujeta() ? ": SE SUJETA SOLO" : "",
+                            h->rpm(), h->velocidad_critica());
+            } else if (i.tipo == "Carro") {
+                const Carro* c = placa.como<Carro>(i.id);
+                if (!c) continue;
+                std::printf("  CARRO %s (%s): %.3f mm, %+.1f mm/s%s%s\n", i.id.c_str(),
+                            c->config().eje.c_str(), c->posicion_mm(), c->velocidad_mm_s(),
+                            c->en_tope() ? "; EN UN TOPE" : "",
+                            c->choques() ? "; ha chocado" : "");
+            } else if (i.tipo == "Reductora") {
+                const Reductora* r = placa.como<Reductora>(i.id);
+                if (!r) continue;
+                std::printf("  REDUCTORA %s: 1:%g, %+.1f rpm en su salida\n", i.id.c_str(),
+                            r->config().relacion, r->rpm_salida());
+            } else if (i.tipo == "Condensador") {
+                const Condensador* c = placa.como<Condensador>(i.id);
+                if (!c) continue;
+                std::printf("  CONDENSADOR %s: %.0f uF, %.2f V (pico %.2f, aguanta %.0f)%s\n",
+                            i.id.c_str(), c->capacidad_uf(), c->tension(), c->v_pico(), c->v_max(),
+                            c->v_pico() > c->v_max() ? ": SE HA PASADO" : "");
+            } else if (i.tipo == "ChopperFrenado") {
+                const ChopperFrenado* r = placa.como<ChopperFrenado>(i.id);
+                if (!r) continue;
+                std::printf("  FRENADO %s: %s, ha entrado %u veces y ha quemado %.3f J\n",
+                            i.id.c_str(), r->conduce() ? "CONDUCE" : "abierta", r->veces(),
+                            r->energia_j());
+            } else if (i.tipo == "Optoacoplador") {
+                const Optoacoplador* o = placa.como<Optoacoplador>(i.id);
+                if (!o) continue;
+                std::printf("  OPTO %s: LED %.2f mA, salida %.2f mA%s\n", i.id.c_str(), o->led_ma(),
+                            o->salida_ma(), o->saturado() ? ", saturada" : "");
+            } else if (i.tipo == "Pieza") {
+                const Pieza* p = placa.como<Pieza>(i.id);
+                if (!p) continue;
+                const ConfigPieza& k = p->config();
+                const char* fr = k.fresa == TipoFresa::Plana ? "plana"
+                               : k.fresa == TipoFresa::V ? "en V" : "de bola";
+                std::printf("  PIEZA %s: %s de %g x %g x %g mm, fresa %s de %g mm; %.1f mm3 "
+                            "quitados, hasta %.3f mm de hondo%s\n", i.id.c_str(),
+                            k.material->texto, k.largo_mm, k.ancho_mm, k.espesor_mm, fr,
+                            k.fresa_mm, p->quitado_mm3(), p->hondo_mm(),
+                            p->choque() ? "; LA FRESA HA ENTRADO EN LA MESA" : "");
+            } else if (i.tipo == "FinalCarrera") {
+                const FinalCarrera* f = placa.como<FinalCarrera>(i.id);
+                if (!f) continue;
+                std::printf("  FINAL %s: %s, pisado %u veces\n", i.id.c_str(),
+                            f->pisado() ? "PISADO" : "suelto", f->veces());
+            } else if (i.tipo == "Sonda") {
+                const Sonda* p = placa.como<Sonda>(i.id);
+                if (!p) continue;
+                std::printf("  SONDA %s: %s, la fresa la toca con el Z a %.2f mm\n", i.id.c_str(),
+                            !p->puesta() ? "quitada" : (p->toca() ? "TOCA" : "puesta"),
+                            p->altura_mm());
+            } else if (i.tipo == "Interruptor") {
+                const Interruptor* t = placa.como<Interruptor>(i.id);
+                if (!t) continue;
+                std::printf("  INTERRUPTOR %s: %s\n", i.id.c_str(),
+                            t->pulsado() ? "PULSADO" : "en reposo");
+            } else if (i.tipo == "Freno") {
+                const Freno* f = placa.como<Freno>(i.id);
+                if (!f) continue;
+                std::printf("  FRENO %s: %s, %.0f mA\n", i.id.c_str(),
+                            f->suelto() ? "suelto" : "echado", f->corriente_ma());
+            }
+        }
+        // Las cadenas mecanicas: a cuanto va su eje, cuanto ha girado y la
+        // inercia que mueve, todo reflejada en el
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Transmision") continue;
+            const Transmision* t = placa.como<Transmision>(i.id);
+            if (!t) continue;
+            const Cadena& c = t->cadena();
+            std::printf("  TRANSMISION %s: %+.1f rpm, %+.2f vueltas; %u motor(es) y %u "
+                        "elemento(s), %.1f g·cm2 reflejados%s\n", i.id.c_str(), c.rpm(),
+                        c.th() / (2.0 * 3.14159265358979323846), unsigned(c.actuadores().size()),
+                        unsigned(c.elementos().size()), c.inercia() * 1e7,
+                        c.bloqueada() ? "; bloqueada" : "");
+        }
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "L298") continue;
+            const L298* l = placa.como<L298>(i.id);
+            if (!l) continue;
+            std::printf("  L298 %s: A %s (%+.0f mA), B %s (%+.0f mA); VS %.0f mA, VSS %.0f mA; "
+                        "disipa %.2f W (como mucho %.2f), de media%s\n", i.id.c_str(), l->estado(0),
+                        l->corriente_ma(0), l->estado(1), l->corriente_ma(1),
+                        l->corriente_vs_ma(), l->corriente_vss_ma(), l->disipacion(),
+                        l->disipacion_max(), l->logica() ? "" : "; SIN LOGICA");
+        }
+        for (const Instancia& i : placa.instancias()) {
+            if (i.tipo != "Regulador") continue;
+            const Regulador* r = placa.como<Regulador>(i.id);
+            if (!r) continue;
+            std::printf("  REGULADOR %s: %.2f V, %.1f mA%s\n", i.id.c_str(), r->tension(),
+                        r->corriente_ma(), r->sin_margen() ? "; SIN MARGEN" : "");
         }
         // Y lo que los puentes serie tengan a medias, que tambien se ve desde
         // fuera: es la basura de unos baudios equivocados.
@@ -1668,6 +2143,7 @@ static int saluda_gui(Sim& s, stm32::gui::ClienteGui& cli,
             // de sc_start(): por eso la secuencia de instantaneas se repite al
             // picosegundo de una ejecucion a otra.
             canal = cli.entrega();
+            s.frontera.imagen_parcial(cli.imagen_parcial());
             s.enlace.activa(canal.get(), cli.emisor(), cli.lector());
             aplica_arranca(s, arr);
             if (cli.hay_suscripcion()) s.enlace.suscripcion_inicial(cli.suscripcion());
@@ -1775,6 +2251,14 @@ static const OpcionCli OPCIONES[] = {
     {"--sin-firmware", "valor_opcional", "texto", "", "", "", true, true, "u0",
      "ese MCU -sin ID, todos- sin firmware, aunque el XML diga uno: el nucleo se "
      "aparca en wfe (un MSP432E4 con ROM arranca en blanco su cargador serie)"},
+    {"--restore-otp", "valor_opcional", "texto", "", "", "", true, true, "u0",
+     "la OTP de ese STM32F4 -sin ID, de todos los que tienen contenido- a la de "
+     "fabrica (todo a 0xFF, tambien los bytes de bloqueo) tras cargar su contenido: "
+     "el chip no la borra nunca; es la salida de un contenido con la OTP gastada"},
+    {"--restore-rdp", "valor_opcional", "texto", "", "", "", true, true, "u0",
+     "el RDP de ese STM32 -sin ID, de todos- a su valor de fabrica (0xAA, nivel 0) "
+     "tras cargar su contenido, aunque este en el nivel 2, y sin borrar la Flash: "
+     "la salida de emergencia de un contenido con el chip protegido"},
     {"--rom", "valor", "texto", "", "", "", true, true, "u0=ninguna",
      "la ROM de DriverLib de un MSP432P4 o un MSP432E4, como [ID=]VALOR: r1 (la "
      "sustituta, por omision), ninguna, o la de TI de un fichero: un volcado de la "
@@ -1801,6 +2285,14 @@ static const OpcionCli OPCIONES[] = {
      "volcados. Sin ID, de todos los que lo tienen"},
     {"--mcus", "accion", "", "", "", "", false, false, "",
      "la lista de los MCUs de la placa en XML -id, tipo y firmware-, para mcu-sim-gui"},
+    {"--contenido", "valor", "texto", "", "", "", true, true, "u0=flash.hex",
+     "el fichero Intel HEX de la memoria no volatil de un MCU o de una pieza, como "
+     "ID=FICHERO (u0, U5, o N/u0 y N/U5 en un sistema): se carga al arrancar -antes "
+     "del firmware- y se guarda al acabar. Si no existe, se crea. Manda sobre el "
+     "contenido= del XML"},
+    {"--memorias", "accion", "", "", "", "", false, false, "",
+     "la lista de las memorias no volatiles de la placa en XML -id, tipo, que son y "
+     "su contenido-, para mcu-sim-gui"},
     {"--swo", "valor", "texto", "", "", "", false, true, "tcp:3358",
      "a donde va la traza SWO de la sonda Xds110 de la placa: memoria, tcp:PUERTO, "
      "rfc2217:PUERTO o sus clientes"},
@@ -1893,6 +2385,65 @@ static int lista_mcus() {
     return 0;
 }
 
+// `--memorias`: las memorias no volatiles de la placa o del sistema, como las
+// declara el XML, para que el dialogo de lanzamiento de mcu-sim-gui ponga una
+// fila por memoria con su fichero `contenido` (common/memoria_nv.h). Las de
+// los MCUs y las de las piezas que las tienen. Lee y no construye nada:
+//
+//   <memorias placa="placas/x.xml">
+//     <memoria id="N/u0" tipo="STM32F446RE" clase="mcu" que="Flash" contenido=""/>
+//     <memoria id="N/U5" tipo="I2cEeprom" clase="pieza" que="EEPROM" contenido="e.hex"/>
+//   </memorias>
+static std::string que_memoria_de_mcu(const std::string& tipo) {
+    const std::string t = mayus(tipo);
+    if (t.rfind("MSP432E4", 0) == 0) return "Flash, EEPROM, BOOTCFG, USER_REG, FMPRE y FMPPE";
+    if (t.rfind("MSP432P4", 0) == 0) return "Flash, Flash de informacion, TLV y BSL";
+    if (t.rfind("STM32F3", 0) == 0) return "Flash y bytes de opcion";
+    return "Flash, OTP y bytes de opcion";
+}
+static std::string que_memoria_de_pieza(const std::string& tipo) {
+    if (tipo == "I2cEeprom") return "EEPROM de 64 bytes";
+    if (tipo == "SdCard")    return "tarjeta SD de 2 KB";
+    if (tipo == "ExtNand")   return "NAND de 8 KB";
+    return "memoria";
+}
+static int lista_memorias() {
+    using stm32::xml_escapa;
+    Netlist placa;
+    std::string nombre;
+    ContextoNomenclatura::g().pon_tipo_por_omision(g_tipo_mcu);
+    const std::string e = placa_o_sistema_desde_fichero(placa, g_placa, &nombre);
+    if (!e.empty()) {
+        std::fprintf(stderr, "error de netlist: %s\n", e.c_str());
+        return 1;
+    }
+    std::vector<DeclMcu> decls = placa.mcus();
+    if (!g_tipo_mcu.empty() && decls.empty() && !placa.es_sistema()) {
+        DeclMcu m;
+        m.tipo = g_tipo_mcu;
+        decls.push_back(m);
+    } else if (!g_tipo_mcu.empty() && decls.size() == 1) {
+        decls[0].tipo = g_tipo_mcu;
+    }
+    std::string x = "<memorias placa=\"" + xml_escapa(g_placa) + "\">\n";
+    // Un chip sin id -el de --mcu en una placa sin <mcu>- es `u0` para
+    // --contenido
+    for (const DeclMcu& m : decls)
+        x += "  <memoria id=\"" + xml_escapa(m.id.empty() ? std::string("u0") : m.id) + "\" tipo=\"" + xml_escapa(mayus(m.tipo)) +
+             "\" clase=\"mcu\" que=\"" + que_memoria_de_mcu(m.tipo) + "\" contenido=\"" +
+             xml_escapa(m.contenido) + "\"/>\n";
+    for (const Instancia& i : placa.instancias()) {
+        if (!stm32::es_memoria_nv(i.tipo)) continue;
+        const auto c = i.params.find("contenido");
+        x += "  <memoria id=\"" + xml_escapa(i.id) + "\" tipo=\"" + xml_escapa(i.tipo) +
+             "\" clase=\"pieza\" que=\"" + que_memoria_de_pieza(i.tipo) + "\" contenido=\"" +
+             xml_escapa(c == i.params.end() ? std::string() : c->second) + "\"/>\n";
+    }
+    x += "</memorias>\n";
+    std::fputs(x.c_str(), stdout);
+    return 0;
+}
+
 int sc_main(int argc, char** argv) {
     sc_report_handler::set_actions("rcc",   SC_WARNING, SC_DO_NOTHING);
     sc_report_handler::set_actions("flash", SC_WARNING, SC_DO_NOTHING);
@@ -1907,6 +2458,21 @@ int sc_main(int argc, char** argv) {
         else if (a == "--traza-gdb") g_traza_gdb = true;
         else if (a == "--argumentos") return vuelca_argumentos();
         else if (a == "--mcus") g_lista_mcus = true;
+        else if (a == "--memorias") g_lista_memorias = true;
+        // `--contenido ID=FICHERO`: como --firmware, con el id de un MCU o de
+        // una pieza con memoria no volatil
+        else if (a == "--contenido" || a.rfind("--contenido=", 0) == 0) {
+            std::string v;
+            if (a.rfind("--contenido=", 0) == 0) v = a.substr(12);
+            else if (i + 1 < argc && argv[i + 1][0] != '-') v = argv[++i];
+            const size_t igual = v.find('=');
+            if (igual == std::string::npos || igual == 0 || igual + 1 == v.size()) {
+                std::fprintf(stderr, "--contenido: hace falta ID=FICHERO, como en "
+                             "--contenido N/u0=flash.hex o --contenido U5=eeprom.hex\n");
+                return 1;
+            }
+            g_contenidos.emplace_back(v.substr(0, igual), v.substr(igual + 1));
+        }
         // `--firmware ID=FICHERO`, `--firmware=ID=FICHERO`; el id es el del
         // <mcu> -`u0`, o `N/u0` en un sistema- y lo demas, el fichero
         else if (a == "--firmware" || a.rfind("--firmware=", 0) == 0) {
@@ -1963,6 +2529,26 @@ int sc_main(int argc, char** argv) {
                 return 1;
             }
             g_sin_firmware.push_back(id);
+        }
+        else if (a == "--restore-otp") g_restore_otp_todos = true;
+        else if (a.rfind("--restore-otp=", 0) == 0) {
+            const std::string id = a.substr(14);
+            if (id.empty()) {
+                std::fprintf(stderr, "--restore-otp=: falta el id del MCU; sin igual es "
+                             "para todos los que tienen contenido\n");
+                return 1;
+            }
+            g_restore_otp.push_back(id);
+        }
+        else if (a == "--restore-rdp") g_restore_rdp_todos = true;
+        else if (a.rfind("--restore-rdp=", 0) == 0) {
+            const std::string id = a.substr(14);
+            if (id.empty()) {
+                std::fprintf(stderr, "--restore-rdp=: falta el id del MCU; sin igual es "
+                             "para todos\n");
+                return 1;
+            }
+            g_restore_rdp.push_back(id);
         }
         else if (a == "--mcu" && i + 1 < argc) g_tipo_mcu = mayus(argv[++i]);
         else if (a.rfind("--mcu=", 0) == 0)    g_tipo_mcu = mayus(a.substr(6));
@@ -2138,6 +2724,13 @@ int sc_main(int argc, char** argv) {
                 "                                nucleo se aparca en wfe (un MSP432E4\n"
                 "                                con ROM: Flash en blanco, y arranca\n"
                 "                                el cargador serie de la ROM)\n"
+                "     sim placa.xml --restore-otp[=ID]  la OTP de ese STM32F4 -sin ID,\n"
+                "                                todos los que tienen contenido- a la de\n"
+                "                                fabrica tras cargarlo, bloqueos incluidos\n"
+                "     sim placa.xml --restore-rdp[=ID]  el RDP de ese STM32 -sin ID,\n"
+                "                                todos- a su valor de fabrica tras cargar\n"
+                "                                su contenido, aunque este en el nivel 2\n"
+                "                                y sin borrar la Flash\n"
                 "     sim placa.xml --rom [ID=]VALOR  la ROM de DriverLib de un\n"
                 "                                MSP432P4 o E4: r1 (la sustituta, por\n"
                 "                                omision), ninguna, o la de TI: un\n"
@@ -2163,6 +2756,14 @@ int sc_main(int argc, char** argv) {
                 "                                sigue sus calibraciones\n"
                 "     sim placa.xml --mcus       la lista de sus MCUs en XML -id, tipo\n"
                 "                                y firmware-, para mcu-sim-gui\n"
+                "     sim placa.xml --contenido ID=FICHERO  la memoria no volatil\n"
+                "                                del MCU o de la pieza ID -su Flash, una\n"
+                "                                EEPROM- en Intel HEX: se carga al\n"
+                "                                arrancar y se guarda al acabar (tambien\n"
+                "                                con Ctrl-C); si no existe, se crea.\n"
+                "                                Manda sobre su contenido= del XML\n"
+                "     sim placa.xml --memorias   la lista de sus memorias no volatiles\n"
+                "                                en XML, para mcu-sim-gui\n"
                 "     sim placa.xml --ms=2       tiempo simulado (global: hay un\n"
                 "                                solo reloj por muchos chips)\n"
                 "     sim --argumentos           estas opciones en XML, para que\n"
@@ -2236,6 +2837,7 @@ int sc_main(int argc, char** argv) {
     }
     g_placa = libres[0];
     if (g_lista_mcus) return lista_mcus();
+    if (g_lista_memorias) return lista_memorias();
     if (libres.size() > 1) g_img = libres[1];
     if (libres.size() > 2) { g_ms = std::atof(libres[2].c_str()); g_ms_dado = true; }
 
@@ -2272,6 +2874,9 @@ int sc_main(int argc, char** argv) {
         if (r >= 0) return r;
     }
     sc_start();
+    // Las memorias con `contenido`, a sus ficheros: antes de despedirse de la
+    // ventana, que puede lanzar otra simulacion en cuanto lo sepa
+    s.guarda_memorias();
     // Se acabo la ventana: se le dice a la GUI, con lo que quedara pendiente
     // -avisos, instantaneas, un T_ESTADO final- y el instante en que se acabo.
     // Si la GUI ya no esta, no pasa nada. Desde la fase 6, tambien puede ser

@@ -1,8 +1,9 @@
-# Integración continua: las tres suites en cuatro plataformas
+# Integración continua: las suites en cuatro plataformas
 
 `.github/workflows/suites.yml` ejecuta, en cada empujón a `main` y en cada
-petición de fusión, las tres suites sobre **Linux, macOS Apple Silicon, macOS
-Intel y Windows/MSYS2**.
+petición de fusión, las **ocho suites** sobre **Linux, macOS Apple Silicon,
+macOS Intel y Windows/MSYS2**. Empezó con tres, las del F4, y se le ha ido
+sumando la de cada ampliación (§2).
 
 ---
 
@@ -12,13 +13,18 @@ Que las suites pasen lo comprueba cualquiera. Lo que se comprueba aquí es que
 **el tiempo simulado no se mueva**, al picosegundo:
 
 ```
-test407   2149 comprobaciones   2281827784555 ps   (resto: sin T96 ni T97)
-test446    204                  1033367277932 ps
-test417    165                   718988288 ps
+test407    2151 comprobaciones    2281249034555 ps   (resto: sin T96 ni T97)
+test446     204                   1033367277932 ps
+test417     165                       718988288 ps
+testserie   189                    400677589564 ps
+testgui     145                     76450000000 ps
+testp4      406                  22456139139423 ps   (resto)
+teste4      296                   4505148675235 ps   (resto)
+testf3      428                 116875480154660 ps   (resto)
 ```
 
-Un cambio puede dejar las 2 118 comprobaciones en verde y haber cambiado el
-comportamiento del modelo. Lo que lo delata es el reloj. Por eso esas tres
+Un cambio puede dejar las 2 151 comprobaciones en verde y haber cambiado el
+comportamiento del modelo. Lo que lo delata es el reloj. Por eso esas ocho
 cifras están **una sola vez** en el repositorio, en `src/verif/invariantes.txt`,
 y `ci/comprueba_invariante.sh` las contrasta contra la salida real. Si no
 coinciden, el trabajo falla. No avisa: falla.
@@ -37,8 +43,8 @@ todas partes— y `verif/invariantes.txt` la otra —el mismo resultado—.
 
 | Trabajo | Máquina | SystemC | Qué añade |
 | :--- | :--- | :--- | :--- |
-| `rapidas` | Ubuntu | no hace falta | `red`, `macros-win`, `hash`, `cryp`, `vectores`, `serie`, `rfc2217` y `gui-proto`. Menos de un minuto; evita encender cuatro máquinas por una errata. Es el único que clona **también `mcu-sim-gui`**, para comparar las cabeceras que los dos comparten por copia (`protocolo.h` y `proto_io.h`): se compara con su rama principal, así que un cambio del protocolo se sube **primero allí** |
-| `linux` | `ubuntu-latest` | `apt install libsystemc-dev` | Verifica **la vía que documenta `compilacion.md` §4**. Si el paquete desaparece de Ubuntu, quiero enterarme aquí y no en el portátil de un alumno |
+| `rapidas` | Ubuntu | no hace falta | `red`, `macros-win`, `hash`, `cryp`, `vectores`, `serie`, `rfc2217` y `gui-proto`. Menos de un minuto; evita encender cuatro máquinas por una errata. Es el único que clona **también `mcu-sim-gui`**, para comparar las cabeceras que los dos comparten por copia (`protocolo.h` y `proto_io.h`): con su rama del mismo nombre si existe —`cnc` con `cnc`—, y si no, con la principal; así que un cambio del protocolo se sube **primero allí** |
+| `linux` | `ubuntu-latest` | `apt install libsystemc-dev` | Verifica **la vía que documenta `compilacion.md` §4**. Si el paquete desaparece de Ubuntu, quiero enterarme aquí y no en el portátil de un alumno. Y, como es el que tiene a mano las herramientas de fuera, pasa además las pruebas contra ellas (abajo) |
 | `macos` | `macos-26` y `macos-26-intel` | compilada, en caché | **La plataforma que nadie ha ejecutado nunca.** Las dos arquitecturas, porque el `Makefile` tiene una rama para cada una y una rama que nadie ejecuta no está verificada |
 | `windows` | `windows-latest` + MSYS2 | compilada, en caché | Las suites **y** que `mcu-sim.exe` no arrastre ninguna DLL de MinGW, que es lo de §5.6 |
 
@@ -46,10 +52,29 @@ todas partes— y `verif/invariantes.txt` la otra —el mismo resultado—.
 único del modelo que sabe en qué sistema corre, y en Linux ya se prueba en
 `rapidas`.
 
+**Las suites**, en los tres trabajos con SystemC, las pasa `ci/pasa_suites.sh`,
+una detrás de otra y con un presupuesto de tiempo para cada una: `test407`,
+`test446`, `test417`, `testserie`, `testgui`, `testp4`, `teste4` y `testf3`.
+Y `ci/comprueba_invariante.sh` contrasta las ocho.
+
+**Contra programas de fuera**, solo en `linux`:
+* la interoperabilidad del puente UART con pySerial y socat (`make interop`);
+* `sflash` contra el cargador de la ROM del E4 y el BSL del P4 (`make
+  sflash-e4 bsl-p4`);
+* lwIP por el puente Ethernet y el CDC-ACM por el puente USB, del E4 y del F303
+  (`make eth-e4 usb-e4 usb-f3`);
+* la EDUMKII sobre las dos LaunchPad (`make p4-edumkii e4-edumkii`);
+* la F3DISCOVERY con un ejemplo de ST y su VCP (`make f3-discovery f3-vcp`);
+* OpenOCD, construido de git y en caché: programa el P4, el F407 y el F303, y
+  habla con la sonda CMSIS-DAP y la XDS110 (`make openocd cmsis-dap xds110`).
+
 `linux`, `macos` y `windows` pasan también `verif/gui/saludo.py`,
 `verif/gui/marcha.py`, `verif/gui/ordenes.py`, `verif/gui/control.py` y
-`verif/gui/argumentos.py` (`make gui-saludo gui-marcha gui-ordenes gui-control
-gui-argumentos`), detrás de la
+`verif/gui/argumentos.py`, `verif/gui/sin_mcu.py`, `verif/gui/sistema.py` y
+`verif/gui/contenido.py` (`make gui-saludo gui-marcha gui-ordenes gui-control
+gui-argumentos gui-sin-mcu gui-sistema gui-contenido`); y en `linux`, además, `verif/gui/cnc.py` (`make gui-cnc`, la
+fresadora CNC por fases),
+detrás de la
 interoperabilidad del puente UART y por el mismo motivo: necesitan el `mcu-sim`
 de verdad. Fuera de Linux se instala `psutil` para poder medir la CPU de
 `mcu-sim` mientras espera; en Linux basta `/proc`. `marcha.py` tarda unos

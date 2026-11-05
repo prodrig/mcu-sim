@@ -40,6 +40,7 @@
 #include <string>
 #include <utility>
 #include "../common/analog_net.h"
+#include "../common/memoria_nv.h"
 #include "part_base.h"        // ExtPartBase: terminales con nombre y set_enabled
 #include "motor_uart.h"       // ReceptorUart: el de SwoReceiver, y el del puente serie
 #include "../periph/sdio.h"   // sd_crc7 y SdCrc16: el protocolo es el mismo
@@ -218,22 +219,35 @@ private:
 // nodo, y la fuente se vuelve a ajustar en la siguiente vuelta.
 // ---------------------------------------------------------------------------
 SC_MODULE(FuenteTension), public ExtPart {
+    // `media_ms`: con mas de 0, lo que deja ver es la MEDIA de la corriente y
+    // de la tension en esos ms -un filtro de primer orden-, como el display
+    // de una fuente de laboratorio, que no salta con el PWM de la carga; y deja
+    // ver tambien la tension. Con 0, lo de siempre: la de ahora, sin tension.
+    // `absorbe`: con false, una fuente CONMUTADA, que no se traga lo que le
+    // devuelven -la energía de un motor que frena (fase F5 de la CNC)-: si lo
+    // de fuera sube por encima de su tensión, se aparta, como tras un diodo
     FuenteTension(sc_core::sc_module_name nm, analog_net_if& n, const char* tipo,
-                  double v, double r, double limite_ma, bool masa)
+                  double v, double r, double limite_ma, bool masa, double media_ms = 0.0,
+                  bool absorbe = true)
         : sc_core::sc_module(nm), ExtPart(n, tipo, masa ? "gnd" : "fuente", "pin", nm),
           v_(v), r0_(r < 0.1 ? 0.1 : r), lim_(limite_ma > 0.0 ? limite_ma / 1000.0 : 0.0),
-          masa_(masa) {
+          masa_(masa), absorbe_(absorbe || masa), media_s_(media_ms > 0.0 ? media_ms * 1e-3 : 0.0),
+          v_med_(v), v_ant_(v) {
         marca_riel("pin");
         r_ = r0_;
         drive(float(v_), float(r_));
         // Sin límite no hace falta vigilar nada: la corriente se calcula al
         // preguntarla. Con límite, un proceso que reajusta cuando el nodo cambia.
         SC_HAS_PROCESS(FuenteTension);
-        if (lim_ > 0.0) SC_THREAD(vigila);
+        if (lim_ > 0.0 || !absorbe_) SC_THREAD(vigila);
+        if (media_s_ > 0.0) SC_THREAD(promedia);
     }
     double v() const         { return v_; }
     double limite_ma() const { return lim_ * 1000.0; }
     bool   sobrecorriente() const { return sobre_; }
+    bool   absorbe() const { return absorbe_; }
+    // Una fuente que no absorbe, apartada porque lo de fuera está por encima
+    bool   apartada() const { return apartada_; }
     // Las veces que ha entrado en sobrecorriente desde que se construyó
     unsigned episodios() const { return episodios_; }
     // La corriente, en A: la que entrega una Fuente; la que recibe una Gnd
@@ -251,21 +265,48 @@ SC_MODULE(FuenteTension), public ExtPart {
     }
     void set_enabled(bool on) override {
         ExtPartBase::set_enabled(on);
+        apartada_ = false;
         if (on) { r_ = r0_; drive(float(v_), float(r_)); } else { hiz(); sobre_ = false; }
     }
 
-    unsigned   n_observables() const override { return 2; }
+    // Las de media, con media_ms (con 0, las de ahora)
+    double corriente_media() const {
+        return media_s_ > 0.0 ? media(i_med_, conectada_ ? corriente() : 0.0) : corriente();
+    }
+    double tension_media() const {
+        return media_s_ > 0.0 ? media(v_med_, double(pin_voltage())) : double(pin_voltage());
+    }
+    double media_ms() const { return media_s_ * 1e3; }
+
+    unsigned   n_observables() const override { return media_s_ > 0.0 ? 3 : 2; }
     Observable observable(unsigned i) const override {
         const float esc = lim_ > 0.0 ? float(lim_ * 1000.0) : 100.f;
         if (i == 0) return {"corriente", "mA", -esc, esc, true};
-        return {"sobrecorriente", "", 0.f, 1.f, true, true};
+        if (i == 1) return {"sobrecorriente", "", 0.f, 1.f, true, true};
+        return {"tension", "V", 0.f, float(std::max(1.0, v_ * 1.2)), true};
     }
     float valor_observable(unsigned i) const override {
-        if (i == 0) return conectada_ ? float(corriente() * 1000.0) : 0.f;
-        return sobre_ ? 1.f : 0.f;
+        if (i == 0) return conectada_ ? float(corriente_media() * 1000.0) : 0.f;
+        if (i == 1) return sobre_ ? 1.f : 0.f;
+        return float(tension_media());
     }
 
 private:
+    static double ahora() { return sc_core::sc_time_stamp().to_seconds(); }
+    double media(double med, double x) const {
+        return x + (med - x) * std::exp(-(ahora() - t_med_) / media_s_);
+    }
+    // Las medias: cada vez que el nodo cambia, lo que valian hasta ahora
+    void promedia() {
+        for (;;) {
+            wait(net_->value_changed_event() | evento_conexion());
+            i_med_ = media(i_med_, i_ant_);
+            v_med_ = media(v_med_, v_ant_);
+            t_med_ = ahora();
+            i_ant_ = conectada_ ? corriente() : 0.0;
+            v_ant_ = double(pin_voltage());
+        }
+    }
     void vigila() {
         for (;;) {
             wait(net_->value_changed_event() | evento_conexion());
@@ -279,7 +320,25 @@ private:
         // vio el nodo, o la resta no da cero cuando no hay nadie mas.
         bool solo = false;
         const double vx = double(net_->voltage_excluding(id_, solo));
-        const double gx = net_->conductance() - 1.0 / double(float(r_));
+        const double gx = net_->conductance() - (apartada_ ? 0.0 : 1.0 / double(float(r_)));
+        // La que no absorbe se aparta si lo de fuera la sube -con un milivoltio
+        // de margen, para no ir y venir con un condensador que se queda justo
+        // en su tension- y vuelve cuando baja
+        if (!absorbe_) {
+            const bool fuera = !solo && gx > G_FLOAT && vx > v_ + 1e-3;
+            if (fuera && !apartada_) {
+                apartada_ = true;
+                sobre_ = false;
+                hiz();
+                ++apartadas_;
+            }
+            if (apartada_ && !fuera && (solo || gx <= G_FLOAT || vx < v_)) {
+                apartada_ = false;
+                r_ = r0_;
+                drive(float(v_), float(r_));
+            }
+            if (apartada_ || lim_ <= 0.0) return;
+        }
         double r_nueva = r0_;
         bool sobre = false;
         if (!solo && gx > G_FLOAT) {
@@ -288,6 +347,21 @@ private:
             if (dv / (r0_ + rx) > lim_) {                 // pide mas del limite
                 r_nueva = std::max(r0_, dv / lim_ - rx);
                 sobre = true;
+                // Una fuente no da tension negativa. Lo que hay fuera puede
+                // sujetar su corriente -la bobina de un motor no la deja
+                // cambiar de golpe, y empuja lo que haga falta-, y entonces
+                // la cuenta de arriba subiria r sin fin, en el mismo instante,
+                // con el nodo cada vez mas negativo. Se queda en la que deja
+                // el nodo a 0 V, y la corriente de la bobina se acaba con el
+                // tiempo, contra lo que tenga delante
+                if (!masa_ && vx < 0.0) {
+                    // Lo de fuera sujeta la corriente que pasa: la r que la
+                    // deja pasar con el nodo a 0 V es v/i, y con ella las dos
+                    // partes están de acuerdo a la primera
+                    const double i = std::max(lim_, corriente_exacta());
+                    const double r_cero = v_ / i;
+                    if (r_cero < r_nueva) r_nueva = std::max(r0_, r_cero);
+                }
             }
         }
         if (sobre && !sobre_) {
@@ -307,7 +381,11 @@ private:
         }
     }
     double   v_, r0_, lim_;
-    bool     masa_;
+    bool     masa_, absorbe_;
+    bool     apartada_ = false;
+    unsigned apartadas_ = 0;
+    double   media_s_ = 0.0;
+    double   v_med_ = 0.0, v_ant_ = 0.0, i_med_ = 0.0, t_med_ = 0.0, i_ant_ = 0.0;
     double   r_ = 0.1;
     bool     sobre_ = false;
     unsigned episodios_ = 0;
@@ -316,8 +394,9 @@ private:
 class Fuente : public FuenteTension {
 public:
     Fuente(sc_core::sc_module_name nm, analog_net_if& n, double v = 3.3,
-           double r = 0.1, double limite_ma = 0.0)
-        : FuenteTension(nm, n, "Fuente", v, r, limite_ma, false) {}
+           double r = 0.1, double limite_ma = 0.0, double media_ms = 0.0,
+           bool absorbe = true)
+        : FuenteTension(nm, n, "Fuente", v, r, limite_ma, false, media_ms, absorbe) {}
 };
 
 class Gnd : public FuenteTension {
@@ -707,11 +786,154 @@ public:
     }
     // La corriente que va de a a b, en A (positiva si entra por a)
     double corriente() const { return -double(a_->current(id_a_)); }
+    // Lo de FUERA de la rama, sin ella: lo que tendrían sus dos nodos y la
+    // resistencia que hay en serie por los dos lados. False si un lado está
+    // al aire. Lo que necesita quien quiere decidir cuánto deja pasar -la
+    // salida de un optoacoplador, que pasa como mucho CTR veces su LED-
+    bool fuera(double& va0, double& vb0, double& r_fuera) const {
+        bool solo_a = false, solo_b = false;
+        va0 = double(a_->voltage_excluding(id_a_, solo_a));
+        vb0 = double(b_->voltage_excluding(id_b_, solo_b));
+        const double ga = a_->conductance() - (ra_ < R_HIZ ? 1.0 / double(ra_) : 0.0);
+        const double gb = b_->conductance() - (rb_ < R_HIZ ? 1.0 / double(rb_) : 0.0);
+        if (solo_a || solo_b || ga <= G_FLOAT || gb <= G_FLOAT) return false;
+        r_fuera = 1.0 / ga + 1.0 / gb;
+        return true;
+    }
 
 private:
     analog_net_if *a_, *b_;
     int   id_a_, id_b_;
     float ra_ = R_HIZ, rb_ = R_HIZ;   // la r aplicada en cada lado (la que cuenta el nodo)
+};
+
+// ---------------------------------------------------------------------------
+// UNA FUENTE DE CORRIENTE EN UN NODO: mete `i` amperios en él, sea lo que sea
+// lo de fuera, mientras lo de fuera sea lineal -un condensador, una fuente,
+// una resistencia-. Es un Thevenin {vx + i·(rx + RI), RI}, con {vx, rx} lo
+// que hay en el nodo sin ella: la corriente que entra es exactamente i. Lo que
+// necesita un driver para DEVOLVER al bus la energía que genera el motor al
+// frenar (fase F5 de doc/analisis_cnc.md, §6.6): hasta F4 se quedaba en nada.
+//
+// RI, 100 ohmios, es grande frente a lo que suele haber en un bus -un
+// condensador, unos miliohmios-: si el bus sube entre dos ajustes, lo que mete
+// apenas cambia. Con el nodo al aire no hay a dónde meter nada, y no mete.
+// ---------------------------------------------------------------------------
+class InyectorCorriente {
+public:
+    static constexpr double RI = 100.0;
+    InyectorCorriente(analog_net_if& n, int id) : n_(&n), id_(id) {}
+    // Mete `i` A (con i <= 0, nada)
+    void pon(double i) {
+        if (i <= 1e-6) { suelta(); return; }
+        bool solo = false;
+        const double vx = double(n_->voltage_excluding(id_, solo));
+        const double g = n_->conductance() - (activo_ ? 1.0 / double(float(RI)) : 0.0);
+        if (solo || g <= G_FLOAT) { suelta(); return; }
+        const double vth = vx + i * (1.0 / g + RI);
+        if (activo_ && std::fabs(vth - vth_) < 1e-4) return;
+        vth_ = vth;
+        i_ = i;
+        activo_ = true;
+        n_->set_drive(id_, float(vth), float(RI));
+    }
+    void suelta() {
+        if (!activo_) return;
+        n_->set_hiz(id_);
+        activo_ = false;
+        i_ = 0.0;
+    }
+    double corriente() const { return activo_ ? i_ : 0.0; }
+private:
+    analog_net_if* n_;
+    int id_;
+    bool activo_ = false;
+    double vth_ = 0.0, i_ = 0.0;
+};
+
+// ---------------------------------------------------------------------------
+// UNA RAMA DE CORRIENTE IMPUESTA: el lado del DRIVER de una fase de paso a
+// paso (common/analog_net.h, FaseCorriente; doc/analisis_cnc.md §5.2). Dos
+// salidas, la `p` -por la que sale la consigna- y la `m` -por la que vuelve-,
+// declaradas en sus nodos. El driver dice qué corriente quiere y con qué tope
+// de tensión (`manda`); la bobina que esté entre los dos nodos la sigue
+// mientras ese tope le llegue, y deja aquí lo que pone y lo que pasa.
+//
+// Para que se pueda MEDIR algo en los nodos, `muestra()` pone en cada salida
+// un Thevenin flojo, de 10 kohm, con la tensión que tendrían: la mitad del bus
+// más y menos la mitad de lo que se pone en la bobina. No carga nada, y la
+// bobina, que sabe que es una salida de corriente, no lo mira.
+// ---------------------------------------------------------------------------
+class RamaCorriente {
+public:
+    static constexpr float R_VER = 1.0e4f;
+    RamaCorriente(analog_net_if& p, int id_p, analog_net_if& m, int id_m, const char* quien,
+                  int numero)
+        : p_(&p), m_(&m), id_p_(id_p), id_m_(id_m), quien_(quien ? quien : "") {
+        f_.ev = &ev_;
+        f_.quien = quien_.c_str();
+        f_.numero = numero;
+        p.declara_salida_corriente(SalidaCorriente{&f_, +1});
+        m.declara_salida_corriente(SalidaCorriente{&f_, -1});
+    }
+    // La consigna, el tope y si conduce. Solo avisa si algo cambia
+    void manda(double i, double vbus, bool activa) {
+        if (i == f_.i && vbus == f_.vbus && activa == f_.activa) return;
+        f_.i = i;
+        f_.vbus = vbus;
+        f_.activa = activa;
+        ev_.notify(sc_core::SC_ZERO_TIME);
+    }
+    void pon_diodos(double vd) { f_.vd = vd; }
+    // UNA TERCERA SALIDA, la W de un controlador de BLDC (parts/controlador_motor.h):
+    // se declara con el polo 0 -por ella no va la corriente del eje q, pero el
+    // motor comprueba que esté y en su sitio- y se ve a media tensión
+    void pon_tercera(analog_net_if& w, int id_w) {
+        w_ = &w;
+        id_w_ = id_w;
+        w.declara_salida_corriente(SalidaCorriente{&f_, 0});
+    }
+    // Las tensiones de las salidas, para verlas: con `vg` la de la masa
+    void muestra(double vg) {
+        const bool ver = f_.activa || (f_.con_carga && f_.i_carga != 0.0);
+        if (!ver) {
+            if (viendo_) { suelta(); }
+            return;
+        }
+        const float vp = float(vg + 0.5 * (f_.vbus + f_.v_carga));
+        const float vm = float(vg + 0.5 * (f_.vbus - f_.v_carga));
+        if (viendo_ && std::fabs(vp - vp_) < 0.05f && std::fabs(vm - vm_) < 0.05f) return;
+        vp_ = vp; vm_ = vm; viendo_ = true;
+        p_->set_drive(id_p_, vp, R_VER);
+        m_->set_drive(id_m_, vm, R_VER);
+        if (w_) w_->set_drive(id_w_, float(vg + 0.5 * f_.vbus), R_VER);
+    }
+    void suelta() {
+        p_->set_hiz(id_p_); m_->set_hiz(id_m_);
+        if (w_) w_->set_hiz(id_w_);
+        viendo_ = false;
+    }
+
+    double consigna() const { return f_.i; }
+    bool   activa() const { return f_.activa; }
+    // Lo que deja la bobina: la tensión que se le pone y la corriente que pasa
+    bool   con_carga() const { return f_.con_carga; }
+    double v_carga() const { return f_.con_carga ? f_.v_carga : 0.0; }
+    double i_carga() const { return f_.con_carga ? f_.i_carga : 0.0; }
+    // Lo acumulado por la bobina, y hasta cuándo
+    double energia() const { return f_.energia; }
+    double i2s() const { return f_.i2s; }
+    double t_carga() const { return f_.t_carga; }
+    const sc_core::sc_event& evento() const { return ev_; }
+
+private:
+    analog_net_if *p_, *m_, *w_ = nullptr;
+    int id_p_, id_m_, id_w_ = -1;
+    std::string quien_;
+    FaseCorriente f_;
+    sc_core::sc_event ev_;
+    bool viendo_ = false;
+    float vp_ = 0.f, vm_ = 0.f;
 };
 
 // ---------------------------------------------------------------------------
@@ -758,6 +980,14 @@ private:
 // cambio por medio clic. Cada contacto es una rama (RamaDosNodos) de
 // `r_cerrado` ohmios, o abierta.
 //
+// Eso es MEDIO CICLO POR CLIC: en una vuelta, cada contacto da pasos/2 pulsos
+// (el de 30 clics, 15). Otros encoders -los de 20 o 24 clics y otros tantos
+// pulsos, como el PEC11R de Bourns o el EC11 de 20/20- dan UN CICLO ENTERO
+// POR CLIC: en el reposo los dos contactos están abiertos, y cada clic los
+// cierra y los vuelve a abrir, los dos, con A delante girando a la derecha:
+// 11 -> 01 -> 00 -> 10 -> 11, cuatro cambios por clic. Es `ciclo_entero`
+// (en el XML, `pulsos` igual a `pasos`).
+//
 // EL MANDO es `girar`: la CUENTA de clics, sin vueltas -sube hacia un lado y
 // baja hacia el otro-. Pedirle otra cuenta gira el eje hasta ella, un clic
 // detrás de otro, cada `clic_ms`, con `desfase_ms` entre el contacto que va
@@ -769,9 +999,10 @@ SC_MODULE(Encoder), public ExtPartBase {
 
     Encoder(sc_core::sc_module_name nm, analog_net_if& a, analog_net_if& b, analog_net_if& c,
             unsigned pasos = 30, double r_cerrado = 1.0, double desfase_ms = 1.0,
-            double clic_ms = 5.0)
+            double clic_ms = 5.0, bool ciclo_entero = false)
         : sc_core::sc_module(nm), ExtPartBase("Encoder", nm),
-          a_(&a), b_(&b), c_(&c), pasos_(pasos ? pasos : 1), r_(r_cerrado),
+          a_(&a), b_(&b), c_(&c), pasos_(pasos ? pasos : 1), entero_(ciclo_entero),
+          r_(r_cerrado),
           desfase_(desfase_ms, sc_core::SC_MS), clic_(clic_ms, sc_core::SC_MS) {
         const int ia = add_pin("a", a, "enc");
         const int ib = add_pin("b", b, "enc");
@@ -793,6 +1024,10 @@ SC_MODULE(Encoder), public ExtPartBase {
     void gira(long clics) { gira_a(objetivo_ + clics); }
     long     cuenta()   const { return cuenta_; }
     unsigned pasos()    const { return pasos_; }
+    // Los pulsos de una vuelta en cada contacto: pasos/2, o pasos con un
+    // ciclo entero por clic
+    double   pulsos()   const { return entero_ ? double(pasos_) : pasos_ / 2.0; }
+    bool     ciclo_entero() const { return entero_; }
     unsigned posicion() const {
         const long p = cuenta_ % long(pasos_);
         return unsigned(p < 0 ? p + long(pasos_) : p);
@@ -840,14 +1075,26 @@ private:
         for (;;) {
             while (cuenta_ == objetivo_) wait(ev_objetivo_);
             const int sentido = objetivo_ > cuenta_ ? 1 : -1;
-            const bool cerrar = (cuenta_ + sentido) % 2 != 0;   // impares: cerrados
             bool& primero = sentido > 0 ? ca_ : cb_;
             bool& segundo = sentido > 0 ? cb_ : ca_;
-            primero = cerrar;
-            ev_contactos_.notify(sc_core::SC_ZERO_TIME);
-            wait(desfase_);
-            segundo = cerrar;
-            ev_contactos_.notify(sc_core::SC_ZERO_TIME);
+            if (entero_) {
+                // Un ciclo entero: se cierran los dos y se vuelven a abrir,
+                // siempre el mismo delante
+                const bool paso[4] = {true, true, false, false};
+                bool* quien[4] = {&primero, &segundo, &primero, &segundo};
+                for (int k = 0; k < 4; ++k) {
+                    if (k) wait(desfase_);
+                    *quien[k] = paso[k];
+                    ev_contactos_.notify(sc_core::SC_ZERO_TIME);
+                }
+            } else {
+                const bool cerrar = (cuenta_ + sentido) % 2 != 0;   // impares: cerrados
+                primero = cerrar;
+                ev_contactos_.notify(sc_core::SC_ZERO_TIME);
+                wait(desfase_);
+                segundo = cerrar;
+                ev_contactos_.notify(sc_core::SC_ZERO_TIME);
+            }
             cuenta_ += sentido;
             if (cuenta_ != objetivo_) wait(clic_);
         }
@@ -855,6 +1102,7 @@ private:
 
     analog_net_if *a_, *b_, *c_;
     unsigned pasos_;
+    bool entero_;                // un ciclo entero por clic, y no medio
     double r_;
     sc_core::sc_time desfase_, clic_;
     std::unique_ptr<RamaDosNodos> rama_a_, rama_b_;
@@ -1230,7 +1478,7 @@ private:
 // Puede estirar el reloj tras el byte de dirección, que es lo que obliga al
 // maestro a respetar el clock stretching.
 // ---------------------------------------------------------------------------
-SC_MODULE(I2cEeprom), public I2cPart {
+SC_MODULE(I2cEeprom), public I2cPart, public memoria_nv_if {
     I2cEeprom(sc_core::sc_module_name nm, analog_net_if& scl, analog_net_if& sda,
               uint8_t dev_addr = 0x50, double vdd = 3.3)
         : sc_core::sc_module(nm), I2cPart(scl, sda, "I2cEeprom", "eeprom", nm, vdd), addr_(dev_addr) {
@@ -1243,6 +1491,19 @@ SC_MODULE(I2cEeprom), public I2cPart {
     }
     uint8_t  peek(unsigned i) const { return mem_[i % sizeof mem_]; }
     void     poke(unsigned i, uint8_t v) { mem_[i % sizeof mem_] = v; }
+    // Para `contenido` (common/memoria_nv.h): sus 64 bytes, desde 0
+    memoria_nv_if* memoria_nv() override { return this; }
+    std::vector<RegionNv> regiones_nv() const override {
+        return {RegionNv::entera("EEPROM de 64 bytes", 0, uint32_t(sizeof mem_))};
+    }
+    bool lee_nv(uint32_t a, uint8_t& v) override {
+        if (a >= sizeof mem_) return false;
+        v = mem_[a]; return true;
+    }
+    bool escribe_nv(uint32_t a, uint8_t v) override {
+        if (a >= sizeof mem_) return false;
+        mem_[a] = v; return true;
+    }
     unsigned bytes_written() const { return n_wr_; }
     unsigned bytes_read()    const { return n_rd_; }
     // Estiramiento del reloj: microsegundos que retiene SCL tras la dirección
@@ -1366,7 +1627,7 @@ private:
 // Puede además ESTROPEAR a propósito el CRC de la respuesta o el de los datos,
 // que es como se comprueba que el host levanta CCRCFAIL y DCRCFAIL de verdad.
 // ===========================================================================
-SC_MODULE(SdCard), public ExtPartBase {
+SC_MODULE(SdCard), public ExtPartBase, public memoria_nv_if {
     SdCard(sc_core::sc_module_name nm, analog_net_if& ck, analog_net_if& cmd,
            analog_net_if* d0, analog_net_if* d1, analog_net_if* d2,
            analog_net_if* d3, double vdd = 3.3)
@@ -1413,6 +1674,19 @@ SC_MODULE(SdCard), public ExtPartBase {
     // ---- Observación y control desde el banco ----------------------------
     uint8_t  peek(unsigned i) const { return mem_[i % sizeof mem_]; }
     void     poke(unsigned i, uint8_t v) { mem_[i % sizeof mem_] = v; }
+    // Para `contenido` (common/memoria_nv.h): sus 2 KB, desde 0
+    memoria_nv_if* memoria_nv() override { return this; }
+    std::vector<RegionNv> regiones_nv() const override {
+        return {RegionNv::entera("tarjeta SD de 2 KB", 0, uint32_t(sizeof mem_))};
+    }
+    bool lee_nv(uint32_t a, uint8_t& v) override {
+        if (a >= sizeof mem_) return false;
+        v = mem_[a]; return true;
+    }
+    bool escribe_nv(uint32_t a, uint8_t v) override {
+        if (a >= sizeof mem_) return false;
+        mem_[a] = v; return true;
+    }
     unsigned commands() const { return n_cmd_; }
     unsigned last_cmd() const { return last_cmd_; }
     uint32_t last_arg() const { return last_arg_; }
@@ -2514,7 +2788,7 @@ private:
 // leer identificacion (0x90), leer pagina (0x00 ... 0x30), programar
 // (0x80 ... 0x10) y leer estado (0x70).
 // ===========================================================================
-SC_MODULE(ExtNand), public ExtPartBase {
+SC_MODULE(ExtNand), public ExtPartBase, public memoria_nv_if {
     ExtNand(sc_core::sc_module_name nm, const std::vector<analog_net_if*>& d,
             analog_net_if& cle, analog_net_if& ale, analog_net_if& nce,
             analog_net_if& noe, analog_net_if& nwe, analog_net_if* rb = nullptr,
@@ -2549,6 +2823,19 @@ SC_MODULE(ExtNand), public ExtPartBase {
     void set_conectada(bool on) { set_enabled(on); }       // nombre histórico
     void escribe(uint32_t off, uint8_t v) { if (off < mem_.size()) mem_[off] = v; }
     uint8_t lee(uint32_t off) const { return off < mem_.size() ? mem_[off] : 0xFFu; }
+    // Para `contenido` (common/memoria_nv.h): sus 8 KB, pagina a pagina, desde 0
+    memoria_nv_if* memoria_nv() override { return this; }
+    std::vector<RegionNv> regiones_nv() const override {
+        return {RegionNv::entera("NAND de 8 KB", 0, uint32_t(mem_.size()))};
+    }
+    bool lee_nv(uint32_t a, uint8_t& v) override {
+        if (a >= mem_.size()) return false;
+        v = mem_[a]; return true;
+    }
+    bool escribe_nv(uint32_t a, uint8_t v) override {
+        if (a >= mem_.size()) return false;
+        mem_[a] = v; return true;
+    }
     unsigned mandatos() const { return n_cmd_; }
     unsigned bytes_leidos() const { return n_rd_; }
     unsigned bytes_escritos() const { return n_wr_; }

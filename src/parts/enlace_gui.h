@@ -536,9 +536,11 @@ private:
         // el muestreador deja de tomar mientras haya dos esperando
         while (!fr_.imagenes.empty() && (todo || sal_.size() < tope_)) {
             const ImagenTomada& im = fr_.imagenes.front();
-            std::string c(reinterpret_cast<const char*>(&im.cab), sizeof im.cab);
+            std::string c = im.trozo
+                ? std::string(reinterpret_cast<const char*>(&im.rect), sizeof im.rect)
+                : std::string(reinterpret_cast<const char*>(&im.cab), sizeof im.cab);
             c += im.pix;
-            em_.mensaje(sal_, T_IMAGEN, c);
+            em_.mensaje(sal_, im.trozo ? T_IMAGEN_RECT : T_IMAGEN, c);
             fr_.imagenes.pop_front();
             ++n_img_;
             hubo = true;

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     MOTORREDUCTOR DE 37 mm CON ENCODER HALL (JGB37-520), sin MCU
+
+     Un eje servo de continua, la alternativa didactica al paso a paso
+     (doc/analisis_cnc.md §5.3): un motor de 12 V con una reductora de 1:30 y,
+     en el otro extremo del motor, un iman de 11 pares de polos con dos
+     sensores Hall en cuadratura. Su cable de seis hilos:
+
+         M.ROJO, M.BLANCO      el motor: con ROJO mas alto, a la DERECHA
+         P1.VCC, P1.GND        la alimentacion del encoder, de 3,3 a 5 V
+         P1.A, P1.B            las dos salidas, en cuadratura: A delante a la
+                               derecha
+
+     EL MOTOR, MOTOR: un MotorCC (`./build/mcu-sim --help MotorCC`) de 333 rpm
+     en el eje de salida a 12 V. El encoder da 11 pulsos por vuelta del MOTOR,
+     que son 11 x 30 = 330 por vuelta del eje de salida (ppr="330"): 1320
+     cuartos. Las 333 rpm, la reduccion y los 11 pulsos son los del anuncio; las
+     corrientes -120 mA en vacio, 1,8 A bloqueado-, la constante de tiempo y
+     la inductancia son ESTIMACIONES. Las salidas del encoder se modelan como
+     las del TT, de colector abierto con su pull-up de 10 kohm a VCC.
+
+         ./build/mcu-sim placas/motor_jgb37_encoder.xml --valida
+     ========================================================================= -->
+<placa nombre="motor-jgb37-encoder">
+  <componente tipo="Conector" id="M" filas="2" columnas="1" nombres="ROJO BLANCO"/>
+  <nodo id="M.ROJO" bus="si"/>
+  <nodo id="M.BLANCO" bus="si"/>
+  <componente tipo="Conector" id="P1" filas="1" columnas="4" nombres="VCC GND A B"/>
+
+  <componente tipo="MotorCC" id="MOTOR" v_nominal="12" rpm_vacio="333" i_vacio_ma="120"
+              i_bloqueo_ma="1800" i_arranque_ma="200" tau_ms="40" l_mh="2.5" reduccion="30"
+              v_max="14" ppr="330" enc_i_ma="10">
+    <pin nombre="a"       nodo="M.ROJO"/>
+    <pin nombre="b"       nodo="M.BLANCO"/>
+    <pin nombre="enc_vcc" nodo="P1.VCC"/>
+    <pin nombre="enc_gnd" nodo="P1.GND"/>
+    <pin nombre="enc_a"   nodo="P1.A"/>
+    <pin nombre="enc_b"   nodo="P1.B"/>
+  </componente>
+</placa>

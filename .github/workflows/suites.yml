@@ -75,13 +75,30 @@ jobs:
 
       # EL OTRO REPOSITORIO, para comparar las cabeceras que se comparten por
       # copia (`protocolo.h` y `proto_io.h`, riesgo R-6 del plan de
-      # mcu-sim-gui). Su rama principal: un cambio del protocolo se sube
-      # PRIMERO alli y despues aqui, y si no, esto lo canta. Es publico, asi
-      # que no hace falta ningun token; si deja de serlo, aqui hara falta uno.
+      # mcu-sim-gui). LA RAMA DEL MISMO NOMBRE, si la hay, y si no su `main`:
+      # una rama que cambia el protocolo -la `cnc`, desde su F4- lo cambia en
+      # los dos repositorios a la vez, cada uno en su rama, y comparar con el
+      # `main` del otro fallaria en cada push hasta mezclarlas. En una
+      # pull-request, la rama es la de origen (GITHUB_HEAD_REF); en un push,
+      # la que se empuja. Al mezclar en `main`, la de mcu-sim-gui va PRIMERO,
+      # y si no, esto lo canta. Es publico, asi que no hace falta ningun
+      # token; si deja de serlo, aqui hara falta uno.
+      - name: La rama de mcu-sim-gui que va con esta
+        id: gui
+        run: |
+          r="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          if git ls-remote --exit-code --heads https://github.com/prodrig/mcu-sim-gui "$r" >/dev/null; then
+            echo "ref=$r" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+          fi
+          echo "  mcu-sim-gui: $(grep '^ref=' "$GITHUB_OUTPUT" | tail -1)"
+
       - uses: actions/checkout@v5
         with:
           repository: prodrig/mcu-sim-gui
           path: mcu-sim-gui
+          ref: ${{ steps.gui.outputs.ref }}
 
       - name: El SEGUNDO motor de los vectores de cifrado
         # `verif/vectores/comprueba_vectores.py` devuelve 1 si algun caso queda
@@ -279,7 +296,7 @@ jobs:
 
       - name: Con mcu-sim-gui contra el mcu-sim de verdad (saludo, marcha, ordenes, control, argumentos, sin MCU, sistemas, serie)
         working-directory: src
-        run: make -f Makefile.mcu-sim gui-saludo gui-marcha gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema gui-serie
+        run: make -f Makefile.mcu-sim gui-saludo gui-marcha gui-cnc gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-sistema gui-contenido gui-serie
 
       # OpenOCD DE VERDAD contra el modelo, por los pines (T5 del MSP432): de
       # git, porque la 0.12.0 del paquete no tiene SWD en remote_bitbang. Se
@@ -573,6 +590,7 @@ jobs:
           python3 verif/gui/argumentos.py
           python3 verif/gui/sin_mcu.py
           python3 verif/gui/sistema.py
+          python3 verif/gui/contenido.py
 
       # DESPUES de la interoperabilidad, no antes: sus `interop_*.log` -la
       # consola de cada mcu-sim que arranca- tambien estan en src/build/, y
@@ -730,6 +748,7 @@ jobs:
           python verif/gui/argumentos.py
           python verif/gui/sin_mcu.py
           python verif/gui/sistema.py
+          python verif/gui/contenido.py
 
       - uses: actions/upload-artifact@v6
         if: always()

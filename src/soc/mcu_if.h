@@ -48,6 +48,7 @@ namespace stm32 {
 class NodeMap;
 class Cableado;   // pins/pin_mux.h
 class programador_nv_if;   // common/gdb_rsp.h
+class memoria_nv_if;      // common/memoria_nv.h
 
 class mcu_if {
 public:
@@ -109,6 +110,11 @@ public:
     // (T0). nullptr: la de omisión, la del STM32F405/407. La usa el stub de
     // PINES, que `sim` construye por fuera del chip; el interno ya la tiene.
     virtual programador_nv_if* programador() { return nullptr; }
+    // La memoria NO VOLÁTIL del chip -su Flash; en el MSP432E4, también su
+    // EEPROM-, para el atributo `contenido` de su <mcu>: se carga antes del
+    // firmware y se guarda al acabar (common/memoria_nv.h). nullptr: el chip
+    // no la ofrece.
+    virtual memoria_nv_if* memoria_nv() { return nullptr; }
 
     // --- 6. Lo que este modelo TODAVIA no hace ------------------------------
     //

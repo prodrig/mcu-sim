@@ -5,6 +5,13 @@ modelo, qué se puede tocar desde ella, y qué le cuesta a la simulación. No es
 plan aprobado: es el análisis previo, con las decisiones que hay que tomar, las
 medidas que las sostienen y el precio de cada camino.*
 
+> **Estado (2026-11-03).** Se eligió el escenario 3, **dos procesos**, y está
+> hecho en el repositorio `mcu-sim-gui`: su plan (`doc/plan_dos_procesos.md`
+> allí) tiene hechas las fases 0 a 7 —falta la 8, grabar y reproducir
+> sesiones—, y encima las ilustraciones, varias placas y la vista 3D de la
+> fresadora CNC. Lo que le tocó a este lado está en **P-12** de
+> `doc/todo.md`. Lo que sigue es el análisis tal como se escribió.
+
 Caso de referencia, el del enunciado: una placa con un STM32F407, reloj externo,
 sistema de reset, varios LEDs y botones, salidas PWM para servos y variadores,
 etapas de potencia para motores paso a paso y de continua, y entradas de
@@ -584,6 +591,15 @@ paso, ni motor de continua, ni encoder incremental.
 | `Encoder` | Generar dos canales en cuadratura a partir de una posición que se mueve desde fuera. Es la primera pieza cuyo **mando** manda de verdad | medio |
 | `StepperDriver` | Cuatro o dos pines de paso y dirección, contar pasos, publicar ángulo. Con micropaso, si hace falta | medio |
 | `DcMotor` + puente en H | Tensión media a partir del ciclo de trabajo, y de ahí una velocidad. Aquí empieza a haber física de verdad, y hay que decidir cuánta se quiere | **el grande** |
+
+> **Al día (2026-10-27): el motor de continua está hecho**, como `MotorCC`,
+> con su puente en H, `L298`, y el `Regulador` del módulo L298N
+> (`doc/parts.md` §4.16). La decisión que pedía este párrafo se tomó así:
+> con la inductancia del bobinado y los diodos del módulo, integrando la
+> corriente y el eje juntos a pasos de 5 µs como pura cuenta, sin que SystemC
+> despierte en cada paso: el proceso despierta en los cambios de los bornes,
+> en los flancos del encoder —ensayados de antemano— y cada 0,1 o 1 ms
+> mientras la corriente o la velocidad cambian.
 
 El `DcMotor` es el que merece cuidado y una decisión explícita: un motor de
 continua con su inercia, su constante de tiempo y su carga es un modelo
