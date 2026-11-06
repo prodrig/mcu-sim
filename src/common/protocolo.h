@@ -136,6 +136,7 @@ enum Tipo : uint16_t {
     T_PONG        = 0x0014,
     T_IMAGEN      = 0x0015,  // lo que enseña una pantalla: una imagen entera (véase abajo)
     T_IMAGEN_RECT = 0x0016,  // un trozo de una imagen: solo lo que cambió (véase abajo)
+    T_SERIE       = 0x0017,  // lo que ha mandado el MCU a un puente serie en memoria
     T_FIN         = 0x001F,  // se acabó: motivo y código de salida
 
     // --- De la pantalla al modelo ------------------------------------------
@@ -147,7 +148,8 @@ enum Tipo : uint16_t {
     T_PASO        = 0x8005,  // avanza N ns simulados y vuelve a pausa
     T_ORDENES     = 0x8006,  // n x Orden, con la semántica de deltas de abajo
     T_PARA        = 0x8007,  // final ordenado: sc_stop()
-    T_PING        = 0x8008
+    T_PING        = 0x8008,
+    T_SERIE_ENVIA = 0x8009   // lo que se teclea en la ventana para un puente en memoria
 };
 
 inline bool es_del_modelo(uint16_t t)  { return (t & 0x8000u) == 0; }
