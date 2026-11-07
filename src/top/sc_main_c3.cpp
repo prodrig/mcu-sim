@@ -160,9 +160,9 @@ SC_MODULE(TbC3) {
         check(!h.csr_lee(0x304, v) && !h.csr_lee(0x344, v) && !h.csr_lee(0xB00, v),
               "sin mie, mip ni mcycle: el C3 los tiene en el INTC y en mpccr");
         check(c3.limitaciones().size() >= 5, "limitaciones(): sin ROM, Flash, cache ni perifericos de E8");
-        const huella_fw::Veredicto v = huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "c3");
-        std::printf("    %d imagenes: %s\n", v.comprobadas, v.detalle.c_str());
-        check(v.ok() && v.comprobadas == 5, "los cinco ELF de la suite son los versionados (verif/fw/huellas.txt)");
+        const huella_fw::Veredicto hv = huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "c3");
+        std::printf("    %d imagenes: %s\n", hv.comprobadas, hv.detalle.c_str());
+        check(hv.ok() && hv.comprobadas == 5, "los cinco ELF de la suite son los versionados (verif/fw/huellas.txt)");
     }
 
     void c2() {
