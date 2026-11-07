@@ -75,6 +75,10 @@ redactar esta revisión, no solo leído en un informe.
   firmware y su vista 3D (`doc/analisis_cnc.md`, fases F0 a F8, en la rama
   `cnc`). Lo que destapó en el modelo está en **T-24** (las reglas de error
   del CAN) y **T-25** (la captura de TRC de los TIM).
+- **Y el primer núcleo que no es ARM** (**P-19**): los ESP32-C3 y ESP32-C6 de
+  Espressif, con un núcleo RISC-V genérico y reutilizable en `src/rv/`. Plan
+  de catorce fases en `doc/analisis_esp32_riscv.md` (E0-E13), en la rama
+  `esp32rv`.
 - **Cincuenta y una funciones "bits sin máquina"**: registros que se guardan, se
   enmascaran y se leen correctamente, pero cuya lógica no se ejecuta. Casi todas
   corresponden a caminos que ningún firmware corriente usa, y casi todas están
@@ -861,6 +865,25 @@ Lo que queda de una sola fuente, o de modelo, tras S9:
 | **dd** | El USB y el CAN (S6) | De modelo: el FSDEV sin doble búfer ni isócronos (se avisa), sin ERR (la frontera de paquetes no ve el cable) ni la RESUME del dispositivo; los paquetes cruzan como paquetes. `ControladorUsb::pausa_control_us` (125 µs en el F303, 0 en el E4, que conserva su invariante): un PC de verdad no encadena dos transferencias de control más deprisa; con 0, TinyUSB pierde el estado de la anterior (el SETUP la pisa, como pasaría en el silicio). La memoria compartida USB/CAN del plan no existe en el F303xB/C (DS9118 §3.24): no se modela porque no hay nada que modelar. El CAN entre dos Discovery solo está en `testf3` (F71), no en `placas/dos_f3discovery.xml` | — |
 | **l** | La placa contra su esquemático | Contrastada con MB1035 rev. D.1 (2026-10-20): resistencias de la rosa (510 Ω en los verdes), B1 (100 + 330 Ω a VDD, 220 kΩ a masa), LD1, BOOT0, R39 y X3 sin montar. La vf de cada LED es de modelo; VDD se modela a 3,3 V, y en la placa son los 3,3 V del LD3985 menos el diodo D3 [de modelo] |
 
+### P-19 — Los ESP32-C3 y ESP32-C6, y un núcleo RISC-V reutilizable
+
+**Analizado en `doc/analisis_esp32_riscv.md` (2026-11-07), con un plan de
+catorce fases (E0-E13)**, en la rama `esp32rv`. El primer núcleo que no es
+ARM. La condición que ordena el plan es que **el núcleo RISC-V quede separado
+del chip** (`src/rv/`): el hart, sus CSR, traps, PMP, el Debug Module 0.13, los
+*triggers*, el TAP con su DTM y el *backend* RISC-V del motor de GDB, sin una
+línea de Espressif, validados en un SoC de laboratorio con su propio banco
+(`testrv`). Encima, una capa común de Espressif y, encima de ella, el C3 y el
+C6 (con su núcleo LP como segundo hart).
+
+Las fases: E0 lo que queda de la generalización (lo que separa ARM de RISC-V
+en `mcu_if`, el motor de GDB y las sondas); E1 el núcleo y el laboratorio; E2
+su depuración; E3-E8 el C3 (arranque directo, ROM y ESP-IDF, esptool, GDB y
+OpenOCD, USB-Serial-JTAG, periféricos); E9-E11 el C6; E12 la radio paravirtual,
+opcional; E13 la GUI.
+
+**Estado:** en curso E0, E1 y E2.
+
 ---
 
 ## 3. Funciones no modeladas — "bits sin máquina" (F)
@@ -1201,16 +1224,16 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 
 | Categoría | Puntos |
 | :--- | ---: |
-| **P** — Pendientes de plan | 18 *(una cerrada: P-14, con la matriz manual a medias; P-15, hecha su primera parte)* |
+| **P** — Pendientes de plan | 19 *(una cerrada: P-14, con la matriz manual a medias; P-15, hecha su primera parte)* |
 | **F** — Funciones no modeladas | 51 |
 | **T** — Temporización y física | 25 *(cuatro cerradas: T-22, T-23, T-24 y T-25)* |
 | **D** — Datos sin fuente | 14 |
 | **X** — Discrepancias, silencios de [IR] y erratas de ST | 14 |
 | **V** — Huecos de verificación | 11 |
 | **I** — Deuda de instrumentación y proyecto | 52 *(treinta y cinco cerradas: I-11, I-12, I-15, I-16, I-17, I-20, I-22, I-23, I-24, I-25, I-26, I-28, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38, I-39, I-40, I-41, I-42, I-43, I-44, I-45, I-46, I-47, I-48, I-50, I-51, I-53 e I-54)* |
-| **Total** | **185** |
+| **Total** | **186** |
 
-De los 185, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 186, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.
@@ -1232,3 +1255,6 @@ en el informe que la originó.
 > la CNC); la fila de la I decía 50 con 52 escritos; y de la I había cerradas
 > cinco que la lista no nombraba (I-23, I-24, I-26, I-50 e I-51). Son
 > 18 + 51 + 25 + 14 + 14 + 11 + 52 = **185**.
+>
+> **Y la quinta (2026-11-07), al dar de alta P-19.** Una P más:
+> 19 + 51 + 25 + 14 + 14 + 11 + 52 = **186**.
