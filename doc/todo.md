@@ -882,8 +882,8 @@ su depuración; E3-E8 el C3 (arranque directo, ROM y ESP-IDF, esptool, GDB y
 OpenOCD, USB-Serial-JTAG, periféricos); E9-E11 el C6; E12 la radio paravirtual,
 opcional; E13 la GUI.
 
-**Estado (2026-11-07):** **E0, E1 y E2 hechas**; la siguiente es E3 (el SoC
-del C3). El detalle, en §10 del análisis:
+**Estado (2026-11-07):** **E0, E1, E2 y E3 hechas**; la siguiente es E4 (la
+Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
 
 * **E0**: `DebugCaps` en `common/depuracion.h`; el motor de GDB partido en
   protocolo (`GdbRspBase`) y arquitectura (`GdbRsp`, ARMv7-M, el código de
@@ -902,9 +902,12 @@ del C3). El detalle, en §10 del análisis:
   `src/rv/gdb` (el piso RISC-V del motor de GDB, con hilos por hart). G1, G2'
   y OpenOCD genérico por remote_bitbang y por CMSIS-DAP en JTAG
   (`make openocd-rv`, 28 comprobaciones, con GDB por OpenOCD y por G1).
-* **Pendiente de E1**: `riscv-arch-test` con sus firmas (necesita el modelo
-  Sail o riscof para las de referencia) y la traza de Spike en un programa con
-  interrupciones del CLINT (el tiempo del CLINT de Spike no es el nuestro).
+* **E3**: el ESP32-C3 sin ROM (`soc/esp32c3`, `soc/esp`, `periph/esp`):
+  INTC y matriz, SYSTEM, RTC_CNTL, eFuse, UART0/1, SYSTIMER, TIMG0/1, GPIO
+  con la matriz y el IO_MUX sobre pads, la GPIO dedicada, CHIP_PU y los pines
+  de arranque; `make testc3` (57) y tres placas, una con un F407.
+* **Pendiente de E1**: `riscv-arch-test` (ACT4, con Sail 0.16 y GCC 15). La
+  traza de Spike con interrupciones del CLINT ya está (`irq_spike.S`).
 
 ---
 

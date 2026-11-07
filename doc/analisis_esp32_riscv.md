@@ -747,7 +747,7 @@ base son unas 40 instrucciones, la C se expande y no hay modo Thumb ni ITSTATE.
   extensiones), `rv_hart.h` (estado, ejecución, CSR, traps, PMP, triggers y
   modo depuración: C++ puro, sin SystemC) y `nucleo_rv.h`. Los tiempos van en
   `RvCaps::tiempos`. Separarlos más habría sido partir una clase por la mitad.
-* **`testrv`, 234 comprobaciones** (con las de E2): V1 las 247 comprimidas
+* **`testrv`, 234 comprobaciones** (con las de E2; 236 con `irq_spike`): V1 las 247 comprimidas
   válidas y las 22 reservadas de RV32C, contra GNU as (`gen_vectores_c.py`,
   con `.option rvc`/`norvc`); V4-V5 los 77 riscv-tests en RV32IMAC y, menos
   `ua`, en RV32IMC (`ua` tiene que fallar ahí); V6 `ma_data` con
@@ -766,10 +766,19 @@ base son unas 40 instrucciones, la C se expande y no hay modo Thumb ni ITSTATE.
 * **Los binarios se versionan** (`verif/rv/elf`); riscv-tests, comprimido
   (`riscv-tests.tar.xz`, 21 KB, BSD-3; `TERCEROS.md`). `make testrv` lo extrae
   en `build/rvt`. El banco no necesita la cadena de RISC-V ni Spike.
-* `asanrv`, limpio. El invariante: `testrv 234 8799500000 resto`.
-* **Pendiente:** `riscv-arch-test` con sus firmas (pide las de referencia de
-  Sail o riscof) y la traza de Spike en un programa con interrupciones del
-  CLINT, que Spike temporiza a su manera; `irq.S` se comprueba solo.
+* `asanrv`, limpio. El invariante: `testrv 234 8799500000 resto` (236 y
+  8811500000 desde `irq_spike.S`).
+* **La traza de Spike con interrupciones del CLINT** (`irq_spike.S`, hecho
+  después, con E3): Spike sube `mtime` en tandas de 5000 instrucciones y solo
+  mira las interrupciones al empezar una tanda o tras escribir un CSR; el
+  programa deja cada interrupción pendiente y enmascarada, la desenmascara con
+  una escritura de CSR, usa `mtimecmp` solo en el pasado o en el futuro
+  lejano y no lee `mtime`. Así las dos trazas son iguales (244 instrucciones)
+  sin deformar el núcleo. `testrv` pasa a 236 comprobaciones.
+* **Pendiente:** `riscv-arch-test`. Su rama actual (ACT4) ya no usa riscof:
+  Sail 0.16 calcula los resultados al generar los tests y los mete en ELF que
+  se comprueban solos. Hace falta una configuración del DUT
+  (`test_config.yaml`, UDB, `rvmodel_macros.h`, `sail.json`) y GCC 15.
 
 ### E2 · La depuración genérica, en el laboratorio
 
@@ -871,6 +880,45 @@ una placa.
 * `testc3` y `asanc3` en el CI con su invariante.
 
 **Tamaño:** grande. Es el equivalente de la T1 del MSP432.
+
+**Hecho (2026-11-07):**
+* `soc/esp32c3/c3_desc.h`: el mapa (`c3::`, que hace de `c3_mapa.h`), las
+  fuentes de interrupción y las señales de la matriz que se usan,
+  `RV_ESP32C3` (RV32IMC con U, sin mie/mip, mtvec vectorizado y alineado a
+  256, 16 PMP, sin contadores estándar, `HardwareCpu863`, 8 triggers con
+  tcontrol), los pines con su función 0 y su configuración tras el reset, los
+  encapsulados (QFN32 de 22 GPIO y el de las «X», de 16), la nomenclatura
+  (`GPIOn`, `IOn`, `MTMS`…, `U0RXD`/`U0TXD`) y los descriptores ESP32-C3,
+  C3FH4, C3FH4X y C3FH8X.
+* `soc/esp32c3/esp32c3.h`: el SoC, con el decodificador de bus (la SRAM1 por
+  las dos vistas, datos por el bus I solo en palabras alineadas, sin ejecutar
+  por el D), RTC FAST, la ROM vacía con aviso, los CSR propios (`mpc*` y
+  `cpu_gpio_*`), CHIP_PU, los pines de arranque y los resets de chip, de
+  sistema y de CPU con su causa. `esp32c3_mcu.h`: `McuC3` y
+  `REGISTRA_MCU(ESP32C3, …)`; `mcu-sim` lo monta.
+* `soc/esp/intc_esp.h`: la matriz y `IntcEspV1`. `periph/esp/`: `uart_esp.h`,
+  `systimer_esp.h`, `timg_esp.h` (T0 y MWDT) y `gpio_esp.h` (GPIO, matriz,
+  IO_MUX sobre pads eléctricos, GPIO dedicada, interrupciones de pin).
+  `soc/esp32c3/c3_sistema.h`: SYSTEM (relojes), RTC_CNTL (causa, reset por
+  software, STORE, force download), eFuse de lectura desde un fichero, y un
+  `BloqueGuardado` para SYSCON, PMS, ASSIST_DEBUG y el World Controller.
+* `verif/fw/esp32c3/`: `startup.S`, `c3_iram.ld`, `blinky`, `uart`, `intc`
+  (que incluye el SYSTIMER y TIMG0), `gpio_matriz` y CoreMark, con sus
+  huellas en `verif/fw/huellas.txt`.
+* `make testc3`: 57 comprobaciones; invariante `testc3 57 28556458348`.
+  Igual en dos pasadas y con `asanc3`.
+* Placas: `esp32c3_devkitm1.xml` (puente USB-UART en la UART0, BOOT y RESET),
+  `esp32c3_supermini.xml` (con un LED de verdad en GPIO8, para ver blinky) y
+  `esp32c3_y_f407.xml` (los dos chips por UART).
+* **Lo que se ha quedado fuera de E3:**
+  * el `.svg` de la DevKitM-1, que va con E13;
+  * el LED WS2812 de la DevKitM-1, que necesita la pieza `Ws2812` y el RMT (E8);
+  * el corte de reloj por `PERIP_CLK_EN`;
+  * el RWDT y el SWD;
+  * y la latencia de 4 ciclos del INTC como retardo: se cobra como coste al
+    entrar (`lat_irq`), no se mide.
+  * Los tiempos por instrucción de RV_ESP32C3 son de modelo: CoreMark sale a
+    unos 2,3 CoreMark/MHz.
 
 ### E4 · C3: Flash SPI, caché, ROM y ESP-IDF
 
