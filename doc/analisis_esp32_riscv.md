@@ -1,797 +1,1091 @@
-# ESP32 con núcleo RISC-V en `mcu-sim`
+# ESP32-C3 y ESP32-C6 en `mcu-sim`
 
-**Análisis de lo que habría que modificar y añadir, y plan por fases** · 14-10-2026
+**Análisis y plan por fases** · rama `esp32rv` · 07-11-2026
 
-La pregunta: qué haría falta para que `mcu-sim` simule los ESP32 con núcleo
-RISC-V (C2, C3, C5, C6, C61, H2, P4) **igual que hoy simula los STM32F4**. Es
-decir: el binario de verdad, el que sale de ESP-IDF, Arduino o Zephyr, sin
-recompilarlo; pines eléctricos; placas en XML; una consola serie en el
-ordenador; descarga y depuración con las herramientas de siempre.
+Segunda versión del análisis del 14-10-2026. Entre una y otra han entrado en
+`main` el MSP432 (P-16, P-17) y el STM32F303 (P-18), con la generalización T0,
+la sonda `remote_bitbang`, la sonda CMSIS-DAP por TCP y el puente USB de clase.
+Además, ya están en `doc/refs/esp32-c3/` y `doc/refs/esp32-c6/` los manuales de
+referencia, las hojas de datos, las erratas y las guías de diseño de hardware.
+Este documento sustituye al anterior: rehace el inventario con lo que ya existe,
+baja los dos chips al detalle de sus manuales y convierte el plan en fases con
+sus entregas y su criterio de cierre.
 
-También se responde a dos preguntas concretas: **cómo se descarga y cómo se
-depura** el firmware, y **qué parte del código que ya hay sirve**.
+Hay una condición nueva que ordena todo lo demás: **el núcleo RISC-V tiene que
+quedar separado del chip y reutilizable**, porque detrás del C3 y el C6 vendrán
+otros MCUs RISC-V. Ejemplos: el ESP32-C5, el C61, el H2 o el P4 del mismo
+fabricante, un GD32VF103, un CH32V o el Hazard3 del RP2350. Por eso la §3 está
+dedicada a esa separación, y las fases E1 y E2 construyen y validan el núcleo y
+su depuración **sin ningún chip de Espressif**.
+
+Referencias de este documento, todas en `doc/refs/` y sin versionar:
+
+| Clave | Documento |
+| :--- | :--- |
+| [TRM-C3] | ESP32-C3 Technical Reference Manual, v1.4 |
+| [DS-C3] | ESP32-C3 Series Datasheet, v2.4 |
+| [ER-C3] | ESP32-C3 Series SoC Errata, v1.3 |
+| [AR-C3] | Compatibility Advisory AR2024-009 (revisión v1.1), v1.2 |
+| [TRM-C6] | ESP32-C6 Technical Reference Manual, v1.2 |
+| [DS-C6] | ESP32-C6 Series Datasheet, v1.5 |
+| [ER-C6] | ESP32-C6 Series SoC Errata, v1.3 |
+| [HW-C3], [HW-C6] | Hardware Design Guidelines de cada chip |
+| [DBG] | RISC-V External Debug Support, v0.13.2 |
+| [PRIV] | RISC-V Privileged Architecture (v1.10 es la que citan los dos TRM) |
 
 ---
 
 ## 0. Resumen
 
-* **La mitad de fuera del chip ya está hecha y vale tal cual.** El netlist, el
-  XML de placas y sistemas, las 20 y pico piezas, el puente serie con RFC 2217,
-  la frontera con `mcu-sim-gui`, la capa de red, el freno de tiempo real, el
-  motor de GDB/RSP en su parte de protocolo y toda la integración continua
-  (con sus invariantes) no saben qué chip hay dentro. Un ESP32-C3 que cumpla
-  `mcu_if` las hereda todas. También la placa mixta: **un ESP32-C3 y un STM32F407
-  hablando por I²C en la misma placa** sale con lo que ya existe.
-* **La mitad de dentro hay que escribirla entera.** El núcleo Cortex-M4F, el
-  CoreSight, la matriz AHB, el RCC y los ~40 periféricos son de ARM y de ST. No
-  hay nada en `core/`, `bus/`, `rcc/`, `periph/` ni `soc/` que sirva como modelo
-  de registros para un ESP32. Lo que sí se aprovecha de ahí son **patrones**: la
-  base `BusSlave`, los rasgos como dato (`XxxCaps`), los contadores por
-  sucesos, los bloques declarados y no modelados, y `limitaciones()`.
-* **Antes de la primera línea RISC-V hace falta una fase 0 de generalización.**
-  Hay seis sitios que dan por hecho un STM32. Son pequeños, pero están en las
-  interfaces comunes: `mcu_if` (incluye `cortex_m4f.h` y nombra los pads como
-  `(puerto, pin)`), `Encapsulado` (16 pines por puerto), `Cableado` y
-  `pad_desde_nombre` (analizan `PA5`), `nombres_nodo.h` (`net_A5` → `PA5`),
-  `PowerPads` (NRST/BOOT0) y **`GdbRsp`, que mezcla el protocolo de GDB con el
-  modelo de depuración de ARMv7-M** (DHCSR, FPB, DWT y la Flash del F407). El
-  criterio de cierre es el de siempre: **ningún invariante se mueve ni un
-  picosegundo**.
-* **El ESP32 se diferencia del STM32 en tres cosas que mandan sobre todo lo
-  demás**, y que el plan tiene que atacar en este orden:
-  1. **No tiene Flash interna programable por registros.** El programa vive en
-     una Flash SPI (externa o dentro del encapsulado). Se ejecuta a través de
-     una caché con MMU que la proyecta en `0x4200_0000` y `0x3C00_0000`, y
-     tiene su propio formato de imagen (bootloader en `0x0`, tabla de
-     particiones en `0x8000` y aplicación en `0x1_0000`).
-  2. **El firmware de ESP-IDF llama a la ROM de máscara.** `esp_rom_printf`,
-     `ets_delay_us`, las funciones de la caché y de la Flash SPI, `memcpy`…
-     están en la ROM, en direcciones fijas, y la aplicación salta a ellas. **Sin
-     la imagen de la ROM no arranca ningún firmware de ESP-IDF**, ni de Arduino
-     ni de Zephyr. Espressif publica esas ROM como ELF (`esp-rom-elfs`), y
-     ESP-IDF ya las instala en la máquina del alumno. Se cargarían desde ahí,
-     **sin versionarlas**: es la misma política que con los PDF de ST (§6).
-  3. **La depuración es la del RISC-V Debug Spec 0.13 por JTAG**, no SWD +
-     CoreSight. El chip trae además un **USB-Serial-JTAG** fijo que da a la vez
-     la consola y el JTAG por el mismo USB.
-* **Descarga (§4):** cuatro vías, de menor a mayor fidelidad:
-  1. la carga directa al arrancar (`mcu-sim placa.xml flash_image.bin`);
-  2. **`esptool` por RFC 2217 contra el `PuenteSerie` de la UART0, con el
-     auto-reset por DTR/RTS** (`idf.py -p rfc2217://localhost:3355 flash
-     monitor`). Esta es la del laboratorio y casi todo está hecho: esptool
-     admite `rfc2217://` de serie, y el puente ya mueve DTR y RTS;
-  3. la misma, por la parte CDC del USB-Serial-JTAG;
-  4. por JTAG desde OpenOCD.
-* **Depuración (§5):** tres vías, como hoy hay dos:
-  1. un **stub interno pegado al Debug Module** (el equivalente de `--gdb-dap`),
-     para `riscv32-esp-elf-gdb`, `idf.py gdb` o VS Code;
-  2. un **JTAG por los pines** MTMS/MTDI/MTCK/MTDO, con una sonda que habla el
-     protocolo `remote_bitbang` de **OpenOCD**. Con ella funciona el
-     `openocd-esp32` de verdad, con `target/esp32c3.cfg`, los puntos de ruptura
-     en Flash, `program_esp` y los hilos de FreeRTOS;
-  3. el mismo JTAG por el USB-Serial-JTAG, a nivel de transacción.
-* **Recomendación:** empezar por el **ESP32-C3**. Es RV32IMC con un solo
-  núcleo, sin núcleo LP y sin coma flotante; es el mejor documentado, el que
-  tiene más placas baratas y el que mejor soporta el QEMU de Espressif, que
-  sirve de contraste. El C6 y el H2 llegan después como «otro descriptor más
-  algunos bloques». El P4, con dos núcleos, extensiones propias y sin radio, es
-  otro proyecto.
-* **Lo que no se modela, y hay que decirlo desde el primer día:** **la radio**
-  (Wi-Fi, BLE y 802.15.4). Se declara y no se modela, igual que el SPDIF-RX del
-  F446. Un firmware que arranque el Wi-Fi se quedará en la inicialización del
-  PHY, y `limitaciones()` lo dirá al montar la placa.
+* **Ya está hecha buena parte de la antigua fase E0.** La T0 del MSP432 la
+  hizo para una familia ARM de otro fabricante:
+  * `mcu_if` ya no exige un `McuCaps` (`soc/mcu_desc.h`);
+  * los nombres de los pines los interpreta el chip (`pins/nomenclatura.h`);
+  * el `load` de GDB pide la secuencia de Flash al chip (`programador_nv_if`);
+  * el cargador lee ELF (`common/imagen_fw.h`);
+  * la memoria no volátil persiste entre simulaciones (`memoria_nv.h`);
+  * y hay opciones por chip (`--rom`, `admite_opcion`).
+
+  **Lo que queda es lo que separa a ARM de RISC-V** (§5):
+  * `DebugCaps`, que sigue en `cortex_m4f.h`;
+  * el motor de GDB, que sigue siendo de ARMv7-M;
+  * las sondas, que solo hablan SWD;
+  * los 16 pines por puerto de `Encapsulado`;
+  * y los nodos de depuración, que hoy son solo SWCLK y SWDIO.
+* **Lo que entonces había que escribir ahora existe, y se reutiliza tal cual**:
+  * la sonda `remote_bitbang` para OpenOCD (`verif/sonda_openocd.h`), a la
+    que solo le falta la mitad JTAG del protocolo;
+  * la prueba con OpenOCD de verdad (`verif/openocd/programa.py`);
+  * la sonda CMSIS-DAP por TCP;
+  * y, sobre todo, **el puente USB de clase CDC-ACM → RFC 2217**
+    (`parts/puente_usb.h`). El USB-Serial-JTAG del C3 y del C6 es un
+    dispositivo USB de función fija, y si se modela detrás de `usb_dev_if`,
+    el puente lo enumera como enumera el OTG del F303 o el MUSB del E4.
+    Por ese camino, `esptool` y `idf.py monitor` funcionan sobre el USB nativo
+    sin escribir un puente nuevo.
+* **La ROM deja de ser un problema de licencia.** Los ELF de las ROM que
+  publica Espressif (`espressif/esp-rom-elfs`) están bajo **Apache-2.0**, como
+  CMSIS: se pueden descargar en la integración continua e incluso versionar.
+  El código de la ROM no es abierto, pero el binario sí se puede redistribuir
+  (§8).
+* **Los dos chips no tienen el mismo núcleo**, aunque los dos se llamen
+  «ESP-RISC-V» y tengan 4 etapas. Los TRM lo dejan claro, y es la mejor prueba
+  de que el núcleo tiene que ser un componente parametrizable (§2.2):
+
+  | | C3 | C6 HP | C6 LP |
+  | :--- | :--- | :--- | :--- |
+  | ISA | RV32IMC | RV32IMAC | RV32IMAC |
+  | `mie`/`mip` | no tiene | sí | sí |
+  | Modos | U, sin delegación | U con delegación (`mideleg`, `ustatus`, `utvec`, `uret`) | M |
+  | Triggers | 8 | 4 | 2 |
+  | Contadores | propios | propios | `mcycle`/`minstret` estándar |
+  | Interrupciones | 31 líneas | 28 externas + 4 del CLINT | una sola entrada |
+
+* **La arquitectura propuesta tiene tres anillos** (§3):
+  1. **`src/rv/`**: el núcleo RISC-V genérico. Contiene el hart, los CSR, los
+     traps, PMP y PMA, los tiempos, el Debug Module, los *triggers*, el TAP con
+     su DTM y el *backend* RISC-V del motor de GDB, más un **SoC de
+     laboratorio** con su banco `testrv`. Ahí se valida la ISA contra
+     `riscv-tests`, `riscv-arch-test` y Spike, sin ningún chip.
+  2. **`src/soc/esp/` y `src/periph/esp/`**: lo común de Espressif: formato de
+     imagen, ROM, eFuse, caché con MMU, MSPI y los periféricos que comparten el
+     C3 y el C6.
+  3. **`src/soc/esp32c3/` y `src/soc/esp32c6/`**: lo propio de cada chip.
+
+  Un MCU RISC-V futuro solo escribe el tercer anillo, y el segundo si es de
+  otro fabricante. El núcleo, la depuración y GDB le llegan hechos (§3.9).
+* **Descarga y depuración**, sin cambios de fondo respecto a la primera versión
+  y ahora con nombres de fase:
+  * D2 es `esptool` por la UART0 con auto-reset;
+  * D3 es `esptool` por el USB-Serial-JTAG;
+  * G1 es el stub interno pegado al Debug Module;
+  * G2 es `openocd-esp32` por `remote_bitbang` en JTAG;
+  * G3 es OpenOCD por el JTAG del USB-Serial-JTAG.
+
+  Todas las vías salen del núcleo genérico, así que valen para cualquier
+  RISC-V con un DM 0.13.
+* **El plan tiene catorce fases (E0-E13, §10).** La radio sigue declarada y no
+  modelada, salvo la vía paravirtual de `doc/analisis_wifi_bl.md` (R8), que
+  queda como fase opcional. El orden es este:
+  * E0 termina la generalización;
+  * E1 y E2 son el núcleo y su depuración en el laboratorio;
+  * de E3 a E8, el C3 entero: arranque directo, ROM y ESP-IDF, esptool, GDB y
+    OpenOCD, USB-Serial-JTAG, periféricos;
+  * de E9 a E11, el C6: el núcleo HP, el núcleo LP como segundo hart, y sus
+    periféricos propios;
+  * E12, la radio paravirtual (opcional);
+  * E13, la GUI.
 
 ---
 
-## 1. Qué hay hoy, visto desde un chip que no es de ST
+## 1. Qué ha cambiado desde la primera versión
 
-### 1.1 Lo que ya es de cualquier chip
-
-La arquitectura del proyecto tiene tres capas (`doc/reutilizacion.md` §2):
-arquitectura, integración y familia. Un ESP32 cambia **las tres**. Lo que lo
-hace viable es que la frontera exterior del MCU se diseñó para no depender de
-ninguna:
-
-* **El MCU termina en los `AnalogNet` de sus pines** (`src/README.md`,
-  «Convenciones»). Las piezas se conectan a nodos, no a chips, y por eso
-  `multi_mcu.md` §5.5 pudo decir que el catálogo entero vale para dos MCUs «sin
-  una línea nueva». Vale igual para un MCU de otra arquitectura.
-* **`sim` habla con el chip por `mcu_if`** (`soc/mcu_if.h`), con su factoría
-  indexada por familia. Ese fichero ya prevé el caso: *«un tipo de otra familia
-  es una clase nueva y una llamada a `REGISTRA_MCU`»*.
-* **El puente serie, el de la GUI y los servidores de GDB hablan TCP** por
-  `common/red.h`, que es el único fichero que sabe en qué sistema operativo
-  corre.
-
-### 1.2 Lo que da por hecho un STM32, y dónde
-
-Este es el inventario de lo que hay que tocar antes de nada. Sale de leer las
-interfaces comunes, no de buscar «F407».
-
-| Sitio | Qué supone | Por qué estorba a un ESP32 |
-| :--- | :--- | :--- |
-| `soc/mcu_if.h` | Incluye `core/cortex_m4f.h` para `DebugCaps`; `caps()` devuelve un `McuCaps`; `nodo_analogico(puerto, pin)` | Un ESP32 no tiene `CoreCaps` de NVIC ni `ArbolReloj` de RCC, y sus pines no tienen puerto: son `GPIO0`…`GPIO21` |
-| `top/mcu_caps.h` | `McuCaps` = `CoreCaps` (NVIC, MPU, FPv4) + `MemCaps` (sectores de Flash interna) + `ArbolReloj` + `Periferia` (ETH, DCMI, CRYP…) + `Conectividad` (matriz AHB) + `idcode` (DBGMCU) | Casi todos los campos son de ST. Es el descriptor de una **familia**, y debe seguir siéndolo; lo que falla es que `mcu_if` lo exija |
-| `pins/encapsulado.h` | `uint16_t puerto[N_PUERTOS_SILICIO]`: 16 pines por puerto | El C3 tiene 22 GPIO en un solo banco; el C6 tiene 31 y el P4 55 |
-| `pins/pin_mux.h` | `Cableado` indexado por `(puerto, pin)` con `N_PORT_PINS = 16`; `pad_desde_nombre` analiza `PA5`; mux por función alternativa AF0-15 | El ESP32 tiene **matriz GPIO**: cualquier señal de periférico a cualquier pin, más un IO_MUX con funciones directas |
-| `common/nombres_nodo.h` | `net_A5` → `PA5` | Hay que preguntarle el nombre al chip |
-| `pins/power_pads.h` | VDD, VDDA, VBAT, **NRST**, **BOOT0** | El ESP32 tiene **EN** (CHIP_PU) y pines de arranque (*strapping*) que son GPIO normales: en el C3, GPIO2, GPIO8 y GPIO9 |
-| `common/gdb_rsp.h` | Además del protocolo, el modelo de depuración de ARMv7-M: DHCSR/DCRSR/DCRDR, 23 registros de perfil M, FPB (6) y DWT (4), y **la secuencia de programación de la Flash del F407** en `0x4002_3C00` | Todo eso es de ARM y de ST. El RISC-V para y lee registros por el Debug Module, y la Flash del ESP32 no se programa así |
-| `verif/image_loader.h` | `ImageLoader(SocF4&)`, `.bin` en `FLASH_BASE` e Intel HEX | Ya está detrás de `carga_firmware()`. Falta el formato de imagen del ESP32 y **ELF**, que también le vendría bien al STM32 |
-
-Ninguno es grande. Todos están en el camino de cualquier chip nuevo que no sea
-de ST, así que la fase 0 se paga una vez: después, un RP2040, un nRF52 o un
-GD32VF103 entran por la misma puerta.
-
----
-
-## 2. En qué se diferencia un ESP32-C3 de un STM32F4
-
-Esto no pretende ser un manual; es la lista de lo que cambia el **diseño**. Las
-cifras son del catálogo y del TRM de Espressif. **Antes de escribirlas en un
-descriptor deben contrastarse con dos fuentes**, como manda la regla del
-proyecto: el TRM y las cabeceras `soc/*_reg.h` de ESP-IDF (§6.2).
-
-| | STM32F407 | ESP32-C3 |
-| :--- | :--- | :--- |
-| **Núcleo** | Cortex-M4F, Thumb-2, FPv4-SP, NVIC, MPU | RV32IMC (Zicsr, Zifencei), 160 MHz, segmentado en 4 etapas, PMP, sin FPU ni atómicas |
-| **Interrupciones** | NVIC de 82 líneas y 4 bits de prioridad | **Matriz de interrupciones** (62 fuentes) → 31 interrupciones de CPU, con prioridad, umbral y tipo flanco/nivel por línea. El controlador es propio de Espressif; los chips posteriores lo cambian (los más recientes adoptan CLIC) |
-| **Código** | Flash interna de 1 MB en `0x0800_0000`, programada por `FLASH_KEYR/CR/SR` | **Flash SPI** fuera del núcleo, leída por SPI0 a través de **caché + MMU** (páginas de 64 KB) y proyectada en `0x4200_0000` (instrucciones) y `0x3C00_0000` (datos). Se programa con SPI1 |
-| **RAM** | SRAM1/2, CCM y BKPSRAM | 400 KB de SRAM, **la misma memoria vista por dos buses** (IRAM en `0x4037_C000` y DRAM en `0x3FC8_0000`), más 8 KB de RTC FAST |
-| **ROM** | System Memory con el bootloader de ST, que casi nadie usa desde el firmware | **384 KB de ROM que el firmware usa todo el rato**: arranque, cargador serie, y una biblioteca de funciones enlazada por dirección (`esp32c3.rom.ld`) |
-| **Arranque** | Vector de reset en la Flash, BOOT0 | La ROM lee los pines de arranque y luego carga el **bootloader de segunda etapa** de la Flash en IRAM, que a su vez lee la tabla de particiones y monta la aplicación en la MMU. Escribe por la UART0 a 115200: `rst:0x1 (POWERON_RESET),boot:0xc (SPI_FAST_FLASH_BOOT)` |
-| **Pines** | Puertos A-I de 16 pines con AF0-15 | 22 GPIO, **matriz GPIO** + IO_MUX; fuerza de salida en 4 niveles (`FUN_DRV`) en vez de `OSPEEDR` |
-| **Reloj** | RCC: HSI/HSE/PLL/PLLI2S, AHB/APB | Cristal de 40 MHz, PLL de 480 MHz, CPU a 80/160 MHz, APB a 80 MHz. Lo gobiernan el SYSTEM y el RTC_CNTL |
-| **Configuración** | Bytes de opción | **eFuse**: dirección MAC, revisión del chip, selección del JTAG, cifrado de Flash, arranque seguro |
-| **Depuración** | SWJ-DP + AHB-AP + CoreSight (FPB, DWT, ITM) | **RISC-V Debug 0.13**: TAP JTAG → DTM → Debug Module, 8 *triggers* (puntos de ruptura y de vigilancia hardware), y el **USB-Serial-JTAG** integrado |
-| **Radio** | — | Wi-Fi 4 y BLE 5 |
-
-Tres consecuencias para el modelo:
-
-1. **«Cargar el firmware» no es escribir la Flash interna.** Es escribir una
-   pieza de Flash SPI (que en el C3FH4 va dentro del encapsulado y en el C3 a
-   secas está en la placa), y dejar que la ROM y la caché hagan el resto. El
-   modelo de memoria del STM32, donde la Flash es un esclavo del bus, no se
-   parece en nada.
-2. **El tiempo de ejecución depende de la caché.** Un fallo de caché cuesta una
-   lectura SPI. Para el invariante basta un modelo LT de aciertos y fallos;
-   pero tiene que existir, porque ejecutar desde IRAM o desde Flash se nota
-   (`IRAM_ATTR` existe por eso).
-3. **Los pines de arranque son GPIO.** GPIO9 es el botón BOOT de la placa *y*
-   un pin que el firmware puede usar después. El valor que importa es el que
-   tenía en el flanco de subida de EN. Eso se modela en el pad, no en `sim`.
-
----
-
-## 3. Qué se aprovecha del código que ya hay
-
-### 3.1 Tal cual, sin tocar una línea
-
-| Qué | Dónde | Para qué en el ESP32 |
-| :--- | :--- | :--- |
-| Nodos eléctricos y superposición | `common/analog_net.h` | Igual |
-| Generador de reloj reprogramable | `common/clock_gen.h` | El cristal de 40 MHz, el PLL, el reloj de la CPU y el de APB |
-| Esclavo TLM con *byte enables*, gating y latencia por dominio | `common/periph_base.h` | La base de todos los periféricos del ESP32 |
-| Netlist, XML, `<sistema>`, `<acopla>`, `une=`, validación | `parts/netlist*.h`, `xml_min.h` | Placas ESP32 y placas mixtas |
-| Factoría de piezas con ayuda obligatoria | `parts/part_factory.h`, `part_help.h` | Las piezas nuevas (§7) |
-| **Catálogo de piezas** | `parts/ext_parts.h`, `tft_st7735.h`, `servo.h`… | LED, pulsadores (BOOT y EN), cristal, resistencias, bus I²C con EEPROM 24Cxx, **bus CAN con sus transceptores (el TWAI del C3 es un CAN 2.0)**, TFT ST7735 por SPI, servo, KY-040, FT232RL |
-| **Puente serie** con TCP en crudo y RFC 2217, DTR/RTS y *break* | `parts/puente_serie.h`, `motor_uart.h`, `common/telnet2217.h`, `serie_destino.h`, `formato_uart.h` | **La consola y la descarga con esptool** (§4.2) |
-| Frontera con `mcu-sim-gui` | `common/gui_*.h`, `protocolo.h`, `proto_io.h`, `parts/enlace_gui.h`… | Igual. El protocolo nombra los nodos con cadenas, y `GPIO9` es tan válida como `PA5` |
-| Capa de red | `common/red.h` | Igual |
-| Freno de tiempo real, `--espera-terminal`, varios MCUs con un puerto de GDB cada uno | `top/sim_main.cpp` | Igual |
-| Huella de firmware, opciones de ASan, guarda de *tick* | `common/huella_fw.h`, `asan_opciones.h`, `guarda_tick.h` | Igual |
-| Integración continua por invariante de tiempo simulado | `ci/*.sh`, `.github/workflows/suites.yml`, `verif/invariantes.txt` | Un banco más, `testc3`, con su cifra |
-| GDB de pega para las pruebas | `verif/gdb_client.h` | Probar el stub RISC-V sin `gdb` instalado |
-| Los fuentes de CoreMark | `verif/fw/coremark/` | Con otro `core_portme`, la primera carga útil del núcleo RISC-V |
-
-### 3.2 Con una generalización pequeña (fase E0)
-
-| Qué | Cambio |
+| Punto del análisis de octubre | Estado hoy (`esp32rv` = `main` + este documento) |
 | :--- | :--- |
-| `mcu_if` | Quitar el `#include "../core/cortex_m4f.h"`, para lo que `DebugCaps` pasa a un fichero común. Cambiar `caps()` por un `McuInfo` mínimo (nombre, familia, encapsulado y pads), con `McuCaps` como descriptor **propio** de los STM32F4. Sustituir `nodo_analogico(puerto, pin)` por `nodo_analogico(const std::string& pad)` y añadir `pads()`, que enumera los pads con su nombre |
-| `Encapsulado` | De `uint16_t puerto[]` a una lista de pads con nombre, o a máscaras de 64 bits. Se conserva la comprobación de que el recuento coincide con el datasheet |
-| `Cableado`, `pad_desde_nombre`, `NodeMap::registra_mcu` | Que el MCU diga cómo se llaman sus pads, para que el netlist no los adivine. El ESP32 acepta `GPIO9` y el alias `IO9`, que es como lo serigrafían las placas |
-| `nombres_nodo.h` | El nombre del nodo sale del pad, no del nombre del objeto SystemC |
-| `PowerPads` | Que los pines de alimentación y control sean una lista por familia: VDD, VDDA, NRST y BOOT0 en el STM32; VDD, VDD3P3_RTC y EN en el ESP32 |
-| `GdbRsp` | Partirlo en **protocolo** (socket, tramado, paquetes `g/G/p/P/m/M/X/c/s/vCont/Z/z/q/v`, `monitor`, `qXfer`, traza) y **arquitectura**: una interfaz `depurador_arq_if` con registros y `target.xml`, parar/seguir/paso, puntos de ruptura y de vigilancia, *reset* y programación de memoria no volátil. El ARMv7-M se queda **con la misma secuencia de accesos al DAP**, que es lo que mantiene el invariante |
-| `ImageLoader` / `carga_firmware` | Añadir ELF (lo usan los dos mundos) y el formato de imagen del ESP32 |
-| `cubeide/simulador.launch` | Su equivalente para Espressif-IDE (Eclipse) y un `launch.json` para VS Code |
+| `mcu_if` exige `McuCaps` | **Resuelto en T0**: `McuDesc` con `propio` opaco y `CatalogoMcu` común |
+| Los nombres de pin son los de ST | **Resuelto en T0**: `Nomenclatura` por tipo de chip; falta registrar la de Espressif (`GPIOn`, `IOn`) |
+| El `load` de GDB lleva dentro la Flash del F407 | **Resuelto en T0**: `programador_nv_if`. Para el ESP32 hará falta uno que programe la Flash SPI a través de SPI1 (§7.1) |
+| Falta ELF en el cargador | **Resuelto en T0** (`imagen_fw.h`, carga por LMA). Falta el formato de imagen de Espressif |
+| `mcu_if` incluye `cortex_m4f.h` | **Sigue igual**: solo por `DebugCaps`, que es neutral y hay que moverlo (E0) |
+| `GdbRsp` mezcla protocolo y ARMv7-M | **Sigue igual** (DHCSR, FPB, DWT y los 23 registros dentro del motor). Es el trabajo grande de E0 |
+| Hay que escribir una sonda `remote_bitbang` | **Existe** (T5 del MSP432), solo para SWD: hoy `R` contesta `0` y `0`-`7` se ignoran. Hay que completar JTAG (E0) |
+| — | **Existe** una sonda CMSIS-DAP por TCP (X2 del XDS110). Con `DAP_JTAG_Sequence` sería una sonda JTAG rápida |
+| Hay que escribir el puente CDC → RFC 2217 | **Existe** (`puente_usb.h`, T7 del MSP432). Falta que admita un dispositivo compuesto y una segunda clase, la del JTAG de Espressif (E7) |
+| La licencia de la ROM es la primera incógnita | **Resuelta**: Apache-2.0 [esp-rom-elfs, README] |
+| `Encapsulado`: 16 pines por puerto | **Sigue igual**. Hoy son 18 puertos × 16 bits; el C6 tiene GPIO0-30 sin GPIO14 en un solo banco |
+| PowerPads con NRST y BOOT0 | La `Nomenclatura` ya trae sus pines de alimentación (`alim`). Falta CHIP_PU como reset |
+| La radio | Hay análisis propio (`doc/analisis_wifi_bl.md`, §3.3 y R8): **paravirtual** con `VirtWifi`, opcional |
 
-### 3.3 Como algoritmo, no como periférico
-
-| Qué | Dónde | En el ESP32 |
-| :--- | :--- | :--- |
-| AES | `periph/cryp_algo.h` | El acelerador AES del C3 (ECB y los modos por bloques, con DMA) |
-| SHA-1 | `periph/hash_algo.h` | El acelerador SHA del C3 hace SHA-1, SHA-224 y SHA-256. **El fichero ya prevé el SHA-2** («el día que haga falta un SHA-2 para otra familia, entra aquí»). Hace falta también para verificar las imágenes que comprueba la ROM |
-| Vectores de prueba de cifrado | `verif/vectores/` | Los mismos, más los de SHA-256 |
-
-### 3.4 Lo que no sirve como código, pero sí como patrón
-
-`core/` (Thumb-2, FPv4, SCS, CoreSight), `bus/` (matriz AHB 8×7, bit-banding),
-`rcc/`, `soc/`, `top/soc_f4*.h` y todo `periph/` son de ARM o de ST. Pero de
-ellos se hereda la manera de hacer las cosas:
-
-* **los rasgos como dato** (`UsartCaps`, `TimCaps`, `CoreCaps`): un
-  `RvCoreCaps` (extensiones, número de *triggers*, regiones PMP, `misa`,
-  `marchid`/`mimpid`) que el C3, el C6 HP, el C6 LP y el P4 instancian con
-  números distintos;
-* **la CPU con el estado en un `struct`** y el sistema por una interfaz C++, no
-  por TLM (`core_sys_if`), con el **quantum LT y la anotación de ciclos**;
-* **`debug_if.h`**, el contrato por el que la CPU llama al depurador en cada
-  búsqueda y cada acceso. En RISC-V el mismo contrato sirve para los
-  *triggers*, `ebreak` y `dcsr.step`;
-* **los contadores por sucesos** de `timers.h`, para el SYSTIMER de 52 bits y
-  los TIMG;
-* **`bloque_declarado.h`**: la radio, el RSA, el HMAC y el DS (firma digital)
-  contestan, no guardan y avisan la primera vez;
-* **`limitaciones()`** en voz alta al montar la placa.
-
-### 3.5 Los repositorios `nanorv` y `nanorv-ocd`
-
-`nanorv` es un RV32I multiciclo en **VHDL** con bus APB. No hay código que
-pasar a SystemC, pero aporta tres cosas:
-
-* su `crt0.s`, su `linker.ld` y su `makefile` con `riscv64-unknown-elf-gcc` de
-  MSYS2: la base de los firmwares de prueba *bare-metal* de la fase E1;
-* `debugging.txt`, que es una lista de errores típicos de un RV32I (extensión
-  de signo en cargas de byte, desplazamientos al alinear) que conviene
-  convertir en pruebas;
-* la experiencia de compilar RISC-V en Windows, que es la plataforma más
-  delicada del proyecto.
-
-`nanorv-ocd/nanorv.cfg` es un borrador de configuración de OpenOCD para un
-USB-Blaster que no llegó a cerrarse. No se reutiliza, pero apunta a lo mismo que
-la vía 2 de §5: **OpenOCD hablando con un Debug Module RISC-V propio**. Aquí el
-cable sería `remote_bitbang` por TCP, que es mucho más sencillo que un
-USB-Blaster.
+**Suites cuyo invariante no se puede mover** (`verif/invariantes.txt`):
+`test407`, `test446`, `test417`, `testserie`, `testgui`, `testp4`, `teste4` y
+`testf3`.
 
 ---
 
-## 4. Descarga del firmware
+## 2. Los dos chips, según sus manuales
 
-### 4.1 Vía D1 · Carga directa al arrancar
+### 2.1 El mapa del sistema
 
-Igual que hoy `mcu-sim placa.xml fw.bin`, pero con los formatos del ESP32:
+| | ESP32-C3 [TRM-C3 §3] | ESP32-C6 [TRM-C6 §5] |
+| :--- | :--- | :--- |
+| ROM | 384 KB: ROM0 de 256 KB en `0x4000_0000` (solo bus I) y ROM1 de 128 KB en `0x4004_0000`, **con alias** en el bus D en `0x3FF0_0000` | 320 KB en `0x4000_0000`, bus I y D en la misma dirección |
+| SRAM | 400 KB: SRAM0 de 16 KB en `0x4037_C000` (solo bus I; **puede ser la caché**) y SRAM1 de 384 KB en `0x4038_0000` (bus I) **= `0x3FC8_0000`** (bus D) | HP SRAM de 512 KB en `0x4080_0000`, **sin alias** |
+| Memoria que sobrevive al Deep-sleep | RTC FAST, 8 KB en `0x5000_0000` | **LP SRAM**, 16 KB en `0x5000_0000`, con dos modos de acceso (rápido para el HP o para el LP, `LP_AON_FAST_MEM_MUX_SEL`) |
+| Flash externa | Hasta 16 MB. Caché de 16 KB, 8 vías y líneas de 32 B. **Dos ventanas** de 8 MB: `0x4200_0000` (I) y `0x3C00_0000` (D, solo lectura), en páginas de 64 KB | Hasta 16 MB. Caché de 32 KB, 4 vías y líneas de 32 B. **Una ventana** de 16 MB en `0x4200_0000` para I y D |
+| Periféricos | `0x6000_0000`-`0x600D_0FFF`, 35 módulos | `0x6000_0000`-`0x600C_FFFF`, 51 módulos. Los LP van en `0x600B_xxxx` en ventanas de 1 KB |
+| Región de la CPU | `0x2000_0000`-`0x27FF_FFFF` («DM») | `0x2000_0000`-`0x2FFF_FFFF` («CPU sub-system»: el CLINT en `+0x1800`/`+0x1C00`) |
+| Lo que no está en el bus | Lo que no cae en IRAM, DRAM ni DM va por AHB [TRM-C3 tabla 1.3-1] | Igual [TRM-C6 tabla 1.4-1] |
+| GDMA | 3 TX + 3 RX, 7 periféricos | 3 TX + 3 RX, 8 periféricos |
 
+Para el modelo, la diferencia de fondo está en los alias: **el C3 ve la misma
+SRAM1 y la misma ROM1 por dos direcciones**, y el C6 no. Se resuelve en el
+decodificador de bus de cada chip, no en el núcleo (§3.1).
+
+### 2.2 Los tres núcleos
+
+| | C3 [TRM-C3 §1] | C6 HP [TRM-C6 §1] | C6 LP [TRM-C6 §3] |
+| :--- | :--- | :--- | :--- |
+| ISA | RV32IMC | RV32IMAC | RV32IMAC |
+| Segmentación y reloj | 4 etapas en orden, hasta 160 MHz | 4 etapas, **BTB con predicción estática**, hasta 160 MHz | **2 etapas**, hasta 20 MHz |
+| Modos | M y U (`misa.U = 1`, `MPP` solo 0 o 3, `mstatus.TW`) | M y U **con delegación** de interrupciones: `mideleg`, `ustatus`, `uie`, `utvec`, `uscratch`, `uepc`, `ucause`, `uip` y `uret`, es decir, la antigua extensión N | Solo M |
+| `mie`/`mip` | **No existen**: el enmascarado es del controlador, por registros | Sí | Sí, pero solo se usa el bit 30 |
+| `mtvec` | Solo vectorizado, base alineada a 256 | Igual | Igual. Tras el reset vale `0x5000_0000` y el PC arranca en `0x5000_0080` |
+| Interrupciones | INTC de 31 IDs (1-31), prioridad 1-15, umbral y tipo nivel o flanco; salto a `mtvec + 4·ID`; **latencia de 4 ciclos**; ID 0 reservado para excepciones | INTPRI: 28 externas (1-2, 5-6, 8-31) con prioridad 0-15 y umbral, más **4 del CLINT** (0 USIP, 3 MSIP, 4 UTIP, 7 MTIP) con prioridad fija y sin umbral; las externas ganan siempre | **Una sola entrada** (`mtvec + 4·30`); la fuente se lee en `LPPERI_INTERRUPT_SOURCE_REG` |
+| Temporizador del núcleo | — (el SYSTIMER es un periférico) | CLINT: `MTIME` de 64 bits, `MTIMECMP` y `UTIMECMP`, con desbordamiento (`MTOF`) | — |
+| Contadores | **Propios**: `mpcer`, `mpcmr` y `mpccr` (`0x7E0`-`0x7E2`); la lista de CSR del TRM no trae `mcycle` ni `minstret` | Propios, como el C3 | **Estándar**: `mcycle`, `minstret`, `mhpmcounter3`-`12` y `mcountinhibit` |
+| CSR propios | `cpu_gpio_oen/in/out` (`0x803`-`0x805`, GPIO dedicada) | Los mismos, más **PMA**: `pma_cfg0`-`15` (`0xBC0`) y `pma_addr0`-`15` (`0xBD0`) | — |
+| Protección | PMP de 16 regiones | PMP de 16 regiones + PMA de 16 | — |
+| Desalineados | Los hace el hardware, partidos en dos transacciones. Con la errata **CPU-863** (en todas las revisiones): una carga desalineada seguida de un almacenamiento puede dar fallo de acceso si los dos están en regiones PMP o PMA distintas [ER-C3 §3.1] | Igual, con CPU-863 en v0.0-v0.2 | Excepción 6, «misaligned atomic» |
+| Identificación | `mvendorid = 0x612`, `marchid = 0x8000_0001`, `mimpid = 1` | (por leer del TRM en E9) | Solo `mhartid` (= 1 para el DM) |
+| Depuración | DM 0.13, *program buffer* de 16 palabras, SBA de palabra alineada, **8 triggers** y `tcontrol` | DM 0.13 **con varios harts** (hart 0 = HP, hart 1 = LP), *program buffer* de 16 palabras, **4 triggers**, disparo cruzado HP↔LP y codificador de traza | Comparte el DM del HP. **2 triggers**. Sale «unavail» del reset hasta que se escribe `LPPERI_CPU_REG` |
+
+**Consecuencia para el diseño**: si se escribiera el núcleo «del C3» y luego se
+adaptara al C6, quedarían tres copias con `if` por todas partes. Lo correcto es
+un núcleo cuyos rasgos y cuyo controlador de interrupciones vengan de fuera
+(§3.2 y §3.5).
+
+### 2.3 Pines, arranque y JTAG
+
+| | ESP32-C3 | ESP32-C6 |
+| :--- | :--- | :--- |
+| GPIO | 22 (`GPIO0`-`21`); **16** en el C3FH4AZ y el C3FH4X, que no sacan los pines de la Flash [DS-C3 tabla 1-1] | **30** en QFN40 (`GPIO0`-`13` y `GPIO15`-`30`: **no hay GPIO14**); 22 en QFN32 (C6FH4, C6FH8, con Flash dentro) [DS-C6] |
+| Pines de arranque | GPIO2, GPIO8 y GPIO9 (más GPIO3 en el *SPI Download Boot*); GPIO9 con *pull-up* interno [TRM-C3 §7] | MTMS, MTDI, GPIO8, GPIO9 y GPIO15; GPIO9 con *pull-up* [TRM-C6 §9] |
+| Modos | GPIO9 = 1: SPI Boot. GPIO9 = 0 y GPIO8 = 1: *Joint Download* (UART0 o USB). `0 0 0 1`: *SPI Download* | GPIO9 = 1: SPI Boot. GPIO9 = 0 y GPIO8 = 1: Download |
+| Variantes del SPI Boot | *Normal Flash Boot* (la ROM copia el bootloader a la SRAM) y **Direct Boot**: si las dos primeras palabras de la Flash son `0xaedb041d`, la ROM monta la caché y salta a la Flash sin bootloader | Las mismas |
+| Mensajes de la ROM | UART0 y USB-Serial-JTAG; los gobiernan `EFUSE_UART_PRINT_CONTROL` y GPIO8 | Igual |
+| UART0 | U0RXD = GPIO20, U0TXD = GPIO21 | U0TXD = GPIO16, U0RXD = GPIO17 |
+| USB-Serial-JTAG | D- = GPIO18, D+ = GPIO19 | D- = GPIO12, D+ = GPIO13 |
+| JTAG en pines | MTMS/MTDI/MTCK/MTDO = GPIO4/5/6/7 | Los mismos GPIO4-7 |
+| Origen del JTAG | eFuses `DIS_USB_JTAG`, `DIS_PAD_JTAG` y `JTAG_SEL_ENABLE`. **El TRM del C3 no dice qué pin de arranque elige**; hay que cerrarlo con la guía de JTAG de ESP-IDF | Tabla completa con eFuses y **GPIO15** [TRM-C6 tabla 9.2-4 y §1.10.4] |
+| Revisiones | v0.4 y **v1.1, con otra ROM**. Un binario para v0.4 **no arranca** en v1.1 sin recompilar con un ESP-IDF reciente [AR-C3]. La revisión está en eFuse [ER-C3 §1.2] | v0.0, v0.1 y v0.2 |
+
+### 2.4 Los periféricos
+
+| Bloque | C3 | C6 | En el modelo |
+| :--- | :--- | :--- | :--- |
+| UART | 2 + UHCI | 2 + **LP_UART** + UHCI | Una IP común; el LP_UART es otra instancia con otro reloj |
+| SPI | SPI0/1 (Flash) + GP-SPI2 | Igual | Comunes |
+| I2C | 1 | 1 + **LP_I2C** | Común |
+| I2S | 1 | 1 | Común (declarado al principio) |
+| TWAI (CAN) | 1 | **2** | Común. Las piezas del bus CAN ya existen |
+| LEDC (PWM) | 6 canales | 6 canales | Común |
+| RMT | Sí | Sí (errata RMT-176) | Común |
+| SAR ADC y sensor de temperatura | Sí | Sí | Común |
+| SYSTIMER, TIMG×2 y WDT | Sí | Sí | Comunes |
+| GDMA | 3+3 | 3+3 | Común |
+| USB-Serial-JTAG | Sí | Sí | Común |
+| SHA, AES, RSA, HMAC, DS, XTS_AES y RNG | Sí | Sí, más **ECC** | SHA, AES y RNG modelados; el resto, declarados |
+| Reloj y reset | SYSTEM/SYSCON + RTC_CNTL | **PCR** + LP_CLKRST + **PMU** + LP_AON | **Distintos**: uno por chip |
+| Interrupciones | Matriz + INTC de la CPU | INTMTX + **INTPRI** + CLINT | Matriz por chip y controlador en `src/rv/irq` |
+| Protección | **PMS** + World Controller | **APM** + TEE + PMP/PMA | Distintos |
+| ASSIST_DEBUG | Sí | Sí | Común: ESP-IDF lo usa como **guarda de pila** |
+| Solo del C6 | — | MCPWM, PCNT, **ETM**, PARL_IO, esclavo SDIO, monitor de memoria, codificador de traza, `I2C_ANA_MST` | Propios del C6 (E11) |
+
+---
+
+## 3. El núcleo RISC-V reutilizable
+
+### 3.1 Qué es del núcleo y qué es del chip
+
+La línea es la misma que T0 trazó en ARM con `IntegracionNucleo`: **lo que dice
+la especificación RISC-V, y lo que todo fabricante parametriza, es del núcleo.
+Lo que el fabricante pone alrededor es del chip.**
+
+| Del núcleo (`src/rv/`) | Del integrador (el SoC) |
+| :--- | :--- |
+| Decodificación y ejecución de I, M, A, C (y F en el futuro) | Qué extensiones tiene: un `RvCaps` |
+| CSR estándar de modo máquina, de usuario y de depuración; los que no existen dan instrucción ilegal | Qué CSR existen y sus valores de identificación |
+| Traps, `mret`/`uret`, `wfi`, delegación | Si hay delegación (C6 HP) o no (C3) |
+| PMP; PMA como mecanismo | Cuántas regiones; los CSR de PMA del C6 están en el espacio propio del fabricante |
+| La **interfaz** con el controlador de interrupciones | **Qué** controlador: el INTC del C3, el INTPRI con CLINT del C6, el LP del C6, un CLIC, un PLIC |
+| Debug Module 0.13, *triggers*, modo depuración, DTM y TAP JTAG | Cuántos harts, *triggers* y palabras de *program buffer*; el IDCODE del TAP |
+| *Backend* RISC-V de GDB | El programador de su memoria no volátil |
+| Modelo de tiempos, con sus tablas | Los valores de las tablas de su microarquitectura |
+| — | El mapa de memoria, los alias, la caché, las ventanas de periféricos |
+| — | Los CSR y las instrucciones propias del fabricante, por las interfaces de §3.4 |
+
+Igual que `CortexM4F`, el núcleo se integra como **un `SC_MODULE` fino**
+(`NucleoRv`) con sus *sockets* TLM de instrucción y de datos, su reloj, su
+reset, la interfaz de interrupciones y la de depuración. El SoC le dice qué
+ventanas de direcciones son suyas con un `IntegracionRv`: la región «de la CPU»
+de `0x2000_0000`, donde el C6 tiene el CLINT, y la vía rápida de la SRAM
+local, que en el C3 y el C6 es de espera cero.
+
+### 3.2 Los rasgos: `RvCaps`
+
+Un `struct` `constexpr` por núcleo, con la misma receta que `CoreCaps`,
+`UsartCaps` o `TimCaps`:
+
+```cpp
+struct RvCaps {
+    const char* nombre;          // "ESP32-C3", "ESP32-C6 HP", "ESP32-C6 LP"
+    unsigned    xlen;            // 32 (64 queda previsto, no hecho)
+    uint32_t    ext;             // bits de misa: I M A C (F D en el futuro)
+    uint32_t    zext;            // Zicsr Zifencei Zicntr Zihpm Zba Zbb Zbs Zcb Zcmp Zicond...
+    bool        modo_u;          // ¿hay modo usuario?
+    bool        deleg_n;         // ¿delegación de interrupciones a U (mideleg + CSR de usuario)?
+    bool        mie_mip;         // false en el C3: el enmascarado es del controlador
+    unsigned    mtvec_modos;     // directo / vectorizado / CLIC
+    uint32_t    mtvec_alin;      // 256 en los tres núcleos de Espressif
+    uint32_t    pc_reset, mtvec_reset;
+    unsigned    pmp_regiones, pmp_grano;
+    bool        contadores_std;  // mcycle/minstret (C6 LP sí; C3 y C6 HP no)
+    Desalineado desalineado;     // trap | hardware | hardware_cpu863
+    uint32_t    mvendorid, marchid, mimpid;
+    RvDebugCaps dbg;             // triggers, progbuf, datacount, SBA, impebreak
+    const RvTiempos* tiempos;    // §3.3
+};
 ```
-./build/mcu-sim placas/esp32c3_devkitm1.xml build/flash_image.bin   # imagen completa
-./build/mcu-sim placas/esp32c3_devkitm1.xml build/flash_args        # la lista de idf.py
-./build/mcu-sim placas/esp32c3_devkitm1.xml verif/fw/esp32c3/blinky.elf  # bare-metal
+
+Las tres instancias de este plan son `RV_ESP32C3`, `RV_ESP32C6_HP` y
+`RV_ESP32C6_LP`. Las suites del núcleo tendrán además dos de laboratorio:
+`RV_LAB_IMC` y `RV_LAB_IMAC`, con `mie`/`mip`, modo directo y contadores
+estándar, para pasar las pruebas de conformidad tal como vienen.
+
+### 3.3 El hart
+
+* **Estado** en un `struct` plano (`RvState`): `x[32]`, `pc`, los CSR y, cuando
+  haga falta, `f[32]`. Es el mismo criterio que `cpu_state.h`: lo inspecciona el
+  depurador y lo copian las pruebas.
+* **Decodificación por tabla**, con las instrucciones comprimidas **expandidas a
+  su forma de 32 bits** antes de ejecutar. Así C no duplica la semántica, y
+  `Zcb`/`Zcmp` (Hazard3, C5) entran después como más expansiones.
+* **Los vectores de decodificación** salen de un generador en Python con dos
+  fuentes, como `gen_decoder_vectors.py`: el *opcodes* de `riscv-opcodes` y la
+  especificación.
+* **Traps** genéricos: causa, `mepc`, `mtval`, `MPIE`/`MPP` y el cálculo del
+  vector, todo según `RvCaps`. Con `deleg_n`, la versión de usuario
+  (`ucause`, `uepc`, `utvec`, `uret`).
+* **Atómicas** (A): reserva de LR/SC por hart. Las AMO viajan como **una
+  transacción TLM marcada atómica**: una extensión del *payload* que el bus
+  respeta. Importa en el C6, donde el HP y el LP comparten la LP SRAM.
+* **PMP y PMA**: el comprobador es del núcleo y la tabla de PMA la rellena el
+  integrador. En el C6, por sus CSR `0xBC0`/`0xBD0`, que se dan de alta como
+  CSR propios (§3.4).
+* **Desalineados**: tres comportamientos según `RvCaps`. El tercero reproduce la
+  errata CPU-863 y **se puede apagar**, como el resto de erratas del proyecto:
+  activa por omisión, porque es lo que hace el silicio.
+* **Tiempos** (`RvTiempos`): ciclos por clase de instrucción, penalización de
+  salto tomado y de fallo del BTB, latencia de carga a uso, ciclos de `mul` y
+  `div`, latencia del controlador de interrupciones (4 ciclos en C3 y C6 según
+  sus TRM) y entrada a un trap.
+  * Es LT con quantum, como el Cortex. Las cifras que los TRM no dan van como
+    **parámetros públicos sin fuente**, apuntados en la sección D de `todo.md`
+    y marcados `[de modelo]`.
+  * Hay una fuente para calibrarlas: el CoreMark/MHz que publica Espressif.
+* **`wfi`** con el reloj parado: el `mpccr` del C3 no cuenta durante `WFI`
+  [TRM-C3, registro `mpcer`].
+
+### 3.4 Lo que añade el fabricante: CSR e instrucciones propios
+
+Dos interfaces, para que **ningún fichero de `src/rv/` sepa de Espressif**:
+
+* **`rv_csr_ext_if`**: el integrador da de alta un rango de CSR con su lectura,
+  su escritura y su modo mínimo. Los casos de este plan son:
+  * los contadores `mpcer`, `mpcmr` y `mpccr` (`0x7E0`-`0x7E2`), con sus
+    sucesos;
+  * la GPIO dedicada `cpu_gpio_*` (`0x803`-`0x805`), que en el C3 y el C6
+    gobierna pines a través de la matriz GPIO;
+  * la PMA del C6 (`0xBC0`-`0xBDF`).
+* **`rv_ext_if`**: los cuatro huecos `custom-0..3` del espacio de códigos de
+  operación. No hace falta para el C3 ni el C6. Existe para el futuro: el
+  Xesppie del P4, las extensiones XW de los CH32V o `Xh3*` del Hazard3.
+
+### 3.5 Interrupciones: la interfaz y los controladores
+
+El núcleo no sabe qué controlador tiene. Le pregunta por **`rv_irq_if`**:
+
+```cpp
+class rv_irq_if {
+  virtual bool pendiente(RvModo m, unsigned& id, unsigned& nivel) = 0; // la mejor que puede entrar ya
+  virtual void reclamada(unsigned id) = 0;                             // entró: actualiza estado
+  virtual uint32_t mip_externo() const { return 0; }                   // lo que se ve en mip
+  virtual void tras_mret(RvModo) {}                                    // controladores con nivel (CLIC)
+};
 ```
 
-* **Imagen completa** (`esptool merge-bin`, o el `qemu_flash.bin` que genera
-  `idf.py qemu`): se escribe en la pieza de Flash SPI desde el desplazamiento 0.
-  Es el formato que ya usa el QEMU de Espressif, y eso lo hace intercambiable.
-* **`flash_args` / `flasher_args.json`**: los ficheros que deja `idf.py build`,
-  con cada `.bin` y su desplazamiento (bootloader, tabla de particiones y
-  aplicación).
-* **ELF *bare-metal***: para los firmwares de prueba que no usan ESP-IDF. Se
-  cargan sus segmentos en IRAM/DRAM y el *reset* salta a su punto de entrada sin
-  pasar por la ROM. Es el «arranque directo» que permite probar el núcleo y los
-  periféricos **antes de tener la ROM, la caché y la Flash** (fase E2).
-* **eFuse** desde un fichero, compatible con el `qemu_efuse.bin` de ESP-IDF,
-  con un valor por omisión razonable: MAC, revisión y sin cifrado.
+| Controlador | Para | Dónde |
+| :--- | :--- | :--- |
+| `IrqEstandar` | `mip`/`mie` puros con MEIP, MTIP y MSIP. Modo directo y vectorizado | `src/rv/irq/`; el laboratorio y cualquier RISC-V «de libro» |
+| `Clint` | `MTIME`, `MTIMECMP` y `MSIP`. Variante Espressif con `UTIMECMP`, `USIP` y `MTIMECTL` | `src/rv/irq/` (el bloque) + el C6 lo monta en `0x2000_1800` |
+| `IntcEspV1` | 31 IDs, prioridad 1-15, umbral, nivel o flanco, borrado por pulso, latencia de 4 ciclos, sin `mie`/`mip` | `src/soc/esp/` (es de Espressif): el C3 |
+| `IntcEspV2` | INTPRI: 28 externas, prioridad 0-15, umbral, delegación a U y, combinado con el CLINT, las externas por delante | `src/soc/esp/`: el C6 HP |
+| `IrqLpEsp` | Una línea en el ID 30 | `src/soc/esp32c6/` |
+| `Clic`, `Plic` | Previstos, no hechos | `src/rv/irq/`, cuando llegue un chip que los use (C5, C61, P4 o GD32V) |
 
-**Lo que no hace D1: inventarse la ROM.** Un firmware de ESP-IDF cargado así
-necesita la ROM para arrancar (§6.1). Si no la encuentra, `sim` lo dice con
-nombre y apellidos y no monta otra cosa.
+La **matriz de interrupciones** (fuentes de periférico → líneas de CPU) es del
+chip: 62 fuentes en el C3 y otro número en el C6, que hay que leer de [TRM-C6 §10].
 
-### 4.2 Vía D2 · `esptool` por la UART0, con auto-reset (la del laboratorio)
+### 3.6 La depuración
 
-Es la que más se parece a una placa con su CP2102 o su CH340, y **casi todo lo
-que necesita ya existe**:
+Todo en `src/rv/debug/` y sin nada de Espressif:
 
-* **`esptool` admite puertos remotos RFC 2217** con
-  `--port rfc2217://host:puerto`, **con baudios a medida y auto-reset por
-  DTR/RTS** (documentación de esptool, «Remote Serial Ports»). Con
-  `socket://` en crudo no hay auto-reset ni cambio de baudios, así que tiene que
-  ser RFC 2217;
-* **el `PuenteSerie` ya habla RFC 2217**, con `baudios="host"` para que esptool
-  suba a 460 800 o 921 600 tras sincronizar, y **mueve DTR y RTS** desde el
-  terminal (`doc/puente_serie.md` §6).
+* **`RvDebugModule`**, según [DBG] 0.13.2:
+  * registros `dmcontrol`, `dmstatus`, `hartinfo`, `haltsum0`, `abstractcs`,
+    `command`, `data0`-`n`, `progbuf0`-`n`, `sbcs`, `sbaddress0` y `sbdata0`;
+  * comandos abstractos de acceso a registros (GPR, CSR y, si existe, FPR);
+  * *program buffer* con `impebreak`;
+  * **SBA** que entra al bus como un maestro más;
+  * `ndmreset` y `hartreset`;
+  * **varios harts** con `hartsel`, incluido el estado «unavail» del LP del C6;
+  * y `resethaltreq`, para el «halt desde la primera instrucción» que los dos
+    TRM prometen.
+* **`RvTriggers`** (Sdtrig): `mcontrol` (tipo 2) de ejecución, carga y
+  almacenamiento, con `tselect`/`tdata1`/`tdata2` y el **`tcontrol`** que el
+  C3 y el C6 tienen. El número sale de `RvCaps`: 8, 4 o 2. El hart decide en
+  cada búsqueda y en cada acceso, por el mismo contrato que `debug_if.h`.
+* **Modo depuración del hart**: `dcsr` (con `ebreakm`, `ebreaku`, `step`,
+  `cause` y `prv`), `dpc` y `dscratch0/1`, inaccesibles fuera de depuración, y
+  la entrada y salida (`dret`).
+* **`RvDtmJtag`**: la máquina de 16 estados del TAP, IR de 5 bits, `IDCODE`,
+  `BYPASS`, **`dtmcs`** y **`dmi`** (con `abits` según el DM) y el `dmistat`
+  de ocupado.
+* **`JtagPines`**: TCK, TMS, TDI y TDO (y TRST, si el chip lo saca) sobre los
+  `AnalogNet` de unos pads que el chip elige. Es el equivalente RISC-V del
+  `SwdPort` que hoy cuelga de PA13/PA14.
+* **Disparo cruzado** (`dcsr` y los registros de [TRM-C6 §1.13]) entre harts del
+  mismo DM.
 
-Falta una pieza: el **circuito de auto-reset** de las placas de Espressif, dos
-transistores cruzados que convierten DTR y RTS en EN y GPIO9. En el C3, DTR va
-a GPIO9 y RTS a EN; afirmar los dos a la vez no resetea, por cómo están
-cruzados los transistores; y hace falta un condensador de 1 a 10 µF entre EN y
-masa para que el reset sea fiable (esptool, «Boot Mode Selection»). Encaja de
-lleno en el modelo eléctrico: es una pieza `AutoResetEsp` con dos transistores
-y un RC en EN, que se cuelga de las patillas DTR/RTS del puente.
+Hay **una interfaz, `dmi_if`** (`leer(dir)`, `escribir(dir, v)`), y tres maneras
+de llegar a ella. Las tres terminan en el mismo DM:
 
-```xml
-<placa nombre="esp32c3-devkitm-1">
-  <mcu tipo="ESP32-C3FH4" id="u0" depuracion="dm" puerto_gdb="3333"/>
-  <componente tipo="PuenteSerie" id="USB_UART" puerto="3355" baudios="host">
-    <pin nombre="rx" nodo="GPIO21"/>   <!-- U0TXD -->
-    <pin nombre="tx" nodo="GPIO20"/>   <!-- U0RXD -->
-    <pin nombre="dtr" nodo="n_dtr"/>  <pin nombre="rts" nodo="n_rts"/>
-  </componente>
-  <componente tipo="AutoResetEsp" id="Q1">
-    <pin nombre="dtr" nodo="n_dtr"/>  <pin nombre="rts" nodo="n_rts"/>
-    <pin nombre="en"  nodo="EN"/>     <pin nombre="boot" nodo="GPIO9"/>
-  </componente>
-  ...
-</placa>
-```
+| Camino | Coste |
+| :--- | :--- |
+| Llamada directa (stub interno) | Una llamada de función por acceso |
+| DTM por los pines (sonda `remote_bitbang`, CMSIS-DAP o el stub de pines propio) | Decenas de flancos de TCK por acceso |
+| DTM por el USB-Serial-JTAG (E7) | Paquetes USB con órdenes de reloj comprimidas |
 
-Y desde la máquina del alumno:
+### 3.7 GDB: el *backend* RISC-V
 
-```
-idf.py -p rfc2217://localhost:3355 flash monitor
-esptool --port rfc2217://localhost:3355 --baud 921600 write-flash 0x0 flash_image.bin
-pio run -t upload --upload-port rfc2217://localhost:3355
-```
+En E0 el motor `GdbRsp` se parte en dos (§5): **protocolo** y **arquitectura**.
+`gdb_arq_riscv.h` es la arquitectura RISC-V y habla con el DM por `dmi_if`:
 
-Para el **Arduino IDE**, que solo enseña puertos COM del sistema, valen las
-recetas de redirector de `doc/puente_serie.md` §4 (com0com, tty0tty, ttynvt),
-que ya están escritas para el STM32.
+* **Registros**: x0-x31 y `pc`, más los F si hay F. El `target.xml` se genera de
+  `RvCaps` (`org.gnu.gdb.riscv.cpu`, `.fpu` y `.csr`, con los CSR que se quieran
+  enseñar).
+* **Parar, seguir y paso**: `haltreq`/`resumereq` y `dcsr.step`, con la causa
+  de parada traducida a la señal de GDB.
+* **Puntos de ruptura**:
+  * por *trigger* cuando la memoria no se puede escribir (la Flash por la
+    caché, la ROM);
+  * por `ebreak`/`c.ebreak` en RAM, según el tamaño de la instrucción.
 
-**Lo que tiene que pasar dentro del chip para que esto funcione** es lo que
-convierte esta vía en la más fiel: la ROM de verdad muestrea GPIO9 al subir EN,
-entra en el cargador serie, contesta al protocolo SLIP de esptool, recibe el
-*stub* de esptool en RAM y lo ejecuta, y el *stub* programa la Flash con SPI1 y
-las funciones de Flash de la ROM. Si todo eso pasa sobre el modelo, **la ROM,
-la UART, los pines de arranque, el SPI1, la caché y la Flash quedan verificados
-de punta a punta con una herramienta que no hemos escrito nosotros**. Es la
-misma idea que hacer que STM32CubeIDE se enganche al stub de GDB.
+  Los *watchpoints*, por *trigger*. El número de *triggers* se **descubre**
+  recorriendo `tselect`, como hace OpenOCD, en lugar de leerlo de la tabla.
+  Así el *backend* vale para un chip que no conoce.
+* **Memoria**: por SBA cuando existe, y por *program buffer* si no.
+* **Varios harts**: cada hart es un hilo de GDB (`qfThreadInfo`, `Hg`, `vCont`).
+  Es lo que pide el C6 con su LP y, más adelante, el P4.
+* **`monitor reset halt`**, `monitor reset` y la secuencia de ESP-IDF al
+  conectar (`mon reset halt`, `maintenance flush register-cache`, `thb
+  app_main`, `c`).
+* **El `load`** pasa por el `programador_nv_if` del chip, como en ARM.
 
-**El matiz del tiempo.** esptool hace la secuencia de reset con esperas de reloj
-de pared (decenas de milisegundos entre DTR y RTS). Si el simulador va más
-deprisa que el tiempo real, esas esperas son más largas en tiempo simulado, y
-no pasa nada. Si va más despacio, la distancia en tiempo simulado entre «GPIO9
-abajo» y «EN arriba» puede quedarse por debajo del tiempo de subida del RC de
-EN, y el chip arranca en modo normal. Hay dos remedios, y conviene tener los
-dos: recomendar `--tiempo-real` en la receta, y que el puente garantice un
-**mínimo de tiempo simulado** entre dos cambios de control consecutivos.
+### 3.8 El SoC de laboratorio y la verificación del núcleo
 
-### 4.3 Vía D3 · Por el USB-Serial-JTAG
+`src/rv/lab/SocLabRv` es un SoC mínimo y sin fabricante: RAM, un `Clint`, una
+UART de pega y la interfaz **HTIF** (`tohost`/`fromhost`), por la que terminan
+las pruebas de conformidad. Lleva su propio banco, **`testrv`**, con su
+invariante. Sirve para tres cosas:
 
-El C3, el C6, el H2, el C5 y el P4 traen un periférico USB **de función fija**:
-el sistema ve un CDC-ACM (la consola) y un JTAG, sin que el firmware tenga que
-hacer nada. Al contrario que el OTG del F407, no es programable, lo que lo hace
-mucho más sencillo de puentear:
+1. **Conformidad de la ISA**:
+   * `riscv-tests` (BSD-3), `rv32ui`, `rv32um`, `rv32ua`, `rv32uc` y `rv32mi`,
+     entorno `-p`;
+   * y las partes RV32I, M, A, C, Zicsr, Zifencei y *privilege* de
+     **`riscv-arch-test`** (Apache-2.0/BSD-3), con sus firmas comparadas con
+     las de referencia.
+2. **Traza contra Spike** (BSD-3): el mismo ELF en Spike con `--log-commits` y
+   en `testrv`, instrucción a instrucción. Es la segunda fuente de la ISA y
+   ocupa el lugar que tienen los 254 vectores de `valida_instrucciones.py` en
+   el Cortex.
+3. **La depuración sin chip**: GDB y OpenOCD (`target create riscv`, genérico,
+   con `remote_bitbang` en JTAG) contra el DM del laboratorio (E2).
 
-* su parte CDC se saca por **RFC 2217** con el mismo código del puente serie,
-  pero colgado del periférico y no de unos pines. Es exactamente la vía U2 de
-  `doc/analisis_puente_usb.md`, salvo que aquí el «anfitrión» es trivial porque
-  el dispositivo no se enumera desde el firmware;
-* **el reset a modo descarga por este USB lo hace el propio periférico** al
-  interpretar DTR/RTS del CDC. Así que esptool funciona por aquí sin el circuito
-  de transistores: es como se programan las placas «SuperMini» que solo tienen
-  el USB nativo;
-* con el **servidor USB/IP** de aquel mismo análisis (U1), el sistema vería un
-  `303a:1001` de verdad, y `esptool` y el `esp_usb_jtag` de OpenOCD
-  funcionarían sin saber que hay un simulador. Es opcional y llega tarde.
+El laboratorio **no es una curiosidad**. Es lo que permite decir que un fallo
+en el C3 es del C3 y no del núcleo, y es lo primero que monta un MCU RISC-V
+futuro antes de escribir su SoC.
 
-### 4.4 Vía D4 · Por JTAG
+### 3.9 Cómo entra un MCU RISC-V futuro
 
-Con la vía de depuración 2 (§5.2), OpenOCD programa la Flash con
-`program_esp fichero.bin 0x10000 verify`. Por dentro, carga en RAM un
-algoritmo de Flash que usa las funciones de la ROM. Es la más lenta, porque
-cada bit del JTAG es un suceso de simulación, y por eso es la última. Sirve
-para comprobar que el Debug Module y el acceso al bus de sistema aguantan una
-carga de verdad.
+| Paso | Qué escribe | Qué recibe hecho |
+| :--- | :--- | :--- |
+| 1 | Su `RvCaps` y su `RvTiempos` | Ejecución, traps, PMP, conformidad con `testrv` |
+| 2 | Su controlador, si no es uno de §3.5 (el ECLIC del GD32VF103 o el PFIC de los CH32V) | El resto de las interrupciones |
+| 3 | Su SoC: mapa, periféricos, `mcu_if`, `Nomenclatura` y `Encapsulado` | Netlist, piezas, GUI, puente serie y CI |
+| 4 | Su IDCODE y sus pines JTAG (o su transporte, como el SDI de un hilo de los CH32V) | G1, G2 y OpenOCD genérico |
+| 5 | Su `programador_nv_if` | El `load` de GDB |
 
-El `load` de GDB contra el stub interno **solo vale para programas que se
-ejecutan desde RAM**. Un ELF de ESP-IDF lleva segmentos en direcciones de la
-caché (`0x4200_0000`), no desplazamientos de Flash, y escribirlos ahí sería más
-permisivo que el silicio. Contra la Flash, el stub contesta con un error que
-dice cómo descargar (D2), en vez de hacer como que funciona.
+Cuatro de los cinco pasos son datos. El quinto, el programador, es el mismo
+trabajo que hizo falta para cada familia ARM.
 
-### 4.5 Resumen de la descarga
+---
 
-| Vía | Herramienta del alumno | Qué ejercita del modelo | Coste | Fase |
+## 4. La capa de Espressif
+
+Entre el núcleo genérico y cada chip hay una capa que es de Espressif pero no
+de un chip concreto. Separarla es lo que hace que el C6 cueste la mitad que el
+C3, y que el C5, el C61 o el H2 cuesten todavía menos.
+
+| Fichero (propuesto) | Qué | C3 / C6 |
+| :--- | :--- | :--- |
+| `soc/esp/esp_imagen.h` | El formato de imagen (cabecera `0xE9`, segmentos, suma, SHA-256 opcional), las imágenes completas de Flash, `flash_args` y `flasher_args.json`, todo sobre `TrozoFw` | Común |
+| `soc/esp/esp_rom.h` | Carga del ELF de la ROM por chip y revisión; vías R1/R3 (§8); avisos si la revisión de eFuse y la de la ROM no casan | Común; el mapa lo da cada chip |
+| `soc/esp/esp_efuse.h` | Bloques de eFuse desde un fichero compatible con `qemu_efuse.bin`; lectura por registros; MAC, revisión, selección de JTAG, `UART_PRINT_CONTROL`, `DIS_DOWNLOAD_MODE`, `DIS_DIRECT_BOOT` | El controlador cambia de registros entre chips: los parámetros van en el descriptor |
+| `soc/esp/esp_cache_mmu.h` | Caché de solo lectura (vías, tamaño, línea), MMU de páginas de 64 KB, coste de fallo como lectura SPI, invalidar, precargar, bloquear | C3 (16 KB, 8 vías, dos ventanas) y C6 (32 KB, 4 vías, una ventana) |
+| `soc/esp/intc_esp.h` | `IntcEspV1` e `IntcEspV2` (§3.5) | Uno por chip |
+| `soc/esp/matriz_int.h` | Matriz de interrupciones parametrizada por la tabla de fuentes | Tabla por chip |
+| `soc/esp/arranque.h` | Los pines de arranque en el flanco de CHIP_PU, `GPIO_STRAPPING`, el *force download* y el *Direct Boot* (`0xaedb041d`) | Tabla por chip |
+| `periph/esp/spi_mem.h` | SPI0/SPI1 (MSPI): lectura por la caché, órdenes de usuario (las del *stub* de esptool y de OpenOCD), suspensión automática | Común |
+| `periph/esp/uart.h` | UART con FIFO de 128, detección automática de baudios (la ROM la usa para sincronizar con esptool), RS485 e IrDA declarados | Común; el LP_UART es otra instancia |
+| `periph/esp/gpio_matriz.h`, `io_mux.h` | Matriz GPIO (cualquier señal a cualquier pin), IO_MUX con funciones directas, **GPIO dedicada** por los CSR, filtros, sobre el `Pad` eléctrico de siempre (`FUN_DRV` en cuatro niveles) | Común; tablas de señales por chip |
+| `periph/esp/systimer.h`, `timg.h`, `wdt.h` | SYSTIMER de 52 bits (2 contadores y 3 comparadores), TIMG con MWDT, RWDT y SWD (super watchdog) | Común |
+| `periph/esp/assist_debug.h` | Monitor de SP (guarda de pila de ESP-IDF), monitor de regiones y registro de PC | Común |
+| `periph/esp/usb_serial_jtag.h` | Dispositivo compuesto CDC-ACM + JTAG, detrás de `usb_dev_if`; reset y modo descarga por DTR/RTS (§6) | Común |
+| `periph/esp/ledc.h`, `rmt.h`, `gpspi.h`, `i2c.h`, `twai.h`, `gdma.h`, `adc.h`, `sha.h`, `aes.h`, `rng.h` | Los periféricos de aula | Comunes, con `Caps` por chip |
+
+Las piezas de placa nuevas (`SpiFlash`, `AutoResetEsp` y `Ws2812`) son de
+`parts/` y no de Espressif. La `SpiFlash` (W25Q y GD25Q: JEDEC ID, SFDP,
+lectura simple/dual/quad, programación de página, borrado de sector y de bloque,
+estado y protección, suspensión) **le sirve también al QUADSPI del F446**.
+Además, por `memoria_nv`, guarda su contenido entre simulaciones con
+`contenido=`.
+
+---
+
+## 5. Lo que queda de la generalización (E0)
+
+| # | Qué | Por qué | Riesgo para los invariantes |
+| :--- | :--- | :--- | :--- |
+| E0.1 | `DebugCaps`/`DebugAttach` a `common/depuracion.h` | Que `mcu_if.h` no incluya `cortex_m4f.h` | Nulo: es mover un `struct` |
+| E0.2 | `GdbRsp` → `GdbRsp` (protocolo: socket, tramado, paquetes, hilos, `monitor`, `qXfer`, traza) + **`gdb_arq_if`** (registros y `target.xml`, parar/seguir/paso, puntos y vigilancias, reset, memoria) + `gdb_arq_armv7m.h`, que **emite exactamente la misma secuencia de accesos al DAP** | El *backend* RISC-V entra por ahí | **El más alto**. T96, T97 y P21 y las pruebas de OpenOCD O1-O5 tienen que dar lo mismo **paquete a paquete** con la traza puesta |
+| E0.3 | Hilos en el motor (`qfThreadInfo`, `Hg`/`Hc`, `T`, `vCont` por hilo) | Varios harts. Hoy, en ARM, los hilos de RTOS los da OpenOCD | Bajo: con un solo hilo, no cambia nada |
+| E0.4 | `mcu_if`: `nodos_depuracion()` con nombres (`swclk`, `swdio`, `tck`, `tms`, `tdi`, `tdo`, `trst`, `srst`), con los dos virtuales actuales como casos particulares | La sonda JTAG necesita cuatro nodos | Nulo con la implementación por omisión |
+| E0.5 | `Encapsulado`: máscaras de 32 bits por puerto (`bonded`, `cuenta_gpio` hasta 32) | El C6 tiene GPIO0-30 en un banco y le falta el 14 | Nulo: los inicializadores siguen valiendo |
+| E0.6 | Sonda `remote_bitbang` con **JTAG**: `0`-`7` (TCK/TMS/TDI), `R` (TDO), `r`-`u` con TRST y SRST, y el mismo avance de tiempo por reloj de pared que ya tiene en SWD | G2 en RISC-V | Nulo si el modo SWD no cambia: O1-O5 iguales |
+| E0.7 | Sonda CMSIS-DAP con `DAP_JTAG_Sequence`, `DAP_JTAG_Configure` y `DAP_JTAG_IDCODE` | Una sonda JTAG rápida (por paquetes) para OpenOCD | Nulo con SWD intacto |
+| E0.8 | `depuracion=` neutral: `dap` pasa a significar **interno** (en RISC-V, el DM) y se admite `dm` como sinónimo; `pines`, `openocd` y `cmsis-dap` siguen igual; se añade `usb` (G3) | Que el XML no diga «DAP» a un RISC-V | Nulo |
+| E0.9 | `PowerPads`/`Nomenclatura`: CHIP_PU como pin de reset de la familia, VDD3P3, VDD3P3_RTC, VDD_SPI, VDDA y XTAL | `reset_pin()` ya es neutral; falta el nombre | Nulo |
+| E0.10 | `aparca_en_wfe()`: cada chip pone su bucle (`wfi` en RISC-V) | Ya es virtual; solo hay que saberlo | — |
+
+**Cierre de E0:**
+* las ocho suites con las mismas comprobaciones y el mismo tiempo simulado al
+  picosegundo, en las cuatro plataformas;
+* T96, T97, P21, O1-O5 y las pruebas de `cmsis_dap.py` **idénticos paquete a
+  paquete** con la traza;
+* y una pieza de laboratorio, `TapLab` (un TAP con IDCODE y BYPASS sobre
+  cuatro nodos), contra la que `openocd -c "adapter driver remote_bitbang" -c
+  "transport select jtag"` lee el IDCODE por `remote_bitbang` y por CMSIS-DAP.
+
+---
+
+## 6. Descarga del firmware
+
+Sin cambios de fondo respecto a la primera versión. Lo que cambia es que ahora
+se sabe qué existe y en qué fase entra cada vía.
+
+| Vía | Herramienta del alumno | Cómo, en el modelo | Fase (C3 / C6) |
+| :--- | :--- | :--- | :--- |
+| **D1** Carga directa | `mcu-sim placa.xml fw` | ELF *bare-metal* en IRAM sin ROM (arranque directo del modelo); imagen completa de Flash (`merge-bin`, `qemu_flash.bin`); `flash_args`; `--efuse`; `contenido=` de la `SpiFlash` | E3 (ELF) y E4 (imagen) / E9 |
+| **D2** esptool por la UART0 | `idf.py -p rfc2217://localhost:3355 flash monitor`, `esptool`, PlatformIO; Arduino IDE con los redirectores de `doc/puente_serie.md` §4 | `PuenteSerie` en U0TXD/U0RXD + **`AutoResetEsp`**: dos transistores cruzados y un RC en CHIP_PU; DTR → GPIO9, RTS → CHIP_PU. La ROM de verdad contesta a SLIP, carga el *stub* de esptool en RAM, y el *stub* programa con SPI1 | E5 / E9 |
+| **D3** esptool por el USB-Serial-JTAG | Las mismas, con el puerto del CDC y **`--before usb-reset`**: por un puerto remoto esptool no ve el VID/PID y no puede elegir la secuencia solo [esptool, «Remote Serial Ports»] | `usb_serial_jtag.h` detrás de `usb_dev_if` + el `PuenteUsb` que ya existe. El periférico interpreta DTR/RTS como dice [TRM-C3 tabla 30.3-2]: `RTS=0, DTR=1` pone la bandera de descarga y `RTS=1, DTR=0` resetea el chip | E7 / E9 |
+| **D4** OpenOCD `program_esp` | `idf.py openocd` + `program_esp fw.bin 0x10000 verify` | OpenOCD carga en RAM su algoritmo de Flash, que usa la ROM, por G2 o G3 | E6 / E10 |
+
+**El `load` de GDB** contra el stub interno vale para:
+* programas en RAM, cargados por su LMA;
+* y, mediante un `programador_nv_if` de Espressif, para **segmentos cuya LMA
+  sea un desplazamiento de Flash**. Ese programador escribe la `SpiFlash` con
+  las órdenes de SPI1, como el *stub* de esptool.
+
+Un ELF de ESP-IDF tiene sus segmentos en direcciones de la caché
+(`0x4200_0000`), no desplazamientos de Flash. Escribir ahí sería más permisivo
+que el silicio, así que el programador lo rechaza diciendo cómo se descarga
+(D2 o D4).
+
+**El tiempo de esptool** (riesgo 3 de la versión anterior) se resuelve en E5
+con las dos medidas ya propuestas:
+* la receta recomienda `--tiempo-real`;
+* y el puente garantiza un **mínimo de tiempo simulado** entre dos cambios de
+  DTR/RTS consecutivos. Así GPIO9 sigue abajo cuando sube CHIP_PU, que es
+  cuando se muestrean los pines de arranque.
+
+---
+
+## 7. Depuración del firmware
+
+| Vía | `depuracion=` | Camino | Herramienta | Fase (C3 / C6) |
 | :--- | :--- | :--- | :--- | :--- |
-| D1 carga directa | ninguna (`mcu-sim … fw`) | La Flash SPI y, con ROM, el arranque | Nulo | E2 (ELF), E3 (imagen) |
-| **D2 esptool por UART0 + RFC 2217** | `idf.py flash`, `esptool`, PlatformIO, Arduino con redirector | ROM, pines de arranque, UART, SPI1, Flash y auto-reset eléctrico | Bajo: solo falta `AutoResetEsp` | **E4** |
-| D3 esptool por USB-Serial-JTAG | las mismas, con el puerto del CDC | USB-Serial-JTAG (CDC + reset) | Medio | E6 |
-| D4 OpenOCD `program_esp` | `idf.py openocd` + `program_esp` | DM, acceso al bus de sistema y algoritmo en RAM | Lento | E5 |
+| **G1** Stub interno | `dap` o `dm` | `GdbRsp` + `gdb_arq_riscv` → `dmi_if` → DM | `riscv32-esp-elf-gdb`, `gdb-multiarch`, `idf.py gdb`, VS Code (extensión de ESP-IDF o `cppdbg`), Espressif-IDE | E6 / E10 |
+| **G2** OpenOCD por los pines | `openocd` o `cmsis-dap` | Sonda → GPIO4-7 → TAP → DTM → DM | `openocd-esp32` sin modificar con `target/esp32c3.cfg` o `esp32c6.cfg`: `program_esp`, puntos de ruptura en Flash, hilos de FreeRTOS, *core dump*, `apptrace`. Y el OpenOCD genérico, con `target create riscv` | E6 / E10 |
+| **G2'** Stub de pines propio | `pines` | `GdbRsp` + `gdb_arq_riscv` → cliente DTM propio → `JtagPines` | El mismo GDB que G1, pero por los pines | E6 |
+| **G3** JTAG por USB | `usb` | OpenOCD `remote_bitbang` → `PuenteUsb` (clase JTAG de Espressif) → endpoints del USB-Serial-JTAG → TAP → DTM → DM | `openocd-esp32` | E7 / E9 |
+
+Que la vía de los pines esté disponible depende de los eFuses y, en el C6, de
+GPIO15 (§2.3). Se modela así: el chip sale **con el JTAG por USB**, como sale
+de fábrica. Una placa que quiera el JTAG en los pines lo dice con su fichero
+de eFuse o con un atributo del `<mcu>`. Si alguien engancha una sonda a
+GPIO4-7 con el JTAG en el USB, el modelo **avisa**, como avisa hoy el STM32
+cuando se usan los pines SWD con la función cambiada.
 
 ---
 
-## 5. Depuración del firmware
+## 8. La ROM, las fuentes y las licencias
 
-### 5.1 Vía G1 · Stub interno pegado al Debug Module (el `--gdb-dap` del RISC-V)
+### 8.1 La ROM
 
-Es la traducción directa de `core/gdb_stub_dap.h`. El stub hace llamadas de
-función a la interfaz DMI del Debug Module, sin pines ni bits, y **todo lo que
-hay del DM hacia dentro es el modelo**:
-
-* parar y seguir es escribir `dmcontrol.haltreq` / `resumereq` y leer
-  `dmstatus`;
-* los registros se leen con **comandos abstractos** (`command`, `data0`) y, si
-  hiciera falta, con el *program buffer*;
-* la memoria se lee y escribe por el **acceso al bus de sistema** (`sbcs`,
-  `sbaddress0`, `sbdata0`), que entra en el bus como un maestro más, igual que
-  hoy el AHB-AP entra por el S-bus;
-* los **puntos de ruptura hardware** son los 8 *triggers* `mcontrol`
-  (`tselect`/`tdata1`/`tdata2`); los de software, un `c.ebreak` escrito en IRAM
-  con `dcsr.ebreakm` puesto; un paso es `dcsr.step`.
-
-En el lado de GDB cambian el `target.xml` (`org.gnu.gdb.riscv.cpu`, 33
-registros, más los CSR que se quieran enseñar) y las órdenes `monitor`. Para
-`idf.py gdb` y la extensión de VS Code hace falta al menos `monitor reset halt`
-y `monitor reset`, que es la secuencia que ESP-IDF manda al conectar (`mon reset
-halt`, `maintenance flush register-cache`, `thb app_main`, `c`).
-
-Se usa así, con las mismas reglas que hoy:
-
-```
-./build/mcu-sim placas/esp32c3_devkitm1.xml flash_image.bin --gdb-dm --port=3333 --tiempo-real
-riscv32-esp-elf-gdb build/hello.elf -ex "target extended-remote :3333"
-```
-
-**Por qué no es hacer trampa**: por el mismo argumento de `gdb_stub_dap.h`. Se
-salta el cable (el TAP, el DTM y el desplazamiento de registros), no el
-comportamiento: parar sigue siendo `haltreq`, y un punto de ruptura sigue
-siendo un *trigger* con sus limitaciones. Con los 8 ocupados, `next` se
-comporta como `step`, igual que en la placa.
-
-### 5.2 Vía G2 · JTAG por los pines y OpenOCD de verdad
-
-El equivalente de la sonda SWD (`verif/gdb_stub.h` y `SondaSwd`). Hace falta:
-
-* en el chip: un **TAP JTAG** con su máquina de estados de 16 estados,
-  registro de instrucción de 5 bits, `IDCODE`, `BYPASS` y los dos del RISC-V,
-  **`dtmcs` y `dmi`**, sobre MTMS/MTDI/MTCK/MTDO (GPIO4 a GPIO7 en el C3). La
-  selección entre el JTAG de los pines y el del USB depende de eFuse y de un
-  pin de arranque, y eso también se modela;
-* fuera del chip: una pieza **`SondaJtag`** que conduce TCK/TMS/TDI y lee TDO
-  por los nodos, y que habla hacia el ordenador el protocolo **`remote_bitbang`
-  de OpenOCD**. Es un protocolo de texto de un carácter por orden (`0`-`7`
-  para escribir TCK/TMS/TDI, `R` para leer TDO, `r`-`u` para los resets), y
-  cabe en una tarde.
-
-Con eso, el alumno usa el **`openocd-esp32` de Espressif sin tocarlo**:
-
-```
-openocd -c "adapter driver remote_bitbang" -c "remote_bitbang host localhost" \
-        -c "remote_bitbang port 4444" -f target/esp32c3.cfg
-```
-
-Y tiene todo lo que da OpenOCD: puntos de ruptura en Flash (OpenOCD los emula
-con los *triggers*), hilos de FreeRTOS en GDB, `program_esp`, la *core dump* y
-`apptrace`. Lo que no hay que hacer es reimplementar nada de eso en el stub
-interno.
-
-El precio es el de siempre: cada acceso son decenas de flancos de TCK, y cada
-flanco es un suceso. Si con SWD la diferencia medida fue de ×390 (T97), aquí
-será del mismo orden. G2 es para quien necesita OpenOCD o quiere ver el
-protocolo, y G1 para todo lo demás. El criterio para elegir es el mismo de
-`stm32f407vg_fase6_gdb2.md`.
-
-### 5.3 Vía G3 · El JTAG del USB-Serial-JTAG
-
-El mismo TAP, alimentado por el periférico USB en vez de por los pines. Sin
-USB/IP, se expone igualmente como `remote_bitbang` por TCP, pero **sin
-simulación bit a bit en los pines**: es rápido como G1 y OpenOCD lo ve como G2.
-Es el modo por omisión de las placas que solo tienen USB nativo.
-
-### 5.4 Resumen de la depuración
-
-| Vía | `depuracion=` | Herramienta | Fiel a | Velocidad | Fase |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| G1 stub interno al DM | `dm` | `riscv32-esp-elf-gdb`, `idf.py gdb`, VS Code, Espressif-IDE | Debug Module y hart | Rápida | **E5** |
-| G2 JTAG por pines + `remote_bitbang` | `pines` | `openocd-esp32` + GDB | TAP, DTM, DM y pines | Lenta | E5 |
-| G3 JTAG del USB-Serial-JTAG | `usb` | `openocd-esp32` + GDB | TAP, DTM y DM | Media | E6 |
-
-Y el mismo atributo `puerto_gdb` de `multi_mcu.md` §5.1. Una placa con un C3 y
-un F407 se depura con dos sesiones a la vez, una por chip.
-
----
-
-## 6. La ROM, las fuentes y las licencias
-
-### 6.1 La ROM: imprescindible, y sin versionar
-
-| Opción | Qué es | Veredicto |
+| Vía | Qué es | Veredicto |
 | :--- | :--- | :--- |
-| **R1. La ROM de verdad** | Se carga el ELF de `esp-rom-elfs` (Espressif), que ESP-IDF ya instala en `~/.espressif/tools/esp-rom-elfs/<versión>/` (en Windows, en `%USERPROFILE%\.espressif\…`), con el fichero de la revisión del chip (`esp32c3_rev3_rom.elf`…) | **La recomendada.** Es el único camino por el que corren sin cambios ESP-IDF, Arduino-ESP32 y Zephyr, y por el que esptool encuentra al otro lado el cargador que espera |
-| R2. Arranque «de alto nivel» | `sim` lee la imagen y monta el bootloader o la aplicación sin ejecutar el código de arranque | **No sirve sola**: la aplicación sigue llamando a la biblioteca de la ROM. Puede ser útil como opción de depuración del modelo, nunca como modo por omisión |
-| R3. Sin ROM | Solo firmware *bare-metal* | Es lo que usan las suites en E1-E2. No es un modo para alumnos |
+| **R1. La ROM de verdad** | El ELF de `espressif/esp-rom-elfs` del chip y la revisión, con el nombre `<chip>_rev<REV>_rom.elf` [README de esp-rom-elfs]. Apache-2.0 | **La de por omisión** |
+| R2. Una ROM sustituta | Como la R1 del MSP432, que es DriverLib compilada desde el SDK | **No es posible**: el código de la ROM de Espressif no es abierto. Tampoco hace falta, porque R1 se puede distribuir |
+| **R3. Sin ROM** | `--rom ninguna`: cualquier acceso a la ventana es un error de bus, avisado una vez | Para el arranque directo de E3 y las suites *bare-metal* |
 
-La ROM es de Espressif y **no se versiona**. Es exactamente el caso de los PDF de
-ST y de los informes internos (`doc/fuentes.md` §0): el repositorio dice qué
-fichero, de qué versión y de dónde se baja. `sim` lo busca solo en la
-instalación de ESP-IDF, admite `--rom ruta` y, si no lo encuentra, lo dice y no
-arranca. Antes de decidir qué hace la integración continua hay que **comprobar
-la licencia de `esp-rom-elfs`**. Si permite descargarlo en el CI, las pruebas
-de ESP-IDF corren allí; si no, esas pruebas informan de que falta la imagen,
-igual que hoy las que necesitan un firmware sin compilar.
+**Qué hacer con la licencia.** Apache-2.0 es compatible con la AGPLv3 del
+proyecto en esta dirección, como CMSIS. Hay dos opciones:
+1. **versionar** los segmentos cargables de las ROM que usan las suites (C3
+   rev. 0.4 y rev. 1.1, C6 rev. 0.x) como `.inc` generados, con su entrada
+   en `TERCEROS.md`, como hoy `rom_r1.inc` del MSP432;
+2. o **descargarlos** en el CI de una etiqueta fija de `esp-rom-elfs` con su
+   suma SHA-256.
 
-**La ROM depende de la revisión del chip.** La revisión vive en eFuse y va en
-el descriptor (la v0.3, la v0.4 y la v1.1 del C3 traen ROM distintas). Es el
-mismo tipo de dato que `DBGMCU_IDCODE`: si no cuadra, las herramientas dan
-errores que despistan.
+Este análisis recomienda **la primera** para lo que usan las suites, porque
+hace el CI independiente de la red. El resto se busca en la instalación de
+ESP-IDF del alumno (`~/.espressif/tools/esp-rom-elfs/<versión>/`) o se da con
+`--rom`. La última etiqueta del repositorio al escribir esto es `20260528`.
 
-### 6.2 Las dos fuentes de cada dato
+**La revisión manda.** El C3 v1.1 trae **otra ROM, con funciones en otras
+direcciones**, y un binario hecho para v0.4 no arranca en v1.1 [AR-C3]. El
+descriptor fija la revisión, y con ella los eFuses de revisión
+(`EFUSE_RD_MAC_SPI_SYS_5_REG[25:23]` y `SYS_3[20:18]`, [ER-C3 §1.2]) y la ROM
+por omisión. Si se pide una ROM de otra revisión, `sim` lo dice al montar.
 
-| Papel | STM32 (hoy) | ESP32 |
+### 8.2 Dos fuentes de cada dato
+
+| Papel | Fuente 1 (no se versiona) | Fuente 2 (se versiona o se cita) |
 | :--- | :--- | :--- |
-| Manual de referencia (no se versiona) | RM0090, RM0390 | **ESP32-C3 Technical Reference Manual** |
-| Datasheet (no se versiona) | DS8626… | ESP32-C3 Series Datasheet (pines de arranque, encapsulados, eléctrico) |
-| Cabeceras del fabricante (se versionan) | CMSIS, Apache-2.0 | **`components/soc/esp32c3/register/soc/*_reg.h` y `*_struct.h` de ESP-IDF**, Apache-2.0 (compatible con AGPLv3 en este sentido, como CMSIS) |
-| Base de pines | `STM32_open_pin_data` | `soc/io_mux_reg.h`, `gpio_sig_map.h` y el datasheet |
-| Arquitectura | ARMv7-M ARM | **RISC-V Unprivileged / Privileged ISA** y **RISC-V Debug Spec 0.13.2** |
-| Referencia de comportamiento | — | El **QEMU de Espressif** (C3 y C6) y **Spike** para la ISA |
-
-**Sobre el QEMU de Espressif.** Es GPL-2.0 y **no se copia código** de él. Se
-usa como segunda opinión de comportamiento: qué contesta un registro sin
-documentar en el arranque, cómo se rellena la imagen de Flash. Cada vez que se
-use, se anota como fuente, igual que hoy se anota la discrepancia entre dos
-revisiones de un datasheet. **Spike** (BSD) sirve además como **ISS de
-referencia**: ejecutar el mismo ELF en los dos y comparar la traza instrucción a
-instrucción es la versión RISC-V de los 254 vectores de
-`valida_instrucciones.py`.
+| Mapa, registros y valores de reset | [TRM-C3], [TRM-C6] | Cabeceras `soc/*_reg.h` y `*_struct.h` de ESP-IDF (Apache-2.0); las SVD de Espressif |
+| Pines, encapsulados y variantes | [DS-C3], [DS-C6] | `soc/io_mux_reg.h`, `gpio_sig_map.h` de ESP-IDF; un `gen_pines.py` como los de F3 y E4 |
+| Erratas | [ER-C3], [ER-C6] | — (se modelan y se pueden apagar) |
+| Placas | Esquemáticos de las DevKit (Espressif) | [HW-C3], [HW-C6] |
+| ISA y depuración | [PRIV], la ISA no privilegiada, [DBG] | Spike, `riscv-tests`, `riscv-arch-test` |
+| Comportamiento del arranque | La ROM misma (R1) | El QEMU de Espressif (C3 y C6): **solo como referencia de comportamiento, sin copiar código**, por ser GPL-2.0 |
 
 **Registros sin documentar.** El arranque de ESP-IDF toca registros analógicos
-que el TRM no describe (la calibración del PLL por el bus `regi2c`, el control
-de la radio). La regla del proyecto se aplica tal cual: o se modelan con dos
-fuentes, o se declaran (contestan, no guardan y avisan una vez). En ningún caso
-se deja que el firmware siga sin decirlo.
+que no están en los TRM (calibración del PLL por `regi2c`, el PHY). En el C6,
+`I2C_ANA_MST` sí está documentado como periférico; los esclavos analógicos que
+hay detrás de él no. La regla de siempre: o se modelan con dos fuentes, o se
+declaran (contestan, no guardan y avisan una vez), y en ningún caso se deja
+seguir al firmware sin decirlo.
 
 ---
 
-## 7. Lo que hay que escribir
+## 9. Placas
 
-### 7.1 Ficheros nuevos, por carpeta
+| Placa | Chip | Lo que lleva | Fase |
+| :--- | :--- | :--- | :--- |
+| `esp32c3_devkitm1.xml` | ESP32-C3 (Flash externa de 4 MB) | Puente USB-UART con auto-reset en UART0, **LED RGB direccionable (WS2812) en GPIO8**, pulsadores BOOT (GPIO9) y RST (CHIP_PU), cristal de 40 MHz | E3-E5 |
+| `esp32c3_supermini.xml` | ESP32-C3FH4 | **Solo USB nativo** (USB-Serial-JTAG), LED en GPIO8, BOOT y RST | E7 |
+| `esp32c3_y_f407.xml` | C3 + F407 | Dos familias por UART o I2C en la misma placa: la prueba de que la frontera aguanta | E3 |
+| `esp32c6_devkitc1.xml` | ESP32-C6 (QFN40, Flash externa) | **Dos USB**: un puente USB-UART en UART0 y el USB-Serial-JTAG; LED RGB en GPIO8; BOOT y RST | E9 |
 
-| Carpeta | Ficheros | Qué |
-| :--- | :--- | :--- |
-| `core/rv/` | `rv_caps.h`, `rv_state.h`, `rv_cpu.h`, `rv_exec.h` (I, M, C, A, Zicsr, Zifencei; F para el P4), `rv_csr.h`, `rv_pmp.h` | El núcleo: decodificación, CSR de modo máquina (y de usuario si el chip lo tiene), traps, `wfi`, PMP y anotación de ciclos |
-| `core/rv/` | `rv_debug.h` (Debug Module 0.13: `dmcontrol`, `dmstatus`, `abstractcs`, `command`, `data*`, `progbuf*`, `sbcs`, `haltsum`; modo depuración del hart, `dcsr`/`dpc`), `rv_trigger.h`, `rv_jtag.h` (TAP + DTM) | La depuración |
-| `common/` | `gdb_rsp.h` partido en `gdb_rsp.h` y `gdb_arq_if.h`; `gdb_arq_armv7m.h` y `gdb_arq_riscv.h` | §3.2 |
-| `soc/esp32c3/` | `esp32c3_mapa.h` (direcciones, fuentes de interrupción y señales de la matriz GPIO), `esp32c3.h` (el SoC), `esp32c3_mcu.h` (adaptador a `mcu_if` y `REGISTRA_MCU(ESP32C3, …)`) | El chip |
-| `bus/esp/` | `esp_bus.h` | El decodificador de direcciones con los alias IRAM/DRAM de la misma SRAM y las ventanas de caché |
-| `mem/esp/` | `esp_cache_mmu.h` (caché de 16 KB, MMU de 64 KB por página, coste de fallo), `esp_rom.h` (carga del ELF de la ROM), `esp_efuse.h` | La memoria |
-| `periph/esp/` | `system.h`, `rtc_cntl.h` (razones de reset, pines de arranque, perros guardianes RWDT y SWD), `intmatrix.h`, `systimer.h`, `timg.h`, `uart.h`, `gpio_matrix.h`, `io_mux.h`, `spi_mem.h` (SPI0/SPI1), `gpspi.h`, `i2c.h`, `ledc.h`, `rmt.h`, `gdma.h`, `adc.h`, `twai.h`, `usb_serial_jtag.h`, `sha.h`, `aes.h`, `rng.h` y los declarados | Los periféricos |
-| `pins/esp/` | `esp_pad.h` (umbrales y los cuatro niveles de `FUN_DRV` sobre el mismo `Pad` eléctrico), `esp_pinmux.h` | Los pines |
-| `parts/` | `SpiFlash` (W25Q/GD25Q: lectura, Fast/DIO/QIO, programación de página, borrado de sector, SFDP, JEDEC ID), `AutoResetEsp`, `SondaJtag` (`remote_bitbang`), `Ws2812` (el LED RGB del DevKitM-1, gobernado por RMT) | Las piezas |
-| `placas/` | `esp32c3_devkitm1.xml` y `.svg`, `esp32c3_supermini.xml`, `esp32c3_y_f407.xml` (dos familias en una placa) | Las placas |
-| `top/` | `sc_main_c3.cpp` | El banco `testc3`, un ejecutable aparte con su invariante |
-| `verif/fw/esp32c3/` | `startup.S`, `esp32c3.ld`, y *blinky*, *uart*, *systimer*, *gpio_matrix*, *ledc*, *rmt*, *i2c*, *spi*, *debug*, CoreMark | Firmwares *bare-metal* versionados, con su huella |
-| `verif/fw/esp32c3/idf/` | `hello_world`, `blink` y `uart_echo`, compilados con ESP-IDF y versionados (Apache-2.0) | Las pruebas con la ROM |
-
-### 7.2 Cambios en lo que hay
-
-* `sim_main.cpp`: las opciones `--rom`, `--efuse`, `--gdb-dm` y `--flash-args`;
-  `--mcu ESP32-C3`; el informe final con los LEDs que dependen de GPIO.
-* `Makefile.mcu-sim`: las fuentes por familia, los objetivos `testc3`,
-  `asanc3` y `fwc3` (con `riscv32-esp-elf-gcc` o el `riscv64-unknown-elf-gcc`
-  de MSYS2 con `-march=rv32imc_zicsr_zifencei -mabi=ilp32`).
-* `verif/invariantes.txt` y `ci/`: el invariante del C3.
-* `doc/todo.md`: un punto nuevo con sus subpuntos, igual que P-12 y P-14.
-* `TERCEROS.md` y `doc/fuentes.md`: la ROM, el TRM, las cabeceras de ESP-IDF y
-  Spike.
+Las placas se contrastan con su esquemático antes de cerrar la fase, como se hizo
+con la MB1035: GPIO de cada LED, resistencias, condensador de CHIP_PU. Lo que no
+salga del esquemático, `[de modelo]`.
 
 ---
 
-## 8. Plan por fases
+## 10. Plan por fases
 
-El método es el de los puentes y los planes de familia. Fases pequeñas, cada una
-con su criterio de cierre; un banco propio (`testc3`) con su invariante; y, como
-condición de todas, **sin mover los invariantes de `test407`, `test446`,
-`test417`, `testserie` y `testgui`**.
+Es el método de siempre: fases pequeñas, cada una con sus entregas y su criterio
+de cierre, un banco propio con su invariante (`testrv`, `testc3` y `testc6`, con
+su `asan*`) y, como condición de todas, **sin mover los invariantes de las ocho
+suites**. Los firmwares de prueba se versionan con su huella (T-22); compilarlos
+pide `riscv32-esp-elf-gcc` (el de ESP-IDF), pero ejecutar las suites no.
 
-### E0 · Generalización neutral
+### Vista de conjunto
 
-**Qué:** §3.2 entero: `mcu_if` sin ARM, pads con nombre, `Encapsulado` y
-`Cableado` generales, `PowerPads` por familia, `GdbRsp` partido en protocolo y
-arquitectura, ELF en el cargador.
-
-**Cierre:**
-* las cinco suites con **las mismas comprobaciones y el mismo tiempo simulado
-  al picosegundo**, en las cuatro plataformas;
-* `T96` y `T97` (los dos stubs de GDB) idénticos paquete a paquete con la
-  traza puesta;
-* un `McuFalso` de prueba (sin núcleo, con pads llamados `GPIO0`…`GPIO7`) que se
-  monta en una placa XML con un LED y se valida con `--valida`. Demuestra que la
-  puerta está abierta antes de tener el chip.
-
-**Tamaño:** medio. Es mecánico, pero toca las interfaces que usa todo.
-
-### E1 · Núcleo RV32IMC
-
-**Qué:** `core/rv/` sin depuración: el núcleo, los CSR de modo máquina, los
-traps, PMP y la anotación de ciclos con quantum LT. Se monta sobre una RAM de
-laboratorio y un controlador de interrupciones de pega, igual que las piezas de
-laboratorio de T127.
-
-**Cierre:**
-* **`riscv-tests`** (`rv32ui`, `rv32um`, `rv32uc` y `rv32mi`, entorno `-p`) y
-  la parte RV32IMC de **`riscv-arch-test`**, todos en verde;
-* **traza contra Spike** idéntica en un programa de prueba propio y en CoreMark;
-* CoreMark compilado para RV32IMC termina con su CRC correcto;
-* los errores de `nanorv/application/debugging.txt` convertidos en pruebas
-  (extensión de signo de `lb`/`lh`, cargas no alineadas).
-
-**Tamaño:** medio. Es bastante menos que el Thumb-2 de F2: la ISA base son unas
-40 instrucciones y la C se expande a la base.
-
-### E2 · ESP32-C3 con arranque directo
-
-**Qué:** el SoC sin ROM ni caché: mapa de memoria con los alias IRAM/DRAM;
-SYSTEM y reloj (40 MHz → PLL → 160/80 MHz); matriz de interrupciones y
-controlador de la CPU; SYSTIMER; TIMG0/1 con sus perros guardianes; RTC_CNTL
-mínimo; UART0/1; GPIO con matriz e IO_MUX sobre pads eléctricos; eFuse desde
-fichero; pines de arranque muestreados en el flanco de EN. El adaptador
-`mcu_if` y `REGISTRA_MCU(ESP32C3, …)`. La placa `esp32c3_devkitm1.xml` con el
-pulsador BOOT en GPIO9, el de EN, y el LED. Firmwares *bare-metal* cargados
-como ELF (D1).
-
-**Cierre:**
-* `mcu-sim placas/esp32c3_devkitm1.xml verif/fw/esp32c3/blinky.elf` enciende y
-  apaga un LED en GPIO;
-* `uart.elf` saluda por el `PuenteSerie` en la UART0 y devuelve lo que recibe
-  (las recetas de `doc/puente_serie.md` valen sin cambiar una línea);
-* el `SYSTIMER` interrumpe con el periodo programado;
-* **`esp32c3_y_f407.xml`**: un C3 y un F407 hablándose por UART en la misma
-  placa, cada uno con su firmware;
-* `testc3` en el CI con su invariante, y `asanc3` limpio.
-
-**Tamaño:** grande. Es el equivalente de las fases F1 y F3 del F407 juntas.
-
-### E3 · Flash SPI, caché, MMU y la ROM
-
-**Qué:** la pieza `SpiFlash` (en la placa o dentro del encapsulado, según el
-descriptor: C3 frente a C3FH4); SPI0 y SPI1 (`spi_mem`); caché con MMU y coste
-de fallo; carga de la ROM (`esp_rom.h`, `--rom`, búsqueda en la instalación de
-ESP-IDF); formatos de imagen y `flash_args`; SHA-256 en `hash_algo.h`; los
-registros sin documentar que toca el arranque, cada uno modelado o declarado.
-
-**Cierre:**
-* con la ROM de verdad y un `hello_world` de ESP-IDF sin Wi-Fi, la consola
-  enseña la cabecera de la ROM (`rst:0x1 (POWERON_RESET),boot:0xc
-  (SPI_FAST_FLASH_BOOT)`), el bootloader de segunda etapa, la tabla de
-  particiones y `Hello world!`, y `esp_restart()` vuelve a empezar;
-* un `blink` de Arduino-ESP32 y uno de Zephyr arrancan;
-* con GPIO9 a masa al subir EN, la ROM escribe `DOWNLOAD_BOOT` y se queda
-  esperando;
-* `limitaciones()` dice qué no hay: radio, RSA, HMAC, DS, cifrado de Flash y
-  arranque seguro.
-
-**Tamaño:** grande, y **el de más riesgo**: es donde aparecen los registros sin
-documentar.
-
-### E4 · Descarga con esptool (D2)
-
-**Qué:** la pieza `AutoResetEsp` (dos transistores y el RC de EN); el mínimo de
-tiempo simulado entre cambios de DTR/RTS en el puente; la placa con su
-`PuenteSerie` en UART0; las recetas en `doc/puente_serie.md`.
-
-**Cierre:**
-* una prueba en Python, al estilo de `gui-marcha`, que lanza `sim`, ejecuta
-  `esptool --port rfc2217://localhost:3355 chip-id`, `write-flash` y
-  `verify-flash`, **con el *stub* de esptool y con `--no-stub`**, y después
-  comprueba que el firmware nuevo arranca;
-* `idf.py -p rfc2217://localhost:3355 flash monitor` documentado y probado a
-  mano en las tres plataformas;
-* el invariante de `testserie` sin moverse.
-
-**Tamaño:** pequeño. Todo lo caro lo pusieron E3 y P-14.
-
-### E5 · Depuración (G1 y G2)
-
-**Qué:** el Debug Module 0.13 con su modo depuración, los 8 *triggers*, el
-acceso al bus de sistema y el *program buffer*; `gdb_arq_riscv.h`; el stub
-interno (`depuracion="dm"`); el TAP con DTM en GPIO4-7; la pieza `SondaJtag`
-con `remote_bitbang`; las configuraciones de Espressif-IDE y VS Code.
-
-**Cierre:**
-* con `verif/gdb_client.h`: parar, leer los 32 registros y el `pc`, poner y
-  quitar un punto de ruptura hardware en Flash y uno software en IRAM, un
-  *watchpoint*, un paso y `monitor reset halt`;
-* el mismo guion, **con los mismos resultados**, por G1 y por G2; se mide la
-  razón de velocidades, como T97;
-* **`openocd-esp32` sin modificar** se engancha por `remote_bitbang`, lee el
-  IDCODE del C3 y hace `program_esp` + `verify` (D4);
-* `idf.py gdb` contra G1 llega a `app_main`.
-
-**Tamaño:** grande. La mitad es el Debug Module y la otra mitad el TAP.
-
-### E6 · Periféricos de aula y USB-Serial-JTAG
-
-**Qué**, por orden de uso en prácticas: LEDC (PWM: el servo y los LED ya
-existen), RMT (con la pieza `Ws2812`), GP-SPI2 (con la TFT ST7735), I²C (EEPROM
-24Cxx), ADC SAR (sobre los nodos analógicos), GDMA, TWAI (con el bus CAN que
-ya existe) y el sensor de temperatura. El **USB-Serial-JTAG**: el CDC por
-RFC 2217 (D3), el reset a modo descarga por DTR/RTS del CDC, y su JTAG (G3).
-AES y SHA con sus vectores.
-
-**Cierre:** un firmware de prueba y una comprobación por periférico, como en F4
-y F5 del F407, y los ejemplos de ESP-IDF correspondientes (`ledc_basic`,
-`led_strip`, `i2c_eeprom`, `twai_network`…) contra las piezas de `parts/`.
-
-**Tamaño:** grande, pero divisible: cada periférico es una entrega.
-
-### E7 · El resto de la familia
-
-| Chip | Lo que añade sobre el C3 | Qué supone |
-| :--- | :--- | :--- |
-| **ESP32-C6** | RV32IMAC; **un segundo núcleo LP** (otra instancia de la misma CPU con otro `RvCoreCaps`); PCR en vez de SYSTEM; otro controlador de interrupciones | El primer chip con **dos harts** de distinta clase: el DM con `hartsel` |
-| **ESP32-H2** | RV32IMAC a 96 MHz, sin Wi-Fi | Casi solo descriptor y reloj |
-| **ESP32-C2** (ESP8684) | RV32IMC, menos RAM, más ROM, sin USB-Serial-JTAG | Descriptor y quitar bloques |
-| **ESP32-C5 / C61** | RV32IMAC, controlador CLIC | Un controlador de interrupciones nuevo |
-| **ESP32-P4** | Dos núcleos HP RV32IMAFC con extensiones propias (SIMD, bucles hardware) más uno LP, sin radio, con USB HS, MIPI y mucho más | Otro proyecto: F, multihart simétrico y extensiones no estándar |
-
-Las cifras de cada chip se escriben en su descriptor **con dos fuentes**
-(datasheet y `soc/` de ESP-IDF), como las 29 referencias de ST.
-
-Los coprocesadores ULP-RISC-V del ESP32-S2 y el S3 quedan fuera: el núcleo
-principal de esos chips es Xtensa, y sin él el ULP no tiene sentido.
-
-### E8 · `mcu-sim-gui`
-
-Los dibujos de las placas (`esp32c3_devkitm1.svg`). El protocolo no cambia,
-porque nombra los nodos con cadenas. Hay que comprobar que la ventana no da por
-hecho nombres de la forma `Pxn` en ninguna parte.
-
-### Orden y dependencias
+| Fase | Qué | Banco | Depende de | Tamaño |
+| :--- | :--- | :--- | :--- | :--- |
+| **E0** | Lo que queda de la generalización (§5) | Las ocho | — | Medio |
+| **E1** | Núcleo RV32IMAC genérico + SoC de laboratorio | `testrv` | E0.1 | Grande |
+| **E2** | Debug Module, *triggers*, DTM, JTAG en pines y GDB, en el laboratorio | `testrv` | E0, E1 | Grande |
+| **E3** | ESP32-C3: el SoC con arranque directo, sin ROM | `testc3` | E1 | Grande |
+| **E4** | C3: Flash SPI, MSPI, caché/MMU, ROM real y ESP-IDF | `testc3` | E3 | Grande, **el de más riesgo** |
+| **E5** | C3: descarga con esptool por la UART0 (D2) | `testc3` + Python | E4 | Pequeño |
+| **E6** | C3: depuración G1, G2 y G2', y D4 | `testc3` + Python | E2, E4 | Medio |
+| **E7** | C3: USB-Serial-JTAG, D3 y G3 | `testc3` + Python | E5, E6 | Medio |
+| **E8** | C3: periféricos de aula | `testc3` | E4 | Grande, divisible |
+| **E9** | ESP32-C6: núcleo HP, SoC, ROM, ESP-IDF, D1-D3 y G1-G3 | `testc6` | E4-E7 | Grande |
+| **E10** | C6: el núcleo LP como segundo hart, LP SRAM y periféricos LP | `testc6` | E9 | Medio |
+| **E11** | C6: sus periféricos propios (MCPWM, PCNT, ETM, PARL_IO, TWAI1, ECC…) | `testc6` | E9 | Grande, divisible |
+| **E12** | Radio paravirtual (`VirtWifi`), opcional | `testradio` | E9 y R1-R3 de `analisis_wifi_bl.md` | Grande |
+| **E13** | `mcu-sim-gui`: placas y dibujos | — | E3, E9 | Pequeño |
 
 ```
-E0 ──► E1 ──► E2 ──► E3 ──┬─► E4 (esptool)
-                          ├─► E5 (GDB, OpenOCD) ──► G3 en E6
-                          └─► E6 (periféricos) ──► E7 (familia)
-E8 en paralelo desde E2
+E0 ──► E1 ──► E2 ─────────────────────┐
+        │                              ▼
+        └──► E3 ──► E4 ──┬──► E5 ──► E7 ──► E9 ──► E10
+                         ├──► E6 ──┘         │
+                         └──► E8             ├──► E11
+                                             └──► E12 (opcional)
+E13 en paralelo desde E3
 ```
 
-E4 y E5 se pueden hacer en cualquier orden después de E3. **Se recomienda E4
-primero**: es pequeña, y con ella el alumno ya trabaja con su flujo de siempre
-(`idf.py flash monitor`) aunque todavía tenga que depurar a base de `printf`.
+### E0 · Lo que queda de la generalización
+
+**Objetivo:** que el resto del plan no tenga que tocar nada de ARM.
+
+**Entregas:** E0.1 a E0.10 de §5, cada una en su commit y con las suites
+pasadas antes de la siguiente.
+
+**Cierre:** el de §5.
+
+**Tamaño:** medio. Lo delicado es E0.2. Conviene hacerlo en dos commits:
+primero mover el código sin cambiarlo y, después, cortar la interfaz.
+
+### E1 · El núcleo RV32 genérico y el laboratorio
+
+**Objetivo:** un hart RISC-V correcto, validado contra dos fuentes
+independientes y sin una línea de Espressif.
+
+**Entregas:**
+1. `src/rv/hart/`: `rv_caps.h`, `rv_state.h`, `rv_decod.h` (con la expansión
+   de C), `rv_exec.h` (I, M, A, C), `rv_csr.h` (registro de CSR con permisos y
+   modo), `rv_trap.h`, `rv_pmp.h` y `rv_tiempos.h`.
+2. `NucleoRv` (`SC_MODULE`): *sockets* I y D, quantum LT, transacciones atómicas
+   marcadas, `wfi` con el reloj parado e `IntegracionRv`.
+3. `src/rv/irq/`: `rv_irq_if`, `IrqEstandar` y `Clint`.
+4. `src/rv/lab/`: `SocLabRv` (RAM, CLINT, UART de pega, HTIF) y
+   `top/sc_main_rv.cpp` → `make testrv`, `asanrv`.
+5. `verif/rv/`:
+   * el *port* de `riscv-tests` (entorno `-p`, enlazado para el laboratorio),
+     con sus binarios versionados;
+   * el de `riscv-arch-test` con sus firmas de referencia;
+   * el guion que compara la traza con la de Spike;
+   * y `gen_rv_vectores.py`, los vectores de decodificación de dos fuentes.
+6. CoreMark compilado para RV32IMC y para RV32IMAC con otro `core_portme`. Los
+   fuentes ya están en `verif/fw/coremark`.
+7. Las extensiones del integrador, `rv_csr_ext_if` y `rv_ext_if`, con una
+   prueba de laboratorio de cada una.
+
+**Cierre:**
+* `riscv-tests` `rv32ui`, `rv32um`, `rv32ua`, `rv32uc` y `rv32mi`, todas en
+  verde, con `RV_LAB_IMAC`;
+* `riscv-arch-test` RV32 I, M, A, C, Zicsr, Zifencei y *privilege* (modo M),
+  con las firmas iguales a las de referencia;
+* **traza idéntica a la de Spike** en un programa propio con traps,
+  interrupciones del CLINT y PMP, y en CoreMark;
+* CoreMark termina con su CRC correcto en las dos variantes;
+* las tres variantes de desalineado probadas, incluida la errata CPU-863;
+* `testrv` en el CI con su invariante, en las cuatro plataformas.
+
+**Tamaño:** grande, pero bastante menos que el Thumb-2 de la fase F2: la ISA
+base son unas 40 instrucciones, la C se expande y no hay modo Thumb ni ITSTATE.
+
+### E2 · La depuración genérica, en el laboratorio
+
+**Objetivo:** que cualquier RISC-V con DM 0.13 se depure con G1, G2 y OpenOCD
+desde el primer día. Hacerlo **antes** del C3 tiene una ventaja más: cuando se
+ponga en marcha el C3 ya habrá depurador.
+
+**Entregas:**
+1. `src/rv/debug/`: `rv_dm.h`, `rv_trigger.h`, el modo depuración del hart,
+   `rv_dtm_jtag.h` y `jtag_pines.h`.
+2. `common/gdb_arq_riscv.h` sobre el motor de E0.2, con hilos por hart y
+   `target.xml` generado.
+3. G1 (stub interno), G2' (stub de pines propio con su cliente DTM) y G2
+   (OpenOCD por `remote_bitbang` y por CMSIS-DAP en JTAG), contra el
+   laboratorio.
+4. Un laboratorio con **dos harts** (`SocLabRv` con `n_harts = 2`) para probar
+   `hartsel`, `haltsum`, «unavail» y el disparo cruzado antes de que haga falta
+   en el C6.
+
+**Cierre:**
+* con `verif/gdb_client.h` y por G1, G2' y G2, **con los mismos resultados**:
+  parar, leer y escribir los 32 registros, el `pc` y CSR, un punto de ruptura
+  software en RAM, uno por *trigger*, un *watchpoint* de escritura, un paso,
+  `monitor reset halt`, y `load` de un programa a RAM;
+* OpenOCD genérico (`target create riscv`) por `remote_bitbang` y por
+  CMSIS-DAP: `examine`, `halt`, `reg`, `mdw`, `load_image`, `resume`, y GDB por
+  el servidor de OpenOCD;
+* dos harts: GDB ve dos hilos, y parar uno no para el otro salvo con el disparo
+  cruzado activado;
+* la razón de velocidades G1/G2', medida y anotada como T97.
+
+**Tamaño:** grande. El DM es la mitad; la otra mitad es el TAP y los tres
+caminos.
+
+### E3 · ESP32-C3: el SoC, con arranque directo y sin ROM
+
+**Objetivo:** el C3 que ejecuta firmware *bare-metal*, con pines eléctricos, en
+una placa.
+
+**Entregas:**
+1. `soc/esp32c3/`:
+   * `c3_desc.h`: descriptores ESP32-C3, C3FH4, C3FH4X y C3FH8X, con su
+     encapsulado, su Flash interna o externa y su revisión;
+   * `c3_mapa.h`: el mapa de [TRM-C3 tabla 3.3-3] y las fuentes de
+     interrupción;
+   * `esp32c3.h`: el SoC;
+   * `esp32c3_mcu.h`: `mcu_if` y `REGISTRA_MCU(ESP32C3, …)`.
+2. El decodificador de bus del C3, con los alias IRAM/DRAM de la SRAM1 y la ROM1.
+3. `IntcEspV1` y la matriz de interrupciones del C3.
+4. SYSTEM/SYSCON (reloj: cristal de 40 MHz, PLL, CPU a 80/160 MHz, APB), RTC_CNTL
+   mínimo (causa de reset, perros guardianes, *force download*), SYSTIMER,
+   TIMG×2, UART0/1, GPIO con la matriz, IO_MUX y la GPIO dedicada por los CSR,
+   eFuse desde un fichero, y los pines de arranque en el flanco de CHIP_PU.
+5. `Nomenclatura` `ESP32C3` (`GPIOn`, `IOn`, `MTMS`… y los de alimentación).
+6. `RV_ESP32C3` con los CSR propios (`mpc*`, `cpu_gpio_*`), **sin `mie`/`mip`**.
+7. `placas/esp32c3_devkitm1.xml` con su `.svg` y `placas/esp32c3_y_f407.xml`.
+8. `verif/fw/esp32c3/`: `startup.S`, `c3_iram.ld`, y *blinky*, *uart*,
+   *systimer*, *intc* (prioridades, umbral y flanco/nivel), *gpio_matriz* y
+   CoreMark, con su huella.
+9. `top/sc_main_c3.cpp` → `make testc3`, `asanc3`.
+
+**Cierre:**
+* `mcu-sim placas/esp32c3_devkitm1.xml verif/fw/esp32c3/blinky.elf` hace
+  parpadear un LED de la placa, y el `uart.elf` saluda por el `PuenteSerie` en
+  GPIO21/20;
+* la prueba del INTC reproduce las reglas de [TRM-C3 §1.5.2]: prioridad 0
+  enmascarada, empate por ID, borrado de flanco por pulso y latencia de 4
+  ciclos;
+* `esp32c3_y_f407.xml`: un C3 y un F407 se hablan por UART;
+* `limitaciones()` dice que no hay ROM, Flash, caché, radio, ni periféricos de E8;
+* `testc3` y `asanc3` en el CI con su invariante.
+
+**Tamaño:** grande. Es el equivalente de la T1 del MSP432.
+
+### E4 · C3: Flash SPI, caché, ROM y ESP-IDF
+
+**Objetivo:** que arranque un `hello_world` de ESP-IDF sin tocar.
+
+**Entregas:**
+1. La pieza `SpiFlash`, con `contenido=`, dentro del encapsulado (C3FH4) o en
+   la placa (C3).
+2. `spi_mem.h` (SPI0 y SPI1) y `esp_cache_mmu.h` con los parámetros del C3.
+3. `esp_rom.h` (R1, R3), `esp_imagen.h`, D1 completo (imagen, `flash_args`,
+   `--efuse`) y las ROM versionadas o descargadas según se decida en §8.1.
+4. Lo que ESP-IDF toca al arrancar, cada cosa modelada o declarada:
+   * PMS y World Controller (la protección de memoria por omisión de ESP-IDF);
+   * ASSIST_DEBUG (la guarda de pila);
+   * RWDT, MWDT y SWD;
+   * el BBPLL por `regi2c`;
+   * el *brownout*;
+   * y el XTAL32K WDT.
+5. SHA-256 en `hash_algo.h` (ya prevé el SHA-2) y el acelerador SHA, para que la
+   ROM y el bootloader puedan comprobar imágenes.
+6. `verif/fw/esp32c3/idf/`: `hello_world`, `blink` (con el `led_strip` por RMT
+   declarado, o un LED simple) y `uart_echo`. Se compilan con las dos ramas de
+   ESP-IDF con soporte en ese momento (hoy, v5.5 y v6.0) y para **v0.4 y
+   v1.1**, y se versionan (Apache-2.0).
+7. Un firmware *bare-metal* en **Direct Boot** (`0xaedb041d`): la ROM, la caché
+   y la MMU ejecutando desde la Flash, sin ESP-IDF. Es el escalón intermedio
+   para localizar fallos.
+
+**Cierre:**
+* **Direct Boot**: el firmware *bare-metal* corre desde la Flash por la caché;
+* **ESP-IDF**: la consola enseña los mensajes de la ROM (causa de reset y
+  `SPI_FAST_FLASH_BOOT`), el bootloader de segunda etapa, la tabla de
+  particiones y `Hello world!`; `esp_restart()` vuelve a empezar. Con las dos
+  ramas de ESP-IDF y en las dos revisiones del chip;
+* con la ROM de v1.1 y un binario de v0.4, el chip falla como en la placa, y
+  `sim` lo avisa al montar;
+* con GPIO9 a masa al subir CHIP_PU, la ROM anuncia el modo descarga y espera;
+* un `blink` de Arduino-ESP32 3.x arranca;
+* cada registro sin documentar que se haya tocado está en `todo.md`, con su
+  fuente o con «declarado».
+
+**Tamaño:** grande, y **el de más riesgo**. Mitigación: Direct Boot antes que
+ESP-IDF, y ESP-IDF sin Wi-Fi ni Bluetooth.
+
+### E5 · C3: esptool por la UART0 (D2)
+
+**Entregas:**
+1. La pieza `AutoResetEsp`, eléctrica, con el RC de CHIP_PU.
+2. El mínimo de tiempo simulado entre cambios de control en el `PuenteSerie`.
+3. La detección automática de baudios de la UART del C3, si no entró en E3.
+4. Las recetas en `doc/puente_serie.md`.
+
+**Cierre:**
+* `verif/esp/esptool.py`, al estilo de `programa.py`: `chip-id`, `flash-id`,
+  `write-flash` + `verify-flash`, **con el *stub* y con `--no-stub`**, a 115 200
+  y a 921 600 baudios; y el firmware nuevo arranca. Si no hay `esptool`, la
+  prueba se omite diciéndolo, salvo con la variable de obligatoriedad que usa
+  el CI;
+* `idf.py -p rfc2217://localhost:3355 flash monitor`, probado a mano en las
+  tres plataformas y anotado en la matriz de `doc/puente_serie.md`;
+* el invariante de `testserie` no se mueve.
+
+**Tamaño:** pequeño.
+
+### E6 · C3: depuración (G1, G2, G2') y D4
+
+**Entregas:**
+1. El DM de E2 montado en el C3 con `RV_ESP32C3.dbg` (8 *triggers*, *program
+   buffer* de 16 y SBA de palabra), el IDCODE del TAP del C3 y su región `DM`.
+2. La selección del origen del JTAG por eFuses (y por el pin de arranque, una
+   vez cerrado el dato de §2.3).
+3. El `programador_nv_if` de Espressif para el `load`.
+4. `ide/esp32c3/`: Espressif-IDE (`.launch`) y VS Code (`launch.json` para la
+   extensión de ESP-IDF y para `cppdbg`).
+
+**Cierre:**
+* el guion de E2, por G1 y G2', contra el `hello_world` de ESP-IDF: punto de
+  ruptura en `app_main` **en la Flash** (por *trigger*), uno en IRAM (por
+  `ebreak`), *watchpoint* y paso;
+* `idf.py gdb` contra G1 llega a `app_main`;
+* **`openocd-esp32` sin modificar**, con `target/esp32c3.cfg` por
+  `remote_bitbang`: lee el IDCODE, hace `program_esp` + `verify` (D4),
+  `reset run` y arranca el firmware nuevo; en GDB, `info threads` enseña las
+  tareas de FreeRTOS;
+* el mismo OpenOCD por CMSIS-DAP en JTAG.
+
+**Tamaño:** medio. Lo grande se hizo en E2.
+
+### E7 · C3: USB-Serial-JTAG (D3 y G3)
+
+**Entregas:**
+1. `periph/esp/usb_serial_jtag.h`:
+   * dispositivo compuesto detrás de `usb_dev_if`;
+   * el CDC-ACM con sus FIFO y sus registros;
+   * el reset y la bandera de descarga por DTR/RTS [TRM-C3 tabla 30.3-2];
+   * y el **procesador de órdenes JTAG** (`CMD_CLK`, `CMD_RST`, `CMD_FLUSH`,
+     `CMD_REP`) conectado al TAP.
+2. `PuenteUsb`:
+   * dispositivos compuestos (IAD) y elección de la interfaz CDC;
+   * **una segunda clase, la del JTAG de Espressif**, sacada como servidor
+     `remote_bitbang`, que traduce cada orden de OpenOCD a órdenes del
+     endpoint;
+   * con el `ControladorUsb` y el canal RFC 2217 de siempre.
+3. `placas/esp32c3_supermini.xml`.
+
+**Cierre:**
+* con la SuperMini, `esptool --port rfc2217://localhost:3356 --before usb-reset
+  write-flash` e `idf.py monitor` por el CDC: el reset a modo descarga lo hace
+  el periférico, sin transistores, con la secuencia de [TRM-C3 tabla 30.4-1].
+  Cómo se le pide lo mismo a `idf.py flash` se comprueba aquí;
+* `openocd-esp32` por G3 (`remote_bitbang` hacia el puente) hace lo mismo que en
+  E6;
+* la consola de ESP-IDF sale por el USB (`CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG`);
+* el invariante de las suites que usan el puente USB (`teste4` y `testf3`) no
+  se mueve.
+
+**Tamaño:** medio.
+
+### E8 · C3: periféricos de aula
+
+Por orden de uso en prácticas. Cada periférico es una entrega con su firmware
+de prueba, su grupo de comprobaciones en `testc3` y, si hay uno que encaje, un
+ejemplo de ESP-IDF sin tocar contra una pieza que ya existe (los nombres de la
+tabla son los de `examples/peripherals`, a confirmar con la versión que se use):
+
+| # | Periférico | Pieza o ejemplo |
+| :--- | :--- | :--- |
+| 1 | LEDC | LED con brillo, el servo SG90; `ledc_basic` |
+| 2 | RMT + la pieza `Ws2812` | El LED RGB de la DevKitM-1; `led_strip` |
+| 3 | GP-SPI2 + GDMA | TFT ST7735; `spi_master` |
+| 4 | I2C | EEPROM 24Cxx; `i2c_eeprom` |
+| 5 | SAR ADC y sensor de temperatura | Potenciómetro sobre los nodos analógicos; `oneshot_read`, `temp_sensor` |
+| 6 | TWAI | El bus CAN del proyecto (T-24); `twai_network` |
+| 7 | SHA, AES y RNG | Vectores de `verif/vectores/` |
+| 8 | Declarados con aviso | I2S, RSA, HMAC, DS, XTS_AES, UHCI |
+
+**Cierre:** el de cada entrega. El invariante de `testc3` se fija en cada una,
+diciendo por qué se ha movido.
+
+### E9 · ESP32-C6: el núcleo HP y el SoC
+
+**Objetivo:** el segundo chip, que reutiliza el núcleo, la capa de Espressif y
+todos los caminos de descarga y depuración. Esta fase es la que demuestra que
+la separación de §3 funciona.
+
+**Entregas:**
+1. `RV_ESP32C6_HP`:
+   * A;
+   * U con delegación (`mideleg` y los CSR de usuario: la parte «N» del hart,
+     que ya existe desde E1 tras `deleg_n`);
+   * `mie`/`mip`;
+   * PMA por CSR propios;
+   * 4 *triggers*;
+   * y la tabla de tiempos con el BTB.
+2. `Clint` en la variante Espressif (`0x2000_1800`) e `IntcEspV2` (INTPRI) con
+   su combinación con el CLINT [TRM-C6 §1.6 y §1.7]; la matriz de
+   interrupciones del C6.
+3. `soc/esp32c6/`: descriptores (C6 en QFN40 y C6FH4/FH8 en QFN32), mapa
+   [TRM-C6 tabla 5.3-2], bus sin alias, PCR, LP_AON, LP_CLKRST, la parte de la
+   PMU que el arranque necesita, `I2C_ANA_MST`, APM y TEE (modelados o
+   declarados), caché de 32 KB con su ventana única, y los cinco pines de
+   arranque con GPIO15 para el origen del JTAG.
+4. Los periféricos comunes de E3-E8 montados con los `Caps` del C6, y TWAI1.
+5. `placas/esp32c6_devkitc1.xml` con sus dos USB.
+6. `verif/fw/esp32c6/` (*bare-metal* e IDF), `top/sc_main_c6.cpp` →
+   `make testc6`, `asanc6`.
+
+**Cierre:**
+* `riscv-arch-test` en el laboratorio con `RV_ESP32C6_HP` (U incluido);
+* *bare-metal*: el *blinky*, la UART, el CLINT y el INTPRI (umbral, prioridad
+  0, delegación de una interrupción a U y `uret`);
+* ESP-IDF: `hello_world` en Direct Boot y en arranque normal;
+* D2 y D3 con esptool;
+* G1, G2 (`target/esp32c6.cfg`) y G3, como en E6 y E7;
+* `testc6` y `asanc6` en el CI con su invariante.
+
+**Tamaño:** grande, pero claramente menor que E3 + E4.
+
+### E10 · C6: el núcleo LP
+
+**Entregas:**
+1. `RV_ESP32C6_LP`:
+   * 2 etapas a 20 MHz;
+   * solo M;
+   * una interrupción en el ID 30;
+   * contadores estándar;
+   * 2 *triggers*;
+   * y reset en `0x5000_0080`.
+
+   Como **segunda instancia de `NucleoRv`** en el mismo SoC.
+2. LP SRAM con sus dos modos de acceso y la latencia cruzada; LPPERI
+   (`LPPERI_CPU_REG`, `LPPERI_INTERRUPT_SOURCE_REG`), RTC_TIMER, LP_UART, LP_I2C
+   y LP IO MUX.
+3. El DM con **dos harts**: el LP «unavail» hasta que se escribe
+   `LPPERI_CPU_REG`, y el disparo cruzado HP↔LP.
+4. Las atómicas entre los dos núcleos sobre la LP SRAM y, si se reproduce, la
+   errata CPU-206 de v0.0-v0.1, que se puede apagar.
+
+**Cierre:**
+* los ejemplos de LP Core de ESP-IDF (los de `examples/system/ulp/lp_core`)
+  sin tocar: el LP cuenta, despierta al HP y le pasa datos por la LP SRAM;
+* GDB por G1 enseña **dos hilos**, uno por hart; `openocd-esp32` depura el LP;
+* parar el HP con el disparo cruzado activado para el LP, y desactivado no lo
+  para.
+
+**Tamaño:** medio.
+
+### E11 · C6: periféricos propios
+
+| # | Periférico | Para qué |
+| :--- | :--- | :--- |
+| 1 | MCPWM | Los motores de CC y BLDC del catálogo (rama `cnc`) |
+| 2 | PCNT | El encoder KY-040 |
+| 3 | ETM | Sucesos entre periféricos sin CPU |
+| 4 | PARL_IO | Declarado al principio |
+| 5 | ECC | Declarado |
+| 6 | Esclavo SDIO | Declarado: la pieza que haría de anfitrión no existe |
+| 7 | Codificador de traza | Declarado |
+| 8 | Monitor de memoria | Declarado |
+
+### E12 · Radio paravirtual (opcional)
+
+Es la R8 de `doc/analisis_wifi_bl.md` §3.3. Consiste en un periférico `VirtWifi`
+inventado y documentado por nosotros, en una dirección libre del mapa, más un
+componente de ESP-IDF que lo usa por debajo de `esp_wifi`. Depende del
+`MedioRadio` y del `PuntoAcceso` (R1-R3) y del puente Ethernet. **No se empieza
+sin que R1-R3 estén hechas.** Mientras tanto, la radio sigue declarada.
+
+### E13 · `mcu-sim-gui`
+
+Los dibujos de las placas de §9. El protocolo no cambia: nombra los nodos con
+cadenas, y `GPIO9` vale tanto como `PA5`. Hay que comprobar que la ventana no da
+por hechos nombres de la forma `Pxn`.
 
 ---
 
-## 9. Riesgos y preguntas abiertas
+## 11. Riesgos y preguntas abiertas
 
-1. **La licencia de la ROM.** Decide si el CI puede ejecutar las pruebas de
-   ESP-IDF o solo las *bare-metal*. Hay que resolverla antes de E3.
-2. **Los registros sin documentar del arranque y del PHY.** Son el gran
-   desconocido. Mitigación: empezar con un `hello_world` compilado **sin** Wi-Fi
-   ni Bluetooth, y anotar cada registro que toque, con su fuente.
-3. **El tiempo de esptool** (§4.2). Si no se resuelve, el auto-reset fallará al
-   azar en máquinas lentas, que es el peor tipo de fallo.
-4. **La caché.** Un modelo de aciertos y fallos sin geometría real dará
-   tiempos que no son los de la placa. Hay que decidir cuánta fidelidad se pide
-   y dejarlo escrito en `doc/todo.md`.
-5. **La radio no está.** Las prácticas que la usan (MQTT, servidor web, BLE) no
-   se pueden hacer en `mcu-sim`. Es la diferencia más visible con QEMU, que
-   tampoco la modela pero ofrece una Ethernet virtual (OpenCores). Una MAC
-   Ethernet por SPI (W5500, ENC28J60) colgada como pieza sería la forma de
-   tener red sin modelar la radio, y reutilizaría el trabajo del puente
-   Ethernet.
-6. **Dos toolchains en el CI.** `arm-none-eabi-gcc` y `riscv32-esp-elf-gcc`.
-   Como hoy, los firmwares se versionan y el compilador cruzado solo hace falta
-   para regenerarlos (T-22).
-7. **Revisiones del chip.** Si la ROM no coincide con la revisión que dice el
-   eFuse, ESP-IDF avisa o se niega a arrancar. El descriptor tiene que fijar la
-   pareja.
-8. **¿El C3 o el C6 primero?** El C6 tiene más futuro (Wi-Fi 6, Thread/Zigbee,
-   núcleo LP); el C3 es más sencillo y está en más aulas. Este análisis
-   recomienda **el C3**, porque cada fase cierra antes y deja hecho lo que el C6
-   reutiliza.
+1. **E0.2, el corte del motor de GDB.** Es lo único del plan que toca código
+   que ya funciona en las ocho suites. Mitigación: dos commits (mover y luego
+   cortar) y comparar la traza de T96, T97, P21 y O1-O5 byte a byte.
+2. **Los registros sin documentar del arranque (E4).** Son el gran desconocido.
+   Mitigación: Direct Boot primero, ESP-IDF sin radio y cada registro anotado.
+   El QEMU de Espressif ayuda a saber qué se toca, no a saber qué valor tiene
+   que tener.
+3. **La microarquitectura no está publicada.** Los TRM dicen «4 etapas», «BTB
+   con predicción estática» y «latencia de 4 ciclos» en el controlador, y poco
+   más. Los ciclos por instrucción irán como parámetros sin fuente
+   (sección D de `todo.md`), calibrados contra el CoreMark/MHz que publica
+   Espressif.
+4. **Dos revisiones de ROM en el C3.** Si no se fija bien la pareja revisión-ROM,
+   los fallos parecerán del modelo. El descriptor fija las dos, y `sim` avisa si
+   no casan.
+5. **El origen del JTAG en el C3.** Su TRM no da el pin de arranque. Es un dato
+   para la sección D hasta contrastarlo con la guía de JTAG de ESP-IDF.
+6. **Que OpenOCD de Espressif traiga `remote_bitbang`.** El controlador está en
+   OpenOCD desde hace años, pero hay que comprobar que los binarios de
+   `openocd-esp32` lo traen compilado. Si no, hay que compilarlo, como ya se
+   hizo con la versión de git que pide el SWD (T5).
+7. **El tiempo de esptool y de OpenOCD contra el reloj de pared.** La sonda
+   `remote_bitbang` ya resuelve el de OpenOCD. El de esptool se resuelve en E5
+   (§6).
+8. **Coste de simulación.** Dos núcleos en el C6, una caché con fallos y un USB
+   con SOF cada milisegundo. Hay que medirlo en E9 y E10, como
+   `doc/coste_simulacion.md` hizo con el F407.
+9. **Lo que no está y hay que decir desde el primer día:**
+   * la radio (salvo E12);
+   * el cifrado de Flash y el arranque seguro (eFuses de seguridad
+     declarados);
+   * el Deep-sleep con su dominio de potencia, que se hace solo en lo que pida
+     el LP;
+   * y el SDIO esclavo.
 
 ---
 
-## 10. Fuentes consultadas
+## 12. Fuentes
 
-* Repositorio `mcu-sim`: `README.md`, `src/README.md`, `doc/multi_mcu.md`,
-  `doc/reutilizacion.md`, `doc/puente_serie.md`,
-  `doc/analisis_puente_usb.md`, `soc/mcu_if.h`, `top/mcu_caps.h`,
-  `core/core_caps.h`, `core/cpu.h`, `core/debug_if.h`,
-  `core/gdb_stub_dap.h`, `common/gdb_rsp.h`, `common/periph_base.h`,
-  `common/ahb_types.h`, `pins/pin_mux.h`, `pins/encapsulado.h`,
-  `verif/image_loader.h`, `parts/motor_uart.h`, `periph/hash_algo.h`,
-  `src/Makefile.mcu-sim`.
-* Repositorios `nanorv` y `nanorv-ocd` (README, `application/makefile`,
-  `application/debugging.txt`, `nanorv.cfg`).
+* Repositorio `mcu-sim`, rama `esp32rv` (`54a5792`): `soc/mcu_if.h`,
+  `soc/mcu_desc.h`, `pins/nomenclatura.h`, `pins/encapsulado.h`,
+  `common/gdb_rsp.h`, `common/imagen_fw.h`, `common/memoria_nv.h`,
+  `core/cortex_m4f.h`, `core/debug_if.h`, `verif/sonda_openocd.h`,
+  `verif/sonda_cmsis_dap.h`, `verif/openocd/programa.py`,
+  `parts/puente_usb.h`, `soc/msp432p4/rom_p4.h`, `top/sim_main.cpp`,
+  `parts/netlist.h`, `verif/invariantes.txt`, `doc/todo.md`,
+  `doc/analisis_msp432.md` y `doc/analisis_wifi_bl.md`.
+* `doc/refs/esp32-c3/` y `doc/refs/esp32-c6/` (§0, tabla de referencias).
+* Espressif, `esp-rom-elfs`, README: licencia Apache-2.0 y nombres de fichero.
+  Consultado el 07-11-2026.
 * Espressif, documentación de esptool: «Remote Serial Ports» y «Boot Mode
-  Selection» (ESP32-C3), consultadas el 14-10-2026.
-* Espressif, ESP-IDF Programming Guide (ESP32-C3): «QEMU Emulator» y «JTAG
-  Debugging — Tips and Quirks», consultadas el 14-10-2026.
-* Espressif Developer Portal, «Zephyr + Espressif QEMU» (09-2026): qué chips
-  emula el QEMU de Espressif.
-* Repositorio `espressif/esp-rom-elfs` (ELF de las ROM).
-* *Pendientes de incorporar a `doc/refs/` y a `doc/fuentes.md`, sin
-  versionarlos:* ESP32-C3 Technical Reference Manual, ESP32-C3 Series
-  Datasheet, RISC-V Debug Specification 0.13.2 y RISC-V ISA Manual
-  (Unprivileged y Privileged).
+  Selection». Consultada el 14-10-2026.
+* Espressif, ESP-IDF Programming Guide: «JTAG Debugging — Tips and Quirks» y
+  «QEMU Emulator». Consultadas el 14-10-2026.
+* CNX Software, «ESP-IDF v6.0 framework adds support for ESP32-C5 and ESP32-C61»
+  (24-03-2026).
+* Pendientes de incorporar a `doc/refs/`: RISC-V ISA Manual (no privilegiado y
+  privilegiado), RISC-V External Debug Support 0.13.2, y los esquemáticos de la
+  ESP32-C3-DevKitM-1 y la ESP32-C6-DevKitC-1.
