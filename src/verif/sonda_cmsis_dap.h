@@ -33,8 +33,17 @@
 // DAP_Transfer, DAP_TransferBlock, DAP_TransferAbort, DAP_WriteABORT,
 // DAP_Delay, DAP_ResetTarget, DAP_SWJ_Pins (con nRESET, que es SRST),
 // DAP_SWJ_Clock, DAP_SWJ_Sequence, DAP_SWD_Configure, DAP_SWD_Sequence y
-// DAP_ExecuteCommands. JTAG y SWO contestan DAP_Invalid (0xFF), y DAP_Info lo
-// dice en las capacidades: solo SWD.
+// DAP_ExecuteCommands. SWO contesta DAP_Invalid (0xFF).
+//
+// JTAG (E0.7 de doc/analisis_esp32_riscv.md). Construida con los cuatro pines
+// de un JTAG -TCK, TMS, TDI y TDO, más nTRST si lo hay-, la sonda es una
+// sonda JTAG y DAP_Info lo dice en sus capacidades: DAP_Connect (JTAG),
+// DAP_SWJ_Pins (con TDI, TDO y nTRST), DAP_SWJ_Sequence (bits en TMS),
+// DAP_JTAG_Sequence, DAP_JTAG_Configure y DAP_JTAG_IDCODE. Es lo que pide el
+// controlador `cmsis-dap` de OpenOCD con `transport select jtag`, y lo único
+// que necesita un RISC-V, cuyo Debug Module se alcanza por un TAP con DTM.
+// Las transferencias al DAP de ARM por JTAG (JTAG-DP) no se hacen: contestan
+// DAP_Invalid. Con SWD, la sonda hace exactamente lo de antes de E0.7.
 //
 // EL TIEMPO es el de la sonda de OpenOCD: mientras OpenOCD calla, la
 // simulación avanza lo que pasa en el reloj de pared (con `espera_us` de
@@ -76,6 +85,7 @@ enum : uint8_t {
     TRANSFER_CONFIGURE = 0x04, TRANSFER = 0x05, TRANSFER_BLOCK = 0x06,
     TRANSFER_ABORT = 0x07, WRITE_ABORT = 0x08, DELAY = 0x09, RESET_TARGET = 0x0A,
     SWJ_PINS = 0x10, SWJ_CLOCK = 0x11, SWJ_SEQUENCE = 0x12, SWD_CONFIGURE = 0x13,
+    JTAG_SEQUENCE = 0x14, JTAG_CONFIGURE = 0x15, JTAG_IDCODE = 0x16,
     SWD_SEQUENCE = 0x1D, QUEUE_COMMANDS = 0x7E, EXECUTE_COMMANDS = 0x7F,
     INVALIDA = 0xFF
 };
@@ -138,6 +148,29 @@ SC_MODULE(SondaCmsisDap), public SondaRed {
         SC_HAS_PROCESS(SondaCmsisDap);
         SC_THREAD(run);
     }
+    // JTAG (E0.7): TCK, TMS, TDI y TDO; `trst`, si no es nulo, es nTRST.
+    struct PinesJtag {
+        analog_net_if* tck; analog_net_if* tms; analog_net_if* tdi;
+        analog_net_if* tdo; analog_net_if* trst;
+    };
+    SondaCmsisDap(sc_core::sc_module_name nm, const PinesJtag& j,
+                  unsigned puerto, std::function<void(bool)> reset = {},
+                  analog_net_if* nrst = nullptr, double vdd = 3.3)
+        : sc_core::sc_module(nm), clk_(j.tck), dio_(j.tms), nrst_(nrst), puerto_(puerto),
+          reset_(std::move(reset)), vdd_(vdd), jtag_(true), tdi_(j.tdi), tdo_(j.tdo),
+          trst_(j.trst) {
+        id_clk_ = clk_->register_driver("dap_tck");
+        id_dio_ = dio_->register_driver("dap_tms");
+        id_tdi_ = tdi_->register_driver("dap_tdi");
+        if (trst_) id_trst_ = trst_->register_driver("dap_trst");
+        clk_->set_hiz(id_clk_);
+        dio_->set_hiz(id_dio_);
+        tdi_->set_hiz(id_tdi_);
+        if (trst_) trst_->set_hiz(id_trst_);
+        pon_hz(1e6);
+        SC_HAS_PROCESS(SondaCmsisDap);
+        SC_THREAD(run);
+    }
     ~SondaCmsisDap() override {
         red::cerrar(cli_);
         red::cerrar(srv_);
@@ -154,7 +187,8 @@ SC_MODULE(SondaCmsisDap), public SondaRed {
     }
     void set_verbose(bool v) override { verboso_ = v; }
     unsigned puerto() const override { return puerto_; }
-    const char* protocolo() const override { return "CMSIS-DAP"; }
+    const char* protocolo() const override { return jtag_ ? "CMSIS-DAP (JTAG)" : "CMSIS-DAP"; }
+    bool es_jtag() const { return jtag_; }
     void set_poll(sc_core::sc_time t) { poll_ = t; }
     void set_espera_us(long us) { espera_us_ = us; }
 
@@ -192,6 +226,14 @@ private:
     uint32_t match_mask_ = 0xFFFFFFFFu;
     unsigned n_conex_ = 0, n_resets_ = 0;
     uint64_t n_ordenes_ = 0, n_transf_ = 0, n_wait_ = 0;
+    // JTAG (E0.7). En JTAG, `clk_` es TCK y `dio_` es TMS.
+    bool jtag_ = false;
+    analog_net_if* tdi_ = nullptr;
+    analog_net_if* tdo_ = nullptr;
+    analog_net_if* trst_ = nullptr;
+    int id_tdi_ = -1, id_trst_ = -1;
+    bool tdi_v_ = true, trst_activo_ = false;
+    std::vector<uint8_t> ir_largos_;      // lo que dijo DAP_JTAG_Configure
 
     bool abrir() {
         if (red::valido(srv_)) return true;
@@ -234,7 +276,38 @@ private:
         if (activo != srst_ && reset_) reset_(activo);
         srst_ = activo;
     }
+    // --- JTAG (E0.7) ----------------------------------------------------------
+    void pon_tdi(bool v) { tdi_v_ = v; tdi_->set_drive(id_tdi_, v ? float(vdd_) : 0.0f, 30.0f); }
+    bool lee_tdo() const { return tdo_->voltage() > 0.5 * vdd_; }
+    void pon_trst(bool activo) {
+        trst_activo_ = activo;
+        if (!trst_) return;
+        if (activo) trst_->set_drive(id_trst_, 0.0f, 30.0f);
+        else        trst_->set_hiz(id_trst_);
+    }
+    // Un ciclo de TCK: TMS y TDI se ponen con TCK bajo, TDO se lee justo antes
+    // del flanco de subida (el TAP lo cambia en el de bajada) y el TAP
+    // muestrea TMS y TDI en la subida.
+    bool ciclo_jtag(bool tms, bool tdi) {
+        gobierna(tms);
+        pon_tdi(tdi);
+        wait(medio_);
+        const bool tdo = lee_tdo();
+        clk(true);
+        wait(medio_);
+        clk(false);
+        return tdo;
+    }
     void suelta_todo() {
+        if (jtag_) {
+            clk_->set_hiz(id_clk_);
+            suelta_dio();
+            tdi_->set_hiz(id_tdi_);
+            pon_trst(false);
+            pon_srst(false);
+            conectada_ = false;
+            return;
+        }
         clk_->set_hiz(id_clk_);
         suelta_dio();
         pon_srst(false);
@@ -341,7 +414,7 @@ private:
         case 0x03: info_texto(o, "MCUSIM01"); break;
         case 0x04: info_texto(o, "2.1.0"); break;
         case 0x09: info_texto(o, "1.0"); break;
-        case 0xF0: o.push_back(1); o.push_back(0x01); break;   // solo SWD
+        case 0xF0: o.push_back(1); o.push_back(jtag_ ? 0x02 : 0x01); break;  // SWD o JTAG
         case 0xFE: o.push_back(1); o.push_back(4); break;      // paquetes en vuelo
         case 0xFF: o.push_back(2); cmsis_dap::pon16(o, uint16_t(cmsis_dap::PAQUETE)); break;
         case 0xFB: case 0xFC: case 0xFD:
@@ -357,6 +430,7 @@ private:
         if (!quedan(1)) return false;
         const uint8_t c = in[k++];
         ++n_ordenes_;
+        if (jtag_) return una_jtag(c, in, k, o);
         switch (c) {
         case cmsis_dap::INFO:
             if (!quedan(1)) return false;
@@ -485,6 +559,162 @@ private:
             // JTAG, SWO, UART, los de fabricante: no los hay
             if (verboso_)
                 std::printf("[cmsis-dap] orden que esta sonda no atiende: 0x%02X\n", unsigned(c));
+            k = in.size();
+            o.push_back(cmsis_dap::INVALIDA);
+            return true;
+        }
+    }
+
+    // Las órdenes de una sonda JTAG (E0.7). Las que no dependen del cable
+    // (Info, HostStatus, TransferConfigure, Delay, ResetTarget, SWJ_Clock,
+    // Execute/QueueCommands) son las mismas que en SWD.
+    bool una_jtag(uint8_t c, const Carga& in, std::size_t& k, Carga& o) {
+        auto quedan = [&](std::size_t n) { return k + n <= in.size(); };
+        switch (c) {
+        case cmsis_dap::INFO:
+            if (!quedan(1)) return false;
+            o.push_back(c); info(in[k++], o); return true;
+        case cmsis_dap::HOST_STATUS:
+            if (!quedan(2)) return false;
+            k += 2; o.push_back(c); o.push_back(0); return true;
+        case cmsis_dap::CONNECT: {
+            if (!quedan(1)) return false;
+            const uint8_t p = in[k++];
+            o.push_back(c);
+            if (p == 0 || p == 2) {
+                conectada_ = true;
+                clk(false); gobierna(true); pon_tdi(true);
+                o.push_back(2);                                // JTAG
+            } else {
+                o.push_back(0);                                // SWD: no
+            }
+            return true;
+        }
+        case cmsis_dap::DISCONNECT:
+            clk_->set_hiz(id_clk_); suelta_dio(); tdi_->set_hiz(id_tdi_);
+            conectada_ = false;
+            o.push_back(c); o.push_back(0); return true;
+        case cmsis_dap::TRANSFER_CONFIGURE:
+            if (!quedan(5)) return false;
+            idle_ = in[k];
+            wait_retry_ = cmsis_dap::le16(&in[k + 1]);
+            match_retry_ = cmsis_dap::le16(&in[k + 3]);
+            k += 5;
+            o.push_back(c); o.push_back(0); return true;
+        case cmsis_dap::DELAY: {
+            if (!quedan(2)) return false;
+            const unsigned us = cmsis_dap::le16(&in[k]);
+            k += 2;
+            if (us) wait(sc_core::sc_time(double(us), sc_core::SC_US));
+            o.push_back(c); o.push_back(0); return true;
+        }
+        case cmsis_dap::RESET_TARGET:
+            o.push_back(c); o.push_back(0); o.push_back(0); return true;
+        case cmsis_dap::SWJ_PINS: {
+            if (!quedan(6)) return false;
+            const uint8_t sal = in[k], sel = in[k + 1];
+            const uint32_t espera = cmsis_dap::le32(&in[k + 2]);
+            k += 6;
+            if (sel & 0x01) clk(sal & 0x01);                   // TCK
+            if (sel & 0x02) gobierna(sal & 0x02);              // TMS
+            if (sel & 0x04) pon_tdi(sal & 0x04);               // TDI
+            if (sel & 0x20) pon_trst(!(sal & 0x20));           // nTRST a 0: reset
+            if (sel & 0x80) pon_srst(!(sal & 0x80));           // nRESET a 0: reset
+            wait(sc_core::sc_time(double(espera < 1 ? 1 : (espera < 10000 ? espera : 10000)),
+                                  sc_core::SC_US));
+            uint8_t ent = 0;
+            if (clk_->voltage() > 0.5 * vdd_) ent |= 0x01;
+            if (lee_dio()) ent |= 0x02;
+            if (tdi_v_) ent |= 0x04;
+            if (lee_tdo()) ent |= 0x08;
+            if (!trst_activo_) ent |= 0x20;
+            const bool rst_alto = nrst_ ? nrst_->voltage() > 0.5 * vdd_ : !srst_;
+            if (rst_alto) ent |= 0x80;
+            o.push_back(c); o.push_back(ent); return true;
+        }
+        case cmsis_dap::SWJ_CLOCK:
+            if (!quedan(4)) return false;
+            pon_hz(double(cmsis_dap::le32(&in[k])));
+            k += 4;
+            o.push_back(c); o.push_back(0); return true;
+        case cmsis_dap::SWJ_SEQUENCE: {
+            // En JTAG, los bits van por TMS (con TDI como esté)
+            if (!quedan(1)) return false;
+            unsigned n = in[k++];
+            if (n == 0) n = 256;
+            if (!quedan((n + 7) / 8)) return false;
+            for (unsigned i = 0; i < n; ++i)
+                ciclo_jtag(((in[k + i / 8] >> (i % 8)) & 1u) != 0, tdi_v_);
+            k += (n + 7) / 8;
+            o.push_back(c); o.push_back(0); return true;
+        }
+        case cmsis_dap::JTAG_SEQUENCE: {
+            // [n]{[info][TDI]}: info = ciclos (0 = 64) | TMS << 6 | captura << 7
+            if (!quedan(1)) return false;
+            const unsigned nseq = in[k++];
+            Carga leido;
+            for (unsigned s = 0; s < nseq; ++s) {
+                if (!quedan(1)) return false;
+                const uint8_t inf = in[k++];
+                unsigned n = inf & 0x3Fu;
+                if (n == 0) n = 64;
+                const unsigned nb = (n + 7) / 8;
+                if (!quedan(nb)) return false;
+                const bool tms = (inf & 0x40u) != 0, captura = (inf & 0x80u) != 0;
+                std::vector<uint8_t> b(nb, 0);
+                for (unsigned i = 0; i < n; ++i) {
+                    const bool tdi = ((in[k + i / 8] >> (i % 8)) & 1u) != 0;
+                    if (ciclo_jtag(tms, tdi)) b[i / 8] |= uint8_t(1u << (i % 8));
+                }
+                k += nb;
+                if (captura) leido.insert(leido.end(), b.begin(), b.end());
+            }
+            ++n_transf_;
+            o.push_back(c); o.push_back(0);
+            o.insert(o.end(), leido.begin(), leido.end());
+            return true;
+        }
+        case cmsis_dap::JTAG_CONFIGURE: {
+            if (!quedan(1)) return false;
+            const unsigned n = in[k++];
+            if (!quedan(n)) return false;
+            ir_largos_.assign(in.begin() + std::ptrdiff_t(k), in.begin() + std::ptrdiff_t(k + n));
+            k += n;
+            o.push_back(c); o.push_back(0); return true;
+        }
+        case cmsis_dap::JTAG_IDCODE: {
+            // [índice]: desde Test-Logic-Reset, el DR de cada TAP es su
+            // IDCODE (o BYPASS, un bit, si no lo tiene). Se va a Shift-DR, se
+            // saltan los TAP de delante (un bit cada uno, que es lo que da la
+            // cadena tras el reset con BYPASS) y se leen 32 bits.
+            if (!quedan(1)) return false;
+            const unsigned idx = in[k++];
+            for (unsigned i = 0; i < 5; ++i) ciclo_jtag(true, true);    // TLR
+            ciclo_jtag(false, true);                                    // RTI
+            ciclo_jtag(true, true);                                     // Select-DR
+            ciclo_jtag(false, true);                                    // Capture-DR
+            ciclo_jtag(false, true);                                    // Shift-DR
+            for (unsigned i = 0; i < idx; ++i) ciclo_jtag(false, true);
+            uint32_t v = 0;
+            for (unsigned i = 0; i < 32; ++i)
+                if (ciclo_jtag(i == 31, true)) v |= 1u << i;            // el último, a Exit1
+            ciclo_jtag(true, true);                                     // Update-DR
+            ciclo_jtag(false, true);                                    // RTI
+            o.push_back(c); o.push_back(0); cmsis_dap::pon32(o, v);
+            return true;
+        }
+        case cmsis_dap::EXECUTE_COMMANDS: case cmsis_dap::QUEUE_COMMANDS: {
+            if (!quedan(1)) return false;
+            const unsigned n = in[k++];
+            o.push_back(cmsis_dap::EXECUTE_COMMANDS); o.push_back(uint8_t(n));
+            for (unsigned i = 0; i < n; ++i) if (!una(in, k, o)) return false;
+            return true;
+        }
+        default:
+            // Las transferencias al DAP de ARM (JTAG-DP), SWD, SWO...: no
+            if (verboso_)
+                std::printf("[cmsis-dap] orden que esta sonda JTAG no atiende: 0x%02X\n",
+                            unsigned(c));
             k = in.size();
             o.push_back(cmsis_dap::INVALIDA);
             return true;

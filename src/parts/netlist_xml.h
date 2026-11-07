@@ -458,7 +458,9 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
         for (const auto& a : h.attrs) {
             if (a.first == "tipo" || a.first == "id") continue;
             if      (a.first == "firmware")   m.firmware   = a.second;
-            else if (a.first == "depuracion") m.depuracion = a.second;
+            // `dm` es `dap` con el nombre que tiene en un RISC-V: el stub
+            // interno pegado a su Debug Module (E0.8). Se normaliza al leer.
+            else if (a.first == "depuracion") m.depuracion = (a.second == "dm") ? "dap" : a.second;
             else if (a.first == "rom")        m.rom        = a.second;
             else if (a.first == "tlv")        m.tlv        = a.second;
             else if (a.first == "bsl")        m.bsl        = a.second;
@@ -1043,7 +1045,7 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
             for (const auto& a : h.attrs) {
                 if (a.first == "ref") continue;
                 if      (a.first == "firmware")   m->firmware   = a.second;
-                else if (a.first == "depuracion") m->depuracion = a.second;
+                else if (a.first == "depuracion") m->depuracion = (a.second == "dm") ? "dap" : a.second;   // E0.8
                 else if (a.first == "rom")        m->rom        = a.second;
                 else if (a.first == "tlv")        m->tlv        = a.second;
                 else if (a.first == "bsl")        m->bsl        = a.second;

@@ -45,12 +45,19 @@ namespace stm32 {
 // Desde T6, DIECIOCHO: el MSP432E4 tiene los puertos A..T sin I ni O (quince
 // en el E401Y, dieciocho en el E411Y), que su nomenclatura numera 0..17.
 constexpr unsigned N_PUERTOS_SILICIO = 18;
+// Y hasta TREINTA Y DOS pines por puerto (E0.5): los que caben en la máscara.
+// No es el tamaño de ningún `PinMux`: el de los STM32 sigue con N_PORT_PINS.
+constexpr unsigned N_PINES_PUERTO_MAX = 32;
 
 struct Encapsulado {
     const char* nombre;        // "LQFP100", "UFBGA176"...
     unsigned    n_pines;       // patillas o bolas TOTALES, alimentación incluida
     unsigned    n_gpio;        // los que dice la tabla 2 del DS8626
-    uint16_t    puerto[N_PUERTOS_SILICIO];   // máscara de pines soldados
+    // Máscara de pines soldados, uno por bit. De 32 bits desde E0.5 de
+    // doc/analisis_esp32_riscv.md: un ESP32-C6 tiene GPIO0..GPIO30 en un solo
+    // banco (y le falta el 14 en el QFN40). Los STM32 y los MSP432 siguen
+    // usando los dieciséis bits de abajo, y sus tablas no cambian.
+    uint32_t    puerto[N_PUERTOS_SILICIO];
     // ¿El reparto pin a pin se ha contrastado con la tabla 7 del datasheet, o
     // es una reconstrucción a partir del recuento? Un `false` aquí NO es una
     // pieza a medias: es un aviso de que el recuento cuadra pero la identidad
@@ -59,7 +66,7 @@ struct Encapsulado {
     bool        verificado;
 
     bool bonded(unsigned p, unsigned i) const {
-        return p < N_PUERTOS_SILICIO && i < 16 &&
+        return p < N_PUERTOS_SILICIO && i < N_PINES_PUERTO_MAX &&
                ((puerto[p] >> i) & 1u) != 0;
     }
     // Los GPIO que la máscara dice de verdad. Tiene que coincidir con `n_gpio`;
@@ -67,7 +74,7 @@ struct Encapsulado {
     unsigned cuenta_gpio() const {
         unsigned n = 0;
         for (unsigned p = 0; p < N_PUERTOS_SILICIO; ++p)
-            for (unsigned i = 0; i < 16; ++i) n += (puerto[p] >> i) & 1u;
+            for (unsigned i = 0; i < N_PINES_PUERTO_MAX; ++i) n += (puerto[p] >> i) & 1u;
         return n;
     }
     bool coherente() const { return cuenta_gpio() == n_gpio; }

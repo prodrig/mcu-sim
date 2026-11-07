@@ -1321,7 +1321,8 @@ public:
                 if (m.depuracion != "pines" && m.depuracion != "dap" &&
                     m.depuracion != "openocd" && m.depuracion != "cmsis-dap")
                     err.push_back("mcu " + m.id + ": depuracion debe ser 'pines', "
-                                  "'dap', 'openocd' o 'cmsis-dap', no '" + m.depuracion + "'");
+                                  "'dap' (o 'dm'), 'openocd' o 'cmsis-dap', no '" +
+                                  m.depuracion + "'");
                 // Dos stubs en el mismo puerto TCP no es un aviso: es que el
                 // segundo no llega a escuchar y el fallo aparece más tarde,
                 // como un GDB que se conecta al chip equivocado.

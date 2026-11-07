@@ -60,8 +60,27 @@
 // OpenOCD tardaba más de 20 s en ver: lo abandonaba a medias, con el LR
 // apuntando al BKPT del algoritmo, y el `reset run` siguiente se paraba.
 //
+// JTAG (E0.6 de doc/analisis_esp32_riscv.md). La misma sonda, construida con
+// cuatro nodos -TCK, TMS, TDI y TDO, más TRST si el chip lo saca-, atiende la
+// mitad JTAG del protocolo, que es la que usan los RISC-V (su Debug Module se
+// alcanza por un TAP con DTM [RISC-V Debug Spec 0.13.2, §6]):
+//
+//   0 .. 7    escribir: '0' + (TCK << 2 | TMS << 1 | TDI)
+//   R         leer TDO: se contesta '0' o '1'
+//   r s t u   reset: 'r' + (TRST << 1 | SRST). TRST, activo en alto en el
+//             protocolo, pone el pin nTRST a masa; sin pin TRST se ignora
+//
+// con los mismos tiempos (cada escritura, medio periodo) y el mismo avance del
+// tiempo simulado por reloj de pared que en SWD. En modo JTAG las órdenes de
+// SWD ('d'..'g', 'O', 'o', 'c') son las raras, y al revés. Con SWD la sonda se
+// comporta EXACTAMENTE igual que antes de E0.6: la rama JTAG no se toca.
+//
+//     openocd -c "adapter driver remote_bitbang"
+//             -c "remote_bitbang host localhost" -c "remote_bitbang port 3335"
+//             -c "transport select jtag" -f target/esp32c3.cfg
+//
 // NO es parte del MCU: vive fuera, como el stub de pines (gdb_stub.h), y no ve
-// nada del modelo que no pase por SWCLK, SWDIO y NRST.
+// nada del modelo que no pase por sus pines y NRST.
 // =============================================================================
 #ifndef STM32_VERIF_SONDA_OPENOCD_H
 #define STM32_VERIF_SONDA_OPENOCD_H
@@ -94,6 +113,28 @@ SC_MODULE(SondaOpenOcd), public SondaRed {
         SC_HAS_PROCESS(SondaOpenOcd);
         SC_THREAD(run);
     }
+    // JTAG (E0.6): TCK, TMS, TDI y TDO; `trst`, si no es nulo, es nTRST.
+    struct PinesJtag {
+        analog_net_if* tck; analog_net_if* tms; analog_net_if* tdi;
+        analog_net_if* tdo; analog_net_if* trst;
+    };
+    SondaOpenOcd(sc_core::sc_module_name nm, const PinesJtag& j,
+                 unsigned puerto, std::function<void(bool)> reset = {},
+                 double tck_hz = 2e6, double vdd = 3.3)
+        : sc_core::sc_module(nm), clk_(j.tck), dio_(j.tms), puerto_(puerto),
+          reset_(std::move(reset)), semi_(sc_core::sc_time(0.5 / tck_hz, sc_core::SC_SEC)),
+          vdd_(vdd), jtag_(true), tdi_(j.tdi), tdo_(j.tdo), trst_(j.trst) {
+        id_clk_ = clk_->register_driver("ocd_tck");
+        id_dio_ = dio_->register_driver("ocd_tms");
+        id_tdi_ = tdi_->register_driver("ocd_tdi");
+        if (trst_) id_trst_ = trst_->register_driver("ocd_trst");
+        clk_->set_hiz(id_clk_);
+        dio_->set_hiz(id_dio_);
+        tdi_->set_hiz(id_tdi_);
+        if (trst_) trst_->set_hiz(id_trst_);
+        SC_HAS_PROCESS(SondaOpenOcd);
+        SC_THREAD(run);
+    }
     ~SondaOpenOcd() override {
         red::cerrar(cli_);
         red::cerrar(srv_);
@@ -116,15 +157,18 @@ SC_MODULE(SondaOpenOcd), public SondaRed {
     void set_espera_us(long us) { espera_us_ = us; }
     void set_poll_activo(sc_core::sc_time t) { poll_activo_ = t; }
     void set_verbose(bool v) override { verboso_ = v; }
-    const char* protocolo() const override { return "remote_bitbang"; }
+    const char* protocolo() const override {
+        return jtag_ ? "remote_bitbang (JTAG)" : "remote_bitbang";
+    }
+    bool es_jtag() const { return jtag_; }
 
     // --- Estado observable ---------------------------------------------------
     bool escuchando() const { return red::valido(srv_); }
     bool conectado() const override { return red::valido(cli_); }
     unsigned puerto() const override { return puerto_; }
     unsigned conexiones() const { return n_conex_; }
-    uint64_t flancos() const { return n_flancos_; }     // de SWCLK
-    uint64_t lecturas() const { return n_lect_; }        // 'c'
+    uint64_t flancos() const { return n_flancos_; }     // de SWCLK (o TCK)
+    uint64_t lecturas() const { return n_lect_; }        // 'c' (o 'R' en JTAG)
     unsigned resets() const { return n_resets_; }        // SRST puesto
     unsigned desconocidos() const { return n_raros_; }
 
@@ -147,6 +191,13 @@ private:
     bool clk_v_ = false, dio_v_ = true, dio_sal_ = false, srst_ = false;
     unsigned n_conex_ = 0, n_resets_ = 0, n_raros_ = 0;
     uint64_t n_flancos_ = 0, n_lect_ = 0;
+    // JTAG (E0.6). En JTAG, `clk_` es TCK y `dio_` es TMS.
+    bool jtag_ = false;
+    analog_net_if* tdi_ = nullptr;
+    analog_net_if* tdo_ = nullptr;
+    analog_net_if* trst_ = nullptr;
+    int id_tdi_ = -1, id_trst_ = -1;
+    bool trst_v_ = false;
 
     bool abrir() {
         if (red::valido(srv_)) return true;
@@ -176,8 +227,30 @@ private:
         if (v != srst_ && reset_) reset_(v);
         srst_ = v;
     }
+    // JTAG: TMS y TDI, conducidos siempre que hay cliente; TDO, leído.
+    void pon_jtag(bool tms, bool tdi) {
+        dio_->set_drive(id_dio_, tms ? float(vdd_) : 0.0f, 30.0f);
+        tdi_->set_drive(id_tdi_, tdi ? float(vdd_) : 0.0f, 30.0f);
+    }
+    bool lee_tdo() const { return tdo_->voltage() > 0.5 * vdd_; }
+    // TRST del protocolo es activo en alto; el pin nTRST, en bajo.
+    void pon_trst(bool v) {
+        trst_v_ = v;
+        if (!trst_) return;
+        if (v) trst_->set_drive(id_trst_, 0.0f, 30.0f);
+        else   trst_->set_hiz(id_trst_);
+    }
     // Al irse OpenOCD, los pines quedan como sin sonda: sueltos, y NRST libre
     void suelta() {
+        if (jtag_) {
+            clk_->set_hiz(id_clk_);
+            dio_->set_hiz(id_dio_);
+            tdi_->set_hiz(id_tdi_);
+            pon_trst(false);
+            pon_srst(false);
+            clk_v_ = false;
+            return;
+        }
         clk_->set_hiz(id_clk_);
         dio_sal_ = false;
         pon_dio();
@@ -195,6 +268,15 @@ private:
         red::sin_sigpipe(cli_);
         ++n_conex_;
         rx_.clear(); tx_.clear();
+        if (jtag_) {
+            // JTAG: TCK abajo, TMS arriba (cinco flancos con TMS = 1 llevan
+            // al TAP a Test-Logic-Reset, que es lo primero que hace OpenOCD)
+            pon_clk(false);
+            pon_jtag(true, false);
+            std::printf("[openocd] cliente conectado (JTAG)\n");
+            std::fflush(stdout);
+            return;
+        }
         // Al conectarse, la sonda GOBIERNA SWDIO (a uno): OpenOCD manda la
         // secuencia JTAG->SWD sin pedir antes 'O', y con la linea suelta el
         // objetivo no la veria (el primer DPIDR seria basura)
@@ -206,8 +288,9 @@ private:
     void desconectar() {
         red::cerrar(cli_);
         suelta();
-        std::printf("[openocd] cliente desconectado (%llu flancos de SWCLK, %llu lecturas)\n",
-                    (unsigned long long)n_flancos_, (unsigned long long)n_lect_);
+        std::printf("[openocd] cliente desconectado (%llu flancos de %s, %llu lecturas)\n",
+                    (unsigned long long)n_flancos_, jtag_ ? "TCK" : "SWCLK",
+                    (unsigned long long)n_lect_);
         std::fflush(stdout);
     }
     // Lee lo que haya, sin esperar. false si el cliente se ha ido.
@@ -232,8 +315,42 @@ private:
         return true;
     }
 
+    // Una orden de JTAG (E0.6). false: el cliente se va ('Q')
+    bool orden_jtag(char c) {
+        switch (c) {
+        case '0': case '1': case '2': case '3':
+        case '4': case '5': case '6': case '7': {
+            const unsigned v = unsigned(c - '0');
+            pon_jtag((v & 2u) != 0, (v & 1u) != 0);
+            pon_clk((v & 4u) != 0);
+            wait(semi_);
+            return true;
+        }
+        case 'R': ++n_lect_; tx_.push_back(lee_tdo() ? '1' : '0'); return true;
+        case 'r': case 's': case 't': case 'u': {
+            const unsigned v = unsigned(c - 'r');
+            pon_trst((v & 2u) != 0);
+            pon_srst((v & 1u) != 0);
+            return true;
+        }
+        case 'B': case 'b': return true;
+        case 'Z': wait(1, sc_core::SC_MS); return true;
+        case 'z': wait(1, sc_core::SC_US); return true;
+        case 'Q': return false;
+        default:
+            if (++n_raros_ == 1) {
+                std::printf("[openocd] orden de remote_bitbang que esta sonda no atiende: "
+                            "'%c' (0x%02X). Es una sonda JTAG: falta `transport select jtag`?\n",
+                            (c >= 32 && c < 127) ? c : '?', unsigned(uint8_t(c)));
+                std::fflush(stdout);
+            }
+            return true;
+        }
+    }
+
     // Una orden. false: el cliente se va ('Q')
     bool orden(char c) {
+        if (jtag_) return orden_jtag(c);
         switch (c) {
         case 'd': case 'e': case 'f': case 'g': {
             const unsigned v = unsigned(c - 'd');

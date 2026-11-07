@@ -1,19 +1,30 @@
 // =============================================================================
 // gdb_rsp.h — El motor del Remote Serial Protocol de GDB, sin transporte
 //
-// Aquí vive TODO lo que un servidor GDB para un Cortex-M tiene que saber y que
-// no depende de por dónde llegue al DAP:
+// Desde E0.2 de doc/analisis_esp32_riscv.md, en DOS PISOS:
 //
-//   * el socket TCP y el tramado `$cuerpo#suma`,
-//   * el intérprete de paquetes (g/G/p/P, m/M/X, c/s/vCont, Z/z, q..., v...),
-//   * el mapa de 23 registros y el `target.xml` que lo describe,
-//   * los puntos de ruptura sobre el FPB y los watchpoints sobre el DWT,
-//   * y el programador de Flash, porque un `load` sobre 0x0800 0000 no es una
-//     escritura al bus sino una secuencia del controlador [IR, §5.5-5.9].
+//   GdbRspBase   EL PROTOCOLO, que no es de ninguna arquitectura: el socket
+//                TCP y el tramado `$cuerpo#suma`; el intérprete de paquetes
+//                (g/G/p/P, m/M/X, c/s/vCont, Z/z, H, q..., v...); los hilos;
+//                `monitor reset|halt|resume`; y la memoria no volátil por su
+//                `programador_nv_if`, porque un `load` sobre la Flash no es
+//                una escritura al bus sino una secuencia del controlador.
 //
-// Lo ÚNICO que no está aquí es cómo se lee y se escribe una palabra en el
-// espacio de direcciones del objetivo. Eso son cuatro funciones virtuales, y
-// cada stub las resuelve a su manera:
+//   GdbRsp       LA ARQUITECTURA ARMv7-M, con el nombre de siempre: DHCSR,
+//                DCRSR/DCRDR, los 23 registros y su `target.xml`, los puntos
+//                de ruptura sobre el FPB y los watchpoints sobre el DWT, y el
+//                transporte por el DAP (`dap_*`). Es EXACTAMENTE el código que
+//                había antes de E0.2: los mismos accesos al DAP en el mismo
+//                orden, que es lo que T96, T97, P21 y las pruebas de OpenOCD
+//                comprueban paquete a paquete.
+//
+// El RISC-V tiene el suyo, `GdbRspRiscv` (rv/gdb/gdb_rsp_riscv.h), que habla
+// con el Debug Module por DMI. Un núcleo nuevo es un piso de arquitectura
+// nuevo; el protocolo no se toca.
+//
+// Lo ÚNICO que no está en el piso de arquitectura es cómo se lee y se escribe
+// una palabra en el espacio de direcciones del objetivo. Eso son unas pocas
+// funciones virtuales, y cada stub las resuelve a su manera:
 //
 //   verif/gdb_stub.h      -> mandando paquetes SWD por SWCLK/SWDIO, como un
 //                            ST-LINK soldado a los pines. Es la sonda.
@@ -35,22 +46,12 @@
 #include <string>
 #include <vector>
 #include "red.h"          // la unica dependencia del sistema operativo
+#include "depuracion.h"   // DebugAttach
 
 namespace stm32 {
 
-// -----------------------------------------------------------------------------
-// Dónde se engancha el depurador. Es el parámetro que elige entre los dos stubs
-// (véase doc/stm32f4xx/stm32f407vg_fase6_gdb2.md).
-//
-//   Pines    : el núcleo EXPONE SWCLK/SWDIO/JTDI/SWO/NJTRST y quien quiera
-//              depurar se conecta por fuera, como un ST-LINK. Es el modelo
-//              fiel: cada acceso cuesta ~50 flancos de SWCLK simulados.
-//   Interno  : el núcleo RESERVA esos cinco pines (nadie más puede usarlos,
-//              igual que en el silicio) pero no los usa, y crea dentro de sí
-//              un stub que habla con el DAP por llamada de función. Es el
-//              modelo rápido: un acceso es una transacción TLM.
-// -----------------------------------------------------------------------------
-enum class DebugAttach { Pines, Interno };
+// `DebugAttach` -dónde se engancha el depurador- vive desde E0.1 en
+// common/depuracion.h, que no es de ninguna arquitectura.
 
 // -----------------------------------------------------------------------------
 // EL PROGRAMADOR DE LA MEMORIA NO VOLÁTIL (T0)
@@ -169,9 +170,9 @@ public:
     }
 };
 
-class GdbRsp : public acceso_nv_if {
+class GdbRspBase : public acceso_nv_if {
 public:
-    virtual ~GdbRsp() { cerrar(); }
+    virtual ~GdbRspBase() { cerrar(); }
 
     // --- Mandos -------------------------------------------------------------
     // Con la traza puesta se dice tambien CUANDO SE CONSTRUYO este binario.
@@ -208,57 +209,85 @@ public:
     bool     conectado() const  { return red::valido(cli_); }
     unsigned puerto() const     { return puerto_; }
     unsigned paquetes() const   { return n_paq_; }
-    // Las veces que se ha avisado de que el depurador no era de ARM.
+    // Las veces que se ha avisado de que el depurador no era de la
+    // arquitectura del núcleo (de ARM, en un Cortex-M).
     unsigned avisos_arquitectura() const { return n_avisos_arq_; }
     unsigned flash_palabras() const { return n_flash_; }
     unsigned accesos() const    { return n_acc_; }
     const std::string& ultimo() const { return ultimo_; }
 
 protected:
-    explicit GdbRsp(unsigned puerto, const char* etiqueta)
+    explicit GdbRspBase(unsigned puerto, const char* etiqueta)
         : puerto_(puerto), etiqueta_(etiqueta) {}
 
     // =======================================================================
-    // EL TRANSPORTE — lo único que distingue a los dos stubs
+    // LA ARQUITECTURA: lo que pone el piso de abajo (GdbRsp, GdbRspRiscv...)
     // =======================================================================
-    // Prepara el camino hasta el DAP (en la sonda: reset de línea, conmutación
-    // JTAG->SWD, IDCODE y encendido; en el interno: nada). Devuelve si hay
-    // objetivo al otro lado.
-    virtual bool dap_enganchar() = 0;
-    virtual bool dap_leer(uint32_t a, uint32_t& v) = 0;
-    virtual bool dap_escribir(uint32_t a, uint32_t v) = 0;
+    // Prepara el camino hasta el depurador del núcleo y lo deja listo para
+    // parar y leer registros. Devuelve si hay objetivo al otro lado.
+    virtual bool arq_enganchar() = 0;
+    virtual bool arq_parado() = 0;
+    virtual void arq_parar() = 0;
+    virtual void arq_seguir() = 0;
+    virtual void arq_paso() = 0;
+    // El aviso de parada completo (`T05...`), con la causa y los registros de
+    // propina que la arquitectura quiera dar. 5 = SIGTRAP, 2 = SIGINT.
+    virtual std::string arq_parada(unsigned senal) = 0;
+    // Los registros, en el orden y con el número que dice `arq_target_xml()`.
+    // Todos de 32 bits (los dos núcleos de hoy no tienen otros).
+    virtual unsigned arq_n_regs() const = 0;
+    virtual uint32_t arq_reg(unsigned n) = 0;
+    virtual void     arq_set_reg(unsigned n, uint32_t v) = 0;
+    virtual const std::string& arq_target_xml() const = 0;
+    // Z0/Z1 (`tipo` 0 software, 1 hardware) y Z2/Z3/Z4 (escritura, lectura,
+    // acceso). `tam` es lo que manda GDB: el tamaño de la instrucción o de lo
+    // vigilado.
+    virtual bool arq_poner_bp(uint32_t a, unsigned tipo, unsigned tam) = 0;
+    virtual bool arq_quitar_bp(uint32_t a, unsigned tipo, unsigned tam) = 0;
+    virtual bool arq_poner_wp(uint32_t a, unsigned tipo, unsigned tam) = 0;
+    virtual bool arq_quitar_wp(uint32_t a, unsigned tipo, unsigned tam) = 0;
+    // `monitor reset halt` y `R`: el chip se resetea y el núcleo se queda
+    // parado en su primera instrucción.
+    virtual void arq_reset() = 0;
+    // Órdenes `monitor` que no son de todos. `true` si la atendió (y ya
+    // respondió).
+    virtual bool arq_monitor(const std::string& /*orden*/) { return false; }
+    // Hilos: uno por hart. Por omisión, uno, que es lo de antes de E0.3.
+    virtual unsigned arq_n_hilos() const { return 1; }
+    // GDB cambia de hilo. `false` si ese hilo no existe.
+    virtual bool arq_elige_hilo(unsigned /*hilo*/) { return true; }
+    // Para el aviso de `desconectar()` (vease `cmd_q`): el nombre con el que
+    // GDB anuncia esta arquitectura en `xmlRegisters=`, el que se le dice al
+    // usuario y el GDB que debería usar.
+    virtual const char* arq_nombre_xml() const = 0;
+    virtual const char* arq_nombre_humano() const = 0;
+    virtual const char* arq_gdb_recomendado() const = 0;
+
+    // =======================================================================
+    // LA MEMORIA: lo que pone el transporte
+    // =======================================================================
+    virtual bool mem_leer(uint32_t a, uint32_t& v) = 0;
+    virtual bool mem_escribir(uint32_t a, uint32_t v) = 0;
     // Una media palabra, para quien la sepa hacer [acceso_nv_if::nv_escribir16]
-    virtual bool dap_escribir16(uint32_t /*a*/, uint16_t /*v*/) { return false; }
-    // Los registros PROPIOS del AP (CSW, TAR, BASE, IDR), que no son memoria.
-    // No los pide GDB: los piden los IDE, con ordenes `monitor` propias, para
-    // identificar el chip antes de tocarlo. `false` = ese registro no existe.
-    virtual bool dap_leer_ap(unsigned /*ap*/, unsigned /*reg*/, uint32_t& /*v*/) {
-        return false;
-    }
-    virtual bool dap_escribir_ap(unsigned /*ap*/, unsigned /*reg*/, uint32_t /*v*/) {
-        return false;
-    }
-    // Lectura de un bloque alineado. Por omisión, palabra a palabra; la sonda
-    // la sustituye por una ráfaga con auto-incremento de TAR, que es mucho más
-    // barata en flancos.
-    virtual unsigned dap_leer_bloque(uint32_t a, uint32_t* w, unsigned n) {
+    virtual bool mem_escribir16(uint32_t /*a*/, uint16_t /*v*/) { return false; }
+    // Lectura de un bloque alineado. Por omisión, palabra a palabra.
+    virtual unsigned mem_leer_bloque(uint32_t a, uint32_t* w, unsigned n) {
         for (unsigned i = 0; i < n; ++i)
-            if (!dap_leer(a + 4 * i, w[i])) return i;
+            if (!mem_leer(a + 4 * i, w[i])) return i;
         return n;
     }
 
-    // El enganche completo: transporte + las llaves que hacen que la depuración
-    // exista. Sin C_DEBUGEN no hay BKPT que valga; sin TRCENA el FPB y el DWT
-    // están apagados.
-    bool enganchar() {
-        enganchado_ = dap_enganchar();
-        if (enganchado_) {
-            escribir(R_DHCSR, LLAVE | 1u);
-            escribir(R_DEMCR, 1u << 24);              // TRCENA: DWT y FPB vivos
-            escribir(B_FPB + 0x00, 3u);               // FP_CTRL: KEY | ENABLE
-        }
-        return enganchado_;
-    }
+    // Los accesos CONTADOS, que son los que usa todo lo de arriba.
+    bool leer(uint32_t a, uint32_t& v)    { ++n_acc_; return mem_leer(a, v); }
+    bool escribir(uint32_t a, uint32_t v) { ++n_acc_; return mem_escribir(a, v); }
+    uint32_t leer_o(uint32_t a) { uint32_t v = 0; leer(a, v); return v; }
+
+    unsigned hilo_g() const { return hilo_g_; }
+    unsigned hilo_c() const { return hilo_c_; }
+
+    unsigned puerto_;
+    const char* etiqueta_;
+    bool     enganchado_ = false;
 
     // El cuerpo del hilo. Los dos stubs lo usan tal cual.
     void servir() {
@@ -282,147 +311,10 @@ protected:
             if (corriendo_ && red::valido(cli_)) {
                 if (++espera_ >= vueltas_vigilancia_) {
                     espera_ = 0;
-                    if (parado()) { corriendo_ = false; responder(parada()); }
+                    if (arq_parado()) { corriendo_ = false; responder(arq_parada(5)); }
                 }
             }
         }
-    }
-
-    // =======================================================================
-    // El modelo de depuración de ARM, en registros
-    // =======================================================================
-    static constexpr uint32_t R_DHCSR = 0xE000EDF0u, R_DCRSR = 0xE000EDF4u,
-                              R_DCRDR = 0xE000EDF8u, R_DEMCR = 0xE000EDFCu,
-                              R_AIRCR = 0xE000ED0Cu, R_DFSR  = 0xE000ED30u;
-    static constexpr uint32_t B_FPB = 0xE0002000u, B_DWT = 0xE0001000u;
-    static constexpr uint32_t LLAVE = 0xA05F0000u;
-
-    bool leer(uint32_t a, uint32_t& v)    { ++n_acc_; return dap_leer(a, v); }
-    bool escribir(uint32_t a, uint32_t v) { ++n_acc_; return dap_escribir(a, v); }
-    uint32_t leer_o(uint32_t a) { uint32_t v = 0; leer(a, v); return v; }
-
-    bool parado() { return (leer_o(R_DHCSR) & (1u << 17)) != 0; }
-    void parar()  { escribir(R_DHCSR, LLAVE | 0x3u); }
-    // Al reanudar se QUITA C_MASKINTS: el programa tiene que volver a recibir
-    // sus interrupciones, o un `continue` no se parecería en nada a la realidad.
-    //
-    // Y antes, al reanudar y al dar un paso, se BORRA DFSR. Sus bits se quedan
-    // puestos hasta que alguien escribe un 1 encima [IR, §13.4], y la causa de
-    // la proxima parada se lee de ahi: sin borrarlo, el BKPT del punto de
-    // ruptura de `main` que pone el IDE al arrancar se quedaba para toda la
-    // sesion, y cada parada -un paso, un Ctrl-C- se anunciaba como «swbreak».
-    // GDB, que en esa direccion no tiene ningun punto de ruptura, la toma por
-    // uno ya quitado y REANUDA sin decir nada: el «Suspend operation timeout»
-    // de STM32CubeIDE.
-    void borrar_causa() { escribir(R_DFSR, 0x1Fu); }
-    void seguir() { borrar_causa(); escribir(R_DHCSR, LLAVE | 0x1u); }
-    // C_STEP (0x4) + C_MASKINTS (0x8) + C_DEBUGEN (0x1). El enmascaramiento es
-    // lo que distingue un paso a paso usable de uno inservible: sin el, cada
-    // paso se come la interrupcion pendiente y el depurador aterriza en el
-    // manejador —tipicamente SysTick_Handler, que en un proyecto de CubeIDE
-    // late a 1 kHz—, asi que "paso sobre esta linea" se convierte en "entra en
-    // SysTick_Handler" una y otra vez. Cualquier sonda pone los dos bits
-    // juntos, y por eso el IDE ofrece esto como opcion.
-    void paso()   { borrar_causa(); escribir(R_DHCSR, LLAVE | 0xDu); }
-
-    unsigned puerto_;
-    const char* etiqueta_;
-    bool     enganchado_ = false;
-
-private:
-    // Los registros del núcleo, por la pareja DCRSR/DCRDR.
-    uint32_t reg(unsigned sel) { escribir(R_DCRSR, sel & 0x7Fu); return leer_o(R_DCRDR); }
-    void set_reg(unsigned sel, uint32_t v) {
-        escribir(R_DCRDR, v);
-        escribir(R_DCRSR, (1u << 16) | (sel & 0x7Fu));
-    }
-
-    // ---- Mapa de registros que ve GDB --------------------------------------
-    // 17 del perfil M (r0-r12, sp, lr, pc, xpsr) mas 6 de sistema. El orden y
-    // el numero los fija el target.xml que se le manda.
-    static constexpr unsigned N_REGS = 23;
-    uint32_t reg_gdb(unsigned n) {
-        if (n < 13) return reg(n);
-        switch (n) {
-            case 13: return reg(13);                  // sp en uso
-            case 14: return reg(14);                  // lr
-            case 15: return reg(15);                  // pc (retorno de depuracion)
-            case 16: return reg(16);                  // xpsr
-            case 17: return reg(17);                  // msp
-            case 18: return reg(18);                  // psp
-            case 19: return reg(20) & 0xFFu;          // primask
-            case 20: return (reg(20) >> 8) & 0xFFu;   // basepri
-            case 21: return (reg(20) >> 16) & 0xFFu;  // faultmask
-            case 22: return (reg(20) >> 24) & 0xFFu;  // control
-            default: return 0;
-        }
-    }
-    void set_reg_gdb(unsigned n, uint32_t v) {
-        if (n < 19) { set_reg(n, v); return; }
-        uint32_t p = reg(20);
-        switch (n) {
-            case 19: p = (p & ~0x000000FFu) | (v & 0xFFu); break;
-            case 20: p = (p & ~0x0000FF00u) | ((v & 0xFFu) << 8); break;
-            case 21: p = (p & ~0x00FF0000u) | ((v & 0xFFu) << 16); break;
-            case 22: p = (p & ~0xFF000000u) | ((v & 0xFFu) << 24); break;
-            default: return;
-        }
-        set_reg(20, p);
-    }
-
-    // =======================================================================
-    // Puntos de ruptura (FPB) y watchpoints (DWT)
-    // =======================================================================
-    static constexpr unsigned N_FPB = 6, N_DWT = 4;
-    uint32_t fpb_[N_FPB] = {};
-    uint32_t dwt_[N_DWT] = {};
-
-    bool poner_bp(uint32_t addr) {
-        for (unsigned i = 0; i < N_FPB; ++i) if (fpb_[i] == (addr | 1u)) return true;
-        for (unsigned i = 0; i < N_FPB; ++i) {
-            if (fpb_[i]) continue;
-            // REPLACE elige la media palabra: 01 la baja, 10 la alta.
-            const uint32_t rep = (addr & 2u) ? 2u : 1u;
-            const uint32_t v = (addr & 0x1FFFFFFCu) | (rep << 30) | 1u;
-            escribir(B_FPB + 0x08 + 4 * i, v);
-            fpb_[i] = addr | 1u;
-            return true;
-        }
-        return false;                                 // no quedan comparadores
-    }
-    bool quitar_bp(uint32_t addr) {
-        for (unsigned i = 0; i < N_FPB; ++i) {
-            if (fpb_[i] != (addr | 1u)) continue;
-            escribir(B_FPB + 0x08 + 4 * i, 0);
-            fpb_[i] = 0;
-            return true;
-        }
-        return false;
-    }
-    // GDB pide tipo 2 (escritura), 3 (lectura) y 4 (acceso). El DWT los llama
-    // 6, 5 y 4 en su campo FUNCTION.
-    bool poner_wp(uint32_t addr, unsigned tipo, unsigned len) {
-        for (unsigned i = 0; i < N_DWT; ++i) {
-            if (dwt_[i]) continue;
-            unsigned f = (tipo == 2) ? 6u : (tipo == 3) ? 5u : 4u;
-            unsigned m = 0;
-            while ((1u << m) < len && m < 5) ++m;
-            escribir(B_DWT + 0x20 + 0x10 * i, addr);
-            escribir(B_DWT + 0x24 + 0x10 * i, m);
-            escribir(B_DWT + 0x28 + 0x10 * i, f);
-            dwt_[i] = addr | 1u;
-            return true;
-        }
-        return false;
-    }
-    bool quitar_wp(uint32_t addr) {
-        for (unsigned i = 0; i < N_DWT; ++i) {
-            if (dwt_[i] != (addr | 1u)) continue;
-            escribir(B_DWT + 0x28 + 0x10 * i, 0);
-            dwt_[i] = 0;
-            return true;
-        }
-        return false;
     }
 
     // =======================================================================
@@ -445,7 +337,7 @@ protected:
     // lecturas y escrituras, contadas, que el resto del stub.
     bool nv_leer(uint32_t a, uint32_t& v) override    { return leer(a, v); }
     bool nv_escribir(uint32_t a, uint32_t v) override { return escribir(a, v); }
-    bool nv_escribir16(uint32_t a, uint16_t v) override { ++n_acc_; return dap_escribir16(a, v); }
+    bool nv_escribir16(uint32_t a, uint16_t v) override { ++n_acc_; return mem_escribir16(a, v); }
 
     int  sector_de(uint32_t a) const { return nv_->sector_de(a); }
     bool flash_borrar(uint32_t addr, uint32_t len) {
@@ -481,8 +373,8 @@ protected:
         sector_borrado_.assign(nv_->n_sectores(), false);
         arq_dudosa_.clear(); g_lo_ultimo_ = false;
         std::printf("[%s] cliente conectado\n", etiqueta_); std::fflush(stdout);
-        if (!enganchado_) enganchar();
-        if (halt_al_conectar_) { parar(); }
+        if (!enganchado_) enganchado_ = arq_enganchar();
+        if (halt_al_conectar_) { arq_parar(); }
     }
     void desconectar() {
         red::cerrar(cli_);
@@ -492,14 +384,15 @@ protected:
         if (!arq_dudosa_.empty() && g_lo_ultimo_) {
             ++n_avisos_arq_;
             std::printf("[%s] AVISO: el depurador se ha ido justo despues de pedir los "
-                        "registros, y dijo ser para '%s', no para ARM.\n"
+                        "registros, y dijo ser para '%s', no para %s.\n"
                         "[%s]        Casi seguro es el `gdb` del PC, no "
-                        "arm-none-eabi-gdb, y habra fallado con\n"
+                        "%s, y habra fallado con\n"
                         "[%s]        \"Truncated register ... in remote 'g' packet\".\n"
                         "[%s]        En el IDE: Debugger > GDB Command, con "
-                        "la RUTA COMPLETA de arm-none-eabi-gdb.\n",
-                        etiqueta_, arq_dudosa_.c_str(),
-                        etiqueta_, etiqueta_, etiqueta_);
+                        "la RUTA COMPLETA de %s.\n",
+                        etiqueta_, arq_dudosa_.c_str(), arq_nombre_humano(),
+                        etiqueta_, arq_gdb_recomendado(), etiqueta_, etiqueta_,
+                        arq_gdb_recomendado());
             std::fflush(stdout);
         }
         arq_dudosa_.clear(); g_lo_ultimo_ = false;
@@ -574,10 +467,10 @@ protected:
             // habia dicho-, se dice eso, que es lo que paso.
             if (rx_[0] == '\x03') {
                 rx_.erase(0, 1);
-                const bool solo = corriendo_ && parado();
-                if (!solo) parar();
+                const bool solo = corriendo_ && arq_parado();
+                if (!solo) arq_parar();
                 corriendo_ = false;
-                responder(parada(solo ? 5 : 2));
+                responder(arq_parada(solo ? 5 : 2));
                 continue;
             }
             if (rx_[0] == '+' || rx_[0] == '-') { rx_.erase(0, 1); continue; }
@@ -604,67 +497,52 @@ protected:
         }
     }
 
-    // El aviso de parada que GDB espera: la señal -5, SIGTRAP: un punto de
-    // ruptura, un paso; 2, SIGINT: un Ctrl-C- y, de propina, unos cuantos
-    // registros para que no tenga que pedirlos. La causa sale de DFSR, que se
-    // borra al reanudar (`borrar_causa`): solo dice lo de esta parada.
-    std::string parada(unsigned senal = 5) {
-        const uint32_t dfsr = leer_o(R_DFSR);
-        std::string s = "T0";
-        s.push_back(hexd(senal & 0xFu));
-        if (senal == 5 && (dfsr & 2u)) s += "swbreak:;";
-        else if (senal == 5 && (dfsr & 4u)) s += "watch:;";
-        s += "0d:" + hex32(reg_gdb(13)) + ";";        // sp
-        s += "0f:" + hex32(reg_gdb(15)) + ";";        // pc
-        s += "thread:1;";
-        return s;
-    }
-
     // =======================================================================
     // El intérprete del RSP
     // =======================================================================
     void atender(const std::string& p) {
         if (p.empty()) { responder(""); return; }
         switch (p[0]) {
-            case '?':  responder(parada()); return;
+            case '?':  responder(arq_parada(5)); return;
             case 'g':  {                              // todos los registros
                 std::string s;
-                for (unsigned i = 0; i < N_REGS; ++i) s += hex32(reg_gdb(i));
+                for (unsigned i = 0; i < arq_n_regs(); ++i) s += hex32(arq_reg(i));
                 responder(s);
                 return;
             }
             case 'G': {
-                for (unsigned i = 0; i < N_REGS && 1 + 8 * i + 8 <= p.size(); ++i)
-                    set_reg_gdb(i, palabra(p, 1 + 8 * i));
+                for (unsigned i = 0; i < arq_n_regs() && 1 + 8 * i + 8 <= p.size(); ++i)
+                    arq_set_reg(i, palabra(p, 1 + 8 * i));
                 responder("OK");
                 return;
             }
             case 'p': {                               // un registro
                 const unsigned n = num(p, 1, 16);
-                if (n >= N_REGS) { responder("E01"); return; }
-                responder(hex32(reg_gdb(n)));
+                if (n >= arq_n_regs()) { responder("E01"); return; }
+                responder(hex32(arq_reg(n)));
                 return;
             }
             case 'P': {
                 const size_t e = p.find('=');
                 if (e == std::string::npos) { responder("E01"); return; }
                 const unsigned n = num(p, 1, 16);
-                if (n >= N_REGS) { responder("E01"); return; }
-                set_reg_gdb(n, palabra(p, e + 1));
+                if (n >= arq_n_regs()) { responder("E01"); return; }
+                arq_set_reg(n, palabra(p, e + 1));
                 responder("OK");
                 return;
             }
             case 'm': return cmd_leer_mem(p);
             case 'M': return cmd_escribir_mem(p, false);
             case 'X': return cmd_escribir_mem(p, true);
-            case 'c': corriendo_ = true; seguir(); return;    // sin respuesta
-            case 's': paso(); responder(parada()); return;
+            case 'c': corriendo_ = true; arq_seguir(); return;    // sin respuesta
+            case 's': arq_paso(); responder(arq_parada(5)); return;
             case 'Z': return cmd_punto(p, true);
             case 'z': return cmd_punto(p, false);
-            case 'H': responder("OK"); return;
+            case 'H': cmd_hilo(p); return;
             case 'k': desconectar(); return;
             case 'D': responder("OK"); desconectar(); return;
-            case 'r': case 'R': cmd_reset(); responder("OK"); return;
+            case 'r': case 'R': arq_reset(); corriendo_ = false; responder("OK"); return;
+            case 'T': cmd_hilo_vivo(p); return;
             case 'q': return cmd_q(p);
             case 'Q':
                 if (p == "QStartNoAckMode") { responder("OK"); sin_ack_ = true; return; }
@@ -711,7 +589,7 @@ protected:
         const unsigned nw = (a + n - base + 3u) / 4u;
         std::vector<uint32_t> w(nw ? nw : 1u, 0);
         n_acc_ += nw;
-        if (nw && dap_leer_bloque(base, w.data(), nw) != nw) {
+        if (nw && mem_leer_bloque(base, w.data(), nw) != nw) {
             responder("E01");
             return;
         }
@@ -809,6 +687,33 @@ protected:
         }
     }
 
+    // `Hg<hilo>` / `Hc<hilo>`: elegir el hilo de los registros o el de
+    // seguir y dar pasos. `-1` y `0` son «cualquiera»: se queda el que hay.
+    // Con un solo hilo, siempre «OK», como antes de E0.3.
+    void cmd_hilo(const std::string& p) {
+        if (p.size() < 2 || arq_n_hilos() <= 1) { responder("OK"); return; }
+        const char op = p[1];
+        if (p.size() == 2 || p.compare(2, 2, "-1") == 0) { responder("OK"); return; }
+        const unsigned h = num(p, 2, 16);
+        if (h == 0) { responder("OK"); return; }
+        if (h > arq_n_hilos() || !arq_elige_hilo(h)) { responder("E01"); return; }
+        if (op == 'g') hilo_g_ = h; else hilo_c_ = h;
+        responder("OK");
+    }
+    // `T<hilo>`: ¿sigue vivo ese hilo? Con un solo hilo no se contesta -se
+    // responde vacío, «no soportado»-, que es lo que hacía el stub antes de
+    // E0.3: así ninguna sesión de un Cortex-M ve una respuesta distinta.
+    void cmd_hilo_vivo(const std::string& p) {
+        if (arq_n_hilos() <= 1) { responder(""); return; }
+        const unsigned h = num(p, 1, 16);
+        responder((h >= 1 && h <= arq_n_hilos()) ? "OK" : "E01");
+    }
+    static std::string hilo_hex(unsigned h) {
+        char b[16];
+        std::snprintf(b, sizeof b, "%x", h);
+        return b;
+    }
+
     void cmd_punto(const std::string& p, bool poner) {
         // Z<tipo>,<dir>,<tam>
         const size_t c1 = p.find(',');
@@ -818,30 +723,11 @@ protected:
         const uint32_t a = num(p, c1 + 1, 16);
         const unsigned tam = (c2 == std::string::npos) ? 2u : num(p, c2 + 1, 16);
         bool ok = false;
-        if (tipo == 0 || tipo == 1) ok = poner ? poner_bp(a) : quitar_bp(a);
-        else if (tipo >= 2 && tipo <= 4) ok = poner ? poner_wp(a, tipo, tam)
-                                                    : quitar_wp(a);
+        if (tipo == 0 || tipo == 1) ok = poner ? arq_poner_bp(a, tipo, tam)
+                                               : arq_quitar_bp(a, tipo, tam);
+        else if (tipo >= 2 && tipo <= 4) ok = poner ? arq_poner_wp(a, tipo, tam)
+                                                    : arq_quitar_wp(a, tipo, tam);
         responder(ok ? "OK" : "E01");
-    }
-
-    void cmd_reset() {
-        // SYSRESETREQ por AIRCR, y captura del vector de reset para quedarse
-        // parado en la primera instruccion: es lo que hace `monitor reset halt`.
-        escribir(R_DEMCR, leer_o(R_DEMCR) | 1u);      // VC_CORERESET
-        escribir(R_AIRCR, 0x05FA0004u);
-        sc_core::wait(sc_core::sc_time(500, sc_core::SC_US));
-        // El DP se resetea con el chip: hay que volver a engancharse. Pero SIN
-        // `enganchar()`, que escribe DHCSR = LLAVE | C_DEBUGEN -sin C_HALT- y
-        // SUELTA el núcleo que la captura de vector acaba de parar en la
-        // primera instrucción. Hasta T2 del MSP432 se hacía así, y el núcleo
-        // corría hasta el `parar()` de abajo: `monitor reset halt` dejaba el
-        // PC unas instrucciones más allá del manejador de reset (0x080001DE
-        // en el blinky del F407, con el manejador en 0x08000188).
-        enganchado_ = dap_enganchar();
-        escribir(R_DHCSR, LLAVE | 0x3u);              // C_DEBUGEN | C_HALT
-        escribir(R_DEMCR, 1u << 24);                  // TRCENA, sin VC_CORERESET
-        escribir(B_FPB + 0x00, 3u);                   // FP_CTRL: KEY | ENABLE
-        corriendo_ = false;
     }
 
     void cmd_q(const std::string& p) {
@@ -876,8 +762,8 @@ protected:
                                    ? std::string()
                                    : p.substr(xr + 13, fxr - xr - 13);
             arq_dudosa_ = (xr != std::string::npos &&
-                           arqs.find("arm") == std::string::npos) ? arqs
-                                                                  : std::string();
+                           arqs.find(arq_nombre_xml()) == std::string::npos)
+                        ? arqs : std::string();
             g_lo_ultimo_ = false;
             responder("PacketSize=1000;qXfer:features:read+;QStartNoAckMode+;"
                       "swbreak+;hwbreak+;vContSupported+");
@@ -888,15 +774,24 @@ protected:
             const size_t d = p.rfind(':');
             const unsigned off = num(p, d + 1, 16);
             const unsigned len = num(p, c + 1, 16);
-            const std::string& x = target_xml();
+            const std::string& x = arq_target_xml();
             if (off >= x.size()) { responder("l"); return; }
             const unsigned n = (len < x.size() - off) ? len : unsigned(x.size() - off);
             responder((off + n < x.size() ? "m" : "l") + x.substr(off, n));
             return;
         }
         if (p == "qAttached")   { responder("1"); return; }
-        if (p == "qC")          { responder("QC1"); return; }
-        if (p == "qfThreadInfo"){ responder("m1"); return; }
+        if (p == "qC")          { responder("QC" + hilo_hex(hilo_g_)); return; }
+        if (p == "qfThreadInfo"){
+            // Un hilo por hart (o por núcleo). Con uno solo, "m1", como antes.
+            std::string s = "m";
+            for (unsigned h = 1; h <= arq_n_hilos(); ++h) {
+                if (h > 1) s += ",";
+                s += hilo_hex(h);
+            }
+            responder(s);
+            return;
+        }
         if (p == "qsThreadInfo"){ responder("l"); return; }
         if (p == "qOffsets")    { responder("Text=0;Data=0;Bss=0"); return; }
         if (p.rfind("qRcmd,", 0) == 0) { cmd_monitor(p.substr(6)); return; }
@@ -908,11 +803,203 @@ protected:
         std::string c;
         for (size_t i = 0; i + 1 < hex.size(); i += 2)
             c.push_back(char(dehex(hex[i]) * 16u + dehex(hex[i + 1])));
-        if (c.rfind("reset", 0) == 0)      { cmd_reset(); responder("OK"); return; }
-        if (c.rfind("halt", 0) == 0)       { parar(); corriendo_ = false;
+        if (c.rfind("reset", 0) == 0)      { arq_reset(); corriendo_ = false;
                                              responder("OK"); return; }
-        if (c.rfind("resume", 0) == 0)     { seguir(); corriendo_ = true;
+        if (c.rfind("halt", 0) == 0)       { arq_parar(); corriendo_ = false;
                                              responder("OK"); return; }
+        if (c.rfind("resume", 0) == 0)     { arq_seguir(); corriendo_ = true;
+                                             responder("OK"); return; }
+        // Las órdenes propias de la arquitectura o de la sonda (las del AP de
+        // ST en ARM). `true` = atendida, con su respuesta ya enviada.
+        if (arq_monitor(c)) return;
+        if (verboso_)
+            std::printf("[%s] monitor no soportado: %s\n", etiqueta_, c.c_str());
+        responder("");
+    }
+
+    // La salida de una orden `monitor` viaja en HEXADECIMAL: es texto para la
+    // consola del depurador, no un codigo de respuesta.
+    void responder_texto(const std::string& t) {
+        std::string h;
+        char b[3];
+        for (unsigned char ch : t) { std::snprintf(b, sizeof b, "%02x", ch); h += b; }
+        responder(h);
+    }
+
+    void cmd_v(const std::string& p) {
+        if (p == "vCont?") { responder("vCont;c;C;s;S"); return; }
+        if (p.rfind("vCont;", 0) == 0) {
+            const char a = p[6];
+            if (a == 's' || a == 'S') { arq_paso(); responder(arq_parada(5)); return; }
+            corriendo_ = true; arq_seguir();
+            return;
+        }
+        if (p == "vMustReplyEmpty") { responder(""); return; }
+        if (p.rfind("vFlashErase:", 0) == 0) {
+            const size_t c = p.find(',', 12);
+            const uint32_t a = num(p, 12, 16);
+            const uint32_t n = num(p, c + 1, 16);
+            responder(flash_borrar(a, n) ? "OK" : "E01");
+            return;
+        }
+        if (p.rfind("vFlashWrite:", 0) == 0) {
+            const size_t d = p.find(':', 12);
+            const uint32_t a = num(p, 12, 16);
+            std::vector<uint8_t> dat;
+            desescapar(p, d + 1, dat);
+            responder(flash_programar(a, dat.data(), unsigned(dat.size())) ? "OK"
+                                                                          : "E01");
+            return;
+        }
+        if (p == "vFlashDone") { flash_bloquear(); responder("OK"); return; }
+        responder("");
+    }
+
+    // --- Estado --------------------------------------------------------------
+    red::socket_t srv_ = red::invalido(), cli_ = red::invalido();
+    std::string rx_, ultimo_;
+    bool     verboso_ = false, sin_ack_ = false, corriendo_ = false;
+    // Que sectores se han borrado ya en esta sesion de programacion.
+    // El programador de la memoria no volátil del chip [T0], y qué sectores
+    // se han borrado ya en esta sesión.
+    programador_nv_if* nv_ = &ProgramadorF407::el();
+    std::vector<bool>  sector_borrado_ = std::vector<bool>(12, false);
+    bool     anunciado_ = false;
+    bool     halt_al_conectar_ = true, activo_ = true;
+    unsigned n_paq_ = 0, n_flash_ = 0, n_acc_ = 0, espera_ = 0;
+    // Lo que dijo `xmlRegisters=` si no era ARM, y si lo ultimo pedido fue `g`
+    std::string arq_dudosa_;
+    bool        g_lo_ultimo_ = false;
+    unsigned    n_avisos_arq_ = 0;
+    unsigned vueltas_vigilancia_ = 8;
+    // El hilo que ha elegido GDB con `Hg` (registros) y con `Hc` (seguir/paso).
+    unsigned hilo_g_ = 1, hilo_c_ = 1;
+    sc_core::sc_time poll_{100, sc_core::SC_US};
+    sc_core::sc_event ev_;
+};
+
+// =============================================================================
+// GdbRsp — el piso de arquitectura ARMv7-M (Cortex-M)
+//
+// El código es el que había antes de E0.2, movido y no reescrito: el modelo de
+// depuración de ARM en registros (DHCSR, DCRSR/DCRDR, DEMCR, AIRCR, DFSR), los
+// 23 registros, el FPB, el DWT, el reset con captura de vector y las órdenes
+// del AP de ST. Lo que cambia es solo quién llama: el protocolo, por las
+// funciones `arq_*`.
+// =============================================================================
+class GdbRsp : public GdbRspBase {
+public:
+    virtual ~GdbRsp() = default;
+
+protected:
+    explicit GdbRsp(unsigned puerto, const char* etiqueta)
+        : GdbRspBase(puerto, etiqueta) {}
+
+    // =======================================================================
+    // EL TRANSPORTE — lo único que distingue a los dos stubs
+    // =======================================================================
+    // Prepara el camino hasta el DAP (en la sonda: reset de línea, conmutación
+    // JTAG->SWD, IDCODE y encendido; en el interno: nada). Devuelve si hay
+    // objetivo al otro lado.
+    virtual bool dap_enganchar() = 0;
+    virtual bool dap_leer(uint32_t a, uint32_t& v) = 0;
+    virtual bool dap_escribir(uint32_t a, uint32_t v) = 0;
+    // Una media palabra, para quien la sepa hacer [acceso_nv_if::nv_escribir16]
+    virtual bool dap_escribir16(uint32_t /*a*/, uint16_t /*v*/) { return false; }
+    // Los registros PROPIOS del AP (CSW, TAR, BASE, IDR), que no son memoria.
+    // No los pide GDB: los piden los IDE, con ordenes `monitor` propias, para
+    // identificar el chip antes de tocarlo. `false` = ese registro no existe.
+    virtual bool dap_leer_ap(unsigned /*ap*/, unsigned /*reg*/, uint32_t& /*v*/) {
+        return false;
+    }
+    virtual bool dap_escribir_ap(unsigned /*ap*/, unsigned /*reg*/, uint32_t /*v*/) {
+        return false;
+    }
+    // Lectura de un bloque alineado. Por omisión, palabra a palabra; la sonda
+    // la sustituye por una ráfaga con auto-incremento de TAR, que es mucho más
+    // barata en flancos.
+    virtual unsigned dap_leer_bloque(uint32_t a, uint32_t* w, unsigned n) {
+        for (unsigned i = 0; i < n; ++i)
+            if (!dap_leer(a + 4 * i, w[i])) return i;
+        return n;
+    }
+
+    // La memoria del protocolo es la del DAP.
+    bool mem_leer(uint32_t a, uint32_t& v) override    { return dap_leer(a, v); }
+    bool mem_escribir(uint32_t a, uint32_t v) override { return dap_escribir(a, v); }
+    bool mem_escribir16(uint32_t a, uint16_t v) override { return dap_escribir16(a, v); }
+    unsigned mem_leer_bloque(uint32_t a, uint32_t* w, unsigned n) override {
+        return dap_leer_bloque(a, w, n);
+    }
+
+    // El enganche completo: transporte + las llaves que hacen que la depuración
+    // exista. Sin C_DEBUGEN no hay BKPT que valga; sin TRCENA el FPB y el DWT
+    // están apagados.
+    bool enganchar() {
+        enganchado_ = dap_enganchar();
+        if (enganchado_) {
+            escribir(R_DHCSR, LLAVE | 1u);
+            escribir(R_DEMCR, 1u << 24);              // TRCENA: DWT y FPB vivos
+            escribir(B_FPB + 0x00, 3u);               // FP_CTRL: KEY | ENABLE
+        }
+        return enganchado_;
+    }
+
+    // =======================================================================
+    // El modelo de depuración de ARM, en registros
+    // =======================================================================
+    static constexpr uint32_t R_DHCSR = 0xE000EDF0u, R_DCRSR = 0xE000EDF4u,
+                              R_DCRDR = 0xE000EDF8u, R_DEMCR = 0xE000EDFCu,
+                              R_AIRCR = 0xE000ED0Cu, R_DFSR  = 0xE000ED30u;
+    static constexpr uint32_t B_FPB = 0xE0002000u, B_DWT = 0xE0001000u;
+    static constexpr uint32_t LLAVE = 0xA05F0000u;
+
+    // `leer`, `escribir` y `leer_o` son los del protocolo: contados, y por
+    // `mem_*`, que aquí es el DAP.
+
+    bool parado() { return (leer_o(R_DHCSR) & (1u << 17)) != 0; }
+    void parar()  { escribir(R_DHCSR, LLAVE | 0x3u); }
+    // Al reanudar se QUITA C_MASKINTS: el programa tiene que volver a recibir
+    // sus interrupciones, o un `continue` no se parecería en nada a la realidad.
+    //
+    // Y antes, al reanudar y al dar un paso, se BORRA DFSR. Sus bits se quedan
+    // puestos hasta que alguien escribe un 1 encima [IR, §13.4], y la causa de
+    // la proxima parada se lee de ahi: sin borrarlo, el BKPT del punto de
+    // ruptura de `main` que pone el IDE al arrancar se quedaba para toda la
+    // sesion, y cada parada -un paso, un Ctrl-C- se anunciaba como «swbreak».
+    // GDB, que en esa direccion no tiene ningun punto de ruptura, la toma por
+    // uno ya quitado y REANUDA sin decir nada: el «Suspend operation timeout»
+    // de STM32CubeIDE.
+    void borrar_causa() { escribir(R_DFSR, 0x1Fu); }
+    void seguir() { borrar_causa(); escribir(R_DHCSR, LLAVE | 0x1u); }
+    // C_STEP (0x4) + C_MASKINTS (0x8) + C_DEBUGEN (0x1). El enmascaramiento es
+    // lo que distingue un paso a paso usable de uno inservible: sin el, cada
+    // paso se come la interrupcion pendiente y el depurador aterriza en el
+    // manejador —tipicamente SysTick_Handler, que en un proyecto de CubeIDE
+    // late a 1 kHz—, asi que "paso sobre esta linea" se convierte en "entra en
+    // SysTick_Handler" una y otra vez. Cualquier sonda pone los dos bits
+    // juntos, y por eso el IDE ofrece esto como opcion.
+    void paso()   { borrar_causa(); escribir(R_DHCSR, LLAVE | 0xDu); }
+
+    // --- Lo que pide el protocolo ---------------------------------------------
+    bool arq_enganchar() override { return enganchar(); }
+    bool arq_parado() override    { return parado(); }
+    void arq_parar() override     { parar(); }
+    void arq_seguir() override    { seguir(); }
+    void arq_paso() override      { paso(); }
+    std::string arq_parada(unsigned senal) override { return parada(senal); }
+    unsigned arq_n_regs() const override { return N_REGS; }
+    uint32_t arq_reg(unsigned n) override { return reg_gdb(n); }
+    void arq_set_reg(unsigned n, uint32_t v) override { set_reg_gdb(n, v); }
+    const std::string& arq_target_xml() const override { return target_xml(); }
+    bool arq_poner_bp(uint32_t a, unsigned, unsigned) override  { return poner_bp(a); }
+    bool arq_quitar_bp(uint32_t a, unsigned, unsigned) override { return quitar_bp(a); }
+    bool arq_poner_wp(uint32_t a, unsigned tipo, unsigned tam) override {
+        return poner_wp(a, tipo, tam);
+    }
+    bool arq_quitar_wp(uint32_t a, unsigned, unsigned) override { return quitar_wp(a); }
+    void arq_reset() override { cmd_reset(); }
+    bool arq_monitor(const std::string& c) override {
         // `ReadAPEx <ap> <reg>` y `WriteAPEx <ap> <reg> <valor>`: no son de GDB,
         // son de las herramientas de ST, y son lo que un STM32CubeIDE
         // configurado con sonda ST-LINK pregunta ANTES de nada para decidir si
@@ -937,53 +1024,147 @@ protected:
             bool ok;
             if (escritura) { ok = dap_escribir_ap(ap, reg, uint32_t(val)); }
             else           { ok = dap_leer_ap(ap, reg, v); }
-            if (!ok) { responder(""); return; }
+            if (!ok) { responder(""); return true; }
             char t[32];
             std::snprintf(t, sizeof t, "0x%08X\n", unsigned(v));
             responder_texto(escritura ? "OK\n" : t);
-            return;
+            return true;
         }
-        if (verboso_)
-            std::printf("[%s] monitor no soportado: %s\n", etiqueta_, c.c_str());
-        responder("");
+        return false;
+    }
+    const char* arq_nombre_xml() const override      { return "arm"; }
+    const char* arq_nombre_humano() const override   { return "ARM"; }
+    const char* arq_gdb_recomendado() const override { return "arm-none-eabi-gdb"; }
+
+    // Los registros del núcleo, por la pareja DCRSR/DCRDR.
+    uint32_t reg(unsigned sel) { escribir(R_DCRSR, sel & 0x7Fu); return leer_o(R_DCRDR); }
+    void set_reg(unsigned sel, uint32_t v) {
+        escribir(R_DCRDR, v);
+        escribir(R_DCRSR, (1u << 16) | (sel & 0x7Fu));
     }
 
-    // La salida de una orden `monitor` viaja en HEXADECIMAL: es texto para la
-    // consola del depurador, no un codigo de respuesta.
-    void responder_texto(const std::string& t) {
-        std::string h;
-        char b[3];
-        for (unsigned char ch : t) { std::snprintf(b, sizeof b, "%02x", ch); h += b; }
-        responder(h);
+    // ---- Mapa de registros que ve GDB --------------------------------------
+    // 17 del perfil M (r0-r12, sp, lr, pc, xpsr) mas 6 de sistema. El orden y
+    // el numero los fija el target.xml que se le manda.
+    static constexpr unsigned N_REGS = 23;
+    uint32_t reg_gdb(unsigned n) {
+        if (n < 13) return reg(n);
+        switch (n) {
+            case 13: return reg(13);                  // sp en uso
+            case 14: return reg(14);                  // lr
+            case 15: return reg(15);                  // pc (retorno de depuracion)
+            case 16: return reg(16);                  // xpsr
+            case 17: return reg(17);                  // msp
+            case 18: return reg(18);                  // psp
+            case 19: return reg(20) & 0xFFu;          // primask
+            case 20: return (reg(20) >> 8) & 0xFFu;   // basepri
+            case 21: return (reg(20) >> 16) & 0xFFu;  // faultmask
+            case 22: return (reg(20) >> 24) & 0xFFu;  // control
+            default: return 0;
+        }
+    }
+    void set_reg_gdb(unsigned n, uint32_t v) {
+        if (n < 19) { set_reg(n, v); return; }
+        uint32_t p = reg(20);
+        switch (n) {
+            case 19: p = (p & ~0x000000FFu) | (v & 0xFFu); break;
+            case 20: p = (p & ~0x0000FF00u) | ((v & 0xFFu) << 8); break;
+            case 21: p = (p & ~0x00FF0000u) | ((v & 0xFFu) << 16); break;
+            case 22: p = (p & ~0xFF000000u) | ((v & 0xFFu) << 24); break;
+            default: return;
+        }
+        set_reg(20, p);
     }
 
-    void cmd_v(const std::string& p) {
-        if (p == "vCont?") { responder("vCont;c;C;s;S"); return; }
-        if (p.rfind("vCont;", 0) == 0) {
-            const char a = p[6];
-            if (a == 's' || a == 'S') { paso(); responder(parada()); return; }
-            corriendo_ = true; seguir();
-            return;
+    // =======================================================================
+    // Puntos de ruptura (FPB) y watchpoints (DWT)
+    // =======================================================================
+    static constexpr unsigned N_FPB = 6, N_DWT = 4;
+    uint32_t fpb_[N_FPB] = {};
+    uint32_t dwt_[N_DWT] = {};
+
+    bool poner_bp(uint32_t addr) {
+        for (unsigned i = 0; i < N_FPB; ++i) if (fpb_[i] == (addr | 1u)) return true;
+        for (unsigned i = 0; i < N_FPB; ++i) {
+            if (fpb_[i]) continue;
+            // REPLACE elige la media palabra: 01 la baja, 10 la alta.
+            const uint32_t rep = (addr & 2u) ? 2u : 1u;
+            const uint32_t v = (addr & 0x1FFFFFFCu) | (rep << 30) | 1u;
+            escribir(B_FPB + 0x08 + 4 * i, v);
+            fpb_[i] = addr | 1u;
+            return true;
         }
-        if (p == "vMustReplyEmpty") { responder(""); return; }
-        if (p.rfind("vFlashErase:", 0) == 0) {
-            const size_t c = p.find(',', 12);
-            const uint32_t a = num(p, 12, 16);
-            const uint32_t n = num(p, c + 1, 16);
-            responder(flash_borrar(a, n) ? "OK" : "E01");
-            return;
+        return false;                                 // no quedan comparadores
+    }
+    bool quitar_bp(uint32_t addr) {
+        for (unsigned i = 0; i < N_FPB; ++i) {
+            if (fpb_[i] != (addr | 1u)) continue;
+            escribir(B_FPB + 0x08 + 4 * i, 0);
+            fpb_[i] = 0;
+            return true;
         }
-        if (p.rfind("vFlashWrite:", 0) == 0) {
-            const size_t d = p.find(':', 12);
-            const uint32_t a = num(p, 12, 16);
-            std::vector<uint8_t> dat;
-            desescapar(p, d + 1, dat);
-            responder(flash_programar(a, dat.data(), unsigned(dat.size())) ? "OK"
-                                                                          : "E01");
-            return;
+        return false;
+    }
+    // GDB pide tipo 2 (escritura), 3 (lectura) y 4 (acceso). El DWT los llama
+    // 6, 5 y 4 en su campo FUNCTION.
+    bool poner_wp(uint32_t addr, unsigned tipo, unsigned len) {
+        for (unsigned i = 0; i < N_DWT; ++i) {
+            if (dwt_[i]) continue;
+            unsigned f = (tipo == 2) ? 6u : (tipo == 3) ? 5u : 4u;
+            unsigned m = 0;
+            while ((1u << m) < len && m < 5) ++m;
+            escribir(B_DWT + 0x20 + 0x10 * i, addr);
+            escribir(B_DWT + 0x24 + 0x10 * i, m);
+            escribir(B_DWT + 0x28 + 0x10 * i, f);
+            dwt_[i] = addr | 1u;
+            return true;
         }
-        if (p == "vFlashDone") { flash_bloquear(); responder("OK"); return; }
-        responder("");
+        return false;
+    }
+    bool quitar_wp(uint32_t addr) {
+        for (unsigned i = 0; i < N_DWT; ++i) {
+            if (dwt_[i] != (addr | 1u)) continue;
+            escribir(B_DWT + 0x28 + 0x10 * i, 0);
+            dwt_[i] = 0;
+            return true;
+        }
+        return false;
+    }
+
+    // El aviso de parada que GDB espera: la señal -5, SIGTRAP: un punto de
+    // ruptura, un paso; 2, SIGINT: un Ctrl-C- y, de propina, unos cuantos
+    // registros para que no tenga que pedirlos. La causa sale de DFSR, que se
+    // borra al reanudar (`borrar_causa`): solo dice lo de esta parada.
+    std::string parada(unsigned senal = 5) {
+        const uint32_t dfsr = leer_o(R_DFSR);
+        std::string s = "T0";
+        s.push_back(hexd(senal & 0xFu));
+        if (senal == 5 && (dfsr & 2u)) s += "swbreak:;";
+        else if (senal == 5 && (dfsr & 4u)) s += "watch:;";
+        s += "0d:" + hex32(reg_gdb(13)) + ";";        // sp
+        s += "0f:" + hex32(reg_gdb(15)) + ";";        // pc
+        s += "thread:1;";
+        return s;
+    }
+
+    void cmd_reset() {
+        // SYSRESETREQ por AIRCR, y captura del vector de reset para quedarse
+        // parado en la primera instruccion: es lo que hace `monitor reset halt`.
+        escribir(R_DEMCR, leer_o(R_DEMCR) | 1u);      // VC_CORERESET
+        escribir(R_AIRCR, 0x05FA0004u);
+        sc_core::wait(sc_core::sc_time(500, sc_core::SC_US));
+        // El DP se resetea con el chip: hay que volver a engancharse. Pero SIN
+        // `enganchar()`, que escribe DHCSR = LLAVE | C_DEBUGEN -sin C_HALT- y
+        // SUELTA el núcleo que la captura de vector acaba de parar en la
+        // primera instrucción. Hasta T2 del MSP432 se hacía así, y el núcleo
+        // corría hasta el `parar()` de abajo: `monitor reset halt` dejaba el
+        // PC unas instrucciones más allá del manejador de reset (0x080001DE
+        // en el blinky del F407, con el manejador en 0x08000188).
+        enganchado_ = dap_enganchar();
+        escribir(R_DHCSR, LLAVE | 0x3u);              // C_DEBUGEN | C_HALT
+        escribir(R_DEMCR, 1u << 24);                  // TRCENA, sin VC_CORERESET
+        escribir(B_FPB + 0x00, 3u);                   // FP_CTRL: KEY | ENABLE
+        corriendo_ = false;
     }
 
     // La descripción del objetivo. Es lo que le dice a GDB que esto es un
@@ -1020,25 +1201,6 @@ protected:
         return x;
     }
 
-    // --- Estado --------------------------------------------------------------
-    red::socket_t srv_ = red::invalido(), cli_ = red::invalido();
-    std::string rx_, ultimo_;
-    bool     verboso_ = false, sin_ack_ = false, corriendo_ = false;
-    // Que sectores se han borrado ya en esta sesion de programacion.
-    // El programador de la memoria no volátil del chip [T0], y qué sectores
-    // se han borrado ya en esta sesión.
-    programador_nv_if* nv_ = &ProgramadorF407::el();
-    std::vector<bool>  sector_borrado_ = std::vector<bool>(12, false);
-    bool     anunciado_ = false;
-    bool     halt_al_conectar_ = true, activo_ = true;
-    unsigned n_paq_ = 0, n_flash_ = 0, n_acc_ = 0, espera_ = 0;
-    // Lo que dijo `xmlRegisters=` si no era ARM, y si lo ultimo pedido fue `g`
-    std::string arq_dudosa_;
-    bool        g_lo_ultimo_ = false;
-    unsigned    n_avisos_arq_ = 0;
-    unsigned vueltas_vigilancia_ = 8;
-    sc_core::sc_time poll_{100, sc_core::SC_US};
-    sc_core::sc_event ev_;
 };
 
 } // namespace stm32

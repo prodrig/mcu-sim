@@ -17,6 +17,7 @@
 #include "scs.h"
 #include "debug.h"
 #include "gdb_stub_dap.h"
+#include "../common/depuracion.h"   // DebugCaps
 #include "../bus/bitband.h"
 #include "../mem/mem_caps.h"   // MapaRam: donde esta (o no esta) la CCM
 
@@ -25,10 +26,8 @@ namespace stm32 {
 // =============================================================================
 // Rasgos de depuración del núcleo — cómo se llega al DAP
 //
-// Misma receta que en el resto del modelo (UsartCaps, TimCaps, SpiCaps...): un
-// struct constexpr de rasgos, unas instancias con nombre y una clase base no
-// plantilla que los toma POR VALOR, de modo que se puede elegir en tiempo de
-// compilación (con el alias) o en tiempo de ejecución (con el constructor).
+// `DebugCaps`, `DBG_PINES` y `DBG_INTERNO` viven desde E0.1 en
+// common/depuracion.h (no son de ARM). En un Cortex-M:
 //
 //   attach == DebugAttach::Pines   -> el núcleo EXPONE SWCLK/SWDIO/JTDI/SWO/
 //        NJTRST y no crea ningún stub. Quien quiera depurar se conecta por
@@ -37,15 +36,7 @@ namespace stm32 {
 //        los puede usar nadie más, pero quedan mudos) y crea dentro de sí un
 //        GdbStubDap que habla con el DAP por llamada de función. Es el modo
 //        rápido.
-//
-// El criterio para elegir está en doc/stm32f4xx/stm32f407vg_fase6_gdb2.md.
 // =============================================================================
-struct DebugCaps {
-    DebugAttach attach;      // pines expuestos o reservados
-    unsigned    puerto;      // puerto TCP del stub interno (0 = no escuchar)
-};
-inline constexpr DebugCaps DBG_PINES  { DebugAttach::Pines,   0    };
-inline constexpr DebugCaps DBG_INTERNO{ DebugAttach::Interno, 3333 };
 
 // =============================================================================
 // La INTEGRACIÓN del núcleo: lo que decide el fabricante y no es de ARM

@@ -40,7 +40,7 @@
 #include <string>
 #include <vector>
 #include "../common/analog_net.h"
-#include "../core/cortex_m4f.h"   // DebugCaps
+#include "../common/depuracion.h"   // DebugCaps (E0.1: ya no el Cortex entero)
 #include "mcu_desc.h"
 
 namespace stm32 {
@@ -73,6 +73,16 @@ public:
     // los dice el chip y no `sim` (T0). nullptr: este chip no los saca.
     virtual analog_net_if* nodo_swclk() { return &nodo_analogico(0, 14); }
     virtual analog_net_if* nodo_swdio() { return &nodo_analogico(0, 13); }
+    // Los nodos de depuración POR NOMBRE (E0.4 de doc/analisis_esp32_riscv.md),
+    // para las sondas que no son SWD: "tck", "tms", "tdi", "tdo" y "trst" de
+    // un JTAG, y "srst" si el chip saca un reset que la sonda pueda tirar.
+    // "swclk" y "swdio" son los dos de arriba, así que un chip que solo sabe
+    // de SWD no tiene que cambiar nada. nullptr: este chip no saca ese hilo.
+    virtual analog_net_if* nodo_depuracion(const std::string& hilo) {
+        if (hilo == "swclk") return nodo_swclk();
+        if (hilo == "swdio") return nodo_swdio();
+        return nullptr;
+    }
 
     // --- 3. La alimentación -------------------------------------------------
     // El orden importa y es el de la placa real: primero todo a cero con NRST
