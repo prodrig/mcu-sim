@@ -14,7 +14,10 @@
 //                VALUE_VALID (29)
 //   UNITn_LOAD   copia LOAD_HI/LO al contador
 //   TARGETx_*    el objetivo; TARGETx_CONF: PERIOD (25:0), PERIOD_MODE (30),
-//                TIMER_UNIT_SEL (31). COMPx_LOAD los pasa al comparador
+//                TIMER_UNIT_SEL (31). COMPx_LOAD pasa al comparador el
+//                objetivo y el periodo; el modo y la unidad mandan en cuanto
+//                se escriben (ESP-IDF elige el modo periodo DESPUÉS del
+//                COMPx_LOAD: systimer_hal_select_alarm_mode)
 //   INT_*        una alarma por comparador, de NIVEL hasta que se borra; van a
 //                las fuentes 37, 38 y 39 de la matriz del C3
 //
@@ -105,7 +108,18 @@ protected:
         case 0x18: lo(u_[1].load); return;
         case 0x1C: case 0x24: case 0x2C: hi(c_[(off - 0x1C) / 8].target_reg); return;
         case 0x20: case 0x28: case 0x30: lo(c_[(off - 0x20) / 8].target_reg); return;
-        case 0x34: case 0x38: case 0x3C: { uint32_t& r = c_[(off - 0x34) / 4].conf_reg; r = (r & ~m) | v; return; }
+        case 0x34: case 0x38: case 0x3C: {
+            Comp& c = c_[(off - 0x34) / 4];
+            const bool antes = (c.conf_reg >> 30) & 1u;
+            c.conf_reg = (c.conf_reg & ~m) | v;
+            // Al pasar a periodo con la alarma ya dada, se rearma desde ella
+            if (!antes && ((c.conf_reg >> 30) & 1u) && !c.armada && (c.conf & 0x3FFFFFFu)) {
+                c.proxima = (c.proxima + (c.conf & 0x3FFFFFFu)) & M52;
+                c.armada = true;
+            }
+            cambia();
+            return;
+        }
         case 0x50: case 0x54: case 0x58:
             if (v & 1u) carga_comp((off - 0x50) / 4);
             return;
@@ -146,16 +160,17 @@ private:
         return (conf_ >> (30 - (u & 1))) & 1u;
     }
     bool comp_en(unsigned c) const { return (conf_ >> (24 - c)) & 1u; }
-    unsigned unidad_de(unsigned c) const { return (c_[c].conf >> 31) & 1u; }
+    unsigned unidad_de(unsigned c) const { return (c_[c].conf_reg >> 31) & 1u; }
+    bool periodo(unsigned c) const { return (c_[c].conf_reg >> 30) & 1u; }
 
     void carga_comp(unsigned i) {
         Comp& c = c_[i];
         c.target = c.target_reg & M52;
         c.conf = c.conf_reg;
-        const bool periodo = (c.conf >> 30) & 1u;
+        const bool per = periodo(i);
         const uint64_t p = c.conf & 0x3FFFFFFu;
-        c.proxima = periodo ? ((valor(unidad_de(i)) + p) & M52) : c.target;
-        c.armada = !periodo || p != 0;
+        c.proxima = per ? ((valor(unidad_de(i)) + p) & M52) : c.target;
+        c.armada = !per || p != 0;
         cambia();
     }
     void cambia() { ev_cambio_.notify(sc_core::SC_ZERO_TIME); }
@@ -180,7 +195,7 @@ private:
                 raw_ |= 1u << i;
                 ++n_alarmas_[i];
                 publica();
-                if ((c.conf >> 30) & 1u) {
+                if (periodo(i)) {
                     const uint64_t p = c.conf & 0x3FFFFFFu;
                     c.proxima = (c.proxima + p) & M52;
                 } else {

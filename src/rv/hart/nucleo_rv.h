@@ -72,6 +72,12 @@ SC_MODULE(NucleoRv), public rv_mem_if {
         hart.pon_memoria(this);
         SC_HAS_PROCESS(NucleoRv);
         SC_THREAD(run);
+        // Un pulso de reset más corto que el tiempo que el núcleo lleva
+        // adelantado (LT) no se ve leyendo rst_n entre instrucciones: el
+        // flanco de bajada se apunta aquí y run() lo atiende igual.
+        SC_METHOD(baja_rst);
+        sensitive << rst_n.neg();
+        dont_initialize();
     }
 
     // --- Lo que llaman los de fuera ------------------------------------------
@@ -106,7 +112,8 @@ SC_MODULE(NucleoRv), public rv_mem_if {
 private:
     sc_core::sc_time local_{sc_core::SC_ZERO_TIME};
     sc_core::sc_event ev_irq_, ev_dbg_, ev_parado_;
-    bool reset_pedido_ = false, en_reset_ = true;
+    bool reset_pedido_ = false, en_reset_ = true, rst_bajo_ = false;
+    void baja_rst() { rst_bajo_ = true; }
 
     bool bus(tlm_utils::simple_initiator_socket<NucleoRv>& sk, bool escr, uint32_t a,
              unsigned n, uint32_t& v, RvAcceso t, RvModo m) {
@@ -149,12 +156,13 @@ private:
             // En reset: quieto hasta que se suelte
             en_reset_ = true;
             while (!rst_n.read()) wait(rst_n.value_changed_event());
+            rst_bajo_ = false;
             hart.reset();
             reset_pedido_ = false;
             en_reset_ = false;
             if (hart.parado()) ev_parado_.notify(sc_core::SC_ZERO_TIME);
             for (;;) {
-                if (!rst_n.read()) { sincroniza(); break; }
+                if (!rst_n.read() || rst_bajo_) { sincroniza(); break; }
                 if (reset_pedido_) { sincroniza(); hart.reset(); reset_pedido_ = false;
                                      if (hart.parado()) ev_parado_.notify(sc_core::SC_ZERO_TIME); }
                 const bool estaba = hart.parado();

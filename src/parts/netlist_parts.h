@@ -48,6 +48,7 @@
 #include "bus_potencia.h"
 #include "mems_st.h"
 #include "xds110.h"
+#include "spi_flash.h"
 
 namespace stm32 {
 
@@ -3057,6 +3058,47 @@ REGISTRA_PARTE(SdCard,
         };
         return new SdCard(d.id.c_str(), n[d.nodo_de("ck")], n[d.nodo_de("cmd")],
                           opt("dat0"), opt("dat1"), opt("dat2"), opt("dat3"));
+    });
+
+REGISTRA_PARTE(SpiFlash,
+    Ayuda("Una Flash SPI NOR (W25Q, GD25Q): la memoria de programa de un "
+          "ESP32 cuando no va dentro del encapsulado. Se modela por "
+          "transacciones, no por bits: el controlador del chip (el SPI0/SPI1 "
+          "del ESP32-C3) la encuentra por el nodo de su CS y le da cada orden "
+          "entera; lo que tarda, lo cuenta el controlador con su reloj y sus "
+          "lineas. Programar y borrar tardan lo tipico de la hoja de datos, "
+          "con WIP a 1 mientras tanto.")
+      .ejemplo("<componente tipo=\"SpiFlash\" id=\"U2\" modelo=\"W25Q32\" contenido=\"flash.bin\">\n"
+               "  <pin nombre=\"cs\"  nodo=\"SPICS0\"/>\n"
+               "  <pin nombre=\"clk\" nodo=\"SPICLK\"/>\n"
+               "  <pin nombre=\"di\"  nodo=\"SPID\"/>\n"
+               "  <pin nombre=\"do\"  nodo=\"SPIQ\"/>\n"
+               "  <pin nombre=\"wp\"  nodo=\"SPIWP\"/>\n"
+               "  <pin nombre=\"hold\" nodo=\"SPIHD\"/>\n"
+               "</componente>")
+      .pin("cs", "obligatorio", "El CS: por su nodo la encuentra el chip (en el C3, SPICS0, GPIO14).")
+      .pin("clk, di, do, wp, hold", "opcionales",
+           "Para el esquema: los datos no pasan por los nodos.")
+      .atr("modelo", "W25Q32", "W25Q16, W25Q32, W25Q64, W25Q128, GD25Q16, GD25Q32 o GD25Q64: el "
+           "JEDEC ID, la capacidad y los tiempos de programar y borrar.")
+      .atr("contenido", "ninguno",
+           "Un fichero con la imagen de la Flash desde 0: se carga al arrancar y se guarda al "
+           "acabar. Sin el, la Flash sale borrada (0xFF).")
+      .nota("No protege por BP/CMP/SRP (se guarda en el estado y no protege), ni tiene "
+            "registros OTP ni modo continuo."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto opt = [&](const char* t) -> analog_net_if* {
+            const std::string& s = d.nodo_de(t);
+            return s.empty() ? nullptr : &n[s];
+        };
+        const std::string mod = d.txt("modelo", "W25Q32");
+        const ModeloFlashSpi* m = busca_modelo_flash(mod);
+        if (!m) {
+            SC_REPORT_ERROR("netlist", (d.id + ": modelo=\"" + mod + "\": se admiten " + modelos_flash_spi()).c_str());
+            return nullptr;
+        }
+        return new SpiFlash(d.id.c_str(), *m, n[d.nodo_de("cs")], opt("clk"), opt("di"), opt("do"),
+                            opt("wp"), opt("hold"));
     });
 
 REGISTRA_PARTE(CameraSensor,

@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- ESP32-C3-DevKitM-1 (fase E3 de doc/analisis_esp32_riscv.md, §9)
 
-     Lo que lleva aparte del modulo ESP32-C3-MINI-1 [guia de usuario de
-     Espressif, ESP32-C3-DevKitM-1, y su esquematico v1.0]:
+     El modulo ESP32-C3-MINI-1 lleva un ESP32-C3FN4: la Flash de 4 MB va
+     dentro del chip. Lo que lleva la placa aparte del modulo [guia de usuario
+     de Espressif, ESP32-C3-DevKitM-1, y su esquematico v1.0]:
 
          U2     el puente USB-UART (CP2102N) en la UART0: su TXD a U0RXD
                 (GPIO20) y su RXD a U0TXD (GPIO21). Aqui, un PuenteSerie
@@ -16,12 +17,14 @@
                 llega con el RMT (E8). Hasta entonces el LED de la placa NO
                 se ve: blinky se ve en esp32c3_supermini.xml o en el nodo GPIO8.
 
-     Sin ROM ni Flash (E4), el firmware es un ELF que se carga en la SRAM:
+     El chip arranca por la ROM y lee la Flash (E4). Una compilacion de
+     ESP-IDF entra por su flash_args; un ELF bare-metal, en la SRAM, sin ROM:
 
+         ./build/mcu-sim placas/esp32c3_devkitm1.xml build/idf/v5.5/hello_world/flash_args --serie UART=memoria --ms=500
          ./build/mcu-sim placas/esp32c3_devkitm1.xml verif/fw/esp32c3/uart.elf --serie UART=memoria --ms=10
 -->
 <placa nombre="esp32c3-devkitm-1">
-  <mcu tipo="ESP32-C3" id="u0"/>
+  <mcu tipo="ESP32-C3FN4" id="u0"/>
 
   <nodo id="CHIP_PU" bus="si"/>
 

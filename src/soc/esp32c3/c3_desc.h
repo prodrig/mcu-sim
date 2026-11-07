@@ -42,6 +42,8 @@ constexpr uint32_t PERIF = 0x60000000u, PERIF_FIN = 0x600D1000u;
 // --- Periféricos -----------------------------------------------------------------
 constexpr uint32_t UART0_B = 0x60000000u, SPI1_B = 0x60002000u, SPI0_B = 0x60003000u,
                    GPIO_B = 0x60004000u, RTC_CNTL_B = 0x60008000u, EFUSE_B = 0x60008800u,
+                   REGI2C_B = 0x6000E000u, FE2_B = 0x60005000u, FE_B = 0x60006000u,
+                   NRX_B = 0x6001CC00u, BB_B = 0x6001D000u,
                    IO_MUX_B = 0x60009000u, UART1_B = 0x60010000u, I2C_B = 0x60013000u,
                    UHCI_B = 0x60014000u, RMT_B = 0x60016000u, LEDC_B = 0x60019000u,
                    // La tabla 3.3-3 del TRM pone el eFuse en 0x6001_A000; ESP-IDF
@@ -54,6 +56,7 @@ constexpr uint32_t UART0_B = 0x60000000u, SPI1_B = 0x60002000u, SPI0_B = 0x60003
                    RSA_B = 0x6003C000u, DS_B = 0x6003D000u, HMAC_B = 0x6003E000u,
                    GDMA_B = 0x6003F000u, ADC_B = 0x60040000u, USB_SJ_B = 0x60043000u,
                    SYSTEM_B = 0x600C0000u, PMS_B = 0x600C1000u, INTMTX_B = 0x600C2000u,
+                   EXTMEM_B = 0x600C4000u,
                    XTS_AES_B = 0x600CC000u, ASSIST_B = 0x600CE000u, WCL_B = 0x600D0000u;
 // --- Fuentes de interrupción [TRM-C3 tabla 8.3-1] ----------------------------------
 constexpr unsigned N_FUENTES = 62;
@@ -75,7 +78,7 @@ inline constexpr RvCaps RV_ESP32C3{
     RV_EXT_I | RV_EXT_M | RV_EXT_C | RV_EXT_U,
     RV_Z_ICSR | RV_Z_IFENCEI,
     false, 0u, false, 0, RV_MTVEC_VECTORIZADO, 256,
-    0x40000400u, 0x00000001u, 16, false, RvDesalineado::HardwareCpu863,
+    0x40000000u, 0x00000001u, 16, false, RvDesalineado::HardwareCpu863,
     0x612u, 0x80000001u, 1u, false, RV_DBG_C3, &RV_TIEMPOS_C3
 };
 
@@ -139,6 +142,8 @@ inline bool pad_c3(const std::string& t, unsigned& puerto, unsigned& pin) {
     static const char* const alias[][2] = {
         {"MTMS", "4"}, {"MTDI", "5"}, {"MTCK", "6"}, {"MTDO", "7"},
         {"U0RXD", "20"}, {"U0TXD", "21"},
+        {"SPIHD", "12"}, {"SPIWP", "13"}, {"SPICS0", "14"}, {"SPICLK", "15"}, {"SPID", "16"},
+        {"SPIQ", "17"},
     };
     for (const auto& a : alias)
         if (s == a[0]) { puerto = 0; pin = unsigned(std::stoul(a[1])); return true; }
@@ -170,12 +175,15 @@ struct McuCapsC3 {
 };
 inline constexpr McuCapsC3 MCU_ESP32C3{"ESP32-C3", &RV_ESP32C3, 0, 4, ENC_C3_QFN32};
 inline constexpr McuCapsC3 MCU_ESP32C3FH4{"ESP32-C3FH4", &RV_ESP32C3, 4u << 20, 4, ENC_C3_QFN32};
+// El de los módulos ESP32-C3-MINI-1 (la DevKitM-1): 4 MB dentro, 85 °C
+inline constexpr McuCapsC3 MCU_ESP32C3FN4{"ESP32-C3FN4", &RV_ESP32C3, 4u << 20, 4, ENC_C3_QFN32};
 inline constexpr McuCapsC3 MCU_ESP32C3FH4X{"ESP32-C3FH4X", &RV_ESP32C3, 4u << 20, 101, ENC_C3_QFN32_X};
 inline constexpr McuCapsC3 MCU_ESP32C3FH8X{"ESP32-C3FH8X", &RV_ESP32C3, 8u << 20, 101, ENC_C3_QFN32_X};
 
 struct RegistroCatalogoC3 {
     RegistroCatalogoC3() {
-        for (const McuCapsC3* m : {&MCU_ESP32C3, &MCU_ESP32C3FH4, &MCU_ESP32C3FH4X, &MCU_ESP32C3FH8X})
+        for (const McuCapsC3* m : {&MCU_ESP32C3, &MCU_ESP32C3FH4, &MCU_ESP32C3FN4, &MCU_ESP32C3FH4X,
+                                   &MCU_ESP32C3FH8X})
             CatalogoMcu::registra(McuDesc{m->nombre, "ESP32C3", &m->enc, m});
     }
 };

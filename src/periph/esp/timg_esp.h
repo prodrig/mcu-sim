@@ -17,10 +17,26 @@
 //          de cada etapa en ticks del preescalado. WDTFEED vuelve a la etapa
 //          0; WDTWPROTECT con 0x50D83AA1 abre la escritura de los WDT*.
 //   INT    T0 (bit 0) y WDT (bit 1), de nivel, a la matriz.
+//   CAL    la calibración del reloj lento (RTCCALICFG, 0x68-0x6C y 0x80): con
+//          START (31) cuenta ciclos del XTAL durante CALI_MAX (30:16) ciclos
+//          del reloj elegido en CLK_SEL (14:13: 0 RC_SLOW a 136 kHz, 1
+//          RC_FAST/256 a 68,4 kHz, 2 XTAL32K, que solo está si la placa lo
+//          pone). Al acabar, RDY (15) y el valor en RTCCALICFG1[31:7]; sin
+//          reloj, TIMEOUT (RTCCALICFG2[0]). START_CYCLING (12), que sale a 1
+//          del reset, da el valor sin esperar. Las frecuencias son las
+//          nominales de ESP-IDF (SOC_CLK_*_FREQ_APPROX): sin deriva.
 //
-// SIN ROM (E3) el MWDT arranca APAGADO: en el silicio el del grupo 0 sale del
-// reset con FLASHBOOT_MOD_EN y lo apaga el bootloader de segunda etapa. Con
-// la ROM (E4) se pondrá como en el silicio. Está en `limitaciones()`.
+// EL ARRANQUE DESDE LA FLASH: el MWDT del grupo 0 sale del reset con
+// FLASHBOOT_MOD_EN (14) y cuenta aunque EN esté a 0: si nadie lo para antes,
+// la etapa 0 (WDTCONFIG2, 26 000 000 ticks del APB) resetea el sistema. Es la
+// red de la ROM y del bootloader, que lo apaga en cuanto arranca
+// (bootloader_config_wdt) [TRM-C3 §12.2.2]. `flashboot` dice si este grupo
+// lo hace: el 0, y solo cuando el chip arranca por la ROM; con un ELF cargado
+// en la SRAM (el arranque directo de E3, que no existe en el silicio) sale
+// apagado como en E3. Y el modo flashboot solo cuenta si el chip ha
+// arrancado DESDE LA FLASH (GPIO9 alto al soltar CHIP_PU): en el modo
+// descarga la ROM espera sin que nadie la resetee (`modo_flash`, que pone
+// el chip al guardar los pines de arranque).
 // =============================================================================
 #ifndef STM32_PERIPH_ESP_TIMG_ESP_H
 #define STM32_PERIPH_ESP_TIMG_ESP_H
@@ -37,6 +53,11 @@ public:
     std::function<void(unsigned bit, bool nivel)> irq;     // 0 T0, 1 WDT
     std::function<void(bool sistema)> reset_wdt;           // la etapa pide un reset
     double hz_apb = 80e6, hz_xtal = 40e6;
+    bool flashboot = false;            // ver la cabecera
+    bool modo_flash = false;
+    void pon_modo_flash(bool si) { modo_flash = si; ev_wdt_.notify(sc_core::SC_ZERO_TIME); }
+    // Los relojes lentos que se pueden calibrar [Hz]; 0: no está
+    double hz_rc_slow = 136e3, hz_rc_fast_d256 = 17.5e6 / 256.0, hz_xtal32k = 0;
 
     TimgEsp(sc_core::sc_module_name nm, uint32_t base) : BusSlave(nm, base, 0x1000) {
         SC_HAS_PROCESS(TimgEsp);
@@ -81,6 +102,9 @@ protected:
         case 0x70: return ena_;
         case 0x74: return raw_;
         case 0x78: return raw_ & ena_;
+        case 0x68: return cal0_ | (cal_rdy() ? 1u << 15 : 0u);
+        case 0x6C: return cal_rdy() ? (cal_valor() << 7) : 0u;
+        case 0x80: return (cal2_ & ~1u) | (cal_sin_reloj() ? 1u : 0u);
         case 0xF8: return 0x2006191u;
         case 0xFC: return regclk_;
         default: return 0;
@@ -112,6 +136,19 @@ protected:
             return;
         case 0x60: if (abierto) wdt_reinicia(); return;
         case 0x64: w(wprot_); return;
+        case 0x68: {
+            const bool antes = cal0_ >> 31;
+            w(cal0_);
+            cal0_ &= ~(1u << 15);
+            if (!antes && (cal0_ >> 31)) {
+                const double f = cal_hz();
+                cal_fin_ = sc_core::sc_time_stamp() +
+                           (f > 0 ? sc_core::sc_time(double((cal0_ >> 16) & 0x7FFFu) / f, sc_core::SC_SEC)
+                                  : sc_core::SC_ZERO_TIME);
+            }
+            return;
+        }
+        case 0x80: w(cal2_); return;
         case 0x70: w(ena_); publica(); return;
         case 0x7C: raw_ &= ~(v & m); publica(); return;
         case 0xFC: w(regclk_); return;
@@ -120,6 +157,22 @@ protected:
     }
 
 private:
+    uint32_t cal0_ = 0x13000u, cal2_ = 0xFFFFFF98u;
+    sc_core::sc_time cal_fin_;
+    double cal_hz() const {
+        const unsigned sel = (cal0_ >> 13) & 3u;
+        return sel == 0 ? hz_rc_slow : sel == 1 ? hz_rc_fast_d256 : hz_xtal32k;
+    }
+    bool cal_sin_reloj() const { return cal_hz() <= 0 && ((cal0_ >> 31) || (cal0_ & (1u << 12))); }
+    bool cal_rdy() const {
+        if (cal_hz() <= 0) return false;
+        if (cal0_ & (1u << 12)) return true;
+        return (cal0_ >> 31) && sc_core::sc_time_stamp() >= cal_fin_;
+    }
+    uint32_t cal_valor() const {
+        const double n = double((cal0_ >> 16) & 0x7FFFu);
+        return uint32_t(std::lround(n * hz_xtal / cal_hz())) & 0x1FFFFFFu;
+    }
     uint32_t t0conf_ = 0, wdt0_ = 0, wdt1_ = 0, wdt_etapa_[4] = {}, wprot_ = 0,
              ena_ = 0, raw_ = 0, regclk_ = 0, irq_ = 0;
     uint64_t base_ = 0, snap_ = 0, alarma_ = 0, carga_ = 0;
@@ -130,9 +183,10 @@ private:
 
     void reset_regs() {
         t0conf_ = 0x60002000u;
-        wdt0_ = 0;                     // sin FLASHBOOT_MOD_EN: ver la cabecera
+        cal0_ = 0x13000u; cal2_ = 0xFFFFFF98u; cal_fin_ = sc_core::SC_ZERO_TIME;
+        wdt0_ = flashboot ? 0x0004C000u : 0u;     // ver la cabecera
         wdt1_ = 1u << 16;
-        wdt_etapa_[0] = 26000000u; wdt_etapa_[1] = 0x7FFFFFFu;
+        wdt_etapa_[0] = 26000000u;     // 0x018CBA80 wdt_etapa_[1] = 0x7FFFFFFu;
         wdt_etapa_[2] = 0xFFFFFu;  wdt_etapa_[3] = 0xFFFFFu;
         wprot_ = CLAVE_WDT;
         ena_ = raw_ = 0;
@@ -174,15 +228,19 @@ private:
                           double(((wdt1_ >> 16) & 0xFFFFu) ? ((wdt1_ >> 16) & 0xFFFFu) : 1u);
         return sc_core::sc_time(double(wdt_etapa_[e] ? wdt_etapa_[e] : 1u) / hz, sc_core::SC_SEC);
     }
+    // En marcha: EN, o FLASHBOOT_MOD_EN (y entonces la etapa 0 resetea el
+    // sistema, se diga lo que se diga en STG0)
+    bool wdt_activo() const { return (wdt0_ >> 31) || (((wdt0_ >> 14) & 1u) && modo_flash); }
     void wdt_proc() {
         for (;;) {
-            if (!(wdt0_ >> 31)) { wait(ev_wdt_); continue; }
+            if (!wdt_activo()) { wait(ev_wdt_); continue; }
             const unsigned e = etapa_;
             if (e > 3) { wait(ev_wdt_); continue; }
             const sc_core::sc_time t0 = sc_core::sc_time_stamp();
             wait(t_etapa(e), ev_wdt_);
-            if (sc_core::sc_time_stamp() - t0 < t_etapa(e) || etapa_ != e || !(wdt0_ >> 31)) continue;
-            const unsigned accion = (wdt0_ >> (29 - 2 * e)) & 3u;
+            if (sc_core::sc_time_stamp() - t0 < t_etapa(e) || etapa_ != e || !wdt_activo()) continue;
+            const bool fb = !(wdt0_ >> 31);
+            const unsigned accion = fb ? (e == 0 ? 3u : 0u) : (wdt0_ >> (29 - 2 * e)) & 3u;
             if (accion == 1) { raw_ |= 2u; publica(); }
             else if (accion >= 2) { ++n_resets_; if (reset_wdt) reset_wdt(accion == 3); }
             etapa_ = e + 1;

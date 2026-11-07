@@ -322,10 +322,13 @@ testf3                428      116875480154660       resto
 # (8811500000 con 236). Igual en dos pasadas (07-11-2026).
 testrv                 457      28577500000           resto
 
-# testc3: el ESP32-C3 sin ROM (E3 de doc/analisis_esp32_riscv.md): el
-# arranque por CHIP_PU y los pines de arranque, la UART0 por los pines, el
-# INTC, el SYSTIMER y TIMG0, la matriz GPIO y la GPIO dedicada, los resets y
-# CoreMark a 160 MHz, con el firmware versionado de verif/fw/esp32c3. Sin
-# sockets: se contrasta el total. Igual en dos pasadas y con asanc3
-# (07-11-2026).
-testc3                 57       28556458348
+# testc3: el ESP32-C3. C1-C7 (E3), sin ROM: el arranque por CHIP_PU y los
+# pines de arranque, la UART0 por los pines, el INTC, el SYSTIMER y TIMG0, la
+# matriz GPIO y la GPIO dedicada, los resets y CoreMark a 160 MHz, con el
+# firmware versionado de verif/fw/esp32c3 (57 y 28556458348 ps, como antes de
+# E4: C8 empieza justo ahi). C8-C13 (E4), por la ROM y la Flash: Direct Boot,
+# ESP-IDF v5.5 y v6.0 (hello_world con esp_restart, blink, uart_echo) en v0.4
+# y v1.1, el modo descarga, la Flash vacia con los perros del flashboot y el
+# aviso de la ROM de otra revision. Sin sockets: se contrasta el total. Igual
+# en dos pasadas y con asanc3 (08-11-2026).
+testc3                 107      17204410347276

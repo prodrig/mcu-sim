@@ -912,6 +912,32 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   autocomprobados versionados (`act.tar.xz`) y V10 en `testrv` (457). Sacó
   tres fallos del núcleo: `menvcfg` ausente, la región TOR vacía y el `sc.w`
   sin reserva a una dirección vacía.
+* **E4 hecha** (2026-11-07): el C3 arranca por la ROM de verdad y lee la
+  Flash. `hello_world`, `blink` y `uart_echo` de **ESP-IDF v5.5.6 y v6.0.3**
+  arrancan sin tocar (salvo el `led_strip` de blink), en v0.4 y en v1.1;
+  Direct Boot; el modo descarga; `esp_restart()`; los perros del flashboot.
+  `testc3`: C8-C13, 107 comprobaciones. Lo que el arranque toca y no está en
+  el TRM, cada cosa con su fuente o «declarado» (P-19/E4 abajo).
+* **P-19/E4 — los registros del arranque del C3 sin documentar, o con dato de
+  modelo.** La regla de §8.2 del plan: modelado con dos fuentes o declarado.
+  | Qué | Cómo está | Fuente |
+  | :--- | :--- | :--- |
+  | `mpcer`/`mpcmr` al salir del reset | contando ciclos | Deducido: ESP-IDF lee `mpccr` (marcas de tiempo, `esp_rom_delay_us`) sin habilitarlo nunca |
+  | `SYSCON_RND_DATA` (0x6002_60B0) | xorshift32 de semilla fija | De modelo: el silicio lo saca del ruido del SAR y de la radio |
+  | PMS, World Controller y ASSIST_DEBUG en un reset de la CPU | vuelven a su valor de reset | Deducido: la app reinicia si los bloqueos del PMS siguen tras `esp_restart()` («Memprot feature locked») |
+  | REGI2C (0x6000_E000) | la codificación de la palabra del maestro, del código de la ROM (`rom_chip_i2c_writeReg`); los registros analógicos (BBPLL, BIAS, SAR...) guardan, sin PLL que enganchar | ROM (desensamblado) y `regi2c_defs.h`; los valores analógicos, **declarados** |
+  | FE, FE2, NRX, BB (la radio) | guardan | **Declarados** (E12) |
+  | RTC_CNTL salvo RESET_STATE, OPTIONS0, OPTION1, STORE y el RWDT: el super watchdog (SWD), el *brownout*, CLK_CONF, ANA_CONF... | guardan con su valor de reset | Valores de reset de `rtc_cntl_reg.h` (ESP-IDF); función **declarada** |
+  | El modo flashboot del MWDT0 y del RWDT | cuenta solo si se arranca desde la Flash (GPIO9 alto); la etapa 0 resetea el sistema (MWDT0) o el RTC (RWDT) | Deducido: en el modo descarga la ROM no los toca (`disable_default_watchdog` no se llama) y espera para siempre; en la Flash vacía, rst:0x7 y rst:0x10 como en las placas |
+  | La calibración del reloj lento (TIMG RTCCALICFG) | con las frecuencias nominales (136 kHz, 17,5 MHz/256) | `SOC_CLK_*_FREQ_APPROX` de ESP-IDF; sin deriva |
+  | Las operaciones de EXTMEM (invalidar, precargar, autocargar, fijar, congelar) | acaban en el acto con su DONE; CACHE_STATE en reposo | Como el QEMU de Espressif; tiempos **de modelo** |
+  | El tiempo de una transacción del MSPI y de un fallo de caché | bits de cada fase con sus líneas al reloj de SPI_MEM_CLOCK; origen 80 MHz con PLL, XTAL sin él | **De modelo** (el TRM no da latencias) |
+  | La suspensión automática de la Flash, el cifrado (XTS_AES), la PMS de las ventanas | no | **Declarados** |
+  | eFuse: la orden de leer | acaba en el acto con READ_DONE; programar no programa | **Declarado** |
+  | SHA: 80/64 ciclos por bloque | | **De modelo** |
+  | La CPU tras el reset: XTAL/2 = 20 MHz (PRE_DIV_CNT = 1, TRM tabla 6.2-2), pero la ROM cuenta 40 ticks por µs (`s_ticks_per_us`) | se deja el TRM: los retardos de la ROM duran el doble | **Pendiente de contrastar con una placa** |
+  | La ROM: la imagen de los datos iniciales (tabla de `_data_start`) y las secciones `.rodata.interface*` | reconstruidas del ELF de esp-rom-elfs; la rev. 3 sale igual que la del QEMU de Espressif salvo 8 bytes que nada referencia | `soc/esp32c3/rom/gen_rom_c3.py` |
+  | SYSTIMER: PERIOD_MODE y TIMER_UNIT_SEL | mandan al escribirlos; COMPx_LOAD solo pasa el objetivo y el periodo | Deducido de `systimer_hal`: elige el modo después del LOAD |
 
 ---
 

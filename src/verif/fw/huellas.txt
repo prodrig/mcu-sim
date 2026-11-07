@@ -193,3 +193,6 @@ c3  esp32c3/uart.elf                        14712  0xDB4962F2
 c3  esp32c3/intc.elf                        27176  0x5840F3AE
 c3  esp32c3/gpio_matriz.elf                 18480  0xD5DCCF0B
 c3  esp32c3/coremark_c3.elf                 92536  0x5BDA3084
+# E4: Direct Boot desde la Flash (c3_flash.ld); el .bin es la imagen
+c3  esp32c3/direct_boot.elf                 15528  0xFAE31D30
+c3  esp32c3/direct_boot.bin                  3472  0xDCF1E737

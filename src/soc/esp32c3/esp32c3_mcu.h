@@ -8,9 +8,24 @@
 //     alimentación, VDD3P3, VDD3P3_RTC, VDD_SPI, VDDA y GND, y el reset es
 //     CHIP_PU (activo a nivel bajo: «reset_pin» lo baja);
 //   * no hay SWD: ni swclk ni swdio. El JTAG (MTMS-MTDO) y el DM: E6;
-//   * el FIRMWARE es un ELF de RISC-V que se carga en la SRAM y arranca en su
-//     entrada (sin ROM, sin Flash: E4 traerá la imagen de esptool y la Flash);
-//   * `efuse=fichero` en el <mcu>: los registros de lectura del eFuse.
+//   * el FIRMWARE (E4, D1 de §6):
+//       - una imagen de la Flash, `.bin`: entera desde 0 (la de `esptool
+//         merge-bin` o la de Direct Boot), o en otro sitio con
+//         `fichero.bin@0x10000`; el chip arranca por la ROM, como en la placa;
+//       - el `flash_args` de una compilación de ESP-IDF: cada .bin en su
+//         desplazamiento (el bootloader, la tabla de particiones y la app);
+//       - un ELF *bare-metal* que vive en la SRAM: se carga y arranca en su
+//         entrada SIN pasar por la ROM (el arranque directo de E3). Un ELF de
+//         ESP-IDF (con segmentos en las ventanas de la caché) NO: eso se
+//         descarga como en la placa, con sus .bin;
+//     sin firmware, la ROM arranca y lee la Flash que haya (vacía: «invalid
+//     header», como un chip nuevo);
+//   * la Flash: la del encapsulado (C3FH4, C3FN4...) o una pieza SpiFlash de
+//     la placa con su CS en SPICS0 (GPIO14). `contenido=` en el <mcu> guarda
+//     la interna entre simulaciones;
+//   * `efuse=fichero` en el <mcu>: los registros de lectura del eFuse;
+//     `rom=` ninguna | omision | un ELF de esp-rom-elfs. Si la ROM no es la de
+//     la revisión del chip, se dice al montar.
 //
 // La familia que despacha la factoría es "ESP32C3". [soc/mcu_if.h]
 // =============================================================================
@@ -22,6 +37,7 @@
 #include "esp32c3.h"
 #include "../../parts/netlist.h"
 #include "../../common/nombres_nodo.h"
+#include "../../parts/spi_flash.h"
 
 namespace stm32 {
 
@@ -90,35 +106,98 @@ public:
     }
 
     bool carga_firmware(const std::string& ruta) override {
-        if (formato_fw(ruta) != FormatoFw::Elf) {
-            std::fprintf(stderr, "  [fw] %s: el ESP32-C3 de esta fase solo carga ELF en la SRAM "
-                         "(sin ROM ni Flash: las imagenes de esptool llegan en E4)\n", ruta.c_str());
-            return false;
+        engancha_flash();
+        std::string e;
+        // fichero.bin@0x10000: una imagen en ese desplazamiento
+        std::string f = ruta;
+        uint32_t off = 0;
+        const size_t at = ruta.rfind('@');
+        if (at != std::string::npos && at + 1 < ruta.size()) {
+            f = ruta.substr(0, at);
+            off = uint32_t(std::strtoul(ruta.c_str() + at + 1, nullptr, 0));
         }
-        const std::string e = chip_->carga_elf(ruta);
+        const std::string base = f.substr(f.find_last_of("/\\") + 1);
+        if (base == "flash_args") e = carga_flash_args(f);
+        else if (formato_fw(f) == FormatoFw::Elf) {
+            if (elf_en_flash(f))
+                e = f + ": es un ELF de ESP-IDF (con segmentos en la Flash): se descarga con sus .bin, "
+                    "como en la placa: el flash_args de la compilacion o la imagen de esptool merge-bin";
+            else e = chip_->carga_elf(f);
+        } else if (formato_fw(f) == FormatoFw::Bin) e = chip_->carga_imagen(f, off);
+        else e = f + ": el ESP32-C3 carga imagenes .bin de la Flash, el flash_args de ESP-IDF o un ELF bare-metal";
         if (!e.empty()) { std::fprintf(stderr, "  [fw] %s\n", e.c_str()); return false; }
         return true;
     }
     void aparca_en_wfe() override { chip_->aparca_en_wfi(); }
     std::string sin_firmware() override {
-        chip_->aparca_en_wfi();
-        return "el nucleo se aparca en wfi (sin ROM: no hay modo descarga todavia)";
+        engancha_flash();
+        if (!chip_->rom.hay()) {
+            chip_->aparca_en_wfi();
+            return "sin ROM (rom=ninguna): el nucleo se aparca en wfi";
+        }
+        chip_->arranca_por_rom();
+        return chip_->flash() ? "arranca la ROM y lee lo que haya en la Flash"
+                              : "arranca la ROM; no hay Flash (ni en el encapsulado ni en SPICS0)";
     }
+    memoria_nv_if* memoria_nv() override { return chip_->flash_interna(); }
     void set_ondas_reloj(bool) override {}
     bool tiene_gdb_interno() const override { return false; }
     void gdb_interno(bool, bool) override {}
 
-    bool admite_opcion(const std::string& clave) const override { return clave == "efuse"; }
+    bool admite_opcion(const std::string& clave) const override { return clave == "efuse" || clave == "rom"; }
     std::string opcion(const std::string& clave, const std::string& valor) override {
         if (clave == "efuse") return chip_->efuse.carga(valor);
+        if (clave == "rom") {
+            const std::string e = chip_->pon_rom(valor);
+            if (!e.empty()) return e;
+            const std::string a = chip_->aviso_rom();
+            if (!a.empty()) std::fprintf(stderr, "  [ojo] %s\n", a.c_str());
+            return "";
+        }
         return mcu_if::opcion(clave, valor);
     }
     std::string describe_opcion(const std::string& clave) const override {
         if (clave == "efuse") return chip_->efuse.ruta().empty() ? "MAC de omision" : chip_->efuse.ruta();
+        if (clave == "rom") return chip_->rom.nombre();
         return "";
     }
 
 private:
+    // La Flash de la placa: la pieza SpiFlash cuyo CS va a SPICS0 (GPIO14)
+    void engancha_flash() {
+        if (chip_->flash()) return;
+        if (SpiFlashChip* f = RegistroFlashSpi::busca(&chip_->gpio.nodo_de(14))) chip_->pon_flash(f);
+    }
+    // ¿Tiene el ELF segmentos en las ventanas de la caché?
+    static bool elf_en_flash(const std::string& ruta) {
+        std::vector<TrozoFw> t;
+        if (!lee_elf(ruta, t, ELF_RISCV).empty()) return false;
+        for (const TrozoFw& x : t)
+            if ((x.dir >= 0x3C000000u && x.dir < 0x3C800000u) || (x.dir >= 0x42000000u && x.dir < 0x42800000u))
+                return true;
+        return false;
+    }
+    // flash_args de ESP-IDF: «--flash_mode dio ...» y «0x0 bootloader/bootloader.bin»
+    std::string carga_flash_args(const std::string& ruta) {
+        std::FILE* f = std::fopen(ruta.c_str(), "r");
+        if (!f) return "no se puede leer " + ruta;
+        const size_t b = ruta.find_last_of("/\\");
+        const std::string dir = b == std::string::npos ? std::string() : ruta.substr(0, b + 1);
+        char l[1024];
+        unsigned n = 0;
+        std::string e;
+        while (e.empty() && std::fgets(l, sizeof l, f)) {
+            char nom[900];
+            unsigned long off = 0;
+            if (std::sscanf(l, "0x%lx %899s", &off, nom) == 2) {
+                e = chip_->carga_imagen(dir + nom, uint32_t(off));
+                ++n;
+            }
+        }
+        std::fclose(f);
+        if (e.empty() && !n) e = ruta + ": ninguna imagen (se esperan lineas «0x0 fichero.bin»)";
+        return e;
+    }
     Esp32C3* chip_;
     McuDesc desc_;
     std::vector<AnalogNet*> propios_;

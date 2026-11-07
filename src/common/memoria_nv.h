@@ -168,9 +168,9 @@ inline std::string escribe_ihex(const std::string& ruta, const std::vector<Trozo
 // devuelve su `memoria_nv_if` (parts/ext_parts.h); si alguna no lo hiciera,
 // `sim` lo diría al montarla con su contenido
 inline bool es_memoria_nv(const std::string& tipo) {
-    return tipo == "I2cEeprom" || tipo == "SdCard" || tipo == "ExtNand";
+    return tipo == "I2cEeprom" || tipo == "SdCard" || tipo == "ExtNand" || tipo == "SpiFlash";
 }
-inline std::string tipos_memoria_nv() { return "I2cEeprom, SdCard y ExtNand"; }
+inline std::string tipos_memoria_nv() { return "I2cEeprom, SdCard, ExtNand y SpiFlash"; }
 
 inline bool existe_fichero(const std::string& ruta) {
     std::FILE* f = std::fopen(ruta.c_str(), "rb");

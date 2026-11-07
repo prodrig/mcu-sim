@@ -435,7 +435,7 @@ endif
 # LA SUITE DEL ESP32-C3 (fase E3 de doc/analisis_esp32_riscv.md): el C3 sin
 # ROM con el firmware de verif/fw/esp32c3, cuyos ELF se versionan.
 #   make testc3              make c3fw  (regenera los ELF: riscv64-unknown-elf-gcc)
-HDRS_C3 := $(HDRS_RV) $(wildcard soc/esp/*.h soc/esp32c3/*.h periph/esp/*.h)
+HDRS_C3 := $(HDRS_RV) $(wildcard soc/esp/*.h soc/esp32c3/*.h soc/esp32c3/*.inc soc/esp32c3/rom/*.inc periph/esp/*.h)
 
 $(TESTC3): top/sc_main_c3.cpp $(HDRS) $(HDRS_C3)
 	@mkdir -p $(B)
@@ -447,14 +447,22 @@ $(ASANC3): top/sc_main_c3.cpp $(HDRS) $(HDRS_C3)
 
 testc3-build: $(TESTC3)
 
-testc3: $(TESTC3)
+# Los ejemplos de ESP-IDF de E4 (verif/fw/esp32c3/idf/construye.sh), en build/idf
+IDF_C3 := $(wildcard verif/fw/esp32c3/idf/idf-*.tar.xz)
+$(B)/idf/.extraido: $(IDF_C3)
+	@rm -rf $(B)/idf
+	@mkdir -p $(B)/idf
+	for t in $(IDF_C3); do tar -C $(B)/idf -xJf $$t; done
+	@touch $@
+
+testc3: $(TESTC3) $(B)/idf/.extraido
 	$(TESTC3)
 
 ifeq ($(PLATAFORMA),windows)
 asanc3:
 	@echo "MinGW no trae AddressSanitizer: 'make asanc3' solo va en Linux y macOS."
 else
-asanc3: $(ASANC3)
+asanc3: $(ASANC3) $(B)/idf/.extraido
 	$(ASANC3)
 endif
 

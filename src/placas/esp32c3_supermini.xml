@@ -15,9 +15,14 @@
          entonces la UART0 sale por los pines RX/TX, y aqui la recoge un
          puente serie (UART0, como un adaptador USB-serie en esos pines).
 
-     El chip, ESP32-C3FH4: la Flash interna no se modela todavia (E4), y E3 no
-     tiene ROM: el firmware es un ELF que se carga en la SRAM.
+     El chip, ESP32-C3FH4, con la Flash de 4 MB dentro. Arranca por la ROM
+     (E4): una compilacion de ESP-IDF entra por su flash_args, una imagen de
+     esptool merge-bin o de Direct Boot como .bin, y `contenido=` en el <mcu>
+     guarda la Flash entre simulaciones. Un ELF bare-metal va a la SRAM, sin
+     ROM (E3).
 
+         ./build/mcu-sim placas/esp32c3_supermini.xml build/idf/v6.0/blink/flash_args --serie UART0=memoria --ms=1200
+         ./build/mcu-sim placas/esp32c3_supermini.xml verif/fw/esp32c3/direct_boot.bin --serie UART0=memoria --ms=60
          ./build/mcu-sim placas/esp32c3_supermini.xml verif/fw/esp32c3/blinky.elf --ms=600
          ./build/mcu-sim placas/esp32c3_supermini.xml verif/fw/esp32c3/uart.elf --serie UART0=memoria --ms=10
 -->

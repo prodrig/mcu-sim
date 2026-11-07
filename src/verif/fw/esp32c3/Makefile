@@ -13,10 +13,17 @@ CFLAGS := $(ARCH) -O2 -g -ffreestanding -fno-builtin -nostdlib -nostartfiles -Wa
 COMUN  := startup.S buzon.c
 
 PRUEBAS := blinky uart intc gpio_matriz
-all: $(PRUEBAS:%=%.elf) coremark_c3.elf
+all: $(PRUEBAS:%=%.elf) coremark_c3.elf direct_boot.bin
 
 %.elf: %.c $(COMUN) c3.h c3_iram.ld
 	$(CC) $(CFLAGS) -o $@ $(COMUN) $< -lgcc
+
+# E4: Direct Boot, desde la Flash (c3_flash.ld); la imagen es el .bin
+direct_boot.elf: direct_boot.c $(COMUN) c3.h c3_flash.ld
+	$(CC) $(ARCH) -O2 -g -ffreestanding -fno-builtin -nostdlib -nostartfiles -Wall \
+	      -Wl,--no-warn-rwx-segments -T c3_flash.ld -o $@ $(COMUN) $< -lgcc
+direct_boot.bin: direct_boot.elf
+	$(CROSS)objcopy -O binary $< $@
 
 CM      := ../coremark
 CMFLAGS := $(ARCH) -O2 -ffreestanding -fno-builtin -std=gnu99 -specs=picolibc.specs \
@@ -33,5 +40,5 @@ coremark_c3.elf: $(CMSRC) $(CM)/core_main.c $(COMUN) c3.h c3_iram.ld
 	rm -f core_main_c3.o
 
 clean:
-	rm -f *.elf
+	rm -f *.elf direct_boot.bin
 .PHONY: all clean

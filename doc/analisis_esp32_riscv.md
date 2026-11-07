@@ -648,7 +648,7 @@ pide `riscv32-esp-elf-gcc` (el de ESP-IDF), pero ejecutar las suites no.
 | **E1** | Núcleo RV32IMAC genérico + SoC de laboratorio | `testrv` | E0.1 | Grande |
 | **E2** | Debug Module, *triggers*, DTM, JTAG en pines y GDB, en el laboratorio | `testrv` | E0, E1 | Grande |
 | **E3** | ESP32-C3: el SoC con arranque directo, sin ROM | `testc3` | E1 | Grande |
-| **E4** | C3: Flash SPI, MSPI, caché/MMU, ROM real y ESP-IDF | `testc3` | E3 | Grande, **el de más riesgo** |
+| **E4** | C3: Flash SPI, MSPI, caché/MMU, ROM real y ESP-IDF | `testc3` | E3 | Grande, **el de más riesgo** · **hecha** |
 | **E5** | C3: descarga con esptool por la UART0 (D2) | `testc3` + Python | E4 | Pequeño |
 | **E6** | C3: depuración G1, G2 y G2', y D4 | `testc3` + Python | E2, E4 | Medio |
 | **E7** | C3: USB-Serial-JTAG, D3 y G3 | `testc3` + Python | E5, E6 | Medio |
@@ -996,6 +996,55 @@ una placa.
 
 **Tamaño:** grande, y **el de más riesgo**. Mitigación: Direct Boot antes que
 ESP-IDF, y ESP-IDF sin Wi-Fi ni Bluetooth.
+
+**Hecho (2026-11-07).** `testc3` 107/107 (C1-C7 de E3, iguales al
+picosegundo, y C8-C13 nuevos).
+* **La Flash.** `parts/spi_flash.h` (`SpiFlash`: W25Q y GD25Q, por
+  transacciones; programar y borrar con sus tiempos y WIP) dentro del
+  encapsulado (C3FH4, C3FN4, C3FH4X...) o en la placa, con el CS en SPICS0;
+  `contenido=` la guarda. Placas: la SuperMini y la DevKitM-1 (C3FN4) con la
+  interna, y la nueva **DevKitC-02** (WROOM-02) con una `SpiFlash` aparte.
+* **SPI0/SPI1** (`periph/esp/spi_mem.h`): las órdenes fijas y las de usuario,
+  ocupadas mientras dura la transacción en la línea; SPI0 da el coste de un
+  fallo de caché. **Caché y MMU** (`soc/esp/esp_cache_mmu.h`): 16 KB, 8 vías,
+  líneas de 32 B, LRU; las 128 entradas de 64 KB; las dos ventanas.
+* **La ROM (R1)**: `gen_rom_c3.py` reconstruye además lo que el ELF de
+  esp-rom-elfs no trae en sus segmentos: la imagen de los datos iniciales que
+  `_init` copia a la DRAM (sin ella, `rom_spiflash_legacy_data` era NULL) y
+  las tablas `.rodata.interface*` (`ets_rom_layout_p`). La rev. 3 queda igual
+  que la `esp32c3-rom.bin` del QEMU de Espressif salvo 8 bytes sin uso.
+* **Lo que toca el arranque** (`regs_c3.inc`: los valores de reset de las
+  cabeceras de ESP-IDF, con `gen_regs_esp.py`): eFuse con la revisión del
+  chip y la orden de leer; SHA (la ROM comprueba el SHA-256 del bootloader);
+  REGI2C; el RNG de SYSCON; la calibración del reloj lento en TIMG; el RWDT y
+  el flashboot de MWDT0/RWDT; PMS/WCL/ASSIST_DEBUG que vuelven a cero con la
+  CPU; la radio (FE, NRX, BB) que guarda. Y dos arreglos que no eran del C3:
+  `NucleoRv` no veía un pulso de reset más corto que su adelanto LT (el de
+  `esp_restart()`), y el SYSTIMER cogía PERIOD_MODE solo al hacer
+  COMPx_LOAD (ESP-IDF lo pone después: sin el tic de FreeRTOS, saltaba el
+  perro de las interrupciones). Cada registro sin documentar, en `todo.md`
+  (P-19/E4) con su fuente o «declarado».
+* **D1 completo**: `mcu-sim placa.xml flash_args` (cada .bin en su sitio),
+  `fichero.bin` (desde 0: merge-bin o Direct Boot) o `fichero.bin@0x10000`;
+  `rom=ninguna|omision|rev3|rev101|<ELF>` y `efuse=` en el `<mcu>`. Un ELF
+  de ESP-IDF se rechaza diciendo que se descarga con sus .bin; un ELF
+  *bare-metal* sigue yendo a la SRAM (E3).
+* **Los binarios**: `verif/fw/esp32c3/idf/idf-v5.5.tar.xz` y
+  `idf-v6.0.tar.xz` (210 KB): `hello_world`, `blink` (GPIO8, sin el
+  `led_strip` del registro) y `uart_echo`, de **v5.5.6** y **v6.0.3**, con
+  `construye.sh`. Y `direct_boot.bin` (`0xAEDB041D`, c3_flash.ld).
+* **El cierre**, punto por punto: Direct Boot corre desde la Flash (C8);
+  ESP-IDF enseña la ROM, el bootloader, la tabla de particiones y
+  `Hello world!`, y `esp_restart()` vuelve a empezar (rst:0xc), con las dos
+  ramas y en v0.4 (C9) y v1.1 (C10); blink y uart_echo (C11); GPIO9 a masa:
+  «waiting for download» sin que nadie resetee (C12); y con la Flash vacía,
+  «invalid header» y los perros del flashboot (rst:0x7, rst:0x10).
+  **Dos matices.** Un binario de ESP-IDF 5.5/6.0 con la revisión mínima de
+  omisión (v0.3) **arranca en v0.4 y en v1.1**, también con la ROM
+  cambiada: llama a la ROM por la tabla de su revisión. Lo que se avisa al
+  montar es la pareja ROM-eFuse que no existe en el silicio (C13). Y el
+  `blink` de Arduino-ESP32 3.x **queda pendiente**: su núcleo trae
+  bibliotecas precompiladas que no se pueden bajar desde aquí.
 
 ### E5 · C3: esptool por la UART0 (D2)
 
