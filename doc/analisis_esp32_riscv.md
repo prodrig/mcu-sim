@@ -681,6 +681,27 @@ pasadas antes de la siguiente.
 **Tamaño:** medio. Lo delicado es E0.2. Conviene hacerlo en dos commits:
 primero mover el código sin cambiarlo y, después, cortar la interfaz.
 
+**Hecho (2026-11-07, commits `a47352b` y `dda29ce`):**
+* E0.1: `common/depuracion.h`; `mcu_if.h` ya no incluye `cortex_m4f.h`.
+* E0.2 y E0.3: `common/gdb_rsp.h` partido en `GdbRspBase` (el protocolo, con
+  los hilos) y `GdbRsp` (ARMv7-M, el código de antes, sin cambiar una línea de
+  lo que emite). La interfaz no es un `gdb_arq_if` aparte sino los virtuales
+  `arq_*` y `mem_*` de la base: el mismo corte, con un objeto menos. Con un
+  hilo, `H` contesta siempre OK y `T` vacío, como antes.
+* E0.4: `mcu_if::nodo_depuracion(nombre)`.
+* E0.5: puertos de hasta 32 pines (`N_PINES_PUERTO_MAX`).
+* E0.6 y E0.7: las dos sondas con JTAG (`PinesJtag`), además de SWD.
+* E0.8: `depuracion="dm"` es sinónimo de `dap`.
+* E0.9 queda para E3, donde el C3 da nombre a sus pines de alimentación; E0.10
+  no pide código.
+* `lee_elf` acepta la máquina esperada (`ELF_ARM` por omisión, `ELF_RISCV`).
+
+Cierre: **las ocho suites con las mismas comprobaciones y el mismo tiempo
+simulado al picosegundo**, y las pruebas de OpenOCD de ARM sin un fallo con el
+OpenOCD de git: `make openocd` (19, O1-O5) y `make cmsis-dap` (32). El `TapLab` del cierre no hizo falta como pieza
+aparte: el TAP de E2 (`rv_dtm_jtag.h` en `jtag_pines.h`) es el que OpenOCD lee
+por `remote_bitbang` y por CMSIS-DAP en JTAG (`make openocd-rv`, L1-L2).
+
 ### E1 · El núcleo RV32 genérico y el laboratorio
 
 **Objetivo:** un hart RISC-V correcto, validado contra dos fuentes
@@ -720,6 +741,36 @@ independientes y sin una línea de Espressif.
 **Tamaño:** grande, pero bastante menos que el Thumb-2 de la fase F2: la ISA
 base son unas 40 instrucciones, la C se expande y no hay modo Thumb ni ITSTATE.
 
+**Hecho (2026-11-07):**
+* **Los ficheros** no son los ocho de la lista sino cinco: `rv_caps.h`,
+  `rv_decod.h`, `rv_ifaces.h` (las interfaces de memoria, interrupciones y
+  extensiones), `rv_hart.h` (estado, ejecución, CSR, traps, PMP, triggers y
+  modo depuración: C++ puro, sin SystemC) y `nucleo_rv.h`. Los tiempos van en
+  `RvCaps::tiempos`. Separarlos más habría sido partir una clase por la mitad.
+* **`testrv`, 234 comprobaciones** (con las de E2): V1 las 247 comprimidas
+  válidas y las 22 reservadas de RV32C, contra GNU as (`gen_vectores_c.py`,
+  con `.option rvc`/`norvc`); V4-V5 los 77 riscv-tests en RV32IMAC y, menos
+  `ua`, en RV32IMC (`ua` tiene que fallar ahí); V6 `ma_data` con
+  `Hardware` y `HardwareCpu863`; V7 ocho pruebas propias (`verif/rv/propias`:
+  excepciones, modo U y PMP, mtvec, triggers, CLINT con `wfi`, la errata
+  CPU-863 y las extensiones del integrador, con y sin ellas); V8 **la traza
+  idéntica a la de Spike** (instrucciones retiradas: PC, instrucción,
+  registro y valor) en cuatro programas propios y en CoreMark, 352 381
+  instrucciones; V9 CoreMark con sus CRC.
+* **Spike** (`riscv-isa-sim` de git, 1.1.1-dev) con `--isa=rv32imac_zicsr_
+  zifencei_zicntr --priv=MU`. Para que las trazas coincidan donde se lee el
+  reloj, `rt/inicio.S` pone a cero `mcycle`, `minstret`, `a0` y `a1` antes de
+  `main`: la ROM de arranque de Spike deja cinco instrucciones en los
+  contadores y el DTB en `a1`. Y `trig.S` escribe un `mcontrol` antes de leer
+  el tipo: tras el reset, la 0.13.2 da 2 y Spike, que sigue la 1.0, 15.
+* **Los binarios se versionan** (`verif/rv/elf`); riscv-tests, comprimido
+  (`riscv-tests.tar.xz`, 21 KB, BSD-3; `TERCEROS.md`). `make testrv` lo extrae
+  en `build/rvt`. El banco no necesita la cadena de RISC-V ni Spike.
+* `asanrv`, limpio. El invariante: `testrv 234 8799500000 resto`.
+* **Pendiente:** `riscv-arch-test` con sus firmas (pide las de referencia de
+  Sail o riscof) y la traza de Spike en un programa con interrupciones del
+  CLINT, que Spike temporiza a su manera; `irq.S` se comprueba solo.
+
 ### E2 · La depuración genérica, en el laboratorio
 
 **Objetivo:** que cualquier RISC-V con DM 0.13 se depure con G1, G2 y OpenOCD
@@ -752,6 +803,34 @@ ponga en marcha el C3 ya habrá depurador.
 
 **Tamaño:** grande. El DM es la mitad; la otra mitad es el TAP y los tres
 caminos.
+
+**Hecho (2026-11-07):**
+* `src/rv/debug`: `dmi_if.h`, `rv_dm.h` (DM 0.13.2: comandos abstractos de
+  acceso a registro con `aarpostincrement` y `postexec`, program buffer,
+  `abstractauto`, SBA de 8, 16 y 32 bits con `sbreadonaddr`,
+  `sbreadondata` y autoincremento, `ndmreset` y `hartreset`, `resethaltreq`,
+  varios harts con `hartsel`, «unavail» y disparo cruzado), `rv_dtm_jtag.h`
+  (el TAP con IDCODE, `dtmcs`, `dmi` y BYPASS), `jtag_pines.h` (el TAP en
+  cinco nodos, con sus pull-ups) y `rv_dm_cliente.h` (lo que hace OpenOCD con
+  un DM, una vez). Los triggers y el modo depuración están en el hart (E1):
+  `rv_trigger.h` no hizo falta.
+* `src/rv/gdb`: `gdb_rsp_riscv.h` (el piso RISC-V de `GdbRspBase`: 33
+  registros, `ebreak`/`c.ebreak` según el tamaño, Z1-Z4 por trigger con los
+  triggers descubiertos, `watch:` en el aviso de parada, SBA o program
+  buffer, un hilo por hart en «todo parado», `monitor reset halt`) y
+  `gdb_stub_rv.h`, el mismo stub para G1 y G2'.
+* `verif/sonda_jtag_rv.h`: la sonda de bancada (G2') y el DMI por ella.
+* El laboratorio lleva el DM, el DTM y el TAP, con IDCODE `0x10AB1001`.
+* `testrv`: W1 el DTM por los pines (93 ciclos de TCK por acceso al DM; T97,
+  la razón de velocidades, se imprime: unas 20 veces en reloj de pared),
+  W2 el DM y sus errores, W3 dos harts, W4-W5 **la misma sesión de GDB por G1
+  y por G2' con los mismos resultados**, W6 dos hilos.
+* **OpenOCD genérico** (`make openocd-rv`, `verif/openocd/riscv_lab.py`, 28
+  comprobaciones): `target create riscv` por remote_bitbang y por CMSIS-DAP en
+  JTAG (`examine`, `halt`, `reg`, `mdw`, `load_image`, `resume`, `reset
+  halt`); dos harts con `target smp`; GDB (`gdb-multiarch`) por el servidor de
+  OpenOCD y contra G1, con el mismo resultado. `testrv --servir=bitbang|
+  cmsis-dap|gdb` deja el laboratorio en marcha con la sonda que se pida.
 
 ### E3 · ESP32-C3: el SoC, con arranque directo y sin ROM
 

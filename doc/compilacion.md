@@ -40,6 +40,8 @@ make testp4             # el MSP432P401R: 406
 make teste4             # el MSP432E401Y: 296
 make testserie          # el puente UART: 189
 make testgui            # la frontera con mcu-sim-gui: 145
+make testrv             # el nucleo RISC-V y su depuracion (E1-E2 de los ESP32): 234
+make openocd-rv         # OpenOCD y GDB contra el laboratorio RISC-V (OPENOCD=...)
 
 make test407fw          # REGENERA los firmwares (estan versionados) y LUEGO la suite
 make test446fw          # lo mismo para la del F446

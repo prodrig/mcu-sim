@@ -882,7 +882,29 @@ su depuración; E3-E8 el C3 (arranque directo, ROM y ESP-IDF, esptool, GDB y
 OpenOCD, USB-Serial-JTAG, periféricos); E9-E11 el C6; E12 la radio paravirtual,
 opcional; E13 la GUI.
 
-**Estado:** en curso E0, E1 y E2.
+**Estado (2026-11-07):** **E0, E1 y E2 hechas**; la siguiente es E3 (el SoC
+del C3). El detalle, en §10 del análisis:
+
+* **E0**: `DebugCaps` en `common/depuracion.h`; el motor de GDB partido en
+  protocolo (`GdbRspBase`) y arquitectura (`GdbRsp`, ARMv7-M, el código de
+  antes); `nodo_depuracion()` en `mcu_if`; puertos de 32 pines; las sondas
+  `remote_bitbang` y CMSIS-DAP con JTAG; `lee_elf` con la máquina esperada. Las
+  ocho suites, con sus invariantes al picosegundo.
+* **E1**: `src/rv/hart` (RvCaps, decodificación con la expansión de C, el hart
+  con M, A, C, Zicsr, Zifencei, modos M y U con la extensión N, PMP, triggers,
+  los tres modos de desalineado con la errata CPU-863, y las extensiones del
+  integrador), `NucleoRv`, `Clint` e `IrqEstandar`, el SoC de laboratorio y
+  `testrv`: las comprimidas contra GNU as, riscv-tests (77 en RV32IMAC, y en
+  RV32IMC), ocho pruebas propias, **la traza idéntica a la de Spike** en
+  cuatro programas propios y en CoreMark, y CoreMark con sus CRC.
+* **E2**: `src/rv/debug` (Debug Module 0.13.2 con SBA, varios harts, unavail
+  y disparo cruzado; el DTM JTAG; el TAP en los pines; el cliente del DM) y
+  `src/rv/gdb` (el piso RISC-V del motor de GDB, con hilos por hart). G1, G2'
+  y OpenOCD genérico por remote_bitbang y por CMSIS-DAP en JTAG
+  (`make openocd-rv`, 28 comprobaciones, con GDB por OpenOCD y por G1).
+* **Pendiente de E1**: `riscv-arch-test` con sus firmas (necesita el modelo
+  Sail o riscof para las de referencia) y la traza de Spike en un programa con
+  interrupciones del CLINT (el tiempo del CLINT de Spike no es el nuestro).
 
 ---
 
