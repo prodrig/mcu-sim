@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ESP32-C3 SuperMini: la placa minima de los C3 con la Flash dentro
+     (fase E3 de doc/analisis_esp32_riscv.md, §9)
+
+     Lo que lleva aparte del chip [de modelo: no hay esquematico oficial; es
+     lo que coinciden en dar los vendedores y las fotos de la placa]:
+
+         D1     LED azul en GPIO8 hacia 3V3 por 1 kohm: se enciende con el pin
+                a CERO
+         BOOT   pulsador de GPIO9 a masa (el pull-up es el interno del chip)
+         RST    pulsador de CHIP_PU a masa, con 10 kohm a 3V3
+         J1-J2  los dos cabezales de 8: GPIO0-10, GPIO20/21 (RX/TX), 5V, GND,
+                3V3. GPIO20 y GPIO21 son la UART0
+         El USB-C va al USB-Serial-JTAG del chip (GPIO18/19): E7. Hasta
+         entonces la UART0 sale por los pines RX/TX, y aqui la recoge un
+         puente serie (UART0, como un adaptador USB-serie en esos pines).
+
+     El chip, ESP32-C3FH4: la Flash interna no se modela todavia (E4), y E3 no
+     tiene ROM: el firmware es un ELF que se carga en la SRAM.
+
+         ./build/mcu-sim placas/esp32c3_supermini.xml verif/fw/esp32c3/blinky.elf --ms=600
+         ./build/mcu-sim placas/esp32c3_supermini.xml verif/fw/esp32c3/uart.elf --serie UART0=memoria --ms=10
+-->
+<placa nombre="esp32c3-supermini">
+  <mcu tipo="ESP32-C3FH4" id="u0"/>
+
+  <nodo id="CHIP_PU" bus="si"/>
+
+  <componente tipo="Led" id="D1" a_vss="no" vdd="3.3" vf="2.8" r="1000">
+    <pin nombre="catodo" nodo="GPIO8"/>
+  </componente>
+  <componente tipo="Button" id="BOOT" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="GPIO9"/>
+  </componente>
+  <componente tipo="Button" id="RESET" r_cerrado="10" rebote="no">
+    <pin nombre="pin" nodo="CHIP_PU"/>
+  </componente>
+  <componente tipo="Rpull" id="R_PU" v="3.3" r="10000" visible="no">
+    <pin nombre="a" nodo="CHIP_PU"/>
+  </componente>
+  <componente tipo="PuenteSerie" id="UART0" host="memoria" baudios="115200" formato="8N1"
+              muestra="si">
+    <pin nombre="rx" nodo="GPIO21"/>   <!-- U0TXD -->
+    <pin nombre="tx" nodo="GPIO20"/>   <!-- U0RXD -->
+  </componente>
+</placa>

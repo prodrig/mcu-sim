@@ -185,3 +185,11 @@ f3  stm32f3/f3_analog/f3_analog.bin                        2884  0x60678F1A
 # STM32F303VC (S6): el USB de usuario con TinyUSB (MIT, sdk/tinyusb) y el CAN
 f3  stm32f3/f3_usb/f3_usb.bin                        12416  0xF16751CA
 f3  stm32f3/f3_can/f3_can.bin                         1516  0x2F9027F7
+
+# ESP32-C3 (E3 de doc/analisis_esp32_riscv.md): ELF de RISC-V que se cargan
+# en la SRAM (sin ROM). Se regeneran con `make c3fw`.
+c3  esp32c3/blinky.elf                      14408  0x0690856F
+c3  esp32c3/uart.elf                        14712  0xDB4962F2
+c3  esp32c3/intc.elf                        27176  0x5840F3AE
+c3  esp32c3/gpio_matriz.elf                 18480  0xD5DCCF0B
+c3  esp32c3/coremark_c3.elf                 92536  0x5BDA3084

@@ -57,6 +57,8 @@ trace/
 # el simbolo `tohost`), y por la misma razon que los .bin tienen que ser los
 # mismos en todas partes
 !src/verif/rv/elf/*.elf
+# Y los del ESP32-C3 sin ROM (E3), por lo mismo; su huella, en huellas.txt
+!src/verif/fw/esp32c3/*.elf
 # Las tablas de la ROM R1: las genera rom_r1/gen_tablas.py a partir de rom.h
 src/verif/fw/msp432p4/rom_r1/tablas.c
 src/verif/fw/msp432e4/rom_r1/tablas.c

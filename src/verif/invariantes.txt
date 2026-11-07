@@ -318,4 +318,12 @@ testf3                428      116875480154660       resto
 # el DM en directo y dos harts. W4-W6 hablan con GDB por un socket de verdad:
 # van al final y se contrasta `resto` (T-16, como en el F407). Igual en dos
 # pasadas (07-11-2026).
-testrv                 234      8799500000            resto
+testrv                 236      8811500000            resto
+
+# testc3: el ESP32-C3 sin ROM (E3 de doc/analisis_esp32_riscv.md): el
+# arranque por CHIP_PU y los pines de arranque, la UART0 por los pines, el
+# INTC, el SYSTIMER y TIMG0, la matriz GPIO y la GPIO dedicada, los resets y
+# CoreMark a 160 MHz, con el firmware versionado de verif/fw/esp32c3. Sin
+# sockets: se contrasta el total. Igual en dos pasadas y con asanc3
+# (07-11-2026).
+testc3                 57       28556458348

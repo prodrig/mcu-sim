@@ -135,6 +135,16 @@ inline std::string lee_elf(const std::string& ruta, std::vector<TrozoFw>& t,
     return std::string();
 }
 
+// El punto de entrada (e_entry) de un ELF32. Lo usan los SoC sin ROM que
+// arrancan donde diga el firmware (el ESP32-C3 de E3). false si no es un ELF.
+inline bool entrada_elf(const std::string& ruta, uint32_t& valor) {
+    using namespace detalle_fw;
+    std::vector<uint8_t> f;
+    if (!lee_todo(ruta, f) || f.size() < 52 || f[0] != 0x7F || f[4] != 1) return false;
+    valor = le32(&f[24]);
+    return true;
+}
+
 // El valor de un símbolo de un ELF32 (su tabla .symtab), sin el bit Thumb.
 // false si no está. Lo usan los bancos para poner puntos de ruptura donde
 // diga el firmware, en vez de escribir direcciones a mano que se desfasan en

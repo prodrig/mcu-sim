@@ -81,6 +81,11 @@ public:
     std::function<void(const RvCommit&)> traza;
 
     const RvCaps& caps() const { return caps_; }
+    // Dónde arranca tras el reset si no es el vector del núcleo: un SoC sin
+    // ROM que salta al punto de entrada del firmware (el C3 de E3). 0 = el de
+    // RvCaps.
+    void pon_pc_arranque(uint32_t pc) { pc_arranque_ = pc; }
+    uint32_t pc_arranque() const { return pc_arranque_ ? pc_arranque_ : caps_.pc_reset; }
     unsigned hartid() const { return hartid_; }
 
     // --- Estado arquitectónico -----------------------------------------------
@@ -101,7 +106,7 @@ public:
     // --- Reset ---------------------------------------------------------------
     void reset() {
         std::memset(x_, 0, sizeof x_);
-        pc_ = caps_.pc_reset;
+        pc_ = pc_arranque_ ? pc_arranque_ : caps_.pc_reset;
         modo_ = RvModo::M;
         mstatus_ = legaliza_mpp(0);
         mtvec_ = legaliza_tvec(caps_.mtvec_reset);
@@ -479,6 +484,7 @@ private:
     static constexpr uint32_t PB_BASE = 0xFFFFF800u;    // dirección ficticia del progbuf
 
     const RvCaps& caps_;
+    uint32_t pc_arranque_ = 0;
     unsigned hartid_;
     rv_mem_if*     mem_ = nullptr;
     rv_irq_if*     irq_ = nullptr;

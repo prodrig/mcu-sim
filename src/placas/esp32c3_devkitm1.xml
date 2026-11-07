@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ESP32-C3-DevKitM-1 (fase E3 de doc/analisis_esp32_riscv.md, §9)
+
+     Lo que lleva aparte del modulo ESP32-C3-MINI-1 [guia de usuario de
+     Espressif, ESP32-C3-DevKitM-1, y su esquematico v1.0]:
+
+         U2     el puente USB-UART (CP2102N) en la UART0: su TXD a U0RXD
+                (GPIO20) y su RXD a U0TXD (GPIO21). Aqui, un PuenteSerie
+                (--serie UART=tcp:3356, memoria...). El auto-reset por DTR/RTS
+                (dos transistores a CHIP_PU y GPIO9) llega con esptool: E5
+         BOOT   pulsador de GPIO9 a masa
+         RESET  pulsador de CHIP_PU a masa, con 10 kohm a 3V3 (el condensador
+                de 1 uF del RC no se modela)
+         J1-J3  los cabezales: todos los GPIO del modulo
+         LED    el LED RGB direccionable (WS2812) en GPIO8: la pieza Ws2812
+                llega con el RMT (E8). Hasta entonces el LED de la placa NO
+                se ve: blinky se ve en esp32c3_supermini.xml o en el nodo GPIO8.
+
+     Sin ROM ni Flash (E4), el firmware es un ELF que se carga en la SRAM:
+
+         ./build/mcu-sim placas/esp32c3_devkitm1.xml verif/fw/esp32c3/uart.elf --serie UART=memoria --ms=10
+-->
+<placa nombre="esp32c3-devkitm-1">
+  <mcu tipo="ESP32-C3" id="u0"/>
+
+  <nodo id="CHIP_PU" bus="si"/>
+
+  <componente tipo="PuenteSerie" id="UART" host="tcp:3356" baudios="115200" formato="8N1"
+              muestra="si">
+    <pin nombre="rx" nodo="GPIO21"/>   <!-- U0TXD -->
+    <pin nombre="tx" nodo="GPIO20"/>   <!-- U0RXD -->
+  </componente>
+  <componente tipo="Button" id="BOOT" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="GPIO9"/>
+  </componente>
+  <componente tipo="Button" id="RESET" r_cerrado="10" rebote="no">
+    <pin nombre="pin" nodo="CHIP_PU"/>
+  </componente>
+  <componente tipo="Rpull" id="R1" v="3.3" r="10000" visible="no">
+    <pin nombre="a" nodo="CHIP_PU"/>
+  </componente>
+</placa>

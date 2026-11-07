@@ -248,7 +248,8 @@ HDRS := $(wildcard common/*.h pins/*.h parts/*.h bus/*.h mem/*.h rcc/*.h core/*.
                    periph/*.h soc/*.h verif/*.h top/*.h \
                    periph/msp432p4/*.h soc/msp432p4/*.h soc/msp432p4/*.inc \
                    periph/msp432e4/*.h soc/msp432e4/*.h soc/msp432e4/*.inc \
-                   soc/stm32f3/*.h soc/stm32f3/*.inc)
+                   soc/stm32f3/*.h soc/stm32f3/*.inc \
+                   rv/*/*.h soc/esp/*.h soc/esp32c3/*.h periph/esp/*.h)
 
 TEST407 := $(B)/test407$(EXE)
 MCUSIM  := $(B)/mcu-sim$(EXE)
@@ -260,6 +261,8 @@ TESTP4    := $(B)/testp4$(EXE)
 TESTE4    := $(B)/teste4$(EXE)
 TESTF3    := $(B)/testf3$(EXE)
 TESTRV    := $(B)/testrv$(EXE)
+TESTC3    := $(B)/testc3$(EXE)
+ASANC3    := $(B)/asanc3$(EXE)
 ASANRV    := $(B)/asanrv$(EXE)
 HASHV   := $(B)/prueba_hash$(EXE)
 CRYPV   := $(B)/prueba_cryp$(EXE)
@@ -275,7 +278,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testrv testrv-build asanrv rvt openocd-rv testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all testrv testrv-build asanrv rvt openocd-rv testc3 testc3-build asanc3 c3fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -421,6 +424,35 @@ else
 asanrv: $(ASANRV) $(B)/rvt/.extraido
 	$(ASANRV) $(B)/rvt
 endif
+
+# LA SUITE DEL ESP32-C3 (fase E3 de doc/analisis_esp32_riscv.md): el C3 sin
+# ROM con el firmware de verif/fw/esp32c3, cuyos ELF se versionan.
+#   make testc3              make c3fw  (regenera los ELF: riscv64-unknown-elf-gcc)
+HDRS_C3 := $(HDRS_RV) $(wildcard soc/esp/*.h soc/esp32c3/*.h periph/esp/*.h)
+
+$(TESTC3): top/sc_main_c3.cpp $(HDRS) $(HDRS_C3)
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_c3.cpp $(LDFLAGS) $(LDLIBS)
+
+$(ASANC3): top/sc_main_c3.cpp $(HDRS) $(HDRS_C3)
+	@mkdir -p $(B)
+	$(CXX) $(ASANFLAGS) -o $@ top/sc_main_c3.cpp $(LDFLAGS) $(LDLIBS)
+
+testc3-build: $(TESTC3)
+
+testc3: $(TESTC3)
+	$(TESTC3)
+
+ifeq ($(PLATAFORMA),windows)
+asanc3:
+	@echo "MinGW no trae AddressSanitizer: 'make asanc3' solo va en Linux y macOS."
+else
+asanc3: $(ASANC3)
+	$(ASANC3)
+endif
+
+c3fw:
+	$(MAKE) -C verif/fw/esp32c3
 
 # --- La capa de red, que es la única parte no portable -----------------------
 # No necesita SystemC, así que se compila y se ejecuta en cualquier sitio, y se
