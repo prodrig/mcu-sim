@@ -74,8 +74,9 @@ fallos=0
 # por delante el log de las tres que tienen historia. `testp4`, el del
 # MSP432P401R (doc/analisis_msp432.md, T1), detras de todas por lo mismo, y
 # `teste4`, el del MSP432E401Y (T6), detras; y `testf3`, el del STM32F303
-# (S0-S3), la ultima.
-for s in test407 test446 test417 testserie testgui testp4 teste4 testf3; do
+# (S0-S3), detras; y `testrv`, el del nucleo RISC-V (E1-E2 del plan de los
+# ESP32), la ultima.
+for s in test407 test446 test417 testserie testgui testp4 teste4 testf3 testrv; do
     echo "  [suites] $s (presupuesto ${presupuesto}s)"
 
     # El `echo $?` dentro del subshell es como se recoge el estado a traves de

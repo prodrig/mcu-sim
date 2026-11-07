@@ -310,3 +310,12 @@ teste4                296      4505148675235         resto
 # menos (T-16). El resto no se mueve: la misma cifra, ahora con cualquier
 # TESTF3_DESFASE*_PS.
 testf3                428      116875480154660       resto
+
+# testrv: el nucleo RISC-V generico y su depuracion, en el SoC de laboratorio
+# (E1 y E2 de doc/analisis_esp32_riscv.md). V1-V9 (E1): las comprimidas contra
+# GNU as, riscv-tests en RV32IMAC y RV32IMC, los desalineados, las pruebas
+# propias, el lockstep con Spike y CoreMark; W1-W3 (E2): el DTM por los pines,
+# el DM en directo y dos harts. W4-W6 hablan con GDB por un socket de verdad:
+# van al final y se contrasta `resto` (T-16, como en el F407). Igual en dos
+# pasadas (07-11-2026).
+testrv                 234      8799500000            resto

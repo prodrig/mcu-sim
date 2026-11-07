@@ -259,6 +259,8 @@ TESTGUI   := $(B)/testgui$(EXE)
 TESTP4    := $(B)/testp4$(EXE)
 TESTE4    := $(B)/teste4$(EXE)
 TESTF3    := $(B)/testf3$(EXE)
+TESTRV    := $(B)/testrv$(EXE)
+ASANRV    := $(B)/asanrv$(EXE)
 HASHV   := $(B)/prueba_hash$(EXE)
 CRYPV   := $(B)/prueba_cryp$(EXE)
 BENCH  := $(B)/bench$(EXE)
@@ -273,7 +275,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all testrv testrv-build asanrv rvt openocd-rv testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -384,6 +386,41 @@ testf3-build: $(TESTF3)
 
 testf3: $(TESTF3)
 	$(TESTF3)
+
+# EL BANCO DEL NUCLEO RISC-V (fase E1 de doc/analisis_esp32_riscv.md): el
+# nucleo generico de src/rv sobre el SoC de laboratorio, sin chip. No necesita
+# la cadena de RISC-V: los ELF se versionan en verif/rv/elf, y riscv-tests va
+# comprimido (riscv-tests.tar.xz, BSD-3-Clause) y se extrae en $(B)/rvt.
+#   make testrv
+HDRS_RV := $(wildcard rv/*/*.h verif/rv/*.inc)
+
+$(TESTRV): top/sc_main_rv.cpp $(HDRS) $(HDRS_RV)
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_rv.cpp $(LDFLAGS) $(LDLIBS)
+
+$(ASANRV): top/sc_main_rv.cpp $(HDRS) $(HDRS_RV)
+	@mkdir -p $(B)
+	$(CXX) $(ASANFLAGS) -o $@ top/sc_main_rv.cpp $(LDFLAGS) $(LDLIBS)
+
+$(B)/rvt/.extraido: verif/rv/elf/riscv-tests.tar.xz
+	@mkdir -p $(B)/rvt
+	tar -C $(B)/rvt -xJf verif/rv/elf/riscv-tests.tar.xz
+	@touch $@
+
+rvt: $(B)/rvt/.extraido
+
+testrv-build: $(TESTRV)
+
+testrv: $(TESTRV) $(B)/rvt/.extraido
+	$(TESTRV) $(B)/rvt
+
+ifeq ($(PLATAFORMA),windows)
+asanrv:
+	@echo "MinGW no trae AddressSanitizer: 'make asanrv' solo va en Linux y macOS."
+else
+asanrv: $(ASANRV) $(B)/rvt/.extraido
+	$(ASANRV) $(B)/rvt
+endif
 
 # --- La capa de red, que es la única parte no portable -----------------------
 # No necesita SystemC, así que se compila y se ejecuta en cualquier sitio, y se
@@ -825,6 +862,15 @@ e4-retardo: $(MCUSIM)
 OPENOCD ?= openocd
 openocd: $(MCUSIM)
 	OPENOCD="$(OPENOCD)" python3 verif/openocd/programa.py --sim $(MCUSIM)
+
+# G2 de E2 (doc/analisis_esp32_riscv.md): OpenOCD generico (`target create
+# riscv`) contra el laboratorio RISC-V, por remote_bitbang y por CMSIS-DAP en
+# JTAG, con dos harts, y GDB por OpenOCD y por el stub G1. Hace falta el
+# OpenOCD de git (cmsis-dap tcp) y un GDB con RISC-V (gdb-multiarch): lo que
+# falte se OMITE, salvo con OPENOCD_OBLIGATORIO=1.
+#   make -f Makefile.mcu-sim openocd-rv OPENOCD=/ruta/a/bin/openocd
+openocd-rv: $(TESTRV)
+	OPENOCD="$(OPENOCD)" python3 verif/openocd/riscv_lab.py --testrv $(TESTRV)
 
 # X2 de doc/analisis_xds110.md: la sonda CMSIS-DAP por TCP (--cmsis-dap). El
 # protocolo a mano, sin OpenOCD; y con el `cmsis-dap tcp` de OpenOCD (de git

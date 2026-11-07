@@ -180,14 +180,14 @@ jobs:
           sudo apt-get install -y libsystemc-dev python3-serial socat
           dpkg -l libsystemc-dev python3-serial socat | tail -3
 
-      - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4 y testf3)
+      - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4, testf3 y testrv)
         env:
           SUITES_PRESUPUESTO: 1200     # testf3 (S3 del F303) pasa de los 600 s
         run: sh ci/pasa_suites.sh
 
-      - name: Los invariantes de las ocho, al picosegundo
+      - name: Los invariantes de las nueve, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie testgui testp4 teste4 testf3; do
+          for s in test407 test446 test417 testserie testgui testp4 teste4 testf3 testrv; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -518,14 +518,14 @@ jobs:
 
       # SIN pasar SYSTEMC_HOME, a proposito: aqui se ejerce la deteccion
       # automatica, que es la que se encuentra un alumno.
-      - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4 y testf3)
+      - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4, testf3 y testrv)
         env:
           SUITES_PRESUPUESTO: 1500
         run: sh ci/pasa_suites.sh CXX=clang++
 
-      - name: Los invariantes de las ocho, al picosegundo
+      - name: Los invariantes de las nueve, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie testgui testp4 teste4 testf3; do
+          for s in test407 test446 test417 testserie testgui testp4 teste4 testf3 testrv; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -681,16 +681,16 @@ jobs:
           sh ci/construye_systemc.sh "$(cygpath -u "$GITHUB_WORKSPACE")/systemc" \
               -G Ninja -DCMAKE_ASM_FLAGS="-x assembler-with-cpp"
 
-      - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4 y testf3)
+      - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4, testf3 y testrv)
         env:
           SUITES_PRESUPUESTO: 1800     # aqui SystemC se compila antes: mas margen
         run: |
           sh ci/pasa_suites.sh \
              SYSTEMC_HOME="$(cygpath -u "$GITHUB_WORKSPACE")/systemc"
 
-      - name: Los invariantes de las ocho, al picosegundo
+      - name: Los invariantes de las nueve, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie testgui testp4 teste4 testf3; do
+          for s in test407 test446 test417 testserie testgui testp4 teste4 testf3 testrv; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 

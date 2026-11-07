@@ -52,6 +52,11 @@ trace/
 # fallaria en su primer grupo en un arbol recien clonado.
 !src/verif/fw/*/*/*.bin
 !src/verif/fw/*/*/*/*.bin
+# Y los ELF del nucleo RISC-V (E1 del plan de los ESP32): el banco testrv los
+# carga como ELF (los riscv-tests y Spike trabajan con ELF, y el HTIF necesita
+# el simbolo `tohost`), y por la misma razon que los .bin tienen que ser los
+# mismos en todas partes
+!src/verif/rv/elf/*.elf
 # Las tablas de la ROM R1: las genera rom_r1/gen_tablas.py a partir de rom.h
 src/verif/fw/msp432p4/rom_r1/tablas.c
 src/verif/fw/msp432e4/rom_r1/tablas.c
