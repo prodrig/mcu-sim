@@ -94,19 +94,26 @@ inline FormatoFw formato_fw(const std::string& ruta) {
 }
 
 // ELF32, little endian, ARM. "" si todo bien; si no, el motivo.
-inline std::string lee_elf(const std::string& ruta, std::vector<TrozoFw>& t) {
+// `maquina` es el e_machine que se acepta: 40 (EM_ARM) por omisión, o 243
+// (EM_RISCV) para un núcleo RISC-V (E1 de doc/analisis_esp32_riscv.md).
+inline constexpr uint16_t ELF_ARM = 40, ELF_RISCV = 243;
+inline std::string lee_elf(const std::string& ruta, std::vector<TrozoFw>& t,
+                           uint16_t maquina_ok = ELF_ARM) {
     using namespace detalle_fw;
     t.clear();
     std::vector<uint8_t> f;
     if (!lee_todo(ruta, f)) return "no se puede leer " + ruta;
     if (f.size() < 52 || f[0] != 0x7F || f[1] != 'E' || f[2] != 'L' || f[3] != 'F')
         return ruta + " no es un ELF";
-    if (f[4] != 1) return ruta + ": es un ELF de 64 bits, y un Cortex-M es de 32";
+    if (f[4] != 1) return ruta + (maquina_ok == ELF_ARM
+                                  ? ": es un ELF de 64 bits, y un Cortex-M es de 32"
+                                  : ": es un ELF de 64 bits, y este nucleo es de 32");
     if (f[5] != 1) return ruta + ": es un ELF big endian";
     const uint16_t maquina = le16(&f[18]);
-    if (maquina != 40)       // EM_ARM
+    if (maquina != maquina_ok)
         return ruta + ": es un ELF para otra arquitectura (e_machine = " +
-               std::to_string(maquina) + "), no para ARM";
+               std::to_string(maquina) + "), no para " +
+               (maquina_ok == ELF_ARM ? "ARM" : maquina_ok == ELF_RISCV ? "RISC-V" : "este nucleo");
     const uint32_t phoff = le32(&f[28]);
     const uint16_t phentsize = le16(&f[42]), phnum = le16(&f[44]);
     if (phnum == 0) return ruta + ": el ELF no tiene segmentos que cargar";
