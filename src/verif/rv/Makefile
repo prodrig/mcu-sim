@@ -10,6 +10,10 @@
 #   elf/riscv-tests.tar.xz  el subconjunto de riscv-tests que pasa el núcleo
 #                           (rv32ui/um/ua/uc/mi, entorno -p), BSD-3-Clause;
 #                           RVT = la carpeta isa/ de un riscv-tests compilado
+#   elf/act.tar.xz          riscv-arch-test (ACT4) para el núcleo del laboratorio:
+#                           los ELF autocomprobados de la configuración
+#                           act/mcusim-lab-rv32imac (BSD-3-Clause/Apache-2.0);
+#                           ACT = un riscv-arch-test (rama act4) con `uv sync`
 #   vectores_c.inc          la tabla de expansión de las comprimidas
 #                           (gen_vectores_c.py, con el ensamblador de GNU)
 #   trazas_spike.inc        las huellas de las trazas de Spike de cada ELF
@@ -18,6 +22,9 @@
 #   make                    # todo menos riscv-tests y las trazas
 #   make rvt RVT=~/riscv-tests/isa
 #   make trazas SPIKE=~/spike/bin/spike
+#   make act ACT=~/riscv-arch-test      # con sail_riscv_sim 0.16 y
+#                                       # riscv-none-elf-gcc 15 en el PATH;
+#                                       # SIN_RUBY=1 si no se llega a rubygems
 # =============================================================================
 CROSS  ?= riscv64-unknown-elf-
 CC     := $(CROSS)gcc
@@ -72,6 +79,22 @@ rvt:
 	tar -C $(RVT) --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
 	    -cJf elf/riscv-tests.tar.xz $(RVT_SEL)
 
+# --- riscv-arch-test (ACT4) -----------------------------------------------------
+# Genera las pruebas (las privilegiadas salen de los generadores), las compila
+# para act/mcusim-lab-rv32imac con las firmas de Sail y empaqueta los ELF. Se
+# comprueban con `testrv` (V10) o, uno a uno, con `testrv --elf`.
+ACT     ?=
+ACT_CFG := mcusim-lab-rv32imac
+ACT_ENV  = $(if $(SIN_RUBY),PATH="$(abspath act/bin):$$PATH")
+act:
+	@test -n "$(ACT)" || { echo "make act ACT=<riscv-arch-test, rama act4>"; exit 1; }
+	@mkdir -p elf
+	rm -f $(ACT)/work/stamps/*.stamp
+	$(ACT_ENV) $(MAKE) -C $(ACT) tests
+	$(ACT_ENV) CONFIG_FILES=$(abspath act/$(ACT_CFG)/test_config.yaml) $(MAKE) -C $(ACT)
+	cd $(ACT)/work/$(ACT_CFG)/elfs && tar --sort=name --mtime=@0 --owner=0 --group=0 \
+	    --numeric-owner -cJf $(abspath elf/act.tar.xz) $$(find . -name '*.elf' | sed 's|^\./||' | sort)
+
 # --- Las huellas de Spike -----------------------------------------------------
 trazas: $(ELFS)
 	$(PY) gen_trazas.py --spike $(SPIKE) $(CON_SPIKE:%=elf/%.elf) > trazas_spike.inc
@@ -79,4 +102,4 @@ trazas: $(ELFS)
 clean:
 	rm -f $(ELFS)
 
-.PHONY: all rvt trazas clean
+.PHONY: all rvt act trazas clean

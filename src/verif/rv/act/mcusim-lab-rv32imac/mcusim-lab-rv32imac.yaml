@@ -1,0 +1,226 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/riscv/riscv-unified-db/main/spec/schemas/config_schema.json
+
+# SPDX-License-Identifier: Apache-2.0
+# UDB: el núcleo RV32IMAC del laboratorio de mcu-sim (SocLabRv con RV_LAB_IMAC,
+# src/rv/lab/soc_lab_rv.h y src/rv/hart/rv_caps.h). El comportamiento de los CSR
+# sale de src/rv/hart/rv_hart.h. Tiene que coincidir con sail.json.
+# Derivado de config/cores/hazard3/hazard3-rv32imacb-u-pmp de riscv-arch-test.
+---
+$schema: config_schema.json#
+kind: architecture configuration
+type: fully configured
+name: mcusim-lab-rv32imac
+description: laboratorio de mcu-sim - RV32IMAC_Zicsr_Zifencei_Zicntr_Zihpm con modo U y 16 regiones PMP
+
+implemented_extensions:
+  - { name: I, version: "= 2.1" }
+  - { name: M, version: "= 2.0" }
+  - { name: Zmmul, version: "= 1.0.0" }
+  - { name: A, version: "= 2.1.0" }
+  - { name: Zaamo, version: "= 1.0.0" }
+  - { name: Zalrsc, version: "= 1.0.0" }
+  - { name: C, version: "= 2.0" }
+  - { name: Zca, version: "= 1.0.0" }
+  - { name: Zicsr, version: "= 2.0" }
+  - { name: Zifencei, version: "= 2.0" }
+  - { name: Zicntr, version: "= 2.0" }
+  # mhpmcounter3..31 y mhpmevent3..31 existen y valen cero
+  - { name: Zihpm, version: "= 2.0.0" }
+  # pause es un fence que no ordena nada
+  - { name: Zihintpause, version: "= 2.0.0" }
+  - { name: U, version: "= 1.0.0" }
+  # mstatush y mconfigptr (= 0) existen. El módulo de triggers (mcontrol de la
+  # 0.13) no se declara: Sdtrig 1.0 pide más de lo que tiene.
+  - { name: Sm, version: "= 1.12.0" }
+
+params:
+  MXLEN: 32
+  PHYS_ADDR_WIDTH: 32
+
+  # misa es de solo lectura
+  MISA_CSR_IMPLEMENTED: true
+  NON_STANDARD_EXTENSION_IMPLEMENTED: false
+  MUTABLE_MISA_A: false
+  MUTABLE_MISA_C: false
+  MUTABLE_MISA_M: false
+  MUTABLE_MISA_U: false
+
+  M_MODE_ENDIANNESS: little
+  U_MODE_ENDIANNESS: little
+  UXLEN: [32]
+
+  TRAP_ON_ECALL_FROM_M: true
+  TRAP_ON_ECALL_FROM_U: true
+  TRAP_ON_EBREAK: true
+  TRAP_ON_UNIMPLEMENTED_INSTRUCTION: true
+  TRAP_ON_RESERVED_INSTRUCTION: true
+  TRAP_ON_UNIMPLEMENTED_CSR: true
+  TRAP_ON_ILLEGAL_WLRL: false
+
+  # mtval: la dirección en los fallos de dirección, el PC en ebreak y la
+  # codificación en las ilegales
+  REPORT_VA_IN_MTVAL_ON_BREAKPOINT: true
+  REPORT_VA_IN_MTVAL_ON_LOAD_MISALIGNED: true
+  REPORT_VA_IN_MTVAL_ON_STORE_AMO_MISALIGNED: true
+  REPORT_VA_IN_MTVAL_ON_INSTRUCTION_MISALIGNED: true
+  REPORT_VA_IN_MTVAL_ON_LOAD_ACCESS_FAULT: true
+  REPORT_VA_IN_MTVAL_ON_STORE_AMO_ACCESS_FAULT: true
+  REPORT_VA_IN_MTVAL_ON_INSTRUCTION_ACCESS_FAULT: true
+  REPORT_ENCODING_IN_MTVAL_ON_ILLEGAL_INSTRUCTION: true
+  MTVAL_WIDTH: 32
+
+  PRECISE_SYNCHRONOUS_EXCEPTIONS: true
+
+  MEI_INTR_IMPL: true
+  MSI_INTR_IMPL: true
+  MTI_INTR_IMPL: true
+
+  WFI_U_MODE: true
+  WFI_FINITE: false
+
+  # RvDesalineado::Trap: el desalineado se mira antes que la PMP y el bus
+  MISALIGNED_LDST: false
+  MISALIGNED_LDST_EXCEPTION_PRIORITY: high
+  MISALIGNED_AMO: false
+  LRSC_MISALIGNED_BEHAVIOR: "always raise misaligned exception"
+  # La reserva es la palabra exacta del lr.w
+  LRSC_RESERVATION_STRATEGY: "reserve exactly enough to cover the access"
+  LRSC_FAIL_ON_NON_EXACT_LRSC: true
+  LRSC_FAIL_ON_VA_SYNONYM: false
+
+  VENDOR_ID_BANK: 0x0
+  VENDOR_ID_OFFSET: 0x0
+  MARCHID_IMPLEMENTED: false
+  MIMPID_IMPLEMENTED: false
+  CONFIG_PTR_ADDRESS: 0
+
+  # Los modos 2 y 3 se quedan en 0 y 1 (legaliza_tvec)
+  MTVEC_MODES: [0, 1]
+  MTVEC_ACCESS: rw
+  MTVEC_ILLEGAL_WRITE_BEHAVIOR: custom
+  MTVEC_BASE_ALIGNMENT_DIRECT: 4
+  MTVEC_BASE_ALIGNMENT_VECTORED: 4
+
+  PMA_GRANULARITY: 2
+
+  NUM_PMP_ENTRIES: 16
+  NUM_USABLE_PMP_ENTRIES: 16
+  PMP_GRANULARITY: 2
+  PMP_NA4_SUPPORTED: true
+  PMP_NAPOT_SUPPORTED: true
+  PMP_TOR_SUPPORTED: true
+
+  # mhpmcounter3..31 y mhpmevent3..31 valen cero
+  HPM_COUNTER_EN:
+    [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]
+
+  # mcountinhibit: solo CY e IR
+  MCOUNTINHIBIT_IMPLEMENTED: true
+  COUNTINHIBIT_EN:
+    [
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]
+
+  # mcounteren es escribible entero
+  MCOUNTENABLE_EN:
+    [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+    ]
+
+  # time lee el mtime del CLINT
+  TIME_CSR_IMPLEMENTED: true

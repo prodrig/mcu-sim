@@ -393,7 +393,8 @@ testf3: $(TESTF3)
 # EL BANCO DEL NUCLEO RISC-V (fase E1 de doc/analisis_esp32_riscv.md): el
 # nucleo generico de src/rv sobre el SoC de laboratorio, sin chip. No necesita
 # la cadena de RISC-V: los ELF se versionan en verif/rv/elf, y riscv-tests va
-# comprimido (riscv-tests.tar.xz, BSD-3-Clause) y se extrae en $(B)/rvt.
+# comprimido (riscv-tests.tar.xz, BSD-3-Clause) y se extrae en $(B)/rvt; lo
+# mismo riscv-arch-test (act.tar.xz, ACT4, BSD-3-Clause), en $(B)/act.
 #   make testrv
 HDRS_RV := $(wildcard rv/*/*.h verif/rv/*.inc)
 
@@ -410,19 +411,25 @@ $(B)/rvt/.extraido: verif/rv/elf/riscv-tests.tar.xz
 	tar -C $(B)/rvt -xJf verif/rv/elf/riscv-tests.tar.xz
 	@touch $@
 
-rvt: $(B)/rvt/.extraido
+$(B)/act/.extraido: verif/rv/elf/act.tar.xz
+	@rm -rf $(B)/act
+	@mkdir -p $(B)/act
+	tar -C $(B)/act -xJf verif/rv/elf/act.tar.xz
+	@touch $@
+
+rvt: $(B)/rvt/.extraido $(B)/act/.extraido
 
 testrv-build: $(TESTRV)
 
-testrv: $(TESTRV) $(B)/rvt/.extraido
-	$(TESTRV) $(B)/rvt
+testrv: $(TESTRV) $(B)/rvt/.extraido $(B)/act/.extraido
+	$(TESTRV) $(B)/rvt $(B)/act
 
 ifeq ($(PLATAFORMA),windows)
 asanrv:
 	@echo "MinGW no trae AddressSanitizer: 'make asanrv' solo va en Linux y macOS."
 else
-asanrv: $(ASANRV) $(B)/rvt/.extraido
-	$(ASANRV) $(B)/rvt
+asanrv: $(ASANRV) $(B)/rvt/.extraido $(B)/act/.extraido
+	$(ASANRV) $(B)/rvt $(B)/act
 endif
 
 # LA SUITE DEL ESP32-C3 (fase E3 de doc/analisis_esp32_riscv.md): el C3 sin

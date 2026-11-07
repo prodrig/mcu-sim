@@ -7,6 +7,11 @@
 // las trazas se puedan comparar:
 //
 //   0x0200_0000  CLINT (msip, mtimecmp, mtime)                [rv/irq/clint.h]
+//                (el CSR time de cada hart lee este mtime)
+//   0x0C00_0000  un generador de interrupciones de pega, el «simple interrupt
+//                generator» de Sail: escribir en +4 (1<<31)|(1<<11) levanta
+//                mip.MEIP del hart 0 y (1<<11) lo baja. Es lo que usan las
+//                pruebas de riscv-arch-test (verif/rv/act) para la externa
 //   0x1000_0000  una UART de pega: escribir en +0 saca un carácter, y +5 (LSR)
 //                dice siempre «transmisor vacío» (0x60), como un 16550
 //   0x8000_0000  RAM, sin estados de espera
@@ -56,7 +61,7 @@ SC_MODULE(SocLabRv) {
     sc_core::sc_signal<bool, sc_core::SC_MANY_WRITERS> rst_n{"rst_n"};
 
     static constexpr uint32_t RAM_BASE = 0x80000000u, CLINT_BASE = 0x02000000u,
-                              UART_BASE = 0x10000000u;
+                              UART_BASE = 0x10000000u, GEN_BASE = 0x0C000000u;
 
     static constexpr uint32_t IDCODE = 0x10AB1001u;
 
@@ -85,6 +90,8 @@ SC_MODULE(SocLabRv) {
             n.rst_n(rst_n);
             irqs.emplace_back(new IrqEstandar(clint, h));
             n.hart.pon_irq(irqs.back().get());
+            n.hart.fuente_tiempo = [this] { return clint.mtime(); };
+            n.hart.existe_dir = [this](uint32_t a, unsigned b) { return existe(a, b); };
             clint.engancha(h, &n);
         }
         std::vector<NucleoRv*> hs;
@@ -120,7 +127,10 @@ SC_MODULE(SocLabRv) {
         return std::string();
     }
     void reset(bool activo) {
-        if (activo) { fin_ = false; codigo_ = 0; salida_.clear(); clint.reset(); }
+        if (activo) {
+            fin_ = false; codigo_ = 0; salida_.clear(); clint.reset();
+            for (auto& i : irqs) i->pon_meip(false);
+        }
         rst_n.write(!activo);
     }
     bool terminado() const { return fin_; }
@@ -171,6 +181,21 @@ private:
             clint.acceso(gp, uint32_t(a - CLINT_BASE));
             return;
         }
+        if (a >= GEN_BASE && a < GEN_BASE + 0x10u) {
+            const uint32_t o = uint32_t(a - GEN_BASE);
+            if (gp.is_write()) {
+                uint32_t v = 0;
+                for (unsigned i = 0; i < n && i < 4; ++i) v |= uint32_t(p[i]) << (8 * i);
+                if (o == 4 && (v & (1u << 11)) && !irqs.empty()) {
+                    irqs[0]->pon_meip((v >> 31) != 0);
+                    harts[0]->nota_irq();
+                }
+            } else {
+                for (unsigned i = 0; i < n; ++i) p[i] = 0;
+            }
+            gp.set_response_status(tlm::TLM_OK_RESPONSE);
+            return;
+        }
         if (a >= UART_BASE && a < UART_BASE + 0x100u) {
             const uint32_t o = uint32_t(a - UART_BASE);
             if (gp.is_write()) {
@@ -185,6 +210,13 @@ private:
             gp.set_response_status(tlm::TLM_OK_RESPONSE);
             return;
         }
+    }
+
+    bool existe(uint64_t a, unsigned n) const {
+        return (a >= RAM_BASE && a + n <= RAM_BASE + ram_.size()) ||
+               (a >= CLINT_BASE && a < CLINT_BASE + 0x10000u) ||
+               (a >= GEN_BASE && a < GEN_BASE + 0x10u) ||
+               (a >= UART_BASE && a < UART_BASE + 0x100u);
     }
 
     void htif() {

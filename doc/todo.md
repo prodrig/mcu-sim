@@ -906,8 +906,12 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   INTC y matriz, SYSTEM, RTC_CNTL, eFuse, UART0/1, SYSTIMER, TIMG0/1, GPIO
   con la matriz y el IO_MUX sobre pads, la GPIO dedicada, CHIP_PU y los pines
   de arranque; `make testc3` (57) y tres placas, una con un F407.
-* **Pendiente de E1**: `riscv-arch-test` (ACT4, con Sail 0.16 y GCC 15). La
-  traza de Spike con interrupciones del CLINT ya está (`irq_spike.S`).
+* **E1 completa**: la traza de Spike con interrupciones del CLINT
+  (`irq_spike.S`) y **`riscv-arch-test`** (ACT4, firmas de Sail 0.16, GCC 15):
+  la configuración del DUT en `verif/rv/act/mcusim-lab-rv32imac`, 220 ELF
+  autocomprobados versionados (`act.tar.xz`) y V10 en `testrv` (457). Sacó
+  tres fallos del núcleo: `menvcfg` ausente, la región TOR vacía y el `sc.w`
+  sin reserva a una dirección vacía.
 
 ---
 

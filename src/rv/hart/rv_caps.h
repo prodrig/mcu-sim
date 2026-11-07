@@ -42,7 +42,7 @@ enum : uint32_t {
     RV_Z_IFENCEI  = 1u << 1,
     RV_Z_ICNTR    = 1u << 2,   // cycle/time/instret de usuario
     RV_Z_IHPM     = 1u << 3,   // mhpmcounter3..31 (a cero si no hay sucesos)
-    RV_Z_MSTATUSH = 1u << 4,   // mstatush (Privileged 1.12): RV32 con él
+    RV_Z_MSTATUSH = 1u << 4,   // Privileged 1.12: mstatush, mconfigptr y, con U, menvcfg(h)
 };
 
 // Los modos de privilegio, con su codificación de MPP

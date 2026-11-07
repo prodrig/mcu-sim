@@ -730,8 +730,8 @@ independientes y sin una línea de Espressif.
 **Cierre:**
 * `riscv-tests` `rv32ui`, `rv32um`, `rv32ua`, `rv32uc` y `rv32mi`, todas en
   verde, con `RV_LAB_IMAC`;
-* `riscv-arch-test` RV32 I, M, A, C, Zicsr, Zifencei y *privilege* (modo M),
-  con las firmas iguales a las de referencia;
+* `riscv-arch-test` RV32 I, M, A, C, Zicsr, Zifencei y *privilege* (modos M
+  y U), con las firmas iguales a las de referencia (hecho: ACT4, 220 pruebas);
 * **traza idéntica a la de Spike** en un programa propio con traps,
   interrupciones del CLINT y PMP, y en CoreMark;
 * CoreMark termina con su CRC correcto en las dos variantes;
@@ -775,10 +775,44 @@ base son unas 40 instrucciones, la C se expande y no hay modo Thumb ni ITSTATE.
   una escritura de CSR, usa `mtimecmp` solo en el pasado o en el futuro
   lejano y no lee `mtime`. Así las dos trazas son iguales (244 instrucciones)
   sin deformar el núcleo. `testrv` pasa a 236 comprobaciones.
-* **Pendiente:** `riscv-arch-test`. Su rama actual (ACT4) ya no usa riscof:
-  Sail 0.16 calcula los resultados al generar los tests y los mete en ELF que
-  se comprueban solos. Hace falta una configuración del DUT
-  (`test_config.yaml`, UDB, `rvmodel_macros.h`, `sail.json`) y GCC 15.
+* **`riscv-arch-test` (ACT4, hecho después, con E3).** La rama `act4`
+  (commit `bad8b12`) ya no usa riscof: genera las pruebas, calcula los
+  resultados con **Sail 0.16** al compilarlas y los mete en el propio ELF, que
+  se comprueba solo y dice `RVCP-SUMMARY: TEST PASSED`. Lo nuestro:
+  * **La configuración del DUT**, `verif/rv/act/mcusim-lab-rv32imac/`
+    (derivada de la de Hazard3, el más parecido: RV32IMAC con U y 16 PMP):
+    `test_config.yaml`, la de UDB (`mcusim-lab-rv32imac.yaml`), `sail.json`,
+    `link.ld` (4 MB de RAM) y `rvmodel_macros.h` (HTIF, la UART de pega, el
+    CLINT y la interrupción externa). Declara I, M, Zmmul, A, Zaamo, Zalrsc,
+    C, Zca, Zicsr, Zifencei, Zicntr, Zihpm (contadores a cero), Zihintpause,
+    U y Sm 1.12; no Sdtrig (los triggers son `mcontrol` de la 0.13). Salen
+    **220 pruebas**: I 39, M 8, Zmmul 4, Zaamo 9, Zalrsc 2, Zca 26, Zicsr 6,
+    Zicntr 2, Zihpm 2, Zifencei 1, Zihintpause 1, Sm 28, U 9, PMP 60,
+    Exceptions 8 e InterruptsSm 15.
+  * **El laboratorio**, dos cosas nuevas que pide la configuración: el CSR
+    `time` lee el `mtime` del CLINT (`RvHart::fuente_tiempo`), y en
+    `0x0C00_0000` está el «simple interrupt generator» de Sail (escribir en +4
+    `(1<<31)|(1<<11)` levanta MEIP y `(1<<11)` lo baja), así que la externa
+    se pide igual en Sail y aquí.
+  * **Tres fallos del núcleo** que no habían visto ni riscv-tests ni Spike:
+    faltaba `menvcfg`/`menvcfgh` (la 1.12 los pide con modo U; ahora existen,
+    a cero, con `RV_Z_MSTATUSH`); una región TOR vacía (tope por debajo de la
+    base) se tomaba por coincidencia parcial y daba fallo de acceso; y un
+    `sc.w` sin reserva a una dirección donde no hay nada fallaba sin más, y
+    Sail da fallo de acceso: ahora el SoC dice qué existe
+    (`RvHart::existe_dir`) y se comprueba antes de la reserva.
+  * **Los binarios se versionan** (`verif/rv/elf/act.tar.xz`, 1,2 MB,
+    BSD-3-Clause; `TERCEROS.md`) y `make testrv` los extrae en `build/act`.
+    `testrv` los pasa en **V10**, una comprobación cada uno (457 en total;
+    `testrv 457 28577500000 resto`: V10 añade 19 766 us y lo demás dura lo
+    mismo). Uno suelto: `testrv --elf x.elf` (con `RV_TRAZA_ELF=fichero`,
+    la traza).
+  * **Regenerarlos**: `make -C verif/rv act ACT=<riscv-arch-test>`, con
+    `sail_riscv_sim` 0.16 y **GCC 15** (`riscv-none-elf-gcc` de xPack 15.2.0-1;
+    ACT4 rechaza el 13) en el `PATH`. ACT4 usa las gemas de Ruby de UDB por
+    `bundle`; donde no se llega a rubygems.org, `SIN_RUBY=1` pone delante
+    `verif/rv/act/bin/bundle`, que hace lo mismo para una configuración
+    «fully configured» con `udb_sin_ruby.py` (sin validar el esquema).
 
 ### E2 · La depuración genérica, en el laboratorio
 

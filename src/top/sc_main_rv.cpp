@@ -21,6 +21,11 @@
 //           instrucciones retiradas de seis ELF (verif/rv/trazas_spike.inc),
 //           uno de ellos con interrupciones del CLINT (irq_spike.S)
 //   V9      CoreMark, validado por su propia CRC
+//   V10     riscv-arch-test (ACT4): los 220 ELF autocomprobados de la
+//           configuración verif/rv/act/mcusim-lab-rv32imac (I, M, Zaamo,
+//           Zalrsc, Zca, Zicsr, Zicntr, Zihpm, Zifencei, Zihintpause, Sm, U,
+//           PMP, excepciones e interrupciones), con las firmas de Sail 0.16
+//           dentro; cada uno acaba por HTIF con 0 y dice «TEST PASSED»
 //
 //   (E2) la depuración genérica, en el laboratorio (rv/debug, rv/gdb):
 //   W1      el DTM por los pines, con la sonda de bancada: IDCODE, dtmcs y el
@@ -38,11 +43,16 @@
 //   W4-W6 van por un socket de verdad: van al final, y su tiempo no cuenta
 //   en «el resto» (como F19 en testf3)
 //
-// Uso: testrv [carpeta con los riscv-tests]   (por omisión, build/rvt; la
-// rellena `make testrv` desde verif/rv/elf/riscv-tests.tar.xz)
+// Uso: testrv [carpeta con los riscv-tests] [carpeta con riscv-arch-test]
+//                        (por omisión, build/rvt y build/act; las rellena
+//                        `make testrv` desde verif/rv/elf/riscv-tests.tar.xz y
+//                        verif/rv/elf/act.tar.xz)
 //      RV_TRAZA=carpeta  deja la traza de cada ELF de V8 en texto, para
 //                        compararla con la de gen_trazas.py --volcado
 //
+//      testrv --elf a.elf [b.elf...]
+//                        no es la suite: cada ELF en el laboratorio RV32IMAC,
+//                        con la UART a la salida (el run_cmd de ACT4)
 //      testrv --servir=bitbang|cmsis-dap|gdb --port=N [--harts=2] [elf]
 //                        no es la suite: el laboratorio con el ELF (por
 //                        omisión, dbg.elf) en marcha y una sonda en sus pines
@@ -131,6 +141,21 @@ struct ExtPrueba : rv_ext_if, rv_csr_ext_if {
     bool escribe(RvHart&, uint16_t, uint32_t v) override { c = v; return true; }
 };
 
+// Los .elf de una carpeta y sus subcarpetas, con la ruta relativa, en orden
+static void lista_elf(const std::string& base, const std::string& rel,
+                      std::vector<std::string>& r) {
+    DIR* d = opendir((base + "/" + rel).c_str());
+    if (!d) return;
+    while (dirent* e = readdir(d)) {
+        const std::string n = e->d_name;
+        if (n == "." || n == "..") continue;
+        const std::string sub = rel.empty() ? n : rel + "/" + n;
+        if (n.size() > 4 && n.compare(n.size() - 4, 4, ".elf") == 0) r.push_back(sub);
+        else lista_elf(base, sub, r);
+    }
+    closedir(d);
+}
+
 static std::vector<std::string> lista(const std::string& dir) {
     std::vector<std::string> r;
     if (DIR* d = opendir(dir.c_str())) {
@@ -151,7 +176,7 @@ SC_MODULE(TbRv) {
     SocLabRv hw{"hw", {&CAPS_HW}};
     SocLabRv c863{"c863", {&CAPS_863}};
     SocLabRv dos{"dos", {&RV_LAB_IMAC, &RV_LAB_IMAC}};
-    std::string rvt;
+    std::string rvt, act;
     ExtPrueba ext;
     // E2: la sonda de bancada en los pines del laboratorio IMAC, el DMI por
     // ella y los stubs de GDB
@@ -166,7 +191,8 @@ SC_MODULE(TbRv) {
     uint32_t s_main = 0, s_objetivo = 0, s_otro = 0, s_contador = 0, s_contador1 = 0,
              s_vigilada = 0;
 
-    TbRv(sc_module_name nm, const std::string& dir_rvt) : sc_module(nm), rvt(dir_rvt) {
+    TbRv(sc_module_name nm, const std::string& dir_rvt, const std::string& dir_act)
+        : sc_module(nm), rvt(dir_rvt), act(dir_act) {
         SC_HAS_PROCESS(TbRv);
         SC_THREAD(run);
         for (GdbStubRv* g : {&g1, &g2p, &g1dos}) g->set_halt_on_attach(true);
@@ -174,7 +200,8 @@ SC_MODULE(TbRv) {
 
     // Carga un ELF, suelta el reset y espera a que acabe. El código de
     // salida, o -1 si no acaba en `limite`, o -2 si no se puede cargar.
-    int corre(SocLabRv& lab, const std::string& elf, sc_time limite = sc_time(100, SC_MS)) {
+    int corre(SocLabRv& lab, const std::string& elf, sc_time limite = sc_time(100, SC_MS),
+              std::string* salida = nullptr) {
         lab.reset(true);
         wait(2, SC_US);
         const std::string e = lab.carga_elf(elf);
@@ -182,6 +209,7 @@ SC_MODULE(TbRv) {
         lab.reset(false);
         wait(limite, lab.ev_fin());
         const int r = lab.terminado() ? int(lab.codigo()) : -1;
+        if (salida) *salida = lab.salida();
         lab.reset(true);
         wait(2, SC_US);
         return r;
@@ -340,6 +368,22 @@ SC_MODULE(TbRv) {
         if (std::getenv("RV_COREMARK")) std::printf("%s\n", sal.c_str());
     }
 
+
+    // --- V10, riscv-arch-test --------------------------------------------------
+    void arch_test() {
+        grupo("V10 riscv-arch-test (ACT4) en RV32IMAC, con las firmas de Sail");
+        std::vector<std::string> l;
+        lista_elf(act, "", l);
+        std::sort(l.begin(), l.end());
+        check_eq(l.size(), 220, "los 220 ELF de verif/rv/act/mcusim-lab-rv32imac, en " + act);
+        for (const std::string& n : l) {
+            std::string sal;
+            const int r = corre(imac, act + "/" + n, sc_time(1, SC_SEC), &sal);
+            const bool bien = sal.find("RVCP-SUMMARY: TEST PASSED") != std::string::npos &&
+                              sal.find("TEST FAILED") == std::string::npos;
+            if (!check(r == 0 && bien, n)) std::printf("%s\n", sal.c_str());
+        }
+    }
 
     // =========================================================================
     // E2: LA DEPURACIÓN
@@ -737,6 +781,7 @@ SC_MODULE(TbRv) {
         propias();
         lockstep();
         coremark();
+        arch_test();
         w1_pines();
         w2_dm();
         w3_dos();
@@ -808,11 +853,58 @@ static int servidor(int argc, char* argv[]) {
     return 0;
 }
 
+// testrv --elf a.elf [b.elf...]: cada ELF en el laboratorio RV32IMAC, con la
+// UART a la salida estándar, hasta que acabe por HTIF (o 1 s simulado). El
+// código de salida es el de HTIF del último que falle (0 si van todos bien;
+// 124 si alguno no acaba). Es el run_cmd.txt de riscv-arch-test.
+// RV_TRAZA_ELF=fichero deja la traza (pc, instrucción, rd, valor, modo) del
+// último ELF.
+SC_MODULE(CorreElf) {
+    SocLabRv lab{"lab", {&RV_LAB_IMAC}};
+    std::vector<std::string> elfs;
+    int res = 0;
+    CorreElf(sc_module_name nm, std::vector<std::string> e) : sc_module(nm), elfs(std::move(e)) {
+        SC_HAS_PROCESS(CorreElf);
+        SC_THREAD(run);
+    }
+    void run() {
+        lab.eco_uart = true;
+        FILE* f = nullptr;
+        if (const char* t = std::getenv("RV_TRAZA_ELF")) f = std::fopen(t, "w");
+        if (f) lab.hart().hart.traza = [f](const RvCommit& c) {
+            std::fprintf(f, "%08x %08x %3d %08x %c\n", c.pc, c.insn, c.rd, c.valor,
+                         c.modo == RvModo::M ? 'M' : 'U');
+        };
+        for (const std::string& elf : elfs) {
+            if (f) { std::fflush(f); std::rewind(f); }
+            lab.reset(true);
+            wait(2, SC_US);
+            const std::string e = lab.carga_elf(elf);
+            if (!e.empty()) { std::printf("%s\n", e.c_str()); res = 2; continue; }
+            lab.reset(false);
+            wait(sc_time(1, SC_SEC), lab.ev_fin());
+            if (!lab.terminado()) {
+                std::printf("\n%s: no acaba en 1 s simulado\n", elf.c_str()); res = 124;
+            } else if (lab.codigo()) {
+                std::printf("\n%s: HTIF %u\n", elf.c_str(), lab.codigo()); res = int(lab.codigo());
+            }
+            std::fflush(stdout);
+        }
+        if (f) std::fclose(f);
+        sc_stop();
+    }
+};
+
 int sc_main(int argc, char* argv[]) {
     sc_report_handler::set_actions(SC_WARNING,
         std::getenv("TESTRV_AVISOS") ? SC_DISPLAY : SC_DO_NOTHING);
     if (argc > 1 && std::strncmp(argv[1], "--servir=", 9) == 0) return servidor(argc, argv);
-    TbRv tb("tb", argc > 1 ? argv[1] : "build/rvt");
+    if (argc > 2 && std::strcmp(argv[1], "--elf") == 0) {
+        CorreElf c("correelf", std::vector<std::string>(argv + 2, argv + argc));
+        sc_start();
+        return c.res;
+    }
+    TbRv tb("tb", argc > 1 ? argv[1] : "build/rvt", argc > 2 ? argv[2] : "build/act");
     sc_start();
     // En ps siempre (ci/comprueba_invariante.sh lee «N ps»): to_string() lo
     // diría en ns o en us cuando la cifra es redonda

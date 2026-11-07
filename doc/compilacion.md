@@ -40,7 +40,7 @@ make testp4             # el MSP432P401R: 406
 make teste4             # el MSP432E401Y: 296
 make testserie          # el puente UART: 189
 make testgui            # la frontera con mcu-sim-gui: 145
-make testrv             # el nucleo RISC-V y su depuracion (E1-E2 de los ESP32): 234
+make testrv             # el nucleo RISC-V y su depuracion (E1-E2 de los ESP32), con riscv-arch-test: 457
 make testc3             # el ESP32-C3 sin ROM (E3): 57
 make openocd-rv         # OpenOCD y GDB contra el laboratorio RISC-V (OPENOCD=...)
 

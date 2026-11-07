@@ -77,6 +77,10 @@ public:
     // Lo que cuenta como "permiso" de una dirección además del PMP (la PMA de
     // un C6, el PMS de un C3). Solo lo usa la errata CPU-863.
     std::function<uint32_t(uint32_t)> permisos_extra;
+    // ¿Hay algo en esta dirección? (la PMA del SoC). Si está, un sc.w que
+    // falla por no tener reserva da igualmente fallo de acceso donde no hay
+    // nada, como Sail; si no, falla sin tocar el bus.
+    std::function<bool(uint32_t, unsigned)> existe_dir;
     // Cada instrucción retirada
     std::function<void(const RvCommit&)> traza;
 
@@ -252,6 +256,7 @@ public:
         CSR_MCONFIGPTR = 0xF15,
         CSR_MSTATUS = 0x300, CSR_MISA = 0x301, CSR_MIDELEG = 0x303, CSR_MIE = 0x304,
         CSR_MTVEC = 0x305, CSR_MCOUNTEREN = 0x306, CSR_MSTATUSH = 0x310,
+        CSR_MENVCFG = 0x30A, CSR_MENVCFGH = 0x31A,
         CSR_MCOUNTINHIBIT = 0x320, CSR_MSCRATCH = 0x340, CSR_MEPC = 0x341,
         CSR_MCAUSE = 0x342, CSR_MTVAL = 0x343, CSR_MIP = 0x344,
         CSR_PMPCFG0 = 0x3A0, CSR_PMPADDR0 = 0x3B0,
@@ -276,6 +281,10 @@ public:
         case CSR_MSTATUS:   v = mstatus_; return true;
         case CSR_MSTATUSH:
             if (!caps_.tiene_z(RV_Z_MSTATUSH)) return false;
+            v = 0; return true;
+        // menvcfg (1.12, con modo U): sin S ni Zicbo*, solo FIOM, y fijo a 0
+        case CSR_MENVCFG: case CSR_MENVCFGH:
+            if (!caps_.tiene_z(RV_Z_MSTATUSH) || !u) return false;
             v = 0; return true;
         case CSR_MISA:      v = caps_.misa(); return true;
         case CSR_MIDELEG:   if (!n) return false; v = mideleg_; return true;
@@ -369,6 +378,7 @@ public:
             return true;
         }
         case CSR_MSTATUSH: return caps_.tiene_z(RV_Z_MSTATUSH);
+        case CSR_MENVCFG: case CSR_MENVCFGH: return caps_.tiene_z(RV_Z_MSTATUSH) && u;
         case CSR_MISA:     return true;                      // WARL, fija
         case CSR_MIDELEG:  if (!n) return false; mideleg_ = v & caps_.mie_bits; return true;
         case CSR_MIE:      if (!caps_.mie_mip) return false; mie_ = v & caps_.mie_bits; return true;
@@ -725,6 +735,7 @@ private:
                 const uint64_t tam = uint64_t(8) << unos;
                 b0 = (uint64_t(pa) << 2) & ~(tam - 1); b1 = b0 + tam;
             }
+            if (b0 >= b1) continue;                         // TOR vacío: no coincide nada
             const bool dentro_lo = lo >= b0 && lo < b1, dentro_hi = hi > b0 && hi <= b1;
             if (!dentro_lo && !dentro_hi && !(lo < b0 && hi > b1)) continue;
             if (!(dentro_lo && dentro_hi)) return false;    // coincidencia parcial
@@ -1085,7 +1096,9 @@ private:
         if (f5 == 3) {                                    // SC.W
             const int tr = trigger(MC_STORE, dir);
             if (tr >= 0) { dispara(tr, dir); return; }
-            if (!pmp_ok(dir, 4, PMP_W, md)) { excepcion(RV_EXC_STORE_ACCESO, dir); return; }
+            if (!pmp_ok(dir, 4, PMP_W, md) || (existe_dir && !existe_dir(dir, 4))) {
+                excepcion(RV_EXC_STORE_ACCESO, dir); return;
+            }
             if (resv_ && resv_dir_ == dir) {
                 if (!escribe_bus(dir, 4, b, RvAcceso::Amo, md)) { excepcion(RV_EXC_STORE_ACCESO, dir); return; }
                 resv_ = false;

@@ -1,0 +1,10 @@
+#!/bin/sh
+# SPDX-License-Identifier: BSD-3-Clause-Clear
+# Un `bundle` de pega para ACT4 donde no se llega a rubygems.org: `check` e
+# `install` no hacen nada y `exec` pasa la orden a udb_sin_ruby.py.
+d=$(dirname "$(readlink -f "$0")")
+case "$1" in
+  check|install) exit 0 ;;
+  exec) shift; exec python3 -I "$d/../udb_sin_ruby.py" "$@" ;;
+  *) echo "bundle (udb_sin_ruby): orden no soportada: $*" >&2; exit 1 ;;
+esac

@@ -314,11 +314,13 @@ testf3                428      116875480154660       resto
 # testrv: el nucleo RISC-V generico y su depuracion, en el SoC de laboratorio
 # (E1 y E2 de doc/analisis_esp32_riscv.md). V1-V9 (E1): las comprimidas contra
 # GNU as, riscv-tests en RV32IMAC y RV32IMC, los desalineados, las pruebas
-# propias, el lockstep con Spike y CoreMark; W1-W3 (E2): el DTM por los pines,
-# el DM en directo y dos harts. W4-W6 hablan con GDB por un socket de verdad:
-# van al final y se contrasta `resto` (T-16, como en el F407). Igual en dos
-# pasadas (07-11-2026).
-testrv                 236      8811500000            resto
+# propias, el lockstep con Spike, CoreMark y riscv-arch-test (V10, los 220 ELF
+# de ACT4 con las firmas de Sail); W1-W3 (E2): el DTM por los pines, el DM en
+# directo y dos harts. W4-W6 hablan con GDB por un socket de verdad: van al
+# final y se contrasta `resto` (T-16, como en el F407). V10 suma 221
+# comprobaciones y 19766 us justos: V1-V9 y W1-W3 duran lo mismo que antes
+# (8811500000 con 236). Igual en dos pasadas (07-11-2026).
+testrv                 457      28577500000           resto
 
 # testc3: el ESP32-C3 sin ROM (E3 de doc/analisis_esp32_riscv.md): el
 # arranque por CHIP_PU y los pines de arranque, la UART0 por los pines, el
