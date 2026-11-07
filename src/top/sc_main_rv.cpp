@@ -18,7 +18,8 @@
 //           modo U con PMP, mtvec, triggers, interrupciones del CLINT con wfi,
 //           la errata CPU-863 y las extensiones del fabricante
 //   V8      lockstep con Spike: la cuenta y la huella de la traza de
-//           instrucciones retiradas de cinco ELF (verif/rv/trazas_spike.inc)
+//           instrucciones retiradas de seis ELF (verif/rv/trazas_spike.inc),
+//           uno de ellos con interrupciones del CLINT (irq_spike.S)
 //   V9      CoreMark, validado por su propia CRC
 //
 //   (E2) la depuración genérica, en el laboratorio (rv/debug, rv/gdb):
@@ -98,7 +99,8 @@ static const TrazaSpike TRAZAS_SPIKE[] = {
 };
 
 static const char* const ELF_DIR = "verif/rv/elf/";
-static const char* const PROPIAS[] = {"traps", "umodo", "vec", "irq", "trig", "cpu863", "ext", "dbg"};
+static const char* const PROPIAS[] = {"traps", "umodo", "vec", "irq", "trig", "cpu863", "ext", "dbg",
+                                       "irq_spike"};
 static sc_time g_t_gdb = SC_ZERO_TIME;
 static unsigned puerto_gdb(unsigned i) {
     const char* e = std::getenv("TESTRV_PUERTO_GDB");
@@ -218,7 +220,7 @@ SC_MODULE(TbRv) {
             std::vector<TrozoFw> t;
             if (!lee_elf(std::string(ELF_DIR) + p + ".elf", t, ELF_RISCV).empty()) ++faltan;
         }
-        check(faltan == 0, "las 8 pruebas propias (verif/rv/elf)");
+        check(faltan == 0, "las 9 pruebas propias (verif/rv/elf)");
         std::vector<TrozoFw> t;
         check(lee_elf(std::string(ELF_DIR) + "coremark_rv.elf", t, ELF_RISCV).empty(),
               "coremark_rv.elf");
@@ -262,6 +264,8 @@ SC_MODULE(TbRv) {
         check_eq(corre(imac, d + "irq.elf"), 0,
                  "irq: MSI y MTI del CLINT, directo y vectorizado, wfi y prioridad");
         check_eq(corre(imc, d + "irq.elf"), 0, "irq también en RV32IMC");
+        check_eq(corre(imac, d + "irq_spike.elf"), 0,
+                 "irq_spike: MSI y MTI desenmascaradas por CSR, prioridad, anidada y wfi");
         check_eq(corre(c863, d + "cpu863.elf"), 0,
                  "cpu863: la carga desalineada que cruza y el almacenamiento a otra región PMP");
         check(corre(hw, d + "cpu863.elf") == 2, "y sin la errata no falla (código 2)");
