@@ -99,6 +99,12 @@ public:
         for (size_t i = 0; i < n; ++i) mem_[(a + i) % m_.tam] = d[i];
     }
     void borra_todo() { std::fill(mem_.begin(), mem_.end(), 0xFF); }
+    // Los tiempos de programar y borrar, por un factor (1: los de la hoja de
+    // datos). `--flash-rapida` los deja en el 1 %: un depurador de fuera
+    // (OpenOCD) programa con plazos de reloj de pared, y la simulación no va a
+    // tiempo real (E6)
+    void pon_escala_tiempos(double e) { escala_tiempos_ = e; }
+    double escala_tiempos() const { return escala_tiempos_; }
     uint8_t sr(unsigned i) const { return sr_[i]; }
     bool ocupada(double ahora) const { return ahora < fin_ocupada_; }
     // Lectura de memoria directa (la de la caché por SPI0): lo que devuelve un
@@ -203,7 +209,8 @@ private:
     void actualiza(double ahora) {
         if ((sr_[0] & 1u) && ahora >= fin_ocupada_) sr_[0] &= uint8_t(~3u);   // acaba: WIP y WEL a 0
     }
-    void ocupa(double ahora, double t) { sr_[0] |= 1u; fin_ocupada_ = ahora + t; }
+    double escala_tiempos_ = 1.0;
+    void ocupa(double ahora, double t) { sr_[0] |= 1u; fin_ocupada_ = ahora + t * escala_tiempos_; }
     void borra(uint32_t a, uint32_t n, double t, double ahora) {
         if ((sr_[0] & 1u) || !(sr_[0] & 2u)) return;
         const uint32_t b = (a % m_.tam) & ~(n - 1);

@@ -922,6 +922,13 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   DevKitM-1 (`AutoResetEsp`, `reinicio="esp"` en el puente, la detección de
   baudios de la UART, la latencia de las interrupciones), con el *stub* y sin
   él, a 115 200 y a 921 600; `make esptool-c3` y el CI. `testc3`: C14, 115.
+* **E6 hecha** (2026-11-08) salvo GDB a través de openocd-esp32: el DM y el
+  TAP del C3 (IDCODE 0x00005C25) con la fuente por eFuse (`--jtag=pines`);
+  G1, G2' y las sondas JTAG en `sim`; openocd-esp32 sin tocar por
+  remote_bitbang y CMSIS-DAP con `program_esp` + verify (`make openocd-c3`);
+  `testc3` C15-C16 (131, «resto»); `ide/esp32c3/`. **Pendiente (E6):** GDB
+  por openocd-esp32 después de su `reset halt` no recibe la parada del
+  *trigger*; `info threads` con FreeRTOS por OpenOCD sin comprobar.
 * **P-19/E4 — los registros del arranque del C3 sin documentar, o con dato de
   modelo.** La regla de §8.2 del plan: modelado con dos fuentes o declarado.
   | Qué | Cómo está | Fuente |
@@ -944,6 +951,8 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   | SYSTIMER: PERIOD_MODE y TIMER_UNIT_SEL | mandan al escribirlos; COMPx_LOAD solo pasa el objetivo y el periodo | Deducido de `systimer_hal`: elige el modo después del LOAD |
   | **E5** · UART: la detección de baudios (LOWPULSE, HIGHPULSE, POSPULSE, NEGPULSE, RXD_CNT) | el pulso entero en ciclos de SCLK, menos 1; se reinician al poner AUTOBAUD_EN; sin el filtro de glitches | TRM-C3 §26.4.5 y la ROM (`uart_baudrate_detect`: divisor = (LOW + HIGH) · 8 + 16) |
   | **E5** · La latencia de las interrupciones (4 ciclos, que se facturan al entrar) | una petición nueva no entra en la frontera de instrucción que sigue, sino en la otra; dormido en `wfi`, en el acto | TRM-C3 §1.5.3.1; y deducido de la ROM: `uart_buff_switch` habilita la interrupción de la UART una instrucción antes de decir qué UART es la suya |
+  | **E6** · ndmreset en el C3 | reset de la CPU (y PMS/WCL/ASSIST), no de los periféricos | Deducido de `target/esp32c3.cfg` (esp32c3_soc_reset: el reset del sistema lo hace con RTC_CNTL_SW_SYS_RST) |
+  | **E6** · La fuente del JTAG | DIS_PAD_JTAG, SOFT_DIS_JTAG (impar), JTAG_SEL_ENABLE + GPIO10, DIS_USB_JTAG, al soltar CHIP_PU | TRM-C3 §7.3 y `efuse_reg.h` |
   | **E5** · El reinicio por RFC 2217 (`reinicio="esp"` del puente) | el puente reconoce el principio de la secuencia de esptool y la hace en tiempo simulado (100 ms + 50 ms) | `esp_rfc2217_server` (esp_port_manager.py): lo mismo con una placa de verdad |
 
 ---

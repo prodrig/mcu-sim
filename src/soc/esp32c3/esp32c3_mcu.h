@@ -181,10 +181,16 @@ public:
     programador_nv_if* programador() override { return &prog_; }
 
     bool admite_opcion(const std::string& clave) const override {
-        return clave == "efuse" || clave == "rom" || clave == "jtag";
+        return clave == "efuse" || clave == "rom" || clave == "jtag" || clave == "flash_rapida";
     }
     std::string opcion(const std::string& clave, const std::string& valor) override {
         if (clave == "efuse") return chip_->efuse.carga(valor);
+        if (clave == "flash_rapida") {
+            engancha_flash();
+            if (!chip_->flash()) return "no hay Flash";
+            chip_->flash()->pon_escala_tiempos(valor == "no" ? 1.0 : 0.01);
+            return "";
+        }
         if (clave == "jtag") {
             if (valor != "pines" && valor != "usb")
                 return "jtag=" + valor + ": pines (EFUSE_DIS_USB_JTAG quemado) o usb (de fabrica)";
@@ -204,6 +210,7 @@ public:
     std::string describe_opcion(const std::string& clave) const override {
         if (clave == "efuse") return chip_->efuse.ruta().empty() ? "MAC de omision" : chip_->efuse.ruta();
         if (clave == "rom") return chip_->rom.nombre();
+        if (clave == "flash_rapida") return "programar y borrar la Flash, al 1 % de lo de la hoja de datos";
         if (clave == "jtag") return jtag_ == "pines" ? "en los pines MTMS-MTDO (EFUSE_DIS_USB_JTAG quemado)"
                                                      : "en el USB-Serial-JTAG (de fabrica)";
         return "";

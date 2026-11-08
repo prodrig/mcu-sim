@@ -229,6 +229,7 @@ static std::vector<std::pair<std::string, std::string>> g_roms, g_tlvs, g_bsls,
 // `--mcus`: la lista de los MCUs de la placa, en XML, y nada mas
 static bool        g_lista_mcus = false;
 static unsigned    g_gdb_puerto = 0;
+static bool        g_flash_rapida = false;   // --flash-rapida (E6)
 static bool        g_puerto_dado = false;
 
 // --- La ventana (`mcu-sim-gui`) ---------------------------------------------
@@ -1479,6 +1480,20 @@ SC_MODULE(Sim) {
                 muere(std::string("--") + clave + " " + todos + ": ninguno de los MCUs de "
                       "la placa tiene " + clave + " que se pueda cambiar (es de los MSP432; el usb, tambien del STM32F303)");
         }
+        // --flash-rapida: los tiempos de programar y borrar de la Flash SPI
+        // de los chips que la tienen (ESP32-C3), al 1 % (E6)
+        if (g_flash_rapida) {
+            unsigned n = 0;
+            for (McuMontado& m : mcus)
+                if (m.mcu->admite_opcion("flash_rapida")) {
+                    const std::string e = m.mcu->opcion("flash_rapida", "si");
+                    if (!e.empty()) muere("--flash-rapida: " + e);
+                    std::printf("flash de %s: %s\n", m.decl.id.empty() ? "(el mcu)" : m.decl.id.c_str(),
+                                m.mcu->describe_opcion("flash_rapida").c_str());
+                    ++n;
+                }
+            if (!n) muere("--flash-rapida: ningun MCU de la placa tiene una Flash SPI (es del ESP32-C3)");
+        }
         // Lo que la ROM o el TLV nuevos cambian de lo que se dijo al montar
         for (McuMontado& m : mcus) {
             const std::string nm = m.decl.id.empty() ? std::string("dut") : m.decl.id;
@@ -2318,6 +2333,9 @@ static const OpcionCli OPCIONES[] = {
      "rfc2217:PUERTO, tcp:PUERTO, rfc2217-cliente:HOST:PUERTO, tcp-cliente:HOST:PUERTO "
      "o memoria. Los baudios del terminal llegan al firmware en SET_LINE_CODING. "
      "Sin ID, de todos los que lo tienen"},
+    {"--flash-rapida", "bandera", "", "", "", "", false, true, "",
+     "los tiempos de programar y borrar la Flash SPI de un ESP32-C3, al 1 %: para "
+     "programar con OpenOCD (program_esp), que espera con plazos de reloj de pared"},
     {"--jtag", "valor", "texto", "", "", "", true, true, "u0=pines",
      "a donde va el JTAG de un ESP32-C3, como [ID=]VALOR: pines (MTMS-MTDO, como con "
      "EFUSE_DIS_USB_JTAG quemado: lo que piden --openocd, --cmsis-dap y --gdb) o usb (el "
@@ -2610,6 +2628,7 @@ int sc_main(int argc, char** argv) {
         else if (a == "--gdb-dap") g_gdb_modo = "dap";
         else if (a == "--openocd") g_gdb_modo = "openocd";
         else if (a == "--cmsis-dap") g_gdb_modo = "cmsis-dap";
+        else if (a == "--flash-rapida") g_flash_rapida = true;
         else if (a.rfind("--port=", 0) == 0) {
             g_gdb_puerto = unsigned(std::atoi(a.c_str() + 7));
             g_puerto_dado = true;

@@ -35,5 +35,12 @@ for a in hello_world blink uart_echo; do
     cp "$TRAB/$a/build/partition_table/partition-table.bin" "$TRAB/$VER/$a/partition_table/"
     cp "$TRAB/$a/build/$a.bin" "$TRAB/$VER/$a/"
 done
+# Los simbolos que usa testc3 (C15, la depuracion de E6), en un fichero aparte
+NM=$(command -v riscv32-esp-elf-nm || true)
+if [ -n "$NM" ]; then
+    { echo "# hello_world de ESP-IDF $VER (el de idf-$VER.tar.xz): los simbolos que usa testc3 (C15, E6)"
+      "$NM" "$TRAB/hello_world/build/hello_world.elf" | awk '$3=="app_main"||$3=="xTaskIncrementTick"||$3=="xTickCount"||$3=="pxCurrentTCBs"||$3=="vPortTaskWrapper"||$3=="esp_restart" {print "hello_world", $3, "0x"$1}' | sort -k2
+    } > "$AQUI/simbolos-$VER.txt"
+fi
 tar -C "$TRAB" --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cJf "$AQUI/idf-$VER.tar.xz" "$VER"
 echo "$AQUI/idf-$VER.tar.xz"

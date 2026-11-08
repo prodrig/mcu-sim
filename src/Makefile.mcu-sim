@@ -278,7 +278,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testrv testrv-build asanrv rvt openocd-rv esptool-c3 testc3 testc3-build asanc3 c3fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all testrv testrv-build asanrv rvt openocd-rv esptool-c3 openocd-c3 testc3 testc3-build asanc3 c3fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -623,6 +623,16 @@ sflash-e4: $(MCUSIM)
 #   make -f Makefile.mcu-sim esptool-c3 [ESPTOOL=/ruta/a/esptool]
 esptool-c3: $(MCUSIM) $(B)/idf/.extraido
 	$(PYTHON) verif/esp/esptool_c3.py --sim $(MCUSIM) $(if $(ESPTOOL),--esptool $(ESPTOOL))
+
+# OPENOCD-ESP32 CONTRA EL ESP32-C3 (E6, G2 y D4): target/esp32c3.cfg sin tocar,
+# por remote_bitbang y por CMSIS-DAP en los pines del JTAG (--jtag=pines):
+# examine, program_esp de blink con verify y reset; y GDB contra el stub G1
+# (con ELF=hello_world.elf de la compilacion). Sin openocd-esp32 se OMITE,
+# salvo con OPENOCD_OBLIGATORIO=1.
+#
+#   make -f Makefile.mcu-sim openocd-c3 OPENOCD_ESP32=/ruta/a/openocd [GDB_RV=riscv32-esp-elf-gdb ELF=...]
+openocd-c3: $(MCUSIM) $(B)/idf/.extraido
+	$(PYTHON) verif/esp/openocd_c3.py --sim $(MCUSIM) $(if $(OPENOCD_ESP32),--openocd $(OPENOCD_ESP32)) $(if $(GDB_RV),--gdb $(GDB_RV)) $(if $(ELF),--elf $(ELF))
 
 # EL BSL DEL MSP432P4 (T5, D4): el `mcu-sim` de verdad con
 # placas/msp_exp432p401r.xml y SIN firmware (la Flash en blanco entra en el

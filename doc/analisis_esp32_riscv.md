@@ -1130,6 +1130,53 @@ nuevo arranca.
 
 **Tamaño:** medio. Lo grande se hizo en E2.
 
+**Hecho (2026-11-08), salvo lo que se dice al final.**
+* **En el C3** (`soc/esp32c3/esp32c3.h`): el DM de E2 con `RV_ESP32C3.dbg`, su
+  SBA en el bus, el DTM con el IDCODE 0x00005C25 y el TAP en MTMS (GPIO4), MTDI
+  (GPIO5), MTCK (GPIO6) y MTDO (GPIO7). **La fuente del JTAG por eFuse** al
+  soltar el reset de chip: DIS_PAD_JTAG, SOFT_DIS_JTAG, JTAG_SEL_ENABLE con el
+  pin GPIO10 y DIS_USB_JTAG [TRM-C3 §7.3]; de fábrica va al USB-Serial-JTAG
+  (E7), y `--jtag=pines` / `jtag="pines"` en el `<mcu>` es como quemar
+  DIS_USB_JTAG. Con los pines sin JTAG, sus pull-ups se sueltan (son GPIO).
+  **ndmreset** es un reset de la CPU (como `esp_restart()`), con la CPU en reset
+  mientras está puesto: openocd-esp32 cuenta con eso (desactiva los perros y
+  vuelve a poner ndmreset); si reseteara también los periféricos, el MWDT0 en
+  flashboot volvía a armarse y saltaba en medio del flasher.
+* **G1, G2' y G2 en `sim`**: `--gdb-dap` es el stub con el DM en directo;
+  `--gdb` en un chip con JTAG y sin SWD, G2' (la sonda de bancada y el DTM por
+  los pines); `--openocd` y `--cmsis-dap`, las sondas en JTAG.
+* **D4**: `ProgramadorEsp` (`soc/esp/programador_esp.h`), el `load` de GDB
+  sobre la Flash por las ventanas de la MMU (las páginas mapeadas); y
+  `--flash-rapida` (tiempos de programar y borrar al 1 %), porque el flasher
+  de openocd-esp32 espera con plazos de reloj de pared.
+* **Un arreglo del cliente del DM**: el `c.ebreak` en la IRAM (el C3
+  solo tiene SBA de palabra y la IRAM no admite medias palabras por el bus de
+  datos: el cliente del DM lee, cambia y escribe la palabra, como
+  openocd-esp32).
+* `testc3` C15-C16: con `hello_world` de v5.5 (los símbolos, en
+  `verif/fw/esp32c3/idf/simbolos-v5.5.txt`), por G1 y por G2': `monitor reset
+  halt` (pc 0x4000_0000), `app_main` en la Flash por *trigger*,
+  `xTaskIncrementTick` en la IRAM por `ebreak`, un *watchpoint* en
+  `xTickCount`, un paso y Ctrl-C. 131 comprobaciones; el invariante pasa a
+  «resto» (el socket) y el resto es el total de E5.
+* **`verif/esp/openocd_c3.py`** (`make openocd-c3`; en el CI, si se puede bajar
+  openocd-esp32): **openocd-esp32 v0.12.0-esp32-20260831 sin modificar**, con
+  `target/esp32c3.cfg`, por remote_bitbang: IDCODE, examine (la revisión v0.4
+  de los eFuse), halt, y **`program_esp` de blink con `verify` y `reset`** (el
+  flasher de Espressif corre en el C3 simulado: borra 35 sectores, escribe
+  140 KB y calcula el SHA) y blink arranca; lo mismo por **CMSIS-DAP en JTAG**;
+  y **GDB contra G1 como `idf.py gdb`**: `monitor reset halt`, `thb app_main`,
+  `continue` y `bt` hasta `vPortTaskWrapper`.
+* `ide/esp32c3/`: los dos `.cfg` de OpenOCD, `launch.json` (la extensión de
+  ESP-IDF con G1 y con OpenOCD, y `cppdbg`) y el `.launch` de Espressif-IDE.
+
+**Pendiente:** GDB *a través de* openocd-esp32: al conectarse, OpenOCD ve la
+protección de memoria activa y hace su `reset halt`; después, el punto de
+ruptura no le llega a GDB (el chip arranca y el *trigger* no para), así que
+`info threads` con las tareas de FreeRTOS por OpenOCD no está comprobado. La
+región del DM en el mapa de memoria tampoco: el *program buffer* lo ejecuta el
+hart por dentro.
+
 ### E7 · C3: USB-Serial-JTAG (D3 y G3)
 
 **Entregas:**

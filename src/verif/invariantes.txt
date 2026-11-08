@@ -334,4 +334,6 @@ testrv                 457      28577500000           resto
 # esptool -la deteccion de baudios de la ROM, el SYNC y READ_REG en SLIP-; C1-C13
 # no se mueven (C14 empieza en 17204410347276, el total de E4): la latencia de
 # las interrupciones (una frontera de instruccion) no cambia nada de antes.
-testc3                 115      17267541875572
+# C15-C16 (E6): GDB contra hello_world por G1 y por G2' (los pines MTMS-MTDO)
+# hablan por un socket: desde E6 se contrasta EL RESTO, que es el total de E5.
+testc3                 131      17267541875572        resto

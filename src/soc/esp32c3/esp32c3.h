@@ -147,8 +147,10 @@ public:
     // --- Relojes y resets (señales del SoC) -------------------------------------
     // Los escriben el control del reset y el núcleo (al tocar SYSTEM)
     sc_core::sc_signal<double, sc_core::SC_MANY_WRITERS> hz_cpu{"hz_cpu"}, hz_apb{"hz_apb"};
-    sc_core::sc_signal<bool> rst_cpu_n{"rst_cpu_n"}, rst_per_n{"rst_per_n"},
-                             siempre{"siempre"}, reloj_falso{"reloj_falso"};
+    // rst_cpu_n lo escriben el control del reset y el ndmreset del DM (desde
+    // el hilo del depurador)
+    sc_core::sc_signal<bool, sc_core::SC_MANY_WRITERS> rst_cpu_n{"rst_cpu_n"};
+    sc_core::sc_signal<bool> rst_per_n{"rst_per_n"}, siempre{"siempre"}, reloj_falso{"reloj_falso"};
 
     // --- El bus y el núcleo -----------------------------------------------------------
     tlm_utils::multi_passthrough_target_socket<Esp32C3> bus{"bus"};
@@ -192,8 +194,10 @@ public:
     //   JTAG_SEL_ENABLE = 1: el pin de arranque GPIO10 (1 USB, 0 pines)
     // Un C3 de fábrica (todo a 0) lo tiene en el USB (E7): los pines piden
     // quemar DIS_USB_JTAG, que en el simulador es jtag="pines" en el <mcu>.
-    // ndmreset tiene la CPU en reset mientras está puesto, como en el C3: el
-    // reset del sistema lo hace OpenOCD con RTC_CNTL_SW_SYS_RST.
+    // ndmreset es un reset de la CPU (como el de esp_restart()) que la tiene
+    // en reset mientras está puesto: con resethaltreq, `monitor reset halt`
+    // para en la primera instrucción de la ROM, que vuelve a arrancar la
+    // aplicación. OpenOCD hace además el del sistema, con RTC_CNTL_SW_SYS_RST.
     static constexpr uint32_t IDCODE = 0x00005C25u;
     enum class FuenteJtag { Ninguna, Pines, Usb };
     std::unique_ptr<RvDm> dm;
@@ -290,8 +294,17 @@ public:
         dm->sba.bind(bus);
         dm->ndmreset = [this](bool v) {
             ndm_ = v;
-            if (v) rst_cpu_n.write(false);
-            else if (encendido_) rst_cpu_n.write(true);
+            if (v) {
+                // Un reset de la CPU, como el de esp_restart(): la CPU queda
+                // en reset mientras dure (con lo que va con ella: PMS, World
+                // Controller, ASSIST_DEBUG), y los periféricos siguen como
+                // estaban. openocd-esp32 cuenta con eso: desactiva los perros
+                // y luego vuelve a poner ndmreset (esp32c3_soc_reset)
+                rst_cpu_n.write(false);
+                if (encendido_) { reset_cpu_perif(); csr_.reset(); }
+            } else if (encendido_) {
+                rst_cpu_n.write(true);
+            }
         };
         tap.reset(new RvDtmJtag(*dm, IDCODE, 7));
         jtag.reset(new JtagPines("jtag", *tap, JtagPines::Pines{&gpio.nodo_de(6), &gpio.nodo_de(4),

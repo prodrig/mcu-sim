@@ -163,7 +163,16 @@ public:
     bool escribe16(uint32_t a, uint16_t v) {
         uint32_t x = v;
         if (sba16_ && usar_sba) return sb_escribe(a, 1, x);
-        return pb_acceso(a, x, true, 1);
+        // Sin SBA de 16 bits (el C3 solo la tiene de palabra), leer, cambiar y
+        // escribir la palabra entera: la IRAM del C3 no admite medias palabras
+        // por el bus de datos, y ahí es donde van los c.ebreak (E6). Es lo que
+        // hace openocd-esp32.
+        const uint32_t al = a & ~3u;
+        uint32_t w32 = 0;
+        if (!lee32(al, w32)) return false;
+        const unsigned sh = (a & 2u) * 8u;
+        w32 = (w32 & ~(0xFFFFu << sh)) | (uint32_t(v) << sh);
+        return escribe32(al, w32);
     }
     // Un bloque de palabras seguidas: por SBA con autoincremento, que es lo
     // que hace que un `load` no tarde una eternidad

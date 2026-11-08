@@ -250,6 +250,19 @@ jobs:
             python3 -m pip install --user esptool
           make -f Makefile.mcu-sim esptool-c3
 
+      # openocd-esp32 contra el ESP32-C3 (E6): target/esp32c3.cfg sin tocar,
+      # por remote_bitbang y CMSIS-DAP en los pines del JTAG; program_esp con
+      # verify y blink arrancando. Se baja la version de Espressif; si no se
+      # puede, la prueba se omite (no es obligatoria).
+      - name: openocd-esp32 contra el ESP32-C3
+        working-directory: src
+        run: |
+          V=v0.12.0-esp32-20260831
+          curl -fsSL -o /tmp/ocd-esp32.tgz \
+            https://github.com/espressif/openocd-esp32/releases/download/$V/openocd-esp32-linux-amd64-${V#v}.tar.gz &&
+            tar -C /tmp -xzf /tmp/ocd-esp32.tgz || true
+          make -f Makefile.mcu-sim openocd-c3 OPENOCD_ESP32=/tmp/openocd-esp32/bin/openocd
+
       # El BSL del MSP432P401R (T5, D4): sin firmware, el codigo de arranque
       # entra en el BSL B1, y bsl_p4.py programa por RFC 2217 el ejemplo de eco
       # de TI y comprueba el eco. BSL Scripter de TI no esta en el CI.
