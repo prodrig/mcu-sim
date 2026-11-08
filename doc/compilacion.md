@@ -41,7 +41,7 @@ make teste4             # el MSP432E401Y: 296
 make testserie          # el puente UART: 189
 make testgui            # la frontera con mcu-sim-gui: 145
 make testrv             # el nucleo RISC-V y su depuracion (E1-E2 de los ESP32), con riscv-arch-test: 457
-make testc3             # el ESP32-C3: sin ROM (E3), por la ROM y la Flash con ESP-IDF (E4), el protocolo de esptool (E5), GDB por G1 y G2' (E6) el USB-Serial-JTAG (E7) y el LEDC (E8): 145
+make testc3             # el ESP32-C3: sin ROM (E3), por la ROM y la Flash con ESP-IDF (E4), el protocolo de esptool (E5), GDB por G1 y G2' (E6) el USB-Serial-JTAG (E7) y los periféricos de E8: 154
 make openocd-rv         # OpenOCD y GDB contra el laboratorio RISC-V (OPENOCD=...)
 
 make test407fw          # REGENERA los firmwares (estan versionados) y LUEGO la suite

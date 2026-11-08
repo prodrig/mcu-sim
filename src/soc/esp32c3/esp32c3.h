@@ -63,6 +63,9 @@
 #include "../../periph/esp/gpio_esp.h"
 #include "../../periph/esp/usb_serial_jtag.h"
 #include "../../periph/esp/ledc_esp.h"
+#include "../../periph/esp/rmt_esp.h"
+#include "../../periph/esp/saradc_esp.h"
+#include "../../periph/esp/aes_esp.h"
 #include "../../periph/bloque_declarado.h"
 #include "../../common/imagen_fw.h"
 #include "../../common/analog_net.h"
@@ -179,6 +182,9 @@ public:
     BloqueGuardado fe2, fe, nrx, bb;
     UsbSerialJtagEsp usj;          // E7: D- en GPIO18, D+ en GPIO19
     LedcEsp        ledc;           // E8
+    RmtEsp         rmt;
+    SarAdcEsp      adc;            // y el sensor de temperatura
+    AesEsp         aes;
     RomEsp         rom{c3::ROM0_I, c3::ROM_I_FIN - c3::ROM0_I};
     std::vector<std::unique_ptr<BloqueDeclarado>> declarados;
 
@@ -229,7 +235,7 @@ public:
           fe2("fe2", c3::FE2_B, 0x1000), fe("fe", c3::FE_B, 0x1000), nrx("nrx", c3::NRX_B, 0x400),
           bb("bb", c3::BB_B, 0x1000),
           usj("usb_serial_jtag", c3::USB_SJ_B, gpio.nodo_de(19), gpio.nodo_de(18)),
-          ledc("ledc", c3::LEDC_B),
+          ledc("ledc", c3::LEDC_B), rmt("rmt", c3::RMT_B), adc("apb_saradc", c3::ADC_B), aes("aes", c3::AES_B),
           csr_(gpio), sram_(c3::SRAM_TAM, 0), rtc_fast_(c3::RTC_FAST_TAM, 0) {
         pon_rom_omision();
         bus.register_b_transport(this, &Esp32C3::b_transport);
@@ -256,11 +262,11 @@ public:
 
         struct D { uint32_t b; const char* n; const char* f; };
         static const D dec[] = {
-            {c3::I2C_B, "I2C", "E8"}, {c3::UHCI_B, "UHCI0", "E8"}, {c3::RMT_B, "RMT", "E8"},
+            {c3::I2C_B, "I2C", "E8"}, {c3::UHCI_B, "UHCI0", "E8"}, 
             {c3::SPI2_B, "GP-SPI2", "E8"}, {c3::TWAI_B, "TWAI", "E8"},
-            {c3::I2S_B, "I2S", "E8"}, {c3::AES_B, "AES", "E8"},
+            {c3::I2S_B, "I2S", "E8"}, 
             {c3::RSA_B, "RSA", "E8"}, {c3::DS_B, "DS", "E8"}, {c3::HMAC_B, "HMAC", "E8"},
-            {c3::GDMA_B, "GDMA", "E8"}, {c3::ADC_B, "APB_SARADC", "E8"},
+            {c3::GDMA_B, "GDMA", "E8"},
             {c3::XTS_AES_B, "XTS_AES", "E4"},
         };
         for (const D& d : dec)
@@ -269,7 +275,7 @@ public:
         std::vector<BusSlave*> todos{&gpio, &iomux, &intmtx, &system, &rtc, &efuse, &uart0,
                                      &uart1, &systimer, &timg0, &timg1, &spi0, &spi1, &cache, &sha, &regi2c,
                                      &syscon, &pms,
-                                     &assist, &wcl, &efuse_trm, &fe2, &fe, &nrx, &bb, &usj, &ledc};
+                                     &assist, &wcl, &efuse_trm, &fe2, &fe, &nrx, &bb, &usj, &ledc, &rmt, &adc, &aes};
         for (auto& d : declarados) todos.push_back(d.get());
         for (BusSlave* s : todos) engancha(s);
 
@@ -280,6 +286,10 @@ public:
         usj.irq = [this](bool v) { intmtx.fuente(c3::F_USB_SJ, v); };
         ledc.irq = [this](bool v) { intmtx.fuente(c3::F_LEDC, v); };
         ledc.salida = [this](unsigned c, bool v) { gpio.sig_out[c3::SIG_LEDC0 + c].write(v); };
+        rmt.irq = [this](bool v) { intmtx.fuente(c3::F_RMT, v); };
+        rmt.salida = [this](unsigned c, bool v) { gpio.sig_out[c3::SIG_RMT0 + c].write(v); };
+        adc.irq = [this](bool v) { intmtx.fuente(c3::F_ADC, v); };
+        adc.pad = [this](unsigned n) -> analog_net_if* { return n < 22 ? &gpio.nodo_de(n) : nullptr; };
         systimer.irq = [this](unsigned c, bool v) { intmtx.fuente(c3::F_SYSTIMER0 + c, v); };
         timg0.irq = [this](unsigned b, bool v) { intmtx.fuente(b ? c3::F_TG0_WDT : c3::F_TG0_T0, v); };
         timg1.irq = [this](unsigned b, bool v) { intmtx.fuente(b ? c3::F_TG1_WDT : c3::F_TG1_T0, v); };
@@ -494,7 +504,10 @@ public:
             "programar no programa",
             "el RNG (SYSCON_RND_DATA) es un xorshift32 de semilla fija: igual en cada simulacion",
             "el LEDC (E8): 6 canales y 4 temporizadores, con el fundido; sin la fracción del ciclo",
-            "declarados: SPI2, I2C, UHCI, RMT, TWAI, I2S, AES, RSA, DS, HMAC, GDMA, SAR ADC "
+            "el RMT (E8): transmisión por los canales 0 y 1; sin recepción, portadora, envoltorio de la memoria ni FIFO",
+            "el SAR ADC (E8): lecturas sueltas de ADC1 y ADC2 y el sensor de temperatura; sin el modo continuo (DMA) ni calibración",
+            "el AES (E8): modo típico, AES-128 y AES-256; sin DMA",
+            "declarados: SPI2, I2C, UHCI, TWAI, I2S, RSA, DS, HMAC, GDMA "
             "y XTS_AES (E8); la radio (FE, NRX, BB) guarda sin hacer nada",
             "el USB-Serial-JTAG (E7): CDC-ACM y JTAG, con el reset por DTR/RTS; sin bajo consumo, "
             "sin EXCHG_PINS ni PHY de fuera",
@@ -570,7 +583,7 @@ private:
         uart0.hz_apb = uart1.hz_apb = apb;
         timg0.hz_apb = timg1.hz_apb = apb;
         sha.hz_apb = apb;
-        ledc.hz_apb = apb;
+        ledc.hz_apb = rmt.hz_apb = aes.hz_apb = apb;
     }
 
     // La memoria: puntero al byte, o nullptr. `fetch`: por el bus I.
@@ -694,7 +707,7 @@ private:
     void reset_perifericos() {
         gpio.reset(); intmtx.reset(); system.reset_regs(); uart0.reset(); uart1.reset();
         systimer.reset(); timg0.reset(); timg1.reset(); spi0.reset(); spi1.reset(); cache.reset();
-        sha.reset(); regi2c.reset(); ledc.reset();
+        sha.reset(); regi2c.reset(); ledc.reset(); rmt.reset(); adc.reset(); aes.reset();
         efuse.reset(); syscon.reset(); efuse_trm.reset();
         fe2.reset(); fe.reset(); nrx.reset(); bb.reset();
         reset_cpu_perif();
@@ -715,6 +728,7 @@ private:
         gpio.sig_oe[c3::SIG_U0TXD].write(true);
         gpio.sig_oe[c3::SIG_U1TXD].write(true);
         for (unsigned c = 0; c < LedcEsp::N_CANALES; ++c) gpio.sig_oe[c3::SIG_LEDC0 + c].write(true);
+        for (unsigned c = 0; c < 2; ++c) gpio.sig_oe[c3::SIG_RMT0 + c].write(true);
         for (;;) {
             // Apagado o CHIP_PU bajo: todo quieto
             encendido_ = false;

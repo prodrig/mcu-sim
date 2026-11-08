@@ -102,6 +102,8 @@ public:
     uint64_t bytes_out() const { return n_out_; }
     uint64_t bytes_in() const { return n_in_; }
     const std::vector<uint8_t>& line_coding() const { return lc_; }
+    // Hay un IN listo (WR_DONE, o el búfer lleno): para el anfitrión
+    const sc_core::sc_event& ev_in_listo() const { return ev_in_; }
 
     // --- usb_dev_if ------------------------------------------------------------
     uint8_t transaccion(uint8_t pid, uint8_t addr, uint8_t ep, const std::vector<uint8_t>& s,
@@ -171,9 +173,10 @@ protected:
         switch (off) {
         case EP1:
             if (!in_listo_ && in_.size() < 64) in_.push_back(uint8_t(v));
+            if (in_.size() >= 64) ev_in_.notify(sc_core::SC_ZERO_TIME);
             return;
         case EP1_CONF:
-            if ((v & 1u) && !in_.empty()) in_listo_ = true;            // WR_DONE
+            if ((v & 1u) && !in_.empty()) { in_listo_ = true; ev_in_.notify(sc_core::SC_ZERO_TIME); }   // WR_DONE
             if ((v & 1u) && in_.empty()) in_listo_ = false;
             return;
         case INT_ENA: ena_ = v & 0xFFFu; evalua(); return;
@@ -203,6 +206,7 @@ private:
     std::deque<uint8_t> out_;
     std::vector<uint8_t> in_;
     bool in_listo_ = false;
+    sc_core::sc_event ev_in_;
     uint32_t raw_ = 0, ena_ = 0, conf0_ = 0, misc_ = 0, mem_ = 0;
     bool irq_ = false;
     uint8_t dir_ = 0, config_ = 0;

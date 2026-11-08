@@ -340,4 +340,6 @@ testrv                 457      28577500000           resto
 # secundaria de ESP-IDF esperan su plazo al llenarse su bufer de 64 bytes:
 # eso mueve C8 en adelante (C1-C7 no). C17: el USB con su puente en memoria.
 # E8: C18, el LEDC (ledc.elf): C1-C17 no se mueven (C18 empieza en el total de E7).
-testc3                 145      17859330002000        resto
+# C19: el RMT con dos WS2812, el SAR ADC y su sensor de temperatura, y el AES
+# (e8.elf); C1-C18 no se mueven.
+testc3                 154      17859840002000        resto

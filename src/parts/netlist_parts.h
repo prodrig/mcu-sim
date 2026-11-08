@@ -50,6 +50,7 @@
 #include "xds110.h"
 #include "spi_flash.h"
 #include "auto_reset_esp.h"
+#include "ws2812.h"
 
 namespace stm32 {
 
@@ -3065,6 +3066,17 @@ REGISTRA_PARTE(SdCard,
         };
         return new SdCard(d.id.c_str(), n[d.nodo_de("ck")], n[d.nodo_de("cmd")],
                           opt("dat0"), opt("dat1"), opt("dat2"), opt("dat3"));
+    });
+
+REGISTRA_PARTE(Ws2812,
+    Ayuda("Una tira de LED WS2812 (NeoPixel) en cadena: cada LED toma 24 bits GRB del hilo DIN "
+          "(alto 0,8 us un 1, 0,4 us un 0) y 50 us en bajo los enciende. La que lleva en GPIO8 la "
+          "DevKitM-1 del ESP32-C3; se maneja con el RMT (led_strip).")
+      .pin("din", "obligatorio", "La entrada de datos (DIN) del primer LED.")
+      .atr("n", "1", "cuantos LED")
+      .nota("Observables: colorN (0xRRGGBB) y luzN (de 0 a 1)."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        return new Ws2812(d.id.c_str(), n[d.nodo_de("din")], unsigned(d.num("n", 1)));
     });
 
 REGISTRA_PARTE(AutoResetEsp,

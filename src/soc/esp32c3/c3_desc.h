@@ -61,9 +61,9 @@ constexpr uint32_t UART0_B = 0x60000000u, SPI1_B = 0x60002000u, SPI0_B = 0x60003
 // --- Fuentes de interrupción [TRM-C3 tabla 8.3-1] ----------------------------------
 constexpr unsigned N_FUENTES = 62;
 constexpr unsigned F_GPIO = 16, F_UART0 = 21, F_UART1 = 22, F_TG0_T0 = 32, F_TG0_WDT = 33,
-                   F_TG1_T0 = 34, F_TG1_WDT = 35, F_SYSTIMER0 = 37, F_SW0 = 50, F_USB_SJ = 26, F_LEDC = 23;
+                   F_TG1_T0 = 34, F_TG1_WDT = 35, F_SYSTIMER0 = 37, F_SW0 = 50, F_USB_SJ = 26, F_LEDC = 23, F_RMT = 28, F_ADC = 46;
 // --- Señales de la matriz GPIO [TRM-C3 tabla 5.11-1] --------------------------------
-constexpr unsigned SIG_LEDC0 = 45;
+constexpr unsigned SIG_LEDC0 = 45, SIG_RMT0 = 51;
 constexpr unsigned SIG_U0RXD = 6, SIG_U0TXD = 6, SIG_U1RXD = 9, SIG_U1TXD = 9,
                    SIG_CPU_GPIO0 = 28;
 constexpr unsigned N_GPIO = 22;

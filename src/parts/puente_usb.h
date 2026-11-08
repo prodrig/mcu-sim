@@ -228,9 +228,9 @@ public:
     }
     bool hay_jtag() const { return jtag_in_ && jtag_out_; }
     uint64_t ordenes_jtag() const { return n_jtag_; }
-    // Cada cuánto se pide IN de bulk dentro de una trama (0: una vez por
-    // trama, lo de siempre: el E4 y el F303). El C3 pone 50 (E7)
-    double sondeo_in_us = 0.0;
+    // El aviso del dispositivo de que tiene un IN listo (null: una vez por
+    // trama, lo de siempre: el E4 y el F303). El C3 da el suyo (E7)
+    const sc_core::sc_event* ev_in = nullptr;
     // Desenchufar y enchufar el cable: sin los 15 kOhm no hay anfitrion
     void enchufa(bool on) {
         enchufado_ = on;
@@ -344,17 +344,19 @@ private:
             while (enchufado_ && hay_dispositivo() && estado_ == Estado::Listo) {
                 trama();
                 datos();
-                if (sondeo_in_us > 0) {
-                    // Un anfitrión pide IN de bulk muchas veces por trama, no
-                    // una: el USB-Serial-JTAG del ESP32-C3 lo necesita (la ROM
-                    // espera unos milisegundos a que se vacíe su búfer)
+                if (ev_in) {
+                    // Un anfitrión pide IN de bulk sin parar: aquí, en vez
+                    // de sondear, el dispositivo avisa cuando su búfer está
+                    // listo y se lee 5 us después (lo que tarda un IN). El
+                    // USB-Serial-JTAG del ESP32-C3 lo necesita: la ROM deja de
+                    // esperar a que se vacíe su búfer en unas decenas de us
                     const sc_core::sc_time fin = sc_core::sc_time_stamp() + sc_core::sc_time(1, sc_core::SC_MS);
-                    const sc_core::sc_time paso(sondeo_in_us, sc_core::SC_US);
-                    while (sc_core::sc_time_stamp() + paso < fin && estado_ == Estado::Listo) {
-                        sc_core::wait(paso);
+                    while (estado_ == Estado::Listo && sc_core::sc_time_stamp() < fin) {
+                        sc_core::wait(fin - sc_core::sc_time_stamp(), *ev_in);
+                        if (sc_core::sc_time_stamp() >= fin) break;
+                        sc_core::wait(5, sc_core::SC_US);
                         if (!lee_in()) break;
                     }
-                    if (sc_core::sc_time_stamp() < fin) sc_core::wait(fin - sc_core::sc_time_stamp());
                 } else {
                     sc_core::wait(1, sc_core::SC_MS);
                 }
@@ -455,6 +457,8 @@ private:
         if (nib_.empty()) return;
         if (nib_.size() & 1u) nib_.push_back(0xA);              // CMD_FLUSH de relleno
         std::vector<uint8_t> s, p;
+        unsigned ciclos = 0;
+        for (uint8_t n : nib_) ciclos += (n & 8u) ? 0u : 1u;
         for (size_t i = 0; i < nib_.size(); i += 2) s.push_back(uint8_t((nib_[i] << 4) | nib_[i + 1]));
         nib_.clear();
         for (size_t i = 0; i < s.size(); i += 64) {
@@ -462,6 +466,10 @@ private:
             for (int k = 0; k < 100 && hc_.paquete(PID_OUT, dir_, jtag_out_, t, p) == PID_NAK; ++k)
                 sc_core::wait(10, sc_core::SC_US);
         }
+        // Los ciclos de TCK cuestan lo suyo (10 MHz, como la sonda de
+        // bancada): sin eso, la orden abstracta del DM aún no ha acabado
+        // cuando OpenOCD lee el resultado
+        if (ciclos) sc_core::wait(sc_core::sc_time(100.0 * ciclos, sc_core::SC_NS));
     }
     bool lee_tdo() {
         nib_.push_back(uint8_t(4u | (tdi_ ? 2u : 0u) | (tms_ ? 1u : 0u)));   // CMD_CLK con captura
@@ -485,10 +493,19 @@ private:
             std::fflush(stdout);
         }
         char b[4096];
-        for (int vueltas = 0; vueltas < 64; ++vueltas) {
+        // Mientras OpenOCD hable, se le atiende sin dejar correr el tiempo
+        // simulado (solo lo que cuestan los ciclos de TCK): si cada ida y
+        // vuelta costase una trama (1 ms), el perro de interrupciones de
+        // ESP-IDF (300 ms) saltaría antes de que OpenOCD lo apague. Se deja de
+        // esperar cuando calla 20 ms de reloj.
+        for (;;) {
             const long n = red::recibir(jtag_cli_, b, sizeof b);
             if (n == 0) { red::cerrar(jtag_cli_); return; }
-            if (n < 0) { if (!red::reintentar()) red::cerrar(jtag_cli_); break; }
+            if (n < 0) {
+                if (!red::reintentar()) { red::cerrar(jtag_cli_); return; }
+                if (red::detalle::espera_legible(jtag_cli_, 20) > 0) continue;
+                break;
+            }
             std::string resp;
             for (long i = 0; i < n; ++i) {
                 const char c = b[i];

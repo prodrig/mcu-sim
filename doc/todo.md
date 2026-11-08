@@ -922,25 +922,23 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   DevKitM-1 (`AutoResetEsp`, `reinicio="esp"` en el puente, la detección de
   baudios de la UART, la latencia de las interrupciones), con el *stub* y sin
   él, a 115 200 y a 921 600; `make esptool-c3` y el CI. `testc3`: C14, 115.
-* **E6 hecha** (2026-11-08) salvo GDB a través de openocd-esp32: el DM y el
+* **E6 hecha** (2026-11-08): el DM y el
   TAP del C3 (IDCODE 0x00005C25) con la fuente por eFuse (`--jtag=pines`);
   G1, G2' y las sondas JTAG en `sim`; openocd-esp32 sin tocar por
   remote_bitbang y CMSIS-DAP con `program_esp` + verify (`make openocd-c3`);
-  `testc3` C15-C16 (131, «resto»); `ide/esp32c3/`. **Pendiente (E6):** GDB
-  por openocd-esp32 después de su `reset halt` no recibe la parada del
-  *trigger*; `info threads` con FreeRTOS por OpenOCD sin comprobar.
-* **E7 hecha** (2026-11-08) salvo un `write-flash` grande por el USB: el
+  `testc3` C15-C16 (131, «resto»); `ide/esp32c3/`.
+* **E7 hecha** (2026-11-08): el
   USB-Serial-JTAG (`periph/esp/usb_serial_jtag.h`: CDC-ACM, reset por
   DTR/RTS a descarga, órdenes JTAG sobre el TAP), el JTAG de Espressif como
   servidor remote_bitbang en `PuenteUsbCdc`, la SuperMini con `usb=`;
   `make usb-c3` (consola de ESP-IDF por el USB, openocd-esp32 por G3, esptool
-  --before usb-reset con el *stub*) y `testc3` C17 (139). **Pendiente (E7):**
-  el `write-flash` del bootloader entero por el USB se queda sin respuesta al
-  FLASH_DEFL_END.
-* **E8 en curso** (2026-11-08): hecho el LEDC (`periph/esp/ledc_esp.h`,
-  `ledc.elf`, `testc3` C18, 145). **Pendiente (E8):** RMT + Ws2812, GP-SPI2 +
-  GDMA, I2C, SAR ADC + sensor de temperatura, TWAI, AES/RNG y los avisos de
-  los declarados; los ejemplos de ESP-IDF de cada uno.
+  --before usb-reset con el *stub*) y `testc3` C17 (139).
+* **E8 en curso** (2026-11-08): hechos el LEDC, el RMT con la pieza `Ws2812`,
+  el SAR ADC con el sensor de temperatura y el AES (`testc3` C18-C19, 154).
+  **Pendiente (E8):** GP-SPI2 + GDMA, I2C y TWAI.
+* **E6 y E7: lo pendiente, hecho** (2026-11-08): GDB por openocd-esp32 con
+  FreeRTOS (O5); `write-flash` entero por el USB (`--flash-rapida`), el puente
+  USB que lee los IN cuando el dispositivo avisa, y G3 sin fallos sueltos.
 * **P-19/E4 — los registros del arranque del C3 sin documentar, o con dato de
   modelo.** La regla de §8.2 del plan: modelado con dos fuentes o declarado.
   | Qué | Cómo está | Fuente |

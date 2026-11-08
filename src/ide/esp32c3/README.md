@@ -43,6 +43,5 @@ Ficheros:
 
 Lo comprobado (`make openocd-c3`): IDCODE, examine, halt y `program_esp` +
 verify + reset por remote_bitbang, lo mismo por CMSIS-DAP, y GDB por G1 hasta
-`app_main` con su `bt`. **Pendiente**: GDB a través de openocd-esp32 después
-de su `reset halt` (el punto de ruptura no llega a GDB) y por tanto
-`info threads` con las tareas de FreeRTOS por OpenOCD.
+`app_main` con su `bt`, y GDB a través de openocd-esp32 hasta `app_main` con
+`info threads` (las tareas de FreeRTOS).

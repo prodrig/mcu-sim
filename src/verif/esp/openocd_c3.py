@@ -15,6 +15,9 @@
 #   O4  GDB (riscv32-esp-elf-gdb) contra el stub interno G1 (--gdb-dap), como
 #       `idf.py gdb`: monitor reset halt, thb app_main, continue, bt. Necesita
 #       el ELF de la compilacion de hello_world (--elf): no se versiona
+#   O5  GDB A TRAVES de openocd-esp32 (remote_bitbang): monitor reset halt,
+#       thb app_main, continue, bt e `info threads` con las tareas de
+#       FreeRTOS (main e IDLE), que OpenOCD saca de la memoria del chip
 #
 # --flash-rapida deja los tiempos de programar y borrar la Flash al 1 %: el
 # flasher de openocd-esp32 espera con plazos de reloj de pared.
@@ -61,7 +64,8 @@ class Sim:
         self.log = tempfile.NamedTemporaryFile("w+", suffix=".log", delete=False)
         self.puerto = puerto_libre()
         args = [sim, "placas/esp32c3_devkitm1.xml", os.path.join(IDF, "hello_world", "flash_args"),
-                "--serie", "UART=memoria", "--jtag=pines", "--port=%d" % self.puerto] + extra
+                "--serie", "UART=memoria", "--jtag=pines", "--port=%d" % self.puerto,
+                "--ms=100000000"] + extra
         self.p = subprocess.Popen(args, stdout=self.log, stderr=subprocess.STDOUT)
         t0 = time.time()
         self.listo = False
@@ -199,6 +203,35 @@ def main():
                 check("Temporary breakpoint 1, app_main ()" in o, "O4: monitor reset halt, thb app_main y continue: para en app_main")
                 check("main_task" in o and "vPortTaskWrapper" in o, "O4: bt: app_main <- main_task <- vPortTaskWrapper")
         finally:
+            s.fin()
+    # O5: GDB a traves de OpenOCD, con FreeRTOS
+    if gdb and a.elf:
+        s = Sim(a.sim, ["--openocd"])
+        po = None
+        try:
+            if check(s.listo, "O5: el simulador sirve remote_bitbang en el %d" % s.puerto):
+                cfg = cfg_rb(s.puerto)
+                pg = puerto_libre()
+                po = subprocess.Popen([openocd] + (["-s", scripts] if scripts else []) +
+                                      ["-f", cfg, "-c", "gdb port %d" % pg, "-c", "telnet port disabled",
+                                       "-c", "tcl port disabled"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(3)
+                r = subprocess.run([gdb, "-q", "-batch", "-ex", "set remotetimeout 60",
+                                    "-ex", "target extended-remote localhost:%d" % pg,
+                                    "-ex", "monitor reset halt", "-ex", "maintenance flush register-cache",
+                                    "-ex", "thbreak app_main", "-ex", "continue", "-ex", "bt 3",
+                                    "-ex", "info threads", "-ex", "detach", a.elf],
+                                   capture_output=True, text=True, timeout=600)
+                o = r.stdout + r.stderr
+                check("hit Temporary breakpoint 1, app_main ()" in o,
+                      "O5: GDB por openocd-esp32: reset halt, thb app_main y continue: para en app_main")
+                check('"main" (Name: main)' in o and '"IDLE" (Name: IDLE)' in o,
+                      "O5: info threads: las tareas de FreeRTOS (main e IDLE)")
+                os.unlink(cfg)
+        finally:
+            if po:
+                po.terminate()
+                po.wait(10)
             s.fin()
     print("TOTAL openocd C3: %s" % ("todo OK" if not fallos else "%d fallos" % fallos))
     sys.exit(1 if fallos else 0)

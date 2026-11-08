@@ -199,7 +199,7 @@ public:
             if (!d.valido) return d.error;
             if (puente_usb_) return "el USB ya tiene su puente";
             puente_usb_.reset(new PuenteUsbCdc(chip_->gpio.nodo_de(19), chip_->gpio.nodo_de(18), &chip_->usj, d));
-            puente_usb_->sondeo_in_us = 50.0;
+            puente_usb_->ev_in = &chip_->usj.ev_in_listo();
             if (!puente_usb_->error().empty()) return puente_usb_->error();
             if (pj) { const std::string e = puente_usb_->pon_jtag(pj); if (!e.empty()) return e; jtag_usb_ = pj; }
             return "";

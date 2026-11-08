@@ -346,6 +346,19 @@ inline int espera_escribible(socket_t s, int ms) {
     return ::select(s + 1, nullptr, &esc, &exc, &t);
 #endif
 }
+// Espera, como mucho `ms` milisegundos, a que el socket tenga algo que leer
+// (o se cierre). > 0: lo tiene.
+inline int espera_legible(socket_t s, int ms) {
+    fd_set lec;
+    FD_ZERO(&lec);
+    FD_SET(s, &lec);
+    timeval t{ ms / 1000, (ms % 1000) * 1000 };
+#if defined(_WIN32)
+    return ::select(0, &lec, nullptr, nullptr, &t);
+#else
+    return ::select(s + 1, &lec, nullptr, nullptr, &t);
+#endif
+}
 } // namespace detalle
 
 // Escucha en `host:puerto`. Con el puerto 0 el sistema elige uno libre, y

@@ -1170,12 +1170,12 @@ nuevo arranca.
 * `ide/esp32c3/`: los dos `.cfg` de OpenOCD, `launch.json` (la extensión de
   ESP-IDF con G1 y con OpenOCD, y `cppdbg`) y el `.launch` de Espressif-IDE.
 
-**Pendiente:** GDB *a través de* openocd-esp32: al conectarse, OpenOCD ve la
-protección de memoria activa y hace su `reset halt`; después, el punto de
-ruptura no le llega a GDB (el chip arranca y el *trigger* no para), así que
-`info threads` con las tareas de FreeRTOS por OpenOCD no está comprobado. La
-región del DM en el mapa de memoria tampoco: el *program buffer* lo ejecuta el
-hart por dentro.
+**Lo que quedaba, hecho (2026-11-08):** GDB *a través de* openocd-esp32
+funciona: `monitor reset halt`, `thb app_main`, `continue`, `bt` e `info
+threads` con las tareas de FreeRTOS (`main`, `IDLE`). El fallo era de la prueba:
+el simulador se paraba solo (sin `--ms`) antes de llegar a `app_main`.
+`openocd_c3.py` lo comprueba (O5). Queda sin modelar la región del DM en el
+mapa de memoria: el *program buffer* lo ejecuta el hart por dentro.
 
 ### E7 · C3: USB-Serial-JTAG (D3 y G3)
 
@@ -1239,9 +1239,23 @@ hart por dentro.
   USB, la ROM y la consola secundaria esperan su plazo al llenarse el búfer:
   eso mueve C8-C14 (139 comprobaciones; el resto, 17846755875579 ps).
 
-**Pendiente:** `write-flash` del bootloader entero (13 KB comprimidos) por el
-USB se queda sin respuesta al FLASH_DEFL_END: el stub sigue en marcha y el
-dispositivo no tiene nada pendiente; sin diagnosticar.
+**Lo que quedaba, hecho (2026-11-08):**
+* **`write-flash` entero por el USB.** Por el USB los datos llegan enseguida, y
+  esptool espera la respuesta a FLASH_DEFL_END con un plazo de reloj de pared
+  (6 s). Mientras, el stub sondea la Flash (RDSR) con una escritura a SPI1 por
+  vuelta, y cada escritura a un periférico sincroniza el núcleo: eso simula a
+  ~1 % del tiempo real. Se usa `--flash-rapida`, como con OpenOCD. Por la UART
+  no hace falta: la escritura se solapa con la transferencia, que es lenta.
+  `usb_c3.py` escribe blink entero a 921 600 y blink arranca.
+* **El puente pide los IN cuando el dispositivo avisa** (`ev_in`): el
+  USB-Serial-JTAG avisa con WR_DONE o con el búfer lleno, y el puente lee 5 µs
+  después. Antes los pedía una vez por trama, y la ROM deja de esperar a que se
+  vacíe el búfer en ~1 ms. Sin ese aviso, el E4 y el F303 siguen igual.
+* **G3 sin fallos sueltos.** El puente atendía remote_bitbang una vez por trama,
+  así que cada ida y vuelta de OpenOCD costaba 1 ms simulado y el perro de
+  interrupciones de ESP-IDF (300 ms) saltaba antes de que OpenOCD lo apagase
+  (`cmderr=halt_resume`). Ahora atiende sin dejar correr el tiempo mientras
+  OpenOCD hable, y los ciclos de TCK cuestan 100 ns cada uno.
 
 ### E8 · C3: periféricos de aula
 
@@ -1265,7 +1279,9 @@ tabla son los de `examples/peripherals`, a confirmar con la versión que se use)
 diciendo por qué se ha movido.
 
 
-**En curso (2026-11-08): hecho el LEDC (n.º 1); del 2 al 8, pendientes.**
+**En curso (2026-11-08): hechos el LEDC (1), el RMT con `Ws2812` (2), el SAR
+ADC con el sensor de temperatura (5) y el AES (7; el SHA es de E4 y el RNG de
+E3).**
 * **`periph/esp/ledc_esp.h`**: 6 canales y 4 temporizadores de baja velocidad.
   El reloj sale de LEDC_CONF (APB, RC_FAST o XTAL, con CLK_EN). CLK_DIV va en
   coma fija 10.8 y DUTY_RES en bits. Cada canal sube en HPOINT y baja DUTY tics
@@ -1281,11 +1297,23 @@ diciendo por qué se ha movido.
 * `testc3` C18 mide en el pin un periodo de 250 µs y ciclos de 0,500, 0,250 y
   0,500, y lee DUTY_R = 4096: 145 comprobaciones. C1-C17 no se mueven.
 
-**Pendiente de E8:** el RMT y la pieza `Ws2812`; GP-SPI2 con la GDMA (ST7735);
-el I2C (24Cxx); el SAR ADC y el sensor de temperatura; el TWAI (bus CAN de
-T-24); AES y RNG con vectores (el SHA ya está, E4); los avisos de I2S, RSA,
-HMAC, DS, XTS_AES y UHCI (siguen declarados). Ningún ejemplo de ESP-IDF de E8
-compilado todavía (`ledc_basic` se reproduce a mano).
+* **`periph/esp/rmt_esp.h`**: transmisión por los canales 0 y 1 (la RAM de
+  4 × 48 palabras con MEM_SIZE, el reloj de RMT_SYS_CONF y DIV_CNT, TX_START,
+  TX_STOP, TX_CONTI_MODE, IDLE_OUT, TX_END a la fuente 28; señales 51 y 52).
+  Sin recepción, portadora ni envoltorio de la memoria. **`parts/ws2812.h`**:
+  la tira en cadena (24 bits GRB por LED, la regla de los 0,6 µs, RESET de
+  50 µs).
+* **`periph/esp/saradc_esp.h`**: las lecturas sueltas de ADC1 (GPIO0-4) y ADC2
+  (GPIO5) con su atenuación (750, 1050, 1300 y 2500 mV a fondo de escala), y el
+  sensor de temperatura (TSENS_OUT = (T + 20,52) / 0,4386). Sin el modo
+  continuo.
+* **`periph/esp/aes_esp.h`**: modo típico, AES-128 y AES-256, con el algoritmo
+  de `cryp_algo.h`.
+* `verif/fw/esp32c3/e8.c` y `testc3` C19 comprueban: dos WS2812 (0x102030 y
+  0xFF0080), el ADC con 0,5 V (2730 y 819), 104 a 25 °C, y FIPS-197 C.1 y C.3
+  ida y vuelta. 154 comprobaciones; C1-C18 no se mueven.
+
+**Pendiente de E8:** GP-SPI2 con la GDMA (ST7735), el I2C (24Cxx) y el TWAI.
 
 ### E9 · ESP32-C6: el núcleo HP y el SoC
 

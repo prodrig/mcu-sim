@@ -198,3 +198,4 @@ c3  esp32c3/direct_boot.elf                 15528  0xFAE31D30
 c3  esp32c3/direct_boot.bin                  3472  0xDCF1E737
 # E8: el LEDC (esp-14.2.0 de Espressif, riscv32-esp-elf-)
 c3  esp32c3/ledc.elf                     14312  0x5C3967CA
+c3  esp32c3/e8.elf                       17864  0x65123C25

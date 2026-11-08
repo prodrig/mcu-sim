@@ -58,6 +58,7 @@
 #include "verif/sonda_jtag_rv.h"
 #include "verif/gdb_client.h"
 #include "parts/puente_usb.h"
+#include "parts/ws2812.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -104,6 +105,9 @@ SC_MODULE(TbC3) {
     DmiPorJtag dmi_pines{sonda};
     GdbStubRv g2p{"g2p", dmi_pines, puerto_gdb(1), "gdb-g2p"};
     GdbClient cli;
+    // E8: dos WS2812 en GPIO8 de c3 (el LED de la DevKitM-1, y uno más)
+    Ws2812 tira{"tira", c3.gpio.nodo_de(8), 2, 3.3};
+    int d_g0_ = -1;
     sc_time t_gdb = SC_ZERO_TIME;
     static unsigned puerto_gdb(unsigned i) {
         const char* e = std::getenv("TESTC3_PUERTO_GDB");
@@ -233,7 +237,7 @@ SC_MODULE(TbC3) {
         check(c3.limitaciones().size() >= 5, "limitaciones(): lo que no esta (perifericos de E7-E8, SWD, brownout...)");
         const huella_fw::Veredicto hv = huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "c3");
         std::printf("    %d imagenes: %s\n", hv.comprobadas, hv.detalle.c_str());
-        check(hv.ok() && hv.comprobadas == 8, "los ocho ficheros de la suite son los versionados (verif/fw/huellas.txt)");
+        check(hv.ok() && hv.comprobadas == 9, "los nueve ficheros de la suite son los versionados (verif/fw/huellas.txt)");
     }
 
     void c2() {
@@ -789,7 +793,7 @@ SC_MODULE(TbC3) {
         check(carga_flash_args(c3b, "build/idf/v5.5/hello_world"), "hello_world (v5.5) en c3b, con la consola secundaria en el USB");
         serie::Destino d = serie::parsea("memoria");
         PuenteUsbCdc pu(c3b.gpio.nodo_de(19), c3b.gpio.nodo_de(18), &c3b.usj, d);
-        pu.sondeo_in_us = 50.0;
+        pu.ev_in = &c3b.usj.ev_in_listo();
         c3b.alimenta(true);
         const sc_time t0 = sc_time_stamp();
         while (!pu.listo() && sc_time_stamp() - t0 < sc_time(500, SC_MS)) wait(1, SC_MS);
@@ -879,15 +883,39 @@ SC_MODULE(TbC3) {
         c3.alimenta(false);
     }
 
+    void c19() {
+        grupo("C19 el RMT con dos WS2812, el SAR ADC y su sensor de temperatura, y el AES (E8)");
+        if (d_g0_ < 0) d_g0_ = c3.gpio.nodo_de(0).register_driver("tb_adc");
+        c3.gpio.nodo_de(0).set_drive(d_g0_, 0.5f, 10.0f);          // 0,5 V en GPIO0
+        check(arranca("e8.elf"), "e8.elf");
+        check(espera_fin(sc_time(20, SC_MS)), "acaba");
+        c3.gpio.nodo_de(0).set_hiz(d_g0_);
+        char b[96];
+        check(bz(0) == 1 && c3.rmt.envios(0) == 1, "el RMT manda la trama del canal 0 y da TX_END");
+        std::snprintf(b, sizeof b, "los WS2812 se encienden: 0x%06X y 0x%06X (RGB)", tira.color(0), tira.color(1));
+        check(tira.tramas() >= 1 && tira.color(0) == 0x102030u && tira.color(1) == 0xFF0080u, b);
+        std::snprintf(b, sizeof b, "ADC1, GPIO0 a 0,5 V: %u a 0 dB (2730) y %u a 11 dB (819)", bz(1), bz(2));
+        check(std::abs(int(bz(1)) - 2730) <= 3 && std::abs(int(bz(2)) - 819) <= 3, b);
+        std::snprintf(b, sizeof b, "el sensor de temperatura a 25 C: TSENS_OUT = %u (104)", bz(3));
+        check(bz(3) == 104u, b);
+        check(bz(4) == 0xD8E0C469u && bz(5) == 0x30047B6Au && bz(6) == 0x80B7CDD8u && bz(7) == 0x5AC5B470u,
+              "AES-128, FIPS-197 C.1: 69c4e0d8 6a7b0430 d8cdb780 70b4c55a");
+        check(bz(8) == 0xCAB7A28Eu && bz(9) == 0xBF456751u && bz(10) == 0x9049FCEAu && bz(11) == 0x8960494Bu,
+              "AES-256, FIPS-197 C.3: 8ea2b7ca 516745bf eafc4990 4b496089");
+        check(bz(12) == 0x33221100u && bz(13) == 0x77665544u && bz(14) == 0xBBAA9988u && bz(15) == 0xFFEEDDCCu,
+              "AES-256 descifrado: el texto en claro otra vez");
+        c3.alimenta(false);
+    }
+
     void run() {
         // C3_SOLO=c4 (o c1...c14): un grupo suelto, para desarrollar
         if (const char* solo = std::getenv("C3_SOLO")) {
             const std::string q = solo;
             void (TbC3::*g[])() = {&TbC3::c1, &TbC3::c2, &TbC3::c3_uart, &TbC3::c4, &TbC3::c5, &TbC3::c6, &TbC3::c7,
                                    &TbC3::c8, &TbC3::c9, &TbC3::c10, &TbC3::c11, &TbC3::c12, &TbC3::c13, &TbC3::c14,
-                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18};
+                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19};
             const int k = q.size() > 1 ? std::atoi(q.c_str() + 1) : 0;
-            if (k >= 1 && k <= 18) (this->*g[k - 1])();
+            if (k >= 1 && k <= 19) (this->*g[k - 1])();
             std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
             sc_stop();
             return;
@@ -909,6 +937,7 @@ SC_MODULE(TbC3) {
         c15();
         c17();
         c18();
+        c19();
         std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }
