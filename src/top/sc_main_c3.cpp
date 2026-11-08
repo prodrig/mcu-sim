@@ -44,6 +44,7 @@
 // testc3` extrae en build/idf.
 // =============================================================================
 #include <systemc>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -232,7 +233,7 @@ SC_MODULE(TbC3) {
         check(c3.limitaciones().size() >= 5, "limitaciones(): lo que no esta (perifericos de E7-E8, SWD, brownout...)");
         const huella_fw::Veredicto hv = huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "c3");
         std::printf("    %d imagenes: %s\n", hv.comprobadas, hv.detalle.c_str());
-        check(hv.ok() && hv.comprobadas == 7, "los siete ficheros de la suite son los versionados (verif/fw/huellas.txt)");
+        check(hv.ok() && hv.comprobadas == 8, "los ocho ficheros de la suite son los versionados (verif/fw/huellas.txt)");
     }
 
     void c2() {
@@ -838,15 +839,55 @@ SC_MODULE(TbC3) {
         wait(1, SC_MS);
     }
 
+    // --- E8: el LEDC --------------------------------------------------------------
+    // El periodo y el ciclo de un PWM en un nodo: dos subidas seguidas y la
+    // bajada de en medio
+    bool mide_pwm(analog_net_if& n, double& periodo_us, double& ciclo) {
+        auto alto = [&] { return n.voltage() > 1.65f; };
+        const sc_time lim = sc_time_stamp() + sc_time(5, SC_MS);
+        // Una subida
+        while (alto()) { wait(sc_time(5, SC_MS), n.value_changed_event()); if (sc_time_stamp() >= lim) return false; }
+        while (!alto()) { wait(sc_time(5, SC_MS), n.value_changed_event()); if (sc_time_stamp() >= lim) return false; }
+        const sc_time t0 = sc_time_stamp();
+        while (alto()) { wait(sc_time(5, SC_MS), n.value_changed_event()); if (sc_time_stamp() >= lim) return false; }
+        const sc_time t1 = sc_time_stamp();
+        while (!alto()) { wait(sc_time(5, SC_MS), n.value_changed_event()); if (sc_time_stamp() >= lim) return false; }
+        const sc_time t2 = sc_time_stamp();
+        periodo_us = (t2 - t0).to_seconds() * 1e6;
+        ciclo = (t1 - t0).to_seconds() / (t2 - t0).to_seconds();
+        return true;
+    }
+    void c18() {
+        grupo("C18 el LEDC: 4 kHz con 13 bits en GPIO8, el ciclo y el fundido (E8)");
+        check(arranca("ledc.elf"), "ledc.elf");
+        wait(500, SC_US);
+        double p = 0, d = 0;
+        char b[96];
+        bool ok = mide_pwm(c3.gpio.nodo_de(8), p, d);
+        std::snprintf(b, sizeof b, "50 %%: periodo %.2f us (250), ciclo %.3f", p, d);
+        check(ok && std::fabs(p - 250.0) < 0.5 && std::fabs(d - 0.5) < 0.002, b);
+        while (c3.peek32(buzon_ + 8) < 2) wait(100, SC_US);
+        wait(600, SC_US);
+        ok = mide_pwm(c3.gpio.nodo_de(8), p, d);
+        std::snprintf(b, sizeof b, "25 %% (DUTY_START): periodo %.2f us, ciclo %.3f", p, d);
+        check(ok && std::fabs(p - 250.0) < 0.5 && std::fabs(d - 0.25) < 0.002, b);
+        check(espera_fin(sc_time(20, SC_MS)), "el fundido acaba con DUTY_CHNG_END");
+        check_eq(bz(1), 4096u, "DUTY_R tras el fundido: 2048 + 4 x 512");
+        ok = mide_pwm(c3.gpio.nodo_de(8), p, d);
+        std::snprintf(b, sizeof b, "y el pin, al 50 %% otra vez: ciclo %.3f", d);
+        check(ok && std::fabs(d - 0.5) < 0.002, b);
+        c3.alimenta(false);
+    }
+
     void run() {
         // C3_SOLO=c4 (o c1...c14): un grupo suelto, para desarrollar
         if (const char* solo = std::getenv("C3_SOLO")) {
             const std::string q = solo;
             void (TbC3::*g[])() = {&TbC3::c1, &TbC3::c2, &TbC3::c3_uart, &TbC3::c4, &TbC3::c5, &TbC3::c6, &TbC3::c7,
                                    &TbC3::c8, &TbC3::c9, &TbC3::c10, &TbC3::c11, &TbC3::c12, &TbC3::c13, &TbC3::c14,
-                                   &TbC3::c15, &TbC3::c15, &TbC3::c17};
+                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18};
             const int k = q.size() > 1 ? std::atoi(q.c_str() + 1) : 0;
-            if (k >= 1 && k <= 17) (this->*g[k - 1])();
+            if (k >= 1 && k <= 18) (this->*g[k - 1])();
             std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
             sc_stop();
             return;
@@ -867,6 +908,7 @@ SC_MODULE(TbC3) {
         c14();
         c15();
         c17();
+        c18();
         std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

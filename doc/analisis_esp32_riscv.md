@@ -1264,6 +1264,29 @@ tabla son los de `examples/peripherals`, a confirmar con la versión que se use)
 **Cierre:** el de cada entrega. El invariante de `testc3` se fija en cada una,
 diciendo por qué se ha movido.
 
+
+**En curso (2026-11-08): hecho el LEDC (n.º 1); del 2 al 8, pendientes.**
+* **`periph/esp/ledc_esp.h`**: 6 canales y 4 temporizadores de baja velocidad.
+  El reloj sale de LEDC_CONF (APB, RC_FAST o XTAL, con CLK_EN). CLK_DIV va en
+  coma fija 10.8 y DUTY_RES en bits. Cada canal sube en HPOINT y baja DUTY tics
+  después, y con SIG_OUT_EN a 0 da IDLE_LV. PARA_UP y DUTY_START entran al
+  empezar el periodo. El fundido usa DUTY_INC/NUM/CYCLE/SCALE y acaba con
+  DUTY_CHNG_END. Hay interrupciones de desbordamiento y OVF_CNT (fuente 23).
+  La salida va por la matriz (señales 45-50) con la OE del periférico.
+  Limitación: la fracción del ciclo (los 4 bits bajos de DUTY) no se usa.
+* `verif/fw/esp32c3/ledc.c` reproduce lo que hace `ledc_basic`: 4 kHz con
+  13 bits en GPIO8. Va al 50 %, después al 25 % con DUTY_START, y termina con
+  un fundido de 4 × 512 hasta volver al 50 %. Se compila con la cadena de
+  Espressif, esp-14.2.0.
+* `testc3` C18 mide en el pin un periodo de 250 µs y ciclos de 0,500, 0,250 y
+  0,500, y lee DUTY_R = 4096: 145 comprobaciones. C1-C17 no se mueven.
+
+**Pendiente de E8:** el RMT y la pieza `Ws2812`; GP-SPI2 con la GDMA (ST7735);
+el I2C (24Cxx); el SAR ADC y el sensor de temperatura; el TWAI (bus CAN de
+T-24); AES y RNG con vectores (el SHA ya está, E4); los avisos de I2S, RSA,
+HMAC, DS, XTS_AES y UHCI (siguen declarados). Ningún ejemplo de ESP-IDF de E8
+compilado todavía (`ledc_basic` se reproduce a mano).
+
 ### E9 · ESP32-C6: el núcleo HP y el SoC
 
 **Objetivo:** el segundo chip, que reutiliza el núcleo, la capa de Espressif y

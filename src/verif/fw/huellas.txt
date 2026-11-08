@@ -196,3 +196,5 @@ c3  esp32c3/coremark_c3.elf                 92536  0x5BDA3084
 # E4: Direct Boot desde la Flash (c3_flash.ld); el .bin es la imagen
 c3  esp32c3/direct_boot.elf                 15528  0xFAE31D30
 c3  esp32c3/direct_boot.bin                  3472  0xDCF1E737
+# E8: el LEDC (esp-14.2.0 de Espressif, riscv32-esp-elf-)
+c3  esp32c3/ledc.elf                     14312  0x5C3967CA

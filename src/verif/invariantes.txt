@@ -339,4 +339,5 @@ testrv                 457      28577500000           resto
 # E7: el USB-Serial-JTAG existe, y sin PC en el USB la ROM y la consola
 # secundaria de ESP-IDF esperan su plazo al llenarse su bufer de 64 bytes:
 # eso mueve C8 en adelante (C1-C7 no). C17: el USB con su puente en memoria.
-testc3                 139      17846755875579        resto
+# E8: C18, el LEDC (ledc.elf): C1-C17 no se mueven (C18 empieza en el total de E7).
+testc3                 145      17859330002000        resto

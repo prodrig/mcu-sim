@@ -937,6 +937,10 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   --before usb-reset con el *stub*) y `testc3` C17 (139). **Pendiente (E7):**
   el `write-flash` del bootloader entero por el USB se queda sin respuesta al
   FLASH_DEFL_END.
+* **E8 en curso** (2026-11-08): hecho el LEDC (`periph/esp/ledc_esp.h`,
+  `ledc.elf`, `testc3` C18, 145). **Pendiente (E8):** RMT + Ws2812, GP-SPI2 +
+  GDMA, I2C, SAR ADC + sensor de temperatura, TWAI, AES/RNG y los avisos de
+  los declarados; los ejemplos de ESP-IDF de cada uno.
 * **P-19/E4 — los registros del arranque del C3 sin documentar, o con dato de
   modelo.** La regla de §8.2 del plan: modelado con dos fuentes o declarado.
   | Qué | Cómo está | Fuente |
