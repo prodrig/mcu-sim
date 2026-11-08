@@ -199,6 +199,7 @@ public:
     unsigned causa() const { return causa_; }
     bool force_download() const { return r(0xF4) & 1u; }
     void baja_force_download() { pon(0xF4, r(0xF4) & ~1u); }
+    void pon_force_download() { pon(0xF4, r(0xF4) | 1u); }
     uint32_t store(unsigned i) const {
         static const uint32_t off[8] = {0x50, 0x54, 0x58, 0x5C, 0xB8, 0xBC, 0xC0, 0xC4};
         return r(off[i & 7]);

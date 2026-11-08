@@ -61,6 +61,7 @@
 #include "../../periph/esp/systimer_esp.h"
 #include "../../periph/esp/timg_esp.h"
 #include "../../periph/esp/gpio_esp.h"
+#include "../../periph/esp/usb_serial_jtag.h"
 #include "../../periph/bloque_declarado.h"
 #include "../../common/imagen_fw.h"
 #include "../../common/analog_net.h"
@@ -175,6 +176,7 @@ public:
     // Lo de la radio que el arranque enciende y apaga (FE, FE2, NRX, BB):
     // guardan, sin radio detrás (E12)
     BloqueGuardado fe2, fe, nrx, bb;
+    UsbSerialJtagEsp usj;          // E7: D- en GPIO18, D+ en GPIO19
     RomEsp         rom{c3::ROM0_I, c3::ROM_I_FIN - c3::ROM0_I};
     std::vector<std::unique_ptr<BloqueDeclarado>> declarados;
 
@@ -224,6 +226,7 @@ public:
           efuse_trm("efuse_tabla_trm", c3::EFUSE_TRM_B, 0x1000),
           fe2("fe2", c3::FE2_B, 0x1000), fe("fe", c3::FE_B, 0x1000), nrx("nrx", c3::NRX_B, 0x400),
           bb("bb", c3::BB_B, 0x1000),
+          usj("usb_serial_jtag", c3::USB_SJ_B, gpio.nodo_de(19), gpio.nodo_de(18)),
           csr_(gpio), sram_(c3::SRAM_TAM, 0), rtc_fast_(c3::RTC_FAST_TAM, 0) {
         pon_rom_omision();
         bus.register_b_transport(this, &Esp32C3::b_transport);
@@ -255,7 +258,7 @@ public:
             {c3::I2S_B, "I2S", "E8"}, {c3::AES_B, "AES", "E8"},
             {c3::RSA_B, "RSA", "E8"}, {c3::DS_B, "DS", "E8"}, {c3::HMAC_B, "HMAC", "E8"},
             {c3::GDMA_B, "GDMA", "E8"}, {c3::ADC_B, "APB_SARADC", "E8"},
-            {c3::USB_SJ_B, "USB_SERIAL_JTAG", "E7"}, {c3::XTS_AES_B, "XTS_AES", "E4"},
+            {c3::XTS_AES_B, "XTS_AES", "E4"},
         };
         for (const D& d : dec)
             declarados.emplace_back(new BloqueDeclarado(sc_core::sc_gen_unique_name("decl"),
@@ -263,7 +266,7 @@ public:
         std::vector<BusSlave*> todos{&gpio, &iomux, &intmtx, &system, &rtc, &efuse, &uart0,
                                      &uart1, &systimer, &timg0, &timg1, &spi0, &spi1, &cache, &sha, &regi2c,
                                      &syscon, &pms,
-                                     &assist, &wcl, &efuse_trm, &fe2, &fe, &nrx, &bb};
+                                     &assist, &wcl, &efuse_trm, &fe2, &fe, &nrx, &bb, &usj};
         for (auto& d : declarados) todos.push_back(d.get());
         for (BusSlave* s : todos) engancha(s);
 
@@ -271,6 +274,7 @@ public:
         uart0.irq = [this](bool v) { intmtx.fuente(c3::F_UART0, v); };
         uart1.irq = [this](bool v) { intmtx.fuente(c3::F_UART1, v); };
         gpio.irq = [this](bool v) { intmtx.fuente(c3::F_GPIO, v); };
+        usj.irq = [this](bool v) { intmtx.fuente(c3::F_USB_SJ, v); };
         systimer.irq = [this](unsigned c, bool v) { intmtx.fuente(c3::F_SYSTIMER0 + c, v); };
         timg0.irq = [this](unsigned b, bool v) { intmtx.fuente(b ? c3::F_TG0_WDT : c3::F_TG0_T0, v); };
         timg1.irq = [this](unsigned b, bool v) { intmtx.fuente(b ? c3::F_TG1_WDT : c3::F_TG1_T0, v); };
@@ -302,7 +306,7 @@ public:
                 // y luego vuelve a poner ndmreset (esp32c3_soc_reset)
                 rst_cpu_n.write(false);
                 if (encendido_) { reset_cpu_perif(); csr_.reset(); }
-            } else if (encendido_) {
+            } else if (encendido_ && !usb_rst_) {
                 rst_cpu_n.write(true);
             }
         };
@@ -310,6 +314,23 @@ public:
         jtag.reset(new JtagPines("jtag", *tap, JtagPines::Pines{&gpio.nodo_de(6), &gpio.nodo_de(4),
                                                                  &gpio.nodo_de(5), &gpio.nodo_de(7), nullptr}));
         jtag->activo(false);
+        // El USB-Serial-JTAG: su TAP es el mismo, si los eFuse lo eligen; y el
+        // reset del chip por DTR/RTS (el de esptool --before usb-reset)
+        usj.tap = tap.get();
+        usj.jtag_activo = [this] { return fuente_jtag_ == FuenteJtag::Usb; };
+        usj.reset_chip = [this](bool activo, bool descarga) {
+            usb_rst_ = activo;
+            if (activo) {
+                // La descarga la pide el periférico al reset que provoca, de
+                // una vez (no deja nada en RTC_CNTL: el siguiente arranca
+                // normal)
+                usb_descarga_ = descarga;
+                rtc_pend_ = true;                    // un reset de CHIP: los pines de arranque, otra vez
+                pide_reset(CAUSA_USB_UART, true);
+            } else if (encendido_ && !ndm_) {
+                rst_cpu_n.write(true);
+            }
+        };
 
         siempre.write(true);
         rst_per_n.write(true);
@@ -327,6 +348,7 @@ public:
     // Alimentación: con ella, CHIP_PU sube por su RC (salvo que algo lo baje)
     void alimenta(bool si) {
         alimentado_ = si;
+        usj.alimenta(si);
         if (si) chip_pu.set_drive(d_pu_, 3.3f, 10e3f);
         else    chip_pu.set_drive(d_pu_, 0.0f, 10e3f);
     }
@@ -336,6 +358,7 @@ public:
         CAUSA_POR = 1, CAUSA_SW_SIS = 3, CAUSA_MWDT0_SIS = 7, CAUSA_MWDT1_SIS = 8,
         CAUSA_MWDT0_CPU = 11, CAUSA_SW_CPU = 12, CAUSA_MWDT1_CPU = 17,
         CAUSA_RWDT_SIS = 9, CAUSA_RWDT_CPU = 13, CAUSA_RWDT_RTC = 16,
+        CAUSA_USB_UART = 21,
     };
 
     // --- El firmware ------------------------------------------------------------------
@@ -465,8 +488,10 @@ public:
             "eFuse: solo lectura (de un fichero o la de omision, con la revision del chip); "
             "programar no programa",
             "el RNG (SYSCON_RND_DATA) es un xorshift32 de semilla fija: igual en cada simulacion",
-            "declarados: SPI2, I2C, UHCI, RMT, LEDC, TWAI, I2S, AES, RSA, DS, HMAC, GDMA, SAR ADC, "
-            "USB-Serial-JTAG y XTS_AES (E7, E8); la radio (FE, NRX, BB) guarda sin hacer nada",
+            "declarados: SPI2, I2C, UHCI, RMT, LEDC, TWAI, I2S, AES, RSA, DS, HMAC, GDMA, SAR ADC "
+            "y XTS_AES (E8); la radio (FE, NRX, BB) guarda sin hacer nada",
+            "el USB-Serial-JTAG (E7): CDC-ACM y JTAG, con el reset por DTR/RTS; sin bajo consumo, "
+            "sin EXCHG_PINS ni PHY de fuera",
             "la depuracion: el DM 0.13 y el TAP (IDCODE 0x00005C25) en los pines MTMS-MTDO si "
             "los eFuse los eligen (jtag=\"pines\" en el <mcu>; de fabrica van al USB-Serial-JTAG, "
             "E7); la region del DM no se ve en el mapa de memoria",
@@ -479,7 +504,7 @@ public:
 
 private:
     CsrC3 csr_;
-    bool rtc_pend_ = false, ndm_ = false;
+    bool rtc_pend_ = false, ndm_ = false, usb_rst_ = false, usb_descarga_ = false;
     FuenteJtag fuente_jtag_ = FuenteJtag::Usb;
     void elige_jtag() {
         const uint32_t r0 = efuse.rd(0x30);
@@ -700,7 +725,7 @@ private:
             modo_flash();
             csr_.reset();
             encendido_ = true;
-            rst_cpu_n.write(!ndm_);
+            rst_cpu_n.write(!ndm_ && !usb_rst_);
             // Encendido: hasta que CHIP_PU baje o se pida un reset
             for (;;) {
                 wait(ev_pu_ | ev_reset_);
@@ -714,7 +739,8 @@ private:
                     if (sis) {
                         reset_perifericos();
                         if (rtc_pend_) { rtc.reset_chip(); gpio.latch_arranque(); }
-                        else if (rtc.force_download()) gpio.fuerza_descarga();
+                        if (rtc.force_download() || usb_descarga_) gpio.fuerza_descarga();
+                        usb_descarga_ = false;
                         modo_flash();
                         rtc_pend_ = false;
                     }
@@ -722,7 +748,7 @@ private:
                     rtc.anota_causa(c);
                     csr_.reset();
                     wait(100, sc_core::SC_NS);
-                    rst_cpu_n.write(!ndm_);
+                    rst_cpu_n.write(!ndm_ && !usb_rst_);
                 }
             }
         }

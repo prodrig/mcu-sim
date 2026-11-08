@@ -56,6 +56,7 @@
 #include "rv/gdb/gdb_stub_rv.h"
 #include "verif/sonda_jtag_rv.h"
 #include "verif/gdb_client.h"
+#include "parts/puente_usb.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -450,7 +451,7 @@ SC_MODULE(TbC3) {
         check(tiene(terminal, "Hello world!\r\n") || tiene(terminal, "Hello world!\n"), "Hello world!");
         check(tiene(terminal, "silicon revision v0.4, 2MB external flash"), "\"silicon revision v0.4, 2MB external flash\"");
         check(c3.uart0.salida == terminal, "lo que lee la UART de bancada en GPIO21 es lo que manda la UART0");
-        check(espera_texto(terminal, "rst:0xc (RTC_SW_CPU_RST)", sc_time(11, SC_SEC)),
+        check(espera_texto(terminal, "rst:0xc (RTC_SW_CPU_RST)", sc_time(15, SC_SEC)),
               "esp_restart() a los diez segundos: la ROM otra vez, rst:0xc (RTC_SW_CPU_RST)");
         const sc_time t1 = sc_time_stamp();
         while (cuenta(terminal, "Hello world!") < 2 && sc_time_stamp() - t1 < sc_time(1, SC_SEC)) wait(1, SC_MS);
@@ -498,9 +499,11 @@ SC_MODULE(TbC3) {
         c3b.alimenta(true);
         check(espera_texto(c3b.uart0.salida, "main_task: Returned from app_main()", sc_time(1, SC_SEC)) ||
               espera_texto(c3b.uart0.salida, "Calling app_main()", sc_time(1, SC_SEC)), "arranca");
-        wait(50, SC_MS);
+        // (Sin PC en el USB, la consola secundaria de ESP-IDF espera su plazo
+        // en cada línea: E7)
+        wait(300, SC_MS);
         envia_nodo(c3b.gpio.nodo_de(5), d_b5_, "Hola, E4");
-        wait(20, SC_MS);
+        for (int i = 0; i < 50 && term_b != "Hola, E4"; ++i) wait(10, SC_MS);
         check(term_b == "Hola, E4", "lo que entra por GPIO5 vuelve por GPIO4: \"" + term_b + "\"");
         c3b.alimenta(false);
     }
@@ -604,7 +607,12 @@ SC_MODULE(TbC3) {
         // lee esptool para saber qué chip es
         const size_t t1 = terminal.size();
         envia(slip(orden(0x0A, std::string("\x00\x10\x00\x40", 4))));
-        wait(5, SC_MS);
+        for (int i = 0; i < 50; ++i) {
+            bool hay = false;
+            for (const std::string& x : respuestas(terminal, t1)) hay = hay || (x.size() >= 2 && uint8_t(x[1]) == 0x0A);
+            if (hay) break;
+            wait(1, SC_MS);
+        }
         const std::vector<std::string> r2 = respuestas(terminal, t1);
         // (La ROM contesta ocho veces a cada SYNC: lo que llegue antes son restos)
         uint32_t magia = 0;
@@ -747,15 +755,98 @@ SC_MODULE(TbC3) {
         t_gdb += sc_time_stamp() - t0;
     }
 
+    // --- E7: el USB-Serial-JTAG, con el puente USB en memoria ----------------
+    // Las órdenes del JTAG por el EP2 y lo que vuelve por el EP3
+    uint32_t jtag_usb(PuenteUsbCdc& pu, const std::vector<uint8_t>& nib, unsigned nbits) {
+        std::vector<uint8_t> s, p;
+        std::vector<uint8_t> n = nib;
+        if (n.size() & 1u) n.push_back(0xA);
+        for (size_t i = 0; i < n.size(); i += 2) s.push_back(uint8_t((n[i] << 4) | n[i + 1]));
+        const uint8_t dir = c3b.usj.direccion();
+        pu.controlador().paquete(PID_OUT, dir, 2, s, p);
+        uint32_t v = 0;
+        unsigned k = 0;
+        for (int intento = 0; intento < 20 && k < nbits; ++intento) {
+            if (pu.controlador().paquete(PID_IN, dir, 3, {}, p) != PID_ACK) continue;
+            for (uint8_t b : p) for (unsigned j = 0; j < 8 && k < nbits; ++j, ++k) v |= uint32_t((b >> j) & 1u) << k;
+        }
+        return v;
+    }
+    uint32_t idcode_usb(PuenteUsbCdc& pu) {
+        std::vector<uint8_t> n;
+        for (int i = 0; i < 5; ++i) n.push_back(0x1);                 // TMS = 1: Test-Logic-Reset
+        n.push_back(0x0); n.push_back(0x1); n.push_back(0x0); n.push_back(0x0);   // -> Shift-DR (IR = IDCODE)
+        for (int i = 0; i < 32; ++i) n.push_back(uint8_t(0x4 | (i == 31 ? 1 : 0)));  // 32 bits, capturando
+        n.push_back(0xA);                                              // CMD_FLUSH
+        return jtag_usb(pu, n, 32);
+    }
+    void c17() {
+        grupo("C17 el USB-Serial-JTAG: CDC-ACM, consola de ESP-IDF, descarga por USB y JTAG (E7)");
+        c3b.alimenta(false);
+        wait(10, SC_US);
+        if (c3b.flash()) c3b.flash()->borra_todo();
+        check(carga_flash_args(c3b, "build/idf/v5.5/hello_world"), "hello_world (v5.5) en c3b, con la consola secundaria en el USB");
+        serie::Destino d = serie::parsea("memoria");
+        PuenteUsbCdc pu(c3b.gpio.nodo_de(19), c3b.gpio.nodo_de(18), &c3b.usj, d);
+        pu.sondeo_in_us = 50.0;
+        c3b.alimenta(true);
+        const sc_time t0 = sc_time_stamp();
+        while (!pu.listo() && sc_time_stamp() - t0 < sc_time(500, SC_MS)) wait(1, SC_MS);
+        char b[96];
+        std::snprintf(b, sizeof b, "el PC lo enumera: %04X:%04X \"%s\"", pu.vid(), pu.pid(), pu.producto().c_str());
+        check(pu.listo() && pu.vid() == 0x303A && pu.pid() == 0x1001, b);
+        check(pu.hay_jtag(), "y encuentra la interfaz JTAG de Espressif (FF/FF/01) con sus dos bulk");
+        // La consola: la secundaria de ESP-IDF en el CDC
+        const sc_time t1 = sc_time_stamp();
+        while (pu.memoria()->recibido().find("Hello world!") == std::string::npos && sc_time_stamp() - t1 < sc_time(1500, SC_MS))
+            wait(5, SC_MS);
+        check(pu.memoria()->recibido().find("Hello world!") != std::string::npos,
+              "la consola de ESP-IDF sale por el USB (CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG): \"Hello world!\"");
+        // El JTAG del chip, por el USB (los eFuse de fábrica lo llevan aquí)
+        std::snprintf(b, sizeof b, "el IDCODE por el USB (CMD_CLK con captura y CMD_FLUSH): 0x%08X", idcode_usb(pu));
+        check(idcode_usb(pu) == Esp32C3::IDCODE, b);
+        // La descarga por USB: la secuencia «usb-reset» de esptool, en SET-CONTROL de RFC 2217
+        terminal.clear();
+        c3b.uart0.salida.clear();
+        for (uint8_t v : {12, 9, 8, 12, 11, 9, 11, 9, 12}) { pu.pide_control(v); wait(5, SC_MS); }
+        const sc_time t3 = sc_time_stamp();
+        while (c3b.uart0.salida.find("waiting for download") == std::string::npos && sc_time_stamp() - t3 < sc_time(200, SC_MS))
+            wait(1, SC_MS);
+        const std::string& o = c3b.uart0.salida;
+        if (std::getenv("C3_DBG")) std::printf("  [c17] uart0: %s\n", o.substr(o.size() > 400 ? o.size() - 400 : 0).c_str());
+        check(o.find("rst:0x15 (USB_UART_CHIP_RESET),boot:0x4 (DOWNLOAD(USB/UART0") != std::string::npos,
+              "DTR y RTS (la secuencia usb-reset de esptool): rst:0x15, boot:0x4, modo descarga");
+        // El SYNC por el CDC: la ROM contesta por el USB
+        const size_t r0 = pu.memoria()->recibido().size();
+        bool sync = false;
+        for (int i = 0; i < 6 && !sync; ++i) {
+            pu.memoria()->empuja(sync_esptool());
+            wait(20, SC_MS);
+            for (const std::string& x : respuestas(pu.memoria()->recibido(), r0))
+                if (x.size() >= 2 && uint8_t(x[0]) == 1 && uint8_t(x[1]) == 0x08) sync = true;
+        }
+        check(sync, "el SYNC de esptool por el CDC: la ROM contesta por el USB (sin detectar baudios)");
+        // Con DIS_USB_JTAG (jtag=pines), el JTAG ya no llega por el USB
+        c3b.jtag_en_pines(true);
+        c3b.alimenta(false); wait(10, SC_US); c3b.alimenta(true);
+        const sc_time t2 = sc_time_stamp();
+        while (!pu.listo() && sc_time_stamp() - t2 < sc_time(500, SC_MS)) wait(1, SC_MS);
+        check(idcode_usb(pu) == 0u, "con DIS_USB_JTAG quemado, el TAP no contesta por el USB (lee 0)");
+        c3b.jtag_en_pines(false);
+        c3b.alimenta(false);
+        pu.enchufa(false);
+        wait(1, SC_MS);
+    }
+
     void run() {
         // C3_SOLO=c4 (o c1...c14): un grupo suelto, para desarrollar
         if (const char* solo = std::getenv("C3_SOLO")) {
             const std::string q = solo;
             void (TbC3::*g[])() = {&TbC3::c1, &TbC3::c2, &TbC3::c3_uart, &TbC3::c4, &TbC3::c5, &TbC3::c6, &TbC3::c7,
                                    &TbC3::c8, &TbC3::c9, &TbC3::c10, &TbC3::c11, &TbC3::c12, &TbC3::c13, &TbC3::c14,
-                                   &TbC3::c15};
+                                   &TbC3::c15, &TbC3::c15, &TbC3::c17};
             const int k = q.size() > 1 ? std::atoi(q.c_str() + 1) : 0;
-            if (k >= 1 && k <= 15) (this->*g[k - 1])();
+            if (k >= 1 && k <= 17) (this->*g[k - 1])();
             std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
             sc_stop();
             return;
@@ -775,6 +866,7 @@ SC_MODULE(TbC3) {
         c13();
         c14();
         c15();
+        c17();
         std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

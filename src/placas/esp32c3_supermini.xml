@@ -11,9 +11,14 @@
          RST    pulsador de CHIP_PU a masa, con 10 kohm a 3V3
          J1-J2  los dos cabezales de 8: GPIO0-10, GPIO20/21 (RX/TX), 5V, GND,
                 3V3. GPIO20 y GPIO21 son la UART0
-         El USB-C va al USB-Serial-JTAG del chip (GPIO18/19): E7. Hasta
-         entonces la UART0 sale por los pines RX/TX, y aqui la recoge un
-         puente serie (UART0, como un adaptador USB-serie en esos pines).
+         USB-C  al USB-Serial-JTAG del chip (D- GPIO18, D+ GPIO19), E7: el
+                simulador hace de PC (usb= en el <mcu>, o --usb), lleva su
+                CDC-ACM a rfc2217:3356 y su JTAG a remote_bitbang en el 3337:
+                  esptool --port rfc2217://localhost:3356 --before usb-reset chip-id
+                  openocd -c "adapter driver remote_bitbang; remote_bitbang port 3337"
+                          -c "transport select jtag" -f target/esp32c3.cfg
+                La UART0 sale ademas por los pines RX/TX, y aqui la recoge un
+                puente serie (UART0, como un adaptador USB-serie en esos pines).
 
      El chip, ESP32-C3FH4, con la Flash de 4 MB dentro. Arranca por la ROM
      (E4): una compilacion de ESP-IDF entra por su flash_args, una imagen de
@@ -27,7 +32,7 @@
          ./build/mcu-sim placas/esp32c3_supermini.xml verif/fw/esp32c3/uart.elf --serie UART0=memoria --ms=10
 -->
 <placa nombre="esp32c3-supermini">
-  <mcu tipo="ESP32-C3FH4" id="u0"/>
+  <mcu tipo="ESP32-C3FH4" id="u0" usb="rfc2217:3356,jtag=3337"/>
 
   <nodo id="CHIP_PU" bus="si"/>
 

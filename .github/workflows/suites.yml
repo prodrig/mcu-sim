@@ -250,6 +250,15 @@ jobs:
             python3 -m pip install --user esptool
           make -f Makefile.mcu-sim esptool-c3
 
+      # El USB-Serial-JTAG del ESP32-C3 (E7): la SuperMini con el PC del
+      # simulador en su USB; la consola de ESP-IDF por el CDC y esptool
+      # --before usb-reset (el reset a descarga lo hace el periferico).
+      - name: El USB-Serial-JTAG del ESP32-C3
+        working-directory: src
+        env:
+          ESPTOOL_OBLIGATORIO: 1
+        run: make -f Makefile.mcu-sim usb-c3
+
       # openocd-esp32 contra el ESP32-C3 (E6): target/esp32c3.cfg sin tocar,
       # por remote_bitbang y CMSIS-DAP en los pines del JTAG; program_esp con
       # verify y blink arrancando. Se baja la version de Espressif; si no se

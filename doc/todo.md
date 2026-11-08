@@ -929,6 +929,14 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   `testc3` C15-C16 (131, «resto»); `ide/esp32c3/`. **Pendiente (E6):** GDB
   por openocd-esp32 después de su `reset halt` no recibe la parada del
   *trigger*; `info threads` con FreeRTOS por OpenOCD sin comprobar.
+* **E7 hecha** (2026-11-08) salvo un `write-flash` grande por el USB: el
+  USB-Serial-JTAG (`periph/esp/usb_serial_jtag.h`: CDC-ACM, reset por
+  DTR/RTS a descarga, órdenes JTAG sobre el TAP), el JTAG de Espressif como
+  servidor remote_bitbang en `PuenteUsbCdc`, la SuperMini con `usb=`;
+  `make usb-c3` (consola de ESP-IDF por el USB, openocd-esp32 por G3, esptool
+  --before usb-reset con el *stub*) y `testc3` C17 (139). **Pendiente (E7):**
+  el `write-flash` del bootloader entero por el USB se queda sin respuesta al
+  FLASH_DEFL_END.
 * **P-19/E4 — los registros del arranque del C3 sin documentar, o con dato de
   modelo.** La regla de §8.2 del plan: modelado con dos fuentes o declarado.
   | Qué | Cómo está | Fuente |
@@ -951,6 +959,9 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   | SYSTIMER: PERIOD_MODE y TIMER_UNIT_SEL | mandan al escribirlos; COMPx_LOAD solo pasa el objetivo y el periodo | Deducido de `systimer_hal`: elige el modo después del LOAD |
   | **E5** · UART: la detección de baudios (LOWPULSE, HIGHPULSE, POSPULSE, NEGPULSE, RXD_CNT) | el pulso entero en ciclos de SCLK, menos 1; se reinician al poner AUTOBAUD_EN; sin el filtro de glitches | TRM-C3 §26.4.5 y la ROM (`uart_baudrate_detect`: divisor = (LOW + HIGH) · 8 + 16) |
   | **E5** · La latencia de las interrupciones (4 ciclos, que se facturan al entrar) | una petición nueva no entra en la frontera de instrucción que sigue, sino en la otra; dormido en `wfi`, en el acto | TRM-C3 §1.5.3.1; y deducido de la ROM: `uart_buff_switch` habilita la interrupción de la UART una instrucción antes de decir qué UART es la suya |
+  | **E7** · USB-Serial-JTAG: el reset por DTR/RTS | (RTS, DTR) = (1, 0) es un reset de chip (rst:0x15); a descarga si se llega desde (1, 1) | Deducido de la secuencia usb-reset de esptool y del TRM-C3 §30.3.2 (sin tabla de verdad completa) |
+  | **E7** · USB-Serial-JTAG: las órdenes del JTAG | dos por byte, la primera en el nibble alto; REP en base 4 | **De modelo** (el driver esp_usb_jtag de OpenOCD; el TRM no da el formato) |
+  | **E7** · USB-Serial-JTAG: SERIAL_OUT_RECV_PKT y SERIAL_IN_EMPTY | vuelven a ponerse (con flanco) si al borrarlas queda dato o el búfer de entrada sigue vacío | **De modelo** |
   | **E6** · ndmreset en el C3 | reset de la CPU (y PMS/WCL/ASSIST), no de los periféricos | Deducido de `target/esp32c3.cfg` (esp32c3_soc_reset: el reset del sistema lo hace con RTC_CNTL_SW_SYS_RST) |
   | **E6** · La fuente del JTAG | DIS_PAD_JTAG, SOFT_DIS_JTAG (impar), JTAG_SEL_ENABLE + GPIO10, DIS_USB_JTAG, al soltar CHIP_PU | TRM-C3 §7.3 y `efuse_reg.h` |
   | **E5** · El reinicio por RFC 2217 (`reinicio="esp"` del puente) | el puente reconoce el principio de la secuencia de esptool y la hace en tiempo simulado (100 ms + 50 ms) | `esp_rfc2217_server` (esp_port_manager.py): lo mismo con una placa de verdad |

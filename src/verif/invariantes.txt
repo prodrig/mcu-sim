@@ -336,4 +336,7 @@ testrv                 457      28577500000           resto
 # las interrupciones (una frontera de instruccion) no cambia nada de antes.
 # C15-C16 (E6): GDB contra hello_world por G1 y por G2' (los pines MTMS-MTDO)
 # hablan por un socket: desde E6 se contrasta EL RESTO, que es el total de E5.
-testc3                 131      17267541875572        resto
+# E7: el USB-Serial-JTAG existe, y sin PC en el USB la ROM y la consola
+# secundaria de ESP-IDF esperan su plazo al llenarse su bufer de 64 bytes:
+# eso mueve C8 en adelante (C1-C7 no). C17: el USB con su puente en memoria.
+testc3                 139      17846755875579        resto

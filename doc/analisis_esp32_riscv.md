@@ -1207,6 +1207,42 @@ hart por dentro.
 
 **Tamaño:** medio.
 
+**Hecho (2026-11-08), salvo un `write-flash` grande por el USB.**
+* **`periph/esp/usb_serial_jtag.h`**: el dispositivo de función fija detrás de
+  `usb_dev_if`, con sus descriptores (303A:1001, compuesto con IAD: el CDC-ACM
+  en las interfaces 0 y 1 y el JTAG de Espressif, FF/FF/01, en la 2); el CDC
+  con sus dos búferes de 64 bytes (EP1, WR_DONE, SERIAL_IN_EP_DATA_FREE,
+  SERIAL_OUT_EP_DATA_AVAIL) y sus interrupciones (fuente 26); el pull-up de
+  1,5 kΩ en D+ (USB_PAD_ENABLE, DP_PULLUP); **el reset por DTR/RTS**: (RTS,
+  DTR) = (1, 0) es el reset (rst:0x15, USB_UART_CHIP_RESET, un reset de chip
+  que vuelve a leer los pines de arranque), a modo descarga si se llega desde
+  (1, 1); y **el procesador de órdenes JTAG** (CMD_CLK, CMD_RST, CMD_FLUSH,
+  CMD_REP) sobre el TAP del chip cuando los eFuse lo eligen (de fábrica, sí).
+  La disposición de los nibbles y de REP es de modelo.
+* **`PuenteUsbCdc`**: encuentra el CDC en un dispositivo compuesto y la
+  interfaz JTAG de Espressif, y la saca como **servidor remote_bitbang**
+  (`--usb rfc2217:P,jtag=P2`): cada flanco de TCK es una CMD_CLK y cada 'R' de
+  OpenOCD adelanta la CMD_CLK con captura y un FLUSH. `sondeo_in_us`: el C3
+  pide los IN de bulk cada 50 µs dentro de la trama (la ROM y el stub esperan
+  pocos milisegundos a que se vacíe el búfer); el E4 y el F303 siguen igual.
+* La SuperMini lleva `usb="rfc2217:3356,jtag=3337"` en su `<mcu>`.
+* **Comprobado** (`verif/esp/usb_c3.py`, `make usb-c3`, en el CI): la consola
+  de ESP-IDF por el USB (la secundaria de `hello_world`, que viene puesta);
+  openocd-esp32 por G3 (IDCODE, examine, halt); `esptool --before usb-reset`
+  con el *stub* (`chip-id`) y `write-flash` de la tabla de particiones con su
+  MD5, y `hello_world` vuelve a arrancar. Y `idf.py monitor` abre el puerto
+  activando DTR y RTS y luego quita DTR: pasa por (1, 0) y reinicia en
+  descarga, como el silicio (es el aviso conocido de los C3 con Arduino).
+* `testc3` C17: la enumeración, la consola por el CDC, el IDCODE por el USB, la
+  secuencia usb-reset hasta «waiting for download», el SYNC contestado por el
+  USB, y que con DIS_USB_JTAG el TAP no contesta por el USB. Sin PC en el
+  USB, la ROM y la consola secundaria esperan su plazo al llenarse el búfer:
+  eso mueve C8-C14 (139 comprobaciones; el resto, 17846755875579 ps).
+
+**Pendiente:** `write-flash` del bootloader entero (13 KB comprimidos) por el
+USB se queda sin respuesta al FLASH_DEFL_END: el stub sigue en marcha y el
+dispositivo no tiene nada pendiente; sin diagnosticar.
+
 ### E8 · C3: periféricos de aula
 
 Por orden de uso en prácticas. Cada periférico es una entrega con su firmware

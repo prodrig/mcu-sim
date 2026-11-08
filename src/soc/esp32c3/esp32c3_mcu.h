@@ -38,6 +38,7 @@
 #include "../../parts/netlist.h"
 #include "../../common/nombres_nodo.h"
 #include "../../parts/spi_flash.h"
+#include "../../parts/puente_usb.h"
 #include "../esp/programador_esp.h"
 #include "../../rv/gdb/gdb_stub_rv.h"
 
@@ -80,6 +81,7 @@ public:
         }
     }
     ~McuC3() override {
+        puente_usb_.reset();
         gdb_.reset();
         delete chip_;
         for (AnalogNet* n : propios_) delete n;
@@ -181,10 +183,27 @@ public:
     programador_nv_if* programador() override { return &prog_; }
 
     bool admite_opcion(const std::string& clave) const override {
-        return clave == "efuse" || clave == "rom" || clave == "jtag" || clave == "flash_rapida";
+        return clave == "efuse" || clave == "rom" || clave == "jtag" || clave == "flash_rapida" || clave == "usb";
     }
     std::string opcion(const std::string& clave, const std::string& valor) override {
         if (clave == "efuse") return chip_->efuse.carga(valor);
+        // El USB-Serial-JTAG (E7): un PC en D+ (GPIO19) y D- (GPIO18) que lo
+        // enumera; su CDC-ACM va al destino serie y, con ",jtag=PUERTO", su
+        // JTAG a un servidor remote_bitbang para OpenOCD (G3)
+        if (clave == "usb") {
+            std::string v = valor;
+            unsigned pj = 0;
+            const size_t c = v.find(",jtag=");
+            if (c != std::string::npos) { pj = unsigned(std::atoi(v.c_str() + c + 6)); v = v.substr(0, c); }
+            const serie::Destino d = serie::parsea(v);
+            if (!d.valido) return d.error;
+            if (puente_usb_) return "el USB ya tiene su puente";
+            puente_usb_.reset(new PuenteUsbCdc(chip_->gpio.nodo_de(19), chip_->gpio.nodo_de(18), &chip_->usj, d));
+            puente_usb_->sondeo_in_us = 50.0;
+            if (!puente_usb_->error().empty()) return puente_usb_->error();
+            if (pj) { const std::string e = puente_usb_->pon_jtag(pj); if (!e.empty()) return e; jtag_usb_ = pj; }
+            return "";
+        }
         if (clave == "flash_rapida") {
             engancha_flash();
             if (!chip_->flash()) return "no hay Flash";
@@ -210,6 +229,9 @@ public:
     std::string describe_opcion(const std::string& clave) const override {
         if (clave == "efuse") return chip_->efuse.ruta().empty() ? "MAC de omision" : chip_->efuse.ruta();
         if (clave == "rom") return chip_->rom.nombre();
+        if (clave == "usb")
+            return puente_usb_ ? puente_usb_->describir() + (jtag_usb_ ? ", y su JTAG por remote_bitbang en localhost:" +
+                                                                          std::to_string(jtag_usb_) : std::string()) : "";
         if (clave == "flash_rapida") return "programar y borrar la Flash, al 1 % de lo de la hoja de datos";
         if (clave == "jtag") return jtag_ == "pines" ? "en los pines MTMS-MTDO (EFUSE_DIS_USB_JTAG quemado)"
                                                      : "en el USB-Serial-JTAG (de fabrica)";
@@ -257,6 +279,11 @@ private:
     ProgramadorEsp prog_;
     std::unique_ptr<GdbStubRv> gdb_;
     std::string jtag_ = "usb";
+    std::unique_ptr<PuenteUsbCdc> puente_usb_;
+    unsigned jtag_usb_ = 0;
+public:
+    PuenteUsbCdc* puente_usb() { return puente_usb_.get(); }
+private:
     std::vector<AnalogNet*> propios_;
     analog_net_if *vdd_, *vdd_rtc_, *vdd_spi_, *vdda_, *gnd_;
     int d_vdd_ = -1, d_gnd_ = -1, d_pu_ = -1;
