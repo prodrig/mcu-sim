@@ -933,9 +933,11 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   servidor remote_bitbang en `PuenteUsbCdc`, la SuperMini con `usb=`;
   `make usb-c3` (consola de ESP-IDF por el USB, openocd-esp32 por G3, esptool
   --before usb-reset con el *stub*) y `testc3` C17 (139).
-* **E8 en curso** (2026-11-08): hechos el LEDC, el RMT con la pieza `Ws2812`,
-  el SAR ADC con el sensor de temperatura y el AES (`testc3` C18-C19, 154).
-  **Pendiente (E8):** GP-SPI2 + GDMA, I2C y TWAI.
+* **E8 hecha** (2026-11-08): el LEDC, el RMT con la pieza `Ws2812`, el SAR
+  ADC con el sensor de temperatura y el AES (`testc3` C18-C19); el I2C contra
+  una 24Cxx (C20), el GP-SPI2 con la GDMA contra un ST7735 (C21) y el TWAI
+  sobre `CanMotor` con un nodo CAN en el hilo (C22): 174. Declarados con
+  aviso: UHCI, I2S, RSA, DS, HMAC y XTS_AES.
 * **E6 y E7: lo pendiente, hecho** (2026-11-08): GDB por openocd-esp32 con
   FreeRTOS (O5); `write-flash` entero por el USB (`--flash-rapida`), el puente
   USB que lee los IN cuando el dispositivo avisa, y G3 sin fallos sueltos.

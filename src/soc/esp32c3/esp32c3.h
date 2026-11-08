@@ -66,6 +66,10 @@
 #include "../../periph/esp/rmt_esp.h"
 #include "../../periph/esp/saradc_esp.h"
 #include "../../periph/esp/aes_esp.h"
+#include "../../periph/esp/i2c_esp.h"
+#include "../../periph/esp/twai_esp.h"
+#include "../../periph/esp/gdma_esp.h"
+#include "../../periph/esp/spi_gp_esp.h"
 #include "../../periph/bloque_declarado.h"
 #include "../../common/imagen_fw.h"
 #include "../../common/analog_net.h"
@@ -185,6 +189,10 @@ public:
     RmtEsp         rmt;
     SarAdcEsp      adc;            // y el sensor de temperatura
     AesEsp         aes;
+    I2cEsp         i2c;
+    TwaiEsp        twai;
+    GdmaEsp        gdma;
+    SpiGpEsp       spi2;
     RomEsp         rom{c3::ROM0_I, c3::ROM_I_FIN - c3::ROM0_I};
     std::vector<std::unique_ptr<BloqueDeclarado>> declarados;
 
@@ -235,7 +243,7 @@ public:
           fe2("fe2", c3::FE2_B, 0x1000), fe("fe", c3::FE_B, 0x1000), nrx("nrx", c3::NRX_B, 0x400),
           bb("bb", c3::BB_B, 0x1000),
           usj("usb_serial_jtag", c3::USB_SJ_B, gpio.nodo_de(19), gpio.nodo_de(18)),
-          ledc("ledc", c3::LEDC_B), rmt("rmt", c3::RMT_B), adc("apb_saradc", c3::ADC_B), aes("aes", c3::AES_B),
+          ledc("ledc", c3::LEDC_B), rmt("rmt", c3::RMT_B), adc("apb_saradc", c3::ADC_B), aes("aes", c3::AES_B), i2c("i2c", c3::I2C_B), twai("twai", c3::TWAI_B), gdma("gdma", c3::GDMA_B), spi2("spi2", c3::SPI2_B),
           csr_(gpio), sram_(c3::SRAM_TAM, 0), rtc_fast_(c3::RTC_FAST_TAM, 0) {
         pon_rom_omision();
         bus.register_b_transport(this, &Esp32C3::b_transport);
@@ -262,11 +270,10 @@ public:
 
         struct D { uint32_t b; const char* n; const char* f; };
         static const D dec[] = {
-            {c3::I2C_B, "I2C", "E8"}, {c3::UHCI_B, "UHCI0", "E8"}, 
-            {c3::SPI2_B, "GP-SPI2", "E8"}, {c3::TWAI_B, "TWAI", "E8"},
+            {c3::UHCI_B, "UHCI0", "E8"}, 
             {c3::I2S_B, "I2S", "E8"}, 
             {c3::RSA_B, "RSA", "E8"}, {c3::DS_B, "DS", "E8"}, {c3::HMAC_B, "HMAC", "E8"},
-            {c3::GDMA_B, "GDMA", "E8"},
+            
             {c3::XTS_AES_B, "XTS_AES", "E4"},
         };
         for (const D& d : dec)
@@ -275,7 +282,7 @@ public:
         std::vector<BusSlave*> todos{&gpio, &iomux, &intmtx, &system, &rtc, &efuse, &uart0,
                                      &uart1, &systimer, &timg0, &timg1, &spi0, &spi1, &cache, &sha, &regi2c,
                                      &syscon, &pms,
-                                     &assist, &wcl, &efuse_trm, &fe2, &fe, &nrx, &bb, &usj, &ledc, &rmt, &adc, &aes};
+                                     &assist, &wcl, &efuse_trm, &fe2, &fe, &nrx, &bb, &usj, &ledc, &rmt, &adc, &aes, &i2c, &gdma, &spi2, &twai};
         for (auto& d : declarados) todos.push_back(d.get());
         for (BusSlave* s : todos) engancha(s);
 
@@ -289,6 +296,27 @@ public:
         rmt.irq = [this](bool v) { intmtx.fuente(c3::F_RMT, v); };
         rmt.salida = [this](unsigned c, bool v) { gpio.sig_out[c3::SIG_RMT0 + c].write(v); };
         adc.irq = [this](bool v) { intmtx.fuente(c3::F_ADC, v); };
+        i2c.irq = [this](bool v) { intmtx.fuente(c3::F_I2C, v); };
+        twai.irq = [this](bool v) { intmtx.fuente(c3::F_TWAI, v); };
+        twai.salida = [this](bool v) { gpio.sig_out[c3::SIG_TWAI].write(v); };
+        twai.rx_pin(gpio.sig_in[c3::SIG_TWAI]);
+        gdma.irq = [this](unsigned c, bool v) { intmtx.fuente(c3::F_DMA0 + c, v); };
+        gdma.lee = [this](uint32_t a, uint8_t& b) { uint8_t* p = mem(a, false); if (!p) return false; b = *p; return true; };
+        gdma.escribe32 = [this](uint32_t a, uint32_t v) { poke32(a, v); };
+        spi2.gdma = &gdma;
+        spi2.irq = [this](bool v) { intmtx.fuente(c3::F_SPI2, v); };
+        spi2.salida = [this](bool clk, bool mosi, bool cs) {
+            gpio.sig_out[c3::SIG_FSPICLK].write(clk);
+            gpio.sig_out[c3::SIG_FSPID].write(mosi);
+            gpio.sig_out[c3::SIG_FSPICS0].write(cs);
+        };
+        spi2.miso = [this] { return gpio.sig_in[c3::SIG_FSPIQ].read(); };
+        i2c.lineas = [this](bool scl, bool sda) {
+            gpio.sig_out[c3::SIG_I2C_SCL].write(scl);
+            gpio.sig_out[c3::SIG_I2C_SDA].write(sda);
+        };
+        i2c.lee_scl = [this] { return gpio.sig_in[c3::SIG_I2C_SCL].read(); };
+        i2c.lee_sda = [this] { return gpio.sig_in[c3::SIG_I2C_SDA].read(); };
         adc.pad = [this](unsigned n) -> analog_net_if* { return n < 22 ? &gpio.nodo_de(n) : nullptr; };
         systimer.irq = [this](unsigned c, bool v) { intmtx.fuente(c3::F_SYSTIMER0 + c, v); };
         timg0.irq = [this](unsigned b, bool v) { intmtx.fuente(b ? c3::F_TG0_WDT : c3::F_TG0_T0, v); };
@@ -507,7 +535,12 @@ public:
             "el RMT (E8): transmisión por los canales 0 y 1; sin recepción, portadora, envoltorio de la memoria ni FIFO",
             "el SAR ADC (E8): lecturas sueltas de ADC1 y ADC2 y el sensor de temperatura; sin el modo continuo (DMA) ni calibración",
             "el AES (E8): modo típico, AES-128 y AES-256; sin DMA",
-            "declarados: SPI2, I2C, UHCI, TWAI, I2S, RSA, DS, HMAC, GDMA "
+            "el GP-SPI2 (E8): maestro, una línea, modos 0 y 3, de W0-W15 o de la GDMA; sin esclavo, dual/quad ni CS 1-5",
+            "la GDMA (E8): canales de salida con sus descriptores; sin los de entrada",
+            "el I2C (E8): maestro con su lista de órdenes, bit a bit y con clock stretching; sin esclavo, arbitraje ni plazos de SCL",
+            "el TWAI (E8): el SJA1000 en PeliCAN sobre el motor CAN común, con la FIFO de 64 bytes y los dos modos de filtro; "
+            "sin SELF_TEST (sin asentimiento), ARB_LOST_CAP exacto ni la recuperación de 128 x 11 bits",
+            "declarados: UHCI, I2S, RSA, DS, HMAC "
             "y XTS_AES (E8); la radio (FE, NRX, BB) guarda sin hacer nada",
             "el USB-Serial-JTAG (E7): CDC-ACM y JTAG, con el reset por DTR/RTS; sin bajo consumo, "
             "sin EXCHG_PINS ni PHY de fuera",
@@ -583,7 +616,7 @@ private:
         uart0.hz_apb = uart1.hz_apb = apb;
         timg0.hz_apb = timg1.hz_apb = apb;
         sha.hz_apb = apb;
-        ledc.hz_apb = rmt.hz_apb = aes.hz_apb = apb;
+        ledc.hz_apb = rmt.hz_apb = aes.hz_apb = spi2.hz_apb = apb;
     }
 
     // La memoria: puntero al byte, o nullptr. `fetch`: por el bus I.
@@ -707,7 +740,7 @@ private:
     void reset_perifericos() {
         gpio.reset(); intmtx.reset(); system.reset_regs(); uart0.reset(); uart1.reset();
         systimer.reset(); timg0.reset(); timg1.reset(); spi0.reset(); spi1.reset(); cache.reset();
-        sha.reset(); regi2c.reset(); ledc.reset(); rmt.reset(); adc.reset(); aes.reset();
+        sha.reset(); regi2c.reset(); gdma.reset(); spi2.reset(); ledc.reset(); rmt.reset(); adc.reset(); aes.reset(); i2c.reset(); twai.reset();
         efuse.reset(); syscon.reset(); efuse_trm.reset();
         fe2.reset(); fe.reset(); nrx.reset(); bb.reset();
         reset_cpu_perif();
@@ -729,6 +762,10 @@ private:
         gpio.sig_oe[c3::SIG_U1TXD].write(true);
         for (unsigned c = 0; c < LedcEsp::N_CANALES; ++c) gpio.sig_oe[c3::SIG_LEDC0 + c].write(true);
         for (unsigned c = 0; c < 2; ++c) gpio.sig_oe[c3::SIG_RMT0 + c].write(true);
+        gpio.sig_oe[c3::SIG_I2C_SCL].write(true);
+        gpio.sig_oe[c3::SIG_I2C_SDA].write(true);
+        gpio.sig_oe[c3::SIG_TWAI].write(true);
+        for (unsigned g : {c3::SIG_FSPICLK, c3::SIG_FSPID, c3::SIG_FSPICS0}) gpio.sig_oe[g].write(true);
         for (;;) {
             // Apagado o CHIP_PU bajo: todo quieto
             encendido_ = false;

@@ -59,6 +59,8 @@
 #include "verif/gdb_client.h"
 #include "parts/puente_usb.h"
 #include "parts/ws2812.h"
+#include "parts/ext_parts.h"
+#include "parts/tft_st7735.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -108,6 +110,17 @@ SC_MODULE(TbC3) {
     // E8: dos WS2812 en GPIO8 de c3 (el LED de la DevKitM-1, y uno más)
     Ws2812 tira{"tira", c3.gpio.nodo_de(8), 2, 3.3};
     int d_g0_ = -1;
+    // E8: una 24Cxx (0x50) en SDA = GPIO1 y SCL = GPIO10 de c3, con 4,7 kohm
+    // E8: un ST7735 en c3b (SCLK GPIO6, MOSI GPIO7, CS GPIO10, D/C GPIO3)
+    AnalogNet tft_vcc{"tft_vcc"}, tft_gnd{"tft_gnd"}, tft_rst{"tft_rst"}, tft_luz{"tft_luz"};
+    Tft128x160 tft{"tft", tft_vcc, tft_gnd, c3b.gpio.nodo_de(10), tft_rst, c3b.gpio.nodo_de(3),
+                   c3b.gpio.nodo_de(7), c3b.gpio.nodo_de(6), tft_luz};
+    // E8: un transceptor CAN en c3b (TX GPIO0, RX GPIO1) y otro nodo en el hilo
+    CanWire can_bus{3.3, 1000.0, "can_bus"};
+    CanTransceiver xcvr{"xcvr", c3b.gpio.nodo_de(0), c3b.gpio.nodo_de(1), can_bus};
+    CanNode nodo_can{"nodo_can", can_bus, 500e3};
+    I2cEeprom eeprom{"eeprom", c3.gpio.nodo_de(10), c3.gpio.nodo_de(1), 0x50, 3.3};
+    int d_pu_scl_ = c3.gpio.nodo_de(10).register_driver("tb_pu_scl"), d_pu_sda_ = c3.gpio.nodo_de(1).register_driver("tb_pu_sda");
     sc_time t_gdb = SC_ZERO_TIME;
     static unsigned puerto_gdb(unsigned i) {
         const char* e = std::getenv("TESTC3_PUERTO_GDB");
@@ -237,7 +250,7 @@ SC_MODULE(TbC3) {
         check(c3.limitaciones().size() >= 5, "limitaciones(): lo que no esta (perifericos de E7-E8, SWD, brownout...)");
         const huella_fw::Veredicto hv = huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "c3");
         std::printf("    %d imagenes: %s\n", hv.comprobadas, hv.detalle.c_str());
-        check(hv.ok() && hv.comprobadas == 9, "los nueve ficheros de la suite son los versionados (verif/fw/huellas.txt)");
+        check(hv.ok() && hv.comprobadas == 12, "los doce ficheros de la suite son los versionados (verif/fw/huellas.txt)");
     }
 
     void c2() {
@@ -907,15 +920,131 @@ SC_MODULE(TbC3) {
         c3.alimenta(false);
     }
 
+    void c20() {
+        grupo("C20 el I2C: una 24Cxx por la lista de ordenes, con RSTART y NACK (E8)");
+        c3.gpio.nodo_de(10).set_drive(d_pu_scl_, 3.3f, 4700.0f);
+        c3.gpio.nodo_de(1).set_drive(d_pu_sda_, 3.3f, 4700.0f);
+        check(arranca("i2c.elf"), "i2c.elf");
+        check(espera_fin(sc_time(20, SC_MS)), "acaba");
+        char b[96];
+        std::snprintf(b, sizeof b, "escribir: TRANS_COMPLETE sin NACK (INT_RAW 0x%X)", bz(0));
+        check((bz(0) & 0x80u) && !(bz(0) & 0x400u), b);
+        check(eeprom.peek(0x10) == 0xC0 && eeprom.peek(0x11) == 0xFF && eeprom.peek(0x12) == 0xEE && eeprom.peek(0x13) == 0x42,
+              "la EEPROM tiene C0 FF EE 42 en 0x10");
+        std::snprintf(b, sizeof b, "leer con RSTART: %02X %02X %02X %02X", bz(1), bz(2), bz(3), bz(4));
+        check(bz(1) == 0xC0 && bz(2) == 0xFF && bz(3) == 0xEE && bz(4) == 0x42 && (bz(5) & 0x80u), b);
+        std::snprintf(b, sizeof b, "la 0x51 no contesta: NACK (INT_RAW 0x%X)", bz(6));
+        check((bz(6) & 0x400u) != 0, b);
+        c3.gpio.nodo_de(10).set_hiz(d_pu_scl_);
+        c3.gpio.nodo_de(1).set_hiz(d_pu_sda_);
+        c3.alimenta(false);
+    }
+
+    void c21() {
+        grupo("C21 el GP-SPI2 con la GDMA: un ST7735 (Tft128x160) en c3b (E8)");
+        sonda.suelta();          // la sonda de C16 tiene TCK (GPIO6, el SCLK aqui) a nivel bajo
+        const int dv = tft_vcc.register_driver("tb"), dg = tft_gnd.register_driver("tb"),
+                  dr = tft_rst.register_driver("tb"), dl = tft_luz.register_driver("tb");
+        tft_vcc.set_drive(dv, 3.3f, 0.1f); tft_gnd.set_drive(dg, 0.f, 0.1f);
+        tft_rst.set_drive(dr, 3.3f, 10.f); tft_luz.set_drive(dl, 3.3f, 10.f);
+        c3b.alimenta(false);
+        wait(10, SC_US);
+        const std::string e = c3b.carga_elf(std::string(FW) + "spi_tft.elf");
+        uint32_t bz_b = 0;
+        simbolo_elf(std::string(FW) + "spi_tft.elf", "buzon", bz_b);
+        c3b.poke32(bz_b, 0); c3b.poke32(bz_b + 4, 0);
+        c3b.alimenta(true);
+        check(e.empty(), "spi_tft.elf en c3b");
+        const sc_time t0 = sc_time_stamp();
+        while (c3b.peek32(bz_b + 4) != 1 && sc_time_stamp() - t0 < sc_time(500, SC_MS)) wait(1, SC_MS);
+        check(c3b.peek32(bz_b + 4) == 1, "acaba");
+        char b[112];
+        std::snprintf(b, sizeof b, "%u transacciones con TRANS_DONE; el ST7735, despierto y encendido",
+                      c3b.peek32(bz_b + 8));
+        if (std::getenv("C3_DBG"))
+            std::printf("  [c21] alim %d reset %d dormida %d encendida %d bpp %u ordenes %llu pixeles %llu perdidas %llu\n",
+                        tft.alimentada(), tft.en_reset(), tft.dormida(), tft.encendida(), tft.bits_por_pixel(),
+                        (unsigned long long)tft.ordenes(), (unsigned long long)tft.pixeles(),
+                        (unsigned long long)tft.ordenes_perdidas());
+        check(c3b.peek32(bz_b + 8) == 16u && tft.mostrando() && tft.bits_por_pixel() == 16, b);
+        std::snprintf(b, sizeof b, "la GDMA: OUT_DONE, OUT_EOF y OUT_TOTAL_EOF (0x%X), y el owner a 0 (0x%08X)",
+                      c3b.peek32(bz_b + 12), c3b.peek32(bz_b + 16));
+        check((c3b.peek32(bz_b + 12) & 0x118u) == 0x118u && !(c3b.peek32(bz_b + 16) >> 31), b);
+        std::snprintf(b, sizeof b, "100 pixeles por DMA, rojos: (0,0) 0x%06X, (9,9) 0x%06X, (10,10) 0x%06X",
+                      tft.color_en(0, 0), tft.color_en(9, 9), tft.color_en(10, 10));
+        const uint32_t r = tft.color_en(0, 0);
+        check(tft.pixeles() >= 100 && ((r >> 16) & 0xFF) >= 0xF0 && (r & 0xFFFF) == 0 && tft.color_en(9, 9) == r &&
+              tft.color_en(10, 10) != r, b);
+        c3b.alimenta(false);
+        for (AnalogNet* n : {&tft_vcc, &tft_gnd, &tft_rst, &tft_luz}) (void)n;
+        tft_vcc.set_hiz(dv);
+    }
+
+    void c22() {
+        grupo("C22 el TWAI a 500 kbit/s con un nodo CAN, el filtro y el error pasivo (E8)");
+        xcvr.set_attached(true);
+        nodo_can.set_enabled(true);
+        nodo_can.set_ack(true);
+        nodo_can.flush();
+        c3b.alimenta(false);
+        wait(10, SC_US);
+        const std::string e = c3b.carga_elf(std::string(FW) + "twai.elf");
+        uint32_t bz = 0;
+        simbolo_elf(std::string(FW) + "twai.elf", "buzon", bz);
+        for (unsigned i = 0; i < 32; ++i) c3b.poke32(bz + 4 * i, 0);
+        CanFrame ext{};
+        ext.id = 0x1ABCDE0; ext.ide = true; ext.dlc = 3; ext.data[0] = 0x11; ext.data[1] = 0x22; ext.data[2] = 0x33;
+        nodo_can.send(ext);
+        c3b.alimenta(true);
+        check(e.empty(), "twai.elf en c3b");
+        auto r = [&](unsigned i) { return c3b.peek32(bz + 8 + 4 * i); };
+        auto espera = [&](unsigned i, uint32_t v, double ms) {
+            const sc_time t0 = sc_time_stamp();
+            while (r(i) != v && sc_time_stamp() - t0 < sc_time(ms, SC_MS)) wait(10, SC_US);
+            return r(i) == v;
+        };
+        check(espera(15, 1, 100), "manda y recibe; pone el filtro");
+        char b[128];
+        const CanFrame& u = nodo_can.last();
+        std::snprintf(b, sizeof b, "el nodo recibe 0x%X [%02X %02X %02X %02X] (dlc %u); STATUS 0x%X, INT 0x%X",
+                      u.id, u.data[0], u.data[1], u.data[2], u.data[3], u.dlc, r(0), r(1));
+        check(nodo_can.received() >= 1 && u.id == 0x123 && !u.ide && u.dlc == 4 && u.data[0] == 0xDE &&
+              u.data[3] == 0xEF && (r(0) & 0xCu) == 0xCu && (r(1) & 2u), b);
+        std::snprintf(b, sizeof b, "el C3 recibe el extendido: %02X %02X %02X %02X %02X | %02X %02X %02X; FIFO %u -> %u",
+                      r(2), r(3), r(4), r(5), r(6), r(7), r(8), r(9), r(10), r(11));
+        check(r(2) == 0x83 && r(3) == 0x0D && r(4) == 0x5E && r(5) == 0x6F && r(6) == 0x00 &&
+              r(7) == 0x11 && r(8) == 0x22 && r(9) == 0x33 && r(10) == 1 && r(11) == 0, b);
+        CanFrame a{}; a.id = 0x100; a.dlc = 1; a.data[0] = 0x66;
+        CanFrame c{}; c.id = 0x555; c.dlc = 1; c.data[0] = 0x77;
+        nodo_can.send(a); nodo_can.send(c);
+        check(espera(15, 2, 100), "el filtro");
+        std::snprintf(b, sizeof b, "el filtro deja pasar 0x555 y no 0x100: %u en la FIFO, 0x%04X [%02X]", r(12), r(13), r(14));
+        check(r(12) == 1 && r(13) == 0xAAA0u && r(14) == 0x77, b);
+        nodo_can.set_ack(false);
+        c3b.poke32(bz + 8 + 4 * 20, 1);
+        const sc_time t0 = sc_time_stamp();
+        while (c3b.peek32(bz + 4) != 1 && sc_time_stamp() - t0 < sc_time(100, SC_MS)) wait(10, SC_US);
+        check(c3b.peek32(bz + 4) == 1, "acaba");
+        std::snprintf(b, sizeof b, "sin asentimiento: TEC %u (128, error pasivo), INT 0x%X (EW, EP, BE), STATUS 0x%X",
+                      r(16), r(17), r(18));
+        check(r(16) == 128 && (r(17) & 0xA4u) == 0xA4u && (r(18) & 0x40u) && !(r(18) & 0x80u), b);
+        std::snprintf(b, sizeof b, "ABORT_TX: el buffer de transmision libre (STATUS 0x%X)", r(19));
+        check((r(19) & 0x4u) && !(r(19) & 0x20u), b);
+        c3b.alimenta(false);
+        nodo_can.set_ack(true);
+        nodo_can.flush();
+        xcvr.set_attached(false);
+    }
+
     void run() {
         // C3_SOLO=c4 (o c1...c14): un grupo suelto, para desarrollar
         if (const char* solo = std::getenv("C3_SOLO")) {
             const std::string q = solo;
             void (TbC3::*g[])() = {&TbC3::c1, &TbC3::c2, &TbC3::c3_uart, &TbC3::c4, &TbC3::c5, &TbC3::c6, &TbC3::c7,
                                    &TbC3::c8, &TbC3::c9, &TbC3::c10, &TbC3::c11, &TbC3::c12, &TbC3::c13, &TbC3::c14,
-                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19};
+                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22};
             const int k = q.size() > 1 ? std::atoi(q.c_str() + 1) : 0;
-            if (k >= 1 && k <= 19) (this->*g[k - 1])();
+            if (k >= 1 && k <= 22) (this->*g[k - 1])();
             std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
             sc_stop();
             return;
@@ -938,6 +1067,9 @@ SC_MODULE(TbC3) {
         c17();
         c18();
         c19();
+        c20();
+        c21();
+        c22();
         std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

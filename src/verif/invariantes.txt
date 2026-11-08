@@ -342,4 +342,8 @@ testrv                 457      28577500000           resto
 # E8: C18, el LEDC (ledc.elf): C1-C17 no se mueven (C18 empieza en el total de E7).
 # C19: el RMT con dos WS2812, el SAR ADC y su sensor de temperatura, y el AES
 # (e8.elf); C1-C18 no se mueven.
-testc3                 154      17859840002000        resto
+# C20-C22: el I2C con una 24Cxx (i2c.elf), el GP-SPI2 con la GDMA y un ST7735
+# en c3b (spi_tft.elf) y el TWAI con un nodo CAN en c3b (twai.elf), con la
+# huella del nuevo ELF (12 ficheros: la comprobacion de C1 sigue siendo una).
+# C1-C19 no se mueven (C20 empieza en 17859840002000, el total anterior).
+testc3                 174      18107200002000        resto

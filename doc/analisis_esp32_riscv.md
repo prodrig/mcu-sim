@@ -1279,9 +1279,10 @@ tabla son los de `examples/peripherals`, a confirmar con la versión que se use)
 diciendo por qué se ha movido.
 
 
-**En curso (2026-11-08): hechos el LEDC (1), el RMT con `Ws2812` (2), el SAR
-ADC con el sensor de temperatura (5) y el AES (7; el SHA es de E4 y el RNG de
-E3).**
+**Hecha (2026-11-08): las ocho entregas. El LEDC (1), el RMT con `Ws2812`
+(2), el GP-SPI2 con la GDMA (3), el I2C (4), el SAR ADC con el sensor de
+temperatura (5), el TWAI (6) y el AES (7; el SHA es de E4 y el RNG de E3);
+UHCI, I2S, RSA, DS, HMAC y XTS_AES, declarados con aviso (8).**
 * **`periph/esp/ledc_esp.h`**: 6 canales y 4 temporizadores de baja velocidad.
   El reloj sale de LEDC_CONF (APB, RC_FAST o XTAL, con CLK_EN). CLK_DIV va en
   coma fija 10.8 y DUTY_RES en bits. Cada canal sube en HPOINT y baja DUTY tics
@@ -1313,7 +1314,39 @@ E3).**
   0xFF0080), el ADC con 0,5 V (2730 y 819), 104 a 25 °C, y FIPS-197 C.1 y C.3
   ida y vuelta. 154 comprobaciones; C1-C18 no se mueven.
 
-**Pendiente de E8:** GP-SPI2 con la GDMA (ST7735), el I2C (24Cxx) y el TWAI.
+* **`periph/esp/i2c_esp.h`**: el maestro con su lista de órdenes (COMD0-7:
+  RSTART, WRITE, READ, STOP, END), bit a bit sobre las señales 53 (SCL) y 54
+  (SDA) de la matriz, con clock stretching, la FIFO por DATA y las
+  interrupciones TRANS_COMPLETE, NACK y END_DETECT (fuente 29). Sin esclavo,
+  arbitraje ni plazos de SCL. `verif/fw/esp32c3/i2c.c` hace lo de
+  `i2c_eeprom` contra una `I2cEeprom` en 0x50 (SDA GPIO1, SCL GPIO10, en
+  drenador abierto con pull-ups de 4,7 kΩ): escribe C0 FF EE 42, lo relee con
+  RSTART y comprueba el NACK de la 0x51. `testc3` C20.
+* **`periph/esp/gdma_esp.h`** y **`periph/esp/spi_gp_esp.h`**: los canales de
+  salida de la GDMA con sus descriptores (OUT_LINK, el owner, OUT_DONE,
+  OUT_EOF y OUT_TOTAL_EOF, OUT_AUTO_WRBACK; fuente 47) y el GP-SPI2 maestro con
+  las fases de orden, dirección, espera y datos, desde W0-W15 o desde la GDMA
+  (TRANS_DONE, fuente 19; señales 63-65 y 68). Sin canales de entrada, esclavo,
+  dual/quad ni CS 1-5. `verif/fw/esp32c3/spi_tft.c`, en c3b, inicializa una
+  `Tft128x160` (ST7735) como `spi_master` y le pinta 100 píxeles rojos por
+  DMA. `testc3` C21.
+* **`periph/esp/twai_esp.h`**: el SJA1000 en modo PeliCAN, sobre el mismo
+  `CanMotor` del bxCAN y del C_CAN del MSP432E4 (relleno, CRC, asentimiento,
+  arbitraje, banderas de error, TEC/REC, bus-off). MODE, CMD, STATUS, INT (se
+  borra al leerlo), los dos BUS_TIMING (tq = 2 (BRP + 1) / APB), los
+  contadores y su límite de aviso, DATA_0..12 (en modo reset, el filtro; en
+  marcha, el buffer de transmisión y la cabeza de la FIFO de 64 bytes) y
+  RX_MESSAGE_CNT; el filtro en sus dos modos; el bus-off pone RESET_MODE.
+  Fuente 25, señal 74. Sin SELF_TEST, ARB_LOST_CAP exacto ni la recuperación de
+  128 × 11 bits. `verif/fw/esp32c3/twai.c`, en c3b con un `CanTransceiver` y
+  un `CanNode` en el hilo, a 500 kbit/s como `twai_network`: manda un marco
+  estándar, recibe uno extendido, filtra 0x555 entre dos y, sin asentimiento,
+  llega a TEC = 128 (error pasivo, con EW, EP y BE) y suelta el buffer con
+  ABORT_TX. `testc3` C22.
+* **Declarados con aviso**: UHCI, I2S, RSA, DS, HMAC y XTS_AES; la radio (FE,
+  NRX, BB) guarda sin hacer nada.
+* `testc3`: 174 comprobaciones; C1-C19 no se mueven. C21 suelta antes la sonda
+  JTAG de C16, que dejaba TCK (GPIO6 de c3b, el SCLK) a nivel bajo.
 
 ### E9 · ESP32-C6: el núcleo HP y el SoC
 
