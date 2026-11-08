@@ -20,7 +20,9 @@
 //                Sin mie/mip: el núcleo pregunta por `rv_irq_if`. [TRM-C3 §1.5]
 //
 // La LATENCIA de 4 ciclos del INTC [TRM-C3 §1.5.3.1] va en
-// RvTiempos::lat_irq del núcleo: se factura al entrar.
+// RvTiempos::lat_irq del núcleo: se factura al entrar, y una petición nueva no
+// entra en la frontera de instrucción que sigue sino en la otra
+// (RvHart::visibles).
 //
 // La disposición de los registros es la del C3; la del C6 (INTMTX + INTPRI)
 // es otra clase, IntcEspV2 (E9).

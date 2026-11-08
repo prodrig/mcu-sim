@@ -237,6 +237,19 @@ jobs:
         working-directory: src
         run: make -f Makefile.mcu-sim sflash-e4
 
+      # esptool contra el ESP32-C3 (E5): la DevKitM-1 con su reinicio
+      # automatico (DTR/RTS) y la ROM de verdad; esptool por RFC 2217 lee el
+      # chip, programa blink con el stub y sin el, a 115200 y a 921600, y
+      # blink arranca. OBLIGATORIA: sin esptool, falla en vez de omitirse.
+      - name: esptool contra el ESP32-C3 por la UART0
+        working-directory: src
+        env:
+          ESPTOOL_OBLIGATORIO: 1
+        run: |
+          python3 -m pip install --break-system-packages esptool ||
+            python3 -m pip install --user esptool
+          make -f Makefile.mcu-sim esptool-c3
+
       # El BSL del MSP432P401R (T5, D4): sin firmware, el codigo de arranque
       # entra en el BSL B1, y bsl_p4.py programa por RFC 2217 el ejemplo de eco
       # de TI y comprueba el eco. BSL Scripter de TI no esta en el CI.

@@ -20,9 +20,18 @@
 //   * UART_ID: REG_UPDATE, que el silicio baja al sincronizar los registros
 //     con el núcleo de la UART: aquí se baja en el acto.
 //
+//   * la detección de baudios (E5): con CONF0.AUTOBAUD_EN, cada flanco de
+//     RXD cuenta en RXD_CNT y cada pulso mide, en ciclos de SCLK, el mínimo
+//     de los bajos (LOWPULSE), de los altos (HIGHPULSE) y de flanco a flanco
+//     de subida y de bajada (POSPULSE, NEGPULSE). Al poner AUTOBAUD_EN se
+//     vuelven a 0 y a 0xFFF. Es lo que usa la ROM para esptool: espera 128
+//     flancos del SYNC (0x55 0x55...) y saca el divisor de
+//     (LOWPULSE + HIGHPULSE + 2) / 2 [TRM-C3 §26.4.5; uart_baudrate_detect
+//     de la ROM]. El valor medido es el del pulso entero menos 1, como en el
+//     silicio; el filtro de glitches (RX_FILT) no se modela.
+//
 // Declarado (contesta y guarda, no hace): el control de flujo por hardware y
-// por software, RS485, IrDA, la detección de baudios (la usa la ROM para
-// esptool: E5), AT_CMD y el modo de bajo consumo.
+// por software, RS485, IrDA, AT_CMD y el modo de bajo consumo.
 //
 // La línea va bit a bit por las señales de la matriz GPIO (U0TXD_out,
 // U0RXD_in...), así que llega a un pad y a lo que haya en la placa.
@@ -31,6 +40,7 @@
 #define STM32_PERIPH_ESP_UART_ESP_H
 
 #include <systemc>
+#include <algorithm>
 #include <deque>
 #include <functional>
 #include <string>
@@ -55,6 +65,9 @@ public:
         SC_THREAD(tx_proc);
         SC_THREAD(rx_proc);
         SC_THREAD(tout_proc);
+        SC_METHOD(autobaud_proc);
+        sensitive << rxd_.value_changed_event();
+        dont_initialize();
         reset_regs();
     }
 
@@ -95,6 +108,11 @@ protected:
         case 0x1C: return status();
         case 0x20: return conf0_;
         case 0x24: return conf1_;
+        case 0x28: return ab_low_;
+        case 0x2C: return ab_high_;
+        case 0x30: return ab_cnt_;
+        case 0x70: return ab_pos_;
+        case 0x74: return ab_neg_;
         case 0x60: return mem_conf_;
         case 0x78: return clk_conf_;
         case 0x7C: return 0x2008270u;
@@ -118,7 +136,9 @@ protected:
         case 0x14: w(clkdiv_); return;
         case 0x18: w(rx_filt_); return;
         case 0x20: {
+            const bool ab_antes = conf0_ & AUTOBAUD_EN;
             w(conf0_);
+            if ((conf0_ & AUTOBAUD_EN) && !ab_antes) reinicia_autobaud();
             if (conf0_ & (1u << 17)) rx_.clear();          // RXFIFO_RST
             if (conf0_ & (1u << 18)) tx_.clear();          // TXFIFO_RST
             if (conf0_ & (1u << 8)) ev_tx_.notify(sc_core::SC_ZERO_TIME);   // TXD_BRK
@@ -141,13 +161,52 @@ private:
     uint32_t raw_ = 0, ena_ = 0, clkdiv_ = 0, rx_filt_ = 0, conf0_ = 0, conf1_ = 0,
              mem_conf_ = 0, clk_conf_ = 0, id_ = 0;
     uint32_t otros_[64] = {};
+    static constexpr uint32_t AUTOBAUD_EN = 1u << 27;
+    uint32_t ab_low_ = 0xFFFu, ab_high_ = 0xFFFu, ab_pos_ = 0xFFFu, ab_neg_ = 0xFFFu, ab_cnt_ = 0;
+    sc_core::sc_time ab_t_ = sc_core::SC_ZERO_TIME, ab_sub_ = sc_core::SC_ZERO_TIME,
+                     ab_baj_ = sc_core::SC_ZERO_TIME;
+    bool ab_hay_ = false, ab_hay_sub_ = false, ab_hay_baj_ = false;
     bool linea_tx_ = true, tx_ocupado_ = false, rx_ocupado_ = false, tx_done_pend_ = false;
     sc_core::sc_event ev_tx_, ev_rx_byte_, ev_ltx_;
     sc_core::sc_time ult_rx_ = sc_core::SC_ZERO_TIME;
     uint64_t n_tx_ = 0, n_rx_ = 0;
     bool irq_ = false;
 
+    void reinicia_autobaud() {
+        ab_low_ = ab_high_ = ab_pos_ = ab_neg_ = 0xFFFu;
+        ab_cnt_ = 0;
+        ab_hay_ = ab_hay_sub_ = ab_hay_baj_ = false;
+    }
+    double hz_sclk() const {
+        const unsigned sel = (clk_conf_ >> 20) & 3u;
+        const double src = sel == 1 ? hz_apb : sel == 2 ? hz_rc_fast : sel == 3 ? hz_xtal : 0.0;
+        return src / double(((clk_conf_ >> 12) & 0xFFu) + 1u);
+    }
+    // Un pulso de `t`, en ciclos de SCLK menos 1 (como lo cuenta el silicio)
+    uint32_t ciclos(const sc_core::sc_time& t) const {
+        const double c = t.to_seconds() * hz_sclk();
+        return c < 1.0 ? 0u : std::min<uint32_t>(0xFFFu, uint32_t(c + 0.5) - 1u);
+    }
+    void autobaud_proc() {
+        if (!(conf0_ & AUTOBAUD_EN)) return;
+        const sc_core::sc_time ahora = sc_core::sc_time_stamp();
+        bool l = rxd_.read();
+        if (rxd_inv()) l = !l;
+        if (ab_hay_) {
+            // Acaba un pulso del nivel contrario al de ahora
+            const uint32_t c = ciclos(ahora - ab_t_);
+            uint32_t& r = l ? ab_low_ : ab_high_;
+            r = std::min(r, c);
+        }
+        if (l) { if (ab_hay_sub_) ab_pos_ = std::min(ab_pos_, ciclos(ahora - ab_sub_)); ab_sub_ = ahora; ab_hay_sub_ = true; }
+        else   { if (ab_hay_baj_) ab_neg_ = std::min(ab_neg_, ciclos(ahora - ab_baj_)); ab_baj_ = ahora; ab_hay_baj_ = true; }
+        ab_t_ = ahora;
+        ab_hay_ = true;
+        ab_cnt_ = (ab_cnt_ + 1u) & 0x3FFu;
+    }
+
     void reset_regs() {
+        reinicia_autobaud();
         tx_.clear(); rx_.clear();
         raw_ = 0; ena_ = 0;
         clkdiv_ = 0x2B6u;

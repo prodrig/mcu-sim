@@ -330,5 +330,8 @@ testrv                 457      28577500000           resto
 # ESP-IDF v5.5 y v6.0 (hello_world con esp_restart, blink, uart_echo) en v0.4
 # y v1.1, el modo descarga, la Flash vacia con los perros del flashboot y el
 # aviso de la ROM de otra revision. Sin sockets: se contrasta el total. Igual
-# en dos pasadas y con asanc3 (08-11-2026).
-testc3                 107      17204410347276
+# en dos pasadas y con asanc3 (08-11-2026). C14 (E5): esptool por la UART0 sin
+# esptool -la deteccion de baudios de la ROM, el SYNC y READ_REG en SLIP-; C1-C13
+# no se mueven (C14 empieza en 17204410347276, el total de E4): la latencia de
+# las interrupciones (una frontera de instruccion) no cambia nada de antes.
+testc3                 115      17267541875572

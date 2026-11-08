@@ -518,7 +518,103 @@ SC_MODULE(TbC3) {
         check(c3.pon_rom("omision").empty() && c3.rom.revision() == 3, "rom=omision: la de la revision del chip");
     }
 
+    // --- E5: el protocolo de descarga de la ROM (SLIP), por la UART0 ---------
+    static std::string slip(const std::string& d) {
+        std::string o = "\xC0";
+        for (char ch : d) {
+            if (ch == '\xC0') o += "\xDB\xDC";
+            else if (ch == '\xDB') o += "\xDB\xDD";
+            else o += ch;
+        }
+        return o + "\xC0";
+    }
+    static std::string orden(uint8_t op, const std::string& datos, uint32_t chk = 0) {
+        std::string o;
+        o += char(0); o += char(op);
+        o += char(datos.size() & 0xFF); o += char(datos.size() >> 8);
+        for (unsigned i = 0; i < 4; ++i) o += char((chk >> (8 * i)) & 0xFF);
+        return o + datos;
+    }
+    static std::string sync_esptool() {
+        std::string d = "\x07\x07\x12\x20";
+        d += std::string(32, '\x55');
+        return slip(orden(0x08, d));
+    }
+    // Las respuestas SLIP que hay en `t` desde `desde`: cada una, sin escapar
+    static std::vector<std::string> respuestas(const std::string& t, size_t desde = 0) {
+        std::vector<std::string> r;
+        bool dentro = false, esc = false;
+        std::string cur;
+        for (size_t i = desde; i < t.size(); ++i) {
+            const uint8_t b = uint8_t(t[i]);
+            if (b == 0xC0) {
+                if (dentro && !cur.empty()) r.push_back(cur);
+                cur.clear();
+                dentro = true;
+                continue;
+            }
+            if (!dentro) continue;
+            if (esc) { cur += char(b == 0xDC ? 0xC0 : b == 0xDD ? 0xDB : b); esc = false; }
+            else if (b == 0xDB) esc = true;
+            else cur += char(b);
+        }
+        return r;
+    }
+
+    void c14() {
+        grupo("C14 esptool por la UART0: la deteccion de baudios y el SYNC de la ROM (E5)");
+        check(arranca_flash("build/idf/v5.5/hello_world", "", true), "en descarga");
+        check(espera_texto(terminal, "waiting for download", sc_time(100, SC_MS)), "\"waiting for download\"");
+        const size_t t0 = terminal.size();
+        // Como esptool: el primero se lo come la detección de baudios
+        unsigned n = 0;
+        for (; n < 4 && respuestas(terminal, t0).empty(); ++n) {
+            envia(sync_esptool());
+            wait(10, SC_MS);
+        }
+        const std::vector<std::string> r = respuestas(terminal, t0);
+        if (std::getenv("C3_DBG")) std::printf("  [c14] %zu bytes, %zu respuestas tras %u SYNC\n", terminal.size() - t0, r.size(), n);
+        const uint32_t lo = c3.uart0.dbg_read(0x28) & 0xFFFu, hi = c3.uart0.dbg_read(0x2C) & 0xFFFu;
+        const double b = 40e6 / ((lo + hi + 2) / 2.0);
+        check(c3.uart0.dbg_read(0x30) > 127, "RXD_CNT: " + std::to_string(c3.uart0.dbg_read(0x30)) + " flancos (> 127)");
+        check(b > 114000 && b < 116500, "LOWPULSE " + std::to_string(lo) + " y HIGHPULSE " + std::to_string(hi) +
+                                        ": 40 MHz / " + std::to_string((lo + hi + 2) / 2) + " = " + std::to_string(int(b)) + " baudios");
+        check(std::abs(c3.uart0.baudios() - 115200.0) < 1000.0, "y la ROM pone el divisor que sale: " + std::to_string(int(c3.uart0.baudios())));
+        check(n == 2, "el primer SYNC se lo come la deteccion; el segundo contesta");
+        check(!r.empty() && r[0].size() >= 10 && uint8_t(r[0][0]) == 1 && uint8_t(r[0][1]) == 0x08,
+              "SYNC (0x08): respuesta 1, orden 0x08");
+        // READ_REG (0x0A) de CHIP_DETECT_MAGIC (0x4000_1000): lo primero que
+        // lee esptool para saber qué chip es
+        const size_t t1 = terminal.size();
+        envia(slip(orden(0x0A, std::string("\x00\x10\x00\x40", 4))));
+        wait(5, SC_MS);
+        const std::vector<std::string> r2 = respuestas(terminal, t1);
+        // (La ROM contesta ocho veces a cada SYNC: lo que llegue antes son restos)
+        uint32_t magia = 0;
+        bool hay = false;
+        for (const std::string& x : r2)
+            if (x.size() >= 8 && uint8_t(x[0]) == 1 && uint8_t(x[1]) == 0x0A) {
+                hay = true;
+                for (unsigned i = 0; i < 4; ++i) magia |= uint32_t(uint8_t(x[4 + i])) << (8 * i);
+            }
+        char t[64];
+        std::snprintf(t, sizeof t, "READ_REG 0x40001000: 0x%08X (ESP32-C3 ECO3)", magia);
+        check(hay && magia == 0x1B31506Fu, t);
+        c3.alimenta(false);
+    }
+
     void run() {
+        // C3_SOLO=c4 (o c1...c14): un grupo suelto, para desarrollar
+        if (const char* solo = std::getenv("C3_SOLO")) {
+            const std::string q = solo;
+            void (TbC3::*g[])() = {&TbC3::c1, &TbC3::c2, &TbC3::c3_uart, &TbC3::c4, &TbC3::c5, &TbC3::c6, &TbC3::c7,
+                                   &TbC3::c8, &TbC3::c9, &TbC3::c10, &TbC3::c11, &TbC3::c12, &TbC3::c13, &TbC3::c14};
+            const int k = q.size() > 1 ? std::atoi(q.c_str() + 1) : 0;
+            if (k >= 1 && k <= 14) (this->*g[k - 1])();
+            std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
+            sc_stop();
+            return;
+        }
         c1();
         c2();
         c3_uart();
@@ -532,6 +628,7 @@ SC_MODULE(TbC3) {
         c11();
         c12();
         c13();
+        c14();
         std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

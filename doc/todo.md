@@ -918,6 +918,10 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   Direct Boot; el modo descarga; `esp_restart()`; los perros del flashboot.
   `testc3`: C8-C13, 107 comprobaciones. Lo que el arranque toca y no está en
   el TRM, cada cosa con su fuente o «declarado» (P-19/E4 abajo).
+* **E5 hecha** (2026-11-08): esptool de verdad por RFC 2217 contra la
+  DevKitM-1 (`AutoResetEsp`, `reinicio="esp"` en el puente, la detección de
+  baudios de la UART, la latencia de las interrupciones), con el *stub* y sin
+  él, a 115 200 y a 921 600; `make esptool-c3` y el CI. `testc3`: C14, 115.
 * **P-19/E4 — los registros del arranque del C3 sin documentar, o con dato de
   modelo.** La regla de §8.2 del plan: modelado con dos fuentes o declarado.
   | Qué | Cómo está | Fuente |
@@ -938,6 +942,9 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   | La CPU tras el reset: XTAL/2 = 20 MHz (PRE_DIV_CNT = 1, TRM tabla 6.2-2), pero la ROM cuenta 40 ticks por µs (`s_ticks_per_us`) | se deja el TRM: los retardos de la ROM duran el doble | **Pendiente de contrastar con una placa** |
   | La ROM: la imagen de los datos iniciales (tabla de `_data_start`) y las secciones `.rodata.interface*` | reconstruidas del ELF de esp-rom-elfs; la rev. 3 sale igual que la del QEMU de Espressif salvo 8 bytes que nada referencia | `soc/esp32c3/rom/gen_rom_c3.py` |
   | SYSTIMER: PERIOD_MODE y TIMER_UNIT_SEL | mandan al escribirlos; COMPx_LOAD solo pasa el objetivo y el periodo | Deducido de `systimer_hal`: elige el modo después del LOAD |
+  | **E5** · UART: la detección de baudios (LOWPULSE, HIGHPULSE, POSPULSE, NEGPULSE, RXD_CNT) | el pulso entero en ciclos de SCLK, menos 1; se reinician al poner AUTOBAUD_EN; sin el filtro de glitches | TRM-C3 §26.4.5 y la ROM (`uart_baudrate_detect`: divisor = (LOW + HIGH) · 8 + 16) |
+  | **E5** · La latencia de las interrupciones (4 ciclos, que se facturan al entrar) | una petición nueva no entra en la frontera de instrucción que sigue, sino en la otra; dormido en `wfi`, en el acto | TRM-C3 §1.5.3.1; y deducido de la ROM: `uart_buff_switch` habilita la interrupción de la UART una instrucción antes de decir qué UART es la suya |
+  | **E5** · El reinicio por RFC 2217 (`reinicio="esp"` del puente) | el puente reconoce el principio de la secuencia de esptool y la hace en tiempo simulado (100 ms + 50 ms) | `esp_rfc2217_server` (esp_port_manager.py): lo mismo con una placa de verdad |
 
 ---
 

@@ -77,6 +77,18 @@ public:
     uint32_t entrada(unsigned i) const { return i < mmu_.size() ? mmu_[i] : 0x100u; }
     void pon_entrada(unsigned i, uint32_t v) { if (i < mmu_.size()) mmu_[i] = v & 0x1FFu; }
     uint64_t aciertos() const { return aciertos_; }
+    // Vaciar la caché (la Flash ha cambiado por detrás: el `load` de GDB)
+    void invalida_lineas() { invalida(); }
+    // Una dirección de una ventana, a la Flash, por la MMU (false: página
+    // inválida o fuera de las ventanas)
+    bool traduce(uint32_t a, uint32_t& off) const {
+        if (!es_ventana(a)) return false;
+        const uint32_t v = a - ((a >= c_.base_i && a - c_.base_i < c_.ventana) ? c_.base_i : c_.base_d);
+        const uint32_t e = mmu_[(v / c_.pagina) % mmu_.size()];
+        if (e & 0x100u) return false;
+        off = (e & 0xFFu) * c_.pagina + v % c_.pagina;
+        return true;
+    }
     uint64_t fallos() const { return fallos_; }
 
     // Una lectura por una ventana. false: error de bus (y `por_que`).

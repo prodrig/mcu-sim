@@ -54,6 +54,9 @@
 #include "../../periph/esp/sha_esp.h"
 #include "../../parts/spi_flash.h"
 #include "../../rv/hart/nucleo_rv.h"
+#include "../../rv/debug/rv_dm.h"
+#include "../../rv/debug/rv_dtm_jtag.h"
+#include "../../rv/debug/jtag_pines.h"
 #include "../../periph/esp/uart_esp.h"
 #include "../../periph/esp/systimer_esp.h"
 #include "../../periph/esp/timg_esp.h"
@@ -177,6 +180,27 @@ public:
     // placa mientras hay alimentación
     AnalogNet chip_pu{"chip_pu"};
 
+    // --- La depuración (E6) ---------------------------------------------------------
+    // El Debug Module 0.13 de E2 con las capacidades del C3 (RV_ESP32C3.dbg: 8
+    // triggers, program buffer de 16, SBA de palabra), su DTM JTAG con el
+    // IDCODE del C3 (0x00005C25, el `_CPUTAPID` de target/esp32c3.cfg) y el
+    // TAP en los pines MTMS (GPIO4), MTDI (GPIO5), MTCK (GPIO6) y MTDO (GPIO7).
+    // Qué llega al TAP lo eligen los eFuse al soltar el reset [TRM-C3 §7.3,
+    // «JTAG signal source»]:
+    //   DIS_PAD_JTAG, o SOFT_DIS_JTAG con un número impar de unos: los pines no
+    //   JTAG_SEL_ENABLE = 0: el USB-Serial-JTAG, salvo DIS_USB_JTAG = 1: los pines
+    //   JTAG_SEL_ENABLE = 1: el pin de arranque GPIO10 (1 USB, 0 pines)
+    // Un C3 de fábrica (todo a 0) lo tiene en el USB (E7): los pines piden
+    // quemar DIS_USB_JTAG, que en el simulador es jtag="pines" en el <mcu>.
+    // ndmreset tiene la CPU en reset mientras está puesto, como en el C3: el
+    // reset del sistema lo hace OpenOCD con RTC_CNTL_SW_SYS_RST.
+    static constexpr uint32_t IDCODE = 0x00005C25u;
+    enum class FuenteJtag { Ninguna, Pines, Usb };
+    std::unique_ptr<RvDm> dm;
+    std::unique_ptr<RvDtmJtag> tap;
+    std::unique_ptr<JtagPines> jtag;
+    FuenteJtag fuente_jtag() const { return fuente_jtag_; }
+
     Esp32C3(sc_core::sc_module_name nm, const McuCapsC3& m, const Cableado& cab = Cableado())
         : sc_core::sc_module(nm), mcu(m), core("core", *m.nucleo, 0),
           gpio("gpio", c3::GPIO_B, pines_c3(), bonded(m), cab),
@@ -260,6 +284,19 @@ public:
             // 1, la interrupción (fuente RTC_CORE): sin modelar
         };
         pon_flashboot(true);
+
+        // La depuración
+        dm.reset(new RvDm("dm", std::vector<NucleoRv*>{&core}));
+        dm->sba.bind(bus);
+        dm->ndmreset = [this](bool v) {
+            ndm_ = v;
+            if (v) rst_cpu_n.write(false);
+            else if (encendido_) rst_cpu_n.write(true);
+        };
+        tap.reset(new RvDtmJtag(*dm, IDCODE, 7));
+        jtag.reset(new JtagPines("jtag", *tap, JtagPines::Pines{&gpio.nodo_de(6), &gpio.nodo_de(4),
+                                                                 &gpio.nodo_de(5), &gpio.nodo_de(7), nullptr}));
+        jtag->activo(false);
 
         siempre.write(true);
         rst_per_n.write(true);
@@ -417,13 +454,31 @@ public:
             "el RNG (SYSCON_RND_DATA) es un xorshift32 de semilla fija: igual en cada simulacion",
             "declarados: SPI2, I2C, UHCI, RMT, LEDC, TWAI, I2S, AES, RSA, DS, HMAC, GDMA, SAR ADC, "
             "USB-Serial-JTAG y XTS_AES (E7, E8); la radio (FE, NRX, BB) guarda sin hacer nada",
-            "el JTAG en pines (MTMS-MTDO) y la depuracion: E6",
+            "la depuracion: el DM 0.13 y el TAP (IDCODE 0x00005C25) en los pines MTMS-MTDO si "
+            "los eFuse los eligen (jtag=\"pines\" en el <mcu>; de fabrica van al USB-Serial-JTAG, "
+            "E7); la region del DM no se ve en el mapa de memoria",
         };
     }
 
+    // jtag="pines": como quemar EFUSE_DIS_USB_JTAG (la fuente se elige en el
+    // próximo reset de chip)
+    void jtag_en_pines(bool si) { efuse.pon_bit(0x30, 9, si); }
+
 private:
     CsrC3 csr_;
-    bool rtc_pend_ = false;
+    bool rtc_pend_ = false, ndm_ = false;
+    FuenteJtag fuente_jtag_ = FuenteJtag::Usb;
+    void elige_jtag() {
+        const uint32_t r0 = efuse.rd(0x30);
+        const bool dis_usb = (r0 >> 9) & 1u, sel = (r0 >> 15) & 1u, dis_pad = (r0 >> 19) & 1u;
+        const unsigned soft = (r0 >> 16) & 7u;
+        const bool soft_dis = ((soft & 1u) + ((soft >> 1) & 1u) + ((soft >> 2) & 1u)) & 1u;
+        const bool g10 = gpio.nodo_de(10).voltage() > 1.65f;
+        const bool usb = sel ? g10 : !dis_usb;
+        if (usb) fuente_jtag_ = dis_usb ? FuenteJtag::Ninguna : FuenteJtag::Usb;
+        else fuente_jtag_ = (dis_pad || soft_dis) ? FuenteJtag::Ninguna : FuenteJtag::Pines;
+        jtag->activo(fuente_jtag_ == FuenteJtag::Pines);
+    }
     // Los perros guardianes del arranque desde la Flash (RWDT y MWDT0 en
     // flashboot): como en el silicio cuando arranca la ROM; apagados con un
     // ELF en la SRAM (E3)
@@ -628,10 +683,11 @@ private:
             wait(1, sc_core::SC_US);
             if (!pu_alto()) continue;
             gpio.latch_arranque();
+            elige_jtag();
             modo_flash();
             csr_.reset();
             encendido_ = true;
-            rst_cpu_n.write(true);
+            rst_cpu_n.write(!ndm_);
             // Encendido: hasta que CHIP_PU baje o se pida un reset
             for (;;) {
                 wait(ev_pu_ | ev_reset_);
@@ -653,7 +709,7 @@ private:
                     rtc.anota_causa(c);
                     csr_.reset();
                     wait(100, sc_core::SC_NS);
-                    rst_cpu_n.write(true);
+                    rst_cpu_n.write(!ndm_);
                 }
             }
         }

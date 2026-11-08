@@ -13,7 +13,7 @@
 //     el TAP se queda en Test-Logic-Reset.
 //
 // `activo(false)` lo desconecta (los pines son del chip para otra cosa):
-// deja de escuchar y suelta TDO.
+// deja de escuchar y suelta TDO y los pull-ups (en el C3 son GPIO4-7).
 // =============================================================================
 #ifndef STM32_RV_DEBUG_JTAG_PINES_H
 #define STM32_RV_DEBUG_JTAG_PINES_H
@@ -50,7 +50,16 @@ SC_MODULE(JtagPines) {
 
     void activo(bool v) {
         activo_ = v;
-        if (!v) p_.tdo->set_hiz(id_tdo_);
+        if (!v) {
+            p_.tdo->set_hiz(id_tdo_);
+            p_.tms->set_hiz(id_pu_tms_);
+            p_.tdi->set_hiz(id_pu_tdi_);
+            if (p_.ntrst) p_.ntrst->set_hiz(id_pu_trst_);
+        } else {
+            p_.tms->set_drive(id_pu_tms_, float(vdd_), 50e3f);
+            p_.tdi->set_drive(id_pu_tdi_, float(vdd_), 50e3f);
+            if (p_.ntrst) p_.ntrst->set_drive(id_pu_trst_, float(vdd_), 50e3f);
+        }
     }
     bool activo() const { return activo_; }
     uint64_t flancos() const { return n_; }

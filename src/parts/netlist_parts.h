@@ -49,6 +49,7 @@
 #include "mems_st.h"
 #include "xds110.h"
 #include "spi_flash.h"
+#include "auto_reset_esp.h"
 
 namespace stm32 {
 
@@ -2980,6 +2981,11 @@ REGISTRA_PARTE(PuenteSerie,
            "Lo que se teclea al arrancar, con \\r \\n \\t \\0 \\\\ y \\xNN. Solo "
            "con host=memoria.")
       .atr("guion_ms", "10", "Cuando se teclea, en ms simulados.")
+      .atr("reinicio", "no",
+           "esp: los cambios de DTR y RTS que llegan por RFC 2217 no se aplican uno a uno: "
+           "el puente reconoce el principio del reinicio de esptool y lo hace el, con sus "
+           "tiempos en tiempo simulado, como el servidor esp_rfc2217_server de Espressif. "
+           "Para las placas de los ESP, con su AutoResetEsp. DTR y RTS salen inactivos (altos).")
       .nota("Una trama con error de trama o de paridad SE ENTREGA igual: es la "
             "basura que tiene que verse cuando los baudios no cuadran. Un break "
             "no es un byte: se cuenta y no se entrega.")
@@ -3011,6 +3017,7 @@ REGISTRA_PARTE(PuenteSerie,
         c.muestra      = d.si("muestra", true);
         serie::desescapa(d.txt("guion", ""), c.guion);
         c.guion_ms     = d.num("guion_ms", 10.0);
+        c.reinicio_esp = d.txt("reinicio", "no") == "esp";
         auto nodo = [&](const char* t) -> analog_net_if* {
             const std::string& s = d.nodo_de(t);
             return s.empty() ? nullptr : &n[s];
@@ -3058,6 +3065,37 @@ REGISTRA_PARTE(SdCard,
         };
         return new SdCard(d.id.c_str(), n[d.nodo_de("ck")], n[d.nodo_de("cmd")],
                           opt("dat0"), opt("dat1"), opt("dat2"), opt("dat3"));
+    });
+
+REGISTRA_PARTE(AutoResetEsp,
+    Ayuda("El reinicio automatico de las placas de Espressif: dos NPN cruzados "
+          "entre el DTR y el RTS del puente USB-UART, y el RC del pin de "
+          "habilitacion. RTS sola activa (baja) pone EN a masa; DTR sola, IO0. "
+          "EN sube por el RC (tau = r c), asi que IO0 sigue abajo cuando el "
+          "chip guarda los pines de arranque: es como esptool (y idf.py, "
+          "PlatformIO, Arduino) lo pone en descarga sin tocar ningun boton.")
+      .ejemplo("<componente tipo=\"AutoResetEsp\" id=\"Q1\">\n"
+               "  <pin nombre=\"dtr\" nodo=\"DTR\"/>\n"
+               "  <pin nombre=\"rts\" nodo=\"RTS\"/>\n"
+               "  <pin nombre=\"en\"  nodo=\"CHIP_PU\"/>\n"
+               "  <pin nombre=\"io0\" nodo=\"GPIO9\"/>\n"
+               "</componente>")
+      .pin("dtr", "obligatorio", "El DTR del puente (PuenteSerie, terminal dtr): alto en reposo.")
+      .pin("rts", "obligatorio", "El RTS del puente (PuenteSerie, terminal rts): alto en reposo.")
+      .pin("en", "obligatorio", "CHIP_PU (EN). La pieza lleva su pull-up y su condensador.")
+      .pin("io0", "obligatorio", "El pin de arranque: GPIO9 en el ESP32-C3 y el C6, GPIO0 en el ESP32.")
+      .atr("r", "10000", "El pull-up de EN, en ohmios.")
+      .atr("c", "1e-6", "El condensador de EN, en faradios.")
+      .atr("vdd", "3.3", "La alimentacion a la que sube EN.")
+      .nota("No hace falta un Rpull en CHIP_PU: va dentro. Un pulsador de RESET a masa en el "
+            "mismo nodo descarga el condensador, como en la placa.")
+      .nota("Con RFC 2217, el terminal mueve DTR y RTS de uno en uno y al ritmo del reloj de "
+            "pared: el PuenteSerie lleva reinicio=\"esp\" para que el reinicio salga con sus "
+            "tiempos en tiempo simulado."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        return new AutoResetEsp(d.id.c_str(), n[d.nodo_de("dtr")], n[d.nodo_de("rts")],
+                                n[d.nodo_de("en")], n[d.nodo_de("io0")], d.num("r", 10e3),
+                                d.num("c", 1e-6), d.num("vdd", 3.3));
     });
 
 REGISTRA_PARTE(SpiFlash,

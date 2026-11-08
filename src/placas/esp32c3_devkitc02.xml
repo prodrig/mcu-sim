@@ -8,9 +8,10 @@
      guarda la Flash entre simulaciones, como la de una placa de verdad.
 
          U1     el puente USB-UART (CP2102N) en la UART0 (GPIO20/21): un
-                PuenteSerie (--serie UART=tcp:3357, memoria...)
-         BOOT   pulsador de GPIO9 a masa; RESET, de CHIP_PU a masa con 10 kohm
-                a 3V3
+                PuenteSerie (--serie UART=rfc2217:3357, memoria...), con su
+                DTR y su RTS al auto-reset (Q1, AutoResetEsp: los dos
+                transistores y el RC de CHIP_PU)
+         BOOT   pulsador de GPIO9 a masa; RESET, de CHIP_PU a masa
          LED    el RGB (WS2812) en GPIO8: con el RMT (E8)
 
          ./build/mcu-sim placas/esp32c3_devkitc02.xml build/idf/v5.5/hello_world/flash_args --serie UART=memoria --ms=500
@@ -19,6 +20,9 @@
   <mcu tipo="ESP32-C3" id="u0"/>
 
   <nodo id="CHIP_PU" bus="si"/>
+  <nodo id="GPIO9" bus="si"/>
+  <nodo id="DTR" externo="si"/>
+  <nodo id="RTS" externo="si"/>
 
   <componente tipo="SpiFlash" id="U2" modelo="GD25Q32">
     <pin nombre="cs"   nodo="SPICS0"/>
@@ -28,10 +32,18 @@
     <pin nombre="wp"   nodo="SPIWP"/>
     <pin nombre="hold" nodo="SPIHD"/>
   </componente>
-  <componente tipo="PuenteSerie" id="UART" host="tcp:3357" baudios="115200" formato="8N1"
-              muestra="si">
-    <pin nombre="rx" nodo="GPIO21"/>   <!-- U0TXD -->
-    <pin nombre="tx" nodo="GPIO20"/>   <!-- U0RXD -->
+  <componente tipo="PuenteSerie" id="UART" host="rfc2217:3357" baudios="host" formato="8N1"
+              muestra="si" reinicio="esp">
+    <pin nombre="rx"  nodo="GPIO21"/>   <!-- U0TXD -->
+    <pin nombre="tx"  nodo="GPIO20"/>   <!-- U0RXD -->
+    <pin nombre="dtr" nodo="DTR"/>
+    <pin nombre="rts" nodo="RTS"/>
+  </componente>
+  <componente tipo="AutoResetEsp" id="Q1">
+    <pin nombre="dtr" nodo="DTR"/>
+    <pin nombre="rts" nodo="RTS"/>
+    <pin nombre="en"  nodo="CHIP_PU"/>
+    <pin nombre="io0" nodo="GPIO9"/>
   </componente>
   <componente tipo="Button" id="BOOT" v_cerrado="0" r_cerrado="10">
     <pin nombre="pin" nodo="GPIO9"/>
@@ -39,7 +51,9 @@
   <componente tipo="Button" id="RESET" r_cerrado="10" rebote="no">
     <pin nombre="pin" nodo="CHIP_PU"/>
   </componente>
-  <componente tipo="Rpull" id="R1" v="3.3" r="10000" visible="no">
-    <pin nombre="a" nodo="CHIP_PU"/>
+  <!-- GPIO8 es pin de arranque y tiene que estar alto para la descarga por
+       la UART (boot:0x4); la placa lo sube con 10 kohm -->
+  <componente tipo="Rpull" id="R_GPIO8" v="3.3" r="10000" visible="no">
+    <pin nombre="a" nodo="GPIO8"/>
   </componente>
 </placa>

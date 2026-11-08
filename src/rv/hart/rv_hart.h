@@ -508,6 +508,9 @@ private:
     uint32_t mie_ = 0, mideleg_ = 0, mcounteren_ = 0, mcountinhibit_ = 0;
     uint32_t utvec_ = 0, uepc_ = 0, ucause_ = 0, uscratch_ = 0;
     uint64_t mcycle_ = 0, minstret_ = 0;
+    // Para la latencia de las interrupciones (`visibles`): lo pedido en la
+    // frontera anterior
+    uint32_t hw_ant_ = 0;
     bool     escrito_cy_ = false, escrito_ir_ = false;
     uint8_t  pmpcfg_[16];
     uint32_t pmpaddr_[16];
@@ -640,8 +643,25 @@ private:
     // si era comprimida), que es lo que pone Spike
     bool ilegal(uint32_t /*insn*/) { excepcion(RV_EXC_ILEGAL, crudo_); return false; }
 
+    // La LATENCIA (RvTiempos::lat_irq, de 4 ciclos en el C3 [TRM-C3
+    // §1.5.3.1]): una petición que aparece durante una instrucción no puede
+    // entrar en la frontera que sigue, sino en la siguiente; se factura al
+    // entrar. El software cuenta con ello: la ROM del C3 habilita la
+    // interrupción de la UART y, en la instrucción siguiente, dice qué UART es
+    // la suya (uart_buff_switch); si entrase en el acto, la rutina leería la
+    // que no es. Las que ya estaban pedidas compiten todas a la vez, por
+    // prioridad. Con lat_irq = 0 (los de laboratorio), nada.
+    uint32_t visibles(uint32_t hw) {
+        if (!caps_.tiempos->lat_irq) return hw;
+        // Dormido en wfi, lo que lo despierta entra en el acto: el despertar
+        // tarda más que la latencia, y el silicio no ejecuta nada antes del
+        // trap (si no, un `lw` tras el wfi leería el dato de antes de la ISR)
+        const uint32_t v = wfi_ ? hw : (hw & hw_ant_);
+        hw_ant_ = hw;
+        return v;
+    }
     bool interrupcion(unsigned& id, bool& a_u) {
-        const uint32_t hw = irq_ ? irq_->pendientes() : 0u;
+        const uint32_t hw = visibles(irq_ ? irq_->pendientes() : 0u);
         const uint32_t pend = caps_.mie_mip ? (hw & mie_ & caps_.mie_bits) : hw;
         if (!pend) return false;
         const uint32_t deleg = caps_.deleg_n ? mideleg_ : 0u;

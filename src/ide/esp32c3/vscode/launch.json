@@ -1,0 +1,78 @@
+{
+    // VS Code contra el ESP32-C3 del simulador (E6 de doc/analisis_esp32_riscv.md).
+    // Copiar a .vscode/launch.json del proyecto de ESP-IDF. Antes de depurar,
+    // el simulador con la aplicacion ya en su Flash (ide/esp32c3/README.md):
+    //     ./build/mcu-sim placas/esp32c3_devkitm1.xml PROYECTO/build/flash_args --gdb-dap --tiempo-real
+    // o, para la entrada de OpenOCD, con --openocd --jtag=pines.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            // Con la extension de ESP-IDF (espressif.esp-idf-extension), que
+            // depura con el adaptador «gdbtarget» de Eclipse CDT, contra el
+            // stub de GDB del simulador (G1): sin OpenOCD
+            "name": "ESP32-C3 (simulador, ESP-IDF, stub G1)",
+            "type": "gdbtarget",
+            "request": "attach",
+            "program": "${workspaceFolder}/build/${command:espIdf.getProjectName}.elf",
+            "gdb": "riscv32-esp-elf-gdb",
+            "target": {
+                "type": "remote",
+                "host": "localhost",
+                "port": "3333",
+                "connectCommands": [
+                    "set remotetimeout 20",
+                    "target extended-remote localhost:3333",
+                    "monitor reset halt",
+                    "maintenance flush register-cache",
+                    "thbreak app_main",
+                    "continue"
+                ]
+            }
+        },
+        {
+            // La misma extension con openocd-esp32 por remote_bitbang
+            // (mcu-sim ... --openocd --jtag=pines): target/esp32c3.cfg sin tocar
+            "name": "ESP32-C3 (simulador, ESP-IDF, OpenOCD)",
+            "type": "gdbtarget",
+            "request": "attach",
+            "program": "${workspaceFolder}/build/${command:espIdf.getProjectName}.elf",
+            "gdb": "riscv32-esp-elf-gdb",
+            "initCommands": [
+                "set remotetimeout 20"
+            ],
+            "target": {
+                "server": "openocd",
+                "serverParameters": ["-f", "${workspaceFolder}/ide/esp32c3/openocd/mcu-sim_esp32c3.cfg"],
+                "port": "3333",
+                "connectCommands": [
+                    "target extended-remote localhost:3333",
+                    "monitor reset halt",
+                    "maintenance flush register-cache",
+                    "thbreak app_main",
+                    "continue"
+                ]
+            }
+        },
+        {
+            // Sin extensiones: el depurador de C/C++ de Microsoft
+            // (ms-vscode.cpptools), por MI, contra el stub G1
+            "name": "ESP32-C3 (simulador, cppdbg)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/TU_PROYECTO.elf",
+            "cwd": "${workspaceFolder}",
+            "MIMode": "gdb",
+            "miDebuggerPath": "riscv32-esp-elf-gdb",
+            "miDebuggerServerAddress": "localhost:3333",
+            "stopAtConnect": true,
+            "setupCommands": [
+                { "text": "set remotetimeout 20" }
+            ],
+            "postRemoteConnectCommands": [
+                { "text": "monitor reset halt" },
+                { "text": "maintenance flush register-cache" },
+                { "text": "thbreak app_main" }
+            ]
+        }
+    ]
+}

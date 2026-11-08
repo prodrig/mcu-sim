@@ -1066,6 +1066,46 @@ picosegundo, y C8-C13 nuevos).
 
 **Tamaño:** pequeño.
 
+**Hecho (2026-11-08).** esptool 5.6 de verdad programa la DevKitM-1 simulada
+por RFC 2217, con el *stub* y sin él, a 115 200 y a 921 600, y el firmware
+nuevo arranca.
+* **`AutoResetEsp`** (`parts/auto_reset_esp.h`): los dos NPN cruzados entre DTR
+  y RTS y el RC de CHIP_PU (10 kΩ, 1 µF: EN sube con tau = 10 ms); un pulsador
+  de RESET en el mismo nodo descarga el condensador. En las dos DevKit, con el
+  `PuenteSerie` en `rfc2217` y sus `dtr` y `rts`, y GPIO8 con su pull-up (si
+  flota, la ROM lee boot:0x0 y no entra en descarga).
+* **El tiempo entre cambios de control** no se resuelve con un mínimo: por RFC
+  2217 pySerial espera la respuesta de cada SET-CONTROL sondeando cada 50 ms de
+  reloj, y entre eso y el ritmo de la simulación el reinicio de esptool
+  (DTR=0 RTS=1 · 100 ms · DTR=1 RTS=0 · 50 ms · DTR=0) llega deformado:
+  CHIP_PU subía con GPIO9 todavía alto. Se hace lo mismo que el servidor
+  `esp_rfc2217_server` de Espressif con una placa de verdad: `reinicio="esp"`
+  en el puente reconoce el **principio** de la secuencia y la hace él en tiempo
+  simulado (UnixTightReset y HardReset de esptool); lo demás de la secuencia se
+  contesta y no se aplica. DTR y RTS salen inactivos.
+* **La detección de baudios de la UART** (LOWPULSE, HIGHPULSE, POSPULSE,
+  NEGPULSE, RXD_CNT con AUTOBAUD_EN): la ROM espera 128 flancos del SYNC y saca
+  el divisor de (LOW + HIGH + 2) / 2. Sin ella no contesta nunca.
+* **La latencia de las interrupciones**: una petición nueva no entra en la
+  frontera de instrucción que sigue sino en la otra (dormido en `wfi`, en el
+  acto). Sin eso la ROM fallaba (Load access fault en `uart_rx_intr_handler`):
+  `uart_buff_switch` habilita la interrupción de la UART0 y una instrucción
+  después dice que la UART es la 0; en medio entraba la interrupción con la
+  UART del USB (3) todavía puesta. C1-C13 no se mueven.
+* **`verif/esp/esptool_c3.py`** (`make esptool-c3`, en el CI con
+  `ESPTOOL_OBLIGATORIO=1`; sin esptool se omite): `chip-id` con el *stub* a
+  115 200, `flash-id --no-stub`, `write-flash` de blink a 921 600 con el *stub*
+  (MD5 de las tres imágenes), `verify-flash --no-stub` (el MD5 de la ROM),
+  `write-flash --no-stub` a 921 600 y blink arrancando por el mismo puerto. No se
+  llama `esptool.py`: se importaría a sí mismo.
+* **A mano**, en Linux: `idf.py -p rfc2217://localhost:3356 flash` y
+  `monitor` (esp-idf-monitor reinicia al abrir, como con una placa). La matriz,
+  en `doc/puente_serie.md` §4.5. El puerto de la DevKitM-1 es el 3356 (el 3355
+  que decía este plan es el de las placas de ST); la DevKitC-02, el 3357.
+* `testc3` C14: la ROM detecta los baudios del primer SYNC, contesta al segundo
+  y `READ_REG` de CHIP_DETECT_MAGIC da 0x1B31506F; 115 comprobaciones.
+  `testserie` no se mueve.
+
 ### E6 · C3: depuración (G1, G2, G2') y D4
 
 **Entregas:**

@@ -38,12 +38,14 @@
 #include "../../parts/netlist.h"
 #include "../../common/nombres_nodo.h"
 #include "../../parts/spi_flash.h"
+#include "../esp/programador_esp.h"
+#include "../../rv/gdb/gdb_stub_rv.h"
 
 namespace stm32 {
 
 class McuC3 : public mcu_if {
 public:
-    McuC3(const char* nm, DebugCaps, const Cableado& cab, const McuDesc& d)
+    McuC3(const char* nm, DebugCaps dbg, const Cableado& cab, const McuDesc& d)
         : desc_(d) {
         const McuCapsC3& m = *static_cast<const McuCapsC3*>(d.propio);
         chip_ = new Esp32C3(nm, m, cab);
@@ -58,8 +60,27 @@ public:
         d_gnd_ = gnd_->register_driver("sim_gnd");
         d_pu_ = chip_->chip_pu.register_driver("sim_chip_pu");
         chip_->chip_pu.set_hiz(d_pu_);
+        // El `load` de GDB (D4): por las ventanas de la MMU
+        prog_.traduce = [this](uint32_t a, uint32_t& off) { return chip_->flash() && chip_->cache.traduce(a, off); };
+        prog_.tam_flash = [this] { return chip_->flash() ? chip_->flash()->tam() : 0u; };
+        prog_.borra = [this](uint32_t off, uint32_t n) {
+            if (SpiFlashChip* f = chip_->flash())
+                for (uint32_t i = 0; i < n && off + i < f->tam(); ++i) f->datos()[off + i] = 0xFF;
+        };
+        prog_.escribe = [this](uint32_t off, const uint8_t* p, unsigned n) {
+            if (SpiFlashChip* f = chip_->flash())
+                for (unsigned i = 0; i < n && off + i < f->tam(); ++i) f->datos()[off + i] &= p[i];
+        };
+        prog_.invalida = [this] { chip_->cache.invalida_lineas(); };
+        // G1: el stub de GDB con el DM en directo (depuracion="dap")
+        if (dbg.attach == DebugAttach::Interno && dbg.puerto) {
+            gdb_.reset(new GdbStubRv((std::string(nm) + "_gdb").c_str(), *chip_->dm, dbg.puerto, "gdb-c3"));
+            gdb_->pon_programador(&prog_);
+            gdb_->set_enabled(false);
+        }
     }
     ~McuC3() override {
+        gdb_.reset();
         delete chip_;
         for (AnalogNet* n : propios_) delete n;
     }
@@ -90,7 +111,17 @@ public:
     }
     analog_net_if* nodo_swclk() override { return nullptr; }
     analog_net_if* nodo_swdio() override { return nullptr; }
-    analog_net_if* nodo_depuracion(const std::string&) override { return nullptr; }
+    // El JTAG en sus pines: MTCK (GPIO6), MTMS (GPIO4), MTDI (GPIO5), MTDO
+    // (GPIO7); el reset que tira la sonda, CHIP_PU. Que el TAP conteste lo
+    // deciden los eFuse (jtag="pines").
+    analog_net_if* nodo_depuracion(const std::string& h) override {
+        if (h == "tck") return &chip_->gpio.nodo_de(6);
+        if (h == "tms") return &chip_->gpio.nodo_de(4);
+        if (h == "tdi") return &chip_->gpio.nodo_de(5);
+        if (h == "tdo") return &chip_->gpio.nodo_de(7);
+        if (h == "srst") return &chip_->chip_pu;
+        return nullptr;
+    }
 
     void alimentacion_externa(bool si) override { externa_ = si; }
     void alimenta(bool on) override {
@@ -141,12 +172,26 @@ public:
     }
     memoria_nv_if* memoria_nv() override { return chip_->flash_interna(); }
     void set_ondas_reloj(bool) override {}
-    bool tiene_gdb_interno() const override { return false; }
-    void gdb_interno(bool, bool) override {}
+    bool tiene_gdb_interno() const override { return gdb_ != nullptr; }
+    void gdb_interno(bool activo, bool traza) override {
+        if (!gdb_) return;
+        gdb_->set_verbose(traza);
+        gdb_->set_enabled(activo);
+    }
+    programador_nv_if* programador() override { return &prog_; }
 
-    bool admite_opcion(const std::string& clave) const override { return clave == "efuse" || clave == "rom"; }
+    bool admite_opcion(const std::string& clave) const override {
+        return clave == "efuse" || clave == "rom" || clave == "jtag";
+    }
     std::string opcion(const std::string& clave, const std::string& valor) override {
         if (clave == "efuse") return chip_->efuse.carga(valor);
+        if (clave == "jtag") {
+            if (valor != "pines" && valor != "usb")
+                return "jtag=" + valor + ": pines (EFUSE_DIS_USB_JTAG quemado) o usb (de fabrica)";
+            jtag_ = valor;
+            chip_->jtag_en_pines(valor == "pines");
+            return "";
+        }
         if (clave == "rom") {
             const std::string e = chip_->pon_rom(valor);
             if (!e.empty()) return e;
@@ -159,6 +204,8 @@ public:
     std::string describe_opcion(const std::string& clave) const override {
         if (clave == "efuse") return chip_->efuse.ruta().empty() ? "MAC de omision" : chip_->efuse.ruta();
         if (clave == "rom") return chip_->rom.nombre();
+        if (clave == "jtag") return jtag_ == "pines" ? "en los pines MTMS-MTDO (EFUSE_DIS_USB_JTAG quemado)"
+                                                     : "en el USB-Serial-JTAG (de fabrica)";
         return "";
     }
 
@@ -200,6 +247,9 @@ private:
     }
     Esp32C3* chip_;
     McuDesc desc_;
+    ProgramadorEsp prog_;
+    std::unique_ptr<GdbStubRv> gdb_;
+    std::string jtag_ = "usb";
     std::vector<AnalogNet*> propios_;
     analog_net_if *vdd_, *vdd_rtc_, *vdd_spi_, *vdda_, *gnd_;
     int d_vdd_ = -1, d_gnd_ = -1, d_pu_ = -1;

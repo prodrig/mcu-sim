@@ -378,6 +378,13 @@ public:
         return 100 * may + (hi << 3) + lo;
     }
     const std::string& ruta() const { return ruta_; }
+    // Un bit de la imagen de lectura, puesto o quitado (como quemarlo, para
+    // las opciones de montaje: jtag="pines")
+    void pon_bit(uint32_t off, unsigned bit, bool v) {
+        if (off < RD_INI || off >= RD_FIN) return;
+        uint32_t& w = w_[(off - RD_INI) / 4];
+        w = v ? (w | (1u << bit)) : (w & ~(1u << bit));
+    }
 
 protected:
     bool lee(uint32_t off, uint32_t& v) override {
