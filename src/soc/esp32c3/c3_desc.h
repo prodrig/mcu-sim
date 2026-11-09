@@ -60,8 +60,13 @@ constexpr uint32_t UART0_B = 0x60000000u, SPI1_B = 0x60002000u, SPI0_B = 0x60003
                    XTS_AES_B = 0x600CC000u, ASSIST_B = 0x600CE000u, WCL_B = 0x600D0000u;
 // --- Fuentes de interrupción [TRM-C3 tabla 8.3-1] ----------------------------------
 constexpr unsigned N_FUENTES = 62;
-constexpr unsigned F_GPIO = 16, F_UART0 = 21, F_UART1 = 22, F_TG0_T0 = 32, F_TG0_WDT = 33,
-                   F_TG1_T0 = 34, F_TG1_WDT = 35, F_SYSTIMER0 = 37, F_SW0 = 50, F_USB_SJ = 26, F_LEDC = 23, F_RMT = 28, F_ADC = 46, F_I2C = 29, F_SPI2 = 19, F_DMA0 = 47, F_TWAI = 25;
+// (contrastadas con ETS_*_INTR_SOURCE de soc/interrupts.h de ESP-IDF: el ADC es
+// la 43 y la GDMA la 44-46; antes de 2026-11-09 estaban en 46 y 47, que son
+// la GDMA 2 y el RSA, sin que ninguna prueba lo notara)
+constexpr unsigned F_UHCI0 = 15, F_GPIO = 16, F_SPI2 = 19, F_I2S = 20, F_UART0 = 21, F_UART1 = 22,
+                   F_LEDC = 23, F_TWAI = 25, F_USB_SJ = 26, F_RMT = 28, F_I2C = 29,
+                   F_TG0_T0 = 32, F_TG0_WDT = 33, F_TG1_T0 = 34, F_TG1_WDT = 35, F_SYSTIMER0 = 37,
+                   F_ADC = 43, F_DMA0 = 44, F_RSA = 47, F_AES = 48, F_SHA = 49, F_SW0 = 50;
 // --- Señales de la matriz GPIO [TRM-C3 tabla 5.11-1] --------------------------------
 constexpr unsigned SIG_TWAI = 74, SIG_LEDC0 = 45, SIG_RMT0 = 51, SIG_I2C_SCL = 53, SIG_I2C_SDA = 54,
                    SIG_FSPICLK = 63, SIG_FSPIQ = 64, SIG_FSPID = 65, SIG_FSPICS0 = 68;
