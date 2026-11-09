@@ -1363,7 +1363,8 @@ diciendo por qué se ha movido.
 **Hecha (2026-11-08): las ocho entregas. El LEDC (1), el RMT con `Ws2812`
 (2), el GP-SPI2 con la GDMA (3), el I2C (4), el SAR ADC con el sensor de
 temperatura (5), el TWAI (6) y el AES (7; el SHA es de E4 y el RNG de E3);
-UHCI, I2S, RSA, DS, HMAC y XTS_AES, declarados con aviso (8).**
+UHCI, I2S, RSA, DS, HMAC y XTS_AES, declarados con aviso (8); después,
+modelados uno a uno (abajo).**
 * **`periph/esp/ledc_esp.h`**: 6 canales y 4 temporizadores de baja velocidad.
   El reloj sale de LEDC_CONF (APB, RC_FAST o XTAL, con CLK_EN). CLK_DIV va en
   coma fija 10.8 y DUTY_RES en bits. Cada canal sube en HPOINT y baja DUTY tics
@@ -1428,6 +1429,29 @@ UHCI, I2S, RSA, DS, HMAC y XTS_AES, declarados con aviso (8).**
   NRX, BB) guarda sin hacer nada.
 * `testc3`: 174 comprobaciones (180 con C23, la región del DM de E6); C1-C19 no se mueven. C21 suelta antes la sonda
   JTAG de C16, que dejaba TCK (GPIO6 de c3b, el SCLK) a nivel bajo.
+
+**Lo que había quedado declarado, modelado (2026-11-09).** Una entrega por
+periférico, cada una con su firmware, su grupo de `testc3` al final (C1-C23
+no se mueven) y su línea en `verif/invariantes.txt`. Antes, una corrección:
+las fuentes de interrupción del SAR ADC y de la GDMA eran la 46 y la 47-49, y
+son la 43 y la 44-46 [TRM-C3 tabla 8.3-1; `ETS_*_INTR_SOURCE` de
+`soc/interrupts.h` de ESP-IDF]; la 47 es la del RSA. Ninguna prueba las usaba.
+* **`periph/esp/rsa_esp.h`** y **`bignum_esp.h`** [TRM-C3 §20]: MODEXP,
+  MODMULT y MULT de 32 a 3072 bits, por Montgomery de verdad (CIOS con la resta
+  final) con la r y la M' que da el software: si están mal, sale basura, como
+  en el silicio. MODEXP deja X en forma de Montgomery en X_MEM y M, Y, M' y
+  MODE intactas; SEARCH_ENABLE/SEARCH_POS y CONSTANT_TIME cambian el número
+  de productos (y el tiempo), no el resultado. IDLE, la interrupción (fuente
+  47, con INTERRUPT_ENA a 1 de reset) y CLEAR_INTERRUPT. DATE en 0x830
+  (0x20200618), la del TRM: ESP-IDF la pone en 0x82C, que es INTERRUPT_ENA. El
+  tiempo, de modelo: n(n + 6) ciclos del APB por producto, que da a 80 MHz
+  los de la tabla 20.3-1 (753 ms sin acelerar para 3072 bits y e = 65537, 4,4
+  con SEARCH y 2,7 sin tiempo constante; el TRM: 752,81, 4,52 y 2,41).
+  `verif/fw/esp32c3/rsa.c` con una clave RSA-1024 de semilla fija
+  (`vec/gen_rsa.py`: los resultados los calcula Python): la firma X^d mod M,
+  la comprobación con SEARCH en el bit 16 y CONSTANT_TIME a 0, A·B mod M y un
+  MULT de 512 x 512. `testc3` C24 (192): los resultados, lo que no cambia, la
+  interrupción y los tiempos en tics del SYSTIMER.
 
 ### E9 · ESP32-C6: el núcleo HP y el SoC
 

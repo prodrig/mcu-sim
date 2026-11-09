@@ -350,4 +350,8 @@ testrv                 457      28577500000           resto
 # (0x2000_0000-0x27FF_FFFF): el program buffer en 0x2000_0340, los datos en
 # 0x2000_0380, la PMP en su busqueda, y datacount = 2 como un C3 de verdad.
 # C1-C22 no se mueven (C23 empieza en 18107200002000, el total anterior).
-testc3                 180      18108212002000        resto
+# E8, lo que quedaba declarado (09-11-2026), una entrega por periferico, cada
+# una con su grupo al final: C1-C23 no se mueven. Las fuentes de interrupcion
+# del ADC y la GDMA pasan a 43 y 44-46 (las de ESP-IDF); ninguna prueba las
+# usaba. C24: el RSA (rsa.elf, 13 ficheros), desde 18694632002000.
+testc3                 192      18139822002000        resto

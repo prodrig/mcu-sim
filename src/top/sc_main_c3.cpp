@@ -250,7 +250,7 @@ SC_MODULE(TbC3) {
         check(c3.limitaciones().size() >= 5, "limitaciones(): lo que no esta (perifericos de E7-E8, SWD, brownout...)");
         const huella_fw::Veredicto hv = huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "c3");
         std::printf("    %d imagenes: %s\n", hv.comprobadas, hv.detalle.c_str());
-        check(hv.ok() && hv.comprobadas == 12, "los doce ficheros de la suite son los versionados (verif/fw/huellas.txt)");
+        check(hv.ok() && hv.comprobadas == 13, "los trece ficheros de la suite son los versionados (verif/fw/huellas.txt)");
     }
 
     void c2() {
@@ -1098,15 +1098,47 @@ SC_MODULE(TbC3) {
         c3b.alimenta(false);
     }
 
+
+    // E8: el RSA con una clave RSA-1024 de gen_rsa.py (los resultados, de
+    // Python): firma, comprobación con SEARCH y sin tiempo constante,
+    // MODMULT, MULT, la interrupción y los tiempos de modelo
+    void c24() {
+        grupo("C24 el RSA: firma y comprobacion RSA-1024, MODMULT, MULT y la interrupcion (E8)");
+        check(arranca("rsa.elf"), "rsa.elf");
+        check(espera_fin(sc_time(100, SC_MS)), "acaba");
+        char b[160];
+        const uint32_t ok = bz(0);
+        std::snprintf(b, sizeof b, "RSA_DATE 0x%08X y RSA_CLEAN %u", bz(4), bz(5));
+        check(bz(4) == 0x20200618u && bz(5) == 1u, b);
+        std::snprintf(b, sizeof b, "la firma S = X^d mod M sale como la de Python (palabra baja 0x%08X)", bz(6));
+        check(ok & 1u, b);
+        check(ok & 2u, "S^e mod M = X con SEARCH (bit 16) y CONSTANT_TIME a 0");
+        check(ok & 4u, "MODMULT: A*B mod M");
+        check(ok & 8u, "MULT: 512 x 512 bits = 1024");
+        check(ok & 16u, "tras MODEXP, M, Y, M' y MODE no cambian");
+        check(ok & 32u, "IDLE vale 0 justo despues de arrancar");
+        check((ok & 64u) && (ok & 128u), "la fuente 47 sube al acabar, baja con CLEAR_INTERRUPT y no sube sin INTERRUPT_ENA");
+        // Los tiempos [de modelo]: n(n+6) ciclos del APB (80 MHz) por producto
+        // de Montgomery; la CPU, a 160 MHz. La firma: 2 + 2*1024 + 1
+        // productos; la comprobación: 22; MODMULT: 2. En tics del SYSTIMER
+        // (16 MHz): 498803, 5350 y 486, más lo que tarda leerlo
+        std::snprintf(b, sizeof b, "tiempos: firma %u, comprobacion %u y MODMULT %u tics de 16 MHz (498803, 5350 y 486)",
+                      bz(1), bz(2), bz(3));
+        check(bz(1) >= 498803u && bz(1) < 498803u + 20 && bz(2) >= 5350u && bz(2) < 5350u + 20 &&
+              bz(3) >= 486u && bz(3) < 486u + 20, b);
+        check(c3.rsa.operaciones() == 4, "cuatro operaciones");
+        c3.alimenta(false);
+    }
+
     void run() {
         // C3_SOLO=c4 (o c1...c14): un grupo suelto, para desarrollar
         if (const char* solo = std::getenv("C3_SOLO")) {
             const std::string q = solo;
             void (TbC3::*g[])() = {&TbC3::c1, &TbC3::c2, &TbC3::c3_uart, &TbC3::c4, &TbC3::c5, &TbC3::c6, &TbC3::c7,
                                    &TbC3::c8, &TbC3::c9, &TbC3::c10, &TbC3::c11, &TbC3::c12, &TbC3::c13, &TbC3::c14,
-                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23};
+                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24};
             const int k = q.size() > 1 ? std::atoi(q.c_str() + 1) : 0;
-            if (k >= 1 && k <= 23) (this->*g[k - 1])();
+            if (k >= 1 && k <= int(sizeof g / sizeof g[0])) (this->*g[k - 1])();
             std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
             sc_stop();
             return;
@@ -1133,6 +1165,7 @@ SC_MODULE(TbC3) {
         c21();
         c22();
         c23();
+        c24();
         std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }
