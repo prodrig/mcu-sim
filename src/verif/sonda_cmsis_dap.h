@@ -66,6 +66,7 @@
 #include "../common/analog_net.h"
 #include "../common/red.h"
 #include "sonda_red.h"
+#include "../common/congela.h"
 
 namespace stm32 {
 
@@ -215,6 +216,7 @@ private:
     sc_core::sc_time poll_{100, sc_core::SC_US};
     sc_core::sc_time poll_activo_{20, sc_core::SC_US};
     long espera_us_ = 200;
+    congela::RitmoReal ritmo_;
     unsigned pasos_activo_ = 500;
     bool activo_ = false, anunciado_ = false, verboso_ = false;
     sc_core::sc_event ev_;
@@ -263,11 +265,11 @@ private:
     // en la subida; al revés cuando contesta. Devuelve lo leído en la subida.
     bool ciclo(int nivel) {                  // -1: la línea, suelta
         if (nivel >= 0) gobierna(nivel != 0); else suelta_dio();
-        wait(medio_);
+        congela::espera(medio_);
         clk(true);
-        wait(cuarto_);
+        congela::espera(cuarto_);
         const bool v = lee_dio();
-        wait(cuarto_);
+        congela::espera(cuarto_);
         clk(false);
         return v;
     }
@@ -291,10 +293,10 @@ private:
     bool ciclo_jtag(bool tms, bool tdi) {
         gobierna(tms);
         pon_tdi(tdi);
-        wait(medio_);
+        congela::espera(medio_);
         const bool tdo = lee_tdo();
         clk(true);
-        wait(medio_);
+        congela::espera(medio_);
         clk(false);
         return tdo;
     }
@@ -386,7 +388,7 @@ private:
         for (unsigned i = 0; i <= wait_retry_; ++i) {
             r = paquete(peticion, dato);
             if ((r & 7u) != cmsis_dap::ACK_WAIT) break;
-            wait(sc_core::sc_time(pausa_us, sc_core::SC_US));
+            congela::espera(sc_core::sc_time(pausa_us, sc_core::SC_US));
             if (pausa_us < 1000.0) pausa_us *= 2.0;
         }
         return r;
@@ -477,7 +479,7 @@ private:
             if (!quedan(2)) return false;
             const unsigned us = cmsis_dap::le16(&in[k]);
             k += 2;
-            if (us) wait(sc_core::sc_time(double(us), sc_core::SC_US));
+            if (us) congela::espera(sc_core::sc_time(double(us), sc_core::SC_US));
             o.push_back(c); o.push_back(0); return true;
         }
         case cmsis_dap::RESET_TARGET:
@@ -494,7 +496,7 @@ private:
             if (sel & 0x80) pon_srst(!(sal & 0x80));           // nRESET a 0: reset
             // Al menos un microsegundo: lo que se acaba de poner tiene que
             // llegar al nodo antes de leerlo
-            wait(sc_core::sc_time(double(espera < 1 ? 1 : (espera < 10000 ? espera : 10000)),
+            congela::espera(sc_core::sc_time(double(espera < 1 ? 1 : (espera < 10000 ? espera : 10000)),
                                   sc_core::SC_US));
             uint8_t ent = 0;
             if (clk_->voltage() > 0.5 * vdd_) ent |= 0x01;
@@ -605,7 +607,7 @@ private:
             if (!quedan(2)) return false;
             const unsigned us = cmsis_dap::le16(&in[k]);
             k += 2;
-            if (us) wait(sc_core::sc_time(double(us), sc_core::SC_US));
+            if (us) congela::espera(sc_core::sc_time(double(us), sc_core::SC_US));
             o.push_back(c); o.push_back(0); return true;
         }
         case cmsis_dap::RESET_TARGET:
@@ -620,7 +622,7 @@ private:
             if (sel & 0x04) pon_tdi(sal & 0x04);               // TDI
             if (sel & 0x20) pon_trst(!(sal & 0x20));           // nTRST a 0: reset
             if (sel & 0x80) pon_srst(!(sal & 0x80));           // nRESET a 0: reset
-            wait(sc_core::sc_time(double(espera < 1 ? 1 : (espera < 10000 ? espera : 10000)),
+            congela::espera(sc_core::sc_time(double(espera < 1 ? 1 : (espera < 10000 ? espera : 10000)),
                                   sc_core::SC_US));
             uint8_t ent = 0;
             if (clk_->voltage() > 0.5 * vdd_) ent |= 0x01;
@@ -868,12 +870,12 @@ private:
     void run() {
         unsigned activo = 0;
         for (;;) {
-            if (!activo_ || !red::valido(srv_)) { wait(poll_, ev_); continue; }
+            if (!activo_ || !red::valido(srv_)) { congela::reposo(poll_, ev_); continue; }
             if (!red::valido(cli_)) {
                 aceptar();
-                if (!red::valido(cli_)) { wait(poll_, ev_); continue; }
+                if (!red::valido(cli_)) { congela::reposo(poll_, ev_); continue; }
             }
-            if (!recibe()) { desconectar(); activo = 0; continue; }
+            if (!recibe()) { desconectar(); ritmo_.suelta(); activo = 0; continue; }
             Carga orden;
             std::string error;
             const int hay = cmsis_dap::desenmarca(rx_, orden, error);
@@ -884,6 +886,7 @@ private:
                 continue;
             }
             if (hay == 0) {
+                if (congela::activo()) { congela::reposo(poll_, ev_); continue; }
                 // Lo mismo que la sonda de OpenOCD: mientras el anfitrión
                 // calla, el tiempo simulado sigue al de pared
                 if (activo == pasos_activo_ && espera_us_ > 0) {
@@ -891,13 +894,17 @@ private:
                     const bool llega = red::espera_legible_us(cli_, espera_us_);
                     const long long us = std::chrono::duration_cast<std::chrono::microseconds>(
                         std::chrono::steady_clock::now() - t0).count();
-                    if (us > 0) wait(sc_core::sc_time(double(us), sc_core::SC_US), ev_);
+                    if (us > 0) congela::reposo(sc_core::sc_time(double(us), sc_core::SC_US), ev_);
                     if (llega) continue;
                 }
-                if (activo) { --activo; wait(poll_activo_, ev_); }
-                else wait(poll_, ev_);
+                // Sin pasar al reloj de pared (congela.h)
+                const sc_core::sc_time dt = activo ? poll_activo_ : poll_;
+                ritmo_.paso(cli_, dt);
+                if (activo) --activo;
+                congela::reposo(dt, ev_);
                 continue;
             }
+            congela::actividad();
             const Carga resp = atiende(orden);
             if (!resp.empty()) tx_ += cmsis_dap::enmarca(resp);
             if (!tx_.empty() && !envia()) { desconectar(); activo = 0; continue; }

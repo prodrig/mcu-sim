@@ -43,6 +43,7 @@ make testgui            # la frontera con mcu-sim-gui: 145
 make testrv             # el nucleo RISC-V y su depuracion (E1-E2 de los ESP32), con riscv-arch-test: 457
 make testc3             # el ESP32-C3: sin ROM (E3), por la ROM y la Flash con ESP-IDF (E4), el protocolo de esptool (E5), GDB por G1 y G2' (E6) el USB-Serial-JTAG (E7) y los periféricos de E8, y la región del DM: 180
 make openocd-rv         # OpenOCD y GDB contra el laboratorio RISC-V (OPENOCD=...)
+make congela            # el tiempo simulado con un depurador: ritmo real y --stopped-core-stops-sim
 
 make test407fw          # REGENERA los firmwares (estan versionados) y LUEGO la suite
 make test446fw          # lo mismo para la del F446

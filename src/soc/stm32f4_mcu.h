@@ -83,6 +83,9 @@ public:
 
     const McuCaps& caps() const override { return caps_; }
     const McuDesc& desc() const override { return desc_; }
+    std::vector<congela::Nucleo> nucleos() override {
+        return {dut_->core.nucleo_congelable(std::string(dut_->name()) + ".core")};
+    }
     std::vector<std::string> limitaciones() const override {
         return dut_->limitaciones();
     }

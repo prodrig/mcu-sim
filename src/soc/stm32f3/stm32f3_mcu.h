@@ -78,6 +78,9 @@ public:
                "la Flash: es --restore-rdp, no lo que haria el chip";
     }
     const McuDesc& desc() const override { return desc_; }
+    std::vector<congela::Nucleo> nucleos() override {
+        return {chip_->core.nucleo_congelable(std::string(chip_->name()) + ".core")};
+    }
     std::vector<std::string> limitaciones() const override { return chip_->limitaciones(); }
 
     void registra_nodos(const std::string& prefijo, NodeMap& n) override {

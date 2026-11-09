@@ -45,6 +45,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include "congela.h"
 #include "red.h"          // la unica dependencia del sistema operativo
 #include "depuracion.h"   // DebugAttach
 
@@ -121,7 +122,7 @@ public:
     void espera(acceso_nv_if& d) {
         for (unsigned i = 0; i < 1000; ++i) {
             if (!(d.nv_leer_o(FLASH_R + F_SR) & (1u << 16))) return;   // BSY
-            sc_core::wait(sc_core::sc_time(2, sc_core::SC_US));
+            congela::espera(sc_core::sc_time(2, sc_core::SC_US));
         }
     }
     void desbloquear(acceso_nv_if& d) {
@@ -300,12 +301,19 @@ protected:
             return;
         }
         for (;;) {
-            sc_core::wait(poll_, ev_);
+            // Con GDB conectado, el modelo no adelanta al reloj de pared; con
+            // --stopped-core-stops-sim y un núcleo parado, una vuelta por
+            // ronda del congelador (common/congela.h)
+            if (red::valido(cli_)) ritmo_.paso(cli_, poll_);
+            else ritmo_.suelta();
+            congela::reposo(poll_, ev_);
             if (!activo_) continue;
             aceptar();
             if (!red::valido(cli_)) continue;
+            const size_t antes = n_paq_;
             rx_poll();
             procesar_rx();
+            if (n_paq_ != antes) congela::actividad();
             // Con el objetivo corriendo hay que vigilar si se ha parado solo
             // -un punto de ruptura, un watchpoint- para avisar a GDB.
             if (corriendo_ && red::valido(cli_)) {
@@ -875,6 +883,7 @@ protected:
     // El hilo que ha elegido GDB con `Hg` (registros) y con `Hc` (seguir/paso).
     unsigned hilo_g_ = 1, hilo_c_ = 1;
     sc_core::sc_time poll_{100, sc_core::SC_US};
+    congela::RitmoReal ritmo_;
     sc_core::sc_event ev_;
 };
 
@@ -1152,7 +1161,7 @@ protected:
         // parado en la primera instruccion: es lo que hace `monitor reset halt`.
         escribir(R_DEMCR, leer_o(R_DEMCR) | 1u);      // VC_CORERESET
         escribir(R_AIRCR, 0x05FA0004u);
-        sc_core::wait(sc_core::sc_time(500, sc_core::SC_US));
+        congela::espera(sc_core::sc_time(500, sc_core::SC_US));
         // El DP se resetea con el chip: hay que volver a engancharse. Pero SIN
         // `enganchar()`, que escribe DHCSR = LLAVE | C_DEBUGEN -sin C_HALT- y
         // SUELTA el núcleo que la captura de vector acaba de parar en la

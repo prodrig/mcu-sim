@@ -94,6 +94,7 @@
 #include "../common/analog_net.h"
 #include "../common/red.h"
 #include "sonda_red.h"
+#include "../common/congela.h"
 
 namespace stm32 {
 
@@ -183,6 +184,7 @@ private:
     sc_core::sc_time poll_{100, sc_core::SC_US};
     sc_core::sc_time poll_activo_{20, sc_core::SC_US};
     long espera_us_ = 200;
+    congela::RitmoReal ritmo_;
     unsigned pasos_activo_ = 500;       // pasos cortos antes del paso normal
     bool activo_ = false, anunciado_ = false, verboso_ = false;
     sc_core::sc_event ev_;
@@ -323,7 +325,7 @@ private:
             const unsigned v = unsigned(c - '0');
             pon_jtag((v & 2u) != 0, (v & 1u) != 0);
             pon_clk((v & 4u) != 0);
-            wait(semi_);
+            congela::espera(semi_);
             return true;
         }
         case 'R': ++n_lect_; tx_.push_back(lee_tdo() ? '1' : '0'); return true;
@@ -334,8 +336,8 @@ private:
             return true;
         }
         case 'B': case 'b': return true;
-        case 'Z': wait(1, sc_core::SC_MS); return true;
-        case 'z': wait(1, sc_core::SC_US); return true;
+        case 'Z': congela::espera(1, sc_core::SC_MS); return true;
+        case 'z': congela::espera(1, sc_core::SC_US); return true;
         case 'Q': return false;
         default:
             if (++n_raros_ == 1) {
@@ -357,7 +359,7 @@ private:
             dio_v_ = (v & 1u) != 0;
             pon_dio();
             pon_clk((v & 2u) != 0);
-            wait(semi_);
+            congela::espera(semi_);
             return true;
         }
         case 'O': dio_sal_ = true;  pon_dio(); return true;
@@ -368,8 +370,8 @@ private:
             pon_srst(((c - 'r') & 1) != 0);
             return true;
         case 'B': case 'b': return true;
-        case 'Z': wait(1, sc_core::SC_MS); return true;
-        case 'z': wait(1, sc_core::SC_US); return true;
+        case 'Z': congela::espera(1, sc_core::SC_MS); return true;
+        case 'z': congela::espera(1, sc_core::SC_US); return true;
         case 'Q': return false;
         // Las de JTAG ('0'..'7') no tienen sentido en SWD
         default:
@@ -387,26 +389,32 @@ private:
     void run() {
         unsigned activo = 0;          // pasos cortos que quedan
         for (;;) {
-            if (!activo_ || !red::valido(srv_)) { wait(poll_, ev_); continue; }
+            if (!activo_ || !red::valido(srv_)) { congela::reposo(poll_, ev_); continue; }
             if (!red::valido(cli_)) {
                 aceptar();
-                if (!red::valido(cli_)) { wait(poll_, ev_); continue; }
+                if (!red::valido(cli_)) { congela::reposo(poll_, ev_); continue; }
             }
-            if (!recibe()) { desconectar(); activo = 0; continue; }
+            if (!recibe()) { desconectar(); ritmo_.suelta(); activo = 0; continue; }
             if (rx_.empty()) {
+                // Congelado (--stopped-core-stops-sim): a la vuelta siguiente
+                if (congela::activo()) { congela::reposo(poll_, ev_); continue; }
                 if (activo == pasos_activo_ && espera_us_ > 0) {
                     const auto t0 = std::chrono::steady_clock::now();
                     const bool llega = red::espera_legible_us(cli_, espera_us_);
                     const long long us = std::chrono::duration_cast<std::chrono::microseconds>(
                         std::chrono::steady_clock::now() - t0).count();
                     // Lo que ha pasado en el reloj de pared, en el simulado
-                    if (us > 0) wait(sc_core::sc_time(double(us), sc_core::SC_US), ev_);
+                    if (us > 0) congela::reposo(sc_core::sc_time(double(us), sc_core::SC_US), ev_);
                     if (llega) continue;               // la transacción sigue
                 }
-                if (activo) { --activo; wait(poll_activo_, ev_); }
-                else wait(poll_, ev_);
+                // Sin pasar al reloj de pared (congela.h, el fallo de O5)
+                const sc_core::sc_time dt = activo ? poll_activo_ : poll_;
+                ritmo_.paso(cli_, dt);
+                if (activo) --activo;
+                congela::reposo(dt, ev_);
                 continue;
             }
+            congela::actividad();
             std::string lote;
             lote.swap(rx_);
             bool sigue = true;

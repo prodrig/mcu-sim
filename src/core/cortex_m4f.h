@@ -19,6 +19,7 @@
 #include "gdb_stub_dap.h"
 #include "../common/depuracion.h"   // DebugCaps
 #include "../bus/bitband.h"
+#include "../common/congela.h"
 #include "../mem/mem_caps.h"   // MapaRam: donde esta (o no esta) la CCM
 
 namespace stm32 {
@@ -207,6 +208,17 @@ SC_MODULE(CortexM4F) {
     }
 
     ~CortexM4F() { delete gdb; }
+    // Para --stopped-core-stops-sim (common/congela.h): parado por la
+    // depuración, sin reset en marcha ni pedido (SYSRESETREQ)
+    congela::Nucleo nucleo_congelable(const std::string& nombre) {
+        return {nombre,
+                [this] { return debug.is_halted() && rst_n.read() && !sysresetreq.read(); },
+                [this](sc_core::sc_event_or_list& l) {
+                    l |= debug.halted.value_changed_event();
+                    l |= rst_n.value_changed_event();
+                    l |= sysresetreq.value_changed_event();
+                }};
+    }
 
     sc_core::sc_signal<bool>& fpu_irq_sig() { return sig_irq_fpu_; }
 

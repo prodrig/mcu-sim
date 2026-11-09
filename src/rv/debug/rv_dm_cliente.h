@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <vector>
 #include "dmi_if.h"
+#include "../../common/congela.h"
 
 namespace stm32 {
 
@@ -123,7 +124,7 @@ public:
         }
         sel_ = 0;
         w(DMCONTROL, ctl() | NDMRESET);
-        sc_core::wait(sondeo * 10);           // el pulso tiene que durar algo
+        congela::espera(sondeo * 10);           // el pulso tiene que durar algo
         w(DMCONTROL, ctl());
         bool ok = true;
         for (uint32_t h = 0; h < n_harts_; ++h) {
@@ -237,7 +238,7 @@ private:
     template <class F> bool espera(F listo) {
         for (unsigned i = 0; i < intentos; ++i) {
             if (listo()) return true;
-            sc_core::wait(sondeo);
+            congela::espera(sondeo);
         }
         return listo();
     }

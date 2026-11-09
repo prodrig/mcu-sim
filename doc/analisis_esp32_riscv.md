@@ -1200,6 +1200,34 @@ del modo depuración, y la PMP con y sin L. C1-C22 no se mueven, y
 `openocd_c3.py` y GDB por G1 y G2' siguen bien con ESP-IDF, que bloquea su PMP
 con la región del DM en RWX.
 
+**El tiempo simulado con un depurador (2026-11-09, `common/congela.h`).**
+O5 de `openocd_c3.py` fallaba una de cada dos o tres veces: con el hart
+parado y OpenOCD callado, la sonda dejaba correr el modelo a ~120 veces el
+tiempo real (medido con el SYSTIMER), y antes de que OpenOCD viese la parada
+(hasta 100 ms de pared) y apagase los perros, el de interrupciones de ESP-IDF
+(MWDT1, 300 ms) reseteaba el chip y se llevaba el *trigger*. Dos cosas:
+* **ritmo real** (`RitmoReal`), siempre en `sim`: con un programa conectado,
+  cada paso ocioso de un servidor dura al menos lo mismo en el reloj de pared
+  (sin crédito si el modelo va más lento). En la sonda remote_bitbang, la
+  CMSIS-DAP por TCP, el JTAG del USB-Serial-JTAG y los stubs de GDB (G1, G2' y
+  los de ARM). O5: 5 de 5 (antes 1 de 3, con el binario anterior); GDB por
+  OpenOCD con CMSIS-DAP y con el JTAG del USB, 3 de 3 cada uno. Los bancos no
+  lo encienden: ningún invariante se mueve;
+* **`--stopped-core-stops-sim`**: con un núcleo parado por la depuración
+  -cualquiera, de cualquier MCU de la placa: todo parado-, el tiempo simulado
+  se detiene, periféricos y piezas incluidos. El `Congelador` se queda en el
+  mismo instante dando vueltas de delta; el camino del depurador (las sondas,
+  el DAP, el puente USB, los stubs) espera por `congela::espera`, que
+  congelado son deltas, y los pads aplican su gobierno sin retardo. Un reset
+  pedido con el núcleo parado descongela hasta que acaba (`reset halt` y
+  `reset run` funcionan). `verif/congela.py` (`make congela`): K1 el ritmo
+  real; K2-K3 el C3 por OpenOCD y por G1 (el SYSTIMER no se mueve, ningún
+  perro salta); K4 dos MCUs: GDB para el F407 y el SYSTIMER del C3, **en
+  marcha**, se queda quieto; K5 CMSIS-DAP por SWD en un F407 con reset; K6 el
+  F303 y los dos MSP432 por su stub.
+* De paso, el I2C de E8 escribía sus líneas desde dos procesos en el mismo
+  delta (E115 con la SuperMini): ahora las publica un solo método.
+
 ### E7 · C3: USB-Serial-JTAG (D3 y G3)
 
 **Entregas:**

@@ -42,6 +42,7 @@
 #include "../common/analog_net.h"
 #include "../common/depuracion.h"   // DebugCaps (E0.1: ya no el Cortex entero)
 #include "mcu_desc.h"
+#include "../common/congela.h"
 
 namespace stm32 {
 
@@ -136,6 +137,11 @@ public:
     // Es el mismo recurso que `Encapsulado::verificado`: preferimos un aviso
     // repetido a un alumno desarrollando contra algo que no esta.
     virtual std::vector<std::string> limitaciones() const { return {}; }
+
+    // --- 6b. Los núcleos que la depuración puede parar ---------------------
+    // Para --stopped-core-stops-sim (common/congela.h): con uno parado, el
+    // tiempo simulado de toda la placa se detiene. Vacío: ninguno.
+    virtual std::vector<congela::Nucleo> nucleos() { return {}; }
 
     // --- 7. Lo que solo tienen algunos chips (T4) ---------------------------
     //

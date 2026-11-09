@@ -944,19 +944,14 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
 * **E6: la región del DM en el mapa** (2026-11-09): el *program buffer* y
   los datos del DM en 0x2000_0000-0x27FF_FFFF (`RvDebugCaps::dm_base`), con la
   PMP en su búsqueda, y `datacount` = 2 como el C3 de verdad; `testc3` C23 (180).
-* **Pendiente (E6): O5 de `openocd_c3.py` falla una de cada dos o tres
-  veces**, ya antes de la región del DM (el binario anterior, 1 de 3 bien).
-  La causa (2026-11-09): GDB sí para en `app_main`, pero con el hart parado
-  y OpenOCD callado la sonda remote_bitbang deja correr el simulado sin
-  freno: medido con el SYSTIMER, **unas 120 veces el tiempo real** (245 s
-  simulados en 2 s de pared; en marcha va al 5 %). OpenOCD tarda hasta
-  100 ms de pared (`poll_period`) en ver la parada y desactivar los perros
-  (`esp32c3_wdt_disable`, en el evento `halted`); antes vence el perro de
-  interrupciones de ESP-IDF (MWDT1, 300 ms) y resetea el sistema (rst:0x8),
-  lo que borra el *trigger* y deja el hart en marcha. En el chip de verdad
-  el margen es 100 ms contra 300 ms. Arreglo propuesto: no dejar que el
-  simulado adelante al de pared mientras hay un depurador conectado (cada
-  paso ocioso de la sonda dura al menos lo mismo en el reloj de pared).
+* **E6: O5 de `openocd_c3.py` intermitente, resuelto** (2026-11-09). Con el
+  hart parado y OpenOCD callado, la sonda dejaba correr el modelo a ~120 veces
+  el tiempo real, y el perro de interrupciones de ESP-IDF (300 ms) reseteaba
+  el chip antes de que OpenOCD (hasta 100 ms de pared) lo apagase. Ahora, con
+  un programa conectado, ningún servidor deja que el simulado adelante al de
+  pared (`common/congela.h`, `RitmoReal`): O5 5 de 5; CMSIS-DAP, el JTAG del
+  USB y G1, 3 de 3. Y `--stopped-core-stops-sim` congela el tiempo simulado
+  con un núcleo parado (`make congela`, K1-K6).
 * **P-19/E4 — los registros del arranque del C3 sin documentar, o con dato de
   modelo.** La regla de §8.2 del plan: modelado con dos fuentes o declarado.
   | Qué | Cómo está | Fuente |

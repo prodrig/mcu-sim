@@ -86,6 +86,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "../common/congela.h"
 #include "../common/asan_opciones.h"
 #include "../common/memoria_nv.h"
 #include "../common/gui_destino.h"
@@ -230,6 +231,7 @@ static std::vector<std::pair<std::string, std::string>> g_roms, g_tlvs, g_bsls,
 static bool        g_lista_mcus = false;
 static unsigned    g_gdb_puerto = 0;
 static bool        g_flash_rapida = false;   // --flash-rapida (E6)
+static bool        g_congela = false;        // --stopped-core-stops-sim
 static bool        g_puerto_dado = false;
 
 // --- La ventana (`mcu-sim-gui`) ---------------------------------------------
@@ -706,8 +708,26 @@ SC_MODULE(Sim) {
             }
             std::printf("%s\n", linea.c_str());
         }
+        // El modelo no adelanta al reloj de pared mientras haya un depurador
+        // conectado (common/congela.h); y con --stopped-core-stops-sim, el
+        // tiempo simulado se detiene mientras un nucleo este parado
+        congela::estado().ritmo_real = true;
+        congela::estado().senal = &g_senal;
+        if (g_congela) {
+            congela::estado().habilitado = true;
+            congela::ronda();
+            congela::inicio();
+            congelador_ = new congela::Congelador("congelador");
+            for (McuMontado& m : mcus)
+                for (congela::Nucleo& n : m.mcu->nucleos()) congelador_->nucleos.push_back(n);
+            std::printf("  --stopped-core-stops-sim: %zu nucleo(s); con uno parado por la depuracion, "
+                        "el tiempo simulado de toda la placa se detiene\n", congelador_->nucleos.size());
+            if (congelador_->nucleos.empty())
+                std::fprintf(stderr, "  AVISO: --stopped-core-stops-sim: ningun MCU de la placa dice sus nucleos\n");
+        }
         SC_THREAD(run);
     }
+    congela::Congelador* congelador_ = nullptr;
 
     // -----------------------------------------------------------------------
     // Las memorias no volatiles con `contenido` (common/memoria_nv.h): el del
@@ -2333,6 +2353,9 @@ static const OpcionCli OPCIONES[] = {
      "rfc2217:PUERTO, tcp:PUERTO, rfc2217-cliente:HOST:PUERTO, tcp-cliente:HOST:PUERTO "
      "o memoria. Los baudios del terminal llegan al firmware en SET_LINE_CODING. "
      "Sin ID, de todos los que lo tienen"},
+    {"--stopped-core-stops-sim", "bandera", "", "", "", "", false, true, "",
+     "con un nucleo parado por la depuracion (cualquiera, de cualquier MCU de la placa), el "
+     "tiempo simulado se detiene: ni perifericos ni piezas avanzan hasta que siga"},
     {"--flash-rapida", "bandera", "", "", "", "", false, true, "",
      "los tiempos de programar y borrar la Flash SPI de un ESP32-C3, al 1 %: para "
      "programar con OpenOCD (program_esp), que espera con plazos de reloj de pared"},
@@ -2629,6 +2652,7 @@ int sc_main(int argc, char** argv) {
         else if (a == "--openocd") g_gdb_modo = "openocd";
         else if (a == "--cmsis-dap") g_gdb_modo = "cmsis-dap";
         else if (a == "--flash-rapida") g_flash_rapida = true;
+        else if (a == "--stopped-core-stops-sim") g_congela = true;
         else if (a.rfind("--port=", 0) == 0) {
             g_gdb_puerto = unsigned(std::atoi(a.c_str() + 7));
             g_puerto_dado = true;
@@ -2763,6 +2787,15 @@ int sc_main(int argc, char** argv) {
                 "                                con codigo 2\n"
                 "     sim placa.xml --tiempo-real  frena la simulacion al reloj de\n"
                 "                                pared (=0.5 a mitad de velocidad)\n"
+                "     sim placa.xml --flash-rapida  los tiempos de la Flash SPI de\n"
+                "                                un ESP32-C3 al 1 %: para OpenOCD y\n"
+                "                                esptool, con plazos de reloj de pared\n"
+                "     sim placa.xml --jtag [ID=]VALOR  el JTAG de un ESP32-C3: pines\n"
+                "                                (MTMS-MTDO) o usb (USB-Serial-JTAG)\n"
+                "     sim placa.xml --stopped-core-stops-sim  con un nucleo parado\n"
+                "                                por la depuracion (de cualquier MCU),\n"
+                "                                el tiempo simulado se detiene: ni\n"
+                "                                perifericos ni piezas avanzan\n"
                 "     sim placa.xml --serie ID=DESTINO  a donde da el PuenteSerie ID:\n"
                 "                                memoria, tcp:PUERTO, rfc2217:PUERTO,\n"
                 "                                tcp-cliente:HOST:PUERTO o\n"

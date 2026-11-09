@@ -57,6 +57,7 @@
 #include "../common/analog_net.h"
 #include "../common/serie_destino.h"
 #include "../periph/otg.h"
+#include "../common/congela.h"
 
 namespace stm32 {
 
@@ -96,7 +97,7 @@ public:
         if (r == PID_NAK) ++n_nak_;
         if (r == PID_STALL) ++n_stall_;
         const size_t n = 10 + s.size() + e.size();
-        sc_core::wait(sc_core::sc_time(double(n) * 8.0 / 12.0, sc_core::SC_US));
+        congela::espera(sc_core::sc_time(double(n) * 8.0 / 12.0, sc_core::SC_US));
         return r;
     }
     // Con los NAK reintentados hasta el plazo
@@ -342,6 +343,13 @@ private:
             ++n_enum_;
             linea_pend_ = lineas_pend_ = true;
             while (enchufado_ && hay_dispositivo() && estado_ == Estado::Listo) {
+                // --stopped-core-stops-sim con un núcleo parado: solo el JTAG
+                // de OpenOCD, una vez por ronda del congelador
+                if (congela::activo()) { jtag(); congela::reposo(sc_core::sc_time(1, sc_core::SC_MS)); continue; }
+                // Con OpenOCD conectado, una trama (1 ms) no dura menos de
+                // 1 ms de pared (congela.h)
+                if (red::valido(jtag_cli_)) ritmo_.paso(jtag_cli_, sc_core::sc_time(1, sc_core::SC_MS));
+                else ritmo_.suelta();
                 trama();
                 datos();
                 if (ev_in) {
@@ -352,13 +360,13 @@ private:
                     // esperar a que se vacíe su búfer en unas decenas de us
                     const sc_core::sc_time fin = sc_core::sc_time_stamp() + sc_core::sc_time(1, sc_core::SC_MS);
                     while (estado_ == Estado::Listo && sc_core::sc_time_stamp() < fin) {
-                        sc_core::wait(fin - sc_core::sc_time_stamp(), *ev_in);
-                        if (sc_core::sc_time_stamp() >= fin) break;
+                        congela::reposo(fin - sc_core::sc_time_stamp(), *ev_in);
+                        if (sc_core::sc_time_stamp() >= fin || congela::activo()) break;
                         sc_core::wait(5, sc_core::SC_US);
                         if (!lee_in()) break;
                     }
                 } else {
-                    sc_core::wait(1, sc_core::SC_MS);
+                    congela::reposo(sc_core::sc_time(1, sc_core::SC_MS));
                 }
             }
             if (enchufado_) avisa("el dispositivo se ha ido del bus");
@@ -450,6 +458,7 @@ private:
     uint8_t jtag_in_ = 0, jtag_out_ = 0;
     unsigned jtag_puerto_ = 0;
     red::socket_t jtag_srv_ = red::invalido(), jtag_cli_ = red::invalido();
+    congela::RitmoReal ritmo_;
     std::vector<uint8_t> nib_;
     bool tck_ = false, tms_ = true, tdi_ = false, clk_hecho_ = false;
     uint64_t n_jtag_ = 0;
@@ -464,12 +473,12 @@ private:
         for (size_t i = 0; i < s.size(); i += 64) {
             const std::vector<uint8_t> t(s.begin() + long(i), s.begin() + long(std::min(s.size(), i + 64)));
             for (int k = 0; k < 100 && hc_.paquete(PID_OUT, dir_, jtag_out_, t, p) == PID_NAK; ++k)
-                sc_core::wait(10, sc_core::SC_US);
+                congela::espera(10, sc_core::SC_US);
         }
         // Los ciclos de TCK cuestan lo suyo (10 MHz, como la sonda de
         // bancada): sin eso, la orden abstracta del DM aún no ha acabado
         // cuando OpenOCD lee el resultado
-        if (ciclos) sc_core::wait(sc_core::sc_time(100.0 * ciclos, sc_core::SC_NS));
+        if (ciclos) congela::espera(sc_core::sc_time(100.0 * ciclos, sc_core::SC_NS));
     }
     bool lee_tdo() {
         nib_.push_back(uint8_t(4u | (tdi_ ? 2u : 0u) | (tms_ ? 1u : 0u)));   // CMD_CLK con captura
@@ -478,7 +487,7 @@ private:
         std::vector<uint8_t> p;
         for (int k = 0; k < 100; ++k) {
             if (hc_.paquete(PID_IN, dir_, jtag_in_, {}, p) == PID_ACK && !p.empty()) return p[0] & 1u;
-            sc_core::wait(10, sc_core::SC_US);
+            congela::espera(10, sc_core::SC_US);
         }
         return false;
     }
@@ -503,9 +512,11 @@ private:
             if (n == 0) { red::cerrar(jtag_cli_); return; }
             if (n < 0) {
                 if (!red::reintentar()) { red::cerrar(jtag_cli_); return; }
-                if (red::detalle::espera_legible(jtag_cli_, 20) > 0) continue;
+                // Congelado no hace falta esperar: el simulado no corre
+                if (!congela::activo() && red::detalle::espera_legible(jtag_cli_, 20) > 0) continue;
                 break;
             }
+            congela::actividad();
             std::string resp;
             for (long i = 0; i < n; ++i) {
                 const char c = b[i];

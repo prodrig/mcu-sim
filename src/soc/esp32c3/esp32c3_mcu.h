@@ -89,6 +89,15 @@ public:
     Esp32C3& chip() { return *chip_; }
 
     const McuDesc& desc() const override { return desc_; }
+    std::vector<congela::Nucleo> nucleos() override {
+        Esp32C3* c = chip_;
+        // En reset no está parado por la depuración: el reset tiene que avanzar
+        return {{std::string(c->name()) + ".core", [c] { return c->core.parado() && !c->core.en_reset(); },
+                 [c](sc_core::sc_event_or_list& l) {
+                     l |= c->core.ev_parado();
+                     l |= c->core.rst_n.value_changed_event();
+                 }}};
+    }
     std::vector<std::string> limitaciones() const override { return chip_->limitaciones(); }
 
     void registra_nodos(const std::string& prefijo, NodeMap& n) override {

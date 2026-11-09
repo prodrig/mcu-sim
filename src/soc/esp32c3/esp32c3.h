@@ -546,7 +546,7 @@ public:
             "sin EXCHG_PINS ni PHY de fuera",
             "la depuracion: el DM 0.13 y el TAP (IDCODE 0x00005C25) en los pines MTMS-MTDO si "
             "los eFuse los eligen (jtag=\"pines\" en el <mcu>; de fabrica van al USB-Serial-JTAG, "
-            "E7); la region del DM no se ve en el mapa de memoria",
+            "E7); la region del DM en 0x2000_0000 (el program buffer en 0x2000_0340, de modelo)",
         };
     }
 

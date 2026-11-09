@@ -44,6 +44,9 @@ public:
     explicit I2cEsp(sc_core::sc_module_name nm, uint32_t base) : BusSlave(nm, base, 0x1000) {
         SC_HAS_PROCESS(I2cEsp);
         SC_THREAD(maestro);
+        // Las dos líneas las escribe un solo proceso: reset() (desde el
+        // control del chip) y el maestro no chocan en el mismo delta (E115)
+        SC_METHOD(pub_lineas); sensitive << ev_lineas_; dont_initialize();
         reset();
     }
     void reset() {
@@ -52,7 +55,8 @@ public:
         tx_.clear(); rx_.clear();
         raw_ = ena_ = 0;
         scl_ = sda_ = true;
-        if (lineas) lineas(true, true);
+        if (sc_core::sc_is_running()) ev_lineas_.notify();
+        else ev_lineas_.notify(sc_core::SC_ZERO_TIME);
         evalua();
     }
     uint64_t bytes() const { return n_bytes_; }
@@ -103,7 +107,7 @@ private:
     bool irq_ = false, pedido_ = false, ocupado_ = false, scl_ = true, sda_ = true;
     uint64_t n_bytes_ = 0;
     unsigned sig_ = 0;                  // la orden por la que va (END: se sigue desde aquí)
-    sc_core::sc_event ev_;
+    sc_core::sc_event ev_, ev_lineas_;
 
     void evalua() {
         const bool n = (raw_ & ena_) != 0;
@@ -117,7 +121,8 @@ private:
     sc_core::sc_time ciclos(uint32_t n) const { return sc_core::sc_time(double(n) / fs(), sc_core::SC_SEC); }
     sc_core::sc_time t_bajo() const { return ciclos(std::max(1u, (r_[0] & 0x1FFu) + 1u)); }
     sc_core::sc_time t_alto() const { return ciclos(std::max(1u, (r_[0x38 / 4] & 0x1FFu) + 1u)); }
-    void pon(bool scl, bool sda) { scl_ = scl; sda_ = sda; if (lineas) lineas(scl, sda); }
+    void pon(bool scl, bool sda) { scl_ = scl; sda_ = sda; ev_lineas_.notify(); }
+    void pub_lineas() { if (lineas) lineas(scl_, sda_); }
     // Soltar SCL y esperar a que suba de verdad (un esclavo puede estirarlo)
     void sube_scl() {
         pon(true, sda_);

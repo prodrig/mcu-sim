@@ -97,6 +97,9 @@ public:
         return a;
     }
     const McuDesc& desc() const override { return desc_; }
+    std::vector<congela::Nucleo> nucleos() override {
+        return {chip_->core.nucleo_congelable(std::string(chip_->name()) + ".core")};
+    }
     std::vector<std::string> limitaciones() const override { return chip_->limitaciones(); }
 
     // Los nodos, con los nombres del P4. Se asegura además de que el contexto

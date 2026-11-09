@@ -20,6 +20,7 @@
 #include <cstdint>
 #include "../common/analog_net.h"
 #include "../rv/debug/dmi_if.h"
+#include "../common/congela.h"
 
 namespace stm32 {
 
@@ -61,9 +62,9 @@ public:
         sc_core::wait(sc_core::SC_ZERO_TIME);
         const bool o = p_.tdo->voltage() > 0.5 * vdd_;
         pon(p_.tck, id_tck_, true);
-        sc_core::wait(semi_);
+        congela::espera(semi_);
         pon(p_.tck, id_tck_, false);
-        sc_core::wait(semi_);
+        congela::espera(semi_);
         ++n_;
         return o;
     }
@@ -72,9 +73,9 @@ public:
     void trst() {
         if (!p_.ntrst) return reset_tap();
         p_.ntrst->set_drive(id_trst_, 0.0f, 30.0f);
-        sc_core::wait(semi_ * 2);
+        congela::espera(semi_ * 2);
         p_.ntrst->set_hiz(id_trst_);
-        sc_core::wait(semi_ * 2);
+        congela::espera(semi_ * 2);
         ciclo(false, false);
     }
     void reposo(unsigned n) { for (unsigned i = 0; i < n; ++i) ciclo(false, false); }
