@@ -278,7 +278,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testrv testrv-build asanrv rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all testrv testrv-build asanrv rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-congela gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -748,6 +748,12 @@ gui-ordenes: $(MCUSIM)
 # que no tiene fin. Unos segundos: el primer grupo va a tiempo real.
 gui-control: $(MCUSIM)
 	$(PYTHON) verif/gui/control.py --sim $(MCUSIM)
+
+# LA VENTANA CON --stopped-core-stops-sim (common/congela.h): con un nucleo
+# parado por GDB el enlace sigue atendido, los T_ESTADO dicen F_CONGELADA y
+# todos el mismo instante, T_PING y T_PARA funcionan. Hace falta gdb-multiarch.
+gui-congela: $(MCUSIM)
+	$(PYTHON) verif/gui/congela.py --sim $(MCUSIM)
 
 # LA LISTA DE OPCIONES (P-12, fase 7): `mcu-sim --argumentos` la vuelca en XML
 # para que mcu-sim-gui construya su dialogo de lanzamiento. Esto vigila que no

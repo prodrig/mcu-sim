@@ -56,6 +56,7 @@ N_INFO, N_AVISO, N_ERROR, N_FATAL = 0, 1, 2, 3
 F_CORRIENDO, F_TERMINADA = 1, 3
 RIT_REAL, RIT_LIBRE, RIT_DEMANDA = 0, 1, 2
 F_ESPERANDO, F_PAUSADA = 0, 2
+F_CONGELADA = 4               # --stopped-core-stops-sim, con un nucleo parado
 RES_OK, RES_PIEZA, RES_MANDO, RES_RANGO, RES_TARDE = 0, 1, 2, 3, 4
 
 

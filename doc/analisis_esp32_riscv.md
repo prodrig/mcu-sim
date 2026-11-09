@@ -1250,6 +1250,14 @@ marcha, 2 s parado no lo disparan en el F407 ni en el F303 (y sin el bit de
 congelar, sí); el C3 por G1 y por G2': reset al conectar, `thb app_main`, 3 s
 parado, los perros apagados y ningún reset; los MSP432, sin cambios.
 
+**La ventana y `--stopped-core-stops-sim` (2026-11-09).** Con un núcleo
+parado el enlace con mcu-sim-gui (`parts/enlace_gui.h`) también tiene que
+seguir: su espera despierta con cada ronda del congelador, y `T_ESTADO` lleva
+la fase nueva `F_CONGELADA` (4, en `common/protocolo.h`, copia idéntica de la
+de mcu-sim-gui, rama `esp32rv`), que la ventana enseña en los relojes
+(«congelada»). La opción la ofrece el diálogo de lanzamiento solo, porque la
+lee de `--argumentos`. `verif/gui/congela.py` (`make gui-congela`), W1-W4.
+
 ### E7 · C3: USB-Serial-JTAG (D3 y G3)
 
 **Entregas:**

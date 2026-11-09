@@ -331,8 +331,12 @@ static_assert(sizeof(CabSuscribe) == 16, "CabSuscribe son 16 bytes");
 // T_PASO
 struct Paso { uint64_t ns; };
 
-// T_ESTADO
-enum Fase : uint32_t { F_ESPERANDO = 0, F_CORRIENDO = 1, F_PAUSADA = 2, F_TERMINADA = 3 };
+// T_ESTADO. F_CONGELADA (2026-11-09, sin subir la versión): con
+// `--stopped-core-stops-sim`, un núcleo parado por el depurador tiene el
+// tiempo simulado detenido; el modelo sigue atendiendo a la ventana y a los
+// depuradores. Una ventana anterior que no la conoce la trata como en marcha.
+enum Fase : uint32_t { F_ESPERANDO = 0, F_CORRIENDO = 1, F_PAUSADA = 2, F_TERMINADA = 3,
+                       F_CONGELADA = 4 };
 struct Estado {
     uint32_t fase;         // Fase
     uint32_t relleno;
