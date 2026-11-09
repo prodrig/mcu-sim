@@ -39,6 +39,7 @@
 #include "../parts/netlist.h"
 #include "../verif/image_loader.h"
 #include "../common/memoria_nv.h"
+#include "herramientas.h"
 
 namespace stm32 {
 
@@ -196,6 +197,8 @@ public:
 
     void set_ondas_reloj(bool on) override { dut_->rcc.set_internal_waveforms(on); }
 
+    herramienta_if* herramienta() override { return &HerramientaStm32::f4(); }
+    void herramienta_interno(herramienta_if* h) override { if (dut_->core.gdb) dut_->core.gdb->pon_herramienta(h); }
     bool tiene_gdb_interno() const override { return dut_->core.gdb != nullptr; }
     void gdb_interno(bool activo, bool traza) override {
         if (!dut_->core.gdb) return;          // en modo `pines` no hay: no-op

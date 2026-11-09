@@ -278,7 +278,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testrv testrv-build asanrv rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela testc3 testc3-build asanc3 c3fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all testrv testrv-build asanrv rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -652,6 +652,14 @@ usb-c3: $(MCUSIM) $(B)/idf/.extraido
 #   make -f Makefile.mcu-sim congela [OPENOCD_ESP32=...] [GDB_RV=...] [ELF=hello_world.elf]
 congela: $(MCUSIM) $(B)/idf/.extraido
 	$(PYTHON) verif/congela.py --sim $(MCUSIM) $(if $(OPENOCD_ESP32),--openocd $(OPENOCD_ESP32)) $(if $(GDB_RV),--gdb $(GDB_RV)) $(if $(ELF),--elf $(ELF))
+
+# LOS STUBS INTERNOS HACEN LO QUE OPENOCD CON CADA CHIP (soc/herramientas.h):
+# DBGMCU de los STM32 al conectar (el IWDG no salta parado), los perros del C3
+# apagados en cada parada y su reset por RTC_CNTL, y nada en los MSP432.
+#
+#   make -f Makefile.mcu-sim herramienta-gdb [GDB_RV=...] [ELF=hello_world.elf]
+herramienta-gdb: $(MCUSIM) $(B)/idf/.extraido
+	$(PYTHON) verif/herramienta_gdb.py --sim $(MCUSIM) $(if $(GDB_RV),--gdb $(GDB_RV)) $(if $(ELF),--elf $(ELF))
 
 # EL BSL DEL MSP432P4 (T5, D4): el `mcu-sim` de verdad con
 # placas/msp_exp432p401r.xml y SIN firmware (la Flash en blanco entra en el

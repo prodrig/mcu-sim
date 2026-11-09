@@ -952,6 +952,10 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   pared (`common/congela.h`, `RitmoReal`): O5 5 de 5; CMSIS-DAP, el JTAG del
   USB y G1, 3 de 3. Y `--stopped-core-stops-sim` congela el tiempo simulado
   con un núcleo parado (`make congela`, K1-K6).
+* **Los stubs internos de GDB hacen lo que OpenOCD con cada chip**
+  (2026-11-09, `soc/herramientas.h`, `make herramienta-gdb`): DBGMCU de los
+  STM32 al conectar; los perros del C3 apagados en cada parada, su reset por
+  RTC_CNTL y el reset al conectar con la PMS echada; nada en los MSP432.
 * **P-19/E4 — los registros del arranque del C3 sin documentar, o con dato de
   modelo.** La regla de §8.2 del plan: modelado con dos fuentes o declarado.
   | Qué | Cómo está | Fuente |

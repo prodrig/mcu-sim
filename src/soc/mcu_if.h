@@ -49,6 +49,7 @@ namespace stm32 {
 class NodeMap;
 class Cableado;   // pins/pin_mux.h
 class programador_nv_if;   // common/gdb_rsp.h
+class herramienta_if;      // common/gdb_rsp.h
 class memoria_nv_if;      // common/memoria_nv.h
 
 class mcu_if {
@@ -121,6 +122,13 @@ public:
     // (T0). nullptr: la de omisión, la del STM32F405/407. La usa el stub de
     // PINES, que `sim` construye por fuera del chip; el interno ya la tiene.
     virtual programador_nv_if* programador() { return nullptr; }
+    // Lo que hace la herramienta de verdad (OpenOCD) con este chip por su
+    // cuenta -congelar o apagar los perros al parar, su reset-, para que los
+    // stubs internos se porten igual (soc/herramientas.h). nullptr: nada.
+    // `sim` se la da al stub de pines y, con `herramienta_interno`, al de
+    // dentro del chip; los bancos de pruebas no.
+    virtual herramienta_if* herramienta() { return nullptr; }
+    virtual void herramienta_interno(herramienta_if*) {}
     // La memoria NO VOLÁTIL del chip -su Flash; en el MSP432E4, también su
     // EEPROM-, para el atributo `contenido` de su <mcu>: se carga antes del
     // firmware y se guarda al acabar (common/memoria_nv.h). nullptr: el chip

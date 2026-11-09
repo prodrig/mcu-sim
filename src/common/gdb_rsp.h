@@ -171,8 +171,41 @@ public:
     }
 };
 
+// -----------------------------------------------------------------------------
+// LO QUE HACE LA HERRAMIENTA DE VERDAD
+//
+// Un stub interno habla con el depurador del núcleo sin nada en medio; en una
+// placa, entre GDB y el chip siempre hay un OpenOCD, y sus guiones de cada
+// chip hacen cosas por su cuenta: el de los STM32 congela los perros con el
+// núcleo parado (DBGMCU_APB1_FZ), el de openocd-esp32 apaga los del C3 en
+// cada parada. Sin eso, un stub interno se porta como un depurador que nadie
+// usa. `herramienta_if` es esa parte, por chip: la pone `sim` (los bancos de
+// pruebas no, y sus invariantes no se mueven). Accede por las mismas
+// lecturas y escrituras que el resto del stub. [doc/analisis_esp32_riscv.md]
+// -----------------------------------------------------------------------------
+class herramienta_if {
+public:
+    virtual ~herramienta_if() = default;
+    // De dónde sale lo que hace: el guion de la herramienta que imita
+    virtual const char* nombre() const = 0;
+    // Al conectarse un depurador (el `examine-end` de OpenOCD)
+    virtual void al_conectar(acceso_nv_if&) {}
+    // En cada parada del núcleo (el evento `halted`)
+    virtual void al_parar(acceso_nv_if&) {}
+    // Tras conectarse y parar (el `gdb-attach`): true si hay que resetear
+    // (openocd-esp32, con la protección de memoria del C3 echada)
+    virtual bool reset_al_conectar(acceso_nv_if&) { return false; }
+    // El reset de `monitor reset halt` por un registro del chip en vez de
+    // ndmreset; false: el de siempre
+    virtual bool tiene_reset_soc() const { return false; }
+    virtual void reset_soc(acceso_nv_if&) {}
+};
+
 class GdbRspBase : public acceso_nv_if {
 public:
+    // Lo que hace la herramienta de verdad (nullptr: nada, como hasta ahora)
+    void pon_herramienta(herramienta_if* h) { herr_ = h; }
+    const herramienta_if* herramienta() const { return herr_; }
     virtual ~GdbRspBase() { cerrar(); }
 
     // --- Mandos -------------------------------------------------------------
@@ -284,6 +317,9 @@ protected:
     uint32_t leer_o(uint32_t a) { uint32_t v = 0; leer(a, v); return v; }
 
     unsigned hilo_g() const { return hilo_g_; }
+    // El evento `halted` de la herramienta: con el núcleo parado, lo suyo
+    herramienta_if* herr_ = nullptr;
+    void herr_parado() { if (herr_ && arq_parado()) herr_->al_parar(*this); }
     unsigned hilo_c() const { return hilo_c_; }
 
     unsigned puerto_;
@@ -319,7 +355,7 @@ protected:
             if (corriendo_ && red::valido(cli_)) {
                 if (++espera_ >= vueltas_vigilancia_) {
                     espera_ = 0;
-                    if (arq_parado()) { corriendo_ = false; responder(arq_parada(5)); }
+                    if (arq_parado()) { corriendo_ = false; herr_parado(); responder(arq_parada(5)); }
                 }
             }
         }
@@ -382,7 +418,15 @@ protected:
         arq_dudosa_.clear(); g_lo_ultimo_ = false;
         std::printf("[%s] cliente conectado\n", etiqueta_); std::fflush(stdout);
         if (!enganchado_) enganchado_ = arq_enganchar();
-        if (halt_al_conectar_) { arq_parar(); }
+        if (herr_) herr_->al_conectar(*this);
+        if (halt_al_conectar_) { arq_parar(); herr_parado(); }
+        if (herr_ && arq_parado() && herr_->reset_al_conectar(*this)) {
+            std::printf("[%s] como %s: la proteccion de memoria esta echada; reset del chip para "
+                        "quitarla\n", etiqueta_, herr_->nombre());
+            std::fflush(stdout);
+            arq_reset();
+            herr_parado();
+        }
     }
     void desconectar() {
         red::cerrar(cli_);
@@ -478,6 +522,7 @@ protected:
                 const bool solo = corriendo_ && arq_parado();
                 if (!solo) arq_parar();
                 corriendo_ = false;
+                herr_parado();
                 responder(arq_parada(solo ? 5 : 2));
                 continue;
             }
@@ -543,13 +588,13 @@ protected:
             case 'M': return cmd_escribir_mem(p, false);
             case 'X': return cmd_escribir_mem(p, true);
             case 'c': corriendo_ = true; arq_seguir(); return;    // sin respuesta
-            case 's': arq_paso(); responder(arq_parada(5)); return;
+            case 's': arq_paso(); herr_parado(); responder(arq_parada(5)); return;
             case 'Z': return cmd_punto(p, true);
             case 'z': return cmd_punto(p, false);
             case 'H': cmd_hilo(p); return;
             case 'k': desconectar(); return;
             case 'D': responder("OK"); desconectar(); return;
-            case 'r': case 'R': arq_reset(); corriendo_ = false; responder("OK"); return;
+            case 'r': case 'R': arq_reset(); herr_parado(); corriendo_ = false; responder("OK"); return;
             case 'T': cmd_hilo_vivo(p); return;
             case 'q': return cmd_q(p);
             case 'Q':
@@ -811,9 +856,9 @@ protected:
         std::string c;
         for (size_t i = 0; i + 1 < hex.size(); i += 2)
             c.push_back(char(dehex(hex[i]) * 16u + dehex(hex[i + 1])));
-        if (c.rfind("reset", 0) == 0)      { arq_reset(); corriendo_ = false;
+        if (c.rfind("reset", 0) == 0)      { arq_reset(); herr_parado(); corriendo_ = false;
                                              responder("OK"); return; }
-        if (c.rfind("halt", 0) == 0)       { arq_parar(); corriendo_ = false;
+        if (c.rfind("halt", 0) == 0)       { arq_parar(); herr_parado(); corriendo_ = false;
                                              responder("OK"); return; }
         if (c.rfind("resume", 0) == 0)     { arq_seguir(); corriendo_ = true;
                                              responder("OK"); return; }
@@ -838,7 +883,7 @@ protected:
         if (p == "vCont?") { responder("vCont;c;C;s;S"); return; }
         if (p.rfind("vCont;", 0) == 0) {
             const char a = p[6];
-            if (a == 's' || a == 'S') { arq_paso(); responder(arq_parada(5)); return; }
+            if (a == 's' || a == 'S') { arq_paso(); herr_parado(); responder(arq_parada(5)); return; }
             corriendo_ = true; arq_seguir();
             return;
         }

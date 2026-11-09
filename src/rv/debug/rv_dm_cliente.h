@@ -17,6 +17,7 @@
 #define STM32_RV_DEBUG_RV_DM_CLIENTE_H
 
 #include <systemc>
+#include <functional>
 #include <cstdint>
 #include <vector>
 #include "dmi_if.h"
@@ -116,16 +117,42 @@ public:
     }
     // El reset del sistema, con todos los harts parados en su primera
     // instrucción (`monitor reset halt`); o corriendo, con `halt = false`
-    bool reset(bool halt = true) {
+    // `dispara`, si lo hay, hace el reset en vez del pulso de ndmreset: el
+    // reset de sistema por un registro del chip que hace la herramienta de
+    // verdad (openocd-esp32: RTC_CNTL_SW_SYS_RST en el C3)
+    bool reset(bool halt = true, const std::function<void()>& dispara = nullptr) {
         using namespace dm;
         for (uint32_t h = 0; h < n_harts_; ++h) {
             sel_ = h;
             w(DMCONTROL, ctl() | (halt ? SETRESETHALTREQ : CLRRESETHALTREQ));
         }
         sel_ = 0;
-        w(DMCONTROL, ctl() | NDMRESET);
-        congela::espera(sondeo * 10);           // el pulso tiene que durar algo
-        w(DMCONTROL, ctl());
+        if (dispara) {
+            // El DM no ve este reset: havereset puede venir de antes y el hart
+            // sigue parado hasta que el reset llega. Se borra havereset, se
+            // dispara, se deja pasar el reset y se espera a verlo parado otra
+            // vez, como el `sleep` + `poll` de esp32c3_soc_reset
+            for (uint32_t h = 0; h < n_harts_; ++h) { sel_ = h; w(DMCONTROL, ctl() | ACKHAVERESET); }
+            sel_ = 0;
+            dispara();
+            congela::espera(sondeo * 10);
+            bool ok = true;
+            for (uint32_t h = 0; h < n_harts_; ++h) {
+                sel_ = h;
+                w(DMCONTROL, ctl());
+                ok = espera([this, halt] {
+                    const uint32_t s = dmstatus();
+                    return !(s & ANYUNAVAIL) && (halt ? (s & ALLHALTED) != 0 : (s & ALLRUNNING) != 0);
+                }) && ok;
+                w(DMCONTROL, ctl() | ACKHAVERESET | CLRRESETHALTREQ);
+            }
+            selecciona(0);
+            return ok;
+        } else {
+            w(DMCONTROL, ctl() | NDMRESET);
+            congela::espera(sondeo * 10);       // el pulso tiene que durar algo
+            w(DMCONTROL, ctl());
+        }
         bool ok = true;
         for (uint32_t h = 0; h < n_harts_; ++h) {
             sel_ = h;

@@ -1228,6 +1228,28 @@ tiempo real (medido con el SYSTIMER), y antes de que OpenOCD viese la parada
 * De paso, el I2C de E8 escribía sus líneas desde dos procesos en el mismo
   delta (E115 con la SuperMini): ahora las publica un solo método.
 
+**Los stubs internos hacen lo que OpenOCD (2026-11-09, `soc/herramientas.h`).**
+En una placa, entre GDB y el chip siempre hay un OpenOCD, y sus guiones hacen
+cosas por su cuenta; un stub interno (G1, G2', el `GdbStubDap` y el de pines de
+los Cortex-M) no las hacía, y con ESP-IDF el MWDT1 reseteaba el C3 tras una
+parada larga. Ahora cada chip da su `herramienta_if` (`mcu_if::herramienta()`),
+que `sim` pone en sus stubs (los bancos no: sus invariantes no se mueven):
+* **STM32F4 y F3** (`target/stm32f4x.cfg`, `stm32f3x.cfg`, `examine-end`): al
+  conectar, `DBGMCU_CR |= 7` y `DBGMCU_APB1_FZ |= DBG_IWDG_STOP |
+  DBG_WWDG_STOP`: el IWDG y el WWDG se congelan con el núcleo parado (y la
+  depuración sigue en Sleep, Stop y Standby);
+* **ESP32-C3** (`target/esp32c3.cfg`, `esp_common.cfg`): en cada parada,
+  `esp32c3_wdt_disable` (MWDT0, MWDT1, RWDT y SWD); al conectar con la PMS de
+  ESP-IDF echada, `reset halt`; y el reset de `monitor reset halt` es el de
+  `esp32c3_soc_reset` (RTC_CNTL_SW_SYS_RST: rst:0x3), no ndmreset;
+* **MSP432P4 y E4** (`ti/msp432.cfg`, `ti/stellaris.cfg`): OpenOCD no hace
+  nada; el WDT_A del P4 se para solo con el núcleo (HALT_WDT, a 1 de reset) y
+  el del E4 sigue salvo STALL, como en la placa.
+`verif/herramienta_gdb.py` (`make herramienta-gdb`), H1-H5: con el IWDG en
+marcha, 2 s parado no lo disparan en el F407 ni en el F303 (y sin el bit de
+congelar, sí); el C3 por G1 y por G2': reset al conectar, `thb app_main`, 3 s
+parado, los perros apagados y ningún reset; los MSP432, sin cambios.
+
 ### E7 · C3: USB-Serial-JTAG (D3 y G3)
 
 **Entregas:**

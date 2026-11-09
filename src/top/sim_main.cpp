@@ -505,6 +505,10 @@ SC_MODULE(Sim) {
             // Los nodos, con el prefijo del chip. Y además con el nombre
             // desnudo cuando solo hay uno: es lo que hace que las placas
             // escritas hasta hoy sigan valiendo sin migrarlas.
+            // Los stubs internos hacen lo que haría OpenOCD con este chip
+            // (soc/herramientas.h): el de dentro del chip, aquí; el de pines,
+            // al crearlo
+            m.mcu->herramienta_interno(m.mcu->herramienta());
             m.mcu->registra_nodos(d.id, nodos);
             // En un <sistema> no: allí no hay nombres desnudos, todo es
             // `A/u0.PA5`, y el desnudo solo podría confundir.
@@ -523,6 +527,7 @@ SC_MODULE(Sim) {
                 m.dmi_jtag = new DmiPorJtag(*m.sonda_jtag);
                 m.stub_rv = new GdbStubRv(snm.c_str(), *m.dmi_jtag, d.puerto_gdb, "gdb-pines");
                 m.stub_rv->pon_programador(m.mcu->programador());
+                m.stub_rv->pon_herramienta(m.mcu->herramienta());
                 m.stub_rv->set_enabled(false);
             } else if (d.depuracion == "pines" && d.puerto_gdb) {
                 const std::string snm = "gdb_" + (d.id.empty() ? "dut" : d.id);
@@ -537,6 +542,7 @@ SC_MODULE(Sim) {
                                      d.puerto_gdb, 2e6);
                 // Y la secuencia de Flash de ESE chip (nullptr: la del F407).
                 m.stub->pon_programador(m.mcu->programador());
+                m.stub->pon_herramienta(m.mcu->herramienta());
                 m.stub->set_enabled(false);      // se abre al arrancar, no aquí
             }
             // La sonda de OpenOCD se cuelga de los mismos pines, y su SRST es
@@ -702,9 +708,12 @@ SC_MODULE(Sim) {
                 else if (m.decl.depuracion == "cmsis-dap")
                     linea += ", sonda CMSIS-DAP por TCP en el puerto " +
                              std::to_string(m.decl.puerto_gdb) + por;
-                else
+                else {
                     linea += ", gdb por " + m.decl.depuracion + " en el puerto " +
                              std::to_string(m.decl.puerto_gdb);
+                    if (const herramienta_if* h = m.mcu->herramienta())
+                        linea += std::string(" (hace lo que ") + h->nombre() + ")";
+                }
             }
             std::printf("%s\n", linea.c_str());
         }

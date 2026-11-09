@@ -20,6 +20,7 @@
 #include "../../common/imagen_fw.h"
 #include "../../common/memoria_nv.h"
 #include "../../parts/puente_usb.h"
+#include "../herramientas.h"
 #include <memory>
 
 namespace stm32 {
@@ -189,6 +190,8 @@ public:
     // Lo que el PC de `--usb` deja entre dos transferencias de control: una
     // microtrama (parts/puente_usb.h, ControladorUsb::pausa_control_us)
     static constexpr double PAUSA_CONTROL_US = 125.0;
+    herramienta_if* herramienta() override { return &HerramientaStm32::f3(); }
+    void herramienta_interno(herramienta_if* h) override { if (chip_->core.gdb) chip_->core.gdb->pon_herramienta(h); }
     bool tiene_gdb_interno() const override { return chip_->core.gdb != nullptr; }
     void gdb_interno(bool activo, bool traza) override {
         if (!chip_->core.gdb) return;

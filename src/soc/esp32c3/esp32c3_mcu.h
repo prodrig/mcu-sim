@@ -41,6 +41,7 @@
 #include "../../parts/puente_usb.h"
 #include "../esp/programador_esp.h"
 #include "../../rv/gdb/gdb_stub_rv.h"
+#include "../herramientas.h"
 
 namespace stm32 {
 
@@ -183,6 +184,8 @@ public:
     }
     memoria_nv_if* memoria_nv() override { return chip_->flash_interna(); }
     void set_ondas_reloj(bool) override {}
+    herramienta_if* herramienta() override { return &HerramientaEsp32C3::el(); }
+    void herramienta_interno(herramienta_if* h) override { if (gdb_) gdb_->pon_herramienta(h); }
     bool tiene_gdb_interno() const override { return gdb_ != nullptr; }
     void gdb_interno(bool activo, bool traza) override {
         if (!gdb_) return;

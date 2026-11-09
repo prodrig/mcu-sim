@@ -224,7 +224,10 @@ protected:
     }
 
     void arq_reset() override {
-        dm_.reset(true);
+        // El reset de la herramienta de verdad, si lo hace por un registro
+        // del chip (openocd-esp32: RTC_CNTL_SW_SYS_RST)
+        if (herr_ && herr_->tiene_reset_soc()) dm_.reset(true, [this] { herr_->reset_soc(*this); });
+        else dm_.reset(true);
         hart_parado_ = 0;
         // El reset borra los triggers y dcsr: vuelven a ponerse
         for (unsigned i = 0; i < dm_.n_harts(); ++i) { dm_.selecciona(i); prepara_hart(); }
