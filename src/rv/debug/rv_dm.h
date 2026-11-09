@@ -305,7 +305,8 @@ private:
             command_ = (command_ & ~0xFFFFu) | uint16_t(regno + 1u);
         if (command_ & AR_POSTEXEC) {
             unsigned ciclos = 0;
-            if (!hart.dm_progbuf(progbuf_, dc_.progbuf < 16u ? dc_.progbuf : 16u, ciclos))
+            if (!hart.dm_progbuf(progbuf_, dc_.progbuf < 16u ? dc_.progbuf : 16u, ciclos,
+                                 data_, dc_.datacount < 12u ? dc_.datacount : 12u))
                 cmderr_ = CMDERR_EXCEPCION;
         }
     }

@@ -1174,8 +1174,31 @@ nuevo arranca.
 funciona: `monitor reset halt`, `thb app_main`, `continue`, `bt` e `info
 threads` con las tareas de FreeRTOS (`main`, `IDLE`). El fallo era de la prueba:
 el simulador se paraba solo (sin `--ms`) antes de llegar a `app_main`.
-`openocd_c3.py` lo comprueba (O5). Queda sin modelar la región del DM en el
-mapa de memoria: el *program buffer* lo ejecuta el hart por dentro.
+`openocd_c3.py` lo comprueba (O5).
+
+**La región del DM en el mapa de memoria, hecha (2026-11-09).** La CPU del C3
+tiene el DM en 0x2000_0000-0x27FF_FFFF [TRM-C3 tabla 1.3-1; `SOC_DEBUG_LOW` y
+`SOC_DEBUG_HIGH` de ESP-IDF], fuera del AHB. `RvDebugCaps` lleva `dm_base` y
+`dm_tam` (en los núcleos de laboratorio, 0: el *program buffer* sigue en su
+dirección ficticia y `testrv` no se mueve):
+* el *program buffer* está en su dirección y el hart lo busca por ahí:
+  `auipc` da 0x2000_0340, y `lw`/`sw` relativos al pc llegan a los datos
+  (data0 en 0x2000_0380). La disposición interna es la del riscv-dbg de PULP
+  **[de modelo]**: el TRM solo da la región. `hartinfo` sigue a 0
+  (`dataaddr` no llega tan lejos);
+* la búsqueda del *program buffer* pasa por la PMP como en modo M: una regla
+  con L sin X sobre la región lo deja sin ejecutar (cmderr 3). Es la razón de
+  la regla RWX que ESP-IDF pone a la región al bloquear la PMP. Las cargas y
+  los almacenamientos en modo depuración siguen sin PMP;
+* fuera del modo depuración, la región da error de acceso **[de modelo]**;
+* `datacount` pasa a 2, lo que dice openocd-esp32 de un C3 de verdad
+  («datacount=2 progbufsize=16»).
+
+`testc3` C23 (180): `auipc` en el *program buffer*, data0 → data1 por sus
+direcciones, el error de acceso a instrucción al saltar a 0x2000_0000 fuera
+del modo depuración, y la PMP con y sin L. C1-C22 no se mueven, y
+`openocd_c3.py` y GDB por G1 y G2' siguen bien con ESP-IDF, que bloquea su PMP
+con la región del DM en RWX.
 
 ### E7 · C3: USB-Serial-JTAG (D3 y G3)
 
@@ -1345,7 +1368,7 @@ UHCI, I2S, RSA, DS, HMAC y XTS_AES, declarados con aviso (8).**
   ABORT_TX. `testc3` C22.
 * **Declarados con aviso**: UHCI, I2S, RSA, DS, HMAC y XTS_AES; la radio (FE,
   NRX, BB) guarda sin hacer nada.
-* `testc3`: 174 comprobaciones; C1-C19 no se mueven. C21 suelta antes la sonda
+* `testc3`: 174 comprobaciones (180 con C23, la región del DM de E6); C1-C19 no se mueven. C21 suelta antes la sonda
   JTAG de C16, que dejaba TCK (GPIO6 de c3b, el SCLK) a nivel bajo.
 
 ### E9 · ESP32-C6: el núcleo HP y el SoC

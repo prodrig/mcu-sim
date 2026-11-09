@@ -220,22 +220,28 @@ public:
     // El program buffer: se ejecuta en modo depuración hasta un ebreak (o el
     // final, con impebreak). `false` si una instrucción dio excepción: el DM
     // lo dice con cmderr = 3, y el estado del hart no cambia por el trap.
-    bool dm_progbuf(const uint32_t* pb, unsigned n, unsigned& ciclos) {
+    // Con la región del DM en el mapa (RvDebugCaps::dm_tam), el program buffer
+    // y los datos (`datos`, `nd`) están en sus direcciones: el hart los busca
+    // y los lee por ahí, con la PMP.
+    bool dm_progbuf(const uint32_t* pb, unsigned n, unsigned& ciclos,
+                    uint32_t* datos = nullptr, unsigned nd = 0) {
         if (!debug_) return false;
         progbuf_ = pb; progbuf_n_ = n;
+        dm_datos_ = datos; dm_nd_ = nd;
         const uint32_t pc_guardado = pc_;
-        pc_ = PB_BASE;
+        const uint32_t b = pb_base();
+        pc_ = b;
         bool ok = true;
         unsigned pasos = 0;
         for (;;) {
-            if (pc_ < PB_BASE || pc_ >= PB_BASE + 4u * n || ++pasos > 1000) break;
+            if (pc_ < b || pc_ >= b + 4u * n || ++pasos > 1000) break;
             excepcion_pb_ = false; fin_pb_ = false;
             Paso p = ejecuta_una();
             ciclos += p.ciclos;
             if (excepcion_pb_) { ok = false; break; }
             if (fin_pb_) break;
         }
-        progbuf_ = nullptr;
+        progbuf_ = nullptr; dm_datos_ = nullptr; dm_nd_ = 0;
         pc_ = pc_guardado;
         fetch_vacio();
         return ok;
@@ -492,6 +498,17 @@ private:
     static constexpr uint32_t TC_MTE = 1u << 3, TC_MPTE = 1u << 7;
     static constexpr uint8_t PMP_R = 1, PMP_W = 2, PMP_X = 4, PMP_A = 3u << 3, PMP_L = 0x80;
     static constexpr uint32_t PB_BASE = 0xFFFFF800u;    // dirección ficticia del progbuf
+    static constexpr uint32_t DM_DATOS = 0x380u;        // los datos, en la región del DM
+    // Dónde empieza el program buffer: en la región del DM, justo debajo de los
+    // datos (16 palabras: base + 0x340); sin ella, la dirección ficticia
+    uint32_t pb_base() const {
+        const RvDebugCaps& d = caps_.dbg;
+        return d.dm_tam ? d.dm_base + DM_DATOS - 4u * (d.progbuf < 16u ? d.progbuf : 16u) : PB_BASE;
+    }
+    bool en_dm(uint32_t a) const {
+        const RvDebugCaps& d = caps_.dbg;
+        return d.dm_tam && a - d.dm_base < d.dm_tam;
+    }
 
     const RvCaps& caps_;
     uint32_t pc_arranque_ = 0;
@@ -524,6 +541,8 @@ private:
     // El program buffer en ejecución
     const uint32_t* progbuf_ = nullptr;
     unsigned progbuf_n_ = 0;
+    uint32_t* dm_datos_ = nullptr;
+    unsigned dm_nd_ = 0;
     bool     excepcion_pb_ = false, fin_pb_ = false;
     // La errata CPU-863: no se modela el cauce; se mira la instrucción
     // siguiente cuando hay una carga desalineada que cruza palabra
@@ -736,7 +755,13 @@ private:
     // =========================================================================
     // ¿Puede `modo` hacer `perm` (R, W o X) en [dir, dir+n)?
     bool pmp_ok(uint32_t dir, unsigned n, uint8_t perm, RvModo modo) const {
-        if (!caps_.pmp_regiones || debug_) return true;
+        if (debug_) return true;
+        return pmp_ok_m_o(dir, n, perm, modo);
+    }
+    // La PMP de modo M aunque el hart esté en depuración (la región del DM)
+    bool pmp_ok_m(uint32_t dir, unsigned n, uint8_t perm) const { return pmp_ok_m_o(dir, n, perm, RvModo::M); }
+    bool pmp_ok_m_o(uint32_t dir, unsigned n, uint8_t perm, RvModo modo) const {
+        if (!caps_.pmp_regiones) return true;
         const uint64_t lo = dir, hi = uint64_t(dir) + n;
         for (unsigned i = 0; i < caps_.pmp_regiones; ++i) {
             const uint8_t c = pmpcfg_[i];
@@ -798,11 +823,35 @@ private:
     // La memoria, con lo que la rodea
     // =========================================================================
     bool lee_bus(uint32_t a, unsigned n, uint32_t& v, RvAcceso t, RvModo m) {
+        if (en_dm(a)) return dm_mem(a, n, v, false);
         return mem_ && mem_->lee(a, n, v, t, m);
     }
     bool escribe_bus(uint32_t a, unsigned n, uint32_t v, RvAcceso t, RvModo m) {
+        if (en_dm(a)) return dm_mem(a, n, v, true);
         if (fb_dir_ == (a & ~3u) || fb_dir_ == ((a + n - 1) & ~3u)) fetch_vacio();
         return mem_ && mem_->escribe(a, n, v, t, m);
+    }
+    // La región del DM vista por las cargas y los almacenamientos: no va al
+    // bus. Desde el program buffer se leen el program buffer y los datos, y
+    // los datos se escriben (como `dataaccess`, aunque hartinfo no lo diga:
+    // dataaddr no llega a 0x2000_0000); fuera del modo depuración, error de
+    // acceso [de modelo: el TRM solo da la región]
+    bool dm_mem(uint32_t a, unsigned n, uint32_t& v, bool escribe) {
+        if (!progbuf_) return false;
+        const uint32_t pd = caps_.dbg.dm_base + DM_DATOS, pb = pb_base();
+        const uint32_t w = a & ~3u, sh = (a & 3u) * 8u;
+        const uint32_t m = n >= 4 ? 0xFFFFFFFFu : ((1u << (8 * n)) - 1u);
+        if ((a & 3u) + n > 4) return false;
+        if (w >= pd && w < pd + 4u * dm_nd_ && dm_datos_) {
+            uint32_t& d = dm_datos_[(w - pd) / 4u];
+            if (escribe) d = (d & ~(m << sh)) | ((v & m) << sh);
+            else v = (d >> sh) & m;
+            return true;
+        }
+        if (escribe) return true;                // el resto, de solo lectura
+        if (w >= pb && w < pb + 4u * progbuf_n_) v = (progbuf_[(w - pb) / 4u] >> sh) & m;
+        else v = 0;
+        return true;
     }
     bool carga(uint32_t a, unsigned n, uint32_t& v) {
         const int tr = trigger(MC_LOAD, a);
@@ -849,11 +898,18 @@ private:
     // --- La búsqueda --------------------------------------------------------
     bool lee_parcela(uint32_t a, uint32_t& p) {
         if (progbuf_) {
-            const unsigned i = (a - PB_BASE) / 4u;
-            if (a < PB_BASE || i >= progbuf_n_) { p = 0x00100073u >> ((a & 2u) * 8u); return true; }
+            const uint32_t b = pb_base();
+            if (caps_.dbg.dm_tam) {
+                // En la región del DM la búsqueda pasa por la PMP como en modo
+                // M (las reglas con L): por eso ESP-IDF le da una regla RWX
+                if (!en_dm(a) || !pmp_ok_m(a, 2, PMP_X)) return false;
+            }
+            const unsigned i = (a - b) / 4u;
+            if (a < b || i >= progbuf_n_) { p = 0x00100073u >> ((a & 2u) * 8u); return true; }
             p = (progbuf_[i] >> ((a & 2u) * 8u)) & 0xFFFFu;
             return true;
         }
+        if (en_dm(a)) return false;             // fuera del modo depuración, nada
         const uint32_t w = a & ~3u;
         if (fb_dir_ != w) {
             if (!pmp_ok(w, 4, PMP_X, modo_) && !pmp_ok(a, 2, PMP_X, modo_)) return false;

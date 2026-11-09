@@ -1036,15 +1036,77 @@ SC_MODULE(TbC3) {
         xcvr.set_attached(false);
     }
 
+    // La región del DM en el mapa de la CPU [TRM-C3 tabla 1.3-1]: el program
+    // buffer y los datos del DM, en 0x2000_0000-0x27FF_FFFF
+    void c23() {
+        grupo("C23 la region del DM: el program buffer en 0x2000_0340, sus datos y la PMP (E6)");
+        c3b.alimenta(false);
+        wait(10, SC_US);
+        const std::string e = c3b.carga_elf(std::string(FW) + "blinky.elf");
+        c3b.alimenta(true);
+        wait(1, SC_MS);
+        RvDmCliente dmc(*c3b.dm);
+        dmi_if& d = *c3b.dm;
+        check(e.empty() && dmc.activar() && dmc.parar(), "blinky en c3b, parado por el DM");
+        uint32_t ac = 0;
+        d.dmi_leer(dm::ABSTRACTCS, ac);
+        char b[160];
+        std::snprintf(b, sizeof b, "abstractcs: progbufsize 16 y datacount 2, como un C3 (0x%08X)", ac);
+        check((ac >> 24 & 0x1Fu) == 16 && (ac & 0xFu) == 2, b);
+        auto ejecuta = [&](std::initializer_list<uint32_t> pb) {
+            unsigned i = 0;
+            for (uint32_t w : pb) d.dmi_escribir(dm::PROGBUF0 + i++, w);
+            d.dmi_escribir(dm::COMMAND, dm::AR_SIZE32 | dm::AR_POSTEXEC);
+            uint32_t a = 0;
+            d.dmi_leer(dm::ABSTRACTCS, a);
+            d.dmi_escribir(dm::ABSTRACTCS, 7u << 8);
+            return (a >> 8) & 7u;
+        };
+        // auipc a0, 0: la dirección del program buffer
+        uint32_t a0 = 0;
+        const unsigned e1 = ejecuta({0x00000517u, 0x00100073u});
+        dmc.lee_reg(RvDmCliente::GPR(10), a0);
+        std::snprintf(b, sizeof b, "auipc en el program buffer: a0 = 0x%08X (0x20000340), cmderr %u", a0, e1);
+        check(e1 == 0 && a0 == 0x20000340u, b);
+        // lw/sw relativos al pc: data0 en 0x2000_0380 y data1 en 0x2000_0384
+        d.dmi_escribir(dm::DATA0, 0x12345678u);
+        d.dmi_escribir(dm::DATA0 + 1, 0);
+        const unsigned e2 = ejecuta({0x00000297u, 0x0402A583u, 0x00158593u, 0x04B2A223u, 0x00100073u});
+        uint32_t d1 = 0;
+        d.dmi_leer(dm::DATA0 + 1, d1);
+        std::snprintf(b, sizeof b, "lw de data0 y sw a data1 por sus direcciones: data1 = 0x%08X, cmderr %u", d1, e2);
+        check(e2 == 0 && d1 == 0x12345679u, b);
+        // Fuera del modo depuración la región no se ejecuta: un paso con
+        // dpc = 0x2000_0000 da el error de acceso a instrucción
+        uint32_t mtvec = 0, mc = 0, mepc = 0;
+        dmc.lee_reg(0x305, mtvec);
+        dmc.escribe_reg(RvDmCliente::CSR_DPC, 0x20000000u);
+        const bool p = dmc.paso();
+        dmc.lee_reg(0x342, mc);
+        dmc.lee_reg(0x341, mepc);
+        std::snprintf(b, sizeof b, "fuera del modo depuracion: saltar a 0x20000000 da mcause %u, mepc 0x%08X", mc, mepc);
+        check(p && mc == 1 && mepc == 0x20000000u, b);
+        // La PMP: una regla sin L no cuenta en modo M; con L y sin X, el
+        // program buffer ya no se busca (por eso ESP-IDF le da una regla RWX)
+        dmc.escribe_reg(0x3B0, 0x08FFFFFFu);          // NAPOT 0x2000_0000, 128 MB
+        dmc.escribe_reg(0x3A0, 0x18u);                // NAPOT, sin permisos, sin L
+        const unsigned e3 = ejecuta({0x00000517u, 0x00100073u});
+        dmc.escribe_reg(0x3A0, 0x98u);                // con L
+        const unsigned e4 = ejecuta({0x00000517u, 0x00100073u});
+        std::snprintf(b, sizeof b, "PMP sobre la region: sin L, cmderr %u (0); con L y sin X, cmderr %u (3: excepcion)", e3, e4);
+        check(e3 == 0 && e4 == 3, b);
+        c3b.alimenta(false);
+    }
+
     void run() {
         // C3_SOLO=c4 (o c1...c14): un grupo suelto, para desarrollar
         if (const char* solo = std::getenv("C3_SOLO")) {
             const std::string q = solo;
             void (TbC3::*g[])() = {&TbC3::c1, &TbC3::c2, &TbC3::c3_uart, &TbC3::c4, &TbC3::c5, &TbC3::c6, &TbC3::c7,
                                    &TbC3::c8, &TbC3::c9, &TbC3::c10, &TbC3::c11, &TbC3::c12, &TbC3::c13, &TbC3::c14,
-                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22};
+                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23};
             const int k = q.size() > 1 ? std::atoi(q.c_str() + 1) : 0;
-            if (k >= 1 && k <= 22) (this->*g[k - 1])();
+            if (k >= 1 && k <= 23) (this->*g[k - 1])();
             std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
             sc_stop();
             return;
@@ -1070,6 +1132,7 @@ SC_MODULE(TbC3) {
         c20();
         c21();
         c22();
+        c23();
         std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

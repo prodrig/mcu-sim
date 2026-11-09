@@ -72,6 +72,11 @@ struct RvDebugCaps {
     bool     impebreak;      // ebreak implícito tras el program buffer
     bool     sba;            // acceso al bus de sistema
     uint8_t  sba_anchos;     // bit 0: 8, 1: 16, 2: 32 bits
+    // La región del DM en el mapa de memoria del hart (0 = no hay: el program
+    // buffer corre en una dirección ficticia, como en los núcleos de
+    // laboratorio). Dentro, con la disposición del riscv-dbg de PULP: los
+    // datos en base + 0x380 y el program buffer justo debajo.
+    uint32_t dm_base = 0, dm_tam = 0;
 };
 
 // -----------------------------------------------------------------------------

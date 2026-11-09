@@ -74,7 +74,11 @@ constexpr unsigned N_GPIO = 22;
 // [de modelo] salvo lat_irq: 4 etapas, carga de 1 ciclo más el bus, salto
 // tomado vacía el cauce, división iterativa
 inline constexpr RvTiempos RV_TIEMPOS_C3{1, 1, 1, 1, 3, 2, 3, 1, 17, 1, 1, 3, 3, 4};
-inline constexpr RvDebugCaps RV_DBG_C3{8, true, 16, 1, false, true, 0x4};
+// El DM: 8 triggers, tcontrol, program buffer de 16 palabras y 2 datos (lo
+// que dice openocd-esp32 de un C3 de verdad: «datacount=2 progbufsize=16»),
+// SBA de palabra, y su región en el mapa de la CPU, 0x2000_0000-0x27FF_FFFF
+// [TRM-C3 tabla 1.3-1; SOC_DEBUG_LOW/HIGH de ESP-IDF]
+inline constexpr RvDebugCaps RV_DBG_C3{8, true, 16, 2, false, true, 0x4, 0x20000000u, 0x08000000u};
 inline constexpr RvCaps RV_ESP32C3{
     "ESP32-C3", 32,
     RV_EXT_I | RV_EXT_M | RV_EXT_C | RV_EXT_U,

@@ -346,4 +346,8 @@ testrv                 457      28577500000           resto
 # en c3b (spi_tft.elf) y el TWAI con un nodo CAN en c3b (twai.elf), con la
 # huella del nuevo ELF (12 ficheros: la comprobacion de C1 sigue siendo una).
 # C1-C19 no se mueven (C20 empieza en 17859840002000, el total anterior).
-testc3                 174      18107200002000        resto
+# C23 (E6, lo que quedaba): la region del DM en el mapa de la CPU
+# (0x2000_0000-0x27FF_FFFF): el program buffer en 0x2000_0340, los datos en
+# 0x2000_0380, la PMP en su busqueda, y datacount = 2 como un C3 de verdad.
+# C1-C22 no se mueven (C23 empieza en 18107200002000, el total anterior).
+testc3                 180      18108212002000        resto

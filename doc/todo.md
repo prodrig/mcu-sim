@@ -941,6 +941,15 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
 * **E6 y E7: lo pendiente, hecho** (2026-11-08): GDB por openocd-esp32 con
   FreeRTOS (O5); `write-flash` entero por el USB (`--flash-rapida`), el puente
   USB que lee los IN cuando el dispositivo avisa, y G3 sin fallos sueltos.
+* **E6: la región del DM en el mapa** (2026-11-09): el *program buffer* y
+  los datos del DM en 0x2000_0000-0x27FF_FFFF (`RvDebugCaps::dm_base`), con la
+  PMP en su búsqueda, y `datacount` = 2 como el C3 de verdad; `testc3` C23 (180).
+* **Pendiente (E6): O5 de `openocd_c3.py` falla una de cada dos o tres
+  veces**, ya antes de la región del DM (comprobado con el binario anterior:
+  1 de 3 bien). Cuando falla, tras el `monitor reset halt` de openocd-esp32
+  (rst:0x7) llega un reset del MWDT1 (rst:0x8, TG1WDT_SYS_RST) que se lleva el
+  *trigger* de `thb app_main`, y GDB espera para siempre. Depende del reloj de
+  pared: el perro corre mientras openocd y GDB hablan con el chip parado.
 * **P-19/E4 — los registros del arranque del C3 sin documentar, o con dato de
   modelo.** La regla de §8.2 del plan: modelado con dos fuentes o declarado.
   | Qué | Cómo está | Fuente |
@@ -966,6 +975,7 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   | **E7** · USB-Serial-JTAG: el reset por DTR/RTS | (RTS, DTR) = (1, 0) es un reset de chip (rst:0x15); a descarga si se llega desde (1, 1) | Deducido de la secuencia usb-reset de esptool y del TRM-C3 §30.3.2 (sin tabla de verdad completa) |
   | **E7** · USB-Serial-JTAG: las órdenes del JTAG | dos por byte, la primera en el nibble alto; REP en base 4 | **De modelo** (el driver esp_usb_jtag de OpenOCD; el TRM no da el formato) |
   | **E7** · USB-Serial-JTAG: SERIAL_OUT_RECV_PKT y SERIAL_IN_EMPTY | vuelven a ponerse (con flanco) si al borrarlas queda dato o el búfer de entrada sigue vacío | **De modelo** |
+  | **E6** · La región del DM por dentro | el *program buffer* en 0x2000_0340 y los datos en 0x2000_0380 (la disposición del riscv-dbg de PULP); fuera del modo depuración, error de acceso | **De modelo** (el TRM-C3, tabla 1.3-1, solo da la región 0x2000_0000-0x27FF_FFFF) |
   | **E6** · ndmreset en el C3 | reset de la CPU (y PMS/WCL/ASSIST), no de los periféricos | Deducido de `target/esp32c3.cfg` (esp32c3_soc_reset: el reset del sistema lo hace con RTC_CNTL_SW_SYS_RST) |
   | **E6** · La fuente del JTAG | DIS_PAD_JTAG, SOFT_DIS_JTAG (impar), JTAG_SEL_ENABLE + GPIO10, DIS_USB_JTAG, al soltar CHIP_PU | TRM-C3 §7.3 y `efuse_reg.h` |
   | **E5** · El reinicio por RFC 2217 (`reinicio="esp"` del puente) | el puente reconoce el principio de la secuencia de esptool y la hace en tiempo simulado (100 ms + 50 ms) | `esp_rfc2217_server` (esp_port_manager.py): lo mismo con una placa de verdad |
