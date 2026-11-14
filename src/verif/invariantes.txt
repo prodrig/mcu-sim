@@ -354,4 +354,6 @@ testrv                 457      28577500000           resto
 # una con su grupo al final: C1-C23 no se mueven. Las fuentes de interrupcion
 # del ADC y la GDMA pasan a 43 y 44-46 (las de ESP-IDF); ninguna prueba las
 # usaba. C24: el RSA (rsa.elf, 13 ficheros), desde 18694632002000.
-testc3                 192      18139822002000        resto
+# C25: el HMAC (hmac.elf, 14 ficheros), desde 18726242002000; las claves en
+# los eFuse las quema el banco y las borra al acabar.
+testc3                 211      18139939002000        resto

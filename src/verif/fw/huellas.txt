@@ -203,3 +203,4 @@ c3  esp32c3/i2c.elf                      16080  0x74B7E732
 c3  esp32c3/spi_tft.elf                  17712  0xAF128454
 c3  esp32c3/twai.elf                     17864  0x461FA985
 c3  esp32c3/rsa.elf                      24872  0x00299002
+c3  esp32c3/hmac.elf                     26140  0x64C1F400

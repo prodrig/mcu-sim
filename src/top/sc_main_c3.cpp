@@ -61,6 +61,7 @@
 #include "parts/ws2812.h"
 #include "parts/ext_parts.h"
 #include "parts/tft_st7735.h"
+#include "verif/fw/esp32c3/hmac_vec.h"   // E8: las claves y los resultados del HMAC (C25)
 
 using namespace sc_core;
 using namespace stm32;
@@ -250,7 +251,7 @@ SC_MODULE(TbC3) {
         check(c3.limitaciones().size() >= 5, "limitaciones(): lo que no esta (perifericos de E7-E8, SWD, brownout...)");
         const huella_fw::Veredicto hv = huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "c3");
         std::printf("    %d imagenes: %s\n", hv.comprobadas, hv.detalle.c_str());
-        check(hv.ok() && hv.comprobadas == 13, "los trece ficheros de la suite son los versionados (verif/fw/huellas.txt)");
+        check(hv.ok() && hv.comprobadas == 14, "los catorce ficheros de la suite son los versionados (verif/fw/huellas.txt)");
     }
 
     void c2() {
@@ -1130,13 +1131,74 @@ SC_MODULE(TbC3) {
         c3.alimenta(false);
     }
 
+    // E8: el HMAC con la secuencia de esp_hmac_calculate y las claves
+    // quemadas en los eFuse por el banco (los resultados, de Python:
+    // vec/gen_hmac.py), y la reapertura del JTAG que cierra SOFT_DIS_JTAG
+    void quema_clave(unsigned n, const uint8_t k[32], unsigned proposito) {
+        for (unsigned i = 0; i < 8; ++i)
+            c3.efuse.pon_palabra(0x9C + 0x20 * n + 4 * i,
+                                 uint32_t(k[4 * i]) | uint32_t(k[4 * i + 1]) << 8 | uint32_t(k[4 * i + 2]) << 16 | uint32_t(k[4 * i + 3]) << 24);
+        const uint32_t off = n < 2 ? 0x34u : 0x38u;
+        const unsigned s = n < 2 ? 24 + 4 * n : 4 * (n - 2);
+        for (unsigned b = 0; b < 4; ++b) c3.efuse.pon_bit(off, s + b, (proposito >> b) & 1u);
+    }
+    void c25() {
+        grupo("C25 el HMAC: subida con las cuatro formas de acabar, el proposito, RD_DIS y el JTAG (E8)");
+        static const uint8_t cero[32] = {};
+        quema_clave(0, HMAC_K0, 8);
+        quema_clave(1, HMAC_K1, 6);
+        quema_clave(2, HMAC_K2, 7);
+        c3.efuse.pon_bit(0x30, 0, true);                 // RD_DIS de KEY0
+        c3.efuse.pon_bit(0x30, 9, true);                 // DIS_USB_JTAG: el JTAG, a los pines
+        c3.efuse.pon_bit(0x30, 16, true);                // SOFT_DIS_JTAG = 1: cerrado
+        check(arranca("hmac.elf"), "hmac.elf");
+        c3.poke32(buzon_ + 8 + 12, 0);                   // res[3]: lo que dejo el anterior
+        wait(5, SC_US);
+        check(c3.fuente_jtag() == Esp32C3::FuenteJtag::Ninguna, "con SOFT_DIS_JTAG impar, el JTAG de los pines esta cerrado");
+        bool paso1 = false, paso2 = false;
+        const sc_time t0 = sc_time_stamp();
+        while (sc_time_stamp() - t0 < sc_time(20, SC_MS) && bz(3) < 3) {
+            if (bz(3) == 1 && !paso1) { paso1 = true; check(c3.fuente_jtag() == Esp32C3::FuenteJtag::Ninguna, "un WR_JTAG equivocado no lo abre"); }
+            if (bz(3) == 2 && !paso2) { paso2 = true; check(c3.fuente_jtag() == Esp32C3::FuenteJtag::Pines, "el HMAC de 32 bytes 0x00 con KEY1 (proposito 6) lo abre"); }
+            wait(2, SC_US);
+        }
+        check(paso1 && paso2, "el firmware pasa por los dos intentos");
+        check(espera_fin(sc_time(20, SC_MS)), "acaba");
+        check(c3.fuente_jtag() == Esp32C3::FuenteJtag::Ninguna, "SET_INVALIDATE_JTAG lo vuelve a cerrar");
+        check(c3.hmac.aperturas() == 1, "se abre una sola vez");
+        char b[160];
+        const uint32_t ok = bz(0);
+        std::snprintf(b, sizeof b, "DATE 0x%08X", bz(2));
+        check(bz(2) == 0x20200618u, b);
+        std::snprintf(b, sizeof b, "32 bytes con ONE_BLOCK, como Python (primera palabra 0x%08X)", bz(1));
+        check(ok & 1u, b);
+        check(ok & 2u, "64 bytes con el relleno del hardware (SET_MESSAGE_END)");
+        check(ok & 4u, "100 bytes: dos bloques, el ultimo con SET_MESSAGE_PAD");
+        check(ok & 8u, "200 bytes: tres bloques con SET_MESSAGE_ING y PAD");
+        check(ok & 16u, "KEY1 (proposito 6) en subida: QUERY_ERROR = 1");
+        check(ok & 32u, "la CPU lee ceros en RD_KEY0 (RD_DIS) y el HMAC usa la clave");
+        check(ok & 64u, "QUERY_BUSY = 1 justo despues de SET_MESSAGE_ONE");
+        check(ok & 128u, "SET_RESULT_FINISH borra RD_RESULT");
+        uint8_t ds[32];
+        check(!c3.hmac.clave_ds(ds), "sin bajada de DS no hay clave del DS");
+        char c[96];
+        std::snprintf(c, sizeof c, "%u calculos (el de proposito equivocado no cuenta)", c3.hmac.calculos());
+        check(c3.hmac.calculos() == 5, c);
+        c3.alimenta(false);
+        // Los eFuse, como estaban
+        for (unsigned n = 0; n < 3; ++n) quema_clave(n, cero, 0);
+        c3.efuse.pon_bit(0x30, 0, false);
+        c3.efuse.pon_bit(0x30, 9, false);
+        c3.efuse.pon_bit(0x30, 16, false);
+    }
+
     void run() {
         // C3_SOLO=c4 (o c1...c14): un grupo suelto, para desarrollar
         if (const char* solo = std::getenv("C3_SOLO")) {
             const std::string q = solo;
             void (TbC3::*g[])() = {&TbC3::c1, &TbC3::c2, &TbC3::c3_uart, &TbC3::c4, &TbC3::c5, &TbC3::c6, &TbC3::c7,
                                    &TbC3::c8, &TbC3::c9, &TbC3::c10, &TbC3::c11, &TbC3::c12, &TbC3::c13, &TbC3::c14,
-                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24};
+                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25};
             const int k = q.size() > 1 ? std::atoi(q.c_str() + 1) : 0;
             if (k >= 1 && k <= int(sizeof g / sizeof g[0])) (this->*g[k - 1])();
             std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
@@ -1166,6 +1228,7 @@ SC_MODULE(TbC3) {
         c22();
         c23();
         c24();
+        c25();
         std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

@@ -71,6 +71,7 @@
 #include "../../periph/esp/gdma_esp.h"
 #include "../../periph/esp/spi_gp_esp.h"
 #include "../../periph/esp/rsa_esp.h"
+#include "../../periph/esp/hmac_esp.h"
 #include "../../periph/bloque_declarado.h"
 #include "../../common/imagen_fw.h"
 #include "../../common/analog_net.h"
@@ -195,6 +196,7 @@ public:
     GdmaEsp        gdma;
     SpiGpEsp       spi2;
     RsaEsp         rsa;
+    HmacEsp        hmac;
     RomEsp         rom{c3::ROM0_I, c3::ROM_I_FIN - c3::ROM0_I};
     std::vector<std::unique_ptr<BloqueDeclarado>> declarados;
 
@@ -246,7 +248,7 @@ public:
           bb("bb", c3::BB_B, 0x1000),
           usj("usb_serial_jtag", c3::USB_SJ_B, gpio.nodo_de(19), gpio.nodo_de(18)),
           ledc("ledc", c3::LEDC_B), rmt("rmt", c3::RMT_B), adc("apb_saradc", c3::ADC_B), aes("aes", c3::AES_B), i2c("i2c", c3::I2C_B), twai("twai", c3::TWAI_B), gdma("gdma", c3::GDMA_B), spi2("spi2", c3::SPI2_B),
-          rsa("rsa", c3::RSA_B),
+          rsa("rsa", c3::RSA_B), hmac("hmac", c3::HMAC_B),
           csr_(gpio), sram_(c3::SRAM_TAM, 0), rtc_fast_(c3::RTC_FAST_TAM, 0) {
         pon_rom_omision();
         bus.register_b_transport(this, &Esp32C3::b_transport);
@@ -275,9 +277,9 @@ public:
         static const D dec[] = {
             {c3::UHCI_B, "UHCI0", "E8"}, 
             {c3::I2S_B, "I2S", "E8"}, 
-            {c3::DS_B, "DS", "E8"}, {c3::HMAC_B, "HMAC", "E8"},
-            
+            {c3::DS_B, "DS", "E8"},
             {c3::XTS_AES_B, "XTS_AES", "E4"},
+            
         };
         for (const D& d : dec)
             declarados.emplace_back(new BloqueDeclarado(sc_core::sc_gen_unique_name("decl"),
@@ -285,7 +287,7 @@ public:
         std::vector<BusSlave*> todos{&gpio, &iomux, &intmtx, &system, &rtc, &efuse, &uart0,
                                      &uart1, &systimer, &timg0, &timg1, &spi0, &spi1, &cache, &sha, &regi2c,
                                      &syscon, &pms,
-                                     &assist, &wcl, &efuse_trm, &fe2, &fe, &nrx, &bb, &usj, &ledc, &rmt, &adc, &aes, &i2c, &gdma, &spi2, &twai, &rsa};
+                                     &assist, &wcl, &efuse_trm, &fe2, &fe, &nrx, &bb, &usj, &ledc, &rmt, &adc, &aes, &i2c, &gdma, &spi2, &twai, &rsa, &hmac};
         for (auto& d : declarados) todos.push_back(d.get());
         for (BusSlave* s : todos) engancha(s);
 
@@ -302,6 +304,11 @@ public:
         i2c.irq = [this](bool v) { intmtx.fuente(c3::F_I2C, v); };
         twai.irq = [this](bool v) { intmtx.fuente(c3::F_TWAI, v); };
         rsa.irq = [this](bool v) { intmtx.fuente(c3::F_RSA, v); };
+        // El HMAC lee sus claves de los eFuse (aunque la CPU no pueda) y
+        // reabre el JTAG que SOFT_DIS_JTAG cierra
+        hmac.clave = [this](unsigned n, uint8_t* k) { efuse.clave(n, k); };
+        hmac.proposito = [this](unsigned n) { return efuse.proposito(n); };
+        hmac.jtag = [this](bool) { aplica_soft_jtag(); };
         twai.salida = [this](bool v) { gpio.sig_out[c3::SIG_TWAI].write(v); };
         twai.rx_pin(gpio.sig_in[c3::SIG_TWAI]);
         gdma.irq = [this](unsigned c, bool v) { intmtx.fuente(c3::F_DMA0 + c, v); };
@@ -546,7 +553,10 @@ public:
             "sin SELF_TEST (sin asentimiento), ARB_LOST_CAP exacto ni la recuperación de 128 x 11 bits",
             "el RSA (E8): MODEXP, MODMULT y MULT hasta 3072 bits, por Montgomery con r y M', con SEARCH y "
             "CONSTANT_TIME; los tiempos, de modelo (ajustados a la tabla 20.3-1 del TRM)",
-            "declarados: UHCI, I2S, DS, HMAC "
+            "el HMAC (E8): subida con relleno del software o del hardware, bajada para el DS y para "
+            "reabrir el JTAG de SOFT_DIS_JTAG, con las claves y sus propositos de los eFuse (que la CPU no "
+            "lee con RD_DIS)",
+            "declarados: UHCI, I2S, DS "
             "y XTS_AES (E8); la radio (FE, NRX, BB) guarda sin hacer nada",
             "el USB-Serial-JTAG (E7): CDC-ACM y JTAG, con el reset por DTR/RTS; sin bajo consumo, "
             "sin EXCHG_PINS ni PHY de fuera",
@@ -573,8 +583,18 @@ private:
         const bool usb = sel ? g10 : !dis_usb;
         if (usb) fuente_jtag_ = dis_usb ? FuenteJtag::Ninguna : FuenteJtag::Usb;
         else fuente_jtag_ = (dis_pad || soft_dis) ? FuenteJtag::Ninguna : FuenteJtag::Pines;
+        // Cerrado solo por SOFT_DIS_JTAG: el HMAC lo puede reabrir (E8)
+        solo_soft_ = !usb && !dis_pad && soft_dis;
+        aplica_soft_jtag();
+    }
+    // Con el JTAG de los pines cerrado solo por SOFT_DIS_JTAG, lo abre el
+    // HMAC en bajada con la clave de JTAG, y lo cierra SET_INVALIDATE_JTAG
+    // [TRM-C3 §19.2.4]
+    void aplica_soft_jtag() {
+        if (solo_soft_) fuente_jtag_ = hmac.jtag_abierto() ? FuenteJtag::Pines : FuenteJtag::Ninguna;
         jtag->activo(fuente_jtag_ == FuenteJtag::Pines);
     }
+    bool solo_soft_ = false;
     // Los perros guardianes del arranque desde la Flash (RWDT y MWDT0 en
     // flashboot): como en el silicio cuando arranca la ROM; apagados con un
     // ELF en la SRAM (E3)
@@ -622,7 +642,7 @@ private:
         uart0.hz_apb = uart1.hz_apb = apb;
         timg0.hz_apb = timg1.hz_apb = apb;
         sha.hz_apb = apb;
-        ledc.hz_apb = rmt.hz_apb = aes.hz_apb = spi2.hz_apb = rsa.hz_apb = apb;
+        ledc.hz_apb = rmt.hz_apb = aes.hz_apb = spi2.hz_apb = rsa.hz_apb = hmac.hz_apb = apb;
     }
 
     // La memoria: puntero al byte, o nullptr. `fetch`: por el bus I.
@@ -747,6 +767,7 @@ private:
         gpio.reset(); intmtx.reset(); system.reset_regs(); uart0.reset(); uart1.reset();
         systimer.reset(); timg0.reset(); timg1.reset(); spi0.reset(); spi1.reset(); cache.reset();
         sha.reset(); regi2c.reset(); gdma.reset(); spi2.reset(); ledc.reset(); rmt.reset(); adc.reset(); aes.reset(); i2c.reset(); twai.reset();
+        rsa.reset(); hmac.reset();
         efuse.reset(); syscon.reset(); efuse_trm.reset();
         fe2.reset(); fe.reset(); nrx.reset(); bb.reset();
         reset_cpu_perif();

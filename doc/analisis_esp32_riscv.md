@@ -1452,6 +1452,25 @@ son la 43 y la 44-46 [TRM-C3 tabla 8.3-1; `ETS_*_INTR_SOURCE` de
   la comprobación con SEARCH en el bit 16 y CONSTANT_TIME a 0, A·B mod M y un
   MULT de 512 x 512. `testc3` C24 (192): los resultados, lo que no cambia, la
   interrupción y los tiempos en tics del SYSTIMER.
+* **`periph/esp/hmac_esp.h`** [TRM-C3 §19; `hmac_ll.h`, `hmac_hal.c` y
+  `esp_hmac.c` de ESP-IDF]: HMAC-SHA-256 con una clave de los eFuse
+  (KEY0-5) y su propósito (8 subida, 7 DS, 6 JTAG, 5 los dos de abajo); si no
+  casa, QUERY_ERROR. En subida, los bloques de WR_MESSAGE con
+  SET_MESSAGE_ONE y las cuatro formas de seguir o acabar (ING, END con el
+  relleno del hardware, PAD y ONE_BLOCK), como `esp_hmac_calculate`; el
+  resultado en RD_RESULT y SET_RESULT_FINISH lo borra. En bajada, la clave del
+  DS (HMAC de 32 bytes 0xFF, para el DS de la entrega siguiente) y la de JTAG
+  (32 bytes 0x00): con SOFT_JTAG_CTRL y las ocho palabras de WR_JTAG (de la
+  última a la primera, con sus bytes al revés, como
+  `ets_jtag_enable_temporarily` de la ROM), el JTAG de los pines que cerró
+  SOFT_DIS_JTAG se vuelve a abrir hasta SET_INVALIDATE_JTAG o el reset.
+  `efuse` da las claves y los propósitos (`clave`, `proposito`) y, con RD_DIS,
+  la CPU lee ceros en el bloque protegido. QUERY_BUSY, de modelo: 64 ciclos del
+  APB por bloque. `verif/fw/esp32c3/hmac.c` con tres claves de semilla fija
+  (`vec/gen_hmac.py`, los resultados de Python): 32, 64, 100 y 200 bytes, el
+  propósito equivocado, RD_DIS y la reapertura del JTAG, que el banco ve en la
+  fuente del JTAG del SoC. `testc3` C25 (211); las claves las quema el banco y
+  las borra al acabar.
 
 ### E9 · ESP32-C6: el núcleo HP y el SoC
 

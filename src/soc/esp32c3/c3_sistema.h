@@ -386,10 +386,33 @@ public:
         uint32_t& w = w_[(off - RD_INI) / 4];
         w = v ? (w | (1u << bit)) : (w & ~(1u << bit));
     }
+    // Una palabra entera de la imagen (como quemarla: las claves de E8)
+    void pon_palabra(uint32_t off, uint32_t v) {
+        if (off >= RD_INI && off < RD_FIN) w_[(off - RD_INI) / 4] = v;
+    }
+    // E8: lo que leen el HMAC y el XTS_AES por dentro, con la protección de
+    // lectura o sin ella [TRM-C3 §4.3; efuse_reg.h de ESP-IDF]. KEYn es
+    // BLOCK(4+n), en RD_KEYn_DATA0-7 (0x9C + 0x20 n), en el orden de bytes de
+    // la memoria; su propósito, KEY_PURPOSE_n (4 bits) en RD_REPEAT_DATA1[31:24]
+    // y RD_REPEAT_DATA2[15:0].
+    void clave(unsigned n, uint8_t k[32]) const {
+        for (unsigned i = 0; i < 32; ++i) k[i] = uint8_t(rd(0x9C + 0x20 * n + (i & ~3u)) >> (8 * (i & 3)));
+    }
+    unsigned proposito(unsigned n) const {
+        if (n < 2) return (rd(0x34) >> (24 + 4 * n)) & 0xFu;
+        return (rd(0x38) >> (4 * (n - 2))) & 0xFu;
+    }
+    // RD_DIS (RD_REPEAT_DATA0[6:0]): el bit n protege BLOCK(4+n); la CPU lee
+    // ceros, el hardware la clave
+    bool protegido(uint32_t off) const {
+        if (off < 0x9C || off >= RD_FIN) return false;
+        const unsigned blk = (off - 0x9C) / 0x20;
+        return blk < 7 && ((rd(0x30) >> blk) & 1u);
+    }
 
 protected:
     bool lee(uint32_t off, uint32_t& v) override {
-        if (off >= RD_INI && off < RD_FIN) { v = rd(off); return true; }
+        if (off >= RD_INI && off < RD_FIN) { v = protegido(off) ? 0u : rd(off); return true; }
         if (off == STATUS) { v = 1u; return true; }                  // STATE: en reposo
         if (off == INT_ST) { v = r(INT_RAW) & r(INT_ENA); return true; }
         return false;
