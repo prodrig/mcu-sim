@@ -72,6 +72,7 @@
 #include "../../periph/esp/spi_gp_esp.h"
 #include "../../periph/esp/rsa_esp.h"
 #include "../../periph/esp/hmac_esp.h"
+#include "../../periph/esp/ds_esp.h"
 #include "../../periph/bloque_declarado.h"
 #include "../../common/imagen_fw.h"
 #include "../../common/analog_net.h"
@@ -197,6 +198,7 @@ public:
     SpiGpEsp       spi2;
     RsaEsp         rsa;
     HmacEsp        hmac;
+    DsEsp          ds;
     RomEsp         rom{c3::ROM0_I, c3::ROM_I_FIN - c3::ROM0_I};
     std::vector<std::unique_ptr<BloqueDeclarado>> declarados;
 
@@ -248,7 +250,7 @@ public:
           bb("bb", c3::BB_B, 0x1000),
           usj("usb_serial_jtag", c3::USB_SJ_B, gpio.nodo_de(19), gpio.nodo_de(18)),
           ledc("ledc", c3::LEDC_B), rmt("rmt", c3::RMT_B), adc("apb_saradc", c3::ADC_B), aes("aes", c3::AES_B), i2c("i2c", c3::I2C_B), twai("twai", c3::TWAI_B), gdma("gdma", c3::GDMA_B), spi2("spi2", c3::SPI2_B),
-          rsa("rsa", c3::RSA_B), hmac("hmac", c3::HMAC_B),
+          rsa("rsa", c3::RSA_B), hmac("hmac", c3::HMAC_B), ds("ds", c3::DS_B),
           csr_(gpio), sram_(c3::SRAM_TAM, 0), rtc_fast_(c3::RTC_FAST_TAM, 0) {
         pon_rom_omision();
         bus.register_b_transport(this, &Esp32C3::b_transport);
@@ -277,7 +279,6 @@ public:
         static const D dec[] = {
             {c3::UHCI_B, "UHCI0", "E8"}, 
             {c3::I2S_B, "I2S", "E8"}, 
-            {c3::DS_B, "DS", "E8"},
             {c3::XTS_AES_B, "XTS_AES", "E4"},
             
         };
@@ -287,7 +288,7 @@ public:
         std::vector<BusSlave*> todos{&gpio, &iomux, &intmtx, &system, &rtc, &efuse, &uart0,
                                      &uart1, &systimer, &timg0, &timg1, &spi0, &spi1, &cache, &sha, &regi2c,
                                      &syscon, &pms,
-                                     &assist, &wcl, &efuse_trm, &fe2, &fe, &nrx, &bb, &usj, &ledc, &rmt, &adc, &aes, &i2c, &gdma, &spi2, &twai, &rsa, &hmac};
+                                     &assist, &wcl, &efuse_trm, &fe2, &fe, &nrx, &bb, &usj, &ledc, &rmt, &adc, &aes, &i2c, &gdma, &spi2, &twai, &rsa, &hmac, &ds};
         for (auto& d : declarados) todos.push_back(d.get());
         for (BusSlave* s : todos) engancha(s);
 
@@ -309,6 +310,8 @@ public:
         hmac.clave = [this](unsigned n, uint8_t* k) { efuse.clave(n, k); };
         hmac.proposito = [this](unsigned n) { return efuse.proposito(n); };
         hmac.jtag = [this](bool) { aplica_soft_jtag(); };
+        // El DS recibe su clave del HMAC
+        ds.clave = [this](uint8_t* k) { return hmac.clave_ds(k); };
         twai.salida = [this](bool v) { gpio.sig_out[c3::SIG_TWAI].write(v); };
         twai.rx_pin(gpio.sig_in[c3::SIG_TWAI]);
         gdma.irq = [this](unsigned c, bool v) { intmtx.fuente(c3::F_DMA0 + c, v); };
@@ -556,7 +559,9 @@ public:
             "el HMAC (E8): subida con relleno del software o del hardware, bajada para el DS y para "
             "reabrir el JTAG de SOFT_DIS_JTAG, con las claves y sus propositos de los eFuse (que la CPU no "
             "lee con RD_DIS)",
-            "declarados: UHCI, I2S, DS "
+            "el DS (E8): la firma RSA con la clave del HMAC, el descifrado AES-256-CBC de C, las "
+            "comprobaciones del MD y del relleno y Z = X^Y mod M; los tiempos, de modelo",
+            "declarados: UHCI, I2S "
             "y XTS_AES (E8); la radio (FE, NRX, BB) guarda sin hacer nada",
             "el USB-Serial-JTAG (E7): CDC-ACM y JTAG, con el reset por DTR/RTS; sin bajo consumo, "
             "sin EXCHG_PINS ni PHY de fuera",
@@ -642,7 +647,7 @@ private:
         uart0.hz_apb = uart1.hz_apb = apb;
         timg0.hz_apb = timg1.hz_apb = apb;
         sha.hz_apb = apb;
-        ledc.hz_apb = rmt.hz_apb = aes.hz_apb = spi2.hz_apb = rsa.hz_apb = hmac.hz_apb = apb;
+        ledc.hz_apb = rmt.hz_apb = aes.hz_apb = spi2.hz_apb = rsa.hz_apb = hmac.hz_apb = ds.hz_apb = apb;
     }
 
     // La memoria: puntero al byte, o nullptr. `fetch`: por el bus I.
@@ -767,7 +772,7 @@ private:
         gpio.reset(); intmtx.reset(); system.reset_regs(); uart0.reset(); uart1.reset();
         systimer.reset(); timg0.reset(); timg1.reset(); spi0.reset(); spi1.reset(); cache.reset();
         sha.reset(); regi2c.reset(); gdma.reset(); spi2.reset(); ledc.reset(); rmt.reset(); adc.reset(); aes.reset(); i2c.reset(); twai.reset();
-        rsa.reset(); hmac.reset();
+        rsa.reset(); hmac.reset(); ds.reset();
         efuse.reset(); syscon.reset(); efuse_trm.reset();
         fe2.reset(); fe.reset(); nrx.reset(); bb.reset();
         reset_cpu_perif();

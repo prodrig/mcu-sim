@@ -356,4 +356,5 @@ testrv                 457      28577500000           resto
 # usaba. C24: el RSA (rsa.elf, 13 ficheros), desde 18694632002000.
 # C25: el HMAC (hmac.elf, 14 ficheros), desde 18726242002000; las claves en
 # los eFuse las quema el banco y las borra al acabar.
-testc3                 211      18139939002000        resto
+# C26: el DS (ds.elf, 15 ficheros), desde 18726359002000.
+testc3                 223      18204689002000        resto

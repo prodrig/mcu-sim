@@ -62,6 +62,7 @@
 #include "parts/ext_parts.h"
 #include "parts/tft_st7735.h"
 #include "verif/fw/esp32c3/hmac_vec.h"   // E8: las claves y los resultados del HMAC (C25)
+#include "verif/fw/esp32c3/ds_vec.h"     // E8: la clave cifrada del DS (C26)
 
 using namespace sc_core;
 using namespace stm32;
@@ -251,7 +252,7 @@ SC_MODULE(TbC3) {
         check(c3.limitaciones().size() >= 5, "limitaciones(): lo que no esta (perifericos de E7-E8, SWD, brownout...)");
         const huella_fw::Veredicto hv = huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "c3");
         std::printf("    %d imagenes: %s\n", hv.comprobadas, hv.detalle.c_str());
-        check(hv.ok() && hv.comprobadas == 14, "los catorce ficheros de la suite son los versionados (verif/fw/huellas.txt)");
+        check(hv.ok() && hv.comprobadas == 15, "los quince ficheros de la suite son los versionados (verif/fw/huellas.txt)");
     }
 
     void c2() {
@@ -1192,13 +1193,42 @@ SC_MODULE(TbC3) {
         c3.efuse.pon_bit(0x30, 16, false);
     }
 
+    // E8: el DS con una clave RSA-1024 cifrada como lo hace ESP-IDF
+    // (vec/gen_ds.py): la clave del HMAC, las dos comprobaciones y el tiempo
+    void c26() {
+        grupo("C26 el DS: firma RSA-1024 con la clave del HMAC, el MD y el relleno (E8)");
+        static const uint8_t cero[32] = {};
+        quema_clave(3, DS_HK, 7);
+        check(arranca("ds.elf"), "ds.elf");
+        check(espera_fin(sc_time(200, SC_MS)), "acaba");
+        char b[160];
+        const uint32_t ok = bz(0);
+        check(ok & 128u, "DATE 0x20200618 (en 0xE20, donde lo pone ESP-IDF)");
+        check(ok & 1u, "sin la bajada del HMAC, QUERY_BUSY sigue a 1 pasado 1,1 ms y KEY_WRONG = 0");
+        check(ok & 2u, "con la bajada de KEY3 (proposito 7), la clave llega");
+        std::snprintf(b, sizeof b, "la firma: QUERY_CHECK = 0 y Z como Python (palabra baja 0x%08X)", bz(2));
+        check(ok & 4u, b);
+        check(ok & 8u, "SET_FINISH borra Z_MEM");
+        check(ok & 16u, "un byte cambiado en C: QUERY_CHECK = 1 (el MD) y Z a cero");
+        check(ok & 32u, "el relleno mal: QUERY_CHECK = 2, y la firma sale igual");
+        check(ok & 64u, "tras SET_INVALIDATE_DS del HMAC, la clave ya no llega");
+        // El tiempo [de modelo]: 2051 productos de Montgomery de n(n+6) = 1216
+        // ciclos del APB, mas 75 bloques de AES (16) y 19 de SHA-256 (64):
+        // 2496432 ciclos a 80 MHz = 31,2 ms, 499286 tics de 16 MHz
+        std::snprintf(b, sizeof b, "la firma tarda %u tics de 16 MHz (499286)", bz(1));
+        check(bz(1) >= 499286u && bz(1) < 499286u + 20, b);
+        check(c3.ds.firmas() == 2, "dos firmas (la del MD mal no calcula)");
+        c3.alimenta(false);
+        quema_clave(3, cero, 0);
+    }
+
     void run() {
         // C3_SOLO=c4 (o c1...c14): un grupo suelto, para desarrollar
         if (const char* solo = std::getenv("C3_SOLO")) {
             const std::string q = solo;
             void (TbC3::*g[])() = {&TbC3::c1, &TbC3::c2, &TbC3::c3_uart, &TbC3::c4, &TbC3::c5, &TbC3::c6, &TbC3::c7,
                                    &TbC3::c8, &TbC3::c9, &TbC3::c10, &TbC3::c11, &TbC3::c12, &TbC3::c13, &TbC3::c14,
-                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25};
+                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25, &TbC3::c26};
             const int k = q.size() > 1 ? std::atoi(q.c_str() + 1) : 0;
             if (k >= 1 && k <= int(sizeof g / sizeof g[0])) (this->*g[k - 1])();
             std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
@@ -1229,6 +1259,7 @@ SC_MODULE(TbC3) {
         c23();
         c24();
         c25();
+        c26();
         std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

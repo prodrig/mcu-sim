@@ -1471,6 +1471,23 @@ son la 43 y la 44-46 [TRM-C3 tabla 8.3-1; `ETS_*_INTR_SOURCE` de
   propósito equivocado, RD_DIS y la reapertura del JTAG, que el banco ve en la
   fuente del JTAG del SoC. `testc3` C25 (211); las claves las quema el banco y
   las borra al acabar.
+* **`periph/esp/ds_esp.h`** [TRM-C3 §22; `ds_ll.h` de ESP-IDF; cómo se
+  construye C, de `gen_digital_signature_tests.py` de ESP-IDF]: al SET_START
+  pide al HMAC la RSA_DS_KEY (la bajada con propósito 7 o 5); si no la tiene,
+  QUERY_BUSY se queda a 1 y QUERY_KEY_WRONG a 0. SET_ME descifra C (Y_MEM,
+  M_MEM, RB_MEM y BOX_MEM, 1200 bytes) con AES-256-CBC y el IV, comprueba el
+  MD (SHA-256 de Y, M, r, M', L e IV: si no casa, QUERY_CHECK = 1 y no
+  calcula) y el relleno β (QUERY_CHECK = 2, calcula igual), y hace
+  Z = X^Y mod M con n = L + 1 palabras por el Montgomery del RSA, con tiempo
+  constante. SET_FINISH lo borra todo. QUERY_CHECK y DATE van en 0xE14 y 0xE20,
+  donde los pone ESP-IDF: el resumen de registros del TRM dice 0x814 y 0x820,
+  dentro de X_MEM. El tiempo, de modelo: el de los productos del RSA más 16
+  ciclos por bloque de AES y 64 por bloque de SHA-256 (31,2 ms para RSA-1024 a
+  80 MHz). `verif/fw/esp32c3/ds.c` con una clave RSA-1024 de semilla fija y C
+  construido como ESP-IDF (`vec/gen_ds.py`, con `cryptography`): sin la
+  bajada del HMAC la clave no llega; con ella, la firma; un C con un byte
+  cambiado (MD) y otro con el relleno mal; SET_INVALIDATE_DS. `testc3` C26
+  (223).
 
 ### E9 · ESP32-C6: el núcleo HP y el SoC
 
