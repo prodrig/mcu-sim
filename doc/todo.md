@@ -944,6 +944,9 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   entrada de la GDMA (C28) y el UHCI (C29): `testc3` 258. En el C3 ya no queda
   ningún bloque declarado; la radio (FE, NRX, BB) sigue guardando sin hacer
   nada, que es de E10.
+* **E8: las limitaciones, quitadas** (2026-11-14), una entrega por cada una:
+  el UHCI con la cabecera de HCI (H5), el CRC, el ACK, el envío rápido,
+  WAIT_SW_START y HUNG (C30, 275).
 * **E6 y E7: lo pendiente, hecho** (2026-11-08): GDB por openocd-esp32 con
   FreeRTOS (O5); `write-flash` entero por el USB (`--flash-rapida`), el puente
   USB que lee los IN cuando el dispositivo avisa, y G3 sin fallos sueltos.

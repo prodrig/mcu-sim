@@ -64,6 +64,7 @@
 #include "verif/fw/esp32c3/hmac_vec.h"   // E8: las claves y los resultados del HMAC (C25)
 #include "verif/fw/esp32c3/ds_vec.h"     // E8: la clave cifrada del DS (C26)
 #include "verif/fw/esp32c3/xts_vec.h"    // E8: la clave y el texto cifrado del XTS_AES (C27)
+#include "verif/fw/esp32c3/hci_vec.h"    // E8: la trama de HCI en la linea (C30)
 
 using namespace sc_core;
 using namespace stm32;
@@ -253,7 +254,7 @@ SC_MODULE(TbC3) {
         check(c3.limitaciones().size() >= 5, "limitaciones(): lo que no esta (perifericos de E7-E8, SWD, brownout...)");
         const huella_fw::Veredicto hv = huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "c3");
         std::printf("    %d imagenes: %s\n", hv.comprobadas, hv.detalle.c_str());
-        check(hv.ok() && hv.comprobadas == 18, "los dieciocho ficheros de la suite son los versionados (verif/fw/huellas.txt)");
+        check(hv.ok() && hv.comprobadas == 19, "los diecinueve ficheros de la suite son los versionados (verif/fw/huellas.txt)");
     }
 
     void c2() {
@@ -1370,15 +1371,58 @@ SC_MODULE(TbC3) {
         c3.alimenta(false);
     }
 
+    // E8: lo que quedaba del UHCI: la cabecera de HCI (H5), el CRC, el ACK,
+    // el envio rapido, WAIT_SW_START y HUNG (vec/gen_hci.py)
+    void c30() {
+        grupo("C30 el UHCI: la cabecera de HCI, el CRC, el ACK, el envio rapido, WAIT_SW_START y HUNG (E8)");
+        c3.uart1.salida.clear();
+        check(arranca("uhci_hci.elf"), "uhci_hci.elf");
+        check(espera_fin(sc_time(50, SC_MS)), "acaba");
+        char b[240];
+        const uint32_t ok = bz(0);
+        check(ok & 1u, "D: la trama fiable con DIC vuelve con SAVE_HEAD (14 bytes, suc_eof) y la cabecera arreglada");
+        const std::string& s = c3.uart1.salida;
+        bool linea = s.size() >= sizeof HCI_D_LINEA;
+        for (unsigned i = 0; linea && i < sizeof HCI_D_LINEA; ++i) linea = uint8_t(s[i]) == HCI_D_LINEA[i];
+        std::string hx;
+        for (unsigned i = 0; i < s.size() && i < sizeof HCI_D_LINEA; ++i) { char x[4]; std::snprintf(x, sizeof x, "%02X ", uint8_t(s[i])); hx += x; }
+        std::snprintf(b, sizeof b, "D: en la linea, la cabecera con ack y suma del UHCI y el CRC de H5 (%s)", hx.c_str());
+        check(linea, b);
+        std::snprintf(b, sizeof b, "D: RX_HEAD 0x%08X y ACK_NUM 1 tras la trama fiable", bz(1));
+        check(ok & 2u, b);
+        std::snprintf(b, sizeof b, "E: seq repetido: RX_ERR_CAUSE 2, err_eof (DW0 0x%08X), IN_ERR_EOF y su descriptor (STATE0 0x%X)", bz(3), bz(2));
+        check(ok & 4u, b);
+        check(ok & 8u, "F: la trama de la GDMA no mide 4 + largo: OUTLINK_EOF_ERR");
+        check(ok & 16u, "F: el CRC mal: RX_ERR_CAUSE 6");
+        check(ok & 32u, "F: con CRC_DISABLE la misma trama se acepta");
+        check(ok & 64u, "G: la suma de la cabecera mal: RX_ERR_CAUSE 1");
+        check(ok & 128u, "H: el envio rapido unico (Q0): llega, SEND_S_REG_Q y SINGLE_SEND_EN se borra");
+        check(ok & 256u, "I: el envio rapido siempre (Q1): tres tramas y SEND_A_REG_Q");
+        check(ok & 512u, "J: WAIT_SW_START: ENCODE_STATE 7 y nada sale");
+        check(ok & 1024u, "J: SW_START la deja salir y se borra solo");
+        check(ok & 2048u, "K: una trama sin EOF que se queda sin datos: TX_HUNG");
+        check(ok & 4096u, "K: lo recibido sin canal de entrada: RX_HUNG");
+        std::snprintf(b, sizeof b, "K: al arrancar el canal llega, con el EOF por reposo (DW0 0x%08X)", bz(4));
+        check(ok & 8192u, b);
+        c3.alimenta(false);
+    }
+
     void run() {
-        // C3_SOLO=c4 (o c1...c14): un grupo suelto, para desarrollar
+        // C3_SOLO=c4 (o c1...c30): un grupo suelto, para desarrollar
         if (const char* solo = std::getenv("C3_SOLO")) {
             const std::string q = solo;
             void (TbC3::*g[])() = {&TbC3::c1, &TbC3::c2, &TbC3::c3_uart, &TbC3::c4, &TbC3::c5, &TbC3::c6, &TbC3::c7,
                                    &TbC3::c8, &TbC3::c9, &TbC3::c10, &TbC3::c11, &TbC3::c12, &TbC3::c13, &TbC3::c14,
-                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25, &TbC3::c26, &TbC3::c27, &TbC3::c28, &TbC3::c29};
-            const int k = q.size() > 1 ? std::atoi(q.c_str() + 1) : 0;
-            if (k >= 1 && k <= int(sizeof g / sizeof g[0])) (this->*g[k - 1])();
+                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25, &TbC3::c26, &TbC3::c27, &TbC3::c28, &TbC3::c29, &TbC3::c30};
+            // Varios, separados por comas: C3_SOLO=c29,c30
+            for (size_t p = 0; p < q.size();) {
+                size_t f = q.find(',', p);
+                if (f == std::string::npos) f = q.size();
+                const std::string u = q.substr(p, f - p);
+                const int k = u.size() > 1 ? std::atoi(u.c_str() + 1) : 0;
+                if (k >= 1 && k <= int(sizeof g / sizeof g[0])) (this->*g[k - 1])();
+                p = f + 1;
+            }
             std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
             sc_stop();
             return;
@@ -1411,6 +1455,7 @@ SC_MODULE(TbC3) {
         c27();
         c28();
         c29();
+        c30();
         std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

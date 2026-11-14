@@ -1541,12 +1541,37 @@ son la 43 y la 44-46 [TRM-C3 tabla 8.3-1; `ETS_*_INTR_SOURCE` de
   deshacen, con el final de trama en el separador. El final de trama también
   por longitud (LEN_EOF_EN, PKT_THRS), por reposo (UART_IDLE_EOF_EN, con el
   RX_IDLE_THRHD de la UART, 0x100 tiempos de bit si no se ha escrito) y por
-  break. TX_START y RX_START, la fuente 15. Sin la cabecera de HCI, CRC, ACK,
-  QUICK_SENT ni HUNG (avisan una vez). `verif/fw/esp32c3/uhci.c` hace lo del
+  break. TX_START y RX_START, la fuente 15. `verif/fw/esp32c3/uhci.c` hace lo del
   driver «UART DMA» de ESP-IDF con la UART1 en LOOPBACK a 1 Mbaud: 100 bytes
   con final por reposo, 8 en SLIP (el banco ve en la línea C0 01 DB DC 02 DB
   DD 03 11 DB DC 04 C0) y 25 en tramas de 10 por longitud. `testc3` C29 (258).
   **Con esto, el C3 no tiene ningún bloque declarado.**
+* **El UHCI, entero** (2026-11-14) [además de lo anterior: los comentarios
+  del `uhci_reg.h` del ESP32 y el transporte «Three-wire UART» (H5) de
+  Bluetooth, Core Vol 4 Part D, porque el TRM da los campos pero no el
+  formato]: la cabecera de HCI (HEAD_EN) es la de H5, {seq, ack, DIC, fiable},
+  {tipo, largo}, {largo} y la suma. Al mandar, son los cuatro primeros bytes
+  de la trama de la GDMA y el UHCI pone el ack (TX_ACK_NUM_RE, su ACK_NUM, que
+  carga ACK_NUM_LOAD y sube con cada trama fiable buena) y la suma
+  (TX_CHECK_SUM_RE); con DIC y ENCODE_CRC_EN añade el CRC de H5 (el
+  CRC-CCITT reflejado de `hci_h5.c` de Linux, dado la vuelta y el byte alto
+  primero), y si la trama no mide 4 + largo, OUTLINK_EOF_ERR. Al recibir,
+  RX_HEAD, SAVE_HEAD, el largo de la cabecera para LEN_EOF y los errores de
+  RX_ERR_CAUSE (1 suma, 2 secuencia, 3 DIC sin CRC_REC_EN, 4 separador antes
+  de tiempo, 5 sin separador al final, 6 CRC), que cierran la trama con
+  err_eof: la GDMA gana IN_ERR_EOF (bit 2) e IN_ERR_EOF_DES_ADDR. El envío
+  rápido (REG_Q0-Q6, SINGLE_SEND y ALWAYS_SEND con SEND_S/A_REG_Q),
+  WAIT_SW_START/SW_START (ENCODE_STATE 7), y TX_HUNG y RX_HUNG con
+  HUNG_CONF en ciclos del APB; lo recibido sin canal de entrada espera (hasta
+  128 bytes) a que se arranque uno. De modelo, y dicho en la cabecera del
+  fichero: los valores de DECODE/ENCODE_STATE, la unidad de HUNG y el error
+  3; CRC_DISABLE quita la comprobación, como dicen su nombre y el ESP32 (el
+  TRM del C3 dice lo contrario). `verif/fw/esp32c3/uhci_hci.c` y
+  `vec/gen_hci.py` (el CRC por `binascii.crc_hqx`, la segunda fuente): una
+  trama fiable con la cabecera mal que el UHCI arregla (el banco ve en la
+  línea los bytes de H5), la secuencia repetida, el CRC mal y con
+  CRC_DISABLE, la suma mal, el rápido único y el continuo, WAIT_SW_START y los
+  dos HUNG. `testc3` C30 (275).
 
 ### E9 · ESP32-C6: el núcleo HP y el SoC
 

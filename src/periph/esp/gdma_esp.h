@@ -23,7 +23,10 @@
 // [SOC_GDMA_TRIG_PERIPH_* de ESP-IDF].
 // LO QUE NO SE MODELA: las prioridades y el ancho de banda (lo que tarda lo
 // pone el periférico), la memoria externa, OUT_PUSH e IN_POP (las FIFO a
-// mano) e IN_ERR_EOF.
+// mano).
+// EL ERROR DE TRAMA (solo del UHCI0): `mete(..., eof, err)` cierra el
+// descriptor con suc_eof y err_eof (bit 28), IN_ERR_EOF (bit 2) en vez de
+// IN_SUC_EOF, e IN_ERR_EOF_DES_ADDR (0x8C).
 // =============================================================================
 #ifndef STM32_PERIPH_ESP_GDMA_ESP_H
 #define STM32_PERIPH_ESP_GDMA_ESP_H
@@ -59,9 +62,9 @@ public:
     }
     // Lo que da un periférico a su canal de entrada: `n` bytes y, si `eof`,
     // el final de la trama tras ellos. Devuelve cuántos ha podido escribir.
-    unsigned mete(unsigned peri, const uint8_t* p, unsigned n, bool eof) {
+    unsigned mete(unsigned peri, const uint8_t* p, unsigned n, bool eof, bool err = false) {
         for (unsigned c = 0; c < N; ++c)
-            if ((r_[(0xA0 + 0xC0 * c) / 4] & 0x3Fu) == peri && ent_[c]) return mete_canal(c, p, n, eof);
+            if ((r_[(0xA0 + 0xC0 * c) / 4] & 0x3Fu) == peri && ent_[c]) return mete_canal(c, p, n, eof, err);
         return 0;
     }
     // ¿Acabó la última `saca` de `peri` un descriptor con suc_eof? (se borra al leerlo)
@@ -77,6 +80,8 @@ public:
     }
     // Para despertar al periférico cuando se arranca un canal de salida
     std::function<void(unsigned peri)> al_arrancar;
+    // ... y cuando se arranca uno de entrada
+    std::function<void(unsigned peri)> al_arrancar_ent;
     bool entrada_activa(unsigned peri) const {
         for (unsigned c = 0; c < N; ++c)
             if ((r_[(0xA0 + 0xC0 * c) / 4] & 0x3Fu) == peri && ent_[c]) return true;
@@ -110,8 +115,11 @@ protected:
                 }
                 if (v & (1u << 20)) act_[c] = false;
             } else if (off == 0x80 + 0xC0 * c) {
-                if (v & (1u << 22)) { ent_[c] = true; dent_[c] = 0x3FC00000u | (v & 0xFFFFFu); pent_[c] = 0; }
                 if (v & (1u << 21)) ent_[c] = false;
+                if (v & (1u << 22)) {
+                    ent_[c] = true; dent_[c] = 0x3FC00000u | (v & 0xFFFFFu); pent_[c] = 0;
+                    if (al_arrancar_ent) al_arrancar_ent(r_[(0xA0 + 0xC0 * c) / 4] & 0x3Fu);
+                }
             }
     }
 
@@ -157,7 +165,7 @@ private:
         }
         return k;
     }
-    unsigned mete_canal(unsigned c, const uint8_t* p, unsigned n, bool eof) {
+    unsigned mete_canal(unsigned c, const uint8_t* p, unsigned n, bool eof, bool err) {
         unsigned k = 0;
         for (;;) {
             if (!ent_[c]) return k;
@@ -175,9 +183,12 @@ private:
             if (pent_[c] < tam && !fin) return k;               // cabe más
             // Cerrado: length, suc_eof y el owner a 0
             if (escribe32)
-                escribe32(d, tam | (pent_[c] << 12) | (fin ? (1u << 30) : 0u));
+                escribe32(d, tam | (pent_[c] << 12) | (fin ? (1u << 30) : 0u) | (fin && err ? (1u << 28) : 0u));
             r_[(c * 0x10) / 4] |= 1u << 0;                      // IN_DONE
-            if (fin) {
+            if (fin && err) {
+                r_[(c * 0x10) / 4] |= 1u << 2;                  // IN_ERR_EOF
+                r_[(0x8C + 0xC0 * c) / 4] = d;
+            } else if (fin) {
                 r_[(c * 0x10) / 4] |= 1u << 1;                  // IN_SUC_EOF
                 r_[(0x88 + 0xC0 * c) / 4] = d;
             }

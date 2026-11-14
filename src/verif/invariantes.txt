@@ -364,4 +364,7 @@ testrv                 457      28577500000           resto
 # canales de entrada sin mover nada.
 # C29: el UHCI (uhci.elf, 18 ficheros), desde 18844435018866; con el, el C3
 # se queda sin bloques declarados.
-testc3                 258      18279705018866        resto
+# C30: lo que quedaba del UHCI (uhci_hci.elf, 19 ficheros), desde
+# 18866125018866: la cabecera de HCI (H5), el CRC, el ACK, el envio rapido,
+# WAIT_SW_START y HUNG; la GDMA gana IN_ERR_EOF sin mover nada.
+testc3                 275      18283015018866        resto

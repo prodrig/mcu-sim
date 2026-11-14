@@ -347,6 +347,7 @@ public:
             u.brk_rx = [this, n] { uhci.brk_rx(n); };
         }
         gdma.al_arrancar = [this](unsigned peri) { if (peri == UhciEsp::PERI_GDMA) uhci.despierta(); };
+        gdma.al_arrancar_ent = [this](unsigned peri) { if (peri == UhciEsp::PERI_GDMA) uhci.vacia_rx(); };
         spi2.gdma = &gdma;
         spi2.irq = [this](bool v) { intmtx.fuente(c3::F_SPI2, v); };
         spi2.salida = [this](bool clk, bool mosi, bool cs) {
@@ -698,7 +699,7 @@ private:
         uart0.hz_apb = uart1.hz_apb = apb;
         timg0.hz_apb = timg1.hz_apb = apb;
         sha.hz_apb = apb;
-        ledc.hz_apb = rmt.hz_apb = aes.hz_apb = spi2.hz_apb = rsa.hz_apb = hmac.hz_apb = ds.hz_apb = xts.hz_apb = apb;
+        ledc.hz_apb = rmt.hz_apb = aes.hz_apb = spi2.hz_apb = rsa.hz_apb = hmac.hz_apb = ds.hz_apb = xts.hz_apb = uhci.hz_apb = apb;
     }
 
     // La memoria: puntero al byte, o nullptr. `fetch`: por el bus I.
