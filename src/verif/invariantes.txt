@@ -320,7 +320,11 @@ testf3                428      116875480154660       resto
 # final y se contrasta `resto` (T-16, como en el F407). V10 suma 221
 # comprobaciones y 19766 us justos: V1-V9 y W1-W3 duran lo mismo que antes
 # (8811500000 con 236). Igual en dos pasadas (07-11-2026).
-testrv                 457      28577500000           resto
+# V11 (E9.1, el nucleo HP del ESP32-C6: misa, la delegacion a U con uret, la
+# PMA, el BTB y riscv-arch-test con 202 de 220 y las 18 que difieren) va tras
+# W4-W6 y suma 16 comprobaciones y 34629550000 ps; lo de antes no se mueve
+# (28577500000 con 457 hasta el arranque de V11) (14-11-2026).
+testrv                 473      63207050000           resto
 
 # testc3: el ESP32-C3. C1-C7 (E3), sin ROM: el arranque por CHIP_PU y los
 # pines de arranque, la UART0 por los pines, el INTC, el SYSTIMER y TIMG0, la

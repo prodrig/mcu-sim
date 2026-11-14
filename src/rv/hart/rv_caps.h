@@ -102,6 +102,12 @@ struct RvTiempos {
     unsigned trap;           // entrada a un trap (excepción o interrupción)
     unsigned retorno;        // mret, uret, dret
     unsigned lat_irq;        // ciclos desde la petición hasta que entra
+    // El BTB con predicción estática (el C6 HP) [de modelo]: con `btb`
+    // entradas (0 = no hay), las ramas hacia atrás se predicen tomadas y las
+    // de hacia delante no; una rama bien predicha (y, si es tomada, con su
+    // destino en el BTB) cuesta `salto_no`, y una mal predicha, `salto_si`.
+    // Un jal con su destino en el BTB cuesta `alu`.
+    unsigned btb = 0;
 };
 
 // La de laboratorio: todo a un ciclo, como Spike. Sirve para comparar trazas.
@@ -118,7 +124,7 @@ struct RvCaps {
     bool        mie_mip;           // false: no hay mie/mip (ESP32-C3)
     uint32_t    mie_bits;          // bits de mie que existen (y de mip que se ven)
     bool        deleg_n;           // delegación a U con la extensión N (C6 HP)
-    uint32_t    mideleg_reset;     // mideleg tras el reset (C6 HP: 0 y 4)
+    uint32_t    mideleg_reset;     // mideleg tras el reset (C6 HP: 0x111, USI, UTI y la 8)
     uint8_t     mtvec_modos;       // RV_MTVEC_*
     uint32_t    mtvec_alin;        // alineación de la base de mtvec (4, 64, 256...)
     uint32_t    pc_reset;

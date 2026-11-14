@@ -1658,6 +1658,27 @@ la separación de §3 funciona.
 
 **Tamaño:** grande, pero claramente menor que E3 + E4.
 
+**Hecho:**
+* **1. El núcleo HP** (2026-11-14). `RV_ESP32C6_HP` en
+  `soc/esp32c6/c6_desc.h` [TRM-C6 §1]: RV32IMAC con M y U y la delegación a
+  U (los CSR de la extensión N que el hart tiene desde E1; misa no dice N),
+  mie/mip de 32 bits, mideleg 0x111 de reset (el registro 1.7 del TRM; el
+  comentario de `rv_caps.h` decía «0 y 4»), mtvec y utvec solo vectorizados
+  a 256, 16 PMP, sin contadores estándar, los desalineados en hardware con
+  la errata CPU-863 (que el C6 sigue teniendo en el v0.2, ahora con la PMA),
+  mvendorid 0x612, marchid 0x8000_0002, mimpid 2, y el DM con 4 triggers,
+  program buffer de 16 y su región en 0x2000_0000-0x2000_0FFF (el CLINT
+  está en 0x2000_1800). La PMA (`soc/esp/pma_esp.h`, §1.9): 16 entradas
+  pma_cfg/pma_addr con A, LOCK, ATTRIBUTE, RWX y TYPE; de reset, la palabra
+  0 no es válida (A = NA4). El BTB con predicción estática, de modelo
+  (`RvTiempos::btb`: hacia atrás, tomada; bien predicha y con el destino en
+  el BTB, el coste de la no tomada). `testrv` V11: `nmodo.S`, la PMA sin
+  tiempo, el BTB con CoreMark (90 % del tiempo) y riscv-arch-test con las
+  firmas del laboratorio: pasan 202 de 220 y las 18 que el C6 hace de otra
+  manera por diseño (los desalineados, mtvec y sus líneas, sus CSR y
+  mcounteren) son las que se esperan. Para ACT se le añaden mcycle y
+  minstret, que el arnés lee: no hay firmas de Sail sacadas para el C6.
+
 ### E10 · C6: el núcleo LP
 
 **Entregas:**

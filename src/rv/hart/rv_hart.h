@@ -32,6 +32,7 @@
 #define STM32_RV_HART_RV_HART_H
 
 #include <cstdint>
+#include <algorithm>
 #include <cstring>
 #include <functional>
 #include "rv_caps.h"
@@ -117,6 +118,7 @@ public:
         utvec_ = legaliza_tvec(0);
         mepc_ = mcause_ = mtval_ = mscratch_ = 0;
         uepc_ = ucause_ = uscratch_ = 0;
+        std::memset(btb_v_, 0, sizeof btb_v_);
         mie_ = 0; mideleg_ = caps_.deleg_n ? caps_.mideleg_reset : 0;
         mcounteren_ = 0; mcountinhibit_ = 0;
         mcycle_ = minstret_ = 0;
@@ -524,6 +526,19 @@ private:
     uint32_t mstatus_ = 0, mtvec_ = 0, mepc_ = 0, mcause_ = 0, mtval_ = 0, mscratch_ = 0;
     uint32_t mie_ = 0, mideleg_ = 0, mcounteren_ = 0, mcountinhibit_ = 0;
     uint32_t utvec_ = 0, uepc_ = 0, ucause_ = 0, uscratch_ = 0;
+    // El BTB (RvTiempos::btb): de correspondencia directa por el PC
+    static constexpr unsigned BTB_MAX = 64;
+    uint32_t btb_pc_[BTB_MAX] = {}, btb_dst_[BTB_MAX] = {};
+    bool btb_v_[BTB_MAX] = {};
+    unsigned btb_i(uint32_t pc) const { return (pc >> 1) % std::min(caps_.tiempos->btb, BTB_MAX); }
+    bool btb_mira(uint32_t pc, uint32_t dst) const {
+        const unsigned k = btb_i(pc);
+        return btb_v_[k] && btb_pc_[k] == pc && btb_dst_[k] == dst;
+    }
+    void btb_pon(uint32_t pc, uint32_t dst) {
+        const unsigned k = btb_i(pc);
+        btb_v_[k] = true; btb_pc_[k] = pc; btb_dst_[k] = dst;
+    }
     uint64_t mcycle_ = 0, minstret_ = 0;
     // Para la latencia de las interrupciones (`visibles`): lo pedido en la
     // frontera anterior
@@ -1002,6 +1017,11 @@ private:
         case OP_AUIPC: ciclos = t.alu; wr(rd_, pc_ + imm_u(i)); return;
         case OP_JAL: {
             ciclos = t.jal;
+            if (t.btb) {
+                const uint32_t dst = pc_ + imm_j(i);
+                if (btb_mira(pc_, dst)) ciclos = t.alu;
+                btb_pon(pc_, dst);
+            }
             const uint32_t ret = pc_ + largo;
             if (salta(pc_ + imm_j(i))) wr(rd_, ret);
             return;
@@ -1025,6 +1045,12 @@ private:
             default: ilegal(i); return;
             }
             ciclos = c ? t.salto_si : t.salto_no;
+            if (t.btb) {
+                const uint32_t dst = pc_ + imm_b(i);
+                const bool pred = int32_t(imm_b(i)) < 0;             // hacia atrás: tomada
+                ciclos = (c == pred && (!c || btb_mira(pc_, dst))) ? t.salto_no : t.salto_si;
+                if (c) btb_pon(pc_, dst);
+            }
             if (c) salta(pc_ + imm_b(i));
             return;
         }

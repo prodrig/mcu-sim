@@ -43,6 +43,15 @@
 //   W4-W6 van por un socket de verdad: van al final, y su tiempo no cuenta
 //   en «el resto» (como F19 en testf3)
 //
+//   (E9) el núcleo HP del ESP32-C6 (RV_ESP32C6_HP, soc/esp32c6/c6_desc.h)
+//   en el laboratorio, con el vector de reset en su RAM:
+//   V11     nmodo.S (la delegación a U con uret, mtvec y utvec
+//           vectorizados, mideleg 0x111 de reset); la PMA de Espressif
+//           (soc/esp/pma_esp.h) sin tiempo; el BTB con CoreMark; y
+//           riscv-arch-test con las firmas del laboratorio (con mcycle y
+//           minstret añadidos, que el arnés lee): pasan 202 y las 18 de
+//           privilegio que el C6 hace de otra manera son las que se esperan
+//
 // Uso: testrv [carpeta con los riscv-tests] [carpeta con riscv-arch-test]
 //                        (por omisión, build/rvt y build/act; las rellena
 //                        `make testrv` desde verif/rv/elf/riscv-tests.tar.xz y
@@ -70,6 +79,8 @@
 #include <vector>
 #include "common/asan_opciones.h"     // sin esto, asanrv revienta (SystemC y ASan)
 #include "rv/lab/soc_lab_rv.h"
+#include "soc/esp32c6/c6_desc.h"
+#include "soc/esp/pma_esp.h"
 #include "rv/hart/rv_decod.h"
 #include "rv/gdb/gdb_stub_rv.h"
 #include "verif/sonda_jtag_rv.h"
@@ -123,6 +134,21 @@ static RvCaps caps_hw() { RvCaps c = RV_LAB_IMAC; c.nombre = "lab-imac-hw";
                           c.desalineado = RvDesalineado::Hardware; return c; }
 static RvCaps caps_863() { RvCaps c = RV_LAB_IMAC; c.nombre = "lab-imac-cpu863";
                            c.desalineado = RvDesalineado::HardwareCpu863; return c; }
+// El núcleo HP del ESP32-C6 tal cual, con el vector de reset en la RAM del
+// laboratorio (en el chip, la ROM: es cosa del SoC) y mtvec, de reset, en lo
+// alto de esa RAM: riscv-arch-test, como mtvec no admite cualquier base (256),
+// copia allí su trampolín
+static RvCaps caps_c6() { RvCaps c = RV_ESP32C6_HP; c.pc_reset = 0x80000000u; c.mtvec_reset = 0x803F0001u; return c; }
+// Y para riscv-arch-test, con mcycle y minstret: la configuración del
+// laboratorio con la que se sacaron las firmas de Sail (Zicntr) los lee
+static RvCaps caps_c6_act() { RvCaps c = caps_c6(); c.nombre = "ESP32-C6 HP + Zicntr"; c.contadores_std = true;
+                              c.zext = RV_LAB_IMAC.zext; return c; }
+static const RvCaps CAPS_C6 = caps_c6();
+static const RvCaps CAPS_C6_ACT = caps_c6_act();
+// El mismo sin BTB, para ver lo que cuenta
+static const RvTiempos TIEMPOS_C6_SIN_BTB = [] { RvTiempos t = RV_TIEMPOS_C6_HP; t.btb = 0; return t; }();
+static RvCaps caps_c6_sin_btb() { RvCaps c = caps_c6_act(); c.tiempos = &TIEMPOS_C6_SIN_BTB; return c; }
+static const RvCaps CAPS_C6_SIN_BTB = caps_c6_sin_btb();
 static const RvCaps CAPS_HW = caps_hw();
 static const RvCaps CAPS_863 = caps_863();
 
@@ -176,6 +202,9 @@ SC_MODULE(TbRv) {
     SocLabRv hw{"hw", {&CAPS_HW}};
     SocLabRv c863{"c863", {&CAPS_863}};
     SocLabRv dos{"dos", {&RV_LAB_IMAC, &RV_LAB_IMAC}};
+    SocLabRv c6{"c6", {&CAPS_C6}};
+    SocLabRv c6act{"c6act", {&CAPS_C6_ACT}};
+    SocLabRv c6sb{"c6sb", {&CAPS_C6_SIN_BTB}};
     std::string rvt, act;
     ExtPrueba ext;
     // E2: la sonda de bancada en los pines del laboratorio IMAC, el DMI por
@@ -305,6 +334,65 @@ SC_MODULE(TbRv) {
         imac.hart().hart.pon_csr_ext(nullptr);
     }
 
+    // V11: el núcleo HP del C6 en el laboratorio (con el vector de reset en
+    // su RAM): la delegación a U, los vectores, la PMA y el BTB
+    void nucleo_c6() {
+        grupo("V11 el nucleo HP del ESP32-C6 (RV_ESP32C6_HP) en el laboratorio (E9)");
+        const std::string d = ELF_DIR;
+        check_eq(CAPS_C6.misa(), 0x40101105u, "RV32IMAC con U: A C I M U (misa no dice N)");
+        check_eq(corre(c6, d + "nmodo.elf"), 0,
+                 "nmodo: ids, mideleg 0x111, mtvec y utvec vectorizados a 256, mie de 32 bits, "
+                 "la MSI a M y delegada a U con uret, uip");
+        check(corre(imac, d + "nmodo.elf") != 0, "y en el RV32IMAC del laboratorio, sin N, no pasa");
+        pma_c6();
+        // El BTB: CoreMark (1 iteración) con y sin él
+        {
+            const std::string cm = d + "coremark_rv.elf";
+            sc_time t0 = sc_time_stamp();
+            const int r1 = corre(c6act, cm, sc_time(5, SC_SEC));
+            const double con = (sc_time_stamp() - t0).to_seconds();
+            t0 = sc_time_stamp();
+            const int r2 = corre(c6sb, cm, sc_time(5, SC_SEC));
+            const double sin = (sc_time_stamp() - t0).to_seconds();
+            char b[200];
+            std::snprintf(b, sizeof b, "el BTB: CoreMark acaba con y sin el, y con el tarda menos (%.0f%% del tiempo)",
+                          100.0 * con / sin);
+            check(r1 == 0 && r2 == 0 && con < 0.95 * sin, b);
+        }
+        // riscv-arch-test: las firmas son las de la configuración del
+        // laboratorio; las que el C6 HP hace de otra manera, por diseño, no
+        // pueden coincidir: los desalineados en hardware (Exceptions), mtvec
+        // solo vectorizado y las líneas de Espressif (InterruptsSm), los CSR
+        // que tiene y los que no (mcsr) y mcounteren (Zicntr de M y U)
+        static const char* const DIFIEREN[] = {
+            "priv/Exceptions/Exceptions_Sm-00.elf", "priv/Exceptions/Exceptions_U-00.elf",
+            "priv/Exceptions/Exceptions_Zc-00.elf", "priv/InterruptsSm/InterruptsSm_enable_M-00.elf",
+            "priv/InterruptsSm/InterruptsSm_enable_U-00.elf", "priv/InterruptsSm/InterruptsSm_priority_mie_M-00.elf",
+            "priv/InterruptsSm/InterruptsSm_priority_mie_U-00.elf", "priv/InterruptsSm/InterruptsSm_priority_mip_M-00.elf",
+            "priv/InterruptsSm/InterruptsSm_priority_mip_U-00.elf", "priv/InterruptsSm/InterruptsSm_trigger_M-00.elf",
+            "priv/InterruptsSm/InterruptsSm_trigger_U-00.elf", "priv/InterruptsSm/InterruptsSm_wfi_M-00.elf",
+            "priv/InterruptsSm/InterruptsSm_wfi_U-00.elf", "priv/Sm/Sm_Zicntr-00.elf", "priv/Sm/Sm_mcsr_access-00.elf",
+            "priv/Sm/Sm_mcsr_walk-00.elf", "priv/Sm/Sm_mcsr_walk-01.elf", "priv/U/U_Zicntr-00.elf"};
+        std::vector<std::string> l;
+        lista_elf(act, "", l);
+        std::sort(l.begin(), l.end());
+        unsigned bien = 0, esperadas = 0, raras = 0;
+        for (const std::string& n : l) {
+            std::string sal;
+            const int r = corre(c6act, act + "/" + n, sc_time(1, SC_SEC), &sal);
+            const bool pasa = r == 0 && sal.find("RVCP-SUMMARY: TEST PASSED") != std::string::npos &&
+                              sal.find("TEST FAILED") == std::string::npos;
+            bool difiere = false;
+            for (const char* x : DIFIEREN) if (n == x) difiere = true;
+            if (pasa && !difiere) ++bien;
+            else if (!pasa && difiere) ++esperadas;
+            else { ++raras; std::printf("    %s: %s\n", n.c_str(), pasa ? "pasa y no se esperaba" : "falla"); }
+        }
+        check(l.size() == 220 && bien == 202 && esperadas == 18 && raras == 0,
+              "riscv-arch-test: " + std::to_string(bien) + " de 220 con las firmas de Sail; las " +
+              std::to_string(esperadas) + " de privilegio que el C6 hace de otra manera, las que se esperan");
+    }
+
     // --- V8, lockstep con Spike ----------------------------------------------
     void lockstep() {
         grupo("V8 lockstep con Spike: la traza de instrucciones retiradas");
@@ -368,6 +456,50 @@ SC_MODULE(TbRv) {
         if (std::getenv("RV_COREMARK")) std::printf("%s\n", sal.c_str());
     }
 
+
+    // --- V11, el nucleo HP del ESP32-C6 (E9) -----------------------------------
+    // La PMA de Espressif (soc/esp/pma_esp.h), sin tiempo [TRM-C6 §1.9]
+    void pma_c6() {
+        PmaEsp p;
+        uint32_t v = 0;
+        p.lee(0xBC0, v);
+        check_eq(v, 0x80000000u, "pma_cfg0 de reset: A = NA4, TYPE = 0 (no valida) en la direccion 0");
+        check(!p.permite(0, 4, RvAcceso::Load) && !p.permite(2, 1, RvAcceso::Store) && !p.permite(0, 2, RvAcceso::Fetch),
+              "de reset, la palabra 0 falla en carga, almacenamiento y ejecucion (el puntero nulo)");
+        check(p.permite(4, 4, RvAcceso::Load) && p.permite(0x40800000u, 4, RvAcceso::Fetch),
+              "fuera de ella, ninguna entrada: se deja pasar");
+        // 1: NAPOT de 4 KB en 0x4080_0000, valida, solo R y X
+        p.escribe(0xBD1, (0x40800000u >> 2) | 0x1FFu);
+        p.escribe(0xBC1, (3u << 30) | (1u << 4) | (1u << 2) | 1u | (5u << 24));
+        check(p.permite(0x40800FFCu, 4, RvAcceso::Load) && p.permite(0x40800000u, 4, RvAcceso::Fetch) &&
+              !p.permite(0x40800010u, 4, RvAcceso::Store) && !p.permite(0x40800010u, 4, RvAcceso::Amo),
+              "NAPOT de 4 KB, valida con R y X: lee y ejecuta, no escribe (ni AMO)");
+        check(p.permite(0x40801000u, 4, RvAcceso::Store), "y justo despues no la toca");
+        p.lee(0xBC1, v);
+        check_eq(v, (3u << 30) | (5u << 24) | 0x15u, "ATTRIBUTE se guarda (para la cache)");
+        // 2: TOR hasta 0x4080_0800 desde pma_addr1 (que ya no vale de base: es NAPOT)
+        p.escribe(0xBD2, 0x40800800u >> 2);
+        p.escribe(0xBC2, (1u << 30) | (1u << 3) | 1u);
+        check(!p.permite(0x408007FCu, 4, RvAcceso::Store) && p.permite(0x408007FCu, 4, RvAcceso::Load), "la entrada de numero mas bajo decide (la 1, sin W, antes que la 2, con W)");
+        // TYPE 0 con RWX a 1: no vale
+        p.escribe(0xBD3, 0x50000000u >> 2);
+        p.escribe(0xBC3, (2u << 30) | 0x1Cu);
+        check(!p.permite(0x50000000u, 4, RvAcceso::Load), "TYPE 0 (no valida): RWX cuenta como 0");
+        // LOCK
+        p.escribe(0xBC3, (2u << 30) | (1u << 29) | 0x1Du);
+        p.escribe(0xBC3, 0);
+        p.escribe(0xBD3, 0);
+        p.lee(0xBC3, v);
+        uint32_t a = 0;
+        p.lee(0xBD3, a);
+        check(v == ((2u << 30) | (1u << 29) | 0x1Du) && a == (0x50000000u >> 2) && p.permite(0x50000000u, 4, RvAcceso::Load),
+              "con LOCK, ni pma_cfg ni pma_addr se pueden cambiar");
+        check(p.firma(0x40800000u) != p.firma(0x50000000u) && p.firma(0x60000000u) == 0,
+              "la firma de permisos de cada region (para la errata CPU-863)");
+        p.reset();
+        p.lee(0xBC3, v);
+        check_eq(v, 0x80000000u, "y el reset de la CPU lo quita");
+    }
 
     // --- V10, riscv-arch-test --------------------------------------------------
     void arch_test() {
@@ -776,6 +908,7 @@ SC_MODULE(TbRv) {
     }
 
     void run() {
+        if (std::getenv("SOLO_V11")) { nucleo_c6(); std::printf("\nTOTAL RV: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos); sc_stop(); return; }
         sin_tiempo();
         riscv_tests();
         propias();
@@ -786,6 +919,7 @@ SC_MODULE(TbRv) {
         w2_dm();
         w3_dos();
         w4_w6();
+        nucleo_c6();
         std::printf("\nTOTAL RV: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

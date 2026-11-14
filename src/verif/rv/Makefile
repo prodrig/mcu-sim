@@ -34,7 +34,7 @@ PY     ?= python3
 SPIKE  ?= spike
 RVT    ?=
 
-PROPIAS := traps umodo vec irq trig cpu863 ext dbg irq_spike
+PROPIAS := traps umodo vec irq trig cpu863 ext dbg irq_spike nmodo
 ELFS    := $(PROPIAS:%=elf/%.elf) elf/coremark_rv.elf
 
 # Las que se comparan con Spike (las demás dependen del tiempo, de la errata
@@ -42,6 +42,11 @@ ELFS    := $(PROPIAS:%=elf/%.elf) elf/coremark_rv.elf
 CON_SPIKE := traps umodo vec trig irq_spike coremark_rv
 
 all: $(ELFS) vectores_c.inc
+
+# nmodo es del C6 HP, sin contadores estándar: su propio arranque
+elf/nmodo.elf: propias/nmodo.S rt/inicio_c6.S rt/lab.ld rt/prueba.h
+	@mkdir -p elf
+	$(CC) $(ASFLAGS) -T rt/lab.ld rt/inicio_c6.S $< -o $@
 
 elf/%.elf: propias/%.S rt/inicio.S rt/lab.ld rt/prueba.h
 	@mkdir -p elf
