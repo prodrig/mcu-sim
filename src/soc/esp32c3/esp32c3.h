@@ -336,6 +336,10 @@ public:
         i2s.irq = [this](bool v) { intmtx.fuente(c3::F_I2S, v); };
         i2s.pon = [this](unsigned s, bool v) { gpio.sig_out[s].write(v); };
         i2s.lee = [this](unsigned s) { return gpio.sig_in[s].read(); };
+        i2s.ev_in = [this](unsigned s) -> const sc_core::sc_event& { return gpio.sig_in[s].value_changed_event(); };
+        i2s.usada = [this](unsigned s) { return gpio.salida_usada(s); };
+        i2s.ev_matriz = [this]() -> const sc_core::sc_event& { return gpio.ev_config(); };
+        i2s.oe = [this](unsigned s, bool v) { gpio.sig_oe[s].write(v); };
         // El UHCI: las dos UART y la GDMA
         uhci.gdma = &gdma;
         uhci.uart[0] = &uart0; uhci.uart[1] = &uart1;
@@ -857,6 +861,8 @@ private:
         gpio.sig_oe[c3::SIG_TWAI].write(true);
         for (unsigned g : {c3::SIG_FSPICLK, c3::SIG_FSPID, c3::SIG_FSPICS0}) gpio.sig_oe[g].write(true);
         for (unsigned g = I2sEsp::S_O_BCK; g <= I2sEsp::S_I_WS; ++g) gpio.sig_oe[g].write(true);   // I2S (E8)
+        gpio.sig_oe[I2sEsp::S_MCLK].write(true);
+        gpio.sig_oe[I2sEsp::S_SD1].write(true);
         for (;;) {
             // Apagado o CHIP_PU bajo: todo quieto
             encendido_ = false;

@@ -131,6 +131,13 @@ public:
 
     // El reset del bloque (lo llama el SoC)
     void reset() { reset_regs(); }
+    // ¿Saca la matriz la señal `s` por algún pin? Y el suceso de cambio de
+    // la configuración (E8: el MCLK del I2S solo se genera si sale)
+    bool salida_usada(unsigned s) const {
+        for (unsigned p = 0; p < n_; ++p) if ((out_cfg_[p] & 0xFFu) == s) return true;
+        return false;
+    }
+    const sc_core::sc_event& ev_config() const { return ev_cfg_; }
     // El primer gobierno de los pads, un poco después de arrancar: los Pad
     // miran su entrada en el delta 0 y esperan un delta, así que un cambio en
     // ese delta se les escaparía (y GPIO9 se quedaría sin su pull-up)

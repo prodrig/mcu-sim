@@ -12,7 +12,7 @@ CFLAGS := $(ARCH) -O2 -g -ffreestanding -fno-builtin -nostdlib -nostartfiles -Wa
           -Wl,--no-warn-rwx-segments -T c3_iram.ld
 COMUN  := startup.S buzon.c
 
-PRUEBAS := blinky uart intc gpio_matriz ledc e8 i2c spi_tft twai rsa hmac ds xts i2s uhci uhci_hci
+PRUEBAS := blinky uart intc gpio_matriz ledc e8 i2c spi_tft twai rsa hmac ds xts i2s uhci uhci_hci i2s_mas
 all: $(PRUEBAS:%=%.elf) coremark_c3.elf direct_boot.bin
 
 %.elf: %.c $(COMUN) c3.h c3_iram.ld

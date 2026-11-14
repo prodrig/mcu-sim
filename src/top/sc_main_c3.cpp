@@ -254,7 +254,7 @@ SC_MODULE(TbC3) {
         check(c3.limitaciones().size() >= 5, "limitaciones(): lo que no esta (perifericos de E7-E8, SWD, brownout...)");
         const huella_fw::Veredicto hv = huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "c3");
         std::printf("    %d imagenes: %s\n", hv.comprobadas, hv.detalle.c_str());
-        check(hv.ok() && hv.comprobadas == 19, "los diecinueve ficheros de la suite son los versionados (verif/fw/huellas.txt)");
+        check(hv.ok() && hv.comprobadas == 20, "los veinte ficheros de la suite son los versionados (verif/fw/huellas.txt)");
     }
 
     void c2() {
@@ -1407,13 +1407,76 @@ SC_MODULE(TbC3) {
         c3.alimenta(false);
     }
 
+    // E8: lo que quedaba del I2S: esclavo, PDM, A-law y mu-law, MCLK,
+    // TIMING, SKIP_MSK, HUNG y RX_STOP_MODE (i2s_mas.c, vec/gen_i2s.py)
+    void c31() {
+        grupo("C31 el I2S: esclavo, receptor maestro, PDM, A-law y mu-law, MCLK, TIMING y HUNG (E8)");
+        check(arranca("i2s_mas.elf"), "i2s_mas.elf");
+        char b[220];
+        // F: el MCLK por GPIO4
+        sc_time t0 = sc_time_stamp();
+        while (bz(3) != 6 && sc_time_stamp() - t0 < sc_time(20, SC_MS)) wait(1, SC_US);
+        wait(20, SC_US);
+        double p = 0, dc = 0;
+        bool ok = mide_pwm(c3.gpio.nodo_de(4), p, dc);
+        std::snprintf(b, sizeof b, "F: MCLK por GPIO4: %.4f us (I2S_CLK del TX, 160 MHz / 10: 0,0625) y ciclo %.3f", p, dc);
+        check(ok && std::fabs(p - 0.0625) < 0.0005 && std::fabs(dc - 0.5) < 0.02, b);
+        wait(5, SC_US);
+        std::snprintf(b, sizeof b, "F: de vuelta por I2S_MCLK_in: %.3f MHz, y el I2S_CLK del RX (CLK_SEL 3, entre 2) %.3f MHz",
+                      c3.i2s.hz_mclk_entrada() / 1e6, c3.i2s.hz_clk(true) / 1e6);
+        check(std::fabs(c3.i2s.hz_mclk_entrada() - 16e6) < 1e4 && std::fabs(c3.i2s.hz_clk(true) - 8e6) < 1e4, b);
+        c3.poke32(buzon_ + 8 + 4 * 3, 0);
+        // G: los retrasos de TX_TIMING, en los pines
+        t0 = sc_time_stamp();
+        while (bz(3) != 7 && sc_time_stamp() - t0 < sc_time(5, SC_MS)) wait(100, SC_NS);
+        auto& bck = c3.gpio.nodo_de(0);
+        auto& ws = c3.gpio.nodo_de(2);
+        auto& sd = c3.gpio.nodo_de(3);
+        sc_time t_baja = SC_ZERO_TIME;
+        double sd_min = 1e9, sd_max = 0, ws_min = 1e9, ws_max = 0;
+        bool hb = bck.voltage() > 1.65f, hw = ws.voltage() > 1.65f, hs = sd.voltage() > 1.65f, visto = false;
+        const sc_time lim = sc_time_stamp() + sc_time(150, SC_US);
+        while (sc_time_stamp() < lim && bz(3) == 7) {
+            wait(sc_time(10, SC_US), bck.value_changed_event() | ws.value_changed_event() | sd.value_changed_event());
+            const bool nb = bck.voltage() > 1.65f, nw = ws.voltage() > 1.65f, ns = sd.voltage() > 1.65f;
+            if (hb && !nb) { t_baja = sc_time_stamp(); visto = true; }
+            const double dt = (sc_time_stamp() - t_baja).to_seconds() * 1e9;
+            if (visto && ns != hs && dt < 200) { sd_min = std::min(sd_min, dt); sd_max = std::max(sd_max, dt); }
+            if (visto && nw != hw && dt < 200) { ws_min = std::min(ws_min, dt); ws_max = std::max(ws_max, dt); }
+            hb = nb; hw = nw; hs = ns;
+        }
+        std::snprintf(b, sizeof b, "G: SD_OUT_DM = 1: SD %.1f-%.1f ns tras la bajada de BCK (un periodo de I2S_CLK, 62,5)", sd_min, sd_max);
+        check(std::fabs(sd_min - 62.5) < 1 && std::fabs(sd_max - 62.5) < 1, b);
+        std::snprintf(b, sizeof b, "G: WS_OUT_DM = 2: WS %.1f-%.1f ns (medio periodo, 31,25)", ws_min, ws_max);
+        check(std::fabs(ws_min - 31.25) < 1 && std::fabs(ws_max - 31.25) < 1, b);
+        check(espera_fin(sc_time(50, SC_MS)), "acaba");
+        const uint32_t k = bz(0);
+        std::snprintf(b, sizeof b, "A: el receptor maestro sin SIG_LOOPBACK recibe del transmisor esclavo (desde el byte %u)", bz(2));
+        check(k & 1u, b);
+        check(k & 2u, "A: el transmisor esclavo sin BCK: TX_HUNG");
+        std::snprintf(b, sizeof b, "B: el receptor esclavo recibe del maestro, MSB con 24 de 32 bits (desde el byte %u)", bz(4));
+        check(k & 4u, b);
+        check(k & 8u, "B: el receptor esclavo sin BCK: RX_HUNG");
+        check(k & 16u, "C: comprime A-law al mandar: los codigos de audioop");
+        check(k & 32u, "C: expande A-law al recibir");
+        check(k & 64u, "C: comprime mu-law al mandar");
+        check(k & 128u, "C: expande mu-law al recibir");
+        check(k & 256u, "D: PDM en crudo, estereo, vuelve por el receptor PDM");
+        std::snprintf(b, sizeof b, "E: PCM a PDM: %u unos de 64 con 0,5 (48) y %u con -0,5 (16)", bz(1) & 0xFFFFu, bz(1) >> 16);
+        check((k & 512u) && (k & 1024u), b);
+        check(k & 2048u, "G: con los retrasos, SIG_LOOPBACK sigue recibiendo bien");
+        check(k & 4096u, "H: SKIP_MSK: los canales apagados se saltan en memoria y mandan CONF_SIGLE_DATA");
+        check(k & 8192u, "H: RX_STOP_MODE = 1: tras el EOF el receptor para");
+        c3.alimenta(false);
+    }
+
     void run() {
         // C3_SOLO=c4 (o c1...c30): un grupo suelto, para desarrollar
         if (const char* solo = std::getenv("C3_SOLO")) {
             const std::string q = solo;
             void (TbC3::*g[])() = {&TbC3::c1, &TbC3::c2, &TbC3::c3_uart, &TbC3::c4, &TbC3::c5, &TbC3::c6, &TbC3::c7,
                                    &TbC3::c8, &TbC3::c9, &TbC3::c10, &TbC3::c11, &TbC3::c12, &TbC3::c13, &TbC3::c14,
-                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25, &TbC3::c26, &TbC3::c27, &TbC3::c28, &TbC3::c29, &TbC3::c30};
+                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25, &TbC3::c26, &TbC3::c27, &TbC3::c28, &TbC3::c29, &TbC3::c30, &TbC3::c31};
             // Varios, separados por comas: C3_SOLO=c29,c30
             for (size_t p = 0; p < q.size();) {
                 size_t f = q.find(',', p);
@@ -1456,6 +1519,7 @@ SC_MODULE(TbC3) {
         c28();
         c29();
         c30();
+        c31();
         std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

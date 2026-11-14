@@ -367,4 +367,7 @@ testrv                 457      28577500000           resto
 # C30: lo que quedaba del UHCI (uhci_hci.elf, 19 ficheros), desde
 # 18866125018866: la cabecera de HCI (H5), el CRC, el ACK, el envio rapido,
 # WAIT_SW_START y HUNG; la GDMA gana IN_ERR_EOF sin mover nada.
-testc3                 275      18283015018866        resto
+# C31: lo que quedaba del I2S (i2s_mas.elf, 20 ficheros), desde
+# 18869435018866: esclavo, receptor maestro, PDM, A-law y mu-law, MCLK,
+# TIMING, SKIP_MSK, HUNG y RX_STOP_MODE; C28 no se mueve.
+testc3                 294      18284677364616        resto

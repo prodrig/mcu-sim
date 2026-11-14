@@ -1523,9 +1523,7 @@ son la 43 y la 44-46 [TRM-C3 tabla 8.3-1; `ETS_*_INTR_SOURCE` de
   datos de la GDMA, TX_DONE y, con TX_STOP_EN, para tras el último bit. El
   receptor, con SIG_LOOPBACK (el BCK y el WS del transmisor) o maestro (señales
   16 y 17), lee I2SI_SD (15) en la subida y da los bytes a la GDMA, con un EOF
-  cada RXEOF_NUM bytes y RX_DONE. Fuente 20. Sin esclavo, PDM, A-law/µ-law,
-  MCLK, los retrasos de TIMING ni HUNG (avisan una vez); el receptor maestro
-  sin SIG_LOOPBACK no tiene prueba propia. `verif/fw/esp32c3/i2s.c` hace lo de
+  cada RXEOF_NUM bytes y RX_DONE. Fuente 20. `verif/fw/esp32c3/i2s.c` hace lo de
   `i2s_std` en dúplex: Philips de 16 bits y estéreo a 48 kHz (BCK de 160 MHz /
   (13 + 1/48) / 8), 32 tramas por la GDMA de salida y de vuelta por la de
   entrada en dos descriptores. `testc3` C28 (246): lo recibido es lo mandado,
@@ -1572,6 +1570,30 @@ son la 43 y la 44-46 [TRM-C3 tabla 8.3-1; `ETS_*_INTR_SOURCE` de
   línea los bytes de H5), la secuencia repetida, el CRC mal y con
   CRC_DISABLE, la suma mal, el rápido único y el continuo, WAIT_SW_START y los
   dos HUNG. `testc3` C30 (275).
+* **El I2S, entero** (2026-11-14) [además: `i2s_hal.c` de ESP-IDF para PDM y
+  la G.711 de la UIT, la de `g711.c` de Sun]: el transmisor y el receptor
+  **esclavos** (BCK y WS de I2SO/I2SI_BCK_in y WS_in; se sincronizan con el
+  flanco de WS que empieza la trama y, sin datos con TX_STOP_EN, el
+  transmisor manda ceros), con SIG_LOOPBACK también detrás de un transmisor
+  esclavo; **PDM** en crudo (un bit por mitad de WS, de las palabras de la
+  memoria, con TX_CHAN_MOD, TX_MONO y «single») y **PCM a PDM** (un
+  sigma-delta de segundo orden de modelo, una muestra cada TX_PDM_SINC_OSR2 ×
+  32 periodos de WS, con el modo DAC y I2SO_SD1), y el receptor PDM;
+  **A-law y µ-law** (PCM_BYPASS/PCM_CONF, idéntica a la de audioop en los
+  65 536 valores); **MCLK** de salida (el I2S_CLK del TX o del RX, solo si la
+  matriz lo saca) y de entrada (CLK_SEL 3, medida flanco a flanco); los
+  **retrasos** de TX/RX_TIMING (un periodo o medio de I2S_CLK, de modelo, y
+  en las entradas el valor de entonces); **TX_TDM_SKIP_MSK_EN**; **HUNG** en
+  periodos de I2S_CLK (esclavo sin BCK, o la GDMA sin tomar lo recibido); y
+  **RX_STOP_MODE**. Las señales de reloj salen en maestro y no en esclavo.
+  Lo que es de modelo, en la cabecera de `i2s_esp.h`: el filtro del PCM a
+  PDM (paso alto, sinc, escalas, PRESCALE, FS/FP, tramado) no está.
+  `verif/fw/esp32c3/i2s_mas.c` y `vec/gen_i2s.py` (audioop, la segunda
+  fuente): el receptor maestro sin SIG_LOOPBACK con el transmisor esclavo por
+  los pines, al revés con MSB y 24 de 32 bits, los dos HUNG, comprimir y
+  expandir A-law y µ-law, PDM de ida y vuelta, la densidad del PCM a PDM, el
+  MCLK medido en GPIO4 y vuelto a entrar, los retrasos medidos en los pines,
+  SKIP_MSK y RX_STOP_MODE. `testc3` C31 (294).
 
 ### E9 · ESP32-C6: el núcleo HP y el SoC
 
