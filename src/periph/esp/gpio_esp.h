@@ -33,7 +33,10 @@
 //
 // LOS PINES DE ARRANQUE: `latch_arranque()` guarda en GPIO_STRAP el nivel de
 // GPIO9, GPIO8, GPIO3 y GPIO2 (bits 3-0) [TRM-C3 §7; los bits 1-0, de
-// modelo]: lo llama el SoC al soltar el reset de chip.
+// modelo]: lo llama el SoC al soltar el reset de chip. Un pin flotante (sin
+// nadie que lo fije: GPIO2, GPIO3 y GPIO8 no tienen pull de reset, tabla
+// 7.1-1 «N/A») se lee 0, lo mismo que al empezar la simulación: el nodo
+// recuerda su última tensión, pero el chip de verdad no puede fiarse de ella.
 // =============================================================================
 #ifndef STM32_PERIPH_ESP_GPIO_ESP_H
 #define STM32_PERIPH_ESP_GPIO_ESP_H
@@ -168,7 +171,7 @@ public:
 
     // --- Los pines de arranque -------------------------------------------------
     void latch_arranque() {
-        auto n = [&](unsigned p) { return p < n_ && s_din_[p].read() ? 1u : 0u; };
+        auto n = [&](unsigned p) { return p < n_ && !nodo.at(p)->floating() && s_din_[p].read() ? 1u : 0u; };
         strap_ = (n(9) << 3) | (n(8) << 2) | (n(3) << 1) | n(2);
     }
     // RTC_CNTL_FORCE_DOWNLOAD_BOOT: «1x» pasa a «01» [TRM-C3 §7.2]

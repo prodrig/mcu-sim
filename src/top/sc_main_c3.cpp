@@ -221,6 +221,10 @@ SC_MODULE(TbC3) {
         buzon_ = 0;
         simbolo_elf(fw_, "buzon", buzon_);
         c3.poke32(buzon_, 0); c3.poke32(buzon_ + 4, 0);
+        // Como la placa recien conectada: nadie aprieta BOOT (GPIO9 y GPIO8
+        // sueltos, con sus pull-up de reset), asi que arranca por la Flash
+        c3.gpio.nodo_de(9).set_hiz(d_g9_);
+        c3.gpio.nodo_de(8).set_hiz(d_g8_);
         c3.alimenta(true);
         return true;
     }
@@ -1547,13 +1551,25 @@ SC_MODULE(TbC3) {
         c3.alimenta(false);
     }
 
+    // Los pines de arranque: tras todos los grupos (descarga, I2S en GPIO2 y
+    // GPIO3, el LED en GPIO8...), el C3 arranca como al empezar la simulacion
+    void c34() {
+        grupo("C34 los pines de arranque, al final: como al empezar la simulacion (E8)");
+        check(arranca("blinky.elf"), "blinky.elf, otra vez");
+        wait(5, SC_US);
+        char b[160];
+        std::snprintf(b, sizeof b, "GPIO_STRAP = 0x%X: GPIO9 por su pull-up y GPIO8, GPIO3 y GPIO2 sueltos a 0 (SPI Boot)", c3.gpio.strap());
+        check(c3.gpio.strap() == 0x8u, b);
+        c3.alimenta(false);
+    }
+
     void run() {
         // C3_SOLO=c4 (o c1...c30): un grupo suelto, para desarrollar
         if (const char* solo = std::getenv("C3_SOLO")) {
             const std::string q = solo;
             void (TbC3::*g[])() = {&TbC3::c1, &TbC3::c2, &TbC3::c3_uart, &TbC3::c4, &TbC3::c5, &TbC3::c6, &TbC3::c7,
                                    &TbC3::c8, &TbC3::c9, &TbC3::c10, &TbC3::c11, &TbC3::c12, &TbC3::c13, &TbC3::c14,
-                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25, &TbC3::c26, &TbC3::c27, &TbC3::c28, &TbC3::c29, &TbC3::c30, &TbC3::c31, &TbC3::c32, &TbC3::c33};
+                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25, &TbC3::c26, &TbC3::c27, &TbC3::c28, &TbC3::c29, &TbC3::c30, &TbC3::c31, &TbC3::c32, &TbC3::c33, &TbC3::c34};
             // Varios, separados por comas: C3_SOLO=c29,c30
             for (size_t p = 0; p < q.size();) {
                 size_t f = q.find(',', p);
@@ -1599,6 +1615,7 @@ SC_MODULE(TbC3) {
         c31();
         c32();
         c33();
+        c34();
         std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

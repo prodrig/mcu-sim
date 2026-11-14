@@ -1523,6 +1523,16 @@ son la 43 y la 44-46 [TRM-C3 tabla 8.3-1; `ETS_*_INTR_SOURCE` de
   arranque de ESP-IDF que cifra la Flash él mismo (quemando la clave) no se
   prueba: necesita un bootloader compilado con
   CONFIG_SECURE_FLASH_ENC_ENABLED.
+* **Los pines de arranque, como al empezar la simulación** (2026-11-14): el
+  C3 los guardaba bien (solo en el reset de chip, como el silicio), pero en
+  la suite entera arrancaba en modo descarga de C18 a C32: el banco dejaba
+  GPIO9 a masa tras los grupos de descarga y el nodo de GPIO8, flotante,
+  recordaba los 3,3 V de una prueba anterior (GPIO_STRAP 0x4, y 0x6 con GPIO3
+  después del I2S). Ahora `arranca()` suelta GPIO9 y GPIO8, como una placa
+  recién conectada, y `latch_arranque()` lee 0 en un pin de arranque flotante
+  (GPIO2, GPIO3 y GPIO8 no tienen pull de reset: «N/A» en la tabla 7.1-1), lo
+  mismo que al empezar. Todos los grupos arrancan por SPI (GPIO_STRAP 0x8);
+  ninguno se mueve. `testc3` C34 (313) lo comprueba tras todos los demás.
 * **`periph/esp/i2s_esp.h`** [TRM-C3 §29; `i2s_struct.h`, `i2s_reg.h` e
   `i2s_ll.h` de ESP-IDF] y **los canales de entrada de la GDMA**
   (`gdma_esp.h`: IN_LINK, IN_PERI_SEL, IN_CHECK_OWNER; el periférico da bytes
