@@ -73,6 +73,7 @@
 #include "../../periph/esp/rsa_esp.h"
 #include "../../periph/esp/hmac_esp.h"
 #include "../../periph/esp/ds_esp.h"
+#include "../../periph/esp/xts_aes_esp.h"
 #include "../../periph/bloque_declarado.h"
 #include "../../common/imagen_fw.h"
 #include "../../common/analog_net.h"
@@ -199,6 +200,7 @@ public:
     RsaEsp         rsa;
     HmacEsp        hmac;
     DsEsp          ds;
+    XtsAesEsp      xts;
     RomEsp         rom{c3::ROM0_I, c3::ROM_I_FIN - c3::ROM0_I};
     std::vector<std::unique_ptr<BloqueDeclarado>> declarados;
 
@@ -250,7 +252,7 @@ public:
           bb("bb", c3::BB_B, 0x1000),
           usj("usb_serial_jtag", c3::USB_SJ_B, gpio.nodo_de(19), gpio.nodo_de(18)),
           ledc("ledc", c3::LEDC_B), rmt("rmt", c3::RMT_B), adc("apb_saradc", c3::ADC_B), aes("aes", c3::AES_B), i2c("i2c", c3::I2C_B), twai("twai", c3::TWAI_B), gdma("gdma", c3::GDMA_B), spi2("spi2", c3::SPI2_B),
-          rsa("rsa", c3::RSA_B), hmac("hmac", c3::HMAC_B), ds("ds", c3::DS_B),
+          rsa("rsa", c3::RSA_B), hmac("hmac", c3::HMAC_B), ds("ds", c3::DS_B), xts("xts_aes", c3::XTS_AES_B),
           csr_(gpio), sram_(c3::SRAM_TAM, 0), rtc_fast_(c3::RTC_FAST_TAM, 0) {
         pon_rom_omision();
         bus.register_b_transport(this, &Esp32C3::b_transport);
@@ -277,10 +279,8 @@ public:
 
         struct D { uint32_t b; const char* n; const char* f; };
         static const D dec[] = {
-            {c3::UHCI_B, "UHCI0", "E8"}, 
-            {c3::I2S_B, "I2S", "E8"}, 
-            {c3::XTS_AES_B, "XTS_AES", "E4"},
-            
+            {c3::UHCI_B, "UHCI0", "E8"},
+            {c3::I2S_B, "I2S", "E8"},
         };
         for (const D& d : dec)
             declarados.emplace_back(new BloqueDeclarado(sc_core::sc_gen_unique_name("decl"),
@@ -288,7 +288,7 @@ public:
         std::vector<BusSlave*> todos{&gpio, &iomux, &intmtx, &system, &rtc, &efuse, &uart0,
                                      &uart1, &systimer, &timg0, &timg1, &spi0, &spi1, &cache, &sha, &regi2c,
                                      &syscon, &pms,
-                                     &assist, &wcl, &efuse_trm, &fe2, &fe, &nrx, &bb, &usj, &ledc, &rmt, &adc, &aes, &i2c, &gdma, &spi2, &twai, &rsa, &hmac, &ds};
+                                     &assist, &wcl, &efuse_trm, &fe2, &fe, &nrx, &bb, &usj, &ledc, &rmt, &adc, &aes, &i2c, &gdma, &spi2, &twai, &rsa, &hmac, &ds, &xts};
         for (auto& d : declarados) todos.push_back(d.get());
         for (BusSlave* s : todos) engancha(s);
 
@@ -312,6 +312,21 @@ public:
         hmac.jtag = [this](bool) { aplica_soft_jtag(); };
         // El DS recibe su clave del HMAC
         ds.clave = [this](uint8_t* k) { return hmac.clave_ds(k); };
+        // El XTS_AES: la clave del bloque con propósito 4, el cifrado de lo que
+        // escribe el SPI1 y el descifrado de lo que lee la caché
+        xts.clave = [this](uint8_t* k) {
+            for (unsigned n = 0; n < 6; ++n)
+                if (efuse.proposito(n) == 4) { efuse.clave(n, k); return true; }
+            std::memset(k, 0, 32);
+            return false;
+        };
+        xts.permitido = [this] {
+            const uint32_t s = system.ext_cifrado();
+            if (gpio.strap() & 8u) return (s & 1u) != 0;                        // arranque por SPI
+            return (s & 8u) && !((efuse.rd(0x30) >> 20) & 1u);                   // de descarga
+        };
+        spi1.cifra_escritura = [this](uint32_t a, std::vector<uint8_t>& d) { xts.cifra_escritura(a, d); };
+        cache.descifra = [this](uint32_t fis, uint8_t* p, unsigned n) { descifra_flash(fis, p, n); };
         twai.salida = [this](bool v) { gpio.sig_out[c3::SIG_TWAI].write(v); };
         twai.rx_pin(gpio.sig_in[c3::SIG_TWAI]);
         gdma.irq = [this](unsigned c, bool v) { intmtx.fuente(c3::F_DMA0 + c, v); };
@@ -561,8 +576,9 @@ public:
             "lee con RD_DIS)",
             "el DS (E8): la firma RSA con la clave del HMAC, el descifrado AES-256-CBC de C, las "
             "comprobaciones del MD y del relleno y Z = X^Y mod M; los tiempos, de modelo",
-            "declarados: UHCI, I2S "
-            "y XTS_AES (E8); la radio (FE, NRX, BB) guarda sin hacer nada",
+            "el XTS_AES (E8): el cifrado manual de lo que escribe el SPI1 y el descifrado automatico de "
+            "la cache, XTS-AES-128 como espsecure, con la clave de proposito 4 de los eFuse",
+            "declarados: UHCI e I2S (E8); la radio (FE, NRX, BB) guarda sin hacer nada",
             "el USB-Serial-JTAG (E7): CDC-ACM y JTAG, con el reset por DTR/RTS; sin bajo consumo, "
             "sin EXCHG_PINS ni PHY de fuera",
             "la depuracion: el DM 0.13 y el TAP (IDCODE 0x00005C25) en los pines MTMS-MTDO si "
@@ -600,6 +616,22 @@ private:
         jtag->activo(fuente_jtag_ == FuenteJtag::Pines);
     }
     bool solo_soft_ = false;
+    // El descifrado automático de la Flash (E8): en el arranque por SPI, con
+    // un número impar de bits en SPI_BOOT_CRYPT_CNT (RD_REPEAT_DATA1[20:18],
+    // como ESP-IDF); en el de descarga, con ENABLE_DOWNLOAD_G0CB_DECRYPT
+    bool descifrado_flash() {
+        if (gpio.strap() & 8u) {
+            const unsigned c = (efuse.rd(0x34) >> 18) & 7u;
+            return ((c & 1u) + ((c >> 1) & 1u) + ((c >> 2) & 1u)) & 1u;
+        }
+        return (system.ext_cifrado() & 4u) != 0;
+    }
+    void descifra_flash(uint32_t fis, uint8_t* p, unsigned n) {
+        if (!flash() || !descifrado_flash()) return;
+        xts.descifra(fis, p, n, [this](uint32_t a, uint8_t* q, unsigned m) {
+            flash()->lee(a % flash()->tam(), q, m, sc_core::sc_time_stamp().to_seconds());
+        });
+    }
     // Los perros guardianes del arranque desde la Flash (RWDT y MWDT0 en
     // flashboot): como en el silicio cuando arranca la ROM; apagados con un
     // ELF en la SRAM (E3)
@@ -647,7 +679,7 @@ private:
         uart0.hz_apb = uart1.hz_apb = apb;
         timg0.hz_apb = timg1.hz_apb = apb;
         sha.hz_apb = apb;
-        ledc.hz_apb = rmt.hz_apb = aes.hz_apb = spi2.hz_apb = rsa.hz_apb = hmac.hz_apb = ds.hz_apb = apb;
+        ledc.hz_apb = rmt.hz_apb = aes.hz_apb = spi2.hz_apb = rsa.hz_apb = hmac.hz_apb = ds.hz_apb = xts.hz_apb = apb;
     }
 
     // La memoria: puntero al byte, o nullptr. `fetch`: por el bus I.
@@ -747,7 +779,13 @@ private:
                 const uint32_t base = va >= CACHE_C3.base_i ? CACHE_C3.base_i : CACHE_C3.base_d;
                 const uint32_t e = cache.entrada(((va - base) >> 16) % CACHE_C3.entradas);
                 if (e & 0x100u) return i;
-                gp.get_data_ptr()[i] = flash()->datos()[((e & 0xFFu) * CACHE_C3.pagina + (va & 0xFFFFu)) % flash()->tam()];
+                const uint32_t fis = ((e & 0xFFu) * CACHE_C3.pagina + (va & 0xFFFFu)) % flash()->tam();
+                gp.get_data_ptr()[i] = flash()->datos()[fis];
+                if (descifrado_flash()) {
+                    xts.descifra(fis, gp.get_data_ptr() + i, 1, [this](uint32_t a, uint8_t* q, unsigned m) {
+                        for (unsigned k = 0; k < m; ++k) q[k] = flash()->datos()[(a + k) % flash()->tam()];
+                    });
+                }
             }
             return n;
         }
@@ -772,7 +810,7 @@ private:
         gpio.reset(); intmtx.reset(); system.reset_regs(); uart0.reset(); uart1.reset();
         systimer.reset(); timg0.reset(); timg1.reset(); spi0.reset(); spi1.reset(); cache.reset();
         sha.reset(); regi2c.reset(); gdma.reset(); spi2.reset(); ledc.reset(); rmt.reset(); adc.reset(); aes.reset(); i2c.reset(); twai.reset();
-        rsa.reset(); hmac.reset(); ds.reset();
+        rsa.reset(); hmac.reset(); ds.reset(); xts.reset();
         efuse.reset(); syscon.reset(); efuse_trm.reset();
         fe2.reset(); fe.reset(); nrx.reset(); bb.reset();
         reset_cpu_perif();

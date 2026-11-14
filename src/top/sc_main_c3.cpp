@@ -63,6 +63,7 @@
 #include "parts/tft_st7735.h"
 #include "verif/fw/esp32c3/hmac_vec.h"   // E8: las claves y los resultados del HMAC (C25)
 #include "verif/fw/esp32c3/ds_vec.h"     // E8: la clave cifrada del DS (C26)
+#include "verif/fw/esp32c3/xts_vec.h"    // E8: la clave y el texto cifrado del XTS_AES (C27)
 
 using namespace sc_core;
 using namespace stm32;
@@ -252,7 +253,7 @@ SC_MODULE(TbC3) {
         check(c3.limitaciones().size() >= 5, "limitaciones(): lo que no esta (perifericos de E7-E8, SWD, brownout...)");
         const huella_fw::Veredicto hv = huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "c3");
         std::printf("    %d imagenes: %s\n", hv.comprobadas, hv.detalle.c_str());
-        check(hv.ok() && hv.comprobadas == 15, "los quince ficheros de la suite son los versionados (verif/fw/huellas.txt)");
+        check(hv.ok() && hv.comprobadas == 16, "los dieciseis ficheros de la suite son los versionados (verif/fw/huellas.txt)");
     }
 
     void c2() {
@@ -1222,13 +1223,52 @@ SC_MODULE(TbC3) {
         quema_clave(3, cero, 0);
     }
 
+    // E8: el XTS_AES: cuatro lineas cifradas a mano y escritas por el SPI1,
+    // y leidas en claro por la cache (vec/gen_xts.py: el texto cifrado, de
+    // espsecure)
+    void c27() {
+        grupo("C27 el XTS_AES: el cifrado manual por el SPI1 y el descifrado de la cache (E8)");
+        static const uint8_t cero[32] = {};
+        quema_clave(5, XTS_EFUSE, 4);
+        c3.efuse.pon_bit(0x34, 18, true);                // SPI_BOOT_CRYPT_CNT = 1
+        check(arranca("xts.elf"), "xts.elf");
+        // Aqui el C3 sigue en el modo de descarga que dejaron grupos
+        // anteriores (GPIO_STRAP solo se toma en un reset de chip): el
+        // firmware pone los dos permisos del cifrado manual, como
+        // spi_flash_encrypt_ll_enable, y el del descifrado de la descarga
+        // (G0CB); por separado (C3_SOLO=c27), arranca por SPI y descifra por
+        // SPI_BOOT_CRYPT_CNT
+        check(espera_fin(sc_time(500, SC_MS)), "acaba");
+        char b[160];
+        const uint32_t ok = bz(0);
+        std::snprintf(b, sizeof b, "DATE 0x%08X", bz(2));
+        check(bz(2) == 0x20200111u, b);
+        check(ok & 1u, "sin los permisos de SYSTEM_EXTERNAL_DEVICE_ENCRYPT_DECRYPT_CONTROL, TRIGGER no cifra");
+        check(ok & 2u, "STATE: 1 al cifrar, 2 hecho, 3 soltado y 0 tras DESTROY");
+        std::snprintf(b, sizeof b, "el SPI1 lee el texto cifrado de espsecure (0x%08X)", bz(1));
+        check(ok & 4u, b);
+        bool igual = c3.flash() != nullptr;
+        for (unsigned i = 0; igual && i < 112; ++i) {
+            const uint32_t a = i < 96 ? 0x10000u + i : 0x10070u + (i - 96);
+            igual = c3.flash()->datos()[a] == uint8_t(XTS_CIFRADO[i / 4] >> (8 * (i % 4)));
+        }
+        check(igual, "en la Flash queda el texto cifrado, no el claro de W0-W7");
+        check(ok & 8u, "la cache lee en claro las tres lineas de 32 bytes");
+        check(ok & 16u, "y la de 16 bytes (LINESIZE = 0)");
+        check(ok & 32u, "lo no escrito sigue borrado en la Flash");
+        check(c3.xts.cifrados() == 4, "cuatro cifrados");
+        c3.alimenta(false);
+        quema_clave(5, cero, 0);
+        c3.efuse.pon_bit(0x34, 18, false);
+    }
+
     void run() {
         // C3_SOLO=c4 (o c1...c14): un grupo suelto, para desarrollar
         if (const char* solo = std::getenv("C3_SOLO")) {
             const std::string q = solo;
             void (TbC3::*g[])() = {&TbC3::c1, &TbC3::c2, &TbC3::c3_uart, &TbC3::c4, &TbC3::c5, &TbC3::c6, &TbC3::c7,
                                    &TbC3::c8, &TbC3::c9, &TbC3::c10, &TbC3::c11, &TbC3::c12, &TbC3::c13, &TbC3::c14,
-                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25, &TbC3::c26};
+                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25, &TbC3::c26, &TbC3::c27};
             const int k = q.size() > 1 ? std::atoi(q.c_str() + 1) : 0;
             if (k >= 1 && k <= int(sizeof g / sizeof g[0])) (this->*g[k - 1])();
             std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
@@ -1260,6 +1300,7 @@ SC_MODULE(TbC3) {
         c24();
         c25();
         c26();
+        c27();
         std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

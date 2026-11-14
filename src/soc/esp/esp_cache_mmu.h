@@ -22,7 +22,7 @@
 //                 El resto guarda su valor de reset (tabla de ESP-IDF).
 //
 // Lo que NO se modela: el bloqueo de líneas (se guarda y no fija nada), la
-// precarga (no trae líneas: acaba sin más), el cifrado de la Flash, la
+// precarga (no trae líneas: acaba sin más), la
 // protección por PMS de las ventanas (IBUS/DBUS_PMS_TBL) y las
 // interrupciones de acceso ilegal. Un acceso con el bus cortado, con la caché
 // apagada o a una página inválida es un error de bus y lo avisa una vez.
@@ -31,6 +31,7 @@
 #define STM32_SOC_ESP_ESP_CACHE_MMU_H
 
 #include <cstdint>
+#include <functional>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -75,6 +76,9 @@ public:
         return (a >= c_.base_i && a - c_.base_i < c_.ventana) || (a >= c_.base_d && a - c_.base_d < c_.ventana);
     }
     uint32_t entrada(unsigned i) const { return i < mmu_.size() ? mmu_[i] : 0x100u; }
+    // E8: el descifrado automático del XTS_AES; lo que se lee de la Flash
+    // física `fis` (en `p`, `n` bytes) sale en claro si el SoC lo enciende
+    std::function<void(uint32_t fis, uint8_t* p, unsigned n)> descifra;
     void pon_entrada(unsigned i, uint32_t v) { if (i < mmu_.size()) mmu_[i] = v & 0x1FFu; }
     uint64_t aciertos() const { return aciertos_; }
     // Vaciar la caché (la Flash ha cambiado por detrás: el `load` de GDB)
@@ -121,6 +125,7 @@ public:
             if (spi0_.flash) spi0_.flash->lee(fis % spi0_.flash->tam(), p + k, resto,
                                               sc_core::sc_time_stamp().to_seconds());
             else std::memset(p + k, 0xFF, resto);
+            if (descifra) descifra(fis, p + k, resto);
             k += resto;
         }
         return true;

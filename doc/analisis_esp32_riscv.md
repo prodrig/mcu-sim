@@ -1488,6 +1488,27 @@ son la 43 y la 44-46 [TRM-C3 tabla 8.3-1; `ETS_*_INTR_SOURCE` de
   bajada del HMAC la clave no llega; con ella, la firma; un C con un byte
   cambiado (MD) y otro con el relleno mal; SET_INVALIDATE_DS. `testc3` C26
   (223).
+* **`periph/esp/xts_aes_esp.h`** [TRM-C3 §23; `spi_flash_encrypted_ll.h` y
+  `spi_flash_chip_generic.c` de ESP-IDF; el orden de los bytes, que el TRM
+  no da, de espsecure y espefuse de esptool]: XTS-AES-128 con unidades de
+  128 bytes dadas la vuelta, el «tweak» la dirección de la unidad y la clave
+  del bloque de eFuse con propósito 4 leída al revés (o ceros). El cifrado
+  manual: PLAIN_0-7, LINESIZE, PHYSICAL_ADDRESS, TRIGGER, RELEASE, DESTROY y
+  STATE (0, 1, 2, 3); con STATE = 3, lo que el SPI1 escribe en la Flash en ese
+  bloque (PP o la orden de usuario) es el texto cifrado
+  (`SpiMemEsp::cifra_escritura`). Lo permite SYSTEM_EXTERNAL_DEVICE_ENCRYPT_
+  DECRYPT_CONTROL según el modo de arranque (y DIS_DOWNLOAD_MANUAL_ENCRYPT
+  en el de descarga). El descifrado automático va en la caché
+  (`CacheMmuEsp::descifra`) y en las lecturas del depurador: por SPI, con un
+  número impar de bits en SPI_BOOT_CRYPT_CNT (como ESP-IDF; el TRM dice «el
+  primero o el tercero»); en descarga, con ENABLE_DOWNLOAD_G0CB_DECRYPT.
+  DATE: 0x20200111 según el TRM (ESP-IDF dice 0x20200623). El tiempo, de
+  modelo: 16 ciclos del APB por bloque de 16 bytes. `verif/fw/esp32c3/xts.c`
+  escribe cuatro líneas (tres de 32 bytes y una de 16) como
+  `spi_flash_chip_generic_write_encrypted`, las lee por el SPI1 (el texto
+  cifrado de espsecure, `vec/gen_xts.py`) y por la caché (en claro). `testc3`
+  C27 (234). Lo que no está: el arranque de la ROM con la Flash cifrada (el
+  segundo cargador de ESP-IDF cifrado de fábrica).
 
 ### E9 · ESP32-C6: el núcleo HP y el SoC
 

@@ -32,9 +32,12 @@
 // uno. El tiempo de la transacción NO para a la CPU: la orden sigue
 // «ocupada» y el software espera sondeando, como en el silicio.
 //
+// EL CIFRADO (E8): con el XTS_AES soltado, lo que el SPI1 escribe en la Flash
+// lo cambia `cifra_escritura` por el texto cifrado (periph/esp/xts_aes_esp.h).
+//
 // Lo que no se modela: la suspensión automática (FLASH_SUS_CTRL, la que
-// permite leer de la caché mientras se borra), el cifrado (XTS_AES), la
-// PSRAM (el C3 no tiene) y el CRC.
+// permite leer de la caché mientras se borra), la PSRAM (el C3 no tiene) y
+// el CRC.
 // =============================================================================
 #ifndef STM32_PERIPH_ESP_SPI_MEM_H
 #define STM32_PERIPH_ESP_SPI_MEM_H
@@ -56,6 +59,9 @@ public:
         W15 = 0x94,
     };
     SpiFlashChip* flash = nullptr;
+    // E8: el XTS_AES cambia por el texto cifrado lo que el SPI1 escribe en
+    // la Flash (`dir`: la dirección del primer byte de `datos`)
+    std::function<void(uint32_t dir, std::vector<uint8_t>& datos)> cifra_escritura;
     // El reloj de origen del MSPI [Hz]
     std::function<double()> hz_origen = [] { return 40e6; };
 
@@ -165,6 +171,7 @@ private:
             t.orden = 0x02; dir(a);
             const unsigned n = std::min<unsigned>(64, (a >> 24) & 0xFFu);
             t.mosi = saca_w(0, n);
+            if (cifra_escritura) cifra_escritura(t.dir, t.mosi);
             trans(t, miso); bits += 8.0 * n;
         } else if (ord & (1u << 24)) { t.orden = 0x20; dir(a); trans(t, miso); }
         else if (ord & (1u << 23)) { t.orden = 0xD8; dir(a); trans(t, miso); }
@@ -213,6 +220,7 @@ private:
         if (u & (1u << 27)) {
             const unsigned n = std::min<unsigned>(64, ((r(MOSI_DLEN) & 0x3FFu) + 8u) / 8u);
             t.mosi = saca_w((u & (1u << 25)) ? 8 : 0, n);
+            if (cifra_escritura && t.con_dir) cifra_escritura(t.dir & 0xFFFFFFu, t.mosi);
             ciclos += 8.0 * n / l_mosi;
         }
         if (u & (1u << 28)) {

@@ -99,6 +99,8 @@ public:
     }
     double hz_cpu() const { return hz_cpu_; }
     double hz_apb() const { return hz_apb_; }
+    // SYSTEM_EXTERNAL_DEVICE_ENCRYPT_DECRYPT_CONTROL (0x44), para el XTS_AES (E8)
+    uint32_t ext_cifrado() const { auto i = otros_.find(0x44); return i == otros_.end() ? 0u : i->second; }
 
 protected:
     uint32_t reg_read(uint32_t off) override {

@@ -357,4 +357,7 @@ testrv                 457      28577500000           resto
 # C25: el HMAC (hmac.elf, 14 ficheros), desde 18726242002000; las claves en
 # los eFuse las quema el banco y las borra al acabar.
 # C26: el DS (ds.elf, 15 ficheros), desde 18726359002000.
-testc3                 223      18204689002000        resto
+# C27: el XTS_AES (xts.elf, 16 ficheros), desde 18791109002000; en la suite
+# entera el C3 llega en el modo de descarga y, solo (C3_SOLO=c27), por SPI:
+# el firmware vale para los dos.
+testc3                 234      18257259002000        resto
