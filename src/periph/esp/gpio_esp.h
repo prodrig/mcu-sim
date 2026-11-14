@@ -37,6 +37,15 @@
 // nadie que lo fije: GPIO2, GPIO3 y GPIO8 no tienen pull de reset, tabla
 // 7.1-1 «N/A») se lee 0, lo mismo que al empezar la simulación: el nodo
 // recuerda su última tensión, pero el chip de verdad no puede fiarse de ella.
+//
+// E9: EL DEL C6 (`pon_c6`) [TRM-C6 §7; gpio_reg.h e io_mux_reg.h de ESP-IDF]
+// tiene los mismos registros en los mismos sitios, con tres cambios: en
+// GPIO_FUNCy_IN_SEL_CFG, IN_SEL es de 6 bits, INV_SEL el 6 y SIG_IN_SEL el 7,
+// y las entradas constantes son 0x38 (1) y 0x3C (0); los pines de arranque
+// son cinco: GPIO_STRAPPING[3:2] = GPIO9, GPIO8 [TRM-C6 §9.2.2], [1] MTMS y
+// [0] MTDI (el flanco de muestreo y el de salida del SDIO: lo que lee la ROM
+// para nombrar el modo de descarga, «SDIO_REI_FEO» con 0b0110), y GPIO15 (el
+// JTAG) en el bit 4 [de modelo: la ROM no lo lee de ahí]; DATE, el suyo.
 // =============================================================================
 #ifndef STM32_PERIPH_ESP_GPIO_ESP_H
 #define STM32_PERIPH_ESP_GPIO_ESP_H
@@ -134,6 +143,9 @@ public:
 
     // El reset del bloque (lo llama el SoC)
     void reset() { reset_regs(); }
+    // E9: el del C6
+    void pon_c6() { c6_ = true; pin_ctrl = 0x1DEFu; }
+    bool es_c6() const { return c6_; }
     // ¿Saca la matriz la señal `s` por algún pin? Y el suceso de cambio de
     // la configuración (E8: el MCLK del I2S solo se genera si sale)
     bool salida_usada(unsigned s) const {
@@ -172,7 +184,8 @@ public:
     // --- Los pines de arranque -------------------------------------------------
     void latch_arranque() {
         auto n = [&](unsigned p) { return p < n_ && !nodo.at(p)->floating() && s_din_[p].read() ? 1u : 0u; };
-        strap_ = (n(9) << 3) | (n(8) << 2) | (n(3) << 1) | n(2);
+        if (c6_) strap_ = (n(15) << 4) | (n(9) << 3) | (n(8) << 2) | (n(4) << 1) | n(5);
+        else strap_ = (n(9) << 3) | (n(8) << 2) | (n(3) << 1) | n(2);
     }
     // RTC_CNTL_FORCE_DOWNLOAD_BOOT: «1x» pasa a «01» [TRM-C3 §7.2]
     void fuerza_descarga() { if (strap_ & 8u) strap_ = (strap_ & 3u) | 4u; }
@@ -197,10 +210,14 @@ public:
     // El valor que ve ahora una señal de entrada (sin esperar al delta)
     bool valor_entrada(unsigned s) const {
         const uint32_t c = in_cfg_[s];
+        // C3: SIG_IN_SEL 6, INV 5, IN_SEL [4:0], 1 = 0x1E, 0 = 0x1F;
+        // C6: SIG_IN_SEL 7, INV 6, IN_SEL [5:0], 1 = 0x38, 0 = 0x3C
+        const unsigned b_sel = c6_ ? 7u : 6u, b_inv = c6_ ? 6u : 5u;
+        const unsigned uno = c6_ ? 0x38u : 0x1Eu, cero = c6_ ? 0x3Cu : 0x1Fu;
         bool v;
-        if (c & (1u << 6)) {
-            const unsigned src = c & 0x1Fu;
-            v = src == 0x1E ? true : src == 0x1F ? false : (src < n_ && ie(src) && s_din_[src].read());
+        if (c & (1u << b_sel)) {
+            const unsigned src = c & (c6_ ? 0x3Fu : 0x1Fu);
+            v = src == uno ? true : src == cero ? false : (src < n_ && ie(src) && s_din_[src].read());
         } else {
             v = false;
             for (unsigned p = 0; p < n_; ++p)
@@ -208,7 +225,7 @@ public:
                     mcu_sel(p) == 0)
                     v = ie(p) && s_din_[p].read();
         }
-        return (c & (1u << 5)) ? !v : v;
+        return (c & (1u << b_inv)) ? !v : v;
     }
 
 protected:
@@ -223,7 +240,7 @@ protected:
         case 0x5C: return status_ & cpu_ena();
         case 0x14C: return status_next_;
         case 0x62C: return clock_gate_;
-        case 0x6FC: return 0x2006130u;
+        case 0x6FC: return c6_ ? 0x2201120u : 0x2006130u;
         default: break;
         }
         if (off >= 0x74 && off < 0x74 + 4 * n_) return pin_cfg_[(off - 0x74) / 4];
@@ -272,7 +289,7 @@ private:
     uint32_t bt_select_ = 0, out_ = 0, enable_ = 0, strap_ = 0, in_ = 0, status_ = 0,
              status_next_ = 0, clock_gate_ = 1;
     uint8_t cpu_out_ = 0, cpu_oen_ = 0;
-    bool irq_ = false;
+    bool irq_ = false, c6_ = false;
     sc_core::sc_event ev_cfg_;
 
     void reset_regs() {
@@ -361,7 +378,7 @@ protected:
     uint32_t reg_read(uint32_t off) override {
         if (off == 0) return g_.pin_ctrl;
         if (off >= 4 && off < 4 + 4 * g_.n_pines()) return g_.mux((off - 4) / 4);
-        if (off == 0xFC) return 0x2006050u;
+        if (off == 0xFC) return g_.es_c6() ? 0x2201060u : 0x2006050u;
         return 0;
     }
     void reg_write(uint32_t off, uint32_t v, uint32_t be) override {

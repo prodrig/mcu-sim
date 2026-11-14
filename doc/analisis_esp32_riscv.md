@@ -1678,6 +1678,34 @@ la separación de §3 funciona.
   manera por diseño (los desalineados, mtvec y sus líneas, sus CSR y
   mcounteren) son las que se esperan. Para ACT se le añaden mcycle y
   minstret, que el arnés lee: no hay firmas de Sail sacadas para el C6.
+* **2. El SoC en arranque directo** (2026-11-14). `soc/esp32c6/esp32c6.h`,
+  como el C3 de E3: el ELF se carga en la HP SRAM (512 KB en 0x4080_0000,
+  una sola para los buses I y D) y el núcleo arranca en su entrada; la ROM
+  rev0 (`esp32c6_rev0_rom.elf`, idéntica a la de QEMU) está en su sitio y se
+  lee. Las interrupciones (`soc/esp/intc_esp_v2.h`): la matriz de 77
+  fuentes, el INTPRI (ENABLE, TYPE, PRI, THRESH con prioridad ≥ umbral,
+  CLEAR, las cuatro FROM_CPU) y el CLINT de Espressif en 0x2000_1800 (MSIP,
+  MTIMECTL, MTIME, MTIMECMP y lo mismo para U en +0x400), que el umbral no
+  enmascara; las externas por prioridad y, a igual, la de ID más bajo; las
+  del CLINT, MSI, MTI, USI, UTI. La PMA mira cada acceso del núcleo (no los
+  del depurador). `c6_sistema.h`: el PCR (SOC_CLK_SEL, los divisores LS y
+  HS de la CPU, el AHB y el APB, el SCLK de las UART en
+  PCR_UARTn_SCLK_CONF y el reloj de los TIMG), LP_AON (STORE, los resets
+  del sistema y de la CPU por software, FORCE_DOWNLOAD_BOOT) y LP_CLKRST
+  (la causa); PMU, HP_SYSTEM, eFuse, SPI0/1, EXTMEM, LP_WDT, LP_TIMER,
+  I2C_ANA_MST, las APM, los TEE y demás guardan con sus valores de reset
+  (las tablas de `regs_c6.inc`, de las cabeceras de ESP-IDF); el resto,
+  declarados hasta E9.4. La UART es la de siempre con la disposición del C6
+  (`UartEsp::pon_c6`: CONF0, CONF1, TOUT_CONF, IDLE_CONF, la detección de
+  baudios, CLK_CONF, REG_UPDATE e ID en otros sitios), y la GPIO, con la
+  suya (`GpioEsp::pon_c6`: IN_SEL de 6 bits, las constantes 0x38 y 0x3C) y
+  los cinco pines de arranque: GPIO_STRAPPING[3:2] = GPIO9, GPIO8 y [1:0] =
+  MTMS, MTDI, sacados de la ROM (`main` nombra «DOWNLOAD(USB/UART0/
+  SDIO_REI_FEO)» con 0b0110), y GPIO15 en el bit 4, de modelo. `testc6`
+  D1-D5: 62 comprobaciones (blinky, la UART por GPIO16/17, el INTPRI con
+  el umbral, la prioridad 0, mie, flanco y CLEAR; el MTI y el MSI; una
+  interrupción delegada a U con utvec, ucause y uret; la PMA con un puntero
+  nulo y una entrada de solo lectura; los resets y los pines de arranque).
 
 ### E10 · C6: el núcleo LP
 

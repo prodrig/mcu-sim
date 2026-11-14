@@ -36,6 +36,17 @@
 // La línea va bit a bit por las señales de la matriz GPIO (U0TXD_out,
 // U0RXD_in...), así que llega a un pad y a lo que haya en la placa.
 //
+// E9: LA DEL C6 (`pon_c6`) [TRM-C6 §27; uart_reg.h de ESP-IDF] es la misma
+// UART con otra disposición, que se traduce a la del C3 al escribir: CONF0
+// con sus bits en otro sitio (TXD_BRK 6, LOOPBACK 12, RXD_INV 15, TXD_INV 16,
+// AUTOBAUD_EN 19, RXFIFO_RST 22, TXFIFO_RST 23), CONF1 con umbrales de 8 bits,
+// TOUT_CONF (0x64: RX_TOUT_EN y RX_TOUT_THRHD), IDLE_CONF en 0x48, la
+// detección de baudios en 0x74-0x84, CLK_CONF (0x88: los relojes de TX y RX,
+// que se guardan), DATE 0x8C, REG_UPDATE 0x98 (se baja en el acto) e ID 0x9C.
+// SCLK lo elige el PCR (PCR_UARTn_SCLK_CONF), que el SoC da con `sclk_conf`
+// en el formato del CLK_CONF del C3: [21:20] la fuente (1 PLL_F80M, que es
+// `hz_apb`; 2 RC_FAST; 3 XTAL) y [19:12] el divisor.
+//
 // E8: con el UHCI unido (periph/esp/uhci_esp.h), la transmisión toma sus
 // bytes de él cuando la FIFO está vacía (`toma_tx`) y la recepción se los da
 // en vez de meterlos en la FIFO (`da_rx`).
@@ -82,10 +93,15 @@ public:
     }
 
     void reset() { reset_regs(); evalua(); }
+    // E9: la del C6; `sclk` da el SCLK_CONF del PCR (en el formato del C3)
+    void pon_c6(std::function<uint32_t()> sclk) {
+        c6_ = true;
+        sclk_conf = std::move(sclk);
+        reset_regs();
+    }
+    std::function<uint32_t()> sclk_conf;
     double baudios() const {
-        const unsigned sel = (clk_conf_ >> 20) & 3u;
-        const double src = sel == 1 ? hz_apb : sel == 2 ? hz_rc_fast : sel == 3 ? hz_xtal : 0.0;
-        const double sclk = src / double(((clk_conf_ >> 12) & 0xFFu) + 1u);
+        const double sclk = hz_sclk();
         const double div = double(clkdiv_ & 0xFFFu) + double((clkdiv_ >> 20) & 0xFu) / 16.0;
         return div > 0.0 ? sclk / div : 0.0;
     }
@@ -96,6 +112,7 @@ public:
     void despierta_tx() { ev_tx_.notify(sc_core::SC_ZERO_TIME); }
     sc_core::sc_time tiempo_bit() const { return t_bit(); }
     unsigned umbral_reposo() const {
+        if (c6_) return c6_idle_ & 0x3FFu;
         const uint32_t v = otros_[0x40 / 4];
         return v ? (v & 0x3FFu) : 0x100u;
     }
@@ -113,6 +130,25 @@ public:
 
 protected:
     uint32_t reg_read(uint32_t off) override {
+        if (c6_) {
+            switch (off) {
+            case 0x00: case 0x04: case 0x08: case 0x0C: case 0x14: case 0x18: case 0x1C: break;
+            case 0x20: return c6_conf0_;
+            case 0x24: return c6_conf1_;
+            case 0x48: return c6_idle_;
+            case 0x64: return c6_tout_;
+            case 0x74: return ab_pos_;
+            case 0x78: return ab_neg_;
+            case 0x7C: return ab_low_;
+            case 0x80: return ab_high_;
+            case 0x84: return ab_cnt_;
+            case 0x88: return c6_clk_;
+            case 0x8C: return c6_date_;
+            case 0x98: return 0;                          // REG_UPDATE: hecho en el acto
+            case 0x9C: return c6_id_;
+            default: return otros_[(off & 0xFFu) / 4];
+            }
+        }
         switch (off) {
         case 0x00: {
             if (rx_.empty()) return 0;
@@ -145,6 +181,36 @@ protected:
         const uint32_t m = (be & 1 ? 0xFFu : 0) | (be & 2 ? 0xFF00u : 0) |
                            (be & 4 ? 0xFF0000u : 0) | (be & 8 ? 0xFF000000u : 0);
         auto w = [&](uint32_t& r) { r = (r & ~m) | (v & m); };
+        if (c6_) {
+            switch (off) {
+            case 0x00: case 0x0C: case 0x10: case 0x14: case 0x18: break;
+            case 0x20: {
+                w(c6_conf0_);
+                // A los bits del C3, que son los que lee el resto del modelo
+                const uint32_t c = c6_conf0_;
+                auto b = [&](unsigned de, unsigned a) { return ((c >> de) & 1u) << a; };
+                pon_conf0((c & 0x3Fu) | b(6, 8) | b(12, 14) | b(15, 19) | b(16, 22) | b(18, 26) |
+                          b(19, 27) | b(22, 17) | b(23, 18));
+                return;
+            }
+            case 0x24:
+                w(c6_conf1_);
+                conf1_ = (conf1_ & ~0x3FFFFu) | (c6_conf1_ & 0xFFu) | (((c6_conf1_ >> 8) & 0xFFu) << 9);
+                evalua();
+                return;
+            case 0x48: w(c6_idle_); return;
+            case 0x64:
+                w(c6_tout_);
+                conf1_ = (conf1_ & ~(1u << 21)) | ((c6_tout_ & 1u) << 21);
+                mem_conf_ = (mem_conf_ & ~(0x3FFu << 16)) | (((c6_tout_ >> 2) & 0x3FFu) << 16);
+                return;
+            case 0x88: w(c6_clk_); c6_clk_ &= 0x0F000000u; return;
+            case 0x98: return;                            // REG_UPDATE: hecho en el acto
+            case 0x9C: w(c6_id_); return;
+            case 0x8C: case 0x74: case 0x78: case 0x7C: case 0x80: case 0x84: return;   // RO
+            default: { uint32_t& r = otros_[(off & 0xFFu) / 4]; w(r); return; }
+            }
+        }
         switch (off) {
         case 0x00:
             if (tx_.size() < 128) tx_.push_back(uint8_t(v));
@@ -156,17 +222,7 @@ protected:
         case 0x10: raw_ &= ~(v & m); evalua(); return;
         case 0x14: w(clkdiv_); return;
         case 0x18: w(rx_filt_); return;
-        case 0x20: {
-            const bool ab_antes = conf0_ & AUTOBAUD_EN;
-            w(conf0_);
-            if ((conf0_ & AUTOBAUD_EN) && !ab_antes) reinicia_autobaud();
-            if (conf0_ & (1u << 17)) rx_.clear();          // RXFIFO_RST
-            if (conf0_ & (1u << 18)) tx_.clear();          // TXFIFO_RST
-            if (conf0_ & (1u << 8)) ev_tx_.notify(sc_core::SC_ZERO_TIME);   // TXD_BRK
-            publica_tx(linea_tx_);
-            evalua();
-            return;
-        }
+        case 0x20: { uint32_t n = conf0_; w(n); pon_conf0(n); return; }
         case 0x24: w(conf1_); evalua(); return;
         case 0x60: w(mem_conf_); return;
         case 0x78: w(clk_conf_); return;
@@ -176,6 +232,16 @@ protected:
     }
 
 private:
+    void pon_conf0(uint32_t n) {
+        const bool ab_antes = conf0_ & AUTOBAUD_EN;
+        conf0_ = n;
+        if ((conf0_ & AUTOBAUD_EN) && !ab_antes) reinicia_autobaud();
+        if (conf0_ & (1u << 17)) rx_.clear();          // RXFIFO_RST
+        if (conf0_ & (1u << 18)) tx_.clear();          // TXFIFO_RST
+        if (conf0_ & (1u << 8)) ev_tx_.notify(sc_core::SC_ZERO_TIME);   // TXD_BRK
+        publica_tx(linea_tx_);
+        evalua();
+    }
     sc_core::sc_signal_inout_if<bool>& txd_;
     const sc_core::sc_signal_in_if<bool>& rxd_;
     std::deque<uint8_t> tx_, rx_;
@@ -199,10 +265,15 @@ private:
         ab_hay_ = ab_hay_sub_ = ab_hay_baj_ = false;
     }
     double hz_sclk() const {
-        const unsigned sel = (clk_conf_ >> 20) & 3u;
+        const uint32_t cc = (c6_ && sclk_conf) ? sclk_conf() : clk_conf_;
+        const unsigned sel = (cc >> 20) & 3u;
         const double src = sel == 1 ? hz_apb : sel == 2 ? hz_rc_fast : sel == 3 ? hz_xtal : 0.0;
-        return src / double(((clk_conf_ >> 12) & 0xFFu) + 1u);
+        return src / double(((cc >> 12) & 0xFFu) + 1u);
     }
+    // E9: los registros del C6 tal como se escribieron
+    bool c6_ = false;
+    uint32_t c6_conf0_ = 0, c6_conf1_ = 0, c6_idle_ = 0, c6_tout_ = 0, c6_clk_ = 0, c6_date_ = 0,
+             c6_id_ = 0;
     // Un pulso de `t`, en ciclos de SCLK menos 1 (como lo cuenta el silicio)
     uint32_t ciclos(const sc_core::sc_time& t) const {
         const double c = t.to_seconds() * hz_sclk();
@@ -237,6 +308,15 @@ private:
         mem_conf_ = 0x000A0012u;
         clk_conf_ = 0x03701000u;
         id_ = 0x40000500u;
+        if (c6_) {
+            // Los de reset del C6 (uart_reg.h); por dentro, lo mismo en el C3
+            c6_conf0_ = 0x0010001Cu; c6_conf1_ = 0x00006060u; c6_idle_ = 0x00040100u;
+            c6_tout_ = 0x28u; c6_clk_ = 0x03000000u; c6_date_ = 0x02201260u; c6_id_ = 0x500u;
+            for (auto& o : otros_) o = 0;
+            otros_[0x60 / 4] = 0;
+            conf0_ = 0x1Cu | (1u << 26);                  // ERR_WR_MASK (bit 18 del C6)
+            mem_conf_ = (0xAu << 16);
+        }
     }
     unsigned bits_datos() const { return 5u + ((conf0_ >> 2) & 3u); }
     bool loopback() const { return (conf0_ >> 14) & 1u; }

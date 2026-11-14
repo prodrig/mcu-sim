@@ -386,3 +386,10 @@ testrv                 473      63207050000           resto
 # arranque flotante se lee 0: de C18 a C32 el C3 ya no arranca en modo
 # descarga; C1-C33 no se mueven.
 testc3                 313      18846782364616        resto
+
+# testc6: el ESP32-C6 (E9 de doc/analisis_esp32_riscv.md). D1-D5 (E9.2), en
+# arranque directo, sin la ROM: los encapsulados, el nucleo HP y la ROM en su
+# sitio; blinky con el PLL del PCR; la UART0 con su disposicion del C6 por
+# GPIO16/17; el INTPRI, el CLINT, la delegacion a U y la PMA; los resets por
+# LP_AON y los cinco pines de arranque. Igual en dos pasadas (14-11-2026).
+testc6                  62         22496458348        total
