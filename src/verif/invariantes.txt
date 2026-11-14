@@ -370,4 +370,8 @@ testrv                 457      28577500000           resto
 # C31: lo que quedaba del I2S (i2s_mas.elf, 20 ficheros), desde
 # 18869435018866: esclavo, receptor maestro, PDM, A-law y mu-law, MCLK,
 # TIMING, SKIP_MSK, HUNG y RX_STOP_MODE; C28 no se mueve.
-testc3                 294      18284677364616        resto
+# C32: XTS_AES_DATE como el chip (xts_date.elf, 21 ficheros), desde
+# 18871097364616: 0x20200623 (ESP-IDF y el SVD de Espressif; el TRM dice
+# 0x20200111) y de lectura y escritura. C27 cambia lo que espera, sin
+# moverse.
+testc3                 302      18284737364616        resto

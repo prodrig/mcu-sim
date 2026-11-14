@@ -254,7 +254,7 @@ SC_MODULE(TbC3) {
         check(c3.limitaciones().size() >= 5, "limitaciones(): lo que no esta (perifericos de E7-E8, SWD, brownout...)");
         const huella_fw::Veredicto hv = huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "c3");
         std::printf("    %d imagenes: %s\n", hv.comprobadas, hv.detalle.c_str());
-        check(hv.ok() && hv.comprobadas == 20, "los veinte ficheros de la suite son los versionados (verif/fw/huellas.txt)");
+        check(hv.ok() && hv.comprobadas == 21, "los veintiun ficheros de la suite son los versionados (verif/fw/huellas.txt)");
     }
 
     void c2() {
@@ -1242,8 +1242,8 @@ SC_MODULE(TbC3) {
         check(espera_fin(sc_time(500, SC_MS)), "acaba");
         char b[160];
         const uint32_t ok = bz(0);
-        std::snprintf(b, sizeof b, "DATE 0x%08X", bz(2));
-        check(bz(2) == 0x20200111u, b);
+        std::snprintf(b, sizeof b, "DATE 0x%08X (el de ESP-IDF y del SVD)", bz(2));
+        check(bz(2) == 0x20200623u, b);
         check(ok & 1u, "sin los permisos de SYSTEM_EXTERNAL_DEVICE_ENCRYPT_DECRYPT_CONTROL, TRIGGER no cifra");
         check(ok & 2u, "STATE: 1 al cifrar, 2 hecho, 3 soltado y 0 tras DESTROY");
         std::snprintf(b, sizeof b, "el SPI1 lee el texto cifrado de espsecure (0x%08X)", bz(1));
@@ -1470,13 +1470,28 @@ SC_MODULE(TbC3) {
         c3.alimenta(false);
     }
 
+    // E8: XTS_AES_DATE como el chip: 0x20200623 y de lectura y escritura
+    void c32() {
+        grupo("C32 XTS_AES_DATE: 0x20200623 de reset y 30 bits de lectura y escritura (E8)");
+        char b[160];
+        for (unsigned vez = 0; vez < 2; ++vez) {
+            check(arranca("xts_date.elf"), vez ? "xts_date.elf, otra vez (otro encendido)" : "xts_date.elf");
+            check(espera_fin(sc_time(5, SC_MS)), "acaba");
+            std::snprintf(b, sizeof b, "al arrancar, 0x%08X", bz(1));
+            check(bz(0) & 1u, b);
+            std::snprintf(b, sizeof b, "se escribe: 0xFFFFFFFF se lee 0x%08X (30 bits)", bz(2));
+            check(bz(0) & 2u, b);
+        }
+        c3.alimenta(false);
+    }
+
     void run() {
         // C3_SOLO=c4 (o c1...c30): un grupo suelto, para desarrollar
         if (const char* solo = std::getenv("C3_SOLO")) {
             const std::string q = solo;
             void (TbC3::*g[])() = {&TbC3::c1, &TbC3::c2, &TbC3::c3_uart, &TbC3::c4, &TbC3::c5, &TbC3::c6, &TbC3::c7,
                                    &TbC3::c8, &TbC3::c9, &TbC3::c10, &TbC3::c11, &TbC3::c12, &TbC3::c13, &TbC3::c14,
-                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25, &TbC3::c26, &TbC3::c27, &TbC3::c28, &TbC3::c29, &TbC3::c30, &TbC3::c31};
+                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25, &TbC3::c26, &TbC3::c27, &TbC3::c28, &TbC3::c29, &TbC3::c30, &TbC3::c31, &TbC3::c32};
             // Varios, separados por comas: C3_SOLO=c29,c30
             for (size_t p = 0; p < q.size();) {
                 size_t f = q.find(',', p);
@@ -1520,6 +1535,7 @@ SC_MODULE(TbC3) {
         c29();
         c30();
         c31();
+        c32();
         std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

@@ -10,7 +10,10 @@
 //   PLAIN_0-7 0x00-0x1C · LINESIZE 0x40 (0: 16 bytes, 1: 32) · DESTINATION
 //   0x44 (0: la Flash) · PHYSICAL_ADDRESS 0x48 · TRIGGER 0x4C · RELEASE 0x50 ·
 //   DESTROY 0x54 · STATE 0x58 (0 libre, 1 cifrando, 2 hecho, 3 soltado) ·
-//   DATE 0x5C
+//   DATE 0x5C (30 bits de lectura y escritura, 0x20200623 de reset: lo de
+//   xts_aes_reg.h de ESP-IDF y del esp32c3.svd de espressif/svd, los dos
+//   generados de la descripción de los registros; el TRM, y con él el QEMU de
+//   Espressif, dicen 0x20200111)
 // Con STATE = 3, una escritura del SPI1 en la Flash (PP o la orden de usuario
 // con datos) cuyas direcciones caigan en [PHYSICAL_ADDRESS, + tamaño) escribe
 // el texto cifrado y no lo que hay en W0-W15 (`cifra_escritura`): es lo que
@@ -63,6 +66,7 @@ public:
         std::memset(cifr_, 0, sizeof cifr_);
         linesize_ = dest_ = dir_ = 0;
         estado_ = 0;
+        date_ = 0x20200623u;
         fin_ = sc_core::SC_ZERO_TIME;
     }
     unsigned cifrados() const { return n_cifr_; }
@@ -101,7 +105,7 @@ protected:
         case 0x44: return dest_;
         case 0x48: return dir_;
         case 0x58: return estado();
-        case 0x5C: return 0x20200111u;
+        case 0x5C: return date_;
         default: return 0;
         }
     }
@@ -118,6 +122,7 @@ protected:
         case 0x4C: if (v & 1u) dispara(); return;
         case 0x50: if ((v & 1u) && estado() == 2) estado_ = 3; return;
         case 0x54: if (v & 1u) { std::memset(cifr_, 0, sizeof cifr_); estado_ = 0; } return;
+        case 0x5C: date_ = v & 0x3FFFFFFFu; return;
         default: return;
         }
     }
@@ -126,7 +131,7 @@ private:
     struct Claves { ClaveAes k1, k2; };
     uint32_t plain_[8];
     uint8_t cifr_[32];
-    uint32_t linesize_ = 0, dest_ = 0, dir_ = 0, estado_ = 0;
+    uint32_t linesize_ = 0, dest_ = 0, dir_ = 0, estado_ = 0, date_ = 0x20200623u;
     unsigned n_cifr_ = 0;
     bool avisado_ = false;
     sc_core::sc_time fin_;

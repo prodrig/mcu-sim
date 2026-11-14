@@ -1502,7 +1502,10 @@ son la 43 y la 44-46 [TRM-C3 tabla 8.3-1; `ETS_*_INTR_SOURCE` de
   (`CacheMmuEsp::descifra`) y en las lecturas del depurador: por SPI, con un
   número impar de bits en SPI_BOOT_CRYPT_CNT (como ESP-IDF; el TRM dice «el
   primero o el tercero»); en descarga, con ENABLE_DOWNLOAD_G0CB_DECRYPT.
-  DATE: 0x20200111 según el TRM (ESP-IDF dice 0x20200623). El tiempo, de
+  DATE: 0x20200623 y de lectura y escritura (30 bits), como `xts_aes_reg.h`
+  de ESP-IDF y el `esp32c3.svd` de espressif/svd, que salen los dos de la
+  descripción de los registros; el TRM, y el QEMU de Espressif con él, dicen
+  0x20200111 (2026-11-14, `testc3` C32, 302). El tiempo, de
   modelo: 16 ciclos del APB por bloque de 16 bytes. `verif/fw/esp32c3/xts.c`
   escribe cuatro líneas (tres de 32 bytes y una de 16) como
   `spi_flash_chip_generic_write_encrypted`, las lee por el SPI1 (el texto

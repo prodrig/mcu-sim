@@ -210,3 +210,4 @@ c3  esp32c3/i2s.elf                      17740  0x4324588F
 c3  esp32c3/uhci.elf                     20588  0x270C1ECD
 c3  esp32c3/uhci_hci.elf                 29040  0xA228430A
 c3  esp32c3/i2s_mas.elf                  40588  0x9127C095
+c3  esp32c3/xts_date.elf                 12672  0x6BEDDDA8
