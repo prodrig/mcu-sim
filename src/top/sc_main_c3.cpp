@@ -1485,13 +1485,75 @@ SC_MODULE(TbC3) {
         c3.alimenta(false);
     }
 
+    // E8: la ROM arranca de una Flash cifrada de fabrica (el bootloader, la
+    // tabla y la app de hello_world v5.5, cifrados como espsecure con la clave
+    // de C27), con SPI_BOOT_CRYPT_CNT = 1 y la clave protegida de lectura
+    void c33() {
+        grupo("C33 la ROM arranca de una Flash cifrada de fabrica: hello_world v5.5 (E8)");
+        quema_clave(5, XTS_EFUSE, 4);
+        c3.efuse.pon_bit(0x34, 18, true);                // SPI_BOOT_CRYPT_CNT = 1
+        c3.efuse.pon_bit(0x30, 5, true);                 // RD_DIS de BLOCK_KEY5
+        c3.alimenta(false);
+        wait(10, SC_US);
+        flash.borra_todo();
+        const std::string dir = "build/idf/v5.5/hello_world";
+        check(carga_flash_args(c3, dir), "su flash_args: bootloader, particiones y app");
+        // Cada imagen, cifrada en su sitio (de 32 en 32 bytes)
+        unsigned cifrados = 0;
+        if (std::FILE* f = std::fopen((dir + "/flash_args").c_str(), "r")) {
+            char l[512], nom[400];
+            unsigned long off;
+            while (std::fgets(l, sizeof l, f))
+                if (std::sscanf(l, "0x%lx %399s", &off, nom) == 2)
+                    if (std::FILE* g = std::fopen((dir + "/" + nom).c_str(), "rb")) {
+                        std::fseek(g, 0, SEEK_END);
+                        const unsigned n = (unsigned(std::ftell(g)) + 31u) & ~31u;
+                        std::fclose(g);
+                        c3.xts.cifra_flash(uint32_t(off), flash.datos() + off, n);
+                        cifrados += n;
+                    }
+            std::fclose(f);
+        }
+        char b[200];
+        std::snprintf(b, sizeof b, "%u bytes cifrados en la Flash; el bootloader ya no empieza por 0xE9 (0x%02X)", cifrados, flash.datos()[0]);
+        check(cifrados > 100000 && flash.datos()[0] != 0xE9, b);
+        c3.gpio.nodo_de(9).set_hiz(d_g9_);
+        c3.gpio.nodo_de(8).set_hiz(d_g8_);
+        terminal.clear();
+        c3.uart0.salida.clear();
+        c3.alimenta(true);
+        check(espera_texto(terminal, "Restarting in 10 seconds...", sc_time(1, SC_SEC)), "llega a \"Restarting in 10 seconds...\"");
+        check(tiene(terminal, "rst:0x1 (POWERON),boot:0x") && tiene(terminal, "(SPI_FAST_FLASH_BOOT)"),
+              "la ROM arranca desde la Flash");
+        check(tiene(terminal, "load:0x3fcd5820") && tiene(terminal, "entry 0x403cbf1a"),
+              "la ROM carga el bootloader descifrado por la cache (y su SHA-256 cuadra)");
+        check(tiene(terminal, "factory app      00 00 00010000 00100000"), "el bootloader lee la tabla de particiones en claro");
+        check(tiene(terminal, "silicon revision v0.4, 2MB external flash"), "la app corre desde la Flash cifrada");
+        // Con un numero par de bits en SPI_BOOT_CRYPT_CNT el descifrado se
+        // apaga: la ROM lee el bootloader cifrado tal cual
+        c3.alimenta(false);
+        wait(10, SC_US);
+        c3.efuse.pon_bit(0x34, 19, true);                // SPI_BOOT_CRYPT_CNT = 0b011
+        terminal.clear();
+        c3.alimenta(true);
+        check(espera_texto(terminal, "invalid header", sc_time(300, SC_MS)) && !tiene(terminal, "2nd stage bootloader"),
+              "SPI_BOOT_CRYPT_CNT = 0b011 (par): sin descifrar, \"invalid header\"");
+        c3.alimenta(false);
+        wait(10, SC_US);
+        c3.efuse.pon_bit(0x34, 20, true);                // 0b111: impar otra vez
+        terminal.clear();
+        c3.alimenta(true);
+        check(espera_texto(terminal, "Hello world!", sc_time(1, SC_SEC)), "SPI_BOOT_CRYPT_CNT = 0b111 (impar): vuelve a arrancar");
+        c3.alimenta(false);
+    }
+
     void run() {
         // C3_SOLO=c4 (o c1...c30): un grupo suelto, para desarrollar
         if (const char* solo = std::getenv("C3_SOLO")) {
             const std::string q = solo;
             void (TbC3::*g[])() = {&TbC3::c1, &TbC3::c2, &TbC3::c3_uart, &TbC3::c4, &TbC3::c5, &TbC3::c6, &TbC3::c7,
                                    &TbC3::c8, &TbC3::c9, &TbC3::c10, &TbC3::c11, &TbC3::c12, &TbC3::c13, &TbC3::c14,
-                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25, &TbC3::c26, &TbC3::c27, &TbC3::c28, &TbC3::c29, &TbC3::c30, &TbC3::c31, &TbC3::c32};
+                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25, &TbC3::c26, &TbC3::c27, &TbC3::c28, &TbC3::c29, &TbC3::c30, &TbC3::c31, &TbC3::c32, &TbC3::c33};
             // Varios, separados por comas: C3_SOLO=c29,c30
             for (size_t p = 0; p < q.size();) {
                 size_t f = q.find(',', p);
@@ -1536,6 +1598,7 @@ SC_MODULE(TbC3) {
         c30();
         c31();
         c32();
+        c33();
         std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

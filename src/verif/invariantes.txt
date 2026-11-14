@@ -374,4 +374,7 @@ testrv                 457      28577500000           resto
 # 18871097364616: 0x20200623 (ESP-IDF y el SVD de Espressif; el TRM dice
 # 0x20200111) y de lectura y escritura. C27 cambia lo que espera, sin
 # moverse.
-testc3                 302      18284737364616        resto
+# C33: la ROM arranca de una Flash cifrada de fabrica (hello_world v5.5
+# cifrado con la clave de C27), desde 18871157364616; con CRYPT_CNT par no
+# descifra. Deja SPI_BOOT_CRYPT_CNT = 0b111 y RD_DIS de KEY5.
+testc3                 311      18846767364616        resto

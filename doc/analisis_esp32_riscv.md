@@ -1510,8 +1510,19 @@ son la 43 y la 44-46 [TRM-C3 tabla 8.3-1; `ETS_*_INTR_SOURCE` de
   escribe cuatro líneas (tres de 32 bytes y una de 16) como
   `spi_flash_chip_generic_write_encrypted`, las lee por el SPI1 (el texto
   cifrado de espsecure, `vec/gen_xts.py`) y por la caché (en claro). `testc3`
-  C27 (234). Lo que no está: el arranque de la ROM con la Flash cifrada (el
-  segundo cargador de ESP-IDF cifrado de fábrica).
+  C27 (234). **El arranque cifrado** (2026-11-14): la ROM de verdad arranca de
+  una Flash cifrada de fábrica: el bootloader, la tabla de particiones y la
+  app de hello_world v5.5 cifrados en su sitio como `espsecure
+  encrypt-flash-data` (`XtsAesEsp::cifra_flash`, el algoritmo que C27
+  contrasta con espsecure), la clave en KEY5 con propósito 4 y RD_DIS, y
+  SPI_BOOT_CRYPT_CNT = 1: la ROM carga el bootloader por la caché (su SHA-256
+  cuadra), el bootloader lee la tabla en claro (`esp_flash_encryption_enabled`
+  mira el eFuse) y la app saluda. Con CRYPT_CNT = 0b011 (par) no se descifra
+  y la ROM dice «invalid header»; con 0b111 vuelve a arrancar. `testc3` C33
+  (311), que deja quemados CRYPT_CNT = 0b111 y el RD_DIS de KEY5. El primer
+  arranque de ESP-IDF que cifra la Flash él mismo (quemando la clave) no se
+  prueba: necesita un bootloader compilado con
+  CONFIG_SECURE_FLASH_ENC_ENABLED.
 * **`periph/esp/i2s_esp.h`** [TRM-C3 §29; `i2s_struct.h`, `i2s_reg.h` e
   `i2s_ll.h` de ESP-IDF] y **los canales de entrada de la GDMA**
   (`gdma_esp.h`: IN_LINK, IN_PERI_SEL, IN_CHECK_OWNER; el periférico da bytes

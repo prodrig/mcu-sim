@@ -81,6 +81,13 @@ public:
             if (a >= dir_ && a < dir_ + tam) d[i] = cifr_[a - dir_];
         }
     }
+    // Cifra `n` bytes que van en la Flash desde `fis` (alineado a 16), como
+    // `espsecure encrypt-flash-data` (para cargar una Flash cifrada de fábrica)
+    void cifra_flash(uint32_t fis, uint8_t* p, unsigned n) {
+        Claves k;
+        prepara(k);
+        for (unsigned i = 0; i + 16 <= n; i += 16) xts(k, fis + i, p + i, true);
+    }
     // Lo que la caché lee de la Flash (`p`, desde la dirección física `fis`),
     // en claro. `lee` trae bytes de la Flash.
     void descifra(uint32_t fis, uint8_t* p, unsigned n, const std::function<void(uint32_t, uint8_t*, unsigned)>& lee) {

@@ -948,7 +948,8 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   el UHCI con la cabecera de HCI (H5), el CRC, el ACK, el envío rápido,
   WAIT_SW_START y HUNG (C30, 275); el I2S con esclavo, PDM, A-law y µ-law,
   MCLK, TIMING, SKIP_MSK, HUNG y RX_STOP_MODE (C31, 294); XTS_AES_DATE como
-  ESP-IDF y el SVD, 0x20200623 y de lectura y escritura (C32, 302).
+  ESP-IDF y el SVD, 0x20200623 y de lectura y escritura (C32, 302); la ROM
+  arranca de una Flash cifrada de fábrica (C33, 311).
 * **E6 y E7: lo pendiente, hecho** (2026-11-08): GDB por openocd-esp32 con
   FreeRTOS (O5); `write-flash` entero por el USB (`--flash-rapida`), el puente
   USB que lee los IN cuando el dispositivo avisa, y G3 sin fallos sueltos.
