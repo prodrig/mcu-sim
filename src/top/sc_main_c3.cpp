@@ -253,7 +253,7 @@ SC_MODULE(TbC3) {
         check(c3.limitaciones().size() >= 5, "limitaciones(): lo que no esta (perifericos de E7-E8, SWD, brownout...)");
         const huella_fw::Veredicto hv = huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "c3");
         std::printf("    %d imagenes: %s\n", hv.comprobadas, hv.detalle.c_str());
-        check(hv.ok() && hv.comprobadas == 16, "los dieciseis ficheros de la suite son los versionados (verif/fw/huellas.txt)");
+        check(hv.ok() && hv.comprobadas == 17, "los diecisiete ficheros de la suite son los versionados (verif/fw/huellas.txt)");
     }
 
     void c2() {
@@ -1262,13 +1262,89 @@ SC_MODULE(TbC3) {
         c3.efuse.pon_bit(0x34, 18, false);
     }
 
+    // E8: el I2S en Philips de 16 bits y estereo con SIG_LOOPBACK. Ademas de
+    // lo que comprueba el firmware, el banco decodifica la trama de los
+    // pines por su cuenta (WS cambia un ciclo antes del MSB del canal; 0 es
+    // el izquierdo) y mide BCK y WS
+    void c28() {
+        grupo("C28 el I2S: Philips, 16 bits y estereo, en duplex con SIG_LOOPBACK y la GDMA (E8)");
+        check(arranca("i2s.elf"), "i2s.elf");
+        const sc_time t0 = sc_time_stamp();
+        while (bz(3) != 1 && sc_time_stamp() - t0 < sc_time(5, SC_MS)) wait(1, SC_US);
+        // El analizador: 24 tramas en los pines
+        auto& bck = c3.gpio.nodo_de(0);
+        auto& ws = c3.gpio.nodo_de(2);
+        auto& sd = c3.gpio.nodo_de(3);
+        std::vector<std::pair<uint32_t, uint32_t>> tramas;
+        bool ws_ant = true, prim = true;
+        int canal = -1, n = 0;
+        uint32_t acum = 0, izq = 0;
+        bool hay_izq = false;                            // la primera trama, entera
+        bool b_ant = bck.voltage() > 1.65f;
+        const sc_time lim = sc_time_stamp() + sc_time(2, SC_MS);
+        while (tramas.size() < 24 && sc_time_stamp() < lim) {
+            wait(sc_time(100, SC_US), bck.value_changed_event());
+            const bool b = bck.voltage() > 1.65f;
+            if (b && !b_ant) {
+                const bool w = ws.voltage() > 1.65f, d = sd.voltage() > 1.65f;
+                if (canal >= 0) {
+                    acum = (acum << 1) | (d ? 1u : 0u);
+                    if (++n == 16) {
+                        if (canal == 0) { izq = acum; hay_izq = true; }
+                        else if (hay_izq) { tramas.push_back({izq, acum}); hay_izq = false; }
+                        canal = -1;
+                    }
+                }
+                if (!prim && w != ws_ant) { canal = w ? 1 : 0; n = 0; acum = 0; }
+                ws_ant = w;
+                prim = false;
+            }
+            b_ant = b;
+        }
+        // Las tramas decodificadas, seguidas, dentro de las que manda
+        bool sigue = tramas.size() >= 8;
+        unsigned desde = 0;
+        if (sigue) {
+            while (desde < 32 && tramas[0].first != 0x1000u + desde * 0x111u) ++desde;
+            for (unsigned i = 0; sigue && i < tramas.size() && desde + i < 32; ++i) {
+                const unsigned k = desde + i;
+                sigue = tramas[i].first == ((0x1000u + k * 0x111u) & 0xFFFFu) &&
+                        tramas[i].second == ((0xF000u ^ (k * 0x0F0Fu)) & 0xFFFFu);
+            }
+        }
+        char b[160];
+        std::snprintf(b, sizeof b, "el analizador decodifica %zu tramas Philips en los pines, desde la %u, como las del firmware",
+                      tramas.size(), desde);
+        check(sigue && desde < 32, b);
+        double p = 0, dc = 0;
+        bool ok = mide_pwm(bck, p, dc);
+        std::snprintf(b, sizeof b, "BCK: %.4f us (160 MHz / (13 + 1/48) / 8 = 0,6510) y ciclo %.3f", p, dc);
+        check(ok && std::fabs(p - 0.65104) < 0.0005 && std::fabs(dc - 0.5) < 0.01, b);
+        ok = mide_pwm(ws, p, dc);
+        std::snprintf(b, sizeof b, "WS: %.3f us (32 BCK, 48 kHz: 20,833) y ciclo %.3f", p, dc);
+        check(ok && std::fabs(p - 20.833) < 0.01 && std::fabs(dc - 0.5) < 0.01, b);
+        check(espera_fin(sc_time(10, SC_MS)), "acaba");
+        const uint32_t okf = bz(0);
+        std::snprintf(b, sizeof b, "DATE 0x%08X", bz(2));
+        check(bz(2) == 0x2003230u, b);
+        std::snprintf(b, sizeof b, "lo recibido por la GDMA es lo mandado (0x%08X)", bz(1));
+        check(okf & 1u, b);
+        check(okf & 2u, "los descriptores de entrada: length 64, suc_eof y owner 0 (RXEOF_NUM = 64)");
+        check(okf & 4u, "la GDMA: IN_SUC_EOF e IN_DONE en el canal 1 y OUT_EOF en el 0");
+        check(okf & 8u, "el I2S: TX_DONE, RX_DONE y TX_IDLE (TX_STOP_EN)");
+        check(okf & 16u, "TX_UPDATE y RX_UPDATE se bajan solos");
+        std::snprintf(b, sizeof b, "64 muestras mandadas y recibidas (%u, %u)", c3.i2s.muestras_tx(), c3.i2s.muestras_rx());
+        check(c3.i2s.muestras_tx() == 64 && c3.i2s.muestras_rx() == 64, b);
+        c3.alimenta(false);
+    }
+
     void run() {
         // C3_SOLO=c4 (o c1...c14): un grupo suelto, para desarrollar
         if (const char* solo = std::getenv("C3_SOLO")) {
             const std::string q = solo;
             void (TbC3::*g[])() = {&TbC3::c1, &TbC3::c2, &TbC3::c3_uart, &TbC3::c4, &TbC3::c5, &TbC3::c6, &TbC3::c7,
                                    &TbC3::c8, &TbC3::c9, &TbC3::c10, &TbC3::c11, &TbC3::c12, &TbC3::c13, &TbC3::c14,
-                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25, &TbC3::c26, &TbC3::c27};
+                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25, &TbC3::c26, &TbC3::c27, &TbC3::c28};
             const int k = q.size() > 1 ? std::atoi(q.c_str() + 1) : 0;
             if (k >= 1 && k <= int(sizeof g / sizeof g[0])) (this->*g[k - 1])();
             std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
@@ -1301,6 +1377,7 @@ SC_MODULE(TbC3) {
         c25();
         c26();
         c27();
+        c28();
         std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

@@ -206,3 +206,4 @@ c3  esp32c3/rsa.elf                      24872  0x00299002
 c3  esp32c3/hmac.elf                     26140  0x64C1F400
 c3  esp32c3/ds.elf                       23256  0xFA715F5E
 c3  esp32c3/xts.elf                      18164  0x1335919E
+c3  esp32c3/i2s.elf                      17740  0x4324588F

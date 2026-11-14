@@ -360,4 +360,6 @@ testrv                 457      28577500000           resto
 # C27: el XTS_AES (xts.elf, 16 ficheros), desde 18791109002000; en la suite
 # entera el C3 llega en el modo de descarga y, solo (C3_SOLO=c27), por SPI:
 # el firmware vale para los dos.
-testc3                 234      18257259002000        resto
+# C28: el I2S (i2s.elf, 17 ficheros), desde 18843679002000; la GDMA gana sus
+# canales de entrada sin mover nada.
+testc3                 246      18258015018866        resto

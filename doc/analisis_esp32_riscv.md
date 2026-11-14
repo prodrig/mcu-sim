@@ -1509,6 +1509,28 @@ son la 43 y la 44-46 [TRM-C3 tabla 8.3-1; `ETS_*_INTR_SOURCE` de
   cifrado de espsecure, `vec/gen_xts.py`) y por la caché (en claro). `testc3`
   C27 (234). Lo que no está: el arranque de la ROM con la Flash cifrada (el
   segundo cargador de ESP-IDF cifrado de fábrica).
+* **`periph/esp/i2s_esp.h`** [TRM-C3 §29; `i2s_struct.h`, `i2s_reg.h` e
+  `i2s_ll.h` de ESP-IDF] y **los canales de entrada de la GDMA**
+  (`gdma_esp.h`: IN_LINK, IN_PERI_SEL, IN_CHECK_OWNER; el periférico da bytes
+  con `mete` y la GDMA cierra el descriptor con length, suc_eof y el owner a
+  0, IN_DONE, IN_SUC_EOF e IN_DSCR_EMPTY). El I2S en TDM: Philips, MSB y PCM
+  con MSB_SHIFT, WS_IDLE_POL y TDM_WS_WIDTH; hasta 16 canales de
+  TDM_CHAN_BITS + 1 bits con un dato de 8, 16, 24 o 32 bits (BIG_ENDIAN,
+  LEFT_ALIGN, BIT_ORDER, 24_FILL_EN; los canales apagados mandan el anterior o
+  CONF_SIGLE_DATA). El reloj: XTAL o PLL de 240 o 160 MHz entre N + b/a (X, Y,
+  Z, YN1) y entre BCK_DIV_NUM + 1. El transmisor maestro saca BCK, WS y SD por
+  las señales 13-15 de la matriz (los datos cambian en la bajada de BCK); sin
+  datos de la GDMA, TX_DONE y, con TX_STOP_EN, para tras el último bit. El
+  receptor, con SIG_LOOPBACK (el BCK y el WS del transmisor) o maestro (señales
+  16 y 17), lee I2SI_SD (15) en la subida y da los bytes a la GDMA, con un EOF
+  cada RXEOF_NUM bytes y RX_DONE. Fuente 20. Sin esclavo, PDM, A-law/µ-law,
+  MCLK, los retrasos de TIMING ni HUNG (avisan una vez); el receptor maestro
+  sin SIG_LOOPBACK no tiene prueba propia. `verif/fw/esp32c3/i2s.c` hace lo de
+  `i2s_std` en dúplex: Philips de 16 bits y estéreo a 48 kHz (BCK de 160 MHz /
+  (13 + 1/48) / 8), 32 tramas por la GDMA de salida y de vuelta por la de
+  entrada en dos descriptores. `testc3` C28 (246): lo recibido es lo mandado,
+  los descriptores y las interrupciones, BCK y WS medidos en los pines y un
+  analizador del banco que decodifica las tramas Philips por su cuenta.
 
 ### E9 · ESP32-C6: el núcleo HP y el SoC
 

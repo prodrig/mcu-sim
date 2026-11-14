@@ -74,6 +74,7 @@
 #include "../../periph/esp/hmac_esp.h"
 #include "../../periph/esp/ds_esp.h"
 #include "../../periph/esp/xts_aes_esp.h"
+#include "../../periph/esp/i2s_esp.h"
 #include "../../periph/bloque_declarado.h"
 #include "../../common/imagen_fw.h"
 #include "../../common/analog_net.h"
@@ -201,6 +202,7 @@ public:
     HmacEsp        hmac;
     DsEsp          ds;
     XtsAesEsp      xts;
+    I2sEsp         i2s;
     RomEsp         rom{c3::ROM0_I, c3::ROM_I_FIN - c3::ROM0_I};
     std::vector<std::unique_ptr<BloqueDeclarado>> declarados;
 
@@ -252,7 +254,7 @@ public:
           bb("bb", c3::BB_B, 0x1000),
           usj("usb_serial_jtag", c3::USB_SJ_B, gpio.nodo_de(19), gpio.nodo_de(18)),
           ledc("ledc", c3::LEDC_B), rmt("rmt", c3::RMT_B), adc("apb_saradc", c3::ADC_B), aes("aes", c3::AES_B), i2c("i2c", c3::I2C_B), twai("twai", c3::TWAI_B), gdma("gdma", c3::GDMA_B), spi2("spi2", c3::SPI2_B),
-          rsa("rsa", c3::RSA_B), hmac("hmac", c3::HMAC_B), ds("ds", c3::DS_B), xts("xts_aes", c3::XTS_AES_B),
+          rsa("rsa", c3::RSA_B), hmac("hmac", c3::HMAC_B), ds("ds", c3::DS_B), xts("xts_aes", c3::XTS_AES_B), i2s("i2s", c3::I2S_B),
           csr_(gpio), sram_(c3::SRAM_TAM, 0), rtc_fast_(c3::RTC_FAST_TAM, 0) {
         pon_rom_omision();
         bus.register_b_transport(this, &Esp32C3::b_transport);
@@ -280,7 +282,6 @@ public:
         struct D { uint32_t b; const char* n; const char* f; };
         static const D dec[] = {
             {c3::UHCI_B, "UHCI0", "E8"},
-            {c3::I2S_B, "I2S", "E8"},
         };
         for (const D& d : dec)
             declarados.emplace_back(new BloqueDeclarado(sc_core::sc_gen_unique_name("decl"),
@@ -288,7 +289,7 @@ public:
         std::vector<BusSlave*> todos{&gpio, &iomux, &intmtx, &system, &rtc, &efuse, &uart0,
                                      &uart1, &systimer, &timg0, &timg1, &spi0, &spi1, &cache, &sha, &regi2c,
                                      &syscon, &pms,
-                                     &assist, &wcl, &efuse_trm, &fe2, &fe, &nrx, &bb, &usj, &ledc, &rmt, &adc, &aes, &i2c, &gdma, &spi2, &twai, &rsa, &hmac, &ds, &xts};
+                                     &assist, &wcl, &efuse_trm, &fe2, &fe, &nrx, &bb, &usj, &ledc, &rmt, &adc, &aes, &i2c, &gdma, &spi2, &twai, &rsa, &hmac, &ds, &xts, &i2s};
         for (auto& d : declarados) todos.push_back(d.get());
         for (BusSlave* s : todos) engancha(s);
 
@@ -332,6 +333,12 @@ public:
         gdma.irq = [this](unsigned c, bool v) { intmtx.fuente(c3::F_DMA0 + c, v); };
         gdma.lee = [this](uint32_t a, uint8_t& b) { uint8_t* p = mem(a, false); if (!p) return false; b = *p; return true; };
         gdma.escribe32 = [this](uint32_t a, uint32_t v) { poke32(a, v); };
+        gdma.escribe8 = [this](uint32_t a, uint8_t b) { uint8_t* p = mem(a, false); if (!p) return false; *p = b; return true; };
+        // El I2S: sus señales por la matriz y la GDMA
+        i2s.gdma = &gdma;
+        i2s.irq = [this](bool v) { intmtx.fuente(c3::F_I2S, v); };
+        i2s.pon = [this](unsigned s, bool v) { gpio.sig_out[s].write(v); };
+        i2s.lee = [this](unsigned s) { return gpio.sig_in[s].read(); };
         spi2.gdma = &gdma;
         spi2.irq = [this](bool v) { intmtx.fuente(c3::F_SPI2, v); };
         spi2.salida = [this](bool clk, bool mosi, bool cs) {
@@ -578,7 +585,9 @@ public:
             "comprobaciones del MD y del relleno y Z = X^Y mod M; los tiempos, de modelo",
             "el XTS_AES (E8): el cifrado manual de lo que escribe el SPI1 y el descifrado automatico de "
             "la cache, XTS-AES-128 como espsecure, con la clave de proposito 4 de los eFuse",
-            "declarados: UHCI e I2S (E8); la radio (FE, NRX, BB) guarda sin hacer nada",
+            "el I2S (E8): TDM (Philips, MSB y PCM) con la GDMA, el transmisor maestro y el receptor maestro "
+            "o con SIG_LOOPBACK; sin esclavo, PDM, A-law/mu-law, MCLK ni HUNG",
+            "declarados: UHCI (E8); la radio (FE, NRX, BB) guarda sin hacer nada",
             "el USB-Serial-JTAG (E7): CDC-ACM y JTAG, con el reset por DTR/RTS; sin bajo consumo, "
             "sin EXCHG_PINS ni PHY de fuera",
             "la depuracion: el DM 0.13 y el TAP (IDCODE 0x00005C25) en los pines MTMS-MTDO si "
@@ -810,7 +819,7 @@ private:
         gpio.reset(); intmtx.reset(); system.reset_regs(); uart0.reset(); uart1.reset();
         systimer.reset(); timg0.reset(); timg1.reset(); spi0.reset(); spi1.reset(); cache.reset();
         sha.reset(); regi2c.reset(); gdma.reset(); spi2.reset(); ledc.reset(); rmt.reset(); adc.reset(); aes.reset(); i2c.reset(); twai.reset();
-        rsa.reset(); hmac.reset(); ds.reset(); xts.reset();
+        rsa.reset(); hmac.reset(); ds.reset(); xts.reset(); i2s.reset();
         efuse.reset(); syscon.reset(); efuse_trm.reset();
         fe2.reset(); fe.reset(); nrx.reset(); bb.reset();
         reset_cpu_perif();
@@ -836,6 +845,7 @@ private:
         gpio.sig_oe[c3::SIG_I2C_SDA].write(true);
         gpio.sig_oe[c3::SIG_TWAI].write(true);
         for (unsigned g : {c3::SIG_FSPICLK, c3::SIG_FSPID, c3::SIG_FSPICS0}) gpio.sig_oe[g].write(true);
+        for (unsigned g = I2sEsp::S_O_BCK; g <= I2sEsp::S_I_WS; ++g) gpio.sig_oe[g].write(true);   // I2S (E8)
         for (;;) {
             // Apagado o CHIP_PU bajo: todo quieto
             encendido_ = false;
