@@ -22,6 +22,19 @@
 //        la CPU (causa 12), CHIP_PU (causa 1, STORE borrado) y GPIO9 a masa:
 //        GPIO_STRAPPING = 0b0100 con MTMS y MTDI sueltos (la descarga
 //        «SDIO_FEI_FEO» de la ROM)
+// E9.3: por la ROM de verdad (rev0) y la Flash, por SPI0/SPI1, la caché y la
+// MMU del C6.
+//   D6   Direct Boot (0xAEDB041D dos veces): la ROM proyecta la Flash en la
+//        ventana única y salta a 0x4200_0008; el firmware corre y lee sus
+//        constantes por la caché
+//   D7   ESP-IDF v5.5.6 hello_world en un C6 v0.2 con la Flash en la placa:
+//        la ROM, el bootloader, la tabla de particiones, la app con FreeRTOS,
+//        y esp_restart() a los diez segundos (rst:0xc, otra vez la ROM)
+//   D8   el modo descarga (GPIO9 a masa, GPIO8 arriba): la ROM dice
+//        «DOWNLOAD(USB/UART0/SDIO_FEI_FEO)» y espera; y el C6FH4, con la
+//        Flash dentro, arranca el mismo hello_world
+// Los binarios de ESP-IDF: verif/fw/esp32c6/idf/idf-v5.5.tar.xz, que `make
+// testc6` extrae en build/idf-c6.
 // =============================================================================
 #include <systemc>
 #include <cmath>
@@ -32,6 +45,8 @@
 #include "common/asan_opciones.h"
 #include "soc/esp32c6/esp32c6.h"
 #include "common/huella_fw.h"
+#include <memory>
+#include <vector>
 
 using namespace sc_core;
 using namespace stm32;
@@ -58,6 +73,8 @@ static const char* const FW = "verif/fw/esp32c6/";
 
 SC_MODULE(TbC6) {
     Esp32C6 c6;
+    SpiFlashChip flash{*busca_modelo_flash("GD25Q32")};
+    Esp32C6 c6b{"c6b", MCU_ESP32C6FH4};
     int d_rx_ = -1, d_g9_ = -1, d_g8_ = -1;
     std::string terminal;
     unsigned flancos_g8 = 0;
@@ -66,6 +83,7 @@ SC_MODULE(TbC6) {
 
     TbC6(sc_module_name nm) : sc_module(nm), c6("c6", MCU_ESP32C6) {
         SC_HAS_PROCESS(TbC6);
+        c6.pon_flash(&flash);
         SC_THREAD(run);
         SC_THREAD(terminal_proc);
         SC_METHOD(cuenta_g8);
@@ -133,6 +151,59 @@ SC_MODULE(TbC6) {
         return false;
     }
 
+    bool espera_texto(const std::string& t, const std::string& que, sc_time lim) {
+        const sc_time t0 = sc_time_stamp();
+        while (t.find(que) == std::string::npos) {
+            if (sc_time_stamp() - t0 >= lim) return false;
+            wait(1, SC_MS);
+        }
+        return true;
+    }
+    static bool tiene(const std::string& t, const std::string& q) { return t.find(q) != std::string::npos; }
+    static unsigned cuenta(const std::string& t, const std::string& q) {
+        unsigned n = 0;
+        for (size_t p = t.find(q); p != std::string::npos; p = t.find(q, p + 1)) ++n;
+        return n;
+    }
+    // Un flash_args de ESP-IDF en la Flash de `chip`
+    static bool carga_flash_args(Esp32C6& chip, const std::string& dir) {
+        std::FILE* f = std::fopen((dir + "/flash_args").c_str(), "r");
+        if (!f) { std::printf("  (no hay %s/flash_args: make testc6 extrae build/idf-c6)\n", dir.c_str()); return false; }
+        char l[512], nom[400];
+        unsigned long off;
+        bool ok = true;
+        unsigned n = 0;
+        while (std::fgets(l, sizeof l, f))
+            if (std::sscanf(l, "0x%lx %399s", &off, nom) == 2) {
+                const std::string e = chip.carga_imagen(dir + "/" + nom, uint32_t(off));
+                if (!e.empty()) { std::printf("  (%s)\n", e.c_str()); ok = false; }
+                ++n;
+            }
+        std::fclose(f);
+        return ok && n == 3;
+    }
+    // Apaga c6, vacía su Flash y la carga; GPIO9 y GPIO8 como se pida
+    bool arranca_flash(const std::string& fa_dir, const std::string& bin = "", bool descarga = false) {
+        c6.alimenta(false);
+        wait(10, SC_US);
+        flash.borra_todo();
+        bool ok = true;
+        if (!fa_dir.empty()) ok = carga_flash_args(c6, fa_dir);
+        else if (!bin.empty()) { const std::string e = c6.carga_imagen(bin, 0); ok = e.empty(); if (!ok) std::printf("  (%s)\n", e.c_str()); }
+        else c6.arranca_por_rom();
+        if (descarga) {
+            c6.gpio.nodo_de(9).set_drive(d_g9_, 0.0f, 100.0f);
+            c6.gpio.nodo_de(8).set_drive(d_g8_, 3.3f, 10e3f);
+        } else {
+            c6.gpio.nodo_de(9).set_hiz(d_g9_);
+            c6.gpio.nodo_de(8).set_hiz(d_g8_);
+        }
+        terminal.clear();
+        c6.uart0.salida.clear();
+        c6.alimenta(true);
+        return ok;
+    }
+
     // =========================================================================
     void d1() {
         grupo("D1 los encapsulados, el nucleo, la ROM y las huellas");
@@ -165,7 +236,7 @@ SC_MODULE(TbC6) {
         check(c6.limitaciones().size() >= 5, "limitaciones(): lo que no esta todavia");
         const huella_fw::Veredicto hv = huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "c6");
         std::printf("    %d imagenes: %s\n", hv.comprobadas, hv.detalle.c_str());
-        check(hv.ok() && hv.comprobadas == 3, "los tres ficheros de la suite son los versionados (verif/fw/huellas.txt)");
+        check(hv.ok() && hv.comprobadas == 5, "los cinco ficheros de la suite son los versionados (verif/fw/huellas.txt)");
     }
 
     void d2() {
@@ -262,6 +333,85 @@ SC_MODULE(TbC6) {
         check_eq(bz(1), 0x4u, "y el firmware lee lo mismo en GPIO_STRAP");
     }
 
+    // =========================================================================
+    // E9.3: por la ROM y la Flash
+    // =========================================================================
+    void d6() {
+        grupo("D6 Direct Boot: el firmware corre desde la Flash, por la cache");
+        const std::string elf = std::string(FW) + "direct_boot.elf";
+        check(arranca_flash("", std::string(FW) + "direct_boot.bin"), "direct_boot.bin en la Flash, desde 0");
+        buzon_ = 0;
+        simbolo_elf(elf, "buzon", buzon_);
+        c6.poke32(buzon_ + 4, 0);
+        const uint64_t f0 = c6.cache.fallos(), a0 = c6.cache.aciertos();
+        check(espera_texto(terminal, "Direct Boot: desde la Flash, por la cache\r\n", sc_time(60, SC_MS)),
+              "el saludo llega por GPIO16: \"Direct Boot: desde la Flash, por la cache\"");
+        check(tiene(terminal, "ESP-ROM:esp32c6-20220919") && tiene(terminal, "rst:0x1 (POWERON),boot:0x8 (SPI_FAST_FLASH_BOOT)"),
+              "antes, la ROM (esp32c6-20220919): encendido y arranque desde la Flash");
+        check(espera_fin(sc_time(10, SC_MS)), "y el buzon dice que ha acabado");
+        check(bz(0) >= 0x42000000u && bz(0) < 0x43000000u, "main() ejecuta en la ventana de la Flash (0x" +
+              [&] { char b[16]; std::snprintf(b, sizeof b, "%08X", bz(0)); return std::string(b); }() + ")");
+        check(bz(1) >= 0x42000000u && bz(1) < 0x43000000u, "y sus constantes estan en la misma ventana");
+        uint32_t x = 0;
+        for (uint32_t i = 0; i < 64; ++i) x ^= (0x9E3779B9u * i + 0x7F4A7C15u) + i;
+        check_eq(bz(2), x, "la tabla leida por la cache es la de la imagen");
+        check_eq(bz(3), 1u, "LP_CLKRST_RESET_CAUSE: 1");
+        check(c6.cache.fallos() > f0 && c6.cache.aciertos() - a0 > 10 * (c6.cache.fallos() - f0),
+              "la cache: " + std::to_string(c6.cache.aciertos() - a0) + " aciertos y " +
+              std::to_string(c6.cache.fallos() - f0) + " fallos");
+    }
+
+    void d7() {
+        grupo("D7 ESP-IDF v5.5 hello_world en un C6 v0.2 (la Flash en la placa)");
+        const uint64_t fb0 = c6.fallos_bus();
+        check(arranca_flash("build/idf-c6/v5.5/hello_world"), "su flash_args: bootloader, particiones y app");
+        check(espera_texto(terminal, "Restarting in 10 seconds...", sc_time(1, SC_SEC)), "llega a \"Restarting in 10 seconds...\"");
+        check(tiene(terminal, "ESP-ROM:esp32c6-20220919") && tiene(terminal, "rst:0x1 (POWERON),boot:0x8 (SPI_FAST_FLASH_BOOT)"),
+              "la ROM: encendido y arranque desde la Flash");
+        check(tiene(terminal, "load:0x40875730") && tiene(terminal, "entry 0x4086b91a"),
+              "la ROM carga el bootloader de la Flash (comprobando su SHA-256 con el SHA)");
+        check(tiene(terminal, "ESP-IDF v5.5.6 2nd stage bootloader") && tiene(terminal, "boot: chip revision: v0.2"),
+              "el bootloader v5.5.6 lee la revision v0.2 del eFuse");
+        check(tiene(terminal, "factory app      00 00 00010000 00100000"), "la tabla de particiones");
+        check(tiene(terminal, "cpu_start: cpu freq: 160000000 Hz"), "la app pone la CPU a 160 MHz (el PLL del PCR)");
+        check(tiene(terminal, "spi_flash: detected chip: gd"), "y reconoce la GD25Q32 por su JEDEC ID");
+        check(tiene(terminal, "Hello world!"), "Hello world!");
+        check(tiene(terminal, "This is esp32c6 chip with 1 CPU core(s), WiFi/BLE, 802.15.4 (Zigbee/Thread), silicon revision v0.2, 2MB external flash"),
+              "\"This is esp32c6 chip ... silicon revision v0.2, 2MB external flash\"");
+        check(c6.uart0.salida == terminal, "lo que lee la UART de bancada en GPIO16 es lo que manda la UART0");
+        check(c6.intpri.reclamaciones() > 10, "FreeRTOS: el tick por el SYSTIMER, la matriz y el PLIC (" +
+              std::to_string(c6.intpri.reclamaciones()) + " interrupciones)");
+        check(espera_texto(terminal, "rst:0xc (SW_CPU)", sc_time(15, SC_SEC)),
+              "esp_restart() a los diez segundos: la ROM otra vez, rst:0xc (SW_CPU)");
+        const sc_time t1 = sc_time_stamp();
+        while (cuenta(terminal, "Hello world!") < 2 && sc_time_stamp() - t1 < sc_time(1, SC_SEC)) wait(1, SC_MS);
+        check(cuenta(terminal, "Hello world!") >= 2, "y vuelve a saludar");
+        check_eq(c6.lp_clkrst.causa(), 12u, "LP_CLKRST_RESET_CAUSE: 12");
+        check_eq(c6.fallos_bus() - fb0, 0u, "sin un solo error de bus (los dos de D4 son los de la PMA)");
+    }
+
+    void d8() {
+        grupo("D8 el modo descarga y el C6FH4 (la Flash dentro)");
+        check(arranca_flash("", "", true), "GPIO9 a masa y GPIO8 arriba al encender");
+        check(espera_texto(terminal, "waiting for download", sc_time(50, SC_MS)), "\"waiting for download\"");
+        check(tiene(terminal, "boot:0x4 (DOWNLOAD(USB/UART0/SDIO_FEI_FEO))"),
+              "boot:0x4 (DOWNLOAD(USB/UART0/SDIO_FEI_FEO)): GPIO_STRAPPING con MTMS y MTDI sueltos");
+        const std::string antes = terminal;
+        wait(20, SC_MS);
+        check(terminal == antes, "y espera: nadie la resetea");
+        c6.alimenta(false);
+        c6.gpio.nodo_de(9).set_hiz(d_g9_);
+        c6.gpio.nodo_de(8).set_hiz(d_g8_);
+        check(c6b.flash_interna() && c6b.flash_interna()->tam() == (4u << 20), "el C6FH4 trae 4 MB dentro");
+        check(carga_flash_args(c6b, "build/idf-c6/v5.5/hello_world"), "hello_world en su Flash interna");
+        c6b.uart0.salida.clear();
+        c6b.alimenta(true);
+        check(espera_texto(c6b.uart0.salida, "Restarting in 10 seconds...", sc_time(1, SC_SEC)), "llega a \"Restarting in 10 seconds...\"");
+        check(tiene(c6b.uart0.salida, "silicon revision v0.2"), "\"silicon revision v0.2\"");
+        check_eq((c6b.efuse.rd(0x50) >> 24) & 7u, 1u, "PKG_VERSION 1 (QFN32) y FLASH_CAP 1 (4 MB) en el eFuse");
+        c6b.alimenta(false);
+    }
+
     void run() {
         wait(SC_ZERO_TIME);
         d1();
@@ -269,13 +419,100 @@ SC_MODULE(TbC6) {
         d3();
         d4();
         d5();
+        d6();
+        d7();
+        d8();
         std::printf("\nTOTAL C6: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }
 };
 
-int sc_main(int, char*[]) {
+// --- Arrancar unas imagenes de la Flash, fuera de la suite ---------------------
+//   testc6 --flash [--fh4] [--ms N] [--descarga] 0x0 bootloader.bin 0x8000 ...
+SC_MODULE(CorreFlash) {
+    std::unique_ptr<SpiFlashChip> fl;
+    std::unique_ptr<Esp32C6> c6;
+    std::vector<std::pair<std::string, uint32_t>> imgs;
+    double ms = 100;
+    bool descarga = false;
+    int res = 0;
+    CorreFlash(sc_module_name nm, const McuCapsC6& m) : sc_module(nm) {
+        c6.reset(new Esp32C6("c6", m));
+        fl.reset(new SpiFlashChip(*busca_modelo_flash("GD25Q32")));
+        if (!c6->flash()) c6->pon_flash(fl.get());
+        SC_HAS_PROCESS(CorreFlash);
+        SC_THREAD(run);
+    }
+    void run() {
+        for (auto& i : imgs) {
+            const std::string e = c6->carga_imagen(i.first, i.second);
+            if (!e.empty()) { std::printf("%s\n", e.c_str()); res = 2; sc_stop(); return; }
+        }
+        if (imgs.empty()) c6->arranca_por_rom();
+        uint64_t fallos = 0;
+        c6->al_fallar = [&](uint32_t a, unsigned n, bool w) {
+            if (fallos++ < 20) std::fprintf(stderr, "[bus] error %s 0x%08X (%u) pc=0x%08X\n", w ? "W" : "R", a, n,
+                                            c6->core.hart.pc());
+        };
+        if (descarga) {
+            const int d = c6->gpio.nodo_de(9).register_driver("boton_boot");
+            c6->gpio.nodo_de(9).set_drive(d, 0.0f, 100.0f);
+            const int d8 = c6->gpio.nodo_de(8).register_driver("pullup_g8");
+            c6->gpio.nodo_de(8).set_drive(d8, 3.3f, 10e3f);
+        }
+        c6->alimenta(true);
+        size_t visto = 0;
+        const sc_time fin = sc_time_stamp() + sc_time(ms, SC_MS);
+        int traza = std::getenv("C6_TRAZA") ? std::atoi(std::getenv("C6_TRAZA")) : 0;
+        if (traza) c6->core.hart.traza = [traza](const RvCommit& c) mutable {
+            if (traza-- > 0) std::fprintf(stderr, "[traza] %08x %08x\n", c.pc, c.insn);
+        };
+        while (sc_time_stamp() < fin) {
+            wait(100, SC_US);
+            const std::string& o = c6->uart0.salida;
+            if (o.size() > visto) { std::fwrite(o.data() + visto, 1, o.size() - visto, stdout); std::fflush(stdout); visto = o.size(); }
+        }
+        if (std::getenv("C6_DBG")) {
+            uint32_t pc = 0;
+            c6->core.hart.csr_lee(0x7E2, pc);
+            std::printf("\n[dbg] ciclos %llu mpccr 0x%X s0 0x%X s1 0x%X", (unsigned long long)c6->core.hart.ciclos(), pc,
+                        c6->core.hart.x(8), c6->core.hart.x(9));
+        }
+        if (std::getenv("C6_DBG"))
+            std::printf("\n[dbg] resets %llu causa %u uart0 %.0f baudios cpu %.0f apb %.0f strap 0x%X reclamaciones %llu",
+                        (unsigned long long)c6->resets(), c6->lp_clkrst.causa(), c6->uart0.baudios(),
+                        c6->pcr.hz_cpu(), c6->pcr.hz_apb(), c6->gpio.strap(),
+                        (unsigned long long)c6->intpri.reclamaciones());
+        std::printf("\n[fin] %.1f ms, pc=0x%08X, %llu instrucciones, %llu errores de bus, cache %llu/%llu\n", ms,
+                    c6->core.hart.pc(), (unsigned long long)c6->core.hart.instret(), (unsigned long long)fallos,
+                    (unsigned long long)c6->cache.aciertos(), (unsigned long long)c6->cache.fallos());
+        sc_stop();
+    }
+};
+static int corre_flash(int argc, char* argv[]) {
+    const McuCapsC6* m = &MCU_ESP32C6;
+    double ms = 100;
+    bool descarga = false;
+    std::vector<std::pair<std::string, uint32_t>> imgs;
+    for (int i = 2; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--fh4") m = &MCU_ESP32C6FH4;
+        else if (a == "--fh8") m = &MCU_ESP32C6FH8;
+        else if (a == "--ms" && i + 1 < argc) ms = std::atof(argv[++i]);
+        else if (a == "--descarga") descarga = true;
+        else if (i + 1 < argc) { imgs.push_back({argv[i + 1], uint32_t(std::strtoul(argv[i], nullptr, 0))}); ++i; }
+    }
+    CorreFlash c("corre", *m);
+    c.imgs = imgs;
+    c.ms = ms;
+    c.descarga = descarga;
+    sc_start();
+    return c.res;
+}
+
+int sc_main(int argc, char* argv[]) {
     sc_report_handler::set_actions(SC_WARNING, std::getenv("TESTC6_AVISOS") ? SC_DISPLAY : SC_DO_NOTHING);
+    if (argc > 1 && std::strcmp(argv[1], "--flash") == 0) return corre_flash(argc, argv);
     TbC6 tb("tb");
     sc_start();
     const unsigned long long ps =

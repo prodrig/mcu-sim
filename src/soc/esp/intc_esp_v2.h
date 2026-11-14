@@ -10,7 +10,8 @@
 //        fuentes tiene su registro de mapeo en +4·n (la línea de la CPU,
 //        1, 2, 5, 6 u 8-31; 0 la suelta), INT_STATUS_0-2 (0x134-0x13C) dan su
 //        nivel crudo y DATE (0x7FC) es de lectura y escritura.
-//   EL INTPRI (0x600C_5000)  `IntPriEsp`: ENABLE (0x00), TYPE (0x04, 1 =
+//   EL INTPRI (0x600C_5000) Y EL PLIC (0x2000_1000)  `IntPriEsp` (más abajo,
+//        los dos bancos, M y U, y sus dos vistas): ENABLE (0x00), TYPE (0x04, 1 =
 //        flanco), EIP_STATUS (0x08, solo lectura), PRI_n (0x0C + 4·n, 0-15),
 //        THRESH (0x8C), CPU_INTR_FROM_CPU_0-3 (0x90-0x9C: las fuentes 22-25
 //        de la matriz, que pone el software), DATE (0xA0) y CLEAR (0xA8). Una
@@ -222,7 +223,19 @@ private:
     }
 };
 
-// --- El INTPRI, y con él el rv_irq_if del núcleo HP -----------------------------------
+// --- El INTPRI y el PLIC, y con ellos el rv_irq_if del núcleo HP -----------------------
+// Dos bancos con los mismos campos: el de M y el de U. El de M se ve en dos
+// sitios, con el mismo contenido: el INTPRI del TRM (0x600C_5000: ENABLE 0x00,
+// TYPE 0x04, EIP_STATUS 0x08, PRI_n 0x0C + 4n, THRESH 0x8C, CLEAR 0xA8) y el
+// PLIC MX de ESP-IDF (0x2000_1000: ENABLE 0x00, TYPE 0x04, CLEAR 0x08,
+// EIP 0x0C, PRI_n 0x10 + 4n, THRESH 0x90, CLAIM 0x94, y CONF en 0x3FC), que es
+// el que usa ESP-IDF (SOC_INT_PLIC_SUPPORTED, riscv/interrupt_plic.c). El de U,
+// solo en el PLIC UX (0x2000_1400, la misma disposición, CONF en 0x7FC)
+// [plic_reg.h de ESP-IDF; que el INTPRI y el PLIC MX sean el mismo banco es
+// de modelo: el TRM solo documenta el INTPRI y ESP-IDF solo usa el PLIC].
+// Una línea está pendiente en un banco si está habilitada en él, tiene nivel
+// (o el flanco enganchado) y su prioridad es >= el umbral del banco; el
+// núcleo ve la unión, la filtra con mie y la lleva a M o a U con mideleg.
 class IntPriEsp : public BusSlave, public rv_irq_if {
 public:
     std::function<void()> aviso;                          // al núcleo
@@ -231,36 +244,78 @@ public:
 
     IntPriEsp(sc_core::sc_module_name nm, uint32_t base) : BusSlave(nm, base, 0x1000) { reset(); }
     void reset() {
-        ena_ = tipo_ = clear_ = umbral_ = 0;
-        for (uint32_t& p : prio_) p = 0;
-        pend_ = reclamada_ = 0;
+        for (Banco& b : b_) b = Banco();
         for (unsigned i = 0; i < 4; ++i) { cpu_[i] = 0; if (desde_cpu) desde_cpu(i, false); }
         date_ = 0x2201090u;
+        conf_[0] = conf_[1] = 0;
         recalcula();
     }
     // Las líneas de la matriz
     void lineas(uint32_t l) {
         const uint32_t sube = l & ~linea_;
         linea_ = l;
-        pend_ = (pend_ & tipo_) | (sube & tipo_ & ena_) | (l & ~tipo_);
+        for (Banco& b : b_) b.pend = (b.pend & b.tipo) | (sube & b.tipo & b.ena) | (l & ~b.tipo);
         recalcula();
     }
-    uint32_t eip() const {
+    uint32_t eip(unsigned k = 0) const {
+        const Banco& b = b_[k];
         uint32_t r = 0;
         for (unsigned i = 1; i < 32; ++i)
-            if (!((CLINT_ESP_IDS >> i) & 1u) && (((pend_ & ena_) >> i) & 1u) && prio_[i] >= umbral_) r |= 1u << i;
+            if (!((CLINT_ESP_IDS >> i) & 1u) && (((b.pend & b.ena) >> i) & 1u) && b.prio[i] >= b.umbral) r |= 1u << i;
         return r;
     }
     uint64_t reclamaciones() const { return n_recl_; }
 
+    // El PLIC en la región de la CPU: `off` desde 0x2000_1000 (0-0x7FF)
+    void acceso_plic(tlm::tlm_generic_payload& gp, uint32_t off) {
+        const unsigned n = gp.get_data_length();
+        unsigned char* p = gp.get_data_ptr();
+        const unsigned k = off >= 0x400 ? 1u : 0u, r0 = (off & 0x3FFu) & ~3u, sh = (off & 3u) * 8u;
+        if (gp.is_write()) {
+            uint32_t v = 0;
+            for (unsigned i = 0; i < n && i < 4; ++i) v |= uint32_t(p[i]) << (8 * i);
+            v <<= sh;
+            switch (r0) {
+            case 0x00: escribe_ena(k, v); break;
+            case 0x04: escribe_tipo(k, v); break;
+            case 0x08: escribe_clear(k, v); break;
+            case 0x90: b_[k].umbral = v & 0xFFu; recalcula(); break;
+            case 0x94: b_[k].claim = v; break;
+            case 0x3FC: conf_[k] = v; break;
+            default:
+                if (r0 >= 0x10 && r0 < 0x90) escribe_prio(k, (r0 - 0x10) / 4, v);
+                break;
+            }
+        } else {
+            uint32_t r = 0;
+            switch (r0) {
+            case 0x00: r = b_[k].ena; break;
+            case 0x04: r = b_[k].tipo; break;
+            case 0x08: r = b_[k].clear; break;
+            case 0x0C: r = eip(k); break;
+            case 0x90: r = b_[k].umbral; break;
+            case 0x94: r = b_[k].claim; break;
+            case 0x3FC: r = conf_[k]; break;
+            default:
+                if (r0 >= 0x10 && r0 < 0x90) r = b_[k].prio[(r0 - 0x10) / 4];
+                break;
+            }
+            for (unsigned i = 0; i < n; ++i) p[i] = uint8_t((r >> sh) >> (8 * i));
+        }
+        gp.set_response_status(tlm::TLM_OK_RESPONSE);
+    }
+
     // --- rv_irq_if ---------------------------------------------------------------
-    uint32_t pendientes() override { return eip() | (clint ? clint->pendientes() : 0u); }
+    uint32_t pendientes() override { return eip(0) | eip(1) | (clint ? clint->pendientes() : 0u); }
     bool elige(uint32_t c, unsigned& id) override {
         const uint32_t ext = c & ~CLINT_ESP_IDS;
         if (ext) {
             unsigned mejor = 32, pmax = 0;
-            for (unsigned i = 1; i < 32; ++i)
-                if (((ext >> i) & 1u) && (mejor == 32 || prio_[i] > pmax)) { pmax = prio_[i]; mejor = i; }
+            for (unsigned i = 1; i < 32; ++i) {
+                if (!((ext >> i) & 1u)) continue;
+                const unsigned pr = ((b_[0].ena >> i) & 1u) ? b_[0].prio[i] : b_[1].prio[i];
+                if (mejor == 32 || pr > pmax) { pmax = pr; mejor = i; }
+            }
             id = mejor;
             return true;
         }
@@ -268,31 +323,30 @@ public:
         return false;
     }
     void reclamada(unsigned id) override {
-        if (id < 32) reclamada_ |= 1u << id;
+        if (id < 32) for (Banco& b : b_) b.reclamada |= 1u << id;
         ++n_recl_;
     }
 
 protected:
     uint32_t reg_read(uint32_t off) override {
         switch (off) {
-        case 0x00: return ena_;
-        case 0x04: return tipo_;
-        case 0x08: return eip();
-        case 0x8C: return umbral_;
+        case 0x00: return b_[0].ena;
+        case 0x04: return b_[0].tipo;
+        case 0x08: return eip(0);
+        case 0x8C: return b_[0].umbral;
         case 0x90: case 0x94: case 0x98: case 0x9C: return cpu_[(off - 0x90) / 4];
         case 0xA0: return date_;
-        case 0xA8: return clear_;
+        case 0xA8: return b_[0].clear;
         default: break;
         }
-        if (off >= 0x0C && off < 0x0C + 4 * 32) return prio_[(off - 0x0C) / 4];
+        if (off >= 0x0C && off < 0x0C + 4 * 32) return b_[0].prio[(off - 0x0C) / 4];
         return 0;
     }
     void reg_write(uint32_t off, uint32_t v, uint32_t) override {
-        const uint32_t res = ~CLINT_ESP_IDS & ~1u;
         switch (off) {
-        case 0x00: ena_ = v & res; recalcula(); return;
-        case 0x04: tipo_ = v & res; recalcula(); return;
-        case 0x8C: umbral_ = v & 0xFFu; recalcula(); return;
+        case 0x00: escribe_ena(0, v); return;
+        case 0x04: escribe_tipo(0, v); return;
+        case 0x8C: b_[0].umbral = v & 0xFFu; recalcula(); return;
         case 0x90: case 0x94: case 0x98: case 0x9C: {
             const unsigned i = (off - 0x90) / 4;
             cpu_[i] = v & 1u;
@@ -300,31 +354,38 @@ protected:
             return;
         }
         case 0xA0: date_ = v & 0x0FFFFFFFu; return;
-        case 0xA8: {
-            const uint32_t sube = v & ~clear_;
-            const uint32_t borra = sube & tipo_ & (reclamada_ | ~ena_);
-            pend_ &= ~borra;
-            reclamada_ &= ~borra;
-            clear_ = v;
-            recalcula();
-            return;
-        }
+        case 0xA8: escribe_clear(0, v); return;
         default: break;
         }
-        if (off >= 0x0C && off < 0x0C + 4 * 32) {
-            const unsigned i = (off - 0x0C) / 4;
-            if ((res >> i) & 1u) prio_[i] = v & 0xFu;
-            recalcula();
-        }
+        if (off >= 0x0C && off < 0x0C + 4 * 32) escribe_prio(0, (off - 0x0C) / 4, v);
     }
 
 private:
-    uint32_t ena_ = 0, tipo_ = 0, clear_ = 0, umbral_ = 0, date_ = 0;
-    uint32_t prio_[32] = {};
+    struct Banco {
+        uint32_t ena = 0, tipo = 0, clear = 0, umbral = 0, claim = 0, pend = 0, reclamada = 0;
+        uint32_t prio[32] = {};
+    };
+    static constexpr uint32_t RES = ~CLINT_ESP_IDS & ~1u;
+    Banco b_[2];
     uint32_t cpu_[4] = {};
-    uint32_t linea_ = 0, pend_ = 0, reclamada_ = 0;
+    uint32_t linea_ = 0, date_ = 0, conf_[2] = {};
     uint64_t n_recl_ = 0;
     void recalcula() { if (aviso) aviso(); }
+    void escribe_ena(unsigned k, uint32_t v) { b_[k].ena = v & RES; recalcula(); }
+    void escribe_tipo(unsigned k, uint32_t v) { b_[k].tipo = v & RES; recalcula(); }
+    void escribe_prio(unsigned k, unsigned i, uint32_t v) {
+        if ((RES >> i) & 1u) b_[k].prio[i] = v & 0xFu;
+        recalcula();
+    }
+    void escribe_clear(unsigned k, uint32_t v) {
+        Banco& b = b_[k];
+        const uint32_t sube = v & ~b.clear;
+        const uint32_t borra = sube & b.tipo & (b.reclamada | ~b.ena);
+        b.pend &= ~borra;
+        b.reclamada &= ~borra;
+        b.clear = v;
+        recalcula();
+    }
 };
 
 } // namespace stm32

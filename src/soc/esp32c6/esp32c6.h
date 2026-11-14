@@ -2,19 +2,23 @@
 // esp32c6.h — EL ESP32-C6 (fase E9 de doc/analisis_esp32_riscv.md)
 //
 // El núcleo genérico de src/rv con RV_ESP32C6_HP (E9.1) y lo que Espressif
-// puso alrededor. Esta entrega (E9.2) es el chip en «arranque directo», como
-// el C3 de E3: el firmware se carga en la HP SRAM y el núcleo arranca en su
-// punto de entrada, sin la ROM; la ROM de verdad (rev0, la de todos los C6)
-// está en su sitio y se lee, pero arrancar por ella, la Flash y la caché son
-// de la entrega siguiente.
+// puso alrededor. E9.2: el chip en «arranque directo», como el C3 de E3: el
+// firmware se carga en la HP SRAM y el núcleo arranca en su punto de entrada,
+// sin la ROM. E9.3: la ROM de verdad (rev0, la de todos los C6), la Flash por
+// SPI0/SPI1, la caché y su MMU (c6_cache.h), el eFuse, el SHA, el RNG y el
+// I2C_ANA_MST: el chip arranca por la ROM, que lee la Flash como en la placa,
+// y ESP-IDF corre (hello_world, con FreeRTOS y esp_restart).
 //
 //   memoria    la HP SRAM (512 KB, 0x4080_0000) es una sola para los buses I y
 //              D [TRM-C6 §5.3]: se ejecuta y se lee por la misma dirección, en
 //              bytes o en palabras. La LP SRAM (16 KB, 0x5000_0000), igual. La
-//              ROM en 0x4000_0000-0x4004_FFFF.
-//   interrup.  la matriz (77 fuentes) y el INTPRI, con el CLINT de Espressif en
-//              0x2000_1800 (soc/esp/intc_esp_v2.h); el núcleo tiene mie/mip y
-//              delega a U con mideleg.
+//              ROM en 0x4000_0000-0x4004_FFFF. La Flash, por la caché, en la
+//              ventana única 0x4200_0000-0x42FF_FFFF.
+//   interrup.  la matriz (77 fuentes) y el INTPRI, que es también el PLIC de
+//              la región de la CPU (MX en 0x2000_1000, UX en 0x2000_1400, el que
+//              usa ESP-IDF), con el CLINT de Espressif en 0x2000_1800
+//              (soc/esp/intc_esp_v2.h); el núcleo tiene mie/mip y delega a U
+//              con mideleg.
 //   PMA        16 entradas en los CSR 0xBC0-0xBDF (soc/esp/pma_esp.h): cada
 //              acceso del núcleo pasa por ella (los del depurador, no).
 //   reloj      el PCR (c6_sistema.h): XTAL de 40 MHz tras el reset; con el
@@ -22,16 +26,17 @@
 //   periféric. UART0/1 (la UART con la disposición del C6), SYSTIMER, TIMG0/1,
 //              GPIO con la matriz e IO_MUX sobre pads eléctricos, la GPIO
 //              dedicada por los CSR, LP_AON (STORE, resets por software),
-//              LP_CLKRST (la causa), y guardando con sus valores de reset: PMU,
-//              HP_SYSTEM, eFuse, SPI0/1, EXTMEM, LP_WDT, LP_TIMER, I2C_ANA_MST,
-//              LPPERI, LP_ANALOG, las APM y los TEE, ASSIST_DEBUG y MEM_MONITOR.
-//              El resto, DECLARADOS (leen cero y avisan; E9.4).
+//              LP_CLKRST (la causa), eFuse (de lectura), SPI0/SPI1 con la MMU,
+//              EXTMEM, SHA, LPPERI (el RNG), I2C_ANA_MST; y guardando con sus
+//              valores de reset: PMU, HP_SYSTEM, LP_WDT, LP_TIMER, LP_ANALOG,
+//              las APM y los TEE, ASSIST_DEBUG, MEM_MONITOR y MODEM_SYSCON y
+//              MODEM_LPCON. El resto, DECLARADOS (leen cero y avisan; E9.4).
 //   reset      CHIP_PU: el reset de chip, y los cinco pines de arranque
 //              (GPIO8, GPIO9, MTMS, MTDI y GPIO15) se guardan al soltarlo.
 //              Resets del sistema y de la CPU por software (LP_AON) con su
 //              causa en LP_CLKRST.
-//   CSR        mpcer/mpcmr/mpccr (0x7E0-0x7E2), cpu_gpio_oen/in/out
-//              (0x803-0x805) y la PMA
+//   CSR        mpcer/mpcmr/mpccr (0x7E0-0x7E2) y su copia de usuario
+//              (0x800-0x802), cpu_gpio_oen/in/out (0x803-0x805) y la PMA
 // =============================================================================
 #ifndef STM32_SOC_ESP32C6_ESP32C6_H
 #define STM32_SOC_ESP32C6_ESP32C6_H
@@ -48,6 +53,8 @@
 #include <vector>
 #include "c6_desc.h"
 #include "c6_sistema.h"
+#include "c6_cache.h"
+#include "../../parts/spi_flash.h"
 #include "../esp/intc_esp_v2.h"
 #include "../esp/pma_esp.h"
 #include "../esp/esp_rom.h"
@@ -56,6 +63,7 @@
 #include "../../periph/esp/systimer_esp.h"
 #include "../../periph/esp/timg_esp.h"
 #include "../../periph/esp/gpio_esp.h"
+#include "../../periph/esp/sha_esp.h"
 #include "../../periph/bloque_declarado.h"
 #include "../../common/imagen_fw.h"
 #include "../../common/analog_net.h"
@@ -70,22 +78,23 @@ inline const uint32_t ROM_REV0[] = {
 } // namespace c6
 
 // Los CSR propios del C6 HP [TRM-C6 §1.3, tabla 1.3-1]: los contadores de
-// rendimiento de máquina (mpcer/mpcmr/mpccr, 0x7E0-0x7E2; sin la copia de
-// usuario del C3), la GPIO dedicada (0x803-0x805) y la PMA (0xBC0-0xBDF).
+// rendimiento de máquina (mpcer/mpcmr/mpccr, 0x7E0-0x7E2), la GPIO dedicada
+// (0x803-0x805) y la PMA (0xBC0-0xBDF). Y la copia de usuario de los
+// contadores (upcer/upcmr/upccr, 0x800-0x802), que el TRM no lista pero la
+// ROM escribe al arrancar (`csrw 0x800, 1`, `csrw 0x801, 1`), como la del C3.
 class CsrC6 : public rv_csr_ext_if {
 public:
     PmaEsp pma;
     explicit CsrC6(GpioEsp& g) : g_(g) { reset(); }
     bool atiende(uint16_t a) const override {
-        return (a >= 0x7E0 && a <= 0x7E2) || (a >= 0x803 && a <= 0x805) || PmaEsp::es_suyo(a);
+        return (a >= 0x7E0 && a <= 0x7E2) || (a >= 0x800 && a <= 0x805) || PmaEsp::es_suyo(a);
     }
     bool lee(RvHart& h, uint16_t a, uint32_t& v) override {
+        if (a >= 0x800 && a <= 0x802) { v = pc_[1].lee(h, a - 0x800); return true; }
         if (h.modo() != RvModo::M) return false;
         if (PmaEsp::es_suyo(a)) return pma.lee(a, v);
         switch (a) {
-        case 0x7E0: v = er_; return true;
-        case 0x7E1: v = mr_; return true;
-        case 0x7E2: v = cuenta(h); return true;
+        case 0x7E0: case 0x7E1: case 0x7E2: v = pc_[0].lee(h, a - 0x7E0); return true;
         case 0x803: v = g_.cpu_oen(); return true;
         case 0x804: v = g_.cpu_gpio_in(); return true;
         case 0x805: v = g_.cpu_out(); return true;
@@ -93,30 +102,39 @@ public:
         }
     }
     bool escribe(RvHart& h, uint16_t a, uint32_t v) override {
+        if (a >= 0x800 && a <= 0x802) { pc_[1].escribe(h, a - 0x800, v); return true; }
         if (h.modo() != RvModo::M) return false;
         if (PmaEsp::es_suyo(a)) { pma.escribe(a, v); return true; }
         switch (a) {
-        case 0x7E0: base_ = cuenta(h); er_ = v & 0x7FFu; desde_ = fuente(h); return true;
-        case 0x7E1: base_ = cuenta(h); mr_ = v & 3u; desde_ = fuente(h); return true;
-        case 0x7E2: base_ = v; desde_ = fuente(h); return true;
+        case 0x7E0: case 0x7E1: case 0x7E2: pc_[0].escribe(h, a - 0x7E0, v); return true;
         case 0x803: g_.cpu_gpio_oen(uint8_t(v)); return true;
         case 0x804: return true;                         // solo de lectura
         case 0x805: g_.cpu_gpio_out(uint8_t(v)); return true;
         default: return false;
         }
     }
-    // Como en el C3: salen del reset contando ciclos [deducido de ESP-IDF,
-    // que lee mpccr sin habilitarlo]. La PMA, a su reset.
-    void reset() { er_ = 1; mr_ = 1; base_ = 0; desde_ = 0; pma.reset(); }
+    // Como en el C3: los de máquina salen del reset contando ciclos
+    // [deducido de ESP-IDF, que lee mpccr sin habilitarlo]; los de usuario,
+    // parados. La PMA, a su reset.
+    void reset() { pc_[0] = Contador(); pc_[0].er = 1; pc_[0].mr = 1; pc_[1] = Contador(); pma.reset(); }
 private:
+    struct Contador {
+        uint32_t er = 0, mr = 0, base = 0;
+        uint64_t desde = 0;
+        static uint64_t fuente(RvHart& h, uint32_t e) { return (e & 1u) ? h.ciclos() : h.instret(); }
+        uint32_t cuenta(RvHart& h) const {
+            if (!(mr & 1u) || !er) return base;
+            return base + uint32_t(fuente(h, er) - desde);
+        }
+        uint32_t lee(RvHart& h, unsigned i) const { return i == 0 ? er : i == 1 ? mr : cuenta(h); }
+        void escribe(RvHart& h, unsigned i, uint32_t v) {
+            if (i == 0) { base = cuenta(h); desde = fuente(h, er = v & 0x7FFu); }
+            else if (i == 1) { base = cuenta(h); mr = v & 3u; desde = fuente(h, er); }
+            else { base = v; desde = fuente(h, er); }
+        }
+    };
     GpioEsp& g_;
-    uint32_t er_ = 1, mr_ = 1, base_ = 0;
-    uint64_t desde_ = 0;
-    uint64_t fuente(RvHart& h) const { return (er_ & 1u) ? h.ciclos() : h.instret(); }
-    uint32_t cuenta(RvHart& h) const {
-        if (!(mr_ & 1u) || !er_) return base_;
-        return base_ + uint32_t(fuente(h) - desde_);
-    }
+    Contador pc_[2];
 };
 
 class Esp32C6 : public sc_core::sc_module {
@@ -144,8 +162,15 @@ public:
     UartEsp        uart0, uart1;
     SystimerEsp    systimer;
     TimgEsp        timg0, timg1;
-    BloqueEsp      pmu, hp_sys, efuse, spi0, spi1, extmem, lp_wdt, lp_timer, i2c_ana_mst, lpperi,
-                   lp_ana, hp_apm, lp_apm, lp_apm0, tee, lp_tee, assist, mem_mon;
+    EfuseC6        efuse;
+    Spi0C6         spi0;
+    SpiMemEsp      spi1;
+    CacheC6        cache;
+    ShaEsp         sha;
+    I2cAnaMstC6    i2c_ana_mst;
+    LpPeriC6       lpperi;
+    BloqueEsp      pmu, hp_sys, lp_wdt, lp_timer,
+                   lp_ana, hp_apm, lp_apm, lp_apm0, tee, lp_tee, assist, mem_mon, modem_syscon, modem_lpcon;
     RomEsp         rom{c6::ROM_B, c6::ROM_FIN - c6::ROM_B};
     std::vector<std::unique_ptr<BloqueDeclarado>> declarados;
 
@@ -161,15 +186,14 @@ public:
           uart1("uart1", c6::UART1_B, gpio.sig_out[c6::SIG_U1TXD], gpio.sig_in[c6::SIG_U1RXD]),
           systimer("systimer", c6::SYSTIMER_B),
           timg0("timg0", c6::TIMG0_B), timg1("timg1", c6::TIMG1_B),
+          efuse("efuse", c6::EFUSE_B, m.revision, m.flash_interna ? 1u : 0u, m.flash_interna >> 20),
+          spi0("spi0", c6::SPI0_B), spi1("spi1", c6::SPI1_B, c6::REGS_SPI_MEM),
+          cache("extmem", c6::EXTMEM_B, spi0), sha("sha", c6::SHA_B, 0x20201229u),
+          i2c_ana_mst("i2c_ana_mst", c6::I2C_ANA_MST_B), lpperi("lpperi", c6::LPPERI_B),
           pmu("pmu", c6::PMU_B, 0x400, c6::REGS_PMU),
           hp_sys("hp_system", c6::HP_SYS_B, 0x1000, c6::REGS_HP_SYSTEM),
-          efuse("efuse", c6::EFUSE_B, 0x400, c6::REGS_EFUSE),
-          spi0("spi0", c6::SPI0_B, 0x1000, c6::REGS_SPI_MEM), spi1("spi1", c6::SPI1_B, 0x1000, c6::REGS_SPI_MEM),
-          extmem("extmem", c6::EXTMEM_B, 0x1000, c6::REGS_EXTMEM),
           lp_wdt("lp_wdt", c6::LP_WDT_B, 0x400, c6::REGS_LP_WDT),
           lp_timer("lp_timer", c6::LP_TIMER_B, 0x400, c6::REGS_LP_TIMER),
-          i2c_ana_mst("i2c_ana_mst", c6::I2C_ANA_MST_B, 0x800, c6::REGS_I2C_ANA_MST),
-          lpperi("lpperi", c6::LPPERI_B, 0x400, c6::REGS_LPPERI),
           lp_ana("lp_analog_peri", c6::LP_ANA_B, 0x400, c6::REGS_LP_ANA_PERI),
           hp_apm("hp_apm", c6::HP_APM_B, 0x800, c6::REGS_HP_APM),
           lp_apm("lp_apm", c6::LP_APM_B, 0x400, c6::REGS_LP_APM),
@@ -177,6 +201,8 @@ public:
           tee("tee", c6::TEE_B, 0x1000, c6::REGS_TEE), lp_tee("lp_tee", c6::LP_TEE_B, 0x400, c6::REGS_LP_TEE),
           assist("assist_debug", c6::ASSIST_B, 0x1000, c6::REGS_ASSIST_DEBUG),
           mem_mon("mem_monitor", c6::MEM_MON_B, 0x1000, c6::REGS_MEM_MONITOR),
+          modem_syscon("modem_syscon", c6::MODEM_SYSCON_B, 0x400, c6::REGS_MODEM_SYSCON),
+          modem_lpcon("modem_lpcon", c6::MODEM_LPCON_B, 0x400, c6::REGS_MODEM_LPCON),
           csr_(gpio), sram_(c6::HP_SRAM_TAM, 0), lp_sram_(c6::LP_SRAM_TAM, 0) {
         gpio.pon_c6();
         rom.pon_empotrada(c6::ROM_REV0, sizeof c6::ROM_REV0 / 4, 0, "esp32c6_rev0_rom.elf");
@@ -192,6 +218,15 @@ public:
         core.hart.pon_irq(&intpri);
         core.hart.pon_csr_ext(&csr_);
         core.hart.permisos_extra = [this](uint32_t a) { return csr_.pma.firma(a); };
+        // El reloj del MSPI: 80 MHz con el PLL, el XTAL sin él
+        auto hz_mspi = [this] { return pcr.soc_clk_sel() == 1 ? 80e6 : pcr.hz_xtal; };
+        spi0.hz_origen = hz_mspi;
+        spi1.hz_origen = hz_mspi;
+        if (m.flash_interna) {
+            flash_interna_.reset(new SpiFlashChip(*busca_modelo_flash(m.flash_interna > (4u << 20) ? "GD25Q64" : "GD25Q32"),
+                                                  "Flash interna"));
+            pon_flash(flash_interna_.get());
+        }
 
         // Los bloques de la entrega siguiente: declarados, para que el mapa
         // sea el del chip
@@ -207,7 +242,7 @@ public:
             {"hinf", c6::HINF_B, 0x1000, "E9.4"}, {"slc", c6::SLC_B, 0x1000, "E9.4"},
             {"slchost", c6::SLCHOST_B, 0x1000, "E9.4"}, {"pvt", c6::PVT_B, 0x1000, "E9.4"},
             {"gdma", c6::GDMA_B, 0x1000, "E9.4"}, {"spi2", c6::SPI2_B, 0x1000, "E9.4"},
-            {"aes", c6::AES_B, 0x1000, "E9.4"}, {"sha", c6::SHA_B, 0x1000, "E9.4"},
+            {"aes", c6::AES_B, 0x1000, "E9.4"},
             {"rsa", c6::RSA_B, 0x1000, "E9.4"}, {"ecc", c6::ECC_B, 0x1000, "E9.4"},
             {"ds", c6::DS_B, 0x1000, "E9.4"}, {"hmac", c6::HMAC_B, 0x1000, "E9.4"},
             {"pau", c6::PAU_B, 0x1000, "E9.4"}, {"misc", c6::MISC_B, 0x1000, "E9.4"},
@@ -220,9 +255,9 @@ public:
                                                         (std::string("En el ESP32-C6 llega en ") + d.e + ".").c_str()));
 
         std::vector<BusSlave*> todos{&gpio, &iomux, &intmtx, &intpri, &pcr, &lp_aon, &lp_clkrst, &uart0, &uart1,
-                                     &systimer, &timg0, &timg1, &pmu, &hp_sys, &efuse, &spi0, &spi1, &extmem,
+                                     &systimer, &timg0, &timg1, &efuse, &spi0, &spi1, &cache, &pmu, &hp_sys,
                                      &lp_wdt, &lp_timer, &i2c_ana_mst, &lpperi, &lp_ana, &hp_apm, &lp_apm,
-                                     &lp_apm0, &tee, &lp_tee, &assist, &mem_mon};
+                                     &lp_apm0, &tee, &lp_tee, &assist, &mem_mon, &sha, &modem_syscon, &modem_lpcon};
         for (auto& d : declarados) todos.push_back(d.get());
         for (BusSlave* s : todos) engancha(s);
 
@@ -293,10 +328,39 @@ public:
         uint32_t ent = 0;
         if (!entrada_elf(ruta, ent)) return ruta + ": sin punto de entrada";
         core.hart.pon_pc_arranque(ent);
+        timg0.flashboot = false;
         cargado_ = true;
         return "";
     }
     bool cargado() const { return cargado_; }
+
+    // --- La Flash y el arranque por la ROM -------------------------------------
+    void pon_flash(SpiFlashChip* f) { spi0.flash = spi1.flash = f; }
+    SpiFlashChip* flash() const { return spi0.flash; }
+    SpiFlashChip* flash_interna() const { return flash_interna_.get(); }
+    // Una imagen en la Flash desde `off` (un .bin de esptool) y el arranque
+    // por la ROM. "" si bien.
+    std::string carga_imagen(const std::string& ruta, uint32_t off) {
+        if (!flash()) return "el ESP32-C6 no tiene Flash: ni en el encapsulado ni en la placa";
+        std::FILE* f = std::fopen(ruta.c_str(), "rb");
+        if (!f) return "no se puede leer " + ruta;
+        std::vector<uint8_t> d;
+        unsigned char b[4096];
+        size_t n;
+        while ((n = std::fread(b, 1, sizeof b, f)) > 0) d.insert(d.end(), b, b + n);
+        std::fclose(f);
+        if (uint64_t(off) + d.size() > flash()->tam())
+            return ruta + ": no cabe en la Flash (" + std::to_string(flash()->tam() >> 10) + " KB)";
+        flash()->escribe_directo(off, d.data(), d.size());
+        arranca_por_rom();
+        return "";
+    }
+    // El arranque normal: la CPU sale del reset en la ROM
+    void arranca_por_rom() {
+        core.hart.pon_pc_arranque(mcu.nucleo->pc_reset);
+        timg0.flashboot = true;
+        cargado_ = true;
+    }
 
     bool poke8(uint32_t a, uint8_t v) { uint8_t* p = mem(a); if (!p) return false; *p = v; return true; }
     bool peek8(uint32_t a, uint8_t& v) { uint8_t* p = mem(a); if (!p) return false; v = *p; return true; }
@@ -314,13 +378,18 @@ public:
 
     std::vector<std::string> limitaciones() const {
         return {
-            "E9.2: el arranque directo (un ELF en la HP SRAM, sin pasar por la ROM); la ROM se lee, "
-            "pero el arranque por ella, la Flash por SPI0/SPI1, la cache y la MMU, el eFuse con "
-            "comportamiento y ESP-IDF son de la entrega siguiente",
+            "la ROM de verdad (rev0) arranca desde la Flash (SPI0/SPI1, la cache de 32 KB y la MMU de 256 "
+            "paginas) o espera en el modo descarga; un ELF bare-metal se carga en la HP SRAM y arranca SIN "
+            "ROM (el arranque directo de E9.2)",
             "el PCR: la CPU, el AHB y el APB, el SCLK de las UART y el reloj de los TIMG; los CLK_EN y "
             "RST_EN de cada periferico se guardan sin cortar ni resetear",
-            "el PLL, el FOSC y el XTAL estan siempre: el PMU y el I2C_ANA_MST guardan sin hacer nada",
-            "LEDC, RMT, I2C, TWAI0/1, I2S, el SAR ADC, GDMA, GP-SPI2, las de cifrado, PCNT, MCPWM, "
+            "el PLL, el FOSC y el XTAL estan siempre: el PMU guarda sin hacer nada y la calibracion del "
+            "BBPLL (I2C_ANA_MST) acaba en el acto",
+            "eFuse: solo lectura (de un fichero o la de omision, con la revision, el encapsulado y la "
+            "Flash de dentro); programar no programa",
+            "el RNG (LPPERI_RNG_DATA) es un xorshift32 de semilla fija: igual en cada simulacion",
+            "el RWDT (LP_WDT) y el super watchdog guardan sin contar",
+            "LEDC, RMT, I2C, TWAI0/1, I2S, el SAR ADC, GDMA, GP-SPI2, AES, RSA, ECC, HMAC, DS, PCNT, MCPWM, "
             "PARL_IO, ETM, SDIO y el USB-Serial-JTAG: declarados (E9.4, E9.5)",
             "el nucleo LP y sus perifericos (LP_UART, LP_I2C, LP_IO): declarados (E10)",
             "la depuracion (el DM, el TAP y GDB): E9.6",
@@ -329,6 +398,8 @@ public:
 
 private:
     CsrC6 csr_;
+    std::unique_ptr<SpiFlashChip> flash_interna_;
+    bool aviso_ventana_ = false;
     std::vector<uint8_t> sram_, lp_sram_;
     std::vector<std::unique_ptr<tlm_utils::simple_initiator_socket<Esp32C6>>> isk_;
     std::vector<BusSlave*> slaves_;
@@ -363,6 +434,7 @@ private:
         // El SCLK de las UART con «1» es el PLL_F80M, fijo [TRM-C6 §8]
         uart0.hz_apb = uart1.hz_apb = pcr.hz_pll_f80m;
         uart0.hz_xtal = uart1.hz_xtal = pcr.hz_xtal;
+        sha.hz_apb = apb;
     }
 
     uint8_t* mem(uint32_t a) {
@@ -402,6 +474,21 @@ private:
             gp.set_response_status(tlm::TLM_OK_RESPONSE);
             return;
         }
+        if (CacheC6::es_ventana(a)) {
+            std::string pq;
+            if (gp.is_write()) pq = "escritura en la ventana de la Flash (la cache es de solo lectura)";
+            else if (cache.lee_ventana(a, p, n, fetch, d, pq)) { gp.set_response_status(tlm::TLM_OK_RESPONSE); return; }
+            if (!aviso_ventana_) {
+                aviso_ventana_ = true;
+                SC_REPORT_WARNING("esp32c6", (hex(a) + ": " + pq).c_str());
+            }
+            ++n_fallos_;
+            return;
+        }
+        if (a >= c6::PLIC_B && a + n <= c6::CLINT_B && !fetch) {
+            intpri.acceso_plic(gp, a - c6::PLIC_B);
+            return;
+        }
         if (a >= c6::CLINT_B && a + n <= c6::CLINT_FIN && !fetch) {
             clint.acceso(gp, a - c6::CLINT_B);
             return;
@@ -426,6 +513,14 @@ private:
     unsigned transport_dbg(int, tlm::tlm_generic_payload& gp) {
         const uint32_t a = uint32_t(gp.get_address());
         const unsigned n = gp.get_data_length();
+        if (CacheC6::es_ventana(a) && !gp.is_write() && flash()) {
+            for (unsigned i = 0; i < n; ++i) {
+                uint32_t fis = 0;
+                if (!cache.traduce(a + i, fis)) return i;
+                gp.get_data_ptr()[i] = flash()->datos()[fis % flash()->tam()];
+            }
+            return n;
+        }
         for (unsigned i = 0; i < n; ++i) {
             uint8_t* m = mem(a + i);
             if (!m) return i;
@@ -446,8 +541,11 @@ private:
     void reset_perifericos() {
         gpio.reset(); intmtx.reset(); intpri.reset(); clint.reset(); pcr.reset();
         uart0.reset(); uart1.reset(); systimer.reset(); timg0.reset(); timg1.reset();
-        for (BloqueEsp* b : {&pmu, &hp_sys, &efuse, &spi0, &spi1, &extmem, &lp_wdt, &lp_timer, &i2c_ana_mst,
-                             &lpperi, &lp_ana, &hp_apm, &lp_apm, &lp_apm0, &tee, &lp_tee, &assist, &mem_mon})
+        efuse.reset(); spi0.reset(); spi1.reset(); cache.reset(); sha.reset();
+        i2c_ana_mst.reset(); lpperi.reset();
+        for (BloqueEsp* b : {&pmu, &hp_sys, &lp_wdt, &lp_timer,
+                             &lp_ana, &hp_apm, &lp_apm, &lp_apm0, &tee, &lp_tee, &assist, &mem_mon,
+                             &modem_syscon, &modem_lpcon})
             b->reset_regs();
     }
 
@@ -468,6 +566,7 @@ private:
             wait(1, sc_core::SC_US);
             if (!pu_alto()) continue;
             gpio.latch_arranque();
+            timg0.pon_modo_flash((gpio.strap() & 8u) != 0);
             csr_.reset();
             encendido_ = true;
             rst_cpu_n.write(true);
@@ -483,6 +582,7 @@ private:
                     if (sis) {
                         reset_perifericos();
                         if (lp_aon.force_download()) gpio.fuerza_descarga();
+                        timg0.pon_modo_flash((gpio.strap() & 8u) != 0);
                     }
                     lp_clkrst.anota_causa(c);
                     csr_.reset();

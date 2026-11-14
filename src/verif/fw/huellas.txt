@@ -214,3 +214,5 @@ c3  esp32c3/xts_date.elf                 12672  0x6BEDDDA8
 c6  esp32c6/blinky.elf                   14680  0x20F638F3
 c6  esp32c6/uart.elf                     15020  0xFA429428
 c6  esp32c6/intc.elf                     30624  0x4168EE6B
+c6  esp32c6/direct_boot.elf              15556  0x8030D4BE
+c6  esp32c6/direct_boot.bin               3456  0xDE48AE73

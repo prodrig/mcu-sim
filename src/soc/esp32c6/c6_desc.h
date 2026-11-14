@@ -38,8 +38,8 @@ constexpr uint32_t HP_SRAM = 0x40800000u, HP_SRAM_TAM = 512u * 1024u;
 constexpr uint32_t LP_SRAM = 0x50000000u, LP_SRAM_TAM = 16u * 1024u;
 constexpr uint32_t FLASH_B = 0x42000000u, FLASH_TAM = 16u << 20;    // por la caché
 constexpr uint32_t PERIF = 0x60000000u, PERIF_FIN = 0x600D0000u;
-// La región de la CPU: el DM y el CLINT [TRM-C6 §1.4, §1.7; reg_base.h]
-constexpr uint32_t CPU_B = 0x20000000u, CLINT_B = 0x20001800u, CLINT_FIN = 0x20002000u;
+// La región de la CPU: el DM, el PLIC (MX y UX) y el CLINT [TRM-C6 §1.4, §1.7; reg_base.h]
+constexpr uint32_t CPU_B = 0x20000000u, PLIC_B = 0x20001000u, CLINT_B = 0x20001800u, CLINT_FIN = 0x20002000u;
 // --- Periféricos [TRM-C6 tabla 5.3-2; reg_base.h de ESP-IDF] -----------------------
 constexpr uint32_t UART0_B = 0x60000000u, UART1_B = 0x60001000u, SPI0_B = 0x60002000u,
                    SPI1_B = 0x60003000u, I2C_B = 0x60004000u, UHCI_B = 0x60005000u,
@@ -56,7 +56,7 @@ constexpr uint32_t UART0_B = 0x60000000u, UART1_B = 0x60001000u, SPI0_B = 0x6000
                    GPIO_B = 0x60091000u, MEM_MON_B = 0x60092000u, PAU_B = 0x60093000u,
                    HP_SYS_B = 0x60095000u, PCR_B = 0x60096000u, TEE_B = 0x60098000u,
                    HP_APM_B = 0x60099000u, LP_APM0_B = 0x60099800u, MISC_B = 0x6009F000u,
-                   I2C_ANA_MST_B = 0x600AF800u,
+                   MODEM_SYSCON_B = 0x600A9800u, MODEM_LPCON_B = 0x600AF000u, I2C_ANA_MST_B = 0x600AF800u,
                    PMU_B = 0x600B0000u, LP_CLKRST_B = 0x600B0400u, EFUSE_B = 0x600B0800u,
                    LP_TIMER_B = 0x600B0C00u, LP_AON_B = 0x600B1000u, LP_UART_B = 0x600B1400u,
                    LP_I2C_B = 0x600B1800u, LP_WDT_B = 0x600B1C00u, LP_IO_B = 0x600B2000u,

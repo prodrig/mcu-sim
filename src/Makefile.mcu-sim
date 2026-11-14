@@ -486,14 +486,22 @@ $(ASANC6): top/sc_main_c6.cpp $(HDRS) $(HDRS_C6)
 
 testc6-build: $(TESTC6)
 
-testc6: $(TESTC6)
+# Los ejemplos de ESP-IDF de E9 (verif/fw/esp32c6/idf/construye.sh), en build/idf-c6
+IDF_C6 := $(wildcard verif/fw/esp32c6/idf/idf-*.tar.xz)
+$(B)/idf-c6/.extraido: $(IDF_C6)
+	@rm -rf $(B)/idf-c6
+	@mkdir -p $(B)/idf-c6
+	for t in $(IDF_C6); do tar -C $(B)/idf-c6 -xJf $$t; done
+	@touch $@
+
+testc6: $(TESTC6) $(B)/idf-c6/.extraido
 	$(TESTC6)
 
 ifeq ($(PLATAFORMA),windows)
 asanc6:
 	@echo "MinGW no trae AddressSanitizer: 'make asanc6' solo va en Linux y macOS."
 else
-asanc6: $(ASANC6)
+asanc6: $(ASANC6) $(B)/idf-c6/.extraido
 	$(ASANC6)
 endif
 

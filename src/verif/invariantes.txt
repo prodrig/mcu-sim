@@ -392,4 +392,8 @@ testc3                 313      18846782364616        resto
 # sitio; blinky con el PLL del PCR; la UART0 con su disposicion del C6 por
 # GPIO16/17; el INTPRI, el CLINT, la delegacion a U y la PMA; los resets por
 # LP_AON y los cinco pines de arranque. Igual en dos pasadas (14-11-2026).
-testc6                  62         22496458348        total
+# D6-D8 (E9.3, por la ROM y la Flash: Direct Boot, ESP-IDF v5.5 hello_world
+# hasta esp_restart, el modo descarga y el C6FH4) van tras D5, que acaba en el
+# mismo picosegundo (22496458348 con 62); D1 cuenta cinco ficheros en vez de
+# tres, con las mismas comprobaciones (15-11-2026).
+testc6                  96      11824526458348        total

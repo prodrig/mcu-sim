@@ -13,11 +13,18 @@ CFLAGS := $(ARCH) -O2 -g -ffreestanding -fno-builtin -nostdlib -nostartfiles -Wa
 COMUN  := startup.S buzon.c
 
 PRUEBAS := blinky uart intc
-all: $(PRUEBAS:%=%.elf)
+all: $(PRUEBAS:%=%.elf) direct_boot.bin
 
 %.elf: %.c $(COMUN) c6.h c6_ram.ld
 	$(CC) $(CFLAGS) -o $@ $(COMUN) $< -lgcc
 
+# Direct Boot, desde la Flash (c6_flash.ld); la imagen es el .bin
+direct_boot.elf: direct_boot.c $(COMUN) c6.h c6_flash.ld
+	$(CC) $(ARCH) -O2 -g -ffreestanding -fno-builtin -nostdlib -nostartfiles -Wall \
+	      -Wl,--no-warn-rwx-segments -T c6_flash.ld -o $@ $(COMUN) $< -lgcc
+direct_boot.bin: direct_boot.elf
+	$(CROSS)objcopy -O binary $< $@
+
 clean:
-	rm -f *.elf
+	rm -f *.elf direct_boot.bin
 .PHONY: all clean

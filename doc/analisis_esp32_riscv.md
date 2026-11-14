@@ -1706,6 +1706,29 @@ la separación de §3 funciona.
   el umbral, la prioridad 0, mie, flanco y CLEAR; el MTI y el MSI; una
   interrupción delegada a U con utvec, ucause y uret; la PMA con un puntero
   nulo y una entrada de solo lectura; los resets y los pines de arranque).
+* **3. La ROM, la Flash y ESP-IDF** (2026-11-14). El C6 arranca por la ROM
+  rev0 como la placa. Lo que hizo falta, por orden de aparición: el **PLIC**
+  de la región de la CPU (MX en 0x2000_1000, UX en 0x2000_1400, CONF en
+  0x...3FC): la ROM y ESP-IDF (`SOC_INT_PLIC_SUPPORTED`,
+  `riscv/interrupt_plic.c`) no usan el INTPRI de 0x600C_5000 que documenta el
+  TRM, sino este; aquí el banco de M es el mismo en las dos vistas
+  (`IntPriEsp`, de modelo) y el de U solo está en el PLIC. La copia de
+  usuario de los contadores (CSR 0x800-0x802), que el TRM no lista y la ROM
+  escribe al arrancar. La **caché** (`c6_cache.h`): una ventana para I y D,
+  32 KB de 4 vías, y la **MMU detrás del SPI0** (MMU_ITEM_INDEX/CONTENT,
+  0x380/0x37C; 256 entradas, VALID en el bit 9, al revés que el C3). El
+  **SHA** (el de E4, con DATE 0x20201229) para la SHA-256 del bootloader;
+  **MODEM_LPCON** y **MODEM_SYSCON** con sus tablas (de
+  `include/modem` de ESP-IDF). El **I2C_ANA_MST**: el bus de los bloques
+  analógicos y BBPLL_CAL_DONE. El **RNG** de LPPERI (sin él, la máscara de
+  ofuscación del bootloader sale 0 y repite para siempre). Y el **eFuse**
+  con la imagen de un C6 de serie (MAC, revisión v0.2, encapsulado,
+  capacidad de la Flash de dentro). Con eso: Direct Boot
+  (`direct_boot.bin`, la ROM salta a 0x4200_0008), ESP-IDF v5.5.6
+  `hello_world` (el bootloader, la app con FreeRTOS a 160 MHz, el tick por
+  el SYSTIMER y el PLIC, y `esp_restart()` → `rst:0xc (SW_CPU)`), el modo
+  descarga («boot:0x4 (DOWNLOAD(USB/UART0/SDIO_FEI_FEO))», «waiting for
+  download») y el C6FH4 con la Flash dentro. `testc6` D6-D8.
 
 ### E10 · C6: el núcleo LP
 
