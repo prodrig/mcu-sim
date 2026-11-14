@@ -1531,6 +1531,22 @@ son la 43 y la 44-46 [TRM-C3 tabla 8.3-1; `ETS_*_INTR_SOURCE` de
   entrada en dos descriptores. `testc3` C28 (246): lo recibido es lo mandado,
   los descriptores y las interrupciones, BCK y WS medidos en los pines y un
   analizador del banco que decodifica las tramas Philips por su cuenta.
+* **`periph/esp/uhci_esp.h`** [TRM-C3 §26.4.10 y §26.6; `uhci_reg.h`,
+  `uhci_ll.h` y `uhci.c` de ESP-IDF]: une la UART0 o la UART1 (UARTn_CE) a la
+  GDMA (periférico 2). En transmisión, los bytes de la GDMA salen por la UART
+  cuando su FIFO está vacía (`UartEsp::toma_tx`); en recepción, lo que llega
+  va a la GDMA y no a la FIFO (`UartEsp::da_rx`). Con SEPER_EN, la
+  codificación SLIP: separadores (0xC0) alrededor de cada trama de la GDMA y
+  los escapes de ESC_CONF0-3 según ESCAPE_CONF, y al recibir se quitan y se
+  deshacen, con el final de trama en el separador. El final de trama también
+  por longitud (LEN_EOF_EN, PKT_THRS), por reposo (UART_IDLE_EOF_EN, con el
+  RX_IDLE_THRHD de la UART, 0x100 tiempos de bit si no se ha escrito) y por
+  break. TX_START y RX_START, la fuente 15. Sin la cabecera de HCI, CRC, ACK,
+  QUICK_SENT ni HUNG (avisan una vez). `verif/fw/esp32c3/uhci.c` hace lo del
+  driver «UART DMA» de ESP-IDF con la UART1 en LOOPBACK a 1 Mbaud: 100 bytes
+  con final por reposo, 8 en SLIP (el banco ve en la línea C0 01 DB DC 02 DB
+  DD 03 11 DB DC 04 C0) y 25 en tramas de 10 por longitud. `testc3` C29 (258).
+  **Con esto, el C3 no tiene ningún bloque declarado.**
 
 ### E9 · ESP32-C6: el núcleo HP y el SoC
 

@@ -75,6 +75,7 @@
 #include "../../periph/esp/ds_esp.h"
 #include "../../periph/esp/xts_aes_esp.h"
 #include "../../periph/esp/i2s_esp.h"
+#include "../../periph/esp/uhci_esp.h"
 #include "../../periph/bloque_declarado.h"
 #include "../../common/imagen_fw.h"
 #include "../../common/analog_net.h"
@@ -203,6 +204,7 @@ public:
     DsEsp          ds;
     XtsAesEsp      xts;
     I2sEsp         i2s;
+    UhciEsp        uhci;
     RomEsp         rom{c3::ROM0_I, c3::ROM_I_FIN - c3::ROM0_I};
     std::vector<std::unique_ptr<BloqueDeclarado>> declarados;
 
@@ -254,7 +256,7 @@ public:
           bb("bb", c3::BB_B, 0x1000),
           usj("usb_serial_jtag", c3::USB_SJ_B, gpio.nodo_de(19), gpio.nodo_de(18)),
           ledc("ledc", c3::LEDC_B), rmt("rmt", c3::RMT_B), adc("apb_saradc", c3::ADC_B), aes("aes", c3::AES_B), i2c("i2c", c3::I2C_B), twai("twai", c3::TWAI_B), gdma("gdma", c3::GDMA_B), spi2("spi2", c3::SPI2_B),
-          rsa("rsa", c3::RSA_B), hmac("hmac", c3::HMAC_B), ds("ds", c3::DS_B), xts("xts_aes", c3::XTS_AES_B), i2s("i2s", c3::I2S_B),
+          rsa("rsa", c3::RSA_B), hmac("hmac", c3::HMAC_B), ds("ds", c3::DS_B), xts("xts_aes", c3::XTS_AES_B), i2s("i2s", c3::I2S_B), uhci("uhci0", c3::UHCI_B),
           csr_(gpio), sram_(c3::SRAM_TAM, 0), rtc_fast_(c3::RTC_FAST_TAM, 0) {
         pon_rom_omision();
         bus.register_b_transport(this, &Esp32C3::b_transport);
@@ -279,17 +281,12 @@ public:
             pon_flash(flash_interna_.get());
         }
 
-        struct D { uint32_t b; const char* n; const char* f; };
-        static const D dec[] = {
-            {c3::UHCI_B, "UHCI0", "E8"},
-        };
-        for (const D& d : dec)
-            declarados.emplace_back(new BloqueDeclarado(sc_core::sc_gen_unique_name("decl"),
-                                                        d.b, 0x1000, d.n, d.f));
+        // Desde E8 no queda ningún bloque declarado: `declarados` se queda
+        // vacío, para el que venga
         std::vector<BusSlave*> todos{&gpio, &iomux, &intmtx, &system, &rtc, &efuse, &uart0,
                                      &uart1, &systimer, &timg0, &timg1, &spi0, &spi1, &cache, &sha, &regi2c,
                                      &syscon, &pms,
-                                     &assist, &wcl, &efuse_trm, &fe2, &fe, &nrx, &bb, &usj, &ledc, &rmt, &adc, &aes, &i2c, &gdma, &spi2, &twai, &rsa, &hmac, &ds, &xts, &i2s};
+                                     &assist, &wcl, &efuse_trm, &fe2, &fe, &nrx, &bb, &usj, &ledc, &rmt, &adc, &aes, &i2c, &gdma, &spi2, &twai, &rsa, &hmac, &ds, &xts, &i2s, &uhci};
         for (auto& d : declarados) todos.push_back(d.get());
         for (BusSlave* s : todos) engancha(s);
 
@@ -339,6 +336,17 @@ public:
         i2s.irq = [this](bool v) { intmtx.fuente(c3::F_I2S, v); };
         i2s.pon = [this](unsigned s, bool v) { gpio.sig_out[s].write(v); };
         i2s.lee = [this](unsigned s) { return gpio.sig_in[s].read(); };
+        // El UHCI: las dos UART y la GDMA
+        uhci.gdma = &gdma;
+        uhci.uart[0] = &uart0; uhci.uart[1] = &uart1;
+        uhci.irq = [this](bool v) { intmtx.fuente(c3::F_UHCI0, v); };
+        for (unsigned n = 0; n < 2; ++n) {
+            UartEsp& u = n ? uart1 : uart0;
+            u.toma_tx = [this, n](uint8_t& b) { return uhci.toma_tx(n, b); };
+            u.da_rx = [this, n](uint8_t b) { return uhci.da_rx(n, b); };
+            u.brk_rx = [this, n] { uhci.brk_rx(n); };
+        }
+        gdma.al_arrancar = [this](unsigned peri) { if (peri == UhciEsp::PERI_GDMA) uhci.despierta(); };
         spi2.gdma = &gdma;
         spi2.irq = [this](bool v) { intmtx.fuente(c3::F_SPI2, v); };
         spi2.salida = [this](bool clk, bool mosi, bool cs) {
@@ -587,7 +595,9 @@ public:
             "la cache, XTS-AES-128 como espsecure, con la clave de proposito 4 de los eFuse",
             "el I2S (E8): TDM (Philips, MSB y PCM) con la GDMA, el transmisor maestro y el receptor maestro "
             "o con SIG_LOOPBACK; sin esclavo, PDM, A-law/mu-law, MCLK ni HUNG",
-            "declarados: UHCI (E8); la radio (FE, NRX, BB) guarda sin hacer nada",
+            "el UHCI (E8): una UART con la GDMA, con los separadores y los escapes de SLIP y el final de "
+            "trama por longitud, reposo, break o separador; sin la cabecera de HCI, CRC, ACK ni QUICK_SENT",
+            "la radio (FE, NRX, BB) guarda sin hacer nada",
             "el USB-Serial-JTAG (E7): CDC-ACM y JTAG, con el reset por DTR/RTS; sin bajo consumo, "
             "sin EXCHG_PINS ni PHY de fuera",
             "la depuracion: el DM 0.13 y el TAP (IDCODE 0x00005C25) en los pines MTMS-MTDO si "
@@ -819,7 +829,7 @@ private:
         gpio.reset(); intmtx.reset(); system.reset_regs(); uart0.reset(); uart1.reset();
         systimer.reset(); timg0.reset(); timg1.reset(); spi0.reset(); spi1.reset(); cache.reset();
         sha.reset(); regi2c.reset(); gdma.reset(); spi2.reset(); ledc.reset(); rmt.reset(); adc.reset(); aes.reset(); i2c.reset(); twai.reset();
-        rsa.reset(); hmac.reset(); ds.reset(); xts.reset(); i2s.reset();
+        rsa.reset(); hmac.reset(); ds.reset(); xts.reset(); i2s.reset(); uhci.reset();
         efuse.reset(); syscon.reset(); efuse_trm.reset();
         fe2.reset(); fe.reset(); nrx.reset(); bb.reset();
         reset_cpu_perif();

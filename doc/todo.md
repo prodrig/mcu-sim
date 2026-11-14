@@ -938,6 +938,12 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   una 24Cxx (C20), el GP-SPI2 con la GDMA contra un ST7735 (C21) y el TWAI
   sobre `CanMotor` con un nodo CAN en el hilo (C22): 174. Declarados con
   aviso: UHCI, I2S, RSA, DS, HMAC y XTS_AES.
+* **E8: lo declarado, modelado** (2026-11-09 y 2026-11-14), una entrega por
+  periférico: el RSA (C24), el HMAC con la reapertura del JTAG (C25), el DS
+  (C26), el XTS_AES en el SPI1 y la caché (C27), el I2S con los canales de
+  entrada de la GDMA (C28) y el UHCI (C29): `testc3` 258. En el C3 ya no queda
+  ningún bloque declarado; la radio (FE, NRX, BB) sigue guardando sin hacer
+  nada, que es de E10.
 * **E6 y E7: lo pendiente, hecho** (2026-11-08): GDB por openocd-esp32 con
   FreeRTOS (O5); `write-flash` entero por el USB (`--flash-rapida`), el puente
   USB que lee los IN cuando el dispositivo avisa, y G3 sin fallos sueltos.
@@ -970,7 +976,8 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   | La calibración del reloj lento (TIMG RTCCALICFG) | con las frecuencias nominales (136 kHz, 17,5 MHz/256) | `SOC_CLK_*_FREQ_APPROX` de ESP-IDF; sin deriva |
   | Las operaciones de EXTMEM (invalidar, precargar, autocargar, fijar, congelar) | acaban en el acto con su DONE; CACHE_STATE en reposo | Como el QEMU de Espressif; tiempos **de modelo** |
   | El tiempo de una transacción del MSPI y de un fallo de caché | bits de cada fase con sus líneas al reloj de SPI_MEM_CLOCK; origen 80 MHz con PLL, XTAL sin él | **De modelo** (el TRM no da latencias) |
-  | La suspensión automática de la Flash, el cifrado (XTS_AES), la PMS de las ventanas | no | **Declarados** |
+  | La suspensión automática de la Flash, la PMS de las ventanas | no | **Declarados** |
+  | El cifrado de la Flash (XTS_AES) | cifrado manual por el SPI1 y descifrado en la caché, como espsecure (E8) | TRM §23 y esptool |
   | eFuse: la orden de leer | acaba en el acto con READ_DONE; programar no programa | **Declarado** |
   | SHA: 80/64 ciclos por bloque | | **De modelo** |
   | La CPU tras el reset: XTAL/2 = 20 MHz (PRE_DIV_CNT = 1, TRM tabla 6.2-2), pero la ROM cuenta 40 ticks por µs (`s_ticks_per_us`) | se deja el TRM: los retardos de la ROM duran el doble | **Pendiente de contrastar con una placa** |

@@ -362,4 +362,6 @@ testrv                 457      28577500000           resto
 # el firmware vale para los dos.
 # C28: el I2S (i2s.elf, 17 ficheros), desde 18843679002000; la GDMA gana sus
 # canales de entrada sin mover nada.
-testc3                 246      18258015018866        resto
+# C29: el UHCI (uhci.elf, 18 ficheros), desde 18844435018866; con el, el C3
+# se queda sin bloques declarados.
+testc3                 258      18279705018866        resto

@@ -35,6 +35,10 @@
 //
 // La línea va bit a bit por las señales de la matriz GPIO (U0TXD_out,
 // U0RXD_in...), así que llega a un pad y a lo que haya en la placa.
+//
+// E8: con el UHCI unido (periph/esp/uhci_esp.h), la transmisión toma sus
+// bytes de él cuando la FIFO está vacía (`toma_tx`) y la recepción se los da
+// en vez de meterlos en la FIFO (`da_rx`).
 // =============================================================================
 #ifndef STM32_PERIPH_ESP_UART_ESP_H
 #define STM32_PERIPH_ESP_UART_ESP_H
@@ -57,6 +61,12 @@ public:
     // Todo lo transmitido, para el banco
     std::string salida;
     bool eco = false;
+    // E8: el UHCI. `toma_tx` le da a la transmisión un byte cuando la FIFO
+    // está vacía (los de la GDMA); `da_rx` se queda con un byte recibido (no
+    // va a la FIFO); `brk_rx`, un break recibido.
+    std::function<bool(uint8_t&)> toma_tx;
+    std::function<bool(uint8_t)> da_rx;
+    std::function<void()> brk_rx;
 
     UartEsp(sc_core::sc_module_name nm, uint32_t base, sc_core::sc_signal_inout_if<bool>& txd,
             const sc_core::sc_signal_in_if<bool>& rxd)
@@ -80,6 +90,17 @@ public:
         return div > 0.0 ? sclk / div : 0.0;
     }
     unsigned rx_cnt() const { return unsigned(rx_.size()); }
+    // Para el UHCI: despertar la transmisión, el tiempo de bit y
+    // IDLE_CONF.RX_IDLE_THRHD (0x40, bits 9-0; 0x100 de reset, que aquí se
+    // toma si el registro no se ha escrito)
+    void despierta_tx() { ev_tx_.notify(sc_core::SC_ZERO_TIME); }
+    sc_core::sc_time tiempo_bit() const { return t_bit(); }
+    unsigned umbral_reposo() const {
+        const uint32_t v = otros_[0x40 / 4];
+        return v ? (v & 0x3FFu) : 0x100u;
+    }
+    sc_core::sc_time ultimo_rx() const { return ult_rx_; }
+    const sc_core::sc_event& ev_byte_rx() const { return ev_rx_byte_; }
     unsigned tx_cnt() const { return unsigned(tx_.size()); }
     uint64_t n_tx() const { return n_tx_; }
     uint64_t n_rx() const { return n_rx_; }
@@ -256,7 +277,9 @@ private:
                 wait(t_bit() * double(bits_datos() + 2u));
                 continue;
             }
-            if (tx_.empty()) {
+            uint8_t de_uhci = 0;
+            const bool uhci = tx_.empty() && toma_tx && toma_tx(de_uhci);
+            if (tx_.empty() && !uhci) {
                 if (tx_done_pend_ && !tx_ocupado_) {
                     tx_done_pend_ = false;
                     raw_ |= TX_DONE;
@@ -265,8 +288,8 @@ private:
                 wait(ev_tx_);
                 continue;
             }
-            const uint8_t d = tx_.front();
-            tx_.pop_front();
+            uint8_t d = de_uhci;
+            if (!uhci) { d = tx_.front(); tx_.pop_front(); }
             tx_ocupado_ = true;
             evalua();
             const sc_core::sc_time tb = t_bit();
@@ -323,10 +346,11 @@ private:
             wait(tb);
             const bool parada = linea_rx();
             rx_ocupado_ = false;
-            if (!parada && d == 0) { raw_ |= BRK_DET | FRM_ERR; evalua(); continue; }
+            if (!parada && d == 0) { raw_ |= BRK_DET | FRM_ERR; evalua(); if (brk_rx) brk_rx(); continue; }
             if (!parada) raw_ |= FRM_ERR;
             if (err_par) raw_ |= PARITY_ERR;
-            if (rx_.size() >= 128) raw_ |= RXFIFO_OVF;
+            if (da_rx && da_rx(uint8_t(d))) {}
+            else if (rx_.size() >= 128) raw_ |= RXFIFO_OVF;
             else rx_.push_back(uint8_t(d));
             ++n_rx_;
             ult_rx_ = sc_core::sc_time_stamp();

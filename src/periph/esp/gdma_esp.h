@@ -64,6 +64,19 @@ public:
             if ((r_[(0xA0 + 0xC0 * c) / 4] & 0x3Fu) == peri && ent_[c]) return mete_canal(c, p, n, eof);
         return 0;
     }
+    // ¿Acabó la última `saca` de `peri` un descriptor con suc_eof? (se borra al leerlo)
+    bool eof_salida(unsigned peri) {
+        for (unsigned c = 0; c < N; ++c)
+            if ((r_[(0x100 + 0xC0 * c) / 4] & 0x3Fu) == peri && eof_sal_[c]) { eof_sal_[c] = false; return true; }
+        return false;
+    }
+    bool salida_activa(unsigned peri) const {
+        for (unsigned c = 0; c < N; ++c)
+            if ((r_[(0x100 + 0xC0 * c) / 4] & 0x3Fu) == peri && act_[c]) return true;
+        return false;
+    }
+    // Para despertar al periférico cuando se arranca un canal de salida
+    std::function<void(unsigned peri)> al_arrancar;
     bool entrada_activa(unsigned peri) const {
         for (unsigned c = 0; c < N; ++c)
             if ((r_[(0xA0 + 0xC0 * c) / 4] & 0x3Fu) == peri && ent_[c]) return true;
@@ -91,7 +104,10 @@ protected:
         if (off < 0x400) r_[off / 4] = v;
         for (unsigned c = 0; c < N; ++c)
             if (off == 0xE0 + 0xC0 * c) {
-                if (v & (1u << 21)) { act_[c] = true; dscr_[c] = 0x3FC00000u | (v & 0xFFFFFu); pos_[c] = 0; }
+                if (v & (1u << 21)) {
+                    act_[c] = true; dscr_[c] = 0x3FC00000u | (v & 0xFFFFFu); pos_[c] = 0; eof_sal_[c] = false;
+                    if (al_arrancar) al_arrancar(r_[(0x100 + 0xC0 * c) / 4] & 0x3Fu);
+                }
                 if (v & (1u << 20)) act_[c] = false;
             } else if (off == 0x80 + 0xC0 * c) {
                 if (v & (1u << 22)) { ent_[c] = true; dent_[c] = 0x3FC00000u | (v & 0xFFFFFu); pent_[c] = 0; }
@@ -101,7 +117,7 @@ protected:
 
 private:
     uint32_t r_[256] = {};
-    bool act_[N] = {}, irq_[N] = {}, ent_[N] = {};
+    bool act_[N] = {}, irq_[N] = {}, ent_[N] = {}, eof_sal_[N] = {};
     uint32_t dscr_[N] = {}, pos_[N] = {}, dent_[N] = {}, pent_[N] = {};
 
     uint32_t lee32(uint32_t a) {
@@ -131,6 +147,7 @@ private:
             if ((w0 >> 30) & 1u) {
                 r_[(c * 0x10) / 4] |= (1u << 4) | (1u << 8);    // OUT_EOF, OUT_TOTAL_EOF
                 act_[c] = false;
+                eof_sal_[c] = true;
             } else if (!sig) {
                 act_[c] = false;
             } else {

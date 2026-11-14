@@ -253,7 +253,7 @@ SC_MODULE(TbC3) {
         check(c3.limitaciones().size() >= 5, "limitaciones(): lo que no esta (perifericos de E7-E8, SWD, brownout...)");
         const huella_fw::Veredicto hv = huella_fw::verifica("verif/fw/huellas.txt", "verif/fw", "c3");
         std::printf("    %d imagenes: %s\n", hv.comprobadas, hv.detalle.c_str());
-        check(hv.ok() && hv.comprobadas == 17, "los diecisiete ficheros de la suite son los versionados (verif/fw/huellas.txt)");
+        check(hv.ok() && hv.comprobadas == 18, "los dieciocho ficheros de la suite son los versionados (verif/fw/huellas.txt)");
     }
 
     void c2() {
@@ -1338,13 +1338,45 @@ SC_MODULE(TbC3) {
         c3.alimenta(false);
     }
 
+    // E8: el UHCI con la UART1 en LOOPBACK: la GDMA por la UART, con el final
+    // de trama por reposo, por separador (SLIP) y por longitud
+    void c29() {
+        grupo("C29 el UHCI: la UART1 con la GDMA, SLIP y el final de trama por reposo y longitud (E8)");
+        c3.uart1.salida.clear();
+        check(arranca("uhci.elf"), "uhci.elf");
+        check(espera_fin(sc_time(50, SC_MS)), "acaba");
+        char b[200];
+        const uint32_t ok = bz(0);
+        check(ok & 128u, "DATE 0x2007170");
+        check(ok & 1u, "A: los 100 bytes de la GDMA vuelven por la UART1 a la GDMA");
+        check(ok & 2u, "A: un descriptor de 64 lleno y otro con 36 y suc_eof (UART_IDLE_EOF)");
+        check(ok & 4u, "B: SEPER_EN, los 8 bytes vuelven decodificados con suc_eof en el separador");
+        // Lo que paso por la linea en B: detras de los 100 bytes de A
+        static const uint8_t esperado[] = {0xC0, 0x01, 0xDB, 0xDC, 0x02, 0xDB, 0xDD, 0x03, 0x11, 0xDB, 0xDC, 0x04, 0xC0};
+        const std::string& s = c3.uart1.salida;
+        bool linea = s.size() >= 100 + sizeof esperado;
+        for (unsigned i = 0; linea && i < sizeof esperado; ++i) linea = uint8_t(s[100 + i]) == esperado[i];
+        std::string hx;
+        for (unsigned i = 100; i < s.size() && i < 100 + sizeof esperado; ++i) { char x[4]; std::snprintf(x, sizeof x, "%02X ", uint8_t(s[i])); hx += x; }
+        std::snprintf(b, sizeof b, "B: en la linea, C0 01 DB DC 02 DB DD 03 11 DB DC 04 C0 (%s)", hx.c_str());
+        check(linea, b);
+        check(ok & 8u, "B: TX_START (llega un separador) y RX_START (sale uno)");
+        check(ok & 16u, "C: los 25 bytes, en tramas de 10, 10 y 5");
+        std::snprintf(b, sizeof b, "C: LEN_EOF con PKT_THRS = 10 y el resto por reposo (DW0 0x%08X 0x%08X 0x%08X)", bz(1), bz(2), bz(3));
+        check(ok & 32u, b);
+        check(ok & 64u, "la FIFO de recepcion de la UART1 sigue vacia: todo va al UHCI");
+        std::snprintf(b, sizeof b, "%u tramas recibidas (5)", c3.uhci.tramas_rx());
+        check(c3.uhci.tramas_rx() == 5, b);
+        c3.alimenta(false);
+    }
+
     void run() {
         // C3_SOLO=c4 (o c1...c14): un grupo suelto, para desarrollar
         if (const char* solo = std::getenv("C3_SOLO")) {
             const std::string q = solo;
             void (TbC3::*g[])() = {&TbC3::c1, &TbC3::c2, &TbC3::c3_uart, &TbC3::c4, &TbC3::c5, &TbC3::c6, &TbC3::c7,
                                    &TbC3::c8, &TbC3::c9, &TbC3::c10, &TbC3::c11, &TbC3::c12, &TbC3::c13, &TbC3::c14,
-                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25, &TbC3::c26, &TbC3::c27, &TbC3::c28};
+                                   &TbC3::c15, &TbC3::c15, &TbC3::c17, &TbC3::c18, &TbC3::c19, &TbC3::c20, &TbC3::c21, &TbC3::c22, &TbC3::c23, &TbC3::c24, &TbC3::c25, &TbC3::c26, &TbC3::c27, &TbC3::c28, &TbC3::c29};
             const int k = q.size() > 1 ? std::atoi(q.c_str() + 1) : 0;
             if (k >= 1 && k <= int(sizeof g / sizeof g[0])) (this->*g[k - 1])();
             std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
@@ -1378,6 +1410,7 @@ SC_MODULE(TbC3) {
         c26();
         c27();
         c28();
+        c29();
         std::printf("\nTOTAL C3: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }
