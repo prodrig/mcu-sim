@@ -414,6 +414,15 @@ public:
         cargado_ = true;
     }
 
+    // Sin firmware y sin ROM que arrancar: el núcleo, en un wfi en la HP SRAM
+    void aparca_en_wfi() {
+        poke32(c6::HP_SRAM, 0x10500073u);           // wfi
+        poke32(c6::HP_SRAM + 4, 0xFFDFF06Fu);       // j .-4
+        core.hart.pon_pc_arranque(c6::HP_SRAM);
+        timg0.flashboot = false;
+        cargado_ = true;
+    }
+
     bool poke8(uint32_t a, uint8_t v) { uint8_t* p = mem(a); if (!p) return false; *p = v; return true; }
     bool peek8(uint32_t a, uint8_t& v) { uint8_t* p = mem(a); if (!p) return false; v = *p; return true; }
     uint32_t peek32(uint32_t a) {

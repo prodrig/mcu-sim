@@ -1758,6 +1758,21 @@ la separación de §3 funciona.
   CAN en cada sentido, SPI e I2S con la GDMA, el NACK del I2C, el ADC (1966)
   y la temperatura, los vectores de AES de SP 800-38A, SHA-1/256 y RSA por
   mbedTLS, y el DATE de quince bloques.
+* **5. La placa** (2026-11-15). `soc/esp32c6/esp32c6_mcu.h`, el adaptador
+  a `mcu_if` como el del C3 (familia "ESP32C6" en la factoría), con la
+  nomenclatura del C6 en `c6_desc.h` (GPIOn, IOn, MTMS-MTDO, USB_D-/USB_D+,
+  U0TXD/U0RXD en GPIO16/17, los del SDIO y de la Flash; la alimentación
+  VDDA3P3, VDDPST1, VDDPST2, VDD_SPI y VDDA) y sus tres miembros en el
+  catálogo (ESP32-C6, C6FH4, C6FH8): el `mcu-sim` carga un `flash_args`, un
+  .bin de la Flash o un ELF bare-metal, y `efuse=`, `usb=` y
+  `flash_rapida`. `placas/esp32c6_devkitc1.xml`: el ESP32-C6-WROOM-1 (N8),
+  el C6 en QFN40 y una Flash de 8 MB en SPICS0 (GPIO24-30), y los **dos
+  USB**: el CP2102N en la UART0 (GPIO16/17) con el auto-reset, y el
+  USB-Serial-JTAG del chip (GPIO12/13), que el simulador enumera y lleva a
+  RFC 2217; BOOT, RESET y el WS2812 en GPIO8. `make placa-c6`
+  (`verif/esp/placa_c6.py`, en el CI): hello_world por los dos USB a la
+  vez, uart.elf sin ROM y la ROM con la Flash en blanco. La depuración
+  (`jtag=`, `,jtag=` en el USB, GDB y la herramienta de openocd-esp32): E9.6.
 
 ### E10 · C6: el núcleo LP
 

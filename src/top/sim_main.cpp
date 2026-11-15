@@ -138,6 +138,7 @@
 #include "../soc/msp432e4/msp432e4_mcu.h"
 #include "../soc/stm32f3/stm32f3_mcu.h"
 #include "../soc/esp32c3/esp32c3_mcu.h"
+#include "../soc/esp32c6/esp32c6_mcu.h"
 
 using namespace sc_core;
 using namespace stm32;

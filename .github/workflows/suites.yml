@@ -259,6 +259,15 @@ jobs:
           ESPTOOL_OBLIGATORIO: 1
         run: make -f Makefile.mcu-sim usb-c3
 
+      # La ESP32-C6-DevKitC-1 (E9.5): hello_world con la consola por sus dos
+      # USB (el puente en la UART0 y el USB-Serial-JTAG del chip), uart.elf
+      # sin ROM y la ROM con la Flash en blanco. pySerial obligatorio.
+      - name: La ESP32-C6-DevKitC-1 y sus dos USB
+        working-directory: src
+        env:
+          PYSERIAL_OBLIGATORIO: 1
+        run: make -f Makefile.mcu-sim placa-c6
+
       # openocd-esp32 contra el ESP32-C3 (E6): target/esp32c3.cfg sin tocar,
       # por remote_bitbang y CMSIS-DAP en los pines del JTAG; program_esp con
       # verify y blink arrancando. Se baja la version de Espressif; si no se

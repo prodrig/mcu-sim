@@ -155,5 +155,65 @@ inline constexpr McuCapsC6 MCU_ESP32C6{"ESP32-C6", &RV_ESP32C6_HP, 0, 2, ENC_C6_
 inline constexpr McuCapsC6 MCU_ESP32C6FH4{"ESP32-C6FH4", &RV_ESP32C6_HP, 4u << 20, 2, ENC_C6_QFN32};
 inline constexpr McuCapsC6 MCU_ESP32C6FH8{"ESP32-C6FH8", &RV_ESP32C6_HP, 8u << 20, 2, ENC_C6_QFN32};
 
+// --- Nomenclatura: GPIOn (canónica), IOn, y los nombres de función -----------------
+// [DS-C6 tabla 2-3] MTMS-MTDO (GPIO4-7), U0TXD/U0RXD (16/17), los del SDIO
+// (18-23), los de la Flash (24-30; GPIO27 no tiene nombre de Flash) y los
+// del USB, USB_D-/USB_D+ (12/13).
+namespace c6 {
+inline bool pad_c6(const std::string& t, unsigned& puerto, unsigned& pin) {
+    std::string s = t;
+    for (char& c : s) if (c >= 'a' && c <= 'z') c = char(c - 'a' + 'A');
+    unsigned n = 0;
+    auto num = [&](size_t i) {
+        if (i >= s.size() || s.size() - i > 2) return false;
+        if (s.size() - i > 1 && s[i] == '0') return false;
+        n = 0;
+        for (size_t k = i; k < s.size(); ++k) {
+            if (s[k] < '0' || s[k] > '9') return false;
+            n = n * 10 + unsigned(s[k] - '0');
+        }
+        return n < N_GPIO;
+    };
+    if ((s.compare(0, 4, "GPIO") == 0 && num(4)) || (s.compare(0, 2, "IO") == 0 && num(2))) {
+        puerto = 0; pin = n; return true;
+    }
+    static const char* const alias[][2] = {
+        {"MTMS", "4"}, {"MTDI", "5"}, {"MTCK", "6"}, {"MTDO", "7"},
+        {"USB_D-", "12"}, {"USB_D+", "13"}, {"U0TXD", "16"}, {"U0RXD", "17"},
+        {"SDIO_CMD", "18"}, {"SDIO_CLK", "19"}, {"SDIO_DATA0", "20"}, {"SDIO_DATA1", "21"},
+        {"SDIO_DATA2", "22"}, {"SDIO_DATA3", "23"},
+        {"SPICS0", "24"}, {"SPIQ", "25"}, {"SPIWP", "26"}, {"SPIHD", "28"}, {"SPICLK", "29"}, {"SPID", "30"},
+    };
+    for (const auto& a : alias)
+        if (s == a[0]) { puerto = 0; pin = unsigned(std::stoul(a[1])); return true; }
+    return false;
+}
+inline std::string canonico_c6(unsigned, unsigned pin) { return "GPIO" + std::to_string(pin); }
+// [DS-C6 tabla 2-4]: VDDA3P3 (la parte analógica), VDDPST1 (los pines del
+// dominio LP, GPIO0-7), VDDPST2 (los del HP), VDD_SPI (la Flash), VDDA
+inline const char* const ALIM_C6[] = {
+    "VDDA3P3", "VDDPST1", "VDDPST2", "VDD_SPI", "VDDA", "GND", "CHIP_PU", "XTAL_P", "XTAL_N", nullptr
+};
+} // namespace c6
+
+inline const Nomenclatura NOM_ESP32C6{"ESP32C6", &c6::pad_c6, &c6::canonico_c6, c6::ALIM_C6};
+// Por prefijo del tipo: «ESP32-C6», «ESP32-C6FH4»... (y sin el guion)
+struct RegistroNomC6 {
+    RegistroNomC6() {
+        ContextoNomenclatura::g().registra_tipo("ESP32-C6", &NOM_ESP32C6);
+        ContextoNomenclatura::g().registra_tipo("ESP32C6", &NOM_ESP32C6);
+    }
+};
+inline const RegistroNomC6 g_registro_nom_c6{};
+
+// El catálogo (la familia que despacha la factoría es "ESP32C6")
+struct RegistroCatalogoC6 {
+    RegistroCatalogoC6() {
+        for (const McuCapsC6* m : {&MCU_ESP32C6, &MCU_ESP32C6FH4, &MCU_ESP32C6FH8})
+            CatalogoMcu::registra(McuDesc{m->nombre, "ESP32C6", &m->enc, m});
+    }
+};
+inline const RegistroCatalogoC6 g_registro_catalogo_c6{};
+
 } // namespace stm32
 #endif // STM32_SOC_ESP32C6_C6_DESC_H

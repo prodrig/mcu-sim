@@ -249,7 +249,7 @@ HDRS := $(wildcard common/*.h pins/*.h parts/*.h bus/*.h mem/*.h rcc/*.h core/*.
                    periph/msp432p4/*.h soc/msp432p4/*.h soc/msp432p4/*.inc \
                    periph/msp432e4/*.h soc/msp432e4/*.h soc/msp432e4/*.inc \
                    soc/stm32f3/*.h soc/stm32f3/*.inc \
-                   rv/*/*.h soc/esp/*.h soc/esp32c3/*.h periph/esp/*.h)
+                   rv/*/*.h soc/esp/*.h soc/esp32c3/*.h soc/esp32c6/*.h soc/esp32c6/*.inc periph/esp/*.h)
 
 TEST407 := $(B)/test407$(EXE)
 MCUSIM  := $(B)/mcu-sim$(EXE)
@@ -681,6 +681,16 @@ openocd-c3: $(MCUSIM) $(B)/idf/.extraido
 #   make -f Makefile.mcu-sim usb-c3 [ESPTOOL=...] [OPENOCD_ESP32=...]
 usb-c3: $(MCUSIM) $(B)/idf/.extraido
 	$(PYTHON) verif/esp/usb_c3.py --sim $(MCUSIM) $(if $(ESPTOOL),--esptool $(ESPTOOL)) $(if $(OPENOCD_ESP32),--openocd $(OPENOCD_ESP32))
+
+# LA ESP32-C6-DevKitC-1 (E9.5): el `mcu-sim` de verdad con
+# placas/esp32c6_devkitc1.xml: la consola de hello_world por sus DOS USB (el
+# puente en la UART0 y el USB-Serial-JTAG del chip) por RFC 2217, uart.elf
+# sin ROM y la ROM con la Flash en blanco. Sin pySerial, solo lo que va en
+# memoria. Sin invariante.
+#
+#   make -f Makefile.mcu-sim placa-c6
+placa-c6: $(MCUSIM) $(B)/idf-c6/.extraido
+	$(PYTHON) verif/esp/placa_c6.py --sim $(MCUSIM)
 
 # EL TIEMPO SIMULADO CON UN DEPURADOR (common/congela.h): el ritmo real de
 # las sondas y los stubs con un programa conectado (K1) y
