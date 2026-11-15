@@ -1,0 +1,218 @@
+# Informe de gen_msp430.py (generado; no se edita)
+#   devices.csv 1.213
+#   cabeceras de CCS y GCC 1.213 (__MSP430_HEADER_VERSION__ 1213)
+#   targetdb de CCS 11.2 (ccs1120)
+#   devicedb.h de la MSP Debug Stack 3.15.1.1
+  msp430g2553    CPU_TYPE 0 = devicedb Cpu
+  msp430g2553    EEM EMEX_LOW = eem EMEX_LOW
+  msp430g2553    EEM EMEX_LOW = devicedb EMEX_LOW
+  msp430g2553    BREAKPOINTS 2 = targetdb 2
+  msp430g2553    CLOCKCONTROL STANDARD = targetdb STANDARD ~ devicedb GCC_STANDARD
+  msp430g2553    SBW 1 ~ targetdb 1
+  msp430g2553    INTStart 0xFFE0 = targetdb iv_base 0xFFE0
+  msp430g2553    RESUELTA mapa-devicedb:Main: csv 0xC000-0xFFDD / devicedb 0xC000-0xFFFF -- devicedb cuenta la memoria principal hasta 0xFFFF (vectores y firma incluidos) y, en las de 20 bits, la une a la de arriba; devices.csv la parte
+  msp430g2553    Ram 0x200-0x3FF = devicedb
+  msp430g2553    Info 0x1000-0x10FF = devicedb
+  msp430g2553    RESUELTA bsl-csv: devices.csv sin BSL; devicedb 0xC00-0xFFF -- el BSL de ROM del 2xx no está en devices.csv; sí en devicedb (0x0C00, 0x400) y en la hoja de datos
+  msp430g2553    bsl 0xC00-0xFFF a mano: slas735j «Memory Organization»: BSL en ROM; devices.csv lo deja a 0
+  msp430g2553    vectores 0xFFC0-0xFFFF a mano: slas735j: el área de vectores es FFC0-FFFF; devices.csv da FFE0-FFFF, los 16 que usa el G2553
+  msp430g2553    §2.2 principal 0xC000-0xFFFF
+  msp430g2553    §2.2 ram 0x200-0x3FF
+  msp430g2553    §2.2 info 0x1000-0x10FF
+  msp430g2553    §2.2 bsl 0xC00-0xFFF
+  msp430g2553    §2.2 vectores 0xFFC0-0xFFFF
+  msp430g2553    RESUELTA modulo:SFR: SFR en el targetdb y no en la cabecera -- las cabeceras de 2xx no declaran __MSP430_HAS_SFR__; IE1, IE2, IFG1 e IFG2 están en 0x0000-0x0003 [slas735j, «Special Function Registers»]
+  msp430g2553    13 módulos
+  msp430g2553    115 registros del targetdb; 98 contrastados con GCC, 0 distintos
+  msp430g2553    14 vectores, iguales en CCS y GCC
+  msp430g2553    devicedb: id 0x5325, 0 eemTimers, 3 eemClocks
+  msp430f5529    CPU_TYPE 2 = devicedb CpuXv2
+  msp430f5529    EEM EMEX_LARGE_5XX = eem EMEX_LARGE_5XX
+  msp430f5529    EEM EMEX_LARGE_5XX = devicedb EMEX_LARGE_5XX
+  msp430f5529    BREAKPOINTS 8 = targetdb 8
+  msp430f5529    CLOCKCONTROL EXTENDED = targetdb EXTENDED ~ devicedb GCC_EXTENDED
+  msp430f5529    SBW 2 ~ targetdb 2
+  msp430f5529    INTStart 0xFF80 = targetdb iv_base 0xFF80
+  msp430f5529    RESUELTA mapa-devicedb:Main: csv 0x4400-0xFF7F / devicedb 0x4400-0x243FF -- devicedb cuenta la memoria principal hasta 0xFFFF (vectores y firma incluidos) y, en las de 20 bits, la une a la de arriba; devices.csv la parte
+  msp430f5529    Ram 0x2400-0x43FF = devicedb
+  msp430f5529    Info 0x1800-0x19FF = devicedb
+  msp430f5529    Bsl 0x1000-0x17FF = devicedb
+  msp430f5529    §2.2 principal 0x4400-0xFFFF
+  msp430f5529    §2.2 principal2 0x10000-0x243FF
+  msp430f5529    §2.2 ram 0x2400-0x43FF
+  msp430f5529    §2.2 ram_usb 0x1C00-0x23FF
+  msp430f5529    §2.2 info 0x1800-0x19FF
+  msp430f5529    §2.2 bsl 0x1000-0x17FF
+  msp430f5529    34 módulos
+  msp430f5529    536 registros del targetdb; 380 contrastados con GCC, 0 distintos
+  msp430f5529    23 vectores, iguales en CCS y GCC
+  msp430f5529    devicedb: id 0x2955, 13 eemTimers, 0 eemClocks
+  msp430fr2311   CPU_TYPE 2 = devicedb CpuXv2
+  msp430fr2311   EEM EMEX_SMALL_5XX = eem EMEX_SMALL_5XX
+  msp430fr2311   EEM EMEX_SMALL_5XX = devicedb EMEX_SMALL_5XX
+  msp430fr2311   BREAKPOINTS 3 = targetdb 3
+  msp430fr2311   CLOCKCONTROL EXTENDED = targetdb EXTENDED ~ devicedb GCC_EXTENDED
+  msp430fr2311   SBW 2 ~ targetdb 2
+  msp430fr2311   INTStart 0xFF88 = targetdb iv_base 0xFF88
+  msp430fr2311   RESUELTA mapa-devicedb:Main: csv 0xF100-0xFF7F / devicedb 0xF100-0xFFFF -- devicedb cuenta la memoria principal hasta 0xFFFF (vectores y firma incluidos) y, en las de 20 bits, la une a la de arriba; devices.csv la parte
+  msp430fr2311   Ram 0x2000-0x23FF = devicedb
+  msp430fr2311   Bsl 0x1000-0x17FF = devicedb
+  msp430fr2311   bsl2 0xFFC00-0xFFFFF a mano: slas845: BSL2 en ROM
+  msp430fr2311   §2.2 principal 0xF100-0xFFFF
+  msp430fr2311   §2.2 ram 0x2000-0x23FF
+  msp430fr2311   §2.2 bsl 0x1000-0x17FF
+  msp430fr2311   §2.2 bsl2 0xFFC00-0xFFFFF
+  msp430fr2311   21 módulos
+  msp430fr2311   183 registros del targetdb; 158 contrastados con GCC, 0 distintos
+  msp430fr2311   15 vectores, iguales en CCS y GCC
+  msp430fr2311   devicedb: id 0x82F0, 9 eemTimers, 0 eemClocks
+  msp430fr2355   CPU_TYPE 2 = devicedb CpuXv2
+  msp430fr2355   EEM EMEX_SMALL_5XX = eem EMEX_SMALL_5XX
+  msp430fr2355   EEM EMEX_SMALL_5XX = devicedb EMEX_SMALL_5XX
+  msp430fr2355   BREAKPOINTS 3 = targetdb 3
+  msp430fr2355   CLOCKCONTROL EXTENDED = targetdb EXTENDED ~ devicedb GCC_EXTENDED
+  msp430fr2355   SBW 2 ~ targetdb 2
+  msp430fr2355   INTStart 0xFFA2 = targetdb iv_base 0xFFA2
+  msp430fr2355   RESUELTA mapa-devicedb:Main: csv 0x8000-0xFF7F / devicedb 0x8000-0xFFFF -- devicedb cuenta la memoria principal hasta 0xFFFF (vectores y firma incluidos) y, en las de 20 bits, la une a la de arriba; devices.csv la parte
+  msp430fr2355   Ram 0x2000-0x2FFF = devicedb
+  msp430fr2355   Info 0x1800-0x19FF = devicedb
+  msp430fr2355   Bsl 0x1000-0x17FF = devicedb
+  msp430fr2355   bsl2 0xFFC00-0xFFFFF a mano: slasec4: BSL2 en ROM
+  msp430fr2355   rom 0xFAC00-0xFFBFF a mano: slasec4: ROM de DriverLib y FFT
+  msp430fr2355   §2.2 principal 0x8000-0xFFFF
+  msp430fr2355   §2.2 ram 0x2000-0x2FFF
+  msp430fr2355   §2.2 info 0x1800-0x19FF
+  msp430fr2355   §2.2 bsl 0x1000-0x17FF
+  msp430fr2355   §2.2 bsl2 0xFFC00-0xFFFFF
+  msp430fr2355   §2.2 rom 0xFAC00-0xFFBFF
+  msp430fr2355   §2.2 ram_diminuta 0x6-0x1F
+  msp430fr2355   34 módulos
+  msp430fr2355   378 registros del targetdb; 342 contrastados con GCC, 0 distintos
+  msp430fr2355   25 vectores, iguales en CCS y GCC
+  msp430fr2355   devicedb: id 0x830C, 14 eemTimers, 0 eemClocks
+  msp430fr2433   CPU_TYPE 2 = devicedb CpuXv2
+  msp430fr2433   EEM EMEX_SMALL_5XX = eem EMEX_SMALL_5XX
+  msp430fr2433   EEM EMEX_SMALL_5XX = devicedb EMEX_SMALL_5XX
+  msp430fr2433   BREAKPOINTS 3 = targetdb 3
+  msp430fr2433   CLOCKCONTROL EXTENDED = targetdb EXTENDED ~ devicedb GCC_EXTENDED
+  msp430fr2433   SBW 2 ~ targetdb 2
+  msp430fr2433   INTStart 0xFF88 = targetdb iv_base 0xFF88
+  msp430fr2433   RESUELTA mapa-devicedb:Main: csv 0xC400-0xFF7F / devicedb 0xC400-0xFFFF -- devicedb cuenta la memoria principal hasta 0xFFFF (vectores y firma incluidos) y, en las de 20 bits, la une a la de arriba; devices.csv la parte
+  msp430fr2433   Ram 0x2000-0x2FFF = devicedb
+  msp430fr2433   Info 0x1800-0x19FF = devicedb
+  msp430fr2433   Bsl 0x1000-0x17FF = devicedb
+  msp430fr2433   bsl2 0xFFC00-0xFFFFF a mano: slase59: BSL2 en ROM
+  msp430fr2433   §2.2 principal 0xC400-0xFFFF
+  msp430fr2433   §2.2 ram 0x2000-0x2FFF
+  msp430fr2433   §2.2 info 0x1800-0x19FF
+  msp430fr2433   §2.2 bsl 0x1000-0x17FF
+  msp430fr2433   §2.2 bsl2 0xFFC00-0xFFFFF
+  msp430fr2433   21 módulos
+  msp430fr2433   274 registros del targetdb; 187 contrastados con GCC, 0 distintos
+  msp430fr2433   19 vectores, iguales en CCS y GCC
+  msp430fr2433   devicedb: id 0x8240, 12 eemTimers, 0 eemClocks
+  msp430fr4133   CPU_TYPE 2 = devicedb CpuXv2
+  msp430fr4133   EEM EMEX_SMALL_5XX = eem EMEX_SMALL_5XX
+  msp430fr4133   EEM EMEX_SMALL_5XX = devicedb EMEX_SMALL_5XX
+  msp430fr4133   BREAKPOINTS 3 = targetdb 3
+  msp430fr4133   CLOCKCONTROL EXTENDED = targetdb EXTENDED ~ devicedb GCC_EXTENDED
+  msp430fr4133   SBW 2 ~ targetdb 2
+  msp430fr4133   INTStart 0xFF88 = targetdb iv_base 0xFF88
+  msp430fr4133   RESUELTA mapa-devicedb:Main: csv 0xC400-0xFF7F / devicedb 0xC400-0xFFFF -- devicedb cuenta la memoria principal hasta 0xFFFF (vectores y firma incluidos) y, en las de 20 bits, la une a la de arriba; devices.csv la parte
+  msp430fr4133   Ram 0x2000-0x27FF = devicedb
+  msp430fr4133   Info 0x1800-0x19FF = devicedb
+  msp430fr4133   Bsl 0x1000-0x13FF = devicedb
+  msp430fr4133   §2.2 principal 0xC400-0xFFFF
+  msp430fr4133   §2.2 ram 0x2000-0x27FF
+  msp430fr4133   §2.2 info 0x1800-0x19FF
+  msp430fr4133   §2.2 bsl 0x1000-0x13FF
+  msp430fr4133   24 módulos
+  msp430fr4133   276 registros del targetdb; 187 contrastados con GCC, 0 distintos
+  msp430fr4133   15 vectores, iguales en CCS y GCC
+  msp430fr4133   devicedb: id 0x81F0, 9 eemTimers, 0 eemClocks
+  msp430fr2476   CPU_TYPE 2 = devicedb CpuXv2
+  msp430fr2476   EEM EMEX_SMALL_5XX = eem EMEX_SMALL_5XX
+  msp430fr2476   EEM EMEX_SMALL_5XX = devicedb EMEX_SMALL_5XX
+  msp430fr2476   BREAKPOINTS 3 = targetdb 3
+  msp430fr2476   CLOCKCONTROL EXTENDED = targetdb EXTENDED ~ devicedb GCC_EXTENDED
+  msp430fr2476   SBW 2 ~ targetdb 2
+  msp430fr2476   INTStart 0xFFA2 = targetdb iv_base 0xFFA2
+  msp430fr2476   RESUELTA mapa-devicedb:Main: csv 0x8000-0xFF7F / devicedb 0x8000-0x17FFF -- devicedb cuenta la memoria principal hasta 0xFFFF (vectores y firma incluidos) y, en las de 20 bits, la une a la de arriba; devices.csv la parte
+  msp430fr2476   Ram 0x2000-0x3FFF = devicedb
+  msp430fr2476   Info 0x1800-0x19FF = devicedb
+  msp430fr2476   Bsl 0x1000-0x17FF = devicedb
+  msp430fr2476   bsl2 0xFFC00-0xFFFFF a mano: slasep5: BSL2 en ROM
+  msp430fr2476   §2.2 principal 0x8000-0xFFFF
+  msp430fr2476   §2.2 principal2 0x10000-0x17FFF
+  msp430fr2476   §2.2 ram 0x2000-0x3FFF
+  msp430fr2476   §2.2 info 0x1800-0x19FF
+  msp430fr2476   §2.2 bsl 0x1000-0x17FF
+  msp430fr2476   §2.2 bsl2 0xFFC00-0xFFFFF
+  msp430fr2476   §2.2 ram_diminuta 0x6-0x1F
+  msp430fr2476   27 módulos
+  msp430fr2476   351 registros del targetdb; 317 contrastados con GCC, 0 distintos
+  msp430fr2476   27 vectores, iguales en CCS y GCC
+  msp430fr2476   devicedb: id 0x832A, 15 eemTimers, 0 eemClocks
+  msp430fr5969   CPU_TYPE 2 = devicedb CpuXv2
+  msp430fr5969   EEM EMEX_SMALL_5XX = eem EMEX_SMALL_5XX
+  msp430fr5969   EEM EMEX_SMALL_5XX = devicedb EMEX_SMALL_5XX
+  msp430fr5969   BREAKPOINTS 3 = targetdb 3
+  msp430fr5969   CLOCKCONTROL EXTENDED = targetdb EXTENDED ~ devicedb GCC_EXTENDED
+  msp430fr5969   SBW 2 ~ targetdb 2
+  msp430fr5969   INTStart 0xFF90 = targetdb iv_base 0xFF90
+  msp430fr5969   RESUELTA mapa-devicedb:Main: csv 0x4400-0xFF7F / devicedb 0x4400-0x13FFF -- devicedb cuenta la memoria principal hasta 0xFFFF (vectores y firma incluidos) y, en las de 20 bits, la une a la de arriba; devices.csv la parte
+  msp430fr5969   Ram 0x1C00-0x23FF = devicedb
+  msp430fr5969   Info 0x1800-0x19FF = devicedb
+  msp430fr5969   Bsl 0x1000-0x17FF = devicedb
+  msp430fr5969   §2.2 principal 0x4400-0xFFFF
+  msp430fr5969   §2.2 principal2 0x10000-0x13FFF
+  msp430fr5969   §2.2 ram 0x1C00-0x23FF
+  msp430fr5969   §2.2 info 0x1800-0x19FF
+  msp430fr5969   §2.2 bsl 0x1000-0x17FF
+  msp430fr5969   30 módulos
+  msp430fr5969   427 registros del targetdb; 313 contrastados con GCC, 0 distintos
+  msp430fr5969   26 vectores, iguales en CCS y GCC
+  msp430fr5969   devicedb: id 0x8169, 12 eemTimers, 0 eemClocks
+  msp430fr5994   CPU_TYPE 2 = devicedb CpuXv2
+  msp430fr5994   EEM EMEX_SMALL_5XX = eem EMEX_SMALL_5XX
+  msp430fr5994   EEM EMEX_SMALL_5XX = devicedb EMEX_SMALL_5XX
+  msp430fr5994   BREAKPOINTS 3 = targetdb 3
+  msp430fr5994   CLOCKCONTROL EXTENDED = targetdb EXTENDED ~ devicedb GCC_EXTENDED
+  msp430fr5994   SBW 2 ~ targetdb 2
+  msp430fr5994   INTStart 0xFF90 = targetdb iv_base 0xFF90
+  msp430fr5994   RESUELTA mapa-devicedb:Main: csv 0x4000-0xFF7F / devicedb 0x4000-0x43FFF -- devicedb cuenta la memoria principal hasta 0xFFFF (vectores y firma incluidos) y, en las de 20 bits, la une a la de arriba; devices.csv la parte
+  msp430fr5994   Ram 0x1C00-0x2BFF = devicedb
+  msp430fr5994   Info 0x1800-0x19FF = devicedb
+  msp430fr5994   Bsl 0x1000-0x17FF = devicedb
+  msp430fr5994   §2.2 principal 0x4000-0xFFFF
+  msp430fr5994   §2.2 principal2 0x10000-0x43FFF
+  msp430fr5994   §2.2 ram 0x1C00-0x2BFF
+  msp430fr5994   §2.2 ram_lea 0x2C00-0x3BFF
+  msp430fr5994   §2.2 info 0x1800-0x19FF
+  msp430fr5994   §2.2 bsl 0x1000-0x17FF
+  msp430fr5994   §2.2 ram_diminuta 0xA-0x1F
+  msp430fr5994   43 módulos
+  msp430fr5994   651 registros del targetdb; 578 contrastados con GCC, 0 distintos
+  msp430fr5994   38 vectores, iguales en CCS y GCC
+  msp430fr5994   devicedb: id 0x82A1, 20 eemTimers, 0 eemClocks
+  msp430fr6989   CPU_TYPE 2 = devicedb CpuXv2
+  msp430fr6989   EEM EMEX_SMALL_5XX = eem EMEX_SMALL_5XX
+  msp430fr6989   EEM EMEX_SMALL_5XX = devicedb EMEX_SMALL_5XX
+  msp430fr6989   BREAKPOINTS 3 = targetdb 3
+  msp430fr6989   CLOCKCONTROL EXTENDED = targetdb EXTENDED ~ devicedb GCC_EXTENDED
+  msp430fr6989   SBW 2 ~ targetdb 2
+  msp430fr6989   INTStart 0xFF90 = targetdb iv_base 0xFF90
+  msp430fr6989   RESUELTA mapa-devicedb:Main: csv 0x4400-0xFF7F / devicedb 0x4400-0x23FFF -- devicedb cuenta la memoria principal hasta 0xFFFF (vectores y firma incluidos) y, en las de 20 bits, la une a la de arriba; devices.csv la parte
+  msp430fr6989   Ram 0x1C00-0x23FF = devicedb
+  msp430fr6989   Info 0x1800-0x19FF = devicedb
+  msp430fr6989   Bsl 0x1000-0x17FF = devicedb
+  msp430fr6989   §2.2 principal 0x4400-0xFFFF
+  msp430fr6989   §2.2 principal2 0x10000-0x23FFF
+  msp430fr6989   §2.2 ram 0x1C00-0x23FF
+  msp430fr6989   §2.2 info 0x1800-0x19FF
+  msp430fr6989   §2.2 bsl 0x1000-0x17FF
+  msp430fr6989   §2.2 ram_diminuta 0x6-0x1F
+  msp430fr6989   42 módulos
+  msp430fr6989   823 registros del targetdb; 646 contrastados con GCC, 0 distintos
+  msp430fr6989   29 vectores, iguales en CCS y GCC
+  msp430fr6989   devicedb: id 0x81A8, 15 eemTimers, 0 eemClocks
