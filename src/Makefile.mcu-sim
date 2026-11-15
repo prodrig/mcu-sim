@@ -266,6 +266,8 @@ ASANC3    := $(B)/asanc3$(EXE)
 TESTC6    := $(B)/testc6$(EXE)
 ASANC6    := $(B)/asanc6$(EXE)
 ASANRV    := $(B)/asanrv$(EXE)
+TEST430   := $(B)/test430$(EXE)
+ASAN430   := $(B)/asan430$(EXE)
 HASHV   := $(B)/prueba_hash$(EXE)
 CRYPV   := $(B)/prueba_cryp$(EXE)
 BENCH  := $(B)/bench$(EXE)
@@ -280,7 +282,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testrv testrv-build asanrv rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testc6 testc6-build asanc6 c6fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-congela gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all testrv testrv-build asanrv test430 test430-build asan430 m430fw rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testc6 testc6-build asanc6 c6fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-congela gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -433,6 +435,38 @@ else
 asanrv: $(ASANRV) $(B)/rvt/.extraido $(B)/act/.extraido
 	$(ASANRV) $(B)/rvt $(B)/act
 endif
+
+# LA SUITE DEL NÚCLEO MSP430 (fase M1 de doc/analisis_msp430.md): el núcleo
+# genérico de src/m430 (CPU, CPUX y CPUXV2) sobre el SoC de laboratorio, sin
+# chip. Los ELF y lo esperado se versionan en verif/m430: ejecutar la suite no
+# pide la cadena de MSP430; regenerarlos (make m430fw), sí: msp430-elf-gcc y
+# msp430-elf-run, y mspdebug para los de CPU.
+#   make test430             make asan430
+HDRS_430 := $(wildcard m430/*/*.h soc/msp430/desc/*.h verif/m430/*.inc)
+
+$(TEST430): top/sc_main_430.cpp $(HDRS) $(HDRS_430)
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_430.cpp $(LDFLAGS) $(LDLIBS)
+
+$(ASAN430): top/sc_main_430.cpp $(HDRS) $(HDRS_430)
+	@mkdir -p $(B)
+	$(CXX) $(ASANFLAGS) -o $@ top/sc_main_430.cpp $(LDFLAGS) $(LDLIBS)
+
+test430-build: $(TEST430)
+
+test430: $(TEST430)
+	$(TEST430)
+
+ifeq ($(PLATAFORMA),windows)
+asan430:
+	@echo "MinGW no trae AddressSanitizer: 'make asan430' solo va en Linux y macOS."
+else
+asan430: $(ASAN430)
+	$(ASAN430)
+endif
+
+m430fw:
+	cd verif/m430 && python3 gen_dif.py && python3 gen_ciclos.py && $(MAKE) -f Makefile.m430 && python3 gen_dec.py
 
 # LA SUITE DEL ESP32-C3 (fase E3 de doc/analisis_esp32_riscv.md): el C3 sin
 # ROM con el firmware de verif/fw/esp32c3, cuyos ELF se versionan.

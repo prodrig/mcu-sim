@@ -1,0 +1,7 @@
+hola, mundo
+-2 65534 fffe 6|-1 65535 ffff 7|0 0 0 0|1 1 1 1|2 2 2 2|
+123456789 75bcd15 370370367
+[   lunes][martes  ][ok]
+miércoles tiene 10 letras
+3.142 3.141590e+03 0.448799
+0x1

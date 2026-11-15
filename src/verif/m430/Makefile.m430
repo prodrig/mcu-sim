@@ -1,0 +1,25 @@
+# Makefile.m430 — las pruebas propias y printf del núcleo MSP430 (M1). Lo llama
+# `make m430fw` desde src/. Pide msp430-elf-gcc y msp430-elf-run en el PATH.
+GCC ?= msp430-elf-gcc
+RUN ?= msp430-elf-run
+F   := -msim -O1 -Wa,-mY
+
+all: elf/propias_cpu.elf elf/propias_x.elf elf/propias_l.elf \
+     elf/printf_cpu.txt elf/printf_x.txt elf/printf_xl.txt
+
+elf/propias_cpu.elf: propias.S propias_main.c
+	$(GCC) -mcpu=msp430 $(F) $^ -o $@
+elf/propias_x.elf: propias.S propias_main.c
+	$(GCC) -mcpu=msp430x $(F) $^ -o $@
+elf/propias_l.elf: propias.S propias_main.c
+	$(GCC) -mcpu=msp430x -mlarge $(F) $^ -o $@
+
+# printf: con la coma flotante de newlib (-u _printf_float); lo esperado, de msp430-elf-run
+elf/printf_cpu.elf: printf.c
+	$(GCC) -mcpu=msp430 -msim -O2 $< -o $@ -Wl,-u,_printf_float -lm
+elf/printf_x.elf: printf.c
+	$(GCC) -mcpu=msp430x -msim -O2 $< -o $@ -Wl,-u,_printf_float -lm
+elf/printf_xl.elf: printf.c
+	$(GCC) -mcpu=msp430x -mlarge -msim -O2 $< -o $@ -Wl,-u,_printf_float -lm
+elf/printf_%.txt: elf/printf_%.elf
+	$(RUN) $< > $@
