@@ -246,7 +246,7 @@ LDLIBS   += -lsystemc $(LIBS_SO) $(EXTRA_LD)
 
 HDRS := $(wildcard common/*.h pins/*.h parts/*.h bus/*.h mem/*.h rcc/*.h core/*.h \
                    periph/*.h soc/*.h verif/*.h top/*.h \
-                   periph/msp432p4/*.h soc/msp432p4/*.h soc/msp432p4/*.inc \
+                   periph/msp432p4/*.h periph/ti/*.h soc/msp432p4/*.h soc/msp432p4/*.inc \
                    periph/msp432e4/*.h soc/msp432e4/*.h soc/msp432e4/*.inc \
                    soc/stm32f3/*.h soc/stm32f3/*.inc \
                    rv/*/*.h soc/esp/*.h soc/esp32c3/*.h soc/esp32c6/*.h soc/esp32c6/*.inc periph/esp/*.h)
