@@ -136,7 +136,9 @@ inline int16_t ulaw2lin(uint8_t u) {
 
 class I2sEsp : public BusSlave {
 public:
-    enum : unsigned { S_MCLK = 12, S_O_BCK = 13, S_O_WS = 14, S_SD = 15, S_I_BCK = 16, S_I_WS = 17, S_SD1 = 59, PERI_GDMA = 3 };
+    enum : unsigned { S_MCLK = 12, S_O_BCK = 13, S_O_WS = 14, S_SD = 15, S_I_BCK = 16, S_I_WS = 17, PERI_GDMA = 3 };
+    // I2SO_SD1_OUT: 59 en el C3, 18 en el C6
+    unsigned S_SD1 = 59;
     std::function<void(bool)> irq;
     std::function<void(unsigned, bool)> pon;       // una señal de salida de la matriz
     std::function<bool(unsigned)> lee;             // una de entrada
@@ -146,6 +148,12 @@ public:
     std::function<void(unsigned, bool)> oe;        // la habilitación de salida de una señal
     GdmaEsp* gdma = nullptr;
     double hz_xtal = 40e6;
+    uint32_t date = 0x2003230u;          // el C6: 0x2201070
+    // E9: en el C6, MCLK lo hace el PCR (PCR_I2S_{TX,RX}_CLKM_CONF y
+    // _DIV_CONF); el SoC da las dos palabras en el formato del C3: la de
+    // CLKM (0x30/0x34: [7:0] DIV_NUM, [26] EN, [28:27] la fuente; y en la de
+    // RX, [29] MCLK_SEL) y la de DIV (0x38/0x3C)
+    std::function<uint32_t(bool rx, bool div)> clkm_ext;
 
     explicit I2sEsp(sc_core::sc_module_name nm, uint32_t base) : BusSlave(nm, base, 0x1000) {
         SC_HAS_PROCESS(I2sEsp);
@@ -166,7 +174,7 @@ public:
         r_[0x38 / 4] = r_[0x3C / 4] = 0x200u;
         r_[0x40 / 4] = 0x4AA004u; r_[0x44 / 4] = 0x3F783C0u;
         r_[0x50 / 4] = r_[0x54 / 4] = 0xFFFFu;
-        r_[0x60 / 4] = 0x810u; r_[0x64 / 4] = 0x40u; r_[0x80 / 4] = 0x2003230u;
+        r_[0x60 / 4] = 0x810u; r_[0x64 / 4] = 0x40u; r_[0x80 / 4] = date;
         raw_ = 0;
         tx_idle_ = true;
         rx_bytes_ = 0;
@@ -175,7 +183,7 @@ public:
         std::memset(tx_ultima_, 0, sizeof tx_ultima_);
         pdm_ = PdmTx{};
         rxp_ = PdmRx{};
-        if (pon) for (unsigned s : {S_MCLK, S_O_BCK, S_O_WS, S_SD, S_I_BCK, S_I_WS, S_SD1}) pon(s, false);
+        if (pon) for (unsigned s : {unsigned(S_MCLK), unsigned(S_O_BCK), unsigned(S_O_WS), unsigned(S_SD), unsigned(S_I_BCK), unsigned(S_I_WS), S_SD1}) pon(s, false);
         pon_oe();
         evalua();
         ev_tx_.notify(sc_core::SC_ZERO_TIME);
@@ -184,8 +192,20 @@ public:
     unsigned muestras_tx() const { return n_tx_; }
     unsigned muestras_rx() const { return n_rx_; }
     // El I2S_CLK del transmisor o del receptor [Hz] (0: sin reloj)
+    // E9: el PCR del C6 ha cambiado el reloj
+    void reloj_cambia() {
+        pon_oe();
+        ev_tx_.notify(sc_core::SC_ZERO_TIME);
+        ev_rx_.notify(sc_core::SC_ZERO_TIME);
+        ev_cfg_.notify(sc_core::SC_ZERO_TIME);
+    }
+    // Las palabras de reloj (0x30-0x3C), del I2S o, en el C6, del PCR
+    uint32_t ck(uint32_t off) const {
+        if (clkm_ext) return clkm_ext(off == 0x30 || off == 0x38, off >= 0x38);
+        return r_[off / 4];
+    }
     double hz_clk(bool rx) const {
-        const uint32_t clkm = r_[(rx ? 0x30 : 0x34) / 4], div = r_[(rx ? 0x38 : 0x3C) / 4];
+        const uint32_t clkm = ck(rx ? 0x30 : 0x34), div = ck(rx ? 0x38 : 0x3C);
         if (!((clkm >> 26) & 1u)) return 0;
         const unsigned sel = (clkm >> 27) & 3u;
         const double src = sel == 0 ? hz_xtal : sel == 1 ? 240e6 : sel == 2 ? 160e6 : hz_mclk_in_;
@@ -278,7 +298,7 @@ private:
         if (!oe) return;
         oe(S_O_BCK, !tx_esclavo()); oe(S_O_WS, !tx_esclavo());
         oe(S_I_BCK, !rx_esclavo()); oe(S_I_WS, !rx_esclavo());
-        oe(S_MCLK, ((r_[0x34 / 4] >> 27) & 3u) != 3u);
+        oe(S_MCLK, ((ck(0x34) >> 27) & 3u) != 3u);
         oe(S_SD, true); oe(S_SD1, true);
     }
     void evalua() {
@@ -839,7 +859,7 @@ private:
     void mclk_proc() {
         bool nivel = false;
         for (;;) {
-            const bool del_rx = (r_[0x30 / 4] >> 29) & 1u;
+            const bool del_rx = (ck(0x30) >> 29) & 1u;
             const double hz = hz_clk(del_rx);
             if (hz <= 0 || !usada || !usada(S_MCLK)) {
                 if (nivel) { out(S_MCLK, false); nivel = false; }
@@ -857,7 +877,7 @@ private:
         sc_core::sc_time t0;
         bool hay = false, prev = false;
         for (;;) {
-            const bool sel = ((r_[0x30 / 4] >> 27) & 3u) == 3u || ((r_[0x34 / 4] >> 27) & 3u) == 3u;
+            const bool sel = ((ck(0x30) >> 27) & 3u) == 3u || ((ck(0x34) >> 27) & 3u) == 3u;
             if (!sel || !ev_in || !lee) { hay = false; sc_core::wait(ev_cfg_); continue; }
             sc_core::wait(ev_in(S_MCLK) | ev_cfg_);
             const bool v = lee(S_MCLK);

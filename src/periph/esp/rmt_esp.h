@@ -37,6 +37,10 @@ public:
     std::function<void(bool)> irq;
     std::function<void(unsigned, bool)> salida;         // canal 0 o 1
     double hz_apb = 80e6, hz_rc_fast = 17.5e6, hz_xtal = 40e6;
+    // E9: en el C6, el SCLK lo elige el PCR (PCR_RMT_SCLK_CONF); el SoC lo da
+    // en el formato de RMT_SYS_CONF del C3 ([11:4] DIV_NUM, [25:24] la fuente)
+    std::function<uint32_t()> sclk_conf;
+    uint32_t date = 0x2006230u;
 
     explicit RmtEsp(sc_core::sc_module_name nm, uint32_t base) : BusSlave(nm, base, 0x1000) {
         for (unsigned c = 0; c < 2; ++c) sc_core::sc_spawn([this, c] { tx_proc(c); });
@@ -62,7 +66,7 @@ protected:
         case 0x3C: return raw_ & ena_;
         case 0x40: return ena_;
         case 0x68: return sys_;
-        case 0xCC: return 0x2006230u;
+        case 0xCC: return date;
         default: return otros_[(off / 4) & 63];
         }
     }
@@ -98,9 +102,10 @@ private:
     }
     void pon(unsigned c, bool v) { if (nivel_[c] != v || true) { nivel_[c] = v; if (salida) salida(c, v); } }
     double tic_s(unsigned c) const {
-        const unsigned sel = (sys_ >> 24) & 3u;
+        const uint32_t sc = sclk_conf ? sclk_conf() : sys_;
+        const unsigned sel = (sc >> 24) & 3u;
         const double f = sel == 1 ? hz_apb : sel == 2 ? hz_rc_fast : sel == 3 ? hz_xtal : 0.0;
-        const double div = double(((sys_ >> 4) & 0xFFu) + 1u);
+        const double div = double(((sc >> 4) & 0xFFu) + 1u);
         unsigned d = (conf_[c] >> 8) & 0xFFu;
         if (!d) d = 256;
         return f > 0 ? div * d / f : 0.0;

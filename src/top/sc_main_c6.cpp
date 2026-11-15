@@ -33,6 +33,12 @@
 //   D8   el modo descarga (GPIO9 a masa, GPIO8 arriba): la ROM dice
 //        «DOWNLOAD(USB/UART0/SDIO_FEI_FEO)» y espera; y el C6FH4, con la
 //        Flash dentro, arranca el mismo hello_world
+// E9.4: los periféricos comunes con el C3, y el segundo TWAI.
+//   D9   verif/fw/esp32c6/idf/perifericos (nuestra, con los controladores de
+//        ESP-IDF v5.5.6) con su banco: LEDC con el fundido de la RAM gamma, RMT,
+//        TWAI0 <-> TWAI1 por un bus CAN, GP-SPI2 y I2S con la GDMA, I2C, el SAR
+//        ADC y el sensor de temperatura, AES y SHA en modo DMA, RSA, y el DATE
+//        de cada bloque en su sitio
 // Los binarios de ESP-IDF: verif/fw/esp32c6/idf/idf-v5.5.tar.xz, que `make
 // testc6` extrae en build/idf-c6.
 // =============================================================================
@@ -71,10 +77,77 @@ static bool check_eq(uint64_t got, uint64_t exp, const std::string& q) {
 
 static const char* const FW = "verif/fw/esp32c6/";
 
+// E9.4: el banco de verif/fw/esp32c6/idf/perifericos: los cables entre pines,
+// el bus CAN (una Y cableada, como dos transceptores), el divisor que pone
+// 1,2 V en GPIO0, los pull-ups del I2C, y la medida de GPIO2 (LEDC) y GPIO3
+// (RMT)
+SC_MODULE(BancoPerifC6) {
+    Esp32C6& c6;
+    // LEDC: los flancos de subida y bajada de GPIO2
+    std::vector<double> sube2, baja2;
+    // RMT: los anchos (s) de cada nivel en GPIO3
+    std::vector<std::pair<bool, double>> rmt;
+    // Conectado o no (en testc6, solo durante D9: si no, sus cables y su
+    // divisor cambiarían los pines de arranque de los otros grupos)
+    bool activo = true;
+    sc_event ev_activo;
+    void conecta(bool si) { activo = si; ev_activo.notify(SC_ZERO_TIME); }
+    BancoPerifC6(sc_module_name nm, Esp32C6& c, bool act = true) : sc_module(nm), c6(c), activo(act) {
+        SC_HAS_PROCESS(BancoPerifC6);
+        SC_THREAD(cables);
+        SC_METHOD(mide2);
+        sensitive << c6.gpio.nodo_de(2).value_changed_event();
+        dont_initialize();
+        SC_METHOD(mide3);
+        sensitive << c6.gpio.nodo_de(3).value_changed_event();
+        dont_initialize();
+    }
+    static bool alto(analog_net_if& n) { return n.voltage() > 1.65f; }
+    void mide2() { (alto(c6.gpio.nodo_de(2)) ? sube2 : baja2).push_back(sc_time_stamp().to_seconds()); }
+    double t3_ = 0;
+    bool n3_ = false;
+    void mide3() {
+        const bool a = alto(c6.gpio.nodo_de(3));
+        if (a == n3_) return;
+        const double t = sc_time_stamp().to_seconds();
+        if (t3_ > 0) rmt.push_back({n3_, t - t3_});
+        t3_ = t; n3_ = a;
+    }
+    void cables() {
+        auto& g = c6.gpio;
+        const int d21 = g.nodo_de(21).register_driver("banco_miso"), d11 = g.nodo_de(11).register_driver("banco_din");
+        const int d5 = g.nodo_de(5).register_driver("can_rx0"), d7 = g.nodo_de(7).register_driver("can_rx1");
+        const int d0 = g.nodo_de(0).register_driver("divisor_1v2");
+        const int p1 = g.nodo_de(1).register_driver("pullup_sda"), p15 = g.nodo_de(15).register_driver("pullup_scl");
+        for (;;) {
+            if (!activo) {
+                for (auto x : {std::make_pair(21, d21), std::make_pair(11, d11), std::make_pair(5, d5), std::make_pair(7, d7),
+                               std::make_pair(0, d0), std::make_pair(1, p1), std::make_pair(15, p15)})
+                    g.nodo_de(unsigned(x.first)).set_hiz(x.second);
+                wait(ev_activo);
+                continue;
+            }
+            g.nodo_de(0).set_drive(d0, 1.2f, 100.0f);
+            g.nodo_de(1).set_drive(p1, 3.3f, 4.7e3f);
+            g.nodo_de(15).set_drive(p15, 3.3f, 4.7e3f);
+            g.nodo_de(21).set_drive(d21, alto(g.nodo_de(20)) ? 3.3f : 0.0f, 50.0f);
+            g.nodo_de(11).set_drive(d11, alto(g.nodo_de(10)) ? 3.3f : 0.0f, 50.0f);
+            // El bus: dominante (0) si alguno de los dos TX está a 0
+            const bool rec = !(g.nodo_de(4).voltage() < 1.0f && !g.nodo_de(4).floating()) &&
+                             !(g.nodo_de(6).voltage() < 1.0f && !g.nodo_de(6).floating());
+            g.nodo_de(5).set_drive(d5, rec ? 3.3f : 0.0f, 50.0f);
+            g.nodo_de(7).set_drive(d7, rec ? 3.3f : 0.0f, 50.0f);
+            wait(g.nodo_de(20).value_changed_event() | g.nodo_de(10).value_changed_event() |
+                 g.nodo_de(4).value_changed_event() | g.nodo_de(6).value_changed_event() | ev_activo);
+        }
+    }
+};
+
 SC_MODULE(TbC6) {
     Esp32C6 c6;
     SpiFlashChip flash{*busca_modelo_flash("GD25Q32")};
     Esp32C6 c6b{"c6b", MCU_ESP32C6FH4};
+    BancoPerifC6 banco{"banco", c6, false};
     int d_rx_ = -1, d_g9_ = -1, d_g8_ = -1;
     std::string terminal;
     unsigned flancos_g8 = 0;
@@ -412,6 +485,59 @@ SC_MODULE(TbC6) {
         c6b.alimenta(false);
     }
 
+    void d9() {
+        grupo("D9 los perifericos comunes con el C3, y TWAI1, con ESP-IDF (perifericos)");
+        banco.conecta(true);
+        const uint64_t a0 = c6.aes.bloques_dma(), s0 = c6.sha.bloques_dma(), t0 = c6.spi2.transacciones();
+        banco.sube2.clear(); banco.baja2.clear(); banco.rmt.clear();
+        check(arranca_flash("build/idf-c6/v5.5/perifericos"), "perifericos: su flash_args");
+        check(espera_texto(terminal, "perifericos: FIN", sc_time(3, SC_SEC)), "llega a \"perifericos: FIN\"");
+        // LEDC: 5 kHz y el 25 % antes del fundido
+        bool ledc_ok = banco.sube2.size() > 20 && banco.baja2.size() > 20;
+        double per = 0, alto = 0;
+        if (ledc_ok) {
+            per = banco.sube2[11] - banco.sube2[10];
+            for (double b : banco.baja2) if (b > banco.sube2[10]) { alto = b - banco.sube2[10]; break; }
+        }
+        check(ledc_ok && std::fabs(per - 200e-6) < 0.5e-6, "LEDC en GPIO2: 5000 Hz (" + std::to_string(per * 1e6) + " us)");
+        check(ledc_ok && std::fabs(alto / per - 0.25) < 0.005, "y el 25 % (" + std::to_string(alto / per) + ")");
+        check(tiene(terminal, "P2 LEDC fundido hasta 6144"), "el fundido de ESP-IDF por la RAM gamma llega a 6144");
+        // RMT: 10/20, 30/40, 50/60, 70 us
+        static const double RMT_US[7] = {10, 20, 30, 40, 50, 60, 70};
+        bool rmt_ok = banco.rmt.size() >= 7;
+        for (unsigned i = 0; rmt_ok && i < 7; ++i)
+            rmt_ok = banco.rmt[i].first == (i % 2 == 0) && std::fabs(banco.rmt[i].second * 1e6 - RMT_US[i]) < 0.1;
+        check(rmt_ok, "RMT en GPIO3: los cuatro pulsos de 10/20, 30/40, 50/60 y 70 us");
+        check(tiene(terminal, "P4 TWAI0 -> TWAI1: OK id 0x123 dlc 8 10..17") &&
+              tiene(terminal, "P4 TWAI1 -> TWAI0: OK id 0x456 dlc 8 20..27"),
+              "TWAI0 y TWAI1 a 500 kbit/s por un bus CAN: una trama en cada sentido");
+        check(tiene(terminal, "P5 SPI OK 64 bytes por la GDMA") && c6.spi2.transacciones() > t0,
+              "GP-SPI2 a 1 MHz con la GDMA en los dos sentidos (MOSI -> MISO)");
+        check(tiene(terminal, "P6 I2S OK"), "I2S Philips de 16 bits con la GDMA: lo que sale por GPIO10 vuelve por GPIO11");
+        check(tiene(terminal, "P7 I2C 0x50: ESP_ERR_NOT_FOUND"), "I2C: nadie en 0x50, NACK");
+        check(tiene(terminal, "P8 ADC1 canal 0: 1966"), "SAR ADC: 1,2 V en GPIO0 a 12 dB: 1966");
+        check(tiene(terminal, "P9 temperatura 25 C"), "el sensor de temperatura: 25 C");
+        check(tiene(terminal, "P10 AES (ECB, CBC, CTR; 128 y 256) OK") && c6.aes.bloques_dma() > a0,
+              "AES en modo DMA (los vectores de SP 800-38A): " + std::to_string(c6.aes.bloques_dma() - a0) + " bloques");
+        check(tiene(terminal, "P11 SHA-1 OK") && tiene(terminal, "P12 SHA-256 OK") && c6.sha.bloques_dma() > s0,
+              "SHA-1 y SHA-256 en modo DMA: " + std::to_string(c6.sha.bloques_dma() - s0) + " bloques");
+        check(tiene(terminal, "P13 RSA (exp_mod) OK"), "RSA: la exponenciacion modular de mbedTLS");
+        struct F { const char* n; uint32_t v; };
+        static const F FECHAS[] = {{"RMT", 0x2108213}, {"I2C", 0x2201172}, {"UHCI", 0x2201100}, {"LEDC", 0x2111150},
+                                   {"I2S", 0x2201070}, {"SARADC", 0x2206240}, {"USJ", 0x2109220}, {"GDMA", 0x2202250},
+                                   {"SPI2", 0x2201300}, {"AES", 0x20191210}, {"SHA", 0x20201229}, {"RSA", 0x20200618},
+                                   {"DS", 0x20200618}, {"HMAC", 0x20200618}, {"XTS", 0x20200623}};
+        bool fechas = true;
+        for (const F& f : FECHAS) {
+            char l[48];
+            std::snprintf(l, sizeof l, "P14 %s 0x%08X", f.n, f.v);
+            if (!tiene(terminal, l)) { fechas = false; std::printf("    falta \"%s\"\n", l); }
+        }
+        check(fechas, "el DATE de los quince bloques, en su sitio y con su valor (el XTS_AES, dentro del SPI1)");
+        c6.alimenta(false);
+        banco.conecta(false);
+    }
+
     void run() {
         wait(SC_ZERO_TIME);
         d1();
@@ -422,6 +548,7 @@ SC_MODULE(TbC6) {
         d6();
         d7();
         d8();
+        d9();
         std::printf("\nTOTAL C6: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }
@@ -436,8 +563,10 @@ SC_MODULE(CorreFlash) {
     double ms = 100;
     bool descarga = false;
     int res = 0;
-    CorreFlash(sc_module_name nm, const McuCapsC6& m) : sc_module(nm) {
+    std::unique_ptr<BancoPerifC6> banco;
+    CorreFlash(sc_module_name nm, const McuCapsC6& m, bool con_banco) : sc_module(nm) {
         c6.reset(new Esp32C6("c6", m));
+        if (con_banco) banco.reset(new BancoPerifC6("banco", *c6));
         fl.reset(new SpiFlashChip(*busca_modelo_flash("GD25Q32")));
         if (!c6->flash()) c6->pon_flash(fl.get());
         SC_HAS_PROCESS(CorreFlash);
@@ -479,6 +608,10 @@ SC_MODULE(CorreFlash) {
                         c6->core.hart.x(8), c6->core.hart.x(9));
         }
         if (std::getenv("C6_DBG"))
+            std::printf("\n[dbg] spi2 %llu trans, aes %u bloques dma, sha %u bloques dma, intmtx 0x%08X",
+                        (unsigned long long)c6->spi2.transacciones(), c6->aes.bloques_dma(), c6->sha.bloques_dma(),
+                        c6->intpri.eip(0));
+        if (std::getenv("C6_DBG"))
             std::printf("\n[dbg] resets %llu causa %u uart0 %.0f baudios cpu %.0f apb %.0f strap 0x%X reclamaciones %llu",
                         (unsigned long long)c6->resets(), c6->lp_clkrst.causa(), c6->uart0.baudios(),
                         c6->pcr.hz_cpu(), c6->pcr.hz_apb(), c6->gpio.strap(),
@@ -492,7 +625,7 @@ SC_MODULE(CorreFlash) {
 static int corre_flash(int argc, char* argv[]) {
     const McuCapsC6* m = &MCU_ESP32C6;
     double ms = 100;
-    bool descarga = false;
+    bool descarga = false, con_banco = false;
     std::vector<std::pair<std::string, uint32_t>> imgs;
     for (int i = 2; i < argc; ++i) {
         const std::string a = argv[i];
@@ -500,9 +633,10 @@ static int corre_flash(int argc, char* argv[]) {
         else if (a == "--fh8") m = &MCU_ESP32C6FH8;
         else if (a == "--ms" && i + 1 < argc) ms = std::atof(argv[++i]);
         else if (a == "--descarga") descarga = true;
+        else if (a == "--banco") con_banco = true;
         else if (i + 1 < argc) { imgs.push_back({argv[i + 1], uint32_t(std::strtoul(argv[i], nullptr, 0))}); ++i; }
     }
-    CorreFlash c("corre", *m);
+    CorreFlash c("corre", *m, con_banco);
     c.imgs = imgs;
     c.ms = ms;
     c.descarga = descarga;

@@ -40,6 +40,10 @@ public:
     std::function<void(bool scl, bool sda)> lineas;     // lo que el maestro suelta (1) o tira (0)
     std::function<bool()> lee_scl, lee_sda;              // lo que hay en el bus
     double hz_xtal = 40e6, hz_rc_fast = 17.5e6;
+    // E9: en el C6, el SCLK lo elige el PCR (PCR_I2C_SCLK_CONF); el SoC lo da
+    // en el formato de I2C_CLK_CONF del C3 ([7:0] DIV_NUM, [20] RC_FAST)
+    std::function<uint32_t()> sclk_conf;
+    uint32_t date = 0x20070201u;
 
     explicit I2cEsp(sc_core::sc_module_name nm, uint32_t base) : BusSlave(nm, base, 0x1000) {
         SC_HAS_PROCESS(I2cEsp);
@@ -75,7 +79,7 @@ protected:
         case 0x20: return raw_;
         case 0x28: return ena_;
         case 0x2C: return raw_ & ena_;
-        case 0xF8: return 0x20070201u;
+        case 0xF8: return date;
         default: return off < 0x200 ? r_[off / 4] : 0;
         }
     }
@@ -114,7 +118,7 @@ private:
         if (n != irq_) { irq_ = n; if (irq) irq(n); }
     }
     double fs() const {
-        const uint32_t c = r_[0x54 / 4];
+        const uint32_t c = sclk_conf ? sclk_conf() : r_[0x54 / 4];
         const double f = ((c >> 20) & 1u) ? hz_rc_fast : hz_xtal;
         return f / double((c & 0xFFu) + 1u);
     }

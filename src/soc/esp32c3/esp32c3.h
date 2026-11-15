@@ -332,6 +332,11 @@ public:
         gdma.escribe32 = [this](uint32_t a, uint32_t v) { poke32(a, v); };
         gdma.escribe8 = [this](uint32_t a, uint8_t b) { uint8_t* p = mem(a, false); if (!p) return false; *p = b; return true; };
         // El I2S: sus señales por la matriz y la GDMA
+        // E9: el AES y el SHA en modo DMA
+        aes.gdma = &gdma;
+        sha.gdma = &gdma;
+        aes.irq = [this](bool v) { intmtx.fuente(c3::F_AES, v); };
+        sha.irq = [this](bool v) { intmtx.fuente(c3::F_SHA, v); };
         i2s.gdma = &gdma;
         i2s.irq = [this](bool v) { intmtx.fuente(c3::F_I2S, v); };
         i2s.pon = [this](unsigned s, bool v) { gpio.sig_out[s].write(v); };
@@ -862,7 +867,7 @@ private:
         for (unsigned g : {c3::SIG_FSPICLK, c3::SIG_FSPID, c3::SIG_FSPICS0}) gpio.sig_oe[g].write(true);
         for (unsigned g = I2sEsp::S_O_BCK; g <= I2sEsp::S_I_WS; ++g) gpio.sig_oe[g].write(true);   // I2S (E8)
         gpio.sig_oe[I2sEsp::S_MCLK].write(true);
-        gpio.sig_oe[I2sEsp::S_SD1].write(true);
+        gpio.sig_oe[i2s.S_SD1].write(true);
         for (;;) {
             // Apagado o CHIP_PU bajo: todo quieto
             encendido_ = false;

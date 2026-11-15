@@ -7,7 +7,8 @@
 #
 # Con el entorno de ESP-IDF ya activado (export.sh, o el PATH con
 # riscv32-esp-elf-gcc y el python del entorno), copia de <IDF_PATH>/examples
-# hello_world, lo compila para el esp32c6 SIN TOCARLO y empaqueta en
+# hello_world (SIN TOCARLO) y de aquí perifericos (la prueba de E9.4, nuestra),
+# los compila para el esp32c6 y empaqueta en
 # idf-<versión>.tar.xz el flash_args y sus tres .bin (el bootloader, la tabla
 # de particiones y la aplicación). Son los binarios de ESP-IDF (Apache-2.0):
 # ver LICENSE-esp-idf.md. Como el de verif/fw/esp32c3/idf.
@@ -18,8 +19,9 @@ IDF="$1"; VER="$2"; TRAB="${3:-/tmp/idf-c6-$VER}"
 AQUI=$(cd "$(dirname "$0")" && pwd)
 rm -rf "$TRAB"; mkdir -p "$TRAB/$VER"
 cp -r "$IDF/examples/get-started/hello_world" "$TRAB/hello_world"
-rm -rf "$TRAB"/*/build
-for a in hello_world; do
+cp -r "$AQUI/perifericos" "$TRAB/perifericos"
+rm -rf "$TRAB"/*/build "$TRAB"/*/sdkconfig
+for a in hello_world perifericos; do
     (cd "$TRAB/$a" && IDF_COMPONENT_MANAGER=0 python "$IDF/tools/idf.py" set-target esp32c6 build)
     mkdir -p "$TRAB/$VER/$a/bootloader" "$TRAB/$VER/$a/partition_table"
     cp "$TRAB/$a/build/flash_args" "$TRAB/$VER/$a/"

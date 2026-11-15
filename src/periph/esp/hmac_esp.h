@@ -112,6 +112,7 @@ protected:
             return uint32_t(res_[i]) | uint32_t(res_[i + 1]) << 8 | uint32_t(res_[i + 2]) << 16 | uint32_t(res_[i + 3]) << 24;
         }
         if (off == 0xF8) return 0x20200618u;            // DATE (comparte dirección con SOFT_JTAG_CTRL)
+        if (off == 0x1FC) return 0x20200618u;           // E9: DATE del C6 (hmac_reg.h)
         return 0;
     }
     void reg_write(uint32_t off, uint32_t v, uint32_t m) override {

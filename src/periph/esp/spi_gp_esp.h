@@ -17,8 +17,10 @@
 // DMA_INT_RAW) a la fuente 19. El bit más alto de cada byte primero; los
 // bytes de W0-W15, en el orden de la memoria.
 // LO QUE NO SE MODELA: el modo esclavo, dual/quad/QPI, los CS 1-5, la
-// transferencia segmentada (SEG_TRANS), la DMA de entrada y los retardos de
-// muestreo (DIN_MODE/DOUT_MODE).
+// transferencia segmentada (SEG_TRANS) y los retardos de muestreo
+// (DIN_MODE/DOUT_MODE).
+// E9: LA DMA DE ENTRADA: con DMA_RX_ENA (DMA_CONF bit 27), lo leído de MISO va
+// al canal de entrada de la GDMA con IN_PERI_SEL = 0, con EOF al final.
 // =============================================================================
 #ifndef STM32_PERIPH_ESP_SPI_GP_ESP_H
 #define STM32_PERIPH_ESP_SPI_GP_ESP_H
@@ -39,6 +41,7 @@ public:
     std::function<bool()> miso;
     GdmaEsp* gdma = nullptr;
     double hz_apb = 80e6;
+    uint32_t date = 0x2007220u;
 
     explicit SpiGpEsp(sc_core::sc_module_name nm, uint32_t base) : BusSlave(nm, base, 0x1000) {
         SC_HAS_PROCESS(SpiGpEsp);
@@ -64,7 +67,7 @@ protected:
         case 0x34: return ena_;
         case 0x3C: return raw_;
         case 0x40: return raw_ & ena_;
-        case 0xF0: return 0x2007220u;
+        case 0xF0: return date;
         default: return off < 0x100 ? r_[off / 4] : 0;
         }
     }
@@ -76,6 +79,11 @@ protected:
             return;
         case 0x34: ena_ = v; evalua(); return;
         case 0x38: raw_ &= ~v; evalua(); return;
+        // E9: el software también puede poner las interrupciones: en el C3,
+        // escribiendo DMA_INT_RAW (R/W/WTC/SS); en el C6, con DMA_INT_SET
+        // (0x44). spi_master lo hace para arrancar su cola con TRANS_DONE.
+        case 0x3C: raw_ = v; evalua(); return;
+        case 0x44: raw_ |= v; evalua(); return;
         default: if (off < 0x100) r_[off / 4] = v; return;
         }
     }
@@ -141,7 +149,9 @@ private:
                     const bool v = bit((tx[k / 8] >> (7 - k % 8)) & 1u, idle_alto);
                     if (v) rx[k / 8] |= uint8_t(0x80u >> (k % 8));
                 }
-                if (miso_f && !dma)
+                const bool dma_rx = (r_[0x30 / 4] >> 27) & 1u;
+                if (miso_f && dma_rx && gdma) gdma->mete(0, rx.data(), nb, true);
+                if (miso_f && !dma_rx)
                     for (unsigned i = 0; i < nb && i < 64; ++i) {
                         uint32_t& w = r_[0x98 / 4 + i / 4];
                         w = (w & ~(0xFFu << (8 * (i % 4)))) | (uint32_t(rx[i]) << (8 * (i % 4)));

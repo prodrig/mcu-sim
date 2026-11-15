@@ -27,10 +27,16 @@
 //              GPIO con la matriz e IO_MUX sobre pads eléctricos, la GPIO
 //              dedicada por los CSR, LP_AON (STORE, resets por software),
 //              LP_CLKRST (la causa), eFuse (de lectura), SPI0/SPI1 con la MMU,
-//              EXTMEM, SHA, LPPERI (el RNG), I2C_ANA_MST; y guardando con sus
-//              valores de reset: PMU, HP_SYSTEM, LP_WDT, LP_TIMER, LP_ANALOG,
-//              las APM y los TEE, ASSIST_DEBUG, MEM_MONITOR y MODEM_SYSCON y
-//              MODEM_LPCON. El resto, DECLARADOS (leen cero y avisan; E9.4).
+//              EXTMEM, LPPERI (el RNG), I2C_ANA_MST; y los del C3 con las
+//              diferencias del C6 (E9.4): LEDC (el fundido por la RAM gamma),
+//              RMT, I2C, TWAI0 y TWAI1, I2S, UHCI, el SAR ADC y el sensor de
+//              temperatura, la GDMA (sus interrupciones de entrada y salida
+//              separadas), GP-SPI2, AES y SHA con su DMA, RSA, HMAC, DS,
+//              XTS_AES (dentro del SPI1) y el USB-Serial-JTAG, con sus relojes
+//              del PCR; y guardando con sus valores de reset: PMU, HP_SYSTEM,
+//              LP_WDT, LP_TIMER, LP_ANALOG, las APM y los TEE, ASSIST_DEBUG,
+//              MEM_MONITOR, MODEM_SYSCON, MODEM_LPCON, el coexist y el radio.
+//              El resto, DECLARADOS (leen cero y avisan).
 //   reset      CHIP_PU: el reset de chip, y los cinco pines de arranque
 //              (GPIO8, GPIO9, MTMS, MTDI y GPIO15) se guardan al soltarlo.
 //              Resets del sistema y de la CPU por software (LP_AON) con su
@@ -64,6 +70,21 @@
 #include "../../periph/esp/timg_esp.h"
 #include "../../periph/esp/gpio_esp.h"
 #include "../../periph/esp/sha_esp.h"
+#include "../../periph/esp/usb_serial_jtag.h"
+#include "../../periph/esp/ledc_esp.h"
+#include "../../periph/esp/rmt_esp.h"
+#include "../../periph/esp/saradc_esp.h"
+#include "../../periph/esp/aes_esp.h"
+#include "../../periph/esp/i2c_esp.h"
+#include "../../periph/esp/twai_esp.h"
+#include "../../periph/esp/gdma_esp.h"
+#include "../../periph/esp/spi_gp_esp.h"
+#include "../../periph/esp/rsa_esp.h"
+#include "../../periph/esp/hmac_esp.h"
+#include "../../periph/esp/ds_esp.h"
+#include "../../periph/esp/xts_aes_esp.h"
+#include "../../periph/esp/i2s_esp.h"
+#include "../../periph/esp/uhci_esp.h"
 #include "../../periph/bloque_declarado.h"
 #include "../../common/imagen_fw.h"
 #include "../../common/analog_net.h"
@@ -169,8 +190,32 @@ public:
     ShaEsp         sha;
     I2cAnaMstC6    i2c_ana_mst;
     LpPeriC6       lpperi;
+    // E9.4: los periféricos que el C6 tiene en común con el C3, con los
+    // cambios del C6 (y el segundo TWAI)
+    UsbSerialJtagEsp usj;          // D- en GPIO12, D+ en GPIO13
+    LedcEsp        ledc;
+    RmtEsp         rmt;
+    SarAdcEsp      adc;            // y el sensor de temperatura
+    AesEsp         aes;
+    I2cEsp         i2c;
+    TwaiEsp        twai0, twai1;
+    GdmaEsp        gdma;
+    SpiGpEsp       spi2;
+    RsaEsp         rsa;
+    HmacEsp        hmac;
+    DsEsp          ds;
+    XtsAesEsp      xts;            // dentro del SPI1, en 0x6000_3300
+    I2sEsp         i2s;
+    UhciEsp        uhci;
     BloqueEsp      pmu, hp_sys, lp_wdt, lp_timer,
                    lp_ana, hp_apm, lp_apm, lp_apm0, tee, lp_tee, assist, mem_mon, modem_syscon, modem_lpcon;
+    // Los registros de la coexistencia Wi-Fi/BT/802.15.4 (0x600A_F400), que la
+    // biblioteca de coexistencia de ESP-IDF borra al arrancar: guardan
+    BloqueGuardado modem_coex{"modem_coex", 0x600AF400u, 0x400};
+    // La radio del módem (0x600A_0000-0x600A_97FF: el front-end y PWDET,
+    // el 802.15.4...): guardan. De aquí lee y escribe el ADC PWDET_CONF
+    // (0x600A_0810), que da la alimentación del SAR [sar_ctrl_ll.h]
+    BloqueGuardado modem_radio{"modem_radio", 0x600A0000u, 0x9800};
     RomEsp         rom{c6::ROM_B, c6::ROM_FIN - c6::ROM_B};
     std::vector<std::unique_ptr<BloqueDeclarado>> declarados;
 
@@ -190,6 +235,11 @@ public:
           spi0("spi0", c6::SPI0_B), spi1("spi1", c6::SPI1_B, c6::REGS_SPI_MEM),
           cache("extmem", c6::EXTMEM_B, spi0), sha("sha", c6::SHA_B, 0x20201229u),
           i2c_ana_mst("i2c_ana_mst", c6::I2C_ANA_MST_B), lpperi("lpperi", c6::LPPERI_B),
+          usj("usb_serial_jtag", c6::USB_SJ_B, gpio.nodo_de(13), gpio.nodo_de(12)),
+          ledc("ledc", c6::LEDC_B), rmt("rmt", c6::RMT_B), adc("apb_saradc", c6::ADC_B), aes("aes", c6::AES_B),
+          i2c("i2c", c6::I2C_B), twai0("twai0", c6::TWAI0_B), twai1("twai1", c6::TWAI1_B),
+          gdma("gdma", c6::GDMA_B), spi2("spi2", c6::SPI2_B), rsa("rsa", c6::RSA_B), hmac("hmac", c6::HMAC_B),
+          ds("ds", c6::DS_B), xts("xts_aes", c6::SPI1_B + 0x300, 0x100), i2s("i2s", c6::I2S_B), uhci("uhci0", c6::UHCI_B),
           pmu("pmu", c6::PMU_B, 0x400, c6::REGS_PMU),
           hp_sys("hp_system", c6::HP_SYS_B, 0x1000, c6::REGS_HP_SYSTEM),
           lp_wdt("lp_wdt", c6::LP_WDT_B, 0x400, c6::REGS_LP_WDT),
@@ -232,23 +282,18 @@ public:
         // sea el del chip
         struct D { const char* n; uint32_t b, t; const char* e; };
         static const D DECL[] = {
-            {"i2c", c6::I2C_B, 0x1000, "E9.4"}, {"uhci0", c6::UHCI_B, 0x1000, "E9.4"},
-            {"rmt", c6::RMT_B, 0x1000, "E9.4"}, {"ledc", c6::LEDC_B, 0x1000, "E9.4"},
-            {"twai0", c6::TWAI0_B, 0x1000, "E9.4"}, {"i2s", c6::I2S_B, 0x1000, "E9.4"},
-            {"twai1", c6::TWAI1_B, 0x1000, "E9.4"}, {"apb_saradc", c6::ADC_B, 0x1000, "E9.4"},
-            {"usb_serial_jtag", c6::USB_SJ_B, 0x1000, "E9.5"}, {"atomic", c6::ATOMIC_B, 0x1000, "E9.4"},
-            {"pcnt", c6::PCNT_B, 0x1000, "E9.4"}, {"soc_etm", c6::ETM_B, 0x1000, "E9.4"},
-            {"mcpwm", c6::MCPWM_B, 0x1000, "E9.4"}, {"parl_io", c6::PARL_IO_B, 0x1000, "E9.4"},
-            {"hinf", c6::HINF_B, 0x1000, "E9.4"}, {"slc", c6::SLC_B, 0x1000, "E9.4"},
-            {"slchost", c6::SLCHOST_B, 0x1000, "E9.4"}, {"pvt", c6::PVT_B, 0x1000, "E9.4"},
-            {"gdma", c6::GDMA_B, 0x1000, "E9.4"}, {"spi2", c6::SPI2_B, 0x1000, "E9.4"},
-            {"aes", c6::AES_B, 0x1000, "E9.4"},
-            {"rsa", c6::RSA_B, 0x1000, "E9.4"}, {"ecc", c6::ECC_B, 0x1000, "E9.4"},
-            {"ds", c6::DS_B, 0x1000, "E9.4"}, {"hmac", c6::HMAC_B, 0x1000, "E9.4"},
-            {"pau", c6::PAU_B, 0x1000, "E9.4"}, {"misc", c6::MISC_B, 0x1000, "E9.4"},
+            // Los que el C3 no tiene: fuera de E9 [doc/analisis_esp32_riscv.md]
+            {"atomic", c6::ATOMIC_B, 0x1000, "una fase posterior"},
+            {"pcnt", c6::PCNT_B, 0x1000, "una fase posterior"}, {"soc_etm", c6::ETM_B, 0x1000, "una fase posterior"},
+            {"mcpwm", c6::MCPWM_B, 0x1000, "una fase posterior"}, {"parl_io", c6::PARL_IO_B, 0x1000, "una fase posterior"},
+            {"hinf", c6::HINF_B, 0x1000, "una fase posterior"}, {"slc", c6::SLC_B, 0x1000, "una fase posterior"},
+            {"slchost", c6::SLCHOST_B, 0x1000, "una fase posterior"}, {"pvt", c6::PVT_B, 0x1000, "una fase posterior"},
+            {"ecc", c6::ECC_B, 0x1000, "una fase posterior"},
+            {"pau", c6::PAU_B, 0x1000, "una fase posterior"}, {"misc", c6::MISC_B, 0x1000, "una fase posterior"},
+            {"otp_debug", c6::OTP_DBG_B, 0x400, "una fase posterior"}, {"trace", c6::TRACE_B, 0x1000, "una fase posterior"},
+            // El núcleo LP y lo suyo
             {"lp_uart", c6::LP_UART_B, 0x400, "E10"}, {"lp_i2c", c6::LP_I2C_B, 0x400, "E10"},
             {"lp_io", c6::LP_IO_B, 0x400, "E10"}, {"lp_i2c_ana_mst", c6::LP_I2C_ANA_B, 0x400, "E10"},
-            {"otp_debug", c6::OTP_DBG_B, 0x400, "E9.4"}, {"trace", c6::TRACE_B, 0x1000, "E9.4"},
         };
         for (const D& d : DECL)
             declarados.emplace_back(new BloqueDeclarado(d.n, d.b, d.t, d.n,
@@ -257,9 +302,14 @@ public:
         std::vector<BusSlave*> todos{&gpio, &iomux, &intmtx, &intpri, &pcr, &lp_aon, &lp_clkrst, &uart0, &uart1,
                                      &systimer, &timg0, &timg1, &efuse, &spi0, &spi1, &cache, &pmu, &hp_sys,
                                      &lp_wdt, &lp_timer, &i2c_ana_mst, &lpperi, &lp_ana, &hp_apm, &lp_apm,
-                                     &lp_apm0, &tee, &lp_tee, &assist, &mem_mon, &sha, &modem_syscon, &modem_lpcon};
+                                     &lp_apm0, &tee, &lp_tee, &assist, &mem_mon, &sha, &modem_syscon, &modem_lpcon,
+                                     &modem_coex, &modem_radio, &usj, &ledc, &rmt, &adc, &aes, &i2c, &twai0, &twai1, &gdma, &spi2, &rsa,
+                                     &hmac, &ds, &i2s, &uhci};
+        // El XTS_AES antes que el SPI1, que lo contiene
+        todos.insert(std::find(todos.begin(), todos.end(), static_cast<BusSlave*>(&spi1)), &xts);
         for (auto& d : declarados) todos.push_back(d.get());
-        for (BusSlave* s : todos) engancha(s);
+        for (BusSlave* s : todos) engancha(s, (s == &twai0 || s == &twai1) ? hz_xtal_ : hz_apb);
+        conecta_perifericos();
 
         // Interrupciones: la matriz da líneas al INTPRI; el INTPRI y el CLINT,
         // al núcleo
@@ -284,6 +334,7 @@ public:
             t.hz_apb = t.hz_xtal = hz;
         };
         // Resets
+        pcr.al_escribir = [this](uint32_t off) { relojes_perifericos(off); };
         lp_aon.reset_sw = [this](bool sis) { pide_reset(sis ? CAUSA_SW_SIS : CAUSA_SW_CPU, sis); };
         timg0.reset_wdt = [this](bool sis) { pide_reset(sis ? CAUSA_MWDT0_SIS : CAUSA_MWDT0_CPU, sis); };
         timg1.reset_wdt = [this](bool sis) { pide_reset(sis ? CAUSA_MWDT1_SIS : CAUSA_MWDT1_CPU, sis); };
@@ -303,6 +354,7 @@ public:
 
     // --- Lo que hace la placa -------------------------------------------------------
     void alimenta(bool si) {
+        usj.alimenta(si);
         if (si) chip_pu.set_drive(d_pu_, 3.3f, 10e3f);
         else    chip_pu.set_drive(d_pu_, 0.0f, 10e3f);
     }
@@ -310,7 +362,7 @@ public:
     // Las causas de reset [reset_reasons.h de ESP-IDF]
     enum : unsigned {
         CAUSA_POR = 1, CAUSA_SW_SIS = 3, CAUSA_MWDT0_SIS = 7, CAUSA_MWDT1_SIS = 8,
-        CAUSA_MWDT0_CPU = 11, CAUSA_SW_CPU = 12, CAUSA_MWDT1_CPU = 17,
+        CAUSA_MWDT0_CPU = 11, CAUSA_SW_CPU = 12, CAUSA_MWDT1_CPU = 17, CAUSA_USB_UART = 21,
     };
 
     // --- El firmware ------------------------------------------------------------------
@@ -389,8 +441,11 @@ public:
             "Flash de dentro); programar no programa",
             "el RNG (LPPERI_RNG_DATA) es un xorshift32 de semilla fija: igual en cada simulacion",
             "el RWDT (LP_WDT) y el super watchdog guardan sin contar",
-            "LEDC, RMT, I2C, TWAI0/1, I2S, el SAR ADC, GDMA, GP-SPI2, AES, RSA, ECC, HMAC, DS, PCNT, MCPWM, "
-            "PARL_IO, ETM, SDIO y el USB-Serial-JTAG: declarados (E9.4, E9.5)",
+            "LEDC (con el fundido por la RAM gamma), RMT, I2C, TWAI0 y TWAI1, I2S, UHCI, el SAR ADC y el "
+            "sensor de temperatura, la GDMA, GP-SPI2, AES y SHA (con su DMA), RSA, HMAC, DS, XTS_AES y el "
+            "USB-Serial-JTAG: los modelos del C3 con las diferencias del C6 (E9.4); sus relojes, del PCR",
+            "ECC, PCNT, MCPWM, PARL_IO, ETM, SDIO esclavo, el radio y el coexist: declarados (una fase "
+            "posterior; el modem guarda sin hacer nada)",
             "el nucleo LP y sus perifericos (LP_UART, LP_I2C, LP_IO): declarados (E10)",
             "la depuracion (el DM, el TAP y GDB): E9.6",
         };
@@ -417,15 +472,114 @@ private:
     }
     static std::string hex(uint32_t v) { char b[16]; std::snprintf(b, sizeof b, "0x%08X", v); return b; }
 
-    void engancha(BusSlave* s) {
+    sc_core::sc_signal<double, sc_core::SC_MANY_WRITERS> hz_xtal_{"hz_xtal"};
+    void engancha(BusSlave* s, sc_core::sc_signal<double, sc_core::SC_MANY_WRITERS>& hz) {
         s->clk(reloj_falso);
         s->rst_n(rst_per_n);
         s->clk_en(siempre);
-        s->clk_hz(hz_apb);
+        s->clk_hz(hz);
         isk_.emplace_back(new tlm_utils::simple_initiator_socket<Esp32C6>(sc_core::sc_gen_unique_name("isk")));
         isk_.back()->bind(s->tsk);
         slaves_.push_back(s);
     }
+
+    // --- E9.4: los periféricos comunes con el C3 -----------------------------------
+    void conecta_perifericos() {
+        gdma.pon_c6();
+        ledc.pon_c6([this] { return pcr.ledc_sclk(); });
+        rmt.sclk_conf = [this] { return pcr.rmt_sclk(); };
+        i2c.sclk_conf = [this] { return pcr.i2c_sclk(); };
+        i2s.clkm_ext = [this](bool rx, bool div) { return pcr.i2s_clkm(rx, div); };
+        i2s.S_SD1 = c6::SIG_I2SO_SD1;
+        usj.c6 = true;
+        // Las fechas de cada uno [*_reg.h de ESP-IDF para el C6]
+        rmt.date = 0x2108213u; i2c.date = 0x2201172u; spi2.date = 0x2201300u; adc.date = 0x2206240u;
+        usj.date = 0x2109220u; uhci.date = 0x2201100u; i2s.date = 0x2201070u;
+        usj.serie = "40:4C:CA:00:C6:01";
+        // Interrupciones
+        usj.irq = [this](bool v) { intmtx.fuente(c6::F_USB_SJ, v); };
+        ledc.irq = [this](bool v) { intmtx.fuente(c6::F_LEDC, v); };
+        ledc.salida = [this](unsigned c, bool v) { gpio.sig_out[c6::SIG_LEDC0 + c].write(v); };
+        rmt.irq = [this](bool v) { intmtx.fuente(c6::F_RMT, v); };
+        rmt.salida = [this](unsigned c, bool v) { gpio.sig_out[c6::SIG_RMT0 + c].write(v); };
+        adc.irq = [this](bool v) { intmtx.fuente(c6::F_ADC, v); };
+        adc.pad = [this](unsigned n) -> analog_net_if* { return n < 7 ? &gpio.nodo_de(n) : nullptr; };
+        i2c.irq = [this](bool v) { intmtx.fuente(c6::F_I2C, v); };
+        i2c.lineas = [this](bool scl, bool sda) {
+            gpio.sig_out[c6::SIG_I2C_SCL].write(scl);
+            gpio.sig_out[c6::SIG_I2C_SDA].write(sda);
+        };
+        i2c.lee_scl = [this] { return gpio.sig_in[c6::SIG_I2C_SCL].read(); };
+        i2c.lee_sda = [this] { return gpio.sig_in[c6::SIG_I2C_SDA].read(); };
+        twai0.irq = [this](bool v) { intmtx.fuente(c6::F_TWAI0, v); };
+        twai1.irq = [this](bool v) { intmtx.fuente(c6::F_TWAI1, v); };
+        twai0.salida = [this](bool v) { gpio.sig_out[c6::SIG_TWAI0].write(v); };
+        twai1.salida = [this](bool v) { gpio.sig_out[c6::SIG_TWAI1].write(v); };
+        twai0.rx_pin(gpio.sig_in[c6::SIG_TWAI0]);
+        twai1.rx_pin(gpio.sig_in[c6::SIG_TWAI1]);
+        rsa.irq = [this](bool v) { intmtx.fuente(c6::F_RSA, v); };
+        hmac.clave = [this](unsigned n, uint8_t* k) { efuse.clave(n, k); };
+        hmac.proposito = [this](unsigned n) { return efuse.proposito(n); };
+        ds.clave = [this](uint8_t* k) { return hmac.clave_ds(k); };
+        xts.clave = [this](uint8_t* k) {
+            for (unsigned n = 0; n < 6; ++n)
+                if (efuse.proposito(n) == 4) { efuse.clave(n, k); return true; }
+            std::memset(k, 0, 32);
+            return false;
+        };
+        xts.permitido = [] { return true; };
+        // La GDMA: la HP SRAM, y sus seis fuentes
+        gdma.irq_c6 = [this](unsigned c, bool sal, bool v) { intmtx.fuente((sal ? c6::F_DMA_OUT0 : c6::F_DMA_IN0) + c, v); };
+        gdma.lee = [this](uint32_t a, uint8_t& b) { uint8_t* p = mem(a); if (!p) return false; b = *p; return true; };
+        gdma.escribe32 = [this](uint32_t a, uint32_t v) { poke32(a, v); };
+        gdma.escribe8 = [this](uint32_t a, uint8_t b) { return poke8(a, b); };
+        // El AES y el SHA en modo DMA
+        aes.gdma = &gdma;
+        sha.gdma = &gdma;
+        aes.irq = [this](bool v) { intmtx.fuente(c6::F_AES, v); };
+        sha.irq = [this](bool v) { intmtx.fuente(c6::F_SHA, v); };
+        // El I2S
+        i2s.gdma = &gdma;
+        i2s.irq = [this](bool v) { intmtx.fuente(c6::F_I2S, v); };
+        i2s.pon = [this](unsigned s, bool v) { gpio.sig_out[s].write(v); };
+        i2s.lee = [this](unsigned s) { return gpio.sig_in[s].read(); };
+        i2s.ev_in = [this](unsigned s) -> const sc_core::sc_event& { return gpio.sig_in[s].value_changed_event(); };
+        i2s.usada = [this](unsigned s) { return gpio.salida_usada(s); };
+        i2s.ev_matriz = [this]() -> const sc_core::sc_event& { return gpio.ev_config(); };
+        i2s.oe = [this](unsigned s, bool v) { gpio.sig_oe[s].write(v); };
+        // El UHCI, con las dos UART
+        uhci.gdma = &gdma;
+        uhci.uart[0] = &uart0; uhci.uart[1] = &uart1;
+        uhci.irq = [this](bool v) { intmtx.fuente(c6::F_UHCI0, v); };
+        for (unsigned n = 0; n < 2; ++n) {
+            UartEsp& u = n ? uart1 : uart0;
+            u.toma_tx = [this, n](uint8_t& b) { return uhci.toma_tx(n, b); };
+            u.da_rx = [this, n](uint8_t b) { return uhci.da_rx(n, b); };
+            u.brk_rx = [this, n] { uhci.brk_rx(n); };
+        }
+        gdma.al_arrancar = [this](unsigned peri) { if (peri == UhciEsp::PERI_GDMA) uhci.despierta(); };
+        gdma.al_arrancar_ent = [this](unsigned peri) { if (peri == UhciEsp::PERI_GDMA) uhci.vacia_rx(); };
+        // El GP-SPI2
+        spi2.gdma = &gdma;
+        spi2.irq = [this](bool v) { intmtx.fuente(c6::F_SPI2, v); };
+        spi2.salida = [this](bool clk, bool mosi, bool cs) {
+            gpio.sig_out[c6::SIG_FSPICLK].write(clk);
+            gpio.sig_out[c6::SIG_FSPID].write(mosi);
+            gpio.sig_out[c6::SIG_FSPICS0].write(cs);
+        };
+        spi2.miso = [this] { return gpio.sig_in[c6::SIG_FSPIQ].read(); };
+        // El USB-Serial-JTAG: el reset del chip por DTR/RTS (el JTAG, E9.6)
+        usj.jtag_activo = [] { return false; };
+        usj.reset_chip = [this](bool activo, bool descarga) {
+            if (activo) { usb_descarga_ = descarga; pide_reset(CAUSA_USB_UART, true); usb_rst_ = true; }
+            else { usb_rst_ = false; if (encendido_) rst_cpu_n.write(true); }
+        };
+    }
+    void relojes_perifericos(uint32_t off) {
+        spi2.hz_apb = pcr.hz_spi2();
+        if (off >= 0x70 && off <= 0x7C) i2s.reloj_cambia();
+    }
+    bool usb_descarga_ = false, usb_rst_ = false;
 
     void pon_relojes(double cpu, double apb) {
         hz_cpu.write(cpu);
@@ -435,6 +589,13 @@ private:
         uart0.hz_apb = uart1.hz_apb = pcr.hz_pll_f80m;
         uart0.hz_xtal = uart1.hz_xtal = pcr.hz_xtal;
         sha.hz_apb = apb;
+        hz_xtal_.write(pcr.hz_xtal);
+        // Los de E9.4: el reloj de bus y, con «1», el PLL_F80M
+        ledc.hz_apb = rmt.hz_apb = pcr.hz_pll_f80m;
+        ledc.hz_xtal = rmt.hz_xtal = i2c.hz_xtal = i2s.hz_xtal = pcr.hz_xtal;
+        ledc.hz_rc_fast = rmt.hz_rc_fast = i2c.hz_rc_fast = pcr.hz_rc_fast;
+        aes.hz_apb = rsa.hz_apb = hmac.hz_apb = ds.hz_apb = xts.hz_apb = uhci.hz_apb = apb;
+        spi2.hz_apb = pcr.hz_spi2();
     }
 
     uint8_t* mem(uint32_t a) {
@@ -542,6 +703,8 @@ private:
         gpio.reset(); intmtx.reset(); intpri.reset(); clint.reset(); pcr.reset();
         uart0.reset(); uart1.reset(); systimer.reset(); timg0.reset(); timg1.reset();
         efuse.reset(); spi0.reset(); spi1.reset(); cache.reset(); sha.reset();
+        gdma.reset(); spi2.reset(); ledc.reset(); rmt.reset(); adc.reset(); aes.reset(); i2c.reset();
+        twai0.reset(); twai1.reset(); rsa.reset(); hmac.reset(); ds.reset(); xts.reset(); i2s.reset(); uhci.reset();
         i2c_ana_mst.reset(); lpperi.reset();
         for (BloqueEsp* b : {&pmu, &hp_sys, &lp_wdt, &lp_timer,
                              &lp_ana, &hp_apm, &lp_apm, &lp_apm0, &tee, &lp_tee, &assist, &mem_mon,
@@ -554,6 +717,16 @@ private:
         for (unsigned i = 0; i < 8; ++i) gpio.sig_oe[28 + i].write(false);       // la GPIO dedicada
         gpio.sig_oe[c6::SIG_U0TXD].write(true);
         gpio.sig_oe[c6::SIG_U1TXD].write(true);
+        for (unsigned c = 0; c < LedcEsp::N_CANALES; ++c) gpio.sig_oe[c6::SIG_LEDC0 + c].write(true);
+        for (unsigned c = 0; c < 2; ++c) gpio.sig_oe[c6::SIG_RMT0 + c].write(true);
+        gpio.sig_oe[c6::SIG_I2C_SCL].write(true);
+        gpio.sig_oe[c6::SIG_I2C_SDA].write(true);
+        gpio.sig_oe[c6::SIG_TWAI0].write(true);
+        gpio.sig_oe[c6::SIG_TWAI1].write(true);
+        for (unsigned g : {c6::SIG_FSPICLK, c6::SIG_FSPID, c6::SIG_FSPICS0}) gpio.sig_oe[g].write(true);
+        for (unsigned g = I2sEsp::S_O_BCK; g <= I2sEsp::S_I_WS; ++g) gpio.sig_oe[g].write(true);
+        gpio.sig_oe[I2sEsp::S_MCLK].write(true);
+        gpio.sig_oe[c6::SIG_I2SO_SD1].write(true);
         for (;;) {
             encendido_ = false;
             rst_cpu_n.write(false);
@@ -581,7 +754,8 @@ private:
                     rst_cpu_n.write(false);
                     if (sis) {
                         reset_perifericos();
-                        if (lp_aon.force_download()) gpio.fuerza_descarga();
+                        if (lp_aon.force_download() || usb_descarga_) gpio.fuerza_descarga();
+                        usb_descarga_ = false;
                         timg0.pon_modo_flash((gpio.strap() & 8u) != 0);
                     }
                     lp_clkrst.anota_causa(c);

@@ -396,4 +396,10 @@ testc3                 313      18846782364616        resto
 # hasta esp_restart, el modo descarga y el C6FH4) van tras D5, que acaba en el
 # mismo picosegundo (22496458348 con 62); D1 cuenta cinco ficheros en vez de
 # tres, con las mismas comprobaciones (15-11-2026).
-testc6                  96      11824526458348        total
+# D9 (E9.4, los perifericos comunes con el C3 con ESP-IDF) va tras D8. D1-D5
+# no se mueven (D6 empieza en 22496458348). D6 acaba 2 ms antes y D8 dura 2 ms
+# menos: el USB-Serial-JTAG ya no esta declarado, y la ROM y ESP-IDF, que
+# escriben tambien en el (la consola secundaria), encuentran su FIFO libre
+# como en el chip en vez de esperar a que se acabe el plazo; D7 sigue
+# acabando en 11532516458348 (15-11-2026).
+testc6                 112      13115536458348        total

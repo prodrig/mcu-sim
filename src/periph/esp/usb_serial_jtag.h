@@ -72,6 +72,14 @@ public:
     };
     enum : uint32_t { I_SOF = 1u << 1, I_OUT_RECV = 1u << 2, I_IN_EMPTY = 1u << 3, I_BUS_RESET = 1u << 9 };
 
+    uint32_t date = 0x2007300u;
+    // E9: el del C6 [TRM-C6 §31; usb_serial_jtag_reg.h]: CHIP_RST (0x4C: RTS
+    // [0] y DTR [1] tal como los pone el PC, y USB_UART_CHIP_RST_DIS [2], que
+    // apaga el reset por esas líneas), SET_LINE_CODE_W0/W1 (0x50/0x54: lo que
+    // mandó el PC con SET_LINE_CODING), GET_LINE_CODE_W0/W1 (0x58/0x5C: lo que
+    // contesta a GET_LINE_CODING), CONFIG_UPDATE (0x60), SER_AFIFO_CONFIG
+    // (0x64) y BUS_RESET_ST (0x68: 1 sin reset de bus). DATE 0x2109220.
+    bool c6 = false;
     UsbSerialJtagEsp(sc_core::sc_module_name nm, uint32_t base, analog_net_if& dp, analog_net_if& dm)
         : BusSlave(nm, base, 0x1000), dp_(dp), dm_(dm) {
         id_pu_ = dp_.register_driver("usj_dp_pullup");
@@ -165,9 +173,20 @@ protected:
         case FRAM_NUM: return trama_ & 0x7FFu;
         case MISC_CONF: return misc_;
         case MEM_CONF: return mem_;
-        case DATE: return 0x2007300u;
+        case DATE: return date;
+        default: break;
+        }
+        if (c6) switch (off) {
+        case 0x4C: return (rts_ ? 1u : 0u) | (dtr_ ? 2u : 0u) | (rst_dis_ ? 4u : 0u);
+        case 0x50: return lc_w0();
+        case 0x54: return lc_w1();
+        case 0x58: return get_lc_[0];
+        case 0x5C: return get_lc_[1];
+        case 0x64: return afifo_;
+        case 0x68: return 1u;
         default: return 0;
         }
+        return 0;
     }
     void reg_write(uint32_t off, uint32_t v, uint32_t) override {
         switch (off) {
@@ -195,8 +214,23 @@ protected:
         case CONF0: conf0_ = v; pullup(); return;
         case MISC_CONF: misc_ = v; return;
         case MEM_CONF: mem_ = v; return;
+        default: break;
+        }
+        if (c6) switch (off) {
+        case 0x4C: rst_dis_ = (v >> 2) & 1u; return;
+        case 0x58: get_lc_[0] = v; return;
+        case 0x5C: get_lc_[1] = v; return;
+        case 0x64: afifo_ = v; return;
         default: return;
         }
+    }
+    uint32_t get_lc_[2] = {}, afifo_ = 0;
+    bool rst_dis_ = false;
+    uint32_t lc_w0() const {
+        return lc_.size() >= 4 ? uint32_t(lc_[0]) | uint32_t(lc_[1]) << 8 | uint32_t(lc_[2]) << 16 | uint32_t(lc_[3]) << 24 : 0u;
+    }
+    uint32_t lc_w1() const {
+        return lc_.size() >= 7 ? uint32_t(lc_[4]) | uint32_t(lc_[5]) << 8 | uint32_t(lc_[6]) << 16 : 0u;
     }
 
 private:
@@ -348,6 +382,7 @@ private:
         const bool antes = rts_ && !dtr_, ahora = rts && !dtr;
         const bool desde_11 = rts_ && dtr_;
         dtr_ = dtr; rts_ = rts;
+        if (c6 && rst_dis_) return;
         if (ahora && !antes) { descarga_ = desde_11; if (reset_chip) reset_chip(true, descarga_); }
         else if (!ahora && antes) { if (reset_chip) reset_chip(false, descarga_); }
     }

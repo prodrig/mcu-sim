@@ -1729,6 +1729,35 @@ la separación de §3 funciona.
   el SYSTIMER y el PLIC, y `esp_restart()` → `rst:0xc (SW_CPU)`), el modo
   descarga («boot:0x4 (DOWNLOAD(USB/UART0/SDIO_FEI_FEO))», «waiting for
   download») y el C6FH4 con la Flash dentro. `testc6` D6-D8.
+* **4. Los periféricos comunes con el C3** (2026-11-15). Los modelos de E4-E7
+  con lo que cambia en el C6, que se pide con `pon_c6()` o con un `date` y
+  los ganchos de reloj del **PCR** (`PcrC6::al_escribir`; RMT_SCLK_CONF,
+  I2C_SCLK_CONF, LEDC_SCLK_CONF, TWAIn a XTAL, los CLKM de I2S, SARADC,
+  SPI2 y TSENS). **LEDC**: TIMER_CONF con duty_res de 5 bits, CONF y DATE en
+  0x1F0/0x1FC, las interrupciones OVF_CNT en 12-17 y el **fundido por la
+  RAM gamma** (WR, WR_ADDR, RD_ADDR, RD_DATA, GAMMA_CONF con entry_num), que
+  es como lo hace ESP-IDF en el C6. **GDMA**: las interrupciones de entrada
+  (0x00+0x10n) y de salida (0x30+0x10n) separadas y los descriptores en
+  0x4080_0000. **AES y SHA** con su DMA (AES: ECB, CBC, OFB, CTR, CFB8,
+  CFB128, IV_MEM, BLOCK_NUM, el estado DONE y la interrupción; SHA:
+  DMA_BLOCK_NUM, DMA_START/CONTINUE), que ESP-IDF usa siempre en el C3 y el
+  C6 (los periféricos 6 y 7 de la GDMA); el DATE del AES estaba en 0xAC en
+  el C3 y es 0xB4, corregido en los dos. **GP-SPI2**: DMA_INT_SET (0x44),
+  sin el que `spi_master` no arranca, y la recepción por la GDMA. El
+  **USB-Serial-JTAG** con CHIP_RST, los códigos de línea y BUS_RESET_ST;
+  **TWAI1** (fuente 47, señales 77); **XTS_AES** dentro del SPI1
+  (0x6000_3300); **I2S** con su SD1 en la señal 18; RSA, HMAC, DS, UHCI y el
+  SAR ADC con sus fechas. El modem: MODEM_COEX y la parte del radio que lee
+  el ADC (PWDET) guardan. Un arreglo del LEDC que también vale para el C3:
+  las esperas de menos de 1 ps redondeaban a cero y el modelo giraba en
+  ciclos delta. `testc6` D9 arranca `verif/fw/esp32c6/idf/perifericos`
+  (nuestra, con los controladores de ESP-IDF v5.5.6) con un banco que une
+  MOSI con MISO y la salida de I2S con su entrada, hace de bus CAN entre los
+  dos TWAI, pone 1,2 V en GPIO0 y pull-ups en el I2C: LEDC a 5 kHz y 25 %
+  medido en el pin y el fundido, los cuatro pulsos del RMT medidos, una trama
+  CAN en cada sentido, SPI e I2S con la GDMA, el NACK del I2C, el ADC (1966)
+  y la temperatura, los vectores de AES de SP 800-38A, SHA-1/256 y RSA por
+  mbedTLS, y el DATE de quince bloques.
 
 ### E10 · C6: el núcleo LP
 

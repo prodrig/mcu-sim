@@ -37,6 +37,7 @@ public:
     std::function<analog_net_if*(unsigned)> pad;      // GPIOn
     double temperatura_c = 25.0;
 
+    uint32_t date = 0x2007171u;
     explicit SarAdcEsp(sc_core::sc_module_name nm, uint32_t base) : BusSlave(nm, base, 0x1000) {
         SC_HAS_PROCESS(SarAdcEsp);
         SC_THREAD(conv_proc);
@@ -58,7 +59,7 @@ protected:
         case 0x44: return raw_;
         case 0x48: return raw_ & ena_;
         case 0x58: return (tsens_ & ~0xFFu) | ((tsens_ >> 22) & 1u ? sale_tsens() : 0u);
-        case 0x3FC: return 0x2007171u;
+        case 0x3FC: return date;
         default: return off < 0x400 ? r_[off / 4] : 0;
         }
     }

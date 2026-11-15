@@ -20,6 +20,19 @@
 //
 // La salida de cada canal es una señal de la matriz GPIO (LEDC_LS_SIG_OUT0-5,
 // 45-50), y de ahí a un pad: un LED, un servo, un osciloscopio.
+//
+// E9: EL DEL C6 (`pon_c6`) [TRM-C6 §36; ledc_reg.h de ESP-IDF]: los mismos
+// canales y temporizadores, con estos cambios: TIMERn_CONF con DUTY_RES de 5
+// bits (y por eso CLK_DIV en [22:5], PAUSE 23, RST 24); OVF_CNT en los bits
+// 12-17 de INT_RAW; LEDC_CONF en 0x1F0 y DATE en 0x1FC; el reloj lo elige el
+// PCR (PCR_LEDC_SCLK_CONF, que el SoC da con `sclk_conf` en el formato del
+// LEDC_CONF del C3: [1:0] 1 PLL_F80M, 2 RC_FAST, 3 XTAL, y CLK_EN [31]); y el
+// fundido ya no está en CONF1 (que solo tiene DUTY_START) sino en la RAM
+// gamma de cada canal: hasta 16 tramos {DUTY_INC [0], DUTY_CYCLE [10:1],
+// SCALE [20:11], DUTY_NUM [30:21]} que se escriben con CHn_GAMMA_WR_ADDR y
+// CHn_GAMMA_WR (0x100 + 0x10·n) y se leen con RD_ADDR y RD_DATA;
+// CHn_GAMMA_CONF.ENTRY_NUM (0x180 + 4·n) dice cuántos se recorren, uno tras
+// otro, antes de DUTY_CHNG_END. GAMMA_PAUSE y GAMMA_RESUME, sin modelar.
 // =============================================================================
 #ifndef STM32_PERIPH_ESP_LEDC_ESP_H
 #define STM32_PERIPH_ESP_LEDC_ESP_H
@@ -46,6 +59,9 @@ public:
             sc_core::sc_spawn([this, c] { canal_proc(c); });
         reset();
     }
+    // E9: el del C6; `sclk` da el reloj del PCR en el formato de LEDC_CONF
+    void pon_c6(std::function<uint32_t()> sclk) { c6_ = true; sclk_conf = std::move(sclk); reset(); }
+    std::function<uint32_t()> sclk_conf;
     void reset() {
         for (auto& c : ch_) c = Canal();
         for (auto& t : tim_) t = Temp();
@@ -72,8 +88,28 @@ protected:
         }
         if (off >= 0xA0 && off < 0xA0 + 8 * N_TEMP) {
             const Temp& t = tim_[(off - 0xA0) / 8];
-            if ((off & 7u) == 0) return t.conf & ~(1u << 25);
+            if ((off & 7u) == 0) return c6_ ? a_c6(t.conf) : (t.conf & ~(1u << 25));
             return valor(t);
+        }
+        if (c6_) {
+            if (off >= 0x100 && off < 0x100 + 0x10 * N_CANALES) {
+                const Canal& c = ch_[(off - 0x100) / 0x10];
+                switch (off & 0xFu) {
+                case 0x4: return c.g_wr;
+                case 0x8: return c.g_rd;
+                case 0xC: return c.gamma[c.g_rd & 0xFu];
+                default: return 0;
+                }
+            }
+            if (off >= 0x180 && off < 0x180 + 4 * N_CANALES) return ch_[(off - 0x180) / 4].g_conf & 0x1Fu;
+            switch (off) {
+            case 0xC0: return raw_;
+            case 0xC4: return raw_ & ena_;
+            case 0xC8: return ena_;
+            case 0x1F0: return conf_;
+            case 0x1FC: return date_;
+            default: return 0;
+            }
         }
         switch (off) {
         case 0xC0: return raw_;
@@ -90,9 +126,9 @@ protected:
             Canal& c = ch_[n];
             switch (off % 0x14) {
             case 0x00: c.conf0 = v & 0x1FFFFu; if (v & (1u << 4)) c.para_up = true; break;
-            case 0x04: c.hpoint = v & 0x3FFFu; break;
-            case 0x08: c.duty = v & 0x7FFFFu; break;
-            case 0x0C: c.conf1 = v; if (v & (1u << 31)) c.arranca = true; break;
+            case 0x04: c.hpoint = v & (c6_ ? 0xFFFFFu : 0x3FFFu); break;
+            case 0x08: c.duty = v & (c6_ ? 0x1FFFFFFu : 0x7FFFFu); break;
+            case 0x0C: c.conf1 = c6_ ? (v & (1u << 31)) : v; if (v & (1u << 31)) c.arranca = true; break;
             }
             if (off % 0x14 == 0x00 && !(c.conf0 & 4u)) c.para_up = true;   // SIG_OUT_EN a 0: ya
             ev_[n].notify(sc_core::SC_ZERO_TIME);
@@ -101,11 +137,36 @@ protected:
         if (off >= 0xA0 && off < 0xA0 + 8 * N_TEMP && !(off & 7u)) {
             Temp& t = tim_[(off - 0xA0) / 8];
             const bool estaba = (t.conf >> 22) & 1u;
+            if (c6_) {
+                // Al formato del C3 (DUTY_RES de 4 bits: hasta 15; el de 5
+                // llega a 20, que se guarda aparte)
+                t.res5 = v & 0x1Fu;
+                v = (std::min(v & 0x1Fu, 15u)) | (((v >> 5) & 0x3FFFFu) << 4) | (((v >> 23) & 7u) << 22);
+            }
             t.conf = v & 0x3FFFFFFu;
             if (v & (1u << 23)) t.inicio = sc_core::sc_time_stamp();       // RST
             if (!estaba && ((t.conf >> 22) & 1u)) {}                       // PAUSE
             for (auto& e : ev_) e.notify(sc_core::SC_ZERO_TIME);
             return;
+        }
+        if (c6_) {
+            if (off >= 0x100 && off < 0x100 + 0x10 * N_CANALES) {
+                Canal& c = ch_[(off - 0x100) / 0x10];
+                switch (off & 0xFu) {
+                case 0x0: c.gamma[c.g_wr & 0xFu] = v & 0x7FFFFFFFu; return;
+                case 0x4: c.g_wr = v & 0xFu; return;
+                case 0x8: c.g_rd = v & 0xFu; return;
+                default: return;
+                }
+            }
+            if (off >= 0x180 && off < 0x180 + 4 * N_CANALES) { ch_[(off - 0x180) / 4].g_conf = v & 0x1Fu; return; }
+            switch (off) {
+            case 0xC8: ena_ = v & 0x3F3FFu; evalua(); return;
+            case 0xCC: raw_ &= ~(v & 0x3F3FFu); evalua(); return;
+            case 0x1F0: conf_ = v; for (auto& e : ev_) e.notify(sc_core::SC_ZERO_TIME); return;
+            case 0x1FC: date_ = v; return;
+            default: return;
+            }
         }
         switch (off) {
         case 0xC8: ena_ = v & 0xFFFFu; evalua(); return;
@@ -125,27 +186,35 @@ private:
         uint32_t fn_inc = 0, fn_num = 0, fn_ciclo = 0, fn_escala = 0, fn_cuenta = 0;
         uint64_t n_periodos = 0;
         unsigned ovf = 0;
+        // E9, el C6: la RAM gamma, sus punteros y el tramo en curso
+        uint32_t gamma[16] = {}, g_wr = 0, g_rd = 0, g_conf = 0, g_tramo = 0;
     };
     struct Temp {
-        uint32_t conf = 0;
+        uint32_t conf = 0, res5 = 0;
         sc_core::sc_time inicio = sc_core::SC_ZERO_TIME;
     };
     Canal ch_[N_CANALES];
     Temp tim_[N_TEMP];
     sc_core::sc_event ev_[N_CANALES];
-    uint32_t raw_ = 0, ena_ = 0, conf_ = 0;
-    bool irq_ = false;
+    uint32_t raw_ = 0, ena_ = 0, conf_ = 0, date_ = 0x2111150u;
+    bool irq_ = false, c6_ = false;
+
+    // TIMERn_CONF del C3 (interno) al del C6
+    static uint32_t a_c6(uint32_t c) {
+        return (c & 0xFu) | (((c >> 4) & 0x3FFFFu) << 5) | (((c >> 22) & 7u) << 23);
+    }
 
     void evalua() {
         const bool n = (raw_ & ena_) != 0;
         if (n != irq_) { irq_ = n; if (irq) irq(n); }
     }
     double hz_src() const {
-        if (!(conf_ >> 31)) return 0.0;
-        const unsigned sel = conf_ & 3u;
+        const uint32_t cf = (c6_ && sclk_conf) ? sclk_conf() : conf_;
+        if (!(cf >> 31)) return 0.0;
+        const unsigned sel = cf & 3u;
         return sel == 1 ? hz_apb : sel == 2 ? hz_rc_fast : sel == 3 ? hz_xtal : 0.0;
     }
-    static uint32_t tics(const Temp& t) { return 1u << (t.conf & 0xFu); }
+    static uint32_t tics(const Temp& t) { return 1u << (t.res5 > 15 ? t.res5 : (t.conf & 0xFu)); }
     double tic_s(const Temp& t) const {
         const double div = double((t.conf >> 4) & 0x3FFFFu) / 256.0;
         const double f = hz_src();
@@ -156,6 +225,15 @@ private:
         if (!corre(t)) return 0;
         const double n = (sc_core::sc_time_stamp() - t.inicio).to_seconds() / tic_s(t);
         return uint32_t(std::fmod(n, double(tics(t))));
+    }
+    // E9: el tramo g_tramo de la RAM gamma, como el fundido del C3
+    static void carga_tramo(Canal& c) {
+        if (c.g_tramo >= 16 || c.g_tramo >= std::max(1u, c.g_conf & 0x1Fu)) { c.fundiendo = false; return; }
+        const uint32_t e = c.gamma[c.g_tramo];
+        c.fn_inc = e & 1u; c.fn_ciclo = (e >> 1) & 0x3FFu; c.fn_escala = (e >> 11) & 0x3FFu;
+        c.fn_num = (e >> 21) & 0x3FFu;
+        c.fundiendo = c.fn_num != 0;
+        c.fn_cuenta = 0;
     }
     void pon(unsigned n, bool v) {
         if (ch_[n].nivel == v) return;
@@ -186,9 +264,12 @@ private:
                 c.para_up = false;
                 if (c.arranca) {
                     c.arranca = false;
-                    c.fundiendo = ((c.conf1 >> 20) & 0x3FFu) != 0;
-                    c.fn_inc = (c.conf1 >> 30) & 1u; c.fn_num = (c.conf1 >> 20) & 0x3FFu;
-                    c.fn_ciclo = (c.conf1 >> 10) & 0x3FFu; c.fn_escala = c.conf1 & 0x3FFu;
+                    if (c6_) { c.g_tramo = 0; carga_tramo(c); }
+                    else {
+                        c.fundiendo = ((c.conf1 >> 20) & 0x3FFu) != 0;
+                        c.fn_inc = (c.conf1 >> 30) & 1u; c.fn_num = (c.conf1 >> 20) & 0x3FFu;
+                        c.fn_ciclo = (c.conf1 >> 10) & 0x3FFu; c.fn_escala = c.conf1 & 0x3FFu;
+                    }
                     c.fn_cuenta = 0;
                 }
             }
@@ -199,14 +280,19 @@ private:
             const double ps = t_ini + k * tp, pe = ps + tp;
             const double sube = ps + on * ts, baja = ps + off * ts;
             bool cortado = false;
+            double ref = -1.0;                                   // un flanco ya pasado por redondeo
             for (;;) {
-                const double ahora = sc_core::sc_time_stamp().to_seconds();
+                const double ahora = std::max(sc_core::sc_time_stamp().to_seconds(), ref);
                 pon(n, off > on && ahora >= sube - 1e-15 && ahora < baja - 1e-15);
                 double sig = pe;
                 if (off > on && sube > ahora + 1e-15 && sube < sig) sig = sube;
                 if (off > on && baja > ahora + 1e-15 && baja < sig) sig = baja;
                 if (sig <= ahora + 1e-15) break;
-                sc_core::wait(sc_core::sc_time(sig - ahora, sc_core::SC_SEC), ev_[n]);
+                // Menos de lo que resuelve el reloj de SystemC (1 ps): ya está
+                // [E9: con el PLL_F80M del C6 los flancos caen entre picosegundos]
+                const sc_core::sc_time dt(sig - ahora, sc_core::SC_SEC);
+                if (dt == sc_core::SC_ZERO_TIME) { ref = sig; if (sig == pe) break; continue; }
+                sc_core::wait(dt, ev_[n]);
                 if (ev_[n].triggered()) { cortado = true; break; }
                 if (sig == pe) break;
             }
@@ -216,16 +302,20 @@ private:
             ++c.n_periodos;
             raw_ |= 1u << (c.conf0 & 3u);
             if ((c.conf0 >> 15) & 1u) {                          // OVF_CNT_EN
-                if (++c.ovf > ((c.conf0 >> 5) & 0x3FFu)) { c.ovf = 0; raw_ |= 1u << (10 + n); }
+                if (++c.ovf > ((c.conf0 >> 5) & 0x3FFu)) { c.ovf = 0; raw_ |= 1u << ((c6_ ? 12 : 10) + n); }
             }
             if (c.fundiendo && ++c.fn_cuenta >= std::max(1u, c.fn_ciclo)) {
                 c.fn_cuenta = 0;
                 const uint32_t d = c.duty >> 4;
-                const uint32_t nd = c.fn_inc ? std::min<uint32_t>(d + c.fn_escala, 0x7FFFu)
+                const uint32_t nd = c.fn_inc ? std::min<uint32_t>(d + c.fn_escala, c6_ ? 0x1FFFFFu : 0x7FFFu)
                                              : (d > c.fn_escala ? d - c.fn_escala : 0u);
                 c.duty = (nd << 4) | (c.duty & 0xFu);
                 c.para_up = true;
-                if (--c.fn_num == 0) { c.fundiendo = false; raw_ |= 1u << (4 + n); }
+                if (--c.fn_num == 0) {
+                    c.fundiendo = false;
+                    if (c6_ && ++c.g_tramo < std::max(1u, c.g_conf & 0x1Fu)) carga_tramo(c);
+                    if (!c.fundiendo) raw_ |= 1u << (4 + n);
+                }
             }
             evalua();
         }

@@ -60,7 +60,9 @@ public:
     // ¿Deja el SoC cifrar a mano?
     std::function<bool()> permitido;
 
-    explicit XtsAesEsp(sc_core::sc_module_name nm, uint32_t base) : BusSlave(nm, base, 0x1000) { reset(); }
+    // E9: en el C6 está dentro del SPI1 (0x6000_3300, 0x100 bytes), con los
+    // mismos desplazamientos desde ahí
+    explicit XtsAesEsp(sc_core::sc_module_name nm, uint32_t base, uint32_t tam = 0x1000) : BusSlave(nm, base, tam) { reset(); }
     void reset() {
         std::memset(plain_, 0, sizeof plain_);
         std::memset(cifr_, 0, sizeof cifr_);

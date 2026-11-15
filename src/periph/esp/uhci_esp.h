@@ -83,6 +83,7 @@ public:
     GdmaEsp* gdma = nullptr;
     UartEsp* uart[2] = {nullptr, nullptr};
     double hz_apb = 80e6;
+    uint32_t date = 0x2007170u;          // el C6: 0x2201100
 
     explicit UhciEsp(sc_core::sc_module_name nm, uint32_t base) : BusSlave(nm, base, 0x1000) {
         SC_HAS_PROCESS(UhciEsp);
@@ -94,7 +95,7 @@ public:
         for (auto& r : r_) r = 0;
         r_[0x00 / 4] = 0x6E0u; r_[0x14 / 4] = 0x33u; r_[0x20 / 4] = 0x33u; r_[0x24 / 4] = 0x810810u;
         r_[0x6C / 4] = 0xDCDBC0u; r_[0x70 / 4] = 0xDDDBDBu; r_[0x74 / 4] = 0xDEDB11u; r_[0x78 / 4] = 0xDFDB13u;
-        r_[0x7C / 4] = 0x80u; r_[0x80 / 4] = 0x2007170u;
+        r_[0x7C / 4] = 0x80u; r_[0x80 / 4] = date;
         raw_ = 0;
         reset_tx();
         reset_rx();

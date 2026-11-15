@@ -71,6 +71,8 @@ public:
     std::function<void(double cpu, double ahb, double apb)> al_cambiar_reloj;
     // Cambia el reloj de un grupo de temporizadores (0 o 1)
     std::function<void(unsigned grupo, double hz)> al_cambiar_timg;
+    // Cualquier escritura (para los relojes de los periféricos)
+    std::function<void(uint32_t off)> al_escribir;
 
     PcrC6(sc_core::sc_module_name nm, uint32_t base) : BloqueEsp(nm, base, 0x1000, c6::REGS_PCR) {}
 
@@ -99,6 +101,37 @@ public:
     double hz_apb() const { return hz_ahb() / double((r(0x120) & 0xFFu) + 1u); }
     // El SCLK de la UART n, en el formato del CLK_CONF del C3
     uint32_t uart_sclk(unsigned n) const { return r(n ? 0x010 : 0x004) & 0x003FF000u; }
+    // E9.4: los relojes de los periféricos, en el formato de sus registros
+    // del C3 (lo que el modelo de cada uno ya sabe leer)
+    // RMT_SCLK_CONF (0x30) -> RMT_SYS_CONF: [11:4] DIV_NUM, [25:24] la fuente
+    uint32_t rmt_sclk() const {
+        const uint32_t c = r(0x030);
+        return (((c >> 12) & 0xFFu) << 4) | ((((c >> 22) & 1u) ? ((c >> 20) & 3u) : 0u) << 24);
+    }
+    // I2C_SCLK_CONF (0x24) -> I2C_CLK_CONF: [7:0] DIV_NUM, [20] RC_FAST
+    uint32_t i2c_sclk() const { const uint32_t c = r(0x024); return ((c >> 12) & 0xFFu) | (((c >> 20) & 1u) << 20); }
+    // LEDC_SCLK_CONF (0x38) -> LEDC_CONF: [1:0] la fuente, [31] CLK_EN
+    uint32_t ledc_sclk() const { const uint32_t c = r(0x038); return ((c >> 20) & 3u) | (((c >> 22) & 1u) << 31); }
+    // I2S_{TX,RX}_CLKM_CONF (0x70/0x78) y _DIV_CONF (0x74/0x7C) -> las del
+    // I2S del C3: [7:0] DIV_NUM, [26] EN, [28:27] la fuente, [29] MCLK_SEL
+    uint32_t i2s_clkm(bool rx, bool div) const {
+        const uint32_t c = r(rx ? 0x078 : 0x070);
+        if (div) return r(rx ? 0x07C : 0x074);
+        return ((c >> 12) & 0xFFu) | (((c >> 22) & 1u) << 26) | (((c >> 20) & 3u) << 27) |
+               (rx ? (((c >> 23) & 1u) << 29) : 0u);
+    }
+    // SPI2_CLKM_CONF (0xC4): 0 XTAL, 1 PLL_F80M, 2 RC_FAST
+    double hz_spi2() const {
+        const unsigned sel = (r(0x0C4) >> 20) & 3u;
+        return sel == 1 ? hz_pll_f80m : sel == 2 ? hz_rc_fast : hz_xtal;
+    }
+    // TWAIn_FUNC_CLK_CONF (0x60/0x68): solo el XTAL
+    double hz_twai(unsigned) const { return hz_xtal; }
+    // SARADC_CLKM_CONF (0x84): 0 XTAL, 1 PLL_F80M, 2 RC_FAST
+    double hz_saradc() const {
+        const unsigned sel = (r(0x084) >> 20) & 3u;
+        return sel == 1 ? hz_pll_f80m : sel == 2 ? hz_rc_fast : hz_xtal;
+    }
     double hz_timg(unsigned g) const {
         const unsigned sel = (r(g ? 0x04C : 0x040) >> 20) & 3u;
         return sel == 1 ? hz_pll_f80m : sel == 2 ? hz_rc_fast : hz_xtal;
@@ -109,6 +142,7 @@ protected:
         guarda(off, v, m);
         if (off >= 0x110 && off <= 0x120) avisa_relojes();
         if (off == 0x040 || off == 0x04C) { if (al_cambiar_timg) al_cambiar_timg(off == 0x04C, hz_timg(off == 0x04C)); }
+        if (al_escribir) al_escribir(off);
         return true;
     }
 
@@ -271,6 +305,16 @@ public:
         w = v ? (w | (1u << bit)) : (w & ~(1u << bit));
     }
     void pon_palabra(uint32_t off, uint32_t v) { if (off >= RD_INI && off < RD_FIN) w_[(off - RD_INI) / 4] = v; }
+    // Las claves (BLOCK_KEY0-5, 0x9C + 0x20·n) y sus propósitos
+    // (KEY_PURPOSE_0-5: RD_REPEAT_DATA1[31:24], RD_REPEAT_DATA2[15:0]), como
+    // en el C3, para el HMAC y el XTS_AES
+    void clave(unsigned n, uint8_t k[32]) const {
+        for (unsigned i = 0; i < 32; ++i) k[i] = uint8_t(rd(0x9C + 0x20 * n + (i & ~3u)) >> (8 * (i & 3)));
+    }
+    unsigned proposito(unsigned n) const {
+        if (n < 2) return (rd(0x34) >> (24 + 4 * n)) & 0xFu;
+        return (rd(0x38) >> (4 * (n - 2))) & 0xFu;
+    }
     const std::string& ruta() const { return ruta_; }
 
 protected:

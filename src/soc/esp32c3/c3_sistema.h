@@ -53,30 +53,6 @@ namespace stm32 { namespace c3 {
 
 namespace stm32 {
 
-inline uint32_t mascara_be(uint32_t be) {
-    return (be & 1 ? 0xFFu : 0) | (be & 2 ? 0xFF00u : 0) | (be & 4 ? 0xFF0000u : 0) |
-           (be & 8 ? 0xFF000000u : 0);
-}
-
-class BloqueGuardado : public BusSlave {
-public:
-    BloqueGuardado(sc_core::sc_module_name nm, uint32_t base, uint32_t size,
-                   std::map<uint32_t, uint32_t> reset = {})
-        : BusSlave(nm, base, size), reset_(std::move(reset)), r_(reset_) {}
-    uint32_t peek(uint32_t off) const { auto i = r_.find(off); return i == r_.end() ? 0 : i->second; }
-    unsigned accesos() const { return n_; }
-    void reset() { r_ = reset_; }
-protected:
-    uint32_t reg_read(uint32_t off) override { ++n_; return peek(off); }
-    void reg_write(uint32_t off, uint32_t v, uint32_t be) override {
-        ++n_;
-        const uint32_t m = mascara_be(be);
-        r_[off] = (peek(off) & ~m) | (v & m);
-    }
-private:
-    std::map<uint32_t, uint32_t> reset_, r_;
-    unsigned n_ = 0;
-};
 
 class SystemC3 : public BusSlave {
 public:
