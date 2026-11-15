@@ -186,9 +186,14 @@ public:
         auto n = [&](unsigned p) { return p < n_ && !nodo.at(p)->floating() && s_din_[p].read() ? 1u : 0u; };
         if (c6_) strap_ = (n(15) << 4) | (n(9) << 3) | (n(8) << 2) | (n(4) << 1) | n(5);
         else strap_ = (n(9) << 3) | (n(8) << 2) | (n(3) << 1) | n(2);
+        strap_pines_ = strap_;
     }
-    // RTC_CNTL_FORCE_DOWNLOAD_BOOT: «1x» pasa a «01» [TRM-C3 §7.2]
-    void fuerza_descarga() { if (strap_ & 8u) strap_ = (strap_ & 3u) | 4u; }
+    // RTC_CNTL_FORCE_DOWNLOAD_BOOT: «1x» pasa a «01» [TRM-C3 §7.2]. Los demás
+    // bits (MTMS/MTDI y, en el C6, GPIO15), como estaban
+    void fuerza_descarga() { if (strap_ & 8u) strap_ = (strap_ & ~0xCu) | 4u; }
+    // Lo que se guardó de los pines en el último reset de chip, sin lo que
+    // haya forzado un reset del sistema anterior
+    void vuelve_a_pines() { strap_ = strap_pines_; }
 
     // --- La GPIO dedicada --------------------------------------------------------
     void cpu_gpio_out(uint8_t v) {
@@ -286,6 +291,7 @@ private:
     std::vector<uint32_t> pin_cfg_, out_cfg_, mux_;
     uint32_t in_cfg_[N_SIG];
     std::vector<bool> nivel_;
+    uint32_t strap_pines_ = 0;
     uint32_t bt_select_ = 0, out_ = 0, enable_ = 0, strap_ = 0, in_ = 0, status_ = 0,
              status_next_ = 0, clock_gate_ = 1;
     uint8_t cpu_out_ = 0, cpu_oen_ = 0;

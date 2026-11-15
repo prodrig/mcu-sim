@@ -124,6 +124,7 @@ public:
         mcycle_ = minstret_ = 0;
         std::memset(pmpcfg_, 0, sizeof pmpcfg_);
         std::memset(pmpaddr_, 0, sizeof pmpaddr_);
+        pmp_recalcula();
         tselect_ = 0;
         for (unsigned i = 0; i < 8; ++i) { tdata1_[i] = vacio_tdata1(); tdata2_[i] = 0; }
         tcontrol_ = 0;
@@ -464,6 +465,7 @@ public:
                 if ((c & PMP_W) && !(c & PMP_R)) c &= uint8_t(~(PMP_W | PMP_R)) ; // W sin R: reservado
                 pmpcfg_[i] = c;
             }
+            pmp_recalcula();
             return true;
         }
         if (a >= CSR_PMPADDR0 && a < CSR_PMPADDR0 + 16) {
@@ -474,6 +476,7 @@ public:
             if (i + 1 < caps_.pmp_regiones && (pmpcfg_[i + 1] & PMP_L) &&
                 ((pmpcfg_[i + 1] & PMP_A) >> 3) == 1) return true;   // TOR bloqueado
             pmpaddr_[i] = v;
+            pmp_recalcula();
             return true;
         }
         if (caps_.tiene_z(RV_Z_IHPM) && caps_.contadores_std &&
@@ -546,6 +549,32 @@ private:
     bool     escrito_cy_ = false, escrito_ir_ = false;
     uint8_t  pmpcfg_[16];
     uint32_t pmpaddr_[16];
+    // Los límites [b0, b1) de cada regla, calculados al escribir pmpcfg o
+    // pmpaddr y no en cada acceso (era la décima parte del tiempo de
+    // anfitrión); n_pmp_: hasta la última regla con A != OFF
+    uint64_t pmp_b0_[16] = {}, pmp_b1_[16] = {};
+    unsigned n_pmp_ = 0;
+    void pmp_recalcula() {
+        n_pmp_ = 0;
+        for (unsigned i = 0; i < caps_.pmp_regiones && i < 16; ++i) {
+            const unsigned a = (pmpcfg_[i] & PMP_A) >> 3;
+            uint64_t b0 = 0, b1 = 0;
+            if (a == 1) {                                   // TOR
+                b0 = i ? (uint64_t(pmpaddr_[i - 1]) << 2) : 0;
+                b1 = uint64_t(pmpaddr_[i]) << 2;
+            } else if (a == 2) {                            // NA4
+                b0 = uint64_t(pmpaddr_[i]) << 2; b1 = b0 + 4;
+            } else if (a == 3) {                            // NAPOT
+                const uint32_t pa = pmpaddr_[i];
+                unsigned unos = 0;
+                while (unos < 32 && ((pa >> unos) & 1u)) ++unos;
+                const uint64_t tam = uint64_t(8) << unos;
+                b0 = (uint64_t(pa) << 2) & ~(tam - 1); b1 = b0 + tam;
+            }
+            pmp_b0_[i] = b0; pmp_b1_[i] = b1;
+            if (a) n_pmp_ = i + 1;
+        }
+    }
     uint32_t tselect_ = 0, tdata1_[8], tdata2_[8], tcontrol_ = 0;
     uint32_t dcsr_ = 0, dcsr_causa_ = 0, dpc_ = 0, dscratch0_ = 0, dscratch1_ = 0;
     bool     debug_ = false, haltreq_ = false, resethaltreq_ = false, paso_pendiente_ = false;
@@ -778,23 +807,10 @@ private:
     bool pmp_ok_m_o(uint32_t dir, unsigned n, uint8_t perm, RvModo modo) const {
         if (!caps_.pmp_regiones) return true;
         const uint64_t lo = dir, hi = uint64_t(dir) + n;
-        for (unsigned i = 0; i < caps_.pmp_regiones; ++i) {
+        for (unsigned i = 0; i < n_pmp_; ++i) {
             const uint8_t c = pmpcfg_[i];
-            const unsigned a = (c & PMP_A) >> 3;
-            if (a == 0) continue;
-            uint64_t b0, b1;
-            if (a == 1) {                                   // TOR
-                b0 = i ? (uint64_t(pmpaddr_[i - 1]) << 2) : 0;
-                b1 = uint64_t(pmpaddr_[i]) << 2;
-            } else if (a == 2) {                            // NA4
-                b0 = uint64_t(pmpaddr_[i]) << 2; b1 = b0 + 4;
-            } else {                                        // NAPOT
-                const uint32_t pa = pmpaddr_[i];
-                unsigned unos = 0;
-                while (unos < 32 && ((pa >> unos) & 1u)) ++unos;
-                const uint64_t tam = uint64_t(8) << unos;
-                b0 = (uint64_t(pa) << 2) & ~(tam - 1); b1 = b0 + tam;
-            }
+            if (!(c & PMP_A)) continue;
+            const uint64_t b0 = pmp_b0_[i], b1 = pmp_b1_[i];
             if (b0 >= b1) continue;                         // TOR vacío: no coincide nada
             const bool dentro_lo = lo >= b0 && lo < b1, dentro_hi = hi > b0 && hi <= b1;
             if (!dentro_lo && !dentro_hi && !(lo < b0 && hi > b1)) continue;

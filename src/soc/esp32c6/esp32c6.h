@@ -65,6 +65,9 @@
 #include "../esp/pma_esp.h"
 #include "../esp/esp_rom.h"
 #include "../../rv/hart/nucleo_rv.h"
+#include "../../rv/debug/rv_dm.h"
+#include "../../rv/debug/rv_dtm_jtag.h"
+#include "../../rv/debug/jtag_pines.h"
 #include "../../periph/esp/uart_esp.h"
 #include "../../periph/esp/systimer_esp.h"
 #include "../../periph/esp/timg_esp.h"
@@ -171,6 +174,27 @@ public:
     tlm_utils::multi_passthrough_target_socket<Esp32C6> bus{"bus"};
     NucleoRv core;
 
+    // --- La depuración (E9.6) ----------------------------------------------------
+    // El Debug Module 0.13 de E2 con las capacidades del C6 (RV_ESP32C6_HP.dbg:
+    // 4 triggers, program buffer de 16), su DTM JTAG con el IDCODE del C6
+    // (0x0000DC25, el `_CPUTAPID` de target/esp32c6.cfg: UN TAP, el del HP;
+    // el LP, E10) y el TAP en MTMS (GPIO4), MTDI (GPIO5), MTCK (GPIO6) y MTDO
+    // (GPIO7). La fuente la eligen los eFuse al soltar el reset de chip, con
+    // los mismos bits que el C3 en RD_REPEAT_DATA0 [TRM-C6 §7.3]:
+    //   DIS_PAD_JTAG, o SOFT_DIS_JTAG impar: los pines no
+    //   JTAG_SEL_ENABLE = 0: el USB-Serial-JTAG, salvo DIS_USB_JTAG = 1: los pines
+    //   JTAG_SEL_ENABLE = 1: el pin de arranque GPIO15 (1 USB, 0 pines)
+    // De fábrica, el USB; los pines, con jtag="pines" (DIS_USB_JTAG quemado).
+    // ndmreset: un reset de la CPU que la tiene parada mientras dura.
+    static constexpr uint32_t IDCODE = 0x0000DC25u;
+    enum class FuenteJtag { Ninguna, Pines, Usb };
+    std::unique_ptr<RvDm> dm;
+    std::unique_ptr<RvDtmJtag> tap;
+    std::unique_ptr<JtagPines> jtag;
+    FuenteJtag fuente_jtag() const { return fuente_jtag_; }
+    // jtag="pines": como quemar EFUSE_DIS_USB_JTAG (vale en el próximo reset de chip)
+    void jtag_en_pines(bool si) { efuse.pon_bit(0x30, 9, si); }
+
     // --- Periféricos (el orden importa: gpio antes de las UART) ---------------------
     GpioEsp        gpio;
     IoMuxEsp       iomux;
@@ -265,6 +289,17 @@ public:
         core.quantum = sc_core::sc_time(100, sc_core::SC_NS);
         core.integracion.perif_lo = c6::PERIF;
         core.integracion.perif_hi = c6::PERIF_FIN;
+        // Los accesos a la ROM y a la HP SRAM, sin el bus: lo mismo que
+        // `acceso` (la PMA, sin tiempo), sin construir la transacción
+        core.integracion.acceso_directo = [this](uint32_t a, unsigned n, uint32_t& v, bool escr, RvAcceso t) {
+            uint8_t* q = nullptr;
+            if (a >= c6::HP_SRAM && a + n <= c6::HP_SRAM + c6::HP_SRAM_TAM) q = &sram_[a - c6::HP_SRAM];
+            else if (!escr && a >= c6::ROM_B && a + n <= c6::ROM_FIN && rom.hay()) q = const_cast<uint8_t*>(rom.byte(a));
+            if (!q || !csr_.pma.permite(a, n, t)) return false;
+            if (escr) for (unsigned i = 0; i < n; ++i) q[i] = uint8_t(v >> (8 * i));
+            else { v = 0; for (unsigned i = 0; i < n; ++i) v |= uint32_t(q[i]) << (8 * i); }
+            return true;
+        };
         core.hart.pon_irq(&intpri);
         core.hart.pon_csr_ext(&csr_);
         core.hart.permisos_extra = [this](uint32_t a) { return csr_.pma.firma(a); };
@@ -456,7 +491,9 @@ public:
             "ECC, PCNT, MCPWM, PARL_IO, ETM, SDIO esclavo, el radio y el coexist: declarados (una fase "
             "posterior; el modem guarda sin hacer nada)",
             "el nucleo LP y sus perifericos (LP_UART, LP_I2C, LP_IO): declarados (E10)",
-            "la depuracion (el DM, el TAP y GDB): E9.6",
+            "la depuracion: el DM 0.13 y el TAP (IDCODE 0x0000DC25) en el USB-Serial-JTAG (de fabrica) o en "
+            "los pines MTMS-MTDO si los eFuse los eligen (jtag=\"pines\" en el <mcu>, o JTAG_SEL_ENABLE y "
+            "GPIO15); solo el hart HP (el LP, E10)",
         };
     }
 
@@ -577,18 +614,54 @@ private:
             gpio.sig_out[c6::SIG_FSPICS0].write(cs);
         };
         spi2.miso = [this] { return gpio.sig_in[c6::SIG_FSPIQ].read(); };
-        // El USB-Serial-JTAG: el reset del chip por DTR/RTS (el JTAG, E9.6)
-        usj.jtag_activo = [] { return false; };
+        // La depuración
+        dm.reset(new RvDm("dm", std::vector<NucleoRv*>{&core}));
+        dm->sba.bind(bus);
+        dm->ndmreset = [this](bool v) {
+            ndm_ = v;
+            if (v) {
+                rst_cpu_n.write(false);
+                if (encendido_) csr_.reset();
+            } else if (encendido_ && !usb_rst_) {
+                rst_cpu_n.write(true);
+            }
+        };
+        tap.reset(new RvDtmJtag(*dm, IDCODE, 7));
+        jtag.reset(new JtagPines("jtag", *tap, JtagPines::Pines{&gpio.nodo_de(6), &gpio.nodo_de(4),
+                                                                 &gpio.nodo_de(5), &gpio.nodo_de(7), nullptr}));
+        jtag->activo(false);
+        hmac.jtag = [this](bool) { aplica_soft_jtag(); };
+        // El USB-Serial-JTAG: su TAP es el mismo, si los eFuse lo eligen; y el
+        // reset del chip por DTR/RTS
+        usj.tap = tap.get();
+        usj.jtag_activo = [this] { return fuente_jtag_ == FuenteJtag::Usb; };
         usj.reset_chip = [this](bool activo, bool descarga) {
             if (activo) { usb_descarga_ = descarga; pide_reset(CAUSA_USB_UART, true); usb_rst_ = true; }
-            else { usb_rst_ = false; if (encendido_) rst_cpu_n.write(true); }
+            else { usb_rst_ = false; if (encendido_ && !ndm_) rst_cpu_n.write(true); }
         };
     }
     void relojes_perifericos(uint32_t off) {
         spi2.hz_apb = pcr.hz_spi2();
         if (off >= 0x70 && off <= 0x7C) i2s.reloj_cambia();
     }
-    bool usb_descarga_ = false, usb_rst_ = false;
+    bool usb_descarga_ = false, usb_rst_ = false, ndm_ = false, solo_soft_ = false;
+    FuenteJtag fuente_jtag_ = FuenteJtag::Usb;
+    void elige_jtag() {
+        const uint32_t r0 = efuse.rd(0x30);
+        const bool dis_usb = (r0 >> 9) & 1u, sel = (r0 >> 15) & 1u, dis_pad = (r0 >> 19) & 1u;
+        const unsigned soft = (r0 >> 16) & 7u;
+        const bool soft_dis = ((soft & 1u) + ((soft >> 1) & 1u) + ((soft >> 2) & 1u)) & 1u;
+        const bool usb = sel ? (gpio.strap() & 0x10u) != 0 : !dis_usb;
+        if (usb) fuente_jtag_ = dis_usb ? FuenteJtag::Ninguna : FuenteJtag::Usb;
+        else fuente_jtag_ = (dis_pad || soft_dis) ? FuenteJtag::Ninguna : FuenteJtag::Pines;
+        solo_soft_ = !usb && !dis_pad && soft_dis;
+        aplica_soft_jtag();
+    }
+    // Cerrado solo por SOFT_DIS_JTAG: lo reabre el HMAC con la clave de JTAG
+    void aplica_soft_jtag() {
+        if (solo_soft_) fuente_jtag_ = hmac.jtag_abierto() ? FuenteJtag::Pines : FuenteJtag::Ninguna;
+        jtag->activo(fuente_jtag_ == FuenteJtag::Pines);
+    }
 
     void pon_relojes(double cpu, double apb) {
         hz_cpu.write(cpu);
@@ -748,10 +821,11 @@ private:
             wait(1, sc_core::SC_US);
             if (!pu_alto()) continue;
             gpio.latch_arranque();
+            elige_jtag();
             timg0.pon_modo_flash((gpio.strap() & 8u) != 0);
             csr_.reset();
             encendido_ = true;
-            rst_cpu_n.write(true);
+            rst_cpu_n.write(!ndm_ && !usb_rst_);
             for (;;) {
                 wait(ev_pu_ | ev_reset_);
                 if (!pu_alto()) break;
@@ -763,6 +837,11 @@ private:
                     rst_cpu_n.write(false);
                     if (sis) {
                         reset_perifericos();
+                        // La descarga forzada (FORCE_DOWNLOAD_BOOT, o el
+                        // USB-Serial-JTAG con DTR/RTS) vale para ESTE
+                        // arranque: los pines no se vuelven a leer en un
+                        // reset del sistema, pero lo forzado no se queda
+                        gpio.vuelve_a_pines();
                         if (lp_aon.force_download() || usb_descarga_) gpio.fuerza_descarga();
                         usb_descarga_ = false;
                         timg0.pon_modo_flash((gpio.strap() & 8u) != 0);
@@ -770,7 +849,7 @@ private:
                     lp_clkrst.anota_causa(c);
                     csr_.reset();
                     wait(100, sc_core::SC_NS);
-                    rst_cpu_n.write(true);
+                    rst_cpu_n.write(!ndm_ && !usb_rst_);
                 }
             }
         }

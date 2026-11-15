@@ -653,9 +653,9 @@ pide `riscv32-esp-elf-gcc` (el de ESP-IDF), pero ejecutar las suites no.
 | **E6** | C3: depuración G1, G2 y G2', y D4 | `testc3` + Python | E2, E4 | Medio |
 | **E7** | C3: USB-Serial-JTAG, D3 y G3 | `testc3` + Python | E5, E6 | Medio |
 | **E8** | C3: periféricos de aula | `testc3` | E4 | Grande, divisible |
-| **E9** | ESP32-C6: núcleo HP, SoC, ROM, ESP-IDF, D1-D3 y G1-G3 | `testc6` | E4-E7 | Grande |
+| **E9** | ESP32-C6: núcleo HP, SoC, ROM, ESP-IDF, D1-D3 y G1-G3 | `testc6` | E4-E7 | Grande · **hecha** |
 | **E10** | C6: el núcleo LP como segundo hart, LP SRAM y periféricos LP | `testc6` | E9 | Medio |
-| **E11** | C6: sus periféricos propios (MCPWM, PCNT, ETM, PARL_IO, TWAI1, ECC…) | `testc6` | E9 | Grande, divisible |
+| **E11** | C6: sus periféricos propios (MCPWM, PCNT, ETM, PARL_IO, ECC…; TWAI1 llegó en E9.4) | `testc6` | E9 | Grande, divisible |
 | **E12** | Radio paravirtual (`VirtWifi`), opcional | `testradio` | E9 y R1-R3 de `analisis_wifi_bl.md` | Grande |
 | **E13** | `mcu-sim-gui`: placas y dibujos | — | E3, E9 | Pequeño |
 
@@ -1773,6 +1773,42 @@ la separación de §3 funciona.
   (`verif/esp/placa_c6.py`, en el CI): hello_world por los dos USB a la
   vez, uart.elf sin ROM y la ROM con la Flash en blanco. La depuración
   (`jtag=`, `,jtag=` en el USB, GDB y la herramienta de openocd-esp32): E9.6.
+* **6. esptool, OpenOCD y GDB** (2026-11-15). La depuración del C6 como la
+  del C3 (E6, E7): el DM 0.13 de E2 con el IDCODE del C6 (0x0000DC25, un
+  solo TAP: el del LP llega en E10), en el USB-Serial-JTAG de fábrica o en
+  MTMS-MTDO si los eFuse lo eligen (los mismos bits de RD_REPEAT_DATA0 que el
+  C3; con JTAG_SEL_ENABLE, el pin de arranque GPIO15), SOFT_DIS_JTAG con el
+  HMAC, y ndmreset como reset de la CPU. El adaptador saca el stub G1
+  (`depuracion="dap"`), los pines para G2/G2' y CMSIS-DAP, `jtag=`,
+  `usb=...,jtag=PUERTO` (G3) y `HerramientaEsp32C6` (lo que hace
+  target/esp32c6.cfg al parar y al reiniciar: los perros de TIMG y LP_WDT, y
+  HPSYS_SW_RESET). Arreglos que salieron por el camino: la descarga forzada
+  (FORCE_DOWNLOAD_BOOT o el USB con DTR/RTS) valía para todos los arranques
+  siguientes, porque `fuerza_descarga` tocaba la copia de los pines; ahora
+  vale para ese arranque (`vuelve_a_pines`), y conserva GPIO15. FLASH_CAP
+  del C6 es 1 (4 MB) y 2 (8 MB), como lo lee esptool (el 4 de 8 MB era el
+  del C3). Y la velocidad: el C6 en el modo descarga simulaba a un 9 % del
+  tiempo real y el stub de esptool no contestaba en los 3 s de reloj de
+  pared de esptool; sin cambiar ni un picosegundo (las suites lo dicen):
+  la transacción TLM del núcleo se reutiliza, los rangos de la PMP y de la
+  PMA se calculan al escribirlos, el INTPRI solo mira los ID pendientes y
+  solo calcula mtime con un comparador encendido, y la ROM y la HP SRAM se
+  leen y escriben sin el bus (`IntegracionRv::acceso_directo`): ~2,5 veces
+  más deprisa. El stub del C6 descomprime y escribe cada bloque dentro de
+  su interrupción de la UART, y eso sigue tardando unos 3 s de reloj de
+  pared por bloque de 16 KB: `esptool_c6.py` le da a esptool plazos más
+  largos (ESPTOOL_CFGFILE) y `--flash-rapida`. `make esptool-c6` (D2 por el
+  puente de la UART0 con la Flash en blanco: chip-id, flash-id, write-flash
+  de hello_world a 921600 con el stub, verify-flash y write-flash por la
+  ROM, y arranca; D3 por el USB: chip-id y write-flash con --before
+  usb-reset, rst:0x15, y arranca), `make openocd-c6` (O1-O6: IDCODE,
+  examine y halt por remote_bitbang y CMSIS-DAP en los pines, program_esp
+  de hello_world entero en la Flash en blanco, GDB contra G1 y a través de
+  OpenOCD con las tareas de FreeRTOS, y G3 por el JTAG del USB) y `testc6`
+  D10-D11: GDB contra hello_world por G1 y G2' (reset halt, trigger en la
+  Flash, ebreak en la HP SRAM, watchpoint, paso y Ctrl-C); van por un
+  socket, y el invariante de testc6 pasa a la columna `resto`, con la misma
+  cifra.
 
 ### E10 · C6: el núcleo LP
 

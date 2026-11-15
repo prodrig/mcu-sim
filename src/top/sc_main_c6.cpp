@@ -39,6 +39,12 @@
 //        TWAI0 <-> TWAI1 por un bus CAN, GP-SPI2 y I2S con la GDMA, I2C, el SAR
 //        ADC y el sensor de temperatura, AES y SHA en modo DMA, RSA, y el DATE
 //        de cada bloque en su sitio
+// E9.6: la depuración.
+//   D10  GDB contra hello_world por G1 (el DM en directo): reset halt,
+//        trigger en la Flash, ebreak en la HP SRAM, watchpoint, paso y Ctrl-C
+//   D11  lo mismo por G2' (el TAP en MTMS-MTDO con jtag=pines, la sonda de
+//        bancada) y el IDCODE 0x0000DC25. Van por un socket de verdad: su
+//        tiempo no cuenta en el invariante (la columna `resto`).
 // Los binarios de ESP-IDF: verif/fw/esp32c6/idf/idf-v5.5.tar.xz, que `make
 // testc6` extrae en build/idf-c6.
 // =============================================================================
@@ -51,6 +57,9 @@
 #include "common/asan_opciones.h"
 #include "soc/esp32c6/esp32c6.h"
 #include "common/huella_fw.h"
+#include "rv/gdb/gdb_stub_rv.h"
+#include "verif/sonda_jtag_rv.h"
+#include "verif/gdb_client.h"
 #include <memory>
 #include <vector>
 
@@ -148,6 +157,19 @@ SC_MODULE(TbC6) {
     SpiFlashChip flash{*busca_modelo_flash("GD25Q32")};
     Esp32C6 c6b{"c6b", MCU_ESP32C6FH4};
     BancoPerifC6 banco{"banco", c6, false};
+    // E9.6: GDB contra c6b: G1 con el DM en directo y G2' por los pines
+    // MTMS-MTDO con la sonda de bancada
+    GdbStubRv g1{"g1", *c6b.dm, puerto_gdb(0), "gdb-g1"};
+    JtagSonda sonda{JtagSonda::Pines{&c6b.gpio.nodo_de(6), &c6b.gpio.nodo_de(4), &c6b.gpio.nodo_de(5),
+                                     &c6b.gpio.nodo_de(7), nullptr}, 10e6};
+    DmiPorJtag dmi_pines{sonda};
+    GdbStubRv g2p{"g2p", dmi_pines, puerto_gdb(1), "gdb-g2p"};
+    GdbClient cli;
+    sc_time t_gdb = SC_ZERO_TIME;
+    static unsigned puerto_gdb(unsigned i) {
+        const char* e = std::getenv("TESTC6_PUERTO_GDB");
+        return (e ? unsigned(std::atoi(e)) : 3481u) + i;
+    }
     int d_rx_ = -1, d_g9_ = -1, d_g8_ = -1;
     std::string terminal;
     unsigned flancos_g8 = 0;
@@ -157,6 +179,7 @@ SC_MODULE(TbC6) {
     TbC6(sc_module_name nm) : sc_module(nm), c6("c6", MCU_ESP32C6) {
         SC_HAS_PROCESS(TbC6);
         c6.pon_flash(&flash);
+        for (GdbStubRv* g : {&g1, &g2p}) { g->set_halt_on_attach(true); g->set_enabled(false); }
         SC_THREAD(run);
         SC_THREAD(terminal_proc);
         SC_METHOD(cuenta_g8);
@@ -538,6 +561,131 @@ SC_MODULE(TbC6) {
         banco.conecta(false);
     }
 
+    // --- E9.6: GDB contra ESP-IDF, por G1 y por G2' (como C15-C16 del C3) -----
+    static std::string hexs(const std::string& t) {
+        std::string r; char b[3];
+        for (unsigned char ch : t) { std::snprintf(b, 3, "%02x", ch); r += b; }
+        return r;
+    }
+    static uint32_t de_hex_le(const std::string& t) {
+        uint32_t v = 0;
+        for (unsigned i = 0; i < 4 && 2 * i + 2 <= t.size(); ++i)
+            v |= uint32_t(std::stoul(t.substr(2 * i, 2), nullptr, 16)) << (8 * i);
+        return v;
+    }
+    uint32_t reg(unsigned n) { char b[8]; std::snprintf(b, sizeof b, "p%x", n); return de_hex_le(cli.pedir(b)); }
+    std::string z(char c, unsigned t, uint32_t a, unsigned n) {
+        char b[48]; std::snprintf(b, sizeof b, "%c%u,%x,%u", c, t, unsigned(a), n);
+        return cli.pedir(b);
+    }
+    static uint32_t simbolo(const std::string& nom) {
+        std::FILE* f = std::fopen((std::string(FW) + "idf/simbolos-v5.5.txt").c_str(), "r");
+        if (!f) return 0;
+        char l[256], app[64], n[128];
+        unsigned long v = 0, r = 0;
+        while (std::fgets(l, sizeof l, f))
+            if (l[0] != '#' && std::sscanf(l, "%63s %127s %lx", app, n, &v) == 3 && nom == n) r = v;
+        std::fclose(f);
+        return uint32_t(r);
+    }
+    struct ResGdb {
+        bool conecta = false, reset = false, flash = false, sram = false, wp = false, paso = false, corre = false;
+        uint32_t pc_reset = 0, pc_flash = 0, pc_sram = 0, pc_paso = 0;
+    };
+    ResGdb sesion(GdbStubRv& st, unsigned puerto, bool pines) {
+        ResGdb r;
+        const uint32_t app_main = simbolo("app_main"), tick = simbolo("xTaskIncrementTick"),
+                       cuenta = simbolo("xTickCount");
+        c6b.alimenta(false);
+        wait(10, SC_US);
+        if (c6b.flash()) c6b.flash()->borra_todo();
+        if (!carga_flash_args(c6b, "build/idf-c6/v5.5/hello_world") || !app_main || !tick || !cuenta) return r;
+        c6b.jtag_en_pines(pines);
+        c6b.alimenta(true);
+        wait(2, SC_MS);                       // la ROM, en marcha
+        st.set_enabled(true);
+        wait(1, SC_MS);
+        if (!cli.conectar(puerto)) { st.set_enabled(false); return r; }
+        wait(1, SC_MS);
+        const std::string sup = cli.pedir("qSupported:swbreak+;hwbreak+;xmlRegisters=riscv");
+        r.conecta = sup.find("PacketSize") != std::string::npos && cli.pedir("QStartNoAckMode") == "OK" &&
+                    cli.pedir("?").rfind("T0", 0) == 0;
+        // monitor reset halt: ndmreset, parado en la primera instrucción de la ROM
+        r.reset = cli.pedir("qRcmd," + hexs("reset halt"), sc_time(50, SC_MS)) == "OK";
+        r.pc_reset = reg(32);
+        r.reset = r.reset && r.pc_reset == 0x40000000u;
+        // app_main, en la Flash: por trigger
+        const bool zh = z('Z', 1, app_main, 2) == "OK";
+        cli.enviar("c");
+        const std::string ph = cli.recibir(sc_time(1500, SC_MS));
+        r.pc_flash = reg(32);
+        r.flash = zh && ph.find("hwbreak") != std::string::npos && r.pc_flash == app_main;
+        z('z', 1, app_main, 2);
+        // xTaskIncrementTick, en la HP SRAM: por ebreak (lo escribe el stub)
+        const bool zb = z('Z', 0, tick, 2) == "OK";
+        cli.enviar("c");
+        const std::string pb = cli.recibir(sc_time(100, SC_MS));
+        r.pc_sram = reg(32);
+        r.sram = zb && pb.find("swbreak") != std::string::npos && r.pc_sram == tick;
+        z('z', 0, tick, 2);
+        // un watchpoint de escritura en xTickCount: para en el sw, antes
+        char m[48];
+        std::snprintf(m, sizeof m, "m%x,4", unsigned(cuenta));
+        const uint32_t antes = de_hex_le(cli.pedir(m));
+        const bool zw = z('Z', 2, cuenta, 4) == "OK";
+        cli.enviar("c");
+        const std::string pw = cli.recibir(sc_time(100, SC_MS));
+        char w[32];
+        std::snprintf(w, sizeof w, "watch:%08x", unsigned(cuenta));
+        const uint32_t pc_wp = reg(32);
+        r.wp = zw && pw.find(w) != std::string::npos && de_hex_le(cli.pedir(m)) == antes;
+        z('z', 2, cuenta, 4);
+        // un paso: el sw se hace
+        cli.enviar("s");
+        const std::string ps = cli.recibir(sc_time(50, SC_MS));
+        r.pc_paso = reg(32);
+        r.paso = ps.rfind("T05", 0) == 0 && r.pc_paso != pc_wp && de_hex_le(cli.pedir(m)) == antes + 1;
+        // y sigue
+        cli.enviar("c");
+        wait(20, SC_MS);
+        cli.crudo("\x03");
+        r.corre = cli.recibir(sc_time(50, SC_MS)).rfind("T02", 0) == 0;
+        cli.pedir("D");
+        cli.desconectar();
+        wait(1, SC_MS);
+        st.set_enabled(false);
+        c6b.alimenta(false);
+        c6b.jtag_en_pines(false);
+        return r;
+    }
+    void informa(const char* q, const ResGdb& r) {
+        const std::string p = std::string(q) + ": ";
+        check(r.conecta, p + "GDB se conecta y encuentra el nucleo parado");
+        char b[96];
+        std::snprintf(b, sizeof b, "monitor reset halt: ndmreset, parado en la ROM (pc 0x%08X)", r.pc_reset);
+        check(r.reset, p + b);
+        std::snprintf(b, sizeof b, "app_main, en la Flash, por trigger (Z1): hwbreak en 0x%08X", r.pc_flash);
+        check(r.flash, p + b);
+        std::snprintf(b, sizeof b, "xTaskIncrementTick, en la HP SRAM, por ebreak (Z0): swbreak en 0x%08X", r.pc_sram);
+        check(r.sram, p + b);
+        check(r.wp, p + "watchpoint de escritura en xTickCount (Z2): para antes del sw");
+        check(r.paso, p + "un paso: el sw se hace (xTickCount + 1)");
+        check(r.corre, p + "y sigue corriendo hasta Ctrl-C (T02)");
+    }
+    void d10() {
+        const sc_time t0 = sc_time_stamp();
+        grupo("D10 GDB contra hello_world de ESP-IDF: G1 (el DM en directo) (E9.6)");
+        check(c6b.fuente_jtag() == Esp32C6::FuenteJtag::Usb, "de fabrica, el JTAG va al USB-Serial-JTAG (DIS_USB_JTAG = 0)");
+        informa("G1", sesion(g1, puerto_gdb(0), false));
+        grupo("D11 lo mismo por G2' (el TAP en MTMS-MTDO, con la sonda de bancada) (E9.6)");
+        const ResGdb r = sesion(g2p, puerto_gdb(1), true);
+        char b[80];
+        std::snprintf(b, sizeof b, "con DIS_USB_JTAG (jtag=pines), el IDCODE por los pines: 0x%08X", dmi_pines.idcode());
+        check(dmi_pines.idcode() == Esp32C6::IDCODE, b);
+        informa("G2'", r);
+        t_gdb += sc_time_stamp() - t0;
+    }
+
     void run() {
         wait(SC_ZERO_TIME);
         d1();
@@ -549,6 +697,7 @@ SC_MODULE(TbC6) {
         d7();
         d8();
         d9();
+        d10();
         std::printf("\nTOTAL C6: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }
@@ -652,5 +801,9 @@ int sc_main(int argc, char* argv[]) {
     const unsigned long long ps =
         (unsigned long long)(sc_time_stamp().value() * (sc_get_time_resolution().to_seconds() / 1e-12));
     std::printf("\nTiempo simulado: %llu ps\n", ps);
+    const unsigned long long pg =
+        (unsigned long long)(tb.t_gdb.value() * (sc_get_time_resolution().to_seconds() / 1e-12));
+    std::printf("  de los cuales D10-D11 (socket de GDB): %llu ps\n", pg);
+    std::printf("  el resto                              : %llu ps\n", ps - pg);
     return g_fallos ? 1 : 0;
 }

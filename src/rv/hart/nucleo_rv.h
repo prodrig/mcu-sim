@@ -24,6 +24,7 @@
 #ifndef STM32_RV_HART_NUCLEO_RV_H
 #define STM32_RV_HART_NUCLEO_RV_H
 
+#include <functional>
 #include <systemc>
 #include <tlm>
 #include <tlm_utils/simple_initiator_socket.h>
@@ -53,6 +54,10 @@ struct IntegracionRv {
     // Escrituras a periféricos que se sincronizan con el planificador antes de
     // salir (como `sync_escritura_perif` del Cortex). [perif_lo, perif_hi)
     uint32_t perif_lo = 0, perif_hi = 0;
+    // Los accesos que el SoC sirve sin pasar por el bus (la ROM y la SRAM,
+    // sin tiempo ni efectos: lo mismo que haría el bus, más deprisa).
+    // false: que vayan por el bus.
+    std::function<bool(uint32_t a, unsigned n, uint32_t& v, bool escribe, RvAcceso t)> acceso_directo;
 };
 
 SC_MODULE(NucleoRv), public rv_mem_if {
@@ -98,19 +103,21 @@ SC_MODULE(NucleoRv), public rv_mem_if {
         return f > 0.0 ? sc_core::sc_time(double(n) * 1.0e12 / f, sc_core::SC_PS)
                        : sc_core::sc_time(double(n) * 10.0, sc_core::SC_NS);
     }
-
     // --- rv_mem_if: lo que pide el hart ---------------------------------------
     bool lee(uint32_t a, unsigned n, uint32_t& v, RvAcceso t, RvModo m) override {
+        if (integracion.acceso_directo && integracion.acceso_directo(a, n, v, false, t)) return true;
         return bus(t == RvAcceso::Fetch ? ibus : dbus, false, a, n, v, t, m);
     }
     bool escribe(uint32_t a, unsigned n, uint32_t v, RvAcceso t, RvModo m) override {
         if (integracion.perif_hi > integracion.perif_lo &&
             a >= integracion.perif_lo && a < integracion.perif_hi) sincroniza();
+        if (integracion.acceso_directo && integracion.acceso_directo(a, n, v, true, t)) return true;
         return bus(dbus, true, a, n, v, t, m);
     }
 
 private:
     sc_core::sc_time local_{sc_core::SC_ZERO_TIME};
+    tlm::tlm_generic_payload gp_;
     sc_core::sc_event ev_irq_, ev_dbg_, ev_parado_;
     bool reset_pedido_ = false, en_reset_ = true, rst_bajo_ = false;
     void baja_rst() { rst_bajo_ = true; }
@@ -119,7 +126,11 @@ private:
              unsigned n, uint32_t& v, RvAcceso t, RvModo m) {
         unsigned char buf[4];
         if (escr) for (unsigned i = 0; i < n; ++i) buf[i] = uint8_t(v >> (8 * i));
-        tlm::tlm_generic_payload gp;
+        // La transacción, de una vez para siempre: construir y destruir un
+        // tlm_generic_payload por acceso (su vector de extensiones) era un
+        // décimo del tiempo de anfitrión. El hilo del núcleo no tiene dos
+        // accesos en vuelo a la vez.
+        tlm::tlm_generic_payload& gp = gp_;
         RvExt ext;
         ext.hart = hart.hartid(); ext.modo = m; ext.acceso = t;
         gp.set_command(escr ? tlm::TLM_WRITE_COMMAND : tlm::TLM_READ_COMMAND);

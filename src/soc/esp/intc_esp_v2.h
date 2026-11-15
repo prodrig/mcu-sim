@@ -77,11 +77,15 @@ public:
     // Los ID que pide: 0 USI, 3 MSI, 4 UTI, 7 MTI
     uint32_t pendientes() const {
         uint32_t p = 0;
-        const uint64_t t = mtime();
         if (usip_) p |= 1u << 0;
         if (msip_) p |= 1u << 3;
-        if ((uctl_ & 2u) && t >= ucmp_) p |= 1u << 4;
-        if ((mctl_ & 2u) && t >= mcmp_) p |= 1u << 7;
+        // mtime solo si algún comparador está encendido: se pregunta en cada
+        // instrucción, y calcularlo cuesta
+        if ((uctl_ | mctl_) & 2u) {
+            const uint64_t t = mtime();
+            if ((uctl_ & 2u) && t >= ucmp_) p |= 1u << 4;
+            if ((mctl_ & 2u) && t >= mcmp_) p |= 1u << 7;
+        }
         return p;
     }
     // El acceso desde el bus, con la dirección relativa a 0x2000_1800
@@ -260,8 +264,11 @@ public:
     uint32_t eip(unsigned k = 0) const {
         const Banco& b = b_[k];
         uint32_t r = 0;
-        for (unsigned i = 1; i < 32; ++i)
-            if (!((CLINT_ESP_IDS >> i) & 1u) && (((b.pend & b.ena) >> i) & 1u) && b.prio[i] >= b.umbral) r |= 1u << i;
+        // Solo los ID pendientes y habilitados (lo normal: ninguno)
+        for (uint32_t c = (b.pend & b.ena) & ~CLINT_ESP_IDS & ~1u; c; c &= c - 1) {
+            const unsigned i = unsigned(__builtin_ctz(c));
+            if (b.prio[i] >= b.umbral) r |= 1u << i;
+        }
         return r;
     }
     uint64_t reclamaciones() const { return n_recl_; }

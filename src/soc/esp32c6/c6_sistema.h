@@ -273,14 +273,14 @@ public:
     // La imagen de omisión: la MAC 40:4C:CA:00:C6:01, y en BLOCK1 (0x44)
     // WAFER_VERSION_MINOR (bits 114-117), WAFER_VERSION_MAJOR (118-119),
     // PKG_VERSION (120-122), BLK_VERSION_MINOR (123-125: 1) y FLASH_CAP
-    // (128-130: 1 4 MB, 4 8 MB) [esp_efuse_table.csv de ESP-IDF]; lo demás, 0.
+    // (128-130: 1 4 MB, 2 8 MB, como lo lee esptool; el 4 de 8 MB es el del C3) [esp_efuse_table.csv de ESP-IDF]; lo demás, 0.
     void pon_omision() {
         w_.assign((RD_FIN - RD_INI) / 4, 0u);
         w_[(0x44 - RD_INI) / 4] = 0xCA00C601u;
         w_[(0x48 - RD_INI) / 4] = 0x0000404Cu;
         const unsigned may = rev_ / 100, men = rev_ % 100;
         w_[(0x50 - RD_INI) / 4] = ((men & 0xFu) << 18) | ((may & 3u) << 22) | ((pkg_ & 7u) << 24) | (1u << 27);
-        w_[(0x54 - RD_INI) / 4] = flash_mb_ == 8 ? 4u : flash_mb_ == 4 ? 1u : 0u;
+        w_[(0x54 - RD_INI) / 4] = flash_mb_ == 8 ? 2u : flash_mb_ == 4 ? 1u : 0u;
         ruta_.clear();
     }
     std::string carga(const std::string& ruta) {

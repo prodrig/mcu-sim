@@ -402,4 +402,8 @@ testc3                 313      18846782364616        resto
 # escriben tambien en el (la consola secundaria), encuentran su FIFO libre
 # como en el chip en vez de esperar a que se acabe el plazo; D7 sigue
 # acabando en 11532516458348 (15-11-2026).
-testc6                 112      13115536458348        total
+# D10-D11 (E9.6, GDB por G1 y G2' contra hello_world) van al final y por un
+# socket de verdad: su tiempo depende del reloj de pared, asi que la cifra
+# pasa a la columna `resto` (el total menos D10-D11), como testc3, y es la
+# misma de antes: D1-D9 no se mueven (15-11-2026).
+testc6                 128      13115536458348        resto

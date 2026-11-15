@@ -682,6 +682,25 @@ openocd-c3: $(MCUSIM) $(B)/idf/.extraido
 usb-c3: $(MCUSIM) $(B)/idf/.extraido
 	$(PYTHON) verif/esp/usb_c3.py --sim $(MCUSIM) $(if $(ESPTOOL),--esptool $(ESPTOOL)) $(if $(OPENOCD_ESP32),--openocd $(OPENOCD_ESP32))
 
+# ESPTOOL CONTRA EL ESP32-C6 (E9.6, D2 y D3): la DevKitC-1 con la Flash en
+# blanco, por sus dos USB: el puente en la UART0 (con el auto-reset) y el
+# USB-Serial-JTAG del chip (--before usb-reset). Sin esptool se OMITE, salvo
+# con ESPTOOL_OBLIGATORIO=1. Sin invariante.
+#
+#   make -f Makefile.mcu-sim esptool-c6 [ESPTOOL=/ruta/a/esptool]
+esptool-c6: $(MCUSIM) $(B)/idf-c6/.extraido
+	$(PYTHON) verif/esp/esptool_c6.py --sim $(MCUSIM) $(if $(ESPTOOL),--esptool $(ESPTOOL))
+
+# OPENOCD-ESP32 Y GDB CONTRA EL ESP32-C6 (E9.6, G1, G2 y G3):
+# target/esp32c6.cfg sin tocar, por remote_bitbang y CMSIS-DAP en los pines
+# (--jtag=pines) y por el JTAG del USB-Serial-JTAG; program_esp de
+# hello_world con la Flash en blanco; GDB contra G1 y a traves de OpenOCD
+# (con ELF=hello_world.elf de la compilacion). Sin openocd-esp32 se OMITE.
+#
+#   make -f Makefile.mcu-sim openocd-c6 OPENOCD_ESP32=/ruta/a/openocd [GDB_RV=riscv32-esp-elf-gdb ELF=...]
+openocd-c6: $(MCUSIM) $(B)/idf-c6/.extraido
+	$(PYTHON) verif/esp/openocd_c6.py --sim $(MCUSIM) $(if $(OPENOCD_ESP32),--openocd $(OPENOCD_ESP32)) $(if $(GDB_RV),--gdb $(GDB_RV)) $(if $(ELF),--elf $(ELF))
+
 # LA ESP32-C6-DevKitC-1 (E9.5): el `mcu-sim` de verdad con
 # placas/esp32c6_devkitc1.xml: la consola de hello_world por sus DOS USB (el
 # puente en la UART0 y el USB-Serial-JTAG del chip) por RFC 2217, uart.elf

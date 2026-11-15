@@ -11,7 +11,7 @@
 //       DBGMCU_CR      |= DBG_STANDBY | DBG_STOP | DBG_SLEEP  (0xE0042004, 0x7)
 //       DBGMCU_APB1_FZ |= DBG_IWDG_STOP | DBG_WWDG_STOP       (0xE0042008, 0x1800)
 //
-//   ESP32-C3   target/esp32c3.cfg y esp_common.cfg
+//   ESP32-C3   target/esp32c3.cfg y esp_common.cfg (el C6, abajo, igual)
 //       halted:      esp32c3_wdt_disable (MWDT0, MWDT1, RWDT y SWD apagados)
 //       gdb-attach:  con la protección de memoria echada (PMS de IRAM0 o
 //                    DRAM0 bloqueado), `reset halt`
@@ -74,6 +74,33 @@ public:
         d.nv_escribir(0x6001F068u, 0);                   // TIMG_RTCCALICFG
     }
     static HerramientaEsp32C3& el() { static HerramientaEsp32C3 h; return h; }
+};
+
+// target/esp32c6.cfg (E9.6): esp32c6_wdt_disable al parar (MWDT0, MWDT1, el
+// RWDT y el SWD de LP_WDT), y esp32c6_soc_reset: LP_AON_SYS_CFG con
+// HPSYS_SW_RESET. esp32c6_memprot_is_enabled mira el PMP, no la memoria: no
+// hay nada que leer aquí, y no pide reset al conectar.
+class HerramientaEsp32C6 : public herramienta_if {
+public:
+    const char* nombre() const override { return "openocd-esp32 target/esp32c6.cfg"; }
+    void al_parar(acceso_nv_if& d) override {          // esp32c6_wdt_disable
+        d.nv_escribir(0x60008064u, 0x50D83AA1u);         // TG0: WKEY
+        d.nv_escribir(0x60008048u, 0);                   //      WDTCONFIG0
+        d.nv_escribir(0x6000807Cu, 0x2u);                //      INT_CLR (WDT)
+        d.nv_escribir(0x60009064u, 0x50D83AA1u);         // TG1
+        d.nv_escribir(0x60009048u, 0);
+        d.nv_escribir(0x6000907Cu, 0x2u);
+        d.nv_escribir(0x600B1C18u, 0x50D83AA1u);         // LP_WDT: WPROTECT
+        d.nv_escribir(0x600B1C00u, 0);                   //         CONFIG0
+        d.nv_escribir(0x600B1C20u, 0x50D83AA1u);         // SWD: WPROTECT
+        d.nv_escribir(0x600B1C1Cu, 0x40000000u);         //      SWD_CONF (DISABLE)
+        d.nv_escribir(0x600B1C30u, 0xC0000000u);         // INT_CLR: RTC WDT y SWD
+    }
+    bool tiene_reset_soc() const override { return true; }
+    void reset_soc(acceso_nv_if& d) override {          // esp32c6_soc_reset
+        d.nv_escribir(0x600B1034u, 0x80000000u);         // LP_AON_SYS_CFG: HPSYS_SW_RESET
+    }
+    static HerramientaEsp32C6& el() { static HerramientaEsp32C6 h; return h; }
 };
 
 } // namespace stm32
