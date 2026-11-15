@@ -21,6 +21,7 @@
 #include "../../parts/netlist.h"
 #include "../../common/imagen_fw.h"
 #include "../../common/memoria_nv.h"
+#include "../herramientas.h"
 
 namespace stm32 {
 
@@ -97,6 +98,9 @@ public:
         return a;
     }
     const McuDesc& desc() const override { return desc_; }
+    std::vector<congela::Nucleo> nucleos() override {
+        return {chip_->core.nucleo_congelable(std::string(chip_->name()) + ".core")};
+    }
     std::vector<std::string> limitaciones() const override { return chip_->limitaciones(); }
 
     // Los nodos, con los nombres del P4. Se asegura además de que el contexto
@@ -246,6 +250,8 @@ public:
         }
         return "";
     }
+    herramienta_if* herramienta() override { return nullptr; }
+    void herramienta_interno(herramienta_if* h) override { if (chip_->core.gdb) chip_->core.gdb->pon_herramienta(h); }
     bool tiene_gdb_interno() const override { return chip_->core.gdb != nullptr; }
     void gdb_interno(bool activo, bool traza) override {
         if (!chip_->core.gdb) return;

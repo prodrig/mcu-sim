@@ -75,6 +75,10 @@ redactar esta revisión, no solo leído en un informe.
   firmware y su vista 3D (`doc/analisis_cnc.md`, fases F0 a F8, en la rama
   `cnc`). Lo que destapó en el modelo está en **T-24** (las reglas de error
   del CAN) y **T-25** (la captura de TRC de los TIM).
+- **Y el primer núcleo que no es ARM** (**P-19**): los ESP32-C3 y ESP32-C6 de
+  Espressif, con un núcleo RISC-V genérico y reutilizable en `src/rv/`. Plan
+  de catorce fases en `doc/analisis_esp32_riscv.md` (E0-E13), en la rama
+  `esp32rv`.
 - **Cincuenta y una funciones "bits sin máquina"**: registros que se guardan, se
   enmascaran y se leen correctamente, pero cuya lógica no se ejecuta. Casi todas
   corresponden a caminos que ningún firmware corriente usa, y casi todas están
@@ -861,6 +865,141 @@ Lo que queda de una sola fuente, o de modelo, tras S9:
 | **dd** | El USB y el CAN (S6) | De modelo: el FSDEV sin doble búfer ni isócronos (se avisa), sin ERR (la frontera de paquetes no ve el cable) ni la RESUME del dispositivo; los paquetes cruzan como paquetes. `ControladorUsb::pausa_control_us` (125 µs en el F303, 0 en el E4, que conserva su invariante): un PC de verdad no encadena dos transferencias de control más deprisa; con 0, TinyUSB pierde el estado de la anterior (el SETUP la pisa, como pasaría en el silicio). La memoria compartida USB/CAN del plan no existe en el F303xB/C (DS9118 §3.24): no se modela porque no hay nada que modelar. El CAN entre dos Discovery solo está en `testf3` (F71), no en `placas/dos_f3discovery.xml` | — |
 | **l** | La placa contra su esquemático | Contrastada con MB1035 rev. D.1 (2026-10-20): resistencias de la rosa (510 Ω en los verdes), B1 (100 + 330 Ω a VDD, 220 kΩ a masa), LD1, BOOT0, R39 y X3 sin montar. La vf de cada LED es de modelo; VDD se modela a 3,3 V, y en la placa son los 3,3 V del LD3985 menos el diodo D3 [de modelo] |
 
+### P-19 — Los ESP32-C3 y ESP32-C6, y un núcleo RISC-V reutilizable
+
+**Analizado en `doc/analisis_esp32_riscv.md` (2026-11-07), con un plan de
+catorce fases (E0-E13)**, en la rama `esp32rv`. El primer núcleo que no es
+ARM. La condición que ordena el plan es que **el núcleo RISC-V quede separado
+del chip** (`src/rv/`): el hart, sus CSR, traps, PMP, el Debug Module 0.13, los
+*triggers*, el TAP con su DTM y el *backend* RISC-V del motor de GDB, sin una
+línea de Espressif, validados en un SoC de laboratorio con su propio banco
+(`testrv`). Encima, una capa común de Espressif y, encima de ella, el C3 y el
+C6 (con su núcleo LP como segundo hart).
+
+Las fases: E0 lo que queda de la generalización (lo que separa ARM de RISC-V
+en `mcu_if`, el motor de GDB y las sondas); E1 el núcleo y el laboratorio; E2
+su depuración; E3-E8 el C3 (arranque directo, ROM y ESP-IDF, esptool, GDB y
+OpenOCD, USB-Serial-JTAG, periféricos); E9-E11 el C6; E12 la radio paravirtual,
+opcional; E13 la GUI.
+
+**Estado (2026-11-07):** **E0, E1, E2 y E3 hechas**; la siguiente es E4 (la
+Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
+
+* **E0**: `DebugCaps` en `common/depuracion.h`; el motor de GDB partido en
+  protocolo (`GdbRspBase`) y arquitectura (`GdbRsp`, ARMv7-M, el código de
+  antes); `nodo_depuracion()` en `mcu_if`; puertos de 32 pines; las sondas
+  `remote_bitbang` y CMSIS-DAP con JTAG; `lee_elf` con la máquina esperada. Las
+  ocho suites, con sus invariantes al picosegundo.
+* **E1**: `src/rv/hart` (RvCaps, decodificación con la expansión de C, el hart
+  con M, A, C, Zicsr, Zifencei, modos M y U con la extensión N, PMP, triggers,
+  los tres modos de desalineado con la errata CPU-863, y las extensiones del
+  integrador), `NucleoRv`, `Clint` e `IrqEstandar`, el SoC de laboratorio y
+  `testrv`: las comprimidas contra GNU as, riscv-tests (77 en RV32IMAC, y en
+  RV32IMC), ocho pruebas propias, **la traza idéntica a la de Spike** en
+  cuatro programas propios y en CoreMark, y CoreMark con sus CRC.
+* **E2**: `src/rv/debug` (Debug Module 0.13.2 con SBA, varios harts, unavail
+  y disparo cruzado; el DTM JTAG; el TAP en los pines; el cliente del DM) y
+  `src/rv/gdb` (el piso RISC-V del motor de GDB, con hilos por hart). G1, G2'
+  y OpenOCD genérico por remote_bitbang y por CMSIS-DAP en JTAG
+  (`make openocd-rv`, 28 comprobaciones, con GDB por OpenOCD y por G1).
+* **E3**: el ESP32-C3 sin ROM (`soc/esp32c3`, `soc/esp`, `periph/esp`):
+  INTC y matriz, SYSTEM, RTC_CNTL, eFuse, UART0/1, SYSTIMER, TIMG0/1, GPIO
+  con la matriz y el IO_MUX sobre pads, la GPIO dedicada, CHIP_PU y los pines
+  de arranque; `make testc3` (57) y tres placas, una con un F407.
+* **E1 completa**: la traza de Spike con interrupciones del CLINT
+  (`irq_spike.S`) y **`riscv-arch-test`** (ACT4, firmas de Sail 0.16, GCC 15):
+  la configuración del DUT en `verif/rv/act/mcusim-lab-rv32imac`, 220 ELF
+  autocomprobados versionados (`act.tar.xz`) y V10 en `testrv` (457). Sacó
+  tres fallos del núcleo: `menvcfg` ausente, la región TOR vacía y el `sc.w`
+  sin reserva a una dirección vacía.
+* **E4 hecha** (2026-11-07): el C3 arranca por la ROM de verdad y lee la
+  Flash. `hello_world`, `blink` y `uart_echo` de **ESP-IDF v5.5.6 y v6.0.3**
+  arrancan sin tocar (salvo el `led_strip` de blink), en v0.4 y en v1.1;
+  Direct Boot; el modo descarga; `esp_restart()`; los perros del flashboot.
+  `testc3`: C8-C13, 107 comprobaciones. Lo que el arranque toca y no está en
+  el TRM, cada cosa con su fuente o «declarado» (P-19/E4 abajo).
+* **E5 hecha** (2026-11-08): esptool de verdad por RFC 2217 contra la
+  DevKitM-1 (`AutoResetEsp`, `reinicio="esp"` en el puente, la detección de
+  baudios de la UART, la latencia de las interrupciones), con el *stub* y sin
+  él, a 115 200 y a 921 600; `make esptool-c3` y el CI. `testc3`: C14, 115.
+* **E6 hecha** (2026-11-08): el DM y el
+  TAP del C3 (IDCODE 0x00005C25) con la fuente por eFuse (`--jtag=pines`);
+  G1, G2' y las sondas JTAG en `sim`; openocd-esp32 sin tocar por
+  remote_bitbang y CMSIS-DAP con `program_esp` + verify (`make openocd-c3`);
+  `testc3` C15-C16 (131, «resto»); `ide/esp32c3/`.
+* **E7 hecha** (2026-11-08): el
+  USB-Serial-JTAG (`periph/esp/usb_serial_jtag.h`: CDC-ACM, reset por
+  DTR/RTS a descarga, órdenes JTAG sobre el TAP), el JTAG de Espressif como
+  servidor remote_bitbang en `PuenteUsbCdc`, la SuperMini con `usb=`;
+  `make usb-c3` (consola de ESP-IDF por el USB, openocd-esp32 por G3, esptool
+  --before usb-reset con el *stub*) y `testc3` C17 (139).
+* **E8 hecha** (2026-11-08): el LEDC, el RMT con la pieza `Ws2812`, el SAR
+  ADC con el sensor de temperatura y el AES (`testc3` C18-C19); el I2C contra
+  una 24Cxx (C20), el GP-SPI2 con la GDMA contra un ST7735 (C21) y el TWAI
+  sobre `CanMotor` con un nodo CAN en el hilo (C22): 174. Declarados con
+  aviso: UHCI, I2S, RSA, DS, HMAC y XTS_AES.
+* **E8: lo declarado, modelado** (2026-11-09 y 2026-11-14), una entrega por
+  periférico: el RSA (C24), el HMAC con la reapertura del JTAG (C25), el DS
+  (C26), el XTS_AES en el SPI1 y la caché (C27), el I2S con los canales de
+  entrada de la GDMA (C28) y el UHCI (C29): `testc3` 258. En el C3 ya no queda
+  ningún bloque declarado; la radio (FE, NRX, BB) sigue guardando sin hacer
+  nada, que es de E10.
+* **E8: las limitaciones, quitadas** (2026-11-14), una entrega por cada una:
+  el UHCI con la cabecera de HCI (H5), el CRC, el ACK, el envío rápido,
+  WAIT_SW_START y HUNG (C30, 275); el I2S con esclavo, PDM, A-law y µ-law,
+  MCLK, TIMING, SKIP_MSK, HUNG y RX_STOP_MODE (C31, 294); XTS_AES_DATE como
+  ESP-IDF y el SVD, 0x20200623 y de lectura y escritura (C32, 302); la ROM
+  arranca de una Flash cifrada de fábrica (C33, 311); los pines de arranque,
+  como al empezar la simulación en todos los grupos (C34, 313).
+* **E6 y E7: lo pendiente, hecho** (2026-11-08): GDB por openocd-esp32 con
+  FreeRTOS (O5); `write-flash` entero por el USB (`--flash-rapida`), el puente
+  USB que lee los IN cuando el dispositivo avisa, y G3 sin fallos sueltos.
+* **E6: la región del DM en el mapa** (2026-11-09): el *program buffer* y
+  los datos del DM en 0x2000_0000-0x27FF_FFFF (`RvDebugCaps::dm_base`), con la
+  PMP en su búsqueda, y `datacount` = 2 como el C3 de verdad; `testc3` C23 (180).
+* **E6: O5 de `openocd_c3.py` intermitente, resuelto** (2026-11-09). Con el
+  hart parado y OpenOCD callado, la sonda dejaba correr el modelo a ~120 veces
+  el tiempo real, y el perro de interrupciones de ESP-IDF (300 ms) reseteaba
+  el chip antes de que OpenOCD (hasta 100 ms de pared) lo apagase. Ahora, con
+  un programa conectado, ningún servidor deja que el simulado adelante al de
+  pared (`common/congela.h`, `RitmoReal`): O5 5 de 5; CMSIS-DAP, el JTAG del
+  USB y G1, 3 de 3. Y `--stopped-core-stops-sim` congela el tiempo simulado
+  con un núcleo parado (`make congela`, K1-K6).
+* **Los stubs internos de GDB hacen lo que OpenOCD con cada chip**
+  (2026-11-09, `soc/herramientas.h`, `make herramienta-gdb`): DBGMCU de los
+  STM32 al conectar; los perros del C3 apagados en cada parada, su reset por
+  RTC_CNTL y el reset al conectar con la PMS echada; nada en los MSP432.
+* **P-19/E4 — los registros del arranque del C3 sin documentar, o con dato de
+  modelo.** La regla de §8.2 del plan: modelado con dos fuentes o declarado.
+  | Qué | Cómo está | Fuente |
+  | :--- | :--- | :--- |
+  | `mpcer`/`mpcmr` al salir del reset | contando ciclos | Deducido: ESP-IDF lee `mpccr` (marcas de tiempo, `esp_rom_delay_us`) sin habilitarlo nunca |
+  | `SYSCON_RND_DATA` (0x6002_60B0) | xorshift32 de semilla fija | De modelo: el silicio lo saca del ruido del SAR y de la radio |
+  | PMS, World Controller y ASSIST_DEBUG en un reset de la CPU | vuelven a su valor de reset | Deducido: la app reinicia si los bloqueos del PMS siguen tras `esp_restart()` («Memprot feature locked») |
+  | REGI2C (0x6000_E000) | la codificación de la palabra del maestro, del código de la ROM (`rom_chip_i2c_writeReg`); los registros analógicos (BBPLL, BIAS, SAR...) guardan, sin PLL que enganchar | ROM (desensamblado) y `regi2c_defs.h`; los valores analógicos, **declarados** |
+  | FE, FE2, NRX, BB (la radio) | guardan | **Declarados** (E12) |
+  | RTC_CNTL salvo RESET_STATE, OPTIONS0, OPTION1, STORE y el RWDT: el super watchdog (SWD), el *brownout*, CLK_CONF, ANA_CONF... | guardan con su valor de reset | Valores de reset de `rtc_cntl_reg.h` (ESP-IDF); función **declarada** |
+  | El modo flashboot del MWDT0 y del RWDT | cuenta solo si se arranca desde la Flash (GPIO9 alto); la etapa 0 resetea el sistema (MWDT0) o el RTC (RWDT) | Deducido: en el modo descarga la ROM no los toca (`disable_default_watchdog` no se llama) y espera para siempre; en la Flash vacía, rst:0x7 y rst:0x10 como en las placas |
+  | La calibración del reloj lento (TIMG RTCCALICFG) | con las frecuencias nominales (136 kHz, 17,5 MHz/256) | `SOC_CLK_*_FREQ_APPROX` de ESP-IDF; sin deriva |
+  | Las operaciones de EXTMEM (invalidar, precargar, autocargar, fijar, congelar) | acaban en el acto con su DONE; CACHE_STATE en reposo | Como el QEMU de Espressif; tiempos **de modelo** |
+  | El tiempo de una transacción del MSPI y de un fallo de caché | bits de cada fase con sus líneas al reloj de SPI_MEM_CLOCK; origen 80 MHz con PLL, XTAL sin él | **De modelo** (el TRM no da latencias) |
+  | La suspensión automática de la Flash, la PMS de las ventanas | no | **Declarados** |
+  | El cifrado de la Flash (XTS_AES) | cifrado manual por el SPI1 y descifrado en la caché, como espsecure (E8) | TRM §23 y esptool |
+  | eFuse: la orden de leer | acaba en el acto con READ_DONE; programar no programa | **Declarado** |
+  | SHA: 80/64 ciclos por bloque | | **De modelo** |
+  | La CPU tras el reset: XTAL/2 = 20 MHz (PRE_DIV_CNT = 1, TRM tabla 6.2-2), pero la ROM cuenta 40 ticks por µs (`s_ticks_per_us`) | se deja el TRM: los retardos de la ROM duran el doble | **Pendiente de contrastar con una placa** |
+  | La ROM: la imagen de los datos iniciales (tabla de `_data_start`) y las secciones `.rodata.interface*` | reconstruidas del ELF de esp-rom-elfs; la rev. 3 sale igual que la del QEMU de Espressif salvo 8 bytes que nada referencia | `soc/esp32c3/rom/gen_rom_c3.py` |
+  | SYSTIMER: PERIOD_MODE y TIMER_UNIT_SEL | mandan al escribirlos; COMPx_LOAD solo pasa el objetivo y el periodo | Deducido de `systimer_hal`: elige el modo después del LOAD |
+  | **E5** · UART: la detección de baudios (LOWPULSE, HIGHPULSE, POSPULSE, NEGPULSE, RXD_CNT) | el pulso entero en ciclos de SCLK, menos 1; se reinician al poner AUTOBAUD_EN; sin el filtro de glitches | TRM-C3 §26.4.5 y la ROM (`uart_baudrate_detect`: divisor = (LOW + HIGH) · 8 + 16) |
+  | **E5** · La latencia de las interrupciones (4 ciclos, que se facturan al entrar) | una petición nueva no entra en la frontera de instrucción que sigue, sino en la otra; dormido en `wfi`, en el acto | TRM-C3 §1.5.3.1; y deducido de la ROM: `uart_buff_switch` habilita la interrupción de la UART una instrucción antes de decir qué UART es la suya |
+  | **E7** · USB-Serial-JTAG: el reset por DTR/RTS | (RTS, DTR) = (1, 0) es un reset de chip (rst:0x15); a descarga si se llega desde (1, 1) | Deducido de la secuencia usb-reset de esptool y del TRM-C3 §30.3.2 (sin tabla de verdad completa) |
+  | **E7** · USB-Serial-JTAG: las órdenes del JTAG | dos por byte, la primera en el nibble alto; REP en base 4 | **De modelo** (el driver esp_usb_jtag de OpenOCD; el TRM no da el formato) |
+  | **E7** · USB-Serial-JTAG: SERIAL_OUT_RECV_PKT y SERIAL_IN_EMPTY | vuelven a ponerse (con flanco) si al borrarlas queda dato o el búfer de entrada sigue vacío | **De modelo** |
+  | **E6** · La región del DM por dentro | el *program buffer* en 0x2000_0340 y los datos en 0x2000_0380 (la disposición del riscv-dbg de PULP); fuera del modo depuración, error de acceso | **De modelo** (el TRM-C3, tabla 1.3-1, solo da la región 0x2000_0000-0x27FF_FFFF) |
+  | **E6** · ndmreset en el C3 | reset de la CPU (y PMS/WCL/ASSIST), no de los periféricos | Deducido de `target/esp32c3.cfg` (esp32c3_soc_reset: el reset del sistema lo hace con RTC_CNTL_SW_SYS_RST) |
+  | **E6** · La fuente del JTAG | DIS_PAD_JTAG, SOFT_DIS_JTAG (impar), JTAG_SEL_ENABLE + GPIO10, DIS_USB_JTAG, al soltar CHIP_PU | TRM-C3 §7.3 y `efuse_reg.h` |
+  | **E5** · El reinicio por RFC 2217 (`reinicio="esp"` del puente) | el puente reconoce el principio de la secuencia de esptool y la hace en tiempo simulado (100 ms + 50 ms) | `esp_rfc2217_server` (esp_port_manager.py): lo mismo con una placa de verdad |
+
 ---
 
 ## 3. Funciones no modeladas — "bits sin máquina" (F)
@@ -1066,7 +1205,7 @@ Cosas que **están modeladas** pero que la suite no ejercita.
 | **V-09** | **Regresión que solo use `--gdb-dap` dejaría de ejercitar el SW-DP por completo.** Mitigado hoy porque T94 y T96 siguen usando los pines — es una condición a mantener, no un hueco actual | F6-gdb2 §8 |
 | **V-11** | **T53 (I2S) depende del INSTANTE SIMULADO en que arranca.** La comprobación «no se pierde ni una muestra» compara cuántas entraron en el esclavo con cuántas salieron del maestro, y ese número cambia según la fase con la que el enlace de audio engancha — que a su vez depende de **todo lo que se haya ejecutado antes en la suite**. Se descubrió ejecutando la suite en Windows con los firmwares sin compilar: al no correr CoreMark, T53 empieza en otro instante y pierde una o dos muestras. **No es un fallo del modelo de I2S**; es una comprobación que mide algo que no es estable. Arreglarla es sincronizar antes de contar, o contar solo las muestras que llevan el patrón | F5-SPI §7 |
 | **V-10** | **La posición 80, compartida, con el HASH y el RNG pidiendo a la vez.** El OR de dos entradas está puesto y verificado por un lado —el grupo I1 del banco del F417 comprueba que el HASH la levanta y que al enmascararlo se cae—, pero **no hay ninguna prueba con las dos fuentes activas simultáneamente**, que es donde un OR mal cableado se nota: con el RNG pidiendo, bajar el HASH no debe bajar la línea | F415-4 §18 |
-
+| **V-12** | **`asanc6`: D10-D11 (GDB por G1 y G2') fallan bajo ASan.** Con el código de E10/E11 (f563562), `asanc6` no da ningún error de memoria y D1-D9 y D12-D16 pasan con el mismo tiempo simulado (resto 53173701458348 ps), pero las 15 comprobaciones de D10-D11 fallan: GDB no llega a hablar con el stub y todo sale a 0. Fuera de ASan pasan. **Sin averiguar**: si ya pasaba en a5fa39a (E9.6) y por qué; la sospecha, un plazo de reloj de pared en la conexión del cliente de GDB, que con ASan va mucho más despacio. Lo siguiente: `asanc6` sobre a5fa39a y, si falla igual, alargar ese plazo bajo ASan | E10 |
 ---
 
 ## 8. Deuda de instrumentación y de proyecto (I)
@@ -1201,16 +1340,16 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 
 | Categoría | Puntos |
 | :--- | ---: |
-| **P** — Pendientes de plan | 18 *(una cerrada: P-14, con la matriz manual a medias; P-15, hecha su primera parte)* |
+| **P** — Pendientes de plan | 19 *(una cerrada: P-14, con la matriz manual a medias; P-15, hecha su primera parte)* |
 | **F** — Funciones no modeladas | 51 |
 | **T** — Temporización y física | 25 *(cuatro cerradas: T-22, T-23, T-24 y T-25)* |
 | **D** — Datos sin fuente | 14 |
 | **X** — Discrepancias, silencios de [IR] y erratas de ST | 14 |
-| **V** — Huecos de verificación | 11 |
+| **V** — Huecos de verificación | 12 |
 | **I** — Deuda de instrumentación y proyecto | 52 *(treinta y cinco cerradas: I-11, I-12, I-15, I-16, I-17, I-20, I-22, I-23, I-24, I-25, I-26, I-28, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38, I-39, I-40, I-41, I-42, I-43, I-44, I-45, I-46, I-47, I-48, I-50, I-51, I-53 e I-54)* |
-| **Total** | **185** |
+| **Total** | **187** |
 
-De los 185, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 187, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.
@@ -1232,3 +1371,6 @@ en el informe que la originó.
 > la CNC); la fila de la I decía 50 con 52 escritos; y de la I había cerradas
 > cinco que la lista no nombraba (I-23, I-24, I-26, I-50 e I-51). Son
 > 18 + 51 + 25 + 14 + 14 + 11 + 52 = **185**.
+>
+> **Y la quinta (2026-11-07), al dar de alta P-19.** Una P más:
+> 19 + 51 + 25 + 14 + 14 + 11 + 52 = **186**.

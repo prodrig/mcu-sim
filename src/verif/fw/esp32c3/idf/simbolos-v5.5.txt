@@ -1,0 +1,7 @@
+# hello_world de ESP-IDF v5.5 (el de idf-v5.5.tar.xz): los simbolos que usa testc3 (C15, E6)
+hello_world app_main 0x4200533c
+hello_world esp_restart 0x420005d8
+hello_world pxCurrentTCBs 0x3fc8db80
+hello_world vPortTaskWrapper 0x40383c1e
+hello_world xTaskIncrementTick 0x40384a0c
+hello_world xTickCount 0x3fc8db6c

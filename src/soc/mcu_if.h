@@ -40,14 +40,16 @@
 #include <string>
 #include <vector>
 #include "../common/analog_net.h"
-#include "../core/cortex_m4f.h"   // DebugCaps
+#include "../common/depuracion.h"   // DebugCaps (E0.1: ya no el Cortex entero)
 #include "mcu_desc.h"
+#include "../common/congela.h"
 
 namespace stm32 {
 
 class NodeMap;
 class Cableado;   // pins/pin_mux.h
 class programador_nv_if;   // common/gdb_rsp.h
+class herramienta_if;      // common/gdb_rsp.h
 class memoria_nv_if;      // common/memoria_nv.h
 
 class mcu_if {
@@ -73,6 +75,16 @@ public:
     // los dice el chip y no `sim` (T0). nullptr: este chip no los saca.
     virtual analog_net_if* nodo_swclk() { return &nodo_analogico(0, 14); }
     virtual analog_net_if* nodo_swdio() { return &nodo_analogico(0, 13); }
+    // Los nodos de depuración POR NOMBRE (E0.4 de doc/analisis_esp32_riscv.md),
+    // para las sondas que no son SWD: "tck", "tms", "tdi", "tdo" y "trst" de
+    // un JTAG, y "srst" si el chip saca un reset que la sonda pueda tirar.
+    // "swclk" y "swdio" son los dos de arriba, así que un chip que solo sabe
+    // de SWD no tiene que cambiar nada. nullptr: este chip no saca ese hilo.
+    virtual analog_net_if* nodo_depuracion(const std::string& hilo) {
+        if (hilo == "swclk") return nodo_swclk();
+        if (hilo == "swdio") return nodo_swdio();
+        return nullptr;
+    }
 
     // --- 3. La alimentación -------------------------------------------------
     // El orden importa y es el de la placa real: primero todo a cero con NRST
@@ -110,6 +122,13 @@ public:
     // (T0). nullptr: la de omisión, la del STM32F405/407. La usa el stub de
     // PINES, que `sim` construye por fuera del chip; el interno ya la tiene.
     virtual programador_nv_if* programador() { return nullptr; }
+    // Lo que hace la herramienta de verdad (OpenOCD) con este chip por su
+    // cuenta -congelar o apagar los perros al parar, su reset-, para que los
+    // stubs internos se porten igual (soc/herramientas.h). nullptr: nada.
+    // `sim` se la da al stub de pines y, con `herramienta_interno`, al de
+    // dentro del chip; los bancos de pruebas no.
+    virtual herramienta_if* herramienta() { return nullptr; }
+    virtual void herramienta_interno(herramienta_if*) {}
     // La memoria NO VOLÁTIL del chip -su Flash; en el MSP432E4, también su
     // EEPROM-, para el atributo `contenido` de su <mcu>: se carga antes del
     // firmware y se guarda al acabar (common/memoria_nv.h). nullptr: el chip
@@ -126,6 +145,11 @@ public:
     // Es el mismo recurso que `Encapsulado::verificado`: preferimos un aviso
     // repetido a un alumno desarrollando contra algo que no esta.
     virtual std::vector<std::string> limitaciones() const { return {}; }
+
+    // --- 6b. Los núcleos que la depuración puede parar ---------------------
+    // Para --stopped-core-stops-sim (common/congela.h): con uno parado, el
+    // tiempo simulado de toda la placa se detiene. Vacío: ninguno.
+    virtual std::vector<congela::Nucleo> nucleos() { return {}; }
 
     // --- 7. Lo que solo tienen algunos chips (T4) ---------------------------
     //

@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ESP32-C6-DevKitC-1 v1.2, dibujada a mano: una aproximacion, no una foto ni
+  una ilustracion del fabricante. Es el dibujo de placas/esp32c6_devkitc1.xml,
+  y lo hace placas/dibuja_esp.py. Una unidad, 0,1 mm. Las tiras J1 y J3, en
+  el orden de la guia de usuario de Espressif; sus rotulos, los nodos del
+  simulador. Los ids son los del XML: u0 (el chip, en el modulo), U2 (la
+  Flash), LED (el WS2812), BOOT, RESET, UART (el puente USB-UART), Q1 (el
+  auto-reset), J1 y J3 con sus pines J1.1-J1.16 y J3.1-J3.16.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 660" width="60mm" height="66mm">
+  <rect x="150.0" y="20.0" width="300.0" height="620.0" rx="12" fill="#1c1c1c" stroke="#000000" stroke-width="3"/>
+  <rect x="180.0" y="30.0" width="240.0" height="70.0" fill="#1f3a68" stroke="#0e1f3a" stroke-width="1.5"/>
+  <path d="M 200.0 50.0 h 15.0 v 30 h 15.0 v -30" fill="none" stroke="#d4ac0d" stroke-width="3"/>
+  <path d="M 230.0 50.0 h 15.0 v 30 h 15.0 v -30" fill="none" stroke="#d4ac0d" stroke-width="3"/>
+  <path d="M 260.0 50.0 h 15.0 v 30 h 15.0 v -30" fill="none" stroke="#d4ac0d" stroke-width="3"/>
+  <path d="M 290.0 50.0 h 15.0 v 30 h 15.0 v -30" fill="none" stroke="#d4ac0d" stroke-width="3"/>
+  <path d="M 320.0 50.0 h 15.0 v 30 h 15.0 v -30" fill="none" stroke="#d4ac0d" stroke-width="3"/>
+  <path d="M 350.0 50.0 h 15.0 v 30 h 15.0 v -30" fill="none" stroke="#d4ac0d" stroke-width="3"/>
+  <rect x="180.0" y="100.0" width="240.0" height="180.0" rx="4" fill="#c9ccd1" stroke="#8e9399" stroke-width="2"/>
+  <text x="300.0" y="140.0" font-family="sans-serif" font-size="14" fill="#333333" text-anchor="middle" font-weight="bold">ESP32-C6-WROOM-1</text>
+  <rect id="u0" x="205.0" y="175.0" width="90.0" height="70.0" rx="4" fill="#2b2b2b" stroke="#555555" stroke-width="1.5"/>
+  <text x="250.0" y="204.0" font-family="sans-serif" font-size="13" fill="#d0d0d0" text-anchor="middle" font-weight="bold">ESP32-C6</text>
+  <text x="250.0" y="226.0" font-family="sans-serif" font-size="11" fill="#bbbbbb" text-anchor="middle">u0</text>
+  <rect id="U2" x="325.0" y="185.0" width="70.0" height="50.0" rx="4" fill="#2b2b2b" stroke="#555555" stroke-width="1.5"/>
+  <text x="360.0" y="204.0" font-family="sans-serif" font-size="12" fill="#d0d0d0" text-anchor="middle" font-weight="bold">U2</text>
+  <text x="360.0" y="226.0" font-family="sans-serif" font-size="10" fill="#bbbbbb" text-anchor="middle">8 MB</text>
+  <g id="J1">
+  <rect x="159.3" y="167.3" width="25.4" height="406.4" fill="#1a1a1a" stroke="#000000" stroke-width="1"/>
+  <rect id="J1.1" x="164.0" y="172.0" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.2" x="164.0" y="197.4" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.3" x="164.0" y="222.8" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.4" x="164.0" y="248.2" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.5" x="164.0" y="273.6" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.6" x="164.0" y="299.0" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.7" x="164.0" y="324.4" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.8" x="164.0" y="349.8" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.9" x="164.0" y="375.2" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.10" x="164.0" y="400.6" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.11" x="164.0" y="426.0" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.12" x="164.0" y="451.4" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.13" x="164.0" y="476.8" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.14" x="164.0" y="502.2" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.15" x="164.0" y="527.6" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.16" x="164.0" y="553.0" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  </g>
+  <rect x="76.0" y="170.5" width="74.0" height="19.0" rx="3" fill="#e74c3c" stroke="#ffffff" stroke-width="1"/>
+  <text x="113.0" y="184.0" font-family="sans-serif" font-size="11" fill="#ffffff" text-anchor="middle" font-weight="bold">VDDA3P3</text>
+  <rect x="76.0" y="195.9" width="74.0" height="19.0" rx="3" fill="#f39c12" stroke="#ffffff" stroke-width="1"/>
+  <text x="113.0" y="209.4" font-family="sans-serif" font-size="11" fill="#ffffff" text-anchor="middle" font-weight="bold">CHIP_PU</text>
+  <rect x="76.0" y="221.3" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="113.0" y="234.8" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO4</text>
+  <rect x="76.0" y="246.7" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="113.0" y="260.2" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO5</text>
+  <rect x="76.0" y="272.1" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="113.0" y="285.6" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO6</text>
+  <rect x="76.0" y="297.5" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="113.0" y="311.0" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO7</text>
+  <rect x="76.0" y="322.9" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="113.0" y="336.4" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO0</text>
+  <rect x="76.0" y="348.3" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="113.0" y="361.8" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO1</text>
+  <rect x="76.0" y="373.7" width="74.0" height="19.0" rx="3" fill="#f39c12" stroke="#ffffff" stroke-width="1"/>
+  <text x="113.0" y="387.2" font-family="sans-serif" font-size="11" fill="#ffffff" text-anchor="middle" font-weight="bold">GPIO8</text>
+  <rect x="76.0" y="399.1" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="113.0" y="412.6" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO10</text>
+  <rect x="76.0" y="424.5" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="113.0" y="438.0" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO11</text>
+  <rect x="76.0" y="449.9" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="113.0" y="463.4" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO2</text>
+  <rect x="76.0" y="475.3" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="113.0" y="488.8" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO3</text>
+  <rect x="76.0" y="500.7" width="74.0" height="19.0" rx="3" fill="#e74c3c" stroke="#ffffff" stroke-width="1"/>
+  <text x="113.0" y="514.2" font-family="sans-serif" font-size="11" fill="#ffffff" text-anchor="middle" font-weight="bold">5V</text>
+  <rect x="76.0" y="526.1" width="74.0" height="19.0" rx="3" fill="#2c3e50" stroke="#ffffff" stroke-width="1"/>
+  <text x="113.0" y="539.6" font-family="sans-serif" font-size="11" fill="#ffffff" text-anchor="middle" font-weight="bold">GND</text>
+  <rect x="76.0" y="551.5" width="74.0" height="19.0" rx="3" fill="#bdc3c7" stroke="#ffffff" stroke-width="1"/>
+  <text x="113.0" y="565.0" font-family="sans-serif" font-size="11" fill="#566573" text-anchor="middle" font-weight="bold">NC</text>
+  <text x="172.0" y="158.0" font-family="sans-serif" font-size="12" fill="#ffffff" text-anchor="middle" font-weight="bold">J1</text>
+  <g id="J3">
+  <rect x="415.3" y="167.3" width="25.4" height="406.4" fill="#1a1a1a" stroke="#000000" stroke-width="1"/>
+  <rect id="J3.1" x="420.0" y="172.0" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.2" x="420.0" y="197.4" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.3" x="420.0" y="222.8" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.4" x="420.0" y="248.2" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.5" x="420.0" y="273.6" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.6" x="420.0" y="299.0" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.7" x="420.0" y="324.4" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.8" x="420.0" y="349.8" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.9" x="420.0" y="375.2" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.10" x="420.0" y="400.6" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.11" x="420.0" y="426.0" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.12" x="420.0" y="451.4" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.13" x="420.0" y="476.8" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.14" x="420.0" y="502.2" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.15" x="420.0" y="527.6" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.16" x="420.0" y="553.0" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  </g>
+  <rect x="450.0" y="170.5" width="74.0" height="19.0" rx="3" fill="#2c3e50" stroke="#ffffff" stroke-width="1"/>
+  <text x="487.0" y="184.0" font-family="sans-serif" font-size="11" fill="#ffffff" text-anchor="middle" font-weight="bold">GND</text>
+  <rect x="450.0" y="195.9" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="487.0" y="209.4" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO16</text>
+  <rect x="450.0" y="221.3" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="487.0" y="234.8" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO17</text>
+  <rect x="450.0" y="246.7" width="74.0" height="19.0" rx="3" fill="#f39c12" stroke="#ffffff" stroke-width="1"/>
+  <text x="487.0" y="260.2" font-family="sans-serif" font-size="11" fill="#ffffff" text-anchor="middle" font-weight="bold">GPIO15</text>
+  <rect x="450.0" y="272.1" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="487.0" y="285.6" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO23</text>
+  <rect x="450.0" y="297.5" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="487.0" y="311.0" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO22</text>
+  <rect x="450.0" y="322.9" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="487.0" y="336.4" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO21</text>
+  <rect x="450.0" y="348.3" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="487.0" y="361.8" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO20</text>
+  <rect x="450.0" y="373.7" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="487.0" y="387.2" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO19</text>
+  <rect x="450.0" y="399.1" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="487.0" y="412.6" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO18</text>
+  <rect x="450.0" y="424.5" width="74.0" height="19.0" rx="3" fill="#f39c12" stroke="#ffffff" stroke-width="1"/>
+  <text x="487.0" y="438.0" font-family="sans-serif" font-size="11" fill="#ffffff" text-anchor="middle" font-weight="bold">GPIO9</text>
+  <rect x="450.0" y="449.9" width="74.0" height="19.0" rx="3" fill="#2c3e50" stroke="#ffffff" stroke-width="1"/>
+  <text x="487.0" y="463.4" font-family="sans-serif" font-size="11" fill="#ffffff" text-anchor="middle" font-weight="bold">GND</text>
+  <rect x="450.0" y="475.3" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="487.0" y="488.8" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO13</text>
+  <rect x="450.0" y="500.7" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="487.0" y="514.2" font-family="sans-serif" font-size="11" fill="#1b2631" text-anchor="middle" font-weight="bold">GPIO12</text>
+  <rect x="450.0" y="526.1" width="74.0" height="19.0" rx="3" fill="#2c3e50" stroke="#ffffff" stroke-width="1"/>
+  <text x="487.0" y="539.6" font-family="sans-serif" font-size="11" fill="#ffffff" text-anchor="middle" font-weight="bold">GND</text>
+  <rect x="450.0" y="551.5" width="74.0" height="19.0" rx="3" fill="#bdc3c7" stroke="#ffffff" stroke-width="1"/>
+  <text x="487.0" y="565.0" font-family="sans-serif" font-size="11" fill="#566573" text-anchor="middle" font-weight="bold">NC</text>
+  <text x="428.0" y="158.0" font-family="sans-serif" font-size="12" fill="#ffffff" text-anchor="middle" font-weight="bold">J3</text>
+  <rect x="285.0" y="320.0" width="30.0" height="30.0" rx="2" fill="#f4f4f4" stroke="#999999" stroke-width="1"/>
+  <circle id="LED" cx="300.0" cy="335.0" r="11.0" fill="#e0e0e0"/>
+  <text x="300.0" y="370.0" font-family="sans-serif" font-size="11" fill="#ffffff" text-anchor="middle">RGB GPIO8</text>
+  <rect id="Q1" x="270.0" y="430.0" width="60.0" height="40.0" rx="4" fill="#2b2b2b" stroke="#555555" stroke-width="1.5"/>
+  <text x="300.0" y="455.0" font-family="sans-serif" font-size="11" fill="#d0d0d0" text-anchor="middle" font-weight="bold">Q1</text>
+  <g id="BOOT">
+  <rect x="205.0" y="465.0" width="50.0" height="50.0" rx="3" fill="#c9ccd1" stroke="#8e9399" stroke-width="1.5"/>
+  <circle cx="230.0" cy="490.0" r="15.0" fill="#2c3e50"/>
+  </g>
+  <text x="230.0" y="531.0" font-family="sans-serif" font-size="11" fill="#ffffff" text-anchor="middle">BOOT</text>
+  <g id="RESET">
+  <rect x="345.0" y="465.0" width="50.0" height="50.0" rx="3" fill="#c9ccd1" stroke="#8e9399" stroke-width="1.5"/>
+  <circle cx="370.0" cy="490.0" r="15.0" fill="#2c3e50"/>
+  </g>
+  <text x="370.0" y="531.0" font-family="sans-serif" font-size="11" fill="#ffffff" text-anchor="middle">RESET</text>
+  <rect id="UART" x="272.0" y="522.0" width="56.0" height="36.0" rx="4" fill="#2b2b2b" stroke="#555555" stroke-width="1.5"/>
+  <text x="300.0" y="545.0" font-family="sans-serif" font-size="10" fill="#d0d0d0" text-anchor="middle" font-weight="bold">UART</text>
+  <g>
+  <rect x="175.0" y="578.0" width="90.0" height="64.0" rx="14" fill="#c9ccd1" stroke="#8e9399" stroke-width="2"/>
+  <rect x="190.0" y="600.0" width="60.0" height="20.0" rx="8" fill="#555555"/>
+  </g>
+  <text x="220.0" y="570.0" font-family="sans-serif" font-size="10" fill="#ffffff" text-anchor="middle">UART</text>
+  <g>
+  <rect x="335.0" y="578.0" width="90.0" height="64.0" rx="14" fill="#c9ccd1" stroke="#8e9399" stroke-width="2"/>
+  <rect x="350.0" y="600.0" width="60.0" height="20.0" rx="8" fill="#555555"/>
+  </g>
+  <text x="380.0" y="570.0" font-family="sans-serif" font-size="10" fill="#ffffff" text-anchor="middle">USB</text>
+  <text x="300.0" y="400.0" font-family="sans-serif" font-size="12" fill="#ffffff" text-anchor="middle" font-weight="bold">ESP32-C6-DevKitC-1</text>
+</svg>

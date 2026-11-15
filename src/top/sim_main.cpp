@@ -86,6 +86,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "../common/congela.h"
 #include "../common/asan_opciones.h"
 #include "../common/memoria_nv.h"
 #include "../common/gui_destino.h"
@@ -125,6 +126,8 @@
 #include "../verif/gdb_stub.h"
 #include "../verif/sonda_openocd.h"
 #include "../verif/sonda_cmsis_dap.h"
+#include "../verif/sonda_jtag_rv.h"
+#include "../rv/gdb/gdb_stub_rv.h"
 #include "../parts/netlist_parts.h"
 #include "../parts/netlist_xml.h"
 #include "../parts/frontera_gui.h"
@@ -134,6 +137,8 @@
 #include "../soc/msp432p4/msp432p4_mcu.h"
 #include "../soc/msp432e4/msp432e4_mcu.h"
 #include "../soc/stm32f3/stm32f3_mcu.h"
+#include "../soc/esp32c3/esp32c3_mcu.h"
+#include "../soc/esp32c6/esp32c6_mcu.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -222,10 +227,12 @@ static bool        g_sin_firmware_todos = false;
 // manda sobre el rom=/tlv= de su <mcu>; sin ID, de todos los que los tienen
 // -y es un error que no lo tenga ninguno-.
 static std::vector<std::pair<std::string, std::string>> g_roms, g_tlvs, g_bsls,
-                                                        g_eths, g_usbs;   // id ("" = todos), valor
+                                                        g_eths, g_usbs, g_jtags;   // id ("" = todos), valor
 // `--mcus`: la lista de los MCUs de la placa, en XML, y nada mas
 static bool        g_lista_mcus = false;
 static unsigned    g_gdb_puerto = 0;
+static bool        g_flash_rapida = false;   // --flash-rapida (E6)
+static bool        g_congela = false;        // --stopped-core-stops-sim
 static bool        g_puerto_dado = false;
 
 // --- La ventana (`mcu-sim-gui`) ---------------------------------------------
@@ -253,6 +260,10 @@ struct McuMontado {
     // permite que `tipo=` despache de verdad en vez de comprobarse.
     mcu_if*       mcu  = nullptr;
     GdbStub*      stub = nullptr;       // solo en modo "pines" y con puerto
+    // El de pines de un RISC-V (G2', E6): el stub sobre un DTM por JTAG
+    GdbStubRv*    stub_rv = nullptr;
+    JtagSonda*    sonda_jtag = nullptr;
+    DmiPorJtag*   dmi_jtag = nullptr;
     SondaRed*     ocd  = nullptr;       // modos "openocd" y "cmsis-dap", con puerto
     std::string   xds;                  // la pieza Xds110 que hace de sonda, si la hay
     // Las limitaciones que se dijeron al montar: si `--rom`/`--tlv` las
@@ -495,6 +506,10 @@ SC_MODULE(Sim) {
             // Los nodos, con el prefijo del chip. Y además con el nombre
             // desnudo cuando solo hay uno: es lo que hace que las placas
             // escritas hasta hoy sigan valiendo sin migrarlas.
+            // Los stubs internos hacen lo que haría OpenOCD con este chip
+            // (soc/herramientas.h): el de dentro del chip, aquí; el de pines,
+            // al crearlo
+            m.mcu->herramienta_interno(m.mcu->herramienta());
             m.mcu->registra_nodos(d.id, nodos);
             // En un <sistema> no: allí no hay nombres desnudos, todo es
             // `A/u0.PA5`, y el desnudo solo podría confundir.
@@ -502,7 +517,20 @@ SC_MODULE(Sim) {
                 m.mcu->registra_nodos(std::string(), nodos);
             // El stub de PINES se cuelga por fuera de PA14/PA13, como un
             // ST-LINK. El de DAP lo ha creado ya el propio núcleo.
-            if (d.depuracion == "pines" && d.puerto_gdb) {
+            // Un chip con JTAG y sin SWD (un RISC-V: el ESP32-C3, E6): el stub
+            // de pines es G2', el de RISC-V, con su sonda JTAG de bancada
+            analog_net_if* jt[4] = {m.mcu->nodo_depuracion("tck"), m.mcu->nodo_depuracion("tms"),
+                                    m.mcu->nodo_depuracion("tdi"), m.mcu->nodo_depuracion("tdo")};
+            const bool solo_jtag = !m.mcu->nodo_swclk() && jt[0] && jt[1] && jt[2] && jt[3];
+            if (d.depuracion == "pines" && d.puerto_gdb && solo_jtag) {
+                const std::string snm = "gdb_" + (d.id.empty() ? "dut" : d.id);
+                m.sonda_jtag = new JtagSonda(JtagSonda::Pines{jt[0], jt[1], jt[2], jt[3], nullptr}, 10e6);
+                m.dmi_jtag = new DmiPorJtag(*m.sonda_jtag);
+                m.stub_rv = new GdbStubRv(snm.c_str(), *m.dmi_jtag, d.puerto_gdb, "gdb-pines");
+                m.stub_rv->pon_programador(m.mcu->programador());
+                m.stub_rv->pon_herramienta(m.mcu->herramienta());
+                m.stub_rv->set_enabled(false);
+            } else if (d.depuracion == "pines" && d.puerto_gdb) {
                 const std::string snm = "gdb_" + (d.id.empty() ? "dut" : d.id);
                 // SWCLK y SWDIO los dice el chip: PA14/PA13 en un STM32, las
                 // patillas dedicadas en un MSP432P4 (T0).
@@ -515,6 +543,7 @@ SC_MODULE(Sim) {
                                      d.puerto_gdb, 2e6);
                 // Y la secuencia de Flash de ESE chip (nullptr: la del F407).
                 m.stub->pon_programador(m.mcu->programador());
+                m.stub->pon_herramienta(m.mcu->herramienta());
                 m.stub->set_enabled(false);      // se abre al arrancar, no aquí
             }
             // La sonda de OpenOCD se cuelga de los mismos pines, y su SRST es
@@ -533,16 +562,28 @@ SC_MODULE(Sim) {
                 const std::string snm = "ocd_" + (d.id.empty() ? "dut" : d.id);
                 analog_net_if* swclk = m.mcu->nodo_swclk();
                 analog_net_if* swdio = m.mcu->nodo_swdio();
-                if (!swclk || !swdio)
-                    muere("mcu " + nm + ": este chip no saca SWCLK/SWDIO, y "
-                          "depuracion=\"" + d.depuracion + "\" no tiene de donde colgarse");
-                mcu_if* chip = m.mcu;
-                if (d.depuracion == "openocd")
-                    m.ocd = new SondaOpenOcd(snm.c_str(), *swclk, *swdio, d.puerto_gdb,
-                                             [chip](bool v) { chip->reset_pin(v); });
-                else
-                    m.ocd = new SondaCmsisDap(snm.c_str(), *swclk, *swdio, d.puerto_gdb,
-                                              [chip](bool v) { chip->reset_pin(v); });
+                mcu_if* chip_j = m.mcu;
+                if (solo_jtag) {
+                    // JTAG (E6): la sonda en TCK, TMS, TDI y TDO; su SRST,
+                    // el reset del chip
+                    if (d.depuracion == "openocd")
+                        m.ocd = new SondaOpenOcd(snm.c_str(), SondaOpenOcd::PinesJtag{jt[0], jt[1], jt[2], jt[3], nullptr},
+                                                 d.puerto_gdb, [chip_j](bool v) { chip_j->reset_pin(v); });
+                    else
+                        m.ocd = new SondaCmsisDap(snm.c_str(), SondaCmsisDap::PinesJtag{jt[0], jt[1], jt[2], jt[3], nullptr},
+                                                  d.puerto_gdb, [chip_j](bool v) { chip_j->reset_pin(v); });
+                } else {
+                    if (!swclk || !swdio)
+                        muere("mcu " + nm + ": este chip no saca SWCLK/SWDIO, y "
+                              "depuracion=\"" + d.depuracion + "\" no tiene de donde colgarse");
+                    mcu_if* chip = m.mcu;
+                    if (d.depuracion == "openocd")
+                        m.ocd = new SondaOpenOcd(snm.c_str(), *swclk, *swdio, d.puerto_gdb,
+                                                 [chip](bool v) { chip->reset_pin(v); });
+                    else
+                        m.ocd = new SondaCmsisDap(snm.c_str(), *swclk, *swdio, d.puerto_gdb,
+                                                  [chip](bool v) { chip->reset_pin(v); });
+                }
             }
             if (d.puerto_gdb) hay_stub = true;
             // Los cuatro drivers de alimentacion los registra el adaptador en
@@ -668,14 +709,35 @@ SC_MODULE(Sim) {
                 else if (m.decl.depuracion == "cmsis-dap")
                     linea += ", sonda CMSIS-DAP por TCP en el puerto " +
                              std::to_string(m.decl.puerto_gdb) + por;
-                else
+                else {
                     linea += ", gdb por " + m.decl.depuracion + " en el puerto " +
                              std::to_string(m.decl.puerto_gdb);
+                    if (const herramienta_if* h = m.mcu->herramienta())
+                        linea += std::string(" (hace lo que ") + h->nombre() + ")";
+                }
             }
             std::printf("%s\n", linea.c_str());
         }
+        // El modelo no adelanta al reloj de pared mientras haya un depurador
+        // conectado (common/congela.h); y con --stopped-core-stops-sim, el
+        // tiempo simulado se detiene mientras un nucleo este parado
+        congela::estado().ritmo_real = true;
+        congela::estado().senal = &g_senal;
+        if (g_congela) {
+            congela::estado().habilitado = true;
+            congela::ronda();
+            congela::inicio();
+            congelador_ = new congela::Congelador("congelador");
+            for (McuMontado& m : mcus)
+                for (congela::Nucleo& n : m.mcu->nucleos()) congelador_->nucleos.push_back(n);
+            std::printf("  --stopped-core-stops-sim: %zu nucleo(s); con uno parado por la depuracion, "
+                        "el tiempo simulado de toda la placa se detiene\n", congelador_->nucleos.size());
+            if (congelador_->nucleos.empty())
+                std::fprintf(stderr, "  AVISO: --stopped-core-stops-sim: ningun MCU de la placa dice sus nucleos\n");
+        }
         SC_THREAD(run);
     }
+    congela::Congelador* congelador_ = nullptr;
 
     // -----------------------------------------------------------------------
     // Las memorias no volatiles con `contenido` (common/memoria_nv.h): el del
@@ -1161,6 +1223,7 @@ SC_MODULE(Sim) {
         if (!g_bsls.empty())       no("--bsl");
         if (!g_eths.empty())       no("--eth");
         if (!g_usbs.empty())       no("--usb");
+        if (!g_jtags.empty())      no("--jtag");
         if (!g_gdb_modo.empty())   no("un stub de GDB (--gdb, --gdb-dap)");
         if (g_puerto_dado)         no("--port");
         if (g_traza_gdb)           no("--traza-gdb");
@@ -1221,6 +1284,7 @@ SC_MODULE(Sim) {
         aplica("--bsl", g_bsls, &DeclMcu::bsl);
         aplica("--eth", g_eths, &DeclMcu::eth);
         aplica("--usb", g_usbs, &DeclMcu::usb);
+        aplica("--jtag", g_jtags, &DeclMcu::jtag);
     }
 
     void aplica_linea_de_ordenes(std::vector<DeclMcu>& decls) {
@@ -1408,16 +1472,18 @@ SC_MODULE(Sim) {
         // firmware: lo que dice su <mcu> o `--rom/--tlv ID=`, y si no, lo que
         // vaya sin id en la linea de ordenes. Sin id, un chip que no lo tiene
         // se salta; con id, o en el XML, es un error.
-        for (const char* clave : {"rom", "tlv", "bsl", "eth", "usb"}) {
+        for (const char* clave : {"rom", "tlv", "bsl", "eth", "usb", "jtag"}) {
             const char c = clave[0];
-            auto& lista = c == 'r' ? g_roms : c == 't' ? g_tlvs : c == 'b' ? g_bsls : c == 'e' ? g_eths : g_usbs;
+            auto& lista = c == 'r' ? g_roms : c == 't' ? g_tlvs : c == 'b' ? g_bsls : c == 'e' ? g_eths
+                        : c == 'j' ? g_jtags : g_usbs;
             std::string todos;
             for (const auto& x : lista)
                 if (x.first.empty()) todos = x.second;
             unsigned aceptan = 0;
             for (McuMontado& m : mcus) {
                 const std::string& propio = c == 'r' ? m.decl.rom : c == 't' ? m.decl.tlv
-                                          : c == 'b' ? m.decl.bsl : c == 'e' ? m.decl.eth : m.decl.usb;
+                                          : c == 'b' ? m.decl.bsl : c == 'e' ? m.decl.eth
+                                          : c == 'j' ? m.decl.jtag : m.decl.usb;
                 const std::string v = !propio.empty() ? propio : todos;
                 if (v.empty()) continue;
                 if (propio.empty() && !m.mcu->admite_opcion(clave)) continue;  // sin id: no lo tiene
@@ -1443,6 +1509,20 @@ SC_MODULE(Sim) {
             if (!todos.empty() && aceptan == 0)
                 muere(std::string("--") + clave + " " + todos + ": ninguno de los MCUs de "
                       "la placa tiene " + clave + " que se pueda cambiar (es de los MSP432; el usb, tambien del STM32F303)");
+        }
+        // --flash-rapida: los tiempos de programar y borrar de la Flash SPI
+        // de los chips que la tienen (ESP32-C3), al 1 % (E6)
+        if (g_flash_rapida) {
+            unsigned n = 0;
+            for (McuMontado& m : mcus)
+                if (m.mcu->admite_opcion("flash_rapida")) {
+                    const std::string e = m.mcu->opcion("flash_rapida", "si");
+                    if (!e.empty()) muere("--flash-rapida: " + e);
+                    std::printf("flash de %s: %s\n", m.decl.id.empty() ? "(el mcu)" : m.decl.id.c_str(),
+                                m.mcu->describe_opcion("flash_rapida").c_str());
+                    ++n;
+                }
+            if (!n) muere("--flash-rapida: ningun MCU de la placa tiene una Flash SPI (es del ESP32-C3)");
         }
         // Lo que la ROM o el TLV nuevos cambian de lo que se dijo al montar
         for (McuMontado& m : mcus) {
@@ -1508,6 +1588,9 @@ SC_MODULE(Sim) {
                 } else if (m.stub) {                            // modo pines
                     m.stub->set_verbose(g_traza_gdb);
                     m.stub->set_enabled(true);
+                } else if (m.stub_rv) {                         // modo pines, RISC-V (G2')
+                    m.stub_rv->set_verbose(g_traza_gdb);
+                    m.stub_rv->set_enabled(true);
                 } else if (m.mcu->tiene_gdb_interno()) {       // modo dap
                     m.mcu->gdb_interno(true, g_traza_gdb);
                 }
@@ -2280,6 +2363,16 @@ static const OpcionCli OPCIONES[] = {
      "rfc2217:PUERTO, tcp:PUERTO, rfc2217-cliente:HOST:PUERTO, tcp-cliente:HOST:PUERTO "
      "o memoria. Los baudios del terminal llegan al firmware en SET_LINE_CODING. "
      "Sin ID, de todos los que lo tienen"},
+    {"--stopped-core-stops-sim", "bandera", "", "", "", "", false, true, "",
+     "con un nucleo parado por la depuracion (cualquiera, de cualquier MCU de la placa), el "
+     "tiempo simulado se detiene: ni perifericos ni piezas avanzan hasta que siga"},
+    {"--flash-rapida", "bandera", "", "", "", "", false, true, "",
+     "los tiempos de programar y borrar la Flash SPI de un ESP32-C3, al 1 %: para "
+     "programar con OpenOCD (program_esp), que espera con plazos de reloj de pared"},
+    {"--jtag", "valor", "texto", "", "", "", true, true, "u0=pines",
+     "a donde va el JTAG de un ESP32-C3, como [ID=]VALOR: pines (MTMS-MTDO, como con "
+     "EFUSE_DIS_USB_JTAG quemado: lo que piden --openocd, --cmsis-dap y --gdb) o usb (el "
+     "USB-Serial-JTAG, de fabrica). Sin ID, de todos los que lo tienen"},
     {"--tlv", "valor", "texto", "", "", "", true, true, "u0=tlv.bin",
      "el TLV de una placa MSP432P4, como [ID=]FICHERO: los 4 KB de 0x0020_1000 "
      "volcados. Sin ID, de todos los que lo tienen"},
@@ -2495,17 +2588,20 @@ int sc_main(int argc, char** argv) {
                  a == "--tlv" || a.rfind("--tlv=", 0) == 0 ||
                  a == "--bsl" || a.rfind("--bsl=", 0) == 0 ||
                  a == "--eth" || a.rfind("--eth=", 0) == 0 ||
-                 a == "--usb" || a.rfind("--usb=", 0) == 0) {
+                 a == "--usb" || a.rfind("--usb=", 0) == 0 ||
+                 a == "--jtag" || a.rfind("--jtag=", 0) == 0) {
             const char c = a[2];
             const bool es_rom = c == 'r';
-            const char* op = c == 'r' ? "--rom" : c == 't' ? "--tlv" : c == 'b' ? "--bsl" : c == 'e' ? "--eth" : "--usb";
+            const char* op = c == 'r' ? "--rom" : c == 't' ? "--tlv" : c == 'b' ? "--bsl" : c == 'e' ? "--eth"
+                           : c == 'j' ? "--jtag" : "--usb";
+            const size_t lop = std::strlen(op);
             std::string v;
-            if (a.size() > 5 && a[5] == '=') v = a.substr(6);
+            if (a.size() > lop && a[lop] == '=') v = a.substr(lop + 1);
             else if (i + 1 < argc && argv[i + 1][0] != '-') v = argv[++i];
             if (v.empty()) {
                 std::fprintf(stderr, "%s: hace falta [ID=]%s, como en %s u0=%s\n",
-                             op, es_rom || c == 'b' || c == 'e' ? "VALOR" : c == 'u' ? "DESTINO" : "FICHERO",
-                             op, es_rom ? "ninguna" : c == 'b' ? "ninguno" : c == 'e' ? "qemu:5555"
+                             op, es_rom || c == 'b' || c == 'e' || c == 'j' ? "VALOR" : c == 'u' ? "DESTINO" : "FICHERO",
+                             op, es_rom ? "ninguna" : c == 'b' ? "ninguno" : c == 'e' ? "qemu:5555" : c == 'j' ? "pines"
                                  : c == 'u' ? "rfc2217:3356" : "tlv.bin");
                 return 1;
             }
@@ -2516,7 +2612,8 @@ int sc_main(int argc, char** argv) {
                 id = v.substr(0, igual);
                 v = v.substr(igual + 1);
             }
-            (c == 'r' ? g_roms : c == 't' ? g_tlvs : c == 'b' ? g_bsls : c == 'e' ? g_eths : g_usbs).emplace_back(id, v);
+            (c == 'r' ? g_roms : c == 't' ? g_tlvs : c == 'b' ? g_bsls : c == 'e' ? g_eths
+             : c == 'j' ? g_jtags : g_usbs).emplace_back(id, v);
         }
         // `--sin-firmware`, todos los chips; `--sin-firmware=ID`, ese. Solo con
         // igual: detras puede ir la placa, que no es un id
@@ -2564,6 +2661,8 @@ int sc_main(int argc, char** argv) {
         else if (a == "--gdb-dap") g_gdb_modo = "dap";
         else if (a == "--openocd") g_gdb_modo = "openocd";
         else if (a == "--cmsis-dap") g_gdb_modo = "cmsis-dap";
+        else if (a == "--flash-rapida") g_flash_rapida = true;
+        else if (a == "--stopped-core-stops-sim") g_congela = true;
         else if (a.rfind("--port=", 0) == 0) {
             g_gdb_puerto = unsigned(std::atoi(a.c_str() + 7));
             g_puerto_dado = true;
@@ -2698,6 +2797,15 @@ int sc_main(int argc, char** argv) {
                 "                                con codigo 2\n"
                 "     sim placa.xml --tiempo-real  frena la simulacion al reloj de\n"
                 "                                pared (=0.5 a mitad de velocidad)\n"
+                "     sim placa.xml --flash-rapida  los tiempos de la Flash SPI de\n"
+                "                                un ESP32-C3 al 1 %: para OpenOCD y\n"
+                "                                esptool, con plazos de reloj de pared\n"
+                "     sim placa.xml --jtag [ID=]VALOR  el JTAG de un ESP32-C3: pines\n"
+                "                                (MTMS-MTDO) o usb (USB-Serial-JTAG)\n"
+                "     sim placa.xml --stopped-core-stops-sim  con un nucleo parado\n"
+                "                                por la depuracion (de cualquier MCU),\n"
+                "                                el tiempo simulado se detiene: ni\n"
+                "                                perifericos ni piezas avanzan\n"
                 "     sim placa.xml --serie ID=DESTINO  a donde da el PuenteSerie ID:\n"
                 "                                memoria, tcp:PUERTO, rfc2217:PUERTO,\n"
                 "                                tcp-cliente:HOST:PUERTO o\n"

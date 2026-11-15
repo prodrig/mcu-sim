@@ -180,14 +180,14 @@ jobs:
           sudo apt-get install -y libsystemc-dev python3-serial socat
           dpkg -l libsystemc-dev python3-serial socat | tail -3
 
-      - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4 y testf3)
+      - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4, testf3, testrv, testc3 y testc6)
         env:
           SUITES_PRESUPUESTO: 1200     # testf3 (S3 del F303) pasa de los 600 s
         run: sh ci/pasa_suites.sh
 
-      - name: Los invariantes de las ocho, al picosegundo
+      - name: Los invariantes de las once, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie testgui testp4 teste4 testf3; do
+          for s in test407 test446 test417 testserie testgui testp4 teste4 testf3 testrv testc3 testc6; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -236,6 +236,65 @@ jobs:
       - name: sflash contra el cargador de la ROM del MSP432E401Y
         working-directory: src
         run: make -f Makefile.mcu-sim sflash-e4
+
+      # esptool contra el ESP32-C3 (E5): la DevKitM-1 con su reinicio
+      # automatico (DTR/RTS) y la ROM de verdad; esptool por RFC 2217 lee el
+      # chip, programa blink con el stub y sin el, a 115200 y a 921600, y
+      # blink arranca. OBLIGATORIA: sin esptool, falla en vez de omitirse.
+      - name: esptool contra el ESP32-C3 por la UART0
+        working-directory: src
+        env:
+          ESPTOOL_OBLIGATORIO: 1
+        run: |
+          python3 -m pip install --break-system-packages esptool ||
+            python3 -m pip install --user esptool
+          make -f Makefile.mcu-sim esptool-c3
+
+      # El USB-Serial-JTAG del ESP32-C3 (E7): la SuperMini con el PC del
+      # simulador en su USB; la consola de ESP-IDF por el CDC y esptool
+      # --before usb-reset (el reset a descarga lo hace el periferico).
+      - name: El USB-Serial-JTAG del ESP32-C3
+        working-directory: src
+        env:
+          ESPTOOL_OBLIGATORIO: 1
+        run: make -f Makefile.mcu-sim usb-c3
+
+      # La ESP32-C6-DevKitC-1 (E9.5): hello_world con la consola por sus dos
+      # USB (el puente en la UART0 y el USB-Serial-JTAG del chip), uart.elf
+      # sin ROM y la ROM con la Flash en blanco. pySerial obligatorio.
+      - name: La ESP32-C6-DevKitC-1 y sus dos USB
+        working-directory: src
+        env:
+          PYSERIAL_OBLIGATORIO: 1
+        run: make -f Makefile.mcu-sim placa-c6
+
+      # esptool contra el ESP32-C6 (E9.6): la DevKitC-1 con la Flash en
+      # blanco, por el puente de la UART0 y por el USB-Serial-JTAG del chip.
+      - name: esptool contra el ESP32-C6 por sus dos USB
+        working-directory: src
+        env:
+          ESPTOOL_OBLIGATORIO: 1
+        run: make -f Makefile.mcu-sim esptool-c6
+
+      # openocd-esp32 contra el ESP32-C3 (E6): target/esp32c3.cfg sin tocar,
+      # por remote_bitbang y CMSIS-DAP en los pines del JTAG; program_esp con
+      # verify y blink arrancando. Se baja la version de Espressif; si no se
+      # puede, la prueba se omite (no es obligatoria).
+      - name: openocd-esp32 contra el ESP32-C3
+        working-directory: src
+        run: |
+          V=v0.12.0-esp32-20260831
+          curl -fsSL -o /tmp/ocd-esp32.tgz \
+            https://github.com/espressif/openocd-esp32/releases/download/$V/openocd-esp32-linux-amd64-${V#v}.tar.gz &&
+            tar -C /tmp -xzf /tmp/ocd-esp32.tgz || true
+          make -f Makefile.mcu-sim openocd-c3 OPENOCD_ESP32=/tmp/openocd-esp32/bin/openocd
+
+      # openocd-esp32 contra el ESP32-C6 (E9.6): target/esp32c6.cfg sin tocar,
+      # por los pines (remote_bitbang y CMSIS-DAP) y por el JTAG del USB;
+      # program_esp de hello_world con la Flash en blanco. El de arriba.
+      - name: openocd-esp32 contra el ESP32-C6
+        working-directory: src
+        run: make -f Makefile.mcu-sim openocd-c6 OPENOCD_ESP32=/tmp/openocd-esp32/bin/openocd
 
       # El BSL del MSP432P401R (T5, D4): sin firmware, el codigo de arranque
       # entra en el BSL B1, y bsl_p4.py programa por RFC 2217 el ejemplo de eco
@@ -518,14 +577,14 @@ jobs:
 
       # SIN pasar SYSTEMC_HOME, a proposito: aqui se ejerce la deteccion
       # automatica, que es la que se encuentra un alumno.
-      - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4 y testf3)
+      - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4, testf3, testrv, testc3 y testc6)
         env:
           SUITES_PRESUPUESTO: 1500
         run: sh ci/pasa_suites.sh CXX=clang++
 
-      - name: Los invariantes de las ocho, al picosegundo
+      - name: Los invariantes de las once, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie testgui testp4 teste4 testf3; do
+          for s in test407 test446 test417 testserie testgui testp4 teste4 testf3 testrv testc3 testc6; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
@@ -681,16 +740,16 @@ jobs:
           sh ci/construye_systemc.sh "$(cygpath -u "$GITHUB_WORKSPACE")/systemc" \
               -G Ninja -DCMAKE_ASM_FLAGS="-x assembler-with-cpp"
 
-      - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4 y testf3)
+      - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4, testf3, testrv, testc3 y testc6)
         env:
           SUITES_PRESUPUESTO: 1800     # aqui SystemC se compila antes: mas margen
         run: |
           sh ci/pasa_suites.sh \
              SYSTEMC_HOME="$(cygpath -u "$GITHUB_WORKSPACE")/systemc"
 
-      - name: Los invariantes de las ocho, al picosegundo
+      - name: Los invariantes de las once, al picosegundo
         run: |
-          for s in test407 test446 test417 testserie testgui testp4 teste4 testf3; do
+          for s in test407 test446 test417 testserie testgui testp4 teste4 testf3 testrv testc3 testc6; do
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 

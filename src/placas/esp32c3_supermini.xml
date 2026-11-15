@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ESP32-C3 SuperMini: la placa minima de los C3 con la Flash dentro
+     (fase E3 de doc/analisis_esp32_riscv.md, §9)
+
+     Lo que lleva aparte del chip [de modelo: no hay esquematico oficial; es
+     lo que coinciden en dar los vendedores y las fotos de la placa]:
+
+         D1     LED azul en GPIO8 hacia 3V3 por 1 kohm: se enciende con el pin
+                a CERO
+         BOOT   pulsador de GPIO9 a masa (el pull-up es el interno del chip)
+         RST    pulsador de CHIP_PU a masa, con 10 kohm a 3V3
+         J1-J2  los dos cabezales de 8: GPIO0-10, GPIO20/21 (RX/TX), 5V, GND,
+                3V3. GPIO20 y GPIO21 son la UART0
+         USB-C  al USB-Serial-JTAG del chip (D- GPIO18, D+ GPIO19), E7: el
+                simulador hace de PC (usb= en el <mcu>, o --usb), lleva su
+                CDC-ACM a rfc2217:3356 y su JTAG a remote_bitbang en el 3337:
+                  esptool --port rfc2217://localhost:3356 --before usb-reset chip-id
+                  openocd -c "adapter driver remote_bitbang; remote_bitbang port 3337"
+                          -c "transport select jtag" -f target/esp32c3.cfg
+                La UART0 sale ademas por los pines RX/TX, y aqui la recoge un
+                puente serie (UART0, como un adaptador USB-serie en esos pines).
+
+     El chip, ESP32-C3FH4, con la Flash de 4 MB dentro. Arranca por la ROM
+     (E4): una compilacion de ESP-IDF entra por su flash_args, una imagen de
+     esptool merge-bin o de Direct Boot como .bin, y `contenido=` en el <mcu>
+     guarda la Flash entre simulaciones. Un ELF bare-metal va a la SRAM, sin
+     ROM (E3).
+
+         ./build/mcu-sim placas/esp32c3_supermini.xml build/idf/v6.0/blink/flash_args --serie UART0=memoria --ms=1200
+         ./build/mcu-sim placas/esp32c3_supermini.xml verif/fw/esp32c3/direct_boot.bin --serie UART0=memoria --ms=60
+         ./build/mcu-sim placas/esp32c3_supermini.xml verif/fw/esp32c3/blinky.elf --ms=600
+         ./build/mcu-sim placas/esp32c3_supermini.xml verif/fw/esp32c3/uart.elf --serie UART0=memoria --ms=10
+-->
+<placa nombre="esp32c3-supermini">
+  <mcu tipo="ESP32-C3FH4" id="u0" usb="rfc2217:3356,jtag=3337"/>
+
+  <nodo id="CHIP_PU" bus="si"/>
+
+  <componente tipo="Led" id="D1" a_vss="no" vdd="3.3" vf="2.8" r="1000">
+    <pin nombre="catodo" nodo="GPIO8"/>
+  </componente>
+  <componente tipo="Button" id="BOOT" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="GPIO9"/>
+  </componente>
+  <componente tipo="Button" id="RESET" r_cerrado="10" rebote="no">
+    <pin nombre="pin" nodo="CHIP_PU"/>
+  </componente>
+  <componente tipo="Rpull" id="R_PU" v="3.3" r="10000" visible="no">
+    <pin nombre="a" nodo="CHIP_PU"/>
+  </componente>
+  <componente tipo="PuenteSerie" id="UART0" host="memoria" baudios="115200" formato="8N1"
+              muestra="si">
+    <pin nombre="rx" nodo="GPIO21"/>   <!-- U0TXD -->
+    <pin nombre="tx" nodo="GPIO20"/>   <!-- U0RXD -->
+  </componente>
+  <!-- E13: las dos tiras de 8, en el orden de la serigrafia con el USB arriba (no
+       hay guia de un fabricante). El dibujo, esp32c3_supermini.svg -->
+  <!-- J1, a la izquierda -->
+  <componente tipo="Conector" id="J1" filas="1" columnas="8">
+    <pin nombre="1" nodo="5V"/>
+    <pin nombre="2" nodo="GND"/>   <!-- G -->
+    <pin nombre="3" nodo="VDD3P3"/>   <!-- 3.3 -->
+    <pin nombre="4" nodo="GPIO4"/>
+    <pin nombre="5" nodo="GPIO3"/>
+    <pin nombre="6" nodo="GPIO2"/>
+    <pin nombre="7" nodo="GPIO1"/>
+    <pin nombre="8" nodo="GPIO0"/>
+  </componente>
+  <!-- J2, a la derecha -->
+  <componente tipo="Conector" id="J2" filas="1" columnas="8">
+    <pin nombre="1" nodo="GPIO5"/>
+    <pin nombre="2" nodo="GPIO6"/>
+    <pin nombre="3" nodo="GPIO7"/>
+    <pin nombre="4" nodo="GPIO8"/>   <!-- el LED -->
+    <pin nombre="5" nodo="GPIO9"/>   <!-- BOOT -->
+    <pin nombre="6" nodo="GPIO10"/>
+    <pin nombre="7" nodo="GPIO20"/>   <!-- RX -->
+    <pin nombre="8" nodo="GPIO21"/>   <!-- TX -->
+  </componente>
+</placa>

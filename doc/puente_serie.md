@@ -337,6 +337,50 @@ conectándose. Algunas herramientas solo saben hacer lo contrario —escuchar—
 Con eso se pueden unir **las UART de dos simuladores**: uno con `tcp:4000` y el
 otro con `tcp-cliente:127.0.0.1:4000`.
 
+### 4.5 Las placas del ESP32-C3: esptool, `idf.py` y Arduino
+
+Las placas de Espressif llevan entre el puente USB-UART y el chip un **reinicio
+automático**: dos transistores que, con DTR y RTS, bajan `CHIP_PU` (el reset) y
+`GPIO9` (el pin de arranque), y un RC que hace subir `CHIP_PU` despacio. Así
+esptool pone el chip en descarga sin tocar ningún botón. En
+`placas/esp32c3_devkitm1.xml` (puerto 3356) y `placas/esp32c3_devkitc02.xml`
+(3357) está todo: el `PuenteSerie` con `dtr` y `rts`, el `AutoResetEsp` y la ROM
+de verdad del C3, que detecta los baudios, habla el protocolo de esptool y
+arranca su stub.
+
+```bash
+# El simulador, con lo que haya en la Flash (o nada: la ROM se queda esperando)
+./mcu-sim placas/esp32c3_devkitm1.xml build/idf/v5.5/hello_world/flash_args
+# Y la herramienta, por RFC 2217
+esptool --port rfc2217://localhost:3356 chip-id
+esptool --port rfc2217://localhost:3356 -b 921600 write-flash @flash_args
+idf.py -p rfc2217://localhost:3356 flash monitor
+```
+
+| Herramienta | Qué funciona | Comprobado |
+| :--- | :--- | :--- |
+| `esptool` 5.x | `chip-id`, `flash-id`, `write-flash` y `verify-flash`, con el stub y con `--no-stub`, a 115200 y a 921600; el reinicio por DTR/RTS al empezar y al acabar | sí: `make -f Makefile.mcu-sim esptool-c3` (también en el CI) |
+| `idf.py -p rfc2217://localhost:3356 flash` | lo mismo, desde el proyecto | sí, a mano (ESP-IDF v5.5) |
+| `idf.py -p rfc2217://localhost:3356 monitor` (esp-idf-monitor) | la consola a 115200; al abrir reinicia el chip, como con una placa | sí, a mano |
+| Arduino IDE, PlatformIO | usan esptool con el puerto que se les dé: con un redirector de COM a RFC 2217 (§4.2) o el `rfc2217://` directo donde se pueda escribir | no |
+
+Lo que hay que saber:
+
+* **Por RFC 2217, DTR y RTS no llegan a tiempo.** pySerial espera la respuesta
+  de cada cambio, y la simulación va a otro ritmo que el reloj: el reinicio de
+  esptool llegaría deformado. Por eso el puente lleva `reinicio="esp"`: reconoce
+  el **principio** de la secuencia y la hace él, con sus tiempos en tiempo
+  simulado (100 ms de reset, 50 ms con `GPIO9` abajo), y no aplica el resto. Es
+  lo mismo que hace `esp_rfc2217_server` de Espressif con una placa de verdad.
+* **DTR y RTS salen inactivos.** Un terminal que abra el puerto activándolos (lo
+  hace pySerial por omisión) reinicia el chip, como en una placa. Para mirar sin
+  reiniciar, ábrelo con `dtr=False, rts=False` antes de abrir.
+* **Tras `write-flash -b 921600`, el puerto se queda a 921600** hasta que otro lo
+  abra a 115200: lo que la aplicación imprima entretanto sale como basura, como
+  en una placa de verdad. `idf.py monitor` lo pone a 115200.
+* **Va lento.** Escribir blink entero (140 KB) cuesta un minuto de reloj: cada
+  bit de la línea se simula.
+
 ---
 
 ## 5. Problemas, por síntoma
@@ -355,6 +399,7 @@ otro con `tcp-cliente:127.0.0.1:4000`.
 | Con CoolTerm, PuTTY o `nc`, un byte `0xFF` llega mal | El puente está en RFC 2217 y el terminal no habla Telnet | Usa el modo en crudo, `--serie VCP=tcp:3355` |
 | La consola de `mcu-sim` no enseña lo que tecleo | Solo imprime al llegar un salto de línea, y tu terminal manda solo CR | Configura Intro como **CR+LF**. En el terminal se ve igual |
 | El procesador al 100 % y los mensajes a toda velocidad | Falta `--tiempo-real` | Añádelo |
+| esptool: `Wrong boot mode detected (0xc)` | El reinicio no ha dejado `GPIO9` abajo: la placa no tiene `reinicio="esp"` en su `PuenteSerie` o le falta el `AutoResetEsp` | Usa `placas/esp32c3_devkitm1.xml`, o copia de ella esas dos piezas |
 | No termina nunca | Es lo previsto: con un puente por red, `mcu-sim` espera a su terminal, como con un GDB | Ctrl-C |
 
 ---
