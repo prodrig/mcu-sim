@@ -38,6 +38,7 @@
 #include <systemc>
 #include <cstdint>
 #include "../common/analog_net.h"
+#include "../common/congela.h"
 
 namespace stm32 {
 
@@ -254,11 +255,11 @@ private:
     // Devuelve lo que habia en la linea en el flanco de subida.
     bool ciclo(int nivel) {          // -1: soltar la linea
         if (nivel >= 0) gobernar(nivel != 0); else soltar();
-        sc_core::wait(sc_core::sc_time(tb_ * 0.5, sc_core::SC_SEC));
+        congela::espera(sc_core::sc_time(tb_ * 0.5, sc_core::SC_SEC));
         clk_alto();                                   // flanco de subida
-        sc_core::wait(sc_core::sc_time(tb_ * 0.25, sc_core::SC_SEC));
+        congela::espera(sc_core::sc_time(tb_ * 0.25, sc_core::SC_SEC));
         const bool v = leer_dio();
-        sc_core::wait(sc_core::sc_time(tb_ * 0.25, sc_core::SC_SEC));
+        congela::espera(sc_core::sc_time(tb_ * 0.25, sc_core::SC_SEC));
         clk_bajo();                                   // flanco de bajada
         return v;
     }

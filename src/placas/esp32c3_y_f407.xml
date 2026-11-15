@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Un ESP32-C3 y un STM32F407 en la misma placa, hablando por UART
+     (fase E3 de doc/analisis_esp32_riscv.md, §9)
+
+     La prueba de que la frontera entre familias aguanta: dos nucleos de
+     arquitecturas distintas, cada uno con su mapa y sus pines, sobre los
+     mismos nodos electricos.
+
+         c3.GPIO21 (U0TXD)  -> f4.PA3 (USART2_RX)
+         f4.PA2 (USART2_TX) -> c3.GPIO20 (U0RXD)
+
+     El C3 saluda y devuelve en mayusculas lo que le llega (uart.elf); el F407
+     devuelve tal cual lo que recibe (vcp_demo, el del puente serie). Asi que
+     el saludo del C3 vuelve, el C3 lo devuelve en mayusculas, y se quedan
+     pasandoselo. Lo que dice cada uno se ve en los dos puentes de escucha:
+
+         ./build/mcu-sim placas/esp32c3_y_f407.xml --ms=20 --serie C3=memoria --serie F4=memoria
+-->
+<placa nombre="esp32c3-y-f407">
+  <mcu tipo="ESP32-C3" id="c3" firmware="verif/fw/esp32c3/uart.elf"/>
+  <mcu tipo="STM32F407VG" id="f4" firmware="verif/fw/vcp_demo/vcp_demo.bin"/>
+
+  <nodo id="c3_a_f4" externo="si" une="c3.GPIO21 f4.PA3"/>
+  <nodo id="f4_a_c3" externo="si" une="f4.PA2 c3.GPIO20"/>
+  <nodo id="c3.CHIP_PU" bus="si"/>
+
+  <componente tipo="Rpull" id="R1" v="3.3" r="10000" visible="no">
+    <pin nombre="a" nodo="c3.CHIP_PU"/>
+  </componente>
+  <componente tipo="Crystal" id="X1" hz="8e6">
+    <pin nombre="osc_in" nodo="f4.PH0"/>
+  </componente>
+  <!-- Dos puentes que solo escuchan: lo que manda cada uno -->
+  <componente tipo="PuenteSerie" id="C3" host="memoria" baudios="115200" formato="8N1" muestra="si">
+    <pin nombre="rx" nodo="c3_a_f4"/>
+  </componente>
+  <componente tipo="PuenteSerie" id="F4" host="memoria" baudios="115200" formato="8N1" muestra="si">
+    <pin nombre="rx" nodo="f4_a_c3"/>
+  </componente>
+</placa>

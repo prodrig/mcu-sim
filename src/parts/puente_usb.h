@@ -53,9 +53,11 @@
 #include <string>
 #include <vector>
 #include "canal_host.h"
+#include "../common/red.h"
 #include "../common/analog_net.h"
 #include "../common/serie_destino.h"
 #include "../periph/otg.h"
+#include "../common/congela.h"
 
 namespace stm32 {
 
@@ -95,7 +97,7 @@ public:
         if (r == PID_NAK) ++n_nak_;
         if (r == PID_STALL) ++n_stall_;
         const size_t n = 10 + s.size() + e.size();
-        sc_core::wait(sc_core::sc_time(double(n) * 8.0 / 12.0, sc_core::SC_US));
+        congela::espera(sc_core::sc_time(double(n) * 8.0 / 12.0, sc_core::SC_US));
         return r;
     }
     // Con los NAK reintentados hasta el plazo
@@ -211,6 +213,25 @@ public:
     CanalMemoria* memoria() { return mem_; }
     uint64_t hacia_host() const { return n_hacia_; }
     uint64_t desde_host() const { return n_desde_; }
+    // E7: la interfaz JTAG de Espressif (la del USB-Serial-JTAG), como un
+    // servidor remote_bitbang para OpenOCD en `puerto`. Cada flanco de subida
+    // de TCK es una CMD_CLK; cada 'R' (leer TDO, antes del flanco) adelanta
+    // la CMD_CLK de ese flanco con captura y un CMD_FLUSH, y espera el bit por
+    // el EP de entrada; 's'/'u' (SRST) son CMD_RST. TRST no existe en el
+    // protocolo: se ignora, como hace openocd-esp32 con su esp_usb_jtag.
+    std::string pon_jtag(unsigned puerto) {
+        red::arranca();
+        jtag_srv_ = red::escucha_local(puerto);
+        if (!red::valido(jtag_srv_)) return "no se puede escuchar en localhost:" + std::to_string(puerto);
+        red::no_bloqueante(jtag_srv_);
+        jtag_puerto_ = puerto;
+        return "";
+    }
+    bool hay_jtag() const { return jtag_in_ && jtag_out_; }
+    uint64_t ordenes_jtag() const { return n_jtag_; }
+    // El aviso del dispositivo de que tiene un IN listo (null: una vez por
+    // trama, lo de siempre: el E4 y el F303). El C3 da el suyo (E7)
+    const sc_core::sc_event* ev_in = nullptr;
     // Desenchufar y enchufar el cable: sin los 15 kOhm no hay anfitrion
     void enchufa(bool on) {
         enchufado_ = on;
@@ -322,9 +343,31 @@ private:
             ++n_enum_;
             linea_pend_ = lineas_pend_ = true;
             while (enchufado_ && hay_dispositivo() && estado_ == Estado::Listo) {
+                // --stopped-core-stops-sim con un núcleo parado: solo el JTAG
+                // de OpenOCD, una vez por ronda del congelador
+                if (congela::activo()) { jtag(); congela::reposo(sc_core::sc_time(1, sc_core::SC_MS)); continue; }
+                // Con OpenOCD conectado, una trama (1 ms) no dura menos de
+                // 1 ms de pared (congela.h)
+                if (red::valido(jtag_cli_)) ritmo_.paso(jtag_cli_, sc_core::sc_time(1, sc_core::SC_MS));
+                else ritmo_.suelta();
                 trama();
                 datos();
-                sc_core::wait(1, sc_core::SC_MS);
+                if (ev_in) {
+                    // Un anfitrión pide IN de bulk sin parar: aquí, en vez
+                    // de sondear, el dispositivo avisa cuando su búfer está
+                    // listo y se lee 5 us después (lo que tarda un IN). El
+                    // USB-Serial-JTAG del ESP32-C3 lo necesita: la ROM deja de
+                    // esperar a que se vacíe su búfer en unas decenas de us
+                    const sc_core::sc_time fin = sc_core::sc_time_stamp() + sc_core::sc_time(1, sc_core::SC_MS);
+                    while (estado_ == Estado::Listo && sc_core::sc_time_stamp() < fin) {
+                        congela::reposo(fin - sc_core::sc_time_stamp(), *ev_in);
+                        if (sc_core::sc_time_stamp() >= fin || congela::activo()) break;
+                        sc_core::wait(5, sc_core::SC_US);
+                        if (!lee_in()) break;
+                    }
+                } else {
+                    congela::reposo(sc_core::sc_time(1, sc_core::SC_MS));
+                }
             }
             if (enchufado_) avisa("el dispositivo se ha ido del bus");
         }
@@ -390,13 +433,18 @@ private:
     // Recorre la configuracion: la interfaz de comunicaciones (clase 2,
     // subclase 2: ACM) y la de datos (clase 0x0A) con sus dos de bulk
     bool busca_cdc(const std::vector<uint8_t>& c) {
-        bool acm = false, en_datos = false;
+        bool acm = false, en_datos = false, en_jtag = false;
         ep_in_ = ep_out_ = 0;
+        jtag_in_ = jtag_out_ = 0;
         for (size_t i = 0; i + 1 < c.size() && c[i] >= 2; i += c[i]) {
             const uint8_t tipo = c[i + 1];
             if (tipo == 4 && i + 7 < c.size()) {
                 en_datos = c[i + 5] == 0x0A;
+                // El JTAG de Espressif (USB-Serial-JTAG): FF/FF/01 (E7)
+                en_jtag = c[i + 5] == 0xFF && c[i + 6] == 0xFF && c[i + 7] == 0x01;
                 if (c[i + 5] == 0x02 && c[i + 6] == 0x02) { acm = true; iface_ = c[i + 2]; }
+            } else if (tipo == 5 && en_jtag && i + 6 < c.size() && (c[i + 3] & 3u) == 2) {
+                if (c[i + 2] & 0x80) jtag_in_ = c[i + 2] & 0x0Fu; else jtag_out_ = c[i + 2] & 0x0Fu;
             } else if (tipo == 5 && en_datos && i + 6 < c.size() && (c[i + 3] & 3u) == 2) {
                 const uint16_t mps = uint16_t(c[i + 4] | (c[i + 5] << 8));
                 if (c[i + 2] & 0x80) { ep_in_ = c[i + 2] & 0x0Fu; mps_in_ = mps; }
@@ -406,8 +454,118 @@ private:
         return acm && ep_in_ && ep_out_;
     }
 
+    // ---- El JTAG de Espressif por remote_bitbang (E7) ----------------------
+    uint8_t jtag_in_ = 0, jtag_out_ = 0;
+    unsigned jtag_puerto_ = 0;
+    red::socket_t jtag_srv_ = red::invalido(), jtag_cli_ = red::invalido();
+    congela::RitmoReal ritmo_;
+    std::vector<uint8_t> nib_;
+    bool tck_ = false, tms_ = true, tdi_ = false, clk_hecho_ = false;
+    uint64_t n_jtag_ = 0;
+    void manda_nibbles() {
+        if (nib_.empty()) return;
+        if (nib_.size() & 1u) nib_.push_back(0xA);              // CMD_FLUSH de relleno
+        std::vector<uint8_t> s, p;
+        unsigned ciclos = 0;
+        for (uint8_t n : nib_) ciclos += (n & 8u) ? 0u : 1u;
+        for (size_t i = 0; i < nib_.size(); i += 2) s.push_back(uint8_t((nib_[i] << 4) | nib_[i + 1]));
+        nib_.clear();
+        for (size_t i = 0; i < s.size(); i += 64) {
+            const std::vector<uint8_t> t(s.begin() + long(i), s.begin() + long(std::min(s.size(), i + 64)));
+            for (int k = 0; k < 100 && hc_.paquete(PID_OUT, dir_, jtag_out_, t, p) == PID_NAK; ++k)
+                congela::espera(10, sc_core::SC_US);
+        }
+        // Los ciclos de TCK cuestan lo suyo (10 MHz, como la sonda de
+        // bancada): sin eso, la orden abstracta del DM aún no ha acabado
+        // cuando OpenOCD lee el resultado
+        if (ciclos) congela::espera(sc_core::sc_time(100.0 * ciclos, sc_core::SC_NS));
+    }
+    bool lee_tdo() {
+        nib_.push_back(uint8_t(4u | (tdi_ ? 2u : 0u) | (tms_ ? 1u : 0u)));   // CMD_CLK con captura
+        nib_.push_back(0xA);                                                  // CMD_FLUSH
+        manda_nibbles();
+        std::vector<uint8_t> p;
+        for (int k = 0; k < 100; ++k) {
+            if (hc_.paquete(PID_IN, dir_, jtag_in_, {}, p) == PID_ACK && !p.empty()) return p[0] & 1u;
+            congela::espera(10, sc_core::SC_US);
+        }
+        return false;
+    }
+    void jtag() {
+        if (!red::valido(jtag_srv_) || !hay_jtag()) return;
+        if (!red::valido(jtag_cli_)) {
+            jtag_cli_ = red::acepta(jtag_srv_);
+            if (!red::valido(jtag_cli_)) return;
+            red::no_bloqueante(jtag_cli_);
+            red::sin_nagle(jtag_cli_);
+            std::printf("[usb-jtag] OpenOCD conectado por remote_bitbang (localhost:%u)\n", jtag_puerto_);
+            std::fflush(stdout);
+        }
+        char b[4096];
+        // Mientras OpenOCD hable, se le atiende sin dejar correr el tiempo
+        // simulado (solo lo que cuestan los ciclos de TCK): si cada ida y
+        // vuelta costase una trama (1 ms), el perro de interrupciones de
+        // ESP-IDF (300 ms) saltaría antes de que OpenOCD lo apague. Se deja de
+        // esperar cuando calla 20 ms de reloj.
+        for (;;) {
+            const long n = red::recibir(jtag_cli_, b, sizeof b);
+            if (n == 0) { red::cerrar(jtag_cli_); return; }
+            if (n < 0) {
+                if (!red::reintentar()) { red::cerrar(jtag_cli_); return; }
+                // Congelado no hace falta esperar: el simulado no corre
+                if (!congela::activo() && red::detalle::espera_legible(jtag_cli_, 20) > 0) continue;
+                break;
+            }
+            congela::actividad();
+            std::string resp;
+            for (long i = 0; i < n; ++i) {
+                const char c = b[i];
+                if (c >= '0' && c <= '7') {
+                    const unsigned v = unsigned(c - '0');
+                    const bool tck = v & 4u;
+                    tms_ = v & 2u; tdi_ = v & 1u;
+                    if (tck && !tck_) {
+                        if (!clk_hecho_) nib_.push_back(uint8_t((tdi_ ? 2u : 0u) | (tms_ ? 1u : 0u)));
+                        clk_hecho_ = false;
+                        ++n_jtag_;
+                    }
+                    tck_ = tck;
+                    if (nib_.size() >= 120) manda_nibbles();
+                } else if (c == 'R') {
+                    bool tdo = false;
+                    if (!tck_ && !clk_hecho_) { tdo = lee_tdo(); clk_hecho_ = true; }
+                    resp += tdo ? '1' : '0';
+                } else if (c >= 'r' && c <= 'u') {
+                    const bool srst = (c == 's' || c == 'u');
+                    nib_.push_back(uint8_t(0x8u | (srst ? 1u : 0u)));
+                } else if (c == 'Q') {
+                    manda_nibbles();
+                    red::cerrar(jtag_cli_);
+                    return;
+                }
+            }
+            manda_nibbles();
+            if (!resp.empty()) red::enviar(jtag_cli_, resp.data(), resp.size());
+        }
+    }
+
+    // Del dispositivo al terminal: hasta ocho paquetes, o el primer NAK.
+    // false: el dispositivo se ha ido
+    bool lee_in() {
+        std::vector<uint8_t> p;
+        for (int k = 0; k < 8; ++k) {
+            const uint8_t r = hc_.paquete(PID_IN, dir_, ep_in_, {}, p);
+            if (r == PID_NADIE) { estado_ = Estado::SinDispositivo; return false; }
+            if (r != PID_ACK) break;
+            if (!p.empty()) { canal_->escribir(p.data(), p.size()); n_hacia_ += p.size(); }
+            if (p.size() < mps_in_) break;
+        }
+        return true;
+    }
+
     // ---- Una trama de datos -----------------------------------------------
     void datos() {
+        jtag();
         canal_->sondear();
         // Abrir y cerrar el puerto mueve DTR y RTS
         const bool cli = canal_->conectado();
@@ -431,14 +589,8 @@ private:
             break_pend_ = false;
         }
         // Del dispositivo al terminal: hasta ocho paquetes, o el primer NAK
+        if (!lee_in()) return;
         std::vector<uint8_t> p;
-        for (int k = 0; k < 8; ++k) {
-            const uint8_t r = hc_.paquete(PID_IN, dir_, ep_in_, {}, p);
-            if (r == PID_NADIE) { estado_ = Estado::SinDispositivo; return; }
-            if (r != PID_ACK) break;
-            if (!p.empty()) { canal_->escribir(p.data(), p.size()); n_hacia_ += p.size(); }
-            if (p.size() < mps_in_) break;
-        }
         // Del terminal al dispositivo: hasta ocho paquetes, o el primer NAK
         uint8_t b[512];
         while (hacia_mcu_.size() < 8u * mps_out_) {

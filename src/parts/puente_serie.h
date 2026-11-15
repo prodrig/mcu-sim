@@ -49,6 +49,7 @@
 
 #include <systemc>
 #include <cstdio>
+#include <deque>
 #include <memory>
 #include <string>
 #include "../common/analog_net.h"
@@ -71,6 +72,7 @@ SC_MODULE(PuenteSerie), public ExtPartBase, public LineaSerie {
         bool           muestra      = false;   // imprimir lo que manda el MCU
         std::string    guion;                  // lo que se «teclea» al arrancar
         double         guion_ms     = 10.0;
+        bool           reinicio_esp = false;   // E5: ver hilo_reinicio
         std::size_t    cola         = 4096;    // hacia el MCU (§4.2)
         double         vdd          = 3.3;
         double         r_out        = 50.0;
@@ -101,6 +103,9 @@ SC_MODULE(PuenteSerie), public ExtPartBase, public LineaSerie {
         if (cts) { if (!vccio) add_ref("cts", *cts); cts_ = cts; }
         if (rts) { id_rts_ = add_pin("rts", *rts, "vcp_rts"); rts_ = rts; }
         if (dtr) { id_dtr_ = add_pin("dtr", *dtr, "vcp_dtr"); dtr_ = dtr; }
+        // Con reinicio="esp", DTR y RTS salen INACTIVOS (altos): es como queda
+        // el puerto al cerrarlo, y lo que deja al AutoResetEsp sin hacer nada
+        if (c.reinicio_esp) { dtr_activo_ = false; rts_listo_ = false; }
         if (vccio) { add_ref("vccio", *vccio); vccio_ = vccio; }
         // El canal, según el destino.
         switch (c.destino.modo) {
@@ -142,6 +147,8 @@ SC_MODULE(PuenteSerie), public ExtPartBase, public LineaSerie {
         // Solo con vccio: sin ella no hay nada que seguir, y un proceso de
         // mas en las placas de siempre moveria su tiempo de anfitrion
         if (vccio_) SC_THREAD(hilo_vccio);
+        // Lo mismo con el mínimo entre cambios de DTR/RTS: solo si se pide
+        if (cfg_.reinicio_esp) SC_THREAD(hilo_reinicio);
     }
 
     // ¿El canal está listo? Si no, `error_canal()` dice por qué, y `sim` no
@@ -239,9 +246,13 @@ SC_MODULE(PuenteSerie), public ExtPartBase, public LineaSerie {
         case 4: return break_on_ ? 5 : 6;
         case 5: case 6: set_break(v == 5); return v;
         case 7: return dtr_activo_ ? 8 : 9;
-        case 8: case 9: set_dtr(v == 8); return v;
+        case 8: case 9:
+            if (cfg_.reinicio_esp) control_esp(true, v == 8); else set_dtr(v == 8);
+            return v;
         case 10: return rts_listo_ ? 11 : 12;
-        case 11: case 12: set_rts(v == 11); return v;
+        case 11: case 12:
+            if (cfg_.reinicio_esp) control_esp(false, v == 11); else set_rts(v == 11);
+            return v;
         case 13: case 14: case 15: case 16: case 18: return 14;
         default: break;                     // 0, 2, 17, 19 y lo desconocido
         }
@@ -291,6 +302,9 @@ SC_MODULE(PuenteSerie), public ExtPartBase, public LineaSerie {
     uint64_t errores_paridad() const { return n_err_par_; }
     uint64_t breaks_desde_mcu() const { return n_breaks_; }
     uint64_t esperas_por_cts() const { return n_esperas_cts_; }
+    // Con reinicio="esp": los reinicios a descarga y los normales que ha hecho
+    uint64_t reinicios_descarga() const { return n_rein_descarga_; }
+    uint64_t reinicios_normales() const { return n_rein_normal_; }
 
     // Lo que quede a medias en la línea de `muestra`, marcado como tal. Lo
     // llama `sim` al acabar la ventana de --ms: la basura de unos baudios
@@ -303,6 +317,67 @@ SC_MODULE(PuenteSerie), public ExtPartBase, public LineaSerie {
     }
 
 private:
+    // ---- El reinicio de los ESP por RFC 2217 (E5, `reinicio="esp"`) --------
+    // Por RFC 2217, DTR y RTS no llegan con su ritmo: pyserial espera la
+    // respuesta de cada SET-CONTROL sondeando cada 50 ms de reloj, y la
+    // simulación va más deprisa o más despacio que el reloj, así que el
+    // reinicio de esptool (DTR=0 RTS=1 · 100 ms · DTR=1 RTS=0 · 50 ms · DTR=0)
+    // llega deformado: con un AutoResetEsp, CHIP_PU sube con IO0 todavía
+    // alto. Es el mismo problema que tiene el servidor RFC 2217 de Espressif
+    // con una placa de verdad, y se resuelve igual [esp_rfc2217_server,
+    // esp_port_manager.py]: se reconoce el PRINCIPIO de la secuencia y el
+    // puente la hace él solo, con sus tiempos (aquí, simulados); lo que siga
+    // llegando de ella se contesta y no se aplica:
+    //
+    //   DTR activo, sin estar ya en descarga  ->  reinicio a descarga
+    //       (UnixTightReset de esptool: DTR=RTS=0; DTR=RTS=1; DTR=0 RTS=1;
+    //        100 ms; DTR=1 RTS=0; 50 ms; DTR=RTS=0)
+    //   RTS inactivo, sin estar en descarga   ->  reinicio normal
+    //       (HardReset: RTS=1; 100 ms; RTS=0)
+    //   DTR inactivo                           ->  se aplica y sale de descarga
+    //   cualquier otro cambio de DTR o RTS     ->  se ignora
+    //
+    // Un terminal cualquiera (idf.py monitor, miniterm) hace lo mismo: abrir
+    // el puerto con DTR y RTS inactivos deja el chip arrancando normal.
+    static constexpr double T_RESET_MS = 100.0, T_DESCARGA_MS = 50.0;
+    enum class Secuencia { nada, descarga, normal };
+    Secuencia pend_ = Secuencia::nada;
+    bool en_descarga_ = false;
+    sc_core::sc_event ev_rein_;
+    uint64_t n_rein_descarga_ = 0, n_rein_normal_ = 0;
+    void control_esp(bool dtr, bool activo) {
+        if (dtr && !activo) { en_descarga_ = false; set_dtr(false); return; }
+        if (en_descarga_) return;
+        if (dtr && activo) { en_descarga_ = true; pend_ = Secuencia::descarga; ev_rein_.notify(sc_core::SC_ZERO_TIME); }
+        else if (!dtr && !activo) { pend_ = Secuencia::normal; ev_rein_.notify(sc_core::SC_ZERO_TIME); }
+    }
+    // Los dos a la vez, como el ioctl TIOCMSET de UnixTightReset: entre uno y
+    // otro, nada de tiempo simulado
+    void dtr_rts(bool dtr, bool rts) { dtr_activo_ = dtr; rts_listo_ = rts; conduce_dtr(); conduce_rts(); }
+    void hilo_reinicio() {
+        using sc_core::SC_MS;
+        for (;;) {
+            while (pend_ == Secuencia::nada) wait(ev_rein_);
+            const Secuencia q = pend_;
+            pend_ = Secuencia::nada;
+            if (q == Secuencia::descarga) {
+                ++n_rein_descarga_;
+                dtr_rts(false, false);
+                dtr_rts(true, true);
+                dtr_rts(false, true);            // IO0 alto, EN a masa
+                wait(T_RESET_MS, SC_MS);
+                dtr_rts(true, false);            // IO0 a masa, EN sube por el RC
+                wait(T_DESCARGA_MS, SC_MS);
+                dtr_rts(false, false);           // IO0 suelto
+            } else {
+                ++n_rein_normal_;
+                set_rts(true);                   // EN a masa
+                wait(T_RESET_MS, SC_MS);
+                set_rts(false);
+            }
+        }
+    }
+
     // ---- Los niveles de las líneas que el puente gobierna -------------------
     void niveles_de_reposo() {
         if (!conectada_) return;

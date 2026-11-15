@@ -48,6 +48,9 @@
 #include "bus_potencia.h"
 #include "mems_st.h"
 #include "xds110.h"
+#include "spi_flash.h"
+#include "auto_reset_esp.h"
+#include "ws2812.h"
 
 namespace stm32 {
 
@@ -2979,6 +2982,11 @@ REGISTRA_PARTE(PuenteSerie,
            "Lo que se teclea al arrancar, con \\r \\n \\t \\0 \\\\ y \\xNN. Solo "
            "con host=memoria.")
       .atr("guion_ms", "10", "Cuando se teclea, en ms simulados.")
+      .atr("reinicio", "no",
+           "esp: los cambios de DTR y RTS que llegan por RFC 2217 no se aplican uno a uno: "
+           "el puente reconoce el principio del reinicio de esptool y lo hace el, con sus "
+           "tiempos en tiempo simulado, como el servidor esp_rfc2217_server de Espressif. "
+           "Para las placas de los ESP, con su AutoResetEsp. DTR y RTS salen inactivos (altos).")
       .nota("Una trama con error de trama o de paridad SE ENTREGA igual: es la "
             "basura que tiene que verse cuando los baudios no cuadran. Un break "
             "no es un byte: se cuenta y no se entrega.")
@@ -3010,6 +3018,7 @@ REGISTRA_PARTE(PuenteSerie,
         c.muestra      = d.si("muestra", true);
         serie::desescapa(d.txt("guion", ""), c.guion);
         c.guion_ms     = d.num("guion_ms", 10.0);
+        c.reinicio_esp = d.txt("reinicio", "no") == "esp";
         auto nodo = [&](const char* t) -> analog_net_if* {
             const std::string& s = d.nodo_de(t);
             return s.empty() ? nullptr : &n[s];
@@ -3057,6 +3066,89 @@ REGISTRA_PARTE(SdCard,
         };
         return new SdCard(d.id.c_str(), n[d.nodo_de("ck")], n[d.nodo_de("cmd")],
                           opt("dat0"), opt("dat1"), opt("dat2"), opt("dat3"));
+    });
+
+REGISTRA_PARTE(Ws2812,
+    Ayuda("Una tira de LED WS2812 (NeoPixel) en cadena: cada LED toma 24 bits GRB del hilo DIN "
+          "(alto 0,8 us un 1, 0,4 us un 0) y 50 us en bajo los enciende. La que lleva en GPIO8 la "
+          "DevKitM-1 del ESP32-C3; se maneja con el RMT (led_strip).")
+      .pin("din", "obligatorio", "La entrada de datos (DIN) del primer LED.")
+      .atr("n", "1", "cuantos LED")
+      .nota("Observables: colorN (0xRRGGBB) y luzN (de 0 a 1)."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        return new Ws2812(d.id.c_str(), n[d.nodo_de("din")], unsigned(d.num("n", 1)));
+    });
+
+REGISTRA_PARTE(AutoResetEsp,
+    Ayuda("El reinicio automatico de las placas de Espressif: dos NPN cruzados "
+          "entre el DTR y el RTS del puente USB-UART, y el RC del pin de "
+          "habilitacion. RTS sola activa (baja) pone EN a masa; DTR sola, IO0. "
+          "EN sube por el RC (tau = r c), asi que IO0 sigue abajo cuando el "
+          "chip guarda los pines de arranque: es como esptool (y idf.py, "
+          "PlatformIO, Arduino) lo pone en descarga sin tocar ningun boton.")
+      .ejemplo("<componente tipo=\"AutoResetEsp\" id=\"Q1\">\n"
+               "  <pin nombre=\"dtr\" nodo=\"DTR\"/>\n"
+               "  <pin nombre=\"rts\" nodo=\"RTS\"/>\n"
+               "  <pin nombre=\"en\"  nodo=\"CHIP_PU\"/>\n"
+               "  <pin nombre=\"io0\" nodo=\"GPIO9\"/>\n"
+               "</componente>")
+      .pin("dtr", "obligatorio", "El DTR del puente (PuenteSerie, terminal dtr): alto en reposo.")
+      .pin("rts", "obligatorio", "El RTS del puente (PuenteSerie, terminal rts): alto en reposo.")
+      .pin("en", "obligatorio", "CHIP_PU (EN). La pieza lleva su pull-up y su condensador.")
+      .pin("io0", "obligatorio", "El pin de arranque: GPIO9 en el ESP32-C3 y el C6, GPIO0 en el ESP32.")
+      .atr("r", "10000", "El pull-up de EN, en ohmios.")
+      .atr("c", "1e-6", "El condensador de EN, en faradios.")
+      .atr("vdd", "3.3", "La alimentacion a la que sube EN.")
+      .nota("No hace falta un Rpull en CHIP_PU: va dentro. Un pulsador de RESET a masa en el "
+            "mismo nodo descarga el condensador, como en la placa.")
+      .nota("Con RFC 2217, el terminal mueve DTR y RTS de uno en uno y al ritmo del reloj de "
+            "pared: el PuenteSerie lleva reinicio=\"esp\" para que el reinicio salga con sus "
+            "tiempos en tiempo simulado."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        return new AutoResetEsp(d.id.c_str(), n[d.nodo_de("dtr")], n[d.nodo_de("rts")],
+                                n[d.nodo_de("en")], n[d.nodo_de("io0")], d.num("r", 10e3),
+                                d.num("c", 1e-6), d.num("vdd", 3.3));
+    });
+
+REGISTRA_PARTE(SpiFlash,
+    Ayuda("Una Flash SPI NOR (W25Q, GD25Q): la memoria de programa de un "
+          "ESP32 cuando no va dentro del encapsulado. Se modela por "
+          "transacciones, no por bits: el controlador del chip (el SPI0/SPI1 "
+          "del ESP32-C3) la encuentra por el nodo de su CS y le da cada orden "
+          "entera; lo que tarda, lo cuenta el controlador con su reloj y sus "
+          "lineas. Programar y borrar tardan lo tipico de la hoja de datos, "
+          "con WIP a 1 mientras tanto.")
+      .ejemplo("<componente tipo=\"SpiFlash\" id=\"U2\" modelo=\"W25Q32\" contenido=\"flash.bin\">\n"
+               "  <pin nombre=\"cs\"  nodo=\"SPICS0\"/>\n"
+               "  <pin nombre=\"clk\" nodo=\"SPICLK\"/>\n"
+               "  <pin nombre=\"di\"  nodo=\"SPID\"/>\n"
+               "  <pin nombre=\"do\"  nodo=\"SPIQ\"/>\n"
+               "  <pin nombre=\"wp\"  nodo=\"SPIWP\"/>\n"
+               "  <pin nombre=\"hold\" nodo=\"SPIHD\"/>\n"
+               "</componente>")
+      .pin("cs", "obligatorio", "El CS: por su nodo la encuentra el chip (en el C3, SPICS0, GPIO14).")
+      .pin("clk, di, do, wp, hold", "opcionales",
+           "Para el esquema: los datos no pasan por los nodos.")
+      .atr("modelo", "W25Q32", "W25Q16, W25Q32, W25Q64, W25Q128, GD25Q16, GD25Q32 o GD25Q64: el "
+           "JEDEC ID, la capacidad y los tiempos de programar y borrar.")
+      .atr("contenido", "ninguno",
+           "Un fichero con la imagen de la Flash desde 0: se carga al arrancar y se guarda al "
+           "acabar. Sin el, la Flash sale borrada (0xFF).")
+      .nota("No protege por BP/CMP/SRP (se guarda en el estado y no protege), ni tiene "
+            "registros OTP ni modo continuo."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        auto opt = [&](const char* t) -> analog_net_if* {
+            const std::string& s = d.nodo_de(t);
+            return s.empty() ? nullptr : &n[s];
+        };
+        const std::string mod = d.txt("modelo", "W25Q32");
+        const ModeloFlashSpi* m = busca_modelo_flash(mod);
+        if (!m) {
+            SC_REPORT_ERROR("netlist", (d.id + ": modelo=\"" + mod + "\": se admiten " + modelos_flash_spi()).c_str());
+            return nullptr;
+        }
+        return new SpiFlash(d.id.c_str(), *m, n[d.nodo_de("cs")], opt("clk"), opt("di"), opt("do"),
+                            opt("wp"), opt("hold"));
     });
 
 REGISTRA_PARTE(CameraSensor,

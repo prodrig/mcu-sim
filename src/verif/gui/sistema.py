@@ -74,6 +74,12 @@
 #       cada pieza visible y cada pin, con su id; los puentes de ENA, ENB y
 #       5V-EN, como variantes; y en el sistema, el L298N sin los de ENA y ENB.
 #
+#   C22 las placas de Espressif (E13 de doc/analisis_esp32_riscv.md): la
+#       ESP32-C3-DevKitM-1, la SuperMini, la del C3 y el F407 y la
+#       ESP32-C6-DevKitC-1, con su dibujo de placas/dibuja_esp.py: cada pieza
+#       visible y cada pin de sus tiras, con su id; y en T_PLACA, los pines
+#       de las tiras van a nodos como GPIO8, sin nada de la forma Pxn.
+#
 #   make -f Makefile.mcu-sim gui-sistema
 #   python3 verif/gui/sistema.py [--sim build/mcu-sim]
 #
@@ -1564,6 +1570,40 @@ def c21_motores(sim, cp):
               "%s no se acepta, y se dice" % enl)
 
 
+PLACAS_ESP = ("esp32c3_devkitm1", "esp32c3_supermini", "esp32c3_y_f407", "esp32c6_devkitc1")
+
+
+def c22_esp(sim, cp):
+    grupo("C22 Las placas de Espressif con su dibujo (E13)")
+    esperado = {
+        "esp32c3_devkitm1": "placa 'esp32c3-devkitm-1': 1 MCU(s), 8 componentes",
+        "esp32c3_supermini": "placa 'esp32c3-supermini': 1 MCU(s), 7 componentes",
+        "esp32c3_y_f407": "placa 'esp32c3-y-f407': 2 MCU(s), 4 componentes",
+        "esp32c6_devkitc1": "placa 'esp32c6-devkitc-1': 1 MCU(s), 9 componentes",
+    }
+    for n in PLACAS_ESP:
+        rc, out, err = corre(sim, ["placas/%s.xml" % n, "--valida"])
+        check(rc == 0 and esperado[n] in out and "0 avisos" in out and ("dibujo: %s.svg (" % n) in out,
+              "placas/%s.xml valida sin un aviso, con su dibujo" % n)
+        f = piezas_sin_dibujo(n)
+        check(not f, "%s.svg: cada pieza visible y cada pin de conector, con su id (faltan: %s)" % (n, f))
+    # La ventana recibe el dibujo de la C6 y sus tiras con los nombres del
+    # chip: GPIOn, no Pxn
+    rc, out, placa, il, av = saludo_con_dibujos(sim, ["placas/esp32c6_devkitc1.xml"])
+    r = ET.fromstring(placa) if placa else None
+    nodos = []
+    if r is not None:
+        for pz in r.iter("componente"):
+            if pz.get("id") in ("J1", "J3"):
+                nodos += [pt.get("nodo", "") for pt in pz.iter("pin")]
+    check(rc == 0 and il and b'id="LED"' in il[0][1] and b'id="J3.11"' in il[0][1],
+          "la DevKitC-1: T_ILUSTRACION lleva su dibujo, con el LED y la J3.11 (GPIO9, BOOT)")
+    gpio = [x for x in nodos if re.search(r"GPIO\d+$", x)]
+    pxn = [x for x in nodos if re.search(r"(^|[./])P[A-K]\d+$", x)]
+    check(len(gpio) >= 20 and not pxn and any(x.endswith("GPIO8") for x in gpio),
+          "en T_PLACA, los pines de J1 y J3 van a nodos GPIOn (%d), ninguno de la forma Pxn" % len(gpio))
+
+
 def main():
     a = argparse.ArgumentParser(description="conectores y sistemas de placas")
     exe = "build/mcu-sim.exe" if os.name == "nt" else "build/mcu-sim"
@@ -1596,6 +1636,7 @@ def main():
         c19_ti(sim, cp)
         c20_rgb(sim, cp)
         c21_motores(sim, cp)
+        c22_esp(sim, cp)
     finally:
         cp.borra()
     return ventana.resumen("SISTEMA")

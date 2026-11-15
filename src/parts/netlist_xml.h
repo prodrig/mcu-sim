@@ -458,12 +458,15 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
         for (const auto& a : h.attrs) {
             if (a.first == "tipo" || a.first == "id") continue;
             if      (a.first == "firmware")   m.firmware   = a.second;
-            else if (a.first == "depuracion") m.depuracion = a.second;
+            // `dm` es `dap` con el nombre que tiene en un RISC-V: el stub
+            // interno pegado a su Debug Module (E0.8). Se normaliza al leer.
+            else if (a.first == "depuracion") m.depuracion = (a.second == "dm") ? "dap" : a.second;
             else if (a.first == "rom")        m.rom        = a.second;
             else if (a.first == "tlv")        m.tlv        = a.second;
             else if (a.first == "bsl")        m.bsl        = a.second;
             else if (a.first == "eth")        m.eth        = a.second;
             else if (a.first == "usb")        m.usb        = a.second;
+            else if (a.first == "jtag")       m.jtag       = a.second;
             else if (a.first == "contenido")  m.contenido  = a.second;
             else if (a.first == "puerto_gdb") {
                 const long v = std::atol(a.second.c_str());
@@ -1043,12 +1046,13 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
             for (const auto& a : h.attrs) {
                 if (a.first == "ref") continue;
                 if      (a.first == "firmware")   m->firmware   = a.second;
-                else if (a.first == "depuracion") m->depuracion = a.second;
+                else if (a.first == "depuracion") m->depuracion = (a.second == "dm") ? "dap" : a.second;   // E0.8
                 else if (a.first == "rom")        m->rom        = a.second;
                 else if (a.first == "tlv")        m->tlv        = a.second;
                 else if (a.first == "bsl")        m->bsl        = a.second;
                 else if (a.first == "eth")        m->eth        = a.second;
                 else if (a.first == "usb")        m->usb        = a.second;
+                else if (a.first == "jtag")       m->jtag       = a.second;
                 else if (a.first == "contenido")  m->contenido  = a.second;
                 else if (a.first == "puerto_gdb") {
                     const long v = std::atol(a.second.c_str());

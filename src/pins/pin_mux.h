@@ -39,6 +39,7 @@
 #include "../common/analog_net.h"
 #include "../common/nombres_nodo.h"
 #include "af_types.h"
+#include "encapsulado.h"   // N_PINES_PUERTO_MAX (E0.5)
 #include "pad.h"
 #include "encapsulado.h"
 #include "nomenclatura.h"
@@ -93,7 +94,10 @@ public:
     unsigned size()  const { return unsigned(m_.size() + alim_.size()); }
 
 private:
-    static unsigned clave(unsigned p, unsigned i) { return p * N_PORT_PINS + i; }
+    // La clave del mapa, no el índice de ningún vector: por eso puede dejar
+    // sitio para los 32 pines por puerto de un Encapsulado (E0.5) sin que
+    // cambie nada en un STM32, cuyos pines siguen siendo 0..15.
+    static unsigned clave(unsigned p, unsigned i) { return p * N_PINES_PUERTO_MAX + i; }
     std::map<unsigned, analog_net_if*> m_;
     std::map<std::string, analog_net_if*> alim_;
 };

@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+# riscv-arch-test (ACT4): el núcleo RV32IMAC del laboratorio de mcu-sim.
+# Con `make act` en src/verif/rv (ver ese Makefile).
+name: mcusim-lab-rv32imac
+compiler_exe: riscv-none-elf-gcc  # GCC 15 o posterior (xPack)
+objdump_exe: riscv-none-elf-objdump
+ref_model_exe: sail_riscv_sim
+udb_config: mcusim-lab-rv32imac.yaml
+linker_script: link.ld
+dut_include_dir: .

@@ -345,6 +345,9 @@ struct DeclMcu {
     // DriverLib del P4 -"r1" (omisión), "ninguna" o el fichero de un volcado- y
     // `tlv`, el fichero con el TLV de una placa. Vacío: lo de omisión del chip.
     std::string rom, tlv, bsl;
+    // Dónde va el JTAG de un ESP32-C3 (E6): "pines" (MTMS-MTDO, como con
+    // EFUSE_DIS_USB_JTAG quemado) o "usb" (el USB-Serial-JTAG, de fábrica)
+    std::string jtag;
     // El Ethernet de un MSP432E4 (T7): a donde da su PHY interno -memoria,
     // qemu:PUERTO o qemu-cliente:HOST:PUERTO, y ,pcap=FICHERO-. Vacío: nada
     std::string eth;
@@ -1321,7 +1324,8 @@ public:
                 if (m.depuracion != "pines" && m.depuracion != "dap" &&
                     m.depuracion != "openocd" && m.depuracion != "cmsis-dap")
                     err.push_back("mcu " + m.id + ": depuracion debe ser 'pines', "
-                                  "'dap', 'openocd' o 'cmsis-dap', no '" + m.depuracion + "'");
+                                  "'dap' (o 'dm'), 'openocd' o 'cmsis-dap', no '" +
+                                  m.depuracion + "'");
                 // Dos stubs en el mismo puerto TCP no es un aviso: es que el
                 // segundo no llega a escuchar y el fallo aparece más tarde,
                 // como un GDB que se conecta al chip equivocado.

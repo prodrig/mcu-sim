@@ -185,3 +185,34 @@ f3  stm32f3/f3_analog/f3_analog.bin                        2884  0x60678F1A
 # STM32F303VC (S6): el USB de usuario con TinyUSB (MIT, sdk/tinyusb) y el CAN
 f3  stm32f3/f3_usb/f3_usb.bin                        12416  0xF16751CA
 f3  stm32f3/f3_can/f3_can.bin                         1516  0x2F9027F7
+
+# ESP32-C3 (E3 de doc/analisis_esp32_riscv.md): ELF de RISC-V que se cargan
+# en la SRAM (sin ROM). Se regeneran con `make c3fw`.
+c3  esp32c3/blinky.elf                      14408  0x0690856F
+c3  esp32c3/uart.elf                        14712  0xDB4962F2
+c3  esp32c3/intc.elf                        27176  0x5840F3AE
+c3  esp32c3/gpio_matriz.elf                 18480  0xD5DCCF0B
+c3  esp32c3/coremark_c3.elf                 92536  0x5BDA3084
+# E4: Direct Boot desde la Flash (c3_flash.ld); el .bin es la imagen
+c3  esp32c3/direct_boot.elf                 15528  0xFAE31D30
+c3  esp32c3/direct_boot.bin                  3472  0xDCF1E737
+# E8: el LEDC (esp-14.2.0 de Espressif, riscv32-esp-elf-)
+c3  esp32c3/ledc.elf                     14312  0x5C3967CA
+c3  esp32c3/e8.elf                       17864  0x65123C25
+c3  esp32c3/i2c.elf                      16080  0x74B7E732
+c3  esp32c3/spi_tft.elf                  17712  0xAF128454
+c3  esp32c3/twai.elf                     17864  0x461FA985
+c3  esp32c3/rsa.elf                      24872  0x00299002
+c3  esp32c3/hmac.elf                     26140  0x64C1F400
+c3  esp32c3/ds.elf                       23256  0xFA715F5E
+c3  esp32c3/xts.elf                      18164  0x1335919E
+c3  esp32c3/i2s.elf                      17740  0x4324588F
+c3  esp32c3/uhci.elf                     20588  0x270C1ECD
+c3  esp32c3/uhci_hci.elf                 29040  0xA228430A
+c3  esp32c3/i2s_mas.elf                  40588  0x9127C095
+c3  esp32c3/xts_date.elf                 12672  0x6BEDDDA8
+c6  esp32c6/blinky.elf                   14680  0x20F638F3
+c6  esp32c6/uart.elf                     15020  0xFA429428
+c6  esp32c6/intc.elf                     30624  0x4168EE6B
+c6  esp32c6/direct_boot.elf              15556  0x8030D4BE
+c6  esp32c6/direct_boot.bin               3456  0xDE48AE73

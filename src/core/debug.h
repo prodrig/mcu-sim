@@ -42,6 +42,7 @@
 #include "../common/ahb_types.h"
 #include "cpu.h"
 #include "debug_if.h"
+#include "../common/congela.h"
 
 namespace stm32 {
 
@@ -166,7 +167,7 @@ SC_MODULE(DebugSys), public core_debug_if {
                                        unsigned char* d, unsigned len) {
         sc_core::sc_time t = sc_core::SC_ZERO_TIME;
         const auto r = ap_access_nb(write, a, d, len, t);
-        sc_core::wait(t);
+        congela::espera(t);
         return r;
     }
     // La misma transaccion, pero SIN consumir el tiempo anotado: devuelve
@@ -1055,7 +1056,8 @@ private:
     // Mientras el acceso anterior sigue en vuelo por el bus, el DAP contesta
     // WAIT. Es la razon de ser de ese ACK, y lo que obliga a toda sonda a
     // reintentar en vez de darse por vencida.
-    bool ap_ocupado() const { return sc_core::sc_time_stamp() < ap_libre_; }
+    // Congelado (--stopped-core-stops-sim), el bus no tarda: nunca hay WAIT
+    bool ap_ocupado() const { return !congela::activo() && sc_core::sc_time_stamp() < ap_libre_; }
     sc_core::sc_time ap_libre_{sc_core::SC_ZERO_TIME};
     uint64_t n_wait_ = 0;
 

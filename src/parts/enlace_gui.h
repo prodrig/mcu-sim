@@ -60,6 +60,13 @@
 // con F_PAUSADA cada 250 ms, y vuelve cuando llega T_SIGUE. El modelo, entre
 // tanto, está exactamente donde estaba: ni un picosegundo, ni un delta.
 //
+// CONGELADA (`--stopped-core-stops-sim`, common/congela.h) no es la pausa:
+// con un núcleo parado por el depurador el tiempo no avanza, pero este
+// proceso SÍ cede el hilo —los servidores de GDB y las sondas tienen que
+// seguir—, y su espera despierta con cada ronda del congelador. Los T_ESTADO
+// dicen F_CONGELADA, con el latido de siempre; T_PING, T_ORDENES, T_PAUSA y
+// T_PARA se atienden igual.
+//
 //   * T_PAUSA: a la pausa en la vuelta que lo lee. Si ya lo está, nada;
 //   * T_SIGUE: sale de la pausa. Con RIT_DEMANDA no: allí solo se avanza con
 //     T_PASO, y un T_AVISO lo dice;
@@ -102,6 +109,7 @@
 #include "frontera_gui.h"
 #include "../common/gui_mensajes.h"
 #include "../common/proto_io.h"
+#include "../common/congela.h"
 
 namespace stm32 {
 namespace gui {
@@ -281,7 +289,10 @@ private:
                 if (parar_) { detiene(); return; }
                 if (!conectado_) break;
             }
-            wait(siguiente());
+            // Con --stopped-core-stops-sim y un núcleo parado el tiempo no
+            // avanza: la espera despierta con cada ronda del congelador, y la
+            // ventana sigue atendida (T_ESTADO con F_CONGELADA, T_PARA...)
+            congela::reposo(siguiente());
         }
         // Sin ventana el proceso termina: no vuelve a despertar nunca.
     }
@@ -311,7 +322,7 @@ private:
             escribe();
             mueve_a_salida(false);
             if (!pausado_ || cambio_ || reloj_() - ultimo_estado_ >= LATIDO_S)
-                pon_estado(pausado_ ? F_PAUSADA : F_CORRIENDO);
+                pon_estado(pausado_ ? F_PAUSADA : fase_en_marcha());
             cambio_ = false;
             escribe();
         }
@@ -324,6 +335,12 @@ private:
         parada_ = true;
         pausado_ = false;
         sc_core::sc_stop();
+    }
+
+    // En marcha, o con el tiempo detenido por un núcleo parado
+    // (--stopped-core-stops-sim, common/congela.h)
+    static uint32_t fase_en_marcha() {
+        return congela::activo() ? mcusim::proto::F_CONGELADA : mcusim::proto::F_CORRIENDO;
     }
 
     void vuelta() {
@@ -339,8 +356,10 @@ private:
         // la misma regla que los avisos.
         if (fr_.hechas.size() >= max_avisos_) { desborda("ecos de ordenes"); return; }
         // En pausa el T_ESTADO lo pone `en_pausa()`, con su fase
+        const bool congelada = congela::activo();
+        if (congelada != congelada_) { congelada_ = congelada; cambio_ = true; }
         if (!pausado_ && (hubo || cambio_ || reloj_() - ultimo_estado_ >= LATIDO_S))
-            pon_estado(mcusim::proto::F_CORRIENDO);
+            pon_estado(fase_en_marcha());
         cambio_ = false;
         escribe();
     }
@@ -700,6 +719,7 @@ private:
     std::deque<Aviso>         avisos_;
     std::string               cierre_;
     uint32_t                  ritmo_ = mcusim::proto::RIT_LIBRE;
+    bool                      congelada_ = false;
     bool                      pausado_ = false, parar_ = false, parada_ = false,
                               cambio_ = false, hay_objetivo_ = false,
                               para_al_perderse_ = false;

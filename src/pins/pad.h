@@ -25,6 +25,7 @@
 #include <systemc>
 #include <cmath>
 #include "../common/analog_net.h"
+#include "../common/congela.h"
 
 namespace stm32 {
 
@@ -150,15 +151,26 @@ private:
         // porque quien se equivoca no es el modelo sino el firmware que lo lee.
         wait(sc_core::SC_ZERO_TIME);      // que se aplique el drive inicial
         sample_input();
+        // Con --stopped-core-stops-sim, al congelarse se aplica ya lo que
+        // estuviera en camino: congelado no hay retardo de propagación
+        const bool congelable = congela::estado().habilitado;
         for (;;) {
-            wait(drive.value_changed_event() | net->value_changed_event());
+            if (congelable) {
+                wait(drive.value_changed_event() | net->value_changed_event() | congela::inicio());
+                if (congela::inicio().triggered()) {
+                    if (!(applied_ == pending_)) apply_ev_.notify(sc_core::SC_ZERO_TIME);
+                    continue;
+                }
+            } else {
+                wait(drive.value_changed_event() | net->value_changed_event());
+            }
             const PadDrive d = drive.read();
             if (!(d == pending_)) {
                 pending_ = d;
                 // Retardo de propagación de la salida: solo tiene sentido si el
                 // buffer está activo; los cambios de configuración de entrada se
                 // aplican sin retardo apreciable.
-                const bool out_active = d.oe && !d.analog;
+                const bool out_active = d.oe && !d.analog && !congela::activo();
                 apply_ev_.notify(out_active
                                      ? sc_core::sc_time(t_pd_speed[d.speed & 3u],
                                                         sc_core::SC_SEC)

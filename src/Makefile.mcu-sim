@@ -248,7 +248,8 @@ HDRS := $(wildcard common/*.h pins/*.h parts/*.h bus/*.h mem/*.h rcc/*.h core/*.
                    periph/*.h soc/*.h verif/*.h top/*.h \
                    periph/msp432p4/*.h soc/msp432p4/*.h soc/msp432p4/*.inc \
                    periph/msp432e4/*.h soc/msp432e4/*.h soc/msp432e4/*.inc \
-                   soc/stm32f3/*.h soc/stm32f3/*.inc)
+                   soc/stm32f3/*.h soc/stm32f3/*.inc \
+                   rv/*/*.h soc/esp/*.h soc/esp32c3/*.h soc/esp32c6/*.h soc/esp32c6/*.inc periph/esp/*.h)
 
 TEST407 := $(B)/test407$(EXE)
 MCUSIM  := $(B)/mcu-sim$(EXE)
@@ -259,6 +260,12 @@ TESTGUI   := $(B)/testgui$(EXE)
 TESTP4    := $(B)/testp4$(EXE)
 TESTE4    := $(B)/teste4$(EXE)
 TESTF3    := $(B)/testf3$(EXE)
+TESTRV    := $(B)/testrv$(EXE)
+TESTC3    := $(B)/testc3$(EXE)
+ASANC3    := $(B)/asanc3$(EXE)
+TESTC6    := $(B)/testc6$(EXE)
+ASANC6    := $(B)/asanc6$(EXE)
+ASANRV    := $(B)/asanrv$(EXE)
 HASHV   := $(B)/prueba_hash$(EXE)
 CRYPV   := $(B)/prueba_cryp$(EXE)
 BENCH  := $(B)/bench$(EXE)
@@ -273,7 +280,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all testrv testrv-build asanrv rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testc6 testc6-build asanc6 c6fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-congela gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -384,6 +391,122 @@ testf3-build: $(TESTF3)
 
 testf3: $(TESTF3)
 	$(TESTF3)
+
+# EL BANCO DEL NUCLEO RISC-V (fase E1 de doc/analisis_esp32_riscv.md): el
+# nucleo generico de src/rv sobre el SoC de laboratorio, sin chip. No necesita
+# la cadena de RISC-V: los ELF se versionan en verif/rv/elf, y riscv-tests va
+# comprimido (riscv-tests.tar.xz, BSD-3-Clause) y se extrae en $(B)/rvt; lo
+# mismo riscv-arch-test (act.tar.xz, ACT4, BSD-3-Clause), en $(B)/act.
+#   make testrv
+HDRS_RV := $(wildcard rv/*/*.h verif/rv/*.inc)
+
+$(TESTRV): top/sc_main_rv.cpp $(HDRS) $(HDRS_RV)
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_rv.cpp $(LDFLAGS) $(LDLIBS)
+
+$(ASANRV): top/sc_main_rv.cpp $(HDRS) $(HDRS_RV)
+	@mkdir -p $(B)
+	$(CXX) $(ASANFLAGS) -o $@ top/sc_main_rv.cpp $(LDFLAGS) $(LDLIBS)
+
+$(B)/rvt/.extraido: verif/rv/elf/riscv-tests.tar.xz
+	@mkdir -p $(B)/rvt
+	tar -C $(B)/rvt -xJf verif/rv/elf/riscv-tests.tar.xz
+	@touch $@
+
+$(B)/act/.extraido: verif/rv/elf/act.tar.xz
+	@rm -rf $(B)/act
+	@mkdir -p $(B)/act
+	tar -C $(B)/act -xJf verif/rv/elf/act.tar.xz
+	@touch $@
+
+rvt: $(B)/rvt/.extraido $(B)/act/.extraido
+
+testrv-build: $(TESTRV)
+
+testrv: $(TESTRV) $(B)/rvt/.extraido $(B)/act/.extraido
+	$(TESTRV) $(B)/rvt $(B)/act
+
+ifeq ($(PLATAFORMA),windows)
+asanrv:
+	@echo "MinGW no trae AddressSanitizer: 'make asanrv' solo va en Linux y macOS."
+else
+asanrv: $(ASANRV) $(B)/rvt/.extraido $(B)/act/.extraido
+	$(ASANRV) $(B)/rvt $(B)/act
+endif
+
+# LA SUITE DEL ESP32-C3 (fase E3 de doc/analisis_esp32_riscv.md): el C3 sin
+# ROM con el firmware de verif/fw/esp32c3, cuyos ELF se versionan.
+#   make testc3              make c3fw  (regenera los ELF: riscv64-unknown-elf-gcc)
+HDRS_C3 := $(HDRS_RV) $(wildcard soc/esp/*.h soc/esp32c3/*.h soc/esp32c3/*.inc soc/esp32c3/rom/*.inc periph/esp/*.h)
+
+$(TESTC3): top/sc_main_c3.cpp $(HDRS) $(HDRS_C3)
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_c3.cpp $(LDFLAGS) $(LDLIBS)
+
+$(ASANC3): top/sc_main_c3.cpp $(HDRS) $(HDRS_C3)
+	@mkdir -p $(B)
+	$(CXX) $(ASANFLAGS) -o $@ top/sc_main_c3.cpp $(LDFLAGS) $(LDLIBS)
+
+testc3-build: $(TESTC3)
+
+# Los ejemplos de ESP-IDF de E4 (verif/fw/esp32c3/idf/construye.sh), en build/idf
+IDF_C3 := $(wildcard verif/fw/esp32c3/idf/idf-*.tar.xz)
+$(B)/idf/.extraido: $(IDF_C3)
+	@rm -rf $(B)/idf
+	@mkdir -p $(B)/idf
+	for t in $(IDF_C3); do tar -C $(B)/idf -xJf $$t; done
+	@touch $@
+
+testc3: $(TESTC3) $(B)/idf/.extraido
+	$(TESTC3)
+
+ifeq ($(PLATAFORMA),windows)
+asanc3:
+	@echo "MinGW no trae AddressSanitizer: 'make asanc3' solo va en Linux y macOS."
+else
+asanc3: $(ASANC3) $(B)/idf/.extraido
+	$(ASANC3)
+endif
+
+c3fw:
+	$(MAKE) -C verif/fw/esp32c3
+
+# LA SUITE DEL ESP32-C6 (fase E9 de doc/analisis_esp32_riscv.md): el C6 en
+# arranque directo con el firmware de verif/fw/esp32c6, cuyos ELF se versionan.
+#   make testc6              make c6fw  (regenera los ELF: riscv64-unknown-elf-gcc)
+HDRS_C6 := $(HDRS_RV) $(wildcard soc/esp/*.h soc/esp32c6/*.h soc/esp32c6/*.inc soc/esp32c6/rom/*.inc periph/esp/*.h)
+
+$(TESTC6): top/sc_main_c6.cpp $(HDRS) $(HDRS_C6)
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_c6.cpp $(LDFLAGS) $(LDLIBS)
+
+$(ASANC6): top/sc_main_c6.cpp $(HDRS) $(HDRS_C6)
+	@mkdir -p $(B)
+	$(CXX) $(ASANFLAGS) -o $@ top/sc_main_c6.cpp $(LDFLAGS) $(LDLIBS)
+
+testc6-build: $(TESTC6)
+
+# Los ejemplos de ESP-IDF de E9, E10 y E11 (verif/fw/esp32c6/idf/construye.sh), en build/idf-c6
+IDF_C6 := $(wildcard verif/fw/esp32c6/idf/idf-*.tar.xz)
+$(B)/idf-c6/.extraido: $(IDF_C6)
+	@rm -rf $(B)/idf-c6
+	@mkdir -p $(B)/idf-c6
+	for t in $(IDF_C6); do tar -C $(B)/idf-c6 -xJf $$t; done
+	@touch $@
+
+testc6: $(TESTC6) $(B)/idf-c6/.extraido
+	$(TESTC6)
+
+ifeq ($(PLATAFORMA),windows)
+asanc6:
+	@echo "MinGW no trae AddressSanitizer: 'make asanc6' solo va en Linux y macOS."
+else
+asanc6: $(ASANC6) $(B)/idf-c6/.extraido
+	$(ASANC6)
+endif
+
+c6fw:
+	$(MAKE) -C verif/fw/esp32c6
 
 # --- La capa de red, que es la única parte no portable -----------------------
 # No necesita SystemC, así que se compila y se ejecuta en cualquier sitio, y se
@@ -529,6 +652,85 @@ interop: $(MCUSIM)
 sflash-e4: $(MCUSIM)
 	$(PYTHON) verif/serie/sflash_e4.py --prueba --sim $(MCUSIM)
 
+# ESPTOOL CONTRA EL ESP32-C3 (E5, D2): el `mcu-sim` de verdad con
+# placas/esp32c3_devkitm1.xml (el PuenteSerie con DTR y RTS y el AutoResetEsp)
+# y esptool por RFC 2217: chip-id con el stub, flash-id --no-stub, write-flash
+# de blink a 921600, verify-flash --no-stub, write-flash --no-stub y blink
+# arrancando. Sin esptool se OMITE, salvo con ESPTOOL_OBLIGATORIO=1. Sin
+# invariante.
+#
+#   make -f Makefile.mcu-sim esptool-c3 [ESPTOOL=/ruta/a/esptool]
+esptool-c3: $(MCUSIM) $(B)/idf/.extraido
+	$(PYTHON) verif/esp/esptool_c3.py --sim $(MCUSIM) $(if $(ESPTOOL),--esptool $(ESPTOOL))
+
+# OPENOCD-ESP32 CONTRA EL ESP32-C3 (E6, G2 y D4): target/esp32c3.cfg sin tocar,
+# por remote_bitbang y por CMSIS-DAP en los pines del JTAG (--jtag=pines):
+# examine, program_esp de blink con verify y reset; y GDB contra el stub G1
+# (con ELF=hello_world.elf de la compilacion). Sin openocd-esp32 se OMITE,
+# salvo con OPENOCD_OBLIGATORIO=1.
+#
+#   make -f Makefile.mcu-sim openocd-c3 OPENOCD_ESP32=/ruta/a/openocd [GDB_RV=riscv32-esp-elf-gdb ELF=...]
+openocd-c3: $(MCUSIM) $(B)/idf/.extraido
+	$(PYTHON) verif/esp/openocd_c3.py --sim $(MCUSIM) $(if $(OPENOCD_ESP32),--openocd $(OPENOCD_ESP32)) $(if $(GDB_RV),--gdb $(GDB_RV)) $(if $(ELF),--elf $(ELF))
+
+# EL USB-SERIAL-JTAG DEL ESP32-C3 (E7, D3 y G3): la SuperMini con el PC del
+# simulador en su USB (--usb rfc2217:P,jtag=P2): la consola de ESP-IDF por el
+# CDC, openocd-esp32 por el JTAG del USB, y esptool --before usb-reset (chip-id
+# con el stub y write-flash de la tabla de particiones). Sin esptool se OMITE.
+#
+#   make -f Makefile.mcu-sim usb-c3 [ESPTOOL=...] [OPENOCD_ESP32=...]
+usb-c3: $(MCUSIM) $(B)/idf/.extraido
+	$(PYTHON) verif/esp/usb_c3.py --sim $(MCUSIM) $(if $(ESPTOOL),--esptool $(ESPTOOL)) $(if $(OPENOCD_ESP32),--openocd $(OPENOCD_ESP32))
+
+# ESPTOOL CONTRA EL ESP32-C6 (E9.6, D2 y D3): la DevKitC-1 con la Flash en
+# blanco, por sus dos USB: el puente en la UART0 (con el auto-reset) y el
+# USB-Serial-JTAG del chip (--before usb-reset). Sin esptool se OMITE, salvo
+# con ESPTOOL_OBLIGATORIO=1. Sin invariante.
+#
+#   make -f Makefile.mcu-sim esptool-c6 [ESPTOOL=/ruta/a/esptool]
+esptool-c6: $(MCUSIM) $(B)/idf-c6/.extraido
+	$(PYTHON) verif/esp/esptool_c6.py --sim $(MCUSIM) $(if $(ESPTOOL),--esptool $(ESPTOOL))
+
+# OPENOCD-ESP32 Y GDB CONTRA EL ESP32-C6 (E9.6, G1, G2 y G3):
+# target/esp32c6.cfg sin tocar, por remote_bitbang y CMSIS-DAP en los pines
+# (--jtag=pines) y por el JTAG del USB-Serial-JTAG; program_esp de
+# hello_world con la Flash en blanco; GDB contra G1 y a traves de OpenOCD
+# (con ELF=hello_world.elf de la compilacion). E10, O7-O9: el nucleo LP con
+# target/esp32c6-lpcore.cfg (los dos harts), y GDB con sus dos hilos por
+# OpenOCD y por G1. Sin openocd-esp32 se OMITE.
+#
+#   make -f Makefile.mcu-sim openocd-c6 OPENOCD_ESP32=/ruta/a/openocd [GDB_RV=riscv32-esp-elf-gdb ELF=...]
+openocd-c6: $(MCUSIM) $(B)/idf-c6/.extraido
+	$(PYTHON) verif/esp/openocd_c6.py --sim $(MCUSIM) $(if $(OPENOCD_ESP32),--openocd $(OPENOCD_ESP32)) $(if $(GDB_RV),--gdb $(GDB_RV)) $(if $(ELF),--elf $(ELF))
+
+# LA ESP32-C6-DevKitC-1 (E9.5): el `mcu-sim` de verdad con
+# placas/esp32c6_devkitc1.xml: la consola de hello_world por sus DOS USB (el
+# puente en la UART0 y el USB-Serial-JTAG del chip) por RFC 2217, uart.elf
+# sin ROM y la ROM con la Flash en blanco. Sin pySerial, solo lo que va en
+# memoria. Sin invariante.
+#
+#   make -f Makefile.mcu-sim placa-c6
+placa-c6: $(MCUSIM) $(B)/idf-c6/.extraido
+	$(PYTHON) verif/esp/placa_c6.py --sim $(MCUSIM)
+
+# EL TIEMPO SIMULADO CON UN DEPURADOR (common/congela.h): el ritmo real de
+# las sondas y los stubs con un programa conectado (K1) y
+# --stopped-core-stops-sim (K2-K6): con el ESP32-C3 por OpenOCD y por G1, dos
+# MCUs en la misma placa, CMSIS-DAP por SWD en un STM32F407 y los otros
+# Cortex-M por su stub. Sin openocd-esp32 se OMITE.
+#
+#   make -f Makefile.mcu-sim congela [OPENOCD_ESP32=...] [GDB_RV=...] [ELF=hello_world.elf]
+congela: $(MCUSIM) $(B)/idf/.extraido
+	$(PYTHON) verif/congela.py --sim $(MCUSIM) $(if $(OPENOCD_ESP32),--openocd $(OPENOCD_ESP32)) $(if $(GDB_RV),--gdb $(GDB_RV)) $(if $(ELF),--elf $(ELF))
+
+# LOS STUBS INTERNOS HACEN LO QUE OPENOCD CON CADA CHIP (soc/herramientas.h):
+# DBGMCU de los STM32 al conectar (el IWDG no salta parado), los perros del C3
+# apagados en cada parada y su reset por RTC_CNTL, y nada en los MSP432.
+#
+#   make -f Makefile.mcu-sim herramienta-gdb [GDB_RV=...] [ELF=hello_world.elf]
+herramienta-gdb: $(MCUSIM) $(B)/idf/.extraido
+	$(PYTHON) verif/herramienta_gdb.py --sim $(MCUSIM) $(if $(GDB_RV),--gdb $(GDB_RV)) $(if $(ELF),--elf $(ELF))
+
 # EL BSL DEL MSP432P4 (T5, D4): el `mcu-sim` de verdad con
 # placas/msp_exp432p401r.xml y SIN firmware (la Flash en blanco entra en el
 # BSL B1), y bsl_p4.py por RFC 2217 programando el ejemplo de eco de TI,
@@ -616,6 +818,12 @@ gui-ordenes: $(MCUSIM)
 # que no tiene fin. Unos segundos: el primer grupo va a tiempo real.
 gui-control: $(MCUSIM)
 	$(PYTHON) verif/gui/control.py --sim $(MCUSIM)
+
+# LA VENTANA CON --stopped-core-stops-sim (common/congela.h): con un nucleo
+# parado por GDB el enlace sigue atendido, los T_ESTADO dicen F_CONGELADA y
+# todos el mismo instante, T_PING y T_PARA funcionan. Hace falta gdb-multiarch.
+gui-congela: $(MCUSIM)
+	$(PYTHON) verif/gui/congela.py --sim $(MCUSIM)
 
 # LA LISTA DE OPCIONES (P-12, fase 7): `mcu-sim --argumentos` la vuelca en XML
 # para que mcu-sim-gui construya su dialogo de lanzamiento. Esto vigila que no
@@ -825,6 +1033,15 @@ e4-retardo: $(MCUSIM)
 OPENOCD ?= openocd
 openocd: $(MCUSIM)
 	OPENOCD="$(OPENOCD)" python3 verif/openocd/programa.py --sim $(MCUSIM)
+
+# G2 de E2 (doc/analisis_esp32_riscv.md): OpenOCD generico (`target create
+# riscv`) contra el laboratorio RISC-V, por remote_bitbang y por CMSIS-DAP en
+# JTAG, con dos harts, y GDB por OpenOCD y por el stub G1. Hace falta el
+# OpenOCD de git (cmsis-dap tcp) y un GDB con RISC-V (gdb-multiarch): lo que
+# falte se OMITE, salvo con OPENOCD_OBLIGATORIO=1.
+#   make -f Makefile.mcu-sim openocd-rv OPENOCD=/ruta/a/bin/openocd
+openocd-rv: $(TESTRV)
+	OPENOCD="$(OPENOCD)" python3 verif/openocd/riscv_lab.py --testrv $(TESTRV)
 
 # X2 de doc/analisis_xds110.md: la sonda CMSIS-DAP por TCP (--cmsis-dap). El
 # protocolo a mano, sin OpenOCD; y con el `cmsis-dap tcp` de OpenOCD (de git

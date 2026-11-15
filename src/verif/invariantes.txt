@@ -310,3 +310,110 @@ teste4                296      4505148675235         resto
 # menos (T-16). El resto no se mueve: la misma cifra, ahora con cualquier
 # TESTF3_DESFASE*_PS.
 testf3                428      116875480154660       resto
+
+# testrv: el nucleo RISC-V generico y su depuracion, en el SoC de laboratorio
+# (E1 y E2 de doc/analisis_esp32_riscv.md). V1-V9 (E1): las comprimidas contra
+# GNU as, riscv-tests en RV32IMAC y RV32IMC, los desalineados, las pruebas
+# propias, el lockstep con Spike, CoreMark y riscv-arch-test (V10, los 220 ELF
+# de ACT4 con las firmas de Sail); W1-W3 (E2): el DTM por los pines, el DM en
+# directo y dos harts. W4-W6 hablan con GDB por un socket de verdad: van al
+# final y se contrasta `resto` (T-16, como en el F407). V10 suma 221
+# comprobaciones y 19766 us justos: V1-V9 y W1-W3 duran lo mismo que antes
+# (8811500000 con 236). Igual en dos pasadas (07-11-2026).
+# V11 (E9.1, el nucleo HP del ESP32-C6: misa, la delegacion a U con uret, la
+# PMA, el BTB y riscv-arch-test con 202 de 220 y las 18 que difieren) va tras
+# W4-W6 y suma 16 comprobaciones y 34629550000 ps; lo de antes no se mueve
+# (28577500000 con 457 hasta el arranque de V11) (14-11-2026).
+testrv                 473      63207050000           resto
+
+# testc3: el ESP32-C3. C1-C7 (E3), sin ROM: el arranque por CHIP_PU y los
+# pines de arranque, la UART0 por los pines, el INTC, el SYSTIMER y TIMG0, la
+# matriz GPIO y la GPIO dedicada, los resets y CoreMark a 160 MHz, con el
+# firmware versionado de verif/fw/esp32c3 (57 y 28556458348 ps, como antes de
+# E4: C8 empieza justo ahi). C8-C13 (E4), por la ROM y la Flash: Direct Boot,
+# ESP-IDF v5.5 y v6.0 (hello_world con esp_restart, blink, uart_echo) en v0.4
+# y v1.1, el modo descarga, la Flash vacia con los perros del flashboot y el
+# aviso de la ROM de otra revision. Sin sockets: se contrasta el total. Igual
+# en dos pasadas y con asanc3 (08-11-2026). C14 (E5): esptool por la UART0 sin
+# esptool -la deteccion de baudios de la ROM, el SYNC y READ_REG en SLIP-; C1-C13
+# no se mueven (C14 empieza en 17204410347276, el total de E4): la latencia de
+# las interrupciones (una frontera de instruccion) no cambia nada de antes.
+# C15-C16 (E6): GDB contra hello_world por G1 y por G2' (los pines MTMS-MTDO)
+# hablan por un socket: desde E6 se contrasta EL RESTO, que es el total de E5.
+# E7: el USB-Serial-JTAG existe, y sin PC en el USB la ROM y la consola
+# secundaria de ESP-IDF esperan su plazo al llenarse su bufer de 64 bytes:
+# eso mueve C8 en adelante (C1-C7 no). C17: el USB con su puente en memoria.
+# E8: C18, el LEDC (ledc.elf): C1-C17 no se mueven (C18 empieza en el total de E7).
+# C19: el RMT con dos WS2812, el SAR ADC y su sensor de temperatura, y el AES
+# (e8.elf); C1-C18 no se mueven.
+# C20-C22: el I2C con una 24Cxx (i2c.elf), el GP-SPI2 con la GDMA y un ST7735
+# en c3b (spi_tft.elf) y el TWAI con un nodo CAN en c3b (twai.elf), con la
+# huella del nuevo ELF (12 ficheros: la comprobacion de C1 sigue siendo una).
+# C1-C19 no se mueven (C20 empieza en 17859840002000, el total anterior).
+# C23 (E6, lo que quedaba): la region del DM en el mapa de la CPU
+# (0x2000_0000-0x27FF_FFFF): el program buffer en 0x2000_0340, los datos en
+# 0x2000_0380, la PMP en su busqueda, y datacount = 2 como un C3 de verdad.
+# C1-C22 no se mueven (C23 empieza en 18107200002000, el total anterior).
+# E8, lo que quedaba declarado (09-11-2026), una entrega por periferico, cada
+# una con su grupo al final: C1-C23 no se mueven. Las fuentes de interrupcion
+# del ADC y la GDMA pasan a 43 y 44-46 (las de ESP-IDF); ninguna prueba las
+# usaba. C24: el RSA (rsa.elf, 13 ficheros), desde 18694632002000.
+# C25: el HMAC (hmac.elf, 14 ficheros), desde 18726242002000; las claves en
+# los eFuse las quema el banco y las borra al acabar.
+# C26: el DS (ds.elf, 15 ficheros), desde 18726359002000.
+# C27: el XTS_AES (xts.elf, 16 ficheros), desde 18791109002000; en la suite
+# entera el C3 llega en el modo de descarga y, solo (C3_SOLO=c27), por SPI:
+# el firmware vale para los dos.
+# C28: el I2S (i2s.elf, 17 ficheros), desde 18843679002000; la GDMA gana sus
+# canales de entrada sin mover nada.
+# C29: el UHCI (uhci.elf, 18 ficheros), desde 18844435018866; con el, el C3
+# se queda sin bloques declarados.
+# C30: lo que quedaba del UHCI (uhci_hci.elf, 19 ficheros), desde
+# 18866125018866: la cabecera de HCI (H5), el CRC, el ACK, el envio rapido,
+# WAIT_SW_START y HUNG; la GDMA gana IN_ERR_EOF sin mover nada.
+# C31: lo que quedaba del I2S (i2s_mas.elf, 20 ficheros), desde
+# 18869435018866: esclavo, receptor maestro, PDM, A-law y mu-law, MCLK,
+# TIMING, SKIP_MSK, HUNG y RX_STOP_MODE; C28 no se mueve.
+# C32: XTS_AES_DATE como el chip (xts_date.elf, 21 ficheros), desde
+# 18871097364616: 0x20200623 (ESP-IDF y el SVD de Espressif; el TRM dice
+# 0x20200111) y de lectura y escritura. C27 cambia lo que espera, sin
+# moverse.
+# C33: la ROM arranca de una Flash cifrada de fabrica (hello_world v5.5
+# cifrado con la clave de C27), desde 18871157364616; con CRYPT_CNT par no
+# descifra. Deja SPI_BOOT_CRYPT_CNT = 0b111 y RD_DIS de KEY5.
+# C34: los pines de arranque como al empezar la simulacion, tras todos los
+# grupos (desde 19433187364616). arranca() suelta GPIO9 y GPIO8 y un pin de
+# arranque flotante se lee 0: de C18 a C32 el C3 ya no arranca en modo
+# descarga; C1-C33 no se mueven.
+testc3                 313      18846782364616        resto
+
+# testc6: el ESP32-C6 (E9 de doc/analisis_esp32_riscv.md). D1-D5 (E9.2), en
+# arranque directo, sin la ROM: los encapsulados, el nucleo HP y la ROM en su
+# sitio; blinky con el PLL del PCR; la UART0 con su disposicion del C6 por
+# GPIO16/17; el INTPRI, el CLINT, la delegacion a U y la PMA; los resets por
+# LP_AON y los cinco pines de arranque. Igual en dos pasadas (14-11-2026).
+# D6-D8 (E9.3, por la ROM y la Flash: Direct Boot, ESP-IDF v5.5 hello_world
+# hasta esp_restart, el modo descarga y el C6FH4) van tras D5, que acaba en el
+# mismo picosegundo (22496458348 con 62); D1 cuenta cinco ficheros en vez de
+# tres, con las mismas comprobaciones (15-11-2026).
+# D9 (E9.4, los perifericos comunes con el C3 con ESP-IDF) va tras D8. D1-D5
+# no se mueven (D6 empieza en 22496458348). D6 acaba 2 ms antes y D8 dura 2 ms
+# menos: el USB-Serial-JTAG ya no esta declarado, y la ROM y ESP-IDF, que
+# escriben tambien en el (la consola secundaria), encuentran su FIFO libre
+# como en el chip en vez de esperar a que se acabe el plazo; D7 sigue
+# acabando en 11532516458348 (15-11-2026).
+# D10-D11 (E9.6, GDB por G1 y G2' contra hello_world) van al final y por un
+# socket de verdad: su tiempo depende del reloj de pared, asi que la cifra
+# pasa a la columna `resto` (el total menos D10-D11), como testc3, y es la
+# misma de antes: D1-D9 no se mueven (15-11-2026).
+# E10 y E11 (16-11-2026): D12-D16 van tras D9 y antes de D10-D11, que siguen
+# al final (el socket). D12-D15, el nucleo LP con los ejemplos de
+# examples/system/ulp/lp_core de ESP-IDF sin tocar; D16, el PCNT, el MCPWM
+# y el ETM con los de examples/peripherals y motor. D1-D8 no se mueven (D9
+# empieza en 11820526458348). D9 acaba 10 ms antes (13105536458348): el HP
+# paga ahora dos ciclos del APB por cada acceso a la LP SRAM (la latencia
+# cruzada de E10), el arranque de perifericos se mueve unos us y su
+# vTaskDelay(20 ms) del LEDC cae un tic de FreeRTOS antes. Comprobado: sin
+# esa latencia, D1-D9 acaban en 13115536458348, la cifra de antes. 202
+# comprobaciones; el resto es el comienzo de D10.
+testc6                 202      53173701458348        resto
