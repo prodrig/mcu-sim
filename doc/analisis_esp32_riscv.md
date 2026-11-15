@@ -657,7 +657,7 @@ pide `riscv32-esp-elf-gcc` (el de ESP-IDF), pero ejecutar las suites no.
 | **E10** | C6: el núcleo LP como segundo hart, LP SRAM y periféricos LP | `testc6` | E9 | Medio · **hecha** |
 | **E11** | C6: sus periféricos propios (MCPWM, PCNT, ETM, PARL_IO, ECC…; TWAI1 llegó en E9.4) | `testc6` | E9 | Grande, divisible · **hecha** |
 | **E12** | Radio paravirtual (`VirtWifi`), opcional | `testradio` | E9 y R1-R3 de `analisis_wifi_bl.md` | Grande |
-| **E13** | `mcu-sim-gui`: placas y dibujos | — | E3, E9 | Pequeño |
+| **E13** | `mcu-sim-gui`: placas y dibujos | `gui-sistema` | E3, E9 | Pequeño · **hecha** |
 
 ```
 E0 ──► E1 ──► E2 ─────────────────────┐
@@ -1951,6 +1951,18 @@ sin que R1-R3 estén hechas.** Mientras tanto, la radio sigue declarada.
 Los dibujos de las placas de §9. El protocolo no cambia: nombra los nodos con
 cadenas, y `GPIO9` vale tanto como `PA5`. Hay que comprobar que la ventana no da
 por hechos nombres de la forma `Pxn`.
+
+**Hecho (2026-11-15).** `placas/dibuja_esp.py` dibuja la ESP32-C3-DevKitM-1,
+la SuperMini, la placa del C3 y el F407 y la ESP32-C6-DevKitC-1 (los SVG,
+versionados). Las placas ganan sus tiras de pines (Conector J1/J3 en las
+DevKit, en el orden de las guías de usuario de Espressif; J1/J2 en la
+SuperMini, en el de su serigrafía) y la DevKitM-1, su WS2812 en GPIO8. `make
+gui-sistema`, C22: cada placa valida sin avisos con su dibujo, cada pieza
+visible y cada pin con su id, y en T_PLACA las tiras van a nodos GPIOn,
+ninguno de la forma Pxn. En `mcu-sim-gui` no hacía falta código: nada da por
+hechos nombres `Pxn` (ya lo comprobaba G7 con los `P1.0` de TI); su
+`prueba_cruzada` gana G10, la SuperMini con blinky (D1 en GPIO8, su dibujo y
+el LED parpadeando en las muestras) y la DevKitC-1 con su dibujo y sus tiras.
 
 ---
 

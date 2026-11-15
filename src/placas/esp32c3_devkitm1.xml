@@ -57,4 +57,46 @@
   <componente tipo="Rpull" id="R_GPIO8" v="3.3" r="10000" visible="no">
     <pin nombre="a" nodo="GPIO8"/>
   </componente>
+  <!-- E13: el LED RGB direccionable de la placa (WS2812) en GPIO8 -->
+  <componente tipo="Ws2812" id="LED" n="1">
+    <pin nombre="din" nodo="GPIO8"/>
+  </componente>
+  <!-- E13: las dos tiras de 15, J1 y J3, en el orden de la guia de usuario. El
+       dibujo, esp32c3_devkitm1.svg (placas/dibuja_esp.py) -->
+  <!-- J1, a la izquierda con el USB abajo -->
+  <componente tipo="Conector" id="J1" filas="1" columnas="15">
+    <pin nombre="1" nodo="GND"/>
+    <pin nombre="2" nodo="VDD3P3"/>   <!-- 3V3 -->
+    <pin nombre="3" nodo="VDD3P3"/>   <!-- 3V3 -->
+    <pin nombre="4" nodo="GPIO2"/>
+    <pin nombre="5" nodo="GPIO3"/>
+    <pin nombre="6" nodo="GND"/>
+    <pin nombre="7" nodo="CHIP_PU"/>   <!-- RST -->
+    <pin nombre="8" nodo="GND"/>
+    <pin nombre="9" nodo="GPIO0"/>
+    <pin nombre="10" nodo="GPIO1"/>
+    <pin nombre="11" nodo="GPIO10"/>
+    <pin nombre="12" nodo="GND"/>
+    <pin nombre="13" nodo="5V"/>
+    <pin nombre="14" nodo="5V"/>
+    <pin nombre="15" nodo="GND"/>
+  </componente>
+  <!-- J3, a la derecha -->
+  <componente tipo="Conector" id="J3" filas="1" columnas="15">
+    <pin nombre="1" nodo="GND"/>
+    <pin nombre="2" nodo="GPIO21"/>   <!-- TX, U0TXD -->
+    <pin nombre="3" nodo="GPIO20"/>   <!-- RX, U0RXD -->
+    <pin nombre="4" nodo="GND"/>
+    <pin nombre="5" nodo="GPIO9"/>   <!-- BOOT -->
+    <pin nombre="6" nodo="GPIO8"/>   <!-- el LED RGB -->
+    <pin nombre="7" nodo="GND"/>
+    <pin nombre="8" nodo="GPIO7"/>
+    <pin nombre="9" nodo="GPIO6"/>
+    <pin nombre="10" nodo="GPIO5"/>
+    <pin nombre="11" nodo="GPIO4"/>
+    <pin nombre="12" nodo="GND"/>
+    <pin nombre="13" nodo="GPIO18"/>   <!-- USB_D- -->
+    <pin nombre="14" nodo="GPIO19"/>   <!-- USB_D+ -->
+    <pin nombre="15" nodo="GND"/>
+  </componente>
 </placa>

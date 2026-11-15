@@ -53,4 +53,28 @@
     <pin nombre="rx" nodo="GPIO21"/>   <!-- U0TXD -->
     <pin nombre="tx" nodo="GPIO20"/>   <!-- U0RXD -->
   </componente>
+  <!-- E13: las dos tiras de 8, en el orden de la serigrafia con el USB arriba (no
+       hay guia de un fabricante). El dibujo, esp32c3_supermini.svg -->
+  <!-- J1, a la izquierda -->
+  <componente tipo="Conector" id="J1" filas="1" columnas="8">
+    <pin nombre="1" nodo="5V"/>
+    <pin nombre="2" nodo="GND"/>   <!-- G -->
+    <pin nombre="3" nodo="VDD3P3"/>   <!-- 3.3 -->
+    <pin nombre="4" nodo="GPIO4"/>
+    <pin nombre="5" nodo="GPIO3"/>
+    <pin nombre="6" nodo="GPIO2"/>
+    <pin nombre="7" nodo="GPIO1"/>
+    <pin nombre="8" nodo="GPIO0"/>
+  </componente>
+  <!-- J2, a la derecha -->
+  <componente tipo="Conector" id="J2" filas="1" columnas="8">
+    <pin nombre="1" nodo="GPIO5"/>
+    <pin nombre="2" nodo="GPIO6"/>
+    <pin nombre="3" nodo="GPIO7"/>
+    <pin nombre="4" nodo="GPIO8"/>   <!-- el LED -->
+    <pin nombre="5" nodo="GPIO9"/>   <!-- BOOT -->
+    <pin nombre="6" nodo="GPIO10"/>
+    <pin nombre="7" nodo="GPIO20"/>   <!-- RX -->
+    <pin nombre="8" nodo="GPIO21"/>   <!-- TX -->
+  </componente>
 </placa>

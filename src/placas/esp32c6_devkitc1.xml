@@ -20,6 +20,7 @@
                 dos (la del USB es la secundaria). El JTAG de este USB: E9.6.
          BOOT   pulsador de GPIO9 a masa; RESET, de CHIP_PU a masa
          LED    el RGB (WS2812) en GPIO8: con el RMT
+         J1/J3  las dos tiras de 16 pines (E13); el dibujo, esp32c6_devkitc1.svg
          J5     el puente de la corriente del modulo: aqui, siempre puesto
 
      El chip arranca por la ROM y lee la Flash. Una compilacion de ESP-IDF
@@ -70,5 +71,44 @@
        la UART (boot:0x4); la placa lo sube con 10 kohm -->
   <componente tipo="Rpull" id="R_GPIO8" v="3.3" r="10000" visible="no">
     <pin nombre="a" nodo="GPIO8"/>
+  </componente>
+  <!-- E13: las dos tiras de 16, J1 y J3, en el orden de la guia de usuario (v1.2);
+       el 16 de cada una no va a ninguna parte (NC). El dibujo, esp32c6_devkitc1.svg
+       (placas/dibuja_esp.py) -->
+  <!-- J1, a la izquierda con el USB abajo -->
+  <componente tipo="Conector" id="J1" filas="1" columnas="16">
+    <pin nombre="1" nodo="VDDA3P3"/>   <!-- 3V3 -->
+    <pin nombre="2" nodo="CHIP_PU"/>   <!-- RST -->
+    <pin nombre="3" nodo="GPIO4"/>
+    <pin nombre="4" nodo="GPIO5"/>
+    <pin nombre="5" nodo="GPIO6"/>
+    <pin nombre="6" nodo="GPIO7"/>
+    <pin nombre="7" nodo="GPIO0"/>
+    <pin nombre="8" nodo="GPIO1"/>
+    <pin nombre="9" nodo="GPIO8"/>   <!-- el LED RGB -->
+    <pin nombre="10" nodo="GPIO10"/>
+    <pin nombre="11" nodo="GPIO11"/>
+    <pin nombre="12" nodo="GPIO2"/>
+    <pin nombre="13" nodo="GPIO3"/>
+    <pin nombre="14" nodo="5V"/>
+    <pin nombre="15" nodo="GND"/>   <!-- G -->
+  </componente>
+  <!-- J3, a la derecha -->
+  <componente tipo="Conector" id="J3" filas="1" columnas="16">
+    <pin nombre="1" nodo="GND"/>   <!-- G -->
+    <pin nombre="2" nodo="GPIO16"/>   <!-- TX, U0TXD -->
+    <pin nombre="3" nodo="GPIO17"/>   <!-- RX, U0RXD -->
+    <pin nombre="4" nodo="GPIO15"/>
+    <pin nombre="5" nodo="GPIO23"/>
+    <pin nombre="6" nodo="GPIO22"/>
+    <pin nombre="7" nodo="GPIO21"/>
+    <pin nombre="8" nodo="GPIO20"/>
+    <pin nombre="9" nodo="GPIO19"/>
+    <pin nombre="10" nodo="GPIO18"/>
+    <pin nombre="11" nodo="GPIO9"/>   <!-- BOOT -->
+    <pin nombre="12" nodo="GND"/>   <!-- G -->
+    <pin nombre="13" nodo="GPIO13"/>   <!-- USB_D+ -->
+    <pin nombre="14" nodo="GPIO12"/>   <!-- USB_D- -->
+    <pin nombre="15" nodo="GND"/>   <!-- G -->
   </componente>
 </placa>
