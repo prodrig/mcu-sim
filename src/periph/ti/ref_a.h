@@ -42,7 +42,8 @@ public:
     // Cambia algo que se ve fuera: VREF+ en el pin, o la tensión
     std::function<void()> al_cambiar;
 
-    explicit RefAP4(sc_core::sc_module_name nm) : Bus16P4(nm, p4::REF_A_B, 0x400) {
+    explicit RefAP4(sc_core::sc_module_name nm, uint32_t base = p4::REF_A_B, uint32_t size = 0x400)
+        : Bus16P4(nm, base, size) {
         SC_HAS_PROCESS(RefAP4);
         SC_METHOD(listo_proc); sensitive << listo_ev_; dont_initialize();
         SC_METHOD(reset_proc); sensitive << rst_n;

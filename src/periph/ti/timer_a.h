@@ -45,9 +45,17 @@
 
 namespace stm32 {
 
+// Lo que cambia de un Timer_A a otro (M0 de doc/analisis_msp430.md). Los valores
+// por omisión son los del MSP432P4: TA con cinco CCR, TAIDEX y el TAIFG en 0x0E.
+struct TimerACaps {
+    unsigned ncc = 5;              // 2, 3, 5 o 7 (el 7, para el Timer_B)
+    uint16_t iv_taifg = 0x0E;      // el valor de TAxIV para TAIFG (0x0A en el TA3 de 2xx)
+    bool     ex0 = true;           // TAxEX0 (no en 1xx/2xx)
+};
+
 class TimerAP4 : public Bus16P4 {
 public:
-    static constexpr unsigned NCC = 5;
+    static constexpr unsigned NCC = 7;      // el máximo; los que hay, en `caps_.ncc`
     sc_core::sc_out<bool> irq0{"irq0"}, irqn{"irqn"};
     // Las salidas OUTn y las entradas CCInA, para los pines; y TAxCLK
     sc_core::sc_signal<bool> out[NCC], cci_a[NCC], cci_b[NCC], taclk{"taclk"};
@@ -61,13 +69,14 @@ public:
         CC_IE = 0x0010, CC_CAP = 0x0100, CC_SCCI = 0x0400, CC_SCS = 0x0800
     };
 
-    TimerAP4(sc_core::sc_module_name nm, uint32_t base) : Bus16P4(nm, base, 0x400) {
+    TimerAP4(sc_core::sc_module_name nm, uint32_t base, TimerACaps caps = {}, uint32_t size = 0x400)
+        : Bus16P4(nm, base, size), caps_(caps), nc_(caps.ncc < NCC ? caps.ncc : NCC) {
         SC_HAS_PROCESS(TimerAP4);
         SC_THREAD(cuenta_proc);
         SC_METHOD(pub_proc);   sensitive << pub_ev_;
         SC_METHOD(reset_proc); sensitive << rst_n;
         SC_METHOD(captura_proc);
-        for (unsigned n = 0; n < NCC; ++n) sensitive << cci_a[n] << cci_b[n];
+        for (unsigned n = 0; n < nc_; ++n) sensitive << cci_a[n] << cci_b[n];
         dont_initialize();
         SC_METHOD(taclk_proc); sensitive << taclk.posedge_event(); dont_initialize();
     }
@@ -95,7 +104,14 @@ public:
     // Un cambio de una salida (para quien se dispare con ella)
     std::function<void(unsigned n, bool v)> al_cambiar_salida;
 
+    const TimerACaps& caps() const { return caps_; }
+    // El MSP430 borra CCIFG de CCR0 al aceptar su vector (el MSP432, no): lo
+    // llama el SoC cuando la CPU reconoce la interrupción TAx_0
+    void reconoce_ccr0() { cctl_[0] &= uint16_t(~CC_IFG); borrado(); }
+
 protected:
+    TimerACaps caps_;
+    unsigned nc_;
     uint16_t ctl_ = 0, ex0_ = 0, cctl_[NCC] = {}, ccr_[NCC] = {};
     // El estado anclado: TAR y sentido en el tic `t_ref_`
     uint16_t tar_ = 0;
@@ -123,7 +139,7 @@ protected:
     void reset_proc() {
         if (rst_n.read()) return;
         ctl_ = 0; ex0_ = 0;
-        for (unsigned n = 0; n < NCC; ++n) { cctl_[n] = 0; ccr_[n] = 0; o_out_[n] = false; }
+        for (unsigned n = 0; n < nc_; ++n) { cctl_[n] = 0; ccr_[n] = 0; o_out_[n] = false; }
         tar_ = 0; baja_ = false; div_ext_ = 0;
         t_ref_ = sc_core::sc_time_stamp(); f_ = 0.0;
         actualiza_irq();
@@ -210,7 +226,7 @@ protected:
         uint64_t m = distancia(0);
         auto mira = [&](uint64_t d) { if (d && (!m || d < m)) m = d; };
         mira(distancia(ccr_[0]));
-        for (unsigned n = 1; n < NCC; ++n) if (!cap(n)) mira(distancia(ccr_[n]));
+        for (unsigned n = 1; n < nc_; ++n) if (!cap(n)) mira(distancia(ccr_[n]));
         if (mc() == 2) mira(distancia(0xFFFF));
         return m;
     }
@@ -230,8 +246,8 @@ protected:
         // EQU0 y EQUn
         const bool equ0 = tar_ == c;
         bool equ[NCC] = {};
-        for (unsigned n = 0; n < NCC; ++n) equ[n] = !cap(n) && tar_ == ccr_[n];
-        for (unsigned n = 0; n < NCC; ++n) {
+        for (unsigned n = 0; n < nc_; ++n) equ[n] = !cap(n) && tar_ == ccr_[n];
+        for (unsigned n = 0; n < nc_; ++n) {
             if (!equ[n]) continue;
             ++n_cmp_;
             cctl_[n] |= CC_IFG;
@@ -239,7 +255,7 @@ protected:
             if (entrada(n)) cctl_[n] |= CC_SCCI; else cctl_[n] &= uint16_t(~CC_SCCI);
             cambio = true;
         }
-        for (unsigned n = 0; n < NCC; ++n) {
+        for (unsigned n = 0; n < nc_; ++n) {
             const unsigned m = outmod(n);
             bool o = o_out_[n];
             if (m == 0) continue;
@@ -324,7 +340,7 @@ protected:
     }
     bool ant_[NCC] = {};
     void captura_proc() {
-        for (unsigned n = 0; n < NCC; ++n) {
+        for (unsigned n = 0; n < nc_; ++n) {
             const bool v = entrada(n);
             if (v != ant_[n]) flanco(n, v);
             ant_[n] = v;
@@ -347,13 +363,13 @@ protected:
     void actualiza_irq() {
         o_irq0_ = (cctl_[0] & CC_IFG) && (cctl_[0] & CC_IE);
         bool nn = (ctl_ & IFG) && (ctl_ & IE);
-        for (unsigned n = 1; n < NCC; ++n) if ((cctl_[n] & CC_IFG) && (cctl_[n] & CC_IE)) nn = true;
+        for (unsigned n = 1; n < nc_; ++n) if ((cctl_[n] & CC_IFG) && (cctl_[n] & CC_IE)) nn = true;
         o_irqn_ = nn;
         pub_ev_.notify(sc_core::SC_ZERO_TIME);
     }
     void borrado() { repulso_ = true; actualiza_irq(); }
     void pub_proc() {
-        for (unsigned n = 0; n < NCC; ++n) out[n].write(o_out_[n]);
+        for (unsigned n = 0; n < nc_; ++n) out[n].write(o_out_[n]);
         if (repulso_) {
             repulso_ = false;
             bool otra = false;
@@ -366,14 +382,14 @@ protected:
         irqn.write(o_irqn_);
     }
     uint16_t iv(bool dbg) {
-        for (unsigned n = 1; n < NCC; ++n)
+        for (unsigned n = 1; n < nc_; ++n)
             if ((cctl_[n] & CC_IFG) && (cctl_[n] & CC_IE)) {
                 if (!dbg) { cctl_[n] &= uint16_t(~CC_IFG); borrado(); }
                 return uint16_t(2u * n);
             }
         if ((ctl_ & IFG) && (ctl_ & IE)) {
             if (!dbg) { ctl_ &= uint16_t(~IFG); borrado(); }
-            return 0x0E;
+            return caps_.iv_taifg;
         }
         return 0;
     }
@@ -381,15 +397,15 @@ protected:
     // --- Registros -----------------------------------------------------------------
     uint16_t lee16(uint32_t off, bool dbg) override {
         if (off == 0x00) return ctl_;
-        if (off >= 0x02 && off <= 0x0A) {
+        if (off >= 0x02 && off < 0x02 + 2 * nc_) {
             const unsigned n = (off - 0x02) / 2;
             uint16_t v = uint16_t(cctl_[n] & ~CC_CCI);
             if (entrada(n)) v |= CC_CCI;
             return v;
         }
         if (off == 0x10) { al_dia(); return tar_; }
-        if (off >= 0x12 && off <= 0x1A) return ccr_[(off - 0x12) / 2];
-        if (off == 0x20) return ex0_;
+        if (off >= 0x12 && off < 0x12 + 2 * nc_) return ccr_[(off - 0x12) / 2];
+        if (off == 0x20) return caps_.ex0 ? ex0_ : 0;
         if (off == 0x2E) return iv(dbg);
         return 0;
     }
@@ -403,7 +419,7 @@ protected:
             // TAR cuando se arranca en up/down por debajo: sube
             ancla_frecuencia();
             actualiza_irq();
-        } else if (off >= 0x02 && off <= 0x0A) {
+        } else if (off >= 0x02 && off < 0x02 + 2 * nc_) {
             const unsigned n = (off - 0x02) / 2;
             const uint16_t antes = cctl_[n];
             cctl_[n] = uint16_t(mz(cctl_[n]) & ~CC_CCI);
@@ -419,10 +435,10 @@ protected:
         } else if (off == 0x10) {
             tar_ = mz(tar_);
             t_ref_ = sc_core::sc_time_stamp();
-        } else if (off >= 0x12 && off <= 0x1A) {
+        } else if (off >= 0x12 && off < 0x12 + 2 * nc_) {
             ccr_[(off - 0x12) / 2] = mz(ccr_[(off - 0x12) / 2]);
             if (off == 0x12) ancla_frecuencia();     // CCR0 = 0 para o arranca
-        } else if (off == 0x20) {
+        } else if (off == 0x20 && caps_.ex0) {
             ex0_ = uint16_t(mz(ex0_) & 7u);
             ancla_frecuencia();
         } else {

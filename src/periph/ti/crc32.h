@@ -32,7 +32,8 @@ namespace stm32 {
 
 class Crc32P4 : public Bus16P4 {
 public:
-    explicit Crc32P4(sc_core::sc_module_name nm) : Bus16P4(nm, p4::CRC32_B, 0x400) {
+    explicit Crc32P4(sc_core::sc_module_name nm, uint32_t base = p4::CRC32_B, uint32_t size = 0x400)
+        : Bus16P4(nm, base, size) {
         SC_HAS_PROCESS(Crc32P4);
         SC_METHOD(reset_proc); sensitive << rst_n;
     }

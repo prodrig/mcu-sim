@@ -78,7 +78,8 @@ public:
     enum : uint32_t { I_IN = 1u << 1, I_LO = 1u << 2, I_HI = 1u << 3, I_OV = 1u << 4,
                       I_TOV = 1u << 5, I_RDY = 1u << 6 };
 
-    explicit Adc14P4(sc_core::sc_module_name nm) : BusSlave(nm, p4::ADC14_B, 0x400) {
+    explicit Adc14P4(sc_core::sc_module_name nm, uint32_t base = p4::ADC14_B, uint32_t size = 0x400)
+        : BusSlave(nm, base, size) {
         SC_HAS_PROCESS(Adc14P4);
         SC_THREAD(conv_proc);
         SC_METHOD(irq_proc); sensitive << irq_ev_;

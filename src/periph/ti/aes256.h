@@ -50,7 +50,8 @@ public:
         BUSY = 0x0001, KEYWR = 0x0002, DINWR = 0x0004, DOUTRD = 0x0008
     };
 
-    explicit Aes256P4(sc_core::sc_module_name nm) : Bus16P4(nm, p4::AES256_B, 0x400) {
+    explicit Aes256P4(sc_core::sc_module_name nm, uint32_t base = p4::AES256_B, uint32_t size = 0x400)
+        : Bus16P4(nm, base, size) {
         SC_HAS_PROCESS(Aes256P4);
         SC_METHOD(fin_proc); sensitive << fin_ev_; dont_initialize();
         SC_METHOD(irq_proc); sensitive << irq_ev_;

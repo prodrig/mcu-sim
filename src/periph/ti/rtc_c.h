@@ -50,7 +50,8 @@ public:
         PSIFG = 0x01, PSIE = 0x02
     };
 
-    explicit RtcCP4(sc_core::sc_module_name nm) : Bus16P4(nm, p4::RTC_C_B, 0x400) {
+    explicit RtcCP4(sc_core::sc_module_name nm, uint32_t base = p4::RTC_C_B, uint32_t size = 0x400)
+        : Bus16P4(nm, base, size) {
         SC_HAS_PROCESS(RtcCP4);
         SC_THREAD(cuenta_proc);
         SC_METHOD(irq_proc); sensitive << irq_ev_;

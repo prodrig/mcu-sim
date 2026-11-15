@@ -103,8 +103,8 @@ public:
         RXIFG = 0x0001, TXIFG = 0x0002, STTIFG = 0x0004, TXCPTIFG = 0x0008,
     };
 
-    EusciP4(sc_core::sc_module_name nm, uint32_t base, bool es_b)
-        : Bus16P4(nm, base, 0x400), es_b_(es_b) {
+    EusciP4(sc_core::sc_module_name nm, uint32_t base, bool es_b, uint32_t size = 0x400)
+        : Bus16P4(nm, base, size), es_b_(es_b) {
         SC_HAS_PROCESS(EusciP4);
         SC_THREAD(uart_tx_proc);
         SC_THREAD(uart_rx_proc);

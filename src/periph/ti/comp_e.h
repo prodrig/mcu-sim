@@ -54,7 +54,7 @@ public:
         IFG = 0x0001, IIFG = 0x0002, RDYIFG = 0x0010, IE = 0x0100, IIE = 0x0200, RDYIE = 0x1000
     };
 
-    CompEP4(sc_core::sc_module_name nm, uint32_t base) : Bus16P4(nm, base, 0x400) {
+    CompEP4(sc_core::sc_module_name nm, uint32_t base, uint32_t size = 0x400) : Bus16P4(nm, base, size) {
         SC_HAS_PROCESS(CompEP4);
         SC_METHOD(evalua); sensitive << ev_; dont_initialize();
         SC_METHOD(aplica); sensitive << aplica_ev_; dont_initialize();

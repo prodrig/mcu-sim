@@ -46,7 +46,8 @@ public:
     // ¿Congelado? (núcleo parado y HALT_WDT)
     std::function<bool()> congelado;
 
-    explicit WdtAP4(sc_core::sc_module_name nm) : BusSlave(nm, p4::WDT_A_B, 0x400) {
+    explicit WdtAP4(sc_core::sc_module_name nm, uint32_t base = p4::WDT_A_B, uint32_t size = 0x400)
+        : BusSlave(nm, base, size) {
         SC_HAS_PROCESS(WdtAP4);
         SC_THREAD(cuenta_proc);
         SC_METHOD(pub_proc); sensitive << pub_ev_;
