@@ -1205,7 +1205,7 @@ Cosas que **están modeladas** pero que la suite no ejercita.
 | **V-09** | **Regresión que solo use `--gdb-dap` dejaría de ejercitar el SW-DP por completo.** Mitigado hoy porque T94 y T96 siguen usando los pines — es una condición a mantener, no un hueco actual | F6-gdb2 §8 |
 | **V-11** | **T53 (I2S) depende del INSTANTE SIMULADO en que arranca.** La comprobación «no se pierde ni una muestra» compara cuántas entraron en el esclavo con cuántas salieron del maestro, y ese número cambia según la fase con la que el enlace de audio engancha — que a su vez depende de **todo lo que se haya ejecutado antes en la suite**. Se descubrió ejecutando la suite en Windows con los firmwares sin compilar: al no correr CoreMark, T53 empieza en otro instante y pierde una o dos muestras. **No es un fallo del modelo de I2S**; es una comprobación que mide algo que no es estable. Arreglarla es sincronizar antes de contar, o contar solo las muestras que llevan el patrón | F5-SPI §7 |
 | **V-10** | **La posición 80, compartida, con el HASH y el RNG pidiendo a la vez.** El OR de dos entradas está puesto y verificado por un lado —el grupo I1 del banco del F417 comprueba que el HASH la levanta y que al enmascararlo se cae—, pero **no hay ninguna prueba con las dos fuentes activas simultáneamente**, que es donde un OR mal cableado se nota: con el RNG pidiendo, bajar el HASH no debe bajar la línea | F415-4 §18 |
-
+| **V-12** | **`asanc6`: D10-D11 (GDB por G1 y G2') fallan bajo ASan.** Con el código de E10/E11 (f563562), `asanc6` no da ningún error de memoria y D1-D9 y D12-D16 pasan con el mismo tiempo simulado (resto 53173701458348 ps), pero las 15 comprobaciones de D10-D11 fallan: GDB no llega a hablar con el stub y todo sale a 0. Fuera de ASan pasan. **Sin averiguar**: si ya pasaba en a5fa39a (E9.6) y por qué; la sospecha, un plazo de reloj de pared en la conexión del cliente de GDB, que con ASan va mucho más despacio. Lo siguiente: `asanc6` sobre a5fa39a y, si falla igual, alargar ese plazo bajo ASan | E10 |
 ---
 
 ## 8. Deuda de instrumentación y de proyecto (I)
@@ -1345,9 +1345,9 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 | **T** — Temporización y física | 25 *(cuatro cerradas: T-22, T-23, T-24 y T-25)* |
 | **D** — Datos sin fuente | 14 |
 | **X** — Discrepancias, silencios de [IR] y erratas de ST | 14 |
-| **V** — Huecos de verificación | 11 |
+| **V** — Huecos de verificación | 12 |
 | **I** — Deuda de instrumentación y proyecto | 52 *(treinta y cinco cerradas: I-11, I-12, I-15, I-16, I-17, I-20, I-22, I-23, I-24, I-25, I-26, I-28, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38, I-39, I-40, I-41, I-42, I-43, I-44, I-45, I-46, I-47, I-48, I-50, I-51, I-53 e I-54)* |
-| **Total** | **186** |
+| **Total** | **187** |
 
 De los 186, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
