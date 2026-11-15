@@ -45,7 +45,7 @@ public:
     std::function<uint32_t()> sclk_conf;
     uint32_t date = 0x20070201u;
 
-    explicit I2cEsp(sc_core::sc_module_name nm, uint32_t base) : BusSlave(nm, base, 0x1000) {
+    explicit I2cEsp(sc_core::sc_module_name nm, uint32_t base, uint32_t tam = 0x1000) : BusSlave(nm, base, tam) {
         SC_HAS_PROCESS(I2cEsp);
         SC_THREAD(maestro);
         // Las dos líneas las escribe un solo proceso: reset() (desde el

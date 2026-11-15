@@ -39,6 +39,22 @@
 //        TWAI0 <-> TWAI1 por un bus CAN, GP-SPI2 y I2S con la GDMA, I2C, el SAR
 //        ADC y el sensor de temperatura, AES y SHA en modo DMA, RSA, y el DATE
 //        de cada bloque en su sitio
+// E10: el núcleo LP, con los ejemplos de examples/system/ulp/lp_core de
+// ESP-IDF v5.5.6 sin tocar (verif/fw/esp32c6/idf, con el prefijo lp_):
+//   D12  interrupt, lp_timer_interrupt, inter_cpu_critical_section y
+//        build_system: el arranque del LP, la interrupción del PMU, la del LP
+//        timer, el cerrojo entre los dos núcleos en la LP SRAM
+//   D13  gpio, gpio_wakeup y gpio_intr_pulse_counter: el sueño profundo del
+//        HP, el LP IO (nivel, despertar e interrupción) y el despertar del HP
+//   D14  lp_uart_print y lp_i2c (con un BH1750): la LP UART y el LP I2C
+//   D15  el DM con dos harts: el LP «unavail» hasta que ESP-IDF lo deja,
+//        parar y seguir el LP sin tocar el HP, y el disparo cruzado
+// E11: el PCNT, el MCPWM y el ETM, con los ejemplos de examples/peripherals
+// de ESP-IDF v5.5.6 sin tocar (con el prefijo e11_) y motor (nuestra):
+//   D16  pcnt/rotary_encoder con un KY-040; mcpwm_servo_control con un SG90;
+//        mcpwm_capture_hc_sr04 y gptimer_capture_hc_sr04 (el ETM) con un
+//        HC-SR04; mcpwm_sync (tres temporizadores, sincronía por GPIO); y
+//        motor: tiempo muerto, freno por fallo, PCNT y ETM entre dos GPIO
 // E9.6: la depuración.
 //   D10  GDB contra hello_world por G1 (el DM en directo): reset halt,
 //        trigger en la Flash, ebreak en la HP SRAM, watchpoint, paso y Ctrl-C
@@ -60,6 +76,9 @@
 #include "rv/gdb/gdb_stub_rv.h"
 #include "verif/sonda_jtag_rv.h"
 #include "verif/gdb_client.h"
+#include "parts/bh1750.h"
+#include "parts/hc_sr04.h"
+#include "parts/servo.h"
 #include <memory>
 #include <vector>
 
@@ -90,6 +109,107 @@ static const char* const FW = "verif/fw/esp32c6/";
 // el bus CAN (una Y cableada, como dos transceptores), el divisor que pone
 // 1,2 V en GPIO0, los pull-ups del I2C, y la medida de GPIO2 (LEDC) y GPIO3
 // (RMT)
+// E10: el banco del dominio LP. Unos pines que se ponen a 0 o a 1 (o se
+// sueltan), un receptor de UART a 115200 en GPIO5 (la TX de la LP UART) y un
+// BH1750 en el LP I2C (SDA GPIO6, SCL GPIO7) con sus pull-ups, que se
+// conecta y desconecta
+SC_MODULE(BancoLpC6) {
+    Esp32C6& c6;
+    std::string lp_uart;                 // lo que sale por GPIO5
+    Bh1750 luz;
+    BancoLpC6(sc_module_name nm, Esp32C6& c)
+        : sc_module(nm), c6(c), luz("bh1750", c.gpio.nodo_de(7), c.gpio.nodo_de(6)) {
+        for (unsigned p = 0; p < 8; ++p) d_[p] = c6.gpio.nodo_de(p).register_driver("banco_lp");
+        SC_HAS_PROCESS(BancoLpC6);
+        SC_THREAD(rx5);
+    }
+    // nivel: 0, 1, o -1 suelto; con r, la resistencia (un pull-up es 3.3 V con 4,7 k)
+    void pin(unsigned p, int nivel, float r = 50.0f) {
+        if (nivel < 0) c6.gpio.nodo_de(p).set_hiz(d_[p]);
+        else c6.gpio.nodo_de(p).set_drive(d_[p], nivel ? 3.3f : 0.0f, r);
+    }
+    void suelta() { for (unsigned p = 0; p < 8; ++p) pin(p, -1); }
+private:
+    int d_[8];
+    static bool alto(analog_net_if& n) { return n.voltage() > 1.65f; }
+    void rx5() {
+        analog_net_if& n = c6.gpio.nodo_de(5);
+        const sc_time bit(1e6 / 115200.0, SC_US);
+        for (;;) {
+            wait(n.value_changed_event());
+            if (alto(n) || n.floating()) continue;
+            wait(bit / 2);
+            if (alto(n)) continue;
+            uint8_t b = 0;
+            for (unsigned i = 0; i < 8; ++i) { wait(bit); if (alto(n)) b |= uint8_t(1u << i); }
+            wait(bit);
+            lp_uart.push_back(char(b));
+        }
+    }
+};
+
+// E11: las piezas de los ejemplos de periféricos, desconectadas hasta D16
+//   el encoder KY-040 (A GPIO0, B GPIO2, C a masa, con sus pull-ups de 10 k),
+//   el servo (la señal en GPIO0, a 5 V; 0,5-2,5 ms son -90..90 grados, como
+//   en mcpwm_servo_control), dos HC-SR04 (TRIG GPIO0; ECHO GPIO2 el del
+//   MCPWM y GPIO1 el del GPTimer) y lo que pasa por GPIO0-5 (los flancos)
+SC_MODULE(BancoE11C6) {
+    Esp32C6& c6;
+    AnalogNet v5{"v5"}, gnd{"gnd"};
+    Encoder enc;
+    Servo servo;
+    HcSr04 sonar_mcpwm, sonar_gptimer;
+    std::unique_ptr<Rpull> pu_a, pu_b;
+    // Los flancos de GPIO0-5: {t, nivel}
+    std::vector<std::pair<double, bool>> flancos[6];
+    bool graba = false;
+    static ConfigServo cfg_servo() {
+        ConfigServo c;
+        c.pulso_min_ms = 0.5; c.pulso_max_ms = 2.5; c.inicial_aleatoria = false; c.semilla = 1;
+        return c;
+    }
+    BancoE11C6(sc_module_name nm, Esp32C6& c)
+        : sc_module(nm), c6(c),
+          enc("ky040", c.gpio.nodo_de(0), c.gpio.nodo_de(2), gnd),
+          servo("sg90", v5, gnd, c.gpio.nodo_de(0), cfg_servo()),
+          sonar_mcpwm("hc_sr04_mcpwm", c.gpio.nodo_de(0), c.gpio.nodo_de(2)),
+          sonar_gptimer("hc_sr04_gptimer", c.gpio.nodo_de(0), c.gpio.nodo_de(1)) {
+        v5.set_drive(v5.register_driver("fuente_5v"), 5.0f, 0.1f);
+        gnd.set_drive(gnd.register_driver("masa"), 0.0f, 0.01f);
+        enc.set_enabled(false);
+        servo.set_enabled(false);
+        sonar_mcpwm.set_enabled(false);
+        sonar_gptimer.set_enabled(false);
+        for (unsigned p = 0; p < 6; ++p) {
+            sc_spawn([this, p] {
+                analog_net_if& n = c6.gpio.nodo_de(p);
+                bool v = alto(n);
+                for (;;) {
+                    wait(n.value_changed_event());
+                    const bool a = alto(n);
+                    if (a == v) continue;
+                    v = a;
+                    if (graba) flancos[p].push_back({sc_time_stamp().to_seconds(), a});
+                }
+            });
+        }
+    }
+    static bool alto(analog_net_if& n) { return !n.floating() && n.voltage() > 1.65f; }
+    void encoder(bool si) {
+        enc.set_enabled(si);
+        if (si) { pu_a.reset(new Rpull(c6.gpio.nodo_de(0), 3.3, 10e3)); pu_b.reset(new Rpull(c6.gpio.nodo_de(2), 3.3, 10e3)); }
+        else { pu_a.reset(); pu_b.reset(); }
+    }
+    void empieza() { for (auto& f : flancos) f.clear(); graba = true; }
+    void para() { graba = false; }
+    // Los instantes de las subidas (o bajadas) de un pin
+    std::vector<double> sube(unsigned p, bool nivel = true) const {
+        std::vector<double> r;
+        for (auto& f : flancos[p]) if (f.second == nivel) r.push_back(f.first);
+        return r;
+    }
+};
+
 SC_MODULE(BancoPerifC6) {
     Esp32C6& c6;
     // LEDC: los flancos de subida y bajada de GPIO2
@@ -157,6 +277,8 @@ SC_MODULE(TbC6) {
     SpiFlashChip flash{*busca_modelo_flash("GD25Q32")};
     Esp32C6 c6b{"c6b", MCU_ESP32C6FH4};
     BancoPerifC6 banco{"banco", c6, false};
+    BancoLpC6 banco_lp{"banco_lp", c6};
+    BancoE11C6 banco_e11{"banco_e11", c6};
     // E9.6: GDB contra c6b: G1 con el DM en directo y G2' por los pines
     // MTMS-MTDO con la sonda de bancada
     GdbStubRv g1{"g1", *c6b.dm, puerto_gdb(0), "gdb-g1"};
@@ -686,18 +808,342 @@ SC_MODULE(TbC6) {
         t_gdb += sc_time_stamp() - t0;
     }
 
+    // --- E10: el núcleo LP -------------------------------------------------------
+    // Arranca un ejemplo de examples/system/ulp/lp_core (lp_<nombre>)
+    bool arranca_lp(const char* ej) {
+        banco_lp.suelta();
+        return arranca_flash(std::string("build/idf-c6/v5.5/") + ej);
+    }
+    // Lo que salió por la consola y por la LP UART, cuando algo de E10 falla
+    void muestra_lp() {
+        auto cola = [](const std::string& t) { return t.substr(t.size() > 500 ? t.size() - 500 : 0); };
+        std::printf("    [consola] %s\n    [lp_uart %.0f baudios, %zu bytes] %s\n", cola(terminal).c_str(),
+                    c6.lp_uart.baudios(), banco_lp.lp_uart.size(), cola(banco_lp.lp_uart).c_str());
+        std::printf("    [pmu] hp_dormido %d lp_dormido %d, pc HP 0x%08X, pc LP 0x%08X, LP %llu instrucciones\n",
+                    int(c6.pmu.hp_dormido()), int(c6.pmu.lp_dormido()), c6.core.hart.pc(), c6.core_lp.hart.pc(),
+                    (unsigned long long)c6.core_lp.instrucciones());
+    }
+    static long ultimo_numero(const std::string& t, const std::string& tras) {
+        const size_t i = t.rfind(tras);
+        return i == std::string::npos ? -1 : std::atol(t.c_str() + i + tras.size());
+    }
+    void d12() {
+        grupo("D12 el nucleo LP: el arranque, sus interrupciones, el LP timer y las atomicas (E10)");
+        check(c6.dm->n_harts() == 2, "el DM tiene dos harts: el HP (0) y el LP (1)");
+        const uint64_t i0 = c6.core_lp.instrucciones();
+        check(arranca_lp("lp_interrupt"), "lp_core/interrupt: su flash_args");
+        check(espera_texto(terminal, "Triggered 10 interrupts on the LP-Core, LP-Core received 10 interrupts",
+                           sc_time(3, SC_SEC)),
+              "el HP dispara HP_TRIGGER_LP diez veces y el LP las cuenta en su interrupcion (el PMU, la 30)");
+        check(c6.pmu.despertares_lp() >= 1 && c6.core_lp.instrucciones() > i0,
+              "el LP sale del reset en 0x5000_0080 cuando el HP lo despierta (" +
+              std::to_string(c6.core_lp.instrucciones() - i0) + " instrucciones)");
+        check(arranca_lp("lp_lp_timer_interrupt"), "lp_core/lp_timer_interrupt");
+        check(espera_texto(terminal, "Interrupt count: 3", sc_time(3, SC_SEC)),
+              "la alarma del LP timer (TAR1, cada 500 ms) interrumpe al LP: tres veces");
+        check(arranca_lp("lp_inter_cpu_critical_section"), "lp_core/inter_cpu_critical_section");
+        const bool fin = espera_texto(terminal, "LP CPU's increment ends", sc_time(5, SC_SEC)) &&
+                         espera_texto(terminal, "HP CPU's increment ends", sc_time(5, SC_SEC));
+        wait(50, SC_MS);                                   // el resto de las dos líneas
+        const long a = ultimo_numero(terminal, "LP CPU's increment ends, shared counter = "),
+                   b = ultimo_numero(terminal, "HP CPU's increment ends, shared counter = ");
+        if (!check(fin && std::max(a, b) == 200000,
+                   "100 000 incrementos de cada nucleo bajo el cerrojo de la LP SRAM (Peterson): " +
+                   std::to_string(std::max(a, b))))
+            std::printf("%s\n", terminal.substr(terminal.size() > 600 ? terminal.size() - 600 : 0).c_str());
+        check(arranca_lp("lp_build_system"), "lp_core/build_system");
+        check(espera_texto(terminal, "Sum calculated by ULP using external library func: 11", sc_time(3, SC_SEC)),
+              "el LP calcula con una biblioteca suya y el HP lo lee de la LP SRAM: 11");
+        c6.alimenta(false);
+    }
+    void d13() {
+        grupo("D13 el sueno profundo, el LP IO y el despertar del HP (E10)");
+        check(arranca_lp("lp_gpio"), "lp_core/gpio: el LP lee GPIO0 cada 10 ms (el LP timer)");
+        banco_lp.pin(0, 0);
+        check(espera_texto(terminal, "Entering in deep sleep", sc_time(3, SC_SEC)), "el HP se duerme (profundo)");
+        wait(50, SC_MS);
+        check(c6.pmu.hp_dormido(), "y sigue dormido mientras GPIO0 no cambia");
+        banco_lp.pin(0, 1);
+        check(espera_texto(terminal, "ULP woke up the main CPU!", sc_time(3, SC_SEC)),
+              "GPIO0 a 1: el LP despierta al HP (LP_TRIGGER_HP), que arranca otra vez");
+        check(tiene(terminal, "rst:0x5 ") && c6.lp_clkrst.causa() == 5, "con la causa 5 (CORE_DEEP_SLEEP)");
+        wait(50, SC_MS);                                   // el resto de la línea
+        if (!check(tiene(terminal, "ULP read changes in GPIO_0 current is: High"),
+              "y lee de la LP SRAM lo que vio el LP: High")) muestra_lp();
+        check(arranca_lp("lp_gpio_wakeup"), "lp_core/gpio_wakeup: GPIO2 con pull-up, despertar por flanco de bajada");
+        // Se duerme 100 ms después de decirlo: el botón, ya dormido
+        bool dormido = espera_texto(terminal, "Entering deep sleep", sc_time(3, SC_SEC));
+        const sc_time t0 = sc_time_stamp();
+        while (dormido && !c6.pmu.hp_dormido() && sc_time_stamp() - t0 < sc_time(1, SC_SEC)) wait(1, SC_MS);
+        check(dormido && c6.pmu.hp_dormido(), "el HP se duerme");
+        wait(10, SC_MS);
+        banco_lp.pin(2, 0);
+        if (!check(espera_texto(terminal, "ULP woke up the main CPU!", sc_time(3, SC_SEC)),
+              "GPIO2 a 0: el LP IO despierta al LP (WAKEUP_ENABLE) y este al HP")) muestra_lp();
+        banco_lp.pin(2, -1);
+        check(arranca_lp("lp_gpio_intr_pulse_counter"), "lp_core/gpio_intr_pulse_counter: GPIO6");
+        banco_lp.pin(6, 0);
+        check(espera_texto(terminal, "Entering in deep sleep", sc_time(3, SC_SEC)), "el HP se duerme");
+        for (unsigned i = 0; i < 10; ++i) { wait(2, SC_MS); banco_lp.pin(6, 1); wait(2, SC_MS); banco_lp.pin(6, 0); }
+        check(espera_texto(terminal, "Pulse count: 10", sc_time(3, SC_SEC)),
+              "diez flancos de subida en GPIO6: la interrupcion del LP IO los cuenta y despierta al HP");
+        if (!check(tiene(banco_lp.lp_uart, "LP Core pulse counter started") &&
+              tiene(banco_lp.lp_uart, "Pulse count: 10, wake-up main CPU"),
+              "y el LP lo cuenta por la LP UART (GPIO5)")) muestra_lp();
+        c6.alimenta(false);
+    }
+    void d14() {
+        grupo("D14 la LP UART y el LP I2C (E10)");
+        banco_lp.lp_uart.clear();
+        check(arranca_lp("lp_lp_uart_print"), "lp_core/lp_uart/lp_uart_print");
+        check(espera_texto(terminal, "Entering deep sleep...", sc_time(3, SC_SEC)), "el HP inicia la LP UART y se duerme");
+        const sc_time t0 = sc_time_stamp();
+        while (!tiene(banco_lp.lp_uart, "This program has run 2 times") && sc_time_stamp() - t0 < sc_time(3, SC_SEC))
+            wait(10, SC_MS);
+        if (!check(tiene(banco_lp.lp_uart, "Hello from the LP core!!\r\nThis program has run 1 times\r\n"),
+              "el LP escribe por la LP UART (GPIO5, 115200)")) muestra_lp();
+        check(tiene(banco_lp.lp_uart, "This program has run 2 times"),
+              "y otra vez al segundo: el LP timer lo despierta, desde el reset, con la LP SRAM como estaba");
+        banco_lp.luz.lux = 300;
+        banco_lp.pin(6, 1, 4.7e3f);
+        banco_lp.pin(7, 1, 4.7e3f);
+        check(arranca_lp("lp_lp_i2c"), "lp_core/lp_i2c, con un BH1750 en el LP I2C (SDA GPIO6, SCL GPIO7)");
+        banco_lp.pin(6, 1, 4.7e3f);
+        banco_lp.pin(7, 1, 4.7e3f);
+        check(espera_texto(terminal, "Entering deep sleep", sc_time(3, SC_SEC)) || tiene(terminal, "deep sleep"),
+              "el HP inicia el LP I2C y se duerme");
+        wait(100, SC_MS);
+        check(banco_lp.luz.encendido() && banco_lp.luz.lecturas() > 0,
+              "el LP enciende el BH1750 y lo lee (" + std::to_string(banco_lp.luz.lecturas()) + " lecturas)");
+        check(c6.pmu.hp_dormido(), "300 lux: dentro de los umbrales, el HP sigue dormido");
+        banco_lp.luz.lux = 2000;
+        check(espera_texto(terminal, "LP core woke up the main CPU", sc_time(2, SC_SEC)),
+              "2000 lux: el LP despierta al HP");
+        check(espera_texto(terminal, "Lux = 2000", sc_time(1, SC_SEC)), "que lee la medida del LP: Lux = 2000");
+        c6.alimenta(false);
+        banco_lp.suelta();
+    }
+
+    // --- E11: el PCNT, el MCPWM y el ETM -----------------------------------------------
+    static double ultimo_real(const std::string& t, const std::string& tras) {
+        const size_t i = t.rfind(tras);
+        return i == std::string::npos ? -1e9 : std::atof(t.c_str() + i + tras.size());
+    }
+    static bool cerca(double a, double b, double tol) { return std::fabs(a - b) <= tol; }
+    void d16() {
+        grupo("D16 el PCNT, el MCPWM y el ETM con los ejemplos de ESP-IDF (E11)");
+        // 1. El encoder KY-040 en el PCNT, con los dos canales en cuadratura
+        banco_e11.encoder(true);
+        check(arranca_flash("build/idf-c6/v5.5/e11_rotary_encoder"), "pcnt/rotary_encoder, con un KY-040 en GPIO0/GPIO2");
+        check(espera_texto(terminal, "start pcnt unit", sc_time(2, SC_SEC)), "el PCNT en marcha: filtro de 1 us, cuatro limites y umbrales");
+        wait(50, SC_MS);
+        banco_e11.enc.gira(30);                  // 30 clics: 60 flancos
+        const bool w50 = espera_texto(terminal, "Watch point event, count: 50", sc_time(1, SC_SEC)) ||
+                         tiene(terminal, "Watch point event, count: -50");
+        check(w50, "30 clics: el umbral de 50 (THRES1) interrumpe");
+        wait(1200, SC_MS);
+        const long n60 = ultimo_numero(terminal, "Pulse count: ");
+        check(std::labs(n60) == 60, "y la cuenta es 60: los cuatro flancos de cada ciclo (" + std::to_string(n60) + ")");
+        banco_e11.enc.gira(-80);                 // 160 flancos hacia atrás: hasta el límite
+        const bool lim = espera_texto(terminal, n60 > 0 ? "Watch point event, count: -100" : "Watch point event, count: 100",
+                                      sc_time(2, SC_SEC));
+        check(lim, "80 clics atras: el limite (L_LIM) interrumpe en -100 y el contador vuelve a 0");
+        wait(1200, SC_MS);
+        check(ultimo_numero(terminal, "Pulse count: ") == 0, "Pulse count: 0");
+        c6.alimenta(false);
+        banco_e11.encoder(false);
+        // 2. El servo
+        banco_e11.servo.set_enabled(true);
+        check(arranca_flash("build/idf-c6/v5.5/e11_mcpwm_servo_control"), "mcpwm/mcpwm_servo_control, con un SG90 en GPIO0");
+        check(espera_texto(terminal, "Angle of rotation: ", sc_time(2, SC_SEC)), "el MCPWM a 50 Hz");
+        espera_texto(terminal, "Angle of rotation: -40", sc_time(15, SC_SEC));
+        wait(100, SC_MS);
+        banco_e11.empieza();
+        wait(45, SC_MS);
+        banco_e11.para();
+        const auto s0 = banco_e11.sube(0), b0 = banco_e11.sube(0, false);
+        const long ang = ultimo_numero(terminal, "Angle of rotation: ");
+        double ancho = 0, per = 0;
+        if (s0.size() >= 2 && !b0.empty()) {
+            per = s0[1] - s0[0];
+            for (double b : b0) if (b > s0[0]) { ancho = b - s0[0]; break; }
+        }
+        const double esperado = 500.0 + (double(ang) + 90.0) * 2000.0 / 180.0;
+        check(cerca(per * 1e6, 20000.0, 1.0) && cerca(ancho * 1e6, esperado, 1.0),
+              "el pulso: " + std::to_string(int(std::lround(ancho * 1e6))) + " us cada " +
+              std::to_string(int(std::lround(per * 1e6))) + " us para " + std::to_string(ang) + " grados");
+        check(cerca(banco_e11.servo.objetivo(), double(ang), 1.0), "y el SG90 va a " + std::to_string(ang) + " grados");
+        c6.alimenta(false);
+        banco_e11.servo.set_enabled(false);
+        // 3. La captura del MCPWM, con un HC-SR04
+        banco_e11.sonar_mcpwm.distancia_cm = 30.0;
+        banco_e11.sonar_mcpwm.set_enabled(true);
+        check(arranca_flash("build/idf-c6/v5.5/e11_mcpwm_capture_hc_sr04"), "mcpwm/mcpwm_capture_hc_sr04 (TRIG GPIO0, ECHO GPIO2)");
+        check(espera_texto(terminal, "Measured distance: ", sc_time(3, SC_SEC)), "la captura mide el eco por los dos flancos");
+        wait(10, SC_MS);
+        const double d30 = ultimo_real(terminal, "Measured distance: ");
+        // El ejemplo pasa los tics a us con esp_clk_apb_freq() (40 MHz en el
+        // C6), pero la captura cuenta con el reloj del grupo (80 MHz,
+        // mcpwm_capture_timer_get_resolution): en el chip, y aquí, sale el doble
+        check(cerca(d30, 2 * 30.16, 0.1), "30 cm: " + std::to_string(d30) +
+              " cm (1749 us; el ejemplo divide los tics de 80 MHz entre 40 MHz: el doble, como en el chip)");
+        banco_e11.sonar_mcpwm.distancia_cm = 100.0;
+        wait(1200, SC_MS);
+        const double d100 = ultimo_real(terminal, "Measured distance: ");
+        check(cerca(d100, 2 * 100.53, 0.1), "100 cm: " + std::to_string(d100) + " cm (el doble)");
+        c6.alimenta(false);
+        banco_e11.sonar_mcpwm.set_enabled(false);
+        // 4. El ETM: el flanco de GPIO1 captura el GPTimer, sin la CPU
+        banco_e11.sonar_gptimer.distancia_cm = 50.0;
+        banco_e11.sonar_gptimer.set_enabled(true);
+        const uint64_t t0 = c6.etm.tareas();
+        check(arranca_flash("build/idf-c6/v5.5/e11_gptimer_capture_hc_sr04"), "timer_group/gptimer_capture_hc_sr04 (ECHO GPIO1)");
+        check(espera_texto(terminal, "Measured distance: ", sc_time(3, SC_SEC)), "el ETM: GPIO_EVT_CH0_ANY_EDGE -> TIMER0_TASK_CNT_CAP");
+        wait(10, SC_MS);
+        const double d50 = ultimo_real(terminal, "Measured distance: ");
+        check(cerca(d50, 50.26, 0.05) && c6.etm.tareas() > t0,
+              "50 cm: " + std::to_string(d50) + " cm, con " + std::to_string(c6.etm.tareas() - t0) + " tareas del ETM");
+        c6.alimenta(false);
+        banco_e11.sonar_gptimer.set_enabled(false);
+        // 5. La sincronía de tres temporizadores por GPIO5
+        check(arranca_flash("build/idf-c6/v5.5/e11_mcpwm_sync"), "mcpwm/mcpwm_sync (GPIO0, 2 y 4; la sincronia por GPIO5)");
+        check(espera_texto(terminal, "Force the output level to low", sc_time(3, SC_SEC)), "tres temporizadores, arrancados uno a uno");
+        espera_texto(terminal, "Now the output PWMs should in sync", sc_time(1, SC_SEC));
+        wait(5, SC_MS);
+        banco_e11.empieza();
+        wait(3, SC_MS);
+        banco_e11.para();
+        const auto a = banco_e11.sube(0), b = banco_e11.sube(2), c = banco_e11.sube(4);
+        bool sinc = a.size() >= 2 && b.size() >= 2 && c.size() >= 2;
+        for (size_t i = 0; sinc && i < std::min({a.size(), b.size(), c.size()}); ++i)
+            sinc = cerca(a[i], b[i], 1e-9) && cerca(a[i], c[i], 1e-9);
+        const auto ba = banco_e11.sube(0, false);
+        const double alto0 = (!a.empty() && !ba.empty()) ? (ba.back() > a.front() ? ba[0] - a[0] : 0) : 0;
+        check(sinc && cerca(a[1] - a[0], 1e-3, 1e-9) && cerca(alto0, 200e-6, 1e-8),
+              "despues del pulso en GPIO5, los tres a la vez: 1 kHz, 200 us altos");
+        c6.alimenta(false);
+        // 6. motor (nuestra): tiempo muerto, freno por fallo, PCNT y ETM entre GPIO
+        check(arranca_flash("build/idf-c6/v5.5/motor"), "motor: el MCPWM con tiempo muerto y freno, el PCNT y el ETM");
+        check(espera_texto(terminal, "M2 pcnt ", sc_time(3, SC_SEC)), "M2");
+        wait(5, SC_MS);
+        const long np = ultimo_numero(terminal, "M2 pcnt ");
+        // vTaskDelay(100 ms) son 10 tics de FreeRTOS: entre 90 y 100 ms
+        check(np >= 900 && np <= 1001, "el PCNT cuenta las subidas de GPIO0 en los 10 tics de vTaskDelay(100 ms): " +
+              std::to_string(np));
+        check(espera_texto(terminal, "M3 etm en marcha", sc_time(1, SC_SEC)), "M3");
+        wait(1, SC_MS);
+        banco_e11.empieza();
+        wait(2, SC_MS);
+        banco_e11.para();
+        {
+            const auto sa = banco_e11.sube(0), ba2 = banco_e11.sube(0, false), sb = banco_e11.sube(2), bb = banco_e11.sube(2, false);
+            // A sube 5 us después de que B baje; B, 5 us después de que A baje
+            bool dt = sa.size() >= 5 && sb.size() >= 5;
+            double ancho_a = 0, ancho_b = 0, muerto1 = 1, muerto2 = 1;
+            if (dt) {
+                for (double t : ba2) if (t > sa[1]) { ancho_a = t - sa[1]; break; }
+                for (double t : bb) if (t > sb[1]) { ancho_b = t - sb[1]; break; }
+                for (double t : bb) if (t < sa[2]) muerto1 = sa[2] - t;
+                for (double t : ba2) if (t < sb[2]) muerto2 = sb[2] - t;
+            }
+            if (!check(dt && cerca(ancho_a, 25e-6, 1e-8) && cerca(ancho_b, 65e-6, 1e-8) && cerca(muerto1, 5e-6, 1e-8) &&
+                       cerca(muerto2, 5e-6, 1e-8),
+                       "el tiempo muerto: A 25 us y B (complementaria) 65 us altos, 5 us entre las dos"))
+                std::printf("    A %.3f us, B %.3f us, B->A %.3f us, A->B %.3f us (%zu/%zu subidas)\n", ancho_a * 1e6,
+                            ancho_b * 1e6, muerto1 * 1e6, muerto2 * 1e6, sa.size(), sb.size());
+            const auto s5 = banco_e11.sube(5);
+            check(s5.size() >= 2 && cerca(s5[1] - s5[0], 200e-6, 1e-8),
+                  "el ETM: cada subida de GPIO0 invierte GPIO5 (GPIO_EVT -> GPIO_TASK_TOG): 2,5 kHz");
+        }
+        const int df = c6.gpio.nodo_de(4).register_driver("fallo_e11");
+        c6.gpio.nodo_de(4).set_drive(df, 3.3f, 50.0f);
+        check(espera_texto(terminal, "M4 freno", sc_time(1, SC_SEC)), "GPIO4 alto: el fallo 0 frena el operador (OST) y avisa");
+        banco_e11.empieza();
+        wait(1, SC_MS);
+        banco_e11.para();
+        check(banco_e11.flancos[0].empty() && banco_e11.flancos[2].empty() &&
+              !BancoE11C6::alto(c6.gpio.nodo_de(0)) && !BancoE11C6::alto(c6.gpio.nodo_de(2)),
+              "y las dos salidas se quedan a 0");
+        c6.gpio.nodo_de(4).set_drive(df, 0.0f, 50.0f);
+        if (!check(espera_texto(terminal, "M5 vuelve", sc_time(1, SC_SEC)), "GPIO4 bajo: CLR_OST, y el PWM vuelve"))
+            std::printf("%s\n", terminal.substr(terminal.size() > 800 ? terminal.size() - 800 : 0).c_str());
+        wait(1, SC_MS);
+        banco_e11.empieza();
+        wait(1, SC_MS);
+        banco_e11.para();
+        check(banco_e11.sube(0).size() >= 9, "otra vez a 10 kHz");
+        c6.gpio.nodo_de(4).set_hiz(df);
+        c6.alimenta(false);
+    }
+
+    void d15() {
+        grupo("D15 la depuracion de los dos harts: unavail, parar el LP y el disparo cruzado (E10)");
+        RvDmCliente cli_dm(*c6.dm);
+        check(arranca_lp("lp_lp_timer_interrupt"), "lp_core/lp_timer_interrupt: el LP en wfi, con su alarma cada 500 ms");
+        wait(5, SC_MS);
+        check(cli_dm.activar() && cli_dm.n_harts() == 2, "el DM, por el DMI: dos harts");
+        cli_dm.selecciona(1);
+        check(!cli_dm.disponible(), "antes de que ESP-IDF lo arranque, el LP esta «unavail» (LPPERI_CPU, el reset en 1)");
+        espera_texto(terminal, "LP core loaded with firmware and running successfully", sc_time(3, SC_SEC));
+        cli_dm.selecciona(1);
+        check(cli_dm.disponible(), "ulp_lp_core_run() lo deja depurable (LPCORE_DBGM_UNAVALIABLE = 0)");
+        check(cli_dm.parar() && cli_dm.parado(), "haltreq al hart 1: el LP se para");
+        uint32_t dpc = 0;
+        cli_dm.lee_reg(RvDmCliente::CSR_DPC, dpc);
+        check(dpc >= c6::LP_SRAM && dpc < c6::LP_SRAM + c6::LP_SRAM_TAM, "parado en la LP SRAM (dpc " + hex(dpc) + ")");
+        cli_dm.selecciona(0);
+        check(!cli_dm.parado(), "y el HP sigue corriendo");
+        cli_dm.selecciona(1);
+        check(cli_dm.seguir() && !cli_dm.parado(), "resumereq: el LP sigue");
+        c6.dm->pon_disparo_cruzado(true);
+        cli_dm.selecciona(1);
+        cli_dm.parar();
+        wait(1, SC_US);
+        cli_dm.selecciona(0);
+        check(cli_dm.parado(), "con el disparo cruzado, parar el LP para tambien el HP");
+        cli_dm.seguir();
+        cli_dm.selecciona(1);
+        cli_dm.seguir();
+        c6.dm->pon_disparo_cruzado(false);
+        cli_dm.parar();
+        wait(1, SC_US);
+        cli_dm.selecciona(0);
+        check(!cli_dm.parado(), "y sin el, no");
+        cli_dm.selecciona(1);
+        cli_dm.seguir();
+        const std::string antes = terminal;
+        wait(1200, SC_MS);
+        check(ultimo_numero(terminal, "Interrupt count: ") >= 2, "los dos siguen: las interrupciones del LP timer cuentan (" +
+              std::to_string(ultimo_numero(terminal, "Interrupt count: ")) + ")");
+        c6.alimenta(false);
+    }
+    static std::string hex(uint32_t v) { char b[16]; std::snprintf(b, sizeof b, "0x%08X", v); return b; }
+
+    // TESTC6_SOLO="12,13": solo esos grupos (para depurar; la invariante es
+    // la de la suite entera)
+    static bool toca(unsigned g) {
+        const char* e = std::getenv("TESTC6_SOLO");
+        if (!e) return true;
+        const std::string s = std::string(",") + e + ",";
+        return s.find("," + std::to_string(g) + ",") != std::string::npos;
+    }
     void run() {
         wait(SC_ZERO_TIME);
-        d1();
-        d2();
-        d3();
-        d4();
-        d5();
-        d6();
-        d7();
-        d8();
-        d9();
-        d10();
+        if (toca(1)) d1();
+        if (toca(2)) d2();
+        if (toca(3)) d3();
+        if (toca(4)) d4();
+        if (toca(5)) d5();
+        if (toca(6)) d6();
+        if (toca(7)) d7();
+        if (toca(8)) d8();
+        if (toca(9)) d9();
+        if (toca(12)) d12();
+        if (toca(13)) d13();
+        if (toca(14)) d14();
+        if (toca(15)) d15();
+        if (toca(16)) d16();
+        if (toca(10)) d10();
         std::printf("\nTOTAL C6: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }
@@ -765,6 +1211,10 @@ SC_MODULE(CorreFlash) {
                         (unsigned long long)c6->resets(), c6->lp_clkrst.causa(), c6->uart0.baudios(),
                         c6->pcr.hz_cpu(), c6->pcr.hz_apb(), c6->gpio.strap(),
                         (unsigned long long)c6->intpri.reclamaciones());
+        if (std::getenv("C6_DBG"))
+            std::printf("\n[dbg] hp_dormido %d lp_dormido %d; lp_uart %.0f baudios (clkdiv 0x%X, sclk %.0f), %zu bytes enviados; LP %llu instrucciones", int(c6->pmu.hp_dormido()), int(c6->pmu.lp_dormido()),
+                        c6->lp_uart.baudios(), c6->lp_uart.clkdiv(), c6->lp_uart.hz_fuente(), c6->lp_uart.salida.size(),
+                        (unsigned long long)c6->core_lp.instrucciones());
         std::printf("\n[fin] %.1f ms, pc=0x%08X, %llu instrucciones, %llu errores de bus, cache %llu/%llu\n", ms,
                     c6->core.hart.pc(), (unsigned long long)c6->core.hart.instret(), (unsigned long long)fallos,
                     (unsigned long long)c6->cache.aciertos(), (unsigned long long)c6->cache.fallos());

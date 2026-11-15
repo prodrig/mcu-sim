@@ -78,7 +78,8 @@ constexpr unsigned F_PMU = 13, F_EFUSE = 14, F_LP_RTC_TIMER = 15, F_LP_UART = 16
 constexpr unsigned SIG_U0RXD = 6, SIG_U0TXD = 6, SIG_U1RXD = 9, SIG_U1TXD = 9,
                    SIG_LEDC0 = 0, SIG_I2C_SCL = 45, SIG_I2C_SDA = 46, SIG_FSPICLK = 63,
                    SIG_RMT0 = 71, SIG_TWAI0 = 73, SIG_TWAI1 = 77, SIG_FSPIQ = 64, SIG_FSPID = 65,
-                   SIG_FSPICS0 = 68, SIG_I2SO_SD1 = 18;
+                   SIG_FSPICS0 = 68, SIG_I2SO_SD1 = 18,
+                   SIG_PWM0 = 87, SIG_PCNT = 101;   // E11 [gpio_sig_map.h]
 constexpr unsigned N_GPIO = 31;
 } // namespace c6
 

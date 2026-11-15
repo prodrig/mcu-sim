@@ -21,6 +21,15 @@
 #       FreeRTOS (main e IDLE), que OpenOCD saca de la memoria del chip
 #   O6  G3: el JTAG del USB-Serial-JTAG (de fabrica, sin --jtag), por el
 #       remote_bitbang del puente USB: IDCODE, examine y halt
+# E10, EL NUCLEO LP (con lp_core/lp_timer_interrupt de ESP-IDF, el LP en
+# marcha con su alarma):
+#   O7  target/esp32c6-lpcore.cfg de openocd-esp32, sin tocar (HP y LP en SMP
+#       por el mismo TAP): examina los dos harts, halt, y el pc del LP esta en
+#       la LP SRAM
+#   O8  GDB a traves de ese OpenOCD (RTOS hwthread): `info threads` con los
+#       dos nucleos, esp32c6.hp.cpu0 y esp32c6.lp.cpu, y el pc del segundo
+#   O9  GDB contra el stub interno G1 (--gdb-dap), sin ELF: `info threads`
+#       con dos hilos, uno por hart, y el pc del LP en la LP SRAM
 #
 # --flash-rapida deja los tiempos de programar y borrar la Flash al 1 %: el
 # flasher de openocd-esp32 espera con plazos de reloj de pared.
@@ -35,11 +44,13 @@
 # =============================================================================
 import argparse
 import os
+import re
 import shutil
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 IDF = os.path.join("build", "idf-c6", "v5.5")
@@ -64,7 +75,7 @@ def puerto_libre():
 
 
 class Sim:
-    def __init__(self, sim, extra, fw=None):
+    def __init__(self, sim, extra, fw=None, sondea=True):
         self.log = tempfile.NamedTemporaryFile("w+", suffix=".log", delete=False)
         self.puerto = puerto_libre()
         args = [sim, PLACA, fw or os.path.join(IDF, "hello_world", "flash_args"),
@@ -73,7 +84,12 @@ class Sim:
         self.p = subprocess.Popen(args, stdout=self.log, stderr=subprocess.STDOUT)
         t0 = time.time()
         self.listo = False
-        while time.time() - t0 < 30 and self.p.poll() is None:
+        # Sin sondear (sondea=False): una conexion al puerto de GDB para el
+        # chip al conectarse, y se quedaria parado
+        if not sondea:
+            time.sleep(1)
+            self.listo = self.p.poll() is None
+        while sondea and time.time() - t0 < 30 and self.p.poll() is None:
             try:
                 socket.create_connection(("127.0.0.1", self.puerto), timeout=1).close()
                 self.listo = True
@@ -112,6 +128,34 @@ def cfg_rb(puerto):
             "transport select jtag\nsource [find target/esp32c6.cfg]\n" % puerto)
     f.close()
     return f.name
+
+
+def cfg_lp(puerto):
+    f = tempfile.NamedTemporaryFile("w", suffix=".cfg", delete=False)
+    f.write("adapter driver remote_bitbang\nremote_bitbang host localhost\nremote_bitbang port %d\n"
+            "transport select jtag\nsource [find target/esp32c6-lpcore.cfg]\n" % puerto)
+    f.close()
+    return f.name
+
+
+def espera_lp(s, plazo=180):
+    """Hasta que ESP-IDF ha arrancado el LP (lo dice por la consola)"""
+    fin = time.time() + plazo
+    while time.time() < fin and "LP core loaded with firmware" not in s.texto():
+        time.sleep(0.5)
+    time.sleep(1)
+    return "LP core loaded with firmware" in s.texto()
+
+
+def en_lp_sram(t, tras):
+    i = t.find(tras)
+    if i < 0:
+        return False
+    m = re.match(r"\s*(0x[0-9a-fA-F]+)", t[i + len(tras):])
+    if not m:
+        return False
+    v = int(m.group(1), 16)
+    return 0x50000000 <= v < 0x50004000
 
 
 def cfg_dap(puerto):
@@ -262,6 +306,74 @@ def main():
         except subprocess.TimeoutExpired:
             p6.kill()
         os.unlink(log6.name)
+    # O7-O9: el nucleo LP (E10)
+    lp = os.path.join(IDF, "lp_lp_timer_interrupt", "flash_args")
+    if not os.path.exists(os.path.join(scripts or "", "target", "esp32c6-lpcore.cfg")):
+        print("  [OMITE] O7-O8: este OpenOCD no tiene target/esp32c6-lpcore.cfg")
+    else:
+        s = Sim(a.sim, ["--openocd"], fw=lp)
+        try:
+            if check(s.listo, "O7: el simulador sirve remote_bitbang en el %d, con lp_timer_interrupt" % s.puerto):
+                espera_lp(s)
+                cfg = cfg_lp(s.puerto)
+                o = ocd(openocd, scripts, cfg, ["init", "sleep 2000", "halt", "targets esp32c6.lp.cpu", "reg pc",
+                                                "resume", "shutdown"], 300)
+                check("[esp32c6.hp.cpu0] Examination succeed" in o and "[esp32c6.lp.cpu] Examination succeed" in o,
+                      "O7: target/esp32c6-lpcore.cfg: los dos harts por el mismo TAP, examinados")
+                if not check(en_lp_sram(o, "[esp32c6.lp.cpu] Target halted, PC=") and en_lp_sram(o, "pc (/32): "),
+                             "O7: halt de los dos; el pc del LP, en la LP SRAM"):
+                    print(o[-1500:])
+                os.unlink(cfg)
+        finally:
+            s.fin()
+        if gdb:
+            s = Sim(a.sim, ["--openocd"], fw=lp)
+            po = None
+            try:
+                if check(s.listo, "O8: el simulador sirve remote_bitbang en el %d" % s.puerto):
+                    espera_lp(s)
+                    cfg = cfg_lp(s.puerto)
+                    pg = puerto_libre()
+                    po = subprocess.Popen([openocd] + (["-s", scripts] if scripts else []) +
+                                          ["-f", cfg, "-c", "gdb port %d" % pg, "-c", "telnet port disabled",
+                                           "-c", "tcl port disabled"], stdout=subprocess.PIPE,
+                                          stderr=subprocess.STDOUT, text=True)
+                    # Hasta que OpenOCD ha examinado los dos y escucha a GDB
+                    fin = time.time() + 120
+                    vio = ""
+                    while time.time() < fin and "for gdb connections" not in vio and po.poll() is None:
+                        vio += po.stdout.readline()
+                    threading.Thread(target=lambda: [None for _ in po.stdout], daemon=True).start()
+                    r = subprocess.run([gdb, "-q", "-batch", "-ex", "set remotetimeout 60",
+                                        "-ex", "target extended-remote localhost:%d" % pg, "-ex", "info threads",
+                                        "-ex", "thread 2", "-ex", "p/x $pc", "-ex", "detach"],
+                                       capture_output=True, text=True, timeout=300)
+                    o = r.stdout + r.stderr
+                    if not check('"esp32c6.hp.cpu0"' in o and '"esp32c6.lp.cpu"' in o,
+                                 "O8: GDB por openocd-esp32 (hwthread): info threads, el HP y el LP"):
+                        print(vio[-1500:] + o[-1500:])
+                    check(en_lp_sram(o, "$1 = "), "O8: thread 2: el pc del LP, en la LP SRAM")
+                    os.unlink(cfg)
+            finally:
+                if po:
+                    po.terminate()
+                    po.wait(10)
+                s.fin()
+    if gdb:
+        s = Sim(a.sim, ["--gdb-dap"], fw=lp, sondea=False)
+        try:
+            if check(s.listo and espera_lp(s), "O9: el simulador sirve GDB (G1) en el %d, con lp_timer_interrupt"
+                     " y el LP en marcha" % s.puerto):
+                r = subprocess.run([gdb, "-q", "-batch", "-ex", "set remotetimeout 30",
+                                    "-ex", "target extended-remote localhost:%d" % s.puerto, "-ex", "info threads",
+                                    "-ex", "thread 2", "-ex", "p/x $pc", "-ex", "detach"],
+                                   capture_output=True, text=True, timeout=300)
+                o = r.stdout + r.stderr
+                check("Thread 1 " in o and "Thread 2 " in o, "O9: GDB contra G1: info threads, dos hilos (un hart cada uno)")
+                if not check(en_lp_sram(o, "$1 = "), "O9: thread 2: el pc del LP, en la LP SRAM"):
+                    print(o[-1500:])
+        finally:
+            s.fin()
     print("TOTAL openocd C6: %s" % ("todo OK" if not fallos else "%d fallos" % fallos))
     sys.exit(1 if fallos else 0)
 

@@ -80,8 +80,8 @@ public:
     std::function<void()> brk_rx;
 
     UartEsp(sc_core::sc_module_name nm, uint32_t base, sc_core::sc_signal_inout_if<bool>& txd,
-            const sc_core::sc_signal_in_if<bool>& rxd)
-        : BusSlave(nm, base, 0x1000), txd_(txd), rxd_(rxd) {
+            const sc_core::sc_signal_in_if<bool>& rxd, uint32_t tam = 0x1000)
+        : BusSlave(nm, base, tam), txd_(txd), rxd_(rxd) {
         SC_HAS_PROCESS(UartEsp);
         SC_THREAD(tx_proc);
         SC_THREAD(rx_proc);
@@ -106,6 +106,8 @@ public:
         return div > 0.0 ? sclk / div : 0.0;
     }
     unsigned rx_cnt() const { return unsigned(rx_.size()); }
+    uint32_t clkdiv() const { return clkdiv_; }
+    double hz_fuente() const { return hz_sclk(); }
     // Para el UHCI: despertar la transmisión, el tiempo de bit y
     // IDLE_CONF.RX_IDLE_THRHD (0x40, bits 9-0; 0x100 de reset, que aquí se
     // toma si el registro no se ha escrito)

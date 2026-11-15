@@ -486,7 +486,7 @@ $(ASANC6): top/sc_main_c6.cpp $(HDRS) $(HDRS_C6)
 
 testc6-build: $(TESTC6)
 
-# Los ejemplos de ESP-IDF de E9 (verif/fw/esp32c6/idf/construye.sh), en build/idf-c6
+# Los ejemplos de ESP-IDF de E9, E10 y E11 (verif/fw/esp32c6/idf/construye.sh), en build/idf-c6
 IDF_C6 := $(wildcard verif/fw/esp32c6/idf/idf-*.tar.xz)
 $(B)/idf-c6/.extraido: $(IDF_C6)
 	@rm -rf $(B)/idf-c6
@@ -695,7 +695,9 @@ esptool-c6: $(MCUSIM) $(B)/idf-c6/.extraido
 # target/esp32c6.cfg sin tocar, por remote_bitbang y CMSIS-DAP en los pines
 # (--jtag=pines) y por el JTAG del USB-Serial-JTAG; program_esp de
 # hello_world con la Flash en blanco; GDB contra G1 y a traves de OpenOCD
-# (con ELF=hello_world.elf de la compilacion). Sin openocd-esp32 se OMITE.
+# (con ELF=hello_world.elf de la compilacion). E10, O7-O9: el nucleo LP con
+# target/esp32c6-lpcore.cfg (los dos harts), y GDB con sus dos hilos por
+# OpenOCD y por G1. Sin openocd-esp32 se OMITE.
 #
 #   make -f Makefile.mcu-sim openocd-c6 OPENOCD_ESP32=/ruta/a/openocd [GDB_RV=riscv32-esp-elf-gdb ELF=...]
 openocd-c6: $(MCUSIM) $(B)/idf-c6/.extraido

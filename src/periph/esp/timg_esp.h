@@ -82,6 +82,24 @@ public:
         return ((t0conf_ >> 30) & 1u ? base_ + n : base_ - n) & M54;
     }
     uint64_t alarmas() const { return n_alarmas_; }
+
+    // E11: el ETM del C6. El suceso de la alarma de T0 (TIMERn_EVT_CNT_CMP)
+    // y las tareas: 0 arrancar (EN), 1 armar la alarma (ALARM_EN), 2 parar,
+    // 3 recargar (LOAD) y 4 capturar (lo que hace UPDATE: la cuenta a
+    // T0LO/HI, que es lo que lee gptimer_get_captured_count)
+    std::function<void()> etm_alarma;
+    void tarea_etm(unsigned t) {
+        const uint64_t c = cuenta();
+        switch (t) {
+        case 0: base_ = c; t_ = sc_core::sc_time_stamp(); t0conf_ |= 1u << 31; break;
+        case 1: t0conf_ |= 1u << 10; break;
+        case 2: base_ = c; t_ = sc_core::sc_time_stamp(); t0conf_ &= ~(1u << 31); break;
+        case 3: base_ = carga_ & M54; t_ = sc_core::sc_time_stamp(); break;
+        case 4: snap_ = c; return;
+        default: return;
+        }
+        ev_.notify(sc_core::SC_ZERO_TIME);
+    }
     unsigned etapa_wdt() const { return etapa_; }
     uint64_t resets_wdt() const { return n_resets_; }
 
@@ -214,6 +232,7 @@ private:
                 t0conf_ &= ~(1u << 10);
                 if ((t0conf_ >> 29) & 1u) { base_ = carga_ & M54; t_ = sc_core::sc_time_stamp(); }
                 publica();
+                if (etm_alarma) etm_alarma();
                 continue;
             }
             const uint64_t falta = sube ? alarma_ - c : c - alarma_;

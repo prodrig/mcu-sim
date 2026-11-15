@@ -294,6 +294,11 @@ private:
         for (uint32_t h = 0; h < dm_.n_harts(); ++h) {
             dm_.selecciona(h);
             if (!dm_.disponible() || !dm_.parado()) continue;
+            // Un hart con menos triggers (el LP del C6, 2) no tiene el i:
+            // tselect es WARL y no lo toma
+            uint32_t ts = ~0u;
+            if (h > 0 && (!dm_.escribe_reg(RvDmCliente::CSR_TSELECT, i) ||
+                          !dm_.lee_reg(RvDmCliente::CSR_TSELECT, ts) || ts != i)) continue;
             ok = dm_.escribe_reg(RvDmCliente::CSR_TSELECT, i) &&
                  dm_.escribe_reg(RvDmCliente::CSR_TDATA1, 0) &&
                  dm_.escribe_reg(RvDmCliente::CSR_TDATA2, a) &&
@@ -309,7 +314,9 @@ private:
             for (uint32_t h = 0; h < dm_.n_harts(); ++h) {
                 dm_.selecciona(h);
                 if (!dm_.disponible() || !dm_.parado()) continue;
+                uint32_t ts = ~0u;
                 dm_.escribe_reg(RvDmCliente::CSR_TSELECT, i);
+                if (h > 0 && (!dm_.lee_reg(RvDmCliente::CSR_TSELECT, ts) || ts != i)) continue;
                 dm_.escribe_reg(RvDmCliente::CSR_TDATA1, 0);
             }
             trig_[i].usado = false;

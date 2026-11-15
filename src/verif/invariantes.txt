@@ -406,4 +406,14 @@ testc3                 313      18846782364616        resto
 # socket de verdad: su tiempo depende del reloj de pared, asi que la cifra
 # pasa a la columna `resto` (el total menos D10-D11), como testc3, y es la
 # misma de antes: D1-D9 no se mueven (15-11-2026).
-testc6                 128      13115536458348        resto
+# E10 y E11 (16-11-2026): D12-D16 van tras D9 y antes de D10-D11, que siguen
+# al final (el socket). D12-D15, el nucleo LP con los ejemplos de
+# examples/system/ulp/lp_core de ESP-IDF sin tocar; D16, el PCNT, el MCPWM
+# y el ETM con los de examples/peripherals y motor. D1-D8 no se mueven (D9
+# empieza en 11820526458348). D9 acaba 10 ms antes (13105536458348): el HP
+# paga ahora dos ciclos del APB por cada acceso a la LP SRAM (la latencia
+# cruzada de E10), el arranque de perifericos se mueve unos us y su
+# vTaskDelay(20 ms) del LEDC cae un tic de FreeRTOS antes. Comprobado: sin
+# esa latencia, D1-D9 acaban en 13115536458348, la cifra de antes. 202
+# comprobaciones; el resto es el comienzo de D10.
+testc6                 202      53173701458348        resto

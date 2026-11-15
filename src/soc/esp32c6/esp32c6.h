@@ -7,7 +7,10 @@
 // sin la ROM. E9.3: la ROM de verdad (rev0, la de todos los C6), la Flash por
 // SPI0/SPI1, la caché y su MMU (c6_cache.h), el eFuse, el SHA, el RNG y el
 // I2C_ANA_MST: el chip arranca por la ROM, que lee la Flash como en la placa,
-// y ESP-IDF corre (hello_world, con FreeRTOS y esp_restart).
+// y ESP-IDF corre (hello_world, con FreeRTOS y esp_restart). E10: el núcleo LP
+// (c6_lp.h), un segundo NucleoRv, con el PMU, el LP timer, el LP IO, la LP
+// UART y el LP I2C, el sueño del HP y un DM con los dos harts. E11: el PCNT,
+// el MCPWM y el ETM.
 //
 //   memoria    la HP SRAM (512 KB, 0x4080_0000) es una sola para los buses I y
 //              D [TRM-C6 §5.3]: se ejecuta y se lee por la misma dirección, en
@@ -33,10 +36,13 @@
 //              temperatura, la GDMA (sus interrupciones de entrada y salida
 //              separadas), GP-SPI2, AES y SHA con su DMA, RSA, HMAC, DS,
 //              XTS_AES (dentro del SPI1) y el USB-Serial-JTAG, con sus relojes
-//              del PCR; y guardando con sus valores de reset: PMU, HP_SYSTEM,
-//              LP_WDT, LP_TIMER, LP_ANALOG, las APM y los TEE, ASSIST_DEBUG,
-//              MEM_MONITOR, MODEM_SYSCON, MODEM_LPCON, el coexist y el radio.
-//              El resto, DECLARADOS (leen cero y avisan).
+//              del PCR; E10: el PMU, el LP timer, el LP IO, la LP UART y el LP
+//              I2C (c6_lp.h); E11: el PCNT, el MCPWM y el ETM (periph/esp); y
+//              guardando con sus valores de reset: HP_SYSTEM, LP_WDT,
+//              LP_ANALOG, las APM y los TEE, ASSIST_DEBUG, MEM_MONITOR (el
+//              monitor de memoria: sin vigilar), MODEM_SYSCON, MODEM_LPCON, el
+//              coexist y el radio. El resto, DECLARADOS (leen cero y avisan):
+//              PARL_IO, ECC, el esclavo SDIO, la traza...
 //   reset      CHIP_PU: el reset de chip, y los cinco pines de arranque
 //              (GPIO8, GPIO9, MTMS, MTDI y GPIO15) se guardan al soltarlo.
 //              Resets del sistema y de la CPU por software (LP_AON) con su
@@ -60,6 +66,7 @@
 #include "c6_desc.h"
 #include "c6_sistema.h"
 #include "c6_cache.h"
+#include "c6_lp.h"
 #include "../../parts/spi_flash.h"
 #include "../esp/intc_esp_v2.h"
 #include "../esp/pma_esp.h"
@@ -88,6 +95,9 @@
 #include "../../periph/esp/xts_aes_esp.h"
 #include "../../periph/esp/i2s_esp.h"
 #include "../../periph/esp/uhci_esp.h"
+#include "../../periph/esp/pcnt_esp.h"
+#include "../../periph/esp/mcpwm_esp.h"
+#include "../../periph/esp/etm_esp.h"
 #include "../../periph/bloque_declarado.h"
 #include "../../common/imagen_fw.h"
 #include "../../common/analog_net.h"
@@ -168,11 +178,15 @@ public:
     // --- Relojes y resets -----------------------------------------------------------
     sc_core::sc_signal<double, sc_core::SC_MANY_WRITERS> hz_cpu{"hz_cpu"}, hz_apb{"hz_apb"};
     sc_core::sc_signal<bool, sc_core::SC_MANY_WRITERS> rst_cpu_n{"rst_cpu_n"};
+    // E10: el núcleo LP, su reset y su reloj (el LP_FAST)
+    sc_core::sc_signal<bool, sc_core::SC_MANY_WRITERS> rst_lp_n{"rst_lp_n"};
+    sc_core::sc_signal<double, sc_core::SC_MANY_WRITERS> hz_lp{"hz_lp"};
     sc_core::sc_signal<bool> rst_per_n{"rst_per_n"}, siempre{"siempre"}, reloj_falso{"reloj_falso"};
 
     // --- El bus y el núcleo -----------------------------------------------------------
     tlm_utils::multi_passthrough_target_socket<Esp32C6> bus{"bus"};
     NucleoRv core;
+    NucleoRv core_lp;              // E10: el núcleo LP (hart 1)
 
     // --- La depuración (E9.6) ----------------------------------------------------
     // El Debug Module 0.13 de E2 con las capacidades del C6 (RV_ESP32C6_HP.dbg:
@@ -231,7 +245,19 @@ public:
     XtsAesEsp      xts;            // dentro del SPI1, en 0x6000_3300
     I2sEsp         i2s;
     UhciEsp        uhci;
-    BloqueEsp      pmu, hp_sys, lp_wdt, lp_timer,
+    // E11: los periféricos propios del C6
+    PcntEsp        pcnt;           // el contador de pulsos
+    McpwmEsp       mcpwm;          // el PWM para motores (un grupo)
+    EtmEsp         etm;            // la matriz de sucesos y tareas
+    PmuC6          pmu;            // E10: el núcleo LP y el sueño del HP
+    LpTimerC6      lp_timer;       // E10: el RTC timer
+    LpIoC6         lp_io;          // E10: LP_GPIO0-7
+    // E10: la LP UART (TX en LP_GPIO5, RX en LP_GPIO4) y el LP I2C (SDA 6,
+    // SCL 7), por la función 1 del LP IO; los modelos de la UART y el I2C
+    GpioEsp::Senal lp_tx{"lp_tx"}, lp_rx{"lp_rx"};
+    UartEsp        lp_uart;
+    I2cEsp         lp_i2c;
+    BloqueEsp      hp_sys, lp_wdt,
                    lp_ana, hp_apm, lp_apm, lp_apm0, tee, lp_tee, assist, mem_mon, modem_syscon, modem_lpcon;
     // Los registros de la coexistencia Wi-Fi/BT/802.15.4 (0x600A_F400), que la
     // biblioteca de coexistencia de ESP-IDF borra al arrancar: guardan
@@ -246,7 +272,7 @@ public:
     AnalogNet chip_pu{"chip_pu"};
 
     Esp32C6(sc_core::sc_module_name nm, const McuCapsC6& m, const Cableado& cab = Cableado())
-        : sc_core::sc_module(nm), mcu(m), core("core", *m.nucleo, 0),
+        : sc_core::sc_module(nm), mcu(m), core("core", *m.nucleo, 0), core_lp("core_lp", RV_ESP32C6_LP, 1),
           gpio("gpio", c6::GPIO_B, pines_c6(), bonded(m), cab),
           iomux("io_mux", c6::IO_MUX_B, gpio),
           intmtx("intmtx", c6::INTMTX_B, c6::N_FUENTES), intpri("intpri", c6::INTPRI_B),
@@ -264,10 +290,11 @@ public:
           i2c("i2c", c6::I2C_B), twai0("twai0", c6::TWAI0_B), twai1("twai1", c6::TWAI1_B),
           gdma("gdma", c6::GDMA_B), spi2("spi2", c6::SPI2_B), rsa("rsa", c6::RSA_B), hmac("hmac", c6::HMAC_B),
           ds("ds", c6::DS_B), xts("xts_aes", c6::SPI1_B + 0x300, 0x100), i2s("i2s", c6::I2S_B), uhci("uhci0", c6::UHCI_B),
-          pmu("pmu", c6::PMU_B, 0x400, c6::REGS_PMU),
+          pcnt("pcnt", c6::PCNT_B), mcpwm("mcpwm", c6::MCPWM_B), etm("soc_etm", c6::ETM_B),
+          pmu("pmu", c6::PMU_B), lp_timer("lp_timer", c6::LP_TIMER_B), lp_io("lp_io", c6::LP_IO_B),
+          lp_uart("lp_uart", c6::LP_UART_B, lp_tx, lp_rx, 0x400), lp_i2c("lp_i2c", c6::LP_I2C_B, 0x400),
           hp_sys("hp_system", c6::HP_SYS_B, 0x1000, c6::REGS_HP_SYSTEM),
           lp_wdt("lp_wdt", c6::LP_WDT_B, 0x400, c6::REGS_LP_WDT),
-          lp_timer("lp_timer", c6::LP_TIMER_B, 0x400, c6::REGS_LP_TIMER),
           lp_ana("lp_analog_peri", c6::LP_ANA_B, 0x400, c6::REGS_LP_ANA_PERI),
           hp_apm("hp_apm", c6::HP_APM_B, 0x800, c6::REGS_HP_APM),
           lp_apm("lp_apm", c6::LP_APM_B, 0x400, c6::REGS_LP_APM),
@@ -296,11 +323,12 @@ public:
             if (a >= c6::HP_SRAM && a + n <= c6::HP_SRAM + c6::HP_SRAM_TAM) q = &sram_[a - c6::HP_SRAM];
             else if (!escr && a >= c6::ROM_B && a + n <= c6::ROM_FIN && rom.hay()) q = const_cast<uint8_t*>(rom.byte(a));
             if (!q || !csr_.pma.permite(a, n, t)) return false;
-            if (escr) for (unsigned i = 0; i < n; ++i) q[i] = uint8_t(v >> (8 * i));
+            if (escr) { for (unsigned i = 0; i < n; ++i) q[i] = uint8_t(v >> (8 * i)); core_lp.hart.rompe_reserva(a, n); }
             else { v = 0; for (unsigned i = 0; i < n; ++i) v |= uint32_t(q[i]) << (8 * i); }
             return true;
         };
         core.hart.pon_irq(&intpri);
+        conecta_lp();
         core.hart.pon_csr_ext(&csr_);
         core.hart.permisos_extra = [this](uint32_t a) { return csr_.pma.firma(a); };
         // El reloj del MSPI: 80 MHz con el PLL, el XTAL sin él
@@ -319,27 +347,29 @@ public:
         static const D DECL[] = {
             // Los que el C3 no tiene: fuera de E9 [doc/analisis_esp32_riscv.md]
             {"atomic", c6::ATOMIC_B, 0x1000, "una fase posterior"},
-            {"pcnt", c6::PCNT_B, 0x1000, "una fase posterior"}, {"soc_etm", c6::ETM_B, 0x1000, "una fase posterior"},
-            {"mcpwm", c6::MCPWM_B, 0x1000, "una fase posterior"}, {"parl_io", c6::PARL_IO_B, 0x1000, "una fase posterior"},
-            {"hinf", c6::HINF_B, 0x1000, "una fase posterior"}, {"slc", c6::SLC_B, 0x1000, "una fase posterior"},
-            {"slchost", c6::SLCHOST_B, 0x1000, "una fase posterior"}, {"pvt", c6::PVT_B, 0x1000, "una fase posterior"},
-            {"ecc", c6::ECC_B, 0x1000, "una fase posterior"},
+            // E11 los deja declarados: el PARL_IO, el ECC, el esclavo SDIO (no
+            // hay pieza que haga de anfitrión), el codificador de traza y el
+            // monitor de memoria
+            {"parl_io", c6::PARL_IO_B, 0x1000, "-"}, {"ecc", c6::ECC_B, 0x1000, "-"},
+            {"hinf", c6::HINF_B, 0x1000, "-"}, {"slc", c6::SLC_B, 0x1000, "-"},
+            {"slchost", c6::SLCHOST_B, 0x1000, "-"}, {"pvt", c6::PVT_B, 0x1000, "una fase posterior"},
             {"pau", c6::PAU_B, 0x1000, "una fase posterior"}, {"misc", c6::MISC_B, 0x1000, "una fase posterior"},
-            {"otp_debug", c6::OTP_DBG_B, 0x400, "una fase posterior"}, {"trace", c6::TRACE_B, 0x1000, "una fase posterior"},
+            {"otp_debug", c6::OTP_DBG_B, 0x400, "una fase posterior"}, {"trace", c6::TRACE_B, 0x1000, "-"},
             // El núcleo LP y lo suyo
-            {"lp_uart", c6::LP_UART_B, 0x400, "E10"}, {"lp_i2c", c6::LP_I2C_B, 0x400, "E10"},
-            {"lp_io", c6::LP_IO_B, 0x400, "E10"}, {"lp_i2c_ana_mst", c6::LP_I2C_ANA_B, 0x400, "E10"},
+{"lp_i2c_ana_mst", c6::LP_I2C_ANA_B, 0x400, "E10"},
         };
         for (const D& d : DECL)
             declarados.emplace_back(new BloqueDeclarado(d.n, d.b, d.t, d.n,
-                                                        (std::string("En el ESP32-C6 llega en ") + d.e + ".").c_str()));
+                                                        (std::string(d.e)[0] == '-'
+                                                             ? std::string("En el ESP32-C6 de mcu-sim, declarado (E11).")
+                                                             : std::string("En el ESP32-C6 llega en ") + d.e + ".").c_str()));
 
-        std::vector<BusSlave*> todos{&gpio, &iomux, &intmtx, &intpri, &pcr, &lp_aon, &lp_clkrst, &uart0, &uart1,
+        std::vector<BusSlave*> todos{&gpio, &iomux, &intmtx, &intpri, &pcr, &lp_aon, &lp_clkrst, &uart0, &uart1, &lp_io, &lp_uart, &lp_i2c,
                                      &systimer, &timg0, &timg1, &efuse, &spi0, &spi1, &cache, &pmu, &hp_sys,
                                      &lp_wdt, &lp_timer, &i2c_ana_mst, &lpperi, &lp_ana, &hp_apm, &lp_apm,
                                      &lp_apm0, &tee, &lp_tee, &assist, &mem_mon, &sha, &modem_syscon, &modem_lpcon,
                                      &modem_coex, &modem_radio, &usj, &ledc, &rmt, &adc, &aes, &i2c, &twai0, &twai1, &gdma, &spi2, &rsa,
-                                     &hmac, &ds, &i2s, &uhci};
+                                     &hmac, &ds, &i2s, &uhci, &pcnt, &mcpwm, &etm};
         // El XTS_AES antes que el SPI1, que lo contiene
         todos.insert(std::find(todos.begin(), todos.end(), static_cast<BusSlave*>(&spi1)), &xts);
         for (auto& d : declarados) todos.push_back(d.get());
@@ -360,6 +390,11 @@ public:
         uart1.pon_c6([this] { return pcr.uart_sclk(1); });
         gpio.irq = [this](bool v) { intmtx.fuente(c6::F_GPIO, v); };
         systimer.irq = [this](unsigned c, bool v) { intmtx.fuente(c6::F_SYSTIMER0 + c, v); };
+        // La calibración del RC_FAST (RTCCALICFG.CLK_SEL 1): en el C6 no hay
+        // RC_FAST_D256; desde la v0.1 se calibra el RC_FAST entre 32 (el
+        // REF_TICK) y, en la v0.0, sin dividir [rtc_time.c de ESP-IDF:
+        // CLK_LL_RC_FAST_CALIB_TICK_DIV_BITS]
+        for (TimgEsp* t : {&timg0, &timg1}) t->hz_rc_fast_d256 = 17.5e6 / (m.revision >= 1 ? 32.0 : 1.0);
         timg0.irq = [this](unsigned b, bool v) { intmtx.fuente(b ? c6::F_TG0_WDT : c6::F_TG0_T0, v); };
         timg1.irq = [this](unsigned b, bool v) { intmtx.fuente(b ? c6::F_TG1_WDT : c6::F_TG1_T0, v); };
         // Relojes
@@ -396,7 +431,7 @@ public:
     bool encendido() const { return encendido_; }
     // Las causas de reset [reset_reasons.h de ESP-IDF]
     enum : unsigned {
-        CAUSA_POR = 1, CAUSA_SW_SIS = 3, CAUSA_MWDT0_SIS = 7, CAUSA_MWDT1_SIS = 8,
+        CAUSA_POR = 1, CAUSA_SW_SIS = 3, CAUSA_DEEP_SLEEP = 5, CAUSA_MWDT0_SIS = 7, CAUSA_MWDT1_SIS = 8,
         CAUSA_MWDT0_CPU = 11, CAUSA_SW_CPU = 12, CAUSA_MWDT1_CPU = 17, CAUSA_USB_UART = 21,
     };
 
@@ -477,10 +512,12 @@ public:
             "la ROM de verdad (rev0) arranca desde la Flash (SPI0/SPI1, la cache de 32 KB y la MMU de 256 "
             "paginas) o espera en el modo descarga; un ELF bare-metal se carga en la HP SRAM y arranca SIN "
             "ROM (el arranque directo de E9.2)",
-            "el PCR: la CPU, el AHB y el APB, el SCLK de las UART y el reloj de los TIMG; los CLK_EN y "
-            "RST_EN de cada periferico se guardan sin cortar ni resetear",
-            "el PLL, el FOSC y el XTAL estan siempre: el PMU guarda sin hacer nada y la calibracion del "
-            "BBPLL (I2C_ANA_MST) acaba en el acto",
+            "el PCR: la CPU, el AHB y el APB y el reloj de cada periferico; los CLK_EN se guardan sin "
+            "cortar, y los RST_EN solo resetean el PCNT, el ETM y el MCPWM",
+            "el PLL, el FOSC y el XTAL estan siempre y la calibracion del BBPLL (I2C_ANA_MST) acaba en el "
+            "acto; el PMU (E10) hace el sueno del nucleo LP y el profundo y el ligero del HP, con sus "
+            "fuentes de despertar (el LP timer, el LP IO y el nucleo LP), pero no corta dominios de "
+            "alimentacion: la HP SRAM no se pierde en el sueno profundo [de modelo]",
             "eFuse: solo lectura (de un fichero o la de omision, con la revision, el encapsulado y la "
             "Flash de dentro); programar no programa",
             "el RNG (LPPERI_RNG_DATA) es un xorshift32 de semilla fija: igual en cada simulacion",
@@ -488,12 +525,19 @@ public:
             "LEDC (con el fundido por la RAM gamma), RMT, I2C, TWAI0 y TWAI1, I2S, UHCI, el SAR ADC y el "
             "sensor de temperatura, la GDMA, GP-SPI2, AES y SHA (con su DMA), RSA, HMAC, DS, XTS_AES y el "
             "USB-Serial-JTAG: los modelos del C3 con las diferencias del C6 (E9.4); sus relojes, del PCR",
-            "ECC, PCNT, MCPWM, PARL_IO, ETM, SDIO esclavo, el radio y el coexist: declarados (una fase "
-            "posterior; el modem guarda sin hacer nada)",
-            "el nucleo LP y sus perifericos (LP_UART, LP_I2C, LP_IO): declarados (E10)",
+            "E11: el PCNT (cuatro unidades, filtro, limites y umbrales), el MCPWM (tres temporizadores con "
+            "sincronia, tres operadores con tiempo muerto y paradas por fallo, y la captura; sin el "
+            "troceador) y el ETM (el GPIO, los TIMG y el MCPWM dan sucesos y hacen tareas; las del ETM "
+            "pasan en el acto, sin los ciclos del chip)",
+            "PARL_IO, ECC, el esclavo SDIO y el codificador de traza: declarados; el monitor de memoria, el "
+            "radio y el coexist guardan sin hacer nada",
+            "E10: el nucleo LP (RV32IMAC, solo M, en la LP SRAM a 0x5000_0080), su interrupcion (la 30, "
+            "de LPPERI_INTERRUPT_SOURCE), el LP timer, el LP IO, la LP UART y el LP I2C; las atomicas y "
+            "LR/SC entre los dos nucleos; sin la cache ni el bus del LP (su memoria, en el acto)",
             "la depuracion: el DM 0.13 y el TAP (IDCODE 0x0000DC25) en el USB-Serial-JTAG (de fabrica) o en "
             "los pines MTMS-MTDO si los eFuse los eligen (jtag=\"pines\" en el <mcu>, o JTAG_SEL_ENABLE y "
-            "GPIO15); solo el hart HP (el LP, E10)",
+            "GPIO15); los dos harts, el LP «unavail» hasta LPPERI_CPU, y el disparo cruzado; sin los grupos "
+            "de parada (dmcs2): OpenOCD para los dos harts uno a uno",
         };
     }
 
@@ -529,6 +573,147 @@ private:
         slaves_.push_back(s);
     }
 
+    // --- E10: el núcleo LP y su dominio -------------------------------------------
+    LpIrqC6 lp_irq_;
+    uint32_t lp_src_ = 0;
+    bool lp_scl_ = true, lp_sda_ = true;
+    void lp_tx_proc() { gpio.refresca(); }
+    bool hp_profundo_ = false;
+    void fuente_lp_irq(unsigned b, bool v) {
+        const uint32_t n = v ? (lp_src_ | (1u << b)) : (lp_src_ & ~(1u << b));
+        if (n != lp_src_) { lp_src_ = n; core_lp.nota_irq(); }
+    }
+    // Una escritura en la memoria: la reserva del otro núcleo se pierde
+    void escrito(int hart, uint32_t a, unsigned n) {
+        if (hart != 0) core.hart.rompe_reserva(a, n);
+        if (hart != 1) core_lp.hart.rompe_reserva(a, n);
+    }
+    void conecta_lp() {
+        core_lp.ibus.bind(bus);
+        core_lp.dbus.bind(bus);
+        core_lp.clk_hz(hz_lp);
+        core_lp.rst_n(rst_lp_n);
+        core_lp.quantum = sc_core::sc_time(1, sc_core::SC_US);
+        core_lp.integracion.perif_lo = c6::PERIF;
+        core_lp.integracion.perif_hi = c6::PERIF_FIN;
+        // La LP SRAM y la HP SRAM, sin el bus ni la PMA (no la tiene)
+        core_lp.integracion.acceso_directo = [this](uint32_t a, unsigned n, uint32_t& v, bool escr, RvAcceso) {
+            uint8_t* q = nullptr;
+            if (a >= c6::LP_SRAM && a + n <= c6::LP_SRAM + c6::LP_SRAM_TAM) q = &lp_sram_[a - c6::LP_SRAM];
+            else if (a >= c6::HP_SRAM && a + n <= c6::HP_SRAM + c6::HP_SRAM_TAM) q = &sram_[a - c6::HP_SRAM];
+            if (!q) return false;
+            if (escr) { for (unsigned i = 0; i < n; ++i) q[i] = uint8_t(v >> (8 * i)); core.hart.rompe_reserva(a, n); }
+            else { v = 0; for (unsigned i = 0; i < n; ++i) v |= uint32_t(q[i]) << (8 * i); }
+            return true;
+        };
+        lp_irq_.fuentes = [this] { return lp_src_; };
+        core_lp.hart.pon_irq(&lp_irq_);
+        lpperi.fuentes = [this] { return lp_src_; };
+        lp_clkrst.al_escribir = [this] {
+            hz_lp.write(lp_clkrst.hz_lp_fast());
+            lp_uart.hz_xtal = lp_clkrst.hz_lp_uart();
+            lp_i2c.hz_xtal = lp_clkrst.hz_lp_i2c();
+        };
+        // El PMU: el núcleo LP duerme y despierta
+        pmu.lp_duerme = [this](bool reset) {
+            if (reset) { rst_lp_n.write(false); core_lp.detiene(false); }
+            else core_lp.detiene(true);
+        };
+        pmu.lp_despierta = [this](bool reset) {
+            if (reset) { core_lp.detiene(false); if (encendido_) rst_lp_n.write(true); }
+            else core_lp.detiene(false);
+        };
+        // ...y el HP: profundo (LP_AON STORE9[0]) o ligero
+        pmu.hp_duerme = [this] {
+            hp_profundo_ = lp_aon.store(9) & 1u;
+            // El sueño profundo apaga el dominio HP: la CPU y sus periféricos
+            // (los perros de TIMG incluidos), hasta el reset del despertar
+            if (hp_profundo_) { rst_cpu_n.write(false); reset_perifericos(); timg0.pon_modo_flash(false); }
+            else core.detiene(true);
+        };
+        pmu.hp_despierta = [this] {
+            if (hp_profundo_) { hp_profundo_ = false; pide_reset(CAUSA_DEEP_SLEEP, true); }
+            else core.detiene(false);
+        };
+        pmu.irq_hp = [this](bool v) { intmtx.fuente(c6::F_PMU, v); };
+        pmu.irq_lp = [this](bool v) { fuente_lp_irq(c6::LPI_PMU, v); };
+        // El LP timer: sus dos alarmas
+        lp_timer.irq_hp = [this](bool v) { intmtx.fuente(c6::F_LP_RTC_TIMER, v); };
+        lp_timer.irq_lp = [this](bool v) { fuente_lp_irq(c6::LPI_TIMER, v); };
+        lp_timer.alarma = [this](unsigned t) {
+            if (t == 0) pmu.fuente_hp(c6::DHP_TIMER);
+            else pmu.fuente_lp(c6::DLP_TIMER);
+        };
+        // El LP IO: los pads 0-7 que le da LP_AON_GPIO_MUX
+        lp_io.mux = [this] { return lp_aon.r(0x28) & 0xFFu; };
+        lp_io.nivel = [this](unsigned p) { return gpio.nivel(p); };
+        lp_io.cambia = [this] { gpio.refresca(); };
+        lp_io.irq = [this](bool v) { fuente_lp_irq(c6::LPI_IO, v); };
+        lp_io.despierta = [this] { pmu.fuente_lp(c6::DLP_IO); pmu.fuente_hp(c6::DHP_GPIO); };
+        lp_aon.al_cambiar_mux = [this] { gpio.refresca(); };
+        gpio.pad_externo = [this](unsigned p, PadDrive& d) { return lp_io.pad(p, d); };
+        gpio.al_cambiar_entradas = [this] {
+            lp_io.entradas();
+            const bool rx = lp_io.funcion(4, 1) ? gpio.nivel(4) : true;
+            if (lp_rx.read() != rx) lp_rx.write(rx);
+        };
+        // Lo que sacan la LP UART y el LP I2C por la función 1
+        lp_io.periferico = [this](unsigned p, bool& o, bool& e) {
+            switch (p) {
+            case 5: o = lp_tx.read(); e = true; return true;
+            case 6: o = lp_sda_; e = true; return true;
+            case 7: o = lp_scl_; e = true; return true;
+            default: return false;
+            }
+        };
+        // La LP UART: su SCLK es el LP_FAST (LP_CLKRST_LPPERI.LP_UART_CLK_SEL
+        // a 0: el RC_FAST o el XTAL_D2, según FAST_CLK_SEL) o el XTAL_D2 (1),
+        // sin divisor [uart_ll.h: lp_uart_ll_set_baudrate]
+        lp_uart.pon_c6([] { return 3u << 20; });
+        lp_uart.hz_xtal = lp_clkrst.hz_lp_uart();
+        lp_uart.irq = [this](bool v) { fuente_lp_irq(c6::LPI_UART, v); intmtx.fuente(c6::F_LP_UART, v); };
+        // El LP I2C: el LP_FAST o el XTAL_D2 (LP_I2C_CLK_SEL), sin divisor
+        lp_i2c.sclk_conf = [] { return 0u; };
+        lp_i2c.hz_xtal = lp_clkrst.hz_lp_i2c();
+        lp_i2c.irq = [this](bool v) { fuente_lp_irq(c6::LPI_I2C, v); intmtx.fuente(c6::F_LP_I2C, v); };
+        lp_i2c.lineas = [this](bool scl, bool sda) {
+            if (scl != lp_scl_ || sda != lp_sda_) { lp_scl_ = scl; lp_sda_ = sda; gpio.refresca(); }
+        };
+        lp_i2c.lee_scl = [this] { return gpio.nivel(7); };
+        lp_i2c.lee_sda = [this] { return gpio.nivel(6); };
+        lp_tx.write(true);
+        lp_rx.write(true);
+        SC_HAS_PROCESS(Esp32C6);
+        SC_METHOD(lp_tx_proc);
+        sensitive << lp_tx;
+        dont_initialize();
+    }
+
+    // --- E11: el PCNT, el MCPWM y el ETM ----------------------------------------------
+    void conecta_e11() {
+        // PCNT: la unidad u, canal c -> PCNT_SIG_CHc_INu (101 + 4·u + c) y
+        // PCNT_CTRL_CHc_INu (103 + 4·u + c)
+        pcnt.entrada = [this](unsigned u, unsigned c, bool ctrl) -> const sc_core::sc_signal_in_if<bool>& {
+            return gpio.sig_in[c6::SIG_PCNT + 4 * u + (ctrl ? 2 : 0) + c];
+        };
+        pcnt.irq = [this](bool v) { intmtx.fuente(c6::F_PCNT, v); };
+        // MCPWM: SYNC0-2, F0-2 y CAP0-2 (87-95); PWM0_OUTnA/B (87-92)
+        mcpwm.entrada = [this](unsigned k) -> const sc_core::sc_signal_in_if<bool>& { return gpio.sig_in[c6::SIG_PWM0 + k]; };
+        mcpwm.salida = [this](unsigned op, unsigned g, bool v) { gpio.sig_out[c6::SIG_PWM0 + 2 * op + g].write(v); };
+        mcpwm.irq = [this](bool v) { intmtx.fuente(c6::F_MCPWM, v); };
+        mcpwm.hz_pcr = [this] { return pcr.hz_pwm(); };
+        // ETM: quién da sucesos y quién hace las tareas [soc_etm_source.h]
+        mcpwm.etm = [this](unsigned id) { etm.suceso(id); };
+        gpio.etm = [this](unsigned id) { etm.suceso(id); };
+        timg0.etm_alarma = [this] { etm.suceso(48); };
+        timg1.etm_alarma = [this] { etm.suceso(49); };
+        etm.tarea = [this](unsigned id) {
+            if (id >= 1 && id <= 24) gpio.tarea_etm(id);
+            else if (id >= 88 && id <= 97) ((id - 88) % 2 ? timg1 : timg0).tarea_etm((id - 88) / 2);
+            else if (id >= 102 && id <= 123) mcpwm.tarea_etm(id - 102);
+        };
+    }
+
     // --- E9.4: los periféricos comunes con el C3 -----------------------------------
     void conecta_perifericos() {
         gdma.pon_c6();
@@ -548,6 +733,7 @@ private:
         ledc.salida = [this](unsigned c, bool v) { gpio.sig_out[c6::SIG_LEDC0 + c].write(v); };
         rmt.irq = [this](bool v) { intmtx.fuente(c6::F_RMT, v); };
         rmt.salida = [this](unsigned c, bool v) { gpio.sig_out[c6::SIG_RMT0 + c].write(v); };
+        conecta_e11();
         adc.irq = [this](bool v) { intmtx.fuente(c6::F_ADC, v); };
         adc.pad = [this](unsigned n) -> analog_net_if* { return n < 7 ? &gpio.nodo_de(n) : nullptr; };
         i2c.irq = [this](bool v) { intmtx.fuente(c6::F_I2C, v); };
@@ -615,8 +801,11 @@ private:
         };
         spi2.miso = [this] { return gpio.sig_in[c6::SIG_FSPIQ].read(); };
         // La depuración
-        dm.reset(new RvDm("dm", std::vector<NucleoRv*>{&core}));
+        dm.reset(new RvDm("dm", std::vector<NucleoRv*>{&core, &core_lp}));
         dm->sba.bind(bus);
+        // E10: el LP, «unavail» hasta que LPPERI_CPU lo deja (y dormido en
+        // reset tampoco: lo dice el DM con en_reset)
+        dm->disponible = [this](unsigned h) { return h == 0 || lpperi.lp_depurable(); };
         dm->ndmreset = [this](bool v) {
             ndm_ = v;
             if (v) {
@@ -643,6 +832,13 @@ private:
     void relojes_perifericos(uint32_t off) {
         spi2.hz_apb = pcr.hz_spi2();
         if (off >= 0x70 && off <= 0x7C) i2s.reloj_cambia();
+        // E11: RST_EN (bit 1) del PCNT, el ETM y el MCPWM: su reset de bloque
+        // (los controladores de ESP-IDF lo dan al empezar)
+        if ((off == 0x94 || off == 0x98 || off == 0x9C) && ((pcr.r(off) >> 1) & 1u)) {
+            if (off == 0x94) pcnt.reset();
+            else if (off == 0x98) etm.reset();
+            else mcpwm.reset();
+        }
     }
     bool usb_descarga_ = false, usb_rst_ = false, ndm_ = false, solo_soft_ = false;
     FuenteJtag fuente_jtag_ = FuenteJtag::Usb;
@@ -678,6 +874,7 @@ private:
         ledc.hz_rc_fast = rmt.hz_rc_fast = i2c.hz_rc_fast = pcr.hz_rc_fast;
         aes.hz_apb = rsa.hz_apb = hmac.hz_apb = ds.hz_apb = xts.hz_apb = uhci.hz_apb = apb;
         spi2.hz_apb = pcr.hz_spi2();
+        pcnt.hz_apb = apb;
     }
 
     uint8_t* mem(uint32_t a) {
@@ -701,14 +898,20 @@ private:
         const bool fetch = ext && ext->acceso == RvAcceso::Fetch;
         gp.set_response_status(tlm::TLM_ADDRESS_ERROR_RESPONSE);
         // La PMA mira todo lo que hace el núcleo
-        if (ext && !ext->depurador && !csr_.pma.permite(a, n, ext->acceso)) { ++n_pma_; ++n_fallos_; return; }
+        // (la del HP: el núcleo LP no tiene PMA)
+        const bool lp = ext && ext->hart == 1;
+        if (ext && !ext->depurador && !lp && !csr_.pma.permite(a, n, ext->acceso)) { ++n_pma_; ++n_fallos_; return; }
         if (a >= c6::HP_SRAM && a + n <= c6::HP_SRAM + c6::HP_SRAM_TAM) {
             copia(gp, &sram_[a - c6::HP_SRAM], n, p);
+            if (gp.is_write()) escrito(ext ? int(ext->hart) : -1, a, n);
             return;
         }
         if (a >= c6::LP_SRAM && a + n <= c6::LP_SRAM + c6::LP_SRAM_TAM) {
             copia(gp, &lp_sram_[a - c6::LP_SRAM], n, p);
-            d += sc_core::sc_time(2.0 / (hz_apb.read() > 0 ? hz_apb.read() : 40e6), sc_core::SC_SEC);
+            if (gp.is_write()) escrito(ext ? int(ext->hart) : -1, a, n);
+            // La latencia cruzada: el HP llega a la LP SRAM por el puente
+            // (2 ciclos del APB) [de modelo]; el LP, en su ciclo
+            if (!lp) d += sc_core::sc_time(2.0 / (hz_apb.read() > 0 ? hz_apb.read() : 40e6), sc_core::SC_SEC);
             return;
         }
         if (a >= c6::ROM_B && a + n <= c6::ROM_FIN) {
@@ -787,11 +990,21 @@ private:
         efuse.reset(); spi0.reset(); spi1.reset(); cache.reset(); sha.reset();
         gdma.reset(); spi2.reset(); ledc.reset(); rmt.reset(); adc.reset(); aes.reset(); i2c.reset();
         twai0.reset(); twai1.reset(); rsa.reset(); hmac.reset(); ds.reset(); xts.reset(); i2s.reset(); uhci.reset();
-        i2c_ana_mst.reset(); lpperi.reset();
-        for (BloqueEsp* b : {&pmu, &hp_sys, &lp_wdt, &lp_timer,
-                             &lp_ana, &hp_apm, &lp_apm, &lp_apm0, &tee, &lp_tee, &assist, &mem_mon,
-                             &modem_syscon, &modem_lpcon})
+        pcnt.reset(); mcpwm.reset(); etm.reset();
+        i2c_ana_mst.reset();
+        for (BloqueEsp* b : {&hp_sys, &hp_apm, &lp_apm0, &tee, &assist, &mem_mon, &modem_syscon, &modem_lpcon})
             b->reset_regs();
+    }
+    // E10: el dominio LP, solo con el reset de chip
+    void reset_lp() {
+        rst_lp_n.write(false);
+        core_lp.detiene(false);
+        pmu.reset_chip(); lp_timer.reset_chip(); lp_io.reset_chip(); lpperi.reset();
+        lp_uart.reset(); lp_i2c.reset();
+        lp_tx.write(true); lp_rx.write(true); lp_scl_ = lp_sda_ = true;
+        for (BloqueEsp* b : {&lp_wdt, &lp_ana, &lp_apm, &lp_tee}) b->reset_regs();
+        lp_src_ = 0;
+        hp_profundo_ = false;
     }
 
     void control_proc() {
@@ -809,15 +1022,18 @@ private:
         for (unsigned g = I2sEsp::S_O_BCK; g <= I2sEsp::S_I_WS; ++g) gpio.sig_oe[g].write(true);
         gpio.sig_oe[I2sEsp::S_MCLK].write(true);
         gpio.sig_oe[c6::SIG_I2SO_SD1].write(true);
+        for (unsigned k = 0; k < 6; ++k) gpio.sig_oe[c6::SIG_PWM0 + k].write(true);
         for (;;) {
             encendido_ = false;
             rst_cpu_n.write(false);
+            rst_lp_n.write(false);
             while (!pu_alto()) wait(ev_pu_);
             // El reset de chip: todo, los STORE de LP_AON incluidos
             ++n_resets_;
             lp_aon.reset_chip();
             lp_clkrst.reset_chip();
             reset_perifericos();
+            reset_lp();
             wait(1, sc_core::SC_US);
             if (!pu_alto()) continue;
             gpio.latch_arranque();

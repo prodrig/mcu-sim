@@ -654,8 +654,8 @@ pide `riscv32-esp-elf-gcc` (el de ESP-IDF), pero ejecutar las suites no.
 | **E7** | C3: USB-Serial-JTAG, D3 y G3 | `testc3` + Python | E5, E6 | Medio |
 | **E8** | C3: periféricos de aula | `testc3` | E4 | Grande, divisible |
 | **E9** | ESP32-C6: núcleo HP, SoC, ROM, ESP-IDF, D1-D3 y G1-G3 | `testc6` | E4-E7 | Grande · **hecha** |
-| **E10** | C6: el núcleo LP como segundo hart, LP SRAM y periféricos LP | `testc6` | E9 | Medio |
-| **E11** | C6: sus periféricos propios (MCPWM, PCNT, ETM, PARL_IO, ECC…; TWAI1 llegó en E9.4) | `testc6` | E9 | Grande, divisible |
+| **E10** | C6: el núcleo LP como segundo hart, LP SRAM y periféricos LP | `testc6` | E9 | Medio · **hecha** |
+| **E11** | C6: sus periféricos propios (MCPWM, PCNT, ETM, PARL_IO, ECC…; TWAI1 llegó en E9.4) | `testc6` | E9 | Grande, divisible · **hecha** |
 | **E12** | Radio paravirtual (`VirtWifi`), opcional | `testradio` | E9 y R1-R3 de `analisis_wifi_bl.md` | Grande |
 | **E13** | `mcu-sim-gui`: placas y dibujos | — | E3, E9 | Pequeño |
 
@@ -1839,6 +1839,55 @@ la separación de §3 funciona.
 
 **Tamaño:** medio.
 
+**Hecho (2026-11-15).** `soc/esp32c6/c6_lp.h`:
+* **El núcleo LP** (`RV_ESP32C6_LP`): RV32IMAC, solo M, `mtvec` vectorizado
+  (la interrupción 30 entra en `mtvec + 4·30`), arranca en `0x5000_0080`, dos
+  *triggers* y los contadores estándar. Es una **segunda instancia de
+  `NucleoRv`** (hart 1) con quantum de 1 µs y el reloj LP_FAST de LP_CLKRST
+  (20 MHz con XTAL_D2 tras el reset; ESP-IDF lo pasa al RC_FAST, 17,5 MHz).
+  Su única interrupción la da `LPPERI_INTERRUPT_SOURCE` (el LP IO, el LP I2C,
+  la LP UART, el LP timer y el PMU). `NucleoRv::detiene` es el «stall» del
+  PMU, que no es la parada de depuración.
+* **La LP SRAM**: el LP la lee y escribe sin el bus; el HP, por el bus con
+  dos ciclos del APB [de modelo]. Las **atómicas y LR/SC entre los dos
+  núcleos**: una escritura de cualquiera rompe la reserva del otro
+  (`RvHart::rompe_reserva`), también las que van sin el bus. La errata
+  CPU-206 de v0.0-v0.1 no se reproduce.
+* **El PMU** (`PmuC6`): el sueño del LP (SLEEP_REQ, con *stall* o con reset,
+  y sus fuentes de despertar: el HP, la LP UART, el LP IO, el ETM y el LP
+  timer), HP_TRIGGER_LP y LP_TRIGGER_HP, y el sueño del HP: el **profundo**
+  (la CPU en reset y los periféricos HP reseteados; al despertar, el reset
+  de causa 5, CORE_DEEP_SLEEP, por la ROM) y el ligero (la CPU parada), con
+  sus fuentes (el LP timer, el LP IO y el núcleo LP). La HP SRAM no se pierde
+  en el profundo [de modelo].
+* **El LP timer** (`LpTimerC6`): 48 bits a 136 kHz desde el reset de chip,
+  las dos alarmas (TAR0 para el HP, TAR1 para el LP; TAR_EN arma al
+  escribirlo, con el objetivo de ese momento) y UPDATE.
+* **El LP IO** (`LpIoC6`): LP_GPIO0-7 con su función 1 (la LP UART en 4/5,
+  el LP I2C en 6/7), sus interrupciones y su despertar, encima de los pads del
+  GPIO (`GpioEsp::pad_externo`). **La LP UART y el LP I2C**: los modelos del
+  HP con 1 KB de registros y el reloj de LP_CLKRST (el LP_FAST o el XTAL_D2).
+* **El DM con dos harts**: el LP «unavail» hasta que ESP-IDF borra
+  `LPCORE_DBGM_UNAVALIABLE` (`LPPERI_CPU`), y el disparo cruzado HP↔LP. GDB
+  por G1 enseña **dos hilos**, y `target/esp32c6-lpcore.cfg` de
+  openocd-esp32, sin tocar, examina y para los dos (sin los grupos de parada
+  de `dmcs2`, OpenOCD los para uno a uno).
+* Arreglos por el camino: el eFuse ocupaba 2 KB y tapaba el LP timer; la
+  calibración del RC_FAST del C6 (RTCCALICFG.CLK_SEL 1) es el RC_FAST entre
+  32 desde la v0.1, no el RC_FAST_D256 del C3 (ESP-IDF calculaba 2,2 MHz y la
+  LP UART salía a 25 kbaudios).
+
+Las pruebas: los ejemplos de `examples/system/ulp/lp_core` de ESP-IDF v5.5.6
+**sin tocar** (con el prefijo `lp_` en `verif/fw/esp32c6/idf`), en `testc6`:
+D12 (interrupt, lp_timer_interrupt, inter_cpu_critical_section -el cerrojo de
+Peterson entre los dos núcleos: 200 000- y build_system), D13 (gpio,
+gpio_wakeup y gpio_intr_pulse_counter: el sueño profundo, el LP IO y el
+despertar del HP), D14 (lp_uart_print y lp_i2c con un BH1750, `parts/bh1750.h`)
+y D15 (el DM: unavail, parar y seguir el LP sin tocar el HP, y el disparo
+cruzado). `make openocd-c6`, O7-O9: `esp32c6-lpcore.cfg` examina y para los
+dos harts, y GDB enseña los dos hilos por OpenOCD (hwthread) y por G1, con el
+pc del LP en la LP SRAM.
+
 ### E11 · C6: periféricos propios
 
 | # | Periférico | Para qué |
@@ -1851,6 +1900,43 @@ la separación de §3 funciona.
 | 6 | Esclavo SDIO | Declarado: la pieza que haría de anfitrión no existe |
 | 7 | Codificador de traza | Declarado |
 | 8 | Monitor de memoria | Declarado |
+
+**Hecho (2026-11-15).** `periph/esp/pcnt_esp.h`, `mcpwm_esp.h` y `etm_esp.h`:
+* **El PCNT**: cuatro unidades de 16 bits con dos canales (SIG y CTRL de la
+  matriz, 101-116): los modos de flanco y de nivel, el filtro en ciclos del
+  APB, los límites (que vuelven a 0), el cero y los dos umbrales, con su
+  interrupción y Ux_STATUS.
+* **El MCPWM** (un grupo): el reloj del PCR, tres temporizadores (arriba,
+  abajo y arriba-abajo; los modos de arranque y parada; PERIOD con sombra),
+  la sincronía (entre temporizadores, por SYNC0-2 de la matriz y por
+  software, con su fase), tres operadores con dos comparadores y dos
+  generadores (las acciones por suceso y sentido, T0/T1, el forzado continuo
+  y de una vez), el tiempo muerto (RED/FED con sus conmutadores), los fallos
+  (F0-2 con su polaridad, OST y CBC con sus acciones), la captura (32 bits y
+  tres canales, con su sincronía) y UPDATE_CFG. El troceador, sin modelar
+  (se avisa). Las salidas, PWM0_OUTnA/B (87-92).
+* **El ETM**: 50 canales de suceso a tarea, en el acto [de modelo]. Dan
+  sucesos y hacen tareas el GPIO (los 8 canales de GPIO_EXT), los dos TIMG
+  (la alarma; arrancar, parar, recargar, armar la alarma y capturar) y el
+  MCPWM; los demás números se aceptan sin hacer nada.
+* Los RST_EN del PCR del PCNT, el ETM y el MCPWM resetean el bloque (los
+  controladores de ESP-IDF lo dan al empezar).
+* PARL_IO, ECC, el esclavo SDIO y la traza siguen declarados; el monitor de
+  memoria guarda sus registros.
+
+Las pruebas, en `testc6` D16, con los ejemplos de `examples/peripherals` de
+ESP-IDF v5.5.6 **sin tocar** (prefijo `e11_`): pcnt/rotary_encoder con un
+KY-040 (`Encoder`: 60 cuentas en 30 clics, el umbral de 50 y el límite de
+-100), mcpwm_servo_control con un SG90 (`Servo`), mcpwm_capture_hc_sr04 y
+gptimer_capture_hc_sr04 (el ETM: el flanco del GPIO captura el GPTimer) con un
+HC-SR04 (`parts/hc_sr04.h`) y mcpwm_sync (tres temporizadores sincronizados
+por GPIO); y `motor` (nuestra): el tiempo muerto complementario, el freno por
+fallo y su vuelta, el PCNT y el ETM entre dos GPIO. El ejemplo
+mcpwm_capture_hc_sr04 pasa los tics a µs con `esp_clk_apb_freq()` (40 MHz en el
+C6), pero la captura cuenta con el reloj del grupo (80 MHz): da el **doble**
+de la distancia, en el chip y aquí. mcpwm_bdc_speed_control y
+mcpwm_foc_svpwm_open_loop piden componentes del registro de Espressif, y
+mcpwm_bldc_hall_control usa GPIO46/47, que el C6 no tiene: fuera.
 
 ### E12 · Radio paravirtual (opcional)
 

@@ -71,6 +71,11 @@ public:
     // --- Lo de fuera --------------------------------------------------------
     void pon_memoria(rv_mem_if* m)       { mem_ = m; }
     void pon_irq(rv_irq_if* i)           { irq_ = i; }
+    // Otro maestro ha escrito en `dir`: si es la palabra reservada por un
+    // lr.w, la reserva se pierde (las atómicas entre los dos núcleos del C6)
+    void rompe_reserva(uint32_t dir, unsigned n = 4) {
+        if (resv_ && dir < resv_dir_ + 4 && resv_dir_ < dir + n) resv_ = false;
+    }
     void pon_csr_ext(rv_csr_ext_if* e)   { csr_ext_ = e; }
     void pon_ext(rv_ext_if* e)           { ext_ = e; }
     // La fuente de `time`/`timeh`. Sin ella, leerlos es instrucción ilegal.

@@ -95,6 +95,10 @@ SC_MODULE(NucleoRv), public rv_mem_if {
     bool parado() const       { return hart.parado(); }
     bool durmiendo() const    { return hart.en_wfi(); }
     bool en_reset() const     { return en_reset_; }
+    // Parado por el SoC (el «stall» del núcleo LP del C6 cuando duerme): no
+    // ejecuta ni consume tiempo; no es la parada de depuración
+    void detiene(bool v)      { if (detenido_ != v) { detenido_ = v; ev_dbg_.notify(sc_core::SC_ZERO_TIME); } }
+    bool detenido() const     { return detenido_; }
     const sc_core::sc_event& ev_parado() const { return ev_parado_; }
 
     uint64_t instrucciones() const { return hart.instret(); }
@@ -119,7 +123,7 @@ private:
     sc_core::sc_time local_{sc_core::SC_ZERO_TIME};
     tlm::tlm_generic_payload gp_;
     sc_core::sc_event ev_irq_, ev_dbg_, ev_parado_;
-    bool reset_pedido_ = false, en_reset_ = true, rst_bajo_ = false;
+    bool reset_pedido_ = false, en_reset_ = true, rst_bajo_ = false, detenido_ = false;
     void baja_rst() { rst_bajo_ = true; }
 
     bool bus(tlm_utils::simple_initiator_socket<NucleoRv>& sk, bool escr, uint32_t a,
@@ -176,6 +180,11 @@ private:
                 if (!rst_n.read() || rst_bajo_) { sincroniza(); break; }
                 if (reset_pedido_) { sincroniza(); hart.reset(); reset_pedido_ = false;
                                      if (hart.parado()) ev_parado_.notify(sc_core::SC_ZERO_TIME); }
+                if (detenido_ && !hart.parado()) {
+                    sincroniza();
+                    wait(ev_dbg_ | rst_n.value_changed_event());
+                    continue;
+                }
                 const bool estaba = hart.parado();
                 const RvHart::Paso p = hart.paso();
                 if (p.parado) {

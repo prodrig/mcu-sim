@@ -85,6 +85,29 @@ public:
     sc_core::sc_vector<Senal> sig_in{"sig_in", N_SIG};
 
     std::function<void(bool)> irq;          // GPIO_PROCPU_INTR
+    // E10: el C6 da los pines 0-7 al LP IO; si `pad_externo` dice true, el
+    // pad lo gobierna él. Y quien quiera enterarse de que una entrada cambia
+    std::function<bool(unsigned, PadDrive&)> pad_externo;
+    std::function<void()> al_cambiar_entradas;
+    void refresca() { cambia(); }
+    // E11: el ETM del C6 (GPIO_EXT, 0xF00): los 8 canales de sucesos (un
+    // flanco de un pin: GPIO_EVT_CHn_RISE/FALL/ANY_EDGE, 1 + n, 9 + n, 17 + n)
+    // y las tareas (GPIO_TASK_CHn_SET/CLEAR/TOGGLE, los mismos números), que
+    // ponen, quitan o invierten el bit de GPIO_OUT de cada pin que las tenga
+    // (ETM_TASK_Pn_CFG: un byte por pin, EN [0] y el canal [3:1])
+    std::function<void(unsigned id)> etm;
+    void tarea_etm(unsigned id) {
+        if (!c6_ || id < 1 || id > 24) return;
+        const unsigned ch = (id - 1) % 8, que = (id - 1) / 8;
+        for (unsigned p = 0; p < n_ && p < 32; ++p) {
+            const uint32_t b = (ext_[(0xA0 + 4 * (p / 4)) / 4] >> (8 * (p % 4))) & 0xFu;
+            if (!(b & 1u) || ((b >> 1) & 7u) != ch) continue;
+            if (que == 0) out_ |= 1u << p;
+            else if (que == 1) out_ &= ~(1u << p);
+            else out_ ^= 1u << p;
+        }
+        cambia();
+    }
 
     std::vector<Pad*> pad;
     std::vector<analog_net_if*> nodo;
@@ -246,8 +269,10 @@ protected:
         case 0x14C: return status_next_;
         case 0x62C: return clock_gate_;
         case 0x6FC: return c6_ ? 0x2201120u : 0x2006130u;
+        case 0xFFC: return c6_ ? 0x2203050u : 0u;
         default: break;
         }
+        if (c6_ && off >= 0xF00) return ext_[(off - 0xF00) / 4];
         if (off >= 0x74 && off < 0x74 + 4 * n_) return pin_cfg_[(off - 0x74) / 4];
         if (off >= 0x154 && off < 0x154 + 4 * N_SIG) return in_cfg_[(off - 0x154) / 4];
         if (off >= 0x554 && off < 0x554 + 4 * n_) return out_cfg_[(off - 0x554) / 4];
@@ -272,6 +297,7 @@ protected:
         case 0x62C: clock_gate_ = (clock_gate_ & ~m) | v; return;
         default: break;
         }
+        if (c6_ && off >= 0xF00 && off < 0xFFC) { uint32_t& r = ext_[(off - 0xF00) / 4]; r = (r & ~m) | v; return; }
         if (off >= 0x74 && off < 0x74 + 4 * n_) {
             uint32_t& r = pin_cfg_[(off - 0x74) / 4]; r = (r & ~m) | v; cambia(); return;
         }
@@ -295,6 +321,7 @@ private:
     uint32_t bt_select_ = 0, out_ = 0, enable_ = 0, strap_ = 0, in_ = 0, status_ = 0,
              status_next_ = 0, clock_gate_ = 1;
     uint8_t cpu_out_ = 0, cpu_oen_ = 0;
+    uint32_t ext_[64] = {};
     bool irq_ = false, c6_ = false;
     sc_core::sc_event ev_cfg_;
 
@@ -303,6 +330,7 @@ private:
         for (uint32_t& c : out_cfg_) c = SIG_GPIO_OUT;
         for (uint32_t& c : in_cfg_) c = 0;
         out_ = enable_ = status_ = 0;
+        for (uint32_t& e : ext_) e = 0;
         reset_mux();
     }
     void cambia() { ev_cfg_.notify(sc_core::SC_ZERO_TIME); }
@@ -343,6 +371,7 @@ private:
                 d.out = sig_out[unsigned(x.sig)].read();
                 d.oe = sig_oe[unsigned(x.sig)].read();
             }
+            if (pad_externo) pad_externo(p, d);
             if (!(s_drive_[p].read() == d)) s_drive_[p].write(d);
         }
     }
@@ -366,12 +395,21 @@ private:
             }
             if (salta) status_ |= 1u << p;
         }
+        if (c6_ && etm)
+            for (unsigned ch = 0; ch < 8; ++ch) {
+                const uint32_t c = ext_[(0x60 + 4 * ch) / 4];
+                const unsigned p = c & 0x1Fu;
+                if (!((c >> 7) & 1u) || p >= n_) continue;
+                if ((sube >> p) & 1u) { etm(1 + ch); etm(17 + ch); }
+                if ((baja >> p) & 1u) { etm(9 + ch); etm(17 + ch); }
+            }
         in_ = in;
         for (unsigned s = 0; s < N_SIG; ++s) {
             const bool v = valor_entrada(s);
             if (sig_in[s].read() != v) sig_in[s].write(v);
         }
         publica();
+        if (al_cambiar_entradas) al_cambiar_entradas();
     }
 };
 

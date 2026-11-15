@@ -132,6 +132,13 @@ public:
         const unsigned sel = (r(0x084) >> 20) & 3u;
         return sel == 1 ? hz_pll_f80m : sel == 2 ? hz_rc_fast : hz_xtal;
     }
+    // E11: PWM_CLK_CONF (0xA0): 1 PLL_F160M, 2 XTAL, 3 RC_FAST, entre DIV_NUM + 1
+    double hz_pwm() const {
+        const uint32_t c = r(0x0A0);
+        const unsigned sel = (c >> 20) & 3u;
+        const double f = sel == 1 ? 160e6 : sel == 2 ? hz_xtal : sel == 3 ? hz_rc_fast : 0.0;
+        return f / double(((c >> 12) & 0xFFu) + 1u);
+    }
     double hz_timg(unsigned g) const {
         const unsigned sel = (r(g ? 0x04C : 0x040) >> 20) & 3u;
         return sel == 1 ? hz_pll_f80m : sel == 2 ? hz_rc_fast : hz_xtal;
@@ -158,6 +165,8 @@ class LpAonC6 : public BloqueEsp {
 public:
     // sistema = true: HPSYS_SW_RESET; false: CPU_CORE0_SW_RESET
     std::function<void(bool sistema)> reset_sw;
+    // GPIO_MUX (0x28) ha cambiado: qué pines son del LP IO (E10)
+    std::function<void()> al_cambiar_mux;
 
     LpAonC6(sc_core::sc_module_name nm, uint32_t base) : BloqueEsp(nm, base, 0x400, c6::REGS_LP_AON) {}
     // Un reset de chip: todo, los STORE incluidos (los demás resets no lo tocan)
@@ -167,6 +176,11 @@ public:
 
 protected:
     bool escribe(uint32_t off, uint32_t v, uint32_t m) override {
+        if (off == 0x28) {
+            guarda(off, v, m);
+            if (al_cambiar_mux) al_cambiar_mux();
+            return true;
+        }
         if (off == 0x34) {
             guarda(off, v, m);
             if ((v & m) >> 31 && reset_sw) reset_sw(true);
@@ -185,7 +199,16 @@ protected:
 class LpClkRstC6 : public BloqueEsp {
 public:
     LpClkRstC6(sc_core::sc_module_name nm, uint32_t base) : BloqueEsp(nm, base, 0x400, c6::REGS_LP_CLKRST) {}
-    void reset_chip() { reset_regs(); causa_ = 1; flag_ = true; }
+    void reset_chip() { reset_regs(); causa_ = 1; flag_ = true; if (al_escribir) al_escribir(); }
+    // LP_CLK_CONF (0x00) o LPPERI (0x28) han cambiado: los relojes del
+    // núcleo LP, la LP UART y el LP I2C (E10)
+    std::function<void()> al_escribir;
+    // El LP_FAST [TRM-C6 §8]: FAST_CLK_SEL (bit 2) 1 XTAL_D2 (20 MHz), 0 RC_FAST
+    double hz_lp_fast() const { return (r(0x00) >> 2) & 1u ? 20e6 : 17.5e6; }
+    // E10: los relojes de la LP UART y del LP I2C (LPPERI, 0x28: LP_UART_CLK_SEL
+    // 31 y LP_I2C_CLK_SEL 30): 0 el LP_FAST, 1 el XTAL_D2
+    double hz_lp_uart() const { return (r(0x28) >> 31) & 1u ? 20e6 : hz_lp_fast(); }
+    double hz_lp_i2c() const { return (r(0x28) >> 30) & 1u ? 20e6 : hz_lp_fast(); }
     void anota_causa(unsigned c) { causa_ = c & 0x1Fu; flag_ = true; }
     unsigned causa() const { return causa_; }
 
@@ -196,6 +219,11 @@ protected:
         return true;
     }
     bool escribe(uint32_t off, uint32_t v, uint32_t m) override {
+        if (off == 0x00 || off == 0x28) {
+            guarda(off, v, m);
+            if (al_escribir) al_escribir();
+            return true;
+        }
         if (off != 0x10) return false;
         v &= m;
         if (v & (1u << 29)) causa_ = 0;
@@ -212,10 +240,15 @@ private:
 // --- LPPERI: el RNG ----------------------------------------------------------------------
 class LpPeriC6 : public BloqueEsp {
 public:
+    // E10: LPPERI_INTERRUPT_SOURCE (0x20), las interrupciones del dominio LP
+    // que ve el núcleo LP; y CPU (0x0C) LPCORE_DBGM_UNAVALIABLE (31)
+    std::function<uint32_t()> fuentes;
     LpPeriC6(sc_core::sc_module_name nm, uint32_t base) : BloqueEsp(nm, base, 0x400, c6::REGS_LPPERI) {}
     void reset() { reset_regs(); }
+    bool lp_depurable() const { return !((r(0x0C) >> 31) & 1u); }
 protected:
     bool lee(uint32_t off, uint32_t& v) override {
+        if (off == 0x20) { v = fuentes ? fuentes() & 0x3Fu : 0u; return true; }
         if (off != 0x08) return false;
         x_ ^= x_ << 13; x_ ^= x_ >> 17; x_ ^= x_ << 5;
         v = x_;
@@ -266,7 +299,7 @@ public:
     // `rev`: la del chip (2 = v0.2); `pkg`: 0 QFN40, 1 QFN32 con la Flash
     // dentro; `flash_mb`: la de dentro (0, 4 u 8)
     EfuseC6(sc_core::sc_module_name nm, uint32_t base, unsigned rev, unsigned pkg, unsigned flash_mb)
-        : BloqueEsp(nm, base, 0x800, c6::REGS_EFUSE), rev_(rev), pkg_(pkg), flash_mb_(flash_mb) {
+        : BloqueEsp(nm, base, 0x400, c6::REGS_EFUSE), rev_(rev), pkg_(pkg), flash_mb_(flash_mb) {
         pon_omision();
     }
     void reset() { reset_regs(); }
